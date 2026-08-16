@@ -6,6 +6,8 @@
 #include "NKCamera/NkCamera2D.h"
 #include "NKImage/Core/NkImage.h"
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
+#include "NKLogger/NkLog.h"
+#include "NKTime/NkSystemClock.h"
 
 #include <ctime>
 #include <cstdio>
@@ -55,7 +57,7 @@ namespace nkentseu {
 
 	void NkCameraSystem::SetHotPlugCallback(NkCameraHotPlugCallback cb) {
 		if (mReady)
-			mBackend.SetHotPlugCallback(std::move(cb));
+			mBackend.SetHotPlugCallback(traits::NkMove(cb));
 	}
 
 	// ===========================================================================
@@ -68,6 +70,11 @@ namespace nkentseu {
 		NkCameraConfig cfg = config;
 		cfg.Resolve();
 		mCurrentDeviceIndex = cfg.deviceIndex;
+		// Retenir la demande de miroir : elle voyage ensuite AVEC chaque trame,
+		// jusqu'à la conversion qui l'applique. Sans ce relais, le champ
+		// `flipHorizontal` de la configuration restait ce qu'il a été jusqu'au
+		// 2026-08-15 — déclaré, réglable, et ignoré par tout le monde.
+		mFlipHorizontal = cfg.flipHorizontal;
 		// Recâbler le callback (peut avoir été écrasé lors d'un StopStreaming)
 		mBackend.SetFrameCallback([this](const NkCameraFrame &f) { OnFrame(f); });
 		return mBackend.StartStreaming(cfg);
@@ -88,12 +95,12 @@ namespace nkentseu {
 	}
 
 	void NkCameraSystem::SetFrameCallback(NkFrameCallback cb) {
-		std::lock_guard<std::mutex> lk(mFrameMutex);
-		mUserCallback = std::move(cb);
+		threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
+		mUserCallback = traits::NkMove(cb);
 	}
 
 	bool NkCameraSystem::GetLastFrame(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mFrameMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 		if (!mHasFrame)
 			return false;
 		out = mLastFrame;
@@ -101,18 +108,18 @@ namespace nkentseu {
 	}
 
 	void NkCameraSystem::EnableFrameQueue(uint32 maxSize) {
-		std::lock_guard<std::mutex> lk(mQueueMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
 		mQueueEnabled = true;
 		mMaxQueueSize = maxSize;
 	}
 
 	bool NkCameraSystem::DrainFrameQueue(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mQueueMutex);
-		if (mFrameQueue.empty())
+		threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
+		if (mFrameQueue.Empty())
 			return false;
-		out = std::move(mFrameQueue.back());
-		while (!mFrameQueue.empty())
-			mFrameQueue.pop();
+		out = traits::NkMove(mFrameQueue.Back());
+		while (!mFrameQueue.Empty())
+			mFrameQueue.Pop();
 		return true;
 	}
 
@@ -165,7 +172,7 @@ namespace nkentseu {
 		// (cross-platform via NKImage). outputPath sert de préfixe
 		// ou de dossier — on ajoute "_NNNNNN.ext" pour chaque frame.
 		if (cfg.mode == NkVideoRecordConfig::Mode::IMAGE_SEQUENCE_ONLY) {
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			mImageSequenceActive = true;
 			mImageSequenceDir = cfg.outputPath; // préfixe complet attendu
 			// Extension par défaut PNG (lossless). L'utilisateur peut forcer
@@ -173,7 +180,7 @@ namespace nkentseu {
 			mImageSequenceExt = (cfg.container == "jpg" || cfg.videoCodec == "jpg") ? NkString("jpg") : NkString("png");
 			mImageSequenceQuality = 90;
 			mImageSequenceIndex = 0;
-			mImageSequenceStartUs = (uint64)std::time(nullptr) * 1000000ULL;
+			mImageSequenceStartUs = (uint64)NkSystemClock::UnixMilliseconds() * 1000ULL;
 			return true;
 		}
 
@@ -193,7 +200,7 @@ namespace nkentseu {
 		if (!mReady)
 			return;
 		{
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			mImageSequenceActive = false;
 			mImageSequenceIndex = 0;
 		}
@@ -204,7 +211,7 @@ namespace nkentseu {
 		if (!mReady)
 			return false;
 		{
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			if (mImageSequenceActive)
 				return true;
 		}
@@ -215,9 +222,9 @@ namespace nkentseu {
 		if (!mReady)
 			return 0.f;
 		{
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			if (mImageSequenceActive) {
-				uint64 nowUs = (uint64)std::time(nullptr) * 1000000ULL;
+				uint64 nowUs = (uint64)NkSystemClock::UnixMilliseconds() * 1000ULL;
 				return float((nowUs - mImageSequenceStartUs) / 1000000.0);
 			}
 		}
@@ -292,11 +299,18 @@ namespace nkentseu {
 
 		// Mettre à jour la dernière frame et appeler le callback utilisateur
 		{
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			mLastFrame = frame;
+			mLastFrame.flipHorizontal = mFlipHorizontal;
 			mHasFrame = true;
-			if (mUserCallback)
-				mUserCallback(frame);
+			if (mUserCallback) {
+				// Le rappel utilisateur reçoit la même demande de miroir que
+				// `GetLastFrame` : deux chemins qui livreraient des images
+				// différentes seraient un piège, pas une souplesse.
+				NkCameraFrame copie = frame;
+				copie.flipHorizontal = mFlipHorizontal;
+				mUserCallback(copie);
+			}
 
 			if (mImageSequenceActive) {
 				doSequence = true;
@@ -308,17 +322,17 @@ namespace nkentseu {
 		}
 		// Queue
 		if (mQueueEnabled) {
-			std::lock_guard<std::mutex> lk(mQueueMutex);
-			if (mFrameQueue.size() >= mMaxQueueSize)
-				mFrameQueue.pop();
-			mFrameQueue.push(frame);
+			threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
+			if (mFrameQueue.Size() >= mMaxQueueSize)
+				mFrameQueue.Pop();
+			mFrameQueue.Push(frame);
 		}
 
 		// Mode IMAGE_SEQUENCE_ONLY : sauve hors lock (I/O potentiellement lent)
 		if (doSequence) {
-			char tail[24] = {};
-			std::snprintf(tail, sizeof(tail), "_%06u.", seqIdx);
-			NkString path = seqDir + NkString(tail) + seqExt;
+			// Composition directe : plus de tampon `char[24]` intermédiaire, donc
+			// plus de troncature possible si l'index venait à grandir.
+			NkString path = seqDir + NkString::Fmtf("_%06u.", seqIdx) + seqExt;
 			(void)SaveFrameToFile(frame, path, seqQ);
 		}
 	}
@@ -407,7 +421,60 @@ namespace nkentseu {
 	// Conversions de format
 	// ===========================================================================
 
-	bool NkCameraSystem::ConvertToRGBA8(NkCameraFrame &frame) {
+	// La formule de déquantification YUV se choisit sur la PLAGE, jamais sur le
+	// format. Déduire la plage du format « marchait » tant qu'un seul producteur
+	// émettait chaque format : c'était juste par coïncidence de producteurs, pas
+	// par construction, et le second producteur l'aurait cassé en silence.
+	//
+	// Quand la plage n'est PAS déclarée, on ne devine pas : on le DIT, une fois
+	// par format, et on applique un repli explicitement historique — celui qui
+	// reproduit exactement le comportement d'avant, pour que la migration ne
+	// change rien à l'écran. Le repli est une compatibilité assumée, pas une
+	// mesure ; c'est pour ça qu'il s'accompagne d'un avertissement.
+	static bool NkFrameUsesVideoRange(const NkCameraFrame &frame) {
+		if (frame.range == NkColorRange::NK_COLOR_RANGE_VIDEO)
+			return true;
+		if (frame.range == NkColorRange::NK_COLOR_RANGE_FULL)
+			return false;
+
+		// Repli historique : I420 était décodé en plage pleine, les autres en
+		// plage réduite. On le conserve à l'identique, et on le signale.
+		const bool legacyVideoRange = (frame.format != NkPixelFormat::NK_PIXEL_YUV420);
+
+		// Un avertissement par format, pas un par image : un journal qui se
+		// répète soixante fois par seconde n'est plus lu, donc ne protège plus.
+		static bool warned[8] = { false, false, false, false, false, false, false, false };
+		const uint32 slot = (uint32)frame.format & 7u;
+		if (!warned[slot]) {
+			warned[slot] = true;
+			logger.Warnf("[NkCamera] Plage de couleur NON DECLAREE pour %s : repli historique = %s. "
+			             "Le producteur doit renseigner NkCameraFrame::range (cf. NkColorRange).",
+			             NkCameraPixelFormatToString(frame.format),
+			             legacyVideoRange ? "REDUITE" : "PLEINE");
+		}
+		return legacyVideoRange;
+	}
+
+	// Miroir horizontal — délégué à NKImage, qui sait déjà le faire.
+	//
+	// La première version, écrite le 2026-08-15, retournait les octets à la main.
+	// Elle marchait, et c'était le défaut : `NkImage::FlipHorizontal()` existe, et
+	// `NkImage::Wrap` donne une vue NON PROPRIÉTAIRE sur un tampon existant —
+	// donc aucune copie, aucune allocation, et le retournement n'est plus écrit
+	// deux fois dans le dépôt.
+	// *« Toujours utiliser Nkentseu »* ne se voit dans aucun `grep` : un helper
+	// local qui double le Kernel ne casse rien, ne prévient personne, et se
+	// contente d'exister.
+	static void NkMiroirRGBA8(NkCameraFrame &frame) {
+		NkImage *vue = NkImage::Wrap(frame.data.Data(), (int32)frame.width, (int32)frame.height,
+									 NkImagePixelFormat::NK_RGBA32);
+		if (vue == nullptr)
+			return;
+		vue->FlipHorizontal();
+		vue->Free(); // vue non propriétaire : libère le descripteur, pas les pixels
+	}
+
+	static bool NkConvertToRGBA8Impl(NkCameraFrame &frame) {
 		if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8)
 			return true;
 		uint32 w = frame.width, h = frame.height;
@@ -421,7 +488,7 @@ namespace nkentseu {
 				out[i * 4 + 2] = frame.data[i * 4 + 0];
 				out[i * 4 + 3] = frame.data[i * 4 + 3];
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = w * 4;
 			return true;
@@ -434,7 +501,7 @@ namespace nkentseu {
 				out[i * 4 + 2] = frame.data[i * 3 + 2];
 				out[i * 4 + 3] = 255;
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = w * 4;
 			return true;
@@ -442,22 +509,34 @@ namespace nkentseu {
 
 		if (frame.format == NkPixelFormat::NK_PIXEL_YUYV) {
 			// YUYV packed: Y0 U0 Y1 V0
+			const bool videoRange = NkFrameUsesVideoRange(frame);
 			for (uint32 i = 0; i < w * h / 2; ++i) {
-				float y0 = (float)frame.data[i * 4 + 0] - 16.f;
+				float y0 = (float)frame.data[i * 4 + 0];
 				float cb = (float)frame.data[i * 4 + 1] - 128.f;
-				float y1 = (float)frame.data[i * 4 + 2] - 16.f;
+				float y1 = (float)frame.data[i * 4 + 2];
 				float cr = (float)frame.data[i * 4 + 3] - 128.f;
 				auto cl = [](float v) -> uint8 { return (uint8)(v < 0 ? 0 : v > 255 ? 255 : v); };
-				out[i * 8 + 0] = cl(y0 * 1.164f + cr * 1.596f);
-				out[i * 8 + 1] = cl(y0 * 1.164f - cb * 0.391f - cr * 0.813f);
-				out[i * 8 + 2] = cl(y0 * 1.164f + cb * 2.018f);
+				if (videoRange) {
+					y0 -= 16.f;
+					y1 -= 16.f;
+					out[i * 8 + 0] = cl(y0 * 1.164f + cr * 1.596f);
+					out[i * 8 + 1] = cl(y0 * 1.164f - cb * 0.391f - cr * 0.813f);
+					out[i * 8 + 2] = cl(y0 * 1.164f + cb * 2.018f);
+					out[i * 8 + 4] = cl(y1 * 1.164f + cr * 1.596f);
+					out[i * 8 + 5] = cl(y1 * 1.164f - cb * 0.391f - cr * 0.813f);
+					out[i * 8 + 6] = cl(y1 * 1.164f + cb * 2.018f);
+				} else {
+					out[i * 8 + 0] = cl(y0 + 1.402f * cr);
+					out[i * 8 + 1] = cl(y0 - 0.344136f * cb - 0.714136f * cr);
+					out[i * 8 + 2] = cl(y0 + 1.772f * cb);
+					out[i * 8 + 4] = cl(y1 + 1.402f * cr);
+					out[i * 8 + 5] = cl(y1 - 0.344136f * cb - 0.714136f * cr);
+					out[i * 8 + 6] = cl(y1 + 1.772f * cb);
+				}
 				out[i * 8 + 3] = 255;
-				out[i * 8 + 4] = cl(y1 * 1.164f + cr * 1.596f);
-				out[i * 8 + 5] = cl(y1 * 1.164f - cb * 0.391f - cr * 0.813f);
-				out[i * 8 + 6] = cl(y1 * 1.164f + cb * 2.018f);
 				out[i * 8 + 7] = 255;
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = w * 4;
 			return true;
@@ -508,7 +587,7 @@ namespace nkentseu {
 			frame.width = iw;
 			frame.height = ih;
 			img->Free();
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = iw * 4;
 			return true;
@@ -517,14 +596,23 @@ namespace nkentseu {
 		if (frame.format == NkPixelFormat::NK_PIXEL_NV12) {
 			const uint8 *Y = frame.data.Data();
 			const uint8 *UV = frame.data.Data() + w * h;
+			const bool videoRange = NkFrameUsesVideoRange(frame);
 			for (uint32 row = 0; row < h; ++row) {
 				for (uint32 col = 0; col < w; ++col) {
-					float y = (float)Y[row * w + col] - 16.f;
+					float y = (float)Y[row * w + col];
 					float u = (float)UV[(row / 2) * (w) + (col & ~1u)] - 128.f;
 					float v = (float)UV[(row / 2) * (w) + (col & ~1u) + 1] - 128.f;
-					float r = y * 1.164f + v * 1.596f;
-					float g = y * 1.164f - u * 0.391f - v * 0.813f;
-					float b = y * 1.164f + u * 2.018f;
+					float r, g, b;
+					if (videoRange) {
+						y -= 16.f;
+						r = y * 1.164f + v * 1.596f;
+						g = y * 1.164f - u * 0.391f - v * 0.813f;
+						b = y * 1.164f + u * 2.018f;
+					} else {
+						r = y + 1.402f * v;
+						g = y - 0.344136f * u - 0.714136f * v;
+						b = y + 1.772f * u;
+					}
 					uint32 idx = (row * w + col) * 4;
 					out[idx + 0] = (uint8)(r < 0 ? 0 : r > 255 ? 255 : r);
 					out[idx + 1] = (uint8)(g < 0 ? 0 : g > 255 ? 255 : g);
@@ -532,7 +620,7 @@ namespace nkentseu {
 					out[idx + 3] = 255;
 				}
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = w * 4;
 			return true;
@@ -553,26 +641,32 @@ namespace nkentseu {
 			const uint8 *Y = frame.data.Data();
 			const uint8 *U = Y + ySize;
 			const uint8 *V = U + uvSize;
-			// ── PLAGE COMPLÈTE, et non plage réduite ─────────────────────────
-			// Le format YUV_420_888 d'Android livre des composantes sur TOUTE
-			// l'étendue 0-255. La formule de la plage réduite — celle qui
-			// retranche 16 et multiplie par 1,164 — étire un signal déjà étendu :
-			// les clairs saturent, les sombres se bouchent, et l'image paraît
-			// délavée. C'est exactement ce que montraient les captures de Rihen
-			// (murs brûlés en blanc, visage écrasé en noir) et ce qu'il a résumé
-			// d'un mot : « pas coloré réaliste ».
-			// Coefficients de la plage complète (BT.601, dits « JPEG ») :
-			//   R = Y + 1,402·(V−128)
-			//   G = Y − 0,344136·(U−128) − 0,714136·(V−128)
-			//   B = Y + 1,772·(U−128)
+			// La formule vient de la PLAGE déclarée par le producteur, plus du
+			// format. En plage pleine — ce qu'émet Android YUV_420_888, et ce
+			// qu'il déclare désormais — appliquer la formule de plage réduite
+			// (retrancher 16, multiplier par 1,164) étirerait un signal déjà
+			// étendu : clairs saturés, sombres bouchés, image délavée. C'est ce
+			// que montraient les captures de Rihen, qu'il a résumé d'un mot :
+			// « pas coloré réaliste ».
+			//   plage pleine  (BT.601 dite « JPEG ») : R = Y + 1,402·(V−128) …
+			//   plage réduite (BT.601 dite « TV »)   : R = 1,164·(Y−16) + 1,596·(V−128) …
+			const bool videoRange = NkFrameUsesVideoRange(frame);
 			for (uint32 row = 0; row < frame.height; ++row) {
 				for (uint32 col = 0; col < frame.width; ++col) {
 					float y = (float)Y[row * frame.width + col];
 					float u = (float)U[(row / 2) * uvW + (col / 2)] - 128.f;
 					float v = (float)V[(row / 2) * uvW + (col / 2)] - 128.f;
-					float r = y + 1.402f * v;
-					float g = y - 0.344136f * u - 0.714136f * v;
-					float b = y + 1.772f * u;
+					float r, g, b;
+					if (videoRange) {
+						y -= 16.f;
+						r = y * 1.164f + v * 1.596f;
+						g = y * 1.164f - u * 0.391f - v * 0.813f;
+						b = y * 1.164f + u * 2.018f;
+					} else {
+						r = y + 1.402f * v;
+						g = y - 0.344136f * u - 0.714136f * v;
+						b = y + 1.772f * u;
+					}
 					uint32 idx = (row * frame.width + col) * 4;
 					out[idx + 0] = (uint8)(r < 0 ? 0 : r > 255 ? 255 : r);
 					out[idx + 1] = (uint8)(g < 0 ? 0 : g > 255 ? 255 : g);
@@ -580,13 +674,34 @@ namespace nkentseu {
 					out[idx + 3] = 255;
 				}
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = frame.width * 4;
 			return true;
 		}
 
 		return false;
+	}
+
+	bool NkCameraSystem::ConvertToRGBA8(NkCameraFrame &frame) {
+		if (!NkConvertToRGBA8Impl(frame))
+			return false;
+
+		// Le miroir est DEMANDÉ par la configuration et porté par la trame ; il
+		// s'applique ICI, une fois l'image en RGBA8 — donc quel que soit le
+		// format d'origine, sans dupliquer le retournement dans les huit
+		// branches de conversion.
+		//
+		// `flipHorizontal` retombe à faux après coup : convertir deux fois la
+		// même trame ne doit pas la retourner deux fois. C'est le genre de
+		// double application qui ne se voit pas — une image miroitée deux fois
+		// est identique à l'originale, et on conclut que le réglage ne marche
+		// pas alors qu'il marche trop.
+		if (frame.flipHorizontal) {
+			NkMiroirRGBA8(frame);
+			frame.flipHorizontal = false;
+		}
+		return true;
 	}
 
 	bool NkCameraSystem::SaveFrameToFile(const NkCameraFrame &frame, const NkString &path, int quality) {
@@ -617,18 +732,14 @@ namespace nkentseu {
 	}
 
 	NkString NkCameraSystem::GenerateAutoPath(const NkString &prefix, const NkString &ext) {
-		const std::time_t t = std::time(nullptr);
-
-		std::tm tmBuf{};
-#if defined(_WIN32)
-		localtime_s(&tmBuf, &t);
-#else
-		localtime_r(&t, &tmBuf);
-#endif
-
-		char ts[32] = {};
-		if (std::strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", &tmBuf) == 0)
-			std::snprintf(ts, sizeof(ts), "00000000_000000");
+		// Horodatage par NKTime, plus par la bibliotheque C. `StampCompact`
+		// rend faux si l'heure est illisible et laisse alors une chaine VIDE :
+		// on substitue explicitement une valeur reconnaissable plutot que de
+		// laisser passer un nom a moitie forme, qui se collisionnerait en
+		// silence avec le suivant.
+		char ts[16] = {};
+		if (!NkSystemClock::StampCompact(ts, sizeof(ts)))
+			return prefix + "_00000000_000000." + ext;
 
 		return prefix + "_" + NkString(ts) + "." + ext;
 	}
@@ -668,20 +779,20 @@ namespace nkentseu {
 
 	void NkMultiCamera::Stream::OnFrame(const NkCameraFrame &f) {
 		{
-			std::lock_guard<std::mutex> lk(mMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 			mLastFrame = f;
 			mHasFrame = true;
 		}
 		if (mQueueEnabled) {
-			std::lock_guard<std::mutex> lk(mQueueMutex);
-			if (mQueue.size() >= mMaxQueue)
-				mQueue.pop();
-			mQueue.push(f);
+			threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
+			if (mQueue.Size() >= mMaxQueue)
+				mQueue.Pop();
+			mQueue.Push(f);
 		}
 	}
 
 	bool NkMultiCamera::Stream::GetLastFrame(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 		if (!mHasFrame)
 			return false;
 		out = mLastFrame;
@@ -689,17 +800,17 @@ namespace nkentseu {
 	}
 
 	bool NkMultiCamera::Stream::DrainFrame(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mQueueMutex);
-		if (mQueue.empty())
+		threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
+		if (mQueue.Empty())
 			return false;
-		out = std::move(mQueue.back());
-		while (!mQueue.empty())
-			mQueue.pop();
+		out = traits::NkMove(mQueue.Back());
+		while (!mQueue.Empty())
+			mQueue.Pop();
 		return true;
 	}
 
 	void NkMultiCamera::Stream::EnableQueue(uint32 sz) {
-		std::lock_guard<std::mutex> lk(mQueueMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
 		mQueueEnabled = true;
 		mMaxQueue = sz;
 	}
@@ -739,9 +850,9 @@ namespace nkentseu {
 			if (s->DeviceIndex() == deviceIndex)
 				return *s;
 
-		auto s = std::make_unique<Stream>(deviceIndex);
+		auto s = memory::NkMakeUnique<Stream>(deviceIndex);
 		s->Start(config);
-		mStreams.PushBack(std::move(s));
+		mStreams.PushBack(traits::NkMove(s));
 		return *mStreams.Back();
 	}
 
@@ -761,7 +872,7 @@ namespace nkentseu {
 	NkMultiCamera::Stream *NkMultiCamera::Get(uint32 deviceIndex) {
 		for (auto &s : mStreams)
 			if (s->DeviceIndex() == deviceIndex)
-				return s.get();
+				return s.Get();
 		return nullptr;
 	}
 

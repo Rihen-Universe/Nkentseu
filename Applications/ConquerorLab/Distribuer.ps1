@@ -27,17 +27,29 @@
 #   les trois dossiers de depot (rules / ai / boards), vides et prets
 #   les exemples, le cours en PDF, et un LISEZMOI
 #
-# LA DISPOSITION EST IMPOSEE PAR LE CODE. `FindRepoRoot` (main.cpp) remonte
-# depuis le dossier de l'exe en cherchant le marqueur
-# `Applications/ConquerorLab/include/Conqueror/ConquerorRulesABI.h`. Le kit
-# REPRODUIT donc cette arborescence : l'atelier s'y retrouve sans configuration.
+# LA DISPOSITION EST IMPOSEE PAR LE CODE, ET CE N'EST PLUS CELLE DU DEPOT.
+# `FindRepoRoot` (main.cpp) remonte depuis le dossier de l'exe en cherchant DEUX
+# marqueurs ; celui du kit est `include/Conqueror/ConquerorRulesABI.h`, a plat.
+# `NkcLayout` bascule alors en mode Kit :
+#
+#     include/     UNE seule racine d'inclusion (au lieu de treize)
+#     lib/         les bibliotheques statiques
+#     travail/     rules | ai | boards — ou le stagiaire depose
+#     exemples/    dont exemples/boards, la bibliotheque de grilles livree
+#
+# ⚠️ CE SCRIPT ECRIT LE LISEZMOI QUE LE STAGIAIRE LIT EN PREMIER. Le 2026-08-15,
+# ce LISEZMOI decrivait encore `Build/ConquerorLab/` — la disposition du DEPOT,
+# abandonnee ici meme (section 5). Un stagiaire qui suivait le mode d'emploi
+# deposait donc son travail dans un dossier que l'atelier ne lit jamais, et rien
+# ne le lui disait. Si la disposition rechange, LE LISEZMOI CHANGE DANS LE MEME
+# GESTE : il n'a pas d'autre source de verite que ce fichier.
 #
 # CE FICHIER DOIT RESTER EN UTF-8 AVEC BOM.
 # Windows PowerShell 5.1 lit un .ps1 sans BOM comme de l'ANSI : chaque accent des
 # textes ci-dessous ressortait alors en « Ã© » dans le LISEZMOI livre au
 # stagiaire — le tout PREMIER fichier qu'il ouvre. Constate, puis corrige.
 # =============================================================================
-param([switch]$NoBuild, [switch]$Zip, [string]$Config = 'Release')
+param([switch]$NoBuild, [switch]$Zip, [string]$Config = 'Release', [switch]$SansControle)
 
 $ErrorActionPreference = 'Stop'
 
@@ -45,6 +57,24 @@ $lab   = $PSScriptRoot                              # Applications/ConquerorLab
 $repo  = Split-Path (Split-Path $lab -Parent) -Parent
 $kit   = Join-Path $repo "Build\ConquerorLab-Kit"
 $binSrc = Join-Path $repo "Build\Bin\$Config-Windows\ConquerorLab\ConquerorLab.exe"
+
+# ── 0. Coherence de la pile, AVANT de construire quoi que ce soit ────────────
+# La pile offerte au stagiaire est decrite CINQ fois dans cinq fichiers. Le
+# 2026-08-15, NKSerialization figurait dans quatre listes et manquait a la seule
+# qui construit : ce script s'arretait alors sur « Bibliotheque introuvable »
+# APRES une compilation complete, et tout module de stagiaire echouait au lien.
+#
+# Le controle coute quelques secondes et se place ICI, avant le build, parce
+# qu'un controle qu'on lance a la main n'est jamais lance.
+if (-not $SansControle) {
+    Write-Host "Verification de la pile..." -ForegroundColor Cyan
+    & python (Join-Path $lab 'verifier_la_pile.py')
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Les listes qui decrivent la pile stagiaire divergent (voir " +
+               "ci-dessus). Corrigez, ou relancez avec -SansControle si vous " +
+               "savez ce que vous faites.")
+    }
+}
 
 # ── 1. Construire ────────────────────────────────────────────────────────────
 if (-not $NoBuild) {
@@ -213,10 +243,22 @@ CE QU'IL Y A DANS CE DOSSIER
                             deuxieme, juste apres le chapitre 0 du cours.
   VERSION.txt               quelle version vous avez. A citer dans vos retours.
   exemples/                 trois modules complets, a recopier
-  Build/ConquerorLab/       la ou vous deposez votre travail
-  Build/Lib/                les bibliotheques du moteur, liees a vos modules
-  Applications/, Kernel/    les en-tetes. N'y touchez pas : l'atelier s'en
+                            (dont exemples/boards/, les grilles livrees)
+  travail/                  LA OU VOUS DEPOSEZ VOTRE TRAVAIL
+      travail/rules/            vos moteurs de regles (.cpp)
+      travail/ai/               vos IA (.cpp)
+      travail/boards/           vos grilles (.json)
+  lib/                      les bibliotheques du moteur, liees a vos modules
+  include/                  les en-tetes. N'y touchez pas : l'atelier s'en
                             sert pour compiler vos modules.
+
+C'est TOUJOURS dans travail/ que vous deposez quelque chose. Les grilles
+livrees sont recopiees dans travail/boards/ au premier lancement ; celles que
+vous y ajoutez ensuite apparaissent au lancement suivant, ou tout de suite avec
+le bouton « Rafraichir » du panneau « Regles ».
+
+Le panneau « Regles » affiche en clair le chemin exact ou il regarde
+(« Depose tes .json ici : ... »). En cas de doute, c'est lui qui dit vrai.
 
 
 AVANT LE PREMIER LANCEMENT : INSTALLER UN COMPILATEUR
@@ -239,15 +281,52 @@ qu'il n'en a trouve aucun.
 
 VOTRE PREMIER MODULE, EN QUATRE GESTES
 
-  1. copiez  exemples/rules/RegleMinimale.cpp
-        vers Build/ConquerorLab/rules/mes_regles.cpp
-  2. changez le nom dans FillFactory (sinon deux entrees identiques au menu)
+  1. copiez  exemples/rules/RegleFacile.cpp
+        vers travail/rules/mes_regles.cpp
+  2. changez le nom dans NKC_REGLES, tout en bas du fichier
+     (sinon deux entrees identiques au menu)
   3. sauvegardez, attendez une seconde
   4. le panneau « Modules » affiche votre module : selectionnez-le,
      puis « Nouvelle partie »
 
-Meme chose pour une IA, avec exemples/ai/IAMinimale.cpp vers
-Build/ConquerorLab/ai/.
+Meme chose pour une IA, avec exemples/ai/IAFacile.cpp vers travail/ai/.
+
+Un moteur de regles complet, c'est TROIS methodes :
+
+    Construire       a quoi la partie ressemble au depart
+    CoupsPossibles   ce qu'on a le droit de faire
+    Appliquer        ce qui se passe quand on le fait
+
+Le reste — cloner un etat, le sauvegarder, dire qui a gagne, verifier qu'un coup
+est legal — est le meme pour tout le monde et il est deja ecrit, dans
+include/Conqueror/ConquerorRegleFacile.h.
+
+
+QUAND VOUS VOUDREZ TOUT ECRIRE VOUS-MEME
+
+exemples/rules/RegleContratNu.cpp joue EXACTEMENT le meme jeu que
+RegleFacile.cpp, mais en ecrivant les 24 entrees du contrat a la main : 570
+lignes au lieu de 110. Comparer les deux est l'exercice le plus instructif du
+cours.
+
+Vous n'en aurez besoin que le jour ou votre etat de partie ne rentrera plus dans
+la structure « Partie » — elle est fixe et sans pointeur, c'est ce qui permet au
+cadre d'etre juste tout seul. Ce jour-la, et pas avant.
+
+Les autres exemples, du plus simple au plus complet :
+
+    exemples/ai/IAMinimale.cpp     la forme d'un module d'IA : tire au hasard
+    exemples/ai/IAFacile.cpp       evaluer et choisir
+    exemples/ai/IAGloutonne.cpp    le meme algorithme, au contrat nu
+    exemples/ai/IANegamax.cpp      negamax, alpha-beta, budget de temps
+    exemples/rules/GrilleLibre.cpp un plateau circulaire defini en C++
+
+ET POUR UNE GRILLE, IL N'Y A RIEN A COMPILER
+
+  1. copiez  exemples/boards/hexagone_6x7.json
+        vers travail/boards/ma_grille.json
+  2. modifiez la liste « cells »
+  3. panneau « Regles » -> « Rafraichir » -> choisissez-la dans « Grille »
 
 En cas d'erreur de compilation, la sortie COMPLETE du compilateur s'affiche
 dans le panneau « Modules ». C'est votre seul retour : lisez-la.

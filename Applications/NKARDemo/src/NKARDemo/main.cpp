@@ -526,7 +526,6 @@ int nkmain(const NkEntryState &state) {
 	camCfg.width = kCamWidth;
 	camCfg.height = kCamHeight;
 	camCfg.fps = 30;
-	camCfg.outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
 	// Sur téléphone, l'AR se fait par la caméra ARRIÈRE : on vise le marqueur,
 	// on ne se filme pas. La façade est donc demandée explicitement, et le
 	// choix reste programmable — NkCameraConfig::facing existe déjà, c'était

@@ -134,7 +134,6 @@ namespace nkentseu {
 				camCfg.deviceIndex = devices[i].index;
 				// VGA pour limiter la bande passante (4 flux HD saturent l'USB).
 				camCfg.preset = NkCameraResolution::NK_CAM_RES_VGA;
-				camCfg.outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
 
 				NkMultiCamera::Stream &s = multi.Open(devices[i].index, camCfg);
 				slots[i].stream = &s;

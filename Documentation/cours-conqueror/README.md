@@ -12,13 +12,25 @@ adversaire), et pour toute personne qui reprend le projet.
 |---|---|---|
 | 0 | [Avant-propos](md/00-avant-propos.md) | à qui s'adresse ce cours, lancer l'atelier, la première minute |
 | 1 | [Le principe](md/01-le-principe.md) | trois dossiers, un contrat, qui parle à qui — et pourquoi c'est fait ainsi |
-| 2 | [Écrire un moteur de règles](md/02-ecrire-des-regles.md) | `NkcRulesVTable` de bout en bout, sur un exemple qui compile |
+| 2 | [Écrire des règles en trois fonctions](md/02b-regles-en-trois-fonctions.md) | **la voie normale** : `Construire`, `CoupsPossibles`, `Appliquer` — un module complet en une centaine de lignes |
 | 3 | [Écrire une IA](md/03-ecrire-une-ia.md) | `NkcAIVTable`, le thread worker, le budget |
 | 4 | [Fabriquer une grille en JSON](md/04-les-grilles.md) | le plateau comme donnée : le format, les pièges |
 | 5 | [Définir sa grille en C++](md/05-grille-en-cpp.md) | forme, voisinage et **projection écran** décidés par le module (ABI 3) |
-| 6 | [Se servir de l'atelier](md/06-se-servir-de-l-atelier.md) | les sept panneaux, mesurer, lire un résultat sans se tromper |
-| 7 | [Regarder et habiller](md/07-regarder-et-habiller.md) | zoom sur les grands plateaux, multijoueur, **totems en images**, thème et langue |
-| 8 | [Exemples complets](md/08-exemples-complets.md) | l'échelle : aléatoire → glouton → **négamax alpha-bêta**, règles en 3 fonctions, plateaux JSON et C++ |
+| 6 | [Se servir de l'atelier](md/06-se-servir-de-l-atelier.md) | les panneaux, mesurer, lire un résultat sans se tromper |
+| 7 | [Exemples complets](md/08-exemples-complets.md) | l'échelle : aléatoire → glouton → **négamax alpha-bêta**, règles en 3 fonctions, plateaux JSON et C++ |
+| 8 | [Quand l'échafaudage ne suffit plus](md/02-ecrire-des-regles.md) | le **contrat nu** : les vingt-quatre entrées écrites à la main, le jour où `Partie` ne suffit plus |
+
+> **L'ordre compte, et il a changé le 2026-08-16.** Le contrat nu était le
+> chapitre 2 : le stagiaire apprenait vingt-quatre fonctions avant de découvrir
+> qu'il n'en avait besoin que de trois. L'échafaudage passe devant ; le contrat
+> nu devient le chapitre de référence qu'on lit **quand on en a besoin**.
+>
+> ⚠️ Le chapitre **« Regarder et habiller »** (`md/07-regarder-et-habiller.md` —
+> zoom, multijoueur, totems en images, thème et langue) **n'est pas dans le
+> PDF** : son code (`NkcBoardView.h`, `NkcTotemLibrary.h`, `NkcLang.h`) n'est pas
+> sur cette branche. Mesure du 16/08 : 0 définition pour ces quatre symboles,
+> 0 plateau multijoueur, pas de dossier `totems/`. Le livrer décrirait au
+> stagiaire un atelier qu'il n'a pas. Il se réintègre avec son code.
 
 ## Fiches de travail, une par stagiaire
 
@@ -67,7 +79,7 @@ Sept exemples **complets et compilables**, du plus court au plus complet
 | `exemples/ai/IAGloutonne.cpp` | le même algorithme, au contrat nu |
 | `exemples/ai/IANegamax.cpp` | négamax, alpha-bêta, approfondissement itératif, budget |
 | `exemples/rules/RegleFacile.cpp` | **des règles en trois fonctions** (`ConquerorRegleFacile.h`) |
-| `exemples/rules/RegleMinimale.cpp` | le même jeu, au contrat nu |
+| `exemples/rules/RegleContratNu.cpp` | le même jeu, au contrat nu |
 | `exemples/rules/GrilleLibre.cpp` | un plateau **circulaire** défini en C++, projection comprise |
 
 Côté plateaux : `boards/mini_3x3.json` (9 cases, pour déboguer à l'œil) jusqu'à
@@ -85,7 +97,7 @@ jouant l'un contre l'autre :
 
 ```
 === Banc d'essai du contrat Conqueror ===
-       regles : RegleMinimale 1.0.0 (palier 0)
+       regles : RegleContratNu 1.0.0 (palier 0)
        IA     : IAMinimale 1.0.0
        plateau : 25 cases, 2 joueurs
   OK   l'IA n'a jamais produit de coup illegal
@@ -100,7 +112,7 @@ jouant l'un contre l'autre :
 
 **Les deux échecs sont attendus** : le banc d'essai vérifie en dur le plateau du
 moteur de *référence* — « hexagone 6×7 = 42 cases » et « 2 totems par joueur au
-départ ». `RegleMinimale` joue sur un carré 5×5 avec un totem chacun. Les
+départ ». `RegleContratNu` joue sur un carré 5×5 avec un totem chacun. Les
 quatorze autres vérifications, celles qui portent sur le **contrat** et non sur
 la forme du plateau, passent toutes.
 

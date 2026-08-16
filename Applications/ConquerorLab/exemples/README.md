@@ -5,14 +5,14 @@ Ces trois fichiers sont le point de départ des stagiaires, et le support du
 
 | Fichier | Ce qu'il fait | Chapitre du cours |
 |---|---|---|
-| `rules/RegleMinimale.cpp` | moteur de règles complet : carré 5×5, DUPLIQUER, transformation par adjacence, fin par blocage | 2 |
+| `rules/RegleContratNu.cpp` | moteur de règles complet : carré 5×5, DUPLIQUER, transformation par adjacence, fin par blocage | 2 |
 | `ai/IAMinimale.cpp` | IA complète : demande les coups légaux, en prend un au hasard | 3 |
 | `rules/GrilleLibre.cpp` | plateau **circulaire** (3 anneaux, 19 cellules) : forme, voisinage **et projection écran** définis en C++, sans JSON | 5 |
 
 ## S'en servir
 
 ```
-copier  rules/RegleMinimale.cpp  ->  Build/ConquerorLab/rules/mes_regles.cpp
+copier  rules/RegleContratNu.cpp  ->  Build/ConquerorLab/rules/mes_regles.cpp
 copier  rules/GrilleLibre.cpp    ->  Build/ConquerorLab/rules/ma_grille.cpp
 copier  ai/IAMinimale.cpp        ->  Build/ConquerorLab/ai/mon_ia.cpp
 ```
@@ -80,7 +80,7 @@ LIB="-L$R/Build/Lib/Release-Windows -Wl,--start-group \
      -lNKThreading -lNKTime -lNKContainers -lNKMath -lNKMemory -lNKPlatform \
      -lNKCore -Wl,--end-group"
 
-for m in rules/RegleMinimale rules/GrilleLibre ai/IAMinimale; do
+for m in rules/RegleContratNu rules/GrilleLibre ai/IAMinimale; do
     $CLANG -shared -std=c++17 -O2 -fPIC -static $INC \
            -o "$(basename $m).dll" "$R/Applications/ConquerorLab/exemples/$m.cpp" $LIB
 done
@@ -117,7 +117,7 @@ mêmes vérifications codées en dur, plus `portee_duplication` qu'il n'expose p
 
 ## Ce que ces exemples ne font pas, volontairement
 
-- **`RegleMinimale` refuse tout chargement de plateau** (`LoadBoardJson` renvoie
+- **`RegleContratNu` refuse tout chargement de plateau** (`LoadBoardJson` renvoie
   `0`) : sa grille est figée dans le code. C'est précisément ce que
   `REGLES_COMPLETES_v2.md` §4 interdit à un vrai moteur — voir
   `modules/rules/ConquerorRulesV2.cpp` pour une implémentation complète. Renoncement

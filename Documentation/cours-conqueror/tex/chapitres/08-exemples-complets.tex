@@ -21,7 +21,7 @@ une IA & \texttt{IAMinimale.cpp} \newline $\approx$120 l. — au hasard &
          \texttt{IAFacile.cpp} \newline $\approx$140 l. — un coup &
          \texttt{IANegamax.cpp} \newline $\approx$500 l. — négamax $\alpha\beta$ \\
 \addlinespace
-des règles & \texttt{RegleMinimale.cpp} \newline carré 5$\times$5 & — &
+des règles & \texttt{RegleContratNu.cpp} \newline carré 5$\times$5 & — &
          \texttt{ConquerorRulesV2.cpp} \newline le moteur de référence \\
 \addlinespace
 un plateau & \texttt{mini\_3x3.json} \newline 9 cases &
@@ -319,7 +319,7 @@ une, \textbf{trois} contiennent votre jeu :
 \end{center}
 
 Les dix-huit autres sont les mêmes pour tout le monde.
-\nkfile{ConquerorRegleFacile.h} les écrit une fois : \texttt{RegleMinimale.cpp}
+\nkfile{ConquerorRegleFacile.h} les écrit une fois : \texttt{RegleContratNu.cpp}
 fait $\approx$560 lignes, \texttt{RegleFacile.cpp} en fait $\approx$110.
 
 \begin{nkcode}{exemples/rules/RegleFacile.cpp — le jeu entier}
@@ -399,7 +399,7 @@ dans le header.
 Les trois échecs sont ceux \textbf{codés en dur sur le moteur de référence} : le
 banc cherche \texttt{portee\_duplication}, « 42 cases » et « 2 totems par
 joueur ». \texttt{RegleFacile} joue un 5$\times$5 avec un totem chacun. Même
-profil que \texttt{RegleMinimale} (14/16) et \texttt{GrilleLibre} (13/16).
+profil que \texttt{RegleContratNu} (14/16) et \texttt{GrilleLibre} (13/16).
 
 Tout ce qui porte sur le \textbf{contrat} passe — y compris le rejeu
 déterministe, le bornage des paramètres et le garde-fou \texttt{max\_tours}.
@@ -412,13 +412,13 @@ deux lignes. \texttt{max\_tours} est désormais fourni d'office, et il n'est pas
 optionnel.
 \end{nkretenir}
 
-\section{Des règles, sans échafaudage : RegleMinimale.cpp}
+\section{Des règles, sans échafaudage : RegleContratNu.cpp}
 
 
 Vingt et une fonctions dans la vtable, dont la moitié tient en trois lignes. Le
 chapitre 2 les parcourt une à une ; voici seulement ce qui structure le fichier.
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — le plateau, en C++}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — le plateau, en C++}
 for (int32 y = 0; y < kSide; ++y)
     for (int32 x = 0; x < kSide; ++x) {
         R->coords[y * kSide + x].q = static_cast<int16>(x);

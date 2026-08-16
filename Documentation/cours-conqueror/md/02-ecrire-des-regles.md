@@ -1,9 +1,22 @@
-# Écrire un moteur de règles
+# Quand l'échafaudage ne suffit plus : le contrat nu
+
+> Vous n'avez pas besoin de ce chapitre pour écrire un jeu. Trois fonctions
+> suffisent, et c'était le chapitre 2. Celui-ci est pour le jour où votre état de
+> partie ne rentre plus dans la structure `Partie` — une liste qui grandit, un
+> cache, un arbre. Ce jour-là, vous écrivez les vingt-quatre entrées vous-même,
+> et tout ce qui suit vous servira.
+
+Il se lira d'ailleurs beaucoup mieux maintenant que vous avez vu les dix-huit
+fonctions à l'œuvre.
 
 Ce chapitre construit un moteur complet, de la première ligne à la dernière. Le
 fichier existe, il compile, et l'atelier le charge :
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp`**
+
+Il joue **exactement le même jeu** que `exemples/rules/RegleFacile.cpp` du
+chapitre 2 : 570 lignes au lieu de 110, et pas une règle de plus. Comparer les
+deux est l'exercice le plus instructif du cours.
 
 Ouvrez-le à côté de ce texte. Nous le parcourons dans l'ordre, en expliquant à
 chaque étape *pourquoi* elle est là et *ce qui casse* si on l'oublie.
@@ -41,7 +54,7 @@ familles, et cette carte suffit à ne jamais se perdre :
 
 ## 2.2 La mémoire : jamais de `new` ni de `delete` bruts
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — section 1`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — section 1`**
 
 ```cpp
 NkcAllocFn gAlloc = nullptr;
@@ -64,7 +77,7 @@ sans.
 
 ## 2.3 Les paramètres : aucune constante en dur
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — section 2`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — section 2`**
 
 ```cpp
 enum ParamId : int32 {
@@ -86,7 +99,7 @@ défaut, et les bornes. **Ajouter un réglage = ajouter une ligne.**
 
 Et voici pourquoi cela suffit à faire apparaître un champ à l'écran :
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — V_GetParamsSchemaJson`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — V_GetParamsSchemaJson`**
 
 ```cpp
 k = std::snprintf(w, left,
@@ -113,7 +126,7 @@ Deux champs optionnels partout : `"label"` (sinon dérivé de la clé) et `"help
 
 ### Borner, ne pas refuser
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — V_SetParam`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — V_SetParam`**
 
 ```cpp
 int32 v = static_cast<int32>(value < 0 ? value - 0.5 : value + 0.5);
@@ -144,7 +157,7 @@ en entier dès la première ligne.
 
 ## 2.4 L'état : votre représentation, leur vue
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — section 4`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — section 4`**
 
 ```cpp
 struct State {
@@ -169,7 +182,7 @@ dure :
 > `CloneState` est le **chemin chaud de l'IA** : appelé des milliers de fois par
 > seconde. Le contrat dit : « doit être rapide et ne jamais allouer ». D'où :
 >
-> **`RegleMinimale.cpp — V_CloneState`**
+> **`RegleContratNu.cpp — V_CloneState`**
 >
 > ```cpp
 > void V_CloneState(NkcRules, NkcState dst, const NkcState src) {
@@ -183,7 +196,7 @@ dure :
 
 La même contrainte explique `SerializeState` :
 
-**`RegleMinimale.cpp — V_SerializeState`**
+**`RegleContratNu.cpp — V_SerializeState`**
 
 ```cpp
 uint32 V_SerializeState(NkcRules, const NkcState st, void *buf, uint32 cap) {
@@ -206,7 +219,7 @@ uint32 V_SerializeState(NkcRules, const NkcState st, void *buf, uint32 cap) {
 
 C'est la fonction la plus importante du fichier. Trois exigences s'y croisent.
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — GenMoves`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — GenMoves`**
 
 ```cpp
 for (int32 i = 0; i < kCells; ++i) {
@@ -301,13 +314,13 @@ meilleur test d'intégrité du générateur de coups. |
 > `GenerateLegalMoves` et `IsPlayerBlocked` sont deux chemins de code
 > indépendants qui répondent à la même question. S'ils divergent, l'un des deux
 > a tort — et c'est presque toujours le générateur, sur un cas de bord (case hors
-> plateau, case bloquée, portée mal comparée). Dans `RegleMinimale.cpp` les deux
+> plateau, case bloquée, portée mal comparée). Dans `RegleContratNu.cpp` les deux
 > partagent délibérément la même primitive, `CanPlay`, ce qui rend l'équivalence
 > vraie par construction.
 
 ## 2.7 Appliquer un coup, et la cascade
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — DoApply`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — DoApply`**
 
 ```cpp
 // --- placement : la source RESTE INTACTE (REGLES §7.2) ---------------
@@ -371,7 +384,7 @@ ne veut pas payer le coût des événements pendant ses simulations. **Testez-le
 
 ## 2.8 Fin de partie et garde-fou
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — CheckEnd`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — CheckEnd`**
 
 ```cpp
 // Garde-fou de SIMULATION : sans lui, une partie sur dix mille ne finit
@@ -398,7 +411,7 @@ if (!over && static_cast<int32>(s->turn) >=
 
 ## 2.9 Les deux symboles exportés
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — fin de fichier`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — fin de fichier`**
 
 ```cpp
 NKC_MODULE_EXPORT void nkc_rules_set_allocator(NkcAllocFn a, NkcFreeFn f) { gAlloc = a; gFree = f; }
@@ -432,7 +445,7 @@ contre de vieux en-têtes.
 
 ## 2.10 Votre premier module, en quatre gestes
 
-1. Copiez `exemples/rules/RegleMinimale.cpp` vers
+1. Copiez `exemples/rules/RegleContratNu.cpp` vers
    `Build/ConquerorLab/rules/mes_regles.cpp`.
 2. Changez le nom dans `FillFactory` — sinon vous aurez deux entrées identiques
    dans le menu et vous ne saurez pas laquelle vous testez.

@@ -13,7 +13,7 @@ tourne**, du plus court au plus complet, pour chacune des trois choses qu'on
 | Écrire… | Le plus court | L'intermédiaire | Le complet |
 |---|---|---|---|
 | **une IA** | `ai/IAMinimale.cpp`<br>≈ 120 l. — tire au hasard | `ai/IAFacile.cpp`<br>≈ 140 l. — un coup d'avance,<br>couche confortable | `ai/IANegamax.cpp`<br>≈ 500 l. — négamax αβ |
-| **des règles** | `rules/RegleFacile.cpp`<br>≈ 110 l. — trois fonctions | `rules/RegleMinimale.cpp`<br>≈ 560 l. — contrat nu | `modules/rules/ConquerorRulesV2.cpp`<br>le moteur de référence |
+| **des règles** | `rules/RegleFacile.cpp`<br>≈ 110 l. — trois fonctions | `rules/RegleContratNu.cpp`<br>≈ 560 l. — contrat nu | `modules/rules/ConquerorRulesV2.cpp`<br>le moteur de référence |
 | **un plateau** | `boards/mini_3x3.json`<br>9 cases | `boards/hexagone_6x7.json`<br>42 cases | `rules/GrilleLibre.cpp`<br>en C++, projection comprise |
 
 Tous sont dans `exemples/`, sauf le moteur de référence. Tous compilent, et les
@@ -321,7 +321,7 @@ Les dix-huit autres sont les mêmes pour tout le monde. `ConquerorRegleFacile.h`
 les écrit une fois :
 
 ```
-RegleMinimale.cpp   contrat nu                 ~560 lignes
+RegleContratNu.cpp   contrat nu                 ~560 lignes
 RegleFacile.cpp     ConquerorRegleFacile.h     ~110 lignes
 ```
 
@@ -397,7 +397,7 @@ Et ces quatre-là sont correctes **par construction**, pas par relecture.
 
 Les trois échecs sont ceux **codés en dur sur le moteur de référence** : le banc
 cherche `portee_duplication`, « 42 cases » et « 2 totems par joueur ».
-`RegleFacile` joue un 5×5 avec un totem chacun. Même profil que `RegleMinimale`
+`RegleFacile` joue un 5×5 avec un totem chacun. Même profil que `RegleContratNu`
 (14/16) et `GrilleLibre` (13/16).
 
 Tout ce qui porte sur le **contrat** passe — y compris le rejeu déterministe, le
@@ -409,12 +409,12 @@ bornage des paramètres et le garde-fou `max_tours`.
 > main. Le banc l'a signalé en deux lignes. `max_tours` est désormais fourni
 > d'office, et il n'est pas optionnel.
 
-## 8.5 Des règles, sans échafaudage : `RegleMinimale.cpp`
+## 8.5 Des règles, sans échafaudage : `RegleContratNu.cpp`
 
 Vingt et une fonctions dans la vtable, dont la moitié tient en trois lignes. Le
 chapitre 2 les parcourt une à une ; voici seulement ce qui structure le fichier.
 
-**`exemples/rules/RegleMinimale.cpp — le plateau, en C++`**
+**`exemples/rules/RegleContratNu.cpp — le plateau, en C++`**
 
 ```cpp
 for (int32 y = 0; y < kSide; ++y)
@@ -424,7 +424,7 @@ for (int32 y = 0; y < kSide; ++y)
     }
 ```
 
-**`exemples/rules/RegleMinimale.cpp — un coup DUPLIQUER`**
+**`exemples/rules/RegleContratNu.cpp — un coup DUPLIQUER`**
 
 ```cpp
 s->cells[di].owner = static_cast<int8>(mv->player);

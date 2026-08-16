@@ -237,7 +237,7 @@ namespace nkentseu {
 		CVPixelBufferUnlockBaseAddress(ib, kCVPixelBufferLock_ReadOnly);
 
 		{
-			std::lock_guard<std::mutex> lk(mMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 			mLastFrame = frame;
 			mHasFrame = true;
 		}
@@ -255,7 +255,7 @@ namespace nkentseu {
 	}
 
 	bool NkUIKitCameraBackend::GetLastFrame(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 		if (!mHasFrame)
 			return false;
 		out = mLastFrame;
@@ -275,23 +275,28 @@ namespace nkentseu {
 		p->photoDel = [[NkiOSPhotoDelegate alloc] init];
 		p->photoDel.backend = this;
 		{
-			std::lock_guard<std::mutex> lk(mPhotoMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mPhotoMutex);
 			mPhotoReady = false;
 		}
 		[p->photoOut capturePhotoWithSettings:[AVCapturePhotoSettings photoSettings] delegate:p->photoDel];
-		std::unique_lock<std::mutex> lk(mPhotoMutex);
+		// Verrou pris et relache A LA MAIN : la boucle le relache
+		// volontairement pendant le sommeil pour laisser la delegation photo
+		// publier son resultat. Un verrou de portee le tiendrait pendant
+		// l'attente et empecherait precisement ce qu'on attend.
+		mPhotoMutex.Lock();
 		const NkElapsedTime start = NkChrono::Now();
 		while (!mPhotoReady && (NkChrono::Now() - start).seconds < 5.0) {
-			lk.unlock();
+			mPhotoMutex.Unlock();
 			NkChrono::Sleep(10LL); // 10LL -> overload Sleep(int64) (sinon ambigu int64/float64)
-			lk.lock();
+			mPhotoMutex.Lock();
 		}
 		res = mPhotoPending;
+		mPhotoMutex.Unlock();
 		return res.success;
 	}
 
 	void NkUIKitCameraBackend::_OnPhotoCapture(void *data, size_t len, bool ok, const char *err) {
-		std::lock_guard<std::mutex> lk(mPhotoMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mPhotoMutex);
 		mPhotoPending = {};
 		if (ok && data && len > 0) {
 			mPhotoPending.success = true;
@@ -305,7 +310,6 @@ namespace nkentseu {
 				mPhotoPending.errorMsg = err;
 		}
 		mPhotoReady = true;
-		mPhotoCv.notify_one();
 	}
 
 	bool NkUIKitCameraBackend::CapturePhotoToFile(const NkString &path) {

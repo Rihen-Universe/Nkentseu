@@ -36,7 +36,7 @@ travail/                   LEUR ESPACE DE TRAVAIL
     totems/                leurs images                  (.png)
 
 exemples/
-    rules/RegleMinimale.cpp    le plus petit moteur qui joue vraiment
+    rules/RegleContratNu.cpp    le plus petit moteur qui joue vraiment
     rules/GrilleLibre.cpp      un plateau circulaire défini en C++
     ai/IAMinimale.cpp          la plus petite IA qui joue vraiment
     boards/                    18 plateaux, recopiés dans travail/ au 1er lancement

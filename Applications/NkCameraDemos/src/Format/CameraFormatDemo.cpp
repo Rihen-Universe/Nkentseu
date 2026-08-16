@@ -55,11 +55,35 @@ namespace nkentseu {
 		// Generation de frames synthetiques (recopie du fichier d'origine,
 		// lignes 80-220 ; ces builders sont corrects et inchanges).
 		//
-		// Pour les formats YUV-based on choisit U = V = 128 (chrominance neutre)
-		// => le resultat sera un gradient grayscale, ce qui permet de verifier
-		// visuellement que la luminance est bien decodee. Pour MJPEG on encode
-		// un veritable gradient RGB via NkJPEGCodec.
+		// Les trames YUV sont en DEUX MOITIES, et cette division est le seul
+		// moyen qu'une seule image controle deux choses distinctes :
+		//
+		//   - moitie HAUTE, chrominance neutre (U = V = 128) : degrade de gris
+		//     sur toute l'etendue. C'est le controle de LUMINANCE, tel qu'il
+		//     existait a l'origine.
+		//   - moitie BASSE, chrominance VARIABLE : U suit la verticale, V suit
+		//     l'horizontale. C'est le controle de CHROMINANCE, et il manquait.
+		//
+		// Pourquoi il manquait, et ce que ca a failli couter : avec U = V = 128
+		// partout, les termes de chrominance sont multiplies par ZERO. Une image
+		// neutre valide donc n'importe quels coefficients de chrominance, meme
+		// faux — un controle qui passe pour une raison qui n'est pas celle qu'on
+		// croit. Constate le 2026-08-15 en verifiant que le passage a la plage
+		// declaree ne changeait rien : les PNG etaient bit pour bit identiques,
+		// mais ils l'auraient ete aussi avec la chrominance cassee.
+		//
+		// Les valeurs de la moitie basse tiennent volontairement dans [96, 160],
+		// luminance comprise : hors de cette bande les sorties SATURENT, et deux
+		// formules differentes rendent alors le meme 0 ou le meme 255. Un
+		// ecretage masque l'ecart qu'on cherche a voir.
+		//
+		// Pour MJPEG on encode un veritable gradient RGB via NkJPEGCodec.
 		// =====================================================================
+
+		// Bande de valeurs sans ecretage possible, pour la moitie coloree.
+		static inline uint8 NkMidRamp(uint32 i, uint32 n) {
+			return (uint8)(96u + (i * 64u) / (n > 1 ? n - 1 : 1));
+		}
 
 		// YUYV : entrelace [Y0, U, Y1, V] pour chaque paire (x, x+1).
 		// 2 bytes par pixel => stride = w * 2.
@@ -72,14 +96,15 @@ namespace nkentseu {
 			f.data.Resize((usize)f.stride * h);
 			uint8 *p = f.data.Data();
 			for (uint32 y = 0; y < h; ++y) {
+				const bool colored = (y >= h / 2);
 				for (uint32 x = 0; x < w; x += 2) {
-					const uint8 y0 = (uint8)((x * 255u) / (w - 1));
-					const uint8 y1 = (uint8)(((x + 1) * 255u) / (w - 1));
+					const uint8 y0 = colored ? NkMidRamp(x, w) : (uint8)((x * 255u) / (w - 1));
+					const uint8 y1 = colored ? NkMidRamp(x + 1, w) : (uint8)(((x + 1) * 255u) / (w - 1));
 					const usize row = (usize)y * f.stride;
 					p[row + (usize)x * 2 + 0] = y0;
-					p[row + (usize)x * 2 + 1] = 128; // U
+					p[row + (usize)x * 2 + 1] = colored ? NkMidRamp(y, h) : (uint8)128; // U
 					p[row + (usize)x * 2 + 2] = y1;
-					p[row + (usize)x * 2 + 3] = 128; // V
+					p[row + (usize)x * 2 + 3] = colored ? NkMidRamp(x, w) : (uint8)128; // V
 				}
 			}
 			return f;
@@ -97,11 +122,21 @@ namespace nkentseu {
 			f.data.Resize(sizeY + sizeUV);
 			uint8 *p = f.data.Data();
 			for (uint32 y = 0; y < h; ++y) {
+				const bool colored = (y >= h / 2);
 				for (uint32 x = 0; x < w; ++x) {
-					p[(usize)y * w + x] = (uint8)((x * 255u) / (w - 1));
+					p[(usize)y * w + x] = colored ? NkMidRamp(x, w) : (uint8)((x * 255u) / (w - 1));
 				}
 			}
+			// Plan UV entrelace, demi-hauteur : la ligne cy couvre les lignes
+			// image 2·cy et 2·cy+1, donc la moitie basse commence a cy = h/4.
 			std::memset(p + sizeY, 128, sizeUV);
+			for (uint32 cy = h / 4; cy < h / 2; ++cy) {
+				uint8 *uv = p + sizeY + (usize)cy * w;
+				for (uint32 cx = 0; cx * 2 < w; ++cx) {
+					uv[cx * 2 + 0] = NkMidRamp(cy * 2, h); // U suit la verticale
+					uv[cx * 2 + 1] = NkMidRamp(cx * 2, w); // V suit l'horizontale
+				}
+			}
 			return f;
 		}
 
@@ -117,12 +152,23 @@ namespace nkentseu {
 			f.data.Resize(sizeY + 2 * sizeC);
 			uint8 *p = f.data.Data();
 			for (uint32 y = 0; y < h; ++y) {
+				const bool colored = (y >= h / 2);
 				for (uint32 x = 0; x < w; ++x) {
-					p[(usize)y * w + x] = (uint8)((x * 255u) / (w - 1));
+					p[(usize)y * w + x] = colored ? NkMidRamp(x, w) : (uint8)((x * 255u) / (w - 1));
 				}
 			}
 			std::memset(p + sizeY, 128, sizeC);			// plan U
 			std::memset(p + sizeY + sizeC, 128, sizeC); // plan V
+			// Plans separes, demi-resolution : la moitie basse de l'image
+			// commence a la ligne chroma h/4.
+			for (uint32 cy = h / 4; cy < h / 2; ++cy) {
+				uint8 *U = p + sizeY + (usize)cy * (w / 2);
+				uint8 *V = p + sizeY + sizeC + (usize)cy * (w / 2);
+				for (uint32 cx = 0; cx < w / 2; ++cx) {
+					U[cx] = NkMidRamp(cy * 2, h); // U suit la verticale
+					V[cx] = NkMidRamp(cx * 2, w); // V suit l'horizontale
+				}
+			}
 			return f;
 		}
 
