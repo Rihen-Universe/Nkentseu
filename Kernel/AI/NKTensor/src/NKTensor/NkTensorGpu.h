@@ -13,11 +13,14 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKContainers/String/NkString.h"
+// NkTensor.h est CPU-only et LEGER (aucune dependance NKRHI/NKSL) : l'inclure ici
+// donne `NkShape`/`NkDType` aux fabriques GPU declarees plus bas, sans rien tirer
+// de NKRHI dans les en-tetes. Le sens de dependance reste celui d'origine — le
+// contexte GPU connait le tenseur, le tenseur ne connait pas NKRHI.
+#include "NKTensor/NkTensor.h"
 
 namespace nkentseu {
 	namespace ai {
-
-		class NkTensor; // forward (défini dans NkTensor.h)
 
 		class NkTensorGpu {
 			public:
@@ -42,9 +45,109 @@ namespace nkentseu {
 				// il donne le cout fixe par operation — la grandeur qui dit si le moteur
 				// est limite par le calcul ou par le lancement des noyaux.
 				static int64 OpCount();
+
+				// ---- PROFIL PAR NOYAU ---------------------------------------------
+				// OpCount dit COMBIEN d'operations ; il ne dit pas LESQUELLES coutent.
+				// Diviser le temps total par le nombre d'operations donne une moyenne
+				// qui melange un produit matriciel de 1,6 GFLOP et un `add` de 400 Ko :
+				// elle ne peut designer aucun coupable.
+				//
+				// ⚠️ CE QUE CE PROFIL MESURE, ET CE QU'IL NE MESURE PAS. Chaque
+				// dispatch est suivi d'un `WaitIdle` : le temps mural pris autour de
+				// l'appel contient donc le temps GPU du noyau PLUS le cout fixe de
+				// lancement (descripteur, command buffer, soumission, synchronisation).
+				// Ce n'est PAS un temps GPU pur — c'est le temps mural attribue a
+				// l'operation, c'est-a-dire exactement la grandeur qui compose la duree
+				// d'un pas. Des timestamps GPU separeraient les deux ; celui-ci dit
+				// d'abord OU va le budget.
+				//
+				// Les transferts et les allocations sont instrumentes SEPAREMENT
+				// (`~upload`, `~download`, `~alloc`, `~free`) : un profil CPU avait
+				// designe `ToGPU` et `DestroyBuffer` en tete, et on en avait conclu a
+				// tort que le temps y etait PERDU. Les mettre dans la meme table que
+				// les noyaux rend la comparaison directe au lieu de deductive.
+				static void ProfilRaz(bool actif);							 // vide la table et (des)active
+				static void ProfilRapport(double secondesMurales, int64 pas); // journalise le tableau
+
+				// ---- Occupation VRAM suivie ---------------------------------------
+				// PIC de la somme des tampons vivants, en octets. C'est la SEULE
+				// grandeur qui decide si une configuration tient : une moyenne, ou un
+				// releve a un instant arbitraire, rate le moment ou la passe ARRIERE
+				// materialise les gradients par-dessus les activations.
+				//
+				// ⚠️ Ne compte QUE nos tampons de calcul : ni le pilote, ni la
+				// fragmentation, ni les allocations des autres modules. C'est donc un
+				// PLANCHER de l'occupation reelle, jamais son total — d'ou la marge a
+				// exiger avant de conclure qu'une configuration tient sur 8 Go.
+				static int64 VramPic();
+				static int64 VramVivante();
+				void RazVramPic(); // repart du niveau courant (avant une phase mesuree)
+
+				// ---- RESERVE DE TAMPONS (chantier n°2) ------------------------------
+				// Recycle les tampons par TAILLE EXACTE au lieu de detruire/recreer.
+				// Mesure qui la motive : une allocation coute +427 a +492 us, chiffre
+				// obtenu DEUX FOIS independamment — au banc `add` et au banc `matmul`,
+				// deux noyaux sans rapport. C'est une propriete du PILOTE.
+				//
+				// ⚠️ UNE RESERVE EST UN CACHE, ET UN CACHE REPOND TOUJOURS.
+				// C'est la famille de defauts que ce depot paie depuis une semaine
+				// (`ClearBuffer` qui accepte et ne fait rien, `device` non honore, un
+				// build qui annonce SUCCESS sans recompiler). Un cache mal cable rend
+				// un tampon et parait marcher : le gain se mesure, la justesse non.
+				// D'ou le TEMOIN, cable AVANT la premiere mesure :
+				//   - `ReserveServis()` compte les tampons rendus PAR LA RESERVE ;
+				//   - `ReserveNeufs()`  compte les allocations REELLES ;
+				//   - leur somme DOIT egaler le nombre d'appels a CreateBuffer, sinon
+				//     l'instrument ment et aucun gain n'est lisible.
+				// Sans ces deux compteurs, « la reserve marche » serait indiscernable
+				// de « la reserve ne sert jamais et tout passe en allocation ».
+				//
+				// ⚠️ ELLE NE LIBERE PLUS LA VRAM. Un tampon retenu reste alloue. Le pic
+				// mesure est de 6 659 Mo sur 8 Go : sans plafond, la reserve ferait
+				// deborder. D'ou `ReserveBudget()` — au-dela, on detruit vraiment.
+				//
+				// ⚠️ TAILLE EXACTE, jamais « assez grand ». Rendre un tampon plus grand
+				// que demande marcherait a l'usage et fausserait tout calcul de bornes.
+				static void ReserveActive(bool actif); // interrupteur : LEGACY / NEUF
+				static bool ReserveEstActive();
+				static void ReserveBudget(int64 octetsMax); // plafond de retention
+				static void ReserveVider();					// detruit tout ce qui est retenu
+				static int64 ReserveServis();				// TEMOIN : rendus par la reserve
+				static int64 ReserveNeufs();				// TEMOIN : allocations reelles
+				static int64 ReserveOctetsRetenus();		// VRAM immobilisee par la reserve
+				static int64 ReserveTamponsRetenus();
+				static int64 ReserveEvictions(); // detruits faute de budget
+				static void ReserveRazCompteurs();
+
 				void DestroyBuffer(uint64 id);
 				bool Upload(uint64 id, const void *data, nk_size bytes);
 				bool Download(uint64 id, void *out, nk_size bytes);
+
+				// ---- Remise a zero SUR PLACE, sans transfert depuis l'hote ----------
+				// Remplit `bytes` octets du tampon avec le motif 32 bits `motif`
+				// (0 = zeros). Passe par `NkICommandBuffer::ClearBuffer` (NKRHI).
+				//
+				// ⚠️ POURQUOI CETTE FONCTION EXISTE. `NkVar::Backward()` remettait a
+				// zero chaque accumulateur de gradient en fabriquant un tenseur CPU nul
+				// et en le MONTANT sur le GPU : 12,77 Go de zeros par pas, 99,9 % de
+				// tout le trafic CPU->GPU de l'entrainement, depuis une seule ligne. Il
+				// n'y a aucune information dans ce transfert.
+				//
+				// Renvoie false si le tampon est invalide OU si la primitive n'est pas
+				// disponible sur le backend courant — voir ClearDisponible().
+				bool Clear(uint64 id, nk_size bytes, uint32 motif = 0);
+
+				// La primitive de remise a zero fonctionne-t-elle VRAIMENT ici ?
+				//
+				// ⚠️ Verifie par un TEMOIN, pas par une declaration : au premier appel,
+				// on alloue un petit tampon, on y ecrit un motif non nul, on appelle
+				// Clear, on relit, et on exige des zeros. C'est la lecon du 16/08 —
+				// `ClearBuffer` etait declare sur les six backends et implemente sur
+				// AUCUN, et un `grep` du nom plus un appelant avaient suffi a le croire
+				// implemente. Une signature ne prouve rien ; une relecture, si.
+				//
+				// Le resultat est calcule UNE fois et journalise (disponible ou non).
+				static bool ClearDisponible();
 
 				// ---- Kernels ------------------------------------------------------
 				// Élémentaire binaire : C = f(A, B) sur `count` éléments f32.
@@ -109,6 +212,24 @@ namespace nkentseu {
 				Impl *mImpl = nullptr;
 				bool EnsureInit();
 		};
+
+		// Tenseur de ZEROS fabrique DIRECTEMENT sur le GPU : allocation + remise a
+		// zero sur place, AUCUN transfert depuis l'hote.
+		//
+		// ⚠️ C'est la fonction a utiliser a la place de
+		// `ToDevOf(NkTensor::Zeros(shape), ref)` : cette forme-la fabrique les zeros
+		// sur CPU puis les monte, et c'est elle qui produisait 12,77 Go de trafic
+		// CPU->GPU par pas d'entrainement.
+		//
+		// ⚠️ Ce n'est PAS `NkTensor::Zeros(shape, dtype, NK_GPU)` : le parametre
+		// `device` des fabriques de NkTensor n'est pas honore (il pose `mDevice` sans
+		// allouer de tampon GPU) — il echoue desormais bruyamment au lieu de mentir.
+		//
+		// Renvoie un tenseur INVALIDE si le GPU est indisponible, si l'allocation
+		// echoue, ou si la remise a zero n'est pas realisable sur ce backend
+		// (NkTensorGpu::ClearDisponible). Jamais un tampon au contenu indetermine :
+		// des gradients faux ne se distinguent pas de gradients justes.
+		NkTensor NkGpuZeros(const NkShape &shape, NkDType dtype = NkDType::NK_F32);
 
 		// Ops GPU (appelées par ops::Add / ops::Matmul quand un opérande est sur GPU).
 		// Déplacent au besoin les opérandes sur GPU ; renvoient un tenseur device=GPU.
@@ -203,6 +324,32 @@ namespace nkentseu {
 		// LayerNorm sur le dernier axe (γ=1,β=0) : y=(x−μ)/√(var+ε). fwd + bwd (recalcul depuis x).
 		NkTensor NkGpuLayerNormStd(const NkTensor &x);
 		NkTensor NkGpuLayerNormStdBackward(const NkTensor &x, const NkTensor &grad);
+
+		// ---- Trio NkLlamaLM : RMSNorm, RoPE, SwiGLU -------------------------
+		// Ces trois operations n'avaient AUCUN chemin GPU : elles redescendaient le
+		// tenseur sur le CPU et le remontaient, en avant comme en arriere. Le chemin
+		// CPU reste en place et sert d'ORACLE : chaque noyau est valide par
+		// equivalence numerique contre lui, avant ET arriere.
+		// Signale un DEFAUT GPU : incremente le compteur que l'entrainement consulte
+		// (NkTensorGpu::DefautCount) et journalise les douze premiers. Expose ici pour
+		// que les couches au-dessus (NKAutograd) puissent signaler ce qu'elles seules
+		// peuvent constater — par exemple une entropie croisee par ligne NULLE alors
+		// que sa cible est valide, qui denonce une ligne non calculee.
+		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur);
+
+		NkTensor NkGpuRmsNorm(const NkTensor &x, double eps);
+		NkTensor NkGpuRmsNormBackward(const NkTensor &x, const NkTensor &grad, double eps);
+
+		// `table` : [T * (hd/2) * 2] en (cos, sin), construite par l'appelant EN
+		// DOUBLE. Le noyau ne calcule aucun cosinus : en flottant simple l'angle
+		// atteint ~256 rad, dont l'ulp (~1.5e-5) depasserait de loin la tolerance
+		// d'equivalence. `sens` = +1 en avant, −1 en arriere.
+		NkTensor NkGpuRoPE(const NkTensor &x, const NkTensor &table, double sens);
+
+		NkTensor NkGpuSwiGLU(const NkTensor &gate, const NkTensor &up);
+		NkTensor NkGpuSwiGLUBackwardDu(const NkTensor &gate, const NkTensor &dh);
+		// `dhu` = dh ⊙ u, fourni par l'appelant : garde le noyau a deux entrees.
+		NkTensor NkGpuSwiGLUBackwardDg(const NkTensor &gate, const NkTensor &dhu);
 
 		// Softmax sur le DERNIER axe (stable). + backward (dx=y⊙(dy−Σ dy⊙y)) + variante CAUSALE
 		// (masque les positions futures : dernier axe [.., T, T], requête = row % T).

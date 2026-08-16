@@ -87,6 +87,11 @@ namespace nkentseu {
 			void CopyTexture(NkTextureHandle s, NkTextureHandle d, const NkTextureCopyRegion &r) override;
 			void BlitTexture(NkTextureHandle s, NkTextureHandle d, const NkTextureCopyRegion &r, NkFilter f) override;
 
+			// Remplissage d'un tampon par une valeur 32 bits (vkCmdFillBuffer).
+			// SEULE surcharge de `ClearBuffer` a ce jour : le corps de base de
+			// NkICommandBuffer journalise « non implemente » pour les cinq autres.
+			void ClearBuffer(NkBufferHandle buffer, uint32 value, uint64 offset, uint64 size) override;
+
 			void Barrier(const NkBufferBarrier *bb, uint32 bc, const NkTextureBarrier *tb, uint32 tc) override;
 			void GenerateMipmaps(NkTextureHandle tex, NkFilter f) override;
 

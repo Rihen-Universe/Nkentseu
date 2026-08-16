@@ -3,6 +3,21 @@
 //   Architecture : Conv2D(1->4,3x3) -> ReLU -> MaxPool(2) -> Flatten -> Dense(->4)
 //                  -> CrossEntropy, entraîné par Adam.
 //   Jeu : 4 motifs 8x8 (barres, diagonale, cadre) + bruit. Doit converger ~100%.
+//
+// ⚠️ CE QUE CE TEST NE TESTE PAS : LA SÉMANTIQUE DU GRADIENT.
+//
+// Ses deux boucles sont sur Adam, dont le pas `m̂/(√v̂+ε)` est quasi INVARIANT à
+// l'échelle du gradient. Mesuré le 2026-08-16 : quand `Backward()` a cessé de
+// remettre les feuilles à zéro — et qu'il manquait donc les `ZeroGrad()`
+// ci-dessous — ce test est resté à 2 OK / 0 échec, alors que les paramètres
+// étaient entraînés sur une SOMME CUMULÉE des gradients depuis l'époque 0.
+// `NKNNTest`, lui, est tombé au premier coup parce que son XOR est sur SGD.
+//
+// Autrement dit : ce fichier ne peut pas échouer sur un défaut d'accumulation ou
+// de remise à zéro. Il vérifie que la convolution apprend, rien de plus. Le
+// témoin qui discrimine vit dans `NKAutogradTest` (deux `Backward()` successifs
+// sur la même feuille : `g2` doit valoir `2b`, pas `b`). Ne comptez pas sur le
+// vert d'ici pour valider quoi que ce soit sur les gradients.
 // =============================================================================
 #include "NKNN/NkNN.h"
 #include "NKOptim/NkOptim.h"
@@ -90,6 +105,7 @@ int main() {
 	printf("-- Entraînement (Adam + CrossEntropy) --\n");
 	double loss = 0.0;
 	for (int e = 0; e <= 300; ++e) {
+		adam.ZeroGrad(); // Backward() n'efface plus les feuilles : un pas = un gradient
 		NkVar logits = forward(xin);
 		NkVar L = nn::CrossEntropyLoss(logits, yoh);
 		L.Backward();
@@ -136,6 +152,7 @@ int main() {
 
 		double cnnLoss = 0.0;
 		for (int e = 0; e <= 300; ++e) {
+			cnnAdam.ZeroGrad(); // un pas = un gradient
 			NkVar logitsCnn = cnn.Forward(xin);
 			NkVar lossCnn = nn::CrossEntropyLoss(logitsCnn, yoh);
 			lossCnn.Backward();

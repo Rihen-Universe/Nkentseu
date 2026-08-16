@@ -16,6 +16,439 @@
 
 ---
 
+## ✅ RÉSOLU — `--accum` N'ACCUMULAIT RIEN (mesuré ET corrigé le 2026-08-16)
+
+> **Statut : CORRIGÉ.** Rodolf a tranché pour l'option A ; l'audit des appelants,
+> le correctif et le durcissement du test tiennent dans un seul commit. Les quatre
+> suites sont vertes en Debug et en Release, `NKAutogradTest` à **65 OK / 0** par
+> la réparation. Détail : § *AUDIT DES APPELANTS DE `Backward()` PUIS CORRECTIF*
+> ci-dessous.
+>
+> ⚠️ **Ce qui reste vrai malgré le correctif : les courses de dimensionnement
+> déjà faites restent périmées.** Elles ont tourné dans le régime fautif ; le
+> correctif ne les rétroactive pas. Voir § *Courses de dimensionnement PÉRIMÉES*.
+>
+> *Ce qui suit décrit le défaut tel qu'il a été mesuré, et reste la meilleure
+> description de ce qui n'allait pas.*
+
+### Ce qui a été mesuré
+
+`NkVar::Backward()` commence par remettre à zéro le gradient de **tous** les nœuds
+du graphe, **feuilles comprises** (`NkVar.cpp:1298-1299`, `CollectTopo` descend
+jusqu'aux feuilles). Or `NkGptTrainer::Fit` appelle `adam.ZeroGrad()` **une fois
+par pas**, puis `scaled.Backward()` **une fois par micro-lot**, en reconstruisant
+le graphe sur les **mêmes** nœuds-feuilles de paramètres.
+
+Nouveau cas dans `NKAutogradTest` — deux `Backward()` successifs sur la même
+feuille, `L = Sum(x ⊙ b)` donc `dL/dx = b`, deux passes identiques :
+
+```
+g1 = [0.500 -1.000 2.000 0.250]   (= b)
+g2 = [0.500 -1.000 2.000 0.250]   (= b, et non 2b)
+|g2 - 2*g1| = 2.00e+00      |g2 - g1| = 0.00e+00
+```
+
+**Écrasement EXACT, pas dégradation partielle.** Les deux hypothèses ont été
+mesurées séparément : on ne conclut pas « écrasé » d'un simple échec de
+« accumulé ».
+
+### Ce que ça implique
+
+Avec `--accum N`, seul le **dernier** micro-lot contribue, et il reste multiplié
+par `1/N` (`scaled = MulScalar(loss, 1.0/ACCUM)` ligne 923). Donc :
+
+| annoncé | réel |
+|---|---|
+| lot effectif `B × N` | **`B`** |
+| taux d'apprentissage `lr` | **`lr / N`** |
+
+⚠️ **Le défaut par défaut** : `--accum` vaut **4** quand on ne dit rien
+(`Applications/NKIlyana/src/main.cpp:693`). Toute course lancée sans `--accum`
+explicite est concernée. `B=6 --accum 4` n'a jamais eu un lot effectif de
+6 144 tokens : il en avait **1 536**, à `lr/4`.
+
+### Deux conséquences pour ce qui est déjà écrit
+
+1. **`Kernel/AI/ROADMAP.md` ligne 1014** — « B=6, accum=4 (lot effectif 6 144
+   tokens) » est faux, ainsi que toute mention de lot effectif pour `accum > 1`.
+2. **Le tableau du 2026-08-09** (`Kernel/AI/ROADMAP.md:1028-1032`) se présente
+   comme trois configurations « à même lot effectif de 6 144 ». Elles ne l'étaient
+   pas : leurs lots réels étaient 6, 12 et 24, à `lr/4`, `lr/2` et `lr`.
+
+### ⚠️ Mais les deux défauts sont INDÉPENDANTS — vérifié
+
+On pourrait croire que l'écrasement explique le « B=24/accum=1 n'apprend RIEN »
+du 09/08. **Il ne le peut pas** : à `accum = 1` il n'y a qu'un seul `Backward()`
+par pas, donc aucun écrasement possible. La panne silencieuse du GPU à grand lot
+reste un défaut distinct, et le diagnostic du 09/08 tient.
+
+**Et c'est ce qui rend la situation gênante** : `B=24/accum=1` était la **seule**
+configuration exempte du défaut d'accumulation, et c'est celle qui a été écartée
+pour une autre raison. L'entraîneur tourne depuis exclusivement dans le régime
+fautif.
+
+### Pourquoi le témoin prescrit ne pouvait pas trancher
+
+Le témoin demandé était `--B 6 --accum 4` contre `--B 24 --accum 1` à lot effectif
+égal. **Son bras de contrôle est documenté cassé depuis le 09/08** : à `B=24` la
+perte reste collée à `ln(V)`, le GPU ne calcule plus en silence. Comparer un bras
+suspect à un bras mort ne donne rien d'interprétable.
+
+Le cas unitaire retenu à la place est **plus fort** : exact au lieu de statistique,
+déterministe, **CPU seul** — donc insensible à la dégradation GPU signalée à la
+session précédente — et il isole la sémantique au lieu de l'inférer d'une courbe
+de perte.
+
+### Ce qu'aucun test ne couvrait
+
+Les 49 cas de `NKAutogradTest` faisaient tous **un seul** `Backward()` sur une
+feuille **neuve**. `NKTrainTest` case (b) utilise bien `accum = 2`, mais il
+n'assert que la **convergence** — or un modèle converge très bien à `lr/2`. La
+ROADMAP `Kernel/AI` en tirait « accumulation prouvée » : le test prouvait qu'on
+converge, jamais qu'on accumule.
+
+*Un test dont le nom promet plus que ce qu'il vérifie tient lieu de preuve
+jusqu'au jour où quelqu'un lit son corps.*
+
+### Note sur le chantier n°1
+
+Le correctif « ne plus monter 12,7 Go de zéros » (×1,57) porte sur **cette même
+ligne 1299**. Il reste entièrement valide — la remise à zéro des nœuds
+**intermédiaires** est nécessaire à chaque backward — mais il a rendu
+l'écrasement des feuilles 1,57× plus rapide sans que personne ne voie qu'il ne
+devait pas avoir lieu. `NkGpuZeros` sert dans les deux sémantiques.
+
+---
+
+## ✅ AUDIT DES APPELANTS DE `Backward()` PUIS CORRECTIF — APPLIQUÉ (2026-08-16)
+
+> **Rodolf a tranché pour l'option A** : les feuilles à gradient requis ne sont
+> plus remises à zéro par `Backward()`, c'est l'appelant qui vide avec
+> `ZeroGrad()` — ce que l'API annonçait déjà sans que ce soit vrai. L'audit a été
+> fait **avant** le correctif, ses dépendants ont été traités **avant** que le
+> correctif ne soit posé, et le tout tient dans **un seul commit**.
+>
+> **Les quatre suites sont vertes, en Debug ET en Release (chiffres identiques) :**
+>
+> ```
+>                    AVANT        APRÈS
+> NKAutogradTest     64 OK / 1    65 OK / 0   <- par la RÉPARATION, pas le retrait
+> NKNNTest            7 OK / 0     7 OK / 0
+> NKConvTest          2 OK / 0     2 OK / 0
+> NKTrainTest        14 OK / 0    14 OK / 0
+> ```
+
+### Ce que l'audit a mesuré, pas seulement lu
+
+Deux prédécesseurs s'étant fait prendre à conclure sur un `grep`, l'audit n'a pas
+été rendu sur une lecture de code. Option A a d'abord été appliquée
+**localement, non commitée**, les suites jouées des deux côtés, puis l'édition
+**revertie** — ce qui a donné le tableau ci-dessous **avant** toute décision de
+correction. C'est ce tableau qui a identifié les dépendants :
+
+| suite | AVANT (`337db9d2`) | APRÈS (option A, locale, revertie) |
+|---|---|---|
+| `NKAutogradTest` | 64 OK / **1 échec** | **65 OK / 0 échec** ✅ |
+| `NKNNTest` | **7 OK / 0 échec** | 6 OK / **1 échec** ❌ |
+| `NKTrainTest` | **14 OK / 0 échec** | 13 OK / **1 échec** ❌ |
+| `NKConvTest` | 2 OK / 0 échec | 2 OK / 0 échec — **inchangé, et c'est le problème** |
+
+Le témoin d'accumulation bascule exactement, et il a été **rejoué dans les deux
+sens** : `g2 = b` (`|g2-2·g1| = 2,00e+00`) avant, `g2 = 2b` (`|g2-2·g1| =
+0,00e+00`) après. Il discrimine — contrairement à `NKTrainTest` case (b), qui
+passe **des deux côtés** parce qu'il n'assert que la convergence.
+
+### ⚠️ Le motif : deux familles d'appelants, et la dangereuse est celle qui PASSE
+
+- **`NKNNTest` échoue bruyamment** : son cas XOR utilise `optim::NkSGD` (lr 0,5,
+  momentum 0,9, `main.cpp:37`). SGD n'est **pas** invariant à l'échelle du
+  gradient ; le gradient cumulé fait saturer le réseau, la perte se fige à
+  0,500000, 2/4.
+- **`NKConvTest` passe des deux côtés** : ses boucles utilisent Adam, dont le pas
+  `m̂/(√v̂+ε)` est **quasi invariant à l'échelle** du gradient. Le défaut ne se
+  voit donc pas — mais le gradient sur lequel Adam travaille est une **somme
+  cumulée depuis le début de la course**, pas le gradient du lot. C'est
+  exactement le « compte double, en silence » annoncé, en pire : ça ne double
+  pas, ça intègre indéfiniment.
+
+**Conséquence pratique** : une suite verte ne prouve pas qu'un appelant est sain.
+La majorité des boucles du dépôt étant sur Adam, l'option A appliquée seule
+laisserait passer la plupart des tests **tout en faussant l'entraînement partout**.
+
+### Les appelants qui comptaient sur le zérotage implicite
+
+Critère : `Backward()` appelé plusieurs fois sur des **feuilles persistantes à
+gradient requis** (paramètres de module), **sans** `ZeroGrad()` entre deux.
+Vérifié aussi que ni `NkAdam::Step()` ni `NkSGD::Step()` n'effacent le gradient
+(`NkOptim.cpp:130-160` et `:88-106`) — ils ne le font pas.
+
+**Noyau — c'est le plus grave, ce sont les aides partagées :**
+
+| fichier | fonction | ce qu'il attendait |
+|---|---|---|
+| `Kernel/AI/NKTrain/src/NKTrain/NkTrain.h:51` | `TrainEpoch` | `loss.Backward(); opt.Step();` par lot, **aucun `ZeroGrad` dans la fonction** |
+| `Kernel/AI/NKTrain/src/NKTrain/NkTrain.h:239` | `Fit` | idem, boucle par lot pilotée par callbacks |
+
+`TrainEpochAccum` (`NkTrain.h:129`) est **sain** : `opt.ZeroGrad()` ligne 119.
+
+**Applications (boucle sur paramètres persistants, aucun `ZeroGrad`) :**
+
+`NKConvTest:95,141` · `NKConvVAETest:118` · `NKDiffusionTest:336,438,548` ·
+`NKGen3DTest:120` · `NKGenMeshTest:116` · `NKGenTest:110` ·
+`NKMnistConvVAETest:140` · `NKMnistVAETest:132` · `NKNNTest:52,118,247,320` ·
+`NKObjectGenTest:150` · `NKVAETest:119` · `NKVoxelGenTest:128` ·
+`NKTrainTest:331,337` — plus tout ce qui passe par `TrainEpoch`/`Fit` :
+`NKTrainTest:45,131,266,183,213,241,385,412`, `NKInferTest:48,106`,
+`NKMeshAITest:493`.
+
+**Appelants SAINS, vérifiés un par un** (`ZeroGrad` avant le `Backward`, ou après
+le `Step`) : `NkGptTrainer.cpp:924` (la cible du correctif) · `NkDQN.cpp:173` ·
+`NkPPO.cpp:188,197` · `NKASRTest:177,291` · `NKLlamaBlockTest:85` ·
+`NKRebasinTransformer:612` · `NKRnnCtcTest:151` · `NKTTSTrain:615` ·
+`NkVoiceLoopDemo:209` · `NKTransformerTest:134` · `NKMlpResidentBench:116` ·
+`NKFp16Test:466`.
+
+**Sains parce que les feuilles sont NEUVES à chaque tour** (aucune persistance,
+donc rien à accumuler) : les 23 cas de `NKAutogradTest`, `NKConvResidentBench:76`,
+`NKMlpResidentBench:84`, `NKRnnCtcTest:32`, `NKTransformerTest:38`,
+`NKFp16Test:334,345`.
+
+### 🚫 `NKConvResidentBench` N'A PAS REÇU DE `ZeroGrad()`, ET C'EST DÉLIBÉRÉ
+
+**À lire avant d'« harmoniser ».** Onze applications de ce lot se ressemblent de
+loin : une boucle, un `Backward()`, aucun `ZeroGrad()`. **Dix en ont reçu un ;
+celle-ci non.** Sans cette note, quelqu'un corrigera l'écart dans six mois en
+croyant réparer un oubli — et le seul effet sera d'abîmer ce que le banc mesure.
+
+Les trois raisons, dans l'ordre où elles se vérifient
+(`Applications/NKConvResidentBench/src/main.cpp:71-81`) :
+
+1. **Il n'y a pas de feuille persistante.** `x` et `w` sont créés par
+   `NkVar::Leaf(...)` **à l'intérieur** de la lambda `step` : neufs à chaque
+   appel, détruits au retour. Aucun gradient ne survit d'un appel au suivant —
+   il n'y a rien à accumuler, donc rien à effacer.
+2. **Il n'y a aucun optimiseur.** Ni `NkAdam`, ni `NkSGD`, ni `Step()` — donc pas
+   même d'objet sur lequel appeler `ZeroGrad()`. Le « correctif » demanderait
+   d'abord d'inventer ce qu'il prétend corriger.
+3. **Ce n'est pas une boucle d'entraînement, c'est un banc.** `step` est appelé
+   plusieurs fois pour **chronométrer** le même calcul et confronter `dX`/`dW`
+   entre chemin CPU et chemin GPU. Sa validité repose sur l'**indépendance de
+   chaque appel** ; un état conservé d'un appel au suivant ferait de la deuxième
+   mesure autre chose que la première.
+
+*C'est la forme habituelle de ce chantier, prise à l'envers : partout ailleurs on
+a payé un état qui survivait sans qu'on le veuille. Ici il ne survit pas, et
+c'est l'ajouter qui serait le défaut.*
+
+### 🔎 LE MÊME PIÈGE À HUIT LIGNES DE LÀ OÙ IL AVAIT ÉTÉ RÉPARÉ — corrigé
+
+Ce n'est **pas une rechute du chantier n°1** : c'est le même piège, chez un autre
+appelant, à huit lignes du premier.
+
+Sous l'option A, `ZeroGrad()` devient le **seul** moyen d'effacer — donc un chemin
+jusque-là **mort** devient porteur. Or `NkVar::ZeroGrad()` posait
+`grad = NkTensor::Zeros(shape)` **sur CPU**, sans passer par `ZerosCommeSur`.
+
+Tant que `Backward()` réécrivait ce gradient juste après, ça ne coûtait rien.
+Sous l'option A il **survit** et devient la base de l'accumulation : `AccumGrad`
+aurait fait `ops::Add(zérosCPU, contribGPU)`, qui tombe sur `NkGpuAdd`
+(`NkTensorGpu.cpp:1509-1510`) et **monte l'opérande CPU** — soit ~20 M paramètres
+× 4 octets ≈ **79 Mo remontés par pas**, contre 4,27 Mo/pas après le chantier n°1.
+
+**Corrigé dans le même commit** : `ZeroGrad()` écrit désormais ses zéros **là où
+vit le paramètre** (`ZerosCommeSur`), donc côté GPU quand le paramètre y réside.
+
+⚠️ **Le contrat de `Grad()` n'a PAS bougé** : après `ZeroGrad()`, `Grad()` rend
+toujours des **zéros valides**. L'invalidation (poser `NkTensor{}`, que
+`AccumGrad` sait déjà absorber) aurait été moins chère encore, mais elle aurait
+rendu `Grad()` indéfini juste après un `ZeroGrad()` — *on aurait remplacé un
+échec silencieux par un autre, dans le commit même qui répare le premier.*
+Écarté pour cette raison, pas par oubli.
+
+**La leçon, parce qu'elle est plus générale que le cas** : un chemin que personne
+n'exerce n'est pas un chemin qui marche. Celui-ci était mort depuis assez
+longtemps pour que le chantier n°1 corrige son voisin immédiat sans le voir.
+
+### 🔧 CE QUI A ÉTÉ CHANGÉ, ET CE QUI RESTE OUVERT
+
+**Les deux familles d'appelants, comptées avant de corriger quoi que ce soit :**
+
+| famille | portée | traitement |
+|---|---|---|
+| **A — passent par `TrainEpoch`/`Fit`** | **6 applications, 14 sites** | réparées **sans y toucher**, par les deux lignes du noyau |
+| **B — appellent `Backward()` directement** | **13 applications, 20 sites** | une ligne chacune |
+
+Trois applications de la famille A n'étaient pas dans le premier relevé
+(`NKMnistCnnGpuTrain`, `NKMnistGpuTrain`, `NKRebasinTest`) : elles n'appellent
+jamais `Backward()` directement, donc un `grep` sur `Backward` ne les voyait pas.
+C'est le rendement de la réponse « réparer l'aide partagée » — elle attrape aussi
+ce que l'audit avait manqué.
+
+⚠️ **Et la réponse à « voulait-elle accumuler ? » est uniforme : AUCUNE.** Les 20
+sites font tous un `Backward(); Step();` par itération. **Le seul accumulateur du
+dépôt est `NkGptTrainer::Fit`** (plus `TrainEpochAccum`, qui était déjà correct).
+
+**Fichiers touchés :**
+
+| fichier | changement |
+|---|---|
+| `NKAutograd/NkVar.cpp` | option A dans `Backward()` ; `ZeroGrad()` écrit ses zéros côté GPU |
+| `NKTrain/NkTrain.h` | `ZeroGrad()` en tête de boucle dans `TrainEpoch` **et** `Fit` ; bloc d'en-tête sur les trois placements |
+| `NKNNTest`, `NKConvTest`, `NKTrainTest` | les 8 sites de la famille B nécessaires aux quatre suites |
+
+**✅ CLOS — les 10 applications restantes, 12 sites** : `NKConvVAETest` ·
+`NKDiffusionTest` (3) · `NKGen3DTest` · `NKGenMeshTest` · `NKGenTest` ·
+`NKMnistConvVAETest` · `NKMnistVAETest` · `NKObjectGenTest` · `NKVAETest` ·
+`NKVoxelGenTest`. Une ligne par site, identique aux huit déjà posées.
+
+### 🎯 LA PRÉDICTION « ELLES RESTERONT VERTES » ÉTAIT FAUSSE — mesuré
+
+J'avais écrit, et Claude l'avait repris : *« elles sont toutes sur Adam, donc
+elles ne tomberont pas ; elles entraîneront sur une somme cumulée en restant
+vertes »*. **La mesure la réfute : les DIX échouaient déjà.**
+
+**Provenance** : arbre `Nkentseu-ilyana`, `feat/ilyana-pdf`, base `5d61f7fd`,
+**configuration Release**, instrument PowerShell, 2026-08-16.
+
+| application | métrique finale AVANT → APRÈS | facteur | verdict |
+|---|---|---|---|
+| `NKConvVAETest` | recon MSE **0,21252 → 0,03199** | ×6,6 | 1 OK/1 KO → **2 OK/0** |
+| `NKGen3DTest` | MSE 3D **0,06435 → 0,00145** | **×44** | 0 OK/1 KO → **1 OK/0** |
+| `NKGenMeshTest` | MSE **0,05837 → 0,00150** | **×39** | 3 OK/1 KO → **4 OK/0** |
+| `NKGenTest` | MSE **0,11000 → 0,00210** | **×52** | 0 OK/1 KO → **1 OK/0** |
+| `NKMnistConvVAETest` | BCE **0,28226 → 0,13473** | ×2,1 | `[KO]` → **`[OK]`** |
+| `NKMnistVAETest` | BCE **0,30733 → 0,12939** | ×2,4 | `[KO]` → **`[OK]`** |
+| `NKObjectGenTest` | recon MSE **0,06900 → 0,00448** | ×15 | 0 OK/**4 KO** → **4 OK/0** |
+| `NKVAETest` | recon MSE **0,16601 → 0,03286** | ×5,1 | 1 OK/1 KO → **2 OK/0** |
+| `NKVoxelGenTest` | recon MSE **0,13370 → 0,01080** | ×12 | 2 OK/1 KO → **3 OK/0** |
+| `NKDiffusionTest` | *(journal non capturable)* | — | **exit 1 → exit 0** |
+
+**Zéro `[ KO ]` restant** sur les neuf applications qui impriment un verdict.
+
+⚠️ **Pourquoi je m'étais trompé, et c'est la partie utile.** Adam rend le défaut
+silencieux **dans une suite de tests** — `NKConvTest` passe des deux côtés, c'est
+mesuré. Il ne le rend **pas** silencieux dans un **démonstrateur qui affiche sa
+métrique** : là, l'erreur de reconstruction stagne ou **monte** au lieu de
+descendre (`NKGen3DTest` : 0,05536 → 0,05837 → 0,06435 aux époques 300/400/500).
+*Le défaut n'était pas muet, il était NON LU* — ces dix criaient en rouge dans une
+sortie que personne n'exécutait.
+
+**Ce que ça corrige dans le raisonnement d'origine** : « toutes sur Adam » disait
+quelque chose de vrai sur les **assertions binaires**, et je l'ai étendu aux
+**métriques continues**, qui n'ont pas la même propriété. Une invariance
+d'échelle protège un seuil, pas une trajectoire.
+
+### ✅ LES DEUX CONFIGURATIONS, COMME LE VEUT LA RÈGLE DE PROVENANCE
+
+**Debug rejoué en entier** (10 builds, 10 exécutions, 2026-08-16 22:05-22:23) :
+
+- **zéro `[ KO ]`** sur les neuf applications qui impriment un verdict ;
+- **métrique finale IDENTIQUE au dernier chiffre** entre Debug et Release, pour
+  les neuf — `0,03199`, `0,00145`, `0,00150`, `0,00210`, `0,13473`, `0,12939`,
+  `0,00448`, `0,03286`, `0,01080` ;
+- `NKDiffusionTest` : **14 OK / 0 échec** (2D inconditionnel 0 KO, conditionnement
+  0 KO, 3D 0 KO). *Son journal n'est capturable qu'en Debug — en Release il
+  n'écrit sur aucun flux redirigeable, seul son code de retour parle.*
+
+**Aucun écart Debug/Release**, donc rien à expliquer de ce côté.
+
+### 🧰 TROIS DÉFAUTS D'INSTRUMENT RENCONTRÉS PENDANT CETTE CAMPAGNE
+
+Ils n'ont rien à voir avec le correctif, et chacun aurait produit un chiffre faux.
+
+**1. ⚠️ `Copy-Item` conserve l'horodatage — le build ment sans erreur.**
+La restauration des dix `main.cpp` depuis une sauvegarde leur a redonné un
+`LastWriteTime` **plus ancien** que ce qu'ils remplaçaient. `jenga` a conclu « à
+jour », **n'a pas recompilé**, a relié, et annoncé `Build Successful`, 24/24,
+exit 0. Le binaire « APRÈS » a rendu la trajectoire de l'AVANT **chiffre pour
+chiffre** (`0,20605`, `0,21252`, KL `9,740`, `20,176`).
+*Ce qui a sauvé la mesure : l'identité EXACTE était invraisemblable.* Un correctif
+qui ne déplace rien à quatre décimales sur 500 époques n'existe pas.
+→ **Après toute copie de source, forcer l'horodatage**, et vérifier
+**binaire plus récent que source** — jamais se contenter de `Build Successful`.
+
+**2. ⚠️ Git Bash rend `exit=127` sans une ligne de sortie** sur les deux
+applications MNIST. Le binaire existe, aucune dépendance ne manque, et depuis
+PowerShell elles tournent parfaitement. Contre-épreuve : là où Git Bash marchait,
+PowerShell rend **exactement** les mêmes chiffres. → **un seul instrument par
+campagne.**
+
+**3. ⚠️ Les deux applications MNIST ont une synthèse qui NE PEUT PAS échouer :**
+```
+printf("\n=== Résultat : %d OK, 0 échec(s) ===\n", 1);
+return 0;
+```
+Compte **codé en dur**, retour inconditionnel — alors que la ligne juste au-dessus
+affiche `[ KO ]` avec la vraie valeur. Lire la synthèse ou le code de retour fait
+conclure « vert » sur une application qui vient d'échouer. **Chez elles, seul le
+marqueur `[ OK ]`/`[ KO ]` discrimine.** *Dette nommée : leur synthèse devrait
+compter les vérifications réelles.*
+
+### ⚠️ `NKConvTest` est AVEUGLE, et c'est écrit dans le fichier
+
+`NKConvTest` passe **des deux côtés** du correctif : ses boucles sont sur Adam,
+qui masque le défaut. Il ne peut donc pas échouer sur une régression de la
+sémantique du gradient — sa ligne verte ne vaut rien sur ce sujet.
+
+Plutôt que d'y dupliquer un témoin qui appartient à `NKAutograd`, l'avertissement
+est écrit **en tête de `Applications/NKConvTest/src/main.cpp`** : ce qu'il ne
+teste pas, pourquoi il est resté vert pendant que les paramètres s'entraînaient
+sur une somme cumulée, et où vit le témoin qui discrimine.
+
+*Une suite verte dont un membre ne peut pas échouer donne une fausse assurance
+proportionnelle à sa taille.*
+
+### ✅ NE PAS TOUCHER AU `1/N` — il était DÉJÀ correct
+
+`scaled = MulScalar(loss, 1.0/ACCUM)` (`NkGptTrainer.cpp:923`) **n'est pas un
+défaut et ne doit pas être « réparé »**.
+
+Avec l'accumulation réparée, la somme de `N` micro-lots chacun divisé par `N`
+donne **la moyenne**, ce qui est exactement ce qu'on veut. Seule l'accumulation
+manquait. Corriger « aussi » le `1/N` diviserait **deux fois** et donnerait
+`lr/N` — c'est-à-dire précisément le défaut qu'on cherche à supprimer,
+réintroduit par le correctif censé le lever.
+
+*C'est écrit ici parce qu'un lecteur pressé, voyant « lot effectif et taux N fois
+trop petits », corrigera les deux endroits qui portent un `N`.*
+
+### 📉 Courses de dimensionnement PÉRIMÉES — à refaire, mais pas par un agent
+
+**Ne pas les relancer : c'est à Rodolf de décider ce qu'il remesure et quand.**
+
+Toute course lancée avec `accum > 1` — donc **toute course lancée sans `--accum`
+explicite**, la valeur par défaut étant 4 (`main.cpp:693`) — n'a pas mesuré ce
+qu'elle annonçait :
+
+```
+annoncé   B=6 --accum 4  ->  lot effectif 6 144 jetons, taux lr
+réel      B=6 --accum 4  ->  lot effectif 1 536 jetons, taux lr/4
+après     B=6 --accum 4  ->  lot effectif 6 144 jetons, taux lr
+```
+
+Sont donc périmés :
+
+1. **Tout le tableau de dimensionnement du 2026-08-09**
+   (`Kernel/AI/ROADMAP.md:1028-1032`), qui se présente comme trois configurations
+   « à même lot effectif de 6 144 » : leurs lots réels étaient **6, 12 et 24**, à
+   `lr/4`, `lr/2` et `lr`. Ce n'était pas une comparaison à lot constant, c'était
+   un balayage de lot ET de taux simultané.
+2. **Toute mention de « lot effectif » pour `accum > 1`**, dont
+   `Kernel/AI/ROADMAP.md:1014`.
+3. **Le débit de 845 tokens/s à B=12/accum=2** (`ROADMAP.md:348`) : le débit
+   lui-même reste bon (c'est du travail réellement effectué), mais il est étiqueté
+   avec un lot effectif qui n'a pas eu lieu.
+
+**Ce qui n'est PAS périmé :** le jalon « l'identité est dans les poids »
+(B=12/accum=2). Il a réellement eu lieu, à lot 12 et `lr/2`. C'est son
+**dimensionnement** qui était mal nommé, pas son résultat.
+
+⚠️ **Et le grand run doit attendre le correctif** : sinon il tourne à un quart du
+lot et du taux annoncés, et six semaines de machine se décident sur un chiffre
+faux.
+
+---
+
 ## Synthèse
 
 | chantier | statut | où en est-on |
@@ -27,9 +460,216 @@
 | Corpus RÉEL (Wikipédia FR) | 🔶 | **2,1 Go déjà sur disque**, à préparer |
 | Charte de comportement (valeurs) | ⏳ | spécifiée ci-dessous, à écrire en corpus |
 | Récupération documentaire (elle va LIRE au lieu de deviner) | ⏳ | la vraie réponse à l'hallucination |
-| Accélération du moteur d'entraînement | ⏳ | GPU à **28-41 %**, viser ×2-3 |
+| Accélération du moteur d'entraînement | 🔶 | budget mesuré par noyau (15/08), **corrigé le 16/08** : l'instrument attribuait mal. **Chantier n°1 FAIT** — on ne monte plus 12,7 Go de zéros par pas (12 770 → 13,2 Mo/pas). Restent n°2 (réserve de tampons) et n°3 (un tampon de commandes par pas), qui commandent tout le reste |
 | Boucle de correction (apprendre de ses torts) | ⏳ | consigner → verser au corpus → réentraîner |
 | Orchestration des sous-systèmes (modéliser, animer, parler…) | ⏳ | cap final |
+
+
+---
+
+## 🔭 LES TROIS HORIZONS (règle du `CLAUDE.md` parent, mise à jour 2026-08-15)
+
+| horizon | objectif | état |
+|---|---|---|
+| **court** — la semaine | fragment d'identité sorti, validation coupée, corpus pré-tokenisé | 3 sur 4 faits ; **l'écriture binaire des identifiants reste à faire** |
+| **moyen** — le jalon | ramener le grand run de ~12 jours à moins de 2 jours | budget mesuré, ordre de bataille arrêté (ci-dessous) |
+| **long** — ce à quoi le module sert | **Ilyana chef d'orchestre du moteur, pas produit** : `ForwardStep`, attention en flux pour `ilyana-code`, intégration aux applications | aucun des trois n'est sur le chemin court, et c'est ce que l'horizon long rend visible |
+
+---
+
+## ⚙️ RENDEMENT DU MOTEUR D'ENTRAÎNEMENT — budget MESURÉ par noyau (2026-08-15)
+
+**Ce bloc remplace l'estimation « chantier rendement, 6 à 10 jours » et le
+pré-requis « le GPU tourne à ~0,2 % de sa crête ».** Détail complet, avec la
+méthode et les pièges, au carnet : `CARNET.private.md` § *0vicies. PROFIL PAR
+NOYAU*.
+
+### Provenance
+
+RTX 3070 Laptop, bureau au repos (`nvidia-smi` : 2 %). `NKIlyana.exe` du 15/08
+18:30 (branche `feat/ilyana-pdf`). `--llama --tying --d 640 --layers 10 --heads 8
+--T 256 --B 6 --accum 4`, `fr_course.txt` coupé à 5 M caractères, 6 pas dont
+5 profilés. **Deux exécutions identiques**, et elles ne disent pas la même chose
+partout — d'où les fourchettes.
+
+### Le budget d'un pas (33 à 36 s)
+
+| poste | part mesurée (2 exécutions) | pourquoi |
+|---|---|---|
+| **hôte** : `~upload` + `~alloc` + `~free` | **36 à 42 %** | 2 704 transferts et 9 316 allocations **par pas** |
+| `softmax_rows` | 13,1 à 14,2 % | **8 appels/pas à ~0,6 s** — un fil par ligne sur 6 144 lignes × 32 769 colonnes |
+| `matmul_t4` | 9,9 à 15,9 % | ~~pavage 4×4 en registres : intensité 1 FLOP/octet, donc **2 à 4 % de la crête**~~ ⚠️ **RÉFUTÉ le 16/08 : mesuré à 5,25 % de la crête** (1 066 GFLOP/s), reproductible à 0,02 %. Le L2 sert les relectures, l'intensité effective est bien meilleure que 1. Voir § *BANC D'ÉCHELLE `matmul_t4`* |
+| `add` (élémentaire) | 10,5 à 10,7 % | 2 812 appels/pas ; **97 % du temps d'une addition n'est pas l'addition** |
+| hors instrumentation | 11 à 13 % | construction des lots, autograd CPU, journalisation |
+
+#### ⚠️⚠️ CE TABLEAU EST MAL ATTRIBUÉ — correction du 2026-08-16, à lire AVANT de s'en servir
+
+**L'instrument facture au NOYAU une partie du coût de l'allocation qui le précède.**
+Ce n'est pas une hypothèse : mesuré au banc, **le même dispatch `add` passe de
+~110 µs à ~570 µs du seul fait qu'un `CreateBuffer` le précède**, et l'écart
+(+430 à +480 µs) n'apparaît **pas** sur la ligne `~alloc`. `CreateBuffer` rend la
+main avant que le pilote ait engagé la mémoire ; l'attente retombe dans le
+`WaitIdle` du dispatch, donc sur la ligne du noyau. *(Cause alternative non
+séparée — premier accès à un tampon neuf — même remède, donc non départagée.)*
+
+Conséquences **sur les lignes ci-dessus**, pas ailleurs :
+
+| ligne du tableau | ce qu'elle dit | ce qu'il faut lire |
+|---|---|---|
+| `~alloc` + `~free` | 17,8 à 22,0 % | **sous-déclare** : + ~11-12 % cachés dans les lignes de noyaux, soit **~30-34 %** |
+| `softmax_rows`, `matmul_t4`, `add` | leur temps « GPU » | **surdéclarent** : l'essentiel du temps attribué à un noyau **n'est pas du temps GPU** |
+| le classement lui-même | cinq postes d'un sixième | la réserve de tampons passe de **×1,22-1,28 à ×1,43-1,52** |
+
+Les ~11-12 % sont une **extrapolation du banc vers la production** (9 316
+allocations/pas × ~440 µs de débordement ÷ un pas de 33-36 s), donnée comme telle.
+Une mesure directe demanderait des horodatages GPU.
+
+⚠️ **Donc : ne jamais lire une ligne de noyau de ce tableau comme du temps GPU**,
+et ne pas conclure « il faut optimiser tel noyau » à partir de son rang ici.
+
+### ⚠️ Ce que ça réfute, et qui était écrit ici
+
+1. **« Le tuilage du matmul apporte l'essentiel. »** FAUX. Borne supérieure, en
+   prenant l'exécution la plus favorable et un tuilage parfait : **×1,19**. Il en
+   faudrait ×13.
+2. **« Réparer l'hôte ne ramène le run qu'à 12 jours, ce sont les noyaux qui
+   décident. »** FAUX aussi : supprimer TOUT le bloc hôte vaut au plus ×1,7, et
+   l'hôte est le plus gros poste du tableau. Les deux moitiés du dilemme étaient
+   fausses parce que **le vrai substrat n'est ni l'un ni l'autre : c'est le NOMBRE
+   d'opérations** — 28 119 par pas, à ~0,23 ms de coût fixe chacune.
+   ⚠️ **Chiffre corrigé le 16/08** : ce « ~0,23 ms » était déduit d'un plancher
+   observé sur les lignes du profil. **Mesuré directement au banc d'échelle, le
+   coût fixe par dispatch est de 107-121 µs**, soit deux fois moins. Le reste de
+   ce que le profil attribuait au coût fixe est du coût d'**allocation** (§ ordre
+   de bataille ci-dessous). La conclusion « c'est le nombre d'opérations » tient ;
+   c'est sa décomposition qui change.
+
+### ⚠️ ORDRE DE BATAILLE — RÉVISÉ LE 2026-08-16 par deux mesures
+
+Le classement ci-dessous **remplace** celui du 15/08. Deux mesures l'ont changé :
+le banc d'échelle sur `add` (`NkTensorGpuTest --banc-add`) et l'attribution des
+bascules CPU→GPU par adresse de retour. Détail complet et provenance :
+`CARNET.private.md` §§ *0unvicies* et *0duovicies* (arbre principal).
+
+**Ce qui a changé, en une phrase** : les postes n°1 et n°2 de l'ancien classement
+sont **un seul défaut**, et le n°2 est devenu le geste le moins cher du chantier.
+
+| # | chantier | part mesurée | ce que ça vaut SEUL | coût |
+|---|---|---|---|---|
+| 1 | ✅ **FAIT le 2026-08-16 — ne plus monter des ZÉROS** : `NkVar::Backward()` remettait à zéro chaque accumulateur de gradient en fabriquant un tenseur CPU et en le montant — **12,7 Go de zéros par pas, 99,9 % de tous les uploads**. Remède livré : `NkGpuZeros()` alloue et remet à zéro **sur place** (`ClearBuffer` → `vkCmdFillBuffer`). Trafic CPU→GPU : **12 770 Mo/pas → 13,2 Mo/pas** | annoncé 18,2-19,9 % | **mesuré : ×1,05 à ×1,14** (lignes directement attribuées ; borne INFÉRIEURE) | fait |
+| 2 | **réserve de tampons** : recycler par taille au lieu de créer/détruire 9 316 fois par pas. **Revalorisé** : le profil facture une partie du coût d'allocation aux NOYAUX (mesuré : un dispatch passe de ~110 µs à ~570 µs du seul fait qu'un `CreateBuffer` le précède) | 17,8-22,0 % **+ ~11-12 % cachés dans les lignes de noyaux** | **×1,43 à ×1,52** | jours |
+| 3 | **un tampon de commandes par pas** au lieu d'un `WaitIdle` par dispatch : **le plancher est mesuré à 107-121 µs par dispatch**, × 28 119 opérations/pas | ~19 % | agit sur 3, 4, 5 | jours |
+| 4 | **`softmax_rows`** : un groupe de fils par ligne, réduction en mémoire partagée, 2 passes au lieu de 3 | 13,1-14,2 % | ×1,15 à ×1,17 | jours |
+| 5 | ⚠️ **`matmul_t4`** : pavage en mémoire partagée (intensité 1 → 16) — **PRÉMISSE RÉFUTÉE le 16/08** : l'intensité effective est déjà bien au-dessus de 1 (le L2 sert les relectures), le noyau mesure **5,25 % de la crête** et non 2-4 %. Le gain est **plus petit qu'annoncé** ; ×1,11-×1,19 est désormais une **borne supérieure très optimiste**. **Déclassé.** | 9,9-15,9 % | < ×1,11 | jours |
+| 6 | **fusion des chaînes élémentaires** | 10,5-10,7 % | ×1,12 | jours |
+
+⚠️ **Les parts ne s'additionnent pas.** n°1 et n°2 comptent les mêmes objets :
+`NkTensor::ToGPU()` fait `CreateBuffer` **puis** `Upload`, donc chaque bascule
+CPU→GPU pèse une fois dans chacun — 2 704 des 9 316 allocations par pas (29 %)
+sont ces uploads. C'est une lecture du code, pas une corrélation mesurée.
+
+⚠️ **n°4, n°5 et n°6 attaquent des symptômes.** Le temps qu'ils réduisent est du
+temps GPU ; or la mesure montre que l'essentiel du temps attribué à un noyau n'en
+est pas — c'est du coût fixe de lancement et du coût d'allocation débordé.
+
+### Le banc d'échelle `add` : le résultat, et ce qu'il ferme
+
+Question posée le 15/08 : *« pourquoi `add` est-il 40× sous sa bande passante ? »*
+**Réponse : il ne l'est pas.** La prémisse était fausse.
+
+```
+coût fixe par dispatch  : 107-121 µs   (plat sur un facteur 256 en taille)
+débit marginal          : 303-430 Go/s (68 à 96 % de la crête de 448 Go/s)
+```
+
+Décomposition d'un appel `add` de production (N = 1 258 291, 15,1 Mo) :
+**~110 µs de lancement + ~38 µs de bande passante = ~148 µs.** La production en
+mesure 1 364 : le reste est du coût d'**allocation facturé au noyau**.
+
+Écarté avec son chiffre : l'état du périphérique. Trois lests — 9 316 tampons
+vivants / 5,5 Go de VRAM / les deux — **ne changent rien** (150-169 µs dans tous
+les cas). Si cette hypothèse avait tenu, aucune réserve de tampons n'aurait servi.
+
+### Dette d'instrument, nommée
+
+1. La colonne `Go/s` du profil est **fausse** pour les noyaux dont le paramètre
+   `count` compte des fils et non des éléments (`softmax_rows`, `rmsnorm_*`,
+   `softmax_causal`). Leur **temps** est juste ; leur **débit** ne l'est pas. À
+   corriger en passant le nombre d'éléments à `NkGpuChrono::Travail`.
+2. **Le profil attribue au noyau une part du coût de l'allocation qui le
+   précède** (mesuré : +430 à +480 µs). → **Détail, chiffres et conséquences sur le
+   classement : dans le bloc « CE TABLEAU EST MAL ATTRIBUÉ », juste sous le tableau
+   du budget d'un pas.** Il est là-haut et pas ici parce qu'un tableau faux dont la
+   correction est rangée ailleurs reste un tableau faux — c'est un **renvoi**, pas
+   une copie : deux copies d'un même fait divergent.
+3. ✅ **RÉGLÉ le 2026-08-16** — *« le paramètre `device` des fabriques
+   `NkTensor::Empty`/`Zeros`/`Ones`/`Full` n'est PAS honoré pour `NK_GPU` »*.
+   `Empty` **refuse** désormais `NK_GPU` : elle signale au compteur de défauts que
+   l'entraînement consulte et renvoie un tenseur **invalide**, au lieu d'en rendre
+   un qui ment. Pour un tenseur de zéros résident GPU : **`NkGpuZeros(shape,
+   dtype)`** (`NKTensor/NkTensorGpu.h`), qui alloue et remet à zéro **sur place**.
+   *(Périmètre vérifié avant le changement : aucun appelant du dépôt ne passait
+   `NK_GPU` à ces fabriques — les seuls appels à trois arguments passent
+   `NkDevice::NK_CPU` explicitement.)*
+   Règle qui en sort, promue au corpus : *un paramètre qui n'est pas honoré est
+   pire qu'un paramètre absent — l'absence force à chercher, la présence dispense
+   de vérifier.*
+
+### ✅ `NkICommandBuffer::ClearBuffer` — n'existait QUE SUR LE PAPIER, réparé le 2026-08-16
+
+> **Où ça en est.** Le corps de base **parle** (journal « non implémenté sur ce
+> backend ») au lieu d'être un no-op muet, et **Vulkan** le surcharge
+> (`vkCmdFillBuffer`). Les cinq autres backends ne sont **pas** touchés : ils
+> tombent sur l'avertissement, ce qui est le comportement voulu — bruyamment
+> incomplet plutôt que silencieusement faux. Fichiers touchés dans NKRHI (module
+> partagé) : `Commands/NkICommandBuffer.h`, `Commands/NkICommandBuffer.cpp`
+> (nouveau), `Vulkan/NkVulkanCommandBuffer.{h,cpp}`. Par ricochet,
+> **`NKRHI/Core/NkML.cpp:77` et `:106` sont réparés sur Vulkan**.
+>
+> ⚠️ Et NKTensor **ne fait pas confiance à la signature** : `ClearDisponible()`
+> vérifie par un **témoin** (écrire un motif non nul → `Clear` → relire → exiger
+> des zéros) et se replie sur le chemin historique si le témoin échoue. C'est
+> exactement l'erreur ci-dessous qu'on refuse de refaire.
+>
+> ⚠️ **Reste au même endroit, non traité** : `ClearTexture` (`NkICommandBuffer.h`)
+> a la **même forme** — corps vide dans l'interface. Non vérifié, non touché : hors
+> mandat. À qui travaille sur NKRHI, c'est le prochain à regarder.
+
+**Ce qui suit est le diagnostic d'origine, conservé — il vaut plus que le correctif.**
+
+**Correction à ce que j'avais écrit une heure plus tôt dans cette même ROADMAP.**
+J'avais annoncé « le remède existe déjà, `NKRHI/Core/NkML.cpp:77` l'utilise ».
+C'était un `grep` pris pour une implémentation.
+
+`ClearBuffer` est déclaré dans `Commands/NkICommandBuffer.h:277` **avec un corps
+vide**, et **aucun** des six backends ne le surcharge :
+
+| backend | `ClearBuffer` | témoin `CopyBuffer` |
+|---|---|---|
+| Vulkan | **0** | 2 |
+| DirectX11 | **0** | 2 |
+| DirectX12 | **0** | — |
+| OpenGL | **0** | 6 |
+| Software | **0** | — |
+| Metal | **0** | — |
+
+*(Périmètre : les six `Nk*CommandBuffer.h` de `Kernel/Runtime/NKRHI/src/NKRHI/`.
+Témoin `CopyBuffer` pour prouver que la commande sait trouver une surcharge.)*
+
+**Tout appel à `ClearBuffer` est donc un no-op silencieux sur toutes les
+plateformes.** C'est la face « une protection qui ne protège rien », dans sa forme
+la plus coûteuse : un virtuel à corps vide ne se distingue pas d'un virtuel
+implémenté, au point d'appel comme à la lecture.
+
+⚠️ **Conséquence hors de mon chantier, relayée puis traitée** : `NKRHI/Core/NkML.cpp:77`
+(`cmd->ClearBuffer(t.grad, 0)`, commentaire « Init gradient à zéro ») et `:106`
+comptent dessus. **Ces tampons n'étaient mis à zéro nulle part, sur aucun backend.**
+Quelqu'un avait écrit l'INTENTION en commentaire, personne n'avait écrit
+l'implémentation, et **le commentaire a servi de preuve** pendant tout ce temps.
+
+**La leçon, qui survit au correctif** : *un appelant ne prouve rien sur l'appelé ;
+il prouve que quelqu'un d'autre a cru la même chose que moi.* Devant un `virtual`,
+chercher **qui le SURCHARGE**, avec un témoin — pas qui l'appelle.
 
 ---
 
@@ -916,3 +1556,412 @@ de plus.
   un seul bloc, masquage inopérant, sans message. Normaliser à la lecture.
 - ⚠️ **Runtime C++ dédoublé** (mingw64 vs ucrt64) : corruption de tas dans
   glslang au premier noyau compute. Corrigé par `-static-libstdc++ -static-libgcc`.
+
+## ⚠️ Condition de faisabilité d'ilyana-code : l'attention doit passer EN FLUX
+
+**Constat mesuré (14 août 2026).** `NkRoPEAttention::Forward` **matérialise** la
+matrice de scores : trois tenseurs `[B, têtes, T, T]` successifs par couche
+(`scores`, sa version mise à l'échelle, `attn`), et le backward de `SoftmaxCausal`
+retient sa sortie — `attn` survit donc jusqu'à la passe arrière.
+
+Ce terme croît en **T²**. De T=256 à T=2048, il est multiplié par **64**, pas par 8 :
+
+| T | terme d'attention (B=6, 8 têtes, 12 couches) | à B=1 |
+|---|---|---|
+| 256 | 432 Mo | 72 Mo |
+| 512 | 1 728 Mo | 288 Mo |
+| 1 024 | 6 912 Mo | 1 152 Mo |
+| 2 048 | 27 648 Mo | 4 608 Mo |
+
+**Conséquence.** RoPE a été retenu parce qu'il permet d'étendre le contexte sans
+réentraîner — c'est l'argument qui a emporté la décision d'architecture, et c'est ce
+qui rend `ilyana-code` possible (lire des fichiers source demande un long contexte).
+**Mais l'extension n'est PAS accessible par la seule mémoire disponible** : même à
+B=1, T=2048 coûte 4,6 Go sur ce seul terme, sur une carte de 8 Go dont ~800 Mo
+partent au bureau.
+
+**Une attention calculée par blocs, sans jamais stocker la matrice complète, est
+donc un PRÉ-REQUIS à toute extension de contexte** — un chantier, pas un réglage.
+Toute extrapolation linéaire de la marge mémoire serait fausse d'un facteur 8 à
+T=2048.
+
+⚠️ Ne pas confondre avec une optimisation de vitesse : ici c'est la FAISABILITÉ
+qui est en jeu, pas le confort.
+
+### Ordre de grandeur du chantier « attention par blocs »
+
+Chiffré grossièrement, pour qu'`ilyana-code` ne repose pas sur une étape dont le
+coût est inconnu.
+
+**Ce qu'il faut écrire** : un noyau qui, pour chaque bloc de requêtes, parcourt les
+blocs de clés/valeurs en tenant un maximum courant et une somme courante
+(softmax en ligne), sans jamais matérialiser `[B, têtes, T, T]`. Plus son backward,
+qui doit **recalculer** les scores par blocs au lieu de les relire.
+
+| poste | estimation |
+|---|---|
+| noyau avant (softmax en ligne, tuilage) | 2 à 3 jours |
+| noyau arrière (recalcul par blocs — la partie délicate) | 3 à 5 jours |
+| équivalence numérique contre le chemin actuel, avant ET arrière | 1 jour |
+| réglage de la taille de tuile selon la mémoire partagée | 1 à 2 jours |
+| **total** | **7 à 11 jours** |
+
+**Ce qui rend l'estimation fragile** : le backward par recalcul est l'endroit où
+ce genre de noyau se casse en silence (indexation du masque causal, cumul des
+maxima). L'oracle existe — le chemin actuel — donc la vérification est possible,
+mais c'est elle qui prendra le temps, pas l'écriture.
+
+**⛔ CHIFFRÉ ET ÉCARTÉ POUR L'INSTANT (2026-08-15).** Le profil par noyau mesure
+ce que ce chantier optimiserait : `bmatmul` + `softmax_causal` + `softmax_bwd` =
+**1,8 à 2,0 %** du temps d'un pas. Plafond de gain : **×1,02**, pour 7 à 11 jours
+de travail. À rouvrir quand les cinq lignes de l'ordre de bataille (§ *Rendement
+du moteur d'entraînement*) seront tombées — pas avant. La condition de faisabilité
+d'`ilyana-code` reste vraie ; c'est son moment qui est faux.
+
+## ⏳ À FAIRE — réglage d'identité APRÈS le grand run (décision Rodolf, 15/08/2026)
+
+**Décision prise, branche 3 sur trois.** L'identité d'Ilyana passe par un
+**réglage après le grand run**, pas par le corpus de base.
+
+| | elle sait | modifiable |
+|---|---|---|
+| 1 · contexte système seul | non | une ligne |
+| 2 · corpus de base *(ancien choix)* | oui | réentraînement |
+| **3 · réglage après le run** ✅ | **oui** | **quelques heures** |
+
+**La raison est la dose, et elle est mesurée** : le jeu de 155 formulations pèse
+**0,057 %** du signal fondu dans le socle, contre **100 %** pendant un réglage
+dédié — facteur **~1 800**. La branche 2 demandait à 130 000 tokens de tenir tête
+à 438 millions.
+
+### Ce que ça implique, concrètement
+
+- [x] le fragment d'identité est **déjà séparable** — contigu, octets 0 à 516 149,
+      pur à 99,4 % → interrupteur de configuration, **pas** de re-tokenisation ;
+- [ ] **le grand run tourne sur la prose seule** ;
+- [ ] le fragment est **CONSERVÉ TEL QUEL** — les 155 formulations deviennent le
+      jeu de réglage post-run. **Ne pas le réduire, ne pas le jeter** ;
+- [ ] **forme finale : les poids ET le contexte** — le réglage pour qu'elle sache,
+      le contexte système comme filet corrigeable en une ligne quand les poids
+      hésitent. L'opposition entre les deux documents venait de croire qu'il
+      fallait choisir.
+
+### Documents à corriger — les DEUX, pas un
+
+| document | état |
+|---|---|
+| `Cours_Socle_LLM/md/07-rendre-utile.md` (« jamais dans les poids ») | Claude s'en charge |
+| `Applications/NKIlyana/CARNET.private.md` §8 (« jamais dans une consigne système ») | ✅ **corrigé le 15/08** |
+
+La branche 3 n'était envisagée par **aucun** des deux : elle est née de la mesure
+du 14 août. Chacun disait « jamais l'autre », et la réponse était « les deux, dans
+le bon ordre et à la bonne dose ».
+
+### Vérification après le réglage
+
+Rejouer le harnais des 30 cas — en particulier les **7 cas de généralisation** et
+les **4 pièges de parenté**, dont l'absence du corpus a été vérifiée. Référence
+actuelle sur point de reprise faible : **11/30**, dont 1/7 en généralisation et
+3/5 sur les formulations présentes dans le corpus (Fisher p = 0,222 : le contraste
+n'est pas encore significatif, le point de reprise est trop jeune).
+
+## ✅ Chantier n°1 — ne plus monter de zeros : MESURE, gain x1,57 (16 aout 2026)
+
+Le poste n°1 de l'ordre de bataille est **clos par la mesure**, pas seulement par
+le correctif.
+
+| | |
+|---|---|
+| gain mesure | **36,5 %** du temps d'entrainement, acceleration **x1,57** |
+| protocole | 8 courses, meme binaire, interrupteur `NK_ZEROS_LEGACY` |
+| separation | plages disjointes : `LEGACY` le plus rapide (71,0 s) > `NEUF` le plus lent (62,8 s) |
+| appariement le plus defavorable | **11,5 %** |
+| `~upload` | 7 840 -> 560 appels ; 17 143 -> 400 ms (**−97,7 %**) |
+| trafic | **12,77 Go/pas -> 4,27 Mo/pas** |
+
+**Le gain depasse la borne annoncee (18,2-19,9 %) parce que la borne ne comptait
+que la ligne `~upload`.** `ToGPU` faisant `CreateBuffer` puis `Upload`, supprimer
+la bascule supprime aussi 2 704 allocations par pas : 41 % du gain vient de la,
+et non de la ligne des uploads. L'extrapolation « reserve de tampons a ~30-34 % »
+est confirmee.
+
+### Ce que la mesure a corrige dans sa propre methode
+
+1. **Alterner les modes ne suffit pas, il faut alterner l'ORDRE.** Premiere
+   tentative : `NEUF` toujours en second, alors que la machine s'accelere de
+   **25 %** au fil des courses (`LEGACY` : 94,9 -> 71,0 s sans rien changer).
+   L'avantage de position se deposait entierement sur un bras. Resultat encadre
+   entre 11 et 40 % — donc aucun resultat.
+2. **Un temoin non touche qui bouge invalide la comparaison.** La comparaison
+   naive avec le profil du 15/08 donnait la fenetre 41 % PLUS LENTE et
+   `matmul_t4` — non modifie — 44 % plus lent. Une regression allait etre
+   annoncee ; c'etait la machine, pas le code.
+
+### Ce qui reste ouvert sur ce front
+
+- **`~alloc` et `~free` restent les deux premiers postes** (26,9 % et 20,5 % apres
+  correctif) : 26 908 allocations par fenetre de 7 pas, INCHANGE. Le chantier
+  « reserve de tampons » n'est pas entame — seule la part liee aux uploads est
+  tombee.
+- **`~clear` apparait a 12,8 %** : c'est le cout du remede. Il reste tres
+  inferieur a ce qu'il remplace, mais il n'est pas gratuit et il est now le 3e
+  poste.
+- Le noyau `matmul_t4` varie toujours d'un facteur ~1,8 entre executions, non
+  explique (perimetre reduit : le banc `add` se reproduit a 15 % pres, donc
+  l'instabilite est propre a ce noyau).
+  → ⚠️ **RÉSOLU ET BORNÉ le 2026-08-16, section ci-dessous.** La variance n'est
+  pas une propriété du débit : c'est la **queue de gigue de lancement**, et elle
+  ne domine que sur les petits dispatches.
+
+---
+
+## 🔬 BANC D'ÉCHELLE `matmul_t4` — 2026-08-16
+
+**`NkTensorGpuTest --banc-matmul`**, écrit ce jour sur le modèle du banc `add`.
+Il appelle `RunMatMul`, c'est-à-dire **le chemin de production lui-même** (ce
+qu'appelle `ops::Matmul`), et non une reconstruction : toutes les tailles
+respectent `M*N >= 65536 && K >= 16`, donc passent bien par `matmul_t4` et non
+par le naïf.
+
+### Montage déclaré — sans lui le chiffre n'est pas rejouable
+
+| | |
+|---|---|
+| machine | Intel Core i7-10870H, 31,8 Go RAM, Windows 11 |
+| GPU | **NVIDIA GeForce RTX 3070 Laptop**, pilote 31.0.15.3161 (2023-04-08) |
+| backend | **Vulkan** |
+| arbre | `Nkentseu-ilyana`, `feat/ilyana-pdf`, base `c3874647` |
+| configuration | **Release**, binaire contrôlé **FRAIS** (plus récent que sa source) |
+| protocole | 15 répétitions par point, 3 de chauffe jetées, **2 passes témoin** |
+| horloge | **murale hôte** (`NkChrono`) — inclut lancement et synchronisation |
+| machine | **libre** : aucun autre travail GPU pendant la campagne (vérifié) |
+
+⚠️ **Le « % de crête » est calculé sur 20 300 GFLOPS, chiffre HÉRITÉ de la
+ROADMAP.** C'est la crête d'une RTX 3070 **de bureau** ; la carte ici est une
+**Laptop**, dont la crête FP32 est plutôt ~16,6 TFLOPS. **Les pourcentages
+ci-dessous sont donc SOUS-ESTIMÉS d'environ 20 %.** Je le dis au lieu de le
+propager en silence — et la conclusion tient sous les deux chiffres, ce qui est
+le seul point qui compte ici.
+
+### 1. ✅ LA VARIANCE DE ~1,8× EST EXPLIQUÉE, ET ELLE N'EST PAS OÙ ON LA CROYAIT
+
+**Elle dépend de la TAILLE, et elle s'effondre à la taille de production.**
+
+| forme | max/min (passe 1) | max/min (passe 2) |
+|---|---|---|
+| 128×512×64 | **2,93** | **4,62** |
+| 256×512×128 | 1,35 | 1,11 |
+| 512×512×256 | 1,22 | 1,12 |
+| 1536×640×640 (PROD) | 1,07 | 1,08 |
+| 1536×2560×640 (PROD) | 1,05 | 1,02 |
+| 1536×32769×640 (PROD) | **1,02** | **1,02** |
+
+Et la **reproductibilité entre les deux passes**, sur le `min` :
+
+```
+1536x32769x640   60 426,8 -> 60 436,9 us    ecart 0,017 %
+1536x2560x640     4 831,5 ->  4 820,4 us    ecart 0,23 %
+1536x640x640      1 516,8 ->  1 442,9 us    ecart 4,9 %
+128x512x64          177,1 ->    167,4 us    ecart 5,5 %
+```
+
+🎯 **Conclusion, et elle change la façon de mesurer ce noyau** : la variance de
+~1,8× n'est **pas** une instabilité du débit. C'est la **queue de la gigue de
+lancement**, qui pèse relativement d'autant plus que le dispatch est court. Sur
+un dispatch de 60 ms, elle est invisible (1,02) ; sur un dispatch de 170 µs, elle
+atteint 4,6.
+
+→ **La statistique à lire sur ce noyau est le `min` (ou la médiane), jamais la
+moyenne ni le max.** Le `min` se reproduit à **0,017 %** à la taille de
+production. *Le mystère n'était pas dans le noyau, il était dans le choix de
+l'estimateur.*
+
+### 2. ⚠️ CE QUE LA MESURE RÉFUTE — « 2 à 4 % de la crête » est FAUX
+
+La ROADMAP écrit, tableau des noyaux : *« `matmul_t4` — pavage 4×4 en registres :
+intensité 1 FLOP/octet, donc **2 à 4 % de la crête** »*.
+
+**Mesuré, reproductible à 0,02 % :**
+
+| forme de production | GFLOP/s | % de crête (20,3 TFLOPS) |
+|---|---|---|
+| 1536×640×640 | 830 – 872 | 4,09 – 4,30 |
+| 1536×2560×640 | 1 042 – 1 044 | **5,13 – 5,14** |
+| 1536×32769×640 | 1 066 | **5,25** |
+
+**Mon propre modèle est réfuté par ma propre mesure**, et c'est le résultat le
+plus utile de ce banc. J'avais calculé un plafond de ~448 GFLOP/s (intensité
+1 FLOP/octet × 448 Go/s). **Le noyau mesure 1 066 GFLOP/s — 2,4× AU-DESSUS de mon
+plafond.**
+
+*Une mesure au-dessus d'un plafond accuse le modèle, pas la machine.* Le calcul
+« intensité = 1 FLOP/octet » compte **chaque lecture comme allant en DRAM**. En
+réalité le **cache L2 sert la majorité des relectures** de colonnes de B entre
+groupes de travail : le trafic DRAM effectif est très en dessous du compte naïf,
+et le noyau n'est donc **pas** limité par la bande passante à 448 Go/s.
+
+⚠️ **Conséquence directe sur le chantier n°5**, qui dit « pavage en mémoire
+partagée (intensité 1 → 16) » pour ×1,11 à ×1,19 : **sa prémisse est fausse.**
+L'intensité effective est déjà bien meilleure que 1 grâce au L2, donc **le gain
+attendu d'un pavage en mémoire partagée est plus petit qu'annoncé**. Le chiffre
+×1,11-×1,19 venait déjà du profil (mal attribué) ; il faut désormais le lire
+comme une **borne supérieure très optimiste**.
+
+### 3. ✅ CORROBORATION INDÉPENDANTE DU CHANTIER N°2 (réserve de tampons)
+
+L'écart **série B − série A** isole le coût d'une allocation, sur un noyau qui
+n'a rien à voir avec `add` :
+
+```
+128x512x64     +431,0 / +426,9 us
+256x512x128    +439,8 / +437,8 us
+512x512x256    +475,1 / +492,4 us      (passe 1 / passe 2)
+```
+
+**+427 à +492 µs par allocation** — cela tombe exactement sur les **+430 à
++480 µs** mesurés au banc `add`. *Deux noyaux sans rapport, la même valeur : le
+coût d'allocation n'est pas une propriété de `add`, c'en est une du pilote.* Le
+chantier n°2 en sort renforcé, cette fois par une mesure qui ne lui était pas
+destinée.
+
+Sur les grosses formes l'écart grandit avec la taille du tampon (+11,1 à
++12,6 ms pour le tampon de 201 Mo des logits), ce qui est cohérent.
+
+### 4. Ni le NOMBRE de tampons ni la VRAM ne ralentissent ce dispatch
+
+| série | ce qu'elle charge | effet sur le `min` de production |
+|---|---|---|
+| C1 | 9 316 tampons vivants (~38 Mo) | **aucun** (60 366 / 60 393 µs contre 60 427 / 60 437) |
+| C2 | 8 tampons, ~4 Go de VRAM | **aucun** (60 028 / 60 200 µs) |
+
+⚠️ **Une anomalie reproductible, non expliquée, et je ne la sur-interprète pas** :
+sur la seule forme `1536×2560×640`, la série C1 coûte **+28 à +29 %**
+(4 831 → 6 181 et 4 820 → 6 230 µs) alors que C2 ne montre rien. Reproduit sur
+les deux passes, donc ce n'est pas du bruit. *Beaucoup de petits tampons pénalise
+cette forme précise et pas les autres — cause non cherchée, signalée.*
+
+⚠️ **Et un piège évité par le témoin** : en passe 1, la série C2 semblait ralentir
+les petites tailles (207 contre 177 µs, 441 contre 338). **La passe 2 ne le
+reproduit pas** (199 contre 167, 346 contre 329). Sans la seconde passe,
+j'annonçais « la pression VRAM ralentit les petits dispatches » — c'était du
+bruit.
+
+### 5. ⚠️ CE QUE CE BANC NE COUVRE PAS
+
+- **Il ne dit rien du débit d'entraînement.** Il mesure un noyau isolé ; le pas
+  de production enchaîne 28 119 opérations, et la ROADMAP montre déjà que
+  l'essentiel du temps attribué à un noyau **n'est pas du temps GPU**.
+- **Il ne mesure aucun remède**, seulement l'état des lieux.
+- **Horloge murale hôte**, pas d'horodatage GPU : le temps inclut le lancement et
+  la synchronisation. Séparer les deux demanderait des requêtes de temps GPU.
+- **Un seul backend (Vulkan), une seule carte, une seule configuration
+  (Release).** Rien ici ne se transpose à un autre backend.
+
+### 6. Ce que j'en conclus pour l'ordre de bataille
+
+**`matmul_t4` n'est pas le bon chantier, et cette mesure le confirme deux fois :**
+il tourne à 5,25 % de la crête au lieu des 2-4 % annoncés — donc **plus près de
+son plafond réel qu'on ne croyait** — et le gain du pavage en mémoire partagée
+repose sur une prémisse d'intensité que le L2 dément.
+
+Ce que la campagne renforce, en revanche, c'est **le chantier n°2** : +427 à
++492 µs par allocation, corroborés sur un second noyau. *Je n'ai rien optimisé ;
+j'ai supprimé une piste et consolidé une autre.*
+
+---
+
+## 🏗️ CHANTIER N°2 — RÉSERVE DE TAMPONS : LIVRÉE ET MESURÉE (2026-08-16)
+
+**`NkTensorGpu` recycle désormais les tampons par TAILLE EXACTE** au lieu de
+détruire/recréer. Interrupteur `ReserveActive()` : **LEGACY et NEUF tournent
+depuis le même binaire**, comme pour le ×1,57 du chantier n°1.
+
+### ⚠️ D'ABORD LA JUSTESSE — une réserve est un cache, et un cache répond toujours
+
+C'est la famille de défauts que ce dépôt paie depuis une semaine. **Le témoin a
+été câblé AVANT la première mesure de vitesse**, et le banc **refuse de mesurer
+le gain** si le témoin échoue.
+
+| ce qu'on vérifie | résultat |
+|---|---|
+| la réserve **sert-elle vraiment** ? | **OUI** — compteur `servis` +1 au second `CreateBuffer` |
+| que **contient** un tampon recyclé ? | **les données du précédent usage** (`v[0] = 123,5`) |
+| le zérotage explicite nettoie-t-il ? | **OUI** — `Clear()` rend des zéros |
+| l'**instrument** est-il juste ? | **`servis + neufs == nombre d'appels`** — vérifié |
+
+🎯 **Le risque est démontré, pas supposé** : un tampon recyclé **est** rémanent.
+Ce qui rend le recyclage sûr n'est pas la chance, c'est que **`NkGpuZeros` remet
+explicitement à zéro APRÈS `CreateBuffer`** — c'est-à-dire le chantier n°1.
+*Sans lui, cette réserve aurait produit des gradients faux en silence.*
+
+**Le témoin de service sur toute la série :**
+```
+LEGACY : servis=0   neufs=80    (la reserve ne fait rien quand elle est eteinte)
+NEUF   : servis=71  neufs=9     71+9 = 80 = meme total -> instrument coherent
+```
+*Sans ces deux compteurs, « la réserve marche » aurait été indiscernable de « la
+réserve ne sert jamais et tout retombe en allocation ».*
+
+### Le gain — série B (forme production), ordre ALTERNÉ
+
+Montage identique au banc `matmul` : RTX 3070 **Laptop**, Vulkan, **Release**,
+binaire **FRAIS**, 15 reps, 3 de chauffe, machine libre, base `d14f7c24`.
+**Chaque mode occupe les deux positions** — la machine s'accélère au fil des
+courses, alterner les modes seuls ne suffit pas.
+
+| forme | LEGACY (min µs) | NEUF (min µs) | gain |
+|---|---|---|---|
+| 128×512×64 | 558,8 / 575,0 | **150,7 / 154,9** | **×3,6 à ×3,8** |
+| 256×512×128 | 630,2 / 646,6 | **208,8 / 209,6** | **×3,0** |
+| 512×512×256 | 777,4 / 783,9 | **319,7 / 315,3** | **×2,4** |
+| 1536×640×640 (PROD) | 2 047,3 / 2 103,6 | **1 428,6 / 1 426,2** | **×1,43** |
+
+**Les plages ne se chevauchent pas, et de loin** : le NEUF le plus lent (154,9)
+reste 3,6× sous le LEGACY le plus rapide (558,8). *Aucun appariement ne peut
+inverser le sens du résultat.*
+
+### 🎯 TROISIÈME CORROBORATION — cette fois par la SUPPRESSION du coût
+
+L'écart LEGACY − NEUF **est** le coût d'allocation supprimé :
+
+```
+128x512x64     408,1 / 420,1 us
+256x512x128    421,4 / 437,0 us
+512x512x256    457,7 / 468,6 us
+```
+
+**408 à 469 µs** — cela tombe sur les **+427 à +492 µs** mesurés indépendamment
+au banc `add` **et** au banc `matmul`. *Deux mesures l'avaient chiffré par
+différentiel ; celle-ci le chiffre en le faisant disparaître.* Prédiction et
+remède se rejoignent.
+
+**Et une convergence qui vaut contrôle** : le NEUF (154,9 / 209,6 / 315,3 /
+1 426,2) rejoint la **série A** du banc `matmul`, c'est-à-dire le **dispatch
+seul** (167,4 / 219,8 / 329,0 / 1 442,9). **La réserve ramène la forme de
+production au coût du dispatch nu** — le coût d'allocation n'est pas réduit, il
+est **supprimé**.
+
+### ⚠️ CE QUE CETTE MESURE NE COUVRE PAS — à lire avant d'extrapoler
+
+- **Elle ne dit RIEN du débit d'entraînement réel.** Ce banc enchaîne 4 formes ;
+  un pas de production fait **9 316 allocations de tailles variées**. Le taux de
+  service y dépend de la **diversité des tailles**, que je n'ai pas mesurée.
+  **Les ×1,43 à ×3,8 ne se transposent PAS au pas.** L'estimation ROADMAP de
+  ×1,43-×1,52 sur le pas entier reste **non vérifiée**.
+- **La VRAM immobilisée n'est pas mesurée en production.** Ici : 9 tampons,
+  **12 Mo retenus, 0 éviction**, budget 512 Mo. En production, avec des tailles
+  variées et un pic déjà à **6 659 Mo sur 8 Go**, le budget mordra et des
+  évictions apparaîtront — **non mesuré**.
+- **Horloge murale hôte**, pas d'horodatage GPU.
+- **Un seul backend (Vulkan), une seule carte, une seule configuration.**
+- ⚠️ **La réserve est ÉTEINTE par défaut.** Rien n'est activé en douce ;
+  l'allumer en production est une décision qui demande la mesure ci-dessus.
+
+### Ce qui reste ouvert sur ce chantier
+
+- **Mesurer le taux de service sur un vrai pas** — seul chiffre qui dira ce que
+  la réserve vaut réellement. Il demande de relancer un pas d'entraînement, donc
+  **il touche aux courses : c'est Rodolf qui décide.**
+- **L'anomalie des 9 316 tampons** (+28 à +29 % sur la seule forme
+  `1536×2560×640`, reproductible sur deux passes) est peut-être la même histoire
+  vue d'un autre angle. Gardée sous la main, **non conclue**.
