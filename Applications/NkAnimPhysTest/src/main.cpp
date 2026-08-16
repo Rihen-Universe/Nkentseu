@@ -16,6 +16,7 @@
 #include "NKAudio/NkDenoiser.h"
 
 #include <cstdio>
+#include <cmath>
 
 using namespace nkentseu;
 
@@ -25,6 +26,63 @@ namespace {
 		if (ok)
 			++nbOk;
 		printf("[ %s ] %s : %s\n", ok ? "OK " : "FAIL", tag, desc);
+	}
+
+	// ── Témoin du CÂBLAGE éditeur (pas de la brique) ─────────────────────────
+	// Le câblage de NkAnimaEditor affiche le COM dans le viewport. Une physique
+	// qu'on affiche se valide à l'oeil, et l'oeil est un MAUVAIS témoin : un COM
+	// placé au mauvais endroit RESSEMBLE à un COM. Ce témoin est donc NUMÉRIQUE et
+	// headless, et il rejoue la chaîne exacte appelée par AnimBridge :
+	//     SetUniform(n)  ->  ComputeCOMFromPositions(positions monde, n)
+	//
+	// La pose est ASYMÉTRIQUE sur les TROIS axes, à dessein : sur une pose
+	// symétrique, une permutation d'axes ou une matrice transposée donnerait le
+	// MÊME résultat et le témoin ne prouverait rien — c'est le piège du témoin qui
+	// passe des deux côtés du défaut.
+	bool TemoinCablageCOM() {
+		// 4 joints, coordonnées toutes distinctes.
+		const math::NkVec3f pos[4] = {
+			{1.0f, 2.0f, 3.0f},
+			{5.0f, 7.0f, 11.0f},
+			{13.0f, 17.0f, 19.0f},
+			{23.0f, 29.0f, 31.0f},
+		};
+		const int32 n = 4;
+		// Masse UNIFORME => COM = moyenne arithmétique, vérifiable à la main :
+		//   x = (1+5+13+23)/4 = 10.5   y = (2+7+17+29)/4 = 13.75   z = (3+11+19+31)/4 = 16
+		const math::NkVec3f attendu{10.5f, 13.75f, 16.0f};
+		const float32 eps = 1e-4f;
+
+		animphys::NkPoseMass mass;
+		mass.SetUniform(n);
+		const math::NkVec3f com = mass.ComputeCOMFromPositions(pos, n);
+		printf("         COM mesure  = %.6f %.6f %.6f\n", (double)com.x, (double)com.y, (double)com.z);
+		printf("         COM attendu = %.6f %.6f %.6f\n", (double)attendu.x, (double)attendu.y, (double)attendu.z);
+		const bool exact = (fabsf(com.x - attendu.x) < eps) && (fabsf(com.y - attendu.y) < eps) &&
+						   (fabsf(com.z - attendu.z) < eps);
+
+		// CONTRE-ÉPREUVE : le témoin doit DISCRIMINER. On permute les axes
+		// (x,y,z) -> (y,z,x) : le COM DOIT changer. S'il ne changeait pas, ce
+		// témoin passerait aussi bien sur une extraction fausse.
+		math::NkVec3f permute[4];
+		for (int32 i = 0; i < n; ++i)
+			permute[i] = math::NkVec3f{pos[i].y, pos[i].z, pos[i].x};
+		const math::NkVec3f comP = mass.ComputeCOMFromPositions(permute, n);
+		printf("         COM axes permutes = %.6f %.6f %.6f (doit DIFFERER)\n", (double)comP.x, (double)comP.y,
+			   (double)comP.z);
+		const bool discrimine =
+			(fabsf(comP.x - com.x) > eps) || (fabsf(comP.y - com.y) > eps) || (fabsf(comP.z - com.z) > eps);
+
+		// GARDE SILENCIEUSE : si le nombre de joints change sans re-synchroniser la
+		// masse, la brique renvoie {0,0,0} SANS RIEN SIGNALER — un COM à l'origine.
+		// Le câblage doit donc rappeler SetUniform quand le compte change ; ce
+		// témoin fige le comportement sur lequel il s'appuie.
+		const math::NkVec3f desync = mass.ComputeCOMFromPositions(pos, 3);
+		const bool gardeOk = (fabsf(desync.x) < eps) && (fabsf(desync.y) < eps) && (fabsf(desync.z) < eps);
+		printf("         count desynchronise -> %.6f %.6f %.6f (doit valoir 0 0 0)\n", (double)desync.x,
+			   (double)desync.y, (double)desync.z);
+
+		return exact && discrimine && gardeOk;
 	}
 } // namespace
 
@@ -79,6 +137,13 @@ int main() {
 	// « reellement non commencee » dans la roadmap NkAnima).
 	Report("M2 NkAnimRetarget", "appariement par nom, delta au repos, os non etires, racine a l'echelle",
 		   anim::NkAnimRetarget::SelfTest(), nbOk, nbTotal);
+
+	// CÂBLAGE éditeur — le COM affiche par NkAnimaEditor. Valide la CHAINE
+	// (SetUniform -> ComputeCOMFromPositions), pas la brique : les suites M3.x
+	// ci-dessus valident la physique, elles ne disent rien de ce que l'editeur
+	// calcule reellement avant de le dessiner.
+	Report("CABLAGE NkAnimaEditor COM", "pose asymetrique 3 axes, COM analytique, axes permutes, garde count",
+		   TemoinCablageCOM(), nbOk, nbTotal);
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;

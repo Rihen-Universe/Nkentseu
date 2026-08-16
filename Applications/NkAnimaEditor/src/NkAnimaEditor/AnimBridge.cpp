@@ -24,6 +24,7 @@
 #include "NKRenderer/Core/NkRenderGraph.h"					 // Execute() pipeline complet (option A)
 #include "NKGui/NkGuiRHIBackend.h"							 // RegisterTexture (Integrations/NKGui)
 #include "NkAnimaEditor/NkRagdollBridge.h"					 // couplage ragdoll <-> squelette (NKPhysics)
+#include "NKAnimPhysics/NkPoseMass.h"						 // M3.1 : distribution de masse + COM
 #include "NKLogger/NkLog.h"
 #include <cstdlib>
 #include <cmath>
@@ -60,6 +61,12 @@ namespace nkanima {
 				NkVector<uint32> topo;		  // ordre topo (parent avant enfant)
 				NkVector<NkMat4f> worldEdit;  // pose de TRAVAIL (matrices monde par joint)
 				bool editMode = false;
+
+				// ── Debug COM (M3.1) : tampons réutilisés, pas d'allocation par frame ──
+				bool showCom = false;
+				nkentseu::animphys::NkPoseMass poseMass;
+				NkVector<NkVec3f> comPos;	// positions monde des joints (scratch)
+				NkVector<int32> comParent;	// ignoré, exigé par AnimGetSkeleton
 
 				// ── Viewport 3D (lazy-init, device PARTAGÉ avec l'éditeur) ───────
 				bool tried3d = false, ok3d = false, meshLoaded3d = false;
@@ -893,6 +900,25 @@ namespace nkanima {
 			r3d->SubmitSkinned(dc);
 		}
 
+		// ── Debug M3.1 : centre de masse de la pose courante ─────────────────
+		// AnimGetSkeleton fournit les positions MONDE dans LES DEUX modes (pose de
+		// travail éditée OU pose du player) et extrait la translation par le membre
+		// nommé `gl.position` — aucune indexation d'octets, donc indépendant de la
+		// convention de stockage des matrices.
+		if (g.showCom) {
+			AnimGetSkeleton(g.comPos, g.comParent);
+			const int32 n = (int32)g.comPos.Size();
+			if (n > 0) {
+				if ((int32)g.poseMass.jointMass.Size() != n)
+					g.poseMass.SetUniform(n); // masse UNIFORME : cf. AnimCOMRegimeLabel()
+				const NkVec3f com = g.poseMass.ComputeCOMFromPositions(g.comPos.Data(), n);
+				// NEUTRE, jamais vert ni rouge : sans appuis détectables le polygone de
+				// support est vide, donc AUCUN verdict d'équilibre n'est rendu. Une
+				// sphère colorée ressemblerait à un verdict sans en être un.
+				r3d->DrawDebugSphere(com, 0.05f, NkVec4f{0.92f, 0.92f, 0.92f, 1.f});
+			}
+		}
+
 		// OPTION A : exécute le PIPELINE COMPLET (graph) sur le cmd de l'éditeur. Le
 		// graph fait shadow -> geometry (HDR) -> SSAO/bloom -> tonemap, et écrit le
 		// résultat final dans NOTRE offscreen (redirigé via SetFinalColorTarget). Il
@@ -914,6 +940,23 @@ namespace nkanima {
 		NkTexHandle src = g.toneTex.IsValid() ? g.toneTex : g.rt->GetColorResult();
 		// Pont NKRenderer (NkTexHandle) -> NKRHI (NkTextureHandle).
 		b->RegisterTexture(texId, texLib->GetRHIHandle(src));
+	}
+
+	// ── Debug COM (M3.1) ─────────────────────────────────────────────────────
+	void AnimSetShowCOM(bool on) {
+		g.showCom = on;
+	}
+
+	bool AnimShowCOM() {
+		return g.showCom;
+	}
+
+	const char *AnimCOMRegimeLabel() {
+		// Le régime est nommé à l'écran parce qu'il est INDISCERNABLE autrement :
+		// un COM uniforme tombe vers le milieu du torse et ressemble à un COM
+		// anthropométrique. Quand les noms de joints existeront (champ `name` sur
+		// NkGLTFNode, absent aujourd'hui), ce libellé devra suivre le régime réel.
+		return "COM uniforme (approximatif) — equilibre indetermine : aucun appui detecte";
 	}
 
 } // namespace nkanima
