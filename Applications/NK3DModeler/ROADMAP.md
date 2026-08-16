@@ -421,7 +421,13 @@ annonçait que reprendre la position monde ferait partir la matière « au doubl
 la distance », ce qui suppose une composition `parent × enfant` **qui n'existe
 pas**.
 
-### ⚠️ UN TROISIÈME ACTEUR déplace la matière d'un model — et il n'était dans aucune des deux analyses
+### ✅ LE TROISIÈME ACTEUR — MESURÉ ET CORRIGÉ (`c863dc00`, 17/08, journal 00:29)
+
+**Clos.** La mesure de Rihen a établi les deux défauts prédits, et le correctif
+est posé — voir « RÉGRESSION SIGNALÉE » plus bas pour le diagnostic complet, la
+règle (*une écriture programmatique n'est pas un geste*) et la grille de la 7e
+relecture. Le texte ci-dessous est l'analyse d'avant-mesure, gardée telle
+quelle : ses deux hypothèses se sont réalisées mot pour mot.
 
 Demandé par Rihen : *vérifier que les deux correctifs ne se cumulent pas.* En le
 vérifiant, j'ai trouvé qu'ils ne sont **pas deux**.
@@ -593,6 +599,45 @@ moitié réécrite, donc un symptôme irrégulier selon le modèle.
 **Ne pas retirer l'appel avant ce chiffre** : ce serait revenir sur la décision de
 Rihen du 16/08 (« l'origine d'un model va sur SA MATIÈRE ») sur une prémisse non
 vérifiée — ce qui a déjà coûté deux fausses causes sur ce même défaut.
+
+### ✅ LA MESURE A PARLÉ (journal 00:29, 17/08) — deux défauts, corrigés (`c863dc00`)
+
+**`ECART != 0` — mais la cause n'était PAS le recentrage.** Le journal (figé
+avant analyse ; il contenait **trois courses de binaires différents**, à savoir
+pour le relire) a établi :
+
+1. **Le recentrage est déterministe et innocent** : `après=(2.22311, −0.315482)`
+   identique dans deux courses pour la même entrée 2.935. Le « avant » revient à
+   2.935 à chaque lancement parce que **le disque n'est jamais réécrit** —
+   l'archive recentrée n'est pas sauvée (dette ouverte, voir ci-dessous).
+2. **`hier model=98 … dp=(−0.712, 0, −0.846) transmis=1`** : la passe de
+   hiérarchie lisait le déplacement d'origine comme un **geste** et donnait le
+   même delta à la **matière de l'archive** — effet du recentrage annulé,
+   archive entière en dérive à chaque dépôt. La non-idempotence *observée*
+   venait de là : la matière ayant fui, le barycentre suivant différait.
+3. **`hier model=107 cliché=(0,0,0) dp=(position complète) transmis=1`** : le
+   cliché d'un nouveau-né est **celui du mort** qui occupait l'emplacement
+   (`HostAllocUser` ne l'écrit jamais). La copie, posée juste
+   (`cumul ECART=0`), recevait **toute sa position une seconde fois**.
+
+**La règle, et le remède existait déjà** : *une écriture programmatique n'est
+pas un geste.* C'est le principe de `Demo3DHostHierarchyResync` (« après un
+chargement, cet écart n'est pas un geste »), appliqué à UN nœud
+(`HostHierSnapNode`) chez chaque écrivain programmatique du chemin de dépôt —
+`HostDuplicateTree` (nouveau-nés, y compris le retour anticipé non-model),
+`Demo3DHostRecenterModel` (l'origine **seule** bouge),
+`Demo3DHostSetModelTransform` (la pose emporte déjà la matière). **Les chemins
+interactifs (gizmo, panneau) ne recalent rien** : leur propagation est voulue.
+
+**Grille de la 7e relecture, écrite d'avance** : 1er dépôt → `origine ECART≠0`
+une fois (héritage disque), `cumul ECART~0`, **aucune** ligne `hier` ; drag
+gizmo → lignes `hier` **présentes** (témoin que la propagation voulue vit) ;
+2e dépôt → `origine ECART=(0,0)` — l'idempotence enfin observable.
+
+**Dettes ouvertes** : l'archive recentrée n'est **pas persistée** (le
+`ECART≠0` reviendra une fois par session tant que le projet n'est pas réécrit —
+décision de format à prendre, pas prise ici) ; et `nkvpXmit=7` dès la naissance
+reste une valeur par défaut jamais discutée.
 
 ## 3. Modélisation complète ⬜
 
