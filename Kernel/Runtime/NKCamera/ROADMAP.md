@@ -291,7 +291,7 @@ comparent pas)* :
 | **`Backend/NkWin32CameraBackend.h`** | **0** ✅ | 0 |
 | **TOTAL** | **138** | 30 |
 
-**AVANCEMENT — 138 → 51 au 2026-08-17 : les SIX backends sont à zéro**
+**✅ TERMINÉ — 138 → 0 au 2026-08-17. `audit_stl.sh` rend 0.**
 
 ⚠️ **Trois colonnes, et l'écart entre les deux dernières est le sujet.** Quand
 tout le module sera converti, quelqu'un lira « module converti » et croira le
@@ -307,10 +307,27 @@ remplacent pas.
 | `Backend/NkEmscriptenCameraBackend.h` | **0** | ✅ | ❌ **non** — chaîne Emscripten non installée | ❌ non |
 | `Backend/NkCocoaCameraBackend.{h,mm}` | **0** | ✅ | ❌ **non** — Objective-C++ + SDK Apple | ❌ non |
 | `Backend/NkUIKitCameraBackend.{h,mm}` | **0** | ✅ | ❌ **non** — idem | ❌ non |
-| `NkCameraSystem.cpp` | **42** | ⏳ **en dernier** | | |
-| `NkCameraSystem.h` | **7** | ⏳ | | |
-| `NkCameraTypes.h` | **2** | ⏳ | | |
-| **TOTAL** | **51** *(+ 29 libC, qui restent)* | | | |
+| `NkCameraSystem.{h,cpp}` + `NkCameraTypes.h` | **0** | ✅ | ✅ Windows + Android | ✅ **oui** — c'est le code commun, exercé par le viewer et `--demo=format` |
+| **TOTAL** | **0** *(+ 29 libC, qui restent et doivent rester)* | | | |
+
+**Le point commun en dernier, et ce qu'il a demandé** : `std::queue` → `NkQueue`,
+`std::unique_ptr` / `make_unique` → `memory::NkUniquePtr` / `NkMakeUnique`,
+`std::function` (les deux rappels publics) → `NkFunction`, plus les verrous et
+transferts. Le compilateur a signalé chaque écart de nom (`empty`→`Empty`,
+`pop`→`Pop`, `get`→`Get`) : c'est le bon genre d'erreur, celle qui se voit.
+
+⚠️ **Ce que vaut la vérification des quatre backends non compilables.** Je ne peux
+ni les compiler ni les exercer ici. Ce que j'ai fait à la place, et qui ne le
+remplace pas : un fichier de contrôle qui **appelle toutes les API du moteur
+employées dans ces backends** — `NkPath::GetDirectory/Combine`,
+`NkDirectory::CreateRecursive`, `NkFile::ReadAllText`, `NkSort`, `NkMutex`,
+`NkScopedLock`, `NkThread`, `NkVector::Assign`, `traits::NkMove` — avec les mêmes
+signatures. Il passe en analyse syntaxique.
+
+*Cela prouve que les appels que j'ai écrits existent. Cela ne prouve pas que ces
+backends compilent* : leurs en-têtes système (V4L2, Emscripten, SDK Apple) sont
+absents de cette machine, et une erreur dans le code qui les entoure ne serait
+pas vue. **La colonne « compilé » reste donc à NON pour ces quatre.**
 
 **Ce que la conversion a exhumé, backend par backend :**
 

@@ -57,7 +57,7 @@ namespace nkentseu {
 
 	void NkCameraSystem::SetHotPlugCallback(NkCameraHotPlugCallback cb) {
 		if (mReady)
-			mBackend.SetHotPlugCallback(std::move(cb));
+			mBackend.SetHotPlugCallback(traits::NkMove(cb));
 	}
 
 	// ===========================================================================
@@ -95,12 +95,12 @@ namespace nkentseu {
 	}
 
 	void NkCameraSystem::SetFrameCallback(NkFrameCallback cb) {
-		std::lock_guard<std::mutex> lk(mFrameMutex);
-		mUserCallback = std::move(cb);
+		threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
+		mUserCallback = traits::NkMove(cb);
 	}
 
 	bool NkCameraSystem::GetLastFrame(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mFrameMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 		if (!mHasFrame)
 			return false;
 		out = mLastFrame;
@@ -108,18 +108,18 @@ namespace nkentseu {
 	}
 
 	void NkCameraSystem::EnableFrameQueue(uint32 maxSize) {
-		std::lock_guard<std::mutex> lk(mQueueMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
 		mQueueEnabled = true;
 		mMaxQueueSize = maxSize;
 	}
 
 	bool NkCameraSystem::DrainFrameQueue(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mQueueMutex);
-		if (mFrameQueue.empty())
+		threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
+		if (mFrameQueue.Empty())
 			return false;
-		out = std::move(mFrameQueue.back());
-		while (!mFrameQueue.empty())
-			mFrameQueue.pop();
+		out = traits::NkMove(mFrameQueue.Back());
+		while (!mFrameQueue.Empty())
+			mFrameQueue.Pop();
 		return true;
 	}
 
@@ -172,7 +172,7 @@ namespace nkentseu {
 		// (cross-platform via NKImage). outputPath sert de préfixe
 		// ou de dossier — on ajoute "_NNNNNN.ext" pour chaque frame.
 		if (cfg.mode == NkVideoRecordConfig::Mode::IMAGE_SEQUENCE_ONLY) {
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			mImageSequenceActive = true;
 			mImageSequenceDir = cfg.outputPath; // préfixe complet attendu
 			// Extension par défaut PNG (lossless). L'utilisateur peut forcer
@@ -200,7 +200,7 @@ namespace nkentseu {
 		if (!mReady)
 			return;
 		{
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			mImageSequenceActive = false;
 			mImageSequenceIndex = 0;
 		}
@@ -211,7 +211,7 @@ namespace nkentseu {
 		if (!mReady)
 			return false;
 		{
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			if (mImageSequenceActive)
 				return true;
 		}
@@ -222,7 +222,7 @@ namespace nkentseu {
 		if (!mReady)
 			return 0.f;
 		{
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			if (mImageSequenceActive) {
 				uint64 nowUs = (uint64)NkSystemClock::UnixMilliseconds() * 1000ULL;
 				return float((nowUs - mImageSequenceStartUs) / 1000000.0);
@@ -299,7 +299,7 @@ namespace nkentseu {
 
 		// Mettre à jour la dernière frame et appeler le callback utilisateur
 		{
-			std::lock_guard<std::mutex> lk(mFrameMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mFrameMutex);
 			mLastFrame = frame;
 			mLastFrame.flipHorizontal = mFlipHorizontal;
 			mHasFrame = true;
@@ -322,10 +322,10 @@ namespace nkentseu {
 		}
 		// Queue
 		if (mQueueEnabled) {
-			std::lock_guard<std::mutex> lk(mQueueMutex);
-			if (mFrameQueue.size() >= mMaxQueueSize)
-				mFrameQueue.pop();
-			mFrameQueue.push(frame);
+			threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
+			if (mFrameQueue.Size() >= mMaxQueueSize)
+				mFrameQueue.Pop();
+			mFrameQueue.Push(frame);
 		}
 
 		// Mode IMAGE_SEQUENCE_ONLY : sauve hors lock (I/O potentiellement lent)
@@ -488,7 +488,7 @@ namespace nkentseu {
 				out[i * 4 + 2] = frame.data[i * 4 + 0];
 				out[i * 4 + 3] = frame.data[i * 4 + 3];
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = w * 4;
 			return true;
@@ -501,7 +501,7 @@ namespace nkentseu {
 				out[i * 4 + 2] = frame.data[i * 3 + 2];
 				out[i * 4 + 3] = 255;
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = w * 4;
 			return true;
@@ -536,7 +536,7 @@ namespace nkentseu {
 				out[i * 8 + 3] = 255;
 				out[i * 8 + 7] = 255;
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = w * 4;
 			return true;
@@ -587,7 +587,7 @@ namespace nkentseu {
 			frame.width = iw;
 			frame.height = ih;
 			img->Free();
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = iw * 4;
 			return true;
@@ -620,7 +620,7 @@ namespace nkentseu {
 					out[idx + 3] = 255;
 				}
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = w * 4;
 			return true;
@@ -674,7 +674,7 @@ namespace nkentseu {
 					out[idx + 3] = 255;
 				}
 			}
-			frame.data = std::move(out);
+			frame.data = traits::NkMove(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = frame.width * 4;
 			return true;
@@ -779,20 +779,20 @@ namespace nkentseu {
 
 	void NkMultiCamera::Stream::OnFrame(const NkCameraFrame &f) {
 		{
-			std::lock_guard<std::mutex> lk(mMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 			mLastFrame = f;
 			mHasFrame = true;
 		}
 		if (mQueueEnabled) {
-			std::lock_guard<std::mutex> lk(mQueueMutex);
-			if (mQueue.size() >= mMaxQueue)
-				mQueue.pop();
-			mQueue.push(f);
+			threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
+			if (mQueue.Size() >= mMaxQueue)
+				mQueue.Pop();
+			mQueue.Push(f);
 		}
 	}
 
 	bool NkMultiCamera::Stream::GetLastFrame(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 		if (!mHasFrame)
 			return false;
 		out = mLastFrame;
@@ -800,17 +800,17 @@ namespace nkentseu {
 	}
 
 	bool NkMultiCamera::Stream::DrainFrame(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mQueueMutex);
-		if (mQueue.empty())
+		threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
+		if (mQueue.Empty())
 			return false;
-		out = std::move(mQueue.back());
-		while (!mQueue.empty())
-			mQueue.pop();
+		out = traits::NkMove(mQueue.Back());
+		while (!mQueue.Empty())
+			mQueue.Pop();
 		return true;
 	}
 
 	void NkMultiCamera::Stream::EnableQueue(uint32 sz) {
-		std::lock_guard<std::mutex> lk(mQueueMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mQueueMutex);
 		mQueueEnabled = true;
 		mMaxQueue = sz;
 	}
@@ -850,9 +850,9 @@ namespace nkentseu {
 			if (s->DeviceIndex() == deviceIndex)
 				return *s;
 
-		auto s = std::make_unique<Stream>(deviceIndex);
+		auto s = memory::NkMakeUnique<Stream>(deviceIndex);
 		s->Start(config);
-		mStreams.PushBack(std::move(s));
+		mStreams.PushBack(traits::NkMove(s));
 		return *mStreams.Back();
 	}
 
@@ -872,7 +872,7 @@ namespace nkentseu {
 	NkMultiCamera::Stream *NkMultiCamera::Get(uint32 deviceIndex) {
 		for (auto &s : mStreams)
 			if (s->DeviceIndex() == deviceIndex)
-				return s.get();
+				return s.Get();
 		return nullptr;
 	}
 

@@ -38,10 +38,11 @@
 #include "NKCamera/Backend/NkNoopCameraBackend.h"
 #endif
 
-#include <memory>
-#include <mutex>
-#include <queue>
-#include <string>
+#include "NKContainers/Adapters/NkQueue.h"
+#include "NKCore/NkTraits.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
 
 namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
@@ -241,7 +242,7 @@ namespace nkentseu {
 			bool mFlipHorizontal = false;
 
 			// Frame thread-safe
-			mutable std::mutex mFrameMutex;
+			mutable threading::NkMutex mFrameMutex;
 			NkCameraFrame mLastFrame;
 			bool mHasFrame = false;
 			NkFrameCallback mUserCallback;
@@ -249,8 +250,8 @@ namespace nkentseu {
 			// Queue optionnelle
 			bool mQueueEnabled = false;
 			uint32 mMaxQueueSize = 4;
-			std::queue<NkCameraFrame> mFrameQueue;
-			mutable std::mutex mQueueMutex;
+			NkQueue<NkCameraFrame> mFrameQueue;
+			mutable threading::NkMutex mQueueMutex;
 
 			// Mapping camÃ©ra virtuelle
 			NkCamera2D *mVirtualCamera = nullptr;
@@ -324,13 +325,13 @@ namespace nkentseu {
 					uint32 mDeviceIndex;
 					NkCameraBackend mBackend;
 					bool mBackendReady = false;
-					mutable std::mutex mMutex;
+					mutable threading::NkMutex mMutex;
 					NkCameraFrame mLastFrame;
 					bool mHasFrame = false;
 					bool mQueueEnabled = false;
 					uint32 mMaxQueue = 4;
-					std::queue<NkCameraFrame> mQueue;
-					mutable std::mutex mQueueMutex;
+					NkQueue<NkCameraFrame> mQueue;
+					mutable threading::NkMutex mQueueMutex;
 			};
 
 			/// Ouvre la camÃ©ra d'index deviceIndex et dÃ©marre le streaming
@@ -350,7 +351,7 @@ namespace nkentseu {
 			}
 
 		private:
-			NkVector<std::unique_ptr<Stream>> mStreams;
+			NkVector<memory::NkUniquePtr<Stream>> mStreams;
 	};
 
 } // namespace nkentseu
