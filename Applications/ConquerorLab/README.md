@@ -38,7 +38,7 @@ fichier ? » ne doit pas se poser deux fois.
 Le fichier implémente `NkcRulesVTable` (ou `NkcAIVTable`) et se termine par la
 macro d'export. Deux niveaux de lecture :
 
-- `exemples/rules/RegleMinimale.cpp` et `exemples/ai/IAMinimale.cpp` — **les plus
+- `exemples/rules/RegleContratNu.cpp` et `exemples/ai/IAMinimale.cpp` — **les plus
   petits modules qui jouent vraiment**, écrits pour le cours et vérifiés au banc
   d'essai ;
 - `modules/rules/ConquerorRulesV2.cpp` et `modules/ai/ConquerorAIRef.cpp` — les

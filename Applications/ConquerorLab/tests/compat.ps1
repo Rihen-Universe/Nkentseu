@@ -5,7 +5,7 @@
 #   ./compat.ps1
 #
 # Trois etapes, et c'est la deuxieme qui compte :
-#   1. compiler RegleMinimale + IAMinimale contre les en-tetes FIGES 3.0
+#   1. compiler RegleContratNu + IAMinimale contre les en-tetes FIGES 3.0
 #   2. compiler le banc d'essai contre les en-tetes D'AUJOURD'HUI
 #   3. les faire jouer ensemble
 #
@@ -65,7 +65,7 @@ function Invoke-Cxx([string]$argline, [string]$what) {
 $fige = Join-Path $tests 'abi_fige_3_0'
 Write-Host "1/3  modules compiles contre l'ABI figee 3.0..." -ForegroundColor Cyan
 
-foreach ($m in @(@{src='exemples\rules\RegleMinimale.cpp'; out='vieux_regles.dll'},
+foreach ($m in @(@{src='exemples\rules\RegleContratNu.cpp'; out='vieux_regles.dll'},
                  @{src='exemples\ai\IAMinimale.cpp';       out='vieille_ia.dll'})) {
     $src = Join-Path $lab $m.src
     $dst = Join-Path $out $m.out
