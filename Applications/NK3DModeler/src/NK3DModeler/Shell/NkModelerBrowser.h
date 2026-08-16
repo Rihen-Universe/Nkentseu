@@ -507,6 +507,27 @@ namespace nkentseu {
 								NkColor{0, 0, 0, 170}, 2.f);
 							p.Fill({pastX, pastY, pastC, pastC},
 								NkColor{oct(alb[0]), oct(alb[1]), oct(alb[2]), 255}, 2.f);
+							// ELLE DIT CE QU'ELLE EST (Rihen : « presente a quoi elle sert »).
+							// Une tache de couleur muette a cote d'une vignette se lit comme une
+							// decoration ; c'est l'inverse qu'on veut dire -- la vignette decore,
+							// la pastille informe.
+							//
+							// Le survol se calcule SANS declarer de zone : une zone posee ici
+							// serait la derniere declaree sur la carte, donc elle gagnerait le
+							// clic, et cliquer la pastille cesserait de selectionner la carte.
+							// On veut une infobulle, pas une cible.
+							const nkgui::NkVec2 sm = hit.Mouse();
+							const bool surPast =
+														hit.IsHovered(akey) && sm.x >= pastX && sm.x <= pastX + pastC &&
+														sm.y >= pastY && sm.y <= pastY + pastC;
+							char aide[160];
+							snprintf(aide, sizeof(aide),
+														"Couleur albedo brute de « %s » : %d, %d, %d\n"
+														"Ce que le materiau EST, sans eclairage -- la boule au-dessus "
+														"montre ce qu'il PARAIT sous la lumiere de l'apercu.",
+														nomMat[0] ? nomMat : st.browserNames[i], (int)oct(alb[0]),
+														(int)oct(alb[1]), (int)oct(alb[2]));
+							NkHelp(surPast, aide);
 					} else {
 						p.Disc(cx, cy, 22.f, role);
 						p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
