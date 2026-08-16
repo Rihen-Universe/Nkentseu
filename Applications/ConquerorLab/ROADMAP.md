@@ -9,33 +9,46 @@
 > clone ni a la suppression du worktree. Ce qui est mesure et acquis monte ici ;
 > le brouillon vivant reste au carnet.
 >
-> Derniere mise a jour : **2026-08-15**, branche `feat/conquerorlab`.
+> Derniere mise a jour : **2026-08-16**, branche `feat/conquerorlab`.
+> **Chantier CLOS a cette date.** Ce qui suit est ecrit pour l'agent suivant, qui
+> n'aura pas le contexte de celui-ci.
 
 ---
 
 ## 🔭 LES TROIS HORIZONS
 
-### Court — la semaine
+### Court — pour qui reprend
 
-- **Faire trancher le schema d'etiquettes** par Rodolf (voir « Decisions en
-  attente »), puis ecrire la conversion derriere **une seule fonction**
-  (`NkcCellLabel.h`) pour que le schema reste interchangeable en une ligne.
-- **Reprendre les noms des plateaux livres** : `carre_8x8_*.json` et
-  `rectangle_8x6.json` sont des rectangles **en axial**, donc des
-  **parallelogrammes pencheS a l'ecran**. Mesure a l'appui ci-dessous.
+- **Le retrait de la STL.** Autorise par Rodolf, jamais commence. Mesure du
+  16/08 : **80 occurrences de `std::` dans 15 fichiers** de `src/`, plus
+  **22 dans les en-tetes publics** — dont **19 dans `ConquerorRegleFacile.h`**,
+  celui que le stagiaire lit en premier. Tous les remplacements existent
+  (`NkString`, `NkVector`, `NkFunction`, `NkMutex`, `NkAtomic`). ⚠️ `std::snprintf`
+  demande un **jugement, pas un remplacement** : troncature silencieuse d'un cote,
+  allocation de l'autre. Un commit par fichier, le compte doit descendre de facon
+  monotone.
+- **L'ATH des joueurs** (demande de Rodolf, R2) : cartes sur les **bords** du
+  plateau avec cadre de totem, au lieu d'une ligne. ⚠️ Le dossier `totems/` est
+  **vide** : concevoir le cadre pour qu'il fonctionne **sans image**. L'origine des
+  images n'a jamais ete tranchee — **question ouverte pour Rodolf**.
 - Rejouer le parcours du kit sur une machine **sans MSYS2** — le seul obstacle du
-  vrai stagiaire qui n'a jamais ete essaye.
+  vrai stagiaire qui n'ait jamais ete essaye.
 
 ### Moyen — le jalon
 
-- **Source unique des 13 racines d'inclusion.** Aujourd'hui la liste vit dans
-  `NkcLayout::Includes`, elle est **recopiee a la main** dans `Distribuer.ps1`, et
-  le cours la cite. Rien ne les tient ensemble, et cette divergence a **deja**
-  coute un kit non fabricable (cf. « Dette » ci-dessous). Le mecanisme doit
-  comporter **un controle qui echoue** quand un consommateur diverge — sans quoi
-  on remplace trois listes par une liste et trois copies.
+- **Source unique des 13 racines d'inclusion.** Le **controle** existe
+  (`verifier_la_pile.py`, voir dette 2) et suffit a empecher l'incident. Ce qui
+  reste est la **generation** de `NkcLayout::Includes` depuis un fichier de
+  donnees : c'est du C++ compile, il ne peut rien lire a l'execution. ⚠️ Si tu le
+  fais : **un fichier genere doit dire qu'il est genere** (banniere) **et etre en
+  lecture seule** — sinon quelqu'un l'edite et la generation suivante efface sa
+  modification sans un mot.
 - Le kit sur **Linux et macOS** : le code est ecrit pour, rien n'y a jamais
   tourne.
+- **Reintegrer le chapitre 07 du cours avec son code.** Le chapitre existe
+  (`md/07-regarder-et-habiller.md`, `tex/chapitres/07-regarder-et-habiller.tex`)
+  mais **n'est pas dans le PDF** : il decrit le zoom, le multijoueur, les totems en
+  images et la langue, dont le code n'est pas sur cette branche.
 
 ### Long — a quoi le module sert
 
@@ -52,23 +65,26 @@ deux sur un **silence**, jamais sur un manque.
 
 ## ✅ CE QUI EST MESURE ET ACQUIS
 
-Provenance de tous les chiffres : **2026-08-15**, worktree
+Provenance de tous les chiffres : **2026-08-16**, worktree
 `D:\Projets\2026\Nkentseu\Nkentseu-conqueror`, branche `feat/conquerorlab`
 (base `origin/main` `10452ae0`), **Release-Windows ET Debug-Windows**, jenga
-v2.4.0, binaire reellement execute.
+v2.4.0, binaire reellement execute, kit copie **hors du depot, sur un autre
+disque**.
 
 | | |
 |---|---|
 | amorcage des plateaux | **0 installe sur 15 livres** avant correctif -> **15/15** apres |
-| kit stagiaire | ne pouvait **pas etre fabrique** -> **257 fichiers, 16,5 Mo** (Release) / **33,1 Mo** (Debug) |
-| kit hors depot, autre disque | detecte `racine (kit)`, installe **14/14** grilles |
-| module de stagiaire | **compile et charge en 0,7 s** — `module pret : MesReglesAMoi (1.0.0)` |
-| grille deposee par le stagiaire | **vue et confirmee** : `15 retenue(s) sur 15 fichier(s) .json vu(s)` |
-| Debug contre Release | **chaine identique** sur ce parcours — aucune divergence |
+| kit stagiaire | ne pouvait **pas etre fabrique** -> **264 fichiers, 16,7 Mo** (Release) / **33,5 Mo** (Debug) |
+| module ecrit avec la voie facile | **compile et charge en 0,58 s** — `module pret : MesReglesAMoi (1.0.0)` |
+| grille deposee par le stagiaire | **vue et confirmee** : `16 retenue(s) sur 16 fichier(s) .json vu(s)` |
+| PDF du cours dans le kit | **empreinte SHA-256 identique** a celle du PDF regenere |
+| Debug contre Release | **chaine de journal identique, ligne pour ligne** |
+| voie facile au banc ABI du projet | **11 verifications OK, 0 echec** ; partie complete de **22 coups**, terminee d'elle-meme, empreinte deterministe |
+| etiquettes de cases | **661 / 661** sur 15 plateaux, **0 collision**, 0 divergence contre une reference calculee independamment |
 
-**La preuve d'acceptation est faite depuis le kit produit et rien d'autre** : kit
-copie hors du depot, sur un autre disque, lance, une regle et une grille
-deposees, les deux vues.
+**La preuve d'acceptation porte sur le PARCOURS DU STAGIAIRE, pas sur les
+correctifs** : kit copie hors du depot, une regle et une grille deposees en
+suivant le LISEZMOI mot pour mot, les deux vues.
 
 ---
 
@@ -148,47 +164,98 @@ un fichier de donnees plutot que verifie (question posee a Claude).
 
 ---
 
-## 🎯 DECISIONS EN ATTENTE (Rodolf)
+### 4. Le travail echoue sur une autre branche — NE PAS LE REECRIRE
 
-### Le schema d'etiquettes des cases
+Le 13/08 a 15:12, le commit **`b0ab15b9`** (« Materiaux : choisir le TYPE avant
+la creation »), un commit **NK3DModeler**, a emporte par inadvertance
+**23 fichiers de ConquerorLab et de son cours** sur la branche
+`refonte-interface-nk3dmodeler`. Ils y ont dormi trois jours, invisibles de ce
+cote.
 
-**Ce n'est pas une representation a inventer : c'est une representation qu'on
-jette.** Les plateaux naissent lisibles — `boards/_generer.py` les ecrit en
-`(colonne, ligne)` puis convertit en axial, et son en-tete appelle cette
-conversion « LE piege des plateaux ». On demande ensuite a l'utilisateur de
-refaire le calcul de tete.
+**Recupere et prouve** (voir ci-dessus) : `ConquerorRegleFacile.h`,
+`ConquerorFacile.h`, les 4 exemples, `mini_3x3.json`, les chapitres 07 et 08 du
+cours, les fiches stagiaires A1 et A2, `LIVRAISON.md`, `SUJETS.md`.
 
-Perimetre propose et **valide** : etiquette en **affichage seul**, axial inchange
-en memoire, en ABI et dans les `.json`, colonne `case` **ajoutee** au journal des
-coups plutot que substituee — le cout de compatibilite tombe alors a **zero**.
+⚠️ **PAS encore recupere, et c'est deliberé** — ces fichiers appartiennent au
+chantier ATH/langue, hors du perimetre de cloture :
 
-**Le choix qui reste est le SCHEMA**, et il n'est pas neutre : mesure sur les
-**14 plateaux livres, 652 cases**, aucun schema n'est parfait partout, et les deux
-candidats sont **complementaires**.
+```
+Applications/ConquerorLab/src/ConquerorLab/NkcBoardView.h       zoom et deplacement
+Applications/ConquerorLab/src/ConquerorLab/NkcTotemLibrary.h    totems en images
+Applications/ConquerorLab/src/ConquerorLab/NkcLang.h            langue de l'interface
+Applications/ConquerorLab/totems/LISEZMOI.txt
+Applications/ConquerorLab/boards/  hexagone_7x7_3j, hexagone_8x8_4j,
+                                   carre_9x9_4j, hexagone_30x30_grand
+```
 
-| | cases etiquetees | collisions | trous | parfait sur |
-|---|---|---|---|---|
-| **A** lettre = colonne (offset odd-r) | 652 / 652 | 0 | 188 | les **6** plateaux `hexagone_*` |
-| **B** lettre = axe axial `q` (diagonale) | 652 / 652 | 0 | 194 | carre, rectangle, parallelogramme |
+Ils sont recuperables par `git checkout refonte-interface-nk3dmodeler -- <chemin>`.
+⚠️ **Mais pas les fichiers marques `M`** de cette branche (`NkcSession.h`,
+`NkcBoardPanel.h`, `NkcModuleHost.h`…) : ils portent **les correctifs de cette
+branche-ci**, et une copie en bloc les ecraserait. La reprise de l'ATH demande une
+fusion, pas une copie.
 
-*(Un « trou » est une etiquette possible qui ne designe aucune case — c'est ce qui
-fait « sauter » la numerotation. Sur 3 160 paires de cases voisines, **les deux
-schemas gardent un ecart maximal de 1** en colonne comme en rangee : la crainte
-des voisins aux noms eloignes est infondee.)*
+**La lecon, et elle est deja au corpus** : commiter par chemins explicites ne
+protege pas seulement le travail des autres — ca empeche **de faire disparaitre le
+sien** dans une branche ou personne ne le cherchera.
 
-**Recommandation : A.** La topologie est `HEX_POINTY` — les **rangees** sont donc
-les seules vraies droites a l'ecran (`CoordToUnit`, `NkcBoardRender.h:80` :
-`x = √3(q + 0,5·r)`, `y = 1,5·r`). Le chiffre suit une ligne que l'oeil voit ; la
-lettre zigzague d'une **demi-case**, ce qui reste lisible. Et A est exact sur les
-plateaux `hexagone_*`, qui sont ceux du jeu.
+---
 
-### Les noms des plateaux livres ne decrivent pas leur forme
+## 🎯 DECISIONS PRISES (le 2026-08-16)
 
-Consequence directe de la formule ci-dessus : un plateau rectangulaire **en
-axial** est **penche a l'ecran**. Or `rectangle_8x6.json` et
-`parallelogramme_6x7.json` ont la **meme signature structurelle** (0 trou sous B,
-en escalier sous A) : ce sont la **meme forme**, sous deux noms differents. Et
-`carre_8x8_hexagones.json` ne peut pas etre carre a l'ecran.
+### Les etiquettes de cases : **schema A**, et c'est fait
 
-C'est du contenu livre, donc ce que l'utilisateur voit : **je ne renomme rien
-sans arbitrage.**
+Lettre = colonne offset, chiffre = rangee. `C4`. Implante derriere
+`NkcCellLabel.h`, **une fonction unique** : changer de schema coute une ligne.
+
+**Ce n'etait pas une representation a inventer, c'est une representation qu'on
+jetait** — `boards/_generer.py` ecrit les plateaux en `(colonne, rangee)` puis
+convertit en axial, et son en-tete appelle cette conversion « LE piege des
+plateaux ».
+
+Perimetre applique : **axial inchange** en memoire, en ABI et dans les `.json` ;
+a l'ecran l'etiquette **remplace** l'axial (« (3,-1) -> (4,-1) » ne se lit pas) ;
+dans la trace copiee elle **s'ajoute** en deux colonnes `de vers` a cote des
+colonnes `q/r`. **Cout de compatibilite : zero** — les traces deja enregistrees
+restent rejouables.
+
+Verification : **661 etiquettes sur 15 plateaux**, comparees a une reference
+calculee independamment — **0 divergence, 0 collision, 0 etiquette illisible**.
+
+### ⚠️ Les noms de plateaux : MA TROUVAILLE ETAIT FAUSSE, rien n'a ete renomme
+
+J'avais rapporte le 15/08 que `rectangle_8x6.json` et `carre_8x8_*.json` etaient
+**penches a l'ecran** et donc mal nommes. **C'est faux.** Mesure du 16/08,
+plateau par plateau, en lisant la topologie de chacun :
+
+| plateau | topologie | forme reelle |
+|---|---|---|
+| `rectangle_8x6`, `carre_8x8_*`, `plus`, `diamant`, `mini_3x3` | **SQUARE_4 / SQUARE_8** | bloc droit — `CoordToUnit` rend `{2q, 2r}`, **aucun cisaillement possible** |
+| `hexagone_*` | HEX_POINTY / HEX_FLAT | bloc droit |
+| `parallelogramme_6x7`, `parallelogramme_8x5` | HEX_POINTY | **penches** — et ils s'appellent « parallelogramme » |
+
+**Les 15 noms livres sont exacts.** Mon erreur : j'avais deduit la forme d'une
+signature d'etiquetage en appliquant le decalage hexagonal `q + (r>>1)` a **tous**
+les plateaux, y compris les carres. L'escalier que j'observais etait un artefact
+de mon instrument, pas une propriete du plateau. *Bon objet, bonne mesure,
+mauvaise hypothese implicite.*
+
+Le champ d'affichage `nom` a quand meme ete ajoute (`NkcBoardFile::libelle`,
+retro-compatible : absent = nom de fichier), mais **pour une autre raison** : un
+stagiaire qui depose `mon_plateau_v3_final.json` peut lui donner un nom lisible
+sans renommer son fichier. **Aucun plateau livre n'a ete touche.**
+
+---
+
+## 🚫 CE QUI N'A JAMAIS ETE VERIFIE
+
+A dire en clair, parce qu'un perimetre non enonce se transmet comme une
+certitude.
+
+| regime | etat |
+|---|---|
+| **Windows Release et Debug** | **verifie**, kit produit, parcours complet, journal identique |
+| Linux, macOS | **jamais construit** — le code est ecrit pour, rien n'y a tourne |
+| Android, Web | **jamais construit**. La compilation a chaud y est desactivee a la construction (`NKC_CAN_COMPILE 0`) : seuls les modules internes existeraient |
+| **une machine sans compilateur** | **jamais execute**. La branche « aucun compilateur trouve » est desormais atteignable **par construction et par lecture** (elle etait du code mort), mais la seule facon de l'executer ici serait de renommer le `clang++` de la machine — ce qui casserait la compilation d'un autre agent en plein vol |
+| le kit sur une machine **sans MSYS2** | **jamais essaye** — et c'est le premier obstacle du vrai stagiaire |
+| l'atelier joue par un humain | non observe : les preuves passent par le journal et par le banc ABI du projet, pas par des clics |
