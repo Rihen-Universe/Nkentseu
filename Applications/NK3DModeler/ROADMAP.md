@@ -233,19 +233,48 @@ Vérifié par ailleurs : les albédos relevés **collent au rendu**.
 peut pas répondre d'une couleur à l'écran. Trace ajoutée là où la couleur se
 décide (`MESURE enfant peint`, commit `f490f014`).
 
-### ⬜ Deux anomalies sorties du même journal — mesurées, NON traitées
+### ✅ LE CUBE NOIR — RÉSOLU (`ff690067`, 16/08)
 
-Elles ne concernent pas le matériau ; elles sont notées pour ne pas être
-redécouvertes.
+Rodolf : *« le matériau porté ne correspond pas à ce qui est rendu »*. Un objet
+portait `Materiau.002` (albédo `0,7`) et rendait **noir**. Les traces ont montré
+que l'assignation était juste — `MESURE enfant peint : noeud=108 materiau=5`.
+**Le défaut n'était pas dans l'assignation.** Deux causes, l'une derrière l'autre,
+dans `HostSpawnLike` :
 
-**1. Les enfants ne suivent pas la pose du parent.** Le model `110` est posé en
-`(2.65, 0, 3.45)` ; ses deux enfants restent en `(2.94, 0, 0.53)` et
-`(1.51, 0, -1.16)` — le premier **exactement** à la position de la source
-(`noeud=98`). Les transformations d'enfants ont donc l'air d'être **absolues**,
-non relatives au parent. Si c'est confirmé, déplacer un model laisse sa
-géométrie sur place.
+1. **Le matériau n'était pas copié.** Un double naissait sans matériau de projet
+   — c'est le `avant=-1` du journal, que j'avais pris pour une curiosité. Il ne
+   restait alors que la surcharge pour le peindre.
+2. **La surcharge était fabriquée depuis le cache de RENDU.** `nkvpMatCache` est
+   ce que la source a été **vue** rendre à la dernière soumission : une valeur
+   *observée*, pas une valeur *voulue*. Or un asset du navigateur est une
+   **archive** (`nkvpDeleted`), donc **jamais soumise** — son cache vaut zéro.
+   Chaque double cloné depuis le navigateur naissait avec une surcharge **noire**,
+   et le draw call applique le matériau **puis** la surcharge : elle écrasait donc
+   tout matériau assigné ensuite.
 
-**2. ⚠️ « La copie a plus d'enfants que sa source » — AFFIRMATION RETIRÉE.**
+**Règle** : une surcharge se **copie**, elle ne se **fabrique** pas depuis un
+cache de rendu — et le cache d'un nœud jamais rendu n'est pas une couleur, c'est
+un zéro. Voir aussi la règle « état correct ≠ affichage correct ».
+
+**Compromis assumé**, écrit dans le code : une retouche volontaire posée sur la
+source depuis le panneau Modèle n'est plus transmise au double.
+
+### ✅ Anomalie n°1 — CONFIRMÉE, non traitée : les enfants ne suivent pas le parent
+
+Le model `110` est posé en `(2.65, 0, 3.45)` ; ses enfants restent en
+`(2.94, 0, 0.53)` et `(1.51, 0, -1.16)`. La trace `MESURE dup enfant` le confirme
+à la source : `source=99 -> copie=108 locale recopiee=(2.93508, 0, 0.530729)` —
+la transform **locale** d'un maillage interne vaut la position **monde** de son
+model, au lieu de ~0 comme `EnsureModelMesh` la pose. Déplacer un model laisse
+donc sa géométrie sur place. **Reste à traiter.**
+
+### ❌ Anomalie n°2 — ELLE N'A JAMAIS EXISTÉ. C'était l'instrument
+
+**Verdict mesuré** : `MESURE dup model : src=98 -> root=107 internesDeLaSource=2
+nes=2 enfantsDirectsDuDouble=2`. **Les trois comptes concordent — aucun enfant en
+trop.** La source avait bien **deux** maillages ; le second est un petit-enfant,
+que ma mesure ne voyait pas.
+
 Je l'avais écrite comme un fait : la source `98` a **un** enfant (`99`), la copie
 `110` en a **deux** (`111`, `112`). **Les deux nombres sont justes, mais ils ne
 répondent pas à la même question.**
