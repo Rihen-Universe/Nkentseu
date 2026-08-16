@@ -224,6 +224,132 @@ ucrt64 en tête.**
 autant : un code de sortie lu à travers un script qui se termine par `tail` est
 celui du `tail`, jamais celui de la commande mesurée.)*
 
+## 7bis. 🎓 L'ÉCART ENTRE CE QUI EST SPÉCIFIÉ ET CE QUI TOURNE (2026-08-17)
+
+> **Mesure demandée pour le cours « moteur de jeu PC/mobile » de septembre.**
+> Écrite en séparant **PROUVÉ** (compilé, lié, ou exécuté) de **SPÉCIFIÉ**
+> (déclaré, jamais défini ou jamais appelé). **Périmètre** : worktree
+> `Nkentseu-noge`, branche `feat/noge-inventaire`, `Engine/Noge/src` pour le
+> moteur, dépôt entier pour les consommateurs. **Rien n'a été réparé.**
+
+### A. Le volume, et le chiffre hérité qui a dérivé
+
+| | fichiers | lignes |
+|---|---|---|
+| `.h` | 88 | **21 843** |
+| `.cpp` | 35 | **6 915** |
+
+⚠️ Le chiffre qui circule — *21 859 `.h` / 7 198 `.cpp`* — **ne correspond plus**
+(écart de 16 et de 283 lignes). Il est hérité, il a dérivé, et il ne disait de
+toute façon pas grand-chose : **un en-tête peut contenir tout le corps**. Le
+ratio `.h`/`.cpp` n'est pas une mesure de complétude. Ce qui suit l'est.
+
+### B. ✅ PROUVÉ — ce qui compile et ce qui se lie
+
+- **Compilation : 35/35 `.cpp` compilent**, un par un (g++ 16.1, `-std=c++20`,
+  52 racines d'includes). Aucun échec.
+- **Édition de liens : aucun corps de moteur ne manque parmi ce qui est
+  RÉFÉRENCÉ.** Sur les 35 objets : 4 745 symboles définis, **369 non résolus
+  après soustraction des définis**. Ils se répartissent en symboles **du noyau**
+  (`renderer::` 68, `audio::` 25, `memory::` 23, `net::` 20, `math::` 16,
+  `NkString::` 26…) et en gabarits `std::` — tous fournis à l'édition de liens
+  finale. **Aucun n'est un corps Noge absent.**
+
+⚠️ **Deux fausses pistes que j'ai suivies et qui sont retirées** — elles sont
+écrites parce qu'elles coûteraient le même temps à quelqu'un d'autre :
+- `nm -u` liste les indéfinis **par objet** : un symbole défini dans un autre
+  objet y figure quand même. **Il faut soustraire les définis** (408 → 369),
+  sinon on invente des corps manquants.
+- `NkScheduler` semblait sans corps : **faux**, il est *header-only* à corps
+  inline (`Run`, `Init`, `RegisterSystem`, `RebuildDAG`…). Le seul symbole non
+  résolu le concernant est un `std::construct_at<SystemEntry>`, pas un corps.
+  `NkWorld` et `NkGameplayEventBus` ont bien un corps — **dans le noyau
+  `NKECS`**, pas dans Noge.
+
+### C. 🔴 SPÉCIFIÉ — 11 modules qui ont des en-têtes et aucun corps
+
+| module | lignes `.h` | `.cpp` |
+|---|---|---|
+| Facial | 790 | 0 |
+| Anim2D | 468 | 0 |
+| Sequencer | 416 | 0 |
+| Viewport | 378 | 0 |
+| Physics | 346 | 0 |
+| Selection | 310 | 0 |
+| Systems | 277 | 0 |
+| Sculpt | 198 | 0 |
+| UV | 75 | 0 |
+| Text | 67 | 0 |
+| Crowd | 44 | 0 |
+| **total** | **3 369** | **0** |
+
+**29 classes y sont déclarées. Aucune n'a de corps nulle part dans le dépôt** —
+`NkSculptSession`, `NkCrowdGrid`, `NkFacialSystem`, `NkSequence`,
+`NkViewportCamera`, `NkSelectionBuffer`, `NkClothSystem`, `NkRagdollSystem`,
+`NkSoftBodySystem`, `NkHairSystem`, `NkMocapSystem`, `NkBlendShapeSystem`,
+`NkJiggleBoneSystem`, `NkTweenManager`, `NkAtlas2D`, `NkUVEditor`,
+`NkTextOnPath`… *(⚠️ `Noge/Systems/` — les squelettes — ne doit pas être confondu
+avec `Noge/ECS/Systems/`, qui a 20 `.cpp` et fonctionne.)*
+
+**Contrôle de l'instrument, parce qu'un zéro se prouve** : la même recherche
+trouve 4 fichiers pour `NkEditableMesh` et remonte 5/5 classes réellement
+définies dans Noge. Deux résultats non nuls apparents ont été écartés comme
+**collisions de noms** — `NkRender2D` est défini dans **NKRenderer**, `NkRichText`
+dans **Sandbox** ; ce ne sont pas ceux de Noge.
+
+🎯 **Pourquoi l'éditeur de liens ne les signale pas** : *personne ne les appelle.*
+C'est exactement l'état de NkSL cet après-midi — **une absence de preuve prise
+pour une preuve**. Un module sans corps et sans appelant ne casse rien, ne se
+voit pas, et se lit comme une fonctionnalité.
+
+### D. 🔴 CE QUI EXERCE LE MOTEUR — presque rien
+
+- **Modules touchés depuis l'extérieur de `Engine/Noge` : 5 sur 21** (`Core`,
+  `ECS`, `IO`, `Anim`, `Modeling`), **9 sur 21** en fermeture transitive.
+- **12 modules ne sont atteints par personne**, même transitivement : `Anim2D`,
+  `Crowd`, `Facial`, `Layers`, `Physics`, `Sculpt`, `Selection`, `Sequencer`,
+  `Systems`, `Text`, `UV`, `Viewport`.
+- **Suite de tests : 1 seul fichier** (`Engine/Noge/tests/test_editable_mesh.cpp`),
+  cible déclarée dans `Noge.jenga:214-242`, **et aucun artefact dans `Build/`** :
+  il n'a jamais été construit. Les tests sont bloqués par une politique de
+  workspace, et **10 démos console ont été écrites pour la contourner** — leurs
+  propres `.jenga` le disent. Chaque démo touche **un seul point d'entrée**.
+- **Nogee** est le seul consommateur applicatif réellement bâti. **PV3DE** inclut
+  Noge et **n'a jamais été lié**.
+- `Applications/Sandbox/.../Hello3DApp.h` inclut `"Nkentseu/Nkentseu.h"`, **chemin
+  qui n'existe nulle part** : code mort non compilable.
+
+### E. Le scripting — une piste sur quatre tient debout
+
+| piste | verdict | `.cpp`/`.h` | preuve |
+|---|---|---|---|
+| **C++** | ✅ **PROUVÉ** | 1 / 4 (1 300 l.) | `NkScriptBridge.cpp` (376 l.) fait un vrai chargement dynamique (`LoadLibraryA`/`dlopen`, shadow copy) ; **exécuté** par `NkHotReloadDemo` (rechargement v1→v2) |
+| **C#** | 🔴 **SQUELETTE MORT** | 0 / 1 (631 l.) | tout est sous `#ifdef NKECS_MONO_AVAILABLE`, macro **jamais définie dans aucun `defines()`** ; branche `#else` = `using NkMonoDomain = void` ; **aucun `.cs` dans le dépôt** ; seule référence externe **commentée** (`NKECS.h:101`) |
+| **Python** | 🔴 **SQUELETTE MORT** | 0 / 1 (646 l.) | `#ifdef NKECS_PYTHON_AVAILABLE` jamais définie ; jamais inclus. ⚠️ **Piège** : `Externals/Libs/PythonEmbed` et `pybind11` existent et sont dans le build, mais servent **NKCode** (l'IDE embarque Jenga), **pas** le moteur |
+| **Blueprint** | 🟡 **COUPÉ EN DEUX** | 0 / 3 (1 204 l.) | `NkBlueprint.h` est compilé et contient un vrai interpréteur (`Execute`, pins typées, ~15 nœuds), mais **zéro consommateur** — les seules mentions hors dossier sont **commentées** (`NkPrefab.cpp:160-161`). Le substrat **`NKGraph`** (1 519 l.) est réel et exercé par `NKEditMeshHarness`, mais **absent des 175 modules de `Nkentseu.jenga`**. **L'éditeur visuel n'existe pas** |
+
+⚠️ Le ROADMAP annonce `NkBlueprint` à **696 lignes** ; la mesure donne **1 079**
+(1 204 avec `NkValidGraph.h`).
+
+### F. Ce que ça veut dire pour un cours dans trois semaines
+
+**Sur quoi on peut bâtir, parce que c'est prouvé** : `Core`, `ECS` (le vrai, avec
+`Noge/ECS/Systems`), `IO`, `Anim`, `Modeling`, et le **scripting C++ à chaud** —
+ce sont les seuls modules qu'un consommateur extérieur exerce réellement, et le
+seul chemin de script démontré par exécution.
+
+**Ce qu'il ne faut pas promettre** : les 11 modules sans corps (dont *Physics*,
+*Sequencer*, *Viewport*, *Selection* — des mots qu'un étudiant attend d'un
+moteur), le C#, le Python, et le script visuel côté utilisateur.
+
+**Le risque n'est pas le volume de code, c'est la lecture** : 3 369 lignes
+d'en-têtes soignés, sans corps et sans appelant, se lisent exactement comme des
+fonctionnalités livrées. Il vaut mieux l'apprendre maintenant qu'en septembre.
+
+**Dette d'outillage nommée** : **il n'existe aucune suite de tests exécutable
+pour Noge**. Tant que la politique de workspace bloque `jenga test`, « ça marche »
+ne pourra reposer que sur 10 démos à point d'entrée unique.
+
 ## 8. 🔭 LES TROIS HORIZONS
 
 **Court — la semaine.** Deux gestes chiffrés, et ils sont petits :
