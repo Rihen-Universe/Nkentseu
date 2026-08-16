@@ -269,10 +269,20 @@ namespace nkentseu {
 			// =========================================================================
 			// Clear explicite (hors render pass — pour les textures storage)
 			// =========================================================================
+			// ⚠️ MEME MALADIE QUE `ClearBuffer`, DESAMORCEE AVANT SA PREMIERE VICTIME
+			// (2026-08-16). Corps VIDE, **0 surcharge sur les six backends**, et — a la
+			// difference de `ClearBuffer` — **0 appelant a ce jour** : c'etait un piege
+			// arme, pas encore un defaut actif. Mesure faite avant correction :
+			// `ClearTexture` n'apparaissait qu'UNE fois dans tout le depot, ici meme.
+			//
+			// C'est le seul cas ou la reparation est gratuite : le prochain appelant
+			// croira mettre une texture a zero et verra un avertissement au lieu de
+			// devenir une victime silencieuse. Le corps est defini hors ligne
+			// (NkICommandBuffer.cpp), comme celui de `ClearBuffer`, pour ne pas tirer
+			// NKLogger dans un en-tete inclus par une trentaine d'applications.
 			virtual void ClearTexture(NkTextureHandle texture, const NkClearValue &value, uint32 baseMip = 0,
 									  uint32 mipCount = UINT32_MAX, uint32 baseLayer = 0,
-									  uint32 layerCount = UINT32_MAX) {
-			}
+									  uint32 layerCount = UINT32_MAX);
 
 			// ⚠️ CORPS DE BASE NON SILENCIEUX (2026-08-16). Ce virtuel avait un corps
 			// VIDE, et AUCUN des six backends ne le surchargeait : tout appel etait
