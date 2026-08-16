@@ -245,6 +245,14 @@ namespace nkentseu {
 				bool InitRHI();
 				void BuildDefaultRenderGraph();
 
+				// Seuil du bright pass, ancre sur le BLANC AFFICHE (donc divise par
+				// l'exposition effective). A APPELER A L'EXECUTION DE LA PASSE, pas
+				// a la construction du graphe : l'exposition s'adapte a chaque
+				// frame alors que le graphe ne se reconstruit presque jamais.
+				// Mesure du 15/08 quand il etait fige : seuil 7,24 applique contre
+				// 144,8 reclame, facteur 20 stable sur 841 frames.
+				float ComputeBloomThreshold() const;
+
 				// ── Helpers d'init/teardown par sous-systeme (utilises a la fois
 				//    par Initialize() et par EnableSubsystem/DisableSubsystem) ────
 				bool InitShadow();

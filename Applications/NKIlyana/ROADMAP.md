@@ -369,6 +369,63 @@ pages ne sont jamais décodées.
 | **4** | `/Dests` + `/Outlines` | 55 % / 21 % | découpage naturel en chapitres ; `/Dests` est la dépendance technique de 3 et 5 |
 | **5** | `/Annots` `/Link` | 73 % | 56 051 liens ; les URL valent pour les citations. Réutilise la résolution de destinations |
 
+### 📐 Balisage PARTIEL : le seuil qui décide d'appliquer l'ordre logique
+
+Déclarer un `/StructTreeRoot` ne veut pas dire que le balisage est exploitable —
+même distinction que « déclaré » contre « effectivement lu » sur `/ToUnicode`.
+Mesure de la **part de texte rattachée à aucun MCID**, sur les 140 balisés
+(`NKIlyana --balisage`) :
+
+| part hors structure | documents |
+|---|---|
+| < 1 % | **91** |
+| 1–5 % | 19 |
+| 5–10 % | 8 |
+| 10–25 % | 5 |
+| 25–50 % | 5 |
+| **≥ 50 %** | **12** |
+
+**22 documents (16 %) dépassent 10 %**, dont trois à **99,5 %, 100 %, 100 %** —
+leur arbre existe et ne rattache *rien* au texte réel.
+
+> ⚠️ **Aucun invariant de conservation ne verrait le dégât** : le multiensemble
+> des caractères est identique, rien n'est perdu, **tout est déplacé**. C'est
+> l'angle mort du contrôle de non-régression, et c'est pourquoi cette mesure
+> devait exister avant de brancher.
+
+Effet non anticipé, trouvé en mesurant : sur ces documents, l'ordre logique
+serait **pire** que l'actuel. `AssemblerPage` trie aujourd'hui par ligne
+(y croissant puis x), ce qui redresse déjà beaucoup ; l'assemblage par structure
+ne fait pas ce tri pour le texte non rattaché. À 100 % hors structure, on
+remplacerait un tri par ligne par l'ordre de dessin brut.
+
+**Seuil retenu : 10 %** (`kNkPdfSeuilHorsStructure`). Sous ce seuil, le texte
+non rattaché est fait d'en-têtes et de folios — quelques mots par page, dont le
+déplacement en fin de **page** (pas de document) ne coûte rien. Au-delà, c'est
+du corps de texte, et le déplacer serait une dislocation. Le chiffre suit la
+distribution : **118 documents sur 140 gardent l'ordre logique** (91 + 19 + 8),
+les **22** mal balisés (5 + 5 + 12) restent en ordre visuel, et la trace dit
+lequel s'applique.
+
+> ⚠️ **DEUX populations de 118, et ce ne sont PAS les mêmes documents.**
+> Nommées distinctement partout, sous peine de confusion garantie :
+> - **118 « sans structure »** = les documents sans `/StructTreeRoot` ;
+> - **118 « balisés exploitables »** = les balisés dont le texte hors structure
+>   est sous le seuil de 10 %.
+>
+> Attendu du contrôle de non-régression, révisé en conséquence :
+>
+> | population | documents | attendu |
+> |---|---|---|
+> | sans structure | 118 | **identité stricte** |
+> | balisés **au-dessus** du seuil | 22 | **identité stricte** — ils retombent sur le chemin actuel |
+> | balisés exploitables | 118 | **peuvent différer** ; la proportion qui diffère est elle-même une mesure |
+>
+> Soit **140 documents en identité stricte**, un seul écart arrête tout. Et il
+> faut **vérifier**, non supposer, que le repli des 22 emprunte *exactement* le
+> chemin actuel : s'il passe par une variante de l'assemblage, l'identité n'est
+> plus garantie. Test à UN document avant les 258.
+
 ### 🛡️ Baseline de non-régression du texte — capturée et VALIDÉE (2026-08-13)
 
 `Applications/NKIlyana/reference/empreintes_pdf.csv` — **versionné**, pris sur
@@ -418,11 +475,21 @@ balisés à formulaires n'y placent donc aucun contenu marqué.
 
 ### 📐 Valeur marginale des signets, une fois la structure livrée
 
-`/Outlines` **sans** `/StructTreeRoot` : **44 documents (17 %)**. Ce n'est pas
-marginal — `/StructTreeRoot` porte déjà `H1..H6`, donc les 53 documents à
-signets qui sont aussi balisés n'y gagneraient rien, mais ces 44-là restent
-sans découpage. `/Outlines` conserve donc sa place au plan, juste après la
-structure.
+Les trois chiffres sont publiés **ensemble**, pour qu'ils se vérifient l'un
+l'autre — une intersection annoncée seule ne se contrôle pas :
+
+| | documents | % des 255 ouverts |
+|---|---|---|
+| **A.** total `/Outlines` | **53** | 20,8 % |
+| **B.** intersection (signets **et** `/StructTreeRoot`) | **9** | — |
+| **C.** différence (signets **sans** structure) | **44** | 17,3 % |
+| contrôle | **B + C = A** → 9 + 44 = 53 ✅ | |
+
+**Les deux populations sont presque disjointes** : 9 documents en commun sur 53.
+Les producteurs qui balisent ne posent pas de signets, et réciproquement. La
+structure ne subsume donc **pas** les signets dans ce corpus — contrairement à
+ce qu'on pouvait attendre de `H1..H6`. `/Outlines` garde sa place juste après
+la structure : sans lui, **44 documents resteraient sans aucun découpage**.
 
 ### 📐 Charset CFF — mesuré, et DIFFÉRÉ (2026-08-13)
 
