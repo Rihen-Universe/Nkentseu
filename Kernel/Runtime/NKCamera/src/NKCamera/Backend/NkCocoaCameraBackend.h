@@ -7,11 +7,14 @@
 // =============================================================================
 
 #include "NKCamera/NKICameraBackend.h"
+#include "NKCore/NkTraits.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
+
 #include "NKTime/NkChrono.h"
 #include <string>
 #include <vector>
 #include <thread>
-#include <mutex>
 #include <atomic>
 
 #ifdef __OBJC__
@@ -40,7 +43,7 @@ namespace nkentseu {
 			NkVector<NkCameraDevice> EnumerateDevices() override;
 
 			void SetHotPlugCallback(NkCameraHotPlugCallback cb) override {
-				mHotPlugCb = std::move(cb);
+				mHotPlugCb = traits::NkMove(cb);
 			}
 
 			bool StartStreaming(const NkCameraConfig &config) override;
@@ -51,7 +54,7 @@ namespace nkentseu {
 			}
 
 			void SetFrameCallback(NkFrameCallback cb) override {
-				mFrameCb = std::move(cb);
+				mFrameCb = traits::NkMove(cb);
 			}
 
 			bool GetLastFrame(NkCameraFrame &out) override;
@@ -99,7 +102,7 @@ namespace nkentseu {
 			uint32 mFrameIdx = 0;
 			NkString mLastError;
 
-			std::mutex mMutex;
+			threading::NkMutex mMutex;
 			NkCameraFrame mLastFrame;
 			bool mHasFrame = false;
 
