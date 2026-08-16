@@ -2241,6 +2241,28 @@ int nkmain(const NkEntryState &entry) {
 								nn, dropW[0], dropW[1], dropW[2], got ? 1 : 0, gp[0],
 								gp[1], gp[2],
 								demo::Demo3DHostNodeIsModel(nn) ? 1 : 0);
+							// COMBIEN DE MATERIAUX, ET SUR QUI ? Rihen : "quand je porte un
+							// model du navigateur vers la scene, je ne peux pas modifier son
+							// materiau". Le panneau lit NodeMatCount(noeud ACTIF) -- et le
+							// noeud actif est le CONTENANT. Si sa matiere vit chez ses
+							// enfants, il compte zero materiau et le panneau n'a rien a
+							// montrer. On mesure les deux niveaux avant de conclure : un
+							// contenant a zero et des enfants a un, ce n'est pas le meme
+							// defaut qu'un contenant a zero et des enfants a zero.
+							{
+								int32 matEnf = 0, nbEnf = 0;
+								for (int32 ce = 0; ce < 160; ++ce) {
+									if (demo::Demo3DHostNodeParent(ce) != nn)
+										continue;
+									++nbEnf;
+									matEnf += demo::Demo3DHostNodeMatCount(ce);
+								}
+								nkentseu::NkLog::Instance().Info(
+									"[nk3d] MESURE materiaux du model : noeud={0} sesMateriaux={1} "
+									"enfants={2} materiauxDesEnfants={3} actif={4}\n",
+									nn, demo::Demo3DHostNodeMatCount(nn), nbEnf, matEnf,
+									demo::Demo3DHostProjMatOf(nn));
+							}
 							// MESURE : ET SES ENFANTS ? Un model est un CONTENANT --
 							// le pick lui-meme le dit (« un model se prend par sa
 							// matiere »). Poser la transformation du contenant ne
