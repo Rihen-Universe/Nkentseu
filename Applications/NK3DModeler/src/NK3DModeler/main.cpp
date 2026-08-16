@@ -2199,7 +2199,39 @@ int nkmain(const NkEntryState &entry) {
 							float32 alb3[3] = {0.f, 0.f, 0.f};
 							demo::Demo3DHostProjMatInfo(st.dropMat - 1, nomSlot,
 								(uint32)sizeof(nomSlot), alb3, nullptr, nullptr);
-							demo::Demo3DHostProjMatAssign(dropNode, st.dropMat - 1);
+							// UN MODEL NE SE PEINT PAS : SA MATIERE EST CHEZ SES ENFANTS.
+							//
+							// Le rendu saute les conteneurs -- NkDemo3D.cpp : `if (nkvpIsModel[un])
+							// continue; // conteneur : sa geometrie vit dans ses maillages` -- et le
+							// pick fait de meme. Assigner au conteneur REUSSIT donc sans rien
+							// changer a l'ecran. Mesure : noeud=107, demande=4, apres=4, et aucun
+							// effet visible. Rihen : « aucun changement de plus pour ces model, je
+							// ne peux meme pas modifier leur material visible depuis la scene ».
+							//
+							// C'est sa specification du 17/08 appliquee : en mode objet, un clic
+							// prend le model AVEC tous ses sous-mesh. Le materiau lache sur un model
+							// va donc a ce qui SE VOIT -- ses maillages -- et le conteneur garde
+							// l'entree dans SA liste : c'est lui qu'on selectionne, et c'est lui qui
+							// portera le choix quand le mode edition existera.
+							if (demo::Demo3DHostNodeIsModel(dropNode)) {
+															int32 posesSurEnfants = 0;
+															for (int32 ce = 0; ce < 160; ++ce) {
+																if (demo::Demo3DHostNodeParent(ce) != dropNode)
+																	continue;
+																demo::Demo3DHostProjMatAssign(ce, st.dropMat - 1);
+																++posesSurEnfants;
+															}
+															// La liste du conteneur suit, sans devenir son actif : ajouter
+															// n'est pas assigner.
+															demo::Demo3DHostNodeMatAdd(dropNode, st.dropMat - 1);
+															// UN MODEL SANS MAILLAGE NE DOIT PAS SE TAIRE : sinon le geste
+															// parait avoir marche alors que rien n'a ete peint.
+															if (posesSurEnfants == 0)
+																snprintf(st.hierNote, sizeof(st.hierNote),
+																		 "%s n'a aucun maillage a peindre", st.dropName);
+							} else {
+															demo::Demo3DHostProjMatAssign(dropNode, st.dropMat - 1);
+							}
 							// MESURE : l'assignation a-t-elle PRIS ? « aucun effet »
 							// peut vouloir dire « rien ne s'est ecrit » ou « le
 							// materiau pose ressemble a celui d'avant ».
