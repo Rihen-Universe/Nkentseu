@@ -156,6 +156,22 @@ namespace nkentseu {
 		// Transforms en TABLEAUX des noeuds 90..159 : 0..5 = empties, 6..69 =
 		// OBJETS UTILISATEUR -- une seule plage, toute la machinerie (gizmo,
 		// panneau, detecteur) est partagee.
+		// ⚠️ CE SONT DES POSITIONS **MONDE**, malgre ce que le nom laisse croire.
+		//
+		// HostNodeWorld les rend telles quelles et ne compose JAMAIS avec le
+		// parent : il n'existe aucune remontee de nkvpParentOf dans tout le
+		// fichier. Une entree de ce tableau n'est donc PAS une transform locale,
+		// et la parente ne transporte pas la geometrie -- elle ne sert qu'a
+		// l'appartenance (hierarchie, archivage, ecriture d'un fichier de model).
+		//
+		// Ce commentaire existe parce que le nom m'a trompe le 16 aout : j'avais
+		// note comme un defaut qu'un maillage interne porte la position monde de
+		// son model, et j'ai failli « corriger » en remettant ces valeurs a zero
+		// -- ce qui aurait envoye la matiere de TOUTES les scenes a l'origine.
+		//
+		// COROLLAIRE, et c'est la regle de fonctionnement du modeleur :
+		// **dans un systeme de transforms absolues, bouger un conteneur exige de
+		// bouger sa matiere.** Voir Demo3DHostSetModelTransform.
 		static float32 nkvpEmptyPos[70][3] = {};
 		static float32 nkvpEmptyRotDeg[70][3] = {};
 		static float32 nkvpEmptyScl[70][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};

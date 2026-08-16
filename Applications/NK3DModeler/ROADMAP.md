@@ -640,6 +640,18 @@ cause commune.
 
 ## Pièges techniques déjà payés
 
+- ⭐ **Dans un système de transforms absolues, bouger un conteneur exige de bouger
+  sa matière.** `nkvpEmptyPos` contient des positions **monde** malgré son nom :
+  `HostNodeWorld` les rend telles quelles et **ne compose jamais avec le parent**
+  (aucune remontée de `nkvpParentOf` dans tout le fichier). La parenté ne
+  transporte donc **pas** la géométrie — elle ne sert qu'à l'appartenance.
+  Conséquence : tout geste nouveau qui déplace un conteneur (alignement, symétrie,
+  import, rejeu d'historique) doit passer par `Demo3DHostSetModelTransform`, sinon
+  la matière reste en arrière — et comme un conteneur ne rend rien, l'objet
+  paraîtra simplement ne pas bouger. Payé le 16/08 : j'avais pris cette position
+  monde pour une locale fausse et j'ai failli la « corriger » à zéro, ce qui aurait
+  envoyé la géométrie de **toutes** les scènes à l'origine. Le nom d'un champ ne
+  peut pas être faux au compilateur : rien ne le contredira jamais.
 - **Registre de zones** (`NkHitRegistry`) : capacité 1024 depuis v15. À 256 il
   **saturait en silence** et tout ce qui était déclaré tard (les chevrons de
   pliage) devenait mort. Si une interaction cesse de répondre sans raison,
