@@ -4730,6 +4730,40 @@ namespace nkentseu {
 							return;
 						}
 					}
+					// ── `L` / `Ctrl+L` : SÉLECTIONNER CE QUI EST LIÉ ───────────────
+					// « Un sous-mesh est une composante connexe » — la définition posée
+					// par Rihen à travers ce geste. Le calcul vit dans NkEditMesh
+					// (ComputeConnectedComponents), pas ici : `P` (separate by loose
+					// parts) s'en servira, et deux implémentations divergeraient au
+					// premier cas limite.
+					//
+					// ⚠️ ÉCART ASSUMÉ AVEC BLENDER, dit plutôt que caché : chez Blender,
+					// `L` part de l'élément SOUS LE CURSEUR. Ici il part du sommet ACTIF
+					// (le dernier sélectionné, rendu blanc) — c'est l'information de pick
+					// que cette vue entretient déjà. Sans sommet actif, on retombe sur le
+					// comportement de `Ctrl+L` : étendre ce qui est déjà sélectionné. Le
+					// jour où un survol par sommet existera, seule la GRAINE change, pas
+					// le calcul.
+					if (k == NkKey::NK_L) {
+						const bool ctrlL = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+						Demo3D_PushSel(st);
+						bool changed = false;
+						const int32 seed = st->editActiveVert;
+						if (!ctrlL && seed >= 0 && seed < (int32)st->editHE.VertCount())
+							changed = st->editHE.SelectLinked((uint32)seed, true);
+						else
+							changed = st->editHE.SelectLinkedFromSelection();
+						Demo3D_PullSel(st);
+						if (changed)
+							st->editOverlayDirty = true;
+						uint32 nsel = 0;
+						for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+							if (st->vertSel[i])
+								nsel++;
+						logger.Info("[Demo3D] {0} : {1} — {2} sommets selectionnes\n", ctrlL ? "Ctrl+L" : "L",
+									changed ? "etendu" : "rien de neuf", nsel);
+						return;
+					}
 					// ── BEVEL / CHANFREIN (façon Blender) ──────────────────────────
 					// Ctrl+B = bevel d'ARÊTE · Ctrl+Shift+B = bevel de SOMMET (Blender à
 					// l'identique). B SEULE reste la sélection RECTANGLE : on intercepte donc
