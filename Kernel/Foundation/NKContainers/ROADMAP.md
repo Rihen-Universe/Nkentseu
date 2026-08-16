@@ -521,6 +521,34 @@ dont la cible n'a jamais été écrite.** `NkPlatformDetect.h` ne contient aucun
 occurrence de `__cplusplus` ni d'une macro de standard, alors que `NkCompat.h:28`
 annonce en commentaire l'importer pour « `NKENTSEU_CXX_*` ».
 
+> ⭐ **CORRECTION DU 2026-08-16 — la détection de standard EXISTE, et le §5
+> concluait à son absence pour avoir cherché dans le mauvais fichier.**
+>
+> Ce paragraphe disait vrai de `NkPlatformDetect.h` (**0** occurrence de
+> `__cplusplus`) et en tirait que la capacité n'existait pas. **Elle existe, dans
+> le fichier voisin** — `NKPlatform/NkCompilerDetect.h`, **15** occurrences de
+> `__cplusplus`, chaîne complète l. 386-415 :
+>
+> | macro | définie sur ce dépôt (C++17) ? | sémantique réelle |
+> |---|---|---|
+> | `NK_CPP11` | ❌ jamais, nulle part | **n'existe dans aucun en-tête de détection** |
+> | `NKENTSEU_CXX11_OR_LATER` | ❌ jamais | cible de migration annoncée, jamais écrite |
+> | `NKENTSEU_CPP11` | ❌ **non** | branche `#elif` — vaut « **exactement** C++11 » |
+> | **`NKENTSEU_HAS_CPP11`** | ✅ **OUI** | `NkCompilerDetect.h:439`, sous `CPP11‖14‖17‖20‖23` — c'est « **C++11 ou plus** » |
+>
+> **Mesure directe** (TU compilée `-std=c++17`, `__cplusplus = 201703`) :
+> `NKENTSEU_CPP11` non définie · `NKENTSEU_CPP17` **définie** ·
+> `NKENTSEU_HAS_CPP11` **définie** · `NK_CPP11` non définie.
+>
+> ⚠️ **Le piège à ne pas répéter** : substituer `NKENTSEU_CPP11` à `NK_CPP11`
+> **n'ouvrirait rien** — la chaîne étant en `#elif`, elle est fausse dès C++14.
+> La seule macro correcte est **`NKENTSEU_HAS_CPP11`**.
+>
+> **Et la cause première du silence est un include :** `NkCompat.h:28` importe
+> `NkPlatformDetect.h` « pour `NKENTSEU_CXX_*` » — le fichier qui n'en contient
+> aucune. C'est `NkCompilerDetect.h` qu'il fallait. Aucune macro de standard
+> n'arrive donc jamais, et toutes les gardes restent fermées **en silence**.
+
 ⚠️ **Et définir `NK_CPP11` ne se fait PAS d'une ligne** — mesuré :
 
 ```
@@ -534,6 +562,59 @@ macro fait compiler 47 directives de code jamais lu par un compilateur. C'est un
 correctif. Il n'était d'ailleurs pas la solution du manque §1 : sur `NkHashMap`,
 `-DNK_CPP11` donnait **exactement la même erreur, à la ligne près**, parce que le
 constructeur à forwarding parfait était instancié avec des lvalues const.
+
+#### 📐 Recensement chiffré du 2026-08-16 — combien dort, et ce que coûte l'ouverture
+
+*Périmètre : `Kernel/`, `Applications/`, `Engine/`, hors `Externals/`.
+Configuration : **C++17, Debug, sans optimisation**, g++ 16.1.0.
+Comptage sur **lignes préprocesseur réelles** (`^\s*#\s*(if|ifdef|elif)`), pas
+par `grep` nu — le `grep` naïf rend **83** occurrences dans `Foundation` là où il
+n'y a que **34** gardes : facteur **2,4** de sur-comptage, dû aux blocs `@code`
+qui enseignent l'idiome.*
+
+| mesure | valeur |
+|---|---|
+| gardes `NK_CPP11` réelles | **34** dans `Foundation`, **37** tous périmètres, sur **16 fichiers** |
+| autres macros de la famille (`NK_CPP14/17/20`, `NK_CPP11_SUPPORT`) | **0** — `NK_CPP11` est seule |
+| **lignes de code dormantes** derrière ces gardes | **914** |
+| dont constructeurs de déplacement / assignation | 15 blocs |
+| dont forwarding parfait / variadiques | 13 blocs |
+| dont `noexcept` | 3 blocs |
+| dont divers | 6 blocs |
+| `initializer_list` | **0** |
+
+**Ce que coûte l'ouverture, mesuré** — balayage « chaque en-tête compile **seul** »
+sur les 53 de `NKContainers` :
+
+```
+sans NK_CPP11 : 50/53      (3 echecs ANTERIEURS, hors sujet :
+                            NkBind.h, NkFuntionV2.h, NkBasicStringView.h)
+avec -DNK_CPP11 : 35/53    -> 15 echecs NOUVEAUX
+```
+
+⚠️ **Les 15 nouveaux échecs ont UNE seule cause, pas quinze.** Tous portent
+`inline namespace must be specified at initial definition` :
+
+```
+NKCore/NkTypeUtils.h:147     namespace literals {          <- definition INITIALE, non gardee
+NkStringView.h:1857          inline namespace literals {   <- rouvre INLINE, sous NK_CPP11
+NkStringHash.h:571           inline namespace literals {   <- idem
+```
+
+Isolé sur une TU de deux `#include` : **compile sans la macro, échoue avec**, et
+**dans les deux ordres d'inclusion** — donc conflit réel, pas artefact d'ordre.
+
+🎯 **Ce que ces nombres disent, et c'est l'inverse de ce qu'on croyait** : le
+verrou n'est pas « 47 directives risquées à auditer ». C'est **une incohérence de
+namespace en deux lignes** devant **914 lignes de code déjà écrites**. Les trois
+constructeurs *piecewise* de §1/§2 (`NkPair`, et les notes « volontairement HORS
+de `#if defined(NK_CPP11)` » dans `NkHashMap`/`NkMap`/`NkUnorderedMap`) sont des
+contournements de ce verrou, et **10 blocs `@code`** enseignent aux appelants un
+idiome mort.
+
+**Reste à mesurer avant toute décision** : l'effet sur le **build complet** (203
+cibles), la macro forcée, Debug **et** Release. Le balayage d'en-têtes ne couvre
+que `NKContainers` ; il ne dit rien des `.cpp` ni des autres modules.
 
 ### 6. Dette zero-STL réelle de Foundation : six fichiers
 
