@@ -61,6 +61,24 @@
 // -------------------------------------------------------------------------
 // Implémentation des méthodes de NkChrono dans le namespace nkentseu.
 
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+// Declarees a la main, AU NIVEAU GLOBAL : WIN32_LEAN_AND_MEAN (pose en tete de ce
+// fichier) exclut mmsystem.h, ou elles vivent. Meme approche que NkRendererImpl.
+// Les inclure autrement ferait entrer tout le multimedia Windows dans une unite
+// de compilation qui n'a besoin que de deux symboles.
+extern "C" unsigned int __stdcall timeBeginPeriod(unsigned int uPeriod);
+extern "C" unsigned int __stdcall timeEndPeriod(unsigned int uPeriod);
+
+// Capacites de la minuterie multimedia. La structure du systeme porte deux
+// champs ; on ne declare que ce qu'on lit, dans le meme ordre et la meme
+// disposition binaire.
+struct NkWinTimeCaps {
+		unsigned int wPeriodMin;
+		unsigned int wPeriodMax;
+};
+extern "C" unsigned int __stdcall timeGetDevCaps(NkWinTimeCaps *ptc, unsigned int cbtc);
+#endif
+
 namespace nkentseu {
 
 	// -------------------------------------------------------------------------
@@ -319,6 +337,72 @@ namespace nkentseu {
 	void NkChrono::SleepMilliseconds(int64 ms) noexcept {
 		// Alias explicite pour la lisibilité : délègue directement
 		Sleep(ms);
+	}
+
+	// ── Résolution de minuterie ─────────────────────────────────────────────
+	// Contrat, mesures et PORTÉE DE VERSION : voir NkChrono.h. Ici, seulement le
+	// mécanisme.
+	namespace {
+		// Le système compte les demandes PAR PROCESSUS : on ne demande donc
+		// qu'une fois, et on ne rend qu'une fois. Ce drapeau évite qu'un appel
+		// en double laisse une demande orpheline — c'est la différence entre un
+		// réglage et une fuite.
+		bool g_minuterieFine = false;
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+		// Période RÉELLEMENT supportée par la machine, pas une valeur écrite en
+		// dur. Coder « 1 » suppose une capacité qu'on n'a pas vérifiée — c'est
+		// la même faute que les réglages déclarés-mais-non-câblés qu'on vient de
+		// retirer ailleurs : une hypothèse qui a l'air d'une mesure.
+		// Approche comparable à celle de SFML (`SFML-master/src/SFML/System/
+		// Win32/SleepImpl.cpp`, licence zlib) : interroger `timeGetDevCaps` et
+		// retenir `wPeriodMin`.
+		// La valeur est mémorisée : `Begin` et `End` DOIVENT présenter la même,
+		// sinon le compteur du système ne redescend pas.
+		unsigned int g_periodeMin = 0;
+
+		unsigned int NkPeriodeMinimale() noexcept {
+			if (g_periodeMin != 0)
+				return g_periodeMin;
+			NkWinTimeCaps caps{0, 0};
+			if (::timeGetDevCaps(&caps, sizeof(NkWinTimeCaps)) == 0 && caps.wPeriodMin > 0)
+				g_periodeMin = caps.wPeriodMin;
+			else
+				g_periodeMin = 1; // repli : la machine n'a pas répondu, on demande le plus fin
+			return g_periodeMin;
+		}
+#endif
+	} // namespace
+
+	void NkChrono::BeginPreciseTiming() noexcept {
+		if (g_minuterieFine)
+			return;
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+		// TIMERR_NOERROR == 0. Un refus du système ne doit rien marquer comme
+		// actif, sinon `EndPreciseTiming` rendrait une demande jamais faite.
+		if (::timeBeginPeriod(NkPeriodeMinimale()) != 0)
+			return;
+#endif
+		// Hors Windows, le corps est vide et le drapeau passe quand même à vrai :
+		// `IsPreciseTimingActive()` répond alors « oui, c'est demandé », ce qui
+		// est exact — la précision y vient de `clock_nanosleep`, sans réglage
+		// global à poser. Répondre « non » ferait croire à un échec.
+		g_minuterieFine = true;
+	}
+
+	void NkChrono::EndPreciseTiming() noexcept {
+		if (!g_minuterieFine)
+			return;
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+		// MÊME période qu'à la demande : le système apparie par valeur, et un
+		// `End` avec une autre période laisserait le compteur en l'air.
+		::timeEndPeriod(NkPeriodeMinimale());
+#endif
+		g_minuterieFine = false;
+	}
+
+	bool NkChrono::IsPreciseTimingActive() noexcept {
+		return g_minuterieFine;
 	}
 
 	void NkChrono::SleepMicroseconds(int64 us) noexcept {

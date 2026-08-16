@@ -335,9 +335,28 @@ namespace nkentseu {
 					const char *label;
 			};
 			static const B kBtns[] = {{NkIcon::Drawer, "Tiroir"}, {NkIcon::Journal, "Journal"}};
+			static const char *const kBtnKeys[2] = {"status.tiroir", "status.journal"};
 			for (int32 i = 0; i < 2; ++i) {
-				p.IconV(x, r.y, r.h, kBtns[i].ic, NkRole::Text, 13.f);
-				p.TextV(x + 18.f, r.y, r.h, kBtns[i].label);
+				// CES DEUX-LA ETAIENT DE SIMPLES DESSINS : ni zone cliquable, ni
+				// effet. Le journal en avait pourtant le plus besoin -- diagnostiquer
+				// sans pouvoir lire ce que le moteur ecrit revient a enchainer les
+				// hypotheses (Rihen, 13 aout : « rends-le fonctionnel »).
+				const float32 bw = 18.f + p.TextW(kBtns[i].label) + 8.f;
+				const NkRect bb{x - 4.f, r.y + 3.f, bw, r.h - 6.f};
+				const bool ov = hit.Add(kBtnKeys[i], bb);
+				const bool actif = (i == 1) && st.journalOpen;
+				if (actif)
+					p.Fill(bb, NkRole::AccentUi, 3.f);
+				else if (ov)
+					p.Fill(bb, NkRole::PanelBg, 3.f);
+				p.IconV(x, r.y, r.h, kBtns[i].ic,
+						actif ? NkRole::TextOnAccent : NkRole::Text, 13.f);
+				p.TextV(x + 18.f, r.y, r.h, kBtns[i].label,
+						actif ? NkRole::TextOnAccent : NkRole::Text);
+				NkHelp(ov, i == 1 ? "Journal : les messages du moteur (diagnostic)"
+								  : "Tiroir");
+				if (hit.Clicked(kBtnKeys[i]) && i == 1)
+					st.journalOpen = !st.journalOpen;
 				x += 18.f + p.TextW(kBtns[i].label) + 16.f;
 			}
 			// TUTORIEL AU FOOTER (regle de Rihen) : il enregistre TOUTE

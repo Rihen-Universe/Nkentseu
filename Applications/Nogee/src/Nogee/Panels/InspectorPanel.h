@@ -14,11 +14,16 @@
 #include "Noge/ECS/Systems/NkReflectComponents.h"
 #include "Nogee/Editor/NkSelectionManager.h"
 #include "Nogee/Editor/CommandHistory.h"
+#include "Nogee/Panels/Model/NkInspectorModel.h" // etat neutre (sans UI)
 
 namespace nkentseu {
 	namespace noge {
 
-		class InspectorPanel {
+		// L'etat des sections dépliées vit dans NkInspectorModel, en-tete NEUTRE
+		// sans dependance d'interface — pour qu'un portage vers NKGui le partage
+		// au lieu de le recopier. Le choix du widget par type de champ, lui,
+		// reste ici : il depend de la bibliotheque d'affichage.
+		class InspectorPanel : public NkInspectorModel {
 			public:
 				InspectorPanel() = default;
 
@@ -41,14 +46,8 @@ namespace nkentseu {
 											nkui::NkUILayoutStack &ls, ecs::NkWorld &world,
 											ecs::NkEntityId id) noexcept;
 
-				// Sections ouvertes (per composant par nom)
-				static constexpr nk_uint32 kMaxSections = 32;
-				char mSectionNames[kMaxSections][64] = {};
-				bool mSectionOpen[kMaxSections] = {};
-				nk_uint32 mSectionCount = 0;
-
-				bool IsSectionOpen(const char *name) noexcept;
-				void SetSectionOpen(const char *name, bool open) noexcept;
+				// Sections ouvertes (par nom de composant) et IsSectionOpen/
+				// SetSectionOpen sont hérités de NkInspectorModel.
 		};
 
 	} // namespace noge

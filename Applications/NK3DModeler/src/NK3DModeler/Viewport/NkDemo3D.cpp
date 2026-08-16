@@ -19,6 +19,9 @@
 #include "NKRenderer/Core/NkRenderGraph.h"
 #include "NKRenderer/Materials/NkMaterialCollection.h" // Upload() du BeginFrame rejoue
 #include "NKGui/NkGuiRHIBackend.h" // hote : la cible hors ecran devient une texture d'interface
+// APERCU DE MATERIAU rendu par le moteur : sa mini-scene vit a part, dans son
+// propre fichier -- ce fichier-ci en compte deja pres de dix-sept mille.
+#include "NK3DModeler/Viewport/NkMatPreview3D.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -31,7 +34,8 @@
 #include "NKRenderer/Core/NkGizmo.h"			// NkGizmo3D (gizmo éditeur réutilisable)
 #include "NKRenderer/Materials/NkMatcapLibrary.h" // noms des 30 matcaps (source unique)
 #include "NKRenderer/Core/NkLightGizmo.h"   // widgets des lumieres (facon Blender)
-#include "NKImage/NKImage.h"					// Phase H : test ecriture PNG procedural
+#include "NKImage/NKImage.h"
+#include "NKContainers/String/Encoding/NkBase64.h"					// Phase H : test ecriture PNG procedural
 #include "NKContainers/Associative/NkHashMap.h" // dedup arêtes Edit Mode
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
@@ -61,6 +65,29 @@ namespace nkentseu {
 		static float32 nkvpOffX = 0.f, nkvpOffY = 0.f; // origine de la vue (px fenetre)
 		static float32 nkvpW = 0.f, nkvpH = 0.f;	   // taille de la vue
 		static bool nkvpInputOn = true;				   // faux pendant une saisie de texte
+		// ── LE JETON DE PICK DU GLISSER-DEPOSER ─────────────────────────────
+		// L'interface DEMANDE, la boucle EXECUTE -- meme motif que
+		// `capturePending` du shell. Le pick a besoin de la CAMERA et de la
+		// TAILLE DE VUE, toutes deux locales a la frame : memoriser ces trois
+		// choses dans des globales aurait ajoute trois etats a synchroniser
+		// pour resoudre un probleme que le jeton resout sans etat durable.
+		//
+		// LE RESULTAT SE CONSOMME UNE FOIS ET S'INVALIDE. S'il restait lisible
+		// apres avoir servi, un second lacher pendant que le premier est en vol
+		// lirait une reponse perimee -- et elle aurait l'air d'un resultat.
+		// C'est le defaut `mResolvedStaleFrames` du 15/08 : un etat qui survit
+		// a sa validite, que personne ne remet a zero, et qui ment sans jamais
+		// se signaler.
+		//
+		// -3 = AUCUNE REPONSE. Ni 0 (un noeud valide), ni -1 (« le vide », qui
+		// EST une reponse) : la valeur de repos ne doit pas pouvoir passer pour
+		// un resultat.
+		static constexpr int32 kNkvpPickNone = -3;
+		static bool nkvpPickReq = false;			 // une demande attend la frame
+		static float32 nkvpPickReqX = 0.f, nkvpPickReqY = 0.f;
+		static bool nkvpPickHas = false;			 // un resultat attend son lecteur
+		static int32 nkvpPickNode = kNkvpPickNone;
+		static float32 nkvpPickWorld[3] = {0.f, 0.f, 0.f};
 		// ── TOUCHE DE NAVIGATION, LUE PAR POLLING ───────────────────────────
 		// Les gestionnaires d'EVENEMENTS de la vue sont deja gardes par
 		// nkvpInputOn ; le pilotage de camera, lui, interroge l'etat clavier a
@@ -129,6 +156,22 @@ namespace nkentseu {
 		// Transforms en TABLEAUX des noeuds 90..159 : 0..5 = empties, 6..69 =
 		// OBJETS UTILISATEUR -- une seule plage, toute la machinerie (gizmo,
 		// panneau, detecteur) est partagee.
+		// ⚠️ CE SONT DES POSITIONS **MONDE**, malgre ce que le nom laisse croire.
+		//
+		// HostNodeWorld les rend telles quelles et ne compose JAMAIS avec le
+		// parent : il n'existe aucune remontee de nkvpParentOf dans tout le
+		// fichier. Une entree de ce tableau n'est donc PAS une transform locale,
+		// et la parente ne transporte pas la geometrie -- elle ne sert qu'a
+		// l'appartenance (hierarchie, archivage, ecriture d'un fichier de model).
+		//
+		// Ce commentaire existe parce que le nom m'a trompe le 16 aout : j'avais
+		// note comme un defaut qu'un maillage interne porte la position monde de
+		// son model, et j'ai failli « corriger » en remettant ces valeurs a zero
+		// -- ce qui aurait envoye la matiere de TOUTES les scenes a l'origine.
+		//
+		// COROLLAIRE, et c'est la regle de fonctionnement du modeleur :
+		// **dans un systeme de transforms absolues, bouger un conteneur exige de
+		// bouger sa matiere.** Voir Demo3DHostSetModelTransform.
 		static float32 nkvpEmptyPos[70][3] = {};
 		static float32 nkvpEmptyRotDeg[70][3] = {};
 		static float32 nkvpEmptyScl[70][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
@@ -880,7 +923,10 @@ namespace nkentseu {
 			"Couleur", "Normale", "ORM", "Emissif", "Hauteur"};
 		struct NkVpProjMat {
 				bool used;
-				int8 prevShape; // apercu : 0 plan, 1 sphere, 2 cube, 3 liquide, 4 cheveux
+				// apercu : 0 plan, 1 sphere, 2 cube, 3 liquide, 4 cheveux, 5 tissu,
+			// 6 tete. Valeurs SERIALISEES (« apercu ») : on ajoute a la fin, on ne
+			// renumerote pas.
+			int8 prevShape;
 				char name[32];
 				// Chemins des quatre canaux ("" = pas de texture, les valeurs
 				// numeriques font alors foi). MAX_PATH chacun.
@@ -930,15 +976,58 @@ namespace nkentseu {
 				float32 outlineCol[3];
 				float32 rimI;
 				float32 rimCol[3];
-				float32 specHard;
+			float32 specHard;
+				/// UN EMISSIF ECLAIRE-T-IL LA SCENE ? Faux par defaut (choix de
+				/// Rihen, 14 aout) : une surface emissive s'AFFICHE lumineuse sans
+				/// forcement eclairer ses voisins, et c'est ce que font les moteurs
+				/// temps reel. L'option se coche quand on veut la source.
+				bool emiEclaire;
 		};
 		static constexpr int32 kNkvpMaxProjMats = 64;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
+		/// Emplacement RESERVE au materiau magenta « aucun materiau ». Declare ici,
+		/// avec le registre : la creation, la lecture et le rendu doivent tous le
+		/// connaitre, et il est plus simple de le poser a la source que de le
+		/// declarer trois fois.
+		static const int32 kNkvpMissingMat = kNkvpMaxProjMats - 1;
 		// Cote MOTEUR d'un materiau a texture : la teinte/rugosite/metallique
 		// passent par le draw call, mais une TEXTURE exige une vraie instance
 		// de materiau (meme mecanique que le sol carrele).
 		static NkTexHandle nkvpProjMatChanTex[kNkvpMaxProjMats][kNkvpMatChanCount] = {};
 		static NkMaterial *nkvpProjMatEng[kNkvpMaxProjMats] = {};
+		/// LES MEMES MATERIAUX, DANS LE RENDERER DE L'APERCU. Une instance
+		/// appartient au systeme de materiaux qui l'a creee : chaque renderer a sa
+		/// collection (64 emplacements, son UBO). Passer une instance de la vue 3D
+		/// au renderer d'apercu n'a donc aucun sens -- il lui faut les siennes,
+		/// construites par le MEME code depuis le MEME etat.
+		static NkMaterial *nkvpProjMatPrev[kNkvpMaxProjMats] = {};
+		/// LA VIGNETTE D'UN MATERIAU, en PNG encode base64. Elle vit DANS le
+		/// materiau (Rihen, 14 aout) : un .nkmat se deplace alors sans perdre son
+		/// image, la ou un PNG voisin se serait separe de lui au premier
+		/// deplacement de fichier.
+		///
+		/// GARDEE HORS de NkVpProjMat, volontairement : cette structure est
+		/// comparee OCTET A OCTET pour savoir si l'apercu doit etre reconstruit
+		/// (memcmp). Une chaine dedans casserait la comparaison -- et une vignette
+		/// n'est pas un reglage : elle est le RESULTAT des reglages.
+		static NkString nkvpProjMatThumb[kNkvpMaxProjMats];
+		/// LES PIXELS de la derniere vignette rendue, prets a televerser. Separes
+		/// du base64 : l'image affichee se rafraichit des qu'un reglage change,
+		/// l'image ECRITE dans le materiau ne se refait qu'a l'enregistrement.
+		static NkVector<uint8> nkvpMatThumbPix[kNkvpMaxProjMats];
+		static bool nkvpMatThumbNeuf[kNkvpMaxProjMats] = {};
+		/// Sa vignette vient d'etre encodee et n'est pas encore dans son fichier.
+		static bool nkvpMatThumbAEcrire[kNkvpMaxProjMats] = {};
+		/// OU ECRIVENT LES FACADES, et AVEC QUEL renderer. Par defaut la vue 3D ; le
+		/// temps de reconstruire un apercu, on bascule sur l'autre jeu. C'est ce qui
+		/// evite de recopier les quarante lignes d'application des reglages -- une
+		/// copie aurait diverge au premier reglage ajoute.
+		static NkMaterial **nkvpMatCible = nkvpProjMatEng;
+		static renderer::NkRenderer *nkvpMatRdCible = nullptr;
+		static inline NkMaterial *&NkvpMatEng(int32 i) { return nkvpMatCible[i]; }
+		/// Le renderer sur lequel les facades travaillent. Declare ici, DEFINI plus
+		/// bas : `hst` (l'etat de l'hote) n'existe pas encore a cette hauteur.
+		static renderer::NkRenderer *NkvpMatRd();
 		static int32 nkvpMatSerial = 0; // numerote « Materiau.NNN », jamais reutilise
 		// Assignation par NOEUD, stockee en indice+1 : le zero de l'init
 		// statique veut naturellement dire « aucun materiau ». C'est le
@@ -1008,33 +1097,92 @@ namespace nkentseu {
 			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k)
 				if (nkvpNodeMatsP1[node][k] <= 0) {
 					nkvpNodeMatsP1[node][k] = slot + 1;
+					// UN OBJET QUI N'AVAIT RIEN PREND CELUI-CI POUR ACTIF (Rihen,
+					// 13 aout). Sans cela, l'objet restait MAGENTA apres qu'on lui
+					// eut ajoute un materiau : l'actif pointait encore sur le
+					// magenta « aucun materiau », qui n'est justement pas un choix
+					// de l'utilisateur mais le constat d'une absence -- absence qui
+					// vient de cesser. Un actif deja choisi, lui, n'est pas touche :
+					// ajouter a une liste n'est pas assigner.
+					const int32 actuel = nkvpNodeMatP1[node] - 1;
+					if (actuel < 0 || actuel == kNkvpMissingMat)
+						nkvpNodeMatP1[node] = slot + 1;
 					return true;
 				}
 			return false;
 		}
 
-		// Retire un materiau de CET objet seulement. Le dernier ne se retire
-		// pas : un modele porte toujours au moins un materiau (regle de Rihen).
+		/// Le magenta « aucun materiau » : defini avec le registre, plus bas.
+		/// Declare ICI car le RETRAIT l'assigne — c'est lui qui rend l'absence
+		/// visible, exactement comme la creation assigne le materiau par defaut.
+		static int32 HostEnsureMissingMat();
+
+		// Retire un materiau de CET objet seulement.
+		//
+		// LE DERNIER SE RETIRE AUSSI, depuis le 13 aout (Rihen) : « permettre de
+		// supprimer tous les materiaux, mais un objet sans materiau sera en
+		// magenta ». La regle precedente -- toujours au moins un materiau --
+		// interdisait un geste legitime pour eviter un cas d'affichage ; le cas
+		// est desormais traite la ou il se voit, au rendu, par une couleur qui
+		// signale l'absence au lieu de la masquer.
 		static bool HostNodeMatRemove(int32 node, int32 slot) {
 			if (node < 0 || node >= kNkvpMaxNodes || slot < 0)
-				return false;
-			if (HostNodeMatCount(node) <= 1)
 				return false;
 			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k) {
 				if (nkvpNodeMatsP1[node][k] != slot + 1)
 					continue;
 				nkvpNodeMatsP1[node][k] = 0;
-				// Si c'etait l'actif, l'objet bascule sur le premier restant —
-				// il ne peut pas se retrouver sans materiau.
+				// Si c'etait l'actif, l'objet bascule sur le premier restant. S'il
+				// n'en reste AUCUN, il recoit le materiau magenta « aucun materiau ».
+				//
+				// MEME PRINCIPE QUE LE MATERIAU PAR DEFAUT (Rihen, 13 aout) : celui-ci
+				// est assigne A LA CREATION du maillage, et tout le pipeline le lit
+				// ensuite sans rien savoir de particulier. Le magenta est assigne ICI,
+				// au retrait du dernier, et se lit exactement pareil. Le rattraper au
+				// moment du rendu, comme je l'avais fait, obligeait a rejouer a la
+				// main ce que le chemin normal fait tout seul -- et ne marchait pas.
 				if (nkvpNodeMatP1[node] == slot + 1) {
 					const int32 first = HostNodeMatAt(node, 0);
-					nkvpNodeMatP1[node] = (first >= 0) ? first + 1 : 0;
+					nkvpNodeMatP1[node] =
+						(first >= 0) ? first + 1 : HostEnsureMissingMat() + 1;
 				}
 				return true;
 			}
 			return false;
 		}
 		static int32 HostEnsureDefaultMat(); // defini avec le registre, plus bas
+		// ── LES REGLAGES D'UN MATERIAU DE PROJET, POSES SUR UN DRAW CALL ────
+		// Extrait de HostMatHook, et c'est le coeur du sujet : les facades de
+		// materiau n'ecrivent QUE dans l'etat -- ce sont ces surcharges-ci qui
+		// portent la matiere jusqu'au rendu. Rihen l'a dit d'un mot : « elle ne
+		// touche pas l'instance dans la previsualisation mais elle touche dans la
+		// vue 3D ».
+		//
+		// La vue 3D arrive ici par un NOEUD, l'apercu par un EMPLACEMENT, mais ce
+		// qui est applique doit etre le MEME : un apercu qui montrerait autre
+		// chose que la scene n'aurait aucun interet.
+		template <typename TDC>
+		static void HostMatSlotToDC(int32 pm, TDC &dc) {
+			if (pm < 0 || pm >= kNkvpMaxProjMats || !nkvpProjMats[pm].used)
+				return;
+			dc.tint.x = nkvpProjMats[pm].albedo[0];
+			dc.tint.y = nkvpProjMats[pm].albedo[1];
+			dc.tint.z = nkvpProjMats[pm].albedo[2];
+			// L'OPACITE part d'ici : c'est dc.alpha qui route le draw vers la file
+			// TRANSPARENTE du moteur -- sans cette ligne, le curseur du panneau
+			// etait muet (constate par Rihen, 11 aout).
+			dc.alpha = nkvpProjMats[pm].alpha;
+			dc.metallic = nkvpProjMats[pm].metal;
+			dc.roughness = nkvpProjMats[pm].rough;
+			// Physique de surface : la couleur de diffusion suit l'albedo (la
+			// matiere transmet sa propre teinte, pas du blanc).
+			dc.clearcoat = nkvpProjMats[pm].clearcoat;
+			dc.clearcoatRough = nkvpProjMats[pm].ccRough;
+			dc.subsurface = nkvpProjMats[pm].subsurface;
+			dc.subsurfaceColor = {nkvpProjMats[pm].albedo[0], nkvpProjMats[pm].albedo[1],
+								  nkvpProjMats[pm].albedo[2]};
+		}
+
 		template <typename TDC>
 		static void HostMatHook(int32 i, TDC &dc) {
 			if (i < 0 || i >= kNkvpMaxNodes)
@@ -1045,24 +1193,19 @@ namespace nkentseu {
 			// retouche locale, et retirer la retouche rend le materiau.
 			{
 				const int32 pm = nkvpNodeMatP1[i] - 1;
-				if (pm >= 0 && pm < kNkvpMaxProjMats && nkvpProjMats[pm].used) {
-					dc.tint.x = nkvpProjMats[pm].albedo[0];
-					dc.tint.y = nkvpProjMats[pm].albedo[1];
-					dc.tint.z = nkvpProjMats[pm].albedo[2];
-					// L'OPACITE part d'ici : c'est dc.alpha qui route le draw vers
-					// la file TRANSPARENTE du moteur — sans cette ligne, le curseur
-					// du panneau etait muet (constate par Rihen, 11 aout).
-					dc.alpha = nkvpProjMats[pm].alpha;
-					dc.metallic = nkvpProjMats[pm].metal;
-					dc.roughness = nkvpProjMats[pm].rough;
-					// Physique de surface : la couleur de diffusion suit l'albedo
-					// (la matiere transmet sa propre teinte, pas du blanc).
-					dc.clearcoat = nkvpProjMats[pm].clearcoat;
-					dc.clearcoatRough = nkvpProjMats[pm].ccRough;
-					dc.subsurface = nkvpProjMats[pm].subsurface;
-					dc.subsurfaceColor = {nkvpProjMats[pm].albedo[0], nkvpProjMats[pm].albedo[1],
-										  nkvpProjMats[pm].albedo[2]};
-				}
+				// ── AUCUN MATERIAU : MAGENTA ────────────────────────────────
+				// Depuis qu'on peut retirer TOUS les materiaux d'un objet (Rihen,
+				// 13 aout), l'absence doit se VOIR. Le magenta est la convention
+				// d'Unreal, de Source et d'Unity, et pour une raison precise : le
+				// noir ressemble a un objet correctement rendu mais non eclaire,
+				// donc on cherche le probleme du cote des lumieres. Aucune matiere
+				// reelle n'est magenta pur -- la couleur ne suggere pas un defaut,
+				// elle l'annonce.
+				//
+				// AUCUN CAS PARTICULIER ICI. Un objet sans materiau s'est vu
+				// assigner le magenta au moment du retrait ; il arrive donc avec un
+				// materiau valide, lu par le chemin ordinaire ci-dessous.
+				HostMatSlotToDC(pm, dc); // MEME application que l'apercu
 			}
 			if (nkvpMatMask[i] & 1) {
 				dc.tint.x = nkvpMatTint[i][0];
@@ -2315,6 +2458,165 @@ namespace nkentseu {
 				}
 			}
 			return hit;
+		}
+
+		// ── LE PICK D'OBJET, SORTI DU CLIC POUR SERVIR AUSSI LE LACHER ──────────────
+		// Ce code vivait DANS le corps du clic de selection, donc inatteignable depuis
+		// ailleurs : le glisser-deposer du navigateur n'avait aucun moyen de savoir ce
+		// qui se trouve sous le curseur. Il est sorti TEL QUEL -- widgets a la distance
+		// ECRAN, maillages au rayon-triangle sur le mesh reel -- pour que le clic et le
+		// lacher designent le MEME objet par construction. Deux picks separes auraient
+		// fini par diverger, et personne n'aurait su lequel des deux a raison.
+		//
+		// Retour : l'index de VIDE (noeud - kNkvpFirstEmpty), ou **-1 si rien**.
+		// -1 est un RESULTAT, pas un echec : c'est « le curseur est sur le vide ».
+		// Zero n'est JAMAIS « rien » -- c'est un vide valide, et le rendre pour un
+		// lacher dans le vide ferait assigner le materiau au premier objet de la scene.
+		//
+		// `worldOut3`, s'il est fourni, recoit le point du monde vise : le point TOUCHE
+		// quand un maillage est touche, sinon l'intersection avec le plan du sol
+		// (y = 0), sinon un point devant la camera. C'est ce qui permet a un modele
+		// lache dans le vide d'atterrir QUELQUE PART plutot qu'a l'origine.
+		// MESURE (temporaire) : ce que le dernier pick a eu le droit de tenir
+		// compte -- occupes, ecartes parce que MODEL, caches/verrouilles, mesh.
+		static int32 nkvpPickDbg[4] = {0, 0, 0, 0};
+		static int32 Demo3D_PickEmptyAt(Demo3DState *st, DemoCtx &ctx, NkVec3f camPos,
+										NkVec3f camTgt, float32 mx, float32 my,
+										float32 *worldOut3) {
+			const Demo3D_ScreenProj uproj =
+				Demo3D_ScreenProj::Make(camPos, camTgt, 60.f, (float32)ctx.width, (float32)ctx.height);
+			const NkVec3f fwd2 = (camTgt - camPos).Normalized();
+			const NkVec3f rgt2 = fwd2.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
+			int32 bestU = -1; // widgets : distance ECRAN
+			// Maillages : candidat par RAYON-TRIANGLE sur le mesh reel, metrique = t du
+			// rayon (le plus PROCHE gagne).
+			int32 bestMeshU = -1;
+			float32 bestMeshT = 1e30f;
+			// Rayon MONDE du pixel vise -- meme convention que uproj (inverse exact de
+			// sa projection). NON normalise : le parametre t reste celui du rayon monde
+			// et se compare entre objets.
+			const float32 rnx = 2.f * mx / uproj.vw - 1.f;
+			const float32 rny = 1.f - 2.f * my / uproj.vh;
+			const NkVec3f rdW{uproj.fwd.x + uproj.rgt.x * rnx * uproj.thX + uproj.upv.x * rny * uproj.thY,
+							  uproj.fwd.y + uproj.rgt.y * rnx * uproj.thX + uproj.upv.y * rny * uproj.thY,
+							  uproj.fwd.z + uproj.rgt.z * rnx * uproj.thX + uproj.upv.z * rny * uproj.thY};
+			auto *msPick = ctx.renderer ? ctx.renderer->GetMeshSystem() : nullptr;
+			float32 bestD2 = 1e30f;
+			// MESURE : de quoi ce pick a-t-il eu le DROIT de tenir compte ?
+			// « Rien sous le curseur » et « tout ce qui est sous le curseur a
+			// ete ecarte » se ressemblent dans la reponse et n'ont pas la meme
+			// cause -- c'est la premiere façon dont un controle se trompe.
+			int32 dbgOccupes = 0, dbgModels = 0, dbgCaches = 0, dbgMesh = 0;
+			struct DbgOut {
+					~DbgOut() {
+						nkvpPickDbg[0] = *a;
+						nkvpPickDbg[1] = *b;
+						nkvpPickDbg[2] = *c;
+						nkvpPickDbg[3] = *d;
+					}
+					int32 *a, *b, *c, *d;
+			} dbgOut{&dbgOccupes, &dbgModels, &dbgCaches, &dbgMesh};
+			for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
+				const uint8 uk2 = nkvpUserKind[u2];
+				if (uk2 == 0)
+					continue; // slot libre -- tout le reste se clique
+				++dbgOccupes;
+				const int32 un2 = kNkvpFirstUser + u2;
+				if (nkvpIsModel[un2]) {
+					++dbgModels;
+					continue; // un model se prend PAR SA MATIERE : sa propre origine ne
+							  // dessine rien, et y laisser une cible faisait une zone
+							  // fantome loin de ses maillages (Rihen)
+				}
+				if (HostHiddenEff(un2) || HostLockedEff(un2)) {
+					++dbgCaches;
+					continue;
+				}
+				if (nkvpIsMesh[un2])
+					++dbgMesh;
+				const int32 e2 = un2 - kNkvpFirstEmpty;
+				if (uk2 >= 1 && uk2 <= 3) {
+					// MAILLAGE : la designation se decide sur le MESH REEL
+					// (rayon-triangle), transform monde identique a celui du rendu.
+					NkMeshHandle pm = st->meshPlane;
+					const uint8 usv2 = nkvpUserSub[u2];
+					if (uk2 == 1)
+						pm = usv2 == 1 ? st->meshIco : st->meshSphere;
+					else if (uk2 == 2)
+						pm = usv2 == 1 ? st->meshCylinder : (usv2 == 2 ? st->meshCone : st->meshCube);
+					if (nkvpUserMesh[u2].IsValid())
+						pm = nkvpUserMesh[u2];
+					NkMat4f W = HostEmptyXform(e2, true); // point de passage unique
+					if (nkvpBaseSet[un2])
+						W = W * NkMat4f::Scale({nkvpDimFactor[un2][0], nkvpDimFactor[un2][1],
+												nkvpDimFactor[un2][2]});
+					float32 tHit = bestMeshT;
+					if (Demo3D_RayMeshT(msPick, pm, W, camPos, rdW, tHit)) {
+						bestMeshT = tHit;
+						bestMeshU = e2;
+					}
+					continue;
+				}
+				const NkVec3f c2{nkvpEmptyPos[e2][0], nkvpEmptyPos[e2][1], nkvpEmptyPos[e2][2]};
+				float32 rw = fabsf(nkvpEmptyScl[e2][0]);
+				if (fabsf(nkvpEmptyScl[e2][1]) > rw)
+					rw = fabsf(nkvpEmptyScl[e2][1]);
+				if (fabsf(nkvpEmptyScl[e2][2]) > rw)
+					rw = fabsf(nkvpEmptyScl[e2][2]);
+				rw = rw * 0.7f + 0.15f;
+				if (nkvpBaseSet[un2] && nkvpDimFactor[un2][0] > 0.f)
+					rw *= nkvpDimFactor[un2][0];
+				float32 sx0 = 0.f, sy0 = 0.f;
+				if (!uproj(c2, sx0, sy0))
+					continue;
+				// Widgets (lumiere, camera, vides, marqueurs) : taille ECRAN constante.
+				float32 rpix = 16.f;
+				if (uk2 >= 1 && uk2 <= 3) {
+					float32 sx1 = 0.f, sy1 = 0.f;
+					const NkVec3f edge{c2.x + rgt2.x * rw, c2.y + rgt2.y * rw, c2.z + rgt2.z * rw};
+					if (!uproj(edge, sx1, sy1))
+						continue;
+					rpix = sqrtf((sx1 - sx0) * (sx1 - sx0) + (sy1 - sy0) * (sy1 - sy0));
+				}
+				const float32 pdx = mx - sx0, pdy = my - sy0;
+				const float32 pd2 = pdx * pdx + pdy * pdy;
+				if (pd2 <= rpix * rpix && pd2 < bestD2) {
+					bestD2 = pd2;
+					bestU = e2;
+				}
+			}
+			// PRIORITE aux widgets (petite cible ecran, intention precise) ; sinon le
+			// maillage reellement TOUCHE par le rayon.
+			if (bestU < 0)
+				bestU = bestMeshU;
+			// DANS UNE SCENE, designer un MESH INTERNE designe TOUT le model auquel il
+			// appartient (façon Blender) ; dans l'editeur de model, chaque mesh se
+			// designe individuellement (regle de Rihen).
+			if (bestU >= 0 && !nkvpDocIsModel) {
+				const int32 nB = bestU + kNkvpFirstEmpty;
+				const int32 rB = Demo3DHostModelRootOf(nB);
+				if (rB != nB && rB >= kNkvpFirstEmpty)
+					bestU = rB - kNkvpFirstEmpty;
+			}
+			if (worldOut3) {
+				// Le point vise, dans l'ordre de ce qui est le plus fidele a
+				// l'intention : la surface touchee, puis le sol, puis un point devant
+				// la camera. Le dernier repli n'est pas cosmetique -- sans lui, une
+				// camera qui regarde l'horizon ferait atterrir le modele a l'origine,
+				// c'est-a-dire n'importe ou sauf la ou on a lache.
+				float32 tW = bestMeshT;
+				if (tW > 1e29f && fabsf(rdW.y) > 1e-5f) {
+					const float32 tg = -camPos.y / rdW.y; // plan du sol y = 0
+					if (tg > 1e-4f)
+						tW = tg;
+				}
+				if (tW > 1e29f)
+					tW = 8.f / (rdW.Len() > 1e-6f ? rdW.Len() : 1.f);
+				worldOut3[0] = camPos.x + rdW.x * tW;
+				worldOut3[1] = camPos.y + rdW.y * tW;
+				worldOut3[2] = camPos.z + rdW.z * tW;
+			}
+			return bestU;
 		}
 
 		// Test PRECIS des objets de DEMO pour le gizmo : resout le MEME mesh que le
@@ -3866,15 +4168,12 @@ namespace nkentseu {
 			}
 
 			const int32 W = 256, H = 256;
-			NkImage *img = NkImage::Alloc(W, H, NkImagePixelFormat::NK_RGBA32);
-			if (!img || !img->IsValid()) {
-				if (img)
-					img->Free();
+			NkImage img = NkImage::Alloc(W, H, NkImagePixelFormat::NK_RGBA32);
+			if (!img.IsValid())
 				return false;
-			}
 
-			uint8_t *px = img->Pixels();
-			const int32 stride = img->Stride();
+			uint8_t *px = img.Pixels();
+			const int32 stride = img.Stride();
 			for (int32 y = 0; y < H; ++y) {
 				uint8_t *row = px + (size_t)y * stride;
 				for (int32 x = 0; x < W; ++x) {
@@ -3903,9 +4202,7 @@ namespace nkentseu {
 					row[x * 4 + 3] = 255;
 				}
 			}
-			bool ok = img->SavePNG(outPath);
-			img->Free();
-			return ok;
+			return img.SavePNG(outPath);
 		}
 
 		// Helper d'affichage : nom court de PCFMode
@@ -4427,6 +4724,40 @@ namespace nkentseu {
 										(st->editSelMask & 2) ? "E" : "-", (st->editSelMask & 4) ? "F" : "-");
 							return;
 						}
+					}
+					// ── `L` / `Ctrl+L` : SÉLECTIONNER CE QUI EST LIÉ ───────────────
+					// « Un sous-mesh est une composante connexe » — la définition posée
+					// par Rihen à travers ce geste. Le calcul vit dans NkEditMesh
+					// (ComputeConnectedComponents), pas ici : `P` (separate by loose
+					// parts) s'en servira, et deux implémentations divergeraient au
+					// premier cas limite.
+					//
+					// ⚠️ ÉCART ASSUMÉ AVEC BLENDER, dit plutôt que caché : chez Blender,
+					// `L` part de l'élément SOUS LE CURSEUR. Ici il part du sommet ACTIF
+					// (le dernier sélectionné, rendu blanc) — c'est l'information de pick
+					// que cette vue entretient déjà. Sans sommet actif, on retombe sur le
+					// comportement de `Ctrl+L` : étendre ce qui est déjà sélectionné. Le
+					// jour où un survol par sommet existera, seule la GRAINE change, pas
+					// le calcul.
+					if (k == NkKey::NK_L) {
+						const bool ctrlL = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+						Demo3D_PushSel(st);
+						bool changed = false;
+						const int32 seed = st->editActiveVert;
+						if (!ctrlL && seed >= 0 && seed < (int32)st->editHE.VertCount())
+							changed = st->editHE.SelectLinked((uint32)seed, true);
+						else
+							changed = st->editHE.SelectLinkedFromSelection();
+						Demo3D_PullSel(st);
+						if (changed)
+							st->editOverlayDirty = true;
+						uint32 nsel = 0;
+						for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+							if (st->vertSel[i])
+								nsel++;
+						logger.Info("[Demo3D] {0} : {1} — {2} sommets selectionnes\n", ctrlL ? "Ctrl+L" : "L",
+									changed ? "etendu" : "rien de neuf", nsel);
+						return;
 					}
 					// ── BEVEL / CHANFREIN (façon Blender) ──────────────────────────
 					// Ctrl+B = bevel d'ARÊTE · Ctrl+Shift+B = bevel de SOMMET (Blender à
@@ -5032,6 +5363,7 @@ namespace nkentseu {
 			auto *vao = renderer ? renderer->GetVoxelAO() : nullptr;
 			if (!vao)
 				return;
+			bool emiEclaireGI = false; // au moins un emissif demande a eclairer
 			vao->Clear();
 			// L'OCCLUSION AMBIANTE EST UNE SEULE NOTION POUR L'UTILISATEUR
 			// (Rihen, 10 aout : « tache noire au sol autour d'un objet alors
@@ -5045,7 +5377,24 @@ namespace nkentseu {
 				bool aoOn = false;
 				float32 aoR = 0.5f, aoI = 1.f;
 				Demo3DHostSSAO(&aoOn, &aoR, &aoI);
-				if (!aoOn) {
+				// ── UN EMISSIF QUI ECLAIRE SUFFIT ────────────────────────────
+				// La grille ne se construisait que si l'occlusion ambiante etait
+				// active. Cocher « Eclaire la scene » ne produisait donc RIEN, sans
+				// que rien a l'ecran ne l'explique -- exactement le defaut que la
+				// regle du 10 aout visait a supprimer (« un reglage affiche qui
+				// n'agit pas »), retourne contre elle.
+				//
+				// Son intention est preservee : elle interdisait les taches sombres
+				// NON DEMANDEES. Ici l'utilisateur a coche une case pour obtenir cet
+				// eclairage-ci -- la demande est explicite.
+				// (le meme temoin sert plus bas pour l'intensite indirecte)
+				emiEclaireGI = false;
+				bool &emiEclaireQqch = emiEclaireGI;
+				for (int32 q = 0; q < kNkvpMaxProjMats && !emiEclaireQqch; ++q)
+					emiEclaireQqch = nkvpProjMats[q].used && nkvpProjMats[q].matType == 11 &&
+									 nkvpProjMats[q].emiEclaire &&
+									 nkvpProjMats[q].emiStrength > 0.001f;
+				if (!aoOn && !emiEclaireQqch) {
 					vao->Build(); // grille vide televersee : plus aucune tache
 					st->giBuildMs = vao->GetLastBuildMs();
 					st->giInjectMs = 0.f;
@@ -5101,8 +5450,53 @@ namespace nkentseu {
 			vao->Build();
 			// GI éteint = injection de zéro : l'opacité (donc l'AO) reste, seul
 			// l'indirect disparaît. L'A/B ne change donc QUE ce qu'on veut mesurer.
-			vao->SetGIIntensity(st->giOn ? st->giIntensity : 0.f);
-			vao->InjectLighting(lights);
+			// L'indirect ne doit pas etre multiplie par zero quand c'est justement
+			// lui qu'on vient de demander : `giOn` n'a AUCUN interrupteur dans les
+			// panneaux (verifie le 14 aout), il restait donc sur sa valeur de demo.
+			vao->SetGIIntensity((st->giOn || emiEclaireGI) ? st->giIntensity : 0.f);
+		// ── LES EMISSIFS QUI ECLAIRENT ─────────────────────────────────────
+			// Une lumiere ponctuelle est ajoutee au centre de chaque objet dont le
+			// materiau est emissif ET coche « eclaire la scene ». Elle n'entre QUE
+			// dans l'injection du GI : elle ne rejoint pas les lumieres du rendu
+			// direct, sinon l'objet gagnerait un speculaire et une ombre portee
+			// qu'aucune surface emissive ne produit.
+			//
+			// Une ponctuelle plutot qu'une source de surface : la grille est en
+			// 64x32x64, ses voxels mesurent plusieurs centimetres -- la forme exacte
+			// de l'emetteur ne s'y lit pas, seule sa position et son flux comptent.
+			NkVector<NkLightDesc> lightsGI = lights;
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (!nkvpUserMesh[u].IsValid())
+					continue;
+				const int32 n = kNkvpFirstUser + u;
+				if (nkvpDeleted[n] || HostHiddenEff(n))
+					continue;
+				const int32 pm = nkvpNodeMatP1[n] - 1;
+				if (pm < 0 || pm >= kNkvpMaxProjMats || !nkvpProjMats[pm].used)
+					continue;
+				const NkVpProjMat &mm = nkvpProjMats[pm];
+				if (mm.matType != 11 || !mm.emiEclaire || mm.emiStrength <= 0.001f)
+					continue;
+				// LE CENTRE DE SA BOITE MONDE, calcule comme pour les occludeurs
+				// ci-dessus : une seule facon de savoir ou est un objet.
+				NkVec3f bmin, bmax;
+				Demo3D_XformAABB(Demo3D_UserWireXform(st, u), bmin, bmax);
+				NkLightDesc le;
+				le.type = NkLightType::NK_POINT;
+				le.position = {(bmin.x + bmax.x) * 0.5f, (bmin.y + bmax.y) * 0.5f,
+							   (bmin.z + bmax.z) * 0.5f};
+				// La teinte suit la meme regle que le rendu : sans teinte d'emission,
+				// c'est la couleur de base qui emet.
+				const bool nul = mm.emissive[0] <= 0.001f && mm.emissive[1] <= 0.001f &&
+								 mm.emissive[2] <= 0.001f;
+				le.color = {nul ? mm.albedo[0] : mm.emissive[0],
+							nul ? mm.albedo[1] : mm.emissive[1],
+							nul ? mm.albedo[2] : mm.emissive[2]};
+				le.intensity = mm.emiStrength;
+				le.range = 4.f + mm.emiStrength * 0.5f; // plus elle emet, plus loin
+				lightsGI.PushBack(le);
+			}
+			vao->InjectLighting(lightsGI);
 			st->giBuildMs = vao->GetLastBuildMs();
 			st->giInjectMs = vao->GetLastInjectMs();
 		}
@@ -8949,23 +9343,38 @@ namespace nkentseu {
 					// ne pilote que le pick de SOMMETS en Edit Mode ; sans équivalent ici,
 					// la sélection d'objets ne pouvait être vérifiée qu'à la souris — donc
 					// pas de façon reproductible.
+					// ⚠️ IL FAUT DIRE A QUELLE FRAME. Le declenchement au premier passage
+					// rendait ce levier INUTILISABLE pour ce qu'il existe : `NK_OPEN_RECENT`
+					// n'ouvre le projet qu'a partir de la frame 3, si bien que le clic
+					// force tombait sur une scene VIDE et repondait « rien » -- une reponse
+					// juste a une question posee trop tot, indistinguable d'un pick casse.
+					// Troisieme valeur facultative = la frame ; sans elle, 1 (l'ancien
+					// comportement, garde pour ne pas perimer les invocations existantes).
 					static bool selAtDone = false;
+					static int32 selAtFrame = 0;
+					++selAtFrame;
 					if (!selAtDone) {
 						if (const char *sa = getenv("NK_SEL_AT")) {
-							selAtDone = true;
-							float32 sv[2] = {0.f, 0.f};
+							float32 sv[3] = {0.f, 0.f, 1.f};
 							int32 sk = 0;
 							const char *sp = sa;
-							while (sk < 2 && *sp) {
+							while (sk < 3 && *sp) {
 								sv[sk++] = (float32)atof(sp);
 								while (*sp && *sp != ',')
 									sp++;
 								if (*sp == ',')
 									sp++;
 							}
-							gin.mouseX = sv[0];
-							gin.mouseY = sv[1];
-							gin.leftPressed = true;
+							if (selAtFrame >= (int32)sv[2]) {
+								selAtDone = true;
+								gin.mouseX = sv[0];
+								gin.mouseY = sv[1];
+								gin.leftPressed = true;
+								logger.Info("[Demo3D] NK_SEL_AT -> clic force en ({0}, {1}) a la frame {2}\n",
+											sv[0], sv[1], selAtFrame);
+							}
+						} else {
+							selAtDone = true; // levier absent : on n'y revient pas
 						}
 					}
 					// ── PICK ET MANIPULATION DES LUMIERES ────────────────────────────
@@ -9384,117 +9793,40 @@ namespace nkentseu {
 						// principe que les lumieres : centre projete, rayon approche.
 						if (gin.leftPressed && !st->emptyGizmo.IsDragging() &&
 							!st->gizmo.IsDragging()) { // une POIGNEE saisie a priorite
-							const Demo3D_ScreenProj uproj = Demo3D_ScreenProj::Make(
-								cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
-								(float32)ctx.height);
-							const NkVec3f camP2 = cam.GetPosition();
-							const NkVec3f fwd2 = (cam.GetTarget() - camP2).Normalized();
-							const NkVec3f rgt2 = fwd2.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
-							int32 bestU = -1; // widgets : distance ECRAN
-								// Maillages : candidat par RAYON-TRIANGLE sur le mesh
-								// reel, metrique = t du rayon (le plus PROCHE gagne).
-								int32 bestMeshU = -1;
-								float32 bestMeshT = 1e30f;
-								// Rayon MONDE du pixel clique -- meme convention que
-								// uproj (inverse exact de sa projection).
-								const float32 rnx = 2.f * gin.mouseX / uproj.vw - 1.f;
-								const float32 rny = 1.f - 2.f * gin.mouseY / uproj.vh;
-								const NkVec3f rdW{uproj.fwd.x + uproj.rgt.x * rnx * uproj.thX +
-													  uproj.upv.x * rny * uproj.thY,
-												  uproj.fwd.y + uproj.rgt.y * rnx * uproj.thX +
-													  uproj.upv.y * rny * uproj.thY,
-												  uproj.fwd.z + uproj.rgt.z * rnx * uproj.thX +
-													  uproj.upv.z * rny * uproj.thY};
-								auto *msPick = ctx.renderer->GetMeshSystem();
-								const float32 kD2Rp = 0.017453292f;
-							float32 bestD2 = 1e30f;
-							for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
-								const uint8 uk2 = nkvpUserKind[u2];
-								if (uk2 == 0)
-									continue; // slot libre -- tout le reste se clique
-								const int32 un2 = kNkvpFirstUser + u2;
-								if (nkvpIsModel[un2])
-									continue; // un model se clique PAR SA MATIERE : sa
-											  // propre origine ne dessine rien, et y
-											  // laisser une cible faisait une zone
-											  // fantome loin de ses maillages (Rihen)
-								if (HostHiddenEff(un2) || HostLockedEff(un2))
-									continue;
-								const int32 e2 = un2 - 90;
-									if (uk2 >= 1 && uk2 <= 3) {
-										// MAILLAGE : le clic se decide sur le MESH REEL
-										// (rayon-triangle), transform monde identique a
-										// celui du rendu. Le disque approche d'avant
-										// (rayon = plus grande echelle) volait le vide
-										// voisin des objets agrandis.
-										NkMeshHandle pm = st->meshPlane;
-										const uint8 usv2 = nkvpUserSub[u2];
-										if (uk2 == 1)
-											pm = usv2 == 1 ? st->meshIco : st->meshSphere;
-										else if (uk2 == 2)
-											pm = usv2 == 1 ? st->meshCylinder
-														   : (usv2 == 2 ? st->meshCone
-																		: st->meshCube);
-										if (nkvpUserMesh[u2].IsValid())
-											pm = nkvpUserMesh[u2];
-										NkMat4f W = HostEmptyXform(e2, true); // point de passage unique
-										if (nkvpBaseSet[un2])
-											W = W * NkMat4f::Scale({nkvpDimFactor[un2][0],
-																	nkvpDimFactor[un2][1],
-																	nkvpDimFactor[un2][2]});
-										float32 tHit = bestMeshT;
-										if (Demo3D_RayMeshT(msPick, pm, W, camP2, rdW, tHit)) {
-											bestMeshT = tHit;
-											bestMeshU = e2;
-										}
-										continue;
-									}
-								const NkVec3f c2{nkvpEmptyPos[e2][0], nkvpEmptyPos[e2][1],
-												 nkvpEmptyPos[e2][2]};
-								float32 rw = fabsf(nkvpEmptyScl[e2][0]);
-								if (fabsf(nkvpEmptyScl[e2][1]) > rw)
-									rw = fabsf(nkvpEmptyScl[e2][1]);
-								if (fabsf(nkvpEmptyScl[e2][2]) > rw)
-									rw = fabsf(nkvpEmptyScl[e2][2]);
-								rw = rw * 0.7f + 0.15f;
-								if (nkvpBaseSet[un2] && nkvpDimFactor[un2][0] > 0.f)
-									rw *= nkvpDimFactor[un2][0];
-								float32 sx0 = 0.f, sy0 = 0.f;
-								if (!uproj(c2, sx0, sy0))
-									continue;
-								// Maillage : rayon MONDE projete ; widgets (lumiere,
-								// camera, vides, marqueurs) : taille ecran constante.
-								float32 rpix = 16.f;
-								if (uk2 >= 1 && uk2 <= 3) {
-									float32 sx1 = 0.f, sy1 = 0.f;
-									const NkVec3f edge{c2.x + rgt2.x * rw, c2.y + rgt2.y * rw,
-													   c2.z + rgt2.z * rw};
-									if (!uproj(edge, sx1, sy1))
-										continue;
-									rpix = sqrtf((sx1 - sx0) * (sx1 - sx0) +
-												 (sy1 - sy0) * (sy1 - sy0));
-								}
-								const float32 pdx = gin.mouseX - sx0, pdy = gin.mouseY - sy0;
-								const float32 pd2 = pdx * pdx + pdy * pdy;
-								if (pd2 <= rpix * rpix && pd2 < bestD2) {
-									bestD2 = pd2;
-									bestU = e2;
-								}
-							}
-							// PRIORITE aux widgets (petite cible ecran, intention
-							// precise) ; sinon le maillage reellement TOUCHE par le
-							// rayon -- et rien touche = deselection plus bas.
-							if (bestU < 0)
-								bestU = bestMeshU;
-							// DANS UNE SCENE, cliquer un MESH INTERNE selectionne TOUT
-							// le model auquel il appartient (facon Blender) ; dans
-							// l'editeur de model, chaque mesh se selectionne
-							// individuellement (regle de Rihen).
-							if (bestU >= 0 && !nkvpDocIsModel) {
-								const int32 nB = bestU + kNkvpFirstEmpty;
-								const int32 rB = Demo3DHostModelRootOf(nB);
-								if (rB != nB && rB >= kNkvpFirstEmpty)
-									bestU = rB - kNkvpFirstEmpty;
+							// LE PICK EST SORTI D ICI (Demo3D_PickEmptyAt, pres de
+							// Demo3D_RayMeshT) et le clic l APPELLE desormais : le lacher
+							// du navigateur avait besoin du meme geste, et deux picks
+							// ecrits deux fois auraient fini par designer deux objets
+							// differents sans que personne sache lequel a raison.
+							int32 bestU = Demo3D_PickEmptyAt(st, ctx, cam.GetPosition(),
+															 cam.GetTarget(), gin.mouseX,
+															 gin.mouseY, nullptr);
+							// ── MODE OBJET : ON SELECTIONNE LE MODEL, PAS UN MAILLAGE ──
+							// « En mode objet, selectionner un objet le selectionne avec
+							// TOUS ses sous-mesh » (Rihen). Le pick tombe sur la MATIERE
+							// -- c'est voulu, la zone d'un model EST sa matiere -- mais ce
+							// qu'il faut selectionner, c'est le model qui la porte. Sans
+							// cette remontee, cliquer un canape selectionnait un coussin :
+							// le gizmo se plantait sur le sous-mesh et le reste du model
+							// ne suivait pas.
+							//
+							// ⚠️ ON REMONTE LA SELECTION, ON N'ETEND PAS CELLE DU GIZMO
+							// AUX MAILLAGES. Le gizmo calcule UNE transformation PAR cible
+							// selectionnee, et HostHierRecurse propage deja celle du parent
+							// a ses enfants : ajouter les maillages a la selection leur
+							// appliquerait le geste DEUX FOIS. Le liserre, lui, couvre deja
+							// toute la matiere (Demo3DHostModelRootOf, plus bas) -- donc
+							// « selectionne avec tous ses sous-mesh » SE VOIT deja, sans
+							// qu'aucune transformation ni aucune origine ne soit touchee.
+							//
+							// La hierarchie garde le choix fin : y cliquer un maillage
+							// precis reste possible, c'est un geste explicite sur l'arbre.
+							if (bestU >= 0) {
+								const int32 pickedNode = bestU + kNkvpFirstEmpty;
+								const int32 rootNode = Demo3DHostModelRootOf(pickedNode);
+								if (rootNode >= kNkvpFirstEmpty && rootNode < kNkvpMaxNodes &&
+									rootNode != pickedNode)
+									bestU = rootNode - kNkvpFirstEmpty;
 							}
 							const bool clickedActive =
 								(bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex());
@@ -9545,6 +9877,30 @@ namespace nkentseu {
 							else if (nowSel == Demo3DState::kIdxGIWall)
 								what = "MUR GI";
 							logger.Info("[Demo3D] selection -> index {0} ({1})\n", nowSel, what);
+						}
+						// ── ET LES MAILLAGES UTILISATEUR, QUI MANQUAIENT ──────
+						// Ce journal ne lisait que `gizmo`, celui des objets de
+						// DEMO. Or un projet reel n'en contient aucun : tout ce
+						// que l'utilisateur cree vit dans `emptyGizmo`. Le
+						// controle repondait donc « rien » sur une scene pleine
+						// -- juste, precis, et aveugle a ce qu'on lui demandait.
+						// C'est ce qui l'a rendu inutilisable pour verifier le
+						// pick extrait, et c'est la raison de l'ajout.
+						static int32 lastUser = -2;
+						const int32 nowUser = st->emptyGizmo.ActiveIndex();
+						if (nowUser != lastUser) {
+							lastUser = nowUser;
+							// LA NATURE DU NOEUD, PAS SEULEMENT SON NUMERO. En mode
+							// objet, un clic sur la matiere doit remonter au MODEL :
+							// « model » atteste que la remontee a joue, « maillage »
+							// qu'elle a ete manquee. Un numero seul ne le dit pas, et
+							// c'est precisement ce qu'on veut pouvoir lire.
+							const int32 nd = nowUser >= 0 ? nowUser + kNkvpFirstEmpty : -1;
+							const char *nature = "aucun";
+							if (nd >= kNkvpFirstEmpty && nd < kNkvpMaxNodes)
+								nature = nkvpIsModel[nd] ? "model" : (nkvpIsMesh[nd] ? "maillage" : "vide");
+							logger.Info("[Demo3D] selection utilisateur -> vide {0} (noeud {1}, {2})\n",
+										nowUser, nd, nature);
 						}
 					}
 
@@ -9792,6 +10148,79 @@ namespace nkentseu {
 								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
 							});
 				}
+			}
+
+			// ── LE PICK DEMANDE PAR L'INTERFACE SE RESOUT ICI ───────────────────────
+			// HORS du bloc `!editMode` : le navigateur reste visible en mode edition,
+			// donc on peut y lacher un materiau. Y enfermer la resolution aurait rendu
+			// le glisser-deposer muet dans un mode entier, sans que rien ne le dise.
+			// NK_DROP_AT="x,y[,frame]" : demande UNE FOIS le pick du lacher a ces
+			// pixels de FENETRE, et journalise la reponse. Sans lui, le
+			// glisser-deposer n'est verifiable qu'a la souris -- il faut partir du
+			// navigateur et relacher dans la vue, ce qu'aucun levier ne sait faire.
+			// Il vise le pick, PAS le clic de selection : `NK_SEL_AT` passe par
+			// l'arbitrage des gizmos et ne dit donc rien de ce que le lacher verra.
+			{
+				static bool dropAtDone = false;
+				static int32 dropAtFrame = 0;
+				++dropAtFrame;
+				if (!dropAtDone) {
+					if (const char *da = getenv("NK_DROP_AT")) {
+						float32 dv[3] = {0.f, 0.f, 1.f};
+						int32 dk = 0;
+						const char *dp = da;
+						while (dk < 3 && *dp) {
+							dv[dk++] = (float32)atof(dp);
+							while (*dp && *dp != ',')
+								dp++;
+							if (*dp == ',')
+								dp++;
+						}
+						if (dropAtFrame >= (int32)dv[2]) {
+							dropAtDone = true;
+							Demo3DHostPickRequest(dv[0], dv[1]);
+						}
+					} else {
+						dropAtDone = true;
+					}
+				}
+			}
+			if (nkvpPickReq) {
+				nkvpPickReq = false;
+				float32 w3[3] = {0.f, 0.f, 0.f};
+				// HORS DU VISEUR : la question n'a pas de sens ici. Un pick qui
+				// repondrait « rien » a une coordonnee hors cadre serait
+				// indistinguable d'un lacher legitime dans le vide.
+				if (nkvpPickReqX < 0.f || nkvpPickReqY < 0.f ||
+					nkvpPickReqX >= (float32)ctx.width || nkvpPickReqY >= (float32)ctx.height) {
+					nkvpPickNode = -2;
+				} else {
+					const int32 e = Demo3D_PickEmptyAt(st, ctx, cam.GetPosition(), cam.GetTarget(),
+														   nkvpPickReqX, nkvpPickReqY, w3);
+					nkvpPickNode = (e >= 0) ? (e + kNkvpFirstEmpty) : -1;
+				}
+				nkvpPickWorld[0] = w3[0];
+				nkvpPickWorld[1] = w3[1];
+				nkvpPickWorld[2] = w3[2];
+				nkvpPickHas = true;
+				// MESURE : le detail slot par slot. Les compteurs disent COMBIEN
+				// ont ete ecartes ; ils ne disent pas LESQUELS, et « la matiere
+				// d'un model est-elle candidate ? » ne se lit que la.
+				for (int32 du = 0; du < kNkvpMaxUser; ++du) {
+					if (nkvpUserKind[du] == 0)
+						continue;
+					const int32 dn = kNkvpFirstUser + du;
+					logger.Info("[Demo3D]   candidat noeud={0} kind={1} model={2} mesh={3} "
+								"cache={4} verrou={5} parent={6}\n",
+								dn, (int32)nkvpUserKind[du], nkvpIsModel[dn] ? 1 : 0,
+								nkvpIsMesh[dn] ? 1 : 0, HostHiddenEff(dn) ? 1 : 0,
+								HostLockedEff(dn) ? 1 : 0, nkvpParentOf[dn]);
+				}
+				logger.Info("[Demo3D] PICK lacher ({0}, {1} en vue) -> noeud {2} · monde "
+							"({3}, {4}, {5}) · candidats occupes={6} ecartes_model={7} "
+							"caches={8} mesh={9}\n",
+							nkvpPickReqX, nkvpPickReqY, nkvpPickNode, w3[0], w3[1], w3[2],
+							nkvpPickDbg[0], nkvpPickDbg[1], nkvpPickDbg[2], nkvpPickDbg[3]);
 			}
 
 			// ── WIDGETS DES LUMIERES (facon Blender) ────────────────────────────────
@@ -11363,13 +11792,14 @@ namespace nkentseu {
 					{nkvpBgColor[0], nkvpBgColor[1], nkvpBgColor[2], 1.f});
 			HostOutSetSource(nkvpOutSaveCam);
 			logger.Info("[Output]   source restituee\n");
-			// UNLOAD, PAS FREE. NkImage::Free() ne vide pas l'image : elle fait
-			// nkFree(this) et libere L'OBJET LUI-MEME. Appelee sur ce canevas
-			// statique, elle rendait a l'allocateur une adresse qui ne lui
-			// appartenait pas -- l'application se fermait net juste apres avoir
-			// ecrit le fichier (constate deux fois par Rihen). Unload libere les
-			// pixels et remet l'objet a vide, ce que son en-tete annonce
-			// explicitement : « sur pile comme heap ».
+			// UNLOAD : on vide les pixels SANS detruire l'objet. Ces deux canevas
+			// sont STATIQUES et resservent a la sortie suivante -- ils doivent
+			// rester en vie, seulement vides. (Le piege d'autrefois a disparu :
+			// NkImage::Free() faisait nkFree(this) et rendait a l'allocateur une
+			// adresse qui ne lui appartenait pas, fermant l'application net juste
+			// apres l'ecriture du fichier -- constate deux fois par Rihen.
+			// NkImage est desormais un TYPE VALEUR : Free() n'existe plus, les
+			// pixels partent avec le destructeur ou avec Unload().)
 			nkvpOutDark.Unload(); // la passe « fond noir » n'a plus de jumelle
 			nkvpOutPass = 0;
 			nkvpOutCanvas.Unload(); // AVANT de rendre la cible : plus rien n'en depend
@@ -12218,6 +12648,36 @@ namespace nkentseu {
 			HostRecTick(dt);
 		}
 
+		/// Reconstruit l'instance moteur d'un materiau depuis son etat. Definie
+		/// bien plus bas, avec les facades qu'elle appelle ; declaree ICI parce que
+		/// l'apercu, lui, s'en sert des cette hauteur.
+		static void HostMatRebuildEngine(int32 i);
+
+		// Le renderer sur lequel les facades de materiau travaillent : celui de
+		// l'apercu pendant qu'on reconstruit ses instances, celui de la vue sinon.
+		static renderer::NkRenderer *NkvpMatRd() {
+			return nkvpMatRdCible ? nkvpMatRdCible : hst.ctx.renderer;
+		}
+
+		// ── LA BASCULE, EN PORTEE ───────────────────────────────────────────
+		// Elle remet TOUJOURS la cible d'origine en sortant, y compris sur un
+		// retour anticipe : une cible restee sur l'apercu ferait ecrire les
+		// reglages de l'utilisateur dans le mauvais renderer -- un defaut qui ne
+		// se verrait qu'a la prochaine modification, donc tres loin de sa cause.
+		struct NkvpMatCibleScope {
+				NkMaterial **oldT;
+				renderer::NkRenderer *oldR;
+				NkvpMatCibleScope(NkMaterial **t, renderer::NkRenderer *r)
+					: oldT(nkvpMatCible), oldR(nkvpMatRdCible) {
+					nkvpMatCible = t;
+					nkvpMatRdCible = r;
+				}
+				~NkvpMatCibleScope() {
+					nkvpMatCible = oldT;
+					nkvpMatRdCible = oldR;
+				}
+		};
+
 		void Demo3DHostRegisterInto(void *guiBackend) {
 			if (!hst.ok || !hst.rt || !guiBackend)
 				return;
@@ -12226,6 +12686,305 @@ namespace nkentseu {
 			if (!texLib)
 				return;
 			b->RegisterTexture(kHostTexId, texLib->GetRHIHandle(hst.rt->GetColorResult()));
+			// La texture de l'APERCU DE MATERIAU suit le meme chemin : rendue hors
+			// ecran par son propre renderer, publiee comme une image d'interface.
+			nk3d::matprev::RegisterInto(guiBackend);
+		}
+
+		// ── APERCU DE MATERIAU : une image par frame ────────────────────────
+		// Appelee depuis la frame de l'hote, avant que la passe backbuffer ne
+		// s'ouvre. Le slot demande est celui que le panneau affiche ; les autres
+		// materiaux ne sont pas rendus (leurs cartes recevront une capture figee
+		// a l'enregistrement).
+		// ── VIGNETTE D'UN MATERIAU : CAPTURE DU VRAI RENDU ──────────────────
+		// « Les cartes recoivent le resultat correct, mais sous forme de capture a
+		// la sauvegarde » (Rihen, 13 aout). C'est la bonne economie : le rendu GPU
+		// est fidele -- il execute le shader du verre, du toon, de l'emissif --
+		// mais rendre soixante-quatre scenes par frame pour des vignettes de
+		// quarante pixels serait absurde. On en fige une, au moment ou le materiau
+		// est ecrit sur le disque.
+		//
+		// EN DEUX FRAMES, et c'est oblige : la lecture des pixels doit porter sur
+		// une image TERMINEE. On rend a la frame N, on relit a la frame N+1. Une
+		// file, parce qu'un enregistrement de projet ecrit tous les materiaux d'un
+		// coup et qu'on n'en rend qu'un par frame.
+		namespace {
+			constexpr int32 kThumbMax = 64;
+			constexpr int32 kThumbPx = 128; // carre : c'est une icone de liste
+			struct NkMatThumbFile {
+					int32 slot[kThumbMax] = {};
+					/// Vrai = la vignette doit AUSSI etre encodee dans le materiau.
+					/// Faux = on ne rafraichit que l'image affichee. Les deux n'ont pas
+					/// le meme cout : televerser une image est bon marche, l'encoder en
+					/// PNG puis en base64 ne l'est pas.
+					bool pourFichier[kThumbMax] = {};
+					int32 nb = 0;
+					int32 rendu = -1; // slot rendu a la frame precedente, -1 = aucun
+					bool renduPourFichier = false;
+			};
+			NkMatThumbFile gThumbs;
+		} // namespace
+
+		// ── L'INSTANCE D'APERCU D'UN MATERIAU, CONSTRUITE A LA DEMANDE ──────
+		// Reconstruite QUAND L'ETAT CHANGE, pas a chaque frame : sans temoin on
+		// recreerait une instance soixante fois par seconde, et la collection du
+		// renderer d'apercu (64 emplacements) serait pleine en une seconde.
+		//
+		// LE TEMOIN EST L'ETAT ENTIER, compare octet a octet. Une signature faite
+		// d'une somme de quelques champs ne voyait pas les autres : changer
+		// l'emissif, une texture, un reglage toon ou l'anisotropie ne rafraichissait
+		// rien, et l'apercu mentait. Comparer la structure entiere ne peut rien
+		// manquer, et un reglage ajoute demain sera couvert sans qu'on y pense.
+		//
+		// APPELEE AUSSI PAR LA CAPTURE DE VIGNETTE : sans cela, seuls les materiaux
+		// deja ouverts dans le panneau avaient une instance, et les autres n'en
+		// recevaient aucune -- il fallait « partir dans le materiau » pour que sa
+		// vignette se fasse (Rihen, 14 aout).
+		static void HostEnsurePrevMat(int32 slot) {
+			if (slot < 0 || slot >= kNkvpMaxProjMats || !nkvpProjMats[slot].used)
+				return;
+			static NkVpProjMat sVuPrev[kNkvpMaxProjMats] = {};
+			static bool sVuInit[kNkvpMaxProjMats] = {};
+			const NkVpProjMat &pm = nkvpProjMats[slot];
+			if (!nkvpProjMatPrev[slot] || !sVuInit[slot] ||
+				memcmp(&sVuPrev[slot], &pm, sizeof(NkVpProjMat)) != 0) {
+				memcpy(&sVuPrev[slot], &pm, sizeof(NkVpProjMat));
+				sVuInit[slot] = true;
+				NkvpMatCibleScope bascule(nkvpProjMatPrev, nk3d::matprev::Renderer());
+				HostMatRebuildEngine(slot);
+			}
+		}
+
+		int32 Demo3DHostMatThumbTakeDirty() {
+			for (int32 i = 0; i < kNkvpMaxProjMats; ++i)
+				if (nkvpMatThumbAEcrire[i]) {
+					nkvpMatThumbAEcrire[i] = false; // consomme : une seule reecriture
+					return i;
+				}
+			return -1;
+		}
+
+		bool Demo3DHostMatThumbTakePixels(int32 i, const uint8 **px, int32 *cote) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpMatThumbNeuf[i])
+				return false;
+			if (nkvpMatThumbPix[i].Size() < (usize)(kThumbPx * kThumbPx * 4))
+				return false;
+			nkvpMatThumbNeuf[i] = false; // consommee : une seule remontee par prise
+			if (px)
+				*px = nkvpMatThumbPix[i].Data();
+			if (cote)
+				*cote = kThumbPx;
+			return true;
+		}
+
+		const char *Demo3DHostProjMatThumb(int32 i) {
+			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMatThumb[i].CStr() : "";
+		}
+		void Demo3DHostProjMatSetThumb(int32 i, const char *b64) {
+			if (i >= 0 && i < kNkvpMaxProjMats)
+				nkvpProjMatThumb[i] = b64 ? b64 : "";
+		}
+
+	/// Les demandes de vignette sont-elles suspendues ? Vrai le temps d'une
+		/// ecriture DECLENCHEE PAR une vignette : sans cela la reecriture redemande
+		/// une capture, qui une fois encodee redemande une reecriture -- une boucle
+		/// sans fin, vue comme un clignotement continu de l'apercu et neuf
+		/// materiaux qui se reencodent en rafale au journal (Rihen, 14 aout).
+		/// Une action ne doit pas pouvoir se re-declencher elle-meme.
+		static bool gThumbSuspend = false;
+		void Demo3DHostMatThumbSuspend(bool on) {
+			gThumbSuspend = on;
+		}
+
+		void Demo3DHostMatThumbRequest(int32 slot, const char *cheminPng) {
+			if (gThumbSuspend)
+				return;
+			if (slot < 0 || slot >= kNkvpMaxProjMats)
+				return;
+			(void)cheminPng; // la vignette ne va plus dans un fichier voisin
+			if (gThumbs.nb >= kThumbMax)
+				return; // file pleine : la vignette attendra le prochain
+			for (int32 i = 0; i < gThumbs.nb; ++i)
+				if (gThumbs.slot[i] == slot)
+					return; // deja demande
+		gThumbs.slot[gThumbs.nb] = slot;
+			gThumbs.pourFichier[gThumbs.nb] = true;
+			++gThumbs.nb;
+		}
+
+		// ── RAFRAICHIR SANS ENREGISTRER ─────────────────────────────────────
+		// « Je pense qu'on n'a meme pas besoin de sauvegarder pour le mettre a
+		// jour » (Rihen, 14 aout) -- d'accord, a une nuance pres : l'AFFICHAGE et
+		// la PERSISTANCE n'ont pas le meme cout. Reprendre l'image affichee est
+		// bon marche (un rendu et une lecture) ; l'encoder en PNG puis en base64
+		// pour l'ecrire dans le materiau l'est beaucoup moins. On rafraichit donc
+		// l'image des qu'un reglage change, et on n'encode qu'a l'enregistrement.
+		//
+		// APRES STABILISATION, et non a chaque frame : pendant qu'on glisse un
+		// curseur, l'etat change soixante fois par seconde. Reprendre la vignette
+		// a chaque fois volerait autant de frames au grand apercu, pour des images
+		// que personne n'a le temps de voir. On attend que ca se pose.
+		static void HostThumbsWatch() {
+			static NkVpProjMat sVu[kNkvpMaxProjMats] = {};
+			static bool sInit[kNkvpMaxProjMats] = {};
+			static float64 sQuand[kNkvpMaxProjMats] = {};
+			static bool sDu[kNkvpMaxProjMats] = {}; // une reprise est due
+			const float64 t = hst.ctx.totalTime;
+			for (int32 i = 0; i < kNkvpMaxProjMats; ++i) {
+				if (!nkvpProjMats[i].used)
+					continue;
+				if (!sInit[i] || memcmp(&sVu[i], &nkvpProjMats[i], sizeof(NkVpProjMat)) != 0) {
+					memcpy(&sVu[i], &nkvpProjMats[i], sizeof(NkVpProjMat));
+					// La toute premiere fois ne compte pas comme un changement : au
+					// chargement d'un projet, les soixante-quatre materiaux
+					// arriveraient d'un coup et demanderaient tous leur vignette.
+					if (sInit[i])
+						sDu[i] = true;
+					sInit[i] = true;
+					sQuand[i] = t;
+					continue;
+				}
+				if (!sDu[i] || (t - sQuand[i]) < 0.35)
+					continue;
+				sDu[i] = false;
+				if (gThumbs.nb >= kThumbMax)
+					continue;
+				bool deja = false;
+				for (int32 k = 0; k < gThumbs.nb && !deja; ++k)
+					deja = (gThumbs.slot[k] == i);
+				if (deja)
+					continue;
+				gThumbs.slot[gThumbs.nb] = i;
+				// ENCODE AUSSI, et c'est tout le point. Ne rafraichir que l'image
+				// affichee laissait le base64 du fichier en retard d'une
+				// modification : l'enregistrement ecrivait la vignette de l'etat
+				// PRECEDENT, puisque la capture demandee a ce moment-la n'est rendue
+				// qu'une a deux frames plus tard -- apres l'ecriture. Le fichier
+				// portait donc un albedo rouge et une vignette verte (constate le
+				// 14 aout en decodant Bob/Mate.nkmat).
+				//
+				// Preparer le base64 des que les reglages se posent coute un encodage
+				// PNG par modification stabilisee -- quelques millisecondes, une fois
+				// par changement. L'enregistrement n'a plus alors qu'a ecrire ce qui
+				// est deja pret, et ne peut plus etre en retard.
+				gThumbs.pourFichier[gThumbs.nb] = true;
+				++gThumbs.nb;
+			}
+		}
+
+		void Demo3DHostMatPreviewFrame(void *cmd, int32 slot, int32 w, int32 h) {
+			if (!cmd)
+				return;
+			// ── LA VIGNETTE PASSE AVANT ─────────────────────────────────────
+			// Elle emprunte la meme cible : une capture demandee prend donc la
+			// frame, et le grand apercu reprend a la suivante. Un scintillement
+			// d'une frame vaut mieux qu'une seconde cible hors ecran gardee toute
+			// la session pour un usage aussi rare.
+			//
+			// D'ABORD RELIRE ce qui a ete rendu a la frame precedente : l'image
+			// est terminee, c'est le seul moment ou elle est lisible.
+			if (gThumbs.rendu >= 0) {
+				const int32 sc = gThumbs.rendu;
+				const bool pourFichier = gThumbs.renduPourFichier;
+				gThumbs.rendu = -1;
+				static uint8 px[kThumbPx * kThumbPx * 4];
+				if (sc >= 0 && sc < kNkvpMaxProjMats && nk3d::matprev::Readback(px)) {
+					NkImage im;
+					if (im.Create((uint32)kThumbPx, (uint32)kThumbPx,
+								  math::NkColor(0, 0, 0, 255), 4)) {
+						memcpy(im.Pixels(), px, sizeof(px));
+						// L'IMAGE AFFICHEE, toujours : c'est elle qu'on regarde, et
+						// elle ne coute qu'un televersement.
+						nkvpMatThumbPix[sc].Resize(sizeof(px));
+						memcpy(nkvpMatThumbPix[sc].Data(), px, sizeof(px));
+						nkvpMatThumbNeuf[sc] = true;
+						// L'ENCODAGE, seulement pour le fichier : PNG puis base64.
+						// Les pixels bruts en base64 pesteraient 87 Ko par materiau ;
+						// compresses, il en reste quelques-uns pour la meme image.
+						uint8 *pngBuf = nullptr;
+						usize pngSz = 0;
+						if (pourFichier && im.EncodePNG(pngBuf, pngSz) && pngBuf && pngSz > 0) {
+						nkvpProjMatThumb[sc] = encoding::base64::NkEncode(pngBuf, pngSz);
+							// A ECRIRE SUR LE DISQUE. Une vignette encodee APRES
+							// l'enregistrement ne serait dans aucun fichier avant la
+							// sauvegarde suivante -- exactement le retard d'une
+							// modification qu'on vient de corriger. On signale, et
+							// l'application reecrit ce seul materiau.
+							nkvpMatThumbAEcrire[sc] = true;
+							NkLog::Instance().Info(
+								"[apercu] vignette du materiau {0} : {1} octets PNG", sc,
+								(uint32)pngSz);
+							memory::NkFree(pngBuf);
+					} else if (pourFichier)
+							NkLog::Instance().Info("[apercu] vignette {0} : encodage refuse",
+												   sc);
+					}
+				}
+			}
+			// Detection des reglages qui ont change : elle alimente la file.
+			HostThumbsWatch();
+			// PUIS rendre la suivante de la file, en SPHERE et en carre : c'est
+			// une icone de liste, elle doit se comparer aux autres.
+			if (gThumbs.nb > 0 && nk3d::matprev::Init(hst.ctx.device, (uint32)kThumbPx,
+													  (uint32)kThumbPx)) {
+			const int32 sc = gThumbs.slot[0];
+				gThumbs.renduPourFichier = gThumbs.pourFichier[0];
+				for (int32 i = 1; i < gThumbs.nb; ++i) {
+					gThumbs.slot[i - 1] = gThumbs.slot[i];
+					gThumbs.pourFichier[i - 1] = gThumbs.pourFichier[i];
+				}
+				--gThumbs.nb;
+			// L'instance peut ne jamais avoir ete construite : ce materiau n'a
+				// peut-etre jamais ete ouvert dans le panneau.
+				HostEnsurePrevMat(sc);
+				if (sc >= 0 && sc < kNkvpMaxProjMats && nkvpProjMats[sc].used &&
+					nkvpProjMatPrev[sc]) {
+					NkDrawCall3D mt;
+					HostMatSlotToDC(sc, mt);
+					// SANS LE SOL : c'est une icone de liste. Sphere seule, comme
+					// avant -- mais rendue par le vrai pipeline, donc fidele au type.
+					nk3d::matprev::RenderOne((NkICommandBuffer *)cmd,
+											 nkvpProjMatPrev[sc]->GetInstHandle(), 1,
+											 (uint32)kThumbPx, (uint32)kThumbPx,
+											 (float32)hst.ctx.totalTime, mt, false);
+					gThumbs.rendu = sc;
+					return; // cette frame est a elle
+				}
+			}
+			if (slot < 0 || slot >= kNkvpMaxProjMats)
+				return;
+			if (!nkvpProjMats[slot].used)
+				return;
+			if (!nk3d::matprev::Init(hst.ctx.device, (uint32)(w > 0 ? w : 260),
+									 (uint32)(h > 0 ? h : 150)))
+				return;
+			// ── L'INSTANCE DU RENDERER D'APERCU ─────────────────────────────
+			// Reconstruite par `HostMatRebuildEngine`, la MEME fonction que pour
+			// la vue 3D : on bascule seulement sa destination. Recopier son
+			// application des reglages aurait fait deux verites sur ce qu'est un
+			// materiau, et la copie aurait diverge au premier reglage ajoute.
+			//
+			HostEnsurePrevMat(slot);
+			NkMaterial *me = nkvpProjMatPrev[slot];
+			if (!me) {
+				static bool sDit = false;
+				if (!sDit) {
+					sDit = true;
+					NkLog::Instance().Info(
+						"[apercu] pas d'instance de materiau pour l'emplacement {0}", slot);
+				}
+				return;
+			}
+		// LES SURCHARGES DE MATIERE, remplies par la MEME fonction que la vue 3D.
+			// Un draw call vierge sert de porteur : c'est le type que `HostMatSlotToDC`
+			// sait remplir, et s'en servir garantit qu'aucun reglage n'est oublie en
+			// route -- ni aujourd'hui, ni quand un reglage s'ajoutera.
+			NkDrawCall3D matiere;
+			HostMatSlotToDC(slot, matiere);
+			nk3d::matprev::RenderOne((NkICommandBuffer *)cmd, me->GetInstHandle(),
+									 (int32)nkvpProjMats[slot].prevShape, (uint32)(w > 0 ? w : 260),
+									 (uint32)(h > 0 ? h : 150), (float32)hst.ctx.totalTime,
+									 matiere);
 		}
 
 		// ── ACCESSEURS DU CABLAGE ───────────────────────────────────────────
@@ -12742,6 +13501,44 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st ? st->gizmo.ActiveIndex() : -1;
 		}
+		// ── GLISSER-DEPOSER : DEMANDER UN PICK, PUIS LIRE SA REPONSE ─────────
+		// Deux appels et non un seul, parce que la reponse n'existe pas au
+		// moment de la question : le pick a besoin de la camera et de la taille
+		// de vue, qui ne vivent que le temps d'une frame. Le retard d'une image
+		// est invisible a la main pour un lacher de souris.
+		void Demo3DHostPickRequest(float32 xFenetre, float32 yFenetre) {
+			// L'ORIGINE DE LA VUE SE SOUSTRAIT ICI, comme dans TOUS les autres
+			// chemins d'entree de ce fichier (`e->GetX() - nkvpOffX`).
+			// L'appelant n'a pas a la connaitre : le shell a deja son propre
+			// `viewRect` et rien ne garantit qu'il vaille `nkvpOffX` -- deux
+			// sources pour une meme origine, c'est un decalage de pick qui
+			// attend son jour.
+			nkvpPickReqX = xFenetre - nkvpOffX;
+			nkvpPickReqY = yFenetre - nkvpOffY;
+			nkvpPickReq = true;
+			// UNE DEMANDE NEUVE PERIME LA PRECEDENTE. Sans cela, un second
+			// lacher pendant que le premier est en vol laisserait deux reponses
+			// en circulation, et la plus vieille serait lue en premier.
+			nkvpPickHas = false;
+			nkvpPickNode = kNkvpPickNone;
+		}
+		// false tant que la frame n'a pas repondu. true UNE SEULE FOIS par
+		// demande : le jeton se consomme et s'invalide dans le meme geste.
+		bool Demo3DHostPickTake(int32 *node, float32 *world3) {
+			if (!nkvpPickHas)
+				return false;
+			nkvpPickHas = false;
+			if (node)
+				*node = nkvpPickNode;
+			if (world3) {
+				world3[0] = nkvpPickWorld[0];
+				world3[1] = nkvpPickWorld[1];
+				world3[2] = nkvpPickWorld[2];
+			}
+			nkvpPickNode = kNkvpPickNone; // plus rien a lire, et ca se voit
+			return true;
+		}
+
 		void Demo3DHostSelectObject(int32 i, bool additive) {
 			auto *st = HostSt();
 			if (!st)
@@ -13473,7 +14270,10 @@ namespace nkentseu {
 		}
 		// ── MATERIAUX DU PROJET (pastille Materiau) ─────────────────────────
 		int32 Demo3DHostProjMatCreate() {
-			for (int32 i = 0; i < kNkvpMaxProjMats; ++i) {
+			// Le DERNIER emplacement est reserve au magenta « aucun materiau » : la
+			// creation s'arrete avant lui, sinon un materiau de l'utilisateur
+			// l'ecraserait des que le registre se remplit.
+			for (int32 i = 0; i < kNkvpMissingMat; ++i) {
 				if (nkvpProjMats[i].used)
 					continue;
 				NkVpProjMat &m = nkvpProjMats[i];
@@ -13570,6 +14370,37 @@ namespace nkentseu {
 			nkvpDefaultMatP1 =
 				(i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used) ? i + 1 : 0;
 		}
+		// ── LE MATERIAU « AUCUN » : MAGENTA, INTERNE, INACCESSIBLE ──────────────
+		// Idee de Rihen (13 aout) : plutot que de peindre en magenta au dernier
+		// moment, un objet sans materiau est ASSIGNE a un vrai materiau magenta que
+		// l'utilisateur ne voit pas. C'est la bonne facon de faire, et pour une
+		// raison qui a coute deux correctifs : forcer `dc.tint` juste avant l'envoi
+		// ne suffit pas -- des qu'un materiau porte une instance moteur, c'est ELLE
+		// qui decide de la couleur, de l'opacite et du type. Un objet sans materiau
+		// n'en liait aucune, et la teinte magenta se faisait ecraser par le reste
+		// du pipeline (l'objet restait gris et translucide).
+		//
+		// Il occupe le DERNIER emplacement du registre, et `Demo3DHostProjMatInfo`
+		// le refuse : il n'apparait donc dans aucune liste, aucune pastille, aucun
+		// fichier. Il n'est pas « le defaut » -- celui-la est un vrai materiau que
+		// l'utilisateur peut regler ; celui-ci signale une ABSENCE.
+
+		static int32 HostEnsureMissingMat() {
+			NkVpProjMat &m = nkvpProjMats[kNkvpMissingMat];
+			if (!m.used) {
+				m = NkVpProjMat{};
+				m.used = true;
+				snprintf(m.name, sizeof(m.name), "%s", "(aucun materiau)");
+				m.albedo[0] = 1.f;
+				m.albedo[1] = 0.f;
+				m.albedo[2] = 1.f;
+				m.alpha = 1.f;	 // OPAQUE : une absence ne se devine pas au travers
+				m.rough = 1.f;	 // mat : aucun reflet ne doit adoucir le signal
+				m.metal = 0.f;
+			}
+			return kNkvpMissingMat;
+		}
+
 		// Il existe TOUJOURS au moins un materiau des qu'un maillage existe :
 		// renvoie le DEFAUT choisi s'il vit encore, sinon le premier du
 		// registre, en le creant au besoin.
@@ -13636,6 +14467,15 @@ namespace nkentseu {
 		}
 		bool Demo3DHostProjMatInfo(int32 i, char *name, uint32 cap, float32 *albedo3,
 								   float32 *rough, float32 *metal) {
+			// LE MAGENTA « AUCUN MATERIAU » N'EXISTE POUR PERSONNE. Il porte une
+			// absence, pas une matiere : il ne doit apparaitre ni dans la liste du
+			// projet, ni dans celle de l'objet, ni dans une pastille, ni dans un
+			// fichier (Rihen, 13 aout : « il ne peut pas etre visible dans la liste
+			// des materiaux de l'objet actif, pas du tout »). Tout passe par cette
+			// fonction pour lire un materiau — la refuser ici le rend invisible
+			// partout d'un seul geste, sans avoir a filtrer dans chaque appelant.
+			if (i == kNkvpMissingMat)
+				return false;
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
 				return false;
 			const NkVpProjMat &m = nkvpProjMats[i];
@@ -13732,7 +14572,11 @@ namespace nkentseu {
 		int32 Demo3DHostProjMatOf(int32 node) {
 			if (node < 0 || node >= kNkvpMaxNodes)
 				return -1;
-			return nkvpNodeMatP1[node] - 1;
+			const int32 m = nkvpNodeMatP1[node] - 1;
+			// Un objet peint en magenta n'a PAS de materiau : c'est ce que
+			// l'interface doit lire, sinon la pastille afficherait le materiau
+			// interne comme s'il etait le sien.
+			return (m == kNkvpMissingMat) ? -1 : m;
 		}
 		int32 Demo3DHostMatChanCount() {
 			return kNkvpMatChanCount;
@@ -13753,7 +14597,7 @@ namespace nkentseu {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || chan < 0 ||
 				chan >= kNkvpMatChanCount)
 				return false;
-			auto *matS = hst.ctx.renderer ? hst.ctx.renderer->GetMaterials() : nullptr;
+			auto *matS = NkvpMatRd() ? NkvpMatRd()->GetMaterials() : nullptr;
 			// « - » ou vide RETIRE la texture : retour aux valeurs numeriques.
 			// Le moteur reprend sa texture PAR DEFAUT (blanc pour la couleur,
 			// normale plate...) : poser un handle invalide laisserait l'ancienne
@@ -13761,24 +14605,23 @@ namespace nkentseu {
 			if (!path || !path[0] || (path[0] == '-' && !path[1])) {
 				nkvpProjMats[i].maps[chan][0] = 0;
 				nkvpProjMatChanTex[i][chan] = NkTexHandle{};
-				if (nkvpProjMatEng[i]) {
+				if (NkvpMatEng(i)) {
 					switch (chan) {
-						case 0: nkvpProjMatEng[i]->SetAlbedoMap(NkTexHandle{}); break;
-						case 1: nkvpProjMatEng[i]->SetNormalMap(NkTexHandle{}, 0.f); break;
-						case 2: nkvpProjMatEng[i]->SetORMMap(NkTexHandle{}); break;
-						case 3: nkvpProjMatEng[i]->SetEmissiveMap(NkTexHandle{}); break;
+						case 0: NkvpMatEng(i)->SetAlbedoMap(NkTexHandle{}); break;
+						case 1: NkvpMatEng(i)->SetNormalMap(NkTexHandle{}, 0.f); break;
+						case 2: NkvpMatEng(i)->SetORMMap(NkTexHandle{}); break;
+						case 3: NkvpMatEng(i)->SetEmissiveMap(NkTexHandle{}); break;
 						default:
 							// HAUTEUR : retour au blanc 1x1 (surface plate) — un
 							// handle invalide laisserait l'ancienne carte au GPU.
-							if (auto *tl = hst.ctx.renderer ? hst.ctx.renderer->GetTextures()
-															: nullptr)
-								nkvpProjMatEng[i]->SetTexture("height", tl->GetWhite1x1());
+							if (auto *tl = NkvpMatRd() ? NkvpMatRd()->GetTextures() : nullptr)
+								NkvpMatEng(i)->SetTexture("height", tl->GetWhite1x1());
 							break;
 					}
 				}
 				return true;
 			}
-			auto *texL = hst.ctx.renderer ? hst.ctx.renderer->GetTextures() : nullptr;
+			auto *texL = NkvpMatRd() ? NkvpMatRd()->GetTextures() : nullptr;
 			if (!texL || !matS)
 				return false;
 			// Le chargement fait foi : un chemin qui ne charge pas n'est PAS
@@ -13802,19 +14645,19 @@ namespace nkentseu {
 				return false;
 			}
 			nkvpProjMatChanTex[i][chan] = t;
-			if (!nkvpProjMatEng[i])
-				nkvpProjMatEng[i] = NkMaterial::Create(matS, NkMaterialType::NK_PBR_METALLIC);
-			if (nkvpProjMatEng[i]) {
+			if (!NkvpMatEng(i))
+				NkvpMatEng(i) = NkMaterial::Create(matS, NkMaterialType::NK_PBR_METALLIC);
+			if (NkvpMatEng(i)) {
 				switch (chan) {
-					case 0: nkvpProjMatEng[i]->SetAlbedoMap(t); break;
+					case 0: NkvpMatEng(i)->SetAlbedoMap(t); break;
 					case 1:
-						nkvpProjMatEng[i]->SetNormalMap(t, nkvpProjMats[i].nrmStrength);
+						NkvpMatEng(i)->SetNormalMap(t, nkvpProjMats[i].nrmStrength);
 						break;
-					case 2: nkvpProjMatEng[i]->SetORMMap(t); break;
-					case 3: nkvpProjMatEng[i]->SetEmissiveMap(t); break;
+					case 2: NkvpMatEng(i)->SetORMMap(t); break;
+					case 3: NkvpMatEng(i)->SetEmissiveMap(t); break;
 					default:
-						nkvpProjMatEng[i]->SetTexture("height", t);
-						nkvpProjMatEng[i]->SetParallaxScale(nkvpProjMats[i].parallax);
+						NkvpMatEng(i)->SetTexture("height", t);
+						NkvpMatEng(i)->SetParallaxScale(nkvpProjMats[i].parallax);
 						break;
 				}
 			}
@@ -13839,14 +14682,38 @@ namespace nkentseu {
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
 			m.nrmStrength = nrm < 0.f ? 0.f : (nrm > 2.f ? 2.f : nrm);
-			m.emiStrength = emi < 0.f ? 0.f : (emi > 20.f ? 20.f : emi);
-			if (!nkvpProjMatEng[i])
+		// AUCUN PLAFOND (Rihen, 14 aout : « on ne doit pas borner pas du tout »).
+			// J'avais releve la borne de 20 a 200 -- c'etait deplacer le mur, pas
+			// l'enlever. Une emission eclaire une scene : sa valeur utile depend de
+			// l'exposition, de l'echelle et de ce qu'on veut obtenir, et rien ici ne
+			// sait mieux que l'utilisateur ou elle doit s'arreter. Blender ne borne
+			// pas non plus.
+			//
+			// SEUL LE ZERO EST GARDE : ce n'est pas une borne de confort mais le
+			// domaine de definition -- une intensite negative retirerait de la
+			// lumiere, ce qu'aucun shader ne sait faire, et donnerait des couleurs
+			// negatives.
+			m.emiStrength = emi < 0.f ? 0.f : emi;
+			if (!NkvpMatEng(i))
 				return;
 			// L'intensite de relief vit DANS SetNormalMap : la reposer exige de
 			// redonner la texture -- sinon le curseur n'aurait aucun effet.
 			if (m.maps[1][0] && nkvpProjMatChanTex[i][1].IsValid())
-				nkvpProjMatEng[i]->SetNormalMap(nkvpProjMatChanTex[i][1], m.nrmStrength);
-			nkvpProjMatEng[i]->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
+				NkvpMatEng(i)->SetNormalMap(nkvpProjMatChanTex[i][1], m.nrmStrength);
+			// UN EMISSIF SANS TEINTE D'EMISSION EMET SA COULEUR DE BASE.
+			// Le prereglage pose au changement de type ne servait qu'une fois : un
+			// materiau DEJA en emissif, avec son emission noire d'origine, restait
+			// eteint quelle que soit l'intensite -- ce que Rihen a constate a 20 puis
+			// a 14,88. La regle vaut donc a l'APPLICATION, pas seulement a la
+			// bascule : elle rattrape aussi les materiaux existants, sans rien
+			// ecrire dans l'etat -- une teinte d'emission choisie reste souveraine.
+			const bool emiNul = m.emissive[0] <= 0.001f && m.emissive[1] <= 0.001f &&
+								m.emissive[2] <= 0.001f;
+			const bool estEmissif = (m.matType == 11);
+			const float32 emiR = (estEmissif && emiNul) ? m.albedo[0] : m.emissive[0];
+			const float32 emiG = (estEmissif && emiNul) ? m.albedo[1] : m.emissive[1];
+			const float32 emiB = (estEmissif && emiNul) ? m.albedo[2] : m.emissive[2];
+			NkvpMatEng(i)->SetEmissive({emiR, emiG, emiB},
 										   m.emiStrength);
 		}
 		// ── ECHELLE DU PARALLAX (canal Hauteur — etape 3, 10 aout) ──────────
@@ -13862,8 +14729,8 @@ namespace nkentseu {
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
 			m.parallax = scale < 0.f ? 0.f : (scale > 0.2f ? 0.2f : scale);
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]->SetParallaxScale(m.parallax);
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)->SetParallaxScale(m.parallax);
 		}
 		int32 Demo3DHostProjMatShadowMode(int32 i) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
@@ -13875,8 +14742,8 @@ namespace nkentseu {
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
 			m.shadowMode = (mode < 0 || mode > 2) ? 1 : mode;
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]->SetTransShadowMode((uint32)m.shadowMode);
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)->SetTransShadowMode((uint32)m.shadowMode);
 		}
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb) {
 			if (!rgb)
@@ -13891,9 +14758,19 @@ namespace nkentseu {
 			NkVpProjMat &m = nkvpProjMats[i];
 			for (int32 k = 0; k < 3; ++k)
 				m.emissive[k] = rgb[k] < 0.f ? 0.f : rgb[k];
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
-											   m.emiStrength);
+			// MEME REGLE QU'A L'AUTRE POINT D'APPLICATION : un emissif sans teinte
+			// emet sa couleur de base. Les deux chemins doivent dire la meme chose --
+			// sinon regler l'intensite et regler la teinte donneraient deux
+			// resultats differents pour le meme materiau.
+			const bool emiNul2 = m.emissive[0] <= 0.001f && m.emissive[1] <= 0.001f &&
+								 m.emissive[2] <= 0.001f;
+			const bool estEmi2 = (m.matType == 11);
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)->SetEmissive(
+					{(estEmi2 && emiNul2) ? m.albedo[0] : m.emissive[0],
+					 (estEmi2 && emiNul2) ? m.albedo[1] : m.emissive[1],
+					 (estEmi2 && emiNul2) ? m.albedo[2] : m.emissive[2]},
+					m.emiStrength);
 		}
 		// ── MELANGE DE MATERIAUX (etape 1 — Rihen : « mixer, operations, comme
 		// Blender et Unreal ») ──────────────────────────────────────────────
@@ -13906,7 +14783,7 @@ namespace nkentseu {
 		// (couleur/metal/rugosite), pas les textures des deux materiaux — le
 		// nodal NKGraphe portera ce chantier-la.
 		static void HostMatRebuildEngine(int32 i) {
-			auto *matS = hst.ctx.renderer ? hst.ctx.renderer->GetMaterials() : nullptr;
+			auto *matS = NkvpMatRd() ? NkvpMatRd()->GetMaterials() : nullptr;
 			if (!matS || i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
@@ -13914,9 +14791,9 @@ namespace nkentseu {
 			const bool mix = bIdx >= 0 && bIdx < kNkvpMaxProjMats && bIdx != i &&
 							 nkvpProjMats[bIdx].used;
 			// Le TYPE choisi fait le gabarit ; le melange prime (LAYERED_V1).
-			nkvpProjMatEng[i] = NkMaterial::Create(
+			NkvpMatEng(i) = NkMaterial::Create(
 				matS, mix ? NkMaterialType::NK_LAYERED_V1 : (NkMaterialType)m.matType);
-			if (!nkvpProjMatEng[i])
+			if (!NkvpMatEng(i))
 				return;
 			if (mix) {
 				const NkVpProjMat &b = nkvpProjMats[bIdx];
@@ -13934,7 +14811,7 @@ namespace nkentseu {
 					NK_LAYER_MASK_VCOLOR_B,	 NK_LAYER_MASK_VCOLOR_A, NK_LAYER_MASK_UV_X,
 					NK_LAYER_MASK_UV_Y};
 				const int32 s = m.mixSource < 0 ? 0 : (m.mixSource > 6 ? 6 : (int32)m.mixSource);
-				nkvpProjMatEng[i]
+				NkvpMatEng(i)
 					->SetLayerV1(0, l0)
 					->SetLayerV1(1, l1)
 					->SetLayerV1Mask(1, kSrc[s], m.mixFactor)
@@ -13959,12 +14836,12 @@ namespace nkentseu {
 				}
 			// Les reglages sans facade historique : opacite, anisotropie, sheen,
 			// et la famille toon quand le type l'est.
-			nkvpProjMatEng[i]
+			NkvpMatEng(i)
 				->SetAlbedo({m.albedo[0], m.albedo[1], m.albedo[2]}, m.alpha)
 				->SetAnisotropy(m.aniso)
 				->SetSheen(m.sheenV);
 			if (m.matType == 20 || m.matType == 21 || m.matType == 22) {
-				nkvpProjMatEng[i]
+				NkvpMatEng(i)
 					->SetToonThreshold(m.toonThresh)
 					->SetToonSmooth(m.toonSmooth)
 					->SetToonShadow({m.toonShadow[0], m.toonShadow[1], m.toonShadow[2]})
@@ -14007,6 +14884,30 @@ namespace nkentseu {
 				return;
 			if ((int32)nkvpProjMats[i].matType == type)
 				return;
+		// ── CE QUI APPARTENAIT A L'ANCIEN TYPE S'EN VA AVEC LUI ──────────
+			// « Quand je change son type, ca conserve des valeurs communes au type
+			// echange » (Rihen, 14 aout). En effet : les prereglages posent des
+			// valeurs -- le verre son opacite, l'emissif sa teinte -- et elles
+			// restaient apres coup. Repasser un verre en Standard laissait un objet
+			// transparent sans que rien ne l'explique dans le panneau, puisque
+			// l'opacite n'y est plus montree pour ce type.
+			//
+			// On neutralise donc les reglages PROPRES au type quitte. C'est un choix
+			// assume : un verre regle a 0,3 repasse en Standard puis en Verre
+			// retrouvera 0,12, pas 0,3. Prevoir l'autre comportement demanderait de
+			// retenir quelle valeur vient d'un prereglage et laquelle d'un geste --
+			// une memoire de plus pour un cas rare, contre une regle qu'on peut
+			// enoncer en une phrase.
+			{
+				const int32 ancien = (int32)nkvpProjMats[i].matType;
+				if (ancien == 5 && type != 5)
+					nkvpProjMats[i].alpha = 1.f; // le verre rendait opaque
+				if (ancien == 11 && type != 11) {
+					nkvpProjMats[i].emissive[0] = 0.f;
+					nkvpProjMats[i].emissive[1] = 0.f;
+					nkvpProjMats[i].emissive[2] = 0.f;
+				}
+			}
 			nkvpProjMats[i].matType = (uint8)(type < 0 ? 0 : (type > 255 ? 0 : type));
 			// UN TYPE EST UN PREREGLAGE (decision d'architecture du 12 aout) :
 			// choisir « Verre » doit donner une VITRE tout de suite, sans aller
@@ -14016,6 +14917,26 @@ namespace nkentseu {
 			// verre teinte/laque, opaque MAIS qui reflete toujours.
 			if (type == 5 /* NK_GLASS */ && nkvpProjMats[i].alpha >= 0.999f)
 				nkvpProjMats[i].alpha = 0.12f;
+			// MEME REGLE POUR L'EMISSIF (11). Un materiau emissif ne rend QUE son
+			// emission : tant qu'elle est noire -- sa valeur de depart -- l'objet
+			// est NOIR, quelle que soit l'intensite. Choisir « Emissif » donnait
+			// donc un objet eteint, ce qui se lit comme une panne (Rihen, 14 aout :
+			// type Emissif, intensite 14,88, sphere noire).
+			//
+			// L'emission part de la COULEUR DE BASE, et non d'un blanc arbitraire :
+			// on emet la teinte que l'utilisateur a deja choisie. Une emission deja
+			// reglee n'est pas touchee -- un reglage voulu se garde.
+			if (type == 11 /* NK_EMISSIVE */ && nkvpProjMats[i].emissive[0] <= 0.001f &&
+				nkvpProjMats[i].emissive[1] <= 0.001f &&
+				nkvpProjMats[i].emissive[2] <= 0.001f) {
+				const float32 base[3] = {nkvpProjMats[i].albedo[0], nkvpProjMats[i].albedo[1],
+										 nkvpProjMats[i].albedo[2]};
+				const bool albedoNoir =
+					base[0] <= 0.001f && base[1] <= 0.001f && base[2] <= 0.001f;
+				nkvpProjMats[i].emissive[0] = albedoNoir ? 1.f : base[0];
+				nkvpProjMats[i].emissive[1] = albedoNoir ? 1.f : base[1];
+				nkvpProjMats[i].emissive[2] = albedoNoir ? 1.f : base[2];
+			}
 			HostMatRebuildEngine(i); // changer de type = changer de gabarit
 		}
 		void Demo3DHostProjMatPBRExtra(int32 i, float32 *alpha, float32 *aniso,
@@ -14036,8 +14957,8 @@ namespace nkentseu {
 			m.alpha = alpha < 0.f ? 0.f : (alpha > 1.f ? 1.f : alpha);
 			m.aniso = aniso < -1.f ? -1.f : (aniso > 1.f ? 1.f : aniso);
 			m.sheenV = sheen < 0.f ? 0.f : (sheen > 1.f ? 1.f : sheen);
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)
 					->SetAlbedo({m.albedo[0], m.albedo[1], m.albedo[2]}, m.alpha)
 					->SetAnisotropy(m.aniso)
 					->SetSheen(m.sheenV);
@@ -14078,8 +14999,8 @@ namespace nkentseu {
 			for (int32 k = 0; k < 3; ++k)
 				m.rimCol[k] = v14[10 + k];
 			m.specHard = v14[13];
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)
 					->SetToonThreshold(m.toonThresh)
 					->SetToonSmooth(m.toonSmooth)
 					->SetToonShadow({m.toonShadow[0], m.toonShadow[1], m.toonShadow[2]})
@@ -14088,12 +15009,30 @@ namespace nkentseu {
 					->SetRim(m.rimI, {m.rimCol[0], m.rimCol[1], m.rimCol[2]})
 					->SetSpecHardness(m.specHard);
 		}
+		bool Demo3DHostProjMatEmiLights(int32 i) {
+			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].emiEclaire : false;
+		}
+		void Demo3DHostProjMatSetEmiLights(int32 i, bool on) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			if (nkvpProjMats[i].emiEclaire == on)
+				return;
+			nkvpProjMats[i].emiEclaire = on;
+			// La grille de GI est recalculee : sans cela, cocher la case ne se
+			// verrait qu'au prochain changement de scene.
+			Demo3DHostGIMarkDirty();
+		}
+
 		int32 Demo3DHostProjMatPrevShape(int32 i) {
 			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].prevShape : 1;
 		}
 		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape) {
 			if (i >= 0 && i < kNkvpMaxProjMats)
-				nkvpProjMats[i].prevShape = (int8)(shape < 0 ? 0 : (shape > 4 ? 4 : shape));
+				// 0..6 depuis le 13 aout (ajout du tissu et de la tete). Les valeurs
+				// 0 a 4 n'ont PAS bouge : elles sont serialisees sous « apercu » dans
+				// les .nkmat et les scenes, et les renumeroter aurait change la forme
+				// des materiaux deja enregistres.
+				nkvpProjMats[i].prevShape = (int8)(shape < 0 ? 0 : (shape > 6 ? 6 : shape));
 		}
 		int32 Demo3DHostProjMatMax() {
 			return kNkvpMaxProjMats;
@@ -14119,14 +15058,28 @@ namespace nkentseu {
 		// ── APERCU D'UN MATERIAU : rendu ANALYTIQUE CPU ─────────────────────
 		// Assez fidele pour JUGER une matiere (diffus + reflet selon rugosite/
 		// metallique), pas le vrai pipeline -- un apercu GPU offscreen pourra
-		// le remplacer sans changer l'interface. Cinq formes, comme Blender :
-		// plan, sphere, cube, liquide, cheveux.
-		static void HostMatPreviewRender(const NkVpProjMat &m, uint8 *px, int32 sz) {
+		// le remplacer sans changer l'interface. Sept formes, comme Blender :
+		// plan, sphere, cube, liquide, cheveux, tissu, tete.
+		//
+		// L'IMAGE EST RECTANGULAIRE, ET C'EST TOUT LE POINT. Elle etait carree ;
+		// elargir le panneau grossissait donc l'objet avec elle. Blender fait
+		// l'inverse, et Rihen le veut ainsi (13 aout) : « c'est juste la largeur
+		// qui s'agrandit sans modifier la taille des elements, cube, sphere et
+		// autre restent intacts ». D'ou la regle tenue partout ici : TOUTE
+		// dimension d'objet se mesure sur la HAUTEUR (`h`), jamais sur la largeur.
+		// La largeur ne sert qu'au damier, qui s'etend d'autant.
+		// `forme` est un PARAMETRE et non plus `m.prevShape` : les vignettes des
+		// cartes du navigateur montrent TOUJOURS une sphere (Rihen, 13 aout), alors
+		// que le grand apercu suit la forme choisie. Une liste ou chaque entree a
+		// une silhouette differente ne se compare plus d'un coup d'oeil -- c'est
+		// pourtant tout ce qu'on demande a une vignette.
+		static void HostMatPreviewRender(const NkVpProjMat &m, uint8 *px, int32 w, int32 h,
+										 int32 forme) {
 			const float32 Lx = -0.44f, Ly = 0.74f, Lz = 0.51f; // cle, deja ~normalisee
 			const float32 gloss = 1.f - (m.rough < 0.f ? 0.f : (m.rough > 1.f ? 1.f : m.rough));
 			const float32 met = m.metal < 0.f ? 0.f : (m.metal > 1.f ? 1.f : m.metal);
 			const float32 specE = 2.f + 220.f * gloss * gloss * gloss;
-			const int8 shp = m.prevShape;
+			const int8 shp = (int8)forme;
 			auto bgAt = [&](int32 x, int32 y) -> float32 {
 				// damier sombre, comme la piece d'apercu de Blender
 				return (((x >> 4) ^ (y >> 4)) & 1) ? 0.20f : 0.155f;
@@ -14153,8 +15106,10 @@ namespace nkentseu {
 					out[c] = m.albedo[c] * dif + sc * (sp * (0.5f + 1.1f * met) + fr);
 				}
 			};
-			const float32 cx = 0.5f * (float32)sz, cy = 0.48f * (float32)sz;
-			const float32 R = 0.36f * (float32)sz;
+			// Centre en largeur, mais TAILLE prise sur la hauteur : c'est ce qui
+			// laisse l'objet intact quand l'image s'elargit.
+			const float32 cx = 0.5f * (float32)w, cy = 0.48f * (float32)h;
+			const float32 R = 0.36f * (float32)h;
 			// BASE ORTHONORMEE de l'apercu cube : vD pointe vers la camera (on
 			// voit le dessus et deux faces), Rv/Uv encadrent l'ecran.
 			const float32 vD[3] = {0.4851f, 0.5821f, 0.6524f};
@@ -14167,18 +15122,23 @@ namespace nkentseu {
 			const float32 Uv[3] = {vD[1] * Rv[2] - vD[2] * Rv[1],
 								   vD[2] * Rv[0] - vD[0] * Rv[2],
 								   vD[0] * Rv[1] - vD[1] * Rv[0]};
-			for (int32 y = 0; y < sz; ++y) {
-				for (int32 x = 0; x < sz; ++x) {
+			for (int32 y = 0; y < h; ++y) {
+				for (int32 x = 0; x < w; ++x) {
 					float32 col[3];
 					const float32 bg = bgAt(x, y);
 					col[0] = col[1] = col[2] = bg;
 					const float32 dx = ((float32)x - cx) / R;
 					const float32 dy = (cy - (float32)y) / R; // Y ecran inverse
 					if (shp == 0) {
-						// PLAN : carte legerement inclinee, pleine largeur.
-						const int32 mg = sz / 8;
-						if (x >= mg && x < sz - mg && y >= mg && y < sz - mg) {
-							const float32 t = (float32)y / (float32)sz - 0.5f;
+						// PLAN : carte CARREE et CENTREE, mesuree sur la hauteur.
+						// Elle occupait toute la largeur ; l'image devenue
+						// rectangulaire, elle se serait etiree indefiniment et
+						// aurait recouvert le damier au lieu de poser dessus --
+						// alors que c'est le damier qui doit s'etendre.
+						const float32 demi = 0.375f * (float32)h;
+						const float32 ddx = (float32)x - cx, ddy = (float32)y - 0.5f * (float32)h;
+						if (ddx > -demi && ddx < demi && ddy > -demi && ddy < demi) {
+							const float32 t = ddy / (float32)h;
 							const float32 ny2 = 0.30f + 0.25f * t;
 							const float32 il = 1.f / math::NkSqrt(ny2 * ny2 + 0.92f * 0.92f);
 							shade(0.f, ny2 * il, 0.92f * il, col);
@@ -14222,14 +15182,20 @@ namespace nkentseu {
 						}
 					} else if (shp == 4) {
 						// CHEVEUX : meches verticales ondulees, reflet en bande.
-						const int32 mg = sz / 6;
-						if (x >= mg && x < sz - mg && y >= sz / 10 && y < sz - sz / 10) {
-							const float32 fy = (float32)y / (float32)sz;
+						// La touffe est CENTREE et large d'une fraction de la
+						// hauteur -- elle courait d'un bord a l'autre, ce qui la
+						// faisait s'etirer avec le panneau.
+						const int32 demiT = (int32)(0.33f * (float32)h);
+						const int32 x0 = (int32)cx - demiT, x1 = (int32)cx + demiT;
+						if (x >= x0 && x < x1 && y >= h / 10 && y < h - h / 10) {
+							const float32 fy = (float32)y / (float32)h;
 							const float32 wob = math::NkSin(fy * 9.f + (float32)x * 0.53f) * 1.7f;
 							const int32 strand = (int32)((float32)x + wob);
-							// pseudo-alea PAR MECHE, stable d'une image a l'autre
-							const float32 h = math::NkSin((float32)strand * 12.9898f) * 43758.545f;
-							const float32 rnd = h - (float32)(int64)h;
+							// pseudo-alea PAR MECHE, stable d'une image a l'autre.
+							// Nomme `hsh` et non `h` : `h` est desormais la HAUTEUR
+							// de l'image, et la masquer ici serait un piege silencieux.
+							const float32 hsh = math::NkSin((float32)strand * 12.9898f) * 43758.545f;
+							const float32 rnd = hsh - (float32)(int64)hsh;
 							const float32 tone = 0.35f + 0.65f * (rnd < 0.f ? rnd + 1.f : rnd);
 							// bande de reflet : nette si lisse, diffuse si rugueux
 							const float32 bandY = 0.34f + 0.10f * math::NkSin((float32)strand * 0.31f);
@@ -14244,6 +15210,65 @@ namespace nkentseu {
 										 sc * hl * (0.25f + 0.75f * gloss);
 							}
 						}
+					} else if (shp == 5) {
+						// TISSU : une etoffe suspendue, plis verticaux et ourlet
+						// ondule. La surface est une hauteur z = f(u,v) dont on
+						// derive la normale ANALYTIQUEMENT -- pas de maillage a
+						// porter dans un apercu qui tient en quelques lignes.
+						const float32 u = dx * 1.30f, v = dy * 1.30f;
+						// Silhouette : legerement evasee vers le bas (le tissu
+						// tombe), et l'ourlet ondule au lieu d'etre coupe net.
+						const float32 demiL = 0.86f - 0.10f * v;
+						const float32 basV = -0.86f + 0.10f * math::NkSin(u * 7.3f);
+						if (u > -demiL && u < demiL && v < 0.92f && v > basV) {
+							const float32 pli = math::NkSin(u * 6.2f + v * 1.1f);
+							const float32 att = 1.f - 0.30f * v; // plis plus creuses en bas
+							const float32 dfu = 0.34f * 6.2f * math::NkCos(u * 6.2f + v * 1.1f) * att;
+							const float32 dfv = 0.34f * (1.1f * math::NkCos(u * 6.2f + v * 1.1f) * att -
+														 0.30f * pli);
+							const float32 il = 1.f / math::NkSqrt(dfu * dfu + dfv * dfv + 1.f);
+							shade(-dfu * il, -dfv * il, il, col);
+						}
+					} else if (shp == 6) {
+						// TETE (« Suzanne ») : union de quatre ellipsoides -- crane,
+						// museau, deux oreilles -- en projection orthographique. Pour
+						// chaque pixel on garde le point le PLUS PROCHE de la camera,
+						// ce qui donne l'union sans avoir a intersecter les surfaces.
+						// Ce n'est pas le maillage de Blender et ne pretend pas
+						// l'etre : l'apercu sert a juger une MATIERE, il lui faut des
+						// courbures variees et une silhouette reconnaissable.
+						const float32 u = dx * 1.28f, v = dy * 1.28f;
+						struct Ell {
+								float32 cx, cy, cz, rx, ry, rz;
+						};
+						static const Ell kParts[4] = {
+							{0.00f, 0.10f, 0.00f, 0.74f, 0.70f, 0.70f},	 // crane
+							{0.00f, -0.44f, 0.34f, 0.48f, 0.34f, 0.46f}, // museau
+							{-0.80f, 0.16f, -0.10f, 0.24f, 0.32f, 0.20f}, // oreille G
+							{0.80f, 0.16f, -0.10f, 0.24f, 0.32f, 0.20f}}; // oreille D
+						float32 meilleurZ = -1e9f;
+						float32 N3[3] = {0.f, 0.f, 0.f};
+						for (int32 e = 0; e < 4; ++e) {
+							const Ell &q = kParts[e];
+							const float32 a = (u - q.cx) / q.rx, b = (v - q.cy) / q.ry;
+							const float32 d2e = a * a + b * b;
+							if (d2e > 1.f)
+								continue;
+							const float32 w = math::NkSqrt(1.f - d2e);
+							const float32 z = q.cz + q.rz * w;
+							if (z <= meilleurZ)
+								continue;
+							meilleurZ = z;
+							// Normale d'un ellipsoide : le gradient, donc chaque
+							// composante divisee par le CARRE de son rayon.
+							float32 nx = a / q.rx, ny = b / q.ry, nz = w / q.rz;
+							const float32 il = 1.f / math::NkSqrt(nx * nx + ny * ny + nz * nz);
+							N3[0] = nx * il;
+							N3[1] = ny * il;
+							N3[2] = nz * il;
+						}
+						if (meilleurZ > -1e8f)
+							shade(N3[0], N3[1], N3[2], col);
 					} else {
 						// SPHERE (1) et LIQUIDE (3) : meme geometrie, matiere differente.
 						const float32 d2 = dx * dx + dy * dy;
@@ -14270,7 +15295,7 @@ namespace nkentseu {
 								col[c] = sc[c] * a + bg * (1.f - a);
 						}
 					}
-					const int32 o = (y * sz + x) * 4;
+					const int32 o = (y * w + x) * 4;
 					for (int32 c = 0; c < 3; ++c) {
 						float32 v = col[c];
 						v = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
@@ -14282,20 +15307,26 @@ namespace nkentseu {
 		}
 		// Regeneration A LA DEMANDE : l'hote detecte lui-meme qu'un apercu est
 		// perime (parametres ou forme changes) ; l'appelant uploade quand vrai.
-		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 size) {
-			if (i < 0 || i >= kNkvpMaxProjMats || !rgba || !size)
+		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 width, uint32 height) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !rgba || !width || !height)
 				return false;
 			const NkVpProjMat &m = nkvpProjMats[i];
 			if (!m.used)
 				return false;
 			static float32 sSig[kNkvpMaxProjMats] = {};
+			// LES DIMENSIONS FONT PARTIE DE LA SIGNATURE. Sans elles, elargir le
+			// panneau ne redemandait aucun rendu : l'ancienne image, calculee pour
+			// une autre largeur, restait affichee telle quelle.
+			// La FORME n'entre plus dans la signature : la vignette est toujours une
+			// sphere, changer la forme d'apercu ne doit donc rien reconstruire ici.
 			const float32 sig = m.albedo[0] * 1.7f + m.albedo[1] * 2.3f +
 								m.albedo[2] * 3.1f + m.rough * 5.3f + m.metal * 7.9f +
-								(float32)m.prevShape * 11.3f + 1.f;
+								(float32)width * 0.017f + (float32)height * 0.031f + 1.f;
 			if (sSig[i] == sig)
 				return false;
 			sSig[i] = sig;
-			HostMatPreviewRender(m, rgba, (int32)size);
+			// 1 = sphere, toujours : c'est l'icone d'un materiau dans une liste.
+			HostMatPreviewRender(m, rgba, (int32)width, (int32)height, 1);
 			return true;
 		}
 		// ── DETECTEUR DE PARENTE (une passe par frame) ──────────────────────
@@ -14601,6 +15632,28 @@ namespace nkentseu {
 										  xPos ? cpos[2] : ppos[2]};
 			const bool moved = xPos || xRot || xScl;
 			const bool selP = HostNodeSelected(st, pnode);
+			// MESURE (temporaire) : LE TROISIEME ACTEUR SUR LA MATIERE D'UN MODEL.
+			//
+			// Deux correctifs deplacent deja les maillages d'un model -- la naissance
+			// (HostDuplicateTree) et la pose (Demo3DHostSetModelTransform). CETTE
+			// BOUCLE EST LE TROISIEME, et elle n'etait dans aucune des deux analyses :
+			// elle rejoue chaque frame l'ecart entre la position courante d'un parent
+			// et son CLICHE, et le donne a ses enfants (nkvpXmit vaut 7 -- tout se
+			// transmet -- des la naissance, HostAllocUser).
+			//
+			// ⚠️ Or HostAllocUser n'ecrit JAMAIS sHierPos : un noeud qui vient de
+			// naitre porte le cliche de l'occupant precedent de son emplacement. Le
+			// `dp` calcule ici juste apres un depot n'est donc pas le geste de
+			// l'utilisateur -- c'est un ecart contre une valeur qui n'a aucun sens.
+			//
+			// C'est aussi ce qui explique que le gizmo « suive » : la propagation est
+			// VOULUE pour un deplacement ordinaire. La question ouverte est de savoir
+			// si elle s'AJOUTE a la pose au lieu de la remplacer.
+			if (moved && nkvpIsModel[pnode])
+				logger.Info("[Demo3D] MESURE hier : model={0} cliche=({1}, {2}, {3}) "
+							"courant=({4}, {5}, {6}) dp=({7}, {8}, {9}) transmis={10}\n",
+							pnode, ppos[0], ppos[1], ppos[2], cpos[0], cpos[1], cpos[2],
+							dp[0], dp[1], dp[2], xPos ? 1 : 0);
 			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
 				if (nkvpParentOf[c] != pnode)
 					continue;
@@ -14717,8 +15770,15 @@ namespace nkentseu {
 				nkvpShortcutPrev = now2;
 				const bool anyDrag = st->gizmo.IsDragging() || st->lightGizmo.IsDragging() ||
 									 st->emptyGizmo.IsDragging();
-				if ((fresh & 1) && sh2)
+				// DUPLIQUER, ET LE CHOIX DU PARTAGE (decision de Rodolf, 16 aout).
+				// Maj+D = double qui PARTAGE la geometrie (le defaut, le geste
+				// courant) ; Ctrl+Maj+D = copie INDEPENDANTE. Le `!ct2` sur le
+				// premier n'est pas cosmetique : sans lui, Ctrl+Maj+D leverait
+				// LES DEUX bits et dupliquerait deux fois.
+				if ((fresh & 1) && sh2 && !ct2)
 					nkvpShortcutBits |= 1;
+				if ((fresh & 1) && sh2 && ct2)
+					nkvpShortcutBits |= 128;
 				if ((fresh & 2) && ct2)
 					nkvpShortcutBits |= 2;
 				if ((fresh & 4) && ct2)
@@ -14866,8 +15926,35 @@ namespace nkentseu {
 			nkvpEmptyRotDeg[e][0] = qr.x;
 			nkvpEmptyRotDeg[e][1] = qr.y;
 			nkvpEmptyRotDeg[e][2] = qr.z;
-			// Le rendu EFFECTIF de la source devient la surcharge du double.
-			if (kind >= 1 && kind <= 3) {
+			// LE MATERIAU SE COPIE AVEC L'OBJET. Un double qui ne porte pas le
+			// materiau de sa source n'en est pas un : il naissait sans rien --
+			// Demo3DHostProjMatOf renvoyait -1, c'est le `avant=-1` mesure le
+			// 16 aout -- et seule la surcharge ci-dessous le peignait.
+			nkvpNodeMatP1[n] = nkvpNodeMatP1[src];
+			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k)
+				nkvpNodeMatsP1[n][k] = nkvpNodeMatsP1[src][k];
+			// UNE SURCHARGE NE SE FABRIQUE PAS DEPUIS LE CACHE DE RENDU.
+			//
+			// `nkvpMatCache` est ce que la source a ete VUE rendre a la derniere
+			// soumission : une valeur OBSERVEE, pas une valeur VOULUE. Or un asset
+			// du navigateur est une ARCHIVE (nkvpDeleted), donc JAMAIS soumise --
+			// son cache vaut zero. Tout double clone depuis le navigateur naissait
+			// ainsi avec une surcharge NOIRE ; et comme le draw call applique le
+			// materiau PUIS la surcharge, elle ecrasait n'importe quel materiau
+			// assigne ensuite. C'est le « cube noir » de Rodolf, capture du 16 aout,
+			// ou l'objet portait bien Materiau.002 (albedo 0,7) et rendait noir.
+			//
+			// Un objet de DEMO n'a pas de materiau de projet : son apparence n'existe
+			// QUE dans ce cache, et lui a bien ete rendu. Pour lui seul, la figer
+			// reste le bon geste.
+			if (nkvpNodeMatP1[n] > 0) {
+				// Il a un materiau : c'est LUI qui parle. On ne fabrique aucune
+				// retouche par-dessus -- une retouche volontaire posee sur la source
+				// depuis le panneau Modele n'est donc pas transmise au double, et
+				// c'est un compromis assume : mieux vaut un double fidele a son
+				// materiau qu'un double peint par une valeur que personne n'a voulue.
+				nkvpMatMask[n] = 0;
+			} else if (kind >= 1 && kind <= 3) {
 				nkvpMatMask[n] = 1 | 2 | 4;
 				nkvpMatTint[n][0] = nkvpMatCache[src][0];
 				nkvpMatTint[n][1] = nkvpMatCache[src][1];
@@ -14893,9 +15980,16 @@ namespace nkentseu {
 				}
 			}
 			nkvpIsMesh[n] = nkvpIsMesh[src]; // un double de mesh reste un mesh
-			// Un double de MODEL naitrait vide (ses maillages ne sont pas
-			// copies ici) : il redevient donc un objet ordinaire.
-			nkvpIsModel[n] = false;
+			// UN DOUBLE DE MODEL EST UN MODEL (decision de Rodolf, 16 aout).
+			// Ce drapeau disait l'inverse -- « il redevient un objet
+			// ordinaire » -- au motif que HostSpawnLike ne copie pas la
+			// matiere. Mais un conteneur de model NE REND RIEN par lui-meme
+			// (voir la boucle des objets utilisateur) : degrader le double
+			// n'evitait pas un model vide, ca fabriquait un objet qui n'etait
+			// PAS celui qu'on avait glisse. La matiere se copie desormais un
+			// cran plus haut, dans HostDuplicateTree, qui est le seul appelant
+			// autorise a dupliquer un model.
+			nkvpIsModel[n] = nkvpIsModel[src];
 			if (src >= kNkvpFirstUser) {
 				const int32 su = src - kNkvpFirstUser;
 				const int32 nu = n - kNkvpFirstUser;
@@ -14907,23 +16001,6 @@ namespace nkentseu {
 			}
 			const int32 pp = nkvpParentOf[src];
 			nkvpParentOf[n] = (pp >= 0 && !nkvpDeleted[pp]) ? pp : -1;
-			return n;
-		}
-		int32 Demo3DHostDuplicateNode(int32 node) {
-			const float32 off[3] = {0.45f, 0.f, 0.45f};
-			return HostSpawnLike(node, off);
-		}
-		int32 Demo3DHostArchiveNode(int32 node) {
-			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de
-			// l'original (le navigateur clone depuis elle). deleted=true la
-			// sort du rendu et de la hierarchie ; kind!=0 empeche le recyclage
-			// du slot par HostAllocUser.
-			const float32 off[3] = {0.f, 0.f, 0.f};
-			const int32 n = HostSpawnLike(node, off);
-			if (n >= 0) {
-				nkvpDeleted[n] = true;
-				nkvpParentOf[n] = -1;
-			}
 			return n;
 		}
 		// MEME REGLE D'APPARTENANCE que Demo3DHostMoveTreeScene, ecrite UNE fois :
@@ -14951,6 +16028,265 @@ namespace nkentseu {
 			// troisieme parcours, donc une troisieme occasion de diverger.
 			return HostIsInnerMeshOf(node, root);
 		}
+		// ── GEOMETRIE PROPRE : la moitie « copie independante » ─────────────
+		// Detache un noeud du maillage qu'il PARTAGE avec sa source, en
+		// reconstruisant la meme geometrie dans un maillage a lui.
+		//
+		// ⚠️ PERIMETRE, dit ici et pas ailleurs : ne concerne QUE les noeuds
+		// qui portent leur propre maillage parametrique (`nkvpUserMesh`
+		// valide). Un noeud qui rend une primitive partagee (cube, sphere du
+		// catalogue) tire deja son independance de ses PARAMETRES -- sub,
+		// segments, anneaux, aux -- que HostSpawnLike copie un a un, et que
+		// HostRegenUserMesh retransforme en maillage PROPRE des qu'on y
+		// touche. Rendre false n'est donc pas un echec : c'est « il n'y avait
+		// rien a detacher ».
+		//
+		// Sans copie CPU (keepCPU), la geometrie n'est pas relisible depuis le
+		// GPU : on le DIT plutot que de rendre un double silencieusement
+		// encore partage.
+		static bool HostMakeGeometryOwn(int32 n) {
+			if (n < kNkvpFirstUser || n >= kNkvpMaxNodes)
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			const int32 u = n - kNkvpFirstUser;
+			const NkMeshHandle srcH = nkvpUserMesh[u];
+			if (!srcH.IsValid())
+				return false; // primitive partagee : rien a detacher (cf. ci-dessus)
+			if (!ms->HasCPUData(srcH)) {
+				logger.Warn("[Demo3D] Copie independante impossible : le maillage du "
+							"noeud {0} n'a pas de copie CPU (keepCPU) -- le double "
+							"reste PARTAGE.\n",
+							n);
+				return false;
+			}
+			const uint32 vc = ms->GetVertexCount(srcH);
+			const uint32 ic = ms->GetIndexCount(srcH);
+			const void *sv = ms->GetVertices(srcH);
+			const uint32 *si = ms->GetIndices(srcH);
+			if (!sv || vc == 0)
+				return false;
+			renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+				renderer::NkVertexLayout::Default3D(), sv, vc, si, ic);
+			d.debugName = "Demo3D_CopieIndependante";
+			const NkMeshHandle nh = ms->Create(d);
+			if (!nh.IsValid())
+				return false;
+			nkvpUserMesh[u] = nh;
+			return true;
+		}
+		// ── DUPLICATION D'UN MODEL : SA MATIERE SUIT ────────────────────────
+		// Decision de Rodolf (16 aout) : PARTAGE PAR DEFAUT. Le double
+		// reference les MEMES maillages -- instantane, sans cout memoire, et
+		// c'est ce que veulent le modificateur array, le jeu et le film. Une
+		// COPIE INDEPENDANTE reste possible sur demande explicite, pour
+		// obtenir deux models dont un seul sera retouche.
+		//
+		// C'est ici, et pas dans HostSpawnLike, que la matiere se copie :
+		// HostSpawnLike fait naitre UN noeud, et l'archivage comme l'editeur
+		// de model s'en servent pour ca precisement. Un model est le seul
+		// noeud dont le double n'a aucun sens sans son sous-arbre -- son
+		// conteneur ne rend rien par lui-meme.
+		static int32 HostDuplicateTree(int32 src, const float32 *offset, bool independent) {
+			const int32 root = HostSpawnLike(src, offset);
+			if (root < 0)
+				return -1;
+			if (independent)
+				HostMakeGeometryOwn(root);
+			if (!nkvpIsModel[src])
+				return root; // pas un model : rien de plus a emporter
+			// MEME parcours d'appartenance que le deplacement de document et
+			// que l'archivage (HostIsInnerMeshOf) : les trois doivent emporter
+			// EXACTEMENT les memes noeuds, sinon un mesh oublie en chemin
+			// reapparait dans une scene ou personne ne l'a mis.
+			int32 map[kNkvpMaxNodes];
+			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
+				map[i] = -1;
+			map[src] = root;
+			const float32 zero[3] = {0.f, 0.f, 0.f};
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (!HostIsInnerMeshOf(c, src))
+					continue;
+				const int32 m = HostSpawnLike(c, zero);
+				if (m < 0) {
+					logger.Warn("[Demo3D] Duplication du model {0} : plus d'emplacement "
+								"libre, sa matiere est INCOMPLETE.\n",
+								src);
+					break; // on garde ce qui a pu naitre, et on le DIT
+				}
+				map[c] = m;
+				// LE MEME DECALAGE QUE LA RACINE. Les positions de ce systeme sont
+				// ABSOLUES (voir nkvpEmptyPos) : la racine vient de naitre a
+				// world(src) + offset, donc sa matiere doit naitre a
+				// world(enfant) + offset. Sans cela le conteneur et sa geometrie sont
+				// desolidarises DES LA NAISSANCE, et tout deplacement ulterieur ne
+				// fait que transporter un ecart deja present.
+				//
+				// C'est le decalage constant que Rodolf voyait au depot : le model se
+				// posait au point du lacher et sa matiere apparaissait `offset` plus
+				// loin. Il l'a decrit exactement -- « son origine est modifiee entre
+				// son fichier et le moment ou on l'ajoute dans la scene, car quand
+				// j'ouvre ces fichiers de maniere independante ils ont la bonne
+				// origine » (16 aout).
+				//
+				// L'ANCIEN COMMENTAIRE ICI ETAIT FAUX : il annoncait que reprendre la
+				// position monde ferait partir la matiere « au double de la distance »,
+				// ce qui supposerait que le rendu compose parent x enfant. Il ne compose
+				// pas -- HostNodeWorld ne remonte jamais nkvpParentOf.
+				const int32 ec = c - kNkvpFirstEmpty, em = m - kNkvpFirstEmpty;
+				for (int32 a = 0; a < 3; ++a) {
+					nkvpEmptyPos[em][a] = nkvpEmptyPos[ec][a] + offset[a];
+					nkvpEmptyRotDeg[em][a] = nkvpEmptyRotDeg[ec][a];
+					nkvpEmptyScl[em][a] = nkvpEmptyScl[ec][a];
+				}
+				// La trace « MESURE dup enfant » vivait ici. Sa question -- les
+				// enfants naissent-ils tous du meme chemin ? -- a ete tranchee (un
+				// seul chemin, et le decalage manquant ci-dessus etait la cause), et
+				// elle parlait une fois PAR MAILLAGE. La mesure ouverte porte
+				// desormais sur la pose, pas sur la naissance : voir
+				// Demo3DHostSetModelTransform.
+				if (independent)
+					HostMakeGeometryOwn(m);
+			}
+			// LA PARENTE SE RECABLE APRES, sur la carte complete : un maillage
+			// dont le parent n'etait pas encore ne serait retombe a la racine,
+			// et un model a deux etages de matiere se serait aplati.
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (c == src || map[c] < 0)
+					continue;
+				const int32 pa = nkvpParentOf[c];
+				nkvpParentOf[map[c]] = (pa >= 0 && map[pa] >= 0) ? map[pa] : root;
+			}
+			// LE COMPTE, cote source ET cote double. Le predicat qui compte ici
+			// est HostIsInnerMeshOf (appartenance au model) ; celui de la mesure
+			// prise dans main.cpp est la parente DIRECTE. Les deux peuvent
+			// differer -- et c'est precisement ce qu'il faut savoir.
+			{
+				int32 dedans = 0, nes = 0, directs = 0;
+				for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+					if (HostIsInnerMeshOf(c, src))
+						++dedans;
+					if (c != src && map[c] >= 0)
+						++nes;
+					if (nkvpParentOf[c] == root)
+						++directs;
+				}
+				logger.Info("[Demo3D] MESURE dup model : src={0} -> root={1} "
+						"internesDeLaSource={2} nes={3} enfantsDirectsDuDouble={4}\n",
+						src, root, dedans, nes, directs);
+			}
+			return root;
+		}
+		int32 Demo3DHostDuplicateNodeEx(int32 node, bool independent) {
+			const float32 off[3] = {0.45f, 0.f, 0.45f};
+			return HostDuplicateTree(node, off, independent);
+		}
+		int32 Demo3DHostDuplicateNode(int32 node) {
+			// PARTAGE : le defaut voulu par Rodolf. Les appelants qui ne
+			// choisissent pas obtiennent le geste le moins couteux.
+			return Demo3DHostDuplicateNodeEx(node, false);
+		}
+		// ── RECENTRER L'ORIGINE D'UN MODEL SUR SA MATIERE ──────────────────
+		//
+		// Un model archive gardait l'origine qu'il avait dans la scene d'ou il
+		// vient -- souvent loin de sa geometrie. Comme le depot place le
+		// CONTENEUR sous le curseur, la matiere atterrissait a cote ; et dans la
+		// scene, le gizmo se dessinait loin de l'objet qu'il pilote. Rihen l'a
+		// vu des deux facons, captures du 16 aout.
+		//
+		// ON NE DEPLACE PAS LA MATIERE, ON DEPLACE L'ORIGINE SUR ELLE. Les
+		// positions de ce systeme sont ABSOLUES : bouger les maillages les
+		// ferait bouger a l'ecran, alors que bouger le seul conteneur -- qui ne
+		// rend rien -- ne change RIEN a l'image et corrige la seule chose qui
+		// etait fausse : la relation entre une origine et sa matiere.
+		//
+		// EN X ET Z SEULEMENT. La hauteur porte la pose de l'objet sur le sol
+		// (un cube repose a +0,539, la moitie de son cote) ; la recentrer
+		// enfoncerait chaque model dans le plancher au premier depot.
+		//
+		// IDEMPOTENTE : rappelee sur un model deja recentre, elle retrouve le
+		// meme barycentre et n'ecrit rien de neuf. C'est ce qui permet de s'en
+		// servir pour REPARER les assets existants au moment ou on les emploie,
+		// sans toucher au format ni a la relecture.
+		void Demo3DHostRecenterModel(int32 root) {
+			if (root < kNkvpFirstEmpty || root >= kNkvpMaxNodes || !nkvpIsModel[root])
+				return;
+			// LE MEME parcours d'appartenance que l'archivage, l'ecriture d'un
+			// fichier de model et le deplacement : quatre usages, un seul parcours.
+			float32 sx = 0.f, sz = 0.f;
+			int32 n = 0;
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (c < kNkvpFirstEmpty || !HostIsInnerMeshOf(c, root))
+					continue;
+				const int32 e = c - kNkvpFirstEmpty;
+				sx += nkvpEmptyPos[e][0];
+				sz += nkvpEmptyPos[e][2];
+				++n;
+			}
+			if (n == 0)
+				return; // un model sans matiere n'a pas de centre a trouver
+			const int32 er = root - kNkvpFirstEmpty;
+
+			// MESURE (temporaire) : CETTE FONCTION CHANGE-T-ELLE QUELQUE CHOSE ?
+			//
+			// Rodolf, le 17/08 : « ces mesh ont des origines qui changent au moment
+			// ou on les met dans la scene -- probleme qui n'existait pas quand on a
+			// fait le glisser-deposer la premiere fois ». Or cet appel est pose sur
+			// le CHEMIN DE DEPOT depuis 4dd4ed21, et il ECRIT dans le noeud SOURCE
+			// (l'archive) avant qu'on la duplique -- il n'existait pas avant.
+			//
+			// MAIS je n'affirme PAS que c'est la cause : un asset archive apres le
+			// 16 aout a deja ete recentre a la naissance (Demo3DHostArchiveNode) et
+			// la fonction est idempotente -- sur celui-la elle ne doit RIEN changer.
+			// Deux causes possibles, un seul symptome : l'instrument doit les separer.
+			//
+			// LA TRACE DOIT DONC POUVOIR ME CONTREDIRE, et pour ca elle imprime
+			// l'etat D'AVANT, pas seulement celui d'apres :
+			//   ECART ~ 0    -> la fonction ne touche a rien : CE N'EST PAS ELLE,
+			//                   l'origine est deformee ailleurs sur l'insertion
+			//   ECART != 0   -> elle reecrit l'origine de l'archive a chaque depot,
+			//                   et c'est exactement ce que Rodolf decrit
+			//
+			// Noter que seuls X et Z sont recentres : Y n'est JAMAIS touche.
+			const float32 ax = nkvpEmptyPos[er][0];
+			const float32 az = nkvpEmptyPos[er][2];
+			const float32 nx = sx / (float32)n;
+			const float32 nz = sz / (float32)n;
+			logger.Info("[Demo3D] MESURE origine : model={0} avant=({1}, {2}) "
+						"apres=({3}, {4}) ECART=({5}, {6}) sur {7} maillages\n",
+						root, ax, az, nx, nz, nx - ax, nz - az, n);
+
+			nkvpEmptyPos[er][0] = nx;
+			nkvpEmptyPos[er][2] = nz;
+		}
+		int32 Demo3DHostArchiveNode(int32 node) {
+			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de
+			// l'original (le navigateur clone depuis elle). deleted=true la
+			// sort du rendu et de la hierarchie ; kind!=0 empeche le recyclage
+			// du slot par HostAllocUser.
+			//
+			// ELLE EMPORTE SA MATIERE, comme la duplication : archiver un
+			// model sans ses maillages fabriquait une source vide, et tout ce
+			// que le navigateur en aurait clone serait ne invisible.
+			const float32 off[3] = {0.f, 0.f, 0.f};
+			const int32 n = HostDuplicateTree(node, off, false);
+			if (n >= 0) {
+				// LE SOUS-ARBRE PART AVEC : ne marquer que la racine laissait
+				// la matiere de l'archive VIVANTE dans la scene courante, donc
+				// visible en vue 3D et absente de la hierarchie -- exactement
+				// le defaut que Demo3DHostArchiveTree existe pour empecher.
+				nkvpDeleted[n] = true;
+				nkvpParentOf[n] = -1;
+				for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+					if (HostIsInnerMeshOf(c, n))
+						nkvpDeleted[c] = true;
+			}
+			// L'ASSET NAIT RECENTRE : c'est ici qu'un model devient une ressource,
+			// et c'est donc ici que son origine doit prendre son sens.
+			Demo3DHostRecenterModel(n);
+			return n;
+		}
 		void Demo3DHostSetNodeArchived(int32 node, bool v) {
 			// UN SEUL noeud. Sert a la RELECTURE d'un projet : chaque noeud porte
 			// son propre drapeau dans le fichier, il est repose tel quel.
@@ -14974,6 +16310,71 @@ namespace nkentseu {
 			for (int32 c = 0; c < kNkvpMaxNodes; ++c)
 				if (HostIsInnerMeshOf(c, node))
 					nkvpDeleted[c] = v;
+		}
+		// ── POSER UN MODEL ENTIER : LE CONTENEUR *ET* SA MATIERE ────────────
+		//
+		// Les transforms de ce systeme sont ABSOLUES : HostNodeWorld lit
+		// nkvpEmptyPos sans JAMAIS composer avec le parent. Deplacer le seul
+		// conteneur laissait donc ses maillages exactement ou ils etaient -- et
+		// comme un conteneur ne rend rien, le model paraissait ne pas bouger :
+		// Rodolf deposait a un endroit et voyait sa geometrie ailleurs, celle de
+		// la source dont elle avait ete copiee (mesure du 16 aout).
+		//
+		// POURQUOI PAS DANS Demo3DHostSetEmptyTransform : la relecture d'un
+		// projet repose CHAQUE noeud, maillages compris. Propager la aurait
+		// applique le meme delta deux fois. Le geste « poser un model » est
+		// distinct du geste « poser un noeud », et il merite sa porte.
+		void Demo3DHostSetModelTransform(int32 node, const float32 *pos3,
+										 const float32 *rotDeg3, const float32 *scl3) {
+			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
+				return;
+			// LE DELTA SE MESURE, il ne se suppose pas : SetEmptyTransform est
+			// incremental et le gizmo peut porter un decalage en plein drag. On
+			// lit donc l'effectif avant et apres, et on translate de la difference.
+			float32 avant[3], r0[3], s0[3];
+			Demo3DHostEmptyTransform(node, avant, r0, s0);
+			Demo3DHostSetEmptyTransform(node, pos3, rotDeg3, scl3);
+			float32 apres[3], r1[3], s1[3];
+			Demo3DHostEmptyTransform(node, apres, r1, s1);
+			const float32 d[3] = {apres[0] - avant[0], apres[1] - avant[1],
+								  apres[2] - avant[2]};
+			if (d[0] == 0.f && d[1] == 0.f && d[2] == 0.f)
+				return;
+			// LE MEME parcours d'appartenance que l'archivage et l'ecriture d'un
+			// fichier de model : les trois doivent emporter EXACTEMENT les memes
+			// noeuds, sinon un maillage oublie reste en arriere.
+			float32 bx = 0.f, bz = 0.f;
+			int32 nb = 0;
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (c < kNkvpFirstEmpty || !HostIsInnerMeshOf(c, node))
+					continue;
+				const int32 e = c - kNkvpFirstEmpty;
+				for (int32 a = 0; a < 3; ++a)
+					nkvpEmptyPos[e][a] += d[a];
+				bx += nkvpEmptyPos[e][0];
+				bz += nkvpEmptyPos[e][2];
+				++nb;
+			}
+			// MESURE (temporaire) : LES DEUX CORRECTIFS SE CUMULENT-ILS ?
+			//
+			// Deux gestes touchent desormais la meme chose. HostDuplicateTree donne
+			// le decalage de naissance (0.45, 0, 0.45) a la racine ET a ses maillages ;
+			// ici, on translate les maillages du delta MESURE sur la racine. Si le
+			// decalage etait compte deux fois, la matiere se poserait a 0,45 du point
+			// du lacher -- un ecart invisible a l'oeil et faux au chiffre.
+			//
+			// LE SEUL NOMBRE QUI TRANCHE : le barycentre X/Z des maillages APRES la
+			// pose, contre le point demande. L'origine venant d'etre recentree sur ce
+			// barycentre (Demo3DHostRecenterModel), les deux doivent coincider.
+			//   ecart ~ 0        -> pas de cumul, les deux correctifs s'emboitent
+			//   ecart ~ (0.45, 0.45) -> cumul, le decalage de naissance est compte deux fois
+			if (nb > 0)
+				logger.Info("[Demo3D] MESURE cumul : noeud={0} demande=({1}, {2}, {3}) "
+							"delta=({4}, {5}, {6}) barycentre matiere=({7}, {8}) "
+							"ECART X/Z=({9}, {10}) sur {11} maillages\n",
+							node, pos3[0], pos3[1], pos3[2], d[0], d[1], d[2],
+							bx / (float32)nb, bz / (float32)nb,
+							bx / (float32)nb - pos3[0], bz / (float32)nb - pos3[2], nb);
 		}
 		bool Demo3DHostNodeArchived(int32 node) {
 			// Une ARCHIVE est retiree de la vue mais garde sa nature ; un noeud
@@ -16360,6 +17761,32 @@ namespace nkentseu {
 		// premier correctif — la lecon des tableaux par onglet. SetPostConfig
 		// reconstruit le graphe a l'aplomb de la frame suivante quand la passe
 		// apparait ou disparait.
+		// ── ILLUMINATION GLOBALE : LE REGLAGE SORT DE LA DEMO ────────────────
+		// « Comme l'illumination globale vit dans la demo, est-ce que tu peux
+		// l'importer dans NK3DModeler ? » (Rihen, 14 aout). Elle etait pilotable
+		// par une touche du portage et par rien d'autre : aucun panneau ne
+		// l'atteignait, ce qui rendait l'indirect invisible sans le savoir.
+		void Demo3DHostGI(bool *on, float32 *intensity) {
+			auto *st = HostSt();
+			if (on)
+				*on = st ? st->giOn : false;
+			if (intensity)
+				*intensity = st ? st->giIntensity : 1.f;
+		}
+		void Demo3DHostSetGI(bool on, float32 intensity) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			const float32 i2 = intensity < 0.f ? 0.f : intensity;
+			if (st->giOn == on && st->giIntensity == i2)
+				return;
+			st->giOn = on;
+			st->giIntensity = i2;
+			// La grille porte l'indirect : sans reconstruction, le reglage ne se
+			// verrait qu'au prochain remaniement de la scene.
+			Demo3DHostGIMarkDirty();
+		}
+
 		void Demo3DHostSSAO(bool *on, float32 *radius, float32 *intensity) {
 			if (!hst.ctx.renderer) {
 				if (on)
@@ -16418,10 +17845,49 @@ namespace nkentseu {
 			renderer::NkPostConfig pp = hst.ctx.renderer->GetConfig().postProcess;
 			pp.exposure = exposure < 0.01f ? 0.01f : (exposure > 16.f ? 16.f : exposure);
 			pp.bloom = bloomOn;
-			// Seuil : en HDR il peut (et devrait souvent) depasser 1.0 — seuls
-			// les pixels REELLEMENT brillants irradient (LearnOpenGL, Bloom).
+			// Seuil EN FRACTION DU BLANC AFFICHE depuis le 15 aout (il etait en
+			// HDR absolu, sans rapport avec le blanc a l'ecran). 1.0 = « seules
+			// les sources plus brillantes que le blanc irradient ». Au-dessus de
+			// 1, on ne garde que les sources franches ; en dessous, on ramasse
+			// des surfaces simplement bien eclairees — c'est ce qui donnait une
+			// eponge au lieu d'un halo.
 			pp.bloomThreshold = bloomThr < 0.f ? 0.f : (bloomThr > 16.f ? 16.f : bloomThr);
 			pp.bloomStrength = bloomStr < 0.f ? 0.f : (bloomStr > 8.f ? 8.f : bloomStr);
+			hst.ctx.renderer->SetPostConfig(pp);
+		}
+		// ── EXPOSITION AUTOMATIQUE ───────────────────────────────────────────
+		// Rihen (14 aout) : « pourquoi l'eclairage semble souvent grossier
+		// quand on augmente sa luminosite ? ». Il n'y avait pas de defaut : a
+		// intensite 100, ACES ecrase tout ce qui depasse ~9 sur du blanc pur,
+		// et le halo de bloom sature a son tour sur un large rayon -- d'ou la
+		// tache plate au bord en marches. Le moteur sait mesurer la luminance
+		// moyenne de la scene (passe PP_AutoExposure) et adapter l'exposition,
+		// exactement comme l'oeil ; ce reglage n'avait simplement jamais ete
+		// propose (autoExposureStrength reste a 0 = manuel).
+		void Demo3DHostAutoExp(float32 *strength, float32 *key, float32 *speed) {
+			const bool ok = hst.ctx.renderer != nullptr;
+			const renderer::NkPostConfig pp =
+				ok ? hst.ctx.renderer->GetConfig().postProcess : renderer::NkPostConfig{};
+			if (strength)
+				*strength = pp.autoExposureStrength;
+			if (key)
+				*key = pp.autoExposureKey;
+			if (speed)
+				*speed = pp.autoExposureSpeed;
+		}
+		void Demo3DHostSetAutoExp(float32 strength, float32 key, float32 speed) {
+			if (!hst.ctx.renderer)
+				return;
+			renderer::NkPostConfig pp = hst.ctx.renderer->GetConfig().postProcess;
+			// Dosage : 0 = exposition manuelle, 1 = l'automatique remplace la
+			// valeur saisie. Entre les deux, le tonemap interpole -- c'est ce
+			// qui permet de garder la main tout en encaissant un emissif fort.
+			pp.autoExposureStrength = strength < 0.f ? 0.f : (strength > 1.f ? 1.f : strength);
+			// La cible est un gris moyen : 0.18 est la convention photo.
+			pp.autoExposureKey = key < 0.01f ? 0.01f : (key > 1.f ? 1.f : key);
+			// 0 = l'exposition se fige sur la premiere mesure ; sans borne
+			// haute, l'adaptation devient un clignotement a chaque orbite.
+			pp.autoExposureSpeed = speed < 0.f ? 0.f : (speed > 20.f ? 20.f : speed);
 			hst.ctx.renderer->SetPostConfig(pp);
 		}
 		// ── NAPPE AU SOL (height fog) et son SOUFFLE ────────────────────────

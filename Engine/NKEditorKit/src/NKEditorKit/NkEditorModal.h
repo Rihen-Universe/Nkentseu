@@ -228,7 +228,13 @@ namespace nkentseu {
 		// sont celles de GITHUB DARK (demande de Rihen, 13 aout 2026), la meme
 		// palette que le reste des editeurs de la suite.
 		struct NkModalStyle {
-				NkColor backdrop = {1, 4, 9, 160};	   ///< voile (#010409)
+				/// VOILE RETIRE (alpha 0) — decision de Rihen, 13 aout 2026.
+				/// Il noircissait la barre de menu et les onglets, y compris a 70 :
+				/// l'opacite seule n'explique donc pas le defaut, il s'ACCUMULE sur
+				/// cette bande. Cause non identifiee ; en attendant, on prefere une
+				/// modale sans voile a une application a moitie effacee. L'etancheite
+				/// n'en depend pas (popupDepth + occlusion + input vide).
+				NkColor backdrop = {1, 4, 9, 0};
 				NkColor card = {13, 17, 23, 255};	   ///< fond de la fenetre (#0d1117)
 				NkColor header = {22, 27, 34, 255};	   ///< barre de titre (#161b22)
 				NkColor border = {48, 54, 61, 255};	   ///< liseres (#30363d)
@@ -263,9 +269,22 @@ namespace nkentseu {
 		/// Dessine le cadre (voile, boite, barre de titre deplacable, croix) et rend
 		/// la zone de contenu. Ne consomme PAS les clics tombant dans `content` :
 		/// c'est l'appelant qui les traite pour ses propres widgets.
+		///
+		/// `inerte` = une surface modale PLUS HAUTE est ouverte au-dessus. La modale
+		/// reste alors VISIBLE mais ne repond plus a rien : ni deplacement, ni croix,
+		/// ni Echap, ni clic « a cote » -- et surtout elle ne CONSOMME plus les clics,
+		/// qui appartiennent desormais a la surface du dessus. Sans cela, empiler
+		/// revenait a fermer : le premier clic dans la fenetre du dessus tombait
+		/// forcement hors de la boite du dessous, qui se refermait aussitot -- et le
+		/// clic n'atteignait meme pas le dessus, mange au passage. C'est ce qui
+		/// obligeait a fermer la modale avant d'ouvrir le selecteur (Rihen, 13 aout :
+		/// « des modales au-dessus des modales », « sans les cacher »).
+		/// L'appelant est le seul a savoir ce qui est ouvert au-dessus de lui ; il ne
+		/// peut pas le deduire de l'ordre de peinture, puisqu'il peint AVANT.
 		inline NkModalFrame NkModalFrameDraw(NkGuiContext &ctx, NkModal &m, const char *title,
 											 float32 contentW, float32 contentH,
-											 const NkModalStyle &sty = NkModalStyle{}) {
+											 const NkModalStyle &sty = NkModalStyle{},
+											 bool inerte = false) {
 			NkModalFrame out;
 			if (!m.open)
 				return out;
@@ -308,10 +327,12 @@ namespace nkentseu {
 			NkGuiContext::NkInputLayerScope _layer(ctx, 100);
 			// Glisser par la barre de titre, traite AVANT de figer la boite (sinon
 			// l'affichage reste en retard d'une frame sur la souris).
+			if (inerte)
+				m.dragging = false; // un geste en cours ne se poursuit pas sous une autre fenetre
 			{
 				const NkRect t0 = {m.pos.x, m.pos.y, boxW, titleH};
-				const bool overTitle = mp.x >= t0.x && mp.x < t0.x + t0.w && mp.y >= t0.y &&
-									   mp.y < t0.y + t0.h;
+				const bool overTitle = !inerte && mp.x >= t0.x && mp.x < t0.x + t0.w &&
+									   mp.y >= t0.y && mp.y < t0.y + t0.h;
 				if (!justOpened && overTitle && ctx.input.mouseClicked[0] && !m.dragging) {
 					m.dragging = true;
 					m.dragOff = {mp.x - m.pos.x, mp.y - m.pos.y};
@@ -339,8 +360,10 @@ namespace nkentseu {
 			dl.AddRect(box, sty.border, 1.5f);
 			dl.AddRectFilled({box.x + 1.f, box.y + 1.f, box.w - 2.f, titleH - 1.f}, sty.header,
 							 7.f);
-			// Un LISERE D'ACCENT sous la barre de titre : c'est ce qui distingue une
-			// fenetre modale d'un simple panneau, dans GitHub comme dans NKCode.
+			// BARRE DE COULEUR EN HAUT, comme le selecteur de NKCode : c'est elle qui
+			// signale une fenetre modale au premier coup d'oeil (Rihen, 13 aout).
+			dl.AddRectFilled({box.x, box.y, box.w, 3.f}, sty.accent, 8.f);
+			// Et un filet sous la barre de titre, pour la detacher du contenu.
 			dl.AddRectFilled({box.x + 1.f, box.y + titleH - 1.f, box.w - 2.f, 1.f}, sty.border);
 			if (font && font->Valid() && title && *title)
 				dl.AddText(font->Face(), font->TexId(),
@@ -350,8 +373,8 @@ namespace nkentseu {
 			// Croix de fermeture, a droite de la barre de titre.
 			const float32 cs = titleH - 10.f;
 			const NkRect cr = {box.x + boxW - cs - 6.f, box.y + 5.f, cs, cs};
-			const bool overClose = mp.x >= cr.x && mp.x < cr.x + cr.w && mp.y >= cr.y &&
-								   mp.y < cr.y + cr.h;
+			const bool overClose = !inerte && mp.x >= cr.x && mp.x < cr.x + cr.w &&
+								   mp.y >= cr.y && mp.y < cr.y + cr.h;
 			if (overClose)
 				dl.AddRectFilled(cr, sty.closeHover, 4.f);
 			{
@@ -363,18 +386,25 @@ namespace nkentseu {
 			// MODALITE : meme mecanique que NkModalDraw -- popupDepth force, rects
 			// de popup renseignes (sinon Update() le remet a 0 des le premier clic),
 			// et emprise declaree en couche 100 pour la frame suivante.
-			if (ctx.popupDepth == 0)
-				ctx.popupDepth = 1;
-			ctx.popupRects[0] = box;
-			ctx.popupAnchor = box;
-			ctx.PushOcclusion(box, 100);
+			// SAUF SI INERTE : une modale du dessous ne doit pas reclamer l'ancrage
+			// des popups ni redefinir l'occlusion — la surface du dessus, peinte
+			// APRES, poserait les siennes, mais l'ancrage `popupAnchor` lui serait
+			// vole par celle-ci.
+			if (!inerte) {
+				if (ctx.popupDepth == 0)
+					ctx.popupDepth = 1;
+				ctx.popupRects[0] = box;
+				ctx.popupAnchor = box;
+				ctx.PushOcclusion(box, 100);
+			}
 
 			out.visible = true;
 			out.box = box;
 			out.content = {box.x + pad, box.y + titleH, contentW, contentH};
-			out.closeAsked = (overClose && ctx.input.mouseClicked[0]) ||
-							 ctx.input.KeyPressed(NkGuiKey::Escape) ||
-							 (!justOpened && ctx.input.mouseClicked[0] && !inBox);
+			out.closeAsked = !inerte &&
+							 ((overClose && ctx.input.mouseClicked[0]) ||
+							  ctx.input.KeyPressed(NkGuiKey::Escape) ||
+							  (!justOpened && ctx.input.mouseClicked[0] && !inBox));
 			if (out.closeAsked) {
 				m.open = false;
 				m.posInit = false;
@@ -383,7 +413,10 @@ namespace nkentseu {
 			}
 			// Un clic HORS de la boite ne doit rien atteindre derriere. Celui qui
 			// tombe DEDANS reste disponible : c'est l'appelant qui peint le contenu.
-			if (!inBox) {
+			// INERTE : on ne consomme RIEN. Le clic ne nous appartient plus -- il est
+			// destine a la surface ouverte au-dessus, qui sera peinte apres nous et le
+			// trouverait deja mange.
+			if (!inBox && !inerte) {
 				ctx.input.mouseClicked[0] = false;
 				ctx.input.mouseClicked[1] = false;
 			}

@@ -2226,6 +2226,57 @@ namespace nkentseu {
 						}
 						yy += NkPropGroupGap();
 					}
+					// ── ILLUMINATION GLOBALE (2026-08-14) ───────────────────────
+					// « Comme l'illumination globale vit dans la demo, est-ce
+					// que tu peux l'importer dans NK3DModeler ? » (Rihen). Le
+					// rebond indirect etait pilotable par UNE TOUCHE du portage
+					// et par rien d'autre : aucun panneau ne l'atteignait. Le
+					// drapeau valait deja `vrai` par defaut, seule la grille
+					// vide l'empechait d'agir -- d'ou un reglage qu'on croyait
+					// absent alors qu'il etait juste muet.
+					{
+						const bool grpGI = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.gi",
+														  "Illumination globale", 1u);
+						const float32 grpGITop = yy;
+						if (grpGI) {
+							const NkRect iG = NkGroupInner(rowR);
+							const float32 gvX = iG.x + S(110.f);
+							const float32 gvW = iG.w - S(110.f);
+							yy += NkGroupPad();
+							bool gOn = false;
+							float32 gInt = 1.f;
+							demo::Demo3DHostGI(&gOn, &gInt);
+							const bool g0 = gOn;
+							const float32 gi0 = gInt;
+							{
+								const NkRect cb{iG.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.gi.on", cb);
+								p.Outline(cb, gOn ? NkRole::AccentUi : NkRole::Border,
+										  gOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cb.x + S(18.f), yy, kRowH, "Actif", NkRole::TextMuted);
+								if (hit.Clicked("prop.gi.on"))
+									gOn = !gOn;
+								yy += kRowH;
+							}
+							if (gOn) {
+								p.TextV(iG.x, yy, kRowH, "Intensite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.gi.int",
+										  {gvX, yy + S(3.f), gvW, kRowH - S(6.f)}, gInt, 0.02f,
+										  NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+							}
+							if (gOn != g0 || gInt != gi0) {
+								// Le setter reconstruit la grille voxel : sans
+								// cela le changement n'apparaitrait qu'au
+								// prochain remaniement de la scene.
+								demo::Demo3DHostSetGI(gOn, gInt);
+								NkMarkDirty(st);
+							}
+							yy += NkGroupPad();
+							PaintGroupBlock(p, rowR, grpGITop, yy);
+						}
+						yy += NkPropGroupGap();
+					}
 					// ── EXPOSITION & BLOOM (2026-08-09) ─────────────────────────
 					// Reglages presents dans le moteur depuis le debut, jamais
 					// proposes : un spot surpuissant faisait un halo geant sans
@@ -2249,6 +2300,57 @@ namespace nkentseu {
 									  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, fxE, 0.01f,
 									  NkRole::AccentUi, "%.2f");
 							yy += kRowH;
+							// ── EXPOSITION AUTOMATIQUE (2026-08-14) ─────────────
+							// Rihen : « pourquoi l'eclairage semble souvent
+							// grossier quand on augmente sa luminosite ? ». Ce
+							// n'etait pas un defaut : la courbe ACES ecrase sur
+							// du blanc pur tout ce qui depasse ~9, et le halo de
+							// bloom sature a son tour sur un large rayon — d'ou
+							// la tache plate a bord en marches. L'exposition
+							// fixe a 1.00 ne pouvait rien y faire. Le moteur
+							// sait mesurer la scene et s'accommoder comme
+							// l'oeil ; ce reglage existait sans etre propose.
+							{
+								float32 aeS = 0.f, aeK = 0.18f, aeV = 2.f;
+								demo::Demo3DHostAutoExp(&aeS, &aeK, &aeV);
+								const float32 as0 = aeS, ak0 = aeK, av0 = aeV;
+								bool aeOn = aeS > 0.001f;
+								const NkRect cbA{iF2.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.fx.auto", cbA);
+								p.Outline(cbA, aeOn ? NkRole::AccentUi : NkRole::Border,
+										  aeOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cbA.x + S(18.f), yy, kRowH, "Exposition auto",
+										NkRole::TextMuted);
+								if (hit.Clicked("prop.fx.auto")) {
+									aeOn = !aeOn;
+									// Le dosage EST l'interrupteur cote moteur :
+									// une case separee aurait fait un second
+									// etat a tenir synchrone.
+									aeS = aeOn ? 1.f : 0.f;
+								}
+								yy += kRowH;
+								if (aeOn) {
+									p.TextV(iF2.x, yy, kRowH, "Dosage", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.fx.autos",
+											  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, aeS,
+											  0.01f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									p.TextV(iF2.x, yy, kRowH, "Cible", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.fx.autok",
+											  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, aeK,
+											  0.005f, NkRole::AccentUi, "%.3f");
+									yy += kRowH;
+									p.TextV(iF2.x, yy, kRowH, "Vitesse", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.fx.autov",
+											  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, aeV,
+											  0.05f, NkRole::AccentUi, "%.2f /s");
+									yy += kRowH;
+								}
+								if (aeS != as0 || aeK != ak0 || aeV != av0) {
+									demo::Demo3DHostSetAutoExp(aeS, aeK, aeV);
+									NkMarkDirty(st);
+								}
+							}
 							{
 								const NkRect cb{iF2.x, yy + S(5.f), S(12.f), S(12.f)};
 								hit.Add("prop.fx.bloom", cb);
@@ -2579,13 +2681,13 @@ namespace nkentseu {
 									  NkRole::PanelHeader, 3.f);
 							p.IconV(ab.x + S(5.f), ab.y, ab.h, NkIcon::Add, NkRole::Text, 11.f);
 							if (hit.Clicked("props.pm.add")) {
-								st.matAddOpen = !st.matAddOpen;
-								// Le clic qui OUVRE est encore actif quand le voile
-								// est peint plus bas dans la MEME frame : sans ce
-								// drapeau il l'attrape et referme aussitot — la
-								// modale « apparait et disparait directement »
-								// (Rihen, 12 aout).
-								st.matAddJustOpened = st.matAddOpen;
+								// Le clic qui OUVRE est encore actif quand la modale est
+								// peinte plus bas dans la MEME frame : sans garde, elle
+								// l'attrape et se referme aussitot — « apparait et
+								// disparait directement » (Rihen, 12 aout). Cette garde
+								// vit maintenant DES DEUX COTES (drapeau applicatif et
+								// cadre du kit) : `NkMatAddSetOpen` les arme ensemble.
+								NkMatAddSetOpen(st, !st.matAddOpen);
 							}
 						}
 						{
@@ -2595,11 +2697,15 @@ namespace nkentseu {
 							// le portent (regle de Rihen). Le « + » le remettra sans
 							// qu'on ait a en recreer un.
 							const NkRect rb{bx, lst.y + S(21.f), colW, S(20.f)};
-							// Actif des que l'objet porte PLUS D'UN materiau : le
-							// dernier ne se retire pas, un modele en garde toujours
-							// au moins un.
+							// LE DERNIER SE RETIRE AUSSI (Rihen, 13 aout). La garde a
+							// ete levee dans le moteur, mais elle SUBSISTAIT ICI : le
+							// bouton restait eteint sur le dernier materiau, si bien
+							// que la regle semblait ne pas s'appliquer. Une regle
+							// changee doit l'etre AUX DEUX BOUTS -- le moteur qui
+							// autorise et l'interface qui propose.
+							// Un objet sans materiau est rendu en magenta.
 							const bool en = (actN >= 0) && (selMat >= 0) &&
-											(demo::Demo3DHostNodeMatCount(actN) > 1);
+											(demo::Demo3DHostNodeMatCount(actN) >= 1);
 							const bool ovR = hit.Add("props.pm.del", rb);
 							p.Outline(rb, (ovR && en) ? NkRole::AccentUi : NkRole::Border,
 									  NkRole::PanelHeader, 3.f);
@@ -2656,7 +2762,22 @@ namespace nkentseu {
 							p.IconV(db.x + S(5.f), db.y, db.h, NkIcon::SquareCheck,
 									isDef ? NkRole::TextOnAccent : NkRole::Text, 11.f);
 							if (hit.Clicked("props.pm.def") && selMat >= 0) {
+								// ── DEUX NOTIONS QUI SE RESSEMBLENT ─────────────
+								// `SetDefault` designe le materiau par defaut du
+								// PROJET -- celui que recevront les NOUVEAUX objets.
+								// Il ne touche pas a l'objet selectionne : le bouton
+								// semblait donc sans effet (Rihen, 13 aout : « ce
+								// dernier n'est pas applique au model »).
+								// C'est `Assign` qui pose le materiau ACTIF de CET
+								// objet, celui qui est rendu -- et qui l'ajoute a sa
+								// liste s'il n'y etait pas.
+								const int32 nodeSel = demo::Demo3DHostActiveObject() >= 0
+														  ? demo::Demo3DHostActiveObject()
+														  : st.activeEmpty;
+								if (nodeSel >= 0)
+									demo::Demo3DHostProjMatAssign(nodeSel, selMat);
 								demo::Demo3DHostProjMatSetDefault(selMat);
+								NkMarkDirty(st);
 								for (int32 rk = st.projMatSel; rk > 0; --rk)
 									swapWithBrowser(sMatIdx[rk], sMatIdx[rk - 1]);
 								st.projMatSel = 0;
@@ -2805,36 +2926,75 @@ namespace nkentseu {
 						if (grpMt) {
 							const NkRect iR = NkGroupInner(rowR);
 							yy += NkGroupPad();
-							// APERCU + colonne des FORMES (plan, sphere, cube,
-							// liquide, cheveux -- structure de Blender).
+							// APERCU + RANGEE DES FORMES, sous l'image (Rihen,
+							// 13 aout). Elles etaient empilees en colonne a droite :
+							// a sept, la colonne depassait la hauteur de l'apercu.
 							{
-								const float32 side = S(104.f);
+								// L'APERCU EST UN BANDEAU : il prend toute la largeur
+								// et garde une HAUTEUR FIXE. C'est ce qui laisse les
+								// objets intacts quand on elargit le panneau -- seul le
+								// damier s'etend, comme dans Blender (Rihen, 13 aout).
+								// Un carre plein largeur, lui, grossissait la sphere.
+								//
+								// Rendu au 1:1 : la vignette est calculee a la taille
+								// exacte ou elle sera affichee, donc ni etirement ni
+								// flou. La largeur voulue passe par l'etat -- seule la
+								// boucle principale peut uploader une texture.
+								const float32 prevW = iR.w;
+								const float32 prevH = S(150.f);
+								st.matPrevW = (int32)(prevW + 0.5f);
+								st.matPrevH = (int32)(prevH + 0.5f);
+								st.matPrevSlot = selMat; // ce que le moteur devra rendre
 								const float32 btn = S(20.f);
-								const float32 pvX = iR.x + (iR.w - side - btn - S(6.f)) * 0.5f;
-								p.Image(4400u + (uint32)selMat, {pvX, yy, side, side});
-								p.OutlineSharp({pvX, yy, side, side}, NkRole::Border);
-								static const NkIcon kShp[5] = {NkIcon::Plane3D, NkIcon::SphereUV,
-															   NkIcon::Cube3D, NkIcon::Metaball,
-															   NkIcon::CurveBezier};
+								const float32 pvX = iR.x;
+								// L'IMAGE VIENT DU MOTEUR, plus du rendu analytique :
+								// c'est le vrai shader du materiau qui la produit, donc
+								// le verre, l'emissif et le toon s'y montrent enfin tels
+								// qu'ils seront rendus (Rihen : « il faut aussi les
+								// vrais modeles »). Le panneau ne rend rien lui-meme --
+								// il DECRIT ce qu'il veut voir, et la boucle le rend.
+								p.Image(demo::kNkMatPreviewTexId, {pvX, yy, prevW, prevH});
+								p.OutlineSharp({pvX, yy, prevW, prevH}, NkRole::Border);
+								const float32 side = prevH; // hauteur occupee par l'apercu
+								// SEPT FORMES, dans l'ordre de Blender. Chacune a son
+								// propre dessin : `Liquid`, `Hair`, `Cloth` et `Monkey`
+								// ont ete crees pour elles, plutot que d'emprunter
+								// `Metaball` et `CurveBezier` -- qui designent
+								// Ball/Ellipsoide/Metaball et Bezier/Cercle/NURBS/Chemin
+								// dans le menu Ajouter. Un dessin partage entre deux
+								// sujets ment aux deux.
+								static const NkIcon kShpIc[7] = {
+									NkIcon::Plane3D, NkIcon::SphereUV, NkIcon::Cube3D,
+									NkIcon::Hair,	 NkIcon::Monkey,   NkIcon::Cloth,
+									NkIcon::Liquid};
+								// L'ORDRE D'AFFICHAGE N'EST PAS L'ORDRE DES VALEURS.
+								// `prevShape` est serialise (« apercu ») dans les .nkmat
+								// et les scenes : 0..4 gardent leur sens, tissu et tete
+								// s'ajoutent en 5 et 6. Cette table fait la traduction,
+								// et c'est elle qu'on remanie si l'ordre change encore.
+								static const int32 kShpVal[7] = {0, 1, 2, 4, 6, 5, 3};
 								const int32 shpCur = demo::Demo3DHostProjMatPrevShape(selMat);
-								float32 by = yy;
-								for (int32 s5 = 0; s5 < 5; ++s5) {
-									snprintf(key, sizeof(key), "props.pm.s%d", s5);
-									const NkRect sb{pvX + side + S(6.f), by, btn, btn};
+								const float32 rangeeW = 7.f * btn + 6.f * S(1.f);
+								float32 bx = iR.x + (iR.w - rangeeW) * 0.5f;
+								const float32 byy = yy + side + S(4.f);
+								for (int32 s7 = 0; s7 < 7; ++s7) {
+									const int32 val = kShpVal[s7];
+									snprintf(key, sizeof(key), "props.pm.s%d", val);
+									const NkRect sb{bx, byy, btn, btn};
 									hit.Add(key, sb);
-									if (shpCur == s5)
+									if (shpCur == val)
 										p.Fill(sb, NkRole::AccentUi, 3.f);
 									else
 										p.Outline(sb, NkRole::Border, NkRole::InputBg, 3.f);
-									p.IconV(sb.x + S(4.f), by, btn, kShp[s5],
-											shpCur == s5 ? NkRole::TextOnAccent
-														 : NkRole::TextMuted,
+									p.IconV(sb.x + S(4.f), byy, btn, kShpIc[s7],
+											shpCur == val ? NkRole::TextOnAccent
+														  : NkRole::TextMuted,
 											12.f);
 									if (hit.Clicked(key))
-										demo::Demo3DHostProjMatSetPrevShape(selMat, s5);
-									by += btn + S(1.f);
+										demo::Demo3DHostProjMatSetPrevShape(selMat, val);
+									bx += btn + S(1.f);
 								}
-								yy += side + NkGroupPad();
+								yy += side + S(4.f) + btn + NkGroupPad();
 							}
 							const float32 a0 = alb[0], a1 = alb[1], a2 = alb[2];
 							const float32 r0 = rgh, m0 = mtl;
@@ -2842,41 +3002,22 @@ namespace nkentseu {
 							// possibilite de choisir un type ») : le combo bascule le
 							// GABARIT moteur ; stockage statique resynchronise (Loi).
 							{
-								// Les types pas encore EPROUVES dans le modeleur restent visibles
-								// mais inertes « (bientot) » — les choisir revient au type courant
-								// (demande de Rihen : grises/inactifs mais existants).
-								static const char *const kMtTypes[13] = {
-								    "Standard (PBR)", "Peau (bientot)", "Cheveux (bientot)",
-								    "Verre", "Tissu", "Carrosserie",
-								    "Feuillage", "Eau (bientot)", "Emissif", "Toon",
-								    "Toon encre", "Anime", "Sans eclairage"};
-								// Verre/Tissu/Carrosserie/Feuillage : EPROUVES le 11-12 aout
-								// (gabarits enregistres + paires NkSL modernes, captures a
-								// l'appui). Restent grises : Peau et Cheveux (chacun demande
-								// son propre modele, cf. la note d'architecture) et Eau (son
-								// .vk.glsl vise encore l'ancienne disposition).
-								static const bool kMtTypeOk[13] = {true,  false, false, true,  true,
-								                                   true,  true,  false, true,  true,
-								                                   true,  true,  true};
-								// Masque GRISE du popup (l'inverse de Ok) : l'oeil voit l'inerte.
-								static const bool kMtTypeOff[13] = {false, true,  true,  false, false,
-								                                    false, false, true,  false, false,
-								                                    false, false, false};
-								static const int32 kMtTypeVal[13] = {0, 3, 4, 5, 6, 7,
-								                                     8, 9, 11, 20, 21, 22, 60};
+								// LE CATALOGUE VIENT DE NkModelerMatTypes.h — il est
+								// PARTAGE avec la creation de materiau, qui fait choisir
+								// le type avant d'exister (Rihen, 13 aout). Il vivait ici
+								// en `static` ; deux copies auraient diverge au premier
+								// type ajoute, et la liste n'aurait plus propose les
+								// memes choix selon l'endroit d'ou on l'ouvre.
 								const int32 tCur = demo::Demo3DHostProjMatType(selMat);
-								int32 tIdx = 0;
-								for (int32 k3 = 0; k3 < 13; ++k3)
-									if (kMtTypeVal[k3] == tCur)
-										tIdx = k3;
+								const int32 tIdx = NkMatTypeIndexOf(tCur);
 								static int32 sTySel = 0;
 								static int32 sTyFor = -1;
 								if (sTyFor == selMat && sTySel != tIdx) {
-									const int32 pick = sTySel < 0 ? 0 : sTySel % 13;
-									if (!kMtTypeOk[pick]) {
+									const int32 pick = sTySel < 0 ? 0 : sTySel % kNkMatTypeCount;
+									if (!kNkMatTypeOk[pick]) {
 										sTySel = tIdx; // type pas encore valide : on reste
 									} else {
-										demo::Demo3DHostProjMatSetType(selMat, kMtTypeVal[pick]);
+										demo::Demo3DHostProjMatSetType(selMat, kNkMatTypeVal[pick]);
 										NkMarkDirty(st);
 									}
 								} else {
@@ -2886,8 +3027,8 @@ namespace nkentseu {
 								p.TextV(iR.x, yy, kRowH, "Type", NkRole::TextMuted);
 								Combo(p, hit, ws, "props.pm.type",
 								      {iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f), kRowH - S(4.f)},
-								      kMtTypes, nullptr, 13, sTySel, combo, true, true, true,
-								      NkIcon::Count, kMtTypeOff);
+								      kNkMatTypeNames, nullptr, kNkMatTypeCount, sTySel, combo, true,
+								      true, true, NkIcon::Count, kNkMatTypeOff);
 								yy += kRowH;
 							}
 							// L'INTERFACE SUIT LE TYPE (Rihen : « les proprietes du nouveau
@@ -3016,8 +3157,35 @@ namespace nkentseu {
 									yy += kRowH;
 									if (nrmS != nrm0 || emiS != emi0)
 										demo::Demo3DHostProjMatSetChanStrength(selMat, nrmS, emiS);
-									if (emiCh || emiC[0] != e0 || emiC[1] != e1 || emiC[2] != e2)
+								if (emiCh || emiC[0] != e0 || emiC[1] != e1 || emiC[2] != e2)
 										demo::Demo3DHostProjMatSetEmissive(selMat, emiC);
+									// ── ECLAIRE-T-IL LA SCENE ? ──────────────────
+									// Reserve a l'EMISSIF, et eteint par defaut : une
+									// surface lumineuse n'est pas forcement une source
+									// (Rihen, 14 aout). Cochee, elle injecte une lumiere
+									// dans la grille de GI -- son voisinage s'eclaire de
+									// sa teinte.
+									if (famEmis) {
+										const bool ecl =
+											demo::Demo3DHostProjMatEmiLights(selMat);
+										const NkRect ce{iR.x + S(2.f), yy + S(4.f), S(14.f),
+														S(14.f)};
+										const bool ovE = hit.Add("props.pm.emiecl", ce);
+										p.Outline(ce, ovE ? NkRole::AccentUi : NkRole::Border,
+												  ecl ? NkRole::AccentUi : NkRole::InputBg, 3.f);
+										if (ecl)
+											p.IconV(ce.x + S(1.f), ce.y, ce.h, NkIcon::Check,
+													NkRole::TextOnAccent, 10.f);
+										p.TextV(ce.x + S(20.f), yy, kRowH, "Eclaire la scene",
+												NkRole::TextMuted);
+										NkHelp(ovE,
+											   "L'objet eclaire son voisinage (illumination "
+											   "globale). Coute une reconstruction de la "
+											   "grille a chaque changement.");
+										if (hit.Clicked("props.pm.emiecl"))
+											demo::Demo3DHostProjMatSetEmiLights(selMat, !ecl);
+										yy += kRowH;
+									}
 								}
 							}
 							if (famPBR) {
@@ -6589,22 +6757,37 @@ namespace nkentseu {
 				nkgui::NkGuiContext *gcM = NkUiCtx();
 				NkModelerPainter *poM = NkOvPainter();
 				if (!gcM || !poM) {
-					st.matAddOpen = false;
+					NkMatAddSetOpen(st, false);
 					return;
 				}
 				const float32 dw = S(300.f), dh = S(200.f);
+				// LE SELECTEUR S'EMPILE PAR-DESSUS, il ne remplace pas : tant qu'il
+				// est ouvert, cette modale reste VISIBLE mais inerte. « Nouveau » ne
+				// la referme donc plus -- on revient dessus en annulant (Rihen,
+				// 13 aout : « pourquoi quand on clique sur Nouveau ca ferme le
+				// dialogue du bouton + ? »).
+				const bool sousLeSelecteur = st.picker.pickerOpen;
 				editorkit::NkModalFrame fr =
 					editorkit::NkModalFrameDraw(*gcM, st.matAddModal, "Ajouter un materiau",
-												dw, dh);
+												dw, dh, editorkit::NkModalStyle{},
+												sousLeSelecteur);
 				if (!fr.visible || fr.closeAsked) {
-					st.matAddOpen = false;
-					st.matAddSel = -1;
+					NkMatAddSetOpen(st, false);
 					return;
 				}
 				// LE CONTENU SE PEINT SUR LA COUCHE OVERLAY, au-dessus du cadre :
 				// le peintre ordinaire ecrit dans `dl`, soumise AVANT `dlOverlay`,
 				// donc son trace passerait DERRIERE la boite. Ce `p` local masque
 				// volontairement le parametre pour toute la duree du bloc.
+				// L'EMPRISE DE LA BOITE, DECLAREE DANS LE REGISTRE DU MODELEUR.
+				// Le cadre est dessine par le kit, qui a SON propre systeme
+				// d'entrees : sa barre de titre n'existe pas pour `hit`. Sans cette
+				// zone, un clic sur l'entete ne rencontrait aucune surface de couche
+				// 100 et repartait vers ce qui se trouve dessous -- « ce qui laisse
+				// traverser les evenements, c'est l'entete » (Rihen, 13 aout).
+				// Declaree AVANT le contenu : les widgets poses ensuite la couvrent.
+				(void)hit.Add("props.pm.modalbox", fr.box);
+
 				NkModelerPainter &p = *poM;
 				// LA BOITE, pas la zone de contenu : le contenu de cette modale
 				// place deja ses elements sous une hauteur de titre (`dr.y + kRowH`).
@@ -6642,9 +6825,16 @@ namespace nkentseu {
 											 dep.CStr(), nullptr, 0, st.projectRoot.CStr());
 					editorkit::NkFilePickerState::CopyTo(st.picker.pickerSaveName, "Materiau",
 														 (int32)sizeof(st.picker.pickerSaveName));
+					// LE TYPE SE CHOISIT AVANT LA CREATION (Rihen, 13 aout) : le
+					// selecteur ajoute sa rangee de types sous le nom. Arme APRES
+					// l'ouverture -- `OpenPickerBase` reinitialise l'etat de base et
+					// n'a aucune raison de connaitre le mode creation de materiau.
+					st.picker.MatNewBegin();
 					st.pickerAction = 1;	   // 1 = creer un materiau
 					st.matNewPending = true;
-					st.matAddOpen = false; // le selecteur prend la main
+					// LA MODALE RESTE OUVERTE, SOUS LE SELECTEUR. Elle passe simplement
+					// en inerte (cf. plus haut) : on la retrouve intacte en annulant,
+					// au lieu de repartir du bouton « + ».
 				}
 				// « Ajouter » ne s'allume qu'une fois une ligne CHOISIE.
 				const bool okAdd = (st.matAddSel >= 0);
@@ -6657,8 +6847,7 @@ namespace nkentseu {
 						okAdd ? NkRole::Text : NkRole::TextMuted);
 				if (okAdd && hit.Clicked("props.pm.addp") && actM >= 0) {
 					(void)demo::Demo3DHostNodeMatAdd(actM, st.matAddSel);
-					st.matAddSel = -1;
-					st.matAddOpen = false;
+					NkMatAddSetOpen(st, false);
 					NkMarkDirty(st);
 				}
 
@@ -7293,7 +7482,10 @@ namespace nkentseu {
 						// L'APPELANT AGIT — le dialogue n'a fait que decider.
 						const int32 ni = demo::Demo3DHostProjMatCreate();
 						if (ni >= 0) {
-							demo::Demo3DHostProjMatSetName(ni, fdlg.resultName);
+							char nomLibre2[80];
+							NkMatUniqueName(fdlg.resultName, ni, nomLibre2,
+											(uint32)sizeof(nomLibre2));
+							demo::Demo3DHostProjMatSetName(ni, nomLibre2);
 							const int32 an = demo::Demo3DHostActiveObject() >= 0
 												 ? demo::Demo3DHostActiveObject()
 												 : st.activeEmpty;

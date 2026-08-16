@@ -164,3 +164,6 @@ theme/roles-application            ids coeur=30 ext=30,31 idempotent=1 | apres a
 theme/theme-d-une-autre-app        lu=1 appliques=1 inconnus=2 (2 attendus) | accent_ui=#445566
 theme/bibliotheque                 builtins=2 | Papier trouve=1 herite-du-clair=1 | surcharge sans doublon=1 Sombre.fond=#000000
 theme/palette-imposee              porteuses de sens=3/3 | ecart sarcelles=1.004 | hierarchie a 3 niveaux=1
+linked/cube-soude                  composantes=1 sommets=24 assignes=24
+linked/deux-cubes                  composantes=2 somme=48 sommets=48 orphelins=0 L(ok=1)=24
+linked/ctrl-L                      aChange=0 apres=24 surSelectionVide=0

@@ -104,16 +104,25 @@ on charge le `.svg` directement et on rasterise à la taille de l'écran.
 using namespace nkentseu;
 
 // Option A — rasterisation directe en NkImage RGBA32 (taille cible)
-NkImage* img = NkSVGCodec::DecodeFromFile("assets/svg/mascot_nana.svg", 512, 512);
-// ... upload en NkTexture (NKCanvas) ...
-img->Free();
+NkImage img = NkSVGCodec::DecodeFromFile("assets/svg/mascot_nana.svg", 512, 512);
+if (img.IsValid()) {
+    // ... upload en NkTexture (NKCanvas) ...
+}   // rien à libérer : NkImage est un type valeur, ses pixels partent avec elle
 
 // Option B — garder la version vectorielle et re-rasteriser par DPI
 NkSVGImage* svg = NkSVGImage::LoadFromFile("assets/svg/mascot_nana.svg");
-NkImage* hi = svg->Rasterize(0, 0);          // 0,0 = taille naturelle (viewBox)
-NkImage* big = svg->Rasterize(1024, 1024);   // hi-DPI tablette
-hi->Free(); big->Free(); svg->Free();
+if (svg) {
+    NkImage hi  = svg->Rasterize(0, 0);          // 0,0 = taille naturelle (viewBox)
+    NkImage big = svg->Rasterize(1024, 1024);    // hi-DPI tablette
+    // ... upload ...
+    svg->Free();   // ⚠️ NkSVGImage (le vectoriel) reste une ressource tas : Free() obligatoire
+}   // hi et big se libèrent toutes seules
 ```
+
+> ⚠️ **Deux types, deux régimes mémoire.** `NkImage` (les pixels) est un **type valeur** depuis le
+> 16/08/2026 : `Free()` n'existe plus, l'échec se teste par `IsValid()` et non par `nullptr`.
+> `NkSVGImage` (la représentation **vectorielle**) est un type **différent**, resté un pointeur avec
+> son propre `Free()`. Ne pas confondre les deux.
 
 **Avantage multi-écrans (Android/iOS/Harmony)** : on rasterise à la densité réelle
 de l'appareil → toujours net, jamais flou. C'est exactement ce qu'il faut pour Mú.

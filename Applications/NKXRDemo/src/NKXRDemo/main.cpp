@@ -242,6 +242,19 @@ int nkmain(const NkEntryState &state) {
 	xrDesc.submitDepthLayer = true;
 	nkxr::NkXrApplyEnvOverrides(xrDesc);
 	const bool wantOpenXR = (xrDesc.backend == nkxr::NkXrBackendType::NK_XR_BACKEND_OPENXR);
+	// Le backend CHOISI est dit AVANT la création. Sans cette ligne, un journal
+	// qui commence par « système : NKXR Simulator » ne distingue pas « le casque
+	// a échoué » de « le casque n'a jamais été demandé » : le second n'écrit
+	// RIEN, et une absence ne se lit pas. C'est ce qui a coûté une enquête le
+	// 16/08/2026, casque branché et runtime actif — la démo n'avait simplement
+	// jamais tenté OpenXR.
+	if (wantOpenXR) {
+		logger.Info("[NKXRDemo] Backend demandé : OPENXR (NK_XR_BACKEND=openxr). Tout repli sur le simulateur sera journalisé.");
+	}
+	else {
+		logger.Info("[NKXRDemo] Backend demandé : SIMULATEUR (valeur par défaut, AUCUN casque ne sera ouvert). "
+					"NK_XR_BACKEND=openxr pour tenter un vrai casque.");
+	}
 	nkxr::NkXrSession *xrSession = nkxr::NkXrSession::Create(xrDesc);
 
 	NkDeviceInitInfo devInfo{};

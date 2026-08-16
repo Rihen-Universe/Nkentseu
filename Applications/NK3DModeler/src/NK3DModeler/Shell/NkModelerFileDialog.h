@@ -303,19 +303,26 @@ namespace nkentseu {
 			// laisse naitre un second « Materiau » le 12 aout. Pour une nature dont
 			// le nom est unique dans TOUT le projet, on interroge donc la source de
 			// verite (les emplacements eux-memes), jamais leur affichage.
-			if (libre && desc.uniqueKind == 2u) {
+			// UN NOM DE MATERIAU DEJA PRIS N'ETEINT PLUS LE BOUTON. Il sera numerote
+			// a la creation (« Bois » -> « Bois.001 »), comme Blender -- decision de
+			// Rihen le 13 aout : renommer plutot que refuser. On le DIT quand meme,
+			// pour que le nom finalement retenu ne soit pas une surprise.
+			bool seraRenomme = false;
+			if (desc.uniqueKind == 2u && d.name[0]) {
 				const int32 matMax = demo::Demo3DHostProjMatMax();
-				for (int32 m = 0; m < matMax && libre; ++m) {
+				for (int32 m = 0; m < matMax && !seraRenomme; ++m) {
 					char nm[64];
 					float32 alb[3];
 					float32 rough = 0.f, metal = 0.f;
 					if (!demo::Demo3DHostProjMatInfo(m, nm, (uint32)sizeof(nm), alb, &rough,
 													 &metal))
 						continue;
-					if (strcmp(nm, d.name) == 0)
-						libre = false;
+					seraRenomme = (strcmp(nm, d.name) == 0);
 				}
 			}
+			if (seraRenomme)
+				p.TextV(dr.x + S(12.f), nameY + S(4.f), S(18.f),
+						"Ce nom existe deja : il sera numerote", NkRole::TextMuted);
 			const NkRect okb{dr.x + dr.w - S(90.f), nameY + S(26.f), S(84.f), S(22.f)};
 			const bool ovOk = hit.Add("fdlg.ok", okb);
 			p.Outline(okb, (ovOk && libre) ? NkRole::AccentUi : NkRole::Border,

@@ -45,11 +45,11 @@ namespace nkentseu {
 	//=============================================================================
 	// NkQOICodec::Decode
 	//=============================================================================
-	NkImage *NkQOICodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkQOICodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 14)
-			return nullptr;
+			return NkImage();
 		if (data[0] != 'q' || data[1] != 'o' || data[2] != 'i' || data[3] != 'f')
-			return nullptr;
+			return NkImage();
 
 		const int32 w = int32((uint32(data[4]) << 24) | (uint32(data[5]) << 16) | (uint32(data[6]) << 8) | data[7]);
 		const int32 h = int32((uint32(data[8]) << 24) | (uint32(data[9]) << 16) | (uint32(data[10]) << 8) | data[11]);
@@ -57,12 +57,12 @@ namespace nkentseu {
 		// data[13] = colorspace (0=sRGB, 1=linear) — ignored for decoding
 
 		if (w <= 0 || h <= 0 || channels < 3 || channels > 4)
-			return nullptr;
+			return NkImage();
 
 		const NkImagePixelFormat fmt = (channels == 4) ? NkImagePixelFormat::NK_RGBA32 : NkImagePixelFormat::NK_RGB24;
-		NkImage *img = NkImage::Alloc(w, h, fmt);
-		if (!img)
-			return nullptr;
+		NkImage img = NkImage::Alloc(w, h, fmt);
+		if (!img.IsValid())
+			return NkImage();
 
 		// Table d'index couleurs (64 entrees RGBA)
 		uint8 table[64 * 4];
@@ -74,7 +74,7 @@ namespace nkentseu {
 		const usize limit = size - 8; // exclut les 8 bytes de fin
 
 		for (int32 y = 0; y < h; ++y) {
-			uint8 *row = img->RowPtr(y);
+			uint8 *row = img.RowPtr(y);
 			for (int32 x = 0; x < w; ++x) {
 				if (run > 0) {
 					--run;
@@ -155,15 +155,15 @@ namespace nkentseu {
 
 		// Normalise vers RGB24 ou RGBA32
 		const NkImage *src = &img;
-		NkImage *conv = nullptr;
+		NkImage conv;
 		const int32 ch = img.Channels();
 		if (ch != 3 && ch != 4) {
 			const NkImagePixelFormat tgt =
 				(ch == 1 || ch == 2) ? NkImagePixelFormat::NK_RGBA32 : NkImagePixelFormat::NK_RGB24;
 			conv = img.Convert(tgt);
-			if (!conv)
+			if (!conv.IsValid())
 				return false;
-			src = conv;
+			src = &conv;
 		}
 		const int32 w = src->Width(), h = src->Height(), sch = src->Channels();
 		const bool hasAlpha = (sch == 4);
@@ -172,8 +172,6 @@ namespace nkentseu {
 		const usize maxSz = 14 + usize(w) * h * 5 + 8;
 		uint8 *buf = static_cast<uint8 *>(qM(maxSz));
 		if (!buf) {
-			if (conv)
-				conv->Free();
 			return false;
 		}
 
@@ -269,8 +267,6 @@ namespace nkentseu {
 		qCp(buf + pos, kEnd, 8);
 		pos += 8;
 
-		if (conv)
-			conv->Free();
 		out = buf;
 		outSize = pos;
 		return true;

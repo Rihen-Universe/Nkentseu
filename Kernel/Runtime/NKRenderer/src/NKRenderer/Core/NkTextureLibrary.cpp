@@ -195,29 +195,29 @@ namespace nkentseu {
 				// LDR : on veut RGBA8 dense. Si le fichier n'est pas RGBA on
 				// fait la conversion via NkImage::Convert(NK_RGBA32) puis on
 				// extrait les pixels denses (en respectant le stride).
-				NkImage *rgba = nullptr;
+				NkImage rgba; // reste invalide si aucune conversion n'est necessaire
 				if (img.Format() != NkImagePixelFormat::NK_RGBA32) {
 					rgba = img.Convert(NkImagePixelFormat::NK_RGBA32);
 				}
-				NkImage *src = rgba ? rgba : &img;
+				// Une reference, pas un pointeur : les deux candidats sont des
+				// valeurs, et plus rien ne distingue « tas » de « pile ».
+				const NkImage &src = rgba.IsValid() ? rgba : img;
 
 				out.pixels = (uint8 *)memory::NkAlloc((nk_size)(npx * 4));
-				const uint32 srcStride = (uint32)src->Stride();
+				const uint32 srcStride = (uint32)src.Stride();
 				if (srcStride == out.width * 4) {
-					memcpy(out.pixels, src->Pixels(), npx * 4);
+					memcpy(out.pixels, src.Pixels(), npx * 4);
 				} else {
 					// Stride aligne : copie ligne par ligne.
 					for (uint32 y = 0; y < out.height; ++y) {
-						memcpy(out.pixels + (uint64)y * out.width * 4, src->Pixels() + (uint64)y * srcStride,
+						memcpy(out.pixels + (uint64)y * out.width * 4, src.Pixels() + (uint64)y * srcStride,
 							   out.width * 4);
 					}
 				}
-				if (rgba)
-					rgba->Free(); // rgba vient de Convert() (heap) → Free() OK
+				// `rgba` libere ses pixels toute seule en sortant de la portee.
 			}
-			// `img` est sur la PILE : ne JAMAIS appeler img.Free() (qui ferait
-			// nkFree(this) sur une adresse pile → heap corruption c0000374).
-			// Le destructeur ~NkImage() libère les pixels à la sortie de scope.
+			// Les destructeurs de `img` et `rgba` liberent les pixels a la sortie
+			// de scope. Il n'y a plus de Free() ni d'instance du tas.
 			return true;
 		}
 

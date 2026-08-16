@@ -65,20 +65,26 @@ namespace nkentseu {
 			return NkString(file.CStr() + b, (NkString::SizeType)(d - b));
 		}
 
-		// ── UN NOM D'AFFICHAGE PEUT-IL SERVIR DE NOM DE DOSSIER ? ───────────────
-		// Les espaces et les accents passent ; ce qui suit ne passe pas, sur aucun
-		// systeme. Un point ou un espace en fin de nom est refuse par Windows.
+		// ── LE NOM D'UN PROJET EST UN NOM DE DOSSIER ────────────────────────────
+		// Regle de Rihen (13 aout 2026) : « un projet ne doit pas avoir un nom avec
+		// des espaces ni des caracteres speciaux interdits dans la creation de
+		// dossier ». Nom affiche et nom de dossier ne sont donc plus deux libertes
+		// separees : c'est le MEME nom, et cette fonction en est le seul juge.
+		//
+		// L'ESPACE EST REFUSE alors qu'il passe sur les trois systemes : ce n'est pas
+		// une limite technique mais une decision. Un dossier de projet se tape en
+		// ligne de commande, entre dans un chemin passe a un script, et un espace y
+		// demande des guillemets a chaque fois.
 		static bool NameUsableAsFolder(const NkString &n) {
 			if (n.Empty() || n.Size() > 100u)
 				return false;
 			for (NkString::SizeType i = 0u; i < n.Size(); ++i) {
 				const char c = n[i];
-				if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' ||
-					c == '<' || c == '>' || c == '|' || (unsigned char)c < 32u)
+				if (c == ' ' || c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+					c == '"' || c == '<' || c == '>' || c == '|' || (unsigned char)c < 32u)
 					return false;
 			}
-			const char last = n[n.Size() - 1u];
-			return last != '.' && last != ' ';
+			return n[n.Size() - 1u] != '.';
 		}
 
 		// ── LE DOSSIER SUIT LE NOM (reparation au chargement) ───────────────────
@@ -328,14 +334,21 @@ namespace nkentseu {
 			st.root = DirOf(f);
 			if (!doc.GetString("nom", st.name) || st.name.Empty())
 				st.name = BaseNoExt(f);
-			// ── LE DOSSIER SUIT LE NOM DU PROJET ────────────────────────────
-			// `nom` est un nom d'AFFICHAGE libre, mais le laisser diverger du
-			// dossier qui porte le projet trompe partout ou un chemin s'affiche :
-			// le selecteur de fichiers ouvrait « AgentTest » pour un projet que
-			// le launcher appelait « MonProjet » (Rihen, 12 aout). On repare donc
-			// AU CHARGEMENT, comme Rihen l'a demande -- mais seulement quand c'est
-			// SANS RISQUE. Un projet ne doit jamais devenir introuvable pour une
-			// question de cosmetique : au moindre doute, on ne touche a rien.
+			// ── LE DOSSIER FAIT FOI ─────────────────────────────────────────
+			// Depuis que le nom d'un projet EST un nom de dossier (Rihen, 13 aout :
+			// ni espace ni caractere interdit), le champ `nom` du fichier n'apporte
+			// plus rien : il ne peut que DIVERGER du dossier, et c'est exactement ce
+			// qu'on a constate -- dossier « AgentTest », fichier « AgentTest.nk3dm »,
+			// et un launcher qui annoncait « MonProjet ».
+			//
+			// La reparation par renommage ne suffisait pas : elle renonce -- a juste
+			// titre -- quand la place est prise, et laissait donc la divergence en
+			// place indefiniment. On lit toujours `nom` (fichiers anciens), mais le
+			// dossier tranche des qu'ils different : c'est lui qu'on ouvre, lui que
+			// montrent les selecteurs, lui que voit l'utilisateur dans l'explorateur.
+			const NkString nomDossier = BaseNoExt(st.root);
+			if (!nomDossier.Empty() && st.name != nomDossier)
+				st.name = nomDossier;
 			ReconcileFolderWithName(st, f);
 			(void)doc.GetString("creation", st.created);
 			(void)doc.GetString("modification", st.modified);
@@ -369,20 +382,32 @@ namespace nkentseu {
 			return true;
 		}
 
-		// ── COUVERTURE : LA CAPTURE LA PLUS RECENTE DU PROJET ───────────────────
-		// On ne fabrique RIEN : le rendu et la capture se declenchent par un
-		// bouton. On se contente de retenir l'image la plus fraiche trouvee sous
-		// la racine -- ce qui donne, en pratique, le dernier rendu produit.
+		// ── COUVERTURE : LA MINIATURE DE SCENE LA PLUS RECENTE ─────────────────
+		// On ne fabrique RIEN : la capture se declenche a l'enregistrement d'une
+		// scene. On retient la plus fraiche.
+		//
+		// CHERCHEE DANS « Apercus » SEULEMENT, et non plus dans TOUT le projet.
+		// La regle « l'image la plus recente sous la racine » prenait n'importe
+		// quel fichier : une texture importee, ou -- ce qui est arrive -- la
+		// vignette d'un materiau, si bien que l'ecran d'accueil montrait une
+		// sphere a la place du projet (Rihen, 14 aout). Une couverture de projet
+		// est une miniature de SCENE ; le dossier qui les porte est le seul
+		// endroit ou la chercher.
 		bool NkProjectPickCover(NkProjectState &st) {
 			if (st.root.Empty() || !NkDirectory::Exists(st.root.CStr()))
+				return false;
+			const NkString dirApercus = st.root + "/Apercus";
+			if (!NkDirectory::Exists(dirApercus.CStr()))
 				return false;
 			static const char *const kPat[] = {"*.png", "*.jpg", "*.jpeg", "*.bmp",
 											   "*.tga", "*.qoi"};
 			NkString best;
 			nk_int64 bestT = 0;
 			for (int32 p = 0; p < 6; ++p) {
-				const NkVector<NkString> files =
-					NkDirectory::GetFiles(st.root.CStr(), kPat[p], NkSearchOption::NK_ALL_DIRECTORIES);
+				// NON RECURSIF : les sous-dossiers d'Apercus ne portent pas de
+				// miniature de scene.
+				const NkVector<NkString> files = NkDirectory::GetFiles(
+					dirApercus.CStr(), kPat[p], NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 				for (usize i = 0; i < files.Size(); ++i) {
 					// GetEntries ne remplit PAS ModificationTime sous Windows (note
 					// de NkDirectory.cpp) : on interroge le systeme de fichiers.

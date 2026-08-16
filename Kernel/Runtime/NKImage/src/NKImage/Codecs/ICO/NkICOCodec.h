@@ -16,8 +16,10 @@ namespace nkentseu {
 			/**
 			 * @Brief Décode un buffer ICO/CUR. Sélectionne automatiquement
 			 *        l'entrée de plus grande résolution. Supporte PNG et BMP DIB.
+			 * @Return L'image décodée PAR VALEUR ; en cas d'échec elle est
+			 *         INVALIDE (IsValid()==false). Il n'y a plus de nullptr.
 			 */
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 	};
 
 } // namespace nkentseu

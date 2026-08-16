@@ -5,6 +5,14 @@
 // Vidéo: ffmpeg pipe (MP4/H.264) ou écriture RAW si ffmpeg absent
 // =============================================================================
 #include "NKCamera/NKICameraBackend.h"
+#include "NKCore/NkTraits.h"
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKContainers/Utilities/NkSort.h"
+#include "NKFileSystem/NkPath.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
+#include "NKThreading/NkThread.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkAtomic.h"
 #include "NKMath/NKMath.h"
@@ -22,14 +30,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
-#include <thread>
-#include <mutex>
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <fstream>
 #include <csignal>
-#include <filesystem>
 #include <cctype>
 #include <cstdlib>
 
@@ -73,7 +74,7 @@ namespace nkentseu {
 						paths.PushBack(p);
 					}
 				closedir(dir);
-				std::sort(paths.begin(), paths.end());
+				NkSort(paths.Data(), paths.Data() + paths.Size());
 
 				uint32 idx = 0;
 				for (const auto &path : paths) {
@@ -117,13 +118,13 @@ namespace nkentseu {
 						++fd2.index;
 					}
 					close(fd);
-					result.PushBack(std::move(dev));
+					result.PushBack(traits::NkMove(dev));
 				}
 				return result;
 			}
 
 			void SetHotPlugCallback(NkCameraHotPlugCallback cb) override {
-				mHotPlugCb = std::move(cb);
+				mHotPlugCb = traits::NkMove(cb);
 			}
 
 			// ------------------------------------------------------------------
@@ -224,14 +225,14 @@ namespace nkentseu {
 
 				mRunning = true;
 				mState = NkCameraState::NK_CAM_STATE_STREAMING;
-				mCaptureThread = std::thread([this] { CaptureLoop(); });
+				mCaptureThread = threading::NkThread([this](void *) { CaptureLoop(); });
 				return true;
 			}
 
 			void StopStreaming() override {
 				mRunning = false;
-				if (mCaptureThread.joinable())
-					mCaptureThread.join();
+				if (mCaptureThread.Joinable())
+					mCaptureThread.Join();
 				StopVideoRecord();
 				if (mFd >= 0) {
 					v4l2_buf_type t = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -251,11 +252,11 @@ namespace nkentseu {
 			}
 
 			void SetFrameCallback(NkFrameCallback cb) override {
-				mFrameCb = std::move(cb);
+				mFrameCb = traits::NkMove(cb);
 			}
 
 			bool GetLastFrame(NkCameraFrame &out) override {
-				std::lock_guard<std::mutex> lk(mMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 				if (!mHasFrame)
 					return false;
 				out = mLastFrame;
@@ -266,7 +267,7 @@ namespace nkentseu {
 			// Photo
 			// ------------------------------------------------------------------
 			bool CapturePhoto(NkPhotoCaptureResult &res) override {
-				std::lock_guard<std::mutex> lk(mMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 				if (!mHasFrame) {
 					res.success = false;
 					return false;
@@ -324,7 +325,7 @@ namespace nkentseu {
 			// Vidéo — ffmpeg pipe
 			// ------------------------------------------------------------------
 			bool StartVideoRecord(const NkVideoRecordConfig &config) override {
-				std::lock_guard<std::mutex> recLock(mRecordMutex);
+				threading::NkScopedLock<threading::NkMutex> recLock(mRecordMutex);
 				if (mRecordMode != RecordMode::None || mFfmpegPipe)
 					return false;
 				if (mState != NkCameraState::NK_CAM_STATE_STREAMING) {
@@ -396,7 +397,7 @@ namespace nkentseu {
 			}
 
 			void StopVideoRecord() override {
-				std::lock_guard<std::mutex> recLock(mRecordMutex);
+				threading::NkScopedLock<threading::NkMutex> recLock(mRecordMutex);
 				if (mRecordMode == RecordMode::VideoPipe && mFfmpegPipe) {
 					pclose(mFfmpegPipe);
 					mFfmpegPipe = nullptr;
@@ -446,11 +447,14 @@ namespace nkentseu {
 				if (iioPath.Empty())
 					return false;
 
+				// Lecture par NKFileSystem : un fichier sysfs tient en une ligne.
+				// `strtof` appartient a la bibliotheque C, pas a la STL, et reste
+				// donc autorise (cf. la convention de NkChrono.cpp).
 				auto readSysfs = [](const NkString &path) -> float {
-					std::ifstream f(path.CStr());
-					float v = 0;
-					f >> v;
-					return v;
+					const NkString contenu = NkFile::ReadAllText(path.CStr());
+					if (contenu.Empty())
+						return 0.f;
+					return ::strtof(contenu.CStr(), nullptr);
 				};
 				auto readScale = [&]() -> float {
 					NkString sp = iioPath + "/in_accel_scale";
@@ -596,23 +600,22 @@ namespace nkentseu {
 			}
 
 			bool StartImageSequenceRecordLocked(const NkString &outputPath, const NkString &reason) {
-				namespace fs = std::filesystem;
-				std::error_code ec;
-				fs::path base = outputPath.Empty() ? fs::path("video.mp4") : fs::path(outputPath.CStr());
-				std::string stemStd = base.stem().string();
-				NkString stem(stemStd.c_str());
+				// Chemins par NKFileSystem : NkPath sait extraire dossier et nom
+				// sans extension, NkDirectory sait creer une arborescence. Rien
+				// a inventer, et un dossier de moins a construire a la main.
+				const NkPath base = outputPath.Empty() ? NkPath("video.mp4") : NkPath(outputPath);
+				NkString stem = base.GetFileNameWithoutExtension();
 				if (stem.Empty())
 					stem = "video";
 
-				fs::path dir = base.parent_path() / (stemStd + "_frames");
-				fs::create_directories(dir, ec);
-				if (ec) {
-					mLastError = NkString("Cannot create image-sequence folder: ") + NkString(dir.string().c_str());
+				const NkPath dir = NkPath::Combine(base.GetDirectory(), stem + "_frames");
+				if (!NkDirectory::CreateRecursive(dir)) {
+					mLastError = NkString("Cannot create image-sequence folder: ") + dir.ToString();
 					return false;
 				}
 
 				mRecordMode = RecordMode::ImageSequence;
-				mRecordImageDir = NkString(dir.string().c_str());
+				mRecordImageDir = dir.ToString();
 				mRecordFrameCounter = 0;
 				if (!reason.Empty()) {
 					logger.Warn("[NkLinuxCameraBackend] {0}. Falling back to image sequence in: {1}", reason.CStr(),
@@ -667,8 +670,7 @@ namespace nkentseu {
 				} else if (frame.format == NkPixelFormat::NK_PIXEL_RGB8) {
 					if (frame.data.Size() < rgb.Size())
 						return false;
-					std::copy(frame.data.begin(), frame.data.begin() + static_cast<std::ptrdiff_t>(rgb.Size()),
-							  rgb.begin());
+					::memcpy(rgb.Data(), frame.data.Data(), rgb.Size());
 				} else {
 					return false;
 				}
@@ -763,7 +765,7 @@ namespace nkentseu {
 						mLastError = "VIDIOC_QBUF failed: " + NkString(strerror(errno));
 
 					{
-						std::lock_guard<std::mutex> lk(mMutex);
+						threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 						mLastFrame = frame;
 						mHasFrame = true;
 					}
@@ -772,7 +774,7 @@ namespace nkentseu {
 						mFrameCb(frame);
 					bool recordingFailed = false;
 					{
-						std::lock_guard<std::mutex> recLock(mRecordMutex);
+						threading::NkScopedLock<threading::NkMutex> recLock(mRecordMutex);
 						if (mRecordMode == RecordMode::VideoPipe && mFfmpegPipe) {
 							const std::size_t wanted = frame.data.Size();
 							const std::size_t wrote = std::fwrite(frame.data.Data(), 1, wanted, mFfmpegPipe);
@@ -800,16 +802,16 @@ namespace nkentseu {
 			NkString mLastError;
 
 			NkVector<V4L2Buf> mBufs;
-			std::thread mCaptureThread;
+			threading::NkThread mCaptureThread;
 			NkAtomicBool mRunning{false};
-			std::mutex mMutex;
+			threading::NkMutex mMutex;
 			NkCameraFrame mLastFrame;
 			bool mHasFrame = false;
 
 			NkFrameCallback mFrameCb;
 			NkCameraHotPlugCallback mHotPlugCb;
 
-			std::mutex mRecordMutex;
+			threading::NkMutex mRecordMutex;
 			RecordMode mRecordMode = RecordMode::None;
 			FILE *mFfmpegPipe = nullptr;
 			NkString mRecordImageDir;
