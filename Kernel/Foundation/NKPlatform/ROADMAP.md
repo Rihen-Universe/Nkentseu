@@ -23,12 +23,128 @@ plateformes mobiles / consoles peu testées.
 | Foundation log (`NkFoundationLog.h`) | ✅ Livré | — | — |
 | Variables d'environnement (`NkEnv.h/.cpp`) | ✅ Livré | — | — |
 | Détection CPU runtime (`NkCPUFeatures.h/.cpp`) | 🔶 Partiel | M | Haute |
-| Tests unitaires | ❌ TODO (aucun dossier `tests/`) | M | Haute |
+| Tests unitaires | ❌ TODO — `tests/` existe depuis le 17/08 mais ne contient qu'**un témoin de macros**, pas une suite | M | Haute |
 | Plateformes consoles validées (PS5, Xbox, Switch) | ❌ TODO | XL | Basse |
 | Plateformes mobiles validées (Android, iOS) | 🔶 Partiel (détection seulement) | L | Moyenne |
 | Web / Emscripten / WASM | 🔶 Partiel (détection seulement) | M | Moyenne |
 
 Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abandonné
+
+---
+
+## ✅ 2026-08-17 — `NKENTSEU_ARCH_ARM32` et `NKENTSEU_PLATFORM_WEB` sont DÉFINIS (ajout, pas renommage)
+
+**Arbitrage de Rodolf** : « WEB et EMSCRIPT sont permis. ARM32, ARM64 et ARM
+aussi. » Ce ne sont donc **pas** des fautes de nom à corriger : ce sont des noms
+**légitimes que le détecteur avait oublié de produire**. Les deux écritures
+doivent répondre vrai **simultanément** sur la même cible.
+
+Un renommage aurait cassé silencieusement tout code employant l'autre nom
+(`NKENTSEU_ARCH_ARM` est testé 14×, `NKENTSEU_PLATFORM_EMSCRIPTEN` 19×). Une
+définition additive ne casse rien.
+
+| fichier | ce qui est **ajouté** | ce qui est retiré |
+|---|---|---|
+| `src/NKPlatform/NkArchDetect.h` (branche ARM 32 bits) | `#define NKENTSEU_ARCH_ARM32` | **rien** |
+| `src/NKPlatform/NkPlatformDetect.h` (branche `__EMSCRIPTEN__`) | `#define NKENTSEU_PLATFORM_WEB` | **rien** |
+
+### La victime, et sa guérison — mesurée
+
+`NkPlatform.cpp:466` teste `NKENTSEU_ARCH_ARM32`, qui n'était **défini nulle
+part**. Le dépôt construit pourtant bien `armeabi-v7a`.
+
+| cible | `PlatformInfo.architecture` avant | après |
+|---|---|---|
+| **armeabi-v7a** | **`NK_UNKNOWN`** | **`NK_ARM32`** |
+| arm64-v8a | `NK_ARM64` | `NK_ARM64` |
+| x86_64 hôte | `NK_X64` | `NK_X64` |
+
+*(mesuré au préprocesseur le 2026-08-17, arbre `feat/nkxr`, en extrayant la
+cascade du **vrai** `NkPlatform.cpp` — pas une copie, qui resterait verte le jour
+où l'originale changerait. Compilateurs : NDK 27.0.12077973 clang++,
+em++ 5.0.7, clang++ 22.1.4, dialecte C++17 — celui du dépôt.)*
+
+### La preuve d'additivité : un vidage de macros avant/après, sur 4 cibles
+
+C'est la seule forme qui distingue « ajouter » de « renommer » — un témoin qui ne
+vérifierait que le **nouveau** nom passerait aussi sur un renommage.
+
+| cible | macros `NKENTSEU_*` avant → après | différence |
+|---|---|---|
+| armeabi-v7a | 221 → 222 | **`+ NKENTSEU_ARCH_ARM32`**, aucune ligne retirée |
+| wasm32 (em++) | 220 → 221 | **`+ NKENTSEU_PLATFORM_WEB`**, aucune ligne retirée |
+| arm64-v8a | 221 → 221 | **aucun changement** |
+| x86_64 hôte | 222 → 222 | **aucun changement** |
+
+⚠️ **Les deux dernières lignes sont ce qui dispense d'une reconstruction
+complète** : sur l'hôte, l'état du préprocesseur est **identique au symbole
+près**, donc aucune unité de traduction Windows ne peut compiler autrement.
+C'est plus fort qu'un build vert, qui ne dirait rien des trois autres cibles.
+Contrôles quand même rejoués : `NkCameraDemos` Release **19/19**, et les 4
+empreintes MD5 de `--demo=format` inchangées
+(`5041f14b…` / `a0cffd3b…` / `95c792b4…` / `9cfe8599…`).
+
+### Le témoin
+
+```
+bash Kernel/Foundation/NKPlatform/tests/run_temoin_noms_additifs.sh
+    code 0 = les deux noms répondent vrai, sans sur-définition
+    code 1 = au moins une attente non tenue.  Il ÉCHOUE, il n'affiche pas.
+```
+
+Il vérifie **quatre** choses, et les deux dernières comptent autant que les
+premières : sur ARM 32 bits les deux noms répondent vrai ; sur Emscripten les
+deux noms répondent vrai ; **hors** ARM 32 bits `ARM32` n'apparaît pas ; **hors**
+Emscripten `WEB` n'apparaît pas. Sans les deux contrôles de sur-définition, on ne
+distinguerait pas « définir aussi » de « définir partout ».
+
+**Rejoué sur l'état d'avant** : 3 échecs sur les 3 points en cause. Un témoin qui
+passe des deux côtés du correctif ne discrimine rien.
+
+**Ce qu'il ne prouve pas** : il ne s'exécute pas — aucun matériel ARM 32 bits n'a
+été sollicité. Et il reprend, pour décider ce qu'il attend, les macros
+prédéfinies du compilateur (`__arm__`, `__EMSCRIPTEN__`), les mêmes que celles
+sur lesquelles l'en-tête déclenche : il juge l'**additivité**, pas la détection.
+
+### 🔧 Correction d'une mesure antérieure : `NKENTSEU_PLATFORM_WEB` n'avait AUCUNE victime
+
+Il avait été rapporté que `Network_InitEmscripten()` n'était jamais appelé sur
+Web à cause de cette garde. **C'est faux.** Son unique occurrence,
+`NKNetwork/NkNetworkApi.h:615`, est **à l'intérieur d'un bloc de commentaire**
+(`/*` l. 588 → `*/` l. 633).
+
+```
+occurrences après retrait des commentaires (gcc -fpreprocessed -dD -E) :
+    NKENTSEU_ARCH_ARM32   dans NkPlatform.cpp    -> 1   victime réelle
+    NKENTSEU_PLATFORM_WEB dans NkNetworkApi.h    -> 0   documentation
+```
+
+Donc : ARM32 corrige un défaut **vivant** ; WEB rend une écriture permise
+**sans réveiller la moindre ligne de code mort**. C'est exactement le piège que
+le corpus signale — *un `grep` compte les commentaires*.
+
+### 📌 Signalé, non touché : une copie périmée dans `Build/`
+
+`Build/_jenga-embed/Jenga/Exemples/27_nk_window/NKWindow/src/NKWindow/Core/NkPlatformDetect.h`
+définit `NKENTSEU_PLATFORM_WEB` depuis toujours. Le fichier est **non suivi par
+git** (`git ls-files --error-unmatch` échoue) : c'est un artefact de build, pas
+une source, et il n'est pas modifié.
+
+Il porte toutefois une information : **ce nom a existé, puis a été perdu lors
+d'un renommage vers `_EMSCRIPTEN`.** L'ajout ne crée pas un nom, il en restitue un.
+
+### 🚫 Hors périmètre, et pourquoi c'est écrit
+
+**`SSE42` : ne pas y toucher** (décision maintenue). Ce cas n'est **pas** de la
+même nature — il n'y a pas deux noms permis, il y a une garde morte sans victime.
+Mesuré : corriger le nom ne gagnerait rien (`__SSE4_2__` n'est prédéfini que sous
+`-march=native`, jamais passé à NKMemory), **et** réveiller la branche ne compile
+pas (`redefinition of 'crc'`, `redefinition of 'ptr'`). Deux gardes mortes
+empilées. *Écrit ici pour que personne ne « corrige » le nom dans six mois en
+croyant gagner des performances, et ne casse le build.*
+
+**`NKENTSEU_ARCH_WASM`** (`NkPlatform.cpp:468`) reste sans détection : ce n'est
+pas un nom faux, c'est une détection **absente**. Non traité.
 
 ---
 

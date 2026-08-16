@@ -67,6 +67,9 @@ with project("NkCameraDemos"):
         # vanilla et le warning link "undefined reference to
         # XInputGetBatteryInformation" sur certains MinGW.
         _WIN_LINKS = [
+            # winmm : timeBeginPeriod, pour l'essai de resolution de minuterie
+            # (--timer). NKRenderer le lie deja de son cote.
+            "winmm",
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
             "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
