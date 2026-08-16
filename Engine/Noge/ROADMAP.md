@@ -553,6 +553,83 @@ du port des corps reste entier ; c'est son **échelonnement** qui devient possib
 > c'est **si ce doublon doit continuer d'exister**. Aucune mesure ne le tranche :
 > c'est « ce que le produit EST ».
 
+### 9quater. Un panneau NKUI peut-il vivre dans un dock NKGui ? — trois voies, et un défaut qu'aucune ne corrige (2026-08-17)
+
+**La question était censée demander une maquette. Elle se tranche à la lecture
+des interfaces, et plus nettement.**
+
+⭐ **NKGui est une réécriture avouée de NKUI.** `NkGuiDrawList.h:9`, mot pour mot :
+
+> *« Réécriture PROPRE (s'inspire du modèle prouvé NkUIDrawList, noms neufs). »*
+
+Ce n'est plus une déduction tirée de deux tailles de module : **c'est l'auteur
+qui l'écrit dans l'en-tête du fichier**. Et les formats le confirment :
+
+```
+NkGuiVertex { NkVec2 pos; NkVec2 uv; uint32 col; }      <- meme disposition
+NkUIVertex  { NkVec2 pos; NkVec2 uv; uint32 col; }
+NkGuiDrawCmd / NkUIDrawCmd : type, idxOffset, idxCount, texId, clipRect  <- 5 champs identiques
+```
+
+Différences réelles : NKUI stocke en pointeurs bruts + capacité, NKGui en
+`NkVector` ; NKUI a deux valeurs d'énum de plus (`NK_CLIP_RECT`, `NK_SET_FONT`)
+que NKGui replie dans le champ `clipRect` de la commande.
+
+**Le mur, et il est à la compilation :**
+
+```
+NkIEditorRenderer.h:51  virtual void SubmitDrawList(const nkgui::NkGuiDrawList &, uint32, uint32) = 0;
+```
+
+**C'est la seule entrée de rendu du shell** (3 implémenteurs : `NkEditorCanvasRenderer`,
+`NkEditorRHIRenderer`, celui de NK3DModeler). **Aucun chemin n'accepte un
+`NkUIDrawList`.** Un corps de panneau NKUI n'atteint pas l'écran à travers le
+shell aujourd'hui.
+
+**Les trois voies pour le franchir :**
+
+| voie | coût | ce qu'elle donne |
+|---|---|---|
+| **1 — pont `NkUIDrawList` → `NkGuiDrawList`** | **~50-80 l.** (formats identiques par construction) | dessin ✅ découpage ✅ **entrée ❌** |
+| **2 — texture offscreen** (`SetPreUI` + `RegisterTexture` + `AddImage`) | **0 l. de noyau** — mécanisme existant du viewport 3D | dessin ✅ **entrée à réacheminer à la main** |
+| **3 — porter les corps en `nkgui::`** | **~1 278 l.** | tout correct **par construction** |
+
+⚠️ **LE DÉFAUT QUE NI 1 NI 2 NE CORRIGENT — et c'est lui qui décide.**
+
+**NKGui possède un routeur d'occlusion par couches ; NKUI n'en a aucun.**
+
+```
+NKGui   PushOcclusion(rect, layer) · curInputLayer · PointReachable() · InputHits() · ClickIn()
+        couches : 0 panneaux · 50 menus/palettes · 100 modals · 200 debug
+        et son commentaire dit POURQUOI : les hit-tests bruts causaient des
+        « traversees de clics, boutons inertes »
+
+NKUI    IsHovered(r) { return NkRectContains(r, input.mousePos); }   <- brut, sans couche
+        NkUIDrawList::IsOccluded(r) { (void)r; return false; }       <- STUB neutralise
+                                     (ses appelants disent encore « // occlusion cull »)
+```
+
+**Conséquence concrète** : un widget NKUI hébergé dans un dock NKGui **réagira à
+un clic posé sur une palette Ctrl+P (couche 50) ou une modale (couche 100)
+dessinée au-dessus de lui** — rien n'apprend à NKUI que cette couche existe. Le
+shell dessine précisément ces surfaces-là. **Le dessin se ponte ; l'entrée ne se
+ponte pas.**
+
+*C'est le cas négatif : il n'a pas eu besoin d'être mis en scène, il est
+structurel — une absence dans NKUI, pas un réglage.*
+
+**⚠️ Ce que ce constat NE prouve PAS**, et la limite est étroite :
+- il porte sur les **interfaces au 2026-08-17** — lues, non exécutées ;
+- il ne dit rien de la **fidélité visuelle** (polices, DPI, thème) d'un pont ;
+- la voie 2 n'a **jamais été essayée avec un contenu NKUI** — seulement avec un
+  viewport 3D NKRenderer, qui n'a pas de widgets, donc pas d'entrée à router.
+
+**Conclusion pour l'échelonnement** : porter les panneaux **un à la fois**
+(§9ter) reste possible, mais chaque panneau doit être porté **en `nkgui::`
+(voie 3)**, pas hébergé en NKUI derrière un pont. Les voies 1 et 2 donnent un
+panneau qui s'affiche et qui **ment sur les clics** — le pire des deux mondes,
+parce que le défaut reste invisible tant qu'aucune surface ne recouvre le panneau.
+
 ---
 
 ## 10. 📊 INVENTAIRE DE `Applications/Nogee` — compile / tourne / consomme
