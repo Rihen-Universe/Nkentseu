@@ -174,6 +174,102 @@ un test sans machine graphique. Le facteur d'échelle est là : *ce qui rend le
 module utilisable dans un quatrième contexte vaut plus que ce qui le rend 10 %
 plus rapide dans le premier.*
 
+## 🔴 Le régime AÉRIEN manque — M3.7 → M3.11 proposés (mesuré le 2026-08-16)
+
+*Mesuré par l'agent NKAnimation sur `feat/nkanimation`, en préparant l'écart entre
+les spécifications d'interface de NkAnimaEditor et le code. **Proposition, non
+validée** : c'est Rodolf qui tranche.*
+
+### Le constat, en une phrase
+
+**L'équilibre STATIQUE est fait, la dynamique ne l'est pas.**
+
+`NKAnimPhysics` porte six briques **M3.1 → M3.6, toutes implémentées** : 349 lignes
+d'en-têtes contre **1 272 lignes de `.cpp`**, aucune coquille vide.
+
+| brique | rôle | h / cpp |
+|---|---:|---:|
+| M3.1 `NkPoseMass` | distribution de masse, COM | 61 / 208 |
+| M3.2 `NkBalance` | équilibre, polygone de support, marge signée | 59 / 250 |
+| M3.3 `NkContactDetector` | solveur de contacts | 55 / 149 |
+| M3.4 `NkPoseBalancer` | optimiseur de pose, pieds plantés | 82 / 372 |
+| M3.5 `NkAutoPose` | auto-posing | 41 / 131 |
+| M3.6 `NkClipBalancePass` | passe d'équilibre sur clip | 51 / 162 |
+
+⚠️ **Mais `Applications/NkAnima/ROADMAP.md` ouvre M3 en annonçant « trajectoires
+physiquement correctes (**centre de masse balistique**, équilibre) ».** Le
+balistique n'a jamais été livré : les six briques couvrent la moitié « équilibre »,
+pas la moitié « trajectoire ». Le milestone est déclaré « BOUCLE COMPLÈTE » — il
+l'est **pour le régime au sol**, et il faut le lire ainsi.
+
+Mesure directe : **zéro occurrence** de gravité, parabole, balistique ou phase
+aérienne dans tout `NKAnimPhysics`.
+
+### Pourquoi M3.7 et pas M4
+
+**`M4` est déjà pris** — « M4 — IA auto-pose », plus `M4bis` et `M5`, dans
+`Applications/NkAnima/ROADMAP.md`. Numéroter le régime aérien « M4 » créerait une
+collision silencieuse. Il prolonge les briques M3, il en prend donc la suite.
+
+### Les cinq briques proposées
+
+1. **M3.7 — Trajectoire balistique du COM.** Sous gravité, entre deux contacts :
+   le COM suit une parabole que l'animateur ne peut pas contredire. C'est la moitié
+   manquante annoncée par M3. *Réfuté si* : une phase aérienne reste corrigible
+   horizontalement par l'optimiseur, ce qui prouverait que la contrainte n'est pas
+   appliquée.
+2. **M3.8 — Conservation du moment cinétique en vol.** Une fois quitté le sol, le
+   moment est constant : c'est ce qui rend une vrille ou un salto non négociables.
+   Le moment existe dans `NKPhysics` (corps rigides), **pas pour la pose**.
+3. **M3.9 — Tenseur d'inertie morphologique.** ⚠️ **Verrou de M3.8, à traiter
+   avant.** `NkPoseMass` est un modèle de **masses scalaires ponctuelles**
+   (`COM = Σ mⱼ·pⱼ / Σ mⱼ`) : il **ne peut pas porter de rotation**. Sans tenseur
+   dérivé de la morphologie, le moment cinétique n'a pas de support mathématique.
+4. **M3.10 — Mouvement secondaire dynamique.** Déjà nommé en dette dans ce fichier :
+   *0 occurrence de `spring`, `jiggle`* — rien ne suit passivement le squelette.
+5. **M3.11 — Interpolation contrainte.** Interpoler en respectant les contraintes
+   physiques plutôt que corriger après coup. `NkAutoPose` fait aujourd'hui
+   *lerp puis correction* ; c'est l'ordre inverse qui garantit la plausibilité.
+
+**Ordre suggéré : M3.9 → M3.7 → M3.8**, puis M3.10 et M3.11 indépendamment. Le
+tenseur d'inertie est le verrou : deux des trois briques du régime aérien en
+dépendent.
+
+> Note de cadrage : l'inspiration est nommée depuis M3 et reste une **inspiration**.
+> Ce fichier ne compare pas ce module à un produit existant, et ne le prétend pas
+> équivalent.
+
+### ⭐ Et le socle existant n'est PAS exposé
+
+**`NkAnimaEditor` n'utilise AUCUNE des six briques M3.** Il ne consomme que le
+ragdoll, via `NkRagdollBridge` (`NKPhysics`). Ni `NkPoseMass`, ni `NkBalance`, ni
+`NkContactDetector` n'apparaissent dans l'éditeur.
+
+Ce n'est pas une surprise pour le corpus : **trois des six briques portent déjà
+« ⏳ Reste : câblage éditeur »** (M3.1, M3.2, et le « câblage éditeur » de la note
+de milestone). Le helper de visualisation existe pourtant — `NKRenderer/Tools/
+Animation/NkPoseDebugDraw.{h,cpp}` dessine COM, polygone de support, fil d'aplomb
+et direction de bascule — et sa **validation visuelle est toujours en attente**.
+
+**1 272 lignes de physique fondée, testées headless, que l'éditeur n'affiche pas.**
+Exposer l'existant coûte moins cher que d'écrire M3.7 : c'est du câblage, pas de
+la recherche, et ça rend visible ce qui est déjà payé.
+
+### Méthode — et deux fois où l'instrument a menti
+
+*Périmètre : `Kernel/`, `Engine/`, `Applications/`, hors `Externals/`. Comptage des
+lignes par `wc -l`, corps vérifiés fichier par fichier.*
+
+Deux pièges rencontrés le même jour, tous deux réglés par le réflexe *un compte
+trop rond est suspect* :
+
+1. **`grep -E` avec `\|`.** En ERE, l'alternation s'écrit `|` ; `\|` cherche une
+   barre littérale. Six recherches ont rendu **zéro partout** avant correction.
+2. **Chercher en anglais dans un dépôt commenté en français.** `SupportPolygon`
+   rendait 0 alors que `NkBalance` **implémente** le polygone de sustentation : le
+   code écrit « POLYGONE DE SUPPORT », avec `supportPts` / `supportCount`. Sans ce
+   doute, une brique de 250 lignes était déclarée absente.
+
 ## Documents voisins — lire avant d'écrire ici
 
 | Document | Ce qu'il porte, et que ce fichier ne reprend pas |
