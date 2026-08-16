@@ -833,7 +833,30 @@ namespace nkentseu {
 							st.dropMat = st.browserMat[st.browDragIdx];
 							snprintf(st.dropName, sizeof(st.dropName), "%s",
 									 st.browserNames[st.browDragIdx]);
-							st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
+st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
+							// ---- LES CARTES QUI PARTENT AVEC ELLE ----
+							//
+							// On ne tire pas forcement une carte isolee : si celle qu'on saisit
+							// fait partie des cartes CHOISIES, tout le lot part avec. Si elle
+							// n'en fait pas partie, elle part SEULE -- saisir une carte hors
+							// selection est un geste qui la designe, pas qui ignore le clic.
+							// C'est la regle de tous les gestionnaires de fichiers, et s'en
+							// ecarter ferait perdre des lots sans que l'utilisateur comprenne.
+							//
+							// La carte saisie n'entre PAS dans la file : elle est deja dans le
+							// jeton. La file ne porte que celles qui attendent leur tour.
+							st.dropQueueCount = 0;
+							st.dropQueueX = bm.x;
+							st.dropQueueY = bm.y;
+							if (st.browserPicked[st.browDragIdx]) {
+															for (int32 k = 0; k < st.browserCount &&
+																 st.dropQueueCount < NkModelerState::kMaxBrowser;
+																 ++k) {
+																if (k == st.browDragIdx || !st.browserPicked[k])
+																	continue;
+																st.dropQueue[st.dropQueueCount++] = k;
+															}
+							}
 							// COORDONNEES FENETRE, telles quelles : l'hote soustrait
 							// SON origine de vue. Passer `bm - st.viewRect` ferait de
 							// `viewRect` une seconde source pour la meme origine.

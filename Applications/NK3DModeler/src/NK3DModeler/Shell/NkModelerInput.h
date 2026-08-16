@@ -136,6 +136,14 @@ namespace nkentseu {
 
 		// ── ETAT DE SESSION ─────────────────────────────────────────────────────
 		struct NkModelerState {
+				// LA BORNE DU NAVIGATEUR, en tete parce qu'elle dimensionne des
+				// tableaux declares plus haut que son ancienne place. Une borne qui
+				// arrive apres ce qu'elle borne oblige a recopier 32 en dur juste
+				// au-dessus -- et ce depot a deja paye un tableau dimensionne a la
+				// main au lieu de sa borne reelle (hierFold, v16), qui debordait sur
+				// son voisin et corrompait la selection en silence.
+				static const int32 kMaxBrowser = 32;
+
 				NkMode mode = NkMode::Object;
 				NkSubMode subMode = NkSubMode::Face;
 				NkTool tool = NkTool::Move;
@@ -551,6 +559,30 @@ namespace nkentseu {
 				int32 dropMenuTarget = -1; ///< noeud cible FIGE. -1 = pas de menu
 				float32 dropMenuX = 0.f, dropMenuY = 0.f;
 				float32 dropWorld[3] = {0.f, 0.f, 0.f}; ///< point du lacher, fige
+				// ---- LA FILE DU GESTE MULTIPLE ----
+				//
+				// Le jeton ci-dessus ne porte QU'UNE carte, et c'est delibere. Les
+				// autres attendent ici et sont depilees une par frame dans ce meme
+				// jeton.
+				//
+				// POURQUOI PAS UN JETON QUI PORTE UNE LISTE : parce qu'alors le
+				// traitement aurait deux formes -- une pour la carte seule, une pour
+				// la liste -- et que la seconde devrait rejouer a l'identique le pick,
+				// les refus nommes, le menu enfant/independant et l'annulation. Deux
+				// chemins pour un meme geste finissent toujours par diverger ; celui
+				// qu'on exerce le moins est celui qui casse en silence.
+				//
+				// Ici, chaque carte emprunte EXACTEMENT le chemin deja eprouve. Le
+				// cout est d'une frame par carte : dix cartes tiennent en 0,17 s a
+				// 60 ips, invisible a la main.
+				//
+				// Le point de lacher est fige AVEC la file, pas relu au depilement :
+				// entre la premiere carte et la derniere, la camera peut avoir bouge,
+				// et les dix objets doivent atterrir la ou l'utilisateur a lache --
+				// pas la ou son curseur se trouve trois frames plus tard.
+				int32 dropQueue[kMaxBrowser] = {}; ///< cartes en attente de leur tour
+				int32 dropQueueCount = 0;          ///< 0 = file vide
+				float32 dropQueueX = 0.f, dropQueueY = 0.f; ///< le lacher, fige
 				// CONFLIT d'homonyme en attente (Renommer/Remplacer/Arreter).
 				int32 browConfSrc = -1;
 				int32 browConfDest = -1;
@@ -735,7 +767,6 @@ namespace nkentseu {
 				// Plus aucune donnee simulee : le navigateur nait vide et se remplit
 				// par « + Dossier / + Materiau / + Texture ». Tableaux plats a
 				// indices stables, comme partout ailleurs dans cet etat.
-				static const int32 kMaxBrowser = 32;
 				/// Selecteur de fichiers PARTAGE (NKEditorKit) : il navigue le DISQUE
 				/// reel, la ou les cartes du navigateur plafonnent a kMaxBrowser.
 				/// SPECIALISE (NkModelerPicker) : hors mode « nouveau materiau » il

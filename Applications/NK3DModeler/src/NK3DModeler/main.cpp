@@ -2311,6 +2311,38 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// ---- LA CARTE SUIVANTE DU GESTE MULTIPLE ----
+		//
+		// Le jeton vient de se liberer et la file n'est pas vide : on y remet
+		// la carte suivante, qui reprend le chemin au debut -- pick, nature,
+		// refus ou application. Une carte par frame, jamais deux : le pick a
+		// besoin d'une frame pour repondre, et vouloir tout appliquer d'un
+		// coup demanderait un second chemin sans pick.
+		//
+		// LE POINT DE LACHER EST CELUI QUI A ETE FIGE, pas la position
+		// courante de la souris. Entre la premiere carte et la dixieme, le
+		// curseur a bouge et la camera peut avoir tourne ; les dix objets
+		// doivent atterrir la ou l'utilisateur a lache.
+		//
+		// Un menu ouvert SUSPEND la file : tant que l'utilisateur n'a pas
+		// repondu "enfant ou independant", la carte suivante attend. Sinon
+		// dix menus se superposeraient et il repondrait au dernier en croyant
+		// repondre au premier.
+		if (st.dropIdx < 0 && st.dropMenuTarget < 0 && st.dropQueueCount > 0) {
+					const int32 carte = st.dropQueue[0];
+					for (int32 k = 1; k < st.dropQueueCount; ++k)
+						st.dropQueue[k - 1] = st.dropQueue[k];
+					--st.dropQueueCount;
+					if (carte >= 0 && carte < st.browserCount) {
+						st.dropIdx = carte;
+						st.dropKind = st.browserKind[carte];
+						st.dropSrcNode = st.browserSrcNode[carte];
+						st.dropMat = st.browserMat[carte];
+						snprintf(st.dropName, sizeof(st.dropName), "%s", st.browserNames[carte]);
+						demo::Demo3DHostPickRequest(st.dropQueueX, st.dropQueueY);
+					}
+		}
+
 		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
 		// « Capturer la vue » fige la cible hors ecran de la vue 3D (la scene
 		// seule, sans interface) ; « Tutoriel » photographie TOUTE la fenetre
