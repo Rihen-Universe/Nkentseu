@@ -2498,10 +2498,10 @@ namespace nkentseu {
 		return svg;
 	}
 
-	NkImage *NkSVGImage::Rasterize(int32 outW, int32 outH) const noexcept {
+	NkImage NkSVGImage::Rasterize(int32 outW, int32 outH) const noexcept {
 		const SVGImageImpl *impl = (const SVGImageImpl *)mImpl;
 		if (!impl)
-			return nullptr;
+			return NkImage();
 
 		// Resolution de la taille de sortie.
 		if (outW <= 0 && outH <= 0) {
@@ -2522,9 +2522,9 @@ namespace nkentseu {
 									 NkSVGTransform::Translate(-impl->vbX, -impl->vbY);
 
 		// Alloc image RGBA32 (zero-initialise = fond transparent).
-		NkImage *img = NkImage::Alloc(outW, outH, NkImagePixelFormat::NK_RGBA32);
-		if (!img)
-			return nullptr;
+		NkImage img = NkImage::Alloc(outW, outH, NkImagePixelFormat::NK_RGBA32);
+		if (!img.IsValid())
+			return NkImage();
 
 		// Copie locale des shapes + applique le mapping a leurs points, puis
 		// rasterise. On NE modifie PAS l'impl source (pour que Rasterize() puisse
@@ -2553,7 +2553,7 @@ namespace nkentseu {
 				hasFillGP = BuildGradPaint(impl, src.fillRef, local, src.ctm, mView, fillGP);
 			const bool fillRefUnresolved = (src.fillRef[0] && !hasFillGP);
 			if (!fillRefUnresolved)
-				RasterizeShape(*img, local, hasFillGP ? &fillGP : nullptr);
+				RasterizeShape(img, local, hasFillGP ? &fillGP : nullptr);
 
 			// ── Rasterise le stroke si present ─────────────────────────────────
 			// On construit une nouvelle Shape "ruban" autour des contours et on
@@ -2580,7 +2580,7 @@ namespace nkentseu {
 						hasStrokeGP = BuildGradPaint(impl, src.strokeRef, strokeShape, src.ctm, mView, strokeGP);
 					const bool strokeRefUnresolved = (src.strokeRef[0] && !hasStrokeGP);
 					if (strokeShape.contourStart.Size() > 0 && !strokeRefUnresolved) {
-						RasterizeShape(*img, strokeShape, hasStrokeGP ? &strokeGP : nullptr);
+						RasterizeShape(img, strokeShape, hasStrokeGP ? &strokeGP : nullptr);
 					}
 				}
 			}
@@ -2657,22 +2657,24 @@ namespace nkentseu {
 	// SECTION 11 — NkSVGCodec API publique
 	// ═════════════════════════════════════════════════════════════════════════════
 
-	NkImage *NkSVGCodec::Decode(const uint8 *data, usize size, int32 outW, int32 outH) noexcept {
+	NkImage NkSVGCodec::Decode(const uint8 *data, usize size, int32 outW, int32 outH) noexcept {
 		// Pipe-through : on parse en NkSVGImage puis on rasterise. Une seule passe
 		// si l'appelant n'a pas besoin de conserver la representation vectorielle.
 		NkSVGImage *svg = NkSVGImage::LoadFromMemory(data, size);
 		if (!svg)
-			return nullptr;
-		NkImage *img = svg->Rasterize(outW, outH);
+			return NkImage();
+		// NkSVGImage reste une ressource tas explicite : on la libere ici.
+		// Seule l'image rasterisee est un type valeur, rendue par valeur.
+		NkImage img = svg->Rasterize(outW, outH);
 		svg->Free();
 		return img;
 	}
 
-	NkImage *NkSVGCodec::DecodeFromFile(const char *path, int32 outW, int32 outH) noexcept {
+	NkImage NkSVGCodec::DecodeFromFile(const char *path, int32 outW, int32 outH) noexcept {
 		NkSVGImage *svg = NkSVGImage::LoadFromFile(path);
 		if (!svg)
-			return nullptr;
-		NkImage *img = svg->Rasterize(outW, outH);
+			return NkImage();
+		NkImage img = svg->Rasterize(outW, outH);
 		svg->Free();
 		return img;
 	}

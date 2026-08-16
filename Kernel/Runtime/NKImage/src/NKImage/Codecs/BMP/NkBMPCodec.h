@@ -17,8 +17,9 @@ namespace nkentseu {
 			 * BITMAPV4HEADER (108), BITMAPV5HEADER (124).
 			 * Bit depths : 1, 2, 4, 8 (indexé), 16, 24, 32 bpp.
 			 * Compression : BI_RGB, BI_RLE4, BI_RLE8, BI_BITFIELDS.
+			 * @return L'image décodée PAR VALEUR, ou une image INVALIDE en cas d'échec.
 			 */
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 
 			/**
 			 * @Brief Encode une NkImage en BMP vers un buffer mémoire.

@@ -103,8 +103,10 @@ namespace nkentseu {
 				float mHdrExposure = 1.0f;
 				float mHdrGamma = 2.2f;
 				// Cache des pixels float decodes pour re-tonemap a la volee quand
-				// l'exposure change, sans relire le fichier. Owned via NkImage.
-				NkImage *mHdrSource = nullptr;
+				// l'exposure change, sans relire le fichier. Possedee PAR VALEUR :
+				// se libere avec le ViewerApp, et `Unload()` la vide entre deux
+				// images. Vide == invalide, teste par IsValid().
+				NkImage mHdrSource;
 
 				void RebuildHdrTexture();
 

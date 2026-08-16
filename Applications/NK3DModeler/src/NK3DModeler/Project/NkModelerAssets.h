@@ -1254,14 +1254,14 @@ namespace nkentseu {
 			if (im.Load(abs.CStr()) && im.Width() > 320u) {
 				const int32 w = 320;
 				const int32 h = (int32)((im.Height() * 320u) / im.Width());
-				NkImage *petit =
-					(h >= 8) ? im.Resize(w, h, NkResizeFilter::NK_BICUBIC) : nullptr;
-				if (petit) {
-					const bool ok = petit->Save(abs.CStr());
+				NkImage petit;
+				if (h >= 8)
+					petit = im.Resize(w, h, NkResizeFilter::NK_BICUBIC);
+				if (petit.IsValid()) {
+					const bool ok = petit.Save(abs.CStr());
 					printf("[NK3DModeler] Miniature %s : %ux%u -> %ux%u (%s)\n",
-						   rel.CStr(), im.Width(), im.Height(), petit->Width(),
-						   petit->Height(), ok ? "ecrite" : "REECRITURE RATEE");
-					petit->Free();
+						   rel.CStr(), im.Width(), im.Height(), petit.Width(),
+						   petit.Height(), ok ? "ecrite" : "REECRITURE RATEE");
 				}
 			}
 			st.docThumb[d] = 0; // le televerseur (main.cpp) la rechargera

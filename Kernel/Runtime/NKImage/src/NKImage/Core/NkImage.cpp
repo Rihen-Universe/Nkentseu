@@ -9,7 +9,7 @@
  *
  * @note    RÈGLE MÉMOIRE CRITIQUE
  *          Tout buffer alloué via les fabriques statiques (Alloc, Create, Copy, etc.)
- *          DOIT être libéré avec img->Free().
+ *          se detruit tout seul (type valeur : plus de Free()).
  *          Les buffers encodés (EncodePNG, EncodeJPEG, …) DOIVENT être libérés avec
  *          nkentseu::memory::NkFree(ptr).
  *          Ne JAMAIS utiliser std::free / delete[] : l'allocateur NKMemory n'est pas
@@ -55,6 +55,7 @@
 #include "NKImage/Codecs/SVG/NkSVGCodec.h"
 
 // Allocateur NKMemory (NkAlloc / NkFree / NkRealloc)
+#include "NKCore/NkTraits.h" // traits::NkMove
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"
 
@@ -1320,42 +1321,34 @@ namespace nkentseu {
 	 *
 	 * @return Nouvelle image owning, ou nullptr si w/h/fmt invalides ou OOM.
 	 */
-	NkImage *NkImage::Alloc(int32 w, int32 h, NkImagePixelFormat fmt) noexcept {
+	NkImage NkImage::Alloc(int32 w, int32 h, NkImagePixelFormat fmt) noexcept {
+		NkImage img; // invalide tant qu'on ne lui a pas donne de pixels
 		if (w <= 0 || h <= 0)
-			return nullptr;
+			return img;
 		const int32 bpp = BytesPerPixelOf(fmt);
 		if (!bpp)
-			return nullptr;
+			return img;
 
-		// Alloue la structure NkImage
-		NkImage *img = static_cast<NkImage *>(nkMalloc(sizeof(NkImage)));
-		if (!img)
-			return nullptr;
-		new (img) NkImage(); // placement new : initialise les membres par défaut
+		// Stride aligne sur 4 octets
+		const int32 stride = (w * bpp + 3) & ~3;
+		uint8 *pixels = static_cast<uint8 *>(nkCalloc(usize(stride) * h, 1));
+		if (!pixels)
+			return img; // OOM : image invalide, rien a defaire
 
-		// Stride aligné sur 4 octets
-		img->mStride = (w * bpp + 3) & ~3;
-
-		// Alloue et zéro-init les pixels
-		img->mPixels = static_cast<uint8 *>(nkCalloc(usize(img->mStride) * h, 1));
-		if (!img->mPixels) {
-			nkFree(img);
-			return nullptr;
-		}
-
-		img->mWidth = w;
-		img->mHeight = h;
-		img->mFormat = fmt;
-		img->mOwning = true;
-		return img;
+		img.mPixels = pixels;
+		img.mStride = stride;
+		img.mWidth = w;
+		img.mHeight = h;
+		img.mFormat = fmt;
+		img.mOwning = true;
+		return img; // NRVO : ni copie ni move
 	}
 
 	/**
 	 * Crée une vue non-owning sur un buffer pixel externe.
 	 *
-	 * L'image résultante n'est PAS owning : ni le destructeur ni Free()
-	 * ne libéreront les pixels. L'appelant reste responsable de la durée
-	 * de vie du buffer `pixels`.
+	 * L'image résultante n'est PAS owning : le destructeur ne libérera pas
+	 * les pixels. L'appelant reste responsable de la durée de vie du buffer.
 	 *
 	 * Utile pour wrapper un buffer GPU, un fichier mappé en mémoire, etc.
 	 *
@@ -1364,18 +1357,14 @@ namespace nkentseu {
 	 * @param fmt     Format pixel des données.
 	 * @param stride  Stride en octets (0 = calculé automatiquement : w * bpp).
 	 */
-	NkImage *NkImage::Wrap(uint8 *pixels, int32 w, int32 h, NkImagePixelFormat fmt, int32 stride) noexcept {
-		NkImage *img = static_cast<NkImage *>(nkMalloc(sizeof(NkImage)));
-		if (!img)
-			return nullptr;
-		new (img) NkImage();
-
-		img->mPixels = pixels;
-		img->mWidth = w;
-		img->mHeight = h;
-		img->mFormat = fmt;
-		img->mStride = (stride > 0) ? stride : w * BytesPerPixelOf(fmt);
-		img->mOwning = false; // ne possède pas les pixels
+	NkImage NkImage::Wrap(uint8 *pixels, int32 w, int32 h, NkImagePixelFormat fmt, int32 stride) noexcept {
+		NkImage img;
+		img.mPixels = pixels;
+		img.mWidth = w;
+		img.mHeight = h;
+		img.mFormat = fmt;
+		img.mStride = (stride > 0) ? stride : w * BytesPerPixelOf(fmt);
+		img.mOwning = false; // vue : ne possede pas les pixels
 		return img;
 	}
 
@@ -1385,7 +1374,7 @@ namespace nkentseu {
 	 *
 	 * @see NkImage::ConvertToTexture dans NkImage.h pour la documentation complète.
 	 */
-	NkImage *NkImage::ConvertToTexture(const NkImage &hdrImage, float exposure, float gamma) noexcept {
+	NkImage NkImage::ConvertToTexture(const NkImage &hdrImage, float exposure, float gamma) noexcept {
 		return NkHDRCodec::ConvertToTexture(hdrImage, exposure, gamma);
 	}
 
@@ -1399,8 +1388,7 @@ namespace nkentseu {
 	 * Le struct est sur la stack (ou dans un autre objet) dans le cas de l'API
 	 * instance ; il sera détruit normalement par le compilateur.
 	 *
-	 * Pour les images allouées via les fabriques statiques (heap), il faut
-	 * appeler Free() qui libère AUSSI le struct via nkFree(this).
+	 * Il n'y a plus d'instance du tas : toute NkImage est une valeur.
 	 */
 	NkImage::~NkImage() noexcept {
 		if (mOwning && mPixels)
@@ -1452,24 +1440,6 @@ namespace nkentseu {
 		other.mHeight = 0;
 		other.mOwning = false;
 		return *this;
-	}
-
-	/**
-	 * Libère les pixels (si owning) ET le struct NkImage lui-même.
-	 *
-	 * USAGE : uniquement sur les images créées via les fabriques statiques
-	 * (Alloc, Create, Copy, CopyAs, Convert, Resize, Crop, Wrap, …).
-	 * Ne JAMAIS appeler Free() sur une image allouée sur la stack.
-	 *
-	 * L'implémentation remet mPixels à nullptr avant de libérer le struct
-	 * pour éviter tout accès invalide si le compilateur génère du code après
-	 * le nkFree(this) (peu probable mais sécurisé).
-	 */
-	void NkImage::Free() noexcept {
-		if (mOwning && mPixels)
-			nkFree(mPixels);
-		mPixels = nullptr;
-		nkFree(this); // libère le struct NkImage lui-même
 	}
 
 	// -------------------------------------------------------------------------
@@ -1663,10 +1633,10 @@ namespace nkentseu {
 	 * @param fmt     Format identifié par DetectFormat().
 	 * @return Nouvelle image décodée (owning), ou nullptr en cas d'échec.
 	 */
-	NkImage *NkImage::Dispatch(const uint8 *data, usize size, int32 desired, NkImageFormat fmt) noexcept {
-		NkImage *img = nullptr;
+	NkImage NkImage::Dispatch(const uint8 *data, usize size, int32 desired, NkImageFormat fmt) noexcept {
+		NkImage img;
 
-		// Sélectionne le codec selon le format de fichier
+		// Selectionne le codec selon le format de fichier
 		switch (fmt) {
 			case NkImageFormat::NK_PNG:
 				img = NkPNGCodec::Decode(data, size);
@@ -1686,7 +1656,7 @@ namespace nkentseu {
 			case NkImageFormat::NK_EXR:
 				img = NkEXRCodec::Decode(data, size);
 				break;
-			// PPM/PGM/PBM : même codec (NetPBM)
+			// PPM/PGM/PBM : meme codec (NetPBM)
 			case NkImageFormat::NK_PPM:
 			case NkImageFormat::NK_PGM:
 			case NkImageFormat::NK_PBM:
@@ -1705,21 +1675,20 @@ namespace nkentseu {
 				img = NkSVGCodec::Decode(data, size);
 				break;
 			default:
-				return nullptr;
+				return img; // format inconnu : image invalide
 		}
 
-		if (!img)
-			return nullptr;
+		if (!img.IsValid())
+			return img;
 
-		// Conversion de canaux si demandée et différente du décodage natif
-		if (desired > 0 && desired != img->Channels()) {
+		// Conversion de canaux si demandee et differente du decodage natif
+		if (desired > 0 && desired != img.Channels()) {
 			NkImagePixelFormat tgt = desired == 1	? NkImagePixelFormat::NK_GRAY8
 									 : desired == 2 ? NkImagePixelFormat::NK_GRAY_A16
 									 : desired == 3 ? NkImagePixelFormat::NK_RGB24
 													: NkImagePixelFormat::NK_RGBA32;
-			NkImage *converted = img->Convert(tgt);
-			img->Free(); // libère l'image intermédiaire
-			return converted;
+			// L'intermediaire se detruit tout seul en sortant de la portee
+			return img.Convert(tgt);
 		}
 		return img;
 	}
@@ -1739,29 +1708,12 @@ namespace nkentseu {
 	 * puis "vole" le buffer alloué (transfère l'ownership).
 	 */
 	bool NkImage::Create(uint32 width, uint32 height, math::NkColor color, int32 desiredChannels) noexcept {
-		// Libère l'ancien buffer si on est owning
-		if (mOwning && mPixels) {
-			nkFree(mPixels);
-			mPixels = nullptr;
-		}
+		NkImage tmp = NkImage::Create(width, height, desiredChannels, color.ToUint32());
+		if (!tmp.IsValid())
+			return false; // *this est laissee INTACTE : rien n'a ete libere
 
-		// Crée l'image via la fabrique statique
-		NkImage *tmp = NkImage::Create(width, height, desiredChannels, color.ToUint32());
-		if (!tmp)
-			return false;
-
-		// Vole le buffer de tmp (tmp n'est plus owning)
-		mPixels = tmp->mPixels;
-		mWidth = tmp->mWidth;
-		mHeight = tmp->mHeight;
-		mStride = tmp->mStride;
-		mFormat = tmp->mFormat;
-		mSrcFmt = tmp->mSrcFmt;
-		mOwning = true;
-
-		// Empêche tmp de libérer les pixels qu'on vient de voler
-		tmp->mOwning = false;
-		tmp->Free(); // libère uniquement le struct
+		// move-assign : libere l'ancien buffer de *this et vole celui de tmp
+		*this = traits::NkMove(tmp);
 		return true;
 	}
 
@@ -1822,30 +1774,18 @@ namespace nkentseu {
 	 * dans *this en volant le buffer de l'image temporaire.
 	 */
 	bool NkImage::LoadFromMemoryImpl(const uint8 *data, usize size, int32 desiredChannels) noexcept {
-		// Détection et décodage via la voie statique
+		// Detection et decodage via la voie fabrique
 		NkImageFormat fmt = DetectFormat(data, size);
 		if (fmt == NkImageFormat::NK_UNKNOWN)
 			return false;
 
-		NkImage *tmp = Dispatch(data, size, desiredChannels, fmt);
-		if (!tmp)
-			return false;
+		NkImage tmp = Dispatch(data, size, desiredChannels, fmt);
+		if (!tmp.IsValid())
+			return false; // *this est laissee INTACTE
 
-		// Libère l'ancien buffer de *this avant le transfert
-		if (mOwning && mPixels)
-			nkFree(mPixels);
-
-		// Vole le buffer de tmp
-		mPixels = tmp->mPixels;
-		mWidth = tmp->mWidth;
-		mHeight = tmp->mHeight;
-		mStride = tmp->mStride;
-		mFormat = tmp->mFormat;
-		mSrcFmt = fmt; // fmt détecté localement, pas celui de tmp
-		mOwning = true;
-
-		tmp->mOwning = false;
-		tmp->Free();
+		// move-assign : libere l'ancien buffer de *this et vole celui de tmp
+		*this = traits::NkMove(tmp);
+		mSrcFmt = fmt; // fmt detecte localement, pas celui de tmp
 		return true;
 	}
 
@@ -1861,15 +1801,16 @@ namespace nkentseu {
 	 * @param fmt            Format pixel cible.
 	 * @param color          RGBA packed big-endian 0xRRGGBBAA (0 = transparent black).
 	 */
-	NkImage *NkImage::Create(uint32 width, uint32 height, NkImagePixelFormat fmt, uint32 color) noexcept {
+	NkImage NkImage::Create(uint32 width, uint32 height, NkImagePixelFormat fmt, uint32 color) noexcept {
+		NkImage img;
 		if (width == 0 || height == 0)
-			return nullptr;
+			return img;
 		if (fmt == NkImagePixelFormat::NK_UNKNOWN)
-			return nullptr;
+			return img;
 
-		NkImage *img = Alloc(int32(width), int32(height), fmt);
-		if (!img)
-			return nullptr;
+		img = Alloc(int32(width), int32(height), fmt);
+		if (!img.IsValid())
+			return img;
 
 		// color == 0 (transparent black) → Alloc a déjà zerofill, pas de travail
 		if (color == 0)
@@ -1881,12 +1822,12 @@ namespace nkentseu {
 		const uint8 cb = uint8((color >> 8) & 0xFF);  // B
 		const uint8 ca = uint8(color & 0xFF);		  // A
 
-		const int32 bpp = img->BytesPP();
+		const int32 bpp = img.BytesPP();
 
 		// Remplit chaque pixel selon le format
-		for (int32 y = 0; y < img->mHeight; ++y) {
-			uint8 *row = img->RowPtr(y);
-			for (int32 x = 0; x < img->mWidth; ++x) {
+		for (int32 y = 0; y < img.mHeight; ++y) {
+			uint8 *row = img.RowPtr(y);
+			for (int32 x = 0; x < img.mWidth; ++x) {
 				uint8 *p = row + x * bpp;
 				switch (fmt) {
 					case NkImagePixelFormat::NK_GRAY8:
@@ -1942,7 +1883,7 @@ namespace nkentseu {
 	 * Mappe le nombre de canaux vers un NkImagePixelFormat puis délègue
 	 * vers Create(width, height, fmt, color).
 	 */
-	NkImage *NkImage::Create(uint32 width, uint32 height, int32 desiredChannels, uint32 color) noexcept {
+	NkImage NkImage::Create(uint32 width, uint32 height, int32 desiredChannels, uint32 color) noexcept {
 		NkImagePixelFormat fmt;
 		switch (desiredChannels) {
 			case 1:
@@ -1954,12 +1895,12 @@ namespace nkentseu {
 			case 3:
 				fmt = NkImagePixelFormat::NK_RGB24;
 				break;
-			case 0: // 0 → RGBA32 par défaut (comportement le plus sûr)
+			case 0: // 0 -> RGBA32 par defaut (comportement le plus sur)
 			case 4:
 				fmt = NkImagePixelFormat::NK_RGBA32;
 				break;
 			default:
-				return nullptr; // valeur invalide → échec explicite
+				return NkImage(); // valeur invalide -> echec explicite
 		}
 		return Create(width, height, fmt, color);
 	}
@@ -2278,46 +2219,40 @@ namespace nkentseu {
 	 *
 	 * @return Nouvelle image owning au format `nf`, ou nullptr si échec.
 	 */
-	NkImage *NkImage::Convert(NkImagePixelFormat nf) const noexcept {
+	NkImage NkImage::Convert(NkImagePixelFormat nf) const noexcept {
+		NkImage out;
 		if (!IsValid())
-			return nullptr;
+			return out;
 
-		// Même format : clone direct sans passer par ConvertChannels
+		// Meme format : clone direct sans passer par ConvertChannels
 		if (nf == mFormat) {
-			NkImage *clone = Alloc(mWidth, mHeight, mFormat);
-			if (clone) {
-				// Copie la totalité du buffer (stride * height)
-				nkMemcpy(clone->mPixels, mPixels, TotalBytes());
-				clone->mSrcFmt = mSrcFmt;
+			out = Alloc(mWidth, mHeight, mFormat);
+			if (out.IsValid()) {
+				nkMemcpy(out.mPixels, mPixels, TotalBytes());
+				out.mSrcFmt = mSrcFmt;
 			}
-			return clone;
+			return out;
 		}
 
 		// Nombre de canaux destination
 		const int32 dstCh = ChannelsOf(nf);
 		if (!dstCh)
-			return nullptr;
+			return out;
 
 		// Conversion bas niveau des pixels
 		uint8 *pix = ConvertChannels(mPixels, mWidth, mHeight, Channels(), dstCh, mStride);
 		if (!pix)
-			return nullptr;
+			return out;
 
 		// Construit la nouvelle image autour du buffer converti
-		NkImage *img = static_cast<NkImage *>(nkMalloc(sizeof(NkImage)));
-		if (!img) {
-			nkFree(pix);
-			return nullptr;
-		}
-		new (img) NkImage();
-		img->mPixels = pix;
-		img->mWidth = mWidth;
-		img->mHeight = mHeight;
-		img->mFormat = nf;
-		img->mStride = (mWidth * BytesPerPixelOf(nf) + 3) & ~3;
-		img->mOwning = true;
-		img->mSrcFmt = mSrcFmt;
-		return img;
+		out.mPixels = pix;
+		out.mWidth = mWidth;
+		out.mHeight = mHeight;
+		out.mFormat = nf;
+		out.mStride = (mWidth * BytesPerPixelOf(nf) + 3) & ~3;
+		out.mOwning = true;
+		out.mSrcFmt = mSrcFmt;
+		return out;
 	}
 
 	// =========================================================================
@@ -2331,22 +2266,21 @@ namespace nkentseu {
 	 *
 	 * @return Nouvelle image owning, ou nullptr si *this invalide ou OOM.
 	 */
-	NkImage *NkImage::Copy() const noexcept {
+	NkImage NkImage::Copy() const noexcept {
+		NkImage dst;
 		if (!IsValid())
-			return nullptr;
+			return dst;
 
-		NkImage *dst = Alloc(mWidth, mHeight, mFormat);
-		if (!dst)
-			return nullptr;
+		dst = Alloc(mWidth, mHeight, mFormat);
+		if (!dst.IsValid())
+			return dst;
 
-		// Copie ligne par ligne : Alloc peut calculer un stride différent si
-		// l'alignement change, mais pour les mêmes dimensions/format le stride
-		// est identique. On copie mWidth*bpp octets utiles (pas le padding).
+		// Copie ligne par ligne : on copie mWidth*bpp octets utiles (pas le padding).
 		const int32 rowBytes = mWidth * BytesPP();
 		for (int32 y = 0; y < mHeight; ++y) {
-			nkMemcpy(dst->RowPtr(y), RowPtr(y), rowBytes);
+			nkMemcpy(dst.RowPtr(y), RowPtr(y), rowBytes);
 		}
-		dst->mSrcFmt = mSrcFmt;
+		dst.mSrcFmt = mSrcFmt;
 		return dst;
 	}
 
@@ -2379,20 +2313,21 @@ namespace nkentseu {
 	 *
 	 * @return Nouvelle image owning au format `fmt`, ou nullptr si invalide/inconnu.
 	 */
-	NkImage *NkImage::CopyAs(NkImagePixelFormat fmt) const noexcept {
+	NkImage NkImage::CopyAs(NkImagePixelFormat fmt) const noexcept {
+		NkImage dst;
 		if (!IsValid())
-			return nullptr;
+			return dst;
 		if (fmt == NkImagePixelFormat::NK_UNKNOWN)
-			return nullptr;
+			return dst;
 
-		// Même format → clone direct, plus rapide que passer par Convert()
+		// Meme format -> clone direct, plus rapide que passer par Convert()
 		if (fmt == mFormat)
 			return Copy();
 
-		// Format différent → Convert() gère toutes les conversions
-		NkImage *dst = Convert(fmt);
-		if (dst)
-			dst->mSrcFmt = mSrcFmt;
+		// Format different -> Convert() gere toutes les conversions
+		dst = Convert(fmt);
+		if (dst.IsValid())
+			dst.mSrcFmt = mSrcFmt;
 		return dst;
 	}
 
@@ -2989,24 +2924,25 @@ namespace nkentseu {
 	 *
 	 * @return Nouvelle image owning, ou nullptr si la région est invalide.
 	 */
-	NkImage *NkImage::Crop(int32 x, int32 y, int32 w, int32 h) const noexcept {
+	NkImage NkImage::Crop(int32 x, int32 y, int32 w, int32 h) const noexcept {
+		NkImage dst;
 		if (!IsValid())
-			return nullptr;
+			return dst;
 		if (x < 0 || y < 0 || w <= 0 || h <= 0)
-			return nullptr;
+			return dst;
 		if (x + w > mWidth || y + h > mHeight)
-			return nullptr;
+			return dst;
 
-		NkImage *dst = Alloc(w, h, mFormat);
-		if (!dst)
-			return nullptr;
+		dst = Alloc(w, h, mFormat);
+		if (!dst.IsValid())
+			return dst;
 
 		const int32 bpp = BytesPP();
 		const int32 rowBytes = w * bpp;
 		for (int32 row = 0; row < h; ++row) {
-			nkMemcpy(dst->RowPtr(row), RowPtr(y + row) + x * bpp, rowBytes);
+			nkMemcpy(dst.RowPtr(row), RowPtr(y + row) + x * bpp, rowBytes);
 		}
-		dst->mSrcFmt = mSrcFmt;
+		dst.mSrcFmt = mSrcFmt;
 		return dst;
 	}
 
@@ -3026,24 +2962,25 @@ namespace nkentseu {
 	 * Les coordonnées sources fractionnaires sont centrées sur les pixels
 	 * (+0.5/-0.5) pour éviter le décalage d'un demi-pixel aux bords.
 	 */
-	NkImage *NkImage::Resize(int32 nw, int32 nh, NkResizeFilter f) const noexcept {
+	NkImage NkImage::Resize(int32 nw, int32 nh, NkResizeFilter f) const noexcept {
+		NkImage dst;
 		if (!IsValid() || nw <= 0 || nh <= 0)
-			return nullptr;
+			return dst;
 
-		// BlitRegion gère tous les cas : même format, même taille → copie,
-		// tailles différentes → scaling. On crée la destination et on délègue.
-		NkImage *dst = Alloc(nw, nh, mFormat);
-		if (!dst)
-			return nullptr;
+		// BlitRegion gere tous les cas : meme format, meme taille -> copie,
+		// tailles differentes -> scaling. On cree la destination et on delegue.
+		dst = Alloc(nw, nh, mFormat);
+		if (!dst.IsValid())
+			return dst;
 
 		math::NkIntRect srcFull{0, 0, mWidth, mHeight};
 		math::NkIntRect dstFull{0, 0, nw, nh};
 
-		if (!dst->BlitRegion(*this, srcFull, dstFull, f)) {
-			dst->Free();
-			return nullptr;
+		if (!dst.BlitRegion(*this, srcFull, dstFull, f)) {
+			dst.Unload(); // rend l'image invalide sans toucher au struct
+			return dst;
 		}
-		dst->mSrcFmt = mSrcFmt;
+		dst.mSrcFmt = mSrcFmt;
 		return dst;
 	}
 

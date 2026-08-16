@@ -10,10 +10,10 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKCore/NkTypes.h"
 
-// Forward declaration : NkImage est dans le namespace nkentseu (pas pong).
-namespace nkentseu {
-	class NkImage;
-}
+// NkImage est desormais rendue PAR VALEUR par DecodeFromFile : une declaration
+// anticipee ne suffit plus (le type doit etre complet pour un retour par
+// valeur), l'en-tete est donc inclus. C'etait le seul cout de la migration ici.
+#include "NKImage/Core/NkImage.h"
 
 namespace nkentseu {
 	namespace demo {
@@ -32,14 +32,15 @@ namespace nkentseu {
 
 				/// Decode UNIQUEMENT (lit le fichier + decode RGBA8 via NkImage).
 				/// SAFE depuis un thread worker (n'appelle aucune fonction GL).
-				/// Retourne le NkImage* alloue (a passer a UploadFromImage), ou
-				/// nullptr en cas d'echec. Le caller est responsable de Free().
-				static NkImage *DecodeFromFile(const char *path);
+				/// Rend l'image PAR VALEUR ; l'echec se teste par `IsValid()`.
+				/// L'appelant n'a RIEN a liberer : la destruction de la valeur
+				/// suffit, et un passage vers un autre thread se fait par move.
+				static NkImage DecodeFromFile(const char *path);
 
 				/// Upload une image deja decodee en texture GL_RGBA8 + mipmaps.
-				/// DOIT etre appele depuis le thread GL (main thread). Libere
-				/// l'image apres upload (Free()).
-				bool UploadFromImage(NkImage *img);
+				/// DOIT etre appele depuis le thread GL (main thread).
+				/// Ne libere RIEN : l'image reste la propriete de l'appelant.
+				bool UploadFromImage(const NkImage &img);
 
 				/// Libere la texture GL et l'image source.
 				void Shutdown();
