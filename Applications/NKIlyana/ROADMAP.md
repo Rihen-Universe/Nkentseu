@@ -16,11 +16,20 @@
 
 ---
 
-## 🛑 DÉFAUT OUVERT — `--accum` N'ACCUMULE RIEN (mesuré le 2026-08-16)
+## ✅ RÉSOLU — `--accum` N'ACCUMULAIT RIEN (mesuré ET corrigé le 2026-08-16)
 
-> **Statut : MESURÉ, NON CORRIGÉ. Le correctif touche la sémantique de l'autograd
-> et le sens de toutes les courses de dimensionnement déjà faites — décision de
-> Rodolf, pas d'un agent.**
+> **Statut : CORRIGÉ.** Rodolf a tranché pour l'option A ; l'audit des appelants,
+> le correctif et le durcissement du test tiennent dans un seul commit. Les quatre
+> suites sont vertes en Debug et en Release, `NKAutogradTest` à **65 OK / 0** par
+> la réparation. Détail : § *AUDIT DES APPELANTS DE `Backward()` PUIS CORRECTIF*
+> ci-dessous.
+>
+> ⚠️ **Ce qui reste vrai malgré le correctif : les courses de dimensionnement
+> déjà faites restent périmées.** Elles ont tourné dans le régime fautif ; le
+> correctif ne les rétroactive pas. Voir § *Courses de dimensionnement PÉRIMÉES*.
+>
+> *Ce qui suit décrit le défaut tel qu'il a été mesuré, et reste la meilleure
+> description de ce qui n'allait pas.*
 
 ### Ce qui a été mesuré
 
@@ -111,19 +120,31 @@ devait pas avoir lieu. `NkGpuZeros` sert dans les deux sémantiques.
 
 ---
 
-## 🛑 AUDIT DES APPELANTS DE `Backward()` — LE CORRECTIF EST BLOQUÉ (2026-08-16)
+## ✅ AUDIT DES APPELANTS DE `Backward()` PUIS CORRECTIF — APPLIQUÉ (2026-08-16)
 
-> **Rodolf a tranché pour l'option A** (les feuilles à gradient requis ne sont plus
-> remises à zéro par `Backward()` ; c'est `ZeroGrad()` qui vide). L'audit demandé
-> **avant** le correctif a trouvé des appelants qui dépendent du zérotage
-> implicite. **Le correctif n'est donc PAS appliqué : l'arbre est resté propre.**
+> **Rodolf a tranché pour l'option A** : les feuilles à gradient requis ne sont
+> plus remises à zéro par `Backward()`, c'est l'appelant qui vide avec
+> `ZeroGrad()` — ce que l'API annonçait déjà sans que ce soit vrai. L'audit a été
+> fait **avant** le correctif, ses dépendants ont été traités **avant** que le
+> correctif ne soit posé, et le tout tient dans **un seul commit**.
+>
+> **Les quatre suites sont vertes, en Debug ET en Release (chiffres identiques) :**
+>
+> ```
+>                    AVANT        APRÈS
+> NKAutogradTest     64 OK / 1    65 OK / 0   <- par la RÉPARATION, pas le retrait
+> NKNNTest            7 OK / 0     7 OK / 0
+> NKConvTest          2 OK / 0     2 OK / 0
+> NKTrainTest        14 OK / 0    14 OK / 0
+> ```
 
 ### Ce que l'audit a mesuré, pas seulement lu
 
-Option A a été appliquée **localement, non commitée**, les suites jouées des deux
-côtés, puis l'édition **revertie** (`git checkout --`, arbre vérifié propre).
-Deux prédécesseurs s'étant fait prendre à conclure sur une lecture de code, la
-dépendance est ici **mesurée** :
+Deux prédécesseurs s'étant fait prendre à conclure sur un `grep`, l'audit n'a pas
+été rendu sur une lecture de code. Option A a d'abord été appliquée
+**localement, non commitée**, les suites jouées des deux côtés, puis l'édition
+**revertie** — ce qui a donné le tableau ci-dessous **avant** toute décision de
+correction. C'est ce tableau qui a identifié les dépendants :
 
 | suite | AVANT (`337db9d2`) | APRÈS (option A, locale, revertie) |
 |---|---|---|
@@ -192,25 +213,86 @@ donc rien à accumuler) : les 23 cas de `NKAutogradTest`, `NKConvResidentBench:7
 `NKMlpResidentBench:84`, `NKRnnCtcTest:32`, `NKTransformerTest:38`,
 `NKFp16Test:334,345`.
 
-### 🔎 Un second effet de l'option A, trouvé pendant l'audit
+### 🔎 LE MÊME PIÈGE À HUIT LIGNES DE LÀ OÙ IL AVAIT ÉTÉ RÉPARÉ — corrigé
+
+Ce n'est **pas une rechute du chantier n°1** : c'est le même piège, chez un autre
+appelant, à huit lignes du premier.
 
 Sous l'option A, `ZeroGrad()` devient le **seul** moyen d'effacer — donc un chemin
-aujourd'hui **mort** devient porteur. Or `NkVar::ZeroGrad()` (`NkVar.cpp:1310-1317`)
-pose `grad = NkTensor::Zeros(shape)`, **sur CPU**, sans passer par `ZerosCommeSur`.
+jusque-là **mort** devient porteur. Or `NkVar::ZeroGrad()` posait
+`grad = NkTensor::Zeros(shape)` **sur CPU**, sans passer par `ZerosCommeSur`.
 
-Aujourd'hui ça n'a aucune conséquence : `Backward()` réécrit ce gradient
-immédiatement après. Sous l'option A il survit, et devient la base de
-l'accumulation — donc `AccumGrad` fera `ops::Add(zérosCPU, contribGPU)`, qui
-tombe sur `NkGpuAdd` (`NkTensorGpu.cpp:1509-1510`) et **monte l'opérande CPU**.
+Tant que `Backward()` réécrivait ce gradient juste après, ça ne coûtait rien.
+Sous l'option A il **survit** et devient la base de l'accumulation : `AccumGrad`
+aurait fait `ops::Add(zérosCPU, contribGPU)`, qui tombe sur `NkGpuAdd`
+(`NkTensorGpu.cpp:1509-1510`) et **monte l'opérande CPU** — soit ~20 M paramètres
+× 4 octets ≈ **79 Mo remontés par pas**, contre 4,27 Mo/pas après le chantier n°1.
 
-**C'est la réapparition du défaut réparé par le chantier n°1**, à plus petite
-échelle : ~20 M paramètres × 4 octets ≈ **79 Mo montés par pas**, contre les
-4,27 Mo/pas actuels. À corriger **dans le même commit** que l'option A.
+**Corrigé dans le même commit** : `ZeroGrad()` écrit désormais ses zéros **là où
+vit le paramètre** (`ZerosCommeSur`), donc côté GPU quand le paramètre y réside.
 
-Le remède le moins cher n'est pas `ZerosCommeSur` mais l'**invalidation** :
-`AccumGrad` (`NkVar.cpp:283`) affecte déjà directement quand le gradient est
-invalide. Un `ZeroGrad()` qui pose `NkTensor{}` coûte zéro allocation et zéro
-transfert. À trancher avec le correctif, pas avant.
+⚠️ **Le contrat de `Grad()` n'a PAS bougé** : après `ZeroGrad()`, `Grad()` rend
+toujours des **zéros valides**. L'invalidation (poser `NkTensor{}`, que
+`AccumGrad` sait déjà absorber) aurait été moins chère encore, mais elle aurait
+rendu `Grad()` indéfini juste après un `ZeroGrad()` — *on aurait remplacé un
+échec silencieux par un autre, dans le commit même qui répare le premier.*
+Écarté pour cette raison, pas par oubli.
+
+**La leçon, parce qu'elle est plus générale que le cas** : un chemin que personne
+n'exerce n'est pas un chemin qui marche. Celui-ci était mort depuis assez
+longtemps pour que le chantier n°1 corrige son voisin immédiat sans le voir.
+
+### 🔧 CE QUI A ÉTÉ CHANGÉ, ET CE QUI RESTE OUVERT
+
+**Les deux familles d'appelants, comptées avant de corriger quoi que ce soit :**
+
+| famille | portée | traitement |
+|---|---|---|
+| **A — passent par `TrainEpoch`/`Fit`** | **6 applications, 14 sites** | réparées **sans y toucher**, par les deux lignes du noyau |
+| **B — appellent `Backward()` directement** | **13 applications, 20 sites** | une ligne chacune |
+
+Trois applications de la famille A n'étaient pas dans le premier relevé
+(`NKMnistCnnGpuTrain`, `NKMnistGpuTrain`, `NKRebasinTest`) : elles n'appellent
+jamais `Backward()` directement, donc un `grep` sur `Backward` ne les voyait pas.
+C'est le rendement de la réponse « réparer l'aide partagée » — elle attrape aussi
+ce que l'audit avait manqué.
+
+⚠️ **Et la réponse à « voulait-elle accumuler ? » est uniforme : AUCUNE.** Les 20
+sites font tous un `Backward(); Step();` par itération. **Le seul accumulateur du
+dépôt est `NkGptTrainer::Fit`** (plus `TrainEpochAccum`, qui était déjà correct).
+
+**Fichiers touchés :**
+
+| fichier | changement |
+|---|---|
+| `NKAutograd/NkVar.cpp` | option A dans `Backward()` ; `ZeroGrad()` écrit ses zéros côté GPU |
+| `NKTrain/NkTrain.h` | `ZeroGrad()` en tête de boucle dans `TrainEpoch` **et** `Fit` ; bloc d'en-tête sur les trois placements |
+| `NKNNTest`, `NKConvTest`, `NKTrainTest` | les 8 sites de la famille B nécessaires aux quatre suites |
+
+**⏳ RESTE OUVERT — 10 applications de la famille B, 12 sites**, non corrigées
+parce qu'elles ne font partie d'aucune des quatre suites et que la décision
+revient à Rodolf : `NKConvVAETest` · `NKDiffusionTest` (3) · `NKGen3DTest` ·
+`NKGenMeshTest` · `NKGenTest` · `NKMnistConvVAETest` · `NKMnistVAETest` ·
+`NKObjectGenTest` · `NKVAETest` · `NKVoxelGenTest`.
+
+⚠️ **Elles sont toutes sur Adam, donc elles ne tomberont PAS** — elles
+entraîneront sur une somme cumulée en restant vertes. C'est exactement le motif
+décrit plus haut : leur silence n'est pas une preuve de santé. Le correctif est
+d'une ligne par site, identique aux huit déjà posées.
+
+### ⚠️ `NKConvTest` est AVEUGLE, et c'est écrit dans le fichier
+
+`NKConvTest` passe **des deux côtés** du correctif : ses boucles sont sur Adam,
+qui masque le défaut. Il ne peut donc pas échouer sur une régression de la
+sémantique du gradient — sa ligne verte ne vaut rien sur ce sujet.
+
+Plutôt que d'y dupliquer un témoin qui appartient à `NKAutograd`, l'avertissement
+est écrit **en tête de `Applications/NKConvTest/src/main.cpp`** : ce qu'il ne
+teste pas, pourquoi il est resté vert pendant que les paramètres s'entraînaient
+sur une somme cumulée, et où vit le témoin qui discrimine.
+
+*Une suite verte dont un membre ne peut pas échouer donne une fausse assurance
+proportionnelle à sa taille.*
 
 ### ✅ NE PAS TOUCHER AU `1/N` — il était DÉJÀ correct
 
