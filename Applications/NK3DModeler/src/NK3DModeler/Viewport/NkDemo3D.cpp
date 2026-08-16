@@ -16161,8 +16161,38 @@ namespace nkentseu {
 			if (n == 0)
 				return; // un model sans matiere n'a pas de centre a trouver
 			const int32 er = root - kNkvpFirstEmpty;
-			nkvpEmptyPos[er][0] = sx / (float32)n;
-			nkvpEmptyPos[er][2] = sz / (float32)n;
+
+			// MESURE (temporaire) : CETTE FONCTION CHANGE-T-ELLE QUELQUE CHOSE ?
+			//
+			// Rodolf, le 17/08 : « ces mesh ont des origines qui changent au moment
+			// ou on les met dans la scene -- probleme qui n'existait pas quand on a
+			// fait le glisser-deposer la premiere fois ». Or cet appel est pose sur
+			// le CHEMIN DE DEPOT depuis 4dd4ed21, et il ECRIT dans le noeud SOURCE
+			// (l'archive) avant qu'on la duplique -- il n'existait pas avant.
+			//
+			// MAIS je n'affirme PAS que c'est la cause : un asset archive apres le
+			// 16 aout a deja ete recentre a la naissance (Demo3DHostArchiveNode) et
+			// la fonction est idempotente -- sur celui-la elle ne doit RIEN changer.
+			// Deux causes possibles, un seul symptome : l'instrument doit les separer.
+			//
+			// LA TRACE DOIT DONC POUVOIR ME CONTREDIRE, et pour ca elle imprime
+			// l'etat D'AVANT, pas seulement celui d'apres :
+			//   ECART ~ 0    -> la fonction ne touche a rien : CE N'EST PAS ELLE,
+			//                   l'origine est deformee ailleurs sur l'insertion
+			//   ECART != 0   -> elle reecrit l'origine de l'archive a chaque depot,
+			//                   et c'est exactement ce que Rodolf decrit
+			//
+			// Noter que seuls X et Z sont recentres : Y n'est JAMAIS touche.
+			const float32 ax = nkvpEmptyPos[er][0];
+			const float32 az = nkvpEmptyPos[er][2];
+			const float32 nx = sx / (float32)n;
+			const float32 nz = sz / (float32)n;
+			logger.Info("[Demo3D] MESURE origine : model={0} avant=({1}, {2}) "
+						"apres=({3}, {4}) ECART=({5}, {6}) sur {7} maillages\n",
+						root, ax, az, nx, nz, nx - ax, nz - az, n);
+
+			nkvpEmptyPos[er][0] = nx;
+			nkvpEmptyPos[er][2] = nz;
 		}
 		int32 Demo3DHostArchiveNode(int32 node) {
 			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de

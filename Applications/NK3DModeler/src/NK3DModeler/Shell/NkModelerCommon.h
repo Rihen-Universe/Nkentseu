@@ -212,13 +212,21 @@ namespace nkentseu {
 		/// Le jeton porte son noeud SOURCE fige : c'est lui qu'on duplique.
 		inline int32 NkDropSpawnModel(NkModelerState &st) {
 			int32 nn = -1;
-			if (st.dropSrcNode > 0)
+			if (st.dropSrcNode > 0) {
 				// LES ASSETS ANCIENS SE REPARENT ICI. Ceux crees avant le 16 aout
 				// portent une origine loin de leur matiere ; la fonction etant
 				// idempotente, l'appeler avant chaque copie les remet d'aplomb sans
 				// jamais rien deranger a ceux qui le sont deja.
+				//
+				// ⚠️ ACCOLADES OBLIGATOIRES, et elles ont manque. Le 16 aout
+				// (4dd4ed21) le premier appel a ete ajoute a un `if` SANS accolades :
+				// l'indentation faisait croire que les deux lignes etaient gardees
+				// alors que seule la premiere l'etait, et le duplicata partait sur
+				// TOUS les lachers, y compris ceux sans source -- donc avec -1.
+				// Une garde qui a l'air de proteger et qui ne protege rien.
 				demo::Demo3DHostRecenterModel(st.dropSrcNode - 1);
 				nn = demo::Demo3DHostDuplicateNode(st.dropSrcNode - 1);
+			}
 			if (nn < 0) // asset sans source : cube par defaut, comme avant
 				nn = demo::Demo3DHostAddNode(2, 0);
 			return nn;
