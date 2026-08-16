@@ -166,6 +166,51 @@ du cas « EndFrame avec image encore acquise »).
 | **Poste distant — flux vidéo** *(voie de secours)* | ❌ M | NKMedia a déjà l'encodeur **H.264 from scratch** + le lecteur : encoder la vue moniteur, l'envoyer, la décoder. Utile pour un poste sans GPU ou une diffusion salle. |
 | **Plusieurs casques dans la MÊME scène** (formateur + stagiaire en VR) | ❌ L | Réplication d'état + une session XR par poste. L'API NKXR est déjà par-session, rien n'y fait obstacle. |
 
+## 🎓 ÉTAT VR / AR / MR — pour la décision d'enseignement (2026-08-17)
+
+> **Question posée** : que peut-on faire faire à des étudiants en AR/VR/MR à
+> partir de la semaine du 8 septembre ? Trois colonnes, et la troisième est la
+> seule qui compte pour un cours : **ce qui a tourné sur un appareil**.
+
+| | écrit | compile | **a tourné sur un appareil** |
+|---|---|---|---|
+| **VR** — session OpenXR, Vulkan, états runtime, `xrLocateViews` | 2 947 l. (backend) | ✅ | ✅ **Quest 2 réel** — session créée, **300 images**, 2080×2096 par œil (11/08) |
+| **VR** — manettes Touch, poses, saisie, haptique | inclus | ✅ | ✅ **validé manettes en main par Rihen** (12/08) |
+| **VR** — mains sans manettes (`XR_EXT_hand_tracking`) | ✅ écrit, 26 articulations | ✅ | ❌ **bloqué côté Meta** — le runtime Link n'expose pas l'extension (36 listées, vérifié) |
+| **AR** — détection de marqueurs (Otsu, contours, quad, homographie, pose) | 923 l. | ✅ | ✅ **Galaxy S22+** — marqueurs détectés, ~2,5 ms/image |
+| **AR** — monde ancré (`NkArWorld`, carte, pose caméra) | 506 l. | ✅ | ✅ **S22+** — objet posé qui tient en place |
+| **AR** — calibration caméra (Zhang) | 711 l. | ✅ | ✅ **S22+** — fx 918,9 / fy 923,5, **erreur de reprojection 1,83 px** sur 6 vues, appliquée à chaud (13/08) |
+| **AR** — suivi par l'image entre marqueurs (`NkArFlow`) | 748 l. | ✅ | 🔶 **partiellement** — tourne sur l'appareil, jamais mesuré séparément |
+| **AR** — centrale inertielle (`NkArImu`) | 252 l. | ✅ | ❌ **défaut connu** : partage le `Looper` de l'application et **fige la boucle**. Coupé par défaut depuis le 14/08 |
+| **MR / passthrough** | **0 ligne** | — | ❌ **inexistant** |
+
+### ⚠️ Le MR n'est pas « à faire », il est **empêché par une ligne**
+
+Recherche exhaustive sur `passthrough`, `mixed reality`, `environment blend` dans
+tout `NKXR` et `NKARDemo` : **une seule occurrence**, et c'est son contraire —
+`NkXrOpenXRBackend.cpp:1273` fixe `environmentBlendMode =
+XR_ENVIRONMENT_BLEND_MODE_OPAQUE`, **en dur**. Opaque signifie « le monde réel est
+masqué ».
+
+Le passthrough se joue précisément là : `XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND`
+ou `ADDITIVE`, selon ce que le runtime annonce dans
+`xrEnumerateEnvironmentBlendModes`. **Ce n'est pas un chantier de plusieurs
+semaines** — c'est une énumération, un choix, et un champ. Mais tant que la valeur
+est écrite en dur, aucun étudiant ne verra le monde réel.
+
+### Ce que ça permet de décider
+
+- **VR : utilisable en cours dès maintenant** — c'est le seul volet prouvé de bout
+  en bout sur casque, manettes comprises.
+- **AR : utilisable sur téléphone Android**, avec des marqueurs imprimés. La
+  chaîne complète a tourné : détection, ancrage, calibration. ⚠️ **Ne pas
+  promettre le suivi sans marqueur** — l'IMU est coupée, et le suivi par l'image
+  n'est pas mesuré.
+- **MR : ne rien promettre.** Zéro ligne, et un mode de fusion figé en opaque.
+
+*Écrit après mesure, pas d'après mémoire : lignes comptées, `grep` exhaustif sur
+le passthrough, et chiffres d'appareil relus dans le carnet de bord.*
+
 ## En cours / TODO immédiat
 - ⏳ Validation Rihen de l'étage 1 (frustum décentré) — preuves : FOV symétrique
   = 0,000 % d'écart avec la référence à travers TOUT le pipeline ; FOV
