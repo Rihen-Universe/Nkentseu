@@ -284,8 +284,32 @@ Elle ne remplace **pas** `SetEmptyTransform` : la relecture d'un projet repose
 chaque nœud, maillages compris, et y propager aurait appliqué le delta **deux
 fois**. Le geste « poser un model » est distinct du geste « poser un nœud ».
 
-⚠️ **Reste ouvert** : le gizmo de déplacement dans la vue 3D emprunte un autre
-chemin. Non mesuré — à vérifier avant d'affirmer quoi que ce soit.
+✅ **Le gizmo est sain** — vérifié à l'œil par Rihen le 16/08 : « ça suit ». Le
+point que j'avais laissé ouvert n'était pas un défaut.
+
+### 🔴 Mais la position restait fausse — la cause était à la NAISSANCE du double
+
+Rihen, après le test : *« ça n'apparaît pas à la bonne position »*, et il donne
+lui-même la piste juste : *« son origine est modifiée entre son fichier et le
+moment où on l'ajoute dans la scène, car quand j'ouvre ces fichiers de manière
+indépendante ils ont la bonne origine »*.
+
+`HostDuplicateTree` décale la **racine** d'un `offset` — `(0.45, 0, 0.45)`, pour
+qu'une copie naisse « à côté » — mais **ne le donnait pas à ses maillages**.
+Conteneur et matière étaient donc désolidarisés **dès la naissance**, et
+`Demo3DHostSetModelTransform` ne faisait ensuite que **transporter un écart déjà
+présent** : le model se posait au point du lâcher, sa matière apparaissait
+`offset` plus loin.
+
+**Leçon** : un correctif juste appliqué à un état déjà faux donne un résultat
+faux. Le premier correctif (déplacer la matière avec le conteneur) était
+nécessaire mais pas suffisant — il fallait aussi que les deux **naissent**
+solidaires.
+
+Le commentaire qui vivait là était faux, et il a retardé la trouvaille : il
+annonçait que reprendre la position monde ferait partir la matière « au double de
+la distance », ce qui suppose une composition `parent × enfant` **qui n'existe
+pas**.
 
 ### ❌ Anomalie n°2 — ELLE N'A JAMAIS EXISTÉ. C'était l'instrument
 

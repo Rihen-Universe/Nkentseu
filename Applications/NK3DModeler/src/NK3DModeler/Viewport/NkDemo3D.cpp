@@ -16028,14 +16028,27 @@ namespace nkentseu {
 					break; // on garde ce qui a pu naitre, et on le DIT
 				}
 				map[c] = m;
-				// TRANSFORM LOCALE, pas la monde. HostSpawnLike ecrit la
-				// position MONDE de la source dans les cases LOCALES du
-				// double -- ce qui convient a un noeud de premier rang, mais
-				// reappliquerait la transform du model a sa propre matiere,
-				// qui partirait alors au double de la distance.
+				// LE MEME DECALAGE QUE LA RACINE. Les positions de ce systeme sont
+				// ABSOLUES (voir nkvpEmptyPos) : la racine vient de naitre a
+				// world(src) + offset, donc sa matiere doit naitre a
+				// world(enfant) + offset. Sans cela le conteneur et sa geometrie sont
+				// desolidarises DES LA NAISSANCE, et tout deplacement ulterieur ne
+				// fait que transporter un ecart deja present.
+				//
+				// C'est le decalage constant que Rodolf voyait au depot : le model se
+				// posait au point du lacher et sa matiere apparaissait `offset` plus
+				// loin. Il l'a decrit exactement -- « son origine est modifiee entre
+				// son fichier et le moment ou on l'ajoute dans la scene, car quand
+				// j'ouvre ces fichiers de maniere independante ils ont la bonne
+				// origine » (16 aout).
+				//
+				// L'ANCIEN COMMENTAIRE ICI ETAIT FAUX : il annoncait que reprendre la
+				// position monde ferait partir la matiere « au double de la distance »,
+				// ce qui supposerait que le rendu compose parent x enfant. Il ne compose
+				// pas -- HostNodeWorld ne remonte jamais nkvpParentOf.
 				const int32 ec = c - kNkvpFirstEmpty, em = m - kNkvpFirstEmpty;
 				for (int32 a = 0; a < 3; ++a) {
-					nkvpEmptyPos[em][a] = nkvpEmptyPos[ec][a];
+					nkvpEmptyPos[em][a] = nkvpEmptyPos[ec][a] + offset[a];
 					nkvpEmptyRotDeg[em][a] = nkvpEmptyRotDeg[ec][a];
 					nkvpEmptyScl[em][a] = nkvpEmptyScl[ec][a];
 				}
