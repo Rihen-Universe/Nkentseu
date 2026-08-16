@@ -15,6 +15,372 @@ géométriques/topologie qui ne nécessitent aucun contexte GPU actif. Le rendu/
 shaders/viewport temps réel est reporté à la fin (Phase C). C'est le principe
 organisateur de ce document (sections **Phase A / B / C** ci-dessous).
 
+---
+
+# 📊 INVENTAIRE MESURÉ — 2026-08-16 (compile / tourne / consommé par qui)
+
+> **Pourquoi ce bloc existe.** Rodolf enseigne un cours sur Noge à partir de
+> septembre et personne ne pouvait dire quels sous-systèmes **tournent**. Ce
+> document décrivait l'état du code ; il ne disait pas **qui s'en sert**. Les
+> trois colonnes ci-dessous ont été mesurées, pas déduites.
+>
+> **PROVENANCE DE TOUS LES CHIFFRES DE CE BLOC** — une mesure sans provenance est
+> indéfendable : **arbre** `Nkentseu-noge`, branche `feat/noge-inventaire`,
+> **commit `10452ae0`** (identique à `origin/main`, `rev-list --left-right
+> --count` = 0/0) · **date** 2026-08-16 · **OS** Windows · **toolchain**
+> clang-mingw **ucrt64** · **moteur de build** Jenga **2.4.0** · sous-modules 7/7
+> initialisés · **configurations Debug ET Release** (elles ne sont pas le même
+> programme).
+
+## 1. Ce qui COMPILE
+
+| cible | Projects Built | `.obj` | artefact | durée |
+|---|---|---|---|---|
+| `Noge` **Release** | **40/40 SUCCESS** | 35/35 | `Noge.lib` 3 980 676 o | 3 m 53 s |
+| `Noge` **Debug** | **40/40 SUCCESS** | 35/35 | `Noge.lib` 21 599 788 o | 6 m 28 s |
+
+**Aucun écart Debug/Release.** 35 warnings dans les deux.
+
+*Réconciliation de deux comptes justes* : le module contient **37** `.cpp`, le
+build en compile **35** — les deux autres sont `pch/pch.cpp` et
+`tests/test_editable_mesh.cpp` (cible test, non construite par `jenga build`).
+
+**Chaque en-tête compile-t-il seul ?** Banc dédié : une unité de traduction d'une
+ligne (`#include "X.h"`) par en-tête, flags du module.
+**85 sur 88, en Debug comme en Release, sans le moindre écart.**
+Les 3 exceptions ne sont pas du code faux — elles ne sont **pas auto-portantes** :
+
+| en-tête | il lui manque |
+|---|---|
+| `ECS/Components/Audio/NkAudioComponents.h` | `NK_COMPONENT` |
+| `ECS/Components/UI/NkUIComponent.h` | `NkColor4` (20 erreurs) |
+| `ECS/Systems/NkReflectComponents.h` | `NkWorld` |
+
+## 2. Ce qui TOURNE — les 10 démos construites **et lancées**
+
+⚠️ Sortie relevée dans **`logs/app.log`** : les démos écrivent par NKLogger, dont
+le sink est un fichier. Une capture de `stdout` renvoie des fichiers **vides**
+avec `exit=0`, ce qui ressemble trait pour trait à une démo muette.
+
+| démo | exit | verdict écrit par le programme |
+|---|---|---|
+| `NkUIHudDemo` | 0 | **29 OK / 0 FAIL** |
+| `NkSVGImportDemo` | 0 | **24 OK / 0 FAIL** |
+| `NkNetWorldDemo` | 0 | **18 OK / 0 FAIL** |
+| `NkHotReloadDemo` | 0 | **16 assertions OK, 0 échec** |
+| `NkAudioECSDemo` | 0 | **13 OK / 0 FAIL** |
+| `NkNavDemo` | 0 | **9 OK / 0 FAIL** |
+| `NkLocomotionDemo` | 0 | **9 OK / 0 FAIL** |
+| `NkAgentEcsDemo` | 0 | **1 OK, 0 échec** |
+| `NkEditableMeshDemo` | **1** | **33 OK / 4 FAIL** — les 4 portent sur les **normales** |
+| `NkAssetIODemo` | **1** | **52 OK / 1 FAIL** — `NkFBXImporter::Import: 0 matériau` |
+
+**8 sur 10 vertes.** Les deux échecs sont **stables et réels** (reproduits dans
+deux régimes d'environnement distincts) :
+
+- `NkEditableMeshDemo` : *« normale initiale +Z »*, *« normale inversée −Z après
+  `FlipNormals` »*, *« normales moyennées au vertex partagé restent (0,0,1) »* ;
+- `NkAssetIODemo` : un matériau FBX *« non supporté par le loader réel »*. Ce
+  document annonçait **53 OK / 0 FAIL** au 2026-07-23 ; 52 + 1 = 53, donc **une
+  assertion est passée de OK à FAIL** entre les deux dates.
+
+## 3. Ce qui est CONSOMMÉ — et par qui
+
+Mesuré par **inclusion réelle** (dedans et dehors), pas par ce que les `.jenga`
+déclarent : un `.jenga` déclare une intention de lien, jamais un usage.
+
+| verdict | n | sous-systèmes |
+|---|---|---|
+| **consommé par une application** | **5** | `Core` · `ECS` · `IO` · `Modeling` · `Anim` |
+| interne à Noge seulement | 8 | `Color` `Design` `Doc` `Facial` `Layers` `Physics` `Rigging` `Viewport` |
+| **personne, nulle part** | **8** | `Anim2D` `Crowd` `Sculpt` `Selection` `Sequencer` `Systems` `Text` `UV` |
+
+Les huit que personne n'appelle représentent **1 865 lignes d'en-tête et 0 ligne
+de `.cpp`**.
+
+| sous-système | n.h | l.h | l.cpp | décl. sans corps | consommateurs externes |
+|---|---|---|---|---|---|
+| `ECS` | 48 | 13 266 | 4 493 | **312** | Nogee, PV3DE, 7 démos, Kernel/Runtime |
+| `Core` | 7 | 784 | 372 | 8 | Nogee, PV3DE |
+| `IO` | 4 | 567 | 645 | 0 | NkAssetIODemo, NkSVGImportDemo |
+| `Modeling` | 4 | 996 | 660 | 13 | NkEditableMeshDemo |
+| `Anim` | 1 | 410 | 174 | 0 | NkLocomotionDemo |
+
+⚠️ **« Consommé » ne veut pas dire « consommé entièrement »** : Nogee n'inclut que
+**10 en-têtes** de Noge, PV3DE seulement **4**.
+
+**Les 312 déclarations sans corps de l'ECS sont hors du chemin utilisé** — les 10
+démos produisent toutes un exécutable et 8 tournent vertes, donc ces déclarations
+ne provoquent aucune erreur de lien à l'usage. C'est du bruit, pas une dette qui
+tomberait au premier exercice étudiant.
+
+## 4. ⭐ `Nkentseu.h` — la promesse n°1 n'avait jamais été essayée
+
+Le `HANDOFF.md` promet : *« écrire une petite app 2D/3D en incluant simplement
+`<Nkentseu.h>` ; d'où l'importance que l'en-tête public compile toujours »*.
+
+**Aucun fichier du dépôt ne l'inclut** — ni Nogee, ni PV3DE, ni les 10 démos.
+Toutes écrivent leur `nkmain` **global** à la main.
+
+Mesure faite pour la première fois, avec un fichier jetable hors du dépôt :
+
+| étape | résultat |
+|---|---|
+| compile, Release **et** Debug | **OUI** |
+| lie | **NON** — une seule erreur réelle |
+| lie une fois le pont ajouté | **OUI** — exécutable de 17 088 065 octets |
+
+**La cause, mesurée :**
+
+```
+NKWindow/Core/NkEntry.h:311   int nkmain(const nkentseu::NkEntryState&);      <- GLOBAL
+Noge/Core/NkMainApp.h         namespace nkentseu { int nkmain(...) {...} }    <- DANS nkentseu::
+```
+
+Le runtime réclame `::nkmain` ; `NkMainApp.h` définit `nkentseu::nkmain`. **Deux
+symboles distincts** : celui du header n'est jamais appelé, celui que le runtime
+cherche n'existe pas. `NkMainApp.h` n'est inclus que par `Nkentseu.h`, lui-même
+inclus par personne — voilà pourquoi le défaut a survécu.
+
+📌 **La liste de ce qu'il faut finir pour que la porte d'entrée serve a UN
+élément** : sortir `nkmain` du namespace `nkentseu`, ou y ajouter le pont global.
+*(Second défaut du même fichier : `nkentseu::nkmain` y est défini **non-`inline`
+dans un en-tête** → définition multiple si deux unités de traduction incluent
+`Nkentseu.h`.)*
+
+## 5. Zéro-STL — l'état réel
+
+Mesure **hors commentaires** (les inclure donne 104 au lieu de 8 : plusieurs
+`std::` ne vivent que dans des notes expliquant qu'ils ont été *remplacés*).
+
+| nature | n | verdict |
+|---|---|---|
+| libc / `type_traits` (`strncpy`, `strcmp`, `memcpy`, `forward`…) | 93 | assumé par le code lui-même (« libc, pas STL ») |
+| **conteneurs et objets STL** | **8** | **vraies violations** |
+
+Elles tiennent dans **3 fichiers**, et `NkPrefab` en porte 6 :
+
+```
+ECS/Prefab/NkPrefab.h        std::function, std::string, std::unordered_map, std::vector
+ECS/Prefab/NkPrefab.cpp      std::vector x2   + std::malloc (l.95) / std::free (l.121)
+ECS/Scene/NkSceneManager.h   std::unique_ptr
+Doc/NkHybridDocument.h       std::pair
+```
+
+⚠️ `NkPrefab.cpp` alloue au **heap CRT** dans un module dont tout le reste passe
+par NKMemory. Règle du dépôt : *ne jamais mélanger allocateur custom et heap CRT
+→ heap corruption Windows c0000374.*
+
+## 6. ⚠️ CE QUE CE DOCUMENT AFFIRMAIT ET QUI EST FAUX AU 2026-08-16
+
+Corrigé ici plutôt que dans un second document — une huitième ROADMAP à
+maintenir coûterait plus qu'elle ne rapporte.
+
+**a) « include cassé » : 8 affirmations, 8 réfutées.** Ce document annonce des
+includes cassés pour `UV`, `Sculpt`, `Text`, `Physics`, `Crowd`, `Anim`,
+`Rigging`, `Modeling/NkMeshModifier`. **Les 8 compilent sans une erreur**, Debug
+et Release. Les 3 seuls en-têtes non auto-portants du module sont ailleurs (§1)
+et **aucun n'est signalé ici**.
+
+**b) Des sous-systèmes annoncés « spec seule » ont un `.cpp` réel** :
+`Anim/NkLocomotion` (174 l.) et `Rigging/NkIKSolver` (236 l.).
+
+**c) `Topology/` (`NkHalfEdge`, `NkBooleanOp`) n'existe plus** — le dossier a
+disparu du disque ; ce document lui consacre encore une ligne.
+
+**d) `Crowd/NkCrowdSim` « utilise `std::pair` »** : **0** occurrence de `std::`.
+
+**e) `NkBlueprint` « utilise `<vector>/<string>/<functional>/<memory>` (STL) »** :
+**0** `std::`, 0 include STL, 0 `using namespace std`. Il a été dé-STLisé depuis.
+
+**f) Contradiction interne** — deux sections de dates différentes qui ne se sont
+jamais confrontées : l. ~1001 donne `NkNetWorld` « branché, prouvé 18/18 » ;
+l. ~1168 le donne « spec seule, includes introuvables ». **Le disque tranche** :
+`NkNetWorld.cpp` existe (253 l.) et `NkNetWorldDemo` sort 18 OK / 0 FAIL.
+
+**g) Reste vrai, vérifié** : `NkProfiler` sans `.cpp`, `NkScriptCSharp` /
+`NkScriptPython` / `NkBlueprint` sans corps, `NkSequencer` et `NkFacialRig`
+specs seules, et la dé-STLisation de `NkScriptComponent` (elle a bien eu lieu).
+
+## 7. ⚠️ CINQ PIÈGES D'ENVIRONNEMENT — aucun n'est un défaut de Noge
+
+Un worktree neuf **ne reproduit pas** les mesures de ce document tant que les
+cinq ne sont pas connus. Chacun produit un symptôme qui ressemble à un bug réel.
+
+| piège | symptôme trompeur | remède |
+|---|---|---|
+| sous-modules non initialisés | `External file not found: NKGlad.jenga` | `git submodule update --init` |
+| sink NKLogger = `logs/app.log` | démo « muette », `exit=0`, capture vide | lire `logs/app.log`, le vider avant chaque lancement |
+| `/Resources/Models/` **gitignoré** (190 Mo) | `NkAssetIODemo` échoue — il lui manque `tree.obj`, `rock/rock.obj` | copier les assets depuis un arbre qui les a |
+| **deux `libstdc++` sur la machine** | **SIGSEGV reproductible 3/3** sur `NkAudioECSDemo` | `export PATH="/c/msys64/ucrt64/bin:$PATH"` **avant** tout lancement |
+
+Le quatrième est le plus coûteux : Git Bash place `/mingw64/bin` (libstdc++ de
+Git for Windows) avant `/c/msys64/ucrt64/bin`, alors que les binaires sont
+compilés avec ucrt64 → incompatibilité d'ABI sur `std::string`. **Même
+exécutable : `exit=139` avec le PATH par défaut, `exit=0` et 13 OK / 0 FAIL avec
+ucrt64 en tête.**
+
+*(Le cinquième est une erreur de mesure et non d'environnement, mais il coûte
+autant : un code de sortie lu à travers un script qui se termine par `tail` est
+celui du `tail`, jamais celui de la commande mesurée.)*
+
+## 8. 🔭 LES TROIS HORIZONS
+
+**Court — la semaine.** Deux gestes chiffrés, et ils sont petits :
+1. **`nkmain` hors du namespace** — une ligne, et la porte d'entrée du cours
+   devient utilisable (§4) ;
+2. les **4 FAIL de normales** de `NkEditableMeshDemo` et le **1 FAIL** de
+   `NkAssetIODemo` — seuls défauts fonctionnels mesurés du module (§2).
+
+**Moyen — le jalon de septembre.** Rendre utilisable sans interface ce que le
+cours exerce : **ECS + monde + gameplay en C++**, les trois seuls piliers qui
+reposent sur du code *consommé par une application réelle* (§3). Y ajouter la
+sérialisation par composant, aujourd'hui un stub qui produit des archives vides,
+sans quoi aucun exercice ne peut sauvegarder une scène. **Ne pas ouvrir** le
+scripting C#/Python ni le blueprint : `NkScriptCSharp` (0 classe définie sur 2),
+`NkScriptPython` (1 sur 10) et `NkBlueprint` (0 sur 25) sont des déclarations,
+et ce sont précisément de bons sujets d'exercice étudiant.
+
+**Long — ce à quoi Noge sert.** Un framework applicatif dont l'en-tête public
+suffit à écrire une application. Le facteur d'échelle est là : **8 sous-systèmes
+sur 21 n'ont aucun consommateur**, et le point d'entrée public n'en a jamais eu
+un seul. Tant que la mesure de la §4 n'était pas faite, aucun travail sur les
+sous-systèmes orphelins n'avait de moyen de se justifier — *on raffinait ce qu'on
+savait mesurer au lieu de lever ce qui bloquait*.
+
+## 9. 🧩 DÉCISION D'ARCHITECTURE D'ÉDITEUR — Nogee, NkAnima, NkScena, NK3DModeler
+
+> **Directive de Rodolf, 2026-08-17**, dans sa formulation finale : *« pour les
+> interfaces, **pas de duplication** — juste récupérer et changer les couleurs si
+> voulu, ou améliorer, ou changer de style ou de manière de faire. »*
+>
+> Ce bloc vaut pour **les quatre éditeurs**, pas seulement Nogee.
+
+### La règle
+
+**Les éditeurs partagent les BRIQUES et le THÈME, jamais la PEINTURE.**
+
+- Chaque éditeur **peint sa propre disposition** — c'est ce qui permet de coller à
+  une maquette au pixel près — mais **aucune couleur en dur** : tout passe par les
+  rôles de `NKEditorKit/NkTheme.h`, chaque produit ajoutant les siens sous son
+  préfixe (`nk3d.`, …). Un thème qui porte des rôles inconnus se charge sans
+  erreur ailleurs : ils sont simplement ignorés.
+- **Une brique d'interface générique s'écrit dans `NKEditorKit`**, jamais chez
+  l'application.
+- **`NkEditorShell` reste la coquille des IDE** (NKCode) — pas des éditeurs à
+  maquette. Son docking et sa chrome propre sont un atout pour un IDE et un
+  obstacle pour qui doit reproduire une maquette.
+
+### Ce que la mesure a montré (2026-08-16, lecture seule)
+
+Périmètre : `Nkentseu` principal, branche `refonte-interface-nk3dmodeler`, commit
+`872bac07` — **pas** `origin/main`, qui a 19 400 lignes de retard sur ce sujet.
+
+⚠️ **Ces chiffres ont une date de péremption courte : l'arbre mesuré est VIVANT.**
+Relevé fait le 2026-08-16 vers 11 h 15 ; à 11 h 21, l'agent qui y travaille avait
+déjà modifié trois fichiers (`NkModelerCommon.h`, `NkDemo3D.cpp`,
+`NkDemo3DHost.h`). La refonte est en cours, elle porte déjà +19 400 lignes, et les
+volumes ci-dessous bougeront encore. **À remesurer avant toute décision
+d'extraction** — ils servent à donner un ordre de grandeur, pas à fonder un plan
+au fichier près.
+
+```
+NKEditorKit ........ 21 fichiers,  7 129 lignes
+NK3DModeler ........ 32 fichiers, 51 062 lignes   (Shell/ = 21 048, Viewport/ = 23 458)
+fichiers de NK3DModeler utilisant le kit .... 12 include actifs (14 avec les usages transitifs)
+```
+
+**Consommateurs RÉELS du kit — includes actifs, commentaires exclus : 6
+applications.**
+
+```
+NKCode 25 fichiers · NK3DModeler 12 · ConquerorLab 8 ·
+NkAnimaEditor 2 · NKEditorKitDemo 2 · NKEditMeshHarness 1
+```
+
+⚠️ **`Nogee` n'en fait PAS partie, et `Engine/Noge` non plus.** Nogee porte deux
+mentions de `NKEditorKit`, **toutes deux en commentaire** (`Nogee.cpp:58`,
+`UkConfig.h:15`), décrivant le drapeau `--ui=rhi` **non câblé** qui retombe sur
+NKUI legacy. Ce sur quoi Nogee peint réellement : `NKUI/NKUI.h` (×6),
+`NkUIWidgets.h` (×4), `NkUIMenu.h` (×4) — **NKUI legacy, ni NKGui ni NKEditorKit**.
+
+*Compter les mentions au lieu des usages fait apparaître Nogee dans la liste : le
+`grep` matche la chaîne dans le commentaire. Trois chiffres circulent pour
+NK3DModeler et les trois sont justes — **7** sur `origin/main` (arbre en retard de
+19 400 l.), **12** includes actifs sur la branche de refonte, **14** en comptant
+les usages `editorkit::` transitifs.*
+
+### 🚦 Question ouverte, et elle revient à Rodolf
+
+> **Nogee doit-il ressembler à une maquette précise (comme NK3DModeler suit
+> l'écran A), ou peut-il adopter la coquille standard `NkEditorShell` du kit ?**
+
+Aucune mesure ne la tranche — c'est « ce que le produit EST ». Mesure disponible
+pour éclairer : **Nogee n'a aucune maquette référencée** (recherche
+`maquette|banani|ecran A|mockup|design` dans tout `Applications/Nogee/` : zéro
+résultat), alors que NK3DModeler cite la sienne en tête de `NkModelerUI.h`. **La
+justification écrite du refus du shell est donc propre à NK3DModeler.**
+
+- *maquette voulue* → Nogee peint lui-même, même règle : thème partagé, zéro
+  couleur en dur ;
+- *pas de maquette* → Nogee prend `NkEditorShell` et s'épargne de l'ordre de
+  **2 500 à 3 500 lignes** (ordre de grandeur tiré des fichiers équivalents de
+  NK3DModeler, pas d'une mesure de ce que le shell couvre exactement).
+
+La question vaut d'être posée **avant** que Nogee n'écrive sa chrome.
+
+**L'architecture voulue est déjà en place** : le thème est partagé et extensible
+par produit, les briques ponctuelles (`NkShortcutTable`, `NkEditorScrollbar`,
+`NkEditorTextField`, `NkEditorModal`, `NkEditorTooltip`, `NkFilePicker`,
+`NkIEditorRenderer`) sont consommées, et la peinture est locale **par décision
+écrite** — `Shell/NkModelerUI.h` et `Shell/NkModelerTheme.h` documentent chacun
+pourquoi ils ne passent pas par le kit, et les deux raisons sont bonnes.
+
+### Ce qui reste à descendre dans le kit — ~6 285 lignes
+
+Briques **génériques écrites localement**, sans raison documentée de l'être, que
+Nogee / NkAnima / NkScena redemanderont à l'identique :
+
+| fichier de `NK3DModeler/Shell/` | lignes | rôle générique |
+|---|---|---|
+| `NkModelerHierarchy.h` | 1 558 | arbre de scène |
+| `NkModelerBrowser.h` | 1 064 | navigateur d'assets, vignettes, glisser-déposer |
+| `NkModelerWelcome.h` | 1 029 | écran d'accueil « aucun projet ouvert » |
+| `NkModelerWidgets.h` | 870 | champ numérique **par glissement** (Blender/Unreal/Maya) |
+| `NkModelerChrome.h` | 544 | séparateurs glissables, cadre |
+| `NkModelerJournal.h` | 477 | console des messages moteur |
+| `NkModelerIcons.h` | 388 | icônes SVG rastérisées |
+| **`NkModelerFileDialog.h`** | **355** | **doublon réel de `NkFilePicker`** |
+
+**Reste local, à juste titre** : l'inspecteur de propriétés (7 909 l. — ce qu'on
+inspecte dépend du domaine), le viewport (1 894 l.), la peinture de la maquette
+(`NkModelerUI`, `NkModelerScreens`), les rôles de thème propres, les métriques et
+l'état d'entrée du produit.
+
+⚠️ **`NkModelerFileDialog.h` est le seul défaut au sens strict** : le kit porte
+`NkFilePicker.h` **et 4 fichiers du même produit l'utilisent déjà** — les deux
+coexistent. C'est le troisième sélecteur de dossier que le `CLAUDE.md` parent
+documente (12/08), toujours en place.
+
+### Deux réserves, avant que quiconque déplace quoi que ce soit
+
+1. Le classement ci-dessus vient des **en-têtes descriptifs**, pas du corps des
+   fichiers. Ils sont détaillés et honnêtes, mais **un commentaire n'est vérifié
+   par rien** : compter ce que chacun touche de `nk3d::` / `NkModelerScene` reste
+   à faire.
+2. **NK3DModeler est l'arbre d'un autre agent, en pleine refonte** (+19 400
+   lignes). Déplacer 6 285 lignes sous ses pieds serait le pire moment.
+   L'extraction se pose **après sa refonte**, et se coordonne.
+
+### Ce que ça règle par ailleurs
+
+Si la coque est partagée, la question « faut-il séparer l'animation 3D et les VFX
+en deux applications ? » change de nature : **deux modes dans une application
+coûtent un menu ; deux applications coûtent deux installations, deux
+distributions, deux cours.**
+
+---
+
 ## 🚀 PRIORITÉ — Mondes volumineux : les optimisations prouvées en NKAI
 
 > **Décision de Rihen, 6 août 2026.** « On doit implémenter ces optimisations
