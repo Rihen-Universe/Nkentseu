@@ -260,6 +260,57 @@ parallaxe d'une translation. **Ces chiffres sont une borne supérieure.**
 *lentement* (sous ~60°/s). On ne peut pas promettre un balayage rapide — et
 l'application le saura, puisque le suivi renvoie `valid = false`.
 
+### 🔍 DIAGNOSTIC — pourquoi `NkArImu` fige la boucle (2026-08-17)
+
+**Cause trouvée, par lecture du code : ce n'est ni un fil, ni un verrou.**
+
+`NkArImu::Initialize` attache sa file d'événements au looper **de l'appelant** —
+donc, sur le fil principal, à celui de l'application :
+
+```
+NkArImu.cpp:49-53
+    ALooper *looper = ALooper_forThread();
+    ASensorManager_createEventQueue(manager, looper, kLooperId, nullptr, nullptr);
+                                                                ^^^^^^^ AUCUN rappel
+```
+
+Et la pompe d'événements Android est écrite ainsi :
+
+```
+NkAndroidEventSystem.cpp:624-643
+    while (true) {
+        pollResult = ALooper_pollOnce(0, ...);
+        if (pollResult < 0) break;      // sort UNIQUEMENT quand plus rien n'est prêt
+        ...
+    }
+```
+
+**Le mécanisme exact** : la file est enregistrée avec l'identifiant `0x4E4B` et
+**sans rappel**. `ALooper_pollOnce` rend donc `0x4E4B` — une valeur ≥ 0 — et
+`source` vaut nul, donc personne ne consomme les événements. Le descripteur reste
+**prêt en lecture**, `pollOnce` le re-signale immédiatement, `pollResult` n'est
+jamais négatif : **la boucle ne sort jamais.** À 200 Hz (`kSamplingPeriodUs =
+5000`), il y a toujours de quoi lire.
+
+Les seuls à vider cette file sont `NkArImu::Poll()`… appelé plus loin dans la
+trame, qui n'arrive jamais. **La boucle s'affame elle-même.**
+
+**Coût de la réparation, puisque c'est la question** :
+
+| piste | coût | remarque |
+|---|---|---|
+| **rappel de vidage** — passer une fonction à `createEventQueue` au lieu de `nullptr` | **~15 lignes** | le looper appelle le rappel, la file se vide, `pollOnce` finit par n'avoir plus rien : la boucle sort |
+| fil dédié avec son propre looper | ~½ journée | solution classique, isole complètement, coûte un fil + une synchronisation |
+| vider dans la pompe elle-même | ~1 h | ⛔ coupleraient NKWindow à NKXR : à écarter |
+
+**Ce n'est donc pas un mois — c'est une quinzaine de lignes.**
+
+⚠️ **Non réparé délibérément.** Le correctif ne peut pas être vérifié sans
+téléphone, et c'est précisément ce composant qui a déjà été livré avec un défaut
+connu actif par défaut (`preferSensors = true`, corrigé le 14/08). **Livrer un
+correctif invérifiable sur le composant qui a déjà mordu serait refaire la même
+faute.** À faire dès que l'appareil revient, avec sa mesure.
+
 ### ⚠️ Et le MR est aussi **empêché par une ligne**
 
 Recherche exhaustive sur `passthrough`, `mixed reality`, `environment blend` dans
