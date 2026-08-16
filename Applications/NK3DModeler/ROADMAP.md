@@ -259,14 +259,33 @@ un zéro. Voir aussi la règle « état correct ≠ affichage correct ».
 **Compromis assumé**, écrit dans le code : une retouche volontaire posée sur la
 source depuis le panneau Modèle n'est plus transmise au double.
 
-### ✅ Anomalie n°1 — CONFIRMÉE, non traitée : les enfants ne suivent pas le parent
+### ✅ Anomalie n°1 — CORRIGÉE (`c5e3f437`) — et sa cause n'était pas la mienne
 
-Le model `110` est posé en `(2.65, 0, 3.45)` ; ses enfants restent en
-`(2.94, 0, 0.53)` et `(1.51, 0, -1.16)`. La trace `MESURE dup enfant` le confirme
-à la source : `source=99 -> copie=108 locale recopiee=(2.93508, 0, 0.530729)` —
-la transform **locale** d'un maillage interne vaut la position **monde** de son
-model, au lieu de ~0 comme `EnsureModelMesh` la pose. Déplacer un model laisse
-donc sa géométrie sur place. **Reste à traiter.**
+J'avais écrit : *« les transformations d'enfants ont l'air d'être absolues »*.
+**Elles n'en ont pas l'air : elles LE SONT, et pour tout le système.**
+`HostNodeWorld` (`NkDemo3D.cpp:15440`) lit `nkvpEmptyPos` et **ne compose jamais
+avec le parent**. Ce que j'appelais « une transform locale fausse » était donc une
+**position monde correcte** — la valeur était juste, c'est mon modèle mental qui
+ne l'était pas.
+
+**Le vrai défaut est dans le geste de dépôt.** La duplication donne aux maillages
+du double les positions absolues des maillages de la **source** ; puis
+`SetEmptyTransform` déplace **le seul conteneur** vers le point du lâcher. Comme
+un conteneur ne rend rien, la matière restait visible à l'ancienne place : on
+dépose à un endroit, la géométrie apparaît ailleurs.
+
+D'où `Demo3DHostSetModelTransform`, qui **mesure** le delta réellement appliqué au
+conteneur — `SetEmptyTransform` est incrémental, et le gizmo peut porter un
+décalage en plein drag — puis translate d'autant ses maillages internes, par le
+**même** parcours d'appartenance que l'archivage et l'écriture d'un fichier de
+model.
+
+Elle ne remplace **pas** `SetEmptyTransform` : la relecture d'un projet repose
+chaque nœud, maillages compris, et y propager aurait appliqué le delta **deux
+fois**. Le geste « poser un model » est distinct du geste « poser un nœud ».
+
+⚠️ **Reste ouvert** : le gizmo de déplacement dans la vue 3D emprunte un autre
+chemin. Non mesuré — à vérifier avant d'affirmer quoi que ce soit.
 
 ### ❌ Anomalie n°2 — ELLE N'A JAMAIS EXISTÉ. C'était l'instrument
 
