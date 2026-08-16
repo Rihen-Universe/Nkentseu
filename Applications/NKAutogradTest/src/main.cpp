@@ -357,6 +357,78 @@ int main() {
 	}
 
 	// -----------------------------------------------------------------------
+	// ACCUMULATION DE GRADIENT — deux Backward() successifs sur la MEME feuille.
+	//
+	// POURQUOI CE CAS MANQUAIT, ET POURQUOI IL COMPTE :
+	// les cas ci-dessus font tous UN SEUL Backward() sur une feuille NEUVE.
+	// Aucun ne couvre le scenario reel de l'entraineur.
+	//
+	// `NkGptTrainer::Fit` appelle `adam.ZeroGrad()` UNE fois par pas, puis
+	// `scaled.Backward()` UNE fois par micro-lot (boucle `for m < ACCUM`), en
+	// reconstruisant le graphe sur les MEMES noeuds-feuilles de parametres.
+	// TOUTE la semantique de `--accum` repose donc sur un seul fait : le second
+	// Backward() doit AJOUTER au gradient du premier, pas l'ECRASER.
+	//
+	// Or `NkVar::Backward()` commence par
+	//     for (i < order.Size()) order[i]->grad = ZerosCommeSur(order[i]->value);
+	// et `CollectTopo` descend jusqu'aux feuilles : les parametres sont dans
+	// `order`. Ce test mesure ce que le code fait vraiment.
+	//
+	// L = Sum(x . b) donne dL/dx = b. Deux passes identiques doivent donner 2b.
+	// -----------------------------------------------------------------------
+	printf("\n-- Accumulation de gradient (deux Backward() sur la meme feuille) --\n");
+	{
+		float bd[4] = {0.5f, -1.0f, 2.0f, 0.25f};
+		float xd[4] = {1.0f, 2.0f, -1.0f, 3.0f};
+		NkTensor b = Mat(NkShape{4}, bd);
+		NkVar xa = NkVar::Leaf(Mat(NkShape{4}, xd), true);
+
+		// Micro-lot 1.
+		NkVar l1 = autograd::Sum(autograd::Mul(xa, NkVar::Leaf(b, false)));
+		l1.Backward();
+		NkTensor g1 = xa.Grad().Contiguous().Clone();
+
+		// Micro-lot 2 : graphe RECONSTRUIT sur la meme feuille `xa`, comme le fait
+		// l'entraineur a chaque tour de sa boucle d'accumulation.
+		NkVar l2 = autograd::Sum(autograd::Mul(xa, NkVar::Leaf(b, false)));
+		l2.Backward();
+		NkTensor g2 = xa.Grad().Contiguous().Clone();
+
+		const float *p1 = g1.DataAs<float>();
+		const float *p2 = g2.DataAs<float>();
+
+		// Deux hypotheses exclusives, mesurees toutes les deux : on ne conclut
+		// pas « ecrase » d'un simple echec de « accumule ».
+		double ecartSiAccumule = 0.0; // |g2 - 2*g1| -> 0 si l'accumulation marche
+		double ecartSiEcrase = 0.0;	  // |g2 -   g1| -> 0 si le second ecrase le premier
+		for (int64 i = 0; i < 4; ++i) {
+			const double dAcc = std::fabs((double)p2[i] - 2.0 * (double)p1[i]);
+			const double dEcr = std::fabs((double)p2[i] - (double)p1[i]);
+			if (dAcc > ecartSiAccumule)
+				ecartSiAccumule = dAcc;
+			if (dEcr > ecartSiEcrase)
+				ecartSiEcrase = dEcr;
+		}
+
+		printf("  g1 = [%.3f %.3f %.3f %.3f]   (attendu : b)\n", p1[0], p1[1], p1[2], p1[3]);
+		printf("  g2 = [%.3f %.3f %.3f %.3f]   (attendu : 2b si accumulation)\n", p2[0], p2[1], p2[2], p2[3]);
+		printf("  |g2 - 2*g1| = %.2e     |g2 - g1| = %.2e\n", ecartSiAccumule, ecartSiEcrase);
+
+		const bool accumule = ecartSiAccumule < 1e-6;
+		const bool ecrase = ecartSiEcrase < 1e-6;
+		(accumule ? g_pass : g_fail)++;
+		if (accumule) {
+			printf("  [ OK ] le second Backward() AJOUTE au premier : `--accum` fait ce qu'il annonce.\n");
+		} else if (ecrase) {
+			printf("  [ KO ] le second Backward() ECRASE le premier. `--accum N` ne cumule RIEN :\n");
+			printf("         seul le DERNIER micro-lot contribue, et il reste divise par N.\n");
+			printf("         => lot effectif ET taux d'apprentissage N fois plus petits qu'annonces.\n");
+		} else {
+			printf("  [ KO ] ni accumulation ni ecrasement franc — troisieme regime, a diagnostiquer.\n");
+		}
+	}
+
+	// -----------------------------------------------------------------------
 	// Entraînement XOR : MLP 2-8-1, tanh caché + sigmoid sortie + MSE, SGD.
 	// -----------------------------------------------------------------------
 	printf("\n-- Entraînement XOR (MLP 2-8-1, SGD via autograd) --\n");

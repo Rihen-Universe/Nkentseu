@@ -16,6 +16,101 @@
 
 ---
 
+## 🛑 DÉFAUT OUVERT — `--accum` N'ACCUMULE RIEN (mesuré le 2026-08-16)
+
+> **Statut : MESURÉ, NON CORRIGÉ. Le correctif touche la sémantique de l'autograd
+> et le sens de toutes les courses de dimensionnement déjà faites — décision de
+> Rodolf, pas d'un agent.**
+
+### Ce qui a été mesuré
+
+`NkVar::Backward()` commence par remettre à zéro le gradient de **tous** les nœuds
+du graphe, **feuilles comprises** (`NkVar.cpp:1298-1299`, `CollectTopo` descend
+jusqu'aux feuilles). Or `NkGptTrainer::Fit` appelle `adam.ZeroGrad()` **une fois
+par pas**, puis `scaled.Backward()` **une fois par micro-lot**, en reconstruisant
+le graphe sur les **mêmes** nœuds-feuilles de paramètres.
+
+Nouveau cas dans `NKAutogradTest` — deux `Backward()` successifs sur la même
+feuille, `L = Sum(x ⊙ b)` donc `dL/dx = b`, deux passes identiques :
+
+```
+g1 = [0.500 -1.000 2.000 0.250]   (= b)
+g2 = [0.500 -1.000 2.000 0.250]   (= b, et non 2b)
+|g2 - 2*g1| = 2.00e+00      |g2 - g1| = 0.00e+00
+```
+
+**Écrasement EXACT, pas dégradation partielle.** Les deux hypothèses ont été
+mesurées séparément : on ne conclut pas « écrasé » d'un simple échec de
+« accumulé ».
+
+### Ce que ça implique
+
+Avec `--accum N`, seul le **dernier** micro-lot contribue, et il reste multiplié
+par `1/N` (`scaled = MulScalar(loss, 1.0/ACCUM)` ligne 923). Donc :
+
+| annoncé | réel |
+|---|---|
+| lot effectif `B × N` | **`B`** |
+| taux d'apprentissage `lr` | **`lr / N`** |
+
+⚠️ **Le défaut par défaut** : `--accum` vaut **4** quand on ne dit rien
+(`Applications/NKIlyana/src/main.cpp:693`). Toute course lancée sans `--accum`
+explicite est concernée. `B=6 --accum 4` n'a jamais eu un lot effectif de
+6 144 tokens : il en avait **1 536**, à `lr/4`.
+
+### Deux conséquences pour ce qui est déjà écrit
+
+1. **`Kernel/AI/ROADMAP.md` ligne 1014** — « B=6, accum=4 (lot effectif 6 144
+   tokens) » est faux, ainsi que toute mention de lot effectif pour `accum > 1`.
+2. **Le tableau du 2026-08-09** (`Kernel/AI/ROADMAP.md:1028-1032`) se présente
+   comme trois configurations « à même lot effectif de 6 144 ». Elles ne l'étaient
+   pas : leurs lots réels étaient 6, 12 et 24, à `lr/4`, `lr/2` et `lr`.
+
+### ⚠️ Mais les deux défauts sont INDÉPENDANTS — vérifié
+
+On pourrait croire que l'écrasement explique le « B=24/accum=1 n'apprend RIEN »
+du 09/08. **Il ne le peut pas** : à `accum = 1` il n'y a qu'un seul `Backward()`
+par pas, donc aucun écrasement possible. La panne silencieuse du GPU à grand lot
+reste un défaut distinct, et le diagnostic du 09/08 tient.
+
+**Et c'est ce qui rend la situation gênante** : `B=24/accum=1` était la **seule**
+configuration exempte du défaut d'accumulation, et c'est celle qui a été écartée
+pour une autre raison. L'entraîneur tourne depuis exclusivement dans le régime
+fautif.
+
+### Pourquoi le témoin prescrit ne pouvait pas trancher
+
+Le témoin demandé était `--B 6 --accum 4` contre `--B 24 --accum 1` à lot effectif
+égal. **Son bras de contrôle est documenté cassé depuis le 09/08** : à `B=24` la
+perte reste collée à `ln(V)`, le GPU ne calcule plus en silence. Comparer un bras
+suspect à un bras mort ne donne rien d'interprétable.
+
+Le cas unitaire retenu à la place est **plus fort** : exact au lieu de statistique,
+déterministe, **CPU seul** — donc insensible à la dégradation GPU signalée à la
+session précédente — et il isole la sémantique au lieu de l'inférer d'une courbe
+de perte.
+
+### Ce qu'aucun test ne couvrait
+
+Les 49 cas de `NKAutogradTest` faisaient tous **un seul** `Backward()` sur une
+feuille **neuve**. `NKTrainTest` case (b) utilise bien `accum = 2`, mais il
+n'assert que la **convergence** — or un modèle converge très bien à `lr/2`. La
+ROADMAP `Kernel/AI` en tirait « accumulation prouvée » : le test prouvait qu'on
+converge, jamais qu'on accumule.
+
+*Un test dont le nom promet plus que ce qu'il vérifie tient lieu de preuve
+jusqu'au jour où quelqu'un lit son corps.*
+
+### Note sur le chantier n°1
+
+Le correctif « ne plus monter 12,7 Go de zéros » (×1,57) porte sur **cette même
+ligne 1299**. Il reste entièrement valide — la remise à zéro des nœuds
+**intermédiaires** est nécessaire à chaque backward — mais il a rendu
+l'écrasement des feuilles 1,57× plus rapide sans que personne ne voie qu'il ne
+devait pas avoir lieu. `NkGpuZeros` sert dans les deux sémantiques.
+
+---
+
 ## Synthèse
 
 | chantier | statut | où en est-on |
