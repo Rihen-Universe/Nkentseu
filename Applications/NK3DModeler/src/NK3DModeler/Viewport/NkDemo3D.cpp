@@ -15996,6 +15996,16 @@ namespace nkentseu {
 					nkvpEmptyRotDeg[em][a] = nkvpEmptyRotDeg[ec][a];
 					nkvpEmptyScl[em][a] = nkvpEmptyScl[ec][a];
 				}
+				// MESURE (temporaire) : D'OU naissent les enfants du double ?
+				// Deux symptomes -- des enfants restes a la position de la source,
+				// et un enfant de trop -- se ramenent peut-etre a UNE seule cause.
+				// Si les deux enfants naissent ICI, ce sont deux defauts distincts ;
+				// si l'un nait ailleurs, c'en est un seul et le correctif est de
+				// supprimer le chemin en trop.
+				logger.Info("[Demo3D] MESURE dup enfant : source={0} -> copie={1} "
+							"locale recopiee=({2}, {3}, {4})\n",
+							c, m, nkvpEmptyPos[ec][0], nkvpEmptyPos[ec][1],
+							nkvpEmptyPos[ec][2]);
 				if (independent)
 					HostMakeGeometryOwn(m);
 			}
@@ -16007,6 +16017,24 @@ namespace nkentseu {
 					continue;
 				const int32 pa = nkvpParentOf[c];
 				nkvpParentOf[map[c]] = (pa >= 0 && map[pa] >= 0) ? map[pa] : root;
+			}
+			// LE COMPTE, cote source ET cote double. Le predicat qui compte ici
+			// est HostIsInnerMeshOf (appartenance au model) ; celui de la mesure
+			// prise dans main.cpp est la parente DIRECTE. Les deux peuvent
+			// differer -- et c'est precisement ce qu'il faut savoir.
+			{
+				int32 dedans = 0, nes = 0, directs = 0;
+				for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+					if (HostIsInnerMeshOf(c, src))
+						++dedans;
+					if (c != src && map[c] >= 0)
+						++nes;
+					if (nkvpParentOf[c] == root)
+						++directs;
+				}
+				logger.Info("[Demo3D] MESURE dup model : src={0} -> root={1} "
+						"internesDeLaSource={2} nes={3} enfantsDirectsDuDouble={4}\n",
+						src, root, dedans, nes, directs);
 			}
 			return root;
 		}
