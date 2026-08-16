@@ -1125,8 +1125,25 @@ namespace nkentseu {
 	// SECTION : ITÉRATEURS
 	// =========================================================================
 
+	// ⚠ Les deux surcharges NON-CONST etaient DECLAREES (NkString.h:977 et :991)
+	// mais jamais definies. Consequence : `for (char &c : s)` compilait sans un
+	// mot et echouait a l'EDITION DE LIENS — le compilateur voit une declaration
+	// et la croit. Le defaut avait deja une victime reelle :
+	// Applications/Sandbox/src/DemoNkentseu/Base01/main8.cpp:193 (LowerAscii),
+	// qui faisait echouer la cible Gamepad du build complet.
+	// Aucune recherche par NOM ne pouvait le trouver : c'est la SURCHARGE qui
+	// manquait, pas le nom — `NkString::begin` etait bien defini, en version const.
+
+	char *NkString::begin() noexcept {
+		return GetData();
+	}
+
 	const char *NkString::begin() const noexcept {
 		return GetData();
+	}
+
+	char *NkString::end() noexcept {
+		return GetData() + mLength;
 	}
 
 	const char *NkString::end() const noexcept {

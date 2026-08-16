@@ -206,6 +206,9 @@ sandboxusenkcontext("Gamepad", ["src/DemoNkentseu/Base01/main8.cpp"], "sandbox.n
 sandboxusenkcontext("NKRHIDemo", ["src/DemoNkentseu/Base03/NKRHIDemo.cpp"], "sandbox.nkentseu.rhidemo")
 sandboxusenkcontext("cr2d", ["src/Context/Renderer2D/Renderer2dExample.cpp"], "sandbox.nkentseu.r2dexemples")
 sandboxusenkcontext("firsttriangle", ["src/Opengl/firsttriangle.cpp"], "sandbox.nkentseu.firsttriangle")
+# Desactivee AVANT le 2026-08-15, sans raison ecrite. La raison est : ancienne
+# API NKFont disparue (NkFontLibrary/NkTextShaper/nk_handle...). Voir le bloc
+# detaille dans RhiSandbox.jenga et DETTE_LISIBILITE.md chantier 11.
 # sandboxusenkcontext("oglfont", ["src/Opengl/Nkfontgltest.cpp"], "sandbox.nkentseu.oglfont")
 # ===== Demos d'exemple NKCanvas / NKUI (5) ====================================
 # 1) NKUI -> NKCanvas, version NON optimisee (boucle inline simple, lisible) :
