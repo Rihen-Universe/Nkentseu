@@ -845,6 +845,54 @@ de souris forcée ; elle ne synthétise pas un vrai événement de clic. Elle me
 donc la **porte d'interaction**, qui est ce que tout widget standard consulte —
 pas le trajet complet d'un événement système.
 
+### 9nonies. ✅ CORRIGÉ + ⚠️ RÉTRACTATION sur les Préférences — le piège était DANS MA SONDE
+
+**Correctif livré** (`NkEditorShell.cpp`, commit `7f9af3f0`, 2 lignes de code,
+purement additif) : la palette déclare `PushOcclusion(plein écran, 50)` +
+`NkInputLayerScope`. **Témoin rejoué dans les deux sens** : panneau ancré
+`ItemHoverable` = **1 palette fermée**, **0 palette ouverte**. Le détail, et ce
+que ça change pour les quatre applications consommatrices, est écrit **dans la
+ROADMAP du kit** — `Engine/NKEditorKit/ROADMAP.md`, créée pour ça (le kit n'en
+avait pas).
+
+⚠️ **Et j'ai failli livrer une SECONDE ligne pour rien.** `DrawPreferences` peint
+le même voile plein écran sans `PushOcclusion` ; ma sonde a affiché « le clic
+traverse le voile », et le correctif était déjà écrit.
+
+**C'était mon instrument.** `NkEditorShell.cpp:693` :
+
+```cpp
+const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
+//                 ^^^^^^^^^^ les Preferences y sont ; la palette, NON
+```
+
+Quand `modal` est vrai, le shell **blanchit l'entrée du corps**
+(`mousePos = {-100000,-100000}`, boutons effacés). Les Préférences sont donc
+**déjà étanches** — et ma sonde **forçait `input.mousePos`** avant d'appeler
+`ItemHoverable`, défaisant précisément la protection qu'elle prétendait mesurer.
+
+**Le contrôle qui a tranché** : relever la souris **reçue** par le panneau
+*avant* tout forçage.
+
+```
+palette ouverte      : souris recue = normale   -> fuite REELLE, correctif justifie
+Preferences ouvertes : souris recue = -100000   -> VERDICT NUL, aucun correctif
+```
+
+> 🎯 **Deux surfaces identiques à l'œil, étanches par deux mécanismes
+> différents.** La ressemblance visuelle ne dit rien du mécanisme — et une sonde
+> qui force une entrée peut annuler la protection qu'elle teste **sans que rien
+> ne le signale**.
+
+⚠️ **Et je réfute un avertissement reçu.** On m'a signalé que le correctif serait
+inopérant dans ConquerorLab, à cause de `SetMaskBodyOnPopup(false)`
+(`ConquerorLab/main.cpp:219`). **Non** : ce drapeau ne neutralise que le terme
+`overPopup` du **blanchiment d'entrée**. Le correctif passe par le **routeur
+d'occlusion** (`PointReachable`, première porte de `ItemHoverable`,
+`NkGuiContext.cpp:491-497`), que **rien côté application ne désactive**. Les deux
+mécanismes sont distincts — écrire l'inverse dans la ROADMAP du kit aurait
+conduit quelqu'un à retirer la ligne en croyant qu'elle ne servait à rien.
+
 ---
 
 ## 10. 📊 INVENTAIRE DE `Applications/Nogee` — compile / tourne / consomme

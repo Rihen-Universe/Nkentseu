@@ -24,10 +24,15 @@ namespace nkentseu {
 		// N'est appele que si cfg.uiBackend == NogeeUiBackend::RHIShell.
 		int RunNogeeEditorShell(NogeAppConfig &cfg) noexcept;
 
-		// Active la sonde d'occultation (`--occlusion-test`) : ouvre la palette
-		// puis interroge le routeur, avec un TEMOIN, et ferme. A appeler AVANT
+		// Active la sonde d'occultation : ouvre une surface flottante, interroge
+		// la porte d'interaction depuis un VRAI panneau ancre, avec un TEMOIN
+		// (meme mesure surface fermee), puis ferme. A appeler AVANT
 		// RunNogeeEditorShell.
-		void NogeeShellEnableOcclusionProbe() noexcept;
+		//   prefs = false  (`--occlusion-test`)        -> palette Ctrl+P
+		//   prefs = true   (`--occlusion-test-prefs`)  -> fenetre Preferences
+		// UNE surface par execution : les deux peignent un voile plein ecran, les
+		// ouvrir ensemble melangerait les deux mesures.
+		void NogeeShellEnableOcclusionProbe(bool prefs = false) noexcept;
 
 	} // namespace noge
 } // namespace nkentseu

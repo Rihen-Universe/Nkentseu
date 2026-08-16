@@ -35,6 +35,7 @@ namespace nkentseu {
 					bool enabled = false;
 					int32 frame = 0;
 					bool paletteOpened = false;
+					bool testPrefs = false; ///< mesurer les Preferences au lieu de la palette
 					bool hoverableNoVeil = false;
 					bool panelNoVeil = false;
 					bool reported = false;
@@ -59,6 +60,15 @@ namespace nkentseu {
 						// Rect REEL de ce panneau, obtenu du curseur courant.
 						const nkgui::NkRect r = ui.NextItemRect(120.f, 20.f);
 						const nkgui::NkVec2 c = {r.x + r.w * 0.5f, r.y + r.h * 0.5f};
+						// ⚠️ CE QU'IL FAUT RELEVER AVANT DE FORCER QUOI QUE CE SOIT :
+						// la souris que le PANNEAU recoit reellement. Le shell
+						// BLANCHIT l'entree du corps (mousePos = -100000) quand il
+						// se juge « modal » — et `modal` contient mShowPrefs, mais
+						// PAS la palette (NkEditorShell.cpp:693). Forcer mousePos
+						// sans relever cette valeur revient a defaire la protection
+						// qu'on croit mesurer.
+						mIncomingMouseX = ui.input.mousePos.x;
+
 						const nkgui::NkVec2 saved = ui.input.mousePos;
 						ui.input.mousePos = c;
 						mLastHoverable = ui.ItemHoverable(r, 0xC0FFEEu);
@@ -67,6 +77,7 @@ namespace nkentseu {
 					}
 
 					bool mLastHoverable = false;
+					float32 mIncomingMouseX = 0.f; ///< souris RECUE par le panneau, avant forcage
 					bool mHasMeasure = false;
 			};
 
@@ -85,8 +96,8 @@ namespace nkentseu {
 				// repetee sans rien changer d'autre, est la seule chose qui
 				// separe les deux causes.
 				if (g_probe.frame == 40) {
-					logger.Info("[SONDE] phase 1 (palette FERMEE) : occlCount={0} curInputLayer={1}\n",
-								ui.occlCount, ui.curInputLayer);
+					logger.Info("[SONDE] phase 1 ({0} FERMEE) : occlCount={1} curInputLayer={2}\n",
+								g_probe.testPrefs ? "PREFERENCES" : "palette", ui.occlCount, ui.curInputLayer);
 					for (int32 i = 0; i < ui.occlCount; ++i)
 						logger.Info("[SONDE]   rect declare : layer={0}\n", ui.occlLayers[i]);
 
@@ -103,23 +114,31 @@ namespace nkentseu {
 
 					// LE VRAI TEMOIN : la mesure prise depuis le PANNEAU-SONDE,
 					// qui a le clip et la fenetre courante d'un vrai panneau.
-					logger.Info("[SONDE]   TEMOIN PANNEAU sans voile : mesure_faite={0} ItemHoverable={1}\n",
-								g_probePanel.mHasMeasure ? 1 : 0, g_probePanel.mLastHoverable ? 1 : 0);
+					logger.Info("[SONDE]   TEMOIN PANNEAU sans voile : mesure_faite={0} ItemHoverable={1} souris_recue_x={2}\n",
+								g_probePanel.mHasMeasure ? 1 : 0, g_probePanel.mLastHoverable ? 1 : 0,
+								(int32)g_probePanel.mIncomingMouseX);
 					g_probe.panelNoVeil = g_probePanel.mLastHoverable;
 				}
 
-				// Phase 2 (frame 45) : on ouvre la palette (couche 50).
+				// Phase 2 (frame 45) : on ouvre LA surface a tester.
+				// UNE seule par execution : les deux voiles sont plein ecran, les
+				// ouvrir ensemble melangerait les deux mesures.
 				if (g_probe.frame == 45 && g_shell && !g_probe.paletteOpened) {
-					g_shell->OpenCommandPalette();
+					if (g_probe.testPrefs) {
+						g_shell->OpenPreferences();
+						logger.Info("[SONDE] phase 2 : OpenPreferences() appelee\n");
+					} else {
+						g_shell->OpenCommandPalette();
+						logger.Info("[SONDE] phase 2 : OpenCommandPalette() appelee\n");
+					}
 					g_probe.paletteOpened = true;
-					logger.Info("[SONDE] phase 2 : OpenCommandPalette() appelee\n");
 				}
 
 				// Phase 3 (frame 55) : la palette est ouverte depuis >=2 frames,
 				// donc sa surface figure dans la liste LUE (frame precedente).
 				if (g_probe.frame == 55) {
-					logger.Info("[SONDE] phase 3 (palette OUVERTE) : occlCount={0} curInputLayer={1}\n",
-								ui.occlCount, ui.curInputLayer);
+					logger.Info("[SONDE] phase 3 ({0} OUVERTE) : occlCount={1} curInputLayer={2}\n",
+								g_probe.testPrefs ? "PREFERENCES" : "palette", ui.occlCount, ui.curInputLayer);
 
 					const int32 savedLayer = ui.curInputLayer;
 					ui.curInputLayer = 0; // on interroge du point de vue d'un PANNEAU
@@ -178,8 +197,15 @@ namespace nkentseu {
 						(!g_probe.panelNoVeil)
 							? "NON CONCLUANT — le panneau ne repondait deja pas SANS voile"
 							: (panelUnderVeil ? "LE CLIC TRAVERSE LE VOILE" : "le voile bloque bien");
-					logger.Info("[SONDE] VERDICT PANNEAU : sans_voile={0} sous_voile={1} -> {2}\n",
-								g_probe.panelNoVeil ? 1 : 0, panelUnderVeil ? 1 : 0, verdict);
+					// ⚠️ `souris_recue_x` decide si le verdict vaut quelque chose.
+					// Tres negatif (-100000) = le shell a DEJA blanchi l'entree du
+					// corps (NkEditorShell.cpp:693-700) : le forcage de la sonde
+					// DEFAIT cette protection, et le verdict ne prouve rien.
+					const bool inputBlanked = g_probePanel.mIncomingMouseX < -1000.f;
+					logger.Info("[SONDE] VERDICT PANNEAU : sans_voile={0} sous_voile={1} souris_recue_x={2} -> {3}\n",
+								g_probe.panelNoVeil ? 1 : 0, panelUnderVeil ? 1 : 0,
+								(int32)g_probePanel.mIncomingMouseX,
+								inputBlanked ? "VERDICT NUL — entree du corps DEJA blanchie par le shell" : verdict);
 					g_probe.reported = true;
 
 					if (g_shell)
@@ -244,8 +270,9 @@ namespace nkentseu {
 			return static_cast<int>(rc);
 		}
 
-		void NogeeShellEnableOcclusionProbe() noexcept {
+		void NogeeShellEnableOcclusionProbe(bool prefs) noexcept {
 			g_probe.enabled = true;
+			g_probe.testPrefs = prefs;
 		}
 
 	} // namespace noge

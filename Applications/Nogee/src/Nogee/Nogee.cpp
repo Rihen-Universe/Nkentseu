@@ -69,9 +69,12 @@ int nkmain(const nkentseu::NkEntryState &state) {
 	// PARALLELE, pas un remplacement — les trois autres panneaux ne sont pas
 	// portés (cf. ROADMAP Noge §9quinquies / §9septies).
 	if (ukConfig.uiBackend == NogeeUiBackend::RHIShell) {
-		for (const auto &a : state.GetArgs())
+		for (const auto &a : state.GetArgs()) {
 			if (a == "--occlusion-test")
-				NogeeShellEnableOcclusionProbe();
+				NogeeShellEnableOcclusionProbe(false); // palette Ctrl+P
+			else if (a == "--occlusion-test-prefs")
+				NogeeShellEnableOcclusionProbe(true); // fenetre Preferences
+		}
 		logger.Info("[Nogee] --ui=rhi : montage de la coquille NkEditorShell\n");
 		return RunNogeeEditorShell(ukConfig);
 	}
