@@ -29,6 +29,12 @@ strings (avec encodings UTF-8/16/32/ASCII/Base64). Tests existants restreints
 | Tests étendus pour tous les conteneurs | 🔶 Partiel (9/40+) | L | Haute |
 | Header umbrella complet | 🔶 Partiel (`NKContainers.h` minimal) | S | Moyenne |
 | Wide string (`NkWString`) | 🔶 Partiel (header seulement) | M | Basse |
+| Sémantique de déplacement (`Insert(T&&)` / `Emplace`) | 🔶 Partiel (séquentiels + `NkHashMap` ✅ ; associatifs restants ❌) | M | **Haute** |
+| Paramètre template `Allocator` réellement générique | ❌ décoratif sur 18 conteneurs | M | Moyenne |
+| Macros de capacité `NK_CPP11` / `NKENTSEU_CXX11_OR_LATER` | ❌ jamais définies (47 directives mortes) | M | Moyenne |
+
+👉 **Les manques mesurés, avec leur provenance et leur méthode, sont détaillés
+plus bas : [Inventaire des manques de Foundation](#-inventaire-des-manques-de-foundation-2026-08-16).**
 
 Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abandonné
 
@@ -247,6 +253,240 @@ Effort estimé : L (un fichier de test minimal par conteneur).
   modèle "umbrella" annoncé pour NKCore et NKMath.
 - `NkString` documenté avec emojis dans les commentaires (`🔹 Small String
   Optimization`), à harmoniser avec le reste du code.
+- **`NkString::begin()` / `end()` non-const étaient déclarés sans corps**
+  (`NkString.h:977` et `:991`) : `for (char &c : s)` compilait et échouait à
+  l'édition de liens, sans erreur ni avertissement. **Corrigé le 2026-08-16** —
+  voir §3 de l'inventaire pour la mesure et pour la raison qui l'a rendu
+  invisible si longtemps.
+- **Le paramètre template `Allocator` de 18 conteneurs est décoratif** : les
+  constructeurs codent `&memory::NkGetDefaultAllocator()` en dur, donc tout autre
+  allocateur est refusé à la compilation. Voir §4.
+
+---
+
+## 📊 Inventaire des manques de Foundation (2026-08-16)
+
+> **Provenance** — worktree `Nkentseu-nkanim`, branche `feat/nkanimation`,
+> commit `4e7b1615`, le 2026-08-16. Toolchain g++ 16.1.0, `-std=c++20`.
+> Configurations : les conclusions de **syntaxe** ne dépendent d'aucun
+> comportement d'exécution ; les conclusions d'**exécution** ont été prises dans
+> **Debug et Release** et sont marquées comme telles.
+>
+> Cet inventaire vit ici, dans un document suivi par git, et **non dans le canal
+> d'échanges** (`echanges/` est gitignoré : c'est une conversation, pas une
+> archive). La conversation qui l'a produit peut disparaître ; ceci doit rester.
+
+### 1. Sémantique de déplacement : état par conteneur
+
+Mesuré par une unité de traduction jetable, un type strictement move-only, un
+conteneur par fichier, en `-fsyntax-only`.
+
+| Conteneur | Type de valeur move-only | Détail |
+|---|---|---|
+| `NkVector`, `NkList`, `NkDoubleList` | ✅ accepté | `PushBack(T&&)` + `EmplaceBack` présents hors garde |
+| **`NkHashMap`** | ✅ **accepté depuis 2026-08-16** | voir §2 |
+| `NkMap`, `NkUnorderedMap` | ❌ refusé | même structure que `NkHashMap` avant correctif |
+| `NkSet`, `NkUnorderedSet`, `NkDeque` | ❌ refusé | aucune surcharge rvalue nulle part |
+| `NkStack` | ❌ refusé | le code **existe** mais est compilé hors du binaire par `#if defined(NK_CPP11)` (l. 256) — voir §5 |
+| `NkQueue`, `NkRingBuffer`, `NkPriorityQueue` | ❌ refusé | même garde (l. 281 / 511 / 339) **plus** un second obstacle derrière |
+
+⚠️ **Ce n'est pas un manque théorique.** `NKAnimation/NkAnimation.h` déclare
+**4 champs `NkHashMap`** (l. 277, 278, 684, 685) : tant que le conteneur refusait
+les types non copiables, `NkAnimationTrack<T>` ne pouvait pas devenir un type
+valeur à ressource possédée. Et `NKRenderer/Streaming/NkStreamingSystem` a
+contourné le même manque par un **pool de slots** maison.
+
+### 2. `NkHashMap` — complété le 2026-08-16 (ajouts purs)
+
+Trois ajouts, **aucune signature existante modifiée** :
+
+| Fichier | Ajout |
+|---|---|
+| `Heterogeneous/NkPair.h` | `struct NkPairPiecewiseTag` + `NkPair(NkPairPiecewiseTag, const T1 &, Args &&...)` |
+| `Associative/NkHashMap.h` | `Node(usize, const Key &, Node *, NkPairPiecewiseTag, Args &&...)` |
+| `Associative/NkHashMap.h` | `Insert(const Key &, Value &&)` et `Emplace(const Key &, Args &&...)` |
+
+Commit `54e57ea6`. Témoins : une TU move-only qui **échoue avant**
+(`NkHashMap.h:1084`, *overload resolution selected deleted operator '='*) et
+compile après, sur **g++ 16.1.0 et clang 22.1.4** ; puis **25 assertions
+d'exécution en Debug et en Release** — zéro copie sur rvalue, source vidée,
+`Emplace` sans copie ni move, et la contre-épreuve qu'une lvalue **copie
+toujours** et laisse sa source intacte.
+
+⭐ **Contre-épreuve qui compte plus que la TU** : le **pool de slots** de
+`NKRenderer/Streaming/NkStreamingSystem` **pourrait être retiré**. Son propre
+commentaire (`NkStreamEntry`, l. 102-109) nommait déjà sa cause :
+
+> « `NkHashMap::Insert` prend son argument par `const Value &` et le **COPIE**
+> dans le nœud ; or `NkImage` est non copiable depuis la migration valeur. Un
+> `NkImage lowPayload;` ici rendrait `NkStreamEntry` non copiable et
+> `RegisterTexture`/`RegisterMesh` ne compileraient plus. »
+
+Une TU reproduisant l'entry avec la charge **par valeur** et **sans pool**
+échoue avant et compile après. Le contournement n'est pas retiré ici — ce n'est
+pas ce module — mais **il n'a plus de raison d'être**.
+
+**Pourquoi il fallait toucher `NkPair` et pas seulement `NkHashMap`** : le nœud
+stocke une `NkPair<const Key, Value>`, et **tous** les constructeurs par
+déplacement / forwarding de `NkPair` sont derrière `#if defined(NK_CPP11)` —
+macro jamais définie (§5). La seule voie compilée copiait. Ajouter la surcharge
+sur `Insert` sans donner à `NkPair` un moyen de construire sa valeur sur place
+n'aurait rien débloqué.
+
+**Pourquoi un tag plutôt qu'un constructeur variadique nu** : un variadique nu
+serait glouton et capterait des appels qui résolvent aujourd'hui vers
+`NkPair(const T1 &, const T2 &)` ou vers le constructeur de copie. Avec le tag,
+**aucun appel écrit avant ce jour ne peut le sélectionner** : l'ajout est inerte
+pour les 38 fichiers qui consomment `NkHashMap` et les 6 qui consomment `NkPair`.
+
+**Sémantique retenue, et elle se documente** :
+- `Insert(const Key &, Value &&)` **écrase** si la clé existe (déplacement-assignation), comme la version par copie ;
+- `Emplace(const Key &, Args &&...)` **n'écrase jamais** et retourne `bool`. Ce choix évite de construire quoi que ce soit lorsque la clé est déjà là, et n'exige donc pas que `Value` soit assignable ;
+- la clé reste prise par `const Key &`, comme partout dans ce dépôt. Élargir plus tard au forwarding de la clé restera rétro-compatible ; l'inverse ne le serait pas.
+
+⚠️ **Reste à faire, même forme** : `NkMap`, `NkUnorderedMap`, `NkSet`,
+`NkUnorderedSet`, `NkDeque`. Le `NkPairPiecewiseTag` est déjà en place et leur
+servira.
+
+### 3. Famille « déclarée sans corps » — `NkString::begin()` / `end()`
+
+`String/NkString.h:977` et `:991` déclarent les surcharges **non-const** de
+`begin()` / `end()` ; `NkString.cpp` ne définit **que** les versions const.
+
+Mesure qui ne dépend d'aucune interprétation — symboles de `NKContainers.lib` :
+
+```
+definis  :  nkentseu::NkString::begin() const
+            nkentseu::NkString::end()   const
+manquants:  nkentseu::NkString::begin()
+            nkentseu::NkString::end()
+```
+
+**Conséquence** : `for (char &c : s)` **compile sans un mot** et échoue à
+l'édition de liens. Ni erreur, ni avertissement — le compilateur voit une
+déclaration et la croit.
+
+⚠️ **Et ce n'était pas un piège théorique : il avait déjà une victime.**
+`Applications/Sandbox/src/DemoNkentseu/Base01/main8.cpp:193` (`LowerAscii`)
+écrit exactement cette boucle, et faisait **échouer la cible `Gamepad`** du
+build complet. Mesure, configuration Debug, clang 22.1.4 :
+
+| Build complet (203 cibles, `--keep-going`) | Construites | Échecs |
+|---|---|---|
+| **avant** (`4e7b1615`) | 201/203 | 2 — `Gamepad`, `NKTensorDemo` |
+| **après** (`5c89c5fe`) | **202/203** | 1 — `NKTensorDemo` seul |
+
+`NKTensorDemo` échoue sur `NkLog::Instance()`, défaut sans rapport et antérieur.
+**Zéro régression sur 203 cibles.**
+
+⚠️ **Leçon de méthode, et elle borne l'inventaire lui-même** : *aucune recherche
+par nom ne peut trouver ce défaut.* Un balayage qui compare les noms déclarés
+dans le `.h` aux noms définis dans le `.cpp` voit `NkString::begin` défini et
+passe son chemin — c'est **la surcharge** qui manque, pas le nom. Un balayage de
+ce type a été écrit et lancé sur Foundation : il n'a pas trouvé ce défaut, alors
+qu'il le cherchait. **Seule l'édition de liens décide.** Un inventaire complet de
+cette famille demanderait une unité de traduction qui odr-utilise chaque
+surcharge déclarée — chantier non ouvert, nommé ici.
+
+### 4. Le paramètre template `Allocator` est décoratif
+
+**18 conteneurs** exposent un paramètre `typename Allocator` et codent malgré
+tout `&memory::NkGetDefaultAllocator()` en dur dans leurs constructeurs :
+
+```cpp
+mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+```
+
+Le type de cette expression est `memory::NkAllocator *`. Avec tout autre
+allocateur, l'expression conditionnelle ne compile pas.
+
+Vérifié directement sur **5 des 18** — `NkHashMap`, `NkVector`, `NkMap`,
+`NkSet`, `NkList` : **5 refus sur 5**. Les 13 autres portent le même motif mais
+n'ont pas été instanciés ; le chiffre à retenir est donc *18 exposent, 5 mesurés,
+5 refusent*.
+
+Même famille que tout le reste : **une déclaration promet ce que le code ne
+tient pas.** Deux issues acceptables, l'ambiguïté ne l'est pas — soit rendre le
+paramètre réellement générique, soit le retirer.
+
+### 5. Macros de capacité jamais définies
+
+Une macro **d'option** choisit entre deux comportements valides ; une macro de
+**capacité** en désactive un qui devrait être actif. Seules les secondes sont des
+défauts. Sur ~128 macros non définies balayées dans `Kernel/`, `Engine/`,
+`Applications/`, `Integrations/`, ~120 sont des interrupteurs sains
+(`*_BUILD_SHARED_LIB`, `*_HEADER_ONLY`, `NKSL_HAS_*`…). Restent :
+
+| Macro | Directives `#if` / fichiers | État |
+|---|---|---|
+| `NK_CPP11` | 34 / 16 (NKContainers seul) | jamais définie |
+| `NKENTSEU_CXX11_OR_LATER` | 13 / 5 | jamais définie — **c'est la cible de migration annoncée par `NkCompat.h:399`** |
+| `NK_PLATFORM_WINDOWS` | 2 | traité par un autre chantier (`NkBasicString.cpp`) |
+
+⚠️ **`NkCompat.h:399` porte une table de migration `NK_CPP11 → NKENTSEU_CXX11_OR_LATER`
+dont la cible n'a jamais été écrite.** `NkPlatformDetect.h` ne contient aucune
+occurrence de `__cplusplus` ni d'une macro de standard, alors que `NkCompat.h:28`
+annonce en commentaire l'importer pour « `NKENTSEU_CXX_*` ».
+
+⚠️ **Et définir `NK_CPP11` ne se fait PAS d'une ligne** — mesuré :
+
+```
+-DNK_CPP11 -> NkStringView.h:1857: error: inline namespace must be specified at initial definition
+              (rouvre en `inline namespace literals` ce que NkTypeUtils.h:147 declare en `namespace literals`)
+```
+
+Un défaut réel dans une branche que **personne n'a jamais compilée**. Activer la
+macro fait compiler 47 directives de code jamais lu par un compilateur. C'est un
+**chantier à part**, à mener avec un build complet mesuré avant / après — pas un
+correctif. Il n'était d'ailleurs pas la solution du manque §1 : sur `NkHashMap`,
+`-DNK_CPP11` donnait **exactement la même erreur, à la ligne près**, parce que le
+constructeur à forwarding parfait était instancié avec des lvalues const.
+
+### 6. Dette zero-STL réelle de Foundation : six fichiers
+
+⚠️ **Un `grep std::` sur Foundation surcompte d'un facteur 4 à 30** — ces fichiers
+portent des centaines de lignes d'exemples en commentaire.
+
+**Méthode qui ne ment pas** : `gcc -fpreprocessed -dD -E <fichier>` retire les
+commentaires **sans** résoudre les inclusions, puis on compte les directives
+survivantes. *Un commentaire peut écrire `#include <vector>` ; il ne peut pas
+l'inclure.*
+
+| Module | `grep std::` | inclusions STL **réelles** |
+|---|---|---|
+| NKContainers | 345 | `<new>` `<utility>` `<type_traits>` `<initializer_list>` `<stdexcept>` |
+| NKCore | 290 | `<string>` `<sstream>` `<stdexcept>` `<type_traits>` |
+| NKMath | 98 | `<ostream>`×3 `<iostream>` `<string>` `<algorithm>` `<initializer_list>` |
+| NKMemory | 191 | `<new>`×3 `<memory>` `<type_traits>` |
+| **NKPlatform** | 98 | `<new>` **et rien d'autre — ce module est propre** |
+
+Les six fichiers qui portent la dette :
+
+| Fichier | STL réelle | Consommateurs | Nature |
+|---|---|---|---|
+| `NKContainers/String/NkFormat.h` | `<stdexcept>` | 57 | aucun type d'erreur maison employé ici — or `Utilities/NkResult.h` existe |
+| `NKMath/NkAngle.h` + `.cpp`, `NkColor.cpp` | `<ostream>` | API publique | `friend std::ostream &operator<<` **dans la surface publique** : tout consommateur de `NkAngle` hérite de `<ostream>` par transitivité. **La plus structurelle des six.** |
+| `NKMath/NkLegacySystem.h` | `<string>` `<iostream>` `<algorithm>` | 8 | min/max/clamp et sortie de débogage |
+| `NKCore/NkEnumeration.h` | `<string>` `<sstream>` `<stdexcept>` | **0** | **code mort** — personne ne l'inclut. À supprimer ou réparer, pas à arbitrer. |
+| `NKMemory/NkStlAdapter.h` | `<memory>` | 1 | **par conception** : c'est l'adaptateur STL. Non-défaut, cité pour que personne ne le « corrige ». |
+
+⚠️ **Nuance qui change l'arbitrage sur NKCore** : NKCore est **sous**
+NKContainers dans l'ordre de dépendance (`NkCompat.h:29` inclut
+`NKCore/Assert/NkAssert.h`). NKCore ne **peut pas** employer `NkString` sans
+inverser la dépendance. Son `<string>` n'est pas un contournement silencieux,
+c'est une contrainte de couche — le seul vrai remède serait une chaîne minimale
+dans NKCore lui-même. **Nommé, non tranché.**
+
+### 7. Ce que cet inventaire dit de la méthode
+
+Trois instruments ont été pris en défaut en une session, chacun d'une façon
+différente, et c'est le résultat le plus réutilisable :
+
+1. **`grep` compte les commentaires** — facteur 4 à 30 sur la dette STL. Remède : le préprocesseur.
+2. **Une recherche par nom ne voit pas une surcharge manquante** — `begin()` non-const est invisible à tout balayage textuel qui trouve `begin() const`. Remède : l'éditeur de liens.
+3. **Une macro mal orthographiée dans un `#if` ne se voit nulle part** — le code compile, il compile juste l'autre branche. Remède : mesurer que la branche attendue est bien celle qui est prise.
+
+Le point commun : **ça répond, donc on croit avoir demandé.**
 
 ---
 
