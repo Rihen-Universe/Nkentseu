@@ -213,6 +213,33 @@ donc rien à accumuler) : les 23 cas de `NKAutogradTest`, `NKConvResidentBench:7
 `NKMlpResidentBench:84`, `NKRnnCtcTest:32`, `NKTransformerTest:38`,
 `NKFp16Test:334,345`.
 
+### 🚫 `NKConvResidentBench` N'A PAS REÇU DE `ZeroGrad()`, ET C'EST DÉLIBÉRÉ
+
+**À lire avant d'« harmoniser ».** Onze applications de ce lot se ressemblent de
+loin : une boucle, un `Backward()`, aucun `ZeroGrad()`. **Dix en ont reçu un ;
+celle-ci non.** Sans cette note, quelqu'un corrigera l'écart dans six mois en
+croyant réparer un oubli — et le seul effet sera d'abîmer ce que le banc mesure.
+
+Les trois raisons, dans l'ordre où elles se vérifient
+(`Applications/NKConvResidentBench/src/main.cpp:71-81`) :
+
+1. **Il n'y a pas de feuille persistante.** `x` et `w` sont créés par
+   `NkVar::Leaf(...)` **à l'intérieur** de la lambda `step` : neufs à chaque
+   appel, détruits au retour. Aucun gradient ne survit d'un appel au suivant —
+   il n'y a rien à accumuler, donc rien à effacer.
+2. **Il n'y a aucun optimiseur.** Ni `NkAdam`, ni `NkSGD`, ni `Step()` — donc pas
+   même d'objet sur lequel appeler `ZeroGrad()`. Le « correctif » demanderait
+   d'abord d'inventer ce qu'il prétend corriger.
+3. **Ce n'est pas une boucle d'entraînement, c'est un banc.** `step` est appelé
+   plusieurs fois pour **chronométrer** le même calcul et confronter `dX`/`dW`
+   entre chemin CPU et chemin GPU. Sa validité repose sur l'**indépendance de
+   chaque appel** ; un état conservé d'un appel au suivant ferait de la deuxième
+   mesure autre chose que la première.
+
+*C'est la forme habituelle de ce chantier, prise à l'envers : partout ailleurs on
+a payé un état qui survivait sans qu'on le veuille. Ici il ne survit pas, et
+c'est l'ajouter qui serait le défaut.*
+
 ### 🔎 LE MÊME PIÈGE À HUIT LIGNES DE LÀ OÙ IL AVAIT ÉTÉ RÉPARÉ — corrigé
 
 Ce n'est **pas une rechute du chantier n°1** : c'est le même piège, chez un autre
@@ -269,16 +296,93 @@ dépôt est `NkGptTrainer::Fit`** (plus `TrainEpochAccum`, qui était déjà cor
 | `NKTrain/NkTrain.h` | `ZeroGrad()` en tête de boucle dans `TrainEpoch` **et** `Fit` ; bloc d'en-tête sur les trois placements |
 | `NKNNTest`, `NKConvTest`, `NKTrainTest` | les 8 sites de la famille B nécessaires aux quatre suites |
 
-**⏳ RESTE OUVERT — 10 applications de la famille B, 12 sites**, non corrigées
-parce qu'elles ne font partie d'aucune des quatre suites et que la décision
-revient à Rodolf : `NKConvVAETest` · `NKDiffusionTest` (3) · `NKGen3DTest` ·
-`NKGenMeshTest` · `NKGenTest` · `NKMnistConvVAETest` · `NKMnistVAETest` ·
-`NKObjectGenTest` · `NKVAETest` · `NKVoxelGenTest`.
+**✅ CLOS — les 10 applications restantes, 12 sites** : `NKConvVAETest` ·
+`NKDiffusionTest` (3) · `NKGen3DTest` · `NKGenMeshTest` · `NKGenTest` ·
+`NKMnistConvVAETest` · `NKMnistVAETest` · `NKObjectGenTest` · `NKVAETest` ·
+`NKVoxelGenTest`. Une ligne par site, identique aux huit déjà posées.
 
-⚠️ **Elles sont toutes sur Adam, donc elles ne tomberont PAS** — elles
-entraîneront sur une somme cumulée en restant vertes. C'est exactement le motif
-décrit plus haut : leur silence n'est pas une preuve de santé. Le correctif est
-d'une ligne par site, identique aux huit déjà posées.
+### 🎯 LA PRÉDICTION « ELLES RESTERONT VERTES » ÉTAIT FAUSSE — mesuré
+
+J'avais écrit, et Claude l'avait repris : *« elles sont toutes sur Adam, donc
+elles ne tomberont pas ; elles entraîneront sur une somme cumulée en restant
+vertes »*. **La mesure la réfute : les DIX échouaient déjà.**
+
+**Provenance** : arbre `Nkentseu-ilyana`, `feat/ilyana-pdf`, base `5d61f7fd`,
+**configuration Release**, instrument PowerShell, 2026-08-16.
+
+| application | métrique finale AVANT → APRÈS | facteur | verdict |
+|---|---|---|---|
+| `NKConvVAETest` | recon MSE **0,21252 → 0,03199** | ×6,6 | 1 OK/1 KO → **2 OK/0** |
+| `NKGen3DTest` | MSE 3D **0,06435 → 0,00145** | **×44** | 0 OK/1 KO → **1 OK/0** |
+| `NKGenMeshTest` | MSE **0,05837 → 0,00150** | **×39** | 3 OK/1 KO → **4 OK/0** |
+| `NKGenTest` | MSE **0,11000 → 0,00210** | **×52** | 0 OK/1 KO → **1 OK/0** |
+| `NKMnistConvVAETest` | BCE **0,28226 → 0,13473** | ×2,1 | `[KO]` → **`[OK]`** |
+| `NKMnistVAETest` | BCE **0,30733 → 0,12939** | ×2,4 | `[KO]` → **`[OK]`** |
+| `NKObjectGenTest` | recon MSE **0,06900 → 0,00448** | ×15 | 0 OK/**4 KO** → **4 OK/0** |
+| `NKVAETest` | recon MSE **0,16601 → 0,03286** | ×5,1 | 1 OK/1 KO → **2 OK/0** |
+| `NKVoxelGenTest` | recon MSE **0,13370 → 0,01080** | ×12 | 2 OK/1 KO → **3 OK/0** |
+| `NKDiffusionTest` | *(journal non capturable)* | — | **exit 1 → exit 0** |
+
+**Zéro `[ KO ]` restant** sur les neuf applications qui impriment un verdict.
+
+⚠️ **Pourquoi je m'étais trompé, et c'est la partie utile.** Adam rend le défaut
+silencieux **dans une suite de tests** — `NKConvTest` passe des deux côtés, c'est
+mesuré. Il ne le rend **pas** silencieux dans un **démonstrateur qui affiche sa
+métrique** : là, l'erreur de reconstruction stagne ou **monte** au lieu de
+descendre (`NKGen3DTest` : 0,05536 → 0,05837 → 0,06435 aux époques 300/400/500).
+*Le défaut n'était pas muet, il était NON LU* — ces dix criaient en rouge dans une
+sortie que personne n'exécutait.
+
+**Ce que ça corrige dans le raisonnement d'origine** : « toutes sur Adam » disait
+quelque chose de vrai sur les **assertions binaires**, et je l'ai étendu aux
+**métriques continues**, qui n'ont pas la même propriété. Une invariance
+d'échelle protège un seuil, pas une trajectoire.
+
+### ✅ LES DEUX CONFIGURATIONS, COMME LE VEUT LA RÈGLE DE PROVENANCE
+
+**Debug rejoué en entier** (10 builds, 10 exécutions, 2026-08-16 22:05-22:23) :
+
+- **zéro `[ KO ]`** sur les neuf applications qui impriment un verdict ;
+- **métrique finale IDENTIQUE au dernier chiffre** entre Debug et Release, pour
+  les neuf — `0,03199`, `0,00145`, `0,00150`, `0,00210`, `0,13473`, `0,12939`,
+  `0,00448`, `0,03286`, `0,01080` ;
+- `NKDiffusionTest` : **14 OK / 0 échec** (2D inconditionnel 0 KO, conditionnement
+  0 KO, 3D 0 KO). *Son journal n'est capturable qu'en Debug — en Release il
+  n'écrit sur aucun flux redirigeable, seul son code de retour parle.*
+
+**Aucun écart Debug/Release**, donc rien à expliquer de ce côté.
+
+### 🧰 TROIS DÉFAUTS D'INSTRUMENT RENCONTRÉS PENDANT CETTE CAMPAGNE
+
+Ils n'ont rien à voir avec le correctif, et chacun aurait produit un chiffre faux.
+
+**1. ⚠️ `Copy-Item` conserve l'horodatage — le build ment sans erreur.**
+La restauration des dix `main.cpp` depuis une sauvegarde leur a redonné un
+`LastWriteTime` **plus ancien** que ce qu'ils remplaçaient. `jenga` a conclu « à
+jour », **n'a pas recompilé**, a relié, et annoncé `Build Successful`, 24/24,
+exit 0. Le binaire « APRÈS » a rendu la trajectoire de l'AVANT **chiffre pour
+chiffre** (`0,20605`, `0,21252`, KL `9,740`, `20,176`).
+*Ce qui a sauvé la mesure : l'identité EXACTE était invraisemblable.* Un correctif
+qui ne déplace rien à quatre décimales sur 500 époques n'existe pas.
+→ **Après toute copie de source, forcer l'horodatage**, et vérifier
+**binaire plus récent que source** — jamais se contenter de `Build Successful`.
+
+**2. ⚠️ Git Bash rend `exit=127` sans une ligne de sortie** sur les deux
+applications MNIST. Le binaire existe, aucune dépendance ne manque, et depuis
+PowerShell elles tournent parfaitement. Contre-épreuve : là où Git Bash marchait,
+PowerShell rend **exactement** les mêmes chiffres. → **un seul instrument par
+campagne.**
+
+**3. ⚠️ Les deux applications MNIST ont une synthèse qui NE PEUT PAS échouer :**
+```
+printf("\n=== Résultat : %d OK, 0 échec(s) ===\n", 1);
+return 0;
+```
+Compte **codé en dur**, retour inconditionnel — alors que la ligne juste au-dessus
+affiche `[ KO ]` avec la vraie valeur. Lire la synthèse ou le code de retour fait
+conclure « vert » sur une application qui vient d'échouer. **Chez elles, seul le
+marqueur `[ OK ]`/`[ KO ]` discrimine.** *Dette nommée : leur synthèse devrait
+compter les vérifications réelles.*
 
 ### ⚠️ `NKConvTest` est AVEUGLE, et c'est écrit dans le fichier
 
