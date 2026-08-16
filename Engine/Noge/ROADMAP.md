@@ -630,6 +630,87 @@ structurel — une absence dans NKUI, pas un réglage.*
 panneau qui s'affiche et qui **ment sur les clics** — le pire des deux mondes,
 parce que le défaut reste invisible tant qu'aucune surface ne recouvre le panneau.
 
+### 9quinquies. ✅ PORTAGE PILOTE — le panneau Console, mesuré (2026-08-17)
+
+**Un panneau porté, seul, pour remplacer une estimation par un chiffre.** Le
+chemin NKUI reste vivant et construit : rien n'a été retiré.
+
+**Provenance** : worktree `Nkentseu-noge`, Windows, clang-mingw **ucrt64**,
+Jenga **2.4.0**, sous-modules 7/7. Aucun fichier touché hors
+`Applications/Nogee/`.
+
+| | |
+|---|---|
+| **lignes écrites** | **269** (`ConsolePanelGui.h` 84 + `.cpp` 185) — dont **53 de commentaire d'en-tête** expliquant le portage → **~216 de code** |
+| **l'original NKUI** | 266 l., **inchangé, toujours compilé** |
+| **temps passé** | **~40 min**, mesure et builds compris |
+| **compile** | **Release 45/45 SUCCESS** (2 m 58) · **Debug 45/45 SUCCESS** · exit 0 · **0 erreur** dans les deux |
+| **preuve** | `src_Nogee_Panels_ConsolePanelGui.obj` — 11 992 o (Release), 162 340 o (Debug) — **à côté** de `ConsolePanel.obj` (NKUI), toujours produit |
+| **Nogee tourne toujours** | exit 124 à 15 s (il tournait encore), device GL 4.6 + RHI OK, `Nogee.exe` 17 174 423 o |
+
+**Ce qui change dans le code, et c'est le vrai enseignement pour les 3 suivants :**
+
+| NKUI | NKGui | coût |
+|---|---|---|
+| le panneau ouvre sa fenêtre (`SetNextWindowPos`/`Begin`/`End`) | **le shell la possède** ; le panneau ne peint que son contenu | ✅ **~20 lignes en moins** |
+| `BeginRow`/`EndRow` + `SameLine(ctx, ls)` | `ctx.SameLine()` / `ctx.NextItemRect(w,h)` | traduction ligne à ligne |
+| `TextColored(...)` | **n'existe pas** → `TextAt(ctx, pos, s, col)` + rect réservé à la main | +2 l. par ligne colorée |
+| `BeginScrollRegion` + `scrollY` géré par l'app | `BeginChild(ctx, id, rect, border)` — **scroll persistant par identifiant** | ✅ plus simple |
+| `nkui::NkColor` | `nkgui::NkColor` | **deux types distincts** — aucune conversion implicite |
+
+⚠️ **La surprise, et c'est elle qui décide de la suite** : le portage a dû
+**recopier ~35 lignes de logique de log** (`PushLine`, fusion des répétitions,
+compteurs) parce que le modèle de données vit dans `ConsolePanel.h`, **un
+en-tête qui inclut `NKUI/NKUI.h`**. L'inclure aurait retraîné NKUI dans le
+panneau porté.
+
+> **Conséquence pour les trois autres panneaux** : le coût n'est pas seulement
+> l'UI. **Avant de porter Inspector / SceneTree / AssetBrowser, extraire leur
+> modèle de données dans des en-têtes neutres** (sans include d'UI). Sinon
+> chaque portage duplique son modèle, et on se retrouve avec deux vérités par
+> panneau — le motif du troisième sélecteur de dossier, au niveau du modèle.
+
+**Ce que le pilote ne prouve pas** : le panneau **compile** et le binaire tourne,
+mais il **n'est pas encore instancié** — monter `NkEditorShell` dans Nogee est le
+geste suivant (~120 l., cf. `NkAnimaEditor/main.cpp`). Aucune mesure ici sur le
+rendu, l'entrée ou l'occultation à l'exécution.
+
+**Extrapolation, à prendre comme telle** : 269 l. écrites pour 266 l. d'origine
+→ rapport **~1,0**. Les 1 278 l. estimées en §9ter tiennent donc comme ordre de
+grandeur pour les quatre panneaux **plus** le coût d'extraction des modèles, qui
+n'était pas dans l'estimation.
+
+📌 **Pourquoi ce portage est peu regrettable, même si Rodolf réunit un jour les
+deux bibliothèques** : la convergence se fera vers **la plus sûre des deux** —
+celle qui possède un routeur d'occultation par couches et qui sait pourquoi elle
+en a un (§9quater). **Porter vers NKGui va donc dans le sens de toute
+convergence plausible**, et ce qui est porté ne sera pas à re-porter.
+
+### 9sexies. ⚠️ CORRECTION D'UN CHIFFRE QUE J'AVAIS PUBLIÉ — les shaders ne recompilent PAS à chaque frame
+
+Mesuré en relançant Nogee pour le pilote ci-dessus. **Je corrige ma propre §10.**
+
+J'avais écrit, et fait remonter : *« un shader en échec est redemandé à chaque
+image **sans mémorisation** — `SelOutline` = 1 666 requêtes en 12 s »*. La
+mémorisation existe :
+
+```
+LoadOrCompileVF 'SelOutline'              12 652 appels en 15 s
+LoadOrCompileVF 'SelOutline' - cache hit  12 651   <- soit TOUS sauf le premier
+CreateShader fail                              17   <- une fois par shader, pas par frame
+```
+
+**Le cache fonctionne.** Le premier appel compile (et échoue), les 12 651 suivants
+touchent le cache. **Ce qui se répète 60 fois par seconde n'est pas une
+compilation, ce sont DEUX lignes de journal `[INF]` par shader et par image** —
+25 303 lignes sur les 51 020 du journal d'un run de 15 s.
+
+**Le défaut reste réel, mais il change de nature et de remède** : ce n'est pas
+« le moteur recompile en boucle » (coûteux, à réparer dans NKRenderer), c'est
+« un chemin chaud journalise en `[INF]` » (à passer en `[TRACE]` ou à ne
+journaliser qu'au premier appel). **Les 17 shaders en échec, eux, sont bien
+réels et échouent une fois chacun** — ce compte-là ne bouge pas.
+
 ---
 
 ## 10. 📊 INVENTAIRE DE `Applications/Nogee` — compile / tourne / consomme

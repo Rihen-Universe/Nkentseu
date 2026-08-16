@@ -34,10 +34,14 @@ with project("Nogee"):
     # Fermeture transitive complete : Nogee depend d'Engine/Noge (NkApplication,
     # LayerStack, ECS Scene/Reflect) qui tire NKECS, NKRenderer, NKSerialization,
     # NKFileSystem, NKAudio/NKMedia/NKNetwork, NKRL/NKAgent (cf. Noge.jenga _DEPS).
+    # NKEditorKit/NKGui/NKCanvas/NKReflection : portage pilote du panneau Console
+    # vers la coque d'editeur (Panels/ConsolePanelGui.*). NKUI reste dans la liste
+    # — le chemin NKUI legacy est toujours vivant et construit.
     nkentseudependson(
         ["Noge", "NKAgent", "NKRL", "NKTensor", "NKAudio", "NKMedia", "NKNetwork",
          "NKRenderer", "NKSL", "NKCollision", "NKPhysics", "NKNavigation",
          "NKSerialization", "NKFileSystem", "NKECS", "NKRHI",
+         "NKEditorKit", "NKGui", "NKCanvas", "NKReflection",
          "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKUI", "NKFont", "NKImage",
          "NKEvent", "NKWindow", "NKLogger", "NKMath", "NKTime", "NKStream",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
