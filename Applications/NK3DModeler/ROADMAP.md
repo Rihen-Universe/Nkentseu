@@ -831,6 +831,72 @@ multiplient (chaque opération devra être une commande réversible).
 
 ---
 
+## 🃏 CARTES D'ASSETS DU NAVIGATEUR DE CONTENU — RÉFÉRENCE (décision de Rihen, 17/08)
+
+*Rihen : « pour le design des cartes d'assets dans le Content Browser [de Nogee],
+s'inspirer de NK3DModeler ». Cette section est ce que l'agent Noge lira — une
+carte se copie mal depuis une capture, elle se reprend bien depuis une
+description. Tout ce qui suit est **lu dans le code** (`NkModelerBrowser.h`,
+zone « CARTES »), pas décrit de mémoire.*
+
+**Géométrie** (unités logiques ; tout ce qui passe par `S()` suit l'échelle UI) :
+carte de **96 px de large** = vignette **96×96** + **bande de type 3 px** +
+**pied 34 px**. Ombre portée décalée `(+2, +3)`, noir alpha 90, rayon 3 —
+« comme Unreal ». Espacement entre cartes `S(14)`.
+
+**Redimensionnement** : la grille **enveloppe** — une carte qui dépasserait la
+marge droite (`tx + tw > wrapW`) part à la ligne suivante. Largeur de carte
+FIXE ; c'est le **nombre de colonnes** qui varie.
+
+**Deux états de sélection, deux marques — et ils ne se confondent pas** :
+- **ACTIVE** (`selectedAsset`) : celle dont les panneaux montrent les
+  propriétés → **aplat** accent débordant de 2 px autour de la carte ;
+- **CHOISIE** (`browserPicked[]`) : celles qui partiront ensemble si on tire →
+  **contour** accent, même débord. *Raison écrite dans le code : on peut choisir
+  cinq cartes et n'en inspecter qu'une ; la différence doit se lire d'un coup
+  d'œil sur une grille de trente cartes, pas se deviner entre deux nuances.*
+
+**Fond de vignette** : damier 8 px (`InputBg` / `WindowBg`) — il dit « ce fond
+est vide », comme un canal alpha.
+
+**Couleur et nom de type** : depuis le **point de passage unique**
+(`NkAssetColor` / `NkAssetKindName`, `NkModelerUI.h`) — la pastille de filtre et
+le liseré d'onglet lisent la **même table**. Ne pas dupliquer cette table.
+
+**Vignette par nature** (tout ceci est le **repli** tant qu'aucune miniature
+n'existe) : dossier = chemise avec rabat, **pleine ou vide selon son contenu** ;
+procédural = **deux nœuds reliés avec broches** (la recette, pas le résultat —
+un cube le ferait passer pour un Model) ; matériau = **boule d'aperçu réelle**
+(ids image 4400+, rendue par l'hôte, retéléversée quand elle périme) ; scène =
+sa capture (4500+, ratio préservé) ; mesh = cube plein ; dataset = document
+ligné.
+
+**⚠️ Règle des miniatures (Rihen, 8 août)** : la miniature vient de **LA VUE** —
+ce que la vue 3D regarde — **pas d'un nœud caméra de la scène**. Un projet sans
+caméra doit avoir ses vignettes quand même. Point d'accroche **unique** dans le
+code ; un second endroit qui dessinerait un aperçu divergerait au premier
+changement de cadrage.
+
+**Pastille d'albédo sur les matériaux** (12 px, coin bas-droit de la boule,
+liseré noir) : la boule d'aperçu est une **SIMULATION** (studio, fond clair — un
+albédo 0,7 y paraît blanc puis se pose sombre dans une scène à ambiance 0,050) ;
+la pastille est une **DONNÉE**, l'albédo brut borné avant conversion en octets.
+Les deux coexistent délibérément.
+
+**Pied de carte** : deux lignes — **nom éditable en place** (32 car. max,
+**clippé à la carte** : il débordait sur la voisine) puis **type** en
+`TextMuted`. Renommer la carte d'une scène renomme **son document** (l'onglet
+suit), uniquement **à la validation** — une copie par frame écraserait le
+renommage fait depuis l'onglet.
+
+**Gestes** : double-clic sur un dossier = y entrer ; tirer = glisser-déposer
+(armement sur la carte, cible au survol) ; le titre du panneau n'existe qu'en
+**un** point (`kBrowserTitle`) parce qu'il est peint **et** mesuré.
+
+**Classement/visibilité** : un seul décideur, `NkBrowVisible` (tri + filtre +
+recherche) — deux endroits qui décident ce qui est visible finiraient par ne
+plus être d'accord.
+
 ## Règles d'interface acquises (ne pas les redécouvrir)
 
 - **Un document par onglet** : un nœud appartient à **une** scène ou **un**
