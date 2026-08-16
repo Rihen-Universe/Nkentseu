@@ -214,6 +214,52 @@ encore** (ligne ❌ « APK Quest 2 via la chaîne jenga Android » ci-dessus).
 `xrEnumerateEnvironmentBlendModes` exige un `systemId` valide, donc un casque
 présent. Le code est en place et journalise ; il suffira d'un lancement.
 
+### 📏 MESURE DU SUIVI PAR L'IMAGE — `NkArFlow`, seul (2026-08-17)
+
+748 lignes qui tournaient depuis le 13/08 **sans avoir jamais été mesurées
+séparément**. C'est pourtant ce qui tient la scène entre deux marqueurs — donc
+la première chose qu'un étudiant verra en détournant la caméra du marqueur.
+
+**Protocole** (`tests/bench_ar_flow.cpp`) : image **réelle** du téléphone
+(1280×720, vraie texture et vrai bruit), rotations imposées par **décalage entier
+de pixels** — sous le modèle sténopé, un lacet θ décale l'image de fx·tan(θ) —
+avec les **intrinsèques mesurées** du 13/08 (fx = 918,9), sans quoi la conversion
+pixels → angle fausserait la vérité elle-même.
+
+| décalage | vérité | mesuré | points | verdict |
+|---|---|---|---|---|
+| 1 px | 0,062° | — | 12 | **refusé** |
+| 2 px | 0,125° | — | 23 | **refusé** |
+| **4 px** | 0,249° | **0,250°** | 15 | ✅ |
+| **8 px** | 0,499° | **0,499°** | 23 | ✅ |
+| **16 px** | 0,998° | **0,998°** | 15 | ✅ |
+| **32 px** | 1,994° | **1,995°** | 24 | ✅ |
+| 48 px | 2,990° | — | **0** | **refusé** |
+| 64 px et + | — | — | **0** | **refusé** |
+
+**Ce que ça établit :**
+- **précision : exacte** — erreur ≤ 0,001° sur toute la bande utile ;
+- **bande utile : 0,25° à 2,0° par image**, soit **~60°/s à 30 images/s** ;
+- **hors bande, il REFUSE au lieu de mentir** : trop petit, pas assez de signal ;
+  trop grand, aucun point ne vote. Un estimateur qui se tait quand il ne sait pas
+  vaut mieux qu'un estimateur qui invente.
+
+⚠️ **La portée annoncée dans l'en-tête est optimiste d'un facteur 1,7.** Le
+commentaire de `searchRadius` dit « 40 px valent 4°, soit 125°/s » — calculé avec
+une focale **supposée de 550 px**. Avec la focale **mesurée** de 918,9, 40 px ne
+valent que **2,5°, soit 75°/s**. Le banc mesure une coupure encore plus tôt, vers
+32 px. *Un chiffre calculé sur une valeur d'attente, resté dans un commentaire
+après l'arrivée de la vraie mesure.*
+
+**Ce que ce banc NE mesure PAS** : des décalages entiers sont le cas le plus
+favorable — aucun rééchantillonnage, donc aucun flou d'interpolation. Le terrain
+ajoute le flou de bougé, l'obturateur déroulant, les changements d'éclairage et la
+parallaxe d'une translation. **Ces chiffres sont une borne supérieure.**
+
+**Pour l'enseignement** : on peut promettre que la scène tient quand on tourne
+*lentement* (sous ~60°/s). On ne peut pas promettre un balayage rapide — et
+l'application le saura, puisque le suivi renvoie `valid = false`.
+
 ### ⚠️ Et le MR est aussi **empêché par une ligne**
 
 Recherche exhaustive sur `passthrough`, `mixed reality`, `environment blend` dans
