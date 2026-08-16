@@ -184,7 +184,37 @@ du cas « EndFrame avec image encore acquise »).
 | **AR** — centrale inertielle (`NkArImu`) | 252 l. | ✅ | ❌ **défaut connu** : partage le `Looper` de l'application et **fige la boucle**. Coupé par défaut depuis le 14/08 |
 | **MR / passthrough** | **0 ligne** | — | ❌ **inexistant** |
 
-### ⚠️ Le MR n'est pas « à faire », il est **empêché par une ligne**
+### 🔬 MESURE DU 2026-08-17 — le runtime PC **n'offre aucun passthrough**
+
+Le module interroge désormais `xrEnumerateEnvironmentBlendModes` et **écrit ce
+que le runtime annonce** (observation seule — le mode soumis reste `OPAQUE`).
+
+Ce qui a pu être mesuré **sans casque**, sur cette machine :
+
+```
+runtime charge ...... Oculus 1.206.0 (Meta Horizon, LibOVRRTImpl64_1.dll)
+extensions offertes .. 36
+xrGetSystem .......... ECHEC, XrResult -35 (aucun casque connecte)
+```
+
+⚠️ **Aucune extension de passthrough dans les 36.** Les seules `XR_FB_*`
+annoncées sont `color_space`, `display_refresh_rate`, `haptic_amplitude_envelope`,
+`haptic_pcm`, `touch_controller_pro`, `touch_controller_proximity`. **Pas de
+`XR_FB_passthrough`.**
+
+**Ce que ça établit** : le passthrough n'est pas exposé par le runtime **PC via
+Link**. Le MR ne sera donc pas atteignable depuis un PC relié au casque, quelle
+que soit la valeur du mode de fusion.
+
+**Ce que ça n'établit PAS** : l'état sur un **APK autonome Quest**, où le runtime
+est différent et expose habituellement le passthrough. Or cet APK **n'existe pas
+encore** (ligne ❌ « APK Quest 2 via la chaîne jenga Android » ci-dessus).
+
+**Reste à mesurer, casque connecté** : la liste des modes de fusion elle-même —
+`xrEnumerateEnvironmentBlendModes` exige un `systemId` valide, donc un casque
+présent. Le code est en place et journalise ; il suffira d'un lancement.
+
+### ⚠️ Et le MR est aussi **empêché par une ligne**
 
 Recherche exhaustive sur `passthrough`, `mixed reality`, `environment blend` dans
 tout `NKXR` et `NKARDemo` : **une seule occurrence**, et c'est son contraire —
