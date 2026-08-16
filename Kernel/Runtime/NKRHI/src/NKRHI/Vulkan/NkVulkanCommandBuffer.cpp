@@ -6,6 +6,7 @@
 #include "NkVulkanDevice.h"
 #include <cstring>
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKLogger/NkLog.h" // ClearBuffer : un refus doit se voir, pas se taire
 
 #include "NKPlatform/NkPlatformDetect.h"
 
@@ -264,6 +265,39 @@ namespace nkentseu {
 	void NkVulkanCommandBuffer::CopyBuffer(NkBufferHandle s, NkBufferHandle d, const NkBufferCopyRegion &r) {
 		VkBufferCopy cp{r.srcOffset, r.dstOffset, r.size};
 		vkCmdCopyBuffer(mCmdBuf, mDev->GetVkBuffer(s.id), mDev->GetVkBuffer(d.id), 1, &cp);
+	}
+
+	// ── Remplissage (ClearBuffer) ────────────────────────────────────────────────
+	// SEULE surcharge de `ClearBuffer` du depot a ce jour (2026-08-16). Le corps de
+	// base de NkICommandBuffer journalise « non implemente » : les cinq autres
+	// backends se signalent au lieu de mentir silencieusement.
+	//
+	// Contraintes de `vkCmdFillBuffer`, honorees ici plutot que supposees :
+	//   - hors render pass (nos appelants enregistrent sur un command buffer
+	//     compute ou transfert) ;
+	//   - `offset` multiple de 4 ; `size` multiple de 4, ou VK_WHOLE_SIZE ;
+	//   - le tampon doit porter TRANSFER_DST — c'est le cas de TOUS les tampons
+	//     NKRHI (NkVulkanDevice.cpp:1067 pose TRANSFER_SRC | TRANSFER_DST sans
+	//     condition), donc aucun appelant n'a a le demander.
+	// VK_WHOLE_SIZE vaut ~0ULL, soit exactement le defaut UINT64_MAX de l'interface.
+	void NkVulkanCommandBuffer::ClearBuffer(NkBufferHandle buffer, uint32 value, uint64 offset, uint64 size) {
+		VkBuffer vb = mDev->GetVkBuffer(buffer.id);
+		if (vb == VK_NULL_HANDLE) {
+			logger.Warnf("[NkRHI_VK] ClearBuffer : tampon %llu introuvable, RIEN n'a ete mis a zero.",
+						 (unsigned long long)buffer.id);
+			return;
+		}
+		// Un alignement non respecte est un comportement indefini cote Vulkan. On
+		// refuse plutot que de remplir « presque » la bonne plage : un clear partiel
+		// silencieux serait exactement le defaut qu'on vient de corriger. Et on le
+		// DIT — un refus muet vaut le no-op qu'on remplace.
+		if ((offset % 4) != 0 || (size != UINT64_MAX && (size % 4) != 0)) {
+			logger.Warnf("[NkRHI_VK] ClearBuffer REFUSE : offset=%llu et size=%llu doivent etre multiples de 4 "
+						 "(vkCmdFillBuffer). RIEN n'a ete mis a zero.",
+						 (unsigned long long)offset, (unsigned long long)size);
+			return;
+		}
+		vkCmdFillBuffer(mCmdBuf, vb, offset, (size == UINT64_MAX) ? VK_WHOLE_SIZE : size, value);
 	}
 
 	void NkVulkanCommandBuffer::CopyBufferToTexture(NkBufferHandle s, NkTextureHandle d,

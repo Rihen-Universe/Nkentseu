@@ -107,6 +107,7 @@ int main() {
 	printf("-- Entraînement (conv encodeur + convT décodeur + KL) --\n");
 	double reconMse = 0.0;
 	for (int e = 0; e <= 500; ++e) {
+		adam.ZeroGrad(); // Backward() n'efface plus les feuilles : un pas = un gradient
 		NkVar mu, logvar;
 		vae.Encode(xin, mu, logvar);
 		FillRandn(epsT, rng);
