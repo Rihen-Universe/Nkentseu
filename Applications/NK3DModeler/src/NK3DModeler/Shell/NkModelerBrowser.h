@@ -700,13 +700,38 @@ namespace nkentseu {
 					if (hit.CtrlDown()) {
 						st.browserPicked[i] = !st.browserPicked[i];
 					} else if (hit.ShiftDown() && depuis >= 0 && depuis < st.browserCount) {
-						// La plage s'AJOUTE au lieu de remplacer : c'est ce qui permet
-						// de composer une selection en plusieurs fois, et c'est le
-						// comportement attendu partout ailleurs.
-						const int32 a = depuis < i ? depuis : i;
-						const int32 b = depuis < i ? i : depuis;
-						for (int32 k = a; k <= b && k < st.browserCount; ++k)
-							st.browserPicked[k] = true;
+						// LA PLAGE SE COMPTE DANS L'ORDRE AFFICHE, PAS DANS LES INDEX.
+						//
+						// `i` est l'index de la carte dans l'etat ; `vi` est sa position a
+						// l'ecran. Les deux ne coincident pas : l'ordre d'affichage vient du
+						// classement et du filtre (NkBrowVisible), pas de l'ordre de
+						// creation.
+						//
+						// Tracer la plage sur les index donnait le BON NOMBRE de cartes au
+						// MAUVAIS endroit -- Rihen : « ca selectionne le nombre d'elements
+						// qui separe le premier du dernier, sauf que les autres ne sont pas
+						// entre ces derniers ». Un compte juste sur la mauvaise suite : le
+						// symptome exact de deux numerotations qu'on croit etre une seule.
+						//
+						// On cherche donc la POSITION AFFICHEE de la carte active, et on
+						// parcourt l'ecran entre les deux.
+						int32 viDepuis = -1;
+						for (int32 k = 0; k < visN; ++k)
+							if (vis[k] == depuis) {
+								viDepuis = k;
+								break;
+							}
+						if (viDepuis < 0) {
+							// La carte active n'est plus visible (filtre, recherche, dossier
+							// change) : il n'y a pas de plage a tracer. On se rabat sur la
+							// carte cliquee seule plutot que d'inventer un intervalle.
+							st.browserPicked[i] = true;
+						} else {
+							const int32 a = viDepuis < vi ? viDepuis : vi;
+							const int32 b = viDepuis < vi ? vi : viDepuis;
+							for (int32 k = a; k <= b && k < visN; ++k)
+								st.browserPicked[vis[k]] = true;
+						}
 					} else {
 						for (int32 k = 0; k < st.browserCount; ++k)
 							st.browserPicked[k] = false;
