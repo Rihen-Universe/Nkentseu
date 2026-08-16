@@ -111,6 +111,158 @@ devait pas avoir lieu. `NkGpuZeros` sert dans les deux sémantiques.
 
 ---
 
+## 🛑 AUDIT DES APPELANTS DE `Backward()` — LE CORRECTIF EST BLOQUÉ (2026-08-16)
+
+> **Rodolf a tranché pour l'option A** (les feuilles à gradient requis ne sont plus
+> remises à zéro par `Backward()` ; c'est `ZeroGrad()` qui vide). L'audit demandé
+> **avant** le correctif a trouvé des appelants qui dépendent du zérotage
+> implicite. **Le correctif n'est donc PAS appliqué : l'arbre est resté propre.**
+
+### Ce que l'audit a mesuré, pas seulement lu
+
+Option A a été appliquée **localement, non commitée**, les suites jouées des deux
+côtés, puis l'édition **revertie** (`git checkout --`, arbre vérifié propre).
+Deux prédécesseurs s'étant fait prendre à conclure sur une lecture de code, la
+dépendance est ici **mesurée** :
+
+| suite | AVANT (`337db9d2`) | APRÈS (option A, locale, revertie) |
+|---|---|---|
+| `NKAutogradTest` | 64 OK / **1 échec** | **65 OK / 0 échec** ✅ |
+| `NKNNTest` | **7 OK / 0 échec** | 6 OK / **1 échec** ❌ |
+| `NKTrainTest` | **14 OK / 0 échec** | 13 OK / **1 échec** ❌ |
+| `NKConvTest` | 2 OK / 0 échec | 2 OK / 0 échec — **inchangé, et c'est le problème** |
+
+Le témoin d'accumulation bascule exactement, et il a été **rejoué dans les deux
+sens** : `g2 = b` (`|g2-2·g1| = 2,00e+00`) avant, `g2 = 2b` (`|g2-2·g1| =
+0,00e+00`) après. Il discrimine — contrairement à `NKTrainTest` case (b), qui
+passe **des deux côtés** parce qu'il n'assert que la convergence.
+
+### ⚠️ Le motif : deux familles d'appelants, et la dangereuse est celle qui PASSE
+
+- **`NKNNTest` échoue bruyamment** : son cas XOR utilise `optim::NkSGD` (lr 0,5,
+  momentum 0,9, `main.cpp:37`). SGD n'est **pas** invariant à l'échelle du
+  gradient ; le gradient cumulé fait saturer le réseau, la perte se fige à
+  0,500000, 2/4.
+- **`NKConvTest` passe des deux côtés** : ses boucles utilisent Adam, dont le pas
+  `m̂/(√v̂+ε)` est **quasi invariant à l'échelle** du gradient. Le défaut ne se
+  voit donc pas — mais le gradient sur lequel Adam travaille est une **somme
+  cumulée depuis le début de la course**, pas le gradient du lot. C'est
+  exactement le « compte double, en silence » annoncé, en pire : ça ne double
+  pas, ça intègre indéfiniment.
+
+**Conséquence pratique** : une suite verte ne prouve pas qu'un appelant est sain.
+La majorité des boucles du dépôt étant sur Adam, l'option A appliquée seule
+laisserait passer la plupart des tests **tout en faussant l'entraînement partout**.
+
+### Les appelants qui comptaient sur le zérotage implicite
+
+Critère : `Backward()` appelé plusieurs fois sur des **feuilles persistantes à
+gradient requis** (paramètres de module), **sans** `ZeroGrad()` entre deux.
+Vérifié aussi que ni `NkAdam::Step()` ni `NkSGD::Step()` n'effacent le gradient
+(`NkOptim.cpp:130-160` et `:88-106`) — ils ne le font pas.
+
+**Noyau — c'est le plus grave, ce sont les aides partagées :**
+
+| fichier | fonction | ce qu'il attendait |
+|---|---|---|
+| `Kernel/AI/NKTrain/src/NKTrain/NkTrain.h:51` | `TrainEpoch` | `loss.Backward(); opt.Step();` par lot, **aucun `ZeroGrad` dans la fonction** |
+| `Kernel/AI/NKTrain/src/NKTrain/NkTrain.h:239` | `Fit` | idem, boucle par lot pilotée par callbacks |
+
+`TrainEpochAccum` (`NkTrain.h:129`) est **sain** : `opt.ZeroGrad()` ligne 119.
+
+**Applications (boucle sur paramètres persistants, aucun `ZeroGrad`) :**
+
+`NKConvTest:95,141` · `NKConvVAETest:118` · `NKDiffusionTest:336,438,548` ·
+`NKGen3DTest:120` · `NKGenMeshTest:116` · `NKGenTest:110` ·
+`NKMnistConvVAETest:140` · `NKMnistVAETest:132` · `NKNNTest:52,118,247,320` ·
+`NKObjectGenTest:150` · `NKVAETest:119` · `NKVoxelGenTest:128` ·
+`NKTrainTest:331,337` — plus tout ce qui passe par `TrainEpoch`/`Fit` :
+`NKTrainTest:45,131,266,183,213,241,385,412`, `NKInferTest:48,106`,
+`NKMeshAITest:493`.
+
+**Appelants SAINS, vérifiés un par un** (`ZeroGrad` avant le `Backward`, ou après
+le `Step`) : `NkGptTrainer.cpp:924` (la cible du correctif) · `NkDQN.cpp:173` ·
+`NkPPO.cpp:188,197` · `NKASRTest:177,291` · `NKLlamaBlockTest:85` ·
+`NKRebasinTransformer:612` · `NKRnnCtcTest:151` · `NKTTSTrain:615` ·
+`NkVoiceLoopDemo:209` · `NKTransformerTest:134` · `NKMlpResidentBench:116` ·
+`NKFp16Test:466`.
+
+**Sains parce que les feuilles sont NEUVES à chaque tour** (aucune persistance,
+donc rien à accumuler) : les 23 cas de `NKAutogradTest`, `NKConvResidentBench:76`,
+`NKMlpResidentBench:84`, `NKRnnCtcTest:32`, `NKTransformerTest:38`,
+`NKFp16Test:334,345`.
+
+### 🔎 Un second effet de l'option A, trouvé pendant l'audit
+
+Sous l'option A, `ZeroGrad()` devient le **seul** moyen d'effacer — donc un chemin
+aujourd'hui **mort** devient porteur. Or `NkVar::ZeroGrad()` (`NkVar.cpp:1310-1317`)
+pose `grad = NkTensor::Zeros(shape)`, **sur CPU**, sans passer par `ZerosCommeSur`.
+
+Aujourd'hui ça n'a aucune conséquence : `Backward()` réécrit ce gradient
+immédiatement après. Sous l'option A il survit, et devient la base de
+l'accumulation — donc `AccumGrad` fera `ops::Add(zérosCPU, contribGPU)`, qui
+tombe sur `NkGpuAdd` (`NkTensorGpu.cpp:1509-1510`) et **monte l'opérande CPU**.
+
+**C'est la réapparition du défaut réparé par le chantier n°1**, à plus petite
+échelle : ~20 M paramètres × 4 octets ≈ **79 Mo montés par pas**, contre les
+4,27 Mo/pas actuels. À corriger **dans le même commit** que l'option A.
+
+Le remède le moins cher n'est pas `ZerosCommeSur` mais l'**invalidation** :
+`AccumGrad` (`NkVar.cpp:283`) affecte déjà directement quand le gradient est
+invalide. Un `ZeroGrad()` qui pose `NkTensor{}` coûte zéro allocation et zéro
+transfert. À trancher avec le correctif, pas avant.
+
+### ✅ NE PAS TOUCHER AU `1/N` — il était DÉJÀ correct
+
+`scaled = MulScalar(loss, 1.0/ACCUM)` (`NkGptTrainer.cpp:923`) **n'est pas un
+défaut et ne doit pas être « réparé »**.
+
+Avec l'accumulation réparée, la somme de `N` micro-lots chacun divisé par `N`
+donne **la moyenne**, ce qui est exactement ce qu'on veut. Seule l'accumulation
+manquait. Corriger « aussi » le `1/N` diviserait **deux fois** et donnerait
+`lr/N` — c'est-à-dire précisément le défaut qu'on cherche à supprimer,
+réintroduit par le correctif censé le lever.
+
+*C'est écrit ici parce qu'un lecteur pressé, voyant « lot effectif et taux N fois
+trop petits », corrigera les deux endroits qui portent un `N`.*
+
+### 📉 Courses de dimensionnement PÉRIMÉES — à refaire, mais pas par un agent
+
+**Ne pas les relancer : c'est à Rodolf de décider ce qu'il remesure et quand.**
+
+Toute course lancée avec `accum > 1` — donc **toute course lancée sans `--accum`
+explicite**, la valeur par défaut étant 4 (`main.cpp:693`) — n'a pas mesuré ce
+qu'elle annonçait :
+
+```
+annoncé   B=6 --accum 4  ->  lot effectif 6 144 jetons, taux lr
+réel      B=6 --accum 4  ->  lot effectif 1 536 jetons, taux lr/4
+après     B=6 --accum 4  ->  lot effectif 6 144 jetons, taux lr
+```
+
+Sont donc périmés :
+
+1. **Tout le tableau de dimensionnement du 2026-08-09**
+   (`Kernel/AI/ROADMAP.md:1028-1032`), qui se présente comme trois configurations
+   « à même lot effectif de 6 144 » : leurs lots réels étaient **6, 12 et 24**, à
+   `lr/4`, `lr/2` et `lr`. Ce n'était pas une comparaison à lot constant, c'était
+   un balayage de lot ET de taux simultané.
+2. **Toute mention de « lot effectif » pour `accum > 1`**, dont
+   `Kernel/AI/ROADMAP.md:1014`.
+3. **Le débit de 845 tokens/s à B=12/accum=2** (`ROADMAP.md:348`) : le débit
+   lui-même reste bon (c'est du travail réellement effectué), mais il est étiqueté
+   avec un lot effectif qui n'a pas eu lieu.
+
+**Ce qui n'est PAS périmé :** le jalon « l'identité est dans les poids »
+(B=12/accum=2). Il a réellement eu lieu, à lot 12 et `lr/2`. C'est son
+**dimensionnement** qui était mal nommé, pas son résultat.
+
+⚠️ **Et le grand run doit attendre le correctif** : sinon il tourne à un quart du
+lot et du taux annoncés, et six semaines de machine se décident sur un chiffre
+faux.
+
+---
+
 ## Synthèse
 
 | chantier | statut | où en est-on |
