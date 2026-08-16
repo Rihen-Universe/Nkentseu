@@ -210,6 +210,31 @@ namespace nkentseu {
 					}
 
 #endif
+
+					// ====================================================================
+					// CONSTRUCTEUR PIECEWISE — hors garde, disponible dans les deux régimes
+					// ====================================================================
+
+					/**
+					 * @brief Construit la clé par copie et la valeur SUR PLACE
+					 * @tparam Args Types déduits des arguments destinés au constructeur de Value
+					 * @param hash Hash pré-calculé de la clé
+					 * @param key Clé à copier dans la paire
+					 * @param next Pointeur vers le nœud suivant du bucket
+					 * @param args Arguments forwardés vers le constructeur de Value
+					 *
+					 * @note Volontairement HORS de `#if defined(NK_CPP11)` : cette macro n'est
+					 *       définie nulle part dans le dépôt, donc le constructeur à forwarding
+					 *       parfait ci-dessus n'est jamais compilé. C'est ce constructeur-ci qui
+					 *       porte les surcharges Insert(const Key &, Value &&) et Emplace().
+					 * @note Le tag NkPairPiecewiseTag évite tout recouvrement avec les deux
+					 *       constructeurs existants : aucun appel écrit avant ce jour ne peut
+					 *       le sélectionner.
+					 */
+					template <typename... Args>
+					Node(usize hash, const Key &key, Node *next, NkPairPiecewiseTag, Args &&...args)
+						: Data(NkPairPiecewiseTag{}, key, traits::NkForward<Args>(args)...), Next(next), Hash(hash) {
+					}
 			};
 
 			// ====================================================================
@@ -1094,6 +1119,79 @@ namespace nkentseu {
 			}
 
 			/**
+			 * @brief Insère ou met à jour une paire clé-valeur en DÉPLAÇANT la valeur
+			 * @param key Clé d'indexation pour l'élément (toujours copiée)
+			 * @param value Valeur rvalue dont les ressources sont transférées dans la map
+			 * @note SURCHARGE : ne remplace rien. Un appel passant une lvalue continue de
+			 *       résoudre vers Insert(const Key &, const Value &) et de copier, au même
+			 *       coût qu'avant. Seules les rvalues empruntent cette voie.
+			 * @note C'est cette surcharge qui rend la map utilisable avec un Value
+			 *       **move-only** (NkUniquePtr, tampon possédé, poignée exclusive) : la
+			 *       version par copie échoue à la compilation sur `Data.Second = value`.
+			 * @note Si la clé existe déjà : la valeur en place est déplacée-assignée.
+			 * @note Complexité : O(1) amorti, O(n) pire cas (collisions ou réhash)
+			 */
+			void Insert(const Key &key, Value &&value) {
+				usize hash = HashKey(key);
+				SizeType idx = GetBucketIndex(hash);
+				Node *node = mBuckets[idx];
+				while (node) {
+					if (mEqual(node->Data.First, key)) {
+						node->Data.Second = traits::NkMove(value);
+						return;
+					}
+					node = node->Next;
+				}
+				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
+				new (newNode) Node(hash, key, mBuckets[idx], NkPairPiecewiseTag{}, traits::NkMove(value));
+				mBuckets[idx] = newNode;
+				++mSize;
+				CheckLoadFactor();
+			}
+
+			/**
+			 * @brief Construit la valeur SUR PLACE dans le nœud, sans copie ni déplacement
+			 * @tparam Args Types déduits des arguments du constructeur de Value
+			 * @param key Clé d'indexation pour l'élément (copiée, comme partout ailleurs)
+			 * @param args Arguments forwardés au constructeur de Value
+			 * @return true si l'élément a été inséré, false si la clé était déjà présente
+			 *
+			 * @note SÉMANTIQUE : n'écrase JAMAIS une valeur existante — c'est ce qui
+			 *       distingue Emplace() d'Insert(). Pour écraser, employer Insert() ou
+			 *       InsertOrAssign(). Ce choix évite de construire quoi que ce soit
+			 *       lorsque la clé est déjà là, et n'exige donc pas que Value soit
+			 *       assignable.
+			 * @note La clé est prise par `const Key &`, comme dans toute l'API de ce
+			 *       dépôt. Seuls les arguments de la valeur sont forwardés. Élargir
+			 *       plus tard au forwarding de la clé restera rétro-compatible.
+			 * @note Seule voie pour un Value **sans constructeur par défaut** et **non
+			 *       copiable** : rien n'est construit ailleurs puis transféré.
+			 * @note Complexité : O(1) amorti, O(n) pire cas (collisions ou réhash)
+			 *
+			 * @example
+			 * NkHashMap<int, NkVector<float>> m;
+			 * m.Emplace(1, 128);   // construit le NkVector directement dans le nœud
+			 */
+			template <typename... Args> bool Emplace(const Key &key, Args &&...args) {
+				usize hash = HashKey(key);
+				SizeType idx = GetBucketIndex(hash);
+				Node *node = mBuckets[idx];
+				while (node) {
+					if (mEqual(node->Data.First, key)) {
+						return false;
+					}
+					node = node->Next;
+				}
+				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
+				new (newNode)
+					Node(hash, key, mBuckets[idx], NkPairPiecewiseTag{}, traits::NkForward<Args>(args)...);
+				mBuckets[idx] = newNode;
+				++mSize;
+				CheckLoadFactor();
+				return true;
+			}
+
+			/**
 			 * @brief Supprime un élément par clé si présent dans la HashMap
 			 * @param key Clé de l'élément à supprimer
 			 * @return true si l'élément a été trouvé et supprimé, false si clé absente
@@ -1523,16 +1621,19 @@ namespace nkentseu {
  *     // 1. Pré-réserver avant insertion en masse pour éviter les réhash
  *     data.Reserve(10000);  // Anticipe 10k entrées
  *
- *     // 2. Utiliser Emplace-style via Insert() avec move pour types lourds
- *     #if defined(NK_CPP11)
+ *     // 2. Insert() avec move pour éviter la copie des types lourds
  *     for (usize i = 0; i < 10000; ++i) {
  *         nkentseu::NkVector<int> values;
  *         values.PushBack(i);
  *         values.PushBack(i * 2);
- *         // Insert avec move pour éviter la copie du vector
+ *         // La surcharge Insert(const Key &, Value &&) transfère au lieu de copier
  *         data.Insert(i, nkentseu::traits::NkMove(values));
  *     }
- *     #endif
+ *
+ *     // 2bis. Emplace() construit la valeur DANS le nœud : aucune copie, aucun move
+ *     for (usize i = 0; i < 10000; ++i) {
+ *         data.Emplace(i + 10000, 2);  // construit le NkVector sur place
+ *     }
  *
  *     // 3. Ajuster le load factor selon le compromis mémoire/performance
  *     data.SetMaxLoadFactor(0.9f);  // Plus de collisions, moins de buckets
