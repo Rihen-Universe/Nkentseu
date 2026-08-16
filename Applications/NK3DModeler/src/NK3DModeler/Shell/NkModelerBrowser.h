@@ -183,6 +183,21 @@ namespace nkentseu {
 			p.VLine(r.x + treeW, ty, th);
 			// Le FOND de la grille est une zone : cliquer dans le vide
 			// DESELECTIONNE (les cartes, declarees apres, gardent leurs clics).
+			// LA CARTE ACTIVE, LUE AVANT QUE LE FOND NE L'EFFACE.
+			//
+			// Le fond de la grille est declare et teste ICI, donc AVANT que les
+			// cartes n'existent pour cette frame. A la frame d'un clic sur une
+			// carte, c'est donc lui qui voit le clic : il remet selectedAsset a
+			// -1, et la carte la repose quelques lignes plus bas. Pour un clic
+			// simple le va-et-vient ne se voit pas.
+			//
+			// Il se voit pour Maj+clic, qui a besoin de la carte active
+			// PRECEDENTE pour tracer une plage : elle a deja ete effacee quand
+			// on la lit. Mesure : maj=1 arrivait bien, mais depuis=-1.
+			//
+			// C'est la famille des clics traversants de la v18 -- une zone
+			// evaluee avant que celles du dessus ne soient declarees.
+			const int32 actifAvantGrille = st.selectedAsset;
 			hit.Add("brow.grid", {r.x + treeW, ty, r.w - treeW, th});
 			if (!uiModal && hit.Clicked("brow.grid"))
 				st.selectedAsset = -1;
@@ -672,7 +687,7 @@ namespace nkentseu {
 					//
 					// La carte cliquee devient ACTIVE dans les trois cas : c'est elle
 					// que les panneaux montrent, meme quand cinq sont choisies.
-					const int32 depuis = st.selectedAsset;
+					const int32 depuis = actifAvantGrille;
 					// [MESURE Maj+clic -- TEMPORAIRE] Rihen : "Ctrl fonctionne, Maj non".
 					// Deux causes donnent ce symptome et l'ecran ne les separe pas : le
 					// modificateur n'arrive pas jusqu'ici, ou il arrive et la plage ne se
