@@ -247,6 +247,51 @@ coup. Relire le correctif ne le montrait pas.
 formule par la **plage**, jamais par le format. Différé volontairement pour ne
 pas élargir un diff en cours de fusion — différé, pas abandonné.
 
+### 🚫 ZÉRO-STL — la cible est « 0 STL », PAS « 0 `std::` » (2026-08-16)
+
+⚠️ **Ne mesurez pas ce chantier avec `grep -c "std::"`.** Il compte deux
+populations différentes, et le prochain agent lirait « il reste 30 occurrences »
+sur un chantier terminé.
+
+- **STL — à retirer** : ce qui alloue et gère des durées de vie à votre place —
+  conteneurs, chaînes, algorithmes, fils, verrous, `std::function`, pointeurs
+  intelligents, `std::move`.
+- **Bibliothèque C — tolérée** : `snprintf`, `time`, `fwrite`, `size_t`… Ce sont
+  des fonctions et types **C**, simplement exposés dans `std` par les en-têtes
+  `<cXXX>`. Le dépôt l'a déjà tranché : `NkChrono.cpp` revendique en tête de
+  fichier « aucune dépendance STL : uniquement `<cstdio>` pour snprintf ».
+
+**L'instrument juste : `tests/audit_stl.sh`** — deux colonnes, les deux listes de
+motifs énumérées en clair, code de sortie 1 tant qu'il reste de la STL. Il
+**ignore les commentaires** (un fichier converti qui explique ce qu'il a remplacé
+cite forcément le nom retiré — le backend Win32 sortait à « 1 STL » alors qu'il
+est à zéro : l'instrument mesurait sa propre documentation), et il **liste ce
+qu'il n'a pas su classer** plutôt que de le compter au hasard.
+
+**Relevé au 2026-08-16, commit `ba9cffa0`** *(occurrences, pas lignes — l'ancien
+chiffre de « 140 » comptait des lignes ; deux prédicats différents ne se
+comparent pas)* :
+
+| fichier | STL | libC |
+|---|---|---|
+| `NkCameraSystem.cpp` | 42 | 0 |
+| `Backend/NkLinuxCameraBackend.h` | 25 | 29 |
+| `Backend/NkAndroidCameraBackend.h` | 24 | 0 |
+| `Backend/NkEmscriptenCameraBackend.h` | 14 | 1 |
+| `Backend/NkUIKitCameraBackend.mm` | 10 | 0 |
+| `NkCameraSystem.h` | 7 | 0 |
+| `Backend/NkCocoaCameraBackend.mm` | 6 | 0 |
+| `Backend/NkUIKitCameraBackend.h` | 5 | 0 |
+| `Backend/NkCocoaCameraBackend.h` | 3 | 0 |
+| `NkCameraTypes.h` | 2 | 0 |
+| **`Backend/NkWin32CameraBackend.h`** | **0** ✅ | 0 |
+| **TOTAL** | **138** | 30 |
+
+**Ordre convenu** : Win32 (fait — le seul exerçable ici), puis Android (second
+exerçable), puis `NkCameraSystem` **en dernier** car c'est le point commun des
+six backends. Les backends non exerçables seront convertis mais déclarés
+*« compilé sur cette plateforme : NON »* — jamais « vérifiés ».
+
 ### 🔎 AUDIT DES RÉGLAGES FANTÔMES — *qui lit ce champ ?* (2026-08-15)
 
 Trois réglages déclarés-mais-ignorés ont été trouvés en deux jours **sans les
