@@ -34,6 +34,7 @@
 #include "ConquerorLab/NkcModuleHost.h"
 #include "ConquerorLab/NkcParamSchema.h"
 #include "ConquerorLab/NkcBoardLibrary.h"
+#include "ConquerorLab/NkcCellLabel.h"
 
 #include "NKCore/NkAtomic.h"
 #include "NKThreading/NkThread.h"
@@ -425,12 +426,23 @@ namespace nkentseu {
 						}
 					}
 					if (bad > 0) {
+						// L'AXIAL RESTE, L'ETIQUETTE S'AJOUTE. Ce message est lu par
+						// deux personnes a la fois : celui qui doit RETROUVER la case
+						// sur le plateau (l'etiquette) et celui qui doit corriger le
+						// code qui la manipule (l'axial, tel que GetNeighbors le
+						// recoit). Substituer l'un a l'autre en dessert un des deux.
+						const NkcLabelOrigin org =
+							NkcComputeLabelOrigin(mView.coords, mView.cellCount, mView.topology);
+						char de[16], vers[16];
+						NkcFormatCellLabel(badFrom, mView.topology, org, de, sizeof(de));
+						NkcFormatCellLabel(badTo, mView.topology, org, vers, sizeof(vers));
 						std::snprintf(mCoherence, sizeof(mCoherence),
 									  "INCOHERENCE : %d coup(s) DUPLIQUER visent une case que "
-									  "GetNeighbors ne declare pas voisine — p.ex. (%d,%d) -> (%d,%d). "
+									  "GetNeighbors ne declare pas voisine — p.ex. %s -> %s "
+									  "soit (%d,%d) -> (%d,%d). "
 									  "Ton generateur de coups et ton voisinage ne disent pas la meme "
 									  "chose ; toute IA qui evalue l'adjacence se trompera.",
-									  bad, badFrom.q, badFrom.r, badTo.q, badTo.r);
+									  bad, de, vers, badFrom.q, badFrom.r, badTo.q, badTo.r);
 					}
 				}
 
