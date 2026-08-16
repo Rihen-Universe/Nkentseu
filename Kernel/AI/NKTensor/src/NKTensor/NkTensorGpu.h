@@ -82,6 +82,43 @@ namespace nkentseu {
 				static int64 VramPic();
 				static int64 VramVivante();
 				void RazVramPic(); // repart du niveau courant (avant une phase mesuree)
+
+				// ---- RESERVE DE TAMPONS (chantier n°2) ------------------------------
+				// Recycle les tampons par TAILLE EXACTE au lieu de detruire/recreer.
+				// Mesure qui la motive : une allocation coute +427 a +492 us, chiffre
+				// obtenu DEUX FOIS independamment — au banc `add` et au banc `matmul`,
+				// deux noyaux sans rapport. C'est une propriete du PILOTE.
+				//
+				// ⚠️ UNE RESERVE EST UN CACHE, ET UN CACHE REPOND TOUJOURS.
+				// C'est la famille de defauts que ce depot paie depuis une semaine
+				// (`ClearBuffer` qui accepte et ne fait rien, `device` non honore, un
+				// build qui annonce SUCCESS sans recompiler). Un cache mal cable rend
+				// un tampon et parait marcher : le gain se mesure, la justesse non.
+				// D'ou le TEMOIN, cable AVANT la premiere mesure :
+				//   - `ReserveServis()` compte les tampons rendus PAR LA RESERVE ;
+				//   - `ReserveNeufs()`  compte les allocations REELLES ;
+				//   - leur somme DOIT egaler le nombre d'appels a CreateBuffer, sinon
+				//     l'instrument ment et aucun gain n'est lisible.
+				// Sans ces deux compteurs, « la reserve marche » serait indiscernable
+				// de « la reserve ne sert jamais et tout passe en allocation ».
+				//
+				// ⚠️ ELLE NE LIBERE PLUS LA VRAM. Un tampon retenu reste alloue. Le pic
+				// mesure est de 6 659 Mo sur 8 Go : sans plafond, la reserve ferait
+				// deborder. D'ou `ReserveBudget()` — au-dela, on detruit vraiment.
+				//
+				// ⚠️ TAILLE EXACTE, jamais « assez grand ». Rendre un tampon plus grand
+				// que demande marcherait a l'usage et fausserait tout calcul de bornes.
+				static void ReserveActive(bool actif); // interrupteur : LEGACY / NEUF
+				static bool ReserveEstActive();
+				static void ReserveBudget(int64 octetsMax); // plafond de retention
+				static void ReserveVider();					// detruit tout ce qui est retenu
+				static int64 ReserveServis();				// TEMOIN : rendus par la reserve
+				static int64 ReserveNeufs();				// TEMOIN : allocations reelles
+				static int64 ReserveOctetsRetenus();		// VRAM immobilisee par la reserve
+				static int64 ReserveTamponsRetenus();
+				static int64 ReserveEvictions(); // detruits faute de budget
+				static void ReserveRazCompteurs();
+
 				void DestroyBuffer(uint64 id);
 				bool Upload(uint64 id, const void *data, nk_size bytes);
 				bool Download(uint64 id, void *out, nk_size bytes);

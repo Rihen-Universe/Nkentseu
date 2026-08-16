@@ -1867,3 +1867,101 @@ repose sur une prémisse d'intensité que le L2 dément.
 Ce que la campagne renforce, en revanche, c'est **le chantier n°2** : +427 à
 +492 µs par allocation, corroborés sur un second noyau. *Je n'ai rien optimisé ;
 j'ai supprimé une piste et consolidé une autre.*
+
+---
+
+## 🏗️ CHANTIER N°2 — RÉSERVE DE TAMPONS : LIVRÉE ET MESURÉE (2026-08-16)
+
+**`NkTensorGpu` recycle désormais les tampons par TAILLE EXACTE** au lieu de
+détruire/recréer. Interrupteur `ReserveActive()` : **LEGACY et NEUF tournent
+depuis le même binaire**, comme pour le ×1,57 du chantier n°1.
+
+### ⚠️ D'ABORD LA JUSTESSE — une réserve est un cache, et un cache répond toujours
+
+C'est la famille de défauts que ce dépôt paie depuis une semaine. **Le témoin a
+été câblé AVANT la première mesure de vitesse**, et le banc **refuse de mesurer
+le gain** si le témoin échoue.
+
+| ce qu'on vérifie | résultat |
+|---|---|
+| la réserve **sert-elle vraiment** ? | **OUI** — compteur `servis` +1 au second `CreateBuffer` |
+| que **contient** un tampon recyclé ? | **les données du précédent usage** (`v[0] = 123,5`) |
+| le zérotage explicite nettoie-t-il ? | **OUI** — `Clear()` rend des zéros |
+| l'**instrument** est-il juste ? | **`servis + neufs == nombre d'appels`** — vérifié |
+
+🎯 **Le risque est démontré, pas supposé** : un tampon recyclé **est** rémanent.
+Ce qui rend le recyclage sûr n'est pas la chance, c'est que **`NkGpuZeros` remet
+explicitement à zéro APRÈS `CreateBuffer`** — c'est-à-dire le chantier n°1.
+*Sans lui, cette réserve aurait produit des gradients faux en silence.*
+
+**Le témoin de service sur toute la série :**
+```
+LEGACY : servis=0   neufs=80    (la reserve ne fait rien quand elle est eteinte)
+NEUF   : servis=71  neufs=9     71+9 = 80 = meme total -> instrument coherent
+```
+*Sans ces deux compteurs, « la réserve marche » aurait été indiscernable de « la
+réserve ne sert jamais et tout retombe en allocation ».*
+
+### Le gain — série B (forme production), ordre ALTERNÉ
+
+Montage identique au banc `matmul` : RTX 3070 **Laptop**, Vulkan, **Release**,
+binaire **FRAIS**, 15 reps, 3 de chauffe, machine libre, base `d14f7c24`.
+**Chaque mode occupe les deux positions** — la machine s'accélère au fil des
+courses, alterner les modes seuls ne suffit pas.
+
+| forme | LEGACY (min µs) | NEUF (min µs) | gain |
+|---|---|---|---|
+| 128×512×64 | 558,8 / 575,0 | **150,7 / 154,9** | **×3,6 à ×3,8** |
+| 256×512×128 | 630,2 / 646,6 | **208,8 / 209,6** | **×3,0** |
+| 512×512×256 | 777,4 / 783,9 | **319,7 / 315,3** | **×2,4** |
+| 1536×640×640 (PROD) | 2 047,3 / 2 103,6 | **1 428,6 / 1 426,2** | **×1,43** |
+
+**Les plages ne se chevauchent pas, et de loin** : le NEUF le plus lent (154,9)
+reste 3,6× sous le LEGACY le plus rapide (558,8). *Aucun appariement ne peut
+inverser le sens du résultat.*
+
+### 🎯 TROISIÈME CORROBORATION — cette fois par la SUPPRESSION du coût
+
+L'écart LEGACY − NEUF **est** le coût d'allocation supprimé :
+
+```
+128x512x64     408,1 / 420,1 us
+256x512x128    421,4 / 437,0 us
+512x512x256    457,7 / 468,6 us
+```
+
+**408 à 469 µs** — cela tombe sur les **+427 à +492 µs** mesurés indépendamment
+au banc `add` **et** au banc `matmul`. *Deux mesures l'avaient chiffré par
+différentiel ; celle-ci le chiffre en le faisant disparaître.* Prédiction et
+remède se rejoignent.
+
+**Et une convergence qui vaut contrôle** : le NEUF (154,9 / 209,6 / 315,3 /
+1 426,2) rejoint la **série A** du banc `matmul`, c'est-à-dire le **dispatch
+seul** (167,4 / 219,8 / 329,0 / 1 442,9). **La réserve ramène la forme de
+production au coût du dispatch nu** — le coût d'allocation n'est pas réduit, il
+est **supprimé**.
+
+### ⚠️ CE QUE CETTE MESURE NE COUVRE PAS — à lire avant d'extrapoler
+
+- **Elle ne dit RIEN du débit d'entraînement réel.** Ce banc enchaîne 4 formes ;
+  un pas de production fait **9 316 allocations de tailles variées**. Le taux de
+  service y dépend de la **diversité des tailles**, que je n'ai pas mesurée.
+  **Les ×1,43 à ×3,8 ne se transposent PAS au pas.** L'estimation ROADMAP de
+  ×1,43-×1,52 sur le pas entier reste **non vérifiée**.
+- **La VRAM immobilisée n'est pas mesurée en production.** Ici : 9 tampons,
+  **12 Mo retenus, 0 éviction**, budget 512 Mo. En production, avec des tailles
+  variées et un pic déjà à **6 659 Mo sur 8 Go**, le budget mordra et des
+  évictions apparaîtront — **non mesuré**.
+- **Horloge murale hôte**, pas d'horodatage GPU.
+- **Un seul backend (Vulkan), une seule carte, une seule configuration.**
+- ⚠️ **La réserve est ÉTEINTE par défaut.** Rien n'est activé en douce ;
+  l'allumer en production est une décision qui demande la mesure ci-dessus.
+
+### Ce qui reste ouvert sur ce chantier
+
+- **Mesurer le taux de service sur un vrai pas** — seul chiffre qui dira ce que
+  la réserve vaut réellement. Il demande de relancer un pas d'entraînement, donc
+  **il touche aux courses : c'est Rodolf qui décide.**
+- **L'anomalie des 9 316 tampons** (+28 à +29 % sur la seule forme
+  `1536×2560×640`, reproductible sur deux passes) est peut-être la même histoire
+  vue d'un autre angle. Gardée sous la main, **non conclue**.

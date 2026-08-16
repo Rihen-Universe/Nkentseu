@@ -470,14 +470,173 @@ static int BancMatmul(NkTensorGpu &gpu, int passes) {
 	return 0;
 }
 
+// ============================================================================
+// BANC DE LA RESERVE DE TAMPONS (chantier n°2)
+// ============================================================================
+// ⚠️ UNE RESERVE EST UN CACHE, ET UN CACHE REPOND TOUJOURS. C'est la famille de
+// defauts que ce depot paie depuis une semaine. Donc ce banc mesure DEUX choses
+// dans cet ordre, et la seconde ne vaut rien sans la premiere :
+//   1. LA JUSTESSE — la reserve sert-elle VRAIMENT, et que rend-elle ?
+//      Compteurs `servis` / `neufs` : leur somme doit egaler le nombre d'appels.
+//      Si `servis == 0`, tout gain affiche serait une illusion.
+//   2. LE GAIN — serie B (forme production) avec et sans reserve.
+//
+// ⚠️ MEME BINAIRE pour les deux bras : `ReserveActive()` est un interrupteur.
+// C'est ce qui a rendu defendable le x1,57 du chantier n°1 — aucun ecart de
+// compilation ne peut se glisser entre LEGACY et NEUF.
+//
+// ⚠️ ORDRE ALTERNE. Alterner les modes ne suffit pas : la machine s'accelere au
+// fil des courses (mesure du 16/08 : -25 % sur un bras non modifie). Chaque mode
+// occupe donc les deux positions.
+
+static void ReserveEtat(const char *quand) {
+	printf("  [temoin %s] servis=%lld  neufs=%lld  retenus=%lld tampons (%.1f Mo)  evictions=%lld\n", quand,
+		   (long long)NkTensorGpu::ReserveServis(), (long long)NkTensorGpu::ReserveNeufs(),
+		   (long long)NkTensorGpu::ReserveTamponsRetenus(),
+		   (double)NkTensorGpu::ReserveOctetsRetenus() / 1.0e6, (long long)NkTensorGpu::ReserveEvictions());
+}
+
+// TEMOIN DE JUSTESSE : que rend exactement un tampon recycle ?
+// Ce cas existe parce qu'un tampon recycle porte les DONNEES DE SON PRECEDENT
+// USAGE. Si un appelant comptait sur un tampon neuf implicitement nul, la
+// reserve produirait un resultat faux EN SILENCE. On le montre, puis on montre
+// que le zerotage EXPLICITE (chantier n°1) est ce qui rend le recyclage sur.
+static int ReserveTemoinJustesse(NkTensorGpu &gpu) {
+	printf("\n=== TEMOIN DE JUSTESSE — que rend un tampon RECYCLE ? ===\n");
+	int echecs = 0;
+	const nk_size n = 4096, oct = n * sizeof(float);
+
+	NkTensorGpu::ReserveVider();
+	NkTensorGpu::ReserveActive(true);
+	NkTensorGpu::ReserveRazCompteurs();
+
+	// 1) un tampon, rempli d'un motif NON NUL, puis rendu a la reserve.
+	uint64 b1 = gpu.CreateBuffer(oct);
+	{
+		float *m = (float *)malloc(oct);
+		for (nk_size i = 0; i < n; ++i)
+			m[i] = 123.5f;
+		gpu.Upload(b1, m, oct);
+		free(m);
+	}
+	gpu.DestroyBuffer(b1);
+	printf("  1) tampon rempli de 123.5 puis rendu a la reserve\n");
+
+	// 2) un tampon de MEME TAILLE : il DOIT venir de la reserve.
+	const int64 servisAvant = NkTensorGpu::ReserveServis();
+	uint64 b2 = gpu.CreateBuffer(oct);
+	const bool vientDeLaReserve = (NkTensorGpu::ReserveServis() == servisAvant + 1);
+	printf("  2) nouveau tampon de meme taille -> %s\n",
+		   vientDeLaReserve ? "SERVI PAR LA RESERVE (compteur +1)" : "alloue a neuf (compteur inchange)");
+	if (!vientDeLaReserve) {
+		printf("  [ KO ] la reserve n'a PAS servi : tout gain mesure ensuite serait une illusion\n");
+		++echecs;
+	} else {
+		printf("  [ OK ] la reserve sert reellement — le compteur le prouve\n");
+	}
+
+	// 3) ce qu'il CONTIENT : la preuve que le recyclage rend des donnees remanentes.
+	{
+		float *v = (float *)malloc(oct);
+		for (nk_size i = 0; i < n; ++i)
+			v[i] = -1.0f;
+		gpu.Download(b2, v, oct);
+		const bool remanent = (v[0] == 123.5f);
+		printf("  3) contenu du tampon recycle : v[0] = %.1f -> %s\n", (double)v[0],
+			   remanent ? "REMANENT (donnees du precedent usage)" : "non remanent");
+		if (remanent)
+			printf("      ⚠️ c'est le RISQUE de toute reserve : un appelant qui compterait sur un\n"
+				   "         tampon neuf implicitement nul obtiendrait un resultat FAUX en silence.\n");
+
+		// 4) le zerotage EXPLICITE est ce qui rend le recyclage sur.
+		if (gpu.Clear(b2, oct, 0)) {
+			for (nk_size i = 0; i < n; ++i)
+				v[i] = -1.0f;
+			gpu.Download(b2, v, oct);
+			const bool nul = (v[0] == 0.0f && v[n - 1] == 0.0f);
+			printf("  4) apres Clear() explicite : v[0] = %.1f, v[n-1] = %.1f -> %s\n", (double)v[0],
+				   (double)v[n - 1], nul ? "ZEROS" : "PAS zeros");
+			if (!nul) {
+				printf("  [ KO ] le zerotage explicite ne nettoie pas un tampon recycle\n");
+				++echecs;
+			} else {
+				printf("  [ OK ] `NkGpuZeros` remet a zero APRES CreateBuffer : le recyclage est SUR\n"
+					   "         sur ce chemin. C'est le chantier n°1 qui a rendu ce zerotage explicite.\n");
+			}
+		}
+		free(v);
+	}
+	gpu.DestroyBuffer(b2);
+
+	// 5) l'instrument est-il juste ? servis + neufs doit egaler le nombre d'appels.
+	const int64 s = NkTensorGpu::ReserveServis(), nf = NkTensorGpu::ReserveNeufs();
+	printf("  5) instrument : servis=%lld + neufs=%lld = %lld pour 2 appels a CreateBuffer -> %s\n",
+		   (long long)s, (long long)nf, (long long)(s + nf), (s + nf == 2) ? "COHERENT" : "INCOHERENT");
+	if (s + nf != 2) {
+		printf("  [ KO ] le compteur ne couvre pas tous les appels : aucun gain ne serait lisible\n");
+		++echecs;
+	}
+
+	NkTensorGpu::ReserveActive(false);
+	printf("\n  => temoin de justesse : %d echec(s)\n", echecs);
+	return echecs;
+}
+
+static int BancReserve(NkTensorGpu &gpu) {
+	if (ReserveTemoinJustesse(gpu) != 0) {
+		printf("\n⚠️ LE TEMOIN DE JUSTESSE A ECHOUE — on ne mesure PAS le gain.\n"
+			   "   Mesurer la vitesse d'un cache dont on n'a pas prouve qu'il sert est\n"
+			   "   exactement le piege que ce banc existe pour eviter.\n");
+		return 1;
+	}
+
+	static const MatTaille tailles[] = {
+		{128, 512, 64, "petit"},
+		{256, 512, 128, "petit"},
+		{512, 512, 256, "moyen"},
+		{1536, 640, 640, "PROD projection"},
+	};
+	const int nT = (int)(sizeof(tailles) / sizeof(tailles[0]));
+	const int reps = 15;
+
+	printf("\n=== GAIN DE LA RESERVE — serie B (forme production) ===\n");
+	printf("La serie B alloue le tampon de sortie a chaque appel : c'est LA ou vit le\n");
+	printf("cout d'allocation mesure a +427 a +492 us (banc `add` ET banc `matmul`).\n");
+	printf("Ordre ALTERNE : la machine s'accelere au fil des courses.\n");
+
+	for (int tour = 0; tour < 2; ++tour) {
+		const bool neufDabord = (tour == 1);
+		printf("\n########## TOUR %d / 2 — %s en premier ##########\n", tour + 1,
+			   neufDabord ? "NEUF" : "LEGACY");
+		for (int bras = 0; bras < 2; ++bras) {
+			const bool actif = neufDabord ? (bras == 0) : (bras == 1);
+			NkTensorGpu::ReserveVider();
+			NkTensorGpu::ReserveActive(actif);
+			NkTensorGpu::ReserveRazCompteurs();
+			BancMatSerie(gpu, actif ? "RESERVE ACTIVE (NEUF)" : "RESERVE INACTIVE (LEGACY)", true, tailles,
+						 nT, reps);
+			ReserveEtat(actif ? "NEUF" : "LEGACY");
+			if (actif && NkTensorGpu::ReserveServis() == 0) {
+				printf("  ⚠️ servis = 0 alors que la reserve est ACTIVE : le gain affiche ne\n"
+					   "     viendrait PAS de la reserve. Resultat a jeter.\n");
+			}
+		}
+	}
+	NkTensorGpu::ReserveActive(false);
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	bool bancAdd = false;
 	bool bancMat = false;
+	bool bancRes = false;
 	for (int i = 1; i < argc; ++i) {
 		if (strcmp(argv[i], "--banc-add") == 0)
 			bancAdd = true;
 		if (strcmp(argv[i], "--banc-matmul") == 0)
 			bancMat = true;
+		if (strcmp(argv[i], "--banc-reserve") == 0)
+			bancRes = true;
 	}
 
 	printf("=== NkTensorGpuTest ===\n");
@@ -503,6 +662,12 @@ int main(int argc, char **argv) {
 		// TEMOIN. Ici il est le sujet meme du banc — la variance de ~1,8x de
 		// `matmul_t4` entre executions est ce qu'on vient borner.
 		int r = BancMatmul(gpu, 2);
+		gpu.Shutdown();
+		return r;
+	}
+
+	if (bancRes) {
+		int r = BancReserve(gpu);
 		gpu.Shutdown();
 		return r;
 	}
