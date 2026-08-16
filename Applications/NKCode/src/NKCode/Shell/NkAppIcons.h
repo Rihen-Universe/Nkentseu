@@ -5,6 +5,7 @@
 // alpha, override utilisateur, TABLE UNIQUE kAppIcons, dossiers spéciaux,
 // registre d'extensions data-driven (icons.cfg), activity bars.
 // =============================================================================
+#include "NKCore/NkTraits.h" // traits::NkMove (NkImage est deplacable, pas copiable)
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKImage/NKImage.h"
 #include "NKPlatform/NkEnv.h"
@@ -44,69 +45,67 @@ namespace nkentseu {
 					// Downscale PROGRESSIF par demi-pas : un bilinéaire direct 128->~35 ne prend que
 					// 2x2 texels et CRÉNÈLE le line-art (pas de mipmaps). En halvant (128->64->35),
 					// chaque étape moyenne 2x2 -> approxime un filtre surface -> icônes NETTES.
-					NkImage *fitted;
-					if (sw == fw && sh == fh) {
-						fitted = &img;
-					} else {
-						NkImage *inter = nullptr;
-						const NkImage *src = &img;
+					// `fitted` INVALIDE signifie « rien a redimensionner (ou echec) : on
+					// televerse `img` telle quelle ». NkImage est un TYPE VALEUR : chaque
+					// etape libere ses pixels seule en sortant de la portee.
+					NkImage fitted;
+					if (sw != fw || sh != fh) {
+						NkImage inter;			   // etape courante du demi-pas (PROPRIETAIRE)
+						const NkImage *src = &img; // simple OBSERVATEUR : ne possede rien
 						int32 cw = sw, chh = sh;
 						while (cw >= fw * 2 && chh >= fh * 2) {
-							NkImage *half = src->Resize(cw / 2, chh / 2);
-							if (!half)
+							NkImage half = src->Resize(cw / 2, chh / 2);
+							if (!half.IsValid())
 								break;
-							if (inter)
-								inter->Free();
-							inter = half;
-							src = half;
-							cw = half->Width();
-							chh = half->Height();
+							cw = half.Width();
+							chh = half.Height();
+							// Le move-assign libere l'etape precedente et adopte la
+							// nouvelle : `src` designe toujours le meme objet `inter`.
+							inter = traits::NkMove(half);
+							src = &inter;
 						}
 						fitted = src->Resize(fw, fh);
-						if (inter)
-							inter->Free();
-						if (!fitted)
-							fitted = &img;
 					}
+					// Repli sur la source quand le redimensionnement n'a pas eu lieu.
+					const NkImage &use = fitted.IsValid() ? fitted : img;
 					uint32 id = 0;
 					if (!box || (fw == tw && fh == th)) { // remplit la cible (ou pas de letterbox) -> direct
-						id = shell->UploadRGBA(fitted->Pixels(), fw, fh);
+						id = shell->UploadRGBA(use.Pixels(), fw, fh);
 						if (outW)
 							*outW = fw;
 						if (outH)
 							*outH = fh;
 					} else { // LETTERBOX dans un carre transparent
-						NkImage *canvas = NkImage::Create((uint32)tw, (uint32)th, 4, 0u);
-						if (canvas && canvas->IsValid()) {
-							canvas->Blit(*fitted, (tw - fw) / 2, (th - fh) / 2);
-							id = shell->UploadRGBA(canvas->Pixels(), tw, th);
+						NkImage canvas = NkImage::Create((uint32)tw, (uint32)th, 4, 0u);
+						if (canvas.IsValid()) {
+							canvas.Blit(use, (tw - fw) / 2, (th - fh) / 2);
+							id = shell->UploadRGBA(canvas.Pixels(), tw, th);
 							if (outW)
 								*outW = tw;
 							if (outH)
 								*outH = th;
-							canvas->Free();
 						} else {
-							id = shell->UploadRGBA(fitted->Pixels(), fw, fh);
+							id = shell->UploadRGBA(use.Pixels(), fw, fh);
 							if (outW)
 								*outW = fw;
 							if (outH)
 								*outH = fh;
 						}
 					}
-					if (fitted != &img)
-						fitted->Free();
 					return id;
 				};
 				// Rogne les marges TRANSPARENTES (bounding box alpha) -> le glyphe remplit son
 				// bitmap. Sans ca, une icone 128x128 avec grande marge interne parait plus PETITE
 				// qu'une icone qui remplit son bitmap (ex. Ouvrir 40x32) -> tailles inegales.
-				auto trimAlpha = [](NkImage &src) -> NkImage * {
+				// Rend une image INVALIDE quand il n'y a rien a rogner (l'appelant garde
+				// alors la source), jamais un pointeur : NkImage est un type valeur.
+				auto trimAlpha = [](NkImage &src) -> NkImage {
 					if (!src.IsValid() || src.Channels() < 4)
-						return nullptr;
+						return NkImage();
 					const int32 w = src.Width(), h = src.Height(), ch = src.Channels();
 					const uint8 *px = src.Pixels();
 					if (!px)
-						return nullptr;
+						return NkImage();
 					const usize stride = (usize)w * ch;
 					int32 minX = w, minY = h, maxX = -1, maxY = -1;
 					for (int32 yy = 0; yy < h; ++yy) {
@@ -124,9 +123,9 @@ namespace nkentseu {
 							}
 					}
 					if (maxX < minX || maxY < minY)
-						return nullptr; // tout transparent
+						return NkImage(); // tout transparent
 					if (minX == 0 && minY == 0 && maxX == w - 1 && maxY == h - 1)
-						return nullptr; // deja bord-a-bord
+						return NkImage(); // deja bord-a-bord
 					return src.Crop(minX, minY, maxX - minX + 1, maxY - minY + 1);
 				};
 				// Dossier d'OVERRIDE utilisateur (icones personnalisees, data-driven) : deposer un
@@ -153,11 +152,10 @@ namespace nkentseu {
 					const char *dirs[] = {ovrDir, "Applications/NKCode/data/textures/", "data/textures/",
 										  "NKCode/data/textures/", exeTex.CStr(), ""};
 					auto put = [&](NkImage &img) -> uint32 { // rogne (option) puis upload
-						NkImage *t = trim ? trimAlpha(img) : nullptr;
-						uint32 id = upload(t ? *t : img, tw, th, outW, outH, box);
-						if (t)
-							t->Free();
-						return id;
+						NkImage t;
+						if (trim)
+							t = trimAlpha(img);
+						return upload(t.IsValid() ? t : img, tw, th, outW, outH, box);
 					};
 					for (const char *const *d = dirs;; ++d) {
 						// Outils MAISON : NkPrintf + NkFile::Exists (pas de snprintf/fopen).
@@ -169,15 +167,10 @@ namespace nkentseu {
 						}
 						const NkString svg = NkPrintf("%s%s.svg", *d, base);
 						if (NkFile::Exists(svg.CStr())) {
-							NkImage *im =
+							NkImage im =
 								NkSVGCodec::DecodeFromFile(svg.CStr(), tw * 2, th * 2); // rasterise large puis reduit = net
-							if (im && im->IsValid()) {
-								uint32 id = put(*im);
-								im->Free();
-								return id;
-							}
-							if (im)
-								im->Free();
+							if (im.IsValid())
+								return put(im);
 						}
 						if (!**d)
 							break;

@@ -34,7 +34,7 @@ NK3DModeler, NKCode, NkForma, NkAnima, NkScena, Nogee, Sandbox : même exigence.
 
 ## Les chantiers
 
-> Cinq au 12 août 2026. **Dix depuis le 14 août** : la confrontation des
+> Cinq au 12 août 2026. **Douze depuis le 15 août** : la confrontation des
 > feuilles de route au code a ajouté le fork du lecteur PDF (n° 6, chantier de
 > **code**) et l'inventaire de dette documentaire (n° 7). Le n° 1 a par ailleurs
 > été **réglé pour moitié** entre-temps.
@@ -338,6 +338,567 @@ exactement ce qui s'est produit ici.
 
 Premier pas concret et borné : réparer ou retirer `NkRHIDemoText.cpp`, obtenir un
 **203/203**, et seulement ensuite compter ce qui reste hors couverture.
+
+---
+
+### 11. Rouvrir le BUILD COMPLET — bloqueur par bloqueur, chiffre à chaque pas
+
+> Ouvert le **2026-08-15**. Un bloqueur levé, le suivant diagnostiqué non traité.
+> **Le livrable est un nombre, pas un build vert** : il dit si la suite est une
+> demi-journée ou une semaine.
+
+| Relevé | Cibles atteintes | Reste | Bloqueur |
+|---|---|---|---|
+| 0 — état trouvé | **60 / 205** | 145 | `NkRHIDemoText.cpp` — API NKFont disparue |
+| 1 — après levée | **79 / 203** | 124 | `Texture2D.cpp` + `ViewerApp.cpp` — API NKImage changée |
+| **2 — `--keep-going`** | **196 / 203** | **7 en échec** | 4 causes distinctes, toutes nommées ci-dessous |
+| **3 — après correctif liaison** | **200 / 203** | **3 en échec** | 3 causes distinctes, 3 modules ≠ du mien |
+
+> ### ⚠️ LE RELEVÉ 2 RÉFUTE LA PRÉMISSE DE CE CHANTIER — mesuré le 2026-08-15
+>
+> J'ai écrit pendant deux sessions que le blocage « empêchait d'atteindre » 145
+> puis 124 cibles, et j'en ai tiré une estimation « quelques jours, pas une
+> semaine » de rattrapage démo par démo. **C'est faux, et d'un facteur 18.**
+>
+> **Seules 7 cibles sur 203 échouent réellement.** Les 124 « restantes » n'étaient
+> pas cassées : elles étaient **non atteintes**, parce que le mode par défaut
+> s'arrête au premier échec. Un nombre de cibles *non atteintes* ne dit
+> **rien** du nombre de cibles *cassées* — je les ai traités comme équivalents
+> pendant deux relevés, et personne (moi compris) ne l'a relevé.
+>
+> C'est exactement « borner avant d'alarmer » (`CLAUDE.md` parent), appliqué à
+> moi : j'avais un chiffre réel — 124 — dont je n'avais pas borné la
+> signification. **Un instrument qui s'arrête au premier défaut ne mesure pas
+> l'étendue du défaut, il mesure où il s'est arrêté.**
+>
+> Provenance : worktree `Nkentseu-nkanim`, branche `feat/nkanimation`, commit
+> `c61b4c44`, le 2026-08-15. Instrument : **jenga 2.4.0**, install *editable* →
+> `D:/Projets/MacShared/Projets/Jenga`, branche `chore/retrait-sous-module-nkentseu`
+> `026e306` — **et non `main`/2.3.0**. Vérifié que `a6578d1` (PR #24) en est
+> ancêtre et que les 2 commits en plus ne touchent ni `Builder.py` ni
+> `Reporter.py` ; correctif du compteur relu directement dans le code qui s'exécute
+> (`Jenga/Utils/Reporter.py:1089-1105`), **pas relayé**. Cohérence du compteur sur
+> ce relevé : 196 + 7 = 203. ⏱️ 9 min 19 s (build complet à froid).
+
+> ### 🌉 LE PONT ENTRE LES DEUX DÉNOMINATEURS : IL N'Y EN A PAS À CONSTRUIRE
+>
+> Mesuré dans les deux régimes, même arbre, même jour, comme R7 le demandait :
+>
+> | Régime | Commande | Résultat | Cibles vues |
+> |---|---|---|---|
+> | nouveau | `jenga build --config Debug --keep-going` | **196 / 203** | 203 |
+> | ancien | `... --tests --keep-going` | **196 / 203** | 203 |
+>
+> **Identiques.** `diff` des projets vus dans les deux sorties : **aucune cible
+> présente dans l'un et absente de l'autre**. Et 57 cibles dont le nom contient
+> « Test » (`NKVAETest`, `NkAnimPhysTest`…) sont **déjà construites sans
+> `--tests`** — elles ne sont pas déclarées comme racines de test ici.
+>
+> ⚠️ **Donc le « 272 → 206 » de R7 ne s'applique pas à Nkentseu.** C'était un
+> chiffre juste ailleurs, relayé jusqu'à moi, et j'ai porté pendant deux sessions
+> un dispositif de raccord pour une rupture de série **qui n'existe pas dans ce
+> dépôt**. La règle « un chiffre porte sa provenance » a une seconde moitié que je
+> n'avais pas vue : *un chiffre porte aussi son PÉRIMÈTRE*. 272 et 206 étaient
+> vrais — simplement pas d'ici.
+>
+> Bonne nouvelle pratique : mes relevés 0 et 1 **restent comparables** aux
+> suivants (même dénominateur 203, aux 2 cibles désactivées près).
+
+> ⚠️ **Chiffres corrigés le 15/08 : le compteur de Jenga surestime.**
+> `Reporter.py:1038-1042` incrémente `_projects_built` **même en échec** (mesuré
+> par l agent Jenga sur un banc dédié). Les footers lus disaient 61/205 et 80/203 ;
+> comme le mode par défaut s arrête au premier échec (`Builder.py:2508-2510`), il y
+> a **exactement un échec** par mesure — mes deux sorties portaient `Failed: 1`.
+> D où **−1 sur chaque absolu**. **La progression, elle, est inchangée : +19.**
+> Provenance : mesuré le 15/08 sur `feat/nkanimation` après fusion de `main`.
+> ⚠️ Ce raisonnement ne tient QUE tant qu il y a un seul échec : sous `--verbose`
+> ou avec le futur `--keep-going`, la surestimation vaut le nombre d échecs et le
+> compteur doit être réparé avant de servir de mesure.
+
+Le total passe de 205 à 203 : deux cibles désactivées, avec leur raison écrite.
+
+**Ce que les deux premiers bloqueurs ont en commun, et c'est le vrai sujet.**
+Aucun n'est un bug. Les deux sont des **API qui ont changé sans que leurs
+consommateurs suivent** — et personne ne l'a su parce que la seule mesure capable
+de le dire ne tournait plus. Un blocage qui dure assez longtemps fait cesser de
+lancer la mesure, et tout ce qui casse ensuite devient invisible. Preuve trouvée
+en chemin : deux des quatre cibles du bloqueur 1 étaient **déjà commentées, sans
+un mot de raison**. Le même défaut avait été rencontré, neutralisé en silence, et
+oublié.
+
+#### Bloqueur 1 — ✅ levé (commit `251f49d2`)
+Quatre démos de texte consomment une génération d'API NKFont entière et disparue
+(`NkFontLibrary`, `NkTextShaper`, `NkFontResult`, `nk_handle`, `NK_LOAD_*`).
+Désactivées avec leur raison. **À arbitrer** : porter vers
+`NkFontAtlas`/`NkRasterizer`/`NkShape`, ou supprimer — `NkFontDemo` et `NkFDV2`
+couvrent déjà NKFont sur la nouvelle API. Sept fichiers de plus utilisent la même
+API morte **sans appartenir à aucune cible**.
+
+#### Bloqueur 2 — ⏳ diagnostiqué, NON traité
+`Applications/NkImageDemo` (cible `NkImageDemo`) : `Texture2D.cpp:77` et
+`ViewerApp.cpp:450` appellent `NkImage::Load(path, 4)` **en statique**.
+
+Ce n'est pas un correctif de deux lignes, et c'est pour ça qu'il est laissé :
+
+| Avant (ce qu'appelle la démo) | Aujourd'hui (`NkImage.h`) |
+|---|---|
+| `static NkImage* Load(path, ch)` | `bool Load(path, ch)` — **membre**, l. 262 |
+| `img->IsValid()` | **n'existe plus** |
+| `Free()` libère pixels **et** wrapper (`nkMalloc` + placement new), « JAMAIS `delete img` » | `Free()` existe encore (l. 775), mais la classe a désormais un **vrai destructeur** (l. 199) et un move-ctor |
+
+Le modèle de **propriété mémoire a changé**. La démo fait circuler des `NkImage*`
+entre son fil de décodage et son fil d'upload GL ; reprendre ça à la légère est
+la recette exacte du `c0000374` que `CONVENTIONS_CODE`/`CLAUDE.md` interdisent
+(mélange allocateur custom et heap CRT).
+
+**Motif de référence, qui marche déjà** — `Nogee/Editor/AssetManager.cpp:91` :
+```cpp
+NkImage img;                       // valeur, pas pointeur
+if (!img.Load(absPath.CStr(), 4) || !img.Pixels() || img.Width() <= 0) { ... }
+```
+Le port consiste probablement à passer la démo du pointeur à la **valeur** (ou à
+un `NkUniquePtr`), pas à réanimer l'ancien contrat. Décider **qui possède
+l'image** entre les deux fils est la vraie question, et elle mérite d'être posée
+avant d'écrire.
+
+> #### ⚠️ CORRECTION DU 2026-08-15 — mon diagnostic ci-dessus était à moitié faux
+>
+> J'avais écrit « le modèle de propriété mémoire a changé » et « la démo fait
+> circuler des `NkImage*` entre son fil de décodage et son fil d'upload GL ».
+> **Les deux affirmations sont réfutées par la mesure.**
+>
+> **1. Il n'y a aucun fil.** Zéro `NkThread`, zéro `std::thread`, zéro mutex,
+> zéro file dans tout `Applications/NkImageDemo/src`. L'asynchronisme n'est
+> qu'une **intention écrite dans un commentaire** (`Texture2D.h:29-30` : « Pour un
+> chargement asynchrone, utiliser DecodeFromFile() depuis un thread worker »).
+> L'usage réel est séquentiel : `Texture2D.cpp:122-125`, `DecodeFromFile` puis
+> `UploadFromImage` dans la même fonction. **J'avais diagnostiqué d'après un
+> commentaire, pas d'après le code.**
+>
+> **2. Le contrat de propriété est INTACT.** `NkImage::Free()` fait toujours
+> `nkFree(mPixels)` **puis `nkFree(this)`** (`NkImage.cpp:1468-1473`) : il libère
+> bien les pixels **et** le wrapper, et `delete` reste interdit. Rien n'a changé
+> de ce côté. Il existe même désormais `Unload()` (l. 1479), variante sûre sur la
+> pile.
+>
+> **Ce qui a réellement disparu se réduit à deux choses :**
+> - `static NkImage *Load(path, ch)` → il n'y a plus que `bool Load(path, ch)`
+>   **membre** (`NkImage.h:262`) ;
+> - `IsValid()` → remplacer par `Pixels() != nullptr` (motif en production dans
+>   `Nogee/Editor/AssetManager.cpp:91`).
+>
+> **Le port est donc petit**, et il ne demande aucune décision d'architecture :
+> allouer comme NKImage le fait en interne (`nkMalloc(sizeof(NkImage))` +
+> placement new, `NkImage.cpp:1331-1334`), appeler le `Load` membre, garder
+> `Free()`. Deux sites : `Texture2D.cpp:77` et `ViewerApp.cpp:450`.
+>
+> ⚠️ **MAIS il révèle une asymétrie d'API dans NKImage, et c'est ça le vrai
+> sujet** : on peut toujours `Free()` un `NkImage` du tas, mais **il n'existe plus
+> aucune fabrique publique « chemin de fichier → `NkImage*` du tas »**. Les
+> fabriques statiques restantes (`Create`, `Alloc`, `Wrap`, `Dispatch`,
+> `ConvertToTexture`) partent de dimensions ou d'octets, jamais d'un chemin.
+> Chaque consommateur qui veut un `NkImage` du tas depuis un fichier doit donc
+> **recopier l'idiome d'allocation interne de NKImage** — exactement le genre de
+> duplication que ce dépôt paie ailleurs.
+>
+> **Deux issues, et c'est un arbitrage technique, pas une évidence :**
+> 1. **Porter les deux sites** en recopiant l'idiome. Zéro risque, mais installe
+>    la duplication dans une démo.
+> 2. **Rendre à NKImage sa fabrique** — une static `NkImage *LoadFile(path, ch)`
+>    de trois lignes, qui rétablit la symétrie avec `Free()` et sert tout
+>    consommateur futur. Touche un module Kernel pour réparer une démo, donc à
+>    décider, pas à faire d'autorité.
+>
+> Je penche pour la **2** — l'asymétrie est la cause, les deux sites cassés n'en
+> sont que le symptôme — mais je ne modifie pas un module Kernel sur ma seule
+> lecture.
+
+> #### 🌉 AU MOMENT DE PASSER À JENGA v2.3.0 — MESURER DANS LES DEUX RÉGIMES
+>
+> ✅ **L'ATTENTE EST LEVÉE — vérifié le 2026-08-15.** La PR #24 est **fusionnée
+> sur `main`** : `git log --oneline -5 main` dans `D:/Projets/MacShared/Projets/Jenga`
+> donne **`a6578d1` « feat(build): --keep-going, cibles de test = racines, et un
+> compteur qui ne ment plus (#24) »**. Mesuré, pas relayé — la note antérieure
+> « pas encore fusionnée » est périmée. **Le chantier 11 peut reprendre**, et le
+> pont ci-dessous est à faire **à la première exécution**, pas plus tard.
+>
+> La v2.3.0 sort les racines de test du build par défaut : **272 → 206 cibles**.
+> Le dénominateur change donc, et **les relevés 0 et 1 ci-dessus (60/205 et
+> 79/203) cessent d'être comparables aux suivants**. Une série longitudinale se
+> détruit en silence exactement comme ça — les nombres continuent de sortir, plus
+> rien ne dit qu'ils ne parlent plus de la même chose.
+>
+> **Le pont coûte une exécution, et il faut la faire AU MOMENT de la bascule** —
+> après, la version précédente n'est plus là pour la produire :
+>
+> ```
+> jenga build --config Debug --tests     # ancien régime : dénominateur 272/205
+> jenga build --config Debug             # nouveau régime : dénominateur 206
+> ```
+>
+> Les deux chiffres du même arbre, le même jour, donnent le **point de raccord**.
+> Sans lui, personne ne pourra jamais dire si le dépôt s'est amélioré entre août
+> et septembre : on saura seulement qu'on a changé de règle.
+>
+> ⚠️ Et noter les deux avec leur provenance — date, branche, régime. Un
+> dénominateur est une provenance au même titre qu'une date : deux mesures justes
+> sous deux régimes différents se contredisent sans que personne ait tort.
+> *(Suggestion de l'échange, R7 du 15/08.)*
+
+#### LES 4 CAUSES DU RELEVÉ 2 — même motif, QUATRE ÉTAGES différents
+
+7 cibles en échec, mais **4 causes seulement** : 4 des 7 partageaient la même.
+Et le motif « X a changé, son déclarant n'a pas suivi » se rejoue à un étage
+différent à chaque fois — ce n'est pas la dérive d'API que j'annonçais.
+
+| # | Cible(s) | Étage | Ce qui n'a pas suivi |
+|---|---|---|---|
+| 1 | `Tuto02/03/04/05` (4) | **liste de links manuelle** | ✅ **corrigé** — voir ci-dessous |
+| 2 | `NkImageDemo` | **source consommatrice** | bloqueur 2, arbitré (chantier 12) |
+| 3 | `NKTensorDemo` | **registre des modules** | `config/modules.jenga:64` |
+| 4 | `Gamepad` | **définition** | 2 surcharges jamais définies |
+
+**Cause 1 — ✅ CORRIGÉE, commit `45231cc1`. Et elle vient de MOI.**
+`NKRenderer.lib` référence `anim::NkAnimationPlayer::Update(float)`
+(`NkAnimationSystem.cpp:45`) ; le symbole **existe bien** dans `NKAnimation.lib`
+(vérifié : `nm` le donne en `T`, symbole défini). Les 4 tutoriels échouaient donc
+au **link**, pas au compile. Cause : `Tutoriels3D.jenga` porte une liste
+`_BASE_LINKS` **maintenue à la main**, sans `NKAnimation`. Le registre
+(`config/modules.jenga:109`) connaît pourtant `NKRenderer → NKAnimation`, mais
+`useappdeps` **n'émet que des defines `_STATIC_LIB`** — il ne pose aucun `links()`.
+Rien ne force donc la liste manuelle à suivre le registre.
+
+C'est **mon extraction NKAnimation du 2026-08-14** qui a cassé ces 4 cibles, et
+elle est restée invisible **un jour entier** parce que la seule mesure capable de
+le dire ne tournait pas. La thèse de ce chantier, démontrée sur son propre auteur.
+
+**Cause 3 — `NKTensorDemo`** : `NKTensor/NkTensorGpu.cpp:201,237` appelle
+`NkDeviceFactory::Destroy/…` (déclaré `NKRHI/Core/NkDeviceFactory.h:54`), mais le
+registre déclare `"NKTensor" : [… NKMath]` **sans NKRHI** (`config/modules.jenga:64`).
+Ici c'est **le registre lui-même** qui est en retard, pas son lecteur — l'inverse
+exact de la cause 1. NKTensor a gagné un backend GPU ; sa déclaration ne l'a pas
+suivi. **Non corrigé : ce n'est pas mon module.**
+
+**Cause 4 — `Gamepad`** : `NkString::begin()`/`end()` **non-const** sont déclarés
+(`NkString.h:977` et `991`) et **jamais définis** ; seules les surcharges `const`
+le sont (`NkString.cpp:1128,1132`). Un `for (c : s)` sur une `NkString` **non
+const** — ici `LowerAscii(NkString)` prise par valeur, `main8.cpp:193` — choisit la
+surcharge non-const et ne lie pas. Invisible tant que tout le monde passait des
+`const NkString &`. **Non corrigé : NKContainers est Foundation, hors périmètre.**
+
+#### Comment reprendre
+```
+jenga build --config Debug --keep-going 2>&1 | grep -E "Projects Built|^Failed:|Echecs"
+```
+⚠️ **Toujours `--keep-going`.** Sans lui, le build s'arrête au premier échec et le
+nombre obtenu ne dit pas combien de cibles sont cassées — c'est l'erreur qui a
+produit mes relevés 0 et 1 (voir l'encart du relevé 2).
+Un bloqueur, un commit, un relevé. **L'objectif n'est pas 203/203 : c'est zéro
+échec inexpliqué.** Une cible qui ne peut pas construire ici et dont on sait
+pourquoi est réglée.
+
+⚠️ **Ce chantier solde la dette n° 9** (`DemoRW/main.cpp` corrigé à l'aveugle) :
+elle disparaît au premier build complet qui compile ce fichier — ou qui prouve
+qu'il est mort.
+
+---
+
+### 12. `NkImage` — deux modèles de vie sur un seul type : recenser avant de trancher
+
+> Ouvert le **2026-08-15**, sur **arbitrage de Rodolf**. **Chantier à part**, à ne
+> pas confondre avec le port de `NkImageDemo` (chantier 11, bloqueur 2), qui peut
+> se faire indépendamment.
+>
+> **ÉTAT au 2026-08-15 : étapes 1 et 2 FAITES** (recensement + voie unique
+> proposée, avec son argument de robustesse). **L'étape 3 — la migration — n'est
+> PAS engagée** et ne doit pas l'être avant le chantier 11 : elle est mécanique
+> mais invérifiable tant que le build complet ne tourne pas. **En attente de
+> l'arbitrage de Rodolf** sur la voie proposée.
+
+#### Le fait, vérifié à la ligne
+
+`NkImage.cpp:1468-1473` — relu, c'est bien ce que tout le raisonnement suppose :
+
+```cpp
+void NkImage::Free() noexcept {
+    if (mOwning && mPixels) nkFree(mPixels);
+    mPixels = nullptr;
+    nkFree(this);              // libère le struct NkImage lui-même
+}
+```
+
+**Aucun garde** — ni `mOnHeap`, ni `mOwnsSelf` : rien ne distingue une instance du
+tas d'une instance valeur. Or la classe a désormais un **vrai destructeur**
+(l. 199) et un **move-ctor** (l. 209).
+
+**Les deux modèles coexistent donc sur le même type :**
+
+| Voie | Création | Destruction |
+|---|---|---|
+| **tas** | fabriques statiques (`Create`, `Alloc`, `Wrap`, `Dispatch`, `ConvertToTexture`) | `Free()` — libère pixels **et** `this` |
+| **valeur** | `NkImage img;` | destructeur, ou `Unload()` (l. 1479) |
+
+`Free()` appelé sur une instance valeur libère **une adresse qui n'est pas du
+tas** ; si l'objet survit à l'appel, son destructeur passe ensuite sur de la
+mémoire libérée. C'est le `c0000374` que `CLAUDE.md` interdit.
+
+⚠️ **Le piège est déjà documenté — et c'est ce qui le rend pire.** Juste au-dessus,
+l. 1460-1462 : « USAGE : uniquement sur les images créées via les fabriques
+statiques. Ne JAMAIS appeler `Free()` sur une image allouée sur la stack. »
+**Contrat par commentaire** : la règle est écrite, rien ne l'applique. Même
+famille que le « thread worker » de `Texture2D.h:29-30`, qui a fait diagnostiquer
+deux fils inexistants le même jour.
+
+Asymétrie qui a révélé le tout : on peut `Free()` un `NkImage` du tas, mais
+**aucune fabrique publique ne sait plus en créer un depuis un chemin de fichier**
+(`static Load(path)` a disparu ; les autres partent de dimensions ou d'octets).
+
+#### La méthode imposée par Rodolf — trois étapes, dans cet ordre
+
+> « Si plusieurs modèles posent problème, propose une **voie unique**. Mais
+> vérifie que la sélection retenue est **la plus robuste**, et **avant de retirer
+> l'autre, vérifie qu'il n'est pas utilisé par d'autres systèmes**. »
+
+**1. Recenser les consommateurs des DEUX voies — avant toute proposition.**
+Qui appelle `Free()`, qui s'appuie sur le destructeur, qui fait circuler des
+`NkImage*`, qui passe des valeurs. Dans **tout** le dépôt : NKRenderer, NKCanvas,
+NKMedia, Noge, applications, démos. **Un chiffre par voie.** C'est l'étape qui
+décide — une voie utilisée par trente sites ne se retire pas comme une voie
+utilisée par deux.
+
+**2. Proposer la voie unique, avec l'argument de robustesse.** Pas « celle que je
+préfère » : **celle qui rend l'erreur impossible plutôt que détectable**. Critère
+concret ici — quelle voie fait qu'un appel erroné **ne compile pas**, au lieu de
+libérer une adresse qui n'est pas du tas. Rodolf demande la justification, pas
+seulement le choix.
+
+**3. Ne retirer qu'après.** Si le recensement montre que l'autre voie est
+largement utilisée, **la migration est un chantier, pas un correctif** — le dire
+au lieu de la forcer.
+
+#### ÉTAPE 1 — RECENSEMENT : ✅ **EXÉCUTÉ le 2026-08-15**
+
+> **Provenance de tous les chiffres ci-dessous** : mesurés le **2026-08-15** dans
+> le worktree `Nkentseu-nkanim`, branche `feat/nkanimation`, au commit
+> **`5f79e9b4`**. **Périmètre** : tout le worktree, fichiers `.h .hpp .cpp .c
+> .inl`. **Exclusions déclarées** : `./Build/` (artefacts) et `./.git/`.
+> `./Externals/` **n'est pas exclu** — il contient **0** occurrence de `NkImage`,
+> mesuré séparément. **4 537 fichiers** parcourus.
+
+**Un chiffre par voie, comme Rodolf l'a demandé :**
+
+| Voie | Mesure | Commande (re-jouable, depuis la racine du worktree) |
+|---|---|---|
+| **tas** | **66** fichiers portent un `NkImage *` | `grep -rlE "NkImage[[:space:]]*\*" --include=*.h --include=*.hpp --include=*.cpp --include=*.c --include=*.inl . \| grep -vc "^\./Build/"` |
+| **tas** | **120** appels `Free()` sur un `NkImage` | résolution du type du receveur (grep seul en trouve 168 toutes classes confondues — voir la note de méthode) |
+| **tas** | **56** appels de fabrique statique | `grep -rhoE "NkImage[[:space:]]*::[[:space:]]*(Create\|Alloc\|Wrap\|Dispatch\|ConvertToTexture)[[:space:]]*\(" … \| wc -l` |
+| **valeur** | **29** fichiers déclarent une instance valeur, dont **19 en valeur pure** (aucun pointeur, aucun `Free()`) | résolution des déclarations |
+| **valeur** | **40** fichiers prennent `NkImage &` / `const NkImage &` | `grep -rlE "NkImage[[:space:]]*&" … \| grep -vc "^\./Build/"` |
+| **valeur** | **4** appels `Unload()` sur un `NkImage` (7 au total, 3 sur d'autres classes) | `grep -rnE "(->\|\.)[[:space:]]*Unload[[:space:]]*\(\)" …` |
+
+⚠️ **Note de méthode, parce que le chiffre le plus important est le moins
+grep-able.** `Free()` est un nom **partagé** : `grep` en trouve 168 avec receveur
+dans tout le dépôt, dont la majorité appartient à d'autres classes
+(`NkFramebuffer::Free()`, etc.). Les **120** ci-dessus sont ceux dont le receveur
+a été **résolu comme `NkImage *`** — variables locales, membres déclarés dans
+l'en-tête jumeau, champs de struct. **2** appels supplémentaires portent sur
+`NkSVGImage` (voir plus bas) et ne comptent pas ici. Un `grep -c "Free()"` seul
+sur ce chantier donne un nombre **faux** ; c'est noté pour la session qui reprendra.
+
+**Répartition par zone** (les 120 appels `Free()`) :
+
+| Zone | `Free()` | fichiers `NkImage *` | fichiers valeur |
+|---|---|---|---|
+| `App/Sandbox` | 35 | 9 | 4 |
+| `Kernel/NKImage` | 35 | 27 | 3 |
+| `Kernel/NKRenderer` | 9 | 4 | 3 |
+| `App/NK3DModeler` | 8 | 5 | 4 |
+| `App/NKCode` | 7 | 1 | 2 |
+| `App/NkImageDemo` | 7 | 4 | 0 |
+| `App/Pong2` · `App/Pong` · `App/Songoo` | 4 · 3 · 1 | 4 · 2 · 2 | 0 · 1 · 0 |
+| `Kernel/NKMedia` · `NKCamera` | 4 · 3 | 3 · 1 | 3 · 0 |
+| `App/Mou` · `NKImageCodecTest` · `NkCameraDemos` | 2 · 1 · 1 | 1 · 1 · 1 | 0 |
+| `Kernel/NKCanvas` · `NKXR` · `Engine/Noge` + 5 apps | 0 | 0 | 8 |
+| **TOTAL** | **120** | **65** | **29** |
+
+Dont **18 appels dans 5 fichiers dupliqués** (`… copy.cpp`, `Pong copy/`) —
+**qui sont de vraies cibles de build** : `config/modules.jenga:240` nomme
+« Pong copy » parmi 4 projets réels. **102 appels sont dans le code non dupliqué.**
+
+#### Ce que le recensement a révélé — et qui change la question
+
+**1. La voie valeur PRODUIT de la voie tas.** C'est le fait décisif, et il n'était
+dans aucune des analyses précédentes. **Cinq méthodes d'instance `const`
+retournent un `NkImage *` du tas** : `Convert` (l. 2281), `Copy` (2334),
+`CopyAs` (2382), `Crop` (2992), `Resize` (3029).
+
+Donc `NkImage img; img.Load(p); NkImage *r = img.Resize(…);` — **une instance
+valeur fabrique une instance tas**. Les deux voies ne sont pas séparables par
+site d'usage : elles coexistent **dans la même expression**. C'est pourquoi
+**10 fichiers sont mixtes**, et ce n'est pas de la négligence.
+
+**2. Le piège a déjà sauté, en production, deux fois.**
+`NK3DModeler/Viewport/NkDemo3D.cpp:11366-11372`, écrit sur place :
+
+> « UNLOAD, PAS FREE. `NkImage::Free()` … fait `nkFree(this)` et libère L'OBJET
+> LUI-MÊME. Appelée sur ce canevas statique, elle rendait à l'allocateur une
+> adresse qui ne lui appartenait pas — **l'application se fermait net** juste
+> après avoir écrit le fichier (**constaté deux fois par Rihen**). »
+
+Ce n'est donc plus un piège théorique : c'est un `c0000374` **déjà payé**,
+corrigé par un `Unload()` et **un commentaire**.
+
+**3. Trois sites portent le même avertissement manuscrit** —
+`NkDemo3D.cpp:11366`, `NKImage/tests/TestEXR.cpp:60`,
+`NKRenderer/Core/NkTextureLibrary.cpp:218-220`. Les deux derniers montrent le
+voisinage exact du danger :
+
+```cpp
+rgba->Free();   // rgba vient de Convert() (heap) → Free() OK
+// `img` est sur la PILE : ne JAMAIS appeler img.Free() (qui ferait
+// nkFree(this) sur une adresse pile → heap corruption c0000374).
+```
+
+**Deux objets du même type, dans la même portée, avec des règles de vie
+opposées — séparés par un commentaire.** Règle du dépôt : *quand plusieurs
+endroits documentent le même défaut, ce n'est pas une convention, c'est une
+plainte.*
+
+**4. L'idiome a essaimé.** `nkFree(this)` existe à **2** endroits réels :
+`NkImage.cpp:1472` et `NkSVGCodec.cpp:2642` (`NkSVGImage::Free()`). La décision
+prise ici fera donc **précédent pour au moins une deuxième classe**.
+
+**5. Rien ne bloque la voie valeur :** **0** déclaration `NKIResource *` ou
+`NKIResource &` dans tout le worktree — `NkImage` hérite de l'interface mais
+**n'est stocké polymorphiquement nulle part**. La contre-épreuve a été faite :
+la commande trouve bien `NKIResource` (9 occurrences, dont la définition
+`NKStream/NKIResource.h:33`), elle ne trouve aucun pointeur.
+
+#### ÉTAPE 2 — LA VOIE UNIQUE PROPOSÉE : **la valeur**, et Free() supprimée
+
+**Argument de robustesse, sur le critère exact de Rodolf** — *quelle voie fait
+qu'un appel erroné ne compile pas* :
+
+- **Voie valeur retenue → `Free()` disparaît de l'API.** L'appel erroné n'existe
+  plus **comme expression** : il n'y a plus rien à appeler de travers. C'est le
+  seul des deux qui rend l'erreur **impossible** plutôt que documentée.
+- **Voie tas retenue** exigerait d'interdire la déclaration sur pile
+  (constructeur/destructeur privés + fabriques amies). C'est également vérifié
+  par le compilateur — mais ça force une allocation pour **toute** image
+  temporaire, et ça **contredit ce que la classe déclare déjà d'elle-même** :
+  son en-tête dit que l'API d'instance est « pensée pour une utilisation en
+  valeur (`NkImage img; img.Load("foo.png")`) », et `Unload()` est documentée
+  « sûr sur pile comme heap ».
+
+**La classe a déjà choisi la valeur ; ce sont 120 sites qui n'ont pas suivi.**
+C'est **exactement le motif du chantier 11** — une API qui évolue, des
+consommateurs qui ne suivent pas, et rien qui les y oblige.
+
+#### ⚠️ `: public NKIResource` N'EST PAS LA CAUSE — mesuré le 2026-08-15
+
+La question posée dans l'arbitrage (R9/R10) : *l'héritage `NKIResource` devient-il
+décoratif si la valeur est retenue, et est-ce lui qui a produit les 120 sites
+divergents ?* **Les deux moitiés sont réfutées par la lecture de l'interface**
+(`Kernel/System/NKStream/src/NKStream/NKIResource.h`) :
+
+| Fait mesuré | Conséquence |
+|---|---|
+| `NKIResource` déclare `virtual void Unload() = 0` | l'interface prescrit **la voie valeur** |
+| `NKIResource` **ne déclare jamais `Free()`** (seule occurrence du mot : un commentaire sur `NkFree`, l. 45) | `Free()` n'a **jamais** fait partie du contrat |
+| `NkImage.h:783` → `void Unload() noexcept override` | **`override`** — méthode d'interface |
+| `NkImage.h:775` → `void Free() noexcept` | **ni virtuelle ni `override`** — ajout hors contrat |
+
+**L'héritage disait donc la vérité, et il la disait déjà en faveur de la valeur.**
+Supprimer `Free()` rend `NkImage` **plus** conforme à ce qu'elle déclare, pas
+moins. L'héritage est porteur (destructeur virtuel + `Unload()`) : **le garder**.
+
+**Ce qui a réellement produit les 120 sites est la documentation de l'en-tête
+lui-même** : `NkImage.h` lignes **21, 32, 296, 481, 519, 790** prescrivent toutes
+« l'appelant possède le résultat et **DOIT appeler `->Free()`** ». Le robinet n'est
+pas la classe de base — c'est le contrat des fabriques statiques, écrit six fois
+en commentaire. **Réparer la déclaration = supprimer `Free()` et ces six lignes**,
+sans toucher à l'héritage.
+
+⚠️ **Et l'interface porte son propre contrat-par-commentaire** : son en-tête
+annonce être partagée par « NkImage, NkFont, NkAudioSample ». Mesuré :
+**`NkImage` en est le SEUL implémenteur** du dépôt (`NkFont` existe mais n'en
+hérite pas ; `NkAudioSample` n'existe pas). Combiné aux **0** stockages
+polymorphes déjà mesurés, `NKIResource` est aujourd'hui une interface **à un seul
+implémenteur et zéro usage polymorphe**. Ça ne justifie pas de la retirer — mais
+c'est le vrai sujet à porter, et il est plus large que `NkImage`.
+
+#### ÉTAPE 3 — ✅ **ENGAGÉE le 2026-08-16**, sur arbitrage de Rodolf (la valeur)
+
+Conformément à la troisième étape de Rodolf, le recensement montre que l'autre
+voie est **largement utilisée** — 120 sites, 66 fichiers, 4 modules Kernel. Ordre
+suivi :
+
+1. ✅ les **5 fabriques d'instance** (`Convert`, `Copy`, `CopyAs`, `Crop`,
+   `Resize`) et les **6 fabriques statiques** (`Create` ×2, `Alloc`, `Wrap`,
+   `ConvertToTexture`, `Dispatch`) basculées sur un retour **par valeur** ;
+2. ✅ `Free()` **supprimée** — le compilateur signale alors les sites, aucun ne
+   peut être oublié en silence ;
+3. ✅ **les six commentaires prescriptifs de `NkImage.h` réécrits DANS LE MÊME
+   CORRECTIF** (voir l'encart ci-dessous — c'est eux, la cause) ;
+4. les **fichiers mixtes** relus en premier, en commençant par les **alias
+   tas↔pile**.
+
+##### ⭐ La cause n'était pas l'héritage, c'étaient six commentaires
+
+L'hypothèse portée un temps — « `class NkImage : public NKIResource` fabrique les
+120 sites, parce qu'un lecteur en déduit une ressource possédée » — **est
+fausse, et la structure le montre** : `NKIResource` déclare `Unload()` et **ne
+déclare jamais `Free()`** ; dans `NkImage`, `Unload()` est `override` alors que
+`Free()` n'est **ni virtuelle ni override**. **L'héritage disait la vérité**, et
+il se garde.
+
+Le robinet, ce sont **six lignes de commentaire** de `NkImage.h` (21, 32, 296,
+481, 519, 790) qui **prescrivaient** `->Free()` — dont un en-tête de section
+entier : « API STATIQUE : fabriques retournant NkImage* / L'appelant possède le
+résultat et DOIT appeler `img->Free()` ». Cent vingt sites ont fait ce que
+l'en-tête leur disait de faire. **Le code, lui, n'a jamais exigé `Free()`.**
+
+C'est la même famille que la règle du corpus tirée du cas `browserKind` : *un
+commentaire n'est contraint par aucune exécution.* En plus grave ici, parce que
+ces six-là ne décrivaient pas — ils **ordonnaient**. D'où la règle de conduite :
+**supprimer `Free()` sans réécrire ces six lignes aurait réparé la flaque sans
+fermer le robinet.** Le compilateur attrape les sites existants ; il n'attrape
+pas le prochain lecteur.
+
+##### Le choix pour les 5 productrices, et le précédent refusé
+
+Retour **par valeur**, pas mutation en place — raisonnement complet et mesures
+dans `Kernel/Runtime/NKImage/ROADMAP.md`, section « Migration vers la valeur ».
+Résumé : la mutation en place aurait troqué 120 **erreurs de compilation** contre
+un nombre inconnu de **changements de sens silencieux** (`img.Crop(0,0,w,h);` en
+instruction nue compile avant comme après, avec le sens inverse). Le précédent
+`sf::Image` (mutation en place) est **explicitement refusé**, parce que sa moitié
+mutante **existe déjà** dans `NkImage` sous la forme de `Copy(src,…)` et
+`CopyTo(dst)` qui rendent `bool` — et que celle-ci **exige mêmes format et
+dimensions**, donc ne peut pas exprimer `Crop`/`Resize`/`Convert`.
+
+**Palier intermédiaire, si on veut désarmer le piège sans attendre la
+migration** (à peser, non engagé) : remplacer `void Free()` par
+`static void Free(NkImage *&img)`. Une instance valeur **ne se lie pas** à un
+`NkImage *&` → l'appel erroné **ne compile pas**, et la mise à `nullptr` du
+pointeur supprime au passage l'usage-après-libération. Coût : 120 réécritures
+mécaniques `img->Free()` → `NkImage::Free(img)`, **toutes signalées par le
+compilateur**. Ça n'unifie pas les voies — donc ça ne répond pas à la demande de
+Rodolf — mais ça transforme le contrat par commentaire en erreur de compilation.
+
+#### Matière rassemblée en chemin
+
+- `Free()` : 3 appels dans le seul `NkImageDemo/Texture2D.cpp` (l. 83, 94, 117),
+  tous supprimés par le port du chantier 11.
+- Motif « valeur » en production : `Nogee/Editor/AssetManager.cpp:91`.
+- **0** appel `Free()` sur une instance valeur détecté aujourd'hui : le piège est
+  **armé partout mais ne tire nulle part** depuis le correctif de `NkDemo3D`.
+  ⚠️ Détection limitée aux variables résolues dans le fichier — un `Free()` sur
+  une valeur reçue par référence depuis un autre module échapperait à la mesure.
+- ❌ **Correction d'une erreur de mes rapports antérieurs** : j'avais écrit que
+  `IsValid()` avait été **supprimée**. **C'est faux** — elle existe
+  (`NkImage.h:564`, override de `NKIResource`) et `NkImageDemo/Texture2D.cpp:78`
+  l'appelle. La seule disparition réelle est la fabrique `static Load(path)`.
 
 ---
 

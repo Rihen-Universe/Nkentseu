@@ -208,6 +208,28 @@ namespace nkentseu {
 					}
 
 #endif
+
+					// ====================================================================
+					// CONSTRUCTEUR PIECEWISE — hors garde, actif dans les deux régimes
+					// ====================================================================
+
+					/**
+					 * @brief Construit la clé par copie et la valeur SUR PLACE
+					 * @tparam Args Types déduits des arguments destinés au constructeur de Value
+					 * @param hash Hash pré-calculé de la clé
+					 * @param key Clé à copier dans la paire
+					 * @param next Pointeur vers le nœud suivant du bucket
+					 * @param args Arguments forwardés vers le constructeur de Value
+					 *
+					 * @note Volontairement HORS de `#if defined(NK_CPP11)` : cette macro n'est
+					 *       définie nulle part dans le dépôt, donc le constructeur à forwarding
+					 *       parfait ci-dessus n'est jamais compilé et la seule voie active copie.
+					 * @note Le tag évite tout recouvrement avec les constructeurs existants.
+					 */
+					template <typename... Args>
+					Node(usize hash, const Key &key, Node *next, NkPiecewiseTag, Args &&...args)
+						: Data(NkPiecewiseTag{}, key, traits::NkForward<Args>(args)...), Next(next), Hash(hash) {
+					}
 			};
 
 			// ====================================================================
@@ -639,6 +661,66 @@ namespace nkentseu {
 				mBuckets[idx] = newNode;
 				++mSize;
 				CheckLoadFactor();
+			}
+
+			/**
+			 * @brief Insère ou met à jour une paire clé-valeur en DÉPLAÇANT la valeur
+			 * @param key Clé d'indexation pour l'élément (toujours copiée)
+			 * @param value Valeur rvalue dont les ressources sont transférées dans la map
+			 * @note SURCHARGE : un appel passant une lvalue continue de résoudre vers
+			 *       Insert(const Key &, const Value &) et de copier, au même coût qu'avant.
+			 * @note Rend la map utilisable avec un Value **move-only**.
+			 * @note Si la clé existe déjà : la valeur en place est déplacée-assignée.
+			 * @note Complexité : O(1) amorti, O(n) pire cas (collisions ou réhash)
+			 */
+			void Insert(const Key &key, Value &&value) {
+				usize hash = HashKey(key);
+				SizeType idx = GetBucketIndex(hash);
+				Node *node = mBuckets[idx];
+				while (node) {
+					if (mEqual(node->Data.First, key)) {
+						node->Data.Second = traits::NkMove(value);
+						return;
+					}
+					node = node->Next;
+				}
+				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node), alignof(Node)));
+				new (newNode) Node(hash, key, mBuckets[idx], NkPiecewiseTag{}, traits::NkMove(value));
+				mBuckets[idx] = newNode;
+				++mSize;
+				CheckLoadFactor();
+			}
+
+			/**
+			 * @brief Construit la valeur SUR PLACE dans le nœud, sans copie ni déplacement
+			 * @tparam Args Types déduits des arguments du constructeur de Value
+			 * @param key Clé d'indexation pour l'élément (copiée, comme partout ailleurs)
+			 * @param args Arguments forwardés au constructeur de Value
+			 * @return true si l'élément a été inséré, false si la clé était déjà présente
+			 *
+			 * @note SÉMANTIQUE : n'écrase JAMAIS une valeur existante. Rien n'est construit
+			 *       lorsque la clé est déjà là, donc Value n'a pas besoin d'être assignable.
+			 * @note Seule voie pour un Value **sans constructeur par défaut** et **non
+			 *       copiable**.
+			 * @note Complexité : O(1) amorti, O(n) pire cas (collisions ou réhash)
+			 */
+			template <typename... Args> bool Emplace(const Key &key, Args &&...args) {
+				usize hash = HashKey(key);
+				SizeType idx = GetBucketIndex(hash);
+				Node *node = mBuckets[idx];
+				while (node) {
+					if (mEqual(node->Data.First, key)) {
+						return false;
+					}
+					node = node->Next;
+				}
+				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node), alignof(Node)));
+				new (newNode)
+					Node(hash, key, mBuckets[idx], NkPiecewiseTag{}, traits::NkForward<Args>(args)...);
+				mBuckets[idx] = newNode;
+				++mSize;
+				CheckLoadFactor();
+				return true;
 			}
 
 			/**

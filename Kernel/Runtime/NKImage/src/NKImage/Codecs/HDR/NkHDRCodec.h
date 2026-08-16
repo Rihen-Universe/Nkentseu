@@ -26,7 +26,8 @@ namespace nkentseu {
 	class NKENTSEU_IMAGE_API NkHDRCodec {
 		public:
 			/// Décode un fichier HDR en NkImage RGB96F (float32).
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			/// @return  L'image décodée PAR VALEUR ; image INVALIDE (`!IsValid()`) en cas d'échec.
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 			/// Écrit l'image dans un fichier .hdr avec RLE compressé.
 			static bool Encode(const NkImage &img, const char *path) noexcept;
 			/// Encode en mémoire. `out` est alloué via l'allocateur NKMemory
@@ -40,9 +41,10 @@ namespace nkentseu {
 			/// @param hdrImage   Image HDR valide au format NK_RGB96F.
 			/// @param exposure   Facteur d’exposition supplémentaire (optionnel, défaut = 1.0).
 			/// @param gamma      Correction gamma (défaut = 2.2). Si <= 0, pas de gamma.
-			/// @return           Nouvelle image NkImage au format NK_RGBA8, à libérer avec Free().
-			static NkImage *ConvertToTexture(const NkImage &hdrImage, float exposure = 1.0f,
-											 float gamma = 2.2f) noexcept;
+			/// @return           Nouvelle image NkImage au format NK_RGBA32, rendue PAR VALEUR
+			///                   (libérée par son destructeur) ; INVALIDE en cas d'échec.
+			static NkImage ConvertToTexture(const NkImage &hdrImage, float exposure = 1.0f,
+											float gamma = 2.2f) noexcept;
 
 			/// Version retournant une structure simple (données brutes).
 			/// @param outData    Remplie avec les pixels RGBA8 (à libérer via NkFree).

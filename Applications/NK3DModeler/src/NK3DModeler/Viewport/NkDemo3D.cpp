@@ -4168,15 +4168,12 @@ namespace nkentseu {
 			}
 
 			const int32 W = 256, H = 256;
-			NkImage *img = NkImage::Alloc(W, H, NkImagePixelFormat::NK_RGBA32);
-			if (!img || !img->IsValid()) {
-				if (img)
-					img->Free();
+			NkImage img = NkImage::Alloc(W, H, NkImagePixelFormat::NK_RGBA32);
+			if (!img.IsValid())
 				return false;
-			}
 
-			uint8_t *px = img->Pixels();
-			const int32 stride = img->Stride();
+			uint8_t *px = img.Pixels();
+			const int32 stride = img.Stride();
 			for (int32 y = 0; y < H; ++y) {
 				uint8_t *row = px + (size_t)y * stride;
 				for (int32 x = 0; x < W; ++x) {
@@ -4205,9 +4202,7 @@ namespace nkentseu {
 					row[x * 4 + 3] = 255;
 				}
 			}
-			bool ok = img->SavePNG(outPath);
-			img->Free();
-			return ok;
+			return img.SavePNG(outPath);
 		}
 
 		// Helper d'affichage : nom court de PCFMode
@@ -11797,13 +11792,14 @@ namespace nkentseu {
 					{nkvpBgColor[0], nkvpBgColor[1], nkvpBgColor[2], 1.f});
 			HostOutSetSource(nkvpOutSaveCam);
 			logger.Info("[Output]   source restituee\n");
-			// UNLOAD, PAS FREE. NkImage::Free() ne vide pas l'image : elle fait
-			// nkFree(this) et libere L'OBJET LUI-MEME. Appelee sur ce canevas
-			// statique, elle rendait a l'allocateur une adresse qui ne lui
-			// appartenait pas -- l'application se fermait net juste apres avoir
-			// ecrit le fichier (constate deux fois par Rihen). Unload libere les
-			// pixels et remet l'objet a vide, ce que son en-tete annonce
-			// explicitement : « sur pile comme heap ».
+			// UNLOAD : on vide les pixels SANS detruire l'objet. Ces deux canevas
+			// sont STATIQUES et resservent a la sortie suivante -- ils doivent
+			// rester en vie, seulement vides. (Le piege d'autrefois a disparu :
+			// NkImage::Free() faisait nkFree(this) et rendait a l'allocateur une
+			// adresse qui ne lui appartenait pas, fermant l'application net juste
+			// apres l'ecriture du fichier -- constate deux fois par Rihen.
+			// NkImage est desormais un TYPE VALEUR : Free() n'existe plus, les
+			// pixels partent avec le destructeur ou avec Unload().)
 			nkvpOutDark.Unload(); // la passe « fond noir » n'a plus de jumelle
 			nkvpOutPass = 0;
 			nkvpOutCanvas.Unload(); // AVANT de rendre la cible : plus rien n'en depend

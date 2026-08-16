@@ -171,22 +171,25 @@ Le chemin le plus simple passe par `NkSVGCodec` :
 using namespace nkentseu;
 
 // Rastérise logo.svg à 256×256 pixels.
-NkImage* img = NkSVGCodec::DecodeFromFile("assets/logo.svg", 256, 256);
-if (img) {
-    // … utiliser img->Pixels(), img->Width(), img->Height() …
-    img->Free();                 // ⚠️ image *heap* renvoyée par un codec : Free() obligatoire
+NkImage img = NkSVGCodec::DecodeFromFile("assets/logo.svg", 256, 256);
+if (!img.IsValid()) {
+    // échec : fichier absent, XML cassé, dimensions impossibles…
+    return;
 }
+// … utiliser img.Pixels(), img.Width(), img.Height() …
+// rien à libérer : les pixels partent avec `img` à la fin de la portée.
 ```
 
-> `DecodeFromFile` (et tous les codecs `Decode*`) renvoient un **`NkImage*` alloué sur le
-> heap** : c'est toi qui en es propriétaire et tu dois appeler `img->Free()`. C'est différent
-> de la `NkImage` sur la pile du §4.2. On y revient en détail au §4.5.
+> `DecodeFromFile` (et tous les codecs `Decode*`) renvoient une **`NkImage` par valeur** :
+> exactement le même objet que la `NkImage` locale du §4.2, avec la même durée de vie. Il n'y
+> a **pas de pointeur à tester** ni de libération à écrire : en cas d'échec l'image rendue est
+> simplement **invalide**, ce que dit `IsValid()`. On y revient en détail au §4.5.
 
 Tu peux passer `0` pour une dimension : NKImage calcule alors la taille manquante en
 **préservant le ratio** d'aspect :
 
 ```cpp
-NkImage* img = NkSVGCodec::DecodeFromFile("assets/logo.svg", 512, 0); // hauteur auto
+NkImage img = NkSVGCodec::DecodeFromFile("assets/logo.svg", 512, 0); // hauteur auto
 ```
 
 Il existe aussi `NkSVGCodec::Decode(data, size, outW, outH)` pour rastériser depuis un
@@ -202,14 +205,17 @@ perte** :
 ```cpp
 NkSVGImage* svg = NkSVGImage::LoadFromFile("assets/logo.svg");
 if (svg) {
-    NkImage* petit = svg->Rasterize(48, 48);     // pour un écran 100 % DPI
-    NkImage* grand = svg->Rasterize(96, 96);     // pour un écran 200 % DPI
+    NkImage petit = svg->Rasterize(48, 48);      // pour un écran 100 % DPI
+    NkImage grand = svg->Rasterize(96, 96);      // pour un écran 200 % DPI
     // … upload des deux vers le GPU …
-    petit->Free();
-    grand->Free();
     svg->Free();                 // libère la représentation vectorielle
-}
+}   // petit et grand libèrent leurs pixels ici, tout seuls
 ```
+
+> ⚠️ **Ne confonds pas les deux types.** `NkSVGImage` (la représentation **vectorielle**) est
+> une ressource **tas explicite** : elle garde son `Free()`, et c'est toi qui l'appelles.
+> Seule l'image **rastérisée** qu'elle produit (`NkImage`) est un type valeur qui se libère
+> tout seul. `svg->Free()` reste donc correct — et obligatoire.
 
 `NaturalWidth()` / `NaturalHeight()` donnent la taille naturelle (depuis le `viewBox` ou
 les attributs `width`/`height` du `<svg>`) si tu veux respecter la taille d'origine.
@@ -303,7 +309,8 @@ nkentseu::memory::NkFree(svgOut);               // même règle de libération
 
 NKImage repose sur l'allocateur maison **NKMemory** (voir [guide 1](01-NKMemory.md)). Mélanger
 cet allocateur avec le heap standard du C/C++ provoque une **corruption de tas** Windows
-(exception `c0000374`). Il y a trois pièges classiques. Apprends-les une bonne fois.
+(exception `c0000374`). Bonne nouvelle : depuis le 16/08/2026 il ne reste **qu'une seule
+chose à libérer à la main**, et une seule règle à retenir pour les images.
 
 ### Règle 1 — Le buffer d'un `Encode*` se libère avec `NkFree`
 
@@ -320,46 +327,73 @@ nkentseu::memory::NkFree(out);   // ✅ correct
 // delete[] out;                 // ❌ heap corruption c0000374
 ```
 
-### Règle 2 — `NkImage*` renvoyé par un codec/fabrique : `Free()`, jamais `delete`
+### Règle 2 — Une `NkImage` est une **valeur** : rien à libérer, jamais
 
-Toutes les fabriques **statiques** (`NkSVGCodec::Decode*`, `NkImage::Alloc`, `Create`
-statique, `Copy`, `Convert`, `Resize`, `Crop`, …) renvoient un `NkImage*` dont **tu es
-propriétaire**. Il se détruit avec `img->Free()` :
+Peu importe d'où elle vient — une variable locale, une fabrique (`NkImage::Alloc`, `Create`,
+`Wrap`, `ConvertToTexture`), un codec (`NkPNGCodec::Decode`, `NkSVGCodec::DecodeFromFile`, …)
+ou une transformation (`Convert`, `Copy`, `CopyAs`, `Crop`, `Resize`) — **tu récupères
+toujours une `NkImage` par valeur**, et elle libère ses pixels toute seule à la fin de sa
+portée, comme un `int` ou un tableau local :
 
 ```cpp
-NkImage* img = NkImage::Alloc(64, 64, NkImagePixelFormat::NK_RGBA32);
+NkImage img = NkImage::Alloc(64, 64, NkImagePixelFormat::NK_RGBA32);
+if (!img.IsValid())
+    return;                    // échec : image invalide, pas de nullptr à tester
 // … utiliser img …
-img->Free();        // ✅ libère les pixels ET le struct NkImage
+// ✅ rien à écrire : le destructeur libère les pixels à la fin du scope
 ```
 
-Le piège mortel : **`Alloc()` + `Free()` PUIS `delete img`** = double-free immédiat.
-`Free()` libère déjà tout (le wrapper `NkImage` est lui-même alloué via NKMemory). Donc :
+**`Free()` n'existe plus, et `delete` n'a jamais rien à faire ici.** Aucune méthode de
+NKImage ne rend un `NkImage*`.
+
+**Pourquoi cette règle a changé (l'histoire vaut la peine).** Jusqu'en août 2026, les codecs
+rendaient un `NkImage*` du tas qu'on libérait par `img->Free()`. Or `Free()` faisait
+`nkFree(mPixels)` **puis `nkFree(this)`** : appelée sur une image posée sur la **pile** ou
+membre d'une classe, elle rendait à l'allocateur **une adresse qui ne lui appartenait pas**.
+Résultat : **deux crashs `c0000374` en production**. Et le piège n'était pas évitable par
+discipline, parce que `Crop`/`Resize`/`Convert` étaient des méthodes *d'instance* : une image
+valeur fabriquait donc des images tas, et les deux modèles cohabitaient dans la même
+expression. Le recensement a trouvé **120 appels `Free()` dans 66 fichiers**. La correction n'a
+pas été « faire attention », mais **supprimer la forme fautive** : l'expression `img.Free()`
+n'existe plus, donc elle ne compile plus.
+
+### Règle 3 — L'échec se teste avec `IsValid()`, plus avec `nullptr`
+
+Une fabrique ou un `Decode` qui échoue ne renvoie **pas** `nullptr` (il n'y a plus de
+pointeur) : il renvoie une image **invalide**. Le test est donc toujours le même :
 
 ```cpp
-NkImage* img = NkImage::Alloc(64, 64, NkImagePixelFormat::NK_RGBA32);
-img->Free();
-delete img;          // ❌ double-free → crash c0000374. NE JAMAIS faire ça.
+NkImage img = NkPNGCodec::Decode(data, size);
+if (!img.IsValid()) {         // ✅ le seul test d'échec
+    NK_LOG_WARN("PNG illisible");
+    return false;
+}
 ```
 
-### Règle 3 — Sur la pile : on ne touche pas à `Free()`
+Bonus de sûreté : les transformations (`Convert`, `Crop`, `Resize`, `Copy`, `CopyAs`) **ne
+touchent jamais à la source**, même quand elles échouent — tu ne peux pas te retrouver avec
+une image à moitié transformée.
 
-À l'inverse, une `NkImage` **locale** (sur la pile, §4.2) ne doit **jamais** recevoir
-`Free()` : son destructeur libère les pixels tout seul quand elle sort du scope. Si tu veux
-juste la « vider » pour la recharger, utilise `Unload()` :
+### Règle 4 — Pour vider une image sans la détruire : `Unload()`
+
+`Unload()` existe toujours. Elle libère les pixels et laisse l'objet **réutilisable** — c'est
+ce qu'il faut quand tu veux recharger dans la même variable :
 
 ```cpp
-NkImage img;                 // pile
+NkImage img;
 img.Load("a.png");
 img.Unload();                // libère les pixels, garde l'objet réutilisable
 img.Load("b.png");           // OK
-// pas de Free() ici : le destructeur s'en charge à la fin du scope
+// rien de plus à la fin du scope : le destructeur s'en charge
 ```
 
-| Origine de l'image | Comment la détruire |
-|--------------------|---------------------|
-| `NkImage img;` (pile) | rien à faire (destructeur), ou `Unload()` pour recharger |
-| `NkImage* p = NkImage::Alloc/...` (heap) | `p->Free()` (jamais `delete`) |
-| `NkImage* p = NkSVGCodec::Decode*(...)` | `p->Free()` |
+| Ce que tu as | Comment ça se libère |
+|--------------|----------------------|
+| `NkImage img;` (locale, membre, temporaire) | **rien à faire** (destructeur), ou `Unload()` pour recharger |
+| `NkImage img = NkImage::Alloc/Create/Wrap/...` | **rien à faire** — c'est une valeur |
+| `NkImage img = NkSVGCodec::Decode*(...)` | **rien à faire** — c'est une valeur |
+| `NkImage petit = img.Resize/Crop/Convert(...)` | **rien à faire** — c'est une valeur |
+| `NkSVGImage* svg = NkSVGImage::LoadFromFile(...)` | `svg->Free()` — ⚠️ type **différent**, resté un pointeur |
 | buffer `out` d'un `Encode*` | `nkentseu::memory::NkFree(out)` |
 
 ---
@@ -391,8 +425,8 @@ char full[512];
 ## 4.7 Exemple complet : charger une image et la préparer pour le GPU
 
 Cet exemple réunit les briques précédentes — détection SVG vs raster, conversion RGBA,
-gestion mémoire correcte — sur le modèle réel de `Applications/Mou/src/Mou/Assets/MouAssets.cpp`.
-Le résultat (`img->Pixels()`, `Width()`, `Height()`) est exactement ce qu'attend une texture
+gestion mémoire correcte — sur le modèle du chargeur d'assets de `Applications/Mou`.
+Le résultat (`img.Pixels()`, `Width()`, `Height()`) est exactement ce qu'attend une texture
 GPU (voir [NKCanvas](05-NKCanvas.md) pour la suite : transformer ces pixels en `NkTexture`).
 
 ```cpp
@@ -402,51 +436,48 @@ GPU (voir [NKCanvas](05-NKCanvas.md) pour la suite : transformer ces pixels en `
 using namespace nkentseu;
 
 // Charge un asset (SVG rastérisé à w×h, ou image bitmap convertie en RGBA32)
-// et renvoie une NkImage* heap dont l'appelant fait ->Free() après upload GPU.
-NkImage* ChargerAsset(const char* full, int32 w, int32 h) {
+// et renvoie l'image PAR VALEUR. En cas d'échec, elle est simplement invalide.
+NkImage ChargerAsset(const char* full, int32 w, int32 h) {
     const char* dot   = std::strrchr(full, '.');
     const bool  isSvg = dot && (std::strcmp(dot, ".svg") == 0 ||
                                 std::strcmp(dot, ".SVG") == 0);
 
-    NkImage* img = nullptr;
     if (isSvg) {
         // SVG : rastérisé directement à la taille voulue (idéal multi-DPI).
-        img = NkSVGCodec::DecodeFromFile(full, w, h);
-    } else {
-        // Bitmap : on alloue puis on charge en forçant le RGBA32.
-        img = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
-        if (img && (!img->Load(full, 4) || !img->IsValid())) {
-            img->Free();
-            img = nullptr;
-        }
+        return NkSVGCodec::DecodeFromFile(full, w, h);
     }
-    return img;   // l'appelant fait img->Free() après usage (upload GPU)
+
+    // Bitmap : on charge dans une image locale en forçant le RGBA32.
+    NkImage img;
+    if (!img.Load(full, 4) || !img.IsValid())
+        return NkImage{};        // image invalide = l'échec, pas de nullptr
+    return img;                  // déplacée, pas copiée : aucun pixel recopié
 }
 
 // Utilisation :
-//   NkImage* img = ChargerAsset("assets/svg/star.svg", 128, 128);
-//   if (img) {
-//       backend->UploadTextureRGBA8(id, img->Pixels(), img->Width(), img->Height());
-//       img->Free();
-//   }
+//   NkImage img = ChargerAsset("assets/svg/star.svg", 128, 128);
+//   if (img.IsValid())
+//       backend->UploadTextureRGBA8(id, img.Pixels(), img.Width(), img.Height());
+//   // rien à libérer : img rend ses pixels en sortant de la portée
 ```
 
 ---
 
 ## 4.8 Manipulations utiles (bonus)
 
-`NkImage` offre aussi des opérations courantes. Les fabriques renvoient un **nouveau**
-`NkImage*` (à `Free()`), les manipulations *in-place* modifient l'objet courant :
+`NkImage` offre aussi des opérations courantes. Deux familles à ne pas confondre : celles qui
+**produisent une nouvelle image** (rendue par valeur, la source reste intacte) et celles qui
+**modifient l'objet courant** *in-place* :
 
 ```cpp
 img.FlipVertical();        // retourne l'image (in-place)
 img.PremultiplyAlpha();    // pré-multiplie RGB par alpha (RGBA32, avant upload GPU)
 
-NkImage* petit = img.Resize(64, 64);                 // redimensionne -> nouvelle image
-NkImage* zone  = img.Crop(10, 10, 32, 32);           // sous-région  -> nouvelle image
-NkImage* rgb   = img.Convert(NkImagePixelFormat::NK_RGB24); // change de format
-// … usage …
-petit->Free(); zone->Free(); rgb->Free();
+NkImage petit = img.Resize(64, 64);                 // redimensionne -> nouvelle image
+NkImage zone  = img.Crop(10, 10, 32, 32);           // sous-région  -> nouvelle image
+NkImage rgb   = img.Convert(NkImagePixelFormat::NK_RGB24); // change de format
+// … usage : tester IsValid() sur chacune si l'échec est possible …
+// rien à libérer : les trois se détruisent à la fin de la portée, et `img` n'a pas bougé
 ```
 
 Filtres de `Resize` disponibles (paramètre `NkResizeFilter`) : `NK_NEAREST`, `NK_BILINEAR`
@@ -464,9 +495,13 @@ Filtres de `Resize` disponibles (paramètre `NkResizeFilter`) : `NK_NEAREST`, `N
   pour le multi-DPI). Gère paths/formes/dégradés/caps/joins ; **pas** le texte ni le CSS.
 - **Enregistrer** : `img.Save("out.png")` (format selon l'extension) ou `EncodePNG(out, size)`
   en mémoire.
-- **Mémoire (règle d'or)** : un buffer `out` d'`Encode*` → `nkentseu::memory::NkFree`. Un
-  `NkImage*` de codec/fabrique → `img->Free()` (**jamais** `delete`, sinon `c0000374`). Une
-  `NkImage` sur la pile → ne rien faire (ou `Unload()`).
+- **Mémoire (règle d'or)** : une `NkImage` est une **valeur** — d'où qu'elle vienne (locale,
+  fabrique, codec, `Resize`/`Crop`/`Convert`), elle libère ses pixels toute seule. **`Free()`
+  n'existe plus** ; pour vider sans détruire, `Unload()`. Restent deux exceptions : le buffer
+  `out` d'un `Encode*` → `nkentseu::memory::NkFree(out)`, et `NkSVGImage*` (le SVG
+  **vectoriel**, un autre type) → `svg->Free()`.
+- **Échec** : plus de `nullptr` à tester — une fabrique qui échoue rend une image **invalide**,
+  on teste `IsValid()`, et la source d'une transformation n'est jamais modifiée.
 - **Chemins** : `"assets/…"` sur desktop, `"…"` (AAssetManager) sur Android.
 
 ### Dépendances Jenga
