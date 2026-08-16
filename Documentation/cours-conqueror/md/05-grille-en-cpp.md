@@ -9,7 +9,7 @@ Non. **Vous ne l'avez jamais été.** Le contrat ne vous impose ni format de
 plateau, ni fichier, ni même l'existence d'un fichier. Regardez ce que
 `LoadBoardJson` vaut dans l'exemple minimal :
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — V_LoadBoardJson`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — V_LoadBoardJson`**
 
 ```cpp
 /// Plateau fige : on REFUSE tout chargement. L'atelier l'affiche proprement
@@ -20,7 +20,7 @@ int32 V_LoadBoardJson(NkcRules, const char *) { return 0; }
 Ce module refuse tout JSON, et il fonctionne parfaitement dans l'atelier. Son
 plateau est construit en C++, dans `Create` :
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — V_Create`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — V_Create`**
 
 ```cpp
 for (int32 y = 0; y < kSide; ++y)
@@ -330,7 +330,7 @@ de ces propriétés. Tout ce qui porte sur le **contrat** passe.
 
 > **✏️ 1 — Le tore**
 >
-> Partez de `RegleMinimale.cpp` et rendez son carré 5×5 *torique* : la colonne 4
+> Partez de `RegleContratNu.cpp` et rendez son carré 5×5 *torique* : la colonne 4
 > touche la colonne 0, la ligne 4 touche la ligne 0. Vous n'avez à toucher que la
 > génération des coups. Le plateau reste affiché à plat — que manque-t-il pour
 > *voir* le repliement ? Est-ce grave ?

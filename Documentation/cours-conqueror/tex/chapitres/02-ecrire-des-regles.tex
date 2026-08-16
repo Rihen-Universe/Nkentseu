@@ -1,15 +1,31 @@
-\chapter{Écrire un moteur de règles}
+\chapter{Quand l'échafaudage ne suffit plus : le contrat nu}
+
+\begin{quote}
+Vous n'avez pas besoin de ce chapitre pour écrire un jeu. Trois fonctions
+suffisent, et c'était le chapitre~2. Celui-ci est pour le jour où votre état de
+partie ne rentre plus dans la structure \texttt{Partie} --- une liste qui
+grandit, un cache, un arbre. Ce jour-là, vous écrivez les vingt-quatre entrées
+vous-même, et tout ce qui suit vous servira.
+\end{quote}
+
+Il se lira d'ailleurs beaucoup mieux maintenant que vous avez vu les dix-huit
+fonctions à l'œuvre.
 
 Ce chapitre construit un moteur complet, de la première ligne à la dernière. Le
 fichier existe, il compile, et l'atelier le charge :
-\nkfile{Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp}.
+\nkfile{Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp}.
+
+Il joue \textbf{exactement le même jeu} que
+\nkfile{exemples/rules/RegleFacile.cpp} du chapitre~2 : 570 lignes au lieu de
+110, et pas une règle de plus. Comparer les deux est l'exercice le plus
+instructif du cours.
 
 Ouvrez-le à côté de ce texte. Nous le parcourons dans l'ordre, en expliquant à
 chaque étape \emph{pourquoi} elle est là et \emph{ce qui casse} si on l'oublie.
 
 \section{Ce que ce moteur fait}
 
-\begin{nkcode}{RegleMinimale.cpp — resume}
+\begin{nkcode}{RegleContratNu.cpp — resume}
 plateau         carre 5x5, 4 voisins  (pas d'hexagone : une chose a la fois)
 action          DUPLIQUER uniquement, portee 1
 transformation  les ennemis voisins de la case OU L'ON VIENT DE POSER
@@ -54,7 +70,7 @@ Convention de retour, partout : \textbf{0 = échec, 1 = succès}. Une fonction q
 
 \section{La mémoire : jamais de \texttt{new} ni de \texttt{delete} bruts}
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — section 1}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — section 1}
 NkcAllocFn gAlloc = nullptr;
 NkcFreeFn  gFree  = nullptr;
 
@@ -75,7 +91,7 @@ coupable. Le couple \texttt{RawAlloc}/\texttt{RawFree} garantit la symétrie.
 
 \section{Les paramètres : aucune constante en dur}
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — section 2}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — section 2}
 enum ParamId : int32 {
     P_PORTEE = 0,     // distance maximale de duplication
     P_MAX_TOURS,      // garde-fou de simulation, jamais une regle de jeu
@@ -94,7 +110,7 @@ Une seule table décrit tout : la clé, le groupe d'affichage, la valeur par
 défaut, les bornes. \textbf{Ajouter un réglage = ajouter une ligne.} Voici
 pourquoi cela suffit à faire apparaître un champ à l'écran :
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — V\_GetParamsSchemaJson}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — V\_GetParamsSchemaJson}
 k = std::snprintf(w, left,
                   "%s{\"key\":\"%s\",\"group\":\"%s\",\"type\":\"int\","
                   "\"min\":%d,\"max\":%d,\"def\":%d,\"val\":%d}",
@@ -122,7 +138,7 @@ Deux champs optionnels partout : \texttt{"label"} (sinon dérivé de la clé) et
 
 \subsection{Borner, ne pas refuser}
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — V\_SetParam}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — V\_SetParam}
 int32 v = static_cast<int32>(value < 0 ? value - 0.5 : value + 0.5);
 if (v < kParams[i].lo) v = kParams[i].lo;
 if (v > kParams[i].hi) v = kParams[i].hi;
@@ -148,7 +164,7 @@ réglage, converti en entier dès la première ligne.
 
 \section{L'état : votre représentation, leur vue}
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — section 4}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — section 4}
 struct State {
         NkcCellView cells[kCells];
         uint8       playerCount = 2;
@@ -171,7 +187,7 @@ dure.
 fois par seconde. Le contrat dit : « doit être rapide et ne jamais allouer ».
 D'où :
 
-\begin{nkcode}{RegleMinimale.cpp — V\_CloneState}
+\begin{nkcode}{RegleContratNu.cpp — V\_CloneState}
 void V_CloneState(NkcRules, NkcState dst, const NkcState src) {
     if (dst && src) *static_cast<State *>(dst) = *static_cast<const State *>(src);
 }
@@ -184,7 +200,7 @@ grandeur.
 
 La même contrainte explique \texttt{SerializeState} :
 
-\begin{nkcode}{RegleMinimale.cpp — V\_SerializeState}
+\begin{nkcode}{RegleContratNu.cpp — V\_SerializeState}
 uint32 V_SerializeState(NkcRules, const NkcState st, void *buf, uint32 cap) {
     const uint32 need = static_cast<uint32>(sizeof(State));
     if (!buf || cap < need) return need;   // renvoie la taille NECESSAIRE
@@ -205,7 +221,7 @@ nulle » dans la barre du plateau.
 
 C'est la fonction la plus importante du fichier. Trois exigences s'y croisent.
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — GenMoves}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — GenMoves}
 for (int32 i = 0; i < kCells; ++i) {
     if (s->cells[i].owner != static_cast<int8>(me)) continue;
     const NkcCoord src = R->coords[i];
@@ -261,7 +277,7 @@ qu'il doit agrandir son tampon.
 
 \subsection{Le cas de PASSER}
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — GenMoves, fin}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — GenMoves, fin}
 // PASSER n'est legal que si RIEN d'autre ne l'est (REGLES 6.2).
 if (n == 0) {
     if (cap > 0) { /* ... un coup Pass ... */ }
@@ -297,13 +313,13 @@ indépendants qui répondent à la même question. S'ils divergent, l'un des deu
 tort — et c'est presque toujours le générateur, sur un cas de bord : case hors
 plateau, case bloquée, portée mal comparée.
 
-Dans \nkfile{RegleMinimale.cpp} les deux partagent délibérément la même
+Dans \nkfile{RegleContratNu.cpp} les deux partagent délibérément la même
 primitive, \texttt{CanPlay}, ce qui rend l'équivalence vraie par construction.
 \end{nkretenir}
 
 \section{Appliquer un coup, et la cascade}
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — DoApply, placement}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — DoApply, placement}
 // --- placement : la source RESTE INTACTE (REGLES 7.2) ---
 s->cells[di].owner = static_cast<int8>(mv->player);
 s->cells[di].level = 0;
@@ -313,7 +329,7 @@ s->conquestTenths[mv->player] += 10;   // +1,0 PC, en DIXIEMES entiers
 
 Puis la transformation, et \textbf{c'est ici qu'on se trompe} :
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — DoApply, transformation}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — DoApply, transformation}
 const int32 nbr     = NeighborCount(NkcTopology::Square4);
 int32       flipped = 0;
 for (int32 k = 0; k < nbr; ++k) {
@@ -366,7 +382,7 @@ transformation}, sans qu'on touche à l'interface.
 
 \section{Fin de partie et garde-fou}
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — CheckEnd}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — CheckEnd}
 // Garde-fou de SIMULATION : sans lui, une partie sur dix mille ne finit
 // jamais et le batch tourne pour toujours (REGLES 12.3).
 if (!over && static_cast<int32>(s->turn) >=
@@ -390,7 +406,7 @@ cherchez pourquoi vos parties ne se terminent pas.
 
 \section{Les deux symboles exportés}
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — fin de fichier}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — fin de fichier}
 NKC_MODULE_EXPORT void nkc_rules_set_allocator(NkcAllocFn a, NkcFreeFn f)
 { gAlloc = a; gFree = f; }
 
@@ -420,7 +436,7 @@ en-têtes.
 \section{Votre premier module, en quatre gestes}
 
 \begin{enumerate}
-  \item copiez \nkfile{exemples/rules/RegleMinimale.cpp} vers
+  \item copiez \nkfile{exemples/rules/RegleContratNu.cpp} vers
         \nkfile{Build/ConquerorLab/rules/mes\_regles.cpp} ;
   \item changez le nom dans \texttt{FillFactory} — sinon vous aurez deux entrées
         identiques dans le menu et vous ne saurez pas laquelle vous testez ;
