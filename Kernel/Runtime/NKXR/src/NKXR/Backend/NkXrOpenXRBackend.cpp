@@ -62,6 +62,7 @@ namespace nkentseu {
 				PFN_xrGetSystem getSystem = nullptr;
 				PFN_xrGetSystemProperties getSystemProperties = nullptr;
 				PFN_xrEnumerateViewConfigurationViews enumViews = nullptr;
+				PFN_xrEnumerateEnvironmentBlendModes enumBlendModes = nullptr;
 				PFN_xrPollEvent pollEvent = nullptr;
 				// XR_KHR_vulkan_enable.
 				PFN_xrGetVulkanGraphicsRequirementsKHR getVkRequirements = nullptr;
@@ -474,6 +475,7 @@ namespace nkentseu {
 			NK_OXR_LOAD(xrGetSystem, getSystem);
 			NK_OXR_LOAD(xrGetSystemProperties, getSystemProperties);
 			NK_OXR_LOAD(xrEnumerateViewConfigurationViews, enumViews);
+			NK_OXR_LOAD(xrEnumerateEnvironmentBlendModes, enumBlendModes);
 			NK_OXR_LOAD(xrPollEvent, pollEvent);
 			if (mOxr->vulkanEnableExt) {
 				NK_OXR_LOAD(xrGetVulkanGraphicsRequirementsKHR, getVkRequirements);
@@ -590,6 +592,52 @@ namespace nkentseu {
 
 			logger.Infof("[NKXR/OpenXR] Système : %s — %ux%u par œil recommandé.\n", mSystemName,
 						 mSystemInfo.views[0].recommendedWidth, mSystemInfo.views[0].recommendedHeight);
+
+			// ── MODES DE FUSION ANNONCÉS PAR LE RUNTIME ─────────────────────
+			// OBSERVATION SEULE : on demande au runtime ce qu'il sait faire, on
+			// l'écrit, et on ne change RIEN. Le mode réellement soumis reste
+			// OPAQUE (voir `EndFrame`).
+			//
+			// Pourquoi ceci existe : jusqu'au 2026-08-17, le module ne posait
+			// jamais la question. `XR_ENVIRONMENT_BLEND_MODE_OPAQUE` était écrit
+			// EN DUR à la soumission — et « opaque » veut dire que le monde réel
+			// est masqué, donc pas de passthrough, donc pas de MR.
+			// Une capacité refusée sans le dire est plus difficile à voir qu'une
+			// promesse non tenue : personne ne va chercher le passthrough dans
+			// une constante.
+			//
+			// ⚠️ Choisir ALPHA_BLEND ou ADDITIVE changerait ce que voit TOUTE
+			// application XR du dépôt. Ça ne se décide pas dans le même geste que
+			// la mesure qui le rend possible.
+			if (mOxr->enumBlendModes != nullptr) {
+				uint32_t nbModes = 0;
+				XrEnvironmentBlendMode modes[8] = {};
+				if (XR_SUCCEEDED(mOxr->enumBlendModes(mOxr->instance, mOxr->systemId,
+													  XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 8, &nbModes,
+													  modes)) &&
+					nbModes > 0) {
+					for (uint32_t i = 0; i < nbModes && i < 8; ++i) {
+						const char *nom =
+							(modes[i] == XR_ENVIRONMENT_BLEND_MODE_OPAQUE)		  ? "OPAQUE (monde reel masque)"
+							: (modes[i] == XR_ENVIRONMENT_BLEND_MODE_ADDITIVE)	  ? "ADDITIVE (passthrough additif)"
+							: (modes[i] == XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND) ? "ALPHA_BLEND (passthrough compose)"
+																				  : "inconnu";
+						logger.Infof("[NKXR/OpenXR] Mode de fusion annonce %u/%u : %s (valeur %d)\n", i + 1, nbModes,
+									 nom, (int)modes[i]);
+					}
+					if (nbModes == 1) {
+						logger.Warnf("[NKXR/OpenXR] Le runtime n'annonce QU'UN seul mode de fusion : "
+									 "le passthrough n'est pas disponible ici.\n");
+					}
+				} else {
+					logger.Warnf("[NKXR/OpenXR] xrEnumerateEnvironmentBlendModes a echoue : modes de fusion "
+								 "INCONNUS (ce n'est pas la meme chose qu'aucun).\n");
+				}
+			} else {
+				logger.Warnf("[NKXR/OpenXR] xrEnumerateEnvironmentBlendModes absente du loader : impossible "
+							 "de savoir ce que le runtime propose.\n");
+			}
+
 			mState = NkXrSessionState::NK_XR_STATE_IDLE;
 			return true;
 		}
