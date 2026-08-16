@@ -721,14 +721,70 @@ namespace nkentseu {
 			NkString fSrc = fallbackFS;
 			bool overrideVS = NkFile::Exists(vsPath.CStr());
 			bool overrideFS = NkFile::Exists(fsPath.CStr());
+
+			// ── SECONDE RACINE : le dossier de l'EXÉCUTABLE ──────────────────
+			// ADDITIF — le répertoire courant reste essayé EN PREMIER, aucun
+			// comportement retiré : une application lancée depuis la racine du
+			// dépôt voit exactement les mêmes fichiers qu'avant.
+			//
+			// ⚠ POURQUOI : `basePath` est relatif au RÉPERTOIRE COURANT. Or, dans
+			// ce même fichier, `Init()` résout le cache de shaders par
+			// `NkPath::GetExecutableDirectory()`. **Deux politiques de chemin dans
+			// la même classe**, et rien ne les opposait : le cache suivait le
+			// binaire, les sources suivaient le shell.
+			// Mesuré le 2026-08-16 : `renderdemo` lancé depuis la racine du dépôt
+			// compile **21/21** ; le MÊME binaire lancé depuis son propre dossier
+			// en rate **17** — et Nogee rate **exactement les 17 mêmes**. Ce
+			// n'était ni un shader cassé ni une régression : c'était le
+			// répertoire de lancement.
+			if (!overrideVS && !overrideFS) {
+				NkString altBase =
+					(NkPath::GetExecutableDirectory() / "Resources" / "NKRenderer" / "Shaders").ToString();
+				altBase += "/";
+				altBase += materialName;
+				altBase += "/VK/";
+				NkString altVS = altBase + matLower + ".vert.vk.glsl";
+				NkString altFS = altBase + matLower + ".frag.vk.glsl";
+				if (NkFile::Exists(altVS.CStr()) || NkFile::Exists(altFS.CStr())) {
+					vsPath = altVS;
+					fsPath = altFS;
+					overrideVS = NkFile::Exists(vsPath.CStr());
+					overrideFS = NkFile::Exists(fsPath.CStr());
+				}
+			}
+
 			if (overrideVS)
 				vSrc = ReadFile(vsPath);
 			if (overrideFS)
 				fSrc = ReadFile(fsPath);
 
+			// ── DIAGNOSTIC : « fichier absent » ≠ « source invalide » ────────
+			// Les deux se présentaient de la même façon — une source vide — et le
+			// journal ne les distinguait pas. Pire : quand AUCUN des deux fichiers
+			// n'existait, ce bloc ne disait **rien du tout**, et l'échec
+			// n'apparaissait qu'en aval sous la forme trompeuse
+			// « NkGLSLToSPIRV: source GLSL vide », qui se lit comme un shader
+			// cassé alors que c'est un fichier introuvable.
+			// Les deux pannes n'ont pas le même remède : l'une se répare en
+			// déployant ou en relançant au bon endroit, l'autre en corrigeant du
+			// GLSL. Les confondre, c'est envoyer quelqu'un réécrire un shader qui
+			// n'a jamais été lu.
 			if (overrideVS || overrideFS) {
-				logger.Info("[NkShader] LoadOrCompileVF '{0}' override : VS={1} FS={2}\n", materialName,
-							overrideVS ? "file" : "embedded", overrideFS ? "file" : "embedded");
+				logger.Trace("[NkShader] LoadOrCompileVF '{0}' override : VS={1} FS={2}\n", materialName,
+							 overrideVS ? "file" : "embedded", overrideFS ? "file" : "embedded");
+			} else if (vSrc.Empty() || fSrc.Empty()) {
+				logger.Errorf("[NkShaderLibrary] '%s' INTROUVABLE -- ce n'est PAS un shader invalide, c'est un "
+							  "FICHIER ABSENT, et aucune source embarquee ne le remplace.\n"
+							  "    cherche (1) %s   [relatif au repertoire courant]\n"
+							  "    cherche (2) <dossier de l'executable>/Resources/NKRenderer/Shaders/%s/VK/\n"
+							  "    -> lancer depuis un repertoire d'ou 'Resources/NKRenderer/Shaders' est "
+							  "visible, ou deployer ce dossier a cote du binaire.\n",
+							  materialName.CStr(), vsPath.CStr(), materialName.CStr());
+			} else {
+				logger.Warnf("[NkShaderLibrary] '%s' : fichier absent (%s), repli sur la source EMBARQUEE. "
+							 "Elle peut etre ecrite pour un autre backend que le tien -- si la compilation "
+							 "echoue juste apres, la cause est ICI, pas dans le fichier du disque.\n",
+							 materialName.CStr(), vsPath.CStr());
 			}
 
 			NkShaderHandle h = CompileVF(vSrc, fSrc, materialName);
