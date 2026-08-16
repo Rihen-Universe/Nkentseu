@@ -113,6 +113,53 @@ que **la plomberie tourne** et qu'on ne soumet plus une constante non vérifiée
 l'initialisation ; `EndFrame` ne fait que relire un champ. Rien ne se journalise
 par image.*
 
+## 🚧 HORS D'ATTEINTE DE CE MATÉRIEL — à lire avant de réessayer
+
+> ⚠️ **Ce n'est pas une tâche en attente. C'est une impossibilité, et elle est
+> écrite ici pour qu'on ne la réessaie pas.** Une chose impossible déclarée
+> « pas encore faite » finit toujours par être retentée — par un étudiant en
+> septembre, ou par moi dans six mois.
+
+### 1. Le **code 4** de la sonde ne peut pas se déclencher sur un Quest 2
+
+Le code 4 est le défaut visé : *le mode soumis n'est pas dans la liste annoncée*.
+
+**Pour qu'il puisse tomber, il faut un runtime qui n'annonce PAS `OPAQUE`** —
+c'est-à-dire un **casque à écran transparent** (classe HoloLens / lunettes AR),
+qui n'annonce qu'`ADDITIVE`. C'est précisément le matériel sur lequel l'ancien
+code, écrit en dur à `OPAQUE`, était **invalide au regard de la spec**.
+
+Le Quest 2 vu par le runtime PC annonce **un seul mode, `OPAQUE`** (mesuré le
+2026-08-16, 4 exécutions). Sur cette liste à un élément, la règle *« si OPAQUE
+est annoncé, prendre OPAQUE »* rend un mode forcément présent : **le contrôle ne
+peut pas échouer, par construction.**
+
+> **Aucune course future sur Quest 2 ne changera ce résultat.** Relancer la sonde
+> avec ce casque rendra `0` indéfiniment, et ce `0` ne dira jamais rien de la
+> justesse de la règle. Il n'y a rien à réessayer : il y a un autre matériel à
+> avoir, ou rien.
+
+*Même famille que le `U = V = 128` du 2026-08-15 : une chrominance nulle rendait
+les coefficients non pas testés mais **absents** ; ici une liste à un élément rend
+la règle non pas testée mais **sans alternative**. Réussir pour une raison
+insuffisante.*
+
+### 2. La branche de repli est du **CODE MORT** sur ce runtime
+
+```cpp
+const XrEnvironmentBlendMode choisi = opaqueAnnonce ? XR_ENVIRONMENT_BLEND_MODE_OPAQUE
+                                                    : modes[0];   // <- jamais atteint ici
+```
+
+Le `else` — *prendre le premier mode annoncé quand `OPAQUE` est absent* — **n'a
+jamais été exécuté**, ni dans la sonde, ni dans `NkXrOpenXRBackend`. Il est écrit,
+il compile, **il n'est pas éprouvé.**
+
+⚠️ **Ne pas le lire comme validé par la course du 2026-08-16.** Cette course a
+exercé l'autre branche, exclusivement. La même remarque vaut pour le backend :
+c'est la partie du correctif qui corrige un vrai défaut, et c'est celle dont on ne
+sait rien par la mesure.
+
 ## ▶️ POUR EXERCER LA SÉLECTION DU MODE DE FUSION — la recette exacte
 
 *À exécuter telle quelle le jour où le Quest 2 est rebranché. Rien à chercher,
