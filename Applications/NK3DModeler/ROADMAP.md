@@ -137,7 +137,21 @@ géométrie.** Et trois gestes demandés reposent sur cette seule primitive :
 |---|---|
 | `L` — sélectionner un îlot | composantes connexes |
 | `P` — séparer par îlots | composantes connexes |
-| « quel sous-mesh porte ce matériau » | composantes connexes |
+
+⚠️ **RECTIFICATIF (2026-08-17, mesuré).** J'avais ajouté ici « quel sous-mesh
+porte ce matériau → composantes connexes ». **C'est faux, et la nuance décide de
+tout l'import.** Le matériau n'est pas une notion géométrique : il est **déclaré
+par le fichier**. Dans un OBJ, `usemtl` précède les faces concernées.
+
+| niveau | qui le déclare | dans un OBJ |
+|---|---|---|
+| frontière de **model** | le fichier | `o <nom>` |
+| frontière d'**emplacement de matériau** | le fichier | `usemtl <mat>` |
+| **composante connexe** | personne — se **calcule** | — (sert à `L` et à la séparation manuelle) |
+
+Contre-exemple fourni par Rihen et mesuré (`sofa.obj`, 6 858 lignes) : **10 `o`,
+0 `g`, 10 `usemtl`**, entrelacés dans l'ordre du fichier. Deux des trois niveaux
+sont donc déclarés ; **un seul se calcule**.
 
 **À écrire UNE fois** (union-find sur les arêtes, ou parcours depuis chaque
 sommet non visité), avec ses deux invariants de test : la somme des tailles des
@@ -167,6 +181,22 @@ un .fbx importé
 
 Découper l'import par connexité éclaterait un model que l'artiste avait voulu
 d'un seul tenant.
+
+### ⛔ BLOQUEUR MESURÉ — `NkOBJLoader` jette les noms d'objets
+
+`Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkOBJLoader.cpp` (350 lignes) :
+la détection se fait caractère par caractère (`c0 == 'v'`, `c0 == 'f'`…) et
+**aucun test n'existe pour `'o'` ni `'g'`**. Le chargeur suit `curMat` — le
+matériau courant — et **rien pour l'objet courant** (`curObj` : 0 occurrence).
+
+Conséquence : le `sofa.obj` déclare **10 objets nommés** ; ils deviennent **un
+seul maillage** et les dix noms sont perdus à la porte. **La décomposition
+demandée est donc impossible aujourd'hui — non par le format, qui porte
+l'information, mais parce que le lecteur ne l'écoute pas.**
+
+Ce qui rend le correctif petit : le chargeur fait **déjà** exactement ce qu'il
+faut pour le matériau. Il manque la **symétrie** — un `curObj` mis à jour sur
+`o`, propagé aux faces, plus la liste des noms, jumelle de celle des matériaux.
 
 ### ⚠️ Deux fonctionnalités demandées attendent la MÊME brique absente
 
