@@ -10,43 +10,12 @@ namespace nkentseu {
 
 		using namespace nkgui;
 
+		// PushLine / Clear / Passes / LevelPrefix vivent dans NkConsoleModel
+		// (en-tete neutre PARTAGE avec le panneau NKUI). Corps inchange.
+
 		// =====================================================================
-		// Logique de log : identique a la version NKUI (aucun appel UI ici).
-		// =====================================================================
-		void ConsolePanelGui::PushLine(const char *text, NkLogLevel level) noexcept {
-			if (!text)
-				return;
-
-			// Fusion des lignes identiques consecutives
-			if (!mLines.IsEmpty()) {
-				auto &last = mLines[mLines.Size() - 1];
-				if (last.level == level && last.text == text) {
-					++last.count;
-					return;
-				}
-			}
-
-			if (mLines.Size() >= kMaxLines)
-				mLines.Erase(mLines.Begin());
-
-			NkConsoleLineGui line;
-			line.text = NkString(text);
-			line.level = level;
-			line.count = 1;
-			mLines.PushBack(line);
-
-			if (level == NkLogLevel::NK_ERROR || level == NkLogLevel::NK_CRITICAL)
-				++mErrorCount;
-			if (level == NkLogLevel::NK_WARN)
-				++mWarnCount;
-		}
-
-		void ConsolePanelGui::Clear() noexcept {
-			mLines.Clear();
-			mErrorCount = 0;
-			mWarnCount = 0;
-		}
-
+		// Seule la COULEUR reste ici : nkgui::NkColor et nkui::NkColor sont deux
+		// types distincts, sans conversion possible.
 		// =====================================================================
 		nkgui::NkColor ConsolePanelGui::LevelColor(NkLogLevel lv) noexcept {
 			switch (lv) {
@@ -62,51 +31,6 @@ namespace nkentseu {
 				default:
 					return {220, 220, 220, 255};
 			}
-		}
-
-		const char *ConsolePanelGui::LevelPrefix(NkLogLevel lv) noexcept {
-			switch (lv) {
-				case NkLogLevel::NK_ERROR:
-					return "[ERR] ";
-				case NkLogLevel::NK_CRITICAL:
-					return "[CRT] ";
-				case NkLogLevel::NK_WARN:
-					return "[WRN] ";
-				case NkLogLevel::NK_DEBUG:
-					return "[DBG] ";
-				case NkLogLevel::NK_TRACE:
-					return "[TRC] ";
-				default:
-					return "[INF] ";
-			}
-		}
-
-		bool ConsolePanelGui::Passes(const NkConsoleLineGui &line) const noexcept {
-			switch (line.level) {
-				case NkLogLevel::NK_INFO:
-					if (!mShowInfo)
-						return false;
-					break;
-				case NkLogLevel::NK_WARN:
-					if (!mShowWarn)
-						return false;
-					break;
-				case NkLogLevel::NK_ERROR:
-				case NkLogLevel::NK_CRITICAL:
-					if (!mShowError)
-						return false;
-					break;
-				case NkLogLevel::NK_DEBUG:
-				case NkLogLevel::NK_TRACE:
-					if (!mShowDebug)
-						return false;
-					break;
-				default:
-					break;
-			}
-			if (mFilterBuf[0] != '\0' && !line.text.Contains(mFilterBuf))
-				return false;
-			return true;
 		}
 
 		// =====================================================================

@@ -16,11 +16,15 @@
 #include "Noge/ECS/Components/SceneComponent/NkSceneComponent.h"
 #include "Nogee/Editor/NkSelectionManager.h"
 #include "Nogee/Editor/CommandHistory.h"
+#include "Nogee/Panels/Model/NkSceneTreeModel.h" // etat neutre (sans UI)
 
 namespace nkentseu {
 	namespace noge {
 
-		class SceneTreePanel {
+		// L'etat (noeuds deplies, renommage, menu contextuel) vit dans
+		// NkSceneTreeModel, en-tete NEUTRE sans dependance d'interface — pour
+		// qu'un portage vers NKGui le partage au lieu de le recopier.
+		class SceneTreePanel : public NkSceneTreeModel {
 			public:
 				SceneTreePanel() = default;
 
@@ -45,19 +49,9 @@ namespace nkentseu {
 									   ecs::NkWorld &world, ecs::NkEntityId id, ecs::NkSceneGraph *scene,
 									   NkSelectionManager &sel) noexcept;
 
-				// État interne
-				ecs::NkEntityId mContextMenuEntity = ecs::NkEntityId::Invalid();
-				ecs::NkEntityId mRenamingEntity = ecs::NkEntityId::Invalid();
-				char mRenameBuffer[128] = {};
-				bool mScrollToSelected = false;
-
-				// Entités ouvertes (TreeNode expanded)
-				static constexpr nk_uint32 kMaxOpen = 256;
-				ecs::NkEntityId mOpenNodes[kMaxOpen] = {};
-				nk_uint32 mOpenCount = 0;
-
-				bool IsOpen(ecs::NkEntityId id) const noexcept;
-				void SetOpen(ecs::NkEntityId id, bool open) noexcept;
+				// L'état interne (mContextMenuEntity, mRenamingEntity, mRenameBuffer,
+				// mScrollToSelected, mOpenNodes/mOpenCount) et IsOpen/SetOpen sont
+				// hérités de NkSceneTreeModel.
 		};
 
 	} // namespace noge

@@ -23,61 +23,42 @@
 //   - le texte colore passe par nkgui::TextAt(ctx, pos, s, col) : NKGui n'a pas
 //     de TextColored, contrairement a NKUI.
 //
-// CE QUI NE CHANGE PAS : le modele de donnees et la logique de log (PushLine,
-// fusion des repetitions, compteurs, filtres). C'est deliberement recopie plutot
-// qu'inclus depuis ConsolePanel.h, parce que cet en-tete tire NKUI/NKUI.h : le
-// mutualiser demanderait d'extraire le modele dans un fichier neutre, ce qui
-// touche le chemin NKUI vivant. A faire quand les quatre panneaux seront portes.
+// CE QUI NE CHANGE PAS : le modele de donnees et la logique de log. Il vit
+// desormais dans `Model/NkConsoleModel.h`, en-tete NEUTRE (sans NKUI ni NKGui)
+// dont HERITENT les deux panneaux — la version NKUI et celle-ci. Il n'y a donc
+// qu'UNE verite pour la console.
+//   ⚠️ La premiere version de ce fichier (2026-08-17, le meme jour) RECOPIAIT
+//   ces ~35 lignes, parce que le modele etait alors piege dans `ConsolePanel.h`
+//   qui inclut `NKUI/NKUI.h`. C'est cette duplication, payee une fois, qui a
+//   fait extraire les quatre modeles AVANT de porter les trois panneaux
+//   restants — plutot que de la payer trois fois de plus.
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
 #include "NKEditorKit/NkEditorPanel.h"
 #include "NKEditorKit/NkEditorContext.h"
-#include "NKContainers/Sequential/NkVector.h"
-#include "NKContainers/String/NkString.h"
 #include "NKLogger/NkLogLevel.h"
+#include "Nogee/Panels/Model/NkConsoleModel.h" // modele PARTAGE avec ConsolePanel
 
 namespace nkentseu {
 	namespace noge {
 
-		struct NkConsoleLineGui {
-				NkString text;
-				NkLogLevel level = NkLogLevel::NK_INFO;
-				nk_uint32 count = 1; // repetitions consecutives
-		};
-
-		class ConsolePanelGui final : public editorkit::NkEditorPanel {
+		class ConsolePanelGui final : public editorkit::NkEditorPanel, public NkConsoleModel {
 			public:
-				static constexpr nk_uint32 kMaxLines = 2048;
-
 				ConsolePanelGui() noexcept
 					: editorkit::NkEditorPanel("Console", editorkit::NkEditorDockSide::NK_BOTTOM) {
 				}
 
-				// ── API de log (identique a la version NKUI) ──────────────────────
-				void PushLine(const char *text, NkLogLevel level) noexcept;
-				void Clear() noexcept;
+				// PushLine / Clear / Passes / LevelPrefix : herites de NkConsoleModel,
+				// strictement les memes que ceux du panneau NKUI.
 
 				// ── Rendu : le shell appelle ceci entre Begin/End du dock ─────────
 				void OnUI(editorkit::NkEditorFrameContext &ec) override;
 
 			private:
-				NkVector<NkConsoleLineGui> mLines;
-				bool mAutoScroll = true;
-
-				// Filtres
-				bool mShowInfo = true;
-				bool mShowWarn = true;
-				bool mShowError = true;
-				bool mShowDebug = false;
-				char mFilterBuf[128] = {};
-
-				nk_uint32 mErrorCount = 0;
-				nk_uint32 mWarnCount = 0;
-
+				// Seule la COULEUR reste locale : nkgui::NkColor et nkui::NkColor
+				// sont deux types distincts, sans conversion.
 				static nkgui::NkColor LevelColor(NkLogLevel lv) noexcept;
-				static const char *LevelPrefix(NkLogLevel lv) noexcept;
-				bool Passes(const NkConsoleLineGui &line) const noexcept;
 		};
 
 	} // namespace noge

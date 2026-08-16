@@ -711,6 +711,67 @@ compilation, ce sont DEUX lignes de journal `[INF]` par shader et par image** �
 journaliser qu'au premier appel). **Les 17 shaders en échec, eux, sont bien
 réels et échouent une fois chacun** — ce compte-là ne bouge pas.
 
+⚠️ **Et ce correctif n'est PAS dans `Applications/Nogee` ni dans `Engine/Noge`.**
+Vérifié plutôt que supposé : les deux lignes sortent de
+`Kernel/Runtime/NKRenderer/.../NkShaderLibrary.cpp:639` et `:646`, et **aucun
+appel à `LoadOrCompileVF` n'existe dans mon périmètre** (0 résultat ; la
+contre-épreuve trouve bien les 5 appelants, tous dans NKRenderer). Le baisser en
+`[TRACE]` revient donc à **l'agent NKRenderer**, pas ici.
+
+### 9septies. ✅ LES QUATRE MODÈLES EXTRAITS — la duplication du pilote est retirée (2026-08-17)
+
+Suite directe de la surprise du §9quinquies : le portage pilote avait dû recopier
+~35 lignes parce que le modèle vivait dans un en-tête qui inclut `NKUI/NKUI.h`.
+**Les quatre modèles sont désormais dans `Applications/Nogee/src/Nogee/Panels/Model/`,
+sans une seule dépendance d'interface.**
+
+| modèle neutre | contenu extrait | panneau(x) qui en hérite |
+|---|---|---|
+| `NkConsoleModel.h` | `NkConsoleLine`, lignes, filtres, compteurs, `PushLine`/`Clear`/`Passes`/`LevelPrefix` | **`ConsolePanel` (NKUI) ET `ConsolePanelGui` (NKGui)** |
+| `NkSceneTreeModel.h` | nœuds dépliés, renommage, menu contextuel, `IsOpen`/`SetOpen` | `SceneTreePanel` |
+| `NkInspectorModel.h` | sections dépliées par nom, `IsSectionOpen`/`SetSectionOpen` | `InspectorPanel` |
+| `NkAssetBrowserModel.h` | `NkAssetBrowserEntry`, dossier courant, sélection, filtre, budget de vignettes | `AssetBrowser` |
+
+**La règle du dossier `Model/`, et c'est la seule** : *aucun include d'une
+bibliothèque d'interface*. C'est ce qui rend ces fichiers utilisables par un
+panneau NKUI comme par un panneau NKGui — et ce qui les fait **survivre à
+n'importe quelle décision sur le doublon NKUI/NKGui**, puisqu'ils ne dépendent
+d'aucune des deux.
+
+**Méthode : héritage, pas composition.** Les panneaux *héritent* de leur modèle,
+donc **les 62 références existantes (`mOpenNodes`, `mEntries`, `mSectionCount`…)
+compilent sans une seule modification**. C'est ce qui rend l'extraction sûre pour
+le chemin NKUI vivant : on déplace des déclarations, on ne réécrit pas des corps.
+
+**Ce que ça a réellement retiré** :
+
+```
+ConsolePanel     : PushLine + Clear + LevelPrefix   -> supprimes du .cpp (herites)
+ConsolePanelGui  : les ~35 lignes RECOPIEES le matin -> supprimees, le type
+                   NkConsoleLineGui n'existe plus (0 occurrence)
+                   une seule `struct NkConsoleLine` dans tout le depot
+```
+
+**Vérification** — et le contrôle porte sur la recompilation, pas sur le seul
+code de sortie :
+
+```
+Release 45/45 SUCCESS  exit 0  0 erreur
+Debug   45/45 SUCCESS  exit 0  0 erreur
+les 5 .obj de panneaux RECOMPILES a 16:26 (horodatage releve, build incremental)
+   AssetBrowser 27 810 o · ConsolePanel 8 210 o · ConsolePanelGui 9 589 o
+   InspectorPanel 93 045 o · SceneTreePanel 128 091 o
+Nogee TOURNE toujours : exit 124 a 15 s, GL 4.6 + device RHI OK, 0 assertion
+```
+
+*(Les `.obj` des deux consoles ont **rétréci** — 10 605 → 8 210 et 11 992 → 9 589 —
+parce que la logique n'est plus émise hors-ligne dans chaque unité de traduction.)*
+
+**Ce que ça achète pour les trois portages restants** : ils n'auront **rien à
+recopier**. Un `SceneTreePanelGui` hérite de `NkSceneTreeModel` exactement comme
+`SceneTreePanel`, et les deux partagent une seule vérité. Le coût par panneau
+redescend à ce qu'il aurait dû être : la traduction des appels d'interface.
+
 ---
 
 ## 10. 📊 INVENTAIRE DE `Applications/Nogee` — compile / tourne / consomme
