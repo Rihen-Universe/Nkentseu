@@ -241,13 +241,26 @@ namespace nkentseu {
 					normals.PushBack(n);
 				} else if (c0 == 'f' && (p + 1 < end) && (p[1] == ' ' || p[1] == '\t')) {
 					p += 1;
-					// Ouvre un sous-mesh si necessaire (sur changement de materiau).
-					if (!haveSub || subMat != curMat) {
+					// OUVRE UN SOUS-MESH SUR DEUX CRITERES, PAS UN SEUL.
+					//
+					// Le chargeur ne coupait que sur changement de MATERIAU. Mesure
+					// sur le sofa.obj de Rihen : 10 « o », dont 9 partagent le meme
+					// « usemtl Material ». curMat ne changeant pas, aucune coupe ne
+					// s'ouvrait et les 9 objets nommes fusionnaient en UN sous-mesh
+					// -- 2 au lieu de 10. Ce n'etait pas un manque de decoupe, mais
+					// une decoupe sur le mauvais critere.
+					//
+					// La frontiere de MODEL est declaree par le fichier (« o ») ;
+					// celle d'emplacement de materiau aussi (« usemtl »). Les deux
+					// doivent couper. Rien n'est calcule ici : la connexite ne sert
+					// qu'au geste d'edition de l'utilisateur, jamais a l'import.
+					const NkString effObj = !curObj.Empty() ? curObj : curGrp;
+					if (!haveSub || subMat != curMat || !(subObj == effObj)) {
 						closeSub();
 						haveSub = true;
 						subStart = (uint32)out.indices.Size();
 						subMat = curMat;
-						subObj = !curObj.Empty() ? curObj : curGrp;
+						subObj = effObj;
 					}
 					// Parse tous les corners de la face -> triangulation en fan.
 					uint32 faceIdx[64];
