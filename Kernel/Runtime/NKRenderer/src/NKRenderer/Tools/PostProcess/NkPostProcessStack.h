@@ -95,7 +95,17 @@ namespace nkentseu {
 				// declare aucun attachement.
 				//
 				// dtSeconds <= 0 : le delta est mesure en interne (horloge propre).
-				void RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn, float32 dtSeconds = -1.f);
+				//
+				// bloomIn / bloomStrength : LA MESURE PORTE SUR CE QUI SERA AFFICHE.
+				// Elle ne voyait que la scene brute, jamais le halo — or c'est le
+				// tonemap qui compose scene + halo, et c'est ce halo que l'exposition
+				// amplifie ensuite. Face a une source eblouissante dans un decor
+				// sombre, la mesure s'OUVRAIT au lieu de se fermer (constate par
+				// Rihen, 14 aout : auto ON + bloom ON -> tache blanche geante).
+				// bloomIn invalide ou bloomStrength <= 0 : mesure de la scene seule.
+				void RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn,
+									 NkTextureHandle bloomIn, float32 bloomStrength,
+									 float32 dtSeconds = -1.f);
 
 				// Handle RHI de la cible 1x1 contenant la luminance adaptee la plus
 				// recente (celle ecrite par le dernier RunAutoExposure). Invalide si
@@ -225,6 +235,60 @@ namespace nkentseu {
 				// RunAutoExposure ; l'autre contient l'etat de la frame precedente.
 				NkRenderTarget mLumaRT[2];
 				int mLumaWrite = -1; // -1 = jamais execute
+
+				// ── RELEVE DE L'EXPOSITION RESOLUE (anneau, 2026-08-15) ───────────
+				// Le panneau doit AFFICHER la valeur effective, et le bright pass
+				// doit ancrer son seuil sur le blanc affiche : les deux ont besoin
+				// de l'exposition REELLE, qui n'existe que sur le GPU quand
+				// l'auto-exposition est active.
+				//
+				// ANNEAU, pas lecture directe : `MapBuffer` est BLOQUANT (Map sans
+				// D3D11_MAP_FLAG_DO_NOT_WAIT) et `mPendingReadbacks` du RHI n'est
+				// PAS un anneau -- ce report existe parce qu'un contexte differe
+				// DX11 ne peut pas copier en ligne, pas pour liberer l'appelant.
+				// On copie donc dans la case du curseur et on lit celle ecrite il y
+				// a deux frames, qui est certainement prete : aucune attente.
+				// Cf. Kernel/Runtime/NKRHI/ROADMAP.md (le couplage DO_NOT_WAIT).
+				//
+				// LE RETARD NE PEUT PAS NUIRE, ET C'EST CHIFFRE : 2 frames a 60 ips
+				// = 33 ms, contre une constante d'adaptation de ~500 ms
+				// (autoExposureSpeed = 2/s). Le releve est 15x plus rapide que la
+				// grandeur qu'il suit.
+				static constexpr int kLumaReadRing = 3;
+				NkBufferHandle mLumaReadBuf[kLumaReadRing];
+				int mLumaReadCursor = 0;
+				int mLumaReadFilled = 0; // cases ayant deja recu une copie
+				// Creation impossible sur cette machine -> on ARRETE d'essayer.
+				// Reessayer chaque frame inondait le journal et masquait la cause.
+				bool mLumaReadDisabled = false;
+
+				// TROIS ETATS, parce qu'un defaut a 1,0 RESSEMBLERAIT A UNE MESURE.
+				// La copie DX11 echoue en silence (garde MSAA : `return` muet), et
+				// un nombre plausible affiche indefiniment ne se remarque jamais.
+				//   mResolvedValid == false -> AUCUN releve : afficher « — »
+				//   mResolvedValid == true  -> la valeur fait foi
+				//   mResolvedStaleFrames > seuil -> derniere valeur, PERIMEE
+				float32 mResolvedExposure = 1.f; // jamais 0 : un seuil ancre dessus
+												 // partirait a l'infini
+				bool mResolvedValid = false;
+				int mResolvedStaleFrames = 0;
+
+				// Alimente l'anneau. APPELE UNIQUEMENT SOUS AUTO ACTIVE : son seul
+				// appelant est RunAutoExposure, qui retourne avant si l'auto est
+				// eteinte. Le cas manuel est traite par ResolvedExposure().
+				void PumpExposureReadback(NkICommandBuffer *cmd);
+
+			public:
+				/// Exposition reellement appliquee a la derniere frame mesuree.
+				/// HORS AUTO : rend toujours true, avec l'exposition de la config
+				/// -- le CPU la connait, il n'y a rien a attendre ni a perimer.
+				/// SOUS AUTO : false tant qu'aucun releve n'est arrive -- l'appelant
+				/// doit alors afficher « — » et NON une valeur par defaut.
+				/// `stale` : la valeur est la derniere connue, mais les releves ont
+				/// cesse d'arriver.
+				bool ResolvedExposure(float32 *out, bool *stale) const;
+
+			private:
 
 				// ── TAA ───────────────────────────────────────────────────────────
 				// Les deux cibles d'historique ping-pong appartiennent au RenderGraph
