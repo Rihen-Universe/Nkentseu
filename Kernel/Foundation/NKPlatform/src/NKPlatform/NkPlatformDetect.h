@@ -247,6 +247,11 @@
 
 #if defined(__EMSCRIPTEN__)
 #define NKENTSEU_PLATFORM_EMSCRIPTEN
+// Alias ADDITIF, pas un renommage : NKENTSEU_PLATFORM_EMSCRIPTEN reste defini
+// au-dessus. Les deux ecritures sont permises (arbitrage Rodolf, 2026-08-17) et
+// doivent repondre vrai SIMULTANEMENT sur la meme cible.
+// Temoin : Kernel/Foundation/NKPlatform/tests/run_temoin_noms_additifs.sh
+#define NKENTSEU_PLATFORM_WEB
 #undef NKENTSEU_PLATFORM_NAME
 #undef NKENTSEU_PLATFORM_VERSION
 #define NKENTSEU_PLATFORM_NAME "Web"

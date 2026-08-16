@@ -137,7 +137,59 @@ namespace nkentseu {
 
 			/// Endort le thread courant pour un nombre de millisecondes (nom explicite).
 			/// @param ms Durée en millisecondes
+			///
+			/// ⚠️ **Sans `BeginPreciseTiming()`, ce sommeil dure ~15,5 ms quoi
+			/// qu'on lui demande** entre 1 et 12, et ~29,8 ms pour 16. Une boucle
+			/// cadencée par `Sleep(16 − travail)` n'est alors pas cadencée : elle
+			/// est quantifiée. Voir la section ci-dessous.
 			static void SleepMilliseconds(int64 ms) noexcept;
+
+			// ── Résolution de minuterie ──────────────────────────────────────
+			//
+			// Demande au système une minuterie FINE (1 ms), pour que les sommeils
+			// courts durent ce qu'on leur demande.
+			//
+			// MESURE qui a motivé cette API — Windows 11 Pro 10.0.26100,
+			// 2026-08-15, `NKTime/tests/bench_sleep.cpp`, 40 répétitions :
+			//
+			//     demandé      sans        avec
+			//       1 ms     15,53 ms     1,86 ms
+			//       4 ms     15,50 ms     5,00 ms
+			//      12 ms     15,39 ms    12,45 ms
+			//      16 ms     29,76 ms    16,53 ms
+			//
+			// Effet sur une application réelle (`NkCameraDemos --demo=viewer`,
+			// trois exécutions par condition) : **40,7 / 41,2 / 40,1 img/s sans,
+			// 62,9 / 62,7 / 62,7 avec**. L'appel ne rend pas seulement les images
+			// manquantes — il supprime la dispersion.
+			//
+			// ⚠️ **PORTÉE DE VERSION — un fait de plateforme a l'air éternel, et
+			// celui-ci ne l'est pas.** La résolution demandée ici est **cantonnée
+			// au processus depuis Windows 10 version 2004**. Vérifié le
+			// 2026-08-15 sur Windows 11 Pro 10.0.26100 : pendant qu'un autre
+			// processus tient la minuterie fine, celui-ci mesure toujours
+			// 15,29 ms (15,66 / 15,29 / 15,22 avant, pendant, après).
+			// **Sur un Windows antérieur à 10 2004, l'effet est GLOBAL à la
+			// machine** — exactement l'objection que cette mesure a écartée pour
+			// les versions récentes.
+			//
+			// À APPARIER : le système compte les demandes par processus. Un
+			// `Begin` sans `End` laisse la minuterie fine jusqu'à la fin du
+			// processus — tolérable depuis `NkMain`, pas dans une bibliothèque
+			// chargée puis déchargée.
+			//
+			// HORS WINDOWS ces fonctions existent et ne font rien. Le `#if` est
+			// autour du CORPS, jamais autour de la déclaration : une API qui
+			// disparaît sur une plateforme force chaque appelant à refaire le
+			// `#if`, et transforme une commodité en dette.
+			//
+			// COÛT : une minuterie fine paie des réveils, donc de l'énergie. Sur
+			// portable et sur mobile ce n'est pas neutre — d'où le drapeau de
+			// refus dans la configuration de `NkMain`.
+			static void BeginPreciseTiming() noexcept;
+			static void EndPreciseTiming() noexcept;
+			/// La minuterie fine est-elle demandée par CE processus ?
+			static bool IsPreciseTimingActive() noexcept;
 
 			/// Endort le thread courant pour un nombre de microsecondes.
 			/// @param us Durée en microsecondes

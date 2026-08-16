@@ -99,12 +99,16 @@ namespace nkentseu {
 
 					Text(ctx, "Plateau");
 
+					// `libelle`, pas `name` : ce qui se LIT ici doit decrire ce qu'on
+					// verra a l'ecran. Le nom de FICHIER reste dans `name`, et c'est
+					// lui que citent les messages qui servent a retrouver le fichier
+					// sur le disque.
 					const char *preview = (mBoardSel >= 0 && static_cast<usize>(mBoardSel) < files.Size())
-											  ? files[static_cast<usize>(mBoardSel)].name.CStr()
+											  ? files[static_cast<usize>(mBoardSel)].libelle.CStr()
 											  : (files.Empty() ? "(aucun fichier)" : "(choisir)");
 					if (BeginCombo(ctx, "Grille", preview, static_cast<int32>(files.Size()))) {
 						for (usize i = 0; i < files.Size(); ++i)
-							if (Selectable(ctx, files[i].name.CStr(), static_cast<int32>(i) == mBoardSel)) {
+							if (Selectable(ctx, files[i].libelle.CStr(), static_cast<int32>(i) == mBoardSel)) {
 								mBoardSel = static_cast<int32>(i);
 								mS->LoadBoard(i);
 								ctx.ClosePopup();

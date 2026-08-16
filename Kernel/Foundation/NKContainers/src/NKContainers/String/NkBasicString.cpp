@@ -323,7 +323,14 @@ namespace nkentseu {
 // ---------------------------------------------------------------------
 // Implémentation Windows : wchar_t = 2 bytes (UTF-16)
 // ---------------------------------------------------------------------
-#if defined(NK_PLATFORM_WINDOWS)
+// ⚠️ GARDE CORRIGÉE le 2026-08-17. Elle disait `NK_PLATFORM_WINDOWS` — un nom
+// que RIEN ne définit dans ce dépôt, qui emploie partout
+// `NKENTSEU_PLATFORM_WINDOWS`. Windows compilait donc la branche Unix, et
+// `NkToWide("HD")` rendait `0048 0000` au lieu de `0048 0044` : le second
+// caractère était perdu, en silence, depuis l'écriture du fichier.
+// Une faute de nom dans un `#if` ne produit ni erreur ni avertissement — elle
+// compile simplement l'autre branche.
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
 
 	// -----------------------------------------------------------------
 	// Conversion UTF-8 → wide string (Windows : UTF-16)
@@ -331,16 +338,16 @@ namespace nkentseu {
 	/**
 	 * @brief Convertit une chaîne UTF-8 vers wide string natif Windows
 	 * @param str Chaîne source en UTF-8 (NkString8)
-	 * @return Wide string encodé en UTF-16 (WString = NkBasicString<wchar_t>)
+	 * @return Wide string encodé en UTF-16 (NkWString = NkBasicString<wchar_t>)
 	 *
 	 * @note Sur Windows, wchar_t est défini sur 2 bytes et utilise UTF-16.
 	 *       La conversion passe donc par NkToUTF16 puis un reinterpret_cast.
 	 *
 	 * @warning Le reinterpret_cast est sécurisé car wchar_t et char16_t
 	 *          ont la même taille (2 bytes) et représentation sur Windows.
-	 *          Ce code n'est compilé que si NK_PLATFORM_WINDOWS est défini.
+	 *          Ce code n'est compilé que si NKENTSEU_PLATFORM_WINDOWS est défini.
 	 */
-	WString NkToWide(const String8 &str) {
+	NkWString NkToWide(const NkString8 &str) {
 		// -----------------------------------------------------------------
 		// Conversion intermédiaire UTF-8 → UTF-16
 		// -----------------------------------------------------------------
@@ -349,7 +356,7 @@ namespace nkentseu {
 		// -----------------------------------------------------------------
 		// Cast vers wchar_t (valide sur Windows : wchar_t == char16_t)
 		// -----------------------------------------------------------------
-		return WString(reinterpret_cast<const wchar *>(utf16Intermediate.Data()), utf16Intermediate.Length());
+		return NkWString(reinterpret_cast<const wchar *>(utf16Intermediate.Data()), utf16Intermediate.Length());
 	}
 
 	// -----------------------------------------------------------------
@@ -357,22 +364,22 @@ namespace nkentseu {
 	// -----------------------------------------------------------------
 	/**
 	 * @brief Convertit un wide string Windows vers UTF-8
-	 * @param wstr Wide string source en UTF-16 (WString)
-	 * @return Chaîne encodée en UTF-8 (String8)
+	 * @param wstr Wide string source en UTF-16 (NkWString)
+	 * @return Chaîne encodée en UTF-8 (NkString8)
 	 *
 	 * @note Algorithme en deux étapes :
 	 *       1. Cast de wchar_t* vers char16_t* (sécurisé sur Windows)
 	 *       2. Conversion UTF-16 → UTF-8 via NkToUTF8
 	 *
-	 * @warning Ce code est conditionnel à NK_PLATFORM_WINDOWS.
+	 * @warning Ce code est conditionnel à NKENTSEU_PLATFORM_WINDOWS.
 	 *          Sur d'autres plateformes, voir l'implémentation #else.
 	 */
-	String8 NkFromWide(const WString &wstr) {
+	NkString8 NkFromWide(const NkWString &wstr) {
 		// -----------------------------------------------------------------
 		// Construction d'un NkString16 depuis le wide string
 		// -----------------------------------------------------------------
 		// Cast sécurisé : wchar_t et char16_t sont layout-compatible sur Windows
-		String16 utf16(reinterpret_cast<const char16 *>(wstr.Data()), wstr.Length());
+		NkString16 utf16(reinterpret_cast<const char16 *>(wstr.Data()), wstr.Length());
 
 		// -----------------------------------------------------------------
 		// Conversion finale UTF-16 → UTF-8
@@ -425,7 +432,7 @@ namespace nkentseu {
 	 *       1. Cast de wchar_t* vers char32_t* (sécurisé sur Unix)
 	 *       2. Conversion UTF-32 → UTF-8 via NkToUTF8
 	 *
-	 * @warning Ce code est compilé uniquement si NK_PLATFORM_WINDOWS
+	 * @warning Ce code est compilé uniquement si NKENTSEU_PLATFORM_WINDOWS
 	 *          n'est PAS défini. Assurez-vous que votre système de build
 	 *          définit correctement ce macro selon la plateforme cible.
 	 */
@@ -442,7 +449,7 @@ namespace nkentseu {
 		return NkToUTF8(utf32);
 	}
 
-#endif // NK_PLATFORM_WINDOWS
+#endif // NKENTSEU_PLATFORM_WINDOWS
 
 } // namespace nkentseu
 
@@ -474,7 +481,7 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 	// Exemple 2 : Interopérabilité avec les API Windows (UTF-16)
 	// -------------------------------------------------------------------------
-	#if defined(NK_PLATFORM_WINDOWS)
+	#if defined(NKENTSEU_PLATFORM_WINDOWS)
 
 	void DisplayWindowsMessage(const char* utf8Message)
 	{
@@ -500,7 +507,7 @@ namespace nkentseu {
 		ProcessText(utf8Text);
 	}
 
-	#endif // NK_PLATFORM_WINDOWS
+	#endif // NKENTSEU_PLATFORM_WINDOWS
 
 	// -------------------------------------------------------------------------
 	// Exemple 3 : Gestion des emojis et codepoints Unicode étendus
