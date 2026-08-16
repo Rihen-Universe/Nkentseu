@@ -269,11 +269,216 @@ static int BancAdd(NkTensorGpu &gpu, int passes) {
 	return 0;
 }
 
+// ============================================================================
+// BANC D'ECHELLE `matmul_t4` — LA VARIANCE D'ABORD, LE DEBIT ENSUITE
+// ============================================================================
+// ⚠️ POURQUOI CE BANC COMMENCE PAR LE BRUIT, ET NON PAR LE DEBIT.
+// `matmul_t4` a varie d'un facteur ~1,8 entre deux executions du MEME binaire
+// (ROADMAP, 15-16/08), et ce n'est pas la machine : le banc `add` se reproduit
+// a mieux de 15 % sur trois executions. L'instabilite est donc PROPRE a ce
+// noyau. Tant qu'elle n'est pas bornee, aucun chiffre de debit sur ce noyau ne
+// vaut rien — on ne saurait pas si un ecart mesure est un effet ou du bruit
+// (grille, face 6 : mesurer un ecart sans avoir mesure le bruit).
+// C'est pourquoi chaque point rapporte MIN / MED / MOY / MAX et le rapport
+// max/min : le plancher sous lequel on ne conclura pas.
+//
+// ⚠️ REGIMES COUVERTS (face 7 : un banc doit declarer ses regimes).
+//   serie A  — dispatch SEUL, tampons deja alloues et deja remplis ;
+//   serie B  — forme de PRODUCTION : allocation du tampon de sortie a chaque
+//              appel (CreateBuffer + dispatch + DestroyBuffer) ;
+//   serie C1 — dispatch seul, BEAUCOUP de tampons vivants, PEU de VRAM ;
+//   serie C2 — dispatch seul, PEU de tampons, BEAUCOUP de VRAM.
+// C1/C2 separent le NOMBRE de tampons de la QUANTITE de VRAM, parce que le
+// remede n'est pas le meme (face 9 : un instrument qui ne separe pas deux
+// causes ne mesure ni l'une ni l'autre, il constate).
+//
+// ⚠️ CE QUE CE BANC NE COUVRE PAS, et il faut le lire AVEC le resultat :
+//   - il mesure UN noyau isole, PAS le debit d'entrainement. Le pas de
+//     production enchaine 28 119 operations ; un chiffre de matmul seul ne dit
+//     rien du temps total, et la ROADMAP montre deja que l'essentiel du temps
+//     attribue a un noyau n'est PAS du temps GPU ;
+//   - le plafond de `matmul_t4` SEUL est chiffre x1,11 a x1,19 en ROADMAP :
+//     meme parfait, ce noyau ne decide pas du run ;
+//   - horloge MURALE cote hote (NkChrono), pas d'horodatage GPU : le temps
+//     inclut le cout de lancement et l'attente de synchronisation.
+//
+// ⚠️ Le chemin appele est celui de PRODUCTION : `RunMatMul` est litteralement
+// ce qu'appelle `ops::Matmul`, et le choix `matmul_t4` contre `matmul` se fait
+// DANS RunMatMul sur M*N >= 65536 && K >= 16. Toutes les tailles ci-dessous
+// respectent ce seuil : on mesure donc bien `matmul_t4`, pas le naif.
+//
+// Modele : t = F + travail / debit_effectif.
+//   FLOPs = 2*M*N*K
+//   trafic REEL du pave 4x4 : chaque tuile 4x4 lit 4 lignes de A et 4 colonnes
+//   de B, soit 8*K flottants (32*K octets) pour 16 sorties et 32*K FLOPs
+//   -> intensite arithmetique = 1 FLOP/octet EXACTEMENT.
+//   A ~448 Go/s, le plafond de ce noyau est donc ~448 GFLOP/s, soit ~2,2 % de
+//   la crete de 20 300 GFLOPS. Un point proche de 2,2 % tourne AU MAXIMUM de ce
+//   que son intensite permet : il n'y a rien a y gagner sans changer
+//   l'intensite (c'est-a-dire sans passer en memoire partagee).
+
+struct MatPoint {
+		uint32 M, N, K;
+		double minUs, medUs, moyUs, maxUs;
+};
+
+struct MatTaille {
+		uint32 M, N, K;
+		const char *quoi;
+};
+
+static MatPoint BancMatMesure(NkTensorGpu &gpu, uint32 M, uint32 N, uint32 K, int reps, bool avecAlloc) {
+	const nk_size octA = (nk_size)M * (nk_size)K * sizeof(float);
+	const nk_size octB = (nk_size)K * (nk_size)N * sizeof(float);
+	const nk_size octC = (nk_size)M * (nk_size)N * sizeof(float);
+
+	MatPoint p;
+	p.M = M;
+	p.N = N;
+	p.K = K;
+	p.minUs = p.medUs = p.moyUs = p.maxUs = 0.0;
+
+	uint64 ba = gpu.CreateBuffer(octA);
+	uint64 bb = gpu.CreateBuffer(octB);
+	uint64 bcFixe = avecAlloc ? 0 : gpu.CreateBuffer(octC);
+	if (!ba || !bb || (!avecAlloc && !bcFixe)) {
+		// Allocation refusee : on le DIT, au lieu de rendre un zero qui passerait
+		// pour une mesure (face 2 : reussir pour la mauvaise raison).
+		printf("  [!] allocation refusee pour M=%u N=%u K=%u — point NON mesure\n", M, N, K);
+		if (ba)
+			gpu.DestroyBuffer(ba);
+		if (bb)
+			gpu.DestroyBuffer(bb);
+		if (bcFixe)
+			gpu.DestroyBuffer(bcFixe);
+		return p;
+	}
+
+	// Remplissage HORS de la boucle chronometree.
+	{
+		const nk_size nA = (nk_size)M * (nk_size)K, nB = (nk_size)K * (nk_size)N;
+		float *tmp = (float *)malloc((size_t)(octA > octB ? octA : octB));
+		for (nk_size i = 0; i < nA; ++i)
+			tmp[i] = (float)((int64)(i & 255) - 128) * 0.01f;
+		gpu.Upload(ba, tmp, octA);
+		for (nk_size i = 0; i < nB; ++i)
+			tmp[i] = (float)((int64)(i & 127) - 64) * 0.01f;
+		gpu.Upload(bb, tmp, octB);
+		free(tmp);
+	}
+
+	// Chauffe : le premier appel compile le noyau. Le mesurer melangerait un cout
+	// unique au cout par appel.
+	for (int w = 0; w < 3; ++w) {
+		uint64 bc = avecAlloc ? gpu.CreateBuffer(octC) : bcFixe;
+		if (bc)
+			gpu.RunMatMul(ba, bb, bc, M, N, K);
+		if (avecAlloc && bc)
+			gpu.DestroyBuffer(bc);
+	}
+
+	double *ech = (double *)malloc(sizeof(double) * (size_t)reps);
+	for (int r = 0; r < reps; ++r) {
+		const double t0 = NkChrono::Now().nanoseconds;
+		uint64 bc = avecAlloc ? gpu.CreateBuffer(octC) : bcFixe;
+		if (bc)
+			gpu.RunMatMul(ba, bb, bc, M, N, K);
+		if (avecAlloc && bc)
+			gpu.DestroyBuffer(bc);
+		ech[r] = (NkChrono::Now().nanoseconds - t0) / 1000.0; // µs
+	}
+
+	double somme = 0.0;
+	for (int r = 0; r < reps; ++r)
+		somme += ech[r];
+	qsort(ech, (size_t)reps, sizeof(double), cmpDouble);
+
+	p.minUs = ech[0];
+	p.medUs = ech[reps / 2];
+	p.moyUs = somme / (double)reps;
+	p.maxUs = ech[reps - 1];
+	free(ech);
+
+	gpu.DestroyBuffer(ba);
+	gpu.DestroyBuffer(bb);
+	if (!avecAlloc)
+		gpu.DestroyBuffer(bcFixe);
+	return p;
+}
+
+static void BancMatSerie(NkTensorGpu &gpu, const char *titre, bool avecAlloc, const MatTaille *t, int nT,
+						 int reps) {
+	printf("\n--- %s ---\n", titre);
+	printf("  %-20s %9s %9s %9s %9s %8s %9s %8s  %s\n", "M x N x K", "min us", "med us", "moy us", "max us",
+		   "max/min", "GFLOP/s", "% crete", "quoi");
+	for (int i = 0; i < nT; ++i) {
+		MatPoint p = BancMatMesure(gpu, t[i].M, t[i].N, t[i].K, reps, avecAlloc);
+		if (p.minUs <= 0.0)
+			continue;
+		char forme[64];
+		snprintf(forme, sizeof(forme), "%ux%ux%u", t[i].M, t[i].N, t[i].K);
+		const double flops = 2.0 * (double)t[i].M * (double)t[i].N * (double)t[i].K;
+		const double gflops = flops / (p.minUs * 1.0e-6) / 1.0e9;
+		const double pctCrete = gflops / 20300.0 * 100.0;
+		const double ratio = p.maxUs / p.minUs;
+		printf("  %-20s %9.1f %9.1f %9.1f %9.1f %8.2f %9.1f %8.3f  %s\n", forme, p.minUs, p.medUs, p.moyUs,
+			   p.maxUs, ratio, gflops, pctCrete, t[i].quoi);
+	}
+}
+
+static int BancMatmul(NkTensorGpu &gpu, int passes) {
+	// Tailles : de petit a la PRODUCTION. Les formes de production viennent du
+	// montage d'entrainement `--d 640 --layers 10 --heads 8 --T 256 --B 6` :
+	// 6*256 = 1536 lignes, d = 640, vocabulaire 32 769.
+	// Toutes respectent M*N >= 65536 et K >= 16, donc toutes passent par t4.
+	static const MatTaille tailles[] = {
+		{128, 512, 64, "petit"},		 {256, 512, 128, "petit"},
+		{512, 512, 256, "moyen"},		 {1536, 640, 640, "PROD projection"},
+		{1536, 2560, 640, "PROD mlp"}, {1536, 32769, 640, "PROD logits"},
+	};
+	const int nT = (int)(sizeof(tailles) / sizeof(tailles[0]));
+	const int reps = 15;
+
+	printf("\n=== BANC D'ECHELLE `matmul_t4` — LA VARIANCE D'ABORD ===\n");
+	printf("Intensite arithmetique du pave 4x4 : 1 FLOP/octet EXACTEMENT.\n");
+	printf("Plafond de CE noyau = ~448 Go/s x 1 = ~448 GFLOP/s = ~2,2 %% de la crete (20 300 GFLOPS).\n");
+	printf("Un point proche de 2,2 %% tourne au MAXIMUM de ce que son intensite permet.\n");
+	printf("Repetitions par point : %d (3 de chauffe jetees). Passes : %d (TEMOIN).\n", reps, passes);
+	printf("⚠️ Horloge MURALE hote : inclut lancement et synchronisation, pas seulement le GPU.\n");
+	printf("⚠️ Ce banc ne dit RIEN du debit d'entrainement : il mesure un noyau isole.\n");
+
+	for (int pass = 0; pass < passes; ++pass) {
+		printf("\n########## PASSE %d / %d ##########\n", pass + 1, passes);
+		BancMatSerie(gpu, "SERIE A — dispatch seul (tampons preexistants)", false, tailles, nT, reps);
+		BancMatSerie(gpu, "SERIE B — forme production (CreateBuffer + dispatch + DestroyBuffer)", true,
+					 tailles, nT, reps);
+		{
+			printf("\n  ..... C1 : BEAUCOUP de tampons, PEU de VRAM .....\n");
+			Lest l = LestPoser(gpu, 9316, 4096);
+			BancMatSerie(gpu, "SERIE C1 — dispatch seul, 9 316 tampons vivants (~38 Mo)", false, tailles, nT,
+						 reps);
+			LestRetirer(gpu, l);
+		}
+		{
+			printf("\n  ..... C2 : PEU de tampons, BEAUCOUP de VRAM .....\n");
+			Lest l = LestPoser(gpu, 8, 500ull * 1000ull * 1000ull);
+			BancMatSerie(gpu, "SERIE C2 — dispatch seul, 8 tampons vivants (~4 Go)", false, tailles, nT,
+						 reps);
+			LestRetirer(gpu, l);
+		}
+	}
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	bool bancAdd = false;
-	for (int i = 1; i < argc; ++i)
+	bool bancMat = false;
+	for (int i = 1; i < argc; ++i) {
 		if (strcmp(argv[i], "--banc-add") == 0)
 			bancAdd = true;
+		if (strcmp(argv[i], "--banc-matmul") == 0)
+			bancMat = true;
+	}
 
 	printf("=== NkTensorGpuTest ===\n");
 	NkTensorGpu &gpu = NkTensorGpu::Get();
@@ -289,6 +494,15 @@ int main(int argc, char **argv) {
 		// est un effet ou du bruit — et `matmul_t4` a deja varie d'un facteur 1,8
 		// entre deux executions du meme binaire.
 		int r = BancAdd(gpu, 2);
+		gpu.Shutdown();
+		return r;
+	}
+
+	if (bancMat) {
+		// Deux passes DANS le meme processus, meme raison que pour `add` : c'est le
+		// TEMOIN. Ici il est le sujet meme du banc — la variance de ~1,8x de
+		// `matmul_t4` entre executions est ce qu'on vient borner.
+		int r = BancMatmul(gpu, 2);
 		gpu.Shutdown();
 		return r;
 	}

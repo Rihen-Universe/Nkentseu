@@ -498,7 +498,7 @@ partout — d'où les fourchettes.
 |---|---|---|
 | **hôte** : `~upload` + `~alloc` + `~free` | **36 à 42 %** | 2 704 transferts et 9 316 allocations **par pas** |
 | `softmax_rows` | 13,1 à 14,2 % | **8 appels/pas à ~0,6 s** — un fil par ligne sur 6 144 lignes × 32 769 colonnes |
-| `matmul_t4` | 9,9 à 15,9 % | pavage 4×4 en registres : intensité 1 FLOP/octet, donc **2 à 4 % de la crête** |
+| `matmul_t4` | 9,9 à 15,9 % | ~~pavage 4×4 en registres : intensité 1 FLOP/octet, donc **2 à 4 % de la crête**~~ ⚠️ **RÉFUTÉ le 16/08 : mesuré à 5,25 % de la crête** (1 066 GFLOP/s), reproductible à 0,02 %. Le L2 sert les relectures, l'intensité effective est bien meilleure que 1. Voir § *BANC D'ÉCHELLE `matmul_t4`* |
 | `add` (élémentaire) | 10,5 à 10,7 % | 2 812 appels/pas ; **97 % du temps d'une addition n'est pas l'addition** |
 | hors instrumentation | 11 à 13 % | construction des lots, autograd CPU, journalisation |
 
@@ -560,7 +560,7 @@ sont **un seul défaut**, et le n°2 est devenu le geste le moins cher du chanti
 | 2 | **réserve de tampons** : recycler par taille au lieu de créer/détruire 9 316 fois par pas. **Revalorisé** : le profil facture une partie du coût d'allocation aux NOYAUX (mesuré : un dispatch passe de ~110 µs à ~570 µs du seul fait qu'un `CreateBuffer` le précède) | 17,8-22,0 % **+ ~11-12 % cachés dans les lignes de noyaux** | **×1,43 à ×1,52** | jours |
 | 3 | **un tampon de commandes par pas** au lieu d'un `WaitIdle` par dispatch : **le plancher est mesuré à 107-121 µs par dispatch**, × 28 119 opérations/pas | ~19 % | agit sur 3, 4, 5 | jours |
 | 4 | **`softmax_rows`** : un groupe de fils par ligne, réduction en mémoire partagée, 2 passes au lieu de 3 | 13,1-14,2 % | ×1,15 à ×1,17 | jours |
-| 5 | **`matmul_t4`** : pavage en mémoire partagée (intensité 1 → 16) | 9,9-15,9 % | ×1,11 à ×1,19 | jours |
+| 5 | ⚠️ **`matmul_t4`** : pavage en mémoire partagée (intensité 1 → 16) — **PRÉMISSE RÉFUTÉE le 16/08** : l'intensité effective est déjà bien au-dessus de 1 (le L2 sert les relectures), le noyau mesure **5,25 % de la crête** et non 2-4 %. Le gain est **plus petit qu'annoncé** ; ×1,11-×1,19 est désormais une **borne supérieure très optimiste**. **Déclassé.** | 9,9-15,9 % | < ×1,11 | jours |
 | 6 | **fusion des chaînes élémentaires** | 10,5-10,7 % | ×1,12 | jours |
 
 ⚠️ **Les parts ne s'additionnent pas.** n°1 et n°2 comptent les mêmes objets :
@@ -1709,3 +1709,161 @@ est confirmee.
 - Le noyau `matmul_t4` varie toujours d'un facteur ~1,8 entre executions, non
   explique (perimetre reduit : le banc `add` se reproduit a 15 % pres, donc
   l'instabilite est propre a ce noyau).
+  → ⚠️ **RÉSOLU ET BORNÉ le 2026-08-16, section ci-dessous.** La variance n'est
+  pas une propriété du débit : c'est la **queue de gigue de lancement**, et elle
+  ne domine que sur les petits dispatches.
+
+---
+
+## 🔬 BANC D'ÉCHELLE `matmul_t4` — 2026-08-16
+
+**`NkTensorGpuTest --banc-matmul`**, écrit ce jour sur le modèle du banc `add`.
+Il appelle `RunMatMul`, c'est-à-dire **le chemin de production lui-même** (ce
+qu'appelle `ops::Matmul`), et non une reconstruction : toutes les tailles
+respectent `M*N >= 65536 && K >= 16`, donc passent bien par `matmul_t4` et non
+par le naïf.
+
+### Montage déclaré — sans lui le chiffre n'est pas rejouable
+
+| | |
+|---|---|
+| machine | Intel Core i7-10870H, 31,8 Go RAM, Windows 11 |
+| GPU | **NVIDIA GeForce RTX 3070 Laptop**, pilote 31.0.15.3161 (2023-04-08) |
+| backend | **Vulkan** |
+| arbre | `Nkentseu-ilyana`, `feat/ilyana-pdf`, base `c3874647` |
+| configuration | **Release**, binaire contrôlé **FRAIS** (plus récent que sa source) |
+| protocole | 15 répétitions par point, 3 de chauffe jetées, **2 passes témoin** |
+| horloge | **murale hôte** (`NkChrono`) — inclut lancement et synchronisation |
+| machine | **libre** : aucun autre travail GPU pendant la campagne (vérifié) |
+
+⚠️ **Le « % de crête » est calculé sur 20 300 GFLOPS, chiffre HÉRITÉ de la
+ROADMAP.** C'est la crête d'une RTX 3070 **de bureau** ; la carte ici est une
+**Laptop**, dont la crête FP32 est plutôt ~16,6 TFLOPS. **Les pourcentages
+ci-dessous sont donc SOUS-ESTIMÉS d'environ 20 %.** Je le dis au lieu de le
+propager en silence — et la conclusion tient sous les deux chiffres, ce qui est
+le seul point qui compte ici.
+
+### 1. ✅ LA VARIANCE DE ~1,8× EST EXPLIQUÉE, ET ELLE N'EST PAS OÙ ON LA CROYAIT
+
+**Elle dépend de la TAILLE, et elle s'effondre à la taille de production.**
+
+| forme | max/min (passe 1) | max/min (passe 2) |
+|---|---|---|
+| 128×512×64 | **2,93** | **4,62** |
+| 256×512×128 | 1,35 | 1,11 |
+| 512×512×256 | 1,22 | 1,12 |
+| 1536×640×640 (PROD) | 1,07 | 1,08 |
+| 1536×2560×640 (PROD) | 1,05 | 1,02 |
+| 1536×32769×640 (PROD) | **1,02** | **1,02** |
+
+Et la **reproductibilité entre les deux passes**, sur le `min` :
+
+```
+1536x32769x640   60 426,8 -> 60 436,9 us    ecart 0,017 %
+1536x2560x640     4 831,5 ->  4 820,4 us    ecart 0,23 %
+1536x640x640      1 516,8 ->  1 442,9 us    ecart 4,9 %
+128x512x64          177,1 ->    167,4 us    ecart 5,5 %
+```
+
+🎯 **Conclusion, et elle change la façon de mesurer ce noyau** : la variance de
+~1,8× n'est **pas** une instabilité du débit. C'est la **queue de la gigue de
+lancement**, qui pèse relativement d'autant plus que le dispatch est court. Sur
+un dispatch de 60 ms, elle est invisible (1,02) ; sur un dispatch de 170 µs, elle
+atteint 4,6.
+
+→ **La statistique à lire sur ce noyau est le `min` (ou la médiane), jamais la
+moyenne ni le max.** Le `min` se reproduit à **0,017 %** à la taille de
+production. *Le mystère n'était pas dans le noyau, il était dans le choix de
+l'estimateur.*
+
+### 2. ⚠️ CE QUE LA MESURE RÉFUTE — « 2 à 4 % de la crête » est FAUX
+
+La ROADMAP écrit, tableau des noyaux : *« `matmul_t4` — pavage 4×4 en registres :
+intensité 1 FLOP/octet, donc **2 à 4 % de la crête** »*.
+
+**Mesuré, reproductible à 0,02 % :**
+
+| forme de production | GFLOP/s | % de crête (20,3 TFLOPS) |
+|---|---|---|
+| 1536×640×640 | 830 – 872 | 4,09 – 4,30 |
+| 1536×2560×640 | 1 042 – 1 044 | **5,13 – 5,14** |
+| 1536×32769×640 | 1 066 | **5,25** |
+
+**Mon propre modèle est réfuté par ma propre mesure**, et c'est le résultat le
+plus utile de ce banc. J'avais calculé un plafond de ~448 GFLOP/s (intensité
+1 FLOP/octet × 448 Go/s). **Le noyau mesure 1 066 GFLOP/s — 2,4× AU-DESSUS de mon
+plafond.**
+
+*Une mesure au-dessus d'un plafond accuse le modèle, pas la machine.* Le calcul
+« intensité = 1 FLOP/octet » compte **chaque lecture comme allant en DRAM**. En
+réalité le **cache L2 sert la majorité des relectures** de colonnes de B entre
+groupes de travail : le trafic DRAM effectif est très en dessous du compte naïf,
+et le noyau n'est donc **pas** limité par la bande passante à 448 Go/s.
+
+⚠️ **Conséquence directe sur le chantier n°5**, qui dit « pavage en mémoire
+partagée (intensité 1 → 16) » pour ×1,11 à ×1,19 : **sa prémisse est fausse.**
+L'intensité effective est déjà bien meilleure que 1 grâce au L2, donc **le gain
+attendu d'un pavage en mémoire partagée est plus petit qu'annoncé**. Le chiffre
+×1,11-×1,19 venait déjà du profil (mal attribué) ; il faut désormais le lire
+comme une **borne supérieure très optimiste**.
+
+### 3. ✅ CORROBORATION INDÉPENDANTE DU CHANTIER N°2 (réserve de tampons)
+
+L'écart **série B − série A** isole le coût d'une allocation, sur un noyau qui
+n'a rien à voir avec `add` :
+
+```
+128x512x64     +431,0 / +426,9 us
+256x512x128    +439,8 / +437,8 us
+512x512x256    +475,1 / +492,4 us      (passe 1 / passe 2)
+```
+
+**+427 à +492 µs par allocation** — cela tombe exactement sur les **+430 à
++480 µs** mesurés au banc `add`. *Deux noyaux sans rapport, la même valeur : le
+coût d'allocation n'est pas une propriété de `add`, c'en est une du pilote.* Le
+chantier n°2 en sort renforcé, cette fois par une mesure qui ne lui était pas
+destinée.
+
+Sur les grosses formes l'écart grandit avec la taille du tampon (+11,1 à
++12,6 ms pour le tampon de 201 Mo des logits), ce qui est cohérent.
+
+### 4. Ni le NOMBRE de tampons ni la VRAM ne ralentissent ce dispatch
+
+| série | ce qu'elle charge | effet sur le `min` de production |
+|---|---|---|
+| C1 | 9 316 tampons vivants (~38 Mo) | **aucun** (60 366 / 60 393 µs contre 60 427 / 60 437) |
+| C2 | 8 tampons, ~4 Go de VRAM | **aucun** (60 028 / 60 200 µs) |
+
+⚠️ **Une anomalie reproductible, non expliquée, et je ne la sur-interprète pas** :
+sur la seule forme `1536×2560×640`, la série C1 coûte **+28 à +29 %**
+(4 831 → 6 181 et 4 820 → 6 230 µs) alors que C2 ne montre rien. Reproduit sur
+les deux passes, donc ce n'est pas du bruit. *Beaucoup de petits tampons pénalise
+cette forme précise et pas les autres — cause non cherchée, signalée.*
+
+⚠️ **Et un piège évité par le témoin** : en passe 1, la série C2 semblait ralentir
+les petites tailles (207 contre 177 µs, 441 contre 338). **La passe 2 ne le
+reproduit pas** (199 contre 167, 346 contre 329). Sans la seconde passe,
+j'annonçais « la pression VRAM ralentit les petits dispatches » — c'était du
+bruit.
+
+### 5. ⚠️ CE QUE CE BANC NE COUVRE PAS
+
+- **Il ne dit rien du débit d'entraînement.** Il mesure un noyau isolé ; le pas
+  de production enchaîne 28 119 opérations, et la ROADMAP montre déjà que
+  l'essentiel du temps attribué à un noyau **n'est pas du temps GPU**.
+- **Il ne mesure aucun remède**, seulement l'état des lieux.
+- **Horloge murale hôte**, pas d'horodatage GPU : le temps inclut le lancement et
+  la synchronisation. Séparer les deux demanderait des requêtes de temps GPU.
+- **Un seul backend (Vulkan), une seule carte, une seule configuration
+  (Release).** Rien ici ne se transpose à un autre backend.
+
+### 6. Ce que j'en conclus pour l'ordre de bataille
+
+**`matmul_t4` n'est pas le bon chantier, et cette mesure le confirme deux fois :**
+il tourne à 5,25 % de la crête au lieu des 2-4 % annoncés — donc **plus près de
+son plafond réel qu'on ne croyait** — et le gain du pavage en mémoire partagée
+repose sur une prémisse d'intensité que le L2 dément.
+
+Ce que la campagne renforce, en revanche, c'est **le chantier n°2** : +427 à
++492 µs par allocation, corroborés sur un second noyau. *Je n'ai rien optimisé ;
+j'ai supprimé une piste et consolidé une autre.*
