@@ -959,10 +959,46 @@ quand les fichiers disque manquent.
 ici) : les 8 shaders à source vide de NKXRDemo — Glow2D, InfiniteGrid, Instanced,
 Skin, Skybox, ShadowAlpha, ShadowInstanced, ShadowLinear — sont **un
 sous-ensemble** de ces 17. **Premier geste : vérifier depuis quel répertoire
-NKXRDemo est lancé.** L'autre motif signalé là-bas — `non-opaque uniforms
-outside a block, not allowed when using GLSL for Vulkan` — est un **vrai** défaut
-de source, **non observable ici** : Nogee tourne en **OpenGL**. Deux causes
-distinctes, un seul symptôme.
+NKXRDemo est lancé.**
+
+⚠️ **CORRECTION DU 2026-08-17, même soir — je retire « deux causes distinctes ».**
+Ce paragraphe disait que `non-opaque uniforms outside a block, not allowed when
+using GLSL for Vulkan` était un **vrai défaut de source**, distinct du CWD. **C'est
+faux.** Mesuré ensuite sur le journal de NKXRDemo (course de 20h09, copie figée) :
+**11 shaders demandés, 11 en échec, et les trois symptômes sortent du même fait.**
+
+| symptôme | n | ce qui le produit |
+|---|---|---|
+| source vide (`0/0`) | **8** | aucun repli embarqué **et** fichier disque introuvable |
+| `non-opaque uniforms` | **2** (Render2D `0:13`, Shadow `0:14`) | repli embarqué, écrit en **dialecte GL**, soumis à **Vulkan** |
+| `'softness' : no such field` | **1** (PBR `0:183`) | repli embarqué **périmé** |
+
+**L'empreinte des tailles tranche** : PBR chez NKXRDemo = `2771/15572`, soit
+exactement le **repli embarqué**, et **pas** le fichier disque (`2439/43305`).
+NKXRDemo n'a donc **jamais lu un fichier de shader du disque** — et ni
+`Debug-Windows/NKXRDemo/` ni `Release-Windows/NKXRDemo/` n'a de dossier
+`Resources`, comme `Nogee/`.
+
+Le repli est en dialecte GL par construction : `NkRender2D.cpp:48`
+`uniform vec4 _PushConstants[4];` tombe **ligne 13** du shader une fois l'en-tête
+`#version 460 core` ajouté — le `0:13` de l'erreur. La variante **VK correcte
+existe sur le disque** (`Render2D/VK/render2d.vert.vk.glsl`,
+`layout(push_constant)`), et son propre commentaire se déclare « sync avec
+embedded GL fallback ».
+
+⛔ **Conséquence pour NKRenderer : ne réécrivez aucun uniform.** Corriger les
+sources disque ne changerait rien — elles ne sont pas chargées. Le seul défaut à
+traiter est **la résolution du chemin des ressources / le déploiement des assets
+à côté du binaire**. Il fait tomber **11/11** chez NKXRDemo et **17/21** chez
+Nogee d'un coup. Restent ensuite, par ordre : le **repli PBR périmé**, puis le
+**principe même du repli embarqué** (GL-only et périmé — il fabrique une fausse
+santé).
+
+📌 **Deux pièges d'instrument payés en le mesurant** : `NKXRDemo/logs/app.log` est
+**tronqué et réécrit** à chaque lancement (34 776 o → 21 780 o pendant les greps),
+donc les numéros de ligne d'une course ne valent rien pour la suivante — **figer
+une copie avant d'analyser**. Et le journal **n'imprime jamais le chemin tenté**,
+ce qui rend un échec de résolution indiagnosticable depuis le journal seul.
 
 📌 **Sixième piège d'environnement de ce worktree**, après les sous-modules, le
 sink NKLogger, `/Resources/Models/` gitignoré, l'ordre du PATH et mon emballage
