@@ -1240,6 +1240,76 @@ inconnus. Il casse tout `jenga build` sans `--target`.)*
 
 ---
 
+## 10bis. ⚠️ `Panels/Model/` A ÉTÉ DIMENSIONNÉ SUR LES BESOINS DE NKUI (2026-08-17)
+
+> **À prévoir, plutôt qu'à découvrir.** Écrit après les portages 2/4 et 3/4,
+> les deux premiers panneaux réellement écrits sur NKGui.
+
+Les quatre modèles neutres de `Applications/Nogee/src/Nogee/Panels/Model/` ont
+été extraits pour qu'un panneau porté **partage** l'état au lieu de le recopier.
+Ça a marché, et c'est mesuré : 350 l. en 9 min pour le World Outliner contre
+174 l. en 40 min pour le pilote Console, **sans un seul modèle à recopier**.
+
+**Mais NKGui tient lui-même une partie de cet état.** Ce qu'on ne pouvait pas
+savoir avant d'avoir écrit un panneau NKGui :
+
+| état du modèle | sur le chemin NKGui |
+|---|---|
+| `NkSceneTreeModel::mOpenNodes` / `mOpenCount` / `IsOpen` / `SetOpen` (24 l.) | **inutile** — `ctx.IsNodeOpen` / `SetNodeOpen`, clés par `NkGuiId` |
+| `NkSceneTreeModel::mRenamingEntity` / `mRenameBuffer` + sa machine à états | **inutile** — `TreeNodeEditable` / `SelectableEditable` renomment en natif |
+| `NkInspectorModel::IsSectionOpen` / `SetSectionOpen` | **inutile** — `CollapsingHeader` tient son propre état d'ouverture |
+| `mContextMenuEntity`, `mScrollToSelected` | **encore utiles** |
+
+🎯 **Conséquence à prévoir : le jour où NKUI sera retiré, une partie de `Model/`
+devient du code mort.** Ce n'est pas une erreur d'extraction — l'extraction a
+payé exactement ce qu'on en attendait, et elle reste juste tant que les deux
+chemins coexistent. C'est une **dette datée** : elle s'ouvre au moment du
+retrait de NKUI, pas avant.
+
+**Ce que ça change pour les estimations restantes** : le coût par panneau porté
+est **inférieur** au pilote, et il continue de baisser — NKGui fournit en natif
+ce que le chemin NKUI codait à la main. À redire avec chaque devis.
+
+---
+
+## 10ter. 🔴 L'INSPECTEUR NKUI NE DESSINE AUCUN COMPOSANT — ET NE L'A JAMAIS FAIT
+
+Trouvé en portant §8. `Applications/Nogee/src/Nogee/Panels/InspectorPanel.cpp:56-61` :
+
+```cpp
+void *ptr = nullptr;  // world.GetRaw(id, meta.typeName);
+if (!ptr) continue;
+```
+
+**La boucle sur les composants réfléchis `continue` à chaque itération.** Tout le
+rendu par réflexion — `RenderComponent`, `RenderField` et ses 8 cas de types,
+soit l'essentiel du fichier — est du **code mort**. Seuls l'en-tête de nom et le
+bouton « Ajouter un composant » dessinent quelque chose.
+
+**La cause n'est pas le panneau : `NkWorld::GetRaw(id, typeId)` n'existe pas.**
+Vérifié dans `NKECS/World/NkWorld.h` et dans tout le dépôt ; contrôle positif :
+la même recherche remonte bien des `GetRaw*` dans NKEvent. Sans accès
+**générique** à la mémoire d'un composant, aucun panneau de propriétés piloté
+par réflexion ne peut fonctionner — quelle que soit la bibliothèque d'interface.
+
+⚠️ **Troisième occurrence du même motif dans la journée** — du code qui existe,
+compile et ne fait rien, que personne ne voit parce que rien ne l'exerce (après
+les 8 shaders à source vide et les 29 classes sans corps). Ici le silence est
+pire : le panneau *a l'air* de marcher, il dessine son en-tête.
+
+**Décision prise au portage** : `DetailsPanel` (NKGui) **ne reproduit pas la
+boucle morte**. Il livre ce qui fonctionne réellement — Transform en accès
+**typé** (`world.Get<NkTransform>`), nom éditable, filtre, ajout de composant —
+et **affiche à l'écran** que les propriétés réfléchies sont bloquées. *Un
+panneau qui dit « bloqué » est honnête ; un panneau vide ment.*
+
+**Poste nommé, et il est en amont de tout le reste de §8** : écrire
+`NkWorld::GetRaw(id, typeId)`. Tant qu'il manque, §8 ne peut livrer ni les
+sections repliables par composant, ni les types couleur / enum / référence
+d'asset / courbe, ni l'icône de reset au survol.
+
+---
+
 ## 🚀 PRIORITÉ — Mondes volumineux : les optimisations prouvées en NKAI
 
 > **Décision de Rihen, 6 août 2026.** « On doit implémenter ces optimisations
