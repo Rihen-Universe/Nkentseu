@@ -13,8 +13,18 @@ NOTRE runtime, posé à l'étage 2 sur le loader OpenXR (Khronos, Apache 2.0 —
 accès réaliste aux casques) comme nos codecs se posent sur les specs des formats.
 
 État actuel (2026-08-10) : **étage 0 livré côté code** — module + backend
-SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête), self-test
-**66/66**. En attente de validation par Rihen (cycle TEST → VALIDATION → INTÉGRATION).
+SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
+auto-tests **148/148**. En attente de validation par Rihen (cycle TEST →
+VALIDATION → INTÉGRATION).
+
+> 🔧 **Ce chiffre disait « 66/66 » jusqu'au 2026-08-17.** Il ne comptait qu'un
+> banc sur deux : **66** (`test_xr`) **+ 82** (`test_ar`) = **148**. Le module
+> **sous-déclarait de moitié ce qu'il vérifie** — un chiffre public faux, même
+> dans le sens de la modestie, reste faux : le jour où quelqu'un compte, il ne
+> sait plus lequel des deux croire. Corrigé après avoir relancé les deux bancs le
+> 2026-08-17 (Release, C++17, `origin/feat/nkxr`) : **66 OK / 0 échec** et
+> **82 OK / 0 échec**. Le troisième binaire, `outil_ar_image`, **n'entre pas dans
+> ce total** et la raison est écrite plus bas.
 
 ---
 
@@ -90,7 +100,7 @@ alors qu'un résultat hors-sujet reste vert indéfiniment.
 |---|---|---|---|
 | `test_xr` | **66 OK, 0 ÉCHECS** | **66 OK, 0 ÉCHECS** | **aucun** |
 | `test_ar` | **82 OK, 0 ÉCHECS** | **82 OK, 0 ÉCHECS** | **aucun** |
-| `test_ar_image` | code 1 (usage) | code 1 (usage) | **aucun** |
+| `outil_ar_image` *(instrument)* | code 1 (emploi) | code 1 (emploi) | **aucun** |
 
 Et le contrôle qui vaut plus que les compteurs : **les journaux des trois
 binaires, horodatage retiré, sont identiques entre les deux dialectes.** Pas
@@ -100,10 +110,39 @@ seulement le même total — la même sortie, ligne pour ligne.
 de portabilité — et maintenant on le sait au lieu de l'espérer. Le script est
 passé en C++17 et rejoué à travers lui-même : 66/66 et 82/82, inchangés.
 
-*Au passage : le module annonce « 66/66 » alors qu'il y a en réalité **148**
-contrôles (66 + 82). `test_ar_image` n'entre dans aucun total — il attend un
-chemin d'image en argument et sort en code 1 sans, donc il ne participe à aucune
-mesure automatique.*
+### ✅ Le compte public corrigé : 148, pas 66
+
+Le module annonçait **« 66/66 »** en tête de ROADMAP alors qu'il y a **148**
+contrôles — **66** (`test_xr`) **+ 82** (`test_ar`). Il **sous-déclarait de
+moitié ce qu'il vérifie**. Un chiffre public faux, même dans le sens de la
+modestie, reste faux : le jour où quelqu'un compte, il ne sait plus lequel des
+deux croire. Corrigé en tête de ce fichier.
+
+### ✅ `test_ar_image` → `outil_ar_image` : il n'était NI compté NI exclu
+
+Troisième état, le pire : construit par `build_tests.sh`, absent de tout total,
+et sortant en **code 1** sans argument — donc **il ressemblait à un échec** à qui
+lisait la sortie du banc.
+
+**Tranché : il sort explicitement du décompte, et il est renommé.** La raison est
+plus forte que « il attend un argument » :
+
+> **ce programme n'a AUCUN verdict.** Il journalise ce qu'il trouve et rend `0`
+> qu'il détecte cinq marqueurs ou zéro. **Il ne peut pas échouer.**
+
+L'ajouter au total avec une image versionnée aurait donc créé **un contrôle
+incapable de tomber** — exactement le « repos acheté, pas d'information » qu'on
+vient de retirer ailleurs. Un attendu manquait, pas une image.
+
+Ce qui a été fait :
+- **renommé `outil_ar_image.cpp`** — le nom `test_*` dans `tests/` était la cause
+  de l'ambiguïté, pas sa conséquence ;
+- **son message d'emploi dit ce qu'il EST** (« INSTRUMENT de diagnostic, pas un
+  test ») avant de dire comment on l'appelle ;
+- **ses trois codes de sortie sont documentés**, avec la précision qui compte :
+  *`0` signifie « j'ai tourné », pas « j'ai réussi »* ;
+- **la condition pour qu'il rejoigne un jour le décompte est écrite** : une image
+  versionnée **et** le nombre de marqueurs exigé, avec échec si le compte diffère.
 
 ### 🔧 Et le `sed` de la correction a réécrit sa propre documentation
 
