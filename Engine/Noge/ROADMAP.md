@@ -1310,6 +1310,73 @@ d'asset / courbe, ni l'icône de reset au survol.
 
 ---
 
+## 10quater. 🔴 LA FRONTIÈRE MESURÉE — **Nogee n'a AUCUN monde ECS** (2026-08-17)
+
+> Mesure demandée après le portage 3/4 : *que faudrait-il pour que la coquille
+> NKGui atteigne le monde ?* **La réponse déplace la question** : il n'y a pas de
+> monde à atteindre, sur aucun des deux chemins.
+
+**Les faits, et le contrôle qui les tient :**
+
+| fait | preuve |
+|---|---|
+| `NogeeShell` (NKGui) n'a **aucune** référence à `NkWorld` | 0 occurrence |
+| `SetWorld(...)` / `SetScene(...)` sont **déclarés 3 fois et appelés 0 fois** | recherche sur tout le dépôt ; seul « hit » = un commentaire dans Assimp |
+| donc `UILayer::mWorld` vaut **toujours `nullptr`** | — |
+| `RenderSceneTree()` et `RenderInspector()` commencent par `if (!mWorld \|\| !mEditorLayer) return;` | `UILayer.cpp:475` et `:483` |
+| **aucun `NkWorld` n'est instancié nulle part dans Nogee** | — |
+
+**Contrôle positif obligatoire** (un zéro se prouve) : la même recherche
+appliquée à `SetCacheDir(` remonte **3 appels réels** (Nogee, PV3DE, Sandbox).
+Le motif sait donc trouver un appel ; le zéro sur `SetWorld` est un vrai zéro.
+
+🎯 **Conséquence, et elle est plus large que le portage** : **les panneaux
+SceneTree et Inspector de NKUI n'ont jamais rien dessiné non plus.** Ce ne sont
+pas les panneaux portés qui sont en retard sur les panneaux existants — **les
+deux sont en aval d'un monde absent**. Seuls `AssetBrowser` et `Console` ne sont
+pas gardés par `mWorld` et dessinent réellement.
+
+*(Quatrième occurrence du motif du jour, et la plus coûteuse : une garde de
+nullité qui protège du code qu'elle rend mort — exactement « une protection qui
+ne protège rien ». Le code gardé repousse l'œil.)*
+
+### ✅ La bonne nouvelle : la frontière est PETITE, et elle a un précédent
+
+`NkWorld` est un **type valeur** et `NkSceneGraph` se construit dessus :
+
+```cpp
+NkWorld world;                       // Applications/NkAgentEcsDemo/src/main.cpp:72
+NkEntityId e = world.CreateEntity();
+world.Add<NkAgentComponent>(e);
+// NkSceneGraph(NkWorld &world, const NkString &name = "Scene")
+```
+
+Le geste existe déjà **cinq fois** dans le dépôt (`NkAgentEcsDemo`,
+`NkAudioECSDemo`, `NKCivilizationTest`, `NKCivilizationScaleTest`,
+`NKCivilizationSocialTest`). Il n'a jamais été fait dans Nogee.
+
+**Ce qu'il faut, et rien de plus** : que `NogeeApp` **possède** un `NkWorld` et
+un `NkSceneGraph`, y crée quelques entités, puis appelle les setters **qui
+existent déjà** (`UILayer::SetWorld/SetScene`, `EditorLayer::SetScene`,
+`ViewportLayer::SetWorld`) — et, côté NKGui, les `Bind(...)` de
+`WorldOutlinerPanel` et `DetailsPanel`. **De l'ordre de 15 lignes**, pas un
+chantier d'architecture.
+
+⚠️ **À ne pas confondre avec `GetRaw`** (§10ter) : ce sont deux manques
+indépendants. Un monde branché rend visibles le World Outliner et le Transform du
+Details Panel ; il ne débloque pas les propriétés réfléchies, qui attendent
+`NkWorld::GetRaw`.
+
+### Ce que ça veut dire pour septembre
+
+Les quatre portages sont du travail réel et mesuré, **mais ils atterrissent sur
+rien tant que ces ~15 lignes ne sont pas écrites**. C'est le geste au plus fort
+rendement de tout ce chantier d'éditeur : il rend visibles, d'un coup, deux
+panneaux NKUI et deux panneaux NKGui. **À faire avant d'entamer le portage 4/4**,
+sinon on continuera d'écrire des panneaux que personne ne peut voir.
+
+---
+
 ## 🚀 PRIORITÉ — Mondes volumineux : les optimisations prouvées en NKAI
 
 > **Décision de Rihen, 6 août 2026.** « On doit implémenter ces optimisations
