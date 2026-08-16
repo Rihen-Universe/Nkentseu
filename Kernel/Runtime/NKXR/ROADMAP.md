@@ -75,7 +75,7 @@ plutôt que passé sous silence.
 l'initialisation ; `EndFrame` ne fait que relire un champ. Rien ne se journalise
 par image.*
 
-### 🔎 Sonde autonome — et elle trouve un obstacle plus profond que le renderer
+### 🔎 Sonde autonome — et sa première version m'a fait annoncer une panne inexistante
 
 `tests/sonde_openxr_blend.cpp` : un instrument qui interroge le runtime **sans
 ouvrir de fenêtre ni de renderer**, rejoue la règle de sélection sur la liste
@@ -87,44 +87,64 @@ propriété exacte que le correctif doit garantir.
 choisi n'est pas dans la liste annoncée** (le défaut visé), `0` seulement si
 tout tient.
 
-#### ⚠️ Le fait qu'elle a produit : `openxr_loader.dll` est ABSENT de la machine
+#### ❌ RETRACTATION — mon « le loader est absent, donc rien ne peut s'initialiser » etait FAUX
+
+J'avais conclu, sur la premiere version de cette sonde : *aucun `openxr_loader.dll`
+sur la machine, donc l'initialisation OpenXR echouerait meme si le renderer etait
+debloque*. **C'est refute.**
+
+**Le moteur n'a jamais dependu du loader Khronos.** `NkXrOpenXRBackend` a **trois
+voies**, dans cet ordre :
+
+1. `NK_XR_OPENXR_LOADER` — un chemin force ;
+2. `openxr_loader.dll` pose a cote de l'exe ;
+3. **negociation directe avec le runtime actif declare au registre** —
+   `HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime` → manifeste JSON →
+   `library_path` → `xrNegotiateLoaderRuntimeInterface`.
+
+**Ma sonde n'essayait que la voie 2**, c'est-a-dire **un chemin dont le moteur ne
+depend pas**. Elle mesurait l'absence d'une piece facultative et je l'ai lue comme
+une panne. *Encore l'instrument, et non le code* — mais cette fois l'instrument
+disait une panne la ou tout fonctionne.
+
+#### ✅ Ce qui est vrai, mesure apres correction de la sonde
 
 ```
-find sur tout le dépôt et D:\Projets  ->  aucun openxr_loader.dll
-C:\Windows\System32\openxr_loader.dll ->  absent
-HKLM\SOFTWARE\Khronos\OpenXR\1        ->  ActiveRuntime = Meta Horizon (PRÉSENT)
+voie 2  openxr_loader.dll ................................. absent (sans consequence)
+voie 3  C:\Program Files\Meta Horizon\...\LibOVRRTImpl64_1.dll .. CHARGE
+        negociation .................................... ACCEPTEE
+        xrCreateInstance ............................... REUSSI
+        extensions annoncees ........................... 36
+        XR_FB_passthrough .............................. ABSENTE
+        xrGetSystem .................................... aucun casque (attendu, non connecte)
 ```
 
-**Un runtime OpenXR peut être installé et enregistré sans que le loader soit
-là** : c'est l'application qui livre `openxr_loader.dll`, pas le runtime. Le
-registre dit « il y a un casque » ; il ne dit rien de la capacité à lui parler.
+**La course du 12/08 sur Quest 2 est donc parfaitement rejouable** : rien ne
+manque, rien n'a ete nettoye, rien n'est a approvisionner. Il n'y a **aucune
+decision a demander a Rodolf** sur la livraison d'un loader — la question
+n'existait que dans mon erreur.
 
-Conséquence : **le blocage de `NkRendererImpl` étape 2 n'est pas le seul
-obstacle.** Même franchi, l'initialisation OpenXR échouerait au chargement du
-loader. Les deux sont indépendants, et seul le second appartient à NKXR.
+#### ✅ Et les « 36 extensions » sont RETABLIES
 
-⚠️ **Et ça met en doute une mesure antérieure** : les « 36 extensions, sans
-`XR_FB_passthrough` » de la ROADMAP viennent d'une session précédente. **Je ne
-peux pas la reproduire aujourd'hui** — le loader n'est pas là. Je ne la déclare
-pas fausse ; je déclare qu'elle n'est **pas reproductible en l'état**, et c'est
-une différence qui compte pour un module qui sert de support de cours.
+J'avais ecrit qu'elles n'etaient « pas reproductibles en l'etat ». **Elles le
+sont** : les extensions s'enumerent sans casque, et la sonde corrigee rend
+**exactement 36, `XR_FB_passthrough` absente** — le chiffre de la session du
+2026-08-17. Ma reserve etait un artefact de ma propre sonde incomplete.
 
-#### ⚠️ La limite symétrique, et elle est sérieuse
+*Le passthrough reste hors de portee, et pour la raison deja ecrite : extension
+absente du runtime PC **et** APK autonome Quest non produit par ce depot.*
 
-**Cette sonde n'a jamais rendu 0.** Ses trois exécutions — nominale, override
-bidon, `XR_RUNTIME_JSON` bidon — rendent toutes `1`, au même endroit. J'ai donc
-démontré **qu'elle sait échouer**, pas **qu'elle sait réussir** : les chemins
-`2`, `3` et surtout `4` ne sont pas exercés.
+#### ⚠️ La limite qui subsiste
 
-*Un instrument qui n'a produit qu'un seul verdict n'a pas été discriminé.* Il
-faudra le rejouer le jour où un `openxr_loader.dll` sera présent, et **ne pas
-traiter son premier `0` comme une confirmation** avant d'avoir vu au moins un
-autre code sortir.
+La sonde discrimine desormais — **2** en nominal, **1** avec
+`XR_RUNTIME_JSON` invalide — donc elle n'a plus un verdict unique. Mais
+**elle n'a toujours jamais rendu 0**, et les codes **3** et surtout **4** (le
+mode choisi absent de la liste annoncee, le defaut vise) **exigent un casque
+connecte**. Ils restent non exerces. *Ne pas traiter son premier `0` comme une
+confirmation.*
 
-Autre limite, écrite dans son en-tête : elle **rejoue** la règle du backend,
-écrite à l'identique, elle ne l'**exerce** pas — lier le backend exigerait le
-renderer, c'est-à-dire le blocage qu'elle contourne. Si la règle change d'un
-côté et pas de l'autre, la sonde ment.
+Elle **rejoue** la regle du backend, ecrite a l'identique, elle ne l'**exerce**
+pas : si la regle change d'un cote et pas de l'autre, la sonde ment.
 
 ### 🔧 Un champ fantôme créé puis retiré dans le même geste
 
