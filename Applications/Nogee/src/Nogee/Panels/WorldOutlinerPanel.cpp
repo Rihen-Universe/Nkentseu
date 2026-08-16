@@ -3,6 +3,7 @@
 // =============================================================================
 #include "WorldOutlinerPanel.h"
 #include "NKGui/NKGui.h"
+#include "NKLogger/NkLog.h" // temoin du cablage (une ligne, une fois)
 #include "Noge/ECS/NkEcsUtil.h"
 #include "Noge/ECS/Components/Core/NkCoreComponents.h"
 #include "Noge/ECS/Components/SceneComponent/NkSceneComponent.h"
@@ -84,6 +85,28 @@ namespace nkentseu {
 					if (!p || !p->entity.IsValid())
 						roots.PushBack(id);
 				});
+
+			// ── TEMOIN DU CABLAGE COTE SHELL (2026-08-17) ─────────────────────
+			// Meme motif que le temoin du panneau NKUI (SceneTreePanel.cpp) : une
+			// ligne, une fois, dans le VRAI chemin de rendu. Formatee via
+			// snprintf — logger.Infof n'interpole pas les {i} (famille printf).
+			{
+				static bool sReported = false;
+				if (!sReported) {
+					sReported = true;
+					const char *premier = "(aucune)";
+					if (roots.Size() > 0) {
+						if (const ecs::NkSceneNode *n0 = mWorld->Get<ecs::NkSceneNode>(roots[0]))
+							premier = n0->name;
+					}
+					char msg[192];
+					std::snprintf(msg, sizeof(msg),
+								  "[WorldOutlinerPanel] TEMOIN : rendu execute via le shell, %u racine(s), "
+								  "premiere = '%s'\n",
+								  (unsigned)roots.Size(), premier);
+					logger.Info(msg);
+				}
+			}
 
 			for (nk_usize i = 0; i < roots.Size(); ++i)
 				RenderEntity(ctx, roots[i], 0);

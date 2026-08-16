@@ -5,11 +5,23 @@
 // =============================================================================
 #include "Nogee/Shell/NogeeShell.h"
 #include "Nogee/Panels/ConsolePanelGui.h"
+#include "Nogee/Panels/WorldOutlinerPanel.h"
+#include "Nogee/Panels/DetailsPanel.h"
+#include "Nogee/Panels/ContentBrowserPanel.h"
+#include "Nogee/Editor/NkSelectionManager.h"
+#include "Nogee/Editor/CommandHistory.h"
+#include "Nogee/Editor/AssetManager.h"
+#include "Nogee/Editor/ProjectManager.h"
+
+#include "NKECS/World/NkWorld.h"
+#include "Noge/ECS/Scene/NkSceneGraph.h"
+#include "Noge/ECS/Components/Core/NkCoreComponents.h"
 
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui (impl generalisee)
 #include "NKMemory/NkUniquePtr.h"
 #include "NKLogger/NkLog.h"
+#include <cstdio>
 
 namespace nkentseu {
 	namespace noge {
@@ -255,6 +267,74 @@ namespace nkentseu {
 			if (g_probe.enabled)
 				shell->AddPanel(&g_probePanel);
 
+			// ── MONDE ECS + SYSTEMES EDITEUR COTE SHELL (2026-08-17) ─────────
+			// Le geste du commit 1d8a100f, rejoue ici : sans monde, les panneaux
+			// portes compilent mais ne peuvent rien montrer. Les systemes que les
+			// panneaux consomment (selection, historique, assets, projet) sont
+			// TOUS constructibles seuls — verifie : aucun ne demande de Layer ni
+			// de NkApplication. Ce qui vivait dans EditorLayer etait une
+			// POSSESSION, pas une dependance.
+			static ecs::NkWorld sWorld;
+			static ecs::NkSceneGraph sScene(sWorld, "Scene");
+			static NkSelectionManager sSel;
+			static CommandHistory sHist;
+			static AssetManager sAssets;
+			static ProjectManager sProject;
+
+			// Les memes entites TEMOIN que le chemin NKUI — et le meme
+			// complement explicite : SpawnNode et NkGameObjectFactory posent des
+			// composants DISJOINTS (cf. carnet), aucun des deux ne suffit.
+			{
+				const ecs::NkEntityId racine = sScene.SpawnNode("TEMOIN_Racine");
+				const ecs::NkEntityId enfantA = sScene.SpawnNode("TEMOIN_Enfant_A");
+				const ecs::NkEntityId enfantB = sScene.SpawnNode("TEMOIN_Enfant_B");
+				sScene.SetParent(enfantA, racine);
+				sScene.SetParent(enfantB, racine);
+				const ecs::NkEntityId ids[3] = {racine, enfantA, enfantB};
+				const char *noms[3] = {"TEMOIN_Racine", "TEMOIN_Enfant_A", "TEMOIN_Enfant_B"};
+				for (int i = 0; i < 3; ++i) {
+					sWorld.Add<ecs::NkName>(ids[i], ecs::NkName(noms[i]));
+					sWorld.Add<ecs::NkTransform>(ids[i]);
+				}
+				logger.Info("[Nogee/Shell] Monde ECS : 3 entites TEMOIN_* creees\n");
+			}
+
+			// Assets + projet : racine = projet de demarrage s'il existe, sinon
+			// le repertoire courant (defaut raisonnable, ANNONCE — la spec est
+			// silencieuse sur la racine hors projet).
+			const char *projectDir =
+				cfg.startupProjectPath.Empty() ? "." : cfg.startupProjectPath.CStr();
+			sAssets.Init(rhi.GetDevice(), projectDir);
+			if (!cfg.startupProjectPath.Empty())
+				sProject.Load(cfg.startupProjectPath.CStr());
+
+			// ── Les 3 panneaux portes restants, lies puis enregistres ─────────
+			static WorldOutlinerPanel sOutliner;
+			static DetailsPanel sDetails;
+			static ContentBrowserPanel sContent;
+
+			sOutliner.Bind(&sWorld, &sScene, &sSel, &sHist);
+			sDetails.Bind(&sWorld, &sSel, &sHist);
+			sContent.Init(&sAssets, projectDir);
+
+			shell->AddPanel(&sOutliner);
+			shell->AddPanel(&sDetails);
+			shell->AddPanel(&sContent);
+
+			// Selection initiale : le Details Panel montre le TEMOIN au premier
+			// rendu au lieu d'attendre un clic (c'est aussi ce qui rend le temoin
+			// numerique verifiable sans souris).
+			{
+				NkVector<ecs::NkEntityId> roots;
+				sWorld.Query<const ecs::NkSceneNode>().ForEach(
+					[&](ecs::NkEntityId id, const ecs::NkSceneNode &n) {
+						if (roots.Empty() && n.name[0] != '\0')
+							roots.PushBack(id);
+					});
+				if (!roots.Empty())
+					sSel.Select(roots[0]);
+			}
+
 			// De quoi remplir la console : sans lignes, un panneau vide ne
 			// prouverait pas qu'il dessine.
 			g_console.PushLine("Nogee — coquille NKEditorKit montee", NkLogLevel::NK_INFO);
@@ -277,8 +357,13 @@ namespace nkentseu {
 			if (g_probe.enabled)
 				logger.Info("[SONDE] activee : mesure du routeur d'occultation a l'execution\n");
 
-			logger.Info("[Nogee/Shell] coquille prete — panneau '{0}' ajoute\n", g_console.Title());
+			logger.Info("[Nogee/Shell] coquille prete — 4 panneaux portes enregistres\n");
 			const int32 rc = shell->Run();
+
+			// Parite avec NogeApp::OnClose : sauvegarde du projet si modifie.
+			if (sProject.IsModified())
+				sProject.Save();
+
 			g_shell = nullptr;
 			return static_cast<int>(rc);
 		}
