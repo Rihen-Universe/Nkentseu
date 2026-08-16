@@ -122,7 +122,38 @@ namespace nkentseu {
 		// =====================================================================
 		// Fabriques
 		// =====================================================================
+		// ⚠️ LE PARAMETRE `device` N'EST PAS HONORE POUR `NK_GPU` — ET IL ECHOUE
+		// DESORMAIS BRUYAMMENT (2026-08-16).
+		//
+		// Cette fabrique alloue TOUJOURS un stockage HOTE ; elle ne sait pas creer de
+		// tampon GPU (NkTensor.cpp est CPU-only par construction : tout NKRHI est
+		// confine dans NkTensorGpu.cpp). Elle se contentait de poser `mDevice` : un
+		// tenseur « GPU » ainsi fabrique n'avait ni tampon GPU ni contenu garanti, et
+		// **ca compilait, ca tournait, et les gradients auraient ete faux en silence**
+		// — le `memset` de `Zeros` etant en plus conditionne a l'existence du
+		// stockage hote.
+		//
+		// Regle appliquee ici : *un parametre qui n'est pas honore est pire qu'un
+		// parametre absent — l'absence force a chercher, la presence dispense de
+		// verifier.* On ne peut pas l'honorer sans casser la separation de couches,
+		// donc on le refuse, on le signale au compteur de defauts que l'entrainement
+		// consulte, et on renvoie un tenseur INVALIDE.
+		//
+		// Pour un tenseur de zeros resident GPU : `NkGpuZeros(shape, dtype)`
+		// (NkTensorGpu.h) — allocation + remise a zero sur place, sans transfert.
+		//
+		// Perimetre verifie avant ce changement : aucun appelant du depot ne passe
+		// `NK_GPU` a Empty/Zeros/Ones/Full/FromData/Arange (recherche sur tout
+		// `Nkentseu-ilyana`, Kernel + Applications ; les seuls appels a trois
+		// arguments passent `NkDevice::NK_CPU` explicitement).
 		NkTensor NkTensor::Empty(const NkShape &shape, NkDType dtype, NkDevice device) {
+			if (device == NkDevice::NK_GPU) {
+				NkGpuSignalerDefaut("NkTensor::Empty",
+									"device=NK_GPU N'EST PAS HONORE par cette fabrique (elle n'alloue que sur "
+									"l'hote) — utiliser NkGpuZeros() ou .ToGPU(). Tenseur INVALIDE renvoye",
+									(int64)NkShapeNumel(shape));
+				return NkTensor{};
+			}
 			NkTensor t;
 			t.mShape = shape;
 			t.mStrides = NkContiguousStrides(shape);

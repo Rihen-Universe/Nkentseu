@@ -136,6 +136,11 @@ namespace nkentseu {
 
 				void BeginFrame() override {
 					mFrameOk = false;
+					// La liste fusionnee de la frame precedente est caduque. `Reset`
+					// vide sans rendre la capacite : aucune reallocation par frame.
+					mMerged.Reset();
+					mFbW = 0;
+					mFbH = 0;
 					if (!mDev || !mCmd)
 						return;
 					if (!mDev->BeginFrame(mFrame))
@@ -159,6 +164,26 @@ namespace nkentseu {
 					if (mPreUI)
 						mPreUI(mCmd, mPreUIUser);
 
+					// ── LA PASSE BACKBUFFER EFFACE. C'est le loadOp CLEAR de cette
+					// passe, et il se DEMANDE : `BeginRenderPass` n'efface que si un
+					// `SetClearColor` l'a arme juste avant (cf. NkDirectX11CommandBuffer,
+					// « Clear UNIQUEMENT si demande »). Personne ne l'armait ici : la
+					// passe etait donc en LOAD, et chaque frame heritait de l'image
+					// laissee dans ce buffer de swapchain -- pas celle d'avant, mais
+					// celle d'il y a deux ou trois frames, selon le nombre de buffers.
+					//
+					// Tant que l'interface repeignait chaque pixel en opaque, l'heritage
+					// etait integralement recouvert et ne se voyait pas. Il s'est vu des
+					// que des surfaces ont cesse de couvrir : une fenetre modale qu'on
+					// deplace laisse la trace de ses positions passees, et un voile
+					// semi-transparent se REPEINT sur sa propre trace a chaque frame --
+					// d'ou l'assombrissement progressif de la bande du haut, cherche en
+					// vain du cote du voile lui-meme (Rihen, 12-13 aout : « on ne voit
+					// plus l'entete », puis « le probleme actuel c'est l'effacement »).
+					//
+					// Noir opaque : l'interface recouvre tout ce qui se voit, cette
+					// couleur n'est qu'un fond de depart franc.
+					mCmd->SetClearColor(0.f, 0.f, 0.f, 1.f);
 					if (!mCmd->BeginRenderPass(mDev->GetSwapchainRenderPass(), mDev->GetSwapchainFramebuffer(),
 											   NkRect2D{0, 0, (int32)w, (int32)h})) {
 						mCmd->End();
@@ -170,15 +195,41 @@ namespace nkentseu {
 					mFrameOk = true;
 				}
 
+				// ── PLUSIEURS LISTES PAR FRAME : ON FUSIONNE, ON N'ENVOIE PAS DEUX FOIS ─
+				// `NkGuiRHIBackend::Submit` ecrit la geometrie AU DEBUT de son tampon de
+				// sommets partage, puis enregistre des DrawIndexed qui ne s'executeront
+				// qu'a la presentation. Son contrat est donc « une fois par frame ».
+				//
+				// L'appeler deux fois -- contenu puis surcouche, depuis que les
+				// composants de NKEditorKit dessinent dans `dlOverlay` -- ecrasait le
+				// DEBUT du tampon avec les sommets de la surcouche. A l'execution, les
+				// dessins de la premiere liste lisaient une geometrie qui n'etait plus la
+				// leur ; seuls survivaient les sommets situes AU-DELA de la taille de la
+				// seconde liste, c'est-a-dire ce qui avait ete peint EN DERNIER.
+				//
+				// Le symptome se lisait a l'envers : « la bande du haut n'est pas
+				// peinte » (Rihen, 12-13 aout) -- barre de menus et hierarchie sont
+				// peintes en PREMIER, donc detruites en premier, et la zone detruite
+				// grandissait avec la taille de la surcouche (une modale : la bande du
+				// haut ; le selecteur et son arbre : la moitie de l'ecran).
+				//
+				// On accumule donc dans une liste unique -- `Append` decale deja les
+				// index -- et on envoie une seule fois, en fin de frame. L'ordre d'appel
+				// est conserve : la surcouche reste dessinee par-dessus.
 				void SubmitDrawList(const nkgui::NkGuiDrawList &dl, uint32 fbW, uint32 fbH) override {
-					if (mFrameOk)
-						mBackend.Submit(mCmd, dl, fbW, fbH);
+					if (!mFrameOk)
+						return;
+					mMerged.Append(dl);
+					mFbW = fbW;
+					mFbH = fbH;
 				}
 
 				void EndFrame() override {
 					if (!mDev)
 						return;
 					if (mFrameOk) {
+						if (mFbW > 0 && mFbH > 0)
+							mBackend.Submit(mCmd, mMerged, mFbW, mFbH);
 						mCmd->EndRenderPass();
 						mCmd->End();
 						mDev->SubmitAndPresent(mCmd);
@@ -217,6 +268,10 @@ namespace nkentseu {
 				NkIDevice *mDev = nullptr;
 				NkICommandBuffer *mCmd = nullptr;
 				NkGuiRHIBackend mBackend;
+				/// Toutes les listes de la frame, dans l'ordre de soumission : le
+				/// backend n'en accepte qu'une (tampon de sommets partage).
+				nkgui::NkGuiDrawList mMerged;
+				uint32 mFbW = 0, mFbH = 0;
 				NkFrameContext mFrame{};
 				bool mFrameOk = false;
 				PreUIFn mPreUI = nullptr;

@@ -30,9 +30,9 @@ namespace nkentseu {
 	//  NkICOCodec::Decode
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkICOCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkICOCodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 6)
-			return nullptr;
+			return NkImage();
 		NkImageStream s(data, size);
 
 		(void)s.ReadU16LE();				// reserved
@@ -40,7 +40,7 @@ namespace nkentseu {
 		const uint16 count = s.ReadU16LE(); // nombre d'images
 
 		if ((type != 1 && type != 2) || count == 0)
-			return nullptr;
+			return NkImage();
 
 		// Cherche l'entrée de plus grande superficie
 		int32 bestW = 0, bestH = 0;
@@ -66,9 +66,9 @@ namespace nkentseu {
 
 		// Sanité
 		if (bestOffset == 0 || bestSize == 0)
-			return nullptr;
+			return NkImage();
 		if (static_cast<usize>(bestOffset) + bestSize > size)
-			return nullptr;
+			return NkImage();
 
 		const uint8 *imgData = data + bestOffset;
 
@@ -82,13 +82,13 @@ namespace nkentseu {
 		// par le DIB header (BITMAPINFOHEADER ou autre).
 		// On lit le dibSize pour connaître la taille du header.
 		if (bestSize < 12)
-			return nullptr;
+			return NkImage();
 
 		const uint32 dibSize = static_cast<uint32>(imgData[0]) | (static_cast<uint32>(imgData[1]) << 8) |
 							   (static_cast<uint32>(imgData[2]) << 16) | (static_cast<uint32>(imgData[3]) << 24);
 
 		if (dibSize < 12 || dibSize > bestSize)
-			return nullptr;
+			return NkImage();
 
 		// Dans un ICO DIB, height = 2 × hauteur réelle (image + masque AND).
 		// On lit la hauteur depuis le DIB header pour corriger.
@@ -118,7 +118,7 @@ namespace nkentseu {
 		const usize fakeSz = 14 + bestSize;
 		uint8 *fakeBMP = static_cast<uint8 *>(NkAlloc(fakeSz));
 		if (!fakeBMP)
-			return nullptr;
+			return NkImage();
 
 		// BITMAPFILEHEADER
 		fakeBMP[0] = 'B';
@@ -155,7 +155,7 @@ namespace nkentseu {
 			fakeBMP[hOff + 3] = static_cast<uint8>(correctedH >> 24);
 		}
 
-		NkImage *result = NkBMPCodec::Decode(fakeBMP, fakeSz);
+		NkImage result = NkBMPCodec::Decode(fakeBMP, fakeSz);
 		NkFree(fakeBMP);
 
 		// Si le BMP 32bpp a tous ses alpha à 0 (certains ICO encodent la transparence

@@ -1,0 +1,189 @@
+# NKAnimation — Roadmap (substrat d'animation, sans GPU)
+
+> **Ce document décrit le MODULE.** Le **parcours produit** (jalons M0→M5, IK,
+> physique de pose, IA de direction) vit dans **`Applications/NkAnima/ROADMAP.md`**
+> (548 l.) et n'est **pas** recopié ici — deux documents qui se recouvrent à
+> moitié sont pires qu'un seul.
+>
+> La **frontière** avec NKRenderer et la raison de chaque choix de placement sont
+> écrites dans **`NKAnimation.jenga`**, en-tête du fichier. Elles ne sont pas
+> recopiées non plus.
+>
+> Ici, et seulement ici : **ce que le module contient, ce qu'il expose, qui le
+> consomme, ce qu'il lui manque, et où il va.**
+>
+> **Provenance de tous les chiffres de ce document** : worktree
+> `Nkentseu-nkanim`, branche `feat/nkanimation`, commit `08f41cdc`, mesuré le
+> **2026-08-17**. Les compilations témoins sont en **g++ 16.1.0, `-std=c++20`,
+> `-fsyntax-only`** (configuration de syntaxe, ni Debug ni Release — aucune des
+> affirmations ci-dessous ne dépend d'un comportement d'exécution).
+
+## Ce que le module EST
+
+Le **modèle** d'animation : ce qui calcule une pose. Aucun GPU, aucun
+périphérique, aucun format d'échange. Il ne connaît que Foundation.
+
+C'est cette pureté qui permet à NkAnima, PV3DE, Noge et NKScena d'animer **sans
+tirer le renderer** — et à une application 2D d'animer tout court, ce que la
+règle d'exclusivité NKCanvas/NKRenderer interdisait avant l'extraction du
+2026-08-14.
+
+## Contenu mesuré — 4 unités, 8 fichiers, 3 456 lignes
+
+| Unité | Fichiers | Lignes | Ce qu'elle fait |
+|---|---|---|---|
+| `NkAnimation` | `.h` 705 + `.cpp` 1 195 | **1 900** | clips et keyframes, échantillonnage (`NkInterpMode` : **9 modes** — step, linéaire, cubique et 6 easings), `NkAnimationPlayer`, `NkBlendTree1D`/`2D`, `NkAnimStateMachine` (HFSM), format binaire `.nkanim` |
+| `NkAnimRetarget` | `.h` 174 + `.cpp` 486 | **660** | rejouer un clip sur un AUTRE squelette |
+| `NkMotionPath` | `.h` 113 + `.cpp` 383 | **496** | spline Catmull-Rom + suivi de trajectoire |
+| `NkAnimationEditor` | `.h` 120 + `.cpp` 280 | **400** | modèle d'édition de pose-clés + annuler/refaire |
+
+Espace de noms unique : **`nkentseu::anim`**. Module **frère** de `NKAnimPhysics`
+(`nkentseu::animphys`), jamais son parent : les deux ne s'incluent pas.
+
+## Surface publique
+
+`NkAnimation.h` — `NkInterpMode`, `NkPlayMode`, `NkAnimationTrack<T>`,
+`NkAnimationClip`, `NkAnimationState`, `NkAnimationPlayer`, `NkBlendTree1D`,
+`NkBlendTree2D`, `NkAnimStateMachine`.
+
+`NkAnimRetarget.h` — `NkRetargetSkeleton`, `NkRetargetMap`, `NkRetargetParams`,
+`NkAnimRetarget` (API **entièrement statique** : `BuildMapByName`,
+`NormalizeJointName`, `RetargetPose`, `RetargetClip`, `HeightRatio`, `SelfTest`).
+
+`NkMotionPath.h` — `NkMotionCurve`, `NkPathLoopMode`, `NkPathTargetMode`,
+`NkPathFollow`, `NkPathTarget`.
+
+`NkAnimationEditor.h` — `NkAnimationEditor` (curseur/snap, insertion et
+déplacement de pose-clés, sélection, `Undo`/`Redo`).
+
+⚠️ **`NkAnimationEditor` est une FEUILLE** : rien dans le substrat ne le tire.
+Un consommateur qui ne s'en sert pas ne le paie pas. Ne pas « l'optimiser » en le
+sortant du module — le raisonnement complet est dans `NKAnimation.jenga`.
+
+## Dépendances et consommateurs
+
+**Dépend de** (déclaré dans `NKAnimation.jenga`) : NKPlatform, NKCore, NKMemory,
+NKMath, NKContainers, NKLogger, NKFileSystem. **Rien d'autre.**
+
+**Consommé par — 13 fichiers mesurés** (`grep -rl "NKAnimation/"`, hors le module
+lui-même) :
+
+| Couche | Fichiers |
+|---|---|
+| Kernel | `NKRenderer/Core/NkRendererImpl.h`, `NKRenderer/Mesh/NkGLTFAnimBake.h`, `NKRenderer/Tools/Animation/NkAnimationSystem.h`, `NKRenderer/Tools/IK/NkIKSystem.cpp` |
+| Engine | `Noge/Anim/NkLocomotion.h` |
+| Applications | `DemoRW`, `NK3DModeler/Viewport/NkDemoRenderer.h`, `NkAnimaEditor/AnimBridge.cpp`, `NkAnimPhysTest`, `NkLocomotionDemo`, `Sandbox/DemoAnim.cpp`, `Sandbox/DemoAnimIK.cpp`, `Sandbox/NkRenderer.h` |
+
+⚠️ **`NKRenderer/Tools/Animation/` n'a PAS été vidé le 14/08** — vérifié
+aujourd'hui, 4 fichiers, **492 lignes** : `NkAnimationSystem.{h,cpp}` (la façade
+qui téléverse et soumet) et `NkPoseDebugDraw.{h,cpp}`. C'est **ce qui dessine**,
+et ça consomme ce module. La ligne « Dépendances / liens » de
+`Applications/NkAnima/ROADMAP.md` qui cite `Tools/Animation` est donc **exacte** :
+ne pas la « corriger ».
+
+## Conformité
+
+| Contrôle | Mesure du 2026-08-17 |
+|---|---|
+| zero-STL | **0** occurrence de `std::` dans `src/` |
+| dette annotée | **0** `TODO` / `FIXME` / `HACK` |
+| GPU | aucune inclusion NKRHI / NKRenderer |
+
+## ⚠️ Dettes NOMMÉES, non corrigées
+
+### 1. Le module bute sur un manque de NKContainers — mesuré, pas déduit
+
+`NkAnimation.h` déclare **4 champs `NkHashMap`** :
+
+```
+l. 277  NkHashMap<NkString, NkAnimationTrack<float32>> customFloats;
+l. 278  NkHashMap<NkString, NkAnimationTrack<NkVec4f>> customVec4s;
+l. 684  NkHashMap<NkString, bool>                      mBools;
+l. 685  NkHashMap<NkString, float32>                   mFloats;
+```
+
+**`NkHashMap` ne sait pas accueillir un type move-only.** Prouvé par unité de
+traduction jetable, pas par lecture :
+
+```
+NkHashMap.h:1084: error: use of deleted function 'MoveOnly& MoveOnly::operator=(const MoveOnly&)'
+                  ligne fautive :  node->Data.Second = value;
+```
+
+Conséquence pour ce module : `NkAnimationTrack<T>` ne peut **jamais** devenir un
+type valeur non copiable tant que ce trou n'est pas comblé — donc pas de piste de
+keyframes qui possède un tampon, pas de clip qui possède ses données sans
+partage. C'est la même dette qui a forcé le pool de slots de
+`NKRenderer/Streaming/NkStreamingSystem`.
+
+⚠️ **Et la documentation de `NkHashMap` prescrit une API qui n'existe pas** —
+`NkHashMap.h:1533` écrit `data.Insert(i, nkentseu::traits::NkMove(values));`
+comme conseil de performance. Il n'y a **aucune** surcharge par rvalue.
+C'est la même forme que les six commentaires de `NkImage.h` qui prescrivaient un
+`Free()` : *rien ne contraint un commentaire, donc il dérive.*
+
+**Suivi** : chantier NKContainers en cours, canal `echanges/nkanim.questions.md`.
+
+### 2. Ce qui manque au modèle lui-même
+
+Vérifié **dans ce module** le 2026-08-17 — et c'est la précision qui compte : les
+constats d'absence du 14/08 portaient sur `NKRenderer/Tools/Animation/`, qui ne
+contient plus le modèle depuis l'extraction. La mesure était donc prise au
+mauvais endroit ; celle-ci ne l'est pas.
+
+| Manque | Mesure | Pourquoi c'est un manque |
+|---|---|---|
+| **Blend ADDITIF** | 0 occurrence de `additi*` | `NkBlendTree1D`/`2D` sont des blends de **remplacement**. Sans additif, pas de couche « overlay haut du corps » par-dessus une locomotion. |
+| **Mouvement secondaire** (spring / jiggle bones) | 0 occurrence de `spring`, `jiggle` | Rien ne suit passivement le mouvement du squelette. |
+| **Squelette hiérarchique en T+R+S séparés** | absent | Le clip stocke des `NkMat4f` bone-local. L'interpolation en rotations pures (slerp) et le rig facial en dépendent tous les deux. |
+| **Rig facial, volet animation** | `Noge/Facial/NkFacialRig.h` = **528 l. sans un seul corps de fonction** | Spécification écrite, implémentation nulle. Demande d'abord de trancher ce qui relève de l'animation et ce qui reste géométrie de maillage. |
+| **Consommateur anim de NKGraph** | substrat livré (1 519 l., P1-P3), pas de client anim | L'édition visuelle d'un anim graph n'a pas de client. Ne rien construire en silo ici : cf. `Kernel/Runtime/NKGraph/ROADMAP.md`. |
+
+### 3. Hors périmètre assumé du reciblage — écrit, pas oublié
+
+`NkAnimRetarget` ne fait **pas** : verrouillage de pied au sol, appariement par
+analyse de morphologie, correction de volume. C'est écrit dans son en-tête ; c'est
+répété ici pour qu'on ne le redécouvre pas comme un bug.
+
+### 4. Dette héritée d'une dépendance
+
+`NkQuat::SLerp` — branche trigonométrique signalée buggée (grosses rotations,
+`dot < 1-ε`) dans `Applications/NkAnima/ROADMAP.md`, contournée par NLerp qui est
+le mode de production. ⚠️ **Non re-mesuré aujourd'hui** : reporté tel quel, avec
+sa source, précisément parce qu'un fait qui voyage n'est pas un fait vérifié.
+
+## Les trois horizons
+
+*(Exigés par le `CLAUDE.md` parent, l. 481. Ce sont des objectifs réfutables :
+chacun nomme ce qui le prouverait faux.)*
+
+**Court — la semaine.** Combler le trou move-only de `NkHashMap` dans
+NKContainers, puis retirer les 4 `NkHashMap` de ce module de la liste des
+contraintes. *Réfuté si* : après le correctif, l'unité de traduction témoin
+échoue toujours.
+
+**Moyen — le jalon.** Le **squelette hiérarchique en T+R+S séparés**. C'est le
+verrou commun de trois choses qui attendent : l'interpolation en rotations pures,
+le blend additif, et le rig facial. *Réfuté si* : on livre l'additif sans lui —
+alors ce n'était pas le verrou.
+
+**Long — ce à quoi le module sert.** Qu'une pose puisse être calculée **sans
+renderer, sans OS et sans écran** : c'est ce qui met la même animation dans un
+jeu Noge, dans le patient virtuel de PV3DE, dans un outil 2D et, à terme, dans
+un test sans machine graphique. Le facteur d'échelle est là : *ce qui rend le
+module utilisable dans un quatrième contexte vaut plus que ce qui le rend 10 %
+plus rapide dans le premier.*
+
+## Documents voisins — lire avant d'écrire ici
+
+| Document | Ce qu'il porte, et que ce fichier ne reprend pas |
+|---|---|
+| `Applications/NkAnima/ROADMAP.md` | jalons M0→M5, historique des décisions, IK, physique de pose, IA de direction |
+| `Kernel/Runtime/NKAnimation/NKAnimation.jenga` | frontière avec NKRenderer, placement de `NkAnimationEditor`, dépendances déclarées |
+| `Kernel/Runtime/NKGraph/ROADMAP.md` | le substrat de graphe, pour l'édition visuelle |
+| `Kernel/Runtime/NKAnimPhysics/` | module frère — **il n'a pas de ROADMAP non plus**, dette nommée ici et non traitée |
+
+---
+
+*Créé le 2026-08-17. Le module n'en avait pas ; personne ne pouvait dire ce qui
+restait à faire.*

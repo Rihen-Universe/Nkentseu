@@ -15,9 +15,10 @@ namespace nkentseu {
 			 * @Brief Décode un buffer PNG en mémoire.
 			 * @param data  Pointeur vers les données brutes du fichier PNG.
 			 * @param size  Taille en octets.
-			 * @return NkImage alloué (appelant doit appeler Free()), nullptr si échec.
+			 * @return L'image décodée PAR VALEUR (se libère toute seule), ou une
+			 *         image INVALIDE (IsValid()==false) en cas d'échec.
 			 */
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 
 			/**
 			 * @Brief Encode une NkImage en PNG vers un buffer mémoire.

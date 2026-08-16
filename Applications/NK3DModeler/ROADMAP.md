@@ -102,6 +102,498 @@ orthographique) ; sortie automatique si la caméra disparaît ou change de docum
 - Ombres par lumière, portée/atténuation affinées, IES éventuellement.
 - Widget de sélection dans la vue pour les lumières utilisateur.
 
+## 📐 Modes objet / édition, et ce qu'est un sous-mesh — SPÉCIFICATION (Rihen, 2026-08-17)
+
+*Écrite ici parce qu'elle n'existait que dans un fichier d'échange non versionné.
+C'est la première fois que le comportement objet/édition est fixé noir sur blanc.*
+
+### Les deux modes
+
+| | mode **OBJET** | mode **ÉDITION** |
+|---|---|---|
+| un clic sélectionne | **le model entier**, tous ses sous-mesh avec | **un sous-mesh**, ou des faces |
+| on édite | la transformation, et la **liste de matériaux** | la géométrie, et **quelle partie porte quel matériau** |
+| granularité du matériau | l'emplacement dans la liste | **une partie ou tout un sous-mesh** |
+| séparation | — | **retirer un sous-mesh → il devient un model, et disparaît de l'original** |
+
+> « Un model c'est un assemblage de vertices, edges et faces reliés ou non entre
+> eux. Des mesh d'un model peuvent porter des matériaux différents ou le même. »
+
+#### ✅ LIVRÉ (17/08) — `937a0c66`, `2093e783`, `bac51a20`
+
+- **`L` / `Ctrl+L`** : `ComputeConnectedComponents` dans **NkEditMesh** (pas dans
+  l'application — `P` la partagera). Parcours sur l'**identité soudée** :
+  un cube importé duplique ses sommets par face, et une connexité par indices
+  bruts y verrait **six** îlots au lieu d'un. Banc : cube = 1 composante,
+  deux cubes = 2, somme = nombre de sommets, zéro orphelin.
+  *Écart assumé* : la graine est le sommet **actif**, pas le survol — il n'existe
+  aucun survol par sommet dans cette vue.
+- **Mode objet** : cliquer la matière sélectionne le **MODEL**, via
+  `Demo3DHostModelRootOf` (qui **existait déjà** — le liséré s'en sert vingt
+  lignes plus bas). Uniquement le pick de la vue 3D, déjà sous `!editMode`.
+
+⚠️ **CE QU'IL NE FAUT PAS « AMÉLIORER » PLUS TARD — et la raison.**
+Il est tentant d'ajouter les maillages à la sélection du gizmo pour que
+« sélectionné avec tous ses sous-mesh » soit littéral. `AddToSelection` existe et
+ça *marcherait* en apparence. **Ne le faites pas** : le gizmo calcule **une
+transformation par cible sélectionnée**, et `HostHierRecurse` propage **déjà**
+celle du parent à ses enfants — le geste serait appliqué **deux fois**.
+Le liséré couvre déjà toute la matière (« la zone d'un model, c'est sa
+matière ») : **l'exigence est satisfaite visuellement, sans toucher une seule
+transformation.**
+
+**Non mesuré** : la remontée elle-même n'a pas de banc (il faudrait un projet
+chargé et des coordonnées écran). La trace `NK_SEL_AT` dit désormais la **nature**
+du nœud sélectionné (`model` / `maillage` / `vide`) et non plus seulement son
+numéro — c'est ce qui permet de la constater en un geste.
+
+**Conséquence directe** : « le matériau du model » n'a pas de réponse unique.
+Un model porte une **liste** de matériaux, et on choisit lequel on modifie. Un
+panneau conçu pour un matériau unique n'a donc rien à afficher — c'est le défaut
+signalé le 17/08 (« je ne peux pas modifier le matériau d'un model porté »).
+
+### Un sous-mesh EST une composante connexe
+
+Rihen l'a défini par un geste : `L` sous Blender sélectionne tout ce qui est
+**relié** à l'élément survolé. Sa phrase le disait déjà — « reliés **ou non**
+entre eux » : le « ou non » portait la définition.
+
+**Ce n'est pas une convention d'affichage, c'est une propriété calculable de la
+géométrie.** Et trois gestes demandés reposent sur cette seule primitive :
+
+| geste | ce qu'il calcule |
+|---|---|
+| `L` — sélectionner un îlot | composantes connexes |
+| `P` — séparer par îlots | composantes connexes |
+
+⚠️ **RECTIFICATIF (2026-08-17, mesuré).** J'avais ajouté ici « quel sous-mesh
+porte ce matériau → composantes connexes ». **C'est faux, et la nuance décide de
+tout l'import.** Le matériau n'est pas une notion géométrique : il est **déclaré
+par le fichier**. Dans un OBJ, `usemtl` précède les faces concernées.
+
+| niveau | qui le déclare | dans un OBJ |
+|---|---|---|
+| frontière de **model** | le fichier | `o <nom>` |
+| frontière d'**emplacement de matériau** | le fichier | `usemtl <mat>` |
+| **composante connexe** | personne — se **calcule** | — (sert à `L` et à la séparation manuelle) |
+
+Contre-exemple fourni par Rihen et mesuré (`sofa.obj`, 6 858 lignes) : **10 `o`,
+0 `g`, 10 `usemtl`**, entrelacés dans l'ordre du fichier. Deux des trois niveaux
+sont donc déclarés ; **un seul se calcule**.
+
+**À écrire UNE fois** (union-find sur les arêtes, ou parcours depuis chaque
+sommet non visité), avec ses deux invariants de test : la somme des tailles des
+composantes égale le nombre de sommets, et aucun sommet n'appartient à deux
+composantes. Trois implémentations divergeraient.
+
+### La frontière entre deux fichiers est le MODEL, pas le sous-mesh
+
+> « Des models sont chacun dans leur fichier de model, et des models qui ont des
+> sous-mesh — eux, ils sont dans le même fichier model. »
+
+```
+un .fbx importé
+  ├── model A ──────────→ A.nkmodel      (fichier propre)
+  │     ├── sous-mesh A1  ┐
+  │     ├── sous-mesh A2  ├─ tous DEDANS, même fichier
+  │     └── sous-mesh A3  ┘
+  └── model B ──────────→ B.nkmodel      (fichier propre)
+```
+
+⚠️ **Ne pas découper l'import par connexité.** Deux frontières, deux critères :
+
+| frontière | décidée par | nature |
+|---|---|---|
+| entre deux **models** | ce que le **fichier déclare** | une décision d'**auteur** |
+| entre deux **sous-mesh** | la **connexité géométrique** | une propriété **calculée** |
+
+Découper l'import par connexité éclaterait un model que l'artiste avait voulu
+d'un seul tenant.
+
+### ⛔ BLOQUEUR MESURÉ — `NkOBJLoader` jette les noms d'objets
+
+`Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkOBJLoader.cpp` (350 lignes) :
+la détection se fait caractère par caractère (`c0 == 'v'`, `c0 == 'f'`…) et
+**aucun test n'existe pour `'o'` ni `'g'`**. Le chargeur suit `curMat` — le
+matériau courant — et **rien pour l'objet courant** (`curObj` : 0 occurrence).
+
+Conséquence : le `sofa.obj` déclare **10 objets nommés**, et les dix noms sont
+perdus à la porte. **La décomposition demandée est donc impossible aujourd'hui —
+non par le format, qui porte l'information, mais parce que le lecteur ne l'écoute
+pas.**
+
+Ce qui rend le correctif petit : le chargeur fait **déjà** exactement ce qu'il
+faut pour le matériau. Il manque la **symétrie** — un `curObj` mis à jour sur
+`o`, propagé aux faces, plus le nom porté jusqu'au sous-mesh.
+
+#### 🔬 Mesures du 17/08 — elles corrigent trois points ci-dessus
+
+**1. « ils deviennent un seul maillage » était inexact, et le vrai mécanisme est
+pire.** Le chargeur **découpe déjà** des sous-mesh — mais **sur changement de
+matériau** (`subMat != curMat`, `NkOBJLoader.cpp:235`), jamais sur l'objet. Or
+dans le `sofa.obj` de Rihen, mesuré :
+
+```
+10 x « o »  ...  9 d'entre eux portent le MÊME « usemtl Material »
+                 seul Sofa_base_Cube porte « Material_Wool.jpg »
+```
+
+`curMat` ne changeant pas, **aucune coupe n'est ouverte** : les 9 objets nommés
+fusionnent en **un** sous-mesh. Prédiction déduite du code : ce fichier se charge
+en **2 sous-mesh au lieu de 10** — vérifiable gratuitement, le chargeur annonce
+lui-même `%u sous-meshes` dans son log au prochain import.
+
+**2. ⭐ Le champ de nom EXISTE DÉJÀ — l'absence est dans le remplissage.**
+`NkSubMesh` (`NkMeshSystem.h:66`) porte `NkString name;`. La structure de sortie
+n'est donc **pas** à changer : le correctif est la symétrie ci-dessus, plus une
+coupe de sous-mesh sur changement d'objet **en plus** du changement de matériau,
+et `sm.name` enfin rempli.
+
+**3. Ce n'est pas un chargeur sur trois, c'est DEUX sur trois :**
+
+| chargeur | remplit `sm.name` ? |
+|---|---|
+| **glTF** | ✅ `sm.name = meshName` (`NkGLTFLoader.cpp:1066`), repli `"primitive"` |
+| **OBJ** | ❌ jamais — ne remplit que le nom du *matériau* |
+| **FBX** | ❌ jamais — pose `firstIndex/indexCount/baseVertex`, rien d'autre |
+
+FBX est un cas **différent** d'OBJ : il parse déjà un arbre de nœuds complet
+(`Model`, `Geometry`, `Connections`). L'information est dans le chargeur, elle
+n'est pas portée jusqu'au sous-mesh. **La structure commune existe ; deux
+chargeurs sur trois doivent apprendre à la remplir.**
+
+**4. ⚠️ Le point de vérité est le consommateur : PERSONNE ne lit `sm.name`.**
+Zéro lecteur dans tout le dépôt. Remplir le champ est donc **nécessaire et pas
+suffisant** — sans consommateur, rien ne signalerait qu'on l'a mal rempli. **Le
+seul détecteur sera le premier consommateur, c'est-à-dire la décomposition
+elle-même.**
+
+*(Correction de mon propre compte : j'avais annoncé « 14 usages de `subMeshes[` ».
+Ce chiffre mélangeait **deux symboles** — 8 des 14 sont dans
+`Externals/Libs/NKAssimp` (Ogre/Debone), sans rapport avec `NkGLTFMeshData`. Le
+vrai périmètre est **4 sites** plus le tableau parallèle `subMeshMaterial`.
+Encore la règle des deux prédicats, cette fois sur mon propre décompte.)*
+
+### ✅ BLOQUEUR LEVÉ (17/08) — `a5dd6011` (inerte) puis `d480543e` (la coupe)
+
+**Périmètre du risque, mesuré AVANT d'écrire** : aucun indice de sous-mesh n'est
+**persisté** nulle part (NK3DModeler ne mentionne `SubMesh` que deux fois, deux
+libellés d'interface) ; `subMeshMaterial` est lu **par position** dans 6 démos,
+mais celles-ci reconstruisent les deux tableaux ensemble à chaque chargement,
+donc elles restent cohérentes quel que soit le nombre de sous-mesh ; le seul
+`Check` sur un compte exact (`GLTFLoaderTest`, « 1 submesh ») porte sur du
+**glTF**, non touché. **Rien ne se décale en silence.**
+
+**Mesure avant/après sur `sofa.obj`**, même binaire, même fichier, `.mtl` présent :
+
+| état | sous-mesh | verts | indices | matériaux |
+|---|---|---|---|---|
+| **avant** (coupe matériau seule) | **2** | 2310 | 9348 | 2 |
+| **après** (coupe objet + matériau) | **10** | 2310 | 9348 | 2 |
+
+2 → 10, soit exactement les 10 `o` du fichier — et la **géométrie est
+identique** : la coupe repartit les plages d'indices, elle ne crée ni ne perd
+rien. **Cas limites, coupe active** : `tree.obj` (aucun marqueur) reste à 1,
+`rock.obj` (un seul `o`) reste à 1 — aucun éclatement parasite.
+
+⚠️ **Une mesure intermédiaire était fausse, et la cause vaut d'être retenue** :
+mon premier relevé donnait « avant = 1 ». J'avais copié le `.obj` **sans son
+`.mtl`** — tous les `usemtl` échouaient donc à se résoudre et `curMat` restait à
+−1 pour tous les objets. Setup dégradé, pas comportement réel. *Une mesure ne
+vaut que ce que vaut son montage* — le pendant exact de « une recherche
+exhaustive ne vaut que ce que vaut sa racine ».
+
+**Reste à faire côté FBX** : il remplit désormais `sm.name` (nom du `Model`
+propriétaire, sinon de la `Geometry`), et chaque `Geometry` y est **déjà** un
+sous-mesh — la frontière existe donc sans coupe supplémentaire. **À confirmer sur
+un FBX multi-objets réel avant de le tenir pour acquis.**
+
+### ⚠️ Deux fonctionnalités demandées attendent la MÊME brique absente
+
+« Retirer un sous-mesh pour en faire un model » suppose que la géométrie d'un
+nœud utilisateur soit **éditable** — capacité mesurée absente le 16/08 (le mode
+édition n'accepte que les objets de démo, `< kNumObj`). **La copie indépendante
+de la duplication attend exactement la même chose.** Ce n'est pas deux
+chantiers : c'en est un, dont dépendent deux demandes.
+
+### Chemin par étapes — ne pas construire le mode édition en entier
+
+1. **Le panneau de matériaux en mode objet** — la liste, et le choix de celui
+   qu'on modifie. C'est le défaut que Rihen subit aujourd'hui.
+2. La primitive de composantes connexes, avec ses invariants.
+3. Le mode édition sur les nœuds utilisateur (brique commune ci-dessus).
+
+### ✅ RECTIFICATIF — `apres=5` sur un conteneur n'est pas un défaut (16/08)
+
+J'avais lu `MESURE materiau : noeud=110 avant=-1 demande=5 apres=5` comme la
+preuve que le matériau allait au **conteneur** — donc que le correctif
+`7836c17f` ne tournait pas. **C'est faux.**
+
+`HostNodeMatAdd` (`NkDemo3D.cpp:1084-1093`) **promeut le matériau en actif**
+quand l'objet n'en portait aucun — la règle posée par Rihen le 13 août (« un
+objet qui n'avait rien prend celui-ci pour actif »). Elle s'applique aussi aux
+conteneurs. Sur un nœud à `avant = -1`, `apres = 5` est donc **attendu**, et ne
+dit **rien** de ce que les enfants ont reçu.
+
+Vérifié par ailleurs : les albédos relevés **collent au rendu**.
+`Materiau.004 = (0.067, 0, 0.7)` → les cubes bleu-violet ; `Materiau.002 =
+(0.7, 0.7, 0.7)` → le cube gris clair. Navigateur, aperçu et rendu s'accordent.
+
+**Leçon de méthode** : une mesure prise sur le nœud qui **ne se voit pas** ne
+peut pas répondre d'une couleur à l'écran. Trace ajoutée là où la couleur se
+décide (`MESURE enfant peint`, commit `f490f014`).
+
+### ✅ LE CUBE NOIR — RÉSOLU (`ff690067`, 16/08)
+
+Rodolf : *« le matériau porté ne correspond pas à ce qui est rendu »*. Un objet
+portait `Materiau.002` (albédo `0,7`) et rendait **noir**. Les traces ont montré
+que l'assignation était juste — `MESURE enfant peint : noeud=108 materiau=5`.
+**Le défaut n'était pas dans l'assignation.** Deux causes, l'une derrière l'autre,
+dans `HostSpawnLike` :
+
+1. **Le matériau n'était pas copié.** Un double naissait sans matériau de projet
+   — c'est le `avant=-1` du journal, que j'avais pris pour une curiosité. Il ne
+   restait alors que la surcharge pour le peindre.
+2. **La surcharge était fabriquée depuis le cache de RENDU.** `nkvpMatCache` est
+   ce que la source a été **vue** rendre à la dernière soumission : une valeur
+   *observée*, pas une valeur *voulue*. Or un asset du navigateur est une
+   **archive** (`nkvpDeleted`), donc **jamais soumise** — son cache vaut zéro.
+   Chaque double cloné depuis le navigateur naissait avec une surcharge **noire**,
+   et le draw call applique le matériau **puis** la surcharge : elle écrasait donc
+   tout matériau assigné ensuite.
+
+**Règle** : une surcharge se **copie**, elle ne se **fabrique** pas depuis un
+cache de rendu — et le cache d'un nœud jamais rendu n'est pas une couleur, c'est
+un zéro. Voir aussi la règle « état correct ≠ affichage correct ».
+
+**Compromis assumé**, écrit dans le code : une retouche volontaire posée sur la
+source depuis le panneau Modèle n'est plus transmise au double.
+
+### ✅ Anomalie n°1 — CORRIGÉE (`c5e3f437`) — et sa cause n'était pas la mienne
+
+J'avais écrit : *« les transformations d'enfants ont l'air d'être absolues »*.
+**Elles n'en ont pas l'air : elles LE SONT, et pour tout le système.**
+`HostNodeWorld` (`NkDemo3D.cpp:15440`) lit `nkvpEmptyPos` et **ne compose jamais
+avec le parent**. Ce que j'appelais « une transform locale fausse » était donc une
+**position monde correcte** — la valeur était juste, c'est mon modèle mental qui
+ne l'était pas.
+
+**Le vrai défaut est dans le geste de dépôt.** La duplication donne aux maillages
+du double les positions absolues des maillages de la **source** ; puis
+`SetEmptyTransform` déplace **le seul conteneur** vers le point du lâcher. Comme
+un conteneur ne rend rien, la matière restait visible à l'ancienne place : on
+dépose à un endroit, la géométrie apparaît ailleurs.
+
+D'où `Demo3DHostSetModelTransform`, qui **mesure** le delta réellement appliqué au
+conteneur — `SetEmptyTransform` est incrémental, et le gizmo peut porter un
+décalage en plein drag — puis translate d'autant ses maillages internes, par le
+**même** parcours d'appartenance que l'archivage et l'écriture d'un fichier de
+model.
+
+Elle ne remplace **pas** `SetEmptyTransform` : la relecture d'un projet repose
+chaque nœud, maillages compris, et y propager aurait appliqué le delta **deux
+fois**. Le geste « poser un model » est distinct du geste « poser un nœud ».
+
+✅ **Le gizmo est sain** — vérifié à l'œil par Rihen le 16/08 : « ça suit ». Le
+point que j'avais laissé ouvert n'était pas un défaut.
+
+### 🔴 Mais la position restait fausse — la cause était à la NAISSANCE du double
+
+Rihen, après le test : *« ça n'apparaît pas à la bonne position »*, et il donne
+lui-même la piste juste : *« son origine est modifiée entre son fichier et le
+moment où on l'ajoute dans la scène, car quand j'ouvre ces fichiers de manière
+indépendante ils ont la bonne origine »*.
+
+`HostDuplicateTree` décale la **racine** d'un `offset` — `(0.45, 0, 0.45)`, pour
+qu'une copie naisse « à côté » — mais **ne le donnait pas à ses maillages**.
+Conteneur et matière étaient donc désolidarisés **dès la naissance**, et
+`Demo3DHostSetModelTransform` ne faisait ensuite que **transporter un écart déjà
+présent** : le model se posait au point du lâcher, sa matière apparaissait
+`offset` plus loin.
+
+**Leçon** : un correctif juste appliqué à un état déjà faux donne un résultat
+faux. Le premier correctif (déplacer la matière avec le conteneur) était
+nécessaire mais pas suffisant — il fallait aussi que les deux **naissent**
+solidaires.
+
+Le commentaire qui vivait là était faux, et il a retardé la trouvaille : il
+annonçait que reprendre la position monde ferait partir la matière « au double de
+la distance », ce qui suppose une composition `parent × enfant` **qui n'existe
+pas**.
+
+### ⚠️ UN TROISIÈME ACTEUR déplace la matière d'un model — et il n'était dans aucune des deux analyses
+
+Demandé par Rihen : *vérifier que les deux correctifs ne se cumulent pas.* En le
+vérifiant, j'ai trouvé qu'ils ne sont **pas deux**.
+
+`HostHierRecurse` (`NkDemo3D.cpp:15534`) rejoue **à chaque frame** l'écart entre la
+position courante d'un parent et son **cliché** (`sHierPos`), et donne cet écart à
+ses enfants. Le masque de transmission `nkvpXmit` vaut **7 dès la naissance**
+(`HostAllocUser`) : tout se transmet, position comprise. **C'est ce mécanisme qui
+fait que le gizmo « suit »** — la propagation est voulue pour un déplacement
+ordinaire.
+
+🔴 **Le fait mesuré, et il est certain** (grep exhaustif sur `NkDemo3D.cpp`, seul
+fichier où vit `sHierPos` ; contre-épreuve : le même motif remonte bien ses deux
+sites d'écriture) : `sHierPos` n'est écrit **qu'à deux endroits** — le cliché de
+fin de frame (`l. 15732`) et `Demo3DHostHierarchyResync` (`l. 15746`), appelé
+**uniquement au chargement d'un projet** (3 sites, tous dans `Project/`).
+
+**`HostAllocUser` ne l'écrit jamais.** Un nœud qui vient de naître porte donc le
+cliché de **l'occupant précédent de son emplacement**. Le `dp` calculé à la
+première frame après un dépôt n'est pas le geste de l'utilisateur : c'est un écart
+contre une valeur qui n'a aucun sens.
+
+⬜ **Ce qui n'est PAS établi** : que ce `dp` s'**ajoute** effectivement à la pose au
+lieu de la remplacer. Le raisonnement le suggère, il ne le prouve pas — et c'est
+exactement le genre d'enchaînement qui a déjà produit deux fausses causes sur ce
+défaut. **Mesuré par les deux traces posées le 17/08**, qui encadrent la frame :
+
+| trace | où | ce qu'elle dit |
+|---|---|---|
+| `MESURE cumul` | fin de `Demo3DHostSetModelTransform` | barycentre X/Z de la matière **juste après la pose**, contre le point demandé |
+| `MESURE hier` | `HostHierRecurse`, si le parent est un model | le cliché, le courant, et le `dp` **propagé à la frame suivante** |
+
+**Lecture de `ECART X/Z` de `MESURE cumul`** — l'instrument discrimine les trois
+cas, il ne peut pas seulement confirmer :
+
+| écart | verdict |
+|---|---|
+| **~0** | la naissance et la pose s'emboîtent |
+| **~(−0,45, −0,45)** | le décalage de naissance n'atteint pas les maillages |
+| **~(+0,45, +0,45)** | il est compté deux fois |
+
+⚠️ **Et `MESURE hier` prime** : si elle affiche un `dp` non nul après un dépôt, un
+`ECART` nul de `MESURE cumul` ne veut rien dire — il aura été mesuré **avant** le
+troisième acteur. *Un instrument posé trop tôt ne peut que confirmer.*
+
+**La trace `MESURE dup enfant` a été retirée** : sa question — les enfants
+naissent-ils tous du même chemin ? — est tranchée, et elle parlait une fois **par
+maillage**, ce qui aurait noyé les deux ci-dessus.
+
+### 🔎 Piste voisine, NON mesurée : le panneau Propriétés ignore la porte « model »
+
+`Demo3DHostSetModelTransform` a été créée parce que déplacer le seul conteneur
+laisse la matière derrière. Les **deux** chemins de dépôt passent par elle. Mais
+`NkModelerProperties.h` appelle encore `Demo3DHostSetEmptyTransform` sur le nœud
+sélectionné en **trois** endroits — `l. 4963` (coller une transform), `l. 4972`
+(réinitialiser), `l. 5421` (édition directe de Position/Rotation/Échelle).
+
+Si le nœud est un model, taper une position dans le panneau devrait donc laisser sa
+matière en arrière — **sauf** si la propagation de `HostHierRecurse` la rattrape à
+la frame suivante, ce qui est précisément la question ouverte ci-dessus. **Les deux
+questions n'en font qu'une**, et la même mesure les tranche toutes les deux. Ne
+rien corriger ici avant qu'elle ait parlé.
+
+### 🔁 J'ai écrit un doublon — `Demo3DHostRecenterModel` avait déjà un jumeau
+
+Rodolf a rappelé la règle le 17/08 : *chercher d'abord, écrire seulement si ça
+n'existe pas.* **Je ne l'ai pas appliquée en écrivant `Demo3DHostRecenterModel`
+(`4dd4ed21`)**, et le jumeau était à 2 000 lignes de là, dans le même fichier :
+
+| existant | rôle |
+|---|---|
+| `Demo3DHostMeshesCenter` (`l. 14005`) | centre de la matière d'un nœud |
+| `Demo3DHostSetNodeOrigin` (`l. 13985`) | déplace l'origine **en compensant** les enfants |
+
+Utilisés ensemble par le panneau Propriétés (`NkModelerProperties.h:5015-5021`) pour
+le bouton « origine → centre de la géométrie » — **exactement mon geste**. C'est le
+symptôme que la règle décrit : un helper local ne déclenche aucun avertissement, ne
+casse rien, et se contente d'exister.
+
+⬜ **Mais je ne fusionne pas, et la raison est un défaut présumé** (lecture de code,
+**NON mesuré**) : les deux ne calculent pas la même chose.
+
+`Demo3DHostMeshesCenter` renvoie `origine_du_nœud + moyenne(positions des enfants)`.
+Or les positions de ce système sont **absolues** — c'est établi et mesuré
+(`HostNodeWorld` ne compose jamais avec le parent). Ajouter l'origine du parent à
+une moyenne déjà absolue **compte le parent deux fois**. Et `Demo3DHostSetNodeOrigin`
+recule ensuite les enfants de `d`, ce qui sous sémantique absolue **déplace la
+matière** au lieu de la laisser en place.
+
+C'est **la même fausse prémisse** que le commentaire retiré dans `HostDuplicateTree`
+— une composition `parent × enfant` qui n'existe pas. Elle a survécu à un endroit de
+plus que je n'avais vu.
+
+🎯 **À trancher après la mesure du dépôt** : si le défaut est confirmé, le bouton
+« origine → centre » du panneau est faux, et `Demo3DHostRecenterModel` (qui ne fait
+pas l'addition) est la version juste — c'est alors **elle** qui doit absorber les
+deux autres, pas l'inverse. Corriger avant de mesurer reviendrait à réparer un
+troisième site sur une prémisse non vérifiée, ce qui a déjà coûté deux fausses
+causes sur ce défaut.
+
+### ❌ Anomalie n°2 — ELLE N'A JAMAIS EXISTÉ. C'était l'instrument
+
+**Verdict mesuré** : `MESURE dup model : src=98 -> root=107 internesDeLaSource=2
+nes=2 enfantsDirectsDuDouble=2`. **Les trois comptes concordent — aucun enfant en
+trop.** La source avait bien **deux** maillages ; le second est un petit-enfant,
+que ma mesure ne voyait pas.
+
+Je l'avais écrite comme un fait : la source `98` a **un** enfant (`99`), la copie
+`110` en a **deux** (`111`, `112`). **Les deux nombres sont justes, mais ils ne
+répondent pas à la même question.**
+
+`HostIsInnerMeshOf` (`NkDemo3D.cpp:15880`), qui sélectionne les nœuds à copier,
+**remonte la chaîne des maillages** : il attrape les meshes **en profondeur**. Ma
+mesure, elle, comptait la **parenté directe**. Et le recâblage (`ligne 16019`)
+rattache à `root` tout nœud dont le parent n'est pas dans la carte — **un
+petit-enfant devient donc légitimement un enfant direct du double**. Cela produit
+exactement le compte observé, sans le moindre chemin en trop.
+
+**L'écart peut donc n'exister que dans l'instrument.** Il est mesuré par le
+récapitulatif `MESURE dup model`, qui met les deux prédicats côte à côte
+(`internesDeLaSource` contre `enfantsDirectsDuDouble`). Tant qu'il n'a pas parlé,
+cette anomalie **n'est pas établie**.
+
+**Règle qui en sort** : *un écart entre deux mesures n'est un fait que si les deux
+mesurent la même chose.* Avant d'expliquer une différence, prouver qu'elle existe.
+
+### 🔴 RÉGRESSION SIGNALÉE PAR RIHEN (17/08) — origine recalculée au dépôt
+
+> « Ces mesh ont des origines qui **changent au moment où on les met dans la
+> scène** — problème qui **n'existait pas** quand on a fait le glisser-déposer la
+> première fois. »
+
+**Défaut certain, corrigé (`eb63ac4b`) : un `if` SANS ACCOLADES.** Le commit
+`4dd4ed21` a ajouté `Demo3DHostRecenterModel` dans `NkDropSpawnModel`
+(`NkModelerCommon.h`) sur un `if` qui n'avait pas d'accolades :
+
+```
+AVANT   if (st.dropSrcNode > 0)
+            nn = Demo3DHostDuplicateNode(...);   <- seule instruction, gardée
+
+APRÈS   if (st.dropSrcNode > 0)
+            Demo3DHostRecenterModel(...);        <- seule ligne encore gardée
+            nn = Demo3DHostDuplicateNode(...);   <- SORTIE DE LA GARDE
+```
+
+La duplication partait donc sur **tous** les lâchers, y compris sans source, donc
+avec `-1` ; et `HostDuplicateTree` lit `nkvpIsModel[src]` sans revalider `src`.
+**L'indentation faisait croire que les deux lignes étaient gardées** — la
+troisième « chose qui a l'air juste » en entier.
+
+**⚠️ Ce qui n'est PAS établi : que ce soit la cause de ce que Rihen voit.**
+`Demo3DHostRecenterModel` **écrit dans le nœud SOURCE** (l'archive) avant
+duplication, ce qui colle au symptôme et n'existait pas avant le 16/08. **Mais**
+`Demo3DHostArchiveNode` recentre déjà à la naissance, et la fonction est
+**idempotente** — sur un asset archivé après le 16/08 elle ne doit **rien**
+changer. *Deux causes possibles, un seul symptôme.*
+
+**L'instrument qui les sépare** — `MESURE origine`, écrit pour pouvoir contredire
+son auteur : il imprime l'état **d'avant**, pas seulement celui d'après.
+
+| lecture | ce que ça tranche |
+|---|---|
+| `ECART ~ 0` | la fonction ne touche à rien → **ce n'est pas elle** |
+| `ECART != 0` | elle réécrit l'origine de l'archive à chaque dépôt → **c'est elle** |
+
+Noter que le recentrage ne touche que **X et Z**, jamais **Y** — une origine à
+moitié réécrite, donc un symptôme irrégulier selon le modèle.
+
+**Ne pas retirer l'appel avant ce chiffre** : ce serait revenir sur la décision de
+Rihen du 16/08 (« l'origine d'un model va sur SA MATIÈRE ») sur une prémisse non
+vérifiée — ce qui a déjà coûté deux fausses causes sur ce même défaut.
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,
@@ -357,8 +849,90 @@ multiplient (chaque opération devra être une commande réversible).
 - **Aucune référence inventée** dans l'interface : chaque libellé décrit ce qui
   existe vraiment.
 
+## Dette — charger un `.nkmat` écrit dans l'hôte au lieu de rendre une valeur
+
+*(nommée le 2026-08-15 — **prérequis du chantier « l'asset rendu quitte la
+scène »**, à lire avant d'écrire son chargeur)*
+
+`NkAsMatRestore(archive, root, slot, texMiss)` ne construit **rien** : il écrit
+dans l'hôte du viewport via **42 points d'entrée** `Demo3DHostProjMat*`. Il
+n'existe aucune fonction *« lis ce `.nkmat`, rends-moi un matériau »*.
+
+**LE CHIFFRE QUI DIT L'AMPLEUR — mesuré le 15/08 en essayant.** Écrire un banc
+qui lit dix `.nkmat` hors du modeleur a buté sur **trois paliers de couplage**,
+découverts un par un à la compilation :
+
+1. `NKGui` — l'en-tête des assets tire `NkModelerInput.h`, qui tire le contexte
+   d'interface ;
+2. `NKEditorKit` — puis le thème de l'éditeur ;
+3. **118 symboles `Demo3DHost*` non résolus** — définis dans `NkDemo3D.cpp`
+   (17 620 lignes), donc à **compiler** dans toute cible qui veut lire un
+   matériau.
+
+**Lire un fichier de matériau tire donc toute la pile d'INTERFACE**, pas
+seulement le viseur. Ce n'est pas un coût de lien (ce qui n'est pas appelé ne
+part pas dans le binaire) : c'est un coût de **compilation**, payé à chaque
+build, par toute cible qui touche au format.
+
+C'est ce chiffre qui a fait **arrêter** le banc d'inventaire
+(`Applications/NkMatInventaireTest`, conservé avec son en-tête d'arrêt) au profit
+de quatre captures manuelles.
+
+**Une fonction de chargement dont la sortie est un effet de bord sur un hôte
+d'interface ne peut être réutilisée par personne** : le lecteur et l'affichage
+sont soudés, donc il n'y a qu'un consommateur possible. Un banc d'essai, un
+outil de conversion, un test de migration — aucun ne peut s'en servir sans
+embarquer le viewport.
+
+⚠️ **Pourquoi c'est un prérequis et pas une remarque** : l'asset rendu sera
+**un fichier chargé par une scène**. Il aura besoin exactement de la fonction
+« lis ce fichier, rends-moi une valeur » qui n'existe pas ici. Écrite en
+reproduisant le même couplage à l'hôte, elle donnera **deux formats non
+réutilisables au lieu d'un** — et le second sera découvert après coup, comme
+celui-ci.
+
+**Ce n'est pas un chantier ouvert.** C'est la ligne qui doit être lue avant
+d'écrire le chargeur de l'asset rendu, pour que la question se pose *avant*.
+
+## Dette à trancher — les bancs GPU sont des tests déclarés en applications
+
+*(nommée le 2026-08-15 ; ce n'est le chantier de personne aujourd'hui)*
+
+Un banc d'essai qui a besoin d'un **device GPU** ne peut pas être un test
+`unitest()` : sur les **26 dossiers `tests/`** du dépôt, **aucun** n'inclut
+`NkIDevice` ni `NKRHI` — ils font du calcul pur. Les bancs GPU sont donc
+déclarés comme des **applications ordinaires**, et ils sont désormais **quatre** :
+
+| banc | ce qu'il vérifie |
+|---|---|
+| `Applications/NKQ4MatmulTest` | déquantification Q4_K/Q6_K bit à bit + matmul |
+| `Applications/NkTensorGpuTest` | tenseurs GPU |
+| `Applications/NKGpuBenchTest` | débit des noyaux |
+| `Applications/NkMatInventaireTest` | aperçus des `.nkmat` (inventaire matériaux) |
+
+**La question à trancher quand la séparation des cibles de Jenga arrivera ici :
+un banc GPU mérite-t-il son propre genre de cible ?** Aujourd'hui ils comptent
+comme des applications et restent donc dans le build par défaut.
+
+⚠️ **Pourquoi c'est écrit ici plutôt que laissé à l'évidence** : le cinquième
+serait posé sans que personne sache qu'il y en avait déjà quatre. C'est le motif
+des six compensations du bloom — chacune raisonnable seule, aucune ne nommant la
+cause commune.
+
 ## Pièges techniques déjà payés
 
+- ⭐ **Dans un système de transforms absolues, bouger un conteneur exige de bouger
+  sa matière.** `nkvpEmptyPos` contient des positions **monde** malgré son nom :
+  `HostNodeWorld` les rend telles quelles et **ne compose jamais avec le parent**
+  (aucune remontée de `nkvpParentOf` dans tout le fichier). La parenté ne
+  transporte donc **pas** la géométrie — elle ne sert qu'à l'appartenance.
+  Conséquence : tout geste nouveau qui déplace un conteneur (alignement, symétrie,
+  import, rejeu d'historique) doit passer par `Demo3DHostSetModelTransform`, sinon
+  la matière reste en arrière — et comme un conteneur ne rend rien, l'objet
+  paraîtra simplement ne pas bouger. Payé le 16/08 : j'avais pris cette position
+  monde pour une locale fausse et j'ai failli la « corriger » à zéro, ce qui aurait
+  envoyé la géométrie de **toutes** les scènes à l'origine. Le nom d'un champ ne
+  peut pas être faux au compilateur : rien ne le contredira jamais.
 - **Registre de zones** (`NkHitRegistry`) : capacité 1024 depuis v15. À 256 il
   **saturait en silence** et tout ce qui était déclaré tard (les chevrons de
   pliage) devenait mort. Si une interaction cesse de répondre sans raison,
@@ -995,3 +1569,404 @@ de **documents** (32 emplacements stables) ; un onglet n'en est qu'une **vue**
 Deux `jenga build` simultanés dans le même arbre (agent NKAI en parallèle)
 corrompent `Build/Obj` : binaires qui crashent absurdement, symptôme qui
 **survit au revert du code**. Purger `Build/Obj/<config>` et rebuilder seul.
+
+# PASSATION — SEANCE DU 2026-08-13 (matin)
+
+Branche `refonte-interface-nk3dmodeler`, 3 commits. Release ET Debug verts.
+
+## LIVRE
+
+- **Decoupage** : `NkModelerScreens.h` 14 495 -> 1 476 lignes. Dix fichiers par
+  domaine (Properties, Viewport, Hierarchy, Browser, Chrome, Menus, Tables,
+  Common). `PaintPropertiesUnified` 6 382 -> 784 : une fonction par pastille.
+- **Infobulles** : `NkHelp` + le texte d'aide DANS LA SIGNATURE des widgets
+  (DragFloat, Combo, CheckCombo, EditableText). Rendu par `NkTooltip` du kit.
+  Barre d'outils equipee (point de passage unique `btn()`). **Reste : toutes les
+  autres zones.**
+- **Modales** : `NkModalFrameDraw` ajoute a NKEditorKit (cadre modal a CONTENU
+  LIBRE, barre de titre + barre de couleur en haut facon NKCode). `NkModalStyle`
+  (GitHub dark par defaut) + `NkModalStyleFromTheme` : **le multi-theme est
+  pret**. Voile pose UNE SEULE FOIS par pile (`ctx.modalDepth`), selecteur
+  compris — empiler sans cacher.
+- **`ctx.dlOverlay` est soumise** par le modeleur, et `NkOvPainter()` peint
+  dedans. `ui.viewW/viewH` suivent la fenetre.
+- **Materiaux** : unicite par RENOMMAGE (`Bois.001`), doublons existants corriges
+  a l'ouverture ET reecrits sur disque. Magenta pour objet sans materiau ;
+  materiau par defaut a l'import.
+- **Projet** : le nom EST un nom de dossier (ni espace ni caractere interdit),
+  valide pendant la saisie ; le dossier fait foi.
+- **Navigateur** : les dossiers reels du disque sont adoptes (`Apercus`).
+- **NKContainers** : `NkSPrintf` / `NkSPrintfN` (tampon fixe) — `NkPrintf`
+  existait deja et rend une NkString.
+
+## NON RESOLU — LA BANDE DU HAUT (ce n'est PAS le voile)
+
+**Mesure decisive du 13 aout** : les deux voiles ont ete teintes de couleurs
+differentes (modale en ROUGE, selecteur en VERT). Resultat : tout l'ecran vire
+au rouge **uniformement** — hierarchie, vue 3D, panneau droit, navigateur. Le
+voile couvre donc bien toute la fenetre et fait exactement son travail.
+
+MAIS la bande du haut (y 0..~70, la barre de menu « Fichier / Edition / ... »)
+ressort en rouge **VIF ET OPAQUE** alors que tout le reste est translucide. Un
+voile semi-transparent qui donne une couleur PURE signifie qu'il n'y a RIEN
+dessous : **cette bande n'est pas peinte** des qu'une surface modale est ouverte.
+
+Le « noir » n'etait donc pas un voile trop opaque, c'etait du VIDE assombri par un
+voile normal. Cinq hypotheses portaient sur le voile — toutes fausses.
+
+**Piste pour la suite** : `PaintMenuBarI(p, lay.menu, ...)` remplit pourtant son
+fond des sa premiere ligne, et `lay.menu = {0, 0, W, menuH}` avec `menuH = S(30)`.
+Verifier : (1) que `PaintMenuBarI` est bien atteinte quand `modalOpen` est vrai ;
+(2) si cette bande n'est pas plutot la barre de titre PERSONNALISEE de la fenetre,
+dessinee hors de `ui.dl` — auquel cas elle serait recouverte par le voile sans
+jamais etre repeinte. Mesurer AVANT de corriger.
+
+## RESOLU DEPUIS — LE VOILE
+
+Sous le selecteur, le haut et la gauche de l'application deviennent noirs alors
+que la vue 3D, le panneau droit et le navigateur restent lisibles.
+**Ecarte par la mesure** : dimensions (`vue=(1920x1032) rendu=(1920x1032)`,
+correctes) et superposition de deux voiles (`modalDepth` le montre : les deux
+surfaces ne coexistent qu'UNE frame, au clic sur « Nouveau »).
+**Reste a mesurer** : le rendu de `dlOverlay` lui-meme — nombre de commandes et
+leur rognage. Ne PAS proposer de correctif sans cette mesure (deja 5 hypotheses
+fausses sur ce sujet).
+
+## MATERIAUX — ETAT AU 13 AOUT (midi)
+
+Fonctionne et valide par Rihen : magenta a l'absence de materiau, retrait du
+dernier, unicite par renommage (`Bois.001`), doublons corriges ET reecrits sur
+disque, dossiers reels du navigateur (`Apercus`), creation ecrite sur disque,
+materiau ajoute a un objet vide qui en devient l'actif.
+
+**Le magenta « aucun materiau »** occupe le DERNIER emplacement du registre
+(`kNkvpMissingMat`), reserve — la creation s'arrete avant lui. Il est invisible
+partout d'un seul geste : `Demo3DHostProjMatInfo` le refuse, et
+`Demo3DHostProjMatOf` rend -1 pour lui. Il est ASSIGNE au retrait du dernier
+materiau, jamais peint au rendu (voir memoire « Agir a la source »).
+
+**DEMANDE EN ATTENTE (Rihen, 13 aout)** : choisir le TYPE du materiau **avant**
+sa creation, dans le dialogue. A faire avec les points de specialisation du kit —
+`DrawPickerExtra` / `PickerExtraHeight` de `NkFilePicker.h` — que NKCode utilise
+deja pour son assistant (rangee « Type : Classe / Struct / Union / … » au-dessus
+du champ de nom). Ne PAS ecrire un dialogue parallele.
+
+## SUITE
+
+1. Infobulles sur toutes les zones + migration `snprintf` -> `NkSPrintf`.
+2. **Index (cache) des fichiers par type** dans le `.nk3dm` — leve le plafond
+   `kMaxBrowser = 32` et supprime la double source de verite navigateur/disque.
+3. Supprimer `NkModelerFileDialog.h` (inutilise depuis le portage du picker).
+4. Renommer ET decouper `NkDemo3D.cpp` (16 825 l.) + l'API `Demo3DHost*`.
+5. Les 7 captures non lues de `Pictures/Screenshots/code`.
+6. Point d'entree de renommage de projet dans le launcher.
+
+# PASSATION — NUIT DU 2026-08-12 → REPRISE LE 2026-08-13 À 5 H
+
+## ⚠ LA REPRISE COMMENCE PAR UNE REFONTE COMPLETE DE L'INTERFACE
+
+Decision de Rihen (12 aout au soir) : **refondre toute l'interface et la rendre
+propre**. Le **design peut etre different** — rien de l'apparence actuelle n'est
+a preserver.
+
+Consequence directe sur ce qui suit : **ne pas rafistoler** la modale « Ajouter
+un materiau » ni `NkModelerFileDialog.h`. Ils disparaissent dans la refonte. Le
+blocage decrit plus bas reste documente pour la cause, pas pour la reparation.
+
+**Infobulle sur CHAQUE element** (bouton, champ, panneau) — exigence posee par
+Rihen d'entree : « mieux vaut y penser tot ». Donc les fonctions qui declarent un
+widget prennent leur texte d'aide **des leur signature** ; l'ajouter apres
+obligerait a repasser sur chaque appel. Le composant existe deja :
+`NKEditorKit/NkEditorTooltip.h` (+ support dans `NKGui`).
+
+**TOUTE MODALE : barre de titre designee (facon NKCode), et modale SUR modale
+sans cacher celle du dessous** (Rihen, 13 aout). Composant :
+`NKEditorKit/NkEditorModal.h` -- `NkModal` + `NkModalDraw(ctx, m, title, message,
+buttons, count)`. Il force `ctx.popupDepth > 0` directement, ce qui rend la
+modalite GLOBALE sans toucher au reste. ⚠ Il peint un voile PLEIN ECRAN par
+modale : pour empiler « sans cacher », le voile devra etre pose une seule fois
+pour la pile.
+
+**Le mot « Demo » doit disparaitre** : `NkDemo3D.cpp` (16 825 l.) et l'API
+`Demo3DHost*` sont a renommer ET decouper -- c'est le plus gros fichier du
+modeleur, devant l'interface.
+
+**Subdiviser TOUS les gros fichiers, pas seulement l'interface** (Rihen, 13 aout).
+Etat au 13 aout : `NkDemo3D.cpp` **16 825 l.**, `NkModelerScreens.h` **14 495 l.**,
+`NkViewport3D.cpp` 2 649 l., `main.cpp` 2 032 l., `NkModelerAssets.h` 1 912 l.
+NKCode, en comparaison, repartit 35 800 lignes sur 13 fichiers (plus gros : 5 599).
+
+**MOT D'ORDRE — materiaux et edition : toujours se referer a `renderdemo`.**
+Cible declaree dans `Applications/Sandbox/RendererSandbox.jenga`, sources dans
+`Applications/Sandbox/src/Demo/` (`Demo5_Materials.cpp`, `Demo4_Materials.cpp`,
+`Demo3D.cpp` et ses `--demo=<n>`). Ce qui semble manquer au modeleur y fonctionne
+souvent deja : regarder AVANT de conclure qu'une fonction est absente.
+
+Base de travail imposee : **NKEditorKit + ce que fait NKCode** (fichiers dedies
+par domaine, l'application ne garde que le style et le routage). Ce qui doit
+disparaitre : les 14 000 lignes de `NkModelerScreens.h`, les modales peintes
+parmi les panneaux, et la coexistence de deux systemes de hit-test.
+
+## Ce qui est LIVRÉ et compile (Release + Debug, 29/29)
+
+- **Sélecteur de fichiers porté depuis NKEditorKit.** `NkFilePicker.h` (celui de
+  NKCode) remplace le dialogue maison. Il s'ouvre depuis « Nouveau », confiné à
+  la racine du projet, démarrant dans le dossier courant du navigateur.
+- **`ctx.dlOverlay` est enfin soumise** (`main.cpp`, après `ui.dl`). Sans elle,
+  TOUT composant NKEditorKit dessinait dans le vide.
+- **`ui.viewW/viewH` suivent la fenêtre.** `NkGuiContext::Init` les pose une fois
+  et ne les revoit jamais : les modales se centraient sur les dimensions du
+  démarrage et leur voile s'arrêtait avant les bords.
+- **Unicité des noms de matériaux** sur la source de vérité
+  (`Demo3DHostProjMatInfo`), plus sur les cartes du navigateur — `kMaxBrowser`
+  vaut 32, au-delà un matériau n'a AUCUNE carte et restait invisible du test.
+- **Le dossier suit le nom du projet** (`ReconcileFolderWithName`), réparé au
+  chargement, et **jamais** au prix du projet : renonce si la place est prise, le
+  nom est inutilisable comme dossier, ou `NkDirectory::Move` échoue.
+- **Les récents écartent les entrées dont le fichier n'existe plus.**
+
+## LE BLOCAGE EN COURS — modale « Ajouter un materiau »
+
+Symptôme (Rihen) : « je ne peux ni la déplacer ni interagir, les boutons n'ont
+pas d'effet », et le clic droit de la vue 3D s'ouvre par-dessus elle.
+
+**Quatre correctifs ont échoué** — tous visaient le mauvais composant ou le
+mauvais mécanisme : (1) fermeture au clic extérieur recalculée du dehors —
+retirée, NKCode ne le fait pas ; (2) `SetBlock` plein écran — un SECOND mécanisme
+d'étanchéité, alors que `modalOpen` existait ; (3) `inView` consultant les
+modales ; (4) `LayerScope(hit, 100)` sur la modale. Le journal a montré que le
+sélecteur n'était même **jamais ouvert** pendant les tests : c'est bien la modale
+maison qui est en cause.
+
+**DÉCISION PRISE AVEC RIHEN, à appliquer à la reprise** : ne pas tenter un
+cinquième correctif. **Refaire cette modale sur `NKEditorKit/NkEditorModal.h`**,
+qui existe, dessine dans `dlOverlay`, et est déjà étanche. Regarder d'abord
+comment NKCode s'en sert : il ne garde que le style et le routage du résultat.
+
+## À RETIRER AVANT TOUT (traces de diagnostic laissées en place)
+
+- `main.cpp` : `[picker] OpenPickerBase demande`
+- `NkModelerScreens.h` : `[matadd] clic souris=…` et `[matadd] bouton Nouveau…`
+- `NkModelerFileDialog.h` (dialogue maison) est **inutilisé** depuis le portage :
+  à supprimer une fois la modale refaite.
+
+## Sauvegarde
+
+Copie des 5 fichiers touchés :
+`…/scratchpad/backup_20260813/`. Rien n'est commité ; `git diff` sur
+`Applications/NK3DModeler` isole exactement le travail de la nuit (+530/−96).
+
+## Ensuite, dans l'ordre convenu
+
+1. Index (cache) des fichiers **par type** dans le fichier de projet, chemins
+   relatifs à la racine — idée de Rihen. Règle d'un coup le plafond des 32
+   cartes, la recherche, et l'absence du dossier `Apercus` au navigateur.
+2. Point d'entrée de **renommage de projet** dans le launcher (le cœur existe ;
+   penser à arrêter `projWatch` qui tient la racine ouverte).
+3. Navigateur : suppression réelle d'un matériau (efface le `.nkmat`, délie tous
+   les objets, refuse le défaut, avec confirmation).
+4. Export `.nkmesh` : matériau embarqué OU fichiers séparés.
+5. Les **7 captures non lues** de `Pictures/Screenshots/code` (erreurs visibles
+   non décrites par Rihen).
+6. Puis étape 2 : **modélisation** (mode maillage + modificateurs).
+
+## Glisser-deposer navigateur -> vue 3D (2026-08-16)
+
+✅ **Le pick d'objet est expose** — `Demo3DHostPickRequest` / `Demo3DHostPickTake`,
+motif du jeton (l'interface DEMANDE, la boucle EXECUTE). Le clic de selection
+appelle desormais la MEME fonction (`Demo3D_PickEmptyAt`), verifie : meme point,
+meme reponse (noeud 101) par les deux chemins.
+
+✅ **Table de Rodolf implementee** — materiau assigne sur un objet / rien dans le
+vide · model ajoute **a la position du lacher** dans le vide / **menu enfant ou
+independant** sur un objet · toutes les autres natures : refus **nomme**, jamais
+un silence.
+
+⚠️ **NON VERIFIE** : le geste complet (glisser depuis une carte, relacher dans la
+vue) et le menu. Aucun levier ne fabrique un glisser de souris entre deux
+panneaux — ce qui est mesure, c'est le pick et son accord avec le clic. Demande
+la main de Rodolf.
+
+### Dette — le commentaire de declaration de `browserKind` ment
+
+`NkModelerInput.h:730` annonce « 0 dossier, 1 materiau, 2 texture ». La vraie
+legende (celle que le code CONSOMME, `NkModelerUI.h:531-567`) est : 0 graphe ·
+1 dossier · 2 materiau · 3 texture · 4 dataset IA · 5 scene · 6 model · 255
+supprimee. Le commentaire a ete corrige, mais la lecon vaut plus que le
+correctif : **le point de verite d'un encodage est son consommateur, jamais sa
+declaration** — un commentaire de declaration peut mentir des mois sans que rien
+ne le contredise.
+
+### ~~Dette — la nature 3 (texture) n'existe dans aucune carte~~ — RECTIFIE
+
+**Cette entree etait FAUSSE, et c'est une mesure qui l'a corrigee** (2026-08-16,
+inventaire du navigateur sur `AgentTest`) : la carte 3 s'appelle « Texture » et
+porte bien `nature=3`. Le refus nomme des textures est donc **atteignable**.
+
+Ce que disait l'entree d'origine restait vrai dans **son** perimetre —
+`NkAsAdoptFile` (`NkModelerAssets.h:1842`) ne reconnait que scene / model /
+materiau, et n'affecte jamais `browserKind[...] = 3`. Mais l'adoption d'un
+fichier n'est pas le seul chemin de naissance d'une carte : **le gabarit de
+projet en cree une**, et ce chemin n'etait pas dans le perimetre cherche. La
+conclusion « aucune carte de nature 3 ne peut naitre » depassait donc ce que la
+recherche autorisait — le perimetre non enonce, applique cette fois non pas au
+relais mais a **ma propre conclusion**.
+
+La correction est laissee en place plutot qu'effacee : une entree de dette qui
+disparait sans dire pourquoi n'apprend rien au lecteur suivant.
+
+### ❌ RETRACTE — « LE PICK NE PEUT DESIGNER AUCUN MODEL » (ecrit le 2026-08-16, refute le meme jour)
+
+**Cette entree etait FAUSSE. Je la laisse, barree, parce qu'une conclusion qui
+disparait sans dire pourquoi n'apprend rien au lecteur suivant.**
+
+Ce que j'avais ecrit : les deux filtres de `Demo3D_PickEmptyAt` se neutralisent
+— le premier ecarte le conteneur en disant *« un model se prend PAR SA
+MATIERE »*, le second (`HostHiddenEff`) ecarte sa matiere — donc aucun model
+n'est designable.
+
+**Ce que la mesure dit vraiment.** Les 3 noeuds comptes « caches » etaient les
+maillages internes des deux models **archives** (`nkvpSceneOf != nkvpCurScene`),
+que `HostHiddenEff` ecarte parce qu'ils sont **etrangers au document** — ce qui
+est correct. Je l'avais moi-meme note : *la scene d'`AgentTest` ne contient
+AUCUNE instance de model*. J'ai donc mesure l'exclusion des ARCHIVES et conclu
+sur les INSTANCES.
+
+Mesure sur une vraie instance de model posee dans la scene (projet `AgentTest`,
+**Debug ET Release**, arbre `6cc4054c` + correctifs du jour, journal des
+candidats du pick) :
+
+```
+candidat noeud=105 kind=2 model=1 mesh=0 cache=0 parent=-1    <- le MODEL
+candidat noeud=106 kind=2 model=0 mesh=1 cache=0 parent=105   <- sa matiere
+PICK lacher -> noeud 105
+```
+
+`cache=0` sur les deux : **le second filtre ne les ecarte pas**. La matiere est
+candidate, le rayon la touche, et la remontee rend le model.
+
+**Le controle qui aurait du me sauver, et qui devient la regle** : la boucle de
+rendu des objets utilisateur applique **exactement la meme paire de filtres** que
+le pick (`nkvpIsModel` puis `HostHiddenEff`). Donc *ce qui se voit se designe*,
+par construction. Une conclusion « le pick ne voit pas X » qui n'explique pas
+pourquoi X est pourtant VISIBLE a l'ecran est fausse avant meme d'etre mesuree.
+
+Lecon, troisieme fois en deux jours : **le perimetre s'ecrit a cote du
+resultat.** « 3 caches » sans « sur des archives » n'est pas un chiffre, c'est un
+piege qu'on se tend a soi-meme.
+
+### La regle de selection est ECRITE — et elle etait deja codee (2026-08-16)
+
+Decision de Rodolf : le discriminant n'est pas « est-ce un model ? » mais **ce
+que la piece cliquee EST dans la hierarchie**.
+
+| ce qu'on clique | ce qui est selectionne |
+|---|---|
+| un **noeud enfant** (objet ou model a part entiere) | **ce noeud-la**, pas son parent |
+| un **sous-maillage interne** d'un model | **le model entier** |
+
+`Demo3DHostModelRootOf` fait exactement cela : il remonte **tant que le noeud est
+un `nkvpIsMesh`** (une donnee geometrique, pas un noeud de hierarchie) et rend le
+premier ancetre qui n'en est pas un. Un noeud enfant ordinaire porte
+`nkvpIsMesh=false` et se rend donc **lui-meme** des le premier tour. Aucun code
+n'a eu a changer : ce qui manquait n'etait pas la regle, c'etait **une instance
+de model dans la scene** pour la voir s'exercer — et il n'en naissait aucune, a
+cause du defaut de duplication ci-dessous.
+
+⚠️ **Moitie manquante, mesuree.** Le mode edition **existe** (`st->editMode`,
+bascule TAB, `Demo3D_EnterEditOnObject`), mais il n'accepte que
+`st->gizmo.ActiveIndex()`, c'est-a-dire les objets de demo d'indice `< kNumObj`.
+**Les noeuds utilisateur (>= 96), ou vivent TOUS les models et leurs maillages
+internes, ne peuvent pas y entrer.** La moitie « prendre un sous-mesh
+individuellement en edit mode » **n'est donc pas atteignable aujourd'hui** ;
+seule la moitie « le sous-mesh selectionne le model » l'est. A ouvrir quand
+l'edition acceptera un noeud utilisateur.
+
+### ✅ Corrige — DUPLIQUER UN MODEL N'EMPORTAIT PAS SA MATIERE (2026-08-16)
+
+`HostSpawnLike` l'ecrivait lui-meme : *« Un double de MODEL naitrait vide : il
+redevient donc un objet ordinaire »*, et posait `nkvpIsModel[n] = false`. Or un
+conteneur de model **ne rend rien par lui-meme** : degrader le double ne
+produisait pas un model vide, ca produisait **un objet qui n'etait pas celui
+qu'on avait glisse**.
+
+Decision de Rodolf : **partage par defaut, avec choix utilisateur.**
+
+- `HostDuplicateTree` emporte la matiere du model par **le meme parcours
+  d'appartenance** que le deplacement de document et l'archivage
+  (`HostIsInnerMeshOf`), et recable la parente sur la carte complete.
+- Les maillages sont **partages** (meme `NkMeshHandle`) : instantane, sans cout
+  memoire, ce que veulent array / jeu / film.
+- **Ctrl+Maj+D**, et l'entree « Dupliquer independant » du menu contextuel de la
+  hierarchie, font une **copie independante** de la geometrie.
+- `Demo3DHostArchiveNode` emporte la matiere lui aussi et **archive tout le
+  sous-arbre** : ne marquer que la racine aurait laisse les maillages de
+  l'archive vivants dans la scene courante.
+
+Mesure (projet `AgentTest`, **Debug ET Release — resultats identiques au
+chiffre**, lacher d'une carte de model dans le vide) :
+
+```
+MESURE pose   : noeud=105 demande=(1.20146, 0, 2.67668)
+                relu=1    (1.20146, 0, 2.67668)   model=1     <- etait model=0
+MESURE enfant : noeud=106 mesh=1 relu=1 (0, 0.53886, 0)       <- n'existait pas
+source 96, sa matiere 97 a (0, 0.53886, 0)                    <- transform LOCALE respectee
+```
+
+⚠️ **Ce que la copie independante ne change pas encore, et pourquoi.**
+`HostMakeGeometryOwn` ne detache que les noeuds portant leur **propre** maillage
+(`nkvpUserMesh` valide). Un noeud sur primitive partagee tire deja son
+independance de ses **parametres** (sub/segments/anneaux/aux), que
+`HostSpawnLike` copie un a un. Et comme l'edition de sommets n'accepte pas les
+noeuds utilisateur (voir plus haut), **partage et copie independante ne
+produisent aujourd'hui aucune difference observable**. Le choix est plombe de
+bout en bout pour que la semantique soit deja la bonne le jour ou l'edition par
+noeud arrivera — pas parce qu'il se voit maintenant. **Non verifie a l'ecran.**
+
+### ⚠️ Defaut — NK3DModeler **Release** PLANTE A LA FERMETURE (2026-08-16, mesure)
+
+**Pre-existant : reproduit sur l'arbre `6cc4054c` SANS aucune de mes
+modifications** (mesure faite en remisant mon travail, puis reconstruction).
+
+| configuration | construction | execution |
+|---|---|---|
+| Debug | ✅ | ✅ 3 lancements sur 3, code de sortie 0 |
+| Release | ✅ | ❌ 3 sur 3, `0xC0000005` dans `d3d11.dll` |
+
+Ce n'est **pas** un plantage au demarrage : le journal `logs/app.log` (qui, lui,
+survit — la sortie standard est perdue avec le tampon) montre l'application
+faire tout son travail, puis :
+
+```
+[Demo3D] Shutdown
+[NkMaterialLibrary] Shutdown
+[NkRHI_DX11] Shutdown          <- derniere ligne, puis 0xC0000005 dans d3d11.dll
+```
+
+**Le plantage est dans la DEMOLITION du peripherique DX11.** Un `CreateBuffer
+hr=0x887A0005` (`DXGI_ERROR_DEVICE_REMOVED`) a aussi ete observe une fois en
+Debug, ce qui suggere la meme zone.
+
+⚠️ **Non repare** : un ecart Debug/Release vient presque toujours d'un `assert`
+desactive, d'une initialisation absente que le Debug masque, ou d'une
+optimisation qui expose un comportement indefini. Les trois se **diagnostiquent**
+avant de se corriger, et c'est NKRHI, pas NK3DModeler.
+
+**Consequence de methode, et elle est genante** : `--backend=vulkan` et ses
+freres sont **ignores** par NK3DModeler (`ParseBackend` n'est pas appele — le
+journal dit `api=DirectX 11` quoi qu'on passe). Il n'y a donc **aucun moyen
+d'eviter DX11** pour contourner. Toutes mes mesures Release passent par
+`logs/app.log`, pas par la sortie standard.
+
+⚠️ Et une correction de provenance : mes mesures du 2026-08-16 annoncees
+« binaire Release » ont en realite ete prises en **Debug** — le Release ne peut
+pas rendre sa sortie standard. **Un chiffre porte sa configuration**, au meme
+titre que sa date et son commit.
+
+### Dette — les leviers d'agent ne disent pas QUAND
+
+`NK_SEL_AT` se declenchait au premier passage, avant que `NK_OPEN_RECENT` n'ait
+ouvert le projet (frame 3) : il mesurait une scene vide et repondait « rien ».
+Corrige par une troisieme valeur facultative (la frame), et `NK_DROP_AT` nait
+avec. **Tout levier one-shot qui coexiste avec une ouverture differee a le meme
+defaut** — les autres n'ont pas ete audites.

@@ -15,12 +15,13 @@ namespace nkentseu {
 			 * @Brief Décode un buffer JPEG en mémoire.
 			 * @param data  Pointeur vers les données brutes du fichier JPEG.
 			 * @param size  Taille en octets.
-			 * @return NkImage alloué (appelant doit appeler Free()), nullptr si échec.
+			 * @return L'image décodée PAR VALEUR, ou une image INVALIDE
+			 *         (IsValid()==false) en cas d'échec. Rien à libérer à la main.
 			 *         Formats de sortie : NK_GRAY8 (grayscale) ou NK_RGB24 (couleur).
 			 *         Supporte baseline (SOF0) ET progressif (SOF2), 4:4:4 / 4:2:2 /
 			 *         4:2:0, restart markers (DRI/RSTn).
 			 */
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 
 			/**
 			 * @Brief Encode une NkImage en JPEG vers un buffer mémoire.

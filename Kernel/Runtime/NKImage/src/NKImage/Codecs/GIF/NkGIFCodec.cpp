@@ -16,6 +16,7 @@
 #include "NKImage/Codecs/GIF/NkGIFCodec.h"
 #include <cstdio>
 #include <cstdlib>
+#include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"
 
@@ -196,7 +197,7 @@ namespace nkentseu {
 	//  Décode une frame GIF → pixels RGBA32
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	static bool DecodeFrame(NkImageStream &s, const GIFFrame &frame, const uint8 *gct, int32 gctSize, NkImage *canvas,
+	static bool DecodeFrame(NkImageStream &s, const GIFFrame &frame, const uint8 *gct, int32 gctSize, NkImage &canvas,
 							const NkImage *prevCanvas) noexcept {
 		const uint8 *ct = frame.hasLCT ? frame.lct : gct;
 		const int32 ctSize = frame.hasLCT ? frame.lctSize : gctSize;
@@ -221,7 +222,7 @@ namespace nkentseu {
 
 		const int32 fw = frame.width, fh = frame.height;
 		const int32 fl = frame.left, ft = frame.top;
-		const int32 cw = canvas->Width(), ch = canvas->Height();
+		const int32 cw = canvas.Width(), ch = canvas.Height();
 
 		// Interlacement GIF89a (passes 0,1,2,3)
 		static const int32 kIntPass[4] = {0, 4, 2, 1};
@@ -283,7 +284,7 @@ namespace nkentseu {
 						if (frame.hasTransp && idx == frame.transpIdx)
 							continue;
 						const int32 pi = idx < ctSize ? idx : 0;
-						uint8 *p = canvas->RowPtr(cy) + cx * 4;
+						uint8 *p = canvas.RowPtr(cy) + cx * 4;
 						p[0] = ct[pi * 3];
 						p[1] = ct[pi * 3 + 1];
 						p[2] = ct[pi * 3 + 2];
@@ -304,7 +305,7 @@ namespace nkentseu {
 					if (frame.hasTransp && idx == frame.transpIdx)
 						continue;
 					const int32 pi = idx < ctSize ? idx : 0;
-					uint8 *p = canvas->RowPtr(cy) + cx * 4;
+					uint8 *p = canvas.RowPtr(cy) + cx * 4;
 					p[0] = ct[pi * 3];
 					p[1] = ct[pi * 3 + 1];
 					p[2] = ct[pi * 3 + 2];
@@ -321,16 +322,16 @@ namespace nkentseu {
 	//  NkGIFCodec::Decode — retourne la première frame (RGBA32)
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkGIFCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkGIFCodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 13)
-			return nullptr;
+			return NkImage();
 		NkImageStream s(data, size);
 
 		// Header
 		uint8 hdr[6];
 		s.ReadBytes(hdr, 6);
 		if (NkCompare(hdr, "GIF87a", 6) != 0 && NkCompare(hdr, "GIF89a", 6) != 0)
-			return nullptr;
+			return NkImage();
 
 		// Logical Screen Descriptor
 		const uint16 lsWidth = s.ReadU16LE();
@@ -346,17 +347,17 @@ namespace nkentseu {
 			s.ReadBytes(gct, gctSize * 3);
 
 		if (lsWidth == 0 || lsHeight == 0)
-			return nullptr;
+			return NkImage();
 
 		// Canvas RGBA32
-		NkImage *canvas = NkImage::Alloc(lsWidth, lsHeight, NkImagePixelFormat::NK_RGBA32);
-		if (!canvas)
-			return nullptr;
+		NkImage canvas = NkImage::Alloc(lsWidth, lsHeight, NkImagePixelFormat::NK_RGBA32);
+		if (!canvas.IsValid())
+			return NkImage();
 
 		// Fond initial : couleur de fond GCT ou transparent
 		if (hasGCT && bgColor < gctSize) {
 			for (int32 y = 0; y < lsHeight; ++y) {
-				uint8 *row = canvas->RowPtr(y);
+				uint8 *row = canvas.RowPtr(y);
 				for (int32 x = 0; x < lsWidth; ++x) {
 					row[x * 4 + 0] = gct[bgColor * 3];
 					row[x * 4 + 1] = gct[bgColor * 3 + 1];
@@ -365,7 +366,7 @@ namespace nkentseu {
 				}
 			}
 		} else {
-			NkSet(canvas->Pixels(), 0, canvas->TotalBytes());
+			NkSet(canvas.Pixels(), 0, canvas.TotalBytes());
 		}
 
 		GIFFrame frame = {};
@@ -421,10 +422,8 @@ namespace nkentseu {
 			}
 		}
 
-		if (!foundFirstFrame) {
-			canvas->Free();
-			return nullptr;
-		}
+		if (!foundFirstFrame)
+			return NkImage();
 		return canvas;
 	}
 
@@ -443,17 +442,17 @@ namespace nkentseu {
 	//    3   : restore to previous   -> remet le canvas a l'etat avant cette frame
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	static NkImage *CloneCanvas(const NkImage *src) {
-		if (!src)
-			return nullptr;
-		NkImage *dst = NkImage::Alloc(src->Width(), src->Height(), NkImagePixelFormat::NK_RGBA32);
-		if (!dst)
-			return nullptr;
+	static NkImage CloneCanvas(const NkImage &src) {
+		if (!src.IsValid())
+			return NkImage();
+		NkImage dst = NkImage::Alloc(src.Width(), src.Height(), NkImagePixelFormat::NK_RGBA32);
+		if (!dst.IsValid())
+			return NkImage();
 		// Copie ligne par ligne (NkImage peut avoir un stride > w*4 si padding).
-		for (int32 y = 0; y < src->Height(); ++y) {
-			const uint8 *sRow = const_cast<NkImage *>(src)->RowPtr(y);
-			uint8 *dRow = dst->RowPtr(y);
-			for (int32 i = 0; i < src->Width() * 4; ++i)
+		for (int32 y = 0; y < src.Height(); ++y) {
+			const uint8 *sRow = src.RowPtr(y);
+			uint8 *dRow = dst.RowPtr(y);
+			for (int32 i = 0; i < src.Width() * 4; ++i)
 				dRow[i] = sRow[i];
 		}
 		return dst;
@@ -486,13 +485,13 @@ namespace nkentseu {
 			s.ReadBytes(gct, gctSize * 3);
 
 		// Canvas global RGBA32 + canvas de backup pour disposal=3 (restore previous)
-		NkImage *canvas = NkImage::Alloc(lsWidth, lsHeight, NkImagePixelFormat::NK_RGBA32);
-		if (!canvas)
+		NkImage canvas = NkImage::Alloc(lsWidth, lsHeight, NkImagePixelFormat::NK_RGBA32);
+		if (!canvas.IsValid())
 			return nullptr;
 		// Init fond : couleur de fond GCT ou transparent
 		if (hasGCT && bgColor < gctSize) {
 			for (int32 y = 0; y < lsHeight; ++y) {
-				uint8 *row = canvas->RowPtr(y);
+				uint8 *row = canvas.RowPtr(y);
 				for (int32 x = 0; x < lsWidth; ++x) {
 					row[x * 4 + 0] = gct[bgColor * 3];
 					row[x * 4 + 1] = gct[bgColor * 3 + 1];
@@ -501,20 +500,22 @@ namespace nkentseu {
 				}
 			}
 		} else {
-			NkSet(canvas->Pixels(), 0, canvas->TotalBytes());
+			NkSet(canvas.Pixels(), 0, canvas.TotalBytes());
 		}
 
 		// Allocation des frames (taille initiale 16, double si depasse).
 		// On limite a 4096 frames pour eviter abus / OOM sur GIF corrompu.
+		// NkGIFFrame possede une NkImage par valeur : le tableau est de la memoire
+		// BRUTE, chaque entree doit etre construite (NkConstruct) et detruite
+		// (NkDestroy) explicitement — une simple affectation sur de la memoire non
+		// construite ferait un move-assign sur des pixels poubelle.
 		constexpr uint32 kMaxFrames = 4096;
 		uint32 capacity = 16;
 		NkGIFFrame *frames = (NkGIFFrame *)NkAlloc(sizeof(NkGIFFrame) * capacity);
-		if (!frames) {
-			canvas->Free();
+		if (!frames)
 			return nullptr;
-		}
 		for (uint32 i = 0; i < capacity; ++i)
-			frames[i] = NkGIFFrame{};
+			NkConstruct(frames + i);
 		uint32 frameCount = 0;
 		uint16 loopCount = 0; // 0 = infini (defaut NETSCAPE)
 
@@ -522,9 +523,9 @@ namespace nkentseu {
 		GIFFrame currentFrame = {};
 		currentFrame.hasGCE = false;
 
-		// Backup pour disposal=3 (restore previous). On l'alloue paresseusement
-		// quand on rencontre un disposal=3 pour la 1ere fois.
-		NkImage *canvasBackup = nullptr;
+		// Backup pour disposal=3 (restore previous). Reste invalide tant qu'on n'a
+		// pas rencontre un disposal=3 (le clone n'est fait qu'a ce moment-la).
+		NkImage canvasBackup;
 
 		while (!s.IsEOF() && !s.HasError() && frameCount < kMaxFrames) {
 			const uint8 intro = s.ReadU8();
@@ -606,8 +607,7 @@ namespace nkentseu {
 				// Pour disposal=3, on sauvegarde l'etat AVANT de composer cette
 				// frame (pour pouvoir restaurer).
 				if (currentFrame.disposal == 3) {
-					if (canvasBackup)
-						canvasBackup->Free();
+					// Le move-assign libere l'ancien backup avant de prendre le neuf.
 					canvasBackup = CloneCanvas(canvas);
 				}
 
@@ -620,10 +620,13 @@ namespace nkentseu {
 					NkGIFFrame *newFrames = (NkGIFFrame *)NkAlloc(sizeof(NkGIFFrame) * newCap);
 					if (!newFrames)
 						break; // OOM : on arrete proprement
+					for (uint32 i = 0; i < newCap; ++i)
+						NkConstruct(newFrames + i);
+					// NkGIFFrame n'est PAS copiable (NkImage possedee) : on DEPLACE.
 					for (uint32 i = 0; i < frameCount; ++i)
-						newFrames[i] = frames[i];
-					for (uint32 i = frameCount; i < newCap; ++i)
-						newFrames[i] = NkGIFFrame{};
+						newFrames[i] = traits::NkMove(frames[i]);
+					for (uint32 i = 0; i < capacity; ++i)
+						NkDestroy(frames + i);
 					NkFree(frames);
 					frames = newFrames;
 					capacity = newCap;
@@ -639,7 +642,7 @@ namespace nkentseu {
 				out.left = (uint16)currentFrame.left;
 				out.top = (uint16)currentFrame.top;
 				out.disposal = currentFrame.disposal;
-				if (!out.image)
+				if (!out.image.IsValid())
 					break; // OOM
 				++frameCount;
 
@@ -653,7 +656,7 @@ namespace nkentseu {
 					const int32 fw = currentFrame.width;
 					const int32 fh = currentFrame.height;
 					for (int32 y = fy; y < fy + fh && y < lsHeight; ++y) {
-						uint8 *row = canvas->RowPtr(y);
+						uint8 *row = canvas.RowPtr(y);
 						for (int32 x = fx; x < fx + fw && x < lsWidth; ++x) {
 							if (hasGCT && bgColor < gctSize) {
 								row[x * 4 + 0] = gct[bgColor * 3];
@@ -665,10 +668,10 @@ namespace nkentseu {
 							}
 						}
 					}
-				} else if (currentFrame.disposal == 3 && canvasBackup) {
+				} else if (currentFrame.disposal == 3 && canvasBackup.IsValid()) {
 					for (int32 y = 0; y < lsHeight; ++y) {
-						uint8 *sRow = canvasBackup->RowPtr(y);
-						uint8 *dRow = canvas->RowPtr(y);
+						uint8 *sRow = canvasBackup.RowPtr(y);
+						uint8 *dRow = canvas.RowPtr(y);
 						for (int32 i = 0; i < lsWidth * 4; ++i)
 							dRow[i] = sRow[i];
 					}
@@ -682,12 +685,12 @@ namespace nkentseu {
 			}
 		}
 
-		// Cleanup
-		canvas->Free();
-		if (canvasBackup)
-			canvasBackup->Free();
+		// Cleanup : `canvas` et `canvasBackup` sont des valeurs, elles se liberent
+		// toutes seules en sortie de fonction.
 
 		if (frameCount == 0) {
+			for (uint32 i = 0; i < capacity; ++i)
+				NkDestroy(frames + i);
 			NkFree(frames);
 			return nullptr;
 		}
@@ -695,13 +698,17 @@ namespace nkentseu {
 		// Allocation du resultat
 		NkGIFAnimation *anim = (NkGIFAnimation *)NkAlloc(sizeof(NkGIFAnimation));
 		if (!anim) {
-			for (uint32 i = 0; i < frameCount; ++i) {
-				if (frames[i].image)
-					frames[i].image->Free();
-			}
+			for (uint32 i = 0; i < capacity; ++i)
+				NkDestroy(frames + i);
 			NkFree(frames);
 			return nullptr;
 		}
+
+		// Les entrees inutilisees [frameCount, capacity) sont detruites ici : ainsi
+		// FreeAnimation n'a plus qu'a detruire exactement [0, frameCount).
+		for (uint32 i = frameCount; i < capacity; ++i)
+			NkDestroy(frames + i);
+
 		anim->width = lsWidth;
 		anim->height = lsHeight;
 		anim->frameCount = frameCount;
@@ -714,12 +721,11 @@ namespace nkentseu {
 		if (!anim)
 			return;
 		if (anim->frames) {
-			for (uint32 i = 0; i < anim->frameCount; ++i) {
-				if (anim->frames[i].image) {
-					anim->frames[i].image->Free();
-					anim->frames[i].image = nullptr;
-				}
-			}
+			// Chaque NkGIFFrame a ete construite par placement new dans un bloc brut :
+			// on appelle le destructeur (qui libere l'image possedee) avant de rendre
+			// le bloc a l'allocateur.
+			for (uint32 i = 0; i < anim->frameCount; ++i)
+				NkDestroy(anim->frames + i);
 			NkFree(anim->frames);
 		}
 		NkFree(anim);
@@ -1006,13 +1012,15 @@ namespace nkentseu {
 		// Convertit en RGB si nécessaire (on gère la transparence séparément)
 		const bool hasAlpha =
 			(img.Format() == NkImagePixelFormat::NK_RGBA32 || img.Format() == NkImagePixelFormat::NK_GRAY_A16);
+		// `conv` possede l'image convertie (si conversion il y a) et vit jusqu'a la
+		// fin de la fonction ; `src` n'est qu'un pointeur d'observation.
 		const NkImage *src = &img;
-		NkImage *conv = nullptr;
+		NkImage conv;
 		if (img.Channels() != 3 && img.Channels() != 4) {
 			conv = img.Convert(NkImagePixelFormat::NK_RGB24);
-			if (!conv)
+			if (!conv.IsValid())
 				return false;
-			src = conv;
+			src = &conv;
 		}
 
 		const int32 total = w * h;
@@ -1020,11 +1028,8 @@ namespace nkentseu {
 
 		// Collecte les pixels RGB (ignore alpha pour la quantification)
 		uint32 *pixels = static_cast<uint32 *>(NkAlloc(sizeof(uint32) * total));
-		if (!pixels) {
-			if (conv)
-				conv->Free();
+		if (!pixels)
 			return false;
-		}
 		// Lecture ligne par ligne via le STRIDE (les images peuvent avoir du padding en fin
 		// de ligne : lire linéairement i*ch décalerait toutes les lignes après la première).
 		const int32 stride = src->Stride();
@@ -1045,11 +1050,8 @@ namespace nkentseu {
 
 		// Mappe chaque pixel à la palette
 		uint8 *indexBuf = static_cast<uint8 *>(NkAlloc(total));
-		if (!indexBuf) {
-			if (conv)
-				conv->Free();
+		if (!indexBuf)
 			return false;
-		}
 
 		// Index de transparence (si alpha)
 		bool useTransp = false;
@@ -1071,8 +1073,6 @@ namespace nkentseu {
 										   useTransp ? palCount - 1 : palCount);
 			}
 		}
-		if (conv)
-			conv->Free();
 
 		// Taille de la GCT (puissance de 2 ≥ palCount)
 		int32 gctPow = 0;
