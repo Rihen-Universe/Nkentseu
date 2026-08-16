@@ -15601,6 +15601,32 @@ namespace nkentseu {
 				}
 			}
 		}
+		// ── UNE ECRITURE PROGRAMMATIQUE N'EST PAS UN GESTE ──────────────────
+		// Le detecteur ci-dessous (HostHierRecurse) deduit le mouvement d'un
+		// parent de l'ecart avec son cliche. Une position ecrite par le CODE --
+		// recentrage d'origine, naissance d'une copie, pose d'un depot -- n'est
+		// pas un geste de l'utilisateur : la propager deplacerait une matiere
+		// que l'ecrivain a deja mise (ou voulue) exactement la.
+		//
+		// C'est le principe de Demo3DHostHierarchyResync (« apres un chargement,
+		// cet ecart n'est pas un geste »), applique a UN noeud : chaque ecrivain
+		// programmatique recale le cliche du noeud qu'il vient d'ecrire, DANS LE
+		// MEME GESTE. La mesure qui l'impose (journal du 17/08, course 00:29) :
+		//   MESURE hier : model=98  cliche=(2.935..) courant=(2.223..) transmis=1
+		//     -> le recentrage d'origine a ete propage a la MATIERE de l'archive,
+		//        annulant son effet et decalant l'archive entiere a chaque depot ;
+		//   MESURE hier : model=107 cliche=(0,0,0) courant=(-3.28..) transmis=1
+		//     -> la copie fraiche, deja posee juste (MESURE cumul ECART=0), a
+		//        recu TOUTE sa position une seconde fois -- le cliche d'un
+		//        nouveau-ne etait celui du mort qui occupait son emplacement.
+		//
+		// ⚠️ Ne PAS appeler ceci depuis un chemin interactif (gizmo, panneau) :
+		// la propagation y est VOULUE -- c'est elle qui fait suivre les enfants.
+		static void HostHierSnapNode(Demo3DState *st, int32 n) {
+			if (!st || n < 0 || n >= kNkvpMaxNodes)
+				return;
+			HostNodeWorld(st, n, sHierPos[n], sHierRot[n], sHierScl[n]);
+		}
 		static void HostHierRecurse(Demo3DState *st, int32 pnode) {
 			float32 cpos[3], cscl[3];
 			NkMat4f crot;
@@ -16098,8 +16124,12 @@ namespace nkentseu {
 				return -1;
 			if (independent)
 				HostMakeGeometryOwn(root);
-			if (!nkvpIsModel[src])
+			if (!nkvpIsModel[src]) {
+				// Meme regle que la sortie normale : le nouveau-ne recale son
+				// cliche (un non-model aussi porte celui du mort d'avant).
+				HostHierSnapNode(HostSt(), root);
 				return root; // pas un model : rien de plus a emporter
+			}
 			// MEME parcours d'appartenance que le deplacement de document et
 			// que l'archivage (HostIsInnerMeshOf) : les trois doivent emporter
 			// EXACTEMENT les memes noeuds, sinon un mesh oublie en chemin
@@ -16179,6 +16209,19 @@ namespace nkentseu {
 				logger.Info("[Demo3D] MESURE dup model : src={0} -> root={1} "
 						"internesDeLaSource={2} nes={3} enfantsDirectsDuDouble={4}\n",
 						src, root, dedans, nes, directs);
+			}
+			// LES NOUVEAU-NES RECALENT LEUR CLICHE (voir HostHierSnapNode). Sans
+			// ceci, la premiere passe de hierarchie lit « courant - cliche du mort
+			// qui occupait l'emplacement » et deplace la matiere de TOUTE la
+			// position de naissance -- mesure : MESURE hier model=107
+			// cliche=(0,0,0) dp=(-3.28, 0, -6.94) transmis=1, sur une copie que
+			// MESURE cumul venait de declarer posee juste (ECART=0).
+			{
+				auto *st = HostSt();
+				HostHierSnapNode(st, root);
+				for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+					if (c != src && map[c] >= 0)
+						HostHierSnapNode(st, map[c]);
 			}
 			return root;
 		}
@@ -16263,6 +16306,15 @@ namespace nkentseu {
 
 			nkvpEmptyPos[er][0] = nx;
 			nkvpEmptyPos[er][2] = nz;
+			// RECENTRER, C'EST DEPLACER L'ORIGINE **SEULE** -- c'est sa
+			// definition (« l'origine d'un model va sur SA MATIERE », 16/08).
+			// Sans ce recalage, la passe de hierarchie lisait ce deplacement
+			// comme un geste et donnait le MEME delta a la matiere : l'origine
+			// rejoignait le barycentre, puis le barycentre fuyait d'autant --
+			// l'effet du recentrage etait annule et l'archive entiere derivait a
+			// chaque depot. Mesure : MESURE hier model=98 cliche=(2.935..)
+			// courant=(2.223..) dp=(-0.712, 0, -0.846) transmis=1.
+			HostHierSnapNode(HostSt(), root);
 		}
 		int32 Demo3DHostArchiveNode(int32 node) {
 			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de
@@ -16379,6 +16431,20 @@ namespace nkentseu {
 							node, pos3[0], pos3[1], pos3[2], d[0], d[1], d[2],
 							bx / (float32)nb, bz / (float32)nb,
 							bx / (float32)nb - pos3[0], bz / (float32)nb - pos3[2], nb);
+			// LA POSE DEPLACE RACINE **ET** MATIERE ELLE-MEME (le parcours
+			// ci-dessus) : la passe de hierarchie n'a rien a rejouer. Sans ce
+			// recalage, elle relisait le deplacement de la racine comme un geste
+			// et redonnait le delta a une matiere deja emportee (voir
+			// HostHierSnapNode). Ce chemin est PROGRAMMATIQUE (depot) -- le
+			// panneau Proprietes, lui, passe par SetEmptyTransform et DOIT
+			// continuer de propager : c'est la ce qui fait suivre les enfants.
+			{
+				auto *st5 = HostSt();
+				HostHierSnapNode(st5, node);
+				for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+					if (c >= kNkvpFirstEmpty && HostIsInnerMeshOf(c, node))
+						HostHierSnapNode(st5, c);
+			}
 		}
 		bool Demo3DHostNodeArchived(int32 node) {
 			// Une ARCHIVE est retiree de la vue mais garde sa nature ; un noeud
