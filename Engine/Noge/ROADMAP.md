@@ -738,6 +738,20 @@ panneau NKUI comme par un panneau NKGui — et ce qui les fait **survivre à
 n'importe quelle décision sur le doublon NKUI/NKGui**, puisqu'ils ne dépendent
 d'aucune des deux.
 
+> ⚖️ **LA FRONTIÈRE, ÉCRITE POUR QU'ON NE LA REPERDE PAS.**
+> **Ce qui descend dans `Model/` n'est pas « les données » : c'est CE QUI NE
+> PORTE AUCUN TYPE D'INTERFACE.**
+>
+> La nuance a son cas d'école, et il est dans ce dossier : `LevelColor` rend une
+> couleur — une donnée s'il en est, quatre octets — et elle **ne descend pas**,
+> parce que `nkui::NkColor` et `nkgui::NkColor` sont deux types distincts sans
+> conversion. Le *préfixe textuel* du même niveau de log, lui, descend sans
+> difficulté.
+>
+> 🎯 **Le test, avant de déplacer quoi que ce soit** : *ce fichier compile-t-il
+> sans inclure NKUI ni NKGui ?* Si non, ce n'est pas du modèle — quelle que soit
+> l'allure « donnée » de son contenu.
+
 **Méthode : héritage, pas composition.** Les panneaux *héritent* de leur modèle,
 donc **les 62 références existantes (`mOpenNodes`, `mEntries`, `mSectionCount`…)
 compilent sans une seule modification**. C'est ce qui rend l'extraction sûre pour
@@ -771,6 +785,65 @@ parce que la logique n'est plus émise hors-ligne dans chaque unité de traducti
 recopier**. Un `SceneTreePanelGui` hérite de `NkSceneTreeModel` exactement comme
 `SceneTreePanel`, et les deux partagent une seule vérité. Le coût par panneau
 redescend à ce qu'il aurait dû être : la traduction des appels d'interface.
+
+### 9octies. 🔴 MESURÉ À L'EXÉCUTION — la palette Ctrl+P du shell NE BLOQUE PAS les clics dessous
+
+**Le premier résultat de la journée obtenu en EXÉCUTANT au lieu de lire.** Coquille
+montée dans Nogee derrière `--ui=rhi` (le défaut reste NKUI), panneau porté
+affiché, sonde automatique `--occlusion-test`.
+
+```
+TEMOIN PANNEAU, palette FERMEE  : ItemHoverable = 1     <- la sonde SAIT repondre oui
+CAS    PANNEAU, palette OUVERTE : ItemHoverable = 1     <- elle repond oui QUAND MEME
+VERDICT : LE CLIC TRAVERSE LE VOILE
+```
+
+**Un widget d'un panneau ancré reste survolable et cliquable pendant que la
+palette de commandes est ouverte** — alors que celle-ci peint un voile plein
+écran par-dessus tout l'éditeur.
+
+**La cause, lue dans le kit après la mesure** — `NkEditorShell.cpp`,
+`DrawCommandPalette` :
+
+```
+l.2093  dl.AddRectFilled({0,0,W,H}, kBackdrop)   <- voile PLEIN ECRAN dessine
+        aucun PushOcclusion, aucun NkInputLayerScope
+l.2101  NkGuiRectContains(r, mUI.input.mousePos) <- hit-test BRUT pour ses propres lignes
+```
+
+**Et l'asymétrie condamne** : dans le **même kit**, `NkEditorContextMenu.h:165`
+déclare `PushOcclusion(box, 50)`, `NkEditorModal.h:192` déclare
+`PushOcclusion(box, 100)`, `NkFilePicker.h:539` déclare `PushOcclusion(plein
+écran, 100)`. **La palette est la seule surface flottante du kit qui ne se
+déclare pas.**
+
+⚠️ **Portée : ce n'est pas un défaut de Nogee.** `NkEditorShell` est partagé —
+**NKCode, ConquerorLab, NK3DModeler et NkAnimaEditor ouvrent tous cette palette**.
+Le correctif est d'une ligne (`PushOcclusion(plein écran, 50)` + `NkInputLayerScope`),
+**dans NKEditorKit, chez son propriétaire** — pas ici.
+
+**Ce que ça corrige de nos propres conclusions** : le §9quater disait que le
+routeur d'occultation était la raison de préférer NKGui. **Le routeur est bien
+correct et bien câblé** — `ItemHoverable` l'interroge en première porte, pour
+*tous* les widgets standard, via `ButtonBehavior`. Ce n'est donc pas le routeur
+qui manque : **c'est la palette qui ne le nourrit pas.** Un mécanisme juste,
+alimenté par tout le monde sauf un.
+
+⚠️ **Et la mesure a failli conclure l'inverse.** Une première sonde, posée dans
+le hook `SetOverlay`, rendait `ItemHoverable = 0` sous le voile — soit « le voile
+bloque bien ». **Son témoin l'a démentie** : la même mesure, palette *fermée*,
+rendait **0 elle aussi**. La sonde mesurait son propre point de vue (le clip de
+l'overlay), pas la palette. Il a fallu la refaire depuis un **vrai panneau ancré**
+(`ProbePanel`, ajouté seulement sous `--occlusion-test`) pour qu'elle réponde 1
+sans voile — et donc pour que son 1 sous voile veuille dire quelque chose.
+
+> 🎯 *Sans témoin, on publiait « le voile bloque bien » — l'exact contraire du
+> défaut réel, mesuré proprement, sur le bon objet, et faux.*
+
+**Ce que ça ne dit pas** : la sonde interroge `ItemHoverable` avec une position
+de souris forcée ; elle ne synthétise pas un vrai événement de clic. Elle mesure
+donc la **porte d'interaction**, qui est ce que tout widget standard consulte —
+pas le trajet complet d'un événement système.
 
 ---
 

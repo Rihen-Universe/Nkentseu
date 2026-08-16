@@ -52,7 +52,10 @@ with project("Nogee"):
     # Rendu des draw-lists NKUI via NKRHI (Integrations/NKUI) — les integrations ne
     # sont PAS dans le registre nkentseudependson : dependance projet brute (meme
     # pattern que NkAnimaEditor.jenga avec NKGuiIntegration).
-    dependson(["NKUIIntegration"])
+    # NKGuiIntegration : backend NKGui->NKRHI (NkGuiRHIBackend) dont depend
+    # nkgui::NkEditorRHIRenderer, utilise par le chemin OPTIONNEL --ui=rhi.
+    # NKUIIntegration reste requis par le chemin NKUI, qui est le defaut.
+    dependson(["NKUIIntegration", "NKGuiIntegration"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
