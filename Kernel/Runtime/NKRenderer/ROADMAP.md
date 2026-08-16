@@ -69,6 +69,108 @@ réécrire un shader qui n'a jamais été lu. Le dossier de l'exécutable est aj
 projet découverte, ou déclarer un chemin de recherche. Tant que ce choix n'est pas
 fait, **la façon de retrouver la scène est de lancer depuis la racine du worktree**.
 
+#### ⚠️ Ce n'est pas un défaut de shaders — le même piège existe ailleurs
+
+Le journal de la course en échec annonce
+`Table LTC absente ou invalide : Resources/NKRenderer/LUT/ltc1.bin (0 octets)`.
+**Le fichier fait 65 536 octets sur le disque.** Il n'était pas vide, il était
+introuvable — et le lecteur a rapporté « 0 octets » au lieu de « introuvable »,
+**exactement la confusion corrigée côté shaders, dans un sous-système différent**.
+
+Tout ce qui lit une ressource par un chemin relatif est concerné. Traiter ceci
+comme un défaut de `NkShaderLibrary` serait refaire l'erreur de diagnostic qui a
+déjà coûté une soirée.
+
+#### Les 3 pipelines encore en échec dans la course « réussie »
+
+La course depuis la racine n'est **pas** complète, et il ne faut pas la lire ainsi :
+
+```
+CreateGraphicsPipeline 'ParticlesBillboard' : shader handle id=0 introuvable
+CreateGraphicsPipeline 'TrailMesh'          : shader handle id=0 introuvable
+CreateGraphicsPipeline 'Decal'              : shader handle id=0 introuvable
+```
+
+Une fois par œil, soit 6 occurrences. Ils **ne bloquent pas la scène** (elle
+s'affiche et l'application vit). **Non instruits** — cause inconnue à ce jour, à ne
+pas supposer identique à celle ci-dessus.
+
+#### Instruction de la décision de déploiement — deux nombres et une réponse
+
+**Combien pèse un déploiement.** Le multiplicateur n'est pas 205 : **31 cibles**
+consomment `NKRenderer` (`grep -rl NKRenderer --include=*.jenga`). Et les shaders
+seuls ne suffisent pas — la ligne LTC ci-dessus le prouve.
+
+| ce qu'on déploie | par cible | × 31 cibles |
+|---|---|---|
+| `Resources/NKRenderer/Shaders` seul | 1,8 Mo | 56 Mo — **insuffisant** (ni LUT, ni textures, ni ciel) |
+| `Resources/NKRenderer` | 230 Mo | **7,1 Go** |
+| `Resources/` complet (démos : modèles, audio) | 736 Mo | **22,8 Go** |
+
+**Copie ou lien change tout** : une *jonction de répertoire* Windows (`mklink /J`)
+coûte **~0 octet**, ne demande **aucun droit administrateur**, et se crée en
+post-build. Les liens symboliques exigent le mode développeur ou l'élévation — donc
+non. Les chiffres du tableau sont ceux de la **copie**.
+⚠️ À rapporter aux **11 worktrees vivants**, qui portent déjà chacun son `Resources/`.
+
+**À quoi reconnaît-on la racine.** Marqueur : **`nkentseu.jenga`** (32 Ko, à la
+racine de chaque worktree) — nommé, versionné, non ambigu.
+- **Remonter depuis le dossier de l'EXÉCUTABLE, jamais depuis le répertoire
+  courant** : c'est déterministe quel que soit le mode de lancement, et c'est
+  précisément la variable qui a causé cette panne. Depuis
+  `Build/Bin/Release-Windows/<Cible>/`, la racine est à **4 niveaux**.
+- ❌ **Pas `.git`** : dans un worktree lié c'est un **fichier**, dans le clone
+  principal un **dossier** (vérifié). Une règle fondée dessus se comporterait
+  différemment entre `Nkentseu/` et les 10 autres worktrees — le genre exact de
+  divergence qu'on cherche à éliminer.
+
+**Et que se passe-t-il quand on ne trouve rien.** C'est la question qui tranche :
+pour le binaire remis à un étudiant en septembre, **la découverte échoue par
+construction** — il n'y a aucun `nkentseu.jenga` au-dessus de lui, et il ne faut
+surtout pas qu'il en trouve un.
+
+> **Les trois options ne sont donc pas des alternatives, c'est un ordre.** La
+> découverte règle les worktrees de développement **gratuitement et
+> rétroactivement, sans reconstruire aucune cible** ; le déploiement reste le
+> **plancher** obligatoire pour tout binaire livré. Choisir « découverte » sans
+> plancher casse la livraison ; choisir « déploiement » seul coûte les gigaoctets
+> du tableau à chaque cible de développement.
+
+📌 **Et l'emplacement de la réponse existe déjà, vide.**
+`NkPath::GetNkCurrentDirectory()` est déclarée (`NkPath.h:286`) et implémentée
+`return GetCurrentDirectory();` (`NkPath.cpp:492-494`) — **sans commentaire, et avec
+zéro appelant dans tout le dépôt**. Le concept « répertoire courant *de Nkentseu*,
+distinct de celui du processus » a été nommé puis abandonné. C'est là que la
+découverte s'écrit, si Rodolf la choisit — pas dans un nouveau symbole.
+
+### ⚠️ NkSL : une absence de preuve qu'on prenait pour une preuve
+
+**NkSL est le langage de shader maison, présenté comme fonctionnel sur cinq dorsaux
+sur six. Tant que tout le monde lance depuis le mauvais répertoire, le chemin NkSL
+n'est jamais emprunté — ces courses ne prouvaient donc rien sur NkSL, ni en bien ni
+en mal.**
+
+Mécanisme : `LoadOrCompileVF` essaie le dialecte NkSL **avant** le `.vk.glsl`
+(`NkShaderLibrary.cpp:678-706`), mais uniquement si
+`Resources/NKRenderer/Shaders/<Mat>/NkSL/<mat>.{vert,frag}.nksl` **existe**. Chemin
+relatif au répertoire courant : lancé ailleurs, le test d'existence échoue, la
+branche est sautée **en silence**, et l'on retombe sur le `.vk.glsl` puis sur le
+repli embarqué.
+
+Preuve que la branche existe et fonctionne, course depuis la racine :
+
+```
+[NkShaderLibrary] 'PBR' -> chemin NkSL (vrai dialecte) : Resources/NKRenderer/Shaders/PBR/NkSL/pbr.vert.nksl
+[CompileVF] 'PBR' vsGlsl=4952 fsGlsl=84636
+[NkRender3D] PBR pipeline (lazy) create: shader_valid=1 pipeline_valid=1
+```
+
+Ce n'est **pas** un reproche à NkSL : rien ici ne dit qu'il est cassé. C'est un
+avertissement sur la **valeur probante des courses passées**. Avant d'affirmer quoi
+que ce soit sur l'état de NkSL — dans une ROADMAP, un article ou une publication —
+**re-mesurer depuis la racine du worktree**, sans quoi le chiffre porte sur un
+chemin que le programme n'a pas pris.
+
 ### Mesure de référence du dépôt entier
 
 ```
