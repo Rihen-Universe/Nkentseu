@@ -16,9 +16,18 @@
 # Donc : ZERO controle tombait. La dette etait un reglage de script, pas un
 # probleme de portabilite -- et on le sait, au lieu de l'esperer.
 #
-# test_ar_image attend un argument (usage: test_ar_image <image.png>) : lance
-# sans argument il sort en code 1. C'est son usage, pas un echec, et c'est
-# identique dans les deux dialectes.
+# CE QUE CE SCRIPT CONSTRUIT — deux bancs et un instrument, pas trois tests :
+#     test_xr.exe          AUTO-TEST, a un verdict.  66 controles.
+#     test_ar.exe          AUTO-TEST, a un verdict.  82 controles.
+#     outil_ar_image.exe   INSTRUMENT. AUCUN verdict : il rend 0 qu'il detecte
+#                          cinq marqueurs ou zero, donc il ne peut pas echouer
+#                          et ne compte dans AUCUN total. Renomme le 2026-08-17
+#                          (il s'appelait test_ar_image) : son nom le faisait
+#                          passer pour un test, et son code 1 quand on l'appelle
+#                          sans image ressemblait alors a un echec.
+#
+# TOTAL REEL DES AUTO-TESTS : 66 + 82 = 148. La ROADMAP annoncait 66 jusqu'au
+# 2026-08-17 : elle ne comptait qu'un banc sur deux.
 # =============================================================================
 set -e
 L=Build/Lib/Release-Windows
@@ -28,5 +37,5 @@ LIBS="-Wl,--start-group $L/NKXR.lib $L/NKWindow.lib $L/NKEvent.lib $L/NKImage.li
 mkdir -p /tmp/nkxrtests
 clang++ -std=c++17 -O2 $D $I Kernel/Runtime/NKXR/tests/test_ar.cpp $LIBS -o /tmp/nkxrtests/test_ar.exe
 clang++ -std=c++17 -O2 $D $I Kernel/Runtime/NKXR/tests/test_xr.cpp $LIBS -o /tmp/nkxrtests/test_xr.exe
-clang++ -std=c++17 -O2 $D $I Kernel/Runtime/NKXR/tests/test_ar_image.cpp $LIBS -o /tmp/nkxrtests/test_ar_image.exe
+clang++ -std=c++17 -O2 $D $I Kernel/Runtime/NKXR/tests/outil_ar_image.cpp $LIBS -o /tmp/nkxrtests/outil_ar_image.exe
 echo BUILT
