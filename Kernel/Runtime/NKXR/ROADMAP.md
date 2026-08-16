@@ -57,19 +57,57 @@ passthrough Quest exige un **APK autonome que ce dépôt ne produit pas**. Ce co
 sert à **dire la vérité** le jour où cet APK existera. Le chemin AR n'est pas
 touché.
 
-### ⚠️ État de vérification — compilé, PAS exercé
+### ⚠️ État de vérification — chemin d'énumération EXERCÉ sur Quest 2, règle NON discriminée
+
+**Course du 2026-08-16 17:13, Quest 2 réel, montage Air Link (WiFi).**
 
 | | |
 |---|---|
 | compile (`jenga build --target NKXRDemo --config Release`) | ✅ **26/26**, Release |
-| exercé sur le runtime OpenXR | ❌ **NON** |
+| chemin d'énumération exercé sur matériel réel | ✅ **OUI** — sonde, code **0**, 4 exécutions identiques |
+| `EndFrame` réel exercé | ❌ **NON** — la sonde rejoue la règle, elle n'exécute pas le backend |
+| **règle de sélection discriminée** | ❌ **NON — voir ci-dessous, c'est le point** |
 
-`NKXRDemo` **n'atteint pas** l'initialisation XR sur cette machine : il s'arrête
-dans `NkRendererImpl::Initialize`, *step 2 `NkShaderLibrary::Init`* — soit avant
-toute ligne de NKXR. Preuve, pas raisonnement : `logs/app.log` contient
-**0 occurrence** d'`OpenXR` ou de `xrCreateInstance`. Le blocage est donc situé
-en amont de ce correctif, mais il **empêche de le vérifier**, et c'est écrit ici
-plutôt que passé sous silence.
+```
+extensions annoncees .......... 36        XR_FB_passthrough : ABSENTE
+modes annonces ................ 1         1/1 : OPAQUE (valeur 1)
+regle rejouee -> mode soumis .. OPAQUE    present dans la liste annoncee
+code de sortie ................ 0         (4 executions : 0, 0, 0, 0)
+```
+
+**Contrôle indépendant du montage**, pris *avant* la course et confirmé pendant :
+les journaux du runtime Meta (`LinkClient`, `Service`) décodent des images en
+continu — `Frame 20876 decoded`, transmission ~7,5–10,5 ms, 14 « glitches ». **Le
+casque est vu par le runtime indépendamment de notre code** : un échec n'aurait
+donc pas pu être imputé au réseau sans qu'on le sache.
+
+#### ⚠️ Ce que ce `0` établit — et ce qu'il n'établit PAS
+
+**Il établit** que le chemin complet tourne sur matériel réel : loader négocié,
+instance créée, **système obtenu**, modes énumérés, sélection effectuée. C'était
+jusqu'ici **compilé et jamais exercé** ; ce trou est comblé.
+
+**Il n'établit PAS que la règle est juste.** Le runtime annonce **un seul mode, et
+c'est OPAQUE**. La règle dit « si OPAQUE est annoncé, prendre OPAQUE ». Le
+contrôle demande « le mode choisi est-il dans la liste ? ». Avec une liste à un
+élément valant OPAQUE, **ce contrôle ne peut pas échouer, par construction** — il
+aurait rendu `[OK]` même avec une règle fausse.
+
+*C'est la forme déjà rencontrée le 15/08 avec `U = V = 128` : réussir pour une
+raison insuffisante.* Le `0` est **l'absence d'un refus, pas la preuve d'un
+succès** — exactement la réserve écrite avant la course, et elle tient après.
+
+**Reste donc non exercé** : la branche de repli (`modes[0]` quand OPAQUE est
+absent) est **du code mort sur ce runtime**, et le **code 4** — le défaut visé —
+**ne peut pas s'y déclencher**. Il faudrait un runtime qui n'annonce pas OPAQUE,
+c'est-à-dire un casque à écran transparent. **Ce n'est pas « pas encore fait » :
+c'est hors d'atteinte de ce matériel.**
+
+#### Le correctif est inerte ici, et c'était prévu
+
+OPAQUE annoncé ⇒ OPAQUE soumis ⇒ **comportement identique à l'ancien code écrit en
+dur, au bit près**. La course ne valide pas une amélioration visible ; elle valide
+que **la plomberie tourne** et qu'on ne soumet plus une constante non vérifiée.
 
 *La journalisation de la liste reçue a lieu **une seule fois**, à
 l'initialisation ; `EndFrame` ne fait que relire un champ. Rien ne se journalise
@@ -106,9 +144,15 @@ clang++ -std=c++17 -O2 -IExternals/Libs/NKOpenXR/include \
 | **2** | le casque n'est pas vu par le runtime (c'est l'état d'aujourd'hui) |
 | **1** | ni loader ni runtime négociable |
 
-⚠️ **Aujourd'hui la sonde rend 2, et elle n'a jamais rendu 0.** Les codes 3 et 4
-n'ont donc jamais été vus tomber : **ne pas traiter le premier `0` comme une
-confirmation** sans avoir constaté qu'un autre code peut sortir.
+✅ **Course faite le 2026-08-16 17:13 (Quest 2, Air Link) : code 0**, 4 fois de
+suite. La sonde a donc été vue **réussir** et **échouer** (code 1 et 2 mesurés
+avant) : elle n'a plus un verdict unique.
+
+⚠️ **Mais le `0` ne discrimine pas la règle** : le runtime n'annonce qu'un seul
+mode, OPAQUE, donc le contrôle « le mode choisi est-il annoncé ? » **ne peut pas
+échouer sur ce matériel**. Le **code 4** exigerait un runtime qui n'annonce PAS
+OPAQUE (casque à écran transparent) : **hors d'atteinte ici**, pas « pas encore
+fait ».
 
 ### Niveau 2 — le vrai `EndFrame`. Demande **casque + blocage renderer levé**.
 
