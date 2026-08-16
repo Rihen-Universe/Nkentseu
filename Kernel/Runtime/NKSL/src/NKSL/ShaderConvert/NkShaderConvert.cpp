@@ -721,13 +721,33 @@ namespace nkentseu {
 	// NkShaderCache — helpers internes
 	// =============================================================================
 
-	static void EnsureDirExists(const std::string &dir) {
-		if (dir.empty())
+	// ⚠ `const char *` et NON `const std::string &` — et ce n'est pas une
+	// préférence de style, c'est un correctif de corruption de tas.
+	//
+	// Cette fonction ne fait que LIRE des octets, mais on l'appelait via
+	// `ToStd(...)`, qui fabrique un `std::string` TEMPORAIRE. Dans un moteur
+	// zero-STL où NKMemory surcharge les `operator new/delete` GLOBAUX
+	// (`NKMemory/NkGlobalOperators.cpp`), la destruction de ce temporaire partait
+	// en `ucrtbase!_free_base` sur un bloc que le tas du CRT ne connaissait pas :
+	// `Invalid address specified to RtlFreeHeap` — c0000374, exactement le mélange
+	// allocateur custom / heap CRT que le `CLAUDE.md` interdit en toutes lettres.
+	//
+	// CE QUE ÇA COÛTAIT, et pourquoi personne ne l'avait vu : le chemin est
+	// `NkShaderCache::SetCacheDir` <- `NkShaderLibrary::Init` <-
+	// `NkRendererImpl::Initialize`, donc AVANT tout rendu, pour TOUTE application
+	// appelant `NkRenderer::Create`. Le processus mourant, le puits fichier du
+	// journal ne vidait jamais ce qui suivait : le journal s'arrêtait pile sur
+	// « step 2 » et faisait croire à un blocage DANS l'étape 2. NKXRDemo est resté
+	// inexerçable là-dessus, et son agent a cherché du côté d'OpenXR.
+	// Trouvé par `gdb --batch -ex run -ex "bt full"`, jamais par relecture : sans
+	// débogueur la corruption est silencieuse et le symptôme ne ressemble à rien.
+	static void EnsureDirExists(const char *dir) {
+		if (!dir || !*dir)
 			return;
 #ifdef _WIN32
-		CreateDirectoryA(dir.c_str(), nullptr);
+		CreateDirectoryA(dir, nullptr);
 #else
-		NK_MKDIR(dir.c_str());
+		NK_MKDIR(dir);
 #endif
 	}
 
@@ -749,7 +769,7 @@ namespace nkentseu {
 
 	void NkShaderCache::SetCacheDir(const NkString &dir) noexcept {
 		mCacheDir = dir;
-		EnsureDirExists(ToStd(dir));
+		EnsureDirExists(dir.CStr()); // pas de std::string temporaire : cf. EnsureDirExists
 	}
 
 	uint64 NkShaderCache::ComputeKey(const NkString &source, NkSLStage stage, const NkString &targetFormat) noexcept {
@@ -760,13 +780,24 @@ namespace nkentseu {
 		return h;
 	}
 
+	// ⚠ Zéro `std::string` ici — même raison qu'à `EnsureDirExists` ci-dessus, et
+	// c'est ce site-ci qui tuait le rendu APRÈS correction du premier : la pile
+	// était `KeyToPath` <- `Load` <- `LoadFromShaderCache` <- `CompileVF` <-
+	// `LoadOrCompileVF` <- `NkRender2D::Init` <- `NkRendererImpl::InitRender2D`.
+	// Deux temporaires y mouraient sur le mauvais tas : le `std::string dir` local
+	// et le `dir + buf` du retour.
 	NkString NkShaderCache::KeyToPath(uint64 key) const noexcept {
 		char buf[32];
 		snprintf(buf, sizeof(buf), "%016llx.nksc", (unsigned long long)key);
-		std::string dir = ToStd(mCacheDir);
-		if (!dir.empty() && dir.back() != '/' && dir.back() != '\\')
-			dir += '/';
-		return FromStd(dir + buf);
+		NkString out = mCacheDir;
+		const usize n = out.Size();
+		if (n > 0) {
+			const char last = out[(uint32)(n - 1)];
+			if (last != '/' && last != '\\')
+				out += '/';
+		}
+		out += buf;
+		return out;
 	}
 
 	// NkShaderConvertResult NkShaderCache::Load(uint64 key) const noexcept {
@@ -838,7 +869,7 @@ namespace nkentseu {
 	bool NkShaderCache::Save(uint64 key, const NkShaderConvertResult &result) noexcept {
 		if (mCacheDir.Empty() || !result.success)
 			return false;
-		EnsureDirExists(ToStd(mCacheDir));
+		EnsureDirExists(mCacheDir.CStr()); // idem
 
 		NkString path = KeyToPath(key);
 
