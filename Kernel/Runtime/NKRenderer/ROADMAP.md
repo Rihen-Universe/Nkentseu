@@ -18,6 +18,136 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 
 ---
 
+## 🧾 DETTES NOMMÉES — chantier « dettes NKRenderer » (agent nkrenderer, 2026-08-16)
+
+Ouvert sur décision de Rodolf : « on doit remplir cette dette ». **Ce qui suit est
+mesuré, avec sa provenance ; ce qui ne l'est pas est marqué comme tel.**
+
+### Mesure de référence du dépôt entier
+
+```
+arbre Nkentseu-nkrenderer · branche feat/nkrenderer-dettes · base main @10452ae0
+config Release · clang-mingw (msys64/ucrt64) · jenga 2.4.0
+jenga build --config Release --keep-going -j 0   →   197/205, 8 échecs, 20m23s
+```
+
+Le chiffre `197/205` circulait sans support durable : il ne vivait que dans
+`echanges/nkxr.questions.md`, **gitignoré**. Il est écrit ici pour cette raison.
+
+### Les 8 échecs, classés par ORIGINE — 3 origines, pas 8 bogues
+
+| origine | cibles | état |
+|---|---|---|
+| **A₁** — NKRenderer a gagné `NKAnimation`/`NKAnimPhysics` (extraction du 14/08) ; `Tutoriels3D.jenga` lie une **liste manuelle** que rien n'a forcée à suivre | Tuto02Renderer, Tuto03Scene, Tuto04Camera, Tuto05Meshes | ⏳ corrigé sur `feat/nkanimation`, **non fusionné** |
+| **A₂** — NKTensor a gagné un dorsal GPU ; la fermeture de liens de ses consommateurs n'a pas suivi | NKTensorDemo | ✅ **corrigé** (`d6ab06a6`) |
+| **B** — appelants restés en arrière d'une **réécriture** d'API (NKFont : `NkFontLibrary`/`NkTextShaper`/`NkShapeResult` remplacés · NkImage devenu type valeur) | NkRHIDemoText, NkImageDemo | ⏳ traité sur `feat/nkanimation`, **non fusionné** ; NkRHIDemoText y est **désactivée**, avec un arbitrage laissé à Rodolf (porter ou supprimer) |
+| **C** — déclaration sans corps dans Foundation (`NkString::begin()/end()`) — **pas une migration** | Gamepad | 🚫 hors périmètre — routé à l'agent NKAnimation |
+
+⚠️ **Le piège de classement, à ne pas refaire** : Tuto02-05 et NKTensorDemo
+présentaient le **même symptôme** (undefined reference sur la chaîne RHI) et ont
+**deux causes différentes**, dont les remèdes n'ont rien en commun. `useappdeps`
+**n'émet que des defines `_STATIC_LIB` et ne lie rien**
+(`config/modules.jenga:260-281`) : les projets qui l'emploient portent une liste
+`links()` **manuelle**. `nkentseudependson`, lui, calcule la fermeture depuis le
+registre. Deux mécanismes, deux endroits à corriger.
+
+📏 **Portée du défaut A₁, bornée** : les `.jenga` citant `"NKRenderer"` **sans**
+passer par `nkentseudependson` sont **deux** — `Tutoriels3D` (cassé) et `DemoRW`
+(même liste manuelle sans NKAnimation, **latent** : son binaire ne tire pas
+`NkAnimationSystem.obj`). Les autres vont bien : le registre déclare correctement
+`NKRenderer → NKAnimation` (`config/modules.jenga:109`).
+
+### ❌ Route racine essayée sur A₂ et **réfutée par la mesure** — ne pas la refaire
+
+Corriger `config/modules.jenga` (le registre déclare `NKTensor` sans
+NKRHI/NKSL/NKLogger/NKThreading, alors que `Kernel/AI/NKTensor/NKTensor.jenga` les
+déclare pour sa propre compilation — **deux listes, rien qui les tienne**) fait
+passer NKTensorDemo de **40 erreurs à 180**. Le registre ne sait exprimer ni les
+bibliothèques externes (NKGlad, glslang, SPIRV-Cross) ni les libs système, et
+**NKRHI ne les déclare pas non plus** (`:108`) : tirer NKRHI par le registre livre
+un NKRHI **sans son dorsal OpenGL**. Changement annulé.
+
+> **Dette restante, nommée** : NKTensor a besoin de toute la pile RHI et son
+> entrée de registre ne le dit pas. Chaque consommateur compense à la main (cf.
+> `Applications/NKGenTest/NKGenTest.jenga`), et celui qui l'ignore ne l'apprend
+> qu'à l'édition de liens. Le remède demande de rendre le registre capable
+> d'exprimer une dépendance externe — chantier Jenga, pas NKRenderer.
+
+### Dette 2 — `LoadResult::meshData` : la possession, pas la libération
+
+⚠️ **L'énoncé initial (« personne ne sait qui libère ») est faux, et c'est le
+premier résultat.** Il y a un libérateur unique, `FreePayload`
+(`Streaming/NkStreamingSystem.cpp`), et **les cinq** sorties de `FinalizeLoad`
+l'appellent, plus `Shutdown` qui draine `mResults` après le `Join()` du worker.
+**Aucune fuite n'existe aujourd'hui.**
+
+Le vrai défaut est que **la possession n'est pas exprimable** : `LoadResult` est
+un agrégat **copiable** portant des pointeurs possédants, avec **deux verbes de
+libération** (`Delete()` pour `img`/`meshData`, `->Free()` pour `imgLow`) dont la
+distinction ne vit **que dans un commentaire**. Rien ne casse *uniquement parce
+que la copie perdante n'est jamais libérée* — un geste juste pour une mauvaise
+raison.
+
+📌 **Le piège concret, à connaître avant d'y toucher** : `NkVector::Erase` appelle
+`mData[index].~T()` (`NkVector.h:2149`). Tant que `LoadResult` n'a pas de
+destructeur, `ready.PushBack(mResults[0]); mResults.Erase(...)` est inoffensif ;
+**dès qu'il en a un, cette même ligne libère le payload qu'on vient de copier.**
+Toute migration vers la possession doit passer ces transferts en `traits::NkMove`.
+
+⏳ **État** : `feat/nkanimation` a **déjà** migré `img` et `imgLow` vers `NkImage`
+par valeur et rendu `LoadResult` non copiable (+145/-52 sur ces deux fichiers,
+non fusionné). **`NkGLTFMeshData *meshData` y est resté un pointeur nu** — c'est
+le champ que cette migration laisse derrière, et le seul travail restant.
+Primitive à employer, elle existe déjà : `NKMemory/NkUniquePtr.h`
+(`NkDefaultDelete` fait exactement `NkGetDefaultAllocator().Delete`). ⚠️ `NkOwned`
+**n'existe pas** — il n'apparaît que dans des commentaires de `NkISerializable.h`.
+
+### 🔴 `NkRendererImpl::Initialize` s'arrête à l'étape 2 — cause trouvée, hors module
+
+Symptôme relayé : NKXRDemo n'atteindrait jamais l'XR. **Faux, et vérifié** : la
+session XR est créée, c'est la **première ligne** de `app.log`. La recherche qui
+concluait au contraire cherchait la chaîne `OpenXR` ; le module journalise sous
+le tag **`[NKXR]`** — elle ne pouvait rien trouver.
+
+Ce n'est ni un blocage ni un « rend faux ». **`NkShaderLibrary::Init` ne peut pas
+rendre faux** : il retourne `mBackend != nullptr`, et `NkCreateShaderBackend`
+(`Shader/NkShaderBackend.cpp:879-898`) a un `default:` qui retourne un backend GL.
+Journal : 100 `[INF]`, **zéro `[ERR]`**. `gdb --batch -ex run -ex "bt full"` :
+
+```
+Invalid address specified to RtlFreeHeap(...)  →  SIGTRAP
+#5 ucrtbase!_free_base
+#6 NkShaderCache::SetCacheDir(NkString const&)     ← NKSL, pas NKRenderer
+#7 NkShaderLibrary::Init      #8 NkRendererImpl::Initialize
+```
+
+Corruption de tas **c0000374** — le mélange allocateur custom / heap CRT que le
+`CLAUDE.md` interdit en toutes lettres. Site :
+`NKSL/ShaderConvert/NkShaderConvert.cpp:750-753`, où `EnsureDirExists(ToStd(dir))`
+fabrique un **`std::string`** temporaire (l.47-49) dans un moteur zero-STL dont
+NKMemory surcharge les `operator new/delete` globaux. *Suspect principal, pas
+certitude* : au premier appel `mCacheDir` est vide, donc l'assignation `NkString`
+n'a rien à libérer — il ne reste que le `std::string`.
+
+Le processus meurt, le puits fichier ne vide jamais la suite : **« ça s'arrête à
+l'étape 2 » est un artefact d'instrument.** ⚠️ **Le correctif appartient à NKSL**
+(19 591 lignes, aucune ROADMAP, aucun agent) ; NKRenderer ne fait qu'appeler.
+Et la portée dépasse NKXR : **tout** appel à `NkRenderer::Create` traverse cette
+ligne, et qu'une application survive ne prouve pas qu'elle est saine — une
+corruption de tas ne tue que quand elle est constatée.
+
+### Voyant de santé des shaders (demande de l'agent Noge)
+
+`NkShaderLibrary::GetValidProgramCount()` / `GetProgramCount()` — de quoi afficher
+« shaders 4/21 » plutôt qu'un flot `fprintf(stderr)`. **Périmètre** : les
+programmes enregistrés dans cette bibliothèque, échecs **inclus** — `Alloc()`
+étant appelé inconditionnellement, un programme en échec reste dans `mPrograms` ;
+sans cette propriété le couple aurait rapporté « 4/4 ». Les deux traces
+`LoadOrCompileVF` (émises par shader **et par image**) passent de `Info` à
+`Trace` ; **la ligne d'échec reste au niveau erreur**.
+
+---
+
 ## 🦴 L'ANIMATION A QUITTÉ CE MODULE (2026-08-14)
 
 `Tools/Animation` **ne contient plus le système d'animation**. En application du
