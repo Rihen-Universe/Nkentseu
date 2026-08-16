@@ -89,13 +89,32 @@ au premier essai). On échange un défaut muet contre une panne qui se signale.
 NkAnimaEditor **n'ont pas été relancés**. Si l'une d'elles se comporte
 autrement, ce paragraphe est le point de départ de l'enquête, pas une surprise.
 
-### 🔬 Ce dont le correctif NE dépend PAS — vérifié, parce que l'inverse a été avancé
+### 🔬 Ce dont le correctif NE dépend PAS — **exécuté**, pas seulement lu
 
 Il a été suggéré que ce correctif serait sans effet dans **ConquerorLab**, parce
-que `ConquerorLab/main.cpp:219` appelle `SetMaskBodyOnPopup(false)`.
-**Mesure du code : c'est faux, et il vaut mieux que ce soit écrit ici.**
+que `ConquerorLab/main.cpp:219` appelle `SetMaskBodyOnPopup(false)` (appel
+vérifié à cette ligne exacte). **C'est faux, et ça a été mesuré.**
 
-Le shell a **deux mécanismes d'étanchéité distincts** :
+**La course** — condition de ConquerorLab reproduite dans le banc Nogee
+(`--occlusion-test --no-mask-body` pose `SetMaskBodyOnPopup(false)` sur le shell
+avant `Run()`), sonde interrogeant `ItemHoverable` depuis un panneau ancré :
+
+| | témoin (palette fermée) | palette ouverte | `occlCount` | verdict |
+|---|---|---|---|---|
+| masquage **actif** (défaut) | 1 | 0 | 1 | le voile bloque |
+| masquage **coupé** (ConquerorLab) | 1 | 0 | 1 | **le voile bloque** |
+
+**Le drapeau ne change rien au correctif.** Le témoin vaut 1 dans les deux cas —
+la sonde n'est pas devenue aveugle — et `PushOcclusion` s'exécute dans les deux.
+
+⚠️ **Portée de cette course, et elle est étroite** : c'est la **condition** de
+ConquerorLab reproduite dans Nogee, **pas ConquerorLab lui-même**, qui n'a pas
+été relancé. Est mesurée la proposition causale *« `SetMaskBodyOnPopup(false)`
+neutralise l'occlusion »* — fausse. N'est pas mesuré le comportement global de
+ConquerorLab, qui diffère par ses panneaux et sa disposition.
+
+**Et voici pourquoi le drapeau ne pouvait pas le neutraliser** — le shell a
+**deux mécanismes d'étanchéité distincts** :
 
 | mécanisme | où | désactivable par l'app ? |
 |---|---|---|

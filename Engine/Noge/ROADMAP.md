@@ -884,14 +884,33 @@ Preferences ouvertes : souris recue = -100000   -> VERDICT NUL, aucun correctif
 > qui force une entrée peut annuler la protection qu'elle teste **sans que rien
 > ne le signale**.
 
-⚠️ **Et je réfute un avertissement reçu.** On m'a signalé que le correctif serait
-inopérant dans ConquerorLab, à cause de `SetMaskBodyOnPopup(false)`
-(`ConquerorLab/main.cpp:219`). **Non** : ce drapeau ne neutralise que le terme
-`overPopup` du **blanchiment d'entrée**. Le correctif passe par le **routeur
-d'occlusion** (`PointReachable`, première porte de `ItemHoverable`,
-`NkGuiContext.cpp:491-497`), que **rien côté application ne désactive**. Les deux
-mécanismes sont distincts — écrire l'inverse dans la ROADMAP du kit aurait
-conduit quelqu'un à retirer la ligne en croyant qu'elle ne servait à rien.
+⚠️ **Et je réfute un avertissement reçu — puis je l'ai EXÉCUTÉ.** On m'a signalé
+que le correctif serait inopérant dans ConquerorLab, à cause de
+`SetMaskBodyOnPopup(false)` (`ConquerorLab/main.cpp:219`, appel vérifié à cette
+ligne).
+
+Ma première réponse était une **lecture** : le drapeau ne neutralise que le terme
+`overPopup` du blanchiment d'entrée, tandis que le correctif passe par le routeur
+d'occlusion (`PointReachable`, première porte de `ItemHoverable`,
+`NkGuiContext.cpp:491-497`), que rien côté application ne désactive. C'était
+juste — **et c'était une lecture de plus**, le jour même où deux de mes lectures
+étaient tombées devant une exécution.
+
+**Donc je l'ai couru** : condition de ConquerorLab reproduite dans le banc
+(`--no-mask-body` pose `SetMaskBodyOnPopup(false)` avant `Run()`).
+
+```
+masquage ACTIF  : temoin=1  palette ouverte=0  occlCount=1  -> bloque
+masquage COUPE  : temoin=1  palette ouverte=0  occlCount=1  -> bloque
+```
+
+**Le drapeau ne change rien au correctif**, et le témoin vaut 1 dans les deux cas
+— la sonde n'est donc pas devenue aveugle.
+
+⚠️ **Ce que cette course NE couvre pas** : c'est la **condition** de ConquerorLab
+reproduite chez moi, **pas ConquerorLab lui-même**, que je n'ai pas relancé. La
+proposition causale est réfutée par la mesure ; le comportement global de
+l'application ne l'est pas — il dépend de ses panneaux et de sa disposition.
 
 ---
 

@@ -36,6 +36,10 @@ namespace nkentseu {
 					int32 frame = 0;
 					bool paletteOpened = false;
 					bool testPrefs = false; ///< mesurer les Preferences au lieu de la palette
+					/// Reproduit la condition de ConquerorLab (main.cpp:219) :
+					/// SetMaskBodyOnPopup(false). Sert a mesurer si ce drapeau
+					/// neutralise ou non le correctif d'occlusion de la palette.
+					bool noMaskBody = false;
 					bool hoverableNoVeil = false;
 					bool panelNoVeil = false;
 					bool reported = false;
@@ -258,6 +262,15 @@ namespace nkentseu {
 			g_console.PushLine("modele partage avec la version NKUI", NkLogLevel::NK_WARN);
 			g_console.PushLine("ceci est une ligne d'erreur de demonstration", NkLogLevel::NK_ERROR);
 
+			// Reproduction de la condition de ConquerorLab (main.cpp:219). Elle
+			// permet de mesurer, dans MON banc, si ce drapeau neutralise le
+			// correctif d'occlusion de la palette — au lieu d'en decider par
+			// lecture des deux mecanismes.
+			if (g_probe.noMaskBody) {
+				shell->SetMaskBodyOnPopup(false);
+				logger.Info("[SONDE] condition ConquerorLab reproduite : SetMaskBodyOnPopup(false)\n");
+			}
+
 			shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 			shell->SetOverlay(&ProbeOverlay, nullptr);
 
@@ -273,6 +286,10 @@ namespace nkentseu {
 		void NogeeShellEnableOcclusionProbe(bool prefs) noexcept {
 			g_probe.enabled = true;
 			g_probe.testPrefs = prefs;
+		}
+
+		void NogeeShellReproduceConquerorLabCondition() noexcept {
+			g_probe.noMaskBody = true;
 		}
 
 	} // namespace noge

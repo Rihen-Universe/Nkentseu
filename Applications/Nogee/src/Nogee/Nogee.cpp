@@ -74,6 +74,8 @@ int nkmain(const nkentseu::NkEntryState &state) {
 				NogeeShellEnableOcclusionProbe(false); // palette Ctrl+P
 			else if (a == "--occlusion-test-prefs")
 				NogeeShellEnableOcclusionProbe(true); // fenetre Preferences
+			else if (a == "--no-mask-body")
+				NogeeShellReproduceConquerorLabCondition(); // condition ConquerorLab
 		}
 		logger.Info("[Nogee] --ui=rhi : montage de la coquille NkEditorShell\n");
 		return RunNogeeEditorShell(ukConfig);

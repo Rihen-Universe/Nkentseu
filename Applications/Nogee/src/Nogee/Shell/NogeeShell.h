@@ -34,5 +34,12 @@ namespace nkentseu {
 		// ouvrir ensemble melangerait les deux mesures.
 		void NogeeShellEnableOcclusionProbe(bool prefs = false) noexcept;
 
+		// `--no-mask-body` : reproduit la condition de ConquerorLab, dont
+		// `main.cpp:219` appelle `SetMaskBodyOnPopup(false)`. Sert a MESURER si ce
+		// drapeau neutralise le correctif d'occlusion de la palette, au lieu de le
+		// deduire d'une lecture des deux mecanismes. A appeler AVANT
+		// RunNogeeEditorShell.
+		void NogeeShellReproduceConquerorLabCondition() noexcept;
+
 	} // namespace noge
 } // namespace nkentseu
