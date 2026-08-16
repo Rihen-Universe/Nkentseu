@@ -9,6 +9,7 @@
 #include "Noge/Core/NkApplication.h"
 #include "Nogee/UkConfig.h"
 #include "Nogee/NogeeApp.h"
+#include "Nogee/Shell/NogeeShell.h" // chemin optionnel --ui=rhi (NKEditorKit)
 #include "NKWindow/NKMain.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKLogger/NkLog.h"
@@ -62,9 +63,22 @@ int nkmain(const nkentseu::NkEntryState &state) {
 	// cfg; cfg.renderer = &rhi; + SetPreUI pour le viewport offscreen) sera fait
 	// à la reprise de Nogee ; en attendant on reste sur l'UILayer NKUI legacy
 	// (voir NogeeUiBackend dans UkConfig.h pour l'écart documenté).
+	// ⚠️ CABLE depuis le 2026-08-17 (l'écart documenté de UkConfig.h est levé).
+	// LE DEFAUT RESTE NKUI : sans --ui=rhi, tout ce qui suit est inchangé
+	// (NogeApp + LayerStack + UILayer NKUI). La coquille est un chemin
+	// PARALLELE, pas un remplacement — les trois autres panneaux ne sont pas
+	// portés (cf. ROADMAP Noge §9quinquies / §9septies).
 	if (ukConfig.uiBackend == NogeeUiBackend::RHIShell) {
-		logger.Warn("[Nogee] --ui=rhi demande : chemin NkEditorShell+NkEditorRHIRenderer "
-					"pas encore cable — repli sur l'UI NKUI legacy.\n");
+		for (const auto &a : state.GetArgs()) {
+			if (a == "--occlusion-test")
+				NogeeShellEnableOcclusionProbe(false); // palette Ctrl+P
+			else if (a == "--occlusion-test-prefs")
+				NogeeShellEnableOcclusionProbe(true); // fenetre Preferences
+			else if (a == "--no-mask-body")
+				NogeeShellReproduceConquerorLabCondition(); // condition ConquerorLab
+		}
+		logger.Info("[Nogee] --ui=rhi : montage de la coquille NkEditorShell\n");
+		return RunNogeeEditorShell(ukConfig);
 	}
 
 	// ── Création + boucle ─────────────────────────────────────────────────────
