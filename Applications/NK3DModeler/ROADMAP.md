@@ -213,6 +213,43 @@ chantiers : c'en est un, dont dépendent deux demandes.
 2. La primitive de composantes connexes, avec ses invariants.
 3. Le mode édition sur les nœuds utilisateur (brique commune ci-dessus).
 
+### ✅ RECTIFICATIF — `apres=5` sur un conteneur n'est pas un défaut (16/08)
+
+J'avais lu `MESURE materiau : noeud=110 avant=-1 demande=5 apres=5` comme la
+preuve que le matériau allait au **conteneur** — donc que le correctif
+`7836c17f` ne tournait pas. **C'est faux.**
+
+`HostNodeMatAdd` (`NkDemo3D.cpp:1084-1093`) **promeut le matériau en actif**
+quand l'objet n'en portait aucun — la règle posée par Rihen le 13 août (« un
+objet qui n'avait rien prend celui-ci pour actif »). Elle s'applique aussi aux
+conteneurs. Sur un nœud à `avant = -1`, `apres = 5` est donc **attendu**, et ne
+dit **rien** de ce que les enfants ont reçu.
+
+Vérifié par ailleurs : les albédos relevés **collent au rendu**.
+`Materiau.004 = (0.067, 0, 0.7)` → les cubes bleu-violet ; `Materiau.002 =
+(0.7, 0.7, 0.7)` → le cube gris clair. Navigateur, aperçu et rendu s'accordent.
+
+**Leçon de méthode** : une mesure prise sur le nœud qui **ne se voit pas** ne
+peut pas répondre d'une couleur à l'écran. Trace ajoutée là où la couleur se
+décide (`MESURE enfant peint`, commit `f490f014`).
+
+### ⬜ Deux anomalies sorties du même journal — mesurées, NON traitées
+
+Elles ne concernent pas le matériau ; elles sont notées pour ne pas être
+redécouvertes.
+
+**1. Les enfants ne suivent pas la pose du parent.** Le model `110` est posé en
+`(2.65, 0, 3.45)` ; ses deux enfants restent en `(2.94, 0, 0.53)` et
+`(1.51, 0, -1.16)` — le premier **exactement** à la position de la source
+(`noeud=98`). Les transformations d'enfants ont donc l'air d'être **absolues**,
+non relatives au parent. Si c'est confirmé, déplacer un model laisse sa
+géométrie sur place.
+
+**2. La copie a plus d'enfants que sa source.** La source `98` a **un** enfant
+(`99`) ; la copie `110` en a **deux** (`111`, `112`). C'est le motif que le
+commentaire de `Demo3DHostSetNodeIsModel` décrit déjà pour la relecture — « le
+model rouvert se serait retrouvé avec un maillage de trop à chaque ouverture ».
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,
