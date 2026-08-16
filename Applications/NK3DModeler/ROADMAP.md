@@ -235,10 +235,50 @@ n'est pas portée jusqu'au sous-mesh. **La structure commune existe ; deux
 chargeurs sur trois doivent apprendre à la remplir.**
 
 **4. ⚠️ Le point de vérité est le consommateur : PERSONNE ne lit `sm.name`.**
-Zéro lecteur dans tout le dépôt (témoin : la même commande remonte bien 14 usages
-de `subMeshes[`). Remplir le champ est donc **nécessaire et pas suffisant** — sans
-consommateur, rien ne signalerait qu'on l'a mal rempli. **Le seul détecteur sera
-le premier consommateur, c'est-à-dire la décomposition elle-même.**
+Zéro lecteur dans tout le dépôt. Remplir le champ est donc **nécessaire et pas
+suffisant** — sans consommateur, rien ne signalerait qu'on l'a mal rempli. **Le
+seul détecteur sera le premier consommateur, c'est-à-dire la décomposition
+elle-même.**
+
+*(Correction de mon propre compte : j'avais annoncé « 14 usages de `subMeshes[` ».
+Ce chiffre mélangeait **deux symboles** — 8 des 14 sont dans
+`Externals/Libs/NKAssimp` (Ogre/Debone), sans rapport avec `NkGLTFMeshData`. Le
+vrai périmètre est **4 sites** plus le tableau parallèle `subMeshMaterial`.
+Encore la règle des deux prédicats, cette fois sur mon propre décompte.)*
+
+### ✅ BLOQUEUR LEVÉ (17/08) — `a5dd6011` (inerte) puis `d480543e` (la coupe)
+
+**Périmètre du risque, mesuré AVANT d'écrire** : aucun indice de sous-mesh n'est
+**persisté** nulle part (NK3DModeler ne mentionne `SubMesh` que deux fois, deux
+libellés d'interface) ; `subMeshMaterial` est lu **par position** dans 6 démos,
+mais celles-ci reconstruisent les deux tableaux ensemble à chaque chargement,
+donc elles restent cohérentes quel que soit le nombre de sous-mesh ; le seul
+`Check` sur un compte exact (`GLTFLoaderTest`, « 1 submesh ») porte sur du
+**glTF**, non touché. **Rien ne se décale en silence.**
+
+**Mesure avant/après sur `sofa.obj`**, même binaire, même fichier, `.mtl` présent :
+
+| état | sous-mesh | verts | indices | matériaux |
+|---|---|---|---|---|
+| **avant** (coupe matériau seule) | **2** | 2310 | 9348 | 2 |
+| **après** (coupe objet + matériau) | **10** | 2310 | 9348 | 2 |
+
+2 → 10, soit exactement les 10 `o` du fichier — et la **géométrie est
+identique** : la coupe repartit les plages d'indices, elle ne crée ni ne perd
+rien. **Cas limites, coupe active** : `tree.obj` (aucun marqueur) reste à 1,
+`rock.obj` (un seul `o`) reste à 1 — aucun éclatement parasite.
+
+⚠️ **Une mesure intermédiaire était fausse, et la cause vaut d'être retenue** :
+mon premier relevé donnait « avant = 1 ». J'avais copié le `.obj` **sans son
+`.mtl`** — tous les `usemtl` échouaient donc à se résoudre et `curMat` restait à
+−1 pour tous les objets. Setup dégradé, pas comportement réel. *Une mesure ne
+vaut que ce que vaut son montage* — le pendant exact de « une recherche
+exhaustive ne vaut que ce que vaut sa racine ».
+
+**Reste à faire côté FBX** : il remplit désormais `sm.name` (nom du `Model`
+propriétaire, sinon de la `Geometry`), et chaque `Geometry` y est **déjà** un
+sous-mesh — la frontière existe donc sans coupe supplémentaire. **À confirmer sur
+un FBX multi-objets réel avant de le tenir pour acquis.**
 
 ### ⚠️ Deux fonctionnalités demandées attendent la MÊME brique absente
 
