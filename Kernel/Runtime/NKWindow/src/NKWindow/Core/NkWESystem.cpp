@@ -3,6 +3,7 @@
 // =============================================================================
 
 #include "NkWESystem.h"
+#include "NKTime/NkChrono.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkGamepadSystem.h"
 #include "NKEvent/NkEventDispatcher.h"
@@ -111,6 +112,15 @@ namespace nkentseu {
 														   memory::NkDefaultDelete<NkIGamepad>(&allocator));
 			mGamepadSystem.Init(traits::NkMove(backend));
 		}
+		// MINUTERIE FINE, demandee ici pour TOUTE application et non plus
+		// seulement pour celles qui initialisent NKRenderer. Sans elle, tout
+		// Sleep de 1 a 12 ms dure ~15,5 ms et une boucle calee au sommeil tourne
+		// a 40 img/s la ou elle en vise 60 (mesure du 2026-08-15). Rendue dans
+		// Close() : le systeme compte les demandes par processus, une demande
+		// sans restitution est une fuite, pas un reglage.
+		if (mAppData.enablePreciseTiming)
+			NkChrono::BeginPreciseTiming();
+
 		mInitialised = true;
 		return true;
 	}
@@ -121,6 +131,11 @@ namespace nkentseu {
 
 		mGamepadSystem.Shutdown();
 		mEventSystem.Shutdown();
+
+		// Symetrique de la demande faite dans Initialise. Inconditionnel : la
+		// fonction sait elle-meme si quelque chose a ete demande, et tester
+		// mAppData ici rouvrirait le trou si le drapeau changeait entre les deux.
+		NkChrono::EndPreciseTiming();
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
 		// Point 6 : OleUninitialize symÃ©trique Ã  OleInitialize

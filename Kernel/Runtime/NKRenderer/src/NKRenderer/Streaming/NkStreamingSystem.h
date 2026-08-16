@@ -30,9 +30,11 @@
 #include "NKThreading/NkThread.h"
 #include "NKThreading/NkMutex.h"
 #include "NKThreading/NkConditionVariable.h"
+// NkImage est un TYPE VALEUR (non copiable, deplacable) : les payloads CPU sont
+// des membres par valeur, il faut donc le type complet ici.
+#include "NKImage/Core/NkImage.h"
 
 namespace nkentseu {
-	class NkImage;
 
 	namespace renderer {
 
@@ -94,8 +96,19 @@ namespace nkentseu {
 				// V2 mip streaming : version basse resolution GARDEE en RAM
 				// (quelques dizaines de Ko) -> la RETROGRADATION loin est
 				// instantanee ; la remontee en pleine res re-decode (worker).
-				NkImage *lowPayload = nullptr; // possede (Free() de NkImage::Resize)
-				bool refineInFlight = false;   // re-decode pleine res en cours
+				//
+				// ⚠ L'IMAGE n'est PAS stockee ici mais dans
+				// NkStreamingSystem::mLowPayloads, et l'entry n'en garde qu'un
+				// INDICE de slot (POD, copiable). Raison : NkHashMap::Insert
+				// prend son argument par `const Value &` et le COPIE dans le
+				// noeud ; or NkImage est non copiable depuis la migration
+				// valeur. Un `NkImage lowPayload;` ici rendrait NkStreamEntry
+				// non copiable et RegisterTexture/RegisterMesh ne compileraient
+				// plus. La propriete des pixels appartient donc au systeme
+				// (destruction automatique du NkImage du slot), pas a un
+				// pointeur nu : il n'y a plus rien a liberer a la main.
+				int32 lowSlot = -1;			 // -1 = aucune basse res gardee
+				bool refineInFlight = false; // re-decode pleine res en cours
 		};
 
 		// =========================================================================
@@ -186,13 +199,18 @@ namespace nkentseu {
 				};
 
 				// Resultat du worker : payload CPU decode, upload GPU fait au Update.
+				// ⚠ NON COPIABLE (NkImage par valeur) et c'est voulu : un
+				// LoadResult ne se DUPLIQUE pas, il se DEPLACE. Il nait sur le
+				// worker, entre dans mResults par move SOUS mJobMutex, et en
+				// ressort par move sous le MEME mutex cote thread de rendu. Le
+				// compilateur refuse tout autre transfert de propriete.
 				struct LoadResult {
 						uint64 id = 0;
 						bool isMesh = false;
 						bool ok = false;
 						bool fullOnly = false; // resultat d'un job de refine
-						NkImage *img = nullptr;				// texture PLEINE resolution (RGBA8)
-						NkImage *imgLow = nullptr;			// version basse resolution (mip streaming)
+						NkImage img;						// texture PLEINE resolution (RGBA8), possedee
+						NkImage imgLow;						// version basse resolution (mip streaming), possedee
 						NkGLTFMeshData *meshData = nullptr; // mesh parse
 				};
 
@@ -206,6 +224,17 @@ namespace nkentseu {
 				NkHashMap<uint64, NkStreamEntry> mEntries;
 				NkVector<uint64> mPendingQueue; // triee par priorite
 				NkVector<uint64> mLoadingQueue;
+
+				// ── Basse resolution CPU gardee en RAM (mip streaming) ───────────
+				// Pool de slots : l'entry ne porte qu'un indice (cf. le
+				// commentaire de NkStreamEntry::lowSlot). Les NkImage sont
+				// POSSEDEES par ce vecteur et se detruisent avec lui — plus rien
+				// a liberer a la main, plus de Free().
+				// ⚠ THREAD : uniquement depuis le thread de rendu (FinalizeLoad /
+				// TickRefines / Evict / Unregister / Shutdown). Le worker n'y
+				// touche JAMAIS — il ne connait que mJobsIn / mResults.
+				NkVector<NkImage> mLowPayloads;
+				NkVector<int32> mFreeLowSlots; // slots vides recyclables
 
 				NkStreamCallback mCallback;
 				uint64 mUsedBytes = 0;
@@ -222,6 +251,13 @@ namespace nkentseu {
 				void WorkerLoop();
 				LoadResult DoLoadCPU(const LoadJob &job) const; // pur CPU, thread-safe
 				void FreePayload(LoadResult &r);
+
+				// ── Basse res CPU : propriete par valeur, adressee par slot ──────
+				// (thread de rendu uniquement — voir mLowPayloads)
+				int32 AcquireLowSlot();								   // slot libre (recycle ou neuf)
+				void StoreLowPayload(NkStreamEntry &e, NkImage &&img);  // MOVE vers le slot
+				void ReleaseLowPayload(NkStreamEntry &e);			   // vide le slot et le recycle
+				const NkImage *GetLowPayload(const NkStreamEntry &e) const; // observateur (ne possede rien)
 				void TickRefines(uint32 &budgetJobs); // upgrades/downgrades de mip par distance
 
 				void TickQueue(float32 dt);

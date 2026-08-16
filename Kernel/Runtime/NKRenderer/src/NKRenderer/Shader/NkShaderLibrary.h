@@ -75,6 +75,28 @@ namespace nkentseu {
 				// Si le program est invalide, renvoie un handle null.
 				::nkentseu::NkShaderHandle GetRHIHandle(::nkentseu::NkShaderHandle h) const;
 
+				// ── Santé des programmes — de quoi afficher « shaders 4/21 » ─────────
+				// Demandé par l'agent Noge : dans Nogee, les échecs de création RHI
+				// ne se voient qu'en `fprintf(stderr)` (NkShaderLibrary.cpp, branche
+				// `if (!prog.valid)`). Un échec qu'on ne peut que lire dans un flot
+				// n'est pas un état ; ces deux compteurs en font un nombre, que le
+				// shell d'éditeur peut poser dans une pastille de barre d'état.
+				//
+				// PÉRIMÈTRE — et il compte, parce qu'il décide si le rapport est
+				// honnête : on compte les programmes ENREGISTRÉS DANS CETTE
+				// bibliothèque, échecs INCLUS. `Alloc()` est appelé
+				// inconditionnellement, y compris quand `prog.valid == false` : un
+				// programme dont `CreateShader` a échoué reste donc dans `mPrograms`.
+				// C'est ce qui permet à `GetProgramCount()` de valoir 21 et non 4 —
+				// sans cette propriété, le couple rapporterait « 4/4 » et serait un
+				// voyant qui donne le feu vert à la panne qu'il doit signaler.
+				//
+				// Ce que ces compteurs NE disent PAS : rien sur les shaders jamais
+				// demandés. Un shader qui n'a pas été chargé n'est ni valide ni en
+				// échec — il est absent des deux nombres.
+				uint32 GetValidProgramCount() const;
+				uint32 GetProgramCount() const;
+
 				// ── Libération ───────────────────────────────────────────────────────
 				void Release(::nkentseu::NkShaderHandle &h);
 				void ReleaseAll();

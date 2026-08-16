@@ -787,7 +787,16 @@ void main() {
     // (la diffusion sous la surface est accumulee DANS la boucle de lumieres,
     // avec attenuation et ombre — cf. le commentaire dans la boucle.)
 
-    vec3 emissive = texture(tEmissive, uvP).rgb * uObj.emissiveStrength;
+    // ── EMISSION : LA TEINTE EMET, LA TEXTURE LA MODULE ──────────────────
+    // Elle lisait `uObj.emissiveStrength`, que le C++ met DELIBEREMENT a zero
+    // (« emissive via materiau (v1) », NkRender3D) : l'emission etait donc
+    // toujours NOIRE, couleur et intensite confondues, alors que le panneau
+    // proposait les deux. Les valeurs vivent dans le bloc MATERIAU.
+    //
+    // La teinte multiplie la texture, dont le neutre est le BLANC : sans carte
+    // emissive, la couleur choisie emet seule ; avec une carte, elle la module.
+    // C'est ce que promet le panneau, et ce que fait Blender.
+    vec3 emissive = uMat.emissive.rgb * texture(tEmissive, uvP).rgb * uMat.emissiveStrength;
 
     vec3 color = amb + Lo + ccContrib + emissive;
     // Mode SOLID / UNLIT (façon Blender Solid & Wireframe) : couleur plate = albedo*tint,
