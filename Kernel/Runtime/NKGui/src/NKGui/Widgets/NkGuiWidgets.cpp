@@ -103,6 +103,18 @@ namespace nkentseu {
 			return handled;
 		}
 
+		const char *LabelEnd(const char *label) noexcept {
+			if (!label)
+				return nullptr;
+			const char *p = label;
+			while (*p) {
+				if (p[0] == '#' && p[1] == '#')
+					return p; // debut de l'identifiant : fin de la partie affichee
+				++p;
+			}
+			return p; // pas de ## : tout est affiche
+		}
+
 		void PanelBackground(NkGuiContext &ctx, const NkRect &r) noexcept {
 			ctx.DL().AddRectFilled(r, ctx.theme.panel, ctx.theme.rounding);
 			ctx.DL().AddRect(r, ctx.theme.border, 1.f);
@@ -126,10 +138,10 @@ namespace nkentseu {
 									  const NkColor &col) noexcept {
 			if (!ctx.font || !ctx.font->Valid() || !label)
 				return;
-			const float32 tw = ctx.font->MeasureWidth(label);
+			const float32 tw = ctx.font->MeasureWidth(label, LabelEnd(label));
 			const float32 tx = r.x + (r.w - tw) * 0.5f;
 			const float32 baseY = r.y + (r.h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent();
-			ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {tx, baseY}, label, col, r.w - 6.f);
+			ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {tx, baseY}, label, col, r.w - 6.f, 0.f, LabelEnd(label));
 		}
 
 		bool ButtonEx(NkGuiContext &ctx, const char *label, const NkRect &r, NkGuiButtonFlags flags,
@@ -254,7 +266,7 @@ namespace nkentseu {
 		}
 
 		bool Button(NkGuiContext &ctx, const char *label) noexcept {
-			const float32 tw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label) : 40.f;
+			const float32 tw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label, LabelEnd(label)) : 40.f;
 			const NkRect r = ctx.NextItemRect(tw + ctx.theme.framePadX * 2.f + 6.f, ctx.ItemHeight());
 			return Button(ctx, label, r);
 		}
@@ -264,7 +276,7 @@ namespace nkentseu {
 		static bool CheckboxCore(NkGuiContext &ctx, const char *label, NkGuiCheck state) noexcept {
 			const float32 h = ctx.ItemHeight();
 			const float32 box = h - 8.f;
-			const float32 tw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label) : 0.f;
+			const float32 tw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label, LabelEnd(label)) : 0.f;
 			const NkRect r = ctx.NextItemRect(box + 8.f + tw, h);
 			const NkGuiId id = ctx.GetId(label);
 
@@ -288,7 +300,7 @@ namespace nkentseu {
 			}
 			if (ctx.font && ctx.font->Valid()) {
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {boxR.x + box + 8.f, CenteredBaseline(ctx, r)},
-								 label, ctx.theme.text);
+								 label, ctx.theme.text, -1.f, 0.f, LabelEnd(label));
 			}
 			return pressed;
 		}
@@ -434,7 +446,7 @@ namespace nkentseu {
 				const float32 vx = track.x + track.w + 12.f;
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {vx, baseY}, buf, ctx.theme.text);
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {vx + ctx.font->MeasureWidth(buf) + 14.f, baseY},
-								 label, ctx.theme.text);
+								 label, ctx.theme.text, -1.f, 0.f, LabelEnd(label));
 			}
 			return changed;
 		}
@@ -449,7 +461,7 @@ namespace nkentseu {
 			const NkRect rowR = ctx.NextItemRect(0.f, h);
 			const NkGuiId id = ctx.GetId(label);
 			const float32 labelW =
-				(ctx.font && ctx.font->Valid() && label && *label) ? ctx.font->MeasureWidth(label) + 14.f : 0.f;
+				(ctx.font && ctx.font->Valid() && label && LabelEnd(label) != label) ? ctx.font->MeasureWidth(label, LabelEnd(label)) + 14.f : 0.f;
 			const NkRect area = {rowR.x, rowR.y, rowR.w - labelW, rowR.h};
 
 			NkRect field = area, minusR{0.f, 0.f, 0.f, 0.f}, plusR{0.f, 0.f, 0.f, 0.f};
@@ -500,7 +512,8 @@ namespace nkentseu {
 				}
 				if (ctx.font && ctx.font->Valid() && label && *label)
 					ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-									 {area.x + area.w + 12.f, CenteredBaseline(ctx, area)}, label, ctx.theme.text);
+									 {area.x + area.w + 12.f, CenteredBaseline(ctx, area)}, label, ctx.theme.text, -1.f, 0.f,
+									 LabelEnd(label));
 				return changed;
 			}
 
@@ -569,7 +582,8 @@ namespace nkentseu {
 			}
 			if (ctx.font && ctx.font->Valid() && label && *label)
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-								 {area.x + area.w + 12.f, CenteredBaseline(ctx, area)}, label, ctx.theme.text);
+								 {area.x + area.w + 12.f, CenteredBaseline(ctx, area)}, label, ctx.theme.text, -1.f, 0.f,
+								 LabelEnd(label));
 			return changed;
 		}
 
@@ -768,7 +782,7 @@ namespace nkentseu {
 			const NkGuiId id = ctx.GetId(label);
 
 			const float32 labelW =
-				(ctx.font && ctx.font->Valid() && label && *label) ? ctx.font->MeasureWidth(label) + 14.f : 0.f;
+				(ctx.font && ctx.font->Valid() && label && LabelEnd(label) != label) ? ctx.font->MeasureWidth(label, LabelEnd(label)) + 14.f : 0.f;
 			const NkRect field = {rowR.x, rowR.y, rowR.w - labelW, rowR.h};
 
 			// Focus au clic (clic direct = réactif ; pas de gate hotIdPrev ici).
@@ -784,9 +798,10 @@ namespace nkentseu {
 			const bool focused = (ctx.inputId == id);
 			const bool submitted = TextEditField(ctx, field, buf, bufSize, focused, flags, maxChars);
 
-			if (ctx.font && ctx.font->Valid() && label && *label) {
+			if (ctx.font && ctx.font->Valid() && label && LabelEnd(label) != label) {
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-								 {field.x + field.w + 12.f, CenteredBaseline(ctx, field)}, label, ctx.theme.text);
+								 {field.x + field.w + 12.f, CenteredBaseline(ctx, field)}, label, ctx.theme.text, -1.f, 0.f,
+								 LabelEnd(label));
 			}
 			return submitted;
 		}
@@ -1574,8 +1589,7 @@ namespace nkentseu {
 				ctx.DL().AddTriangleFilled({cc.x - a * 0.6f, cc.y - a}, {cc.x - a * 0.6f, cc.y + a}, {cc.x + a, cc.y},
 										   ctx.theme.text);
 			if (ctx.font && ctx.font->Valid())
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 28.f, CenteredBaseline(ctx, r)}, label,
-								 ctx.theme.text);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 28.f, CenteredBaseline(ctx, r)}, label, ctx.theme.text, -1.f, 0.f, LabelEnd(label));
 			return open;
 		}
 
@@ -1604,8 +1618,7 @@ namespace nkentseu {
 										   {cc.x + a * 0.8f, cc.y}, ctx.theme.text);
 			}
 			if (ctx.font && ctx.font->Valid()) {
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 24.f, CenteredBaseline(ctx, r)}, label,
-								 ctx.theme.text);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 24.f, CenteredBaseline(ctx, r)}, label, ctx.theme.text, -1.f, 0.f, LabelEnd(label));
 			}
 			if (open)
 				ctx.Indent(18.f);
@@ -1699,8 +1712,7 @@ namespace nkentseu {
 				ctx.DL().AddRectFilled(r, ctx.theme.header, 3.f);
 			DrawTreeArrow(ctx, r, h, open);
 			if (ctx.font && ctx.font->Valid()) {
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 24.f, CenteredBaseline(ctx, r)}, label,
-								 ctx.theme.text);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 24.f, CenteredBaseline(ctx, r)}, label, ctx.theme.text, -1.f, 0.f, LabelEnd(label));
 			}
 			if (open)
 				ctx.Indent(18.f);
@@ -1728,7 +1740,7 @@ namespace nkentseu {
 							   : selected		? NkColor{255, 255, 255, 255}
 												: ctx.theme.text;
 			if (ctx.font && ctx.font->Valid()) {
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 6.f, CenteredBaseline(ctx, r)}, label, lc);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 6.f, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
 			}
 			return clicked;
 		}
@@ -1795,7 +1807,7 @@ namespace nkentseu {
 							   : selected		? NkColor{255, 255, 255, 255}
 												: ctx.theme.text;
 			if (ctx.font && ctx.font->Valid()) {
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 6.f, CenteredBaseline(ctx, r)}, label, lc);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 6.f, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
 			}
 			return clicked;
 		}
@@ -1825,7 +1837,7 @@ namespace nkentseu {
 							   : selected		? NkColor{255, 255, 255, 255}
 												: ctx.theme.text;
 			if (ctx.font && ctx.font->Valid()) {
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
 			}
 			return clicked;
 		}
@@ -1904,7 +1916,7 @@ namespace nkentseu {
 							   : selected		? NkColor{255, 255, 255, 255}
 												: ctx.theme.text;
 			if (ctx.font && ctx.font->Valid()) {
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
 			}
 			return clicked;
 		}
@@ -1923,7 +1935,7 @@ namespace nkentseu {
 
 			for (int32 i = 0; i < count; ++i) {
 				const bool en = (enabled == nullptr) || enabled[i];
-				const float32 tw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(labels[i]) : 40.f) + 22.f;
+				const float32 tw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(labels[i], LabelEnd(labels[i])) : 40.f) + 22.f;
 				if (i > 0)
 					ctx.SameLine(4.f);
 				const NkRect r = ctx.NextItemRect(tw, h);
@@ -1975,7 +1987,7 @@ namespace nkentseu {
 				tid *= 16777619u;
 				if (!tid)
 					tid = 1u;
-				const float32 labW = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(labels[i]) : 40.f;
+				const float32 labW = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(labels[i], LabelEnd(labels[i])) : 40.f;
 				const float32 tw = labW + 22.f;
 				if (i > 0)
 					ctx.SameLine(4.f);
@@ -4025,8 +4037,7 @@ namespace nkentseu {
 				return;
 			const float32 baseY = r.y + ctx.font->Ascent() + 3.f;
 			if (label && *label)
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 5.f, baseY}, label,
-								 ctx.theme.textDisabled);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 5.f, baseY}, label, ctx.theme.textDisabled, -1.f, 0.f, LabelEnd(label));
 			// ⭐ valeur sous le curseur affichée en direct (amélioration vs ImGui).
 			if (hoverIdx >= 0) {
 				const NkString s = NkString::Format("%.2f", values[hoverIdx]);
@@ -4480,7 +4491,7 @@ namespace nkentseu {
 				if (label && *label)
 					ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
 									 {hx + ctx.font->MeasureWidth(hex.CStr()) + 14.f, CenteredBaseline(ctx, row)},
-									 label, ctx.theme.text);
+									 label, ctx.theme.text, -1.f, 0.f, LabelEnd(label));
 			}
 
 			// Popup picker sous la pastille (dimensionné selon mode + champs).
@@ -4644,7 +4655,7 @@ namespace nkentseu {
 			const NkGuiId id = ctx.GetId(label);
 
 			const float32 labelW =
-				(ctx.font && ctx.font->Valid() && label && *label) ? ctx.font->MeasureWidth(label) + 14.f : 0.f;
+				(ctx.font && ctx.font->Valid() && label && LabelEnd(label) != label) ? ctx.font->MeasureWidth(label, LabelEnd(label)) + 14.f : 0.f;
 			const NkRect field = {rowR.x, rowR.y, rowR.w - labelW, rowR.h};
 
 			bool hov = false, held = false;
@@ -4688,9 +4699,10 @@ namespace nkentseu {
 			const NkVec2 cc = {field.x + field.w - 13.f, field.y + field.h * 0.5f};
 			ctx.DL().AddTriangleFilled({cc.x - a, cc.y - a * 0.5f}, {cc.x + a, cc.y - a * 0.5f},
 									   {cc.x, cc.y + a * 0.8f}, ctx.theme.text);
-			if (ctx.font && ctx.font->Valid() && label && *label) {
+			if (ctx.font && ctx.font->Valid() && label && LabelEnd(label) != label) {
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-								 {field.x + field.w + 12.f, CenteredBaseline(ctx, field)}, label, ctx.theme.text);
+								 {field.x + field.w + 12.f, CenteredBaseline(ctx, field)}, label, ctx.theme.text, -1.f, 0.f,
+								 LabelEnd(label));
 			}
 
 			if (!open)
@@ -4774,7 +4786,7 @@ namespace nkentseu {
 			const int32 level = ctx.curPopupLevel + 1;
 			const NkGuiId id = ctx.GetId(label);
 			const bool inBar = (ctx.curPopupLevel < 0);
-			const float32 tw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label) : 40.f;
+			const float32 tw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label, LabelEnd(label)) : 40.f;
 
 			NkRect titleR;
 			NkVec2 popupAt;
@@ -4832,7 +4844,7 @@ namespace nkentseu {
 				DrawCenteredLabel(ctx, titleR, label, ctx.theme.text);
 			} else if (ctx.font && ctx.font->Valid()) {
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {titleR.x + 8.f, CenteredBaseline(ctx, titleR)},
-								 label, ctx.theme.text);
+								 label, ctx.theme.text, -1.f, 0.f, LabelEnd(label));
 				const float32 a = ctx.ItemHeight() * 0.16f; // chevron ▶ (a un sous-menu)
 				const NkVec2 cc = {titleR.x + titleR.w - 12.f, titleR.y + titleR.h * 0.5f};
 				ctx.DL().AddTriangleFilled({cc.x - a * 0.6f, cc.y - a}, {cc.x - a * 0.6f, cc.y + a},
@@ -4880,7 +4892,7 @@ namespace nkentseu {
 
 			// Mesure pour l'auto-dimensionnement du menu courant.
 			if (L >= 0 && ctx.menuMeasureId[L] != NKGUI_ID_NONE) {
-				const float32 lw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label) : 40.f;
+				const float32 lw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label, LabelEnd(label)) : 40.f;
 				const float32 sw =
 					(shortcut && ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(shortcut) + 30.f : 12.f;
 				if (lw + sw > ctx.menuMeasureW[L])
@@ -4900,7 +4912,7 @@ namespace nkentseu {
 			}
 			const NkColor lc = !enabled ? ctx.theme.textDisabled : hov ? NkColor{255, 255, 255, 255} : ctx.theme.text;
 			if (ctx.font && ctx.font->Valid()) {
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc);
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
 				if (shortcut) {
 					const float32 sw = ctx.font->MeasureWidth(shortcut);
 					ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),

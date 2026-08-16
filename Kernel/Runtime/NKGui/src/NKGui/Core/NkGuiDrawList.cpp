@@ -235,14 +235,22 @@ namespace nkentseu {
 		}
 
 		void NkGuiDrawList::AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
-									const NkColor &col, float32 maxWidth, float32 skew) noexcept {
+									const NkColor &col, float32 maxWidth, float32 skew,
+									const char *textEnd) noexcept {
 			if (!face || !text || !*text || texId == 0u)
 				return;
 			const uint32 c = NkGuiPackColor(col);
 			const char *p = text;
-			const char *end = text;
-			while (*end)
-				++end; // fin de chaîne (UTF-8)
+			// `textEnd` borne la partie dessinee (convention ##id) ; nullptr =
+			// jusqu'au NUL, comportement historique.
+			const char *end = textEnd;
+			if (!end) {
+				end = text;
+				while (*end)
+					++end; // fin de chaîne (UTF-8)
+			}
+			if (p >= end)
+				return; // partie affichee vide (libelle entierement ##id)
 			const float32 xEnd = (maxWidth >= 0.f) ? baseline.x + maxWidth : 1.0e30f;
 			float32 x = baseline.x;
 			const float32 y = baseline.y;

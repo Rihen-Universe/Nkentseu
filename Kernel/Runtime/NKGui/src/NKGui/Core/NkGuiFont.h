@@ -66,6 +66,13 @@ namespace nkentseu {
 				float32 MeasureWidth(const char *s) const noexcept {
 					return (face && s) ? face->CalcTextSizeX(s) : 0.f;
 				}
+
+				/// Mesure la sous-chaine [s, end) — meme moteur, `CalcTextSizeX`
+				/// accepte deja une borne. Sert a la convention `##id` des
+				/// libelles : on mesure la partie AFFICHEE, jamais l'identifiant.
+				float32 MeasureWidth(const char *s, const char *end) const noexcept {
+					return (face && s) ? face->CalcTextSizeX(s, end) : 0.f;
+				}
 		};
 
 		// Polices de REPLI EXTERNES (fichiers .ttf charges au runtime) : tout glyphe

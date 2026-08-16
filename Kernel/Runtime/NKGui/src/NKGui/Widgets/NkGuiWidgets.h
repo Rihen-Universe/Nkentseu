@@ -12,6 +12,15 @@
 namespace nkentseu {
 	namespace nkgui {
 
+		// ── Convention `##id` des libelles (2026-08-17) ──────────────────────
+		// Tout ce qui suit `##` dans un libelle sert a l'IDENTITE, jamais a
+		// l'AFFICHAGE : `Rechercher##filtre` s'affiche « Rechercher » et reste
+		// identifie par la chaine complete (GetId hache tout, INCHANGE — deux
+		// widgets « OK##a » / « OK##b » restent distincts). Renvoie la borne de
+		// fin de la partie AFFICHEE : premier `##`, ou fin de chaine. Un libelle
+		// entierement `##...` a une partie affichee VIDE (widget sans texte).
+		NKENTSEU_NKGUI_API const char *LabelEnd(const char *label) noexcept;
+
 		// Fond de panneau (rectangle thème + bord).
 		NKENTSEU_NKGUI_API void PanelBackground(NkGuiContext &ctx, const NkRect &r) noexcept;
 
