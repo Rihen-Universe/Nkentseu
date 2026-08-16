@@ -102,6 +102,87 @@ orthographique) ; sortie automatique si la caméra disparaît ou change de docum
 - Ombres par lumière, portée/atténuation affinées, IES éventuellement.
 - Widget de sélection dans la vue pour les lumières utilisateur.
 
+## 📐 Modes objet / édition, et ce qu'est un sous-mesh — SPÉCIFICATION (Rihen, 2026-08-17)
+
+*Écrite ici parce qu'elle n'existait que dans un fichier d'échange non versionné.
+C'est la première fois que le comportement objet/édition est fixé noir sur blanc.*
+
+### Les deux modes
+
+| | mode **OBJET** | mode **ÉDITION** |
+|---|---|---|
+| un clic sélectionne | **le model entier**, tous ses sous-mesh avec | **un sous-mesh**, ou des faces |
+| on édite | la transformation, et la **liste de matériaux** | la géométrie, et **quelle partie porte quel matériau** |
+| granularité du matériau | l'emplacement dans la liste | **une partie ou tout un sous-mesh** |
+| séparation | — | **retirer un sous-mesh → il devient un model, et disparaît de l'original** |
+
+> « Un model c'est un assemblage de vertices, edges et faces reliés ou non entre
+> eux. Des mesh d'un model peuvent porter des matériaux différents ou le même. »
+
+**Conséquence directe** : « le matériau du model » n'a pas de réponse unique.
+Un model porte une **liste** de matériaux, et on choisit lequel on modifie. Un
+panneau conçu pour un matériau unique n'a donc rien à afficher — c'est le défaut
+signalé le 17/08 (« je ne peux pas modifier le matériau d'un model porté »).
+
+### Un sous-mesh EST une composante connexe
+
+Rihen l'a défini par un geste : `L` sous Blender sélectionne tout ce qui est
+**relié** à l'élément survolé. Sa phrase le disait déjà — « reliés **ou non**
+entre eux » : le « ou non » portait la définition.
+
+**Ce n'est pas une convention d'affichage, c'est une propriété calculable de la
+géométrie.** Et trois gestes demandés reposent sur cette seule primitive :
+
+| geste | ce qu'il calcule |
+|---|---|
+| `L` — sélectionner un îlot | composantes connexes |
+| `P` — séparer par îlots | composantes connexes |
+| « quel sous-mesh porte ce matériau » | composantes connexes |
+
+**À écrire UNE fois** (union-find sur les arêtes, ou parcours depuis chaque
+sommet non visité), avec ses deux invariants de test : la somme des tailles des
+composantes égale le nombre de sommets, et aucun sommet n'appartient à deux
+composantes. Trois implémentations divergeraient.
+
+### La frontière entre deux fichiers est le MODEL, pas le sous-mesh
+
+> « Des models sont chacun dans leur fichier de model, et des models qui ont des
+> sous-mesh — eux, ils sont dans le même fichier model. »
+
+```
+un .fbx importé
+  ├── model A ──────────→ A.nkmodel      (fichier propre)
+  │     ├── sous-mesh A1  ┐
+  │     ├── sous-mesh A2  ├─ tous DEDANS, même fichier
+  │     └── sous-mesh A3  ┘
+  └── model B ──────────→ B.nkmodel      (fichier propre)
+```
+
+⚠️ **Ne pas découper l'import par connexité.** Deux frontières, deux critères :
+
+| frontière | décidée par | nature |
+|---|---|---|
+| entre deux **models** | ce que le **fichier déclare** | une décision d'**auteur** |
+| entre deux **sous-mesh** | la **connexité géométrique** | une propriété **calculée** |
+
+Découper l'import par connexité éclaterait un model que l'artiste avait voulu
+d'un seul tenant.
+
+### ⚠️ Deux fonctionnalités demandées attendent la MÊME brique absente
+
+« Retirer un sous-mesh pour en faire un model » suppose que la géométrie d'un
+nœud utilisateur soit **éditable** — capacité mesurée absente le 16/08 (le mode
+édition n'accepte que les objets de démo, `< kNumObj`). **La copie indépendante
+de la duplication attend exactement la même chose.** Ce n'est pas deux
+chantiers : c'en est un, dont dépendent deux demandes.
+
+### Chemin par étapes — ne pas construire le mode édition en entier
+
+1. **Le panneau de matériaux en mode objet** — la liste, et le choix de celui
+   qu'on modifie. C'est le défaut que Rihen subit aujourd'hui.
+2. La primitive de composantes connexes, avec ses invariants.
+3. Le mode édition sur les nœuds utilisateur (brique commune ci-dessus).
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,
