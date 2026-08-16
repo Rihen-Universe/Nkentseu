@@ -32,6 +32,11 @@ namespace nkentseu {
 				NkUnorderedMap<uint64, nk_size> tailles;	   // id opaque -> octets (suivi VRAM)
 				uint64 nextId = 1;
 
+				// RESERVE DE TAMPONS (chantier n°2) : cle = TAILLE EXACTE en octets.
+				// Jamais « assez grand » : rendre un tampon plus large que demande
+				// marcherait a l'usage et fausserait tout calcul de trafic ou de borne.
+				NkUnorderedMap<uint64, NkVector<NkBufferHandle>> reserve;
+
 				struct Kernel {
 						NkString name;
 						NkShaderHandle shader;
@@ -254,6 +259,10 @@ namespace nkentseu {
 					if (mImpl->kernels[i].params.IsValid())
 						mImpl->device->DestroyBuffer(mImpl->kernels[i].params);
 				}
+				// La reserve d'abord : ses tampons sont vivants et le peripherique va
+				// disparaitre. Les oublier ici fuirait a l'arret sans le moindre
+				// message — le genre de defaut qu'aucun test ne voit.
+				ReserveVider();
 				mImpl->buffers.ForEach([this](const uint64 &, NkBufferHandle &h) { mImpl->device->DestroyBuffer(h); });
 				NkDeviceFactory::Destroy(mImpl->device);
 				mImpl->device = nullptr;
@@ -300,6 +309,20 @@ namespace nkentseu {
 		// reelle, pas son total — d'ou la marge exigee dans le critere.
 		static int64 gVramVivante = 0;
 		static int64 gVramPic = 0;
+
+		// ---- RESERVE DE TAMPONS : COMPTEURS TEMOINS -----------------------------
+		// ⚠️ Ces compteurs ne sont PAS de la decoration : une reserve REPOND
+		// TOUJOURS. Sans eux, « la reserve marche » est indiscernable de « la
+		// reserve ne sert jamais et tout retombe en allocation ». La seule preuve
+		// qu'elle sert est `gReserveServis > 0`, et la seule preuve que
+		// l'instrument est juste est `servis + neufs == appels a CreateBuffer`.
+		static bool gReserveActive = false;			   // defaut LEGACY : on n'active rien en douce
+		static int64 gReserveBudget = 512ll * 1024 * 1024; // 512 Mo retenus au plus
+		static int64 gReserveServis = 0;			   // rendus PAR la reserve
+		static int64 gReserveNeufs = 0;				   // allocations REELLES
+		static int64 gReserveOctets = 0;			   // VRAM immobilisee par la reserve
+		static int64 gReserveTampons = 0;			   // nombre de tampons retenus
+		static int64 gReserveEvictions = 0;			   // detruits faute de budget
 
 		// ---- PROFIL PAR NOYAU ---------------------------------------------------
 		// Voir NkTensorGpu.h pour ce que cette table mesure — et surtout ce qu'elle
@@ -623,6 +646,58 @@ namespace nkentseu {
 			gVramPic = gVramVivante;
 		}
 
+		// ---- RESERVE DE TAMPONS : pilotage et TEMOIN ----------------------------
+		// L'interrupteur existe pour que LEGACY et NEUF tournent depuis LE MEME
+		// BINAIRE. C'est ce qui a rendu defendable la mesure du x1,57 sur le
+		// chantier n°1 : rien d'autre ne change entre les deux bras, donc aucun
+		// ecart de compilation ne peut se glisser dans le resultat.
+		void NkTensorGpu::ReserveActive(bool actif) {
+			if (!actif)
+				ReserveVider(); // sinon on garderait de la VRAM immobilisee pour rien
+			gReserveActive = actif;
+		}
+		bool NkTensorGpu::ReserveEstActive() {
+			return gReserveActive;
+		}
+		void NkTensorGpu::ReserveBudget(int64 octetsMax) {
+			gReserveBudget = octetsMax;
+		}
+		int64 NkTensorGpu::ReserveServis() {
+			return gReserveServis;
+		}
+		int64 NkTensorGpu::ReserveNeufs() {
+			return gReserveNeufs;
+		}
+		int64 NkTensorGpu::ReserveOctetsRetenus() {
+			return gReserveOctets;
+		}
+		int64 NkTensorGpu::ReserveTamponsRetenus() {
+			return gReserveTampons;
+		}
+		int64 NkTensorGpu::ReserveEvictions() {
+			return gReserveEvictions;
+		}
+		void NkTensorGpu::ReserveRazCompteurs() {
+			gReserveServis = 0;
+			gReserveNeufs = 0;
+			gReserveEvictions = 0;
+		}
+
+		void NkTensorGpu::ReserveVider() {
+			NkTensorGpu &g = NkTensorGpu::Get();
+			if (!g.mImpl || !g.mImpl->device)
+				return;
+			Impl *d = g.mImpl;
+			d->reserve.ForEach([d](const uint64 &, NkVector<NkBufferHandle> &pile) {
+				for (uint32 i = 0; i < pile.Size(); ++i)
+					d->device->DestroyBuffer(pile[i]);
+				pile.Clear();
+			});
+			d->reserve.Clear();
+			gReserveOctets = 0;
+			gReserveTampons = 0;
+		}
+
 		// ---- Buffers ------------------------------------------------------------
 		uint64 NkTensorGpu::CreateBuffer(nk_size bytes) {
 			NkGpuChrono chr("~alloc");
@@ -650,7 +725,28 @@ namespace nkentseu {
 				}
 			}
 
-			NkBufferHandle h = mImpl->device->CreateBuffer(NkBufferDesc::Storage(bytes, false));
+			// ---- RESERVE : servir un tampon deja alloue, de TAILLE EXACTE ---------
+			// ⚠️ Le compteur est incremente ICI et NULLE PART AILLEURS. C'est lui qui
+			// distingue « servi depuis la reserve » de « alloue a neuf » — sans quoi
+			// un gain mesure ne prouverait rien, une reserve repondant toujours.
+			NkBufferHandle h{};
+			bool servi = false;
+			if (gReserveActive) {
+				auto *pile = mImpl->reserve.Find((uint64)bytes);
+				if (pile && pile->Size() > 0) {
+					h = (*pile)[pile->Size() - 1];
+					pile->PopBack();
+					servi = true;
+					++gReserveServis;
+					gReserveOctets -= (int64)bytes;
+					--gReserveTampons;
+				}
+			}
+
+			if (!servi) {
+				h = mImpl->device->CreateBuffer(NkBufferDesc::Storage(bytes, false));
+				++gReserveNeufs;
+			}
 			if (!h.IsValid()) {
 				NkGpuSignalerDefaut("CreateBuffer", "allocation refusee, octets demandes", (int64)bytes);
 				return 0;
@@ -671,7 +767,34 @@ namespace nkentseu {
 				return;
 			auto *h = mImpl->buffers.Find(id);
 			if (h) {
-				mImpl->device->DestroyBuffer(*h);
+				// ---- RESERVE : retenir au lieu de detruire, dans la limite du budget --
+				// ⚠️ Le budget existe parce qu'une reserve NE LIBERE PLUS LA VRAM. Le
+				// pic mesure est de 6 659 Mo sur 8 Go : sans plafond, retenir suffirait
+				// a faire deborder, et l'echec se presenterait comme une allocation
+				// refusee loin d'ici. Au-dela du budget on detruit VRAIMENT, et on
+				// compte l'eviction pour que le rapport le dise.
+				bool retenu = false;
+				if (gReserveActive) {
+					auto *t = mImpl->tailles.Find(id);
+					const int64 oct = t ? (int64)*t : 0;
+					if (oct > 0 && gReserveOctets + oct <= gReserveBudget) {
+						auto *pile = mImpl->reserve.Find((uint64)oct);
+						if (!pile) {
+							mImpl->reserve.Insert((uint64)oct, NkVector<NkBufferHandle>{});
+							pile = mImpl->reserve.Find((uint64)oct);
+						}
+						if (pile) {
+							pile->PushBack(*h);
+							gReserveOctets += oct;
+							++gReserveTampons;
+							retenu = true;
+						}
+					} else if (oct > 0) {
+						++gReserveEvictions;
+					}
+				}
+				if (!retenu)
+					mImpl->device->DestroyBuffer(*h);
 				mImpl->buffers.Erase(id);
 				// Decompte APRES la destruction reussie : compter une liberation qui
 				// n'a pas eu lieu ferait mentir le pic dans le sens rassurant.
