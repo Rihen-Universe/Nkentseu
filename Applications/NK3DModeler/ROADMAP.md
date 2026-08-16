@@ -119,6 +119,34 @@ C'est la première fois que le comportement objet/édition est fixé noir sur bl
 > « Un model c'est un assemblage de vertices, edges et faces reliés ou non entre
 > eux. Des mesh d'un model peuvent porter des matériaux différents ou le même. »
 
+#### ✅ LIVRÉ (17/08) — `937a0c66`, `2093e783`, `bac51a20`
+
+- **`L` / `Ctrl+L`** : `ComputeConnectedComponents` dans **NkEditMesh** (pas dans
+  l'application — `P` la partagera). Parcours sur l'**identité soudée** :
+  un cube importé duplique ses sommets par face, et une connexité par indices
+  bruts y verrait **six** îlots au lieu d'un. Banc : cube = 1 composante,
+  deux cubes = 2, somme = nombre de sommets, zéro orphelin.
+  *Écart assumé* : la graine est le sommet **actif**, pas le survol — il n'existe
+  aucun survol par sommet dans cette vue.
+- **Mode objet** : cliquer la matière sélectionne le **MODEL**, via
+  `Demo3DHostModelRootOf` (qui **existait déjà** — le liséré s'en sert vingt
+  lignes plus bas). Uniquement le pick de la vue 3D, déjà sous `!editMode`.
+
+⚠️ **CE QU'IL NE FAUT PAS « AMÉLIORER » PLUS TARD — et la raison.**
+Il est tentant d'ajouter les maillages à la sélection du gizmo pour que
+« sélectionné avec tous ses sous-mesh » soit littéral. `AddToSelection` existe et
+ça *marcherait* en apparence. **Ne le faites pas** : le gizmo calcule **une
+transformation par cible sélectionnée**, et `HostHierRecurse` propage **déjà**
+celle du parent à ses enfants — le geste serait appliqué **deux fois**.
+Le liséré couvre déjà toute la matière (« la zone d'un model, c'est sa
+matière ») : **l'exigence est satisfaite visuellement, sans toucher une seule
+transformation.**
+
+**Non mesuré** : la remontée elle-même n'a pas de banc (il faudrait un projet
+chargé et des coordonnées écran). La trace `NK_SEL_AT` dit désormais la **nature**
+du nœud sélectionné (`model` / `maillage` / `vide`) et non plus seulement son
+numéro — c'est ce qui permet de la constater en un geste.
+
 **Conséquence directe** : « le matériau du model » n'a pas de réponse unique.
 Un model porte une **liste** de matériaux, et on choisit lequel on modifie. Un
 panneau conçu pour un matériau unique n'a donc rien à afficher — c'est le défaut
