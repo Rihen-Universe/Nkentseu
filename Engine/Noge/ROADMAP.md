@@ -450,6 +450,109 @@ en deux applications ? » change de nature : **deux modes dans une application
 coûtent un menu ; deux applications coûtent deux installations, deux
 distributions, deux cours.**
 
+### 9bis. La barre d'état du shell est DÉJÀ personnalisable — elle s'appelle `Footer` (2026-08-17)
+
+Mesuré sur `NkEditorShell.h/.cpp`, commit `57e159e5`. **Corrige une conclusion
+antérieure** selon laquelle la barre d'état n'aurait « aucun crochet public » :
+cette lecture venait d'un `grep` sur `Status`, alors que le shell nomme la chose
+**`Footer`** dans son API publique et **`StatusBar`** seulement dans sa méthode
+privée de dessin.
+
+```
+NkEditorShell.h:354   SetFooter(const char *left, const char *right)
+NkEditorShell.h:358   SetFooterLights(const NkColor *colors, const char *const *tips, int32 count)
+```
+
+Consommateurs réels : `ConquerorLab/main.cpp:162`, `NKCode/Shell/Panels.h:658,662,996`.
+
+`SetFooterLights` accepte **8 pastilles poussées à chaque frame, avec infobulle**,
+et sa déclaration annonce l'usage « santé code/compilation/link ». **Un éditeur
+qui veut un voyant d'état n'a rien à ajouter au kit** — le mécanisme existe et
+est exercé.
+
+⚠️ **Aucune couleur du footer n'est en dur** (`theme.header`, `theme.border`,
+`theme.text`, `theme.buttonHover`, `theme.textDisabled` — vérifié l. 1188-1241).
+« Récupérer et changer les couleurs » passe donc par le **thème**, sans toucher
+au shell.
+
+**Dette nommée — le voyant « Zoom NNN% » fuit NKCode dans le shell partagé.**
+`NkEditorShell.cpp` l. 1223-1240 dessine l'indicateur **sans condition**, câblé
+sur `ActiveCodeSize()` / `kDefaultCodeFontSize = 15.f`, une notion d'**éditeur de
+code**. **ConquerorLab l'affiche déjà aujourd'hui** alors qu'il n'a pas de police
+de code, et tout futur éditeur (Nogee, NkAnima, NkScena) l'affichera aussi.
+Correctif naturel : le rendre conditionnel (drapeau de config ou crochet), **dans
+NKEditorKit, chez son propriétaire** — pas de contournement local.
+
+### 9ter. ⚠️ NKUI et NKGui sont DEUX bibliothèques d'UI immédiate — et le dépôt s'est scindé en deux
+
+Mesuré le 2026-08-17 en chiffrant la migration de Nogee vers le shell. **C'est le
+fait le plus lourd de cette section, et il dépasse Nogee.**
+
+```
+NKUI    Kernel/Runtime/NKUI     25 .h +19 .cpp = 23 166 lignes   30 projets dépendants
+NKGui   Kernel/Runtime/NKGui     9 .h + 4 .cpp =  7 789 lignes   12 projets dépendants
+```
+
+**Ce ne sont pas deux couches empilées, ce sont deux tentatives de la même
+couche** : les deux ont contexte, draw list, police, entrées, thème, widgets
+**et docking** (`NkUIDock.cpp` d'un côté, « docking + conteneurs + flex + DPI »
+dans le commit fondateur de l'autre).
+
+**Et la ligne de partage suit les produits :**
+
+| | dépendants |
+|---|---|
+| **NKUI** | les jeux et démos — Pong, PV3DE, Nkoung, Songoo, **Noge**, **Nogee**, les 10 démos, NKCanvas |
+| **NKGui** | les **éditeurs** — NK3DModeler, NKCode, ConquerorLab, NkAnimaEditor, NKEditorKitDemo, **et NKEditorKit** |
+
+⚠️ **La docstring de `NKEditorKit.jenga` annonce « construite PAR-DESSUS NKUI »
+alors que sa liste de dépendances, 20 lignes plus bas, dit `NKGui`.** Archéologie
+faite plutôt que supposée :
+
+```
+git log -S"PAR-DESSUS NKUI"  -- NKEditorKit.jenga  ->  b055449f  (2026-06-26)
+git log -S'"NKGui"'          -- NKEditorKit.jenga  ->  b055449f  (le MÊME commit)
+git log -S'"NKUI"'           -- NKEditorKit.jenga  ->  AUCUN résultat
+b055449f = « feat(nkgui): framework UI immédiat » — CRÉE le fichier (85 insertions)
+```
+
+**Le kit n'a jamais dépendu de NKUI.** La docstring était fausse le jour où elle a
+été écrite : ce n'est pas une dérive, c'est de la prose héritée d'une conception
+antérieure, jamais vraie de ce fichier. *Un commentaire faux a souvent été vrai —
+celui-ci ne l'a jamais été, et seule la date le prouve.*
+
+**Les deux sens de la migration, chiffrés — parce qu'un seul nombre sur la table
+oriente la décision sans l'éclairer :**
+
+| sens | code à porter | rayon d'impact |
+|---|---|---|
+| **A — Nogee vers NKGui** (s'aligner sur le kit) | **~1 278 l.**, 184 sites NKUI (4 panneaux + barre de menus) | **1 application** |
+| **B — le kit vers NKUI** (s'aligner sur Nogee) | **6 892 l.**, 77 sites `nkgui::` | **45 fichiers, 6 applications** (NKCode 25, ConquerorLab 8, NK3DModeler 7, NkAnimaEditor 2, NKEditorKitDemo 2, NKEditMeshHarness 1) |
+
+**B coûte ~5× le code et 6× le rayon**, et frapperait NK3DModeler en pleine
+refonte. **L'hypothèse « c'est la dépendance du kit qui est la faute » ne tient
+pas** : le kit est né sur NKGui, délibérément, dans le commit qui a introduit
+NKGui.
+
+✅ **Et la migration n'a pas à être un big-bang — `NKPA` le prouve** : il dépend
+des deux, `NkPAGui.cpp` inclut `NKGui/NKGui.h`, `NkPAUI.cpp` inclut six en-têtes
+`NKUI/`, et `NkPAUIState.h` est commenté « partagé NKUI/NKGui ». **Les deux
+bibliothèques lient dans un même binaire.** Nogee peut donc monter la coque NKGui
+et porter ses panneaux **un par un**, l'ancien chemin NKUI restant vivant
+entre-temps.
+
+⚠️ *Ce que NKPA prouve et ce qu'il ne prouve pas* : il prouve la coexistence au
+niveau de l'**application** (un fichier par bibliothèque). Il ne prouve **pas**
+qu'un contenu dessiné en NKUI puisse s'afficher dans un panneau ancré NKGui — le
+corps d'un panneau reçoit un `NkEditorFrameContext`, donc du `nkgui::`. Le coût
+du port des corps reste entier ; c'est son **échelonnement** qui devient possible.
+
+> 🚦 **DÉCISION QUI REVIENT À RODOLF, et ce n'est pas Nogee.** Deux bibliothèques
+> d'UI immédiate, **30 955 lignes à elles deux**, avec docking des deux côtés et
+> le dépôt scindé jeux/éditeurs. Le vrai sujet n'est pas « vers où porter Nogee »,
+> c'est **si ce doublon doit continuer d'exister**. Aucune mesure ne le tranche :
+> c'est « ce que le produit EST ».
+
 ---
 
 ## 10. 📊 INVENTAIRE DE `Applications/Nogee` — compile / tourne / consomme
