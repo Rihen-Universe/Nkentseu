@@ -18,6 +18,71 @@ SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
 
 ---
 
+## ✅ 2026-08-17 — le mode de fusion est DEMANDÉ au runtime, plus écrit en dur
+
+`EndFrame` soumettait `XR_ENVIRONMENT_BLEND_MODE_OPAQUE` **en dur**
+(`NkXrOpenXRBackend.cpp`, ancienne l. 1321), alors que
+`xrEnumerateEnvironmentBlendModes` était chargée et jamais appelée pour décider.
+*Une valeur écrite en dur est une hypothèse non mesurée* — même famille que les
+réglages fantômes de NKCamera et que les gardes de macros corrigées le même jour.
+
+**La règle de sélection, décidée UNE fois à l'initialisation :**
+
+| cas | mode soumis | effet |
+|---|---|---|
+| le runtime annonce OPAQUE | **OPAQUE** | **identique à avant, au bit près** |
+| le runtime n'annonce PAS OPAQUE | son **premier mode annoncé** | corrige une soumission **invalide** au regard de la spec |
+| énumération en échec ou absente | **OPAQUE** | repli — le comportement d'avant |
+
+⚠️ **Sur tout runtime qui annonce OPAQUE — c'est-à-dire tout ce que ce dépôt peut
+exercer aujourd'hui — ce correctif est inerte.** Il ne devient utile que là où
+l'ancien code était fautif : les casques à écran transparent, qui n'annoncent
+qu'`ADDITIVE` et pour lesquels soumettre `OPAQUE` violait la spec.
+
+### 🚫 Ce que ceci ne fait PAS
+
+**Le passthrough n'est ni disponible, ni plus proche.** Le runtime PC mesuré le
+2026-08-17 n'expose **pas** `XR_FB_passthrough` (36 extensions, absente), et un
+passthrough Quest exige un **APK autonome que ce dépôt ne produit pas**. Ce code
+sert à **dire la vérité** le jour où cet APK existera. Le chemin AR n'est pas
+touché.
+
+### ⚠️ État de vérification — compilé, PAS exercé
+
+| | |
+|---|---|
+| compile (`jenga build --target NKXRDemo --config Release`) | ✅ **26/26**, Release |
+| exercé sur le runtime OpenXR | ❌ **NON** |
+
+`NKXRDemo` **n'atteint pas** l'initialisation XR sur cette machine : il s'arrête
+dans `NkRendererImpl::Initialize`, *step 2 `NkShaderLibrary::Init`* — soit avant
+toute ligne de NKXR. Preuve, pas raisonnement : `logs/app.log` contient
+**0 occurrence** d'`OpenXR` ou de `xrCreateInstance`. Le blocage est donc situé
+en amont de ce correctif, mais il **empêche de le vérifier**, et c'est écrit ici
+plutôt que passé sous silence.
+
+*La journalisation de la liste reçue a lieu **une seule fois**, à
+l'initialisation ; `EndFrame` ne fait que relire un champ. Rien ne se journalise
+par image.*
+
+### 🔧 Un champ fantôme créé puis retiré dans le même geste
+
+Un booléen « l'énumération a-t-elle répondu ? » a été ajouté, mesuré à
+**1 écrivain / 0 lecteur**, puis retiré — exactement le défaut que ce dépôt
+traque depuis une semaine, commis en le corrigeant. Les trois cas sont déjà
+séparés par trois messages distincts. *Un état de plus n'aurait servi qu'à
+donner l'illusion d'une capacité interrogeable.*
+
+### ⚠️ Dette nommée, non traitée : `tests/build_tests.sh` compile en C++20
+
+Le dépôt est en **C++17** (`cppdialect("C++17")`, 205 projets) ; le banc NKXR
+compile ses trois tests en `-std=c++20`. *Un banc qui n'est pas compilé comme le
+code qu'il juge ne mesure pas le même code* — c'est ce qui a piégé le témoin
+`NkToWide`. Non corrigé ici : ça change ce que mesurent 66 contrôles, et ça se
+fait avec sa propre vérification.
+
+---
+
 ## Synthèse
 
 | Phase / Composant | Statut | Effort | Priorité |
