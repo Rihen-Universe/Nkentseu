@@ -1293,10 +1293,24 @@ namespace nkentseu {
 			NkVector<NkVarNode *> order, seen;
 			CollectTopo(mNode, order, seen);
 
-			// Réinitialise les accumulateurs (forme de la valeur), puis amorce la
+			// Réinitialise les accumulateurs des nœuds INTERMÉDIAIRES, puis amorce la
 			// racine (perte scalaire) à 1.
-			for (uint32 i = 0; i < order.Size(); ++i)
-				order[i]->grad = ZerosCommeSur(order[i]->value);
+			//
+			// ⚠️ LES FEUILLES À GRADIENT REQUIS NE SONT PAS REMISES À ZÉRO ICI.
+			// C'est l'appelant qui vide, via ZeroGrad() — ce que l'API annonçait déjà
+			// sans que ce soit vrai. Sans ça, `--accum N` n'accumule RIEN : chaque
+			// micro-lot efface le gradient du précédent, seul le dernier contribue, et
+			// il reste divisé par N (lot effectif ET taux N fois plus petits
+			// qu'annoncés). Mesuré le 2026-08-16 ; décision de Rodolf (option A).
+			//
+			// Le gradient d'un nœud INTERMÉDIAIRE, lui, n'a aucun sens d'un backward à
+			// l'autre : il est reconstruit à chaque passe et doit partir de zéro.
+			for (uint32 i = 0; i < order.Size(); ++i) {
+				NkVarNode *n = order[i];
+				if (n->op == NkAutoOp::NK_LEAF && n->requiresGrad)
+					continue;
+				n->grad = ZerosCommeSur(n->value);
+			}
 			// La racine est la PERTE, un scalaire : la monter coute 4 octets. On la
 			// laisse sur le chemin historique — un noyau « remplir de 1 » pour un
 			// tenseur d'un element serait plus cher que le transfert qu'il remplace.
@@ -1307,13 +1321,28 @@ namespace nkentseu {
 				BackwardNode(order[(uint32)i]);
 		}
 
+		// ⚠️ Les zéros sont écrits LÀ OÙ VIT LE PARAMÈTRE (`ZerosCommeSur`), jamais
+		// fabriqués sur CPU pour être remontés ensuite.
+		//
+		// Ce chemin était MORT jusqu'à l'option A : `Backward()` réécrivait le
+		// gradient juste après, donc des zéros CPU ne coûtaient rien. Depuis que les
+		// feuilles ne sont plus remises à zéro par `Backward()`, ces zéros SURVIVENT
+		// et deviennent la base de l'accumulation — un `NkTensor::Zeros` CPU ferait
+		// alors remonter ~79 Mo par pas (20 M paramètres × 4 o) via `NkGpuAdd`, qui
+		// monte son opérande CPU. C'est exactement le défaut réparé par le chantier
+		// n°1 (12,7 Go/pas de zéros montés), à huit lignes de là et par un autre
+		// appelant.
+		//
+		// Le contrat ne change pas : après `ZeroGrad()`, `Grad()` rend des ZÉROS
+		// (valides), jamais un tenseur invalide. Invalider serait remplacer un échec
+		// silencieux par un autre.
 		void NkVar::ZeroGrad() {
 			if (!mNode)
 				return;
 			NkVector<NkVarNode *> order, seen;
 			CollectTopo(mNode, order, seen);
 			for (uint32 i = 0; i < order.Size(); ++i)
-				order[i]->grad = NkTensor::Zeros(order[i]->value.Shape());
+				order[i]->grad = ZerosCommeSur(order[i]->value);
 		}
 
 		// =====================================================================
