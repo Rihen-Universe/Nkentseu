@@ -636,14 +636,23 @@ namespace nkentseu {
 		// Le path est relatif au CWD (= dossier du binaire ou de l'app launchee).
 		NkShaderHandle NkShaderLibrary::LoadOrCompileVF(const NkString &materialName, const NkString &fallbackVS,
 														const NkString &fallbackFS) {
-			logger.Info("[NkShaderLibrary] LoadOrCompileVF '{0}' (api={1})\n", materialName, (int)mApi);
+			// TRACE et non INF : LoadOrCompileVF est appelé PAR SHADER ET PAR IMAGE
+			// par les consommateurs (Nogee : 12 652 appels en 15 s pour un seul
+			// matériau, dont 12 651 servis par le cache). En INF, cette ligne et le
+			// « cache hit » ci-dessous pesaient 25 303 lignes sur les 51 020 d'une
+			// course — la moitié du journal pour dire que tout va bien.
+			// ⚠ La ligne d'ÉCHEC (`CreateShader fail`, plus haut) reste au niveau
+			// erreur, et c'est le point : elle se produit UNE fois par shader, elle
+			// est rare, et c'est la seule chose qu'on voulait pouvoir lire ici.
+			// Taire le succès répété, jamais l'échec.
+			logger.Trace("[NkShaderLibrary] LoadOrCompileVF '{0}' (api={1})\n", materialName, (int)mApi);
 
 			// Si ce shader a deja ete compile sous ce nom (ex : NkRender3D a compile
 			// "PBR" avant NkMaterialSystem), on retourne le handle cache directement.
 			{
 				auto cached = Find(materialName);
 				if (cached.IsValid()) {
-					logger.Info("[NkShaderLibrary] LoadOrCompileVF '{0}' — cache hit\n", materialName);
+					logger.Trace("[NkShaderLibrary] LoadOrCompileVF '{0}' — cache hit\n", materialName);
 					return cached;
 				}
 			}
@@ -787,6 +796,24 @@ namespace nkentseu {
 			if (!p || !p->valid)
 				return NkShaderHandle::Null();
 			return p->rhiHandle; // ← retourne le vrai RHI handle
+		}
+
+		// ── Santé des programmes ─────────────────────────────────────────────────
+		// Le couple (valides, total) se lit « 4/21 » et non « 4/4 » parce que
+		// `Alloc()` ci-dessous est appelé INCONDITIONNELLEMENT, y compris quand
+		// `CreateShader` a échoué : un programme en échec RESTE dans `mPrograms`.
+		// Cette propriété a été vérifiée AVANT d'écrire ces compteurs, pas après —
+		// sans elle, le voyant aurait donné le feu vert à la panne qu'il signale.
+		uint32 NkShaderLibrary::GetValidProgramCount() const {
+			uint32 n = 0;
+			for (const auto &kv : mPrograms)
+				if (kv.Second.valid)
+					++n;
+			return n;
+		}
+
+		uint32 NkShaderLibrary::GetProgramCount() const {
+			return (uint32)mPrograms.Size();
 		}
 
 		NkShaderHandle NkShaderLibrary::Alloc(NkShaderProgram &prog) {
