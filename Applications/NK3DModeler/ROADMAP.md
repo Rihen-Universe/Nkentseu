@@ -311,6 +311,107 @@ annonçait que reprendre la position monde ferait partir la matière « au doubl
 la distance », ce qui suppose une composition `parent × enfant` **qui n'existe
 pas**.
 
+### ⚠️ UN TROISIÈME ACTEUR déplace la matière d'un model — et il n'était dans aucune des deux analyses
+
+Demandé par Rihen : *vérifier que les deux correctifs ne se cumulent pas.* En le
+vérifiant, j'ai trouvé qu'ils ne sont **pas deux**.
+
+`HostHierRecurse` (`NkDemo3D.cpp:15534`) rejoue **à chaque frame** l'écart entre la
+position courante d'un parent et son **cliché** (`sHierPos`), et donne cet écart à
+ses enfants. Le masque de transmission `nkvpXmit` vaut **7 dès la naissance**
+(`HostAllocUser`) : tout se transmet, position comprise. **C'est ce mécanisme qui
+fait que le gizmo « suit »** — la propagation est voulue pour un déplacement
+ordinaire.
+
+🔴 **Le fait mesuré, et il est certain** (grep exhaustif sur `NkDemo3D.cpp`, seul
+fichier où vit `sHierPos` ; contre-épreuve : le même motif remonte bien ses deux
+sites d'écriture) : `sHierPos` n'est écrit **qu'à deux endroits** — le cliché de
+fin de frame (`l. 15732`) et `Demo3DHostHierarchyResync` (`l. 15746`), appelé
+**uniquement au chargement d'un projet** (3 sites, tous dans `Project/`).
+
+**`HostAllocUser` ne l'écrit jamais.** Un nœud qui vient de naître porte donc le
+cliché de **l'occupant précédent de son emplacement**. Le `dp` calculé à la
+première frame après un dépôt n'est pas le geste de l'utilisateur : c'est un écart
+contre une valeur qui n'a aucun sens.
+
+⬜ **Ce qui n'est PAS établi** : que ce `dp` s'**ajoute** effectivement à la pose au
+lieu de la remplacer. Le raisonnement le suggère, il ne le prouve pas — et c'est
+exactement le genre d'enchaînement qui a déjà produit deux fausses causes sur ce
+défaut. **Mesuré par les deux traces posées le 17/08**, qui encadrent la frame :
+
+| trace | où | ce qu'elle dit |
+|---|---|---|
+| `MESURE cumul` | fin de `Demo3DHostSetModelTransform` | barycentre X/Z de la matière **juste après la pose**, contre le point demandé |
+| `MESURE hier` | `HostHierRecurse`, si le parent est un model | le cliché, le courant, et le `dp` **propagé à la frame suivante** |
+
+**Lecture de `ECART X/Z` de `MESURE cumul`** — l'instrument discrimine les trois
+cas, il ne peut pas seulement confirmer :
+
+| écart | verdict |
+|---|---|
+| **~0** | la naissance et la pose s'emboîtent |
+| **~(−0,45, −0,45)** | le décalage de naissance n'atteint pas les maillages |
+| **~(+0,45, +0,45)** | il est compté deux fois |
+
+⚠️ **Et `MESURE hier` prime** : si elle affiche un `dp` non nul après un dépôt, un
+`ECART` nul de `MESURE cumul` ne veut rien dire — il aura été mesuré **avant** le
+troisième acteur. *Un instrument posé trop tôt ne peut que confirmer.*
+
+**La trace `MESURE dup enfant` a été retirée** : sa question — les enfants
+naissent-ils tous du même chemin ? — est tranchée, et elle parlait une fois **par
+maillage**, ce qui aurait noyé les deux ci-dessus.
+
+### 🔎 Piste voisine, NON mesurée : le panneau Propriétés ignore la porte « model »
+
+`Demo3DHostSetModelTransform` a été créée parce que déplacer le seul conteneur
+laisse la matière derrière. Les **deux** chemins de dépôt passent par elle. Mais
+`NkModelerProperties.h` appelle encore `Demo3DHostSetEmptyTransform` sur le nœud
+sélectionné en **trois** endroits — `l. 4963` (coller une transform), `l. 4972`
+(réinitialiser), `l. 5421` (édition directe de Position/Rotation/Échelle).
+
+Si le nœud est un model, taper une position dans le panneau devrait donc laisser sa
+matière en arrière — **sauf** si la propagation de `HostHierRecurse` la rattrape à
+la frame suivante, ce qui est précisément la question ouverte ci-dessus. **Les deux
+questions n'en font qu'une**, et la même mesure les tranche toutes les deux. Ne
+rien corriger ici avant qu'elle ait parlé.
+
+### 🔁 J'ai écrit un doublon — `Demo3DHostRecenterModel` avait déjà un jumeau
+
+Rodolf a rappelé la règle le 17/08 : *chercher d'abord, écrire seulement si ça
+n'existe pas.* **Je ne l'ai pas appliquée en écrivant `Demo3DHostRecenterModel`
+(`4dd4ed21`)**, et le jumeau était à 2 000 lignes de là, dans le même fichier :
+
+| existant | rôle |
+|---|---|
+| `Demo3DHostMeshesCenter` (`l. 14005`) | centre de la matière d'un nœud |
+| `Demo3DHostSetNodeOrigin` (`l. 13985`) | déplace l'origine **en compensant** les enfants |
+
+Utilisés ensemble par le panneau Propriétés (`NkModelerProperties.h:5015-5021`) pour
+le bouton « origine → centre de la géométrie » — **exactement mon geste**. C'est le
+symptôme que la règle décrit : un helper local ne déclenche aucun avertissement, ne
+casse rien, et se contente d'exister.
+
+⬜ **Mais je ne fusionne pas, et la raison est un défaut présumé** (lecture de code,
+**NON mesuré**) : les deux ne calculent pas la même chose.
+
+`Demo3DHostMeshesCenter` renvoie `origine_du_nœud + moyenne(positions des enfants)`.
+Or les positions de ce système sont **absolues** — c'est établi et mesuré
+(`HostNodeWorld` ne compose jamais avec le parent). Ajouter l'origine du parent à
+une moyenne déjà absolue **compte le parent deux fois**. Et `Demo3DHostSetNodeOrigin`
+recule ensuite les enfants de `d`, ce qui sous sémantique absolue **déplace la
+matière** au lieu de la laisser en place.
+
+C'est **la même fausse prémisse** que le commentaire retiré dans `HostDuplicateTree`
+— une composition `parent × enfant` qui n'existe pas. Elle a survécu à un endroit de
+plus que je n'avais vu.
+
+🎯 **À trancher après la mesure du dépôt** : si le défaut est confirmé, le bouton
+« origine → centre » du panneau est faux, et `Demo3DHostRecenterModel` (qui ne fait
+pas l'addition) est la version juste — c'est alors **elle** qui doit absorber les
+deux autres, pas l'inverse. Corriger avant de mesurer reviendrait à réparer un
+troisième site sur une prémisse non vérifiée, ce qui a déjà coûté deux fausses
+causes sur ce défaut.
+
 ### ❌ Anomalie n°2 — ELLE N'A JAMAIS EXISTÉ. C'était l'instrument
 
 **Verdict mesuré** : `MESURE dup model : src=98 -> root=107 internesDeLaSource=2

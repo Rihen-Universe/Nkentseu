@@ -15566,6 +15566,28 @@ namespace nkentseu {
 										  xPos ? cpos[2] : ppos[2]};
 			const bool moved = xPos || xRot || xScl;
 			const bool selP = HostNodeSelected(st, pnode);
+			// MESURE (temporaire) : LE TROISIEME ACTEUR SUR LA MATIERE D'UN MODEL.
+			//
+			// Deux correctifs deplacent deja les maillages d'un model -- la naissance
+			// (HostDuplicateTree) et la pose (Demo3DHostSetModelTransform). CETTE
+			// BOUCLE EST LE TROISIEME, et elle n'etait dans aucune des deux analyses :
+			// elle rejoue chaque frame l'ecart entre la position courante d'un parent
+			// et son CLICHE, et le donne a ses enfants (nkvpXmit vaut 7 -- tout se
+			// transmet -- des la naissance, HostAllocUser).
+			//
+			// ⚠️ Or HostAllocUser n'ecrit JAMAIS sHierPos : un noeud qui vient de
+			// naitre porte le cliche de l'occupant precedent de son emplacement. Le
+			// `dp` calcule ici juste apres un depot n'est donc pas le geste de
+			// l'utilisateur -- c'est un ecart contre une valeur qui n'a aucun sens.
+			//
+			// C'est aussi ce qui explique que le gizmo « suive » : la propagation est
+			// VOULUE pour un deplacement ordinaire. La question ouverte est de savoir
+			// si elle s'AJOUTE a la pose au lieu de la remplacer.
+			if (moved && nkvpIsModel[pnode])
+				logger.Info("[Demo3D] MESURE hier : model={0} cliche=({1}, {2}, {3}) "
+							"courant=({4}, {5}, {6}) dp=({7}, {8}, {9}) transmis={10}\n",
+							pnode, ppos[0], ppos[1], ppos[2], cpos[0], cpos[1], cpos[2],
+							dp[0], dp[1], dp[2], xPos ? 1 : 0);
 			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
 				if (nkvpParentOf[c] != pnode)
 					continue;
@@ -16052,16 +16074,12 @@ namespace nkentseu {
 					nkvpEmptyRotDeg[em][a] = nkvpEmptyRotDeg[ec][a];
 					nkvpEmptyScl[em][a] = nkvpEmptyScl[ec][a];
 				}
-				// MESURE (temporaire) : D'OU naissent les enfants du double ?
-				// Deux symptomes -- des enfants restes a la position de la source,
-				// et un enfant de trop -- se ramenent peut-etre a UNE seule cause.
-				// Si les deux enfants naissent ICI, ce sont deux defauts distincts ;
-				// si l'un nait ailleurs, c'en est un seul et le correctif est de
-				// supprimer le chemin en trop.
-				logger.Info("[Demo3D] MESURE dup enfant : source={0} -> copie={1} "
-							"locale recopiee=({2}, {3}, {4})\n",
-							c, m, nkvpEmptyPos[ec][0], nkvpEmptyPos[ec][1],
-							nkvpEmptyPos[ec][2]);
+				// La trace « MESURE dup enfant » vivait ici. Sa question -- les
+				// enfants naissent-ils tous du meme chemin ? -- a ete tranchee (un
+				// seul chemin, et le decalage manquant ci-dessus etait la cause), et
+				// elle parlait une fois PAR MAILLAGE. La mesure ouverte porte
+				// desormais sur la pose, pas sur la naissance : voir
+				// Demo3DHostSetModelTransform.
 				if (independent)
 					HostMakeGeometryOwn(m);
 			}
@@ -16229,13 +16247,38 @@ namespace nkentseu {
 			// LE MEME parcours d'appartenance que l'archivage et l'ecriture d'un
 			// fichier de model : les trois doivent emporter EXACTEMENT les memes
 			// noeuds, sinon un maillage oublie reste en arriere.
+			float32 bx = 0.f, bz = 0.f;
+			int32 nb = 0;
 			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
 				if (c < kNkvpFirstEmpty || !HostIsInnerMeshOf(c, node))
 					continue;
 				const int32 e = c - kNkvpFirstEmpty;
 				for (int32 a = 0; a < 3; ++a)
 					nkvpEmptyPos[e][a] += d[a];
+				bx += nkvpEmptyPos[e][0];
+				bz += nkvpEmptyPos[e][2];
+				++nb;
 			}
+			// MESURE (temporaire) : LES DEUX CORRECTIFS SE CUMULENT-ILS ?
+			//
+			// Deux gestes touchent desormais la meme chose. HostDuplicateTree donne
+			// le decalage de naissance (0.45, 0, 0.45) a la racine ET a ses maillages ;
+			// ici, on translate les maillages du delta MESURE sur la racine. Si le
+			// decalage etait compte deux fois, la matiere se poserait a 0,45 du point
+			// du lacher -- un ecart invisible a l'oeil et faux au chiffre.
+			//
+			// LE SEUL NOMBRE QUI TRANCHE : le barycentre X/Z des maillages APRES la
+			// pose, contre le point demande. L'origine venant d'etre recentree sur ce
+			// barycentre (Demo3DHostRecenterModel), les deux doivent coincider.
+			//   ecart ~ 0        -> pas de cumul, les deux correctifs s'emboitent
+			//   ecart ~ (0.45, 0.45) -> cumul, le decalage de naissance est compte deux fois
+			if (nb > 0)
+				logger.Info("[Demo3D] MESURE cumul : noeud={0} demande=({1}, {2}, {3}) "
+							"delta=({4}, {5}, {6}) barycentre matiere=({7}, {8}) "
+							"ECART X/Z=({9}, {10}) sur {11} maillages\n",
+							node, pos3[0], pos3[1], pos3[2], d[0], d[1], d[2],
+							bx / (float32)nb, bz / (float32)nb,
+							bx / (float32)nb - pos3[0], bz / (float32)nb - pos3[2], nb);
 		}
 		bool Demo3DHostNodeArchived(int32 node) {
 			// Une ARCHIVE est retiree de la vue mais garde sa nature ; un noeud
