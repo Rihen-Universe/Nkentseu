@@ -21,6 +21,7 @@
 #include "ConquerorLab/NkcSession.h"
 #include "ConquerorLab/NkcLabTheme.h"
 #include "ConquerorLab/NkcDraw.h"
+#include "ConquerorLab/NkcCellLabel.h"
 
 #include <cstdio>
 
@@ -83,8 +84,11 @@ namespace nkentseu {
 					Separator(ctx);
 
 					// ---- liste ----------------------------------------------
-					for (int32 i = n - 1; i >= 0; --i) {   // le plus recent en haut
-						const NkcJournalEntry &e = j[static_cast<usize>(i)];
+					// L'origine d'etiquetage se calcule UNE FOIS pour toute la
+						// liste : elle depend du plateau, pas du coup.
+						const NkcLabelOrigin org = LabelOrigin();
+						for (int32 i = n - 1; i >= 0; --i) {   // le plus recent en haut
+							const NkcJournalEntry &e = j[static_cast<usize>(i)];
 						ctx.PushId(&j[static_cast<usize>(i)]);
 
 						const float32 h	  = NkcLineH(ctx) + ctx.S(6.f);
@@ -104,9 +108,16 @@ namespace nkentseu {
 							std::snprintf(line, sizeof(line), "%3d  %-9s %s", i + 1,
 										  NkcMoveKindName(e.move.kind), e.byAi ? "(IA)" : "");
 						} else {
-							std::snprintf(line, sizeof(line), "%3d  %-9s (%d,%d) -> (%d,%d)%s %s", i + 1,
-										  NkcMoveKindName(e.move.kind), e.move.from.q, e.move.from.r,
-										  e.move.to.q, e.move.to.r,
+							// A L'ECRAN, L'ETIQUETTE REMPLACE L'AXIAL : c'est
+							// exactement ce qu'un stagiaire a demande, et
+							// « (3,-1) -> (4,-1) » ne se lit pas. L'axial n'est
+							// perdu nulle part — la trace copiee le garde, en
+							// plus de l'etiquette.
+							char de[16], vers[16];
+							NkcFormatCellLabel(e.move.from, Topology(), org, de, sizeof(de));
+							NkcFormatCellLabel(e.move.to, Topology(), org, vers, sizeof(vers));
+							std::snprintf(line, sizeof(line), "%3d  %-9s %s -> %s%s %s", i + 1,
+										  NkcMoveKindName(e.move.kind), de, vers,
 										  e.flipped > 0 ? FlipTag(e.flipped) : "", e.byAi ? "(IA)" : "");
 						}
 						NkcText(ctx, row.x + ctx.S(20.f), row.y + ctx.S(3.f), line,
@@ -163,13 +174,23 @@ namespace nkentseu {
 
 					std::snprintf(buf, sizeof(buf), "# plateau       %s\n", mS->BoardLabel());
 					out += buf;
-					out += "#\n# joueur action de_q de_r vers_q vers_r empreinte\n";
-					const NkVector<NkcJournalEntry> &j = mS->Journal();
+					// LES DEUX COLONNES D'ETIQUETTE SONT AJOUTEES, PAS SUBSTITUEES.
+					// C'est ce qui rend le cout de compatibilite nul : une trace
+					// enregistree avant aujourd'hui reste lisible, et une trace
+					// enregistree aujourd'hui reste rejouable a l'identique par
+					// tout ce qui lit les colonnes q/r. On gagne la lisibilite
+					// sans rien casser.
+					out += "#\n# joueur action de_q de_r vers_q vers_r de vers empreinte\n";
+					const NkcLabelOrigin			 org = LabelOrigin();
+					const NkVector<NkcJournalEntry> &j	 = mS->Journal();
 					for (usize i = 0; i < j.Size(); ++i) {
-						std::snprintf(buf, sizeof(buf), "%u %s %d %d %d %d %llu\n",
+						char de[16], vers[16];
+						NkcFormatCellLabel(j[i].move.from, Topology(), org, de, sizeof(de));
+						NkcFormatCellLabel(j[i].move.to, Topology(), org, vers, sizeof(vers));
+						std::snprintf(buf, sizeof(buf), "%u %s %d %d %d %d %s %s %llu\n",
 									  static_cast<unsigned>(j[i].player),
 									  NkcMoveKindName(j[i].move.kind), j[i].move.from.q, j[i].move.from.r,
-									  j[i].move.to.q, j[i].move.to.r,
+									  j[i].move.to.q, j[i].move.to.r, de, vers,
 									  static_cast<unsigned long long>(j[i].hash));
 						out += buf;
 					}
@@ -180,6 +201,17 @@ namespace nkentseu {
 				}
 
 			private:
+				/// La topologie et l'origine d'etiquetage viennent de la VUE du
+				/// plateau reellement charge, jamais d'une constante : un module
+				/// peut definir sa grille en C++ et lui donner n'importe quelle
+				/// forme, y compris centree sur zero.
+				NkcTopology Topology() const noexcept { return mS->DisplayView().topology; }
+
+				NkcLabelOrigin LabelOrigin() const noexcept {
+					const NkcStateView &v = mS->DisplayView();
+					return NkcComputeLabelOrigin(v.coords, v.cellCount, v.topology);
+				}
+
 				NkcSession *mS = nullptr;
 				char		mTag[16] = {};
 		};

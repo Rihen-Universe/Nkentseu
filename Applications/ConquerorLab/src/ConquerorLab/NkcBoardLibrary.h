@@ -41,13 +41,40 @@
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
 #include "NKLogger/NkLog.h"
+#include "NKSerialization/JSON/NkJSONReader.h"
+#include "NKSerialization/NkArchive.h"
 
 namespace nkentseu {
 	namespace conqueror {
 
 		struct NkcBoardFile {
-				NkString name;	 ///< « diamant_4j.json » — ce que voit l'utilisateur
+				NkString name;	 ///< « diamant_4j.json » — le nom de FICHIER
 				NkString path;	 ///< chemin complet
+				/// Ce que l'utilisateur LIT dans la liste. Vaut le champ « nom » du
+				/// `.json` s'il en porte un, sinon le nom de fichier.
+				///
+				/// ⚠️ CE CHAMP EST NE D'UNE TROUVAILLE QUI ETAIT FAUSSE, ET IL
+				/// SURVIT POUR UNE AUTRE RAISON — la note vaut plus que le champ.
+				///
+				/// J'avais rapporte le 15/08 que `rectangle_8x6.json` et
+				/// `carre_8x8_*.json` etaient PENCHES a l'ecran, en deduisant leur
+				/// forme d'une signature d'etiquetage. **C'etait faux.** Mesure du
+				/// 16/08, plateau par plateau : ils sont en topologie SQUARE, ou
+				/// `CoordToUnit` rend {2q, 2r} — aucun cisaillement possible. Mon
+				/// script appliquait le decalage hexagonal `q + (r>>1)` a des
+				/// plateaux carres : l'escalier que j'observais etait un artefact de
+				/// l'instrument, pas une propriete du plateau.
+				///
+				/// Les SEULS plateaux reellement penches sont `parallelogramme_6x7`
+				/// et `parallelogramme_8x5` — et ils s'appellent « parallelogramme ».
+				/// **Les 15 noms livres sont exacts** ; aucun n'a ete touche.
+				///
+				/// Le champ reste parce qu'il sert independamment : un stagiaire qui
+				/// depose `mon_plateau_v3_final.json` peut lui donner un nom lisible
+				/// sans renommer son fichier. Retro-compatible par construction — un
+				/// plateau sans le champ retombe sur son nom de fichier, donc sur le
+				/// comportement d'avant, et il n'y a rien a migrer.
+				NkString libelle;
 		};
 
 		class NkcBoardLibrary {
@@ -138,6 +165,7 @@ namespace nkentseu {
 						f.name = NkPath(paths[i]).GetFileName();
 						f.path = paths[i];
 						if (f.name.Empty()) { ++ignores; continue; }
+						f.libelle = LibelleDe(f.path, f.name);
 						mFiles.PushBack(f);
 					}
 					logger.Infof("[lab] grilles de travail : %u retenue(s) sur %u fichier(s) "
@@ -234,6 +262,27 @@ namespace nkentseu {
 				}
 
 			private:
+				/// Le nom LU par l'utilisateur : le champ « nom » du `.json` s'il
+				/// existe, sinon le nom de fichier.
+				///
+				/// RETRO-COMPATIBLE PAR CONSTRUCTION : un plateau sans le champ —
+				/// c'est-a-dire tous ceux qu'un stagiaire a deja ecrits — retombe
+				/// exactement sur le comportement d'avant. Rien a migrer.
+				///
+				/// On passe par `NkJSONReader` plutot que par une recherche de
+				/// chaine : le lecteur existe, il est deja lie a cette application,
+				/// et un scanner maison se serait trompe le jour ou un nom contient
+				/// une accolade.
+				static NkString LibelleDe(const NkString &chemin, const NkString &parDefaut) noexcept {
+					const NkString texte = NkFile::ReadAllText(chemin.CStr());
+					if (texte.Empty()) return parDefaut;
+					NkArchive archive;
+					if (!NkJSONReader::ReadArchive(texte.View(), archive)) return parDefaut;
+					NkString nom;
+					if (!archive.GetString("nom", nom) || nom.Empty()) return parDefaut;
+					return nom;
+				}
+
 				NkString			   mDir;
 				NkVector<NkcBoardFile> mFiles;
 				NkString			   mMsg;
