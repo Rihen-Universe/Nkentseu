@@ -32,6 +32,23 @@ namespace nkentseu {
             NkString appName = "NkApp";
             NkString appVersion = "1.0.0";
             bool enableMultiWindow = true;
+            // Minuterie FINE (1 ms) demandée au démarrage, rendue à l'arrêt.
+            //
+            // ACTIVE PAR DÉFAUT, et c'est le sens de la décision : sans elle,
+            // tout `Sleep` de 1 à 12 ms dure ~15,5 ms, et une boucle cadencée au
+            // sommeil tourne à 40 img/s là où elle en vise 60 — mesuré le
+            // 2026-08-15. Jusque-là l'appel n'existait qu'à UN endroit du moteur
+            // (`NkRendererImpl`) : toute application qui n'initialise pas le
+            // renderer héritait du défaut SANS QUE RIEN NE LE LUI DISE.
+            //
+            // REFUSABLE, et ce n'est pas une précaution de style : une minuterie
+            // fine paie des réveils, donc de l'énergie — sur portable et sur
+            // mobile ce n'est pas neutre, et toutes les applications n'ont pas
+            // besoin d'un sommeil précis. **Une décision par défaut qu'on ne
+            // peut pas refuser est une décision irréversible déguisée.**
+            //
+            // Mesures et portée de version : `NkChrono::BeginPreciseTiming`.
+            bool enablePreciseTiming = true;
             void *userData = nullptr;
     };
 
