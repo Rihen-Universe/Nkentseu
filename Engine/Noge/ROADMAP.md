@@ -912,6 +912,61 @@ reproduite chez moi, **pas ConquerorLab lui-même**, que je n'ai pas relancé. L
 proposition causale est réfutée par la mesure ; le comportement global de
 l'application ne l'est pas — il dépend de ses panneaux et de sa disposition.
 
+
+### 9decies. 🔴 LES 17 SHADERS : ce n'était PAS un défaut de shader — c'est le RÉPERTOIRE COURANT (2026-08-17)
+
+**Corrige, encore, une lecture de ce document.** Le §10 et le §9sexies parlaient
+de « 17 shaders sur 21 en échec » comme d'un défaut à réparer dans NKRenderer.
+
+`NkShaderLibrary` journalise la **taille** de chaque source — le discriminant
+était déjà là : `[CompileVF] '<nom>' vsGlsl=<octets> fsGlsl=<octets>`.
+
+```
+Nogee lancé depuis Build/Bin/Release-Windows/Nogee/ :
+  SOURCE OK (4)  PBR · PP_Tonemap · Render2D · Shadow
+  VIDE     (17)  vsGlsl=0 fsGlsl=0 — les 17, sans exception, 0 erreur de compilation
+```
+
+**La cause est le CWD.** `Build/Bin/.../Nogee/Resources/NKRenderer/Shaders`
+n'existe pas ; les 21 shaders sont à la **racine du dépôt**, et le chargeur
+résout ce chemin **relativement au répertoire courant** (commentaire de
+`NkShaderLibrary.cpp`).
+
+**Exécuté, même binaire, seul le CWD change :**
+
+| lancé depuis | sources OK | vides | `CreateShader fail` | erreurs de compilation |
+|---|---|---|---|---|
+| `Build/Bin/.../Nogee/` | 4 | **17** | **17** | 1 (PBR) |
+| **racine du dépôt** | **21** | **0** | **0** | **0** |
+
+**Les 21 shaders vont bien.** Les 4 qui « passaient » ne sont pas meilleurs : ce
+sont les seuls à posséder un **repli embarqué** dans le binaire.
+
+⚠️ **Et ce repli embarqué est PÉRIMÉ** — troisième fait, tombé en chemin. La
+seule erreur de compilation du journal, `"softness" is not member of struct
+"ShadowUBO"`, concerne **PBR**, et **uniquement depuis le dossier binaire** :
+
+```
+PBR depuis Bin    : vsGlsl=2771  fsGlsl=15572   <- repli EMBARQUE
+PBR depuis racine : vsGlsl=2439  fsGlsl=43305   <- fichier DISQUE
+```
+
+Deux sources pour un même shader, et l'embarquée ignore un champ d'uniforme
+ajouté depuis. **Le repli ne protège pas : il donne une image fausse de santé**
+quand les fichiers disque manquent.
+
+**Pour l'agent NKRenderer** (les shaders lui appartiennent, rien n'a été réparé
+ici) : les 8 shaders à source vide de NKXRDemo — Glow2D, InfiniteGrid, Instanced,
+Skin, Skybox, ShadowAlpha, ShadowInstanced, ShadowLinear — sont **un
+sous-ensemble** de ces 17. **Premier geste : vérifier depuis quel répertoire
+NKXRDemo est lancé.** L'autre motif signalé là-bas — `non-opaque uniforms
+outside a block, not allowed when using GLSL for Vulkan` — est un **vrai** défaut
+de source, **non observable ici** : Nogee tourne en **OpenGL**. Deux causes
+distinctes, un seul symptôme.
+
+📌 **Sixième piège d'environnement de ce worktree**, après les sous-modules, le
+sink NKLogger, `/Resources/Models/` gitignoré, l'ordre du PATH et mon emballage
+de script. **Aucun des six n'était un défaut du code.**
 ---
 
 ## 10. 📊 INVENTAIRE DE `Applications/Nogee` — compile / tourne / consomme
