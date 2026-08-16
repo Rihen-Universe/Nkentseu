@@ -25,6 +25,9 @@
 // porte deja un, modal, deplacable, confine a une racine, avec creation de
 // dossier — celui de NKCode. « Porte au lieu de reecrire » (Rihen, 12 aout).
 #include "NKEditorKit/NkFilePicker.h"
+// ... et il est SPECIALISE pour la creation de materiau (choix du type avant
+// creation) : la classe derivee et le catalogue des types vivent a part.
+#include "NK3DModeler/Shell/NkModelerMatTypes.h"
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
@@ -133,6 +136,14 @@ namespace nkentseu {
 
 		// ── ETAT DE SESSION ─────────────────────────────────────────────────────
 		struct NkModelerState {
+				// LA BORNE DU NAVIGATEUR, en tete parce qu'elle dimensionne des
+				// tableaux declares plus haut que son ancienne place. Une borne qui
+				// arrive apres ce qu'elle borne oblige a recopier 32 en dur juste
+				// au-dessus -- et ce depot a deja paye un tableau dimensionne a la
+				// main au lieu de sa borne reelle (hierFold, v16), qui debordait sur
+				// son voisin et corrompait la selection en silence.
+				static const int32 kMaxBrowser = 32;
+
 				NkMode mode = NkMode::Object;
 				NkSubMode subMode = NkSubMode::Face;
 				NkTool tool = NkTool::Move;
@@ -519,6 +530,59 @@ namespace nkentseu {
 				float32 browAskX = 0.f, browAskY = 0.f;
 				bool browMenuCreat = false;
 				NkRect viewRect{0.f, 0.f, 0.f, 0.f};
+				// ── JETON DE LACHER SUR LA VUE 3D ────────────────────────────
+				// UN LACHER = UN JETON COMPLET, resolu une fois, consomme une
+				// fois. Tout ce que le geste utilise est FIGE AU RELACHEMENT :
+				// la carte, sa NATURE, son noeud source, son nom.
+				//
+				// Pourquoi figer plutot que relire au moment d'appliquer : entre
+				// le lacher et l'application il s'ecoule au moins une frame -- le
+				// temps que la boucle resolve le pick, qui a besoin de la camera
+				// et de la taille de vue. Avec le menu « enfant ou independant »
+				// l'ecart devient du TEMPS UTILISATEUR : une seconde, dix, ou
+				// jamais s'il ferme le menu. Relire la selection du navigateur a
+				// ce moment-la appliquerait le mauvais element sans que rien ne
+				// le signale -- ce qui est lu plus tard que l'instant ou il etait
+				// valide est la forme meme du defaut qu'on poursuit depuis le 15.
+				//
+				// Un second lacher ecrase donc un jeton ENTIER, jamais des
+				// morceaux de deux.
+				int32 dropIdx = -1;		///< carte lachee. -1 = aucun jeton en vol
+				uint8 dropKind = 255;	///< sa nature, figee (255 = aucune)
+				int32 dropSrcNode = 0;	///< son noeud source + 1, fige (0 = aucun)
+				int32 dropMat = 0;		///< son emplacement de materiau + 1, fige
+				char dropName[32] = {}; ///< son nom, fige -- pour les messages
+				// LE MENU « enfant ou independant » (specification de Rodolf).
+				// TROIS issues, et « ferme sans choix » en est une : un menu
+				// abandonne n'est pas « enfant par defaut », c'est un geste
+				// annule, et le jeton se detruit sans rien faire.
+				int32 dropMenuTarget = -1; ///< noeud cible FIGE. -1 = pas de menu
+				float32 dropMenuX = 0.f, dropMenuY = 0.f;
+				float32 dropWorld[3] = {0.f, 0.f, 0.f}; ///< point du lacher, fige
+				// ---- LA FILE DU GESTE MULTIPLE ----
+				//
+				// Le jeton ci-dessus ne porte QU'UNE carte, et c'est delibere. Les
+				// autres attendent ici et sont depilees une par frame dans ce meme
+				// jeton.
+				//
+				// POURQUOI PAS UN JETON QUI PORTE UNE LISTE : parce qu'alors le
+				// traitement aurait deux formes -- une pour la carte seule, une pour
+				// la liste -- et que la seconde devrait rejouer a l'identique le pick,
+				// les refus nommes, le menu enfant/independant et l'annulation. Deux
+				// chemins pour un meme geste finissent toujours par diverger ; celui
+				// qu'on exerce le moins est celui qui casse en silence.
+				//
+				// Ici, chaque carte emprunte EXACTEMENT le chemin deja eprouve. Le
+				// cout est d'une frame par carte : dix cartes tiennent en 0,17 s a
+				// 60 ips, invisible a la main.
+				//
+				// Le point de lacher est fige AVEC la file, pas relu au depilement :
+				// entre la premiere carte et la derniere, la camera peut avoir bouge,
+				// et les dix objets doivent atterrir la ou l'utilisateur a lache --
+				// pas la ou son curseur se trouve trois frames plus tard.
+				int32 dropQueue[kMaxBrowser] = {}; ///< cartes en attente de leur tour
+				int32 dropQueueCount = 0;          ///< 0 = file vide
+				float32 dropQueueX = 0.f, dropQueueY = 0.f; ///< le lacher, fige
 				// CONFLIT d'homonyme en attente (Renommer/Remplacer/Arreter).
 				int32 browConfSrc = -1;
 				int32 browConfDest = -1;
@@ -703,10 +767,11 @@ namespace nkentseu {
 				// Plus aucune donnee simulee : le navigateur nait vide et se remplit
 				// par « + Dossier / + Materiau / + Texture ». Tableaux plats a
 				// indices stables, comme partout ailleurs dans cet etat.
-				static const int32 kMaxBrowser = 32;
 				/// Selecteur de fichiers PARTAGE (NKEditorKit) : il navigue le DISQUE
 				/// reel, la ou les cartes du navigateur plafonnent a kMaxBrowser.
-				editorkit::NkFilePickerState picker;
+				/// SPECIALISE (NkModelerPicker) : hors mode « nouveau materiau » il
+				/// se comporte exactement comme le selecteur generique.
+				NkModelerPicker picker;
 				/// Ce que l'application fera de la confirmation (1 = creer un materiau).
 				int32 pickerAction = 0;
 				/// Cadre de la modale « Ajouter un materiau », porte par NKEditorKit :
@@ -722,7 +787,27 @@ namespace nkentseu {
 				// Noeud SOURCE d'un asset reutilisable (0 = aucun, sinon noeud+1).
 				int32 browserSrcNode[kMaxBrowser] = {};
 				int32 browserCount = 0;
-				uint8 browserKind[32] = {};	   ///< 0 dossier, 1 materiau, 2 texture
+				/// CARTES CHOISIES, pour les gestes qui portent PLUSIEURS assets.
+				///
+				/// `selectedAsset` reste la carte ACTIVE -- celle dont les panneaux
+				/// montrent les proprietes. `browserPicked` dit lesquelles PARTENT
+				/// avec elle quand on tire. Les deux notions se ressemblent et ne se
+				/// confondent pas : on peut avoir cinq cartes choisies et n'en
+				/// inspecter qu'une.
+				///
+				/// Taille : kMaxBrowser, comme tout ce qui indexe une carte. Le depot
+				/// a deja paye un tableau dimensionne sur le nombre d'objets d'une
+				/// demo au lieu de la borne reelle (hierFold, v16) -- l'ecriture
+				/// debordait sur le voisin et corrompait la selection en silence.
+				bool browserPicked[kMaxBrowser] = {};
+				/// LEGENDE REELLE, celle que le code CONSOMME (NkModelerUI.h) :
+				/// 0 graphe · 1 dossier · 2 materiau · 3 texture · 4 dataset IA ·
+				/// 5 scene · 6 model · 255 carte supprimee. Ce commentaire a
+				/// annonce « 0 dossier, 1 materiau, 2 texture » pendant des mois :
+				/// faux des trois cotes, et lu comme la source de verite parce
+				/// qu'il est a la declaration. Le point de verite d'un encodage
+				/// est son CONSOMMATEUR, jamais sa declaration.
+				uint8 browserKind[32] = {};
 				char browserNames[32][32] = {};
 				int32 browserParent[32] = {};  ///< -1 = racine
 				// Carte de SCENE (kind 5) -> document + 1 (0 = aucun). C'est ce
@@ -779,7 +864,42 @@ namespace nkentseu {
 				/// .nkmat sur-le-champ (Rihen, 12 aout : « rends ce dossier
 				/// accessible »). Posee a l'ouverture du projet.
 				NkString projectRoot;
-				/// Menu d'ajout de materiau ouvert ? Il se deroule SOUS la liste
+				/// Largeur voulue pour la vignette d'apercu de materiau, en PIXELS.
+			/// Posee par le panneau de proprietes, qui seul connait sa largeur ;
+			/// lue par la boucle principale, seule a pouvoir uploader une texture.
+			/// Meme circulation que `projectRoot` : un panneau ne fait que
+			/// deposer dans l'etat. 0 = pas encore peint (la boucle garde alors sa
+			/// valeur par defaut).
+			/// LES DEUX dimensions, et en pixels REELS (echelle d'interface deja
+			/// appliquee) : a 150 % de DPI, une hauteur de 150 s'affiche sur 225
+			/// pixels, et une vignette rendue a 150 s'y etirerait.
+			int32 matPrevW = 0;
+			int32 matPrevH = 0;
+			/// Emplacement du materiau dont le panneau montre le grand apercu,
+			/// -1 si aucun. C'est le SEUL apercu rendu par le moteur a chaque
+			/// frame ; les cartes du navigateur, elles, montrent une capture figee.
+			int32 matPrevSlot = -1;
+			/// Journal ouvert ? Il s'ancre en bas, au-dessus de la barre d'etat,
+			/// d'ou on l'ouvre. `journalSuivre` : tant qu'on est en bas de la
+			/// liste, une nouvelle ligne fait defiler ; des qu'on remonte, le
+			/// defilement s'arrete -- sinon lire une trace en cours est impossible.
+			bool journalOpen = false;
+			bool journalSuivre = true;
+		float32 journalScroll = 0.f;
+			/// Defilement HORIZONTAL : les messages du moteur sont longs, et les
+			/// quatre colonnes en prennent deja une partie.
+			float32 journalScrollX = 0.f;
+			/// SELECTION DE LIGNES, par indice dans l'anneau. -1 = rien. `ancre`
+			/// est la ligne ou le geste a commence, `tete` celle ou il en est :
+			/// garder les deux permet de selectionner vers le HAUT comme vers le
+			/// bas sans inverser quoi que ce soit a l'ecriture.
+			int32 journalAncre = -1;
+			int32 journalTete = -1;
+			bool journalDrag = false;
+			/// Menu contextuel du journal (-1 ferme, sinon position).
+			float32 journalMenuX = 0.f, journalMenuY = 0.f;
+			bool journalMenu = false;
+			/// Menu d'ajout de materiau ouvert ? Il se deroule SOUS la liste
 				/// de la pastille, pas dans la colonne de boutons — un champ de
 				/// 20 pixels de large y debordait sur ses voisins.
 				bool matAddOpen = false;

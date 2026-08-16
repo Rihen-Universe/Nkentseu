@@ -8,43 +8,8 @@ namespace nkentseu {
 
 		using namespace nkui;
 
-		// =====================================================================
-		void ConsolePanel::PushLine(const char *text, NkLogLevel level) noexcept {
-			if (!text)
-				return;
-
-			// Fusion des lignes identiques consécutives
-			if (!mLines.IsEmpty()) {
-				auto &last = mLines[mLines.Size() - 1];
-				if (last.level == level && last.text == text) {
-					++last.count;
-					mScrollToEnd = mAutoScroll;
-					return;
-				}
-			}
-
-			if (mLines.Size() >= kMaxLines)
-				mLines.Erase(mLines.Begin());
-
-			NkConsoleLine line;
-			line.text = NkString(text);
-			line.level = level;
-			line.count = 1;
-			mLines.PushBack(line);
-
-			if (level == NkLogLevel::NK_ERROR || level == NkLogLevel::NK_CRITICAL)
-				++mErrorCount;
-			if (level == NkLogLevel::NK_WARN)
-				++mWarnCount;
-
-			mScrollToEnd = mAutoScroll;
-		}
-
-		void ConsolePanel::Clear() noexcept {
-			mLines.Clear();
-			mErrorCount = 0;
-			mWarnCount = 0;
-		}
+		// PushLine / Clear vivent desormais dans NkConsoleModel (en-tete neutre,
+		// PARTAGE avec ConsolePanelGui). Corps inchange.
 
 		// =====================================================================
 		nkui::NkColor ConsolePanel::LevelColor(NkLogLevel lv) noexcept {
@@ -63,22 +28,7 @@ namespace nkentseu {
 			}
 		}
 
-		const char *ConsolePanel::LevelPrefix(NkLogLevel lv) noexcept {
-			switch (lv) {
-				case NkLogLevel::NK_ERROR:
-					return "[ERR] ";
-				case NkLogLevel::NK_CRITICAL:
-					return "[CRT] ";
-				case NkLogLevel::NK_WARN:
-					return "[WRN] ";
-				case NkLogLevel::NK_DEBUG:
-					return "[DBG] ";
-				case NkLogLevel::NK_TRACE:
-					return "[TRC] ";
-				default:
-					return "[INF] ";
-			}
-		}
+		// LevelPrefix vit desormais dans NkConsoleModel (neutre, PARTAGE).
 
 		// =====================================================================
 		void ConsolePanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,

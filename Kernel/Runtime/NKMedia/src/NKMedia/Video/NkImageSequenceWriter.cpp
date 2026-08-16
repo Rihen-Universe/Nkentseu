@@ -64,11 +64,11 @@ namespace nkentseu {
 
 			// Construit une NkImage (RGB24 ou RGBA32 selon l'entrée) à partir des pixels (haut-en-bas).
 			const bool hasAlpha = (inFmt == NkVideoInputFormat::RGBA32);
-			NkImage *img = NkImage::Alloc(w, h, hasAlpha ? NkImagePixelFormat::NK_RGBA32 : NkImagePixelFormat::NK_RGB24);
-			if (!img)
+			NkImage img = NkImage::Alloc(w, h, hasAlpha ? NkImagePixelFormat::NK_RGBA32 : NkImagePixelFormat::NK_RGB24);
+			if (!img.IsValid())
 				return false;
-			uint8 *base = img->Pixels();
-			const int32 stride = img->Stride();
+			uint8 *base = img.Pixels();
+			const int32 stride = img.Stride();
 			const int32 obpp = hasAlpha ? 4 : 3;
 			for (int32 y = 0; y < h; ++y) {
 				const uint8 *src = pixels + (usize)y * w * ibpp;
@@ -100,22 +100,24 @@ namespace nkentseu {
 			bool okEnc = false;
 			switch (mFmt) {
 				case NkImageSeqFormat::PNG:
-					okEnc = img->EncodePNG(out, outSize);
+					okEnc = img.EncodePNG(out, outSize);
 					break;
 				case NkImageSeqFormat::JPEG:
-					okEnc = img->EncodeJPEG(out, outSize, mQuality);
+					okEnc = img.EncodeJPEG(out, outSize, mQuality);
 					break;
 				case NkImageSeqFormat::BMP:
-					okEnc = img->EncodeBMP(out, outSize);
+					okEnc = img.EncodeBMP(out, outSize);
 					break;
 				case NkImageSeqFormat::TGA:
-					okEnc = img->EncodeTGA(out, outSize);
+					okEnc = img.EncodeTGA(out, outSize);
 					break;
 				case NkImageSeqFormat::QOI:
-					okEnc = img->EncodeQOI(out, outSize);
+					okEnc = img.EncodeQOI(out, outSize);
 					break;
 			}
-			img->Free();
+			// Libère les pixels dès l'encodage terminé : l'écriture disque ci-dessous
+			// n'a plus besoin que du buffer encodé (ne pas doubler le pic mémoire).
+			img.Unload();
 			if (!okEnc || !out || outSize == 0) {
 				if (out)
 					memory::NkFree(out);

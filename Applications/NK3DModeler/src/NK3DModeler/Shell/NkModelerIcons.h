@@ -131,6 +131,17 @@ namespace nkentseu {
 			EmptyAxes,
 			ImageRef,
 			Cube3D,
+			/// Meches de cheveux — forme d'apercu du materiau. Elle vaut la peine
+			/// d'exister : sans elle, l'apercu empruntait `CurveBezier`, qui
+			/// designe deja Bezier, Cercle, NURBS, Chemin et Courbe dans le menu
+			/// Ajouter. Un dessin partage entre deux sujets ment aux deux.
+			Hair,
+			/// Goutte — forme d'apercu « liquide ». Meme raison que `Hair` :
+			/// l'apercu empruntait `Metaball`, qui designe Ball, Ellipsoide et
+			/// Metaball dans le menu Ajouter, ou un splash n'aurait aucun sens.
+			Liquid,
+			Cloth,	///< etoffe a l'ourlet ondule — forme d'apercu « tissu »
+			Monkey, ///< tete — forme d'apercu, la « Suzanne » de Blender
 			// Icones du PANNEAU DE PROPRIETES dessine par Rihen sur Banani. Elles
 			// suivent la nomenclature Lucide de la maquette, pour que le dessin a
 			// l'ecran soit celui qu'il a choisi.
@@ -217,6 +228,10 @@ namespace nkentseu {
 						{NkIcon::EmptyAxes, "empty-axes"},
 						{NkIcon::ImageRef, "image-ref"},
 						{NkIcon::Cube3D, "cube-3d"},
+						{NkIcon::Hair, "hair"},
+						{NkIcon::Liquid, "liquid"},
+						{NkIcon::Cloth, "cloth"},
+						{NkIcon::Monkey, "monkey"},
 					// Panneau de proprietes (maquette Banani, nomenclature Lucide).
 					{NkIcon::Sun, "sun"},
 					{NkIcon::SlidersH, "sliders-horizontal"},
@@ -304,14 +319,13 @@ namespace nkentseu {
 							if (!NkFile::Exists(path.CStr()))
 								continue;
 							// 2x puis reduction d'un cran -> trait net (cf. l'en-tete).
-							NkImage *big = NkSVGCodec::DecodeFromFile(path.CStr(), sizePx * 2, sizePx * 2);
-							if (!big || !big->IsValid()) {
-								if (big)
-									big->Free();
+							NkImage big = NkSVGCodec::DecodeFromFile(path.CStr(), sizePx * 2, sizePx * 2);
+							if (!big.IsValid())
 								continue;
-							}
-							NkImage *small = big->Resize(sizePx, sizePx);
-							NkImage *use = (small && small->IsValid()) ? small : big;
+							NkImage small = big.Resize(sizePx, sizePx);
+							// Reference (pas de copie : NkImage n'est pas copiable) sur
+							// celle des deux qu'on televerse.
+							NkImage &use = small.IsValid() ? small : big;
 
 							// â”€â”€ LA CORRECTION QUI FAIT TOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 							// Les codicons sont dessines en NOIR. La teinte du rendu
@@ -325,8 +339,8 @@ namespace nkentseu {
 							// alors tout son sens, exactement comme pour un glyphe de
 							// police -- et les icones basculeront toutes seules en
 							// theme clair.
-							if (uint8 *px = use->Pixels()) {
-								const int32 n = use->Width() * use->Height();
+							if (uint8 *px = use.Pixels()) {
+								const int32 n = use.Width() * use.Height();
 								for (int32 k = 0; k < n; ++k) {
 									px[k * 4 + 0] = 255;
 									px[k * 4 + 1] = 255;
@@ -335,13 +349,10 @@ namespace nkentseu {
 							}
 
 							const uint32 texId = firstTexId + (uint32)slot;
-							if (renderer.UploadImageRGBA(texId, use->Pixels(), use->Width(), use->Height())) {
+							if (renderer.UploadImageRGBA(texId, use.Pixels(), use.Width(), use.Height())) {
 								mTex[slot] = texId;
 								ok++;
 							}
-							if (small)
-								small->Free();
-							big->Free();
 							break;
 						}
 					}

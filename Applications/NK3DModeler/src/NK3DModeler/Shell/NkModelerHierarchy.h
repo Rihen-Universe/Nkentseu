@@ -98,6 +98,14 @@ namespace nkentseu {
 				const int32 sk = demo::Demo3DHostTakeShortcuts();
 				delK = delK || (sk & 8) != 0;
 				dupK = dupK || (sk & 1) != 0;
+				// Ctrl+Maj+D : le MEME geste, avec une copie INDEPENDANTE de la
+				// geometrie au lieu du partage (decision de Rodolf, 16 aout).
+				// Il passe par `dupK` pour ne pas dedoubler le chemin : deux
+				// duplications ecrites separement auraient diverge des le
+				// premier correctif -- c'est deja arrive au lacher, qui a fini
+				// par ne plus rien avoir a voir avec le menu de la hierarchie.
+				const bool dupIndep = (sk & 128) != 0;
+				dupK = dupK || dupIndep;
 				// AU-DESSUS DU NAVIGATEUR, les raccourcis agissent sur LUI.
 				// UN SEUL POINT DE PASSAGE pour Ctrl+C / Ctrl+V aussi : la voie
 				// POLLEE (sk & 2 / sk & 4), comme Maj+D ci-dessus. L'evenement
@@ -144,10 +152,18 @@ namespace nkentseu {
 						st.delAskOpen = true;
 					}
 				} else if (dupK && actN >= 0) {
-					const int32 nn = demo::Demo3DHostDuplicateNode(actN);
+					const int32 nn = demo::Demo3DHostDuplicateNodeEx(actN, dupIndep);
 					if (nn >= 0) {
 						NkHierNameNewNode(st, actN, nn); // « Sol.001 » (Rihen)
 						demo::Demo3DHostSelectEmptyNode(nn);
+						// LE GESTE SE DIT. Partage et copie independante
+						// produisent la MEME image : sans cette ligne, rien a
+						// l'ecran ne distingue les deux, et l'utilisateur ne
+						// peut pas savoir lequel des deux il vient de faire.
+						snprintf(st.hierNote, sizeof(st.hierNote), "%s",
+								 dupIndep ? "Double a geometrie INDEPENDANTE"
+										  : "Double a geometrie PARTAGEE (Ctrl+Maj+D pour "
+											"une copie independante)");
 					}
 				}
 				// Meme point de passage unique que ci-dessus : la voie POLLEE
@@ -188,8 +204,13 @@ namespace nkentseu {
 				// Isoler : uniquement ce qui se MODELISE (ni lumiere ni empty).
 				const bool isoOk = tnM < 86 || (ukM >= 1 && ukM <= 3) || ukM >= 6;
 				const bool promOk = demo::Demo3DHostNodeParent(tnM) >= 0;
-				const char *hmIt[12];
-				int32 hmAct[12];
+				// 16 et non 12 : les entrees possibles sont montees a DOUZE avec
+				// « Dupliquer independant », soit exactement la capacite d'avant
+				// -- aucune marge, et la prochaine entree ecrivait hors du
+				// tableau sans que rien ne le dise. Le cout est de 32 octets de
+				// pile.
+				const char *hmIt[16];
+				int32 hmAct[16];
 				int32 nH = 0;
 				hmIt[nH] = "Ajouter un enfant...";
 				hmAct[nH++] = 5;
@@ -209,6 +230,12 @@ namespace nkentseu {
 				}
 				hmIt[nH] = "Dupliquer  (Maj+D)";
 				hmAct[nH++] = 0;
+				// LE CHOIX DU PARTAGE, ECRIT DANS LE MENU (decision de Rodolf,
+				// 16 aout). Le raccourci seul ne suffit pas : les deux gestes
+				// produisent la meme image, donc rien ne revelerait l'existence
+				// du second a qui ne lit pas la table des raccourcis.
+				hmIt[nH] = "Dupliquer independant  (Ctrl+Maj+D)";
+				hmAct[nH++] = 12;
 				// LES DEUX VARIANTES (Rihen, 10 aout) : dupliquer/coller en
 				// FRERE (comportement historique) ou en ENFANT du noeud clique.
 				hmIt[nH] = "Dupliquer comme enfant";
@@ -246,11 +273,17 @@ namespace nkentseu {
 				}
 				if (mact >= 0) {
 					const int32 tn = st.hierMenuNode;
-					if (mact == 0) {
-						const int32 nn = demo::Demo3DHostDuplicateNode(tn);
+					// 0 = partage (le defaut), 12 = copie independante. UN SEUL
+					// corps pour les deux : la seule difference est le drapeau.
+					if (mact == 0 || mact == 12) {
+						const bool indep = (mact == 12);
+						const int32 nn = demo::Demo3DHostDuplicateNodeEx(tn, indep);
 						if (nn >= 0) {
 							NkHierNameNewNode(st, tn, nn);
 							demo::Demo3DHostSelectEmptyNode(nn);
+							snprintf(st.hierNote, sizeof(st.hierNote), "%s",
+									 indep ? "Double a geometrie INDEPENDANTE"
+										   : "Double a geometrie PARTAGEE");
 						}
 					} else if (mact == 1) {
 						demo::Demo3DHostCopyNode(tn);
@@ -758,6 +791,82 @@ namespace nkentseu {
 						   !hit.IsHovered("brw.creer")) { // pas le clic d'OUVERTURE
 					st.browMenuIdx = -1;
 					st.browMenuCreat = false;
+				}
+			}
+			// ── CARTE DU LACHER D'UN MODEL SUR UN OBJET (specif. de Rodolf) ──
+			// « Deposer un model sur un model l'ajoute comme enfant de ce
+			// dernier OU comme element independant, selon un choix valide
+			// depuis un menu qui va apparaitre. »
+			//
+			// TROIS issues, et la troisieme n'est pas un defaut : un menu ferme
+			// sans choix est un geste ANNULE, pas « enfant par defaut ». Le
+			// jeton se detruit alors sans rien faire.
+			//
+			// ⚠️ TOUT CE QUE CE MENU UTILISE EST DEJA FIGE dans le jeton -- le
+			// modele source, le noeud cible, la position. Entre le lacher et le
+			// clic ici il s'ecoule du TEMPS UTILISATEUR : la selection du
+			// navigateur peut avoir change, la camera bouge, la cible etre
+			// supprimee. Rien n'est relu.
+			if (st.dropIdx >= 0 && st.dropMenuTarget >= 0) {
+				static const char *const kDrop[3] = {"Ajouter comme enfant",
+													 "Ajouter comme element independant",
+													 "Annuler"};
+				NkRect dr3{st.dropMenuX, st.dropMenuY, S(230.f), kRowH * 3.f};
+				if (dr3.y + dr3.h > area.y + area.h)
+					dr3.y = area.y + area.h - dr3.h;
+				if (dr3.x + dr3.w > area.x + area.w)
+					dr3.x = area.x + area.w - dr3.w;
+				// ETANCHEITE : ce menu est peint SUR LA VUE 3D, qui lit l'input
+				// DIRECTEMENT sans passer par le registre de zones. Sans ce
+				// blocage, cliquer « Ajouter comme enfant » selectionnerait AUSSI
+				// l'objet situe derriere le menu -- le clic traverserait. C'est
+				// exactement le defaut que `UiBlockAdd` a ete ecrit pour clore
+				// (badges et listes posees sur la vue).
+				st.UiBlockAdd(dr3);
+				p.Outline(dr3, NkRole::AccentUi, NkRole::PanelHeader, 3.f);
+				int32 dchoix = -1;
+				for (int32 mi = 0; mi < 3; ++mi) {
+					const NkRect it{dr3.x, dr3.y + (float32)mi * kRowH, dr3.w, kRowH};
+					snprintf(key, sizeof(key), "drop.ask.%d", mi);
+					HoverFill(p, it, hit.Add(key, it), 0.f);
+					p.TextV(it.x + S(10.f), it.y, kRowH, kDrop[mi]);
+					if (hit.Clicked(key))
+						dchoix = mi;
+				}
+				if (dchoix == 0 || dchoix == 1) {
+					// LA CIBLE PEUT AVOIR DISPARU pendant que le menu etait
+					// ouvert -- ce n'est pas theorique avec un menu qui attend un
+					// clic. On le CONSTATE et on le DIT, plutot que de parenter a
+					// un noeud supprime ou de retomber en silence sur « racine ».
+					const bool cibleVivante =
+						!demo::Demo3DHostNodeDeleted(st.dropMenuTarget);
+					if (dchoix == 0 && !cibleVivante) {
+						snprintf(st.hierNote, sizeof(st.hierNote),
+								 "L'objet vise a disparu : « %s » n'a pas ete ajoute",
+								 st.dropName);
+					} else {
+						const int32 nn = NkDropSpawnModel(st);
+						if (nn >= 0) {
+							const float32 rot[3] = {0.f, 0.f, 0.f};
+							const float32 scl[3] = {1.f, 1.f, 1.f};
+							demo::Demo3DHostSetModelTransform(nn, st.dropWorld, rot, scl);
+							if (dchoix == 0)
+								(void)demo::Demo3DHostSetNodeParent(nn, st.dropMenuTarget);
+							demo::Demo3DHostSelectEmptyNode(nn);
+						}
+					}
+				}
+				// LE JETON SE CONSOMME UNE FOIS, quel que soit le choix -- y
+				// compris « Annuler » et le clic dans le vide. Un jeton qui
+				// survivrait a sa validite serait lu par le lacher suivant, et
+				// sa reponse perimee aurait l'air d'un resultat.
+				if (dchoix >= 0 ||
+					(hit.AnyClick() && !NkHitRegistry::Contains(dr3, hit.Mouse()))) {
+					st.dropIdx = -1;
+					st.dropMenuTarget = -1;
+					st.dropKind = 255;
+					st.dropSrcNode = 0;
+					st.dropMat = 0;
 				}
 			}
 			// CARTE du depot GAUCHE -> DROITE : Copier / Deplacer / Annuler ;

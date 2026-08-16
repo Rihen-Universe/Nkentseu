@@ -28,12 +28,30 @@
 % Numerotation depuis ZERO, comme les deux cours precedents : le chapitre 0 est
 % un avant-propos, pas une lecon.
 \setcounter{chapter}{-1}
+% L'ORDRE DE CE BLOC EST UNE DECISION, PAS UNE COMMODITE.
+%
+% Jusqu'au 2026-08-16, le contrat nu — vingt-quatre fonctions — etait le
+% chapitre 2. Le stagiaire apprenait donc les vingt-quatre, PUIS decouvrait bien
+% plus tard qu'il n'en avait besoin que de trois. C'etait l'ordre exactement
+% inverse de celui qui rend l'outil facile.
+%
+% Desormais : l'echafaudage d'abord, le contrat nu A LA FIN, comme un chapitre
+% de reference qu'on lit QUAND ON EN A BESOIN.
+%
+% Le chapitre 07 « Regarder et habiller » existe dans md/ et tex/chapitres/ mais
+% n'est PAS inclus : il decrit le zoom, le multijoueur, les totems en images et
+% la langue, dont le code — NkcBoardView.h, NkcTotemLibrary.h, NkcLang.h — n'est
+% pas sur cette branche. Mesure du 2026-08-16 : 0 definition pour ces quatre
+% symboles, 0 plateau multijoueur, pas de dossier totems. Le livrer decrirait au
+% stagiaire un atelier qu'il n'a pas.
 \input{chapitres/00-avant-propos}
 \input{chapitres/01-le-principe}
-\input{chapitres/02-ecrire-des-regles}
+\input{chapitres/02b-regles-en-trois-fonctions}
 \input{chapitres/03-ecrire-une-ia}
 \input{chapitres/04-les-grilles}
 \input{chapitres/05-grille-en-cpp}
 \input{chapitres/06-se-servir-de-l-atelier}
+\input{chapitres/08-exemples-complets}
+\input{chapitres/02-ecrire-des-regles}
 
 \end{document}

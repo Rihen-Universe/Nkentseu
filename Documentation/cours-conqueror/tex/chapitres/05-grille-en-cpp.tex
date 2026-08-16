@@ -7,9 +7,9 @@ montre l'autre voie — et corrige au passage un malentendu répandu.
 
 Non. \textbf{Vous ne l'avez jamais été.} Le contrat ne vous impose ni format de
 plateau, ni fichier, ni même l'existence d'un fichier. Regardez ce que
-\texttt{LoadBoardJson} vaut dans \nkfile{exemples/rules/RegleMinimale.cpp} :
+\texttt{LoadBoardJson} vaut dans \nkfile{exemples/rules/RegleContratNu.cpp} :
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — V\_LoadBoardJson}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — V\_LoadBoardJson}
 /// Plateau fige : on REFUSE tout chargement. L'atelier l'affiche proprement
 /// (« le moteur a REFUSE ce plateau ») au lieu de faire semblant.
 int32 V_LoadBoardJson(NkcRules, const char *) { return 0; }
@@ -18,7 +18,7 @@ int32 V_LoadBoardJson(NkcRules, const char *) { return 0; }
 Ce module refuse tout JSON, et il fonctionne parfaitement dans l'atelier. Son
 plateau est construit en C++, dans \texttt{Create} :
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — V\_Create}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — V\_Create}
 for (int32 y = 0; y < kSide; ++y)
     for (int32 x = 0; x < kSide; ++x) {
         R->coords[y * kSide + x].q = static_cast<int16>(x);
@@ -321,7 +321,7 @@ module, ces trois vérifications-là sont à adapter — les treize autres, non.
 \end{nkretenir}
 
 \begin{nkexo}[1 — Le tore]
-Partez de \nkfile{RegleMinimale.cpp} et rendez son carré $5\times5$
+Partez de \nkfile{RegleContratNu.cpp} et rendez son carré $5\times5$
 \emph{torique} : la colonne 4 touche la colonne 0, la ligne 4 touche la ligne 0.
 Vous n'avez à toucher que la génération des coups. Le plateau reste affiché à
 plat — que manque-t-il pour \emph{voir} le repliement ? Est-ce grave ?

@@ -16,14 +16,15 @@
 // =============================================================================
 
 #include "NKCamera/NKICameraBackend.h"
+#include "NKCore/NkTraits.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #endif
 
-#include <mutex>
-#include <vector>
 
 namespace nkentseu {
 
@@ -86,7 +87,7 @@ namespace nkentseu {
 			}
 
 			void SetHotPlugCallback(NkCameraHotPlugCallback cb) override {
-				mHotPlug = std::move(cb);
+				mHotPlug = traits::NkMove(cb);
 			}
 
 			// -- Streaming -------------------------------------------------------------
@@ -95,15 +96,15 @@ namespace nkentseu {
 				cfg.Resolve();
 #ifdef __EMSCRIPTEN__
 				{
-					std::lock_guard<std::mutex> lk(mMutex);
-					mFrameBuffer.assign((size_t)cfg.width * cfg.height * 4, 0);
+					threading::NkScopedLock<threading::NkMutex> lk(mMutex);
+					mFrameBuffer.Assign((uint8)0, (usize)cfg.width * cfg.height * 4);
 				}
 				mWidth = cfg.width;
 				mHeight = cfg.height;
 				mFps = cfg.fps;
 
 				int32 ok = EmJsStart((int32)cfg.deviceIndex, (int32)cfg.width, (int32)cfg.height, (int32)cfg.fps,
-									 (int32)(intptr_t)mFrameBuffer.data(), (int32)mFrameBuffer.size());
+									 (int32)(intptr_t)mFrameBuffer.Data(), (int32)mFrameBuffer.Size());
 				if (!ok) {
 					mState = NkCameraState::NK_CAM_STATE_ERROR;
 					mLastError = "getUserMedia: refus utilisateur ou device introuvable";
@@ -123,7 +124,7 @@ namespace nkentseu {
 				EmJsStop();
 #endif
 				mState = NkCameraState::NK_CAM_STATE_CLOSED;
-				std::lock_guard<std::mutex> lk(mMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 				mHasFrame = false;
 			}
 
@@ -132,11 +133,11 @@ namespace nkentseu {
 			}
 
 			void SetFrameCallback(NkFrameCallback cb) override {
-				mFrameCb = std::move(cb);
+				mFrameCb = traits::NkMove(cb);
 			}
 
 			bool GetLastFrame(NkCameraFrame &out) override {
-				std::lock_guard<std::mutex> lk(mMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 				if (!mHasFrame)
 					return false;
 				out = mLastFrame;
@@ -145,7 +146,7 @@ namespace nkentseu {
 
 			// -- Photo / vidéo ---------------------------------------------------------
 			bool CapturePhoto(NkPhotoCaptureResult &out) override {
-				std::lock_guard<std::mutex> lk(mMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 				if (!mHasFrame) {
 					out.success = false;
 					out.errorMsg = "no frame yet";
@@ -209,12 +210,12 @@ namespace nkentseu {
 				f.stride = w * 4;
 				f.timestampUs = tsUs;
 				{
-					std::lock_guard<std::mutex> lk(mMutex);
+					threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 					const usize need = (usize)w * h * 4;
-					if (mFrameBuffer.size() < need)
+					if (mFrameBuffer.Size() < need)
 						return;
 					f.data.Resize((uint32)need);
-					std::memcpy(f.data.Data(), mFrameBuffer.data(), need);
+					std::memcpy(f.data.Data(), mFrameBuffer.Data(), need);
 					f.frameIndex = ++mFrameCounter;
 					mLastFrame = f;
 					mHasFrame = true;
@@ -242,8 +243,8 @@ namespace nkentseu {
 			NkCameraHotPlugCallback mHotPlug;
 
 			uint32 mWidth = 0, mHeight = 0, mFps = 0;
-			mutable std::mutex mMutex;
-			std::vector<uint8> mFrameBuffer;
+			mutable threading::NkMutex mMutex;
+			NkVector<uint8> mFrameBuffer;
 			NkCameraFrame mLastFrame;
 			bool mHasFrame = false;
 			uint32 mFrameCounter = 0;

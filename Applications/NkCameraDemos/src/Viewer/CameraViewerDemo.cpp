@@ -23,6 +23,13 @@
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKTime/NkChrono.h"
 #include "NKLogger/NkLog.h"
+#include "NKLogger/NkLogHeartbeat.h"
+
+#if defined(_WIN32)
+// Déclaré à la main plutôt que d'inclure <windows.h> : même approche que
+// NkRendererImpl.cpp, qui appelle déjà `timeBeginPeriod(1)` à son init.
+extern "C" unsigned int __stdcall timeBeginPeriod(unsigned int uPeriod);
+#endif
 
 #include "NKCamera/NkCameraSystem.h"
 
@@ -63,7 +70,7 @@ namespace nkentseu {
 		// =====================================================================
 		// Point d'entree de la demo viewer.
 		// =====================================================================
-		int RunCameraViewerDemo(const NkEntryState & /*state*/) {
+		int RunCameraViewerDemo(const NkEntryState &state) {
 			// -- Fenetre ------------------------------------------------------
 			NkWindowConfig cfg;
 			cfg.title = "NkCameraDemos -- Viewer";
@@ -115,7 +122,28 @@ namespace nkentseu {
 			NkCameraConfig camCfg;
 			camCfg.deviceIndex = 0;
 			camCfg.preset = NkCameraResolution::NK_CAM_RES_HD;
-			camCfg.outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
+			// MIROIR PAR DÉFAUT dans CE viewer, et c'est un choix d'application,
+			// pas du moteur. Cette démo montre l'utilisateur à lui-même : la
+			// convention qu'il connaît — visio, appareil photo — est le miroir,
+			// et une image non miroitée lui paraît « inversée ». Rihen l'a
+			// signalé deux fois ; la deuxième fois sur des fenêtres de mesure
+			// lancées sans le drapeau, ce qui a montré que l'option n'était pas
+			// le bon défaut ICI.
+			//
+			// Le moteur, lui, garde `flipHorizontal = false` : l'image brute est
+			// géométriquement vraie, et c'est la seule utilisable pour l'AR, la
+			// calibration ou la mesure. Un défaut d'application ne remonte pas
+			// au module.
+			//
+			// `--brut` rend l'image telle que le capteur la livre.
+			camCfg.flipHorizontal = true;
+			for (usize i = 1; i < state.args.Size(); ++i) {
+				if (state.args[i] == "--brut" || state.args[i] == "--raw")
+					camCfg.flipHorizontal = false;
+			}
+			logger.Infof("[Viewer] Image %s.",
+						 camCfg.flipHorizontal ? "MIROITEE (defaut ; --brut pour l'image du capteur)"
+											   : "BRUTE, telle que livree par le capteur");
 			if (!cam.StartStreaming(camCfg)) {
 				logger.Warnf("[Viewer] StartStreaming a echoue : %s", cam.GetLastError().CStr());
 			}
@@ -129,6 +157,54 @@ namespace nkentseu {
 			// -- Dimensions fenetre courantes -------------------------------
 			uint32 winW = cfg.width;
 			uint32 winH = cfg.height;
+
+			// -- Battement de journal (ETEINT par defaut) ---------------------
+			// `--beat=<ms>` fait dire au journal ce qui change PENDANT que
+			// l'application vit. Sans lui, la salve de demarrage est tout ce
+			// qu'on obtient, et un fichier qui ne bouge plus se confond avec un
+			// fichier retenu — c'est exactement le faux diagnostic du 15/08.
+			NkHeartbeat beat;
+			uint32 beatFrames = 0;
+			bool timerFin = false;
+			for (usize i = 1; i < state.args.Size(); ++i) {
+				const char *a = state.args[i].CStr();
+				// ESSAI D'INTERVENTION (2026-08-15) : `--timer` force la
+				// resolution de minuterie a 1 ms. Sert a tester si la variance
+				// de debit (35-55 img/s) vient de la quantification du sommeil.
+				if (a[0] == '-' && a[1] == '-' && a[2] == 't' && a[3] == 'i' && a[4] == 'm' &&
+					a[5] == 'e' && a[6] == 'r' && a[7] == '\0') {
+					timerFin = true;
+					continue;
+				}
+				const char *prefix = "--beat=";
+				usize k = 0;
+				while (prefix[k] != '\0' && a[k] == prefix[k])
+					++k;
+				if (prefix[k] != '\0')
+					continue;
+				// Lecture des chiffres a la main : pas de conversion toute faite
+				// dans NkStringUtils, et une valeur absente ou non numerique doit
+				// laisser le battement ETEINT plutot que de choisir a notre place.
+				uint32 ms = 0;
+				bool anyDigit = false;
+				for (const char *d = a + k; *d >= '0' && *d <= '9'; ++d) {
+					ms = ms * 10u + (uint32)(*d - '0');
+					anyDigit = true;
+				}
+				if (anyDigit) {
+					beat.SetInterval(ms);
+					logger.Infof("[Viewer] Battement du journal : une ligne toutes les %u ms.", ms);
+				} else {
+					logger.Warnf("[Viewer] --beat sans valeur numerique : battement laisse ETEINT.");
+				}
+			}
+
+#if defined(_WIN32)
+			if (timerFin) {
+				timeBeginPeriod(1);
+				logger.Infof("[Viewer] ESSAI : resolution de minuterie forcee a 1 ms.");
+			}
+#endif
 
 			// -- Boucle principale -------------------------------------------
 			auto &events = NkEvents();
@@ -236,6 +312,28 @@ namespace nkentseu {
 
 				gl.EndFrame();
 				gl.Present();
+
+				// -- Battement -------------------------------------------------
+				// Éteint par défaut : `--beat=<ms>` l'allume. Sans lui, le
+				// journal est muet une fois le démarrage passé — ce qui est la
+				// bonne valeur par défaut, mais rend l'enquête en direct
+				// impossible : le fichier paraît figé alors qu'il n'a
+				// simplement plus rien à dire.
+				++beatFrames;
+				if (beat.ShouldBeat()) {
+					// Le débit se calcule sur l'intervalle MESURÉ, jamais sur
+					// l'intervalle demandé : un battement ne peut se déclencher
+					// qu'à une frontière d'image, donc il arrive toujours en
+					// retard sur la demande. Diviser par la demande gonfle le
+					// chiffre — 32 % d'erreur mesurés à 50 ms le 2026-08-15.
+					const float64 ms = beat.GetLastIntervalMs();
+					const float64 img = (ms > 0.0) ? (float64)beatFrames * 1000.0 / ms : 0.0;
+					logger.Infof("[Viewer] %.1f img/s (%u images en %.0f ms mesurees), "
+								 "flux %ux%u, texture %s",
+								 img, beatFrames, ms, frame.width, frame.height,
+								 streamTex.IsValid() ? "valide" : "ABSENTE");
+					beatFrames = 0;
+				}
 
 				// Cap 60 fps.
 				const auto elapsed = chrono.Elapsed();

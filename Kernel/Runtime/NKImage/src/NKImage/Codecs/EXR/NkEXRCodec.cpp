@@ -1060,22 +1060,22 @@ namespace nkentseu {
 	//  Pipeline complet du Decode
 	// ─────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkEXRCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkEXRCodec::Decode(const uint8 *data, usize size) noexcept {
 		// 1. Validation magic + version
 		if (size < 8) {
 			logger.Error("[EXR] Buffer trop petit (< 8 octets).");
-			return nullptr;
+			return NkImage();
 		}
 		if (RD_U32LE(data) != kEXRMagic) {
 			logger.Error("[EXR] Magic invalide (attendu 0x01312F76).");
-			return nullptr;
+			return NkImage();
 		}
 		uint32 version = RD_U32LE(data + 4);
 		uint32 versionNum = version & 0xFFu;
 		uint32 flags = (version >> 8) & 0xFFFFFFu;
 		if (versionNum != 2) {
 			logger.Error("[EXR] Version {0} non supportee (attendu 2).", versionNum);
-			return nullptr;
+			return NkImage();
 		}
 		// flags : bit 1 = tiles, bit 11 = multipart, bit 12 = non-image,
 		//         bit 9  = deep data, bit 10 = long names (256 chars supporte)
@@ -1084,7 +1084,7 @@ namespace nkentseu {
 		const bool isDeep = (flags & 0x0800u) != 0;
 		if (isTiled || isMultipart || isDeep) {
 			logger.Error("[EXR] Variantes tile/multipart/deep non supportees (flags=0x{0:X}).", flags);
-			return nullptr;
+			return NkImage();
 		}
 
 		usize pos = 8;
@@ -1104,7 +1104,7 @@ namespace nkentseu {
 			// Fin de header : nom vide (un seul octet null)
 			if (pos >= size) {
 				logger.Error("[EXR] EOF dans le header.");
-				return nullptr;
+				return NkImage();
 			}
 			if (data[pos] == 0) {
 				pos++;
@@ -1115,21 +1115,21 @@ namespace nkentseu {
 			char attrType[256] = {0};
 			if (ReadCString(data, size, pos, attrName, sizeof(attrName)) < 0) {
 				logger.Error("[EXR] Nom d'attribut tronque.");
-				return nullptr;
+				return NkImage();
 			}
 			if (ReadCString(data, size, pos, attrType, sizeof(attrType)) < 0) {
 				logger.Error("[EXR] Type d'attribut tronque.");
-				return nullptr;
+				return NkImage();
 			}
 			if (pos + 4 > size) {
 				logger.Error("[EXR] Taille attribut tronquee.");
-				return nullptr;
+				return NkImage();
 			}
 			int32 attrSize = RD_I32LE(data + pos);
 			pos += 4;
 			if (attrSize < 0 || pos + usize(attrSize) > size) {
 				logger.Error("[EXR] Donnees attribut tronquees pour '{0}'.", attrName);
-				return nullptr;
+				return NkImage();
 			}
 			const uint8 *attrData = data + pos;
 			const usize attrEnd = pos + usize(attrSize);
@@ -1153,7 +1153,7 @@ namespace nkentseu {
 					ch.name[sizeof(ch.name) - 1] = 0;
 					if (cp + 16 > attrEnd) {
 						logger.Error("[EXR] Canal '{0}' tronque.", ch.name);
-						return nullptr;
+						return NkImage();
 					}
 					ch.pixelType = RD_I32LE(data + cp);
 					cp += 4;
@@ -1166,7 +1166,7 @@ namespace nkentseu {
 					if (!ch.IsValid()) {
 						logger.Error("[EXR] Canal '{0}' invalide (pixelType={1}, sampling={2}x{3}).", ch.name,
 									 ch.pixelType, ch.xSampling, ch.ySampling);
-						return nullptr;
+						return NkImage();
 					}
 					++numChans;
 				}
@@ -1193,25 +1193,25 @@ namespace nkentseu {
 		// 3. Validation des attributs obligatoires
 		if (!seenChannels || numChans == 0) {
 			logger.Error("[EXR] Attribut 'channels' manquant ou vide.");
-			return nullptr;
+			return NkImage();
 		}
 		if (!seenCompression) {
 			logger.Error("[EXR] Attribut 'compression' manquant.");
-			return nullptr;
+			return NkImage();
 		}
 		if (!seenDataWindow) {
 			logger.Error("[EXR] Attribut 'dataWindow' manquant.");
-			return nullptr;
+			return NkImage();
 		}
 		const int32 width = xMax - xMin + 1;
 		const int32 height = yMax - yMin + 1;
 		if (width <= 0 || height <= 0) {
 			logger.Error("[EXR] dataWindow invalide ({0}x{1}).", width, height);
-			return nullptr;
+			return NkImage();
 		}
 		if (lineOrder == 2) {
 			logger.Error("[EXR] lineOrder RANDOM_Y non supporte.");
-			return nullptr;
+			return NkImage();
 		}
 
 		// 4. Validation compression supportee
@@ -1222,7 +1222,7 @@ namespace nkentseu {
 			logger.Error("[EXR] Compression {0} non supportee. "
 						 "Re-encoder via : oiiotool input.exr --compression zip -o output.exr",
 						 CompressionName(compression));
-			return nullptr;
+			return NkImage();
 		}
 
 		// 5. Construction du mapping canal R/G/B/A/Y
@@ -1246,7 +1246,7 @@ namespace nkentseu {
 		const bool hasY = (cm.yIdx >= 0);
 		if (!hasRGB && !hasY) {
 			logger.Error("[EXR] Aucun canal R/G/B ou Y/Z reconnu (canaux trouves : {0}).", numChans);
-			return nullptr;
+			return NkImage();
 		}
 
 		// 6. Bytes par scanline (par canal) et par bloc
@@ -1261,7 +1261,7 @@ namespace nkentseu {
 		// 7. Lecture de la table d'offsets scanline (int64 LE x numBlocks)
 		if (pos + usize(numBlocks) * 8 > size) {
 			logger.Error("[EXR] Table d'offsets tronquee.");
-			return nullptr;
+			return NkImage();
 		}
 		const uint8 *offsetTable = data + pos;
 		pos += usize(numBlocks) * 8;
@@ -1269,10 +1269,10 @@ namespace nkentseu {
 		// 8. Allocation de l'image de sortie
 		const NkImagePixelFormat outFmt = hasA ? NkImagePixelFormat::NK_RGBA128F : NkImagePixelFormat::NK_RGB96F;
 		const int32 outChannels = ChannelsOf(outFmt);
-		NkImage *img = NkImage::Alloc(width, height, outFmt);
-		if (!img) {
+		NkImage img = NkImage::Alloc(width, height, outFmt);
+		if (!img.IsValid()) {
 			logger.Error("[EXR] Echec allocation image {0}x{1}.", width, height);
-			return nullptr;
+			return NkImage();
 		}
 
 		// Buffer scratch reutilise pour chaque bloc decompresse :
@@ -1280,9 +1280,8 @@ namespace nkentseu {
 		const usize scratchSize = usize(linesPerBlock) * usize(bytesPerLineAllChans);
 		uint8 *scratch = static_cast<uint8 *>(NkAlloc(scratchSize));
 		if (!scratch) {
-			img->Free();
 			logger.Error("[EXR] Echec allocation buffer decompression ({0} octets).", scratchSize);
-			return nullptr;
+			return NkImage();
 		}
 
 		// 9. Iteration sur les blocs scanline
@@ -1291,8 +1290,7 @@ namespace nkentseu {
 			if (offset < 0 || usize(offset) + 8 > size) {
 				logger.Error("[EXR] Offset bloc {0} invalide.", b);
 				NkFree(scratch);
-				img->Free();
-				return nullptr;
+				return NkImage();
 			}
 			const uint8 *blk = data + offset;
 			int32 yStart = RD_I32LE(blk);
@@ -1300,8 +1298,7 @@ namespace nkentseu {
 			if (blkSize < 0 || usize(offset) + 8 + usize(blkSize) > size) {
 				logger.Error("[EXR] Taille bloc {0} invalide ({1}).", b, blkSize);
 				NkFree(scratch);
-				img->Free();
-				return nullptr;
+				return NkImage();
 			}
 
 			// Lignes effectives dans ce bloc (le dernier peut etre tronque)
@@ -1340,8 +1337,7 @@ namespace nkentseu {
 				logger.Error("[EXR] Decompression bloc {0} echouee (compression={1}).", b,
 							 CompressionName(compression));
 				NkFree(scratch);
-				img->Free();
-				return nullptr;
+				return NkImage();
 			}
 
 			// 10. Distribution des canaux vers l'image de sortie
@@ -1357,7 +1353,7 @@ namespace nkentseu {
 						linePtr += chans[ci].bytesPerPixel * width;
 					continue;
 				}
-				float32 *rowF = reinterpret_cast<float32 *>(img->RowPtr(dstY));
+				float32 *rowF = reinterpret_cast<float32 *>(img.RowPtr(dstY));
 
 				// Sauvegarde des pointeurs de debut de chaque canal pour cette ligne
 				const uint8 *chPtr[kMaxChannels];

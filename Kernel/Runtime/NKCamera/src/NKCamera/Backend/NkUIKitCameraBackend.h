@@ -1,9 +1,11 @@
 #pragma once
 // NkUIKitCameraBackend.h — iOS AVFoundation + CMMotionManager IMU
 #include "NKCamera/NKICameraBackend.h"
+#include "NKCore/NkTraits.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
+
 #include "NKTime/NkChrono.h"
-#include <mutex>
-#include <condition_variable>
 #include <atomic>
 #include <string>
 #include <vector>
@@ -21,7 +23,7 @@ namespace nkentseu {
 			NkVector<NkCameraDevice> EnumerateDevices() override;
 
 			void SetHotPlugCallback(NkCameraHotPlugCallback cb) override {
-				mHotPlugCb = std::move(cb);
+				mHotPlugCb = traits::NkMove(cb);
 			}
 
 			bool StartStreaming(const NkCameraConfig &c) override;
@@ -32,7 +34,7 @@ namespace nkentseu {
 			}
 
 			void SetFrameCallback(NkFrameCallback cb) override {
-				mFrameCb = std::move(cb);
+				mFrameCb = traits::NkMove(cb);
 			}
 
 			bool GetLastFrame(NkCameraFrame &out) override;
@@ -91,12 +93,11 @@ namespace nkentseu {
 			bool mRecording = false;
 			uint64 mFirstFrameTime = 0;
 
-			std::mutex mMutex;
+			threading::NkMutex mMutex;
 			NkCameraFrame mLastFrame;
 			bool mHasFrame = false;
 
-			std::mutex mPhotoMutex;
-			std::condition_variable mPhotoCv;
+			threading::NkMutex mPhotoMutex;
 			NkPhotoCaptureResult mPhotoPending;
 			bool mPhotoReady = false;
 

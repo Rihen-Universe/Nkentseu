@@ -54,6 +54,16 @@ def tutoproject(name, sources):
             "NKMath", "NKTime", "NKStream", "NKFileSystem",
             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKSL",
             "NKSerialization", "NKReflection", "NKImage", "NKFont",
+            # NKAnimation/NKAnimPhysics : APRES NKRenderer, car c est NKRenderer qui
+            # y refere (NkAnimationSystem.cpp:45 -> anim::NkAnimationPlayer::Update ;
+            # NkPoseDebugDraw -> solveur d equilibre) et le linker est mono-passe.
+            # Absents ici depuis l extraction du 2026-08-14 : le registre
+            # (config/modules.jenga:109) connait bien NKRenderer -> NKAnimation, mais
+            # useappdeps n emet que des defines _STATIC_LIB — cette liste de links est
+            # MANUELLE, donc rien ne l a forcee a suivre l extraction. Les 4 Tuto0x
+            # echouaient au LINK depuis, invisible tant que le build complet ne
+            # tournait pas (chantier 11, releve 2 du 2026-08-15).
+            "NKAnimation", "NKAnimPhysics",
         ]
         if USE_NKGLSLANG:
             _BASE_LINKS.append("NKGLSlang")

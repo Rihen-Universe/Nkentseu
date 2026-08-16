@@ -15,6 +15,7 @@
 #include "NK3DModeler/Shell/NkModelerTables.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKLogger/NkLog.h" // [MESURE Maj+clic] temporaire
 #include "NKEditorKit/NkShortcutTable.h"
 
 namespace nkentseu {
@@ -182,6 +183,21 @@ namespace nkentseu {
 			p.VLine(r.x + treeW, ty, th);
 			// Le FOND de la grille est une zone : cliquer dans le vide
 			// DESELECTIONNE (les cartes, declarees apres, gardent leurs clics).
+			// LA CARTE ACTIVE, LUE AVANT QUE LE FOND NE L'EFFACE.
+			//
+			// Le fond de la grille est declare et teste ICI, donc AVANT que les
+			// cartes n'existent pour cette frame. A la frame d'un clic sur une
+			// carte, c'est donc lui qui voit le clic : il remet selectedAsset a
+			// -1, et la carte la repose quelques lignes plus bas. Pour un clic
+			// simple le va-et-vient ne se voit pas.
+			//
+			// Il se voit pour Maj+clic, qui a besoin de la carte active
+			// PRECEDENTE pour tracer une plage : elle a deja ete effacee quand
+			// on la lit. Mesure : maj=1 arrivait bien, mais depuis=-1.
+			//
+			// C'est la famille des clics traversants de la v18 -- une zone
+			// evaluee avant que celles du dessus ne soient declarees.
+			const int32 actifAvantGrille = st.selectedAsset;
 			hit.Add("brow.grid", {r.x + treeW, ty, r.w - treeW, th});
 			if (!uiModal && hit.Clicked("brow.grid"))
 				st.selectedAsset = -1;
@@ -353,10 +369,21 @@ namespace nkentseu {
 				// Ombre portee legere, comme Unreal.
 				p.Fill({tx + 2.f, tyy + 3.f, tw, cardH}, NkColor{0, 0, 0, 90}, 3.f);
 				snprintf(akey, sizeof(akey), "brow.card.%d", i);
+				// DEUX ETATS QUI NE SE CONFONDENT PAS. La carte ACTIVE est celle dont
+				// les panneaux montrent les proprietes ; les cartes CHOISIES sont
+				// celles qui partiront ensemble si on tire. On peut en choisir cinq
+				// et n'en inspecter qu'une -- il faut donc deux marques distinctes,
+				// sinon l'utilisateur ne sait pas ce qu'il s'apprete a deplacer.
 				const bool selCard = (st.selectedAsset == i);
+				const bool prise = st.browserPicked[i];
 				hit.Add(akey, {tx, tyy, tw, cardH});
 				if (selCard)
-					p.Fill({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi, 3.f);
+									p.Fill({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi, 3.f);
+				else if (prise)
+									// Choisie sans etre active : un CONTOUR au lieu d'un aplat. La
+									// difference doit se lire d'un coup d'oeil sur une grille de
+									// trente cartes, pas se deviner en comparant deux nuances.
+									p.OutlineSharp({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi);
 
 				// Damier de fond : il dit Â« ce fond est vide Â».
 				const float32 c = 8.f;
@@ -443,6 +470,64 @@ namespace nkentseu {
 						p.Image(4400u + (uint32)mTh,
 								{cx - side2 * 0.5f, tyy + (pvH - side2) * 0.5f, side2,
 								 side2});
+							// ---- LA PASTILLE D'ALBEDO : une DONNEE a cote d'une SIMULATION ----
+							//
+							// La boule d'apercu ci-dessus est rendue sous un eclairage de studio,
+							// sur fond clair. Elle est belle, et elle MENT : un albedo gris 0,7 y
+							// parait blanc, puis se pose sombre dans une scene a ambiance 0,050.
+							// Rihen l'a constate le 15/08 (« le materiau porte ne correspond pas a
+							// ce qui est rendu ») et l'a demontre sans le vouloir : en deplacant la
+							// meme sphere du sol vers la lumiere, elle est passee de presque noire
+							// a gris clair. Meme materiau, meme albedo, deux eclairages.
+							//
+							// Une vignette est une SIMULATION : elle depend de la lumiere qu'on lui
+							// donne. Une pastille est une DONNEE : elle ne depend de rien. On garde
+							// donc les deux -- l'apercu pour la matiere, la pastille pour la
+							// couleur -- au lieu de choisir laquelle nous trompe le moins.
+							//
+							// Le lisere sombre n'est pas decoratif : sans lui, un albedo presque
+							// blanc disparait dans une vignette claire, et un albedo presque noir
+							// dans une vignette sombre. La pastille doit rester lisible AUX DEUX
+							// EXTREMITES de ce qu'elle sert a montrer.
+							float32 alb[3] = {0.f, 0.f, 0.f};
+							char nomMat[64] = {0};
+							demo::Demo3DHostProjMatInfo(mTh, nomMat, (uint32)sizeof(nomMat), alb,
+								nullptr, nullptr);
+							const float32 pastC = S(12.f);
+							const float32 pastX = cx + side2 * 0.5f - pastC - S(3.f);
+							const float32 pastY = tyy + (pvH + side2) * 0.5f - pastC - S(3.f);
+							// L'albedo vit en [0,1] flottant ; la pastille se peint en octets.
+							// On borne AVANT de convertir : une valeur hors plage ne doit pas
+							// reboucler en une couleur qui aurait l'air d'un choix.
+							auto oct = [](float32 v) -> uint8 {
+								const float32 c = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+								return (uint8)(c * 255.f + 0.5f);
+							};
+							p.Fill({pastX - 1.f, pastY - 1.f, pastC + 2.f, pastC + 2.f},
+								NkColor{0, 0, 0, 170}, 2.f);
+							p.Fill({pastX, pastY, pastC, pastC},
+								NkColor{oct(alb[0]), oct(alb[1]), oct(alb[2]), 255}, 2.f);
+							// ELLE DIT CE QU'ELLE EST (Rihen : « presente a quoi elle sert »).
+							// Une tache de couleur muette a cote d'une vignette se lit comme une
+							// decoration ; c'est l'inverse qu'on veut dire -- la vignette decore,
+							// la pastille informe.
+							//
+							// Le survol se calcule SANS declarer de zone : une zone posee ici
+							// serait la derniere declaree sur la carte, donc elle gagnerait le
+							// clic, et cliquer la pastille cesserait de selectionner la carte.
+							// On veut une infobulle, pas une cible.
+							const nkgui::NkVec2 sm = hit.Mouse();
+							const bool surPast =
+														hit.IsHovered(akey) && sm.x >= pastX && sm.x <= pastX + pastC &&
+														sm.y >= pastY && sm.y <= pastY + pastC;
+							char aide[160];
+							snprintf(aide, sizeof(aide),
+														"Couleur albedo brute de « %s » : %d, %d, %d\n"
+														"Ce que le materiau EST, sans eclairage -- la boule au-dessus "
+														"montre ce qu'il PARAIT sous la lumiere de l'apercu.",
+														nomMat[0] ? nomMat : st.browserNames[i], (int)oct(alb[0]),
+														(int)oct(alb[1]), (int)oct(alb[2]));
+							NkHelp(surPast, aide);
 					} else {
 						p.Disc(cx, cy, 22.f, role);
 						p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
@@ -609,8 +694,72 @@ namespace nkentseu {
 						p.OutlineSharp(cardR, NkRole::AccentUi);
 					}
 				}
-				if (!uiModal && hit.Clicked(akey))
+				if (!uiModal && hit.Clicked(akey)) {
+					// ---- QUI PART AVEC LA CARTE QU'ON TIRE ----
+					//
+					// Trois gestes, ceux que tout gestionnaire de fichiers a appris a
+					// ses utilisateurs -- et que la hierarchie applique deja ici meme
+					// (Demo3DHostSelectObject(node, hit.CtrlDown())). Un navigateur qui
+					// s'en ecarterait obligerait a apprendre deux fois la meme chose.
+					//
+					//   clic seul  : cette carte, et elle seule
+					//   Ctrl+clic  : bascule celle-ci, garde les autres
+					//   Maj+clic   : la plage depuis la carte active jusqu'ici
+					//
+					// La carte cliquee devient ACTIVE dans les trois cas : c'est elle
+					// que les panneaux montrent, meme quand cinq sont choisies.
+					const int32 depuis = actifAvantGrille;
+					// [MESURE Maj+clic -- TEMPORAIRE] Rihen : "Ctrl fonctionne, Maj non".
+					// Deux causes donnent ce symptome et l'ecran ne les separe pas : le
+					// modificateur n'arrive pas jusqu'ici, ou il arrive et la plage ne se
+					// dessine pas assez pour se voir. On journalise donc ce que la branche
+					// A VU, pas ce qu'elle a fait.
+					nkentseu::NkLog::Instance().Info(
+										"[nk3d] MESURE clic carte : i={0} ctrl={1} maj={2} depuis={3} count={4}\n",
+										i, hit.CtrlDown() ? 1 : 0, hit.ShiftDown() ? 1 : 0, depuis,
+										st.browserCount);
+					if (hit.CtrlDown()) {
+						st.browserPicked[i] = !st.browserPicked[i];
+					} else if (hit.ShiftDown() && depuis >= 0 && depuis < st.browserCount) {
+						// LA PLAGE SE COMPTE DANS L'ORDRE AFFICHE, PAS DANS LES INDEX.
+						//
+						// `i` est l'index de la carte dans l'etat ; `vi` est sa position a
+						// l'ecran. Les deux ne coincident pas : l'ordre d'affichage vient du
+						// classement et du filtre (NkBrowVisible), pas de l'ordre de
+						// creation.
+						//
+						// Tracer la plage sur les index donnait le BON NOMBRE de cartes au
+						// MAUVAIS endroit -- Rihen : « ca selectionne le nombre d'elements
+						// qui separe le premier du dernier, sauf que les autres ne sont pas
+						// entre ces derniers ». Un compte juste sur la mauvaise suite : le
+						// symptome exact de deux numerotations qu'on croit etre une seule.
+						//
+						// On cherche donc la POSITION AFFICHEE de la carte active, et on
+						// parcourt l'ecran entre les deux.
+						int32 viDepuis = -1;
+						for (int32 k = 0; k < visN; ++k)
+							if (vis[k] == depuis) {
+								viDepuis = k;
+								break;
+							}
+						if (viDepuis < 0) {
+							// La carte active n'est plus visible (filtre, recherche, dossier
+							// change) : il n'y a pas de plage a tracer. On se rabat sur la
+							// carte cliquee seule plutot que d'inventer un intervalle.
+							st.browserPicked[i] = true;
+						} else {
+							const int32 a = viDepuis < vi ? viDepuis : vi;
+							const int32 b = viDepuis < vi ? vi : viDepuis;
+							for (int32 k = a; k <= b && k < visN; ++k)
+								st.browserPicked[vis[k]] = true;
+						}
+					} else {
+						for (int32 k = 0; k < st.browserCount; ++k)
+							st.browserPicked[k] = false;
+						st.browserPicked[i] = true;
+					}
 					st.selectedAsset = i;
+				}
 				tx += tw + S(12.f);
 			}
 			if (shown == 0) {
@@ -736,18 +885,53 @@ namespace nkentseu {
 								st.browserNames[st.browDragIdx], NkRole::Text);
 				} else {
 					if (st.browDragging) {
-						// Sur la VUE : importer un CLONE dans la scene (Rihen).
+						// ── LACHER SUR LA VUE 3D : ON FIGE UN JETON, ON NE FAIT RIEN ──
+						// Avant, seul un MODEL etait traite, et il atterrissait a
+						// l'origine parce que personne ne savait ou le curseur
+						// pointait dans la scene -- l'hote n'exposait aucun pick.
+						// Desormais chaque nature est traitee, et AUCUNE ne reste
+						// muette : un refus silencieux est indistinguable d'un
+						// glisser-deposer casse.
+						//
+						// Rien ne s'applique ICI : la reponse du pick n'existe qu'a
+						// la frame suivante. On fige donc TOUT ce dont le geste aura
+						// besoin, et main.cpp applique quand la reponse arrive.
 						if (!NkHitRegistry::Contains(st.browserRect, bm) &&
-							NkHitRegistry::Contains(st.viewRect, bm) &&
-							st.browserKind[st.browDragIdx] == 6) {
-							int32 nn6 = -1;
-							if (st.browserSrcNode[st.browDragIdx] > 0)
-								nn6 = demo::Demo3DHostDuplicateNode(
-									st.browserSrcNode[st.browDragIdx] - 1);
-							if (nn6 < 0) // asset sans source : cube par defaut
-								nn6 = demo::Demo3DHostAddNode(2, 0);
-							if (nn6 >= 0)
-								demo::Demo3DHostSelectEmptyNode(nn6);
+							NkHitRegistry::Contains(st.viewRect, bm)) {
+							st.dropIdx = st.browDragIdx;
+							st.dropKind = st.browserKind[st.browDragIdx];
+							st.dropSrcNode = st.browserSrcNode[st.browDragIdx];
+							st.dropMat = st.browserMat[st.browDragIdx];
+							snprintf(st.dropName, sizeof(st.dropName), "%s",
+									 st.browserNames[st.browDragIdx]);
+st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
+							// ---- LES CARTES QUI PARTENT AVEC ELLE ----
+							//
+							// On ne tire pas forcement une carte isolee : si celle qu'on saisit
+							// fait partie des cartes CHOISIES, tout le lot part avec. Si elle
+							// n'en fait pas partie, elle part SEULE -- saisir une carte hors
+							// selection est un geste qui la designe, pas qui ignore le clic.
+							// C'est la regle de tous les gestionnaires de fichiers, et s'en
+							// ecarter ferait perdre des lots sans que l'utilisateur comprenne.
+							//
+							// La carte saisie n'entre PAS dans la file : elle est deja dans le
+							// jeton. La file ne porte que celles qui attendent leur tour.
+							st.dropQueueCount = 0;
+							st.dropQueueX = bm.x;
+							st.dropQueueY = bm.y;
+							if (st.browserPicked[st.browDragIdx]) {
+															for (int32 k = 0; k < st.browserCount &&
+																 st.dropQueueCount < NkModelerState::kMaxBrowser;
+																 ++k) {
+																if (k == st.browDragIdx || !st.browserPicked[k])
+																	continue;
+																st.dropQueue[st.dropQueueCount++] = k;
+															}
+							}
+							// COORDONNEES FENETRE, telles quelles : l'hote soustrait
+							// SON origine de vue. Passer `bm - st.viewRect` ferait de
+							// `viewRect` une seconde source pour la meme origine.
+							demo::Demo3DHostPickRequest(bm.x, bm.y);
 							st.browDragIdx = -1;
 						}
 						if (st.browDragIdx >= 0 && dropTo == -999 &&

@@ -20,6 +20,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkFunctions.h"
 #include "NKImage/Core/NkImage.h"
+#include "NKCore/NkTraits.h" // traits::NkMove (NkImage non copiable, deplacable)
 #include <cstdio>
 
 namespace nkentseu {
@@ -47,7 +48,7 @@ namespace nkentseu {
 			mCurrentFrame = 0;
 			mFrameAccum = 0.0f;
 			for (int i = 0; i < kFrameCount; ++i)
-				mPending[i] = nullptr;
+				mPending[i].Unload(); // slot vide = image INVALIDE
 
 			mWorkerDone.store(false);
 			mWorkerLastAttempted.store(-1);
@@ -67,10 +68,7 @@ namespace nkentseu {
 			StopWorker();
 			// Libere les images decodees mais non encore uploadees.
 			for (int i = 0; i < kFrameCount; ++i) {
-				if (mPending[i] != nullptr) {
-					mPending[i]->Free();
-					mPending[i] = nullptr;
-				}
+				mPending[i].Unload();
 			}
 			// Libere les textures GL deja uploadees.
 			mFramesLoaded = 0;
@@ -112,14 +110,13 @@ namespace nkentseu {
 				// `rihen_00155.png`, sans espaces, demarrant a 0. L'index i
 				// est utilise directement dans le path.
 				std::snprintf(path, sizeof(path), "Resources/Pong/Textures/animrihen/rihen_%05d.png", i);
-				NkImage *img = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
-				if (img != nullptr && (!img->Load(path, 4) || !img->IsValid())) {
-					img->Free();
-					img = nullptr;
+				NkImage img = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
+				if (img.IsValid() && (!img.Load(path, 4) || !img.IsValid())) {
+					img.Unload();
 				}
-				if (img == nullptr) {
+				if (!img.IsValid()) {
 					// Frame manquante : on continue (au lieu de break) pour
-					// tenter les suivantes. mPending[i] reste nullptr, le
+					// tenter les suivantes. mPending[i] reste INVALIDE, le
 					// DrainQueue saura la sauter via mWorkerLastAttempted.
 					++missingCount;
 					mWorkerLastAttempted.store(i);
@@ -128,7 +125,7 @@ namespace nkentseu {
 				}
 				{
 					std::lock_guard<std::mutex> lock(mQueueMutex);
-					mPending[i] = img;
+					mPending[i] = traits::NkMove(img); // transfert du buffer, pas de copie
 				}
 				mWorkerLastAttempted.store(i);
 				++decoded;
@@ -150,14 +147,13 @@ namespace nkentseu {
 		int RihenIntroScene::DrainQueue(AppContext &ctx, int maxUploads) {
 			int uploaded = 0;
 			for (int n = 0; n < maxUploads; ++n) {
-				NkImage *img = nullptr;
+				NkImage img;
 				bool isMissing = false;
 				{
 					std::lock_guard<std::mutex> lock(mQueueMutex);
 					if (mPendingNext >= kFrameCount)
 						return uploaded;
-					img = mPending[mPendingNext];
-					if (img == nullptr) {
+					if (!mPending[mPendingNext].IsValid()) {
 						// Worker a-t-il deja depasse ce slot ?
 						const int workerAt = mWorkerLastAttempted.load();
 						if (workerAt > mPendingNext || mWorkerDone.load()) {
@@ -168,8 +164,11 @@ namespace nkentseu {
 							return uploaded;
 						}
 					}
-					if (!isMissing)
-						mPending[mPendingNext] = nullptr;
+					if (!isMissing) {
+						// Le move VIDE le slot (equivalent de l'ancien
+						// `mPending[x] = nullptr`) et transfere les pixels a `img`.
+						img = traits::NkMove(mPending[mPendingNext]);
+					}
 				}
 				if (isMissing) {
 					// Frame manquante : pas d'upload, mais on AVANCE pour
@@ -179,8 +178,8 @@ namespace nkentseu {
 					mFramesLoaded = mPendingNext + 1;
 				} else {
 					// Upload sur le main thread (contexte GL).
-					bool _ok = mFrames[mPendingNext].LoadFromImage(*ctx.renderer->GetBackend(), *img);
-					img->Free();
+					bool _ok = mFrames[mPendingNext].LoadFromImage(*ctx.renderer->GetBackend(), img);
+					// `img` libere ses pixels en sortant de l'iteration.
 					if (_ok) {
 						if (mPendingNext == 0)
 							mAspect = ((mFrames[0].GetHeight() > 0)

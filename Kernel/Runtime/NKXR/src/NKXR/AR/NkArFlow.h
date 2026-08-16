@@ -66,11 +66,26 @@ namespace nkentseu {
 			uint32 cellsX = 10;         ///< Grille de sélection : un point fort par case,
 			uint32 cellsY = 8;          ///< pour couvrir l'image au lieu de s'agglutiner.
 			uint32 patchRadius = 5;     ///< Demi-côté de la vignette comparée (11×11).
-			// Déplacement maximal cherché, en pixels. À 30 images/s et 550 px de
-			// focale, 40 px valent 4° d'un coup — soit un balayage à 120°/s. En
-			// deçà, un mouvement vif sort de la fenêtre et le suivi s'accroche à
-			// un mauvais minimum : il croit alors que RIEN n'a bougé, ce qui est
-			// pire que d'avouer son ignorance.
+			// Déplacement maximal cherché, en pixels. Au-delà, un mouvement vif
+			// sort de la fenêtre et le suivi s'accrocherait à un mauvais minimum :
+			// il croirait que RIEN n'a bougé, ce qui est pire que d'avouer son
+			// ignorance.
+			//
+			// ⚠️ CE QUE 40 PX VALENT EN DEGRÉS DÉPEND DE LA FOCALE, et un nombre
+			// calculé doit porter la valeur dont il dérive — sinon il ment en
+			// silence le jour où sa source change :
+			//     f =  550 px (SUPPOSÉE)  ->  40 px = 4,2°  ->  125°/s à 30 img/s
+			//     f =  918,9 px (MESURÉE, calibration du 13/08, S22+)
+			//                             ->  40 px = 2,5°  ->   75°/s à 30 img/s
+			// Le commentaire précédent n'annonçait que le premier chiffre. Il
+			// était juste quand il a été écrit, et faux dès l'arrivée de la
+			// calibration : la donnée a été mise à jour, sa conséquence écrite
+			// ailleurs ne l'a pas été.
+			//
+			// 📏 MESURÉ (`tests/bench_ar_flow.cpp`, 2026-08-17, image réelle) :
+			// la coupure réelle arrive plus tôt que la fenêtre — suivi valide
+			// jusqu'à 32 px (1,99°), **aucun point retenu dès 48 px**. Bande
+			// utile constatée : 0,25° à 2,0° par image, soit ~60°/s à 30 img/s.
 			uint32 searchRadius = 40;
 			// Pas du balayage grossier. Le pic reste trouvable car la vignette
 			// est plus large que le pas ; l'affinage rattrape le reste.

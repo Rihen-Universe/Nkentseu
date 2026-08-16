@@ -271,9 +271,13 @@ void main() {
 			mToneSet = mDevice->AllocateDescriptorSet(mToneLayout);
 
 			// ── Auto-exposure V1 : layout dedie (uHDR + uPrevLuma) + pool de sets ──
+			// binding 2 = uBloom : la mesure doit porter sur la COMPOSITION
+			// (scene + halo), pas sur la scene seule — sinon elle ne voit jamais
+			// le halo qu'elle amplifie ensuite.
 			NkDescriptorSetLayoutDesc aelay;
 			aelay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			aelay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			aelay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mAutoExpLayout = mDevice->CreateDescriptorSetLayout(aelay);
 			for (int i = 0; i < kAutoExpDescSets; i++)
 				mAutoExpSets[i] = mDevice->AllocateDescriptorSet(mAutoExpLayout);
@@ -481,7 +485,8 @@ void main() {
 				pd.debugName = "PP_AutoExposure";
 				pd.renderPass = mLumaRT[0].GetRenderPass();
 				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
-								   16); // (dtSeconds, adaptSpeed, minLuma, maxLuma) — VS+FS
+								   32); // PC[0]=(dtSeconds, adaptSpeed, minLuma, maxLuma)
+										// PC[1]=(bloomStrength, hasBloom, _, _) — VS+FS
 				if (mAutoExpLayout.IsValid())
 					pd.descriptorSetLayouts.PushBack(mAutoExpLayout);
 				mPipeAutoExp = mDevice->CreateGraphicsPipeline(pd);
@@ -603,6 +608,17 @@ void main() {
 					mLumaRT[i].Shutdown();
 			}
 			mLumaWrite = -1;
+			// Anneau de releve : les cases sont creees paresseusement, donc
+			// certaines peuvent etre invalides — les detruire toutes serait faux.
+			for (int i = 0; i < kLumaReadRing; i++) {
+				if (mLumaReadBuf[i].IsValid())
+					mDevice->DestroyBuffer(mLumaReadBuf[i]);
+				mLumaReadBuf[i] = {};
+			}
+			mLumaReadCursor = 0;
+			mLumaReadFilled = 0;
+			mResolvedValid = false;
+			mResolvedStaleFrames = 0;
 			for (int i = 0; i < kAutoExpDescSets; i++) {
 				if (mAutoExpSets[i].IsValid())
 					mDevice->FreeDescriptorSet(mAutoExpSets[i]);
@@ -1334,7 +1350,7 @@ void main() {
 		bool NkPostProcessStack::IsAutoExposureEnabled() const {
 			if (!mPipeAutoExp.IsValid() || !mLumaRT[0].IsValid() || !mLumaRT[1].IsValid())
 				return false;
-			return NkAutoExpStrength(mCfg.autoExposureStrength) > 0.001f;
+			return NkAutoExpStrength(mCfg.autoExposureStrength) > NkPostConfig::kAutoExposureOn;
 		}
 
 		NkTextureHandle NkPostProcessStack::GetAvgLumaTexRHI() const {
@@ -1343,7 +1359,9 @@ void main() {
 			return mTex->GetRHIHandle(mLumaRT[mLumaWrite].GetColorHandle());
 		}
 
-		void NkPostProcessStack::RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn, float32 dtSeconds) {
+		void NkPostProcessStack::RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn,
+												 NkTextureHandle bloomIn, float32 bloomStrength,
+												 float32 dtSeconds) {
 			if (!cmd || !hdrIn.IsValid() || !IsAutoExposureEnabled())
 				return;
 			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
@@ -1388,6 +1406,10 @@ void main() {
 			// ignore la valeur puisqu'elle ne sera pas <= 0 dans ce cas ; d'ou le
 			// clear explicite ci-dessous a la premiere frame.
 			mDevice->BindTextureSampler(set, 1, prevTex.IsValid() ? prevTex : hdrIn, samp);
+			// Le halo. Absent (bloom eteint) : on rebinde le HDR pour ne pas laisser
+			// un slot vide, et hasBloom=0 dit au shader de l'ignorer.
+			const bool aeHasBloom = bloomIn.IsValid() && bloomStrength > 0.f;
+			mDevice->BindTextureSampler(set, 2, aeHasBloom ? bloomIn : hdrIn, samp);
 
 			// La cible 1x1 n'est PAS un transient du RenderGraph : on gere son
 			// render pass ici (meme modele que la passe d'ombres).
@@ -1400,17 +1422,186 @@ void main() {
 
 			struct PC {
 					float32 dt, speed, minLuma, maxLuma;
+					float32 bloomStr, hasBloom, pad0, pad1;
 			} pc;
 
 			pc.dt = (mLumaWrite < 0) ? 0.f : dt; // amorcage : saut direct sur la cible
 			pc.speed = NkAutoExpSpeed(mCfg.autoExposureSpeed);
 			pc.minLuma = mCfg.autoExposureMinLuma > 0.f ? mCfg.autoExposureMinLuma : 0.0001f;
 			pc.maxLuma = mCfg.autoExposureMaxLuma > pc.minLuma ? mCfg.autoExposureMaxLuma : 8.f;
+			pc.bloomStr = aeHasBloom ? bloomStrength : 0.f;
+			pc.hasBloom = aeHasBloom ? 1.f : 0.f;
+			pc.pad0 = 0.f;
+			pc.pad1 = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
 			mLumaRT[write].EndRender(cmd);
 
 			mLumaWrite = write;
+
+			// Le releve suit la mesure : la cible qu'on vient d'ecrire part vers
+			// la case courante de l'anneau, on lira celle d'il y a deux frames.
+			PumpExposureReadback(cmd);
+		}
+
+		// ── ANNEAU DE RELEVE : L'EXPOSITION REELLE REDESCEND VERS LE CPU ─────
+		// Demi-flottant -> flottant. La cible de luminance est RGBA16F : la
+		// valeur utile est le premier canal, sur 16 bits. Decode ici plutot que
+		// d'aller chercher une dependance pour dix lignes.
+		static float32 NkHalfToFloat(uint16 h) {
+			const uint32 s = (uint32)(h >> 15) & 0x1u;
+			const uint32 e = (uint32)(h >> 10) & 0x1Fu;
+			const uint32 m = (uint32)h & 0x3FFu;
+			uint32 bits;
+			if (e == 0) {
+				if (m == 0) {
+					bits = s << 31; // +/- zero
+				} else {
+					// Sous-normal : on normalise a la main.
+					uint32 ee = 0, mm = m;
+					while ((mm & 0x400u) == 0) {
+						mm <<= 1;
+						ee++;
+					}
+					mm &= 0x3FFu;
+					bits = (s << 31) | ((127 - 15 - ee + 1) << 23) | (mm << 13);
+				}
+			} else if (e == 31) {
+				bits = (s << 31) | 0x7F800000u | (m << 13); // inf / NaN
+			} else {
+				bits = (s << 31) | ((e + 127 - 15) << 23) | (m << 13);
+			}
+			float32 f;
+			memcpy(&f, &bits, sizeof(f));
+			return f;
+		}
+
+		void NkPostProcessStack::PumpExposureReadback(NkICommandBuffer *cmd) {
+			// CETTE FONCTION NE TOURNE QUE SOUS AUTO ACTIVE, et ce n'est pas une
+			// hypothese : son unique appelant est RunAutoExposure, qui retourne
+			// avant si !IsAutoExposureEnabled(). Le cas « auto eteinte » est donc
+			// traite dans ResolvedExposure(), la ou la question est posee.
+			//
+			// IL Y AVAIT ICI UNE BRANCHE « auto eteinte », annoncee « deliberee,
+			// pas un cas degrade » : elle etait INATTEIGNABLE, et son commentaire
+			// est precisement ce qui a dissuade d'aller verifier qui l'appelait.
+			// La garde ecrite pour poser l'exposition manuelle etait morte, donc
+			// personne ne la posait -- c'est la cause du cas 4.
+			if (!cmd || !mDevice || mLumaWrite < 0 || mLumaReadDisabled)
+				return;
+			NkTextureHandle src = GetAvgLumaTexRHI();
+			if (!src.IsValid())
+				return;
+
+			// Creation paresseuse des trois cases. 256 octets : un 1x1 RGBA16F
+			// tient sur 8, mais les alignements de ligne des dorsales sont plus
+			// larges et une case trop juste tronquerait la copie en silence.
+			for (int i = 0; i < kLumaReadRing; i++) {
+				if (!mLumaReadBuf[i].IsValid()) {
+					// NkBufferDesc::Staging, PAS un desc construit a la main : un
+					// tampon D3D11 en USAGE_STAGING doit avoir des drapeaux de
+					// liaison NULS. Un `NkBufferDesc{}` garde son bind par defaut
+					// (0x1) et CreateBuffer rend E_INVALIDARG -- constate par le
+					// journal, trois erreurs par frame puis plantage.
+					NkBufferDesc bd = NkBufferDesc::Staging(256);
+					bd.usage = NkResourceUsage::NK_READBACK;
+					mLumaReadBuf[i] = mDevice->CreateBuffer(bd);
+					// Une creation qui echoue ne doit pas etre retentee a chaque
+					// frame : on cesse d'essayer et l'affichage reste a « — »,
+					// plutot que d'inonder le journal en boucle.
+					if (!mLumaReadBuf[i].IsValid()) {
+						mLumaReadDisabled = true;
+						return;
+					}
+				}
+			}
+
+			const int wr = mLumaReadCursor % kLumaReadRing;
+			if (mLumaReadBuf[wr].IsValid()) {
+				NkBufferTextureCopyRegion rg{};
+				rg.width = 1;
+				rg.height = 1;
+				cmd->CopyTextureToBuffer(src, mLumaReadBuf[wr], rg);
+				if (mLumaReadFilled < kLumaReadRing)
+					mLumaReadFilled++;
+			}
+			mLumaReadCursor = (mLumaReadCursor + 1) % kLumaReadRing;
+
+			// On lit la case ecrite il y a DEUX frames : elle est certainement
+			// prete, donc aucun Map bloquant ne peut nous faire attendre. Tant que
+			// l'anneau n'est pas rempli, rien a lire -- et surtout rien a inventer.
+			if (mLumaReadFilled < kLumaReadRing) {
+				mResolvedStaleFrames++;
+				return;
+			}
+			const int rd = mLumaReadCursor % kLumaReadRing;
+			if (!mLumaReadBuf[rd].IsValid()) {
+				mResolvedStaleFrames++;
+				return;
+			}
+			NkMappedMemory mm = mDevice->MapBuffer(mLumaReadBuf[rd], 0, 8);
+			if (!mm.ptr) {
+				// La copie peut echouer EN SILENCE cote RHI (garde MSAA). On ne
+				// fabrique pas de valeur : on vieillit celle qu'on a.
+				mResolvedStaleFrames++;
+				return;
+			}
+			uint16 raw = 0;
+			memcpy(&raw, mm.ptr, sizeof(raw));
+			mDevice->UnmapBuffer(mLumaReadBuf[rd]);
+			const float32 avgLuma = NkHalfToFloat(raw);
+
+			// Meme formule que le tonemap, sinon l'affichage mentirait sur ce que
+			// l'image fait reellement.
+			float32 expo = mCfg.exposure;
+			if (avgLuma > 0.f) {
+				const float32 key = mCfg.autoExposureKey;
+				float32 autoExp = key / (avgLuma > 0.0001f ? avgLuma : 0.0001f);
+				const float32 lo = mCfg.autoExposureMinExp;
+				const float32 hi = mCfg.autoExposureMaxExp;
+				autoExp = autoExp < lo ? lo : (autoExp > hi ? hi : autoExp);
+				float32 k = NkAutoExpStrength(mCfg.autoExposureStrength);
+				k = k < 0.f ? 0.f : (k > 1.f ? 1.f : k);
+				expo = expo + (autoExp - expo) * k;
+			}
+			// Jamais 0 : un seuil ancre sur cette valeur partirait a l'infini.
+			mResolvedExposure = expo > 0.0001f ? expo : 0.0001f;
+			mResolvedValid = true;
+			mResolvedStaleFrames = 0;
+		}
+
+		bool NkPostProcessStack::ResolvedExposure(float32 *out, bool *stale) const {
+			// ── HORS AUTO : LE CPU CONNAIT DEJA LA REPONSE ───────────────────
+			// L'exposition effective est celle de la config, immediatement et
+			// sans aucun releve. On repond ICI, au point ou la question est
+			// POSEE, et non dans le pompage de l'anneau : c'est le seul endroit
+			// qui vaut pour TOUS les consommateurs (bright pass, panneau) et a
+			// TOUT instant -- y compris a la construction du graphe, qui a lieu
+			// hors frame et ne verrait pas une valeur posee par le rendu.
+			//
+			// CE QUE CE COURT-CIRCUIT CORRIGE, mesure a l'appui (cas 4) : apres
+			// extinction de l'auto, mResolvedExposure gardait la derniere valeur
+			// relevee (5,1513 sur une scene a ambiance 0,050), mResolvedValid
+			// restait vrai, et RIEN ne les rafraichissait ni ne les perimait --
+			// mResolvedStaleFrames lui-meme n'est incremente que par le pompage,
+			// qui ne tourne plus. Le seuil de bloom s'ancrait donc sur une
+			// exposition d'un etat revolu : bloomThr 1,19 au lieu de 6,15, d'ou
+			// le cube surexpose et le retour de la bouillie lumineuse.
+			if (!IsAutoExposureEnabled()) {
+				if (out)
+					*out = mCfg.exposure > 0.f ? mCfg.exposure : 1.f;
+				// Aucune mesure n'est en vol : il n'y a rien qui puisse perimer.
+				if (stale)
+					*stale = false;
+				return true;
+			}
+			if (out)
+				*out = mResolvedExposure;
+			// Deux frames de retard sont NORMALES (c'est l'anneau) ; au-dela, les
+			// releves ont cesse d'arriver et l'appelant doit le dire.
+			if (stale)
+				*stale = mResolvedStaleFrames > kLumaReadRing;
+			return mResolvedValid;
 		}
 
 		// =====================================================================

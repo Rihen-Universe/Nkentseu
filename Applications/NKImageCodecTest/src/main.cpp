@@ -16,13 +16,13 @@ int main() {
 	const int W = 512, H = 512;
 
 	// Motif synthétique déterministe (RGB24).
-	NkImage *img = NkImage::Alloc(W, H, NkImagePixelFormat::NK_RGB24);
-	if (!img) {
+	NkImage img = NkImage::Alloc(W, H, NkImagePixelFormat::NK_RGB24);
+	if (!img.IsValid()) {
 		printf("[ERREUR] Alloc\n");
 		return 1;
 	}
-	nk_uint8 *db = img->Pixels();
-	const int st = img->Stride();
+	nk_uint8 *db = img.Pixels();
+	const int st = img.Stride();
 	for (int y = 0; y < H; ++y) {
 		for (int x = 0; x < W; ++x) {
 			nk_uint8 r = 0, g = 0, b = 0;
@@ -70,10 +70,9 @@ int main() {
 		{"ic_out.ppm", true}, {"ic_out.gif", false}, {"ic_out.hdr", false}, {"ic_out.webp", true}, {"ic_out.exr", false},
 	};
 	for (const Fmt &f : formats) {
-		const bool ok = img->Save(f.file, 100);
+		const bool ok = img.Save(f.file, 100);
 		printf("  %-12s : %s%s\n", f.file, ok ? "ecrit" : "ECHEC SAVE", f.lossless ? "  (lossless attendu)" : "");
 	}
-	img->Free();
 	printf("[CODECTEST] reference ic_ref.rgb (%dx%d rgb24). Verifier avec ffmpeg (PSNR).\n", W, H);
 	return 0;
 }
