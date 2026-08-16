@@ -28,6 +28,109 @@ VALIDATION → INTÉGRATION).
 
 ---
 
+## ✅ 2026-08-16 (soir) — « NKXRDemo ouvre le SIMULATEUR alors que le Quest 2 est branché » : ce n'était PAS un repli
+
+**Symptôme rapporté** : première ligne du journal de `NKXRDemo`,
+`[NKXR] Session creee - systeme : NKXR Simulator`, casque branché et runtime
+Meta actif. Soupçon légitime : un repli silencieux vers un simulateur — la
+famille qu'on chasse, celle qui *répond toujours* et dont la réponse fausse est
+indiscernable de la vraie.
+
+**Ce n'en était pas un. C'est le défaut documenté, et personne n'avait demandé
+autre chose.**
+
+| branche | ce qui la déclenche | a-t-elle tiré ? |
+|---|---|---|
+| défaut `NK_XR_BACKEND_SIMULATOR` (`NKIXrBackend.h`) | rien à faire — c'est la valeur initiale, inchangée depuis le commit d'étage 0 | ✅ **oui** |
+| repli « liaison Vulkan/OpenXR échouée » (`main.cpp`) | `xrCreateSession` ou `BindVulkan` KO | ❌ non |
+| repli « OpenXR indisponible » (`main.cpp`) | `NkXrSession::Create` rend `nullptr` | ❌ non |
+
+`NkXrBackendFactory::Create` **n'a aucun repli** : un backend qui échoue rend
+`nullptr`, jamais un autre backend. Et la démo ne fixe jamais `desc.backend` par
+le code — **seule** `NK_XR_BACKEND=openxr` la fait basculer
+(`USAGE.md` §réglages, défaut « simulateur »). Sans la variable, `wantOpenXR` est
+faux et **le bloc OpenXR entier est sauté : aucune tentative n'a lieu**.
+
+### La trace qui tranche, et pourquoi c'est une preuve et non une absence
+
+`NkXrOpenXRBackend::Initialize` journalise **sur sa toute première bifurcation**,
+succès (`Point d'entrée OpenXR chargé depuis :`) comme échec (`Ni loader, ni
+runtime actif`). Le journal de la course incriminée contient **zéro ligne
+`[NKXR/OpenXR]`** : l'objet n'a jamais été construit. *Trace positive attendue et
+absente*, pas simple silence. Les trois replis, eux, écrivent chacun un `[WRN]` —
+aucun n'y figure.
+
+**Contrôle indépendant** (journal du service Meta, hors de notre code) :
+
+```
+20:09:39  [AppTrackerManager] Adding new tracker: 26032 (...NKXRDemo)     <- course SIMULATEUR
+          ... aucun Hmd_Create, aucun CreateTextureSet, aucun Will VR Render
+20:13:19  [Server] Hmd_Create. pid39016 File: NKXRDemo.exe                <- course OPENXR
+20:13:21  [AppTracker] Will VR Render: 39016
+20:13:22  [Compositor] CreateTextureSet ID: 1001..1004 count: 3
+```
+
+Le runtime a vu **les deux** processus démarrer et **un seul** devenir client VR.
+L'instrument discrimine ; il ne se contente pas de confirmer.
+
+### Preuve par intervention, casque branché (2026-08-16, Release, `feat/nkxr`)
+
+Une seule variable changée, l'effet suit. `NK_XR_BACKEND=openxr` →
+
+```
+Point d'entree OpenXR charge depuis : ...\LibOVRRTImpl64_1.dll
+Runtime : Oculus (version 1.206.0)      36 extensions
+Systeme : Oculus Quest2 - 2080x2096 par oeil recommande
+Session de casque creee (liaison Vulkan OK) - en attente de READY
+Swapchains casque : 1768x1781, format 43, 3 images par oeil
+Cadences proposees : 72 (actuelle 72 Hz)   masque de visibilite : 52 triangles/oeil
+```
+
+**L'étage 2b.1 est donc rejoué et sain sur cette branche**, jusqu'aux swapchains
+casque incluses — confirmé côté Meta par 4 `CreateTextureSet` de 3 images (2 yeux
++ 2 profondeurs). ⚠️ **La boucle de frame n'est PAS atteinte** : la course meurt
+avant, sur `Renderer oeil 0 KO` (défaut shaders NKRenderer, hors périmètre XR).
+**`EndFrame` reste non exercé** ; le niveau 2 n'est pas entamé.
+
+⚠️ Et **le mode de fusion reste 1/1 OPAQUE** : l'impossibilité écrite en Q37
+(§ « HORS D'ATTEINTE ») est re-confirmée par cette course, pas levée.
+
+### Corrigé : deux absences rendues bruyantes (journal seul, ZÉRO changement de comportement)
+
+1. **`main.cpp`** annonce le backend **avant** de créer la session. Un journal qui
+   démarrait sur `système : NKXR Simulator` ne distinguait pas « le casque a
+   échoué » de « le casque n'a jamais été demandé » — le second n'écrivait **rien**,
+   et une absence ne se lit pas.
+2. **`NkXrOpenXRBackend.cpp`** avertit quand `NK_XR_OPENXR_LOADER` est fourni mais
+   introuvable. Mesuré : un chemin bidon laissait la course **atteindre le Quest 2
+   sans un mot** — les voies 2 et 3 répondaient à sa place. La sortie finale
+   n'était pas fausse (elle nomme le vrai chemin chargé), mais **un réglage
+   explicite était ignoré en silence** : même famille que les quatre réglages
+   fantômes de NKCamera.
+
+**Preuve d'atterrissage** — trois courses, Release, binaire reconstruit (26/26) :
+
+| course | attendu | obtenu |
+|---|---|---|
+| A — aucune variable | annonce SIMULATEUR, aucun casque | ✅ ligne présente **avant** `Session creee` |
+| B — `NK_XR_BACKEND=openxr` | comportement **inchangé**, casque atteint | ✅ Quest2 + swapchains 1768x1781 |
+| C — `+ NK_XR_OPENXR_LOADER` bidon | le réglage ignoré se **voit** | ✅ `reglage IGNORE : ...` puis voie 3 |
+
+### ⚠️ Ce que je n'ai PAS réussi à faire, et je l'écris
+
+Je voulais exercer la **branche de repli de la démo** en cassant OpenXR par
+`XR_RUNTIME_JSON`. **Échec : la course a atteint le Quest 2 quand même.** Cause :
+ce backend **ne lit jamais `XR_RUNTIME_JSON`** — c'est une variable du loader
+Khronos, et nous ne passons pas par lui (voie 3, découverte directe par
+`HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime`). Ma tentative visait un levier que
+ce code n'écoute pas : **encore l'instrument, pas le code**.
+
+**Les trois replis de `main.cpp` restent donc du code non éprouvé**, exactement
+comme la branche `modes[0]` du mode de fusion. Ils sont journalisés — c'est ce qui
+a permis de trancher aujourd'hui — mais *journalisé* n'est pas *exercé*.
+
+---
+
 ## ✅ 2026-08-17 — le mode de fusion est DEMANDÉ au runtime, plus écrit en dur
 
 `EndFrame` soumettait `XR_ENVIRONMENT_BLEND_MODE_OPAQUE` **en dur**
