@@ -73,13 +73,48 @@ traque depuis une semaine, commis en le corrigeant. Les trois cas sont déjà
 séparés par trois messages distincts. *Un état de plus n'aurait servi qu'à
 donner l'illusion d'une capacité interrogeable.*
 
-### ⚠️ Dette nommée, non traitée : `tests/build_tests.sh` compile en C++20
+### ✅ Dette SOLDÉE le même jour : le banc compile désormais dans le dialecte du dépôt
 
-Le dépôt est en **C++17** (`cppdialect("C++17")`, 205 projets) ; le banc NKXR
-compile ses trois tests en `-std=c++20`. *Un banc qui n'est pas compilé comme le
-code qu'il juge ne mesure pas le même code* — c'est ce qui a piégé le témoin
-`NkToWide`. Non corrigé ici : ça change ce que mesurent 66 contrôles, et ça se
-fait avec sa propre vérification.
+Le banc NKXR compilait ses trois tests en **C++20** alors que le dépôt est en
+**C++17** (`cppdialect("C++17")`, 205 projets). *Un banc qui n'est pas compilé
+comme le code qu'il juge ne mesure pas le même code* — c'est ce qui a piégé le
+témoin `NkToWide` (`char16 = uint16` en C++17, `char16_t` en C++20).
+
+⚠️ **La question n'était pas « les contrôles sont-ils faux ? » mais « que
+mesurent-ils ? »** — et c'est pire, parce qu'un résultat faux finit par se voir,
+alors qu'un résultat hors-sujet reste vert indéfiniment.
+
+**Mesuré AVANT de corriger** — les deux dialectes, mêmes sources, mêmes conditions :
+
+| banc | C++20 | C++17 | écart |
+|---|---|---|---|
+| `test_xr` | **66 OK, 0 ÉCHECS** | **66 OK, 0 ÉCHECS** | **aucun** |
+| `test_ar` | **82 OK, 0 ÉCHECS** | **82 OK, 0 ÉCHECS** | **aucun** |
+| `test_ar_image` | code 1 (usage) | code 1 (usage) | **aucun** |
+
+Et le contrôle qui vaut plus que les compteurs : **les journaux des trois
+binaires, horodatage retiré, sont identiques entre les deux dialectes.** Pas
+seulement le même total — la même sortie, ligne pour ligne.
+
+**Zéro contrôle tombait.** La dette était un réglage de script, pas un problème
+de portabilité — et maintenant on le sait au lieu de l'espérer. Le script est
+passé en C++17 et rejoué à travers lui-même : 66/66 et 82/82, inchangés.
+
+*Au passage : le module annonce « 66/66 » alors qu'il y a en réalité **148**
+contrôles (66 + 82). `test_ar_image` n'entre dans aucun total — il attend un
+chemin d'image en argument et sort en code 1 sans, donc il ne participe à aucune
+mesure automatique.*
+
+### 🔧 Et le `sed` de la correction a réécrit sa propre documentation
+
+Le remplacement `c++20 → c++17` a touché **aussi la phrase de commentaire qui
+racontait l'historique**, la transformant en « ce script a compilé en C++17
+jusqu'au 2026-08-17 » — l'inverse de la vérité. Rattrapé à la relecture.
+
+C'est la forme déjà rencontrée sur `NkToWide` : **la documentation se met à
+corroborer l'état faux.** Le nom du drapeau n'est donc plus écrit en toutes
+lettres dans la phrase d'historique, pour qu'un futur remplacement ne puisse plus
+la retourner.
 
 ---
 
