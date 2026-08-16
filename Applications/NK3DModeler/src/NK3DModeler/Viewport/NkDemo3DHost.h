@@ -310,7 +310,7 @@ namespace nkentseu {
 		int32 Demo3DHostProjMatOf(int32 node);
 		// LA LISTE DES MATERIAUX D'UN OBJET (12 aout) : distincte de celle du
 		// PROJET. Retirer d'ici n'affecte que cet objet et ne detruit rien ;
-		// supprimer un materiau ne se fait que depuis le navigateur de projet.
+		// supprimer un materiau ne se fait que depuis le navigateur de contenu.
 		int32 Demo3DHostNodeMatCount(int32 node);
 		int32 Demo3DHostNodeMatAt(int32 node, int32 k);
 		bool Demo3DHostNodeMatAdd(int32 node, int32 slot);

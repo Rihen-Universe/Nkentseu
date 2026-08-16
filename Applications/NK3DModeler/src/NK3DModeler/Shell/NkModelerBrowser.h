@@ -1,8 +1,15 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // @File    NkModelerBrowser.h
-// @Brief   NAVIGATEUR DE PROJET (panneau du bas) : arborescence des dossiers,
+// @Brief   NAVIGATEUR DE CONTENU (panneau du bas) : arborescence des dossiers,
 //          vignettes des assets, recherche, classement et glisser-deposer.
+//
+//          C'est le « CONTENT BROWSER » des specifications de Nogee (§9), et
+//          c'est le meme panneau : le libelle affiche est passe de « Navigateur
+//          de projet » a « Navigateur de contenu » le 17/08/2026 sur demande de
+//          Rihen. Les symboles, eux, ne portaient DEJA aucun « Project »
+//          (`PaintBrowser`, `NkModelerBrowser.h`) : il n'y avait donc rien a
+//          renommer, et rien ne contredit le nom du panneau.
 //
 //          Extrait de NkModelerScreens.h pendant la refonte d'interface --
 //          « subdiviser les gros fichiers » (Rihen, 13 aout 2026).
@@ -22,7 +29,15 @@ namespace nkentseu {
 	namespace nk3d {
 
 
-		// â”€â”€ NAVIGATEUR DE PROJET (bas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// LE TITRE DU PANNEAU, UNE SEULE FOIS. Il etait ecrit DEUX fois a la
+		// suite -- une fois peint, une fois MESURE pour placer la croix de
+		// fermeture. Renommer l'un sans l'autre laissait le texte juste et la
+		// croix au mauvais endroit : un defaut muet, que rien ne signale.
+		// C'est le motif « une liste et son compte separes » que ce depot a deja
+		// paye sur kVidExt[3], applique a un libelle.
+		static const char *const kBrowserTitle = "Navigateur de contenu";
+
+		// â”€â”€ NAVIGATEUR DE CONTENU (bas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// `sortCombo` porte le deroulant de CLASSEMENT. Il est fourni par la boucle
 		// principale, comme pour les autres combos : un popup se peint APRES tout le
 		// reste, il ne peut donc pas se declarer ici.
@@ -38,8 +53,8 @@ namespace nkentseu {
 			const float32 topH = 28.f;
 			const float32 ih = p.IconSize();
 			p.Fill({r.x, r.y, r.w, topH}, NkRole::PanelHeader);
-			p.TextV(r.x + kPad, r.y, topH, "Navigateur de projet");
-			float32 x = r.x + kPad + p.TextW("Navigateur de projet") + 10.f;
+			p.TextV(r.x + kPad, r.y, topH, kBrowserTitle);
+			float32 x = r.x + kPad + p.TextW(kBrowserTitle) + 10.f;
 			{
 				// Meme croix que les panneaux lateraux, meme effet : elle referme, et la
 				// poignee du bas ramene le navigateur.
@@ -1019,7 +1034,7 @@ st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
 			};
 			static const NkMenuItem kWindow[] = {
 				{"Hierarchie", "", false},		{"Proprietes", "", false}, {"Details", "", false},
-				{"Navigateur de projet", "", false}, {nullptr, "", false},
+				{kBrowserTitle, "", false},		{nullptr, "", false},
 				{"Panneau d'outils", "app.panneau_outils", false}, {nullptr, "", false},
 				{"Plein ecran", "", false},
 			};

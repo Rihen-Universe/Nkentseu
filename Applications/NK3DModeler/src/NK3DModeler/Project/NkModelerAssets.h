@@ -1348,6 +1348,13 @@ namespace nkentseu {
 				if (dd >= 0 && dd < NkModelerState::kMaxDocs)
 					docRank[(usize)dd] = rank[(usize)b];
 			}
+			// ⚠️ « navigateur » et « triNavigateur » SONT DES CLES DE FICHIER, pas
+			// des libelles. Le panneau s'appelle desormais « Navigateur de
+			// contenu » (Content Browser des specs Nogee), mais ces clefs NE
+			// DOIVENT PAS suivre ce renommage : elles sont ecrites dans tous les
+			// .nk3dm existants, et les renommer rendrait leur navigateur vide au
+			// rechargement -- sans erreur, une cle absente se lit comme un tableau
+			// vide. Un renommage cosmetique qui efface des donnees.
 			o.SetObjectArray("navigateur", cards);
 
 			// ── VUES OUVERTES : la DISPOSITION, pas les scenes ──
@@ -1744,7 +1751,7 @@ namespace nkentseu {
 		/// besoin ; -1 pour la racine du projet (ou pour un chemin qui n'est pas
 		/// dedans). C'est le pont qui manquait entre le selecteur de fichiers --
 		/// qui parle en chemins absolus, puisqu'il navigue le disque -- et le
-		/// navigateur de projet, qui parle en cartes. Sans lui, un materiau cree
+		/// navigateur de contenu, qui parle en cartes. Sans lui, un materiau cree
 		/// depuis le selecteur atterrissait a la racine quel que soit le dossier
 		/// choisi (Rihen, 13 aout : « ca ne se sauvegarde pas dans le bon dossier »).
 		inline int32 NkAsFolderFromAbs(NkModelerState &st, const NkString &root,

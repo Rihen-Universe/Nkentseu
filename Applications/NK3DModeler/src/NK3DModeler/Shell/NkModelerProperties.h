@@ -2549,7 +2549,7 @@ namespace nkentseu {
 					// ── CETTE LISTE EST CELLE DE L'OBJET ────────────────────
 					// Modele fixe avec Rihen le 12 aout : la pastille montre les
 					// materiaux ASSOCIES A L'OBJET ACTIF, pas le projet entier
-					// (celui-ci se consulte dans le navigateur de projet). C'est
+					// (celui-ci se consulte dans le navigateur de contenu). C'est
 					// ce qui donne son sens au « retirer » : il sort le materiau
 					// de CET objet, sans rien detruire, et le « + » l'y remet.
 					// Sans objet actif, on retombe sur le projet — il faut bien
@@ -7865,7 +7865,7 @@ namespace nkentseu {
 				// d'emplacements, chaque face du maillage porte l'indice de celui qui
 				// la peint, et l'ensemble des faces d'un meme indice forme un
 				// sous-maillage. Les emplacements viendront des materiaux crees dans
-				// le navigateur de projet ; tant qu'aucun n'existe, il n'y a rien a
+				// le navigateur de contenu ; tant qu'aucun n'existe, il n'y a rien a
 				// montrer et on le dit.
 				p.TextV(r.x + kPad, y, kRowH, "Aucun emplacement", NkRole::TextMuted);
 				y += kRowH;

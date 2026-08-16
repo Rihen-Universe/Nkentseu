@@ -47,7 +47,7 @@
 //     guides, passe-partout ;
 //   * DOCUMENTS du projet -- TOUTES les scenes, ouvertes ou non : nom, scene
 //     hote, scene vierge, unites, et la vue (pose de camera) de chacune ;
-//   * NAVIGATEUR de projet : cartes et dossiers, leur nom, leur nature, leur
+//   * NAVIGATEUR de contenu : cartes et dossiers, leur nom, leur nature, leur
 //     rangement, et le lien carte <-> scene qui permet de rouvrir ;
 //   * VUES ouvertes (les onglets) et celle qui etait active.
 //
@@ -543,7 +543,7 @@ namespace nkentseu {
 			}
 			out.SetObjectArray("noeuds", nodes);
 
-			// ── NAVIGATEUR DE PROJET ────────────────────────────────────────
+			// ── NAVIGATEUR DE CONTENU ────────────────────────────────────────
 			// Il naissait VIDE a chaque lancement : ses dossiers, ses cartes et
 			// leur rangement etaient perdus a la fermeture. Les liens (dossier
 			// parent, document d'une carte de scene, noeud source d'un mesh) sont
@@ -948,7 +948,7 @@ namespace nkentseu {
 			// scene hote deja peuplee.
 			st.sceneIdNext = maxHost + 1;
 
-			// ── NAVIGATEUR DE PROJET ────────────────────────────────────────
+			// ── NAVIGATEUR DE CONTENU ────────────────────────────────────────
 			NkVector<NkArchive> brow;
 			(void)in.GetObjectArray("navigateur", brow);
 			NkVector<int32> browOf; // rang fichier -> indice de carte

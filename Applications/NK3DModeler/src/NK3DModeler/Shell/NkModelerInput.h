@@ -763,7 +763,7 @@ namespace nkentseu {
 				float32 bgBrightness = 1.f;
 				int32 matcapDragBar = -1; ///< -1 aucun, 0 verticale, 1 horizontale
 				float32 matcapDragOff = 0.f;
-				// ── Navigateur de projet : CONTENU CREE PAR L'UTILISATEUR ───────
+				// ── Navigateur de contenu : CONTENU CREE PAR L'UTILISATEUR ───────
 				// Plus aucune donnee simulee : le navigateur nait vide et se remplit
 				// par « + Dossier / + Materiau / + Texture ». Tableaux plats a
 				// indices stables, comme partout ailleurs dans cet etat.

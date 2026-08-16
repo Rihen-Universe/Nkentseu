@@ -41,7 +41,7 @@
 #include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
 #include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
 #include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
-#include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de projet
+#include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de contenu
 #include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
