@@ -455,23 +455,23 @@ namespace nkentseu {
 		return legacyVideoRange;
 	}
 
-	// Miroir horizontal sur une image RGBA8, en place. Une passe, deux index qui
-	// se croisent : pas de tampon supplémentaire par image.
+	// Miroir horizontal — délégué à NKImage, qui sait déjà le faire.
+	//
+	// La première version, écrite le 2026-08-15, retournait les octets à la main.
+	// Elle marchait, et c'était le défaut : `NkImage::FlipHorizontal()` existe, et
+	// `NkImage::Wrap` donne une vue NON PROPRIÉTAIRE sur un tampon existant —
+	// donc aucune copie, aucune allocation, et le retournement n'est plus écrit
+	// deux fois dans le dépôt.
+	// *« Toujours utiliser Nkentseu »* ne se voit dans aucun `grep` : un helper
+	// local qui double le Kernel ne casse rien, ne prévient personne, et se
+	// contente d'exister.
 	static void NkMiroirRGBA8(NkCameraFrame &frame) {
-		uint8 *p = frame.data.Data();
-		const uint32 w = frame.width, h = frame.height;
-		for (uint32 y = 0; y < h; ++y) {
-			uint8 *ligne = p + (usize)y * w * 4;
-			for (uint32 g = 0, d = w - 1; g < d; ++g, --d) {
-				uint8 *a = ligne + (usize)g * 4;
-				uint8 *b = ligne + (usize)d * 4;
-				for (int c = 0; c < 4; ++c) {
-					const uint8 t = a[c];
-					a[c] = b[c];
-					b[c] = t;
-				}
-			}
-		}
+		NkImage *vue = NkImage::Wrap(frame.data.Data(), (int32)frame.width, (int32)frame.height,
+									 NkImagePixelFormat::NK_RGBA32);
+		if (vue == nullptr)
+			return;
+		vue->FlipHorizontal();
+		vue->Free(); // vue non propriétaire : libère le descripteur, pas les pixels
 	}
 
 	static bool NkConvertToRGBA8Impl(NkCameraFrame &frame) {
