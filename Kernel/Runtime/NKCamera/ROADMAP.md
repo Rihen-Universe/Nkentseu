@@ -247,6 +247,240 @@ coup. Relire le correctif ne le montrait pas.
 formule par la **plage**, jamais par le format. Différé volontairement pour ne
 pas élargir un diff en cours de fusion — différé, pas abandonné.
 
+### 🚫 ZÉRO-STL — la cible est « 0 STL », PAS « 0 `std::` » (2026-08-16)
+
+⚠️ **Ne mesurez pas ce chantier avec `grep -c "std::"`.** Il compte deux
+populations différentes, et le prochain agent lirait « il reste 30 occurrences »
+sur un chantier terminé.
+
+- **STL — à retirer** : ce qui alloue et gère des durées de vie à votre place —
+  conteneurs, chaînes, algorithmes, fils, verrous, `std::function`, pointeurs
+  intelligents, `std::move`.
+- **Bibliothèque C — tolérée** : `snprintf`, `time`, `fwrite`, `size_t`… Ce sont
+  des fonctions et types **C**, simplement exposés dans `std` par les en-têtes
+  `<cXXX>`. Le dépôt l'a déjà tranché : `NkChrono.cpp` revendique en tête de
+  fichier « aucune dépendance STL : uniquement `<cstdio>` pour snprintf ».
+
+**L'instrument juste : `tests/audit_stl.sh`** — deux colonnes, les deux listes de
+motifs énumérées en clair, code de sortie 1 tant qu'il reste de la STL. Il
+**ignore les commentaires** (un fichier converti qui explique ce qu'il a remplacé
+cite forcément le nom retiré — le backend Win32 sortait à « 1 STL » alors qu'il
+est à zéro : l'instrument mesurait sa propre documentation), et il **liste ce
+qu'il n'a pas su classer** plutôt que de le compter au hasard.
+
+**LA CIBLE, en toutes lettres : la colonne STL doit passer de 138 à 0. Les 30
+occurrences de bibliothèque C RESTENT** — elles ne sont pas de la dette, et
+personne ne doit lire « il reste 30 » comme un chantier inachevé.
+
+**Relevé initial au 2026-08-16, commit `ba9cffa0`** *(occurrences, pas lignes — l'ancien
+chiffre de « 140 » comptait des lignes ; deux prédicats différents ne se
+comparent pas)* :
+
+| fichier | STL | libC |
+|---|---|---|
+| `NkCameraSystem.cpp` | 42 | 0 |
+| `Backend/NkLinuxCameraBackend.h` | 25 | 29 |
+| `Backend/NkAndroidCameraBackend.h` | 24 | 0 |
+| `Backend/NkEmscriptenCameraBackend.h` | 14 | 1 |
+| `Backend/NkUIKitCameraBackend.mm` | 10 | 0 |
+| `NkCameraSystem.h` | 7 | 0 |
+| `Backend/NkCocoaCameraBackend.mm` | 6 | 0 |
+| `Backend/NkUIKitCameraBackend.h` | 5 | 0 |
+| `Backend/NkCocoaCameraBackend.h` | 3 | 0 |
+| `NkCameraTypes.h` | 2 | 0 |
+| **`Backend/NkWin32CameraBackend.h`** | **0** ✅ | 0 |
+| **TOTAL** | **138** | 30 |
+
+**✅ TERMINÉ — 138 → 0 au 2026-08-17. `audit_stl.sh` rend 0.**
+
+⚠️ **Trois colonnes, et l'écart entre les deux dernières est le sujet.** Quand
+tout le module sera converti, quelqu'un lira « module converti » et croira le
+travail vérifié. *Converti* veut dire « le code est écrit » ; *compilé* veut dire
+« un compilateur l'a lu » ; *exercé* veut dire « ça a tourné ». Les trois ne se
+remplacent pas.
+
+| fichier | STL | converti | compilé | exercé |
+|---|---|---|---|---|
+| `Backend/NkWin32CameraBackend.h` | **0** | ✅ | ✅ Windows | ✅ **oui** — 4 empreintes MD5 identiques, débit inchangé, Debug + Release |
+| `Backend/NkAndroidCameraBackend.h` | **0** | ✅ | ✅ APK multi-ABI | ❌ **non** — téléphone absent d'`adb` |
+| `Backend/NkLinuxCameraBackend.h` | **0** | ✅ | ❌ **non** — V4L2 absent de cette machine | ❌ non |
+| `Backend/NkEmscriptenCameraBackend.h` | **0** | ✅ | ❌ **non** — chaîne Emscripten non installée | ❌ non |
+| `Backend/NkCocoaCameraBackend.{h,mm}` | **0** | ✅ | ❌ **non** — Objective-C++ + SDK Apple | ❌ non |
+| `Backend/NkUIKitCameraBackend.{h,mm}` | **0** | ✅ | ❌ **non** — idem | ❌ non |
+| `NkCameraSystem.{h,cpp}` + `NkCameraTypes.h` | **0** | ✅ | ✅ Windows + Android | ✅ **oui** — c'est le code commun, exercé par le viewer et `--demo=format` |
+| **TOTAL** | **0** *(+ 29 libC, qui restent et doivent rester)* | | | |
+
+**Le point commun en dernier, et ce qu'il a demandé** : `std::queue` → `NkQueue`,
+`std::unique_ptr` / `make_unique` → `memory::NkUniquePtr` / `NkMakeUnique`,
+`std::function` (les deux rappels publics) → `NkFunction`, plus les verrous et
+transferts. Le compilateur a signalé chaque écart de nom (`empty`→`Empty`,
+`pop`→`Pop`, `get`→`Get`) : c'est le bon genre d'erreur, celle qui se voit.
+
+⚠️ **Ce que vaut la vérification des quatre backends non compilables.** Je ne peux
+ni les compiler ni les exercer ici. Ce que j'ai fait à la place, et qui ne le
+remplace pas : un fichier de contrôle qui **appelle toutes les API du moteur
+employées dans ces backends** — `NkPath::GetDirectory/Combine`,
+`NkDirectory::CreateRecursive`, `NkFile::ReadAllText`, `NkSort`, `NkMutex`,
+`NkScopedLock`, `NkThread`, `NkVector::Assign`, `traits::NkMove` — avec les mêmes
+signatures. Il passe en analyse syntaxique.
+
+*Cela prouve que les appels que j'ai écrits existent. Cela ne prouve pas que ces
+backends compilent* : leurs en-têtes système (V4L2, Emscripten, SDK Apple) sont
+absents de cette machine, et une erreur dans le code qui les entoure ne serait
+pas vue. **La colonne « compilé » reste donc à NON pour ces quatre.**
+
+**Ce que la conversion a exhumé, backend par backend :**
+
+- **Android et UIKit portaient chacun une `std::condition_variable` notifiée mais
+  JAMAIS attendue** — `mPhotoCv`. Aucun `Wait` nulle part ; l'attente est une
+  boucle de sommeil qui ne la consulte pas. *Une dépense pour personne* :
+  l'inverse exact du réglage déclaré-et-non-honoré, et plus difficile à voir,
+  parce qu'un `notify` a l'air de travailler. Retirées avec leur notification —
+  le comportement ne peut pas changer, puisque rien n'écoutait.
+- **Deux `std::unique_lock` (Android, UIKit) servaient des boucles qui relâchent
+  VOLONTAIREMENT le verrou** pendant leur sommeil, pour laisser un autre fil
+  publier. Traduits en `Lock()`/`Unlock()` explicites : un verrou de portée les
+  aurait tenus pendant l'attente et **aurait empêché exactement ce qu'on
+  attend**. Ça aurait compilé, et ça aurait figé sous charge.
+- **Linux** : `std::filesystem` → `NkPath` + `NkDirectory::CreateRecursive`,
+  `std::ifstream` → `NkFile::ReadAllText`, `std::copy` → `memcpy`.
+- **`std::sort` n'avait aucun équivalent** : `NkVector` ne sait pas trier, et le
+  dépôt appelait `std::sort` jusque **dans NKContainers lui-même**. Ajouté à sa
+  place — `NKContainers/Utilities/NkSort.h` — plutôt que contourné localement.
+
+**Ordre convenu** : Win32 (fait), Android (fait, non exercé), puis les
+non-exerçables, puis `NkCameraSystem` **en dernier** — 42 occurrences, le plus
+gros du lot, et le point commun des six backends : le casser les bloque tous.
+Avant de le déclarer fini, **vérification syntaxique des cinq backends non
+exerçables**.
+
+### 🔎 AUDIT DES RÉGLAGES FANTÔMES — *qui lit ce champ ?* (2026-08-15)
+
+Trois réglages déclarés-mais-ignorés ont été trouvés en deux jours **sans les
+chercher** — chacun révélé par un utilisateur qui butait dessus. Ce n'est plus
+une série d'incidents, c'est une propriété du module : **ses réglages sont
+déclarés avant d'être câblés, et rien ne le signale.** D'où cette passe, faite
+une fois, champ par champ : *qui le lit ?*
+
+| champ de `NkCameraConfig` | lecteurs | verdict |
+|---|---|---|
+| `deviceIndex`, `width`, `height`, `fps` | 15 / 42 / 39 / 12 | ✅ câblés |
+| `preset` | `Resolve()` | ✅ câblé *(faux positif du premier relevé : `Resolve()` vit dans `NkCameraTypes.h`, que le filtre excluait)* |
+| `facing` | 5 | ✅ câblé |
+| `flipHorizontal` | 5 | ✅ **câblé le 2026-08-15** (voir ci-dessous) |
+| `autoFocus` | 2 | ⚠️ **Android seulement** — ignoré sur Windows (voir plus bas) |
+| **`outputFormat`** | **0** | ❌ **FANTÔME** |
+| **`autoExposure`** | **0** | ❌ **FANTÔME** |
+| **`autoWhiteBalance`** | **0** | ❌ **FANTÔME** |
+
+⚠️ **`outputFormat` est le plus trompeur des trois.** Il n'est lu par personne,
+mais **trois applications l'écrivent** — `NKARDemo`, `CameraViewerDemo`,
+`CameraMultiDemo` posent toutes `NK_PIXEL_RGBA8`. Elles croient donc demander du
+RGBA8 ; les backends livrent du NV12 ou du YUV420, et chaque consommateur doit
+appeler `ConvertToRGBA8` lui-même. Un champ que personne ne lit est un mensonge
+d'API ; un champ que **plusieurs applications écrivent** en est un qui a déjà des
+victimes.
+
+`autoExposure` et `autoWhiteBalance` : jamais lus à l'ouverture du flux. Les
+méthodes `SetAutoExposure()` / `SetAutoWhiteBalance()` existent et fonctionnent —
+ce sont les **champs de configuration** qui ne mènent nulle part.
+
+**Verdict après enquête** (la mesure décide de la réparation, pas l'inverse) :
+
+- **`outputFormat` → RETIRER, ne pas honorer.** Les trois applications testent
+  `frame.format` et appellent `ConvertToRGBA8` : elles fonctionnent **par
+  conception**, pas par accident. Et le format est **imposé par la plateforme** —
+  NV12 (Windows), YUV420 (Android), BGRA8 (Cocoa/UIKit), YUYV/MJPEG (Linux) :
+  aucun backend ne peut livrer du RGBA8 sans convertir. « Honorer » reviendrait
+  donc à refaire dans le système ce que le consommateur fait déjà, en le cachant.
+  Le format réellement livré se lit sur `NkCameraFrame::format`.
+- **`autoExposure` / `autoWhiteBalance` → câbler ou retirer.** Réglages morts :
+  personne ne les écrit, personne ne les lit. Les méthodes
+  `SetAutoExposure()` / `SetAutoWhiteBalance()` font le travail.
+
+En attendant l'arbitrage, les trois champs portent **dans l'en-tête** un
+avertissement disant ce qu'ils ne font pas. Un commentaire ne casse rien et
+cesse de mentir immédiatement.
+
+### 🔧 Le mécanisme, et son prix — `tests/audit_reglages.sh`
+
+Corriger quatre fantômes un par un ne dit rien du cinquième. Le moins cher qui
+les transforme en bruit : **un script qui compte, pour chaque champ public,
+combien de fois il est ÉCRIT et combien de fois il est LU.**
+
+**Prix mesuré : 7,4 s d'exécution, ~55 lignes, aucun build.**
+
+**Ce qu'il attrape** (rejoué sur l'état d'avant) : `outputFormat`,
+`autoExposure`, `autoWhiteBalance`, et `flipHorizontal` — soit **les quatre**.
+
+⚠️ **Sa première version les manquait**, et c'est instructif : elle comptait
+lectures et écritures ensemble, si bien que `outputFormat` sortait à
+« 3 lecteurs, ok ». **Un grep ne distingue pas lire d'écrire**, et le pire cas du
+module passait au vert. La séparation écrit/lu est tout l'intérêt du script :
+*un champ écrit mais jamais lu est le mensonge le plus coûteux — il a déjà des
+victimes, contrairement à un champ mort que personne ne touche.*
+
+**Ce qu'il n'attrape PAS, écrit dans son en-tête pour qu'on ne s'y fie pas trop :**
+- un champ **lu mais mal utilisé** — la plage de couleur était lue, seulement
+  *déduite* du format ; il l'aurait déclarée saine ;
+- un champ honoré sur une plateforme et ignoré sur une autre (`autoFocus`) — il
+  le signale seulement comme « peu de lecteurs, à vérifier » ;
+- **un faux positif sur 11 champs** : `preset` sort à 0 lecteur parce qu'il est
+  lu par `Resolve()`, dans le fichier de déclaration que le script exclut. Le
+  script **imprime son périmètre et son exclusion au-dessus de chaque résultat**,
+  précisément pour que ce zéro soit relu et non cru.
+
+### ✅ `flipHorizontal` est enfin APPLIQUÉ (2026-08-15)
+
+Le champ existait dans `NkCameraConfig` depuis l'origine, se réglait, et
+**personne ne l'appliquait** — vérifié, zéro consommateur dans tout le dépôt.
+Deuxième réglage fantôme du module, après `autoFocus`.
+
+Il fonctionne désormais par le même relais que la plage de couleur : **la
+configuration le demande, la trame le transporte** (`NkCameraFrame::flipHorizontal`),
+**la conversion l'applique** — donc quel que soit le format d'origine, sans
+dupliquer le retournement dans les huit branches de `ConvertToRGBA8`.
+
+Le drapeau **retombe à faux une fois appliqué**, et ce détail compte : une image
+miroitée deux fois est identique à l'originale. Sans cette remise à zéro, une
+double conversion ferait conclure que le réglage ne marche pas — alors qu'il
+marche deux fois.
+
+**Faux par défaut, et c'est un choix** : l'image brute d'un capteur est
+géométriquement vraie, et c'est la seule utilisable pour de l'AR, de la
+calibration ou de la mesure. Le miroir est un confort d'affichage de soi (la
+convention des applications de visio), pas une correction. `NkCameraDemos
+--demo=viewer --miroir` le montre ; validé à l'écran par Rihen.
+
+### ⚠️ Windows — `autoFocus` est une promesse d'API NON TENUE (2026-08-15)
+
+`NkCameraConfig::autoFocus` vaut `true` par défaut et **le backend Win32 ne
+contient aucun code de mise au point** (`grep Focus` sur
+`NkWin32CameraBackend.h` : zéro occurrence). Le réglage est donc **ignoré en
+silence** — pas refusé, pas journalisé : ignoré. Sur une webcam à focale fixe
+(la plupart des portables) ça ne change rien, et c'est pourquoi personne ne l'a
+vu ; sur une webcam externe capable de faire la mise au point, on ne lui demande
+rien. À traiter via `IAMCameraControl` (DirectShow) ou
+`KSPROPERTY_CAMERACONTROL_FOCUS`.
+
+*Découvert en cherchant pourquoi l'image d'un portable paraissait floue — elle
+l'était pour une autre raison (capteur à focale fixe), mais la recherche a
+exhumé celle-ci.*
+
+### ✅ Windows — la résolution NÉGOCIÉE est enfin annoncée (2026-08-15)
+
+Media Foundation **ne refuse pas** un type qu'il ne sait pas servir : il en
+choisit un proche, en silence. Le backend lisait bien la taille réellement
+obtenue (`MFGetAttributeSize` sur le type courant) mais **ne l'annonçait nulle
+part** : une application pouvait croire filmer en 720p, recevoir du 640×480, et
+n'avoir comme seul symptôme qu'une image « floue » — en réalité étirée à la
+taille de la fenêtre.
+
+`StartStreaming` imprime désormais **le demandé ET l'obtenu**, en avertissement
+quand ils diffèrent. Même angle mort que celui qui a coûté une calibration
+entière sur Android le 12/08 (intrinsèques calculées sur la résolution
+demandée) ; il est maintenant fermé des deux côtés.
+
 - UWP et Xbox tombent sur Noop (pas de backend dédié)
 - Emscripten : nécessite HTTPS (ou localhost) pour `getUserMedia` ; le pump est via `setInterval` JS, donc le FPS effectif dépend du throttling navigateur (cap ~60 Hz, baisse en arrière-plan)
 - macOS backend déclare `NK_PIXEL_BGRA8` en sortie (cohérent avec CoreVideo) — `ConvertToRGBA8` swap les canaux côté CPU avant upload GPU
