@@ -284,11 +284,30 @@ conteneur par fichier, en `-fsyntax-only`.
 | Conteneur | Type de valeur move-only | Détail |
 |---|---|---|
 | `NkVector`, `NkList`, `NkDoubleList` | ✅ accepté | `PushBack(T&&)` + `EmplaceBack` présents hors garde |
-| **`NkHashMap`** | ✅ **accepté depuis 2026-08-16** | voir §2 |
-| `NkMap`, `NkUnorderedMap` | ❌ refusé | même structure que `NkHashMap` avant correctif |
-| `NkSet`, `NkUnorderedSet`, `NkDeque` | ❌ refusé | aucune surcharge rvalue nulle part |
+| **`NkHashMap`** | ✅ **complété le 2026-08-16** | `Insert(Key, Value&&)` + `Emplace` — voir §2 |
+| **`NkMap`, `NkUnorderedMap`** | ✅ **complétés le 2026-08-16** | idem, même forme |
+| **`NkSet`, `NkUnorderedSet`** | ✅ **complétés le 2026-08-16** | `Insert(T&&)` + `Emplace(Args&&...)` |
+| **`NkDeque`** | ✅ **complété le 2026-08-16** | `PushBack/PushFront(T&&)` + `EmplaceBack/EmplaceFront` |
 | `NkStack` | ❌ refusé | le code **existe** mais est compilé hors du binaire par `#if defined(NK_CPP11)` (l. 256) — voir §5 |
 | `NkQueue`, `NkRingBuffer`, `NkPriorityQueue` | ❌ refusé | même garde (l. 281 / 511 / 339) **plus** un second obstacle derrière |
+
+**La famille associative et le deque sont finis.** Restent les **adaptateurs**
+(`NkStack`, `NkQueue`, `NkRingBuffer`, `NkPriorityQueue`), qui relèvent d'un autre
+diagnostic : leur code de déplacement est écrit mais compilé hors du binaire par
+`NK_CPP11`, et trois d'entre eux portent un second obstacle derrière. Ce n'est pas
+la même réparation — voir §5.
+
+#### Ce que les sets ont de particulier, et qui se documente
+
+Dans une map, la clé est connue **avant** la valeur : `Emplace` peut chercher, puis
+ne construire que si la clé est absente. **Dans un ensemble, la clé EST la valeur**
+— il faut donc construire l'élément pour pouvoir le comparer (et le hacher). En cas
+de doublon, le nœud est construit puis détruit. C'est le même compromis que
+`std::set::emplace` / `std::unordered_set::emplace`, et il est écrit dans le
+doxygen des deux méthodes **pour que personne ne le prenne pour un oubli**.
+
+Corollaire mesuré : `Insert(T&&)` sur un doublon **ne consomme pas** la source —
+rien n'est déplacé quand rien n'est inséré.
 
 ⚠️ **Ce n'est pas un manque théorique.** `NKAnimation/NkAnimation.h` déclare
 **4 champs `NkHashMap`** (l. 277, 278, 684, 685) : tant que le conteneur refusait
@@ -302,8 +321,8 @@ Trois ajouts, **aucune signature existante modifiée** :
 
 | Fichier | Ajout |
 |---|---|
-| `Heterogeneous/NkPair.h` | `struct NkPairPiecewiseTag` + `NkPair(NkPairPiecewiseTag, const T1 &, Args &&...)` |
-| `Associative/NkHashMap.h` | `Node(usize, const Key &, Node *, NkPairPiecewiseTag, Args &&...)` |
+| `Heterogeneous/NkPair.h` | `NkPair(NkPiecewiseTag, const T1 &, Args &&...)` |
+| `Associative/NkHashMap.h` | `Node(usize, const Key &, Node *, NkPiecewiseTag, Args &&...)` |
 | `Associative/NkHashMap.h` | `Insert(const Key &, Value &&)` et `Emplace(const Key &, Args &&...)` |
 
 Commit `54e57ea6`. Témoins : une TU move-only qui **échoue avant**
@@ -344,9 +363,35 @@ pour les 38 fichiers qui consomment `NkHashMap` et les 6 qui consomment `NkPair`
 - `Emplace(const Key &, Args &&...)` **n'écrase jamais** et retourne `bool`. Ce choix évite de construire quoi que ce soit lorsque la clé est déjà là, et n'exige donc pas que `Value` soit assignable ;
 - la clé reste prise par `const Key &`, comme partout dans ce dépôt. Élargir plus tard au forwarding de la clé restera rétro-compatible ; l'inverse ne le serait pas.
 
-⚠️ **Reste à faire, même forme** : `NkMap`, `NkUnorderedMap`, `NkSet`,
-`NkUnorderedSet`, `NkDeque`. Le `NkPairPiecewiseTag` est déjà en place et leur
-servira.
+✅ **Fait le 2026-08-16, même forme** : `NkMap`, `NkUnorderedMap`, `NkSet`,
+`NkUnorderedSet`, `NkDeque`.
+
+⚠️ **Le tag a changé de nom ET de place, et la raison se garde.** Il s'appelait
+`NkPairPiecewiseTag` et vivait dans `NkPair.h`. Il s'appelle désormais
+**`NkPiecewiseTag`** et vit dans **`NkContainersApi.h`**.
+
+> **Le prémisse « le tag est déjà en place, il leur servira » était FAUX pour les
+> deux ensembles**, et il a coûté une compilation cassée avant d'être vu.
+> `NkSet` et `NkUnorderedSet` stockent **`T` directement** — pas de `NkPair`,
+> donc **ils n'incluent pas `NkPair.h`**, donc le tag n'existait pas dans leur
+> portée. Ils n'ont pas non plus de garde `NK_CPP11` : un seul constructeur, qui
+> copie. **Les ensembles ne sont pas des maps sans valeur** ; les traiter comme
+> tels est l'erreur à ne pas refaire.
+
+Le défaut était d'une espèce particulièrement discrète : `NkPiecewiseTag` est un
+nom **non dépendant**, donc diagnostiqué à la **définition** du template —
+**aucune instanciation n'était nécessaire**, un simple `#include` suffisait à
+casser. Mesuré sur les 3 consommateurs réels (`Specialized/NkGraph.h`,
+`NKEvent/NkDropSystem.cpp`, `NKRHI/Vulkan/NkVulkanDevice.cpp`), sur g++ **et**
+clang. `NKContainers.h` n'incluant pas les ensembles, la portée s'arrêtait là.
+
+⚠️ **Et il avait échappé au témoin de syntaxe** : celui-ci incluait les maps
+**avant** les ensembles, et les maps tirent `NkPair.h` — **l'ordre d'inclusion
+masquait le manque.** D'où la règle qui en sort : *un en-tête doit être compilé
+**seul**, pas en compagnie de ceux qui satisfont ses dépendances à sa place.* Un
+balayage « chaque en-tête compile seul » couvre désormais les 53 de
+`NKContainers` (50/53 ; les 3 échecs — `NkBind.h`, `NkFuntionV2.h`,
+`NkBasicStringView.h` — sont **antérieurs** et hors de ce chantier).
 
 ### 3. Famille « déclarée sans corps » — `NkString::begin()` / `end()`
 
@@ -388,7 +433,31 @@ qu'il le cherchait. **Seule l'édition de liens décide.** Un inventaire complet
 cette famille demanderait une unité de traduction qui odr-utilise chaque
 surcharge déclarée — chantier non ouvert, nommé ici.
 
-### 4. Le paramètre template `Allocator` est décoratif
+### 4. Le paramètre template `Allocator` est décoratif — mais l'injection FONCTIONNE
+
+> ⚠️ **CORRECTION du 2026-08-16, après mesure complémentaire.** La première
+> rédaction disait « le paramètre `Allocator` est décoratif » **sans distinguer
+> deux choses différentes**, et c'était trop large. Ce qui suit remplace cette
+> formulation. *Un fait qui voyage n'est pas un fait vérifié* — y compris quand
+> c'est moi qui l'ai écrit une heure plus tôt.
+
+#### Ce qui MARCHE : l'injection d'allocateur par pointeur
+
+`memory::NkAllocator` est une **base polymorphe** (`Allocate`/`Deallocate`
+virtuels purs) avec 11+ sous-classes concrètes (`NkLinear`, `NkArena`, `NkStack`,
+`NkPool`, `NkFreeList`, `NkBuddy`…). Passer un allocateur **dérivé** au
+constructeur fonctionne, par dispatch virtuel. Mesuré avec un allocateur
+compteur injecté dans un `NkHashMap` :
+
+```
+pendant           : allocs=54  frees=3   size=50
+apres destruction : allocs=54  frees=54   -> L'INJECTION SERT REELLEMENT
+```
+
+**Rien n'est silencieusement ignoré.** Ce n'est donc **pas un défaut silencieux**,
+et la dette ne change pas de priorité : elle reste une question de conception.
+
+#### Ce qui NE MARCHE PAS : le paramètre TEMPLATE
 
 **18 conteneurs** exposent un paramètre `typename Allocator` et codent malgré
 tout `&memory::NkGetDefaultAllocator()` en dur dans leurs constructeurs :
@@ -397,17 +466,41 @@ tout `&memory::NkGetDefaultAllocator()` en dur dans leurs constructeurs :
 mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
 ```
 
-Le type de cette expression est `memory::NkAllocator *`. Avec tout autre
-allocateur, l'expression conditionnelle ne compile pas.
+Le type de cette expression est `memory::NkAllocator *`. Substituer un **autre
+type** au paramètre template ne compile pas. Vérifié sur **5 des 18** —
+`NkHashMap`, `NkVector`, `NkMap`, `NkSet`, `NkList` : **5 refus sur 5**. Les 13
+autres portent le même motif sans avoir été instanciés ; le chiffre à retenir est
+*18 exposent, 5 mesurés, 5 refusent*.
 
-Vérifié directement sur **5 des 18** — `NkHashMap`, `NkVector`, `NkMap`,
-`NkSet`, `NkList` : **5 refus sur 5**. Les 13 autres portent le même motif mais
-n'ont pas été instanciés ; le chiffre à retenir est donc *18 exposent, 5 mesurés,
-5 refusent*.
+Le paramètre template est donc **redondant** avec un mécanisme qui, lui, marche.
 
-Même famille que tout le reste : **une déclaration promet ce que le code ne
-tient pas.** Deux issues acceptables, l'ambiguïté ne l'est pas — soit rendre le
-paramètre réellement générique, soit le retirer.
+#### ⚠️ Et la documentation prescrit précisément la forme cassée
+
+Zéro appelant réel passe un allocateur non-défaut. **Mais 7 conteneurs portent un
+bloc `@code` qui enseigne l'idiome qui ne compile pas** — `NkHashMap` (l. 1485),
+`NkMap`, `NkSet`, `NkTrie`, `NkBTree`, `NkBinaryTree`, `NkUnorderedMap` :
+
+```cpp
+nkentseu::NkHashMap<usize, nkentseu::NkString, memory::NkPoolAllocator> cache(&pool);
+```
+
+Recopié mot pour mot, cet exemple donne **deux** erreurs :
+
+```
+error: no matching constructor for initialization of 'memory::NkPoolAllocator'
+NkHashMap.h:638: error: cannot initialize a member subobject of type
+                 'memory::NkPoolAllocator *' with an rvalue of type 'NkAllocator *'
+```
+
+**Même famille que les six commentaires `Free()` de `NkImage.h` et que le
+`Insert(i, NkMove(values))` de ce fichier** : *un commentaire qui prescrit une
+API qui n'existe pas.* C'est ce qui fera perdre une demi-journée au prochain qui
+voudra un allocateur custom — pas le paramètre template en soi.
+
+**Trois issues acceptables, l'ambiguïté ne l'est pas** : rendre le paramètre
+réellement générique, le retirer, ou le garder et **réécrire les 7 blocs `@code`**
+pour enseigner l'injection par pointeur, qui marche. Décision de niveau Rodolf :
+ça touche 18 conteneurs partagés.
 
 ### 5. Macros de capacité jamais définies
 
@@ -485,8 +578,20 @@ différente, et c'est le résultat le plus réutilisable :
 1. **`grep` compte les commentaires** — facteur 4 à 30 sur la dette STL. Remède : le préprocesseur.
 2. **Une recherche par nom ne voit pas une surcharge manquante** — `begin()` non-const est invisible à tout balayage textuel qui trouve `begin() const`. Remède : l'éditeur de liens.
 3. **Une macro mal orthographiée dans un `#if` ne se voit nulle part** — le code compile, il compile juste l'autre branche. Remède : mesurer que la branche attendue est bien celle qui est prise.
+4. **Un témoin qui inclut plusieurs en-têtes ensemble ne teste aucun en-tête.**
+   Ajouté le 2026-08-16, et payé le jour même : le témoin des cinq conteneurs
+   incluait les maps **avant** les sets. Les maps tirent `NkPair.h` ; le tag y
+   était défini ; les sets ne l'incluent pas. **Le témoin passait, et NKContainers
+   ne compilait pas.** Remède, une ligne par en-tête :
 
-Le point commun : **ça répond, donc on croit avoir demandé.**
+   ```
+   echo '#include "<en-tete>"' > solo.cpp && clang++ -fsyntax-only solo.cpp
+   ```
+
+   Un en-tête doit compiler **seul**. Un témoin multi-en-têtes mesure l'union des
+   inclusions, pas leur autonomie — et l'ordre d'inclusion masque le manque.
+
+Le point commun des quatre : **ça répond, donc on croit avoir demandé.**
 
 ---
 

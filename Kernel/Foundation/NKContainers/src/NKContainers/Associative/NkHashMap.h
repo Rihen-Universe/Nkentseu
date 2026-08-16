@@ -227,13 +227,13 @@ namespace nkentseu {
 					 *       définie nulle part dans le dépôt, donc le constructeur à forwarding
 					 *       parfait ci-dessus n'est jamais compilé. C'est ce constructeur-ci qui
 					 *       porte les surcharges Insert(const Key &, Value &&) et Emplace().
-					 * @note Le tag NkPairPiecewiseTag évite tout recouvrement avec les deux
+					 * @note Le tag NkPiecewiseTag évite tout recouvrement avec les deux
 					 *       constructeurs existants : aucun appel écrit avant ce jour ne peut
 					 *       le sélectionner.
 					 */
 					template <typename... Args>
-					Node(usize hash, const Key &key, Node *next, NkPairPiecewiseTag, Args &&...args)
-						: Data(NkPairPiecewiseTag{}, key, traits::NkForward<Args>(args)...), Next(next), Hash(hash) {
+					Node(usize hash, const Key &key, Node *next, NkPiecewiseTag, Args &&...args)
+						: Data(NkPiecewiseTag{}, key, traits::NkForward<Args>(args)...), Next(next), Hash(hash) {
 					}
 			};
 
@@ -1143,7 +1143,7 @@ namespace nkentseu {
 					node = node->Next;
 				}
 				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
-				new (newNode) Node(hash, key, mBuckets[idx], NkPairPiecewiseTag{}, traits::NkMove(value));
+				new (newNode) Node(hash, key, mBuckets[idx], NkPiecewiseTag{}, traits::NkMove(value));
 				mBuckets[idx] = newNode;
 				++mSize;
 				CheckLoadFactor();
@@ -1184,7 +1184,7 @@ namespace nkentseu {
 				}
 				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
 				new (newNode)
-					Node(hash, key, mBuckets[idx], NkPairPiecewiseTag{}, traits::NkForward<Args>(args)...);
+					Node(hash, key, mBuckets[idx], NkPiecewiseTag{}, traits::NkForward<Args>(args)...);
 				mBuckets[idx] = newNode;
 				++mSize;
 				CheckLoadFactor();

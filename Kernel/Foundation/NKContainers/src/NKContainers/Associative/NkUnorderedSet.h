@@ -179,6 +179,21 @@ namespace nkentseu {
 					 */
 					Node(usize hash, const T &value, Node *next = nullptr) : Value(value), Next(next), Hash(hash) {
 					}
+
+					/**
+					 * @brief Construit la valeur SUR PLACE dans le nœud
+					 * @tparam Args Types déduits des arguments destinés au constructeur de T
+					 * @param hash Hash pré-calculé de la valeur
+					 * @param next Pointeur vers le nœud suivant du bucket
+					 * @param args Arguments forwardés vers le constructeur de T
+					 * @note Porte Insert(T&&) et Emplace(). Le tag évite tout recouvrement
+					 *       avec le constructeur par copie ci-dessus : aucun appel écrit
+					 *       avant ce jour ne peut le sélectionner.
+					 */
+					template <typename... Args>
+					Node(usize hash, Node *next, NkPiecewiseTag, Args &&...args)
+						: Value(traits::NkForward<Args>(args)...), Next(next), Hash(hash) {
+					}
 			};
 
 			// ====================================================================
@@ -558,6 +573,72 @@ namespace nkentseu {
 				}
 				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
 				new (newNode) Node(hash, value, mBuckets[idx]);
+				mBuckets[idx] = newNode;
+				++mSize;
+				CheckLoadFactor();
+				return true;
+			}
+
+			/**
+			 * @brief Insère un élément en le DÉPLAÇANT dans l'ensemble
+			 * @param value Élément rvalue dont les ressources sont transférées
+			 * @return true si l'élément a été inséré, false s'il était déjà présent
+			 * @note SURCHARGE : un appel passant une lvalue continue de résoudre vers
+			 *       Insert(const T &) et de copier, au même coût qu'avant.
+			 * @note Rend l'ensemble utilisable avec un T **move-only**.
+			 * @note Si l'élément est déjà présent, la source n'est PAS déplacée : rien
+			 *       n'est consommé quand rien n'est inséré.
+			 * @note Complexité : O(1) amorti, O(n) pire cas (collisions ou réhash)
+			 */
+			bool Insert(T &&value) {
+				usize hash = HashValue(value);
+				SizeType idx = GetBucketIndex(hash);
+				Node *node = mBuckets[idx];
+				while (node) {
+					if (mEqual(node->Value, value)) {
+						return false;
+					}
+					node = node->Next;
+				}
+				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
+				new (newNode) Node(hash, mBuckets[idx], NkPiecewiseTag{}, traits::NkMove(value));
+				mBuckets[idx] = newNode;
+				++mSize;
+				CheckLoadFactor();
+				return true;
+			}
+
+			/**
+			 * @brief Construit l'élément SUR PLACE dans le nœud, sans copie ni déplacement
+			 * @tparam Args Types déduits des arguments du constructeur de T
+			 * @param args Arguments forwardés au constructeur de T
+			 * @return true si l'élément a été inséré, false s'il était déjà présent
+			 *
+			 * @note ⚠ Contrairement aux maps, l'élément DOIT être construit avant de
+			 *       pouvoir être haché et comparé : la clé d'un ensemble EST la valeur.
+			 *       Le nœud est donc construit puis détruit si un doublon est trouvé.
+			 *       Même compromis que std::unordered_set::emplace, documenté ici pour
+			 *       que personne ne le prenne pour un oubli.
+			 * @note Seule voie pour un T **sans constructeur par défaut** et **non
+			 *       copiable**.
+			 * @note Complexité : O(1) amorti, O(n) pire cas (collisions ou réhash)
+			 */
+			template <typename... Args> bool Emplace(Args &&...args) {
+				Node *newNode = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
+				new (newNode) Node(0, nullptr, NkPiecewiseTag{}, traits::NkForward<Args>(args)...);
+				usize hash = HashValue(newNode->Value);
+				SizeType idx = GetBucketIndex(hash);
+				Node *node = mBuckets[idx];
+				while (node) {
+					if (mEqual(node->Value, newNode->Value)) {
+						newNode->~Node();
+						mAllocator->Deallocate(newNode);
+						return false;
+					}
+					node = node->Next;
+				}
+				newNode->Hash = hash;
+				newNode->Next = mBuckets[idx];
 				mBuckets[idx] = newNode;
 				++mSize;
 				CheckLoadFactor();

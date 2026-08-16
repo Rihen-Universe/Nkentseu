@@ -144,6 +144,21 @@ namespace nkentseu {
 					Node(const T &value, Node *parent = nullptr)
 						: Value(value), Left(nullptr), Right(nullptr), Parent(parent), NodeColor(RED) {
 					}
+
+					/**
+					 * @brief Construit la valeur SUR PLACE dans le nœud
+					 * @tparam Args Types déduits des arguments destinés au constructeur de T
+					 * @param parent Pointeur vers le nœud parent
+					 * @param args Arguments forwardés vers le constructeur de T
+					 * @note Porte Insert(T&&) et Emplace(). Le tag évite tout recouvrement
+					 *       avec le constructeur par copie ci-dessus : aucun appel écrit
+					 *       avant ce jour ne peut le sélectionner.
+					 */
+					template <typename... Args>
+					Node(Node *parent, NkPiecewiseTag, Args &&...args)
+						: Value(traits::NkForward<Args>(args)...), Left(nullptr), Right(nullptr), Parent(parent),
+						  NodeColor(RED) {
+					}
 			};
 
 			// ====================================================================
@@ -362,6 +377,20 @@ namespace nkentseu {
 			Node *CreateNode(const T &value, Node *parent = nullptr) {
 				Node *node = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
 				new (node) Node(value, parent);
+				return node;
+			}
+
+			/**
+			 * @brief Alloue un nœud dont la valeur est construite SUR PLACE
+			 * @tparam Args Types déduits des arguments du constructeur de T
+			 * @param parent Pointeur vers le nœud parent
+			 * @param args Arguments forwardés vers le constructeur de T
+			 * @return Pointeur vers le nœud nouvellement créé
+			 * @note Voie des types move-only et sans constructeur par défaut.
+			 */
+			template <typename... Args> Node *CreateNodePiecewise(Node *parent, Args &&...args) {
+				Node *node = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
+				new (node) Node(parent, NkPiecewiseTag{}, traits::NkForward<Args>(args)...);
 				return node;
 			}
 
@@ -807,6 +836,94 @@ namespace nkentseu {
 				}
 				Node *newNode = CreateNode(value, parent);
 				if (mCompare(value, parent->Value)) {
+					parent->Left = newNode;
+				} else {
+					parent->Right = newNode;
+				}
+				++mSize;
+				FixInsert(newNode);
+				return true;
+			}
+
+			/**
+			 * @brief Insère un élément en le DÉPLAÇANT dans l'ensemble
+			 * @param value Élément rvalue dont les ressources sont transférées
+			 * @return true si l'élément a été inséré, false s'il était déjà présent
+			 * @note SURCHARGE : un appel passant une lvalue continue de résoudre vers
+			 *       Insert(const T &) et de copier, au même coût qu'avant.
+			 * @note Rend l'ensemble utilisable avec un T **move-only**.
+			 * @note Si l'élément est déjà présent, la source n'est PAS déplacée : rien
+			 *       n'est consommé quand rien n'est inséré.
+			 * @note Complexité : O(log n)
+			 */
+			bool Insert(T &&value) {
+				if (!mRoot) {
+					mRoot = CreateNodePiecewise(nullptr, traits::NkMove(value));
+					mRoot->NodeColor = BLACK;
+					++mSize;
+					return true;
+				}
+				Node *current = mRoot;
+				Node *parent = nullptr;
+				while (current) {
+					parent = current;
+					if (mCompare(value, current->Value)) {
+						current = current->Left;
+					} else if (mCompare(current->Value, value)) {
+						current = current->Right;
+					} else {
+						return false;
+					}
+				}
+				Node *newNode = CreateNodePiecewise(parent, traits::NkMove(value));
+				if (mCompare(newNode->Value, parent->Value)) {
+					parent->Left = newNode;
+				} else {
+					parent->Right = newNode;
+				}
+				++mSize;
+				FixInsert(newNode);
+				return true;
+			}
+
+			/**
+			 * @brief Construit l'élément SUR PLACE dans le nœud, sans copie ni déplacement
+			 * @tparam Args Types déduits des arguments du constructeur de T
+			 * @param args Arguments forwardés au constructeur de T
+			 * @return true si l'élément a été inséré, false s'il était déjà présent
+			 *
+			 * @note ⚠ Contrairement aux maps, l'élément DOIT être construit avant de
+			 *       pouvoir être comparé : la clé d'un ensemble EST la valeur. Le nœud
+			 *       est donc construit puis détruit si un doublon est trouvé. C'est le
+			 *       même compromis que std::set::emplace, et c'est documenté ici pour
+			 *       que personne ne le prenne pour un oubli.
+			 * @note Seule voie pour un T **sans constructeur par défaut** et **non
+			 *       copiable**.
+			 * @note Complexité : O(log n)
+			 */
+			template <typename... Args> bool Emplace(Args &&...args) {
+				Node *newNode = CreateNodePiecewise(nullptr, traits::NkForward<Args>(args)...);
+				if (!mRoot) {
+					mRoot = newNode;
+					mRoot->NodeColor = BLACK;
+					++mSize;
+					return true;
+				}
+				Node *current = mRoot;
+				Node *parent = nullptr;
+				while (current) {
+					parent = current;
+					if (mCompare(newNode->Value, current->Value)) {
+						current = current->Left;
+					} else if (mCompare(current->Value, newNode->Value)) {
+						current = current->Right;
+					} else {
+						DestroyNode(newNode);
+						return false;
+					}
+				}
+				newNode->Parent = parent;
+				if (mCompare(newNode->Value, parent->Value)) {
 					parent->Left = newNode;
 				} else {
 					parent->Right = newNode;

@@ -1569,6 +1569,100 @@ namespace nkentseu {
 				++mSize;
 			}
 
+			// ====================================================================
+			// SURCHARGES PAR DÉPLACEMENT ET CONSTRUCTION SUR PLACE
+			// ====================================================================
+
+			/**
+			 * @brief Construit un élément SUR PLACE à la fin du deque
+			 * @tparam Args Types déduits des arguments du constructeur de T
+			 * @param args Arguments forwardés au constructeur de T
+			 * @return Référence vers l'élément construit
+			 *
+			 * @note AJOUT : ne remplace rien. C'est la primitive — PushBack(T&&) délègue
+			 *       ici, et PushBack(const T&) reste inchangée.
+			 * @note Seule voie pour un T **non copiable** ou **sans constructeur par
+			 *       défaut** : aucune copie, aucun déplacement, construction directe
+			 *       dans le chunk.
+			 * @note Complexité : O(1) amorti
+			 */
+			template <typename... Args> T &EmplaceBack(Args &&...args) {
+				if (mSize == 0) {
+					if (mChunkCount == 0) {
+						AllocateChunk();
+					}
+					mFrontChunk = 0;
+					mFrontOffset = CHUNK_SIZE / 2;
+				}
+				SizeType chunkIdx, offset;
+				GetChunkAndOffset(mSize, chunkIdx, offset);
+				if (chunkIdx >= mChunkCount) {
+					AllocateChunk();
+				}
+				T *slot = &mChunks[chunkIdx]->Data[offset];
+				new (slot) T(traits::NkForward<Args>(args)...);
+				++mSize;
+				return *slot;
+			}
+
+			/**
+			 * @brief Construit un élément SUR PLACE au début du deque
+			 * @tparam Args Types déduits des arguments du constructeur de T
+			 * @param args Arguments forwardés au constructeur de T
+			 * @return Référence vers l'élément construit
+			 * @note Mêmes garanties qu'EmplaceBack(). Délègue à EmplaceBack() si le deque
+			 *       est vide, comme PushFront() le fait déjà vers PushBack().
+			 * @note Complexité : O(1) amorti (O(n) occasionnellement pour décalage chunks)
+			 */
+			template <typename... Args> T &EmplaceFront(Args &&...args) {
+				if (mSize == 0) {
+					return EmplaceBack(traits::NkForward<Args>(args)...);
+				}
+				if (mFrontOffset == 0) {
+					if (mFrontChunk == 0) {
+						EnsureChunkArrayCapacity(mChunkCount + 1);
+						for (SizeType i = mChunkCount; i > 0; --i) {
+							mChunks[i] = mChunks[i - 1];
+						}
+						mChunks[0] = AllocateChunkBlock();
+						++mChunkCount;
+						mFrontChunk = 0;
+					} else {
+						--mFrontChunk;
+					}
+					mFrontOffset = CHUNK_SIZE - 1;
+				} else {
+					--mFrontOffset;
+				}
+				T *slot = &mChunks[mFrontChunk]->Data[mFrontOffset];
+				new (slot) T(traits::NkForward<Args>(args)...);
+				++mSize;
+				return *slot;
+			}
+
+			/**
+			 * @brief Ajoute un élément à la fin en le DÉPLAÇANT
+			 * @param value Élément rvalue dont les ressources sont transférées
+			 * @note SURCHARGE : un appel passant une lvalue continue de résoudre vers
+			 *       PushBack(const T &) et de copier, au même coût qu'avant.
+			 * @note Rend le deque utilisable avec un T **move-only**.
+			 * @note Complexité : O(1) amorti
+			 */
+			void PushBack(T &&value) {
+				EmplaceBack(traits::NkMove(value));
+			}
+
+			/**
+			 * @brief Ajoute un élément au début en le DÉPLAÇANT
+			 * @param value Élément rvalue dont les ressources sont transférées
+			 * @note SURCHARGE : un appel passant une lvalue continue de résoudre vers
+			 *       PushFront(const T &) et de copier, au même coût qu'avant.
+			 * @note Complexité : O(1) amorti (O(n) occasionnellement pour décalage chunks)
+			 */
+			void PushFront(T &&value) {
+				EmplaceFront(traits::NkMove(value));
+			}
+
 			/**
 			 * @brief Supprime le dernier élément du deque
 			 * @ingroup DequeModifiers
