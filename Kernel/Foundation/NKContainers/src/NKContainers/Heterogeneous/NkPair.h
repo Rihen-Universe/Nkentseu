@@ -26,30 +26,15 @@
 namespace nkentseu {
 
 	// ====================================================================
-	// TAG DE CONSTRUCTION PIECEWISE
-	// ====================================================================
-
-	/**
-	 * @brief Tag de désambiguïsation pour la construction pièce par pièce d'une NkPair
-	 *
-	 * Sert exclusivement à sélectionner le constructeur qui copie First et construit
-	 * Second SUR PLACE à partir d'une liste d'arguments forwardés.
-	 *
-	 * POURQUOI UN TAG PLUTÔT QU'UNE SURCHARGE NUE :
-	 * Un constructeur variadique non tagué serait « glouton » — il capterait des appels
-	 * qui résolvent aujourd'hui vers NkPair(const T1 &, const T2 &) ou vers le
-	 * constructeur de copie, et changerait donc le comportement de code existant.
-	 * Avec le tag, aucun appel écrit avant ce jour ne peut le sélectionner :
-	 * l'ajout est inerte pour tous les appelants actuels.
-	 *
-	 * @note Équivalent d'intention à std::piecewise_construct, sans dépendance STL.
-	 * @note Utilisé par les nœuds des conteneurs associatifs pour implémenter Emplace().
-	 */
-	struct NkPairPiecewiseTag {};
-
-	// ====================================================================
 	// CLASSE PRINCIPALE : NK PAIR
 	// ====================================================================
+	//
+	// NOTE : le tag de construction piecewise (`NkPiecewiseTag`) est défini dans
+	// `NKContainers/NkContainersApi.h`, PAS ici. Raison mesurée : il sert aussi à
+	// `NkSet` et `NkUnorderedSet`, qui n'incluent pas `NkPair.h`. Le définir ici
+	// faisait échouer la compilation de NKContainers — défaut que le témoin de
+	// syntaxe n'a pas vu, parce qu'il incluait les maps AVANT les sets et que
+	// celles-ci tiraient `NkPair.h` : l'ordre d'inclusion masquait le manque.
 
 	/**
 	 * @brief Structure template représentant une paire de valeurs hétérogènes
@@ -152,10 +137,10 @@ namespace nkentseu {
 			 *       au même coût — la résolution de surcharge le garantit, pas la vigilance.
 			 *
 			 * @example
-			 * NkPair<const int, MonType> p(NkPairPiecewiseTag{}, 1, arg1, arg2);
+			 * NkPair<const int, MonType> p(NkPiecewiseTag{}, 1, arg1, arg2);
 			 */
 			template <typename... Args>
-			NKENTSEU_CONSTEXPR NkPair(NkPairPiecewiseTag, const T1 &first, Args &&...args)
+			NKENTSEU_CONSTEXPR NkPair(NkPiecewiseTag, const T1 &first, Args &&...args)
 				: First(first), Second(traits::NkForward<Args>(args)...) {
 			}
 
