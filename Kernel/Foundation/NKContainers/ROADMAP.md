@@ -676,6 +676,98 @@ Le point commun des quatre : **ça répond, donc on croit avoir demandé.**
 
 ---
 
+## 🔴 Dette STL résiduelle : `std::move` / `std::forward` dans un moteur zero-STL (2026-08-16)
+
+**Mesure, pas tâche.** 112 occurrences, c'est un chantier. Rien n'est corrigé ici :
+ce bloc existe pour que le chiffre soit porté à Rodolf avec sa méthode.
+
+### Le chiffre et sa provenance
+
+*Mesuré le 2026-08-16 par l'agent NKAnimation, sur `feat/nkanimation` **après**
+fusion de `origin/main` (`6eb46ba7`). Périmètre : `Kernel/`, `Applications/`,
+`Engine/` ; `Externals/` exclu ; extensions `.cpp .h .hpp .inl`.*
+
+```
+occurrences brutes        139
+dont commentaires / doc    27      <- @code, @brief, lignes // et *
+OCCURRENCES EN CODE REEL  112      dans 45 fichiers
+```
+
+⚠️ **Le comptage brut surcompte de 24 %.** Même famille de piège que le facteur 2,4
+de `NK_CPP11` et que le point 1 ci-dessus : *`grep` compte les commentaires.* Le
+chiffre à citer est **112**, pas 139.
+
+**Contre-épreuve** (l'instrument sait chercher) : la même commande trouve **663**
+`traits::NkMove` / `NkForward` sur le même périmètre. L'idiome maison domine
+largement — la dette est résiduelle, pas structurelle.
+
+### Répartition
+
+Deux colonnes, parce qu'elles ne disent pas la même chose et qu'on les confond :
+
+| module | occurrences | fichiers |
+|---|---:|---:|
+| `Kernel/System/NKThreading` | **33** | 12 |
+| `Kernel/System/NKLogger` | 14 | 3 |
+| `Kernel/Runtime/NKECS` | 12 | 5 |
+| `Kernel/Runtime/NKImage` | 8 | 1 |
+| `Kernel/Foundation/NKCore` | 8 | 4 |
+| `Kernel/Runtime/NKEvent` | 7 | 4 |
+| `Kernel/Runtime/NKRHI` | 6 | 1 |
+| `Engine/Noge` | 6 | 4 |
+| `Kernel/System/NKSerialization` | 5 | 1 |
+| `Kernel/Runtime/NKRenderer` | 3 | 3 |
+| `Kernel/Runtime/NKCanvas` | 3 | 1 |
+| `Kernel/System/NKNetwork` | 2 | 2 |
+| `Kernel/Foundation/NKPlatform` | 2 | 1 |
+| `Kernel/Foundation/NKContainers` | 2 | 2 |
+| `Kernel/Runtime/NKSL` | 1 | 1 |
+
+⚠️ **NKThreading concentre 29 % de la dette** à lui seul, et c'est le module où une
+faute de propriété se paie le plus cher. Si le chantier est découpé, il commence là.
+
+**Foundation n'est presque pas concerné** (12 occurrences sur 112) : la dette est
+surtout dans System et Runtime.
+
+### ⚠️ La dette est ANTÉRIEURE — elle n'a pas été introduite par une branche
+
+Le défaut est réparti sur une quinzaine de modules et remonte bien avant les
+travaux en cours. **Ce n'est pas une régression à imputer**, c'est un état du
+dépôt. Le noter évite qu'un agent le « découvre » chaque mois et l'attribue au
+dernier commit qui a touché le fichier.
+
+### 🔥 Pourquoi ça compte plus qu'hier
+
+`NKMemory` **surcharge `new` / `delete` globaux**. Un type STL temporaire alloué
+par la STL et libéré par notre allocateur — ou l'inverse — ne produit **aucune
+erreur de compilation** : il produit une **corruption de tas silencieuse**.
+
+C'est diagnostiqué, pas théorique : l'agent NKRenderer a remonté une corruption
+**`c0000374`** causée par des `std::string` temporaires dans ce moteur
+(cf. `origin/main` `6eb46ba7`, « NKRenderer : corruption de tas NKSL »).
+
+**Le zero-STL violé ne casse pas le build. Il casse l'exécution, ailleurs, plus
+tard.** C'est exactement le profil de défaut que ce dépôt a le plus de mal à voir :
+il ne se manifeste pas là où il est écrit.
+
+⚠️ Nuance à ne pas perdre : `std::move` et `std::forward` sont des **casts**, ils
+n'allouent rien — ils ne corrompent pas le tas *par eux-mêmes*. Leur coût réel est
+double : ils tirent `<utility>`, et ils **signalent** que le fichier raisonne encore
+en STL, donc qu'il est susceptible d'en contenir qui, elles, allouent. Le chiffre
+mesure une **surface d'exposition**, pas 112 corruptions.
+
+### Reproduire la mesure
+
+```bash
+grep -rn "std::move\|std::forward" --include=*.cpp --include=*.h --include=*.hpp \
+     --include=*.inl Kernel/ Applications/ Engine/ | grep -v "/Externals/" \
+     | grep -vE ':[[:space:]]*(//|\*|/\*)'
+```
+
+Le second `grep -v` est ce qui sépare 112 de 139. Sans lui, le chiffre est faux.
+
+---
+
 ## Dépendances
 
 - **Couches en dessous (utilisées)** : NKPlatform (export, inline, foundation
