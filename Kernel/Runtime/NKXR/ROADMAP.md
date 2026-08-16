@@ -75,6 +75,65 @@ plutôt que passé sous silence.
 l'initialisation ; `EndFrame` ne fait que relire un champ. Rien ne se journalise
 par image.*
 
+## ▶️ POUR EXERCER LA SÉLECTION DU MODE DE FUSION — la recette exacte
+
+*À exécuter telle quelle le jour où le Quest 2 est rebranché. Rien à chercher,
+rien à décider.*
+
+Il y a **deux niveaux**, et ils n'ont pas les mêmes prérequis. Le premier suffit
+à trancher la question ouverte.
+
+### Niveau 1 — la règle de sélection. **Ne demande QU'UN casque connecté.**
+
+Ce niveau **n'a pas besoin du blocage renderer levé** : la sonde ne touche ni au
+renderer ni à la fenêtre.
+
+```bash
+# 1. brancher le Quest 2 (Link ou Air Link), le laisser actif dans Meta Horizon
+# 2. depuis la racine du dépôt :
+clang++ -std=c++17 -O2 -IExternals/Libs/NKOpenXR/include \
+    Kernel/Runtime/NKXR/tests/sonde_openxr_blend.cpp -o /tmp/sonde_xr.exe
+/tmp/sonde_xr.exe ; echo "code=$?"
+```
+
+**Comment lire le résultat :**
+
+| code | ce que ça veut dire |
+|---|---|
+| **0** | ✅ le mode choisi est bien dans la liste annoncée — **la question est tranchée** |
+| **4** | ❌ le mode choisi n'est **pas** annoncé : le défaut visé existe encore |
+| **3** | énumération vide ou en échec — le runtime ne dit pas ce qu'il sait faire |
+| **2** | le casque n'est pas vu par le runtime (c'est l'état d'aujourd'hui) |
+| **1** | ni loader ni runtime négociable |
+
+⚠️ **Aujourd'hui la sonde rend 2, et elle n'a jamais rendu 0.** Les codes 3 et 4
+n'ont donc jamais été vus tomber : **ne pas traiter le premier `0` comme une
+confirmation** sans avoir constaté qu'un autre code peut sortir.
+
+### Niveau 2 — le vrai `EndFrame`. Demande **casque + blocage renderer levé**.
+
+La sonde *rejoue* la règle ; elle n'exécute pas `NkXrOpenXRBackend`. Pour exercer
+le code réellement soumis :
+
+```bash
+jenga build --target NKXRDemo --config Release
+Build/Bin/Release-Windows/NKXRDemo/NKXRDemo.exe
+grep -i "fusion" logs/app.log      # une seule ligne attendue, à l'initialisation
+```
+
+**Prérequis bloquant** : `NkRendererImpl::Initialize` s'arrête aujourd'hui à
+l'*étape 2 `NkShaderLibrary::Init`*, avant toute ligne de NKXR — `logs/app.log`
+contient **0 occurrence** d'`OpenXR`. **C'est le seul obstacle**, et il
+appartient à l'agent NKRenderer. Tant qu'il tient, le niveau 2 est hors d'atteinte
+et le niveau 1 est la seule preuve disponible.
+
+### Ce qu'on ne fera PAS
+
+**Aucune tentative de simuler un casque absent.** Contourner une absence
+matérielle par un instrument qui l'imite est exactement l'erreur retirée en Q32 :
+une sonde qui reproduit une partie de la réalité mesure autre chose que la
+réalité. On attend le matériel.
+
 ### 🔎 Sonde autonome — et sa première version m'a fait annoncer une panne inexistante
 
 `tests/sonde_openxr_blend.cpp` : un instrument qui interroge le runtime **sans
@@ -375,6 +434,93 @@ du cas « EndFrame avec image encore acquise »).
 | **Poste distant — état répliqué** *(voie recommandée)* | ❌ M | NKNetwork réplique poses + état de scène ; chaque poste REND en local. Bande passante minuscule, image nette, et le formateur peut regarder où il veut. C'est ce qu'attend un simulateur de formation. |
 | **Poste distant — flux vidéo** *(voie de secours)* | ❌ M | NKMedia a déjà l'encodeur **H.264 from scratch** + le lecteur : encoder la vue moniteur, l'envoyer, la décoder. Utile pour un poste sans GPU ou une diffusion salle. |
 | **Plusieurs casques dans la MÊME scène** (formateur + stagiaire en VR) | ❌ L | Réplication d'état + une session XR par poste. L'API NKXR est déjà par-session, rien n'y fait obstacle. |
+
+## 🎓 CE QUI MANQUE AU PARCOURS ÉTUDIANT « AR FROM SCRATCH » (2026-08-17)
+
+> Objectif du cours de septembre : **les étudiants construisent leur propre AR
+> from scratch**. La question n'est donc pas « que sait faire le module ? » — le
+> tableau ci-dessous montre qu'il sait beaucoup — mais **« que doit franchir un
+> étudiant, dans l'ordre, et où bute-t-il ? »**
+
+**Le constat central : la capacité existe, le chemin non.** Marqueurs, monde
+ancré et calibration ont tourné sur un Galaxy S22+ réel. Ce qui manque est ce qui
+mène un étudiant jusque-là.
+
+| # | manque | gravité pour le cours |
+|---|---|---|
+| 1 | **`USAGE.md` n'a AUCUN chapitre AR** — 9 sections, toutes VR/simulateur | 🔴 **bloquant** |
+| 2 | **Aucun point de départ AR minimal** à copier | 🔴 **bloquant** |
+| 3 | **`NkArImu` fige toujours la boucle** — non réparé | 🟠 piège |
+| 4 | **La commande produisant marqueur et planche n'est écrite nulle part** | 🟠 piège |
+| 5 | **La limite de `NkArFlow` (~60 °/s) n'est pas enseignée** | 🟡 à cadrer |
+
+### 1. 🔴 Le guide s'arrête avant l'AR
+
+`USAGE.md` a **9 sections, zéro AR** : les cinq idées, le simulateur, la boucle,
+les entrées, le vrai casque, les réglages, la mesure, les symptômes, la suite.
+Un étudiant qui suit le guide **n'atteint jamais** `NkArMarker`, `NkArWorld` ou
+`NkArCalibration`. L'en-tête du guide le dit lui-même : *« Le chapitre AR y sera
+ajouté quand l'étage 3 sera livré. »*
+
+**Or l'étage 3 n'est pas requis pour enseigner** : ce qui a tourné sur le S22+
+suffit largement à un parcours from scratch. **Le chapitre AR ne dépend pas
+d'une livraison de code, il dépend d'être écrit.** C'est le premier manque, et
+c'est celui qui coûte le moins cher à combler.
+
+### 2. 🔴 Rien entre l'outil de diagnostic et l'application complète
+
+- `outil_ar_image` : **instrument sans verdict**, pensé pour déboguer une image
+  qui résiste — pas pour démarrer ;
+- `NKARDemo` : **application complète**, trop grande pour être un point de départ.
+
+Il manque le palier du milieu : *ouvrir la caméra, détecter un marqueur, poser un
+cube* — une trentaine de lignes qu'un étudiant lit en entier. **C'est ce fichier
+qui manque, pas une fonctionnalité.**
+
+### 3. 🟠 Le piège que l'étudiant rencontrera en premier s'il est curieux
+
+`NkArImu.cpp:49` appelle toujours `ALooper_forThread()` — **le `Looper` de
+l'application**. Le défaut diagnostiqué le 14/08 (≈15 lignes, un fil dédié)
+**n'est pas réparé**. Un étudiant qui active la centrale inertielle obtient un
+**gel de la boucle**, sans message, sur un chemin que la documentation ne
+signale pas. *Un gel silencieux est ce qui décourage le plus vite.*
+
+### 4. 🟠 Les artefacts physiques sont produits, mais la commande est cachée
+
+L'AR from scratch exige d'**imprimer** un marqueur et une planche de calibration.
+Le générateur **est versionné** (`Applications/NKARDemo/src/NKARDemo/main.cpp`)
+et écrit `nkar_marqueur.png` et `nkar_planche_calibration.png` **au démarrage de
+la démo** — mais rien, dans aucun document, ne dit qu'il faut lancer `NKARDemo`
+pour les obtenir.
+
+```
+nkar_marqueur.png              7 753 o   présent dans l'arbre de travail, NON versionné
+nkar_planche_calibration.png  39 892 o   présent dans l'arbre de travail, NON versionné
+```
+
+✅ **Le bon correctif est documentaire, pas binaire** : le générateur existe, il
+suffit d'écrire la commande. Ne pas versionner les PNG — un artefact reproductible
+qu'on fige devient un artefact qu'on oublie de régénérer.
+
+### 5. 🟡 Une limite mesurée qui doit être enseignée, pas découverte
+
+`NkArFlow` est exact mais **borné à ~60 °/s** (mesuré le 17/08). Au-delà, le
+suivi décroche. Pour un étudiant qui bouge son téléphone, c'est le comportement
+normal du procédé — **pas un bug de son code**. S'il ne l'apprend pas, il
+passera son temps à corriger ce qui fonctionne.
+
+### Ce que je n'ai pas fait, et pourquoi
+
+**Rien de tout ceci n'est corrigé dans cette entrée.** Les points 1 et 2 sont de
+la pédagogie — ils engagent la forme du cours, donc Rodolf. Le point 3 est un
+correctif de ~15 lignes sur Android, **non exerçable sans le téléphone**. Les
+points 4 et 5 sont deux paragraphes à écrire, une fois le chapitre AR décidé.
+
+**Ordre recommandé si le feu vert vient : 3, puis 4, puis 1+2, puis 5.** Le
+correctif du gel d'abord — c'est le seul qui soit un défaut plutôt qu'une
+absence, et il pique l'étudiant le plus tôt.
+
+---
 
 ## 🎓 ÉTAT VR / AR / MR — pour la décision d'enseignement (2026-08-17)
 
