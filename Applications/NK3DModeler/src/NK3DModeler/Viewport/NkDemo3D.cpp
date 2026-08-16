@@ -15822,8 +15822,35 @@ namespace nkentseu {
 			nkvpEmptyRotDeg[e][0] = qr.x;
 			nkvpEmptyRotDeg[e][1] = qr.y;
 			nkvpEmptyRotDeg[e][2] = qr.z;
-			// Le rendu EFFECTIF de la source devient la surcharge du double.
-			if (kind >= 1 && kind <= 3) {
+			// LE MATERIAU SE COPIE AVEC L'OBJET. Un double qui ne porte pas le
+			// materiau de sa source n'en est pas un : il naissait sans rien --
+			// Demo3DHostProjMatOf renvoyait -1, c'est le `avant=-1` mesure le
+			// 16 aout -- et seule la surcharge ci-dessous le peignait.
+			nkvpNodeMatP1[n] = nkvpNodeMatP1[src];
+			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k)
+				nkvpNodeMatsP1[n][k] = nkvpNodeMatsP1[src][k];
+			// UNE SURCHARGE NE SE FABRIQUE PAS DEPUIS LE CACHE DE RENDU.
+			//
+			// `nkvpMatCache` est ce que la source a ete VUE rendre a la derniere
+			// soumission : une valeur OBSERVEE, pas une valeur VOULUE. Or un asset
+			// du navigateur est une ARCHIVE (nkvpDeleted), donc JAMAIS soumise --
+			// son cache vaut zero. Tout double clone depuis le navigateur naissait
+			// ainsi avec une surcharge NOIRE ; et comme le draw call applique le
+			// materiau PUIS la surcharge, elle ecrasait n'importe quel materiau
+			// assigne ensuite. C'est le « cube noir » de Rodolf, capture du 16 aout,
+			// ou l'objet portait bien Materiau.002 (albedo 0,7) et rendait noir.
+			//
+			// Un objet de DEMO n'a pas de materiau de projet : son apparence n'existe
+			// QUE dans ce cache, et lui a bien ete rendu. Pour lui seul, la figer
+			// reste le bon geste.
+			if (nkvpNodeMatP1[n] > 0) {
+				// Il a un materiau : c'est LUI qui parle. On ne fabrique aucune
+				// retouche par-dessus -- une retouche volontaire posee sur la source
+				// depuis le panneau Modele n'est donc pas transmise au double, et
+				// c'est un compromis assume : mieux vaut un double fidele a son
+				// materiau qu'un double peint par une valeur que personne n'a voulue.
+				nkvpMatMask[n] = 0;
+			} else if (kind >= 1 && kind <= 3) {
 				nkvpMatMask[n] = 1 | 2 | 4;
 				nkvpMatTint[n][0] = nkvpMatCache[src][0];
 				nkvpMatTint[n][1] = nkvpMatCache[src][1];
