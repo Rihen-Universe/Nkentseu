@@ -227,9 +227,52 @@ sandboxusenkrhi("NkSWRasterPrimitives", ["src/DemoNkentseu/Base03/NkSWRasterPrim
 sandboxusenkrhi("NkRHIDemoFullImage", ["src/DemoNkentseu/Base03/NkRHIDemoFullImage.cpp"], "sandbox.rhidemo.fullimage", use_nkimage=True)
 sandboxusenkrhi("NkFontDemo", ["src/DemoNkentseu/Base03/NkFontDemoFromScratch.cpp"], "sandbox.nkfont.demo", use_nkfont=True)
 sandboxusenkrhi("NkFDV2", ["src/DemoNkentseu/Base03/NkFontDemoVI.cpp"], "sandbox.nkfont.demov2", use_nkfont=True)
+# ─────────────────────────────────────────────────────────────────────────────
+# DEMOS DE TEXTE DESACTIVEES — ancienne API NKFont, disparue (2026-08-15)
+#
+# Ces cibles consomment une GENERATION D'API NKFont qui n'existe plus. Ce n'est
+# pas un symbole qui a derive, c'est toute une surface remplacee sans que ses
+# consommateurs suivent :
+#
+#   demande par les demos : NkFontLibrary, NkFontLibraryDesc, NkFontResult,
+#                           NkTextShaper, NkShapeResult, nk_handle,
+#                           NK_INVALID_HANDLE, NK_LOAD_OUTLINES, NK_LOAD_KERNING
+#   expose par NKFont      : NkFont, NkFontAtlas, NkFontGlyph, NkFontFaceInfo,
+#                           NkRasterizer, NkShape, NkFontVertexBuffer, ...
+#
+# AUCUN des symboles demandes n'existe. Les porter n'est pas une correction
+# mecanique : c'est une REECRITURE de chaque demo contre la nouvelle API.
+#
+# POURQUOI ON DESACTIVE PLUTOT QUE DE PORTER, ET POURQUOI C'EST ECRIT ICI.
+# `NkRHIDemoText` bloquait le BUILD COMPLET du workspace a 61/205 : 144 cibles
+# n'etaient jamais atteintes, donc jamais verifiees, donc libres de casser sans
+# que personne le sache. Un blocage qui dure assez longtemps fait cesser de
+# lancer la mesure -- et c'est exactement ce qui s'est produit : deux de ces
+# quatre cibles (`NkRHIDemoFullText`, `oglfont` dans ContextSandbox.jenga)
+# etaient DEJA commentees, sans un mot de raison. Le meme defaut a donc ete
+# rencontre, neutralise en silence, et oublie.
+#
+# L'objectif n'est pas 203/203, c'est ZERO ECHEC INEXPLIQUE. Une cible qui ne
+# peut pas construire et dont on SAIT pourquoi est reglee ; une cible qui bloque
+# tout sans explication ne l'est pas.
+#
+# A ARBITRER PAR RODOLF -- deux issues, aucune n'est prise ici :
+#   1. PORTER ces demos vers l'API actuelle (NkFontAtlas + NkRasterizer +
+#      NkShape). Cout reel, elles couvrent le rendu de texte RHI.
+#   2. LES SUPPRIMER. `NkFontDemo` et `NkFDV2` ci-dessus construisent et
+#      couvrent deja NKFont sur la nouvelle API ; ces quatre-la ne testent
+#      peut-etre plus rien que d'autres ne testent.
+# Voir DETTE_LISIBILITE.md, chantier 11.
+#
+# Fichiers concernes SANS AUCUNE CIBLE (donc jamais compiles, ni avant ni
+# maintenant) : Base03/NkFontDemo01.cpp, Base03/"NkRHIDemoText copy.cpp",
+# Opengl/NkFontGLTestSimple.cpp, Opengl/"Nkfontgltest copy.cpp",
+# Opengl/NkFontSimpleAdapter.h, Base04/tmp/NkUIFontIntegration.h,
+# src/test_rasterizer.cpp -- meme API morte, meme arbitrage.
+# ─────────────────────────────────────────────────────────────────────────────
 # sandboxusenkrhi("NkRHIDemoFullText", ["src/DemoNkentseu/Base03/NkRHIDemoFullText.cpp"], "sandbox.rhidemo.fulltext", use_nkimage=True, use_nkfont=True)
-sandboxusenkrhi("NkRHIDemoText", ["src/DemoNkentseu/Base03/NkRHIDemoText.cpp"], "sandbox.rhidemo.text", use_nkimage=True, use_nkfont=True)
-sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
+# sandboxusenkrhi("NkRHIDemoText", ["src/DemoNkentseu/Base03/NkRHIDemoText.cpp"], "sandbox.rhidemo.text", use_nkimage=True, use_nkfont=True)
+# sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
 # sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl")
 # sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
 sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
