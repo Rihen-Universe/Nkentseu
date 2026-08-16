@@ -9806,6 +9806,33 @@ namespace nkentseu {
 							int32 bestU = Demo3D_PickEmptyAt(st, ctx, cam.GetPosition(),
 															 cam.GetTarget(), gin.mouseX,
 															 gin.mouseY, nullptr);
+							// ── MODE OBJET : ON SELECTIONNE LE MODEL, PAS UN MAILLAGE ──
+							// « En mode objet, selectionner un objet le selectionne avec
+							// TOUS ses sous-mesh » (Rihen). Le pick tombe sur la MATIERE
+							// -- c'est voulu, la zone d'un model EST sa matiere -- mais ce
+							// qu'il faut selectionner, c'est le model qui la porte. Sans
+							// cette remontee, cliquer un canape selectionnait un coussin :
+							// le gizmo se plantait sur le sous-mesh et le reste du model
+							// ne suivait pas.
+							//
+							// ⚠️ ON REMONTE LA SELECTION, ON N'ETEND PAS CELLE DU GIZMO
+							// AUX MAILLAGES. Le gizmo calcule UNE transformation PAR cible
+							// selectionnee, et HostHierRecurse propage deja celle du parent
+							// a ses enfants : ajouter les maillages a la selection leur
+							// appliquerait le geste DEUX FOIS. Le liserre, lui, couvre deja
+							// toute la matiere (Demo3DHostModelRootOf, plus bas) -- donc
+							// « selectionne avec tous ses sous-mesh » SE VOIT deja, sans
+							// qu'aucune transformation ni aucune origine ne soit touchee.
+							//
+							// La hierarchie garde le choix fin : y cliquer un maillage
+							// precis reste possible, c'est un geste explicite sur l'arbre.
+							if (bestU >= 0) {
+								const int32 pickedNode = bestU + kNkvpFirstEmpty;
+								const int32 rootNode = Demo3DHostModelRootOf(pickedNode);
+								if (rootNode >= kNkvpFirstEmpty && rootNode < kNkvpMaxNodes &&
+									rootNode != pickedNode)
+									bestU = rootNode - kNkvpFirstEmpty;
+							}
 							const bool clickedActive =
 								(bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex());
 							if (clickedActive)
@@ -9868,8 +9895,17 @@ namespace nkentseu {
 						const int32 nowUser = st->emptyGizmo.ActiveIndex();
 						if (nowUser != lastUser) {
 							lastUser = nowUser;
-							logger.Info("[Demo3D] selection utilisateur -> vide {0} (noeud {1})\n",
-										nowUser, nowUser >= 0 ? nowUser + kNkvpFirstEmpty : -1);
+							// LA NATURE DU NOEUD, PAS SEULEMENT SON NUMERO. En mode
+							// objet, un clic sur la matiere doit remonter au MODEL :
+							// « model » atteste que la remontee a joue, « maillage »
+							// qu'elle a ete manquee. Un numero seul ne le dit pas, et
+							// c'est precisement ce qu'on veut pouvoir lire.
+							const int32 nd = nowUser >= 0 ? nowUser + kNkvpFirstEmpty : -1;
+							const char *nature = "aucun";
+							if (nd >= kNkvpFirstEmpty && nd < kNkvpMaxNodes)
+								nature = nkvpIsModel[nd] ? "model" : (nkvpIsMesh[nd] ? "maillage" : "vide");
+							logger.Info("[Demo3D] selection utilisateur -> vide {0} (noeud {1}, {2})\n",
+										nowUser, nd, nature);
 						}
 					}
 
