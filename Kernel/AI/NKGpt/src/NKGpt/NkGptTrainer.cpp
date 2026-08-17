@@ -10,6 +10,9 @@
 #include "NKMath/NkFunctions.h" // NkExp, NkCos (au lieu de <math.h>)
 #include "NKLogger/NkLog.h"		// logger (macro) : status + texte généré (console + fichiers)
 
+#include <cstdio> // journal d'etat <savePath>.etat.txt, sentinelle d'arret
+#include <ctime>  // horodatage du journal d'etat
+
 using namespace nkentseu;
 using namespace nkentseu::ai;	// nn::, optim::, autograd::
 using namespace nkentseu::math; // NkExp, NkCos
@@ -397,6 +400,46 @@ namespace nkentseu {
 			}
 
 			// Lot d'entraînement à cible INDICES (depuis mLangData).
+			volatile bool NkGptTrainer::sArretDemande = false;
+
+			static bool FichierExiste(const char *chemin) {
+				FILE *f = fopen(chemin, "rb");
+				if (!f)
+					return false;
+				fclose(f);
+				return true;
+			}
+
+			void NkGptTrainer::EcrireEtat(int64 pasGlobal, int64 horizon, double perte, double lr, double sParPas,
+										  const char *motif) {
+				if (mCfg.savePath.Empty())
+					return;
+				NkString chemin(mCfg.savePath);
+				chemin.Append(".etat.txt");
+				FILE *f = fopen(chemin.CStr(), "wb");
+				if (!f)
+					return;
+				::time_t now = ::time(nullptr); // `::` : nkentseu::time est un namespace
+				char horo[64];
+				::strftime(horo, sizeof(horo), "%Y-%m-%d %H:%M:%S", ::localtime(&now));
+				const int64 restants = (horizon > pasGlobal) ? (horizon - pasGlobal) : 0;
+				const double hRestantes = (sParPas > 0.0) ? (double)restants * sParPas / 3600.0 : -1.0;
+				fprintf(f, "Ilyana -- etat de la campagne (ecrit a chaque checkpoint)\n");
+				fprintf(f, "horodatage        : %s\n", horo);
+				fprintf(f, "motif             : %s\n", motif);
+				fprintf(f, "pas global        : %lld / %lld\n", (long long)pasGlobal, (long long)horizon);
+				fprintf(f, "perte (moy. gliss): %.5f\n", perte);
+				fprintf(f, "lr                : %.3e\n", lr);
+				fprintf(f, "s / pas (moyenne) : %.2f\n", sParPas);
+				if (hRestantes >= 0.0)
+					fprintf(f, "reste (estime)    : %.1f h  (%.1f jours) a ce debit\n", hRestantes, hRestantes / 24.0);
+				fprintf(f, "flux aleatoire    : 0x%016llx\n", (unsigned long long)mRng);
+				fprintf(f, "checkpoint        : %s (+ .prev, .prev2)\n", mCfg.savePath.CStr());
+				fprintf(f, "arret propre      : creer le fichier %s\n",
+						mCfg.stopFile.Empty() ? "<savePath>.stop" : mCfg.stopFile.CStr());
+				fclose(f);
+			}
+
 			void NkGptTrainer::MakeBatchIdx(NkTensor &x, NkTensor &targetIdx) {
 				MakeBatchIdxFrom(mLangData, mLangMask, x, targetIdx);
 			}
@@ -463,6 +506,15 @@ namespace nkentseu {
 				mB = mCfg.B;
 
 				if (!mCfg.loadPath.Empty()) {
+					// Repli automatique : si <load> est tronque (coupure pendant l'ecriture,
+					// zeros NTFS), on reprend sur .prev puis .prev2 -- le plus recent VALIDE.
+					// Sans ce repli, une campagne s'arreterait devant un fichier mort alors
+					// qu'un checkpoint sain dort a cote.
+					{
+						NkString retenu;
+						if (ChoisirCheckpointValide(mCfg.loadPath.CStr(), retenu) && !(retenu == mCfg.loadPath))
+							mCfg.loadPath = retenu;
+					}
 					GptMeta meta;
 					if (!LoadCheckpointMeta(mCfg.loadPath.CStr(), meta)) {
 						logger.Info("Checkpoint illisible ou format obsolète (attendu BPE v3) : {0}",
@@ -691,11 +743,29 @@ namespace nkentseu {
 				// Reprise : tente de restaurer l'état optimiseur (moments Adam + pas). Absent (v3) =>
 				// reprise des poids seuls (le warmup redémarrera). Moments gardés sur CPU jusqu'à Fit().
 				if (mCfg.resume && !mCfg.loadPath.Empty()) {
-					if (LoadCheckpointOptState(mCfg.loadPath.CStr(), mOptM, mOptV, mResumeStep)) {
+					const uint64 rngAvant = mRng;
+					if (LoadCheckpointOptState(mCfg.loadPath.CStr(), mOptM, mOptV, mResumeStep, &mRng)) {
 						mHasOptState = true;
 						if (V)
 							logger.Info("État optimiseur repris : pas {0}, {1} moments (reprise parfaite).",
 										(long long)mResumeStep, (unsigned long long)mOptM.Size());
+						if (mRng != rngAvant) {
+							if (V)
+								logger.Info("Flux aleatoire d'echantillonnage repris du checkpoint (v5) : 0x{0} -- "
+											"la reprise ne re-tire pas les fenetres deja vues.",
+											(unsigned long long)mRng);
+						} else {
+							// Checkpoint v4 : pas d'etat du flux. Repartir de l'etat initial
+							// rejouerait EXACTEMENT les fenetres du debut de la course
+							// precedente. On decale le flux d'une quantite qui depend du pas
+							// global : deterministe (deux reprises au meme pas tirent pareil),
+							// mais distinct du debut.
+							mRng ^= 0xA5A5A5A5A5A5A5A5ull * (uint64)(mResumeStep + 1);
+							if (V)
+								logger.Info("Checkpoint v4 sans etat du flux aleatoire : flux decale par le pas global "
+											"({0}) pour ne pas rejouer les premieres fenetres.",
+											(long long)mResumeStep);
+						}
 					} else if (V)
 						logger.Info("Checkpoint sans état optimiseur (v3) : reprise des poids seuls.");
 				}
@@ -872,6 +942,38 @@ namespace nkentseu {
 				}
 				mEma = 0;
 				NkChrono chrono;
+				// Redemarrage securise : sentinelle d'arret + horloge de sauvegarde.
+				NkString stopFile = mCfg.stopFile;
+				if (stopFile.Empty() && hasSave) {
+					stopFile = mCfg.savePath;
+					stopFile.Append(".stop");
+				}
+				if (!stopFile.Empty() && FichierExiste(stopFile.CStr())) {
+					// Une sentinelle laissee par un arret precedent bloquerait la reprise
+					// des le premier pas : on la retire, en le disant.
+					remove(stopFile.CStr());
+					if (V)
+						logger.Info("   Sentinelle d'arret {0} trouvee au demarrage : retiree (elle datait d'un arret "
+									"precedent).",
+									stopFile.CStr());
+				}
+				NkChrono chronoSauve; // depuis le dernier checkpoint
+				double lrCourant = peakLr;
+				auto sauver = [&](int64 gGlobal, const char *motif) -> bool {
+					const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),
+												   &adam.SecondMoments(), adam.StepCount(), mRng);
+					if (sv) {
+						const int64 faits = gGlobal - base;
+						const double sParPas = (faits > 0) ? chrono.Elapsed().seconds / (double)faits : 0.0;
+						EcrireEtat(gGlobal, totalHorizon, mEma, lrCourant, sParPas, motif);
+						chronoSauve = NkChrono();
+					}
+					return sv;
+				};
+				if (V && hasSave)
+					logger.Info("   Redemarrage securise : checkpoint tous les {0} pas et/ou {1} min, rotation "
+								"<save>/.prev/.prev2, arret propre par SIGINT/SIGTERM ou fichier {2}, journal {3}.etat.txt",
+								SAVEEVERY, mCfg.saveMinutes, stopFile.CStr(), mCfg.savePath.CStr());
 				// Fenetre de profil : ARMEE APRES LE PREMIER PAS. Le pas 1 compile les
 				// noyaux (NkSL -> SPIR-V -> pipeline) et paie la relecture de controle
 				// « sortie non nulle » de chaque noyau : l'y inclure attribuerait un
@@ -890,6 +992,7 @@ namespace nkentseu {
 						lr = (float)(peakLr * (minLrRatio + (1.0 - minLrRatio) * cosv));
 					}
 					adam.SetLearningRate(lr);
+					lrCourant = (double)lr;
 					adam.ZeroGrad();
 					double lv = 0.0;
 					// ⚠️ NE JAMAIS DIVISER PAR UNE CONSTANTE. La version precedente faisait
@@ -965,7 +1068,15 @@ namespace nkentseu {
 					// uniformement sur le vocabulaire, donc -log(1/V) = ln(V). Tout ecart
 					// notable au premier pas denonce un lot mal rempli, une cible decalee ou
 					// une initialisation hors norme — AVANT que des heures ne soient depensees.
-					if (s == 1) {
+					//
+					// ⚠️ SEULEMENT SUR UN MODELE NEUF. Trouve par le temoin de reprise du
+					// 2026-08-17 : `s` est le pas LOCAL, donc apres une reprise il revaut 1
+					// alors que le modele a deja appris — sa perte est SOUS ln(V), et ce filet
+					// arretait la reprise en l'accusant d'etre « impossible ». Une campagne
+					// longue aurait donc ete impossible a reprendre des que la perte serait
+					// descendue de 0,02 sous l'uniforme, c'est-a-dire tres vite. Le filet ne
+					// vaut que si aucun poids n'a ete charge.
+					if (s == 1 && mCfg.loadPath.Empty()) {
 						const double attendue = math::NkLog((double)mV);
 						// ⚠️ SEUIL ASYMETRIQUE, ET C'EST MESURE, PAS SUPPOSE.
 						//
@@ -1058,7 +1169,14 @@ namespace nkentseu {
 						const double ecart = (mPerteInitiale - lv) / mPerteInitiale;
 						const double bouge = (ecart < 0.0) ? -ecart : ecart;
 						const int64 defauts = NkTensorGpu::DefautCount();
-						if (bouge < 0.001 || defauts > 0) {
+						// EN REPRISE (poids charges), « n'a pas bouge » ne prouve rien : un
+						// modele deja entraine, au plancher du pas d'apprentissage, rend deux
+						// pertes de lots differents qui peuvent coincider a 0,1 % pres par
+						// hasard — et un modele charge n'est plus uniforme, donc le symptome
+						// « colle a ln(V) » n'existe plus. Seul un defaut GPU declare arrete
+						// une reprise. (Vu en preparant le temoin de reprise du 2026-08-17.)
+						const bool modeleNeuf = mCfg.loadPath.Empty();
+						if ((modeleNeuf && bouge < 0.001) || defauts > 0) {
 							logger.Info("*** ARRET : apres 30 pas la perte n'a pas bouge ({0} -> {1}, soit {2}%). "
 										"Defauts GPU signales : {3}. ***",
 										mPerteInitiale, lv, bouge * 100.0, (long long)defauts);
@@ -1080,8 +1198,10 @@ namespace nkentseu {
 											? (chrono.Elapsed().seconds * 1000.0) / (double)NkTensorGpu::OpCount()
 											: 0.0);
 					}
-					if (V && (s % 25 == 0 || s == 1))
-						logger.Info("  pas {0} : perte = {1}  (moy. {2})  lr={3}", s, lv, mEma, (double)lr);
+					if (V && ((mCfg.logEvery > 0 && s % mCfg.logEvery == 0) || s == 1))
+						// Pas GLOBAL, pas local : apres une reprise, c'est le seul qui se lise
+						// d'un journal a l'autre sans arithmetique.
+						logger.Info("  pas {0} : perte = {1}  (moy. {2})  lr={3}", (long long)g, lv, mEma, (double)lr);
 					// Pic de VRAM releve APRES quelques pas complets : le premier pas
 					// n'a pas encore materialise l'etat de l'optimiseur (moments Adam),
 					// donc un releve precoce sous-estime l'occupation reelle — et
@@ -1089,11 +1209,13 @@ namespace nkentseu {
 					// tromper (la configuration ne tient pas, on le decouvre tard).
 					if (s == 3 && mCfg.verbose) {
 						const double pic = (double)NkTensorGpu::VramPic() / 1048576.0;
+						const double picCalc = (double)NkTensorGpu::VramPicCalcul() / 1048576.0;
 						const double viv = (double)NkTensorGpu::VramVivante() / 1048576.0;
-						logger.Info("VRAM suivie apres {0} pas : PIC {1} Mo, vivante {2} Mo. "
-									"(nos tampons de calcul SEULEMENT : ni pilote, ni fragmentation "
-									"— plancher de l'occupation reelle, pas son total.)",
-									(long long)s, pic, viv);
+						logger.Info("VRAM suivie apres {0} pas : PIC physique {1} Mo (calcul seul {2} Mo), "
+									"vivante {3} Mo. (nos tampons SEULEMENT : ni pilote, ni fragmentation "
+									"— plancher de l'occupation reelle, pas son total ; le pic physique "
+									"compte ce que la reserve retient.)",
+									(long long)s, pic, picCalc, viv);
 					}
 
 					if (mCfg.valEvery > 0 && mValData.Size() > 0 && s % mCfg.valEvery == 0) {
@@ -1111,12 +1233,26 @@ namespace nkentseu {
 											Generate(mCfg.seed, 80, 0.8, li).CStr());
 						logger.Info("    ---------------------------");
 					}
-					if (SAVEEVERY > 0 && hasSave && s % SAVEEVERY == 0) {
-						const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),
-													   &adam.SecondMoments(), adam.StepCount());
+					// ARRET PROPRE : signal recu ou sentinelle apparue. On sauve a la fin du
+					// pas en cours -- jamais au milieu d'un pas -- et on sort. Ce qui est
+					// perdu : rien ; ce qui est fait : tout, jusqu'a ce pas inclus.
+					const bool arret = sArretDemande || (!stopFile.Empty() && FichierExiste(stopFile.CStr()));
+					const bool echeanceMinutes =
+						(mCfg.saveMinutes > 0.0) && (chronoSauve.Elapsed().seconds >= mCfg.saveMinutes * 60.0);
+					if (hasSave && (arret || (SAVEEVERY > 0 && s % SAVEEVERY == 0) || echeanceMinutes)) {
+						const bool sv = sauver(g, arret ? "arret propre demande"
+													   : (echeanceMinutes ? "echeance minutes" : "echeance pas"));
 						if (sv && V)
-							logger.Info("  [checkpoint pas {0} (global {1}) -> {2}]", s, (long long)g,
-										mCfg.savePath.CStr());
+							logger.Info("  [checkpoint pas {0} (global {1}) -> {2}]{3}", s, (long long)g,
+										mCfg.savePath.CStr(), arret ? "  ARRET PROPRE : sortie." : "");
+					}
+					if (arret) {
+						if (!stopFile.Empty())
+							remove(stopFile.CStr());
+						logger.Info("*** ARRET PROPRE au pas global {0} : checkpoint ecrit, l'entrainement s'interrompt. "
+									"Relancer avec le meme --horizon pour reprendre. ***",
+									(long long)g);
+						return;
 					}
 				}
 				if (V)
@@ -1134,8 +1270,7 @@ namespace nkentseu {
 				}
 
 				if (hasSave) {
-					const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),
-												   &adam.SecondMoments(), adam.StepCount());
+					const bool sv = sauver(totalHorizon, "fin de course");
 					if (sv) {
 						if (V)
 							logger.Info("Modèle sauvegardé (avec état optimiseur, pas global {0}) : {1}",

@@ -416,6 +416,24 @@ trop petits », corrigera les deux endroits qui portent un `N`.*
 
 **Ne pas les relancer : c'est à Rodolf de décider ce qu'il remesure et quand.**
 
+> ✅ **DÉCISION DE RODOLF (2026-08-16) — quand elles seront relancées :**
+> **une seule fois, contre l'état final** — après la décision sur la réserve de
+> tampons ET après l'ouverture `NK_CPP11`, juste avant la prochaine vraie
+> campagne d'entraînement.
+>
+> **La raison** : relancer avant, c'est mesurer un état intermédiaire et devoir
+> refaire une troisième fois. Deux chantiers en cours peuvent changer les
+> chiffres — la réserve si elle est branchée, et les conteneurs move sur les
+> chemins chauds.
+>
+> **D'ici là, la règle en vigueur reste** : personne ne cite les anciens
+> chiffres du 09/08, et toute mention de « lot effectif » antérieure au
+> correctif est périmée.
+>
+> *La mesure du taux de service de la réserve (course courte instrumentée) est
+> autorisée et distincte : elle alimente la décision sur la réserve, donc elle
+> est en amont de la refonte, pas en conflit avec elle.*
+
 Toute course lancée avec `accum > 1` — donc **toute course lancée sans `--accum`
 explicite**, la valeur par défaut étant 4 (`main.cpp:693`) — n'a pas mesuré ce
 qu'elle annonçait :
@@ -1962,6 +1980,182 @@ est **supprimé**.
 - **Mesurer le taux de service sur un vrai pas** — seul chiffre qui dira ce que
   la réserve vaut réellement. Il demande de relancer un pas d'entraînement, donc
   **il touche aux courses : c'est Rodolf qui décide.**
+  → ✅ **AUTORISÉ PAR RODOLF ET FAIT le 2026-08-17, section ci-dessous.**
 - **L'anomalie des 9 316 tampons** (+28 à +29 % sur la seule forme
   `1536×2560×640`, reproductible sur deux passes) est peut-être la même histoire
   vue d'un autre angle. Gardée sous la main, **non conclue**.
+
+---
+
+## 📊 TAUX DE SERVICE DE LA RÉSERVE SUR UN VRAI PAS — MESURÉ (2026-08-17)
+
+**Autorisation de Rodolf** : une course GPU courte instrumentée, distincte des
+courses de dimensionnement qui restent périmées. Drapeau `--reserve` ajouté à
+`ModeTrain` (ÉTEINT par défaut), témoin `servis`/`neufs` imprimé dans les deux
+modes.
+
+### Montage déclaré
+
+| | |
+|---|---|
+| machine | i7-10870H, 31,8 Go RAM, **RTX 3070 Laptop** (crête FP32 ~16,6 TFLOPS — le 20 300 hérité est celui d'une carte de bureau), Vulkan |
+| binaire | `NKIlyana` Release, contrôlé **FRAIS** avant course |
+| montage | `--train --llama --tying --d 640 --layers 10 --heads 8 --T 256 --B 6 --accum 4 --maxchars 5000000 --steps 6` — le montage du profil du 15/08 |
+| corpus | `fr_ilyana.txt` coupé à 5 M caractères, graine 1234, checkpoint jetable (scratchpad) |
+| budget réserve | 512 Mio (défaut) |
+| ⚠️ contention | builds d'autres agents pendant les courses : **14-22 clang pendant NEUF, ~3 pendant LEGACY** — les deux biais connus (contention plus forte pendant NEUF, NEUF en première position sur une machine qui s'accélère) jouent **CONTRE** le résultat |
+
+### Le témoin — l'interrupteur est un interrupteur
+
+```
+NEUF   : servis=36 713  neufs=27 776  taux de service=56,9 %
+         retenus=265 tampons (536,7 Mo = budget Mio PLEIN)  evictions=27 348
+LEGACY : servis=0       neufs=64 652  0 retenu, 0 éviction
+```
+
+Cohérence : NEUF `servis+neufs` = 64 489 contre 64 652 en LEGACY — écart 163
+(0,25 %), dû au fait que `ReserveRazCompteurs()` n'est appelé qu'en mode réserve
+(les compteurs LEGACY incluent les allocations de `Prepare()`). Dit, pas caché.
+
+### La justesse — la réserve ne change pas le calcul
+
+**Trajectoires IDENTIQUES** entre les deux courses : perte au pas 1 = 9,72476
+des deux côtés, et les positions sommées pas par pas sont les mêmes (3636, 3576,
+3620, 3865...). Même échantillonnage, même calcul — seul le temps change.
+
+### Le gain réel
+
+```
+NEUF   : Fit = 267,9 s pour 6 pas
+LEGACY : Fit = 486,3 s pour 6 pas
+gain   : ×1,82
+```
+
+**Et les deux biais connus jouaient contre le NEUF** (contention plus forte,
+première position). Le sens est donc robuste ; l'amplitude exacte demanderait
+des courses alternées sur machine libre, mais **×1,8 sous conditions
+défavorables ne peut pas être du bruit** — l'estimation ROADMAP (×1,43-×1,52)
+est confirmée et dépassée.
+
+### ⚠️ Le taux de service est PLAFONNÉ PAR LE BUDGET, pas par la diversité
+
+**27 348 évictions** avec un budget plein en permanence : presque une allocation
+neuve sur deux est une éviction-réallocation. La diversité des tailles n'est pas
+le facteur limitant — **le budget de 512 Mio l'est**. Un budget plus grand
+monterait le taux (et le gain), MAIS :
+
+- **dette d'instrument à corriger d'abord** : `VramPic()` ne compte PAS les
+  octets retenus par la réserve (décomptés à la rétention). Le pic affiché
+  (6 026 Mo, identique dans les deux modes) sous-estime le NEUF d'environ
+  537 Mo — pic réel ≈ 6,56 Go, encore sous le pic historique de 6 659 Mo, mais
+  **augmenter le budget sans corriger ce comptage serait piloter la marge VRAM à
+  l'aveugle.**
+
+### L'anomalie C1 : la course ne l'éclaire pas — non conclue
+
+Des milliers de tampons vivants pendant la course, et le NEUF est ×1,8 plus
+rapide : rien n'y ressemble au +28-29 % du banc. Elle reste ce qu'elle était —
+reproductible au banc, non expliquée, non forcée.
+
+### RECOMMANDATION (transmise à Rodolf via le canal)
+
+**Brancher pour l'entraînement — pas partout.**
+
+1. **Activer la réserve dans `ModeTrain`** (aujourd'hui : opt-in `--reserve` ;
+   proposé : défaut ON en mode train, avec `--sans-reserve` pour revenir).
+   Le gain est massif et la justesse est prouvée trois fois (témoin du banc,
+   trajectoires identiques, `NkGpuZeros` explicite).
+2. **Ne PAS l'activer globalement dans `NkTensorGpu`** : les démonstrateurs
+   courts n'en profitent pas et la rétention y serait du gaspillage de VRAM.
+3. **Avant tout budget plus grand** : corriger le comptage VRAM de la rétention
+   (dette ci-dessus), puis seulement mesurer un budget 1-1,5 Go.
+
+---
+
+## ✅ RODOLF A SUIVI LA RECOMMANDATION — BRANCHÉ (2026-08-17)
+
+**Périmètre exact de la recommandation, rien de plus** : défaut ON dans
+`ModeTrain`, échappatoire `--sans-reserve` explicite, PAS d'activation globale
+dans `NkTensorGpu`. `--reserve` reste accepté (désormais redondant).
+`VramPic()` a été corrigé AVANT le branchement (section suivante) — brancher
+par défaut sans le corriger aurait rendu son mensonge permanent.
+
+### Le contexte donné par Rodolf avec son accord — il orientera la suite
+
+> « L'important, c'est d'avoir un système qui nous permet de modéliser
+> automatiquement ce qu'on lui demande — et on fera de même pour l'animation,
+> qui servira non seulement NkAnima mais aussi NKCivilisation : créer des
+> films, des jeux, et utiliser PV3DE avec des agents qui auront des rôles à
+> jouer. »
+
+**La réserve n'est pas une optimisation de confort** : c'est ce qui rend les
+campagnes d'entraînement de génération (modèles, puis animation) abordables sur
+sa machine. Six semaines → ~3,3, ça change ce qui est entraînable.
+
+### Témoins du branchement (courses du 2026-08-17)
+
+- `ModeTrain` nominal → `servis > 0` ;
+- `--sans-reserve` → `servis = 0` et comportement LEGACY à l'identique ;
+- trajectoires identiques à la décimale entre les deux modes — c'est ce qui a
+  fondé la décision, revérifié après branchement ;
+- pic physique > pic calcul sous réserve active (l'instrument corrigé dit
+  enfin la rétention).
+
+**Résultats des courses-témoins (01:21-01:27)** — les quatre passent :
+
+```
+nominale       : ACTIVE (budget 512 Mo) ; servis=36 713, neufs=27 776,
+                 taux=56,93 % — IDENTIQUE AU COMPTEUR PRES a la mesure
+                 pic physique 6 190,8 Mo > pic calcul 6 026,1 Mo   <- discrimine
+--sans-reserve : DESACTIVEE ; servis=0, neufs=64 652 — identiques au LEGACY
+                 pic physique = pic calcul = 6 026,1 Mo            <- egaux
+trajectoires   : perte pas 1 = 9,72476 des deux cotes (4 courses identiques)
+```
+
+Le pic physique réel (6 190,8 Mo) est **sous** la borne externe (~6,56 Go) : au
+moment du pic, la réserve ne retenait que ~165 Mo — les gros tampons étaient
+dehors, en usage. La marge VRAM est meilleure que l'estimation.
+
+### ⚠️ RECTIFICATION HONNÊTE — le ×1,82 de la nuit était vraisemblablement du bruit machine
+
+Les temps de cette paire-témoin CONTREDISENT la paire de mesure : Fit NEUF
+152,3 s contre LEGACY **95,0 s** — le sens inverse. Et l'historique du journal
+montre des Fit de **77 à 486 s pour le même travail de 6 pas** : la variance
+machine (bureau, builds concurrents) écrase l'effet.
+
+**Le calcul physique borne le gain vrai** : 64 652 allocations / 6 pas
+× ~460 µs ≈ **5 s/pas de coût d'allocation total**, dont la réserve supprime
+~57 % ≈ **2,8 s/pas** à ce montage. Un écart de 218 s comme celui de la nuit ne
+peut PAS venir de la réserve — c'était la contention, pas l'effet. Le ×1,82 est
+**retiré** ; le gain réel est dans **[0 ; ~3 s/pas]**, soit +8 à +18 % sur un
+pas de 16-35 s.
+
+**Le branchement reste justifié, sur les faits qui tiennent** : la justesse est
+prouvée quatre fois (trajectoires identiques), le coût VRAM au pic est de
+165 Mo, le comptage servis/neufs est exact et reproductible au compteur près, et
+2,8 s/pas sur un run de 6 000 pas font ~4,7 heures. Mais le « six semaines →
+3,3 » annoncé au canal ne tient plus : l'ordre de grandeur honnête est
+**-8 à -18 % de temps de course**, à confirmer sur machine calme.
+
+La leçon rejoint celle du ×1,57 du chantier n°1 (avantage de position) : **sur
+cette machine, aucune paire de courses courtes non appariées ne mesure un
+effet plus petit que la variance ambiante.** Seule une longue course calme, ou
+le banc isolé, fait foi pour les durées.
+
+## 🔧 `VramPic()` CORRIGÉ — DEUX PICS, DEUX NOMS (2026-08-17)
+
+L'ancien comptage décomptait un tampon RETENU comme s'il était libéré : pic
+affiché IDENTIQUE avec et sans réserve — un instrument incapable de dire la
+seule chose qu'on lui demandera le jour où on discutera d'agrandir le budget.
+
+**Le correctif** (`NkTensorGpu.cpp`) :
+- `VramPic()` = pic **PHYSIQUE** (vivants + retenus) — décide si ça tient sur
+  la carte. La rétention est un TRANSFERT (vivant → retenu, total inchangé),
+  servir depuis la réserve aussi (retenu → vivant) : le pic physique ne peut
+  monter que dans `CreateBuffer` sur allocation neuve — un seul point de mise
+  à jour ;
+- `VramPicCalcul()` = pic des tampons de calcul **seuls** — le besoin
+  incompressible, indépendant de la politique de cache ;
+- les deux affichés côte à côte avec des noms clairs (témoin `ModeTrain` +
+  ligne « VRAM suivie » du trainer) — la leçon des métriques figées de NKXR :
+  jamais une ligne qui mélange du vivant et du mort sans le dire.

@@ -79,7 +79,18 @@ namespace nkentseu {
 				// fragmentation, ni les allocations des autres modules. C'est donc un
 				// PLANCHER de l'occupation reelle, jamais son total — d'ou la marge a
 				// exiger avant de conclure qu'une configuration tient sur 8 Go.
+				//
+				// ⚠️ DEUX PICS (corrige 2026-08-17) : un tampon RETENU par la reserve
+				// reste ALLOUE. Avant le correctif, la retention etait decomptee comme
+				// une liberation : le pic s'affichait IDENTIQUE avec et sans reserve —
+				// exactement le chiffre qu'il faudrait pour decider d'un budget, rendu
+				// invisible par l'instrument cense le donner.
+				//   VramPic()       : pic PHYSIQUE (vivants + retenus) — decide si la
+				//                     configuration tient sur la carte ;
+				//   VramPicCalcul() : pic des tampons de calcul seuls — le besoin
+				//                     incompressible, quel que soit le cache.
 				static int64 VramPic();
+				static int64 VramPicCalcul();
 				static int64 VramVivante();
 				void RazVramPic(); // repart du niveau courant (avant une phase mesuree)
 
