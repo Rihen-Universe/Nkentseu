@@ -713,9 +713,36 @@ découpé par nom contigu (`NkImportSplitByName`), le tout journalisé
 picker du kit n'a qu'un filtre MONO-extension (`pickerFileExt`), donc
 ouverture **sans filtre** et validation à la confirmation avec **refus
 nommé** (« Format non reconnu : … ») — un refus silencieux serait
-indistinguable d'un bouton cassé. La CRÉATION des nœuds (point 4) attend la
-lecture de la sémantique de transform d'`EnsureModelMesh` (piège
-`nkvpEmptyPos` : consommateur à lire avant d'écrire).
+indistinguable d'un bouton cassé.
+
+**Grille du point 4 (CRÉATION des nœuds), écrite d'avance — consommateurs lus
+le 17/08 :**
+
+1. **Positions ABSOLUES, tranché par lecture** : les transforms du système
+   sont MONDE (`nkvpEmptyPos`, commentaire l. 159-174 — le rendu ne compose
+   jamais parent×enfant ; la parenté n'est qu'appartenance). Le modèle à
+   suivre est `HostDuplicateTree` (matière à `world + offset`, l. 16173) ;
+   **ne PAS imiter `EnsureModelMesh`**, qui écrase en (0,0,0) *monde* après
+   un `HostSpawnLike` ayant posé la position monde — c'est le piège
+   `nkvpEmptyPos` nommé, confirmé à la lecture.
+2. **Naissance** : aucun chemin public « nœud depuis des données » n'existe —
+   à créer côté hôte (`NkDemo3D.cpp`) : `HostAllocUser` +
+   `ms->Create(NkMeshDesc::Simple(Default3D, tranche))` avec
+   **`keepCPU=true` explicite** (défaut `false` — sans lui ni archivage
+   relisible ni copie indépendante, cf. `HostMakeGeometryOwn`), puis
+   `nkvpIsMesh[m]=true`, `nkvpParentOf[m]=root`, `nkvpIsModel[root]=true`.
+3. **Tranches** : lire la structure exacte des sous-mesh de `NkGLTFMeshData`
+   (les indices d'une tranche référencent-ils le buffer global ? rebaser ou
+   passer les sommets utiles) — à mesurer avant d'écrire.
+4. `HostHierSnapNode` sur **chaque** nouveau-né ; recentrage d'origine AVANT
+   l'archivage (règle du 16/08) ; `NkAsModelCapture` avec le parcours
+   officiel `Demo3DHostNodeInnerMeshOf` — un `.nkmesh` par model, origine
+   déjà juste (persistance close, aucune dette d'héritage).
+5. **Témoins** : (+) un `.obj` 2 objets → 2 `.nkmesh`, réouverture
+   indépendante = bonne origine, `ECART=(0, 0)` d'emblée ; comptes
+   verts/indices du fichier retrouvés sur les nœuds ; (−) fichier sans
+   marqueur → UN model (R41), et rien n'est écrit au projet sans geste de
+   sauvegarde.
 
 ## 3. Modélisation complète ⬜
 
