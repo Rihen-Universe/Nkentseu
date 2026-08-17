@@ -182,8 +182,12 @@ namespace nkentseu {
 				}
 
 				// Sonde drag-drop (--dragdrop-test) : premiere carte FICHIER —
-				// rect ecran reel du pied + chemin, releves au dessin.
-				if (mProbeEnabled && !mProbeCardValid && !entry.isDirectory && entry.name != "..") {
+				// rect ecran reel du pied + chemin, releves au dessin. Depuis le
+				// palier A : une carte MESH visible PREND LE PAS sur une carte d'un
+				// autre type deja retenue (c'est le depot mesh qui a un temoin de
+				// spawn ; la sonde ecrit son TEMOIN_sonde.obj pour qu'il y en ait une).
+				const bool wantThisCard = !mProbeCardValid || (!mProbeCardIsMesh && entry.type == NkAssetType::Mesh);
+				if (mProbeEnabled && wantThisCard && !entry.isDirectory && entry.name != "..") {
 					// ⚠️ VISIBLE seulement : une carte disposee HORS du clip courant
 					// (defilee sous le pli) est reelle mais insurvolable —
 					// ItemHoverable la refuse par sa porte de clip, a juste titre.
@@ -201,6 +205,7 @@ namespace nkentseu {
 						mProbeCardRect = fr;
 						std::snprintf(mProbeCardPath, sizeof(mProbeCardPath), "%s", entry.relativePath.CStr());
 						mProbeCardValid = true;
+						mProbeCardIsMesh = (entry.type == NkAssetType::Mesh);
 						mProbeCardTime = ctx.time; // fraicheur : la sonde compare a ui.time
 						// Portes d'ItemHoverable relevees au dessin (diagnostic).
 						mProbeGateHoveredWin = ctx.hoveredWindowId;
@@ -248,6 +253,7 @@ namespace nkentseu {
 
 			mThumbBudget = THUMB_LOADS_PER_FRAME;
 			mProbeCardValid = false; // sonde : re-mesuree a chaque image (le dock peut bouger)
+			mProbeCardIsMesh = false;
 			if (mProbeEnabled) {
 				// Zone visible du panneau (clip courant) : c'est la que la sonde
 				// pose sa molette quand aucune carte fichier n'est encore visible.

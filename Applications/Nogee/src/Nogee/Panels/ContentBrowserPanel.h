@@ -144,6 +144,7 @@ namespace nkentseu {
 				// Sonde drag-drop (cf. bloc public).
 				bool mProbeEnabled = false;
 				bool mProbeCardValid = false;
+				bool mProbeCardIsMesh = false; ///< la carte retenue est un MESH (palier A : prioritaire)
 				nkgui::NkRect mProbeCardRect{0.f, 0.f, 0.f, 0.f};
 				char mProbeCardPath[256] = {};
 				float32 mProbeCardTime = -1.f;
