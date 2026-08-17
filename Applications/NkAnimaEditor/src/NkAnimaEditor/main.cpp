@@ -48,7 +48,10 @@ static void PreUI3D(NkICommandBuffer *cmd, void *user) {
 
 int nkmain(const NkEntryState &state) {
 	// Backend graphique depuis les args (-bgl défaut, -bvk, -bdx11, -bdx12, -bsw).
+	// Tout argument SANS tiret est le chemin du modèle à charger (défaut CesiumMan)
+	// — c'est ce qui permet de pointer un autre rig (XBot Mixamo…) sans recompiler.
 	NkEditorGfxApi gfx = NkEditorGfxApi::OpenGL;
+	const char *modelPath = "Resources/Models/CesiumMan/CesiumMan.glb";
 	for (const auto &a : state.GetArgs()) {
 		if (a == "-bvk" || a == "--backend=vulkan")
 			gfx = NkEditorGfxApi::Vulkan;
@@ -60,6 +63,8 @@ int nkmain(const NkEntryState &state) {
 			gfx = NkEditorGfxApi::Software;
 		else if (a == "-bgl" || a == "--backend=opengl")
 			gfx = NkEditorGfxApi::OpenGL;
+		else if (!a.Empty() && a.Data()[0] != '-')
+			modelPath = a.CStr(); // les args vivent dans state : durée de vie OK
 	}
 
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
@@ -100,7 +105,7 @@ int nkmain(const NkEntryState &state) {
 		shell->Ui().theme = t;
 	}
 
-	nkanima::AnimInit("Resources/Models/CesiumMan/CesiumMan.glb");
+	nkanima::AnimInit(modelPath);
 
 	// Viewport 3D : partage le device NKRHI de l'éditeur + rend en début de frame.
 	nkanima::Anim3DSetSharedDevice(rhi.GetDevice());

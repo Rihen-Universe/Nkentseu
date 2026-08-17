@@ -221,9 +221,11 @@ namespace nkentseu {
 					 * @param next Pointeur vers le nœud suivant du bucket
 					 * @param args Arguments forwardés vers le constructeur de Value
 					 *
-					 * @note Volontairement HORS de `#if defined(NK_CPP11)` : cette macro n'est
-					 *       définie nulle part dans le dépôt, donc le constructeur à forwarding
-					 *       parfait ci-dessus n'est jamais compilé et la seule voie active copie.
+					 * @note HORS de `#if defined(NK_CPP11)`, et il y reste : construction
+					 *       in-place VARIADIQUE de Value, sans équivalent dans le bloc
+					 *       gardé. (`NK_CPP11` est OUVERTE depuis le 2026-08-17, dérivée
+					 *       de NKENTSEU_HAS_CPP11 ; l'ancienne justification « macro
+					 *       définie nulle part » ne tient plus.)
 					 * @note Le tag évite tout recouvrement avec les constructeurs existants.
 					 */
 					template <typename... Args>
