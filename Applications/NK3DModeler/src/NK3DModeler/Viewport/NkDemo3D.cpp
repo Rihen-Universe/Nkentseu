@@ -15597,6 +15597,32 @@ namespace nkentseu {
 				}
 			}
 		}
+		// ── UNE ECRITURE PROGRAMMATIQUE N'EST PAS UN GESTE ──────────────────
+		// Le detecteur ci-dessous (HostHierRecurse) deduit le mouvement d'un
+		// parent de l'ecart avec son cliche. Une position ecrite par le CODE --
+		// recentrage d'origine, naissance d'une copie, pose d'un depot -- n'est
+		// pas un geste de l'utilisateur : la propager deplacerait une matiere
+		// que l'ecrivain a deja mise (ou voulue) exactement la.
+		//
+		// C'est le principe de Demo3DHostHierarchyResync (« apres un chargement,
+		// cet ecart n'est pas un geste »), applique a UN noeud : chaque ecrivain
+		// programmatique recale le cliche du noeud qu'il vient d'ecrire, DANS LE
+		// MEME GESTE. La mesure qui l'impose (journal du 17/08, course 00:29) :
+		//   MESURE hier : model=98  cliche=(2.935..) courant=(2.223..) transmis=1
+		//     -> le recentrage d'origine a ete propage a la MATIERE de l'archive,
+		//        annulant son effet et decalant l'archive entiere a chaque depot ;
+		//   MESURE hier : model=107 cliche=(0,0,0) courant=(-3.28..) transmis=1
+		//     -> la copie fraiche, deja posee juste (MESURE cumul ECART=0), a
+		//        recu TOUTE sa position une seconde fois -- le cliche d'un
+		//        nouveau-ne etait celui du mort qui occupait son emplacement.
+		//
+		// ⚠️ Ne PAS appeler ceci depuis un chemin interactif (gizmo, panneau) :
+		// la propagation y est VOULUE -- c'est elle qui fait suivre les enfants.
+		static void HostHierSnapNode(Demo3DState *st, int32 n) {
+			if (!st || n < 0 || n >= kNkvpMaxNodes)
+				return;
+			HostNodeWorld(st, n, sHierPos[n], sHierRot[n], sHierScl[n]);
+		}
 		static void HostHierRecurse(Demo3DState *st, int32 pnode) {
 			float32 cpos[3], cscl[3];
 			NkMat4f crot;
@@ -16094,8 +16120,12 @@ namespace nkentseu {
 				return -1;
 			if (independent)
 				HostMakeGeometryOwn(root);
-			if (!nkvpIsModel[src])
+			if (!nkvpIsModel[src]) {
+				// Meme regle que la sortie normale : le nouveau-ne recale son
+				// cliche (un non-model aussi porte celui du mort d'avant).
+				HostHierSnapNode(HostSt(), root);
 				return root; // pas un model : rien de plus a emporter
+			}
 			// MEME parcours d'appartenance que le deplacement de document et
 			// que l'archivage (HostIsInnerMeshOf) : les trois doivent emporter
 			// EXACTEMENT les memes noeuds, sinon un mesh oublie en chemin
@@ -16104,9 +16134,28 @@ namespace nkentseu {
 			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
 				map[i] = -1;
 			map[src] = root;
+			// LA LISTE DES CANDIDATS SE FIGE AVANT LA PREMIERE NAISSANCE.
+			// HostSpawnLike copie le parent d'une source VIVANTE (voir sa fin) :
+			// le double d'un maillage d'un model vivant chaine donc lui-meme
+			// vers `src`, et une boucle qui reevalue le predicat PENDANT
+			// qu'elle cree le re-appariait en atteignant son slot -- chaque
+			// naissance en semait une autre, jusqu'a epuisement des
+			// emplacements. Mesure (17/08, import LowPolyCars.obj) :
+			// internesDeLaSource=1, nes=46 -- exactement les 46 slots libres
+			// restants -- et les 4 models suivants du fichier n'ont jamais pu
+			// naitre. Le sens navigateur -> scene ne cascadait pas : le parent
+			// d'une source ARCHIVEE est nkvpDeleted, donc jamais copie -- c'est
+			// pour ca que tous les depots mesures etaient sains. Figer la
+			// liste rend la boucle insensible a ce qu'elle seme, dans les deux
+			// sens. (Le compte `internesDeLaSource` d'apres-boucle, lui, etait
+			// juste TROP TARD : le recablage avait deja retire les nouveau-nes
+			// de la chaine de src.)
+			bool aDupliquer[kNkvpMaxNodes];
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+				aDupliquer[c] = HostIsInnerMeshOf(c, src);
 			const float32 zero[3] = {0.f, 0.f, 0.f};
 			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
-				if (!HostIsInnerMeshOf(c, src))
+				if (!aDupliquer[c])
 					continue;
 				const int32 m = HostSpawnLike(c, zero);
 				if (m < 0) {
@@ -16176,6 +16225,19 @@ namespace nkentseu {
 						"internesDeLaSource={2} nes={3} enfantsDirectsDuDouble={4}\n",
 						src, root, dedans, nes, directs);
 			}
+			// LES NOUVEAU-NES RECALENT LEUR CLICHE (voir HostHierSnapNode). Sans
+			// ceci, la premiere passe de hierarchie lit « courant - cliche du mort
+			// qui occupait l'emplacement » et deplace la matiere de TOUTE la
+			// position de naissance -- mesure : MESURE hier model=107
+			// cliche=(0,0,0) dp=(-3.28, 0, -6.94) transmis=1, sur une copie que
+			// MESURE cumul venait de declarer posee juste (ECART=0).
+			{
+				auto *st = HostSt();
+				HostHierSnapNode(st, root);
+				for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+					if (c != src && map[c] >= 0)
+						HostHierSnapNode(st, map[c]);
+			}
 			return root;
 		}
 		int32 Demo3DHostDuplicateNodeEx(int32 node, bool independent) {
@@ -16209,9 +16271,9 @@ namespace nkentseu {
 		// meme barycentre et n'ecrit rien de neuf. C'est ce qui permet de s'en
 		// servir pour REPARER les assets existants au moment ou on les emploie,
 		// sans toucher au format ni a la relecture.
-		void Demo3DHostRecenterModel(int32 root) {
+		bool Demo3DHostRecenterModel(int32 root) {
 			if (root < kNkvpFirstEmpty || root >= kNkvpMaxNodes || !nkvpIsModel[root])
-				return;
+				return false;
 			// LE MEME parcours d'appartenance que l'archivage, l'ecriture d'un
 			// fichier de model et le deplacement : quatre usages, un seul parcours.
 			float32 sx = 0.f, sz = 0.f;
@@ -16225,7 +16287,7 @@ namespace nkentseu {
 				++n;
 			}
 			if (n == 0)
-				return; // un model sans matiere n'a pas de centre a trouver
+				return false; // un model sans matiere n'a pas de centre a trouver
 			const int32 er = root - kNkvpFirstEmpty;
 
 			// MESURE (temporaire) : CETTE FONCTION CHANGE-T-ELLE QUELQUE CHOSE ?
@@ -16259,6 +16321,20 @@ namespace nkentseu {
 
 			nkvpEmptyPos[er][0] = nx;
 			nkvpEmptyPos[er][2] = nz;
+			// RECENTRER, C'EST DEPLACER L'ORIGINE **SEULE** -- c'est sa
+			// definition (« l'origine d'un model va sur SA MATIERE », 16/08).
+			// Sans ce recalage, la passe de hierarchie lisait ce deplacement
+			// comme un geste et donnait le MEME delta a la matiere : l'origine
+			// rejoignait le barycentre, puis le barycentre fuyait d'autant --
+			// l'effet du recentrage etait annule et l'archive entiere derivait a
+			// chaque depot. Mesure : MESURE hier model=98 cliche=(2.935..)
+			// courant=(2.223..) dp=(-0.712, 0, -0.846) transmis=1.
+			HostHierSnapNode(HostSt(), root);
+			// A-T-ON REELLEMENT CHANGE QUELQUE CHOSE ? Le seuil est celui de la
+			// passe de hierarchie (1e-5) : en-dessous, rien n'a bouge pour
+			// personne, et dire « corrige » armerait une reecriture de fichier
+			// pour un epsilon flottant.
+			return fabsf(nx - ax) + fabsf(nz - az) > 1e-5f;
 		}
 		int32 Demo3DHostArchiveNode(int32 node) {
 			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de
@@ -16375,6 +16451,20 @@ namespace nkentseu {
 							node, pos3[0], pos3[1], pos3[2], d[0], d[1], d[2],
 							bx / (float32)nb, bz / (float32)nb,
 							bx / (float32)nb - pos3[0], bz / (float32)nb - pos3[2], nb);
+			// LA POSE DEPLACE RACINE **ET** MATIERE ELLE-MEME (le parcours
+			// ci-dessus) : la passe de hierarchie n'a rien a rejouer. Sans ce
+			// recalage, elle relisait le deplacement de la racine comme un geste
+			// et redonnait le delta a une matiere deja emportee (voir
+			// HostHierSnapNode). Ce chemin est PROGRAMMATIQUE (depot) -- le
+			// panneau Proprietes, lui, passe par SetEmptyTransform et DOIT
+			// continuer de propager : c'est la ce qui fait suivre les enfants.
+			{
+				auto *st5 = HostSt();
+				HostHierSnapNode(st5, node);
+				for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+					if (c >= kNkvpFirstEmpty && HostIsInnerMeshOf(c, node))
+						HostHierSnapNode(st5, c);
+			}
 		}
 		bool Demo3DHostNodeArchived(int32 node) {
 			// Une ARCHIVE est retiree de la vue mais garde sa nature ; un noeud
@@ -18149,6 +18239,79 @@ namespace nkentseu {
 				L.color = {1.f, 1.f, 1.f};
 				nkvpUserLight[n - kNkvpFirstUser] = L;
 			}
+			return n;
+		}
+		// ── NAISSANCE DEPUIS DES DONNEES (import d'un fichier 3D, 17/08) ────
+		// Le chemin public « noeud depuis des donnees » n'existait pas : il se
+		// cree ici, cote hote, la ou vivent les tableaux. Meme discipline que
+		// HostDuplicateTree, et PAS EnsureModelMesh : les positions de ce
+		// systeme sont MONDE (nkvpEmptyPos -- le rendu ne compose jamais
+		// parent x enfant), donc chaque noeud recoit sa position monde, jamais
+		// un (0,0,0) « local » qui n'existe pas. Et CHAQUE nouveau-ne recale
+		// son cliche : HostAllocUser n'ecrit jamais sHierPos, sans recalage la
+		// passe de hierarchie lirait « courant - cliche du mort qui occupait
+		// l'emplacement » et deplacerait la matiere de toute sa position de
+		// naissance (mesure sur model=107, 17/08).
+		int32 Demo3DHostCreateModelRoot(const float32 *pos3) {
+			auto *st = HostSt();
+			if (!st || !pos3)
+				return -1;
+			// Nature EMPTY (4) : un conteneur de model ne rend rien par
+			// lui-meme. Lui preter une geometrie (cube...) mentirait au panneau
+			// « Ajuster la creation », qui montrerait des parametres sans objet.
+			const int32 n = HostAllocUser(4);
+			if (n < 0)
+				return -1;
+			const int32 e = n - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a)
+				nkvpEmptyPos[e][a] = pos3[a];
+			nkvpIsModel[n] = true;
+			HostHierSnapNode(st, n);
+			return n;
+		}
+		int32 Demo3DHostCreateMeshNode(int32 root, const void *verts, uint32 vcount,
+									   const uint32 *indices, uint32 icount,
+									   const float32 *pos3, const char *debugName) {
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || !verts || vcount == 0 || !indices || icount == 0 || !pos3)
+				return -1;
+			// Nature 2 (famille cube) : c'est la nature des maillages du mode
+			// edition, et le rendu donne la priorite a nkvpUserMesh quand il
+			// est valide -- la primitive de la nature ne se dessine jamais.
+			const int32 n = HostAllocUser(2);
+			if (n < 0)
+				return -1;
+			renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+				renderer::NkVertexLayout::Default3D(), verts, vcount, indices, icount);
+			// keepCPU EXPLICITE, meme si Simple() l'active aujourd'hui : sans
+			// copie CPU, ni archivage relisible ni copie independante
+			// (HostMakeGeometryOwn refuse et le DIT). Un futur changement du
+			// defaut de Simple() ne doit pas pouvoir retirer cette garantie ici.
+			d.keepCPU = true;
+			if (debugName && debugName[0])
+				d.debugName = debugName;
+			const NkMeshHandle h = ms->Create(d);
+			if (!h.IsValid()) {
+				// Le noeud vient de naitre et n'a ete donne a personne : on rend
+				// l'emplacement (nature a zero = libre pour HostAllocUser).
+				nkvpUserKind[n - kNkvpFirstUser] = 0;
+				nkvpDeleted[n] = true;
+				return -1;
+			}
+			nkvpUserMesh[n - kNkvpFirstUser] = h;
+			const int32 e = n - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a)
+				nkvpEmptyPos[e][a] = pos3[a]; // MONDE -- les sommets sont LOCAUX au noeud
+			nkvpIsMesh[n] = true;
+			if (root >= 0 && root < kNkvpMaxNodes)
+				nkvpParentOf[n] = root;
+			// TOUT MAILLAGE NAIT AVEC UN MATERIAU (regle de Rihen, comme
+			// Blender) : sans lui l'objet arriverait MAGENTA -- le signal d'une
+			// absence voulue, pas d'un import normal. Meme regle que la
+			// relecture d'un fichier (NkAsNodesRestore).
+			nkvpNodeMatP1[n] = HostEnsureDefaultMat() + 1;
+			HostHierSnapNode(st, n);
 			return n;
 		}
 		int32 Demo3DHostTakeShortcuts() {

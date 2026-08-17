@@ -55,17 +55,27 @@ namespace nkentseu {
 			// PARFAITE du schedule (pas de warmup ni de pic de perte à la reprise). Format « NKGP » v4 :
 			// v3 + bloc optionnel {hasOpt, step, moments}. Les lecteurs v3 restent compatibles (ils
 			// s'arrêtent après les poids). optM/optV nuls => hasOpt=0 (fichier v4 sans état optimiseur).
+			// v5 (2026-08-17) : + queue {rng} = etat du flux aleatoire d'echantillonnage, pour qu'une
+			// reprise ne re-tire pas les memes fenetres. Rotation a TROIS exemplaires (<path>, .prev,
+			// .prev2), ecriture forcee sur disque (_commit) avant renommage.
 			bool SaveCheckpoint(const char *path, const GptMeta &m, const NkVector<NkVar> &params,
 								const NkVector<NkTensor> *optM = nullptr, const NkVector<NkTensor> *optV = nullptr,
-								int64 step = 0);
+								int64 step = 0, uint64 rng = 0);
+
+			// Lit le fichier JUSQU'AU BOUT (entete, poids, etat optimiseur, queue) sans rien charger :
+			// vrai si le checkpoint est complet et coherent. `stepOut` recoit le pas global (0 si v3).
+			bool VerifierCheckpoint(const char *path, int64 *stepOut = nullptr);
+			// Le plus recent VALIDE parmi <path>, <path>.prev, <path>.prev2 ; journalise le repli.
+			bool ChoisirCheckpointValide(const char *path, NkString &retenu, int64 *stepOut = nullptr);
 
 			bool LoadCheckpointMeta(const char *path, GptMeta &m);
 			bool LoadCheckpointWeights(const char *path, NkVector<NkVar> &params);
 
 			// Charge l'état optimiseur du checkpoint (moments + pas). Renvoie false si le fichier est
 			// antérieur (v3) ou ne contient pas d'état (hasOpt=0). Moments rendus sur CPU.
+			// `rng` (facultatif) recoit l'etat du flux aleatoire si le fichier est v5 ; sinon inchange.
 			bool LoadCheckpointOptState(const char *path, NkVector<NkTensor> &optM, NkVector<NkTensor> &optV,
-										int64 &step);
+										int64 &step, uint64 *rng = nullptr);
 
 		} // namespace gpt
 	} // namespace ai
