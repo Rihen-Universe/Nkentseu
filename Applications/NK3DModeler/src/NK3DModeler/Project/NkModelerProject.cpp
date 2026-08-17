@@ -185,7 +185,7 @@ namespace nkentseu {
 					scene = *sc;
 					scene.SetBool("serialisee", true);
 					scene.SetString("couvre",
-									"l'arborescence du navigateur de projet (dossiers et cartes), "
+									"l'arborescence du navigateur de contenu (dossiers et cartes), "
 									"le CHEMIN RELATIF du fichier de chaque asset, et les onglets "
 									"ouverts. Le CONTENU de chaque asset vit dans SON fichier "
 									"(.nkscene, .nkmesh, .nkmat) -- ce fichier-ci n'en porte que "
