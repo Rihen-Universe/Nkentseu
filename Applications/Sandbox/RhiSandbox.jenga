@@ -7,7 +7,10 @@ from jengaconfig import *
 from Jenga.Core.Api import androidallowrotation
 
 
-def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False):
+# Parametre use_nkui retire le 2026-08-17 (campagne retrait NKUI, decision R1) :
+# ses deux seuls consommateurs (NKUIDemo, NKUID) sont deregistres en bas de ce
+# fichier — meme geste que RendererSandbox.jenga (commit 81c5615d).
+def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False):
     with project(project_name):
         windowedapp()
         language("C++")
@@ -25,8 +28,6 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
             _DEPS.append("NKImage")
         if use_nkfont:
             _DEPS.append("NKFont")
-        if use_nkui:
-            _DEPS.append("NKUI")
         _DEPS.append("NKGLSlang")
         _DEPS.append("NKSPIRVCross")
 
@@ -279,12 +280,24 @@ sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "san
 
 
 # =================================== Renderer UI =======================================================
-sandboxusenkrhi("NKUIDemo", [
-    "src/DemoNkentseu/Base04/NkUIDemoNKEngine.cpp",
-    # "src/DemoNkentseu/Base04/NkUIFontIntegration.cpp",
-    "src/DemoNkentseu/Base04/NkUINKRHIBackend.cpp"
-], "sandbox.nkentseu.nkuidemo", use_nkimage=True, use_nkfont=True, use_nkui=True)
-
-sandboxusenkrhi("NKUID", [
-    "src/DemoNkentseu/Base04/NkUIDemo.cpp"
-], "sandbox.nkentseu.nkuid", use_nkimage=True, use_nkfont=True, use_nkui=True)
+# ─────────────────────────────────────────────────────────────────────────────
+# DEMOS DE NKUI DEREGISTREES — campagne de retrait NKUI (2026-08-17, decision R1)
+#
+# NKUIDemo et NKUID sont des demos DONT L'OBJET est NKUI (rendu des draw-lists
+# NKUI via NKRHI), module deprecie remplace par NKGui. Une demo d'une
+# bibliotheque depreciee suit sa bibliotheque : les porter vers NKGui n'a pas
+# de sens (NKGui a ses propres bancs). Sources conservees
+# (src/DemoNkentseu/Base04/, y compris tmp/) ; elles meurent avec le module
+# NKUI le jour ou Rodolf en decide la suppression (compteur de dependants a
+# zero). Le parametre use_nkui du helper est retire avec elles (plus aucun
+# consommateur).
+# ─────────────────────────────────────────────────────────────────────────────
+# sandboxusenkrhi("NKUIDemo", [
+#     "src/DemoNkentseu/Base04/NkUIDemoNKEngine.cpp",
+#     # "src/DemoNkentseu/Base04/NkUIFontIntegration.cpp",
+#     "src/DemoNkentseu/Base04/NkUINKRHIBackend.cpp"
+# ], "sandbox.nkentseu.nkuidemo", use_nkimage=True, use_nkfont=True)
+#
+# sandboxusenkrhi("NKUID", [
+#     "src/DemoNkentseu/Base04/NkUIDemo.cpp"
+# ], "sandbox.nkentseu.nkuid", use_nkimage=True, use_nkfont=True)

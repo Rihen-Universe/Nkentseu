@@ -36,7 +36,7 @@ with project("NkCameraDemos"):
 
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
-         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage",
          "NKFileSystem", "NKCamera",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{NKGlad.location}/include",

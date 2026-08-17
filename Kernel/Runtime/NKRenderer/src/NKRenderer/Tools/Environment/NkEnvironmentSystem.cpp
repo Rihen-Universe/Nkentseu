@@ -179,7 +179,8 @@ namespace nkentseu {
 								 const std::vector<std::vector<std::vector<uint8_t>>> &prefData) {
 			FILE *f = fopen(path.CStr(), "wb");
 			if (!f) {
-				logger.Errorf("[IBL] Impossible d'ecrire le cache : {0} (verifier les droits d'ecriture)\n",
+				// ⚠ `Errorf` = famille printf : `%s`, pas `{0}` (le chemin était perdu).
+				logger.Errorf("[IBL] Impossible d'ecrire le cache : %s (verifier les droits d'ecriture)\n",
 							  path.CStr());
 				return;
 			}

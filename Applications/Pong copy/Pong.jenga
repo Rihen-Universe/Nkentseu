@@ -72,7 +72,6 @@ with project("Pong"):
 
         "%{NKImage.location}/src",
         "%{NKFont.location}/src",
-        "%{NKUI.location}/src",
         "%{NKGlad.location}/src"
     ])
 
@@ -80,7 +79,7 @@ with project("Pong"):
         "NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath",
         "NKThreading", "NKLogger", "NKTime",
         "NKEvent", "NKWindow",
-        "NKImage", "NKFont", "NKUI", "NKGlad"
+        "NKImage", "NKFont", "NKGlad"
     ])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
