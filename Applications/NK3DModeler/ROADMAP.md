@@ -634,10 +634,55 @@ une fois (héritage disque), `cumul ECART~0`, **aucune** ligne `hier` ; drag
 gizmo → lignes `hier` **présentes** (témoin que la propagation voulue vit) ;
 2e dépôt → `origine ECART=(0,0)` — l'idempotence enfin observable.
 
+**✅ VALIDÉE le 17/08 (7e relecture, course 00:55, journal figé)** — les trois
+lignes confirmées avec citations : l. 483452 (`ECART=(-0.712, -0.846)`, une
+fois) ; zéro `hier` parasite (compte exhaustif `model=98` : 0 ; 2,8 s entre le
+dépôt et le premier `hier`, qui est un drag) ; l. 483484+ (drag : dp continus,
+la propagation voulue vit) ; l. 483692 (`ECART=(0, 0)` au 2e dépôt —
+l'idempotence observée). Verdict de Rihen : *« le résultat est correct cette
+fois, même sans que je ne bouge. »* **Le geste dépôt/déplacement est clos ;
+l'éclatement se débloque.**
+
 **Dettes ouvertes** : l'archive recentrée n'est **pas persistée** (le
 `ECART≠0` reviendra une fois par session tant que le projet n'est pas réécrit —
 décision de format à prendre, pas prise ici) ; et `nkvpXmit=7` dès la naissance
 reste une valeur par défaut jamais discutée.
+
+### 🔓 L'ÉCLATEMENT D'UN IMPORT — DÉBLOQUÉ (17/08), terrain mesuré, plan posé
+
+*Débloqué par la validation de la grille (7e relecture). Les deux cas nommés par
+Rihen : (a) les models distincts d'un fichier importé, **chacun dans son
+fichier** ; (b) un même fichier qui contient **plusieurs sous-mesh** — deux cas
+différents (R40/R41 : la frontière entre fichiers est le MODEL, déclaré par le
+fichier ; les sous-mesh restent dedans).*
+
+**Le terrain, mesuré le 17/08 — chaque fait avec sa preuve :**
+
+| brique | état |
+|---|---|
+| chargeurs (`LoadOBJ`/`LoadGLTF`/`LoadFBX`) | ✅ `sm.name` rempli (glTF, OBJ), coupe sur `o` (2→10 mesuré) ; FBX nomme mais frontière à confirmer |
+| écriture d'un fichier de model | ✅ `NkAsModelCapture` (`.nkmesh` = racine + SES maillages, parcours officiel `Demo3DHostNodeInnerMeshOf`) |
+| naissance assainie | ✅ `HostHierSnapNode` — tout nouveau-né recale son cliché ; s'applique aux nœuds de l'éclatement comme à ceux du dépôt |
+| nœud à maillage arbitraire | ✅ par pièces : `nkvpUserMesh[u] = ms->Create*(…)` (primitives) et `ms->Create(d)` depuis des données (mode édition) — pas encore de fonction « nœud depuis une tranche de sous-mesh » |
+| bouton « Importer » du navigateur | ❌ **peint, JAMAIS lu** — `hit.Add("brw.imp")` sans aucun `hit.Clicked("brw.imp")` (témoin : `brw.creer` est bien consommé). Un bouton mort depuis sa naissance |
+| lâcher de fichier OS | ❌ `NkDropFileEvent` existe dans NKEvent, **aucune écoute** dans l'app |
+
+**Le plan, dans l'ordre :**
+1. **Brancher « Importer »** → sélecteur de fichiers (NKEditorKit) filtré sur les
+   formats des chargeurs. Le lâcher OS viendra après, c'est une seconde entrée
+   vers le même chemin — un seul chemin d'import, deux portes.
+2. **Charger** → `NkGLTFMeshData` (sous-mesh nommés + `subMeshMaterial`).
+3. **Regrouper** : sous-mesh consécutifs de même `name` = **un model** (la
+   frontière déclarée) ; dedans, chaque sous-mesh = un emplacement de matériau.
+   Fichier sans marqueur → un seul model (repli décidé en R41).
+4. **Par model** : racine + un nœud maillage par sous-mesh (géométrie
+   `ms->Create` sur la tranche d'indices, keepCPU), positions **absolues**,
+   `HostHierSnapNode` sur chaque nouveau-né, recentrage d'origine (règle du
+   16/08), archivage, carte navigateur, écriture `.nkmesh` — **un fichier par
+   model**, règle d'import de `CONVENTIONS_FICHIERS.md` (copier en gardant
+   l'origine).
+5. **Hors du premier lot, dit explicitement** : les matériaux du fichier importé
+   (→ `.nkmat`), le lâcher OS, la confirmation FBX multi-objets.
 
 ## 3. Modélisation complète ⬜
 
