@@ -273,6 +273,52 @@ trop rond est suspect* :
    code écrit « POLYGONE DE SUPPORT », avec `supportPts` / `supportCount`. Sans ce
    doute, une brique de 250 lignes était déclarée absente.
 
+## 📏 CONVENTION — nommage des joints des rigs destinés à NkAnima (règle de Rodolf, 2026-08-17)
+
+**Les rigs destinés à NkAnima nomment leurs joints.** La distribution de masse
+anthropométrique (`NkPoseMass::SetAnthropometric`) et le verdict d'équilibre de
+l'éditeur reposent sur les **noms** des joints — champ `"name"` des nodes glTF,
+transporté par `NkGLTFNode.name` → `NkAnimationClip.jointNames` depuis le
+2026-08-17.
+
+**La liste ci-dessous EST la convention** : c'est exactement ce que le code
+reconnaît (`MassWeightForName`, `NkPoseMass.cpp` ; correspondance en
+**sous-chaîne insensible à la casse**, donc `mixamorig:LeftFoot` matche `foot`).
+Testés du plus spécifique au plus général — l'ordre compte (`upperarm` avant
+`arm`, `foot` avant `leg`) :
+
+| famille | motifs reconnus | poids |
+|---|---|---:|
+| main | `hand` · `wrist` | 1.0 |
+| avant-bras | `forearm` · `lowerarm` · `elbow` | 2.0 |
+| bras | `upperarm` · `shoulder` · `clavicle` · `arm` | 3.0 |
+| **pied (= APPUI)** | **`foot` · `ankle` · `toe`** | 1.5 |
+| tibia | `shin` · `calf` · `lowerleg` · `knee` | 5.0 |
+| cuisse | `thigh` · `upperleg` · `upleg` | 10.0 |
+| tête/cou | `head` · `skull` · `neck` | 8.0 |
+| bassin | `hip` · `pelvis` · `root` | 15.0 |
+| tronc | `spine` · `chest` · `thorax` · `abdomen` · `torso` · `trunk` | 12.0 |
+| jambe générique | `leg` (après thigh/shin/foot) | 6.0 |
+| non reconnu | — (masse résiduelle) | 2.0 |
+
+⚠️ **Le verdict d'équilibre (sphère verte/rouge) ne s'active que sur pieds
+nommés** — motifs `foot`/`ankle`/`toe`, ce sont eux qui définissent les appuis
+(`NomEvoquePied`, `AnimBridge.cpp`, mêmes mots-clés que la famille « pied »).
+Sans eux, l'étiquette dit honnêtement « équilibre indéterminé : aucun appui » —
+c'est le comportement voulu, pas un défaut. Style Mixamo (`LeftFoot`/`RightFoot`)
+accepté d'office par la règle de sous-chaîne.
+
+**Mesuré sur les assets du dépôt** : ni `CesiumMan.glb` ni `BrainStem.glb` n'ont
+de pied nommé (CesiumMan : `leg_joint_R_5`/`L_5`) — masse anthropométrique OK,
+verdict indéterminé. Un mannequin Mixamo (pieds nommés) est attendu dans
+`Resources/Models/` pour allumer le verdict pour la première fois.
+
+⚠️ **Format : glTF (`.glb`) UNIQUEMENT pour l'animation.** Mesuré le 2026-08-17 :
+`LoadFBX` ne remplit ni `nodes`, ni `skinJoints`, ni `animations`, ni `isSkinned`
+(zéro occurrence de `Deformer` dans le parseur — géométrie et matériaux
+seulement), et `AnimInit` appelle `LoadGLTF` en dur. **Un FBX Mixamo doit être
+converti en `.glb`** (Blender → export glTF 2.0) avant dépôt.
+
 ## Documents voisins — lire avant d'écrire ici
 
 | Document | Ce qu'il porte, et que ce fichier ne reprend pas |
