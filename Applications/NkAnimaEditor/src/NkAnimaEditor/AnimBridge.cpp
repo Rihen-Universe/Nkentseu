@@ -153,6 +153,10 @@ namespace nkanima {
 				g.comJointCount = 0; // force le recalibrage du COM : un autre modèle
 									 // au MÊME nombre de joints garderait sinon la
 									 // masse (et les pieds) de l'ancien, en silence.
+				if (getenv("NK_SHOW_COM"))
+					g.showCom = true; // même famille que NK_POSE_TEST/NK_ANIM_VIEW :
+									  // allume le COM au lancement (captures
+									  // témoins reproductibles, sans clic).
 				BuildSkeletonAux();
 				logger.Info("[AnimBridge] '{0}' : {1} os, dur={2}s, {3} cles\n", modelPath,
 							(uint32)g.clip.boneTracks.Size(), g.clip.duration, g.editor.PoseKeyCount());
