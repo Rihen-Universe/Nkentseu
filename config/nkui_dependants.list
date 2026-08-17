@@ -1,0 +1,57 @@
+# LISTE DECROISSANTE des dependants NKUI connus — campagne de retrait (2026-08-17)
+# -----------------------------------------------------------------------------
+# Metrique : fichiers `.jenga` citant la chaine "NKUI" (guillemets droits),
+# hors Kernel/Runtime/NKUI/NKUI.jenga lui-meme. C'est la metrique de la
+# campagne (canal nkui, Q1) et de la ROADMAP Noge §10sexies.
+#
+# REGLE : cette liste ne fait que DECROITRE.
+#   - On RETIRE une entree quand la citation a disparu de TOUTES les branches
+#     vivantes (fusion faite).
+#   - On n'AJOUTE JAMAIS d'entree : un nouveau dependant NKUI est interdit
+#     (NKUI est deprecie, remplace par NKGui/NKCanvas). Le controle
+#     `check_nkui_dependants.sh` echoue si un .jenga hors liste cite "NKUI".
+#     Toute exception se decide chez Rodolf, pas ici.
+#
+# Etat a la creation (2026-08-17) : union des branches vivantes —
+#   27 citations dans feat/noge-inventaire (= §10sexies : 24 applications
+#   + NKCanvas + NKUIIntegration + config/modules.jenga)
+#   + 2 encore sur main tant que feat/noge-inventaire n'est pas fusionnee
+#     (Nogee, Engine/Noge — coupees par commits 16732511 / 6ffc5dfb)
+#   + 1 encore sur main tant que feat/retrait-nkui n'est pas fusionnee
+#     (NkMatInventaireTest — fantome ne en PR #62, retire par la campagne).
+# Une entree presente ici mais sans citation dans l'arbre courant est
+# simplement EN AVANCE (branche coupee) : le controle le signale en
+# information, jamais en echec.
+#
+# Chemins relatifs a la racine du depot, separateur `/`.
+# -----------------------------------------------------------------------------
+Applications/Model/Model.jenga
+Applications/Mou/Mou.jenga
+Applications/NKPA/NKPA.jenga
+Applications/NkAgentEcsDemo/NkAgentEcsDemo.jenga
+Applications/NkAssetIODemo/NkAssetIODemo.jenga
+Applications/NkAudioECSDemo/NkAudioECSDemo.jenga
+Applications/NkCameraDemos/NkCameraDemos.jenga
+Applications/NkEditableMeshDemo/NkEditableMeshDemo.jenga
+Applications/NkImageDemo/NkImageDemo.jenga
+Applications/NkLocomotionDemo/NkLocomotionDemo.jenga
+Applications/NkMatInventaireTest/NkMatInventaireTest.jenga
+Applications/NkNavDemo/NkNavDemo.jenga
+Applications/NkNetWorldDemo/NkNetWorldDemo.jenga
+Applications/NkSVGImportDemo/NkSVGImportDemo.jenga
+Applications/NkUIHudDemo/NkUIHudDemo.jenga
+Applications/Nkoung/Nkoung.jenga
+Applications/Nogee/Nogee.jenga
+Applications/PV3DE/PV3DE.jenga
+Applications/Pong copy/Pong.jenga
+Applications/Pong/Pong.jenga
+Applications/Pong2/Pong.jenga
+Applications/RihenDefi/RihenDefi.jenga
+Applications/Sandbox/ContextSandbox.jenga
+Applications/Sandbox/RendererSandbox.jenga
+Applications/Sandbox/RhiSandbox.jenga
+Applications/Songoo/Songoo.jenga
+Engine/Noge/Noge.jenga
+Integrations/NKUI/NKUIIntegration.jenga
+Kernel/Runtime/NKCanvas/NKCanvas.jenga
+config/modules.jenga
