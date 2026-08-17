@@ -108,6 +108,13 @@ namespace nkentseu {
 				NkMat4f matrix = NkMat4f::Identity();
 				int32 mesh = -1; // index dans meshes[] (-1 = aucun)
 				NkVector<int32> children;
+				// Nom du node glTF (clé "name", optionnelle — vide si absente).
+				// Ajout 2026-08-17, ADDITIF (aucun appelant existant modifié) : les
+				// joints d'un skin sont des nodes, et leurs noms alimentent la
+				// distribution de masse anthropométrique côté éditeur
+				// (NKAnimPhysics::NkPoseMass::SetAnthropometric). Avant : le parseur
+				// lisait "name" pour meshes, matériaux, animations — jamais les nodes.
+				NkString name;
 		};
 
 		struct NkGLTFMeshData {

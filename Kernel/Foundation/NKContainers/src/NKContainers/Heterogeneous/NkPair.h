@@ -126,11 +126,15 @@ namespace nkentseu {
 			 * @param first Valeur à copier dans le premier membre
 			 * @param args Arguments forwardés vers le constructeur de T2
 			 *
-			 * @note C'est la seule voie qui permette de loger dans une NkPair un T2
-			 *       **non copiable** (move-only) ou **sans constructeur par défaut** :
-			 *       NkPair(const T1 &, const T2 &) copie, et les constructeurs par
-			 *       déplacement de cette classe sont derrière `#if defined(NK_CPP11)`,
-			 *       macro qui n'est définie nulle part dans le dépôt.
+			 * @note C'est la voie de construction IN-PLACE VARIADIQUE de Second :
+			 *       le constructeur gardé `NkPair(U1 &&, U2 &&)` prend exactement
+			 *       deux arguments, celui-ci en accepte N pour construire T2 sur
+			 *       place. Les Emplace(key, args...) des conteneurs associatifs
+			 *       passent par lui. (Historique : né comme contournement quand
+			 *       `NK_CPP11` n'était définie nulle part ; la macro est OUVERTE
+			 *       depuis le 2026-08-17 — dérivée de NKENTSEU_HAS_CPP11 dans
+			 *       NkCompilerDetect.h — et ce constructeur reste, car il n'a pas
+			 *       d'équivalent gardé.)
 			 *
 			 * @note AJOUT PUR : le tag rend ce constructeur insélectionnable par tout
 			 *       appel existant. Les appelants qui copiaient continuent de copier,

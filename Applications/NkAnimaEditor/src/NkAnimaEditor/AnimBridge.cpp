@@ -25,6 +25,9 @@
 #include "NKRenderer/Core/NkRenderGraph.h"					 // Execute() pipeline complet (option A)
 #include "NKGui/NkGuiRHIBackend.h"							 // RegisterTexture (Integrations/NKGui)
 #include "NkAnimaEditor/NkRagdollBridge.h"					 // couplage ragdoll <-> squelette (NKPhysics)
+#include "NKAnimPhysics/NkPoseMass.h"						 // M3.1 : distribution de masse + COM
+#include "NKAnimPhysics/NkBalance.h"						 // M3.2 : équilibre, polygone de support
+#include "NKAnimPhysics/NkContactDetector.h"				 // M3.3 : détection des appuis au sol
 #include "NKLogger/NkLog.h"
 #include <cstdlib>
 #include <cmath>
@@ -61,6 +64,18 @@ namespace nkanima {
 				NkVector<uint32> topo;		  // ordre topo (parent avant enfant)
 				NkVector<NkMat4f> worldEdit;  // pose de TRAVAIL (matrices monde par joint)
 				bool editMode = false;
+
+				// ── Debug COM (M3.1/M3.2/M3.3) : tampons réutilisés, zéro alloc/frame ──
+				bool showCom = false;
+				nkentseu::animphys::NkPoseMass poseMass;
+				NkVector<NkVec3f> comPos;	  // positions monde des joints (scratch)
+				NkVector<int32> comParent;	  // ignoré, exigé par AnimGetSkeleton
+				int32 comRegime = 0;		  // 0 = uniforme (pas de noms), 1 = anthropométrique
+				int32 comJointCount = 0;	  // compte au dernier calibrage (re-synchro si change)
+				NkVector<uint32> comFeet;	  // indices des joints d'appui (foot/ankle/toe)
+				NkVector<NkVec3f> comFeetPos; // scratch : positions monde des appuis
+				NkVector<NkVec3f> comSupport; // scratch : points de support détectés
+				int32 comVerdict = -1;		  // -1 = indéterminé, 0 = déséquilibré, 1 = équilibré
 
 				// ── Viewport 3D (lazy-init, device PARTAGÉ avec l'éditeur) ───────
 				bool tried3d = false, ok3d = false, meshLoaded3d = false;
@@ -147,6 +162,13 @@ namespace nkanima {
 				g.editor.SetClip(&g.clip);
 				g.editor.SetSnap(1.f / g.clip.fps);
 				g.loaded = true;
+				g.comJointCount = 0; // force le recalibrage du COM : un autre modèle
+									 // au MÊME nombre de joints garderait sinon la
+									 // masse (et les pieds) de l'ancien, en silence.
+				if (getenv("NK_SHOW_COM"))
+					g.showCom = true; // même famille que NK_POSE_TEST/NK_ANIM_VIEW :
+									  // allume le COM au lancement (captures
+									  // témoins reproductibles, sans clic).
 				BuildSkeletonAux();
 				logger.Info("[AnimBridge] '{0}' : {1} os, dur={2}s, {3} cles\n", modelPath,
 							(uint32)g.clip.boneTracks.Size(), g.clip.duration, g.editor.PoseKeyCount());
@@ -808,6 +830,35 @@ namespace nkanima {
 			g.camZoom = 4.f;
 	}
 
+	// Le nom d'un joint évoque-t-il un pied ? Mêmes mots-clés que la famille
+	// « foot » de MassWeightForName (NkPoseMass.cpp), même insensibilité à la
+	// casse — HasKw y est interne, on réécrit l'équivalent localement.
+	static bool NomEvoquePied(const nkentseu::NkString &nm) {
+		static const char *kws[] = {"foot", "ankle", "toe"};
+		const char *hay = nm.Data();
+		const nkentseu::int64 n = (nkentseu::int64)nm.Size();
+		for (int32 k = 0; k < 3; ++k) {
+			const char *kw = kws[k];
+			nkentseu::int64 klen = 0;
+			while (kw[klen] != '\0')
+				++klen;
+			for (nkentseu::int64 i = 0; i + klen <= n; ++i) {
+				nkentseu::int64 j = 0;
+				while (j < klen) {
+					char c = hay[i + j];
+					if (c >= 'A' && c <= 'Z')
+						c = (char)(c - 'A' + 'a');
+					if (c != kw[j])
+						break;
+					++j;
+				}
+				if (j == klen)
+					return true;
+			}
+		}
+		return false;
+	}
+
 	// Rend la pose courante dans l'offscreen via le cmd FOURNI (celui de l'éditeur).
 	// On rejoue le setup per-frame essentiel de NkRenderer::BeginFrame (ResetFrame +
 	// upload matériaux) sans piloter la frame device (que l'éditeur possède).
@@ -905,6 +956,80 @@ namespace nkanima {
 			r3d->SubmitSkinned(dc);
 		}
 
+		// ── Debug M3.1/M3.2/M3.3 : COM + appuis + verdict d'équilibre ─────────
+		// AnimGetSkeleton fournit les positions MONDE dans LES DEUX modes (pose de
+		// travail éditée OU pose du player) et extrait la translation par le membre
+		// nommé `gl.position` — aucune indexation d'octets, donc indépendant de la
+		// convention de stockage des matrices.
+		if (g.showCom) {
+			AnimGetSkeleton(g.comPos, g.comParent);
+			const int32 n = (int32)g.comPos.Size();
+			if (n > 0) {
+				// Calibrage : au premier passage et à chaque changement de compte.
+				// Régime ANTHROPOMÉTRIQUE si le clip porte les noms de joints
+				// (glTF "name", bakés depuis 2026-08-17), UNIFORME sinon — et le
+				// libellé à l'écran suit le régime réel (AnimCOMRegimeLabel).
+				if (g.comJointCount != n) {
+					g.comJointCount = n;
+					const bool hasNames = ((int32)g.clip.jointNames.Size() == n);
+					if (hasNames) {
+						g.poseMass.SetAnthropometric(g.clip.jointNames);
+						g.comRegime = 1;
+					} else {
+						g.poseMass.SetUniform(n);
+						g.comRegime = 0;
+					}
+					// Appuis : joints dont le nom évoque un pied — mêmes mots-clés
+					// que la famille "foot" de MassWeightForName (NkPoseMass).
+					g.comFeet.Clear();
+					if (hasNames)
+						for (int32 j = 0; j < n; ++j)
+							if (NomEvoquePied(g.clip.jointNames[(uint32)j]))
+								g.comFeet.PushBack((uint32)j);
+				}
+				const NkVec3f com = g.poseMass.ComputeCOMFromPositions(g.comPos.Data(), n);
+
+				// Verdict d'équilibre — UNIQUEMENT si des appuis sont détectables.
+				// Sol de l'éditeur : le même plan que celui dessiné plus haut.
+				g.comVerdict = -1;
+				g.comSupport.Clear();
+				if (!g.comFeet.Empty()) {
+					const float32 floorY = g.center3d.y - g.radius3d * 0.5f;
+					const NkVec3f planePoint{g.center3d.x, floorY, g.center3d.z};
+					const NkVec3f planeNormal{0.f, 1.f, 0.f};
+					const float32 threshold = 0.04f * (g.radius3d > 0.f ? g.radius3d : 1.f);
+					g.comFeetPos.Clear();
+					for (uint32 k = 0; k < (uint32)g.comFeet.Size(); ++k)
+						g.comFeetPos.PushBack(g.comPos[g.comFeet[k]]);
+					const int32 nc = nkentseu::animphys::NkContactDetector::DetectSupportPoints(
+						g.comFeetPos.Data(), (int32)g.comFeetPos.Size(), planePoint, planeNormal, threshold,
+						g.comSupport);
+					if (nc > 0) {
+						const auto bal = nkentseu::animphys::NkBalance::EvaluateStatic(
+							com, g.comSupport.Data(), (int32)g.comSupport.Size(), planeNormal);
+						g.comVerdict = bal.balanced ? 1 : 0;
+					}
+				}
+
+				// Couleur : verte/rouge SEULEMENT sur verdict fondé (appuis réels au
+				// sol) ; NEUTRE sinon — une sphère colorée ressemble à un verdict,
+				// elle n'a le droit d'en être un que s'il a été calculé.
+				const NkVec4f col = (g.comVerdict == 1)	  ? NkVec4f{0.15f, 1.0f, 0.25f, 1.f}
+									: (g.comVerdict == 0) ? NkVec4f{1.0f, 0.20f, 0.20f, 1.f}
+														  : NkVec4f{0.92f, 0.92f, 0.92f, 1.f};
+				r3d->DrawDebugSphere(com, 0.05f, col);
+				// Polygone de support (jaune) quand il existe : arêtes + coins.
+				const int32 sc = (int32)g.comSupport.Size();
+				for (int32 i = 0; i < sc; ++i) {
+					const NkVec3f a = g.comSupport[(uint32)i];
+					const NkVec3f b = g.comSupport[(uint32)((i + 1) % sc)];
+					if (sc > 1)
+						r3d->DrawDebugLine(a, b, NkVec4f{1.0f, 0.85f, 0.15f, 1.f}, 0.f, true);
+					r3d->DrawDebugSphere(a, 0.02f, NkVec4f{1.0f, 0.85f, 0.15f, 1.f});
+				}
+			}
+		}
+
 		// OPTION A : exécute le PIPELINE COMPLET (graph) sur le cmd de l'éditeur. Le
 		// graph fait shadow -> geometry (HDR) -> SSAO/bloom -> tonemap, et écrit le
 		// résultat final dans NOTRE offscreen (redirigé via SetFinalColorTarget). Il
@@ -926,6 +1051,31 @@ namespace nkanima {
 		NkTexHandle src = g.toneTex.IsValid() ? g.toneTex : g.rt->GetColorResult();
 		// Pont NKRenderer (NkTexHandle) -> NKRHI (NkTextureHandle).
 		b->RegisterTexture(texId, texLib->GetRHIHandle(src));
+	}
+
+	// ── Debug COM (M3.1) ─────────────────────────────────────────────────────
+	void AnimSetShowCOM(bool on) {
+		g.showCom = on;
+	}
+
+	bool AnimShowCOM() {
+		return g.showCom;
+	}
+
+	const char *AnimCOMRegimeLabel() {
+		// Le régime est nommé à l'écran parce qu'il est INDISCERNABLE autrement :
+		// un COM uniforme tombe vers le milieu du torse et ressemble à un COM
+		// anthropométrique. Depuis le 2026-08-17 les noms de joints arrivent du
+		// glTF (NkGLTFNode.name -> clip.jointNames) : le libellé suit le régime
+		// RÉEL, et le verdict n'est affiché que s'il a été calculé sur des appuis.
+		if (g.comRegime == 1) {
+			if (g.comVerdict == 1)
+				return "COM anthropometrique — EQUILIBRE (COM au-dessus des appuis)";
+			if (g.comVerdict == 0)
+				return "COM anthropometrique — DESEQUILIBRE (COM hors du polygone d appuis)";
+			return "COM anthropometrique — equilibre indetermine : aucun appui au sol";
+		}
+		return "COM uniforme (approximatif) — equilibre indetermine : aucun appui detecte";
 	}
 
 } // namespace nkanima

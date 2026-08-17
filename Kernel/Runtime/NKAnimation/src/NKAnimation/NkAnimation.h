@@ -251,6 +251,12 @@ namespace nkentseu {
 				NkVector<int32> jointParent;		// parent de chaque joint (-1 = racine)
 				NkVector<NkMat4f> jointInverseBind; // inverseBind par joint
 				NkVector<uint32> jointTopo;			// ordre topo (parent avant enfant)
+				// Noms des joints (node glTF "name" — VIDE si le fichier n'en a pas).
+				// Ajout 2026-08-17, additif : alimente la distribution de masse
+				// anthropométrique (NkPoseMass::SetAnthropometric) et la détection
+				// des appuis par nom (foot/ankle) côté éditeur. Un clip sans noms
+				// reste valide : les consommateurs retombent sur la masse uniforme.
+				NkVector<NkString> jointNames;
 				// Convertit en place des matrices bone-LOCAL en matrices de SKINNING
 				// (FK hiérarchique + inverseBind). Utilisé par le player en mode local.
 				void ApplyFKSkinning(NkVector<NkMat4f> &boneLocalToSkin) const;
