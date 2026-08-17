@@ -1525,11 +1525,12 @@ bascule sans casser personne.
 
 1. ~~**Aucune API de charge utile de glisser-déposer**~~ — **LIVRÉE**
    (`442fe8c7`, 2026-08-17) : `BeginDragSource`/`SetDragPayload` +
-   `BeginDropTarget`/`AcceptDragPayload`, charge typée copiée (64 o max),
+   `BeginDropTarget`/`AcceptDragPayload`, charge typée copiée (256 o max,
+   porté de 64 le 17/08 : un chemin relatif d'asset doit tenir ENTIER),
    fantôme et surlignage par la bibliothèque, livraison une frame au
    relâchement sur cible. Sonde headless 11/11 (positif, hors-cible, type
-   différent, clic simple). Débloque le reparentage (§7) et le drag-drop
-   d'assets (§9) — reste à CONSOMMER dans les panneaux.
+   différent, clic simple). ~~Reste à consommer dans les panneaux~~ —
+   **CONSOMMÉE** (§7/§9 câblés, cf. §10septies ci-dessous).
 2. ~~**Pas de dépouillement de la convention `##id`**~~ — **LIVRÉ**
    (`e1869246`, 2026-08-17) : tout ce qui suit `##` sert à l'identité, jamais à
    l'affichage ; réparé dans la bibliothèque, 18 sites de dessin bornés,
@@ -1537,6 +1538,72 @@ bascule sans casser personne.
 3. **Pas d'atlas d'icônes** exposé (œil de visibilité, icônes de type).
 4. **Jetons de thème non exposés** aux panneaux (`InputBg`/`WindowBg` — le
    damier « fond vide » des cartes est en aplat de repli).
+
+## 10septies. ✅ LE DRAG-DROP EST CÂBLÉ — §7 reparentage + §9 glisser d'assets, témoins 14/14 (2026-08-17)
+
+Consommation de l'API `442fe8c7` dans les panneaux de la coquille. Provenance :
+worktree `Nkentseu-noge`, Release ET Debug, sonde in-app `--dragdrop-test`.
+
+**§7 — reparentage à l'Outliner.** Chaque ligne est SOURCE et CIBLE (type
+`entity`). Application **différée après la récursion** (`SetParent` modifie les
+listes `NkChildren` qu'on parcourt). Deux gardes, toutes deux nées d'une mesure :
+anti-cycle (SetParent n'en a **aucune** — `NkSceneGraph.cpp:110`) et refus si la
+cible n'a pas `NkChildren` (`Get` sans création : l'enfant disparaîtrait de
+l'arbre).
+
+⚠️ **Position monde au reparentage — MESURÉ, à relire le jour du viewport** :
+dans la coquille, la parenté est une **appartenance**, pas une chaîne de
+transforms. Aucun système ne consomme `NkLocalTransform`/`NkWorldTransform`
+(grep vide sur `ECS/Systems/`, contrôle positif sur `NkTransform`), et
+`NkTransformSystem` (qui compose `world = parentWorld * local`) n'est **pas
+tiqué** par la coquille. La position monde est donc **trivialement préservée**
+aujourd'hui. Le jour où la coquille tiquera `NkTransformSystem`, reparenter en
+gardant le local **changera** la position monde : recalculer
+`local' = inverse(parentWorld') * world` (le commentaire est dans
+`ApplyReparent`, `WorldOutlinerPanel.cpp`).
+
+**§9 — la carte part, la charge se livre.** Le pied de carte est SOURCE (type
+`asset`, charge = **chemin relatif ENTIER**, refus de déclarer si > 256 o plutôt
+que livrer un chemin tronqué). La cible est le **nouveau `ViewportPanel`** (zone
+CENTRE) — qui n'est **pas** un viewport et le dit à l'écran : le rendu de scène
+n'existe pas sur ce chemin (§10sexies), la livraison est un journal `MESURE` +
+affichage du dernier chemin reçu. Le spawn réel attend le rendu de scène.
+
+**La sonde et ses 14 témoins** (6 scénarios : dépliage piloté, §7 hors-cible,
+cycle refusé, §7 positif, §9 positif, §9 hors-cible) : **8/8 exécutions à
+14/14, exit 0**. Rects écran RÉELS relevés par les panneaux, entrées posées par
+l'overlay, retry journalisé (`RETRY n/3`) si le front d'appui ne prend pas —
+jamais absorbé en silence.
+
+**Trois corrections NKGui, nées des témoins — chacune est une leçon générale :**
+
+| correction | leçon |
+|---|---|
+| anti-gel d'`EndFrame` : ne libérer `activeId` que souris haute **une frame complète** (`mousePrev` aussi) | une entrée posée APRÈS les widgets (overlay) perdait `activeId` une frame avant le front `mouseReleased` : **aucun clic-au-relâchement ne pouvait valider depuis un overlay**. Entrée événementielle réelle : timing inchangé (prouvé par lecture des deux chemins) |
+| `AddWheelDeferred()` (patron `SetDoubleClick`) | la molette brute est **consommée par `EndFrame`** (`wheel = 0`) : écrite depuis l'overlay, elle était effacée avant d'être lue. Même famille que l'anti-gel : l'overlay est APRÈS les consommateurs |
+| `DragPayloadMax` 64 → 256 | un chemin d'asset tronqué est un mensonge livré ; le tampon suit la constante (tableau dimensionné par elle) |
+
+**Fermeture propre réparée — SIGSEGV systématique à toute sortie par
+`RequestClose`** (gdb : `AssetManager::Shutdown()` depuis le **destructeur
+statique**, à l'atexit, `mDevice` RHI déjà détruit). Personne ne l'avait vu :
+Nogee n'était jusqu'ici **tué par timeout, jamais fermé**. Correctif :
+`sAssets.Shutdown()` au retour de `RunNogeeEditorShell` (device encore vivant) +
+`mDevice = nullptr` en fin de `Shutdown` (le second appel ne touche plus rien).
+Les deux sondes sortent désormais exit 0.
+
+**Écarts restants vs planches (`design/01-specification-humaine.md` §7/§9)** —
+couleurs par jetons partout dans ce qui a été touché ; le reste attend :
+- §7 : œil de visibilité + icônes de type (= manque NKGui n°3, l'atlas),
+  indentation visuelle PENDANT le drag, multi-sélection Ctrl/Shift, colonnes
+  activables par clic-droit d'en-tête ;
+- §9 : instanciation par dépôt sur l'**Outliner** (la spec la demande aussi —
+  aujourd'hui l'Outliner ne consomme que `entity`), spawn réel au Viewport,
+  colonne gauche Sources/Favoris/Collections, filtres par type, slider de
+  taille, rendu 3D des vignettes ;
+- 📌 **intermittence du front d'appui** (signature : `hotIdPrev` posé,
+  `down=1`, `activeId=0` ; surtout caches froids après un build) : couverte par
+  le retry, **cause exacte non close** — trace frame à frame en place dans la
+  sonde (`t∈[0.14,0.58)`).
 
 ---
 
