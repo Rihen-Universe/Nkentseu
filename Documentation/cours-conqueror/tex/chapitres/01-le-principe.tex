@@ -307,7 +307,7 @@ l'intérêt du système. Mais déboguer un moteur de règles sans pouvoir affich
 état, c'est déboguer à l'aveugle. L'atelier \textbf{injecte donc un puits} dans
 chaque module au chargement, et le branchement tient en une ligne :
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — fin de fichier}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — fin de fichier}
 NKC_MODULE_EXPORT void nkc_rules_set_allocator(NkcAllocFn a, NkcFreeFn f) {
     gAlloc = a; gFree = f;
 }
@@ -318,7 +318,7 @@ NKC_MODULE_LOGGING(rules)   // <- une ligne, et NKC_LOG_* va dans « Sortie »
 \texttt{NKC\_MODULE\_LOGGING(ai)} dans une IA. Il faut inclure
 \nkfile{Conqueror/ConquerorLog.h}. À partir de là :
 
-\begin{nkcode}{exemples/rules/RegleMinimale.cpp — V\_Setup}
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — V\_Setup}
 NKC_LOG_INFO("nouvelle partie : %d cases, %d joueurs, graine %llu",
              kCells, (int32)s->playerCount, (unsigned long long)seed);
 \end{nkcode}

@@ -96,6 +96,14 @@ namespace nkentseu {
 		// Transform local d'un node (TRS) + hierarchie. Sert a evaluer la pose
 		// et a baker les transforms de scene-graph dans les meshes statiques.
 		struct NkGLTFNode {
+				// Nom du node — vide = pas de nom, jamais invente. Rempli par le
+				// chemin FBX (nom du Model, ex. "Skeleton_torso_joint_1", #70) ET
+				// par le chemin glTF (cle "name" optionnelle, ParseGLTFNodes, #69 :
+				// les joints d'un skin sont des nodes, leurs noms alimentent la
+				// distribution de masse anthropometrique cote editeur,
+				// NKAnimPhysics::NkPoseMass::SetAnthropometric). Un seul membre :
+				// #69 et #70 l'avaient chacun ajoute (doublon 'name', fusion #68).
+				NkString name;
 				NkVec3f translation = {0, 0, 0};
 				NkVec4f rotation = {0, 0, 0, 1}; // quaternion (x,y,z,w)
 				NkVec3f scale = {1, 1, 1};

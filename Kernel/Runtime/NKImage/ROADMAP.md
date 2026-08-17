@@ -145,10 +145,13 @@ EXR non supportés explicitement : PXR24, B44, B44A, DWAA, DWAB, tiles, multipar
 
 ## Bugs / quirks connus
 - EXR PIZ : décode mais avec artefacts résiduels (non bloquant, marqué BETA dans le code)
-- Le codec EXR ne fait que de la lecture (pas d'écriture) — workaround : passer par HDR Radiance
+- ~~Le codec EXR ne fait que de la lecture (pas d'écriture) — workaround : passer par HDR Radiance~~ ❌ **FAUX, corrigé le 2026-08-16.** L'écriture EXR **existe et est définie** : `NkEXRCodec::Encode(const NkImage &, uint8 *&out, usize &outSize)` est déclarée (`NkEXRCodec.h:61`) **et définie** (`NkEXRCodec.cpp:1414`), et `NkImage::SaveEXR(path)` est déclarée (`NkImage.h:364`) **et définie** (`NkImage.cpp:2044`) — scanline single-part, canaux FLOAT, compression NONE. Le « workaround HDR Radiance » était donc inutile. Relevé en migrant la doc : c'est la **doc qui affirmait une limite que le code contredit** — même famille que les six commentaires prescriptifs du chantier 12, et vérifié ici sur la **définition**, pas sur la seule déclaration.
 - WebP lossy VP8 décode seulement (encode lossless uniquement)
 - SVG ne gère ni le texte ni les gradients
 - **NkJPEGCodec::Decode YCbCr 4:2:0 résiduel** (2026-05-27, non fixé) : sur un buffer JPEG produit par NkJPEGCodec::Encode lui-même, le Decode lit correctement la luma Y mais perd Cb/Cr → résultat grayscale au lieu de couleur. Le même buffer ouvert dans un viewer externe (Windows Photos, GIMP) s'affiche correctement en couleur — donc bug spécifique à notre Decode sur ce type de buffer. Decode marche sur des `.jpg` standards (Photoshop, appareil photo, etc.). Comparaison statique avec stb_image v2.16 local sur `decode_block / extend_receive / grow_buffer / huff_decode / idct_block / MCU loop` n'a pas révélé de différence. Demande debug runtime ciblé (prints sur coefs DC Cb/Cr décodés bloc par bloc).
+
+- **PPM binaire 8 bits — lecture hors bornes possible** (relevé le 2026-08-16 pendant la migration vers la valeur, **NON corrigé**, préexistant) : `NkPPMCodec.cpp` ~l.143-147, `p += lineBytes;` peut porter `p` au-delà de `end` ; au tour suivant `const usize avail = static_cast<usize>(end - p);` calcule un `ptrdiff_t` **négatif** casté en `usize` → valeur énorme → `toCopy = lineBytes` et `NkCopy` **lit hors du buffer source**. Déclenché par un fichier PPM tronqué. Sans rapport avec la migration : signalé, pas touché.
+- **PNG profondeur < 8, types couleur 2/4/6** (relevé le 2026-08-16, **NON corrigé**, préexistant) : `NkPNGCodec.cpp` ~l.402, seul `ct == 0` écrit dans `dst` ; pour `ct == 2/4/6` en profondeur < 8 rien n'est écrit et la ligne reste à zéro. La spec PNG interdit ces combinaisons, mais **aucun rejet explicite en amont** → un fichier malformé donne une image noire en silence plutôt qu'une erreur.
 
 ## Bugs corrigés récemment
 
@@ -158,10 +161,116 @@ EXR non supportés explicitement : PXR24, B44, B44A, DWAA, DWAB, tiles, multipar
 ## Pièges connus (à NE PAS reproduire)
 
 - **`NkImage::Alloc()` + `Free()` puis `delete img`** = double-free immédiat. Le wrapper NkImage est alloué via `nkMalloc + placement new` et `Free()` libère pixels + wrapper. Pattern correct : `NkImage::Alloc(...) → img->Free();` (PAS de `delete img`). Documenté dans `Pong/Render/Texture2D.cpp:86-87`, à hoister dans `NkImage.h` près de `Alloc()`.
+- ⚠️ **`Free()` sur une instance VALEUR = `c0000374`, et c'est DÉJÀ ARRIVÉ deux fois** (relevé le 2026-08-15). L'entrée ci-dessus donnait le pattern du tas comme *le* pattern sans dire ce qui suit — c'est la moitié manquante, et c'est celle qui a coûté un crash. `Free()` fait `nkFree(mPixels)` **puis `nkFree(this)`** (`NkImage.cpp:1468-1473`) : appelée sur une `NkImage` de pile ou de membre, elle rend à l'allocateur **une adresse qui ne lui appartient pas**. Constaté deux fois par Rihen — voir le commentaire sur place `NK3DModeler/Viewport/NkDemo3D.cpp:11366` : l'application se fermait net juste après l'écriture du fichier. **Sur une valeur : `Unload()`, jamais `Free()`.** Aucun garde ne distingue les deux cas ; le contrat n'existe qu'en commentaire (`NkImage.cpp:1460-1462`).
+- ⚠️ **Ce piège n'est pas évitable par discipline de site.** `Convert`, `Copy`, `CopyAs`, `Crop`, `Resize` sont des méthodes **d'instance** qui retournent un `NkImage *` **du tas**. Une instance valeur **fabrique donc des instances tas**, et les deux modèles cohabitent dans la même expression — c'est pourquoi 10 fichiers du dépôt sont mixtes, sans négligence de leur auteur. Recensement complet (2026-08-15, commit `4a940717`) : **120 appels `Free()` dans 66 fichiers** pour la voie tas, **29 fichiers** pour la voie valeur. ✅ **ARBITRÉ par Rodolf le 2026-08-16 : voie unique = la VALEUR, `Free()` supprimée.** Migration exécutée le 2026-08-16 — voir la section « Migration vers la valeur » ci-dessous, et `DETTE_LISIBILITE.md` chantier 12.
 - **Buffer `out` de `NkXxxCodec::Encode`** : alloué via `NkAlloc`, libérer avec `nkentseu::memory::NkFree(out)` depuis `NKMemory/NkAllocator.h`. JAMAIS `std::free` / `delete[]`.
+
+---
+
+## Migration vers la valeur (2026-08-16) — ce qui a été tranché, et pourquoi
+
+**Décision de Rodolf** : `NkImage` devient un **type valeur pur**. `Free()` est
+**supprimée** de l'API ; l'expression fautive `img.Free()` n'existe donc plus
+*comme expression*, et le compilateur signale tous les anciens sites.
+
+### Les 5 productrices : `Convert` / `Copy()` / `CopyAs` / `Crop` / `Resize`
+
+Question laissée ouverte par le recensement : elles retournaient un `NkImage *`
+du tas depuis une méthode **d'instance `const`** — c'est *elles* qui faisaient
+qu'une instance valeur fabriquait une instance tas, et donc elles qui ont produit
+les fichiers mixtes. Deux issues possibles : **muter en place** (précédent
+`sf::Image`) ou **rendre par valeur**.
+
+**Retenu : le RETOUR PAR VALEUR.** Quatre raisons, toutes mesurées :
+
+1. **C'est le seul choix qui respecte le critère de l'arbitrage** (« l'appel
+   erroné ne doit pas compiler »). Avec un retour par valeur, `NkImage *r =
+   img.Crop(...)` ne compile plus : *tous* les sites sont attrapés. Avec la
+   mutation en place, l'affectation est attrapée elle aussi — **mais l'appel en
+   instruction nue `img.Crop(0,0,w,h);` compile AVANT comme APRÈS, avec le sens
+   INVERSE** : aujourd'hui il fuit un clone et laisse `img` intacte ; muté, il
+   **détruit `img`**. Le compilateur ne peut pas voir ce renversement. La mutation
+   troquerait 120 erreurs de compilation contre un nombre inconnu de changements
+   de comportement silencieux.
+2. **`Copy() const` n'a aucun sens en place** : elle clone `*this`: muter `*this`
+   en une copie de lui-même est un no-op.
+3. **⭐ Le précédent `sf::Image` est déjà honoré ailleurs dans la classe — le
+   suivre ici SUPPRIMERAIT une capacité.** `NkImage` n'a jamais choisi entre les
+   deux conceptions : elle porte **les deux**. La moitié « mutante » de SFML
+   existe déjà, séparément, et rend `bool` : `Copy(const NkImage &src, x, y, area,
+   clip)` (`NkImage.cpp:2417`) et `CopyTo(NkImage &dst) const` (`:2359`). Or
+   `CopyTo` **exige le même format ET les mêmes dimensions** (`:2362-2365`), alors
+   que `Crop`, `Resize` et `Convert` changent précisément la taille ou le format.
+   La moitié mutante **ne peut donc pas exprimer** les 5 productrices. On garde
+   les deux moitiés : `bool` pour muter, valeur pour produire.
+4. **L'échec devient plus sûr, pas moins.** `sf::Image` laisse l'image *à moitié
+   transformée* quand une transformation échoue. Par valeur, l'échec rend une
+   image **invalide** (`IsValid()==false`, il n'y a plus de `nullptr` à tester) et
+   **la source n'est jamais touchée**.
+
+**Sûreté vérifiée avant de trancher, pas supposée** : **0** classe ne dérive de
+`NkImage` dans le worktree → le retour par valeur d'un type polymorphe ne peut pas
+trancher (*slicing*). Le move-ctor existe et transfère bien `mOwning`
+(`NkImage.cpp:1417-1425`) ; la NRVO supprime la copie dans le cas courant.
+
+&gt; Référence lue, non copiée : `SFML-master/include/SFML/Graphics/Image.hpp`
+&gt; (`REFERENCES_OSS.md`). `sf::Image` est un type valeur pur, ce qui **confirme**
+&gt; la décision de fond ; mais son choix de la *mutation en place* pour les
+&gt; transformations est **explicitement refusé ici**, pour la raison 3.
+&gt; SFML s'appuie sur la STL : rien n'est transposable mécaniquement en zero-STL.
+
+### Effets de bord utiles constatés pendant la migration
+
+- `NkImage::Create` (instance) et `LoadFromMemoryImpl` faisaient un **« vol de
+  buffer » manuel** (recopie des 7 membres, `tmp->mOwning=false`, `tmp->Free()`).
+  Les deux se réduisent à un `*this = traits::NkMove(tmp);`.
+- Ces deux méthodes libéraient l'ancien buffer **avant** de savoir si la nouvelle
+  image était bonne : en cas d'échec elles laissaient `*this` avec `mPixels=nullptr`
+  mais `mWidth`/`mHeight` inchangés — un objet incohérent. **Corrigé au passage** :
+  en cas d'échec `*this` est désormais laissée **intacte**.
+- `CopyAs()` et `NkImage::ConvertToTexture()` n'ont **aucun appelant** dans tout le
+  worktree (contre-épreuvé). `Copy()` n'en a **qu'un, interne**. Elles sont migrées
+  quand même, mais leur coût de migration est nul.
 
 ---
 
 ## Dépendances
 - **Couches en dessous (utilisées)** : NKCore (types), NKMemory (NkAllocator, NkAlloc/NkFree), NKContainers (NkVector), NKFileSystem (NkFile), NKPlatform (macros API)
 - **Modules au-dessus qui en dépendent** : NKRenderer (chargement textures), NKUI (icônes, atlas), NKFont (atlas glyphes via NkImage), assets pipeline
+
+## ⚠️ MESURE 2026-08-16 — l'encodage WebP VP8L echoue a l'execution
+
+**Le tableau ci-dessus annonce « WebP VP8L lossless : Livre » en ENCODE. Mesure
+contraire :** `NKImageCodecTest` rend `ic_out.webp : ECHEC SAVE (lossless
+attendu)`. Tous les autres codecs ecrivent (PNG, BMP, TGA, QOI, PPM, GIF, HDR,
+EXR).
+
+**Provenance** : worktree `Nkentseu-nkanim`, `feat/nkanimation`, commit
+`49c67c4c`, le 2026-08-16. **Identique en Debug ET en Release**, exit code 0
+dans les deux.
+
+### Ce qui est etabli, et ce qui ne l'est pas
+
+**Etabli** — ce n'est PAS un defaut lie a la memoire ni a l'optimiseur : le
+comportement est rigoureusement le meme dans les deux configurations. Et la
+migration vers la valeur n'a pas change le SENS du chemin d'encodage : le seul
+changement de `NkWebPCodec::Encode` en `fb362a0e` est le retrait d'accolades
+devenues superflues autour d'un `return false` isole, une fois le `conv->Free()`
+supprime. Verifie sur le diff, pas suppose.
+
+**NON etabli** — je n'ai pas prouve par l'execution que l'echec preexistait a la
+migration. Le faire demande de construire l'etat anterieur (`76876dfa`) et de
+rejouer le test : ~13 min de build. **Tant que ce n'est pas fait, l'attribution
+reste ouverte** — le diff est neutre en lecture, ce qui rend la regression
+improbable, mais improbable n'est pas mesure.
+
+### Prochain pas, dans cet ordre
+
+1. Construire `76876dfa` et rejouer `NKImageCodecTest` : cela tranche
+   preexistant / regression en une mesure.
+2. Selon le resultat : corriger l'encodeur, ou corriger CE TABLEAU qui annonce
+   livre ce qui ne l'est pas.
+
+C'est la meme famille que la ligne EXR corrigee le 2026-08-16 (« le codec EXR ne
+fait que de la lecture », alors que `Encode` etait definie) — mais dans l'autre
+sens : la, le document interdisait a tort ; ici, il **promet a tort**.

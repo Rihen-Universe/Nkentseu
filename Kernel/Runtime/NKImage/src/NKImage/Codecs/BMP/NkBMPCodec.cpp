@@ -62,14 +62,14 @@ namespace nkentseu {
 	//  NkBMPCodec::Decode
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkBMPCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkBMPCodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 14)
-			return nullptr;
+			return NkImage();
 		NkImageStream s(data, size);
 
 		// ── BITMAPFILEHEADER ─────────────────────────────────────────────────────
 		if (s.ReadU8() != 'B' || s.ReadU8() != 'M')
-			return nullptr;
+			return NkImage();
 		s.Skip(4); // fileSize (non fiable)
 		s.Skip(4); // reserved
 		const uint32 pixelOffset = s.ReadU32LE();
@@ -107,9 +107,9 @@ namespace nkentseu {
 		if (topDown)
 			height = -height;
 		if (width <= 0 || height <= 0)
-			return nullptr;
+			return NkImage();
 		if (bpp == 0 || bpp > 32)
-			return nullptr;
+			return NkImage();
 
 		// ── Masques BITFIELDS ────────────────────────────────────────────────────
 		uint32 maskR = 0, maskG = 0, maskB = 0, maskA = 0;
@@ -162,9 +162,9 @@ namespace nkentseu {
 		const NkImagePixelFormat fmt = mayHaveAlpha ? NkImagePixelFormat::NK_RGBA32 : NkImagePixelFormat::NK_RGB24;
 		const int32 outCh = mayHaveAlpha ? 4 : 3;
 
-		NkImage *img = NkImage::Alloc(width, height, fmt);
-		if (!img)
-			return nullptr;
+		NkImage img = NkImage::Alloc(width, height, fmt);
+		if (!img.IsValid())
+			return NkImage();
 
 		// ── Lecture des pixels ───────────────────────────────────────────────────
 		s.Seek(pixelOffset);
@@ -172,8 +172,7 @@ namespace nkentseu {
 		const int32 srcStride = ((width * bpp + 31) / 32) * 4;
 		uint8 *lineBuf = static_cast<uint8 *>(NkAlloc(static_cast<usize>(srcStride) + 4));
 		if (!lineBuf) {
-			img->Free();
-			return nullptr;
+			return NkImage();
 		}
 
 		if (compress == 0 || compress == 3 || compress == 6) {
@@ -182,7 +181,7 @@ namespace nkentseu {
 
 			for (int32 row = 0; row < height; ++row) {
 				const int32 dstY = topDown ? row : (height - 1 - row);
-				uint8 *dst = img->RowPtr(dstY);
+				uint8 *dst = img.RowPtr(dstY);
 
 				s.ReadBytes(lineBuf, srcStride);
 
@@ -263,7 +262,7 @@ namespace nkentseu {
 			// Si 32bpp sans masque et tous alpha=0, force opaque (comportement stb)
 			if (bpp == 32 && !hasBitfields && alphaAllZero) {
 				for (int32 y = 0; y < height; ++y) {
-					uint8 *row = img->RowPtr(y);
+					uint8 *row = img.RowPtr(y);
 					for (int32 x = 0; x < width; ++x)
 						row[x * 4 + 3] = 255;
 				}
@@ -290,7 +289,7 @@ namespace nkentseu {
 							const uint8 idx = s.ReadU8();
 							const int32 dstY = topDown ? y : (height - 1 - y);
 							if (x < width && dstY >= 0 && dstY < height) {
-								uint8 *d = img->RowPtr(dstY) + x * outCh;
+								uint8 *d = img.RowPtr(dstY) + x * outCh;
 								d[0] = palette[idx * 4 + 2];
 								d[1] = palette[idx * 4 + 1];
 								d[2] = palette[idx * 4 + 0];
@@ -308,7 +307,7 @@ namespace nkentseu {
 					for (int32 i = 0; i < b0; ++i) {
 						const int32 dstY = topDown ? y : (height - 1 - y);
 						if (x < width && dstY >= 0 && dstY < height) {
-							uint8 *d = img->RowPtr(dstY) + x * outCh;
+							uint8 *d = img.RowPtr(dstY) + x * outCh;
 							d[0] = palette[idx * 4 + 2];
 							d[1] = palette[idx * 4 + 1];
 							d[2] = palette[idx * 4 + 0];
@@ -330,7 +329,7 @@ namespace nkentseu {
 				auto plotPix = [&](uint8 idx) {
 					const int32 dstY = topDown ? y : (height - 1 - y);
 					if (x < width && dstY >= 0 && dstY < height) {
-						uint8 *d = img->RowPtr(dstY) + x * outCh;
+						uint8 *d = img.RowPtr(dstY) + x * outCh;
 						d[0] = palette[idx * 4 + 2];
 						d[1] = palette[idx * 4 + 1];
 						d[2] = palette[idx * 4 + 0];
@@ -390,12 +389,12 @@ namespace nkentseu {
 			return false;
 
 		const NkImage *src = &img;
-		NkImage *conv = nullptr;
+		NkImage conv;
 		if (img.Format() != NkImagePixelFormat::NK_RGB24 && img.Format() != NkImagePixelFormat::NK_RGBA32) {
 			conv = img.Convert(NkImagePixelFormat::NK_RGB24);
-			if (!conv)
+			if (!conv.IsValid())
 				return false;
-			src = conv;
+			src = &conv;
 		}
 
 		const int32 w = src->Width();
@@ -476,8 +475,6 @@ namespace nkentseu {
 				s.WriteBytes(pad, static_cast<usize>(paddingBytes));
 		}
 
-		if (conv)
-			conv->Free();
 		return s.TakeBuffer(out, outSize);
 	}
 

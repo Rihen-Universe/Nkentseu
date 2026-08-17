@@ -425,3 +425,37 @@ touche que le backend Vulkan.
   - `NKImage` ↔ NKRHI — pipeline texture (loaders → upload GPU)
   - `Engine` / `Noge` (PV3DE, Noge éditeur) — consommateurs indirects
     via NKRenderer
+
+---
+
+## Chantier — tampon d'attente persistant pour les relectures GPU->CPU
+
+**Le defaut du `Map` non verifie a ete CORRIGE le 15 aout** sur les quatre
+dorsales (DX11 x2, DX12, Vulkan, OpenGL x3 variantes) : un echec rend desormais
+une memoire NULLE au lieu de `nul + decalage`, qui produisait un pointeur non
+nul et invalide traversant le `if (!ptr)` de l'appelant. Le couplage est donc
+DESARME : poser `D3D11_MAP_FLAG_DO_NOT_WAIT` ne livre plus un plantage.
+
+### Ce qui reste, et c'est une CONCEPTION, pas une correction
+
+`NkDirectX11Device.cpp` (`ReadBuffer`) et son equivalent Vulkan creent et
+detruisent un tampon d'attente **a chaque appel** — une ressource D3D11 creee et
+detruite **par image pour lire 4 octets**. Ce cout ne s'affiche dans aucun profil
+sous l'etiquette « lent » : c'est du travail cote pilote.
+
+Un tampon persistant demande de trancher, **sur quatre dorsales** : qui le
+possede, comment il est dimensionne, quand il est libere, et ce qui arrive si
+deux appelants lisent des tailles differentes. D'ou le chantier plutot que le
+correctif en passant.
+
+### Note — `mPendingReadbacks` n'est PAS un anneau asynchrone
+
+`NkDirectX11CommandBuffer.h` accumule les copies texture->tampon et les vide a
+`Execute()`. Ce report existe parce qu'un contexte differe DX11 ne peut pas
+copier en ligne, **pas pour liberer l'appelant** : la lecture, elle, bloque. Un
+report de commande n'est pas de l'asynchronisme.
+
+Qui veut un relevé non bloquant tient son propre anneau **au-dessus** du RHI
+(c'est ce que fait le post-traitement pour l'auto-exposition) et ne change pas la
+semantique de `MapBuffer` — d'autres appelants comptent sur son caractere
+bloquant sans le dire.

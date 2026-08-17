@@ -160,11 +160,11 @@ namespace nkentseu {
 			const int32 w = mCfg.width, h = mCfg.height;
 			const int32 ibpp = InputBpp(fmt);
 
-			NkImage *img = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGB24);
-			if (!img)
+			NkImage img = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGB24);
+			if (!img.IsValid())
 				return false;
-			uint8 *dstBase = img->Pixels();
-			const int32 stride = img->Stride();
+			uint8 *dstBase = img.Pixels();
+			const int32 stride = img.Stride();
 			for (int32 y = 0; y < h; ++y) {
 				const uint8 *src = pixels + (usize)y * w * ibpp;
 				uint8 *dst = dstBase + (usize)y * stride;
@@ -179,8 +179,10 @@ namespace nkentseu {
 
 			uint8 *jpg = nullptr;
 			usize jsz = 0;
-			const bool okEnc = img->EncodeJPEG(jpg, jsz, mCfg.quality);
-			img->Free();
+			const bool okEnc = img.EncodeJPEG(jpg, jsz, mCfg.quality);
+			// Libère les pixels dès l'encodage terminé : WriteEncoded ci-dessous
+			// n'a plus besoin que du buffer JPEG (ne pas doubler le pic mémoire).
+			img.Unload();
 			if (!okEnc || !jpg || jsz == 0) {
 				if (jpg)
 					memory::NkFree(jpg);

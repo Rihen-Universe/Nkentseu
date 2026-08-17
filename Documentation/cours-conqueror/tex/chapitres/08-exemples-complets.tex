@@ -1,0 +1,540 @@
+\chapter{Exemples complets — l'échelle, barreau par barreau}
+
+Les chapitres précédents expliquaient le contrat. Celui-ci donne \textbf{du code
+qui tourne}, du plus court au plus complet, pour chacune des trois choses qu'on
+écrit : des règles, une IA, un plateau.
+
+\begin{nkretenir}[Ne sautez pas de barreau]
+Chaque exemple existe parce que le suivant serait incompréhensible sans lui.
+\nkfile{IANegamax.cpp} fait cinq cents lignes ; il en fait cent pour qui a
+d'abord lu \nkfile{IAGloutonne.cpp}, et mille pour qui ne l'a pas lu.
+\end{nkretenir}
+
+\section{Les trois échelles}
+
+\begin{center}
+\begin{tabular}{@{}p{2.3cm}p{3.7cm}p{3.7cm}p{4.1cm}@{}}
+\toprule
+\textbf{Écrire\ldots} & \textbf{Le plus court} & \textbf{L'intermédiaire} & \textbf{Le complet} \\
+\midrule
+une IA & \texttt{IAMinimale.cpp} \newline $\approx$120 l. — au hasard &
+         \texttt{IAFacile.cpp} \newline $\approx$140 l. — un coup &
+         \texttt{IANegamax.cpp} \newline $\approx$500 l. — négamax $\alpha\beta$ \\
+\addlinespace
+des règles & \texttt{RegleContratNu.cpp} \newline carré 5$\times$5 & — &
+         \texttt{ConquerorRulesV2.cpp} \newline le moteur de référence \\
+\addlinespace
+un plateau & \texttt{mini\_3x3.json} \newline 9 cases &
+         \texttt{hexagone\_6x7.json} \newline 42 cases &
+         \texttt{GrilleLibre.cpp} \newline en C++, projection comprise \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Tous sont dans \nkfile{exemples/}, sauf le moteur de référence. Tous compilent,
+et les duels ci-dessous ont été \textbf{joués}, pas supposés.
+
+\section{D'abord : la couche confortable}
+
+Le contrat est fait pour être \textbf{stable} — structures plates, pointeurs
+bruts, aucune allocation. C'est ce qu'il faut pour une frontière binaire, et
+c'est pénible à lire.
+
+Compter « les ennemis autour de mes totems » avec le contrat nu :
+
+\begin{nkcode}{Le contrat nu — trois boucles imbriquees}
+NkcStateView v;
+std::memset(&v, 0, sizeof(v));
+rules->GetView(inst, st, &v);
+for (uint32 i = 0; i < v.cellCount; ++i) {
+    if (v.cells[i].owner != (int8)moi) continue;
+    NkcCoord nb[16];
+    const uint32 n = rules->GetNeighbors(inst, v.coords[i], nb, 16);
+    for (uint32 k = 0; k < n; ++k)
+        for (uint32 j = 0; j < v.cellCount; ++j)   // recherche a la main
+            if (v.coords[j].q == nb[k].q && v.coords[j].r == nb[k].r) {
+                if (v.cells[j].owner >= 0 &&
+                    v.cells[j].owner != (int8)moi) ++c;
+                break;
+            }
+}
+\end{nkcode}
+
+Avec \nkfile{Conqueror/ConquerorFacile.h} :
+
+\begin{nkcode}{La meme chose}
+Plateau p(*rules, inst, st);
+for (Case c : p)
+    if (c.AMoi(moi))
+        contact += p.CompteVoisins(c.ou, Voisin::Ennemi, moi);
+\end{nkcode}
+
+\subsection{Ce qu'elle apporte}
+
+\begin{center}
+\begin{tabular}{@{}p{2.4cm}p{11.4cm}@{}}
+\toprule
+\textbf{Classe} & \textbf{À quoi ça sert} \\
+\midrule
+\texttt{Plateau} & lire l'état : \texttt{QuiJoue()}, \texttt{Totems(j)},
+  \texttt{Avantage(moi)}, \texttt{A(coord)}, \texttt{Voisins()},
+  \texttt{CompteVoisins()} — et \texttt{for (Case c : p)} \\
+\texttt{Case} & une case \textbf{avec sa coordonnée} : \texttt{Vide()},
+  \texttt{Bloquee()}, \texttt{AMoi(j)}, \texttt{Ennemie(j)} \\
+\texttt{Coups<N>} & les coups légaux, itérables \\
+\texttt{Essai} & jouer un coup \textbf{pour de faux} : clone, applique, libère
+  tout seul \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[Rien de nouveau, et rien à désapprendre]
+Chaque fonction appelle le contrat, et rien d'autre. Tout ce qu'on fait avec ce
+fichier, on peut le faire sans — en plus long.
+
+Tout est \textbf{inline} et \textbf{sans allocation} : aucun symbole à lier, rien
+qu'un compilateur en \texttt{-O2} ne supprime. Un \texttt{Plateau} tient en
+quelques pointeurs.
+\end{nkretenir}
+
+\begin{nkpiege}[Un piège quand même]
+Créez l'\texttt{Essai} \textbf{hors} de la boucle des coups candidats. En créer
+un par candidat coûte une allocation d'état par candidat — et c'est exactement
+la boucle chaude d'une IA.
+\end{nkpiege}
+
+\subsection{La preuve : la même IA, deux fois}
+
+\nkfile{exemples/ai/IAFacile.cpp} est \textbf{le même algorithme} que
+\nkfile{IAGloutonne.cpp}, écrit avec la couche : $\approx$140 lignes contre
+$\approx$240.
+
+\begin{nkcode}{Duels joues le 2026-08-09 — 40 parties, cotes inversees}
+IAFacile   vs  IAGloutonne     20 - 20     50 %   <- comportement identique
+IAFacile   vs  IAMinimale      40 -  0    100 %
+\end{nkcode}
+
+Le 20--20 est le résultat \textbf{attendu} de deux joueurs identiques. C'est ce
+qui prouve que la couche ne change rien au jeu — seulement à ce qu'on écrit.
+
+\begin{nkretenir}[Par où commencer]
+Lisez \nkfile{IAFacile.cpp} d'abord : sa partie qui \emph{décide} tient en quinze
+lignes. Lisez \nkfile{IAGloutonne.cpp} ensuite, pour voir ce que la couche vous
+épargne, et pour savoir quoi faire le jour où elle ne suffira plus.
+\end{nkretenir}
+
+\section{Une IA, en trois temps}
+
+\subsection{Temps 1 — tirer au hasard}
+
+Elle ne réfléchit pas. Son seul mérite est de montrer \textbf{la forme d'un
+module d'IA} : neuf fonctions, dont la plupart ne font rien.
+
+\begin{nkcode}{exemples/ai/IAMinimale.cpp — le cœur}
+const uint32 total = rules->GenerateLegalMoves(inst, st, a->moves, kMaxMoves);
+const uint32 n     = total < kMaxMoves ? total : kMaxMoves;
+if (n == 0) return 0;          // aucun coup : l'atelier jouera PASSER
+out->move = a->moves[Rand(a) % n];
+return 1;
+\end{nkcode}
+
+Retenez surtout ce qu'elle \textbf{ne fait pas} : elle ne construit pas de coup.
+Elle \textbf{demande} les coups légaux au moteur et en choisit un. Une IA qui
+fabrique ses propres coups produit tôt ou tard un coup illégal.
+
+\subsection{Temps 2 — regarder un coup}
+
+Le vrai premier pas. L'algorithme tient en quatre lignes :
+
+\begin{nkcode}{L'algorithme glouton, en entier}
+pour chaque coup legal :
+    cloner l'etat, jouer le coup pour de faux
+    donner une note a la position obtenue
+garder le coup dont la note est la meilleure
+\end{nkcode}
+
+\begin{nkcode}{exemples/ai/IAGloutonne.cpp — jouer pour de faux}
+for (uint32 i = 0; i < n; ++i) {
+    // JOUER POUR DE FAUX : on clone, on applique, on note. L'etat recu
+    // n'est JAMAIS modifie -- le contrat l'interdit, et l'atelier compte
+    // dessus pour faire tourner plusieurs parties en parallele.
+    rules->CloneState(inst, a->essai, st);
+    if (!rules->ApplyMove(inst, a->essai, &a->moves[i], nullptr, nullptr))
+        continue;   // le moteur a refuse : il a toujours le dernier mot
+
+    const int32 note = Noter(rules, inst, a->essai, moi, a->poidsTotems);
+
+    // `>` et non `>=` : a note egale on garde le PREMIER. L'ordre des
+    // coups est fixe par le moteur, donc ce choix est REPRODUCTIBLE.
+    if (premier || note > meilleurNote) {
+        meilleurNote = note; meilleur = i; premier = false;
+    }
+}
+\end{nkcode}
+
+L'évaluation est volontairement pauvre — un seul critère, le nombre de totems :
+
+\begin{nkcode}{exemples/ai/IAGloutonne.cpp — Noter}
+int32 miens = 0, siens = 0;
+for (uint8 p = 0; p < v.playerCount; ++p) {
+    if (p == moi) miens += v.totemCount[p];
+    else          siens += v.totemCount[p];
+}
+return (miens - siens) * poids;
+\end{nkcode}
+
+\begin{nkretenir}[Ce qu'elle ne sait pas faire, et c'est le point]
+Elle ne voit pas la \textbf{réponse} de l'adversaire. Un coup qui gagne trois
+totems et en offre cinq au coup suivant lui paraît excellent.
+
+C'est exactement le manque que négamax comble. Le meilleur moyen de comprendre
+pourquoi négamax existe est d'avoir d'abord vu jouer celle-ci.
+\end{nkretenir}
+
+\subsection{Temps 3 — regarder loin}
+
+Quatre pièces, dans l'ordre où elles comptent : \textbf{évaluer},
+\textbf{négamax}, \textbf{alpha-bêta}, \textbf{approfondissement itératif}.
+
+\subsubsection{Pourquoi négamax et pas minimax}
+
+Minimax écrit deux fonctions, une qui maximise et une qui minimise. Négamax n'en
+écrit qu'une, en observant que $\min(a, b) = -\max(-a, -b)$.
+
+La valeur d'une position pour le joueur au trait est l'opposé de sa valeur pour
+l'autre. On évalue \textbf{toujours du point de vue du joueur au trait}.
+
+\begin{nkcode}{exemples/ai/IANegamax.cpp — la boucle centrale}
+// L'enfant rend SA valeur, du point de vue de SON joueur au trait. On
+// la ramene au point de vue de `mover` : identique si c'est le meme
+// joueur qui rejoue (coup gratuit, tour multiple), opposee sinon.
+if (after.current == mover) {
+    score = Negamax(ai, rules, inst, ai->work[ply], depth - 1,
+                    alpha, beta, ply + 1);
+} else {
+    score = -Negamax(ai, rules, inst, ai->work[ply], depth - 1,
+                     -beta, -alpha, ply + 1);
+}
+
+if (ai->outOfTime) return 0;
+if (score > best) best = score;
+if (best > alpha) alpha = best;
+if (alpha >= beta) break;    // COUPURE BETA
+\end{nkcode}
+
+\begin{nkpiege}[L'erreur de signe — elle s'est produite ici, en écrivant ce fichier]
+La première version évaluait toujours du point de vue du joueur \textbf{racine},
+tout en négligeant à chaque changement de trait. Les deux conventions se
+contredisaient.
+
+\textbf{Rien ne plantait.} Aucun test ne tombait. L'IA cherchait simplement, très
+efficacement, le \textbf{pire} coup — et perdait \textbf{16 à 20 contre un joueur
+aléatoire}.
+
+Le remède n'a pas été de corriger un signe, mais de \textbf{supprimer la
+possibilité de l'erreur} : le paramètre \texttt{me} a disparu de
+\texttt{Negamax}. Tant qu'une fonction porte à la fois « le joueur racine » et
+« le joueur au trait », il existe un endroit où l'on peut confondre les deux, et
+il suffit d'un.
+\end{nkpiege}
+
+\subsubsection{Alpha-bêta}
+
+\texttt{alpha} est le meilleur score que le joueur au trait s'est déjà garanti ;
+\texttt{beta} celui que l'adversaire s'est garanti ailleurs. Dès que
+\texttt{score >= beta}, on arrête : l'adversaire ne laissera jamais la partie
+arriver ici.
+
+Le résultat est \textbf{exactement} celui du négamax nu ; seul le nombre de nœuds
+change. Et cette économie dépend entièrement de l'\textbf{ordre} des coups — d'où
+le tri, qui est un paramètre pour qu'on puisse mesurer ce qu'il rapporte.
+
+\subsubsection{Approfondissement itératif}
+
+On cherche à profondeur 1, on garde le meilleur coup. Puis 2. Puis 3.
+
+\begin{nkcode}{exemples/ai/IANegamax.cpp — Search}
+// LE POINT QUI FAIT TOUT : on ne garde le resultat d'un niveau que
+// s'il a ete PARCOURU EN ENTIER. Un niveau interrompu a examine les
+// premiers coups seulement, et le « meilleur » qu'il propose est le
+// meilleur d'un echantillon arbitraire.
+if (ai->outOfTime) break;
+best      = levelBestMove;
+bestScore = levelBest;
+reached   = depth;
+\end{nkcode}
+
+Cela paraît du gaspillage — on refait le travail à chaque fois. Ce n'en est pas :
+le dernier niveau coûte plus que tous les précédents réunis. Et c'est \textbf{la
+seule façon de respecter un budget de temps} : sans lui, il faudrait deviner la
+profondeur atteignable, et se tromper signifie soit figer l'interface, soit ne
+rien chercher.
+
+\subsubsection{La limite assumée}
+
+\texttt{IANegamax} détecte les parties à plus de deux joueurs et \textbf{le
+dit}. L'identité $\min(a,b) = -\max(-a,-b)$ suppose un jeu à somme nulle
+\textbf{à deux}. À trois, « le gain de l'un est la perte de l'autre » est faux :
+il y a deux autres.
+
+\subsection{Ce que ça donne, mesuré}
+
+Banc de duel, 40 parties, côtés inversés une sur deux, budget 60 ms par coup,
+moteur \texttt{ConquerorRulesV2} :
+
+\begin{nkcode}{Duels joues le 2026-08-08}
+Gloutonne  vs  IAMinimale (aleatoire)     40 - 0     100 %
+Negamax    vs  Gloutonne                  40 - 0     100 %
+Negamax    vs  IAMinimale                 40 - 0     100 %
+
+controles :
+Gloutonne  vs  Gloutonne                  20 - 20     50 %
+IAMinimale vs  IAMinimale                 20 - 20     50 %
+\end{nkcode}
+
+\begin{nkretenir}[Pourquoi les deux dernières lignes comptent plus que les trois premières]
+Un banc qui donne toujours 40--0 est un banc cassé. Les contrôles à 20--20
+prouvent qu'il n'y a \textbf{ni biais de siège, ni bug de comptage} — et que les
+100 \% au-dessus mesurent bien les IA.
+
+C'est le premier réflexe à prendre : avant de croire un chiffre, faire tourner le
+cas où l'on connaît déjà la réponse.
+\end{nkretenir}
+
+\section{Des règles : trois fonctions, ou vingt et une}
+
+\texttt{NkcRulesVTable} compte \textbf{vingt et une} fonctions. Sur ces vingt et
+une, \textbf{trois} contiennent votre jeu :
+
+\begin{center}
+\begin{tabular}{@{}p{4.0cm}p{9.8cm}@{}}
+\toprule
+\textbf{Fonction} & \textbf{Ce qu'elle dit} \\
+\midrule
+\texttt{Construire} & à quoi la partie ressemble au départ \\
+\texttt{CoupsPossibles} & ce qu'on a le droit de faire \\
+\texttt{Appliquer} & ce qui se passe quand on le fait \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Les dix-huit autres sont les mêmes pour tout le monde.
+\nkfile{ConquerorRegleFacile.h} les écrit une fois : \texttt{RegleContratNu.cpp}
+fait $\approx$560 lignes, \texttt{RegleFacile.cpp} en fait $\approx$110.
+
+\begin{nkcode}{exemples/rules/RegleFacile.cpp — le jeu entier}
+struct RegleFacile {
+    void Construire(Grille &g) {
+        g.topologie = NkcTopology::Square4;
+        g.nbJoueurs = 2;
+        g.AjouterRectangle(5, 5);
+        g.PoserAuxCoins(2);       // symetrie 4.2
+    }
+
+    void CoupsPossibles(const Partie &p, ListeCoups &out) {
+        NkcCoord voisins[8];
+        for (int32 i = 0; i < p.nbCases; ++i) {
+            if (p.cases[i].owner != (int8)p.joueur) continue;
+            const int32 n = p.Voisins(p.ou[i], voisins, 8);
+            for (int32 k = 0; k < n; ++k)
+                if (p.Vide(voisins[k]))
+                    out.Dupliquer(p.joueur, p.ou[i], voisins[k]);
+        }
+    }
+
+    void Appliquer(Partie &p, const NkcMove &m, Evenements &ev) { /* ... */ }
+};
+NKC_REGLES(RegleFacile, "RegleFacile", "1.0.0", "Cours ConquerorLab")
+\end{nkcode}
+
+\subsection{Pourquoi les dix-huit autres deviennent gratuites}
+
+Parce que \textbf{l'état cesse d'être libre}. Le contrat dit « le module choisit
+sa représentation interne » — c'est sa force, et c'est ce qui coûte cher : tant
+que la structure est inconnue, personne ne peut écrire sa sérialisation ni son
+empreinte à votre place.
+
+\texttt{Partie} est une structure \textbf{fixe, plate, sans pointeur}. Du coup :
+
+\begin{center}
+\begin{tabular}{@{}p{4.4cm}p{9.4cm}@{}}
+\toprule
+\textbf{Fonction} & \textbf{Devient} \\
+\midrule
+\texttt{SerializeState} & un \texttt{memcpy} \\
+\texttt{CloneState} & une affectation \\
+\texttt{HashState} & FNV-1a sur les octets — identique sur toute plateforme \\
+\texttt{IsLegalMove} & énumérer et comparer \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Et ces quatre-là sont correctes \textbf{par construction}, pas par relecture.
+
+\begin{nkretenir}[Deux pièges classiques disparaissent]
+\texttt{ListeCoups::Dupliquer} fait le \texttt{memset} du coup avant de le
+remplir — l'erreur numéro un des premiers modules, puisque le contrat compare les
+coups \textbf{octet par octet}.
+
+Et \texttt{PASSER} est ajouté automatiquement quand la liste reste vide, jamais
+autrement : c'est exactement ce qu'exige \textsc{regles §13}.
+\end{nkretenir}
+
+\begin{nkpiege}[Ce qu'on perd, et quand il faudra partir]
+Le jour où votre moteur a besoin d'un état que \texttt{Partie} ne sait pas porter
+— une pile de pouvoirs, un historique, un cache d'évaluation — l'échafaudage ne
+suffit plus. Vous reprendrez le contrat nu, et vous saurez exactement quelles
+dix-huit fonctions écrire, \textbf{parce que vous les aurez vues à l'œuvre}.
+
+C'est un échafaudage, pas une cage. Rien n'est caché : tout est inline et lisible
+dans le header.
+\end{nkpiege}
+
+\subsection{Ce que le banc d'essai en dit}
+
+\begin{nkcode}{RegleFacile sous tests/NkcAbiHarness.cpp}
+=== 13 verifications OK, 3 echecs ===
+\end{nkcode}
+
+Les trois échecs sont ceux \textbf{codés en dur sur le moteur de référence} : le
+banc cherche \texttt{portee\_duplication}, « 42 cases » et « 2 totems par
+joueur ». \texttt{RegleFacile} joue un 5$\times$5 avec un totem chacun. Même
+profil que \texttt{RegleContratNu} (14/16) et \texttt{GrilleLibre} (13/16).
+
+Tout ce qui porte sur le \textbf{contrat} passe — y compris le rejeu
+déterministe, le bornage des paramètres et le garde-fou \texttt{max\_tours}.
+
+\begin{nkretenir}[Une correction que ce banc a provoquée]
+À la première version, l'échafaudage n'exposait \textbf{aucun paramètre} et
+n'avait \textbf{aucun garde-fou} : un jeu de règles pathologique pouvait boucler
+indéfiniment, et la campagne ne rendait jamais la main. Le banc l'a signalé en
+deux lignes. \texttt{max\_tours} est désormais fourni d'office, et il n'est pas
+optionnel.
+\end{nkretenir}
+
+\section{Des règles, sans échafaudage : RegleContratNu.cpp}
+
+
+Vingt et une fonctions dans la vtable, dont la moitié tient en trois lignes. Le
+chapitre 2 les parcourt une à une ; voici seulement ce qui structure le fichier.
+
+\begin{nkcode}{exemples/rules/RegleContratNu.cpp — le plateau, en C++}
+for (int32 y = 0; y < kSide; ++y)
+    for (int32 x = 0; x < kSide; ++x) {
+        R->coords[y * kSide + x].q = static_cast<int16>(x);
+        R->coords[y * kSide + x].r = static_cast<int16>(y);
+    }
+\end{nkcode}
+
+\begin{nkpiege}[Le memset sur chaque coup]
+\begin{quote}\small
+\texttt{NkcMove m; std::memset(\&m, 0, sizeof(m));  // comparaison octet a octet}
+\end{quote}
+
+Le contrat compare les coups \textbf{octet par octet}. Un champ non initialisé —
+même inutilisé — rend le coup différent de lui-même, et \texttt{IsLegalMove} le
+refuse. C'est l'erreur numéro un des premiers modules.
+\end{nkpiege}
+
+Le moteur complet, \nkfile{modules/rules/ConquerorRulesV2.cpp}, ajoute le
+chargement de plateau JSON, les paramètres, la sérialisation et l'empreinte.
+Lisez-le \textbf{après} avoir écrit le vôtre, pas avant.
+
+\section{Un plateau : les deux voies}
+
+\subsection{En JSON, le plus petit possible}
+
+\begin{nkcode}{exemples/boards/mini\_3x3.json}
+{
+  "topology": "SQUARE_4",
+  "cells": [[0,0],[1,0],[2,0],
+            [0,1],[1,1],[2,1],
+            [0,2],[1,2],[2,2]],
+  "blocked": [[1,1]],
+  "starts": [
+    {"player": 0, "q": 0, "r": 0, "level": 0},
+    {"player": 1, "q": 2, "r": 2, "level": 0}
+  ],
+  "min_players": 2, "max_players": 2
+}
+\end{nkcode}
+
+Neuf cases, une bloquée au centre, deux totems opposés. Une partie dure quinze
+secondes et \textbf{on suit chaque coup à l'œil}.
+
+\begin{nkretenir}[C'est le plateau sur lequel on débogue]
+Chercher pourquoi un moteur se trompe sur 42 cases est un travail d'archéologue.
+Sur neuf, on voit.
+
+Réflexe à prendre : dès qu'un comportement paraît étrange, \textbf{rechargez
+\texttt{mini\_3x3.json}} avant de lire une ligne de code.
+\end{nkretenir}
+
+\subsection{En C++, quand la forme est une formule}
+
+\nkfile{exemples/rules/GrilleLibre.cpp} — trois anneaux concentriques, 19
+cellules. Ni hexagone, ni carré. Le chapitre 5 le détaille ; retenez les deux
+entrées qui rendent la chose possible, et celle qui rend la grille
+\textbf{utilisable par une IA} :
+
+\begin{nkcode}{Les trois entrees de geometrie (ABI 3)}
+int32  (*GetCellCenter)(NkcRules self, NkcCoord c, float32 *outXY);
+uint32 (*GetCellShape) (NkcRules self, NkcCoord c, float32 *outXY, uint32 cap);
+uint32 (*GetNeighbors) (NkcRules self, NkcCoord c, NkcCoord *out, uint32 cap);
+\end{nkcode}
+
+Sans \texttt{GetNeighbors}, une IA devine l'adjacence à partir de
+\texttt{topology} — et devine faux, en silence. \texttt{IANegamax} s'en sert pour
+son terme de menace, et \textbf{s'abstient} de ce terme quand elle n'est pas
+déclarée : une évaluation qui devine faux est pire qu'une évaluation qui ignore
+le critère.
+
+\section{Le chemin conseillé}
+
+\begin{enumerate}
+  \item \textbf{Copiez \nkfile{IAMinimale.cpp}} dans \nkfile{travail/ai/},
+        changez son nom dans \texttt{FillFactory}, sauvegardez. Vérifiez qu'elle
+        apparaît dans le panneau \emph{Joueurs}.
+  \item \textbf{Lisez \nkfile{IAFacile.cpp}} — quinze lignes décident, le reste
+        est de la plomberie qu'on recopie.
+  \item \textbf{Écrivez votre évaluation} : partez d'\nkfile{IAFacile.cpp},
+        changez \texttt{Noter}, et rien d'autre. C'est là qu'est le vrai travail
+        d'une IA de jeu.
+  \item \textbf{Faites-la jouer contre l'aléatoire}, 40 parties. Vous devez
+        gagner largement. Sinon, c'est un signe — pas une malchance.
+  \item \textbf{Puis seulement}, ouvrez \nkfile{IANegamax.cpp}.
+\end{enumerate}
+
+\begin{nkexo}[1 — Le contrôle avant la mesure]
+Faites jouer \texttt{IAGloutonne} contre elle-même, 100 parties. Attendu :
+environ 50 \%. Si vous obtenez autre chose, cherchez pourquoi \textbf{avant}
+toute autre mesure — vous venez de trouver un biais de siège ou un bug de
+comptage.
+\end{nkexo}
+
+\begin{nkexo}[2 — Casser le signe, exprès]
+Dans \nkfile{IANegamax.cpp}, remplacez \texttt{-Negamax(...)} par
+\texttt{Negamax(...)} dans la branche du changement de joueur. Recompilez,
+faites-la jouer contre l'aléatoire. Que se passe-t-il ? Combien de temps
+auriez-vous mis à trouver sans connaître la réponse ?
+\end{nkexo}
+
+\begin{nkexo}[3 — Ce que rapporte le tri]
+\texttt{IANegamax} expose \texttt{tri\_des\_coups}. Coupez-le, relancez une
+campagne à profondeur fixe, comparez le nombre de nœuds. De combien l'alpha-bêta
+est-il moins efficace sans tri ? Le chiffre vous appartient — le facteur théorique
+est connu, mais ce jeu-ci n'est pas la théorie.
+\end{nkexo}
+
+\begin{nkexo}[4 — Un troisième critère]
+Ajoutez à \texttt{IAGloutonne} un terme de mobilité (nombre de coups
+disponibles) et mesurez. Le gain est-il réel, ou dans le bruit ? Rappel du
+chapitre 6 : 40 parties ne suffisent pas à trancher un écart de cinq points.
+\end{nkexo}
+
+\begin{nkexo}[5 — Le budget]
+Passez le budget de \texttt{IANegamax} de 60 ms à 5 ms. Quelle profondeur
+atteint-elle encore ? Gagne-t-elle toujours contre l'aléatoire ? Vous mesurez là
+le rapport entre \textbf{temps de réflexion et force}, qui est la seule chose que
+règle vraiment un palier de difficulté.
+\end{nkexo}

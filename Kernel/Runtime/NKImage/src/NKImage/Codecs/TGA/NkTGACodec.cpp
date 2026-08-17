@@ -42,9 +42,9 @@ namespace nkentseu {
 	//  NkTGACodec::Decode
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkTGACodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkTGACodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 18)
-			return nullptr;
+			return NkImage();
 		NkImageStream s(data, size);
 
 		// ── En-tête TGA 18 octets ─────────────────────────────────────────────────
@@ -61,7 +61,7 @@ namespace nkentseu {
 		const uint8 imgDesc = s.ReadU8();
 
 		if (width == 0 || height == 0)
-			return nullptr;
+			return NkImage();
 
 		// Types supportés
 		const bool isRLE = (imageType == 9 || imageType == 10 || imageType == 11);
@@ -86,15 +86,15 @@ namespace nkentseu {
 			channels = (bpp == 32) ? 4 : 3;
 		}
 		if (channels == 0)
-			return nullptr;
+			return NkImage();
 
 		const NkImagePixelFormat fmt = (channels == 1)	 ? NkImagePixelFormat::NK_GRAY8
 									   : (channels == 3) ? NkImagePixelFormat::NK_RGB24
 														 : NkImagePixelFormat::NK_RGBA32;
 
-		NkImage *img = NkImage::Alloc(width, height, fmt);
-		if (!img)
-			return nullptr;
+		NkImage img = NkImage::Alloc(width, height, fmt);
+		if (!img.IsValid())
+			return NkImage();
 
 		// ── Image ID ─────────────────────────────────────────────────────────────
 		s.Skip(idLen);
@@ -112,8 +112,7 @@ namespace nkentseu {
 			const usize palBufSize = static_cast<usize>(cmapLen) * channels;
 			palette = static_cast<uint8 *>(NkAlloc(palBufSize));
 			if (!palette) {
-				img->Free();
-				return nullptr;
+				return NkImage();
 			}
 
 			for (int32 i = 0; i < cmapLen; ++i) {
@@ -197,7 +196,7 @@ namespace nkentseu {
 			const int32 px = i % width;
 			const int32 py = i / width;
 			const int32 dstY = topDown ? py : (static_cast<int32>(height) - 1 - py);
-			uint8 *dst = img->RowPtr(dstY) + px * channels;
+			uint8 *dst = img.RowPtr(dstY) + px * channels;
 			NkCopy(dst, rlePix, channels);
 
 			--rleCount;
@@ -206,8 +205,7 @@ namespace nkentseu {
 		if (palette)
 			NkFree(palette);
 		if (s.HasError()) {
-			img->Free();
-			return nullptr;
+			return NkImage();
 		}
 		return img;
 	}

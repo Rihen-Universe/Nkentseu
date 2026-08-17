@@ -187,12 +187,21 @@ namespace nkanima {
 				bool vRen = ec.Button(vm == NkAnimViewMode::RENDU ? "[ Rendu ]" : "Rendu");
 				ctx.SameLine();
 				bool vWir = ec.Button(vm == NkAnimViewMode::FILAIRE ? "[ Filaire ]" : "Filaire");
+				ctx.SameLine();
+				bool vCom = ec.Button(AnimShowCOM() ? "[ COM ]" : "COM");
 				if (vSol)
 					Anim3DSetViewMode(NkAnimViewMode::SOLIDE);
 				if (vRen)
 					Anim3DSetViewMode(NkAnimViewMode::RENDU);
 				if (vWir)
 					Anim3DSetViewMode(NkAnimViewMode::FILAIRE);
+				if (vCom)
+					AnimSetShowCOM(!AnimShowCOM());
+				// Le régime est AFFICHÉ, pas supposé : un COM uniforme ressemble à un
+				// COM anthropométrique, et sans ce libellé l'approximation serait
+				// invisible et permanente.
+				if (AnimShowCOM())
+					ec.Text(AnimCOMRegimeLabel());
 
 				const NkRect area = ctx.NextItemRect(560.f, 420.f);
 				auto &dl = ctx.DL();

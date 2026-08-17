@@ -636,14 +636,23 @@ namespace nkentseu {
 		// Le path est relatif au CWD (= dossier du binaire ou de l'app launchee).
 		NkShaderHandle NkShaderLibrary::LoadOrCompileVF(const NkString &materialName, const NkString &fallbackVS,
 														const NkString &fallbackFS) {
-			logger.Info("[NkShaderLibrary] LoadOrCompileVF '{0}' (api={1})\n", materialName, (int)mApi);
+			// TRACE et non INF : LoadOrCompileVF est appelé PAR SHADER ET PAR IMAGE
+			// par les consommateurs (Nogee : 12 652 appels en 15 s pour un seul
+			// matériau, dont 12 651 servis par le cache). En INF, cette ligne et le
+			// « cache hit » ci-dessous pesaient 25 303 lignes sur les 51 020 d'une
+			// course — la moitié du journal pour dire que tout va bien.
+			// ⚠ La ligne d'ÉCHEC (`CreateShader fail`, plus haut) reste au niveau
+			// erreur, et c'est le point : elle se produit UNE fois par shader, elle
+			// est rare, et c'est la seule chose qu'on voulait pouvoir lire ici.
+			// Taire le succès répété, jamais l'échec.
+			logger.Trace("[NkShaderLibrary] LoadOrCompileVF '{0}' (api={1})\n", materialName, (int)mApi);
 
 			// Si ce shader a deja ete compile sous ce nom (ex : NkRender3D a compile
 			// "PBR" avant NkMaterialSystem), on retourne le handle cache directement.
 			{
 				auto cached = Find(materialName);
 				if (cached.IsValid()) {
-					logger.Info("[NkShaderLibrary] LoadOrCompileVF '{0}' — cache hit\n", materialName);
+					logger.Trace("[NkShaderLibrary] LoadOrCompileVF '{0}' — cache hit\n", materialName);
 					return cached;
 				}
 			}
@@ -692,7 +701,13 @@ namespace nkentseu {
 						}
 						return h;
 					}
-					logger.Errorf("[NkShaderLibrary] '{0}' NkSL echec -> fallback .vk.glsl\n", materialName);
+					// ⚠ `Errorf` (suffixe f) = famille printf : marqueurs `%s`, jamais `{0}`.
+					// Avant ce correctif, ce message affichait littéralement « '{0}' » et
+					// laissait tomber `materialName` en silence. Et c'est le message
+					// d'échec du chemin NkSL — celui-là même dont on vient d'établir
+					// qu'il n'est presque jamais emprunté : il n'avait donc quasiment
+					// jamais été lu.
+					logger.Errorf("[NkShaderLibrary] '%s' NkSL echec -> fallback .vk.glsl\n", materialName.CStr());
 				}
 			}
 
@@ -712,14 +727,70 @@ namespace nkentseu {
 			NkString fSrc = fallbackFS;
 			bool overrideVS = NkFile::Exists(vsPath.CStr());
 			bool overrideFS = NkFile::Exists(fsPath.CStr());
+
+			// ── SECONDE RACINE : le dossier de l'EXÉCUTABLE ──────────────────
+			// ADDITIF — le répertoire courant reste essayé EN PREMIER, aucun
+			// comportement retiré : une application lancée depuis la racine du
+			// dépôt voit exactement les mêmes fichiers qu'avant.
+			//
+			// ⚠ POURQUOI : `basePath` est relatif au RÉPERTOIRE COURANT. Or, dans
+			// ce même fichier, `Init()` résout le cache de shaders par
+			// `NkPath::GetExecutableDirectory()`. **Deux politiques de chemin dans
+			// la même classe**, et rien ne les opposait : le cache suivait le
+			// binaire, les sources suivaient le shell.
+			// Mesuré le 2026-08-16 : `renderdemo` lancé depuis la racine du dépôt
+			// compile **21/21** ; le MÊME binaire lancé depuis son propre dossier
+			// en rate **17** — et Nogee rate **exactement les 17 mêmes**. Ce
+			// n'était ni un shader cassé ni une régression : c'était le
+			// répertoire de lancement.
+			if (!overrideVS && !overrideFS) {
+				NkString altBase =
+					(NkPath::GetExecutableDirectory() / "Resources" / "NKRenderer" / "Shaders").ToString();
+				altBase += "/";
+				altBase += materialName;
+				altBase += "/VK/";
+				NkString altVS = altBase + matLower + ".vert.vk.glsl";
+				NkString altFS = altBase + matLower + ".frag.vk.glsl";
+				if (NkFile::Exists(altVS.CStr()) || NkFile::Exists(altFS.CStr())) {
+					vsPath = altVS;
+					fsPath = altFS;
+					overrideVS = NkFile::Exists(vsPath.CStr());
+					overrideFS = NkFile::Exists(fsPath.CStr());
+				}
+			}
+
 			if (overrideVS)
 				vSrc = ReadFile(vsPath);
 			if (overrideFS)
 				fSrc = ReadFile(fsPath);
 
+			// ── DIAGNOSTIC : « fichier absent » ≠ « source invalide » ────────
+			// Les deux se présentaient de la même façon — une source vide — et le
+			// journal ne les distinguait pas. Pire : quand AUCUN des deux fichiers
+			// n'existait, ce bloc ne disait **rien du tout**, et l'échec
+			// n'apparaissait qu'en aval sous la forme trompeuse
+			// « NkGLSLToSPIRV: source GLSL vide », qui se lit comme un shader
+			// cassé alors que c'est un fichier introuvable.
+			// Les deux pannes n'ont pas le même remède : l'une se répare en
+			// déployant ou en relançant au bon endroit, l'autre en corrigeant du
+			// GLSL. Les confondre, c'est envoyer quelqu'un réécrire un shader qui
+			// n'a jamais été lu.
 			if (overrideVS || overrideFS) {
-				logger.Info("[NkShader] LoadOrCompileVF '{0}' override : VS={1} FS={2}\n", materialName,
-							overrideVS ? "file" : "embedded", overrideFS ? "file" : "embedded");
+				logger.Trace("[NkShader] LoadOrCompileVF '{0}' override : VS={1} FS={2}\n", materialName,
+							 overrideVS ? "file" : "embedded", overrideFS ? "file" : "embedded");
+			} else if (vSrc.Empty() || fSrc.Empty()) {
+				logger.Errorf("[NkShaderLibrary] '%s' INTROUVABLE -- ce n'est PAS un shader invalide, c'est un "
+							  "FICHIER ABSENT, et aucune source embarquee ne le remplace.\n"
+							  "    cherche (1) %s   [relatif au repertoire courant]\n"
+							  "    cherche (2) <dossier de l'executable>/Resources/NKRenderer/Shaders/%s/VK/\n"
+							  "    -> lancer depuis un repertoire d'ou 'Resources/NKRenderer/Shaders' est "
+							  "visible, ou deployer ce dossier a cote du binaire.\n",
+							  materialName.CStr(), vsPath.CStr(), materialName.CStr());
+			} else {
+				logger.Warnf("[NkShaderLibrary] '%s' : fichier absent (%s), repli sur la source EMBARQUEE. "
+							 "Elle peut etre ecrite pour un autre backend que le tien -- si la compilation "
+							 "echoue juste apres, la cause est ICI, pas dans le fichier du disque.\n",
+							 materialName.CStr(), vsPath.CStr());
 			}
 
 			NkShaderHandle h = CompileVF(vSrc, fSrc, materialName);
@@ -787,6 +858,24 @@ namespace nkentseu {
 			if (!p || !p->valid)
 				return NkShaderHandle::Null();
 			return p->rhiHandle; // ← retourne le vrai RHI handle
+		}
+
+		// ── Santé des programmes ─────────────────────────────────────────────────
+		// Le couple (valides, total) se lit « 4/21 » et non « 4/4 » parce que
+		// `Alloc()` ci-dessous est appelé INCONDITIONNELLEMENT, y compris quand
+		// `CreateShader` a échoué : un programme en échec RESTE dans `mPrograms`.
+		// Cette propriété a été vérifiée AVANT d'écrire ces compteurs, pas après —
+		// sans elle, le voyant aurait donné le feu vert à la panne qu'il signale.
+		uint32 NkShaderLibrary::GetValidProgramCount() const {
+			uint32 n = 0;
+			for (const auto &kv : mPrograms)
+				if (kv.Second.valid)
+					++n;
+			return n;
+		}
+
+		uint32 NkShaderLibrary::GetProgramCount() const {
+			return (uint32)mPrograms.Size();
 		}
 
 		NkShaderHandle NkShaderLibrary::Alloc(NkShaderProgram &prog) {

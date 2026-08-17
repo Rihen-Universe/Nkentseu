@@ -1186,6 +1186,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NkFBXParityDemo/NkFBXParityDemo.jenga"):
+
+        pass
+
     with include("Applications/NkSVGImportDemo/NkSVGImportDemo.jenga"):
 
         pass
@@ -1199,6 +1203,10 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Applications/NkAnimPhysTest/NkAnimPhysTest.jenga"):
+
+        pass
+
+    with include("Applications/NkMatInventaireTest/NkMatInventaireTest.jenga"):
 
         pass
 

@@ -70,9 +70,19 @@ with project("ConquerorLab"):
         "modules/ai/**.cpp",
     ])
 
+    # NKSerialization n'est PAS utilise par l'atelier lui-meme : il est ici parce
+    # que l'atelier le PROMET au stagiaire. Trois listes le reclamaient deja —
+    # `NkcModuleCompiler::StackLibs` (le `-lNKSerialization` du lien), le `$libs`
+    # de Distribuer.ps1, et le `-I` de NkcLayout::Includes — mais celle-ci, la
+    # SEULE qui construise quoi que ce soit, l'avait oublie. Consequence mesuree
+    # le 2026-08-15 : `NKSerialization.lib` n'existait pas, donc
+    #   - Distribuer.ps1 s'arretait sur « Bibliotheque introuvable »,
+    #   - et tout module de stagiaire echouait au lien sur « cannot find
+    #     -lNKSerialization », y compris l'exemple livre.
     nkentseudependson(
         ["NKEditorKit", "NKGui", "NKCanvas", "NKImage", "NKFont", "NKGlad",
-         "NKWindow", "NKEvent", "NKReflection", "NKFileSystem", "NKThreading",
+         "NKWindow", "NKEvent", "NKReflection", "NKSerialization",
+         "NKFileSystem", "NKThreading",
          "NKStream", "NKLogger", "NKMath", "NKTime",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
         extra_includes=["include", "src", "src/ConquerorLab",

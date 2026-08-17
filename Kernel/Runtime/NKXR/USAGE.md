@@ -334,3 +334,45 @@ intégration à Noge (l'XR comme capacité du framework), main gauche symétriqu
 postes distants (état répliqué NKNetwork ou flux H.264 NKMedia), APK Quest
 natif — puis **l'AR** (caméra plein écran, marqueurs from scratch, IMU),
 qui recevra son propre chapitre dans ce guide.
+
+---
+
+## 10. AR — deux faits en attendant le chapitre
+
+> ⚠️ **Ceci n'est pas le chapitre AR**, qui viendra à part. Ce sont deux faits
+> **déjà mesurés**, posés ici parce qu'ils coûtent cher à découvrir seul.
+
+### Imprimer le marqueur et la planche de calibration
+
+L'AR from scratch demande d'**imprimer** deux images. Elles ne sont pas dans le
+dépôt, et c'est volontaire : elles sont **produites** par la démo, donc toujours
+à jour de son code. Lancer la démo suffit — elle les écrit au démarrage :
+
+```bash
+jenga build --target NKARDemo --config Release
+Build/Bin/Release-Windows/NKARDemo/NKARDemo.exe
+```
+
+Les deux fichiers sont écrits **dans le répertoire courant** — celui d'où vous
+lancez la commande, pas celui de l'exécutable :
+
+```
+nkar_marqueur.png              le marqueur à imprimer
+nkar_planche_calibration.png   la planche pour calibrer la caméra
+```
+
+*(Sur Android, ils vont dans le dossier de données externes de l'application.)*
+
+Imprimer **sans mise à l'échelle** (100 %), sur du papier **mat** : un marqueur
+brillant renvoie la lumière et le détecteur le rejette au seuillage.
+
+### `NkArFlow` décroche au-delà d'environ 60 °/s — et c'est normal
+
+Le suivi par l'image, entre deux vues d'un marqueur, est exact **jusqu'à environ
+60 °/s de rotation** (mesuré le 2026-08-17, Galaxy S22+).
+
+**Ce n'est pas un défaut de votre code.** C'est la limite du procédé : entre deux
+images, la scène s'est trop déplacée pour que les points se correspondent. Si
+vous tournez le téléphone vite et que l'objet ancré part, **ralentissez avant de
+chercher un bug**. Dépasser cette borne est un sujet d'algorithme (suivi en
+pyramide multi-échelle), pas un réglage.

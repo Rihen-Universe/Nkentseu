@@ -91,6 +91,7 @@ namespace nkentseu {
 			} // #3 (dockDL=-2 : sentinelle « feuille non rendue »)
 			dl.Reset();
 			dlOverlay.Reset();
+			modalDepth = 0; // la pile de modales se recompte a chaque frame
 		}
 
 		void NkGuiContext::EndFrame() noexcept {

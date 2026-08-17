@@ -4670,7 +4670,9 @@ namespace nkentseu {
 				}
 				mDebugShader = mShaderLib->GetRHIHandle(progHandle);
 				if (!mDebugShader.IsValid()) {
-					logger.Errorf("[NkR3D::DebugTriangle] shader RHI handle FAIL (prog id={0})\n", progHandle.id);
+					// ⚠ `Errorf` = famille printf : `%u`, pas `{0}` (l'id était perdu).
+					logger.Errorf("[NkR3D::DebugTriangle] shader RHI handle FAIL (prog id=%u)\n",
+								  (uint32)progHandle.id);
 					return false;
 				}
 			}

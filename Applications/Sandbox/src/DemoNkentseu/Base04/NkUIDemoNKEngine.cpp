@@ -1,3 +1,7 @@
+// DEREGISTREE DU BUILD (campagne retrait NKUI, 2026-08-17, decision R1) : demo
+// DONT L'OBJET est NKUI (cible NKUIDemo), module deprecie remplace par NKGui.
+// Source conservee ; elle meurt avec le module NKUI le jour ou Rodolf en decide
+// la suppression (compteur a zero). Registration commentee : RhiSandbox.jenga.
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"

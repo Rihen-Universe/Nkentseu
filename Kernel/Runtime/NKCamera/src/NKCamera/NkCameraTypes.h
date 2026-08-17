@@ -7,10 +7,7 @@
 #include "NKWindow/Core/NkTypes.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include <string>
-#include <vector>
-#include <functional>
-#include <memory>
+#include "NKContainers/Functional/NkFunction.h"
 
 namespace nkentseu {
 
@@ -171,12 +168,29 @@ namespace nkentseu {
 			uint32 width = 0;
 			uint32 height = 0;
 			uint32 fps = 30;
-			NkPixelFormat outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
+			// ⚠️ TROIS CHAMPS RETIRÉS LE 2026-08-15 — ne pas les réintroduire
+			// sans les câbler d'abord :
+			//
+			//   `outputFormat` — 3 écrivains, 0 lecteur. Trois applications
+			//     demandaient `NK_PIXEL_RGBA8` et recevaient du NV12 (Windows),
+			//     YUV420 (Android), BGRA8 (Cocoa/UIKit) ou YUYV (Linux) : le
+			//     format est IMPOSÉ par la plateforme, jamais choisi. Le format
+			//     réellement livré se lit sur `NkCameraFrame::format`, et
+			//     `NkCameraSystem::ConvertToRGBA8` fait la conversion — ce que
+			//     les trois faisaient déjà, correctement.
+			//   `autoExposure`, `autoWhiteBalance` — 0 lecteur, 0 écrivain.
+			//     Utiliser `SetAutoExposure()` / `SetAutoWhiteBalance()`, qui
+			//     fonctionnent.
+			//
+			// Un champ mort dans un en-tête public est une promesse que
+			// quelqu'un finira par croire.
 			NkCameraFacing facing = NkCameraFacing::NK_CAMERA_FACING_ANY;
 			bool flipHorizontal = false;
+			// ⚠️ Lu par le SEUL backend Android. Sur Windows, aucun code de mise
+			// au point n'existe : le réglage y est ignoré en silence — invisible
+			// sur une webcam à focale fixe, ce qui explique que personne ne l'ait
+			// vu. Câbler `IAMCameraControl` avant de compter dessus.
 			bool autoFocus = true;
-			bool autoExposure = true;
-			bool autoWhiteBalance = true;
 
 			void Resolve() {
 				if (preset != NkCameraResolution::NK_CAM_RES_CUSTOM)
@@ -205,6 +219,13 @@ namespace nkentseu {
 			// NkColorRange, et NkCameraSystem::ConvertToRGBA8 qui choisit la
 			// formule par la PLAGE, jamais par le format.
 			NkColorRange range = NkColorRange::NK_COLOR_RANGE_UNKNOWN;
+			// Miroir horizontal DEMANDÉ par la configuration, reporté ici par le
+			// système pour que la conversion puisse l'appliquer. Faux par défaut :
+			// l'image brute d'un capteur est géométriquement VRAIE, et c'est la
+			// seule utilisable pour de l'AR, de la calibration ou de la mesure.
+			// On ne miroite que pour un affichage de SOI, où l'habitude prime sur
+			// la géométrie — et cela reste une demande explicite.
+			bool flipHorizontal = false;
 			NkVector<uint8> data;
 
 			bool IsValid() const {
@@ -281,8 +302,8 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 	// Callbacks
 	// ---------------------------------------------------------------------------
-	using NkFrameCallback = std::function<void(const NkCameraFrame &)>;
-	using NkCameraHotPlugCallback = std::function<void(const NkVector<NkCameraDevice> &)>;
+	using NkFrameCallback = NkFunction<void(const NkCameraFrame &)>;
+	using NkCameraHotPlugCallback = NkFunction<void(const NkVector<NkCameraDevice> &)>;
 
 	// ---------------------------------------------------------------------------
 	// NkCameraOrientation — pour le mapping caméra virtuelle / caméra réelle

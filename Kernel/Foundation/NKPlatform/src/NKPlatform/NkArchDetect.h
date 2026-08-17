@@ -186,6 +186,14 @@
 
 #elif defined(__arm__) || defined(_M_ARM) || defined(__ARM__) || defined(__arm)
 #define NKENTSEU_ARCH_ARM
+// Alias ADDITIF, pas un renommage : NKENTSEU_ARCH_ARM reste defini au-dessus.
+// Les deux ecritures sont permises (arbitrage Rodolf, 2026-08-17) et doivent
+// repondre vrai SIMULTANEMENT sur la meme cible.
+// Pourquoi il manquait : le detecteur n'a jamais produit ce nom, alors que
+// NkPlatform.cpp le teste. Consequence mesuree sur armeabi-v7a le 2026-08-17 :
+// PlatformInfo.architecture valait NK_UNKNOWN au lieu de NK_ARM32.
+// Temoin : Kernel/Foundation/NKPlatform/tests/run_temoin_noms_additifs.sh
+#define NKENTSEU_ARCH_ARM32
 #define NKENTSEU_ARCH_32BIT
 #define NKENTSEU_ARCH_NAME "ARM"
 

@@ -149,6 +149,12 @@ namespace nkentseu {
 				NkRect popupRects[PopupMax] = {};  ///< zone de chaque niveau
 				NkGuiLayout popupSaved[PopupMax];  ///< layout sauvegardé par niveau
 				int32 popupDepth = 0;			   ///< nb de popups ouverts
+				/// Nombre de dialogues MODAUX deja dessines dans la frame courante.
+				/// Sert a n'assombrir le fond QU'UNE FOIS : une modale ouverte
+				/// au-dessus d'une autre doit laisser voir celle du dessous, pas
+				/// l'enfouir sous un second voile (regle de Rihen, 13 aout 2026).
+				/// Remis a zero au debut de chaque frame, comme les draw-lists.
+				int32 modalDepth = 0;
 				int32 curPopupLevel = -1;		   ///< niveau dessiné (-1 = principale)
 				int32 comboNav = 0;				   ///< item surligné au clavier dans un combo ouvert
 				bool comboEnter = false;		   ///< Entrée pressée dans le combo (consommé par l'appelant)
