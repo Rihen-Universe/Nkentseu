@@ -70,7 +70,7 @@ with project("Model"):
         ["NKEvent", "NKWindow", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
-         "NKRHI", "NKUI", "NKGLSlang", "NKSPIRVCross"],
+         "NKRHI", "NKGLSlang", "NKSPIRVCross"],
         extra_includes=["src", "%{NKGlad.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
