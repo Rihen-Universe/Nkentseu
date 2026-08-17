@@ -174,11 +174,14 @@ un test sans machine graphique. Le facteur d'échelle est là : *ce qui rend le
 module utilisable dans un quatrième contexte vaut plus que ce qui le rend 10 %
 plus rapide dans le premier.*
 
-## 🔴 Le régime AÉRIEN manque — M3.7 → M3.11 proposés (mesuré le 2026-08-16)
+## 🔴 Le régime AÉRIEN manque — M3.7 → M3.11 (PLAN OFFICIEL, approuvé le 2026-08-17)
 
-*Mesuré par l'agent NKAnimation sur `feat/nkanimation`, en préparant l'écart entre
-les spécifications d'interface de NkAnimaEditor et le code. **Proposition, non
-validée** : c'est Rodolf qui tranche.*
+*Mesuré par l'agent NKAnimation sur `feat/nkanimation` le 2026-08-16, en préparant
+l'écart entre les spécifications d'interface de NkAnimaEditor et le code.
+**Approuvé par Rodolf le 2026-08-17.** Le travail ne commence pas maintenant —
+c'est Rodolf qui en décidera le moment ; quand il viendra, **M3.9 (tenseur
+d'inertie) en premier** : deux des trois briques du régime aérien n'ont aucun
+support mathématique sans lui.*
 
 ### Le constat, en une phrase
 
