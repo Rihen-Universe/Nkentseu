@@ -978,7 +978,11 @@ namespace nkentseu {
 		}
 		void *ptr = nullptr;
 		D3D12_RANGE r{};
-		it->resource->Map(0, &r, &ptr);
+		// Echec -> memoire NULLE, jamais « nul + decalage » : ajouter un decalage
+		// a un pointeur nul rend un pointeur NON NUL et invalide, qui traverse
+		// intact le `if (!ptr)` de l'appelant. L'echec doit rester visible.
+		if (FAILED(it->resource->Map(0, &r, &ptr)) || !ptr)
+			return {};
 		uint64 mapSz = sz > 0 ? sz : it->desc.sizeBytes - off;
 		return {(uint8 *)ptr + off, mapSz};
 	}
