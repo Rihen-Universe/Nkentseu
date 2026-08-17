@@ -531,6 +531,22 @@
 
 #endif
 
+/**
+ * @brief Alias historique de NKENTSEU_HAS_CPP11, utilisé par les gardes de
+ *        NKContainers (`#if defined(NK_CPP11)` : move, forwarding, noexcept).
+ * @def NK_CPP11
+ *
+ * ⚠️ DÉRIVÉ de NKENTSEU_HAS_CPP11 — jamais défini ailleurs : une seule source
+ * de vérité. Ces gardes protégeaient 914 lignes écrites dès l'origine mais
+ * jamais compilées, car aucune macro de standard n'arrivait jusqu'à elles
+ * (cf. Kernel/Foundation/NKContainers/ROADMAP.md §5). Ouverture décidée par
+ * Rodolf le 2026-08-17, mesurée au préalable : 202/203 en Debug ET en Release
+ * avec la macro forcée, identique à la référence, zéro régression.
+ */
+#if defined(NKENTSEU_HAS_CPP11) && !defined(NK_CPP11)
+	#define NK_CPP11
+#endif
+
 // =========================================================================
 // SECTION 6 : FONCTIONNALITÉS C++14
 // =========================================================================

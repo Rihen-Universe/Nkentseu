@@ -28,6 +28,139 @@ VALIDATION → INTÉGRATION).
 
 ---
 
+## ✅ 2026-08-17 — VERDICT HUMAIN sur le niveau 2, et les « sauts » de Rodolf : l'app est DISCULPÉE en régime établi, le lien accuse des faits, le câble tranchera
+
+**Le jugement que la mesure ne pouvait pas rendre est rendu** : Rodolf a mis le
+casque (session 00:51:05 → 00:52:11, pid 47416, `Enter VR`/`Leave VR` au journal
+du service Meta). **Ça marche, l'anti-aliasing est intact.** Le niveau 2 a ses
+deux moitiés — la plomberie mesurée, l'image jugée.
+
+**Mais il rapporte** : *« des moments où les choses semblent sauter sans que je
+bouge. J'ai l'impression que c'est le WiFi. »* Plausible n'est pas établi — deux
+séries temporelles étaient déjà sur disque, les voici confrontées.
+
+### Série 1 — l'application (journal app, tranche de 2 s)
+
+```
+00:51:10  21,5 i/s   <- échauffement (~10 s, cohérent avec les ~14 s de ma course)
+00:51:12  64,1       00:51:14  65,9      00:51:17  68,9
+00:51:19 → 00:52:08  69,0 à 71,7 i/s SANS UN SEUL CREUX   (app CPU 4,4-10,4 ms, GPU 7,0 constant)
+```
+
+### Série 2 — le lien (journal LinkClient Meta, tranche de 5 s, même plage)
+
+```
+AVANT la session (00:50:07-53, seul le Dash affiche) : 19 à 45 glitches / 5 s
+PENDANT (00:51:08 → 00:52:08) : 7 à 37 glitches / 5 s, JAMAIS zéro
+pics : Transmission 21,9 ms (00:51:13), 29,2 ms (00:52:08) ; Deadline -42 ms et
+       prédiction pipeline à 60,3 ms à 00:51:08 — pile à l'Enter VR
+rafales : 33 (00:51:43), 30 (00:51:53), 37 (00:52:03) — app plate à 70-71 i/s au même instant
+```
+
+### La corrélation, et ce qu'elle établit
+
+**Les deux séries sont indépendantes.** Les rafales de glitches du lien tombent
+sur des tranches où l'app est parfaitement plate ; et le lien glitchait déjà
+**avant que la démo n'existe à l'écran** (le Dash seul : 19-45/5 s). Donc :
+
+- **candidat 2 (rythme de l'app) : DISCULPÉ en régime établi** — aucun creux de
+  cadence après 00:51:17, rien à corréler aux sauts ;
+- **candidat 1 (WiFi) : accusé par des faits positifs** — glitches permanents,
+  pics de transmission ×4, et une propriété du lien indépendante de l'app ;
+- **candidat 3 (suivi) : non mesurable dans ces journaux** — le protocole câble
+  le couvre : le câble retire le transport et garde le suivi.
+
+⚠️ **Réserve d'échauffement** : les ~10 premières secondes de session ont un
+vrai creux app (21,5 i/s) — même famille que les ~14 s de ma course. Si les
+sauts de Rodolf se concentraient au début, l'app y reste candidate. Les journaux
+ne disent pas *quand* il a senti les sauts ; le protocole doit le lui demander.
+
+### ▶️ LE PROTOCOLE DISCRIMINANT — pour Rodolf, deux minutes
+
+```powershell
+# casque au CÂBLE USB-C (Link, pas Air Link), même démo, mêmes gestes :
+cd D:\Projets\2026\Nkentseu\Nkentseu-xr
+$env:NK_XR_BACKEND = "openxr"
+.\Build\Bin\Release-Windows\NKXRDemo\NKXRDemo.exe
+# 2 minutes. Noter : sauts au début seulement / partout / disparus.
+#   disparus  -> WiFi établi PAR INTERVENTION, pas par impression. Clos.
+#   persistent -> le lien est disculpé à son tour ; on instrumente xrWaitFrame
+#                 (horodater chaque frame app) AVANT de toucher un réglage.
+```
+
+**Aucun réglage de rythme ou de swapchain ne bouge avant ce verdict** — un
+réglage changé sur une impression est un correctif au hasard.
+
+### 🔧 Et l'instrument s'est fait prendre, encore
+
+`latence 87,2 ms` et `compositeur CPU 0,44` sont **identiques sur les 29 lignes**
+de la session (60,3/1,05 sur les 4 de la mienne) : ces métriques sont **lues une
+fois puis figées**, pas rafraîchies. La ligne de cadence affiche donc du vivant
+(i/s, app CPU) mélangé à du mort (latence, compositeur) sans le dire — même
+famille que `frames rejouees -1`. À réparer avant de s'en servir pour arbitrer
+WiFi contre app : *une valeur figée qui a l'air d'une mesure est pire que pas de
+valeur.*
+
+---
+
+## ✅ 2026-08-17 — NIVEAU 2 ATTEINT : la boucle de frame complète tourne sur Quest 2 réel, EndFrame exercé ~600 fois, sortie PROPRE
+
+**Conditions** : Release, `feat/nkxr` fusionnée avec `origin/main` (`38c48af6`,
+corruption de tas NKSL corrigée par PR #66), binaire reconstruit 26/26 et
+vérifié frais, **lancé depuis la racine du worktree** (les 52 dossiers de
+`Resources/NKRenderer/Shaders/` se résolvent par rapport au répertoire
+courant — c'était la vraie cause de « Renderer œil 0 KO », pas les shaders
+eux-mêmes), `NK_XR_BACKEND=openxr`, `NK_XR_EXIT=600`, Quest 2 en Air Link.
+
+### Ce que la course établit — le chemin « compilé, jamais exercé » ne l'est plus
+
+```
+40 LoadOrCompileVF, 0 échec de compilation      (la veille : sources vides, tout KO)
+session casque créée, swapchains 1768x1781 x3 images par œil
+mode de fusion : annoncé 1/1 OPAQUE -> soumis OPAQUE   (impossibilité du code 4 RE-confirmée)
+cadence mesurée : 71,7 / 71,2 / 67,2 i/s sur un affichage 72 Hz
+app CPU 6-15 ms, GPU 7,26 ms | compositeur CPU 1,05 GPU 0,33 ms | latence 60,3 ms
+NK_XR_EXIT=600 -> RequestExit -> End -> « Termine proprement. »   zéro refus de la machine d'états
+```
+
+**`EndFrame` avec la sélection du mode de fusion a donc tourné ~600 fois sur
+matériel réel** — la moitié « prouvée inerte » du correctif est devenue prouvée
+tournante. La branche de repli (`modes[0]` sans OPAQUE) reste du code mort,
+comme écrit au § « HORS D'ATTEINTE ».
+
+### Le contrôle indépendant (journal du service Meta, prévu AVANT la course)
+
+```
+00:41:57  Hmd_Create (pid 47992)        00:42:04  Will VR Render + CreateTextureSet
+          4 jeux 1768x1781 x3 (2 yeux + 2 profondeurs), format 29, mips 11
+00:42:41  DestroyTextureSet x5 (found) -> Hmd_Release -> Unregister   DÉMONTAGE ORDONNÉ
+```
+
+La veille, la même séquence se terminait par `App exited unexpectedly: error 6`.
+Le runtime voit désormais un client qui **rend, puis range, puis part** — pas un
+client qui meurt. Le lien streamait à ~74 images décodées/s autour de la fenêtre.
+
+### Ce que cette course NE dit PAS, et les dettes qu'elle déclare
+
+1. **Le contenu visuel dans le casque n'est PAS vérifié par la mesure.** Les
+   journaux prouvent que des frames sont soumises et composées, pas ce qu'elles
+   montrent. Seul un humain casque sur la tête peut le dire — Rodolf.
+2. ⚠️ **La corruption glslang est TOUJOURS présente** (essai de montée de
+   version en cours chez NKRenderer). Silencieuse, et **toute course Vulkan la
+   traverse** — y compris celle-ci : les chiffres ci-dessus sont pris *au
+   travers* d'un défaut connu non réparé.
+3. **3 pipelines échouent** (×2 yeux : ParticlesBillboard, TrailMesh, Decal —
+   `shader handle id=0 introuvable`) — territoire NKRenderer, non touché ici.
+4. **~14 s entre la frame fenêtre 1 et la 2** (00:42:09 → 00:42:23), puis régime
+   établi immédiat. Observé, non expliqué — les créations paresseuses de
+   pipelines au premier flush sont une hypothèse, pas une mesure.
+5. **Un événement runtime non mappé** : `XrStructureType 52` dans `PollEvent`,
+   journalisé sans être traité. À identifier avant de le mapper.
+6. `frames rejouees -1` : métrique indisponible sur ce chemin — un `-1` qui
+   ressemble à un compte est un mensonge d'affichage, à corriger.
+
+---
+
 ## ✅ 2026-08-16 (soir) — « NKXRDemo ouvre le SIMULATEUR alors que le Quest 2 est branché » : ce n'était PAS un repli
 
 **Symptôme rapporté** : première ligne du journal de `NKXRDemo`,

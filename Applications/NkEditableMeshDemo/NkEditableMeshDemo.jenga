@@ -19,7 +19,7 @@ with project("NkEditableMeshDemo"):
 
     nkentseudependson(
         ["Noge", "NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
-         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKUI", "NKGlad",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKGlad",
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src"],

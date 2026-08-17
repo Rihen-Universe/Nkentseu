@@ -223,10 +223,12 @@ namespace nkentseu {
 					 * @param next Pointeur vers le nœud suivant du bucket
 					 * @param args Arguments forwardés vers le constructeur de Value
 					 *
-					 * @note Volontairement HORS de `#if defined(NK_CPP11)` : cette macro n'est
-					 *       définie nulle part dans le dépôt, donc le constructeur à forwarding
-					 *       parfait ci-dessus n'est jamais compilé. C'est ce constructeur-ci qui
-					 *       porte les surcharges Insert(const Key &, Value &&) et Emplace().
+					 * @note HORS de `#if defined(NK_CPP11)`, et il y reste : c'est ce
+					 *       constructeur-ci qui porte Insert(const Key &, Value &&) et
+					 *       Emplace() — construction in-place VARIADIQUE de Value, sans
+					 *       équivalent dans le bloc gardé. (`NK_CPP11` est OUVERTE depuis
+					 *       le 2026-08-17, dérivée de NKENTSEU_HAS_CPP11 ; l'ancienne
+					 *       justification « macro définie nulle part » ne tient plus.)
 					 * @note Le tag NkPiecewiseTag évite tout recouvrement avec les deux
 					 *       constructeurs existants : aucun appel écrit avant ce jour ne peut
 					 *       le sélectionner.

@@ -486,6 +486,36 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
 > → **pont anim non destructif** (M3.6), le tout **from-scratch, zero-STL, GPU-free, 9/9 tests headless**
 > (`NkAnimPhysTest`). Prochaine grande étape : M4 (IA auto-pose) et câblage éditeur (viz + gizmos de courbe).
 
+> **✅ LE VERDICT D'ÉQUILIBRE S'ALLUME (2026-08-17) — XBot Mixamo, premier rig aux pieds nommés.**
+> Rodolf a déposé `Resources/Models/XBot/` (XBot.glb + « X Bot.fbx », idem YBot). Mesuré :
+> - les noms traversent : `mixamorig:LeftFoot` / `mixamorig:RightFoot` reçus par `SetAnthropometric`
+>   (65 joints, 65/65 nommés) ; régime anthropométrique PRIS (masses 1→15) ;
+> - 6 appuis détectés par nom (Foot/ToeBase/Toe_End × 2 — mots-clés foot/ankle/toe) ;
+> - **à l'écran : « COM anthropometrique — EQUILIBRE (COM au-dessus des appuis) »**, sphère verte,
+>   polygone jaune — pose debout, vert attendu, vert obtenu. Capture :
+>   `Captures/2026-08-17_xbot_glb_verdict_equilibre_vert.png`. Témoin figé : `NkAnimPhysTest`
+>   suite « CABLAGE XBot verdict » (14/14).
+> - ⚠️ **DETTE M3 mesurée en passant — le TALON n'a pas de joint.** Au sol physique (plan au pied
+>   le plus bas), le joint Foot (cheville) est à ~0.10 du sol, au-delà du seuil de 4 % : il ne
+>   reste que les 4 orteils, polygone entièrement EN AVANT du COM (z=-0.01) → verdict ROUGE sur
+>   une pose debout. Le vert à l'écran tient au sol de l'éditeur (floorY = centre.y - rayon/2,
+>   pieds SOUS le plan, tout projeté talon compris). Trouvée par l'usage (premier rig à pieds),
+>   pas par relecture. Remèdes candidats, à trancher : point talon dérivé du joint Foot projeté
+>   au sol, ou seuil de contact par famille de joint. Le témoin épingle le fait, il ne gate pas dessus.
+> - Au passage : chemin du modèle en argument de NkAnimaEditor (arg sans tiret, défaut CesiumMan)
+>   + `NK_SHOW_COM` (famille NK_POSE_TEST) pour allumer le COM au lancement — captures reproductibles.
+
+> **📤 PARITÉ FBX/glb MESURÉE (2026-08-17) — transmise à NKRenderer (canal, Q30).** Le même
+> personnage Mixamo dans les deux formats (« X Bot.fbx » vs XBot.glb, idem YBot), chargeur FBX de
+> `feat/nkrenderer-dettes` (`a25ee024`) exercé dans un worktree témoin détaché `Nkentseu-fbxtemoin`.
+> Résultat : le banc CesiumMan stock est tout vert, mais **le Mixamo natif ne tient pas** —
+> squelette effondré en bâton (PreRotation non composée : tous les joints à x=z≈0), inverseBind
+> des Cluster fausses (les deux pieds au même point), animations perdues (0 lues, 384 courbes dans
+> le binaire), joints feuilles absents des Cluster (XBot 64/65, YBot 52/65). Le correctif appartient
+> à NKRenderer (`NkFBXLoader.cpp`) ; les instruments (sonde v3, inspecteur Python du glb, dumps)
+> sont conservés dans `Captures/2026-08-17_fbx_parite/` et rejouent en ~2 min. Tant que ce n'est
+> pas corrigé : **le .glb reste le SEUL format d'entrée prouvé pour NkAnima** (consigne Q29 inchangée).
+
 ### M4 — IA auto-pose
 Petit modèle qui **prédit des poses plausibles** (pose→pose / physics-aware) =
 1er vrai morceau de **NKAI**. S'appuie sur l'auto-posing M3.5 pour garantir que
@@ -536,6 +566,26 @@ texte libre) ; cache + fallback règles si indisponible.
 ### M5 — App standalone
 `Applications/NkAnima` complète + UI timeline/viewport via **Editor Kit** (déjà
 utilisé dans NKCode).
+
+**📋 DIRECTIVE DE RODOLF (2026-08-17) — l'interface de NkAnimaEditor se conforme
+à la facture Nogee / NK3DModeler.** File d'ordre APRÈS le chantier XBot (verdict
++ parité FBX/glb) :
+1. Le shell est déjà monté (120 l. dans `main.cpp`) mais il n'y a que 2 panneaux
+   (Timeline, Preview). Cible : barre de titre style NK3DModeler, panneaux
+   ancrés, barre d'état via les hooks du kit (`SetFooter`/`SetFooterLights`,
+   `SetStatusBarFn`).
+2. **Les planches de `Applications/Nogee/design/` sont la cible visuelle
+   EXACTE** (règle au corpus) — surtout `…SequencerTimeline.png` (ligne de
+   temps) et `…EditorVueprincipale.png` (disposition). Les lire (Read) avant
+   d'écrire. Couleurs par jetons de thème NKGui, jamais en dur. « Aetherion »
+   ne s'écrit nulle part.
+3. **Pas de duplication** : récupérer les patrons de panneaux NKGui de Nogee
+   (`Panels/` + modèles extraits dans `Model/`) et les recolorer. La spec 06
+   (`NkAnimaEditor/design/`) complète ce que les planches ne montrent pas.
+4. Ordre : Timeline conformée à la planche d'abord (panneau signature), puis la
+   vue d'ensemble (disposition des 2 panneaux existants), puis les panneaux
+   manquants par priorité de la spec 04. Trois nombres par panneau : lignes,
+   temps, surprise.
 
 ## Dépendances / liens
 - Rendu + skinning GPU : NKRenderer (`Tools/Render3D`, `Tools/Animation`, `Tools/IK`).
