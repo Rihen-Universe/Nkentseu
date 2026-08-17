@@ -42,6 +42,7 @@
 #include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
 #include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
 #include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de contenu
+#include "NK3DModeler/Shell/NkModelerImport.h"  // import de fichiers 3D (bouton Importer)
 #include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
@@ -1751,6 +1752,13 @@ int nkmain(const NkEntryState &entry) {
 						"[materiaux] creation impossible : plus d'emplacement libre");
 				}
 			}
+			// 2 = IMPORTER UN FICHIER 3D (bouton « Importer » du navigateur de
+			// contenu, branche le 17/08 -- il etait peint et jamais lu). La
+			// moitie ANALYSE : charge par le chargeur du format, decoupe par nom
+			// de sous-mesh, journalise, resume dans hierNote. La creation des
+			// noeuds viendra au-dessus de la meme fonction (NkModelerImport.h).
+			if (st.pickerAction == 2 && st.picker.pickerResultPath[0])
+				nk3d::NkImportAnalyze(st, st.picker.pickerResultPath);
 			st.pickerAction = 0;
 			st.matNewPending = false;
 			// Le mode « nouveau materiau » du selecteur se desarme TOUT SEUL,

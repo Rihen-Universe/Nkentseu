@@ -98,6 +98,21 @@ namespace nkentseu {
 				HoverFill(p, br2, hit.Add("brw.imp", br2), 2.f);
 				p.IconV(x, r.y, topH, NkIcon::Import, NkRole::Text, 13.f);
 				p.TextV(x + 18.f, r.y, topH, "Importer");
+				// CE BOUTON ETAIT PEINT ET JAMAIS LU -- mesure le 17/08 : aucune
+				// occurrence de hit.Clicked("brw.imp") dans le depot, alors que
+				// « Creer » juste au-dessus etait bien consomme. Un bouton mort de
+				// naissance, la famille « ca a l'air fonctionnel ».
+				//
+				// Il ouvre le selecteur du kit (PK_File) SANS confinement au
+				// projet : un fichier 3D a importer vient de l'exterieur
+				// (Telechargements, un autre disque) -- le confiner a la racine
+				// aurait rendu l'import impossible sans le dire. Le depart reste
+				// la racine du projet : un point de depart connu, pas une prison.
+				if (hit.Clicked("brw.imp")) {
+					st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
+											 st.projectRoot.CStr(), nullptr, 0, nullptr);
+					st.pickerAction = 2; // 2 = importer un fichier 3D
+				}
 				x += bw2 + 8.f;
 			}
 			p.VLine(x, r.y + 6.f, topH - 12.f);
