@@ -161,7 +161,7 @@ de fréquence :
    plateau sans cases.
 2. **JSON malformé.** Le scanner des modules est minimal : il n'accepte pas les
    commentaires, ni les virgules traînantes.
-3. **Le module ne sait pas charger de plateau.** `RegleMinimale.cpp` renvoie
+3. **Le module ne sait pas charger de plateau.** `RegleContratNu.cpp` renvoie
    toujours `0` : son plateau est figé dans le code. C'est un renoncement assumé
    pour un exemple, pas un modèle à suivre.
 

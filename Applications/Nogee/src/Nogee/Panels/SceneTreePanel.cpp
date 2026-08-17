@@ -189,26 +189,8 @@ namespace nkentseu {
 			NkUIMenu::EndContextMenu(ctx);
 		}
 
-		bool SceneTreePanel::IsOpen(ecs::NkEntityId id) const noexcept {
-			for (nk_uint32 i = 0; i < mOpenCount; ++i)
-				if (mOpenNodes[i] == id)
-					return true;
-			return false;
-		}
-
-		void SceneTreePanel::SetOpen(ecs::NkEntityId id, bool open) noexcept {
-			if (open) {
-				if (!IsOpen(id) && mOpenCount < kMaxOpen)
-					mOpenNodes[mOpenCount++] = id;
-			} else {
-				for (nk_uint32 i = 0; i < mOpenCount; ++i) {
-					if (mOpenNodes[i] == id) {
-						mOpenNodes[i] = mOpenNodes[--mOpenCount];
-						return;
-					}
-				}
-			}
-		}
+		// IsOpen / SetOpen vivent desormais dans NkSceneTreeModel (en-tete neutre,
+		// partageable avec un panneau porte sur NKGui). Corps inchange.
 
 	} // namespace noge
 } // namespace nkentseu

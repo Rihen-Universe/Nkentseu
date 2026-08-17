@@ -33,7 +33,9 @@ with project("NKAutogradTest"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        ["NKAutograd", "NKTensor", "NKRHI", "NKSL", "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream",
+        # NKNN : pour eprouver le VRAI NkLlamaLM (test de la ligne absente sur le
+        # modele reel, et non sur un montage synthetique reconstruit a cote).
+        ["NKNN", "NKAutograd", "NKTensor", "NKRHI", "NKSL", "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream",
          "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKGLSlang", "NKSPIRVCross"],
         extra_includes=["src", "%{NKGlad.location}/include"]

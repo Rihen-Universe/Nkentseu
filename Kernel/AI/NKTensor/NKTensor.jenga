@@ -25,8 +25,12 @@ with project("NKTensor"):
     # <glad/egl.h> sur Android/HarmonyOS. Sans le repertoire d'include de NKGlad,
     # NkTensorGpu.cpp echoue en "fatal error: 'glad/egl.h' file not found" et tout
     # build mobile d'une application qui tire NKTensor (dont renderdemo) est bloque.
+    # NKTime : profil par noyau (NkTensorGpu::ProfilRapport) — horloge monotone
+    # haute resolution. Sans elle, on ne peut mesurer QUE le total, jamais la part
+    # de chaque noyau, et une moyenne sur des operations de tailles incomparables
+    # ne designe aucun coupable.
     _tensorDeps = ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
-                   "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross"]
+                   "NKTime", "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross"]
     if USE_NKGLAD:
         _tensorDeps.append("NKGlad")
 

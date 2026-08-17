@@ -253,6 +253,23 @@ namespace nkentseu {
 				return NkString("");
 			}
 
+			// NOM FBX -> NOM LISIBLE. Un nom d'objet FBX est encode
+			// « Nom\0\x01Classe » (ex. « Cube\0\x01Model ») : le separateur est un
+			// octet NUL suivi de 0x01. Laisse tel quel, le nom porte un NUL au
+			// milieu -- et ce depot a deja paye ce qu'un octet NUL coute a un
+			// outil qui le rencontre (fichier saute en silence, chaine tronquee).
+			// On coupe donc au premier NUL, et on rend le nom seul.
+			NkString FbxCleanName(const NkString &raw) {
+				NkString outName;
+				for (uint32 i = 0; i < (uint32)raw.Size(); ++i) {
+					const char c = raw[(NkString::SizeType)i];
+					if (c == '\0' || c == '\x01')
+						break;
+					outName.Append(c);
+				}
+				return outName;
+			}
+
 			// ════════════════════════════════════════════════════════════════
 			//  Materiaux/textures FBX — graphe d'objets (Objects/Connections).
 			// ════════════════════════════════════════════════════════════════
@@ -382,18 +399,12 @@ namespace nkentseu {
 			//  « FBX operationnel », 2026-08-17).
 			// ════════════════════════════════════════════════════════════════
 
-			// Nom d'un objet FBX depuis sa 1re prop chaine.
-			//   binaire : "Nom\0\x01Classe"  -> tronquer au premier NUL ;
-			//   ASCII   : "Classe::Nom"      -> garder ce qui suit le dernier "::".
+			// Nom d'un objet FBX depuis sa 1re prop chaine. La troncature au
+			// separateur binaire "\0\x01" est celle de FbxCleanName (fusion
+			// origin/main 332ae4f8 — meme besoin, un seul code) ; on ajoute ici
+			// le cas ASCII "Classe::Nom" -> garder ce qui suit le dernier "::".
 			NkString ObjNameOf(const FbxNode &n) {
-				NkString raw = StrOf(&n);
-				NkString out;
-				for (nk_size i = 0; i < raw.Length(); ++i) {
-					const char ch = raw.CStr()[i];
-					if (ch == '\0')
-						break;
-					out.Append(ch);
-				}
+				NkString out = FbxCleanName(StrOf(&n));
 				for (nk_size p = out.Length(); p >= 2; --p) {
 					if (out.CStr()[p - 1] == ':' && out.CStr()[p - 2] == ':') {
 						out = NkString(out.CStr() + p);
@@ -715,6 +726,11 @@ namespace nkentseu {
 				}
 
 				NkSubMesh sm;
+				// NOM DU SOUS-MESH — replis en cascade. Le nom de la Geometry est
+				// souvent vide ou technique ; l'appelant le remplacera par celui du
+				// Model proprietaire, qui est le nom que l'artiste a donne. Le
+				// champ existait deja dans NkSubMesh : personne ne le remplissait.
+				sm.name = FbxCleanName(StrOf(&geo));
 				sm.firstIndex = subStart;
 				sm.indexCount = idxCount;
 				sm.baseVertex = baseV;
@@ -958,6 +974,15 @@ namespace nkentseu {
 					const int64 modelId = FindOwnerOO(conns, ge.id, models);
 					if (modelId < 0)
 						continue;
+					// LE NOM DU MODEL PRIME sur celui de la Geometry : c'est celui
+					// que l'artiste a donne, et c'est la frontiere de model dont la
+					// decomposition d'un import a besoin. On n'ecrase jamais avec du
+					// vide -- le nom de la Geometry reste alors en place.
+					{
+						const NkString mdlName = FbxCleanName(StrOf(FindById(models, modelId)));
+						if (!mdlName.Empty())
+							out.subMeshes[(NkVector<NkSubMesh>::SizeType)(out.subMeshes.Size() - 1)].name = mdlName;
+					}
 					NkVector<int64> matIds;
 					FindChildrenOO(conns, modelId, materials, matIds);
 					if (matIds.Empty())

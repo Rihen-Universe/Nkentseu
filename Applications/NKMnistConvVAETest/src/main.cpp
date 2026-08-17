@@ -122,6 +122,7 @@ int main() {
 		double sum = 0;
 		uint32 nb = 0;
 		for (uint32 start = 0; start < N; start += BS) {
+			adam.ZeroGrad(); // Backward() n'efface plus les feuilles : un lot = un pas
 			const uint32 B = (start + BS <= N) ? BS : (N - start);
 			NkTensor xb = NkTensor::Zeros(NkShape{(int64)B, 1, (int64)SIDE, (int64)SIDE});
 			float *xp = xb.DataAs<float>();
