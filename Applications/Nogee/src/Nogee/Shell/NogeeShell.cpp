@@ -5,11 +5,25 @@
 // =============================================================================
 #include "Nogee/Shell/NogeeShell.h"
 #include "Nogee/Panels/ConsolePanelGui.h"
+#include "Nogee/Panels/WorldOutlinerPanel.h"
+#include "Nogee/Panels/DetailsPanel.h"
+#include "Nogee/Panels/ContentBrowserPanel.h"
+#include "Nogee/Panels/ViewportPanel.h"
+#include "Nogee/Editor/NkSelectionManager.h"
+#include "Nogee/Editor/CommandHistory.h"
+#include "Nogee/Editor/AssetManager.h"
+#include "Nogee/Editor/ProjectManager.h"
+
+#include "NKECS/World/NkWorld.h"
+#include "Noge/ECS/Scene/NkSceneGraph.h"
+#include "Noge/ECS/Components/Core/NkCoreComponents.h"
 
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui (impl generalisee)
 #include "NKMemory/NkUniquePtr.h"
 #include "NKLogger/NkLog.h"
+#include <cstdio>
+#include <cstring>
 
 namespace nkentseu {
 	namespace noge {
@@ -222,6 +236,406 @@ namespace nkentseu {
 					static_cast<NkEditorShell *>(u)->RequestClose();
 			}
 
+			// ═════════════════════════════════════════════════════════════════
+			// SONDE GLISSER-DEPOSER (--dragdrop-test) — meme regle que la sonde
+			// d'occultation : une mesure reproductible ne peut pas cliquer a la
+			// main. La sonde pilote ctx.input depuis l'overlay (posee en fin de
+			// frame N, lue par BeginFrame N+1), avec les rects ECRAN releves par
+			// les panneaux eux-memes — jamais une geometrie devinee.
+			//
+			// Scenarios, dans l'ordre (les negatifs d'abord, l'arbre est encore
+			// simple ; le positif §7 change la hierarchie) :
+			//   0. depliage de la racine (les TreeNode NKGui naissent replies) ;
+			//   1. §7 NEGATIF : glisser Enfant_A, lacher sur le Viewport (cible
+			//      typee "asset") -> AUCUN changement de parent ;
+			//   2. §7 NEGATIF : glisser la Racine sur son propre descendant
+			//      Enfant_B -> REFUS cycle du panneau, parent inchange ;
+			//   3. §7 POSITIF : glisser Enfant_A sur Enfant_B -> SetParent ;
+			//   4. §9 POSITIF : glisser la 1re carte du Content Browser sur le
+			//      Viewport -> livraison journalisee (spawn non cable) ;
+			//   5. §9 NEGATIF : re-glisser la carte, lacher sur une ligne de
+			//      l'Outliner (cible typee "entity") -> pas de 2e livraison.
+			// ═════════════════════════════════════════════════════════════════
+			struct DragProbe {
+					bool enabled = false;
+					int32 frame = 0;	///< frames depuis le demarrage
+					int32 scenario = 0; ///< 0..5, puis 6 = verdict
+					// ⚠️ CADENCE EN SECONDES, PAS EN FRAMES (paye : a ~140 fps, des
+					// phases de 2 frames font ~40 ms — chaque paire d'appuis tombait
+					// sous le seuil de DOUBLE-CLIC de NKGui (0,40 s, NkGuiInput.h) :
+					// rename inline au lieu d'un glisser, et zero drag demarre).
+					float32 t = 0.f;	   ///< temps ecoule DANS le geste courant
+					float32 waitT = 0.f;   ///< temps passe a attendre une geometrie
+					bool sawDrag = false;   ///< controle positif : le glisser a demarre
+					bool diagDone = false;  ///< diagnostic mi-geste emis
+					bool diag2Done = false; ///< diagnostic en plein APPUI emis
+					int32 attempts = 0;		///< tentatives du geste courant (cf. RETRY)
+					int32 checks = 0;
+					int32 fails = 0;
+					bool focusDone = false; ///< FocusPanel du scenario courant fait
+					bool reported = false;
+					char expectPath[256] = {}; ///< chemin attendu au scenario 4
+					ecs::NkEntityId idRacine{}, idA{}, idB{};
+			};
+
+			DragProbe g_drag;
+			WorldOutlinerPanel *g_dragOutliner = nullptr;
+			ContentBrowserPanel *g_dragContent = nullptr;
+			ViewportPanel *g_dragViewport = nullptr;
+			ecs::NkWorld *g_dragWorld = nullptr;
+
+			void DragCheck(bool ok, const char *what) {
+				++g_drag.checks;
+				if (!ok)
+					++g_drag.fails;
+				char msg[256];
+				std::snprintf(msg, sizeof(msg), "[SONDE-DD] TEMOIN %s : %s\n", ok ? "OK   " : "ECHEC", what);
+				logger.Info(msg);
+			}
+
+			ecs::NkEntityId DragParentOf(ecs::NkEntityId id) {
+				const ecs::NkParent *p = g_dragWorld ? g_dragWorld->Get<ecs::NkParent>(id) : nullptr;
+				return p ? p->entity : ecs::NkEntityId::Invalid();
+			}
+
+			bool DragChildrenContains(ecs::NkEntityId parent, ecs::NkEntityId child) {
+				const ecs::NkChildren *ch = g_dragWorld ? g_dragWorld->Get<ecs::NkChildren>(parent) : nullptr;
+				if (!ch)
+					return false;
+				for (nk_uint32 i = 0; i < ch->count; ++i)
+					if (ch->children[i] == child)
+						return true;
+				return false;
+			}
+
+			void DragVerdict(NkEditorFrameContext &) {
+				char msg[192];
+				std::snprintf(msg, sizeof(msg), "[SONDE-DD] VERDICT : %d/%d temoins OK%s\n",
+							  g_drag.checks - g_drag.fails, g_drag.checks,
+							  g_drag.fails == 0 ? " — SONDE OK" : " — SONDE ECHEC");
+				logger.Info(msg);
+				g_drag.reported = true;
+				if (g_shell)
+					g_shell->RequestClose();
+			}
+
+			void DragOverlay(NkEditorFrameContext &ec, void *) {
+				if (!g_drag.enabled || g_drag.reported)
+					return;
+				nkgui::NkGuiContext &ui = ec.Ui();
+				++g_drag.frame;
+
+				// Garde-fou global : si la mesure ne converge pas, on conclut en
+				// echec explicite plutot que de tourner sans fin.
+				if (g_drag.frame > 20000) { // ~60 s meme a 300 fps : garde-fou, pas une cadence
+					DragCheck(false, "delai global depasse (20000 frames) — la sonde ne converge pas");
+					DragVerdict(ec);
+					return;
+				}
+				if (g_drag.frame < 20)
+					return; // laisser le dock se mettre en place
+
+				auto center = [](const nkgui::NkRect &r) {
+					return nkgui::NkVec2{r.x + r.w * 0.5f, r.y + r.h * 0.5f};
+				};
+				auto rowCenter = [&](ecs::NkEntityId id, nkgui::NkVec2 *out) -> bool {
+					const WorldOutlinerPanel::RowProbe *rp =
+						g_dragOutliner ? g_dragOutliner->ProbeRow(id) : nullptr;
+					if (!rp)
+						return false;
+					*out = center(rp->rect);
+					return true;
+				};
+				auto pose = [&](nkgui::NkVec2 p, bool down) {
+					ui.input.mousePos = p;
+					ui.input.mouseDown[0] = down;
+				};
+
+				const float32 dt = (ui.input.dt > 0.f && ui.input.dt < 0.1f) ? ui.input.dt : (1.f / 60.f);
+
+				// ── Scenario 0 : depliage de la racine ────────────────────────
+				if (g_drag.scenario == 0) {
+					if (!g_drag.focusDone && g_shell) {
+						g_shell->FocusPanel("World Outliner");
+						g_drag.focusDone = true;
+						return;
+					}
+					nkgui::NkVec2 pA;
+					if (rowCenter(g_drag.idA, &pA)) { // deja depliee
+						g_drag.scenario = 1;
+						g_drag.t = 0.f;
+						g_drag.waitT = 0.f;
+						g_drag.sawDrag = false;
+						g_drag.diagDone = false;
+						g_drag.diag2Done = false;
+						g_drag.focusDone = true; // meme panneau au scenario 1
+						logger.Info("[SONDE-DD] scenario 0 : racine depliee, lignes TEMOIN visibles\n");
+						return;
+					}
+					nkgui::NkVec2 pR;
+					if (!rowCenter(g_drag.idRacine, &pR)) {
+						g_drag.waitT += dt;
+						if (g_drag.waitT > 4.f) {
+							DragCheck(false, "scenario 0 : ligne TEMOIN_Racine jamais mesuree");
+							DragVerdict(ec);
+						}
+						return;
+					}
+					// clic LENT : un cycle par seconde — deux appuis a moins de
+					// 0,40 s seraient un DOUBLE-CLIC (rename), pas deux clics.
+					g_drag.t += dt;
+					if (g_drag.t < 0.20f)
+						pose(pR, false);
+					else if (g_drag.t < 0.45f)
+						pose(pR, true);
+					else if (g_drag.t < 1.00f)
+						pose(pR, false);
+					else {
+						g_drag.t = 0.f; // re-mesurer : si toujours repliee, re-cliquer
+						g_drag.diagDone = false;
+						g_drag.diag2Done = false;
+					}
+					return;
+				}
+
+				// ── Verdict ───────────────────────────────────────────────────
+				if (g_drag.scenario >= 6) {
+					DragVerdict(ec);
+					return;
+				}
+
+				// ── S3 : le SUCCES du geste cache sa propre geometrie (paye a la
+				// premiere execution : A reparentee sous B, noeud B REPLIE, ligne A
+				// plus rendue -> « geometrie jamais mesuree » alors que le journal
+				// prouvait « reparentage applique »). Si l'etat du MONDE dit que le
+				// geste a abouti, on joue les temoins au lieu d'exiger une
+				// geometrie que le succes a fait disparaitre.
+				if (g_drag.scenario == 3 && DragParentOf(g_drag.idA) == g_drag.idB) {
+					DragCheck(g_drag.sawDrag, "controle positif du scenario : le glisser a demarre");
+					DragCheck(true, "S3 positif : Enfant_A a pour parent Enfant_B");
+					DragCheck(DragChildrenContains(g_drag.idB, g_drag.idA),
+							  "S3 positif : les enfants d'Enfant_B contiennent Enfant_A");
+					DragCheck(!DragChildrenContains(g_drag.idRacine, g_drag.idA),
+							  "S3 positif : Enfant_A a quitte les enfants de la racine");
+					g_drag.scenario = 4;
+					g_drag.t = 0.f;
+					g_drag.waitT = 0.f;
+					g_drag.sawDrag = false;
+					g_drag.diagDone = false;
+						g_drag.diag2Done = false;
+					g_drag.focusDone = false;
+					ui.input.mouseDown[0] = false; // souris relachee, etat propre
+					return;
+				}
+
+				// ── Scenarios 1..5 : un GESTE de glisser generique ───────────
+				// Sources/cibles mesurees CHAQUE frame (le dock peut bouger).
+				nkgui::NkVec2 src{}, dst{};
+				bool haveGeom = false;
+				switch (g_drag.scenario) {
+					case 1: { // §7 negatif : A -> viewport (type refuse)
+						nkgui::NkRect vz;
+						haveGeom = rowCenter(g_drag.idA, &src) &&
+								   (g_dragViewport && g_dragViewport->ProbeRect(&vz));
+						if (haveGeom)
+							dst = center(vz);
+						break;
+					}
+					case 2: // §7 negatif : Racine -> Enfant_B (cycle)
+						if (!g_drag.focusDone && g_shell) {
+							g_shell->FocusPanel("World Outliner");
+							g_drag.focusDone = true;
+							return;
+						}
+						haveGeom = rowCenter(g_drag.idRacine, &src) && rowCenter(g_drag.idB, &dst);
+						break;
+					case 3: // §7 positif : A -> B
+						if (!g_drag.focusDone && g_shell) {
+							g_shell->FocusPanel("World Outliner");
+							g_drag.focusDone = true;
+							return;
+						}
+						haveGeom = rowCenter(g_drag.idA, &src) && rowCenter(g_drag.idB, &dst);
+						break;
+					case 4: { // §9 positif : carte -> viewport
+						if (!g_drag.focusDone && g_shell) {
+							g_shell->FocusPanel("Content Browser");
+							g_drag.focusDone = true;
+							return;
+						}
+						nkgui::NkRect card, vz;
+						const char *rel = nullptr;
+						haveGeom = g_dragContent && g_dragContent->ProbeCard(&card, &rel) &&
+								   g_dragViewport && g_dragViewport->ProbeRect(&vz);
+						if (haveGeom) {
+							src = center(card);
+							dst = center(vz);
+							std::snprintf(g_drag.expectPath, sizeof(g_drag.expectPath), "%s", rel);
+						}
+						break;
+					}
+					case 5: { // §9 negatif : carte -> ligne Outliner (type refuse)
+						nkgui::NkRect card;
+						haveGeom = g_dragContent && g_dragContent->ProbeCard(&card, nullptr) &&
+								   rowCenter(g_drag.idRacine, &dst);
+						if (haveGeom)
+							src = center(card);
+						break;
+					}
+				}
+
+				if (!haveGeom) {
+					// §9 : aucune carte FICHIER visible — les dossiers occupent la
+					// vue initiale, les fichiers sont sous le pli (paye : clipOk=0,
+					// puis carte=0 une fois la visibilite exigee). Un utilisateur
+					// ferait defiler : la sonde pose la molette au centre du
+					// panneau jusqu'a ce qu'une carte fichier entre dans le clip
+					// (le defilement se cale en butee basse, ou vivent les
+					// fichiers — l'ordre du navigateur met les dossiers d'abord).
+					if ((g_drag.scenario == 4 || g_drag.scenario == 5) && g_dragContent) {
+						nkgui::NkRect area;
+						nkgui::NkRect cardTmp;
+						if (!g_dragContent->ProbeCard(&cardTmp, nullptr) && g_dragContent->ProbeArea(&area)) {
+							pose(center(area), false);
+							// DIFFEREE : la molette brute est consommee par EndFrame
+							// avant d'etre lue (meme famille que l'anti-gel).
+							ui.input.AddWheelDeferred(-1.f); // negatif = vers le bas
+						}
+					}
+					g_drag.waitT += dt;
+					if (g_drag.waitT > 4.f) {
+						// Diagnostic : QUELLE geometrie manque — on ne conclut
+						// jamais d'un echec muet.
+						nkgui::NkVec2 tmp;
+						nkgui::NkRect tr;
+						const char *rel = nullptr;
+						char msg[256];
+						std::snprintf(msg, sizeof(msg),
+									  "scenario %d : geometrie jamais mesuree (racine=%d A=%d B=%d "
+									  "carte=%d viewport=%d)",
+									  g_drag.scenario, rowCenter(g_drag.idRacine, &tmp) ? 1 : 0,
+									  rowCenter(g_drag.idA, &tmp) ? 1 : 0, rowCenter(g_drag.idB, &tmp) ? 1 : 0,
+									  (g_dragContent && g_dragContent->ProbeCard(&tr, &rel)) ? 1 : 0,
+									  (g_dragViewport && g_dragViewport->ProbeRect(&tr)) ? 1 : 0);
+						DragCheck(false, msg);
+						g_drag.scenario++;
+						g_drag.t = 0.f;
+						g_drag.waitT = 0.f;
+						g_drag.sawDrag = false;
+						g_drag.diagDone = false;
+						g_drag.diag2Done = false;
+						g_drag.focusDone = false;
+					}
+					return;
+				}
+				g_drag.waitT = 0.f;
+
+				// Controle positif du scenario : un glisser a-t-il DEMARRE ?
+				if (ui.dragActive)
+					g_drag.sawDrag = true;
+
+				g_drag.t += dt;
+				const float32 t = g_drag.t;
+				if (!g_drag.diagDone && t >= 0.85f) { // diagnostic a mi-geste
+					g_drag.diagDone = true;
+					char msg[256];
+					std::snprintf(msg, sizeof(msg),
+								  "[SONDE-DD] scenario %d mi-geste : dragActive=%d type='%s' charge=%d octets "
+								  "| src=(%d,%d) activeId=%u hotIdPrev=%u candidateId=%u\n",
+								  g_drag.scenario, ui.dragActive ? 1 : 0, ui.dragType,
+								  (int)ui.dragPayloadSize, (int)src.x, (int)src.y, (unsigned)ui.activeId,
+								  (unsigned)ui.hotIdPrev, (unsigned)ui.dragCandidateId);
+					logger.Info(msg);
+				}
+				if (!g_drag.diag2Done && t >= 0.40f) { // diagnostic en plein APPUI
+					g_drag.diag2Done = true;
+					char msg[256];
+					std::snprintf(msg, sizeof(msg),
+								  "[SONDE-DD] scenario %d plein-appui : src=(%d,%d) activeId=%u "
+								  "hotIdPrev=%u candidateId=%u down=%d fraicheurCarte=%.2fs "
+								  "portesPied{hoveredWin=%u curWin=%u clipOk=%d}\n",
+								  g_drag.scenario, (int)src.x, (int)src.y, (unsigned)ui.activeId,
+								  (unsigned)ui.hotIdPrev, (unsigned)ui.dragCandidateId,
+								  ui.input.mouseDown[0] ? 1 : 0,
+								  g_dragContent ? (ui.time - g_dragContent->ProbeCardTime()) : -1.f,
+								  g_dragContent ? (unsigned)g_dragContent->ProbeGateHoveredWin() : 0u,
+								  g_dragContent ? (unsigned)g_dragContent->ProbeGateCurWin() : 0u,
+								  g_dragContent ? (g_dragContent->ProbeGateClipContains() ? 1 : 0) : -1);
+					logger.Info(msg);
+				}
+				if (t < 0.20f)
+					pose(src, false); // survol source (hotIdPrev)
+				else if (t < 0.50f)
+					pose(src, true); // appui : armement
+				else if (t < 0.70f)
+					pose({src.x + 14.f, src.y}, true); // > seuil : le glisser part
+				else if (t < 1.00f)
+					pose(dst, true); // survol de la cible
+				else if (t < 1.30f)
+					pose(dst, false); // relachement
+				else if (t >= 1.60f) { // reglement, puis verification
+					// RETRY : le front d'appui pose depuis l'overlay rate parfois
+					// (intermittent, surtout caches froids apres un build — la
+					// signature mesuree : hotIdPrev pose, down=1, activeId=0). Un
+					// utilisateur re-cliquerait ; la sonde refait donc le geste,
+					// EN LE DISANT — un rate absorbe en silence serait une mesure
+					// qui ment. Les temoins ne sont evalues qu'apres un geste dont
+					// le glisser a demarre, ou l'epuisement des tentatives.
+					if (!g_drag.sawDrag && g_drag.attempts < 3) {
+						++g_drag.attempts;
+						char rmsg[160];
+						std::snprintf(rmsg, sizeof(rmsg),
+									  "[SONDE-DD] scenario %d RETRY %d/3 : le glisser n'a pas demarre, "
+									  "geste rejoue\n",
+									  g_drag.scenario, g_drag.attempts);
+						logger.Info(rmsg);
+						g_drag.t = 0.f;
+						g_drag.diagDone = false;
+						g_drag.diag2Done = false;
+						return;
+					}
+					DragCheck(g_drag.sawDrag, "controle positif du scenario : le glisser a demarre");
+					switch (g_drag.scenario) {
+						case 1:
+							DragCheck(DragParentOf(g_drag.idA) == g_drag.idRacine,
+									  "S1 hors cible : parent d'Enfant_A INCHANGE (racine)");
+							DragCheck(g_dragViewport && g_dragViewport->DropCount() == 0,
+									  "S1 hors cible : le viewport (type 'asset') n'a RIEN recu");
+							break;
+						case 2:
+							DragCheck(!DragParentOf(g_drag.idRacine).IsValid(),
+									  "S2 cycle : la racine n'a PAS ete reparentee sous son descendant");
+							break;
+						case 3:
+							DragCheck(DragParentOf(g_drag.idA) == g_drag.idB,
+									  "S3 positif : Enfant_A a pour parent Enfant_B");
+							DragCheck(DragChildrenContains(g_drag.idB, g_drag.idA),
+									  "S3 positif : les enfants d'Enfant_B contiennent Enfant_A");
+							DragCheck(!DragChildrenContains(g_drag.idRacine, g_drag.idA),
+									  "S3 positif : Enfant_A a quitte les enfants de la racine");
+							break;
+						case 4:
+							DragCheck(g_dragViewport && g_dragViewport->DropCount() == 1,
+									  "S4 §9 : le viewport a recu UNE livraison");
+							DragCheck(g_dragViewport &&
+										  std::strcmp(g_dragViewport->LastDroppedPath(), g_drag.expectPath) == 0,
+									  "S4 §9 : chemin livre INTACT (== chemin de la carte)");
+							break;
+						case 5:
+							DragCheck(g_dragViewport && g_dragViewport->DropCount() == 1,
+									  "S5 §9 hors cible : AUCUNE 2e livraison (type 'entity' refuse)");
+							break;
+					}
+					g_drag.scenario++;
+					g_drag.t = 0.f;
+					g_drag.sawDrag = false;
+					g_drag.diagDone = false;
+						g_drag.diag2Done = false;
+					g_drag.focusDone = false;
+					g_drag.attempts = 0;
+				}
+			}
+
 		} // namespace
 
 		int RunNogeeEditorShell(NogeAppConfig &cfg) noexcept {
@@ -255,6 +669,96 @@ namespace nkentseu {
 			if (g_probe.enabled)
 				shell->AddPanel(&g_probePanel);
 
+			// ── MONDE ECS + SYSTEMES EDITEUR COTE SHELL (2026-08-17) ─────────
+			// Le geste du commit 1d8a100f, rejoue ici : sans monde, les panneaux
+			// portes compilent mais ne peuvent rien montrer. Les systemes que les
+			// panneaux consomment (selection, historique, assets, projet) sont
+			// TOUS constructibles seuls — verifie : aucun ne demande de Layer ni
+			// de NkApplication. Ce qui vivait dans EditorLayer etait une
+			// POSSESSION, pas une dependance.
+			static ecs::NkWorld sWorld;
+			static ecs::NkSceneGraph sScene(sWorld, "Scene");
+			static NkSelectionManager sSel;
+			static CommandHistory sHist;
+			static AssetManager sAssets;
+			static ProjectManager sProject;
+
+			// Les memes entites TEMOIN que le chemin NKUI — et le meme
+			// complement explicite : SpawnNode et NkGameObjectFactory posent des
+			// composants DISJOINTS (cf. carnet), aucun des deux ne suffit.
+			{
+				const ecs::NkEntityId racine = sScene.SpawnNode("TEMOIN_Racine");
+				const ecs::NkEntityId enfantA = sScene.SpawnNode("TEMOIN_Enfant_A");
+				const ecs::NkEntityId enfantB = sScene.SpawnNode("TEMOIN_Enfant_B");
+				sScene.SetParent(enfantA, racine);
+				sScene.SetParent(enfantB, racine);
+				if (g_drag.enabled) { // la sonde drag-drop vise ces entites-la
+					g_drag.idRacine = racine;
+					g_drag.idA = enfantA;
+					g_drag.idB = enfantB;
+				}
+				const ecs::NkEntityId ids[3] = {racine, enfantA, enfantB};
+				const char *noms[3] = {"TEMOIN_Racine", "TEMOIN_Enfant_A", "TEMOIN_Enfant_B"};
+				for (int i = 0; i < 3; ++i) {
+					sWorld.Add<ecs::NkName>(ids[i], ecs::NkName(noms[i]));
+					sWorld.Add<ecs::NkTransform>(ids[i]);
+				}
+				logger.Info("[Nogee/Shell] Monde ECS : 3 entites TEMOIN_* creees\n");
+			}
+
+			// Assets + projet : racine = projet de demarrage s'il existe, sinon
+			// le repertoire courant (defaut raisonnable, ANNONCE — la spec est
+			// silencieuse sur la racine hors projet).
+			const char *projectDir =
+				cfg.startupProjectPath.Empty() ? "." : cfg.startupProjectPath.CStr();
+			sAssets.Init(rhi.GetDevice(), projectDir);
+			if (!cfg.startupProjectPath.Empty())
+				sProject.Load(cfg.startupProjectPath.CStr());
+
+			// ── Les 3 panneaux portes restants, lies puis enregistres ─────────
+			static WorldOutlinerPanel sOutliner;
+			static DetailsPanel sDetails;
+			static ContentBrowserPanel sContent;
+			// Zone CENTRE : la cible du glisser d'assets (§9). Pas un viewport —
+			// le rendu de scene n'existe pas sur ce chemin, et le panneau le dit
+			// (cf. ViewportPanel.h).
+			static ViewportPanel sViewport;
+
+			sOutliner.Bind(&sWorld, &sScene, &sSel, &sHist);
+			sDetails.Bind(&sWorld, &sSel, &sHist);
+			sContent.Init(&sAssets, projectDir);
+
+			shell->AddPanel(&sViewport);
+			shell->AddPanel(&sOutliner);
+			shell->AddPanel(&sDetails);
+			shell->AddPanel(&sContent);
+
+			// Cablage de la sonde drag-drop (--dragdrop-test) : les panneaux
+			// mesurent leur geometrie reelle, la sonde la consomme.
+			if (g_drag.enabled) {
+				sOutliner.EnableProbe(true);
+				sContent.EnableProbe(true);
+				sViewport.EnableProbe(true);
+				g_dragOutliner = &sOutliner;
+				g_dragContent = &sContent;
+				g_dragViewport = &sViewport;
+				g_dragWorld = &sWorld;
+			}
+
+			// Selection initiale : le Details Panel montre le TEMOIN au premier
+			// rendu au lieu d'attendre un clic (c'est aussi ce qui rend le temoin
+			// numerique verifiable sans souris).
+			{
+				NkVector<ecs::NkEntityId> roots;
+				sWorld.Query<const ecs::NkSceneNode>().ForEach(
+					[&](ecs::NkEntityId id, const ecs::NkSceneNode &n) {
+						if (roots.Empty() && n.name[0] != '\0')
+							roots.PushBack(id);
+					});
+				if (!roots.Empty())
+					sSel.Select(roots[0]);
+			}
+
 			// De quoi remplir la console : sans lignes, un panneau vide ne
 			// prouverait pas qu'il dessine.
 			g_console.PushLine("Nogee — coquille NKEditorKit montee", NkLogLevel::NK_INFO);
@@ -272,13 +776,38 @@ namespace nkentseu {
 			}
 
 			shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
-			shell->SetOverlay(&ProbeOverlay, nullptr);
+			// UNE sonde par execution (le shell n'a qu'un overlay, et melanger
+			// deux protocoles melangerait leurs mesures) : drag-drop si demandee,
+			// sinon occultation.
+			if (g_drag.enabled) {
+				shell->SetOverlay(&DragOverlay, nullptr);
+				if (g_probe.enabled)
+					logger.Info("[SONDE] --occlusion-test IGNORE : --dragdrop-test est deja actif "
+								"(une sonde par execution)\n");
+				logger.Info("[SONDE-DD] activee : glisser-deposer §7/§9 pilote par frames\n");
+			} else {
+				shell->SetOverlay(&ProbeOverlay, nullptr);
+			}
 
-			if (g_probe.enabled)
+			if (g_probe.enabled && !g_drag.enabled)
 				logger.Info("[SONDE] activee : mesure du routeur d'occultation a l'execution\n");
 
-			logger.Info("[Nogee/Shell] coquille prete — panneau '{0}' ajoute\n", g_console.Title());
+			logger.Info("[Nogee/Shell] coquille prete — 4 panneaux portes enregistres\n");
 			const int32 rc = shell->Run();
+
+			// Parite avec NogeApp::OnClose : sauvegarde du projet si modifie.
+			if (sProject.IsModified())
+				sProject.Save();
+
+			// ── Arret de l'AssetManager PENDANT que le device RHI vit ────────
+			// Mesure (2026-08-17, gdb) : sans cet appel, le premier Shutdown est
+			// celui du DESTRUCTEUR statique, a l'atexit — apres la destruction du
+			// device. `mDevice` pendouille, les entrees sont encore chargees,
+			// DestroyTexture ecrit dans un device mort : SIGSEGV systematique a
+			// toute sortie propre (RequestClose). Personne ne l'avait vu parce
+			// que Nogee n'etait jusqu'ici tue que par timeout, jamais ferme.
+			sAssets.Shutdown();
+
 			g_shell = nullptr;
 			return static_cast<int>(rc);
 		}
@@ -290,6 +819,10 @@ namespace nkentseu {
 
 		void NogeeShellReproduceConquerorLabCondition() noexcept {
 			g_probe.noMaskBody = true;
+		}
+
+		void NogeeShellEnableDragDropProbe() noexcept {
+			g_drag.enabled = true;
 		}
 
 	} // namespace noge

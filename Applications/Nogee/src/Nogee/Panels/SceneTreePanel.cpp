@@ -48,6 +48,38 @@ namespace nkentseu {
 						roots.PushBack(id);
 				});
 
+			// ── TEMOIN DU CABLAGE DU MONDE (2026-08-17) ───────────────────────
+			// Une seule fois, au premier passage REELLEMENT execute. Avant le
+			// cablage de NogeApp, ce point etait inatteignable : `UILayer::mWorld`
+			// etait nul et `RenderSceneTree` sortait avant d'arriver ici. Cette
+			// ligne prouve donc que la garde est franchie ET que le panneau voit
+			// des entites — dans le vrai chemin de rendu, pas dans un banc.
+			// Cf. ROADMAP Noge §10quater.
+			{
+				static bool sReported = false;
+				if (!sReported) {
+					sReported = true;
+					const char *premier = "(aucune)";
+					if (roots.Size() > 0) {
+						if (const ecs::NkSceneNode *n0 = world.Get<ecs::NkSceneNode>(roots[0]))
+							premier = n0->name;
+					}
+					// ⚠️ NE PAS UTILISER `logger.Infof` AVEC DES PLACEHOLDERS :
+					// il n'interpole RIEN. Ni `{}` ni `{0}` ne sont substitues,
+					// et il n'y a ni erreur ni avertissement — la ligne sort avec
+					// ses accolades. Ce n'est pas propre a ce temoin : la ligne
+					// d'origine `[NogeApp] Init - {}` (NogeeApp.cpp:15) sort
+					// pareil, et une seule execution produit 10 lignes ainsi
+					// amputees. Defaut de NKLogger, signale et NON corrige ici.
+					// On formate donc soi-meme.
+					char msg[192];
+					std::snprintf(msg, sizeof(msg),
+								  "[SceneTreePanel] TEMOIN : rendu execute, %u racine(s), premiere = '%s'\n",
+								  (unsigned)roots.Size(), premier);
+					logger.Info(msg);
+				}
+			}
+
 			for (nk_usize i = 0; i < roots.Size(); ++i) {
 				RenderEntity(ctx, dl, font, ls, world, roots[i], sel, hist, 0);
 			}

@@ -55,6 +55,10 @@ namespace nkentseu {
 			mEntries.Clear();
 			mIndex.Clear();
 			mThumbnails.Clear();
+			// Le second appel (destructeur statique, a l'atexit) ne doit RIEN
+			// toucher : a ce moment le device est detruit et ce pointeur
+			// pendouillerait. On le rend inoffensif ici, pas chez l'appelant.
+			mDevice = nullptr;
 		}
 
 		// =====================================================================

@@ -39,6 +39,25 @@ namespace nkentseu {
 		void NkGuiContext::BeginFrame(float32 dt) noexcept {
 			input.dt = dt;
 			input.NewFrame();	   // transitions clic/relâche
+
+			// ── Glisser-deposer : cycle de vie (2026-08-17) ───────────────────
+			// Le relachement laisse `dragActive` vrai PENDANT la frame du
+			// relachement — les cibles lisent input.mouseReleased pour livrer —
+			// et le nettoyage a lieu au NewFrame suivant. Un lacher hors de
+			// toute cible se nettoie par le meme chemin : pas de livraison.
+			if (dragEndPending) {
+				dragActive = false;
+				dragEndPending = false;
+				dragDelivered = false;
+				dragSourceId = NKGUI_ID_NONE;
+				dragType[0] = '\0';
+				dragPayloadSize = 0;
+				dragGhost[0] = '\0';
+			}
+			if (dragActive && !input.mouseDown[0])
+				dragEndPending = true;
+			if (!input.mouseDown[0] && !dragActive)
+				dragCandidateId = NKGUI_ID_NONE; // desarme un candidat jamais parti
 			time += dt;			   // blink du caret
 			hotIdPrev = hotId;	   // le survol résolu de la frame précédente
 			hotId = NKGUI_ID_NONE; // re-calculé par les widgets (greedy)
@@ -127,7 +146,16 @@ namespace nkentseu {
 			// Si le widget détenant activeId a disparu (hôte redevenu flottant, onglet
 			// caché, fenêtre fermée…) il ne libère jamais activeId et l'occlusion bloque
 			// TOUTE interaction. Souris haute + activeId encore posé ⇒ on libère d'office.
-			if (!input.mouseDown[0] && activeId != NKGUI_ID_NONE) {
+			// ⚠️ « Haute » = haute depuis une frame COMPLÈTE (mousePrev aussi) : le front
+			// mouseReleased n'est calculé qu'au NewFrame SUIVANT le passage à faux. Si on
+			// libère dès mouseDown=false, une entrée posée APRÈS les widgets (overlay,
+			// sonde pilotée) perd activeId une frame avant le front — et le clic validé
+			// au relâchement (ButtonBehavior) ne peut JAMAIS aboutir. Pour l'entrée
+			// événementielle réelle, ce resserrement ne change rien : le widget encore
+			// vivant libère activeId lui-même en consommant le front, et un widget
+			// disparu est libéré une frame plus tard — imperceptible. (Mesuré 2026-08-17 :
+			// sonde --dragdrop-test, clic de dépliage jamais validé, diag hotId=activeId.)
+			if (!input.mouseDown[0] && !input.mousePrev[0] && activeId != NKGUI_ID_NONE) {
 				activeId = NKGUI_ID_NONE;
 				movingWindowId = NKGUI_ID_NONE;
 			}
@@ -567,6 +595,8 @@ namespace nkentseu {
 			if (outHeld)
 				*outHeld = held;
 			lastItemHovered = hovered; // pour IsItemHovered() / SetTooltip
+			lastItemId = id;		   // pour le glisser-deposer (source/cible)
+			lastItemRect = r;
 			return pressed;
 		}
 
