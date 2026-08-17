@@ -377,6 +377,112 @@ namespace nkentseu {
 				return false;
 			}
 
+			// ════════════════════════════════════════════════════════════════
+			//  Squelette / scene-graph FBX -> out.nodes (etape (a) du chantier
+			//  « FBX operationnel », 2026-08-17).
+			// ════════════════════════════════════════════════════════════════
+
+			// Nom d'un objet FBX depuis sa 1re prop chaine.
+			//   binaire : "Nom\0\x01Classe"  -> tronquer au premier NUL ;
+			//   ASCII   : "Classe::Nom"      -> garder ce qui suit le dernier "::".
+			NkString ObjNameOf(const FbxNode &n) {
+				NkString raw = StrOf(&n);
+				NkString out;
+				for (nk_size i = 0; i < raw.Length(); ++i) {
+					const char ch = raw.CStr()[i];
+					if (ch == '\0')
+						break;
+					out.Append(ch);
+				}
+				for (nk_size p = out.Length(); p >= 2; --p) {
+					if (out.CStr()[p - 1] == ':' && out.CStr()[p - 2] == ':') {
+						out = NkString(out.CStr() + p);
+						break;
+					}
+				}
+				return out;
+			}
+
+			// Euler FBX (degres) -> quaternion (x,y,z,w). `order` = RotationOrder
+			// FBX (0=XYZ 1=XZY 2=YZX 3=YXZ 4=ZXY 5=ZYX) : axes appliques de
+			// gauche a droite, donc q = q_dernier * q_milieu * q_premier
+			// (convention Hamilton, vecteurs colonne — celle de NkQuatT).
+			NkVec4f EulerDegToQuat(float32 ex, float32 ey, float32 ez, int32 order) {
+				const NkQuatf qx(NkAngle(ex), NkVec3f{1.f, 0.f, 0.f});
+				const NkQuatf qy(NkAngle(ey), NkVec3f{0.f, 1.f, 0.f});
+				const NkQuatf qz(NkAngle(ez), NkVec3f{0.f, 0.f, 1.f});
+				NkQuatf q;
+				switch (order) {
+					case 1: q = qy * qz * qx; break; // XZY
+					case 2: q = qx * qz * qy; break; // YZX
+					case 3: q = qz * qx * qy; break; // YXZ
+					case 4: q = qy * qx * qz; break; // ZXY
+					case 5: q = qx * qy * qz; break; // ZYX
+					default: q = qz * qy * qx; break; // 0=XYZ (et 6=SphericXYZ, approx)
+				}
+				q.Normalize();
+				return {q.x, q.y, q.z, q.w};
+			}
+
+			// Construit out.nodes depuis les Model FBX : nom, TRS local
+			// (Properties70 "Lcl Translation"/"Lcl Rotation"/"Lcl Scaling",
+			// euler degres + RotationOrder + PreRotation composee), hierarchie
+			// via les connexions OO Model -> Model. `outNodeOfModel[i]` = index
+			// dans out.nodes du i-eme Model de `models` (meme ordre) — sert aux
+			// etapes skinning/animations pour retrouver un node par ID d'objet.
+			// NON fait ici (inchange par rapport a avant) : appliquer ces
+			// transforms a la geometrie — les sommets restent en espace local
+			// de leur Geometry, comme le header l'a toujours dit.
+			void ExtractNodes(const NkVector<FbxIdEntry> &models, const NkVector<FbxConn> &conns,
+							  NkGLTFMeshData &out, NkVector<int32> &outNodeOfModel) {
+				outNodeOfModel.Clear();
+				for (uint32 m = 0; m < (uint32)models.Size(); ++m) {
+					const FbxNode &mo = *models[(NkVector<FbxIdEntry>::SizeType)m].node;
+					NkGLTFNode gn;
+					gn.name = ObjNameOf(mo);
+					float32 v3[3];
+					if (GetP70(mo, "Lcl Translation", 3, v3))
+						gn.translation = {v3[0], v3[1], v3[2]};
+					if (GetP70(mo, "Lcl Scaling", 3, v3))
+						gn.scale = {v3[0], v3[1], v3[2]};
+					float32 orderF = 0.f;
+					GetP70(mo, "RotationOrder", 1, &orderF);
+					NkVec4f rot = {0.f, 0.f, 0.f, 1.f};
+					if (GetP70(mo, "Lcl Rotation", 3, v3))
+						rot = EulerDegToQuat(v3[0], v3[1], v3[2], (int32)orderF);
+					// PreRotation (toujours en ordre XYZ, cf. spec FBX) : se
+					// compose DEVANT la rotation animable. Mixamo en depend.
+					if (GetP70(mo, "PreRotation", 3, v3)) {
+						const NkVec4f pre = EulerDegToQuat(v3[0], v3[1], v3[2], 0);
+						const NkQuatf qp(pre.x, pre.y, pre.z, pre.w);
+						const NkQuatf qr(rot.x, rot.y, rot.z, rot.w);
+						NkQuatf q = qp * qr;
+						q.Normalize();
+						rot = {q.x, q.y, q.z, q.w};
+					}
+					gn.rotation = rot;
+					outNodeOfModel.PushBack((int32)out.nodes.Size());
+					out.nodes.PushBack(static_cast<NkGLTFNode &&>(gn));
+				}
+				// Hierarchie : connexion OO enfant -> parent entre deux Model.
+				for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+					const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+					if (c.isProp)
+						continue;
+					int32 childIdx = -1, parentIdx = -1;
+					for (uint32 m = 0; m < (uint32)models.Size(); ++m) {
+						const int64 id = models[(NkVector<FbxIdEntry>::SizeType)m].id;
+						if (id == c.child)
+							childIdx = (int32)m;
+						if (id == c.parent)
+							parentIdx = (int32)m;
+					}
+					if (childIdx >= 0 && parentIdx >= 0 && childIdx != parentIdx)
+						out.nodes[(uint32)outNodeOfModel[(NkVector<int32>::SizeType)parentIdx]]
+							.children.PushBack(outNodeOfModel[(NkVector<int32>::SizeType)childIdx]);
+				}
+			}
+
 			// Charge (avec cache par ID) la texture FBX `texId` -> index dans
 			// out.images. `RelativeFilename`/`FileName` peuvent contenir un chemin
 			// ABSOLU de la machine d'export (Windows) : on ne garde que le nom de
@@ -830,6 +936,10 @@ namespace nkentseu {
 				}
 				NkVector<FbxConn> conns;
 				ParseConnections(roots, conns);
+				// Squelette / scene-graph (etape (a)) : nodes nommes + TRS +
+				// hierarchie. Ne touche pas a la geometrie.
+				NkVector<int32> nodeOfModel;
+				ExtractNodes(models, conns, out, nodeOfModel);
 				NkPath fp(path);
 				NkString baseDir = fp.GetDirectory();
 				NkVector<int64> matIdCache, texIdCache;
@@ -892,10 +1002,10 @@ namespace nkentseu {
 				out.debugName = path;
 				NkLog::Instance().Infof(
 					"[NkFBXLoader] OK '%s' (%s v%u) : %u geometries, %u verts, %u indices, %u sous-meshes, "
-					"%u materiaux, %u textures",
+					"%u materiaux, %u textures, %u nodes",
 					path.CStr(), ascii ? "ascii" : "binaire", version, geoCount, (uint32)out.vertices.Size(),
 					(uint32)out.indices.Size(), (uint32)out.subMeshes.Size(), (uint32)out.materials.Size(),
-					(uint32)out.images.Size());
+					(uint32)out.images.Size(), (uint32)out.nodes.Size());
 				return true;
 			}
 		} // namespace
