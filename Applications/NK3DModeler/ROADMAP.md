@@ -643,10 +643,25 @@ l'idempotence observée). Verdict de Rihen : *« le résultat est correct cette
 fois, même sans que je ne bouge. »* **Le geste dépôt/déplacement est clos ;
 l'éclatement se débloque.**
 
-**Dettes ouvertes** : l'archive recentrée n'est **pas persistée** (le
-`ECART≠0` reviendra une fois par session tant que le projet n'est pas réécrit —
-décision de format à prendre, pas prise ici) ; et `nkvpXmit=7` dès la naissance
-reste une valeur par défaut jamais discutée.
+**✅ Dette de persistance FERMÉE (`67a60328`, décision de Rodolf 17/08)** :
+*« conserver son origine dans le fichier du mesh »* — l'origine stockée est la
+**référence du pipeline d'export** (FBX repositionnera l'objet pour que son
+origine soit à (0,0,0) ; une origine fausse dans le fichier = un export décalé).
+Mécanique : le recentrage renvoie s'il a corrigé → la carte est marquée
+(`browserOriginDirty`, transient, jamais sérialisé) → la **sauvegarde** écrit
+son `.nkmesh` via l'exemption qui existait déjà pour les matériaux, puis
+désarme après l'écriture réussie. **Aucune écriture disque au dépôt**
+(condition approuvée par Rodolf). Aucun changement de schéma,
+`kAssetFormatVersion` intact, aucune migration — un `.nkmesh` ancien se charge
+tel quel, le recentrage mémoire le rattrape. Protocole de la 8e relecture,
+écrit d'avance : **positif** = déposer→sauvegarder→relancer→redéposer donne
+`origine ECART=(0,0)` dès le premier dépôt de la session ; **négatif** = sans
+sauvegarde, l'écart d'héritage revient une fois — preuve que rien ne s'écrit
+sans geste. Les `.nkmesh` de l'éclatement naîtront justes sans rien d'autre :
+son plan recentre avant l'archivage et la capture lit les nœuds vivants.
+
+**Dette ouverte restante** : `nkvpXmit=7` dès la naissance reste une valeur par
+défaut jamais discutée.
 
 ### 🔓 L'ÉCLATEMENT D'UN IMPORT — DÉBLOQUÉ (17/08), terrain mesuré, plan posé
 
