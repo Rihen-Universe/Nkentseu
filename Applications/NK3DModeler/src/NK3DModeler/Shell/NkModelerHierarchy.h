@@ -970,6 +970,7 @@ namespace nkentseu {
 								   nkgui::NkGuiContext *guiCtx = nullptr) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
+			st.hierRect = r; // cible du lacher venu du systeme (import + instanciation)
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft,
 									  "hier.close", NkIcon::ChevronLeft);
 			// Les editeurs SANS design defini (materiau, texture, blueprint,

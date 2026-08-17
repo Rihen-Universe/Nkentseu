@@ -206,7 +206,8 @@ namespace nkentseu {
 		/// ses maillages, Y=0 -- la moyenne exacte que Demo3DHostRecenterModel
 		/// recalcule, donc `MESURE origine` doit dire ECART=(0, 0).
 		inline bool NkImportCreate(NkModelerState &st, const renderer::NkGLTFMeshData &data,
-								   const NkVector<NkImportModel> &models, const char *stem) {
+								   const NkVector<NkImportModel> &models, const char *stem,
+								   NkVector<int32> *cardsOut = nullptr) {
 			// Un import cree des MODELS : dans un editeur de model, il n'a pas
 			// de sens (un model ne contient pas de models). Refus NOMME.
 			if (demo::Demo3DHostDocIsModel()) {
@@ -380,6 +381,8 @@ namespace nkentseu {
 					NkBrowUniqueName(st, 6, st.browserFolder, mnm, st.browserNames[k6],
 									 (uint32)sizeof(st.browserNames[0]));
 					++cartes;
+					if (cardsOut)
+						cardsOut->PushBack(k6); // l'appelant (lacher OS) instanciera
 					// L'IMPORT ECRIT : le fichier existe des la fin du geste, par le
 					// meme ecrivain que « Enregistrer ». Le drapeau « a ecrire au
 					// prochain enregistrement » ne s'arme que si l'ecriture ECHOUE --
@@ -425,7 +428,8 @@ namespace nkentseu {
 		/// L'IMPORT COMPLET : charge, decoupe, journalise (`MESURE import`),
 		/// puis CREE les noeuds. Tout refus est NOMME dans `st.hierNote` -- un
 		/// refus silencieux serait indistinguable d'un bouton casse.
-		inline bool NkImportFile(NkModelerState &st, const char *absPath) {
+		inline bool NkImportFile(NkModelerState &st, const char *absPath,
+								 NkVector<int32> *cardsOut = nullptr) {
 			renderer::NkGLTFMeshData data;
 			const char *why = nullptr;
 			if (!NkImportLoad(absPath, data, &why)) {
@@ -446,7 +450,170 @@ namespace nkentseu {
 										models[(uint32)i].subCount);
 			char stem[32];
 			NkImpStem(absPath, stem, (uint32)sizeof(stem));
-			return NkImportCreate(st, data, models, stem);
+			return NkImportCreate(st, data, models, stem, cardsOut);
+		}
+
+		/// INSTANCIER dans la scene active les cartes que l'import vient de
+		/// creer -- c'est le geste « systeme -> scene » et « systeme -> hierarchie »
+		/// du contrat (import + instanciation). Chaque carte est dupliquee depuis
+		/// son archive (le MEME chemin que le depot depuis le navigateur,
+		/// NkDropSpawnModel), puis posee a SON origine du fichier + `off3` :
+		/// les models d'un meme fichier gardent leur disposition relative (la
+		/// caisse et ses quatre roues restent une voiture) -- empiler cinq
+		/// models au meme point aurait defait ce que le fichier declare.
+		/// `off3 == nullptr` : coordonnees du fichier telles quelles
+		/// (hierarchie). Rend le nombre de noeuds nes ; le dernier est selectionne.
+		inline int32 NkImportInstantiate(NkModelerState &st, const NkVector<int32> &cards,
+										 const float32 *off3) {
+			int32 nes = 0, dernier = -1;
+			for (usize i = 0; i < cards.Size(); ++i) {
+				const int32 c = cards[i];
+				if (c < 0 || c >= st.browserCount || st.browserKind[c] != 6 ||
+					st.browserSrcNode[c] <= 0)
+					continue;
+				const int32 src = st.browserSrcNode[c] - 1;
+				const int32 nn = demo::Demo3DHostDuplicateNode(src);
+				if (nn < 0) {
+					NkLog::Instance().Warnf("[import] instanciation : carte %d « %s » : "
+											"plus d'emplacement", c, st.browserNames[c]);
+					break;
+				}
+				float32 sp[3] = {0.f, 0.f, 0.f}, sr[3] = {0.f, 0.f, 0.f}, ss[3] = {1.f, 1.f, 1.f};
+				(void)demo::Demo3DHostEmptyTransform(src, sp, sr, ss);
+				// TOUJOURS pose explicitement : le double nait decale de
+				// (0.45, 0, 0.45) « comme Blender » (Demo3DHostDuplicateNodeEx),
+				// ce qui casserait la disposition du fichier. `off3 == nullptr`
+				// = coordonnees du fichier telles quelles.
+				{
+					const float32 o0 = off3 ? off3[0] : 0.f, o1 = off3 ? off3[1] : 0.f,
+								  o2 = off3 ? off3[2] : 0.f;
+					const float32 np[3] = {sp[0] + o0, sp[1] + o1, sp[2] + o2};
+					demo::Demo3DHostSetModelTransform(nn, np, sr, ss); // rotation/echelle de la source
+				}
+				// Le double porte le nom de la carte : sans lui, la hierarchie
+				// afficherait « Cube.NNN » pour une roue.
+				if (nn < 176)
+					snprintf(st.customNames[nn], sizeof(st.customNames[0]), "%s", st.browserNames[c]);
+				float32 gp[3] = {0.f, 0.f, 0.f}, gr[3] = {0.f, 0.f, 0.f}, gs[3] = {0.f, 0.f, 0.f};
+				(void)demo::Demo3DHostEmptyTransform(nn, gp, gr, gs);
+				NkLog::Instance().Infof("[import] MESURE instanciation : carte %d « %s » src=%d -> "
+										"noeud=%d model=%d pose=(%f, %f, %f)",
+										c, st.browserNames[c], src, nn,
+										demo::Demo3DHostNodeIsModel(nn) ? 1 : 0, gp[0], gp[1], gp[2]);
+				dernier = nn;
+				++nes;
+			}
+			if (dernier >= 0)
+				demo::Demo3DHostSelectEmptyNode(dernier);
+			if (nes > 0)
+				NkMarkDirty(st);
+			return nes;
+		}
+
+		/// Barycentre X/Z des origines des cartes (Y = 0) : le point que le
+		/// lacher sur la vue 3D amene sous le curseur. Rend faux si aucune carte.
+		inline bool NkImportCardsCenter(const NkModelerState &st, const NkVector<int32> &cards,
+										float32 *out3) {
+			float32 sx = 0.f, sz = 0.f;
+			int32 n = 0;
+			for (usize i = 0; i < cards.Size(); ++i) {
+				const int32 c = cards[i];
+				if (c < 0 || c >= st.browserCount || st.browserSrcNode[c] <= 0)
+					continue;
+				float32 sp[3] = {0.f, 0.f, 0.f}, sr[3], ss[3];
+				if (!demo::Demo3DHostEmptyTransform(st.browserSrcNode[c] - 1, sp, sr, ss))
+					continue;
+				sx += sp[0];
+				sz += sp[2];
+				++n;
+			}
+			if (n == 0)
+				return false;
+			out3[0] = sx / (float32)n;
+			out3[1] = 0.f;
+			out3[2] = sz / (float32)n;
+			return true;
+		}
+
+		/// LE LACHER VENU DU SYSTEME, route par la zone (contrat point 2) :
+		///   vue 3D       -> import + instanciation AU POINT DU LACHER (pick differe)
+		///   hierarchie   -> import + instanciation aux coordonnees du fichier
+		///   navigateur   -> import SEUL (cartes + fichiers, rien dans la scene)
+		///   ailleurs     -> refus NOMME
+		/// Appele par la boucle une fois les rects de la frame connus. Plusieurs
+		/// fichiers = plusieurs imports, leurs cartes s'additionnent.
+		inline void NkOsDropRoute(NkModelerState &st) {
+			if (st.osDropCount <= 0)
+				return;
+			const nkgui::NkVec2 at{st.osDropX, st.osDropY};
+			int32 zone = 4;
+			if (NkHitRegistry::Contains(st.viewRect, at))
+				zone = 1;
+			else if (NkHitRegistry::Contains(st.hierRect, at))
+				zone = 2;
+			else if (NkHitRegistry::Contains(st.browserRect, at))
+				zone = 3;
+			NkLog::Instance().Infof("[import] MESURE lacher OS : %d fichier(s) a (%f, %f) zone=%d "
+									"(1 vue, 2 hierarchie, 3 navigateur, 4 ailleurs)",
+									st.osDropCount, at.x, at.y, zone);
+			NkVector<int32> cards;
+			if (zone == 4) {
+				snprintf(st.hierNote, sizeof(st.hierNote),
+						 "Deposez un fichier 3D sur la vue, la hierarchie ou le navigateur");
+			} else {
+				for (int32 i = 0; i < st.osDropCount; ++i)
+					(void)NkImportFile(st, st.osDropPaths[i], &cards);
+			}
+			st.osDropCount = 0;
+			if (cards.Empty())
+				return; // refus deja nomme par NkImportFile (hierNote)
+			if (zone == 3)
+				return; // navigateur : import seul, c'est le contrat
+			if (zone == 2) {
+				const int32 n = NkImportInstantiate(st, cards, nullptr);
+				snprintf(st.hierNote, sizeof(st.hierNote),
+						 "Import : %d carte(s), %d objet(s) ajoute(s) a la scene (coordonnees du fichier)",
+						 (int32)cards.Size(), n);
+				return;
+			}
+			// Vue 3D : le point du monde vient du pick, qui repond a la frame
+			// suivante -- on retient les cartes et on demande.
+			st.osDropCardCount = 0;
+			for (usize i = 0; i < cards.Size() && st.osDropCardCount < 64; ++i)
+				st.osDropCards[st.osDropCardCount++] = cards[i];
+			st.osDropPickPending = true;
+			demo::Demo3DHostPickRequest(at.x, at.y);
+		}
+
+		/// La reponse du pick pour un lacher OS sur la vue 3D : instancie les
+		/// cartes retenues, disposition du fichier conservee, barycentre X/Z
+		/// amene au point du lacher. Sur un objet ou dans le vide, meme geste
+		/// (pas de menu « enfant » : un fichier entier n'est pas une carte).
+		inline void NkOsDropPickTake(NkModelerState &st) {
+			if (!st.osDropPickPending)
+				return;
+			int32 node = -3;
+			float32 w[3] = {0.f, 0.f, 0.f};
+			if (!demo::Demo3DHostPickTake(&node, w))
+				return;
+			st.osDropPickPending = false;
+			NkVector<int32> cards;
+			for (int32 i = 0; i < st.osDropCardCount; ++i)
+				cards.PushBack(st.osDropCards[i]);
+			st.osDropCardCount = 0;
+			float32 off[3] = {0.f, 0.f, 0.f};
+			if (node != -2) { // -2 = hors du viseur : coordonnees du fichier
+				float32 c3[3];
+				if (NkImportCardsCenter(st, cards, c3)) {
+					off[0] = w[0] - c3[0];
+					off[1] = w[1] - c3[1];
+					off[2] = w[2] - c3[2];
+				}
+			}
+			const int32 n = NkImportInstantiate(st, cards, off);
+			snprintf(st.hierNote, sizeof(st.hierNote),
+					 "Import : %d carte(s), %d objet(s) poses au point du lacher",
+					 (int32)cards.Size(), n);
 		}
 
 	} // namespace nk3d

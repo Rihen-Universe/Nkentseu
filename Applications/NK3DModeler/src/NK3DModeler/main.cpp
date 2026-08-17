@@ -48,6 +48,7 @@
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
 #include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
 // Captures (« Capturer la vue » / « Tutoriel ») : dossier + numerotation +
 // photographie de la fenetre entiere.
 #include "NKFileSystem/NkDirectory.h"
@@ -313,6 +314,11 @@ int nkmain(const NkEntryState &entry) {
 	wc.centered = true;
 	wc.resizable = true;
 	wc.frame = false;
+	// LACHER DE FICHIERS DEPUIS LE SYSTEME : la fenetre s'inscrit comme cible
+	// OLE (NkWin32DropTarget) et NkDropFileEvent arrive dans la file. Sans ce
+	// drapeau, l'explorateur montre le curseur « interdit » et rien n'arrive --
+	// c'etait l'ecoute qui manquait (contrat d'import, point 2).
+	wc.dropEnabled = true;
 
 	NkWindow window;
 	if (!window.Create(wc)) {
@@ -539,6 +545,19 @@ int nkmain(const NkEntryState &entry) {
 		auto &ev = NkEvents();
 		ev.AddEventCallback<NkMouseMoveEvent>([&ui](NkMouseMoveEvent *e) {
 			ui.input.mousePos = {(float32)e->GetX(), (float32)e->GetY()};
+		});
+		// FICHIERS LACHES DEPUIS L'EXPLORATEUR : memes coordonnees client que
+		// la souris (ScreenToClient cote Win32). On RANGE, la boucle route une
+		// fois les rects de la frame connus (NkOsDropRoute) -- l'evenement
+		// arrive avant la mise en page.
+		ev.AddEventCallback<NkDropFileEvent>([&st](NkDropFileEvent *e) {
+			st.osDropCount = 0;
+			for (usize i = 0; i < e->data.paths.Size() &&
+							  st.osDropCount < nk3d::NkModelerState::kMaxOsDrop; ++i)
+				snprintf(st.osDropPaths[st.osDropCount++], sizeof(st.osDropPaths[0]), "%s",
+						 e->data.paths[i].CStr());
+			st.osDropX = (float32)e->data.x;
+			st.osDropY = (float32)e->data.y;
 		});
 		ev.AddEventCallback<NkMouseButtonPressEvent>([&ui](NkMouseButtonPressEvent *e) {
 			const NkMouseButton b = e->GetButton();
@@ -2112,7 +2131,40 @@ int nkmain(const NkEntryState &entry) {
 				sAgentImportDone = true;
 				if (const char *v = std::getenv("NK_IMPORT_FILE"))
 					nk3d::NkImportFile(st, v);
+				// NK_OS_DROP="x,y,<chemin>" : FABRIQUE le lacher OS a ces pixels
+				// de fenetre, exactement comme NkDropFileEvent le range -- seul
+				// le trajet depuis l'explorateur est simule ; le routage par
+				// zone, l'import, le pick et l'instanciation sont les vrais.
+				if (const char *v = std::getenv("NK_OS_DROP")) {
+					float32 dx = 0.f, dy = 0.f;
+					const char *q = v;
+					dx = (float32)atof(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+					dy = (float32)atof(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+					if (*q) {
+						st.osDropCount = 1;
+						snprintf(st.osDropPaths[0], sizeof(st.osDropPaths[0]), "%s", q);
+						st.osDropX = dx;
+						st.osDropY = dy;
+					}
+				}
 			}
+		}
+		// ── LACHER VENU DU SYSTEME : ROUTAGE PAR ZONE, PUIS REPONSE DU PICK ──
+		// Les rects de la frame sont poses (hierRect, viewRect, browserRect) :
+		// on peut dire OU le fichier a ete lache. Vue 3D -> import + pick
+		// differe ; hierarchie -> import + instanciation aux coordonnees du
+		// fichier ; navigateur -> import seul ; ailleurs -> refus nomme.
+		if (demo::Demo3DHostReady()) {
+			nk3d::NkOsDropRoute(st);
+			nk3d::NkOsDropPickTake(st);
 		}
 
 		// ── LACHER DU NAVIGATEUR SUR LA VUE 3D : LA REPONSE DU PICK ARRIVE ──

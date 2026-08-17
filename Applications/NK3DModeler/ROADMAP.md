@@ -936,6 +936,47 @@ elle apparaît au point du lâcher, SON gizmo est au moyeu, la hiérarchie
 montre UN nœud « whell… » de type Mesh, pas de empty au-dessus ; bouge-la,
 les autres cartes n'y sont pour rien. Envoie le journal.
 
+### CONTRAT D'IMPORT — point (c) LIVRÉ : les trois glisser depuis le SYSTÈME
+
+`NkDropFileEvent` existait dans NKEvent (cible OLE Win32 + Wayland/XCB/XLib/
+Android/Emscripten) ; il manquait `wc.dropEnabled = true` et l'écoute. Fait
+(`main.cpp`) : l'événement est RANGÉ (`st.osDrop*`), la boucle route une fois
+les rects de la frame connus (`NkOsDropRoute`, `NkModelerImport.h`) :
+
+| zone du lâcher | effet |
+|---|---|
+| vue 3D (`viewRect`) | import + **pick différé** + instanciation au point du lâcher, disposition du fichier conservée (barycentre X/Z des origines amené sous le curseur, hauteurs du fichier gardées) |
+| hiérarchie (`hierRect`, nouveau) | import + instanciation aux **coordonnées du fichier** |
+| navigateur (`browserRect`) | import **seul** (cartes + `.nkmesh`, rien dans la scène) |
+| ailleurs | refus nommé |
+
+L'instanciation (`NkImportInstantiate`) duplique depuis l'archive comme le
+dépôt navigateur → scène (`Demo3DHostDuplicateNode`), puis pose EXPLICITEMENT
+(le double naît décalé de 0.45 « comme Blender », ce qui casserait la voiture),
+rotation/échelle de la source conservées, nom de la carte repris.
+
+**Grille (4 courses `NK_OS_DROP="x,y,<chemin>"`, crochet qui fabrique le lâcher
+aux pixels donnés — seul le trajet depuis l'explorateur est simulé)** :
+C1 (700,250) → `zone=1`, 5 créations, 5 instanciations 116..120, poses =
+origines + offset commun (écarts entre roues ±1.229/±0.691 conservés, Y du
+fichier gardés : caisse 0.761, roues 0.305) ; C2 (100,400) → `zone=2`, 5
+instanciations aux coordonnées EXACTES du fichier ; C3 (800,850) → `zone=3`,
+5 créations, 0 instanciation, 5 fichiers ; C4 (800,8) → `zone=4`, refus,
+0 création, 0 fichier. Journaux `logs/app_c_C1..C4.log`.
+
+**Périmètre déclaré** : le trajet OLE (explorateur → `NkDropFileEvent`) n'est
+pas rejouable sans main — c'est la relecture de Rodolf qui le couvre. Sur un
+objet, le lâcher OS pose comme dans le vide (pas de menu « enfant » : un
+fichier entier n'est pas une carte) — dit, à trancher si besoin. Multi-fichiers :
+chaque fichier importe, les cartes s'additionnent.
+
+**📣 PROTOCOLE POUR RODOLF (11e relecture, complément)** : depuis l'explorateur
+Windows, glisse `LowPolyCars.obj` (D) sur la vue 3D → la voiture ENTIÈRE
+apparaît sous le curseur, roues en place, 5 nœuds Mesh dans la hiérarchie, 5
+cartes, 5 fichiers ; (E) sur la hiérarchie → la voiture aux coordonnées du
+fichier ; (F) sur le navigateur → 5 cartes, 5 fichiers, RIEN dans la scène ;
+(G) sur la barre de menus → message « Déposez un fichier 3D sur… ».
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,

@@ -530,6 +530,28 @@ namespace nkentseu {
 				float32 browAskX = 0.f, browAskY = 0.f;
 				bool browMenuCreat = false;
 				NkRect viewRect{0.f, 0.f, 0.f, 0.f};
+				// Rect de la HIERARCHIE (pose chaque frame, comme browserRect) :
+				// c'est une des trois cibles du lacher venu du systeme.
+				NkRect hierRect{0.f, 0.f, 0.f, 0.f};
+				// ── FICHIERS LACHES DEPUIS LE SYSTEME (explorateur OS) ─────────
+				// Contrat d'import de Rodolf (17/08 soir) : trois gestes, tous des
+				// IMPORTS -- vers la scene ou la hierarchie = import + instanciation,
+				// vers le navigateur de contenu = import seul. L'evenement
+				// (NkDropFileEvent) arrive au depilage, AVANT la mise en page de la
+				// frame : on le range ici et la boucle le traite une fois les rects
+				// connus. `osDropZone` : 0 aucun, 1 vue 3D, 2 hierarchie, 3
+				// navigateur, 4 ailleurs (refus nomme).
+				static constexpr int32 kMaxOsDrop = 16;
+				int32 osDropCount = 0;
+				char osDropPaths[kMaxOsDrop][512] = {};
+				float32 osDropX = 0.f, osDropY = 0.f;
+				// Instanciation DIFFEREE apres import vers la vue 3D : le point du
+				// monde vient du pick, qui repond a la frame suivante. Les cartes
+				// nees de l'import attendent ici ; osDropPickPending arme la lecture
+				// de la reponse.
+				int32 osDropCards[64];
+				int32 osDropCardCount = 0;
+				bool osDropPickPending = false;
 				// ── JETON DE LACHER SUR LA VUE 3D ────────────────────────────
 				// UN LACHER = UN JETON COMPLET, resolu une fois, consomme une
 				// fois. Tout ce que le geste utilise est FIGE AU RELACHEMENT :
