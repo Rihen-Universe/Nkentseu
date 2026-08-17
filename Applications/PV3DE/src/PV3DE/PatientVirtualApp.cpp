@@ -18,8 +18,14 @@ namespace nkentseu {
 			mPatientLayer = new PatientLayer("PatientLayer", mDevice, mCmd);
 			PushLayer(mPatientLayer);
 
-			// TODO Phase 5 : PushLayer(new ViewportLayer(...));
-			// TODO Phase 5 : PushOverlay(new MedicalUILayer(...));
+			// Phase 5 (2026-08-18) : UI médicale NKGui branchée en overlay —
+			// première fois que la couche s'affiche (la v2 NKUI n'a jamais été
+			// poussée sur la pile).
+			mMedicalUI = new MedicalUILayer("MedicalUILayer", mDevice, mCmd, GetConfig().deviceInfo.api,
+											mPatientLayer);
+			PushOverlay(mMedicalUI);
+
+			// TODO Phase 6 : PushLayer(new ViewportLayer(...)) — rendu 3D patient.
 		}
 
 		void PatientVirtualApp::OnStart() {
@@ -50,10 +56,16 @@ namespace nkentseu {
 		}
 
 		void PatientVirtualApp::OnUIRender() {
-			// TODO Phase 5 : MedicalUILayer
+			// L'UI médicale est un overlay de la LayerStack : son OnUIRender est
+			// appelé par la boucle NkApplication, rien à faire ici.
 		}
 
 		void PatientVirtualApp::OnShutdown() {
+			// La LayerStack est détruite APRÈS le device (membre de NkApplication,
+			// détruit au dtor) : libérer les ressources GPU de l'UI maintenant,
+			// pendant que le device existe encore. Idempotent.
+			if (mMedicalUI)
+				mMedicalUI->ReleaseGpu();
 			logger.Infof("[PV3DE] Shutdown\n");
 		}
 
