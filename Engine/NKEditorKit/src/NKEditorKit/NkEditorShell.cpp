@@ -2083,6 +2083,21 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			const float32 W = static_cast<float32>(mUI.viewW);
 			const float32 H = static_cast<float32>(mUI.viewH);
 
+			// ── Surface flottante DECLAREE au routeur d'occlusion ────────────────
+			// Meme patron que les trois autres surfaces du kit : menu contextuel
+			// (NkEditorContextMenu.h, couche 50), modale (NkEditorModal.h, 100),
+			// selecteur de fichiers (NkFilePicker.h, 100). La palette etait la
+			// SEULE a ne pas se declarer.
+			// Sans ces deux lignes, le voile plein ecran dessine juste dessous est
+			// purement VISUEL : un widget de couche 0 (panneau ancre) reste
+			// survolable et cliquable en dessous, parce que ItemHoverable consulte
+			// PointReachable et que rien ne lui avait declare cette surface.
+			// Mesure du 2026-08-17 (Nogee, --occlusion-test), temoin a l'appui :
+			// panneau ancre -> ItemHoverable = 1 palette FERMEE **et** 1 palette
+			// OUVERTE, donc le clic traversait.
+			mUI.PushOcclusion({0.f, 0.f, W, H}, 50);
+			NkGuiContext::NkInputLayerScope _paletteLayer(mUI, 50);
+
 			const float32 pw = 480.f, rowH = mUI.ItemHeight() + 4.f, headH = mUI.ItemHeight() + 12.f;
 			const int32 count = mNumCommands;
 			const float32 ph = headH + 6.f + count * rowH + 8.f;

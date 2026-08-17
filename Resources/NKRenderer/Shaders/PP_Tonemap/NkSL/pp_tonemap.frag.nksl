@@ -73,13 +73,24 @@ void main() {
     // il fallait rendre DEUX fois, sur fond noir puis blanc, pour la
     // reconstruire par difference. Un tonemap agit sur la LUMINANCE ; il n'a
     // aucune raison de toucher a la couverture.
+    // L'EXPOSITION VIENT EN DERNIER, JUSTE AVANT LE TONEMAP.
+    // Elle ne multipliait que uHDR ; le bloom, lui, était ajouté APRÈS, sans
+    // jamais être exposé. Conséquence : aucune valeur d'exposition — ni la
+    // manuelle, ni l'automatique à sa borne basse — ne pouvait assombrir un
+    // halo. Sur un émissif à 100, la scène tombait bien à 5 (sous le seuil de
+    // saturation d'ACES, ~9) mais le bloom continuait de livrer ~150 : le
+    // disque blanc plat survivait à tout réglage. La chaîne correcte compose
+    // d'abord la scène et son halo, PUIS expose l'ensemble.
+    // (Rihen, 14 août : « quelque chose réinjecte de l'énergie après
+    // l'exposition ». C'était exactement ça.)
     vec4  hdrS  = texture(uHDR, vUV);
-    vec3  hdr   = hdrS.rgb * exposure;
-    if (hdrClamp > 0.0) hdr = min(hdr, vec3(hdrClamp));
+    vec3  scene = hdrS.rgb;
+    if (hdrClamp > 0.0) scene = min(scene, vec3(hdrClamp));
     float ao    = texture(uSSAO, vUV).r;        // SSAO aligné HDR → vUV (PAS bloomUV)
-    hdr *= ao;
+    scene *= ao;
     vec3  bloom = texture(uBloom, bloomUV).rgb; // bloom Y-up sur DX → bloomUV
-    hdr += bloom * bloomStr;
+    scene += bloom * bloomStr;
+    vec3  hdr   = scene * exposure;
     if (hdrClamp > 0.0) hdr = min(hdr, vec3(hdrClamp));
 
     // Tonemap ACES filmic.

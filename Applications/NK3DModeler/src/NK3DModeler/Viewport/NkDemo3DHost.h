@@ -35,7 +35,58 @@ namespace nkentseu {
 
 		// Rend la frame de la demo dans la cible hors ecran, sur le command
 		// buffer de l'editeur (crochet preUI). Calcule son dt lui-meme.
+		/// ── LA CARTE DES IDENTIFIANTS DE TEXTURE D'INTERFACE ────────────────
+		/// Ils sont pris dans UN SEUL espace, partage par tout ce que l'interface
+		/// affiche. Deux usages sur le meme numero, et l'un ecrase l'autre en
+		/// silence -- c'est arrive : l'apercu de materiau avait pris 4600, deja
+		/// occupe par les couvertures du launcher, et l'ecran d'accueil montrait
+		/// une sphere de materiau a la place de la miniature du projet (Rihen,
+		/// 14 aout). D'ou cette carte, a tenir a jour :
+		///
+		///   4096        vue 3D (cible hors ecran)
+		///   4300..4399  matcaps
+		///   4400..4463  vignettes des materiaux (une par emplacement)
+		///   4500..4598  miniatures des scenes
+		///   4599        image d'accueil
+		///   4600..      couvertures des projets recents (launcher)
+		///   5000        grand apercu de materiau  <- ici
+		///
+		/// Il vit dans CE fichier, et non dans le module de rendu : le panneau doit
+		/// pouvoir poser l'image sans rien connaitre de NKRenderer.
+		constexpr uint32 kNkMatPreviewTexId = 5000u;
+
 		void Demo3DHostFrame(void *cmd);
+		/// Rend l'apercu du materiau `slot` a `w` x `h`, dans le command buffer de
+		/// l'editeur — donc AVANT la passe backbuffer, une passe de rendu ne
+		/// pouvant pas en contenir une autre. Une seule image par frame : celle
+		/// que le panneau affiche. Sa texture est publiee par
+		/// Demo3DHostRegisterInto sous nk3d::matprev::kPreviewTexId.
+		void Demo3DHostMatPreviewFrame(void *cmd, int32 slot, int32 w, int32 h);
+		/// Demande la CAPTURE de la vignette d'un materiau vers `cheminPng`. La
+		/// prise se fait sur deux frames -- rendu puis relecture, une image devant
+		/// etre terminee pour etre lue -- et une seule par frame. Rendue en SPHERE
+		/// et en carre : c'est une icone de liste, elle doit se comparer aux autres.
+		void Demo3DHostMatThumbRequest(int32 slot, const char *cheminPng);
+		/// Suspend les demandes de vignette. A poser autour d'une ecriture qui est
+		/// elle-meme DECLENCHEE par une vignette, sinon la chaine se relance sans
+		/// fin. A remettre a faux dans tous les cas.
+		void Demo3DHostMatThumbSuspend(bool on);
+		/// La VIGNETTE d'un materiau : un PNG encode en base64, qui vit DANS le
+		/// materiau et voyage donc avec lui. Chaine vide tant qu'aucune capture
+		/// n'a ete prise (le materiau n'a jamais ete enregistre).
+		/// Recupere les PIXELS d'une vignette fraichement rendue, s'il y en a une
+		/// a prendre. Vrai une seule fois par prise : c'est ce qui evite de
+		/// televerser la meme image a chaque frame. L'image affichee se rafraichit
+		/// ainsi des qu'un reglage change, sans attendre l'enregistrement -- lui
+		/// seul declenche l'encodage dans le fichier, qui coute bien plus cher.
+		bool Demo3DHostMatThumbTakePixels(int32 i, const uint8 **px, int32 *cote);
+		/// Un materiau dont la vignette vient d'etre encodee et n'est pas encore
+		/// dans son fichier, ou -1. A consommer par l'application, qui seule sait
+		/// ecrire : une vignette encodee apres l'enregistrement resterait sinon
+		/// absente du disque jusqu'a la sauvegarde suivante.
+		int32 Demo3DHostMatThumbTakeDirty();
+		const char *Demo3DHostProjMatThumb(int32 i);
+		void Demo3DHostProjMatSetThumb(int32 i, const char *b64);
 
 		// Publie la cible aupres du backend NKGui sous l'id 4096.
 		void Demo3DHostRegisterInto(void *guiBackend);
@@ -145,6 +196,26 @@ namespace nkentseu {
 		void Demo3DHostSelectAllLights();
 		bool Demo3DHostAllLightsSelected();
 		void Demo3DHostDeselectAll();
+		// ── QU'Y A-T-IL SOUS CE PIXEL ? (glisser-deposer du navigateur) ─────
+		// Le MEME pick que le clic de selection (Demo3D_PickEmptyAt) : le
+		// lacher et le clic ne peuvent donc pas designer deux objets
+		// differents. Coordonnees en pixels de la FENETRE -- celles de la
+		// souris, telles quelles. L'origine de la vue est soustraite DEDANS,
+		// comme pour toute autre entree : l'appelant n'a pas a la connaitre.
+		//
+		// Deux appels, parce que la reponse n'existe qu'a la frame suivante :
+		// le pick a besoin de la camera et de la taille de vue, toutes deux
+		// locales a la frame. L'interface DEMANDE, la boucle EXECUTE.
+		void Demo3DHostPickRequest(float32 xFenetre, float32 yFenetre);
+		/// Lit la reponse UNE SEULE FOIS ; false tant qu'elle n'est pas prete.
+		/// `*node` porte TROIS issues, et elles sont dans la valeur :
+		///   >= 0 : le noeud designe
+		///   -1   : RIEN sous le curseur (le vide). C'est un RESULTAT legitime,
+		///          pas un echec -- et surtout pas le noeud 0, qui existe.
+		///   -2   : hors du viseur (la question n'a pas de sens ici).
+		/// `world3` recoit le point du monde vise (surface touchee, sinon plan
+		/// du sol y=0) : c'est la ou un modele lache dans le vide doit atterrir.
+		bool Demo3DHostPickTake(int32 *node, float32 *world3);
 		void Demo3DHostObjectPosition(int32 i, float32 *out3);
 		int32 Demo3DHostLightCount();
 		void Demo3DHostLightName(int32 li, char *out, uint32 cap);
@@ -205,6 +276,11 @@ namespace nkentseu {
 		bool Demo3DHostEmptyTransform(int32 node, float32 *pos3, float32 *rotDeg3, float32 *scl3);
 		void Demo3DHostSetEmptyTransform(int32 node, const float32 *pos3, const float32 *rotDeg3,
 										 const float32 *scl3);
+		// Poser un MODEL : le conteneur et ses maillages, d'un seul delta. Les
+		// transforms etant absolues, deplacer le seul conteneur laisse sa
+		// matiere en arriere -- et elle seule est rendue.
+		void Demo3DHostSetModelTransform(int32 node, const float32 *pos3,
+						     const float32 *rotDeg3, const float32 *scl3);
 
 		// ── Materiau par objet (panneau Modele) ─────────────────────────────
 		// Lecture = valeurs EFFECTIVES vues a la derniere soumission ;
@@ -293,9 +369,21 @@ namespace nkentseu {
 		bool Demo3DHostProjMatSwap(int32 a, int32 b);
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb);
 		void Demo3DHostProjMatSetEmissive(int32 i, const float32 *rgb);
+		/// Un materiau EMISSIF eclaire-t-il la scene ? Faux par defaut : une
+		/// surface emissive s'AFFICHE lumineuse sans forcement eclairer ses
+		/// voisins. Coche, elle injecte une lumiere dans la grille de GI -- et la
+		/// seulement : elle ne rejoint pas les lumieres du rendu direct, sinon
+		/// l'objet gagnerait un speculaire et une ombre qu'aucune surface emissive
+		/// ne produit.
+		bool Demo3DHostProjMatEmiLights(int32 i);
+		void Demo3DHostProjMatSetEmiLights(int32 i, bool on);
 		int32 Demo3DHostProjMatPrevShape(int32 i);
 		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape);
-		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 size);
+		/// Rend la vignette d'apercu en RGBA, `width` x `height`. Rectangulaire :
+		/// la largeur etend le damier, la hauteur seule dimensionne l'objet --
+		/// elargir le panneau ne doit pas grossir la sphere (Rihen, 13 aout).
+		/// Rend faux si la vignette est deja a jour (les dimensions comptent).
+		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 width, uint32 height);
 		// Le registre n'est JAMAIS vide face a l'utilisateur : renvoie le
 		// premier materiau, en creant le materiau de base au besoin.
 		int32 Demo3DHostProjMatEnsureDefault();
@@ -317,6 +405,14 @@ namespace nkentseu {
 		bool Demo3DHostNodeDeleted(int32 node);
 		void Demo3DHostDeleteNode(int32 node, bool withChildren);
 		int32 Demo3DHostDuplicateNode(int32 node); // -1 si impossible (lumiere v1)
+		// DUPLIQUER EN CHOISISSANT LE PARTAGE (decision de Rodolf, 16 aout).
+		// independant=false (le DEFAUT, et ce que rend Demo3DHostDuplicateNode) :
+		// le double reference les MEMES maillages -- instantane, sans cout
+		// memoire, et c'est ce que veulent le modificateur array, le jeu et le
+		// film. independant=true : sa geometrie est recopiee, pour obtenir deux
+		// models dont un seul sera retouche.
+		// Dans les deux cas, UN DOUBLE DE MODEL EST UN MODEL et emporte sa matiere.
+		int32 Demo3DHostDuplicateNodeEx(int32 node, bool independent);
 		int32 Demo3DHostArchiveNode(int32 node);   // copie invisible pour asset
 		// ARCHIVER UN NOEUD DEJA CREE, pour la RELECTURE d'un projet. Distinct de
 		// Demo3DHostDeleteNode, qui libere l'emplacement (nature remise a zero) :
@@ -331,6 +427,9 @@ namespace nkentseu {
 		// fichier de model.
 		bool Demo3DHostNodeInnerMeshOf(int32 node, int32 root);
 		void Demo3DHostArchiveTree(int32 node, bool v);		// le model ET ses maillages
+		// Pose l'origine d'un model sur le barycentre (X/Z) de sa matiere.
+		// Idempotente : sert aussi a reparer un asset ancien a l'usage.
+		void Demo3DHostRecenterModel(int32 root);
 		bool Demo3DHostNodeArchived(int32 node);
 		// APPARTENANCE par document : chaque noeud vit dans UNE scene ou UN
 		// editeur ; ailleurs il n'est ni rendu ni liste.
@@ -571,6 +670,13 @@ namespace nkentseu {
 							  float32 *bloomStr);
 		void Demo3DHostSetPostFx(float32 exposure, bool bloomOn, float32 bloomThr,
 								 float32 bloomStr);
+		// EXPOSITION AUTOMATIQUE : le moteur mesure la luminance moyenne de la
+		// scene et adapte l'exposition, comme l'oeil qui s'accommode. Dosage
+		// 0 = manuel, 1 = entierement automatique ; cible = gris moyen (0.18 en
+		// convention photo) ; vitesse en unites par seconde (0 = fige sur la
+		// premiere mesure). Repond au blanc plat des fortes luminosites.
+		void Demo3DHostAutoExp(float32 *strength, float32 *key, float32 *speed);
+		void Demo3DHostSetAutoExp(float32 strength, float32 key, float32 speed);
 		// Sol infini (option) : plan de sol recepteur d'ombres, couleur /
 		// hauteur / rugosite -- distinct de la grille. Motif : 0 uni,
 		// 1 damier, 2 carreaux a joints ; taille du carreau en metres.
@@ -589,6 +695,12 @@ namespace nkentseu {
 		// chaque modification de la scene. Appele par NkMarkDirty -- la meme
 		// action qui allume la pastille rafraichit l'ambiance.
 		void Demo3DHostGIMarkDirty();
+		/// ILLUMINATION GLOBALE (rebond indirect sur la grille voxel). Elle vivait
+		/// dans le portage de la demo, pilotable par une touche et par rien
+		/// d'autre. L'intensite n'est pas bornee en haut : comme l'emission, sa
+		/// valeur utile depend de la scene.
+		void Demo3DHostGI(bool *on, float32 *intensity);
+		void Demo3DHostSetGI(bool on, float32 intensity);
 		// Mise a jour des ombres : dynamique (elles suivent la scene) ou statique
 		// (calculees une fois, puis gardees telles quelles).
 		bool Demo3DHostShadowDynamic();

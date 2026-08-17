@@ -315,8 +315,33 @@ namespace nkentseu {
 				p.Unclip();
 			}
 
+			// ── UN NOM DE PROJET EST UN NOM DE DOSSIER ──────────────────────
+			// Ni espace, ni caractere interdit par le systeme de fichiers : le
+			// projet portera ce nom sur le disque (Rihen, 13 aout). On le dit
+			// PENDANT la saisie, et le bouton reste eteint -- plutot que d'echouer
+			// a la creation, quand l'utilisateur croit son projet fait.
+			const char *nomErr = nullptr;
+			for (const char *q = st.newProjName; *q && !nomErr; ++q) {
+				const char c = *q;
+				if (c == ' ')
+					nomErr = "Le nom ne peut pas contenir d'espace";
+				else if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+						 c == '"' || c == '<' || c == '>' || c == '|' || (unsigned char)c < 32u)
+					nomErr = "Caractere interdit dans un nom de dossier";
+			}
+			if (!nomErr && st.newProjName[0]) {
+				const char *fin = st.newProjName;
+				while (*fin)
+					++fin;
+				if (fin[-1] == '.')
+					nomErr = "Le nom ne peut pas finir par un point";
+			}
+			if (nomErr)
+				p.TextV(fx, box.y + bh - S(72.f), kRowH, nomErr, NkRole::AccentSel);
+
 			const float32 by = box.y + bh - S(46.f);
-			const bool canCreate = st.newProjName[0] != 0 && st.newProjDir[0] != 0;
+			const bool canCreate =
+				st.newProjName[0] != 0 && st.newProjDir[0] != 0 && nomErr == nullptr;
 			if (WelcomeButton(p, hit, "np.cancel", {box.x + bw - S(240.f), by, S(100.f), S(30.f)},
 							  "Annuler", NkIcon::None, false)) {
 				st.newProjOpen = false;

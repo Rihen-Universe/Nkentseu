@@ -28,11 +28,32 @@ namespace nkentseu {
 			// Exactitude d'un lot de logits [B,C] vs étiquettes [B] (argmax par ligne).
 			uint32 CountCorrect(const NkTensor &logits, const NkVector<int32> &labels);
 
+			// =================================================================
+			// ⚠️ OÙ VIDER LE GRADIENT — LA DISTINCTION À NE JAMAIS « HARMONISER »
+			//
+			// Depuis le 2026-08-16, `NkVar::Backward()` ne remet PLUS à zéro les
+			// feuilles à gradient requis (les paramètres) : c'est l'appelant qui
+			// vide, avec `ZeroGrad()`. Les trois boucles de ce fichier n'ont donc
+			// PAS le même placement, et ce n'est pas une incohérence :
+			//
+			//   TrainEpoch       -> ZeroGrad UNE FOIS PAR LOT     (un pas = un lot)
+			//   Fit              -> ZeroGrad UNE FOIS PAR LOT     (un pas = un lot)
+			//   TrainEpochAccum  -> ZeroGrad UNE FOIS PAR LOT EFFECTIF,
+			//                       c.-à-d. AVANT la boucle des micro-lots —
+			//                       JAMAIS à l'intérieur.
+			//
+			// Poser un `ZeroGrad()` par micro-lot dans `TrainEpochAccum` annulerait
+			// exactement ce que l'option A répare : chaque micro-lot effacerait le
+			// précédent, `accum` ne servirait plus à rien, et le lot effectif comme
+			// le taux seraient `accum` fois plus petits qu'annoncés — en silence.
+			// =================================================================
+
 			// -----------------------------------------------------------------
 			// Une époque d'entraînement de CLASSIFICATION (entropie croisée).
 			// `forward` : callable NkVar(const NkVar& x) renvoyant les LOGITS [B,C].
 			// `opt`     : optimiseur avec .Step() (ex. optim::NkAdam / NkSGD).
 			// Remélange le loader en fin d'époque. Renvoie perte moyenne + exactitude.
+			// PAS d'accumulation ici : un lot = un pas -> ZeroGrad à chaque tour.
 			// -----------------------------------------------------------------
 			template <typename Forward, typename Opt>
 			EpochStats TrainEpoch(Forward &&forward, Opt &opt, data::NkDataLoader &loader) {
@@ -42,6 +63,8 @@ namespace nkentseu {
 					data::NkBatch batch = loader.GetBatch(b);
 					if (batch.size == 0)
 						continue;
+
+					opt.ZeroGrad(); // un lot = un pas : le gradient repart de zéro
 
 					NkVar x = NkVar::Leaf(batch.inputs, false);
 					NkVar t = NkVar::Leaf(batch.targets, false);
@@ -116,6 +139,10 @@ namespace nkentseu {
 					while (b < nb) {
 						if (sched && globalStep)
 							opt.SetLearningRate(sched->LrAt(*globalStep + 1));
+						// ⚠️ ICI ET NULLE PART AILLEURS : une fois par LOT EFFECTIF, donc
+						// AVANT la boucle des micro-lots. Le descendre d'un cran (dans le
+						// `for m`) ferait effacer chaque micro-lot par le suivant et
+						// viderait `accum` de tout sens. Cf. le bloc en tête de fichier.
 						opt.ZeroGrad();
 						for (int32 m = 0; m < accum && b < nb; ++m, ++b) {
 							data::NkBatch batch = loader.GetBatch(b);
@@ -232,6 +259,9 @@ namespace nkentseu {
 							data::NkBatch batch = trainLoader.GetBatch(b);
 							if (batch.size == 0)
 								continue;
+
+							opt.ZeroGrad(); // un lot = un pas (voir le bloc en tête de fichier)
+
 							NkVar x = NkVar::Leaf(batch.inputs, false);
 							NkVar t = NkVar::Leaf(batch.targets, false);
 							NkVar logits = forward(x);

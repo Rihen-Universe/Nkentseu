@@ -18,17 +18,28 @@
 //   - <rect> <circle> <ellipse> <line> <polyline> <polygon>
 //   - Cubic + quadratic Bezier flatten adaptatif
 //   - Arc elliptique conversion W3C SVG 1.1 Appendix F.6
-//   - fill, stroke (color), opacity, fill-opacity, fill-rule
+//   - fill, opacity, fill-opacity, fill-rule
+//   - STROKE RASTERISE : stroke, stroke-width, stroke-opacity, stroke-linecap
+//     (butt/round/square), stroke-linejoin (miter/round/bevel), stroke-miterlimit.
+//     Le trait est converti en contour plein (BuildStrokeShape) puis rempli.
+//   - Gradients lineaires et radiaux (objectBoundingBox / userSpaceOnUse)
 //   - transform: translate, scale, rotate, matrix
 //   - Couleurs : #RGB #RRGGBB rgb() rgba() + 148 noms CSS
 //   - Attribut style="..." CSS inline
 //
-// Non implemente (Phase 2) :
+// Non implemente :
 //   - <text> <tspan> (necessite font system)
 //   - <defs><style> avec class CSS
-//   - Gradients, patterns, masks, clip-path, filters
-//   - Stroke (uniquement fill rendu pour Phase 1)
+//   - stroke-dasharray (le trait est toujours continu)
+//   - patterns, masks, clip-path, filters
 //   - <use> <symbol> <image>
+//
+// ATTENTION : cette liste a menti pendant un temps. Elle annoncait « Stroke
+// (uniquement fill rendu pour Phase 1) » et « Gradients » comme absents, alors
+// que les deux etaient implementes -- au point de faire dessiner des icones
+// entieres en contours evides pour contourner une limite qui n'existait plus
+// (13 aout 2026). Une capacite qu'on ajoute se declare ICI dans le meme
+// changement, sans quoi personne ne s'en sert.
 // =============================================================================
 
 #include "NKImage/Codecs/SVG/NkSVGCodec.h"

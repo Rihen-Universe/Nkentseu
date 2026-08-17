@@ -39,6 +39,7 @@
 #include "NKMedia/Pdf/NkPdf.h"
 #include "NKMedia/Pdf/NkPdfRaster.h"
 #include "NKMedia/Pdf/NkPdfRender.h"
+#include "NKMedia/Pdf/NkPdfStruct.h"
 
 namespace ilyana {
 	using namespace nkentseu;
@@ -107,6 +108,27 @@ namespace ilyana {
 		return page;
 	}
 
+	// Assemble une page dans l'ordre de la STRUCTURE, en une chaîne.
+	//
+	// Les blocs sont séparés par une ligne vide : c'est le séparateur dont toute
+	// la chaîne Ilyana se sert pour découper en passages, et la structure donne
+	// ici un découpage bien meilleur que l'heuristique d'écart vertical — un
+	// paragraphe balisé est un paragraphe, pas une devinette sur des coordonnées.
+	inline NkString AssemblerParStructure(const nkentseu::media::pdf::NkPdfStructIndex &index,
+										  int32 page,
+										  const NkVector<nkentseu::media::pdf::NkPdfRenderer::TextItem> &items) {
+		NkVector<nkentseu::media::pdf::NkPdfBloc> blocs;
+		nkentseu::media::pdf::NkPdfAssemblerParStructure(index, page, items, blocs);
+		NkString out;
+		for (nk_size i = 0; i < blocs.Size(); ++i) {
+			if (blocs[i].texte.Empty())
+				continue;
+			out.Append(blocs[i].texte);
+			out.Append("\n\n", 2);
+		}
+		return out;
+	}
+
 	// Point d'entrée. `nbPages` rend le nombre de pages effectivement lues,
 	// `pagesMuettes` celles qui n'ont donné aucun caractère — c'est le signalement
 	// qui distingue « livre lu » de « livre dont les polices ne se déclarent pas ».
@@ -141,10 +163,25 @@ namespace ilyana {
 		int64 entreesTable = 0;
 		bool tableDeuxOctets = false; // police composite (Type0/CID) ?
 		NkString policeSondee;		  // /BaseFont de la police sondée
+
+		// Ordre de lecture : ce qui a été DÉCIDÉ pour ce document, et pourquoi.
+		// La trace doit dire lequel des deux chemins s'applique — sinon on ne
+		// peut pas distinguer « ordre logique appliqué » de « document non
+		// balisé », qui produisent tous deux du texte plausible.
+		bool aStructure = false;		// /StructTreeRoot lu avec des entrées
+		double partHorsStructure = -1.0; // part du texte sans MCID connu
+		bool ordreLogique = false;		// ordre logique effectivement appliqué
 	};
 
+	// `forcerVisuel` interdit l'ordre logique même quand il s'appliquerait.
+	//
+	// Sert à MESURER : sans lui, comparer « avec » et « sans » réordonnancement
+	// demanderait deux exécutables construits depuis deux états du dépôt — donc
+	// une comparaison qu'on ne peut plus refaire une fois le code avancé. Avec
+	// lui, un seul binaire produit les deux mesures, et la non-régression reste
+	// vérifiable à tout moment.
 	inline NkString LirePdf(const char *chemin, int64 &nbPages, int64 &pagesMuettes, double dpi = 72.0,
-							DiagPdf *diag = nullptr) {
+							DiagPdf *diag = nullptr, bool forcerVisuel = false) {
 		using namespace nkentseu::media::pdf;
 		nbPages = 0;
 		pagesMuettes = 0;
@@ -153,6 +190,34 @@ namespace ilyana {
 		NkPdfDoc doc;
 		if (doc.Open(chemin) != NK_PDF_OK)
 			return texte;
+
+		// ── Ordre de lecture LOGIQUE : décidé UNE fois pour le document ──
+		//
+		// Deux conditions, et les deux sont mesurées, pas supposées :
+		//   1. l'arbre /StructTreeRoot se lit et rend des entrées (55 % du corpus) ;
+		//   2. la part de texte qu'il ne rattache à rien reste sous le seuil.
+		//
+		// La seconde est la moins évidente et la plus importante : un document
+		// peut déclarer un arbre et n'y rattacher qu'une fraction de son texte.
+		// Mesuré sur les 140 balisés du corpus, 22 dépassent 10 % — dont trois à
+		// 99,5 %, 100 % et 100 %. Sur ceux-là, l'ordre logique ferait PIRE que
+		// l'ordre visuel : le texte non rattaché partirait en fin de page, en
+		// perdant au passage le tri par ligne d'AssemblerPage.
+		//
+		// COÛT ASSUMÉ : mesurer cette part demande un rendu complet du document
+		// en plus de celui qui suit. C'est le prix d'une décision juste, et il
+		// est payé UNE fois, au dépôt du livre — jamais à la lecture.
+		media::pdf::NkPdfStructIndex indexStruct;
+		bool ordreLogique = false;
+		if (!forcerVisuel && indexStruct.Construire(doc)) {
+			const double part = media::pdf::NkPdfPartHorsStructure(doc, indexStruct);
+			ordreLogique = (part >= 0.0 && part < media::pdf::kNkPdfSeuilHorsStructure);
+			if (diag) {
+				diag->aStructure = true;
+				diag->partHorsStructure = part;
+				diag->ordreLogique = ordreLogique;
+			}
+		}
 
 		const int32 n = doc.PageCount();
 		for (int32 p = 0; p < n; ++p) {
@@ -189,7 +254,15 @@ namespace ilyana {
 					diag->policeSondee = st.sondeFontName;
 				}
 			}
-			const NkString t = AssemblerPage(rendu.TextItems());
+			// ⚠️ LE REPLI EST GARANTI PAR CONSTRUCTION, non par ressemblance.
+			// Quand l'ordre logique ne s'applique pas, on appelle EXACTEMENT la
+			// ligne d'origine — `AssemblerPage(rendu.TextItems())` — et non une
+			// variante qui lui ressemblerait. C'est ce qui rend l'identité stricte
+			// démontrable pour les 118 documents sans structure ET pour les 22
+			// dont le balisage est trop partiel : ils empruntent le même chemin
+			// qu'avant, au sens littéral.
+			const NkString t = ordreLogique ? AssemblerParStructure(indexStruct, p, rendu.TextItems())
+											: AssemblerPage(rendu.TextItems());
 			++nbPages;
 			if (t.Size() < 20) {
 				++pagesMuettes;
