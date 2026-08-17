@@ -326,7 +326,10 @@ namespace nkentseu {
 				// (NkGuiWidgets.h).
 				NkGuiId lastItemId = NKGUI_ID_NONE; ///< dernier widget interactif soumis
 				NkRect lastItemRect{0.f, 0.f, 0.f, 0.f}; ///< son rect (cible de drop)
-				static constexpr int32 DragPayloadMax = 64;
+				// 256 : un chemin relatif d'asset doit tenir ENTIER dans la charge —
+				// une charge tronquee livrerait un mensonge (les chemins du Content
+				// Browser depassent couramment 64 octets).
+				static constexpr int32 DragPayloadMax = 256;
 				NkGuiId dragCandidateId = NKGUI_ID_NONE; ///< presse, pas encore glisse
 				NkVec2 dragCandidatePos{0.f, 0.f};		 ///< position souris a l'armement
 				bool dragActive = false;				 ///< un glisser est en cours

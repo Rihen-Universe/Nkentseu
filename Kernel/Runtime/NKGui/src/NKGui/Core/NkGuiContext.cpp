@@ -145,7 +145,16 @@ namespace nkentseu {
 			// Si le widget détenant activeId a disparu (hôte redevenu flottant, onglet
 			// caché, fenêtre fermée…) il ne libère jamais activeId et l'occlusion bloque
 			// TOUTE interaction. Souris haute + activeId encore posé ⇒ on libère d'office.
-			if (!input.mouseDown[0] && activeId != NKGUI_ID_NONE) {
+			// ⚠️ « Haute » = haute depuis une frame COMPLÈTE (mousePrev aussi) : le front
+			// mouseReleased n'est calculé qu'au NewFrame SUIVANT le passage à faux. Si on
+			// libère dès mouseDown=false, une entrée posée APRÈS les widgets (overlay,
+			// sonde pilotée) perd activeId une frame avant le front — et le clic validé
+			// au relâchement (ButtonBehavior) ne peut JAMAIS aboutir. Pour l'entrée
+			// événementielle réelle, ce resserrement ne change rien : le widget encore
+			// vivant libère activeId lui-même en consommant le front, et un widget
+			// disparu est libéré une frame plus tard — imperceptible. (Mesuré 2026-08-17 :
+			// sonde --dragdrop-test, clic de dépliage jamais validé, diag hotId=activeId.)
+			if (!input.mouseDown[0] && !input.mousePrev[0] && activeId != NKGUI_ID_NONE) {
 				activeId = NKGUI_ID_NONE;
 				movingWindowId = NKGUI_ID_NONE;
 			}
