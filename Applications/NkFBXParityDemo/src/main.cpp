@@ -106,6 +106,85 @@ namespace {
 					 (uint32)fbx.nodes.Size(), (uint32)fbx.subMeshes.Size());
 	}
 
+	// ── Etape (b) : skinning depuis le FBX ─────────────────────────────────
+	// References de l'inspecteur Python INDEPENDANT du moteur (fbx_skin_inspect,
+	// 2026-08-17) sur CesiumMan.fbx : 1 Skin sur la Geometry aux 3273 control
+	// points (14016 coins emis sur 14256), 19 Cluster relies chacun a un Model
+	// LimbNode nomme, couverture 3273/3273, somme des poids exactement 1, max
+	// 4 influences, 86 % des control points a >= 2 influences.
+	// inverseBind(Skeleton_torso_joint_1) = TransformLink^-1 * Transform,
+	// translation column-major [12..14] = (0.044553, -0.004487, -0.677621).
+	// NOTE parite : les inverseBind glTF et FBX ne sont PAS comparables
+	// directement — l'export Blender integre l'echelle cm et sa reorientation
+	// des os dans TransformLink/Transform (glTF : t=(0.0513, -0.0050, -0.6771)).
+	// Le temoin numerique est donc l'inspecteur, sur le MEME fichier.
+	void TestFBXSkin(const renderer::NkGLTFMeshData &fbx) noexcept {
+		logger.Infof("-- FBX etape (b) : CesiumMan.fbx (skinning) --\n");
+		Check(fbx.isSkinned, "FBX : isSkinned (le Deformer Skin est extrait)");
+		Check(fbx.skinJoints.Size() == 19, "FBX : 19 joints (19 Cluster — inspecteur independant)");
+		Check(fbx.inverseBind.Size() == fbx.skinJoints.Size(), "FBX : inverseBind parallele a skinJoints");
+		Check(fbx.skinnedVertices.Size() == fbx.vertices.Size(),
+			  "FBX : skinnedVertices parallele a vertices");
+		if (!fbx.isSkinned || fbx.skinJoints.Empty())
+			return;
+
+		// Chaque joint est un node valide et NOMME (les Cluster nomment leurs
+		// joints — ce que le chemin glTF ne garde pas).
+		bool jointsOk = true;
+		int32 torso = -1;
+		for (uint32 k = 0; k < (uint32)fbx.skinJoints.Size(); ++k) {
+			const int32 n = fbx.skinJoints[k];
+			if (n < 0 || n >= (int32)fbx.nodes.Size() || fbx.nodes[(uint32)n].name.Empty()) {
+				jointsOk = false;
+				break;
+			}
+			if (fbx.nodes[(uint32)n].name == NkString("Skeleton_torso_joint_1"))
+				torso = (int32)k;
+		}
+		Check(jointsOk, "FBX : chaque skinJoint est un node valide et nomme");
+		Check(torso >= 0, "FBX : 'Skeleton_torso_joint_1' figure parmi les joints");
+
+		// La matrice de bind du joint teste, contre l'inspecteur : verifie d'un
+		// coup Inverse(), le produit et la convention column-major du moteur.
+		if (torso >= 0) {
+			const math::NkMat4f &ib = fbx.inverseBind[(uint32)torso];
+			const bool tOk = std::fabs(ib.data[12] - 0.044553f) < 1e-3f &&
+							 std::fabs(ib.data[13] - (-0.004487f)) < 1e-3f &&
+							 std::fabs(ib.data[14] - (-0.677621f)) < 1e-3f;
+			Check(tOk, "FBX : inverseBind(torso_joint_1).translation == TL^-1*TR de l'inspecteur");
+		}
+
+		// Poids : somme 1 partout (sommets skinnes normalises, hors-skin au
+		// defaut {1,0,0,0} — meme regle que le chemin glTF), indices bornes,
+		// et la couverture est reelle (>= 50 % de sommets multi-influences ;
+		// mesure independante : 86 % des control points, 98 % des coins emis
+		// viennent de la geometrie skinnee).
+		bool sumOk = true, idxOk = true;
+		uint32 multi = 0;
+		for (uint32 v = 0; v < (uint32)fbx.skinnedVertices.Size(); ++v) {
+			const renderer::NkVertexSkinned &sv = fbx.skinnedVertices[v];
+			float32 s = 0.f;
+			uint32 used = 0;
+			for (uint32 k = 0; k < 4; ++k) {
+				s += sv.boneWeight[k];
+				if (sv.boneWeight[k] > 0.f)
+					++used;
+				if (sv.boneIdx[k] < 0.f || sv.boneIdx[k] >= (float32)fbx.skinJoints.Size())
+					idxOk = false;
+			}
+			if (std::fabs(s - 1.f) > 1e-3f)
+				sumOk = false;
+			if (used >= 2)
+				++multi;
+		}
+		Check(sumOk, "FBX : somme des poids == 1 pour chaque sommet (skinnes et defaut)");
+		Check(idxOk, "FBX : boneIdx borne par le nombre de joints");
+		Check(multi * 2 >= (uint32)fbx.skinnedVertices.Size(),
+			  "FBX : >= 50 % des sommets ont >= 2 influences (couverture reelle)");
+		logger.Infof("     FBX skin : %u joints, %u/%u sommets multi-influences\n",
+					 (uint32)fbx.skinJoints.Size(), multi, (uint32)fbx.skinnedVertices.Size());
+	}
+
 	// ── Non-regression ASCII : le cube de test (aucun Model dedans) ────────
 	void TestFBXAscii() noexcept {
 		logger.Infof("-- FBX ASCII : cube_ascii.fbx (non-regression geometrie) --\n");
@@ -125,6 +204,7 @@ int main() {
 	renderer::NkGLTFMeshData fbx;
 	TestGLTFReference(gltf);
 	TestFBXNodes(fbx);
+	TestFBXSkin(fbx);
 	TestFBXAscii();
 
 	// Parite inter-chemins (etape (a) : ce qui est deja comparable).
@@ -135,6 +215,9 @@ int main() {
 		// contient AU MOINS autant de nodes que le squelette glTF a de joints.
 		Check(fbx.nodes.Size() >= gltf.skinJoints.Size(),
 			  "parite : nodes FBX >= joints glTF (le squelette est dans l'arbre)");
+		// Etape (b) : les deux chemins voient LE MEME squelette de 19 joints.
+		Check(fbx.skinJoints.Size() == gltf.skinJoints.Size(),
+			  "parite : autant de joints skin FBX que glTF (19 Cluster = 19 joints)");
 	}
 
 	logger.Infof("=== Resultat : %d OK, %d echec(s) ===\n", gPassCount, gFailCount);
