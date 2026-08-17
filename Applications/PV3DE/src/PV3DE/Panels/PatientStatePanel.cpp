@@ -1,13 +1,14 @@
 #include "PatientStatePanel.h"
 #include "PV3DE/Layers/PatientLayer.h"
+#include "PV3DE/UI/PvGui.h"
 #include "NKMath/NKMath.h"
 #include <cstdio>
 
 namespace nkentseu {
 	namespace pv3de {
 
-		using namespace nkui;
-			using namespace nkentseu::math;
+		using namespace nkgui;
+		using namespace nkentseu::math;
 
 		const char *PatientStatePanel::EmotionName(EmotionState s) noexcept {
 			switch (s) {
@@ -85,16 +86,9 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		void PatientStatePanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
-									   NkUILayoutStack &ls, const PatientLayer &patient, NkRect rect) noexcept {
-			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
-			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
-
-			if (!NkUIWindow::Begin(ctx, wm, dl, font, ls, "État du patient##patstate", nullptr,
-								   NkUIWindowFlags::NK_NO_MOVE | NkUIWindowFlags::NK_NO_RESIZE)) {
-				NkUIWindow::End(ctx, wm, dl, ls);
+		void PatientStatePanel::Render(NkGuiContext &ctx, const PatientLayer &patient, const NkRect &rect) noexcept {
+			if (!BeginPanel(ctx, "État du patient", rect))
 				return;
-			}
 
 			// Animation clignotement alarmes
 			mAlarmBlink += ctx.input.dt * 2.f;
@@ -106,103 +100,81 @@ namespace nkentseu {
 			const NkEmotionOutput &emotion = patient.GetEmotionOutput();
 
 			// ── Émotion dominante ─────────────────────────────────────────────
-			NkUI::BeginRow(ctx, ls, 28.f);
-			NkUI::Text(ctx, ls, dl, font, "État émotionnel", {180, 180, 180, 255});
-			NkUI::EndRow(ctx, ls);
+			pvgui::TextColored(ctx, {180, 180, 180, 255}, "État émotionnel");
 
-			RenderEmotionBar(ctx, dl, font, ls, emotion);
-			NkUI::Separator(ctx, ls, dl);
+			RenderEmotionBar(ctx, emotion);
+			Separator(ctx);
 
 			// ── Jauges physiologiques ─────────────────────────────────────────
-			NkUI::BeginRow(ctx, ls, 18.f);
-			NkUI::Text(ctx, ls, dl, font, "Physiologie", {180, 180, 180, 255});
-			NkUI::EndRow(ctx, ls);
+			pvgui::TextColored(ctx, {180, 180, 180, 255}, "Physiologie");
 
-			RenderPhysioGauge(ctx, dl, font, ls, "Douleur", state.painLevel, 10.f, {220, 60, 60, 255});
-			RenderPhysioGauge(ctx, dl, font, ls, "Anxiété", state.anxietyLevel, 1.f, {180, 80, 220, 255});
-			RenderPhysioGauge(ctx, dl, font, ls, "Nausée", state.nauseaLevel, 1.f, {100, 200, 140, 255});
-			RenderPhysioGauge(ctx, dl, font, ls, "Fatigue", state.fatigueLevel, 1.f, {100, 120, 180, 255});
-			RenderPhysioGauge(ctx, dl, font, ls, "Dyspnée", state.breathingDifficulty, 1.f, {60, 160, 220, 255});
+			RenderPhysioGauge(ctx, "Douleur", state.painLevel, 10.f, {220, 60, 60, 255});
+			RenderPhysioGauge(ctx, "Anxiété", state.anxietyLevel, 1.f, {180, 80, 220, 255});
+			RenderPhysioGauge(ctx, "Nausée", state.nauseaLevel, 1.f, {100, 200, 140, 255});
+			RenderPhysioGauge(ctx, "Fatigue", state.fatigueLevel, 1.f, {100, 120, 180, 255});
+			RenderPhysioGauge(ctx, "Dyspnée", state.breathingDifficulty, 1.f, {60, 160, 220, 255});
 
-			NkUI::Separator(ctx, ls, dl);
+			Separator(ctx);
 
 			// ── Constantes vitales ────────────────────────────────────────────
-			RenderVitals(ctx, dl, font, ls, state);
+			RenderVitals(ctx, state);
 
 			// ── Alarmes critiques ─────────────────────────────────────────────
 			bool alarm =
 				(state.heartRate > 120.f || state.heartRate < 40.f || state.spo2 < 90.f || state.temperature > 39.5f);
 			if (alarm && blinkOn) {
-				NkUI::BeginRow(ctx, ls, 22.f);
-				NkUI::TextColored(ctx, ls, dl, font, {255, 40, 40, 255}, "⚠ ALARME — Paramètres critiques");
-				NkUI::EndRow(ctx, ls);
+				pvgui::TextColored(ctx, {255, 40, 40, 255}, "⚠ ALARME — Paramètres critiques");
 			}
 
-			NkUIWindow::End(ctx, wm, dl, ls);
+			EndPanel(ctx);
 		}
 
 		// =====================================================================
-		void PatientStatePanel::RenderEmotionBar(NkUIContext &ctx, NkUIDrawList &dl, NkUIFont &font,
-												 NkUILayoutStack &ls, const NkEmotionOutput &em) noexcept {
+		void PatientStatePanel::RenderEmotionBar(NkGuiContext &ctx, const NkEmotionOutput &em) noexcept {
 			NkColor col = EmotionColor(em.state);
 			char buf[64];
 			snprintf(buf, sizeof(buf), "%s  %s  (%.0f%%)", EmotionIcon(em.state), EmotionName(em.state),
 					 em.intensity * 100.f);
 
-			NkUI::BeginRow(ctx, ls, 22.f);
-			NkUI::TextColored(ctx, ls, dl, font, col, buf);
-			NkUI::EndRow(ctx, ls);
+			pvgui::TextColored(ctx, col, buf);
 
 			// Barre d'intensité
-			NkUI::BeginRow(ctx, ls, 12.f);
-			NkUI::SetNextGrow(ctx, ls);
-			// NOTE (Phase R1) : NkStyleVar::ProgressFill n'existe pas dans NKUI réel
-			// (aucun hook de couleur par widget sur ProgressBar aujourd'hui).
-			NkUI::ProgressBar(ctx, ls, dl, em.intensity, {0.f, 10.f});
-			NkUI::EndRow(ctx, ls);
+			ProgressBar(ctx, em.intensity);
 		}
 
-		void PatientStatePanel::RenderPhysioGauge(NkUIContext &ctx, NkUIDrawList &dl, NkUIFont &font,
-												  NkUILayoutStack &ls, const char *label, nk_float32 value,
+		void PatientStatePanel::RenderPhysioGauge(NkGuiContext &ctx, const char *label, nk_float32 value,
 												  nk_float32 maxVal, NkColor color) noexcept {
 			float32 norm = NkClamp(value / maxVal, 0.f, 1.f);
 			char buf[64];
 			snprintf(buf, sizeof(buf), "%s: %.1f / %.0f", label, value, maxVal);
 
-			NkUI::BeginRow(ctx, ls, 18.f);
-			NkUI::SetNextWidth(ctx, ls, 80.f);
-			NkUI::Text(ctx, ls, dl, font, buf, {180, 180, 180, 255});
-			NkUI::SetNextGrow(ctx, ls);
-			// NOTE (Phase R1) : NkStyleVar::ProgressFill n'existe pas dans NKUI réel
-			// (aucun hook de couleur par widget sur ProgressBar aujourd'hui).
+			// NOTE : pas de hook de couleur par barre dans NKGui (comme NKUI) —
+			// couleur documentée mais non appliquée (même dette qu'en v2).
 			(void)color;
-			NkUI::ProgressBar(ctx, ls, dl, norm, {0.f, 14.f});
-			NkUI::EndRow(ctx, ls);
+
+			const float32 sizes[2] = {92.f, -1.f};
+			BeginRow(ctx, 18.f, sizes, 2);
+			pvgui::TextColored(ctx, {180, 180, 180, 255}, buf);
+			ProgressBar(ctx, norm);
+			EndRow(ctx);
 		}
 
-		void PatientStatePanel::RenderVitals(NkUIContext &ctx, NkUIDrawList &dl, NkUIFont &font, NkUILayoutStack &ls,
-											 const NkClinicalState &s) noexcept {
-			NkUI::BeginRow(ctx, ls, 18.f);
-			NkUI::Text(ctx, ls, dl, font, "Constantes vitales", {180, 180, 180, 255});
-			NkUI::EndRow(ctx, ls);
+		void PatientStatePanel::RenderVitals(NkGuiContext &ctx, const NkClinicalState &s) noexcept {
+			pvgui::TextColored(ctx, {180, 180, 180, 255}, "Constantes vitales");
 
 			// FC
 			bool fcAlarm = (s.heartRate > 120.f || s.heartRate < 40.f);
 			NkColor fcCol = fcAlarm ? NkColor{255, 60, 60, 255} : NkColor{200, 200, 200, 255};
 			char fcBuf[32];
 			snprintf(fcBuf, sizeof(fcBuf), "FC: %.0f bpm", s.heartRate);
-			NkUI::BeginRow(ctx, ls, 18.f);
-			NkUI::TextColored(ctx, ls, dl, font, fcCol, fcBuf);
-			NkUI::EndRow(ctx, ls);
+			pvgui::TextColored(ctx, fcCol, fcBuf);
 
 			// Température
 			bool tempAlarm = (s.temperature > 39.f || s.temperature < 35.5f);
 			NkColor tCol = tempAlarm ? NkColor{255, 120, 60, 255} : NkColor{200, 200, 200, 255};
 			char tBuf[32];
 			snprintf(tBuf, sizeof(tBuf), "T°: %.1f°C", s.temperature);
-			NkUI::BeginRow(ctx, ls, 18.f);
-			NkUI::TextColored(ctx, ls, dl, font, tCol, tBuf);
-			NkUI::EndRow(ctx, ls);
+			pvgui::TextColored(ctx, tCol, tBuf);
 
 			// SpO2
 			bool spoAlarm = (s.spo2 < 90.f);
@@ -212,9 +184,7 @@ namespace nkentseu {
 									   : NkColor{80, 200, 80, 255};
 			char spoBuf[32];
 			snprintf(spoBuf, sizeof(spoBuf), "SpO2: %.0f%%", s.spo2);
-			NkUI::BeginRow(ctx, ls, 18.f);
-			NkUI::TextColored(ctx, ls, dl, font, spoCol, spoBuf);
-			NkUI::EndRow(ctx, ls);
+			pvgui::TextColored(ctx, spoCol, spoBuf);
 		}
 
 	} // namespace pv3de

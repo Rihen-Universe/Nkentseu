@@ -1,8 +1,8 @@
 // =============================================================================
 // Assets/MouAssets.h
 // Chargeur d'assets Mú : rasterise un .svg (NkSVGCodec) OU décode un .png
-// (NkImage) et l'uploade en texture NKUI (NkUICanvasBackend) -> texId pour
-// NkUIDrawList::AddImage.
+// (NkImage) et l'uploade en texture via le backend NKGui/NKCanvas
+// (NkGuiCanvasBackend::UploadImageRGBA) -> texId pour NkGuiDrawList::AddImage.
 // =============================================================================
 #pragma once
 
@@ -13,7 +13,7 @@
 
 namespace nkentseu {
 	namespace renderer {
-		class NkUICanvasBackend;
+		class NkGuiCanvasBackend;
 	}
 } // namespace nkentseu
 
@@ -21,7 +21,7 @@ namespace mou {
 
 	class MouAssets {
 		public:
-			bool Init(nkentseu::renderer::NkUICanvasBackend *backend) noexcept;
+			bool Init(nkentseu::renderer::NkGuiCanvasBackend *backend) noexcept;
 
 			/// Charge un .svg du dossier assets/svg (rasterise à w x h). 0 si échec.
 			nkentseu::uint32 LoadSvg(const char *svgName, nkentseu::int32 w, nkentseu::int32 h) noexcept;
@@ -41,7 +41,7 @@ namespace mou {
 			}
 
 		private:
-			nkentseu::renderer::NkUICanvasBackend *mBackend = nullptr;
+			nkentseu::renderer::NkGuiCanvasBackend *mBackend = nullptr;
 			nkentseu::uint32 mNextTexId = 10000;
 			nkentseu::int32 mLastW = 0, mLastH = 0;
 	};

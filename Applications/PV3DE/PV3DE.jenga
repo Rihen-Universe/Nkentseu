@@ -35,17 +35,23 @@ with project("PV3DE"):
     # PV3DE depend d'Engine/Noge (NkApplication, LayerStack, ECS) qui tire NKECS,
     # NKRenderer, NKSerialization, NKFileSystem, NKAudio/NKMedia/NKNetwork,
     # NKRL/NKAgent (cf. Noge.jenga _DEPS).
+    # Dependance NKUI retiree le 2026-08-18 (campagne de retrait, decision Rodolf
+    # 2026-08-16) : l'UI medicale (MedicalUILayer + 4 panneaux) est portee sur
+    # NKGui et rendue par NkGuiRHIBackend (Integrations/NKGui, cf. dependson).
     nkentseudependson(
         ["Noge", "NKAgent", "NKRL", "NKTensor", "NKAudio", "NKMedia", "NKNetwork",
          "NKRenderer", "NKSL", "NKCollision", "NKPhysics", "NKNavigation",
          "NKSerialization", "NKFileSystem", "NKECS", "NKRHI",
-         "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKUI", "NKFont", "NKImage",
+         "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKGui", "NKFont", "NKImage",
          "NKEvent", "NKWindow", "NKLogger", "NKMath", "NKTime", "NKStream",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
-        extra_includes=["src", "%{Noge.location}/src"]
+        extra_includes=["src", "%{Noge.location}/src", "%{wks.location}/Integrations"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
     )
+    # NKGuiIntegration : backend NKGui->NKRHI (NkGuiRHIBackend) — meme chemin
+    # que Nogee.jenga (l'en-tete arrive par l'include Integrations ci-dessus).
+    dependson(["NKGuiIntegration"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

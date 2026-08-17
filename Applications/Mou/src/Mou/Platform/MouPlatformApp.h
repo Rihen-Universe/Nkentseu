@@ -10,13 +10,13 @@
 #include "NKCore/NkTypes.h"
 #include "NKWindow/NKWindow.h"
 #include "NKCanvas/Renderer/Targets/NkRenderWindow.h"
-#include "NKUI/NKUI.h"
+#include "NKGui/NKGui.h"
 #include "Games/Common/MouGame.h"
 #include "Games/Common/GameMetadata.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "NKTime/NkClock.h"
 #include "NKTime/NkChrono.h"
-#include "NKCanvas/UI/NkUICanvasBackend.h"
+#include "NKCanvas/UI/NkGuiCanvasBackend.h" // header-only
 #include "Assets/MouAssets.h"
 #include "Audio/MouAudio.h"
 
@@ -60,15 +60,14 @@ namespace mou {
 			nkentseu::NkWindow mWindow;
 			nkentseu::renderer::NkRenderWindow *mRenderTarget = nullptr;
 
-			// === UI globale ===
-			nkentseu::nkui::NkUIContext *mUIContext = nullptr;
-			nkentseu::nkui::NkUIWindowManager *mUIWindowManager = nullptr;
-			nkentseu::renderer::NkUICanvasBackend *mUIBackend = nullptr;
-			nkentseu::nkui::NkUIFont *mUIFont = nullptr;
-			nkentseu::nkui::NkUIFont *mTitleFont = nullptr;
-			nkentseu::uint32 mBodyFontId = 0;
-			nkentseu::uint32 mTitleFontId = 0;
-			nkentseu::nkui::NkUIInputState mUIInput;
+			// === UI globale (NKGui, rendu par NkGuiCanvasBackend) ===
+			// L'input brut (souris/tactile) est posé directement dans mUIContext->input.
+			// Deux polices = deux atlas : mTitleFont porte texId+1 (le backend résout un
+			// atlas par texId). Si la police titre échoue, mTitleFont == mUIFont.
+			nkentseu::nkgui::NkGuiContext *mUIContext = nullptr;
+			nkentseu::renderer::NkGuiCanvasBackend *mUIBackend = nullptr;
+			nkentseu::nkgui::NkGuiFont *mUIFont = nullptr;
+			nkentseu::nkgui::NkGuiFont *mTitleFont = nullptr;
 			MouAssets mAssets;
 			MouAudio mAudio;
 			nkentseu::uint32 mVoiceRot = 0; // alterne les voix d'encouragement
