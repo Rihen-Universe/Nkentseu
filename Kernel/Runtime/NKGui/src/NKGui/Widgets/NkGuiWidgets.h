@@ -52,6 +52,15 @@ namespace nkentseu {
 		// True si un glisser survole le dernier widget soumis (la bibliotheque
 		// surligne le rect en accent). Le TYPE se verifie a l'acceptation.
 		NKENTSEU_NKGUI_API bool BeginDropTarget(NkGuiContext &ctx) noexcept;
+		// CIBLE EXPLICITE (2026-08-17, NK3DModeler) : pour une ZONE qui n'est pas
+		// un widget -- un panneau entier, un fond de liste -- et qui contient deja
+		// des widgets. `ButtonBehavior` sur une telle zone capturerait le clic
+		// (soumis avant eux : activeId bloque leur ItemHoverable) ou volerait
+		// hotId (soumis apres : le greedy les prive du survol). Cette forme ne
+		// capture RIEN : elle pose seulement ce que la livraison consomme
+		// (lastItemId/lastItemRect) puis suit le meme chemin que BeginDropTarget.
+		// Une source reste un widget (BeginDragSource a besoin d'activeId).
+		NKENTSEU_NKGUI_API bool BeginDropTarget(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept;
 		// Livraison : non-nul UNE frame — au relachement sur la cible, si le
 		// type correspond. Un lacher HORS de toute cible ne livre rien.
 		NKENTSEU_NKGUI_API const void *AcceptDragPayload(NkGuiContext &ctx, const char *type,
