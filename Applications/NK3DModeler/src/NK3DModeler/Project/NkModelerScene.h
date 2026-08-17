@@ -689,6 +689,7 @@ namespace nkentseu {
 				st.browserSub[b] = 0;
 				st.browserSrcNode[b] = 0;
 				st.browserDoc[b] = 0;
+				st.browserOriginDirty[b] = false; // transient : jamais serialise
 			}
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				st.DocFree(d);

@@ -16256,9 +16256,9 @@ namespace nkentseu {
 		// meme barycentre et n'ecrit rien de neuf. C'est ce qui permet de s'en
 		// servir pour REPARER les assets existants au moment ou on les emploie,
 		// sans toucher au format ni a la relecture.
-		void Demo3DHostRecenterModel(int32 root) {
+		bool Demo3DHostRecenterModel(int32 root) {
 			if (root < kNkvpFirstEmpty || root >= kNkvpMaxNodes || !nkvpIsModel[root])
-				return;
+				return false;
 			// LE MEME parcours d'appartenance que l'archivage, l'ecriture d'un
 			// fichier de model et le deplacement : quatre usages, un seul parcours.
 			float32 sx = 0.f, sz = 0.f;
@@ -16272,7 +16272,7 @@ namespace nkentseu {
 				++n;
 			}
 			if (n == 0)
-				return; // un model sans matiere n'a pas de centre a trouver
+				return false; // un model sans matiere n'a pas de centre a trouver
 			const int32 er = root - kNkvpFirstEmpty;
 
 			// MESURE (temporaire) : CETTE FONCTION CHANGE-T-ELLE QUELQUE CHOSE ?
@@ -16315,6 +16315,11 @@ namespace nkentseu {
 			// chaque depot. Mesure : MESURE hier model=98 cliche=(2.935..)
 			// courant=(2.223..) dp=(-0.712, 0, -0.846) transmis=1.
 			HostHierSnapNode(HostSt(), root);
+			// A-T-ON REELLEMENT CHANGE QUELQUE CHOSE ? Le seuil est celui de la
+			// passe de hierarchie (1e-5) : en-dessous, rien n'a bouge pour
+			// personne, et dire « corrige » armerait une reecriture de fichier
+			// pour un epsilon flottant.
+			return fabsf(nx - ax) + fabsf(nz - az) > 1e-5f;
 		}
 		int32 Demo3DHostArchiveNode(int32 node) {
 			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de

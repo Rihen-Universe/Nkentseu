@@ -429,7 +429,11 @@ namespace nkentseu {
 		void Demo3DHostArchiveTree(int32 node, bool v);		// le model ET ses maillages
 		// Pose l'origine d'un model sur le barycentre (X/Z) de sa matiere.
 		// Idempotente : sert aussi a reparer un asset ancien a l'usage.
-		void Demo3DHostRecenterModel(int32 root);
+		// Renvoie VRAI si l'origine a REELLEMENT change -- ce retour sert la
+		// persistance (decision de Rihen, 17/08) : une correction faite en
+		// memoire marque la carte du model pour que la prochaine SAUVEGARDE
+		// ecrive le fichier. Jamais d'ecriture disque en douce au depot.
+		bool Demo3DHostRecenterModel(int32 root);
 		bool Demo3DHostNodeArchived(int32 node);
 		// APPARTENANCE par document : chaque noeud vit dans UNE scene ou UN
 		// editeur ; ailleurs il n'est ni rendu ni liste.

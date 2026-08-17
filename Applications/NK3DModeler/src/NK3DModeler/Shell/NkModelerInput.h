@@ -786,6 +786,18 @@ namespace nkentseu {
 				NkString browserFolderAbs;
 				// Noeud SOURCE d'un asset reutilisable (0 = aucun, sinon noeud+1).
 				int32 browserSrcNode[kMaxBrowser] = {};
+				/// ORIGINE CORRIGEE EN MEMOIRE, PAS ENCORE ECRITE. Arme quand le
+				/// recentrage au depot a REELLEMENT change l'origine de l'archive
+				/// (Demo3DHostRecenterModel renvoie vrai). La prochaine sauvegarde
+				/// ecrit alors le `.nkmesh` de cette carte MEME si elle n'est pas
+				/// la carte active -- l'exemption qui existe deja pour les
+				/// materiaux -- puis desarme. Decision de Rihen (17/08) : l'origine
+				/// stockee est la reference du pipeline d'export (FBX repositionne
+				/// l'objet pour que son origine soit a (0,0,0)) ; l'ecriture se
+				/// fait A LA SAUVEGARDE, jamais en douce au depot. TRANSIENT :
+				/// jamais serialise -- quitter sans sauver perd la correction, et
+				/// c'est voulu (le temoin negatif du protocole).
+				bool browserOriginDirty[kMaxBrowser] = {};
 				int32 browserCount = 0;
 				/// CARTES CHOISIES, pour les gestes qui portent PLUSIEURS assets.
 				///
