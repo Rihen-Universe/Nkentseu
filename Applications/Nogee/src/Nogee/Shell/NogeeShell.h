@@ -41,5 +41,13 @@ namespace nkentseu {
 		// RunNogeeEditorShell.
 		void NogeeShellReproduceConquerorLabCondition() noexcept;
 
+		// `--dragdrop-test` : sonde du glisser-deposer §7 (reparentage Outliner)
+		// et §9 (carte -> Viewport). Pilote ctx.input par frames avec les rects
+		// ECRAN releves par les panneaux (jamais une geometrie devinee), joue 5
+		// scenarios (2 positifs, 3 negatifs), journalise chaque temoin puis
+		// ferme. UNE sonde par execution : prioritaire sur --occlusion-test si
+		// les deux sont passes. A appeler AVANT RunNogeeEditorShell.
+		void NogeeShellEnableDragDropProbe() noexcept;
+
 	} // namespace noge
 } // namespace nkentseu

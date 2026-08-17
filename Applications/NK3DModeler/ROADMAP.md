@@ -421,7 +421,13 @@ annonçait que reprendre la position monde ferait partir la matière « au doubl
 la distance », ce qui suppose une composition `parent × enfant` **qui n'existe
 pas**.
 
-### ⚠️ UN TROISIÈME ACTEUR déplace la matière d'un model — et il n'était dans aucune des deux analyses
+### ✅ LE TROISIÈME ACTEUR — MESURÉ ET CORRIGÉ (`c863dc00`, 17/08, journal 00:29)
+
+**Clos.** La mesure de Rihen a établi les deux défauts prédits, et le correctif
+est posé — voir « RÉGRESSION SIGNALÉE » plus bas pour le diagnostic complet, la
+règle (*une écriture programmatique n'est pas un geste*) et la grille de la 7e
+relecture. Le texte ci-dessous est l'analyse d'avant-mesure, gardée telle
+quelle : ses deux hypothèses se sont réalisées mot pour mot.
 
 Demandé par Rihen : *vérifier que les deux correctifs ne se cumulent pas.* En le
 vérifiant, j'ai trouvé qu'ils ne sont **pas deux**.
@@ -593,6 +599,269 @@ moitié réécrite, donc un symptôme irrégulier selon le modèle.
 **Ne pas retirer l'appel avant ce chiffre** : ce serait revenir sur la décision de
 Rihen du 16/08 (« l'origine d'un model va sur SA MATIÈRE ») sur une prémisse non
 vérifiée — ce qui a déjà coûté deux fausses causes sur ce même défaut.
+
+### ✅ LA MESURE A PARLÉ (journal 00:29, 17/08) — deux défauts, corrigés (`c863dc00`)
+
+**`ECART != 0` — mais la cause n'était PAS le recentrage.** Le journal (figé
+avant analyse ; il contenait **trois courses de binaires différents**, à savoir
+pour le relire) a établi :
+
+1. **Le recentrage est déterministe et innocent** : `après=(2.22311, −0.315482)`
+   identique dans deux courses pour la même entrée 2.935. Le « avant » revient à
+   2.935 à chaque lancement parce que **le disque n'est jamais réécrit** —
+   l'archive recentrée n'est pas sauvée (dette ouverte, voir ci-dessous).
+2. **`hier model=98 … dp=(−0.712, 0, −0.846) transmis=1`** : la passe de
+   hiérarchie lisait le déplacement d'origine comme un **geste** et donnait le
+   même delta à la **matière de l'archive** — effet du recentrage annulé,
+   archive entière en dérive à chaque dépôt. La non-idempotence *observée*
+   venait de là : la matière ayant fui, le barycentre suivant différait.
+3. **`hier model=107 cliché=(0,0,0) dp=(position complète) transmis=1`** : le
+   cliché d'un nouveau-né est **celui du mort** qui occupait l'emplacement
+   (`HostAllocUser` ne l'écrit jamais). La copie, posée juste
+   (`cumul ECART=0`), recevait **toute sa position une seconde fois**.
+
+**La règle, et le remède existait déjà** : *une écriture programmatique n'est
+pas un geste.* C'est le principe de `Demo3DHostHierarchyResync` (« après un
+chargement, cet écart n'est pas un geste »), appliqué à UN nœud
+(`HostHierSnapNode`) chez chaque écrivain programmatique du chemin de dépôt —
+`HostDuplicateTree` (nouveau-nés, y compris le retour anticipé non-model),
+`Demo3DHostRecenterModel` (l'origine **seule** bouge),
+`Demo3DHostSetModelTransform` (la pose emporte déjà la matière). **Les chemins
+interactifs (gizmo, panneau) ne recalent rien** : leur propagation est voulue.
+
+**Grille de la 7e relecture, écrite d'avance** : 1er dépôt → `origine ECART≠0`
+une fois (héritage disque), `cumul ECART~0`, **aucune** ligne `hier` ; drag
+gizmo → lignes `hier` **présentes** (témoin que la propagation voulue vit) ;
+2e dépôt → `origine ECART=(0,0)` — l'idempotence enfin observable.
+
+**✅ VALIDÉE le 17/08 (7e relecture, course 00:55, journal figé)** — les trois
+lignes confirmées avec citations : l. 483452 (`ECART=(-0.712, -0.846)`, une
+fois) ; zéro `hier` parasite (compte exhaustif `model=98` : 0 ; 2,8 s entre le
+dépôt et le premier `hier`, qui est un drag) ; l. 483484+ (drag : dp continus,
+la propagation voulue vit) ; l. 483692 (`ECART=(0, 0)` au 2e dépôt —
+l'idempotence observée). Verdict de Rihen : *« le résultat est correct cette
+fois, même sans que je ne bouge. »* **Le geste dépôt/déplacement est clos ;
+l'éclatement se débloque.**
+
+**✅ Dette de persistance FERMÉE (`67a60328`, décision de Rodolf 17/08)** :
+*« conserver son origine dans le fichier du mesh »* — l'origine stockée est la
+**référence du pipeline d'export** (FBX repositionnera l'objet pour que son
+origine soit à (0,0,0) ; une origine fausse dans le fichier = un export décalé).
+Mécanique : le recentrage renvoie s'il a corrigé → la carte est marquée
+(`browserOriginDirty`, transient, jamais sérialisé) → la **sauvegarde** écrit
+son `.nkmesh` via l'exemption qui existait déjà pour les matériaux, puis
+désarme après l'écriture réussie. **Aucune écriture disque au dépôt**
+(condition approuvée par Rodolf). Aucun changement de schéma,
+`kAssetFormatVersion` intact, aucune migration — un `.nkmesh` ancien se charge
+tel quel, le recentrage mémoire le rattrape. Protocole de la 8e relecture,
+écrit d'avance : **positif** = déposer→sauvegarder→relancer→redéposer donne
+`origine ECART=(0,0)` dès le premier dépôt de la session ; **négatif** = sans
+sauvegarde, l'écart d'héritage revient une fois — preuve que rien ne s'écrit
+sans geste. Les `.nkmesh` de l'éclatement naîtront justes sans rien d'autre :
+son plan recentre avant l'archivage et la capture lit les nœuds vivants.
+
+**✅ VALIDÉE PAR LA 8e RELECTURE (Rihen, 17/08 : « tout est okay »)** — test A
+(sauvegarde → relance → écart nul d'emblée) et test B (sans sauvegarde →
+l'écart d'héritage revient une fois) confirmés tous les deux. **La persistance
+de l'origine est close, vérifiée des deux côtés** — témoin négatif compris :
+rien ne s'écrit sans geste de sauvegarde.
+
+**Dette ouverte restante** : `nkvpXmit=7` dès la naissance reste une valeur par
+défaut jamais discutée.
+
+### 🔓 L'ÉCLATEMENT D'UN IMPORT — DÉBLOQUÉ (17/08), terrain mesuré, plan posé
+
+*Débloqué par la validation de la grille (7e relecture). Les deux cas nommés par
+Rihen : (a) les models distincts d'un fichier importé, **chacun dans son
+fichier** ; (b) un même fichier qui contient **plusieurs sous-mesh** — deux cas
+différents (R40/R41 : la frontière entre fichiers est le MODEL, déclaré par le
+fichier ; les sous-mesh restent dedans).*
+
+**Le terrain, mesuré le 17/08 — chaque fait avec sa preuve :**
+
+| brique | état |
+|---|---|
+| chargeurs (`LoadOBJ`/`LoadGLTF`/`LoadFBX`) | ✅ `sm.name` rempli (glTF, OBJ), coupe sur `o` (2→10 mesuré) ; FBX nomme mais frontière à confirmer |
+| écriture d'un fichier de model | ✅ `NkAsModelCapture` (`.nkmesh` = racine + SES maillages, parcours officiel `Demo3DHostNodeInnerMeshOf`) |
+| naissance assainie | ✅ `HostHierSnapNode` — tout nouveau-né recale son cliché ; s'applique aux nœuds de l'éclatement comme à ceux du dépôt |
+| nœud à maillage arbitraire | ✅ par pièces : `nkvpUserMesh[u] = ms->Create*(…)` (primitives) et `ms->Create(d)` depuis des données (mode édition) — pas encore de fonction « nœud depuis une tranche de sous-mesh » |
+| bouton « Importer » du navigateur | ❌ **peint, JAMAIS lu** — `hit.Add("brw.imp")` sans aucun `hit.Clicked("brw.imp")` (témoin : `brw.creer` est bien consommé). Un bouton mort depuis sa naissance |
+| lâcher de fichier OS | ❌ `NkDropFileEvent` existe dans NKEvent, **aucune écoute** dans l'app |
+
+**Le plan, dans l'ordre :**
+1. **Brancher « Importer »** → sélecteur de fichiers (NKEditorKit) filtré sur les
+   formats des chargeurs. Le lâcher OS viendra après, c'est une seconde entrée
+   vers le même chemin — un seul chemin d'import, deux portes.
+2. **Charger** → `NkGLTFMeshData` (sous-mesh nommés + `subMeshMaterial`).
+3. **Regrouper** : sous-mesh consécutifs de même `name` = **un model** (la
+   frontière déclarée) ; dedans, chaque sous-mesh = un emplacement de matériau.
+   Fichier sans marqueur → un seul model (repli décidé en R41).
+4. **Par model** : racine + un nœud maillage par sous-mesh (géométrie
+   `ms->Create` sur la tranche d'indices, keepCPU), positions **absolues**,
+   `HostHierSnapNode` sur chaque nouveau-né, recentrage d'origine (règle du
+   16/08), archivage, carte navigateur, écriture `.nkmesh` — **un fichier par
+   model**, règle d'import de `CONVENTIONS_FICHIERS.md` (copier en gardant
+   l'origine).
+5. **Hors du premier lot, dit explicitement** : les matériaux du fichier importé
+   (→ `.nkmat`), le lâcher OS, la confirmation FBX multi-objets.
+
+**État au 17/08 — points 1-3, moitié ANALYSE livrée** (`NkModelerImport.h`) :
+le bouton est branché (`hit.Clicked("brw.imp")` → picker → `pickerAction=2`),
+le fichier choisi est chargé par LE chargeur de son extension (7 formats) et
+découpé par nom contigu (`NkImportSplitByName`), le tout journalisé
+(`MESURE import`) et résumé dans `hierNote`. **Écart assumé au plan** : le
+picker du kit n'a qu'un filtre MONO-extension (`pickerFileExt`), donc
+ouverture **sans filtre** et validation à la confirmation avec **refus
+nommé** (« Format non reconnu : … ») — un refus silencieux serait
+indistinguable d'un bouton cassé.
+
+**Grille du point 4 (CRÉATION des nœuds), écrite d'avance — consommateurs lus
+le 17/08 :**
+
+1. **Positions ABSOLUES, tranché par lecture** : les transforms du système
+   sont MONDE (`nkvpEmptyPos`, commentaire l. 159-174 — le rendu ne compose
+   jamais parent×enfant ; la parenté n'est qu'appartenance). Le modèle à
+   suivre est `HostDuplicateTree` (matière à `world + offset`, l. 16173) ;
+   **ne PAS imiter `EnsureModelMesh`**, qui écrase en (0,0,0) *monde* après
+   un `HostSpawnLike` ayant posé la position monde — c'est le piège
+   `nkvpEmptyPos` nommé, confirmé à la lecture.
+2. **Naissance** : aucun chemin public « nœud depuis des données » n'existe —
+   à créer côté hôte (`NkDemo3D.cpp`) : `HostAllocUser` +
+   `ms->Create(NkMeshDesc::Simple(Default3D, tranche))` avec
+   **`keepCPU=true` explicite** (défaut `false` — sans lui ni archivage
+   relisible ni copie indépendante, cf. `HostMakeGeometryOwn`), puis
+   `nkvpIsMesh[m]=true`, `nkvpParentOf[m]=root`, `nkvpIsModel[root]=true`.
+3. **Tranches** : lire la structure exacte des sous-mesh de `NkGLTFMeshData`
+   (les indices d'une tranche référencent-ils le buffer global ? rebaser ou
+   passer les sommets utiles) — à mesurer avant d'écrire.
+4. `HostHierSnapNode` sur **chaque** nouveau-né ; recentrage d'origine AVANT
+   l'archivage (règle du 16/08) ; `NkAsModelCapture` avec le parcours
+   officiel `Demo3DHostNodeInnerMeshOf` — un `.nkmesh` par model, origine
+   déjà juste (persistance close, aucune dette d'héritage).
+5. **Témoins** : (+) un `.obj` 2 objets → 2 `.nkmesh`, réouverture
+   indépendante = bonne origine, `ECART=(0, 0)` d'emblée ; comptes
+   verts/indices du fichier retrouvés sur les nœuds ; (−) fichier sans
+   marqueur → UN model (R41), et rien n'est écrit au projet sans geste de
+   sauvegarde.
+
+**Point 4 LIVRÉ (17/08, soir) — la grille confrontée ligne par ligne :**
+
+1. **Positions ABSOLUES — suivie par construction** :
+   `Demo3DHostCreateModelRoot`/`Demo3DHostCreateMeshNode` écrivent
+   `nkvpEmptyPos` en MONDE ; `EnsureModelMesh` n'est imité nulle part.
+2. **Naissance — l'API hôte existe** (NkDemo3D.cpp), au mot près de la
+   grille : `HostAllocUser` + `NkMeshDesc::Simple(Default3D, tranche)` +
+   **`keepCPU = true` explicite** (posé même si `Simple()` l'active :
+   un futur changement de défaut ne doit pas retirer la garantie), puis
+   `nkvpIsMesh/nkvpParentOf/nkvpIsModel`. Racine = EMPTY (kind 4) : un
+   conteneur ne rend rien, une nature géométrique mentirait au panneau.
+3. **Tranches — MESURÉ, et les deux chargeurs diffèrent** : glTF écrit des
+   indices LOCAUX à la primitive + `baseVertex` (NkGLTFLoader.cpp:1069) ;
+   OBJ des indices GLOBAUX + `baseVertex=0` (NkOBJLoader.cpp:199). Lecture
+   unique : `global = indices[firstIndex+i] + baseVertex`. On EXTRAIT les
+   sommets utiles et on REBASE 0..n-1 — passer le buffer entier
+   dupliquerait tout le fichier dans chaque model. Sommets rebasés autour
+   de l'ANCRE de la tranche (centre de boîte) ; le nœud naît À l'ancre :
+   même image, origine SUR la matière.
+4. **Fait** : `HostHierSnapNode` dans les DEUX fonctions de naissance ;
+   racine née au barycentre X/Z de ses ancres (la moyenne exacte que
+   `Demo3DHostRecenterModel` recalcule) → la ligne `MESURE origine` de
+   l'archivage doit dire `ECART=(0, 0)` dès la naissance ; archive + carte
+   par le MÊME chemin que le glisser hiérarchie → navigateur ; carte
+   marquée `browserOriginDirty` (son consommateur dit « à écrire au
+   prochain enregistrement, même partiel » — une carte sans fichier est
+   exactement cela). Les noms traversent l'archivage : appariement k-ième
+   source / k-ième double, garanti par la monotonie de `HostAllocUser`
+   (plus petit slot libre d'un ensemble qui ne fait que rétrécir).
+5. **Témoins** : la 9e relecture a ÉCHOUÉ (mesh dupliqué N fois, models
+   manquants) — cause trouvée, corrigée et rejouée le 17/08 au soir, voir
+   « ÉCHEC DE LA 9e RELECTURE » ci-dessous.
+
+**Décisions du lot, dites** : l'arbre VIVANT reste dans la scène active
+(l'import « à la Blender » ; le retirer serait un geste, pas un oubli) ;
+refus nommé si le document actif est un éditeur de model ; tranche vide →
+nœud sauté et journalisé ; slots pleins → arrêt avec message « Import
+INCOMPLET », on garde ce qui a pu naître.
+
+**⚠️ ÉCART DÉCLARÉ — la géométrie importée n'est PAS encore dans le
+`.nkmesh`** : même dette que la géométrie éditée (liste officielle de
+NkModelerScene.h, complétée le 17/08). Le fichier écrit nœuds, origines et
+noms ; les sommets vivent dans la session (l'éditeur de model travaille sur
+l'archive vivante). À la réouverture d'un autre jour, les nœuds reviennent
+en primitives. Fermer cette dette = sérialiser la géométrie CPU (concerne
+autant le mode Édition que l'import) — chantier séparé, à ordonner par
+Rihen.
+
+### ÉCHEC DE LA 9e RELECTURE — cause trouvée, corrigée, rejouée (17/08 soir)
+
+**Symptôme (Rodolf)** : « l'import duplique N fois son mesh et ça n'importe
+pas tous les models. » Journal de sa course (LowPolyCars.obj) :
+`MESURE dup model : src=111 → root=113 internesDeLaSource=1 nes=46` + WRN
+« plus d'emplacement libre » + UNE seule `MESURE creation` sur 5.
+
+**Cause — la duplication s'auto-alimentait sur une source VIVANTE.**
+`HostSpawnLike` copie le parent de sa source si ce parent n'est pas
+`nkvpDeleted` (depuis `718ab43b`, 01/08). La boucle enfants de
+`HostDuplicateTree` (16/08) réévaluait `HostIsInnerMeshOf(c, src)` PENDANT
+qu'elle créait : le double d'un maillage d'un model vivant chaînait donc
+lui-même vers `src`, la boucle le re-appariait en atteignant son slot, et
+chaque naissance en semait une autre — 46 naissances = exactement les 46
+slots libres restants, puis épuisement, d'où les models 1-4 jamais nés.
+Le sens navigateur → scène ne cascadait pas (parent d'une source archivée =
+`nkvpDeleted`, jamais copié) : c'est pour ça que tous les dépôts mesurés
+étaient sains, et que le défaut a attendu le premier passage
+scène → archive (l'import).
+
+**Correctif** : la liste des candidats se FIGE avant la première naissance
+(deux passes dans `HostDuplicateTree`). La copie de parent de
+`HostSpawnLike` n'est pas touchée — elle sert le coller/dupliquer d'un
+enfant. L'extraction des tranches n'a jamais été en cause (les comptes de
+la caisse étaient justes dès la course échouée).
+
+**Rejoué par l'agent** (crochet `NK_IMPORT_FILE`, même chemin que la
+confirmation du picker ; projet AgentTest — jetable, R7) :
+- avant correctif : reproduction exacte, au chiffre près (nes=46, 1 création) ;
+- après : 5 models, 5 dup à `nes=1`, 5 `MESURE origine ECART=(0,0)`, aucun
+  WRN ; caisse 2931v/7578i + 4 roues 337v/954i, somme = le fichier entier
+  (4279/11394), ancres distinctes aux 4 coins — tranches distinctes prouvées ;
+- l'autre sens (dépôt via `NK_DROP_TOKEN`) : `nes=1`, `cumul ECART=(0,0)`.
+
+Répond à la précision de Rodolf (« 5 models : la coque et 4 roues, mesh
+indépendants avec leur propre origine ») : le fichier déclare 5 `o` (coque +
+4 roues) → 5 racines indépendantes, chacune avec SA géométrie ET SON
+origine — les 4 roues naissent chacune à SON ancre (±1.229, ±0.691 : le
+centre de la boîte de SA tranche, donc le moyeu), pas au barycentre du
+véhicule ; la racine de chaque model est la moyenne de SES ancres seulement.
+(Nuance dite : l'OBJ ne déclare aucune origine par objet — sommets monde,
+`o` sans transform — l'origine est donc reconstruite par la règle « ancre =
+centre de boîte », qui tombe au moyeu pour une roue.)
+
+**⚠️ TROUVÉ EN MESURANT, à trancher par Rodolf — l'import écrit sur disque
+SANS geste de sauvegarde.** Quand une vignette de matériau fraîchement
+encodée rejoint son fichier (`main.cpp`, bloc « une vignette fraîchement
+encodée rejoint son fichier »), elle appelle `NkProjectWriteAssets` partiel —
+et l'exemption `browserOriginDirty` (« à écrire au prochain enregistrement,
+même partiel ») fait que ce passage écrit AUSSI les cartes importées, ~1 s
+après l'import. Le témoin négatif « quitte sans sauver → aucun `.nkmesh` »
+est donc FAUX dès qu'une vignette se rafraîchit. Deux règles se rencontrent
+(Q49 contre « les .nkmesh partent à la sauvegarde ») ; c'est une décision de
+produit, pas un correctif d'agent.
+
+**📣 PROTOCOLE POUR RODOLF (10e relecture)** : bouton « Importer » du
+navigateur, choisis ton fichier véhicule (ou
+`Resources/Models/LowPolyCars.obj`, celui de la 9e). Attendu — **5 nœuds,
+5 comptes, 5 origines, 5 fichiers** : (A) 5 racines de model (coque +
+4 roues) INDÉPENDANTES dans la hiérarchie, chacune avec SA géométrie (bouge
+une roue au gizmo : les autres ne suivent pas) et SON origine (le gizmo de
+chaque roue est SUR son moyeu, pas au centre du véhicule) ; journal : une
+`MESURE creation` par model avec des comptes DIFFÉRENTS entre coque et roue
+(coque >> roue ; les 4 roues semblables entre elles, c'est normal) et des
+`racine=` distinctes, et `MESURE dup model` disant `nes=1` partout — plus
+jamais 46 ; (B) Ctrl+S :
+un `.nkmesh` par model dans le dossier courant du navigateur ; (C) le test
+« quitte sans sauver » de l'ancien protocole est SUSPENDU — voir l'écriture
+par vignette ci-dessus, il échouerait pour une raison qui n'est pas l'import.
+Envoie le journal.
 
 ## 3. Modélisation complète ⬜
 
@@ -830,6 +1099,72 @@ multiplient (chaque opération devra être une commande réversible).
   lumières/caméras/empties = cosmétiques).
 
 ---
+
+## 🃏 CARTES D'ASSETS DU NAVIGATEUR DE CONTENU — RÉFÉRENCE (décision de Rihen, 17/08)
+
+*Rihen : « pour le design des cartes d'assets dans le Content Browser [de Nogee],
+s'inspirer de NK3DModeler ». Cette section est ce que l'agent Noge lira — une
+carte se copie mal depuis une capture, elle se reprend bien depuis une
+description. Tout ce qui suit est **lu dans le code** (`NkModelerBrowser.h`,
+zone « CARTES »), pas décrit de mémoire.*
+
+**Géométrie** (unités logiques ; tout ce qui passe par `S()` suit l'échelle UI) :
+carte de **96 px de large** = vignette **96×96** + **bande de type 3 px** +
+**pied 34 px**. Ombre portée décalée `(+2, +3)`, noir alpha 90, rayon 3 —
+« comme Unreal ». Espacement entre cartes `S(14)`.
+
+**Redimensionnement** : la grille **enveloppe** — une carte qui dépasserait la
+marge droite (`tx + tw > wrapW`) part à la ligne suivante. Largeur de carte
+FIXE ; c'est le **nombre de colonnes** qui varie.
+
+**Deux états de sélection, deux marques — et ils ne se confondent pas** :
+- **ACTIVE** (`selectedAsset`) : celle dont les panneaux montrent les
+  propriétés → **aplat** accent débordant de 2 px autour de la carte ;
+- **CHOISIE** (`browserPicked[]`) : celles qui partiront ensemble si on tire →
+  **contour** accent, même débord. *Raison écrite dans le code : on peut choisir
+  cinq cartes et n'en inspecter qu'une ; la différence doit se lire d'un coup
+  d'œil sur une grille de trente cartes, pas se deviner entre deux nuances.*
+
+**Fond de vignette** : damier 8 px (`InputBg` / `WindowBg`) — il dit « ce fond
+est vide », comme un canal alpha.
+
+**Couleur et nom de type** : depuis le **point de passage unique**
+(`NkAssetColor` / `NkAssetKindName`, `NkModelerUI.h`) — la pastille de filtre et
+le liseré d'onglet lisent la **même table**. Ne pas dupliquer cette table.
+
+**Vignette par nature** (tout ceci est le **repli** tant qu'aucune miniature
+n'existe) : dossier = chemise avec rabat, **pleine ou vide selon son contenu** ;
+procédural = **deux nœuds reliés avec broches** (la recette, pas le résultat —
+un cube le ferait passer pour un Model) ; matériau = **boule d'aperçu réelle**
+(ids image 4400+, rendue par l'hôte, retéléversée quand elle périme) ; scène =
+sa capture (4500+, ratio préservé) ; mesh = cube plein ; dataset = document
+ligné.
+
+**⚠️ Règle des miniatures (Rihen, 8 août)** : la miniature vient de **LA VUE** —
+ce que la vue 3D regarde — **pas d'un nœud caméra de la scène**. Un projet sans
+caméra doit avoir ses vignettes quand même. Point d'accroche **unique** dans le
+code ; un second endroit qui dessinerait un aperçu divergerait au premier
+changement de cadrage.
+
+**Pastille d'albédo sur les matériaux** (12 px, coin bas-droit de la boule,
+liseré noir) : la boule d'aperçu est une **SIMULATION** (studio, fond clair — un
+albédo 0,7 y paraît blanc puis se pose sombre dans une scène à ambiance 0,050) ;
+la pastille est une **DONNÉE**, l'albédo brut borné avant conversion en octets.
+Les deux coexistent délibérément.
+
+**Pied de carte** : deux lignes — **nom éditable en place** (32 car. max,
+**clippé à la carte** : il débordait sur la voisine) puis **type** en
+`TextMuted`. Renommer la carte d'une scène renomme **son document** (l'onglet
+suit), uniquement **à la validation** — une copie par frame écraserait le
+renommage fait depuis l'onglet.
+
+**Gestes** : double-clic sur un dossier = y entrer ; tirer = glisser-déposer
+(armement sur la carte, cible au survol) ; le titre du panneau n'existe qu'en
+**un** point (`kBrowserTitle`) parce qu'il est peint **et** mesuré.
+
+**Classement/visibilité** : un seul décideur, `NkBrowVisible` (tri + filtre +
+recherche) — deux endroits qui décident ce qui est visible finiraient par ne
+plus être d'accord.
 
 ## Règles d'interface acquises (ne pas les redécouvrir)
 

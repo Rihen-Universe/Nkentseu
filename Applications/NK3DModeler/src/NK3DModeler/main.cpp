@@ -41,7 +41,8 @@
 #include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
 #include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
 #include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
-#include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de projet
+#include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de contenu
+#include "NK3DModeler/Shell/NkModelerImport.h"  // import de fichiers 3D (bouton Importer)
 #include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
@@ -1751,6 +1752,14 @@ int nkmain(const NkEntryState &entry) {
 						"[materiaux] creation impossible : plus d'emplacement libre");
 				}
 			}
+			// 2 = IMPORTER UN FICHIER 3D (bouton « Importer » du navigateur de
+			// contenu). Chaine complete depuis le 17/08 : chargement par le
+			// chargeur du format, decoupage par nom de sous-mesh, puis CREATION
+			// -- un model par nom (racine + un noeud maillage par sous-mesh,
+			// positions monde), archive + carte navigateur par model ; les
+			// `.nkmesh` partent a la SAUVEGARDE (NkModelerImport.h).
+			if (st.pickerAction == 2 && st.picker.pickerResultPath[0])
+				nk3d::NkImportFile(st, st.picker.pickerResultPath);
 			st.pickerAction = 0;
 			st.matNewPending = false;
 			// Le mode « nouveau materiau » du selecteur se desarme TOUT SEUL,
@@ -2085,6 +2094,22 @@ int nkmain(const NkEntryState &entry) {
 					for (int32 m = 0; m < mx; ++m)
 						demo::Demo3DHostProjMatSetSurface(m, cc, ccR, sss);
 				}
+			}
+		}
+		// NK_IMPORT_FILE=<chemin> : l'import par le MEME chemin que la
+		// confirmation du picker (nk3d::NkImportFile, plus haut) -- pour
+		// rejouer un import sans main, avant/apres correctif. Applique UNE
+		// fois, hote pret, apres l'eventuelle ouverture de projet (frame 10),
+		// comme les autres crochets de mesure. PERIMETRE, dit ici : couvre
+		// charge -> decoupe -> creation -> archivage ; ne couvre NI le bouton
+		// Importer NI le picker -- une relecture a la main reste necessaire
+		// pour eux.
+		{
+			static bool sAgentImportDone = false;
+			if (!sAgentImportDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentImportDone = true;
+				if (const char *v = std::getenv("NK_IMPORT_FILE"))
+					nk3d::NkImportFile(st, v);
 			}
 		}
 
