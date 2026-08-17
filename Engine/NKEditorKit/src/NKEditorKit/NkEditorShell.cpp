@@ -725,7 +725,22 @@ namespace nkentseu {
 												mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
 				BootstrapDocking();
 				DrawPanels(ec);
-				DrawStatusBar(footerH);
+				if (mStatusBarFn) {
+					// Barre d'etat « a sa maniere » (SetStatusBarFn, patron SetMenuBar) :
+					// l'app dessine TOUTE la bande — fond, voyants, textes, zoom compris.
+					// Region de layout posee sur le rect de la barre, comme DrawToolbar,
+					// pour que l'app puisse y poser des widgets (Button + SameLine...).
+					const NkRect sbar = {0.f, H - footerH, W, footerH};
+					const float32 sbItemH = mUI.ItemHeight();
+					mUI.layout.region = sbar;
+					mUI.layout.cursor = {sbar.x + mUI.S(8.f), sbar.y + (sbar.h - sbItemH) * 0.5f};
+					mUI.layout.lineStartX = mUI.layout.cursor.x;
+					mUI.layout.curLineH = 0.f;
+					mUI.layout.maxX = mUI.layout.cursor.x;
+					mStatusBarFn(ec, mStatusBarUser);
+				} else {
+					DrawStatusBar(footerH);
+				}
 			}
 			HandleEdgeResize(W, H); // bords de redimensionnement (fenetre sans bordure)
 

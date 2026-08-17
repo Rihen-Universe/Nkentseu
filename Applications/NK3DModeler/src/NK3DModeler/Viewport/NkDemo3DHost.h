@@ -310,7 +310,7 @@ namespace nkentseu {
 		int32 Demo3DHostProjMatOf(int32 node);
 		// LA LISTE DES MATERIAUX D'UN OBJET (12 aout) : distincte de celle du
 		// PROJET. Retirer d'ici n'affecte que cet objet et ne detruit rien ;
-		// supprimer un materiau ne se fait que depuis le navigateur de projet.
+		// supprimer un materiau ne se fait que depuis le navigateur de contenu.
 		int32 Demo3DHostNodeMatCount(int32 node);
 		int32 Demo3DHostNodeMatAt(int32 node, int32 k);
 		bool Demo3DHostNodeMatAdd(int32 node, int32 slot);
@@ -429,7 +429,11 @@ namespace nkentseu {
 		void Demo3DHostArchiveTree(int32 node, bool v);		// le model ET ses maillages
 		// Pose l'origine d'un model sur le barycentre (X/Z) de sa matiere.
 		// Idempotente : sert aussi a reparer un asset ancien a l'usage.
-		void Demo3DHostRecenterModel(int32 root);
+		// Renvoie VRAI si l'origine a REELLEMENT change -- ce retour sert la
+		// persistance (decision de Rihen, 17/08) : une correction faite en
+		// memoire marque la carte du model pour que la prochaine SAUVEGARDE
+		// ecrive le fichier. Jamais d'ecriture disque en douce au depot.
+		bool Demo3DHostRecenterModel(int32 root);
 		bool Demo3DHostNodeArchived(int32 node);
 		// APPARTENANCE par document : chaque noeud vit dans UNE scene ou UN
 		// editeur ; ailleurs il n'est ni rendu ni liste.
@@ -519,6 +523,19 @@ namespace nkentseu {
 		int32 Demo3DHostTakeShortcuts();
 		// Menu AJOUTER : cree un noeud utilisateur (kind 1..9, sub = variante).
 		int32 Demo3DHostAddNode(int32 kind, int32 sub);
+		// NAISSANCE DEPUIS DES DONNEES (import d'un fichier 3D, 17/08). Le
+		// conteneur d'abord, ses maillages ensuite. Positions MONDE -- les
+		// transforms de ce systeme ne composent jamais parent x enfant -- et
+		// les SOMMETS d'un maillage sont LOCAUX a son noeud (l'appelant les a
+		// rebases autour de `pos3`). keepCPU est pose EXPLICITEMENT : sans
+		// copie CPU, ni archivage relisible ni copie independante. Chaque
+		// nouveau-ne recale son cliche de hierarchie (regle du 17/08).
+		// `verts` : des NkVertex3D en layout Default3D. Rend -1 si plus
+		// d'emplacement libre ou si la creation du maillage echoue.
+		int32 Demo3DHostCreateModelRoot(const float32 *pos3);
+		int32 Demo3DHostCreateMeshNode(int32 root, const void *verts, uint32 vcount,
+									   const uint32 *indices, uint32 icount,
+									   const float32 *pos3, const char *debugName);
 		// Parametres du mesh cree (segments / anneaux-subdivisions) : le
 		// panneau « Ajuster la creation » les edite AVANT validation.
 		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter
