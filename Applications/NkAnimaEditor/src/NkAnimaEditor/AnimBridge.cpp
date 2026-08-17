@@ -6,6 +6,7 @@
 #include "NKAnimation/NkAnimation.h"
 #include "NKAnimation/NkAnimationEditor.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
+#include "NKRenderer/Mesh/NkFBXLoader.h" // routage .fbx (chantier FBX, 2026-08-17)
 // ── Viewport 3D : moteur de rendu complet (TU isolé) ────────────────────────
 #include "NKRenderer/NkRenderer.h"
 #include "NKRenderer/Core/NkRendererConfig.h"
@@ -142,7 +143,18 @@ namespace nkanima {
 	} // namespace
 
 	bool AnimInit(const char *modelPath) {
-		if (LoadGLTF(modelPath, g.gltf) && g.gltf.isSkinned) {
+		// Routage par extension (insensible a la casse — meme critere que
+		// NkMeshSystem::Import) : le chemin FBX porte desormais squelette,
+		// skinning et animations (chantier « FBX operationnel », 2026-08-17).
+		// Tout autre suffixe garde le chemin glTF historique.
+		nkentseu::NkString lower{modelPath};
+		for (uint32 i = 0; i < (uint32)lower.Size(); ++i) {
+			char c = lower[i];
+			if (c >= 'A' && c <= 'Z')
+				lower[i] = (char)(c + 32);
+		}
+		const bool ok = lower.EndsWith(".fbx") ? LoadFBX(modelPath, g.gltf) : LoadGLTF(modelPath, g.gltf);
+		if (ok && g.gltf.isSkinned) {
 			int32 ai = g.gltf.animations.Empty() ? -1 : 0;
 			if (BakeClipFromGLTF(g.gltf, ai, 30.f, g.clip)) {
 				g.player.SetClip(&g.clip);

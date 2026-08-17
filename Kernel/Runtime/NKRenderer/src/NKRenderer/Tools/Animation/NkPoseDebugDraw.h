@@ -3,7 +3,9 @@
 // -----------------------------------------------------------------------------
 // VISUALISATION DEBUG de la physique d'animation M3 (NkAnima). Dessine, via les
 // primitives debug de NkRender3D, l'état d'équilibre d'une pose :
-//   • le CENTRE DE MASSE (COM, M3.1) — sphère colorée VERT (équilibré) / ROUGE (non),
+//   • le CENTRE DE MASSE (COM, M3.1) — sphère VERT (équilibré) / ROUGE (déséquilibré)
+//     / BLANC (INDÉTERMINÉ : aucun appui fourni, l'évaluation n'a pas eu lieu —
+//     « pas d'appui » n'est pas « équilibré »),
 //   • le POLYGONE DE SUPPORT (M3.2/M3.3) — arêtes + coins,
 //   • la PROJECTION du COM sur le sol (fil d'aplomb + cercle),
 //   • (option) la direction de bascule.
