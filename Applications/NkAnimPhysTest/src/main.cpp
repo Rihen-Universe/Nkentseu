@@ -11,6 +11,8 @@
 #include "NKAnimation/NkMotionPath.h"
 #include "NKAnimPhysics/NkClipBalancePass.h"
 #include "NKAnimation/NkAnimRetarget.h"
+#include "NKRenderer/Mesh/NkGLTFLoader.h"
+#include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "NKRenderer/Tools/Director/NkRoleContext.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
@@ -84,6 +86,77 @@ namespace {
 
 		return exact && discrimine && gardeOk;
 	}
+
+	// ── Témoin de la chaîne des NOMS DE JOINTS (glTF -> clip -> masses) ──────
+	// Un glTF REEL (CesiumMan, l'asset même que NkAnimaEditor charge) traverse la
+	// chaîne complète ajoutée le 2026-08-17 :
+	//     NkGLTFNode.name (parse) -> clip.jointNames (bake) -> SetAnthropometric.
+	// Le verdict n'est pas « des chaînes sont arrivées » mais « le régime a PRIS » :
+	// deux joints de familles différentes doivent porter des masses DIFFÉRENTES —
+	// c'est ce qui distingue l'anthropométrique de l'uniforme, et c'est ce que
+	// l'étiquette de l'éditeur promet à l'écran.
+	bool TemoinNomsDeJoints() {
+		// Le cwd varie (racine du dépôt ou dossier de l'exe) : on essaie les deux.
+		const char *chemins[] = {
+			"Resources/Models/CesiumMan/CesiumMan.glb",
+			"../../../../Resources/Models/CesiumMan/CesiumMan.glb",
+		};
+		renderer::NkGLTFMeshData data;
+		bool charge = false;
+		const char *utilise = nullptr;
+		for (int32 c = 0; c < 2 && !charge; ++c) {
+			if (renderer::LoadGLTF(chemins[c], data) && data.isSkinned) {
+				charge = true;
+				utilise = chemins[c];
+			}
+		}
+		if (!charge) {
+			// ÉCHEC EXPLICITE, pas un saut silencieux : un témoin introuvable qui
+			// « passe » validerait n'importe quoi.
+			printf("         ECHEC : CesiumMan.glb introuvable ou non skinne (cwd inattendu)\n");
+			return false;
+		}
+		printf("         asset : %s (%u joints)\n", utilise, (uint32)data.skinJoints.Size());
+
+		anim::NkAnimationClip clip;
+		if (!renderer::BakeClipFromGLTF(data, data.animations.Empty() ? -1 : 0, 30.f, clip)) {
+			printf("         ECHEC : BakeClipFromGLTF\n");
+			return false;
+		}
+		const uint32 jc = (uint32)clip.jointInverseBind.Size();
+		if ((uint32)clip.jointNames.Size() != jc) {
+			printf("         ECHEC : jointNames %u != joints %u\n", (uint32)clip.jointNames.Size(), jc);
+			return false;
+		}
+		uint32 nonVides = 0;
+		for (uint32 j = 0; j < jc; ++j)
+			if (!clip.jointNames[j].Empty())
+				++nonVides;
+		printf("         noms non vides : %u/%u — ex: '%s'\n", nonVides, jc,
+			   jc > 0 ? clip.jointNames[0].CStr() : "");
+		if (nonVides == 0) {
+			printf("         ECHEC : aucun nom n a traverse la chaine\n");
+			return false;
+		}
+
+		// Le régime anthropométrique a PRIS : masses non toutes égales.
+		animphys::NkPoseMass mass;
+		mass.SetAnthropometric(clip.jointNames);
+		if ((uint32)mass.jointMass.Size() != jc || mass.TotalMass() <= 0.f) {
+			printf("         ECHEC : SetAnthropometric n a pas produit %u masses\n", jc);
+			return false;
+		}
+		float32 mn = mass.jointMass[0], mx = mass.jointMass[0];
+		for (uint32 j = 1; j < jc; ++j) {
+			if (mass.jointMass[j] < mn)
+				mn = mass.jointMass[j];
+			if (mass.jointMass[j] > mx)
+				mx = mass.jointMass[j];
+		}
+		printf("         masses : min=%.3f max=%.3f %s\n", (double)mn, (double)mx,
+			   (mx > mn) ? "(NON uniformes : le regime a pris)" : "(UNIFORMES : regime pas pris !)");
+		return mx > mn;
+	}
 } // namespace
 
 int main() {
@@ -144,6 +217,11 @@ int main() {
 	// calcule reellement avant de le dessiner.
 	Report("CABLAGE NkAnimaEditor COM", "pose asymetrique 3 axes, COM analytique, axes permutes, garde count",
 		   TemoinCablageCOM(), nbOk, nbTotal);
+
+	// NOMS DE JOINTS — glTF reel (CesiumMan) -> parse "name" -> bake -> masses
+	// anthropometriques NON uniformes. C'est la promesse de l'etiquette a l'ecran.
+	Report("CABLAGE noms de joints", "CesiumMan.glb -> jointNames -> SetAnthropometric, masses non uniformes",
+		   TemoinNomsDeJoints(), nbOk, nbTotal);
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;
