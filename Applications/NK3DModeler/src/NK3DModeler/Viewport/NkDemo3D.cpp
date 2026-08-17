@@ -16138,9 +16138,28 @@ namespace nkentseu {
 			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
 				map[i] = -1;
 			map[src] = root;
+			// LA LISTE DES CANDIDATS SE FIGE AVANT LA PREMIERE NAISSANCE.
+			// HostSpawnLike copie le parent d'une source VIVANTE (voir sa fin) :
+			// le double d'un maillage d'un model vivant chaine donc lui-meme
+			// vers `src`, et une boucle qui reevalue le predicat PENDANT
+			// qu'elle cree le re-appariait en atteignant son slot -- chaque
+			// naissance en semait une autre, jusqu'a epuisement des
+			// emplacements. Mesure (17/08, import LowPolyCars.obj) :
+			// internesDeLaSource=1, nes=46 -- exactement les 46 slots libres
+			// restants -- et les 4 models suivants du fichier n'ont jamais pu
+			// naitre. Le sens navigateur -> scene ne cascadait pas : le parent
+			// d'une source ARCHIVEE est nkvpDeleted, donc jamais copie -- c'est
+			// pour ca que tous les depots mesures etaient sains. Figer la
+			// liste rend la boucle insensible a ce qu'elle seme, dans les deux
+			// sens. (Le compte `internesDeLaSource` d'apres-boucle, lui, etait
+			// juste TROP TARD : le recablage avait deja retire les nouveau-nes
+			// de la chaine de src.)
+			bool aDupliquer[kNkvpMaxNodes];
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+				aDupliquer[c] = HostIsInnerMeshOf(c, src);
 			const float32 zero[3] = {0.f, 0.f, 0.f};
 			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
-				if (!HostIsInnerMeshOf(c, src))
+				if (!aDupliquer[c])
 					continue;
 				const int32 m = HostSpawnLike(c, zero);
 				if (m < 0) {

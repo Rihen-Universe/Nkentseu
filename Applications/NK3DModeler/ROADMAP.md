@@ -773,8 +773,9 @@ le 17/08 :**
    exactement cela). Les noms traversent l'archivage : appariement k-ième
    source / k-ième double, garanti par la monotonie de `HostAllocUser`
    (plus petit slot libre d'un ensemble qui ne fait que rétrécir).
-5. **Témoins** : en attente de la course de Rodolf (protocole ci-dessous).
-   Vérifié statiquement seulement : Debug 31/31 + Release 31/31.
+5. **Témoins** : la 9e relecture a ÉCHOUÉ (mesh dupliqué N fois, models
+   manquants) — cause trouvée, corrigée et rejouée le 17/08 au soir, voir
+   « ÉCHEC DE LA 9e RELECTURE » ci-dessous.
 
 **Décisions du lot, dites** : l'arbre VIVANT reste dans la scène active
 (l'import « à la Blender » ; le retirer serait un geste, pas un oubli) ;
@@ -791,15 +792,76 @@ en primitives. Fermer cette dette = sérialiser la géométrie CPU (concerne
 autant le mode Édition que l'import) — chantier séparé, à ordonner par
 Rihen.
 
-**📣 PROTOCOLE POUR RODOLF (9e relecture)** : bouton « Importer » du
-navigateur, choisis un `.obj` MULTI-OBJETS du corpus
-(`D:\Projets\2026\NKGenCorpus\brut\`). Attendu : (A) N models dans la scène
-ET N cartes au navigateur (N = nombre de `o` du fichier), gizmo SUR chaque
-objet ; journal : `MESURE import`, une `MESURE creation` par model, et les
-lignes `MESURE origine` de l'archivage disant `ECART=(0, 0)` ; (B) Ctrl+S
-puis regarde le DOSSIER COURANT du navigateur sur le disque (racine du
-projet si aucun) : N `.nkmesh` nouveaux ; (C) NÉGATIF : réimporte, quitte
-SANS sauver, relance — aucun `.nkmesh` de plus. Envoie le journal.
+### ÉCHEC DE LA 9e RELECTURE — cause trouvée, corrigée, rejouée (17/08 soir)
+
+**Symptôme (Rodolf)** : « l'import duplique N fois son mesh et ça n'importe
+pas tous les models. » Journal de sa course (LowPolyCars.obj) :
+`MESURE dup model : src=111 → root=113 internesDeLaSource=1 nes=46` + WRN
+« plus d'emplacement libre » + UNE seule `MESURE creation` sur 5.
+
+**Cause — la duplication s'auto-alimentait sur une source VIVANTE.**
+`HostSpawnLike` copie le parent de sa source si ce parent n'est pas
+`nkvpDeleted` (depuis `718ab43b`, 01/08). La boucle enfants de
+`HostDuplicateTree` (16/08) réévaluait `HostIsInnerMeshOf(c, src)` PENDANT
+qu'elle créait : le double d'un maillage d'un model vivant chaînait donc
+lui-même vers `src`, la boucle le re-appariait en atteignant son slot, et
+chaque naissance en semait une autre — 46 naissances = exactement les 46
+slots libres restants, puis épuisement, d'où les models 1-4 jamais nés.
+Le sens navigateur → scène ne cascadait pas (parent d'une source archivée =
+`nkvpDeleted`, jamais copié) : c'est pour ça que tous les dépôts mesurés
+étaient sains, et que le défaut a attendu le premier passage
+scène → archive (l'import).
+
+**Correctif** : la liste des candidats se FIGE avant la première naissance
+(deux passes dans `HostDuplicateTree`). La copie de parent de
+`HostSpawnLike` n'est pas touchée — elle sert le coller/dupliquer d'un
+enfant. L'extraction des tranches n'a jamais été en cause (les comptes de
+la caisse étaient justes dès la course échouée).
+
+**Rejoué par l'agent** (crochet `NK_IMPORT_FILE`, même chemin que la
+confirmation du picker ; projet AgentTest — jetable, R7) :
+- avant correctif : reproduction exacte, au chiffre près (nes=46, 1 création) ;
+- après : 5 models, 5 dup à `nes=1`, 5 `MESURE origine ECART=(0,0)`, aucun
+  WRN ; caisse 2931v/7578i + 4 roues 337v/954i, somme = le fichier entier
+  (4279/11394), ancres distinctes aux 4 coins — tranches distinctes prouvées ;
+- l'autre sens (dépôt via `NK_DROP_TOKEN`) : `nes=1`, `cumul ECART=(0,0)`.
+
+Répond à la précision de Rodolf (« 5 models : la coque et 4 roues, mesh
+indépendants avec leur propre origine ») : le fichier déclare 5 `o` (coque +
+4 roues) → 5 racines indépendantes, chacune avec SA géométrie ET SON
+origine — les 4 roues naissent chacune à SON ancre (±1.229, ±0.691 : le
+centre de la boîte de SA tranche, donc le moyeu), pas au barycentre du
+véhicule ; la racine de chaque model est la moyenne de SES ancres seulement.
+(Nuance dite : l'OBJ ne déclare aucune origine par objet — sommets monde,
+`o` sans transform — l'origine est donc reconstruite par la règle « ancre =
+centre de boîte », qui tombe au moyeu pour une roue.)
+
+**⚠️ TROUVÉ EN MESURANT, à trancher par Rodolf — l'import écrit sur disque
+SANS geste de sauvegarde.** Quand une vignette de matériau fraîchement
+encodée rejoint son fichier (`main.cpp`, bloc « une vignette fraîchement
+encodée rejoint son fichier »), elle appelle `NkProjectWriteAssets` partiel —
+et l'exemption `browserOriginDirty` (« à écrire au prochain enregistrement,
+même partiel ») fait que ce passage écrit AUSSI les cartes importées, ~1 s
+après l'import. Le témoin négatif « quitte sans sauver → aucun `.nkmesh` »
+est donc FAUX dès qu'une vignette se rafraîchit. Deux règles se rencontrent
+(Q49 contre « les .nkmesh partent à la sauvegarde ») ; c'est une décision de
+produit, pas un correctif d'agent.
+
+**📣 PROTOCOLE POUR RODOLF (10e relecture)** : bouton « Importer » du
+navigateur, choisis ton fichier véhicule (ou
+`Resources/Models/LowPolyCars.obj`, celui de la 9e). Attendu — **5 nœuds,
+5 comptes, 5 origines, 5 fichiers** : (A) 5 racines de model (coque +
+4 roues) INDÉPENDANTES dans la hiérarchie, chacune avec SA géométrie (bouge
+une roue au gizmo : les autres ne suivent pas) et SON origine (le gizmo de
+chaque roue est SUR son moyeu, pas au centre du véhicule) ; journal : une
+`MESURE creation` par model avec des comptes DIFFÉRENTS entre coque et roue
+(coque >> roue ; les 4 roues semblables entre elles, c'est normal) et des
+`racine=` distinctes, et `MESURE dup model` disant `nes=1` partout — plus
+jamais 46 ; (B) Ctrl+S :
+un `.nkmesh` par model dans le dossier courant du navigateur ; (C) le test
+« quitte sans sauver » de l'ancien protocole est SUSPENDU — voir l'écriture
+par vignette ci-dessus, il échouerait pour une raison qui n'est pas l'import.
+Envoie le journal.
 
 ## 3. Modélisation complète ⬜
 

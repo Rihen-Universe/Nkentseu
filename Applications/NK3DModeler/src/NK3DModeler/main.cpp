@@ -2096,6 +2096,22 @@ int nkmain(const NkEntryState &entry) {
 				}
 			}
 		}
+		// NK_IMPORT_FILE=<chemin> : l'import par le MEME chemin que la
+		// confirmation du picker (nk3d::NkImportFile, plus haut) -- pour
+		// rejouer un import sans main, avant/apres correctif. Applique UNE
+		// fois, hote pret, apres l'eventuelle ouverture de projet (frame 10),
+		// comme les autres crochets de mesure. PERIMETRE, dit ici : couvre
+		// charge -> decoupe -> creation -> archivage ; ne couvre NI le bouton
+		// Importer NI le picker -- une relecture a la main reste necessaire
+		// pour eux.
+		{
+			static bool sAgentImportDone = false;
+			if (!sAgentImportDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentImportDone = true;
+				if (const char *v = std::getenv("NK_IMPORT_FILE"))
+					nk3d::NkImportFile(st, v);
+			}
+		}
 
 		// ── LACHER DU NAVIGATEUR SUR LA VUE 3D : LA REPONSE DU PICK ARRIVE ──
 		// Le jeton a ete fige au relachement (cf. NkModelerBrowser.h) ; il ne
