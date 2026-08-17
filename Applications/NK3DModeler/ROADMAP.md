@@ -977,6 +977,50 @@ cartes, 5 fichiers ; (E) sur la hiérarchie → la voiture aux coordonnées du
 fichier ; (F) sur le navigateur → 5 cartes, 5 fichiers, RIEN dans la scène ;
 (G) sur la barre de menus → message « Déposez un fichier 3D sur… ».
 
+### MIGRATION GLISSER-DÉPOSER SUR L'API NKGui — étape 1/2 LIVRÉE : la HIÉRARCHIE (2026-08-18)
+
+Directive (Q53) : remplacer la logique locale (15 champs d'état, seuil 36.f,
+fantôme TextV en double) par l'API de bibliothèque `BeginDragSource /
+SetDragPayload / BeginDropTarget / AcceptDragPayload` — celle que Nogee
+consomme déjà. **Migration, pas changement de comportement.**
+
+**Fait (commit `7555a345`)** :
+- ligne de hiérarchie = source ET cible via `ctx.ButtonBehavior(id, rowR)` ;
+  la sélection reste au registre (`hit.Clicked`) — mesuré : pas de conflit,
+  le press sélectionne comme avant pendant que ButtonBehavior arme le glisser ;
+- **surcharge additive côté NKGui** : `BeginDropTarget(ctx, id, rect)` pour
+  une ZONE qui n'est pas un widget (fond de liste, navigateur) — pose
+  `lastItemId/lastItemRect` sans toucher activeId/hotId (les widgets contenus
+  gardent survol et clic). 17 lignes, annoncée au canal (Q54), rien d'autre
+  dans `NkGuiWidgets.{h,cpp}` ;
+- livraison appliquée APRÈS le parcours (`pendingChild/pendingParent`) :
+  `SetNodeParent` change l'arbre qu'on est en train de lire ;
+- 4 champs retirés : `hierDragNode/X/Y`, `hierDragging`, `hierMouseWasDown`
+  (le champ était aussi la victime du débordement `hierFold` — commentaire
+  d'historique conservé, anonymisé).
+
+**Crochets témoins (rejouables)** : `NK_HIER_ROWS=<frame>` imprime le rect
+écran de chaque ligne visible + rects liste/navigateur ; `NK_AGENT_DRAG` /
+`NK_AGENT_DRAG2="f,x0,y0,x1,y1"` pose la souris BRUTE avant `BeginFrame`
+(survol à f, press à f+1, glissement 8 frames, relâchement à f+10, rapport
+parenté+sélection+navigateur à f+14) — le seuil, le fantôme, les cibles et la
+livraison sont le vrai code.
+
+**Grille tenue (Debug, AgentTest, 3 courses)** : reparentage 102→104 (`parent=-1`
+→ `104`) ; déparentage sur le fond de liste (`104` → `-1`, compte navigateur
+INCHANGÉ = pas de livraison double) ; archivage hiérarchie→navigateur (23→24,
+témoin de base mesuré par course à vide). Le seuil NKGui arme à k=4
+(`dragActive=1 type=hier.node`). Périmètre : la souris est synthétique (posée
+avant BeginFrame) ; le trajet OS réel reste couvert par la relecture de Rodolf.
+
+**RESTE (étape 2/2) — le NAVIGATEUR** : 41 références `browDrag*` (37 dans
+`NkModelerBrowser.h`, 4 champs dans `NkModelerInput.h`), 5 cibles : dossier de
+l'arbre, carte dossier, fond de grille (déplacer/copier selon traversée
+gauche↔droite), vue 3D (jeton + pick différé + file multi-cartes + menu
+enfant/indépendant — restent applicatifs, seule la mécanique de glisser migre).
+Puis contrat d'import (d) matériaux/textures et (e) dialogue.
+
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,
