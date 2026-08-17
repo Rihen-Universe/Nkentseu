@@ -97,9 +97,15 @@ namespace nkentseu {
 		// et a baker les transforms de scene-graph dans les meshes statiques.
 		struct NkGLTFNode {
 				// Nom du node. Rempli par le chemin FBX (nom du Model, ex.
-				// "Skeleton_torso_joint_1") ; le chemin glTF ne le remplit pas
-				// encore (les pistes d'anim restent nommees joint_{i}, cf.
-				// NkGLTFAnimBake.cpp) — vide = pas de nom, jamais invente.
+				// "Skeleton_torso_joint_1") et par le chemin glTF (cle "name",
+				// optionnelle -- vide si absente, jamais invente). Les joints d'un
+				// skin sont des nodes : leurs noms alimentent la distribution de
+				// masse anthropometrique cote editeur
+				// (NKAnimPhysics::NkPoseMass::SetAnthropometric).
+				// ⚠️ UN SEUL membre `name`. #69 (NKAnimation) et #70 (NKRenderer)
+				// l'avaient chacun ajoute a des lignes differentes : fusion SANS
+				// conflit, et `duplicate member 'name'` sur main (17/08 soir).
+				// Reunis ici, une fois -- les deux chemins ecrivent le meme champ.
 				NkString name;
 				NkVec3f translation = {0, 0, 0};
 				NkVec4f rotation = {0, 0, 0, 1}; // quaternion (x,y,z,w)
@@ -108,13 +114,6 @@ namespace nkentseu {
 				NkMat4f matrix = NkMat4f::Identity();
 				int32 mesh = -1; // index dans meshes[] (-1 = aucun)
 				NkVector<int32> children;
-				// Nom du node glTF (clé "name", optionnelle — vide si absente).
-				// Ajout 2026-08-17, ADDITIF (aucun appelant existant modifié) : les
-				// joints d'un skin sont des nodes, et leurs noms alimentent la
-				// distribution de masse anthropométrique côté éditeur
-				// (NKAnimPhysics::NkPoseMass::SetAnthropometric). Avant : le parseur
-				// lisait "name" pour meshes, matériaux, animations — jamais les nodes.
-				NkString name;
 		};
 
 		struct NkGLTFMeshData {
