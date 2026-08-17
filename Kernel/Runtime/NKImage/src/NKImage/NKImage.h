@@ -21,16 +21,19 @@
  *   #include "NKImage/NKImage.h"
  *   using namespace nkentseu;
  *
- *   // Rendu rapide
- *   NkImage* img = NkSVGRenderer::RenderFromFile("logo.svg", 512, 512);
- *
- *   // Accès au DOM
- *   NkSVGDOM dom; dom.Init();
- *   NkSVGDOMBuilder::BuildFromFile("logo.svg", dom, 512, 512);
- *   NkXMLNode* node = dom.xmlDoc.GetElementById("my-path");
- *   NkImage* img2 = NkSVGRenderer::Render(dom);
- *   dom.Destroy(); img->Free(); img2->Free();
+ *   // Rastérisation d'un SVG : NkImage est un TYPE VALEUR, rien à libérer.
+ *   NkImage img = NkSVGCodec::DecodeFromFile("logo.svg", 512, 512);
+ *   if (!img.IsValid())
+ *       return false;              // échec = image invalide, plus de nullptr
+ *   // ... img.Pixels(), img.Width(), img.Height() ...
+ *   // img libère ses pixels toute seule en sortant de la portée.
  * @endcode
+ *
+ * @note Pour garder la représentation VECTORIELLE et la rastériser plusieurs
+ *       fois à des tailles différentes, voir `NkSVGImage` dans
+ *       `NKImage/Codecs/SVG/NkSVGCodec.h`. ⚠️ `NkSVGImage` est un type
+ *       DIFFÉRENT de `NkImage` : il reste un pointeur possédé et garde son
+ *       propre `Free()`. Seule l'image rastérisée est une valeur.
  */
 
 // Core

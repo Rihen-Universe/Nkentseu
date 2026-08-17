@@ -211,8 +211,19 @@ namespace nkentseu {
 		(void)::fflush(outputStream);
 #endif
 
-		// Flush automatique pour niveaux critiques pour visibilité immédiate
-		if (message.level >= NkLogLevel::NK_ERROR) {
+		// Vidage automatique à partir de WARN, et non plus seulement ERROR.
+		//
+		// Pourquoi WARN compte : un avertissement est souvent la DERNIÈRE chose
+		// qu'une application dit avant de mal finir. Tant que la sortie est un
+		// terminal, la libc vide par ligne et personne ne voit la différence ;
+		// dès qu'elle est REDIRIGÉE vers un fichier ou un tube — ce que fait
+		// tout script de test — elle passe en tampon de bloc, et un plantage
+		// emporte exactement les lignes qui l'expliquaient.
+		//
+		// Le coût est nul là où ça compte : sur ce moteur le régime établi
+		// n'émet aucune ligne (mesuré à 47 lignes au démarrage puis zéro sur
+		// Galaxy S22+, 2026-08-14). Vider sur un événement rare ne se paie pas.
+		if (message.level >= NkLogLevel::NK_WARN) {
 			(void)::fflush(outputStream);
 		}
 	}

@@ -804,7 +804,16 @@ namespace nkentseu {
 		D3D11_BOX box{(UINT)off, 0, 0, (UINT)(off + sz), 1, 1};
 		mContext->CopySubresourceRegion(staging, 0, 0, 0, 0, it->buf, 0, &box);
 		D3D11_MAPPED_SUBRESOURCE ms{};
-		mContext->Map(staging, 0, D3D11_MAP_READ, 0, &ms);
+		// Map ECHOUE -> pas de memcpy. Inoffensif tant que l'appel BLOQUE (un Map
+		// bloquant ne rend presque jamais d'echec), mais le jour ou quelqu'un
+		// posera D3D11_MAP_FLAG_DO_NOT_WAIT, DXGI_ERROR_WAS_STILL_DRAWING
+		// deviendrait un retour NORMAL et frequent : lire pData nul cesserait
+		// d'etre improbable pour devenir regulier. L'optimisation evidente
+		// armerait le defaut -- desamorce ici plutot que decrit ailleurs.
+		if (FAILED(mContext->Map(staging, 0, D3D11_MAP_READ, 0, &ms)) || !ms.pData) {
+			staging->Release();
+			return false;
+		}
 		memcpy(out, ms.pData, (size_t)sz);
 		mContext->Unmap(staging, 0);
 		staging->Release();
@@ -819,7 +828,11 @@ namespace nkentseu {
 		const D3D11_MAP mode =
 			(it->desc.usage == NkResourceUsage::NK_READBACK) ? D3D11_MAP_READ : D3D11_MAP_WRITE_DISCARD;
 		D3D11_MAPPED_SUBRESOURCE ms{};
-		mContext->Map(it->buf, 0, mode, 0, &ms);
+		// Echec -> memoire NULLE, jamais « nul + decalage » : ajouter un decalage
+		// a un pointeur nul rend un pointeur NON NUL et invalide, qui traverse
+		// intact le `if (!ptr)` de l'appelant. L'echec doit rester visible.
+		if (FAILED(mContext->Map(it->buf, 0, mode, 0, &ms)) || !ms.pData)
+			return {};
 		uint64 mapSz = sz > 0 ? sz : it->desc.sizeBytes - off;
 		return {(uint8 *)ms.pData + off, mapSz};
 	}

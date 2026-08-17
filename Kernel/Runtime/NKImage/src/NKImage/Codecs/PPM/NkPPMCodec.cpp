@@ -62,29 +62,29 @@ namespace nkentseu {
 	//  NkPPMCodec::Decode
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkPPMCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkPPMCodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 3 || data[0] != 'P')
-			return nullptr;
+			return NkImage();
 		const uint8 *p = data;
 		const uint8 *end = data + size;
 
 		++p; // saute 'P'
 		const char magic = static_cast<char>(*p++);
 		if (magic < '1' || magic > '6')
-			return nullptr;
+			return NkImage();
 
 		// Dimensions
 		const uint32 w = ReadUint(p, end);
 		const uint32 h = ReadUint(p, end);
 		if (w == 0 || h == 0)
-			return nullptr;
+			return NkImage();
 
 		// maxVal (absent pour PBM P1/P4)
 		uint32 maxVal = 1;
 		if (magic != '1' && magic != '4') {
 			maxVal = ReadUint(p, end);
 			if (maxVal == 0 || maxVal > 65535)
-				return nullptr;
+				return NkImage();
 		}
 
 		// Séparateur obligatoire (exactement un blanc après le dernier entête)
@@ -99,12 +99,12 @@ namespace nkentseu {
 		const int32 ch = (isGray || isBitmap) ? 1 : 3;
 		const NkImagePixelFormat fmt = (ch == 1) ? NkImagePixelFormat::NK_GRAY8 : NkImagePixelFormat::NK_RGB24;
 
-		NkImage *img = NkImage::Alloc(static_cast<int32>(w), static_cast<int32>(h), fmt);
-		if (!img)
-			return nullptr;
+		NkImage img = NkImage::Alloc(static_cast<int32>(w), static_cast<int32>(h), fmt);
+		if (!img.IsValid())
+			return NkImage();
 
 		for (uint32 y = 0; y < h; ++y) {
-			uint8 *row = img->RowPtr(static_cast<int32>(y));
+			uint8 *row = img.RowPtr(static_cast<int32>(y));
 
 			if (isBitmap) {
 				if (isBinary) {
@@ -171,7 +171,7 @@ namespace nkentseu {
 			return false;
 
 		const NkImage *src = &img;
-		NkImage *conv = nullptr;
+		NkImage conv;
 
 		if (img.Channels() == 1) {
 			// P5 grayscale
@@ -180,11 +180,11 @@ namespace nkentseu {
 			// Convertit vers RGB24 si nécessaire
 			if (img.Format() != NkImagePixelFormat::NK_RGB24) {
 				conv = img.Convert(NkImagePixelFormat::NK_RGB24);
-				if (!conv) {
+				if (!conv.IsValid()) {
 					::fclose(f);
 					return false;
 				}
-				src = conv;
+				src = &conv;
 			}
 			// P6 RGB
 			::fprintf(f, "P6\n%d %d\n255\n", src->Width(), src->Height());
@@ -195,15 +195,11 @@ namespace nkentseu {
 		for (int32 y = 0; y < src->Height(); ++y) {
 			if (::fwrite(src->RowPtr(y), 1, static_cast<usize>(rowDataBytes), f) != static_cast<usize>(rowDataBytes)) {
 				::fclose(f);
-				if (conv)
-					conv->Free();
 				return false;
 			}
 		}
 
 		::fclose(f);
-		if (conv)
-			conv->Free();
 		return true;
 	}
 

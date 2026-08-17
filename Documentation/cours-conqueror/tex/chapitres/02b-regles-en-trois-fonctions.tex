@@ -1,0 +1,169 @@
+\chapter{Écrire des règles en trois fonctions}
+
+Un moteur de règles complet tient en trois méthodes.
+
+\begin{center}
+\begin{tabular}{@{}p{3.6cm}p{9.8cm}@{}}
+\toprule
+\textbf{Méthode} & \textbf{La question à laquelle elle répond} \\
+\midrule
+\texttt{Construire} & à quoi la partie ressemble au départ \\
+\texttt{CoupsPossibles} & ce qu'on a le droit de faire \\
+\texttt{Appliquer} & ce qui se passe quand on le fait \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Tout le reste --- créer et détruire une instance, cloner un état, le sérialiser,
+le hacher, dire si la partie est finie, dire qui a gagné, vérifier qu'un coup est
+légal --- est \textbf{le même pour tout le monde}, et il est déjà écrit.
+
+Le fichier de ce chapitre existe, il compile, et l'atelier le charge :
+\nkfile{Applications/ConquerorLab/exemples/rules/RegleFacile.cpp}.
+
+\section{Le compte, mesuré}
+
+\texttt{NkcRulesVTable} compte \textbf{24 entrées}. Voici où elles vont.
+
+\begin{nkcode}{ou vont les 24 entrees de la vtable}
+24  entrees de la vtable
+ 3  contiennent VOTRE jeu    Construire, CoupsPossibles, Appliquer
+18  sont ecrites une fois pour toutes dans ConquerorRegleFacile.h
+ 3  sont optionnelles (geometrie) et restent nulles
+\end{nkcode}
+
+Les recopier à chaque module, ce serait dix-huit occasions de se tromper sur du
+code qui n'a aucun rapport avec le jeu qu'on essaie de concevoir.
+
+\section{Le module entier}
+
+Voici un moteur qui joue vraiment. Rien n'a été coupé.
+
+\begin{nkcode}{exemples/rules/RegleFacile.cpp --- le module complet}
+#include "Conqueror/ConquerorRegleFacile.h"
+
+using namespace nkentseu;
+using namespace nkentseu::conqueror;
+using namespace nkentseu::conqueror::facile;
+
+struct MesRegles {
+
+    static constexpr int32 kCote = 5;
+
+    // 1. A quoi la partie ressemble au depart.
+    void Construire(Grille &g) {
+        g.topologie = NkcTopology::Square4;
+        g.nbJoueurs = 2;
+        g.AjouterRectangle(kCote, kCote);
+        g.PoserAuxCoins(2);
+    }
+
+    // 2. Ce qu'on a le droit de faire : dupliquer vers une case voisine VIDE.
+    void CoupsPossibles(const Partie &p, ListeCoups &out) {
+        NkcCoord voisins[8];
+        for (int32 i = 0; i < p.nbCases; ++i) {
+            if (p.cases[i].owner != static_cast<int8>(p.joueur)) continue;
+            const NkcCoord de = p.ou[i];
+            const int32    n  = p.Voisins(de, voisins, 8);
+            for (int32 k = 0; k < n; ++k)
+                if (p.Vide(voisins[k]))
+                    out.Dupliquer(p.joueur, de, voisins[k]);
+        }
+        // PASSER est ajoute tout seul si cette liste reste vide.
+    }
+
+    // 3. Ce qui se passe quand on le fait.
+    void Appliquer(Partie &p, const NkcMove &m, Evenements &ev) {
+        p.Poser(m.to, m.player);
+        ev.Duplique(m.player, m.from, m.to);
+        p.conquete[m.player] += 10;   // en DIXIEMES : 10 == 1,0 point
+
+        NkcCoord    voisins[8];
+        const int32 n = p.Voisins(m.to, voisins, 8);
+        for (int32 k = 0; k < n; ++k) {
+            if (!p.Ennemie(voisins[k], m.player)) continue;
+            const int8 ancien = p.Proprietaire(voisins[k]);
+            p.Poser(voisins[k], m.player);
+            ev.Retourne(m.player, voisins[k], ancien);
+        }
+        p.PasserLaMain();
+    }
+};
+
+NKC_REGLES(MesRegles, "MesRegles", "1.0.0", "Moi")
+\end{nkcode}
+
+La dernière ligne fabrique les vingt et une entrées de la vtable et les deux
+symboles exportés. \textbf{C'est tout le module.}
+
+\section{L'essayer}
+
+\begin{enumerate}
+  \item copiez \texttt{exemples/rules/RegleFacile.cpp} vers
+        \texttt{travail/rules/mes\_regles.cpp} ;
+  \item changez le nom dans \texttt{NKC\_REGLES} --- sinon deux entrées
+        identiques au menu ;
+  \item sauvegardez, attendez une seconde ;
+  \item panneau \textbf{Modules} $\rightarrow$ votre module apparaît
+        $\rightarrow$ \textbf{Nouvelle partie}.
+\end{enumerate}
+
+Si la compilation échoue, la sortie complète du compilateur s'affiche dans le
+panneau \textbf{Modules}. C'est votre seul retour : lisez-la.
+
+\section{Ce que l'échafaudage vous coûte}
+
+Il n'y a pas de magie, et la contrepartie se dit en une phrase : \textbf{\texttt{Partie}
+est une structure fixe, plate, sans pointeur.}
+
+C'est ce qui permet aux dix-huit fonctions d'être justes \textbf{par
+construction} et non par relecture.
+
+\begin{center}
+\begin{tabular}{@{}p{5.2cm}p{8.2cm}@{}}
+\toprule
+\textbf{ce que le cadre doit faire} & \textbf{comment, parce que \texttt{Partie} est plate} \\
+\midrule
+cloner un état & une affectation \\
+sérialiser & un \texttt{memcpy} \\
+hacher & \textsc{fnv-1a} sur les octets \\
+dire si un coup est légal & énumérer les coups possibles et comparer \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le prix : vous ne pouvez pas ranger dans \texttt{Partie} un état de taille libre
+--- une liste qui grandit, un cache, un arbre. Tant que votre jeu tient dans les
+cases, les joueurs, l'énergie et la conquête, vous n'y penserez jamais.
+
+\section{Quand partir --- et ce n'est pas un échec}
+
+\begin{quote}
+\textbf{C'est un échafaudage, pas une cage.}
+\end{quote}
+
+Le jour où votre état ne rentre plus dans \texttt{Partie}, vous écrivez le
+contrat nu. Les vingt-quatre entrées sont documentées au chapitre
+\textbf{«~Quand l'échafaudage ne suffit plus~»}, à la fin de ce cours --- et il
+se lira beaucoup mieux à ce moment-là, parce que vous aurez déjà vu les dix-huit
+fonctions à l'œuvre.
+
+Vous n'avez rien à défaire pour passer de l'un à l'autre : les deux produisent le
+même module, avec les mêmes deux symboles. \nkfile{RegleFacile.cpp} et
+\nkfile{RegleContratNu.cpp} jouent \textbf{exactement le même jeu} ---
+comparez-les, c'est l'exercice le plus instructif du cours.
+
+\section*{Exercices}
+
+\begin{enumerate}
+  \item \textbf{Portée 2.} Autorisez la duplication vers une case à deux pas.
+        Une seule ligne change dans \texttt{CoupsPossibles} --- laquelle ?
+  \item \textbf{Le déplacement.} Ajoutez l'action \textsc{deplacer} (la case de
+        départ se vide). Que devient le décompte des totems ?
+  \item \textbf{Hexagone.} Passez \texttt{g.topologie} à
+        \texttt{NkcTopology::HexPointy}. Combien de voisins avez-vous
+        maintenant, et quelle ligne de votre code l'a supposé ?
+  \item \textbf{La cascade.} Émettez \texttt{ev.Cascade(...)} quand un coup
+        retourne au moins deux ennemis, et regardez ce que l'atelier en fait à
+        l'écran.
+\end{enumerate}

@@ -2208,13 +2208,12 @@ namespace nkentseu {
 					const uint8 *src = bytes.Data() + fr.offset;
 
 					if (codec == Codec::MJPEG) {
-						NkImage *img = NkJPEGCodec::Decode(src, fr.size);
-						if (!img)
+						NkImage img = NkJPEGCodec::Decode(src, fr.size);
+						if (!img.IsValid())
 							return false;
-						const int32 w = img->Width(), h = img->Height(), ch = img->Channels();
-						const uint8 *px = img->Pixels();
+						const int32 w = img.Width(), h = img.Height(), ch = img.Channels();
+						const uint8 *px = img.Pixels();
 						if (w <= 0 || h <= 0 || !px) {
-							img->Free();
 							return false;
 						}
 						out.width = w;
@@ -2228,7 +2227,6 @@ namespace nkentseu {
 							o[i * 4 + 2] = (ch >= 3) ? s[2] : s[0];
 							o[i * 4 + 3] = (ch >= 4) ? s[3] : 255;
 						}
-						img->Free();
 						out.index = index;
 						return true;
 					}
