@@ -1499,6 +1499,17 @@ Nkoung, PV3DE, Pong, Pong copy, Pong2, RihenDefi, ContextSandbox,
 RendererSandbox, RhiSandbox, Songoo) + **NKCanvas** (conditionnel) +
 **NKUIIntegration** (meurt avec NKUI) + **`config/modules.jenga`** (registre).
 
+🛡️ **Le compteur est GARDÉ depuis le 2026-08-17** : un nouveau dépendant NKUI
+était né *après* la dépréciation, dans une PR passée sans que personne ne le
+voie (`NkMatInventaireTest.jenga:50`, fantôme dès la naissance — canal nkui,
+Q1). Le contrôle `check_nkui_dependants.sh` (racine du dépôt) **échoue** quand
+un `.jenga` hors de la **liste décroissante** `config/nkui_dependants.list`
+cite `"NKUI"` ; il est câblé dans `gitcommit.sh` pour tout commit touchant un
+`.jenga`, et lançable à la main. La liste ne fait que décroître — on retire une
+entrée à la fusion des coupes, on n'en ajoute jamais (exception = décision
+Rodolf). Témoins des deux sens prouvés : arbre actuel vert, citation fabriquée
+refusée avant commit, voie « instrument aveugle » testée (exit 2).
+
 ⚠️ **NKUI est encore CONSTRUIT (pas lié) dans la fermeture de Nogee** : NKCanvas
 l'ajoute quand `USE_CANVAS_NKUI` est actif, et il l'est **par défaut**
 (`config/graphics.jenga:80`, env `NK_CANVAS_NKUI`). L'éditeur de liens n'en
@@ -1520,6 +1531,19 @@ construction de NKUI (17 `.cpp`, ~22 k lignes). La vraie sortie reste
 l'attrition : le jour où Mou/Nkoung/Sandbox migrent vers NKGui
 (`NkGuiCanvasBackend`, même dossier), le compte tombe à zéro et le défaut
 bascule sans casser personne.
+
+⚠️ **À ne pas confondre — la bascule n'a AUCUN effet sur le compteur
+d'attrition, et personne ne doit en attendre un.** Mesure de la campagne
+(canal nkui, 2026-08-17, les 31 citations lues une à une) : chaque application
+qui cite `"NKUI"` le fait **en dur** dans son propre `.jenga` (listes
+`links`/`dependson`), **jamais sous condition du drapeau** — les seules
+citations conditionnelles sont `NKCanvas.jenga:86` et le drapeau local
+`use_nkui` des sandbox, qui n'est pas `USE_CANVAS_NKUI`. Basculer le défaut
+(ou passer `NK_CANVAS_NKUI=off` à l'invocation) sort donc NKUI des **BUILDS**
+(17 `.cpp`, ~22 k lignes de moins à construire) mais ne fait baisser le
+**COMPTEUR** d'aucune unité. Les deux chantiers sont complémentaires, pas
+séquents : le compteur ne descend que par **retrait des citations** (campagne),
+la bascule ne joue que sur le **temps de build**.
 
 ### Manques NKGui accumulés sur la journée (chantier à part entière)
 
