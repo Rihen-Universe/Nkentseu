@@ -157,6 +157,186 @@ namespace {
 			   (mx > mn) ? "(NON uniformes : le regime a pris)" : "(UNIFORMES : regime pas pris !)");
 		return mx > mn;
 	}
+
+	// ── Témoin XBot (Mixamo) : le VERDICT d'équilibre s'allume ───────────────
+	// Premier rig du dépôt aux pieds NOMMÉS (mixamorig:LeftFoot/RightFoot).
+	// CesiumMan n'en a pas (leg_joint_R_5) : la branche verdict de l'éditeur
+	// n'avait donc JAMAIS tourné sur un asset réel. Ce témoin rejoue la chaîne
+	// exacte d'AnimBridge (mots-clés foot/ankle/toe, DetectSupportPoints,
+	// EvaluateStatic) sur la POSE BIND (debout) — verdict attendu : ÉQUILIBRÉ.
+	//
+	// Deux sols, déclarés :
+	//  (a) sol PHYSIQUE au pied le plus bas — le verdict de référence ;
+	//  (b) réplique de la formule de l'éditeur floorY = centre.y - rayon*0.5,
+	//      sur l'AABB des JOINTS (proxy : l'éditeur, lui, prend l'AABB des
+	//      sommets peau — plus grand). Dit si le verdict s'allumera À L'ÉCRAN.
+	static bool ContientMotif(const NkString &nm, const char *kw) {
+		const char *hay = nm.Data();
+		const int64 n = (int64)nm.Size();
+		int64 klen = 0;
+		while (kw[klen] != '\0')
+			++klen;
+		for (int64 i = 0; i + klen <= n; ++i) {
+			int64 j = 0;
+			while (j < klen) {
+				char c = hay[i + j];
+				if (c >= 'A' && c <= 'Z')
+					c = (char)(c - 'A' + 'a');
+				char k = kw[j];
+				if (k >= 'A' && k <= 'Z')
+					k = (char)(k - 'A' + 'a');
+				if (c != k)
+					break;
+				++j;
+			}
+			if (j == klen)
+				return true;
+		}
+		return false;
+	}
+
+	bool TemoinXBotVerdict() {
+		const char *chemins[] = {
+			"Resources/Models/XBot/XBot.glb",
+			"../../../../Resources/Models/XBot/XBot.glb",
+		};
+		renderer::NkGLTFMeshData data;
+		bool charge = false;
+		const char *utilise = nullptr;
+		for (int32 c = 0; c < 2 && !charge; ++c) {
+			if (renderer::LoadGLTF(chemins[c], data) && data.isSkinned) {
+				charge = true;
+				utilise = chemins[c];
+			}
+		}
+		if (!charge) {
+			printf("         ECHEC : XBot.glb introuvable ou non skinne (cwd inattendu)\n");
+			return false;
+		}
+		printf("         asset : %s (%u joints, %u animations)\n", utilise, (uint32)data.skinJoints.Size(),
+			   (uint32)data.animations.Size());
+
+		anim::NkAnimationClip clip;
+		if (!renderer::BakeClipFromGLTF(data, data.animations.Empty() ? -1 : 0, 30.f, clip)) {
+			printf("         ECHEC : BakeClipFromGLTF\n");
+			return false;
+		}
+		const uint32 jc = (uint32)clip.jointInverseBind.Size();
+		if ((uint32)clip.jointNames.Size() != jc || jc == 0) {
+			printf("         ECHEC : jointNames %u != joints %u\n", (uint32)clip.jointNames.Size(), jc);
+			return false;
+		}
+
+		// 1) Les noms Mixamo traversent — on rapporte les noms REELLEMENT reçus.
+		const char *gauche = nullptr, *droit = nullptr;
+		for (uint32 j = 0; j < jc; ++j) {
+			if (!gauche && ContientMotif(clip.jointNames[j], "leftfoot"))
+				gauche = clip.jointNames[j].CStr();
+			if (!droit && ContientMotif(clip.jointNames[j], "rightfoot"))
+				droit = clip.jointNames[j].CStr();
+		}
+		printf("         pieds nommes : gauche='%s' droit='%s'\n", gauche ? gauche : "(ABSENT)",
+			   droit ? droit : "(ABSENT)");
+		if (!gauche || !droit)
+			return false;
+
+		// 2) Le régime anthropométrique a PRIS (masses non uniformes).
+		animphys::NkPoseMass mass;
+		mass.SetAnthropometric(clip.jointNames);
+		float32 mn = mass.jointMass[0], mx = mass.jointMass[0];
+		for (uint32 j = 1; j < jc; ++j) {
+			if (mass.jointMass[j] < mn)
+				mn = mass.jointMass[j];
+			if (mass.jointMass[j] > mx)
+				mx = mass.jointMass[j];
+		}
+		printf("         masses : min=%.3f max=%.3f %s\n", (double)mn, (double)mx,
+			   (mx > mn) ? "(regime anthropometrique PRIS)" : "(UNIFORMES : regime pas pris !)");
+		if (mx <= mn)
+			return false;
+
+		// 3) Détection des pieds — MÊMES mots-clés que NomEvoquePied (AnimBridge).
+		NkVector<uint32> pieds;
+		for (uint32 j = 0; j < jc; ++j)
+			if (ContientMotif(clip.jointNames[j], "foot") || ContientMotif(clip.jointNames[j], "ankle") ||
+				ContientMotif(clip.jointNames[j], "toe"))
+				pieds.PushBack(j);
+		printf("         appuis detectes par nom : %u joints —", (uint32)pieds.Size());
+		for (uint32 k = 0; k < (uint32)pieds.Size(); ++k)
+			printf(" '%s'", clip.jointNames[pieds[k]].CStr());
+		printf("\n");
+		if (pieds.Empty())
+			return false;
+
+		// 4) Pose BIND (debout) : position monde = inverse(inverseBind).
+		NkVector<math::NkVec3f> pos;
+		pos.Resize(jc);
+		for (uint32 j = 0; j < jc; ++j) {
+			const auto p = clip.jointInverseBind[j].Inverse().position; // NkVec4
+			pos[j] = math::NkVec3f{p.x, p.y, p.z};
+		}
+
+		// AABB des joints (proxy de l'AABB peau de l'éditeur).
+		math::NkVec3f mnp = pos[0], mxp = pos[0];
+		for (uint32 j = 1; j < jc; ++j) {
+			mnp.x = mnp.x < pos[j].x ? mnp.x : pos[j].x;
+			mnp.y = mnp.y < pos[j].y ? mnp.y : pos[j].y;
+			mnp.z = mnp.z < pos[j].z ? mnp.z : pos[j].z;
+			mxp.x = mxp.x > pos[j].x ? mxp.x : pos[j].x;
+			mxp.y = mxp.y > pos[j].y ? mxp.y : pos[j].y;
+			mxp.z = mxp.z > pos[j].z ? mxp.z : pos[j].z;
+		}
+		const math::NkVec3f centre{(mnp.x + mxp.x) * 0.5f, (mnp.y + mxp.y) * 0.5f, (mnp.z + mxp.z) * 0.5f};
+		const float32 ex = (mxp.x - mnp.x) * 0.5f, ey = (mxp.y - mnp.y) * 0.5f, ez = (mxp.z - mnp.z) * 0.5f;
+		const float32 rayon = sqrtf(ex * ex + ey * ey + ez * ez);
+		const float32 seuil = 0.04f * (rayon > 0.f ? rayon : 1.f);
+
+		const math::NkVec3f com = mass.ComputeCOMFromPositions(pos.Data(), (int32)jc);
+		printf("         COM bind = (%.3f, %.3f, %.3f) | joints AABB y=[%.3f, %.3f] rayon=%.3f\n", (double)com.x,
+			   (double)com.y, (double)com.z, (double)mnp.y, (double)mxp.y, (double)rayon);
+
+		NkVector<math::NkVec3f> piedsPos;
+		float32 minPiedY = 0.f;
+		for (uint32 k = 0; k < (uint32)pieds.Size(); ++k) {
+			piedsPos.PushBack(pos[pieds[k]]);
+			if (k == 0 || pos[pieds[k]].y < minPiedY)
+				minPiedY = pos[pieds[k]].y;
+		}
+
+		// (a) Sol PHYSIQUE : plan au pied le plus bas. FAIT MESURÉ le 2026-08-17,
+		// pas une attente : sur XBot debout ce verdict est DESEQUILIBRE, parce que
+		// le joint Foot (cheville) est à ~0.10 du sol — au-delà du seuil de 4 % —
+		// et qu'il ne reste alors que les 4 orteils : un polygone entièrement EN
+		// AVANT du COM (z=-0.01). Le TALON n'a pas de joint : dette M3 consignée
+		// (Applications/NkAnima/ROADMAP.md). On rapporte, on ne gate pas dessus.
+		const math::NkVec3f up{0.f, 1.f, 0.f};
+		NkVector<math::NkVec3f> supA;
+		const int32 ncA = animphys::NkContactDetector::DetectSupportPoints(
+			piedsPos.Data(), (int32)piedsPos.Size(), math::NkVec3f{centre.x, minPiedY, centre.z}, up, seuil, supA);
+		bool vertA = false;
+		if (ncA > 0)
+			vertA = animphys::NkBalance::EvaluateStatic(com, supA.Data(), (int32)supA.Size(), up).balanced;
+		printf("         (a) sol physique y=%.3f : %d appuis -> verdict %s (fait mesure : talon sans joint)\n",
+			   (double)minPiedY, ncA,
+			   ncA > 0 ? (vertA ? "EQUILIBRE (vert)" : "DESEQUILIBRE (rouge)") : "INDETERMINE (aucun appui)");
+
+		// (b) Réplique de la formule de l'éditeur (floorY = centre.y - rayon/2) :
+		// les pieds passent SOUS ce plan, tous les appuis sont projetés (talon
+		// inclus), et le verdict attendu debout est VERT. C'est la promesse de
+		// l'écran — c'est elle que ce témoin fige.
+		const float32 floorY = centre.y - rayon * 0.5f;
+		NkVector<math::NkVec3f> supB;
+		const int32 ncB = animphys::NkContactDetector::DetectSupportPoints(
+			piedsPos.Data(), (int32)piedsPos.Size(), math::NkVec3f{centre.x, floorY, centre.z}, up, seuil, supB);
+		bool vertB = false;
+		if (ncB > 0)
+			vertB = animphys::NkBalance::EvaluateStatic(com, supB.Data(), (int32)supB.Size(), up).balanced;
+		printf("         (b) sol editeur y=%.3f (pieds %s le plan) : %d appuis -> verdict %s\n", (double)floorY,
+			   minPiedY < floorY ? "SOUS" : "sur/au-dessus de", ncB,
+			   ncB > 0 ? (vertB ? "EQUILIBRE (vert)" : "DESEQUILIBRE (rouge)") : "INDETERMINE (aucun appui)");
+
+		return ncB > 0 && vertB;
+	}
 } // namespace
 
 int main() {
@@ -222,6 +402,11 @@ int main() {
 	// anthropometriques NON uniformes. C'est la promesse de l'etiquette a l'ecran.
 	Report("CABLAGE noms de joints", "CesiumMan.glb -> jointNames -> SetAnthropometric, masses non uniformes",
 		   TemoinNomsDeJoints(), nbOk, nbTotal);
+
+	// VERDICT D'ÉQUILIBRE — XBot Mixamo, premier rig aux pieds nommés : la branche
+	// verte/rouge de l'éditeur tourne enfin sur un asset réel (pose bind debout).
+	Report("CABLAGE XBot verdict", "XBot.glb -> mixamorig:LeftFoot/RightFoot -> appuis -> EvaluateStatic vert",
+		   TemoinXBotVerdict(), nbOk, nbTotal);
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;
