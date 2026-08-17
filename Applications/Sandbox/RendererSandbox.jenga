@@ -19,9 +19,9 @@ if not _os.path.isdir(_NK_SHADERS_DIR):
 _NK_SHADERS_DIR = _NK_SHADERS_DIR.replace("\\", "/")
 
 
-def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False, use_nkgen: bool = False):
+def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkgen: bool = False):
     with project(project_name):
-        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui", "rhi", "stream", "filesystem", "renderer", "serialization", "reflection", "NKMedia")
+        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "rhi", "stream", "filesystem", "renderer", "serialization", "reflection", "NKMedia")
         windowedapp()
         language("C++")
         cppdialect("C++17")
@@ -59,8 +59,6 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             _SANDBOX_INCLUDE_DIRS.append("%{NKImage.location}/src")
         if use_nkfont:
             _SANDBOX_INCLUDE_DIRS.append("%{NKFont.location}/src")
-        if use_nkui:
-            _SANDBOX_INCLUDE_DIRS.append("%{NKUI.location}/src")
         if use_nkgen:
             # Sous-systeme IA (Kernel/AI) : NKGen + sa pile (pour DemoNKGen).
             _SANDBOX_INCLUDE_DIRS.append("%{NKGen.location}/src")
@@ -83,8 +81,6 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             _BASE_LINKS.append("NKImage")
         if use_nkfont:
             _BASE_LINKS.append("NKFont")
-        if use_nkui:
-            _BASE_LINKS.append("NKUI")
         if USE_NKGLSLANG:
             _BASE_LINKS.append("NKGLSlang")
         if USE_NKSPIRVCROSS:
@@ -352,8 +348,8 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
 
 # ── Demos de cette categorie ──
 # =================================== NKRenderer UI =======================================================
-# sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True, use_nkui=True)
-sandboxusenkrenderer("r2d01", ["src/DemoNkentseu/Base05/NkRenderer2DDemo.cpp"], "sandbox.scene.r2d01", use_nkimage=True, use_nkfont=True, use_nkui=True)
-sandboxusenkrenderer("renderdemo", ["src/Demo/**.cpp"], "sandbox.render.demo", use_nkimage=True, use_nkfont=True, use_nkui=True, use_nkgen=True)
+# sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True)
+sandboxusenkrenderer("r2d01", ["src/DemoNkentseu/Base05/NkRenderer2DDemo.cpp"], "sandbox.scene.r2d01", use_nkimage=True, use_nkfont=True)
+sandboxusenkrenderer("renderdemo", ["src/Demo/**.cpp"], "sandbox.render.demo", use_nkimage=True, use_nkfont=True, use_nkgen=True)
 # Test CPU du loader glTF 2.0 (NkGLTFLoader) — pas de GPU requis.
-sandboxusenkrenderer("gltftest", ["src/GLTFTest/**.cpp"], "sandbox.render.gltftest", use_nkimage=True, use_nkfont=True, use_nkui=True)
+sandboxusenkrenderer("gltftest", ["src/GLTFTest/**.cpp"], "sandbox.render.gltftest", use_nkimage=True, use_nkfont=True)
