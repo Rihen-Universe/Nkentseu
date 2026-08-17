@@ -22,6 +22,20 @@
 namespace nkentseu {
 	namespace nk3d {
 
+		// ── GLISSER-DEPOSER : un glisser de LIGNE de hierarchie est-il en cours ?
+		// L'etat vit dans NKGui (type de charge "hier.node") ; les autres
+		// panneaux (navigateur, vue) le lisent par ce meme test, jamais par un
+		// champ local. Type NKGui du noeud glisse : "hier.node", charge = int32.
+		inline bool NkHierDragActive(const nkgui::NkGuiContext *gc) {
+			if (!gc || !gc->dragActive)
+				return false;
+			const char *want = "hier.node";
+			int32 i = 0;
+			for (; want[i] && gc->dragType[i] == want[i]; ++i) {
+			}
+			return want[i] == '\0' && gc->dragType[i] == '\0';
+		}
+
 		// ── MENUS ET RACCOURCIS DE SCENE (peints PAR-DESSUS tout) ───────────
 		// Raccourcis globaux (X/Suppr, Maj+D, Ctrl+C/V), menu contextuel --
 		// lignes de la hierarchie ET clic droit dans la vue 3D (Rihen) --,
@@ -970,6 +984,7 @@ namespace nkentseu {
 								   nkgui::NkGuiContext *guiCtx = nullptr) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
+			st.hierRect = r; // cible du lacher venu du systeme (import + instanciation)
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft,
 									  "hier.close", NkIcon::ChevronLeft);
 			// Les editeurs SANS design defini (materiau, texture, blueprint,
@@ -1067,8 +1082,13 @@ namespace nkentseu {
 			// L'EMPTY ACTIF vit dans l'HOTE (gizmo des empties) : une seule
 			// source de verite, la vue et la hierarchie restent d'accord.
 			st.activeEmpty = demo::Demo3DHostSelectedEmptyNode();
-			if (!hit.MouseDown() && st.hierDragNode < 0)
-				st.hierDragging = false; // le relachement est digere, une frame apres
+			// GLISSER-DEPOSER SUR L'API NKGui (2026-08-18) : l'etat (armement,
+			// seuil, fantome, surlignage, livraison unique) vit dans la
+			// bibliotheque -- BeginDragSource / SetDragPayload / BeginDropTarget /
+			// AcceptDragPayload, comme Nogee. Ici on ne lit que « un glisser de
+			// ligne est-il en cours ? » pour ne ni plier ni selectionner pendant.
+			const bool hierDragging = NkHierDragActive(guiCtx);
+			int32 pendingChild = -1, pendingParent = -1; // livraison, appliquee APRES le parcours
 			// SOUS UN MENU, ce panneau ne repond plus : les menus sont peints
 			// APRES lui, donc son clic etait deja parti (voir UiBlocks).
 			const bool uiBlk = st.UiBlocks(hit.Mouse().x, hit.Mouse().y);
@@ -1082,8 +1102,7 @@ namespace nkentseu {
 					++selCount;
 			}
 			char nameBuf[48];
-			const bool freshPress = hit.MouseDown() && !st.hierMouseWasDown;
-			int32 dropHover = -1;
+			int32 dropHover = -1; // ligne survolee par le glisser (cible), -1 sinon
 			// ── MAJ+CLIC = PLAGE (Rihen, 10 aout) : tout ce qui s'affiche entre
 			// l'ANCRE (dernier clic sans Maj) et la ligne cliquee. La plage ne
 			// s'applique qu'APRES le parcours : l'ordre affiche n'est complet
@@ -1165,6 +1184,9 @@ namespace nkentseu {
 					if (yy >= listTop - kRowH && yy < listTop + listH) {
 						snprintf(key, sizeof(key), "hier.row.%d", node);
 						const bool over = hit.Add(key, rowR);
+						if (st.hierTraceRows)
+							printf("[nk3d-rows] node=%d name=\"%s\" x=%.0f y=%.0f w=%.0f h=%.0f\n", node,
+								   nameBuf, rowR.x, rowR.y, rowR.w, rowR.h);
 						if (sel)
 							p.Fill(rowR, NkRole::AccentUi);
 						else
@@ -1182,7 +1204,7 @@ namespace nkentseu {
 							const NkRect chevR{r.x + ind - S(4.f), yy, S(24.f), kRowH};
 							p.IconV(r.x + ind + S(2.f), yy, kRowH,
 									folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, fg, 11.f);
-							if (in.mouseClicked[0] && !uiBlk && !st.hierDragging &&
+							if (in.mouseClicked[0] && !uiBlk && !hierDragging &&
 								!ws.dragging &&
 								NkHitRegistry::Contains(chevR, hit.Mouse())) {
 								st.hierFold[foldW] ^= (1u << (node & 31));
@@ -1303,7 +1325,7 @@ namespace nkentseu {
 						// SELECTION : la ligne ou le nom. Un parent se selectionne
 						// SEUL, un cadenasse JAMAIS ; Maj/Ctrl+clic = multi.
 						bool wantSel = false;
-						if (!uiBlk && !st.hierDragging && !st.delAskOpen && !chevHit) {
+						if (!uiBlk && !hierDragging && !st.delAskOpen && !chevHit) {
 							snprintf(key, sizeof(key), "hier.row.%d", node);
 							wantSel = hit.Clicked(key);
 							snprintf(key, sizeof(key), "hier.name.%d", node);
@@ -1343,21 +1365,35 @@ namespace nkentseu {
 								st.hierAnchor = node;
 							}
 						}
-						// GLISSER-DEPOSER : armement au premier appui sur la ligne ;
-						// la cible est la ligne survolee au lacher.
+						// GLISSER-DEPOSER (API NKGui) : la ligne est SOURCE (on la
+						// glisse) et CIBLE (on lache dessus = parenter). ButtonBehavior
+						// pose ce que la bibliotheque consomme (lastItemId/Rect,
+						// activeId au press) ; son « clic » est IGNORE : la selection
+						// reste au registre ci-dessus. Le clip du dessin (listInner)
+						// borne le survol : une ligne defilee hors de vue ne repond pas.
 						const nkgui::NkVec2 hm = hit.Mouse();
-						if (freshPress && !uiBlk && NkHitRegistry::Contains(rowR, hm) &&
-							hm.x < r.x + r.w - S(14.f)) {
-							st.hierDragNode = node;
-							st.hierDragX = hm.x;
-							st.hierDragY = hm.y;
-							st.hierDragging = false;
-						}
-						if (st.hierDragging && st.hierDragNode != node &&
-							NkHitRegistry::Contains(rowR, hm)) {
-							dropHover = node;
-							p.Fill({rowR.x, rowR.y + rowR.h - S(2.f), rowR.w, S(2.f)},
-								   NkRole::AccentUi);
+						if (guiCtx && !uiBlk) {
+							nkgui::NkGuiContext &gc = *guiCtx;
+							snprintf(key, sizeof(key), "hier.drag.%d", node);
+							gc.ButtonBehavior(gc.GetId(key), rowR);
+							if (nkgui::BeginDragSource(gc)) {
+								nkgui::SetDragPayload(gc, "hier.node", &node, (int32)sizeof(node),
+													  nameBuf);
+								nkgui::EndDragSource(gc);
+							}
+							// Cible typee : une ligne ne s'allume que pendant un
+							// glisser de LIGNE, pas pendant un "brow.item".
+							if (hierDragging && nkgui::BeginDropTarget(gc)) {
+								dropHover = node;
+								int32 sz = 0;
+								if (const void *pl = nkgui::AcceptDragPayload(gc, "hier.node", &sz)) {
+									if (sz == (int32)sizeof(int32)) {
+										pendingChild = *static_cast<const int32 *>(pl);
+										pendingParent = node;
+									}
+								}
+								nkgui::EndDropTarget(gc);
+							}
 						}
 						// MENU CONTEXTUEL au clic droit : TOUTE la largeur de la
 						// ligne -- meme au-dessus du nom, de l'oeil, du cadenas
@@ -1381,52 +1417,61 @@ namespace nkentseu {
 						}
 				}
 			}
-			// Lacher du glisser-deposer + fantome sous le curseur.
-			if (st.hierDragNode >= 0) {
-				const nkgui::NkVec2 dm = hit.Mouse();
-				if (hit.MouseDown()) {
-					if (!st.hierDragging) {
-						const float32 ddx = dm.x - st.hierDragX, ddy = dm.y - st.hierDragY;
-						if (ddx * ddx + ddy * ddy > 36.f)
-							st.hierDragging = true;
-					}
-					if (st.hierDragging) {
-						NkHierNodeName(st, st.hierDragNode, nameBuf, sizeof(nameBuf));
-						p.TextV(dm.x + S(14.f), dm.y - kRowH * 0.5f, kRowH, nameBuf, NkRole::Text);
-					}
-				} else {
-					if (st.hierDragging) {
-						if (NkHitRegistry::Contains(st.browserRect, dm)) {
-							// DEPOSER dans le NAVIGATEUR : l'objet devient un asset
-							// MESH reutilisable, souvenir de sa source (Rihen).
-							if (st.browserCount < NkModelerState::kMaxBrowser) {
-								const int32 k6 = st.browserCount++;
-								st.browserKind[k6] = 6;
-								st.browserParent[k6] = st.browserFolder;
-								// ARCHIVE hote : l'asset survit a la suppression
-								// de l'original dans la scene (retour de Rihen).
-								const int32 arc6 =
-									demo::Demo3DHostArchiveNode(st.hierDragNode);
-								st.browserSrcNode[k6] =
-									(arc6 >= 0 ? arc6 : st.hierDragNode) + 1;
-								char bnm[32];
-								NkHierNodeName(st, st.hierDragNode, bnm, sizeof(bnm));
-								NkBrowUniqueName(st, 6, st.browserFolder, bnm,
-												 st.browserNames[k6], 32);
-							}
-						} else if (dropHover >= 0 && dropHover != st.hierDragNode) {
-							// Mesh -> Mesh refuse : dans un Model, la seule cible
-							// est la racine (les maillages sont FRERES).
-							const int32 tg = NkParentTargetAllowed(st, dropHover);
-							if (tg >= 0 && tg != st.hierDragNode)
-								demo::Demo3DHostSetNodeParent(st.hierDragNode, tg);
+			// CIBLES HORS LIGNE, declarees EXPLICITEMENT (zones qui contiennent
+			// deja des widgets : BeginDropTarget(ctx, id, rect) ne capture rien) :
+			// le VIDE de la liste = deparenter ; le NAVIGATEUR = archiver en asset.
+			// Les lignes ont ete soumises avant : si l'une a livre, dropHover >= 0
+			// et le vide ne se declare pas -- une seule livraison par lacher.
+			if (guiCtx && !uiBlk && hierDragging) {
+				nkgui::NkGuiContext &gc = *guiCtx;
+				if (dropHover < 0 &&
+					nkgui::BeginDropTarget(gc, gc.GetId("hier.drop.list"), listInner)) {
+					int32 sz = 0;
+					if (const void *pl = nkgui::AcceptDragPayload(gc, "hier.node", &sz)) {
+						if (sz == (int32)sizeof(int32)) {
+							pendingChild = *static_cast<const int32 *>(pl);
+							pendingParent = -1;
 						}
-						else if (dropHover < 0 && NkHitRegistry::Contains(listR, dm))
-							demo::Demo3DHostSetNodeParent(st.hierDragNode, -1);
 					}
-					// hierDragging reste vrai jusqu'a la frame suivante : le clic
-					// de relachement ne doit ni selectionner ni deselectionner.
-					st.hierDragNode = -1;
+					nkgui::EndDropTarget(gc);
+				}
+				if (nkgui::BeginDropTarget(gc, gc.GetId("hier.drop.browser"), st.browserRect)) {
+					int32 sz = 0;
+					if (const void *pl = nkgui::AcceptDragPayload(gc, "hier.node", &sz)) {
+						if (sz == (int32)sizeof(int32)) {
+							pendingChild = *static_cast<const int32 *>(pl);
+							pendingParent = -2; // -2 = navigateur
+						}
+					}
+					nkgui::EndDropTarget(gc);
+				}
+			}
+			// APPLICATION de la livraison, hors du parcours (SetNodeParent
+			// change l'arbre qu'on vient de lire).
+			if (pendingChild >= 0) {
+				if (pendingParent == -2) {
+					// DEPOSER dans le NAVIGATEUR : l'objet devient un asset
+					// MESH reutilisable, souvenir de sa source (Rihen).
+					if (st.browserCount < NkModelerState::kMaxBrowser) {
+						const int32 k6 = st.browserCount++;
+						st.browserKind[k6] = 6;
+						st.browserParent[k6] = st.browserFolder;
+						// ARCHIVE hote : l'asset survit a la suppression
+						// de l'original dans la scene (retour de Rihen).
+						const int32 arc6 = demo::Demo3DHostArchiveNode(pendingChild);
+						st.browserSrcNode[k6] = (arc6 >= 0 ? arc6 : pendingChild) + 1;
+						char bnm[32];
+						NkHierNodeName(st, pendingChild, bnm, sizeof(bnm));
+						NkBrowUniqueName(st, 6, st.browserFolder, bnm, st.browserNames[k6], 32);
+					}
+				} else if (pendingParent >= 0) {
+					// Mesh -> Mesh refuse : dans un Model, la seule cible
+					// est la racine (les maillages sont FRERES).
+					const int32 tg = NkParentTargetAllowed(st, pendingParent);
+					if (tg >= 0 && tg != pendingChild)
+						demo::Demo3DHostSetNodeParent(pendingChild, tg);
+				} else {
+					demo::Demo3DHostSetNodeParent(pendingChild, -1);
 				}
 			}
 			// ── APPLICATION DE LA PLAGE MAJ+CLIC, l'ordre affiche etant complet.
@@ -1465,7 +1510,6 @@ namespace nkentseu {
 						st.activeEmpty = rangeTarget;
 				}
 			}
-			st.hierMouseWasDown = hit.MouseDown();
 			// CTRL+P PARENTE la selection a l'ACTIF ; MAJ+P DEPARENTE -- le
 			// pendant clavier du glisser-deposer. Jamais pendant une saisie.
 			if (!ws.editing) {
@@ -1499,6 +1543,13 @@ namespace nkentseu {
 			}
 			hit.PopClip();
 			p.Unclip();
+			if (st.hierTraceRows) {
+				printf("[nk3d-rows] list x=%.0f y=%.0f w=%.0f h=%.0f | browser x=%.0f y=%.0f w=%.0f h=%.0f\n",
+					   listInner.x, listInner.y, listInner.w, listInner.h, st.browserRect.x,
+					   st.browserRect.y, st.browserRect.w, st.browserRect.h);
+				st.hierTraceRows = false;
+				fflush(stdout);
+			}
 
 			// UN CLIC DANS LE VIDE DESELECTIONNE.
 			if (hit.RightClicked("hier.list") && !uiBlk && st.hierMenuNode < 0) {
@@ -1509,7 +1560,7 @@ namespace nkentseu {
 				st.voidMenuX = hit.Mouse().x;
 				st.voidMenuY = hit.Mouse().y;
 			}
-			if (hit.Clicked("hier.list") && !st.hierDragging && st.hierMenuNode < 0) {
+			if (hit.Clicked("hier.list") && !hierDragging && st.hierMenuNode < 0) {
 				demo::Demo3DHostDeselectAll();
 				st.activeEmpty = -1;
 			}
