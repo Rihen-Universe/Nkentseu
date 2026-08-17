@@ -69,7 +69,7 @@ with project("Mou"):
 
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
-         "NKMath", "NKTime", "NKStream", "NKUI", "NKFileSystem", "NKSerialization",
+         "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio", "NKMedia"],
         extra_includes=["src/Mou", "src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
