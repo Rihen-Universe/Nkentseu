@@ -1348,6 +1348,13 @@ namespace nkentseu {
 				if (dd >= 0 && dd < NkModelerState::kMaxDocs)
 					docRank[(usize)dd] = rank[(usize)b];
 			}
+			// ⚠️ « navigateur » et « triNavigateur » SONT DES CLES DE FICHIER, pas
+			// des libelles. Le panneau s'appelle desormais « Navigateur de
+			// contenu » (Content Browser des specs Nogee), mais ces clefs NE
+			// DOIVENT PAS suivre ce renommage : elles sont ecrites dans tous les
+			// .nk3dm existants, et les renommer rendrait leur navigateur vide au
+			// rechargement -- sans erreur, une cle absente se lit comme un tableau
+			// vide. Un renommage cosmetique qui efface des donnees.
 			o.SetObjectArray("navigateur", cards);
 
 			// ── VUES OUVERTES : la DISPOSITION, pas les scenes ──
@@ -1404,8 +1411,21 @@ namespace nkentseu {
 				const uint8 k = st.browserKind[b];
 				if (k == 255 || !NkAsExtFor(k))
 					continue;
-				if (onlyCard >= 0 && b != onlyCard && k != 2)
-					continue; // « Enregistrer » : ce fichier-ci, et les materiaux
+				// « Enregistrer » ecrit CE QU'ON REGARDE (regle de Rihen), plus deux
+				// exemptions : les MATERIAUX (deja la), et les MODELS DONT L'ORIGINE
+				// A ETE CORRIGEE EN MEMOIRE au depot (browserOriginDirty -- decision
+				// de Rihen, 17/08 : l'origine stockee dans le `.nkmesh` est la
+				// reference du pipeline d'export ; FBX repositionnera l'objet pour
+				// que son origine soit a (0,0,0), donc une origine fausse dans le
+				// fichier produirait un export decale). L'utilisateur ne peut pas
+				// « regarder » cette correction : elle est faite par le systeme, et
+				// c'est precisement pour ca qu'elle suit l'exemption, pas la regle.
+				// La garde `browserSrcNode > 0` protege d'un drapeau devenu orphelin
+				// sur un emplacement recycle : huit sites remettent srcNode a zero,
+				// et le drapeau ne se justifie que tant que l'archive existe.
+				if (onlyCard >= 0 && b != onlyCard && k != 2 &&
+					!(k == 6 && st.browserOriginDirty[b] && st.browserSrcNode[b] > 0))
+					continue; // « Enregistrer » : ce fichier-ci, et les exemptions
 				const NkString rel = NkAsRelFor(st, b);
 				if (rel.Empty())
 					continue;
@@ -1425,6 +1445,11 @@ namespace nkentseu {
 				}
 				if (!NkAsWrite(root, rel, a, err))
 					return false;
+				// L'ORIGINE CORRIGEE EST SUR LE DISQUE : la carte se desarme.
+				// APRES l'ecriture reussie, jamais avant -- un desarmement sur une
+				// ecriture echouee perdrait la correction sans un message.
+				if (k == 6)
+					st.browserOriginDirty[b] = false;
 				// ── LA VIGNETTE D'UN MATERIAU SE PREND ICI ──────────────────
 				// « Les cartes recoivent le resultat correct, sous forme de
 				// capture a la sauvegarde » (Rihen, 13 aout) : le fichier et son
@@ -1494,6 +1519,7 @@ namespace nkentseu {
 				st.browserDoc[b] = 0;
 				st.browserMat[b] = 0;
 				st.browserFile[b][0] = 0;
+				st.browserOriginDirty[b] = false; // transient : jamais serialise
 			}
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				st.DocFree(d);
@@ -1744,7 +1770,7 @@ namespace nkentseu {
 		/// besoin ; -1 pour la racine du projet (ou pour un chemin qui n'est pas
 		/// dedans). C'est le pont qui manquait entre le selecteur de fichiers --
 		/// qui parle en chemins absolus, puisqu'il navigue le disque -- et le
-		/// navigateur de projet, qui parle en cartes. Sans lui, un materiau cree
+		/// navigateur de contenu, qui parle en cartes. Sans lui, un materiau cree
 		/// depuis le selecteur atterrissait a la racine quel que soit le dossier
 		/// choisi (Rihen, 13 aout : « ca ne se sauvegarde pas dans le bon dossier »).
 		inline int32 NkAsFolderFromAbs(NkModelerState &st, const NkString &root,

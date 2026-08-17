@@ -224,7 +224,18 @@ namespace nkentseu {
 				// alors que seule la premiere l'etait, et le duplicata partait sur
 				// TOUS les lachers, y compris ceux sans source -- donc avec -1.
 				// Une garde qui a l'air de proteger et qui ne protege rien.
-				demo::Demo3DHostRecenterModel(st.dropSrcNode - 1);
+				//
+				// SI LE RECENTRAGE A CORRIGE, LA CARTE EST MARQUEE : la prochaine
+				// sauvegarde ecrira son `.nkmesh` (decision de Rihen, 17/08 --
+				// l'origine stockee est la reference du pipeline d'export).
+				// AUCUNE ecriture disque ici : le depot ne touche jamais au disque.
+				if (demo::Demo3DHostRecenterModel(st.dropSrcNode - 1)) {
+					for (int32 b9 = 0; b9 < st.browserCount; ++b9)
+						if (st.browserSrcNode[b9] == st.dropSrcNode) {
+							st.browserOriginDirty[b9] = true;
+							break;
+						}
+				}
 				nn = demo::Demo3DHostDuplicateNode(st.dropSrcNode - 1);
 			}
 			if (nn < 0) // asset sans source : cube par defaut, comme avant
