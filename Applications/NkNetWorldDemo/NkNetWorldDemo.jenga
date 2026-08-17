@@ -24,7 +24,7 @@ with project("NkNetWorldDemo"):
     nkentseudependson(
         ["Noge", "NKNetwork", "NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
          "NKRL", "NKAgent", "NKAudio", "NKMedia", "NKSerialization", "NKFileSystem", "NKFont",
-         "NKImage", "NKUI", "NKGlad", "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime",
+         "NKImage", "NKGlad", "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime",
          "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src"],
     )

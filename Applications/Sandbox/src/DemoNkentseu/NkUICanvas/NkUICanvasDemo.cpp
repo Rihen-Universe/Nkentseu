@@ -1,3 +1,7 @@
+// DEREGISTREE DU BUILD (campagne retrait NKUI, 2026-08-17, decision R1) : demo
+// DONT L'OBJET est NKUI, module deprecie remplace par NKGui. Source conservee ;
+// elle meurt avec le module NKUI le jour ou Rodolf en decide la suppression
+// (compteur de dependants a zero). Registration commentee : ContextSandbox.jenga.
 // =============================================================================
 // NkUICanvasDemo.cpp — Demo d'integration NKUI -> NKCanvas (NkUICanvasBackend)
 // -----------------------------------------------------------------------------

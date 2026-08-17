@@ -62,12 +62,17 @@ with project("NKPA"):
     location(".")
 
     files(["src/**.cpp"])
+    # Retrait NKUI (campagne 2026-08) : NkPAUI.cpp est l'ancien pont NKUI,
+    # remplace par NkPAGui (NKGui + NkGuiCanvasBackend) que NkPAApp.h consomme.
+    # Zero reference a la classe NkPAUI hors de ses propres fichiers — exclu du
+    # build, source au depot (meme patron que l'agent noge).
+    excludefiles(["src/UI/NkPAUI.cpp"])
 
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
-         "NKRHI", "NKCanvas", "NKUI", "NKGui", "NKFont", "NKImage", "NKGLSlang", "NKSPIRVCross"],
+         "NKRHI", "NKCanvas", "NKGui", "NKFont", "NKImage", "NKGLSlang", "NKSPIRVCross"],
         extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Integrations"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],

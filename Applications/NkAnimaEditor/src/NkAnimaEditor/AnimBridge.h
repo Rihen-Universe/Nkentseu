@@ -101,4 +101,23 @@ namespace nkanima {
 	void Anim3DSetViewMode(NkAnimViewMode mode);
 	NkAnimViewMode Anim3DViewMode();
 
+	// ── Debug physique d'animation : CENTRE DE MASSE (M3.1) ───────────────────
+	// Affiche le COM de la pose courante dans le viewport 3D, via NkPoseMass.
+	//
+	// ⚠️ L'affichage NOMME SON PROPRE RÉGIME, et ce n'est pas cosmétique : tant que
+	// les noms de joints n'existent pas (`NkGLTFNode` n'a aucun champ `name`), la
+	// masse est UNIFORME et le COM vaut le barycentre géométrique. Sur un humanoïde
+	// debout il tombe vers le milieu du torse — donc il RESSEMBLE à un centre de
+	// masse anthropométrique sans en être un. Sans ce libellé, l'approximation
+	// deviendrait invisible et permanente.
+	//
+	// ⚠️ De même, aucun appui n'est détectable sans les noms de joints : le polygone
+	// de support est VIDE, donc AUCUN verdict d'équilibre n'est rendu. La sphère est
+	// dessinée en NEUTRE (blanc), jamais verte ni rouge — une sphère colorée
+	// ressemble à un verdict et n'en serait pas un.
+	void AnimSetShowCOM(bool on);
+	bool AnimShowCOM();
+	// Libellé du régime courant, à afficher à côté de la sphère. Jamais nul.
+	const char *AnimCOMRegimeLabel();
+
 } // namespace nkanima

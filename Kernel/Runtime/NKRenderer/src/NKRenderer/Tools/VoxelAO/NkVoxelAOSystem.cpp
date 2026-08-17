@@ -392,7 +392,8 @@ namespace nkentseu {
 						mUpload[i * 4 + 2] = 0;
 						mUpload[i * 4 + 3] = 0;
 					}
-					logger.Warnf("[NkVoxelAOSystem] NK_GI_DEBUG_FILL actif : grille saturee R={0}\n", (uint32)v);
+					// ⚠ `Warnf` = famille printf : `%u`, pas `{0}` (la valeur était perdue).
+					logger.Warnf("[NkVoxelAOSystem] NK_GI_DEBUG_FILL actif : grille saturee R=%u\n", (uint32)v);
 				}
 			}
 

@@ -41,7 +41,13 @@ namespace nkentseu {
 			const NkVec4f red{1.0f, 0.20f, 0.20f, 1.0f};
 			const NkVec4f yellow{1.0f, 0.85f, 0.15f, 1.0f};
 			const NkVec4f white{0.9f, 0.9f, 0.9f, 1.0f};
-			const NkVec4f comColor = (haveBal && !bal.balanced) ? red : green;
+			// ⚠ TROIS états, pas deux. « Aucun appui » ne veut pas dire « équilibré » :
+			// ça veut dire INDÉTERMINÉ — le polygone de support est vide, l'évaluation
+			// n'a pas eu lieu. L'ancien code (`haveBal && !bal.balanced ? red : green`)
+			// colorait ce cas en VERT : un verdict qui n'en est pas un, et qui
+			// ressemble à une réponse. Neutre (blanc) quand il n'y a rien à évaluer ;
+			// le vert redevient une affirmation.
+			const NkVec4f comColor = !haveBal ? white : (bal.balanced ? green : red);
 
 			// --- Polygone de support : arêtes (boucle fermée sur les coins fournis) + coins. ---
 			if (opt.drawSupport && supportPts != nullptr && supportCount > 0) {
