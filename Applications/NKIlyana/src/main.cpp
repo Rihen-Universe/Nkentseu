@@ -47,6 +47,7 @@
 
 #include "NKGpt/NkGptTrainer.h"
 #include "NKData/NkBpeTrainer.h"
+#include "NKTensor/NkTensorGpu.h" // --reserve : interrupteur + temoin servis/neufs
 #include "NKLogger/NkLog.h"
 #include "NKTime/NkChrono.h"
 #include "NKContainers/String/NkString.h"
@@ -747,9 +748,43 @@ static int ModeTrain(int argc, char **argv) {
 	}
 	logger.Info("GPU : {0}", t.UseGpu() ? "OUI (entrainement resident)" : "NON (repli CPU, ce sera tres lent)");
 
+	// --reserve : recycler les tampons GPU par taille exacte (chantier n°2).
+	// ETEINT par defaut — l'activer est une decision de mesure, pas un reglage
+	// silencieux. Le temoin servis/neufs est imprime apres Fit() : une reserve
+	// est un cache, et un cache repond toujours ; sans ces compteurs, « la
+	// reserve marche » serait indiscernable de « elle ne sert jamais ».
+	const bool avecReserve = Drapeau(argc, argv, "--reserve");
+	if (avecReserve) {
+		const int64 budgetMo = ArgEntier(argc, argv, "--reserve-budget-mo", 512);
+		NkTensorGpu::ReserveBudget(budgetMo * 1024 * 1024);
+		NkTensorGpu::ReserveActive(true);
+		NkTensorGpu::ReserveRazCompteurs();
+		logger.Info("RESERVE DE TAMPONS : ACTIVE (budget {0} Mo)", (long long)budgetMo);
+	} else {
+		logger.Info("RESERVE DE TAMPONS : inactive (LEGACY)");
+	}
+
 	NkChrono chrono;
 	t.Fit();
 	logger.Info("Entrainement termine en {0} s.", chrono.Elapsed().seconds);
+
+	// TEMOIN DE LA RESERVE — imprime dans les DEUX modes : en LEGACY, servis doit
+	// etre 0 (contre-epreuve que l'interrupteur est bien un interrupteur).
+	{
+		const int64 servis = NkTensorGpu::ReserveServis();
+		const int64 neufs = NkTensorGpu::ReserveNeufs();
+		const int64 total = servis + neufs;
+		logger.Info("[reserve] servis={0}  neufs={1}  taux de service={2}%  retenus={3} tampons ({4} Mo)  "
+					"evictions={5}",
+					(long long)servis, (long long)neufs,
+					total > 0 ? (100.0 * (double)servis / (double)total) : 0.0,
+					(long long)NkTensorGpu::ReserveTamponsRetenus(),
+					(double)NkTensorGpu::ReserveOctetsRetenus() / 1.0e6,
+					(long long)NkTensorGpu::ReserveEvictions());
+		logger.Info("[reserve] VRAM pic du run : {0} Mo", (double)NkTensorGpu::VramPic() / 1.0e6);
+	}
+	if (avecReserve)
+		NkTensorGpu::ReserveActive(false); // vide la retenue avant la generation
 
 	// NE PAS rappeler t.Save() ici. `Fit()` a DEJA ecrit le checkpoint final AVEC
 	// l'etat de l'optimiseur (moments d'Adam + pas global), ce qui permet une
