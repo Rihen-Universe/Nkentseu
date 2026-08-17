@@ -166,6 +166,49 @@ namespace nkentseu {
 					entry.name = NkString(mNameEdit);
 				}
 
+				// ── §9 : la carte est SOURCE de glisser-deposer ───────────────
+				// Poignee = le pied (seul widget interactif de la carte — la
+				// vignette est du dessin brut + ClickIn, pas un widget). Type
+				// "asset", charge = chemin RELATIF ENTIER : si le chemin ne tient
+				// pas dans DragPayloadMax, on ne declare RIEN plutot que de
+				// livrer un chemin tronque. Dossiers et ".." exclus : rien ne
+				// sait les consommer aujourd'hui.
+				if (!entry.isDirectory && entry.name != ".." && BeginDragSource(ctx)) {
+					const char *rel = entry.relativePath.CStr();
+					const int32 len = static_cast<int32>(entry.relativePath.Length());
+					if (rel && len + 1 <= NkGuiContext::DragPayloadMax)
+						SetDragPayload(ctx, "asset", rel, len + 1, entry.name.CStr());
+					EndDragSource(ctx);
+				}
+
+				// Sonde drag-drop (--dragdrop-test) : premiere carte FICHIER —
+				// rect ecran reel du pied + chemin, releves au dessin.
+				if (mProbeEnabled && !mProbeCardValid && !entry.isDirectory && entry.name != "..") {
+					// ⚠️ VISIBLE seulement : une carte disposee HORS du clip courant
+					// (defilee sous le pli) est reelle mais insurvolable —
+					// ItemHoverable la refuse par sa porte de clip, a juste titre.
+					// Paye a la premiere execution : la premiere carte fichier etait
+					// sous les dossiers, hors vue -> aucun glisser ne pouvait
+					// demarrer (portesPied{clipOk=0}, journal a l'appui). On ne
+					// retient donc qu'un pied DANS le clip, comme un utilisateur ne
+					// glisse que ce qu'il voit.
+					const nkgui::NkRect &fr = ctx.lastItemRect;
+					const nkgui::NkVec2 c{fr.x + fr.w * 0.5f, fr.y + fr.h * 0.5f};
+					const nkgui::NkRect clip = ctx.DL().CurrentClip();
+					const bool visible = (c.x >= clip.x && c.x < clip.x + clip.w && c.y >= clip.y &&
+										  c.y < clip.y + clip.h);
+					if (visible) {
+						mProbeCardRect = fr;
+						std::snprintf(mProbeCardPath, sizeof(mProbeCardPath), "%s", entry.relativePath.CStr());
+						mProbeCardValid = true;
+						mProbeCardTime = ctx.time; // fraicheur : la sonde compare a ui.time
+						// Portes d'ItemHoverable relevees au dessin (diagnostic).
+						mProbeGateHoveredWin = ctx.hoveredWindowId;
+						mProbeGateCurWin = ctx.curWindowId;
+						mProbeGateClipContains = visible;
+					}
+				}
+
 				// Ligne 2 : type, en retrait.
 				TextAt(ctx, {card.x + 2.f, footY + 17.f}, AssetKindName(entry.type, entry.isDirectory), kMuted);
 			}
@@ -204,6 +247,13 @@ namespace nkentseu {
 			const float32 wrapW = ctx.ContentWidth();
 
 			mThumbBudget = THUMB_LOADS_PER_FRAME;
+			mProbeCardValid = false; // sonde : re-mesuree a chaque image (le dock peut bouger)
+			if (mProbeEnabled) {
+				// Zone visible du panneau (clip courant) : c'est la que la sonde
+				// pose sa molette quand aucune carte fichier n'est encore visible.
+				mProbeArea = ctx.DL().CurrentClip();
+				mProbeAreaValid = true;
+			}
 
 			// Zone reservee ligne par ligne via NextItemRect ; les cartes se
 			// posent au curseur, et repartent a la ligne quand tx+tw > wrapW.

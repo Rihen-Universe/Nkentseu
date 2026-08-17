@@ -77,6 +77,8 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			NogeeShellEnableOcclusionProbe(true); // fenetre Preferences
 		else if (a == "--no-mask-body")
 			NogeeShellReproduceConquerorLabCondition(); // condition ConquerorLab
+		else if (a == "--dragdrop-test")
+			NogeeShellEnableDragDropProbe(); // sonde glisser-deposer §7/§9
 	}
 	logger.Info("[Nogee] montage de la coquille NkEditorShell (chemin unique depuis la coupe NKUI)\n");
 	return RunNogeeEditorShell(ukConfig);

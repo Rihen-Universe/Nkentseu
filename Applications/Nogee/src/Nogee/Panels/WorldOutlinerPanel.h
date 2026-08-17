@@ -25,10 +25,14 @@
 //   ⛔ icone d'oeil / icones de type ............ EN ATTENTE d'un jeu d'icones :
 //        NKGui n'a pas d'atlas d'icones expose ici. La bascule existe et
 //        fonctionne, elle est rendue par une case a cocher, pas par un oeil.
-//   ⛔ glisser-deposer de reparentage ........... NON FAIT : aucune API de
-//        charge utile de glisser-deposer dans NKGui (verifie dans
-//        `Widgets/NkGuiWidgets.h` et `Core/NkGuiContext.h`). A ouvrir cote
-//        NKGui avant de pouvoir le porter — ce n'est pas un oubli de panneau.
+//   ✅ glisser-deposer de reparentage ........... fait (2026-08-17) : l'API de
+//        charge utile NKGui existe (commit 442fe8c7). Chaque ligne est source
+//        ET cible (BeginDragSource/BeginDropTarget, type "entity"),
+//        application DIFFEREE apres la boucle (SetParent pendant la recursion
+//        modifierait les listes parcourues), garde anti-cycle + garde sur le
+//        trou `Get<NkChildren>` de SetParent. ⚠️ Semantique mesuree : la
+//        parente est une APPARTENANCE aujourd'hui (aucun systeme de transform
+//        tique dans la coquille) — cf. ApplyReparent dans le .cpp.
 //   ⛔ colonnes « Type » / « Nb de triangles » ... NON FAIT (pas de source de
 //        donnees : aucun compte de triangles accessible depuis NkSceneNode).
 //
@@ -107,6 +111,26 @@ namespace nkentseu {
 				// ── Rendu : le shell appelle ceci entre Begin/End du dock ─────────
 				void OnUI(editorkit::NkEditorFrameContext &ec) override;
 
+				// ── SONDE drag-drop (--dragdrop-test) ─────────────────────────────
+				// Rects ECRAN reels des lignes, releves au dessin. Une mesure
+				// reproductible ne peut pas cliquer a la main (regle de la sonde
+				// d'occultation), et deviner la geometrie du dock reviendrait a
+				// mesurer sa supposition au lieu du panneau.
+				struct RowProbe {
+						ecs::NkEntityId id{};
+						nkgui::NkRect rect{0.f, 0.f, 0.f, 0.f};
+				};
+				static constexpr nk_int32 kProbeRowMax = 16;
+				void EnableProbe(bool on) noexcept {
+					mProbeEnabled = on;
+				}
+				const RowProbe *ProbeRow(ecs::NkEntityId id) const noexcept {
+					for (nk_int32 i = 0; i < mProbeRowCount; ++i)
+						if (mProbeRows[i].id == id)
+							return &mProbeRows[i];
+					return nullptr;
+				}
+
 			private:
 				// Rendu recursif d'une entite et de ses enfants.
 				void RenderEntity(nkgui::NkGuiContext &ctx, ecs::NkEntityId id, nk_uint32 depth) noexcept;
@@ -127,6 +151,18 @@ namespace nkentseu {
 				// besoins (cf. « CE QUI A SURPRIS » en tete de fichier).
 				char mFilterBuf[64] = {};
 				bool mShowLayerColumn = false;
+
+				// §7 : reparentage en attente — livre par AcceptDragPayload PENDANT
+				// la recursion, applique par ApplyReparent APRES elle (SetParent
+				// modifie les listes NkChildren qu'on parcourt).
+				void ApplyReparent(ecs::NkEntityId child, ecs::NkEntityId parent) noexcept;
+				ecs::NkEntityId mPendingChild = ecs::NkEntityId::Invalid();
+				ecs::NkEntityId mPendingParent = ecs::NkEntityId::Invalid();
+
+				// Sonde drag-drop (cf. bloc public).
+				bool mProbeEnabled = false;
+				RowProbe mProbeRows[kProbeRowMax];
+				nk_int32 mProbeRowCount = 0;
 
 				// Pretes par le shell a chaque image — jamais possedes.
 				ecs::NkWorld *mWorld = nullptr;

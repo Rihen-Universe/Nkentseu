@@ -108,12 +108,83 @@ namespace nkentseu {
 				}
 			}
 
+			mProbeRowCount = 0; // la sonde repart de zero a chaque image
 			for (nk_usize i = 0; i < roots.Size(); ++i)
 				RenderEntity(ctx, roots[i], 0);
+
+			// ── §7 : reparentage DIFFERE ──────────────────────────────────────
+			// AcceptDragPayload livre PENDANT la recursion sur l'arbre, et
+			// SetParent modifie les listes NkChildren qu'on est en train de
+			// parcourir (l'avertissement est dans NkSceneGraph.cpp). On collecte
+			// donc pendant la boucle et on applique ICI, apres elle.
+			if (mPendingChild.IsValid() && mScene) {
+				ApplyReparent(mPendingChild, mPendingParent);
+				mPendingChild = ecs::NkEntityId::Invalid();
+				mPendingParent = ecs::NkEntityId::Invalid();
+			}
 
 			// Menu contextuel : dessine une seule fois, hors de la recursion.
 			if (mContextMenuEntity.IsValid())
 				RenderContextMenu(ctx);
+		}
+
+		// =====================================================================
+		// §7 : application du reparentage, avec ses gardes.
+		//
+		// ⚠️ SEMANTIQUE TRANSFORM, MESUREE (2026-08-17) : dans la coquille, la
+		// parente est une APPARTENANCE, pas une chaine de transforms —
+		//   - SetParent marque `NkWorldTransform` dirty, mais AUCUN systeme ne
+		//     consomme NkLocalTransform/NkWorldTransform (grep vide sur
+		//     ECS/Systems/, controle positif : NkTransformSystem consomme bien
+		//     `NkTransform`) ; NkTransform.h les declare d'ailleurs REMPLACES ;
+		//   - le systeme qui compose `world = parentWorld * local`
+		//     (NkTransformSystem) n'est PAS tique par la coquille.
+		// La position monde est donc trivialement preservee aujourd'hui. Le jour
+		// ou la coquille tiquera NkTransformSystem, reparenter en gardant le
+		// local CHANGERA la position monde : il faudra alors recalculer le local
+		// pour la preserver (local' = inverse(parentWorld') * world).
+		// =====================================================================
+		void WorldOutlinerPanel::ApplyReparent(ecs::NkEntityId child, ecs::NkEntityId parent) noexcept {
+			char msg[192];
+
+			// Garde 1 — pas de cycle : si `parent` est un DESCENDANT de `child`
+			// (ou child lui-meme), SetParent fabriquerait une boucle — il n'a
+			// aucune garde interne (mesure : NkSceneGraph.cpp:110). Remontee
+			// bornee : une hierarchie saine fait < 64 niveaux.
+			ecs::NkEntityId walk = parent;
+			for (int32 depth = 0; walk.IsValid() && depth < 64; ++depth) {
+				if (walk == child) {
+					std::snprintf(msg, sizeof(msg),
+								  "[WorldOutlinerPanel] MESURE : reparentage REFUSE (cycle) : la cible "
+								  "%u_%u descend de %u_%u\n",
+								  parent.index, parent.gen, child.index, child.gen);
+					logger.Info(msg);
+					return;
+				}
+				const ecs::NkParent *p = mWorld->Get<ecs::NkParent>(walk);
+				walk = p ? p->entity : ecs::NkEntityId::Invalid();
+			}
+
+			// Garde 2 — trou mesure de SetParent (NkSceneGraph.cpp, etape 2) : il
+			// fait `Get<NkChildren>` SANS creer. Si la cible n'a pas NkChildren,
+			// l'enfant garderait un NkParent valide sans figurer dans aucune
+			// liste : il DISPARAITRAIT de l'arbre. On refuse plutot que de perdre
+			// un noeud (les noeuds SpawnNode ont toujours NkChildren).
+			if (!mWorld->Get<ecs::NkChildren>(parent)) {
+				std::snprintf(msg, sizeof(msg),
+							  "[WorldOutlinerPanel] MESURE : reparentage REFUSE : la cible %u_%u n'a pas "
+							  "de NkChildren (trou SetParent : Get sans creation)\n",
+							  parent.index, parent.gen);
+				logger.Info(msg);
+				return;
+			}
+
+			mScene->SetParent(child, parent);
+			std::snprintf(msg, sizeof(msg),
+						  "[WorldOutlinerPanel] TEMOIN : reparentage applique : %u_%u -> parent %u_%u "
+						  "(appartenance seule — aucun systeme de transform tique dans la coquille)\n",
+						  child.index, child.gen, parent.index, parent.gen);
+			logger.Info(msg);
 		}
 
 		// =====================================================================
@@ -154,6 +225,38 @@ namespace nkentseu {
 			} else {
 				clicked = SelectableEditable(ctx, idStr, node->name, static_cast<int32>(sizeof(node->name)),
 											 isSelected);
+			}
+
+			// ── §7 : glisser-deposer de reparentage ───────────────────────────
+			// La ligne qu'on vient de soumettre (TreeNodeEditable /
+			// SelectableEditable passent par ButtonBehavior) est a la fois
+			// SOURCE (on la glisse) et CIBLE (on lache dessus). La bibliotheque
+			// porte l'etat : seuil de demarrage, fantome, surlignage, livraison
+			// unique au relachement — tout vient de NKGui (commit 442fe8c7).
+			if (BeginDragSource(ctx)) {
+				SetDragPayload(ctx, "entity", &id, static_cast<int32>(sizeof(id)), node->name);
+				EndDragSource(ctx);
+			}
+			if (BeginDropTarget(ctx)) {
+				int32 sz = 0;
+				if (const void *p = AcceptDragPayload(ctx, "entity", &sz)) {
+					if (sz == static_cast<int32>(sizeof(ecs::NkEntityId))) {
+						// DIFFERE : applique apres la boucle (cf. OnUI) — on est
+						// en pleine recursion sur les listes NkChildren.
+						std::memcpy(&mPendingChild, p, sizeof(mPendingChild));
+						mPendingParent = id;
+					}
+				}
+				EndDropTarget(ctx);
+			}
+
+			// Sonde drag-drop (--dragdrop-test) : releve du rect ECRAN reel de la
+			// ligne — une mesure reproductible ne peut pas cliquer a la main, et
+			// deviner la geometrie du dock reviendrait a mesurer sa supposition.
+			if (mProbeEnabled && mProbeRowCount < kProbeRowMax) {
+				mProbeRows[mProbeRowCount].id = id;
+				mProbeRows[mProbeRowCount].rect = ctx.lastItemRect;
+				++mProbeRowCount;
 			}
 
 			// ── §7 : colonne optionnelle « Layer » ────────────────────────────
