@@ -28,12 +28,21 @@
 #include "NK3DModeler/Viewport/NkViewport3D.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
 #include "NKGui/Core/NkGuiContext.h"
+#include "NKLogger/NkLog.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKTime/NkClock.h"
 #include "NKPlatform/NkEnv.h"
 
 #include "NK3DModeler/Shell/NkModelerTheme.h"
 #include "NK3DModeler/Shell/NkModelerScreens.h"
+#include "NK3DModeler/Shell/NkModelerChrome.h" // separateurs, dialogues, barre d etat
+#include "NK3DModeler/Shell/NkModelerJournal.h"
+#include "NKContainers/String/Encoding/NkBase64.h" // les messages du moteur, lisibles dans l'app
+#include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
+#include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
+#include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
+#include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de projet
+#include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
@@ -219,6 +228,13 @@ namespace {
 		t.Bind("objet.tourner", "Tourner", NkKey::NK_R, 0, NK_SCTX_OBJECT);
 		t.Bind("objet.echelle", "Redimensionner", NkKey::NK_S, 0, NK_SCTX_OBJECT);
 		t.Bind("objet.dupliquer", "Dupliquer", NkKey::NK_D, NK_SC_SHIFT, NK_SCTX_OBJECT);
+		// LE CHOIX DU PARTAGE (decision de Rodolf, 16 aout). Shift+D partage la
+		// geometrie -- c'est le DEFAUT, et le geste courant. Ctrl+Shift+D en fait
+		// une copie INDEPENDANTE, pour retoucher l'un sans l'autre. Le defaut
+		// garde le raccourci le plus court parce que c'est lui qu'on fait cent
+		// fois (array, decor, foule) ; l'exception paie un modificateur de plus.
+		t.Bind("objet.dupliquer_independant", "Dupliquer (copie independante)",
+			   NkKey::NK_D, (uint8)(NK_SC_SHIFT | NK_SC_CTRL), NK_SCTX_OBJECT);
 		t.Bind("objet.supprimer", "Supprimer", NkKey::NK_X, 0, NK_SCTX_OBJECT);
 		t.Bind("objet.mode_edition", "Mode edition", NkKey::NK_TAB, 0, NK_SCTX_OBJECT);
 
@@ -276,6 +292,14 @@ int nkmain(const NkEntryState &entry) {
 	printf("[nk3d] %u themes (%u depuis le disque), %u raccourcis.\n", themes.Count(), fromDisk,
 		   shortcuts.Count());
 
+	// ── JOURNAL : BRANCHE AVANT TOUT LE RESTE ───────────────────────────────
+	// Un puits de plus sur le logger du moteur, qui garde les dernieres lignes
+	// en memoire pour le panneau. Installe ICI, le plus tot possible : ce qui
+	// est ecrit avant n'existera que dans la console et le fichier, or c'est
+	// justement au demarrage -- creation du device, des cibles, chargement des
+	// icones -- que se disent les choses qu'on cherche ensuite.
+	nk3d::NkJournalInstall();
+
 	// ── FENETRE ─────────────────────────────────────────────────────────────
 	// SANS CADRE OS : la maquette porte ses propres boutons de fenetre dans la
 	// barre de menus. Garder le cadre natif donnerait deux barres de titre.
@@ -306,6 +330,12 @@ int nkmain(const NkEntryState &entry) {
 	// l'editeur, AVANT que la passe backbuffer ne s'ouvre : on ne peut pas
 	// imbriquer une passe de rendu dans une autre. Puis on publie sa texture
 	// aupres du backend, pour que la draw-list n'ait plus qu'a la poser.
+	// CE QUE LE PANNEAU VEUT VOIR, depose pour le crochet pre-UI. Ces trois
+	// valeurs traversent le fichier parce que `preUI3D` est une lambda sans
+	// capture (elle est convertie en pointeur de fonction par SetPreUI) : elle
+	// ne peut donc rien lire de la boucle. Elles sont reecrites a chaque frame
+	// depuis `st`, juste avant le rendu.
+	static int32 gPrevSlot = -1, gPrevW = 260, gPrevH = 150;
 	static auto preUI3D = [](NkICommandBuffer *cmd, void *user) {
 		auto *r = static_cast<nkgui::NkEditorRHIRenderer *>(user);
 		// PORTAGE INTEGRAL de --demo=2 : la vue 3D est desormais la demo de
@@ -313,6 +343,17 @@ int nkmain(const NkEntryState &entry) {
 		// (NkViewport3D) reste compilee mais DORMANTE — on ne lui donne plus
 		// de device, donc chacun de ses appels est un no-op sans danger.
 		demo::Demo3DHostFrame(cmd);
+		// L'APERCU DE MATERIAU rend ici lui aussi : c'est le seul moment ou le
+		// command buffer est ouvert ET la passe backbuffer pas encore commencee.
+		// Le slot et la taille voulus sont deposes par le panneau dans l'etat --
+		// un panneau ne rend rien, il decrit ce qu'il veut voir.
+		// APPELEE A CHAQUE FRAME, meme sans materiau affiche (slot = -1) : elle
+		// ne fait pas que rendre le grand apercu, elle surveille aussi les
+		// reglages et prend les vignettes en attente. Gardee derriere « un
+		// materiau est ouvert », rien de tout cela ne tournait hors du panneau --
+		// et la vignette semblait attendre l'enregistrement alors qu'elle
+		// attendait qu'on revienne dans le materiau (Rihen, 14 aout).
+		demo::Demo3DHostMatPreviewFrame(cmd, gPrevSlot, gPrevW, gPrevH);
 		demo::Demo3DHostRegisterInto(&r->GetBackend());
 	};
 
@@ -851,6 +892,13 @@ int nkmain(const NkEntryState &entry) {
 		if (dt <= 0.f || dt > 0.1f)
 			dt = 1.f / 60.f;
 
+		// LA TAILLE DE VUE SUIT LA FENETRE. `NkGuiContext::Init` la pose une fois
+		// et ne la revoit jamais : apres un redimensionnement, tout composant qui
+		// s'appuie sur `viewW/viewH` (les modales de NKEditorKit, qui s'y centrent
+		// et y etendent leur voile) travaille sur les dimensions du DEMARRAGE --
+		// voile tronque, dialogue decentre (Rihen, 12 aout).
+		ui.viewW = (int32)lastW;
+		ui.viewH = (int32)lastH;
 		ui.BeginFrame(dt);
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
@@ -876,8 +924,27 @@ int nkmain(const NkEntryState &entry) {
 		// demonter la boucle : il recouvre l'application, donc l'application ne
 		// doit plus recevoir un seul evenement. Le mecanisme existait deja pour
 		// le picker de couleur -- on ne lui en ajoute pas un second.
-		const bool modalOpen = (st.colorOpen[0] != 0) || st.welcome;
-		if (modalOpen) {
+		// Le selecteur de fichiers de NKEditorKit est une modale de plein droit :
+		// il rejoint donc CE mecanisme plutot que d'en amener un second (ce que
+		// j'avais fait -- un SetBlock a part -- et qui l'empechait de repondre).
+		const bool modalOpen = (st.colorOpen[0] != 0) || st.welcome ||
+							   st.picker.pickerOpen || st.matAddOpen;
+		// ── LE JOURNAL SUSPEND CE QU'IL RECOUVRE, AU MEME ENDROIT ───────────
+		// Il n'est pas modal -- le reste de l'application doit rester utilisable
+		// -- mais SOUS LUI plus rien ne doit repondre. J'avais vide l'input plus
+		// bas, juste avant de peindre les panneaux : trop tard. `hit.Begin` a
+		// deja recopie l'input dans le registre a cet instant, et le navigateur
+		// interroge le REGISTRE (`hit.RightClicked`) autant que l'input. Son menu
+		// contextuel s'ouvrait donc encore a travers le journal (Rihen, 14 aout,
+		// trois fois de suite).
+		// Le vidage doit precede `hit.Begin`, comme celui des modales -- c'est le
+		// seul endroit ou l'etancheite vaut a la fois pour le registre et pour le
+		// code qui lit l'input directement.
+		const NkRect jRectSuspend =
+			nk3d::NkJournalRect({0.f, 0.f, (float32)lastW, (float32)lastH - S(26.f)});
+		const bool sourisSurJournal =
+			st.journalOpen && nkgui::NkGuiRectContains(jRectSuspend, ui.input.mousePos);
+		if (modalOpen || sourisSurJournal) {
 			for (int32 b = 0; b < 3; ++b) {
 				ui.input.mouseDown[b] = false;
 				ui.input.mouseClicked[b] = false;
@@ -966,6 +1033,37 @@ int nkmain(const NkEntryState &entry) {
 			// maillage. Meme raisonnement que `st.editingText`.
 			demo::Demo3DHostSetView(viewImg.x, viewImg.y, overSceneLastFrame && !st.welcome,
 									!st.editingText && !st.welcome);
+			// ── MESURE : LES DEUX SOURCES DE POSITION SOURIS ────────────────
+			// NK_MOUSE_TRACE=1. Le CLIC lit `NkInput.MouseX()` dans la vue 3D ;
+			// le LACHER du navigateur lit `hit.Mouse()`, alimente par
+			// `NkMouseMoveEvent`. Les deux soustraient ensuite la MEME origine
+			// (`viewImg.x/y`). Si les deux sources divergent, le lacher vise un
+			// autre pixel que le clic au meme endroit de l'ecran -- et un pick
+			// qui ne touche rien explique a lui seul « le vide », « la mauvaise
+			// position », « pas d'enfant » et « le materiau ne fait rien ».
+			// Trace TEMPORAIRE : elle sort une ligne par deplacement.
+			{
+				static int32 mtOn = -1;
+				if (mtOn < 0)
+					mtOn = (std::getenv("NK_MOUSE_TRACE") != nullptr) ? 1 : 0;
+				if (mtOn == 1) {
+					static float32 lastX = -1e9f, lastY = -1e9f;
+					const float32 sx = ui.input.mousePos.x, sy = ui.input.mousePos.y;
+					const float32 ix = (float32)nkentseu::NkInput.MouseX();
+					const float32 iy = (float32)nkentseu::NkInput.MouseY();
+					if (sx != lastX || sy != lastY) {
+						lastX = sx;
+						lastY = sy;
+						nkentseu::NkLog::Instance().Info(
+							"[nk3d] MESURE souris : shell=({0}, {1}) input=({2}, {3}) "
+							"ecart=({4}, {5}) origine=({6}, {7}) vueShell=({8}, {9}) "
+							"vueInput=({10}, {11}) viewRect=({12}, {13}, {14}, {15})\n",
+							sx, sy, ix, iy, sx - ix, sy - iy, viewImg.x, viewImg.y,
+							sx - viewImg.x, sy - viewImg.y, ix - viewImg.x, iy - viewImg.y,
+							st.viewRect.x, st.viewRect.y, st.viewRect.w, st.viewRect.h);
+					}
+				}
+			}
 		}
 
 		// ── SYNCHRONISATION UI <-> DEMO PORTEE ──────────────────────────────
@@ -1172,7 +1270,11 @@ int nkmain(const NkEntryState &entry) {
 		{
 			const float32 mxv = ui.input.mousePos.x - lay.view.x;
 			const float32 myv = ui.input.mousePos.y - lay.view.y;
-			const bool inView = (mxv >= 0.f && myv >= 0.f && mxv < lay.view.w && myv < lay.view.h);
+			// LA VUE N'A PAS LA SOURIS SOUS UNE MODALE. `inView` ne jugeait que la
+			// geometrie : le clic droit de la vue passait donc a travers le panneau
+			// pose au-dessus d'elle, menu contextuel compris (Rihen, 12 aout).
+			const bool inView = !st.ModalOpen() && (mxv >= 0.f && myv >= 0.f &&
+													mxv < lay.view.w && myv < lay.view.h);
 			// LE GESTE APPARTIENT A LA ZONE OU IL A COMMENCE. Sans ce verrou, tirer
 			// un champ de transformation dont le trajet traverse la vue declenchait
 			// un press pour le gizmo 3D -- qui pickait dans le vide et DESELECTIONNAIT
@@ -1426,10 +1528,31 @@ int nkmain(const NkEntryState &entry) {
 
 		const NkTheme &theme = themes.Current();
 		NkModelerPainter p(ui.dl, font, theme, roles, icons);
+		// Le peintre de la couche OVERLAY : meme theme, meme jeu d'icones, mais il
+		// ecrit dans la liste soumise EN DERNIER. C'est lui qui peint les surfaces
+		// modales, pour qu'elles restent au-dessus des composants du kit.
+		NkModelerPainter pOverlay(ui.dlOverlay, font, theme, roles, icons);
+		nk3d::NkOvPainter() = &pOverlay;
 
 		// Fond general : il se voit dans les interstices entre panneaux, et c'est
 		// ce qui donne la profondeur a trois niveaux de UI_SPEC 10bis.1.
 		p.Fill({0.f, 0.f, W, H}, NkRole::WindowBg);
+
+		// ── LE JOURNAL INTERDIT SON RECTANGLE AUX PANNEAUX ──────────────────
+		// Il est peint EN DERNIER, mais un panneau decide de ses clics AU MOMENT
+		// ou il se peint -- donc avant que le journal ait declare quoi que ce
+		// soit. Le navigateur ouvrait ainsi son menu contextuel a travers lui
+		// (Rihen, 13 aout). `SetBlock` est le mecanisme prevu pour exactement
+		// cela : une surcouche annonce son emprise A L'AVANCE, et le registre
+		// refuse tout clic qui y tombe. Il est LEVE juste avant de peindre le
+		// journal, comme pour les autres surcouches.
+		const NkRect jRect =
+			nk3d::NkJournalRect({0.f, 0.f, (float32)W, (float32)H - lay.status.h});
+		// L'etancheite du journal est posee PLUS HAUT, avec celle des modales :
+		// elle doit preceder `hit.Begin`. Ne reste ici que le blocage du
+		// registre, utile aux widgets qui, eux, passent par lui.
+		if (st.journalOpen)
+			hit.SetBlock(jRect, true);
 
 		// LE NOM DU PROJET, PAS UN LIBELLE FIGE. « MonProjet » etait un exemple de
 		// maquette ; la barre dit desormais ce qui est reellement ouvert.
@@ -1461,6 +1584,14 @@ int nkmain(const NkEntryState &entry) {
 		if (st.showBrowser)
 			PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui, &combo);
 		PaintStatus(p, hit, lay.status, st);
+		// LE JOURNAL S'ANCRE SUR LA FENETRE ENTIERE, pas sur une zone de la mise
+		// en page : il recouvre ce qui se trouve dessous, comme un tiroir. Peint
+		// APRES la barre d'etat, dont il sort. Le blocage pose plus haut est
+		// LEVE ici : il protegeait les panneaux de ses clics, il ne doit pas
+		// l'empecher de recevoir les siens.
+		if (st.journalOpen)
+			hit.SetBlock({}, false);
+		PaintJournal(p, hit, st, ui.input, {0.f, 0.f, (float32)W, (float32)H - lay.status.h});
 
 		// Poignees de reouverture, a la place exacte qu'occupait le panneau.
 		PaintPanelHandle(p, lay.handleLeft, hit, "handle.left", st.showLeft, NkIcon::ChevronRight);
@@ -1484,7 +1615,7 @@ int nkmain(const NkEntryState &entry) {
 		// LES SURCOUCHES, ELLES, REPONDENT : on leur rend l'input reel qu'on
 		// avait retire aux panneaux. Le registre est re-arme sans etre vide --
 		// les zones deja declarees restent, seuls les evenements reviennent.
-		if (modalOpen) {
+	if (modalOpen || sourisSurJournal) {
 			ui.input = inputReel;
 			hit.Rearm(ui.input);
 		}
@@ -1531,6 +1662,115 @@ int nkmain(const NkEntryState &entry) {
 			PaintCloseRecDialog(p, W, H, st, hit);
 			PaintEncodeDoneDialog(p, W, H, st, hit);
 			PaintColorPicker(p, hit, ws, ui.input, st, (float32)W, (float32)H);
+			// La modale « Ajouter un materiau » : ICI, avec les surcouches, jamais
+			// dans le panneau de proprietes. C'est ce qui la rend etanche -- l'input
+			// vient d'etre rendu aux surcouches, et la vue 3D, elle, n'a rien recu.
+			nk3d::PaintMatAddModal(st, hit, ws, ui.input, combo, &ui);
+		}
+
+		// ── SELECTEUR DE FICHIERS (NKEditorKit, celui de NKCode) ────────────
+		// Peint ICI, hors de toute couche de panneaux : il flotte donc sur
+		// TOUTE la fenetre, comme Rihen l'a demande. Le composant ne fait que
+		// DECIDER (il depose un resultat) ; c'est l'application qui agit.
+		if (st.picker.pickerOpen) {
+			// COUCHE 100 : le registre donne le survol a la couche la plus haute,
+			// donc tout ce qui est peint dessous -- menus contextuels compris --
+			// devient aveugle sous son emprise. C'est ce qui empeche le clic droit
+			// de la vue 3D de repondre a travers lui (Rihen, 12 aout).
+			NkHitRegistry::LayerScope modalLayer(hit, 100);
+			(void)hit.Add("picker.modal", {0.f, 0.f, (float32)W, (float32)H});
+			editorkit::NkDrawFilePicker(ui, st.picker, editorkit::NkFilePickerStyle{});
+		}
+		if (st.picker.pickerConfirmed) {
+			st.picker.pickerConfirmed = false;
+			if (st.pickerAction == 1 && st.picker.pickerResultName[0]) {
+				const int32 ni = demo::Demo3DHostProjMatCreate();
+				if (ni >= 0) {
+					// Le nom saisi n'est pas pose tel quel : s'il est deja porte
+					// ailleurs dans le projet, il devient « X.001 » (Rihen : renommer
+					// plutot que refuser). L'utilisateur voit tout de suite le nom
+					// retenu, au lieu d'un bouton eteint sans explication.
+					char nomLibre[80];
+					nk3d::NkMatUniqueName(st.picker.pickerResultName, ni, nomLibre,
+										  (uint32)sizeof(nomLibre));
+					demo::Demo3DHostProjMatSetName(ni, nomLibre);
+					// ── SON TYPE, CHOISI AVANT LA CREATION ──────────────────
+					// Pose AVANT l'ecriture disque : le `.nkmat` serialise le
+					// champ `type` (NkProjectWriteAssets), et un type applique
+					// apres coup n'aurait vecu qu'en memoire -- exactement la
+					// faute qui a coute la matinee (cf. « agir a la source »).
+					demo::Demo3DHostProjMatSetType(ni, st.picker.MatNewTypeValue());
+					// LE MATERIAU NAISSANT SE LIE A L'OBJET ACTIF. Le meme repli
+					// que partout ailleurs : `Demo3DHostActiveObject` ne connait
+					// que les objets du MOTEUR et rend -1 pour les autres (vides,
+					// lumieres, cameras), pour lesquels l'application tient
+					// `activeEmpty`. Sans ce repli, le materiau etait bien cree
+					// mais n'apparaissait dans la liste d'aucun objet — « ca ne
+					// s'ajoute pas directement a la liste des materiaux de l'objet
+					// selectionne » (Rihen, 13 aout).
+					const int32 an = demo::Demo3DHostActiveObject() >= 0
+										 ? demo::Demo3DHostActiveObject()
+										 : st.activeEmpty;
+					// CREER, C'EST VOULOIR S'EN SERVIR : le materiau devient le
+					// materiau ACTIF de l'objet, pas une ligne de plus dans sa
+					// liste — « ca l'ajoute a l'objet actif mais ne le lie pas
+					// comme materiau par defaut » (Rihen, 13 aout). `ProjMatAssign`
+					// fait les deux (il associe aussi), la ou `NodeMatAdd` se garde
+					// justement de toucher a un actif deja choisi : ajouter n'est
+					// pas assigner, et c'est bien d'assigner qu'il s'agit ici.
+					// Le bouton « Ajouter » de la modale, lui, garde l'ajout seul.
+					if (an >= 0)
+						demo::Demo3DHostProjMatAssign(an, ni);
+					nk3d::NkMarkDirty(st);
+					// ── ET ON L'ECRIT SUR LE DISQUE ─────────────────────────
+					// Il n'existait qu'en MEMOIRE : aucun `.nkmat` n'etait ecrit,
+					// aucune carte creee. L'utilisateur choisissait un dossier et un
+					// nom, et ne trouvait rien — « la creation d'un nouveau materiau
+					// a echoue » (Rihen, 13 aout). La carte d'abord (c'est elle qui
+					// porte le chemin du fichier), l'ecriture ensuite.
+					nk3d::NkBrowserSyncMats(st);
+					// ── ET DANS LE DOSSIER CHOISI ───────────────────────────
+					// `NkBrowserSyncMats` cree les cartes manquantes A LA RACINE :
+					// il repare un lien, il ne peut pas deviner ou l'utilisateur
+					// voulait ranger. Le dossier retenu dans le selecteur est donc
+					// pose ICI, avant l'ecriture -- c'est `browserParent` qui
+					// decide du chemin du `.nkmat` (NkAsRelFor).
+					const int32 dossier = nk3d::NkAsFolderFromAbs(
+						st, st.projectRoot, st.picker.pickerResultPath);
+					for (int32 b3 = 0; b3 < st.browserCount; ++b3)
+						if (st.browserKind[b3] == 2 && st.browserMat[b3] == ni + 1) {
+							st.browserParent[b3] = dossier;
+							break;
+						}
+					NkString errNew;
+					if (!nk3d::NkProjectWriteAssets(proj.root, st, &errNew, -1))
+						nkentseu::NkLog::Instance().Info(
+							"[materiaux] creation : ecriture impossible : {0}", errNew.CStr());
+				} else {
+					nkentseu::NkLog::Instance().Info(
+						"[materiaux] creation impossible : plus d'emplacement libre");
+				}
+			}
+			st.pickerAction = 0;
+			st.matNewPending = false;
+			// Le mode « nouveau materiau » du selecteur se desarme TOUT SEUL,
+			// dans `PickerCancel` : c'est sa porte de sortie unique, Echap
+			// comprise. Le desarmer aussi ici ne ferait que dupliquer la regle.
+		}
+		if (st.picker.pickerCancelled) {
+			st.picker.pickerCancelled = false;
+			st.pickerAction = 0;
+			st.matNewPending = false;
+		}
+		// SELECTEUR FERME = ACTION CADUQUE. La touche Echap referme le selecteur
+		// sans passer par « Annuler » : elle ne posait donc ni confirmation ni
+		// annulation, et `pickerAction` restait a 1. Le selecteur suivant --
+		// ouvert pour tout autre chose -- aurait vu sa confirmation interpretee
+		// comme « creer un materiau ». Une intention doit mourir avec la fenetre
+		// qui l'a fait naitre.
+		if (!st.picker.pickerOpen && st.pickerAction != 0) {
+			st.pickerAction = 0;
+			st.matNewPending = false;
 		}
 
 		ui.EndFrame();
@@ -1554,6 +1794,66 @@ int nkmain(const NkEntryState &entry) {
 		// Meme geste que NKCode, dont l'etat porte sa propre `root` (Rihen,
 		// 12 aout : « rends ce dossier accessible »).
 		st.projectRoot = proj.open ? proj.root : NkString();
+		// ── LES DOUBLONS DE NOMS SONT CORRIGES A L'OUVERTURE ────────────────
+		// La regle « deux materiaux ne portent jamais le meme nom » est neuve
+		// (Rihen, 13 aout) : les projets d'avant en ont -- il y avait deux
+		// « Materiau » dans celui de test. On les renomme une fois, au chargement,
+		// plutot que de laisser l'utilisateur les demeler a la main. Detecte par le
+		// CHANGEMENT de fichier ouvert, donc une seule fois par projet.
+		{
+			static NkString sDernierProjet;
+			if (proj.open && proj.file != sDernierProjet) {
+				sDernierProjet = proj.file;
+				const int32 renommes = nk3d::NkMatFixDuplicates();
+				if (renommes > 0) {
+					// LE RENOMMAGE DOIT SURVIVRE A LA FERMETURE. Il ne portait que sur
+					// l'emplacement EN MEMOIRE : la carte du navigateur et le fichier
+					// .nkmat gardaient l'ancien nom, et le doublon revenait a la
+					// reouverture (constate par Rihen, 13 aout). On aligne les cartes,
+					// puis on marque le projet modifie pour que l'enregistrement porte.
+					nk3d::NkBrowserSyncMats(st);
+					for (int32 b = 0; b < st.browserCount; ++b) {
+						if (st.browserKind[b] != 2 || st.browserMat[b] <= 0)
+							continue;
+						char nm[64];
+						float32 alb[3];
+						float32 rg = 0.f, mt = 0.f;
+						if (demo::Demo3DHostProjMatInfo(st.browserMat[b] - 1, nm,
+														(uint32)sizeof(nm), alb, &rg, &mt))
+							NkWidgetState::Copy(st.browserNames[b], nm, 31u);
+					}
+					nk3d::NkMarkDirty(st);
+					// ON REECRIT LE DISQUE TOUT DE SUITE (Rihen, 13 aout). Renommer
+					// en memoire ne suffisait pas : les deux fichiers restaient
+					// « Materiau.nkmat » dans leurs dossiers respectifs, et le doublon
+					// revenait a la reouverture. `NkProjectWriteAssets` ecrit le
+					// fichier sous son NOUVEAU nom puis efface l'ancien -- il connait
+					// le chemin precedent par `browserFile`, justement pour ne pas
+					// laisser d'orphelins qu'on prendrait plus tard pour du travail
+					// perdu.
+					NkString errRen;
+					if (!nk3d::NkProjectWriteAssets(proj.root, st, &errRen, -1))
+						nkentseu::NkLog::Instance().Info(
+							"[materiaux] reecriture disque impossible : {0}", errRen.CStr());
+					nkentseu::NkLog::Instance().Info(
+						"[materiaux] {0} nom(s) en double corrige(s) a l'ouverture", renommes);
+				}
+			} else if (!proj.open) {
+				sDernierProjet.Clear();
+			}
+		}
+		// Le dossier courant du navigateur, en chemin DISQUE : c'est la que les
+		// selecteurs doivent s'ouvrir. `NkAsFolderPath` ne rend qu'un relatif, et
+		// n'est visible QUE d'ici (NkModelerAssets.h est inclus apres les ecrans).
+		// Vide si le dossier n'a pas encore d'existence sur le disque -- l'appelant
+		// se replie alors sur la racine plutot que d'ouvrir un arbre vide.
+		st.browserFolderAbs = NkString();
+		if (proj.open) {
+			const NkString rel = nk3d::NkAsFolderPath(st, st.browserFolder);
+			const NkString abs = rel.Empty() ? proj.root : nk3d::NkScToAbs(proj.root, rel.CStr());
+			if (NkDirectory::Exists(abs.CStr()))
+				st.browserFolderAbs = abs;
+		}
 		if (proj.open)
 			projWatch.Watch(proj.root);
 		else
@@ -1592,8 +1892,20 @@ int nkmain(const NkEntryState &entry) {
 				break;
 		}
 
+		// CE QUE LE PANNEAU A DEMANDE, transmis au crochet pre-UI juste avant
+		// qu'il ne s'execute : `BeginFrame` appelle preUI3D, qui rendra l'apercu
+		// du materiau dans la meme frame device.
+		gPrevSlot = st.matPrevSlot;
+		gPrevW = st.matPrevW > 0 ? st.matPrevW : 260;
+		gPrevH = st.matPrevH > 0 ? st.matPrevH : 150;
 		renderer.BeginFrame();
 		renderer.SubmitDrawList(ui.dl, lastW, lastH);
+		// LA COUCHE OVERLAY EST SOUMISE APRES, donc rendue PAR-DESSUS. Sans cette
+		// ligne, tout composant de NKEditorKit (selecteur de fichiers, modale, menu
+		// contextuel) dessine dans le vide : ces composants ecrivent dans
+		// `ctx.dlOverlay`, que le modeleur ne soumettait pas -- « le bouton Nouveau
+		// ne fait pas apparaitre le selecteur » (Rihen, 12 aout).
+		renderer.SubmitDrawList(ui.dlOverlay, lastW, lastH);
 		renderer.EndFrame();
 
 		// ── ENREGISTREMENT DU TUTORIEL : LA FENETRE ENTIERE ─────────────────
@@ -1776,6 +2088,325 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// ── LACHER DU NAVIGATEUR SUR LA VUE 3D : LA REPONSE DU PICK ARRIVE ──
+		// Le jeton a ete fige au relachement (cf. NkModelerBrowser.h) ; il ne
+		// reste qu'a lire OU l'utilisateur a lache et a appliquer. Rien n'est
+		// relu dans le navigateur ici : tout ce que le geste utilise voyage
+		// dans le jeton.
+		//
+		// LA TABLE, telle que Rodolf l'a specifiee :
+		//   materiau  · vide -> rien             · objet -> assigne
+		//   model     · vide -> AJOUTE A CETTE POSITION · objet -> menu
+		//   texture   · vide -> rien             · objet -> refus NOMME
+		//   scene/dossier/autre · vide -> rien   · objet -> refus NOMME
+		//
+		// AUCUNE nature ne reste muette sur un objet : un refus silencieux est
+		// indistinguable d'un glisser-deposer casse (regle du depot, vague 27).
+		//
+		// ── MESURE : NK_DROP_TOKEN="carte,x,y[,frame]" ──────────────────────
+		// FIGE LE JETON D'UNE VRAIE CARTE du navigateur, exactement comme le
+		// relachement le fait, puis demande le pick a ces pixels de FENETRE.
+		// Seul le TRAJET de la souris est fabrique : la nature, le noeud source
+		// et l'emplacement de materiau sont lus dans le navigateur, pas
+		// inventes. Sans lui, la suite du geste -- assignation, position, menu
+		// -- n'est exercable que par une main, et les trois symptomes de Rodolf
+		// vivent tous APRES le pick, pas dedans.
+		{
+			static bool dtDone = false;
+			static int32 dtFrame = 0;
+			++dtFrame;
+			if (!dtDone) {
+				const char *dt = std::getenv("NK_DROP_TOKEN");
+				if (!dt) {
+					dtDone = true;
+				} else {
+					float32 dv[4] = {0.f, 0.f, 0.f, 8.f};
+					int32 dk = 0;
+					for (const char *dp = dt; dk < 4 && *dp;) {
+						dv[dk++] = (float32)atof(dp);
+						while (*dp && *dp != ',')
+							++dp;
+						if (*dp == ',')
+							++dp;
+					}
+					if (dtFrame >= (int32)dv[3]) {
+						dtDone = true;
+						const int32 ci = (int32)dv[0];
+						if (ci >= 0 && ci < st.browserCount) {
+							st.dropIdx = ci;
+							st.dropKind = st.browserKind[ci];
+							st.dropSrcNode = st.browserSrcNode[ci];
+							st.dropMat = st.browserMat[ci];
+							snprintf(st.dropName, sizeof(st.dropName), "%s",
+									 st.browserNames[ci]);
+							st.dropMenuTarget = -1;
+							demo::Demo3DHostPickRequest(dv[1], dv[2]);
+							nkentseu::NkLog::Instance().Info(
+								"[nk3d] MESURE jeton : carte {0} « {1} » nature={2} "
+								"srcNode={3} mat={4} · lacher demande a ({5}, {6}) "
+								"fenetre\n",
+								ci, st.dropName, (int32)st.dropKind, st.dropSrcNode,
+								st.dropMat, dv[1], dv[2]);
+						} else {
+							// Carte hors bornes = DEMANDE D'INVENTAIRE. Sans lui, il
+							// faut une execution par indice pour savoir quelle carte
+							// porte quel numero, et le numero change avec le tri.
+							nkentseu::NkLog::Instance().Info(
+								"[nk3d] MESURE jeton : {0} cartes\n", st.browserCount);
+							for (int32 bi = 0; bi < st.browserCount; ++bi)
+								nkentseu::NkLog::Instance().Info(
+									"[nk3d]   carte {0} « {1} » nature={2} srcNode={3} "
+									"mat={4} parent={5}\n",
+									bi, st.browserNames[bi], (int32)st.browserKind[bi],
+									st.browserSrcNode[bi], st.browserMat[bi],
+									st.browserParent[bi]);
+						}
+					}
+				}
+			}
+		}
+		if (st.dropIdx >= 0 && st.dropMenuTarget < 0) {
+			int32 dropNode = -3;
+			float32 dropW[3] = {0.f, 0.f, 0.f};
+			if (demo::Demo3DHostPickTake(&dropNode, dropW)) {
+				const bool vide = (dropNode == -1);
+				// MESURE : ce que la reponse du pick vaut AVANT tout traitement.
+				nkentseu::NkLog::Instance().Info(
+					"[nk3d] MESURE lacher : nature={0} noeud={1} monde=({2}, {3}, {4}) "
+					"srcNode={5} mat={6}\n",
+					(int32)st.dropKind, dropNode, dropW[0], dropW[1], dropW[2],
+					st.dropSrcNode, st.dropMat);
+				// -2 = hors du viseur. La zone de lacher EST le viseur, donc ce
+				// cas ne devrait pas arriver : il est journalise plutot que
+				// traite, parce que c'est un bogue et pas un cas d'usage.
+				if (dropNode == -2) {
+					nkentseu::NkLog::Instance().Warn(
+						"[nk3d] lacher resolu HORS du viseur : la zone de lacher du "
+						"shell et le viseur de l'hote ont diverge\n");
+					st.dropIdx = -1;
+				} else if (st.dropKind == 2) { // MATERIAU
+					if (vide) {
+						st.dropIdx = -1; // lache dans le vide : rien, et c'est voulu
+					} else {
+						if (st.dropMat > 0) {
+							const int32 avant = demo::Demo3DHostProjMatOf(dropNode);
+							// LES NUMEROS NE SUFFISENT PAS : "demande=5 apres=5" dit que
+							// l'assignation ecrit ce qu'on lui DEMANDE, pas que 5 soit
+							// l'emplacement de la carte SAISIE. Deux causes, un symptome :
+							// la carte designe un autre emplacement, ou elle designe le bon
+							// et sa VIGNETTE est perimee. Le NOM et l'albedo les separent.
+							char nomSlot[64] = {0};
+							float32 alb3[3] = {0.f, 0.f, 0.f};
+							demo::Demo3DHostProjMatInfo(st.dropMat - 1, nomSlot,
+								(uint32)sizeof(nomSlot), alb3, nullptr, nullptr);
+							// UN MODEL NE SE PEINT PAS : SA MATIERE EST CHEZ SES ENFANTS.
+							//
+							// Le rendu saute les conteneurs -- NkDemo3D.cpp : `if (nkvpIsModel[un])
+							// continue; // conteneur : sa geometrie vit dans ses maillages` -- et le
+							// pick fait de meme. Assigner au conteneur REUSSIT donc sans rien
+							// changer a l'ecran. Mesure : noeud=107, demande=4, apres=4, et aucun
+							// effet visible. Rihen : « aucun changement de plus pour ces model, je
+							// ne peux meme pas modifier leur material visible depuis la scene ».
+							//
+							// C'est sa specification du 17/08 appliquee : en mode objet, un clic
+							// prend le model AVEC tous ses sous-mesh. Le materiau lache sur un model
+							// va donc a ce qui SE VOIT -- ses maillages -- et le conteneur garde
+							// l'entree dans SA liste : c'est lui qu'on selectionne, et c'est lui qui
+							// portera le choix quand le mode edition existera.
+							if (demo::Demo3DHostNodeIsModel(dropNode)) {
+								int32 posesSurEnfants = 0;
+								for (int32 ce = 0; ce < 160; ++ce) {
+									if (demo::Demo3DHostNodeParent(ce) != dropNode)
+										continue;
+									demo::Demo3DHostProjMatAssign(ce, st.dropMat - 1);
+									++posesSurEnfants;
+									// MESURE : ce que l'ENFANT porte APRES la pose. Le conteneur
+									// ne se voit pas -- mesurer SON materiau ne dit rien de ce qui
+									// est a l'ecran. Seul l'enfant repond de la couleur rendue.
+									nkentseu::NkLog::Instance().Info(
+										"[nk3d]   MESURE enfant peint : noeud={0} mesh={1} "
+										"materiau={2}\n",
+										ce, demo::Demo3DHostNodeIsMesh(ce) ? 1 : 0,
+										demo::Demo3DHostProjMatOf(ce));
+								}
+								// La liste du conteneur suit. S'il ne portait AUCUN materiau,
+								// HostNodeMatAdd le promeut aussi en actif -- sans effet a
+								// l'ecran, le conteneur n'etant pas rendu, mais c'est ce que le
+								// panneau lira quand on selectionnera le model.
+								demo::Demo3DHostNodeMatAdd(dropNode, st.dropMat - 1);
+								// UN MODEL SANS MAILLAGE NE DOIT PAS SE TAIRE : sinon le geste
+								// parait avoir marche alors que rien n'a ete peint.
+								if (posesSurEnfants == 0)
+									snprintf(st.hierNote, sizeof(st.hierNote),
+									         "%s n'a aucun maillage a peindre", st.dropName);
+							} else {
+								demo::Demo3DHostProjMatAssign(dropNode, st.dropMat - 1);
+							}
+							// MESURE : l'assignation a-t-elle PRIS ? « aucun effet »
+							// peut vouloir dire « rien ne s'est ecrit » ou « le
+							// materiau pose ressemble a celui d'avant ».
+							nkentseu::NkLog::Instance().Info(
+								"[nk3d] MESURE materiau : noeud={0} avant={1} "
+								"demande={2} apres={3} carte='{4}' emplacement='{5}' "
+								"albedo=({6}, {7}, {8})\n",
+								dropNode, avant, st.dropMat - 1,
+								demo::Demo3DHostProjMatOf(dropNode), st.dropName, nomSlot,
+								alb3[0], alb3[1], alb3[2]);
+						} else
+							snprintf(st.hierNote, sizeof(st.hierNote),
+									 "« %s » n'a pas encore d'emplacement de materiau",
+									 st.dropName);
+						st.dropIdx = -1;
+					}
+				} else if (st.dropKind == 6) { // MODEL / MESH
+					if (vide) {
+						// AJOUTE A CETTE POSITION -- pas a l'origine. C'est tout
+						// l'objet du point du monde rendu par le pick : sans lui,
+						// dix lachers a dix endroits empilaient dix modeles au
+						// meme point, et le geste n'avait plus de sens.
+						const int32 nn = NkDropSpawnModel(st);
+						if (nn >= 0) {
+							const float32 rot[3] = {0.f, 0.f, 0.f};
+							const float32 scl[3] = {1.f, 1.f, 1.f};
+							demo::Demo3DHostSetModelTransform(nn, dropW, rot, scl);
+							demo::Demo3DHostSelectEmptyNode(nn);
+							// MESURE : ce que le noeud vaut APRES la pose. Si la
+							// position relue differe de celle demandee, ce n'est
+							// pas le pick qui ment, c'est la pose.
+							float32 gp[3] = {0.f, 0.f, 0.f}, gr[3] = {0.f, 0.f, 0.f},
+									gs[3] = {0.f, 0.f, 0.f};
+							const bool got =
+								demo::Demo3DHostEmptyTransform(nn, gp, gr, gs);
+							nkentseu::NkLog::Instance().Info(
+								"[nk3d] MESURE pose : noeud={0} demande=({1}, {2}, {3}) "
+								"relu={4} ({5}, {6}, {7}) model={8}\n",
+								nn, dropW[0], dropW[1], dropW[2], got ? 1 : 0, gp[0],
+								gp[1], gp[2],
+								demo::Demo3DHostNodeIsModel(nn) ? 1 : 0);
+							// COMBIEN DE MATERIAUX, ET SUR QUI ? Rihen : "quand je porte un
+							// model du navigateur vers la scene, je ne peux pas modifier son
+							// materiau". Le panneau lit NodeMatCount(noeud ACTIF) -- et le
+							// noeud actif est le CONTENANT. Si sa matiere vit chez ses
+							// enfants, il compte zero materiau et le panneau n'a rien a
+							// montrer. On mesure les deux niveaux avant de conclure : un
+							// contenant a zero et des enfants a un, ce n'est pas le meme
+							// defaut qu'un contenant a zero et des enfants a zero.
+							{
+								int32 matEnf = 0, nbEnf = 0;
+								for (int32 ce = 0; ce < 160; ++ce) {
+									if (demo::Demo3DHostNodeParent(ce) != nn)
+										continue;
+									++nbEnf;
+									matEnf += demo::Demo3DHostNodeMatCount(ce);
+								}
+								nkentseu::NkLog::Instance().Info(
+									"[nk3d] MESURE materiaux du model : noeud={0} sesMateriaux={1} "
+									"enfants={2} materiauxDesEnfants={3} actif={4}\n",
+									nn, demo::Demo3DHostNodeMatCount(nn), nbEnf, matEnf,
+									demo::Demo3DHostProjMatOf(nn));
+							}
+							// MESURE : ET SES ENFANTS ? Un model est un CONTENANT --
+							// le pick lui-meme le dit (« un model se prend par sa
+							// matiere »). Poser la transformation du contenant ne
+							// prouve rien si sa matiere reste ou elle etait.
+							for (int32 ci2 = 0; ci2 < 160; ++ci2) {
+								if (demo::Demo3DHostNodeParent(ci2) != nn)
+									continue;
+								float32 cp[3] = {0.f, 0.f, 0.f}, cr[3] = {0.f, 0.f, 0.f},
+										cs[3] = {0.f, 0.f, 0.f};
+								const bool cg =
+									demo::Demo3DHostEmptyTransform(ci2, cp, cr, cs);
+								nkentseu::NkLog::Instance().Info(
+									"[nk3d]   MESURE enfant : noeud={0} mesh={1} "
+									"relu={2} ({3}, {4}, {5})\n",
+									ci2, demo::Demo3DHostNodeIsMesh(ci2) ? 1 : 0,
+									cg ? 1 : 0, cp[0], cp[1], cp[2]);
+							}
+							// Et la SOURCE, pour comparer : c'est d'elle qu'on a
+							// copie, donc c'est elle le point de reference.
+							{
+								const int32 sn = st.dropSrcNode - 1;
+								float32 sp[3] = {0.f, 0.f, 0.f}, sr[3] = {0.f, 0.f, 0.f},
+										ss[3] = {0.f, 0.f, 0.f};
+								const bool sg =
+									demo::Demo3DHostEmptyTransform(sn, sp, sr, ss);
+								nkentseu::NkLog::Instance().Info(
+									"[nk3d]   MESURE source : noeud={0} relu={1} ({2}, "
+									"{3}, {4})\n",
+									sn, sg ? 1 : 0, sp[0], sp[1], sp[2]);
+								for (int32 ci3 = 0; ci3 < 160; ++ci3) {
+									if (demo::Demo3DHostNodeParent(ci3) != sn)
+										continue;
+									float32 dp[3] = {0.f, 0.f, 0.f},
+											dr[3] = {0.f, 0.f, 0.f},
+											ds[3] = {0.f, 0.f, 0.f};
+									const bool dg =
+										demo::Demo3DHostEmptyTransform(ci3, dp, dr, ds);
+									nkentseu::NkLog::Instance().Info(
+										"[nk3d]   MESURE enfant source : noeud={0} "
+										"relu={1} ({2}, {3}, {4})\n",
+										ci3, dg ? 1 : 0, dp[0], dp[1], dp[2]);
+								}
+							}
+						} else {
+							nkentseu::NkLog::Instance().Warn(
+								"[nk3d] MESURE pose : AUCUN noeud cree (srcNode={0})\n",
+								st.dropSrcNode);
+						}
+						st.dropIdx = -1;
+					} else {
+						// SUR UN OBJET : le choix revient a l'utilisateur, par un
+						// menu. On MEMORISE la cible et le point ; le jeton reste
+						// en vol jusqu'a ce que le menu tranche -- ou soit
+						// abandonne, ce qui est la troisieme issue et pas un
+						// « enfant par defaut ».
+						st.dropMenuTarget = dropNode;
+						st.dropWorld[0] = dropW[0];
+						st.dropWorld[1] = dropW[1];
+						st.dropWorld[2] = dropW[2];
+						st.dropMenuX = ui.input.mousePos.x;
+						st.dropMenuY = ui.input.mousePos.y;
+					}
+				} else { // TEXTURE, SCENE, DOSSIER, GRAPHE, DATASET...
+					if (!vide)
+						NkDropRefuse(st, st.dropKind);
+					st.dropIdx = -1;
+				}
+			}
+		}
+
+		// ---- LA CARTE SUIVANTE DU GESTE MULTIPLE ----
+		//
+		// Le jeton vient de se liberer et la file n'est pas vide : on y remet
+		// la carte suivante, qui reprend le chemin au debut -- pick, nature,
+		// refus ou application. Une carte par frame, jamais deux : le pick a
+		// besoin d'une frame pour repondre, et vouloir tout appliquer d'un
+		// coup demanderait un second chemin sans pick.
+		//
+		// LE POINT DE LACHER EST CELUI QUI A ETE FIGE, pas la position
+		// courante de la souris. Entre la premiere carte et la dixieme, le
+		// curseur a bouge et la camera peut avoir tourne ; les dix objets
+		// doivent atterrir la ou l'utilisateur a lache.
+		//
+		// Un menu ouvert SUSPEND la file : tant que l'utilisateur n'a pas
+		// repondu "enfant ou independant", la carte suivante attend. Sinon
+		// dix menus se superposeraient et il repondrait au dernier en croyant
+		// repondre au premier.
+		if (st.dropIdx < 0 && st.dropMenuTarget < 0 && st.dropQueueCount > 0) {
+					const int32 carte = st.dropQueue[0];
+					for (int32 k = 1; k < st.dropQueueCount; ++k)
+						st.dropQueue[k - 1] = st.dropQueue[k];
+					--st.dropQueueCount;
+					if (carte >= 0 && carte < st.browserCount) {
+						st.dropIdx = carte;
+						st.dropKind = st.browserKind[carte];
+						st.dropSrcNode = st.browserSrcNode[carte];
+						st.dropMat = st.browserMat[carte];
+						snprintf(st.dropName, sizeof(st.dropName), "%s", st.browserNames[carte]);
+						demo::Demo3DHostPickRequest(st.dropQueueX, st.dropQueueY);
+					}
+		}
+
 		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
 		// « Capturer la vue » fige la cible hors ecran de la vue 3D (la scene
 		// seule, sans interface) ; « Tutoriel » photographie TOUTE la fenetre
@@ -1837,16 +2468,108 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// ── UNE VIGNETTE FRAICHEMENT ENCODEE REJOINT SON FICHIER ────────────
+		// Elle est encodee une a deux frames APRES le geste qui l'a demandee ;
+		// si ce geste etait l'enregistrement, le .nkmat est deja ecrit et ne la
+		// contient pas. On reecrit alors ce seul materiau -- sinon le fichier
+		// garderait la vignette de l'etat precedent jusqu'a la sauvegarde
+		// suivante (constate le 14 aout : albedo rouge, vignette verte).
+		if (proj.open && !proj.root.Empty()) {
+			const int32 mDirty = demo::Demo3DHostMatThumbTakeDirty();
+			if (mDirty >= 0) {
+				for (int32 b = 0; b < st.browserCount; ++b)
+					if (st.browserKind[b] == 2 && st.browserMat[b] == mDirty + 1) {
+						NkString errV;
+						// SUSPENDU pendant l'ecriture : c'est une vignette qui l'a
+						// declenchee ; en redemander une relancerait la meme chaine
+						// sans fin.
+						demo::Demo3DHostMatThumbSuspend(true);
+						const bool okV = nk3d::NkProjectWriteAssets(proj.root, st, &errV, b);
+						demo::Demo3DHostMatThumbSuspend(false);
+						if (!okV)
+							nkentseu::NkLog::Instance().Info(
+								"[apercu] vignette : reecriture impossible : {0}", errV.CStr());
+						break;
+					}
+			}
+		}
+
 		// ── APERCUS DES MATERIAUX DU PROJET (ids 4400+) ─────────────────────
 		// Meme mecanique que les vignettes de matcap : l'hote rend la vignette
 		// en pixels quand elle est PERIMEE (parametres ou forme changes), et on
-		// l'uploade comme n'importe quelle image d'interface. 128 px : le grand
-		// apercu de la pastille s'affiche plus petit, retrecir reste lisse.
+		// l'uploade comme n'importe quelle image d'interface.
+		//
+		// 256 px et non 128 : l'apercu suit desormais la LARGEUR du panneau de
+		// proprietes (Rihen, 13 aout) et depasse largement les 104 px d'avant des
+		// que le panneau est elargi. Retrecir une image reste propre, l'agrandir
+		// non -- a 128 la sphere devenait molle des qu'on tirait la poignee.
+		//
+		// RECTANGULAIRE, et rendu a la taille EXACTE d'affichage. La largeur
+		// vient du panneau (`st.matPrevW`), qui seul la connait ; la hauteur est
+		// fixe, et c'est elle qui dimensionne l'objet -- elargir le panneau
+		// etend le damier sans grossir la sphere. Rendre au 1:1 evite a la fois
+		// l'etirement et le flou d'un agrandissement.
+		//
+		// CARREES, et c'est desormais leur seul usage : les CARTES du navigateur.
+		// Le grand apercu du panneau ne passe plus par ici -- il est rendu par le
+		// moteur (kNkMatPreviewTexId). Les avoir faites rectangulaires pour lui a
+		// aussitot etire les cartes, qui sont carrees : « on a comme des
+		// etirements sur les miniatures et ca deforme les spheres » (Rihen,
+		// 13 aout). Une vignette doit avoir le format de l'endroit ou elle est
+		// posee, et ces deux endroits n'ont pas le meme.
 		{
-			static uint8 sMatBall[128 * 128 * 4];
-			for (int32 i = 0; i < 64; ++i)
-				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, 128))
-					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, 128, 128);
+			static const int32 kCarte = 128;
+			static uint8 sMatBall[kCarte * kCarte * 4];
+			// ── LA VIGNETTE CAPTUREE PASSE AVANT LE RENDU ANALYTIQUE ────────
+			// Si le materiau porte une vignette -- une capture du VRAI rendu,
+			// prise a son enregistrement -- c'est elle qui fait foi : elle seule
+			// montre le verre comme du verre. Le rendu analytique reste le repli
+			// pour un materiau jamais enregistre, qui n'a donc pas encore d'image.
+			static NkString sVigVue[64];
+			for (int32 i = 0; i < 64; ++i) {
+				// UNE VIGNETTE FRAICHE PASSE AVANT TOUT : rendue il y a une frame
+				// parce qu'un reglage a change, elle n'attend pas l'enregistrement.
+				const uint8 *frais = nullptr;
+				int32 cote = 0;
+				if (demo::Demo3DHostMatThumbTakePixels(i, &frais, &cote) && frais &&
+					cote > 0) {
+					renderer.UploadImageRGBA(4400u + (uint32)i, frais, cote, cote);
+					// LE TEMOIN PREND LE BASE64 COURANT, il ne se vide PAS. Le vider
+					// -- ce que je faisais -- redemandait le decodage a la frame
+					// suivante, et l'ancienne image enregistree ecrasait aussitot
+					// celle qu'on venait de rendre : la vignette semblait ne jamais
+					// suivre (Rihen, 14 aout, capture a l'appui -- sphere verte dans
+					// l'apercu, bleue sur la carte).
+					// En le posant, on declare l'affichage A JOUR : le base64 ne sera
+					// redecode que s'il CHANGE, c'est-a-dire au prochain
+					// enregistrement.
+					const char *cur = demo::Demo3DHostProjMatThumb(i);
+					sVigVue[i] = (cur && *cur) ? cur : "";
+					continue;
+				}
+				const char *b64 = demo::Demo3DHostProjMatThumb(i);
+				if (b64 && *b64) {
+					// Ne decoder QUE si elle a change : decoder un PNG par materiau
+					// et par frame couterait bien plus que tout le navigateur.
+					if (sVigVue[i] != b64) {
+						sVigVue[i] = b64;
+						NkVector<uint8> png;
+						png.Resize(((usize)sVigVue[i].Size() * 3u) / 4u + 4u);
+						usize taille = png.Size();
+						if (encoding::base64::NkDecode(sVigVue[i].CStr(), png.Data(), &taille)) {
+							NkImage im;
+							if (im.LoadFromMemory(png.Data(), taille) && im.IsValid())
+								renderer.UploadImageRGBA(4400u + (uint32)i, im.Pixels(),
+														 (int32)im.Width(), (int32)im.Height());
+						}
+					}
+					continue; // pas de rendu analytique : la capture fait foi
+				}
+				sVigVue[i].Clear();
+				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, (uint32)kCarte,
+													   (uint32)kCarte))
+					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, kCarte, kCarte);
+			}
 		}
 
 		// ── MINIATURES DES SCENES (ids 4500+) ───────────────────────────────

@@ -32,7 +32,10 @@ namespace nkentseu {
 		// ── STYLE du picker : TOUTES les couleurs sont ici -> personnalisation =
 		//    uniquement design/couleurs (l'app remplit et passe ce struct au rendu). ──
 		struct NkFilePickerStyle {
-				NkColor backdrop = {0, 0, 0, 160};	  // voile modal
+				// VOILE RETIRE (alpha 0) — meme raison que NkEditorModal.h : il
+				// noircissait la bande du haut par accumulation. A retablir quand la
+				// cause sera trouvee.
+				NkColor backdrop = {0, 0, 0, 0};
 				NkColor card = {22, 24, 29, 255};	  // fond de la fenetre
 				NkColor border = {50, 55, 63, 255};	  // liseres
 				NkColor accent = {15, 115, 213, 255}; // liseré titre / bouton principal
@@ -440,7 +443,15 @@ namespace nkentseu {
 
 				void PickerEnter(const char *sub) { PickerGoto(NkPath(pickerPath) / sub); }
 
-				void PickerCancel() {
+				// PORTE DE SORTIE UNIQUE du selecteur : confirmation, bouton Annuler
+				// et touche Echap y passent tous. VIRTUELLE pour que l'app y desarme
+				// le mode de SA specialisation (ex. l'assistant « nouveau materiau »
+				// de NK3DModeler) : sans cela, Echap fermait le selecteur en laissant
+				// le mode arme, et le selecteur SUIVANT -- ouvrir un projet, choisir
+				// une texture -- se serait ouvert avec l'assistant d'un autre sujet.
+				// Un mode qui survit a la fermeture de sa fenetre est un piege a
+				// retardement : on le voit apparaitre ailleurs, longtemps apres.
+				virtual void PickerCancel() {
 					pickerOpen = false;
 					pickerFor = PK_None;
 					pickerBuf = nullptr;
@@ -540,7 +551,16 @@ namespace nkentseu {
 			NkGuiContext::NkInputLayerScope _pickerLayer(ctx, 100);
 			const bool down = ctx.input.mouseDown[0];
 			bool fieldClicked = false; // un champ de saisie a-t-il ete clique cette frame ?
-			dl.AddRectFilled({0.f, 0.f, W, H}, sty.backdrop);
+			// VOILE : une seule fois pour toute la pile de surfaces modales. Ce
+			// selecteur peut s'ouvrir AU-DESSUS d'une modale (« Nouveau » depuis la
+			// modale d'ajout de materiau) ; deux voiles superposes rendaient l'appli
+			// derriere presque noire au lieu de simplement l'assombrir (Rihen,
+			// 13 aout : « une partie de l'app n'est totalement pas visible »).
+			// Meme compteur que NkEditorModal : empiler ne doit jamais cacher.
+			const bool premiereDeLaPile = (ctx.modalDepth == 0);
+			++ctx.modalDepth;
+			if (premiereDeLaPile)
+				dl.AddRectFilled({0.f, 0.f, W, H}, sty.backdrop);
 			dl.AddRectFilled({px, py, pw, ph}, sty.card, 10.f * S);
 			dl.AddRect({px, py, pw, ph}, sty.border, 1.5f);
 			// ── BARRE DE TITRE deplacable (lisere accent + drag) ──
