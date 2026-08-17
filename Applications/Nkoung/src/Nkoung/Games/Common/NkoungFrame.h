@@ -9,8 +9,9 @@
 // plateformes (Windows, Linux, Web, Android, HarmonyOS).
 //
 // Le rendu passe par la draw-list NKGui (rects arrondis + texte + lignes/cercles),
-// cohérente avec le menu. RAPPEL : NkGuiDrawList::AddText attend une BASELINE ;
-// les helpers Text* prennent un Y de HAUT et ajoutent l'ascent de la police.
+// cohérente avec le menu ; contours arrondis et cercles émulés par UI/NkoungDraw.h.
+// RAPPEL : NkGuiDrawList::AddText attend une BASELINE ; les helpers Text*
+// prennent un Y de HAUT et ajoutent l'ascent de la police.
 // (Portage NKUI -> NKGui, campagne de retrait NKUI 2026-08.)
 // =============================================================================
 #pragma once
@@ -20,6 +21,7 @@
 
 #include "NKMath/NKMath.h"
 #include "NKGui/NKGui.h"
+#include "UI/NkoungDraw.h"
 
 namespace nkoung {
 
@@ -45,14 +47,11 @@ namespace nkoung {
 					dl->AddRectFilled(nkentseu::math::NkFloatRect{x, y, w, h}, c, round);
 			}
 
-			// NkGuiDrawList::AddRect n'a pas d'arrondi : le contour est carré (le fond
-			// Rect, lui, garde ses coins arrondis). Différence visuelle assumée au portage.
 			void Border(nkentseu::float32 x, nkentseu::float32 y, nkentseu::float32 w, nkentseu::float32 h,
 						const nkentseu::math::NkColor &c, nkentseu::float32 th = 1.5f,
 						nkentseu::float32 round = 0.f) const noexcept {
-				(void)round;
 				if (dl)
-					dl->AddRect(nkentseu::math::NkFloatRect{x, y, w, h}, c, th);
+					draw::RectOutline(*dl, nkentseu::math::NkFloatRect{x, y, w, h}, c, th, round);
 			}
 
 			void Line(nkentseu::math::NkVec2f a, nkentseu::math::NkVec2f b, const nkentseu::math::NkColor &c,
@@ -67,38 +66,10 @@ namespace nkoung {
 					dl->AddCircleFilled(center, r, c, segs);
 			}
 
-			// Contour de cercle : NkGuiDrawList n'a pas de AddCircle (contour) — émulé
-			// par un anneau de quads (rayon extérieur r + th/2, intérieur r - th/2),
-			// même règle de segments automatique que AddCircleFilled.
 			void CircleOutline(nkentseu::math::NkVec2f center, nkentseu::float32 r, const nkentseu::math::NkColor &c,
 							   nkentseu::float32 th = 2.f, nkentseu::int32 segs = 0) const noexcept {
-				if (!dl || r <= 0.f)
-					return;
-				if (segs <= 0) {
-					segs = static_cast<nkentseu::int32>(8.f * r / 4.f) + 8;
-					if (segs < 12)
-						segs = 12;
-					else if (segs > 128)
-						segs = 128;
-				}
-				const nkentseu::float32 ro = r + th * 0.5f;
-				nkentseu::float32 ri = r - th * 0.5f;
-				if (ri < 0.f)
-					ri = 0.f;
-				const nkentseu::float32 kTau = 6.28318530718f;
-				nkentseu::float32 px = 1.f, py = 0.f; // cos/sin de l'angle précédent
-				for (nkentseu::int32 s = 1; s <= segs; ++s) {
-					const nkentseu::float32 ang = kTau * static_cast<nkentseu::float32>(s) / static_cast<nkentseu::float32>(segs);
-					const nkentseu::float32 cx = nkentseu::math::NkCos(ang), cy = nkentseu::math::NkSin(ang);
-					const nkentseu::math::NkVec2f o0{center.x + px * ro, center.y + py * ro};
-					const nkentseu::math::NkVec2f o1{center.x + cx * ro, center.y + cy * ro};
-					const nkentseu::math::NkVec2f i1{center.x + cx * ri, center.y + cy * ri};
-					const nkentseu::math::NkVec2f i0{center.x + px * ri, center.y + py * ri};
-					dl->AddTriangleFilled(o0, o1, i1, c);
-					dl->AddTriangleFilled(o0, i1, i0, c);
-					px = cx;
-					py = cy;
-				}
+				if (dl)
+					draw::CircleOutline(*dl, center, r, c, th, segs);
 			}
 
 			// ── Texte (AddText : baseline → on passe un Y de HAUT et on ajoute l'ascent) ──

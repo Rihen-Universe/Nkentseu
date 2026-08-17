@@ -15,6 +15,7 @@
 #include "NKCanvas/Core/NkGraphicsApi.h"
 #include "NKFont/Embedded/NkFontEmbedded.h"
 #include "../UI/NkoungUIColor.h"
+#include "../UI/NkoungDraw.h"
 #include <cstdio>
 
 using namespace nkentseu;
@@ -367,7 +368,7 @@ namespace nkoung {
 				border = C::BORDER_DISABLED();
 				bth = 1.5f;
 			}
-			dl.AddRect(card, border, bth); // NkGuiDrawList::AddRect : contour sans arrondi
+			draw::RectOutline(dl, card, border, bth, 8.f);
 
 			// Titre + sous-titre.
 			const float32 tx = cx + 18.f;
