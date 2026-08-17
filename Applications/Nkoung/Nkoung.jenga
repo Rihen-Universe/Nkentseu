@@ -3,7 +3,7 @@
 """Nkoung - plateforme de jeux video 2D NKCanvas.
 
 Plateforme multi-jeux: menu de selection, scenes partagees, jeux 2D
-independants branches sur NKCanvas/NKUI.
+independants branches sur NKCanvas ; HUD et menu sur NKGui (NkGuiCanvasBackend).
 """
 
 from Jenga import *
@@ -59,7 +59,7 @@ with project("Nkoung"):
 
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
-         "NKMath", "NKTime", "NKStream", "NKUI",
+         "NKMath", "NKTime", "NKStream", "NKGui", "NKFont",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src/Nkoung", "src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),

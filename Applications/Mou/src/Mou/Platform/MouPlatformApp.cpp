@@ -13,14 +13,15 @@
 #include "NKEvent/NkTouchEvent.h"
 #include "NKCanvas/Core/NkContextDesc.h"
 #include "NKCanvas/Core/NkGraphicsApi.h"
-#include "NKCanvas/UI/NkUICanvasBackend.h"
+#include "NKFont/Embedded/NkFontEmbedded.h"
+#include "../UI/MouDraw.h"
 #include "../Assets/MouAssets.h"
 #include <cstdio>
 #include <cmath>
 
 using namespace nkentseu;
 using namespace nkentseu::renderer;
-using namespace nkentseu::nkui;
+using namespace nkentseu::nkgui;
 
 namespace mou {
 
@@ -99,7 +100,11 @@ namespace mou {
 		mAudio.Shutdown();
 		mCurrentGame.Reset();
 		delete mUIBackend;
-		delete mUIWindowManager;
+		if (mTitleFont != mUIFont)
+			delete mTitleFont;
+		delete mUIFont;
+		if (mUIContext)
+			mUIContext->Shutdown();
 		delete mUIContext;
 		delete mRenderTarget;
 		mWindow.Close();
@@ -153,25 +158,19 @@ namespace mou {
 		}
 		MOU_LOG_INFOF("Backend graphique: %s", NkGraphicsApiName(desc.api));
 
-		// NKUI.
-		NkUIFontConfig fontConfig;
-		fontConfig.yAxisUp = false;
-		fontConfig.enableAtlas = true;
-		fontConfig.enableBitmapFallback = true;
-		fontConfig.defaultFontSize = 24.f;
-
-		mUIContext = new NkUIContext();
-		if (!mUIContext->Init(static_cast<int32>(cfg.width), static_cast<int32>(cfg.height), fontConfig)) {
-			MOU_LOG_ERROR("Impossible d'initialiser NkUIContext");
+		// NKGui (contexte + backend NKCanvas) — même montage que NkPAGui.cpp / Nkoung.
+		mUIContext = new NkGuiContext();
+		if (!mUIContext->Init(static_cast<int32>(cfg.width), static_cast<int32>(cfg.height))) {
+			MOU_LOG_ERROR("Impossible d'initialiser NkGuiContext");
 			return false;
 		}
-		mUIContext->SetTheme(NkUITheme::Dark());
+		SetCurrentContext(mUIContext);
 
-		mUIWindowManager = new NkUIWindowManager();
-		mUIWindowManager->Init();
-
-		mUIBackend = new NkUICanvasBackend();
-		mUIBackend->Init(mRenderTarget->GetRenderer());
+		mUIBackend = new NkGuiCanvasBackend();
+		if (!mUIBackend->Init(mRenderTarget->GetRenderer())) {
+			MOU_LOG_ERROR("Impossible d'initialiser NkGuiCanvasBackend");
+			return false;
+		}
 
 		settings::Load(); // volumes utilisateur (best-effort)
 
@@ -194,17 +193,29 @@ namespace mou {
 		mRihenAspect = (mAssets.LastH() > 0) ? (float32)mAssets.LastW() / (float32)mAssets.LastH() : 1.f;
 		mNogeTex = 0;
 
-		int32 fontId = mUIContext->fontManager.LoadEmbedded(NkEmbeddedFontId::DroidSans, 24.f);
-		if (fontId < 0)
-			fontId = mUIContext->fontManager.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 18.f);
-		mBodyFontId = static_cast<uint32>(fontId < 0 ? 0 : fontId);
-		mUIFont = mUIContext->fontManager.Get(mBodyFontId);
+		// Police corps (24) : DroidSans, repli ProggyClean.
+		mUIFont = new NkGuiFont();
+		if (!mUIFont->LoadEmbedded(NkEmbeddedFontId::DroidSans, 24.f))
+			mUIFont->LoadEmbedded(NkEmbeddedFontId::ProggyClean, 18.f);
+		if (!mUIFont->Valid())
+			MOU_LOG_WARN("Aucune police chargee");
+		mUIContext->font = mUIFont;
 
-		int32 titleId = mUIContext->fontManager.LoadEmbedded(NkEmbeddedFontId::DroidSans, 48.f);
-		mTitleFontId = static_cast<uint32>(titleId < 0 ? (fontId < 0 ? 0 : fontId) : titleId);
-		mTitleFont = mUIContext->fontManager.Get(mTitleFontId);
-		if (!mTitleFont)
+		// Police de titre (48) : texId DISTINCT (le défaut 'NKFT' est partagé par
+		// toute NkGuiFont -> collision d'atlas sinon).
+		mTitleFont = new NkGuiFont();
+		mTitleFont->texId = mUIFont->TexId() + 1u;
+		if (!mTitleFont->LoadEmbedded(NkEmbeddedFontId::DroidSans, 48.f)) {
+			delete mTitleFont;
 			mTitleFont = mUIFont;
+		}
+		if (mUIFont->pixels && mUIFont->atlasW > 0 && mUIFont->atlasH > 0)
+			mUIBackend->UploadFontGray8(mUIFont->TexId(), mUIFont->pixels, mUIFont->atlasW, mUIFont->atlasH);
+		if (mTitleFont != mUIFont && mTitleFont->pixels && mTitleFont->atlasW > 0 && mTitleFont->atlasH > 0)
+			mUIBackend->UploadFontGray8(mTitleFont->TexId(), mTitleFont->pixels, mTitleFont->atlasW,
+										mTitleFont->atlasH);
+		MOU_LOG_INFOF("UI NKGui/NKCanvas prete (atlas corps %dx%d, titre %dx%d)", mUIFont->atlasW, mUIFont->atlasH,
+					  mTitleFont->atlasW, mTitleFont->atlasH);
 
 		// Événements → pointeur unifié.
 		auto &events = NkEvents();
@@ -236,20 +247,20 @@ namespace mou {
 		});
 		events.AddEventCallback<NkMouseMoveEvent>([this](NkMouseMoveEvent *e) {
 			mInput.pointerPos = {static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
-			mUIInput.SetMousePos(static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()));
+			mUIContext->input.mousePos = mInput.pointerPos;
 		});
 		events.AddEventCallback<NkMouseButtonPressEvent>([this](NkMouseButtonPressEvent *e) {
 			if (e->GetButton() == NkMouseButton::NK_MB_LEFT) {
 				mInput.pressedThisFrame = true;
 				mInput.pressed = true;
-				mUIInput.SetMouseButton(0, true);
+				mUIContext->input.mouseDown[0] = true;
 			}
 		});
 		events.AddEventCallback<NkMouseButtonReleaseEvent>([this](NkMouseButtonReleaseEvent *e) {
 			if (e->GetButton() == NkMouseButton::NK_MB_LEFT) {
 				mInput.releasedThisFrame = true;
 				mInput.pressed = false;
-				mUIInput.SetMouseButton(0, false);
+				mUIContext->input.mouseDown[0] = false;
 			}
 		});
 		events.AddEventCallback<NkTouchBeginEvent>([this](NkTouchBeginEvent *e) {
@@ -260,8 +271,8 @@ namespace mou {
 			mInput.pointerPos = {tx, ty};
 			mInput.pressedThisFrame = true;
 			mInput.pressed = true;
-			mUIInput.SetMousePos(tx, ty);
-			mUIInput.SetMouseButton(0, true);
+			mUIContext->input.mousePos = {tx, ty};
+			mUIContext->input.mouseDown[0] = true;
 		});
 		events.AddEventCallback<NkTouchMoveEvent>([this](NkTouchMoveEvent *e) {
 			if (e->GetNumTouches() == 0)
@@ -269,12 +280,12 @@ namespace mou {
 			const auto &t = e->GetTouch(0);
 			const float32 tx = static_cast<float32>(t.clientX), ty = static_cast<float32>(t.clientY);
 			mInput.pointerPos = {tx, ty};
-			mUIInput.SetMousePos(tx, ty);
+			mUIContext->input.mousePos = {tx, ty};
 		});
 		events.AddEventCallback<NkTouchEndEvent>([this](NkTouchEndEvent *) {
 			mInput.releasedThisFrame = true;
 			mInput.pressed = false;
-			mUIInput.SetMouseButton(0, false);
+			mUIContext->input.mouseDown[0] = false;
 		});
 
 		MOU_LOG_INFO("Plateforme Mu initialisee");
@@ -288,7 +299,6 @@ namespace mou {
 				dt = globals::MAX_DELTA_TIME;
 
 			mInput.BeginFrame();
-			mUIInput.BeginFrame();
 			while (NkEvent *ev = NkEvents().PollEvent()) {
 				if (mCurrentScene == AppScene::GameScene && mCurrentGame)
 					HandleGameEvent(ev);
@@ -369,9 +379,11 @@ namespace mou {
 		const float32 W = static_cast<float32>(szu.x);
 		const float32 H = static_cast<float32>(szu.y);
 
-		mUIInput.dt = dt;
-		mUIContext->BeginFrame(mUIInput, dt);
-		NkUIDrawList &dl = *mUIContext->dl;
+		SetCurrentContext(mUIContext);
+		mUIContext->viewW = static_cast<int32>(szu.x);
+		mUIContext->viewH = static_cast<int32>(szu.y);
+		mUIContext->BeginFrame(dt);
+		NkGuiDrawList &dl = mUIContext->dl;
 
 		// Fond blanc (marque).
 		dl.AddRectFilled(NkRect{0.f, 0.f, W, H}, math::NkColor{255, 255, 255, 255});
@@ -412,8 +424,7 @@ namespace mou {
 			// Centré verticalement si pas de texte sous le logo, sinon plus haut.
 			const float32 logoCY = hasTitle ? H * 0.40f : H * 0.50f;
 			const math::NkColor tint{255, 255, 255, alpha8};
-			dl.AddImage(tex, NkRect{W * 0.5f - lw * 0.5f, logoCY - lh * 0.5f, lw, lh}, NkVec2{0.f, 0.f},
-						NkVec2{1.f, 1.f}, tint);
+			draw::Image(dl, tex, NkRect{W * 0.5f - lw * 0.5f, logoCY - lh * 0.5f, lw, lh}, tint);
 			titleY = logoCY + lh * 0.5f + 24.f;
 		}
 
@@ -422,17 +433,14 @@ namespace mou {
 		tc.a = alpha8;
 		math::NkColor sc2 = textCol;
 		sc2.a = (uint8)(alpha8 * 0.75f);
-		if (mTitleFont && hasTitle)
-			mTitleFont->RenderText(
-				dl, NkVec2{(W - mTitleFont->MeasureWidth(title)) * 0.5f, titleY + mTitleFont->metrics.ascender}, title,
-				tc);
-		if (mUIFont && subtitle && subtitle[0])
-			mUIFont->RenderText(
-				dl, NkVec2{(W - mUIFont->MeasureWidth(subtitle)) * 0.5f, titleY + 64.f + mUIFont->metrics.ascender},
-				subtitle, sc2);
+		if (hasTitle)
+			draw::TextCentered(dl, mTitleFont, 0.f, W, titleY, title, tc);
+		if (subtitle && subtitle[0])
+			draw::TextCentered(dl, mUIFont, 0.f, W, titleY + 64.f, subtitle, sc2);
 
 		mUIContext->EndFrame();
-		mUIBackend->Submit(*mUIContext, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dl, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dlOverlay, szu.x, szu.y);
 
 		return (mIntroTime > total) || mInput.pressedThisFrame;
 	}
@@ -445,9 +453,11 @@ namespace mou {
 		const float32 W = static_cast<float32>(szu.x);
 		const float32 H = static_cast<float32>(szu.y);
 
-		mUIInput.dt = dt;
-		mUIContext->BeginFrame(mUIInput, dt);
-		NkUIDrawList &dl = *mUIContext->dl;
+		SetCurrentContext(mUIContext);
+		mUIContext->viewW = static_cast<int32>(szu.x);
+		mUIContext->viewH = static_cast<int32>(szu.y);
+		mUIContext->BeginFrame(dt);
+		NkGuiDrawList &dl = mUIContext->dl;
 
 		dl.AddRectFilled(NkRect{0.f, 0.f, W, H}, math::NkColor{255, 255, 255, 255});
 
@@ -507,11 +517,11 @@ namespace mou {
 		if (ta > 1.f)
 			ta = 1.f;
 		ta *= a;
-		auto drawC = [&](NkUIFont *fnt, float32 y, const char *s, math::NkColor base, float32 mul) {
+		auto drawC = [&](NkGuiFont *fnt, float32 y, const char *s, math::NkColor base, float32 mul) {
 			if (!fnt || !s)
 				return;
 			base.a = (uint8)(255.f * ta * mul);
-			fnt->RenderText(dl, NkVec2{(W - fnt->MeasureWidth(s)) * 0.5f, y + fnt->metrics.ascender}, s, base);
+			draw::TextCentered(dl, fnt, 0.f, W, y, s, base);
 		};
 		const float32 belowY = hexCY + R;
 		drawC(mUIFont, belowY + 26.f, "PROPULSE PAR", math::NkColor{120, 120, 135, 255}, 0.65f);
@@ -519,7 +529,8 @@ namespace mou {
 		drawC(mUIFont, belowY + 122.f, "Moteur de jeu", orange, 0.9f);
 
 		mUIContext->EndFrame();
-		mUIBackend->Submit(*mUIContext, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dl, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dlOverlay, szu.x, szu.y);
 
 		return (mIntroTime > total) || mInput.pressedThisFrame;
 	}
@@ -532,13 +543,14 @@ namespace mou {
 		const float32 W = static_cast<float32>(szu.x);
 		const float32 H = static_cast<float32>(szu.y);
 
-		mUIInput.dt = dt;
-		mUIContext->BeginFrame(mUIInput, dt);
-		NkUIDrawList &dl = *mUIContext->dl;
+		SetCurrentContext(mUIContext);
+		mUIContext->viewW = static_cast<int32>(szu.x);
+		mUIContext->viewH = static_cast<int32>(szu.y);
+		mUIContext->BeginFrame(dt);
+		NkGuiDrawList &dl = mUIContext->dl;
 
-		auto drawC = [&](NkUIFont *f, float32 y, const char *s, const math::NkColor &c) {
-			if (f && s)
-				f->RenderText(dl, NkVec2{(W - f->MeasureWidth(s)) * 0.5f, y + f->metrics.ascender}, s, c);
+		auto drawC = [&](NkGuiFont *f, float32 y, const char *s, const math::NkColor &c) {
+			draw::TextCentered(dl, f, 0.f, W, y, s, c);
 		};
 
 		dl.AddRectFilled(NkRect{0.f, 0.f, W, H}, C::BG_CREAM());
@@ -546,8 +558,7 @@ namespace mou {
 		// Mascotte qui rebondit doucement.
 		const float32 bob = (float32)std::sin((double)mSplashTime * 3.0) * 14.f;
 		const float32 ms = 224.f;
-		if (mMascotTex)
-			dl.AddImage(mMascotTex, NkRect{W * 0.5f - ms * 0.5f, H * 0.32f - ms * 0.5f + bob, ms, ms});
+		draw::Image(dl, mMascotTex, NkRect{W * 0.5f - ms * 0.5f, H * 0.32f - ms * 0.5f + bob, ms, ms});
 
 		drawC(mTitleFont, H * 0.55f, "Mu", C::SUNNY());
 		drawC(mUIFont, H * 0.55f + 64.f, "Apprends en jouant !", C::TEXT_DARK());
@@ -556,7 +567,8 @@ namespace mou {
 			drawC(mUIFont, H - 90.f, "touche pour commencer", C::ORANGE());
 
 		mUIContext->EndFrame();
-		mUIBackend->Submit(*mUIContext, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dl, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dlOverlay, szu.x, szu.y);
 
 		if (mSplashTime > 2.6f || mInput.pressedThisFrame) {
 			mCurrentScene = AppScene::MainMenu;
@@ -570,20 +582,14 @@ namespace mou {
 		const float32 W = static_cast<float32>(szu.x);
 		const float32 H = static_cast<float32>(szu.y);
 
-		mUIInput.dt = dt;
-		mUIContext->BeginFrame(mUIInput, dt);
-		NkUIDrawList &dl = *mUIContext->dl;
+		SetCurrentContext(mUIContext);
+		mUIContext->viewW = static_cast<int32>(szu.x);
+		mUIContext->viewH = static_cast<int32>(szu.y);
+		mUIContext->BeginFrame(dt);
+		NkGuiDrawList &dl = mUIContext->dl;
 
-		auto drawText = [&](NkUIFont *f, float32 x, float32 topY, const char *s, const math::NkColor &c,
-							float32 maxW = -1.f) {
-			if (f && s)
-				f->RenderText(dl, NkVec2{x, topY + f->metrics.ascender}, s, c, maxW);
-		};
-		auto drawTextCentered = [&](NkUIFont *f, float32 x, float32 w, float32 topY, const char *s,
-									const math::NkColor &c) {
-			if (f && s)
-				drawText(f, x + (w - f->MeasureWidth(s)) * 0.5f, topY, s, c);
-		};
+		auto drawTextCentered = [&](NkGuiFont *f, float32 x, float32 w, float32 topY, const char *s,
+									const math::NkColor &c) { draw::TextCentered(dl, f, x, w, topY, s, c); };
 
 		// Fond crème.
 		dl.AddRectFilled(NkRect{0.f, 0.f, W, H}, C::BG_CREAM());
@@ -619,20 +625,20 @@ namespace mou {
 			math::NkColor col = CardColor(g.id);
 			if (!g.playable)
 				col = ui::WithAlpha(col, 110);
-			dl.AddRectFilled(NkRect{cx, cy + 10.f, cardW, cardH}, ui::WithAlpha(C::INK(), 60), 28.f, 28.f);
-			dl.AddRectFilled(card, col, 28.f, 28.f);
-			dl.AddRect(card, C::INK(), hovered && g.playable ? 8.f : 5.f, 28.f, 28.f);
+			dl.AddRectFilled(NkRect{cx, cy + 10.f, cardW, cardH}, ui::WithAlpha(C::INK(), 60), 28.f);
+			dl.AddRectFilled(card, col, 28.f);
+			draw::RectOutline(dl, card, C::INK(), hovered && g.playable ? 8.f : 5.f, 28.f);
 
 			// Badge blanc + icône du jeu (en haut de la carte).
 			const float32 badgeR = cardH * 0.20f < 66.f ? cardH * 0.20f : 66.f;
 			const float32 bcx = cx + cardW * 0.5f;
 			const float32 bcy = cy + badgeR + 22.f;
 			dl.AddCircleFilled(NkVec2{bcx, bcy}, badgeR, C::SURFACE(), 0);
-			dl.AddCircle(NkVec2{bcx, bcy}, badgeR, C::INK(), 4.f, 0);
+			draw::CircleOutline(dl, NkVec2{bcx, bcy}, badgeR, C::INK(), 4.f, 0);
 			const uint32 icon = (i < 6) ? mIconTex[i] : 0;
 			if (icon) {
 				const float32 is = badgeR * 1.5f;
-				dl.AddImage(icon, NkRect{bcx - is * 0.5f, bcy - is * 0.5f, is, is});
+				draw::Image(dl, icon, NkRect{bcx - is * 0.5f, bcy - is * 0.5f, is, is});
 			}
 
 			// Titre + sous-titre (texte blanc sur aplat).
@@ -655,17 +661,17 @@ namespace mou {
 		{
 			const float32 bw = 230.f, bh = 78.f, bx = 24.f, by = 20.f;
 			const bool over = (px >= bx && px < bx + bw && py >= by && py < by + bh);
-			NkUIFont *bf = mTitleFont ? mTitleFont : mUIFont;
-			dl.AddRectFilled(NkRect{bx, by, bw, bh}, over ? C::SUNNY() : C::SURFACE(), 20.f, 20.f);
-			dl.AddRect(NkRect{bx, by, bw, bh}, C::INK(), 5.f, 20.f, 20.f);
-			drawTextCentered(bf, bx, bw, by + (bh - (bf ? bf->metrics.lineHeight : 18.f)) * 0.5f, "Reglages",
-							 C::TEXT_DARK());
+			NkGuiFont *bf = mTitleFont ? mTitleFont : mUIFont;
+			dl.AddRectFilled(NkRect{bx, by, bw, bh}, over ? C::SUNNY() : C::SURFACE(), 20.f);
+			draw::RectOutline(dl, NkRect{bx, by, bw, bh}, C::INK(), 5.f, 20.f);
+			drawTextCentered(bf, bx, bw, by + (bh - draw::LineH(bf)) * 0.5f, "Reglages", C::TEXT_DARK());
 			if (over && mInput.pressedThisFrame)
 				mCurrentScene = AppScene::Settings;
 		}
 
 		mUIContext->EndFrame();
-		mUIBackend->Submit(*mUIContext, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dl, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dlOverlay, szu.x, szu.y);
 	}
 
 	void MouPlatformApp::RenderSettings(float32 dt) noexcept {
@@ -675,17 +681,17 @@ namespace mou {
 		const float32 W = static_cast<float32>(szu.x);
 		const float32 H = static_cast<float32>(szu.y);
 
-		mUIInput.dt = dt;
-		mUIContext->BeginFrame(mUIInput, dt);
-		NkUIDrawList &dl = *mUIContext->dl;
+		SetCurrentContext(mUIContext);
+		mUIContext->viewW = static_cast<int32>(szu.x);
+		mUIContext->viewH = static_cast<int32>(szu.y);
+		mUIContext->BeginFrame(dt);
+		NkGuiDrawList &dl = mUIContext->dl;
 
-		auto drawText = [&](NkUIFont *f, float32 x, float32 topY, const char *s, const math::NkColor &c) {
-			if (f && s)
-				f->RenderText(dl, NkVec2{x, topY + f->metrics.ascender}, s, c);
+		auto drawText = [&](NkGuiFont *f, float32 x, float32 topY, const char *s, const math::NkColor &c) {
+			draw::Text(dl, f, x, topY, s, c);
 		};
-		auto drawC = [&](NkUIFont *f, float32 x, float32 w, float32 topY, const char *s, const math::NkColor &c) {
-			if (f && s)
-				drawText(f, x + (w - f->MeasureWidth(s)) * 0.5f, topY, s, c);
+		auto drawC = [&](NkGuiFont *f, float32 x, float32 w, float32 topY, const char *s, const math::NkColor &c) {
+			draw::TextCentered(dl, f, x, w, topY, s, c);
 		};
 
 		dl.AddRectFilled(NkRect{0.f, 0.f, W, H}, C::BG_CREAM());
@@ -698,11 +704,11 @@ namespace mou {
 			const float32 tx = W * 0.30f, tw = W * 0.45f, th = 18.f;
 			const float32 ty = y + 14.f;
 			drawText(mTitleFont, W * 0.12f, y, label, C::TEXT_DARK());
-			dl.AddRectFilled(NkRect{tx, ty, tw, th}, ui::WithAlpha(C::INK(), 50), th * 0.5f, th * 0.5f);
-			dl.AddRectFilled(NkRect{tx, ty, tw * val, th}, C::LEAF(), th * 0.5f, th * 0.5f);
+			dl.AddRectFilled(NkRect{tx, ty, tw, th}, ui::WithAlpha(C::INK(), 50), th * 0.5f);
+			dl.AddRectFilled(NkRect{tx, ty, tw * val, th}, C::LEAF(), th * 0.5f);
 			const float32 kx = tx + tw * val, ky = ty + th * 0.5f;
 			dl.AddCircleFilled(NkVec2{kx, ky}, 22.f, C::SUNNY(), 0);
-			dl.AddCircle(NkVec2{kx, ky}, 22.f, C::INK(), 4.f, 0);
+			draw::CircleOutline(dl, NkVec2{kx, ky}, 22.f, C::INK(), 4.f, 0);
 			// pourcentage
 			char pc[8];
 			std::snprintf(pc, sizeof(pc), "%d%%", (int)(val * 100.f + 0.5f));
@@ -725,11 +731,11 @@ namespace mou {
 		{
 			const float32 bw = 320.f, bh = 92.f, bx = (W - bw) * 0.5f, by = H * 0.64f;
 			const bool over = (px >= bx && px < bx + bw && py >= by && py < by + bh);
-			NkUIFont *bf = mTitleFont ? mTitleFont : mUIFont;
+			NkGuiFont *bf = mTitleFont ? mTitleFont : mUIFont;
 			const math::NkColor bg = settings::muted ? C::CORAL() : C::SURFACE();
-			dl.AddRectFilled(NkRect{bx, by, bw, bh}, over ? C::ORANGE() : bg, 24.f, 24.f);
-			dl.AddRect(NkRect{bx, by, bw, bh}, C::INK(), 5.f, 24.f, 24.f);
-			drawC(bf, bx, bw, by + (bh - (bf ? bf->metrics.lineHeight : 18.f)) * 0.5f,
+			dl.AddRectFilled(NkRect{bx, by, bw, bh}, over ? C::ORANGE() : bg, 24.f);
+			draw::RectOutline(dl, NkRect{bx, by, bw, bh}, C::INK(), 5.f, 24.f);
+			drawC(bf, bx, bw, by + (bh - draw::LineH(bf)) * 0.5f,
 				  settings::muted ? "Son coupe : OUI" : "Son coupe : non",
 				  settings::muted ? C::TEXT_ON_COLOR() : C::TEXT_DARK());
 			if (over && mInput.pressedThisFrame)
@@ -740,10 +746,10 @@ namespace mou {
 		{
 			const float32 bw = 280.f, bh = 96.f, bx = (W - bw) * 0.5f, by = H - bh - 30.f;
 			const bool over = (px >= bx && px < bx + bw && py >= by && py < by + bh);
-			NkUIFont *bf = mTitleFont ? mTitleFont : mUIFont;
-			dl.AddRectFilled(NkRect{bx, by, bw, bh}, over ? C::ORANGE() : C::LEAF(), 26.f, 26.f);
-			dl.AddRect(NkRect{bx, by, bw, bh}, C::INK(), 5.f, 26.f, 26.f);
-			drawC(bf, bx, bw, by + (bh - (bf ? bf->metrics.lineHeight : 18.f)) * 0.5f, "Retour", C::TEXT_ON_COLOR());
+			NkGuiFont *bf = mTitleFont ? mTitleFont : mUIFont;
+			dl.AddRectFilled(NkRect{bx, by, bw, bh}, over ? C::ORANGE() : C::LEAF(), 26.f);
+			draw::RectOutline(dl, NkRect{bx, by, bw, bh}, C::INK(), 5.f, 26.f);
+			drawC(bf, bx, bw, by + (bh - draw::LineH(bf)) * 0.5f, "Retour", C::TEXT_ON_COLOR());
 			if (over && mInput.pressedThisFrame) {
 				settings::Save();
 				mCurrentScene = AppScene::MainMenu;
@@ -751,7 +757,8 @@ namespace mou {
 		}
 
 		mUIContext->EndFrame();
-		mUIBackend->Submit(*mUIContext, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dl, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dlOverlay, szu.x, szu.y);
 	}
 
 	void MouPlatformApp::UpdateGameScene(float32 dt) noexcept {
@@ -798,11 +805,13 @@ namespace mou {
 		const float32 W = static_cast<float32>(szu.x);
 		const float32 H = static_cast<float32>(szu.y);
 
-		mUIInput.dt = dt;
-		mUIContext->BeginFrame(mUIInput, dt);
+		SetCurrentContext(mUIContext);
+		mUIContext->viewW = static_cast<int32>(szu.x);
+		mUIContext->viewH = static_cast<int32>(szu.y);
+		mUIContext->BeginFrame(dt);
 
 		MouFrame frame;
-		frame.dl = mUIContext->dl;
+		frame.dl = &mUIContext->dl;
 		frame.font = mUIFont;
 		frame.titleFont = mTitleFont;
 		frame.width = W;
@@ -819,7 +828,8 @@ namespace mou {
 		mCurrentGame->Render(frame);
 
 		mUIContext->EndFrame();
-		mUIBackend->Submit(*mUIContext, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dl, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dlOverlay, szu.x, szu.y);
 	}
 
 	void MouPlatformApp::HandleGameEvent(NkEvent *event) noexcept {
