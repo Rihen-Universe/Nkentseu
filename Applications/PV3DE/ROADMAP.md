@@ -9,6 +9,46 @@
 > été fait, y compris plusieurs API fictives supplémentaires non couvertes par cet audit initial,
 > dans la section « Phase R0 »/« Phase R1 » plus bas (désormais marquées ✅ FAIT).
 
+## Mise à jour 2026-08-18 — UI médicale portée sur NKGui et BRANCHÉE (premier affichage)
+
+**Campagne de retrait NKUI (décision Rodolf 2026-08-16), périmètre Applications/ — fait :**
+
+- **NKUI → NKGui** : `MedicalUILayer` v3 + les 4 panneaux réécrits sur NKGui
+  (`BeginPanel` défilable remplace fenêtres+ScrollRegion, `BeginRow(px/poids)`
+  remplace SetNextWidth/Grow, helpers partagés `UI/PvGui.h` : TextColored/Label/
+  Toggle composés sur les primitives publiques). `PV3DE.jenga` ne cite plus NKUI
+  (NKGui + NKGuiIntegration, patron Nogee) ; NKUI ne reste que dans la CLÔTURE
+  transitive via NKCanvas (pont `USE_CANVAS_NKUI`, chantier Noge, hors périmètre).
+- **BRANCHÉE — la Phase 5 UI n'est plus un TODO** : `PatientVirtualApp::OnInit`
+  fait un vrai `PushOverlay(MedicalUILayer)` ; rendu par `NkGuiRHIBackend`
+  (Integrations/NKGui) soumis dans la passe Overlay2D du render graph
+  (`SetUIOverlayCallback`, patron Nogee/UILayer) ; `ReleaseGpu()` appelé par
+  `OnShutdown` AVANT la destruction du device (la LayerStack meurt après).
+  Pont NKEvent→NkGuiInput complet (souris, molette accumulée, double-clic,
+  texte, touches d'édition, Ctrl C/X/V/A — table de NK3DModeler/main.cpp).
+- **Témoin renforcé (2026-08-18, Release, OpenGL, 1280×720)** : c'est la
+  PREMIÈRE fois que l'UI médicale s'affiche (la v2 NKUI n'a jamais été attachée).
+  Captures garde-PID (scratchpad session b7dabf70, `temoins/pv3de_apres/`) :
+  menu 3 titres + panneaux + rapport ; menu Patient déroulé (6 items F1-F6) ;
+  clic « Douleur thoracique » → Diagnostic (1 hypothèse) « Infarctus du
+  myocarde 28 % » + jauges Douleur 70 %/Anxiété 60 % + FSM « Douleur sévère »
+  reflétée dans le panneau ET l'overlay viewport. Bruit pixel AP/AP : 0 px.
+  `[ERR]` : 35 = exactement les 35 de l'AVANT (shaders du banc absents, connu).
+  Diff app.log AVANT/APRès : 273 lignes communes identiques (diagnostic,
+  backends Claude/Ollama, conversation intacts) ; ajouts = police/atlas/
+  RebuildRenderGraph/attach/première frame, rien d'autre.
+- **Extraction modèle neutre** : le comportement d'export (FHIR JSON, PDF
+  minimal, résumé 2 s, nom de fichier horodaté) vit désormais dans
+  `Export/NkReportWriter` (zéro dépendance UI, repris tel quel de ReportPanel) —
+  le panneau ne garde que la saisie et les boutons.
+- **Dettes notées** : pas de hook de couleur par barre/slider dans NKGui (même
+  dette qu'en NKUI, notes `(void)color` en place) ; `SliderFloat` NKGui sans
+  format printf → valeur formatée dans une cellule Label ; l'émotion forcée
+  par le menu (F1-F6) est transitoire — la FSM est re-pilotée par l'état
+  clinique à chaque frame (sémantique v2 conservée, à trancher en Phase 6) ;
+  viewport 3D patient toujours placeholder (`GetPatientFBO()` invalide tant
+  que le rendu GPU Phase 6 n'existe pas — `RegisterTexture` déjà câblé).
+
 ## État actuel — un chantier bien plus avancé que ce que le build laisse croire
 
 `jenga build --target PV3DE --config Debug --platform Windows` échoue avec **136 erreurs de

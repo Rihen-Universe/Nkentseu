@@ -6,11 +6,12 @@
 // Affiche la liste des symptômes disponibles sous forme de cases à cocher,
 // groupées par catégorie. Inclut un champ de recherche texte.
 // Les constantes vitales sont saisies via des sliders.
+// Porté NKUI -> NKGui (2026-08-18) : BeginPanel (titre + défilement intégrés),
+// widgets auto-layout, rangées via BeginRow(tailles px / poids).
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
-#include "NKUI/NKUI.h"
-#include "NKUI/NkUIWidgets.h"
+#include "NKGui/NKGui.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "PV3DE/Core/NkClinicalState.h"
@@ -27,9 +28,7 @@ namespace nkentseu {
 
 				void Init(const NkDiagnosticEngine *engine) noexcept;
 
-				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
-							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, PatientLayer &patient,
-							nkui::NkRect rect) noexcept;
+				void Render(nkgui::NkGuiContext &ctx, PatientLayer &patient, const nkgui::NkRect &rect) noexcept;
 
 				// Constantes vitales saisies
 				nk_float32 GetHeartRate() const noexcept {
@@ -45,11 +44,8 @@ namespace nkentseu {
 				}
 
 			private:
-				void RenderVitalSigns(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
-									  nkui::NkUILayoutStack &ls, PatientLayer &patient) noexcept;
-
-				void RenderSymptomList(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
-									   nkui::NkUILayoutStack &ls, PatientLayer &patient) noexcept;
+				void RenderVitalSigns(nkgui::NkGuiContext &ctx, PatientLayer &patient) noexcept;
+				void RenderSymptomList(nkgui::NkGuiContext &ctx, PatientLayer &patient) noexcept;
 
 				struct SymptomEntry {
 						NkSymptomId id;

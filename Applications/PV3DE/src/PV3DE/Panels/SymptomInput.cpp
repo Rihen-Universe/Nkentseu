@@ -1,5 +1,6 @@
 #include "SymptomInput.h"
 #include "PV3DE/Layers/PatientLayer.h"
+#include "PV3DE/UI/PvGui.h"
 #include "NKMath/NKMath.h"
 #include <cstring>
 #include <cstdio>
@@ -7,7 +8,7 @@
 namespace nkentseu {
 	namespace pv3de {
 
-		using namespace nkui;
+		using namespace nkgui;
 
 		void SymptomInputPanel::Init(const NkDiagnosticEngine *engine) noexcept {
 			if (!engine)
@@ -31,106 +32,89 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		void SymptomInputPanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
-									   NkUILayoutStack &ls, PatientLayer &patient, NkRect rect) noexcept {
-			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
-			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
-
-			if (!NkUIWindow::Begin(ctx, wm, dl, font, ls, "Symptômes##syminput", nullptr,
-								   NkUIWindowFlags::NK_NO_MOVE | NkUIWindowFlags::NK_NO_RESIZE)) {
-				NkUIWindow::End(ctx, wm, dl, ls);
+		void SymptomInputPanel::Render(NkGuiContext &ctx, PatientLayer &patient, const NkRect &rect) noexcept {
+			// BeginPanel : fond + titre + région de contenu défilable (remplace
+			// NkUIWindow + BeginScrollRegion du code NKUI).
+			if (!BeginPanel(ctx, "Symptômes", rect))
 				return;
-			}
 
 			// ── Titre ─────────────────────────────────────────────────────────
-			NkUI::BeginRow(ctx, ls, 20.f);
-			NkUI::Text(ctx, ls, dl, font, "Constantes vitales", {220, 220, 100, 255});
-			NkUI::EndRow(ctx, ls);
+			pvgui::TextColored(ctx, {220, 220, 100, 255}, "Constantes vitales");
 
-			RenderVitalSigns(ctx, dl, font, ls, patient);
-			NkUI::Separator(ctx, ls, dl);
+			RenderVitalSigns(ctx, patient);
+			Separator(ctx);
 
 			// ── Recherche ─────────────────────────────────────────────────────
-			NkUI::BeginRow(ctx, ls, 22.f);
-			NkUI::SetNextGrow(ctx, ls);
-			bool prevSearch = mSearchBuf[0] != '\0';
-			NkUI::InputText(ctx, ls, dl, font, "Rechercher##sr", mSearchBuf, (int)sizeof(mSearchBuf));
+			InputText(ctx, "Rechercher##sr", mSearchBuf, (int)sizeof(mSearchBuf));
 			mSearchActive = mSearchBuf[0] != '\0';
-			if (!prevSearch && mSearchActive) { /* focus */
-			}
-			NkUI::EndRow(ctx, ls);
 
-			NkUI::Separator(ctx, ls, dl);
+			Separator(ctx);
 
 			// ── Boutons rapides ───────────────────────────────────────────────
-			NkUI::BeginRow(ctx, ls, 22.f);
-			if (NkUI::ButtonSmall(ctx, ls, dl, font, "Tout effacer")) {
-				for (nk_usize i = 0; i < mSymptoms.Size(); ++i)
-					mSymptoms[i].active = false;
-				patient.ClearSymptoms();
-			}
-			NkUI::SameLine(ctx, ls);
-			NkUI::Toggle(ctx, ls, dl, font, "Auto", mAutoApply);
-			NkUI::EndRow(ctx, ls);
-
-			// ── Liste des symptômes (scrollable) ──────────────────────────────
-			float32 scrollY = 0.f;
-			NkRect scrollRect = {rect.x + 2.f, rect.y + 120.f, rect.w - 4.f, rect.h - 128.f};
-			if (NkUI::BeginScrollRegion(ctx, ls, "sym_scroll", scrollRect, nullptr, &scrollY)) {
-				RenderSymptomList(ctx, dl, font, ls, patient);
-				NkUI::EndScrollRegion(ctx, ls);
+			{
+				const float32 sizes[2] = {110.f, -1.f};
+				BeginRow(ctx, 22.f, sizes, 2);
+				if (Button(ctx, "Tout effacer")) {
+					for (nk_usize i = 0; i < mSymptoms.Size(); ++i)
+						mSymptoms[i].active = false;
+					patient.ClearSymptoms();
+				}
+				pvgui::Toggle(ctx, "Auto", mAutoApply);
+				EndRow(ctx);
 			}
 
-			NkUIWindow::End(ctx, wm, dl, ls);
+			Separator(ctx);
+
+			// ── Liste des symptômes (le panel défile) ─────────────────────────
+			RenderSymptomList(ctx, patient);
+
+			EndPanel(ctx);
 		}
 
 		// =====================================================================
-		void SymptomInputPanel::RenderVitalSigns(NkUIContext &ctx, NkUIDrawList &dl, NkUIFont &font,
-												 NkUILayoutStack &ls, PatientLayer &patient) noexcept {
-			// ── FC ────────────────────────────────────────────────────────────
-			NkUI::BeginRow(ctx, ls, 22.f);
-			NkUI::SetNextWidth(ctx, ls, 40.f);
-			NkUI::Text(ctx, ls, dl, font, "FC:");
-			NkUI::SetNextGrow(ctx, ls);
-			bool changed = NkUI::SliderFloat(ctx, ls, dl, font, "##hr", mHR, 30.f, 200.f, "%.0f bpm");
-			NkUI::EndRow(ctx, ls);
+		void SymptomInputPanel::RenderVitalSigns(NkGuiContext &ctx, PatientLayer &patient) noexcept {
+			// Rangées {libellé 42px | slider poids 1 | valeur 64px}. NKGui n'a pas
+			// de format printf sur SliderFloat : la valeur formatée est un Label.
+			const float32 sizes[3] = {42.f, -1.f, 64.f};
+			char vbuf[24];
+			bool changed = false;
 
-			// ── Température ───────────────────────────────────────────────────
-			NkUI::BeginRow(ctx, ls, 22.f);
-			NkUI::SetNextWidth(ctx, ls, 40.f);
-			NkUI::Text(ctx, ls, dl, font, "T°:");
-			NkUI::SetNextGrow(ctx, ls);
-			// Couleur selon valeur
+			// ── FC ────────────────────────────────────────────────────────────
+			BeginRow(ctx, 22.f, sizes, 3);
+			pvgui::Label(ctx, "FC:");
+			changed |= SliderFloat(ctx, "##hr", mHR, 30.f, 200.f);
+			snprintf(vbuf, sizeof(vbuf), "%.0f bpm", mHR);
+			pvgui::Label(ctx, vbuf);
+			EndRow(ctx);
+
+			// ── Température (couleur selon valeur) ────────────────────────────
+			BeginRow(ctx, 22.f, sizes, 3);
+			pvgui::Label(ctx, "T°:");
+			changed |= SliderFloat(ctx, "##temp", mTemp, 34.f, 42.f);
 			NkColor tCol = (mTemp > 38.f)	? NkColor{255, 120, 80, 255}
 						   : (mTemp < 36.f) ? NkColor{100, 150, 255, 255}
 											: NkColor{200, 200, 200, 255};
-			// NOTE (Phase R1) : NkStyleVar::SliderFill n'existe pas dans NKUI réel
-			// (aucun hook de couleur par widget sur SliderFloat aujourd'hui) —
-			// coloration documentée (tCol) mais non appliquée visuellement.
-			(void)tCol;
-			changed |= NkUI::SliderFloat(ctx, ls, dl, font, "##temp", mTemp, 34.f, 42.f, "%.1f°C");
-			NkUI::EndRow(ctx, ls);
+			snprintf(vbuf, sizeof(vbuf), "%.1f°C", mTemp);
+			pvgui::TextColored(ctx, tCol, vbuf);
+			EndRow(ctx);
 
 			// ── SpO2 ──────────────────────────────────────────────────────────
-			NkUI::BeginRow(ctx, ls, 22.f);
-			NkUI::SetNextWidth(ctx, ls, 40.f);
-			NkUI::Text(ctx, ls, dl, font, "SpO2:");
-			NkUI::SetNextGrow(ctx, ls);
+			BeginRow(ctx, 22.f, sizes, 3);
+			pvgui::Label(ctx, "SpO2:");
+			changed |= SliderFloat(ctx, "##spo2", mSpO2, 70.f, 100.f);
 			NkColor sCol = (mSpO2 < 90.f)	? NkColor{255, 60, 60, 255}
 						   : (mSpO2 < 95.f) ? NkColor{255, 180, 60, 255}
 											: NkColor{80, 200, 80, 255};
-			// NOTE (Phase R1) : NkStyleVar::SliderFill n'existe pas dans NKUI réel — cf. plus haut.
-			(void)sCol;
-			changed |= NkUI::SliderFloat(ctx, ls, dl, font, "##spo2", mSpO2, 70.f, 100.f, "%.0f%%");
-			NkUI::EndRow(ctx, ls);
+			snprintf(vbuf, sizeof(vbuf), "%.0f%%", mSpO2);
+			pvgui::TextColored(ctx, sCol, vbuf);
+			EndRow(ctx);
 
 			if (changed || mAutoApply)
 				patient.SetVitalSigns(mHR, mTemp, mSpO2);
 		}
 
 		// =====================================================================
-		void SymptomInputPanel::RenderSymptomList(NkUIContext &ctx, NkUIDrawList &dl, NkUIFont &font,
-												  NkUILayoutStack &ls, PatientLayer &patient) noexcept {
+		void SymptomInputPanel::RenderSymptomList(NkGuiContext &ctx, PatientLayer &patient) noexcept {
 			for (nk_usize i = 0; i < mSymptoms.Size(); ++i) {
 				auto &sym = mSymptoms[i];
 
@@ -140,13 +124,7 @@ namespace nkentseu {
 						continue;
 				}
 
-				NkUI::BeginRow(ctx, ls, 20.f);
-				bool prev = sym.active;
-				NkColor col = sym.active ? NkColor{100, 220, 100, 255} : NkColor{180, 180, 180, 255};
-				// NOTE (Phase R1) : NkStyleVar::CheckboxMark n'existe pas dans NKUI réel — cf. plus haut.
-				(void)col;
-				bool changed = NkUI::Checkbox(ctx, ls, dl, font, sym.name.CStr(), sym.active);
-				NkUI::EndRow(ctx, ls);
+				bool changed = Checkbox(ctx, sym.name.CStr(), sym.active);
 
 				if (changed && mAutoApply) {
 					if (sym.active)
