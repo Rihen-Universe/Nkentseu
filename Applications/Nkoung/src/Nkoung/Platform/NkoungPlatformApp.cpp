@@ -14,13 +14,12 @@
 #include "NKCanvas/Core/NkContextDesc.h"
 #include "NKCanvas/Core/NkGraphicsApi.h"
 #include "NKFont/Embedded/NkFontEmbedded.h"
-#include "NKCanvas/UI/NkUICanvasBackend.h"
 #include "../UI/NkoungUIColor.h"
 #include <cstdio>
 
 using namespace nkentseu;
 using namespace nkentseu::renderer;
-using namespace nkentseu::nkui;
+using namespace nkentseu::nkgui;
 
 namespace nkoung {
 
@@ -54,7 +53,11 @@ namespace nkoung {
 	NkoungPlatformApp::~NkoungPlatformApp() {
 		mCurrentGame.Reset();
 		delete mUIBackend;
-		delete mUIWindowManager;
+		if (mTitleFont != mUIFont)
+			delete mTitleFont;
+		delete mUIFont;
+		if (mUIContext)
+			mUIContext->Shutdown();
 		delete mUIContext;
 		delete mRenderTarget;
 		mWindow.Close();
@@ -102,62 +105,64 @@ namespace nkoung {
 
 		NKOUNG_LOG_INFOF("Backend graphique: %s", NkGraphicsApiName(desc.api));
 
-		// Initialiser NKUI
-		NkUIFontConfig fontConfig;
-		fontConfig.yAxisUp = false;
-		fontConfig.enableAtlas = true;
-		fontConfig.enableBitmapFallback = true;
-		fontConfig.defaultFontSize = 18.f;
-
-		mUIContext = new NkUIContext();
-		if (!mUIContext->Init(static_cast<int32>(cfg.width), static_cast<int32>(cfg.height), fontConfig)) {
-			NKOUNG_LOG_ERROR("Impossible d'initialiser NkUIContext");
+		// Initialiser NKGui (contexte + 2 polices + backend NKCanvas) — même
+		// montage que NkPAGui.cpp (pile NKPA/Pong/NKCode).
+		mUIContext = new NkGuiContext();
+		if (!mUIContext->Init(static_cast<int32>(cfg.width), static_cast<int32>(cfg.height))) {
+			NKOUNG_LOG_ERROR("Impossible d'initialiser NkGuiContext");
 			return false;
 		}
-		mUIContext->SetTheme(NkUITheme::Dark());
+		SetCurrentContext(mUIContext);
 
-		mUIWindowManager = new NkUIWindowManager();
-		mUIWindowManager->Init();
-
-		mUIBackend = new NkUICanvasBackend();
-		mUIBackend->Init(mRenderTarget->GetRenderer());
-
-		// Charger une police
-		int32 fontId = mUIContext->fontManager.LoadEmbedded(NkEmbeddedFontId::DroidSans, 18.f);
-		if (fontId < 0)
-			fontId = mUIContext->fontManager.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 16.f);
-		mBodyFontId = static_cast<uint32>(fontId < 0 ? 0 : fontId);
-		mUIFont = mUIContext->fontManager.Get(mBodyFontId);
-		if (!mUIFont) {
+		// Police corps (18) : DroidSans, repli ProggyClean.
+		mUIFont = new NkGuiFont();
+		if (!mUIFont->LoadEmbedded(NkEmbeddedFontId::DroidSans, 18.f))
+			mUIFont->LoadEmbedded(NkEmbeddedFontId::ProggyClean, 16.f);
+		if (!mUIFont->Valid())
 			NKOUNG_LOG_WARN("Aucune police chargée");
+		mUIContext->font = mUIFont;
+
+		// Police de titre (30) pour l'en-tête du menu : texId DISTINCT (le défaut
+		// 'NKFT' est partagé par toute NkGuiFont -> collision d'atlas sinon).
+		mTitleFont = new NkGuiFont();
+		mTitleFont->texId = mUIFont->TexId() + 1u;
+		if (!mTitleFont->LoadEmbedded(NkEmbeddedFontId::DroidSans, 30.f)) {
+			delete mTitleFont;
+			mTitleFont = mUIFont;
 		}
 
-		// Police de titre (plus grande) pour l'en-tête du menu.
-		int32 titleId = mUIContext->fontManager.LoadEmbedded(NkEmbeddedFontId::DroidSans, 30.f);
-		mTitleFontId = static_cast<uint32>(titleId < 0 ? (fontId < 0 ? 0 : fontId) : titleId);
-		mTitleFont = mUIContext->fontManager.Get(mTitleFontId);
-		if (!mTitleFont)
-			mTitleFont = mUIFont;
+		mUIBackend = new NkGuiCanvasBackend();
+		if (!mUIBackend->Init(mRenderTarget->GetRenderer())) {
+			NKOUNG_LOG_ERROR("Impossible d'initialiser NkGuiCanvasBackend");
+			return false;
+		}
+		if (mUIFont->pixels && mUIFont->atlasW > 0 && mUIFont->atlasH > 0)
+			mUIBackend->UploadFontGray8(mUIFont->TexId(), mUIFont->pixels, mUIFont->atlasW, mUIFont->atlasH);
+		if (mTitleFont != mUIFont && mTitleFont->pixels && mTitleFont->atlasW > 0 && mTitleFont->atlasH > 0)
+			mUIBackend->UploadFontGray8(mTitleFont->TexId(), mTitleFont->pixels, mTitleFont->atlasW,
+										mTitleFont->atlasH);
+		NKOUNG_LOG_INFOF("UI NKGui/NKCanvas prete (atlas corps %dx%d, titre %dx%d)", mUIFont->atlasW,
+						 mUIFont->atlasH, mTitleFont->atlasW, mTitleFont->atlasH);
 
 		// Configurer les callbacks d'événements
 		auto &events = NkEvents();
 		events.AddEventCallback<NkWindowCloseEvent>([this](NkWindowCloseEvent *) { mRunning = false; });
 		events.AddEventCallback<NkMouseMoveEvent>([this](NkMouseMoveEvent *e) {
 			mInput.mousePos = {static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
-			mUIInput.SetMousePos(static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()));
+			mUIContext->input.mousePos = mInput.mousePos;
 		});
 		events.AddEventCallback<NkMouseButtonPressEvent>([this](NkMouseButtonPressEvent *e) {
 			if (e->GetButton() == NkMouseButton::NK_MB_LEFT) {
 				mInput.mouseLPressedThisFrame = true;
 				mInput.mouseLPressed = true;
-				mUIInput.SetMouseButton(0, true);
+				mUIContext->input.mouseDown[0] = true;
 			}
 		});
 		events.AddEventCallback<NkMouseButtonReleaseEvent>([this](NkMouseButtonReleaseEvent *e) {
 			if (e->GetButton() == NkMouseButton::NK_MB_LEFT) {
 				mInput.mouseLReleasedThisFrame = true;
 				mInput.mouseLPressed = false;
-				mUIInput.SetMouseButton(0, false);
+				mUIContext->input.mouseDown[0] = false;
 			}
 		});
 
@@ -170,8 +175,8 @@ namespace nkoung {
 			mInput.mousePos = {tx, ty};
 			mInput.mouseLPressedThisFrame = true;
 			mInput.mouseLPressed = true;
-			mUIInput.SetMousePos(tx, ty);
-			mUIInput.SetMouseButton(0, true);
+			mUIContext->input.mousePos = {tx, ty};
+			mUIContext->input.mouseDown[0] = true;
 		});
 		events.AddEventCallback<NkTouchMoveEvent>([this](NkTouchMoveEvent *e) {
 			if (e->GetNumTouches() == 0)
@@ -179,12 +184,12 @@ namespace nkoung {
 			const auto &t = e->GetTouch(0);
 			const float32 tx = static_cast<float32>(t.clientX), ty = static_cast<float32>(t.clientY);
 			mInput.mousePos = {tx, ty};
-			mUIInput.SetMousePos(tx, ty);
+			mUIContext->input.mousePos = {tx, ty};
 		});
 		events.AddEventCallback<NkTouchEndEvent>([this](NkTouchEndEvent *) {
 			mInput.mouseLReleasedThisFrame = true;
 			mInput.mouseLPressed = false;
-			mUIInput.SetMouseButton(0, false);
+			mUIContext->input.mouseDown[0] = false;
 		});
 
 		InitPlatformMenu();
@@ -201,7 +206,6 @@ namespace nkoung {
 
 			// Input
 			mInput.BeginFrame();
-			mUIInput.BeginFrame();
 			while (NkEvent *ev = NkEvents().PollEvent()) {
 				if (mCurrentScene == AppScene::PlatformMenu) {
 					HandlePlatformMenuEvent(ev);
@@ -274,16 +278,18 @@ namespace nkoung {
 		if (dt > 0.0001f)
 			mFpsSmooth = mFpsSmooth * 0.92f + (1.f / dt) * 0.08f;
 
-		// Ouvre la frame UI ; on dessine tout dans le draw list courant.
-		mUIInput.dt = dt;
-		mUIContext->BeginFrame(mUIInput, dt);
-		NkUIDrawList &dl = *mUIContext->dl;
+		// Ouvre la frame UI ; on dessine tout dans la draw-list principale.
+		SetCurrentContext(mUIContext);
+		mUIContext->viewW = static_cast<int32>(szu.x);
+		mUIContext->viewH = static_cast<int32>(szu.y);
+		mUIContext->BeginFrame(dt);
+		NkGuiDrawList &dl = mUIContext->dl;
 
-		// RenderText attend une BASELINE ; on passe un Y de HAUT et on ajoute l'ascender.
-		auto drawText = [&](NkUIFont *f, float32 x, float32 topY, const char *s, const math::NkColor &c,
+		// AddText attend une BASELINE ; on passe un Y de HAUT et on ajoute l'ascent.
+		auto drawText = [&](NkGuiFont *f, float32 x, float32 topY, const char *s, const math::NkColor &c,
 							float32 maxW = -1.f) {
-			if (f && s)
-				f->RenderText(dl, NkVec2{x, topY + f->metrics.ascender}, s, c, maxW);
+			if (f && f->Face() && s)
+				dl.AddText(f->Face(), f->TexId(), NkVec2{x, topY + f->Ascent()}, s, c, maxW);
 		};
 
 		// ── Mise en page ──────────────────────────────────────────────────
@@ -346,7 +352,7 @@ namespace nkoung {
 
 			// Fond de carte (plus sombre si verrouillée).
 			const math::NkColor bg = g.playable ? C::CARD_BG() : math::NkColor{20, 24, 34, 255};
-			dl.AddRectFilled(card, bg, 8.f, 8.f);
+			dl.AddRectFilled(card, bg, 8.f);
 
 			// Bordure selon l'état.
 			math::NkColor border = C::BORDER_SUBTLE();
@@ -361,7 +367,7 @@ namespace nkoung {
 				border = C::BORDER_DISABLED();
 				bth = 1.5f;
 			}
-			dl.AddRect(card, border, bth, 8.f, 8.f);
+			dl.AddRect(card, border, bth); // NkGuiDrawList::AddRect : contour sans arrondi
 
 			// Titre + sous-titre.
 			const float32 tx = cx + 18.f;
@@ -391,7 +397,8 @@ namespace nkoung {
 				 C::TEXT_SECONDARY());
 
 		mUIContext->EndFrame();
-		mUIBackend->Submit(*mUIContext, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dl, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dlOverlay, szu.x, szu.y);
 	}
 
 	void NkoungPlatformApp::UpdateGameScene(float32 dt) noexcept {
@@ -413,11 +420,13 @@ namespace nkoung {
 		const float32 W = static_cast<float32>(szu.x);
 		const float32 H = static_cast<float32>(szu.y);
 
-		mUIInput.dt = dt;
-		mUIContext->BeginFrame(mUIInput, dt);
+		SetCurrentContext(mUIContext);
+		mUIContext->viewW = static_cast<int32>(szu.x);
+		mUIContext->viewH = static_cast<int32>(szu.y);
+		mUIContext->BeginFrame(dt);
 
 		NkoungFrame frame;
-		frame.dl = mUIContext->dl;
+		frame.dl = &mUIContext->dl;
 		frame.font = mUIFont;
 		frame.titleFont = mTitleFont;
 		frame.width = W;
@@ -435,7 +444,8 @@ namespace nkoung {
 		mCurrentGame->Render(frame);
 
 		mUIContext->EndFrame();
-		mUIBackend->Submit(*mUIContext, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dl, szu.x, szu.y);
+		mUIBackend->Submit(mUIContext->dlOverlay, szu.x, szu.y);
 	}
 
 	void NkoungPlatformApp::HandleGameEvent(NkEvent *event) noexcept {
