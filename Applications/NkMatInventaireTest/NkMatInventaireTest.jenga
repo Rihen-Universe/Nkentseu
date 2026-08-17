@@ -1,5 +1,13 @@
 """NkMatInventaireTest — rend un APERCU par fichier .nkmat, sans souris.
 
+⚠️ BANC ARRETE ET NON ENREGISTRE : ce fichier n'est PLUS inclus dans
+Nkentseu.jenga (retire le 17/08 — il echouait au lien PAR CONSTRUCTION, 118
+symboles Demo3DHost* definis dans NkDemo3D.cpp jamais compile ici, et cassait
+le build complet de main ; trouve par l'agent Ilyana). Le commentaire du
+retrait, dans Nkentseu.jenga, dit pourquoi on ne le « repare » pas en ajoutant
+NkDemo3D.cpp aux sources. Il se re-enregistre le jour ou Demo3DHost devient
+une bibliotheque — il linkera alors sans une ligne de plus.
+
 Instrument de l'inventaire des materiaux : ouvre une fenetre CACHEE, initialise
 l'hote du viseur (device + taille, rien d'autre), charge chaque .nkmat par le
 chemin OFFICIEL du modeleur (NkAsMatRestore) et ecrit un PNG par materiau, plus
