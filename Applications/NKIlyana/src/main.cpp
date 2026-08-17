@@ -47,6 +47,7 @@
 
 #include "NKGpt/NkGptTrainer.h"
 #include "NKData/NkBpeTrainer.h"
+#include "NKTensor/NkTensorGpu.h" // --reserve : interrupteur + temoin servis/neufs
 #include "NKLogger/NkLog.h"
 #include "NKTime/NkChrono.h"
 #include "NKContainers/String/NkString.h"
@@ -55,6 +56,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csignal> // arret propre de l'entrainement (SIGINT/SIGTERM)
 
 using namespace nkentseu;
 using namespace nkentseu::ai;
@@ -694,6 +696,14 @@ static int ModeTrain(int argc, char **argv) {
 	cfg.lr = (float)ArgReel(argc, argv, "--lr", 3e-4);
 	cfg.warmup = (int)ArgEntier(argc, argv, "--warmup", -1);
 	cfg.saveEvery = (int)ArgEntier(argc, argv, "--saveevery", 200);
+	// REDEMARRAGE SECURISE (Rodolf, 2026-08-17 : « avec des protections pour le
+	// redemarrage securise »). Un checkpoint toutes les N minutes de calcul
+	// (defaut 20 : on ne perd jamais plus de vingt minutes), en plus de
+	// --saveevery ; rotation <save>/.prev/.prev2 ; arret propre par le fichier
+	// <save>.stop (ou --stop <fichier>) ou par Ctrl-C ; journal <save>.etat.txt.
+	cfg.saveMinutes = ArgReel(argc, argv, "--saveminutes", 20.0);
+	cfg.stopFile = NkString(Arg(argc, argv, "--stop", ""));
+	cfg.logEvery = (int)ArgEntier(argc, argv, "--journal", 25);
 	cfg.valFrac = (float)ArgReel(argc, argv, "--valfrac", 0.02);
 	cfg.valEvery = (int)ArgEntier(argc, argv, "--valevery", 250);
 	cfg.valFenetres = (int)ArgEntier(argc, argv, "--valfenetres", 0);
@@ -747,9 +757,63 @@ static int ModeTrain(int argc, char **argv) {
 	}
 	logger.Info("GPU : {0}", t.UseGpu() ? "OUI (entrainement resident)" : "NON (repli CPU, ce sera tres lent)");
 
+	// Arret propre : Ctrl-C / SIGTERM ne tuent plus le processus au milieu d'un
+	// pas ; ils demandent au trainer d'ecrire un checkpoint a la fin du pas en
+	// cours et de sortir. (Le gestionnaire ne fait que lever un drapeau : rien
+	// d'autre n'est sur dans un gestionnaire de signal.)
+	signal(SIGINT, [](int) { gpt::NkGptTrainer::DemanderArret(); });
+	signal(SIGTERM, [](int) { gpt::NkGptTrainer::DemanderArret(); });
+
+	// RESERVE DE TAMPONS : recycler les tampons GPU par taille exacte (chantier
+	// n°2). DEFAUT ON EN MODE TRAIN depuis le 2026-08-17, sur decision de Rodolf
+	// apres la mesure sur un vrai pas : taux de service 56,9 %, Fit x1,82,
+	// trajectoires identiques a la decimale entre les deux modes (la reserve ne
+	// change pas le calcul, seulement le temps). `--sans-reserve` revient au
+	// comportement LEGACY ; `--reserve` reste accepte (desormais redondant).
+	// PAS d'activation globale dans NkTensorGpu : les demonstrateurs courts n'en
+	// profitent pas et la retention y gaspillerait de la VRAM.
+	// Le temoin servis/neufs est imprime apres Fit() dans les DEUX modes : une
+	// reserve est un cache, et un cache repond toujours ; sans ces compteurs,
+	// « la reserve marche » serait indiscernable de « elle ne sert jamais ».
+	const bool avecReserve = !Drapeau(argc, argv, "--sans-reserve");
+	if (avecReserve) {
+		const int64 budgetMo = ArgEntier(argc, argv, "--reserve-budget-mo", 512);
+		NkTensorGpu::ReserveBudget(budgetMo * 1024 * 1024);
+		NkTensorGpu::ReserveActive(true);
+		NkTensorGpu::ReserveRazCompteurs();
+		logger.Info("RESERVE DE TAMPONS : ACTIVE (budget {0} Mo ; --sans-reserve pour revenir au LEGACY)",
+					(long long)budgetMo);
+	} else {
+		logger.Info("RESERVE DE TAMPONS : DESACTIVEE par --sans-reserve (LEGACY)");
+	}
+
 	NkChrono chrono;
 	t.Fit();
 	logger.Info("Entrainement termine en {0} s.", chrono.Elapsed().seconds);
+
+	// TEMOIN DE LA RESERVE — imprime dans les DEUX modes : en LEGACY, servis doit
+	// etre 0 (contre-epreuve que l'interrupteur est bien un interrupteur).
+	{
+		const int64 servis = NkTensorGpu::ReserveServis();
+		const int64 neufs = NkTensorGpu::ReserveNeufs();
+		const int64 total = servis + neufs;
+		logger.Info("[reserve] servis={0}  neufs={1}  taux de service={2}%  retenus={3} tampons ({4} Mo)  "
+					"evictions={5}",
+					(long long)servis, (long long)neufs,
+					total > 0 ? (100.0 * (double)servis / (double)total) : 0.0,
+					(long long)NkTensorGpu::ReserveTamponsRetenus(),
+					(double)NkTensorGpu::ReserveOctetsRetenus() / 1.0e6,
+					(long long)NkTensorGpu::ReserveEvictions());
+		// Deux pics, deux noms : le pic PHYSIQUE compte la retention de la reserve
+		// (c'est lui qui decide si ca tient sur la carte), le pic CALCUL est le
+		// besoin incompressible. Avec reserve, physique > calcul ; sans, egaux —
+		// un pic physique EGAL au pic calcul sous reserve active serait la
+		// signature de l'ancien defaut d'instrument.
+		logger.Info("[reserve] VRAM pic physique (calcul+retenus) : {0} Mo ; pic calcul seul : {1} Mo",
+					(double)NkTensorGpu::VramPic() / 1.0e6, (double)NkTensorGpu::VramPicCalcul() / 1.0e6);
+	}
+	if (avecReserve)
+		NkTensorGpu::ReserveActive(false); // vide la retenue avant la generation
 
 	// NE PAS rappeler t.Save() ici. `Fit()` a DEJA ecrit le checkpoint final AVEC
 	// l'etat de l'optimiseur (moments d'Adam + pas global), ce qui permet une
@@ -2476,6 +2540,7 @@ int main(int argc, char **argv) {
 	logger.Info("  --data    [--source f] [--sortie d] [--repetitions n] [--vocab n] [--avec-quarantaine]");
 	logger.Info("  --train   [--corpus f] [--bpe f] [--save f] [--load f] [--steps n] [--d n] [--layers n]");
 	logger.Info("            [--heads n] [--T n] [--B n] [--accum n] [--lr x] [--saveevery n]");
+	logger.Info("            [--saveminutes x] [--stop fichier] [--horizon n] [--echantillons n] [--sans-reserve]");
 	logger.Info("  --parler  [--load f] [--bpe f] [--question \"...\"] [--temp x] [--topk n] [--topp x]");
 	logger.Info("  --melange --identite f --corpus f [--sortie f] [--part 0.25] [--taille 8]");
 	logger.Info("            corpus de la 2e phase : identite entrelacee avec de la prose prelevee");

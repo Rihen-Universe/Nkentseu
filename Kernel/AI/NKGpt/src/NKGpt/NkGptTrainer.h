@@ -84,6 +84,21 @@ namespace nkentseu {
 					int accum = 1;	   // micro-lots accumulés (batch effectif = B*accum)
 					int warmup = -1;   // <0 -> steps/20 (5%)
 					int saveEvery = 0; // checkpoint tous les N pas (0 = fin seule)
+					// REDEMARRAGE SECURISE (2026-08-17, exige par Rodolf avant la campagne longue).
+					// Un intervalle en PAS ne dit rien de ce qu'on perd : a 35 s/pas, 200 pas
+					// font deux heures. L'intervalle en MINUTES borne la perte en temps de
+					// calcul, quel que soit le montage. Les deux criteres coexistent : on
+					// sauve des que l'un est atteint. 0 = desactive.
+					double saveMinutes = 0.0;
+					// Journal de la perte tous les N pas (defaut 25). Sur la campagne, c'est
+					// ce que Rodolf lit dans app.log ; sur un temoin de reprise, 1 permet de
+					// comparer les trajectoires pas a pas.
+					int logEvery = 25;
+					// Fichier-sentinelle d'ARRET PROPRE : s'il apparait, l'entraineur ecrit un
+					// checkpoint a la fin du pas en cours et sort. C'est le seul signal
+					// qui atteigne un processus lance sans console (WindowStyle Hidden) ;
+					// SIGINT/SIGTERM sont aussi ecoutes. Vide = <savePath>.stop.
+					NkString stopFile;
 					float lr = 3e-4f;  // pic de learning-rate (puis cosine, plancher 10%)
 
 					// Validation (held-out) : mesure la généralisation (≠ mémorisation).
@@ -195,6 +210,11 @@ namespace nkentseu {
 					// charge les poids si un checkpoint est fourni. Retourne false en cas d'erreur.
 					bool Prepare();
 
+					// Demande d'arret propre depuis un gestionnaire de signal (SIGINT/SIGTERM) :
+					// Fit() la lit a chaque pas, ecrit un checkpoint et sort. Volatile parce
+					// qu'ecrite hors du fil normal.
+					static volatile bool sArretDemande;
+					static void DemanderArret() { sArretDemande = true; }
 					// Boucle d'entraînement (accumulation, masquage, LR schedule, checkpoint périodique).
 					void Fit();
 
@@ -336,6 +356,11 @@ namespace nkentseu {
 					NkVector<NkTensor> mOptM, mOptV;
 					int64 mResumeStep = 0;
 					bool mHasOptState = false;
+
+					// Ecrit <savePath>.etat.txt : pas global, perte, lr, horodatage, duree
+					// par pas, estimation de fin — lisible sans relancer quoi que ce soit.
+					void EcrireEtat(int64 pasGlobal, int64 horizon, double perte, double lr, double sParPas,
+									const char *motif);
 			};
 
 		} // namespace gpt
