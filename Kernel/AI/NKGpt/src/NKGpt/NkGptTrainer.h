@@ -89,6 +89,43 @@ namespace nkentseu {
 					// Validation (held-out) : mesure la généralisation (≠ mémorisation).
 					float valFrac = 0.f; // fraction de queue de CHAQUE langue réservée au val (0 = désactivé)
 					int valEvery = 0;	 // évalue le val tous les N pas (0 = seulement à la fin si valFrac>0)
+					// ⚠️ MODE D'ECHANTILLONNAGE DES FENETRES — DECLARE, plus deduit.
+					//
+					//    0 = jamais de debut de bloc — decalage uniforme pur  [DEFAUT]
+					//    1 = une fenetre sur deux demarre sur un debut de bloc
+					//   -1 = auto (deduit du contenu) — RESERVE au rejeu des anciennes
+					//        courses, JAMAIS le defaut : ce mode est precisement l'accident
+					//        qu'on corrige. Un defaut a -1 aurait rendu le regime declarable
+					//        tout en continuant a le subir — un choix apparent qui reporte la
+					//        decision indefiniment.
+					//
+					// DEFAUT = 0 (uniforme pur), et c'est un choix, pas une reconduction :
+					//  - c'est le regime sous lequel TOUTES les courses de reference ont
+					//    tourne (`fr_course.txt` ne porte pas le marqueur) ;
+					//  - le mode 1 a ete introduit pour que les exemples question/reponse
+					//    soient vus ENTIERS. Sur le corpus complet, `mLangStarts` recense
+					//    3 923 853 blocs dont 3 270 seulement sont des paires : demarrer sur
+					//    une frontiere de paragraphe Wikipedia n'a rien a voir avec la raison
+					//    d'origine, et cet effet-la n'a jamais ete mesure.
+					//
+					// POURQUOI CE PARAMETRE EXISTE. Le regime etait deduit d'un
+					// `txt.Find("Reponse: ")` sur le fichier ENTIER : un corpus de 1,62 Go
+					// basculait parce qu'un marqueur figurait dans ses 500 premiers
+					// kilo-octets. Cela n'a JAMAIS ete decide, et sortir un fragment du
+					// corpus suffisait a changer le regime d'entrainement de tout le reste
+					// — en silence, comme effet de bord d'une operation de fichiers.
+					//
+					// Mesure du 14 aout 2026 : `fr_course.txt` ne contient pas le marqueur
+					// (0 occurrence) tandis que `fr_ilyana.txt` en compte 4 950. Toutes les
+					// courses de reference tournaient donc en uniforme pur, et le corpus
+					// complet basculera au grand run.
+					int debutsDeBloc = 0;
+
+					// Nombre de fenetres du jeu de validation FIGE (0 = valeur par defaut, 192).
+					// Reglable parce que la precision de la mesure en depend directement :
+					// trop peu de fenetres et l'ecart entre deux entrainements se lit dans le
+					// tirage plutot que dans les modeles.
+					int valFenetres = 0;
 
 					// Checkpoint / reprise.
 					NkString savePath;	 // sauvegarde (vide = pas de sauvegarde)
@@ -116,6 +153,29 @@ namespace nkentseu {
 					// vue jusque-là, qui reste valable, et les jeter provoquerait un
 					// à-coup de perte au redémarrage.
 					bool freshSchedule = false;
+
+					// Architecture du modèle. false = NkGPT (LayerNorm, positions
+					// apprises, GELU) ; true = NkLlamaLM (RMSNorm, RoPE, SwiGLU).
+					//
+					// ⚠️ RoPE ne grave AUCUNE longueur maximale dans les poids : la
+					// position vit dans une rotation, pas dans une table apprise. Une
+					// fenêtre T=256 en positions apprises est définitive — l'élargir
+					// imposerait de réentraîner le modèle entier.
+					//
+					// ⚠️ NkLlamaLM n'a pas encore de décodage incrémental : la
+					// génération y retraite tout le contexte à chaque token. Utilisable
+					// pour l'ENTRAÎNEMENT, coûteux pour de longues générations.
+					bool architectureLlama = false;
+
+					// Graine d'initialisation des poids. Exposée parce qu'un écart
+					// entre deux graines de la MÊME architecture donne le plancher de
+					// bruit : sans lui, on ne sait pas si un écart entre architectures
+					// veut dire quelque chose.
+					uint32 seedPoids = 1234u;
+					// Lie la projection de sortie a la table d'embedding (NkLlamaLM seul).
+					// Economise vocab x d parametres et change la NATURE du gradient recu
+					// par la table : creux par la recherche, dense par la projection.
+					bool weightTying = false;
 
 					// Génération.
 					NkString seed = NkString("Le ");
@@ -194,7 +254,7 @@ namespace nkentseu {
 					void MakeBatchIdx(NkTensor &x, NkTensor &targetIdx);
 					void MakeBatchIdxFrom(const NkVector<NkVector<float>> &data, const NkVector<NkVector<float>> &mask,
 										  NkTensor &x, NkTensor &targetIdx);
-					double EvaluateVal(int nBatches); // perte moyenne sur le held-out (forward seul) ; -1 si pas de val
+					double EvaluateVal(); // perte moyenne sur le held-out fige (forward seul) ; -1 si pas de val
 					double NextRand();				  // LCG déterministe [0,1)
 					void FillMeta(GptMeta &meta) const; // dims + BPE + langues (pour la sauvegarde)
 
@@ -228,9 +288,42 @@ namespace nkentseu {
 					// même calcul finissent toujours par diverger.
 					int64 ChoisirDecalage(int li, int64 N);
 					NkVector<NkVector<float>> mValData, mValMask;	// held-out validation (queue de chaque langue)
+
+					// Fenetres de validation FIGEES : (langue, decalage), construites une
+					// seule fois dans Prepare, relues telles quelles a chaque evaluation.
+					//
+					// POURQUOI. Les fenetres etaient tirees au hasard a CHAQUE appel de
+					// EvaluateVal. Deux consequences :
+					//  - la perte du pas 50 et celle du pas 300 ne portaient pas sur le meme
+					//    texte, donc leur difference melange le progres du modele et la
+					//    difficulte inegale des extraits ;
+					//  - le tirage consommait le meme flux aleatoire que les lots
+					//    d'entrainement, ce qui liait deux choses sans aucune raison de l'etre.
+					// Un jeu fige supprime les deux. Le tirage utilise un flux SEPARE et un
+					// germe constant : la validation ne bouge donc pas quand --graine change,
+					// et deux entrainements comparent bien leurs pertes sur le MEME texte.
+					struct FenetreVal {
+							int langue = 0;
+							int64 decalage = 0;
+					};
+					NkVector<FenetreVal> mValFenetres;
+					void ConstruireFenetresVal(); // une seule fois, apres le decoupage held-out
+					// Lot de validation numero `i` du jeu fige (fenetres [i*B, i*B+B)).
+					void MakeBatchValFige(int indexLot, NkTensor &x, NkTensor &targetIdx);
+
 					int mV = 0, mNByte = 0;
 					int64 mT = 0, mD = 0, mH = 0, mL = 0, mB = 0;
 					nn::NkGPT *mGpt = nullptr; // tas (dims connues après Prepare)
+					// Architecture ALTERNATIVE : RMSNorm + RoPE + SwiGLU.
+					//
+					// Deux pointeurs plutôt qu'une interface commune, et c'est
+					// délibéré : les deux classes exposent bien `Forward` et
+					// `Parameters` avec les mêmes signatures, mais NkLlamaLM n'a PAS
+					// de `ForwardStep` (décodage incrémental avec cache clé/valeur).
+					// Une interface commune mentirait sur ce que le modèle sait faire,
+					// et le manque n'apparaîtrait qu'à l'exécution.
+					// Exactement UN des deux pointeurs est non nul.
+					nn::NkLlamaLM *mLlama = nullptr;
 					NkVector<NkVar> mParams;
 					int mGenLang = -1;
 					uint64 mRng = 0x9E3779B97F4A7C15ull;

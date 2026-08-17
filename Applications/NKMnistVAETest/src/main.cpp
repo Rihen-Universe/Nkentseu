@@ -117,6 +117,7 @@ int main() {
 		double sum = 0;
 		uint32 nb = 0;
 		for (uint32 b = 0; b < loader.NumBatches(); ++b) {
+			adam.ZeroGrad(); // Backward() n'efface plus les feuilles : un lot = un pas
 			data::NkBatch batch = loader.GetBatch(b);
 			NkVar x = NkVar::Leaf(batch.inputs, false);
 			const int64 B = batch.inputs.Shape()[0];
