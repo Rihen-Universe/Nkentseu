@@ -185,6 +185,89 @@ namespace {
 					 (uint32)fbx.skinJoints.Size(), multi, (uint32)fbx.skinnedVertices.Size());
 	}
 
+	// ── Etape (c) : animations depuis le FBX ───────────────────────────────
+	// References de l'inspecteur independant : 1 AnimationStack « Scene »,
+	// 57 CurveNode (19 joints x T/R/S), 171 courbes d|X/Y/Z, cles de 0.041667 s
+	// (frame 1 a 24 fps) a 10.416667 s (frame 250 — l'export Blender ETALE la
+	// timeline de scene : la parite de duree avec le glTF, 2.0 s, est IMPOSSIBLE
+	// sur ce temoin ; c'est l'inspecteur qui fait foi, comme pour inverseBind).
+	// Canal R de torso_joint_1, cle 0 : euler (90.005852, -0.002983, 4.200809)
+	// XYZ sans PreRotation -> quat (0.706668, 0.025899, 0.025933, 0.706595).
+	void TestFBXAnim(const renderer::NkGLTFMeshData &fbx) noexcept {
+		logger.Infof("-- FBX etape (c) : CesiumMan.fbx (animations) --\n");
+		Check(fbx.animations.Size() == 1, "FBX : 1 animation (1 AnimationStack)");
+		if (fbx.animations.Size() != 1)
+			return;
+		const renderer::NkGLTFAnimation &a = fbx.animations[0];
+		Check(a.name == NkString("Scene"), "FBX : l'animation porte le nom du Stack ('Scene')");
+		Check(a.channels.Size() == 57, "FBX : 57 canaux (57 CurveNode = 19 joints x T/R/S)");
+		Check(std::fabs(a.duration - 10.416667f) < 1e-3f,
+			  "FBX : duree 10.416667 s (derniere cle — inspecteur, pas de rebasage)");
+
+		// Chaque canal : cible valide, temps strictement croissants depuis la
+		// frame 1, quaternions normalises sur les canaux ROTATION.
+		bool nodesOk = true, timesOk = true, quatsOk = true;
+		for (uint32 c = 0; c < (uint32)a.channels.Size(); ++c) {
+			const renderer::NkGLTFAnimChannel &ch = a.channels[c];
+			if (ch.node < 0 || ch.node >= (int32)fbx.nodes.Size() || ch.times.Empty() ||
+				ch.times.Size() != ch.values.Size())
+				nodesOk = false;
+			if (ch.times.Empty() || std::fabs(ch.times[0] - 0.041667f) > 1e-3f)
+				timesOk = false;
+			for (uint32 k = 1; k < (uint32)ch.times.Size(); ++k)
+				if (ch.times[k] <= ch.times[k - 1])
+					timesOk = false;
+			if (ch.path == renderer::NkGLTFPath::ROTATION)
+				for (uint32 k = 0; k < (uint32)ch.values.Size(); ++k) {
+					const math::NkVec4f &q = ch.values[k];
+					if (std::fabs(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w - 1.f) > 1e-3f)
+						quatsOk = false;
+				}
+		}
+		Check(nodesOk, "FBX : chaque canal cible un node valide (times/values paralleles)");
+		Check(timesOk, "FBX : temps croissants depuis la frame 1 (0.041667 s), sans rebasage");
+		Check(quatsOk, "FBX : quaternions normalises sur tous les canaux ROTATION");
+
+		// L'ensemble des nodes animes == l'ensemble des joints du skin : chacun
+		// des 19 joints porte exactement ses trois canaux T, R, S.
+		bool cover = fbx.skinJoints.Size() == 19;
+		for (uint32 j = 0; cover && j < (uint32)fbx.skinJoints.Size(); ++j) {
+			uint32 t = 0, r = 0, s = 0;
+			for (uint32 c = 0; c < (uint32)a.channels.Size(); ++c) {
+				if (a.channels[c].node != fbx.skinJoints[j])
+					continue;
+				if (a.channels[c].path == renderer::NkGLTFPath::TRANSLATION)
+					++t;
+				else if (a.channels[c].path == renderer::NkGLTFPath::ROTATION)
+					++r;
+				else if (a.channels[c].path == renderer::NkGLTFPath::SCALE)
+					++s;
+			}
+			cover = t == 1 && r == 1 && s == 1;
+		}
+		Check(cover, "FBX : chacun des 19 joints porte exactement ses canaux T, R et S");
+
+		// Valeurs de la cle 0 du joint teste, contre l'inspecteur.
+		const int32 torso = FindNodeByName(fbx, "Skeleton_torso_joint_1");
+		bool t0Ok = false, r0Ok = false;
+		for (uint32 c = 0; torso >= 0 && c < (uint32)a.channels.Size(); ++c) {
+			const renderer::NkGLTFAnimChannel &ch = a.channels[c];
+			if (ch.node != torso || ch.values.Empty())
+				continue;
+			const math::NkVec4f &v = ch.values[0];
+			if (ch.path == renderer::NkGLTFPath::TRANSLATION)
+				t0Ok = std::fabs(v.x) < 1e-4f && std::fabs(v.y - (-0.643997f)) < 1e-4f &&
+					   std::fabs(v.z - (-0.020000f)) < 1e-4f;
+			else if (ch.path == renderer::NkGLTFPath::ROTATION)
+				r0Ok = std::fabs(v.x - 0.706668f) < 1e-3f && std::fabs(v.y - 0.025899f) < 1e-3f &&
+					   std::fabs(v.z - 0.025933f) < 1e-3f && std::fabs(v.w - 0.706595f) < 1e-3f;
+		}
+		Check(t0Ok, "FBX : canal T de torso_joint_1, cle 0 == courbes de l'inspecteur (1e-4)");
+		Check(r0Ok, "FBX : canal R de torso_joint_1, cle 0 == euler XYZ -> quat de l'inspecteur");
+		logger.Infof("     FBX anim : '%s', %u canaux, duree %.6fs\n", a.name.CStr(),
+					 (uint32)a.channels.Size(), a.duration);
+	}
+
 	// ── Non-regression ASCII : le cube de test (aucun Model dedans) ────────
 	void TestFBXAscii() noexcept {
 		logger.Infof("-- FBX ASCII : cube_ascii.fbx (non-regression geometrie) --\n");
@@ -205,6 +288,7 @@ int main() {
 	TestGLTFReference(gltf);
 	TestFBXNodes(fbx);
 	TestFBXSkin(fbx);
+	TestFBXAnim(fbx);
 	TestFBXAscii();
 
 	// Parite inter-chemins (etape (a) : ce qui est deja comparable).
@@ -218,6 +302,11 @@ int main() {
 		// Etape (b) : les deux chemins voient LE MEME squelette de 19 joints.
 		Check(fbx.skinJoints.Size() == gltf.skinJoints.Size(),
 			  "parite : autant de joints skin FBX que glTF (19 Cluster = 19 joints)");
+		// Etape (c) : une animation chacun. PAS de parite de duree : l'export
+		// Blender a etale la timeline (10.42 s contre 2.0 s) — donnee changee
+		// par l'exporteur, pas par le loader.
+		Check(fbx.animations.Size() == gltf.animations.Size(),
+			  "parite : autant d'animations FBX que glTF (1 chacun)");
 	}
 
 	logger.Infof("=== Resultat : %d OK, %d echec(s) ===\n", gPassCount, gFailCount);

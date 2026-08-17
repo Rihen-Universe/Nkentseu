@@ -672,6 +672,202 @@ namespace nkentseu {
 				out.skinRootNode = -1;
 			}
 
+			// ════════════════════════════════════════════════════════════════
+			//  Animations FBX -> out.animations (etape (c) du chantier
+			//  « FBX operationnel », 2026-08-17).
+			//  Structure (mesuree sur le temoin CesiumMan, inspecteur independant) :
+			//    AnimationLayer(child)     -OO-> AnimationStack(parent)
+			//    AnimationCurveNode(child) -OO-> AnimationLayer(parent)
+			//    AnimationCurveNode(child) -OP-> Model(parent), prop =
+			//        "Lcl Translation" | "Lcl Rotation" | "Lcl Scaling"
+			//    AnimationCurve(child)     -OP-> CurveNode(parent), prop = "d|X/Y/Z"
+			//  KeyTime en ticks KTime (1 s = 46 186 158 000), KeyValueFloat en
+			//  float32 (rotations en DEGRES euler). Temps convertis TELS QUELS,
+			//  sans rebasage — meme regle que le chemin glTF (duration = max).
+			// ════════════════════════════════════════════════════════════════
+
+			const int64 kKTimePerSec = 46186158000LL;
+
+			// Echantillonne une courbe (KeyTime tries / KeyValueFloat paralleles)
+			// au tick `t` : lineaire entre deux cles, clampee aux extremites,
+			// `def` si la courbe est absente ou vide (defaut du CurveNode).
+			float32 SampleFbxCurve(const NkVector<int64> *kt, const NkVector<float64> *kv, int64 t, float32 def) {
+				if (!kt || !kv || kt->Empty() || kv->Empty())
+					return def;
+				const uint32 n = (uint32)(kt->Size() < kv->Size() ? kt->Size() : kv->Size());
+				if (t <= (*kt)[0])
+					return (float32)(*kv)[0];
+				if (t >= (*kt)[(NkVector<int64>::SizeType)(n - 1)])
+					return (float32)(*kv)[(NkVector<float64>::SizeType)(n - 1)];
+				for (uint32 i = 1; i < n; ++i) {
+					const int64 t1 = (*kt)[(NkVector<int64>::SizeType)i];
+					if (t > t1)
+						continue;
+					const int64 t0 = (*kt)[(NkVector<int64>::SizeType)(i - 1)];
+					const float64 v0 = (*kv)[(NkVector<float64>::SizeType)(i - 1)];
+					const float64 v1 = (*kv)[(NkVector<float64>::SizeType)i];
+					const float64 a = t1 > t0 ? (float64)(t - t0) / (float64)(t1 - t0) : 0.0;
+					return (float32)(v0 + (v1 - v0) * a);
+				}
+				return (float32)(*kv)[(NkVector<float64>::SizeType)(n - 1)];
+			}
+
+			// Fusionne les ticks d'une courbe dans `un` (trie, unique) — les
+			// KeyTime d'une courbe FBX sont deja tries.
+			void MergeCurveTicks(const NkVector<int64> *kt, NkVector<int64> &un) {
+				if (!kt)
+					return;
+				for (uint32 i = 0; i < (uint32)kt->Size(); ++i) {
+					const int64 t = (*kt)[(NkVector<int64>::SizeType)i];
+					uint32 p = 0;
+					while (p < (uint32)un.Size() && un[(NkVector<int64>::SizeType)p] < t)
+						++p;
+					if (p < (uint32)un.Size() && un[(NkVector<int64>::SizeType)p] == t)
+						continue;
+					un.Insert(un.Begin() + (NkVector<int64>::SizeType)p, t);
+				}
+			}
+
+			// Extrait le premier AnimationStack en une NkGLTFAnimation : un canal
+			// par CurveNode T/R/S cible d'un Model, valeurs echantillonnees sur
+			// l'union des cles de ses courbes d|X/Y/Z. Rotation : euler degres ->
+			// quaternion (RotationOrder du Model), PreRotation composee DEVANT —
+			// meme composition que les TRS statiques d'ExtractNodes, parce que le
+			// consommateur (EvaluateGLTFPose) REMPLACE la rotation statique par la
+			// valeur du canal : elle doit porter le quaternion complet.
+			void ExtractAnimations(const NkVector<FbxIdEntry> &stacks, const NkVector<FbxIdEntry> &layers,
+								   const NkVector<FbxIdEntry> &curveNodes, const NkVector<FbxIdEntry> &curves,
+								   const NkVector<FbxIdEntry> &models, const NkVector<FbxConn> &conns,
+								   const NkVector<int32> &nodeOfModel, NkGLTFMeshData &out) {
+				if (stacks.Empty() || curveNodes.Empty())
+					return; // fichier sans animation : rien a inventer
+				NkGLTFAnimation anim;
+				anim.name = ObjNameOf(*stacks[0].node);
+
+				// Les layers du stack retenu (le premier) : filtre les CurveNode
+				// d'un eventuel second stack.
+				NkVector<int64> stackLayers;
+				FindChildrenOO(conns, stacks[0].id, layers, stackLayers);
+
+				for (uint32 cn = 0; cn < (uint32)curveNodes.Size(); ++cn) {
+					const FbxIdEntry &ce = curveNodes[(NkVector<FbxIdEntry>::SizeType)cn];
+					// Appartenance au stack retenu (via l'un de ses layers).
+					bool inStack = false;
+					for (uint32 l = 0; l < (uint32)stackLayers.Size() && !inStack; ++l)
+						for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+							const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+							if (!c.isProp && c.child == ce.id &&
+								c.parent == stackLayers[(NkVector<int64>::SizeType)l]) {
+								inStack = true;
+								break;
+							}
+						}
+					if (!inStack)
+						continue;
+					// Cible : OP CurveNode -> Model, prop Lcl T/R/S.
+					int64 modelId = -1;
+					NkGLTFPath path = NkGLTFPath::TRANSLATION;
+					int32 modelIdx = -1;
+					for (uint32 i = 0; i < (uint32)conns.Size() && modelId < 0; ++i) {
+						const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+						if (!c.isProp || c.child != ce.id)
+							continue;
+						NkGLTFPath p;
+						if (c.prop == NkString("Lcl Translation"))
+							p = NkGLTFPath::TRANSLATION;
+						else if (c.prop == NkString("Lcl Rotation"))
+							p = NkGLTFPath::ROTATION;
+						else if (c.prop == NkString("Lcl Scaling"))
+							p = NkGLTFPath::SCALE;
+						else
+							continue; // autre propriete animee : hors contrat TRS
+						for (uint32 m = 0; m < (uint32)models.Size(); ++m)
+							if (models[(NkVector<FbxIdEntry>::SizeType)m].id == c.parent) {
+								modelId = c.parent;
+								modelIdx = (int32)m;
+								path = p;
+								break;
+							}
+					}
+					if (modelId < 0)
+						continue; // CurveNode sans cible Model : ignore
+					const FbxNode &mo = *models[(NkVector<FbxIdEntry>::SizeType)modelIdx].node;
+
+					// Les 3 courbes d|X/Y/Z (chacune peut manquer -> defaut P70
+					// du CurveNode, la valeur statique du canal).
+					const NkVector<int64> *ktX = nullptr, *ktY = nullptr, *ktZ = nullptr;
+					const NkVector<float64> *kvX = nullptr, *kvY = nullptr, *kvZ = nullptr;
+					for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+						const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+						if (!c.isProp || c.parent != ce.id)
+							continue;
+						const FbxNode *cv = FindById(curves, c.child);
+						if (!cv)
+							continue;
+						const NkVector<int64> *kt = ArrI(cv->Find("KeyTime"));
+						const NkVector<float64> *kv = ArrF(cv->Find("KeyValueFloat"));
+						if (c.prop == NkString("d|X")) {
+							ktX = kt;
+							kvX = kv;
+						} else if (c.prop == NkString("d|Y")) {
+							ktY = kt;
+							kvY = kv;
+						} else if (c.prop == NkString("d|Z")) {
+							ktZ = kt;
+							kvZ = kv;
+						}
+					}
+					float32 defX = 0.f, defY = 0.f, defZ = 0.f;
+					GetP70(*ce.node, "d|X", 1, &defX);
+					GetP70(*ce.node, "d|Y", 1, &defY);
+					GetP70(*ce.node, "d|Z", 1, &defZ);
+
+					NkVector<int64> ticks;
+					MergeCurveTicks(ktX, ticks);
+					MergeCurveTicks(ktY, ticks);
+					MergeCurveTicks(ktZ, ticks);
+					if (ticks.Empty())
+						continue; // canal sans aucune cle : rien a emettre
+
+					// Rotation : parametres du Model, comme ExtractNodes.
+					float32 orderF = 0.f, pre3[3];
+					const bool hasPre = path == NkGLTFPath::ROTATION && GetP70(mo, "PreRotation", 3, pre3);
+					if (path == NkGLTFPath::ROTATION)
+						GetP70(mo, "RotationOrder", 1, &orderF);
+
+					NkGLTFAnimChannel ch;
+					ch.node = nodeOfModel[(NkVector<int32>::SizeType)modelIdx];
+					ch.path = path;
+					ch.interp = NkGLTFInterp::LINEAR;
+					for (uint32 k = 0; k < (uint32)ticks.Size(); ++k) {
+						const int64 t = ticks[(NkVector<int64>::SizeType)k];
+						const float32 x = SampleFbxCurve(ktX, kvX, t, defX);
+						const float32 y = SampleFbxCurve(ktY, kvY, t, defY);
+						const float32 z = SampleFbxCurve(ktZ, kvZ, t, defZ);
+						NkVec4f v;
+						if (path == NkGLTFPath::ROTATION) {
+							v = EulerDegToQuat(x, y, z, (int32)orderF);
+							if (hasPre) {
+								const NkVec4f pq = EulerDegToQuat(pre3[0], pre3[1], pre3[2], 0);
+								NkQuatf q = NkQuatf(pq.x, pq.y, pq.z, pq.w) * NkQuatf(v.x, v.y, v.z, v.w);
+								q.Normalize();
+								v = {q.x, q.y, q.z, q.w};
+							}
+						} else {
+							v = {x, y, z, 0.f};
+						}
+						const float32 sec = (float32)((float64)t / (float64)kKTimePerSec);
+						ch.times.PushBack(sec);
+						ch.values.PushBack(v);
+						if (sec > anim.duration)
+							anim.duration = sec;
+					}
+					anim.channels.PushBack(static_cast<NkGLTFAnimChannel &&>(ch));
+				}
+				if (!anim.channels.Empty())
+					out.animations.PushBack(static_cast<NkGLTFAnimation &&>(anim));
+			}
+
 			// Charge (avec cache par ID) la texture FBX `texId` -> index dans
 			// out.images. `RelativeFilename`/`FileName` peuvent contenir un chemin
 			// ABSOLU de la machine d'export (Windows) : on ne garde que le nom de
@@ -1117,6 +1313,7 @@ namespace nkentseu {
 				// Texture) — necessaire pour resoudre Geometry -> Model
 				// proprietaire -> Material(s) via les Connections (passe 2).
 				NkVector<FbxIdEntry> geometries, models, materials, textures, deformers;
+				NkVector<FbxIdEntry> animStacks, animLayers, animCurveNodes, animCurves; // etape (c)
 				for (uint32 i = 0; i < (uint32)roots.Size(); ++i) {
 					if (!(roots[(NkVector<FbxNode>::SizeType)i].name == NkString("Objects")))
 						continue;
@@ -1134,6 +1331,14 @@ namespace nkentseu {
 							textures.PushBack(FbxIdEntry{id, &ch});
 						else if (ch.name == NkString("Deformer"))
 							deformers.PushBack(FbxIdEntry{id, &ch}); // Skin + Cluster (etape (b))
+						else if (ch.name == NkString("AnimationStack"))
+							animStacks.PushBack(FbxIdEntry{id, &ch}); // etape (c)
+						else if (ch.name == NkString("AnimationLayer"))
+							animLayers.PushBack(FbxIdEntry{id, &ch});
+						else if (ch.name == NkString("AnimationCurveNode"))
+							animCurveNodes.PushBack(FbxIdEntry{id, &ch});
+						else if (ch.name == NkString("AnimationCurve"))
+							animCurves.PushBack(FbxIdEntry{id, &ch});
 					}
 					break; // une seule section Objects
 				}
@@ -1195,6 +1400,9 @@ namespace nkentseu {
 				// Skinning (etape (b)) : premier Deformer Skin rattache a une
 				// geometrie chargee -> skinJoints / inverseBind / skinnedVertices.
 				ExtractSkin(deformers, models, conns, nodeOfModel, ctrlOfVertex, geoIds, geoStart, geoEnd, out);
+				// Animations (etape (c)) : premier AnimationStack -> canaux TRS.
+				ExtractAnimations(animStacks, animLayers, animCurveNodes, animCurves, models, conns, nodeOfModel,
+								  out);
 				// UpAxis : GlobalSettings/Properties70/P "UpAxis" (1=Y, 2=Z).
 				int32 upAxis = 1;
 				for (uint32 i = 0; i < (uint32)roots.Size(); ++i) {
