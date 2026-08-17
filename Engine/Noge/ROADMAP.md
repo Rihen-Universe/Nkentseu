@@ -1502,16 +1502,38 @@ RendererSandbox, RhiSandbox, Songoo) + **NKCanvas** (conditionnel) +
 ⚠️ **NKUI est encore CONSTRUIT (pas lié) dans la fermeture de Nogee** : NKCanvas
 l'ajoute quand `USE_CANVAS_NKUI` est actif, et il l'est **par défaut**
 (`config/graphics.jenga:80`, env `NK_CANVAS_NKUI`). L'éditeur de liens n'en
-extrait rien (binaire propre), mais le temps de build le paie. Le défaut de ce
-drapeau appartient à **NKCanvas/config** — signalé, pas touché.
+extrait rien (binaire propre), mais le temps de build le paie.
+
+**Verdict mesuré (2026-08-17) : le défaut NE BASCULE PAS.** Le compte des
+consommateurs réels du chemin canvas-NKUI (`NkUICanvasBackend`) n'est pas
+marginal : **3 projets** — **Mou** et **Nkoung** (deux plateformes produits
+vivantes, usage à l'exécution : `new NkUICanvasBackend()` dans leur
+`*PlatformApp.cpp`) + **Sandbox** (2 démos ; `ContextSandbox.jenga` déclare
+NKUI). Mécanique vérifiée : le `.cpp` du pont est gardé par
+`#if NK_CANVAS_WITH_NKUI` — défaut off, ses symboles disparaissent et ces trois
+projets **cassent au link**, qu'ils déclarent NKUI ou non. Le drapeau est un env
+global lu à l'évaluation du workspace, pas un réglage par fermeture : basculer
+le défaut ne peut pas satisfaire « les consommateurs réels construisent
+encore ». Le chemin qui existe déjà suffit : **`NK_CANVAS_NKUI=off` à
+l'invocation** pour les fermetures qui n'en veulent pas (Nogee) — économise la
+construction de NKUI (17 `.cpp`, ~22 k lignes). La vraie sortie reste
+l'attrition : le jour où Mou/Nkoung/Sandbox migrent vers NKGui
+(`NkGuiCanvasBackend`, même dossier), le compte tombe à zéro et le défaut
+bascule sans casser personne.
 
 ### Manques NKGui accumulés sur la journée (chantier à part entière)
 
-1. **Aucune API de charge utile de glisser-déposer** — bloque le reparentage
-   (§7) et le drag-drop d'assets (§9) : deux panneaux, même cause.
-2. **Pas de dépouillement de la convention `##id` dans les libellés** — vu à la
-   capture : `Rechercher##dp_filter` s'affiche tel quel, pilote Console compris
-   (`Info##ci`). Tant que ça manque, tout libellé unique est un libellé sale.
+1. ~~**Aucune API de charge utile de glisser-déposer**~~ — **LIVRÉE**
+   (`442fe8c7`, 2026-08-17) : `BeginDragSource`/`SetDragPayload` +
+   `BeginDropTarget`/`AcceptDragPayload`, charge typée copiée (64 o max),
+   fantôme et surlignage par la bibliothèque, livraison une frame au
+   relâchement sur cible. Sonde headless 11/11 (positif, hors-cible, type
+   différent, clic simple). Débloque le reparentage (§7) et le drag-drop
+   d'assets (§9) — reste à CONSOMMER dans les panneaux.
+2. ~~**Pas de dépouillement de la convention `##id`**~~ — **LIVRÉ**
+   (`e1869246`, 2026-08-17) : tout ce qui suit `##` sert à l'identité, jamais à
+   l'affichage ; réparé dans la bibliothèque, 18 sites de dessin bornés,
+   identité prouvée intacte par exécution.
 3. **Pas d'atlas d'icônes** exposé (œil de visibilité, icônes de type).
 4. **Jetons de thème non exposés** aux panneaux (`InputBg`/`WindowBg` — le
    damier « fond vide » des cartes est en aplat de repli).
