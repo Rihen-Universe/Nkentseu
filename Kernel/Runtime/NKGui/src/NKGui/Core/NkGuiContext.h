@@ -326,6 +326,27 @@ namespace nkentseu {
 				NkGuiInteract interact = NkGuiInteract::None;
 				bool lastItemHovered = false; ///< le DERNIER widget interactif est-il survolé ? (tooltips)
 
+				// ── Glisser-deposer (2026-08-17) — l'etat vit ICI, l'application
+				// DECLARE (meme style que l'occultation par couches). Poses par
+				// ButtonBehavior ; consommes par BeginDragSource/BeginDropTarget
+				// (NkGuiWidgets.h).
+				NkGuiId lastItemId = NKGUI_ID_NONE; ///< dernier widget interactif soumis
+				NkRect lastItemRect{0.f, 0.f, 0.f, 0.f}; ///< son rect (cible de drop)
+				// 256 : un chemin relatif d'asset doit tenir ENTIER dans la charge —
+				// une charge tronquee livrerait un mensonge (les chemins du Content
+				// Browser depassent couramment 64 octets).
+				static constexpr int32 DragPayloadMax = 256;
+				NkGuiId dragCandidateId = NKGUI_ID_NONE; ///< presse, pas encore glisse
+				NkVec2 dragCandidatePos{0.f, 0.f};		 ///< position souris a l'armement
+				bool dragActive = false;				 ///< un glisser est en cours
+				bool dragEndPending = false;			 ///< relache : nettoyage au prochain NewFrame
+				bool dragDelivered = false;				 ///< livre (une seule livraison)
+				NkGuiId dragSourceId = NKGUI_ID_NONE;
+				char dragType[32] = {};					///< type declare par la source
+				unsigned char dragPayload[DragPayloadMax] = {};
+				int32 dragPayloadSize = 0;
+				char dragGhost[64] = {}; ///< libelle du fantome (dessine par la bibliotheque)
+
 				// Pile d'ID (scoping)
 				NkGuiId idStack[32] = {};
 				int32 idDepth = 0;

@@ -12,86 +12,11 @@ using namespace nkentseu::nkui;
 namespace nkentseu {
 	namespace noge {
 
-		// Recherche sous-chaîne insensible à la casse (ASCII) — NkString n'a
-		// qu'un Contains sensible à la casse.
-		static bool ContainsInsensitive(const NkString &haystack, const char *needle) noexcept {
-			if (!needle || !needle[0])
-				return true;
-			const char *h = haystack.CStr();
-			if (!h)
-				return false;
-			const nk_usize hLen = haystack.Length();
-			const nk_usize nLen = (nk_usize)strlen(needle);
-			if (nLen > hLen)
-				return false;
-			for (nk_usize i = 0; i + nLen <= hLen; ++i) {
-				nk_usize j = 0;
-				while (j < nLen && tolower((unsigned char)h[i + j]) == tolower((unsigned char)needle[j]))
-					++j;
-				if (j == nLen)
-					return true;
-			}
-			return false;
-		}
-
-		void AssetBrowser::Init(AssetManager *mgr, const char *projectDir) noexcept {
-			mAssetMgr = mgr;
-			mProjectDir = NkString(projectDir ? projectDir : ".");
-			NavigateTo(mProjectDir.CStr());
-		}
-
-		void AssetBrowser::NavigateTo(const char *dir) noexcept {
-			mCurrentDir = NkString(dir);
-			RefreshEntries();
-		}
-
-		void AssetBrowser::RefreshEntries() noexcept {
-			mEntries.Clear();
-
-			// Lister le contenu du dossier courant via NKFileSystem (API statique)
-			if (!NkDirectory::Exists(mCurrentDir.CStr())) {
-				logger.Warnf("[AssetBrowser] Dossier inaccessible: {}\n", mCurrentDir.CStr());
-				return;
-			}
-
-			// Dossier parent (..)
-			if (mCurrentDir != mProjectDir) {
-				NkAssetBrowserEntry parent;
-				parent.name = "..";
-				parent.fullPath = NkPath(mCurrentDir.CStr()).GetDirectory();
-				parent.isDirectory = true;
-				parent.type = NkAssetType::Unknown;
-				mEntries.PushBack(parent);
-			}
-
-			NkVector<NkDirectoryEntry> found = NkDirectory::GetEntries(mCurrentDir.CStr());
-			for (nk_usize i = 0; i < found.Size(); ++i) {
-				const NkDirectoryEntry &d = found[i];
-
-				NkAssetBrowserEntry e;
-				e.name = d.Name;
-				e.fullPath = d.FullPath.ToString();
-				e.isDirectory = d.IsDirectory;
-				e.type = e.isDirectory ? NkAssetType::Unknown : AssetManager::DetectType(d.Name.CStr());
-
-				// Chemin relatif au projet (clé du cache d'assets)
-				e.relativePath = e.fullPath;
-				if (e.relativePath.StartsWith(mProjectDir.CStr())) {
-					e.relativePath = e.relativePath.SubStr(mProjectDir.Length());
-					if (!e.relativePath.Empty() && (e.relativePath[0] == '/' || e.relativePath[0] == '\\'))
-						e.relativePath = e.relativePath.SubStr(1);
-				}
-
-				// [PERF 2026-07-25] Thumbnails PARESSEUX : plus aucun chargement
-				// ici. L'ancien code chargeait synchroneusement chaque texture du
-				// dossier (load disque + upload GPU) → l'attache de l'UILayer
-				// prenait plusieurs secondes sur un dossier riche en images.
-				// La génération se fait désormais au rendu, étalée par frame
-				// (cf. RenderEntry + THUMB_LOADS_PER_FRAME).
-
-				mEntries.PushBack(e);
-			}
-		}
+		// Init / NavigateTo / RefreshEntries / ContainsInsensitive vivent
+		// desormais dans `Model/NkAssetBrowserModel.h` (logique fichiers pure,
+		// partagee avec le panneau NKGui — 2026-08-17). Corps inchanges, a un
+		// detail pres : le Warnf mal forme du dossier inaccessible (marqueur
+		// `{}` en famille printf) a disparu avec le deplacement.
 
 		void AssetBrowser::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
 								  NkUILayoutStack &ls, NkRect rect) noexcept {
