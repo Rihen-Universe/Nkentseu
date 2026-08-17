@@ -307,8 +307,21 @@ namespace nkentseu {
 		// ⚠️ Ne compte QUE nos tampons de calcul : ni le pilote, ni la fragmentation,
 		// ni les allocations d'autres modules. C'est un PLANCHER de l'occupation
 		// reelle, pas son total — d'ou la marge exigee dans le critere.
+		//
+		// ⚠️ DEUX PICS, PAS UN (corrige 2026-08-17). Un tampon RETENU par la reserve
+		// n'est plus « vivant » pour le calcul mais sa VRAM reste allouee : le
+		// compter comme libere faisait afficher un pic IDENTIQUE avec et sans
+		// reserve — un instrument incapable de dire la seule chose qu'on lui
+		// demandera le jour ou on discutera d'agrandir le budget.
+		//   gVramPic       : pic de l'occupation PHYSIQUE (vivants + retenus) —
+		//                    la grandeur qui decide si ca tient sur la carte ;
+		//   gVramPicCalcul : pic des tampons de calcul SEULS — le besoin
+		//                    incompressible, independant de la politique de cache.
+		// Melanger les deux dans un seul chiffre serait la lecon des metriques
+		// figees de NKXR : une ligne qui melange du vivant et du mort sans le dire.
 		static int64 gVramVivante = 0;
-		static int64 gVramPic = 0;
+		static int64 gVramPic = 0;		 // pic PHYSIQUE : vivants + retenus par la reserve
+		static int64 gVramPicCalcul = 0; // pic des tampons de calcul seuls
 
 		// ---- RESERVE DE TAMPONS : COMPTEURS TEMOINS -----------------------------
 		// ⚠️ Ces compteurs ne sont PAS de la decoration : une reserve REPOND
@@ -635,7 +648,11 @@ namespace nkentseu {
 		}
 
 		int64 NkTensorGpu::VramPic() {
-			return gVramPic;
+			return gVramPic; // PHYSIQUE : vivants + retenus par la reserve
+		}
+
+		int64 NkTensorGpu::VramPicCalcul() {
+			return gVramPicCalcul; // tampons de calcul seuls, hors retention
 		}
 
 		int64 NkTensorGpu::VramVivante() {
@@ -643,7 +660,8 @@ namespace nkentseu {
 		}
 
 		void NkTensorGpu::RazVramPic() {
-			gVramPic = gVramVivante;
+			gVramPic = gVramVivante + gReserveOctets;
+			gVramPicCalcul = gVramVivante;
 		}
 
 		// ---- RESERVE DE TAMPONS : pilotage et TEMOIN ----------------------------
@@ -755,8 +773,16 @@ namespace nkentseu {
 			mImpl->buffers.Insert(id, h);
 			mImpl->tailles.Insert(id, bytes);
 			gVramVivante += (int64)bytes;
-			if (gVramVivante > gVramPic)
-				gVramPic = gVramVivante;
+			if (gVramVivante > gVramPicCalcul)
+				gVramPicCalcul = gVramVivante;
+			// Le pic PHYSIQUE compte aussi ce que la reserve retient. C'est ICI le
+			// seul endroit ou l'occupation physique peut monter : la retention est
+			// un TRANSFERT (vivant -> retenu, total inchange), servir depuis la
+			// reserve aussi (retenu -> vivant), l'eviction et la destruction font
+			// baisser. Nul besoin de toucher au pic dans DestroyBuffer.
+			const int64 physique = gVramVivante + gReserveOctets;
+			if (physique > gVramPic)
+				gVramPic = physique;
 			return id;
 		}
 

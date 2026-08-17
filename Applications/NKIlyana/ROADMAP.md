@@ -2069,3 +2069,93 @@ reproductible au banc, non expliquée, non forcée.
    courts n'en profitent pas et la rétention y serait du gaspillage de VRAM.
 3. **Avant tout budget plus grand** : corriger le comptage VRAM de la rétention
    (dette ci-dessus), puis seulement mesurer un budget 1-1,5 Go.
+
+---
+
+## ✅ RODOLF A SUIVI LA RECOMMANDATION — BRANCHÉ (2026-08-17)
+
+**Périmètre exact de la recommandation, rien de plus** : défaut ON dans
+`ModeTrain`, échappatoire `--sans-reserve` explicite, PAS d'activation globale
+dans `NkTensorGpu`. `--reserve` reste accepté (désormais redondant).
+`VramPic()` a été corrigé AVANT le branchement (section suivante) — brancher
+par défaut sans le corriger aurait rendu son mensonge permanent.
+
+### Le contexte donné par Rodolf avec son accord — il orientera la suite
+
+> « L'important, c'est d'avoir un système qui nous permet de modéliser
+> automatiquement ce qu'on lui demande — et on fera de même pour l'animation,
+> qui servira non seulement NkAnima mais aussi NKCivilisation : créer des
+> films, des jeux, et utiliser PV3DE avec des agents qui auront des rôles à
+> jouer. »
+
+**La réserve n'est pas une optimisation de confort** : c'est ce qui rend les
+campagnes d'entraînement de génération (modèles, puis animation) abordables sur
+sa machine. Six semaines → ~3,3, ça change ce qui est entraînable.
+
+### Témoins du branchement (courses du 2026-08-17)
+
+- `ModeTrain` nominal → `servis > 0` ;
+- `--sans-reserve` → `servis = 0` et comportement LEGACY à l'identique ;
+- trajectoires identiques à la décimale entre les deux modes — c'est ce qui a
+  fondé la décision, revérifié après branchement ;
+- pic physique > pic calcul sous réserve active (l'instrument corrigé dit
+  enfin la rétention).
+
+**Résultats des courses-témoins (01:21-01:27)** — les quatre passent :
+
+```
+nominale       : ACTIVE (budget 512 Mo) ; servis=36 713, neufs=27 776,
+                 taux=56,93 % — IDENTIQUE AU COMPTEUR PRES a la mesure
+                 pic physique 6 190,8 Mo > pic calcul 6 026,1 Mo   <- discrimine
+--sans-reserve : DESACTIVEE ; servis=0, neufs=64 652 — identiques au LEGACY
+                 pic physique = pic calcul = 6 026,1 Mo            <- egaux
+trajectoires   : perte pas 1 = 9,72476 des deux cotes (4 courses identiques)
+```
+
+Le pic physique réel (6 190,8 Mo) est **sous** la borne externe (~6,56 Go) : au
+moment du pic, la réserve ne retenait que ~165 Mo — les gros tampons étaient
+dehors, en usage. La marge VRAM est meilleure que l'estimation.
+
+### ⚠️ RECTIFICATION HONNÊTE — le ×1,82 de la nuit était vraisemblablement du bruit machine
+
+Les temps de cette paire-témoin CONTREDISENT la paire de mesure : Fit NEUF
+152,3 s contre LEGACY **95,0 s** — le sens inverse. Et l'historique du journal
+montre des Fit de **77 à 486 s pour le même travail de 6 pas** : la variance
+machine (bureau, builds concurrents) écrase l'effet.
+
+**Le calcul physique borne le gain vrai** : 64 652 allocations / 6 pas
+× ~460 µs ≈ **5 s/pas de coût d'allocation total**, dont la réserve supprime
+~57 % ≈ **2,8 s/pas** à ce montage. Un écart de 218 s comme celui de la nuit ne
+peut PAS venir de la réserve — c'était la contention, pas l'effet. Le ×1,82 est
+**retiré** ; le gain réel est dans **[0 ; ~3 s/pas]**, soit +8 à +18 % sur un
+pas de 16-35 s.
+
+**Le branchement reste justifié, sur les faits qui tiennent** : la justesse est
+prouvée quatre fois (trajectoires identiques), le coût VRAM au pic est de
+165 Mo, le comptage servis/neufs est exact et reproductible au compteur près, et
+2,8 s/pas sur un run de 6 000 pas font ~4,7 heures. Mais le « six semaines →
+3,3 » annoncé au canal ne tient plus : l'ordre de grandeur honnête est
+**-8 à -18 % de temps de course**, à confirmer sur machine calme.
+
+La leçon rejoint celle du ×1,57 du chantier n°1 (avantage de position) : **sur
+cette machine, aucune paire de courses courtes non appariées ne mesure un
+effet plus petit que la variance ambiante.** Seule une longue course calme, ou
+le banc isolé, fait foi pour les durées.
+
+## 🔧 `VramPic()` CORRIGÉ — DEUX PICS, DEUX NOMS (2026-08-17)
+
+L'ancien comptage décomptait un tampon RETENU comme s'il était libéré : pic
+affiché IDENTIQUE avec et sans réserve — un instrument incapable de dire la
+seule chose qu'on lui demandera le jour où on discutera d'agrandir le budget.
+
+**Le correctif** (`NkTensorGpu.cpp`) :
+- `VramPic()` = pic **PHYSIQUE** (vivants + retenus) — décide si ça tient sur
+  la carte. La rétention est un TRANSFERT (vivant → retenu, total inchangé),
+  servir depuis la réserve aussi (retenu → vivant) : le pic physique ne peut
+  monter que dans `CreateBuffer` sur allocation neuve — un seul point de mise
+  à jour ;
+- `VramPicCalcul()` = pic des tampons de calcul **seuls** — le besoin
+  incompressible, indépendant de la politique de cache ;
+- les deux affichés côte à côte avec des noms clairs (témoin `ModeTrain` +
+  ligne « VRAM suivie » du trainer) — la leçon des métriques figées de NKXR :
+  jamais une ligne qui mélange du vivant et du mort sans le dire.
