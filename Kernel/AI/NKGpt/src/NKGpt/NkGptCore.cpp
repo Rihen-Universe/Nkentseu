@@ -7,6 +7,11 @@
 #include "NKLogger/NkLog.h" // logger (status) ; FILE* conservé pour l'I/O binaire du checkpoint
 
 #include <cstdio>
+#if defined(_WIN32)
+#include <io.h> // _commit : forcer l'ecriture physique d'un checkpoint
+#else
+#include <unistd.h> // fsync
+#endif
 
 namespace nkentseu {
 	namespace ai {
@@ -219,18 +224,39 @@ namespace nkentseu {
 			// reprendre. On passe d'un risque de tout perdre à un risque de perdre le
 			// dernier intervalle de checkpoint.
 			// -------------------------------------------------------------------------
+			//
+			// ROTATION A TROIS (2026-08-17, avant la campagne longue) : <path>,
+			// <path>.prev, <path>.prev2. Deux exemplaires ne suffisent pas : si la
+			// coupure survient pendant le renommage ET que .prev est lui-meme le
+			// produit d'une ecriture douteuse, il ne reste rien. Trois exemplaires
+			// separes par deux intervalles complets, c'est ce que demande la memoire
+			// du projet (« un seul point de reprise n'est pas une sauvegarde »).
+			//
+			// DURABILITE : fflush() ne pousse que les tampons de la bibliotheque C
+			// vers le systeme ; une coupure de COURANT peut encore perdre ce que le
+			// systeme n'a pas ecrit sur le disque, et NTFS remplace alors la fin du
+			// fichier par des zeros. On force donc l'ecriture physique (_commit /
+			// fsync) AVANT le renommage : un checkpoint renomme est un checkpoint
+			// sur le disque, pas en memoire.
+			// -------------------------------------------------------------------------
 			bool SaveCheckpoint(const char *path, const GptMeta &m, const NkVector<NkVar> &params,
-								const NkVector<NkTensor> *optM, const NkVector<NkTensor> *optV, int64 step) {
+								const NkVector<NkTensor> *optM, const NkVector<NkTensor> *optV, int64 step,
+								uint64 rng) {
 				NkString cheminTmp(path);
 				cheminTmp.Append(".tmp");
 				NkString cheminPrev(path);
 				cheminPrev.Append(".prev");
+				NkString cheminPrev2(path);
+				cheminPrev2.Append(".prev2");
 
 				FILE *f = fopen(cheminTmp.CStr(), "wb");
 				if (!f)
 					return false;
 				const char magic[4] = {'N', 'K', 'G', 'P'};
-				uint32 ver = 4u;
+				// v5 = v4 + queue {rng} : l'etat du flux aleatoire d'echantillonnage des
+				// lots. Sans lui, une reprise repart du meme etat initial du flux et
+				// RE-TIRE les memes fenetres que le debut de la course precedente.
+				uint32 ver = 5u;
 				bool ok = fwrite(magic, 1, 4, f) == 4 && fwrite(&ver, sizeof(uint32), 1, f) == 1;
 				int32 hdr[5] = {m.V, m.d, m.H, m.L, m.T};
 				ok = ok && fwrite(hdr, sizeof(int32), 5, f) == 5;
@@ -264,11 +290,21 @@ namespace nkentseu {
 					for (uint32 i = 0; ok && i < optV->Size(); ++i)
 						ok = ok && WriteTensor(f, (*optV)[i]);
 				}
+				// Queue v5 : etat du flux aleatoire. Ecrit meme sans etat optimiseur ;
+				// un lecteur v4 s'arrete avant et ne le voit pas.
+				ok = ok && fwrite(&rng, sizeof(uint64), 1, f) == 1;
 
 				// Vider les tampons AVANT de considérer l'écriture comme réussie : sans
 				// cela, `ok` serait vrai alors que des centaines de Mo dorment encore en
 				// mémoire, et on renommerait un fichier incomplet par-dessus le bon.
 				ok = ok && (fflush(f) == 0);
+				// ... puis forcer le disque (voir en-tete : une coupure de courant ne
+				// respecte pas les tampons du systeme).
+#if defined(_WIN32)
+				ok = ok && (_commit(_fileno(f)) == 0);
+#else
+				ok = ok && (fsync(fileno(f)) == 0);
+#endif
 				fclose(f);
 
 				if (!ok) {
@@ -278,16 +314,84 @@ namespace nkentseu {
 				}
 
 				// L'ecriture a reussi : on peut enfin toucher a la destination.
-				remove(cheminPrev.CStr());		 // `rename` echoue si la cible existe
-				rename(path, cheminPrev.CStr()); // sans effet si `path` n'existe pas encore
+				// Rotation : prev -> prev2, path -> prev, tmp -> path.
+				remove(cheminPrev2.CStr());					 // `rename` echoue si la cible existe
+				rename(cheminPrev.CStr(), cheminPrev2.CStr()); // sans effet si .prev n'existe pas
+				rename(path, cheminPrev.CStr());			 // sans effet si `path` n'existe pas encore
 				if (rename(cheminTmp.CStr(), path) != 0) {
 					// Cas rare (fichier verrouille) : remettre l'ancien en place plutot
 					// que de laisser l'utilisateur sans aucun checkpoint.
 					rename(cheminPrev.CStr(), path);
+					rename(cheminPrev2.CStr(), cheminPrev.CStr());
 					logger.Info("Checkpoint : renommage impossible vers {0}, l'ancien a ete remis en place.", path);
 					return false;
 				}
 				return true;
+			}
+
+			// Un checkpoint est VALIDE s'il se lit jusqu'au bout : entete, fusions,
+			// langues, tous les poids et — s'il en a — tout l'etat optimiseur. Un
+			// fichier de la bonne taille rempli de zeros (NTFS apres coupure) ou coupe
+			// net (mort du processus) echoue ici, et non trois heures plus tard.
+			bool VerifierCheckpoint(const char *path, int64 *stepOut) {
+				FILE *f = fopen(path, "rb");
+				if (!f)
+					return false;
+				char magic[4];
+				uint32 ver = 0;
+				bool ok = fread(magic, 1, 4, f) == 4 && magic[0] == 'N' && magic[1] == 'K' && magic[2] == 'G' &&
+						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver >= 3u && ver <= 5u);
+				fclose(f);
+				if (!ok)
+					return false;
+				f = fopen(path, "rb");
+				if (!f)
+					return false;
+				ok = SkipHeader(f) == ver;
+				uint32 count = 0;
+				ok = ok && fread(&count, sizeof(uint32), 1, f) == 1 && count > 0 && count < 100000u;
+				for (uint32 i = 0; ok && i < count; ++i)
+					ok = SkipTensor(f);
+				int64 step = 0;
+				if (ok && ver >= 4u) {
+					uint32 optFlag = 0;
+					ok = fread(&optFlag, sizeof(uint32), 1, f) == 1;
+					if (ok && optFlag != 0u) {
+						ok = fread(&step, sizeof(int64), 1, f) == 1;
+						for (uint32 i = 0; ok && i < 2 * count; ++i)
+							ok = SkipTensor(f);
+					}
+				}
+				if (ok && ver >= 5u) {
+					uint64 rng = 0;
+					ok = fread(&rng, sizeof(uint64), 1, f) == 1;
+				}
+				fclose(f);
+				if (ok && stepOut)
+					*stepOut = step;
+				return ok;
+			}
+
+			// Choisit, parmi <path>, <path>.prev et <path>.prev2, le PLUS RECENT qui
+			// soit valide. Rend le chemin retenu dans `retenu` (vide si aucun).
+			bool ChoisirCheckpointValide(const char *path, NkString &retenu, int64 *stepOut) {
+				const char *suffixes[3] = {"", ".prev", ".prev2"};
+				for (int i = 0; i < 3; ++i) {
+					NkString c(path);
+					c.Append(suffixes[i]);
+					int64 st = 0;
+					if (VerifierCheckpoint(c.CStr(), &st)) {
+						retenu = c;
+						if (stepOut)
+							*stepOut = st;
+						if (i > 0)
+							logger.Info("Checkpoint {0} illisible ou tronque : REPRISE SUR {1} (pas global {2}).", path,
+										c.CStr(), (long long)st);
+						return true;
+					}
+				}
+				retenu = NkString();
+				return false;
 			}
 
 			bool LoadCheckpointMeta(const char *path, GptMeta &m) {
@@ -298,7 +402,7 @@ namespace nkentseu {
 				uint32 ver = 0;
 				int32 hdr[5] = {0};
 				bool ok = fread(magic, 1, 4, f) == 4 && magic[0] == 'N' && magic[1] == 'K' && magic[2] == 'G' &&
-						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver == 3u || ver == 4u) &&
+						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver >= 3u && ver <= 5u) &&
 						  fread(hdr, sizeof(int32), 5, f) == 5;
 				if (ok) {
 					m.V = hdr[0];
@@ -382,12 +486,12 @@ namespace nkentseu {
 			}
 
 			bool LoadCheckpointOptState(const char *path, NkVector<NkTensor> &optM, NkVector<NkTensor> &optV,
-									   int64 &step) {
+									   int64 &step, uint64 *rng) {
 				FILE *f = fopen(path, "rb");
 				if (!f)
 					return false;
 				uint32 ver = SkipHeader(f);
-				if (ver != 4u) { // v3 : pas de bloc optimiseur
+				if (ver < 4u) { // v3 : pas de bloc optimiseur
 					fclose(f);
 					return false;
 				}
@@ -415,6 +519,13 @@ namespace nkentseu {
 					ok = ReadTensor(f, t);
 					if (ok)
 						optV.PushBack(t);
+				}
+				// Queue v5 : etat du flux aleatoire. Absent en v4 : `rng` n'est pas touche,
+				// l'appelant sait qu'il repart d'un etat par defaut et le dit.
+				if (ok && ver >= 5u && rng) {
+					uint64 r = 0;
+					if (fread(&r, sizeof(uint64), 1, f) == 1)
+						*rng = r;
 				}
 				fclose(f);
 				return ok && optM.Size() == count && optV.Size() == count;

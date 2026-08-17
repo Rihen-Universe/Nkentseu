@@ -56,6 +56,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csignal> // arret propre de l'entrainement (SIGINT/SIGTERM)
 
 using namespace nkentseu;
 using namespace nkentseu::ai;
@@ -695,6 +696,14 @@ static int ModeTrain(int argc, char **argv) {
 	cfg.lr = (float)ArgReel(argc, argv, "--lr", 3e-4);
 	cfg.warmup = (int)ArgEntier(argc, argv, "--warmup", -1);
 	cfg.saveEvery = (int)ArgEntier(argc, argv, "--saveevery", 200);
+	// REDEMARRAGE SECURISE (Rodolf, 2026-08-17 : « avec des protections pour le
+	// redemarrage securise »). Un checkpoint toutes les N minutes de calcul
+	// (defaut 20 : on ne perd jamais plus de vingt minutes), en plus de
+	// --saveevery ; rotation <save>/.prev/.prev2 ; arret propre par le fichier
+	// <save>.stop (ou --stop <fichier>) ou par Ctrl-C ; journal <save>.etat.txt.
+	cfg.saveMinutes = ArgReel(argc, argv, "--saveminutes", 20.0);
+	cfg.stopFile = NkString(Arg(argc, argv, "--stop", ""));
+	cfg.logEvery = (int)ArgEntier(argc, argv, "--journal", 25);
 	cfg.valFrac = (float)ArgReel(argc, argv, "--valfrac", 0.02);
 	cfg.valEvery = (int)ArgEntier(argc, argv, "--valevery", 250);
 	cfg.valFenetres = (int)ArgEntier(argc, argv, "--valfenetres", 0);
@@ -747,6 +756,13 @@ static int ModeTrain(int argc, char **argv) {
 		return 1;
 	}
 	logger.Info("GPU : {0}", t.UseGpu() ? "OUI (entrainement resident)" : "NON (repli CPU, ce sera tres lent)");
+
+	// Arret propre : Ctrl-C / SIGTERM ne tuent plus le processus au milieu d'un
+	// pas ; ils demandent au trainer d'ecrire un checkpoint a la fin du pas en
+	// cours et de sortir. (Le gestionnaire ne fait que lever un drapeau : rien
+	// d'autre n'est sur dans un gestionnaire de signal.)
+	signal(SIGINT, [](int) { gpt::NkGptTrainer::DemanderArret(); });
+	signal(SIGTERM, [](int) { gpt::NkGptTrainer::DemanderArret(); });
 
 	// RESERVE DE TAMPONS : recycler les tampons GPU par taille exacte (chantier
 	// n°2). DEFAUT ON EN MODE TRAIN depuis le 2026-08-17, sur decision de Rodolf
@@ -2524,6 +2540,7 @@ int main(int argc, char **argv) {
 	logger.Info("  --data    [--source f] [--sortie d] [--repetitions n] [--vocab n] [--avec-quarantaine]");
 	logger.Info("  --train   [--corpus f] [--bpe f] [--save f] [--load f] [--steps n] [--d n] [--layers n]");
 	logger.Info("            [--heads n] [--T n] [--B n] [--accum n] [--lr x] [--saveevery n]");
+	logger.Info("            [--saveminutes x] [--stop fichier] [--horizon n] [--echantillons n] [--sans-reserve]");
 	logger.Info("  --parler  [--load f] [--bpe f] [--question \"...\"] [--temp x] [--topk n] [--topp x]");
 	logger.Info("  --melange --identite f --corpus f [--sortie f] [--part 0.25] [--taille 8]");
 	logger.Info("            corpus de la 2e phase : identite entrelacee avec de la prose prelevee");
