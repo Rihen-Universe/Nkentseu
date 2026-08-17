@@ -863,6 +863,79 @@ un `.nkmesh` par model dans le dossier courant du navigateur ; (C) le test
 par vignette ci-dessus, il échouerait pour une raison qui n'est pas l'import.
 Envoie le journal.
 
+### CONTRAT D'IMPORT (Rodolf, 17/08 soir, après la 10e relecture — elle passe) — points a + b LIVRÉS
+
+Le contrat complet est dans `CLAUDE.md` (« CONTRAT D'IMPORT DE MODÈLES »).
+Ordre fixé : (a) le empty fabriqué à tort, (b) l'import ÉCRIT et n'ajoute
+pas à la scène, (c) trois glisser depuis le système, (d) matériaux/textures,
+(e) dialogue d'import.
+
+**Fusion préalable (`c6156782`)** : `origin/main` (#68-#72) fusionné. Deux
+leçons de « fusion sans conflit » payées : (1) `main` lui-même était ROUGE —
+#69 et #70 avaient chacun ajouté `NkString name` à `NkGLTFNode` (`duplicate
+member`), corrigé ici puis, en parallèle, par #68 (version de main gardée) ;
+(2) #62 était un *squash* d'un état antérieur de cette branche : l'auto-merge
+dupliquait le bloc « LACHER DU NAVIGATEUR » dans `main.cpp` — tout
+`Applications/NK3DModeler` repris de HEAD, puis le seul vrai delta de main
+(#64, `NkImage` type valeur) réappliqué. Cible 31/31, Nogee 45/45, workspace
+**200/200**. #67 `MERGEABLE CLEAN`.
+
+**Grille écrite d'avance (a)+(b)** — course `NK_OPEN_RECENT=0` (AgentTest,
+jetable) + `NK_IMPORT_FILE=LowPolyCars.obj`, binaire Debug :
+1. 5 × `MESURE creation … DIRECT(sans empty) maillages=1/1`, 5 slots
+   consommés en tout (contre 20 : plus de racine, plus d'archive dupliquée),
+   origine = ancre 3D (Y non nul = moyeu) ; comptes caisse 2931v/7578i,
+   roues 337v/954i ;
+2. AUCUNE `MESURE dup model`, AUCUNE `MESURE origine`, aucun WRN ;
+3. sur le disque À LA FIN DU GESTE, sans Ctrl+S ni `NK_AGENT_SAVE` : 5
+   `.nkmesh` nommés d'après les `o`, un seul nœud chacun, position = origine
+   loguée ; `Scene1.nkscene` et `AgentTest.nk3dm` NON réécrits ;
+4. rechargement SANS sauvegarde : les 5 cartes reviennent par le rescan
+   (`srcNode>0`), la hiérarchie ne les montre pas ;
+5. dépôt d'une carte roue dans le vide : un nœud posé au point du pick,
+   `model=0`, `sesMateriaux=1`.
+
+**Résultat : la grille tient ligne par ligne** (journaux `logs/app_ab*.log`).
+Nœuds 111..115, origines (±1.229, 0.305, ±0.691) pour les roues,
+`whell.001_car2.019.nkmesh` = un nœud, `"maillageInterne": false`, écrit à
+22:52:30, l'heure de l'import. Le dépôt : `MESURE pose : noeud=116 …
+relu=1 model=0`.
+
+**Ce qui a changé (`NkModelerImport.h`, `NkModelerAssets.h`)** :
+- un model d'UNE tranche = un nœud maillage DIRECT (`Demo3DHostCreateMeshNode`
+  avec `root=-1`) à son ancre, **sans `nkvpIsMesh`** — ce drapeau veut dire
+  « matière d'un model » : la hiérarchie de scène cache ces nœuds
+  (`NkHierNodeSkip`) et la relecture le retire à tout maillage sans model
+  au-dessus (`NkAsRepairOrphanMeshes`) ; trouvé à la relecture des
+  consommateurs, avant la course. Plusieurs tranches sous un même nom →
+  racine EMPTY + maillages, comme avant (un nœud = un matériau : dette dite ;
+  le dialogue offrira « regrouper/éclater ») ;
+- **archivage EN PLACE** (`Demo3DHostArchiveTree(top, true)`) : rien n'entre
+  dans la scène, aucune copie ;
+- **`NkProjectWriteCard`** extrait de la boucle d'« Enregistrer » : l'UNIQUE
+  écrivain de carte, appelé par l'import juste après la carte. Si l'écriture
+  échoue, la carte reste `browserOriginDirty` (reprise à la prochaine
+  sauvegarde) et l'échec est nommé dans `hierNote` ;
+- refus nommé sans projet ouvert (« l'import écrit des .nkmesh dedans »).
+
+**Faces à surveiller, dites** : (i) l'origine d'une roue est au moyeu, donc
+un dépôt sur le sol met le moyeu au sol (la roue s'enfonce de son rayon) —
+c'est la conséquence directe de « la roue à sa propre origine » et le
+comportement de Blender ; à trancher au dialogue (option « poser sur le sol »)
+si Rodolf le veut autrement ; (ii) la géométrie n'est toujours pas dans le
+`.nkmesh` (dette déjà déclarée) : réouverte un autre jour, la carte revient
+en primitive ; (iii) l'ancien « écriture par vignette » (interaction Q49) est
+désormais SANS OBJET pour l'import — l'import écrit lui-même.
+
+**📣 PROTOCOLE POUR RODOLF (11e relecture)** : bouton « Importer », ton
+fichier véhicule. Attendu : (A) RIEN dans la hiérarchie ni la vue 3D ; 5
+cartes dans le navigateur (dossier courant) ; le journal dit 5 × `DIRECT(sans
+empty)` et 5 `fichier=…nkmesh` ; (B) sur le disque, sans Ctrl+S, les 5
+`.nkmesh` sont là, à l'heure de l'import ; (C) glisse une roue dans la vue :
+elle apparaît au point du lâcher, SON gizmo est au moyeu, la hiérarchie
+montre UN nœud « whell… » de type Mesh, pas de empty au-dessus ; bouge-la,
+les autres cartes n'y sont pour rien. Envoie le journal.
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,

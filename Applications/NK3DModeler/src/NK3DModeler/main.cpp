@@ -1755,9 +1755,11 @@ int nkmain(const NkEntryState &entry) {
 			// 2 = IMPORTER UN FICHIER 3D (bouton « Importer » du navigateur de
 			// contenu). Chaine complete depuis le 17/08 : chargement par le
 			// chargeur du format, decoupage par nom de sous-mesh, puis CREATION
-			// -- un model par nom (racine + un noeud maillage par sous-mesh,
-			// positions monde), archive + carte navigateur par model ; les
-			// `.nkmesh` partent a la SAUVEGARDE (NkModelerImport.h).
+			// (un maillage DIRECT par model d'une tranche, racine + maillages
+			// sinon ; positions monde), ARCHIVAGE EN PLACE (rien dans la scene)
+			// + carte navigateur + ECRITURE du `.nkmesh` par model, tout de
+			// suite -- « un import ECRIT » (contrat de Rodolf du 17/08 soir,
+			// NkModelerImport.h). Le bouton = import seul.
 			if (st.pickerAction == 2 && st.picker.pickerResultPath[0])
 				nk3d::NkImportFile(st, st.picker.pickerResultPath);
 			st.pickerAction = 0;
