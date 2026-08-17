@@ -13,8 +13,513 @@ NOTRE runtime, posé à l'étage 2 sur le loader OpenXR (Khronos, Apache 2.0 —
 accès réaliste aux casques) comme nos codecs se posent sur les specs des formats.
 
 État actuel (2026-08-10) : **étage 0 livré côté code** — module + backend
-SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête), self-test
-**66/66**. En attente de validation par Rihen (cycle TEST → VALIDATION → INTÉGRATION).
+SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
+auto-tests **148/148**. En attente de validation par Rihen (cycle TEST →
+VALIDATION → INTÉGRATION).
+
+> 🔧 **Ce chiffre disait « 66/66 » jusqu'au 2026-08-17.** Il ne comptait qu'un
+> banc sur deux : **66** (`test_xr`) **+ 82** (`test_ar`) = **148**. Le module
+> **sous-déclarait de moitié ce qu'il vérifie** — un chiffre public faux, même
+> dans le sens de la modestie, reste faux : le jour où quelqu'un compte, il ne
+> sait plus lequel des deux croire. Corrigé après avoir relancé les deux bancs le
+> 2026-08-17 (Release, C++17, `origin/feat/nkxr`) : **66 OK / 0 échec** et
+> **82 OK / 0 échec**. Le troisième binaire, `outil_ar_image`, **n'entre pas dans
+> ce total** et la raison est écrite plus bas.
+
+---
+
+## ✅ 2026-08-16 (soir) — « NKXRDemo ouvre le SIMULATEUR alors que le Quest 2 est branché » : ce n'était PAS un repli
+
+**Symptôme rapporté** : première ligne du journal de `NKXRDemo`,
+`[NKXR] Session creee - systeme : NKXR Simulator`, casque branché et runtime
+Meta actif. Soupçon légitime : un repli silencieux vers un simulateur — la
+famille qu'on chasse, celle qui *répond toujours* et dont la réponse fausse est
+indiscernable de la vraie.
+
+**Ce n'en était pas un. C'est le défaut documenté, et personne n'avait demandé
+autre chose.**
+
+| branche | ce qui la déclenche | a-t-elle tiré ? |
+|---|---|---|
+| défaut `NK_XR_BACKEND_SIMULATOR` (`NKIXrBackend.h`) | rien à faire — c'est la valeur initiale, inchangée depuis le commit d'étage 0 | ✅ **oui** |
+| repli « liaison Vulkan/OpenXR échouée » (`main.cpp`) | `xrCreateSession` ou `BindVulkan` KO | ❌ non |
+| repli « OpenXR indisponible » (`main.cpp`) | `NkXrSession::Create` rend `nullptr` | ❌ non |
+
+`NkXrBackendFactory::Create` **n'a aucun repli** : un backend qui échoue rend
+`nullptr`, jamais un autre backend. Et la démo ne fixe jamais `desc.backend` par
+le code — **seule** `NK_XR_BACKEND=openxr` la fait basculer
+(`USAGE.md` §réglages, défaut « simulateur »). Sans la variable, `wantOpenXR` est
+faux et **le bloc OpenXR entier est sauté : aucune tentative n'a lieu**.
+
+### La trace qui tranche, et pourquoi c'est une preuve et non une absence
+
+`NkXrOpenXRBackend::Initialize` journalise **sur sa toute première bifurcation**,
+succès (`Point d'entrée OpenXR chargé depuis :`) comme échec (`Ni loader, ni
+runtime actif`). Le journal de la course incriminée contient **zéro ligne
+`[NKXR/OpenXR]`** : l'objet n'a jamais été construit. *Trace positive attendue et
+absente*, pas simple silence. Les trois replis, eux, écrivent chacun un `[WRN]` —
+aucun n'y figure.
+
+**Contrôle indépendant** (journal du service Meta, hors de notre code) :
+
+```
+20:09:39  [AppTrackerManager] Adding new tracker: 26032 (...NKXRDemo)     <- course SIMULATEUR
+          ... aucun Hmd_Create, aucun CreateTextureSet, aucun Will VR Render
+20:13:19  [Server] Hmd_Create. pid39016 File: NKXRDemo.exe                <- course OPENXR
+20:13:21  [AppTracker] Will VR Render: 39016
+20:13:22  [Compositor] CreateTextureSet ID: 1001..1004 count: 3
+```
+
+Le runtime a vu **les deux** processus démarrer et **un seul** devenir client VR.
+L'instrument discrimine ; il ne se contente pas de confirmer.
+
+### Preuve par intervention, casque branché (2026-08-16, Release, `feat/nkxr`)
+
+Une seule variable changée, l'effet suit. `NK_XR_BACKEND=openxr` →
+
+```
+Point d'entree OpenXR charge depuis : ...\LibOVRRTImpl64_1.dll
+Runtime : Oculus (version 1.206.0)      36 extensions
+Systeme : Oculus Quest2 - 2080x2096 par oeil recommande
+Session de casque creee (liaison Vulkan OK) - en attente de READY
+Swapchains casque : 1768x1781, format 43, 3 images par oeil
+Cadences proposees : 72 (actuelle 72 Hz)   masque de visibilite : 52 triangles/oeil
+```
+
+**L'étage 2b.1 est donc rejoué et sain sur cette branche**, jusqu'aux swapchains
+casque incluses — confirmé côté Meta par 4 `CreateTextureSet` de 3 images (2 yeux
++ 2 profondeurs). ⚠️ **La boucle de frame n'est PAS atteinte** : la course meurt
+avant, sur `Renderer oeil 0 KO` (défaut shaders NKRenderer, hors périmètre XR).
+**`EndFrame` reste non exercé** ; le niveau 2 n'est pas entamé.
+
+⚠️ Et **le mode de fusion reste 1/1 OPAQUE** : l'impossibilité écrite en Q37
+(§ « HORS D'ATTEINTE ») est re-confirmée par cette course, pas levée.
+
+### Corrigé : deux absences rendues bruyantes (journal seul, ZÉRO changement de comportement)
+
+1. **`main.cpp`** annonce le backend **avant** de créer la session. Un journal qui
+   démarrait sur `système : NKXR Simulator` ne distinguait pas « le casque a
+   échoué » de « le casque n'a jamais été demandé » — le second n'écrivait **rien**,
+   et une absence ne se lit pas.
+2. **`NkXrOpenXRBackend.cpp`** avertit quand `NK_XR_OPENXR_LOADER` est fourni mais
+   introuvable. Mesuré : un chemin bidon laissait la course **atteindre le Quest 2
+   sans un mot** — les voies 2 et 3 répondaient à sa place. La sortie finale
+   n'était pas fausse (elle nomme le vrai chemin chargé), mais **un réglage
+   explicite était ignoré en silence** : même famille que les quatre réglages
+   fantômes de NKCamera.
+
+**Preuve d'atterrissage** — trois courses, Release, binaire reconstruit (26/26) :
+
+| course | attendu | obtenu |
+|---|---|---|
+| A — aucune variable | annonce SIMULATEUR, aucun casque | ✅ ligne présente **avant** `Session creee` |
+| B — `NK_XR_BACKEND=openxr` | comportement **inchangé**, casque atteint | ✅ Quest2 + swapchains 1768x1781 |
+| C — `+ NK_XR_OPENXR_LOADER` bidon | le réglage ignoré se **voit** | ✅ `reglage IGNORE : ...` puis voie 3 |
+
+### ⚠️ Ce que je n'ai PAS réussi à faire, et je l'écris
+
+Je voulais exercer la **branche de repli de la démo** en cassant OpenXR par
+`XR_RUNTIME_JSON`. **Échec : la course a atteint le Quest 2 quand même.** Cause :
+ce backend **ne lit jamais `XR_RUNTIME_JSON`** — c'est une variable du loader
+Khronos, et nous ne passons pas par lui (voie 3, découverte directe par
+`HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime`). Ma tentative visait un levier que
+ce code n'écoute pas : **encore l'instrument, pas le code**.
+
+**Les trois replis de `main.cpp` restent donc du code non éprouvé**, exactement
+comme la branche `modes[0]` du mode de fusion. Ils sont journalisés — c'est ce qui
+a permis de trancher aujourd'hui — mais *journalisé* n'est pas *exercé*.
+
+---
+
+## ✅ 2026-08-17 — le mode de fusion est DEMANDÉ au runtime, plus écrit en dur
+
+`EndFrame` soumettait `XR_ENVIRONMENT_BLEND_MODE_OPAQUE` **en dur**
+(`NkXrOpenXRBackend.cpp`, ancienne l. 1321), alors que
+`xrEnumerateEnvironmentBlendModes` était chargée et jamais appelée pour décider.
+*Une valeur écrite en dur est une hypothèse non mesurée* — même famille que les
+réglages fantômes de NKCamera et que les gardes de macros corrigées le même jour.
+
+**La règle de sélection, décidée UNE fois à l'initialisation :**
+
+| cas | mode soumis | effet |
+|---|---|---|
+| le runtime annonce OPAQUE | **OPAQUE** | **identique à avant, au bit près** |
+| le runtime n'annonce PAS OPAQUE | son **premier mode annoncé** | corrige une soumission **invalide** au regard de la spec |
+| énumération en échec ou absente | **OPAQUE** | repli — le comportement d'avant |
+
+⚠️ **Sur tout runtime qui annonce OPAQUE — c'est-à-dire tout ce que ce dépôt peut
+exercer aujourd'hui — ce correctif est inerte.** Il ne devient utile que là où
+l'ancien code était fautif : les casques à écran transparent, qui n'annoncent
+qu'`ADDITIVE` et pour lesquels soumettre `OPAQUE` violait la spec.
+
+### 🚫 Ce que ceci ne fait PAS
+
+**Le passthrough n'est ni disponible, ni plus proche.** Le runtime PC mesuré le
+2026-08-17 n'expose **pas** `XR_FB_passthrough` (36 extensions, absente), et un
+passthrough Quest exige un **APK autonome que ce dépôt ne produit pas**. Ce code
+sert à **dire la vérité** le jour où cet APK existera. Le chemin AR n'est pas
+touché.
+
+### ⚠️ État de vérification — chemin d'énumération EXERCÉ sur Quest 2, règle NON discriminée
+
+**Course du 2026-08-16 17:13, Quest 2 réel, montage Air Link (WiFi).**
+
+| | |
+|---|---|
+| compile (`jenga build --target NKXRDemo --config Release`) | ✅ **26/26**, Release |
+| chemin d'énumération exercé sur matériel réel | ✅ **OUI** — sonde, code **0**, 4 exécutions identiques |
+| `EndFrame` réel exercé | ❌ **NON** — la sonde rejoue la règle, elle n'exécute pas le backend |
+| **règle de sélection discriminée** | ❌ **NON — voir ci-dessous, c'est le point** |
+
+```
+extensions annoncees .......... 36        XR_FB_passthrough : ABSENTE
+modes annonces ................ 1         1/1 : OPAQUE (valeur 1)
+regle rejouee -> mode soumis .. OPAQUE    present dans la liste annoncee
+code de sortie ................ 0         (4 executions : 0, 0, 0, 0)
+```
+
+**Contrôle indépendant du montage**, pris *avant* la course et confirmé pendant :
+les journaux du runtime Meta (`LinkClient`, `Service`) décodent des images en
+continu — `Frame 20876 decoded`, transmission ~7,5–10,5 ms, 14 « glitches ». **Le
+casque est vu par le runtime indépendamment de notre code** : un échec n'aurait
+donc pas pu être imputé au réseau sans qu'on le sache.
+
+#### ⚠️ Ce que ce `0` établit — et ce qu'il n'établit PAS
+
+**Il établit** que le chemin complet tourne sur matériel réel : loader négocié,
+instance créée, **système obtenu**, modes énumérés, sélection effectuée. C'était
+jusqu'ici **compilé et jamais exercé** ; ce trou est comblé.
+
+**Il n'établit PAS que la règle est juste.** Le runtime annonce **un seul mode, et
+c'est OPAQUE**. La règle dit « si OPAQUE est annoncé, prendre OPAQUE ». Le
+contrôle demande « le mode choisi est-il dans la liste ? ». Avec une liste à un
+élément valant OPAQUE, **ce contrôle ne peut pas échouer, par construction** — il
+aurait rendu `[OK]` même avec une règle fausse.
+
+*C'est la forme déjà rencontrée le 15/08 avec `U = V = 128` : réussir pour une
+raison insuffisante.* Le `0` est **l'absence d'un refus, pas la preuve d'un
+succès** — exactement la réserve écrite avant la course, et elle tient après.
+
+**Reste donc non exercé** : la branche de repli (`modes[0]` quand OPAQUE est
+absent) est **du code mort sur ce runtime**, et le **code 4** — le défaut visé —
+**ne peut pas s'y déclencher**. Il faudrait un runtime qui n'annonce pas OPAQUE,
+c'est-à-dire un casque à écran transparent. **Ce n'est pas « pas encore fait » :
+c'est hors d'atteinte de ce matériel.**
+
+#### Le correctif est inerte ici, et c'était prévu
+
+OPAQUE annoncé ⇒ OPAQUE soumis ⇒ **comportement identique à l'ancien code écrit en
+dur, au bit près**. La course ne valide pas une amélioration visible ; elle valide
+que **la plomberie tourne** et qu'on ne soumet plus une constante non vérifiée.
+
+*La journalisation de la liste reçue a lieu **une seule fois**, à
+l'initialisation ; `EndFrame` ne fait que relire un champ. Rien ne se journalise
+par image.*
+
+## 🚧 HORS D'ATTEINTE DE CE MATÉRIEL — à lire avant de réessayer
+
+> ⚠️ **Ce n'est pas une tâche en attente. C'est une impossibilité, et elle est
+> écrite ici pour qu'on ne la réessaie pas.** Une chose impossible déclarée
+> « pas encore faite » finit toujours par être retentée — par un étudiant en
+> septembre, ou par moi dans six mois.
+
+### 1. Le **code 4** de la sonde ne peut pas se déclencher sur un Quest 2
+
+Le code 4 est le défaut visé : *le mode soumis n'est pas dans la liste annoncée*.
+
+**Pour qu'il puisse tomber, il faut un runtime qui n'annonce PAS `OPAQUE`** —
+c'est-à-dire un **casque à écran transparent** (classe HoloLens / lunettes AR),
+qui n'annonce qu'`ADDITIVE`. C'est précisément le matériel sur lequel l'ancien
+code, écrit en dur à `OPAQUE`, était **invalide au regard de la spec**.
+
+Le Quest 2 vu par le runtime PC annonce **un seul mode, `OPAQUE`** (mesuré le
+2026-08-16, 4 exécutions). Sur cette liste à un élément, la règle *« si OPAQUE
+est annoncé, prendre OPAQUE »* rend un mode forcément présent : **le contrôle ne
+peut pas échouer, par construction.**
+
+> **Aucune course future sur Quest 2 ne changera ce résultat.** Relancer la sonde
+> avec ce casque rendra `0` indéfiniment, et ce `0` ne dira jamais rien de la
+> justesse de la règle. Il n'y a rien à réessayer : il y a un autre matériel à
+> avoir, ou rien.
+
+*Même famille que le `U = V = 128` du 2026-08-15 : une chrominance nulle rendait
+les coefficients non pas testés mais **absents** ; ici une liste à un élément rend
+la règle non pas testée mais **sans alternative**. Réussir pour une raison
+insuffisante.*
+
+### 2. La branche de repli est du **CODE MORT** sur ce runtime
+
+```cpp
+const XrEnvironmentBlendMode choisi = opaqueAnnonce ? XR_ENVIRONMENT_BLEND_MODE_OPAQUE
+                                                    : modes[0];   // <- jamais atteint ici
+```
+
+Le `else` — *prendre le premier mode annoncé quand `OPAQUE` est absent* — **n'a
+jamais été exécuté**, ni dans la sonde, ni dans `NkXrOpenXRBackend`. Il est écrit,
+il compile, **il n'est pas éprouvé.**
+
+⚠️ **Ne pas le lire comme validé par la course du 2026-08-16.** Cette course a
+exercé l'autre branche, exclusivement. La même remarque vaut pour le backend :
+c'est la partie du correctif qui corrige un vrai défaut, et c'est celle dont on ne
+sait rien par la mesure.
+
+## ▶️ POUR EXERCER LA SÉLECTION DU MODE DE FUSION — la recette exacte
+
+*À exécuter telle quelle le jour où le Quest 2 est rebranché. Rien à chercher,
+rien à décider.*
+
+Il y a **deux niveaux**, et ils n'ont pas les mêmes prérequis. Le premier suffit
+à trancher la question ouverte.
+
+### Niveau 1 — la règle de sélection. **Ne demande QU'UN casque connecté.**
+
+Ce niveau **n'a pas besoin du blocage renderer levé** : la sonde ne touche ni au
+renderer ni à la fenêtre.
+
+```bash
+# 1. brancher le Quest 2 (Link ou Air Link), le laisser actif dans Meta Horizon
+# 2. depuis la racine du dépôt :
+clang++ -std=c++17 -O2 -IExternals/Libs/NKOpenXR/include \
+    Kernel/Runtime/NKXR/tests/sonde_openxr_blend.cpp -o /tmp/sonde_xr.exe
+/tmp/sonde_xr.exe ; echo "code=$?"
+```
+
+**Comment lire le résultat :**
+
+| code | ce que ça veut dire |
+|---|---|
+| **0** | ✅ le mode choisi est bien dans la liste annoncée — **la question est tranchée** |
+| **4** | ❌ le mode choisi n'est **pas** annoncé : le défaut visé existe encore |
+| **3** | énumération vide ou en échec — le runtime ne dit pas ce qu'il sait faire |
+| **2** | le casque n'est pas vu par le runtime (c'est l'état d'aujourd'hui) |
+| **1** | ni loader ni runtime négociable |
+
+✅ **Course faite le 2026-08-16 17:13 (Quest 2, Air Link) : code 0**, 4 fois de
+suite. La sonde a donc été vue **réussir** et **échouer** (code 1 et 2 mesurés
+avant) : elle n'a plus un verdict unique.
+
+⚠️ **Mais le `0` ne discrimine pas la règle** : le runtime n'annonce qu'un seul
+mode, OPAQUE, donc le contrôle « le mode choisi est-il annoncé ? » **ne peut pas
+échouer sur ce matériel**. Le **code 4** exigerait un runtime qui n'annonce PAS
+OPAQUE (casque à écran transparent) : **hors d'atteinte ici**, pas « pas encore
+fait ».
+
+### Niveau 2 — le vrai `EndFrame`. Demande **casque + blocage renderer levé**.
+
+La sonde *rejoue* la règle ; elle n'exécute pas `NkXrOpenXRBackend`. Pour exercer
+le code réellement soumis :
+
+```bash
+jenga build --target NKXRDemo --config Release
+Build/Bin/Release-Windows/NKXRDemo/NKXRDemo.exe
+grep -i "fusion" logs/app.log      # une seule ligne attendue, à l'initialisation
+```
+
+**Prérequis bloquant** : `NkRendererImpl::Initialize` s'arrête aujourd'hui à
+l'*étape 2 `NkShaderLibrary::Init`*, avant toute ligne de NKXR — `logs/app.log`
+contient **0 occurrence** d'`OpenXR`. **C'est le seul obstacle**, et il
+appartient à l'agent NKRenderer. Tant qu'il tient, le niveau 2 est hors d'atteinte
+et le niveau 1 est la seule preuve disponible.
+
+### Ce qu'on ne fera PAS
+
+**Aucune tentative de simuler un casque absent.** Contourner une absence
+matérielle par un instrument qui l'imite est exactement l'erreur retirée en Q32 :
+une sonde qui reproduit une partie de la réalité mesure autre chose que la
+réalité. On attend le matériel.
+
+### 🔎 Sonde autonome — et sa première version m'a fait annoncer une panne inexistante
+
+`tests/sonde_openxr_blend.cpp` : un instrument qui interroge le runtime **sans
+ouvrir de fenêtre ni de renderer**, rejoue la règle de sélection sur la liste
+annoncée, et vérifie **que le mode choisi est bien dans cette liste** — la
+propriété exacte que le correctif doit garantir.
+
+**Elle peut échouer, et par cinq portes distinctes** : `1` loader absent,
+`2` pas de runtime/casque, `3` énumération vide ou en échec, `4` **le mode
+choisi n'est pas dans la liste annoncée** (le défaut visé), `0` seulement si
+tout tient.
+
+#### ❌ RETRACTATION — mon « le loader est absent, donc rien ne peut s'initialiser » etait FAUX
+
+J'avais conclu, sur la premiere version de cette sonde : *aucun `openxr_loader.dll`
+sur la machine, donc l'initialisation OpenXR echouerait meme si le renderer etait
+debloque*. **C'est refute.**
+
+**Le moteur n'a jamais dependu du loader Khronos.** `NkXrOpenXRBackend` a **trois
+voies**, dans cet ordre :
+
+1. `NK_XR_OPENXR_LOADER` — un chemin force ;
+2. `openxr_loader.dll` pose a cote de l'exe ;
+3. **negociation directe avec le runtime actif declare au registre** —
+   `HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime` → manifeste JSON →
+   `library_path` → `xrNegotiateLoaderRuntimeInterface`.
+
+**Ma sonde n'essayait que la voie 2**, c'est-a-dire **un chemin dont le moteur ne
+depend pas**. Elle mesurait l'absence d'une piece facultative et je l'ai lue comme
+une panne. *Encore l'instrument, et non le code* — mais cette fois l'instrument
+disait une panne la ou tout fonctionne.
+
+#### ✅ Ce qui est vrai, mesure apres correction de la sonde
+
+```
+voie 2  openxr_loader.dll ................................. absent (sans consequence)
+voie 3  C:\Program Files\Meta Horizon\...\LibOVRRTImpl64_1.dll .. CHARGE
+        negociation .................................... ACCEPTEE
+        xrCreateInstance ............................... REUSSI
+        extensions annoncees ........................... 36
+        XR_FB_passthrough .............................. ABSENTE
+        xrGetSystem .................................... aucun casque (attendu, non connecte)
+```
+
+**La course du 12/08 sur Quest 2 est donc parfaitement rejouable** : rien ne
+manque, rien n'a ete nettoye, rien n'est a approvisionner. Il n'y a **aucune
+decision a demander a Rodolf** sur la livraison d'un loader — la question
+n'existait que dans mon erreur.
+
+#### ✅ Et les « 36 extensions » sont RETABLIES
+
+J'avais ecrit qu'elles n'etaient « pas reproductibles en l'etat ». **Elles le
+sont** : les extensions s'enumerent sans casque, et la sonde corrigee rend
+**exactement 36, `XR_FB_passthrough` absente** — le chiffre de la session du
+2026-08-17. Ma reserve etait un artefact de ma propre sonde incomplete.
+
+*Le passthrough reste hors de portee, et pour la raison deja ecrite : extension
+absente du runtime PC **et** APK autonome Quest non produit par ce depot.*
+
+#### ⚠️ La limite qui subsiste
+
+La sonde discrimine desormais — **2** en nominal, **1** avec
+`XR_RUNTIME_JSON` invalide — donc elle n'a plus un verdict unique. Mais
+**elle n'a toujours jamais rendu 0**, et les codes **3** et surtout **4** (le
+mode choisi absent de la liste annoncee, le defaut vise) **exigent un casque
+connecte**. Ils restent non exerces. *Ne pas traiter son premier `0` comme une
+confirmation.*
+
+Elle **rejoue** la regle du backend, ecrite a l'identique, elle ne l'**exerce**
+pas : si la regle change d'un cote et pas de l'autre, la sonde ment.
+
+### 🔧 Un champ fantôme créé puis retiré dans le même geste
+
+Un booléen « l'énumération a-t-elle répondu ? » a été ajouté, mesuré à
+**1 écrivain / 0 lecteur**, puis retiré — exactement le défaut que ce dépôt
+traque depuis une semaine, commis en le corrigeant. Les trois cas sont déjà
+séparés par trois messages distincts. *Un état de plus n'aurait servi qu'à
+donner l'illusion d'une capacité interrogeable.*
+
+### ✅ Dette SOLDÉE le même jour : le banc compile désormais dans le dialecte du dépôt
+
+Le banc NKXR compilait ses trois tests en **C++20** alors que le dépôt est en
+**C++17** (`cppdialect("C++17")`, 205 projets). *Un banc qui n'est pas compilé
+comme le code qu'il juge ne mesure pas le même code* — c'est ce qui a piégé le
+témoin `NkToWide` (`char16 = uint16` en C++17, `char16_t` en C++20).
+
+⚠️ **La question n'était pas « les contrôles sont-ils faux ? » mais « que
+mesurent-ils ? »** — et c'est pire, parce qu'un résultat faux finit par se voir,
+alors qu'un résultat hors-sujet reste vert indéfiniment.
+
+**Mesuré AVANT de corriger** — les deux dialectes, mêmes sources, mêmes conditions :
+
+| banc | C++20 | C++17 | écart |
+|---|---|---|---|
+| `test_xr` | **66 OK, 0 ÉCHECS** | **66 OK, 0 ÉCHECS** | **aucun** |
+| `test_ar` | **82 OK, 0 ÉCHECS** | **82 OK, 0 ÉCHECS** | **aucun** |
+| `outil_ar_image` *(instrument)* | code 1 (emploi) | code 1 (emploi) | **aucun** |
+
+Et le contrôle qui vaut plus que les compteurs : **les journaux des trois
+binaires, horodatage retiré, sont identiques entre les deux dialectes.** Pas
+seulement le même total — la même sortie, ligne pour ligne.
+
+**Zéro contrôle tombait.** La dette était un réglage de script, pas un problème
+de portabilité — et maintenant on le sait au lieu de l'espérer. Le script est
+passé en C++17 et rejoué à travers lui-même : 66/66 et 82/82, inchangés.
+
+### 🔴 DETTE NOMMÉE — personne ne lance les 148. Mesuré le 2026-08-17
+
+*Corriger le dialecte et le compte ne sert à rien si le script ne tourne jamais.
+Voici qui l'appelle : **personne**.*
+
+| question | réponse mesurée |
+|---|---|
+| Qui référence `build_tests.sh` ? | **personne** — les seules occurrences hors `Externals/` sont **mes propres commentaires** et cette ROADMAP |
+| Y a-t-il une intégration continue ? | **une seule** : `.github/workflows/build-remote.yml` |
+| Se déclenche-t-elle seule ? | **non** — `on: workflow_dispatch` uniquement, donc **à la main** |
+| Lance-t-elle des tests ? | **non** — elle *construit* une cible jenga. Ses deux occurrences du mot « test » sont `ubuntu-latest` et un `test -n "$OUT"` de shell |
+| Et `jenga test` ? | la commande existe, mais l'exécution est **coupée par politique de workspace** (mesuré le 15/08) |
+
+**Conséquence, écrite sans adoucissement : les 148 contrôles ne tournent que
+lorsqu'un agent y pense, à la main, sur une machine Windows.** Aujourd'hui c'est
+moi. **En septembre, ce sera personne** — au moment précis où le module devient
+un support de cours.
+
+⚠️ **Le piège particulier de cette dette** : si une intégration continue est
+accrochée un jour **en reprenant l'ancienne ligne `-std=c++20`**, elle annulerait
+silencieusement la bascule du 17/08 — et *personne ne le verrait*, puisque les
+148 passent dans les deux dialectes. **Le contrôle à faire le jour de
+l'accrochage : lire le dialecte dans le journal de la CI, pas dans le script.**
+
+**Non corrigé, et volontairement** : accrocher une chaîne d'intégration engage
+tout le dépôt, pas le seul NKXR. Ce n'est pas un arbitrage de chantier XR.
+*Même limite que le 15/08 avec `audit_reglages.sh` : 7 secondes qui ne sont
+jamais lancées valent zéro — et « ce n'est pas à moi » ne clôt pas le sujet, ça
+le transmet.*
+
+Les trois lignes pour qui l'accrochera :
+
+```
+commande : bash Kernel/Runtime/NKXR/tests/build_tests.sh   (construit)
+           puis lancer test_xr.exe et test_ar.exe          (148 controles)
+code     : les deux binaires rendent 0 ; le VERDICT est dans logs/app.log,
+           ligne « === NKXR self-test : N OK, M ECHECS === ». M > 0 doit faire
+           ECHOUER la chaine — le code de sortie seul ne suffit pas.
+piege    : outil_ar_image.exe NE DOIT PAS etre lance dans la chaine — instrument
+           sans verdict, il sort en code 1 sans argument.
+```
+
+### ✅ Le compte public corrigé : 148, pas 66
+
+Le module annonçait **« 66/66 »** en tête de ROADMAP alors qu'il y a **148**
+contrôles — **66** (`test_xr`) **+ 82** (`test_ar`). Il **sous-déclarait de
+moitié ce qu'il vérifie**. Un chiffre public faux, même dans le sens de la
+modestie, reste faux : le jour où quelqu'un compte, il ne sait plus lequel des
+deux croire. Corrigé en tête de ce fichier.
+
+### ✅ `test_ar_image` → `outil_ar_image` : il n'était NI compté NI exclu
+
+Troisième état, le pire : construit par `build_tests.sh`, absent de tout total,
+et sortant en **code 1** sans argument — donc **il ressemblait à un échec** à qui
+lisait la sortie du banc.
+
+**Tranché : il sort explicitement du décompte, et il est renommé.** La raison est
+plus forte que « il attend un argument » :
+
+> **ce programme n'a AUCUN verdict.** Il journalise ce qu'il trouve et rend `0`
+> qu'il détecte cinq marqueurs ou zéro. **Il ne peut pas échouer.**
+
+L'ajouter au total avec une image versionnée aurait donc créé **un contrôle
+incapable de tomber** — exactement le « repos acheté, pas d'information » qu'on
+vient de retirer ailleurs. Un attendu manquait, pas une image.
+
+Ce qui a été fait :
+- **renommé `outil_ar_image.cpp`** — le nom `test_*` dans `tests/` était la cause
+  de l'ambiguïté, pas sa conséquence ;
+- **son message d'emploi dit ce qu'il EST** (« INSTRUMENT de diagnostic, pas un
+  test ») avant de dire comment on l'appelle ;
+- **ses trois codes de sortie sont documentés**, avec la précision qui compte :
+  *`0` signifie « j'ai tourné », pas « j'ai réussi »* ;
+- **la condition pour qu'il rejoigne un jour le décompte est écrite** : une image
+  versionnée **et** le nombre de marqueurs exigé, avec échec si le compte diffère.
+
+### 🔧 Et le `sed` de la correction a réécrit sa propre documentation
+
+Le remplacement `c++20 → c++17` a touché **aussi la phrase de commentaire qui
+racontait l'historique**, la transformant en « ce script a compilé en C++17
+jusqu'au 2026-08-17 » — l'inverse de la vérité. Rattrapé à la relecture.
+
+C'est la forme déjà rencontrée sur `NkToWide` : **la documentation se met à
+corroborer l'état faux.** Le nom du drapeau n'est donc plus écrit en toutes
+lettres dans la phrase d'historique, pour qu'un futur remplacement ne puisse plus
+la retourner.
 
 ---
 
@@ -165,6 +670,324 @@ du cas « EndFrame avec image encore acquise »).
 | **Poste distant — état répliqué** *(voie recommandée)* | ❌ M | NKNetwork réplique poses + état de scène ; chaque poste REND en local. Bande passante minuscule, image nette, et le formateur peut regarder où il veut. C'est ce qu'attend un simulateur de formation. |
 | **Poste distant — flux vidéo** *(voie de secours)* | ❌ M | NKMedia a déjà l'encodeur **H.264 from scratch** + le lecteur : encoder la vue moniteur, l'envoyer, la décoder. Utile pour un poste sans GPU ou une diffusion salle. |
 | **Plusieurs casques dans la MÊME scène** (formateur + stagiaire en VR) | ❌ L | Réplication d'état + une session XR par poste. L'API NKXR est déjà par-session, rien n'y fait obstacle. |
+
+## 🔴 DÉFAUT OUVERT — `NkArImu` fige la boucle. Diagnostiqué le 14/08, **non réparé**
+
+*C'est le seul vrai **défaut** du parcours AR : les quatre autres manques sont des
+absences, celui-ci est du code qui casse.*
+
+### Le fait, vérifié le 2026-08-17 (pas supposé)
+
+```
+Kernel/Runtime/NKXR/src/NKXR/AR/NkArImu.cpp:49
+        ALooper *looper = ALooper_forThread();
+```
+
+La centrale inertielle s'attache au **`Looper` du fil appelant** — celui de
+l'application. La file d'événements capteurs partage alors la boucle de rendu, et
+**la boucle gèle**. Constaté le 14/08 ; l'IMU est **coupée par défaut** depuis.
+
+**Ce que voit un étudiant** : il active la centrale inertielle, l'application se
+fige, **aucun message**. Rien dans la documentation ne l'y prépare. *Un gel
+silencieux est ce qui décourage le plus vite.*
+
+### Le correctif pressenti — ≈15 lignes, et il n'est PAS écrit
+
+Donner à l'IMU **son propre fil** avec son propre `Looper` (`ALooper_prepare` sur
+ce fil, au lieu d'`ALooper_forThread` sur celui de l'appelant), et publier vers la
+boucle de rendu par une valeur partagée.
+
+⚠️ **Volontairement non commité.** C'est un correctif de **concurrence**, et il
+n'est **pas exerçable sans le téléphone**. Un correctif de concurrence qu'on ne
+peut pas lancer n'est pas un correctif, c'est **une hypothèse commitée** — et il
+pourrait très bien marcher en Debug et courser en Release, ce que la règle sur les
+deux configurations existe précisément pour attraper.
+
+### ▶️ Pour l'exercer — la recette, le jour où le S22+ est rebranché
+
+```bash
+# 1. brancher le Galaxy S22+, verifier qu'il repond :
+adb devices                      # doit lister l'appareil, pas "unauthorized"
+
+# 2. construire et deployer :
+jenga build --target NKARDemo --config Release --platform Android
+adb install -r Build/Bin/Release-Android/NKARDemo/NKARDemo.apk
+
+# 3. lancer, puis ACTIVER l'IMU (c'est ce reglage qui declenche le gel) :
+adb logcat -c && adb shell am start -n com.rihen.nkardemo/.MainActivity
+adb logcat | grep -i "NKXR\|ArImu\|ANR"
+```
+
+**Ce qu'on cherche** : la boucle qui cesse d'avancer (débit d'images qui tombe à
+zéro) et, éventuellement, un **ANR** Android. **Mesurer avant/après le correctif,
+en Debug ET en Release** — les primitives de synchronisation sont précisément ce
+qui diffère entre les deux.
+
+⚠️ Le nom d'activité ci-dessus est **repris du paquet de la démo et non vérifié
+sur appareil** : si `am start` échoue, lire le nom réel avec
+`adb shell cmd package resolve-activity --brief com.rihen.nkardemo`. Je le signale
+plutôt que de laisser croire que la ligne a été exécutée.
+
+---
+
+## 🎓 CE QUI MANQUE AU PARCOURS ÉTUDIANT « AR FROM SCRATCH » (2026-08-17)
+
+> Objectif du cours de septembre : **les étudiants construisent leur propre AR
+> from scratch**. La question n'est donc pas « que sait faire le module ? » — le
+> tableau ci-dessous montre qu'il sait beaucoup — mais **« que doit franchir un
+> étudiant, dans l'ordre, et où bute-t-il ? »**
+
+**Le constat central : la capacité existe, le chemin non.** Marqueurs, monde
+ancré et calibration ont tourné sur un Galaxy S22+ réel. Ce qui manque est ce qui
+mène un étudiant jusque-là.
+
+| # | manque | gravité pour le cours |
+|---|---|---|
+| 1 | **`USAGE.md` n'a AUCUN chapitre AR** — 9 sections, toutes VR/simulateur | 🔴 **bloquant** |
+| 2 | **Aucun point de départ AR minimal** à copier | 🔴 **bloquant** |
+| 3 | **`NkArImu` fige toujours la boucle** — non réparé | 🟠 piège — **nommé ci-dessus, avec sa recette** |
+| 4 | ~~La commande produisant marqueur et planche n'est écrite nulle part~~ | ✅ **écrite** — `USAGE.md` § 10 |
+| 5 | ~~La limite de `NkArFlow` (~60 °/s) n'est pas enseignée~~ | ✅ **écrite** — `USAGE.md` § 10 |
+
+### 1. 🔴 Le guide s'arrête avant l'AR
+
+`USAGE.md` a **9 sections, zéro AR** : les cinq idées, le simulateur, la boucle,
+les entrées, le vrai casque, les réglages, la mesure, les symptômes, la suite.
+Un étudiant qui suit le guide **n'atteint jamais** `NkArMarker`, `NkArWorld` ou
+`NkArCalibration`. L'en-tête du guide le dit lui-même : *« Le chapitre AR y sera
+ajouté quand l'étage 3 sera livré. »*
+
+**Or l'étage 3 n'est pas requis pour enseigner** : ce qui a tourné sur le S22+
+suffit largement à un parcours from scratch. **Le chapitre AR ne dépend pas
+d'une livraison de code, il dépend d'être écrit.** C'est le premier manque, et
+c'est celui qui coûte le moins cher à combler.
+
+### 2. 🔴 Rien entre l'outil de diagnostic et l'application complète
+
+- `outil_ar_image` : **instrument sans verdict**, pensé pour déboguer une image
+  qui résiste — pas pour démarrer ;
+- `NKARDemo` : **application complète**, trop grande pour être un point de départ.
+
+Il manque le palier du milieu : *ouvrir la caméra, détecter un marqueur, poser un
+cube* — une trentaine de lignes qu'un étudiant lit en entier. **C'est ce fichier
+qui manque, pas une fonctionnalité.**
+
+### 3. 🟠 Le piège que l'étudiant rencontrera en premier s'il est curieux
+
+`NkArImu.cpp:49` appelle toujours `ALooper_forThread()` — **le `Looper` de
+l'application**. Le défaut diagnostiqué le 14/08 (≈15 lignes, un fil dédié)
+**n'est pas réparé**. Un étudiant qui active la centrale inertielle obtient un
+**gel de la boucle**, sans message, sur un chemin que la documentation ne
+signale pas. *Un gel silencieux est ce qui décourage le plus vite.*
+
+### 4. 🟠 Les artefacts physiques sont produits, mais la commande est cachée
+
+L'AR from scratch exige d'**imprimer** un marqueur et une planche de calibration.
+Le générateur **est versionné** (`Applications/NKARDemo/src/NKARDemo/main.cpp`)
+et écrit `nkar_marqueur.png` et `nkar_planche_calibration.png` **au démarrage de
+la démo** — mais rien, dans aucun document, ne dit qu'il faut lancer `NKARDemo`
+pour les obtenir.
+
+```
+nkar_marqueur.png              7 753 o   présent dans l'arbre de travail, NON versionné
+nkar_planche_calibration.png  39 892 o   présent dans l'arbre de travail, NON versionné
+```
+
+✅ **Le bon correctif est documentaire, pas binaire** : le générateur existe, il
+suffit d'écrire la commande. Ne pas versionner les PNG — un artefact reproductible
+qu'on fige devient un artefact qu'on oublie de régénérer.
+
+### 5. 🟡 Une limite mesurée qui doit être enseignée, pas découverte
+
+`NkArFlow` est exact mais **borné à ~60 °/s** (mesuré le 17/08). Au-delà, le
+suivi décroche. Pour un étudiant qui bouge son téléphone, c'est le comportement
+normal du procédé — **pas un bug de son code**. S'il ne l'apprend pas, il
+passera son temps à corriger ce qui fonctionne.
+
+### Ce que je n'ai pas fait, et pourquoi
+
+**Rien de tout ceci n'est corrigé dans cette entrée.** Les points 1 et 2 sont de
+la pédagogie — ils engagent la forme du cours, donc Rodolf. Le point 3 est un
+correctif de ~15 lignes sur Android, **non exerçable sans le téléphone**. Les
+points 4 et 5 sont deux paragraphes à écrire, une fois le chapitre AR décidé.
+
+**Ordre recommandé si le feu vert vient : 3, puis 4, puis 1+2, puis 5.** Le
+correctif du gel d'abord — c'est le seul qui soit un défaut plutôt qu'une
+absence, et il pique l'étudiant le plus tôt.
+
+---
+
+## 🎓 ÉTAT VR / AR / MR — pour la décision d'enseignement (2026-08-17)
+
+> **Question posée** : que peut-on faire faire à des étudiants en AR/VR/MR à
+> partir de la semaine du 8 septembre ? Trois colonnes, et la troisième est la
+> seule qui compte pour un cours : **ce qui a tourné sur un appareil**.
+
+| | écrit | compile | **a tourné sur un appareil** |
+|---|---|---|---|
+| **VR** — session OpenXR, Vulkan, états runtime, `xrLocateViews` | 2 947 l. (backend) | ✅ | ✅ **Quest 2 réel** — session créée, **300 images**, 2080×2096 par œil (11/08) |
+| **VR** — manettes Touch, poses, saisie, haptique | inclus | ✅ | ✅ **validé manettes en main par Rihen** (12/08) |
+| **VR** — mains sans manettes (`XR_EXT_hand_tracking`) | ✅ écrit, 26 articulations | ✅ | ❌ **bloqué côté Meta** — le runtime Link n'expose pas l'extension (36 listées, vérifié) |
+| **AR** — détection de marqueurs (Otsu, contours, quad, homographie, pose) | 923 l. | ✅ | ✅ **Galaxy S22+** — marqueurs détectés, ~2,5 ms/image |
+| **AR** — monde ancré (`NkArWorld`, carte, pose caméra) | 506 l. | ✅ | ✅ **S22+** — objet posé qui tient en place |
+| **AR** — calibration caméra (Zhang) | 711 l. | ✅ | ✅ **S22+** — fx 918,9 / fy 923,5, **erreur de reprojection 1,83 px** sur 6 vues, appliquée à chaud (13/08) |
+| **AR** — suivi par l'image entre marqueurs (`NkArFlow`) | 748 l. | ✅ | 🔶 **partiellement** — tourne sur l'appareil, jamais mesuré séparément |
+| **AR** — centrale inertielle (`NkArImu`) | 252 l. | ✅ | ❌ **défaut connu** : partage le `Looper` de l'application et **fige la boucle**. Coupé par défaut depuis le 14/08 |
+| **MR / passthrough** | **0 ligne** | — | ❌ **inexistant** |
+
+### 🔬 MESURE DU 2026-08-17 — le runtime PC **n'offre aucun passthrough**
+
+Le module interroge désormais `xrEnumerateEnvironmentBlendModes` et **écrit ce
+que le runtime annonce** (observation seule — le mode soumis reste `OPAQUE`).
+
+Ce qui a pu être mesuré **sans casque**, sur cette machine :
+
+```
+runtime charge ...... Oculus 1.206.0 (Meta Horizon, LibOVRRTImpl64_1.dll)
+extensions offertes .. 36
+xrGetSystem .......... ECHEC, XrResult -35 (aucun casque connecte)
+```
+
+⚠️ **Aucune extension de passthrough dans les 36.** Les seules `XR_FB_*`
+annoncées sont `color_space`, `display_refresh_rate`, `haptic_amplitude_envelope`,
+`haptic_pcm`, `touch_controller_pro`, `touch_controller_proximity`. **Pas de
+`XR_FB_passthrough`.**
+
+**Ce que ça établit** : le passthrough n'est pas exposé par le runtime **PC via
+Link**. Le MR ne sera donc pas atteignable depuis un PC relié au casque, quelle
+que soit la valeur du mode de fusion.
+
+**Ce que ça n'établit PAS** : l'état sur un **APK autonome Quest**, où le runtime
+est différent et expose habituellement le passthrough. Or cet APK **n'existe pas
+encore** (ligne ❌ « APK Quest 2 via la chaîne jenga Android » ci-dessus).
+
+**Reste à mesurer, casque connecté** : la liste des modes de fusion elle-même —
+`xrEnumerateEnvironmentBlendModes` exige un `systemId` valide, donc un casque
+présent. Le code est en place et journalise ; il suffira d'un lancement.
+
+### 📏 MESURE DU SUIVI PAR L'IMAGE — `NkArFlow`, seul (2026-08-17)
+
+748 lignes qui tournaient depuis le 13/08 **sans avoir jamais été mesurées
+séparément**. C'est pourtant ce qui tient la scène entre deux marqueurs — donc
+la première chose qu'un étudiant verra en détournant la caméra du marqueur.
+
+**Protocole** (`tests/bench_ar_flow.cpp`) : image **réelle** du téléphone
+(1280×720, vraie texture et vrai bruit), rotations imposées par **décalage entier
+de pixels** — sous le modèle sténopé, un lacet θ décale l'image de fx·tan(θ) —
+avec les **intrinsèques mesurées** du 13/08 (fx = 918,9), sans quoi la conversion
+pixels → angle fausserait la vérité elle-même.
+
+| décalage | vérité | mesuré | points | verdict |
+|---|---|---|---|---|
+| 1 px | 0,062° | — | 12 | **refusé** |
+| 2 px | 0,125° | — | 23 | **refusé** |
+| **4 px** | 0,249° | **0,250°** | 15 | ✅ |
+| **8 px** | 0,499° | **0,499°** | 23 | ✅ |
+| **16 px** | 0,998° | **0,998°** | 15 | ✅ |
+| **32 px** | 1,994° | **1,995°** | 24 | ✅ |
+| 48 px | 2,990° | — | **0** | **refusé** |
+| 64 px et + | — | — | **0** | **refusé** |
+
+**Ce que ça établit :**
+- **précision : exacte** — erreur ≤ 0,001° sur toute la bande utile ;
+- **bande utile : 0,25° à 2,0° par image**, soit **~60°/s à 30 images/s** ;
+- **hors bande, il REFUSE au lieu de mentir** : trop petit, pas assez de signal ;
+  trop grand, aucun point ne vote. Un estimateur qui se tait quand il ne sait pas
+  vaut mieux qu'un estimateur qui invente.
+
+⚠️ **La portée annoncée dans l'en-tête est optimiste d'un facteur 1,7.** Le
+commentaire de `searchRadius` dit « 40 px valent 4°, soit 125°/s » — calculé avec
+une focale **supposée de 550 px**. Avec la focale **mesurée** de 918,9, 40 px ne
+valent que **2,5°, soit 75°/s**. Le banc mesure une coupure encore plus tôt, vers
+32 px. *Un chiffre calculé sur une valeur d'attente, resté dans un commentaire
+après l'arrivée de la vraie mesure.*
+
+**Ce que ce banc NE mesure PAS** : des décalages entiers sont le cas le plus
+favorable — aucun rééchantillonnage, donc aucun flou d'interpolation. Le terrain
+ajoute le flou de bougé, l'obturateur déroulant, les changements d'éclairage et la
+parallaxe d'une translation. **Ces chiffres sont une borne supérieure.**
+
+**Pour l'enseignement** : on peut promettre que la scène tient quand on tourne
+*lentement* (sous ~60°/s). On ne peut pas promettre un balayage rapide — et
+l'application le saura, puisque le suivi renvoie `valid = false`.
+
+### 🔍 DIAGNOSTIC — pourquoi `NkArImu` fige la boucle (2026-08-17)
+
+**Cause trouvée, par lecture du code : ce n'est ni un fil, ni un verrou.**
+
+`NkArImu::Initialize` attache sa file d'événements au looper **de l'appelant** —
+donc, sur le fil principal, à celui de l'application :
+
+```
+NkArImu.cpp:49-53
+    ALooper *looper = ALooper_forThread();
+    ASensorManager_createEventQueue(manager, looper, kLooperId, nullptr, nullptr);
+                                                                ^^^^^^^ AUCUN rappel
+```
+
+Et la pompe d'événements Android est écrite ainsi :
+
+```
+NkAndroidEventSystem.cpp:624-643
+    while (true) {
+        pollResult = ALooper_pollOnce(0, ...);
+        if (pollResult < 0) break;      // sort UNIQUEMENT quand plus rien n'est prêt
+        ...
+    }
+```
+
+**Le mécanisme exact** : la file est enregistrée avec l'identifiant `0x4E4B` et
+**sans rappel**. `ALooper_pollOnce` rend donc `0x4E4B` — une valeur ≥ 0 — et
+`source` vaut nul, donc personne ne consomme les événements. Le descripteur reste
+**prêt en lecture**, `pollOnce` le re-signale immédiatement, `pollResult` n'est
+jamais négatif : **la boucle ne sort jamais.** À 200 Hz (`kSamplingPeriodUs =
+5000`), il y a toujours de quoi lire.
+
+Les seuls à vider cette file sont `NkArImu::Poll()`… appelé plus loin dans la
+trame, qui n'arrive jamais. **La boucle s'affame elle-même.**
+
+**Coût de la réparation, puisque c'est la question** :
+
+| piste | coût | remarque |
+|---|---|---|
+| **rappel de vidage** — passer une fonction à `createEventQueue` au lieu de `nullptr` | **~15 lignes** | le looper appelle le rappel, la file se vide, `pollOnce` finit par n'avoir plus rien : la boucle sort |
+| fil dédié avec son propre looper | ~½ journée | solution classique, isole complètement, coûte un fil + une synchronisation |
+| vider dans la pompe elle-même | ~1 h | ⛔ coupleraient NKWindow à NKXR : à écarter |
+
+**Ce n'est donc pas un mois — c'est une quinzaine de lignes.**
+
+⚠️ **Non réparé délibérément.** Le correctif ne peut pas être vérifié sans
+téléphone, et c'est précisément ce composant qui a déjà été livré avec un défaut
+connu actif par défaut (`preferSensors = true`, corrigé le 14/08). **Livrer un
+correctif invérifiable sur le composant qui a déjà mordu serait refaire la même
+faute.** À faire dès que l'appareil revient, avec sa mesure.
+
+### ⚠️ Et le MR est aussi **empêché par une ligne**
+
+Recherche exhaustive sur `passthrough`, `mixed reality`, `environment blend` dans
+tout `NKXR` et `NKARDemo` : **une seule occurrence**, et c'est son contraire —
+`NkXrOpenXRBackend.cpp:1273` fixe `environmentBlendMode =
+XR_ENVIRONMENT_BLEND_MODE_OPAQUE`, **en dur**. Opaque signifie « le monde réel est
+masqué ».
+
+Le passthrough se joue précisément là : `XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND`
+ou `ADDITIVE`, selon ce que le runtime annonce dans
+`xrEnumerateEnvironmentBlendModes`. **Ce n'est pas un chantier de plusieurs
+semaines** — c'est une énumération, un choix, et un champ. Mais tant que la valeur
+est écrite en dur, aucun étudiant ne verra le monde réel.
+
+### Ce que ça permet de décider
+
+- **VR : utilisable en cours dès maintenant** — c'est le seul volet prouvé de bout
+  en bout sur casque, manettes comprises.
+- **AR : utilisable sur téléphone Android**, avec des marqueurs imprimés. La
+  chaîne complète a tourné : détection, ancrage, calibration. ⚠️ **Ne pas
+  promettre le suivi sans marqueur** — l'IMU est coupée, et le suivi par l'image
+  n'est pas mesuré.
+- **MR : ne rien promettre.** Zéro ligne, et un mode de fusion figé en opaque.
+
+*Écrit après mesure, pas d'après mémoire : lignes comptées, `grep` exhaustif sur
+le passthrough, et chiffres d'appareil relus dans le carnet de bord.*
 
 ## En cours / TODO immédiat
 - ⏳ Validation Rihen de l'étage 1 (frustum décentré) — preuves : FOV symétrique
