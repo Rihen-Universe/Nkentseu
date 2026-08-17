@@ -744,6 +744,63 @@ le 17/08 :**
    marqueur → UN model (R41), et rien n'est écrit au projet sans geste de
    sauvegarde.
 
+**Point 4 LIVRÉ (17/08, soir) — la grille confrontée ligne par ligne :**
+
+1. **Positions ABSOLUES — suivie par construction** :
+   `Demo3DHostCreateModelRoot`/`Demo3DHostCreateMeshNode` écrivent
+   `nkvpEmptyPos` en MONDE ; `EnsureModelMesh` n'est imité nulle part.
+2. **Naissance — l'API hôte existe** (NkDemo3D.cpp), au mot près de la
+   grille : `HostAllocUser` + `NkMeshDesc::Simple(Default3D, tranche)` +
+   **`keepCPU = true` explicite** (posé même si `Simple()` l'active :
+   un futur changement de défaut ne doit pas retirer la garantie), puis
+   `nkvpIsMesh/nkvpParentOf/nkvpIsModel`. Racine = EMPTY (kind 4) : un
+   conteneur ne rend rien, une nature géométrique mentirait au panneau.
+3. **Tranches — MESURÉ, et les deux chargeurs diffèrent** : glTF écrit des
+   indices LOCAUX à la primitive + `baseVertex` (NkGLTFLoader.cpp:1069) ;
+   OBJ des indices GLOBAUX + `baseVertex=0` (NkOBJLoader.cpp:199). Lecture
+   unique : `global = indices[firstIndex+i] + baseVertex`. On EXTRAIT les
+   sommets utiles et on REBASE 0..n-1 — passer le buffer entier
+   dupliquerait tout le fichier dans chaque model. Sommets rebasés autour
+   de l'ANCRE de la tranche (centre de boîte) ; le nœud naît À l'ancre :
+   même image, origine SUR la matière.
+4. **Fait** : `HostHierSnapNode` dans les DEUX fonctions de naissance ;
+   racine née au barycentre X/Z de ses ancres (la moyenne exacte que
+   `Demo3DHostRecenterModel` recalcule) → la ligne `MESURE origine` de
+   l'archivage doit dire `ECART=(0, 0)` dès la naissance ; archive + carte
+   par le MÊME chemin que le glisser hiérarchie → navigateur ; carte
+   marquée `browserOriginDirty` (son consommateur dit « à écrire au
+   prochain enregistrement, même partiel » — une carte sans fichier est
+   exactement cela). Les noms traversent l'archivage : appariement k-ième
+   source / k-ième double, garanti par la monotonie de `HostAllocUser`
+   (plus petit slot libre d'un ensemble qui ne fait que rétrécir).
+5. **Témoins** : en attente de la course de Rodolf (protocole ci-dessous).
+   Vérifié statiquement seulement : Debug 31/31 + Release 31/31.
+
+**Décisions du lot, dites** : l'arbre VIVANT reste dans la scène active
+(l'import « à la Blender » ; le retirer serait un geste, pas un oubli) ;
+refus nommé si le document actif est un éditeur de model ; tranche vide →
+nœud sauté et journalisé ; slots pleins → arrêt avec message « Import
+INCOMPLET », on garde ce qui a pu naître.
+
+**⚠️ ÉCART DÉCLARÉ — la géométrie importée n'est PAS encore dans le
+`.nkmesh`** : même dette que la géométrie éditée (liste officielle de
+NkModelerScene.h, complétée le 17/08). Le fichier écrit nœuds, origines et
+noms ; les sommets vivent dans la session (l'éditeur de model travaille sur
+l'archive vivante). À la réouverture d'un autre jour, les nœuds reviennent
+en primitives. Fermer cette dette = sérialiser la géométrie CPU (concerne
+autant le mode Édition que l'import) — chantier séparé, à ordonner par
+Rihen.
+
+**📣 PROTOCOLE POUR RODOLF (9e relecture)** : bouton « Importer » du
+navigateur, choisis un `.obj` MULTI-OBJETS du corpus
+(`D:\Projets\2026\NKGenCorpus\brut\`). Attendu : (A) N models dans la scène
+ET N cartes au navigateur (N = nombre de `o` du fichier), gizmo SUR chaque
+objet ; journal : `MESURE import`, une `MESURE creation` par model, et les
+lignes `MESURE origine` de l'archivage disant `ECART=(0, 0)` ; (B) Ctrl+S
+puis regarde le DOSSIER COURANT du navigateur sur le disque (racine du
+projet si aucun) : N `.nkmesh` nouveaux ; (C) NÉGATIF : réimporte, quitte
+SANS sauver, relance — aucun `.nkmesh` de plus. Envoie le journal.
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,

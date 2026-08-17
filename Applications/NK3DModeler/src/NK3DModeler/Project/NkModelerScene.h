@@ -60,6 +60,13 @@
 //   travail :
 //   * la GEOMETRIE EDITEE (sommets deplaces en mode Edition) : un maillage est
 //     regenere depuis ses parametres de creation, pas relu ;
+//   * la GEOMETRIE IMPORTEE (17/08) : meme dette -- le `.nkmesh` d'un model
+//     importe ecrit ses noeuds, origines et noms, pas encore ses sommets ; a
+//     la reouverture d'un AUTRE jour, les noeuds reviennent en primitives de
+//     leur nature. Dans LA session, l'editeur de model travaille sur
+//     l'archive vivante : la geometrie y est reelle. Trouvee en preparant la
+//     creation des noeuds de l'import (en cherchant qui relit un maillage
+//     arbitraire), pas en relisant ce fichier ;
 //   * les MODIFICATEURS (la pile n'a pas encore de modele de donnees) ;
 //   * les objets de la SCENE DE DEMONSTRATION (noeuds 0..95) : ils
 //     reapparaissent tels qu'a l'ouverture, seul leur masquage par scene

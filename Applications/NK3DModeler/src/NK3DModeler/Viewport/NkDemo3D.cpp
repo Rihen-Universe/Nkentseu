@@ -18226,6 +18226,79 @@ namespace nkentseu {
 			}
 			return n;
 		}
+		// ── NAISSANCE DEPUIS DES DONNEES (import d'un fichier 3D, 17/08) ────
+		// Le chemin public « noeud depuis des donnees » n'existait pas : il se
+		// cree ici, cote hote, la ou vivent les tableaux. Meme discipline que
+		// HostDuplicateTree, et PAS EnsureModelMesh : les positions de ce
+		// systeme sont MONDE (nkvpEmptyPos -- le rendu ne compose jamais
+		// parent x enfant), donc chaque noeud recoit sa position monde, jamais
+		// un (0,0,0) « local » qui n'existe pas. Et CHAQUE nouveau-ne recale
+		// son cliche : HostAllocUser n'ecrit jamais sHierPos, sans recalage la
+		// passe de hierarchie lirait « courant - cliche du mort qui occupait
+		// l'emplacement » et deplacerait la matiere de toute sa position de
+		// naissance (mesure sur model=107, 17/08).
+		int32 Demo3DHostCreateModelRoot(const float32 *pos3) {
+			auto *st = HostSt();
+			if (!st || !pos3)
+				return -1;
+			// Nature EMPTY (4) : un conteneur de model ne rend rien par
+			// lui-meme. Lui preter une geometrie (cube...) mentirait au panneau
+			// « Ajuster la creation », qui montrerait des parametres sans objet.
+			const int32 n = HostAllocUser(4);
+			if (n < 0)
+				return -1;
+			const int32 e = n - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a)
+				nkvpEmptyPos[e][a] = pos3[a];
+			nkvpIsModel[n] = true;
+			HostHierSnapNode(st, n);
+			return n;
+		}
+		int32 Demo3DHostCreateMeshNode(int32 root, const void *verts, uint32 vcount,
+									   const uint32 *indices, uint32 icount,
+									   const float32 *pos3, const char *debugName) {
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || !verts || vcount == 0 || !indices || icount == 0 || !pos3)
+				return -1;
+			// Nature 2 (famille cube) : c'est la nature des maillages du mode
+			// edition, et le rendu donne la priorite a nkvpUserMesh quand il
+			// est valide -- la primitive de la nature ne se dessine jamais.
+			const int32 n = HostAllocUser(2);
+			if (n < 0)
+				return -1;
+			renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+				renderer::NkVertexLayout::Default3D(), verts, vcount, indices, icount);
+			// keepCPU EXPLICITE, meme si Simple() l'active aujourd'hui : sans
+			// copie CPU, ni archivage relisible ni copie independante
+			// (HostMakeGeometryOwn refuse et le DIT). Un futur changement du
+			// defaut de Simple() ne doit pas pouvoir retirer cette garantie ici.
+			d.keepCPU = true;
+			if (debugName && debugName[0])
+				d.debugName = debugName;
+			const NkMeshHandle h = ms->Create(d);
+			if (!h.IsValid()) {
+				// Le noeud vient de naitre et n'a ete donne a personne : on rend
+				// l'emplacement (nature a zero = libre pour HostAllocUser).
+				nkvpUserKind[n - kNkvpFirstUser] = 0;
+				nkvpDeleted[n] = true;
+				return -1;
+			}
+			nkvpUserMesh[n - kNkvpFirstUser] = h;
+			const int32 e = n - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a)
+				nkvpEmptyPos[e][a] = pos3[a]; // MONDE -- les sommets sont LOCAUX au noeud
+			nkvpIsMesh[n] = true;
+			if (root >= 0 && root < kNkvpMaxNodes)
+				nkvpParentOf[n] = root;
+			// TOUT MAILLAGE NAIT AVEC UN MATERIAU (regle de Rihen, comme
+			// Blender) : sans lui l'objet arriverait MAGENTA -- le signal d'une
+			// absence voulue, pas d'un import normal. Meme regle que la
+			// relecture d'un fichier (NkAsNodesRestore).
+			nkvpNodeMatP1[n] = HostEnsureDefaultMat() + 1;
+			HostHierSnapNode(st, n);
+			return n;
+		}
 		int32 Demo3DHostTakeShortcuts() {
 			const int32 b = nkvpShortcutBits;
 			nkvpShortcutBits = 0; // consommes une fois

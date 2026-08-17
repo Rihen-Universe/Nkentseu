@@ -523,6 +523,19 @@ namespace nkentseu {
 		int32 Demo3DHostTakeShortcuts();
 		// Menu AJOUTER : cree un noeud utilisateur (kind 1..9, sub = variante).
 		int32 Demo3DHostAddNode(int32 kind, int32 sub);
+		// NAISSANCE DEPUIS DES DONNEES (import d'un fichier 3D, 17/08). Le
+		// conteneur d'abord, ses maillages ensuite. Positions MONDE -- les
+		// transforms de ce systeme ne composent jamais parent x enfant -- et
+		// les SOMMETS d'un maillage sont LOCAUX a son noeud (l'appelant les a
+		// rebases autour de `pos3`). keepCPU est pose EXPLICITEMENT : sans
+		// copie CPU, ni archivage relisible ni copie independante. Chaque
+		// nouveau-ne recale son cliche de hierarchie (regle du 17/08).
+		// `verts` : des NkVertex3D en layout Default3D. Rend -1 si plus
+		// d'emplacement libre ou si la creation du maillage echoue.
+		int32 Demo3DHostCreateModelRoot(const float32 *pos3);
+		int32 Demo3DHostCreateMeshNode(int32 root, const void *verts, uint32 vcount,
+									   const uint32 *indices, uint32 icount,
+									   const float32 *pos3, const char *debugName);
 		// Parametres du mesh cree (segments / anneaux-subdivisions) : le
 		// panneau « Ajuster la creation » les edite AVANT validation.
 		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter
