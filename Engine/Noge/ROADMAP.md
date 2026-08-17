@@ -413,7 +413,7 @@ savait mesurer au lieu de lever ce qui bloquait*.
 |---|---|---|
 | « barre de menus » | **`SetMenuBar()` remplace ENTIÈREMENT** les menus par défaut (`BuildMenuBar` l. 1506 : `if (mMenuBarFn) { … return; }`) — introduit le **2026-07-22**, soit **9 jours AVANT le refus**, et **NKCode s'en sert déjà** (`main.cpp:190`) | ❌ **levé, et il l'était déjà** |
 | « systeme de docking » | l'app contrôle `AddPanel` · `PanelDockNode` · `DetachPanel` · `ToggleMaximizePanel` · `ToggleCollapsePanel` | ❌ **levé** |
-| « barre d'etat » | `DrawStatusBar` **inconditionnelle** (22 px) ; l'app en pousse le texte (`SetFooter`/`SetFooterLights`) mais **ne peut ni la retirer ni la redessiner** | ✅ **réel** |
+| « barre d'etat » | ~~`DrawStatusBar` **inconditionnelle** (22 px) ; l'app en pousse le texte (`SetFooter`/`SetFooterLights`) mais **ne peut ni la retirer ni la redessiner**~~ — **levé le 2026-08-17** : `SetStatusBarFn` (patron `SetMenuBar`, commit `f10c4788`) donne TOUTE la bande à l'app, région de layout posée comme la toolbar ; si non posé, footer historique conservé | ❌ **levé (R8)** |
 | « palette de commandes » | `DrawCommandPalette` inconditionnelle, Ctrl+P toujours liée | ✅ **réel** (invisible tant qu'on ne l'ouvre pas) |
 
 ⭐ **Et le vrai obstacle n'était dans aucun des quatre.** Les **barres d'activité**
@@ -433,13 +433,15 @@ moment où on l'écrit devient faux sans que rien ne le signale.
 ```
 la fenetre (NKWindow) · le contexte NKGui · la boucle Run() · les polices
 la BARRE DE TITRE      (DrawTitleBar, inconditionnelle : logo | menus | infos | min/max/close)
-la BARRE D'ETAT        (22 px, contenu pilotable, presence non)
+la BARRE D'ETAT        (22 px : presence imposee hors launcher, mais DESSIN
+                        entierement delegable depuis le 2026-08-17 — SetStatusBarFn)
 la PALETTE Ctrl+P  ·  la fenetre PREFERENCES
 ```
 
-**Ce qu'il délègue — 19 hooks publics `Set*`**, dont `SetMenuBar` (barre
+**Ce qu'il délègue — 20 hooks publics `Set*`**, dont `SetMenuBar` (barre
 complète), `SetToolbar`, `SetOverlay` (modales de l'app), `SetStartScreen`,
-`SetActivityBars`, `SetFileMenu`, `SetTitleLogo`, `SetFooter`, plus le
+`SetActivityBars`, `SetFileMenu`, `SetTitleLogo`, `SetFooter`,
+`SetStatusBarFn` (2026-08-17, dessin complet de la barre d'état), plus le
 **renderer injectable** (`NkEditorShellConfig::renderer` — NKRHI/NKRenderer au
 lieu de NKCanvas).
 
