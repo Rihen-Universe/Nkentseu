@@ -1593,7 +1593,9 @@ gardant le local **changera** la position monde : recalculer
 que livrer un chemin tronqué). La cible est le **nouveau `ViewportPanel`** (zone
 CENTRE) — qui n'est **pas** un viewport et le dit à l'écran : le rendu de scène
 n'existe pas sur ce chemin (§10sexies), la livraison est un journal `MESURE` +
-affichage du dernier chemin reçu. Le spawn réel attend le rendu de scène.
+affichage du dernier chemin reçu. ~~Le spawn réel attend le rendu de scène.~~
+**→ PALIER A livré (soir du 2026-08-17, autorisé par le guide) : un MESH lâché
+devient une ENTITÉ** — voir le bloc « palier A » plus bas.
 
 **La sonde et ses 14 témoins** (6 scénarios : dépliage piloté, §7 hors-cible,
 cycle refusé, §7 positif, §9 positif, §9 hors-cible) : **8/8 exécutions à
@@ -1623,13 +1625,45 @@ couleurs par jetons partout dans ce qui a été touché ; le reste attend :
   indentation visuelle PENDANT le drag, multi-sélection Ctrl/Shift, colonnes
   activables par clic-droit d'en-tête ;
 - §9 : instanciation par dépôt sur l'**Outliner** (la spec la demande aussi —
-  aujourd'hui l'Outliner ne consomme que `entity`), spawn réel au Viewport,
-  colonne gauche Sources/Favoris/Collections, filtres par type, slider de
-  taille, rendu 3D des vignettes ;
+  aujourd'hui l'Outliner ne consomme que `entity`), ~~spawn réel au Viewport~~
+  (palier A fait, palier B = rendu 3D en attente), colonne gauche
+  Sources/Favoris/Collections, filtres par type, slider de taille, rendu 3D des
+  vignettes ;
 - 📌 **intermittence du front d'appui** (signature : `hotIdPrev` posé,
   `down=1`, `activeId=0` ; surtout caches froids après un build) : couverte par
   le retry, **cause exacte non close** — trace frame à frame en place dans la
   sonde (`t∈[0.14,0.58)`).
+
+**Palier A du spawn au drop — livré (2026-08-17, ~40 l. utiles, 0 poste
+AssetManager).** Le devis (canal Q33) distinguait deux paliers ; le guide a
+autorisé A, B attend Rodolf. Ce qui est fait : `ViewportPanel::Bind(world,
+scene, sel, projectDir)` (patron de l'Outliner) ; au `AcceptDragPayload`, si
+`AssetManager::DetectType(rel) == Mesh` → `SpawnNode(nom de fichier sans
+extension)` + `NkName` + `NkTransform` + `NkMeshComponent{meshPath}` +
+sélection. **L'entité apparaît dans l'Outliner et le Details** — visible LÀ,
+pas à l'écran 3D. Le mesh **n'est pas chargé** ici : `NkRenderSystem::Execute`
+l'importe paresseusement le jour où il tourne (`NkMeshSystem::Import`, l.153)
+— aucun poste AssetManager inventé. Un asset non-mesh est livré et journalisé
+(« type non instanciable »), **rien de spawné** : instancier une texture comme
+entité serait faux.
+
+*Témoin, honnête sur son instrument* : le répertoire courant n'a pas de mesh
+(`Nogee.exe`, `cache/`, `logs/`) — la sonde **écrit elle-même** un
+`TEMOIN_sonde.obj` minimal (un triangle) avant que le Content Browser liste,
+préfère une carte MESH visible à toute autre, et **efface** le fichier au
+verdict : la mesure ne dépend d'aucun fichier posé à la main. **6 témoins
+ajoutés (14 → 20)** : S1 hors-cible → 0 entité ; S4 → UNE entité, nommée
+`TEMOIN_sonde`, `meshPath` finit par `TEMOIN_sonde.obj`, `NkSceneNode` présent
+(donc dans l'Outliner) ; S5 hors-cible → toujours 1. **3/3 exécutions à 20/20,
+exit 0, 0 `[ERR]`**, exécution par défaut inchangée (témoin du monde présent).
+
+**Palier B (attend Rodolf — « Layers ou fonction libre »)** : ~220-250 l.
+Nogee, 0 l. noyau si le mode non-éclairé dessine ; renderer sur device partagé
+(`AnimBridge.cpp:678-682`), FBO offscreen (`Layers/ViewportLayer.cpp:135-168`
+à extraire), `SetPreUI` + `RegisterTexture` + `AddImage`
+(`NkAnimaEditor/main.cpp:43-47`), entité caméra + ambiante ; **risque nommé :
+`materialHandle` toujours 0** — parade `SetViewMode` non-éclairé, sinon poste
+noyau lazy-resolve (~30 l., NKRenderer partagé, à annoncer avant).
 
 ---
 

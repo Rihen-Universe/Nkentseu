@@ -17,6 +17,7 @@
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Scene/NkSceneGraph.h"
 #include "Noge/ECS/Components/Core/NkCoreComponents.h"
+#include "Noge/ECS/Components/Rendering/NkRenderComponents.h" // NkMeshComponent (temoin palier A)
 
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui (impl generalisee)
@@ -275,6 +276,7 @@ namespace nkentseu {
 					bool focusDone = false; ///< FocusPanel du scenario courant fait
 					bool reported = false;
 					char expectPath[256] = {}; ///< chemin attendu au scenario 4
+					char temoinObj[300] = {};  ///< .obj temoin ecrit par la sonde (palier A), efface au verdict
 					ecs::NkEntityId idRacine{}, idA{}, idB{};
 			};
 
@@ -315,6 +317,8 @@ namespace nkentseu {
 							  g_drag.fails == 0 ? " — SONDE OK" : " — SONDE ECHEC");
 				logger.Info(msg);
 				g_drag.reported = true;
+				if (g_drag.temoinObj[0] != '\0') // le .obj temoin du palier A ne survit pas a la sonde
+					std::remove(g_drag.temoinObj);
 				if (g_shell)
 					g_shell->RequestClose();
 			}
@@ -601,6 +605,8 @@ namespace nkentseu {
 									  "S1 hors cible : parent d'Enfant_A INCHANGE (racine)");
 							DragCheck(g_dragViewport && g_dragViewport->DropCount() == 0,
 									  "S1 hors cible : le viewport (type 'asset') n'a RIEN recu");
+							DragCheck(g_dragViewport && g_dragViewport->SpawnCount() == 0,
+									  "S1 hors cible : AUCUNE entite instanciee (palier A)");
 							break;
 						case 2:
 							DragCheck(!DragParentOf(g_drag.idRacine).IsValid(),
@@ -620,10 +626,30 @@ namespace nkentseu {
 							DragCheck(g_dragViewport &&
 										  std::strcmp(g_dragViewport->LastDroppedPath(), g_drag.expectPath) == 0,
 									  "S4 §9 : chemin livre INTACT (== chemin de la carte)");
+							// Palier A : la carte glissee est le .obj temoin (la sonde
+							// prefere une carte MESH) -> UNE entite instanciee, nommee
+							// d'apres le fichier, avec son NkMeshComponent{meshPath}.
+							DragCheck(g_dragViewport && g_dragViewport->SpawnCount() == 1,
+									  "S4 palier A : UNE entite instanciee par le depot MESH");
+							{
+								const ecs::NkEntityId sp = g_dragViewport ? g_dragViewport->LastSpawned()
+																		  : ecs::NkEntityId::Invalid();
+								const ecs::NkName *nm = (g_dragWorld && sp.IsValid()) ? g_dragWorld->Get<ecs::NkName>(sp) : nullptr;
+								const ecs::NkMeshComponent *mc =
+									(g_dragWorld && sp.IsValid()) ? g_dragWorld->Get<ecs::NkMeshComponent>(sp) : nullptr;
+								DragCheck(nm && std::strcmp(nm->value, "TEMOIN_sonde") == 0,
+										  "S4 palier A : entite nommee d'apres le fichier ('TEMOIN_sonde')");
+								DragCheck(mc && !mc->meshPath.Empty() && mc->meshPath.EndsWith("TEMOIN_sonde.obj"),
+										  "S4 palier A : NkMeshComponent.meshPath pointe le .obj depose");
+								DragCheck(g_dragWorld && sp.IsValid() && g_dragWorld->Has<ecs::NkSceneNode>(sp),
+										  "S4 palier A : l'entite est un noeud de scene (visible dans l'Outliner)");
+							}
 							break;
 						case 5:
 							DragCheck(g_dragViewport && g_dragViewport->DropCount() == 1,
 									  "S5 §9 hors cible : AUCUNE 2e livraison (type 'entity' refuse)");
+							DragCheck(g_dragViewport && g_dragViewport->SpawnCount() == 1,
+									  "S5 palier A hors cible : AUCUNE 2e entite instanciee");
 							break;
 					}
 					g_drag.scenario++;
@@ -724,9 +750,30 @@ namespace nkentseu {
 			// (cf. ViewportPanel.h).
 			static ViewportPanel sViewport;
 
+			// Sonde drag-drop : elle a besoin d'une carte MESH a glisser pour
+			// prouver le palier A (le repertoire courant n'en a pas : Nogee.exe,
+			// cache/, logs/). Elle ECRIT un .obj temoin minimal (un triangle
+			// valide) AVANT que le Content Browser liste le dossier, et l'efface
+			// au verdict — la mesure ne depend d'aucun fichier a poser a la main.
+			if (g_drag.enabled) {
+				std::snprintf(g_drag.temoinObj, sizeof(g_drag.temoinObj), "%s/TEMOIN_sonde.obj", projectDir);
+				if (std::FILE *f = std::fopen(g_drag.temoinObj, "wb")) {
+					std::fputs("# TEMOIN de la sonde --dragdrop-test (efface au verdict)\n"
+							   "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n",
+							   f);
+					std::fclose(f);
+					logger.Info("[SONDE-DD] TEMOIN_sonde.obj ecrit dans le repertoire projet (carte MESH a glisser)\n");
+				} else {
+					logger.Info("[SONDE-DD] TEMOIN_sonde.obj NON ecrit — le palier A ne pourra pas etre prouve\n");
+				}
+			}
+
 			sOutliner.Bind(&sWorld, &sScene, &sSel, &sHist);
 			sDetails.Bind(&sWorld, &sSel, &sHist);
 			sContent.Init(&sAssets, projectDir);
+			// Palier A (2026-08-17) : un MESH lache dans la zone centre devient
+			// une entite (Outliner/Details) — le monde et la racine projet.
+			sViewport.Bind(&sWorld, &sScene, &sSel, projectDir);
 
 			shell->AddPanel(&sViewport);
 			shell->AddPanel(&sOutliner);
