@@ -284,6 +284,45 @@ Et la portée dépasse NKXR : **tout** appel à `NkRenderer::Create` traverse ce
 ligne, et qu'une application survive ne prouve pas qu'elle est saine — une
 corruption de tas ne tue que quand elle est constatée.
 
+### ⚠️ Les « 9 trappes glslang » n'étaient pas glslang — c'était la DLL du lanceur (2026-08-17)
+
+La trappe résiduelle mesurée après le correctif NKSL (pile `_free_base ←
+glslang::TIntermediate::~TIntermediate ← InitializeSymbolTable`, 9 occurrences
+pendant le premier parse) avait été attribuée au sous-module NKGLSlang, avec
+pour hypothèses « la migration de version répare » ou « mélange NKMemory/glslang ».
+**Les deux sont réfutées par la mesure du 17/08** — banc NKXRDemo Vulkan sous
+gdb, racine du worktree, cache `.nksc` **vidé** (sonde : breakpoint
+`nkentseu::NkGLSLToSPIRV`, accroché avant tout comptage) :
+
+| glslang | PATH devant gdb | trappes | parses réels |
+|---|---|---|---|
+| 16.5.0 (essai) | `/c/msys64/ucrt64/bin` en tête | **0** | 42 `.nksc` réécrits |
+| ancien (pointeur déclaré) | `/c/msys64/ucrt64/bin` en tête | **0** | 42 `.nksc` réécrits |
+| ancien (pointeur déclaré) | par défaut (Git `/mingw64/bin` en tête) | **10 SIGTRAP**, pile identique à celle du 16/08 | — |
+| 16.5.0 (essai) | par défaut | **ne démarre pas** : `0xc0000139` ENTRYPOINT_NOT_FOUND | — |
+
+**Cause** : l'exe est construit avec clang-mingw **ucrt64**, mais le shell de
+l'outillage (Git Bash) met `/mingw64/bin` de Git avant `/c/msys64/ucrt64/bin`
+dans le PATH — l'application charge alors les DLL runtime MinGW **de Git**
+(`libstdc++-6.dll`/`libgcc`/`libwinpthread`, non isolées individuellement).
+Runtimes mélangés → `RtlFreeHeap` sur une adresse d'un autre tas. Ni glslang,
+ni NKMemory : **le lanceur**. Corollaire mesuré : glslang 16.5.0 (C++17)
+transforme cette corruption **silencieuse** en **refus de démarrage bruyant** —
+la mauvaise DLL n'a pas les exports GLIBCXX requis.
+
+**Deux pièges de banc payés au passage, à re-déclarer dans tout banc shader :**
+- **l'état du cache `.nksc`** (`Build/Bin/<cfg>/<Cible>/cache/shaders/`) : cache
+  chaud → `CompileVF` tourne mais le SPIR-V sort du disque, glslang n'est
+  **jamais traversé** — un zéro qui ne mesure rien ;
+- **la sonde d'accrochage** : breakpoint sur `NkGLSLToSPIRV` AVANT de compter —
+  s'il n'accroche pas, le zéro est un zéro de sonde.
+
+**Décisions ouvertes (Rodolf)** : engager ou non la montée 16.5.0 (adaptations
+en stash du sous-module : C++17, `OGLCompilersDLL/` supprimé en amont,
+`build_info.h` à générer) ; et le remède de fond côté build — `-static-libstdc++`
+ou livraison des DLL ucrt64 à côté des exe — pour que le PATH du lanceur cesse
+d'être une variable de comportement.
+
 ### Voyant de santé des shaders (demande de l'agent Noge)
 
 `NkShaderLibrary::GetValidProgramCount()` / `GetProgramCount()` — de quoi afficher
