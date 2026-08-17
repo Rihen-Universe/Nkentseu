@@ -956,8 +956,10 @@ int nkmain(const NkEntryState &entry) {
 					sDy1[c] = f[4];
 				}
 			}
-			if (sRowsFrame > 0 && agentFrame + 1 == sRowsFrame)
+			if (sRowsFrame > 0 && agentFrame + 1 == sRowsFrame) {
 				st.hierTraceRows = true;
+				st.browTraceCards = true;
+			}
 			for (int32 c = 0; c < 2; ++c) {
 				if (sDragFrame[c] <= 0)
 					continue;
@@ -987,6 +989,11 @@ int nkmain(const NkEntryState &entry) {
 									   : (demo::Demo3DHostObjectSelected(n) ? 1 : 0));
 					}
 					printf("[nk3d-drag] browserCount=%d\n", st.browserCount);
+					for (int32 b = 0; b < st.browserCount; ++b)
+						printf("[nk3d-drag] brow=%d kind=%d parent=%d name=\"%s\"\n", b,
+							   st.browserKind[b], st.browserParent[b], st.browserNames[b]);
+					printf("[nk3d-drag] browAskIdx=%d browAskDest=%d folder=%d\n",
+						   st.browAskIdx, st.browAskDest, st.browserFolder);
 					fflush(stdout);
 				}
 			}

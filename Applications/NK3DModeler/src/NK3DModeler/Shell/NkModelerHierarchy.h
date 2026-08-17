@@ -1381,7 +1381,9 @@ namespace nkentseu {
 													  nameBuf);
 								nkgui::EndDragSource(gc);
 							}
-							if (nkgui::BeginDropTarget(gc)) {
+							// Cible typee : une ligne ne s'allume que pendant un
+							// glisser de LIGNE, pas pendant un "brow.item".
+							if (hierDragging && nkgui::BeginDropTarget(gc)) {
 								dropHover = node;
 								int32 sz = 0;
 								if (const void *pl = nkgui::AcceptDragPayload(gc, "hier.node", &sz)) {

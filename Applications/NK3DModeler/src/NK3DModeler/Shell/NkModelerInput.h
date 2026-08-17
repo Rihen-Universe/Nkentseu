@@ -515,15 +515,13 @@ namespace nkentseu {
 				// Rect du navigateur (pose chaque frame) : les raccourcis y sont
 				// routes vers les cartes plutot que vers la scene.
 				NkRect browserRect{0.f, 0.f, 0.f, 0.f};
-				// Glisser-deposer du navigateur (4 sens, facon Unreal).
-				int32 browDragIdx = -1;
-				float32 browDragX = 0.f, browDragY = 0.f;
-				bool browDragging = false;
-				bool browMouseWasDown = false;
-				// Pliage de l'arbre (bit = plie), origine du drag, et carte
-				// Copier/Deplacer du depot gauche -> droite.
+				// (Le glisser du navigateur -- ex-browDragIdx/X/Y, browDragging,
+				// browMouseWasDown, browDragFromTree -- vit dans NKGui depuis
+				// 2026-08-18 : type "brow.item", voir NkBrowDragActive dans
+				// NkModelerBrowser.h.)
+				// Pliage de l'arbre (bit = plie) et carte Copier/Deplacer du
+				// depot gauche -> droite.
 				uint32 browFold[8] = {};
-				bool browDragFromTree = false;
 				int32 browAskIdx = -1;
 				int32 browAskDest = -1;
 				float32 browAskX = 0.f, browAskY = 0.f;
@@ -546,6 +544,9 @@ namespace nkentseu {
 				// hierarchie imprime le rect ecran de chaque ligne visible -- une
 				// course scriptee ne peut pas deviner la geometrie.
 				bool hierTraceRows = false;
+				// TEMOIN du glisser navigateur (meme crochet NK_HIER_ROWS) :
+				// une frame, le navigateur imprime arbre + cartes + rects.
+				bool browTraceCards = false;
 				char osDropPaths[kMaxOsDrop][512] = {};
 				float32 osDropX = 0.f, osDropY = 0.f;
 				// Instanciation DIFFEREE apres import vers la vue 3D : le point du
