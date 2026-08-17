@@ -7,7 +7,10 @@ from jengaconfig import *
 from Jenga.Core.Api import androidallowrotation
 
 
-def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False):
+# Parametre use_nkui retire le 2026-08-17 (campagne retrait NKUI, decision R1) :
+# ses deux seuls consommateurs (NKUIDemo, NKUID) sont deregistres en bas de ce
+# fichier — meme geste que RendererSandbox.jenga (commit 81c5615d).
+def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False):
     with project(project_name):
         windowedapp()
         language("C++")
@@ -25,8 +28,6 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
             _DEPS.append("NKImage")
         if use_nkfont:
             _DEPS.append("NKFont")
-        if use_nkui:
-            _DEPS.append("NKUI")
         _DEPS.append("NKGLSlang")
         _DEPS.append("NKSPIRVCross")
 
@@ -227,21 +228,76 @@ sandboxusenkrhi("NkSWRasterPrimitives", ["src/DemoNkentseu/Base03/NkSWRasterPrim
 sandboxusenkrhi("NkRHIDemoFullImage", ["src/DemoNkentseu/Base03/NkRHIDemoFullImage.cpp"], "sandbox.rhidemo.fullimage", use_nkimage=True)
 sandboxusenkrhi("NkFontDemo", ["src/DemoNkentseu/Base03/NkFontDemoFromScratch.cpp"], "sandbox.nkfont.demo", use_nkfont=True)
 sandboxusenkrhi("NkFDV2", ["src/DemoNkentseu/Base03/NkFontDemoVI.cpp"], "sandbox.nkfont.demov2", use_nkfont=True)
+# ─────────────────────────────────────────────────────────────────────────────
+# DEMOS DE TEXTE DESACTIVEES — ancienne API NKFont, disparue (2026-08-15)
+#
+# Ces cibles consomment une GENERATION D'API NKFont qui n'existe plus. Ce n'est
+# pas un symbole qui a derive, c'est toute une surface remplacee sans que ses
+# consommateurs suivent :
+#
+#   demande par les demos : NkFontLibrary, NkFontLibraryDesc, NkFontResult,
+#                           NkTextShaper, NkShapeResult, nk_handle,
+#                           NK_INVALID_HANDLE, NK_LOAD_OUTLINES, NK_LOAD_KERNING
+#   expose par NKFont      : NkFont, NkFontAtlas, NkFontGlyph, NkFontFaceInfo,
+#                           NkRasterizer, NkShape, NkFontVertexBuffer, ...
+#
+# AUCUN des symboles demandes n'existe. Les porter n'est pas une correction
+# mecanique : c'est une REECRITURE de chaque demo contre la nouvelle API.
+#
+# POURQUOI ON DESACTIVE PLUTOT QUE DE PORTER, ET POURQUOI C'EST ECRIT ICI.
+# `NkRHIDemoText` bloquait le BUILD COMPLET du workspace a 61/205 : 144 cibles
+# n'etaient jamais atteintes, donc jamais verifiees, donc libres de casser sans
+# que personne le sache. Un blocage qui dure assez longtemps fait cesser de
+# lancer la mesure -- et c'est exactement ce qui s'est produit : deux de ces
+# quatre cibles (`NkRHIDemoFullText`, `oglfont` dans ContextSandbox.jenga)
+# etaient DEJA commentees, sans un mot de raison. Le meme defaut a donc ete
+# rencontre, neutralise en silence, et oublie.
+#
+# L'objectif n'est pas 203/203, c'est ZERO ECHEC INEXPLIQUE. Une cible qui ne
+# peut pas construire et dont on SAIT pourquoi est reglee ; une cible qui bloque
+# tout sans explication ne l'est pas.
+#
+# A ARBITRER PAR RODOLF -- deux issues, aucune n'est prise ici :
+#   1. PORTER ces demos vers l'API actuelle (NkFontAtlas + NkRasterizer +
+#      NkShape). Cout reel, elles couvrent le rendu de texte RHI.
+#   2. LES SUPPRIMER. `NkFontDemo` et `NkFDV2` ci-dessus construisent et
+#      couvrent deja NKFont sur la nouvelle API ; ces quatre-la ne testent
+#      peut-etre plus rien que d'autres ne testent.
+# Voir DETTE_LISIBILITE.md, chantier 11.
+#
+# Fichiers concernes SANS AUCUNE CIBLE (donc jamais compiles, ni avant ni
+# maintenant) : Base03/NkFontDemo01.cpp, Base03/"NkRHIDemoText copy.cpp",
+# Opengl/NkFontGLTestSimple.cpp, Opengl/"Nkfontgltest copy.cpp",
+# Opengl/NkFontSimpleAdapter.h, Base04/tmp/NkUIFontIntegration.h,
+# src/test_rasterizer.cpp -- meme API morte, meme arbitrage.
+# ─────────────────────────────────────────────────────────────────────────────
 # sandboxusenkrhi("NkRHIDemoFullText", ["src/DemoNkentseu/Base03/NkRHIDemoFullText.cpp"], "sandbox.rhidemo.fulltext", use_nkimage=True, use_nkfont=True)
-sandboxusenkrhi("NkRHIDemoText", ["src/DemoNkentseu/Base03/NkRHIDemoText.cpp"], "sandbox.rhidemo.text", use_nkimage=True, use_nkfont=True)
-sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
+# sandboxusenkrhi("NkRHIDemoText", ["src/DemoNkentseu/Base03/NkRHIDemoText.cpp"], "sandbox.rhidemo.text", use_nkimage=True, use_nkfont=True)
+# sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
 # sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl")
 # sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
 sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
 
 
 # =================================== Renderer UI =======================================================
-sandboxusenkrhi("NKUIDemo", [
-    "src/DemoNkentseu/Base04/NkUIDemoNKEngine.cpp",
-    # "src/DemoNkentseu/Base04/NkUIFontIntegration.cpp",
-    "src/DemoNkentseu/Base04/NkUINKRHIBackend.cpp"
-], "sandbox.nkentseu.nkuidemo", use_nkimage=True, use_nkfont=True, use_nkui=True)
-
-sandboxusenkrhi("NKUID", [
-    "src/DemoNkentseu/Base04/NkUIDemo.cpp"
-], "sandbox.nkentseu.nkuid", use_nkimage=True, use_nkfont=True, use_nkui=True)
+# ─────────────────────────────────────────────────────────────────────────────
+# DEMOS DE NKUI DEREGISTREES — campagne de retrait NKUI (2026-08-17, decision R1)
+#
+# NKUIDemo et NKUID sont des demos DONT L'OBJET est NKUI (rendu des draw-lists
+# NKUI via NKRHI), module deprecie remplace par NKGui. Une demo d'une
+# bibliotheque depreciee suit sa bibliotheque : les porter vers NKGui n'a pas
+# de sens (NKGui a ses propres bancs). Sources conservees
+# (src/DemoNkentseu/Base04/, y compris tmp/) ; elles meurent avec le module
+# NKUI le jour ou Rodolf en decide la suppression (compteur de dependants a
+# zero). Le parametre use_nkui du helper est retire avec elles (plus aucun
+# consommateur).
+# ─────────────────────────────────────────────────────────────────────────────
+# sandboxusenkrhi("NKUIDemo", [
+#     "src/DemoNkentseu/Base04/NkUIDemoNKEngine.cpp",
+#     # "src/DemoNkentseu/Base04/NkUIFontIntegration.cpp",
+#     "src/DemoNkentseu/Base04/NkUINKRHIBackend.cpp"
+# ], "sandbox.nkentseu.nkuidemo", use_nkimage=True, use_nkfont=True)
+#
+# sandboxusenkrhi("NKUID", [
+#     "src/DemoNkentseu/Base04/NkUIDemo.cpp"
+# ], "sandbox.nkentseu.nkuid", use_nkimage=True, use_nkfont=True)

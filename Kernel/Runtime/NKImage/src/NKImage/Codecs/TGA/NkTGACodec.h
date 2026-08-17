@@ -17,7 +17,8 @@ namespace nkentseu {
 
 	class NKENTSEU_IMAGE_API NkTGACodec {
 		public:
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			/** Décode un TGA. Rend l'image PAR VALEUR ; image INVALIDE si échec. */
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 			static bool Encode(const NkImage &img, uint8 *&out, usize &outSize) noexcept;
 	};
 

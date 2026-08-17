@@ -55,7 +55,7 @@ with project("NkMatInventaireTest"):
         # le seul chemin qui charge un .nkmat, et c'est VOULU -- un second
         # lecteur rendrait ce que le banc lit et non ce que le modeleur affiche.
         ["NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage",
-         "NKAudio", "NKMedia", "NKUI", "NKCanvas", "NKGui", "NKEditorKit",
+         "NKAudio", "NKMedia", "NKCanvas", "NKGui", "NKEditorKit",
          "NKFileSystem", "NKSerialization", "NKReflection", "NKGlad", "NKMath", "NKTime",
          "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKGLSlang", "NKSPIRVCross"],

@@ -16,8 +16,9 @@ namespace nkentseu {
 			 * P1/P4 : bitmap noir/blanc → NK_GRAY8
 			 * P2/P5 : grayscale → NK_GRAY8
 			 * P3/P6 : RGB couleur → NK_RGB24
+			 * @return L'image décodée PAR VALEUR, ou une image INVALIDE en cas d'échec.
 			 */
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 
 			/**
 			 * @Brief Encode une NkImage en PPM ou PGM binaire (P5/P6) vers un fichier.

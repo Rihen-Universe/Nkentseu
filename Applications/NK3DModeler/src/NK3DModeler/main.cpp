@@ -2478,12 +2478,10 @@ int nkmain(const NkEntryState &entry) {
 							(shot.Width() != ew || shot.Height() != eh)) {
 							// Resize RETOURNE une nouvelle image (il ne modifie
 							// pas l'objet) : l'ancien appel etait un no-op muet.
-							NkImage *rs = shot.Resize((int32)ew, (int32)eh,
-													  NkResizeFilter::NK_BICUBIC);
-							if (rs) {
-								rs->Save(capPath);
-								rs->Free();
-							}
+							NkImage rs = shot.Resize((int32)ew, (int32)eh,
+													 NkResizeFilter::NK_BICUBIC);
+							if (rs.IsValid())
+								rs.Save(capPath);
 						}
 					}
 					std::printf("[NK3DModeler] Capture tutoriel -> %s : %s\n", capPath,

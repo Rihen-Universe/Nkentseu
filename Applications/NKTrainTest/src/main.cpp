@@ -324,13 +324,20 @@ int main() {
 		// Reprise EXACTE : UN pas Adam identique (même lot fixe) sur A (continué en mémoire) et
 		// B (repris depuis le checkpoint) doit produire des poids IDENTIQUES -> preuve que les
 		// moments m/v + le compteur de pas comptent réellement dans la mise à jour.
+		// ⚠️ Les deux ZeroGrad sont INDISPENSABLES depuis que Backward() n'efface plus
+		// les feuilles : A a été CONTINUÉ en mémoire, donc ses paramètres portent
+		// encore le gradient du dernier lot de TrainEpoch, alors que B vient d'être
+		// relu du checkpoint et part de zéro. Sans ça, on ne comparerait pas « un pas
+		// identique » mais « un pas contre un pas + un résidu ».
 		data::NkBatch fixedBatch = ckptLoader.GetBatch(0);
+		optA.ZeroGrad();
 		NkVar xa = NkVar::Leaf(fixedBatch.inputs, false);
 		NkVar ya = NkVar::Leaf(fixedBatch.targets, false);
 		NkVar lossA = nn::CrossEntropyLoss(cfwd(xa), ya);
 		lossA.Backward();
 		optA.Step();
 
+		optB.ZeroGrad();
 		NkVar xb = NkVar::Leaf(fixedBatch.inputs, false);
 		NkVar yb = NkVar::Leaf(fixedBatch.targets, false);
 		NkVar lossB = nn::CrossEntropyLoss(bfwd(xb), yb);
