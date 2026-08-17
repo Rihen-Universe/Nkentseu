@@ -435,15 +435,46 @@ namespace nkentseu {
 				return {q.x, q.y, q.z, q.w};
 			}
 
+			// Rotation TOTALE d'un Model FBX depuis un euler « Lcl Rotation »
+			// (degres, ordre RotationOrder du Model) : R = Rpre * Rlcl * Rpost^-1
+			// — formule du SDK FBX (WorldTransform = ... * Rpre * R * Rpost^-1 * ...),
+			// Pre/PostRotation toujours en ordre XYZ. Une seule fonction pour la
+			// pose statique (ExtractNodes) ET les cles animees (ExtractAnimations)
+			// : le consommateur (EvaluateGLTFPose) REMPLACE la rotation statique
+			// par celle du canal, qui doit donc porter la meme composition.
+			// Temoins : Mixamo « X Bot.fbx » (PreRotation sur 56 joints, banc
+			// NkFBXParityDemo : mains/hanches == glb a 1 mm) ; PostRotation absente
+			// des deux temoins — composee selon la formule, non exercee, dit ici.
+			NkVec4f FbxModelRotation(const FbxNode &mo, float32 ex, float32 ey, float32 ez) {
+				float32 orderF = 0.f, v3[3];
+				GetP70(mo, "RotationOrder", 1, &orderF);
+				const NkVec4f r = EulerDegToQuat(ex, ey, ez, (int32)orderF);
+				NkQuatf q(r.x, r.y, r.z, r.w);
+				if (GetP70(mo, "PreRotation", 3, v3)) {
+					const NkVec4f pre = EulerDegToQuat(v3[0], v3[1], v3[2], 0);
+					q = NkQuatf(pre.x, pre.y, pre.z, pre.w) * q;
+				}
+				if (GetP70(mo, "PostRotation", 3, v3)) {
+					const NkVec4f post = EulerDegToQuat(v3[0], v3[1], v3[2], 0);
+					q = q * NkQuatf(post.x, post.y, post.z, post.w).Inverse();
+				}
+				q.Normalize();
+				return {q.x, q.y, q.z, q.w};
+			}
+
 			// Construit out.nodes depuis les Model FBX : nom, TRS local
 			// (Properties70 "Lcl Translation"/"Lcl Rotation"/"Lcl Scaling",
-			// euler degres + RotationOrder + PreRotation composee), hierarchie
-			// via les connexions OO Model -> Model. `outNodeOfModel[i]` = index
-			// dans out.nodes du i-eme Model de `models` (meme ordre) — sert aux
-			// etapes skinning/animations pour retrouver un node par ID d'objet.
-			// NON fait ici (inchange par rapport a avant) : appliquer ces
-			// transforms a la geometrie — les sommets restent en espace local
-			// de leur Geometry, comme le header l'a toujours dit.
+			// euler degres + RotationOrder + Pre/PostRotation composees, cf.
+			// FbxModelRotation), hierarchie via les connexions OO Model -> Model.
+			// `outNodeOfModel[i]` = index dans out.nodes du i-eme Model de `models`
+			// (meme ordre) — sert aux etapes skinning/animations pour retrouver un
+			// node par ID d'objet.
+			// NON fait ici : appliquer ces transforms a la geometrie STATIQUE —
+			// les sommets restent en espace local de leur Geometry, comme le header
+			// l'a toujours dit. (Les geometries SKINNEES, elles, sont ramenees dans
+			// l'espace du squelette par ExtractSkin — voir la-bas.)
+			// Non lu (absent des temoins, dit plutot que tu) : InheritType (RSrs/
+			// RrSs — sans effet tant que les echelles valent 1), pivots/offsets.
 			void ExtractNodes(const NkVector<FbxIdEntry> &models, const NkVector<FbxConn> &conns,
 							  NkGLTFMeshData &out, NkVector<int32> &outNodeOfModel) {
 				outNodeOfModel.Clear();
@@ -456,22 +487,12 @@ namespace nkentseu {
 						gn.translation = {v3[0], v3[1], v3[2]};
 					if (GetP70(mo, "Lcl Scaling", 3, v3))
 						gn.scale = {v3[0], v3[1], v3[2]};
-					float32 orderF = 0.f;
-					GetP70(mo, "RotationOrder", 1, &orderF);
-					NkVec4f rot = {0.f, 0.f, 0.f, 1.f};
-					if (GetP70(mo, "Lcl Rotation", 3, v3))
-						rot = EulerDegToQuat(v3[0], v3[1], v3[2], (int32)orderF);
-					// PreRotation (toujours en ordre XYZ, cf. spec FBX) : se
-					// compose DEVANT la rotation animable. Mixamo en depend.
-					if (GetP70(mo, "PreRotation", 3, v3)) {
-						const NkVec4f pre = EulerDegToQuat(v3[0], v3[1], v3[2], 0);
-						const NkQuatf qp(pre.x, pre.y, pre.z, pre.w);
-						const NkQuatf qr(rot.x, rot.y, rot.z, rot.w);
-						NkQuatf q = qp * qr;
-						q.Normalize();
-						rot = {q.x, q.y, q.z, q.w};
-					}
-					gn.rotation = rot;
+					// Sans « Lcl Rotation » (frequent chez Mixamo : la PreRotation
+					// porte toute l'orientation) l'euler vaut 0 et Pre/Post
+					// s'appliquent quand meme.
+					float32 e3[3] = {0.f, 0.f, 0.f};
+					GetP70(mo, "Lcl Rotation", 3, e3);
+					gn.rotation = FbxModelRotation(mo, e3[0], e3[1], e3[2]);
 					outNodeOfModel.PushBack((int32)out.nodes.Size());
 					out.nodes.PushBack(static_cast<NkGLTFNode &&>(gn));
 				}
@@ -519,17 +540,62 @@ namespace nkentseu {
 				return m;
 			}
 
-			// Extrait le PREMIER Deformer "Skin" rattache a une geometrie chargee.
-			//   Connexions (mesurees sur le temoin) :
+			// Monde d'un node par composition T*R*S de sa chaine de parents
+			// (`parentOf` : parent de chaque node, -1 = racine).
+			NkMat4f NodeWorld(const NkGLTFMeshData &out, const NkVector<int32> &parentOf, int32 node) {
+				NkMat4f w = NkMat4f::Identity();
+				for (int32 n = node; n >= 0; n = parentOf[(NkVector<int32>::SizeType)n]) {
+					const NkGLTFNode &g = out.nodes[(uint32)n];
+					const NkMat4f local =
+						g.hasMatrix ? g.matrix
+									: NkMat4f::TRS(g.translation,
+												   NkQuatf(g.rotation.x, g.rotation.y, g.rotation.z, g.rotation.w),
+												   g.scale);
+					w = local * w;
+				}
+				return w;
+			}
+
+			// Extrait TOUS les Deformer "Skin" rattaches a une geometrie chargee, en
+			// UN squelette (une seule liste de joints, un seul inverseBind par joint).
+			//   Connexions (mesurees sur les temoins CesiumMan et Mixamo X Bot) :
 			//     Skin(child)    -OO-> Geometry(parent)   : quelle geometrie
 			//     Cluster(child) -OO-> Skin(parent)       : les clusters du skin
 			//     Model(child)   -OO-> Cluster(parent)    : le JOINT du cluster
 			//   Cluster : Indexes (control points) + Weights (paralleles) +
 			//   Transform / TransformLink (matrices de bind).
-			// inverseBind = TransformLink^-1 * Transform — la POSE DE BIND vient
-			// des clusters, PAS du graphe de nodes : les Lcl des Model portent la
-			// pose de scene (frame 0), mesure sur le temoin (ecart relatif jusqu'a
-			// 1.5 entre TransformLink et le monde recompose des Lcl).
+			//
+			// SEMANTIQUE DES MATRICES (verifiee sur les DEUX temoins, 2026-08-17 soir) :
+			//   TransformLink = monde du JOINT a la pose de bind ;
+			//   Transform     = TransformLink^-1 * (monde du MESH au bind)
+			//                   — c'est ce qu'ecrivent Blender (export_fbx_bin :
+			//                   bone_world^-1 @ mesh_world) et Mixamo (mesh au monde
+			//                   identite -> Transform == TransformLink^-1 exactement).
+			// L'ancienne formule inverseBind = TL^-1 * Transform composait donc
+			// TL^-1 DEUX fois : sur Mixamo, inverse(inverseBind) donnait Hips a 2x sa
+			// hauteur et les deux pieds au meme point (mesure nkanim Q30) ; sur
+			// CesiumMan elle « passait » parce que le banc comparait la meme formule a
+			// elle-meme (le seul chiffre independant, glTF t=(0.0513,-0.0050,-0.6771),
+			// est... la translation de Transform SEULE — la « parite impossible » de
+			// Q10 etait l'artefact de la formule).
+			// Ici : inverseBind[j] = TransformLink[j]^-1 (inverse(inverseBind) == monde
+			// de bind du joint, ce que les consommateurs supposent — NkGLTFAnimBake
+			// « bindGlobal = inverse(inverseBind) ») ; et les sommets de chaque
+			// geometrie skinnee sont ramenes dans l'espace du squelette par
+			// M_k = TransformLink * Transform (= monde du mesh au bind, identite chez
+			// Mixamo, R(-180,-90,0)*S(100) chez CesiumMan). Skin(v) =
+			// Σ w * jointWorld(t) * TL^-1 * (M_k v) == Σ w * jointWorld(t) * Transform * v :
+			// meme resultat que la formule FBX, avec des joints partages entre skins.
+			//
+			// JOINTS SANS CLUSTER : un joint sans influence n'est pas un joint absent
+			// (Mixamo n'emet pas de Cluster pour les feuilles sans poids : X Bot
+			// 64 Cluster pour 65 LimbNode, Y Bot 52/65 ; le glb du meme personnage
+			// garde les 65 dans skins[0].joints). Le squelette final = parcours
+			// prefixe (parents avant enfants) de TOUS les LimbNode sous chaque racine
+			// de squelette touchee par un Cluster ; les joints sans Cluster prennent
+			// bind = bind(parent) * local(node). Les joints de Cluster qui ne sont pas
+			// des LimbNode (Null, Mesh...) sont ajoutes apres, dans l'ordre des Cluster.
+			//
 			// `geoIds/geoStart/geoEnd` : plages de sommets emis par geometrie ;
 			// `ctrlOfVertex` : control point de chaque sommet emis.
 			void ExtractSkin(const NkVector<FbxIdEntry> &deformers, const NkVector<FbxIdEntry> &models,
@@ -537,10 +603,34 @@ namespace nkentseu {
 							 const NkVector<int64> &ctrlOfVertex, const NkVector<int64> &geoIds,
 							 const NkVector<uint32> &geoStart, const NkVector<uint32> &geoEnd,
 							 NkGLTFMeshData &out) {
-				// 1. Le skin et sa geometrie.
-				int64 skinId = -1;
-				int32 range = -1;
-				for (uint32 d = 0; d < (uint32)deformers.Size() && skinId < 0; ++d) {
+				const uint32 nodeCount = (uint32)out.nodes.Size();
+				if (nodeCount == 0)
+					return;
+
+				// 0. Parent de chaque node (l'arbre ne stocke que les enfants) et
+				//    sous-classe LimbNode par node.
+				NkVector<int32> parentOf;
+				NkVector<bool> isLimb;
+				parentOf.Resize(nodeCount);
+				isLimb.Resize(nodeCount);
+				for (uint32 i = 0; i < nodeCount; ++i) {
+					parentOf[i] = -1;
+					isLimb[i] = false;
+				}
+				for (uint32 i = 0; i < nodeCount; ++i)
+					for (uint32 c = 0; c < (uint32)out.nodes[i].children.Size(); ++c)
+						parentOf[(uint32)out.nodes[i].children[c]] = (int32)i;
+				for (uint32 m = 0; m < (uint32)models.Size(); ++m)
+					if (SubClassOf(*models[(NkVector<FbxIdEntry>::SizeType)m].node) == NkString("LimbNode"))
+						isLimb[(uint32)nodeOfModel[(NkVector<int32>::SizeType)m]] = true;
+
+				// 1. Les skins et leur geometrie (plage de sommets emis).
+				struct SkinRef {
+						int64 id;
+						int32 range;
+				};
+				NkVector<SkinRef> skins;
+				for (uint32 d = 0; d < (uint32)deformers.Size(); ++d) {
 					const FbxIdEntry &de = deformers[(NkVector<FbxIdEntry>::SizeType)d];
 					if (!(SubClassOf(*de.node) == NkString("Skin")))
 						continue;
@@ -550,88 +640,201 @@ namespace nkentseu {
 							continue;
 						for (uint32 g = 0; g < (uint32)geoIds.Size(); ++g)
 							if (geoIds[(NkVector<int64>::SizeType)g] == c.parent) {
-								skinId = de.id;
-								range = (int32)g;
+								skins.PushBack(SkinRef{de.id, (int32)g});
 								break;
 							}
-						if (skinId >= 0)
-							break;
 					}
 				}
-				if (skinId < 0 || range < 0)
+				if (skins.Empty())
 					return; // aucun skin : fichier statique, rien a inventer
-				const uint32 vStart = geoStart[(NkVector<uint32>::SizeType)range];
-				const uint32 vEnd = geoEnd[(NkVector<uint32>::SizeType)range];
 
-				// 2. Les clusters du skin, dans l'ordre des connexions.
-				// Poids par control point : 4 slots (joint, poids), insertion en
-				// gardant les 4 plus forts — le temoin n'en a jamais plus de 4,
-				// mais un FBX Mixamo peut en avoir davantage.
-				int64 maxCtrl = -1;
-				for (uint32 v = vStart; v < vEnd && v < (uint32)ctrlOfVertex.Size(); ++v)
-					if (ctrlOfVertex[(NkVector<int64>::SizeType)v] > maxCtrl)
-						maxCtrl = ctrlOfVertex[(NkVector<int64>::SizeType)v];
-				if (maxCtrl < 0)
+				// 2. Premiere passe sur les clusters : joint de chaque cluster, monde
+				//    de bind du joint (TransformLink), monde du mesh de chaque skin.
+				struct ClusterRef {
+						const FbxNode *node;
+						int32 skin;	 // index dans `skins`
+						int32 joint; // node
+				};
+				NkVector<ClusterRef> clusters;
+				NkVector<NkMat4f> bindWorld; // par node (valide si hasBind)
+				NkVector<bool> hasBind;
+				NkVector<NkMat4f> meshWorld; // par skin
+				NkVector<bool> hasMeshWorld;
+				bindWorld.Resize(nodeCount);
+				hasBind.Resize(nodeCount);
+				for (uint32 i = 0; i < nodeCount; ++i)
+					hasBind[i] = false;
+				meshWorld.Resize((NkVector<NkMat4f>::SizeType)skins.Size());
+				hasMeshWorld.Resize((NkVector<bool>::SizeType)skins.Size());
+				for (uint32 s = 0; s < (uint32)skins.Size(); ++s) {
+					meshWorld[s] = NkMat4f::Identity();
+					hasMeshWorld[s] = false;
+				}
+				for (uint32 s = 0; s < (uint32)skins.Size(); ++s) {
+					const int64 skinId = skins[s].id;
+					for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+						const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+						if (c.isProp || c.parent != skinId)
+							continue;
+						const FbxNode *cl = FindById(deformers, c.child);
+						if (!cl || !(SubClassOf(*cl) == NkString("Cluster")))
+							continue;
+						int32 jointNode = -1;
+						for (uint32 k = 0; k < (uint32)conns.Size() && jointNode < 0; ++k) {
+							const FbxConn &jc = conns[(NkVector<FbxConn>::SizeType)k];
+							if (jc.isProp || jc.parent != c.child)
+								continue;
+							for (uint32 m = 0; m < (uint32)models.Size(); ++m)
+								if (models[(NkVector<FbxIdEntry>::SizeType)m].id == jc.child) {
+									jointNode = nodeOfModel[(NkVector<int32>::SizeType)m];
+									break;
+								}
+						}
+						if (jointNode < 0)
+							continue; // cluster sans joint : ignore, jamais invente
+						clusters.PushBack(ClusterRef{cl, (int32)s, jointNode});
+						const NkVector<float64> *tlA = ArrF(cl->Find("TransformLink"));
+						const NkVector<float64> *trA = ArrF(cl->Find("Transform"));
+						if (tlA && !hasBind[(uint32)jointNode]) {
+							bindWorld[(uint32)jointNode] = MatFromFbx(tlA);
+							hasBind[(uint32)jointNode] = true;
+						}
+						if (tlA && trA && !hasMeshWorld[s]) {
+							meshWorld[s] = MatFromFbx(tlA) * MatFromFbx(trA);
+							hasMeshWorld[s] = true;
+						}
+					}
+				}
+				if (clusters.Empty())
 					return;
-				NkVector<float32> cw; // [ctrl*4+k] poids
-				NkVector<int32> cj;	  // [ctrl*4+k] ordinal de joint (-1 = libre)
-				cw.Resize((NkVector<float32>::SizeType)((maxCtrl + 1) * 4));
-				cj.Resize((NkVector<int32>::SizeType)((maxCtrl + 1) * 4));
-				for (uint32 i = 0; i < (uint32)cw.Size(); ++i) {
+
+				// 3. Le squelette : racines = plus haut ancetre LimbNode de chaque
+				//    joint de cluster (le joint lui-meme s'il n'est pas LimbNode) ;
+				//    parcours prefixe de tous les LimbNode sous ces racines ; puis
+				//    les joints de cluster restes dehors, dans l'ordre des clusters.
+				NkVector<int32> ordinalOf; // node -> ordinal de joint (-1 = pas un joint)
+				ordinalOf.Resize(nodeCount);
+				for (uint32 i = 0; i < nodeCount; ++i)
+					ordinalOf[i] = -1;
+				NkVector<int32> roots;
+				for (uint32 k = 0; k < (uint32)clusters.Size(); ++k) {
+					int32 r = clusters[k].joint;
+					if (isLimb[(uint32)r])
+						for (int32 p = parentOf[(uint32)r]; p >= 0 && isLimb[(uint32)p]; p = parentOf[(uint32)p])
+							r = p;
+					bool seen = false;
+					for (uint32 i = 0; i < (uint32)roots.Size() && !seen; ++i)
+						seen = roots[i] == r;
+					if (!seen)
+						roots.PushBack(r);
+				}
+				NkVector<int32> stack;
+				for (uint32 ri = 0; ri < (uint32)roots.Size(); ++ri) {
+					stack.Clear();
+					stack.PushBack(roots[ri]);
+					while (!stack.Empty()) {
+						const int32 n = stack[(NkVector<int32>::SizeType)(stack.Size() - 1)];
+						stack.PopBack();
+						if (ordinalOf[(uint32)n] >= 0)
+							continue;
+						ordinalOf[(uint32)n] = (int32)out.skinJoints.Size();
+						out.skinJoints.PushBack(n);
+						// enfants LimbNode, empiles a l'envers pour sortir dans l'ordre
+						const NkVector<int32> &ch = out.nodes[(uint32)n].children;
+						for (uint32 c = (uint32)ch.Size(); c > 0; --c)
+							if (isLimb[(uint32)ch[(NkVector<int32>::SizeType)(c - 1)]])
+								stack.PushBack(ch[(NkVector<int32>::SizeType)(c - 1)]);
+					}
+				}
+				for (uint32 k = 0; k < (uint32)clusters.Size(); ++k) {
+					const int32 j = clusters[k].joint;
+					if (ordinalOf[(uint32)j] < 0) {
+						ordinalOf[(uint32)j] = (int32)out.skinJoints.Size();
+						out.skinJoints.PushBack(j);
+					}
+				}
+				const uint32 jointCount = (uint32)out.skinJoints.Size();
+
+				// 4. inverseBind = bind(joint)^-1 ; bind = TransformLink si un
+				//    cluster le donne, sinon bind(parent) * local (parents avant
+				//    enfants : c'est l'ordre du parcours ; les joints hors LimbNode
+				//    ajoutes apres ont tous un cluster).
+				out.inverseBind.Clear();
+				uint32 noCluster = 0;
+				for (uint32 k = 0; k < jointCount; ++k) {
+					const int32 n = out.skinJoints[k];
+					if (!hasBind[(uint32)n]) {
+						++noCluster;
+						const NkGLTFNode &g = out.nodes[(uint32)n];
+						const NkMat4f local =
+							g.hasMatrix ? g.matrix
+										: NkMat4f::TRS(g.translation,
+													   NkQuatf(g.rotation.x, g.rotation.y, g.rotation.z, g.rotation.w),
+													   g.scale);
+						const int32 p = parentOf[(uint32)n];
+						const NkMat4f pw = (p >= 0 && hasBind[(uint32)p]) ? bindWorld[(uint32)p]
+										   : (p >= 0)						 ? NodeWorld(out, parentOf, p)
+																			 : NkMat4f::Identity();
+						bindWorld[(uint32)n] = pw * local;
+						hasBind[(uint32)n] = true;
+					}
+					out.inverseBind.PushBack(bindWorld[(uint32)n].Inverse());
+				}
+
+				// 5. Poids par control point et par geometrie skinnee : 4 slots
+				//    (joint, poids), insertion en gardant les 4 plus forts. Les
+				//    plages `cw/cj` sont indexees par (skin, control point).
+				NkVector<int64> maxCtrl; // par skin
+				NkVector<uint32> base;	 // offset des slots du skin dans cw/cj
+				maxCtrl.Resize((NkVector<int64>::SizeType)skins.Size());
+				base.Resize((NkVector<uint32>::SizeType)skins.Size());
+				uint32 total = 0;
+				for (uint32 s = 0; s < (uint32)skins.Size(); ++s) {
+					const uint32 vStart = geoStart[(NkVector<uint32>::SizeType)skins[s].range];
+					const uint32 vEnd = geoEnd[(NkVector<uint32>::SizeType)skins[s].range];
+					int64 mc = -1;
+					for (uint32 v = vStart; v < vEnd && v < (uint32)ctrlOfVertex.Size(); ++v)
+						if (ctrlOfVertex[(NkVector<int64>::SizeType)v] > mc)
+							mc = ctrlOfVertex[(NkVector<int64>::SizeType)v];
+					maxCtrl[s] = mc;
+					base[s] = total;
+					total += (uint32)((mc + 1) * 4);
+				}
+				NkVector<float32> cw; // [base+ctrl*4+k] poids
+				NkVector<int32> cj;	  // [base+ctrl*4+k] ordinal de joint (-1 = libre)
+				cw.Resize(total);
+				cj.Resize(total);
+				for (uint32 i = 0; i < total; ++i) {
 					cw[i] = 0.f;
 					cj[i] = -1;
 				}
-
-				for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
-					const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
-					if (c.isProp || c.parent != skinId)
-						continue;
-					const FbxNode *cl = FindById(deformers, c.child);
-					if (!cl || !(SubClassOf(*cl) == NkString("Cluster")))
-						continue;
-					// Le joint : Model(child) -OO-> Cluster(parent).
-					int32 jointNode = -1;
-					for (uint32 k = 0; k < (uint32)conns.Size() && jointNode < 0; ++k) {
-						const FbxConn &jc = conns[(NkVector<FbxConn>::SizeType)k];
-						if (jc.isProp || jc.parent != c.child)
-							continue;
-						for (uint32 m = 0; m < (uint32)models.Size(); ++m)
-							if (models[(NkVector<FbxIdEntry>::SizeType)m].id == jc.child) {
-								jointNode = nodeOfModel[(NkVector<int32>::SizeType)m];
-								break;
-							}
-					}
-					if (jointNode < 0)
-						continue; // cluster sans joint : ignore, jamais invente
-					const int32 ordinal = (int32)out.skinJoints.Size();
-					out.skinJoints.PushBack(jointNode);
-					const NkMat4f tr = MatFromFbx(ArrF(cl->Find("Transform")));
-					const NkMat4f tl = MatFromFbx(ArrF(cl->Find("TransformLink")));
-					out.inverseBind.PushBack(tl.Inverse() * tr);
-
-					const NkVector<int64> *idx = ArrI(cl->Find("Indexes"));
-					const NkVector<float64> *wts = ArrF(cl->Find("Weights"));
+				for (uint32 k = 0; k < (uint32)clusters.Size(); ++k) {
+					const ClusterRef &cr = clusters[k];
+					const int32 ordinal = ordinalOf[(uint32)cr.joint];
+					const NkVector<int64> *idx = ArrI(cr.node->Find("Indexes"));
+					const NkVector<float64> *wts = ArrF(cr.node->Find("Weights"));
 					if (!idx || !wts)
-						continue;
+						continue; // cluster sans poids (feuille) : le joint existe, sans influence
+					const int64 mc = maxCtrl[(uint32)cr.skin];
+					const uint32 b = base[(uint32)cr.skin];
 					const uint32 n = (uint32)(idx->Size() < wts->Size() ? idx->Size() : wts->Size());
 					for (uint32 e = 0; e < n; ++e) {
 						const int64 ctrl = (*idx)[(NkVector<int64>::SizeType)e];
 						const float32 w = (float32)(*wts)[(NkVector<float64>::SizeType)e];
-						if (ctrl < 0 || ctrl > maxCtrl || w <= 0.f)
+						if (ctrl < 0 || ctrl > mc || w <= 0.f)
 							continue;
-						// insertion top-4 : remplace le plus faible si plus fort
-						uint32 slot = (uint32)(ctrl * 4);
+						const uint32 slot = b + (uint32)(ctrl * 4);
 						uint32 weakest = slot;
 						bool placed = false;
-						for (uint32 k = slot; k < slot + 4; ++k) {
-							if (cj[k] < 0) {
-								cj[k] = ordinal;
-								cw[k] = w;
+						for (uint32 q = slot; q < slot + 4; ++q) {
+							if (cj[q] < 0) {
+								cj[q] = ordinal;
+								cw[q] = w;
 								placed = true;
 								break;
 							}
-							if (cw[k] < cw[weakest])
-								weakest = k;
+							if (cw[q] < cw[weakest])
+								weakest = q;
 						}
 						if (!placed && w > cw[weakest]) {
 							cj[weakest] = ordinal;
@@ -639,20 +842,43 @@ namespace nkentseu {
 						}
 					}
 				}
-				if (out.skinJoints.Empty())
-					return;
 
-				// 3. skinnedVertices, PARALLELE a out.vertices (meme regle que le
-				// chemin glTF : les sommets hors de la geometrie skinnee recoivent
-				// le defaut bone 0 / poids {1,0,0,0}).
+				// 6. Sommets des geometries skinnees ramenes dans l'espace du
+				//    squelette (M_k = monde du mesh au bind) — no-op quand M_k est
+				//    l'identite (Mixamo). Normales par l'inverse-transposee.
+				NkVector<int32> skinOfVertex; // -1 = hors skin
+				skinOfVertex.Resize((NkVector<int32>::SizeType)out.vertices.Size());
+				for (uint32 v = 0; v < (uint32)out.vertices.Size(); ++v)
+					skinOfVertex[v] = -1;
+				for (uint32 s = 0; s < (uint32)skins.Size(); ++s) {
+					const uint32 vStart = geoStart[(NkVector<uint32>::SizeType)skins[s].range];
+					const uint32 vEnd = geoEnd[(NkVector<uint32>::SizeType)skins[s].range];
+					bool bake = false; // M_k differe de l'identite (au-dela du bruit float) ?
+					if (hasMeshWorld[s])
+						for (uint32 i = 0; i < 16 && !bake; ++i)
+							bake = std::fabs(meshWorld[s].data[i] - ((i % 5 == 0) ? 1.f : 0.f)) > 1e-4f;
+					for (uint32 v = vStart; v < vEnd && v < (uint32)out.vertices.Size(); ++v) {
+						skinOfVertex[v] = (int32)s;
+						if (!bake)
+							continue;
+						NkVertex3D &vt = out.vertices[v];
+						vt.pos = meshWorld[s].TransformPoint(vt.pos);
+						vt.normal = meshWorld[s].TransformNormal(vt.normal);
+					}
+				}
+
+				// 7. skinnedVertices, PARALLELE a out.vertices (meme regle que le
+				//    chemin glTF : les sommets hors de toute geometrie skinnee
+				//    recoivent le defaut bone 0 / poids {1,0,0,0}).
 				out.skinnedVertices.Clear();
 				for (uint32 v = 0; v < (uint32)out.vertices.Size(); ++v) {
 					NkVertexSkinned sv{};
 					static_cast<NkVertex3D &>(sv) = out.vertices[v];
-					if (v >= vStart && v < vEnd) {
+					const int32 s = skinOfVertex[v];
+					if (s >= 0) {
 						const int64 ctrl = ctrlOfVertex[(NkVector<int64>::SizeType)v];
-						if (ctrl >= 0 && ctrl <= maxCtrl) {
-							const uint32 slot = (uint32)(ctrl * 4);
+						if (ctrl >= 0 && ctrl <= maxCtrl[(uint32)s]) {
+							const uint32 slot = base[(uint32)s] + (uint32)(ctrl * 4);
 							float32 sum = 0.f;
 							for (uint32 k = 0; k < 4; ++k)
 								if (cj[slot + k] >= 0)
@@ -669,7 +895,10 @@ namespace nkentseu {
 					out.skinnedVertices.PushBack(sv);
 				}
 				out.isSkinned = true;
-				out.skinRootNode = -1;
+				out.skinRootNode = roots.Empty() ? -1 : roots[0];
+				NkLog::Instance().Infof(
+					"[NkFBXLoader] skin : %u Skin, %u Cluster, %u joints (%u sans Cluster, completes par l'arbre)\n",
+					(uint32)skins.Size(), (uint32)clusters.Size(), jointCount, noCluster);
 			}
 
 			// ════════════════════════════════════════════════════════════════
@@ -728,26 +957,25 @@ namespace nkentseu {
 				}
 			}
 
-			// Extrait le premier AnimationStack en une NkGLTFAnimation : un canal
-			// par CurveNode T/R/S cible d'un Model, valeurs echantillonnees sur
+			// Extrait UN AnimationStack en une NkGLTFAnimation : un canal par
+			// CurveNode T/R/S cible d'un Model (rattache au stack par l'un de ses
+			// Layers — plusieurs Layers possibles), valeurs echantillonnees sur
 			// l'union des cles de ses courbes d|X/Y/Z. Rotation : euler degres ->
-			// quaternion (RotationOrder du Model), PreRotation composee DEVANT —
+			// quaternion via FbxModelRotation (RotationOrder + Pre/PostRotation) —
 			// meme composition que les TRS statiques d'ExtractNodes, parce que le
 			// consommateur (EvaluateGLTFPose) REMPLACE la rotation statique par la
 			// valeur du canal : elle doit porter le quaternion complet.
-			void ExtractAnimations(const NkVector<FbxIdEntry> &stacks, const NkVector<FbxIdEntry> &layers,
-								   const NkVector<FbxIdEntry> &curveNodes, const NkVector<FbxIdEntry> &curves,
-								   const NkVector<FbxIdEntry> &models, const NkVector<FbxConn> &conns,
-								   const NkVector<int32> &nodeOfModel, NkGLTFMeshData &out) {
-				if (stacks.Empty() || curveNodes.Empty())
-					return; // fichier sans animation : rien a inventer
+			// Rien n'est emis si le stack n'a aucun canal (stack vide).
+			void ExtractStack(const FbxIdEntry &stack, const NkVector<FbxIdEntry> &layers,
+							  const NkVector<FbxIdEntry> &curveNodes, const NkVector<FbxIdEntry> &curves,
+							  const NkVector<FbxIdEntry> &models, const NkVector<FbxConn> &conns,
+							  const NkVector<int32> &nodeOfModel, NkGLTFMeshData &out) {
 				NkGLTFAnimation anim;
-				anim.name = ObjNameOf(*stacks[0].node);
+				anim.name = ObjNameOf(*stack.node);
 
-				// Les layers du stack retenu (le premier) : filtre les CurveNode
-				// d'un eventuel second stack.
+				// Les layers DU stack : filtre les CurveNode des autres stacks.
 				NkVector<int64> stackLayers;
-				FindChildrenOO(conns, stacks[0].id, layers, stackLayers);
+				FindChildrenOO(conns, stack.id, layers, stackLayers);
 
 				for (uint32 cn = 0; cn < (uint32)curveNodes.Size(); ++cn) {
 					const FbxIdEntry &ce = curveNodes[(NkVector<FbxIdEntry>::SizeType)cn];
@@ -829,12 +1057,6 @@ namespace nkentseu {
 					if (ticks.Empty())
 						continue; // canal sans aucune cle : rien a emettre
 
-					// Rotation : parametres du Model, comme ExtractNodes.
-					float32 orderF = 0.f, pre3[3];
-					const bool hasPre = path == NkGLTFPath::ROTATION && GetP70(mo, "PreRotation", 3, pre3);
-					if (path == NkGLTFPath::ROTATION)
-						GetP70(mo, "RotationOrder", 1, &orderF);
-
 					NkGLTFAnimChannel ch;
 					ch.node = nodeOfModel[(NkVector<int32>::SizeType)modelIdx];
 					ch.path = path;
@@ -846,13 +1068,7 @@ namespace nkentseu {
 						const float32 z = SampleFbxCurve(ktZ, kvZ, t, defZ);
 						NkVec4f v;
 						if (path == NkGLTFPath::ROTATION) {
-							v = EulerDegToQuat(x, y, z, (int32)orderF);
-							if (hasPre) {
-								const NkVec4f pq = EulerDegToQuat(pre3[0], pre3[1], pre3[2], 0);
-								NkQuatf q = NkQuatf(pq.x, pq.y, pq.z, pq.w) * NkQuatf(v.x, v.y, v.z, v.w);
-								q.Normalize();
-								v = {q.x, q.y, q.z, q.w};
-							}
+							v = FbxModelRotation(mo, x, y, z); // Pre * euler(order) * Post^-1
 						} else {
 							v = {x, y, z, 0.f};
 						}
@@ -866,6 +1082,22 @@ namespace nkentseu {
 				}
 				if (!anim.channels.Empty())
 					out.animations.PushBack(static_cast<NkGLTFAnimation &&>(anim));
+			}
+
+			// TOUS les AnimationStack, dans l'ordre du fichier, un NkGLTFAnimation
+			// chacun ; les stacks sans canal ne produisent rien. Avant : seul
+			// stacks[0] etait lu — sur Mixamo natif c'est « Take 001 », un stack
+			// VIDE (Layer sans CurveNode) ; l'animation reelle est stacks[1]
+			// « mixamo.com » (mesure : 0 animation lue sur 315 courbes, Q30 nkanim).
+			void ExtractAnimations(const NkVector<FbxIdEntry> &stacks, const NkVector<FbxIdEntry> &layers,
+								   const NkVector<FbxIdEntry> &curveNodes, const NkVector<FbxIdEntry> &curves,
+								   const NkVector<FbxIdEntry> &models, const NkVector<FbxConn> &conns,
+								   const NkVector<int32> &nodeOfModel, NkGLTFMeshData &out) {
+				if (stacks.Empty() || curveNodes.Empty())
+					return; // fichier sans animation : rien a inventer
+				for (uint32 s = 0; s < (uint32)stacks.Size(); ++s)
+					ExtractStack(stacks[(NkVector<FbxIdEntry>::SizeType)s], layers, curveNodes, curves, models, conns,
+								 nodeOfModel, out);
 			}
 
 			// Charge (avec cache par ID) la texture FBX `texId` -> index dans
@@ -1397,10 +1629,11 @@ namespace nkentseu {
 					NkLog::Instance().Warnf("[NkFBXLoader] aucune geometrie exploitable dans %s", path.CStr());
 					return false;
 				}
-				// Skinning (etape (b)) : premier Deformer Skin rattache a une
-				// geometrie chargee -> skinJoints / inverseBind / skinnedVertices.
+				// Skinning (etape (b)) : tous les Deformer Skin rattaches a une
+				// geometrie chargee -> un squelette : skinJoints / inverseBind /
+				// skinnedVertices.
 				ExtractSkin(deformers, models, conns, nodeOfModel, ctrlOfVertex, geoIds, geoStart, geoEnd, out);
-				// Animations (etape (c)) : premier AnimationStack -> canaux TRS.
+				// Animations (etape (c)) : chaque AnimationStack -> canaux TRS.
 				ExtractAnimations(animStacks, animLayers, animCurveNodes, animCurves, models, conns, nodeOfModel,
 								  out);
 				// UpAxis : GlobalSettings/Properties70/P "UpAxis" (1=Y, 2=Z).
