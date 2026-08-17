@@ -279,6 +279,20 @@ namespace nkentseu {
 					mStartScreenUser = user;
 				}
 
+				// Barre d'etat ENTIEREMENT dessinee par l'app (« a sa maniere ») :
+				// REMPLACE le footer VSCode du shell — voyants (SetFooterLights),
+				// textes gauche/droite (SetFooter) et indicateur de zoom ne sont PAS
+				// dessines quand ce hook est pose. Le shell reserve toujours la bande
+				// basse (jamais en plein-ecran launcher) et initialise la region de
+				// layout sur son rect avant l'appel, comme pour la toolbar : widgets
+				// + SameLine() utilisables, rect complet dans ctx.layout.region.
+				// Couleurs : passer par mUI.theme, jamais de 0xRRGGBB (regle du kit).
+				// Si non pose, comportement historique conserve. Patron SetMenuBar.
+				void SetStatusBarFn(NkEditorAppMenuFn fn, void *user = nullptr) noexcept {
+					mStatusBarFn = fn;
+					mStatusBarUser = user;
+				}
+
 				// Maximise la fenetre (ex. au lancement, pour l'ecran de demarrage).
 				void Maximize() noexcept {
 					mWindow.Maximize();
@@ -513,6 +527,8 @@ namespace nkentseu {
 				void *mOverlayUser = nullptr;
 				NkEditorAppMenuFn mStartScreenFn = nullptr;
 				void *mStartScreenUser = nullptr;
+				NkEditorAppMenuFn mStatusBarFn = nullptr; // barre d'etat COMPLETE fournie par l'app (SetStatusBarFn)
+				void *mStatusBarUser = nullptr;
 
 				// === Palette de commandes ===
 				bool mPaletteOpen = false;
