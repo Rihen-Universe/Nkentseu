@@ -101,8 +101,11 @@ namespace nkentseu {
 				// par le chemin glTF (cle "name" optionnelle, ParseGLTFNodes, #69 :
 				// les joints d'un skin sont des nodes, leurs noms alimentent la
 				// distribution de masse anthropometrique cote editeur,
-				// NKAnimPhysics::NkPoseMass::SetAnthropometric). Un seul membre :
-				// #69 et #70 l'avaient chacun ajoute (doublon 'name', fusion #68).
+				// NKAnimPhysics::NkPoseMass::SetAnthropometric). UN SEUL membre :
+				// #69 et #70 l'avaient chacun ajoute a deux endroits de la struct,
+				// sans conflit textuel — git a garde les deux (« duplicate member
+				// 'name' », NKRenderer ne compilait plus sur main). Corrige deux fois
+				// (#68 cote Noge, 41f75ba0 cote NKRenderer), refusionne ici (2026-08-17).
 				NkString name;
 				NkVec3f translation = {0, 0, 0};
 				NkVec4f rotation = {0, 0, 0, 1}; // quaternion (x,y,z,w)

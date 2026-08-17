@@ -10,8 +10,10 @@
 //      ses invariants (19 joints, skinne, animations) sont verifies a chaque
 //      course de ce banc.
 //   2. PREUVE FBX par etape : (a) squelette + noms (nodes, hierarchie, TRS
-//      contre l'inspecteur independant) ; (b) skinning et (c) animations
-//      viendront s'ajouter ici.
+//      contre l'inspecteur independant) ; (b) skinning ; (c) animations.
+//   3. MIXAMO NATIF (2026-08-17 soir, Q30 nkanim) : « X Bot.fbx » et « Y Bot.fbx »
+//      contre leurs .glb (fichiers hors depot, section sautee s'ils manquent) —
+//      PreRotation, 2 Skin, feuilles sans Cluster, stack vide « Take 001 ».
 // =============================================================================
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkFBXLoader.h"
@@ -40,6 +42,41 @@ namespace {
 		for (uint32 i = 0; i < (uint32)d.nodes.Size(); ++i)
 			if (d.nodes[i].name == NkString(name))
 				return (int32)i;
+		return -1;
+	}
+
+	// Compose T*R*S des nodes jusqu'a la racine -> position monde du node.
+	math::NkVec3f WorldPos(const renderer::NkGLTFMeshData &d, int32 node) noexcept {
+		// parent de chaque node (l'arbre ne stocke que les enfants)
+		NkVector<int32> parent;
+		parent.Resize((NkVector<int32>::SizeType)d.nodes.Size());
+		for (uint32 i = 0; i < (uint32)d.nodes.Size(); ++i)
+			parent[i] = -1;
+		for (uint32 i = 0; i < (uint32)d.nodes.Size(); ++i)
+			for (uint32 c = 0; c < (uint32)d.nodes[i].children.Size(); ++c)
+				parent[(uint32)d.nodes[i].children[c]] = (int32)i;
+		math::NkMat4f m = math::NkMat4f::Identity();
+		for (int32 n = node; n >= 0; n = parent[(uint32)n]) {
+			const renderer::NkGLTFNode &g = d.nodes[(uint32)n];
+			math::NkMat4f local = g.hasMatrix ? g.matrix
+											 : math::NkMat4f::TRS(g.translation,
+																  math::NkQuatf(g.rotation.x, g.rotation.y, g.rotation.z, g.rotation.w),
+																  g.scale);
+			m = local * m;
+		}
+		return {m.data[12], m.data[13], m.data[14]};
+	}
+
+	bool Near(const math::NkVec3f &a, float32 x, float32 y, float32 z, float32 tol) noexcept {
+		return std::fabs(a.x - x) < tol && std::fabs(a.y - y) < tol && std::fabs(a.z - z) < tol;
+	}
+
+	int32 JointOrdinal(const renderer::NkGLTFMeshData &d, const char *name) noexcept {
+		for (uint32 k = 0; k < (uint32)d.skinJoints.Size(); ++k) {
+			const int32 n = d.skinJoints[k];
+			if (n >= 0 && n < (int32)d.nodes.Size() && d.nodes[(uint32)n].name == NkString(name))
+				return (int32)k;
+		}
 		return -1;
 	}
 
@@ -112,12 +149,16 @@ namespace {
 	// points (14016 coins emis sur 14256), 19 Cluster relies chacun a un Model
 	// LimbNode nomme, couverture 3273/3273, somme des poids exactement 1, max
 	// 4 influences, 86 % des control points a >= 2 influences.
-	// inverseBind(Skeleton_torso_joint_1) = TransformLink^-1 * Transform,
-	// translation column-major [12..14] = (0.044553, -0.004487, -0.677621).
-	// NOTE parite : les inverseBind glTF et FBX ne sont PAS comparables
-	// directement — l'export Blender integre l'echelle cm et sa reorientation
-	// des os dans TransformLink/Transform (glTF : t=(0.0513, -0.0050, -0.6771)).
-	// Le temoin numerique est donc l'inspecteur, sur le MEME fichier.
+	// SEMANTIQUE (corrigee 2026-08-17 soir, Q30 nkanim) : TransformLink = monde
+	// du joint au bind, Transform = TransformLink^-1 * monde du mesh au bind.
+	// inverseBind = TransformLink^-1 -> inverse(inverseBind) = TransformLink :
+	// torso_joint_1 t = (0.500, 67.900, 0.000) cm (inspecteur), et le graphe de
+	// nodes (Lcl composees) doit recomposer ce meme monde. L'ancienne formule
+	// TL^-1 * Transform (t = 0.0446, -0.0045, -0.6776) « passait » contre elle-
+	// meme ; le seul chiffre independant, l'inverseBind glTF t = (0.0513,
+	// -0.0050, -0.6771), est la translation de Transform SEULE — la « parite
+	// impossible » de Q10 etait un artefact. Les sommets skinnes sont ramenes
+	// dans l'espace du squelette (M = TL * Transform = R(-180,-90,0) * S(100)).
 	void TestFBXSkin(const renderer::NkGLTFMeshData &fbx) noexcept {
 		logger.Infof("-- FBX etape (b) : CesiumMan.fbx (skinning) --\n");
 		Check(fbx.isSkinned, "FBX : isSkinned (le Deformer Skin est extrait)");
@@ -144,14 +185,27 @@ namespace {
 		Check(jointsOk, "FBX : chaque skinJoint est un node valide et nomme");
 		Check(torso >= 0, "FBX : 'Skeleton_torso_joint_1' figure parmi les joints");
 
-		// La matrice de bind du joint teste, contre l'inspecteur : verifie d'un
-		// coup Inverse(), le produit et la convention column-major du moteur.
+		// La matrice de bind du joint teste, contre l'inspecteur : inverse(ib)
+		// == TransformLink (monde du joint au bind), et le graphe de nodes
+		// recompose ce meme monde (hierarchie + euler + echelle 100 de la racine).
 		if (torso >= 0) {
-			const math::NkMat4f &ib = fbx.inverseBind[(uint32)torso];
-			const bool tOk = std::fabs(ib.data[12] - 0.044553f) < 1e-3f &&
-							 std::fabs(ib.data[13] - (-0.004487f)) < 1e-3f &&
-							 std::fabs(ib.data[14] - (-0.677621f)) < 1e-3f;
-			Check(tOk, "FBX : inverseBind(torso_joint_1).translation == TL^-1*TR de l'inspecteur");
+			const math::NkVec4f b = fbx.inverseBind[(uint32)torso].Inverse().position;
+			Check(std::fabs(b.x - 0.500f) < 0.05f && std::fabs(b.y - 67.900f) < 0.05f && std::fabs(b.z) < 0.05f,
+				  "FBX : inverse(inverseBind(torso_joint_1)) == TransformLink (0.5, 67.9, 0) cm — inspecteur");
+			// Le graphe de nodes (Z_UP S=100,R180X -> Armature R90Y -> joints)
+			// recompose le MEME ESPACE (cm, memes axes) mais la pose de FRAME 0,
+			// pas la pose de bind : Blender exporte les Lcl a la frame courante
+			// (mesure : graphe (-2.0, 64.4, 0.0) contre TransformLink (0.5, 67.9,
+			// 0.0) — ecart 4 cm sur une hauteur de 68). Chez Mixamo bind == scene.
+			const math::NkVec3f w = WorldPos(fbx, fbx.skinJoints[(uint32)torso]);
+			logger.Infof("     FBX torso_joint_1 : monde du graphe (%.2f %.2f %.2f) cm, TransformLink (%.2f %.2f %.2f) cm\n",
+						 w.x, w.y, w.z, b.x, b.y, b.z);
+			Check(std::fabs(w.x - b.x) < 10.f && std::fabs(w.y - b.y) < 10.f && std::fabs(w.z - b.z) < 10.f,
+				  "FBX : monde(torso_joint_1) du graphe dans le meme espace que TransformLink (< 10 cm, pose frame 0)");
+			// Les sommets skinnes sont dans l'espace du squelette : hauteur du
+			// bonhomme ~ 1.5-1.9 m -> bornes en cm (glTF : metres, ~1.7).
+			Check(fbx.bounds.max.y - fbx.bounds.min.y > 100.f,
+				  "FBX : sommets skinnes ramenes dans l'espace du squelette (hauteur > 100 cm)");
 		}
 
 		// Poids : somme 1 partout (sommets skinnes normalises, hors-skin au
@@ -268,6 +322,194 @@ namespace {
 					 (uint32)a.channels.Size(), a.duration);
 	}
 
+	// ── Mixamo natif : « X Bot.fbx » contre « XBot.glb » (Q30 nkanim) ─────
+	// Le temoin CesiumMan est un export Blender « euler XYZ sans PreRotation »
+	// : il ne couvre PAS le regime Mixamo (PreRotation sur 56 joints,
+	// InheritType RSrs, 2 Skin, 2 AnimationStack, courbes rattachees a
+	// « Lcl Rotation »). Ce banc charge les DEUX fichiers du meme personnage
+	// (fichiers hors depot — Resources/Models/ est ignore par git ; SAUTE
+	// proprement s'ils manquent, sans compter d'echec).
+	// Chiffres de l'inspecteur independant (fbx_inspect.py, scratchpad de
+	// session, 2026-08-17) sur « X Bot.fbx » : 67 Model (65 LimbNode +
+	// Beta_Surface + Beta_Joints), 64 aretes Model->Model + 3 racines,
+	// 2 Skin (1 par Geometry), 129 Cluster, 2 AnimationStack, 2 Layer,
+	// 67 CurveNode (65 « Lcl Rotation », 1 « Lcl Translation »), 315 courbes.
+	// Positions monde de bind (glb, inverse des inverseBind, en METRES) :
+	// Hips (0, 1.0427, 0.0155), LeftHand (0.713, 1.4406, -0.0555) — le FBX
+	// est en CENTIMETRES (x100). LeftFoot : le glb dit (8.73, 9.99, -1.06) cm
+	// mais le FBX LUI-MEME (TransformLink du Cluster LeftFoot, inspecteur)
+	// dit (8.208, 8.729, -2.743) : les deux fichiers different de 1-2 cm dans
+	// la jambe (donnee, pas loader) ; la reference du pied est donc le
+	// TransformLink du fichier, pas le glb.
+
+
+	void TestMixamo() noexcept {
+		logger.Infof("-- Mixamo natif : X Bot.fbx contre XBot.glb (Q30 nkanim) --\n");
+		renderer::NkGLTFMeshData glb;
+		renderer::NkGLTFMeshData fbx;
+		const bool okG = renderer::LoadGLTF(NkString("Resources/Models/XBot/XBot.glb"), glb);
+		const bool okF = renderer::LoadFBX(NkString("Resources/Models/XBot/X Bot.fbx"), fbx);
+		if (!okG || !okF) {
+			logger.Warnf("  [SKIP] fichiers XBot absents de Resources/Models/XBot/ (glb=%d fbx=%d) — "
+						 "section Mixamo non jouee\n",
+						 okG ? 1 : 0, okF ? 1 : 0);
+			return;
+		}
+		// 1. Squelette : 67 nodes, 64 aretes, hierarchie et PreRotation
+		//    composees -> positions monde de bind (cm) == glb (m) x100.
+		Check(fbx.nodes.Size() == 67, "Mixamo : 67 nodes (67 Model)");
+		uint32 edges = 0;
+		for (uint32 i = 0; i < (uint32)fbx.nodes.Size(); ++i)
+			edges += (uint32)fbx.nodes[i].children.Size();
+		Check(edges == 64, "Mixamo : 64 aretes Model->Model (67 nodes - 3 racines)");
+		const int32 hips = FindNodeByName(fbx, "mixamorig:Hips");
+		const int32 lhand = FindNodeByName(fbx, "mixamorig:LeftHand");
+		const int32 lfoot = FindNodeByName(fbx, "mixamorig:LeftFoot");
+		const int32 rfoot = FindNodeByName(fbx, "mixamorig:RightFoot");
+		Check(hips >= 0 && lhand >= 0 && lfoot >= 0 && rfoot >= 0, "Mixamo : Hips/LeftHand/LeftFoot/RightFoot nommes");
+		if (hips >= 0 && lhand >= 0 && lfoot >= 0 && rfoot >= 0) {
+			const math::NkVec3f pH = WorldPos(fbx, hips), pLH = WorldPos(fbx, lhand), pLF = WorldPos(fbx, lfoot),
+								pRF = WorldPos(fbx, rfoot);
+			logger.Infof("     FBX monde (cm) : Hips (%.2f %.2f %.2f) LeftHand (%.2f %.2f %.2f) LeftFoot (%.2f %.2f %.2f) "
+						 "RightFoot (%.2f %.2f %.2f)\n",
+						 pH.x, pH.y, pH.z, pLH.x, pLH.y, pLH.z, pLF.x, pLF.y, pLF.z, pRF.x, pRF.y, pRF.z);
+			Check(Near(pH, 0.f, 104.27f, 1.55f, 0.5f), "Mixamo : Hips monde == glb x100 (0, 104.27, 1.55) cm");
+			Check(Near(pLH, 71.33f, 144.06f, -5.55f, 1.0f),
+				  "Mixamo : LeftHand monde == glb x100 (71.33, 144.06, -5.55) cm — PreRotation composee");
+			Check(Near(pLF, 8.208f, 8.729f, -2.743f, 0.05f),
+				  "Mixamo : LeftFoot monde == TransformLink du Cluster (8.208, 8.729, -2.743) cm — inspecteur");
+			Check(std::fabs(pLF.x - pRF.x) > 10.f, "Mixamo : les deux pieds ne sont PAS au meme point");
+		}
+		// 2. Skin : 65 joints (glb skins[0].joints = 65 ; le FBX n'a que 64
+		//    Cluster sur cette geometrie — la feuille HeadTop_End n'a pas de
+		//    poids). inverseBind^-1 == position monde de bind du joint.
+		Check(fbx.isSkinned, "Mixamo : isSkinned");
+		Check(glb.skinJoints.Size() == 65, "Mixamo glb : 65 joints (reference)");
+		Check(fbx.skinJoints.Size() == glb.skinJoints.Size(), "Mixamo : autant de joints skin FBX que glb (65)");
+		const int32 jH = JointOrdinal(fbx, "mixamorig:Hips");
+		const int32 jLF = JointOrdinal(fbx, "mixamorig:LeftFoot");
+		const int32 jRF = JointOrdinal(fbx, "mixamorig:RightFoot");
+		Check(jH >= 0 && jLF >= 0 && jRF >= 0, "Mixamo : Hips/LeftFoot/RightFoot parmi les joints skin");
+		if (jH >= 0 && jLF >= 0 && jRF >= 0) {
+			const math::NkVec4f bH = fbx.inverseBind[(uint32)jH].Inverse().position;
+			const math::NkVec4f bLF = fbx.inverseBind[(uint32)jLF].Inverse().position;
+			const math::NkVec4f bRF = fbx.inverseBind[(uint32)jRF].Inverse().position;
+			logger.Infof("     FBX bind (inverseBind^-1, cm) : Hips (%.2f %.2f %.2f) LeftFoot (%.2f %.2f %.2f) RightFoot "
+						 "(%.2f %.2f %.2f)\n",
+						 bH.x, bH.y, bH.z, bLF.x, bLF.y, bLF.z, bRF.x, bRF.y, bRF.z);
+			Check(Near({bH.x, bH.y, bH.z}, 0.f, 104.27f, 1.55f, 0.5f),
+				  "Mixamo : bind(Hips) == glb x100 (0, 104.27, 1.55) cm — pas 2x");
+			Check(Near({bLF.x, bLF.y, bLF.z}, 8.208f, 8.729f, -2.743f, 0.05f),
+				  "Mixamo : bind(LeftFoot) == TransformLink du Cluster (inspecteur)");
+			Check(std::fabs(bLF.x - bRF.x) > 10.f, "Mixamo : bind des deux pieds distincts");
+			// Le bind du joint == sa pose de scene (Mixamo exporte en pose de
+			// bind) : coherence interne graphe de nodes <-> Cluster.
+			const int32 hn = fbx.skinJoints[(uint32)jH];
+			const math::NkVec3f pH = WorldPos(fbx, hn);
+			Check(Near({bH.x, bH.y, bH.z}, pH.x, pH.y, pH.z, 0.5f), "Mixamo : bind(Hips) == monde(Hips) du graphe");
+		}
+		bool sumOk = true;
+		uint32 multi = 0;
+		for (uint32 v = 0; v < (uint32)fbx.skinnedVertices.Size(); ++v) {
+			const renderer::NkVertexSkinned &sv = fbx.skinnedVertices[v];
+			float32 s = 0.f;
+			uint32 used = 0;
+			for (uint32 k = 0; k < 4; ++k) {
+				s += sv.boneWeight[k];
+				if (sv.boneWeight[k] > 0.f)
+					++used;
+			}
+			if (std::fabs(s - 1.f) > 1e-3f)
+				sumOk = false;
+			if (used >= 2)
+				++multi;
+		}
+		Check(sumOk, "Mixamo : somme des poids == 1 partout");
+		// 3. Animation : 1 animation jouable (le glb en a 1), canaux ROTATION
+		//    sur les 65 joints, duree > 0, quaternions normalises.
+		Check(glb.animations.Size() == 1, "Mixamo glb : 1 animation (reference)");
+		Check(fbx.animations.Size() >= 1, "Mixamo : au moins 1 animation lue (2 AnimationStack, 315 courbes)");
+		if (!fbx.animations.Empty()) {
+			const renderer::NkGLTFAnimation &a = fbx.animations[0];
+			uint32 rot = 0;
+			bool quatsOk = true;
+			for (uint32 c = 0; c < (uint32)a.channels.Size(); ++c) {
+				const renderer::NkGLTFAnimChannel &ch = a.channels[c];
+				if (ch.path == renderer::NkGLTFPath::ROTATION) {
+					++rot;
+					for (uint32 k = 0; k < (uint32)ch.values.Size(); ++k) {
+						const math::NkVec4f &q = ch.values[k];
+						if (std::fabs(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w - 1.f) > 1e-3f)
+							quatsOk = false;
+					}
+				}
+			}
+			logger.Infof("     FBX anim : '%s', %u canaux (%u rotation), duree %.3fs ; glb '%s' duree %.3fs\n",
+						 a.name.CStr(), (uint32)a.channels.Size(), rot, a.duration,
+						 glb.animations[0].name.CStr(), glb.animations[0].duration);
+			// 65 CurveNode « Lcl Rotation » dans le fichier, mais 13 d'entre eux
+			// pointent des AnimationCurve ABSENTES du fichier (IDs orphelins,
+			// inspecteur : 39 connexions vers des objets inexistants) : sans
+			// aucune cle, pas de canal — le joint garde sa rotation statique
+			// (defaut d|X/Y/Z = 0 = meme chose). Le glb, lui, emet 65 x TRS
+			// constants (195 canaux) : difference d'exporteur, pas de loader.
+			Check(rot == 52, "Mixamo : 52 canaux ROTATION (65 CurveNode - 13 sans courbe dans le fichier)");
+			Check(a.duration > 0.f, "Mixamo : duree > 0");
+			Check(std::fabs(a.duration - glb.animations[0].duration) < 0.05f,
+				  "Mixamo : duree FBX == duree glb (meme export Mixamo, pas de timeline etalee)");
+			Check(quatsOk, "Mixamo : quaternions normalises");
+		}
+		logger.Infof("     Mixamo : %u nodes, %u aretes, %u joints, %u anims, %u/%u multi-influences\n",
+					 (uint32)fbx.nodes.Size(), edges, (uint32)fbx.skinJoints.Size(), (uint32)fbx.animations.Size(),
+					 multi, (uint32)fbx.skinnedVertices.Size());
+	}
+
+	// ── Mixamo natif, second personnage : « Y Bot.fbx » — 13 feuilles SANS
+	// Cluster (HeadTop_End, les 10 phalanges *4, Left/RightToe_End —
+	// inspecteur : 65 LimbNode, 104 Cluster, 52 joints distincts). Le glb du
+	// meme personnage garde 65 joints : le loader complete par l'arbre.
+	void TestMixamoYBot() noexcept {
+		logger.Infof("-- Mixamo natif : Y Bot.fbx (feuilles sans Cluster) --\n");
+		renderer::NkGLTFMeshData glb;
+		renderer::NkGLTFMeshData fbx;
+		const bool okG = renderer::LoadGLTF(NkString("Resources/Models/XBot/YBot.glb"), glb);
+		const bool okF = renderer::LoadFBX(NkString("Resources/Models/XBot/Y Bot.fbx"), fbx);
+		if (!okG || !okF) {
+			logger.Warnf("  [SKIP] fichiers YBot absents de Resources/Models/XBot/ (glb=%d fbx=%d)\n", okG ? 1 : 0,
+						 okF ? 1 : 0);
+			return;
+		}
+		Check(glb.skinJoints.Size() == 65, "YBot glb : 65 joints (reference)");
+		Check(fbx.skinJoints.Size() == 65, "YBot : 65 joints (52 Cluster + 13 feuilles completees par l'arbre)");
+		const int32 jTop = JointOrdinal(fbx, "mixamorig:HeadTop_End");
+		const int32 jHead = JointOrdinal(fbx, "mixamorig:Head");
+		Check(jTop >= 0 && jHead >= 0, "YBot : HeadTop_End (sans Cluster) et Head parmi les joints");
+		if (jTop >= 0 && jHead >= 0) {
+			// bind(feuille) = bind(parent) * local : chez Mixamo bind == scene,
+			// donc == monde du graphe ; et la feuille est bien AU-DESSUS de Head.
+			const math::NkVec4f bT = fbx.inverseBind[(uint32)jTop].Inverse().position;
+			const math::NkVec4f bH = fbx.inverseBind[(uint32)jHead].Inverse().position;
+			const math::NkVec3f wT = WorldPos(fbx, fbx.skinJoints[(uint32)jTop]);
+			logger.Infof("     YBot bind : Head (%.2f %.2f %.2f) HeadTop_End (%.2f %.2f %.2f) ; graphe HeadTop_End (%.2f %.2f %.2f)\n",
+						 bH.x, bH.y, bH.z, bT.x, bT.y, bT.z, wT.x, wT.y, wT.z);
+			Check(Near({bT.x, bT.y, bT.z}, wT.x, wT.y, wT.z, 0.05f),
+				  "YBot : bind(HeadTop_End) == bind(Head) * local == monde du graphe");
+			Check(bT.y > bH.y + 10.f, "YBot : HeadTop_End au-dessus de Head (> 10 cm)");
+			// Ordre prefixe (parents avant enfants) : Head juste avant HeadTop_End,
+			// comme skins[0].joints du glb (parite d'indices).
+			Check(jTop == jHead + 1, "YBot : HeadTop_End suit Head dans l'ordre des joints (parcours prefixe)");
+		}
+		bool idxOk = true;
+		for (uint32 v = 0; v < (uint32)fbx.skinnedVertices.Size() && idxOk; ++v)
+			for (uint32 k = 0; k < 4; ++k)
+				if (fbx.skinnedVertices[v].boneIdx[k] < 0.f || fbx.skinnedVertices[v].boneIdx[k] >= 65.f)
+					idxOk = false;
+		Check(idxOk, "YBot : boneIdx bornes par 65");
+		Check(fbx.animations.Size() == 1, "YBot : 1 animation (stack « mixamo.com » ; « Take 001 » vide ignore)");
+		logger.Infof("     YBot : %u joints, %u anims (glb : %u)\n", (uint32)fbx.skinJoints.Size(),
+					 (uint32)fbx.animations.Size(), (uint32)glb.animations.Size());
+	}
+
 	// ── Non-regression ASCII : le cube de test (aucun Model dedans) ────────
 	void TestFBXAscii() noexcept {
 		logger.Infof("-- FBX ASCII : cube_ascii.fbx (non-regression geometrie) --\n");
@@ -290,6 +532,8 @@ int main() {
 	TestFBXSkin(fbx);
 	TestFBXAnim(fbx);
 	TestFBXAscii();
+	TestMixamo();
+	TestMixamoYBot();
 
 	// Parite inter-chemins (etape (a) : ce qui est deja comparable).
 	if (gltf.IsValid() && fbx.IsValid()) {
