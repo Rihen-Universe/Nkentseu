@@ -323,6 +323,34 @@ en stash du sous-module : C++17, `OGLCompilersDLL/` supprimé en amont,
 ou livraison des DLL ucrt64 à côté des exe — pour que le PATH du lanceur cesse
 d'être une variable de comportement.
 
+### 🦴 Chantier « FBX opérationnel » (commande de Rodolf, ouvert 2026-08-17)
+
+Justification : l'export (origine à 0,0,0) passera par FBX, et le corpus NKGen
+recevra du FBX. Mesure d'ouverture : `NkFBXLoader.cpp` (963 l.) ne lisait QUE la
+géométrie — zéro `Deformer`, jamais `out.nodes`/`skinJoints`/`animations`, et
+`AnimBridge.cpp` appelle `LoadGLTF` en dur. **Le parseur d'arbre (binaire+ASCII)
+lit déjà TOUS les nœuds** — Deformer/AnimationCurve sont dans `roots`, jamais
+consommés : le chantier est de l'extraction, pas du parsing.
+
+**Témoin bilatéral** : le même modèle par les deux chemins —
+`Resources/Models/CesiumMan/CesiumMan.glb` (chemin glTF prouvé) et
+`CesiumMan.fbx` (exporté du .glb, Blender 5.1 headless ; asset local,
+`Resources/Models/` étant gitignoré). Contenu mesuré par un inspecteur
+indépendant du moteur : 23 Model (19 LimbNode), 19 Cluster
+(Indexes/Weights/Transform/TransformLink), 1 Skin, 57 AnimationCurveNode,
+171 AnimationCurve, 374 Connections ; KeyTime en ticks KTime
+(46 186 158 000/s) ; euler en degrés, PreRotation absente de l'export Blender
+mais requise pour Mixamo. Banc : **`Applications/NkFBXParityDemo`** — vérifie à
+chaque course les invariants glTF (19 joints, 1 anim — le chemin glTF ne doit
+pas bouger) ET l'état FBX.
+
+| étape | état | preuve |
+|---|---|---|
+| (a) squelette + noms de nœuds | ✅ 2026-08-17 | 18 OK / 0 échec : 23 nodes nommés, 20 arêtes (3 racines), TRS conformes à l'inspecteur, `Skeleton_torso_joint_1` retrouvé **par son nom** (le chemin glTF ne garde aucun nom — `NkGLTFAnimBake` nomme `joint_{i}`) |
+| (b) skinning (poids) | 📝 à faire | Cluster→poids par control point → `skinnedVertices` (il faut la correspondance sommet émis → control point, `emit()` ne la garde pas) ; `inverseBind` depuis Transform/TransformLink |
+| (c) animations | 📝 à faire | AnimationCurveNode (T/R/S par OP vers Model) + 3 courbes d|X/Y/Z par nœud ; euler→quat par clé ; ticks KTime → secondes |
+| routage extension `AnimBridge` | 📝 EN DERNIER | quand le chemin FBX porte autant que le chemin glTF |
+
 ### Voyant de santé des shaders (demande de l'agent Noge)
 
 `NkShaderLibrary::GetValidProgramCount()` / `GetProgramCount()` — de quoi afficher
