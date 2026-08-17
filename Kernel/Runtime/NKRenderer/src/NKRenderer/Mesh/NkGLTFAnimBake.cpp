@@ -38,6 +38,16 @@ namespace nkentseu {
 			NkVector<NkMat4f> bindGlobalUnused;
 			EvaluateGLTFWorldJoints(data, -1, 0.f, bindGlobalUnused, out.jointParent);
 			out.jointInverseBind = data.inverseBind;
+			// Noms des joints : joint j = node skinJoints[j], son "name" glTF si le
+			// fichier en porte (vide sinon — le clip reste valide, les consommateurs
+			// retombent sur la masse uniforme). Ajout 2026-08-17, additif.
+			out.jointNames.Clear();
+			out.jointNames.Resize(jc);
+			for (uint32 j = 0; j < jc; ++j) {
+				const int32 ni = data.skinJoints[j];
+				if (ni >= 0 && ni < (int32)data.nodes.Size())
+					out.jointNames[j] = data.nodes[(uint32)ni].name;
+			}
 			NkVector<NkMat4f> bindGlobal;
 			bindGlobal.Resize(jc);
 			for (uint32 j = 0; j < jc; ++j)
