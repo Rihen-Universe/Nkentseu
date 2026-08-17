@@ -347,7 +347,7 @@ pas bouger) ET l'état FBX.
 | étape | état | preuve |
 |---|---|---|
 | (a) squelette + noms de nœuds | ✅ 2026-08-17 | 18 OK / 0 échec : 23 nodes nommés, 20 arêtes (3 racines), TRS conformes à l'inspecteur, `Skeleton_torso_joint_1` retrouvé **par son nom** (le chemin glTF ne garde aucun nom — `NkGLTFAnimBake` nomme `joint_{i}`) |
-| (b) skinning (poids) | 📝 à faire | Cluster→poids par control point → `skinnedVertices` (il faut la correspondance sommet émis → control point, `emit()` ne la garde pas) ; `inverseBind` depuis Transform/TransformLink |
+| (b) skinning (poids) | ✅ 2026-08-17 | 29 OK / 0 échec (témoin des deux sens : le banc rend 19 OK + **4 FAIL** sur le code d'avant) : 19 joints = 19 Cluster, correspondance sommet émis → control point conservée par `ExtractGeometry`, poids top-4 normalisés (somme = 1 partout, 12 160/14 256 sommets multi-influences ≈ les 86 % de l'inspecteur), `inverseBind = TransformLink⁻¹·Transform` **numériquement conforme à l'inspecteur indépendant** (translation à 1e-3) — la pose de bind vient des Cluster, PAS des Lcl du graphe (écart mesuré jusqu'à 1,5). Sommets hors skin : défaut `{1,0,0,0}` — même règle que glTF, portée par les initialiseurs de `NkVertexSkinned` (`NkRendererTypes.h:153`). UpAxis=Z sur mesh skinné : conversion SAUTÉE et dite (elle ne retourne que les sommets, elle désaccorderait nodes/inverseBind) |
 | (c) animations | 📝 à faire | AnimationCurveNode (T/R/S par OP vers Model) + 3 courbes d|X/Y/Z par nœud ; euler→quat par clé ; ticks KTime → secondes |
 | routage extension `AnimBridge` | 📝 EN DERNIER | quand le chemin FBX porte autant que le chemin glTF |
 

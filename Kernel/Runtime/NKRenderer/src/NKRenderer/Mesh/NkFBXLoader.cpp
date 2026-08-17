@@ -494,6 +494,184 @@ namespace nkentseu {
 				}
 			}
 
+			// ════════════════════════════════════════════════════════════════
+			//  Skinning FBX -> skinJoints / inverseBind / skinnedVertices
+			//  (etape (b) du chantier « FBX operationnel », 2026-08-17).
+			// ════════════════════════════════════════════════════════════════
+
+			// Sous-classe d'un objet FBX = sa DERNIERE prop chaine ("Skin",
+			// "Cluster", "Mesh", "LimbNode"...). StrOf rend la premiere (le nom).
+			NkString SubClassOf(const FbxNode &n) {
+				for (nk_size i = n.props.Size(); i > 0; --i)
+					if (!n.props[(NkVector<FbxProp>::SizeType)(i - 1)].str.Empty())
+						return n.props[(NkVector<FbxProp>::SizeType)(i - 1)].str;
+				return NkString("");
+			}
+
+			// Matrice FBX (16 float64, column-major, translation en [12..14] —
+			// MEME stockage que glTF, verifie sur le temoin CesiumMan : zeros en
+			// [3,7,11], translation en [12..14]) -> NkMat4f, copie telle quelle.
+			NkMat4f MatFromFbx(const NkVector<float64> *a) {
+				NkMat4f m = NkMat4f::Identity();
+				if (a && a->Size() >= 16)
+					for (uint32 i = 0; i < 16; ++i)
+						m.data[i] = (float32)(*a)[(NkVector<float64>::SizeType)i];
+				return m;
+			}
+
+			// Extrait le PREMIER Deformer "Skin" rattache a une geometrie chargee.
+			//   Connexions (mesurees sur le temoin) :
+			//     Skin(child)    -OO-> Geometry(parent)   : quelle geometrie
+			//     Cluster(child) -OO-> Skin(parent)       : les clusters du skin
+			//     Model(child)   -OO-> Cluster(parent)    : le JOINT du cluster
+			//   Cluster : Indexes (control points) + Weights (paralleles) +
+			//   Transform / TransformLink (matrices de bind).
+			// inverseBind = TransformLink^-1 * Transform — la POSE DE BIND vient
+			// des clusters, PAS du graphe de nodes : les Lcl des Model portent la
+			// pose de scene (frame 0), mesure sur le temoin (ecart relatif jusqu'a
+			// 1.5 entre TransformLink et le monde recompose des Lcl).
+			// `geoIds/geoStart/geoEnd` : plages de sommets emis par geometrie ;
+			// `ctrlOfVertex` : control point de chaque sommet emis.
+			void ExtractSkin(const NkVector<FbxIdEntry> &deformers, const NkVector<FbxIdEntry> &models,
+							 const NkVector<FbxConn> &conns, const NkVector<int32> &nodeOfModel,
+							 const NkVector<int64> &ctrlOfVertex, const NkVector<int64> &geoIds,
+							 const NkVector<uint32> &geoStart, const NkVector<uint32> &geoEnd,
+							 NkGLTFMeshData &out) {
+				// 1. Le skin et sa geometrie.
+				int64 skinId = -1;
+				int32 range = -1;
+				for (uint32 d = 0; d < (uint32)deformers.Size() && skinId < 0; ++d) {
+					const FbxIdEntry &de = deformers[(NkVector<FbxIdEntry>::SizeType)d];
+					if (!(SubClassOf(*de.node) == NkString("Skin")))
+						continue;
+					for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+						const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+						if (c.isProp || c.child != de.id)
+							continue;
+						for (uint32 g = 0; g < (uint32)geoIds.Size(); ++g)
+							if (geoIds[(NkVector<int64>::SizeType)g] == c.parent) {
+								skinId = de.id;
+								range = (int32)g;
+								break;
+							}
+						if (skinId >= 0)
+							break;
+					}
+				}
+				if (skinId < 0 || range < 0)
+					return; // aucun skin : fichier statique, rien a inventer
+				const uint32 vStart = geoStart[(NkVector<uint32>::SizeType)range];
+				const uint32 vEnd = geoEnd[(NkVector<uint32>::SizeType)range];
+
+				// 2. Les clusters du skin, dans l'ordre des connexions.
+				// Poids par control point : 4 slots (joint, poids), insertion en
+				// gardant les 4 plus forts — le temoin n'en a jamais plus de 4,
+				// mais un FBX Mixamo peut en avoir davantage.
+				int64 maxCtrl = -1;
+				for (uint32 v = vStart; v < vEnd && v < (uint32)ctrlOfVertex.Size(); ++v)
+					if (ctrlOfVertex[(NkVector<int64>::SizeType)v] > maxCtrl)
+						maxCtrl = ctrlOfVertex[(NkVector<int64>::SizeType)v];
+				if (maxCtrl < 0)
+					return;
+				NkVector<float32> cw; // [ctrl*4+k] poids
+				NkVector<int32> cj;	  // [ctrl*4+k] ordinal de joint (-1 = libre)
+				cw.Resize((NkVector<float32>::SizeType)((maxCtrl + 1) * 4));
+				cj.Resize((NkVector<int32>::SizeType)((maxCtrl + 1) * 4));
+				for (uint32 i = 0; i < (uint32)cw.Size(); ++i) {
+					cw[i] = 0.f;
+					cj[i] = -1;
+				}
+
+				for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+					const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+					if (c.isProp || c.parent != skinId)
+						continue;
+					const FbxNode *cl = FindById(deformers, c.child);
+					if (!cl || !(SubClassOf(*cl) == NkString("Cluster")))
+						continue;
+					// Le joint : Model(child) -OO-> Cluster(parent).
+					int32 jointNode = -1;
+					for (uint32 k = 0; k < (uint32)conns.Size() && jointNode < 0; ++k) {
+						const FbxConn &jc = conns[(NkVector<FbxConn>::SizeType)k];
+						if (jc.isProp || jc.parent != c.child)
+							continue;
+						for (uint32 m = 0; m < (uint32)models.Size(); ++m)
+							if (models[(NkVector<FbxIdEntry>::SizeType)m].id == jc.child) {
+								jointNode = nodeOfModel[(NkVector<int32>::SizeType)m];
+								break;
+							}
+					}
+					if (jointNode < 0)
+						continue; // cluster sans joint : ignore, jamais invente
+					const int32 ordinal = (int32)out.skinJoints.Size();
+					out.skinJoints.PushBack(jointNode);
+					const NkMat4f tr = MatFromFbx(ArrF(cl->Find("Transform")));
+					const NkMat4f tl = MatFromFbx(ArrF(cl->Find("TransformLink")));
+					out.inverseBind.PushBack(tl.Inverse() * tr);
+
+					const NkVector<int64> *idx = ArrI(cl->Find("Indexes"));
+					const NkVector<float64> *wts = ArrF(cl->Find("Weights"));
+					if (!idx || !wts)
+						continue;
+					const uint32 n = (uint32)(idx->Size() < wts->Size() ? idx->Size() : wts->Size());
+					for (uint32 e = 0; e < n; ++e) {
+						const int64 ctrl = (*idx)[(NkVector<int64>::SizeType)e];
+						const float32 w = (float32)(*wts)[(NkVector<float64>::SizeType)e];
+						if (ctrl < 0 || ctrl > maxCtrl || w <= 0.f)
+							continue;
+						// insertion top-4 : remplace le plus faible si plus fort
+						uint32 slot = (uint32)(ctrl * 4);
+						uint32 weakest = slot;
+						bool placed = false;
+						for (uint32 k = slot; k < slot + 4; ++k) {
+							if (cj[k] < 0) {
+								cj[k] = ordinal;
+								cw[k] = w;
+								placed = true;
+								break;
+							}
+							if (cw[k] < cw[weakest])
+								weakest = k;
+						}
+						if (!placed && w > cw[weakest]) {
+							cj[weakest] = ordinal;
+							cw[weakest] = w;
+						}
+					}
+				}
+				if (out.skinJoints.Empty())
+					return;
+
+				// 3. skinnedVertices, PARALLELE a out.vertices (meme regle que le
+				// chemin glTF : les sommets hors de la geometrie skinnee recoivent
+				// le defaut bone 0 / poids {1,0,0,0}).
+				out.skinnedVertices.Clear();
+				for (uint32 v = 0; v < (uint32)out.vertices.Size(); ++v) {
+					NkVertexSkinned sv{};
+					static_cast<NkVertex3D &>(sv) = out.vertices[v];
+					if (v >= vStart && v < vEnd) {
+						const int64 ctrl = ctrlOfVertex[(NkVector<int64>::SizeType)v];
+						if (ctrl >= 0 && ctrl <= maxCtrl) {
+							const uint32 slot = (uint32)(ctrl * 4);
+							float32 sum = 0.f;
+							for (uint32 k = 0; k < 4; ++k)
+								if (cj[slot + k] >= 0)
+									sum += cw[slot + k];
+							if (sum > 0.f) {
+								for (uint32 k = 0; k < 4; ++k) {
+									const bool used = cj[slot + k] >= 0;
+									sv.boneIdx[k] = used ? (float32)cj[slot + k] : 0.f;
+									sv.boneWeight[k] = used ? cw[slot + k] / sum : 0.f;
+								}
+							}
+						}
+					}
+					out.skinnedVertices.PushBack(sv);
+				}
+				out.isSkinned = true;
+				out.skinRootNode = -1;
+			}
+
 			// Charge (avec cache par ID) la texture FBX `texId` -> index dans
 			// out.images. `RelativeFilename`/`FileName` peuvent contenir un chemin
 			// ABSOLU de la machine d'export (Windows) : on ne garde que le nom de
@@ -602,7 +780,13 @@ namespace nkentseu {
 			}
 
 			// ── Extrait une Geometry FBX dans out (un sous-mesh). ─────────────
-			void ExtractGeometry(const FbxNode &geo, NkGLTFMeshData &out) {
+			// `ctrlOfVertex` (etape (b) skinning) : pour CHAQUE vertex emis, l'index
+			// du control point FBX dont il vient — les poids des Cluster sont par
+			// control point, les sommets emis sont par coin de polygone ; sans
+			// cette correspondance les poids sont inapplicables. Maintenu
+			// parallele a out.vertices (les geometries sans skin y laissent
+			// aussi leurs entrees).
+			void ExtractGeometry(const FbxNode &geo, NkGLTFMeshData &out, NkVector<int64> &ctrlOfVertex) {
 				const NkVector<float64> *verts = ArrF(geo.Find("Vertices"));
 				const NkVector<int64> *pvi = ArrI(geo.Find("PolygonVertexIndex"));
 				if (!verts || !pvi || verts->Size() < 3)
@@ -670,6 +854,7 @@ namespace nkentseu {
 					v.uv2 = v.uv;
 					v.color = white;
 					out.vertices.PushBack(v);
+					ctrlOfVertex.PushBack(ctrl);
 					return (uint32)out.vertices.Size() - 1;
 				};
 
@@ -931,7 +1116,7 @@ namespace nkentseu {
 				// Passe 1 : indexe les objets par ID (Geometry/Model/Material/
 				// Texture) — necessaire pour resoudre Geometry -> Model
 				// proprietaire -> Material(s) via les Connections (passe 2).
-				NkVector<FbxIdEntry> geometries, models, materials, textures;
+				NkVector<FbxIdEntry> geometries, models, materials, textures, deformers;
 				for (uint32 i = 0; i < (uint32)roots.Size(); ++i) {
 					if (!(roots[(NkVector<FbxNode>::SizeType)i].name == NkString("Objects")))
 						continue;
@@ -947,6 +1132,8 @@ namespace nkentseu {
 							materials.PushBack(FbxIdEntry{id, &ch});
 						else if (ch.name == NkString("Texture"))
 							textures.PushBack(FbxIdEntry{id, &ch});
+						else if (ch.name == NkString("Deformer"))
+							deformers.PushBack(FbxIdEntry{id, &ch}); // Skin + Cluster (etape (b))
 					}
 					break; // une seule section Objects
 				}
@@ -964,10 +1151,18 @@ namespace nkentseu {
 				// Passe 2 : geometrie + resolution materiau par sous-mesh (via le
 				// Model proprietaire de la Geometry — 1er materiau connecte si
 				// plusieurs, cf. note LoadFbxMaterial/limitation ci-dessus).
+				// Correspondances pour le skinning (etape (b)) : control point de
+				// chaque sommet emis + plage de sommets de chaque geometrie.
+				NkVector<int64> ctrlOfVertex, geoIds;
+				NkVector<uint32> geoStart, geoEnd;
 				for (uint32 g = 0; g < (uint32)geometries.Size(); ++g) {
 					const FbxIdEntry &ge = geometries[(NkVector<FbxIdEntry>::SizeType)g];
 					const uint32 smBefore = (uint32)out.subMeshes.Size();
-					ExtractGeometry(*ge.node, out);
+					const uint32 vBefore = (uint32)out.vertices.Size();
+					ExtractGeometry(*ge.node, out, ctrlOfVertex);
+					geoIds.PushBack(ge.id);
+					geoStart.PushBack(vBefore);
+					geoEnd.PushBack((uint32)out.vertices.Size());
 					++geoCount;
 					if ((uint32)out.subMeshes.Size() <= smBefore)
 						continue; // geometrie vide/invalide : rien ajoute
@@ -997,6 +1192,9 @@ namespace nkentseu {
 					NkLog::Instance().Warnf("[NkFBXLoader] aucune geometrie exploitable dans %s", path.CStr());
 					return false;
 				}
+				// Skinning (etape (b)) : premier Deformer Skin rattache a une
+				// geometrie chargee -> skinJoints / inverseBind / skinnedVertices.
+				ExtractSkin(deformers, models, conns, nodeOfModel, ctrlOfVertex, geoIds, geoStart, geoEnd, out);
 				// UpAxis : GlobalSettings/Properties70/P "UpAxis" (1=Y, 2=Z).
 				int32 upAxis = 1;
 				for (uint32 i = 0; i < (uint32)roots.Size(); ++i) {
@@ -1016,6 +1214,17 @@ namespace nkentseu {
 				}
 				if (getenv("NK_FBX_ZUP"))
 					upAxis = 2; // cf. header : geometrie Z-up mal etiquetee
+				if (upAxis == 2 && out.isSkinned) {
+					// La conversion ne retourne QUE les sommets : appliquee a un
+					// mesh skinne elle desaccorderait sommets, nodes et
+					// inverseBind (qui restent dans les axes d'origine). On la
+					// saute et on le DIT, plutot que de livrer un squelette faux.
+					NkLog::Instance().Warnf(
+						"[NkFBXLoader] %s : UpAxis=Z ignore (mesh skinne — la conversion ne couvre pas "
+						"nodes/inverseBind) ; axes d'origine conserves",
+						path.CStr());
+					upAxis = 1;
+				}
 				if (upAxis == 2) {
 					for (uint32 i = 0; i < (uint32)out.vertices.Size(); ++i) {
 						NkVertex3D &v = out.vertices[i];
