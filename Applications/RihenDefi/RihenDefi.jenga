@@ -61,7 +61,7 @@ with project("RihenDefi"):
     # NKPlatform, NKMemory, NKContainers, NKMath, NKLogger, NKThreading, NKFileSystem...)
     # est tire automatiquement. Les extras propres a l'app passent inline.
     nkentseudependson(
-        ["NKCanvas", "NKUI", "NKAudio", "NKMedia", "NKFont", "NKImage", #"NKNetwork",
+        ["NKCanvas", "NKAudio", "NKMedia", "NKFont", "NKImage", #"NKNetwork",
          "NKTime", "NKStream", "NKGlad"],
         extra_includes=["src", "%{wks.location}/Externals"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),

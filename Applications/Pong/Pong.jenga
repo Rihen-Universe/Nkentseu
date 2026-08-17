@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # =============================================================================
 # Pong Ultra Arena — Build config Jenga
-# Stack : NkContext (OpenGL/GLES) + NKGlad + NKFont + NKImage + NKUI
+# Stack : NkContext (OpenGL/GLES) + NKGlad + NKFont + NKImage
 # Conforme au GDD v1.1 (docs/GDD_PONG_ULTRA_ARENA_v1.1.docx).
 # =============================================================================
 
@@ -64,7 +64,7 @@ with project("Pong"):
     # NKPlatform, NKMemory, NKContainers, NKMath, NKLogger, NKThreading, NKFileSystem...)
     # est tire automatiquement. Les extras propres a l'app passent inline.
     nkentseudependson(
-        ["NKCanvas", "NKUI", "NKAudio", "NKMedia", "NKNetwork", "NKFont", "NKImage",
+        ["NKCanvas", "NKAudio", "NKMedia", "NKNetwork", "NKFont", "NKImage",
          "NKTime", "NKStream", "NKGlad"],
         extra_includes=["src", "%{wks.location}/Externals"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
