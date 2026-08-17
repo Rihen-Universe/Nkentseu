@@ -660,6 +660,12 @@ sauvegarde, l'écart d'héritage revient une fois — preuve que rien ne s'écri
 sans geste. Les `.nkmesh` de l'éclatement naîtront justes sans rien d'autre :
 son plan recentre avant l'archivage et la capture lit les nœuds vivants.
 
+**✅ VALIDÉE PAR LA 8e RELECTURE (Rihen, 17/08 : « tout est okay »)** — test A
+(sauvegarde → relance → écart nul d'emblée) et test B (sans sauvegarde →
+l'écart d'héritage revient une fois) confirmés tous les deux. **La persistance
+de l'origine est close, vérifiée des deux côtés** — témoin négatif compris :
+rien ne s'écrit sans geste de sauvegarde.
+
 **Dette ouverte restante** : `nkvpXmit=7` dès la naissance reste une valeur par
 défaut jamais discutée.
 
@@ -698,6 +704,18 @@ fichier ; les sous-mesh restent dedans).*
    l'origine).
 5. **Hors du premier lot, dit explicitement** : les matériaux du fichier importé
    (→ `.nkmat`), le lâcher OS, la confirmation FBX multi-objets.
+
+**État au 17/08 — points 1-3, moitié ANALYSE livrée** (`NkModelerImport.h`) :
+le bouton est branché (`hit.Clicked("brw.imp")` → picker → `pickerAction=2`),
+le fichier choisi est chargé par LE chargeur de son extension (7 formats) et
+découpé par nom contigu (`NkImportSplitByName`), le tout journalisé
+(`MESURE import`) et résumé dans `hierNote`. **Écart assumé au plan** : le
+picker du kit n'a qu'un filtre MONO-extension (`pickerFileExt`), donc
+ouverture **sans filtre** et validation à la confirmation avec **refus
+nommé** (« Format non reconnu : … ») — un refus silencieux serait
+indistinguable d'un bouton cassé. La CRÉATION des nœuds (point 4) attend la
+lecture de la sémantique de transform d'`EnsureModelMesh` (piège
+`nkvpEmptyPos` : consommateur à lire avant d'écrire).
 
 ## 3. Modélisation complète ⬜
 
