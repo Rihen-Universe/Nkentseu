@@ -115,6 +115,116 @@ namespace nkentseu {
 			return p; // pas de ## : tout est affiche
 		}
 
+		// =====================================================================
+		// Glisser-deposer (2026-08-17) — cf. NkGuiWidgets.h pour le contrat.
+		// L'etat vit dans le contexte ; le cycle de vie (fin de glisser,
+		// nettoyage) est gere par NkGuiContext::NewFrame.
+		// =====================================================================
+		bool BeginDragSource(NkGuiContext &ctx) noexcept {
+			const NkGuiId id = ctx.lastItemId;
+			if (id == NKGUI_ID_NONE)
+				return false;
+
+			// Deja en cours depuis ce widget ?
+			if (ctx.dragActive)
+				return ctx.dragSourceId == id;
+
+			// Armement : appui sur le widget (activeId) — on retient l'ancre.
+			if (ctx.activeId == id && ctx.input.mouseDown[0]) {
+				if (ctx.dragCandidateId != id) {
+					ctx.dragCandidateId = id;
+					ctx.dragCandidatePos = ctx.input.mousePos;
+				}
+				// Demarrage au-dela d'un seuil de ~4 px : un clic n'est pas un
+				// glisser, et le seuil evite les departs accidentels.
+				const float32 dx = ctx.input.mousePos.x - ctx.dragCandidatePos.x;
+				const float32 dy = ctx.input.mousePos.y - ctx.dragCandidatePos.y;
+				if (dx * dx + dy * dy > 16.f) {
+					ctx.dragActive = true;
+					ctx.dragSourceId = id;
+					ctx.dragDelivered = false;
+					return true;
+				}
+			}
+			return false;
+		}
+
+		void SetDragPayload(NkGuiContext &ctx, const char *type, const void *data, int32 size,
+							const char *ghostLabel) noexcept {
+			if (!ctx.dragActive || !type)
+				return;
+			// Copie de la charge (bornee) — la source peut disparaitre avant la
+			// livraison, la bibliotheque garde donc SA copie.
+			int32 i = 0;
+			for (; type[i] && i < (int32)sizeof(ctx.dragType) - 1; ++i)
+				ctx.dragType[i] = type[i];
+			ctx.dragType[i] = '\0';
+			const int32 n = (size < 0) ? 0 : (size > NkGuiContext::DragPayloadMax ? NkGuiContext::DragPayloadMax : size);
+			const unsigned char *src = static_cast<const unsigned char *>(data);
+			for (int32 k = 0; k < n; ++k)
+				ctx.dragPayload[k] = src ? src[k] : 0;
+			ctx.dragPayloadSize = n;
+			i = 0;
+			if (ghostLabel)
+				for (; ghostLabel[i] && i < (int32)sizeof(ctx.dragGhost) - 1; ++i)
+					ctx.dragGhost[i] = ghostLabel[i];
+			ctx.dragGhost[i] = '\0';
+
+			// Fantome : dessine par la bibliotheque, couche overlay (au-dessus
+			// de tout), borne par LabelEnd — un fantome n'affiche pas d'##id.
+			if (ctx.font && ctx.font->Valid() && ctx.dragGhost[0]) {
+				const char *gEnd = LabelEnd(ctx.dragGhost);
+				const float32 tw = ctx.font->MeasureWidth(ctx.dragGhost, gEnd);
+				const float32 lh = ctx.font->LineHeight();
+				const NkVec2 p{ctx.input.mousePos.x + 12.f, ctx.input.mousePos.y + 12.f};
+				ctx.dlOverlay.AddRectFilled({p.x - 4.f, p.y - 2.f, tw + 8.f, lh + 4.f},
+											{20, 22, 26, 230}, 3.f);
+				ctx.dlOverlay.AddText(ctx.font->Face(), ctx.font->TexId(), {p.x, p.y + ctx.font->Ascent()},
+									  ctx.dragGhost, ctx.theme.text, -1.f, 0.f, gEnd);
+			}
+		}
+
+		void EndDragSource(NkGuiContext & /*ctx*/) noexcept {
+			// Symetrie d'API ; rien a fermer aujourd'hui.
+		}
+
+		bool BeginDropTarget(NkGuiContext &ctx) noexcept {
+			if (!ctx.dragActive || ctx.lastItemId == NKGUI_ID_NONE)
+				return false;
+			if (ctx.lastItemId == ctx.dragSourceId)
+				return false; // pas de depot sur soi-meme
+			if (!ctx.InputHits(ctx.lastItemRect))
+				return false;
+			// Surlignage de la cible survolee — par la bibliotheque.
+			ctx.dlOverlay.AddRect(ctx.lastItemRect, ctx.theme.accent, 2.f);
+			return true;
+		}
+
+		const void *AcceptDragPayload(NkGuiContext &ctx, const char *type, int32 *outSize) noexcept {
+			if (outSize)
+				*outSize = 0;
+			if (!ctx.dragActive || ctx.dragDelivered || !type)
+				return nullptr;
+			// Type demande vs type declare par la source.
+			int32 i = 0;
+			for (; type[i] && ctx.dragType[i]; ++i)
+				if (type[i] != ctx.dragType[i])
+					return nullptr;
+			if (type[i] != ctx.dragType[i])
+				return nullptr;
+			// Livraison au RELACHEMENT sur la cible, une seule fois.
+			if (!ctx.input.mouseReleased[0])
+				return nullptr;
+			ctx.dragDelivered = true;
+			if (outSize)
+				*outSize = ctx.dragPayloadSize;
+			return ctx.dragPayload;
+		}
+
+		void EndDropTarget(NkGuiContext & /*ctx*/) noexcept {
+			// Symetrie d'API ; rien a fermer aujourd'hui.
+		}
+
 		void PanelBackground(NkGuiContext &ctx, const NkRect &r) noexcept {
 			ctx.DL().AddRectFilled(r, ctx.theme.panel, ctx.theme.rounding);
 			ctx.DL().AddRect(r, ctx.theme.border, 1.f);

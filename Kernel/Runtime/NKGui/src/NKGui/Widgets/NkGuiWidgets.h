@@ -21,6 +21,43 @@ namespace nkentseu {
 		// entierement `##...` a une partie affichee VIDE (widget sans texte).
 		NKENTSEU_NKGUI_API const char *LabelEnd(const char *label) noexcept;
 
+		// ── Glisser-deposer (2026-08-17) — API minimale ──────────────────────
+		// La bibliotheque porte l'etat, gere le survol, le fantome et la
+		// livraison ; l'application DECLARE (meme conception que l'occultation
+		// par couches). Pas de multi-selection glissee, pas d'annulation
+		// animee : le minimum qui debloque le reparentage d'arbre et le
+		// glisser d'assets.
+		//
+		//   // source — juste APRES le widget source :
+		//   if (BeginDragSource(ctx)) {
+		//       SetDragPayload(ctx, "entity", &id, sizeof(id), node->name);
+		//       EndDragSource(ctx);
+		//   }
+		//   // cible — juste APRES le widget cible :
+		//   if (BeginDropTarget(ctx)) {
+		//       if (const void *p = AcceptDragPayload(ctx, "entity"))
+		//           Reparent(*(const NkEntityId *)p, myId);
+		//       EndDropTarget(ctx);
+		//   }
+		//
+		// True tant qu'un glisser DEPUIS le dernier widget soumis est en cours
+		// (demarre apres ~4 px de mouvement souris maintenue sur ce widget).
+		NKENTSEU_NKGUI_API bool BeginDragSource(NkGuiContext &ctx) noexcept;
+		// Charge TYPEE, copiee (taille max NkGuiContext::DragPayloadMax octets).
+		// `ghostLabel` = texte du fantome que la bibliotheque dessine sous la
+		// souris (couche overlay). A appeler chaque frame du glisser.
+		NKENTSEU_NKGUI_API void SetDragPayload(NkGuiContext &ctx, const char *type, const void *data, int32 size,
+											   const char *ghostLabel) noexcept;
+		NKENTSEU_NKGUI_API void EndDragSource(NkGuiContext &ctx) noexcept;
+		// True si un glisser survole le dernier widget soumis (la bibliotheque
+		// surligne le rect en accent). Le TYPE se verifie a l'acceptation.
+		NKENTSEU_NKGUI_API bool BeginDropTarget(NkGuiContext &ctx) noexcept;
+		// Livraison : non-nul UNE frame — au relachement sur la cible, si le
+		// type correspond. Un lacher HORS de toute cible ne livre rien.
+		NKENTSEU_NKGUI_API const void *AcceptDragPayload(NkGuiContext &ctx, const char *type,
+														 int32 *outSize = nullptr) noexcept;
+		NKENTSEU_NKGUI_API void EndDropTarget(NkGuiContext &ctx) noexcept;
+
 		// Fond de panneau (rectangle thème + bord).
 		NKENTSEU_NKGUI_API void PanelBackground(NkGuiContext &ctx, const NkRect &r) noexcept;
 
