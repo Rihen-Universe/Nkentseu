@@ -42,6 +42,7 @@ namespace nkentseu {
 				float32 clickTime[3] = {-1.f, -1.f, -1.f}; ///< temps depuis le dernier clic (détection interne)
 				float32 wheel = 0.f;
 				float32 wheelH = 0.f;
+				float32 wheelPending = 0.f; ///< molette differee (AddWheelDeferred), fusionnee au NewFrame
 				float32 dt = 0.f;
 
 				// Modificateurs (état enfoncé) — posés par l'app pour clic Ctrl/Shift/Alt.
@@ -83,6 +84,16 @@ namespace nkentseu {
 						dblClickPending[button] = true;
 				}
 
+				// Molette injectée APRÈS les widgets (overlay, sonde pilotée) : la
+				// molette brute est consommée par EndFrame (`wheel = 0`) — une
+				// écriture directe en fin de frame serait donc effacée avant
+				// d'être lue. Même patron que SetDoubleClick : différée, fusionnée
+				// au NewFrame suivant. (Mesuré 2026-08-17 : sonde --dragdrop-test,
+				// défilement jamais appliqué depuis l'overlay.)
+				void AddWheelDeferred(float32 delta) noexcept {
+					wheelPending += delta;
+				}
+
 				// Vrai à l'appui PUIS en répétition au maintien (flèches, backspace…).
 				bool KeyPressedRepeat(NkGuiKey k, float32 delay = 0.30f, float32 rate = 0.04f) const noexcept {
 					const int32 i = static_cast<int32>(k);
@@ -101,6 +112,8 @@ namespace nkentseu {
 				// Transitions souris + durées d'appui (souris + touches). Appelé par
 				// NkGuiContext::BeginFrame APRÈS que l'app ait posé l'état brut.
 				void NewFrame() noexcept {
+					wheel += wheelPending; // injection differee (cf. AddWheelDeferred)
+					wheelPending = 0.f;
 					for (int32 i = 0; i < 3; ++i) {
 						mouseClicked[i] = mouseDown[i] && !mousePrev[i];
 						mouseReleased[i] = !mouseDown[i] && mousePrev[i];

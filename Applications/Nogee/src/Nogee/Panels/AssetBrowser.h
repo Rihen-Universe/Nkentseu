@@ -26,16 +26,14 @@ namespace nkentseu {
 			public:
 				AssetBrowser() = default;
 
-				void Init(AssetManager *assetMgr, const char *projectDir) noexcept;
+				// Init / NavigateTo / RefreshEntries / SelectedPath / HasSelection
+				// sont herites de NkAssetBrowserModel (montes au modele le
+				// 2026-08-17, avec la navigation — logique fichiers sans UI).
 
 				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
 							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, nkui::NkRect rect) noexcept;
 
-				// SelectedPath() / HasSelection() sont hérités de NkAssetBrowserModel.
-
 			private:
-				void NavigateTo(const char *dir) noexcept;
-				void RefreshEntries() noexcept;
 				void RenderBreadcrumb(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
 									  nkui::NkUILayoutStack &ls) noexcept;
 				// entry non-const : le thumbnail est généré paresseusement au
