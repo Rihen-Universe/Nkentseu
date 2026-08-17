@@ -748,20 +748,27 @@ static int ModeTrain(int argc, char **argv) {
 	}
 	logger.Info("GPU : {0}", t.UseGpu() ? "OUI (entrainement resident)" : "NON (repli CPU, ce sera tres lent)");
 
-	// --reserve : recycler les tampons GPU par taille exacte (chantier n°2).
-	// ETEINT par defaut — l'activer est une decision de mesure, pas un reglage
-	// silencieux. Le temoin servis/neufs est imprime apres Fit() : une reserve
-	// est un cache, et un cache repond toujours ; sans ces compteurs, « la
-	// reserve marche » serait indiscernable de « elle ne sert jamais ».
-	const bool avecReserve = Drapeau(argc, argv, "--reserve");
+	// RESERVE DE TAMPONS : recycler les tampons GPU par taille exacte (chantier
+	// n°2). DEFAUT ON EN MODE TRAIN depuis le 2026-08-17, sur decision de Rodolf
+	// apres la mesure sur un vrai pas : taux de service 56,9 %, Fit x1,82,
+	// trajectoires identiques a la decimale entre les deux modes (la reserve ne
+	// change pas le calcul, seulement le temps). `--sans-reserve` revient au
+	// comportement LEGACY ; `--reserve` reste accepte (desormais redondant).
+	// PAS d'activation globale dans NkTensorGpu : les demonstrateurs courts n'en
+	// profitent pas et la retention y gaspillerait de la VRAM.
+	// Le temoin servis/neufs est imprime apres Fit() dans les DEUX modes : une
+	// reserve est un cache, et un cache repond toujours ; sans ces compteurs,
+	// « la reserve marche » serait indiscernable de « elle ne sert jamais ».
+	const bool avecReserve = !Drapeau(argc, argv, "--sans-reserve");
 	if (avecReserve) {
 		const int64 budgetMo = ArgEntier(argc, argv, "--reserve-budget-mo", 512);
 		NkTensorGpu::ReserveBudget(budgetMo * 1024 * 1024);
 		NkTensorGpu::ReserveActive(true);
 		NkTensorGpu::ReserveRazCompteurs();
-		logger.Info("RESERVE DE TAMPONS : ACTIVE (budget {0} Mo)", (long long)budgetMo);
+		logger.Info("RESERVE DE TAMPONS : ACTIVE (budget {0} Mo ; --sans-reserve pour revenir au LEGACY)",
+					(long long)budgetMo);
 	} else {
-		logger.Info("RESERVE DE TAMPONS : inactive (LEGACY)");
+		logger.Info("RESERVE DE TAMPONS : DESACTIVEE par --sans-reserve (LEGACY)");
 	}
 
 	NkChrono chrono;
@@ -781,7 +788,13 @@ static int ModeTrain(int argc, char **argv) {
 					(long long)NkTensorGpu::ReserveTamponsRetenus(),
 					(double)NkTensorGpu::ReserveOctetsRetenus() / 1.0e6,
 					(long long)NkTensorGpu::ReserveEvictions());
-		logger.Info("[reserve] VRAM pic du run : {0} Mo", (double)NkTensorGpu::VramPic() / 1.0e6);
+		// Deux pics, deux noms : le pic PHYSIQUE compte la retention de la reserve
+		// (c'est lui qui decide si ca tient sur la carte), le pic CALCUL est le
+		// besoin incompressible. Avec reserve, physique > calcul ; sans, egaux —
+		// un pic physique EGAL au pic calcul sous reserve active serait la
+		// signature de l'ancien defaut d'instrument.
+		logger.Info("[reserve] VRAM pic physique (calcul+retenus) : {0} Mo ; pic calcul seul : {1} Mo",
+					(double)NkTensorGpu::VramPic() / 1.0e6, (double)NkTensorGpu::VramPicCalcul() / 1.0e6);
 	}
 	if (avecReserve)
 		NkTensorGpu::ReserveActive(false); // vide la retenue avant la generation

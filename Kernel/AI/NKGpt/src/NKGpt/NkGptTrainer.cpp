@@ -1089,11 +1089,13 @@ namespace nkentseu {
 					// tromper (la configuration ne tient pas, on le decouvre tard).
 					if (s == 3 && mCfg.verbose) {
 						const double pic = (double)NkTensorGpu::VramPic() / 1048576.0;
+						const double picCalc = (double)NkTensorGpu::VramPicCalcul() / 1048576.0;
 						const double viv = (double)NkTensorGpu::VramVivante() / 1048576.0;
-						logger.Info("VRAM suivie apres {0} pas : PIC {1} Mo, vivante {2} Mo. "
-									"(nos tampons de calcul SEULEMENT : ni pilote, ni fragmentation "
-									"— plancher de l'occupation reelle, pas son total.)",
-									(long long)s, pic, viv);
+						logger.Info("VRAM suivie apres {0} pas : PIC physique {1} Mo (calcul seul {2} Mo), "
+									"vivante {3} Mo. (nos tampons SEULEMENT : ni pilote, ni fragmentation "
+									"— plancher de l'occupation reelle, pas son total ; le pic physique "
+									"compte ce que la reserve retient.)",
+									(long long)s, pic, picCalc, viv);
 					}
 
 					if (mCfg.valEvery > 0 && mValData.Size() > 0 && s % mCfg.valEvery == 0) {
