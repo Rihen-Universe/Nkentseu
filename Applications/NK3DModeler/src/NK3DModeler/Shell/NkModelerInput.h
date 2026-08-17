@@ -352,7 +352,7 @@ namespace nkentseu {
 				// l'utilisateur sont les noeuds 96 a 159. Avec 3 mots (96 bits),
 				// `hierFold[node >> 5]` ecrivait HORS DU TABLEAU pour tout objet
 				// cree par l'utilisateur -- donc dans `activeEmpty` (noeuds 96-127)
-				// et dans `hierDragNode` (128-159) juste en dessous. Plier un
+				// et dans le champ suivant (128-159) juste en dessous. Plier un
 				// objet corrompait ainsi la selection et bloquait le glisser :
 				// c'est la cause du pliage inoperant ET des objets impossibles a
 				// selectionner (constate par Rihen).
@@ -367,10 +367,9 @@ namespace nkentseu {
 				// Supprimer, et d'autres viendront (Rihen, 10 aout).
 				int32 voidMenuOpen = 0;
 				float32 voidMenuX = 0.f, voidMenuY = 0.f;
-				int32 hierDragNode = -1;
-				float32 hierDragX = 0.f, hierDragY = 0.f;
-				bool hierDragging = false;
-				bool hierMouseWasDown = false;
+				// (Le glisser de ligne -- ex-hierDragNode/X/Y, hierDragging,
+				// hierMouseWasDown -- vit dans NKGui depuis 2026-08-18 : voir
+				// NkHierDragActive et BeginDragSource dans NkModelerHierarchy.h.)
 				// MENU CONTEXTUEL de la hierarchie (clic droit sur une ligne).
 				// MESSAGE du pied de la hierarchie : explique un refus (verrou...).
 				// Un clic sans effet passe sinon pour une panne.
@@ -543,6 +542,10 @@ namespace nkentseu {
 				// navigateur, 4 ailleurs (refus nomme).
 				static constexpr int32 kMaxOsDrop = 16;
 				int32 osDropCount = 0;
+				// TEMOIN du glisser (crochet NK_HIER_ROWS) : une frame, la
+				// hierarchie imprime le rect ecran de chaque ligne visible -- une
+				// course scriptee ne peut pas deviner la geometrie.
+				bool hierTraceRows = false;
 				char osDropPaths[kMaxOsDrop][512] = {};
 				float32 osDropX = 0.f, osDropY = 0.f;
 				// Instanciation DIFFEREE apres import vers la vue 3D : le point du

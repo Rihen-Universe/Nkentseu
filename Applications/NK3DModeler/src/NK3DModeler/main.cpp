@@ -919,6 +919,78 @@ int nkmain(const NkEntryState &entry) {
 		// voile tronque, dialogue decentre (Rihen, 12 aout).
 		ui.viewW = (int32)lastW;
 		ui.viewH = (int32)lastH;
+		// ── TEMOIN DU GLISSER-DEPOSER (crochets d'agent, 2026-08-18) ────────
+		// NK_HIER_ROWS=<n>  : a la frame n, la hierarchie imprime ses lignes.
+		// NK_AGENT_DRAG="f,x0,y0,x1,y1" (et NK_AGENT_DRAG2, une seconde course
+		//   dans le meme lancement) : SURVOLE (x0,y0) a la frame f, PRESSE a
+		//   f+1, glisse en 8 frames vers (x1,y1), RELACHE a f+10 -- pose l'etat
+		//   souris BRUT que BeginFrame lit, exactement comme les evenements de
+		//   la fenetre ; tout le reste (seuil, fantome, cibles, livraison) est
+		//   le vrai code. A f+14 : rapport `[nk3d-drag] node=.. parent=..` de
+		//   tous les noeuds vivants + compte du navigateur.
+		{
+			static int32 sRowsFrame = -2, sDragFrame[2] = {-2, -2};
+			static float32 sDx0[2], sDy0[2], sDx1[2], sDy1[2];
+			if (sRowsFrame == -2) {
+				const char *v = std::getenv("NK_HIER_ROWS");
+				sRowsFrame = v ? (int32)std::atoi(v) : -1;
+			}
+			for (int32 c = 0; c < 2; ++c) {
+				if (sDragFrame[c] != -2)
+					continue;
+				sDragFrame[c] = -1;
+				if (const char *v = std::getenv(c == 0 ? "NK_AGENT_DRAG" : "NK_AGENT_DRAG2")) {
+					float32 f[5] = {0.f, 0.f, 0.f, 0.f, 0.f};
+					const char *q = v;
+					for (int32 k = 0; k < 5 && *q; ++k) {
+						f[k] = (float32)atof(q);
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+					sDragFrame[c] = (int32)f[0];
+					sDx0[c] = f[1];
+					sDy0[c] = f[2];
+					sDx1[c] = f[3];
+					sDy1[c] = f[4];
+				}
+			}
+			if (sRowsFrame > 0 && agentFrame + 1 == sRowsFrame)
+				st.hierTraceRows = true;
+			for (int32 c = 0; c < 2; ++c) {
+				if (sDragFrame[c] <= 0)
+					continue;
+				const int32 k = agentFrame + 1 - sDragFrame[c]; // frame relative
+				// k=0 : SURVOL sans appui (comme une vraie main : le survol precede
+				// le clic d'au moins une frame -- hotIdPrev) ; k=1 : appui ; k=2..9
+				// glissement ; k=10 : relachement sur place.
+				if (k >= 0 && k <= 10) {
+					const float32 t = k <= 2 ? 0.f : (k >= 9 ? 1.f : (float32)(k - 2) / 7.f);
+					ui.input.mousePos = {sDx0[c] + (sDx1[c] - sDx0[c]) * t,
+										 sDy0[c] + (sDy1[c] - sDy0[c]) * t};
+					ui.input.mouseDown[0] = (k >= 1 && k <= 9);
+					printf("[nk3d-drag] c=%d k=%d pos=(%.0f,%.0f) down=%d dragActive=%d type=%s\n", c,
+						   k, ui.input.mousePos.x, ui.input.mousePos.y,
+						   ui.input.mouseDown[0] ? 1 : 0, ui.dragActive ? 1 : 0, ui.dragType);
+				}
+				if (k == 14) {
+					const int32 nn = demo::Demo3DHostNodeCount();
+					for (int32 n = 0; n < nn; ++n) {
+						if (nk3d::NkHierNodeSkip(n))
+							continue;
+						char nm[48];
+						nk3d::NkHierNodeName(st, n, nm, sizeof(nm));
+						printf("[nk3d-drag] node=%d name=\"%s\" parent=%d sel=%d\n", n, nm,
+							   demo::Demo3DHostNodeParent(n),
+							   n >= 90 ? (demo::Demo3DHostEmptyNodeSelected(n) ? 1 : 0)
+									   : (demo::Demo3DHostObjectSelected(n) ? 1 : 0));
+					}
+					printf("[nk3d-drag] browserCount=%d\n", st.browserCount);
+					fflush(stdout);
+				}
+			}
+		}
 		ui.BeginFrame(dt);
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
