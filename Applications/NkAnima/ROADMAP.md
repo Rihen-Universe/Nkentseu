@@ -505,6 +505,17 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
 > - Au passage : chemin du modèle en argument de NkAnimaEditor (arg sans tiret, défaut CesiumMan)
 >   + `NK_SHOW_COM` (famille NK_POSE_TEST) pour allumer le COM au lancement — captures reproductibles.
 
+> **📤 PARITÉ FBX/glb MESURÉE (2026-08-17) — transmise à NKRenderer (canal, Q30).** Le même
+> personnage Mixamo dans les deux formats (« X Bot.fbx » vs XBot.glb, idem YBot), chargeur FBX de
+> `feat/nkrenderer-dettes` (`a25ee024`) exercé dans un worktree témoin détaché `Nkentseu-fbxtemoin`.
+> Résultat : le banc CesiumMan stock est tout vert, mais **le Mixamo natif ne tient pas** —
+> squelette effondré en bâton (PreRotation non composée : tous les joints à x=z≈0), inverseBind
+> des Cluster fausses (les deux pieds au même point), animations perdues (0 lues, 384 courbes dans
+> le binaire), joints feuilles absents des Cluster (XBot 64/65, YBot 52/65). Le correctif appartient
+> à NKRenderer (`NkFBXLoader.cpp`) ; les instruments (sonde v3, inspecteur Python du glb, dumps)
+> sont conservés dans `Captures/2026-08-17_fbx_parite/` et rejouent en ~2 min. Tant que ce n'est
+> pas corrigé : **le .glb reste le SEUL format d'entrée prouvé pour NkAnima** (consigne Q29 inchangée).
+
 ### M4 — IA auto-pose
 Petit modèle qui **prédit des poses plausibles** (pose→pose / physics-aware) =
 1er vrai morceau de **NKAI**. S'appuie sur l'auto-posing M3.5 pour garantir que
