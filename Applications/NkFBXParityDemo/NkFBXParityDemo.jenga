@@ -27,7 +27,7 @@ with project("NkFBXParityDemo"):
 
     nkentseudependson(
         ["NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
-         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKUI", "NKGlad",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKGlad",
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src"],
