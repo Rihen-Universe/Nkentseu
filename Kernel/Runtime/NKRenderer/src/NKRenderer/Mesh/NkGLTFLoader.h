@@ -96,6 +96,11 @@ namespace nkentseu {
 		// Transform local d'un node (TRS) + hierarchie. Sert a evaluer la pose
 		// et a baker les transforms de scene-graph dans les meshes statiques.
 		struct NkGLTFNode {
+				// Nom du node. Rempli par le chemin FBX (nom du Model, ex.
+				// "Skeleton_torso_joint_1") ; le chemin glTF ne le remplit pas
+				// encore (les pistes d'anim restent nommees joint_{i}, cf.
+				// NkGLTFAnimBake.cpp) — vide = pas de nom, jamais invente.
+				NkString name;
 				NkVec3f translation = {0, 0, 0};
 				NkVec4f rotation = {0, 0, 0, 1}; // quaternion (x,y,z,w)
 				NkVec3f scale = {1, 1, 1};
