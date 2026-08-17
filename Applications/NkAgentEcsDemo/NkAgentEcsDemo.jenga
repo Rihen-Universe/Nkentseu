@@ -33,7 +33,7 @@ with project("NkAgentEcsDemo"):
 
     nkentseudependson(
         ["Noge", "NKAgent", "NKRL", "NKTensor", "NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
-         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKUI", "NKGlad",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKGlad",
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src"]

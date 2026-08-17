@@ -28,7 +28,7 @@ with project("NkLocomotionDemo"):
     # build, aucune ligne de logique IK/anim touchee.
     nkentseudependson(
         ["Noge", "NKRenderer", "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross", "NKCollision", "NKPhysics",
-         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKUI", "NKGlad",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKGlad",
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src"],
