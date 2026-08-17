@@ -18,10 +18,15 @@
 // textures externes connectees (DiffuseColor/NormalMap ou Bump/EmissiveColor,
 // resolues via Objects/Connections : Geometry -> Model proprietaire -> 1er
 // Material connecte ; RelativeFilename/FileName resolus par rapport au
-// dossier du .fbx). NON supporte : textures FBX EMBARQUEES (Video binaire),
-// skinning/anim (Deformer/Cluster, AnimationCurve), transforms de noeuds
-// Model (les Geometry sont en espace local -> orientation = celle bakee
-// dans les sommets). UpAxis lu depuis GlobalSettings (Z-up -> Y-up auto). Les
+// dossier du .fbx).
+// Scene-graph (2026-08-17, etape (a) du chantier FBX) : out.nodes est rempli
+// depuis les Model (nom, TRS local — euler degres + RotationOrder +
+// PreRotation -> quaternion — hierarchie via connexions OO Model->Model).
+// Ces transforms ne sont PAS appliquees a la geometrie (sommets en espace
+// local de leur Geometry, comme avant) : les nodes servent au squelette.
+// NON supporte : textures FBX EMBARQUEES (Video binaire), skinning/anim
+// (Deformer/Cluster, AnimationCurve — etapes (b)/(c) a venir).
+// UpAxis lu depuis GlobalSettings (Z-up -> Y-up auto). Les
 // exports 3ds Max ont parfois une geometrie Z-up mal etiquetee Y-up : variable
 // d'env NK_FBX_ZUP pour forcer la conversion. Sortie : NkGLTFMeshData.
 // Auteur : Rihen
