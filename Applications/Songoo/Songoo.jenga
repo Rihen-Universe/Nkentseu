@@ -67,7 +67,7 @@ with project("Songoo"):
     # ── Dépendances Nkentseu ─────────────────────────────────────────────────
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
-         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage",
          "NKFileSystem", "NKNetwork",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKAudio", "NKMedia"],
