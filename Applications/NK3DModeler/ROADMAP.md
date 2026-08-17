@@ -1013,12 +1013,44 @@ témoin de base mesuré par course à vide). Le seuil NKGui arme à k=4
 (`dragActive=1 type=hier.node`). Périmètre : la souris est synthétique (posée
 avant BeginFrame) ; le trajet OS réel reste couvert par la relecture de Rodolf.
 
-**RESTE (étape 2/2) — le NAVIGATEUR** : 41 références `browDrag*` (37 dans
-`NkModelerBrowser.h`, 4 champs dans `NkModelerInput.h`), 5 cibles : dossier de
-l'arbre, carte dossier, fond de grille (déplacer/copier selon traversée
-gauche↔droite), vue 3D (jeton + pick différé + file multi-cartes + menu
-enfant/indépendant — restent applicatifs, seule la mécanique de glisser migre).
-Puis contrat d'import (d) matériaux/textures et (e) dialogue.
+**Étape 2/2 LIVRÉE — le NAVIGATEUR (2026-08-18, commit `384d05b9`)** : type
+NKGui `"brow.item"` (charge `int32[2]` : index + prise arbre/grille), sources =
+ligne d'arbre et carte (`ButtonBehavior`, la sélection reste au registre —
+`MESURE clic carte` inchangée), cibles = racine / ligne d'arbre / carte-dossier
+(widgets) + fond de grille / vue 3D (zones explicites). Livraison appliquée
+APRÈS le parcours ; anti-cycle, traversée gauche↔droite (carte Copier/Déplacer),
+jeton + pick différé + file multi-cartes : inchangés. Les cibles sont TYPÉES des
+deux côtés (rien ne s'allume en croisé hiérarchie/navigateur). 6 champs retirés.
+
+**Grille tenue (5 courses)** : carte→carte-dossier (Dataset `parent 4→14`) ;
+arbre→ligne (bobi `14→15`, rangées re-tracées POST-transfert dans le même
+lancement) ; arbre→racine (`15→-1`) ; arbre→fond de grille = traversée
+(`browAskIdx=9, browAskDest=-1` — résolution `-100`→dossier courant incluse) ;
+matériau→vue 3D (`PICK lacher → noeud -1`, `MESURE lacher nature=2` : le jeton
+part par le nouveau chemin). Régression hiérarchie rejouée verte ; fichiers
+projet d'AgentTest intacts (transferts en mémoire seulement).
+
+**Périmètre déclaré** : souris synthétique (posée avant `BeginFrame`) ; les
+cartes de la 2e rangée (y≥921) sont HORS fenêtre (907) — NKGui refuse d'armer
+hors fenêtre là où l'ancien registre l'aurait accepté : injouable par un humain
+sans molette, donc non-comportement, pas régression. Non rejoués en course :
+modèle→vue (même chemin de jeton que matériau, et `NK_DROP_TOKEN` couvre
+l'instanciation), file multi-cartes, carte Copier/Déplacer aval, menu
+enfant/indépendant — applicatifs non touchés, couverts par la relecture.
+
+**📣 PROTOCOLE POUR RODOLF (12e relecture — le glisser-déposer entier)** :
+binaire du 18/08 ou plus récent. (A) Hiérarchie : glisse une ligne sur une
+autre → parenté ; sur le vide de la liste → déparenté ; vers le navigateur →
+carte MESH (l'original reste). (B) Navigateur : carte → carte-dossier et
+ligne d'arbre → dossier : la carte déménage ; grille ↔ arbre → la carte
+Copier/Déplacer apparaît ; carte matériau → un objet de la vue → le matériau
+s'applique ; carte modèle → vue vide → le modèle naît sous le curseur (menu
+enfant/indépendant sur un objet). (C) Pendant un glisser de carte, les lignes
+de la HIÉRARCHIE ne doivent PAS se surligner (et réciproquement). (D) Le
+fantôme (nom sous le curseur) est dessiné par NKGui — même rendu que Nogee.
+Envoie le journal (`MESURE clic carte`, `MESURE lacher`, `PICK lacher`).
+
+**Suite** : contrat d'import (d) matériaux/textures et (e) le dialogue.
 
 
 ## 3. Modélisation complète ⬜
