@@ -41,6 +41,21 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
+# GARDE ANTI-NOUVEAU-DEPENDANT NKUI (2026-08-17, campagne de retrait NKUI).
+# Tout commit qui touche un fichier .jenga passe le controle : NKUI est
+# deprecie, un nouveau .jenga citant "NKUI" hors de la liste decroissante
+# (config/nkui_dependants.list) est refuse AVANT le commit. Lancable aussi a
+# la main : ./check_nkui_dependants.sh. Ce n'est pas une CI — controle local.
+if git diff --cached --name-only | grep -q '\.jenga$'; then
+  if [ -f "$ROOT/check_nkui_dependants.sh" ]; then
+    bash "$ROOT/check_nkui_dependants.sh" || {
+      echo "[gitcommit] GARDE NKUI : commit refuse (voir ci-dessus)." >&2
+      echo "[gitcommit] L'index reste stage ; corrige puis relance." >&2
+      exit 1
+    }
+  fi
+fi
+
 # Construit les options d'identite seulement si on veut la forcer.
 ID_OPTS=()
 [ -n "$GIT_NAME" ]  && ID_OPTS+=(-c "user.name=$GIT_NAME")

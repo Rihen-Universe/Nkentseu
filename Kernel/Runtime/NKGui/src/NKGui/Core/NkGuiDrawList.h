@@ -84,8 +84,12 @@ namespace nkentseu {
 				// >= 0 tronque (coupe au glyphe qui déborde).
 				// `skew` > 0 : italique factice (penche les glyphes, décalage horizontal
 				// proportionnel à la hauteur au-dessus de la ligne de base ; 0 = normal).
+				// `textEnd` (optionnel) borne la partie DESSINEE — support de la
+				// convention `##id` des libelles (cf. LabelEnd, NkGuiWidgets.h) :
+				// nullptr = jusqu'au NUL, comportement historique inchange.
 				void AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
-							 const NkColor &col, float32 maxWidth = -1.f, float32 skew = 0.f) noexcept;
+							 const NkColor &col, float32 maxWidth = -1.f, float32 skew = 0.f,
+							 const char *textEnd = nullptr) noexcept;
 				// Dessine la sous-chaîne [begin, end) (sans troncature) — brique du
 				// retour à la ligne (TextWrapped) qui passe des plages de ligne.
 				void AddTextRange(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *begin,

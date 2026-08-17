@@ -224,6 +224,132 @@ ucrt64 en tête.**
 autant : un code de sortie lu à travers un script qui se termine par `tail` est
 celui du `tail`, jamais celui de la commande mesurée.)*
 
+## 7bis. 🎓 L'ÉCART ENTRE CE QUI EST SPÉCIFIÉ ET CE QUI TOURNE (2026-08-17)
+
+> **Mesure demandée pour le cours « moteur de jeu PC/mobile » de septembre.**
+> Écrite en séparant **PROUVÉ** (compilé, lié, ou exécuté) de **SPÉCIFIÉ**
+> (déclaré, jamais défini ou jamais appelé). **Périmètre** : worktree
+> `Nkentseu-noge`, branche `feat/noge-inventaire`, `Engine/Noge/src` pour le
+> moteur, dépôt entier pour les consommateurs. **Rien n'a été réparé.**
+
+### A. Le volume, et le chiffre hérité qui a dérivé
+
+| | fichiers | lignes |
+|---|---|---|
+| `.h` | 88 | **21 843** |
+| `.cpp` | 35 | **6 915** |
+
+⚠️ Le chiffre qui circule — *21 859 `.h` / 7 198 `.cpp`* — **ne correspond plus**
+(écart de 16 et de 283 lignes). Il est hérité, il a dérivé, et il ne disait de
+toute façon pas grand-chose : **un en-tête peut contenir tout le corps**. Le
+ratio `.h`/`.cpp` n'est pas une mesure de complétude. Ce qui suit l'est.
+
+### B. ✅ PROUVÉ — ce qui compile et ce qui se lie
+
+- **Compilation : 35/35 `.cpp` compilent**, un par un (g++ 16.1, `-std=c++20`,
+  52 racines d'includes). Aucun échec.
+- **Édition de liens : aucun corps de moteur ne manque parmi ce qui est
+  RÉFÉRENCÉ.** Sur les 35 objets : 4 745 symboles définis, **369 non résolus
+  après soustraction des définis**. Ils se répartissent en symboles **du noyau**
+  (`renderer::` 68, `audio::` 25, `memory::` 23, `net::` 20, `math::` 16,
+  `NkString::` 26…) et en gabarits `std::` — tous fournis à l'édition de liens
+  finale. **Aucun n'est un corps Noge absent.**
+
+⚠️ **Deux fausses pistes que j'ai suivies et qui sont retirées** — elles sont
+écrites parce qu'elles coûteraient le même temps à quelqu'un d'autre :
+- `nm -u` liste les indéfinis **par objet** : un symbole défini dans un autre
+  objet y figure quand même. **Il faut soustraire les définis** (408 → 369),
+  sinon on invente des corps manquants.
+- `NkScheduler` semblait sans corps : **faux**, il est *header-only* à corps
+  inline (`Run`, `Init`, `RegisterSystem`, `RebuildDAG`…). Le seul symbole non
+  résolu le concernant est un `std::construct_at<SystemEntry>`, pas un corps.
+  `NkWorld` et `NkGameplayEventBus` ont bien un corps — **dans le noyau
+  `NKECS`**, pas dans Noge.
+
+### C. 🔴 SPÉCIFIÉ — 11 modules qui ont des en-têtes et aucun corps
+
+| module | lignes `.h` | `.cpp` |
+|---|---|---|
+| Facial | 790 | 0 |
+| Anim2D | 468 | 0 |
+| Sequencer | 416 | 0 |
+| Viewport | 378 | 0 |
+| Physics | 346 | 0 |
+| Selection | 310 | 0 |
+| Systems | 277 | 0 |
+| Sculpt | 198 | 0 |
+| UV | 75 | 0 |
+| Text | 67 | 0 |
+| Crowd | 44 | 0 |
+| **total** | **3 369** | **0** |
+
+**29 classes y sont déclarées. Aucune n'a de corps nulle part dans le dépôt** —
+`NkSculptSession`, `NkCrowdGrid`, `NkFacialSystem`, `NkSequence`,
+`NkViewportCamera`, `NkSelectionBuffer`, `NkClothSystem`, `NkRagdollSystem`,
+`NkSoftBodySystem`, `NkHairSystem`, `NkMocapSystem`, `NkBlendShapeSystem`,
+`NkJiggleBoneSystem`, `NkTweenManager`, `NkAtlas2D`, `NkUVEditor`,
+`NkTextOnPath`… *(⚠️ `Noge/Systems/` — les squelettes — ne doit pas être confondu
+avec `Noge/ECS/Systems/`, qui a 20 `.cpp` et fonctionne.)*
+
+**Contrôle de l'instrument, parce qu'un zéro se prouve** : la même recherche
+trouve 4 fichiers pour `NkEditableMesh` et remonte 5/5 classes réellement
+définies dans Noge. Deux résultats non nuls apparents ont été écartés comme
+**collisions de noms** — `NkRender2D` est défini dans **NKRenderer**, `NkRichText`
+dans **Sandbox** ; ce ne sont pas ceux de Noge.
+
+🎯 **Pourquoi l'éditeur de liens ne les signale pas** : *personne ne les appelle.*
+C'est exactement l'état de NkSL cet après-midi — **une absence de preuve prise
+pour une preuve**. Un module sans corps et sans appelant ne casse rien, ne se
+voit pas, et se lit comme une fonctionnalité.
+
+### D. 🔴 CE QUI EXERCE LE MOTEUR — presque rien
+
+- **Modules touchés depuis l'extérieur de `Engine/Noge` : 5 sur 21** (`Core`,
+  `ECS`, `IO`, `Anim`, `Modeling`), **9 sur 21** en fermeture transitive.
+- **12 modules ne sont atteints par personne**, même transitivement : `Anim2D`,
+  `Crowd`, `Facial`, `Layers`, `Physics`, `Sculpt`, `Selection`, `Sequencer`,
+  `Systems`, `Text`, `UV`, `Viewport`.
+- **Suite de tests : 1 seul fichier** (`Engine/Noge/tests/test_editable_mesh.cpp`),
+  cible déclarée dans `Noge.jenga:214-242`, **et aucun artefact dans `Build/`** :
+  il n'a jamais été construit. Les tests sont bloqués par une politique de
+  workspace, et **10 démos console ont été écrites pour la contourner** — leurs
+  propres `.jenga` le disent. Chaque démo touche **un seul point d'entrée**.
+- **Nogee** est le seul consommateur applicatif réellement bâti. **PV3DE** inclut
+  Noge et **n'a jamais été lié**.
+- `Applications/Sandbox/.../Hello3DApp.h` inclut `"Nkentseu/Nkentseu.h"`, **chemin
+  qui n'existe nulle part** : code mort non compilable.
+
+### E. Le scripting — une piste sur quatre tient debout
+
+| piste | verdict | `.cpp`/`.h` | preuve |
+|---|---|---|---|
+| **C++** | ✅ **PROUVÉ** | 1 / 4 (1 300 l.) | `NkScriptBridge.cpp` (376 l.) fait un vrai chargement dynamique (`LoadLibraryA`/`dlopen`, shadow copy) ; **exécuté** par `NkHotReloadDemo` (rechargement v1→v2) |
+| **C#** | 🔴 **SQUELETTE MORT** | 0 / 1 (631 l.) | tout est sous `#ifdef NKECS_MONO_AVAILABLE`, macro **jamais définie dans aucun `defines()`** ; branche `#else` = `using NkMonoDomain = void` ; **aucun `.cs` dans le dépôt** ; seule référence externe **commentée** (`NKECS.h:101`) |
+| **Python** | 🔴 **SQUELETTE MORT** | 0 / 1 (646 l.) | `#ifdef NKECS_PYTHON_AVAILABLE` jamais définie ; jamais inclus. ⚠️ **Piège** : `Externals/Libs/PythonEmbed` et `pybind11` existent et sont dans le build, mais servent **NKCode** (l'IDE embarque Jenga), **pas** le moteur |
+| **Blueprint** | 🟡 **COUPÉ EN DEUX** | 0 / 3 (1 204 l.) | `NkBlueprint.h` est compilé et contient un vrai interpréteur (`Execute`, pins typées, ~15 nœuds), mais **zéro consommateur** — les seules mentions hors dossier sont **commentées** (`NkPrefab.cpp:160-161`). Le substrat **`NKGraph`** (1 519 l.) est réel et exercé par `NKEditMeshHarness`, mais **absent des 175 modules de `Nkentseu.jenga`**. **L'éditeur visuel n'existe pas** |
+
+⚠️ Le ROADMAP annonce `NkBlueprint` à **696 lignes** ; la mesure donne **1 079**
+(1 204 avec `NkValidGraph.h`).
+
+### F. Ce que ça veut dire pour un cours dans trois semaines
+
+**Sur quoi on peut bâtir, parce que c'est prouvé** : `Core`, `ECS` (le vrai, avec
+`Noge/ECS/Systems`), `IO`, `Anim`, `Modeling`, et le **scripting C++ à chaud** —
+ce sont les seuls modules qu'un consommateur extérieur exerce réellement, et le
+seul chemin de script démontré par exécution.
+
+**Ce qu'il ne faut pas promettre** : les 11 modules sans corps (dont *Physics*,
+*Sequencer*, *Viewport*, *Selection* — des mots qu'un étudiant attend d'un
+moteur), le C#, le Python, et le script visuel côté utilisateur.
+
+**Le risque n'est pas le volume de code, c'est la lecture** : 3 369 lignes
+d'en-têtes soignés, sans corps et sans appelant, se lisent exactement comme des
+fonctionnalités livrées. Il vaut mieux l'apprendre maintenant qu'en septembre.
+
+**Dette d'outillage nommée** : **il n'existe aucune suite de tests exécutable
+pour Noge**. Tant que la politique de workspace bloque `jenga test`, « ça marche »
+ne pourra reposer que sur 10 démos à point d'entrée unique.
+
 ## 8. 🔭 LES TROIS HORIZONS
 
 **Court — la semaine.** Deux gestes chiffrés, et ils sont petits :
@@ -287,7 +413,7 @@ savait mesurer au lieu de lever ce qui bloquait*.
 |---|---|---|
 | « barre de menus » | **`SetMenuBar()` remplace ENTIÈREMENT** les menus par défaut (`BuildMenuBar` l. 1506 : `if (mMenuBarFn) { … return; }`) — introduit le **2026-07-22**, soit **9 jours AVANT le refus**, et **NKCode s'en sert déjà** (`main.cpp:190`) | ❌ **levé, et il l'était déjà** |
 | « systeme de docking » | l'app contrôle `AddPanel` · `PanelDockNode` · `DetachPanel` · `ToggleMaximizePanel` · `ToggleCollapsePanel` | ❌ **levé** |
-| « barre d'etat » | `DrawStatusBar` **inconditionnelle** (22 px) ; l'app en pousse le texte (`SetFooter`/`SetFooterLights`) mais **ne peut ni la retirer ni la redessiner** | ✅ **réel** |
+| « barre d'etat » | ~~`DrawStatusBar` **inconditionnelle** (22 px) ; l'app en pousse le texte (`SetFooter`/`SetFooterLights`) mais **ne peut ni la retirer ni la redessiner**~~ — **levé le 2026-08-17** : `SetStatusBarFn` (patron `SetMenuBar`, commit `f10c4788`) donne TOUTE la bande à l'app, région de layout posée comme la toolbar ; si non posé, footer historique conservé | ❌ **levé (R8)** |
 | « palette de commandes » | `DrawCommandPalette` inconditionnelle, Ctrl+P toujours liée | ✅ **réel** (invisible tant qu'on ne l'ouvre pas) |
 
 ⭐ **Et le vrai obstacle n'était dans aucun des quatre.** Les **barres d'activité**
@@ -307,13 +433,15 @@ moment où on l'écrit devient faux sans que rien ne le signale.
 ```
 la fenetre (NKWindow) · le contexte NKGui · la boucle Run() · les polices
 la BARRE DE TITRE      (DrawTitleBar, inconditionnelle : logo | menus | infos | min/max/close)
-la BARRE D'ETAT        (22 px, contenu pilotable, presence non)
+la BARRE D'ETAT        (22 px : presence imposee hors launcher, mais DESSIN
+                        entierement delegable depuis le 2026-08-17 — SetStatusBarFn)
 la PALETTE Ctrl+P  ·  la fenetre PREFERENCES
 ```
 
-**Ce qu'il délègue — 19 hooks publics `Set*`**, dont `SetMenuBar` (barre
+**Ce qu'il délègue — 20 hooks publics `Set*`**, dont `SetMenuBar` (barre
 complète), `SetToolbar`, `SetOverlay` (modales de l'app), `SetStartScreen`,
-`SetActivityBars`, `SetFileMenu`, `SetTitleLogo`, `SetFooter`, plus le
+`SetActivityBars`, `SetFileMenu`, `SetTitleLogo`, `SetFooter`,
+`SetStatusBarFn` (2026-08-17, dessin complet de la barre d'état), plus le
 **renderer injectable** (`NkEditorShellConfig::renderer` — NKRHI/NKRenderer au
 lieu de NKCanvas).
 
@@ -1111,6 +1239,397 @@ drapeau n'a pas porté.**
 `Applications/Sandbox/src/DemoNkentseu/Base03/NkRHIDemoText.cpp` ne compile pas —
 20 erreurs, `nk_handle` / `NK_INVALID_HANDLE` / `NK_UNUSED` / `NkFontLibrary`
 inconnus. Il casse tout `jenga build` sans `--target`.)*
+
+---
+
+## 10bis. ⚠️ `Panels/Model/` A ÉTÉ DIMENSIONNÉ SUR LES BESOINS DE NKUI (2026-08-17)
+
+> **À prévoir, plutôt qu'à découvrir.** Écrit après les portages 2/4 et 3/4,
+> les deux premiers panneaux réellement écrits sur NKGui.
+
+Les quatre modèles neutres de `Applications/Nogee/src/Nogee/Panels/Model/` ont
+été extraits pour qu'un panneau porté **partage** l'état au lieu de le recopier.
+Ça a marché, et c'est mesuré : 350 l. en 9 min pour le World Outliner contre
+174 l. en 40 min pour le pilote Console, **sans un seul modèle à recopier**.
+
+**Mais NKGui tient lui-même une partie de cet état.** Ce qu'on ne pouvait pas
+savoir avant d'avoir écrit un panneau NKGui :
+
+| état du modèle | sur le chemin NKGui |
+|---|---|
+| `NkSceneTreeModel::mOpenNodes` / `mOpenCount` / `IsOpen` / `SetOpen` (24 l.) | **inutile** — `ctx.IsNodeOpen` / `SetNodeOpen`, clés par `NkGuiId` |
+| `NkSceneTreeModel::mRenamingEntity` / `mRenameBuffer` + sa machine à états | **inutile** — `TreeNodeEditable` / `SelectableEditable` renomment en natif |
+| `NkInspectorModel::IsSectionOpen` / `SetSectionOpen` | **inutile** — `CollapsingHeader` tient son propre état d'ouverture |
+| `mContextMenuEntity`, `mScrollToSelected` | **encore utiles** |
+
+🎯 **Conséquence à prévoir : le jour où NKUI sera retiré, une partie de `Model/`
+devient du code mort.** Ce n'est pas une erreur d'extraction — l'extraction a
+payé exactement ce qu'on en attendait, et elle reste juste tant que les deux
+chemins coexistent. C'est une **dette datée** : elle s'ouvre au moment du
+retrait de NKUI, pas avant.
+
+**Ce que ça change pour les estimations restantes** : le coût par panneau porté
+est **inférieur** au pilote, et il continue de baisser — NKGui fournit en natif
+ce que le chemin NKUI codait à la main. À redire avec chaque devis.
+
+---
+
+## 10ter. 🔴 L'INSPECTEUR NKUI NE DESSINE AUCUN COMPOSANT — ET NE L'A JAMAIS FAIT
+
+Trouvé en portant §8. `Applications/Nogee/src/Nogee/Panels/InspectorPanel.cpp:56-61` :
+
+```cpp
+void *ptr = nullptr;  // world.GetRaw(id, meta.typeName);
+if (!ptr) continue;
+```
+
+**La boucle sur les composants réfléchis `continue` à chaque itération.** Tout le
+rendu par réflexion — `RenderComponent`, `RenderField` et ses 8 cas de types,
+soit l'essentiel du fichier — est du **code mort**. Seuls l'en-tête de nom et le
+bouton « Ajouter un composant » dessinent quelque chose.
+
+**La cause n'est pas le panneau : `NkWorld::GetRaw(id, typeId)` n'existe pas.**
+Vérifié dans `NKECS/World/NkWorld.h` et dans tout le dépôt ; contrôle positif :
+la même recherche remonte bien des `GetRaw*` dans NKEvent. Sans accès
+**générique** à la mémoire d'un composant, aucun panneau de propriétés piloté
+par réflexion ne peut fonctionner — quelle que soit la bibliothèque d'interface.
+
+⚠️ **Troisième occurrence du même motif dans la journée** — du code qui existe,
+compile et ne fait rien, que personne ne voit parce que rien ne l'exerce (après
+les 8 shaders à source vide et les 29 classes sans corps). Ici le silence est
+pire : le panneau *a l'air* de marcher, il dessine son en-tête.
+
+**Décision prise au portage** : `DetailsPanel` (NKGui) **ne reproduit pas la
+boucle morte**. Il livre ce qui fonctionne réellement — Transform en accès
+**typé** (`world.Get<NkTransform>`), nom éditable, filtre, ajout de composant —
+et **affiche à l'écran** que les propriétés réfléchies sont bloquées. *Un
+panneau qui dit « bloqué » est honnête ; un panneau vide ment.*
+
+**Poste nommé, et il est en amont de tout le reste de §8** : écrire
+`NkWorld::GetRaw(id, typeId)`. Tant qu'il manque, §8 ne peut livrer ni les
+sections repliables par composant, ni les types couleur / enum / référence
+d'asset / courbe, ni l'icône de reset au survol.
+
+---
+
+## 10quater. 🔴 LA FRONTIÈRE MESURÉE — **Nogee n'a AUCUN monde ECS** (2026-08-17)
+
+> Mesure demandée après le portage 3/4 : *que faudrait-il pour que la coquille
+> NKGui atteigne le monde ?* **La réponse déplace la question** : il n'y a pas de
+> monde à atteindre, sur aucun des deux chemins.
+
+**Les faits, et le contrôle qui les tient :**
+
+| fait | preuve |
+|---|---|
+| `NogeeShell` (NKGui) n'a **aucune** référence à `NkWorld` | 0 occurrence |
+| `SetWorld(...)` / `SetScene(...)` sont **déclarés 3 fois et appelés 0 fois** | recherche sur tout le dépôt ; seul « hit » = un commentaire dans Assimp |
+| donc `UILayer::mWorld` vaut **toujours `nullptr`** | — |
+| `RenderSceneTree()` et `RenderInspector()` commencent par `if (!mWorld \|\| !mEditorLayer) return;` | `UILayer.cpp:475` et `:483` |
+| **aucun `NkWorld` n'est instancié nulle part dans Nogee** | — |
+
+**Contrôle positif obligatoire** (un zéro se prouve) : la même recherche
+appliquée à `SetCacheDir(` remonte **3 appels réels** (Nogee, PV3DE, Sandbox).
+Le motif sait donc trouver un appel ; le zéro sur `SetWorld` est un vrai zéro.
+
+🎯 **Conséquence, et elle est plus large que le portage** : **les panneaux
+SceneTree et Inspector de NKUI n'ont jamais rien dessiné non plus.** Ce ne sont
+pas les panneaux portés qui sont en retard sur les panneaux existants — **les
+deux sont en aval d'un monde absent**. Seuls `AssetBrowser` et `Console` ne sont
+pas gardés par `mWorld` et dessinent réellement.
+
+*(Quatrième occurrence du motif du jour, et la plus coûteuse : une garde de
+nullité qui protège du code qu'elle rend mort — exactement « une protection qui
+ne protège rien ». Le code gardé repousse l'œil.)*
+
+### ✅ La bonne nouvelle : la frontière est PETITE, et elle a un précédent
+
+`NkWorld` est un **type valeur** et `NkSceneGraph` se construit dessus :
+
+```cpp
+NkWorld world;                       // Applications/NkAgentEcsDemo/src/main.cpp:72
+NkEntityId e = world.CreateEntity();
+world.Add<NkAgentComponent>(e);
+// NkSceneGraph(NkWorld &world, const NkString &name = "Scene")
+```
+
+Le geste existe déjà **cinq fois** dans le dépôt (`NkAgentEcsDemo`,
+`NkAudioECSDemo`, `NKCivilizationTest`, `NKCivilizationScaleTest`,
+`NKCivilizationSocialTest`). Il n'a jamais été fait dans Nogee.
+
+**Ce qu'il faut, et rien de plus** : que `NogeeApp` **possède** un `NkWorld` et
+un `NkSceneGraph`, y crée quelques entités, puis appelle les setters **qui
+existent déjà** (`UILayer::SetWorld/SetScene`, `EditorLayer::SetScene`,
+`ViewportLayer::SetWorld`) — et, côté NKGui, les `Bind(...)` de
+`WorldOutlinerPanel` et `DetailsPanel`. **De l'ordre de 15 lignes**, pas un
+chantier d'architecture.
+
+⚠️ **À ne pas confondre avec `GetRaw`** (§10ter) : ce sont deux manques
+indépendants. Un monde branché rend visibles le World Outliner et le Transform du
+Details Panel ; il ne débloque pas les propriétés réfléchies, qui attendent
+`NkWorld::GetRaw`.
+
+### Ce que ça veut dire pour septembre
+
+Les quatre portages sont du travail réel et mesuré, **mais ils atterrissent sur
+rien tant que ces ~15 lignes ne sont pas écrites**. C'est le geste au plus fort
+rendement de tout ce chantier d'éditeur : il rend visibles, d'un coup, deux
+panneaux NKUI et deux panneaux NKGui. **À faire avant d'entamer le portage 4/4**,
+sinon on continuera d'écrire des panneaux que personne ne peut voir.
+
+---
+
+## 10quinquies. 🔴 145 APPELS DE JOURNAL MÉLANGENT LES DEUX FAMILLES DE FORMATAGE (2026-08-17)
+
+> **Dette nommée, RIEN corrigé.** Trouvée en écrivant le témoin du câblage du
+> monde : mon `Infof("... {0} ...")` est sorti avec ses accolades. **Ce n'est pas
+> un défaut de NKLogger** — première attribution, retirée : la convention (au
+> corpus, précisée par Rodolf le 2026-08-17) est claire, et la doc de `NkLog.h`
+> la dit mot pour mot :
+
+| appel | marqueurs |
+|---|---|
+| `Infof` / `Warnf` / `Errorf`… (suffixe `f`) | **printf** : `%s`, `%llu`, `\n` explicite |
+| `Info` / `Warn` / `Error`… (sans suffixe) | **indexés** : `{0}`, `{1:.3}` — ou message littéral sans args |
+
+Le danger est que **rien ne plante et rien n'avertit** : le message sort faux et
+ressemble à un message. Une seule exécution de Nogee produit 10 lignes amputées.
+
+**Le compte, appels AVEC arguments uniquement** (un `%` ou `{` sans argument est
+du texte inoffensif, exclu) :
+
+| mélange | n |
+|---|---|
+| **A** — famille `f` (printf) avec des `{i}` indexés | **67** |
+| **B** — famille sans `f` (indexée) avec des `%spec` | **78** |
+| **total** | **145** |
+
+**Contre-épreuve d'usage** : les mêmes motifs trouvent **535** appels `f`
+corrects (`%s`…) et **1 571** appels sans `f` corrects (`{0}`…). Les commandes
+savent trouver ; les 145 sont une minorité — la convention est majoritairement
+respectée.
+
+**Périmètre** : `Kernel`, `Engine`, `Applications`, `Integrations` (`.cpp`+`.h`),
+hors `Externals` et `Build`, appels mono-ligne (un format multi-ligne échappe au
+motif — le compte est donc un **plancher**).
+
+**Répartition — mélange A (67), les gros postes :**
+`Applications/PV3DE` **22** · `Applications/Nogee` **20** (dont
+`ProjectManager.cpp` 5, `EditorLayer.cpp` 4) · `Engine/Noge` **15** (dont
+`NkSceneSerializer.cpp` 5, `NkApplication.cpp` 4) · `NKRenderer` **4** ·
+`Applications/Model` 3 · Sandbox 2 · NKXRDemo 1.
+
+**Répartition — mélange B (78), les gros postes :**
+`Kernel/System/NKSerialization` **42** (dont `NkISerializable.h` 18, les trois
+lecteurs YAML/XML/JSON 7 chacun) · `Kernel/Runtime/NKUI` **13** (dont
+`NkUIFontBridge.cpp` 8) · `NKECS/exemples` **10** · Sandbox 5 · Pong2 2 ·
+NkImageDemo 2 · ConquerorProto 2 · Integrations 2.
+
+Échantillons vérifiés à la main des deux côtés
+(`Errorf("...'{0}' ..."` dans `NkShaderLibrary.cpp:695`,
+`Info("[Level%d]...", ...)` dans `Exemples.cpp:606`). Listes nominatives
+complètes régénérables :
+
+```
+famille f avec {   : grep -rnE '\.(Tracef|Debugf|Infof|Warnf|Errorf|Criticalf|Fatalf|Logf)\s*\("[^"]*\{' --include=*.cpp --include=*.h Kernel Engine Applications Integrations
+sans f avec %spec  : grep -rnE '\.(Trace|Debug|Info|Warn|Error|Critical|Fatal|Log)\s*\("[^"]*%[sdufllxX0-9]' ... | grep -v 'f\s*\('   (garder les lignes avec arguments)
+```
+
+🎯 **Pourquoi c'est une dette et pas un chantier immédiat** : 145 sites dans
+13 modules, aucun ne casse rien — chacun ment un peu dans le journal. La
+correction est mécanique (changer le marqueur OU le suffixe, site par site) ; ne
+pas corriger coûte en diffus : chaque diagnostic qui s'appuiera sur une de ces
+lignes lira `{0}` ou `%d` à la place d'une valeur. **La priorité relative
+appartient à Rodolf.**
+
+---
+
+## 10sexies. ✂️ LA COUPE NKUI DE NOGEE — FAITE, PROUVÉE, ET CE QUI RESTE (2026-08-17)
+
+> Décision de Rodolf : *« retirer NKUI des dépendances des autres
+> applications »*. Commit `16732511`. Étapes livrées dans l'ordre imposé —
+> câblage → panneaux → viewport → vérification → coupe — le chemin NKUI est
+> resté compilable jusqu'à la dernière.
+
+### Ce qui a été fait
+
+- **La coquille NKGui est le chemin unique de Nogee.** `Nogee.cpp` n'inclut
+  plus `NogeeApp.h` ; `--ui=rhi` reste accepté (sans effet).
+- **Le monde et les systèmes éditeur sont câblés côté shell** : `NkWorld` par
+  valeur, `NkSceneGraph`, entités `TEMOIN_*`, et **les quatre systèmes
+  constructibles seuls — vérifié** : `NkSelectionManager`, `CommandHistory`,
+  `AssetManager`, `ProjectManager` n'exigent ni Layer ni `NkApplication`.
+  *Ce qui vivait dans EditorLayer était une possession, pas une dépendance.*
+- **Exclusion** (`Nogee.jenga`, `excludefiles`) : `NogeeApp.cpp`,
+  `UILayer.cpp`, les 4 panneaux NKUI. **Retraits** : `"NKUI"` et
+  `"NKUIIntegration"` des dépendances de Nogee, et **la dépendance NKUI
+  FANTÔME de `Noge.jenga:104`** — zéro `#include "NKUI/` dans tout
+  `Engine/Noge/src` (vérifié) ; elle forçait la construction de NKUI pour
+  toute application dépendant du moteur.
+
+### Les preuves
+
+| preuve | résultat |
+|---|---|
+| témoin numérique | `[WorldOutlinerPanel] TEMOIN : rendu execute via le shell, 1 racine(s), premiere = 'TEMOIN_Racine'` |
+| contre-témoin (sans enregistrement, stash + rebuild) | **0 ligne TEMOIN**, 0 `[ERR]` |
+| témoin visuel (capture d'écran) | Outliner montre `TEMOIN_Racine`, Details montre le Transform + le texte « GetRaw n'existe pas », Content Browser dessine ses cartes, Console en onglet |
+| binaire | **0 chaîne NKUI** (contrôle positif : 23 chaînes `WorldOutliner`) |
+| exécution par défaut après coupe | coquille montée, témoin présent, **0 `[ERR]`** |
+
+### La question des Layers — ce qui reste, et pourquoi ça tient
+
+**Le viewport n'a rien perdu parce qu'il n'avait rien** :
+`ViewportLayer::RenderScene()` et `RenderGizmos()` étaient des **TODO en toutes
+lettres** — le FBO était nettoyé à une couleur, jamais peuplé. `SetPreUI` est
+donc **sans objet aujourd'hui** : il n'y a rien à publier. **Le jour où un vrai
+rendu de scène existera**, le modèle est `NkAnimaEditor/main.cpp:43-47`
+(`PreUI3D` + `RegisterInto`) — et c'est à ce moment-là que la question
+« Layers ou fonction libre » devra être tranchée par Rodolf, pas avant.
+`EditorLayer`/`ViewportLayer` restent compilés (zéro NKUI) : la caméra et les
+gizmos y vivent pour ce futur viewport.
+
+### 📉 LE COMPTEUR D'ATTRITION (mesuré, pas hérité)
+
+Métrique : fichiers `.jenga` citant `"NKUI"`, hors NKUI lui-même.
+**Avant la soirée : 29. Après : 27** (Nogee retiré, + la fantôme de Noge).
+
+Détail des 27 : **24 applications** (Model, Mou, NKPA, NkAgentEcsDemo,
+NkAssetIODemo, NkAudioECSDemo, NkCameraDemos, NkEditableMeshDemo, NkImageDemo,
+NkLocomotionDemo, NkNavDemo, NkNetWorldDemo, NkSVGImportDemo, NkUIHudDemo,
+Nkoung, PV3DE, Pong, Pong copy, Pong2, RihenDefi, ContextSandbox,
+RendererSandbox, RhiSandbox, Songoo) + **NKCanvas** (conditionnel) +
+**NKUIIntegration** (meurt avec NKUI) + **`config/modules.jenga`** (registre).
+
+🛡️ **Le compteur est GARDÉ depuis le 2026-08-17** : un nouveau dépendant NKUI
+était né *après* la dépréciation, dans une PR passée sans que personne ne le
+voie (`NkMatInventaireTest.jenga:50`, fantôme dès la naissance — canal nkui,
+Q1). Le contrôle `check_nkui_dependants.sh` (racine du dépôt) **échoue** quand
+un `.jenga` hors de la **liste décroissante** `config/nkui_dependants.list`
+cite `"NKUI"` ; il est câblé dans `gitcommit.sh` pour tout commit touchant un
+`.jenga`, et lançable à la main. La liste ne fait que décroître — on retire une
+entrée à la fusion des coupes, on n'en ajoute jamais (exception = décision
+Rodolf). Témoins des deux sens prouvés : arbre actuel vert, citation fabriquée
+refusée avant commit, voie « instrument aveugle » testée (exit 2).
+
+⚠️ **NKUI est encore CONSTRUIT (pas lié) dans la fermeture de Nogee** : NKCanvas
+l'ajoute quand `USE_CANVAS_NKUI` est actif, et il l'est **par défaut**
+(`config/graphics.jenga:80`, env `NK_CANVAS_NKUI`). L'éditeur de liens n'en
+extrait rien (binaire propre), mais le temps de build le paie.
+
+**Verdict mesuré (2026-08-17) : le défaut NE BASCULE PAS.** Le compte des
+consommateurs réels du chemin canvas-NKUI (`NkUICanvasBackend`) n'est pas
+marginal : **3 projets** — **Mou** et **Nkoung** (deux plateformes produits
+vivantes, usage à l'exécution : `new NkUICanvasBackend()` dans leur
+`*PlatformApp.cpp`) + **Sandbox** (2 démos ; `ContextSandbox.jenga` déclare
+NKUI). Mécanique vérifiée : le `.cpp` du pont est gardé par
+`#if NK_CANVAS_WITH_NKUI` — défaut off, ses symboles disparaissent et ces trois
+projets **cassent au link**, qu'ils déclarent NKUI ou non. Le drapeau est un env
+global lu à l'évaluation du workspace, pas un réglage par fermeture : basculer
+le défaut ne peut pas satisfaire « les consommateurs réels construisent
+encore ». Le chemin qui existe déjà suffit : **`NK_CANVAS_NKUI=off` à
+l'invocation** pour les fermetures qui n'en veulent pas (Nogee) — économise la
+construction de NKUI (17 `.cpp`, ~22 k lignes). La vraie sortie reste
+l'attrition : le jour où Mou/Nkoung/Sandbox migrent vers NKGui
+(`NkGuiCanvasBackend`, même dossier), le compte tombe à zéro et le défaut
+bascule sans casser personne.
+
+⚠️ **À ne pas confondre — la bascule n'a AUCUN effet sur le compteur
+d'attrition, et personne ne doit en attendre un.** Mesure de la campagne
+(canal nkui, 2026-08-17, les 31 citations lues une à une) : chaque application
+qui cite `"NKUI"` le fait **en dur** dans son propre `.jenga` (listes
+`links`/`dependson`), **jamais sous condition du drapeau** — les seules
+citations conditionnelles sont `NKCanvas.jenga:86` et le drapeau local
+`use_nkui` des sandbox, qui n'est pas `USE_CANVAS_NKUI`. Basculer le défaut
+(ou passer `NK_CANVAS_NKUI=off` à l'invocation) sort donc NKUI des **BUILDS**
+(17 `.cpp`, ~22 k lignes de moins à construire) mais ne fait baisser le
+**COMPTEUR** d'aucune unité. Les deux chantiers sont complémentaires, pas
+séquents : le compteur ne descend que par **retrait des citations** (campagne),
+la bascule ne joue que sur le **temps de build**.
+
+### Manques NKGui accumulés sur la journée (chantier à part entière)
+
+1. ~~**Aucune API de charge utile de glisser-déposer**~~ — **LIVRÉE**
+   (`442fe8c7`, 2026-08-17) : `BeginDragSource`/`SetDragPayload` +
+   `BeginDropTarget`/`AcceptDragPayload`, charge typée copiée (256 o max,
+   porté de 64 le 17/08 : un chemin relatif d'asset doit tenir ENTIER),
+   fantôme et surlignage par la bibliothèque, livraison une frame au
+   relâchement sur cible. Sonde headless 11/11 (positif, hors-cible, type
+   différent, clic simple). ~~Reste à consommer dans les panneaux~~ —
+   **CONSOMMÉE** (§7/§9 câblés, cf. §10septies ci-dessous).
+2. ~~**Pas de dépouillement de la convention `##id`**~~ — **LIVRÉ**
+   (`e1869246`, 2026-08-17) : tout ce qui suit `##` sert à l'identité, jamais à
+   l'affichage ; réparé dans la bibliothèque, 18 sites de dessin bornés,
+   identité prouvée intacte par exécution.
+3. **Pas d'atlas d'icônes** exposé (œil de visibilité, icônes de type).
+4. **Jetons de thème non exposés** aux panneaux (`InputBg`/`WindowBg` — le
+   damier « fond vide » des cartes est en aplat de repli).
+
+## 10septies. ✅ LE DRAG-DROP EST CÂBLÉ — §7 reparentage + §9 glisser d'assets, témoins 14/14 (2026-08-17)
+
+Consommation de l'API `442fe8c7` dans les panneaux de la coquille. Provenance :
+worktree `Nkentseu-noge`, Release ET Debug, sonde in-app `--dragdrop-test`.
+
+**§7 — reparentage à l'Outliner.** Chaque ligne est SOURCE et CIBLE (type
+`entity`). Application **différée après la récursion** (`SetParent` modifie les
+listes `NkChildren` qu'on parcourt). Deux gardes, toutes deux nées d'une mesure :
+anti-cycle (SetParent n'en a **aucune** — `NkSceneGraph.cpp:110`) et refus si la
+cible n'a pas `NkChildren` (`Get` sans création : l'enfant disparaîtrait de
+l'arbre).
+
+⚠️ **Position monde au reparentage — MESURÉ, à relire le jour du viewport** :
+dans la coquille, la parenté est une **appartenance**, pas une chaîne de
+transforms. Aucun système ne consomme `NkLocalTransform`/`NkWorldTransform`
+(grep vide sur `ECS/Systems/`, contrôle positif sur `NkTransform`), et
+`NkTransformSystem` (qui compose `world = parentWorld * local`) n'est **pas
+tiqué** par la coquille. La position monde est donc **trivialement préservée**
+aujourd'hui. Le jour où la coquille tiquera `NkTransformSystem`, reparenter en
+gardant le local **changera** la position monde : recalculer
+`local' = inverse(parentWorld') * world` (le commentaire est dans
+`ApplyReparent`, `WorldOutlinerPanel.cpp`).
+
+**§9 — la carte part, la charge se livre.** Le pied de carte est SOURCE (type
+`asset`, charge = **chemin relatif ENTIER**, refus de déclarer si > 256 o plutôt
+que livrer un chemin tronqué). La cible est le **nouveau `ViewportPanel`** (zone
+CENTRE) — qui n'est **pas** un viewport et le dit à l'écran : le rendu de scène
+n'existe pas sur ce chemin (§10sexies), la livraison est un journal `MESURE` +
+affichage du dernier chemin reçu. Le spawn réel attend le rendu de scène.
+
+**La sonde et ses 14 témoins** (6 scénarios : dépliage piloté, §7 hors-cible,
+cycle refusé, §7 positif, §9 positif, §9 hors-cible) : **8/8 exécutions à
+14/14, exit 0**. Rects écran RÉELS relevés par les panneaux, entrées posées par
+l'overlay, retry journalisé (`RETRY n/3`) si le front d'appui ne prend pas —
+jamais absorbé en silence.
+
+**Trois corrections NKGui, nées des témoins — chacune est une leçon générale :**
+
+| correction | leçon |
+|---|---|
+| anti-gel d'`EndFrame` : ne libérer `activeId` que souris haute **une frame complète** (`mousePrev` aussi) | une entrée posée APRÈS les widgets (overlay) perdait `activeId` une frame avant le front `mouseReleased` : **aucun clic-au-relâchement ne pouvait valider depuis un overlay**. Entrée événementielle réelle : timing inchangé (prouvé par lecture des deux chemins) |
+| `AddWheelDeferred()` (patron `SetDoubleClick`) | la molette brute est **consommée par `EndFrame`** (`wheel = 0`) : écrite depuis l'overlay, elle était effacée avant d'être lue. Même famille que l'anti-gel : l'overlay est APRÈS les consommateurs |
+| `DragPayloadMax` 64 → 256 | un chemin d'asset tronqué est un mensonge livré ; le tampon suit la constante (tableau dimensionné par elle) |
+
+**Fermeture propre réparée — SIGSEGV systématique à toute sortie par
+`RequestClose`** (gdb : `AssetManager::Shutdown()` depuis le **destructeur
+statique**, à l'atexit, `mDevice` RHI déjà détruit). Personne ne l'avait vu :
+Nogee n'était jusqu'ici **tué par timeout, jamais fermé**. Correctif :
+`sAssets.Shutdown()` au retour de `RunNogeeEditorShell` (device encore vivant) +
+`mDevice = nullptr` en fin de `Shutdown` (le second appel ne touche plus rien).
+Les deux sondes sortent désormais exit 0.
+
+**Écarts restants vs planches (`design/01-specification-humaine.md` §7/§9)** —
+couleurs par jetons partout dans ce qui a été touché ; le reste attend :
+- §7 : œil de visibilité + icônes de type (= manque NKGui n°3, l'atlas),
+  indentation visuelle PENDANT le drag, multi-sélection Ctrl/Shift, colonnes
+  activables par clic-droit d'en-tête ;
+- §9 : instanciation par dépôt sur l'**Outliner** (la spec la demande aussi —
+  aujourd'hui l'Outliner ne consomme que `entity`), spawn réel au Viewport,
+  colonne gauche Sources/Favoris/Collections, filtres par type, slider de
+  taille, rendu 3D des vignettes ;
+- 📌 **intermittence du front d'appui** (signature : `hotIdPrev` posé,
+  `down=1`, `activeId=0` ; surtout caches froids après un build) : couverte par
+  le retry, **cause exacte non close** — trace frame à frame en place dans la
+  sonde (`t∈[0.14,0.58)`).
 
 ---
 
