@@ -54,8 +54,10 @@
 
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
+#include "NKEditorKit/Components/NkTreeViewModel.h"
 
 #include "Layout.h"
+#include "Roles.h"
 
 namespace nkuidesign {
 
@@ -66,6 +68,10 @@ namespace nkuidesign {
 	using nkentseu::editorkit::NkContentBrowserModel;
 	using nkentseu::editorkit::NkContentBrowserStyle;
 	using nkentseu::editorkit::NkTextAlign;
+	using nkentseu::editorkit::NkTreeNode;
+	using nkentseu::editorkit::NkTreeViewHooks;
+	using nkentseu::editorkit::NkTreeViewModel;
+	using nkentseu::editorkit::NkTreeViewStyle;
 
 	/// Comment un nom de role de theme devient un identifiant. L'hote fenetre
 	/// passe `NkResolveRole` ; la sonde passe sa propre table, injective et sans
@@ -77,9 +83,20 @@ namespace nkuidesign {
 	// Il porte ce que le document ne porte pas : le contenu de demonstration, la
 	// resolution des roles, et le dernier evenement recu.
 	struct NkDocumentHost {
-			NkRoleResolver resolve = nullptr;
+			// ⚠️ LA VALEUR PAR DEFAUT EST LA RESOLUTION REELLE, et c'est
+			//    STRUCTUREL, pas un confort. Ce champ valait `nullptr` : chaque hote
+			//    devait poser SA resolution, et la sonde en a pose une AUTRE -- un
+			//    hachage permissif qui ne rendait jamais NK_ROLE_INVALID. Resultat :
+			//    68 essais verts sur un ecran magenta. Un defaut par defaut vaut
+			//    mieux qu'un champ vide quand le champ vide autorise deux verites.
+			NkRoleResolver resolve = &NkDesignResolveRole;
 			/// Un modele de demonstration par noeud, aligne sur `doc.nodes`.
 			NkVector<NkContentBrowserModel> demoModels;
+			/// ⚠️ UN SECOND JEU, ET IL FAUT LES DEUX. Un composant garde son etat
+			///    (ouverture, selection, defilement) DANS son modele : partager un
+			///    seul modele entre deux natures de composant aurait fait
+			///    disparaitre l'etat du premier des que le second est pose.
+			NkVector<NkTreeViewModel> demoTrees;
 
 			// Ce que les composants ont signale pendant la derniere passe. Les
 			// evenements traversent donc le document jusqu'a l'application, comme
@@ -93,14 +110,35 @@ namespace nkuidesign {
 			/// manifesterait comme « le clic ne marche pas » — loin de sa cause.
 			void SyncTo(const NkUIDocument &doc) {
 				const uint32 n = (uint32)doc.nodes.Size();
-				if ((uint32)demoModels.Size() == n)
+				if ((uint32)demoModels.Size() == n && (uint32)demoTrees.Size() == n)
 					return;
 				demoModels.Clear();
+				demoTrees.Clear();
 				for (uint32 i = 0; i < n; ++i) {
 					NkContentBrowserModel m;
 					FillDemo(m);
 					demoModels.PushBack(m);
+					NkTreeViewModel t;
+					FillDemoTree(t);
+					demoTrees.PushBack(t);
 				}
+			}
+
+			/// La nature d'un asset -> le role de theme qui la teinte. Les cinq
+			/// roles `type_*` du coeur existent pour ca ; les prendre au hasard
+			/// aurait fait mentir la capture.
+			static uint16 RoleOfKind(const char *kind) {
+				if (StrEq(kind, "dossier"))
+					return NkDesignResolveRole("type_folder");
+				if (StrEq(kind, "maillage"))
+					return NkDesignResolveRole("type_mesh");
+				if (StrEq(kind, "materiau"))
+					return NkDesignResolveRole("type_mat");
+				if (StrEq(kind, "texture"))
+					return NkDesignResolveRole("type_tex");
+				if (StrEq(kind, "animation"))
+					return NkDesignResolveRole("type_anim");
+				return NkDesignResolveRole("text_muted");
 			}
 
 			static void FillDemo(NkContentBrowserModel &m) {
@@ -129,13 +167,59 @@ namespace nkuidesign {
 					e.path.Append(kRows[i].name);
 					e.isFolder = kRows[i].folder;
 					e.kindLabel = kRows[i].kind;
-					e.kindRole = (uint16)(4 + (i % 5));
+					// ⚠️ LE ROLE VIENT DE LA NATURE, PAS D'UN MODULO. La premiere
+					//    ecriture posait `4 + (i % 5)` -- des identifiants pris au
+					//    hasard dans l'enumeration du coeur. Ca « marchait » : le
+					//    dessin recevait bien un role par entree. Mais un temoin
+					//    visuel pris dessus montrait des textures peintes en
+					//    couleur de texte, et personne n'aurait su si le defaut
+					//    venait du composant ou de la donnee de demonstration.
+					//    Une donnee de demonstration fausse rend une capture
+					//    ininterpretable -- c'est le cout, et il est reel.
+					e.kindRole = RoleOfKind(kRows[i].kind);
 					m.entries.PushBack(e);
 				}
 				m.breadcrumb.Clear();
 				m.breadcrumb.PushBack(NkString("projet"));
 				m.breadcrumb.PushBack(NkString("assets"));
 				m.breadcrumb.PushBack(NkString("niveau1"));
+			}
+
+			/// ⚠️ ORDRE PREFIXE OBLIGATOIRE (`NkTreeViewModel::IsWellFormed`) : un
+			///    parent precede toujours ses enfants, et le premier enfant est le
+			///    noeud SUIVANT. Ecrit a plat ci-dessous plutot que construit par
+			///    une fonction recursive, precisement pour que l'ordre se LISE.
+			static void FillDemoTree(NkTreeViewModel &t) {
+				struct Row {
+						int32 parent;
+						const char *label;
+						const char *kind;
+				};
+				static const Row kRows[] = {
+					{-1, "Scene", "racine"},	  {0, "Environnement", "groupe"},
+					{1, "Soleil", "lumiere"},	  {1, "Ciel", "lumiere"},
+					{0, "Decor", "groupe"},		  {4, "Sol", "maillage"},
+					{4, "Rocher", "maillage"},	  {4, "Caisse", "maillage"},
+					{0, "Personnages", "groupe"}, {8, "Heros", "maillage"},
+					{9, "Squelette", "os"},		  {8, "Garde", "maillage"},
+				};
+				t.nodes.Clear();
+				for (uint32 i = 0; i < sizeof(kRows) / sizeof(kRows[0]); ++i) {
+					NkTreeNode n;
+					n.id = (nkentseu::nk_uint64)(i + 1);
+					n.parent = kRows[i].parent;
+					n.label = NkString(kRows[i].label);
+					// Meme raison que chez le navigateur : le chemin est la CHARGE
+					// qu'un evenement porte vers un blueprint. Vide, il validerait
+					// une charge inutilisable sans que personne le remarque.
+					n.path = NkString("/scene/");
+					n.path.Append(kRows[i].label);
+					n.kindLabel = kRows[i].kind;
+					n.kindRole = RoleOfKind(kRows[i].kind);
+					t.nodes.PushBack(n);
+				}
+				t.active = 6; // « Rocher »
+				t.chosen.PushBack(6);
 			}
 
 			uint16 Role(const char *name) const {
@@ -210,6 +294,25 @@ namespace nkuidesign {
 			return s;
 		}
 
+		inline NkTreeViewStyle TreeStyle(const NkDocumentHost &host, const NkUINode &n) {
+			NkTreeViewStyle s;
+			s.panelBg = host.Role(n.instance.TokenRole("panel_bg"));
+			s.headerBg = host.Role(n.instance.TokenRole("header_bg"));
+			s.border = host.Role(n.instance.TokenRole("border"));
+			s.text = host.Role(n.instance.TokenRole("text"));
+			s.textMuted = host.Role(n.instance.TokenRole("text_muted"));
+			s.rowHover = host.Role(n.instance.TokenRole("row_hover"));
+			s.activeMark = host.Role(n.instance.TokenRole("active_mark"));
+			s.activeText = host.Role(n.instance.TokenRole("active_text"));
+			s.chosenMark = host.Role(n.instance.TokenRole("chosen_mark"));
+			s.guide = host.Role(n.instance.TokenRole("guide"));
+			s.dropMark = host.Role(n.instance.TokenRole("drop_mark"));
+			s.iconTint = host.Role(n.instance.TokenRole("icon_tint"));
+			s.dimTint = host.Role(n.instance.TokenRole("dim_tint"));
+			s.values = &n.instance;
+			return s;
+		}
+
 	} // namespace renderdetail
 
 	// ── LE RENDU D'UN DOCUMENT ──────────────────────────────────────────────
@@ -233,6 +336,20 @@ namespace nkuidesign {
 				hooks.onDoubleClick = &NkDocumentHost::OnDoubleClick;
 				nkentseu::editorkit::NkDrawContentBrowser(p, in, r, host.demoModels[(uint32)node],
 														  renderdetail::BrowserStyle(host, n), hooks);
+			}
+		} else if (StrEq(n.component.Data(), "tree_view")) {
+			// ⚠️ LE SECOND COMPOSANT REEL, et il n'a rien coute d'autre que ces
+			//    huit lignes : la palette, l'arbre de composition, l'agencement,
+			//    les proprietes et la sauvegarde le connaissaient DEJA, parce
+			//    qu'aucun d'eux ne nomme un composant. C'est la premiere fois que
+			//    cette affirmation est verifiee sur autre chose qu'une
+			//    declaration ecrite par celui qui la teste.
+			if ((uint32)node < (uint32)host.demoTrees.Size() && r.w > 0.f && r.h > 0.f) {
+				NkTreeViewHooks hooks;
+				hooks.user = &host;
+				hooks.onSelect = &NkDocumentHost::OnSelect;
+				nkentseu::editorkit::NkDrawTreeView(p, in, r, host.demoTrees[(uint32)node],
+													renderdetail::TreeStyle(host, n), hooks);
 			}
 		} else {
 			// Declare dans le registre, mais aucune fonction de dessin ici.
