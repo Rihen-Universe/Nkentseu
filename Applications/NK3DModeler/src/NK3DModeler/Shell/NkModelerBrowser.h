@@ -37,6 +37,20 @@ namespace nkentseu {
 		// paye sur kVidExt[3], applique a un libelle.
 		static const char *const kBrowserTitle = "Navigateur de contenu";
 
+		// ── GLISSER-DEPOSER (API NKGui) : un glisser du NAVIGATEUR est-il en
+		// cours ? L'etat vit dans NKGui (type de charge "brow.item", charge =
+		// int32[2] : {index de la carte ou du dossier, 1 si la prise vient de
+		// l'ARBRE, 0 de la grille}) -- meme motif que NkHierDragActive.
+		inline bool NkBrowDragActive(const nkgui::NkGuiContext *gc) {
+			if (!gc || !gc->dragActive)
+				return false;
+			const char *want = "brow.item";
+			int32 i = 0;
+			for (; want[i] && gc->dragType[i] == want[i]; ++i) {
+			}
+			return want[i] == '\0' && gc->dragType[i] == '\0';
+		}
+
 		// â”€â”€ NAVIGATEUR DE CONTENU (bas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// `sortCombo` porte le deroulant de CLASSEMENT. Il est fourni par la boucle
 		// principale, comme pour les autres combos : un popup se peint APRES tout le
@@ -236,9 +250,20 @@ namespace nkentseu {
 				st.browMenuX = hit.Mouse().x;
 				st.browMenuY = hit.Mouse().y;
 			}
-			int32 dropTo = -999; // -1 racine, i dossier, -100 fond de grille
+			// GLISSER-DEPOSER SUR L'API NKGui (2026-08-18) : l'etat (armement,
+			// seuil, fantome, livraison unique) vit dans la bibliotheque --
+			// BeginDragSource / SetDragPayload / BeginDropTarget /
+			// AcceptDragPayload, comme la hierarchie. La livraison est appliquee
+			// APRES le parcours (pending*) : le transfert reordonne les cartes
+			// qu'on est en train de lire. Les cibles ne se declarent que pendant
+			// un glisser DE CE TYPE (browDragging) : pendant un glisser venu de
+			// la hierarchie ("hier.node"), rien ne s'allume ici.
+			const bool browDragging = NkBrowDragActive(guiCtx);
+			int32 dropHover = -1;     // carte-dossier survolee par le glisser
+			int32 pendingSrc = -1;    // index livre par la charge, -1 = rien
+			int32 pendingDest = -999; // -1 racine, i dossier, -100 fond, -1000 vue
+			bool pendingFromTree = false, pendingDestTree = false;
 			int32 chevB2 = -1;   // dossier dont la FLECHE vient d'etre cliquee
-			const bool freshB = hit.MouseDown() && !st.browMouseWasDown && !uiModal;
 			const nkgui::NkVec2 bm = hit.Mouse();
 			int32 folderCount = 0;
 			{
@@ -259,10 +284,25 @@ namespace nkentseu {
 							on ? NkRole::TextOnAccent : NkRole::Text);
 					if (!uiModal && hit.Clicked("brow.root"))
 						st.browserFolder = -1;
-					if (st.browDragging && NkHitRegistry::Contains(rowR, bm)) {
-						dropTo = -1; // vers la RACINE
-						p.Fill({rowR.x, rowR.y + rowR.h - S(2.f), rowR.w, S(2.f)},
-							   NkRole::AccentUi);
+					// CIBLE (API NKGui) : la racine recoit -- zone declaree
+					// explicitement, la ligne garde son clic.
+					if (guiCtx && !uiModal && browDragging) {
+						nkgui::NkGuiContext &gc = *guiCtx;
+						if (nkgui::BeginDropTarget(gc, gc.GetId("brow.drop.root"), rowR)) {
+							p.Fill({rowR.x, rowR.y + rowR.h - S(2.f), rowR.w, S(2.f)},
+								   NkRole::AccentUi);
+							int32 sz = 0;
+							if (const int32 *pl = static_cast<const int32 *>(
+									nkgui::AcceptDragPayload(gc, "brow.item", &sz))) {
+								if (sz == (int32)(2 * sizeof(int32))) {
+									pendingSrc = pl[0];
+									pendingFromTree = pl[1] != 0;
+									pendingDest = -1; // vers la RACINE
+									pendingDestTree = true;
+								}
+							}
+							nkgui::EndDropTarget(gc);
+						}
 					}
 					dy += kRowH;
 				}
@@ -333,19 +373,38 @@ namespace nkentseu {
 						st.browMenuX = bm.x;
 						st.browMenuY = bm.y;
 					}
-					// GLISSER-DEPOSER : armement sur la ligne, cible au survol.
-					if (freshB && NkHitRegistry::Contains(rowR, bm)) {
-						st.browDragIdx = i;
-						st.browDragX = bm.x;
-						st.browDragY = bm.y;
-						st.browDragging = false;
-						st.browDragFromTree = true;
-					}
-					if (st.browDragging && st.browDragIdx != i &&
-						NkHitRegistry::Contains(rowR, bm)) {
-						dropTo = i;
-						p.Fill({rowR.x, rowR.y + rowR.h - S(2.f), rowR.w, S(2.f)},
-							   NkRole::AccentUi);
+					// GLISSER-DEPOSER (API NKGui) : la ligne est SOURCE (on tire
+					// le dossier) et CIBLE (on lache dedans). ButtonBehavior pose
+					// ce que la bibliotheque consomme ; son clic est IGNORE, la
+					// selection reste au registre ci-dessus (mesure : hierarchie).
+					if (st.browTraceCards)
+						printf("[nk3d-brow] dir=%d name=\"%s\" x=%.0f y=%.0f w=%.0f h=%.0f\n",
+							   i, st.browserNames[i], rowR.x, rowR.y, rowR.w, rowR.h);
+					if (guiCtx && !uiModal) {
+						nkgui::NkGuiContext &gc = *guiCtx;
+						snprintf(fkey, sizeof(fkey), "brow.drag.dir.%d", i);
+						gc.ButtonBehavior(gc.GetId(fkey), rowR);
+						if (nkgui::BeginDragSource(gc)) {
+							const int32 pl[2] = {i, 1};
+							nkgui::SetDragPayload(gc, "brow.item", pl, (int32)sizeof(pl),
+												  st.browserNames[i]);
+							nkgui::EndDragSource(gc);
+						}
+						if (browDragging && nkgui::BeginDropTarget(gc)) {
+							p.Fill({rowR.x, rowR.y + rowR.h - S(2.f), rowR.w, S(2.f)},
+								   NkRole::AccentUi);
+							int32 sz = 0;
+							if (const int32 *pl2 = static_cast<const int32 *>(
+									nkgui::AcceptDragPayload(gc, "brow.item", &sz))) {
+								if (sz == (int32)(2 * sizeof(int32))) {
+									pendingSrc = pl2[0];
+									pendingFromTree = pl2[1] != 0;
+									pendingDest = i;
+									pendingDestTree = true;
+								}
+							}
+							nkgui::EndDropTarget(gc);
+						}
 					}
 					dy += kRowH;
 					if (!foldB)
@@ -708,20 +767,39 @@ namespace nkentseu {
 					st.browMenuY = hit.Mouse().y;
 				}
 				{
-					// GLISSER-DEPOSER : la carte s'arme au premier appui ; une
-					// carte-DOSSIER est une cible de depot.
+					// GLISSER-DEPOSER (API NKGui) : la carte s'arme comme SOURCE ;
+					// une carte-DOSSIER est aussi une CIBLE de depot. Le clic de
+					// selection reste au registre (hit.Clicked ci-dessous).
 					const NkRect cardR{tx, tyy, tw, cardH};
-					if (freshB && NkHitRegistry::Contains(cardR, bm)) {
-						st.browDragIdx = i;
-						st.browDragX = bm.x;
-						st.browDragY = bm.y;
-						st.browDragging = false;
-						st.browDragFromTree = false;
-					}
-					if (st.browDragging && st.browDragIdx != i && kind == 1 &&
-						NkHitRegistry::Contains(cardR, bm)) {
-						dropTo = i;
-						p.OutlineSharp(cardR, NkRole::AccentUi);
+					if (st.browTraceCards)
+						printf("[nk3d-brow] card=%d kind=%d name=\"%s\" x=%.0f y=%.0f w=%.0f h=%.0f\n",
+							   i, kind, st.browserNames[i], cardR.x, cardR.y, cardR.w, cardR.h);
+					if (guiCtx && !uiModal) {
+						nkgui::NkGuiContext &gc = *guiCtx;
+						char dkey[40];
+						snprintf(dkey, sizeof(dkey), "brow.drag.card.%d", i);
+						gc.ButtonBehavior(gc.GetId(dkey), cardR);
+						if (nkgui::BeginDragSource(gc)) {
+							const int32 pl[2] = {i, 0};
+							nkgui::SetDragPayload(gc, "brow.item", pl, (int32)sizeof(pl),
+												  st.browserNames[i]);
+							nkgui::EndDragSource(gc);
+						}
+						if (kind == 1 && browDragging && nkgui::BeginDropTarget(gc)) {
+							dropHover = i;
+							p.OutlineSharp(cardR, NkRole::AccentUi);
+							int32 sz = 0;
+							if (const int32 *pl2 = static_cast<const int32 *>(
+									nkgui::AcceptDragPayload(gc, "brow.item", &sz))) {
+								if (sz == (int32)(2 * sizeof(int32))) {
+									pendingSrc = pl2[0];
+									pendingFromTree = pl2[1] != 0;
+									pendingDest = i;
+									pendingDestTree = false;
+								}
+							}
+							nkgui::EndDropTarget(gc);
+						}
 					}
 				}
 				if (!uiModal && hit.Clicked(akey)) {
@@ -902,101 +980,122 @@ namespace nkentseu {
 			// recherche : sa gouttiere aussi, sinon la barre le recouvrirait.
 			NkPaintVScroll(p, guiCtx, treeArea, 5.f * kRowH + S(8.f), st.scrollTree, 0x42524F57u);
 			NkPaintVScroll(p, guiCtx, assetArea, assetContentH, st.scrollAssets, 0x42415353u);
-			// LACHER du glisser-deposer (4 sens, garde anti-cycle) + fantome.
-			if (st.browDragIdx >= 0) {
-				if (hit.MouseDown()) {
-					if (!st.browDragging) {
-						const float32 dxb = bm.x - st.browDragX, dyb = bm.y - st.browDragY;
-						if (dxb * dxb + dyb * dyb > 36.f)
-							st.browDragging = true;
-					}
-					if (st.browDragging)
-						p.TextV(bm.x + S(14.f), bm.y - kRowH * 0.5f, kRowH,
-								st.browserNames[st.browDragIdx], NkRole::Text);
-				} else {
-					if (st.browDragging) {
-						// ── LACHER SUR LA VUE 3D : ON FIGE UN JETON, ON NE FAIT RIEN ──
-						// Avant, seul un MODEL etait traite, et il atterrissait a
-						// l'origine parce que personne ne savait ou le curseur
-						// pointait dans la scene -- l'hote n'exposait aucun pick.
-						// Desormais chaque nature est traitee, et AUCUNE ne reste
-						// muette : un refus silencieux est indistinguable d'un
-						// glisser-deposer casse.
-						//
-						// Rien ne s'applique ICI : la reponse du pick n'existe qu'a
-						// la frame suivante. On fige donc TOUT ce dont le geste aura
-						// besoin, et main.cpp applique quand la reponse arrive.
-						if (!NkHitRegistry::Contains(st.browserRect, bm) &&
-							NkHitRegistry::Contains(st.viewRect, bm)) {
-							st.dropIdx = st.browDragIdx;
-							st.dropKind = st.browserKind[st.browDragIdx];
-							st.dropSrcNode = st.browserSrcNode[st.browDragIdx];
-							st.dropMat = st.browserMat[st.browDragIdx];
-							snprintf(st.dropName, sizeof(st.dropName), "%s",
-									 st.browserNames[st.browDragIdx]);
-st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
-							// ---- LES CARTES QUI PARTENT AVEC ELLE ----
-							//
-							// On ne tire pas forcement une carte isolee : si celle qu'on saisit
-							// fait partie des cartes CHOISIES, tout le lot part avec. Si elle
-							// n'en fait pas partie, elle part SEULE -- saisir une carte hors
-							// selection est un geste qui la designe, pas qui ignore le clic.
-							// C'est la regle de tous les gestionnaires de fichiers, et s'en
-							// ecarter ferait perdre des lots sans que l'utilisateur comprenne.
-							//
-							// La carte saisie n'entre PAS dans la file : elle est deja dans le
-							// jeton. La file ne porte que celles qui attendent leur tour.
-							st.dropQueueCount = 0;
-							st.dropQueueX = bm.x;
-							st.dropQueueY = bm.y;
-							if (st.browserPicked[st.browDragIdx]) {
-															for (int32 k = 0; k < st.browserCount &&
-																 st.dropQueueCount < NkModelerState::kMaxBrowser;
-																 ++k) {
-																if (k == st.browDragIdx || !st.browserPicked[k])
-																	continue;
-																st.dropQueue[st.dropQueueCount++] = k;
-															}
-							}
-							// COORDONNEES FENETRE, telles quelles : l'hote soustrait
-							// SON origine de vue. Passer `bm - st.viewRect` ferait de
-							// `viewRect` une seconde source pour la meme origine.
-							demo::Demo3DHostPickRequest(bm.x, bm.y);
-							st.browDragIdx = -1;
-						}
-						if (st.browDragIdx >= 0 && dropTo == -999 &&
-							NkHitRegistry::Contains({r.x + treeW, ty, r.w - treeW, th}, bm))
-							dropTo = -100; // fond de grille = dossier COURANT
-						if (dropTo != -999) {
-							const int32 dest = (dropTo == -100) ? st.browserFolder : dropTo;
-							bool ok5 = (dest != st.browDragIdx);
-							for (int32 c5 = dest; c5 >= 0 && ok5; c5 = st.browserParent[c5])
-								if (c5 == st.browDragIdx)
-									ok5 = false;
-							if (ok5) {
-								const bool destTree =
-									NkHitRegistry::Contains({r.x, ty, treeW, th}, bm);
-								if (st.browDragFromTree != destTree) {
-									// TRAVERSEE gauche <-> droite, dans les DEUX sens :
-									// GAUCHE -> DROITE : la carte Copier/Deplacer decide
-									// (Rihen) -- cliquer dans le vide annulera.
-									st.browAskIdx = st.browDragIdx;
-									st.browAskDest = dest;
-									st.browAskX = bm.x;
-									st.browAskY = bm.y;
-								} else {
-									NkBrowRequestTransfer(st, st.browDragIdx, dest, false,
-														  bm.x, bm.y);
-								}
-							}
+			// CIBLES HORS WIDGET, declarees EXPLICITEMENT (API NKGui) : le FOND
+			// de la grille (= dossier courant) et la VUE 3D. Les cartes ont ete
+			// soumises avant : si une carte-dossier est survolee (dropHover >= 0),
+			// le fond ne se declare pas -- une seule livraison par lacher. Le
+			// fantome (nom sous le curseur) est peint par la bibliotheque.
+			if (guiCtx && !uiModal && browDragging) {
+				nkgui::NkGuiContext &gc = *guiCtx;
+				if (dropHover < 0 &&
+					nkgui::BeginDropTarget(gc, gc.GetId("brow.drop.grid"),
+										   {r.x + treeW, ty, r.w - treeW, th})) {
+					int32 sz = 0;
+					if (const int32 *pl = static_cast<const int32 *>(
+							nkgui::AcceptDragPayload(gc, "brow.item", &sz))) {
+						if (sz == (int32)(2 * sizeof(int32))) {
+							pendingSrc = pl[0];
+							pendingFromTree = pl[1] != 0;
+							pendingDest = -100; // fond de grille = dossier COURANT
+							pendingDestTree = false;
 						}
 					}
-					st.browDragIdx = -1;
+					nkgui::EndDropTarget(gc);
+				}
+				if (nkgui::BeginDropTarget(gc, gc.GetId("brow.drop.view"), st.viewRect)) {
+					int32 sz = 0;
+					if (const int32 *pl = static_cast<const int32 *>(
+							nkgui::AcceptDragPayload(gc, "brow.item", &sz))) {
+						if (sz == (int32)(2 * sizeof(int32))) {
+							pendingSrc = pl[0];
+							pendingFromTree = pl[1] != 0;
+							pendingDest = -1000; // vue 3D
+						}
+					}
+					nkgui::EndDropTarget(gc);
 				}
 			}
-			if (!hit.MouseDown() && st.browDragIdx < 0)
-				st.browDragging = false;
-			st.browMouseWasDown = hit.MouseDown();
+			// APPLICATION de la livraison, hors du parcours (le transfert
+			// reordonne les cartes qu'on vient de lire).
+			if (pendingSrc >= 0 && pendingSrc < st.browserCount) {
+				if (pendingDest == -1000) {
+					// ── LACHER SUR LA VUE 3D : ON FIGE UN JETON, ON NE FAIT RIEN ──
+					// Avant, seul un MODEL etait traite, et il atterrissait a
+					// l'origine parce que personne ne savait ou le curseur
+					// pointait dans la scene -- l'hote n'exposait aucun pick.
+					// Desormais chaque nature est traitee, et AUCUNE ne reste
+					// muette : un refus silencieux est indistinguable d'un
+					// glisser-deposer casse.
+					//
+					// Rien ne s'applique ICI : la reponse du pick n'existe qu'a
+					// la frame suivante. On fige donc TOUT ce dont le geste aura
+					// besoin, et main.cpp applique quand la reponse arrive.
+					st.dropIdx = pendingSrc;
+					st.dropKind = st.browserKind[pendingSrc];
+					st.dropSrcNode = st.browserSrcNode[pendingSrc];
+					st.dropMat = st.browserMat[pendingSrc];
+					snprintf(st.dropName, sizeof(st.dropName), "%s",
+							 st.browserNames[pendingSrc]);
+					st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
+					// ---- LES CARTES QUI PARTENT AVEC ELLE ----
+					//
+					// On ne tire pas forcement une carte isolee : si celle qu'on saisit
+					// fait partie des cartes CHOISIES, tout le lot part avec. Si elle
+					// n'en fait pas partie, elle part SEULE -- saisir une carte hors
+					// selection est un geste qui la designe, pas qui ignore le clic.
+					// C'est la regle de tous les gestionnaires de fichiers, et s'en
+					// ecarter ferait perdre des lots sans que l'utilisateur comprenne.
+					//
+					// La carte saisie n'entre PAS dans la file : elle est deja dans le
+					// jeton. La file ne porte que celles qui attendent leur tour.
+					st.dropQueueCount = 0;
+					st.dropQueueX = bm.x;
+					st.dropQueueY = bm.y;
+					if (st.browserPicked[pendingSrc]) {
+						for (int32 k = 0; k < st.browserCount &&
+							 st.dropQueueCount < NkModelerState::kMaxBrowser;
+							 ++k) {
+							if (k == pendingSrc || !st.browserPicked[k])
+								continue;
+							st.dropQueue[st.dropQueueCount++] = k;
+						}
+					}
+					// COORDONNEES FENETRE, telles quelles : l'hote soustrait
+					// SON origine de vue. Passer `bm - st.viewRect` ferait de
+					// `viewRect` une seconde source pour la meme origine.
+					demo::Demo3DHostPickRequest(bm.x, bm.y);
+				} else if (pendingDest != -999) {
+					// LACHER DANS LE NAVIGATEUR (racine, dossier, fond) : meme
+					// garde anti-cycle qu'avant la migration.
+					const int32 dest = (pendingDest == -100) ? st.browserFolder : pendingDest;
+					bool ok5 = (dest != pendingSrc);
+					for (int32 c5 = dest; c5 >= 0 && ok5; c5 = st.browserParent[c5])
+						if (c5 == pendingSrc)
+							ok5 = false;
+					if (ok5) {
+						if (pendingFromTree != pendingDestTree) {
+							// TRAVERSEE gauche <-> droite, dans les DEUX sens :
+							// GAUCHE -> DROITE : la carte Copier/Deplacer decide
+							// (Rihen) -- cliquer dans le vide annulera.
+							st.browAskIdx = pendingSrc;
+							st.browAskDest = dest;
+							st.browAskX = bm.x;
+							st.browAskY = bm.y;
+						} else {
+							NkBrowRequestTransfer(st, pendingSrc, dest, false,
+												  bm.x, bm.y);
+						}
+					}
+				}
+			}
+
+			if (st.browTraceCards) {
+				printf("[nk3d-brow] tree x=%.0f y=%.0f w=%.0f h=%.0f | grid x=%.0f y=%.0f w=%.0f h=%.0f | view x=%.0f y=%.0f w=%.0f h=%.0f | folder=%d\n",
+					   r.x, ty, treeW, th, r.x + treeW, ty, r.w - treeW, th, st.viewRect.x,
+					   st.viewRect.y, st.viewRect.w, st.viewRect.h, st.browserFolder);
+				st.browTraceCards = false;
+				fflush(stdout);
+			}
 
 			char cnt[32];
 			snprintf(cnt, sizeof(cnt), "%d element(s)", shown);

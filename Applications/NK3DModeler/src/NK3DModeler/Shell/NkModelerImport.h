@@ -7,11 +7,15 @@
 //          R40/R41 : la frontiere entre deux fichiers est le MODEL, declare
 //          par le fichier ; la connexite ne sert jamais a l'import).
 //
-//          ETAT (17/08) : chaine COMPLETE -- chargement, decoupage par nom,
-//          CREATION des noeuds (racine + un noeud maillage par sous-mesh,
-//          positions MONDE, sommets locaux rebases), archivage + carte
-//          navigateur par model. Les `.nkmesh` partent A LA SAUVEGARDE,
-//          jamais ici (temoin negatif de la grille du point 4).
+//          ETAT (17/08 soir, contrat d'import de Rodolf apres la 10e
+//          relecture) : chaine COMPLETE -- chargement, decoupage par nom,
+//          CREATION des noeuds (positions MONDE, sommets locaux rebases),
+//          ARCHIVAGE EN PLACE (rien n'entre dans la scene) et ECRITURE des
+//          `.nkmesh` sur le disque du projet, un par model : l'import EST le
+//          geste d'ecriture (contrat point 1). Un model d'UNE tranche est un
+//          noeud maillage DIRECT a sa propre origine -- aucun empty fabrique
+//          si le fichier n'en declare pas (contrat point 5, defaut vu par
+//          Rodolf sur les roues).
 //
 //          ECART DECLARE, pas cache : la GEOMETRIE importee suit la meme
 //          dette que la geometrie editee (NkModelerScene.h, « ce qui n'est
@@ -23,6 +27,7 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerScreens.h" // etat + hote + NkBrowUniqueName/NkMarkDirty
+#include "NK3DModeler/Project/NkModelerAssets.h" // NkProjectWriteCard : l'UNIQUE ecrivain de carte
 #include "NKRenderer/Mesh/NkOBJLoader.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkFBXLoader.h"
@@ -164,15 +169,26 @@ namespace nkentseu {
 			demo::Demo3DHostSetNodeLabel(node, nm);
 		}
 
-		/// LA CREATION (point 4 de l'eclatement) : chaque model de la
-		/// decomposition devient racine (empty, model) + UN NOEUD MAILLAGE PAR
-		/// SOUS-MESH dans la scene active, puis est ARCHIVE pour sa carte
-		/// navigateur -- le MEME chemin que le glisser hierarchie -> navigateur.
-		/// AUCUNE ecriture disque ici : les `.nkmesh` partent a la SAUVEGARDE
-		/// (temoin negatif de la grille). La carte est marquee
-		/// `browserOriginDirty` : son consommateur (NkProjectWriteAssets) dit
-		/// « a ecrire au prochain enregistrement, meme partiel », et un model
-		/// qui n'existe qu'en memoire est exactement cela.
+		/// LA CREATION (point 4 de l'eclatement, contrat du 17/08 soir) : chaque
+		/// model de la decomposition devient des NOEUDS -- puis est ARCHIVE EN
+		/// PLACE (invisible, hors hierarchie : rien n'entre dans la scene) et
+		/// ECRIT sur le disque du projet (`.nkmesh`, un par model) par
+		/// NkProjectWriteCard, l'unique ecrivain de carte. L'import EST le geste
+		/// d'ecriture (contrat point 1) ; la scene ne recoit un model que par un
+		/// glisser depuis le navigateur ou depuis le systeme.
+		///
+		/// UN MODEL D'UNE TRANCHE EST UN MAILLAGE DIRECT (contrat point 5) :
+		/// pas de racine, le noeud maillage nait A SON ANCRE (le centre de sa
+		/// boite -- pour une roue, le moyeu) et c'est LUI la carte. Rodolf a vu
+		/// « le empty de chaque roue comme maillage de la roue » : le fichier
+		/// (5 `o`, aucun groupe) ne declare aucun conteneur, on n'en fabrique
+		/// aucun. Un model de PLUSIEURS tranches (plusieurs sous-mesh sous le
+		/// meme nom : les primitives d'un node glTF, les groupes/materiaux d'un
+		/// `o` OBJ) garde une racine EMPTY + un maillage par tranche : ici le
+		/// fichier declare bien un regroupement, et un noeud de ce systeme ne
+		/// porte qu'UN materiau (dette dite : pas de maillage multi-materiaux).
+		/// Le dialogue d'import (contrat point 3) offrira « regrouper » /
+		/// « eclater » ; ceci en est le defaut.
 		///
 		/// TRANCHES -- mesure du 17/08, les deux chargeurs ne remplissent pas
 		/// pareil : glTF ecrit des indices LOCAUX a la primitive et baseVertex
@@ -184,20 +200,26 @@ namespace nkentseu {
 		/// chaque model.
 		///
 		/// SOMMETS LOCAUX, POSITIONS MONDE : chaque noeud maillage nait a
-		/// l'ANCRE de sa tranche (le centre de sa boite) et ses sommets sont
-		/// rebases autour d'elle -- meme image a l'ecran, et l'origine est SUR
-		/// la matiere (le gizmo aussi). La racine nait au barycentre X/Z de ses
-		/// maillages, Y=0 (la hauteur porte la pose au sol -- regle du
-		/// recentrage) : Demo3DHostRecenterModel retrouvera exactement cette
-		/// moyenne a l'archivage, donc `MESURE origine` doit dire ECART=(0, 0)
-		/// des la naissance. C'est le temoin.
+		/// l'ANCRE de sa tranche et ses sommets sont rebases autour d'elle --
+		/// meme image a l'ecran, et l'origine est SUR la matiere (le gizmo
+		/// aussi). Une racine (cas multi-tranches) nait au barycentre X/Z de
+		/// ses maillages, Y=0 -- la moyenne exacte que Demo3DHostRecenterModel
+		/// recalcule, donc `MESURE origine` doit dire ECART=(0, 0).
 		inline bool NkImportCreate(NkModelerState &st, const renderer::NkGLTFMeshData &data,
-								   const NkVector<NkImportModel> &models, const char *stem) {
+								   const NkVector<NkImportModel> &models, const char *stem,
+								   NkVector<int32> *cardsOut = nullptr) {
 			// Un import cree des MODELS : dans un editeur de model, il n'a pas
 			// de sens (un model ne contient pas de models). Refus NOMME.
 			if (demo::Demo3DHostDocIsModel()) {
 				snprintf(st.hierNote, sizeof(st.hierNote),
 						 "Importer : ouvrez une SCENE (l'import cree des models)");
+				return false;
+			}
+			// Un import ECRIT dans le projet : sans projet ouvert, il n'a nulle
+			// part ou ecrire, et le dire vaut mieux qu'ecrire dans le vide.
+			if (st.projectRoot.Empty()) {
+				snprintf(st.hierNote, sizeof(st.hierNote),
+						 "Importer : ouvrez un PROJET (l'import ecrit des .nkmesh dedans)");
 				return false;
 			}
 			const uint32 vTotal = (uint32)data.vertices.Size();
@@ -209,8 +231,9 @@ namespace nkentseu {
 			// tranche).
 			NkVector<int32> remap;
 			remap.Resize((usize)vTotal, -1);
-			int32 modelsNes = 0, noeudsNes = 0, cartes = 0;
+			int32 modelsNes = 0, noeudsNes = 0, cartes = 0, fichiers = 0;
 			bool plein = false, navPlein = false;
+			NkString errEcr;
 			for (usize mi = 0; mi < models.Size() && !plein; ++mi) {
 				const NkImportModel &mo = models[mi];
 				const char *mnm = (mo.name && mo.name[0]) ? mo.name : stem;
@@ -253,19 +276,24 @@ namespace nkentseu {
 					NkLog::Instance().Warnf("[import] model « %s » : aucune geometrie, saute", mnm);
 					continue;
 				}
-				// ── la racine, au barycentre X/Z de sa future matiere ──
-				const float32 rpos[3] = {sax / (float32)nVives, 0.f, saz / (float32)nVives};
-				const int32 root = demo::Demo3DHostCreateModelRoot(rpos);
-				if (root < 0) {
-					plein = true;
-					break; // on garde ce qui a pu naitre, et on le DIT plus bas
+				// ── la racine, SEULEMENT si le fichier regroupe plusieurs tranches
+				// sous ce nom. Une tranche = un maillage direct, sans conteneur.
+				const bool direct = (nVives == 1);
+				int32 root = -1;
+				if (!direct) {
+					const float32 rpos[3] = {sax / (float32)nVives, 0.f, saz / (float32)nVives};
+					root = demo::Demo3DHostCreateModelRoot(rpos);
+					if (root < 0) {
+						plein = true;
+						break; // on garde ce qui a pu naitre, et on le DIT plus bas
+					}
+					NkImpNodeName(st, root, mnm);
 				}
-				NkImpNodeName(st, root, mnm);
-				++modelsNes;
 				// ── passe B : un noeud maillage par tranche vive ──
-				NkVector<const char *> nomPiece; // pour renommer l'archive apres
+				int32 top = root; // le noeud que la carte designe (racine, ou LE maillage)
 				uint32 mVerts = 0, mIdx = 0;
 				int32 pieces = 0;
+				float32 topPos[3] = {0.f, 0.f, 0.f};
 				for (int32 s = 0; s < mo.subCount && !plein; ++s) {
 					if (!vive[(usize)s])
 						continue;
@@ -288,7 +316,9 @@ namespace nkentseu {
 						}
 						li.PushBack((uint32)remap[gi]);
 					}
-					const char *snm = sm.name.CStr();
+					// Le maillage direct porte le nom du MODEL (c'est lui l'objet) ;
+					// un maillage sous racine porte le nom de SA tranche.
+					const char *snm = direct ? mnm : sm.name.CStr();
 					if (!snm || !snm[0])
 						snm = mnm;
 					const int32 n = demo::Demo3DHostCreateMeshNode(
@@ -301,21 +331,45 @@ namespace nkentseu {
 						break;
 					}
 					NkImpNodeName(st, n, snm);
-					nomPiece.PushBack(snm);
+					if (direct) {
+						// UN OBJET ORDINAIRE, pas un « maillage interne » : le
+						// drapeau IsMesh veut dire « matiere d'un model » -- la
+						// hierarchie de scene CACHE ces noeuds (NkHierNodeSkip) et
+						// la relecture retire le drapeau a tout maillage sans model
+						// au-dessus (NkAsRepairOrphanMeshes). Un maillage direct n'a
+						// pas de model : il se comporte comme un cube cree au menu,
+						// dont la geometrie vit dans nkvpUserMesh (mesure : sans
+						// cette ligne, le noeud depose serait invisible dans la
+						// hierarchie et « repare » a la reouverture).
+						demo::Demo3DHostSetNodeIsMesh(n, false);
+						top = n;
+						topPos[0] = a3[0];
+						topPos[1] = a3[1];
+						topPos[2] = a3[2];
+					}
 					mVerts += (uint32)lv.Size();
 					mIdx += (uint32)li.Size();
 					++pieces;
 					++noeudsNes;
 				}
-				// ── archive + carte navigateur : le MEME chemin que le glisser
-				// hierarchie -> navigateur (NkModelerHierarchy.h). L'archivage
-				// recentre l'archive (Demo3DHostRecenterModel y est appele) :
-				// la racine etant nee a la moyenne exacte, la ligne `MESURE
-				// origine` de ce depot DOIT dire ECART=(0, 0). Chaque ligne de
-				// la grille peut me donner tort.
-				int32 arc = -1, k6 = -1;
+				if (top < 0)
+					continue; // rien n'a pu naitre pour ce model (plein) : dit plus bas
+				++modelsNes;
+				// ── ARCHIVE EN PLACE : le model et sa matiere sortent du rendu et
+				// de la hierarchie sans copie -- « un import n'ajoute pas a la
+				// scene » (contrat point 1). Pas de Demo3DHostArchiveNode : il
+				// DUPLIQUERAIT et laisserait l'original vivant dans la scene.
+				demo::Demo3DHostArchiveTree(top, true);
+				// L'origine d'une racine est nee a la moyenne exacte : la mesure
+				// doit dire ECART=(0, 0). Un maillage direct n'a rien a recentrer
+				// (RecenterModel refuse un non-model, et c'est juste : son origine
+				// EST son ancre).
+				if (!direct)
+					(void)demo::Demo3DHostRecenterModel(top);
+				// ── carte navigateur + ECRITURE du .nkmesh, tout de suite ──
+				int32 k6 = -1;
+				bool ecrit = false;
 				if (st.browserCount < NkModelerState::kMaxBrowser) {
-					arc = demo::Demo3DHostArchiveNode(root);
 					k6 = st.browserCount++;
 					st.browserKind[k6] = 6;
 					st.browserParent[k6] = st.browserFolder;
@@ -323,39 +377,33 @@ namespace nkentseu {
 					st.browserDoc[k6] = 0;
 					st.browserMat[k6] = 0;
 					st.browserFile[k6][0] = 0;
-					st.browserSrcNode[k6] = (arc >= 0 ? arc : root) + 1;
+					st.browserSrcNode[k6] = top + 1;
 					NkBrowUniqueName(st, 6, st.browserFolder, mnm, st.browserNames[k6],
 									 (uint32)sizeof(st.browserNames[0]));
-					// A ECRIRE AU PROCHAIN ENREGISTREMENT, meme partiel : le
-					// consommateur du drapeau (NkProjectWriteAssets) dit
-					// exactement cela, et cette carte n'a pas encore de fichier.
-					st.browserOriginDirty[k6] = true;
 					++cartes;
-					// ── les NOMS de l'archive. HostDuplicateTree parcourt les
-					// sources par slot croissant et HostAllocUser prend toujours
-					// le PLUS PETIT slot libre d'un ensemble qui ne fait que
-					// retrecir pendant la boucle : les maillages du double
-					// naissent donc en slots croissants, dans l'ordre des
-					// sources -- k-ieme (croissant) chez l'un = k-ieme chez
-					// l'autre. Sans ces noms, le fichier de model ecrirait des
-					// noeuds anonymes et la reouverture montrerait « Cube.NNN ».
-					if (arc >= 0) {
-						NkImpNodeName(st, arc, mnm);
-						int32 k = 0;
-						const int32 nodeMax = demo::Demo3DHostNodeCount();
-						for (int32 c = 0; c < nodeMax && k < (int32)nomPiece.Size(); ++c)
-							if (demo::Demo3DHostNodeInnerMeshOf(c, arc))
-								NkImpNodeName(st, c, nomPiece[(usize)k++]);
-					}
+					if (cardsOut)
+						cardsOut->PushBack(k6); // l'appelant (lacher OS) instanciera
+					// L'IMPORT ECRIT : le fichier existe des la fin du geste, par le
+					// meme ecrivain que « Enregistrer ». Le drapeau « a ecrire au
+					// prochain enregistrement » ne s'arme que si l'ecriture ECHOUE --
+					// alors la prochaine sauvegarde reprendra la carte, et l'echec
+					// est nomme au lieu de rester muet.
+					ecrit = NkProjectWriteCard(st.projectRoot, st, k6, &errEcr);
+					if (ecrit)
+						++fichiers;
+					else
+						st.browserOriginDirty[k6] = true;
 				} else {
 					navPlein = true;
 				}
 				NkLog::Instance().Infof(
-					"[import] MESURE creation : model « %s » root=%d maillages=%d/%d "
-					"verts=%u indices=%u racine=(%f, 0, %f) arc=%d carte=%d",
-					mnm, root, pieces, mo.subCount, mVerts, mIdx, rpos[0], rpos[2], arc, k6);
+					"[import] MESURE creation : model « %s » noeud=%d %s maillages=%d/%d "
+					"verts=%u indices=%u origine=(%f, %f, %f) carte=%d fichier=%s",
+					mnm, top, direct ? "DIRECT(sans empty)" : "racine+enfants", pieces,
+					mo.subCount, mVerts, mIdx, topPos[0], topPos[1], topPos[2], k6,
+					ecrit ? st.browserFile[k6] : "(non ecrit)");
 			}
-			// Le projet a change (noeuds + cartes) : il le sait.
+			// Le projet a change (cartes dans l'arbre du .nk3dm) : il le sait.
 			if (modelsNes > 0)
 				NkMarkDirty(st);
 			if (plein)
@@ -366,17 +414,22 @@ namespace nkentseu {
 				snprintf(st.hierNote, sizeof(st.hierNote),
 						 "Import : %d model(s), %d maillage(s) - navigateur PLEIN, cartes partielles",
 						 modelsNes, noeudsNes);
+			else if (fichiers < cartes)
+				snprintf(st.hierNote, sizeof(st.hierNote),
+						 "Import : %d carte(s), %d fichier(s) ECRIT(S) sur %d - %s",
+						 cartes, fichiers, cartes, errEcr.Empty() ? "?" : errEcr.CStr());
 			else
 				snprintf(st.hierNote, sizeof(st.hierNote),
-						 "Import : %d model(s), %d maillage(s), %d carte(s) - .nkmesh a la sauvegarde",
-						 modelsNes, noeudsNes, cartes);
+						 "Import : %d model(s), %d maillage(s), %d .nkmesh ecrit(s) - glissez la carte vers la scene",
+						 modelsNes, noeudsNes, fichiers);
 			return modelsNes > 0;
 		}
 
 		/// L'IMPORT COMPLET : charge, decoupe, journalise (`MESURE import`),
 		/// puis CREE les noeuds. Tout refus est NOMME dans `st.hierNote` -- un
 		/// refus silencieux serait indistinguable d'un bouton casse.
-		inline bool NkImportFile(NkModelerState &st, const char *absPath) {
+		inline bool NkImportFile(NkModelerState &st, const char *absPath,
+								 NkVector<int32> *cardsOut = nullptr) {
 			renderer::NkGLTFMeshData data;
 			const char *why = nullptr;
 			if (!NkImportLoad(absPath, data, &why)) {
@@ -397,7 +450,170 @@ namespace nkentseu {
 										models[(uint32)i].subCount);
 			char stem[32];
 			NkImpStem(absPath, stem, (uint32)sizeof(stem));
-			return NkImportCreate(st, data, models, stem);
+			return NkImportCreate(st, data, models, stem, cardsOut);
+		}
+
+		/// INSTANCIER dans la scene active les cartes que l'import vient de
+		/// creer -- c'est le geste « systeme -> scene » et « systeme -> hierarchie »
+		/// du contrat (import + instanciation). Chaque carte est dupliquee depuis
+		/// son archive (le MEME chemin que le depot depuis le navigateur,
+		/// NkDropSpawnModel), puis posee a SON origine du fichier + `off3` :
+		/// les models d'un meme fichier gardent leur disposition relative (la
+		/// caisse et ses quatre roues restent une voiture) -- empiler cinq
+		/// models au meme point aurait defait ce que le fichier declare.
+		/// `off3 == nullptr` : coordonnees du fichier telles quelles
+		/// (hierarchie). Rend le nombre de noeuds nes ; le dernier est selectionne.
+		inline int32 NkImportInstantiate(NkModelerState &st, const NkVector<int32> &cards,
+										 const float32 *off3) {
+			int32 nes = 0, dernier = -1;
+			for (usize i = 0; i < cards.Size(); ++i) {
+				const int32 c = cards[i];
+				if (c < 0 || c >= st.browserCount || st.browserKind[c] != 6 ||
+					st.browserSrcNode[c] <= 0)
+					continue;
+				const int32 src = st.browserSrcNode[c] - 1;
+				const int32 nn = demo::Demo3DHostDuplicateNode(src);
+				if (nn < 0) {
+					NkLog::Instance().Warnf("[import] instanciation : carte %d « %s » : "
+											"plus d'emplacement", c, st.browserNames[c]);
+					break;
+				}
+				float32 sp[3] = {0.f, 0.f, 0.f}, sr[3] = {0.f, 0.f, 0.f}, ss[3] = {1.f, 1.f, 1.f};
+				(void)demo::Demo3DHostEmptyTransform(src, sp, sr, ss);
+				// TOUJOURS pose explicitement : le double nait decale de
+				// (0.45, 0, 0.45) « comme Blender » (Demo3DHostDuplicateNodeEx),
+				// ce qui casserait la disposition du fichier. `off3 == nullptr`
+				// = coordonnees du fichier telles quelles.
+				{
+					const float32 o0 = off3 ? off3[0] : 0.f, o1 = off3 ? off3[1] : 0.f,
+								  o2 = off3 ? off3[2] : 0.f;
+					const float32 np[3] = {sp[0] + o0, sp[1] + o1, sp[2] + o2};
+					demo::Demo3DHostSetModelTransform(nn, np, sr, ss); // rotation/echelle de la source
+				}
+				// Le double porte le nom de la carte : sans lui, la hierarchie
+				// afficherait « Cube.NNN » pour une roue.
+				if (nn < 176)
+					snprintf(st.customNames[nn], sizeof(st.customNames[0]), "%s", st.browserNames[c]);
+				float32 gp[3] = {0.f, 0.f, 0.f}, gr[3] = {0.f, 0.f, 0.f}, gs[3] = {0.f, 0.f, 0.f};
+				(void)demo::Demo3DHostEmptyTransform(nn, gp, gr, gs);
+				NkLog::Instance().Infof("[import] MESURE instanciation : carte %d « %s » src=%d -> "
+										"noeud=%d model=%d pose=(%f, %f, %f)",
+										c, st.browserNames[c], src, nn,
+										demo::Demo3DHostNodeIsModel(nn) ? 1 : 0, gp[0], gp[1], gp[2]);
+				dernier = nn;
+				++nes;
+			}
+			if (dernier >= 0)
+				demo::Demo3DHostSelectEmptyNode(dernier);
+			if (nes > 0)
+				NkMarkDirty(st);
+			return nes;
+		}
+
+		/// Barycentre X/Z des origines des cartes (Y = 0) : le point que le
+		/// lacher sur la vue 3D amene sous le curseur. Rend faux si aucune carte.
+		inline bool NkImportCardsCenter(const NkModelerState &st, const NkVector<int32> &cards,
+										float32 *out3) {
+			float32 sx = 0.f, sz = 0.f;
+			int32 n = 0;
+			for (usize i = 0; i < cards.Size(); ++i) {
+				const int32 c = cards[i];
+				if (c < 0 || c >= st.browserCount || st.browserSrcNode[c] <= 0)
+					continue;
+				float32 sp[3] = {0.f, 0.f, 0.f}, sr[3], ss[3];
+				if (!demo::Demo3DHostEmptyTransform(st.browserSrcNode[c] - 1, sp, sr, ss))
+					continue;
+				sx += sp[0];
+				sz += sp[2];
+				++n;
+			}
+			if (n == 0)
+				return false;
+			out3[0] = sx / (float32)n;
+			out3[1] = 0.f;
+			out3[2] = sz / (float32)n;
+			return true;
+		}
+
+		/// LE LACHER VENU DU SYSTEME, route par la zone (contrat point 2) :
+		///   vue 3D       -> import + instanciation AU POINT DU LACHER (pick differe)
+		///   hierarchie   -> import + instanciation aux coordonnees du fichier
+		///   navigateur   -> import SEUL (cartes + fichiers, rien dans la scene)
+		///   ailleurs     -> refus NOMME
+		/// Appele par la boucle une fois les rects de la frame connus. Plusieurs
+		/// fichiers = plusieurs imports, leurs cartes s'additionnent.
+		inline void NkOsDropRoute(NkModelerState &st) {
+			if (st.osDropCount <= 0)
+				return;
+			const nkgui::NkVec2 at{st.osDropX, st.osDropY};
+			int32 zone = 4;
+			if (NkHitRegistry::Contains(st.viewRect, at))
+				zone = 1;
+			else if (NkHitRegistry::Contains(st.hierRect, at))
+				zone = 2;
+			else if (NkHitRegistry::Contains(st.browserRect, at))
+				zone = 3;
+			NkLog::Instance().Infof("[import] MESURE lacher OS : %d fichier(s) a (%f, %f) zone=%d "
+									"(1 vue, 2 hierarchie, 3 navigateur, 4 ailleurs)",
+									st.osDropCount, at.x, at.y, zone);
+			NkVector<int32> cards;
+			if (zone == 4) {
+				snprintf(st.hierNote, sizeof(st.hierNote),
+						 "Deposez un fichier 3D sur la vue, la hierarchie ou le navigateur");
+			} else {
+				for (int32 i = 0; i < st.osDropCount; ++i)
+					(void)NkImportFile(st, st.osDropPaths[i], &cards);
+			}
+			st.osDropCount = 0;
+			if (cards.Empty())
+				return; // refus deja nomme par NkImportFile (hierNote)
+			if (zone == 3)
+				return; // navigateur : import seul, c'est le contrat
+			if (zone == 2) {
+				const int32 n = NkImportInstantiate(st, cards, nullptr);
+				snprintf(st.hierNote, sizeof(st.hierNote),
+						 "Import : %d carte(s), %d objet(s) ajoute(s) a la scene (coordonnees du fichier)",
+						 (int32)cards.Size(), n);
+				return;
+			}
+			// Vue 3D : le point du monde vient du pick, qui repond a la frame
+			// suivante -- on retient les cartes et on demande.
+			st.osDropCardCount = 0;
+			for (usize i = 0; i < cards.Size() && st.osDropCardCount < 64; ++i)
+				st.osDropCards[st.osDropCardCount++] = cards[i];
+			st.osDropPickPending = true;
+			demo::Demo3DHostPickRequest(at.x, at.y);
+		}
+
+		/// La reponse du pick pour un lacher OS sur la vue 3D : instancie les
+		/// cartes retenues, disposition du fichier conservee, barycentre X/Z
+		/// amene au point du lacher. Sur un objet ou dans le vide, meme geste
+		/// (pas de menu « enfant » : un fichier entier n'est pas une carte).
+		inline void NkOsDropPickTake(NkModelerState &st) {
+			if (!st.osDropPickPending)
+				return;
+			int32 node = -3;
+			float32 w[3] = {0.f, 0.f, 0.f};
+			if (!demo::Demo3DHostPickTake(&node, w))
+				return;
+			st.osDropPickPending = false;
+			NkVector<int32> cards;
+			for (int32 i = 0; i < st.osDropCardCount; ++i)
+				cards.PushBack(st.osDropCards[i]);
+			st.osDropCardCount = 0;
+			float32 off[3] = {0.f, 0.f, 0.f};
+			if (node != -2) { // -2 = hors du viseur : coordonnees du fichier
+				float32 c3[3];
+				if (NkImportCardsCenter(st, cards, c3)) {
+					off[0] = w[0] - c3[0];
+					off[1] = w[1] - c3[1];
+					off[2] = w[2] - c3[2];
+				}
+			}
+			const int32 n = NkImportInstantiate(st, cards, off);
+			snprintf(st.hierNote, sizeof(st.hierNote),
+					 "Import : %d carte(s), %d objet(s) poses au point du lacher",
+					 (int32)cards.Size(), n);
 		}
 
 	} // namespace nk3d

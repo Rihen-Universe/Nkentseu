@@ -48,6 +48,7 @@
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
 #include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
 // Captures (« Capturer la vue » / « Tutoriel ») : dossier + numerotation +
 // photographie de la fenetre entiere.
 #include "NKFileSystem/NkDirectory.h"
@@ -313,6 +314,11 @@ int nkmain(const NkEntryState &entry) {
 	wc.centered = true;
 	wc.resizable = true;
 	wc.frame = false;
+	// LACHER DE FICHIERS DEPUIS LE SYSTEME : la fenetre s'inscrit comme cible
+	// OLE (NkWin32DropTarget) et NkDropFileEvent arrive dans la file. Sans ce
+	// drapeau, l'explorateur montre le curseur « interdit » et rien n'arrive --
+	// c'etait l'ecoute qui manquait (contrat d'import, point 2).
+	wc.dropEnabled = true;
 
 	NkWindow window;
 	if (!window.Create(wc)) {
@@ -539,6 +545,19 @@ int nkmain(const NkEntryState &entry) {
 		auto &ev = NkEvents();
 		ev.AddEventCallback<NkMouseMoveEvent>([&ui](NkMouseMoveEvent *e) {
 			ui.input.mousePos = {(float32)e->GetX(), (float32)e->GetY()};
+		});
+		// FICHIERS LACHES DEPUIS L'EXPLORATEUR : memes coordonnees client que
+		// la souris (ScreenToClient cote Win32). On RANGE, la boucle route une
+		// fois les rects de la frame connus (NkOsDropRoute) -- l'evenement
+		// arrive avant la mise en page.
+		ev.AddEventCallback<NkDropFileEvent>([&st](NkDropFileEvent *e) {
+			st.osDropCount = 0;
+			for (usize i = 0; i < e->data.paths.Size() &&
+							  st.osDropCount < nk3d::NkModelerState::kMaxOsDrop; ++i)
+				snprintf(st.osDropPaths[st.osDropCount++], sizeof(st.osDropPaths[0]), "%s",
+						 e->data.paths[i].CStr());
+			st.osDropX = (float32)e->data.x;
+			st.osDropY = (float32)e->data.y;
 		});
 		ev.AddEventCallback<NkMouseButtonPressEvent>([&ui](NkMouseButtonPressEvent *e) {
 			const NkMouseButton b = e->GetButton();
@@ -900,6 +919,85 @@ int nkmain(const NkEntryState &entry) {
 		// voile tronque, dialogue decentre (Rihen, 12 aout).
 		ui.viewW = (int32)lastW;
 		ui.viewH = (int32)lastH;
+		// ── TEMOIN DU GLISSER-DEPOSER (crochets d'agent, 2026-08-18) ────────
+		// NK_HIER_ROWS=<n>  : a la frame n, la hierarchie imprime ses lignes.
+		// NK_AGENT_DRAG="f,x0,y0,x1,y1" (et NK_AGENT_DRAG2, une seconde course
+		//   dans le meme lancement) : SURVOLE (x0,y0) a la frame f, PRESSE a
+		//   f+1, glisse en 8 frames vers (x1,y1), RELACHE a f+10 -- pose l'etat
+		//   souris BRUT que BeginFrame lit, exactement comme les evenements de
+		//   la fenetre ; tout le reste (seuil, fantome, cibles, livraison) est
+		//   le vrai code. A f+14 : rapport `[nk3d-drag] node=.. parent=..` de
+		//   tous les noeuds vivants + compte du navigateur.
+		{
+			static int32 sRowsFrame = -2, sDragFrame[2] = {-2, -2};
+			static float32 sDx0[2], sDy0[2], sDx1[2], sDy1[2];
+			if (sRowsFrame == -2) {
+				const char *v = std::getenv("NK_HIER_ROWS");
+				sRowsFrame = v ? (int32)std::atoi(v) : -1;
+			}
+			for (int32 c = 0; c < 2; ++c) {
+				if (sDragFrame[c] != -2)
+					continue;
+				sDragFrame[c] = -1;
+				if (const char *v = std::getenv(c == 0 ? "NK_AGENT_DRAG" : "NK_AGENT_DRAG2")) {
+					float32 f[5] = {0.f, 0.f, 0.f, 0.f, 0.f};
+					const char *q = v;
+					for (int32 k = 0; k < 5 && *q; ++k) {
+						f[k] = (float32)atof(q);
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+					sDragFrame[c] = (int32)f[0];
+					sDx0[c] = f[1];
+					sDy0[c] = f[2];
+					sDx1[c] = f[3];
+					sDy1[c] = f[4];
+				}
+			}
+			if (sRowsFrame > 0 && agentFrame + 1 == sRowsFrame) {
+				st.hierTraceRows = true;
+				st.browTraceCards = true;
+			}
+			for (int32 c = 0; c < 2; ++c) {
+				if (sDragFrame[c] <= 0)
+					continue;
+				const int32 k = agentFrame + 1 - sDragFrame[c]; // frame relative
+				// k=0 : SURVOL sans appui (comme une vraie main : le survol precede
+				// le clic d'au moins une frame -- hotIdPrev) ; k=1 : appui ; k=2..9
+				// glissement ; k=10 : relachement sur place.
+				if (k >= 0 && k <= 10) {
+					const float32 t = k <= 2 ? 0.f : (k >= 9 ? 1.f : (float32)(k - 2) / 7.f);
+					ui.input.mousePos = {sDx0[c] + (sDx1[c] - sDx0[c]) * t,
+										 sDy0[c] + (sDy1[c] - sDy0[c]) * t};
+					ui.input.mouseDown[0] = (k >= 1 && k <= 9);
+					printf("[nk3d-drag] c=%d k=%d pos=(%.0f,%.0f) down=%d dragActive=%d type=%s\n", c,
+						   k, ui.input.mousePos.x, ui.input.mousePos.y,
+						   ui.input.mouseDown[0] ? 1 : 0, ui.dragActive ? 1 : 0, ui.dragType);
+				}
+				if (k == 14) {
+					const int32 nn = demo::Demo3DHostNodeCount();
+					for (int32 n = 0; n < nn; ++n) {
+						if (nk3d::NkHierNodeSkip(n))
+							continue;
+						char nm[48];
+						nk3d::NkHierNodeName(st, n, nm, sizeof(nm));
+						printf("[nk3d-drag] node=%d name=\"%s\" parent=%d sel=%d\n", n, nm,
+							   demo::Demo3DHostNodeParent(n),
+							   n >= 90 ? (demo::Demo3DHostEmptyNodeSelected(n) ? 1 : 0)
+									   : (demo::Demo3DHostObjectSelected(n) ? 1 : 0));
+					}
+					printf("[nk3d-drag] browserCount=%d\n", st.browserCount);
+					for (int32 b = 0; b < st.browserCount; ++b)
+						printf("[nk3d-drag] brow=%d kind=%d parent=%d name=\"%s\"\n", b,
+							   st.browserKind[b], st.browserParent[b], st.browserNames[b]);
+					printf("[nk3d-drag] browAskIdx=%d browAskDest=%d folder=%d\n",
+						   st.browAskIdx, st.browAskDest, st.browserFolder);
+					fflush(stdout);
+				}
+			}
+		}
 		ui.BeginFrame(dt);
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
@@ -1755,9 +1853,11 @@ int nkmain(const NkEntryState &entry) {
 			// 2 = IMPORTER UN FICHIER 3D (bouton « Importer » du navigateur de
 			// contenu). Chaine complete depuis le 17/08 : chargement par le
 			// chargeur du format, decoupage par nom de sous-mesh, puis CREATION
-			// -- un model par nom (racine + un noeud maillage par sous-mesh,
-			// positions monde), archive + carte navigateur par model ; les
-			// `.nkmesh` partent a la SAUVEGARDE (NkModelerImport.h).
+			// (un maillage DIRECT par model d'une tranche, racine + maillages
+			// sinon ; positions monde), ARCHIVAGE EN PLACE (rien dans la scene)
+			// + carte navigateur + ECRITURE du `.nkmesh` par model, tout de
+			// suite -- « un import ECRIT » (contrat de Rodolf du 17/08 soir,
+			// NkModelerImport.h). Le bouton = import seul.
 			if (st.pickerAction == 2 && st.picker.pickerResultPath[0])
 				nk3d::NkImportFile(st, st.picker.pickerResultPath);
 			st.pickerAction = 0;
@@ -2110,7 +2210,40 @@ int nkmain(const NkEntryState &entry) {
 				sAgentImportDone = true;
 				if (const char *v = std::getenv("NK_IMPORT_FILE"))
 					nk3d::NkImportFile(st, v);
+				// NK_OS_DROP="x,y,<chemin>" : FABRIQUE le lacher OS a ces pixels
+				// de fenetre, exactement comme NkDropFileEvent le range -- seul
+				// le trajet depuis l'explorateur est simule ; le routage par
+				// zone, l'import, le pick et l'instanciation sont les vrais.
+				if (const char *v = std::getenv("NK_OS_DROP")) {
+					float32 dx = 0.f, dy = 0.f;
+					const char *q = v;
+					dx = (float32)atof(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+					dy = (float32)atof(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+					if (*q) {
+						st.osDropCount = 1;
+						snprintf(st.osDropPaths[0], sizeof(st.osDropPaths[0]), "%s", q);
+						st.osDropX = dx;
+						st.osDropY = dy;
+					}
+				}
 			}
+		}
+		// ── LACHER VENU DU SYSTEME : ROUTAGE PAR ZONE, PUIS REPONSE DU PICK ──
+		// Les rects de la frame sont poses (hierRect, viewRect, browserRect) :
+		// on peut dire OU le fichier a ete lache. Vue 3D -> import + pick
+		// differe ; hierarchie -> import + instanciation aux coordonnees du
+		// fichier ; navigateur -> import seul ; ailleurs -> refus nomme.
+		if (demo::Demo3DHostReady()) {
+			nk3d::NkOsDropRoute(st);
+			nk3d::NkOsDropPickTake(st);
 		}
 
 		// ── LACHER DU NAVIGATEUR SUR LA VUE 3D : LA REPONSE DU PICK ARRIVE ──

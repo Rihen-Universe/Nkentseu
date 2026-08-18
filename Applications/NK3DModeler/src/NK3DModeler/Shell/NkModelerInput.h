@@ -352,7 +352,7 @@ namespace nkentseu {
 				// l'utilisateur sont les noeuds 96 a 159. Avec 3 mots (96 bits),
 				// `hierFold[node >> 5]` ecrivait HORS DU TABLEAU pour tout objet
 				// cree par l'utilisateur -- donc dans `activeEmpty` (noeuds 96-127)
-				// et dans `hierDragNode` (128-159) juste en dessous. Plier un
+				// et dans le champ suivant (128-159) juste en dessous. Plier un
 				// objet corrompait ainsi la selection et bloquait le glisser :
 				// c'est la cause du pliage inoperant ET des objets impossibles a
 				// selectionner (constate par Rihen).
@@ -367,10 +367,9 @@ namespace nkentseu {
 				// Supprimer, et d'autres viendront (Rihen, 10 aout).
 				int32 voidMenuOpen = 0;
 				float32 voidMenuX = 0.f, voidMenuY = 0.f;
-				int32 hierDragNode = -1;
-				float32 hierDragX = 0.f, hierDragY = 0.f;
-				bool hierDragging = false;
-				bool hierMouseWasDown = false;
+				// (Le glisser de ligne -- ex-hierDragNode/X/Y, hierDragging,
+				// hierMouseWasDown -- vit dans NKGui depuis 2026-08-18 : voir
+				// NkHierDragActive et BeginDragSource dans NkModelerHierarchy.h.)
 				// MENU CONTEXTUEL de la hierarchie (clic droit sur une ligne).
 				// MESSAGE du pied de la hierarchie : explique un refus (verrou...).
 				// Un clic sans effet passe sinon pour une panne.
@@ -516,20 +515,47 @@ namespace nkentseu {
 				// Rect du navigateur (pose chaque frame) : les raccourcis y sont
 				// routes vers les cartes plutot que vers la scene.
 				NkRect browserRect{0.f, 0.f, 0.f, 0.f};
-				// Glisser-deposer du navigateur (4 sens, facon Unreal).
-				int32 browDragIdx = -1;
-				float32 browDragX = 0.f, browDragY = 0.f;
-				bool browDragging = false;
-				bool browMouseWasDown = false;
-				// Pliage de l'arbre (bit = plie), origine du drag, et carte
-				// Copier/Deplacer du depot gauche -> droite.
+				// (Le glisser du navigateur -- ex-browDragIdx/X/Y, browDragging,
+				// browMouseWasDown, browDragFromTree -- vit dans NKGui depuis
+				// 2026-08-18 : type "brow.item", voir NkBrowDragActive dans
+				// NkModelerBrowser.h.)
+				// Pliage de l'arbre (bit = plie) et carte Copier/Deplacer du
+				// depot gauche -> droite.
 				uint32 browFold[8] = {};
-				bool browDragFromTree = false;
 				int32 browAskIdx = -1;
 				int32 browAskDest = -1;
 				float32 browAskX = 0.f, browAskY = 0.f;
 				bool browMenuCreat = false;
 				NkRect viewRect{0.f, 0.f, 0.f, 0.f};
+				// Rect de la HIERARCHIE (pose chaque frame, comme browserRect) :
+				// c'est une des trois cibles du lacher venu du systeme.
+				NkRect hierRect{0.f, 0.f, 0.f, 0.f};
+				// ── FICHIERS LACHES DEPUIS LE SYSTEME (explorateur OS) ─────────
+				// Contrat d'import de Rodolf (17/08 soir) : trois gestes, tous des
+				// IMPORTS -- vers la scene ou la hierarchie = import + instanciation,
+				// vers le navigateur de contenu = import seul. L'evenement
+				// (NkDropFileEvent) arrive au depilage, AVANT la mise en page de la
+				// frame : on le range ici et la boucle le traite une fois les rects
+				// connus. `osDropZone` : 0 aucun, 1 vue 3D, 2 hierarchie, 3
+				// navigateur, 4 ailleurs (refus nomme).
+				static constexpr int32 kMaxOsDrop = 16;
+				int32 osDropCount = 0;
+				// TEMOIN du glisser (crochet NK_HIER_ROWS) : une frame, la
+				// hierarchie imprime le rect ecran de chaque ligne visible -- une
+				// course scriptee ne peut pas deviner la geometrie.
+				bool hierTraceRows = false;
+				// TEMOIN du glisser navigateur (meme crochet NK_HIER_ROWS) :
+				// une frame, le navigateur imprime arbre + cartes + rects.
+				bool browTraceCards = false;
+				char osDropPaths[kMaxOsDrop][512] = {};
+				float32 osDropX = 0.f, osDropY = 0.f;
+				// Instanciation DIFFEREE apres import vers la vue 3D : le point du
+				// monde vient du pick, qui repond a la frame suivante. Les cartes
+				// nees de l'import attendent ici ; osDropPickPending arme la lecture
+				// de la reponse.
+				int32 osDropCards[64];
+				int32 osDropCardCount = 0;
+				bool osDropPickPending = false;
 				// ── JETON DE LACHER SUR LA VUE 3D ────────────────────────────
 				// UN LACHER = UN JETON COMPLET, resolu une fois, consomme une
 				// fois. Tout ce que le geste utilise est FIGE AU RELACHEMENT :
