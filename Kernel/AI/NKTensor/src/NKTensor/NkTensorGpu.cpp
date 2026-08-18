@@ -513,9 +513,25 @@ namespace nkentseu {
 			logger.Info("    TOTAL instrumente : {0} ms, soit {1}% du temps mural de la fenetre. Le reste "
 						"est HORS instrumentation (construction des lots, autograd CPU, journalisation).",
 						totalNs / 1.0e6, (secondesMurales > 0.0) ? (totalNs / 1.0e9 / secondesMurales * 100.0) : 0.0);
-			logger.Info("    Repere machine : une RTX 3070 fait ~20 300 GFLOP/s pour ~448 Go/s, soit "
-						"~45 FLOP/octet. Un noyau sous ce rapport est borne par la BANDE PASSANTE : "
-						"son plafond vaut 448 x son intensite, et aucun pavage ne le depasse.");
+			// ⚠️ DEUX DEFAUTS CORRIGES ICI LE 2026-08-19, et le second est le plus couteux.
+			//
+			// 1. Le chiffre etait celui d'une RTX 3070 de BUREAU (20 300 GFLOP/s). La
+			//    machine est une RTX 3070 **Laptop**, ~16 600 GFLOP/s. Signale par Q12
+			//    le 2026-08-16 ; la ligne n'avait pas bouge. Tout « % de crete » imprime
+			//    entre-temps est surestime d'environ 22 %.
+			//
+			// 2. La colonne `FLOP/o` ci-dessus n'est PAS l'intensite du noyau : elle est
+			//    calculee sur les octets LOGIQUES (chaque matrice comptee une fois,
+			//    caches parfaits), pas sur le trafic DRAM reel. Pour `matmul_t4` sur la
+			//    tete de sortie elle affiche ~223 FLOP/o, alors que le trafic reel du
+			//    noyau pave 4x4 vaut 2·M·N·K octets, soit une intensite de **1,0**.
+			//    Comparer la colonne au rapport ci-dessous fait donc conclure « borne
+			//    calcul » sur un noyau qui ne l'est peut-etre pas — le piege a mordu.
+			//    La colonne est un PLANCHER de trafic, donc un PLAFOND d'intensite.
+			logger.Info("    Repere machine : une RTX 3070 Laptop fait ~16 600 GFLOP/s pour ~448 Go/s, "
+						"soit ~37 FLOP/octet. ⚠️ La colonne FLOP/o est une intensite LOGIQUE (trafic "
+						"minimal, caches parfaits) : c'est un MAJORANT. Ne pas la comparer telle quelle "
+						"a ce rapport — il faut l'intensite du trafic REEL du noyau, qui est plus basse.");
 
 			// ---- Attribution des bascules CPU -> GPU ----------------------------
 			if (gBasculeN > 0) {
