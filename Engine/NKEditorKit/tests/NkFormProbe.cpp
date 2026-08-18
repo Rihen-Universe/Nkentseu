@@ -543,6 +543,178 @@ int main() {
 	}
 
 	// =======================================================================
+	//  7bis. LES LIBELLES SONT DES CLES (regle de Rodolf du 2026-08-18)
+	// =======================================================================
+	// LE CRITERE D'ECHEC DE CETTE PASSE EST ECRIT AU §11 DE `ROADMAP.md`.
+	// ⚠️ ET SON ANTERIORITE N'EST PAS PROUVABLE, CONTRAIREMENT A CELLE DE LA PASSE
+	//    PRECEDENTE : le §9 avait ete commite AVANT le §10, et l'ordre des deux
+	//    commits en faisait foi. Ici, critere et resultat tombent dans le MEME
+	//    commit. Il faut donc me croire sur parole, et c'est precisement ce qu'un
+	//    banc est cense eviter -- c'est dit plutot que taise.
+	// Le plus dur des quatre est le n°39 : si une
+	// declaration a libelles en clair produisait ne serait-ce qu'UNE erreur, la
+	// regle serait cassante, et il faudrait la RETIRER -- pas la garder en
+	// esperant que les autres migrent vite.
+	printf("\n--- 7bis. les libelles sont des CLES, et la regle ne casse personne ---\n");
+	{
+		const bool ok = NkIsLabelKey("content_browser.title") &&
+						NkIsLabelKey("content_browser.variant.grid") &&
+						NkIsLabelKey("thumb_size") && NkIsLabelKey("a1_b2.c3");
+		check("37. une vraie cle de traduction est ACCEPTEE", ok,
+			  "minuscules, chiffres, `_`, `.` comme separateur de niveau");
+	}
+	{
+		// Chacun de ces refus a une raison : une cle traverse un fichier, un
+		// catalogue et peut-etre un tableur de traduction. Ce qui s'encode mal
+		// quelque part est banni d'avance.
+		const bool ok = !NkIsLabelKey("Grille") &&             // majuscule
+						!NkIsLabelKey("Taille des vignettes") && // espaces
+						NkIsLabelKey("selection") &&             // (celle-ci EST valide)
+						!NkIsLabelKey("") &&                     // vide : pas une cle
+						!NkIsLabelKey(nullptr) && !NkIsLabelKey(".tete") &&
+						!NkIsLabelKey("queue.") && !NkIsLabelKey("double..point");
+		check("38. TEMOIN NEGATIF : texte en clair, majuscule, espace et point mal place sont REFUSES",
+			  ok);
+	}
+	{
+		// L'ESSAI LE PLUS IMPORTANT DE LA PASSE. La regle a ete ecrite alors que
+		// DEUX composants portaient deja des libelles en clair, dont un ecrit par
+		// une autre main qui compilait au meme moment sur ce fichier. Si elle
+		// rougissait, elle punirait quelqu'un qui n'a rien casse.
+		NkFormIssue iss[32];
+		static const NkElementDecl els[] = {
+			{"racine", "", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Row, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+			{"a", "racine", "", "label", "", NkExpand(), NkExpand(), {}, 0},
+		};
+		NkComponentDecl d = minimal(els, 2);
+		d.title = "Navigateur de contenu"; // du texte, comme avant la regle
+		NkCheckReport r = NkCheckComponent(d, iss, 32);
+		uint16 n = 0;
+		for (uint16 i = 0; i < r.written; ++i)
+			if (NkComponentDecl::StrEq(iss[i].code, "libelle_non_cle"))
+				++n;
+		snprintf(buf, sizeof(buf), "%u erreur(s), %u note(s) `libelle_non_cle`", r.errors, n);
+		check("39. un libelle en clair est une NOTE et JAMAIS une erreur (la regle ne casse personne)",
+			  r.errors == 0 && n >= 1, buf);
+	}
+	{
+		// Le controle positif du n°39 : une fois migre, le compte tombe a zero.
+		// Sans lui, le n°39 se contenterait d'une note qui ne dependrait de rien.
+		NkFormIssue iss[32];
+		static const NkParamDecl kPk[] = {{"thumb_size", "temoin.param.thumb_size",
+										   NkParamKind::Float, 96.f, 48.f, 256.f, nullptr, 0}};
+		static const NkElementDecl els[] = {
+			{"racine", "", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Row, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+			{"a", "racine", "", "label", "", NkExpand(), NkExpand(), {}, 0},
+		};
+		NkComponentDecl d = minimal(els, 2);
+		d.title = "temoin.title";
+		d.params = kPk;
+		d.paramCount = 1;
+		NkCheckReport r = NkCheckComponent(d, iss, 32);
+		uint16 n = 0;
+		for (uint16 i = 0; i < r.written; ++i)
+			if (NkComponentDecl::StrEq(iss[i].code, "libelle_non_cle"))
+				++n;
+		check("40. CONTROLE POSITIF : une declaration entierement migree ne produit AUCUNE note",
+			  n == 0 && r.errors == 0);
+	}
+
+	// =======================================================================
+	//  7ter. LE GABARIT REPETE -- la reparation GENERALE annoncee au §10.4
+	// =======================================================================
+	printf("\n--- 7ter. le gabarit repete : le manque mesure chez DEUX composants ---\n");
+	{
+		// CET ESSAI PROUVE LA PROMESSE « CET AJOUT NE PEUT CASSER PERSONNE ».
+		// Toutes les tables d'elements de ce banc ont ete ecrites AVANT que
+		// `repeat` existe : elles s'arretent a `anchorEdges`. Si le champ avait
+		// ete insere au milieu plutot qu'a la fin, ce fichier ne compilerait meme
+		// pas -- c'est exactement ce qui est arrive le 19/08 avec `role`.
+		static const NkElementDecl vieux[] = {
+			{"racine", "", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Row, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+		};
+		check("41. APPEND-ONLY : une table ecrite avant `repeat` compile et vaut `une fois`",
+			  vieux[0].repeat == NkRepeatKind::Once && NkCheckComponent(minimal(vieux, 1)).errors == 0);
+	}
+	{
+		static const NkElementDecl bad[] = {
+			{"racine", "", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Row, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0,
+			 NkRepeatKind::PerEntry},
+		};
+		check("42. une RACINE repetee est REFUSEE (un composant se repete en etant instancie)",
+			  NkCheckComponent(minimal(bad, 1)).errors > 0);
+	}
+	{
+		NkFormIssue iss[32];
+		static const NkElementDecl els[] = {
+			{"racine", "", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Column, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+			{"a", "racine", "", "label", "", NkExpand(), NkExpand(), {}, 0, NkRepeatKind::PerEntry},
+			{"b", "racine", "", "label", "", NkExpand(), NkExpand(), {}, 0, NkRepeatKind::PerEntry},
+		};
+		NkCheckReport r = NkCheckComponent(minimal(els, 3), iss, 32);
+		bool found = false;
+		for (uint16 i = 0; i < r.written; ++i)
+			if (NkComponentDecl::StrEq(iss[i].code, "repetition_freres"))
+				found = true;
+		check("43. deux freres repetes sont une NOTE, pas une erreur (le cas peut etre voulu)",
+			  found && r.errors == 0);
+	}
+	{
+		// LE POINT DE TOUTE LA REPARATION, et il se mesure en deux temps.
+		// Temps 1 : une feuille qui declare un agencement -> la note tombe, parce
+		//           que la structure repetee n'etait PAS exprimable.
+		// Temps 2 : la meme, avec le gabarit enfin declare -> la note disparait.
+		NkFormIssue a[32], b[32];
+		static const NkElementDecl sans[] = {
+			{"racine", "", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Column, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+			{"grid", "racine", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Grid, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 3, ""}, 0},
+		};
+		static const NkElementDecl avec[] = {
+			{"racine", "", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Column, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+			{"grid", "racine", "", "container", "", NkExpand(), NkExpand(),
+			 {NkLayoutKind::Grid, "gap", "pad", NkAlign::Start, NkAlign::Stretch, 3, ""}, 0},
+			{"card", "grid", "une carte, UNE PAR ENTREE", "label", "", NkExpand(), NkExpand(), {}, 0,
+			 NkRepeatKind::PerEntry},
+		};
+		auto countNote = [&](const NkElementDecl *e, uint16 n, NkFormIssue *out) -> uint16 {
+			NkCheckReport r = NkCheckComponent(minimal(e, n), out, 32);
+			uint16 c = 0;
+			for (uint16 i = 0; i < r.written; ++i)
+				if (NkComponentDecl::StrEq(out[i].code, "agencement_sans_enfant"))
+					++c;
+			return c;
+		};
+		const uint16 avant = countNote(sans, 2, a);
+		const uint16 apres = countNote(avec, 3, b);
+		snprintf(buf, sizeof(buf), "sans gabarit : %u note(s) -> avec gabarit : %u", avant, apres);
+		check("44. le gabarit repete DESARME `agencement_sans_enfant` (la preuve de la reparation)",
+			  avant >= 1 && apres == 0, buf);
+	}
+	{
+		NkRepeatKind back = NkRepeatKind::Once;
+		bool ok = true;
+		for (uint8 i = 0; i < (uint8)NkRepeatKind::Count; ++i)
+			if (!NkParseRepeatKind(NkRepeatKindName((NkRepeatKind)i), back) || back != (NkRepeatKind)i)
+				ok = false;
+		// TEMOIN NEGATIF, meme regle que le n°34 : un mot inconnu est refuse et ne
+		// touche pas la sortie. Sans lui, un analyseur qui repond « oui » a tout
+		// passerait l'aller-retour sans rien garantir.
+		NkRepeatKind untouched = NkRepeatKind::PerEntryTree;
+		const bool refuse = !NkParseRepeatKind("par_entree", untouched) &&
+							untouched == NkRepeatKind::PerEntryTree;
+		check("45. les trois repetitions font l'ALLER-RETOUR texte, et un mot inconnu est REFUSE",
+			  ok && refuse, "once / per_entry / per_entry_tree");
+	}
+
+	// =======================================================================
 	//  8. LA MESURE QUI N EST PAS UN ESSAI -- etat du second composant
 	// =======================================================================
 	// ⚠️ CE BLOC NE COMPTE PAS DANS LE RESULTAT, et c'est deliberе : il mesure un

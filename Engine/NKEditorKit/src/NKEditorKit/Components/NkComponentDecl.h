@@ -187,6 +187,75 @@ namespace nkentseu {
 			}
 		}
 
+		// ── LES LIBELLES SONT DES CLES, PAS DU TEXTE ────────────────────────────
+		// REGLE DE RODOLF DU 2026-08-18, « LE MULTILINGUE VIT DANS NKGui », point 5 :
+		// *« Les interfaces produites par NkUIDesign sont traduisibles aussi : les
+		// libelles d'un composant declare sont des CLES, pas du texte. Sinon l'outil
+		// produit des interfaces monolingues. »*
+		//
+		// CE QUE CA CHANGE, ET C'EST UN SEUL CHANGEMENT : les champs `label` et
+		// `title` de ce fichier ne portent plus la chaine A AFFICHER, ils portent la
+		// chaine A RESOUDRE. Aucun champ n'est ajoute -- et c'est deliberement :
+		//
+		// ⚠️ LA TENTATION ETAIT D'AJOUTER UN `labelKey` A COTE DE `label`. Elle se
+		//    refuse. Deux champs pour une meme chose, c'est deux sources de verite,
+		//    donc une divergence garantie -- exactement le defaut que cette forme
+		//    existe pour supprimer, et qu'elle a deja paye deux fois ce mois-ci
+		//    (`NkCrossAlignName` en double, le solveur en double). Le libelle EST la
+		//    cle. Il n'y a rien a synchroniser parce qu'il n'y a qu'un champ.
+		//
+		// ⚠️ LA FORME NE TRADUIT RIEN, ET NE LE PEUT PAS. Le banc de neutralite exige
+		//    qu'elle compile sans le moindre chemin NKGui ; or le catalogue de langues
+		//    vit dans NKGui, qui en change A CHAUD. La forme DECLARE des cles ; NKGui
+		//    les RESOUT au moment du dessin. C'est la seule repartition qui laisse la
+		//    langue changer sans redemarrer, puisque rien n'est fige a la declaration.
+		//
+		// LE REPLI, ET IL EST VOULU VISIBLE (regle 3 du meme bloc de Rodolf : « une
+		// cle manquante se voit, jamais un vide silencieux ») : une cle non resolue
+		// s'affiche TELLE QUELLE. Consequence heureuse pour la migration -- une
+		// declaration ecrite avant cette regle, qui porte « Grille » en clair,
+		// continue d'afficher « Grille ». Elle n'est pas cassee, elle est seulement
+		// MONOLINGUE, et `NkCheckComponent` le signale en NOTE (jamais en erreur).
+		//
+		// ⚠️ POURQUOI UNE NOTE ET PAS UNE ERREUR -- c'est une decision, pas une
+		//    mollesse : au moment ou cette regle est ecrite, DEUX composants portent
+		//    des libelles en clair, dont un ecrit par une autre main qui compile en
+		//    ce moment meme sur ce fichier. Une erreur les rougirait tous les deux
+		//    sans que leur auteur ait rien casse. La note garde l'information, la
+		//    COMPTE, et laisse chaque main migrer a son rythme.
+		//
+		// LA CONVENTION : minuscules ASCII, chiffres, `_` et `.` comme separateur de
+		// niveau. Ni espace, ni accent, ni majuscule -- une cle traverse un fichier,
+		// un catalogue et peut-etre un tableur de traduction ; tout ce qui s'encode
+		// mal quelque part est banni d'avance.
+		//     `content_browser.title`
+		//     `content_browser.variant.grid`
+		//     `content_browser.param.thumb_size`
+		//     `content_browser.event.on_select`
+		//
+		/// VRAI si `s` a la FORME d'une cle. Ne dit PAS si la cle existe dans un
+		/// catalogue -- la forme n'en connait aucun (voir le banc de neutralite).
+		/// Une chaine vide n'est pas une cle : elle veut dire « pas de libelle ».
+		inline bool NkIsLabelKey(const char *s) {
+			if (!s || !*s)
+				return false;
+			bool prevDot = true; // interdit un point en tete
+			for (const char *p = s; *p; ++p) {
+				const char c = *p;
+				if (c == '.') {
+					if (prevDot) // ni « .. » ni un point initial
+						return false;
+					prevDot = true;
+					continue;
+				}
+				const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+				if (!ok)
+					return false;
+				prevDot = false;
+			}
+			return !prevDot; // interdit un point final
+		}
+
 		// ── NATURE D'UN PARAMETRE ───────────────────────────────────────────────
 		// APPEND-ONLY, meme raison que NkRole : la valeur est destinee a etre
 		// ecrite dans un fichier de description, un insert au milieu ferait relire
@@ -209,7 +278,7 @@ namespace nkentseu {
 		// devient impossible que la description et le dessin divergent.
 		struct NkParamDecl {
 				const char *name = "";	///< cle STABLE, telle qu'elle apparaitra dans un fichier
-				const char *label = ""; ///< libelle affichable (traduisible)
+				const char *label = ""; ///< CLE de traduction (cf. « LES LIBELLES SONT DES CLES »)
 				NkParamKind kind = NkParamKind::Float;
 				float32 defVal = 0.f; ///< defaut ; pour Bool : 0 ou 1 ; pour Enum : l'index
 				float32 minVal = 0.f; ///< borne basse (Float/Int) — 0 si sans objet
@@ -231,7 +300,7 @@ namespace nkentseu {
 		//    supprimer vient de rentrer par la fenetre.
 		struct NkVariantDecl {
 				const char *name = ""; ///< cle stable : « grid », « dense_list », « columns »
-				const char *label = "";
+				const char *label = "";   ///< CLE de traduction, ex. « content_browser.variant.grid »
 				const char *summary = ""; ///< a quoi elle sert, pour l'editeur et pour l'humain
 		};
 
@@ -367,7 +436,7 @@ namespace nkentseu {
 		//     callback OnActivate(index: Int, path: String) -> Void
 		struct NkEventDecl {
 				const char *name = "";	  ///< `onSelect`, `onDoubleClick`, `onDrop` — cle STABLE
-				const char *label = "";	  ///< libelle affichable dans l'editeur
+				const char *label = "";	  ///< CLE de traduction, affichee dans l'editeur
 				const char *purpose = ""; ///< quand il part, en une ligne
 				const NkArgDecl *args = nullptr;
 				uint8 argCount = 0;
@@ -386,7 +455,7 @@ namespace nkentseu {
 		// structures a la main -- la forme ne change pas, seule la provenance.
 		struct NkComponentDecl {
 				const char *name = "";	///< cle stable : « content_browser »
-				const char *title = ""; ///< libelle affichable
+				const char *title = ""; ///< CLE de traduction, ex. « content_browser.title »
 				const char *summary = "";
 
 				const NkParamDecl *params = nullptr;
