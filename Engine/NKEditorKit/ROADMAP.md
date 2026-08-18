@@ -484,6 +484,47 @@ nom de macro dans deux modules**.
 > (1) quand NkUIDesign démarrera pour de bon. Mais l'option (3) est la seule qui
 > parte de ce que Rodolf a **déjà fait écrire**, et ça compte.
 
+### ⚠️ Pourquoi les trois existants n'ont AUCUN utilisateur — la mesure qui doit précéder l'arbitrage
+
+*Ajouté le 18/08 sur demande du coordinateur : un système sans utilisateur a une
+raison de ne pas en avoir, et cette raison se reproduira sur le quatrième.*
+
+| système | ce qu'il couvre vraiment | ce qui lui manque | **pourquoi 0 utilisateur** |
+|---|---|---|---|
+| **`NkEditorInspector.h`** (136 l.) | grille complète : slider si `hasRange`, combo d'enum aux **noms symboliques**, sections récursives, `readOnly`, écriture live | conteneurs (`NkVector` → affiche `"(liste)"`), pointeurs. **Ni variantes, ni jetons, ni greffes** — il décrit un objet de données, pas un composant | **il n'a rien à inspecter** : *zéro* type réfléchi dans `Kernel/` + `Engine/` hors NKReflection et hors tests |
+| **`NKReflection`** (9 621 l.) | `NkEditableProperty` + **25 drapeaux** (`RANGE`, `COLOR_PICKER`…), `CreateInstance` par nom. **Superset de `NkParamDecl`** | `NkVector`/pointeurs non gérés par le pont ; enums sérialisés **en valeur, pas en nom** (fragile au réordonnancement — le défaut que `NkTheme` évite) | enregistrement **manuel type par type**, coût à l'entrée, bénéfice à la sortie, **et rien ne casse si on ne le fait pas**. Hors NKReflection : **7 fichiers**, dont 4 de tests |
+| **spec `.nkgui` v0.2** (342 l.) | EBNF complète, 4 sections, node blueprint, `include`, table rôle → API | **structurel** : sa table §8 mappe 1:1 vers les **primitives**. **Aucune entrée composite** — ni `ContentBrowser`, ni `PropertyRow`. Elle sait assembler l'étage 1, pas nommer l'étage 2 | elle vise `Splitter`, `TabBar`, `Table`, `CollapsingHeader` — **les fonctions mêmes que les trois applications ont contournées** |
+
+**Quatre contournements mesurés, un seul motif :**
+
+| brique partagée | existait | réécrite localement |
+|---|---|---|
+| `Splitter` (`NkGuiWidgets.h:234`) | oui | NK3DModeler — c'est l'écart n° 18 |
+| `NkFilePicker` — utilisé dans **4** fichiers de NK3DModeler | oui, **et connu** | `NkModelerFileDialog.h`, 355 l. |
+| `NkEditorInspector.h::DrawInspector` | oui | **`NKGuiDemo/main.cpp:83` — 58 l., même nom, sans inclure le kit** |
+| `NkDirBrowser.h` | oui | orphelin, 0 utilisateur |
+
+La troisième ligne est la preuve : **celui qui avait exactement besoin de la
+fonction partagée l'a réécrite.** Ce n'est pas de la négligence — c'est un calcul
+de coût, et il a eu raison à son échelle.
+
+> 🎯 **La loi**, et elle vaut pour le quatrième système : *dans ce dépôt, une
+> brique partagée n'est pas ignorée par oubli — elle est écartée par un calcul de
+> coût que l'auteur refait à chaque fois, et qu'il gagne.* Elle exige une
+> conversion (se déclarer, calculer ses rectangles, ajouter une dépendance au
+> `.jenga`) plus chère que la réécriture, **et rien ne signale qu'on la
+> contourne**.
+>
+> Le critère d'adoption n'est donc **pas la richesse de la description** —
+> `NKReflection` est le plus riche et le moins adopté — mais **le coût du premier
+> pas**. D'où la seule chose à défendre quelle que soit l'issue choisie : **la
+> description doit être un sous-produit de l'écriture du composant, jamais un
+> préalable.** C'est pourquoi les nombres vivent *dans* la déclaration et que le
+> dessin *la lit* : l'auteur ne déclare pas en plus, il écrit ses métriques
+> ailleurs, et il y gagne tout de suite (un seul point de vérité). Le jour où
+> déclarer coûte une étape de plus que ne pas déclarer, le quatrième système
+> rejoindra les trois autres.
+
 ### Ce que le dépôt a déjà, et qui sert — mesuré
 
 | brique | état | réutilisable pour décrire des composants ? |
