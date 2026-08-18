@@ -508,3 +508,77 @@ assertions concernées, puis est retiré :
    25 contours de widgets passés au paramètre `rounding`.
 4. **Second étage de la description** — décrire les **composants** (paramètres,
    variantes, points de greffe), format commun avec NKEditorKit et NkUIDesign.
+
+---
+
+# LOT 3 — la fusion avec `main`, et ce que NkUIDesign révèle (2026-08-18)
+
+## Le témoin passe à **115/115**
+
+| étape | banc |
+|---|---|
+| fin du lot 2 | 108/108 |
+| garde d'atlas (`ae26f773`) | **111/111** |
+| troncature de poignée (`262aa4f7`) | **115/115** |
+
+## Une garde qui se désarmait elle-même
+
+`AddBitmap` vérifiait les bornes de la région **à l'intérieur** d'un
+`if (mAtlasW > 0 && mAtlasH > 0)`, censé épargner les jeux purement vectoriels.
+Cette enveloppe désactivait le contrôle **exactement quand il servait** : un
+bitmap déclaré sur un jeu sans atlas passait, et le dessin normalisait ensuite
+les UV par `1.f` — des coordonnées en **pixels**, soit seize fois hors de la
+texture pour une région de 16 px, **en silence**.
+
+Ce n'était donc pas une garde manquante mais **une garde neutralisée par sa
+propre condition** — la famille « une protection qui ne protège rien ». Les deux
+causes se séparent, et c'est ce qui a tranché : retirer la garde explicite seule
+ne change rien (111/111), remettre l'enveloppe d'origine casse (110/111).
+
+La déclaration échoue désormais **au chargement**, là où c'est vérifiable, et
+non à l'écran.
+
+## ⚠️ Ce que NkUIDesign attend de NKGui — et la fente qui ne passe pas
+
+La tranche verticale (#83) reçoit les icônes par
+`NkComponentPaint::Icon(const NkPaintRect&, uint16 iconHandle, uint16 role)`.
+
+Or `NkGuiIconHandle` vaut `(identifiant de jeu << 16) | (indice + 1)` :
+l'identifiant occupe les **16 bits de poids fort**, précisément ceux qu'un
+`uint16` supprime. Le contrôle d'appartenance — celui qui interdit de dessiner
+le glyphe **d'un autre jeu** — est le premier à tomber dans ce transport.
+
+**Mesuré, pas déduit** (4 assertions, dont un contrôle positif qui prouve que la
+troncature a bien lieu) : le refus est **franc**. Le jeu émetteur rejette la
+poignée amputée, `AddIcon` rend `None` sans rien émettre, **jamais le glyphe
+voisin d'indice égal**. La conséquence côté NKEditorKit est donc « aucune icône
+ne se dessine » — visible — et non « une icône fausse se dessine », qui aurait
+coûté des jours de diagnostic.
+
+> **Remède, hors périmètre NKGui : élargir la fente à `uint32`.**
+
+## Trois affirmations de `main` que la fusion n'a pas signalées
+
+Une fusion sans conflit ne garantit pas la cohérence. Ces trois-là **compilent**,
+et sont pourtant périmées par ce que les lots 1 et 2 ont livré :
+
+| où (`Engine/NKEditorKit/`) | ce qui est écrit | l'état réel |
+|---|---|---|
+| `NkGuiComponentPaint.h:47`, `:89` | « `AddRect` ne sait pas arrondir » | faux depuis le lot 1, **déjà dans `main`** quand #83 a été écrit |
+| `NkComponentPaint.h:84` | « le cercle creux… `Ring` = 2 disques » | `AddCircle` existe (rayon = ligne médiane) |
+| `NkGuiComponentPaint.h:40` | « aucune notion d'icône dans NKGui » | `NkGuiIcons.h` : atlas **et** vectoriel |
+
+`Outline` peut aujourd'hui s'écrire `AddRectFilled(q, inner, rounding)` +
+`AddRect(q, border, th, rounding)` — un contour d'épaisseur réelle, au lieu de
+deux rectangles pleins superposés. **Hors périmètre** : signalé au canal (Q4),
+pas corrigé ici.
+
+## Les trois horizons
+
+- **court** — le témoin visuel des 25 contours arrondis, dès que le GPU se libère
+  (il est le seul point encore différé, et il est nommé) ;
+- **moyen** — les 193 glyphes de NK3DModeler et NKCode versés dans **un jeu
+  unique**, une fois le vocabulaire cadré par NkUIDesign ;
+- **long** — NKGui comme socle unique de dessin du dépôt : plus une application
+  ne réécrit une primitive. Les émulations restantes (`MouDraw.h`,
+  `NkoungDraw.h`, `NkcDraw.h`) en sont la mesure, et elle est décroissante.
