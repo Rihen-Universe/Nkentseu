@@ -866,3 +866,78 @@ existants sont intacts. NKEditorKit gagne trois `.cpp` et cinq en-têtes ;
 ⚠️ **Et un fait vérifiable qui vaut mieux qu'une affirmation sur la frontière** :
 `NKUIDesign.jenga` **ne déclare pas `NKReflection`**. L'éditeur de composants
 n'en lie pas une ligne — la déclaration ne lui doit rien.
+
+---
+
+## 9. Les quatre ajouts de Rodolf, et le CRITÈRE D'ÉCHEC écrit d'avance (2026-08-19)
+
+> ⚠️ **Cette section est écrite AVANT la déclaration du second composant, et
+> elle est commitée séparément.** Un critère d'échec rédigé après le résultat ne
+> discrimine rien : on l'ajuste, sans même le vouloir, à ce qu'on vient de
+> trouver. L'ordre des commits est la seule preuve d'antériorité qui ne se
+> raconte pas.
+
+### 9.1 Ce que la forme porte désormais
+
+Aux quatre acquis de la tranche (paramètres · jetons · variantes · greffes ·
+événements avec charge · l'entrée) s'ajoutent les quatre demandes de Rodolf du
+18/08 au soir :
+
+| ajout | où il vit | ce qu'il change |
+|---|---|---|
+| **le rôle** | `NkComponentRole.h` + champ `role` | on dessine une apparence, on lui **attribue une capacité**. Une poignée de rôles sert des milliers d'apparences |
+| **l'arbre** | `NkComponentLayout.h` + `elements` | une apparence est un arbre ; une interface complète est un composant qui en contient d'autres — **même mécanisme aux deux échelles** |
+| **taille et agencement** | `NkComponentLayout.h` + `NkLayoutSolve.h` | l'enfant déclare figé/contenu/fraction/poids/extensible + bornes, le parent déclare ligne/colonne/grille/ancrage. **La position devient un résultat** |
+| **la provenance** | `NkProvenance`, 3 champs | qui l'a produite, si elle a été vérifiée par rejeu, si elle a été corrigée ensuite |
+
+### 9.2 Pourquoi un second composant, et pourquoi un ARBRE
+
+Mon prédécesseur l'a écrit lui-même en fermant la tranche : *« la forme n'est
+validée que sur UN composant, celui pour lequel elle a été écrite. »* Une forme
+validée sur un seul cas décrit ce cas, pas une famille.
+
+`TreeView` (palier 4) est le meilleur second cas parce qu'il **stresse ce que le
+navigateur ne stressait pas** : un état d'ouverture par nœud, une structure
+récursive de profondeur inconnue, une sélection **multiple**, et un
+glisser-déposer qui **réordonne** au lieu de simplement déposer.
+
+### 9.3 LE CRITÈRE D'ÉCHEC — six questions, et ce qui compte comme échec
+
+**Écrire ce qui prouverait qu'on a tort est la seule façon de ne pas se donner
+raison.** Si aucune réponse ne peut être « la forme ne tient pas », le test ne
+discrimine pas.
+
+| # | ce qui serait un ÉCHEC de la forme | ce qui serait acceptable |
+|---|---|---|
+| **1** | déclarer `TreeView` **oblige à ajouter un champ** à `NkComponentDecl` / `NkElementDecl` qui ne sert qu'aux arbres | tout ce qui est propre à l'arbre atterrit dans `params` / `metrics` / `tokens` / `events` / `elements`, **sans nouveau champ** |
+| **2** | une charge d'événement de `TreeView` **ne s'exprime pas** dans `NkArgKind`, et il faut **ajouter un type** — ce qui casserait l'invariant « exactement la table §11 de `.nkgui`, sans un type de plus » | toutes les charges s'écrivent avec les huit types existants |
+| **3** | le **rôle** doit connaître quelque chose du **dessin** (l'indentation, la vignette) pour être utilisable — la séparation apparence/comportement serait alors fausse | le rôle ne porte que des **faits** et des **états** ; `content_browser` et `TreeView` partagent la famille de rôles sans qu'aucun ne soit taillé pour un seul |
+| **4** | l'arbre de sous-éléments **ne sait pas exprimer la récursion** des lignes, et il faut un mécanisme réservé aux arbres | le besoin se règle par un ajout **général** — qui sert aussi les cartes du navigateur — ou par une frontière écrite entre partie statique et partie répétée par les données |
+| **5** | l'indentation force une **coordonnée** dans la déclaration | l'indentation est une **métrique déclarée**, consommée là où la donnée est connue ; aucun `x` n'apparaît |
+| **6** | la **provenance** ne sait pas décrire l'origine d'une déclaration d'arbre | rien de spécifique n'est attendu ici : **ce critère ne discrimine pas**, et il est écrit pour qu'on ne le compte pas comme une réussite |
+
+**Prédictions, posées avant l'écriture** — elles valent d'être fausses :
+
+1. **le n°2 va mordre.** Une sélection multiple veut porter *l'ensemble des
+   entrées choisies* ; aucun des huit types n'est une collection. Je m'attends à
+   ne pas pouvoir l'exprimer sans inventer un type — et **inventer un type de la
+   spec `.nkgui` n'est pas à ma main** ;
+2. **le n°4 va mordre aussi**, mais je m'attends à ce que la réparation soit
+   **générale** : les cartes du navigateur sont, elles aussi, un gabarit répété
+   par la donnée. Si la réparation n'est générale que pour les arbres, c'est un
+   échec au sens du n°1 ;
+3. les n°1, 3 et 5 devraient passer. S'ils passent **tous les trois sans la
+   moindre gêne**, il faudra se demander si le second composant a été choisi
+   assez loin du premier — un test qui ne coûte rien n'a rien mesuré.
+
+### 9.4 Comment le résultat se mesure
+
+Trois bancs, et aucun ne remplace les autres :
+
+1. **`Engine/NKEditorKit/tests/NkFormProbe.cpp`** — banc de la **forme**,
+   compilé *et exécuté* avec `g++` seul, **sans lier quoi que ce soit**. Il fait
+   passer les deux déclarations par `NkCheckComponent`, résout des dispositions
+   et vérifie que les positions **bougent quand une métrique bouge** ;
+2. **le banc de neutralité** (§5), rejoué avec son témoin qui échoue ;
+3. **`NKUIDesign --probe`**, qui doit **rester à 21/21** : les ajouts ne valent
+   rien s'ils cassent la tranche déjà livrée.

@@ -366,16 +366,94 @@ namespace nkentseu {
 				{"onNavigate", "Navigation", "le fil d'Ariane ou l'arbre a change de dossier courant",
 				 kArgsNav, 1, false},
 			};
+			// ── L'ARBRE DE SOUS-ELEMENTS ────────────────────────────────────────
+			// AJOUT 2 DE RODOLF (2026-08-18, soir), pose ici sur le composant deja
+			// livre -- parce qu'un ajout a la forme qui ne serait porte que par le
+			// composant NEUF ne prouverait rien : il faut qu'il tienne aussi sur ce
+			// qui existe.
+			//
+			// COMMENT LA LIRE : de haut en bas, c'est l'ordre de l'arbre. Chaque
+			// ligne nomme son parent, et un parent est toujours PLUS HAUT qu'un
+			// enfant -- ce qui rend un cycle impossible a ecrire et le resolveur non
+			// recursif (cf. `NkComponentLayout.h`).
+			//
+			// ⚠️ AUCUN `x`, AUCUN `y`. Les colonnes du corps se partagent la largeur
+			//    par FRACTION et par POIDS : c'est ce qui rend le panneau responsive
+			//    sans qu'aucune application n'ait a recalculer quoi que ce soit.
+			//
+			// ⚠️ CE QUI N'EST PAS ICI, ET C'EST NOMME : les CARTES. Elles sont
+			//    repetees par la donnee, leur nombre vient du modele, et l'arbre
+			//    statique ne sait pas les dire. Le noeud `grid` s'arrete donc a la
+			//    grille, et `NkCheckComponent` le signale par une NOTE
+			//    (« agencement_sans_enfant ») plutot que de laisser croire que la
+			//    structure est complete. Voir ROADMAP.md §9.3, critere n.4.
+			static const NkElementDecl kElements[] = {
+				{"browser", "", "le panneau entier", "container", "",
+				 NkExpand(), NkExpand(),
+				 {NkLayoutKind::Column, "", "card_pad", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+
+				{"header", "browser", "bande d'onglets de panneau", "", "",
+				 NkExpand(), NkFixedM("header_h"),
+				 {}, 0},
+
+				{"toolbar", "browser", "bande d'outils Creer / Importer / recherche", "container", "",
+				 NkExpand(), NkFixedM("toolbar_h"),
+				 {NkLayoutKind::Row, "card_pad", "", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+				{"btn_create", "toolbar", "creer un asset", "button", "",
+				 NkContent(72.f), NkExpand(), {}, 0},
+				{"btn_import", "toolbar", "importer un fichier", "button", "",
+				 NkContent(72.f), NkExpand(), {}, 0},
+				{"search", "toolbar", "filtre texte", "text_field", "",
+				 NkExpand(120.f), NkExpand(), {}, 0},
+
+				{"body", "browser", "l'arbre de dossiers et la vue d'assets", "container", "",
+				 NkExpand(), NkExpand(),
+				 {NkLayoutKind::Row, "card_pad", "", NkAlign::Start, NkAlign::Stretch, 0, ""}, 0},
+
+				// ⚠️ LA DEMONSTRATION DE « MEME MECANISME AUX DEUX ECHELLES », et
+				//    elle n'est pas theorique : la colonne d'arbre du navigateur EST
+				//    le composant `tree_view`. Un seul champ le dit, et c'est le seul
+				//    endroit de toute la forme ou l'echelle change.
+				//    `tree_width` est un PARAMETRE, pas une metrique -- une fraction
+				//    n'est pas une longueur. C'est ce cas qui a impose
+				//    `NkComponentDecl::Number` : sans lui, il aurait fallu recopier
+				//    0.18 ici, et le curseur de l'editeur n'aurait plus rien deplace.
+				{"folder_tree", "body", "arborescence des dossiers", "tree", "tree_view",
+				 NkFractionM("tree_width", 120.f, 400.f), NkExpand(), {}, 0},
+
+				{"grid", "body", "la vue d'assets : grille de cartes ou liste dense", "list", "",
+				 NkExpand(), NkExpand(),
+				 {NkLayoutKind::Grid, "card_gap", "", NkAlign::Start, NkAlign::Stretch, 0,
+				  "thumb_size"},
+				 0},
+			};
+
 			static const NkComponentDecl kDecl = {
-				"content_browser",
-				"Navigateur de contenu",
-				"grille ou liste d'assets, arbre de dossiers, fil d'Ariane, recherche",
-				kParams,   (uint16)(sizeof(kParams) / sizeof(kParams[0])),
-				kVariants, (uint16)(sizeof(kVariants) / sizeof(kVariants[0])),
-				kTokens,   (uint16)(sizeof(kTokens) / sizeof(kTokens[0])),
-				kMetrics,  (uint16)(sizeof(kMetrics) / sizeof(kMetrics[0])),
-				kHooks,	   (uint16)(sizeof(kHooks) / sizeof(kHooks[0])),
-				kEvents,   (uint16)(sizeof(kEvents) / sizeof(kEvents[0])),
+				// ⚠️ INITIALISATION POSITIONNELLE COMMENTEE, et ce n'est pas de la
+				//    coquetterie : C++17 n'a pas les initialiseurs designes, et une
+				//    liste de douze entrees sans reperes est exactement le genre de
+				//    table ou l'on decale tout d'un cran en ajoutant un champ. Le
+				//    commentaire de gauche est le garde-fou -- il rend l'erreur
+				//    visible a la relecture, la ou le compilateur, lui, ne dira rien.
+				/* name        */ "content_browser",
+				/* title       */ "Navigateur de contenu",
+				/* summary     */ "grille ou liste d'assets, arbre de dossiers, fil d'Ariane, recherche",
+				/* params      */ kParams,   (uint16)(sizeof(kParams) / sizeof(kParams[0])),
+				/* variants    */ kVariants, (uint16)(sizeof(kVariants) / sizeof(kVariants[0])),
+				/* tokens      */ kTokens,   (uint16)(sizeof(kTokens) / sizeof(kTokens[0])),
+				/* metrics     */ kMetrics,  (uint16)(sizeof(kMetrics) / sizeof(kMetrics[0])),
+				/* hooks       */ kHooks,	 (uint16)(sizeof(kHooks) / sizeof(kHooks[0])),
+				/* events      */ kEvents,   (uint16)(sizeof(kEvents) / sizeof(kEvents[0])),
+				// ⚠️ LA CAPACITE : une COLLECTION. Le navigateur est une apparence de
+				//    plus pour un role que l'arbre, l'inspecteur de projet et la
+				//    console partagent -- c'est exactement ce que Rodolf voulait dire
+				//    par « une poignee de roles sert des milliers d'apparences ».
+				/* role        */ "list",
+				/* elements    */ kElements, (uint16)(sizeof(kElements) / sizeof(kElements[0])),
+				// Ecrite a la main, dans ce depot, jamais rejouee contre une planche.
+				// `verified = false` ne dit pas « fausse » : il dit « pas encore
+				// passee au juge ».
+				/* provenance  */ NkProvenance{NkAuthorKind::Human, false, false},
 			};
 			return kDecl;
 		}
