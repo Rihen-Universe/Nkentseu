@@ -77,7 +77,7 @@ l'export d'interfaces** (§ 9).
 
 ```
 jenga build --target NKUIDesign   :  20/20 SUCCESS
-NKUIDesign --probe                :  95/95
+NKUIDesign --probe                : 103/103
 banc de la forme (NkFormProbe)    :  43/43, dont une série de témoins qui doivent rougir
 banc de neutralité                :  vert, avec ses témoins qui échouent bien
 jenga build --target NKEditorKit  :  19/19 SUCCESS
@@ -586,7 +586,7 @@ trouvé et bouché — ne le rouvrez pas.
    rencontré ce mur indépendamment.** Deux issues (ajouter `List[T]` à la
    spécification ; ou introduire la **propriété exposée** — un état lisible sans
    être une charge). **La décision est à Rodolf. Ne tranchez pas.**
-2. ✅ **Le gabarit répété est FAIT** (19/08). Un élément déclare `once` /
+2. ✅ **Le gabarit répété est FAIT** (18/08). Un élément déclare `once` /
    `per_entry` / `per_entry_tree`, **et rien d'autre** : ni compteur, ni source de
    données — *la donnée appartient à l'application, jamais au kit*. Le champ a été
    **ajouté à la fin**, et un essai vérifie qu'une table écrite avant lui compile
@@ -720,7 +720,7 @@ compteur de clés manquantes s'incrémente de 1.
 Les libellés d'un composant déclaré sont des **clés**, pas du texte. Sinon
 l'outil produit des interfaces monolingues.
 
-✅ **C'est tranché dans la forme depuis le 19/08, et la décision est
+✅ **C'est tranché dans la forme depuis le 18/08, et la décision est
 contre-intuitive : aucun champ n'a été ajouté.** Poser une clé *à côté* du
 libellé aurait créé **deux sources de vérité pour une même chose**.
 
@@ -1095,7 +1095,9 @@ puis ce qui le rend complet.**
 | 1b | ✅ **fait autrement que prévu, et c'est le point** : ce n'étaient pas 10 jetons mais **23 sur 23**, donc une classe de défaut et non une inattention. **La cause a été corrigée, pas les noms** — la résolution canonise, le repli est franc, et le résolveur permissif de la sonde a été supprimé. La correction **à la source** (déplacer la canonisation dans `NkRoleRegistry::Find`) est portée au canal en Q64 | 0.5 |
 | 1d | ✅ **fait dans la nuit du 18/08 — le design des panneaux.** Réponse honnête à Rodolf : c'était **le mécanisme rendu visible**. Corrigé par des **conteneurs**, pas des ellipses — `BeginFlow` (boutons à la largeur de leur texte), `BeginChild` (arbre défilable), **contrôle segmenté** au lieu de 5 `Selectable` empilés, lignes **clé : valeur**, sections `CollapsingHeader`. Plus aucun libellé tronqué dans les panneaux | 0.6 |
 | 1e | ✅ **fait — la config lue par défaut.** `--gfx` > `NK_GFX_API` > **`nkuidesign.cfg`** > détection ; prouvé **bout en bout** (fichier sur disque, journal qui nomme la source) et en sonde (famille 35, 6 essais). Un backend indisponible **nommé par le fichier démarre quand même**, le crie, et **la config n'est pas réécrite** ; nommé par `--gfx`, il refuse toujours | 7 |
-| 1f | 🟡 **RESTE : Préférences → écrire la config** + redémarrage **annoncé**. La moitié « fichier → démarrage » est faite, la moitié « interface → fichier » ne l'est pas | 7.2 |
+| 1f | ✅ **fait — Préférences → écrire la config.** Prouvé **à la souris** : clic sur « Enregistrer », mtime changé, et le fichier **préservé à l'octet près** (commentaire manuscrit + clé inconnue intacts). Redémarrage **annoncé**. Écriture **atomique** (temporaire à côté puis renommage, aucun `.tmp` survivant), **relecture juste avant écriture**, clé commentée laissée commentée. Un fichier présent mais **illisible** est désormais un troisième état, qui **se dit** et **ne s'écrase pas**. Famille 37, 8 essais. ⚠️ Panneau et non catégorie de la fenêtre Préférences de la coquille : `DrawPreferences` est **privée** et le kit n'expose aucun point de greffe — porté au canal | 7.2 |
+| 1i | 🟡 **non montré** : le clic sur une ligne du contrôle segmenté des Préférences. Le bouton, l'écriture et la préservation sont prouvés ; la sélection à la souris ne l'est que par la sonde | 7.2 |
+| ~~1f~~ | ~~**RESTE : Préférences → écrire la config**~~ + redémarrage **annoncé**. La moitié « fichier → démarrage » est faite, la moitié « interface → fichier » ne l'est pas | 7.2 |
 | 1g | ✅ **fait — le chevron.** ⚠️ **Mais la mesure a d'abord démenti le diagnostic** : « pas de chevron = un arbre qui ne se plie pas » était une **déduction faite sur une image**, la troisième de la journée. La famille 36 mesure : le clic dans la zone du chevron **plie et déplie déjà**, sans aucune icône (`hitChevron` est géométrique). Le manque était **le signe, pas le geste**. Corrigé par `Icons.h` (six poignées + `NkDesignPaint`, qui surcharge `Icon` **et rien d'autre**) et **une ligne** dans `Renderers.h`. Vérifié à la souris : ▼ → clic → ▶ et les enfants disparaissent | 0.6 |
 | 1h | ✅ **fait — le débordement de 8 px** (`NkContentBrowserDraw.cpp`) : `header.w` → `header.w - 2·card_pad`. Personne ne tenait ce fichier (`git status` des worktrees vérifié). La sonde passe de **8,0 px à 0,0 px**, et la quarantaine `34b` — écrite **monotone** (`<= 1`, jamais `== 1`) — a pu être resserrée à `== 0` sans jamais rougir | 0.6 |
 | 1c | 🟡 **l'œil, le cadenas, l'icône de nature** — toujours des carrés (repli du kit), et c'est **assumé** : ce sont des *informations*, pas des commandes. On lit l'arbre sans elles ; on ne peut pas le plier sans savoir où cliquer. Attend l'atlas NKGui. *(anciennement « remplir `NkTreeViewIcons` », fait pour le chevron en 1g)* — cause commune de 3 écarts, et **un arbre sans chevron ne se plie pas**. Bloqué par l'absence d'atlas d'icônes (tâche 17) | 0.6 |

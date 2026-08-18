@@ -1812,6 +1812,120 @@ namespace nkuidesign {
 					   "  pas le geste -- on ne voit pas ou cliquer, mais cliquer marche.\n");
 		}
 
+
+		// -- 37. ECRIRE LA CONFIGURATION SANS DETRUIRE CE QU'ON N'A PAS ECRIT --
+		// La chaine se referme : **Preferences -> fichier -> demarrage**. Cette
+		// famille couvre le maillon neuf, et surtout ce qu'il ne doit JAMAIS
+		// faire. La production du texte est PURE (`NkGfxConfigSet` prend l'ancien
+		// texte, rend le nouveau) : la sonde exerce donc des contenus qu'aucun
+		// fichier reel ne contiendrait tous, sans ecrire un octet.
+		{
+			// 37a. LE REMPLACEMENT PRESERVE TOUT LE RESTE. C'est l'exigence n. 1 :
+			//      le fichier a pu etre edite a la main. Un `Enregistrer` qui
+			//      REGENERE le fichier effacerait le travail de quelqu'un sans
+			//      qu'un seul message le signale.
+			static const char *kAvant = "# mon fichier a moi\n"
+										"gfx = opengl\n"
+										"autre = 42\n"
+										"# une note en bas\n";
+			NkString apres;
+			NkGfxConfigSet(kAvant, "gfx", "vulkan", apres);
+			const bool garde = Contains(apres.Data(), "# mon fichier a moi") &&
+							   Contains(apres.Data(), "autre = 42") &&
+							   Contains(apres.Data(), "# une note en bas");
+			const bool remplace = Contains(apres.Data(), "gfx = vulkan") &&
+								  !Contains(apres.Data(), "gfx = opengl");
+			check("37a. la cle est remplacee, et TOUT le reste survit (commentaires, autres cles)",
+				  garde && remplace, apres.Data());
+
+			// 37b. CLE ABSENTE -> AJOUTEE, sans rien perdre. Sans ce cas, le
+			//      premier enregistrement sur un fichier neuf ne ferait rien, et
+			//      le bouton « Enregistrer » mentirait en silence.
+			NkString ajout;
+			NkGfxConfigSet("# rien que des notes\nautre = 1\n", "gfx", "dx12", ajout);
+			check("37b. une cle absente est AJOUTEE, le reste est conserve",
+				  Contains(ajout.Data(), "gfx = dx12") && Contains(ajout.Data(), "autre = 1") &&
+					  Contains(ajout.Data(), "# rien que des notes"),
+				  ajout.Data());
+
+			// 37c. UNE CLE COMMENTEE N'EST PAS LA CLE. `# gfx = vulkan` doit
+			//      rester un commentaire : le remplacer reviendrait a decommenter
+			//      une ligne que quelqu'un avait volontairement desactivee.
+			NkString comm;
+			NkGfxConfigSet("# gfx = vulkan\n", "gfx", "opengl", comm);
+			check("37c. une cle COMMENTEE reste commentee, et la vraie cle est ajoutee a cote",
+				  Contains(comm.Data(), "# gfx = vulkan") && Contains(comm.Data(), "gfx = opengl"),
+				  comm.Data());
+
+			// 37d. ⚠️ L'ALLER-RETOUR PASSE PAR LA MEME LECTURE QUE L'APPLICATION.
+			//      C'est la condition qui empeche de recreer deux verites en
+			//      ajoutant l'ecriture : ce qu'on ECRIT doit etre exactement ce que
+			//      `NkGfxConfigValue` RELIT, et ce que `NkGfxResolve` en fait.
+			char relu[32];
+			const bool lu = NkGfxConfigValue(apres.Data(), "gfx", relu, sizeof(relu));
+			const NkGfxChoice apresEcriture = NkGfxResolve(lu ? relu : nullptr, nullptr, nullptr, 0);
+			snprintf(buf, sizeof(buf), "ecrit 'vulkan' -> relu '%s' -> resolu '%s' (source : %s)",
+					 lu ? relu : "", apresEcriture.effective, NkGfxSourceName(apresEcriture.source));
+			check("37d. ALLER-RETOUR : ce qui est ecrit est relu par la MEME lecture, et resolu pareil",
+				  lu && SameText(relu, "vulkan") && SameText(apresEcriture.effective, "vulkan") &&
+					  apresEcriture.source == NkGfxSource::FichierDeConfig,
+				  buf);
+
+			// 37e. LES TROIS ETATS D'UN FICHIER SONT DISTINGUES. « absent » et
+			//      « present mais inexploitable » se comportaient pareil — un repli
+			//      MUET. Ils doivent se separer, sinon l'utilisateur qui a ecrit
+			//      quelque chose de faux ne l'apprend jamais.
+			char v[32];
+			const NkGfxConfigState stAbsent = NkGfxConfigClassify(false, "", v, sizeof(v));
+			const NkGfxConfigState stLu = NkGfxConfigClassify(true, "gfx = dx11\n", v, sizeof(v));
+			const NkGfxConfigState stCasse =
+				NkGfxConfigClassify(true, "\x01\x02 ceci n'est pas une config\n", v, sizeof(v));
+			check("37e. absent / lu / present-mais-illisible sont TROIS etats distincts",
+				  stAbsent == NkGfxConfigState::Absent && stLu == NkGfxConfigState::CleLue &&
+					  stCasse == NkGfxConfigState::PresentSansCle,
+				  "");
+
+			// 37f. ET L'ETAT « ILLISIBLE » PORTE UN MESSAGE, les autres non.
+			//      Un etat qu'on distingue sans le dire ne sert a rien.
+			const char *mCasse = NkGfxConfigStateMessage(NkGfxConfigState::PresentSansCle);
+			const char *mLu = NkGfxConfigStateMessage(NkGfxConfigState::CleLue);
+			check("37f. l'etat illisible se DIT (et promet de ne rien ecraser), les autres se taisent",
+				  mCasse && *mCasse && Contains(mCasse, "n'a PAS ete modifie") && mLu && !*mLu, "");
+
+			// 37g. ⚠️ L'ECRITURE EST ATOMIQUE, ET C'EST LE SEUL ESSAI QUI TOUCHE LE
+			//      DISQUE. Deux choses a prouver : le contenu arrive, et **aucun
+			//      temporaire ne survit**. Un `.tmp` oublie a cote du fichier est
+			//      le signe d'un renommage qui n'a pas eu lieu — donc d'une
+			//      ecriture qui a pu laisser le fichier a moitie ecrit.
+			static const char *kEssai = "nkuidesign_essai.cfg";
+			NkString tmpPath(kEssai);
+			tmpPath.Append(".tmp");
+			const bool ecrit = NkGfxConfigSetKey(kEssai, "gfx", "software");
+			const NkString relire =
+				nkentseu::NkFile::Exists(kEssai) ? nkentseu::NkFile::ReadAllText(kEssai) : NkString("");
+			const bool tmpParti = !nkentseu::NkFile::Exists(tmpPath.Data());
+			snprintf(buf, sizeof(buf), "ecrit=%d, contenu='%s', temporaire restant=%d", (int)ecrit,
+					 relire.Data(), (int)!tmpParti);
+			check("37g. l'ecriture atterrit sur le disque ET ne laisse aucun temporaire derriere",
+				  ecrit && Contains(relire.Data(), "gfx = software") && tmpParti, buf);
+
+			// 37h. UN SECOND ENREGISTREMENT NE DUPLIQUE PAS LA CLE. Sans ce
+			//      controle, chaque `Enregistrer` ajouterait une ligne, et le
+			//      fichier finirait par contenir dix `gfx` dont seule la premiere
+			//      compterait -- un defaut qui ne se voit qu'apres coup.
+			NkGfxConfigSetKey(kEssai, "gfx", "opengl");
+			const NkString deux =
+				nkentseu::NkFile::Exists(kEssai) ? nkentseu::NkFile::ReadAllText(kEssai) : NkString("");
+			uint32 occurrences = 0;
+			for (const char *c = deux.Data(); c && *c; ++c)
+				if (c[0] == 'g' && c[1] == 'f' && c[2] == 'x')
+					++occurrences;
+			snprintf(buf, sizeof(buf), "%u occurrence(s) de 'gfx' apres deux enregistrements",
+					 occurrences);
+			check("37h. deux enregistrements successifs laissent UNE seule cle", occurrences == 1, buf);
+			nkentseu::NkFile::Delete(kEssai);
+		}
+
 		rep.Append("\n--- les lignes de journal du backend, telles quelles ---\n");
 		rep.Append(lineVk);
 		rep.Append('\n');

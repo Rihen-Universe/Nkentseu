@@ -60,6 +60,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKEditorKit/Components/NkComponentDecl.h"
 #include "NKEditorKit/NkIEditorRenderer.h"
+#include "NKFileSystem/NkFile.h"
 
 namespace nkuidesign {
 
@@ -294,6 +295,165 @@ namespace nkuidesign {
 				++p;
 		}
 		return false;
+	}
+
+	// ── UN FICHIER QU'ON N'A PAS SU LIRE SE DIT, ET NE S'ECRASE PAS ─────────
+	// ⚠️ TROIS ETATS, ET C'EST LE TROISIEME QUI COMPTE. « Fichier absent » et
+	//    « fichier present dont on ne tire rien » se comportaient pareil —
+	//    repli silencieux sur la detection — et c'est un repli MUET, celui que
+	//    la regle 2 de Rodolf interdit. Or les deux situations n'ont rien a voir :
+	//    l'absence est normale, l'illisible veut dire que **quelqu'un a ecrit
+	//    quelque chose et que le programme n'en a rien fait**.
+	//
+	// ⚠️ ET SURTOUT : ON NE REECRIT PAS un fichier qu'on n'a pas su lire. Il a pu
+	//    etre edite a la main ; le « reparer » en le regenerant detruirait le
+	//    travail de quelqu'un pour corriger une erreur qu'il verra tout seul des
+	//    qu'on la lui aura dite.
+	enum class NkGfxConfigState : uint8 {
+		Absent = 0,		 ///< pas de fichier : cas normal, rien a signaler
+		CleLue,			 ///< fichier present, cle `gfx` lue
+		PresentSansCle	 ///< fichier present et INEXPLOITABLE : a dire, jamais a reparer
+	};
+
+	inline NkGfxConfigState NkGfxConfigClassify(bool exists, const char *text, char *out,
+											   uint32 cap) {
+		if (out && cap)
+			out[0] = 0;
+		if (!exists)
+			return NkGfxConfigState::Absent;
+		return NkGfxConfigValue(text, "gfx", out, cap) ? NkGfxConfigState::CleLue
+													  : NkGfxConfigState::PresentSansCle;
+	}
+
+	inline const char *NkGfxConfigStateMessage(NkGfxConfigState st) {
+		switch (st) {
+			case NkGfxConfigState::PresentSansCle:
+				return "[NKUIDesign] le fichier nkuidesign.cfg existe mais n'a pas livre de cle "
+					   "'gfx' lisible -- demarrage sur la detection automatique. Le fichier n'a PAS "
+					   "ete modifie : s'il a ete edite a la main, rien n'est perdu.";
+			case NkGfxConfigState::CleLue:
+				return "";
+			default:
+				return "";
+		}
+	}
+
+	// ── ECRIRE LA CONFIGURATION ─────────────────────────────────────────────
+	// Directive de Rodolf : *« il faut pouvoir la changer depuis l'interface
+	// aussi »*. La chaine se referme ici — **Preferences -> fichier -> demarrage**
+	// — et l'ecriture est la moitie qui manquait.
+	//
+	// ⚠️ TROIS EXIGENCES, ET AUCUNE N'EST DU CONFORT :
+	//
+	//  1. **NE JAMAIS DETRUIRE CE QU'ON N'A PAS ECRIT.** Le fichier peut avoir ete
+	//     edite a la main. On ne le REGENERE pas : on remplace **la ligne de la
+	//     cle**, on garde commentaires, ordre, et toutes les autres cles. Un
+	//     `Enregistrer` qui reecrirait le fichier entier effacerait le travail de
+	//     quelqu'un sans qu'un seul message le signale.
+	//  2. **NE JAMAIS LAISSER UN FICHIER A MOITIE ECRIT.** Ecriture dans un
+	//     temporaire, puis **renommage**. Une coupure de courant pendant un
+	//     `Enregistrer` doit couter le REGLAGE, jamais la CONFIGURATION.
+	//     ⚠️ Et le renommage n'est atomique que si les deux chemins sont sur le
+	//     meme volume : le temporaire est donc **a cote du fichier**, jamais dans
+	//     un dossier temporaire du systeme.
+	//  3. **LA PRODUCTION DU TEXTE EST PURE.** `NkGfxConfigSet` ne touche pas au
+	//     disque : elle prend l'ancien texte et rend le nouveau. C'est ce qui
+	//     permet a la sonde d'exercer les cas qu'un fichier reel ne contiendrait
+	//     jamais tous — cle absente, cle en double, fichier vide, texte tronque —
+	//     sans ecrire un octet. Meme discipline que la resolution.
+
+	/// Produit le NOUVEAU texte de configuration : `key = value`, en preservant
+	/// tout le reste. Remplace la **premiere** occurrence non commentee de la cle ;
+	/// si elle est absente, ajoute la ligne a la fin.
+	///
+	/// ⚠️ « premiere occurrence » et pas « toutes » : c'est la premiere que
+	///    `NkGfxConfigValue` lit, donc la seule qui compte. En reecrire d'autres
+	///    ferait diverger ce qu'on ecrit de ce qu'on relira.
+	inline void NkGfxConfigSet(const char *text, const char *key, const char *value, NkString &out) {
+		out = NkString("");
+		bool remplace = false;
+		const char *p = text ? text : "";
+		while (*p) {
+			const char *debut = p;
+			const char *fin = p;
+			while (*fin && *fin != '\n')
+				++fin;
+			const char *apres = *fin ? fin + 1 : fin;
+
+			// La ligne porte-t-elle la cle, hors commentaire ?
+			const char *q = debut;
+			while (q < fin && (*q == ' ' || *q == '\t'))
+				++q;
+			bool porteLaCle = false;
+			if (q < fin && *q != '#') {
+				const char *k = key;
+				const char *r = q;
+				while (*k && r < fin && *r == *k) {
+					++k;
+					++r;
+				}
+				if (*k == 0) {
+					while (r < fin && (*r == ' ' || *r == '\t'))
+						++r;
+					porteLaCle = (r < fin && *r == '=');
+				}
+			}
+			if (porteLaCle && !remplace) {
+				out.Append(key);
+				out.Append(" = ");
+				out.Append(value ? value : "");
+				out.Append('\n');
+				remplace = true;
+			} else {
+				for (const char *c = debut; c < apres; ++c)
+					out.Append(*c);
+				// Derniere ligne sans saut final : on le pose, sinon l'ajout
+				// ci-dessous se collerait a elle.
+				if (apres == fin && fin > debut)
+					out.Append('\n');
+			}
+			p = apres;
+		}
+		if (!remplace) {
+			out.Append(key);
+			out.Append(" = ");
+			out.Append(value ? value : "");
+			out.Append('\n');
+		}
+	}
+
+	/// Ecrit le texte de facon ATOMIQUE : temporaire a cote, puis renommage.
+	/// Rend `false` sans rien detruire si l'une des deux etapes echoue.
+	inline bool NkGfxConfigWriteAtomic(const char *path, const char *text) {
+		if (!path || !*path || !text)
+			return false;
+		NkString tmp(path);
+		tmp.Append(".tmp");
+		if (!nkentseu::NkFile::WriteAllText(tmp.Data(), text))
+			return false;
+		// `Move` echoue si la cible existe : on retire l'ancienne APRES avoir
+		// ecrit le temporaire, donc la fenetre ou rien n'existe est aussi courte
+		// que possible — et si la machine s'arrete pile la, le `.tmp` porte encore
+		// le contenu complet.
+		if (nkentseu::NkFile::Exists(path))
+			nkentseu::NkFile::Delete(path);
+		if (nkentseu::NkFile::Move(tmp.Data(), path))
+			return true;
+		nkentseu::NkFile::Delete(tmp.Data());
+		return false;
+	}
+
+	/// Le geste complet : relire, remplacer la cle, reecrire atomiquement.
+	/// ⚠️ IL RELIT JUSTE AVANT D'ECRIRE, il ne se sert pas d'un texte garde en
+	///    memoire au demarrage : entre les deux, quelqu'un a pu editer le fichier
+	///    a la main. Ecraser sa version avec la notre serait exactement la
+	///    destruction que la regle 1 interdit.
+	inline bool NkGfxConfigSetKey(const char *path, const char *key, const char *value) {
+		const NkString ancien =
+			nkentseu::NkFile::Exists(path) ? nkentseu::NkFile::ReadAllText(path) : NkString("");
+		NkString nouveau;
+		NkGfxConfigSet(ancien.Data(), key, value, nouveau);
+		return NkGfxConfigWriteAtomic(path, nouveau.Data());
 	}
 
 	// LA resolution complete : detection automatique, puis environnement, puis

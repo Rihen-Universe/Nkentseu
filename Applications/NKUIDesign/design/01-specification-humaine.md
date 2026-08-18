@@ -303,7 +303,7 @@ C'est l'écran de travail, et le seul qui existe aujourd'hui. Cinq panneaux :
 | **IA** | bas | un prompt en français, un backend remplaçable, une sortie qui passe par la même porte que la main | ✅ (la place) |
 
 ⚠️ **Ce que « existe » veut dire ici, exactement** : ces panneaux compilent, la
-sonde les exerce sans écran, et **la fenêtre s'ouvre** depuis le 19/08. Mais leur
+sonde les exerce sans écran, et **la fenêtre s'ouvre** depuis le 18/08. Mais leur
 conformité aux planches de `Applications/Nogee/design/` **n'est pas
 revendiquée** : personne ne les a comparés à une cible visuelle. Et le premier
 regard a déjà rapporté deux défauts (§ 3.1) — c'est ce qu'on doit attendre du
@@ -588,7 +588,7 @@ mensonge dans l'autre.
    produit des interfaces monolingues — et il serait absurde qu'un outil
    multilingue fabrique des interfaces qui ne le sont pas.
 
-   ✅ **C'est décidé et c'est dans la forme, depuis le 19/08.** Et la décision
+   ✅ **C'est décidé et c'est dans la forme, depuis le 18/08.** Et la décision
    mérite d'être connue, parce qu'elle est contre-intuitive : **aucun champ n'a
    été ajouté**. La tentation était de poser une clé *à côté* du libellé ; ç'aurait
    été **deux sources de vérité pour une même chose** — le défaut que cette forme
