@@ -128,6 +128,35 @@ namespace nkentseu {
 				add(NkIssueLevel::Error, "nom_absent", "",
 					"un composant sans cle stable ne peut ni s'enregistrer ni s'ecrire dans un fichier");
 
+			// ── LES LIBELLES SONT-ILS DES CLES ? (regle du 2026-08-18) ──────────
+			// ⚠️ EN NOTE, JAMAIS EN ERREUR, ET C'EST RAISONNE -- pas une mollesse.
+			//    Le jour ou cette regle est ecrite, DEUX composants portent des
+			//    libelles en clair (« Grille », « Taille des vignettes »), dont un
+			//    ecrit par une autre main qui compile en ce moment sur ce fichier.
+			//    Une erreur rougirait le travail de quelqu'un qui n'a rien casse, et
+			//    pour une regle plus jeune que son code. La note COMPTE les libelles
+			//    non migres : le compte descend a mesure que les mains migrent, et il
+			//    dit a tout moment ce qui reste monolingue.
+			//
+			// ⚠️ ET UN LIBELLE VIDE N'EST PAS SIGNALE : « pas de libelle » est un
+			//    choix legitime (un noeud decoratif n'a rien a traduire). Ne se
+			//    signale que ce qui PRETEND etre un libelle sans etre une cle.
+			auto keyNote = [&](const char *v, const char *what) {
+				if (!checkdetail::Empty(v) && !NkIsLabelKey(v))
+					add(NkIssueLevel::Note, "libelle_non_cle", v,
+						"ce libelle est du texte en clair, pas une cle de traduction : l'interface "
+						"produite serait monolingue. Il s'affichera tel quel (le repli est voulu "
+						"visible), mais il ne se traduira pas");
+				(void)what;
+			};
+			keyNote(d.title, "title");
+			for (uint16 i = 0; i < d.paramCount; ++i)
+				keyNote(d.params[i].label, "param");
+			for (uint16 i = 0; i < d.variantCount; ++i)
+				keyNote(d.variants[i].label, "variant");
+			for (uint16 i = 0; i < d.eventCount; ++i)
+				keyNote(d.events[i].label, "event");
+
 			// ── LE ROLE DU COMPOSANT (ajout 1 de Rodolf) ────────────────────────
 			if (!checkdetail::Empty(d.role)) {
 				const NkRoleDecl *r = NkFindRole(d.role);
@@ -316,6 +345,34 @@ namespace nkentseu {
 							add(NkIssueLevel::Note, "ancrage_ignore", e.name,
 								"des bords d'ancrage sont declares mais le parent n'est pas en "
 								"agencement Anchor : ils ne servent a rien");
+					}
+
+					// ── LE GABARIT REPETE (reparation du §10.4) ────────────────
+					if (e.repeat != NkRepeatKind::Once) {
+						// La RACINE ne se repete pas : rien, dans un composant, ne
+						// repete le composant entier. Ce serait une instanciation, et
+						// c'est le travail de l'hote, pas de la declaration.
+						if (checkdetail::Empty(e.parent))
+							add(NkIssueLevel::Error, "repetition_sur_racine", e.name,
+								"la racine d'un composant ne peut pas etre repetee par la donnee : "
+								"un composant se repete en etant INSTANCIE par son hote, pas en se "
+								"declarant repete lui-meme");
+
+						// Deux freres repetes sous le meme parent : LEQUEL suit la
+						// donnee ? La declaration ne le dit pas, et le dessin
+						// trancherait tout seul -- chacun a sa facon. Note plutot
+						// qu'erreur : le cas peut etre voulu (deux listes soeurs).
+						for (int32 j = d.NextChildOf(e.parent, 0); j >= 0;
+							 j = d.NextChildOf(e.parent, (uint16)(j + 1))) {
+							const NkElementDecl &sib = d.elements[j];
+							if (&sib != &e && sib.repeat != NkRepeatKind::Once) {
+								add(NkIssueLevel::Note, "repetition_freres", e.name,
+									"deux freres se declarent repetes par la donnee sous le meme "
+									"parent : la declaration ne dit pas lequel suit quelle donnee, "
+									"et deux dessins trancheraient differemment");
+								break;
+							}
+						}
 					}
 				}
 				if (roots == 0)

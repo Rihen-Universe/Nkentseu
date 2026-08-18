@@ -189,6 +189,35 @@ namespace nkentseu {
 				const char *gridCellMetric = ""; ///< largeur d'une cellule, quand `gridColumns == 0`
 		};
 
+		// ── LE GABARIT REPETE ─────────────────────────────────────────
+		// LA REPARATION GENERALE ANNONCEE AU §10.4 DE `ROADMAP.md`, ET ELLE EST FAITE
+		// ICI PARCE QUE LE MANQUE A ETE MESURE CHEZ **DEUX** COMPOSANTS, DE DEUX MAINS
+		// DIFFERENTES, LE MEME JOUR :
+		//     `content_browser.grid` -> les CARTES, une par entree
+		//     `tree_view.rows`       -> les LIGNES, une par noeud, recursivement
+		//
+		// La note `agencement_sans_enfant` tombait sur les deux. Ce n'etait donc pas
+		// un besoin d'arbres ni un besoin de grilles : c'etait un manque de la FORME.
+		// Un arbre statique ne sait pas dire « ici, un enfant PAR ENTREE de donnee ».
+		//
+		// ⚠️ CE QUE CE CHAMP N'EST PAS : une boucle. La forme ne compte rien et
+		//    n'itere rien -- elle ne SAIT PAS combien il y a d'entrees, et c'est
+		//    voulu : la donnee appartient a l'application, jamais au kit. Ce champ
+		//    DECLARE une intention de repetition ; c'est le dessin, qui tient la
+		//    donnee, qui instancie le gabarit autant de fois qu'il le faut.
+		//
+		// ⚠️ ET LA POSITION RESTE UN RESULTAT. Un gabarit repete declare sa taille
+		//    comme tout autre element (fige/extensible/a poids) ; c'est le solveur qui
+		//    place les N copies, exactement comme il place N freres ecrits a la main.
+		//    Aucun `x`, aucun `y` n'apparait ici -- la regle ne souffre pas d'exception
+		//    parce qu'un enfant est repete.
+		enum class NkRepeatKind : uint8 {
+			Once = 0,     ///< une fois -- le cas ordinaire, et le DEFAUT
+			PerEntry,     ///< par entree : une copie par element de la donnee (cartes, lignes)
+			PerEntryTree, ///< par entree, RECURSIF : la copie peut contenir des copies (arbre)
+			Count
+		};
+
 		// ── UN SOUS-ELEMENT ─────────────────────────────────────────────────────
 		// LE PARENT SE DESIGNE PAR SON NOM, PAS PAR UN INDEX, et le choix est paye
 		// d'avance :
@@ -225,6 +254,25 @@ namespace nkentseu {
 				NkSizeDecl height;
 				NkLayoutDecl layout;   ///< comment il dispose SES enfants
 				uint8 anchorEdges = 0; ///< bits `nkanchor::*`, quand le PARENT est en Anchor
+
+				// ═════════════════════════════════════════════════════════
+				//  ⚠️ AJOUTE LE 2026-08-19, DONC **A LA FIN** -- ET C'EST LA REGLE
+				//     QUI A ETE PAYEE UNE FOIS, PAS UNE PREFERENCE DE MISE EN PAGE.
+				// ═════════════════════════════════════════════════════════
+				//  Le meme jour, `role` insere au MILIEU de `NkComponentDecl` a casse
+				//  12 initialisations chez un agent qui compilait en parallele. C++17
+				//  n'a pas d'initialiseurs designes : toute table d'elements s'ecrit en
+				//  liste POSITIONNELLE, et un champ insere au milieu decale tout ce qui
+				//  suit, chez tout le monde.
+				//
+				//  ⚠️ ET LE CAS BENIN EST LE VRAI DANGER : la, les types etaient
+				//     incompatibles, donc ca a rougi. Entre deux `const char*` voisins,
+				//     le decalage aurait COMPILE et decrit un autre composant.
+				//
+				//  Ajoute a la fin, une table ecrite avant ce champ reste valide : les
+				//  elements manquants prennent leur defaut, et `Once` est precisement le
+				//  comportement d'avant. **Cet ajout ne peut casser personne.**
+				NkRepeatKind repeat = NkRepeatKind::Once;
 		};
 
 		// ── LES MOTS DU FICHIER -- UN SEUL POINT DE VERITE ───────────────────────
@@ -334,6 +382,30 @@ namespace nkentseu {
 			for (uint8 i = 0; i < (uint8)NkAlign::Count; ++i)
 				if (layoutdetail::KeyEq(s, NkAlignName((NkAlign)i))) {
 					out = (NkAlign)i;
+					return true;
+				}
+			return false;
+		}
+
+		/// Meme regle que les trois autres : la table vit A COTE du type, une seule
+		/// fois. Une seconde orthographe ailleurs = un fichier illisible par l'autre
+		/// moitie du code (c'est arrive le 19/08 avec `NkCrossAlignName`).
+		inline const char *NkRepeatKindName(NkRepeatKind r) {
+			switch (r) {
+				case NkRepeatKind::Once:
+					return "once";
+				case NkRepeatKind::PerEntry:
+					return "per_entry";
+				case NkRepeatKind::PerEntryTree:
+					return "per_entry_tree";
+				default:
+					return "once";
+			}
+		}
+		inline bool NkParseRepeatKind(const char *s, NkRepeatKind &out) {
+			for (uint8 i = 0; i < (uint8)NkRepeatKind::Count; ++i)
+				if (layoutdetail::KeyEq(s, NkRepeatKindName((NkRepeatKind)i))) {
+					out = (NkRepeatKind)i;
 					return true;
 				}
 			return false;
