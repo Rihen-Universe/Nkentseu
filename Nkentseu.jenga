@@ -1515,6 +1515,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKUIDesign/NKUIDesign.jenga"):
+
+        pass
+
+
+
     with include("Applications/ConquerorLab/ConquerorLab.jenga"):
 
         pass
