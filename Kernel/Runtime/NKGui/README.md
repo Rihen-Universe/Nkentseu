@@ -56,7 +56,7 @@ device : elle appelle l'API et **recalcule la géométrie produite**.
 
 ```
 jenga build --target NKGuiDrawTest --config Debug
-./Build/Bin/Debug-Windows/NKGuiDrawTest/NKGuiDrawTest.exe    # 108/108, code 0
+./Build/Bin/Debug-Windows/NKGuiDrawTest/NKGuiDrawTest.exe    # 115/115, code 0
 ```
 
 C'est une application et non un `unittest()` parce que **l'exécution des tests
