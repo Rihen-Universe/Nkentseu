@@ -97,6 +97,124 @@ namespace nkuidesign {
 				NkGuiContext &ctx;
 		};
 
+		// ── CE QUE L'INTERFACE A REELLEMENT DESSINE ─────────────────────────
+		// ⚠️ POURQUOI CE REGISTRE EXISTE, ET POURQUOI IL N'EST PAS DANS NKGUI.
+		//    Pour montrer qu'un clic sur une ligne du controle segmente fait ce
+		//    qu'il annonce, il faut savoir OU cliquer. Trois methodes ont ete
+		//    essayees dans la nuit du 18/08 :
+		//      1. calculer les coordonnees depuis la mise en page -> FAUX trois
+		//         fois, parce que la hauteur du texte AU-DESSUS du controle change
+		//         selon la source du backend. **L'instrument dependait d'un etat
+		//         que la mesure faisait varier.**
+		//      2. balayer les pixels de la capture -> ca marche, mais ca mesure une
+		//         image : le jour ou le theme change, l'instrument est aveugle.
+		//      3. **elargir NKGui pour exposer un identifiant de test** -> refuse.
+		//         Elargir un module partage pour un besoin d'essai est une dette
+		//         qu'on rembourse pendant des mois.
+		//
+		//    La sortie est celle que ce depot connait deja : **brancher
+		//    l'instrument sur une source qui ne varie pas avec ce qu'on mesure.**
+		//    C'est exactement ce que fait la famille 34 pour les composants — elle
+		//    ne lit pas des pixels, elle lit **les rectangles emis**. Ici, meme
+		//    principe : l'interface PUBLIE les rectangles qu'elle vient de
+		//    dessiner, et l'essai clique dedans.
+		//
+		//    `ctx.lastItemRect` existe deja (NKGui s'en sert pour les cibles de
+		//    depot) : il n'y a rien a ajouter en amont, juste a le lire.
+		//
+		// ⚠️ CE N'EST PAS DU CODE DE TEST GREFFE DANS LA PRODUCTION : le registre
+		//    ne coute qu'une poignee de rectangles par image, et il n'ecrit sur le
+		//    disque que si `--dump-ui` est passe. Sans le drapeau, il ne fait rien
+		//    d'observable.
+		class UiRects {
+			public:
+				struct Entry {
+						NkString id;
+						nkgui::NkRect r;
+				};
+
+				static NkVector<Entry> &All() {
+					static NkVector<Entry> v;
+					return v;
+				}
+				static bool &Enabled() {
+					static bool on = false;
+					return on;
+				}
+
+				/// A appeler JUSTE APRES le widget : `ctx.lastItemRect` porte alors
+				/// son rectangle. Remplace l'entree de meme nom (une image chasse
+				/// l'autre) plutot que d'empiler.
+				static void Note(NkGuiContext &ctx, const char *id) {
+					if (!Enabled() || !id || !*id)
+						return;
+					for (uint32 i = 0; i < (uint32)All().Size(); ++i)
+						if (StrEq(All()[i].id.Data(), id)) {
+							All()[i].r = ctx.lastItemRect;
+							return;
+						}
+					Entry e;
+					e.id = NkString(id);
+					e.r = ctx.lastItemRect;
+					All().PushBack(e);
+				}
+
+				/// Ecrit le registre — mais SEULEMENT s'il a change. Une ecriture
+				/// par image saturerait le disque pour rien, et un fichier reecrit
+				/// en permanence est illisible par un script qui le lit au meme
+				/// moment.
+				static void DumpIfChanged(const char *path) {
+					if (!Enabled())
+						return;
+					NkString out;
+					char b[192];
+					for (uint32 i = 0; i < (uint32)All().Size(); ++i) {
+						snprintf(b, sizeof(b), "%s = %.1f %.1f %.1f %.1f\n", All()[i].id.Data(),
+								 All()[i].r.x, All()[i].r.y, All()[i].r.w, All()[i].r.h);
+						out.Append(b);
+					}
+					static NkString dernier;
+					if (SameTextS(out, dernier))
+						return;
+					dernier = out;
+					nkentseu::NkFile::WriteAllText(path, out.Data());
+				}
+
+			private:
+				static bool StrEq(const char *a, const char *b) {
+					if (!a || !b)
+						return a == b;
+					for (; *a && *b; ++a, ++b)
+						if (*a != *b)
+							return false;
+					return *a == *b;
+				}
+				static bool SameTextS(const NkString &a, const NkString &b) {
+					return StrEq(a.Data(), b.Data());
+				}
+		};
+
+		/// Enregistre le rectangle de la case qui vient d'etre dessinee, sous
+		/// « id.libelle ». Le libelle plutot qu'un indice : un essai qui clique
+		/// « prefs.gfx.vulkan » dit ce qu'il fait, un essai qui clique
+		/// « prefs.gfx.2 » se casse en silence le jour ou l'ordre change.
+		inline void NoteCell(NkGuiContext &ctx, const char *id, const char *label) {
+			if (!id || !*id)
+				return;
+			char clef[96];
+			snprintf(clef, sizeof(clef), "%s.%s", id, label ? label : "");
+			UiRects::Note(ctx, clef);
+		}
+
+		/// Un bouton qui publie son rectangle. Meme forme que `nkgui::Button`,
+		/// avec un identifiant STABLE qui ne depend ni du libelle affiche ni de sa
+		/// position — c'est lui que les essais visent.
+		inline bool Button(NkGuiContext &ctx, const char *label, const char *id) {
+			const bool clique = nkgui::Button(ctx, label);
+			UiRects::Note(ctx, id);
+			return clique;
+		}
+
 		/// Un choix parmi N, **sur une seule ligne**, cellules de largeur egale.
 		/// Remplace la pile verticale de `Selectable` qui donnait la « liste de
 		/// valeurs cliquables » : cinq modes de taille empiles prenaient cinq
@@ -105,7 +223,7 @@ namespace nkuidesign {
 		/// ⚠️ REND L'INDICE CHOISI, ou -1. Il ne modifie rien lui-meme : l'appelant
 		///    ecrit, et c'est lui qui sait s'il doit marquer une edition humaine.
 		inline int32 Segmented(NkGuiContext &ctx, const char *const *labels, int32 count,
-							   int32 current) {
+							   int32 current, const char *id = nullptr) {
 			if (count <= 0)
 				return -1;
 			const int32 n = count < 12 ? count : 12;
@@ -159,16 +277,20 @@ namespace nkuidesign {
 			int32 chosen = -1;
 			if (dispo > 0.f && total > dispo) {
 				nkgui::BeginFlow(ctx);
-				for (int32 i = 0; i < n; ++i)
+				for (int32 i = 0; i < n; ++i) {
 					if (nkgui::Selectable(ctx, labels[i], i == current))
 						chosen = i;
+					NoteCell(ctx, id, labels[i]);
+				}
 				nkgui::EndFlow(ctx);
 				return chosen;
 			}
 			nkgui::BeginRow(ctx, 0.f, poids, n);
-			for (int32 i = 0; i < n; ++i)
+			for (int32 i = 0; i < n; ++i) {
 				if (nkgui::Selectable(ctx, labels[i], i == current))
 					chosen = i;
+				NoteCell(ctx, id, labels[i]);
+			}
 			nkgui::EndRow(ctx);
 			return chosen;
 		}
@@ -394,22 +516,43 @@ namespace nkuidesign {
 				ec.Separator();
 				(void)ctx;
 
-				// L'entree 0 n'est pas un composant : c'est le CADRE, un noeud qui
-				// n'affiche rien et sert a agencer. Il est dans la palette parce
-				// qu'une composition en a besoin avant qu'un composant conteneur
-				// existe.
-				if (Selectable(ctx, "Cadre (agence, n'affiche rien)", mSt->paletteChoice == 0))
-					mSt->paletteChoice = 0;
-
+				// ⚠️ LA PALETTE EST UN CHOIX EXCLUSIF, DONC ELLE PASSE PAR LE MEME
+				//    CONTROLE QUE LES AUTRES. Elle empilait des `Selectable` a la
+				//    main ; deux raisons de changer, et la seconde a ete MESUREE :
+				//      - c'est bien un choix parmi N, et le dire par la forme evite
+				//        qu'il se lise comme une liste ou l'on coche ;
+				//      - un `Selectable` pose en largeur AUTOMATIQUE publie un
+				//        rectangle de **1 px** dans `ctx.lastItemRect` (releve :
+				//        `palette.composant.tree_view = 10.0 107.0 1.0 28.0`),
+				//        alors que le meme widget dans une rangee explicite publie
+				//        `120x28`. Un essai a la souris ne pouvait donc PAS viser
+				//        la palette. Le controle segmente donne des cellules a
+				//        largeur explicite, et le rectangle publie devient utile.
+				//
+				//    ⚠️ Ce n'est pas un correctif de NKGui : c'est un contournement
+				//       dans mon perimetre, et il est nomme. Le rectangle publie par
+				//       un `Selectable` auto-largeur est faux ; porte au canal.
+				//
+				//    L'entree 0 n'est pas un composant : c'est le CADRE, un noeud
+				//    qui n'affiche rien et sert a agencer. Il est dans la palette
+				//    parce qu'une composition en a besoin avant qu'un composant
+				//    conteneur existe.
 				const uint16 n = NkComponentRegistry::Count();
-				for (uint16 i = 0; i < n; ++i) {
+				const char *choix[16];
+				uint16 nb = 0;
+				choix[nb++] = "cadre";
+				for (uint16 i = 0; i < n && nb < 16; ++i) {
 					const NkComponentDecl *d = NkComponentRegistry::At(i);
-					if (!d)
-						continue;
-					const char *label = (d->title && *d->title) ? d->title : d->name;
-					if (Selectable(ctx, label, mSt->paletteChoice == (int32)i + 1))
-						mSt->paletteChoice = (int32)i + 1;
+					// ⚠️ LE NOM DECLARE, pas le libelle affiche : le libelle est
+					//    destine a devenir une cle de traduction, et un essai qui
+					//    viserait « Arbre » cesserait de trouver sa cible le jour
+					//    du multilingue.
+					choix[nb++] = d ? d->name : "?";
 				}
+				const int32 pick = designkit::Segmented(ctx, choix, (int32)nb, mSt->paletteChoice,
+														"palette.composant");
+				if (pick >= 0)
+					mSt->paletteChoice = pick;
 
 				ec.Separator();
 				char b[192];
@@ -417,7 +560,7 @@ namespace nkuidesign {
 									mSt->doc.IsValidIndex(mSt->selected)
 										? mSt->doc.nodes[(uint32)mSt->selected].label.Data()
 										: "(aucune)");
-				if (ec.Button("Poser dans la selection"))
+				if (designkit::Button(ctx, "Poser dans la selection", "palette.poser"))
 					Place();
 
 				const NkComponentDecl *d = Chosen();
@@ -523,15 +666,15 @@ namespace nkuidesign {
 				//    au premier panneau retreci.
 				{
 					designkit::Flow f(ctx);
-					if (nkgui::Button(ctx, "Monter"))
+					if (designkit::Button(ctx, "Monter", "compo.monter"))
 						Reorder(-1);
-					if (nkgui::Button(ctx, "Descendre"))
+					if (designkit::Button(ctx, "Descendre", "compo.descendre"))
 						Reorder(+1);
-					if (nkgui::Button(ctx, "Imbriquer"))
+					if (designkit::Button(ctx, "Imbriquer", "compo.imbriquer"))
 						NestIntoPreviousSibling();
-					if (nkgui::Button(ctx, "Sortir"))
+					if (designkit::Button(ctx, "Sortir", "compo.sortir"))
 						Outdent();
-					if (nkgui::Button(ctx, "Supprimer"))
+					if (designkit::Button(ctx, "Supprimer", "compo.supprimer"))
 						Remove();
 				}
 
@@ -547,7 +690,12 @@ namespace nkuidesign {
 					}
 				}
 
-				if (designkit::Section(ctx, "Document")) {
+				// ⚠️ L'EN-TETE PUBLIE SON RECTANGLE : une section repliee cache ses
+				//    boutons, et un essai qui les viserait trouverait un rectangle
+				//    perime. Publier l'en-tete permet de l'OUVRIR d'abord.
+				const bool docOuvert = designkit::Section(ctx, "Document");
+				designkit::UiRects::Note(ctx, "compo.section_document");
+				if (docOuvert) {
 					// ⚠️ TROIS CHIFFRES, TROIS LIGNES « cle : valeur » — au lieu de
 					//    la phrase « 5 noeud(s) — 0 pose(s) par l'IA, 0 corrige(s) »
 					//    qui s'affichait « … 0 pose(s) par l'IA, 0… ». Une phrase se
@@ -561,11 +709,11 @@ namespace nkuidesign {
 					designkit::KeyValue(ctx, "corriges", b);
 					{
 						designkit::Flow f(ctx);
-						if (nkgui::Button(ctx, "Enregistrer"))
+						if (designkit::Button(ctx, "Enregistrer", "doc.enregistrer"))
 							mSt->SaveDoc();
-						if (nkgui::Button(ctx, "Recharger"))
+						if (designkit::Button(ctx, "Recharger", "doc.recharger"))
 							mSt->LoadDoc();
-						if (nkgui::Button(ctx, "Nouveau"))
+						if (designkit::Button(ctx, "Nouveau", "doc.nouveau"))
 							mSt->BuildStarterDocument();
 					}
 				}
@@ -1061,11 +1209,12 @@ namespace nkuidesign {
 				// vocabulaire pour les quatre sources, sinon l'interface enseigne
 				// un mot que le fichier ne comprend pas.
 				static const char *kApis[] = {"auto", "opengl", "vulkan", "dx11", "dx12", "software"};
-				const int32 pick = designkit::Segmented(ctx, kApis, 6, mSt->prefsChoice);
+				const int32 pick =
+					designkit::Segmented(ctx, kApis, 6, mSt->prefsChoice, "prefs.gfx");
 				if (pick >= 0)
 					mSt->prefsChoice = pick;
 
-				if (ec.Button("Enregistrer dans nkuidesign.cfg"))
+				if (designkit::Button(ctx, "Enregistrer dans nkuidesign.cfg", "prefs.enregistrer"))
 					mSt->SavePrefs(kApis[mSt->prefsChoice < 6 ? mSt->prefsChoice : 0]);
 
 				// ── LE REDEMARRAGE, ANNONCE ──────────────────────────────────

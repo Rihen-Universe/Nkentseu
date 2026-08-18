@@ -62,6 +62,7 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 })());
 
 static nkuidesign::DesignState gDesign;
+static NkEditorShell *gShell = nullptr;
 
 static void CmdSave(void *) {
 	gDesign.SaveDoc();
@@ -72,6 +73,42 @@ static void CmdLoad(void *) {
 static void CmdNew(void *) {
 	gDesign.BuildStarterDocument();
 }
+// ⚠️ POSE EN OVERLAY, ET C'EST LE SEUL ENDROIT QUI CONVIENT : il est appele
+//    APRES tous les panneaux, donc tous les rectangles de l'image sont deja
+//    enregistres. Le poser dans un panneau publierait un registre a moitie
+//    rempli — celui des panneaux dessines avant lui — et l'essai viserait une
+//    cible qui existe une image sur deux.
+static void DumpUiRects(NkEditorFrameContext &, void *) {
+	nkuidesign::designkit::UiRects::DumpIfChanged("nkuidesign_ui_rects.txt");
+}
+
+// ── AMENER UN PANNEAU AU PREMIER PLAN, AU CLAVIER ───────────────────────────
+// ⚠️ CE N'EST PAS UN ACCESSOIRE D'ESSAI, MAIS IL EN DEBLOQUE UN. Les onglets de
+//    panneaux sont dessines par la COQUILLE : leurs rectangles ne passent pas par
+//    mon registre, donc un essai a la souris ne peut pas atteindre un panneau
+//    cache derriere un autre — et « le panneau n'etait pas dessine » ressemblerait
+//    a « le bouton ne marche pas ».
+//    Un raccourci clavier n'a, lui, aucune coordonnee : il est **insensible a la
+//    mise en page** par construction. C'est la meme sortie que pour le clic —
+//    brancher l'essai sur une source qui ne varie pas avec ce qu'on mesure.
+//    Et c'est utile a l'utilisateur, pas seulement a l'essai.
+static void FocusPanel(const char *titre) {
+	if (gShell)
+		nkentseu::nkgui::DockFocusWindow(gShell->Ui(), titre);
+}
+static void CmdVuePalette(void *) {
+	FocusPanel("Palette");
+}
+static void CmdVueComposition(void *) {
+	FocusPanel("Composition");
+}
+static void CmdVueProprietes(void *) {
+	FocusPanel("Proprietes");
+}
+static void CmdVuePreferences(void *) {
+	FocusPanel("Preferences");
+}
+
 static void CmdQuit(void *user) {
 	if (user)
 		static_cast<NkEditorShell *>(user)->RequestClose();
@@ -109,6 +146,14 @@ int nkmain(const NkEntryState &state) {
 		// 1024x640 est le PLANCHER de la coquille (`NkEditorShell::Init` impose
 		// minWidth 1024 / minHeight 640) — demander moins ne donnerait pas moins,
 		// ca donnerait la meme fenetre avec un chiffre faux dans le journal.
+		// ⚠️ `--dump-ui` : l'interface PUBLIE les rectangles qu'elle a dessines.
+		//    C'est l'equivalent, pour les panneaux, de ce que la famille 34 fait
+		//    pour les composants — lire ce qui a ete EMIS, jamais des pixels. Un
+		//    essai a la souris vise alors un rectangle publie, et cesse de dependre
+		//    de la hauteur du texte au-dessus. Sans ce drapeau, le registre
+		//    n'ecrit rien.
+		if (NkComponentDecl::StrEq(a, "--dump-ui"))
+			nkuidesign::designkit::UiRects::Enabled() = true;
 		if (NkComponentDecl::StrEq(a, "--small")) {
 			width = 1024;
 			height = 640;
@@ -221,11 +266,17 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&properties);
 	shell->AddPanel(&prefs);
 	shell->AddPanel(&ai);
+	shell->SetOverlay(&DumpUiRects, nullptr);
 
 	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");
 	shell->RegisterCommand("Document: Recharger", &CmdLoad, nullptr, "Ctrl+R");
 	shell->RegisterCommand("Document: Nouveau", &CmdNew, nullptr, "Ctrl+N");
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
+	gShell = shell.Get();
+	shell->RegisterCommand("Vue: Palette", &CmdVuePalette, nullptr, "Ctrl+1");
+	shell->RegisterCommand("Vue: Composition", &CmdVueComposition, nullptr, "Ctrl+2");
+	shell->RegisterCommand("Vue: Proprietes", &CmdVueProprietes, nullptr, "Ctrl+3");
+	shell->RegisterCommand("Vue: Preferences", &CmdVuePreferences, nullptr, "Ctrl+4");
 
 	return shell->Run();
 }
