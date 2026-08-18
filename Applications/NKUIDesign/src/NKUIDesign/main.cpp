@@ -12,7 +12,7 @@
 //    en a besoin.
 //
 // =============================================================================
-//  LE CHOIX DU BACKEND GRAPHIQUE (directive de Rodolf, 2026-08-19)
+//  LE CHOIX DU BACKEND GRAPHIQUE (directive de Rodolf, 2026-08-18)
 // =============================================================================
 //  *« Pour toutes nos applications, on doit pouvoir choisir le backend graphique
 //  entre ceux disponibles. »* Le mecanisme existait deja dans la coquille
@@ -40,6 +40,8 @@
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKLogger/NkLog.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKPlatform/NkEnv.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "NKWindow/NKMain.h"
 #include "NKWindow/NKWindow.h"
@@ -48,7 +50,6 @@
 #include "Panels.h"
 #include "Probe.h"
 
-#include <cstdlib>
 
 using namespace nkentseu;
 using namespace nkentseu::editorkit;
@@ -115,8 +116,31 @@ int nkmain(const NkEntryState &state) {
 	}
 
 	// ── Le choix, journalise AVANT toute tentative ──────────────────────
-	const nkuidesign::NkGfxChoice gfx =
-		nkuidesign::NkGfxResolve(std::getenv("NK_GFX_API"), argv, argCount);
+	// ⚠️ `nkentseu::env::GetEnvVar`, PAS `std::getenv` (Rodolf, 18/08 : « ce n'est
+	//    pas une exception, il faut corriger ca »). L'equivalent maison est
+	//    header-only et multiplateforme.
+	//    📌 ET IL FAUT DIRE CE QUE LA SUBSTITUTION NE FAIT PAS : `GetEnvVar`
+	//       ENVELOPPE `std::getenv` (`NKPlatform/NkEnv.h:672`). L'occurrence
+	//       quitte NKUIDesign, elle ne quitte pas le depot. Le comptage du 18/08
+	//       (62 occurrences) portait sur NKEditorKit, NKGui et NKUIDesign :
+	//       **NKPlatform n'etait pas dans le perimetre**, donc ce 63e n'y figure
+	//       pas. Porte au canal ; ce n'est pas mon fichier.
+	// ⚠️ LE FICHIER EST LU ICI, ET SA VALEUR EST **PASSEE** A LA RESOLUTION —
+	//    elle n'y entre jamais par un acces au disque cache au milieu du calcul.
+	//    C'est ce qui laisse `NkGfxResolve` PURE, donc appelable a l'identique par
+	//    `--probe`. La regle du 18/08 dit que la sonde doit lire la meme
+	//    configuration que l'application : ici elles appellent la meme fonction,
+	//    et la sonde peut lui donner n'importe quel contenu de fichier sans
+	//    toucher au disque. Une resolution qui lirait elle-meme serait
+	//    intestable, et c'est exactement comme ca qu'on obtient deux verites.
+	const NkString cfgText = nkentseu::NkFile::Exists(nkuidesign::NkGfxConfigPath())
+								 ? nkentseu::NkFile::ReadAllText(nkuidesign::NkGfxConfigPath())
+								 : NkString("");
+	char cfgGfx[32] = {0};
+	nkuidesign::NkGfxConfigValue(cfgText.Data(), "gfx", cfgGfx, sizeof(cfgGfx));
+
+	const nkuidesign::NkGfxChoice gfx = nkuidesign::NkGfxResolve(
+		cfgGfx[0] ? cfgGfx : nullptr, nkentseu::env::GetEnvVar("NK_GFX_API"), argv, argCount);
 
 	if (rawCount > kMaxArgs)
 		logger.Warnf("[NKUIDesign] %u arguments recus, seuls les %u premiers ont ete lus.", rawCount,

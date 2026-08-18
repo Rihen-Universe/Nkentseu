@@ -73,11 +73,11 @@ l'export d'interfaces** (§ 9).
 | `DesignAI.h` | la **place** de l'IA : prompt, backend remplaçable, greffe, provenance, rejeu |
 | `Probe.h` | la sonde sans écran — **72 essais** |
 
-### 0.4 Les chiffres du jour (2026-08-19, fin de journée, commit `002566f7`)
+### 0.4 Les chiffres du jour (2026-08-18, fin de journée, commit `002566f7`)
 
 ```
 jenga build --target NKUIDesign   :  20/20 SUCCESS
-NKUIDesign --probe                :  78/78
+NKUIDesign --probe                :  89/89
 banc de la forme (NkFormProbe)    :  43/43, dont une série de témoins qui doivent rougir
 banc de neutralité                :  vert, avec ses témoins qui échouent bien
 jenga build --target NKEditorKit  :  19/19 SUCCESS
@@ -86,7 +86,8 @@ l'application                     :  OUVRE UNE FENÊTRE (OpenGL), 3 lancements i
 composants déclarés au registre    :  2 (content_browser, tree_view)
 ```
 
-⚠️ **Mis à jour le 2026-08-18 après-midi** : 72/72 → **78/78**, et le magenta est
+⚠️ **Mis à jour le 2026-08-18 dans la nuit** : 78/78 → **89/89** (familles 34
+« géométrie » et 35 « configuration »). Reste vrai plus bas : 72/72 → **78/78**, et le magenta est
 **sorti**. Les six essais nouveaux sont la famille 33 (canonisation + repli
 franc) ; la famille 32 a changé de nature. **Critère d'échec posé avant le
 correctif, et mesuré** : canonisation désactivée → **77/78, code de sortie 1**,
@@ -177,7 +178,41 @@ capture en 1456×939, et les données affichées ne sont pas les mêmes. C'est u
 comparaison **structurelle** — présence, position, nature d'un élément — et rien
 n'est affirmé sur une couleur ou une distance.
 
-**Navigateur de contenu — 11 écarts.**
+#### ⚠️ Deux lectures faites sur l'image, et **la mesure les a démenties toutes les deux**
+
+Le 18/08 au soir, deux affirmations concurrentes sur la même capture : la mienne
+(« icônes **rognées au bord gauche** », écart n° 11) et celle du canal (« la
+colonne d'arborescence **se superpose** à la première rangée de cartes », jugé
+plus grave). **Aucune des deux n'était un instrument.** La famille 35 — pardon,
+**34** — de la sonde tranche : elle ne compare pas des pixels, elle lit les
+**rectangles** que le composant a émis.
+
+| mesure | valeur |
+|---|---|
+| débordement colonne → grille | **0** commande, 0,0 px |
+| débordement grille → colonne | **0** commande |
+| hors du panneau, à **gauche** | **0,0 px** — donc rien n'est « rogné » |
+| hors du panneau, à **droite** | **8,0 px**, 1 commande |
+
+**Le seul débordement réel n'est pas celui qu'on cherchait**, et il est
+instructif : `NkContentBrowserDraw.cpp:129` passe `header.w` à un texte posé à
+`header.x + card_pad` — donc **8 px de plus que le panneau**. Le clip le masque à
+l'écran, et c'est justement ce qui le rend coûteux : **le texte croit disposer de
+8 px qu'il n'a pas**, donc son point de troncature est calculé sur une largeur
+fausse. Même famille que « les libellés tronqués ». Fichier d'un autre agent :
+compté et nommé, pas corrigé.
+
+⚠️ **L'instrument s'est trompé deux fois avant de dire vrai**, et c'est la partie
+à relire : (1) il prenait le **premier** `PushClip` — celui du panneau entier —
+et passait vert avec une frontière à `x=0,0` ; ce qui l'a démasqué est d'avoir
+**publié la valeur intermédiaire** à côté du verdict. (2) Sans borne verticale, il
+accusait « Créer » (barre d'outils) et « niveau1 » (fil d'Ariane) : **un
+instrument mal borné aurait confirmé la lecture qu'il devait départager.** D'où le
+**contrôle positif 34e** : après avoir élargi deux fois les bornes, on injecte un
+chevauchement de 50 px et le **même** détecteur doit le compter.
+
+**Navigateur de contenu — 11 écarts** *(l'écart n° 11 est corrigé ci-dessus : il
+n'y a pas de rognage ; il reste 10 écarts réels)*.
 
 | # | ce que la planche a, et pas nous | à qui |
 |---|---|---|
@@ -1058,6 +1093,9 @@ puis ce qui le rend complet.**
 | 1 | ✅ **fait** : la fenêtre s'ouvre. |  0.4 |
 | 1a | 🟡 **le second regard — commencé, à moitié fait.** Les **deux composants** sont confrontés aux planches : **18 écarts comptés** (§ 0.6). Les **panneaux de l'éditeur** (palette, composition, propriétés, IA) ne le sont pas encore | 0.6 |
 | 1b | ✅ **fait autrement que prévu, et c'est le point** : ce n'étaient pas 10 jetons mais **23 sur 23**, donc une classe de défaut et non une inattention. **La cause a été corrigée, pas les noms** — la résolution canonise, le repli est franc, et le résolveur permissif de la sonde a été supprimé. La correction **à la source** (déplacer la canonisation dans `NkRoleRegistry::Find`) est portée au canal en Q64 | 0.5 |
+| 1d | ✅ **fait dans la nuit du 18/08 — le design des panneaux.** Réponse honnête à Rodolf : c'était **le mécanisme rendu visible**. Corrigé par des **conteneurs**, pas des ellipses — `BeginFlow` (boutons à la largeur de leur texte), `BeginChild` (arbre défilable), **contrôle segmenté** au lieu de 5 `Selectable` empilés, lignes **clé : valeur**, sections `CollapsingHeader`. Plus aucun libellé tronqué dans les panneaux | 0.6 |
+| 1e | ✅ **fait — la config lue par défaut.** `--gfx` > `NK_GFX_API` > **`nkuidesign.cfg`** > détection ; prouvé **bout en bout** (fichier sur disque, journal qui nomme la source) et en sonde (famille 35, 6 essais). Un backend indisponible **nommé par le fichier démarre quand même**, le crie, et **la config n'est pas réécrite** ; nommé par `--gfx`, il refuse toujours | 7 |
+| 1f | 🟡 **RESTE : Préférences → écrire la config** + redémarrage **annoncé**. La moitié « fichier → démarrage » est faite, la moitié « interface → fichier » ne l'est pas | 7.2 |
 | 1c | **remplir `NkTreeViewIcons`** — cause commune de 3 écarts, et **un arbre sans chevron ne se plie pas**. Bloqué par l'absence d'atlas d'icônes (tâche 17) | 0.6 |
 | 2 | **annuler / rétablir** | 8.4 P1 |
 | 3 | **barre d'état** : backend retenu, sélection, compte, modifié | 7.2 B4 |

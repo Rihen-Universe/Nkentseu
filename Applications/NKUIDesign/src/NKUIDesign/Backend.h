@@ -8,7 +8,7 @@
 // =============================================================================
 //  POURQUOI CE FICHIER EXISTE — un defaut qui s'est vu dans un journal reel
 // =============================================================================
-//  La directive de Rodolf (2026-08-19) demande que chaque application expose le
+//  La directive de Rodolf (2026-08-18) demande que chaque application expose le
 //  choix de son backend et **le journalise au demarrage : demande / retenu /
 //  pourquoi**. La premiere version vivait entierement dans `main.cpp`. Elle a
 //  tourne une fois, sur GPU, et a produit exactement ceci :
@@ -68,7 +68,17 @@ namespace nkuidesign {
 
 	// D'ou vient la valeur. Sert au journal : « demande X, source Y ».
 	// L'ordre de priorite croissante est celui de l'enumeration.
-	enum class NkGfxSource : uint8 { DetectionAuto = 0, Environnement, LigneDeCommande };
+	// ⚠️ L'ORDRE DE L'ENUMERATION EST L'ORDRE DE PRIORITE CROISSANTE, et
+	//    `FichierDeConfig` s'insere ENTRE la detection et l'environnement : le
+	//    fichier est DURABLE (il survit a la session) mais il est le moins local
+	//    des trois reglages explicites. Une variable posee pour une session doit
+	//    pouvoir passer devant lui, une option de ligne de commande devant les deux.
+	enum class NkGfxSource : uint8 {
+		DetectionAuto = 0,
+		FichierDeConfig,
+		Environnement,
+		LigneDeCommande
+	};
 
 	inline const char *NkGfxSourceName(NkGfxSource s) {
 		switch (s) {
@@ -76,6 +86,8 @@ namespace nkuidesign {
 				return "ligne de commande --gfx";
 			case NkGfxSource::Environnement:
 				return "variable d'environnement NK_GFX_API";
+			case NkGfxSource::FichierDeConfig:
+				return "fichier de configuration nkuidesign.cfg (cle gfx)";
 			default:
 				return "detection automatique (aucune option, aucune variable)";
 		}
@@ -89,6 +101,25 @@ namespace nkuidesign {
 			const char *effective = "";				   // le nom CONCRET, jamais "auto"
 			bool supported = true;
 			const char *reason = ""; // rempli seulement si `supported == false`
+
+			// ⚠️ LE REPLI QUI NE VERROUILLE PAS L'UTILISATEUR DEHORS (regle du
+			//    18/08). Deux fautes symetriques a eviter : remplacer en SILENCE un
+			//    reglage indisponible, et REFUSER DE DEMARRER parce que la config
+			//    en nomme un. La seconde est la pire : l'utilisateur ne peut plus
+			//    atteindre les Preferences pour corriger sa propre erreur — il est
+			//    enferme dehors par le reglage qu'il voulait changer.
+			//
+			//    Donc : quand c'est le FICHIER qui nomme l'indisponible, on demarre
+			//    sur le repli, on le CRIE, et **on ne reecrit pas la config** — le
+			//    reglage fautif reste visible la ou il a ete pose.
+			//
+			//    ⚠️ ET SEULEMENT POUR LE FICHIER. Une option `--gfx` ou une variable
+			//    d'environnement ne verrouillent personne : on relance sans elles.
+			//    Y appliquer le repli ferait mesurer sur autre chose que ce qu'on a
+			//    demande, ce que la regle 3 de Rodolf interdit. Deux sources, deux
+			//    conduites, et c'est la portee qui les separe — pas le confort.
+			bool fellBack = false;		 ///< a-t-on demarre sur le repli ?
+			const char *refused = "";	 ///< ce que la config demandait, et qu'on n'a pas
 	};
 
 	// Le nom concret d'une API resolue. `Auto` n'en est pas une : elle est
@@ -172,19 +203,124 @@ namespace nkuidesign {
 		return arg + 6;
 	}
 
+	// ── LE FICHIER DE CONFIGURATION ─────────────────────────────────────────
+	// Directive de Rodolf (2026-08-18) : *« par defaut, sans avoir a faire ce
+	// probe, meme si c'est une option, l'application peut lire le fichier de
+	// config »*. La chaine complete est **Preferences (interface) -> fichier de
+	// config -> lu par defaut au demarrage**, et le fichier est la source
+	// DURABLE, la seule des quatre qui survive a la session.
+	//
+	// ⚠️⚠️ LA SONDE LIT LE MEME FICHIER QUE L'APPLICATION, et ce n'est pas une
+	//      precaution de style : c'est la lecon du magenta, transposee. Si
+	//      `--probe` gardait sa propre resolution pendant que `main` lit un
+	//      fichier, on aurait **deux sources de verite pour une meme chose** — et
+	//      la sonde passerait verte sur un programme qui se lance sur autre chose.
+	//      La resolution reste donc UNE fonction pure, `NkGfxResolve`, a qui l'on
+	//      PASSE la valeur lue ; le fichier entre par un argument, jamais par un
+	//      acces cache au disque au milieu de la resolution.
+	//
+	// ⚠️ FORMAT : une cle par ligne, `cle = valeur`, `#` en commentaire. Le meme
+	//    esprit que les fichiers de theme du kit — lisible, comparable par
+	//    `git diff`, editable a la main. Ce n'est pas un format neuf a apprendre.
+	//
+	// ⚠️ OU IL VIT, ET CE QU'IL NE TOUCHE PAS. `nkuidesign.cfg`, a cote de
+	//    l'executable. **Il n'ecrit PAS dans `~/.nkcode_*.cfg`** : la coquille lit
+	//    deja ces fichiers-la inconditionnellement (`NkLoadTheme`,
+	//    `NkLoadFontPrefs`), donc NkUIDesign en HERITE — mais NKCode est en pause
+	//    depuis des semaines et il fonctionne. Ecrire dedans pour regler une autre
+	//    application casserait l'etat d'une application au repos : un cout pur.
+	//    Arbitrage de Rodolf : « pas besoin de nom descriptif », on ne renomme
+	//    rien et la direction « configs globales par type d'application » se
+	//    tranchera plus tard.
+	inline const char *NkGfxConfigPath() {
+		return "nkuidesign.cfg";
+	}
+
+	/// Lit la valeur d'une cle dans un texte de configuration. PURE : le texte est
+	/// passe, pas lu ici — c'est ce qui permet a la sonde d'exercer l'analyse sans
+	/// toucher au disque, et donc de tester les cas tordus (cle absente, valeur
+	/// vide, commentaire, espaces) qu'un fichier reel ne contiendrait jamais tous.
+	///
+	/// Rend `nullptr` si la cle est absente ou sa valeur vide. ⚠️ « absente » et
+	/// « vide » rendent la MEME chose, et c'est voulu : une cle posee sans valeur
+	/// ne doit pas ecraser la detection automatique par une chaine vide.
+	inline bool NkGfxConfigValue(const char *text, const char *key, char *out, uint32 cap) {
+		if (!text || !key || !out || cap == 0)
+			return false;
+		out[0] = 0;
+		const char *p = text;
+		while (*p) {
+			// Debut de ligne : on saute les blancs.
+			while (*p == ' ' || *p == '\t')
+				++p;
+			if (*p == '#') { // commentaire : ligne ignoree
+				while (*p && *p != '\n')
+					++p;
+				if (*p)
+					++p;
+				continue;
+			}
+			// La cle, comparee caractere a caractere.
+			const char *k = key;
+			const char *q = p;
+			while (*k && *q && *q == *k) {
+				++k;
+				++q;
+			}
+			bool match = (*k == 0);
+			if (match) {
+				while (*q == ' ' || *q == '\t')
+					++q;
+				match = (*q == '=');
+			}
+			if (match) {
+				++q; // le '='
+				while (*q == ' ' || *q == '\t')
+					++q;
+				uint32 n = 0;
+				while (*q && *q != '\n' && *q != '\r' && *q != '#' && n + 1 < cap)
+					out[n++] = *q++;
+				// On retire les blancs de fin : « opengl   » et « opengl » sont la
+				// meme valeur, et un espace invisible qui change le backend serait
+				// exactement le genre de defaut qu'on ne relie pas a sa cause.
+				while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == '\t'))
+					--n;
+				out[n] = 0;
+				return n > 0;
+			}
+			while (*p && *p != '\n')
+				++p;
+			if (*p)
+				++p;
+		}
+		return false;
+	}
+
 	// LA resolution complete : detection automatique, puis environnement, puis
 	// ligne de commande. L'ordre est celui qu'on attend, et il est verifie dans
 	// LES DEUX SENS par l'essai 31e — sans quoi « la ligne de commande gagne »
 	// passerait aussi si l'environnement etait purement ignore.
-	inline NkGfxChoice NkGfxResolve(const char *env, const char *const *args, uint32 argCount) {
+	inline NkGfxChoice NkGfxResolve(const char *cfg, const char *env, const char *const *args,
+									uint32 argCount) {
 		NkGfxChoice c;
 		c.effective = NkGfxResolveEffective(c.api);
+		if (NkGfxParse(cfg, c))
+			c.source = NkGfxSource::FichierDeConfig;
 		if (NkGfxParse(env, c))
 			c.source = NkGfxSource::Environnement;
 		for (uint32 i = 0; i < argCount; ++i) {
 			const char *v = NkGfxArgValue(args ? args[i] : nullptr);
 			if (v && NkGfxParse(v, c))
 				c.source = NkGfxSource::LigneDeCommande;
+		}
+		if (!c.supported && c.source == NkGfxSource::FichierDeConfig) {
+			c.refused = c.requested;
+			c.fellBack = true;
+			c.requested = "auto";
+			c.api = NkEditorGfxApi::Auto;
+			c.effective = NkGfxResolveEffective(c.api);
+			c.supported = true;
+			c.source = NkGfxSource::DetectionAuto;
 		}
 		return c;
 	}
@@ -195,7 +331,17 @@ namespace nkuidesign {
 	//    silence — et l'essai 31a verifie qu'il ne reste AUCUNE accolade dans la
 	//    sortie, ce qui rattraperait un retour au formateur.
 	inline NkString NkGfxJournalLine(const NkGfxChoice &c) {
-		NkString s("[NKUIDesign] backend graphique -- demande : ");
+		NkString s("[NKUIDesign] backend graphique -- ");
+		if (c.fellBack) {
+			// ⚠️ EN TETE DE LIGNE, PAS EN FIN : une annonce de repli placee apres
+			//    quatre champs se lit apres coup, quand on cherche deja pourquoi
+			//    ca ne marche pas. « Crier » veut dire « en premier ».
+			s.Append("!! LA CONFIGURATION DEMANDE '");
+			s.Append(c.refused);
+			s.Append("', INDISPONIBLE -- demarrage sur le repli, la config n'a PAS ete "
+					 "reecrite (corrigez-la dans Preferences) !!  |  ");
+		}
+		s.Append("demande : ");
 		s.Append(c.requested);
 		s.Append("  |  source : ");
 		s.Append(NkGfxSourceName(c.source));
