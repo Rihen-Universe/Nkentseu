@@ -3234,3 +3234,82 @@ transformation qui touche 1 191 sites n'a de valeur que si je peux prouver
 GPU indisponible interdit. Differee et nommee, pas oubliee. Ce devis est ce que
 je peux livrer sans fenetre, et il fait gagner la phase de decouverte a la
 seance suivante.
+
+### 8. CE QU'UN CONTROLE « INUTILE » A RENVERSE — trois faits, dont un chiffre du `CLAUDE.md` parent
+
+J'avais ecrit au §5.1 la phrase *« le sort actuel de `Splitter` : une fonction
+correcte que personne n'appelle »*. Avant de la laisser se propager, j'ai verifie
+qu'elle etait vraie. **Elle l'est** — `nkgui::Splitter` a **zero appelant hors de
+NKGui**, contre-epreuve faite (le grep remonte bien 163 occurrences de
+« Splitter » dans le depot : il sait trouver). **Et le controle a renverse trois
+autres choses.**
+
+#### a) « NKCode : 0 appel [NKGui] » est FAUX — c'est 164
+
+Le chiffre figure dans le bloc de regle du `CLAUDE.md` parent. Mesure :
+
+| | |
+|---|---|
+| `Applications/NKCode/` inclut `NKGui/NKGui.h` | oui, au moins 5 fichiers |
+| `using namespace nkentseu::nkgui;` | oui, au moins 3 fichiers |
+| appels de widget NKGui **reels** | **164** — `MenuItem` **151**, `Selectable` 10, `InputText` 2, `BeginCombo` 1 |
+
+**Cause du zero, mecanique** : un `grep "nkgui::"` ne voit que les appels
+**qualifies**. Sous une directive `using`, `MenuItem(ctx, ...)` est invisible a ce
+grep — et c'est pourtant un appel a NKGui. *(Faux positif ecarte : NKCode a aussi
+son peintre local `Shell/NkUi.h` ; je n'ai compte que la forme `X(ctx, ...)`, qui
+ne peut pas viser ses methodes.)*
+
+⚠️ **Mon propre 11 tient, et je l'ai verifie sur moi AVANT de contester** :
+`using namespace nkgui` -> **aucune occurrence** dans NK3DModeler, qui n'importe
+nommement que **cinq TYPES** et aucune fonction. **Les quatre tas ne bougent pas.**
+
+**Je ne corrige pas le `CLAUDE.md` parent moi-meme** : ce chiffre y justifie une
+regle de Rodolf, et le remplacer **change l'argument**. Signale au canal (Q60).
+
+#### b) ⭐ LA CORRECTION DONNE LE GROUPE TEMOIN QUI PROUVE LA LOI DU §5.5
+
+« NKCode : 0 » servait a dire *« personne n'utilise NKGui »*. Le vrai chiffre dit
+mieux :
+
+> **Sur les 164 appels de NKCode, 151 sont `MenuItem`** — precisement la fonction
+> qui **possede toute sa surface** (un menu se place lui-meme ; sa position n'est
+> jamais disputee par une maquette). C'est la seconde branche de la condition (1)
+> de la loi, verifiee sur une autre application.
+
+Et l'autre branche se verifie sur la meme application : **la ou il lui faut des
+panneaux au pixel, NKCode a ecrit son PROPRE peintre** (`Shell/NkUi.h`, a
+rectangles et couleurs injectees) — **la meme forme que `NkModelerPainter`**, sans
+que nos deux applications se soient jamais parle.
+
+**Reformulation exacte du diagnostic** : ce n'est pas *« les applications ignorent
+NKGui »*, c'est **« elles appellent NKGui exactement la ou le placement n'est pas
+dispute, et elles ecrivent un peintre local partout ailleurs »**. Deux
+applications, meme partage : un groupe temoin, pas une coincidence. *Et ca rend le
+peintre encore plus evidemment le bon palier 1 — il a ete ecrit deux fois.*
+
+#### c) ⚠️ DETTE URGENTE — le separateur A RATIO existe dans NKUI, et l'extinction va l'emporter
+
+`NkUILayout::DrawSplitter` (`Kernel/Runtime/NKUI/src/NKUI/NkUILayout.cpp:286`) :
+
+```cpp
+bool DrawSplitter(NkUIContext &ctx, NkUIDrawList &dl, NkRect rect, bool vertical,
+                  float32 &ratio, NkUIID id)
+```
+
+**Un rectangle ET un `float32 &ratio`** — pas des pixels. Plus une **zone de
+prehension elargie** (`grabHw`), justifiee dans son commentaire par la meme raison
+que la mienne. **C'est `PaintSplitters`, ecrit avant `PaintSplitters`, dans la
+bibliotheque qu'on eteint.** Sa remplacante `nkgui::Splitter` glisse des pixels et
+n'a aucune zone elargie.
+
+> **La reecriture NKUI -> NKGui a fait REGRESSER ce widget sur ses deux
+> caracteristiques utiles.** Ma reecriture locale n'est donc pas un defaut de
+> recherche : c'est la reconstruction d'une fonctionnalite **supprimee**.
+
+**Ce que ca vaut, et pourquoi c'est date** : une surcharge a ratio plus une zone
+elargie, deja ecrites, a reprendre dans NKGui. **NKUI est en cours de suppression
+— une fois le fichier retire, la version qui marchait part avec.** Signale au
+canal pour l'agent qui mene l'extinction : *verifier ce que NKGui n'a pas repris
+avant de retirer `NkUILayout.cpp`*. `DrawSplitter` est un cas prouve ; je n'ai pas
+balaye le reste, **je n'affirme donc rien au-dela de celui-la**.
