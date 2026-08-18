@@ -154,3 +154,195 @@ abstraite : chacun a un symptôme observable et une cause identifiée.
 
 Contrainte de travail du dépôt : **zéro STL**, français dans les commentaires,
 build Debug **et** Release vérifiés à 28/28.
+
+---
+
+# CHANTIER « COMPLÉTER NKGui » — inventaire mesuré (2026-08-18)
+
+> Agent NKGui, branche `feat/nkgui-complet`. **Périmètre déclaré :
+> `Kernel/Runtime/NKGui/` uniquement** (+ le banc témoin dans
+> `Applications/NKGuiDrawTest/`). NKEditorKit et les applications ne sont **pas**
+> touchés : un autre agent y travaille au même moment.
+>
+> **Contrainte de séance : aucun GPU** (campagne d'entraînement en cours). Tout
+> ce qui suit est donc vérifié par un **témoin non visuel** — un banc qui appelle
+> l'API et mesure la géométrie produite. Le rendu à l'écran reste **à confirmer
+> par un témoin visuel, différé et nommé** (voir « Ce qui reste » ci-dessous).
+
+## La méthode : ce que les applications émulent = ce qui manque
+
+On n'a pas listé les widgets qu'une bibliothèque « devrait » avoir. On a cherché
+**ce que les applications réécrivent localement faute de l'avoir**. Un helper de
+dessin local est une absence de NKGui **qui a déjà coûté deux fois**.
+
+### Mesure 1 — les émulations dupliquées
+
+| fichier | lignes | ce qu'il émule |
+|---|---|---|
+| `Applications/Mou/src/Mou/UI/MouDraw.h` | 155 | `CircleOutline`, `RectOutline` (arrondi) |
+| `Applications/Nkoung/src/Nkoung/UI/NkoungDraw.h` | 155 | **le même fichier** |
+| `Applications/ConquerorLab/src/ConquerorLab/NkcDraw.h` | 145 | `NkcRing`, `NkcPolyFilled`, `NkcPolyOutline(Inset)` |
+| `Applications/NKCode/src/NKCode/Editor/NkTextDraw.h` | 400 | glyphes de repli, réparation mojibake (**spécifique NKCode, reste local**) |
+
+**MouDraw.h et NkoungDraw.h sont identiques à 5 lignes près** — le nom du
+fichier, le namespace, la garde d'inclusion. 150 lignes écrites deux fois : c'est
+la mesure la plus nette de l'absence.
+
+Portée de ces émulations : **129 appels** de `CircleOutline`/`RectOutline`
+répartis sur Pong, Pong2, Mou, Nkoung, Songoo, NkImageDemo.
+
+### Mesure 2 — le contour arrondi, absence la plus coûteuse
+
+`AddRectFilled` sait arrondir depuis toujours ; `AddRect`, son contour, ne le
+pouvait pas. Conséquence mesurée sur tout le dépôt :
+
+- **252 appels** de `.AddRect` dans 40 fichiers ;
+- **185** d'entre eux sont **voisins immédiats d'un `AddRectFilled` arrondi** —
+  c'est-à-dire un fond aux coins ronds cerclé d'un cadre carré ;
+- dont **29 des 41 appels de NKGui lui-même** (`NkGuiWidgets.cpp`). **La
+  bibliothèque souffrait de sa propre absence** — c'est ce qui a fixé la priorité.
+
+### Mesure 3 — couverture des jetons de thème
+
+Question posée : le pied de page du kit (5 couleurs tirées du thème) est-il
+l'exception ou la règle ? **Réponse : ni l'un ni l'autre — c'est la moitié.**
+
+- **426 couleurs écrites en dur** chez les consommateurs NKGui ;
+- **555 lectures de jetons** ;
+- soit **56,6 % de couverture**.
+
+Les couleurs en dur les plus répétées **nomment les jetons manquants** :
+
+| valeur | occurrences | applications | rôle réel |
+|---|---|---|---|
+| `255,255,255` | 48 | 6 | texte/icône **posé sur** l'accent → `onAccent` |
+| `0,0,0` | 33 | 3 | voile de modale, ombre → `scrim`, `shadow` |
+| `40,46,54` · `54,60,70` | 25 | 2 | fond de carte, survol de ligne → `card`, `rowHover` |
+| `130,138,148` · `168,176,185` | 8 | 2 | texte secondaire → `textMuted` |
+| `80,88,98` · `120,130,142` | 8 | 2 | barre de défilement → `scrollbar(Hover)` |
+| `232,106,106` · `240,120,120` | 12 | 1 | erreur/suppression → `danger` |
+| `88,166,255` | 7 | 2 | information → `info` |
+
+Un cas extrême : `Applications/NKCode/src/NKCode/Shell/Dialogs.h` — **75 couleurs
+en dur, 0 jeton**. NKCode s'est reconstruit une palette parallèle complète
+(`cCard`, `cBorder`, `cSelBg`, `cRowHov`, `cSide`, `cFaint`, `cAccent`…) parce
+que le thème n'avait pas les rôles.
+
+### Mesure 4 — les icônes
+
+Il n'existe **aucun atlas d'icônes**. Chaque site charge sa propre texture et
+appelle `AddImage` (`NkEditorShell.cpp` : `mActTexR[]`, `mTitleLogoTex` ;
+`NkEditorContextMenu.h` : `icons[i]`). Là où la planche montre un pictogramme,
+`Applications/Nogee/src/Nogee/Panels/AssetBrowser.cpp:157` dessine
+`dl.AddRectFilled(iconRect, iconCol, 4.f)` — **un rectangle coloré à la place de
+l'icône**. Bloquant nommé depuis deux jours, **non comblé ici** (voir plus bas).
+
+## Ce qui est comblé
+
+Tout est **strictement additif** : aucun appelant existant ne change (paramètres
+nouveaux avec valeur par défaut, champs et fonctions nouveaux).
+
+### `NkGuiDrawList` — 4 primitives
+
+| ajout | comble | convention |
+|---|---|---|
+| `AddRect(r, col, thickness, rounding = 0.f)` | mesure 2 (185 sites) | trait **strictement à l'intérieur** de `r`, comme le cas droit ; `rounding = 0` emprunte le chemin historique **inchangé** |
+| `AddCircle(center, r, col, thickness, segs)` | `CircleOutline` ×2 + `NkcRing` | `r` = **ligne médiane** — même convention que les émulations remplacées, donc leur migration est un simple renommage |
+| `AddConvexPolyFilled(pts, n, col)` | `NkcPolyFilled` | éventail depuis `pts[0]` ; non convexe non vérifié (coût) |
+| `AddPolyline(pts, n, col, th, closed)` | `NkcPolyOutline` | un quad par segment, sans raccord d'onglet — comme `AddLine`, dont c'est la généralisation |
+
+Le rayon d'arc suit **la même règle de segments que `AddCircleFilled`**
+(`NkGuiArcSegs`), volontairement déterministe : c'est ce qui rend la géométrie
+vérifiable au banc.
+
+### `NkGuiTheme` — 13 couleurs + 3 tailles
+
+`onAccent`, `card`, `rowHover`, `textMuted`, `separator`, `scrollbar`,
+`scrollbarHover`, `scrim`, `shadow`, `success`, `warning`, `danger`, `info` ;
+`roundingSmall`, `roundingLarge`, `borderThickness`. Chacun est justifié par un
+compte d'occurrences en dur (mesure 3), pas par une intuition.
+
+### Le thème s'ÉNUMÈRE — premier étage de la description
+
+La règle du dépôt dit qu'un composant doit pouvoir être **décrit**, pas seulement
+appelé, sinon aucun futur NKUIEditor ne peut le composer ni le sauver. Premier
+étage, livré ici et de coût quasi nul :
+
+```cpp
+const NkGuiTokenDesc *NkGuiThemeTokens(int32 *count) noexcept; // nom, groupe, type, offset
+NkColor  *NkGuiThemeColor (NkGuiTheme &, const char *name) noexcept;
+float32  *NkGuiThemeScalar(NkGuiTheme &, const char *name) noexcept;
+```
+
+**35 jetons décrits.** Un sélecteur de thème, un sérialiseur ou un éditeur peut
+désormais parcourir le thème sans connaître un seul nom de champ à la
+compilation. Ajouter un jeton = un champ + une ligne de table ; le banc vérifie
+que les deux restent en phase.
+
+## Le témoin — non visuel, parce qu'il n'y a pas de GPU
+
+`Applications/NKGuiDrawTest/` — application **console**, aucune fenêtre, aucun
+device. Elle appelle les primitives et **recalcule des propriétés géométriques
+depuis les triangles émis**.
+
+    jenga build --target NKGuiDrawTest --config Debug
+    ./Build/Bin/Debug-Windows/NKGuiDrawTest/NKGuiDrawTest.exe   ->  46/46, code 0
+
+La mesure qui porte : un prédicat « ce point est-il couvert par un triangle ? »
+distingue un **anneau** d'un **disque** sans regarder une image. D'où :
+
+- `AddRect` arrondi : le centre n'est **pas** couvert, les quatre bords le sont ;
+- `AddCircle` : idem, et tous les sommets tombent dans `[r-th/2, r+th/2]` ;
+- contre-épreuve obligatoire : `AddCircleFilled`, lui, **couvre** son centre —
+  sinon les tests ci-dessus passeraient pour la mauvaise raison.
+
+**Chaque zéro est doublé d'un contrôle positif** (rect nul → rien, *puis* appel
+valide → non vide). Non-régression du chemin historique : `AddRect` sans arrondi
+produit toujours exactement 16 sommets / 24 indices / 1 commande.
+
+**Témoin du sens inverse** : en remplaçant volontairement l'anneau par un disque
+plein, le banc tombe à **45/46** en signalant exactement
+`le centre n'est PAS couvert (anneau, pas disque)`. Le sabotage a été retiré.
+
+**Ce que le banc ne prouve pas** : que le backend dessine ce flux correctement à
+l'écran. Il prouve que le flux **est celui qu'on croit**.
+
+> **Note sur la forme** : ce banc est une application console et non un
+> `unittest()`, parce que **l'exécution des tests unitaires est désactivée par la
+> politique du workspace** (`disableunittestexecution` — `jenga test` le refuse
+> explicitement). Un test Unitest compilerait sans jamais tourner. NKGui n'a
+> d'ailleurs **aucun dossier `tests/`**, contrairement à 21 autres modules.
+
+## Non-régression des consommateurs
+
+Build Debug vert pour NKGui **et** ses dépendants : NKEditorKit, NKGuiDemo,
+NKCode, Nogee, NK3DModeler, NkAnimaEditor, ConquerorLab, Mou, Nkoung, PV3DE,
+NKPA, NKEditorKitDemo, NKViewportDemo.
+
+## Ce qui reste — par ordre de blocage
+
+1. **Atlas d'icônes** (mesure 4). **Le vrai bloquant restant.** Nogee dessine des
+   rectangles là où la planche montre des pictogrammes. Demande une décision qui
+   dépasse le dessin : format de la planche, nommage stable des icônes, chemin de
+   chargement, et un jeu d'icônes. À cadrer avec Rodolf avant d'écrire.
+2. **Migrer les émulations** vers les nouvelles primitives — `MouDraw.h` et
+   `NkoungDraw.h` deviennent des alias puis disparaissent (≈300 lignes en moins),
+   `NkcDraw.h` perd `NkcRing`/`NkcPoly*`. **Hors périmètre de cet agent**
+   (touche les applications) : une ligne par site, à faire par leurs agents ou
+   sur autorisation.
+3. **Passer les 29 `AddRect` de NKGui lui-même** au paramètre `rounding` —
+   dans le périmètre, mais **change l'apparence** : à faire quand un témoin
+   visuel est possible, donc **après la campagne**. C'est un changement qu'on ne
+   valide pas à l'aveugle.
+4. **Remonter les couleurs en dur vers les nouveaux jetons** (426 sites, dont 75
+   dans le seul `Dialogs.h`). Hors périmètre ; les jetons existent désormais.
+5. **Deuxième étage de la description** : décrire non plus seulement le thème
+   mais les **composants** (paramètres, variantes, points de greffe). Reste à
+   trancher avec le chantier NKEditorKit — le format de description est commun.
+
+## Témoin visuel différé — à faire quand le GPU se libère
+
+Nommément : lancer **NKGuiDemo**, dessiner un `AddRect` arrondi par-dessus un
+`AddRectFilled` de même rayon, et vérifier que **les deux contours coïncident**
+(pas de dépassement, pas de liseré). Puis un `AddCircle` sur un `AddCircleFilled`
+de même rayon. C'est la seule chose que le banc ne peut pas dire.
