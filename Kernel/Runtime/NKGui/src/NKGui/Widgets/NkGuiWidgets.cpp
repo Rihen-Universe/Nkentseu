@@ -188,6 +188,14 @@ namespace nkentseu {
 			// Symetrie d'API ; rien a fermer aujourd'hui.
 		}
 
+		bool BeginDropTarget(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept {
+			// Zone declaree, pas capturee : voir l'en-tete. On ne touche ni a
+			// activeId ni a hotId -- les widgets qu'elle contient gardent leur
+			// survol et leur clic.
+			ctx.lastItemId = id;
+			ctx.lastItemRect = rect;
+			return BeginDropTarget(ctx);
+		}
 		bool BeginDropTarget(NkGuiContext &ctx) noexcept {
 			if (!ctx.dragActive || ctx.lastItemId == NKGUI_ID_NONE)
 				return false;
