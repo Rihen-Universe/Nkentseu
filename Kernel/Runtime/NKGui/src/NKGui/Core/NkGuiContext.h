@@ -43,10 +43,57 @@ namespace nkentseu {
 				NkColor tab = {40, 45, 56, 255};	   ///< onglet inactif (≠ barre)
 				NkColor tabHover = {58, 64, 80, 255};  ///< onglet survolé
 				NkColor tabActive = {52, 58, 72, 255}; ///< onglet actif
+				// ── Jetons AJOUTES le 2026-08-18 ────────────────────────────────
+				// Chacun comble un role que les applications ecrivaient EN DUR faute
+				// de jeton (mesure : 426 couleurs en dur chez les consommateurs NKGui,
+				// 56,6 % de couverture seulement). Le nombre entre crochets est le
+				// nombre d'occurrences en dur qui motivait l'ajout.
+				NkColor onAccent = {255, 255, 255, 255};	 ///< [48, 6 apps] texte/icone POSE sur accent ou selection
+				NkColor card = {44, 49, 60, 255};			 ///< [15] fond de carte/vignette (≠ panel)
+				NkColor rowHover = {52, 58, 70, 255};		 ///< [10] survol d'une ligne de liste/arbre
+				NkColor textMuted = {130, 138, 148, 255};	 ///< [4] texte secondaire (chemin, legende)
+				NkColor separator = {60, 66, 74, 255};		 ///< [9] filet de separation
+				NkColor scrollbar = {80, 88, 98, 255};		 ///< [4] pouce de barre de defilement
+				NkColor scrollbarHover = {120, 130, 142, 255}; ///< survol du pouce
+				NkColor scrim = {0, 0, 0, 160};				 ///< [33] voile sous une modale
+				NkColor shadow = {0, 0, 0, 90};				 ///< ombre portee
+				NkColor success = {106, 190, 120, 255};		 ///< etat : reussite
+				NkColor warning = {224, 176, 90, 255};		 ///< etat : avertissement
+				NkColor danger = {232, 106, 106, 255};		 ///< [12] etat : erreur/suppression
+				NkColor info = {88, 166, 255, 255};			 ///< [7] etat : information
+
 				float32 rounding = 5.f;
+				float32 roundingSmall = 4.f;  ///< cases a cocher, pastilles
+				float32 roundingLarge = 12.f; ///< cartes, panneaux flottants
+				float32 borderThickness = 1.f; ///< epaisseur par defaut d'un contour
 				float32 framePadX = 10.f; ///< padding horizontal interne d'un widget
 				float32 framePadY = 6.f;  ///< padding vertical interne d'un widget
 		};
+
+		// ── DESCRIPTION DES JETONS (pour un futur NKUIEditor) ──────────────────
+		// Regle du depot : un composant doit pouvoir etre DECRIT, pas seulement
+		// appele — sinon aucun editeur ne peut le composer ni le sauver. Premier
+		// etage de cette description : le theme s'ENUMERE. Un editeur (ou un
+		// serialiseur, ou un selecteur de theme) parcourt la table sans connaitre
+		// un seul nom de champ a la compilation.
+		enum class NkGuiTokenType : uint8 {
+			Color = 0, ///< NkColor
+			Scalar	   ///< float32
+		};
+
+		struct NkGuiTokenDesc {
+				const char *name;  ///< nom stable du jeton ("accent", "rounding"…)
+				const char *group; ///< regroupement pour l'interface ("surface", "texte", "etat", "geometrie")
+				NkGuiTokenType type = NkGuiTokenType::Color;
+				uint16 offset = 0; ///< decalage dans NkGuiTheme (offsetof)
+		};
+
+		/// Table complete des jetons. `count` recoit le nombre d'entrees.
+		/// La table est statique et vit aussi longtemps que le programme.
+		NKENTSEU_NKGUI_API const NkGuiTokenDesc *NkGuiThemeTokens(int32 *count) noexcept;
+		/// Acces par NOM. Renvoie nullptr si le nom est inconnu ou du mauvais type.
+		NKENTSEU_NKGUI_API NkColor *NkGuiThemeColor(NkGuiTheme &theme, const char *name) noexcept;
+		NKENTSEU_NKGUI_API float32 *NkGuiThemeScalar(NkGuiTheme &theme, const char *name) noexcept;
 
 		// Theme de COLORATION SYNTAXIQUE (langages) — partage avec l'editeur de code.
 		// Defauts type VS Code Dark+. Modifiable via Preferences > Langages.
