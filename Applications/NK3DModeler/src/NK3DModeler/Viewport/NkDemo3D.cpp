@@ -9709,6 +9709,36 @@ namespace nkentseu {
 								}
 								nkvpPropNodeArmed = false; // le geste est fini
 							}
+							// ── MESURE (temporaire) : QUI LA BOUCLE DE COMMIT TOUCHE-T-ELLE ? ──
+							// Defaut n.3 de Rodolf (18/08) : « quand je selectionne plusieurs
+							// models a deplacer dans la scene, il n'y a que le premier qui se
+							// deplace ».
+							//
+							// TROIS causes donnent ce seul symptome a l'ecran, et l'ecran ne les
+							// separe pas : (a) la selection ne s'accumule pas, le gizmo n'a qu'UNE
+							// cible ; (b) elle s'accumule et cette boucle n'applique un delta qu'a
+							// l'actif ; (c) les deux marchent, et c'est en AVAL que ca se perd.
+							//
+							// On journalise donc CE QUE LA BOUCLE VOIT, pas ce qu'on croit : le
+							// nombre de selectionnes, et pour chacun le delta qu'il recoit.
+							// (a) -> « selectionnes=1 » ; (b) -> « selectionnes=N » avec tr=(0,0,0)
+							// partout sauf un ; (c) -> N deltas non nuls, le defaut est plus loin.
+							{
+								int32 nSelDbg = 0;
+								for (int32 es = 0; es < 70; ++es)
+									if (st->emptyGizmo.IsSelected(es))
+										++nSelDbg;
+								logger.Info("[Demo3D] MESURE commit gizmo : selectionnes={0} actif={1}\n",
+											nSelDbg, st->emptyGizmo.ActiveIndex());
+								for (int32 es = 0; es < 70; ++es) {
+									if (!st->emptyGizmo.IsSelected(es))
+										continue;
+									const NkVec3f trDbg = st->emptyGizmo.TranslateOf(es);
+									logger.Info("[Demo3D]   commit noeud={0} tr=({1}, {2}, {3}) avant=({4}, {5}, {6})\n",
+												kNkvpFirstEmpty + es, trDbg.x, trDbg.y, trDbg.z,
+												nkvpEmptyPos[es][0], nkvpEmptyPos[es][1], nkvpEmptyPos[es][2]);
+								}
+							}
 							for (int32 es = 0; es < 70; ++es) {
 								if (!st->emptyGizmo.IsSelected(es))
 									continue;
