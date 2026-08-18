@@ -51,6 +51,7 @@
 #include "NKEditorKit/Components/NkComponentInstance.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
+#include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKFileSystem/NkFile.h"
 
 #include "Backend.h"
@@ -200,16 +201,35 @@ namespace nkuidesign {
 		return false;
 	}
 
-	/// Resolution de role pour la sonde : deterministe, sans theme, sans fichier.
-	/// Deux noms differents peuvent collisionner — sans importance ici, ou l'on
-	/// compare toujours deux rendus du MEME document ; ce serait a revoir le jour
-	/// ou un essai voudrait attraper une erreur de role.
-	inline uint16 ProbeResolveRole(const char *name) {
-		uint32 h = 2166136261u;
-		for (const char *p = name; p && *p; ++p)
-			h = (h ^ (uint32)(uint8)*p) * 16777619u;
-		return (uint16)(1u + (h % 250u));
-	}
+	// ── LE RESOLVEUR DE LA SONDE A ETE SUPPRIME, ET C'EST LE CORRECTIF ─────
+	// Il vivait ici :
+	//
+	//     inline uint16 ProbeResolveRole(const char *name) {
+	//         uint32 h = 2166136261u;                    // FNV-1a
+	//         for (const char *p = name; p && *p; ++p)
+	//             h = (h ^ (uint32)(uint8)*p) * 16777619u;
+	//         return (uint16)(1u + (h % 250u));          // JAMAIS NK_ROLE_INVALID
+	//     }
+	//
+	// ⚠️ UN RESOLVEUR QUI DIT OUI A TOUT NE PEUT PAS VOIR UN NOM FAUX. C'est le
+	//    defaut le plus cher du 18/08, et il est d'une autre nature que ceux que
+	//    la sonde attrape d'habitude : ce n'est pas un essai qui manquait, c'est
+	//    l'INSTRUMENT qui rendait tous les essais aveugles a une classe entiere
+	//    d'erreurs. 21/21 puis 68/68 puis 72/72, tous verts, pendant que
+	//    l'application s'ouvrait en MAGENTA PLEIN ECRAN.
+	//
+	// Sa justification etait l'injectivite -- « les essais de dessin doivent
+	// comparer des couleurs distinctes ». Elle ne tenait pas : le resolveur REEL
+	// est injectif sur les 30 roles du coeur, et la ou deux jetons partagent un
+	// role (`card_bg` et `card_footer_bg` heritent tous deux d'`input_bg`), les
+	// peindre de la meme couleur est la VERITE de l'ecran, pas un defaut de
+	// l'instrument. Un banc qui exige des couleurs distinctes la ou l'ecran n'en
+	// a pas mesure une reconstruction, pas la chose.
+	//
+	// La sonde passe donc par `NkDesignResolveRole` -- exactement la fonction de
+	// l'editeur fenetre, et par defaut de `NkDocumentHost`. Il n'y a plus qu'une
+	// resolution dans le programme, et c'est la seule facon qu'un essai headless
+	// dise quelque chose sur ce que l'ecran montrera.
 
 	// ── UNE SECONDE DECLARATION, DEFINIE ICI ────────────────────────────────
 	// Q61 §8.3 : *« une forme validee sur un seul cas n'est pas validee »*. Le
@@ -297,8 +317,7 @@ namespace nkuidesign {
 		rec.Reset();
 		NkLayoutResult lay;
 		NkComputeLayout(doc, surface, lay);
-		NkDocumentHost host;
-		host.resolve = &ProbeResolveRole;
+		NkDocumentHost host; // sa resolution PAR DEFAUT est celle de l'application
 		host.SyncTo(doc);
 		const NkComponentInput idle;
 		NkDrawDocument(rec, idle, doc, lay, host);
@@ -596,6 +615,16 @@ namespace nkuidesign {
 		// La question exacte : peut-on poser CHAQUE composant declare, sans que
 		// l'application en nomme un seul ? Condition d'existence d'abord — un
 		// registre vide ferait passer la boucle sans rien poser.
+		//
+		// ⚠️ L'ARBRE EST INSCRIT ICI, ET PAS SEULEMENT POUR GROSSIR LE COMPTE :
+		//    c'est le SECOND composant reel, ecrit par quelqu'un d'autre. La
+		//    declaration d'essai (`ProbeSecondDecl`) ne prouvait que l'ignorance
+		//    des noms par l'application -- elle est ecrite par celui qui teste,
+		//    donc elle rentre dans la forme par construction. L'arbre, lui,
+		//    repond a la question posee en Q61 §8.3 : la forme tient-elle sur un
+		//    composant qu'on n'a pas ecrit ? Et il apporte 13 jetons de plus a la
+		//    famille 33, qui etaient tous en PascalCase.
+		NkComponentRegistry::Register(nkentseu::editorkit::NkTreeViewDecl());
 		NkComponentRegistry::Register(ProbeSecondDecl());
 		const uint16 regCount = NkComponentRegistry::Count();
 		check("17. le registre contient au moins DEUX declarations (sinon 18 ne prouve rien)",
@@ -1089,7 +1118,7 @@ namespace nkuidesign {
 				  !NkGfxArgValue("--gfy=vulkan") && !NkGfxArgValue(nullptr),
 			  "");
 
-		// -- 32. LA RESOLUTION DES ROLES DE THEME ---------------------------
+		// -- 32. UNE SEULE RESOLUTION DANS LE PROGRAMME --------------------
 		// ⚠️ CETTE FAMILLE NAIT DU PREMIER TEMOIN VISUEL (18/08). L'application
 		//    a ouvert sa fenetre et le navigateur de contenu s'est peint en
 		//    MAGENTA FRANC. Ce n'est pas un accident d'affichage : c'est le repli
@@ -1098,82 +1127,212 @@ namespace nkuidesign {
 		//    travail.
 		//
 		//    LA CAUSE, lue dans le code et non devinee : les noms canoniques de
-		//    `themedetail::RoleNames()` sont en snake_case (« panel_bg »,
-		//    « panel_header », « input_bg »), `NkResolveRole` compare OCTET POUR
-		//    OCTET, et les roles par defaut declares sont en PascalCase
-		//    (« PanelBg », « PanelHeader », « InputBg »). Aucun ne tombe juste,
+		//    `themedetail::RoleNames()` sont en snake_case (« panel_bg »),
+		//    `NkResolveRole` compare OCTET POUR OCTET, et les roles par defaut
+		//    declares sont en PascalCase (« PanelBg »). Aucun ne tombe juste,
 		//    donc NK_ROLE_INVALID (0xFFFF), donc magenta.
 		//
-		//    ⚠️ ET VOICI POURQUOI 21/21 PUIS 68/68 N'ONT RIEN VU : la sonde
-		//    resout les roles avec `ProbeResolveRole`, qui HACHE n'importe quel
-		//    nom vers 1..250. Il ne rend JAMAIS NK_ROLE_INVALID. Un resolveur qui
-		//    dit oui a tout ne peut pas voir un nom faux -- c'est la meme famille
-		//    de defaut que « ca repond toujours ». La reponse n'est pas de changer
-		//    le resolveur de la sonde (il doit rester injectif pour que les essais
-		//    de dessin comparent des couleurs distinctes), c'est d'appeler ICI le
-		//    resolveur REEL, celui que l'application utilise.
+		//    ⚠️ ET VOICI POURQUOI 21/21, PUIS 68/68, PUIS 72/72 N'ONT RIEN VU :
+		//    la sonde resolvait les roles avec SA PROPRE fonction, un hachage
+		//    vers 1..250 qui ne rendait JAMAIS NK_ROLE_INVALID. Un resolveur qui
+		//    dit oui a tout ne peut pas voir un nom faux. Ce n'etait pas un essai
+		//    manquant : c'etait l'INSTRUMENT, aveugle a une classe entiere
+		//    d'erreurs, et aucun essai supplementaire ne l'aurait rattrape.
+		//
+		//    LA CORRECTION EST STRUCTURELLE, PAS ADDITIVE : le resolveur de la
+		//    sonde a ete SUPPRIME (voir le bloc en haut de ce fichier). Il n'y a
+		//    plus qu'une resolution -- `NkDesignResolveRole` -- et elle est la
+		//    valeur PAR DEFAUT de `NkDocumentHost`, donc on ne peut plus en poser
+		//    une autre par distraction.
 		{
-			// 32a. LE RESOLVEUR REEL SAIT DIRE NON -- a etablir AVANT de s'en
+			// 32a. LE RESOLVEUR DU THEME SAIT DIRE NON -- a etablir AVANT de s'en
 			//      servir pour juger quoi que ce soit. Un resolveur permissif
-			//      rendrait 32b et l'audit muets.
+			//      rendrait tout ce qui suit muet.
 			const uint16 connu = NkResolveRole("panel_bg");
 			const uint16 inconnu = NkResolveRole("role_qui_n_existe_pas_du_tout");
-			check("32a. le resolveur REEL accepte un nom canonique ET REFUSE un nom faux",
+			check("32a. le resolveur du THEME accepte un nom canonique ET REFUSE un nom faux",
 				  connu != NK_ROLE_INVALID && inconnu == NK_ROLE_INVALID,
 				  connu != NK_ROLE_INVALID ? "panel_bg resolu, nom faux rejete"
 										   : "PANEL_BG LUI-MEME NE RESOUT PAS");
 
-			// 32b. LE RESOLVEUR DE LA SONDE EST PERMISSIF, ET ON L'ECRIT.
-			//      Ce n'est pas un reproche : c'est la raison pour laquelle les
-			//      essais de dessin ne prouvent RIEN sur la validite des noms.
-			check("32b. et le resolveur de la SONDE, lui, dit oui a tout (donc ne juge pas les noms)",
-				  ProbeResolveRole("role_qui_n_existe_pas_du_tout") != NK_ROLE_INVALID &&
-					  ProbeResolveRole("panel_bg") != ProbeResolveRole("border"),
-				  "permissif ET injectif : bon pour comparer des dessins, aveugle aux noms");
+			// 32b. LA SONDE ET L'APPLICATION PARTAGENT LA MEME RESOLUTION.
+			//      C'est l'assertion qui remplace l'ancien « le resolveur de la
+			//      sonde dit oui a tout, donc ne juge pas les noms » -- une phrase
+			//      qui decrivait le defaut au lieu de l'interdire. Ici, si
+			//      quelqu'un repose un resolveur maison sur l'hote, cette ligne
+			//      rougit.
+			const NkDocumentHost temoinHote;
+			check("32b. l'hote de document resout PAR DEFAUT avec la fonction de l'application",
+				  temoinHote.resolve == &NkDesignResolveRole,
+				  "une seule resolution dans le programme, sonde comprise");
 
-			// 32c. MES PROPRES NOMS DE ROLES RESOLVENT. C'est la part qui
+			// 32c. ET CETTE RESOLUTION-LA SAIT DIRE NON AUSSI. Sans cette ligne,
+			//      32b garantirait seulement que les deux cotes sont d'accord --
+			//      y compris d'accord pour tout accepter.
+			check("32c. la resolution de l'APPLICATION refuse un nom qui n'existe sous aucune forme",
+				  NkDesignResolveRole("role_qui_n_existe_pas_du_tout") == NK_ROLE_INVALID &&
+					  NkDesignResolveRole("panel_bg") != NkDesignResolveRole("border"),
+				  "elle refuse l'inconnu, et reste injective sur deux roles distincts");
+
+			// 32d. MES PROPRES NOMS DE ROLES RESOLVENT. C'est la part qui
 			//      m'appartient, et elle doit etre verte.
-			const char *kMiens[] = {"panel_bg", "border", "text", "text_muted"};
+			const char *kMiens[] = {"panel_bg", "border", "text", "text_muted", "accent_ui"};
 			bool miensOk = true;
-			for (uint32 m = 0; m < 4; ++m)
-				if (NkResolveRole(kMiens[m]) == NK_ROLE_INVALID)
+			for (uint32 m = 0; m < 5; ++m)
+				if (NkDesignResolveRole(kMiens[m]) == NK_ROLE_INVALID)
 					miensOk = false;
-			check("32c. les 4 roles employes par `Renderers.h` resolvent tous", miensOk,
-				  "panel_bg, border, text, text_muted");
+			check("32d. les 5 roles ecrits en clair dans `Renderers.h` et `Panels.h` resolvent tous",
+				  miensOk, "panel_bg, border, text, text_muted, accent_ui");
+		}
 
-			// 32d. L'AUDIT DU COMPOSANT DE REFERENCE -- DIAGNOSTIC, PAS VERDICT.
-			//      `NkContentBrowserModel.h` n'est pas mon fichier : je COMPTE et
-			//      je NOMME, je ne corrige pas. L'assertion porte sur ce qui est
-			//      a moi -- que l'audit ait REELLEMENT regarde quelque chose --
-			//      et le detail part au canal.
-			const NkComponentDecl &d = NkContentBrowserDecl();
-			uint16 vus = 0, casses = 0;
-			NkString liste;
-			for (uint16 t = 0; t < d.tokenCount; ++t) {
-				++vus;
-				const char *role = d.tokens[t].defaultRole;
-				if (NkResolveRole(role) == NK_ROLE_INVALID) {
-					++casses;
-					if (!liste.Empty())
-						liste.Append(", ");
-					liste.Append(d.tokens[t].name);
-					liste.Append("->");
-					liste.Append(role);
+		// -- 33. LA CANONISATION, ET LE REPLI FRANC -------------------------
+		// ⚠️ CE QUI A ETE REPARE ICI EST LA CAUSE, PAS LES VINGT-TROIS NOMS.
+		//    Renommer les `defaultRole` de `NkContentBrowserModel.h` (10) et de
+		//    `NkTreeViewModel.h` (13) aurait rendu l'ecran juste ce soir et
+		//    laisse le vingt-quatrieme jeton refaire la meme erreur -- une
+		//    convention que l'auteur doit CONNAITRE pour l'appliquer sera
+		//    enfreinte par le prochain auteur. Deux jetons sur deux fichiers
+		//    ecrits par deux personnes, 23 sur 23 : ce n'est pas une inattention,
+		//    c'est une classe de defaut.
+		//
+		//    (a) la resolution CANONISE -> la classe de defaut disparait ;
+		//    (b) le repli est FRANC -> ce que (a) ne couvre pas se DIT.
+		{
+			NkRoleAudit::Reset();
+
+			// 33a. LA CANONISATION EST JUSTE SUR DES CAS ECRITS D'AVANCE. La
+			//      table est posee AVANT de mesurer quoi que ce soit : une
+			//      fonction jugee sur ses propres sorties ne serait jamais fausse.
+			struct Cas {
+					const char *ecrit;
+					const char *attendu;
+			};
+			static const Cas kCas[] = {
+				{"PanelBg", "panel_bg"},		   {"PanelHeader", "panel_header"},
+				{"TextOnAccent", "text_on_accent"}, {"AccentUi", "accent_ui"},
+				{"TypeFolder", "type_folder"},	   {"InputBg", "input_bg"},
+				// ⚠️ LES DEUX SUIVANTS SONT LE CONTROLE NEGATIF DE LA FONCTION :
+				//    un nom deja canonique ne doit pas bouger d'un octet, et un
+				//    role d'EXTENSION d'application non plus. Sans eux, une
+				//    fonction qui abimerait tout sauf le PascalCase passerait.
+				{"panel_bg", "panel_bg"},		   {"nk3d.anneau_brosse", "nk3d.anneau_brosse"},
+			};
+			bool canonOk = true;
+			uint32 casVus = 0;
+			NkString canonEcarts;
+			for (uint32 i = 0; i < sizeof(kCas) / sizeof(kCas[0]); ++i) {
+				char got[96];
+				++casVus;
+				if (!NkCanonicalRoleName(kCas[i].ecrit, got, sizeof(got)) ||
+					!SameText(got, kCas[i].attendu)) {
+					canonOk = false;
+					if (!canonEcarts.Empty())
+						canonEcarts.Append(", ");
+					canonEcarts.Append(kCas[i].ecrit);
+					canonEcarts.Append("->");
+					canonEcarts.Append(got);
 				}
 			}
-			snprintf(buf, sizeof(buf), "%u jetons examines, %u role(s) NON RESOLU(S)", (uint32)vus,
-					 (uint32)casses);
-			check("32d. l'audit a REELLEMENT parcouru les jetons declares (sinon 0 casse ne dit rien)",
-				  vus > 0, buf);
+			snprintf(buf, sizeof(buf), "%u cas ecrits d'avance%s%s", casVus,
+					 canonOk ? ", tous conformes" : ", ECARTS : ",
+					 canonOk ? "" : canonEcarts.Data());
+			check("33a. la canonisation rend EXACTEMENT la forme attendue (et laisse le snake_case "
+				  "intact)",
+				  canonOk && casVus == 8, buf);
 
-			rep.Append("\n--- audit des roles declares du navigateur de contenu ---\n");
-			rep.Append(buf);
-			rep.Append("\n");
-			if (casses > 0) {
-				rep.Append("  ⚠️ NON RESOLUS (fichier d'un autre agent, porte au canal) : ");
-				rep.Append(liste);
-				rep.Append("\n  cause : roles declares en PascalCase, table canonique en snake_case.\n");
+			// 33b. ELLE NE FABRIQUE PAS UN NOM VALIDE A PARTIR DE RIEN. Une
+			//      canonisation qui rattraperait tout serait le meme defaut que le
+			//      hachage qu'elle remplace, deplace d'un cran.
+			check("33b. un nom qui n'existe sous AUCUNE ecriture reste non resolu",
+				  NkDesignResolveRole("RoleQuiNExistePasDuTout") == NK_ROLE_INVALID,
+				  "la canonisation rattrape une GRAPHIE, elle n'invente pas un role");
+
+			// 33c. LE REPLI EST FRANC, VERIFIE DANS LES DEUX SENS. Le magenta
+			//      disait « il y a un probleme » ; il ne disait ni lequel, ni
+			//      combien, ni ou. L'audit doit NOMMER le role fautif -- et ne
+			//      rien nommer quand tout va bien.
+			const bool nomme = NkRoleAudit::FaultCount() == 1 &&
+							   SameText(NkRoleAudit::Faults()[0].name.Data(),
+										"RoleQuiNExistePasDuTout");
+			NkRoleAudit::Reset();
+			NkDesignResolveRole("panel_bg");
+			const bool muetQuandTouVaBien = NkRoleAudit::FaultCount() == 0;
+			check("33c. le repli est FRANC : il NOMME le role fautif, et se tait quand il n'y en a pas",
+				  nomme && muetQuandTouVaBien,
+				  nomme ? "role fautif nomme, silence sinon" : "L'AUDIT N'A PAS NOMME LE FAUTIF");
+
+			// 33d. TOUS LES JETONS DE TOUS LES COMPOSANTS ENREGISTRES RESOLVENT.
+			//      ⚠️ C'EST L'ESSAI QUI DEVAIT MORDRE SUR L'ETAT DU 18/08, et il
+			//      mord : sans la canonisation, il rend 23 roles non resolus (10
+			//      pour le navigateur, 13 pour l'arbre) et la sonde sort en 1.
+			//      Mesure faite en desactivant la canonisation, pas supposee.
+			//
+			//      Il boucle sur le REGISTRE et ne nomme aucun composant : le jour
+			//      ou un troisieme s'inscrit, il est couvert sans qu'une ligne
+			//      bouge ici. C'est la difference entre un essai et un audit.
+			NkRoleAudit::Reset();
+			uint32 jetonsVus = 0, jetonsCasses = 0;
+			NkString casses;
+			const uint16 nbComp = NkComponentRegistry::Count();
+			for (uint16 c = 0; c < nbComp; ++c) {
+				const NkComponentDecl *d = NkComponentRegistry::At(c);
+				if (!d)
+					continue;
+				for (uint16 t = 0; t < d->tokenCount; ++t) {
+					++jetonsVus;
+					if (NkDesignResolveRole(d->tokens[t].defaultRole) == NK_ROLE_INVALID) {
+						++jetonsCasses;
+						if (!casses.Empty())
+							casses.Append(", ");
+						casses.Append(d->name);
+						casses.Append('.');
+						casses.Append(d->tokens[t].name);
+						casses.Append("->");
+						casses.Append(d->tokens[t].defaultRole);
+					}
+				}
 			}
+			snprintf(buf, sizeof(buf), "%u composant(s), %u jeton(s) examine(s), %u non resolu(s)",
+					 (uint32)nbComp, jetonsVus, jetonsCasses);
+			check("33d. l'audit a REELLEMENT parcouru des jetons (sinon 0 casse ne dit rien)",
+				  jetonsVus >= 20 && nbComp >= 2, buf);
+			check("33e. AUCUN jeton declare ne tombe dans le repli magenta",
+				  jetonsCasses == 0, jetonsCasses == 0 ? buf : casses.Data());
+
+			// 33f. LE RATTRAPAGE EST TRACE, ET C'EST LA MOITIE QUI MANQUERAIT.
+			//      Sans cette liste, (a) rendrait les declarations fausses
+			//      INVISIBLES : l'ecran serait juste, personne ne corrigerait
+			//      jamais la source, et le jour ou la canonisation bougerait, 23
+			//      jetons casseraient d'un coup. C'est « une protection qui
+			//      empeche d'aller verifier » -- ici elle est mesuree et publiee.
+			//
+			//      ⚠️ CE QU'ELLE N'ASSERTE PAS, ET LA PREMIERE ECRITURE LE FAISAIT :
+			//         « RescuedCount() > 0 ». Cet essai serait devenu ROUGE le jour
+			//         ou quelqu'un corrigerait les declarations a la source --
+			//         c'est-a-dire qu'il aurait puni le correctif qu'il reclame. Un
+			//         essai qui echoue quand le probleme est resolu n'est pas un
+			//         essai, c'est un cliquet. L'assertion porte donc sur la FORME
+			//         de la trace, jamais sur le nombre, et le nombre est publie a
+			//         cote comme diagnostic.
+			bool traceOk = true;
+			for (uint32 i = 0; i < NkRoleAudit::RescuedCount(); ++i)
+				if (NkRoleAudit::Rescued()[i].name.Empty() ||
+					NkRoleAudit::Rescued()[i].canon.Empty())
+					traceOk = false;
+			snprintf(buf, sizeof(buf),
+					 "%u graphie(s) PascalCase distincte(s), sur %u jeton(s) declare(s)",
+					 NkRoleAudit::RescuedCount(), jetonsVus);
+			check("33f. tout rattrapage porte le nom DECLARE et la forme qui a resolu (liste de "
+				  "travail de la correction a la source)",
+				  traceOk, buf);
+
+			NkString resume;
+			NkRoleAudit::Summary(resume, 32);
+			rep.Append("\n--- audit des roles declares, TOUS composants du registre ---\n  ");
+			rep.Append(resume);
+			rep.Append("\n  cause : roles declares en PascalCase, table canonique en snake_case.\n"
+					   "  correctif ICI : la resolution canonise (Roles.h). Correctif A LA SOURCE :\n"
+					   "  a `NkRoleRegistry::Find` -- porte au canal, hors perimetre de cet agent.\n");
 		}
 
 		rep.Append("\n--- les lignes de journal du backend, telles quelles ---\n");

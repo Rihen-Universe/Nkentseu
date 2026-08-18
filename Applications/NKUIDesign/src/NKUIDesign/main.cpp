@@ -137,6 +137,13 @@ int nkmain(const NkEntryState &state) {
 
 	gDesign.Init();
 
+	// ⚠️ L'ETAT DES ROLES EST JOURNALISE AVANT L'OUVERTURE DE LA FENETRE. Le
+	//    18/08, la seule facon d'apprendre que 23 roles declares ne resolvaient
+	//    pas etait d'ouvrir la fenetre et de voir du magenta -- une couleur qui
+	//    dit qu'il y a un probleme sans dire lequel. Cette ligne le dit avec des
+	//    noms, sur une machine sans ecran, et avant meme la coquille.
+	logger.Info("[NKUIDesign] roles de theme -- {0}", gDesign.roleAudit.Data());
+
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
 	NkEditorShellConfig cfg;
 	cfg.title = "NkUIDesign - composer des interfaces a partir de composants declares";

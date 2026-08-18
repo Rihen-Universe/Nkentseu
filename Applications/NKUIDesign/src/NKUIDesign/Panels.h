@@ -75,6 +75,11 @@ namespace nkuidesign {
 			int32 selected = 0;		 ///< index de noeud ; 0 = la racine
 			int32 paletteChoice = 0; ///< 0 = cadre, puis 1+ = index dans le registre
 			NkString status;
+			/// Ce que l'audit des roles a trouve au demarrage, en une ligne. Lu par
+			/// `main` pour le journal : le journal du lancement doit porter l'etat
+			/// des roles, sinon il faut ouvrir la fenetre pour l'apprendre -- et
+			/// c'est precisement ce qui a coute la seance du 18/08.
+			NkString roleAudit;
 			char promptBuf[512] = {0};
 
 			void Init() {
@@ -83,11 +88,45 @@ namespace nkuidesign {
 				// application connait ; les autres composants s'y inscriront de leur
 				// cote, et la palette les affichera sans qu'une ligne bouge ici.
 				NkComponentRegistry::Register(NkContentBrowserDecl());
-				host.resolve = &NkResolveRole;
+				// ⚠️ LE SECOND COMPOSANT REEL, et c'est lui qui rend l'affirmation
+				//    « aucun panneau ne nomme un composant » verifiable. Jusqu'ici
+				//    la palette bouclait sur un registre a UNE entree : elle
+				//    « marchait » sans rien prouver.
+				NkComponentRegistry::Register(NkTreeViewDecl());
+				// ⚠️ `host.resolve` N'EST PLUS POSE ICI, et c'est le correctif du
+				//    18/08 : sa valeur par defaut EST la resolution de
+				//    l'application (`NkDesignResolveRole`). Tant que chaque hote
+				//    posait la sienne, la sonde a pu en poser une autre -- un
+				//    hachage permissif -- et mesurer autre chose que l'ecran.
 				ai.SetBackend(&fileBackend);
 
 				if (!LoadDoc())
 					BuildStarterDocument();
+
+				AuditDeclaredRoles();
+			}
+
+			// ── L'AUDIT DES ROLES, AU DEMARRAGE ET SANS ATTENDRE UNE IMAGE ──
+			// ⚠️ POURQUOI ICI ET PAS AU PREMIER DESSIN : le dessin ne resout que
+			//    les roles des composants REELLEMENT POSES dans le document
+			//    courant. Un composant declare mais absent du document passerait
+			//    donc l'audit sans etre regarde, et son magenta n'apparaitrait
+			//    qu'au jour ou quelqu'un le pose. On resout TOUT ce qui est
+			//    declare, tout de suite : le journal du demarrage dit alors l'etat
+			//    de la BIBLIOTHEQUE, pas celui du document ouvert.
+			//
+			//    Il boucle sur le registre et ne nomme aucun composant.
+			void AuditDeclaredRoles() {
+				NkRoleAudit::Reset();
+				const uint16 n = NkComponentRegistry::Count();
+				for (uint16 c = 0; c < n; ++c) {
+					const NkComponentDecl *d = NkComponentRegistry::At(c);
+					if (!d)
+						continue;
+					for (uint16 t = 0; t < d->tokenCount; ++t)
+						NkDesignResolveRole(d->tokens[t].defaultRole);
+				}
+				NkRoleAudit::Summary(roleAudit, 8);
 			}
 
 			/// Un document de depart qui montre les deux choses a montrer : une
@@ -107,6 +146,18 @@ namespace nkuidesign {
 				if (doc.IsValidIndex(body)) {
 					doc.nodes[(uint32)body].label = NkString("Corps");
 					doc.nodes[(uint32)body].layout.kind = NkLayoutKind::Row;
+					// ⚠️ DEUX COMPOSANTS DE NATURES DIFFERENTES, COTE A COTE, ET
+					//    C'EST LE POINT. Un document de demonstration a un seul
+					//    composant montre une application qui marche ; deux
+					//    montrent qu'elle ne connait aucun nom -- l'arbre a ete
+					//    ajoute au registre sans qu'une ligne de la palette, de
+					//    l'arbre de composition, des proprietes ou de la
+					//    sauvegarde ne bouge.
+					const int32 arbre = doc.AddChild(body, "tree_view", NkAuthor::Humain);
+					if (doc.IsValidIndex(arbre)) {
+						doc.nodes[(uint32)arbre].width.mode = NkSizeMode::Fixed;
+						doc.nodes[(uint32)arbre].width.value = 260.f;
+					}
 					doc.AddChild(body, "content_browser", NkAuthor::Humain);
 				}
 				selected = 0;
@@ -211,6 +262,20 @@ namespace nkuidesign {
 					ec.Text(d->summary);
 				} else {
 					ec.Text("Un cadre ne declare rien : il agence ses enfants.");
+				}
+
+				// ── CE QUE LA CANONISATION A RATTRAPE ────────────────────────
+				// ⚠️ SANS CETTE LIGNE, LE CORRECTIF (a) SE RETOURNERAIT CONTRE
+				//    NOUS : l'ecran serait juste, les declarations resteraient
+				//    fausses, et personne n'irait verifier -- « une protection qui
+				//    empeche d'aller verifier ». Elle est la liste de travail de
+				//    la correction a la source, pas une decoration.
+				if (NkRoleAudit::RescuedCount() > 0) {
+					ec.Separator();
+					snprintf(b, sizeof(b), "%u role(s) declare(s) en PascalCase, rattrape(s) par",
+							 NkRoleAudit::RescuedCount());
+					ec.Text(b);
+					ec.Text("la canonisation. A corriger a la source (NKEditorKit).");
 				}
 			}
 
@@ -399,6 +464,20 @@ namespace nkuidesign {
 				auto &ctx = ec.Ui();
 				ec.Text("Le document, dessine par le kit. Cliquez pour selectionner ;");
 				ec.Text("tirez le bord droit ou bas d'un noeud pour changer sa TAILLE.");
+
+				// ── LE REPLI FRANC, A L'ENDROIT OU LE MAGENTA APPARAIT ───────
+				// ⚠️ C'EST LA MOITIE (b) DU CORRECTIF DU 18/08. Le magenta de
+				//    `NkTheme::Get` disait « un role est faux » et rien d'autre :
+				//    ni lequel, ni combien, ni dans quel composant. Il a fallu
+				//    lire trois fichiers pour le savoir. Ce bandeau le DIT, juste
+				//    au-dessus du dessin fautif -- et il ne s'affiche pas quand
+				//    tout va bien, sinon on cesserait de le lire.
+				if (NkRoleAudit::FaultCount() > 0) {
+					NkString resume;
+					NkRoleAudit::Summary(resume, 6);
+					ec.Text("!! ROLE(S) DE THEME NON RESOLU(S) -- ce qui suit est peint en magenta :");
+					ec.Text(resume.Data());
+				}
 				const NkRect area = ctx.NextItemRect(-1.f, 520.f);
 				if (area.w <= 0.f || area.h <= 0.f)
 					return;
@@ -428,7 +507,13 @@ namespace nkuidesign {
 				// partie : c'est du mobilier d'editeur. La sonde ne le voit pas, et
 				// c'est voulu — elle mesure l'interface, pas le decor.
 				if (mSt->layout.Has(mSt->selected))
-					paint.OutlineSharp(mSt->layout.At(mSt->selected), NkResolveRole("AccentUi"));
+					// ⚠️ « AccentUi » ETAIT ECRIT ICI, et ce liseré etait donc MAGENTA
+					//    lui aussi -- dans mon propre fichier, pas dans celui d'un
+					//    autre agent. La resolution canonise desormais, mais le nom
+					//    canonique s'ecrit quand meme : la canonisation est un filet,
+					//    pas une dispense.
+					paint.OutlineSharp(mSt->layout.At(mSt->selected),
+									   NkDesignResolveRole("accent_ui"));
 			}
 
 		private:

@@ -77,13 +77,21 @@ l'export d'interfaces** (§ 9).
 
 ```
 jenga build --target NKUIDesign   :  20/20 SUCCESS
-NKUIDesign --probe                :  72/72
+NKUIDesign --probe                :  78/78
 banc de la forme (NkFormProbe)    :  43/43, dont une série de témoins qui doivent rougir
 banc de neutralité                :  vert, avec ses témoins qui échouent bien
 jenga build --target NKEditorKit  :  19/19 SUCCESS
 l'application                     :  OUVRE UNE FENÊTRE (OpenGL), 3 lancements identiques,
                                      fermeture propre
+composants déclarés au registre    :  2 (content_browser, tree_view)
 ```
+
+⚠️ **Mis à jour le 2026-08-18 après-midi** : 72/72 → **78/78**, et le magenta est
+**sorti**. Les six essais nouveaux sont la famille 33 (canonisation + repli
+franc) ; la famille 32 a changé de nature. **Critère d'échec posé avant le
+correctif, et mesuré** : canonisation désactivée → **77/78, code de sortie 1**,
+l'essai `33e` nommant les **23 jetons** fautifs un par un. Mutation retirée,
+résidu vérifié à zéro, 78/78 retrouvé.
 
 ⚠️ **Ces chiffres ont une date, et elle compte.** Une première rédaction de ce
 document, quelques heures plus tôt, portait 58/58, 34/34 et « la fenêtre n'a
@@ -119,9 +127,96 @@ jamais « inconnu ».
 > **Règle qui en sort** : un doublure de résolution doit pouvoir rendre **échec**.
 > Une doublure totale valide n'est pas une doublure, c'est un masque.
 
-🟡 **Reste ouvert** : **10 jetons d'un composant restent non résolus**, comptés et
-nommés dans la sortie de sonde. Ils vivent dans le fichier d'un autre agent —
-**comptés, pas corrigés à sa place**.
+✅ **CORRIGÉ le 2026-08-18 après-midi — et c'est la CAUSE qui l'a été, pas les
+noms.** La mesure disait que ce n'était pas une inattention : **10 jetons sur 10**
+dans `NkContentBrowserModel.h`, **13 sur 13** dans `NkTreeViewModel.h` — deux
+fichiers, deux auteurs, **23 sur 23**. Renommer 23 chaînes aurait rendu l'écran
+juste ce soir-là et laissé le vingt-quatrième jeton refaire la même erreur.
+
+Trois gestes, dans cet ordre :
+
+1. **le résolveur de la sonde a été SUPPRIMÉ** — pas amélioré. La résolution de
+   l'application est désormais la valeur **par défaut** de `NkDocumentHost` : il
+   n'y a plus qu'une résolution dans le programme, sonde comprise. Sa
+   justification (« rester injectif pour comparer des couleurs distinctes ») ne
+   tenait pas : le résolveur réel **est** injectif sur les 30 rôles du cœur, et
+   là où deux jetons partagent un rôle, les peindre pareil est **la vérité de
+   l'écran** ;
+2. **(a) la résolution canonise** (`Roles.h`) — `PascalCase` → `snake_case`,
+   essayée **après** le nom brut, donc elle ne peut que rattraper ;
+3. **(b) le repli est franc** — l'audit **compte et nomme**, au journal du
+   démarrage (avant l'ouverture de la fenêtre), dans un bandeau de l'aperçu, et
+   dans le rapport de sonde.
+
+🟡 **Reste ouvert, et il est porté au canal (Q64)** : la canonisation vit dans
+`Applications/NKUIDesign/src/NKUIDesign/Roles.h`, alors que son foyer est
+`NkRoleRegistry::Find` (`NKEditorKit/NkTheme.inl`). **Tant qu'elle est là, elle
+ne protège que NkUIDesign** — Nogee, NK3DModeler, NkAnimaEditor et PV3DE
+rencontreront le même magenta. La fonction est écrite **pure** et éprouvée
+(famille 33) précisément pour être déplacée telle quelle. Les **9 graphies**
+`PascalCase` distinctes restent listées à chaque sonde : c'est la liste de
+travail de la correction à la source, et sans elle (a) rendrait les déclarations
+fausses **invisibles**.
+
+### 0.6 Le second regard — la capture confrontée aux planches, écart par écart
+
+**Fait le 2026-08-18 après-midi.** `design/temoin_visuel.png`, garde PID verte
+(fenêtre au premier plan = PID de l'application), OpenGL, RTX 3070, fenêtre
+1456×939, sortie 0. Empreinte : 96,0 Mo de working set, 131,6 Mo de mémoire
+privée, 381 handles, 10 threads — conforme aux trois lancements du matin.
+
+⚠️ **Périmètre de cette comparaison, écrit avec elle** : elle porte sur les
+**deux composants dessinés** (navigateur de contenu, arbre), confrontés à
+`Applications/Nogee/design/AetherionContentBrowserDark.png` et
+`AetherionWorldOutlinerDetailsLight.png`. Les **panneaux de l'éditeur** (palette,
+composition, propriétés, IA) **n'ont pas été confrontés** — c'est la moitié qui
+reste.
+
+⚠️ **Et ce n'est pas une mesure de pixels** : les planches sont en 4320×2160, la
+capture en 1456×939, et les données affichées ne sont pas les mêmes. C'est une
+comparaison **structurelle** — présence, position, nature d'un élément — et rien
+n'est affirmé sur une couleur ou une distance.
+
+**Navigateur de contenu — 11 écarts.**
+
+| # | ce que la planche a, et pas nous | à qui |
+|---|---|---|
+| 1 | un champ de **recherche** dans la barre du haut | composant |
+| 2 | un bouton **Importer** à droite de la barre du haut | composant |
+| 3 | une bande de **filtres par nature** (Mesh / Material / Texture / Blueprint / Sound) | composant |
+| 4 | un **curseur de taille de vignette** + bascule grille/liste | composant |
+| 5 | une ligne de **compte** (« 18 éléments · 1 sélectionné ») et un **tri** | composant |
+| 6 | une **pastille de nature** posée sur la vignette — chez nous la nature est une 2ᵉ ligne de texte sous le nom | composant |
+| 7 | une **vignette** — chez nous un aplat de couleur de rôle | hôte (aucun rendu d'aperçu d'asset n'existe) |
+| 8 | la carte **active** entourée d'un liseré accent (écart n° 3 déjà déclaré dans la déclaration) | composant |
+| 9 | une **barre d'état** en bas (nom, type, taille, date) | composant |
+| 10 | des **chevrons** et une indentation dans la colonne de gauche | composant |
+| 11 | les **icônes de dossier de cette colonne sont rognées** au bord gauche du panneau | composant, et c'est le seul qui ressemble à un défaut plutôt qu'à un manque |
+
+⚠️ **Vérifié avant d'attribuer** : `NkContentBrowserDecl()` ne porte que 4
+paramètres (`thumb_size`, `show_tree`, `show_footer`, `tree_width`). Les écarts
+1-5, 9 ne sont donc **pas des réglages laissés à zéro** — ils n'existent pas dans
+le composant. La distinction change qui doit agir.
+
+**Arbre — 7 écarts.**
+
+| # | ce que la planche a, et pas nous | à qui |
+|---|---|---|
+| 12 | des **chevrons** | **hôte** |
+| 13 | les icônes **œil** et **cadenas** | **hôte** |
+| 14 | une **icône de nature** devant le libellé | **hôte** |
+| 15 | ligne active = fond teinté **+ barre d'accent à gauche + libellé en accent** ; chez nous un aplat plein | arbitrage de Rodolf, déjà déclaré dans `active_mark` |
+| 16 | un **entonnoir de filtre** à droite du champ de recherche | composant |
+| 17 | un **point de marque** à droite de la ligne active | composant |
+| 18 | le **pied** existe des deux côtés (« 12 nœud(s), 1 sélectionné(s) ») — **conforme** | — |
+
+⚠️ **Cause commune de 12, 13 et 14, et elle est CHEZ MOI** : `NkTreeViewIcons`
+n'est **jamais rempli** par l'hôte, donc toutes les poignées valent 0 et rien ne
+se peint. **Les colonnes sont pourtant réservées** : l'espace est pris, rien n'y
+apparaît. Conséquence concrète, pas cosmétique — **un arbre sans chevron ne se
+plie pas**. Ce n'est pas un défaut du composant : il fait ce qu'on lui dit, et on
+ne lui dit rien. Le blocage réel est qu'**aucun atlas d'icônes n'existe dans
+l'application** (Palier 4, tâche 17).
 
 ---
 
@@ -960,8 +1055,10 @@ puis ce qui le rend complet.**
 
 | # | tâche | § |
 |---|---|---|
-| 1 | ✅ **fait le 19/08** : la fenêtre s'ouvre. **Le geste suivant est le second regard** — comparer aux planches de référence, panneau par panneau, et compter les défauts comme le premier regard en a rapporté deux | 0.4, 0.5 |
-| 1b | **résoudre les 10 jetons non résolus** signalés par la sonde (fichier d'un autre agent : **porter, ne pas corriger à sa place**) | 0.5 |
+| 1 | ✅ **fait** : la fenêtre s'ouvre. |  0.4 |
+| 1a | 🟡 **le second regard — commencé, à moitié fait.** Les **deux composants** sont confrontés aux planches : **18 écarts comptés** (§ 0.6). Les **panneaux de l'éditeur** (palette, composition, propriétés, IA) ne le sont pas encore | 0.6 |
+| 1b | ✅ **fait autrement que prévu, et c'est le point** : ce n'étaient pas 10 jetons mais **23 sur 23**, donc une classe de défaut et non une inattention. **La cause a été corrigée, pas les noms** — la résolution canonise, le repli est franc, et le résolveur permissif de la sonde a été supprimé. La correction **à la source** (déplacer la canonisation dans `NkRoleRegistry::Find`) est portée au canal en Q64 | 0.5 |
+| 1c | **remplir `NkTreeViewIcons`** — cause commune de 3 écarts, et **un arbre sans chevron ne se plie pas**. Bloqué par l'absence d'atlas d'icônes (tâche 17) | 0.6 |
 | 2 | **annuler / rétablir** | 8.4 P1 |
 | 3 | **barre d'état** : backend retenu, sélection, compte, modifié | 7.2 B4 |
 | 4 | **menus** + toute action aussi commande de palette | 8.4 P2 |
