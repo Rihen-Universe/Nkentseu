@@ -314,7 +314,7 @@ static int BancAdd(NkTensorGpu &gpu, int passes) {
 //   -> intensite arithmetique = 1 FLOP/octet EXACTEMENT.
 //   A ~448 Go/s, le plafond de ce noyau serait donc ~448 GFLOP/s, soit ~2,7 %
 //   de la crete de 16 600 GFLOPS (RTX 3070 **Laptop** ; le 20 300 utilise
-//   jusqu'au 2026-08-19 etait celui d'une carte de BUREAU, ~22 % trop haut).
+//   jusqu'au 2026-08-18 etait celui d'une carte de BUREAU, ~22 % trop haut).
 //
 // ⚠️ CE PLAFOND A ETE DEPASSE PAR LA MESURE — ET C'EST LE MODELE QUI A TORT.
 //   Mesure du 2026-08-16 sur `1536x32769x640` : **1 066 GFLOP/s**, soit 2,4x
@@ -435,7 +435,7 @@ static void BancMatSerie(NkTensorGpu &gpu, const char *titre, bool avecAlloc, co
 		snprintf(forme, sizeof(forme), "%ux%ux%u", t[i].M, t[i].N, t[i].K);
 		const double flops = 2.0 * (double)t[i].M * (double)t[i].N * (double)t[i].K;
 		const double gflops = flops / (p.minUs * 1.0e-6) / 1.0e9;
-		// RTX 3070 LAPTOP. Le 20 300 employe jusqu'au 2026-08-19 etait la crete
+		// RTX 3070 LAPTOP. Le 20 300 employe jusqu'au 2026-08-18 etait la crete
 		// d'une carte de BUREAU : il sous-estimait tous les « % de crete » de ~22 %.
 		const double pctCrete = gflops / 16600.0 * 100.0;
 		const double ratio = p.maxUs / p.minUs;
