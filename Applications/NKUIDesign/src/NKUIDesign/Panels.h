@@ -8,7 +8,7 @@
 // =============================================================================
 //  CE QUI EST DEDANS, ET CE QUI N'Y EST PAS
 // =============================================================================
-//  Etat au 2026-08-19. La tranche verticale du 18/08 (un composant, ses
+//  Etat au 2026-08-18. La tranche verticale du 18/08 (un composant, ses
 //  reglages, sa sauvegarde) est devenue une APPLICATION :
 //
 //    - **palette**     : les composants DECLARES, lus dans le registre, poses
@@ -54,6 +54,115 @@ namespace nkuidesign {
 	using namespace nkentseu::nkgui;
 
 	static const char *kDocumentPath = "nkuidesign_document.nkuidoc";
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE VOCABULAIRE DE MISE EN PAGE — ce qui manquait pour que ca RESSEMBLE a
+	//  une interface
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  ⚠️ NE PAS CONFONDRE AVEC UN COMPOSANT. Ce qui suit n'est ni declare, ni
+	//     enregistrable, ni editable : ce sont des raccourcis d'AGENCEMENT pour
+	//     les panneaux de l'editeur (le « mobilier »), bases sur des conteneurs
+	//     que NKGui fournit deja. Aucun widget n'est reimplemente ici -- la regle
+	//     du kit tient : on ASSEMBLE, on ne recree pas.
+	//
+	//  ⚠️ POURQUOI IL EXISTE, ET C'EST UNE DETTE ASSUMEE PUBLIQUEMENT. Rodolf,
+	//     devant l'ecran du 18/08 : « la partie gauche et droite de cette
+	//     interface est voulue, ou on est juste en train de faire des tests ? »
+	//     La reponse honnete etait : **c'etait le mecanisme rendu visible**. Une
+	//     pile de boutons pleine largeur et une liste de valeurs cliquables
+	//     prouvent qu'une declaration se lit, se modifie et se sauve ; elles ne
+	//     ressemblent pas a une interface. La regle qui en est sortie dit les deux
+	//     devoirs : **le dire sans attendre la question**, et **ne pas s'y
+	//     arreter**.
+	//
+	//  ⚠️ LE SYMPTOME QUI TRAHIT UN ECRAN NON DESSINE : les libelles tronques.
+	//     « Rentrer dans le voisin du dessu… », « Metriques du document (px
+	//     logiqu… », « max (<= mir… ». Aucune de ces coupes n'est un bug de
+	//     rendu : c'est **l'absence de decision de mise en page**. Un bouton pleine
+	//     largeur dans une colonne etroite coupe son texte ; un bouton pose dans un
+	//     FLOT prend la largeur de son texte et passe a la ligne quand il n'y en a
+	//     plus. La correction n'est donc pas une ellipse -- c'est un conteneur.
+	namespace designkit {
+
+		/// Une rangee de boutons qui **prennent la largeur de leur texte** et
+		/// reviennent a la ligne toutes seules. C'est le remede exact aux libelles
+		/// tronques : `BeginFlow` mesure chaque item, la colonne ne les ecrase plus.
+		struct Flow {
+				explicit Flow(NkGuiContext &c) : ctx(c) {
+					nkgui::BeginFlow(ctx);
+				}
+				~Flow() {
+					nkgui::EndFlow(ctx);
+				}
+				NkGuiContext &ctx;
+		};
+
+		/// Un choix parmi N, **sur une seule ligne**, cellules de largeur egale.
+		/// Remplace la pile verticale de `Selectable` qui donnait la « liste de
+		/// valeurs cliquables » : cinq modes de taille empiles prenaient cinq
+		/// lignes et se lisaient comme un menu, alors que c'est UN reglage.
+		///
+		/// ⚠️ REND L'INDICE CHOISI, ou -1. Il ne modifie rien lui-meme : l'appelant
+		///    ecrit, et c'est lui qui sait s'il doit marquer une edition humaine.
+		inline int32 Segmented(NkGuiContext &ctx, const char *const *labels, int32 count,
+							   int32 current) {
+			if (count <= 0)
+				return -1;
+			const int32 n = count < 12 ? count : 12;
+
+			// ⚠️ LES CELLULES SONT PROPORTIONNELLES AU TEXTE, PAS EGALES -- et
+			//    c'est une correction MESUREE, pas une preference. La premiere
+			//    version donnait a chacune la meme part : sur un panneau etroit,
+			//    « expand » (le plus long des cinq modes) s'affichait « expanc ».
+			//    **Le controle segmente venait de recreer la troncature qu'il
+			//    devait supprimer.** Cinq parts egales pour cinq mots de longueurs
+			//    differentes, c'est la meme faute que le bouton pleine largeur :
+			//    une largeur decidee sans regarder le contenu.
+			//
+			//    On mesure donc avec le MEME moteur que le rendu
+			//    (`NkGuiFont::MeasureWidth` -> `CalcTextSizeX`) : mesurer avec une
+			//    approximation maison — « tant de pixels par caractere » — aurait
+			//    fabrique une seconde verite, fausse des la premiere police
+			//    proportionnelle.
+			//
+			//    Les poids restent NEGATIFS (parts de l'espace restant) et non des
+			//    pixels fixes : en pixels, un panneau plus etroit que la somme des
+			//    libelles deborderait au lieu de serrer.
+			float32 poids[12];
+			for (int32 i = 0; i < n; ++i) {
+				const float32 w = ctx.font ? ctx.font->MeasureWidth(labels[i]) : 0.f;
+				// Le « + 24 » est la marge interne que `Selectable` ajoute autour
+				// de son libelle : sans elle, la cellule vaudrait exactement le
+				// texte et le rognerait de la valeur du padding.
+				poids[i] = -(w + 24.f);
+			}
+			int32 chosen = -1;
+			nkgui::BeginRow(ctx, 0.f, poids, n);
+			for (int32 i = 0; i < n; ++i)
+				if (nkgui::Selectable(ctx, labels[i], i == current))
+					chosen = i;
+			nkgui::EndRow(ctx);
+			return chosen;
+		}
+
+		/// Un titre de section repliable. Un seul point de passage : le jour ou la
+		/// charte donne une forme aux titres, elle se pose ICI et nulle part
+		/// ailleurs.
+		inline bool Section(NkGuiContext &ctx, const char *title) {
+			return nkgui::CollapsingHeader(ctx, title);
+		}
+
+		/// Une ligne « cle : valeur » en DEUX COLONNES alignees, au lieu d'une
+		/// phrase qui se fait couper. La cle est bornee, la valeur prend le reste.
+		inline void KeyValue(NkGuiContext &ctx, const char *key, const char *value) {
+			static const float32 kPoids[2] = {-2.f, -3.f};
+			nkgui::BeginRow(ctx, 0.f, kPoids, 2);
+			nkgui::Text(ctx, key);
+			nkgui::Text(ctx, value ? value : "");
+			nkgui::EndRow(ctx);
+		}
+
+	} // namespace designkit
 
 	// ═══════════════════════════════════════════════════════════════════════════
 	//  L'ETAT PARTAGE
@@ -222,6 +331,7 @@ namespace nkuidesign {
 				auto &ctx = ec.Ui();
 				ec.Text("Ce que la bibliotheque declare");
 				ec.Separator();
+				(void)ctx;
 
 				// L'entree 0 n'est pas un composant : c'est le CADRE, un noeud qui
 				// n'affiche rien et sert a agencer. Il est dans la palette parce
@@ -242,26 +352,39 @@ namespace nkuidesign {
 
 				ec.Separator();
 				char b[192];
-				snprintf(b, sizeof(b), "Cible : %s",
-						 mSt->doc.IsValidIndex(mSt->selected)
-							 ? mSt->doc.nodes[(uint32)mSt->selected].label.Data()
-							 : "(aucune)");
-				ec.Text(b);
+				designkit::KeyValue(ctx, "cible",
+									mSt->doc.IsValidIndex(mSt->selected)
+										? mSt->doc.nodes[(uint32)mSt->selected].label.Data()
+										: "(aucune)");
 				if (ec.Button("Poser dans la selection"))
 					Place();
-				ec.Separator();
 
 				const NkComponentDecl *d = Chosen();
 				if (d) {
-					snprintf(b, sizeof(b), "%u parametres, %u variantes, %u jetons", d->paramCount,
-							 d->variantCount, d->tokenCount);
-					ec.Text(b);
-					snprintf(b, sizeof(b), "%u metriques, %u greffes, %u evenements", d->metricCount,
-							 d->hookCount, d->eventCount);
-					ec.Text(b);
-					ec.Text(d->summary);
+					// ⚠️ DEUX PHRASES DE SIX NOMBRES SONT DEVENUES SIX LIGNES
+					//    ALIGNEES. « 4 parametres, 3 variantes, 10 jetons » se
+					//    lisait comme une phrase — donc se coupait comme une
+					//    phrase. Un chiffre par ligne, la cle a gauche : rien a
+					//    tronquer, et on compare deux composants d'un coup d'oeil.
+					if (designkit::Section(ctx, "Ce que ce composant declare")) {
+						snprintf(b, sizeof(b), "%u", d->paramCount);
+						designkit::KeyValue(ctx, "parametres", b);
+						snprintf(b, sizeof(b), "%u", d->variantCount);
+						designkit::KeyValue(ctx, "variantes", b);
+						snprintf(b, sizeof(b), "%u", d->tokenCount);
+						designkit::KeyValue(ctx, "jetons", b);
+						snprintf(b, sizeof(b), "%u", d->metricCount);
+						designkit::KeyValue(ctx, "metriques", b);
+						snprintf(b, sizeof(b), "%u", d->hookCount);
+						designkit::KeyValue(ctx, "greffes", b);
+						snprintf(b, sizeof(b), "%u", d->eventCount);
+						designkit::KeyValue(ctx, "evenements", b);
+					}
+					// ⚠️ `TextWrapped`, PAS `Text` : un resume de deux lignes est
+					//    fait pour revenir a la ligne, pas pour etre coupe.
+					nkgui::TextWrapped(ctx, d->summary ? d->summary : "");
 				} else {
-					ec.Text("Un cadre ne declare rien : il agence ses enfants.");
+					nkgui::TextWrapped(ctx, "Un cadre ne declare rien : il agence ses enfants.");
 				}
 
 				// ── CE QUE LA CANONISATION A RATTRAPE ────────────────────────
@@ -272,10 +395,11 @@ namespace nkuidesign {
 				//    la correction a la source, pas une decoration.
 				if (NkRoleAudit::RescuedCount() > 0) {
 					ec.Separator();
-					snprintf(b, sizeof(b), "%u role(s) declare(s) en PascalCase, rattrape(s) par",
-							 NkRoleAudit::RescuedCount());
-					ec.Text(b);
-					ec.Text("la canonisation. A corriger a la source (NKEditorKit).");
+					snprintf(b, sizeof(b), "%u", NkRoleAudit::RescuedCount());
+					designkit::KeyValue(ctx, "roles PascalCase", b);
+					nkgui::TextWrapped(ctx, "Rattrapes par la canonisation ; a corriger a la source "
+											"(NKEditorKit). L'ecran est juste, la declaration ne "
+											"l'est pas.");
 				}
 			}
 
@@ -313,50 +437,80 @@ namespace nkuidesign {
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				ec.Text(mSt->doc.title.Data());
-				ec.Separator();
-				DrawNode(ctx, 0, 0);
-				ec.Separator();
 
-				// ── Les operations de structure ──────────────────────────────
+				// ── L'ARBRE, DANS UNE ZONE DEFILABLE ─────────────────────────
+				// ⚠️ IL ETAIT POSE A NU dans le panneau : un document de trente
+				//    noeuds poussait tout le reste — operations, metriques,
+				//    boutons — hors de l'ecran, sans barre pour y revenir. Un
+				//    panneau dont le contenu depend de la taille du document n'est
+				//    pas un panneau, c'est une liste qui a debordе.
+				const NkRect arbre = ctx.NextItemRect(-1.f, 220.f);
+				if (nkgui::BeginChild(ctx, "nkuidesign.arbre", arbre, true)) {
+					DrawNode(ctx, 0, 0);
+					nkgui::EndChild(ctx);
+				}
+
+				// ── Les operations de structure, EN FLOT ─────────────────────
 				// ⚠️ TOUTES ECRIVENT UN PARENT OU UN RANG. Aucune ne deplace un
 				//    rectangle : reordonner n'est pas glisser.
-				if (ec.Button("Monter"))
-					Reorder(-1);
-				if (ec.Button("Descendre"))
-					Reorder(+1);
-				if (ec.Button("Rentrer dans le voisin du dessus"))
-					NestIntoPreviousSibling();
-				if (ec.Button("Sortir vers le grand-parent"))
-					Outdent();
-				if (ec.Button("Supprimer"))
-					Remove();
+				// ⚠️ ET LEURS LIBELLES ONT ETE RACCOURCIS APRES MESURE, pas par
+				//    gout : « Rentrer dans le voisin du dessus » s'affichait
+				//    « Rentrer dans le voisin du dessu… ». Deux corrections, et il
+				//    faut les deux — un libelle qui tient, ET un conteneur qui
+				//    mesure (`BeginFlow` donne a chaque bouton la largeur de son
+				//    texte et passe a la ligne). L'une sans l'autre retronquerait
+				//    au premier panneau retreci.
+				{
+					designkit::Flow f(ctx);
+					if (nkgui::Button(ctx, "Monter"))
+						Reorder(-1);
+					if (nkgui::Button(ctx, "Descendre"))
+						Reorder(+1);
+					if (nkgui::Button(ctx, "Imbriquer"))
+						NestIntoPreviousSibling();
+					if (nkgui::Button(ctx, "Sortir"))
+						Outdent();
+					if (nkgui::Button(ctx, "Supprimer"))
+						Remove();
+				}
 
 				// ── LES METRIQUES DU DOCUMENT ────────────────────────────────
 				// Une valeur, tous les noeuds qui la nomment. C'est le benefice
 				// direct de la regle « un espacement se nomme » : l'aeration de
 				// l'interface entiere se regle ici, pas noeud par noeud.
-				ec.Separator();
-				ec.Text("Metriques du document (px logiques)");
-				for (uint32 i = 0; i < (uint32)mSt->doc.metrics.Size(); ++i) {
-					float32 v = mSt->doc.metrics[i].value;
-					if (ec.SliderFloat(mSt->doc.metrics[i].name.Data(), v, 0.f, 64.f))
-						mSt->doc.metrics[i].value = v;
+				if (designkit::Section(ctx, "Metriques du document")) {
+					for (uint32 i = 0; i < (uint32)mSt->doc.metrics.Size(); ++i) {
+						float32 v = mSt->doc.metrics[i].value;
+						if (nkgui::DragFloat(ctx, mSt->doc.metrics[i].name.Data(), v, 0.25f, 0.f, 64.f))
+							mSt->doc.metrics[i].value = v;
+					}
+				}
+
+				if (designkit::Section(ctx, "Document")) {
+					// ⚠️ TROIS CHIFFRES, TROIS LIGNES « cle : valeur » — au lieu de
+					//    la phrase « 5 noeud(s) — 0 pose(s) par l'IA, 0 corrige(s) »
+					//    qui s'affichait « … 0 pose(s) par l'IA, 0… ». Une phrase se
+					//    fait couper ; deux colonnes alignees, non.
+					char b[64];
+					snprintf(b, sizeof(b), "%u", mSt->doc.NodeCount());
+					designkit::KeyValue(ctx, "noeuds", b);
+					snprintf(b, sizeof(b), "%u", mSt->doc.CountByAuthor(NkAuthor::IA));
+					designkit::KeyValue(ctx, "poses par l'IA", b);
+					snprintf(b, sizeof(b), "%u", mSt->doc.CountCorrected());
+					designkit::KeyValue(ctx, "corriges", b);
+					{
+						designkit::Flow f(ctx);
+						if (nkgui::Button(ctx, "Enregistrer"))
+							mSt->SaveDoc();
+						if (nkgui::Button(ctx, "Recharger"))
+							mSt->LoadDoc();
+						if (nkgui::Button(ctx, "Nouveau"))
+							mSt->BuildStarterDocument();
+					}
 				}
 
 				ec.Separator();
-				char b[192];
-				snprintf(b, sizeof(b), "%u noeud(s) — %u pose(s) par l'IA, %u corrige(s)",
-						 mSt->doc.NodeCount(), mSt->doc.CountByAuthor(NkAuthor::IA),
-						 mSt->doc.CountCorrected());
-				ec.Text(b);
-				if (ec.Button("Enregistrer le document"))
-					mSt->SaveDoc();
-				if (ec.Button("Recharger le document"))
-					mSt->LoadDoc();
-				if (ec.Button("Nouveau document"))
-					mSt->BuildStarterDocument();
-				ec.Separator();
-				ec.Text(mSt->status.Data() ? mSt->status.Data() : "");
+				nkgui::TextWrapped(ctx, mSt->status.Data() ? mSt->status.Data() : "");
 			}
 
 		private:
@@ -580,14 +734,16 @@ namespace nkuidesign {
 
 				ec.Text(n.label.Data());
 				ec.Separator();
-				DrawProvenance(ec, n);
-				ec.Separator();
-				DrawSizing(ec, ctx, "Largeur", n.width);
-				DrawSizing(ec, ctx, "Hauteur", n.height);
-				ec.Separator();
-				DrawLayout(ec, ctx, n);
-				ec.Separator();
-				DrawComponentSettings(ec, ctx, n);
+				if (designkit::Section(ctx, "Provenance"))
+					DrawProvenance(ec, ctx, n);
+				if (designkit::Section(ctx, "Largeur"))
+					DrawSizing(ec, ctx, n.width);
+				if (designkit::Section(ctx, "Hauteur"))
+					DrawSizing(ec, ctx, n.height);
+				if (designkit::Section(ctx, "Agencement de ses enfants"))
+					DrawLayout(ec, ctx, n);
+				if (designkit::Section(ctx, "Reglages du composant"))
+					DrawComponentSettings(ec, ctx, n);
 			}
 
 		private:
@@ -595,50 +751,68 @@ namespace nkuidesign {
 				mSt->doc.MarkHumanEdit(mSt->selected);
 			}
 
-			void DrawProvenance(NkEditorFrameContext &ec, const NkUINode &n) {
+			void DrawProvenance(NkEditorFrameContext &ec, NkGuiContext &ctx, const NkUINode &n) {
+				(void)ec;
 				char b[192];
-				snprintf(b, sizeof(b), "Provenance : %s%s%s", NkAuthorName(n.prov.author),
+				snprintf(b, sizeof(b), "%s%s%s", NkAuthorName(n.prov.author),
 						 n.prov.verified ? " · rejouee" : "", n.prov.corrected ? " · corrigee" : "");
-				ec.Text(b);
-				if (n.prov.origin.Length() > 0) {
-					snprintf(b, sizeof(b), "Origine : %s", n.prov.origin.Data());
-					ec.Text(b);
-				}
+				designkit::KeyValue(ctx, "auteur", b);
+				if (n.prov.origin.Length() > 0)
+					designkit::KeyValue(ctx, "origine", n.prov.origin.Data());
 				// ⚠️ AUCUNE CASE A COCHER ICI, ET C'EST DELIBERE. « rejouee » est un
 				//    constat de mesure, « corrigee » se deduit d'une edition : les
 				//    rendre cochables ferait entrer dans le corpus des tampons poses a
 				//    la main, c'est-a-dire du bruit qui ressemble a du signal.
 			}
 
-			void DrawSizing(NkEditorFrameContext &ec, NkGuiContext &ctx, const char *title,
-							NkSizeDecl &s) {
-				ec.Text(title);
+			// ⚠️ LES CINQ MODES ETAIENT CINQ `Selectable` EMPILES -- c'est ce que
+			//    Rodolf a vu comme « une liste de valeurs cliquables ». Cinq lignes
+			//    pour UN reglage, et rien ne disait qu'elles s'excluaient. Un
+			//    controle segmente le dit par sa forme : une ligne, N cases, une
+			//    seule allumee.
+			void DrawSizing(NkEditorFrameContext &ec, NkGuiContext &ctx, NkSizeDecl &s) {
+				(void)ec;
+				const char *modes[(uint32)NkSizeMode::Count];
 				for (uint8 i = 0; i < (uint8)NkSizeMode::Count; ++i)
-					if (Selectable(ctx, NkSizeModeName((NkSizeMode)i), s.mode == (NkSizeMode)i)) {
-						s.mode = (NkSizeMode)i;
-						Edited();
-					}
+					modes[i] = NkSizeModeName((NkSizeMode)i);
+				const int32 pick =
+					designkit::Segmented(ctx, modes, (int32)NkSizeMode::Count, (int32)s.mode);
+				if (pick >= 0) {
+					s.mode = (NkSizeMode)pick;
+					Edited();
+				}
 				if (s.mode == NkSizeMode::Fixed) {
-					if (ec.SliderFloat("taille (px)", s.value, 0.f, 1200.f))
+					if (nkgui::DragFloat(ctx, "taille (px)", s.value, 1.f, 0.f, 1200.f))
 						Edited();
 				} else if (s.mode == NkSizeMode::Weight) {
-					if (ec.SliderFloat("poids", s.value, 0.f, 8.f))
+					if (nkgui::DragFloat(ctx, "poids", s.value, 0.05f, 0.f, 8.f))
 						Edited();
 				}
-				if (ec.SliderFloat("min", s.minVal, 0.f, 800.f))
+				// ⚠️ « max (<= min : non borne) » S'AFFICHAIT « max (<= mir… ».
+				//    Le libelle porte maintenant le nom, et la convention est dite
+				//    UNE fois sous les deux champs -- une explication repetee dans
+				//    un libelle est une explication qui sera coupee.
+				static const float32 kPoids[2] = {-1.f, -1.f};
+				nkgui::BeginRow(ctx, 0.f, kPoids, 2);
+				if (nkgui::DragFloat(ctx, "min", s.minVal, 1.f, 0.f, 800.f))
 					Edited();
-				if (ec.SliderFloat("max (<= min : non borne)", s.maxVal, 0.f, 1600.f))
+				if (nkgui::DragFloat(ctx, "max", s.maxVal, 1.f, 0.f, 1600.f))
 					Edited();
+				nkgui::EndRow(ctx);
+				nkgui::TextWrapped(ctx, "max <= min : non borne.");
 			}
 
 			void DrawLayout(NkEditorFrameContext &ec, NkGuiContext &ctx, NkUINode &n) {
-				ec.Text("Agencement de ses enfants");
+				(void)ec;
+				const char *kinds[(uint32)NkLayoutKind::Count];
 				for (uint8 i = 0; i < (uint8)NkLayoutKind::Count; ++i)
-					if (Selectable(ctx, NkLayoutKindName((NkLayoutKind)i),
-								   n.layout.kind == (NkLayoutKind)i)) {
-						n.layout.kind = (NkLayoutKind)i;
-						Edited();
-					}
+					kinds[i] = NkLayoutKindName((NkLayoutKind)i);
+				const int32 pick =
+					designkit::Segmented(ctx, kinds, (int32)NkLayoutKind::Count, (int32)n.layout.kind);
+				if (pick >= 0) {
+					n.layout.kind = (NkLayoutKind)pick;
+					Edited();
+				}
 				// ⚠️ NI GOUTTIERE NI MARGE EN NOMBRE ICI, ET C'EST LA REGLE DU KIT :
 				//    un espacement est du STYLE, il se NOMME. Le noeud designe deux
 				//    metriques ; leurs VALEURS s'editent une fois pour tout le
@@ -646,12 +820,12 @@ namespace nkuidesign {
 				//    pixels ici ferait exister la valeur a deux endroits, et l'editeur
 				//    n'en changerait qu'un.
 				char nm[160];
-				snprintf(nm, sizeof(nm), "espacement = %s (%0.1f px)", n.spacingName.Data(),
+				snprintf(nm, sizeof(nm), "%s (%0.1f px)", n.spacingName.Data(),
 						 mSt->doc.Metric(n.spacingName.Data()));
-				ec.Text(nm);
-				snprintf(nm, sizeof(nm), "remplissage = %s (%0.1f px)", n.padName.Data(),
+				designkit::KeyValue(ctx, "espacement", nm);
+				snprintf(nm, sizeof(nm), "%s (%0.1f px)", n.padName.Data(),
 						 mSt->doc.Metric(n.padName.Data()));
-				ec.Text(nm);
+				designkit::KeyValue(ctx, "remplissage", nm);
 				if (n.layout.kind == NkLayoutKind::Grid) {
 					float32 cols = (float32)n.layout.gridColumns;
 					if (ec.SliderFloat("colonnes", cols, 1.f, 8.f)) {
@@ -660,12 +834,15 @@ namespace nkuidesign {
 					}
 				}
 				ec.Text("Alignement transverse");
+				const char *aligns[(uint32)NkAlign::Count];
 				for (uint8 i = 0; i < (uint8)NkAlign::Count; ++i)
-					if (Selectable(ctx, NkAlignName((NkAlign)i),
-								   n.layout.crossAlign == (NkAlign)i)) {
-						n.layout.crossAlign = (NkAlign)i;
-						Edited();
-					}
+					aligns[i] = NkAlignName((NkAlign)i);
+				const int32 pickA =
+					designkit::Segmented(ctx, aligns, (int32)NkAlign::Count, (int32)n.layout.crossAlign);
+				if (pickA >= 0) {
+					n.layout.crossAlign = (NkAlign)pickA;
+					Edited();
+				}
 			}
 
 			void DrawComponentSettings(NkEditorFrameContext &ec, NkGuiContext &ctx, NkUINode &n) {

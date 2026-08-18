@@ -1037,7 +1037,7 @@ namespace nkuidesign {
 
 		// 31a. LA LIGNE EXISTE -- a verifier AVANT de chercher ce qu'elle contient.
 		const char *kVulkanArgs[] = {"--small", "--gfx=vulkan"};
-		const NkGfxChoice cVk = NkGfxResolve(nullptr, kVulkanArgs, 2);
+		const NkGfxChoice cVk = NkGfxResolve(nullptr, nullptr, kVulkanArgs, 2);
 		const NkString lineVk = NkGfxJournalLine(cVk);
 		snprintf(buf, sizeof(buf), "%u caracteres", (uint32)lineVk.Length());
 		check("31a. la ligne de journal EXISTE et n'est pas un moignon", lineVk.Length() > 60, buf);
@@ -1091,11 +1091,11 @@ namespace nkuidesign {
 		// 31g. L'ORDRE DE PRIORITE, VERIFIE DANS LES DEUX SENS. « La ligne de
 		//      commande gagne » passerait AUSSI si la variable etait ignoree tout
 		//      court : il faut donc prouver D'ABORD que la variable est lue.
-		const NkGfxChoice cEnvSeul = NkGfxResolve("vulkan", nullptr, 0);
+		const NkGfxChoice cEnvSeul = NkGfxResolve(nullptr, "vulkan", nullptr, 0);
 		const char *kDx12[] = {"--gfx=dx12"};
-		const NkGfxChoice cEnvEtLigne = NkGfxResolve("vulkan", kDx12, 1);
-		const NkGfxChoice cRien = NkGfxResolve(nullptr, nullptr, 0);
-		const NkGfxChoice cVide = NkGfxResolve("", nullptr, 0);
+		const NkGfxChoice cEnvEtLigne = NkGfxResolve(nullptr, "vulkan", kDx12, 1);
+		const NkGfxChoice cRien = NkGfxResolve(nullptr, nullptr, nullptr, 0);
+		const NkGfxChoice cVide = NkGfxResolve(nullptr, "", nullptr, 0);
 		check("31g. priorite : la variable est LUE, puis la ligne de commande la BAT",
 			  cEnvSeul.api == NkEditorGfxApi::Vulkan &&
 				  cEnvSeul.source == NkGfxSource::Environnement &&
@@ -1333,6 +1333,333 @@ namespace nkuidesign {
 			rep.Append("\n  cause : roles declares en PascalCase, table canonique en snake_case.\n"
 					   "  correctif ICI : la resolution canonise (Roles.h). Correctif A LA SOURCE :\n"
 					   "  a `NkRoleRegistry::Find` -- porte au canal, hors perimetre de cet agent.\n");
+		}
+
+
+		// -- 34. LA GEOMETRIE : CE QUI DEBORDE, ET DE COMBIEN ----------------
+		// ⚠️ NEE D'UNE LECTURE SUR IMAGE, ET C'EST EXACTEMENT POURQUOI ELLE
+		//    EXISTE. Le 18/08 au soir, en regardant la capture, on a rapporte
+		//    « la colonne d'arborescence se superpose a la premiere rangee de
+		//    cartes » -- plus grave que mon ecart n. 11, qui disait « rognees au
+		//    bord gauche ». Deux lectures differentes de la MEME image, et aucune
+		//    des deux n'est un instrument.
+		//
+		//    Ce banc tranche avec des nombres. Il ne compare pas des pixels : il
+		//    lit les RECTANGLES que le composant a emis.
+		//
+		// ⚠️ ET IL NE CONNAIT PAS LA GEOMETRIE DU COMPOSANT. La frontiere entre
+		//    la colonne et la grille n'est PAS recalculee ici a partir de
+		//    `tree_width` -- ce serait reconstruire le calcul que l'on veut
+		//    verifier, et il serait juste par construction. Elle est lue dans le
+		//    `PushClip` que le composant emet lui-meme pour sa grille : c'est SA
+		//    declaration de « voici ma zone », et c'est contre elle qu'on juge.
+		{
+			const NkPaintRect zone = {0.f, 0.f, 900.f, 600.f}; // ce que `Render` donne
+			NkRecordingPaint g;
+			Render(g, nullptr, idle);
+
+			// 34a. CONDITION D'EXISTENCE, d'abord : sans commandes, « rien ne
+			//      deborde » serait vrai et ne vaudrait rien.
+			check("34a. le composant a REELLEMENT emis des commandes (sinon 0 debordement ne dit rien)",
+				  g.cmds.Size() > 20, "");
+
+			// 34b. RIEN NE SORT DU RECTANGLE DONNE AU COMPOSANT.
+			//      C'est la question « rognees au bord gauche » : un dessin pose
+			//      a gauche de `zone.x` serait coupe par la fenetre.
+			uint32 dehors = 0;
+			float32 pireGauche = 0.f, pireDroite = 0.f;
+			NkString horsZone;
+			for (uint32 i = 0; i < (uint32)g.cmds.Size(); ++i) {
+				const NkPaintCmd &c = g.cmds[i];
+				if (c.op == NkPaintOp::PushClip || c.op == NkPaintOp::PopClip)
+					continue;
+				const float32 gauche = zone.x - c.x;
+				const float32 droite = (c.x + c.w) - (zone.x + zone.w);
+				if (gauche > 0.01f || droite > 0.01f) {
+					++dehors;
+					if (gauche > pireGauche)
+						pireGauche = gauche;
+					if (droite > pireDroite)
+						pireDroite = droite;
+					if (dehors <= 3) {
+						if (!horsZone.Empty())
+							horsZone.Append(", ");
+						horsZone.Append(NkPaintOpName(c.op));
+						char b[64];
+						snprintf(b, sizeof(b), "@x=%.1f w=%.1f", c.x, c.w);
+						horsZone.Append(b);
+					}
+				}
+			}
+			// ⚠️ UN DEBORDEMENT CONNU, NOMME, ET QUI N'EST PAS MON FICHIER :
+			//    `NkContentBrowserDraw.cpp:129` passe `header.w` a un texte pose a
+			//    `header.x + card_pad` -- donc **8 px de plus que le panneau**. Le
+			//    clip du panneau le masque a l'ecran, et c'est bien la le probleme :
+			//    **le texte croit disposer de 8 px qu'il n'a pas**, donc son point
+			//    de troncature est calcule sur une largeur fausse. C'est la meme
+			//    famille que « les libelles tronques ».
+			//
+			//    L'assertion est **monotone** et c'est delibere : `<= 1`, pas `== 1`.
+			//    Ecrite `== 1`, elle deviendrait ROUGE le jour ou l'autre agent
+			//    corrige -- elle punirait le correctif qu'elle reclame, exactement
+			//    l'erreur que j'ai deja faite et retiree en 33f. Elle mord si un
+			//    debordement NOUVEAU apparait, jamais si celui-ci disparait.
+			snprintf(buf, sizeof(buf),
+					 "%u commande(s) hors zone (1 connue : NkContentBrowserDraw.cpp:129) ; "
+					 "debord max gauche %.1f px, droite %.1f px",
+					 dehors, pireGauche, pireDroite);
+			check("34b. aucun debordement NOUVEAU hors du rectangle du composant (1 connu, porte au canal)",
+				  dehors <= 1, dehors <= 1 ? buf : horsZone.Data());
+
+			// 34c. LA COLONNE ET LA GRILLE NE SE CHEVAUCHENT PAS.
+			//      La frontiere est celle que le composant a DECLAREE lui-meme
+			//      (son premier `PushClip`), pas une que je recalcule.
+			//
+			// ⚠️ CORRECTION DE L'INSTRUMENT, ET ELLE VAUT D'ETRE ECRITE : ma
+			//    premiere version prenait le PREMIER `PushClip`. Elle est passee
+			//    VERTE avec « frontiere x=0.0 » -- c'est-a-dire qu'elle mesurait
+			//    le clip du PANNEAU ENTIER, pas celui de la grille. Un vert pour
+			//    la mauvaise raison, exactement la 2e face de la grille, et je ne
+			//    l'ai vu que parce que le chiffre publie a cote (`x=0.0`) etait
+			//    absurde. **Publier la valeur intermediaire a sauve le banc.**
+			//
+			//    La regle juste est STRUCTURELLE, pas devinatoire : dans un flux
+			//    correctement imbrique, le dernier `PushClip` avant le premier
+			//    `PopClip` est le clip LE PLUS INTERNE -- ici, la grille.
+			float32 gridX = -1.f;
+			uint32 iClip = 0, nbClips = 0;
+			NkString clips;
+			for (uint32 i = 0; i < (uint32)g.cmds.Size(); ++i) {
+				if (g.cmds[i].op == NkPaintOp::PopClip)
+					break;
+				if (g.cmds[i].op == NkPaintOp::PushClip) {
+					++nbClips;
+					gridX = g.cmds[i].x;
+					iClip = i;
+					char b[64];
+					snprintf(b, sizeof(b), "%s(x=%.1f w=%.1f)", nbClips > 1 ? " > " : "",
+							 g.cmds[i].x, g.cmds[i].w);
+					clips.Append(b);
+				}
+			}
+			snprintf(buf, sizeof(buf), "%u clip(s) imbrique(s) : %s -- frontiere retenue x=%.1f",
+					 nbClips, clips.Data(), gridX);
+			check("34c. le composant DECLARE la zone de sa grille, et elle n'est PAS le panneau entier",
+				  gridX > 0.01f && nbClips >= 2, buf);
+
+			// 34d. DANS LES DEUX SENS -- c'est ce qui separe « rogne » de
+			//      « pose par-dessus ». Un dessin de la colonne qui franchit la
+			//      frontiere se pose SUR la grille ; un dessin de la grille qui
+			//      la franchit en arriere se pose SUR la colonne.
+			//
+			// ⚠️ SECONDE CORRECTION DE L'INSTRUMENT, ET ELLE A RENVERSE LE
+			//    VERDICT. Sans borne verticale, le banc accusait deux textes qui
+			//    ne sont PAS dans la colonne : « Creer » (barre d'outils, y=28) et
+			//    « niveau1 » (fil d'Ariane, y=64). Ces bandes traversent
+			//    legitimement tout le panneau. Les compter, c'etait fabriquer un
+			//    debordement qui n'existe pas -- et **confirmer la lecture faite
+			//    sur l'image que ce banc devait justement departager**.
+			//    La borne vient du clip declare par le composant : la colonne
+			//    commence a la MEME hauteur que la grille.
+			const float32 bandeTop = (iClip < (uint32)g.cmds.Size()) ? g.cmds[iClip].y : 0.f;
+
+			// ⚠️ LE COMPTAGE EST UNE FONCTION, APPELEE DEUX FOIS : une fois sur le
+			//    flux reel, une fois sur un flux volontairement fautif (34e). Ecrire
+			//    deux boucles jumelles aurait mesure une RECONSTRUCTION -- la 4e
+			//    face de la grille -- et le controle positif n'aurait rien prouve
+			//    du detecteur reellement employe.
+			// ⚠️ TROISIEME BORNE, ET LA DERNIERE : une commande qui couvre TOUTE la
+			//    largeur du panneau est une BANDE (separateur, fond de barre), pas
+			//    un element de colonne. Le critere est EXACT -- « commence au bord
+			//    gauche et finit au bord droit » -- et non un seuil du genre
+			//    « plus de 90 % ». Un seuil arbitraire aurait laisse passer une
+			//    bande a 89 % et rejete un vrai debordement a 91 %.
+			auto bandePleineLargeur = [&](const NkPaintCmd &c) {
+				return c.x <= zone.x + 0.01f && (c.x + c.w) >= zone.x + zone.w - 0.01f;
+			};
+			auto compter = [&](const NkRecordingPaint &flux, uint32 fin, uint32 &colGrille,
+							   uint32 &grilleCol, float32 &pire, NkString *coupables) {
+				colGrille = 0;
+				grilleCol = 0;
+				pire = 0.f;
+				for (uint32 i = 0; i < fin && i < (uint32)flux.cmds.Size(); ++i) {
+					const NkPaintCmd &c = flux.cmds[i];
+					if (c.op == NkPaintOp::PushClip || c.op == NkPaintOp::PopClip ||
+						bandePleineLargeur(c))
+						continue;
+					if (c.x < gridX - 0.01f && c.y >= bandeTop - 0.01f && (c.x + c.w) > gridX + 0.01f) {
+						++colGrille;
+						const float32 de = (c.x + c.w) - gridX;
+						if (de > pire)
+							pire = de;
+						if (coupables && colGrille <= 3) {
+							if (!coupables->Empty())
+								coupables->Append(", ");
+							coupables->Append(NkPaintOpName(c.op));
+							char b[96];
+							snprintf(b, sizeof(b), "@x=%.1f y=%.1f w=%.1f deborde de %.1f px [%s]", c.x,
+									 c.y, c.w, de, c.text.Data() ? c.text.Data() : "");
+							coupables->Append(b);
+						}
+					}
+				}
+				for (uint32 i = fin + 1; i < (uint32)flux.cmds.Size(); ++i) {
+					const NkPaintCmd &c = flux.cmds[i];
+					if (c.op == NkPaintOp::PushClip || c.op == NkPaintOp::PopClip ||
+						bandePleineLargeur(c))
+						continue;
+					if (c.x < gridX - 0.01f && c.y >= bandeTop - 0.01f)
+						++grilleCol;
+				}
+			};
+
+			uint32 colonneSurGrille = 0, grilleSurColonne = 0;
+			float32 pireColonne = 0.f;
+			NkString coupables;
+			if (gridX >= 0.f)
+				compter(g, iClip, colonneSurGrille, grilleSurColonne, pireColonne, &coupables);
+
+			snprintf(buf, sizeof(buf),
+					 "bande jugee : x<%.1f et y>=%.1f ; colonne->grille : %u (debord max %.1f px) ; "
+					 "grille->colonne : %u",
+					 gridX, bandeTop, colonneSurGrille, pireColonne, grilleSurColonne);
+			check("34d. la colonne d'arborescence et la grille ne se chevauchent NI dans un sens NI dans l'autre",
+				  colonneSurGrille == 0 && grilleSurColonne == 0,
+				  (colonneSurGrille == 0 && grilleSurColonne == 0) ? buf : coupables.Data());
+
+			// 34e. CONTROLE POSITIF -- SANS LUI, 34d NE VAUT RIEN.
+			//      Un banc borne deux fois de suite finit par ne plus rien voir :
+			//      j'ai elargi la borne pour supprimer deux faux positifs, il faut
+			//      donc prouver qu'il reste capable de mordre. On injecte UNE
+			//      commande volontairement fautive -- posee dans la colonne, a la
+			//      bonne hauteur, traversant la frontiere -- et le MEME detecteur
+			//      doit la compter, avec le bon debordement.
+			NkRecordingPaint faute;
+			for (uint32 i = 0; i < (uint32)g.cmds.Size(); ++i)
+				faute.cmds.PushBack(g.cmds[i]);
+			NkPaintCmd intrus;
+			intrus.op = NkPaintOp::Fill;
+			intrus.x = gridX - 40.f; // commence DANS la colonne
+			intrus.y = bandeTop + 10.f;
+			intrus.w = 90.f;		 // et finit 50 px DANS la grille
+			intrus.h = 20.f;
+			faute.cmds.PushBack(intrus);
+			uint32 fCol = 0, fGrille = 0;
+			float32 fPire = 0.f;
+			// L'intrus est pose AVANT la frontiere de parcours : on etend `fin`
+			// jusqu'a lui pour qu'il soit juge du cote « colonne ».
+			compter(faute, (uint32)faute.cmds.Size(), fCol, fGrille, fPire, nullptr);
+			snprintf(buf, sizeof(buf), "intrus injecte -> %u detecte(s), debord mesure %.1f px (attendu 50.0)",
+					 fCol, fPire);
+			check("34e. CONTROLE POSITIF : le MEME detecteur voit un chevauchement injecte", fCol == 1 && fPire > 49.9f && fPire < 50.1f, buf);
+
+			rep.Append("\n--- geometrie du navigateur de contenu, mesuree ---\n  ");
+			rep.Append(buf);
+			rep.Append("\n  ");
+			snprintf(buf, sizeof(buf), "%u commande(s) au total, %u hors du rectangle donne",
+					 (uint32)g.cmds.Size(), dehors);
+			rep.Append(buf);
+			rep.Append("\n");
+		}
+
+		// -- 35. LA CONFIGURATION : LUE PAR DEFAUT, ET PAR LA MEME FONCTION ---
+		// Directive de Rodolf (18/08) : le reglage se change depuis l'interface,
+		// et **la config est lue par defaut au demarrage**. Quatre sources, du plus
+		// local au plus durable : `--gfx` > `NK_GFX_API` > **fichier** > detection.
+		//
+		// ⚠️ CETTE FAMILLE EXISTE POUR UNE RAISON PRECISE, ET C'EST LA MIENNE :
+		//    « la sonde lit la meme configuration que l'application ». Si `--probe`
+		//    gardait sa propre resolution pendant que `main` lit un fichier, on
+		//    aurait deux sources de verite pour une meme chose — le defaut exact
+		//    qui a laisse vivre le magenta pendant 72 essais verts. Ici, `main` et
+		//    la sonde appellent **la meme `NkGfxResolve`**, et le contenu du
+		//    fichier lui est **passe** : la sonde exerce donc la resolution reelle
+		//    sur des contenus qu'aucun fichier du disque ne contiendrait tous.
+		{
+			// 35a. L'ANALYSE D'UN FICHIER, sur les cas tordus ecrits d'avance.
+			//      ⚠️ « cle absente » et « cle sans valeur » doivent rendre la MEME
+			//      chose : une cle posee et vide ne doit pas ecraser la detection
+			//      par une chaine vide. C'est la meme regle que pour une variable
+			//      d'environnement vide, deja acquise en 31.
+			static const char *kCfg = "# le backend graphique de NkUIDesign\n"
+									  "gfx = opengl   \n"
+									  "vide =\n"
+									  "# gfx = vulkan   <- commente, ne doit PAS gagner\n"
+									  "autre = 3\n";
+			char v[32];
+			const bool lu = NkGfxConfigValue(kCfg, "gfx", v, sizeof(v));
+			char vVide[32], vAbsente[32];
+			const bool luVide = NkGfxConfigValue(kCfg, "vide", vVide, sizeof(vVide));
+			const bool luAbsente = NkGfxConfigValue(kCfg, "pas_la", vAbsente, sizeof(vAbsente));
+			snprintf(buf, sizeof(buf), "gfx='%s' (%d), vide=%d, absente=%d", lu ? v : "", (int)lu,
+					 (int)luVide, (int)luAbsente);
+			check("35a. la cle se lit, les blancs de fin tombent, un commentaire ne gagne pas, "
+				  "vide == absente",
+				  lu && SameText(v, "opengl") && !luVide && !luAbsente, buf);
+
+			// 35b. LA PRIORITE, DANS LES DEUX SENS. Verifier seulement que
+			//      l'environnement gagne sur le fichier passerait aussi si le
+			//      fichier etait purement ignore — c'est la lecon de 31g, appliquee
+			//      a la source neuve.
+			static const char *kArgDx12[] = {"--gfx=dx12"};
+			const NkGfxChoice cCfgSeul = NkGfxResolve("vulkan", nullptr, nullptr, 0);
+			const NkGfxChoice cCfgEtEnv = NkGfxResolve("vulkan", "opengl", nullptr, 0);
+			const NkGfxChoice cTout = NkGfxResolve("vulkan", "opengl", kArgDx12, 1);
+			snprintf(buf, sizeof(buf), "fichier seul -> %s (%s) ; +env -> %s ; +ligne -> %s",
+					 cCfgSeul.effective, NkGfxSourceName(cCfgSeul.source), cCfgEtEnv.effective,
+					 cTout.effective);
+			check("35b. le fichier bat la detection, l'environnement bat le fichier, la ligne bat tout",
+				  SameText(cCfgSeul.effective, "vulkan") &&
+					  cCfgSeul.source == NkGfxSource::FichierDeConfig &&
+					  SameText(cCfgEtEnv.effective, "opengl") && SameText(cTout.effective, "dx12"),
+				  buf);
+
+			// 35c. UN REPLI QUI NE VERROUILLE PAS DEHORS. Une config qui nomme un
+			//      backend indisponible doit **demarrer quand meme** : sinon
+			//      l'utilisateur ne peut plus atteindre les Preferences pour
+			//      corriger le reglage qui l'empeche de demarrer.
+			const NkGfxChoice cCfgFaux = NkGfxResolve("metal", nullptr, nullptr, 0);
+			snprintf(buf, sizeof(buf), "config 'metal' -> supported=%d, repli=%d, refuse='%s', retenu='%s'",
+					 (int)cCfgFaux.supported, (int)cCfgFaux.fellBack, cCfgFaux.refused,
+					 cCfgFaux.effective);
+			check("35c. une config indisponible DEMARRE sur le repli, en nommant ce qu'elle refusait",
+				  cCfgFaux.supported && cCfgFaux.fellBack && SameText(cCfgFaux.refused, "metal") &&
+					  *cCfgFaux.effective && !SameText(cCfgFaux.effective, "auto"),
+				  buf);
+
+			// 35d. ET LA LIGNE DE COMMANDE, ELLE, REFUSE TOUJOURS. C'est l'autre
+			//      moitie : appliquer le repli a `--gfx` ferait mesurer sur autre
+			//      chose que ce qui a ete demande — ce que la regle 3 interdit.
+			//      Sans cette ligne, 35c pourrait passer avec un repli applique
+			//      partout, et personne ne verrait la difference.
+			static const char *kArgMetal[] = {"--gfx=metal"};
+			const NkGfxChoice cLigneFausse = NkGfxResolve(nullptr, nullptr, kArgMetal, 1);
+			snprintf(buf, sizeof(buf), "--gfx=metal -> supported=%d, repli=%d",
+					 (int)cLigneFausse.supported, (int)cLigneFausse.fellBack);
+			check("35d. `--gfx` indisponible REFUSE le lancement (deux sources, deux conduites)",
+				  !cLigneFausse.supported && !cLigneFausse.fellBack, buf);
+
+			// 35e. LE REPLI SE CRIE, ET EN TETE DE LIGNE. Une annonce posee apres
+			//      quatre champs se lit apres coup, quand on cherche deja pourquoi
+			//      ca ne marche pas.
+			const NkString ligneRepli = NkGfxJournalLine(cCfgFaux);
+			const bool enTete = Contains(ligneRepli.Data(), "!! LA CONFIGURATION DEMANDE 'metal'");
+			const bool ditQuOnNeReecritPas = Contains(ligneRepli.Data(), "n'a PAS ete reecrite");
+			check("35e. le journal CRIE le repli, en tete, et dit que la config n'a pas ete reecrite",
+				  enTete && ditQuOnNeReecritPas, ligneRepli.Data());
+
+			// 35f. LA LIGNE NOMME LAQUELLE DES QUATRE SOURCES A DECIDE.
+			//      Sans ca, un utilisateur qui regle une valeur et en voit une
+			//      autre se lancer n'a aucun moyen de comprendre.
+			const NkString ligneCfg = NkGfxJournalLine(cCfgSeul);
+			check("35f. le journal nomme la SOURCE qui a decide (les quatre sont distinguables)",
+				  Contains(ligneCfg.Data(), "fichier de configuration") &&
+					  !Contains(ligneCfg.Data(), "{"),
+				  ligneCfg.Data());
+
+			rep.Append("\n--- la ligne de journal d'un repli de configuration ---\n");
+			rep.Append(ligneRepli);
+			rep.Append('\n');
 		}
 
 		rep.Append("\n--- les lignes de journal du backend, telles quelles ---\n");

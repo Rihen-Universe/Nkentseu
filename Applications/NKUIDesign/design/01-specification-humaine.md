@@ -10,7 +10,7 @@
 > **Règle d'or tenue partout dans les trois documents** : ce qui existe se dit
 > comme existant, ce qui n'existe pas se dit comme à faire. Jamais un espoir
 > présenté comme un acquis. Chaque section porte donc son état, et l'état est
-> daté du **2026-08-19 (fin de journée)**, branche `feat/noge-inventaire`,
+> daté du **2026-08-18 (fin de journée)**, branche `feat/noge-inventaire`,
 > commit `002566f7`.
 >
 > ⚠️ **Un état n'est pas un acquis : il a une date.** Ce document a été rédigé une
@@ -32,7 +32,7 @@
 
 1. [L'exigence qui commande tout : la prise en main](#1-lexigence-qui-commande-tout--la-prise-en-main)
 2. [Ce qu'est NkUIDesign, et ce qu'il n'est pas](#2-ce-quest-nkuidesign-et-ce-quil-nest-pas)
-3. [État réel au 2026-08-19 — la table de vérité](#3-état-réel-au-2026-08-19--la-table-de-vérité)
+3. [État réel au 2026-08-18 — la table de vérité](#3-état-réel-au-2026-08-18--la-table-de-vérité)
 4. [Les pages et les écrans](#4-les-pages-et-les-écrans)
 5. [L'interface : disposition, ancrage, barres, commandes, raccourcis](#5-linterface--disposition-ancrage-barres-commandes-raccourcis)
 6. [Les thèmes](#6-les-thèmes)
@@ -166,7 +166,7 @@ est le **choix par défaut**. Ce qui est proscrit, c'est de réécrire *sans rai
 
 ---
 
-## 3. État réel au 2026-08-19 — la table de vérité
+## 3. État réel au 2026-08-18 — la table de vérité
 
 C'est la section à lire avant toutes les autres. Elle est la garantie que le
 reste du document ne se lit pas comme une promesse.
