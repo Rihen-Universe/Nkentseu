@@ -92,9 +92,26 @@ static void DumpUiRects(NkEditorFrameContext &, void *) {
 //    mise en page** par construction. C'est la meme sortie que pour le clic —
 //    brancher l'essai sur une source qui ne varie pas avec ce qu'on mesure.
 //    Et c'est utile a l'utilisateur, pas seulement a l'essai.
+// ⚠️ J'AVAIS REECRIT CE QUI EXISTAIT. Ma premiere version appelait
+//    `nkgui::DockFocusWindow` — qui ne fait qu'une partie du travail : elle
+//    donne le focus a une fenetre DEJA ancree et ouverte. La coquille expose
+//    **`NkEditorShell::FocusPanel`** (public, `NkEditorShell.h:113`), qui
+//    OUVRE le panneau s'il etait ferme, l'ANCRE a son cote par defaut s'il ne
+//    l'etait pas, puis le met devant. C'est exactement le geste voulu, et il
+//    etait deja ecrit.
+//    La regle « chercher l'existant avant d'ecrire » m'a coute une heure ici :
+//    j'ai diagnostique un raccourci qui ne partait pas, alors que ma fonction
+//    n'aurait de toute facon pas ouvert un panneau ferme.
 static void FocusPanel(const char *titre) {
-	if (gShell)
-		nkentseu::nkgui::DockFocusWindow(gShell->Ui(), titre);
+	if (!gShell) {
+		logger.Warn("[NKUIDesign] vue '{0}' demandee sans coquille", titre);
+		return;
+	}
+	// ⚠️ ON JOURNALISE LE RESULTAT, PAS L'APPEL. « la commande est partie » et
+	//    « le panneau est passe devant » sont deux faits differents, et c'est
+	//    exactement la confusion qui m'a fait cliquer a travers un panneau cache.
+	const bool ok = gShell->FocusPanel(titre);
+	logger.Info("[NKUIDesign] vue '{0}' : FocusPanel -> {1}", titre, ok ? "vrai" : "FAUX");
 }
 static void CmdVuePalette(void *) {
 	FocusPanel("Palette");
@@ -273,10 +290,16 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Document: Nouveau", &CmdNew, nullptr, "Ctrl+N");
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 	gShell = shell.Get();
-	shell->RegisterCommand("Vue: Palette", &CmdVuePalette, nullptr, "Ctrl+1");
-	shell->RegisterCommand("Vue: Composition", &CmdVueComposition, nullptr, "Ctrl+2");
-	shell->RegisterCommand("Vue: Proprietes", &CmdVueProprietes, nullptr, "Ctrl+3");
-	shell->RegisterCommand("Vue: Preferences", &CmdVuePreferences, nullptr, "Ctrl+4");
+	// ⚠️ DES LETTRES, PAS DES CHIFFRES, ET C'EST UNE CONTRAINTE MESUREE :
+	//    `NkEditorShell::TryRunShortcut` n'accepte qu'un nom de touche de la
+	//    forme exacte « NK_X » (quatre caracteres). Un `Ctrl+1` s'affiche a cote
+	//    de la commande et **ne se declenche jamais** — un raccourci cosmetique,
+	//    c'est-a-dire un parametre qui n'est pas honore. Il m'a fait croire
+	//    pendant une heure que le panneau ne passait pas devant.
+	shell->RegisterCommand("Vue: Palette", &CmdVuePalette, nullptr, "Ctrl+J");
+	shell->RegisterCommand("Vue: Composition", &CmdVueComposition, nullptr, "Ctrl+K");
+	shell->RegisterCommand("Vue: Proprietes", &CmdVueProprietes, nullptr, "Ctrl+L");
+	shell->RegisterCommand("Vue: Preferences", &CmdVuePreferences, nullptr, "Ctrl+M");
 
 	return shell->Run();
 }

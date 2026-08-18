@@ -142,11 +142,58 @@ namespace nkuidesign {
 					return on;
 				}
 
+				/// ⚠️ LA REGION DU PANNEAU, publiee sous « panneau.<nom> ». C'est ce
+				///    qui manquait, et le manque etait de la meme famille que le
+				///    magenta : **le registre disait OU sont les rectangles, jamais
+				///    SI le panneau qui les a produits est celui qu'on voit.** Un
+				///    registre qui publie toujours ne dit pas si sa cible est
+				///    atteignable — il ne ment pas, il repond a une question plus
+				///    etroite que celle qu'on croit poser.
+				///
+				///    A appeler en TETE de chaque `OnUI`. La region est la seule
+				///    chose que l'hote connaisse et qui distingue un panneau
+				///    dessine d'un panneau cache derriere un onglet ; ce qu'elle
+				///    vaut exactement dans les deux cas est MESURE, pas suppose —
+				///    voir le carnet.
+				static void NoteRegion(NkGuiContext &ctx, const char *nom) {
+					if (!Enabled() || !nom || !*nom)
+						return;
+					char clef[96];
+					snprintf(clef, sizeof(clef), "panneau.%s", nom);
+					const nkgui::NkRect r = ctx.layout.region;
+					for (uint32 i = 0; i < (uint32)All().Size(); ++i)
+						if (StrEq(All()[i].id.Data(), clef)) {
+							All()[i].r = r;
+							return;
+						}
+					Entry e;
+					e.id = NkString(clef);
+					e.r = r;
+					All().PushBack(e);
+				}
+
 				/// A appeler JUSTE APRES le widget : `ctx.lastItemRect` porte alors
 				/// son rectangle. Remplace l'entree de meme nom (une image chasse
 				/// l'autre) plutot que d'empiler.
 				static void Note(NkGuiContext &ctx, const char *id) {
 					if (!Enabled() || !id || !*id)
+						return;
+					// ⚠️ ON NE PUBLIE PAS LE RECTANGLE D'UN WIDGET DONT LE PANNEAU
+					//    N'EST PAS DESSINE. **Mesure du 19/08** : un panneau cache
+					//    derriere un onglet recoit quand meme son `OnUI`, avec une
+					//    region de **largeur 0** — mais ses widgets continuaient a
+					//    publier des rectangles d'apparence normale (`palette.poser`
+					//    = 167,7x28). Un essai les visait, cliquait **a travers**
+					//    sur le panneau qui occupait la place, et se croyait reussi.
+					//
+					//    C'est le defaut que j'avais nomme sans le corriger : *le
+					//    registre disait OU sont les rectangles, jamais SI le
+					//    panneau qui les a produits est celui qu'on voit.* Il ne
+					//    mentait pas — il repondait a une question plus etroite que
+					//    celle qu'on croyait poser. La correction est ici, a la
+					//    source : **une cible inatteignable ne se publie pas**, et
+					//    l'essai la trouve « absente » au lieu de la croire prete.
+					if (ctx.layout.region.w < 4.f)
 						return;
 					for (uint32 i = 0; i < (uint32)All().Size(); ++i)
 						if (StrEq(All()[i].id.Data(), id)) {
@@ -512,6 +559,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
+				designkit::UiRects::NoteRegion(ctx, "palette");
 				ec.Text("Ce que la bibliotheque declare");
 				ec.Separator();
 				(void)ctx;
@@ -529,9 +577,19 @@ namespace nkuidesign {
 				//        la palette. Le controle segmente donne des cellules a
 				//        largeur explicite, et le rectangle publie devient utile.
 				//
-				//    ⚠️ Ce n'est pas un correctif de NKGui : c'est un contournement
-				//       dans mon perimetre, et il est nomme. Le rectangle publie par
-				//       un `Selectable` auto-largeur est faux ; porte au canal.
+				//    ⚠️ RECTIFICATION DU 19/08, ET ELLE M'ACCUSE : j'avais conclu de
+				//       ces chiffres que `nkgui::Selectable` publiait un rectangle
+				//       FAUX hors rangee explicite, et je l'ai porte au canal comme
+				//       un defaut de NKGui. **C'etait faux.** Les trois releves ont
+				//       ete pris pendant que le panneau n'etait PAS dessine (region
+				//       de largeur 0) : ce n'est pas le widget qui mentait, c'est
+				//       moi qui mesurais un panneau ferme. Panneau ouvert, le meme
+				//       `Selectable` en flot publie **120x28**.
+				//       *Une mesure prise dans un etat qu'on n'a pas verifie
+				//       n'accuse que celui qui la publie.*
+				//
+				//    La forme reste la bonne pour une autre raison, et elle suffit :
+				//    c'est un choix EXCLUSIF, et le controle segmente le dit.
 				//
 				//    L'entree 0 n'est pas un composant : c'est le CADRE, un noeud
 				//    qui n'affiche rien et sert a agencer. Il est dans la palette
@@ -640,6 +698,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
+				designkit::UiRects::NoteRegion(ctx, "composition");
 				ec.Text(mSt->doc.title.Data());
 
 				// ── L'ARBRE, DANS UNE ZONE DEFILABLE ─────────────────────────
@@ -1185,6 +1244,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
+				designkit::UiRects::NoteRegion(ctx, "preferences");
 				ec.Text("Backend graphique");
 				nkgui::TextWrapped(ctx, "Le reglage est ecrit dans nkuidesign.cfg, a cote de "
 										"l'executable. Il vaut pour tous les lancements suivants.");
