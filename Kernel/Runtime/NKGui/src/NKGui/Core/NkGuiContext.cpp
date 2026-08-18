@@ -39,6 +39,9 @@ namespace nkentseu {
 
 		void NkGuiContext::BeginFrame(float32 dt) noexcept {
 			input.dt = dt;
+			// Un rectangle pose et jamais consomme (widget conditionnel non
+			// atteint) ne doit pas s'appliquer a la frame suivante.
+			nextItemRectSet = false;
 			input.NewFrame();	   // transitions clic/relâche
 
 			// ── Glisser-deposer : cycle de vie (2026-08-17) ───────────────────
@@ -221,7 +224,28 @@ namespace nkentseu {
 			return lh + 2.f * theme.framePadY;
 		}
 
+		void NkGuiContext::SetNextItemRect(const NkRect &r) noexcept {
+			nextItemRect = r;
+			nextItemRectSet = true;
+		}
+
 		NkRect NkGuiContext::NextItemRect(float32 w, float32 h) noexcept {
+			// ── RECTANGLE POSE : il gagne, et il ne vaut qu'une fois ─────────
+			// Consomme AVANT toute logique de flux : un rectangle pose n'est ni
+			// une cellule de grille, ni une case de flex — c'est un ordre.
+			if (nextItemRectSet) {
+				nextItemRectSet = false;
+				const NkRect rect = nextItemRect;
+				layout.prevItem = rect;
+				// Le curseur ne bouge pas (l'appelant place lui-meme), mais
+				// l'etendue du contenu doit inclure ce rectangle : sinon un
+				// panneau defilable ne verrait pas ce qu'on y a pose.
+				if (rect.x + rect.w > layout.maxX)
+					layout.maxX = rect.x + rect.w;
+				if (rect.y + rect.h > layout.maxY)
+					layout.maxY = rect.y + rect.h;
+				return rect;
+			}
 			// ── HBox : flux horizontal (le curseur avance en X, pas de retour ligne) ──
 			if (layout.flow == 1) {
 				if (w <= 0.f)

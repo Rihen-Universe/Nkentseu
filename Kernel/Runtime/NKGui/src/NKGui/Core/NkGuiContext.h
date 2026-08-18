@@ -185,6 +185,17 @@ namespace nkentseu {
 				NkGuiDrawList dl;		 ///< couche principale (rendue en 1er)
 				NkGuiDrawList dlOverlay; ///< couche popups/overlay (rendue PAR-DESSUS)
 				NkGuiLayout layout;
+
+				// ── PLACEMENT EXPLICITE (2026-08-18) ──────────────────────────────
+				// Mesure : sur 114 fonctions declarees dans NkGuiWidgets.h, **12
+				// acceptent un NkRect et 102 se placent elles-memes** via
+				// NextItemRect. Une interface pilotee par rectangles (NK3DModeler)
+				// ne pouvait donc appeler que 12 d'entre elles — pas par
+				// indiscipline, faute de moyen. Ces deux champs sont ce moyen : un
+				// rectangle POSE pour le PROCHAIN widget seulement, consomme par
+				// NextItemRect. Voir SetNextItemRect.
+				NkRect nextItemRect = {0.f, 0.f, 0.f, 0.f};
+				bool nextItemRectSet = false;
 				NkGuiFont *font = nullptr;	   ///< police d'interface par défaut (posée par l'app)
 				NkGuiFont *codeFont = nullptr; ///< police monospace pour le code/terminal (optionnelle ; sinon = font)
 
@@ -526,6 +537,18 @@ namespace nkentseu {
 
 				// ── Layout (curseur immédiat) ─────────────────────────────────────
 				void BeginLayout(const NkRect &region) noexcept;	///< région de contenu + curseur
+				// Pose le rectangle du PROCHAIN widget auto-place. Vaut pour UN
+				// seul appel : le widget suivant le consomme, et le comportement
+				// automatique reprend aussitot. Additif — sans appel, les 102
+				// fonctions se placent exactement comme avant.
+				//
+				// Le curseur de mise en page NE BOUGE PAS : l'appelant qui pose un
+				// rectangle place lui-meme, un curseur qui avancerait derriere lui
+				// n'aurait pas de sens. En revanche l'etendue du contenu
+				// (maxX/maxY) et `prevItem` sont mis a jour, pour que les
+				// conteneurs defilables se dimensionnent juste et que SameLine
+				// reste coherent.
+				void SetNextItemRect(const NkRect &r) noexcept;
 				NkRect NextItemRect(float32 w, float32 h) noexcept; ///< w<=0 = remplir la largeur
 				void SameLine(float32 spacingX = -1.f) noexcept;	///< item suivant à droite du précédent
 				void Spacing(float32 px = -1.f) noexcept;			///< saut vertical
