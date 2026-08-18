@@ -2495,3 +2495,165 @@ ouvert le projet (frame 3) : il mesurait une scene vide et repondait « rien ».
 Corrige par une troisieme valeur facultative (la frame), et `NK_DROP_AT` nait
 avec. **Tout levier one-shot qui coexiste avec une ouverture differee a le meme
 defaut** — les autres n'ont pas ete audites.
+
+---
+
+## 2026-08-18 — LES TROIS DEFAUTS RAPPORTES PAR RODOLF A L'USAGE
+
+Rapportes mot pour mot apres sa relecture du 18/08 au matin. **Les trois
+touchent le chemin d'entree**, mais ils n'ont PAS la meme cause — et deux des
+trois ont leur cause hors du modeleur ou hors de la migration.
+
+### Defaut 1 — CORRIGE — « le clic droit Importer ne fonctionne pas, a gauche ou a droite »
+
+**Cause, tranchee par lecture** : l'entree « Importer... » du menu contextuel du
+navigateur pose le code d'action `20` ; la table de dispatch qui suit traite
+30-33, 10-16, 0, 1, 2, 3 et 4 — **aucune branche pour 20**. Le menu se refermait
+proprement et rien ne se produisait.
+
+C'est le **jumeau** du bouton « Importer » corrige le 17/08, qui etait « peint
+mais jamais lu ». La meme fonction manquait par ses **deux portes**, pour deux
+raisons differentes : c'est pour cela que corriger le bouton n'avait rien change
+au menu, et c'est le genre de coincidence qui fait croire a un defaut unique
+qu'on aurait mal corrige.
+
+« A gauche ou a droite » = l'**arbre des dossiers** et la **grille des cartes** :
+deux zones, **un seul menu**, donc un seul defaut vu deux fois (verifie : un seul
+appel a PaintBrowser dans main.cpp).
+
+**Correctif** : la branche `act2 == 20` fait EXACTEMENT ce que fait le bouton —
+meme selecteur, meme depart, meme `pickerAction = 2` — pour que les deux portes
+ne puissent pas diverger. `NkMarkTreeDirty` est desormais SAUTE pour 20 : ouvrir
+un selecteur qu'on peut annuler ne doit pas salir le projet.
+
+**Limite declaree, pas un oubli** : l'import atterrit dans le **dossier courant**
+(`st.browserFolder`), meme si le clic droit visait la carte d'un autre dossier —
+c'est le comportement du bouton, et les deux portes restent identiques. Faire
+atterrir dans le dossier VISE demande de passer une destination a
+`NkImportCreate` (qui lit `st.browserFolder` en dur, deux fois) : a traiter avec
+le point (d) du contrat d'import, pas en douce ici.
+
+### Defaut 2 — CORRIGE — « en selection multiple, cliquer un model ouvre l'onglet d'un model »
+
+**La cause n'est pas dans le modeleur : elle est dans NKGui, et elle touche tout
+le monde.**
+
+`NkGuiInput::NewFrame` declarait un double-clic sur un critere **purement
+temporel** : `mouseDoubleClicked[i] = (clickTime[i] < 0.40f)`. **Aucun controle
+de position.** Deux clics a moins de 0,40 s d'ecart *n'importe ou sur l'ecran*
+en formaient un.
+
+Ce qui le rend couteux : **personne ne consomme ce drapeau seul**. Une vingtaine
+de sites le croisent avec la zone survolee MAINTENANT (`hov &&
+mouseDoubleClicked[0]`), et `NkHitRegistry::DoubleClicked` fait exactement pareil.
+Le « double-clic » etait donc **attribue a un widget clique une seule fois**.
+
+**Le chiffre vient du journal de Rodolf lui-meme** : Ctrl+clic sur la carte 26 a
+07:59:17.529, puis sur la carte 25 a 07:59:17.917 — **388 ms**, sous le seuil.
+La carte 25 est de nature 6 (model) : son editeur s'est ouvert. Construire une
+selection multiple, c'est precisement cliquer vite de carte en carte : le geste
+normal declenchait le defaut.
+
+**Deux correctifs, et ils ne disent pas la meme chose :**
+
+1. **NKGui (cause racine)** — rayon `kDblMaxDist = 6 px` entre les deux clics.
+   ATTENTION, **fichier partage** : Nogee, Nkoung, Mou et PV3DE consomment le
+   meme detecteur. Le correctif les repare aussi ; s'ils dependaient du
+   comportement temporel pur, ils le verront changer.
+2. **NK3DModeler (regle d'interface)** — Ctrl ou Maj enfonce n'ouvre jamais :
+   c'est un geste de SELECTION. Vrai independamment du (1).
+
+**A ne pas confondre** avec la trouvaille pre-existante notee le 18/08 (l'appui
+sur une carte model bascule la hierarchie vers les noeuds d'archive du model) :
+celle-la change le contenu de la **hierarchie**, pas l'onglet. Elle reste
+ouverte.
+
+### Defaut 3 — NON RESOLU — « plusieurs models selectionnes, seul le premier se deplace »
+
+**Deux causes refutees par la mesure, la troisieme jamais atteinte. Rien n'est
+corrige, et il ne faut pas croire que si.**
+
+| ce qui a ete mesure | resultat |
+|---|---|
+| la selection s'accumule-t-elle ? | **oui** — noeuds 116 et 117 tous deux `sel=1` (levier neuf `NK_SEL_NODES`, qui appelle les memes fonctions que le Ctrl+clic de la hierarchie) |
+| le gizmo distribue-t-il le delta ? | **oui** — `NkGizmo.h` : `for i < mCount if (mSel[i]) mTr[i] += wd`, tous les selectionnes |
+| le deplacement lui-meme | **JAMAIS EXERCE** |
+
+**La derniere ligne est un resultat NUL, et son perimetre voyage avec lui** :
+trois courses (appui a (600,450), (600,425), (600,405) puis glissement) n'ont
+produit **aucune** ligne `MESURE commit gizmo`. Le gizmo n'est jamais entre en
+glissement. Ces courses ne disent donc **pas** que le deplacement multiple
+fonctionne — elles disent que **je ne l'ai pas atteint**.
+
+**Absence trouvee en essayant de s'en servir** : `NK_AGENT_DRAG` pose l'etat
+souris brut que le SHELL lit (il a prouve 8 gestes de glisser-deposer les 17-18/08),
+mais **rien ne montre qu'il atteigne l'entree du gizmo du viseur 3D** — tous ses
+usages anterieurs visaient des widgets. Et la position ecran d'une poignee du
+gizmo n'est **journalisee nulle part** : le pivot est la mediane de la selection,
+et rien ne le projette. Sans l'un ou l'autre, le deplacement multiple n'est pas
+scriptable.
+
+**Hypothese restante, la plus plausible (H3d), ecrite pour ne pas etre reperdue :**
+le pick de la vue tourne a **chaque appui gauche**
+(`gin.leftPressed && !emptyGizmo.IsDragging() && !gizmo.IsDragging()`). S'il
+aboutit sur un model **sans modificateur tenu** — exactement ce qu'on fait en
+saisissant un objet pour le tirer — la branche appelle `emptyGizmo.Select(bestU)`,
+qui est **EXCLUSIF** : la selection multiple s'effondre sur l'objet saisi, et lui
+seul bouge. La cause ne serait alors ni le gizmo ni la boucle de commit, mais
+**le clic qui commence le geste**. Non reproduite (les appuis n'ont rien touche) :
+a instrumenter, pas a corriger a l'aveugle.
+
+**Instrument laisse en place** — `MESURE commit gizmo : selectionnes=N actif=i`,
+suivi d'une ligne `commit noeud=.. tr=(..) avant=(..)` par selectionne. Il separe
+les trois causes d'un coup d'oeil sur le prochain journal :
+`selectionnes=1` = la selection s'est effondree (H3d) · `selectionnes=N` avec un
+seul `tr` non nul = la distribution · N deltas non nuls = le defaut est en aval.
+
+### Correction de fait sur logs/app.log — il N'EST PAS tronque au lancement
+
+Mesure : **26 lancements** coexistent dans le fichier du 18/08 (compte des lignes
+`NkRHI_DX11] Initialise`), du 17/08 23:06 au 18/08 08:01 — **le journal AJOUTE**.
+Les sessions de Rodolf sont les deux dernieres (lignes 13068-14627,
+07:56:25 vers 08:01:07, puis une relance de 7 s). Les 13 067 premieres lignes
+sont des courses d'agent. **Lire « le journal » sans decouper par lancement,
+c'est melanger les runs** — la face 3 de la grille, et elle etait tendue des la
+premiere commande.
+
+### Leviers d'agent ajoutes
+
+- `NK_SEL_NODES="frame,n1,n2,..."` — selection multiple de noeuds utilisateur.
+  Il manquait : `NK_GIZMO_MULTI` ne pilote que `st->gizmo` (objets de demo,
+  indices < kNumObj), alors que **tous les models vivent dans `emptyGizmo`**
+  (noeuds >= 90). Le levier existant ne pouvait pas atteindre le regime du
+  defaut. Il appelle `SelectEmptyNode` puis `ToggleEmptyNode` — le code de
+  production, pas une reconstruction. Frame obligatoire (dette « les leviers ne
+  disent pas QUAND »).
+- `NK_DROP_TOKEN2` — seconde fente, convention `NK_AGENT_DRAG`/`DRAG2`. Poser
+  DEUX models en un lancement : avec une seule fente il fallait enregistrer
+  entre deux lancements, donc **modifier le projet pour pouvoir le mesurer**.
+
+### PROTOCOLE DE LA 13e RELECTURE POUR RODOLF — les trois gestes
+
+Binaire du 18/08 ou plus recent. Envoie le journal, **et dis a quelle heure tu
+as commence** (le fichier contient plusieurs lancements : sans l'heure, on ne
+sait pas ou couper).
+
+1. **Import par le clic droit.** Dans le navigateur, clic droit **sur l'arbre
+   des dossiers a gauche**, puis « Importer... » : le selecteur doit s'ouvrir.
+   Recommence **sur la grille des cartes a droite**, et une troisieme fois **sur
+   une carte**. Attendu : les trois ouvrent le meme selecteur, et le fichier
+   choisi s'importe dans le **dossier courant**. Attendu au journal :
+   `[import] MESURE import` puis une `MESURE creation` par model.
+2. **Selection multiple de cartes.** Clique une carte de model, puis
+   **Ctrl+clic** rapidement sur trois autres — *aussi vite que tu veux*, c'est
+   le point. Attendu : les quatre se marquent, et **aucun onglet ne s'ouvre**.
+   Puis, sans Ctrl, **double-clique** une carte : la, l'onglet doit s'ouvrir
+   (le double-clic normal ne doit pas avoir ete casse par le correctif).
+3. **Deplacement multiple — LE DEFAUT N'EST PAS CORRIGE, c'est une MESURE.**
+   Pose deux ou trois models dans la scene, selectionne-les (Ctrl+clic dans la
+   vue ou dans la hierarchie), puis deplace-les au gizmo. Dis ce que tu vois, et
+   envoie le journal : il portera desormais
+   `[Demo3D] MESURE commit gizmo : selectionnes=N actif=i` suivi d'une ligne par
+   noeud. **C'est ce N qui tranche** entre « la selection s'effondre quand tu
+   saisis » et « elle tient mais un seul recoit le mouvement » — deux causes,
+   deux correctifs differents, et l'ecran ne les distingue pas.

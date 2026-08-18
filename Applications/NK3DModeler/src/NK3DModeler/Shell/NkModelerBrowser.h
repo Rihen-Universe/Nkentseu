@@ -700,9 +700,29 @@ namespace nkentseu {
 					p.TextClipped(tx + pad, fyy, tw - pad * 2.f, kindName, NkRole::TextMuted);
 				}
 				snprintf(akey, sizeof(akey), "brow.card.%d", i);
-				if (!uiModal && kind == 1 && hit.DoubleClicked(akey))
+				// ── CTRL/MAJ ENFONCE = GESTE DE SELECTION, JAMAIS D'OUVERTURE ──────
+				// Defaut n.2 de Rodolf (18/08) : « quand je clique sur un model en mode
+				// selection multiple, ca ouvre l'onglet d'un model ».
+				//
+				// DEUX causes le produisaient, et il fallait les deux correctifs :
+				//   (i) la cause RACINE, dans NKGui -- le double-clic interne n'avait
+				//       aucun controle de POSITION, donc deux Ctrl+clics rapides sur
+				//       deux cartes differentes en fabriquaient un (corrige dans
+				//       NkGuiInput::NewFrame, rayon kDblMaxDist) ;
+				//   (ii) la regle d'INTERFACE, ici : construire une selection n'est pas
+				//       demander a ouvrir. Meme si un vrai double-clic tombait sur la
+				//       meme carte, le faire avec Ctrl enfonce veut dire « ajoute-la a
+				//       ma selection », pas « ouvre-la » -- c'est ce que fait tout
+				//       gestionnaire de fichiers.
+				//
+				// Le (i) seul aurait suffi au cas de Rodolf ; le (ii) seul aussi. On
+				// garde les deux parce qu'ils ne disent pas la meme chose : l'un repare
+				// un detecteur faux pour TOUS ses consommateurs, l'autre enonce ce que
+				// le geste SIGNIFIE ici.
+				const bool ouvrable = !hit.CtrlDown() && !hit.ShiftDown();
+				if (!uiModal && ouvrable && kind == 1 && hit.DoubleClicked(akey))
 					st.browserFolder = i; // double-clic : ENTRER dans le dossier
-				if (!uiModal && kind != 1 && hit.DoubleClicked(akey)) {
+				if (!uiModal && ouvrable && kind != 1 && hit.DoubleClicked(akey)) {
 					// OUVRIR l'asset : une SCENE s'ajoute a la barre d'onglets
 					// avec son contenu ; les autres natures ouvrent leur EDITEUR
 					// specialise dans un onglet dedie (Rihen).

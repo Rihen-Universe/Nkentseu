@@ -725,7 +725,15 @@ namespace nkentseu {
 					// deplacement, suppression) : le marquer ICI, en amont, evite
 					// d'avoir a y penser branche par branche -- et c'est justement
 					// une branche oubliee qui ferait quitter sans rien demander.
-					NkMarkTreeDirty(st);
+					//
+					// EXCEPTION « Importer... » (20) : elle n'ouvre qu'un SELECTEUR,
+					// et l'utilisateur peut l'annuler. Marquer ici salirait le projet
+					// pour un dialogue referme sans rien faire -- et ferait poser la
+					// question « enregistrer ? » a la fermeture pour un geste qui n'a
+					// pas eu lieu. L'import qui aboutit marque lui-meme
+					// (NkImportCreate -> NkMarkDirty), comme par le bouton.
+					if (act2 != 20)
+						NkMarkTreeDirty(st);
 					const int32 tgt = st.browMenuIdx;
 					// le dossier VISE (carte-dossier cliquee) sinon le courant
 					const int32 destF =
@@ -795,6 +803,31 @@ namespace nkentseu {
 						BrCopyRec(tgt, st.browserParent[tgt]);
 					} else if (act2 == 4) {
 						BrDelRec(tgt);
+					} else if (act2 == 20) {
+						// ── « Importer... » DU MENU CONTEXTUEL (defaut n.1 de Rodolf,
+						// 18/08 : « le clic droit Importer ne fonctionne pas, que ce
+						// soit a gauche ou a droite ») ─────────────────────────────
+						//
+						// L'entree etait PEINTE, CLIQUEE, et son code d'action (20)
+						// arrivait bien jusqu'ici -- mais la table de dispatch n'avait
+						// AUCUNE branche pour 20 : le menu se refermait, et rien ne se
+						// passait. C'est le pendant exact du bouton « Importer » de la
+						// barre, qui etait « peint mais jamais lu » (corrige le 17/08) :
+						// la meme fonctionnalite manquait par ses DEUX portes, pour deux
+						// raisons differentes, ce qui explique qu'en corriger une n'ait
+						// rien change a l'autre.
+						//
+						// « A gauche ou a droite » = l'ARBRE des dossiers et la GRILLE
+						// des cartes : deux zones, un seul menu (celui-ci), donc un seul
+						// defaut vu deux fois.
+						//
+						// On fait EXACTEMENT ce que fait le bouton -- meme selecteur,
+						// meme depart, meme `pickerAction` -- pour que les deux portes
+						// ne puissent pas diverger : c'est le meme geste, il ne doit pas
+						// exister en deux versions.
+						st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
+												 st.projectRoot.CStr(), nullptr, 0, nullptr);
+						st.pickerAction = 2; // 2 = importer un fichier 3D
 					}
 					st.browMenuIdx = -1;
 					st.browMenuCreat = false; // sinon le prochain menu l'ouvrirait
