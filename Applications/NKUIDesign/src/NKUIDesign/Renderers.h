@@ -56,6 +56,7 @@
 #include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 
+#include "Icons.h"
 #include "Layout.h"
 #include "Roles.h"
 
@@ -309,6 +310,14 @@ namespace nkuidesign {
 			s.dropMark = host.Role(n.instance.TokenRole("drop_mark"));
 			s.iconTint = host.Role(n.instance.TokenRole("icon_tint"));
 			s.dimTint = host.Role(n.instance.TokenRole("dim_tint"));
+			// ⚠️ LA LIGNE QUI MANQUAIT, et elle tenait en un appel. Le composant
+			//    emettait 29 commandes `Icon` par image, toutes a poignee NULLE :
+			//    il DEMANDAIT ses icones depuis le debut, personne ne lui en
+			//    donnait. Le contrat est pourtant explicite dans sa declaration —
+			//    la poignee est opaque, l'hote la choisit. C'est une absence que
+			//    seule l'utilisation revele : aucune relecture du composant ne
+			//    pouvait la montrer, puisqu'il fait exactement ce qu'il annonce.
+			s.icons = NkDesignTreeIcons();
 			s.values = &n.instance;
 			return s;
 		}

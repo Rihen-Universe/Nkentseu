@@ -654,7 +654,13 @@ namespace nkuidesign {
 
 				HandleMouse(in);
 
-				NkGuiComponentPaint paint(ctx, mSt->theme);
+				// ⚠️ `NkDesignPaint`, PAS `NkGuiComponentPaint` : c'est lui qui
+				//    traduit les poignees de CETTE application en dessins. Le
+				//    peintre du kit peint un carre pour toute poignee non nulle —
+				//    correct pour lui (il ne connait l'enumeration de personne),
+				//    insuffisant pour un chevron, qui doit dire « ouvert » ou
+				//    « ferme ». Il surcharge `Icon` et RIEN d'autre.
+				NkDesignPaint paint(ctx, mSt->theme);
 				NkDrawDocument(paint, in, mSt->doc, mSt->layout, mSt->host);
 
 				// Le liseré de selection se peint APRES le document et n'en fait pas
