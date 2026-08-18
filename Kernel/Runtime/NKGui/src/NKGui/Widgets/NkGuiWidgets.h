@@ -231,8 +231,28 @@ namespace nkentseu {
 		SpringRight(NkGuiContext &ctx,
 					float32 width) noexcept; ///< pousse les items suivants à droite (réserve `width`)
 		// Poignée de redimensionnement : glisse *value (px) entre min/max. vertical=true → barre verticale (glisse X).
+		// `grabPx` (2026-08-18) : LARGEUR DE PREHENSION, en px. La zone attrapable
+		// est elargie a `grabPx` sans que le trait dessine change. 0 = comportement
+		// historique (on attrape exactement ce qu'on voit). Dette recuperee de
+		// `NkUILayout::DrawSplitter`, que l'extinction de NKUI va supprimer : sans
+		// zone elargie, on attrape la barre d'onglets voisine par erreur — et un
+		// clic manque devient un desancrage au lieu d'un redimensionnement.
 		NKENTSEU_NKGUI_API bool Splitter(NkGuiContext &ctx, const char *idStr, const NkRect &handle, bool vertical,
-										 float32 *value, float32 minV, float32 maxV) noexcept;
+										 float32 *value, float32 minV, float32 maxV,
+										 float32 grabPx = 0.f) noexcept;
+		// Geometrie PURE d'un separateur : depuis la zone entiere et un RATIO,
+		// rend le rectangle VISUEL et le rectangle de PREHENSION. Extraite pour
+		// etre verifiable sans GPU — les deux formes de Splitter l'utilisent.
+		// `grabPx` <= `thickness` : la prehension vaut le visuel.
+		NKENTSEU_NKGUI_API void SplitterRects(const NkRect &area, bool vertical, float32 ratio, float32 thickness,
+											  float32 grabPx, NkRect *visual, NkRect *grab) noexcept;
+		// Separateur pilote par un RATIO dans [minR, maxR] (fraction de la zone),
+		// et non par une position en pixels. Seconde propriete recuperee de NKUI :
+		// un ratio survit au redimensionnement de la fenetre, une position en px
+		// non. `area` est la zone ENTIERE que le separateur coupe.
+		NKENTSEU_NKGUI_API bool SplitterRatio(NkGuiContext &ctx, const char *idStr, const NkRect &area, bool vertical,
+											  float32 *ratio, float32 minR = 0.1f, float32 maxR = 0.9f,
+											  float32 thickness = 4.f, float32 grabPx = 12.f) noexcept;
 		// Stack : enfants superposés dans une boîte width×height ; ancrer le prochain via StackAnchor.
 		NKENTSEU_NKGUI_API void BeginStack(NkGuiContext &ctx, float32 width, float32 height) noexcept;
 		NKENTSEU_NKGUI_API void StackAnchor(NkGuiContext &ctx,
