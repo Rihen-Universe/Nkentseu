@@ -941,3 +941,86 @@ Trois bancs, et aucun ne remplace les autres :
 2. **le banc de neutralité** (§5), rejoué avec son témoin qui échoue ;
 3. **`NKUIDesign --probe`**, qui doit **rester à 21/21** : les ajouts ne valent
    rien s'ils cassent la tranche déjà livrée.
+
+---
+
+## 10. LE RÉSULTAT — ce que le second composant a dit (2026-08-19)
+
+> Le §9 a été écrit et **commité avant** que le second composant soit examiné.
+> Cette section-ci est ajoutée après. L'ordre des deux commits est la preuve.
+
+### 10.1 Le second composant n'a pas été écrit par moi, et c'est mieux
+
+Je m'apprêtais à écrire la déclaration de `TreeView`. **L'agent du composant
+l'avait déjà écrite** — `NkTreeViewModel.h`, dans la même heure, dans le même
+répertoire de travail. J'ai renoncé à en écrire une seconde : deux déclarations
+du même composant, c'est exactement la duplication que cette forme existe pour
+supprimer.
+
+**Et le test en sort renforcé, pas affaibli.** Une forme que son auteur valide
+sur un composant qu'il écrit lui-même ne prouve presque rien : il contourne sans
+s'en apercevoir ce qu'elle ne sait pas dire. Ici la déclaration vient d'une
+**autre main**, sur une **autre famille**, sans relecture préalable de ma part.
+
+### 10.2 Les six critères, un par un
+
+| # | prédiction du §9.3 | ce qui s'est passé | verdict |
+|---|---|---|---|
+| **1** | devrait passer | `tree_view` se déclare **sans ajouter un seul champ** à `NkComponentDecl` ou `NkElementDecl`. Tout ce qui lui est propre (pliage, renommage, glisser-déposer réordonnant, drapeaux visible/verrouillé) tient dans `params` / `metrics` / `tokens` / `events` / `elements` | **PASSE** |
+| **2** | *« va mordre »* | **A MORDU, et exactement là où c'était prédit.** Une sélection multiple veut porter *l'ensemble* des entrées choisies ; aucun des huit types de `NkArgKind` n'est une collection. L'agent du composant l'a rencontré **indépendamment** et l'a écrit dans son propre fichier : *« ma première écriture portait un `selectedCount` ; il a dû partir. La sélection multiple n'est donc PAS observable depuis un blueprint, et ce n'est pas un oubli. »* | **ÉCHOUE — arbitrage de Rodolf** |
+| **3** | devrait passer | le rôle ne porte que des **faits** et des **états**. `content_browser` endosse `list`, `tree_view` endosse `tree` : deux familles, **un catalogue de 9 rôles**, aucun taillé pour l'un des deux | **PASSE** |
+| **4** | *« va mordre, mais la réparation sera générale »* | **A MORDU, et la réparation est bien générale.** L'arbre statique ne sait pas dire les enfants **répétés par la donnée**. La note `agencement_sans_enfant` tombe sur `content_browser.grid` (les cartes) **et** sur `tree_view.rows` (les lignes) — deux composants, deux mains, **le même manque**. Ce n'est donc pas un besoin d'arbres | **ÉCHOUE — réparation générale, non faite** |
+| **5** | devrait passer | aucun `x`, aucun `y` nulle part. L'indentation est une **métrique déclarée** (`row_indent`), consommée là où la profondeur est connue | **PASSE** |
+| **6** | *« ne discrimine pas »* | il n'a rien discriminé, comme annoncé. Écrit pour ne pas être compté comme une réussite | **NUL, et prévu** |
+
+**Trois passent, deux mordent, un est nul.** Et le §9.3 prévenait : *« s'ils
+passent tous les trois sans la moindre gêne, il faudra se demander si le second
+composant a été choisi assez loin du premier. »* Ils n'ont pas tous passé — le
+test a coûté quelque chose, donc il a mesuré quelque chose.
+
+### 10.3 Ce que le test n'avait PAS prévu, et qui est le plus instructif
+
+Les deux vraies surprises ne sont dans aucun des six critères.
+
+**a) Un champ inséré au milieu casse tout le monde.** `role` placé après
+`summary` a produit **12 erreurs** dans `NkTreeViewModel.h` — un fichier que je
+ne devais pas toucher, écrit à la même heure. C++17 n'ayant pas d'initialiseurs
+désignés, toute déclaration s'écrit en liste **positionnelle**. La règle est donc
+écrite dans la structure : **tout champ neuf s'ajoute à la fin.**
+
+⚠️ **Et le cas bénin est le vrai danger** : ici les types étaient incompatibles,
+donc ça a rougi. Avec deux `const char*` voisins, le décalage aurait **compilé**
+et décrit un autre composant.
+
+**b) Deux solveurs, deux sémantiques.** Mon résolveur partageait le reste en une
+seule passe ; celui écrit en parallèle par l'agent NkUIDesign le faisait **en
+boucle**, rendant aux autres ce qu'une borne refuse. Sans cela, un creux
+inexpliqué apparaît dans le parent. **Deux solveurs qui divergent, c'est deux
+sémantiques pour une même déclaration** — précisément ce que cette forme existe
+pour empêcher. Le meilleur des deux est adopté dans `NkLayoutSolve.h`, qui fait
+foi, et l'essai n°31 du banc échouerait si la boucle disparaissait.
+
+**c) Trois mains écrivaient les mêmes mots.** L'application définissait ses
+propres `NkCrossAlignName` / `NkParseCrossAlign` pendant que la forme définissait
+`NkAlign`. **Une forme partagée doit fournir ses mots**, sinon chaque main écrit
+les siens — et un fichier écrit par l'une devient illisible par l'autre. Les
+douze fonctions de nommage/lecture sont donc dans `NkComponentLayout.h`, une
+seule fois.
+
+### 10.4 Les deux questions qui remontent à Rodolf
+
+1. **La charge COLLECTION.** Une sélection multiple n'est pas exprimable : la
+   table §11 de `.nkgui` n'a pas de type liste, et **en ajouter un est une
+   décision sur la spec**, pas sur le kit. Deux issues : (i) `List[T]` entre dans
+   la spec §11 et dans `NkArgKind` ; (ii) la forme gagne la notion de **propriété
+   exposée** — un état qu'un blueprint peut *lire* sans qu'il soit une charge
+   d'événement (utile aussi pour `currentPath`, le filtre, le nœud courant).
+   ⚠️ L'issue (ii) est plus large et probablement la bonne, mais elle n'est pas
+   à ma main.
+2. **Le gabarit répété.** Deux composants attendent des enfants répétés par la
+   donnée. La réparation est générale et connue (un marqueur de répétition sur
+   `NkElementDecl`, `une fois / par entrée / par entrée récursif`). Elle **n'a
+   pas été faite aujourd'hui**, et volontairement : ajouter un champ au contrat
+   une seconde fois dans la même heure, pendant que deux agents compilent
+   dessus, coûte plus que d'attendre. C'est le premier geste de la passe
+   suivante.
