@@ -56,6 +56,7 @@
 
 #include "Backend.h"
 #include "DesignAI.h"
+#include "Icons.h"
 #include "Renderers.h"
 
 #include <cstdio>
@@ -1404,12 +1405,19 @@ namespace nkuidesign {
 			//    corrige -- elle punirait le correctif qu'elle reclame, exactement
 			//    l'erreur que j'ai deja faite et retiree en 33f. Elle mord si un
 			//    debordement NOUVEAU apparait, jamais si celui-ci disparait.
+			// ⚠️ CETTE LIGNE A ETE UNE QUARANTAINE, ET ELLE N'EN EST PLUS UNE.
+			//    Elle a d'abord tolere `<= 1` : un debordement connu de 8 px vivait
+			//    dans `NkContentBrowserDraw.cpp:129` (`header.w` passe a un texte
+			//    pose a `header.x + card_pad`). La tolerance etait **monotone** —
+			//    `<= 1`, jamais `== 1` — pour ne pas rougir le jour ou quelqu'un
+			//    corrigerait ; c'est ce qui a permis de resserrer a `== 0` sans
+			//    rien casser le jour ou la correction est arrivee.
+			//    *Une quarantaine ecrite `==` aurait puni son propre correctif.*
 			snprintf(buf, sizeof(buf),
-					 "%u commande(s) hors zone (1 connue : NkContentBrowserDraw.cpp:129) ; "
-					 "debord max gauche %.1f px, droite %.1f px",
-					 dehors, pireGauche, pireDroite);
-			check("34b. aucun debordement NOUVEAU hors du rectangle du composant (1 connu, porte au canal)",
-				  dehors <= 1, dehors <= 1 ? buf : horsZone.Data());
+					 "%u commande(s) hors zone ; debord max gauche %.1f px, droite %.1f px", dehors,
+					 pireGauche, pireDroite);
+			check("34b. AUCUNE commande ne sort du rectangle donne au composant", dehors == 0,
+				  dehors == 0 ? buf : horsZone.Data());
 
 			// 34c. LA COLONNE ET LA GRILLE NE SE CHEVAUCHENT PAS.
 			//      La frontiere est celle que le composant a DECLAREE lui-meme
@@ -1660,6 +1668,148 @@ namespace nkuidesign {
 			rep.Append("\n--- la ligne de journal d'un repli de configuration ---\n");
 			rep.Append(ligneRepli);
 			rep.Append('\n');
+		}
+
+
+		// -- 36. LE CHEVRON : EST-CE QU'ON A LE PROBLEME ? -------------------
+		// ⚠️ CETTE FAMILLE COMMENCE PAR LA QUESTION QU'ON POSE AVANT « comment
+		//    fait-on ca ». On m'a transmis, et j'ai relaye moi-meme : *« pas de
+		//    chevron = un arbre qui ne se plie pas »*. C'est une deduction faite
+		//    en regardant une capture — la troisieme de la journee, apres deux qui
+		//    se sont revelees fausses. Avant de construire un systeme d'icones,
+		//    on mesure si le geste marche.
+		//
+		//    LA LECTURE DU CODE DIT DEJA NON : dans `NkTreeViewDraw.cpp`,
+		//    `hitChevron` est **geometrique** (`chev.Contains(mouseX, mouseY)`),
+		//    il ne depend d'aucune poignee d'icone. Le dessin de l'icone et la
+		//    zone cliquable sont deux choses separees. Mais une lecture n'est pas
+		//    une mesure : on exerce le clic.
+		{
+			NkTreeViewModel t;
+			NkDocumentHost::FillDemoTree(t);
+			NkTreeViewStyle st;
+			st.values = nullptr; // les defauts declares suffisent
+
+			// 36a. CONDITION D'EXISTENCE : il faut un noeud QUI A des enfants, et
+			//      qui soit ouvert au depart. Sans ca, « l'etat a change » ne
+			//      voudrait rien dire.
+			const nkentseu::nk_uint64 racine = t.nodes[0].id; // « Scene »
+			const bool aDesEnfants = t.nodes.Size() > 1 && t.nodes[1].parent == 0;
+			const bool ouvertAuDepart = t.IsOpen(racine, true);
+			snprintf(buf, sizeof(buf), "%u noeuds, racine a des enfants=%d, ouverte=%d",
+					 (uint32)t.nodes.Size(), (int)aDesEnfants, (int)ouvertAuDepart);
+			check("36a. l'arbre d'essai a un noeud pliable, ouvert au depart", aDesEnfants && ouvertAuDepart,
+				  buf);
+
+			// 36b. LE CLIC DANS LA ZONE DU CHEVRON PLIE -- SANS AUCUNE ICONE.
+			//      Les poignees de `st.icons` valent toutes 0 : rien n'est peint.
+			//      Si l'etat bascule quand meme, le mecanisme est INTACT et le
+			//      defaut est purement visuel.
+			//      La position est calculee depuis les METRIQUES DECLAREES, pas
+			//      ecrite en dur : `row_pad` puis la moitie de `chevron_w`.
+			const NkComponentDecl &dTree = nkentseu::editorkit::NkTreeViewDecl();
+			const float32 rowPad = dTree.Metric("row_pad");
+			const float32 chevW = dTree.Metric("chevron_w");
+			const float32 headerH = dTree.Metric("header_h") + dTree.Metric("search_h");
+			const float32 rowH = dTree.Metric("row_h");
+			NkComponentInput clic;
+			clic.mouseX = rowPad + chevW * 0.5f;   // au milieu du chevron
+			clic.mouseY = headerH + rowH * 0.5f;   // au milieu de la 1re ligne
+			clic.mouseDown = true;
+			clic.mousePressed = true;
+			NkRecordingPaint rec;
+			nkentseu::editorkit::NkTreeViewHooks h;
+			const NkTreeViewResult res =
+				nkentseu::editorkit::NkDrawTreeView(rec, clic, {0.f, 0.f, 320.f, 400.f}, t, st, h);
+			const bool plieMaintenant = !t.IsOpen(racine, true);
+			snprintf(buf, sizeof(buf),
+					 "clic a (%.1f, %.1f) ; openChanged=%d ; racine ouverte apres = %d",
+					 clic.mouseX, clic.mouseY, (int)res.openChanged, (int)t.IsOpen(racine, true));
+			check("36b. le clic sur la zone du chevron PLIE, alors qu'AUCUNE icone n'est dessinee",
+				  res.openChanged && plieMaintenant, buf);
+
+			// 36c. ET IL DEPLIE AU CLIC SUIVANT. Un mecanisme qui ne ferait que
+			//      plier passerait 36b et serait quand meme casse.
+			NkRecordingPaint rec2;
+			const NkTreeViewResult res2 =
+				nkentseu::editorkit::NkDrawTreeView(rec2, clic, {0.f, 0.f, 320.f, 400.f}, t, st, h);
+			check("36c. et il DEPLIE au clic suivant (sinon le pliage serait a sens unique)",
+				  res2.openChanged && t.IsOpen(racine, true), "");
+
+			// 36d. LE DEFAUT EST BIEN VISUEL : le composant DEMANDE une icone
+			//      (il emet la commande) et la poignee vaut 0, donc rien n'est
+			//      peint. C'est ce qui separe « le composant ne dessine pas » de
+			//      « l'hote ne lui donne rien ».
+			uint32 iconesDemandees = 0, iconesVides = 0;
+			for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+				if (rec.cmds[i].op == NkPaintOp::Icon) {
+					++iconesDemandees;
+					if (rec.cmds[i].icon == 0)
+						++iconesVides;
+				}
+			snprintf(buf, sizeof(buf), "%u commande(s) Icon emise(s), dont %u a poignee NULLE",
+					 iconesDemandees, iconesVides);
+			check("36d. le composant DEMANDE ses icones ; c'est l'HOTE qui n'en fournit aucune",
+				  iconesDemandees > 0 && iconesVides == iconesDemandees, buf);
+
+			// 36e. L'HOTE FOURNIT DESORMAIS SES POIGNEES -- non nulles ET
+			//      DISTINCTES. Deux poignees egales peindraient le meme signe pour
+			//      « ouvert » et « ferme » : le chevron existerait et ne dirait
+			//      rien, ce qui est le defaut d'origine sous une autre forme.
+			const NkTreeViewIcons mien = NkDesignTreeIcons();
+			const uint16 six[6] = {mien.chevronClosed, mien.chevronOpen, mien.eyeOpen,
+								   mien.eyeClosed,	   mien.lockOpen,	 mien.lockClosed};
+			bool toutesPosees = true, toutesDistinctes = true;
+			for (uint32 a = 0; a < 6; ++a) {
+				if (six[a] == 0)
+					toutesPosees = false;
+				for (uint32 b2 = a + 1; b2 < 6; ++b2)
+					if (six[a] == six[b2])
+						toutesDistinctes = false;
+			}
+			check("36e. l'hote pose ses SIX poignees, toutes non nulles et toutes distinctes",
+				  toutesPosees && toutesDistinctes, "");
+
+			// 36f. ⚠️ LE SIGNE CHANGE AVEC L'ETAT -- c'est la seule chose qui
+			//      manquait vraiment. Un chevron qui ne changerait pas au pliage
+			//      serait un decor, pas un indicateur : il passerait 36e et
+			//      laisserait l'utilisateur exactement aussi aveugle.
+			//      Mesure SANS GPU : on lit la poignee emise, jamais des pixels.
+			NkTreeViewStyle avecIcones = st;
+			avecIcones.icons = mien;
+			NkTreeViewModel t2;
+			NkDocumentHost::FillDemoTree(t2);
+			const NkComponentInput repos;
+			NkRecordingPaint ouvert;
+			nkentseu::editorkit::NkDrawTreeView(ouvert, repos, {0.f, 0.f, 320.f, 400.f}, t2,
+												avecIcones, h);
+			t2.SetOpen(t2.nodes[0].id, false, true); // on replie la racine
+			NkRecordingPaint ferme;
+			nkentseu::editorkit::NkDrawTreeView(ferme, repos, {0.f, 0.f, 320.f, 400.f}, t2,
+												avecIcones, h);
+			uint16 poigneeOuvert = 0, poigneeFerme = 0;
+			for (uint32 i = 0; i < (uint32)ouvert.cmds.Size(); ++i)
+				if (ouvert.cmds[i].op == NkPaintOp::Icon && ouvert.cmds[i].icon == mien.chevronOpen) {
+					poigneeOuvert = ouvert.cmds[i].icon;
+					break;
+				}
+			for (uint32 i = 0; i < (uint32)ferme.cmds.Size(); ++i)
+				if (ferme.cmds[i].op == NkPaintOp::Icon && ferme.cmds[i].icon == mien.chevronClosed) {
+					poigneeFerme = ferme.cmds[i].icon;
+					break;
+				}
+			snprintf(buf, sizeof(buf), "deplie -> poignee %u ; replie -> poignee %u (attendu %u / %u)",
+					 (uint32)poigneeOuvert, (uint32)poigneeFerme, (uint32)mien.chevronOpen,
+					 (uint32)mien.chevronClosed);
+			check("36f. le chevron CHANGE de signe entre deplie et replie",
+				  poigneeOuvert == mien.chevronOpen && poigneeFerme == mien.chevronClosed &&
+					  poigneeOuvert != poigneeFerme,
+				  buf);
+
+			rep.Append("\n--- le chevron : mecanisme ou dessin ? ---\n  ");
+			rep.Append(buf);
+			rep.Append("\n  VERDICT : le pliage FONCTIONNE sans icone. Le manque est le SIGNE,\n"
+					   "  pas le geste -- on ne voit pas ou cliquer, mais cliquer marche.\n");
 		}
 
 		rep.Append("\n--- les lignes de journal du backend, telles quelles ---\n");

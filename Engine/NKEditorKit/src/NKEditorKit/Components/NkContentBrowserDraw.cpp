@@ -127,7 +127,20 @@ namespace nkentseu {
 			const float32 headerH = M("header_h");
 			NkPaintRect header{rect.x, rect.y, rect.w, headerH};
 			p.Fill(header, s.headerBg);
-			p.Text({header.x + M("card_pad"), header.y, header.w, header.h}, "Contenu", s.text);
+			// ⚠️ `header.w - 2 * card_pad`, PAS `header.w`. Le texte est pose a
+			//    `header.x + card_pad` : lui donner la largeur PLEINE du panneau le
+			//    faisait finir 8 px dehors. Le clip du panneau le masquait, et
+			//    c'est ce qui rendait le defaut couteux plutot qu'anodin — **le
+			//    texte calculait son point de troncature sur une largeur qu'il
+			//    n'avait pas**. Un libelle long s'ellipsait donc trop tard, ou pas
+			//    du tout, et la coupe se produisait au clip : sans point de
+			//    suspension, et sans que rien ne le signale.
+			//    Mesure : 8,0 px de debord, 1 commande, releve par la famille 34 de
+			//    la sonde de NKUIDesign (`34b`), qui compare les rectangles emis au
+			//    rectangle donne au composant.
+			const float32 headerPad = M("card_pad");
+			p.Text({header.x + headerPad, header.y, header.w - 2.f * headerPad, header.h}, "Contenu",
+				   s.text);
 			p.HLine(rect.x, rect.y + headerH, rect.w, s.border);
 
 			// ── BARRE D'OUTILS ──────────────────────────────────────────────────
