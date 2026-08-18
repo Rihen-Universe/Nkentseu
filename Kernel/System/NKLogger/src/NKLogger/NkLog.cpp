@@ -25,6 +25,25 @@
 #include "NKLogger/Sinks/NkConsoleSink.h"
 #include "NKLogger/Sinks/NkFileSink.h"
 
+// Un journal par LANCEMENT (2026-08-18) : horodatage, PID, listage du dossier
+// et purge. NKLogger ne depend PAS de NKFileSystem (voir NKLogger.jenga) — le
+// listage se fait donc en natif, exactement comme NkDailyFileSink.cpp le fait
+// deja dans ce meme module.
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+
+#if !defined(_WIN32)
+#include <dirent.h>
+#include <unistd.h>
+#else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS
 // -------------------------------------------------------------------------
@@ -32,6 +51,274 @@
 // Aucune macro NKENTSEU_LOGGER_API : export hérité de la déclaration de classe.
 
 namespace nkentseu {
+
+	// -------------------------------------------------------------------------
+	// SECTION 1bis : UN JOURNAL PAR LANCEMENT (2026-08-18)
+	// -------------------------------------------------------------------------
+	// PROBLEME MESURE : `logs/app.log` etait ouvert en mode APPEND, donc jamais
+	// remis a zero. Un fichier reel de Nogee contenait 10 692 lignes couvrant
+	// SIX lancements sur DEUX jours, dont quatre en 74 secondes — deux lignes
+	// consecutives y sont separees de 26 heures, sans le moindre marqueur. Il
+	// fallait decouper a la main par horodatage pour savoir quelle course avait
+	// produit quelle ligne, et Rodolf devait noter l'heure de ses tests pour
+	// retrouver les siennes. Des mesures ont deja ete faussees par ce melange.
+	//
+	// POURQUOI PAR LANCEMENT ET NON PAR DATE : une granularite a la journee ne
+	// separe pas deux courses du meme jour — or c'est exactement le cas qui a
+	// coute du temps (quatre lancements en 74 secondes). Le PID desambigue en
+	// plus deux lancements tombant dans la meme seconde.
+	//
+	// CE QUI NE CHANGE PAS : `logs/app.log` garde son nom et son chemin. Tout
+	// outil, script ou habitude qui le lit continue de fonctionner — il ne
+	// contient simplement plus que la DERNIERE course, au lieu de toutes.
+	namespace {
+
+		/// @brief Dossier des journaux, relatif au repertoire courant.
+		constexpr const char *kRunLogDirectory = "logs";
+
+		/// @brief Prefixe des journaux par lancement (distinct de "app.log").
+		constexpr const char *kRunLogPrefix = "app_";
+
+		/// @brief Extension des journaux.
+		constexpr const char *kRunLogSuffix = ".log";
+
+		/// @brief Journal de la course COURANTE : chemin historique, inchange.
+		constexpr const char *kCurrentRunLogPath = "logs/app.log";
+
+		/// @brief Nombre de journaux par lancement conserves par defaut.
+		/// @note Un COMPTE, et non un age : un age ne borne rien (les six
+		///       courses mesurees tiennent dans vingt minutes), alors qu'un
+		///       compte borne le disque quel que soit le rythme de travail.
+		constexpr int kDefaultRunLogsKept = 20;
+
+		/// @brief Capacite des tampons de nom de fichier.
+		constexpr size_t kRunLogNameCapacity = 256;
+
+		// ---------------------------------------------------------------------
+		// FONCTION : NkRunLogsToKeep
+		// DESCRIPTION : Nombre de journaux a conserver (env. NKENTSEU_LOG_KEEP)
+		// RETOUR : > 0 = nombre conserve ; 0 = ne jamais purger
+		// ---------------------------------------------------------------------
+		int NkRunLogsToKeep() {
+			const char *raw = ::getenv("NKENTSEU_LOG_KEEP");
+
+			// Variable absente ou vide : politique par defaut
+			if (raw == nullptr || raw[0] == '\0') {
+				return kDefaultRunLogsKept;
+			}
+
+			// Valeur illisible ou negative : on retombe sur le defaut plutot
+			// que de desactiver silencieusement la purge
+			const long parsed = ::strtol(raw, nullptr, 10);
+			if (parsed < 0) {
+				return kDefaultRunLogsKept;
+			}
+
+			return static_cast<int>(parsed);
+		}
+
+		// ---------------------------------------------------------------------
+		// FONCTION : NkCurrentProcessId
+		// DESCRIPTION : Identifiant du processus courant, pour desambiguiser
+		//               deux lancements tombant dans la meme seconde
+		// ---------------------------------------------------------------------
+		unsigned long NkCurrentProcessId() {
+#if defined(_WIN32)
+			return static_cast<unsigned long>(::GetCurrentProcessId());
+#else
+			return static_cast<unsigned long>(::getpid());
+#endif
+		}
+
+		// ---------------------------------------------------------------------
+		// FONCTION : NkMakeRunLogPath
+		// DESCRIPTION : Chemin du journal de CETTE course
+		// RETOUR : "logs/app_YYYY-MM-DD_HHMMSS_<pid>.log"
+		// NOTE : l'horodatage est en tete et de LARGEUR FIXE — l'ordre
+		//        lexicographique des noms est donc l'ordre chronologique, ce
+		//        dont la purge se sert pour trouver le plus ancien sans trier.
+		// ---------------------------------------------------------------------
+		NkString NkMakeRunLogPath() {
+			const time_t now = ::time(nullptr);
+			tm local{};
+
+#if defined(_WIN32)
+			// Windows : version thread-safe de localtime
+			::localtime_s(&local, &now);
+#else
+			// POSIX : version thread-safe de localtime
+			::localtime_r(&now, &local);
+#endif
+
+			char buffer[kRunLogNameCapacity] = {0};
+			::snprintf(buffer, sizeof(buffer), "%s/%s%04d-%02d-%02d_%02d%02d%02d_%lu%s",
+					   kRunLogDirectory, kRunLogPrefix, local.tm_year + 1900, local.tm_mon + 1,
+					   local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec,
+					   NkCurrentProcessId(), kRunLogSuffix);
+
+			return NkString(buffer);
+		}
+
+		// ---------------------------------------------------------------------
+		// FONCTION : NkIsRunLogName
+		// DESCRIPTION : Vrai si le nom est un journal PAR LANCEMENT
+		// NOTE : "app.log" ne commence pas par "app_" — le journal courant ne
+		//        peut donc JAMAIS etre purge par erreur.
+		// ---------------------------------------------------------------------
+		bool NkIsRunLogName(const char *name) {
+			if (name == nullptr) {
+				return false;
+			}
+
+			const size_t prefixLength = ::strlen(kRunLogPrefix);
+			const size_t suffixLength = ::strlen(kRunLogSuffix);
+			const size_t nameLength = ::strlen(name);
+
+			// Un nom valide porte au moins un horodatage entre les deux
+			if (nameLength <= prefixLength + suffixLength) {
+				return false;
+			}
+
+			if (::strncmp(name, kRunLogPrefix, prefixLength) != 0) {
+				return false;
+			}
+
+			return ::strcmp(name + nameLength - suffixLength, kRunLogSuffix) == 0;
+		}
+
+		// ---------------------------------------------------------------------
+		// FONCTION : NkScanRunLogs
+		// DESCRIPTION : Compte les journaux par lancement et depose le nom du
+		//               plus ancien (plus petit au sens lexicographique)
+		// PARAMS : outOldest - tampon receveur (peut etre nullptr)
+		//          outSize   - capacite du tampon
+		// RETOUR : nombre de journaux trouves (0 si le dossier n'existe pas)
+		// NOTE : sans conteneur, donc sans allocation — un seul nom est retenu
+		//        a la fois. Meme idiome de parcours que NkDailyFileSink.cpp.
+		// ---------------------------------------------------------------------
+		int NkScanRunLogs(char *outOldest, size_t outSize) {
+			if (outOldest != nullptr && outSize > 0) {
+				outOldest[0] = '\0';
+			}
+
+			int found = 0;
+
+#if defined(_WIN32)
+			// Windows : parcours via FindFirstFile/FindNextFile
+			char pattern[kRunLogNameCapacity] = {0};
+			::snprintf(pattern, sizeof(pattern), "%s\\%s*%s", kRunLogDirectory, kRunLogPrefix,
+					   kRunLogSuffix);
+
+			WIN32_FIND_DATAA findData{};
+			HANDLE handle = ::FindFirstFileA(pattern, &findData);
+
+			// Dossier absent ou vide : rien a compter, rien a purger
+			if (handle == INVALID_HANDLE_VALUE) {
+				return 0;
+			}
+
+			do {
+				// Ignorer les repertoires
+				if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+					continue;
+				}
+
+				// Le motif "app_*.log" est large : on revalide le nom
+				if (!NkIsRunLogName(findData.cFileName)) {
+					continue;
+				}
+
+				++found;
+
+				// Retenir le plus ancien rencontre jusqu'ici
+				if (outOldest != nullptr && outSize > 0 &&
+					(outOldest[0] == '\0' || ::strcmp(findData.cFileName, outOldest) < 0)) {
+					::snprintf(outOldest, outSize, "%s", findData.cFileName);
+				}
+
+			} while (::FindNextFileA(handle, &findData) != 0);
+
+			// Nettoyage du handle de recherche
+			(void)::FindClose(handle);
+#else
+			// POSIX : parcours via opendir/readdir
+			DIR *dir = ::opendir(kRunLogDirectory);
+
+			// Dossier absent : rien a compter, rien a purger
+			if (dir == nullptr) {
+				return 0;
+			}
+
+			for (dirent *entry = ::readdir(dir); entry != nullptr; entry = ::readdir(dir)) {
+				if (!NkIsRunLogName(entry->d_name)) {
+					continue;
+				}
+
+				++found;
+
+				// Retenir le plus ancien rencontre jusqu'ici
+				if (outOldest != nullptr && outSize > 0 &&
+					(outOldest[0] == '\0' || ::strcmp(entry->d_name, outOldest) < 0)) {
+					::snprintf(outOldest, outSize, "%s", entry->d_name);
+				}
+			}
+
+			// Fermeture du descripteur de repertoire
+			(void)::closedir(dir);
+#endif
+
+			return found;
+		}
+
+		// ---------------------------------------------------------------------
+		// FONCTION : NkPurgeRunLogs
+		// DESCRIPTION : Ne conserve que les `keep` journaux les plus recents
+		// PARAMS : keep - nombre a conserver (0 ou moins = ne rien purger)
+		// NOTE : appelee AVANT la creation du journal de la course courante,
+		//        d'ou le budget de `keep - 1` : apres creation, on en a `keep`.
+		// NOTE : sans purge, la cadence mesuree (six courses en vingt minutes)
+		//        remplirait le disque en quelques semaines.
+		// ---------------------------------------------------------------------
+		void NkPurgeRunLogs(int keep) {
+			// 0 = politique « ne jamais purger », demandee explicitement
+			if (keep <= 0) {
+				return;
+			}
+
+			// Place a laisser pour le journal qu'on va creer juste apres
+			const int budget = keep - 1;
+
+			char oldest[kRunLogNameCapacity] = {0};
+			int remaining = NkScanRunLogs(oldest, sizeof(oldest));
+
+			// Borne dure : jamais plus d'iterations que de fichiers comptes.
+			// Sans elle, un remove() qui echouerait sans le dire ferait boucler
+			// le DEMARRAGE de toutes les applications du depot.
+			int guard = remaining;
+
+			while (remaining > budget && guard > 0) {
+				--guard;
+
+				// Plus de candidat : compte et scan divergent, on sort
+				if (oldest[0] == '\0') {
+					break;
+				}
+
+				char fullPath[kRunLogNameCapacity * 2] = {0};
+				::snprintf(fullPath, sizeof(fullPath), "%s/%s", kRunLogDirectory, oldest);
+
+				// Echec (fichier verrouille par un autre processus, permissions)
+				// : on n'insiste pas. Un journal en trop ne casse rien ; une
+				// boucle d'echecs au demarrage, si.
+				if (::remove(fullPath) != 0) {
+					break;
+				}
+
+				remaining = NkScanRunLogs(oldest, sizeof(oldest));
+			}
+		}
+
+	} // namespace anonyme
 
 	// -------------------------------------------------------------------------
 	// VARIABLE STATIQUE : s_Initialized
@@ -73,11 +360,30 @@ namespace nkentseu {
 		AddSink(consoleSink);
 #endif
 
-		// Sink fichier : persistance des logs dans logs/app.log. TOUJOURS
-		// actif (debug + release) pour permettre le post-mortem en prod
-		// quand un user testeur rencontre un bug. Le fichier reste
-		// disponible apres crash, contrairement a la console.
-		memory::NkSharedPtr<NkISink> fileSink(new NkFileSink("logs/app.log"));
+		// Sinks fichier : persistance des logs. TOUJOURS actifs (debug +
+		// release) pour permettre le post-mortem en prod quand un user testeur
+		// rencontre un bug. Le fichier reste disponible apres crash,
+		// contrairement a la console.
+		//
+		// DEUX destinations depuis le 2026-08-18 (voir SECTION 1bis) :
+		//   (a) logs/app_<date>_<heure>_<pid>.log — UN PAR LANCEMENT, garde
+		//   (b) logs/app.log                      — la course COURANTE seule
+		//
+		// (b) garde son nom historique et continue d'alimenter tous les outils
+		// et habitudes existants ; il est simplement TRONQUE au lancement au
+		// lieu d'accumuler indefiniment.
+
+		// Purge AVANT creation : ne conserver que les N derniers journaux
+		NkPurgeRunLogs(NkRunLogsToKeep());
+
+		// (a) Journal de CETTE course : jamais ecrase par un lancement suivant
+		memory::NkSharedPtr<NkISink> runSink(new NkFileSink(NkMakeRunLogPath(), /*truncate*/ true));
+		runSink->SetLevel(NkLogLevel::NK_INFO);					 // Moins verbose en fichier pour production
+		runSink->SetPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN); // Pattern lisible
+		AddSink(runSink);
+
+		// (b) Journal courant : chemin historique, remis a zero a chaque lancement
+		memory::NkSharedPtr<NkISink> fileSink(new NkFileSink(kCurrentRunLogPath, /*truncate*/ true));
 		fileSink->SetLevel(NkLogLevel::NK_INFO);					 // Moins verbose en fichier pour production
 		fileSink->SetPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN); // Pattern lisible
 		AddSink(fileSink);
