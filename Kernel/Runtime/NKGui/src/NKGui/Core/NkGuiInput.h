@@ -40,6 +40,14 @@ namespace nkentseu {
 				bool dblClickPending[3] = {}; ///< double-clic OS injecté par l'app (consommé en NewFrame)
 				float32 mouseDownDur[3] = {-1.f, -1.f, -1.f};
 				float32 clickTime[3] = {-1.f, -1.f, -1.f}; ///< temps depuis le dernier clic (détection interne)
+				NkVec2 clickPos[3] = {}; ///< POSITION du dernier clic — cf. kDblMaxDist
+				/// Écart maximal, en pixels, entre deux clics pour qu'ils forment un
+				/// DOUBLE-CLIC. Sans ce rayon, la détection interne était purement
+				/// TEMPORELLE : deux clics distants de moins de 0,40 s n'importe où sur
+				/// l'écran passaient pour un double-clic, et chaque consommateur
+				/// l'attribuait à la zone survolée à cet instant — donc à un widget que
+				/// l'utilisateur n'avait jamais cliqué deux fois.
+				static constexpr float32 kDblMaxDist = 6.f;
 				float32 wheel = 0.f;
 				float32 wheelH = 0.f;
 				float32 wheelPending = 0.f; ///< molette differee (AddWheelDeferred), fusionnee au NewFrame
@@ -121,11 +129,35 @@ namespace nkentseu {
 							mouseDownDur[i] = (mousePrev[i] ? mouseDownDur[i] + dt : 0.f);
 						else
 							mouseDownDur[i] = -1.f;
-						// Double-clic : (a) détection interne (2e clic < 0.40 s) OU
-						// (b) injection OS via SetDoubleClick (consommée puis remise à 0).
+						// Double-clic : (a) détection interne (2e clic < 0.40 s ET à
+						// moins de kDblMaxDist du premier) OU (b) injection OS via
+						// SetDoubleClick (consommée puis remise à 0).
+						//
+						// ⚠️ LE RAYON MANQUAIT, et il a coûté un défaut d'interface
+						// (rapporté par Rodolf le 18/08/2026, NK3DModeler). La condition
+						// était TEMPORELLE PURE : deux clics à moins de 0,40 s d'écart
+						// formaient un double-clic *où qu'ils soient sur l'écran*. Or
+						// personne ne consomme `mouseDoubleClicked` seul — tous le
+						// croisent avec la zone survolée MAINTENANT
+						// (`hov && mouseDoubleClicked[0]`, une vingtaine de sites). Deux
+						// clics rapides sur DEUX widgets voisins produisaient donc un
+						// « double-clic » attribué au second, qui n'avait été cliqué
+						// qu'une fois. En sélection multiple (Ctrl+clic de carte en
+						// carte) le cas n'est pas rare : c'est le geste normal, et il
+						// ouvrait un éditeur sous les doigts de l'utilisateur.
+						//
+						// Mesure sur le journal de Rodolf : deux Ctrl+clics sur des
+						// cartes différentes à **388 ms** d'écart — sous le seuil de
+						// 400 ms, donc double-clic déclaré.
 						if (mouseClicked[i]) {
-							mouseDoubleClicked[i] = (clickTime[i] >= 0.f && clickTime[i] < 0.40f);
+							const float32 ddx = mousePos.x - clickPos[i].x;
+							const float32 ddy = mousePos.y - clickPos[i].y;
+							const bool memeEndroit =
+								(ddx * ddx + ddy * ddy) <= (kDblMaxDist * kDblMaxDist);
+							mouseDoubleClicked[i] =
+								(clickTime[i] >= 0.f && clickTime[i] < 0.40f && memeEndroit);
 							clickTime[i] = 0.f;
+							clickPos[i] = mousePos;
 						} else {
 							mouseDoubleClicked[i] = false;
 							if (clickTime[i] >= 0.f)

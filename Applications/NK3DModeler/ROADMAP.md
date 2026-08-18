@@ -2495,3 +2495,402 @@ ouvert le projet (frame 3) : il mesurait une scene vide et repondait « rien ».
 Corrige par une troisieme valeur facultative (la frame), et `NK_DROP_AT` nait
 avec. **Tout levier one-shot qui coexiste avec une ouverture differee a le meme
 defaut** — les autres n'ont pas ete audites.
+
+---
+
+## 2026-08-18 — LES TROIS DEFAUTS RAPPORTES PAR RODOLF A L'USAGE
+
+Rapportes mot pour mot apres sa relecture du 18/08 au matin. **Les trois
+touchent le chemin d'entree**, mais ils n'ont PAS la meme cause — et deux des
+trois ont leur cause hors du modeleur ou hors de la migration.
+
+### Defaut 1 — CORRIGE — « le clic droit Importer ne fonctionne pas, a gauche ou a droite »
+
+**Cause, tranchee par lecture** : l'entree « Importer... » du menu contextuel du
+navigateur pose le code d'action `20` ; la table de dispatch qui suit traite
+30-33, 10-16, 0, 1, 2, 3 et 4 — **aucune branche pour 20**. Le menu se refermait
+proprement et rien ne se produisait.
+
+C'est le **jumeau** du bouton « Importer » corrige le 17/08, qui etait « peint
+mais jamais lu ». La meme fonction manquait par ses **deux portes**, pour deux
+raisons differentes : c'est pour cela que corriger le bouton n'avait rien change
+au menu, et c'est le genre de coincidence qui fait croire a un defaut unique
+qu'on aurait mal corrige.
+
+« A gauche ou a droite » = l'**arbre des dossiers** et la **grille des cartes** :
+deux zones, **un seul menu**, donc un seul defaut vu deux fois (verifie : un seul
+appel a PaintBrowser dans main.cpp).
+
+**Correctif** : la branche `act2 == 20` fait EXACTEMENT ce que fait le bouton —
+meme selecteur, meme depart, meme `pickerAction = 2` — pour que les deux portes
+ne puissent pas diverger. `NkMarkTreeDirty` est desormais SAUTE pour 20 : ouvrir
+un selecteur qu'on peut annuler ne doit pas salir le projet.
+
+**Limite declaree, pas un oubli** : l'import atterrit dans le **dossier courant**
+(`st.browserFolder`), meme si le clic droit visait la carte d'un autre dossier —
+c'est le comportement du bouton, et les deux portes restent identiques. Faire
+atterrir dans le dossier VISE demande de passer une destination a
+`NkImportCreate` (qui lit `st.browserFolder` en dur, deux fois) : a traiter avec
+le point (d) du contrat d'import, pas en douce ici.
+
+### Defaut 2 — CORRIGE — « en selection multiple, cliquer un model ouvre l'onglet d'un model »
+
+**La cause n'est pas dans le modeleur : elle est dans NKGui, et elle touche tout
+le monde.**
+
+`NkGuiInput::NewFrame` declarait un double-clic sur un critere **purement
+temporel** : `mouseDoubleClicked[i] = (clickTime[i] < 0.40f)`. **Aucun controle
+de position.** Deux clics a moins de 0,40 s d'ecart *n'importe ou sur l'ecran*
+en formaient un.
+
+Ce qui le rend couteux : **personne ne consomme ce drapeau seul**. Une vingtaine
+de sites le croisent avec la zone survolee MAINTENANT (`hov &&
+mouseDoubleClicked[0]`), et `NkHitRegistry::DoubleClicked` fait exactement pareil.
+Le « double-clic » etait donc **attribue a un widget clique une seule fois**.
+
+**Le chiffre vient du journal de Rodolf lui-meme** : Ctrl+clic sur la carte 26 a
+07:59:17.529, puis sur la carte 25 a 07:59:17.917 — **388 ms**, sous le seuil.
+La carte 25 est de nature 6 (model) : son editeur s'est ouvert. Construire une
+selection multiple, c'est precisement cliquer vite de carte en carte : le geste
+normal declenchait le defaut.
+
+**Deux correctifs, et ils ne disent pas la meme chose :**
+
+1. **NKGui (cause racine)** — rayon `kDblMaxDist = 6 px` entre les deux clics.
+   ATTENTION, **fichier partage** : Nogee, Nkoung, Mou et PV3DE consomment le
+   meme detecteur. Le correctif les repare aussi ; s'ils dependaient du
+   comportement temporel pur, ils le verront changer.
+2. **NK3DModeler (regle d'interface)** — Ctrl ou Maj enfonce n'ouvre jamais :
+   c'est un geste de SELECTION. Vrai independamment du (1).
+
+**A ne pas confondre** avec la trouvaille pre-existante notee le 18/08 (l'appui
+sur une carte model bascule la hierarchie vers les noeuds d'archive du model) :
+celle-la change le contenu de la **hierarchie**, pas l'onglet. Elle reste
+ouverte.
+
+### Defaut 3 — NON RESOLU — « plusieurs models selectionnes, seul le premier se deplace »
+
+**Deux causes refutees par la mesure, la troisieme jamais atteinte. Rien n'est
+corrige, et il ne faut pas croire que si.**
+
+| ce qui a ete mesure | resultat |
+|---|---|
+| la selection s'accumule-t-elle ? | **oui** — noeuds 116 et 117 tous deux `sel=1` (levier neuf `NK_SEL_NODES`, qui appelle les memes fonctions que le Ctrl+clic de la hierarchie) |
+| le gizmo distribue-t-il le delta ? | **oui** — `NkGizmo.h` : `for i < mCount if (mSel[i]) mTr[i] += wd`, tous les selectionnes |
+| le deplacement lui-meme | **JAMAIS EXERCE** |
+
+**La derniere ligne est un resultat NUL, et son perimetre voyage avec lui** :
+trois courses (appui a (600,450), (600,425), (600,405) puis glissement) n'ont
+produit **aucune** ligne `MESURE commit gizmo`. Le gizmo n'est jamais entre en
+glissement. Ces courses ne disent donc **pas** que le deplacement multiple
+fonctionne — elles disent que **je ne l'ai pas atteint**.
+
+**Absence trouvee en essayant de s'en servir** : `NK_AGENT_DRAG` pose l'etat
+souris brut que le SHELL lit (il a prouve 8 gestes de glisser-deposer les 17-18/08),
+mais **rien ne montre qu'il atteigne l'entree du gizmo du viseur 3D** — tous ses
+usages anterieurs visaient des widgets. Et la position ecran d'une poignee du
+gizmo n'est **journalisee nulle part** : le pivot est la mediane de la selection,
+et rien ne le projette. Sans l'un ou l'autre, le deplacement multiple n'est pas
+scriptable.
+
+**Hypothese restante, la plus plausible (H3d), ecrite pour ne pas etre reperdue :**
+le pick de la vue tourne a **chaque appui gauche**
+(`gin.leftPressed && !emptyGizmo.IsDragging() && !gizmo.IsDragging()`). S'il
+aboutit sur un model **sans modificateur tenu** — exactement ce qu'on fait en
+saisissant un objet pour le tirer — la branche appelle `emptyGizmo.Select(bestU)`,
+qui est **EXCLUSIF** : la selection multiple s'effondre sur l'objet saisi, et lui
+seul bouge. La cause ne serait alors ni le gizmo ni la boucle de commit, mais
+**le clic qui commence le geste**. Non reproduite (les appuis n'ont rien touche) :
+a instrumenter, pas a corriger a l'aveugle.
+
+**Instrument laisse en place** — `MESURE commit gizmo : selectionnes=N actif=i`,
+suivi d'une ligne `commit noeud=.. tr=(..) avant=(..)` par selectionne. Il separe
+les trois causes d'un coup d'oeil sur le prochain journal :
+`selectionnes=1` = la selection s'est effondree (H3d) · `selectionnes=N` avec un
+seul `tr` non nul = la distribution · N deltas non nuls = le defaut est en aval.
+
+### Correction de fait sur logs/app.log — il N'EST PAS tronque au lancement
+
+Mesure : **26 lancements** coexistent dans le fichier du 18/08 (compte des lignes
+`NkRHI_DX11] Initialise`), du 17/08 23:06 au 18/08 08:01 — **le journal AJOUTE**.
+Les sessions de Rodolf sont les deux dernieres (lignes 13068-14627,
+07:56:25 vers 08:01:07, puis une relance de 7 s). Les 13 067 premieres lignes
+sont des courses d'agent. **Lire « le journal » sans decouper par lancement,
+c'est melanger les runs** — la face 3 de la grille, et elle etait tendue des la
+premiere commande.
+
+### Leviers d'agent ajoutes
+
+- `NK_SEL_NODES="frame,n1,n2,..."` — selection multiple de noeuds utilisateur.
+  Il manquait : `NK_GIZMO_MULTI` ne pilote que `st->gizmo` (objets de demo,
+  indices < kNumObj), alors que **tous les models vivent dans `emptyGizmo`**
+  (noeuds >= 90). Le levier existant ne pouvait pas atteindre le regime du
+  defaut. Il appelle `SelectEmptyNode` puis `ToggleEmptyNode` — le code de
+  production, pas une reconstruction. Frame obligatoire (dette « les leviers ne
+  disent pas QUAND »).
+- `NK_DROP_TOKEN2` — seconde fente, convention `NK_AGENT_DRAG`/`DRAG2`. Poser
+  DEUX models en un lancement : avec une seule fente il fallait enregistrer
+  entre deux lancements, donc **modifier le projet pour pouvoir le mesurer**.
+
+### PROTOCOLE DE LA 13e RELECTURE POUR RODOLF — les trois gestes
+
+Binaire du 18/08 ou plus recent. Envoie le journal, **et dis a quelle heure tu
+as commence** (le fichier contient plusieurs lancements : sans l'heure, on ne
+sait pas ou couper).
+
+1. **Import par le clic droit.** Dans le navigateur, clic droit **sur l'arbre
+   des dossiers a gauche**, puis « Importer... » : le selecteur doit s'ouvrir.
+   Recommence **sur la grille des cartes a droite**, et une troisieme fois **sur
+   une carte**. Attendu : les trois ouvrent le meme selecteur, et le fichier
+   choisi s'importe dans le **dossier courant**. Attendu au journal :
+   `[import] MESURE import` puis une `MESURE creation` par model.
+2. **Selection multiple de cartes.** Clique une carte de model, puis
+   **Ctrl+clic** rapidement sur trois autres — *aussi vite que tu veux*, c'est
+   le point. Attendu : les quatre se marquent, et **aucun onglet ne s'ouvre**.
+   Puis, sans Ctrl, **double-clique** une carte : la, l'onglet doit s'ouvrir
+   (le double-clic normal ne doit pas avoir ete casse par le correctif).
+3. **Deplacement multiple — LE DEFAUT N'EST PAS CORRIGE, c'est une MESURE.**
+   Pose deux ou trois models dans la scene, selectionne-les (Ctrl+clic dans la
+   vue ou dans la hierarchie), puis deplace-les au gizmo. Dis ce que tu vois, et
+   envoie le journal : il portera desormais
+   `[Demo3D] MESURE commit gizmo : selectionnes=N actif=i` suivi d'une ligne par
+   noeud. **C'est ce N qui tranche** entre « la selection s'effondre quand tu
+   saisis » et « elle tient mais un seul recoit le mouvement » — deux causes,
+   deux correctifs differents, et l'ecran ne les distingue pas.
+
+---
+
+## 2026-08-18 (matin) — Defaut 3 : LA CAUSE EST TROUVEE, ET ELLE N'EST PAS CORRIGEE
+
+### La reponse a la question de methode (Q57 section 4) — ce n'etait pas une portee de levier
+
+**Question posee** : pourquoi le viseur ne voit-il pas la souris que le shell
+voit ? **Reponse, par lecture, et elle ferme la question** : ce ne sont pas deux
+portees, ce sont **deux canaux disjoints**.
+
+| ce qui pilote | ce qu'il ecrit | qui le lit |
+|---|---|---|
+| `NK_AGENT_DRAG` | `ui.input.mousePos` / `ui.input.mouseDown[0]` — l'etat souris de **NKGui** | le shell : arbre, cartes, widgets |
+| une vraie main dans la vue | l'evenement de **FENETRE** `NkMouseButtonPressEvent` vers `st->pickPending` (NkDemo3D.cpp:4385), et `NkInput.MouseX()` | le viseur : `gin` (NkDemo3D.cpp:9322-9331) |
+
+`gin.leftPressed = st->pickPending`. **Aucune ligne ne relie `ui.input` a `gin`.**
+Un glisser du shell ne pouvait donc, *par construction*, jamais atteindre le
+gizmo — quelle qu'ait ete la portee du levier. Elargir `NK_AGENT_DRAG` (piste (ii)
+de Q57) aurait ete un correctif pose sur une cause supposee : c'etait le mauvais
+fil, pas un fil trop court.
+
+### La cause du defaut 3, etablie par LECTURE (comme le defaut 1)
+
+`NkDemo3D.cpp`, branche de pick de la vue :
+
+```cpp
+const bool clickedActive =
+    (bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex());
+if (clickedActive)
+    bestU = -1;                        // deja actif : le clic est aux POIGNEES
+if (bestU >= 0) {
+    ...
+    if (gin.shiftDown || gin.ctrlDown)
+        st->emptyGizmo.ToggleSelection(bestU);
+    else
+        st->emptyGizmo.Select(bestU);  // EXCLUSIF
+```
+
+**La garde `clickedActive` ne protege que l'ACTIF.** Avec N models selectionnes,
+presser l'un des **N-1 autres** — sans modificateur, ce qu'on fait exactement en
+saisissant un objet pour le tirer — tombe dans `Select()`, qui est exclusif : la
+selection s'effondre sur l'objet saisi **avant** que le gizmo n'ait rien vu.
+Symptome a l'ecran : "il n'y a que le premier qui se deplace".
+
+C'est la **troisieme fois** dans ce chantier que la cause se lit au lieu de se
+courir. Les deux autres causes candidates avaient deja ete refutees par la mesure
+(la selection s'accumule ; le gizmo distribue le delta a tous les selectionnes).
+
+**Fenetre exacte du defaut, et ce qui en est HORS** :
+- presser une poignee : `emptyGizmo.Update` tourne AVANT le pick (l. 9630 contre
+  l. 9824) et pose `gin.leftPressed = false` ; le pick est saute, **la selection
+  tient**. Ce chemin n'est pas atteint par le defaut ;
+- presser l'objet ACTIF : `clickedActive` donne `bestU = -1`, aucune branche
+  prise, **la selection tient** ;
+- presser un objet **selectionne mais pas actif** : **effondrement**.
+
+**CE QUI N'EST PAS PROUVE, et qui doit voyager avec le resultat** : que le geste
+de Rodolf passe par cette fenetre plutot que par la poignee. La lecture prouve
+que le chemin CASSE existe ; elle ne prouve pas qu'il l'a emprunte. C'est
+exactement ce que les instruments ci-dessous vont dire sur son prochain journal.
+**Rien n'est corrige.**
+
+### Instruments poses (152 lignes, NkDemo3D.cpp)
+
+1. **`MESURE pick vue`** — *toujours actif, sur chaque appui gauche dans la vue.*
+   `xy=(..) touche=<noeud> actif=<i> deja_selectionne=<0|1> modificateur=<0|1>
+   selectionnes avant=<N> apres=<M>`.
+   **C'est lui qui tranche** : `avant=N apres=1` = l'effondrement (cause ci-dessus,
+   confirmee) ; `avant=N apres=N` = ce chemin est innocent et l'enquete repart en
+   aval. Il se lit **a cote** de `MESURE commit gizmo` deja en place.
+2. **`MESURE entree vue`** — *toujours actif, sur appui ou pendant un glissement.*
+   L'etat `gin` REEL : position, delta, presse/enfonce, ctrl/maj, **distance en px
+   a la poignee la plus proche**, et les deux drapeaux de glissement. Repond a
+   "mon injection arrive-t-elle ?" sans supposition.
+3. **`NK_GIZMO_PROBE=<frame>`** — carte ASCII 64x32 de la vue marquant les pixels
+   ou une poignee est pickable. Elle n'est **pas** redessinee : elle interroge
+   `NkGizmo3D::HandlePickDistPx`, **le test de pick du gizmo lui-meme**, donc
+   l'autorite qui decide reellement du clic — pas une reconstruction (face 4).
+   Comble l'absence "la position ecran d'une poignee n'est journalisee nulle
+   part", **sans toucher au fichier partage `NkGizmo.h`**.
+4. **`NK_VIEW_DRAG="f,x0,y0,x1,y1"`** — le glisser qui manquait, sur le BON canal :
+   il ecrit dans `gin`, pas dans `ui.input`. Meme decoupage que `NK_AGENT_DRAG`
+   (f survol, f+1 appui, f+2 a f+9 glissement, f+10 relachement).
+   **PERIMETRE DECLARE** : il ecrase `gin` apres sa construction, donc il
+   court-circuite `nkvpHover`, `nkvpInputOn` et l'arbitrage des surcouches. Il
+   exerce **le gizmo et le pick**, pas le **routage du clic** — une course verte
+   ici ne dit rien du routage.
+
+### PIEGE D'ENVIRONNEMENT — aucune course GPU n'a pu tourner ce matin
+
+**Les instruments sont poses et le build est vert (31/31), mais ils n'ont ete
+exerces par AUCUNE course.** Il faut le dire, pas le laisser deviner.
+
+| mesure | chiffre |
+|---|---|
+| lancements tentes | **6**, tous morts a la frame 2-3 |
+| erreur | `hr=0x887A0005` (DXGI_ERROR_DEVICE_REMOVED) sur `CreateTexture2D` puis `CreateBuffer`, puis segfault (exit 139) |
+| evenements `nvlddmkm` au journal Windows | **un par lancement**, horodates a la seconde de mes courses |
+| occurrences dans les 33 lancements de la nuit (avant tout changement) | **0** |
+| VRAM au moment des courses | **6824 / 8192 Mio occupes (83 %)**, GPU a 38 % |
+
+**Temoin, et c'est lui qui tranche** : j'ai **retire mes 152 lignes**, rebati
+(31/31), relance — **meme mort, meme `887A0005`, meme exit 139**. Le binaire
+*sans* instrument echoue exactement pareil. **Ce n'est donc pas mon changement.**
+(Controle redondant lance "pour rien" ; sans lui, la conclusion evidente aurait
+ete "l'agent a casse la vue ce matin", et elle aurait ete fausse.)
+
+Cause la plus probable, **non prouvee** : la VRAM est occupee a 83 % par un autre
+chantier de la machine (`NKIlyana`, 7 569 s CPU au moment de la mesure). Je ne
+sais pas separer "VRAM saturee" de "reset du pilote" — les deux donnent le meme
+`887A0005`, et je n'ai pas d'instrument qui les separe.
+
+**Consequence pour tous les agents** : toute course qui ouvre une fenetre GPU est
+indisponible tant que la VRAM reste a ce niveau. Ce n'est pas la peine de
+diagnostiquer six fois le meme mur.
+
+### Suite ordonnee sur le defaut 3
+
+1. Lire `MESURE pick vue` sur le prochain journal de Rodolf (ou rejouer
+   `NK_GIZMO_PROBE` puis `NK_VIEW_DRAG` des que le GPU est rendu).
+2. **Si `avant=N apres=1`** : le correctif est d'une ligne — la garde doit porter
+   sur `IsSelected(bestU)` et non sur `ActiveIndex()`, avec une decision produit a
+   trancher : presser un objet deja choisi sans modificateur doit-il *conserver*
+   le lot (comme Blender) ou le reduire au relachement s'il n'y a pas eu de
+   glissement ? **Ne pas coder avant d'avoir la mesure** : c'est le troisieme
+   candidat, les deux premiers ont ete refutes.
+3. Si `avant=N apres=N` : rouvrir en aval, du cote de la boucle de commit et de
+   l'apercu en direct (`NkDemo3D.cpp:14227`).
+
+---
+
+## 2026-08-18 (matin) — MESURE D'ECART : le navigateur de contenu contre les planches
+
+**Demandee par Rodolf. RIEN N'EST CORRIGE — cette liste est la pour decider de ce
+qui monte dans NKGui et de ce qui reste ici.**
+
+**Perimetre regarde** : les deux captures completes
+`Applications/Nogee/design/Screenshot 2026-08-18 082126.png` (grille pleine,
+16 items, selection, arbre deroule) et `...082145.png` (la carte ENTIERE avec son
+pied) — la planche `AetherionContentBrowserDark.png` etant tronquee ; et, cote
+code, `Shell/NkModelerBrowser.h` (1 213 lignes) avec son unique site d'appel
+`main.cpp:1683`, plus greps recursifs sur tout `Applications/NK3DModeler/src/`.
+
+**Le sens du flux, rappele par Rodolf** : planche vers composant dans NKGui vers
+specialisation par editeur. **Pas** "NK3DModeler vers les autres". La ou planche
+et existant divergent, **la planche tranche**.
+
+**Ce qui plait a Rodolf dans l'existant et qui doit se verser dans le composant
+partage** : les **deux etats de selection** (`NkModelerBrowser.h:461-475`) —
+carte ACTIVE (celle dont les panneaux montrent les proprietes) contre cartes
+CHOISIES (celles qui partiront ensemble). La planche ne montre qu'un seul etat ;
+elle ne le contredit donc pas, elle est muette dessus. **La distinction se garde,
+c'est son ENCODAGE qui doit changer** (point 3 ci-dessous).
+
+### GROS — une zone entiere manque, ou la structure change
+
+| # | ecart | vers |
+|---|---|---|
+| 1 | **Les trois onglets de panneau** (Content Browser / Favorites / Recent) n'existent pas. La bande de tete porte un titre texte + un chevron de repli (l. 67-85). Zone entiere a creer, plus deux vues a alimenter | **NKGui** (la barre d'onglets de panneau sert tous les editeurs ; la *liste* reste specifique) |
+| 2 | **La section Collections** (repliable, en pied de la colonne de gauche) n'existe pas : le panneau gauche n'a qu'une section, l'arbre (l. 269-420). Le grep sur "Collections" rend 0 sur tout `src/` — et la meme commande trouve bien `browSort` (3 occurrences), donc elle sait trouver | **specifique** d'abord (le concept appartient au contenu d'un projet) ; le **widget** "section repliable en pied de colonne" vers NKGui |
+| 3 | **La carte active est peinte en APLAT** (`p.Fill`, l. 469) la ou la planche montre un **CONTOUR violet** sur toute la carte. Ce n'est pas un reglage de couleur : la planche reserve l'aplat a **l'arbre** (dossier Kevin) et le contour aux **cartes**. Changer l'un sans redefinir l'autre **detruirait la distinction actif/choisi** que le code defend explicitement. Il faut **re-encoder les deux marques** (par exemple contour epais = actif, contour fin ou voile = choisi) | **NKGui** — la regle "deux etats de selection" vaut pour toute grille d'assets du depot |
+
+### MOYEN — un element a ajouter dans une zone qui existe deja
+
+| # | ecart | vers |
+|---|---|---|
+| 4 | **Save All** absent de la barre d'outils (la barre existe, l. 89-131 ; l'action existe deja : `app.enregistrer_tout`, `main.cpp:259`) | specifique (cablage) |
+| 5 | **Engrenage de reglages** absent a droite de la barre (aucun `NkIcon::Gear` dans `NkModelerBrowser.h` ; il en existe un dans `NkModelerScreens.h:716`, donc le glyphe est disponible) | specifique |
+| 6 | **Ligne d'etat mal placee et incomplete** : le compte `element(s)` est en **bas a droite** (l. 1120-1123) au lieu d'une bande **en haut a gauche** de la grille, et **sans le compte de selection** (`16 items (1 selected)`). Le compte est calculable (`st.browserPicked[]`) mais n'est jamais agrege | **NKGui** pour le format `n items (m selected)` ; placement specifique |
+| 7 | **Bouton Favorites** absent de la bande de recherche | specifique |
+| 8 | **Aucun reglage de taille des vignettes** : `tw = 96`, `pvH = 96` sont des litteraux (l. 428-429), aucun etat ne les porte. **Nogee a deja ce curseur** (`ContentBrowserPanel.cpp:242`) | **NKGui** — sinon il sera ecrit une troisieme fois |
+| 9 | **Fil d'Ariane** : pas d'icone dossier devant la racine (l. 184 peint le libelle seul), chevrons en texte (l. 190) au lieu du glyphe | specifique |
+| 10 | **Navigation** en icones plates sans fond (l. 152-165) la ou la planche montre des pastilles rondes encadrees, coherentes avec les boutons pleins voisins | **NKGui** (variante "bouton icone rond") |
+
+### PETIT — theme, metriques, libelles
+
+| # | ecart | vers |
+|---|---|---|
+| 11 | **Pied aligne a gauche** (l. 684 et 700 posent le texte a `tx + pad`) ; la planche le montre **centre**, sur ses deux lignes | **NKGui** (variante centree de `TextClipped` / `EditableText`) |
+| 12 | **Bande de type coloree de 3 px** entre vignette et pied (l. 673) : absente de la planche | specifique (choix produit : la garder est defendable, mais c'est un ecart) |
+| 13 | **Fond du pied en `PanelHeader`** (l. 674), plus clair que la carte ; la planche donne au pied **le meme fond** que la vignette | specifique (theme) |
+| 14 | **Damier** en fond de vignette (l. 477-488) au lieu d'un aplat gris uni | specifique (le damier dit "vide" ; la planche ne l'emploie pas) |
+| 15 | **Ombre portee** sous la carte (l. 459) ; la planche montre des cartes plates | specifique (theme) |
+| 16 | **Metriques** : carte 96x133 a pied de 34 px, gouttieres `S(12)` et `S(14)` — contre une carte plus carree a pied plus fin et gouttieres plus serrees. A reprendre **en meme temps que le point 8** | specifique |
+| 17 | **Libelle racine "Contenu" contre "Content"** (l. 184, l. 283) : ecart de LANGUE, pas de structure. La planche est en anglais, le produit en francais — **a trancher par Rodolf**, ce n'est pas un arbitrage technique | specifique |
+| 18 | **Colonne gauche figee a 18 %** (`treeW = r.w * 0.18f`, l. 216), non redimensionnable ; la planche montre une separation manipulable | **NKGui** (separateur reutilisable) |
+
+### Ce qui est DEJA conforme (a ne pas refaire)
+
+Barre d'outils avec **Creer** et **Importer** (l. 95-130, et Importer est bien
+**consomme** : `hit.Clicked("brw.imp")` vers picker) ; navigation arriere/avant
+avec historique de 64 entrees ; fil d'Ariane **cliquable** ; arbre recursif avec
+chevrons, pliage, renommage en place et glisser-deposer ; champ de recherche avec
+5 pastilles de type, tri et sens ; **pied de carte a deux lignes avec le TYPE
+affiche** (l. 684 et 700) ; **selection de l'arbre en aplat** (l. 278, 333),
+conforme a la planche.
+
+**Le bouton Import figure dans la barre d'outils de la planche** : l'import a donc
+bien **deux portes voulues** (bouton + menu contextuel). Cela **confirme** la
+correction du 18/08 qui a branche la branche `20` du menu contextuel — ce n'etait
+pas un doublon a supprimer.
+
+### Point de methode a signaler
+
+Il existe **deux navigateurs de contenu non partages** dans le depot :
+`NK3DModeler/Shell/NkModelerBrowser.h` et
+`Nogee/src/Nogee/Panels/ContentBrowserPanel.cpp` — et c'est **Nogee** qui possede
+deja le curseur de taille et le cache de vignettes. Les ecarts **3, 6, 8, 10, 11
+et 18** devront etre ecrits **deux fois** s'ils ne montent pas dans NKGui. C'est
+le meme motif que le troisieme selecteur de dossier.
+
+### La TROISIEME capture (`Screenshot 2026-08-18 082535.png`) — la vue 3D, donc ma zone
+
+Rodolf en a depose trois, pas deux. La troisieme montre l'**editeur vue maximisee**,
+et elle est la planche de reference du **viseur**, pas du navigateur. Relevee ici
+pour qu'elle ne se perde pas ; **aucun ecart n'est chiffre dessus** (je n'ai pas
+fait la mesure d'ecart du viseur, seulement celle du navigateur).
+
+Ce qu'elle fixe, en vrac : combos `Perspective` / `Lit` / `Show` en haut a gauche
+de la vue ; colonne d'outils verticale a gauche (4 icones) ; trio
+capture / image / plein ecran en haut a droite avec un **cube de vue** (TOP / LEFT
+/ FRONT) ; superposition de perf en bas a gauche (`FPS: 144 | Draw calls: 812 |
+Tris: 2.4M`) ; lecture `X: 0.0  Y: 0.0  Z: 0.0` centree en bas ; bande
+`Content Browser` **repliee** en pied ; barre d'etat portant
+**`3 objets selectionnes`** a gauche et `FPS · memoire · branche` a droite ;
+onglets de documents (`Level`) et onglet de panneau (`Viewport`) avec croix de
+fermeture ; barre d'outils de tete `Select Mode` + translate/rotate/scale +
+transport (play/pause/stop) + `Platforms` + engrenage.
+
+**Le detail qui me concerne directement** : la barre d'etat annonce le **compte
+d'objets selectionnes**. C'est exactement l'information que le defaut 3 rend
+fausse a l'ecran, et qu'aucune surface de NK3DModeler n'affiche aujourd'hui — un
+utilisateur ne peut pas voir que sa selection vient de s'effondrer. **A ajouter
+apres le correctif**, pas avant : afficher un compte faux ne ferait que rendre le
+defaut plus visible sans le corriger. (Meme famille que l'ecart n.6 du navigateur,
+`16 items (1 selected)` -> a mutualiser dans NKGui.)
