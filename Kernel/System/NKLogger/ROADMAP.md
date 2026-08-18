@@ -17,6 +17,7 @@ dédié.
 | Sinks de base (Console, File, Null, Distributing) | Livré | — | — |
 | Sinks fichiers avancés (Rotating par taille, Daily par date) | Livré | — | — |
 | Sink asynchrone (NkAsyncSink) | Livré | — | — |
+| **Un journal par lancement + rétention N=20** | **Livré (2026-08-18)** | — | — |
 | Battement de journal (NkLogHeartbeat, éteint par défaut) | Livré | — | — |
 | Banc de coût par ligne (benchmark_smoke, autonome) | Livré | — | — |
 | API fluide chaînable (Named/Level/Pattern/Source) | Livré | — | — |
@@ -262,6 +263,98 @@ différence ; **redirigée vers un fichier ou un tube** — ce que fait tout scr
 de test — la sortie passe en tampon de bloc et un plantage emporte exactement
 les lignes qui l'expliquaient. Coût nul là où ça compte : le régime établi
 n'émet aucune ligne.
+
+---
+
+## Livré — UN JOURNAL PAR LANCEMENT, et la règle de rétention (2026-08-18)
+
+Idée de Rodolf. Le puits de journal par défaut était ouvert en **append** et
+n'était donc **jamais remis à zéro** : toutes les courses de toutes les sessions
+s'empilaient dans un unique `logs/app.log`.
+
+### Le problème, mesuré avant d'être corrigé
+
+`Build/Bin/Release-Windows/Nogee/logs/app.log` : **10 692 lignes, 795 922
+octets**, **six lancements** sur **deux jours** dans le même fichier.
+
+```
+ligne 10204   [2026-08-16 20:17:02]   fin d'une course
+ligne 10205   [2026-08-17 22:19:40]   début d'une autre
+```
+
+**26 heures entre deux lignes consécutives**, sans le moindre marqueur de
+séparation. L'agent NK3DModeler avait relevé **26 lancements coexistants** dans
+le sien. Il fallait découper à la main par horodatage, et Rodolf devait noter
+l'heure de ses tests pour retrouver ses propres lignes. **Des mesures ont déjà
+été faussées par ce mélange** (pièges de journaux mêlés consignés au corpus).
+
+### Pourquoi par LANCEMENT et non par DATE
+
+Rodolf proposait un fichier par date. La mesure a tranché pour un cran plus
+fin : les six lancements ci-dessus comportent **quatre courses en 74 secondes**,
+toutes le même jour. Un découpage à la journée les laisse mêlées — il coupe au
+seul endroit où ce fichier n'avait pas besoin d'être coupé.
+
+Le **PID** dans le nom n'est pas décoratif : lors de la validation sur
+`NkAgentEcsDemo`, deux lancements successifs sont tombés **dans la même
+seconde** (`085832`). Sans le PID, le second aurait écrasé le premier.
+
+### Ce qui est livré
+
+| fichier | rôle |
+|---|---|
+| `logs/app_<AAAA-MM-JJ>_<HHMMSS>_<pid>.log` | **un par lancement**, conservé |
+| `logs/app.log` | la course **courante** seule, tronquée au lancement |
+
+`logs/app.log` **garde son nom et son chemin** : tout outil, script ou habitude
+qui le lit continue de fonctionner. Il ne contient simplement plus que la
+dernière course au lieu de toutes — c'est-à-dire ce que tout le monde croyait
+déjà qu'il contenait.
+
+**Un seul site de création dans tout le dépôt** (mesuré sur `Applications/`,
+`Engine/`, `Kernel/`, `Integrations/`) : le constructeur du singleton,
+`NkLog.cpp`. Le correctif tient donc dans **un seul fichier**. `NkFileSink`
+n'a pas été touché : il savait déjà tronquer (`truncate` → mode `"wb"`) et créer
+son dossier parent.
+
+### 📌 RÈGLE DE RÉTENTION — garder les N derniers, N = 20
+
+> **Les `app_*.log` sont purgés au démarrage : on ne conserve que les
+> `NKENTSEU_LOG_KEEP` plus récents, 20 par défaut. `0` = ne jamais purger.**
+
+**Un compte, et non un âge**, et c'est le point qui a été arbitré : un âge
+(« 7 jours ») ne borne rien — les six courses mesurées tiennent dans vingt
+minutes et passeraient toutes la fenêtre. Un compte borne le disque quel que
+soit le rythme de travail, ce qui est la seule propriété recherchée. 20 couvre
+largement une session (le pire cas mesuré est 6).
+
+La purge trie par **nom**, ce qui est légitime parce que l'horodatage est en
+tête et de **largeur fixe** : l'ordre lexicographique *est* l'ordre
+chronologique. Elle ne peut pas emporter `logs/app.log` par accident — il ne
+commence pas par `app_`.
+
+### Témoins (dans les deux sens, sur deux applications, deux régimes)
+
+| | avant | après |
+|---|---|---|
+| **Nogee** (fenêtré, tué au bout de 15 s, `exit=124`) | 2 lancements → **1** fichier, 32 → 64 lignes, **2** marqueurs de démarrage | 2 lancements → **2** fichiers horodatés, **1** marqueur chacun ; `app.log` = 32 lignes, **1** marqueur, **identique octet pour octet** à la course 2 |
+| **NkAgentEcsDemo** (console, sortie normale `exit=0`) | — | 2 fichiers distincts, `app.log` = dernière course, verdict de la démo bien présent (le vidage à la sortie normale n'a pas régressé) |
+
+- **Contrôle positif** : la même commande de comptage trouve bien **2**
+  marqueurs dans le fichier d'avant — elle n'est pas muette, un « 1 » veut donc
+  dire 1.
+- **Rétention exercée** : 8 journaux + `NKENTSEU_LOG_KEEP=3` → **3** restants,
+  et ce sont les **deux plus récents** qui survivent (les six plus anciens sont
+  supprimés) — la purge trie, elle ne tape pas au hasard. `app.log` intact.
+- **Régimes couverts** : défaut (20), `=3` (purge), `=0` (jamais), valeur
+  illisible (`abc` → défaut, aucun plantage). 0 `[ERR]` partout.
+
+### Limite écrite plutôt que laissée à découvrir
+
+Deux applications lancées **en même temps depuis le même répertoire courant** se
+disputent `logs/app.log`. Ce n'est pas une régression — aujourd'hui elles y
+entrelaçaient déjà leurs lignes, ce qui était pire — et c'est précisément ce que
+les fichiers par lancement réparent : chaque processus a le sien.
 
 ---
 
