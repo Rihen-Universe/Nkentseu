@@ -3193,3 +3193,44 @@ la ou la maquette la demande.
   elle est proposee, elle n'est pas faite.
 - **Contrat d'import (d) materiaux/textures et (e) dialogue : toujours pas
   commence** (inchange depuis Q58).
+
+### 7. LE DEVIS DE L'EXTRACTION DU PEINTRE — chiffre, pour que la prochaine seance parte d'un nombre
+
+L'agent du kit demande trois etats globaux transformes en **membres** (son
+exigence A), faute de quoi il devra rouvrir l'extraction. J'ai mesure le cout de
+chacun **avant** de commencer, et le resultat concentre tout le chantier sur un
+seul point.
+
+| son exigence | sites d'appel chez moi | cout |
+|---|---|---|
+| `NkPopupBoundsW()` / `NkPopupBoundsH()` -> membres | **8** | trivial |
+| `NkModelerIcons` concret -> poignee opaque | **403 `NkIcon::`**, mais ils restent chez moi ; seul le **parametre du constructeur** change | faible |
+| **`gUiScale` + `S(px)` -> membre** | **1 191 sites** (1 187 dans `Shell/`) | ⚠️ **c'est tout le chantier** |
+| *(a ajouter a sa liste)* `NkUiCtx()` + `NkOvPainter()` | **14** | faible |
+
+> **L'extraction du peintre, c'est un probleme a une variable : `S()`.**
+
+**Et il y a un arbitrage a trancher AVANT de toucher une ligne**, parce que les
+deux issues n'ont pas le meme cout ni la meme valeur :
+
+- **(i) `S` devient une methode du peintre.** Satisfait litteralement l'exigence
+  (deux fenetres a deux facteurs DPI), mais demande **1 191 reecritures** — et
+  surtout `S()` est appelee la ou **aucun peintre n'est en portee** :
+  `NkLayout::Compute` est une methode d'une structure de disposition, et
+  `NkModelerTables.h` s'en sert pour ses metriques sans rien peindre. Cette issue
+  n'est donc pas une simple substitution : elle oblige a faire circuler le
+  peintre dans du code qui ne dessine pas.
+- **(ii) `S` reste libre mais lit une echelle portee par un contexte injecte.**
+  Cout de reecriture proche de zero, mais ca ne satisfait l'exigence que si
+  l'echelle vit dans un objet atteignable depuis les deux fenetres — donc ca
+  deplace le probleme au lieu de le supprimer.
+
+**Je ne tranche pas seul** : c'est le kit qui recoit et generalise, et l'issue
+choisie determine la forme de ce qu'il recoit. Question posee au canal (Q59 §7).
+
+**Pourquoi l'extraction n'est PAS commencee dans ce lot, en une phrase** : une
+transformation qui touche 1 191 sites n'a de valeur que si je peux prouver
+« rien n'a change chez moi » — et cette preuve est un **temoin visuel**, que le
+GPU indisponible interdit. Differee et nommee, pas oubliee. Ce devis est ce que
+je peux livrer sans fenetre, et il fait gagner la phase de decouverte a la
+seance suivante.
