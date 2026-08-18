@@ -64,26 +64,64 @@ l'export d'interfaces** (§ 9).
 
 | fichier | ce qu'il fait |
 |---|---|
-| `main.cpp` | modes `--probe` / fenêtre, **choix du backend graphique**, enregistrement des 5 panneaux et des 4 commandes |
+| `main.cpp` | modes `--probe` / fenêtre, enregistrement des 5 panneaux et des 4 commandes |
+| `Backend.h` | la **résolution du backend graphique**, en fonction **pure** : `main` l'appelle, `--probe` vérifie **la même fonction** |
 | `Document.h` | le document = un arbre de nœuds, **zéro coordonnée**, provenance, cadres |
 | `Layout.h` | le solveur du document — **miroir** de la sémantique du kit |
 | `Renderers.h` | table `nom → fonction de dessin`, **cartouche** pour un composant non branché |
 | `Panels.h` | les cinq panneaux |
 | `DesignAI.h` | la **place** de l'IA : prompt, backend remplaçable, greffe, provenance, rejeu |
-| `Probe.h` | la sonde sans écran — **58 essais** |
+| `Probe.h` | la sonde sans écran — **72 essais** |
 
-### 0.4 Les chiffres du jour (2026-08-19)
+### 0.4 Les chiffres du jour (2026-08-19, fin de journée, commit `002566f7`)
 
 ```
 jenga build --target NKUIDesign   :  20/20 SUCCESS
-NKUIDesign --probe                :  58/58
-banc de la forme (NkFormProbe)    :  34/34, dont 11 témoins qui doivent rougir
-banc de neutralité                :  vert, avec 2 témoins qui échouent bien
+NKUIDesign --probe                :  72/72
+banc de la forme (NkFormProbe)    :  43/43, dont une série de témoins qui doivent rougir
+banc de neutralité                :  vert, avec ses témoins qui échouent bien
 jenga build --target NKEditorKit  :  19/19 SUCCESS
+l'application                     :  OUVRE UNE FENÊTRE (OpenGL), 3 lancements identiques,
+                                     fermeture propre
 ```
 
-⚠️ **Aucun pixel n'a été produit. La fenêtre n'a jamais été ouverte.** Toute
-affirmation visuelle est donc, à ce jour, non mesurée.
+⚠️ **Ces chiffres ont une date, et elle compte.** Une première rédaction de ce
+document, quelques heures plus tôt, portait 58/58, 34/34 et « la fenêtre n'a
+jamais été ouverte ». Tout cela était vrai à l'écriture. **Revérifiez contre le
+dépôt avant de vous appuyer sur un chiffre d'ici** ; ne le recopiez pas.
+
+⚠️ **Ce que « l'application tourne » ne dit pas** : aucune conformité aux planches
+de référence n'est mesurée. La fenêtre s'ouvre et se ferme proprement.
+
+### 0.5 Les deux défauts que le premier regard a trouvés — à lire avant d'écrire un témoin
+
+**68 essais verts ne les avaient pas vus.** Ce ne sont pas des anecdotes : ce sont
+les deux formes d'aveuglement les plus productives de ce projet.
+
+**Défaut 1 — le code sans témoin était exactement le code que le GPU touchait.**
+Le journal du backend imprimait ses propres accolades au lieu des valeurs : la
+trace **existait et ne disait rien**. La cause n'est pas la faute de formatage,
+c'est **l'emplacement** : la résolution vivait dans le point d'entrée, donc hors
+de portée d'une sonde sans écran.
+
+> **Règle qui en sort** : si un morceau de logique n'est atteignable que par le
+> chemin qui exige un écran, **sortez-le en fonction pure** et faites-le vérifier
+> par la sonde. C'est ce qui a été fait (`Backend.h`).
+
+**Défaut 2 — un résolveur qui dit oui à tout ne peut pas voir un nom faux.**
+Le composant se peignait en **magenta franc** : les noms canoniques de rôles de
+thème sont en `snake_case`, des rôles étaient déclarés en `PascalCase`, aucun ne
+tombait juste, et le thème repliait sur sa couleur « ça doit sauter aux yeux ».
+**Le repli a fait son travail.** Mais la sonde ne pouvait rien voir : son
+résolveur **hachait n'importe quel nom** vers une valeur valide et ne rendait
+jamais « inconnu ».
+
+> **Règle qui en sort** : un doublure de résolution doit pouvoir rendre **échec**.
+> Une doublure totale valide n'est pas une doublure, c'est un masque.
+
+🟡 **Reste ouvert** : **10 jetons d'un composant restent non résolus**, comptés et
+nommés dans la sortie de sonde. Ils vivent dans le fichier d'un autre agent —
+**comptés, pas corrigés à sa place**.
 
 ---
 
@@ -102,6 +140,14 @@ Un rôle = **une entrée d'énumération** (accès du code, indexation directe,
 vérifiée à la compilation) **+ un nom stable** (accès du fichier).
 **L'énumération est APPEND-ONLY** : un rôle inséré au milieu décale tous les
 suivants et un thème enregistré relit les mauvaises couleurs.
+
+⚠️ **LE NOM CANONIQUE D'UN RÔLE EST EN `snake_case`** — `panel_bg`,
+`panel_header`, `input_bg` — et la résolution compare **octet pour octet**. Un
+rôle déclaré en `PascalCase` ne tombe juste sur rien, rend « inconnu », et se
+peint en **magenta franc**. Ce défaut est arrivé, il a été trouvé **à l'œil au
+premier lancement**, et aucun des 68 essais d'alors ne pouvait le voir (§ 0.5).
+Les noms d'énumération C++ restent en `PascalCase` ; **les noms écrits et
+résolus sont en `snake_case`**. Ne les confondez jamais.
 
 Groupes existants : structure (`WindowBg`, `PanelBg`, `PanelHeader`, `Border`,
 `InputBg`, `LabelCol`) · texte (`Text`, `TextMuted`, `TextOnAccent`) · accents
@@ -402,7 +448,7 @@ sans recevoir l'entrée n'émet jamais rien : ses crochets seraient des pointeur
 que rien n'appelle, et l'application les remplirait en attendant. Ce trou a été
 trouvé et bouché — ne le rouvrez pas.
 
-### 3.5 📝 Deux manques mesurés — ne les comblez pas seul
+### 3.5 Les deux manques mesurés — l'un est réparé, l'autre n'est pas à vous
 
 1. **Une charge ne sait pas porter une collection.** Aucun des huit types n'est
    une liste, et c'est délibéré. Une sélection multiple **n'est donc pas
@@ -410,11 +456,12 @@ trouvé et bouché — ne le rouvrez pas.
    rencontré ce mur indépendamment.** Deux issues (ajouter `List[T]` à la
    spécification ; ou introduire la **propriété exposée** — un état lisible sans
    être une charge). **La décision est à Rodolf. Ne tranchez pas.**
-2. **L'arbre statique ne dit pas les enfants répétés par la donnée** (les cartes
-   d'un navigateur, les lignes d'un arbre). La réparation est connue — un
-   marqueur de répétition sur un élément : `une fois / par entrée / par entrée
-   récursif` — et elle est **générale**, pas propre à un composant. C'est le
-   premier geste de la passe suivante côté kit.
+2. ✅ **Le gabarit répété est FAIT** (19/08). Un élément déclare `once` /
+   `per_entry` / `per_entry_tree`, **et rien d'autre** : ni compteur, ni source de
+   données — *la donnée appartient à l'application, jamais au kit*. Le champ a été
+   **ajouté à la fin**, et un essai vérifie qu'une table écrite avant lui compile
+   encore. La réparation est bien **générale** : le même manque tombait sur les
+   cartes d'un navigateur **et** sur les lignes d'un arbre.
 
 ---
 
@@ -436,8 +483,10 @@ en dur, du côté utilisateur.
 
 ## 5. Les langues — la section à lire deux fois
 
-> **Rien n'existe.** Aucun fichier de traduction, aucune clé, aucun mécanisme, ni
-> dans NkUIDesign ni dans NKGui.
+> **Un seul point existe** : la forme de déclaration décide que **le libellé EST
+> la clé** (§ 5.3, point 4). **Aucun catalogue de traduction, aucune résolution,
+> aucun changement à chaud, aucune invalidation de mesure** — ni dans NkUIDesign
+> ni dans NKGui.
 
 ### 5.1 Où l'écrire — et ce n'est pas dans cette application
 
@@ -536,16 +585,34 @@ retrouve par recherche de texte**.
 **Témoin** : demander une clé absente → la sortie contient le nom de la clé, et le
 compteur de clés manquantes s'incrémente de 1.
 
-#### Point 4 — **les interfaces produites sont traduisibles aussi**
+#### Point 4 — **les interfaces produites sont traduisibles aussi** — ✅ décidé
 
 Les libellés d'un composant déclaré sont des **clés**, pas du texte. Sinon
 l'outil produit des interfaces monolingues.
 
-**Témoin** : sérialiser un document dont un nœud porte un libellé, relire, et
-vérifier que ce qui a été écrit est **une clé** ; puis basculer la langue et
-vérifier que **l'aperçu du document** change aussi — pas seulement l'interface de
-l'éditeur. **Ce second point est celui qu'on oublie** : on traduit l'outil et on
-laisse le contenu en dur.
+✅ **C'est tranché dans la forme depuis le 19/08, et la décision est
+contre-intuitive : aucun champ n'a été ajouté.** Poser une clé *à côté* du
+libellé aurait créé **deux sources de vérité pour une même chose**.
+
+> **Le libellé EST la clé.** Il n'y a rien à synchroniser parce qu'il n'y a qu'un
+> champ.
+
+Ce qui existe avec : un contrôle de **forme** de clé (pas d'espace, pas d'accent,
+pas de majuscule) et un signalement **en note, jamais en erreur** pour un libellé
+encore écrit en clair — rougir aurait cassé le travail d'un autre agent qui
+n'avait rien cassé.
+
+⚠️ **LA MIGRATION N'EST PAS FAITE, DÉLIBÉRÉMENT.** L'application affiche encore
+les titres tels quels et **aucun catalogue n'existe dans NKGui**. Migrer
+maintenant afficherait `content_browser.title` à l'écran à la place de
+« Navigateur de contenu ». **L'ordre est : le catalogue d'abord, la migration
+ensuite.** Ne l'inversez pas pour faire passer un témoin.
+
+**Témoin, quand le catalogue existera** : sérialiser un document dont un nœud
+porte un libellé, relire, vérifier que ce qui a été écrit est **une clé** ; puis
+basculer la langue et vérifier que **l'aperçu du document** change aussi — pas
+seulement l'interface de l'éditeur. **Ce second point est celui qu'on oublie** :
+on traduit l'outil et on laisse le contenu en dur.
 
 ### 5.4 La police doit couvrir la langue
 
@@ -610,10 +677,22 @@ variante. Ne la faites pas entrer dans la déclaration de composant.
 | ligne de commande | `--gfx=auto\|opengl\|vulkan\|dx11\|dx12\|metal\|software` |
 | environnement | `NK_GFX_API=…` |
 | priorité | **ligne de commande > environnement > détection automatique** |
-| journalisation | *demandé*, *source*, *retenu* — **avant toute création de contexte** |
+| **la résolution est une fonction PURE** (`Backend.h`) | le programme l'appelle, **et `--probe` vérifie la même fonction** |
+| journalisation | *demandé* / *source* / **retenu** / *pourquoi* — **avant toute création de contexte** |
 | refus | un backend indisponible **fait échouer le lancement avec la raison** |
 | défaut | la **détection automatique** |
 | taille réduite | `--small` = 1024×640, **le plancher réel de la coquille** — demander moins donnerait la même fenêtre avec un chiffre faux dans le journal |
+
+⚠️ **« auto » ne se journalise JAMAIS comme retenu.** Il faut écrire ce qu'`auto`
+a **effectivement donné** — sur Windows il vaut DX11 — sinon le journal répond
+« auto » à la question « sur quoi ai-je mesuré ? », et ne répond donc rien.
+**C'est la moitié de la règle**, et c'est la moitié qu'on oublie.
+
+⚠️ **La ligne de journal s'assemble sans formateur.** Elle a déjà échoué en
+silence une fois : le journal imprimait ses propres accolades au lieu des
+valeurs (§ 0.5). **Une concaténation ne peut pas échouer en silence** ; un
+formateur, si. Pour la ligne qui dit *sur quoi on mesure*, ce n'est pas un détail
+de style.
 
 ⚠️ **`metal`** est **accepté à l'analyse** et **refusé à la résolution** :
 l'énumération de la coquille n'a pas d'entrée Metal. Le taire reviendrait à
@@ -812,7 +891,20 @@ chose. **Elle s'applique à tout ce que vous ajouterez.**
    avant de conclure**, surtout quand l'échec accuse le changement qu'on vient de
    faire — un résultat qui confirme ce qu'on craint mérite la même sévérité qu'un
    résultat qui nous disculpe.
-4. **Le témoin séquentiel qui ne discrimine pas.** Vérifier qu'une échelle
+4. **Le code sans témoin est celui qui casse.** Ce qui n'est atteignable que par
+   le chemin exigeant un écran échappe à la sonde — et c'est exactement là que le
+   défaut s'est logé. **Sortez-le en fonction pure**, faites-la appeler par le
+   programme **et** vérifier par la sonde. (§ 0.5, défaut 1.)
+5. **Une doublure qui dit oui à tout est un masque.** Le résolveur de rôles de la
+   sonde acceptait n'importe quel nom : il ne pouvait donc pas voir un nom faux,
+   et le composant se peignait en magenta à l'écran pendant que 68 essais
+   restaient verts. **Toute doublure de résolution doit pouvoir rendre échec.**
+   (§ 0.5, défaut 2.)
+6. **Un témoin se vérifie PAR MUTATION.** Un essai vert ne prouve rien tant qu'on
+   n'a pas réinjecté le défaut pour le voir rougir. C'est ce qui a été fait sur
+   les nouvelles familles d'essais du backend — le défaut remis en place fait
+   passer trois essais au rouge et la sonde rend un code d'échec.
+7. **Le témoin séquentiel qui ne discrimine pas.** Vérifier qu'une échelle
    traverse en changeant la valeur puis en redessinant **passerait aussi avec une
    variable globale**. Le seul témoin qui discrimine est **simultané** — deux
    fenêtres à DPI différents au même instant. Il exige un GPU : **différé, et
@@ -868,7 +960,8 @@ puis ce qui le rend complet.**
 
 | # | tâche | § |
 |---|---|---|
-| 1 | **ouvrir la fenêtre** dès qu'un GPU est libre — c'est le seul témoin qui manque à tout le reste | 0.4 |
+| 1 | ✅ **fait le 19/08** : la fenêtre s'ouvre. **Le geste suivant est le second regard** — comparer aux planches de référence, panneau par panneau, et compter les défauts comme le premier regard en a rapporté deux | 0.4, 0.5 |
+| 1b | **résoudre les 10 jetons non résolus** signalés par la sonde (fichier d'un autre agent : **porter, ne pas corriger à sa place**) | 0.5 |
 | 2 | **annuler / rétablir** | 8.4 P1 |
 | 3 | **barre d'état** : backend retenu, sélection, compte, modifié | 7.2 B4 |
 | 4 | **menus** + toute action aussi commande de palette | 8.4 P2 |
@@ -881,7 +974,7 @@ puis ce qui le rend complet.**
 | 6 | bascule **Clair/Sombre** à l'exécution + rôles propres enregistrés | 4 T1, 1.3 |
 | 7 | **multilingue dans NKGui** — clé, génération, cache invalidé, clé manquante visible | 5 |
 | 8 | **pseudo-langue longue** + son contrôle négatif, dans la sonde | 5.3 |
-| 9 | **libellés du document en clés** — l'aperçu se retraduit aussi | 5.3 point 4 |
+| 9 | **migrer les libellés vers des clés** — décidé, **volontairement non fait tant qu'aucun catalogue n'existe** : le catalogue (n° 7) passe avant, sinon on affiche des clés à l'écran | 5.3 point 4 |
 | 10 | **changement de backend depuis l'interface** : prévenir, sauver, relancer, restaurer | 7.2 |
 
 ### Palier 3 — la description s'étend
@@ -891,9 +984,9 @@ puis ce qui le rend complet.**
 | 11 | témoin **« les deux solveurs sont d'accord »** | 2.5 |
 | 12 | **l'ancre `safe` / `edge`** — dans la déclaration **et** dans les deux solveurs, avec son témoin à deux moitiés | 2.6 |
 | 13 | **profils d'appareil simulés** dans le panneau Aperçu (encoche, indicateur, rotation, clavier) | 2.6.4 |
-| 14 | **gabarit répété** (côté kit) | 3.5 |
-| 15 | **décision de Rodolf** sur la charge collection — *rien ne bouge sans elle* | 3.5 |
-| 16 | **promouvoir un sous-arbre en composant** | doc 1, § 9.8 |
+| 14 | **décision de Rodolf** sur la charge collection — *rien ne bouge sans elle* | 3.5 |
+| 15 | **promouvoir un sous-arbre en composant** | doc 1, § 9.8 |
+| 16 | **consommer le gabarit répété** dans le dessin et l'aperçu — le champ existe et **la vérification le lit ; aucun dessin ne le consomme encore** | 3.5 |
 
 ### Palier 4 — icônes, comportement, export
 
