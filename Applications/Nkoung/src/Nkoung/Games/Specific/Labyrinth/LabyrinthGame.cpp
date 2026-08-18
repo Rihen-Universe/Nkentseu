@@ -175,7 +175,7 @@ namespace nkoung {
 		// ── Bandeau de victoire ──
 		if (mWon) {
 			const char *msg = "Sortie atteinte !";
-			nkui::NkUIFont *tf = frame.titleFont ? frame.titleFont : frame.font;
+			nkgui::NkGuiFont *tf = frame.titleFont ? frame.titleFont : frame.font;
 			const float32 bw = frame.TextW(tf, msg) + 48.f;
 			const float32 bx = SX + (SW - bw) * 0.5f, by = areaY + 6.f;
 			frame.Rect(bx, by, bw, 46.f, math::NkColor{0, 208, 132, 45}, 12.f);

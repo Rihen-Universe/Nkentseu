@@ -5,7 +5,7 @@
 #include "Core/MouConfig.h"
 #include "NKImage/Codecs/SVG/NkSVGCodec.h"
 #include "NKImage/Core/NkImage.h"
-#include "NKCanvas/UI/NkUICanvasBackend.h"
+#include "NKCanvas/UI/NkGuiCanvasBackend.h"
 #include <cstdio>
 #include <cstring>
 
@@ -13,7 +13,7 @@ namespace mou {
 
 	using namespace nkentseu;
 
-	bool MouAssets::Init(renderer::NkUICanvasBackend *backend) noexcept {
+	bool MouAssets::Init(renderer::NkGuiCanvasBackend *backend) noexcept {
 		mBackend = backend;
 		mNextTexId = 10000;
 		return mBackend != nullptr;
@@ -60,7 +60,7 @@ namespace mou {
 		mLastW = iw;
 		mLastH = ih;
 		const uint32 id = mNextTexId++;
-		const bool ok = mBackend->UploadTextureRGBA8(id, img.Pixels(), iw, ih);
+		const bool ok = mBackend->UploadImageRGBA(id, img.Pixels(), iw, ih);
 		if (!ok) {
 			MOU_LOG_WARNF("[MouAssets] Upload texture echoue: %s", full);
 			return 0;

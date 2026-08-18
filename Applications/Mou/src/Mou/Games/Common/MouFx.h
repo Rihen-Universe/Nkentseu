@@ -1,7 +1,7 @@
 // =============================================================================
 // Games/Common/MouFx.h
 // Petit système de particules pour le "juice" (confettis, étincelles, puff).
-// Rendu via MouFrame (primitives NKUI). Partagé par tous les jeux Mú.
+// Rendu via MouFrame (primitives NKGui, cf. UI/MouDraw.h). Partagé par tous les jeux Mú.
 // =============================================================================
 #pragma once
 
