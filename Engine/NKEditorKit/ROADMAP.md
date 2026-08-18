@@ -305,6 +305,21 @@ Démonstration : **le navigateur de contenu**, dans
 
 ### La signature type, et pourquoi cinq arguments
 
+> ⚠️ **CORRIGÉ LE 18/08 (seconde passe) : c'est SIX, pas cinq.** Il manquait
+> l'**entrée**. Un composant signé ainsi dessine et **n'entend jamais rien** —
+> ses crochets `onSelect` / `onDoubleClick` / `onContextMenu` seraient des
+> pointeurs que rien n'appelle, c'est-à-dire « un paramètre qui n'est pas
+> honoré » sous sa forme la plus coûteuse : l'application les remplit et attend.
+> C'est la condition « les événements dès maintenant » posée par Rodolf qui a
+> rendu le trou visible ; sans elle la forme se figeait à cinq et le mouvement
+> se refaisait plus tard. Forme réelle, écrite et compilée :
+>
+> ```
+> resultat  Dessiner( PEINTRE, ENTREE, RECTANGLE, MODELE, STYLE, GREFFES )
+> ```
+>
+> Raisonnement complet dans `NkComponentPaint.h`, bloc `NkComponentInput`.
+
 ```
 resultat  Dessiner( PEINTRE, RECTANGLE, MODELE, STYLE, GREFFES )
 ```
@@ -413,9 +428,12 @@ d'énumérer ; une liste écrite en dur dans son code ne le lui donnerait pas.
 ⚠️ **Ce qui n'est PAS tranché ici, et ne doit pas l'être** : le **format de
 fichier** est une décision de Rodolf. Cette structure se sérialise dans
 n'importe lequel — c'est justement pourquoi elle peut être écrite avant que le
-format soit choisi. `NkComponentRegistry` est **déclaré et défini nulle part** :
-le définir supposerait de choisir un stockage et une cible de build,
-c'est-à-dire d'implémenter.
+format soit choisi. ~~`NkComponentRegistry` est **déclaré et défini nulle part**~~ — ⚠️ **plus vrai
+depuis le 18/08 (seconde passe)** : il est défini dans
+`Components/NkComponentRegistry.cpp`. Il a fallu le définir dès que NkUIDesign
+a dû **lister** les composants : une liste écrite en dur dans l'éditeur aurait
+affiché les bons noms sans qu'une seule déclaration soit lue — elle aurait
+« marché » en ne prouvant rien.
 
 ### ⚠️ RECTIFICATIF — j'ai proposé une déclaration en ignorant que le dépôt en a déjà deux et demie
 
@@ -477,7 +495,14 @@ nom de macro dans deux modules**.
 > 3. **Abandonner `NkComponentDecl`** et partir de la spec `.nkgui` v0.2, qui
 >    est plus ambitieuse (elle couvre aussi le comportement et les blueprints).
 >
-> **Je ne tranche pas** : les trois sont défendables et c'est une décision
+> ✅ **TRANCHÉ PAR RODOLF LE 18/08 : issue (2), avec deux conditions** — la
+> frontière écrite noir sur blanc, et **les événements dans la forme dès
+> maintenant**. `NKReflection` n'est ni dépréciée ni concurrencée : elle a un
+> autre domaine, et elle servira ailleurs. La cible reste `.nkgui` v0.2 :
+> l'issue (2) est le chemin, pas la destination. **Livré** — voir la section
+> « LA TRANCHE VERTICALE » en fin de fichier.
+>
+> **Je ne tranchais pas** : les trois sont défendables et c'est une décision
 > d'architecture qui engage des années. **Mon avis, dit comme un avis** : (2)
 > pour les six composants des paliers 3-6, parce que la propriété « constante de
 > compilation, vérifiable sans rien lier » est ce qui rend la montée sûre — puis
@@ -679,9 +704,13 @@ moment-là, comme l'exige l'en-tête de ce fichier.
 - **Aucun témoin visuel.** Séance sans GPU. Rien de ce qui suit n'a été vu à
   l'écran, et **aucune conformité aux planches n'est revendiquée** — le devis dit
   ce qu'il faudrait pour y être conforme, pas qu'on y est.
-- **Le peintre n'est pas monté**, la fonction de dessin est **déclarée, pas
-  définie** : la définir exige le peintre partagé (palier 1).
-- **`NkComponentRegistry` est déclaré, défini nulle part.**
+- **Le peintre n'est toujours pas monté** — et il ne le sera pas par moi : son
+  extraction appartient à l'agent NK3DModeler, je la **reçois**. ⚠️ Mais la
+  fonction de dessin, elle, **est définie** (`NkContentBrowserDraw.cpp`) : elle
+  ne dépend pas de son peintre, elle dépend de l'**interface**
+  `NkComponentPaint` que ce peintre satisfera. C'est ce qui a permis de livrer
+  sans lui prendre son travail.
+- ~~**`NkComponentRegistry` est déclaré, défini nulle part.**~~ **Défini.**
 - **Cinq des six composants n'ont pas de déclaration écrite** — seul le
   navigateur en a une.
 - **Aucune mesure d'écart du viseur** contre la 3ᵉ capture (palier 7 non
@@ -719,3 +748,121 @@ l'autre n'a été touché.
 **Repris au canal à l'intention de l'agent NKGui** : contour arrondi, cercle
 creux, atlas d'icônes, ellipse, texte centré, jetons de métrique, et la jonction
 `NkGuiTheme` ↔ `NkTheme` (§2).
+
+---
+
+# 2026-08-18 (seconde passe) — LA TRANCHE VERTICALE : NkUIDesign lit la déclaration
+
+> **Commandé par Rodolf le 18/08**, en tranchant l'issue (2) du §4 : la frontière
+> écrite noir sur blanc, **les événements dans la forme dès maintenant**, et
+> NkUIDesign livré **maintenant** — en tranche verticale, pas « la totale ».
+>
+> ⚠️ **Séance sans GPU** (campagne d'Ilyana). **Aucune fenêtre n'a été ouverte,
+> aucun témoin visuel n'a été pris, et aucune conformité aux planches n'est
+> revendiquée.** L'éditeur compile ; il n'a jamais été vu. Ce qui est prouvé
+> l'est par un banc headless, et ce banc ne juge pas un pixel.
+
+## 1. Pourquoi une tranche, et pas la déclaration seule
+
+C'est ma propre loi qui l'impose. La mesure du §4 dit qu'une brique partagée
+n'est pas ignorée par oubli mais **écartée par un calcul de coût**. Une
+déclaration **sans consommateur** serait donc le **quatrième système dormant**, à
+côté de `NKReflection`, de l'interpréteur blueprint et de `NkEditorInspector.h`.
+**Le consommateur construit en même temps est ce qui rend la déclaration
+rentable tout de suite** — et c'est la seule protection contre le motif que ce
+chantier existe pour arrêter.
+
+## 2. Ce qui est livré
+
+| pièce | fichier | ce qu'elle apporte |
+|---|---|---|
+| **la frontière** | `NkComponentDecl.h`, bloc en tête | `NKReflection` = objets de données (exécution, allocation) ; `NkComponentDecl` = composants d'interface (constante de compilation). **Règle opératoire** : *si ça peut être INSTANCIÉ c'est `NKReflection` ; si ça peut être DESSINÉ c'est `NkComponentDecl`* |
+| **les événements** | `NkArgKind` / `NkArgDecl` / `NkEventDecl` | 5 événements déclarés **avec leur charge** sur le navigateur |
+| **la convergence `.nkgui`** | `NkWriteControllerBlock()` | **produit** le bloc `controller` de la spec §10 — pas « compatible en principe » |
+| **l'instance** | `NkComponentInstance.h` | les écarts, mutables et sauvés, **séparés** de la déclaration qui reste constante |
+| **le peintre (interface)** | `NkComponentPaint.h` | le contrat de réception du peintre de NK3DModeler |
+| **le dessin** | `NkContentBrowserDraw.cpp` | **pas un seul nombre de pixels écrit** : tout passe par `M("...")` |
+| **l'éditeur** | `Applications/NKUIDesign/` | charge, affiche, édite en direct, sauve |
+| **le banc** | `NKUIDesign --probe` | **21/21**, `Build/Bin/Debug-Windows/NKUIDesign/nkuidesign_probe.txt` |
+
+**Build : 201/201, SUCCESS.**
+
+## 3. Le témoin, et ce qu'il ne dit pas
+
+Les trois contrôles qui rendent les autres lisibles : **témoin de bruit** (deux
+passes identiques → 0 différence sur 88 commandes) ; **contrôle positif**
+(`card_gap` 12 → 40 → 57 commandes changent) ; **contrôle négatif** (une clé
+inconnue de la déclaration → **0 écrasement retenu, 0 différence**).
+
+Le cœur du « sans recompiler » est l'essai 6 : **écrit → texte → relu → même
+dessin** (0 différence avec l'écrit, 57 avec la référence). Le dessin suit un
+**fichier texte**, pas un littéral C++.
+
+⚠️ **Deux défauts de la sonde trouvés par la sonde elle-même**, et le second est
+le plus instructif : le point de clic en dur (60, 300) tombait **dans la colonne
+d'arbre**, donc aucun événement ne partait. Les essais 10 et 11 échouaient — mais
+**10b PASSAIT** : « la charge `path` n'est pas vide » était vrai *parce qu'aucune
+charge n'existait*. **Un succès à vide**, face n° 2 de la grille. Corrigé des deux
+côtés : le point de clic se **calcule depuis la déclaration**, et l'assertion sur
+la charge exige d'abord qu'une charge existe.
+
+⚠️ **Portée, écrite avec le résultat.** Régime couvert : 12 entrées, panneau
+900×600, échelle 1.0, variantes `grid` et `dense_list`. **Non couverts** : liste
+vide, filtre actif, échelle ≠ 1 en simultané, panneau plus étroit qu'une carte,
+variante `columns` (déclarée, rendue comme `dense_list`). Les métriques de texte
+du peintre enregistreur sont **fictives** : le banc ne peut rien dire de
+l'ellipse, de la troncature ni du centrage.
+
+## 4. Ce qui est HORS de la tranche — nommé, pas oublié
+
+Les **blueprints** (les événements sont déclarés, rien ne s'y branche) ·
+l'**IA spécialisée** · la **création de composants ex nihilo** · le **canevas
+libre** · les **variantes multiples** au-delà de ce qui prouve la chaîne.
+
+Différé et nommé, en plus : le **premier lancement fenêtré** · la conformité aux
+planches · le **témoin DPI simultané** (deux fenêtres à DPI différents en même
+temps — un témoin séquentiel ne discrimine pas, une globale le passerait aussi) ·
+un **widget de sélection de rôle** pour rebrancher un jeton (le mécanisme est en
+place et testé, c'est le widget qui manque — et l'écrire ici en ferait une copie
+de plus).
+
+## 5. Précision de Rodolf : la bibliothèque n'est pas une prison
+
+*« On n'interdit pas la réécriture, mais nos applications utilisent ce qui existe
+sauf spécificité propre non couverte. »* Ce devis disait « la règle mord : toute
+interface neuve hors bibliothèque exige une justification écrite ». **Reformulé :
+la bibliothèque est un CHOIX PAR DÉFAUT.** Ce qui est proscrit, c'est de réécrire
+**sans raison** ce qui existe ; une spécificité propre à une application, non
+couverte, reste légitimement locale et **se justifie en une ligne**. Pour un
+utilisateur tiers du moteur, le choix reste entier.
+
+## 6. L'échelle appartient à la surface — correction reçue
+
+J'avais écrit `Scale()` comme **méthode du peintre**, pour tuer la globale de
+processus `gUiScale`. **Diagnostic bon, remède faux** : l'arbitrage du 18/08 l'a
+montré sur une mesure que je n'avais pas faite — `S(px)` est appelée dans
+`NkLayout::Compute` et `NkModelerTables.h`, **du code qui ne peint pas**. L'échelle
+appartient à la **surface**, elle vit dans `NkComponentInput::surfaceScale`, une
+instance par fenêtre. Le peintre ne la connaît plus du tout.
+
+## 7. Les trois horizons
+
+- **court** — recevoir le peintre de NK3DModeler et remplacer l'adaptateur NKGui
+  provisoire ; ouvrir la fenêtre dès qu'un GPU est libre.
+- **moyen** — le second composant déclaré (`TreeView`, palier 4) : c'est lui qui
+  dira si la forme tient sur autre chose que celui pour lequel elle a été écrite.
+  Une forme validée sur un seul cas n'est pas validée.
+- **long** — la convergence vers `.nkgui` v0.2 et ses blueprints. **Aucun des
+  deux gestes courts n'y mène**, et c'est exactement ce que l'horizon rend
+  visible : le bloc `controller` produit aujourd'hui est le seul fil qui y monte.
+
+## 8. Ce que ça change pour les applications consommatrices
+
+**Rien.** Aucun fichier d'application n'est touché ; les trois navigateurs
+existants sont intacts. NKEditorKit gagne trois `.cpp` et cinq en-têtes ;
+`NKUIDesign` est une cible neuve. Le seul changement partagé est l'ajout de
+`Applications/NKUIDesign/NKUIDesign.jenga` au workspace.
+
+⚠️ **Et un fait vérifiable qui vaut mieux qu'une affirmation sur la frontière** :
+`NKUIDesign.jenga` **ne déclare pas `NKReflection`**. L'éditeur de composants
+n'en lie pas une ligne — la déclaration ne lui doit rien.

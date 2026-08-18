@@ -31,6 +31,13 @@
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTypes.h"
 #include "NKEditorKit/Components/NkComponentDecl.h"
+#include "NKEditorKit/Components/NkComponentInstance.h"
+// ⚠️ NKGui N'ENTRE PAS PAR CET INCLUDE, et c'est verifiable : `NkComponentPaint.h`
+//    n'inclut que `NKCore/NkTypes.h`. Le banc de neutralite (`ROADMAP.md` §5)
+//    continue de passer, et il a ete rejoue apres cet ajout — l'ajouter sans le
+//    rejouer aurait laisse l'affirmation « ce fichier compile sans NKGui »
+//    debout sans que rien ne la soutienne plus.
+#include "NKEditorKit/Components/NkComponentPaint.h"
 
 namespace nkentseu {
 	namespace editorkit {
@@ -143,14 +150,36 @@ namespace nkentseu {
 				uint16 activeMark = 0, chosenMark = 0;
 				uint16 folderTint = 0;
 
-				// Metriques : NOMMEES, pas ecrites. Elles se lisent dans la
-				// declaration via `decl.Metric("card_gap")`. Le champ ci-dessous ne
-				// sert qu'a l'ecrasement volontaire par l'application ; a zero, le
-				// dessin prend le defaut declare.
-				float32 overrideCardGap = 0.f;
-				float32 overrideRowH = 0.f;
-				float32 overrideStrokeW = 0.f;
+				// ── LA SOURCE DES NOMBRES ───────────────────────────────────────
+				// ⚠️ CE CHAMP A REMPLACE TROIS CHAMPS DU DEVIS, et le dire est plus
+				//    instructif que le champ lui-meme. Le devis portait ici
+				//    `overrideCardGap`, `overrideRowH`, `overrideStrokeW` : trois
+				//    fentes d'ecrasement pour SEPT metriques declarees. C'etait le
+				//    motif « une liste et son compte separes » — ajouter une
+				//    metrique obligeait a ajouter un champ, et les quatre metriques
+				//    sans fente n'etaient reglables par personne.
+				//
+				//    L'instance les remplace toutes les sept, et les suivantes.
+				//
+				// A `nullptr`, le dessin lit les defauts de la declaration : une
+				// application qui n'a rien a regler ne cree pas d'instance et ne
+				// paie rien. C'est ce qui garde le PREMIER PAS GRATUIT — la seule
+				// chose que la mesure du 18/08 designe comme decisive pour
+				// l'adoption d'une brique partagee.
+				const NkComponentInstance *values = nullptr;
 		};
+
+		/// Lecture d'une metrique du navigateur, avec sa source unique. Le dessin
+		/// n'ecrit JAMAIS un nombre : il passe par ici. C'est ce qui rend le temoin
+		/// de la tranche possible — changer la valeur dans un fichier change les
+		/// commandes de dessin, sans recompiler.
+		inline float32 NkBrowserMetric(const NkContentBrowserStyle &s, const char *name);
+		inline float32 NkBrowserParam(const NkContentBrowserStyle &s, const char *name);
+		/// La variante EFFECTIVE : celle de l'instance si elle en impose une, sinon
+		/// celle que l'application a posee dans le style. L'ordre compte — sans lui,
+		/// changer la variante dans l'editeur n'aurait aucun effet, et ce serait
+		/// exactement « un parametre qui n'est pas honore ».
+		inline NkBrowserVariant NkBrowserEffectiveVariant(const NkContentBrowserStyle &s);
 
 		// ── LES POINTS DE GREFFE ────────────────────────────────────────────────
 		// Troisieme exigence de Rodolf : « en y integrant d'autres graphiques ».
@@ -178,11 +207,30 @@ namespace nkentseu {
 				// Filtre PROPRE a l'application, en plus du filtre texte du modele.
 				bool (*acceptEntry)(void *user, const NkAssetEntry &e) = nullptr;
 
-				// Decisions rendues a l'application. Le composant ne charge rien,
-				// n'ouvre rien, ne supprime rien : il SIGNALE.
-				void (*onActivate)(void *user, int32 index) = nullptr;	 ///< double-clic
+				// ── LES ECOUTEURS D'EVENEMENTS ──────────────────────────────────
+				// ⚠️ CES CINQ-LA NE SONT PAS DES POINTS DE GREFFE, et le devis les
+				//    rangeait a tort avec les precedents. Un point de greffe ajoute
+				//    du DESSIN ou filtre une donnee ; un evenement signale un FAIT.
+				//    Ils sont DECLARES separement (`kEvents` plus bas), avec leur
+				//    charge, parce que c'est ce qu'un blueprint devra brancher —
+				//    condition posee par Rodolf le 18/08 en tranchant l'issue (2).
+				//
+				// Le composant ne charge rien, n'ouvre rien, ne supprime rien : il
+				// SIGNALE. Aucun de ces cinq n'a d'action par defaut — un
+				// double-clic sur lequel personne n'ecoute ne fait rien, et c'est
+				// ecrit dans la declaration (`hasDefaultAction = false`) pour que
+				// la question ne se repose pas a chaque application.
+				//
+				// ⚠️ LES SIGNATURES C++ ET LES CHARGES DECLAREES DOIVENT
+				//    CORRESPONDRE. Rien dans le compilateur ne le verifie : c'est
+				//    le meme angle mort que « le point de verite d'un encodage est
+				//    son consommateur ». La sonde de `NKUIDesign` verifie donc les
+				//    DEUX bouts — nombre d'evenements declares et emission reelle.
+				void (*onSelect)(void *user, int32 index, const char *path) = nullptr;
+				void (*onDoubleClick)(void *user, int32 index, const char *path) = nullptr;
 				void (*onContextMenu)(void *user, int32 index, float32 x, float32 y) = nullptr;
-				void (*onDropInto)(void *user, int32 folderIndex) = nullptr;
+				void (*onDrop)(void *user, int32 folderIndex, const char *payloadType) = nullptr;
+				void (*onNavigate)(void *user, const char *path) = nullptr;
 		};
 
 		// ── CE QUE LE DESSIN REND ───────────────────────────────────────────────
@@ -206,11 +254,19 @@ namespace nkentseu {
 		//   - le STYLE porte la variante et les jetons — aucune couleur, aucun pixel ;
 		//   - les GREFFES portent ce que l'application ajoute sans modifier le kit.
 		//
-		// ⚠️ DECLARE, PAS DEFINI. La definir exige le peintre partage, qui n'existe
-		//    pas encore dans le kit (il vit dans NK3DModeler). C'est le palier 1 de
-		//    l'ordre de montee — cf. `ROADMAP.md`.
-		NkContentBrowserResult NkDrawContentBrowser(NkComponentPaint &p, float32 x, float32 y, float32 w,
-													float32 h, NkContentBrowserModel &m,
+		// ⚠️ SIX, PAS CINQ — le devis se trompait, et la raison est ecrite en toutes
+		//    lettres dans `NkComponentPaint.h`, au bloc `NkComponentInput` : un
+		//    composant a cinq arguments dessine sans jamais rien entendre, et ses
+		//    crochets d'evenement ne peuvent alors PAS partir. `ROADMAP.md` §3 est
+		//    corrige.
+		//
+		// ETAT (2026-08-18, seconde passe) : DEFINIE, dans
+		//   `NkContentBrowserDraw.cpp`. Elle ne depend PAS du peintre de
+		//   NK3DModeler — elle depend de l'INTERFACE `NkComponentPaint`, que ce
+		//   peintre satisfera a son arrivee. C'est ce qui a permis de livrer la
+		//   tranche sans prendre a l'agent NK3DModeler un travail qui est le sien.
+		NkContentBrowserResult NkDrawContentBrowser(NkComponentPaint &p, const NkComponentInput &in,
+													const NkPaintRect &rect, NkContentBrowserModel &m,
 													const NkContentBrowserStyle &s,
 													const NkContentBrowserHooks &hooks);
 
@@ -257,14 +313,58 @@ namespace nkentseu {
 				{"toolbar_h", 36.f, "bande d'outils Creer / Importer"},
 				{"header_h", 28.f, "bande d'onglets de panneau"},
 			};
+			// ⚠️ TROIS ENTREES ONT QUITTE CETTE TABLE le 18/08 (seconde passe) :
+			//    `on_activate`, `on_context_menu`, `on_drop_into` sont des
+			//    EVENEMENTS, pas des greffes. Elles vivent dans `kEvents`, avec
+			//    leur charge. Ce qui reste ici dessine ou filtre — rien d'autre.
 			static const NkHookDecl kHooks[] = {
 				{"card_overlay", "(user, peintre, index, x, y, w, h) -> void",
 				 "dessin ajoute par l'application par-dessus une carte"},
 				{"extra_column", "(user, index, col) -> texte", "colonne supplementaire (cf. props §4.3)"},
 				{"accept_entry", "(user, entree) -> bool", "filtre propre a l'application"},
-				{"on_activate", "(user, index) -> void", "double-clic"},
-				{"on_context_menu", "(user, index, x, y) -> void", "clic droit"},
-				{"on_drop_into", "(user, index de dossier) -> void", "lacher sur un dossier"},
+			};
+
+			// ── LES EVENEMENTS ──────────────────────────────────────────────────
+			// SECONDE CONDITION DE RODOLF (2026-08-18) : « la declaration porte les
+			// EVENEMENTS des maintenant, avec leur charge — sinon le mouvement se
+			// refait dans trois mois. »
+			//
+			// Les charges sont ecrites dans le vocabulaire de types de la spec
+			// `.nkgui` v0.2 (§11), sans en inventer un seul. C'est ce qui permet a
+			// `NkWriteControllerBlock` d'emettre le bloc `controller` de la spec
+			// §10 sans traduction — la convergence est produite, pas affirmee.
+			//
+			// ⚠️ POURQUOI `path` EN PLUS DE `index`, alors que l'index suffit au
+			//    C++ : un blueprint n'a pas le modele sous la main. Une charge qui
+			//    n'est interpretable qu'en possedant l'objet emetteur n'est pas une
+			//    charge, c'est un pointeur deguise — et le graphe ne pourrait rien
+			//    en faire. `index` sert au code, `path` sert au graphe.
+			static const NkArgDecl kArgsEntry[] = {
+				{"index", NkArgKind::Int, nullptr, 0},
+				{"path", NkArgKind::String, nullptr, 0},
+			};
+			static const NkArgDecl kArgsMenu[] = {
+				{"index", NkArgKind::Int, nullptr, 0},
+				{"at", NkArgKind::Vec2, nullptr, 0},
+			};
+			static const NkArgDecl kArgsDrop[] = {
+				{"folderIndex", NkArgKind::Int, nullptr, 0},
+				{"payloadType", NkArgKind::String, nullptr, 0},
+			};
+			static const NkArgDecl kArgsNav[] = {
+				{"path", NkArgKind::String, nullptr, 0},
+			};
+			static const NkEventDecl kEvents[] = {
+				{"onSelect", "Selection", "l'entree active change (clic simple, ou clavier)", kArgsEntry,
+				 2, false},
+				{"onDoubleClick", "Activation", "double-clic sur une entree — ouvrir, entrer, importer",
+				 kArgsEntry, 2, false},
+				{"onContextMenu", "Menu contextuel", "clic droit ; `index` vaut -1 sur le fond du panneau",
+				 kArgsMenu, 2, false},
+				{"onDrop", "Depot", "un glisser-deposer est relache sur un dossier de la vue", kArgsDrop, 2,
+				 false},
+				{"onNavigate", "Navigation", "le fil d'Ariane ou l'arbre a change de dossier courant",
+				 kArgsNav, 1, false},
 			};
 			static const NkComponentDecl kDecl = {
 				"content_browser",
@@ -275,8 +375,28 @@ namespace nkentseu {
 				kTokens,   (uint16)(sizeof(kTokens) / sizeof(kTokens[0])),
 				kMetrics,  (uint16)(sizeof(kMetrics) / sizeof(kMetrics[0])),
 				kHooks,	   (uint16)(sizeof(kHooks) / sizeof(kHooks[0])),
+				kEvents,   (uint16)(sizeof(kEvents) / sizeof(kEvents[0])),
 			};
 			return kDecl;
+		}
+
+		// ── LES TROIS LECTURES, DEFINIES ────────────────────────────────────────
+		// Declarees plus haut (elles precedent la declaration du composant, qu'elles
+		// utilisent), definies ici. C'est le SEUL chemin par lequel le dessin obtient
+		// un nombre.
+		inline float32 NkBrowserMetric(const NkContentBrowserStyle &s, const char *name) {
+			return s.values ? s.values->Metric(name) : NkContentBrowserDecl().Metric(name);
+		}
+		inline float32 NkBrowserParam(const NkContentBrowserStyle &s, const char *name) {
+			return s.values ? s.values->Param(name) : NkContentBrowserDecl().Param(name);
+		}
+		inline NkBrowserVariant NkBrowserEffectiveVariant(const NkContentBrowserStyle &s) {
+			if (s.values && s.values->Decl()) {
+				const int32 v = s.values->Variant();
+				if (v >= 0 && v < (int32)NkBrowserVariant::Count)
+					return (NkBrowserVariant)v;
+			}
+			return s.variant;
 		}
 
 	} // namespace editorkit
