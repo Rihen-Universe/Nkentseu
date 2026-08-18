@@ -5,10 +5,71 @@
 // @Author  Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
-// ⚠️ ETAT : DEMONSTRATION DU DEVIS D'ARCHITECTURE (2026-08-18). Ce fichier n'est
-//    inclus par AUCUNE application et ne figure dans AUCUNE cible de build. Il
-//    existe pour que la forme proposee dans `ROADMAP.md` soit lisible et
-//    VERIFIABLE, pas pour etre appelee. Rien ne l'appelle, rien ne casse.
+// ETAT (2026-08-18, seconde passe) : ce fichier est SORTI de l'etat de devis.
+//    Rodolf a tranche l'issue (2) du rectificatif §4 de `ROADMAP.md`. Il est
+//    desormais consomme par `NkContentBrowserDraw.cpp` (le dessin lit la
+//    declaration) et par l'application `NKUIDesign` (l'editeur lit et ecrase).
+//
+// =============================================================================
+//  LA FRONTIERE AVEC `NKReflection` — ECRITE NOIR SUR BLANC (Rodolf, 2026-08-18)
+// =============================================================================
+//  Premiere condition posee par Rodolf en tranchant l'issue (2). Elle existe
+//  parce que le depot porte deja trois systemes de description sans utilisateur
+//  et qu'un quatrieme, non delimite, serait une faute et non un ajout.
+//
+//  ⚠️ `NKReflection` N'EST NI DEPRECIEE NI CONCURRENCEE. Rodolf : « elle va etre
+//     utilisee dans d'autres choses dans le futur. » Elle a un AUTRE DOMAINE.
+//     Ce fichier ne la remplace pas, ne la deconseille pas, et n'en depend pas.
+//
+//  | | `NKReflection` | `NkComponentDecl` (ce fichier) |
+//  |---|---|---|
+//  | ce qui est decrit | un OBJET DE DONNEES (materiau, entite, reglage) | un COMPOSANT D'INTERFACE (navigateur, arbre, ligne de propriete) |
+//  | quand | a l'EXECUTION : enregistrement, allocation, `CreateInstance` par nom | a la COMPILATION : tableaux statiques `const char*`, zero allocation, zero enregistrement |
+//  | qui possede l'instance | la reflexion (elle sait construire) | personne — une declaration ne s'instancie pas, elle se LIT |
+//  | ce qu'on peut en faire sans rien lier | rien : il faut le module | tout : voir le banc de neutralite de `ROADMAP.md` §5 |
+//  | ce qu'elle sait decrire en plus | conteneurs, heritage, sous-objets, 25 drapeaux de metadonnees | VARIANTES, JETONS de theme, JETONS de metrique, POINTS DE GREFFE, EVENEMENTS |
+//  | ce qu'elle NE sait PAS decrire | variantes, jetons, greffes, evenements | conteneurs, heritage, pointeurs |
+//
+//  🎯 LA REGLE OPERATOIRE, en une phrase, pour l'agent qui hesitera :
+//     **si la chose decrite peut etre INSTANCIEE, c'est `NKReflection` ; si elle
+//     peut etre DESSINEE, c'est `NkComponentDecl`.** Un materiau s'instancie et
+//     ne se dessine pas ; un navigateur de contenu se dessine et ne s'instancie
+//     pas (l'application possede son modele, pas le kit).
+//
+//  ⚠️ CE QUI EST INTERDIT DES DEUX COTES, et c'est la seule interdiction :
+//     - ajouter ici de quoi decrire un objet de donnees (heritage, conteneurs,
+//       fabrique par nom) — ce serait reecrire `NKReflection` en moins bien ;
+//     - demander a `NKReflection` de porter une variante ou un jeton de theme —
+//       ce serait lui faire payer le cout d'un domaine qui n'est pas le sien.
+//
+//  LE POINT DE CONTACT PREVU, ET IL EST UNIQUE : un panneau de PROPRIETES
+//  affiche les proprietes d'un objet reflechi (`NkEditorInspector.h`) DANS un
+//  composant declare ici. Les deux se rencontrent a cet endroit-la, et nulle
+//  part ailleurs. Le composant ne lit pas la reflexion ; l'hote passe l'un a
+//  l'autre.
+//
+// =============================================================================
+//  LA CIBLE RESTE `.nkgui` v0.2 — CE FICHIER EST LE CHEMIN, PAS LA DESTINATION
+// =============================================================================
+//  Rodolf, 2026-08-18 : la cible est la specification
+//  `Applications/NKUIDesign/2_NkUIDesign_Langage_Description_NodeBlueprint.md`
+//  (342 l.), seule des trois a decrire le COMPORTEMENT, donc seule a pouvoir
+//  porter les blueprints. L'issue (2) est un chemin vers elle.
+//
+//  CE QUI, DANS CETTE FORME, PREPARE LA CONVERGENCE — et ce n'est pas une
+//  intention, c'est mecanique et verifiable :
+//   1. `NkArgKind` reprend EXACTEMENT le vocabulaire de types de la spec §11
+//      (`Void|Bool|Int|Float|String|Color|Vec2|Enum[...]`) — pas un type de
+//      plus, pas un type de moins ;
+//   2. `NkEventDecl` a la forme d'un `callback_sig` de la spec §10
+//      (`callback Nom(arg: Type, ...) -> Void`) ;
+//   3. `NkWriteControllerBlock()` EMET le bloc `controller "..."` de la spec a
+//      partir d'une declaration. Ce n'est donc pas « compatible en principe » :
+//      le texte `.nkgui` se produit, et la sonde de `NKUIDesign` l'imprime.
+//   4. Le manque structurel mesure de la spec (sa table §8 ne mappe que des
+//      PRIMITIVES, aucune entree composite) est exactement ce que le REGISTRE
+//      ci-dessous comble : il nomme les composants de l'etage 2. Le jour ou la
+//      spec gagne une entree composite, elle la lira ici.
 //
 // POURQUOI UNE DECLARATION, ET PAS SEULEMENT UNE FONCTION
 //   Directive de Rodolf du 2026-08-18 (NKUIEditor) : « un editeur ne peut
@@ -142,6 +203,103 @@ namespace nkentseu {
 				const char *purpose = "";
 		};
 
+		// ── LE VOCABULAIRE DE TYPES ─────────────────────────────────────────────
+		// ⚠️ CE N'EST PAS UNE ENUMERATION DE PLUS : c'est EXACTEMENT la table §11
+		//    de la spec `.nkgui` v0.2, recopiee sans en ajouter ni en retirer un
+		//    seul. C'est ce qui rend `NkWriteControllerBlock` possible, et c'est la
+		//    piece qui prepare la convergence demandee par Rodolf.
+		//
+		//    `Void|Bool|Int|Float|String|Color|Vec2|Enum[...]`
+		//
+		// APPEND-ONLY, meme raison que partout ailleurs ici : ces valeurs finiront
+		// ecrites dans un fichier de description.
+		//
+		// ⚠️ POURQUOI PAS `NkParamKind` ? Parce que `NkParamKind` porte `RoleRef` et
+		//    `MetricRef`, qui sont propres a NOTRE systeme de theme et n'ont AUCUN
+		//    equivalent dans la spec. Les fusionner rendrait la sortie `.nkgui`
+		//    impossible a produire sans invention. Deux vocabulaires, deux
+		//    domaines : les parametres sont a nous, les charges d'evenement sont a
+		//    la spec.
+		enum class NkArgKind : uint8 {
+			Void = 0,
+			Bool,
+			Int,
+			Float,
+			String,
+			Color,
+			Vec2,
+			Enum, ///< liste de libelles fixee a la declaration (`enumNames`)
+			Count
+		};
+
+		/// Le nom du type TEL QUE LA SPEC L'ECRIT. Un seul point de verite : si
+		/// quelqu'un renomme une valeur ici sans toucher cette fonction, la sortie
+		/// `.nkgui` devient fausse en silence — d'ou la table locale plutot qu'un
+		/// `switch` disperse chez les appelants.
+		inline const char *NkArgTypeName(NkArgKind k) {
+			switch (k) {
+				case NkArgKind::Void:
+					return "Void";
+				case NkArgKind::Bool:
+					return "Bool";
+				case NkArgKind::Int:
+					return "Int";
+				case NkArgKind::Float:
+					return "Float";
+				case NkArgKind::String:
+					return "String";
+				case NkArgKind::Color:
+					return "Color";
+				case NkArgKind::Vec2:
+					return "Vec2";
+				case NkArgKind::Enum:
+					return "Enum";
+				default:
+					return "Void";
+			}
+		}
+
+		// ── UN ARGUMENT DE CHARGE ───────────────────────────────────────────────
+		// « avec quelle charge » (Rodolf, 2026-08-18). Un evenement sans charge
+		// declaree est inutilisable par un blueprint : le graphe ne saurait pas
+		// quoi brancher sur sa sortie.
+		struct NkArgDecl {
+				const char *name = ""; ///< nom du parametre, tel qu'il apparaitra dans le graphe
+				NkArgKind kind = NkArgKind::Void;
+				const char *const *enumNames = nullptr; ///< `Enum` seulement
+				uint8 enumCount = 0;
+		};
+
+		// ── UN EVENEMENT ────────────────────────────────────────────────────────
+		// SECONDE CONDITION POSEE PAR RODOLF en tranchant l'issue (2), et la raison
+		// est ecrite dans sa consigne : « sinon le mouvement se refait dans trois
+		// mois ». Un composant declare CE QU'IL EMET, avec la charge, DES
+		// MAINTENANT — meme si rien ne s'y branche encore.
+		//
+		// ⚠️ CE QUE CE BLOC A CHANGE DANS LA FORME DU DEVIS, et il faut le dire :
+		//    le devis rangeait `on_activate`, `on_context_menu` et `on_drop_into`
+		//    parmi les POINTS DE GREFFE. C'etait un melange : un point de greffe
+		//    ajoute du DESSIN, un evenement signale un FAIT. Les trois ont donc
+		//    demenage ici. `NkHookDecl` ne garde que ce qui dessine ou filtre.
+		//    Le code C++ ne change pas (les crochets restent des pointeurs de
+		//    fonction dans la structure de crochets du composant) ; c'est la
+		//    DESCRIPTION qui cesse de mentir sur la nature de ce qu'elle nomme.
+		//
+		// Correspondance avec la spec `.nkgui` §10, exacte :
+		//     callback OnActivate(index: Int, path: String) -> Void
+		struct NkEventDecl {
+				const char *name = "";	  ///< `onSelect`, `onDoubleClick`, `onDrop` — cle STABLE
+				const char *label = "";	  ///< libelle affichable dans l'editeur
+				const char *purpose = ""; ///< quand il part, en une ligne
+				const NkArgDecl *args = nullptr;
+				uint8 argCount = 0;
+				/// Le composant a-t-il un comportement PAR DEFAUT si personne n'ecoute ?
+				/// `false` = il ne fait rien (le composant SIGNALE, il n'agit pas).
+				/// Le distinguer evite la question « pourquoi le double-clic ne fait
+				/// rien » posee a chaque nouvelle application.
+				bool hasDefaultAction = false;
+		};
+
 		// ── LA DECLARATION D'UN COMPOSANT ───────────────────────────────────────
 		// Tout est en `const char*` et en tableaux statiques : une declaration est
 		// une CONSTANTE de compilation, elle ne s'alloue pas, elle ne se detruit
@@ -163,6 +321,8 @@ namespace nkentseu {
 				uint16 metricCount = 0;
 				const NkHookDecl *hooks = nullptr;
 				uint16 hookCount = 0;
+				const NkEventDecl *events = nullptr;
+				uint16 eventCount = 0;
 
 				static bool StrEq(const char *a, const char *b) {
 					if (!a || !b)
@@ -209,19 +369,109 @@ namespace nkentseu {
 							return (int32)i;
 					return -1;
 				}
+				const NkEventDecl *FindEvent(const char *n) const {
+					for (uint16 i = 0; i < eventCount; ++i)
+						if (StrEq(events[i].name, n))
+							return &events[i];
+					return nullptr;
+				}
 		};
+
+		// ── L'EMETTEUR `.nkgui` ─────────────────────────────────────────────────
+		// LA CONVERGENCE, RENDUE EXECUTABLE. Rodolf : « la cible reste `.nkgui`
+		// v0.2 ; l'issue (2) est le chemin, pas la destination. » Une affirmation
+		// de compatibilite qui ne produit rien ne se verifie pas — celle-ci
+		// produit le bloc `controller` de la spec §10, tel qu'il s'ecrit :
+		//
+		//     controller "content_browser" {
+		//         callback onSelect(index: Int, path: String) -> Void
+		//         callback onDoubleClick(index: Int, path: String) -> Void
+		//     }
+		//
+		// ⚠️ PORTEE, et elle est etroite — a dire avec le resultat : ceci emet le
+		//    CONTRAT DE CALLBACKS (§10) d'un composant, PAS un fichier `.nkgui`
+		//    complet. Les sections `geometry` / `widgets` / `behavior` ne sont pas
+		//    produites et ne peuvent pas l'etre : elles decrivent un ASSEMBLAGE,
+		//    dont ce fichier ne sait rien. Ce qui est prouve ici, c'est que le
+		//    vocabulaire de types et la forme de signature se traduisent SANS
+		//    INVENTION — pas que la convergence est faite.
+		//
+		// Zero allocation : l'appelant fournit le tampon, la fonction rend le
+		// nombre d'octets ecrits (hors zero terminal), ou 0 si le tampon est trop
+		// petit — jamais de troncature silencieuse.
+		inline uint32 NkWriteControllerBlock(const NkComponentDecl &d, char *out, uint32 cap) {
+			if (!out || cap == 0)
+				return 0;
+			uint32 n = 0;
+			bool overflow = false;
+			auto put = [&](const char *s) {
+				if (!s)
+					return;
+				for (; *s; ++s) {
+					if (n + 1 >= cap) {
+						overflow = true;
+						return;
+					}
+					out[n++] = *s;
+				}
+			};
+			put("controller \"");
+			put(d.name);
+			put("\" {\n");
+			for (uint16 i = 0; i < d.eventCount; ++i) {
+				const NkEventDecl &e = d.events[i];
+				put("    callback ");
+				put(e.name);
+				put("(");
+				for (uint8 a = 0; a < e.argCount; ++a) {
+					if (a)
+						put(", ");
+					put(e.args[a].name);
+					put(": ");
+					put(NkArgTypeName(e.args[a].kind));
+					if (e.args[a].kind == NkArgKind::Enum) {
+						put("[");
+						for (uint8 v = 0; v < e.args[a].enumCount; ++v) {
+							if (v)
+								put(",");
+							put(e.args[a].enumNames[v]);
+						}
+						put("]");
+					}
+				}
+				put(") -> Void\n");
+			}
+			put("}\n");
+			if (overflow)
+				return 0;
+			out[n] = '\0';
+			return n;
+		}
 
 		// ── LE REGISTRE ─────────────────────────────────────────────────────────
 		// Meme forme que `NkRoleRegistry` (NkTheme.h), et pour la meme raison :
 		// l'editeur d'interfaces a besoin d'ENUMERER ce qui existe, ce qu'une liste
 		// ecrite en dur dans son code ne lui donnerait pas.
 		//
-		// ⚠️ DECLARE ICI, DEFINI NULLE PART. Ce fichier est une demonstration de
-		//    forme ; le definir supposerait de choisir un stockage et de l'ajouter
-		//    a une cible de build, c'est-a-dire d'implementer. Ce n'est pas la
-		//    commande de cette seance.
+		// ⚠️ ETAT (2026-08-18, seconde passe) : DEFINI, dans
+		//    `NkComponentRegistry.cpp`. Il l'a fallu : `NKUIDesign` doit LISTER les
+		//    composants disponibles, et une liste ecrite en dur dans son code
+		//    n'aurait rien prouve — elle aurait « marche » sans qu'aucune
+		//    declaration soit lue.
+		//
+		// ⚠️ IL NE STOCKE QUE DES POINTEURS, jamais des copies. Une declaration
+		//    est une constante de compilation a duree de vie statique : la copier
+		//    ferait exister deux verites, et la frontiere ci-dessus deviendrait
+		//    fausse (« zero allocation »). Le registre, lui, alloue son TABLEAU —
+		//    c'est un objet d'execution, ce que la declaration n'est pas.
+		//
+		// PLAFOND FIXE, et il est volontaire : pas de croissance dynamique, pas
+		// d'allocation, pas d'ordre d'initialisation statique a redouter. La
+		// bibliotheque vise ~8 composants (les paliers 3-8 de `ROADMAP.md` §6).
 		class NkComponentRegistry {
 			public:
+				static const uint16 kMaxComponents = 64;
+
 				static void Register(const NkComponentDecl &d); ///< idempotent sur `name`
 				static uint16 Count();
 				static const NkComponentDecl *At(uint16 i);
