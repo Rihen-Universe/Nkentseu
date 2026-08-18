@@ -353,6 +353,21 @@ int main() {
 		Check(AddIcon(d3, noFb, foreign, dst, col) == NkGuiIconDraw::None,
 			  "poignee etrangere sans secours -> None, PAS un mauvais glyphe");
 
+		// COROLLAIRE D'INTEROPERABILITE (mesure le 2026-08-18, pour NkUIDesign).
+		// La poignee vaut (identifiant de jeu << 16) | (indice + 1) : l'identifiant
+		// occupe les 16 bits de POIDS FORT. Toute interface qui la transporte dans
+		// un champ de 16 bits ampute donc EXACTEMENT le controle d'appartenance --
+		// c'est le cas de `NkComponentPaint::Icon(..., uint16 iconHandle, ...)`
+		// cote NKEditorKit. On verifie ici que le resultat est un refus FRANC, et
+		// jamais le glyphe voisin : le defaut se constate, il ne se devine pas.
+		const NkGuiIconHandle tronquee{a.v & 0xFFFFu};
+		Check(tronquee.v != a.v, "controle positif : 16 bits amputent bien la poignee");
+		Check(set.Glyph(tronquee) == nullptr, "poignee amputee -> rejetee par le jeu qui l'a emise");
+		NkGuiDrawList d4;
+		Check(AddIcon(d4, noFb, tronquee, dst, col) == NkGuiIconDraw::None,
+			  "poignee amputee -> None, jamais un glyphe voisin");
+		Check(d4.idx.Size() == 0u, "... et rien n'est dessine");
+
 		// Declarations refusees, chacune doublee d'un controle positif.
 		Check(!set.AddBitmap("", 0, 0, 16, 16).Valid(), "nom vide -> refuse");
 		Check(!set.AddBitmap("hors", 120, 0, 16, 16).Valid(), "region hors de l'atlas -> refusee");
