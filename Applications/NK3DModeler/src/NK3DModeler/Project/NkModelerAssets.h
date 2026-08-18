@@ -1374,6 +1374,70 @@ namespace nkentseu {
 			o.SetInt32("vueActive", activeRank);
 		}
 
+		/// Ecrit LE FICHIER D'UNE CARTE (scene, model ou materiau) sous la racine
+		/// du projet, puis met a jour le chemin et la date memorises de la carte.
+		/// C'est le corps de la boucle d'« Enregistrer », sorti pour etre appele
+		/// AUSSI par l'import (contrat de Rodolf du 17/08 : « un import ECRIT » --
+		/// les `.nkmesh` partent au moment de l'import, par le MEME chemin que la
+		/// sauvegarde, jamais par un second ecrivain). Rend vrai si la carte n'a
+		/// rien a ecrire (nature sans fichier, document absent) : « rien a faire »
+		/// n'est pas un echec. Rend faux, avec `err`, si l'ecriture echoue.
+		inline bool NkProjectWriteCard(const NkString &root, NkModelerState &st, int32 b,
+									   NkString *err) {
+			const uint8 k = st.browserKind[b];
+			if (k == 255 || !NkAsExtFor(k))
+				return true;
+			const NkString rel = NkAsRelFor(st, b);
+			if (rel.Empty())
+				return true;
+			NkArchive a;
+			if (k == 5) {
+				const int32 d = st.browserDoc[b] - 1;
+				if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
+					return true;
+				NkAsSceneCapture(a, root, st, d);
+			} else if (k == 6) {
+				NkAsModelCapture(a, root, st, b);
+			} else {
+				const int32 m = st.browserMat[b] - 1;
+				if (m < 0)
+					return true;
+				NkAsMatCapture(a, root, m);
+			}
+			if (!NkAsWrite(root, rel, a, err))
+				return false;
+			// L'ORIGINE CORRIGEE EST SUR LE DISQUE : la carte se desarme.
+			// APRES l'ecriture reussie, jamais avant -- un desarmement sur une
+			// ecriture echouee perdrait la correction sans un message.
+			if (k == 6)
+				st.browserOriginDirty[b] = false;
+			// ── LA VIGNETTE D'UN MATERIAU SE PREND ICI ──────────────────
+			// « Les cartes recoivent le resultat correct, sous forme de
+			// capture a la sauvegarde » (Rihen, 13 aout) : le fichier et son
+			// image datent ainsi du meme geste, comme pour les scenes. C'est
+			// une DEMANDE, pas un rendu -- la capture a besoin d'une frame,
+			// et nous ne sommes pas dans le rendu ici.
+			if (k == 2) {
+				const int32 m = st.browserMat[b] - 1;
+				if (m >= 0)
+					demo::Demo3DHostMatThumbRequest(m, nullptr);
+			}
+			// RENOMMEE OU DEPLACEE : l'ancien fichier est retire. Sans cela le
+			// dossier du projet accumulerait des orphelins que plus rien ne
+			// designe -- et qu'on prendrait, plus tard, pour du travail perdu.
+			const NkString old(st.browserFile[b]);
+			if (!old.Empty() && !(old == rel))
+				(void)NkFile::Delete(NkScToAbs(root, old.CStr()).CStr());
+			NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
+			// La DATE sert au classement du navigateur. Relevee ICI, a
+			// l'ecriture, plutot qu'interrogee a la peinture : trente-deux
+			// appels au systeme de fichiers par image couteraient plus cher que
+			// tout le navigateur.
+			st.browserTime[b] =
+				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
+			return true;
+		}
+
 		/// Ecrit UN FICHIER PAR ASSET sous la racine du projet, puis met a jour le
 		/// chemin memorise de chaque carte. Renvoie faux a la premiere ecriture
 		/// impossible : un projet a moitie ecrit doit se signaler, pas se taire.
@@ -1426,56 +1490,10 @@ namespace nkentseu {
 				if (onlyCard >= 0 && b != onlyCard && k != 2 &&
 					!(k == 6 && st.browserOriginDirty[b] && st.browserSrcNode[b] > 0))
 					continue; // « Enregistrer » : ce fichier-ci, et les exemptions
-				const NkString rel = NkAsRelFor(st, b);
-				if (rel.Empty())
-					continue;
-				NkArchive a;
-				if (k == 5) {
-					const int32 d = st.browserDoc[b] - 1;
-					if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
-						continue;
-					NkAsSceneCapture(a, root, st, d);
-				} else if (k == 6) {
-					NkAsModelCapture(a, root, st, b);
-				} else {
-					const int32 m = st.browserMat[b] - 1;
-					if (m < 0)
-						continue;
-					NkAsMatCapture(a, root, m);
-				}
-				if (!NkAsWrite(root, rel, a, err))
+				// LE CORPS EST NkProjectWriteCard : le meme pour « Enregistrer » et
+				// pour l'import -- un seul ecrivain de carte dans tout le modeleur.
+				if (!NkProjectWriteCard(root, st, b, err))
 					return false;
-				// L'ORIGINE CORRIGEE EST SUR LE DISQUE : la carte se desarme.
-				// APRES l'ecriture reussie, jamais avant -- un desarmement sur une
-				// ecriture echouee perdrait la correction sans un message.
-				if (k == 6)
-					st.browserOriginDirty[b] = false;
-				// ── LA VIGNETTE D'UN MATERIAU SE PREND ICI ──────────────────
-				// « Les cartes recoivent le resultat correct, sous forme de
-				// capture a la sauvegarde » (Rihen, 13 aout) : le fichier et son
-				// image datent ainsi du meme geste, comme pour les scenes. C'est
-				// une DEMANDE, pas un rendu -- la capture a besoin d'une frame,
-				// et nous ne sommes pas dans le rendu ici.
-				if (k == 2) {
-					const int32 m = st.browserMat[b] - 1;
-					if (m >= 0)
-						demo::Demo3DHostMatThumbRequest(m, nullptr);
-				}
-				// La DATE sert au classement du navigateur. Relevee ICI, a
-				// l'ecriture, plutot qu'interrogee a la peinture : trente-deux
-				// appels au systeme de fichiers par image couteraient plus cher que
-				// tout le navigateur.
-				st.browserTime[b] =
-					NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
-				// RENOMMEE OU DEPLACEE : l'ancien fichier est retire. Sans cela le
-				// dossier du projet accumulerait des orphelins que plus rien ne
-				// designe -- et qu'on prendrait, plus tard, pour du travail perdu.
-				const NkString old(st.browserFile[b]);
-				if (!old.Empty() && !(old == rel))
-					(void)NkFile::Delete(NkScToAbs(root, old.CStr()).CStr());
-				NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
-			st.browserTime[b] =
-				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
 			}
 			return true;
 		}

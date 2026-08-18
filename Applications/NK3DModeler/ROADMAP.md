@@ -863,6 +863,196 @@ un `.nkmesh` par model dans le dossier courant du navigateur ; (C) le test
 par vignette ci-dessus, il échouerait pour une raison qui n'est pas l'import.
 Envoie le journal.
 
+### CONTRAT D'IMPORT (Rodolf, 17/08 soir, après la 10e relecture — elle passe) — points a + b LIVRÉS
+
+Le contrat complet est dans `CLAUDE.md` (« CONTRAT D'IMPORT DE MODÈLES »).
+Ordre fixé : (a) le empty fabriqué à tort, (b) l'import ÉCRIT et n'ajoute
+pas à la scène, (c) trois glisser depuis le système, (d) matériaux/textures,
+(e) dialogue d'import.
+
+**Fusion préalable (`c6156782`)** : `origin/main` (#68-#72) fusionné. Deux
+leçons de « fusion sans conflit » payées : (1) `main` lui-même était ROUGE —
+#69 et #70 avaient chacun ajouté `NkString name` à `NkGLTFNode` (`duplicate
+member`), corrigé ici puis, en parallèle, par #68 (version de main gardée) ;
+(2) #62 était un *squash* d'un état antérieur de cette branche : l'auto-merge
+dupliquait le bloc « LACHER DU NAVIGATEUR » dans `main.cpp` — tout
+`Applications/NK3DModeler` repris de HEAD, puis le seul vrai delta de main
+(#64, `NkImage` type valeur) réappliqué. Cible 31/31, Nogee 45/45, workspace
+**200/200**. #67 `MERGEABLE CLEAN`.
+
+**Grille écrite d'avance (a)+(b)** — course `NK_OPEN_RECENT=0` (AgentTest,
+jetable) + `NK_IMPORT_FILE=LowPolyCars.obj`, binaire Debug :
+1. 5 × `MESURE creation … DIRECT(sans empty) maillages=1/1`, 5 slots
+   consommés en tout (contre 20 : plus de racine, plus d'archive dupliquée),
+   origine = ancre 3D (Y non nul = moyeu) ; comptes caisse 2931v/7578i,
+   roues 337v/954i ;
+2. AUCUNE `MESURE dup model`, AUCUNE `MESURE origine`, aucun WRN ;
+3. sur le disque À LA FIN DU GESTE, sans Ctrl+S ni `NK_AGENT_SAVE` : 5
+   `.nkmesh` nommés d'après les `o`, un seul nœud chacun, position = origine
+   loguée ; `Scene1.nkscene` et `AgentTest.nk3dm` NON réécrits ;
+4. rechargement SANS sauvegarde : les 5 cartes reviennent par le rescan
+   (`srcNode>0`), la hiérarchie ne les montre pas ;
+5. dépôt d'une carte roue dans le vide : un nœud posé au point du pick,
+   `model=0`, `sesMateriaux=1`.
+
+**Résultat : la grille tient ligne par ligne** (journaux `logs/app_ab*.log`).
+Nœuds 111..115, origines (±1.229, 0.305, ±0.691) pour les roues,
+`whell.001_car2.019.nkmesh` = un nœud, `"maillageInterne": false`, écrit à
+22:52:30, l'heure de l'import. Le dépôt : `MESURE pose : noeud=116 …
+relu=1 model=0`.
+
+**Ce qui a changé (`NkModelerImport.h`, `NkModelerAssets.h`)** :
+- un model d'UNE tranche = un nœud maillage DIRECT (`Demo3DHostCreateMeshNode`
+  avec `root=-1`) à son ancre, **sans `nkvpIsMesh`** — ce drapeau veut dire
+  « matière d'un model » : la hiérarchie de scène cache ces nœuds
+  (`NkHierNodeSkip`) et la relecture le retire à tout maillage sans model
+  au-dessus (`NkAsRepairOrphanMeshes`) ; trouvé à la relecture des
+  consommateurs, avant la course. Plusieurs tranches sous un même nom →
+  racine EMPTY + maillages, comme avant (un nœud = un matériau : dette dite ;
+  le dialogue offrira « regrouper/éclater ») ;
+- **archivage EN PLACE** (`Demo3DHostArchiveTree(top, true)`) : rien n'entre
+  dans la scène, aucune copie ;
+- **`NkProjectWriteCard`** extrait de la boucle d'« Enregistrer » : l'UNIQUE
+  écrivain de carte, appelé par l'import juste après la carte. Si l'écriture
+  échoue, la carte reste `browserOriginDirty` (reprise à la prochaine
+  sauvegarde) et l'échec est nommé dans `hierNote` ;
+- refus nommé sans projet ouvert (« l'import écrit des .nkmesh dedans »).
+
+**Faces à surveiller, dites** : (i) l'origine d'une roue est au moyeu, donc
+un dépôt sur le sol met le moyeu au sol (la roue s'enfonce de son rayon) —
+c'est la conséquence directe de « la roue à sa propre origine » et le
+comportement de Blender ; à trancher au dialogue (option « poser sur le sol »)
+si Rodolf le veut autrement ; (ii) la géométrie n'est toujours pas dans le
+`.nkmesh` (dette déjà déclarée) : réouverte un autre jour, la carte revient
+en primitive ; (iii) l'ancien « écriture par vignette » (interaction Q49) est
+désormais SANS OBJET pour l'import — l'import écrit lui-même.
+
+**📣 PROTOCOLE POUR RODOLF (11e relecture)** : bouton « Importer », ton
+fichier véhicule. Attendu : (A) RIEN dans la hiérarchie ni la vue 3D ; 5
+cartes dans le navigateur (dossier courant) ; le journal dit 5 × `DIRECT(sans
+empty)` et 5 `fichier=…nkmesh` ; (B) sur le disque, sans Ctrl+S, les 5
+`.nkmesh` sont là, à l'heure de l'import ; (C) glisse une roue dans la vue :
+elle apparaît au point du lâcher, SON gizmo est au moyeu, la hiérarchie
+montre UN nœud « whell… » de type Mesh, pas de empty au-dessus ; bouge-la,
+les autres cartes n'y sont pour rien. Envoie le journal.
+
+### CONTRAT D'IMPORT — point (c) LIVRÉ : les trois glisser depuis le SYSTÈME
+
+`NkDropFileEvent` existait dans NKEvent (cible OLE Win32 + Wayland/XCB/XLib/
+Android/Emscripten) ; il manquait `wc.dropEnabled = true` et l'écoute. Fait
+(`main.cpp`) : l'événement est RANGÉ (`st.osDrop*`), la boucle route une fois
+les rects de la frame connus (`NkOsDropRoute`, `NkModelerImport.h`) :
+
+| zone du lâcher | effet |
+|---|---|
+| vue 3D (`viewRect`) | import + **pick différé** + instanciation au point du lâcher, disposition du fichier conservée (barycentre X/Z des origines amené sous le curseur, hauteurs du fichier gardées) |
+| hiérarchie (`hierRect`, nouveau) | import + instanciation aux **coordonnées du fichier** |
+| navigateur (`browserRect`) | import **seul** (cartes + `.nkmesh`, rien dans la scène) |
+| ailleurs | refus nommé |
+
+L'instanciation (`NkImportInstantiate`) duplique depuis l'archive comme le
+dépôt navigateur → scène (`Demo3DHostDuplicateNode`), puis pose EXPLICITEMENT
+(le double naît décalé de 0.45 « comme Blender », ce qui casserait la voiture),
+rotation/échelle de la source conservées, nom de la carte repris.
+
+**Grille (4 courses `NK_OS_DROP="x,y,<chemin>"`, crochet qui fabrique le lâcher
+aux pixels donnés — seul le trajet depuis l'explorateur est simulé)** :
+C1 (700,250) → `zone=1`, 5 créations, 5 instanciations 116..120, poses =
+origines + offset commun (écarts entre roues ±1.229/±0.691 conservés, Y du
+fichier gardés : caisse 0.761, roues 0.305) ; C2 (100,400) → `zone=2`, 5
+instanciations aux coordonnées EXACTES du fichier ; C3 (800,850) → `zone=3`,
+5 créations, 0 instanciation, 5 fichiers ; C4 (800,8) → `zone=4`, refus,
+0 création, 0 fichier. Journaux `logs/app_c_C1..C4.log`.
+
+**Périmètre déclaré** : le trajet OLE (explorateur → `NkDropFileEvent`) n'est
+pas rejouable sans main — c'est la relecture de Rodolf qui le couvre. Sur un
+objet, le lâcher OS pose comme dans le vide (pas de menu « enfant » : un
+fichier entier n'est pas une carte) — dit, à trancher si besoin. Multi-fichiers :
+chaque fichier importe, les cartes s'additionnent.
+
+**📣 PROTOCOLE POUR RODOLF (11e relecture, complément)** : depuis l'explorateur
+Windows, glisse `LowPolyCars.obj` (D) sur la vue 3D → la voiture ENTIÈRE
+apparaît sous le curseur, roues en place, 5 nœuds Mesh dans la hiérarchie, 5
+cartes, 5 fichiers ; (E) sur la hiérarchie → la voiture aux coordonnées du
+fichier ; (F) sur le navigateur → 5 cartes, 5 fichiers, RIEN dans la scène ;
+(G) sur la barre de menus → message « Déposez un fichier 3D sur… ».
+
+### MIGRATION GLISSER-DÉPOSER SUR L'API NKGui — étape 1/2 LIVRÉE : la HIÉRARCHIE (2026-08-18)
+
+Directive (Q53) : remplacer la logique locale (15 champs d'état, seuil 36.f,
+fantôme TextV en double) par l'API de bibliothèque `BeginDragSource /
+SetDragPayload / BeginDropTarget / AcceptDragPayload` — celle que Nogee
+consomme déjà. **Migration, pas changement de comportement.**
+
+**Fait (commit `7555a345`)** :
+- ligne de hiérarchie = source ET cible via `ctx.ButtonBehavior(id, rowR)` ;
+  la sélection reste au registre (`hit.Clicked`) — mesuré : pas de conflit,
+  le press sélectionne comme avant pendant que ButtonBehavior arme le glisser ;
+- **surcharge additive côté NKGui** : `BeginDropTarget(ctx, id, rect)` pour
+  une ZONE qui n'est pas un widget (fond de liste, navigateur) — pose
+  `lastItemId/lastItemRect` sans toucher activeId/hotId (les widgets contenus
+  gardent survol et clic). 17 lignes, annoncée au canal (Q54), rien d'autre
+  dans `NkGuiWidgets.{h,cpp}` ;
+- livraison appliquée APRÈS le parcours (`pendingChild/pendingParent`) :
+  `SetNodeParent` change l'arbre qu'on est en train de lire ;
+- 4 champs retirés : `hierDragNode/X/Y`, `hierDragging`, `hierMouseWasDown`
+  (le champ était aussi la victime du débordement `hierFold` — commentaire
+  d'historique conservé, anonymisé).
+
+**Crochets témoins (rejouables)** : `NK_HIER_ROWS=<frame>` imprime le rect
+écran de chaque ligne visible + rects liste/navigateur ; `NK_AGENT_DRAG` /
+`NK_AGENT_DRAG2="f,x0,y0,x1,y1"` pose la souris BRUTE avant `BeginFrame`
+(survol à f, press à f+1, glissement 8 frames, relâchement à f+10, rapport
+parenté+sélection+navigateur à f+14) — le seuil, le fantôme, les cibles et la
+livraison sont le vrai code.
+
+**Grille tenue (Debug, AgentTest, 3 courses)** : reparentage 102→104 (`parent=-1`
+→ `104`) ; déparentage sur le fond de liste (`104` → `-1`, compte navigateur
+INCHANGÉ = pas de livraison double) ; archivage hiérarchie→navigateur (23→24,
+témoin de base mesuré par course à vide). Le seuil NKGui arme à k=4
+(`dragActive=1 type=hier.node`). Périmètre : la souris est synthétique (posée
+avant BeginFrame) ; le trajet OS réel reste couvert par la relecture de Rodolf.
+
+**Étape 2/2 LIVRÉE — le NAVIGATEUR (2026-08-18, commit `384d05b9`)** : type
+NKGui `"brow.item"` (charge `int32[2]` : index + prise arbre/grille), sources =
+ligne d'arbre et carte (`ButtonBehavior`, la sélection reste au registre —
+`MESURE clic carte` inchangée), cibles = racine / ligne d'arbre / carte-dossier
+(widgets) + fond de grille / vue 3D (zones explicites). Livraison appliquée
+APRÈS le parcours ; anti-cycle, traversée gauche↔droite (carte Copier/Déplacer),
+jeton + pick différé + file multi-cartes : inchangés. Les cibles sont TYPÉES des
+deux côtés (rien ne s'allume en croisé hiérarchie/navigateur). 6 champs retirés.
+
+**Grille tenue (5 courses)** : carte→carte-dossier (Dataset `parent 4→14`) ;
+arbre→ligne (bobi `14→15`, rangées re-tracées POST-transfert dans le même
+lancement) ; arbre→racine (`15→-1`) ; arbre→fond de grille = traversée
+(`browAskIdx=9, browAskDest=-1` — résolution `-100`→dossier courant incluse) ;
+matériau→vue 3D (`PICK lacher → noeud -1`, `MESURE lacher nature=2` : le jeton
+part par le nouveau chemin). Régression hiérarchie rejouée verte ; fichiers
+projet d'AgentTest intacts (transferts en mémoire seulement).
+
+**Périmètre déclaré** : souris synthétique (posée avant `BeginFrame`) ; les
+cartes de la 2e rangée (y≥921) sont HORS fenêtre (907) — NKGui refuse d'armer
+hors fenêtre là où l'ancien registre l'aurait accepté : injouable par un humain
+sans molette, donc non-comportement, pas régression. Non rejoués en course :
+modèle→vue (même chemin de jeton que matériau, et `NK_DROP_TOKEN` couvre
+l'instanciation), file multi-cartes, carte Copier/Déplacer aval, menu
+enfant/indépendant — applicatifs non touchés, couverts par la relecture.
+
+**📣 PROTOCOLE POUR RODOLF (12e relecture — le glisser-déposer entier)** :
+binaire du 18/08 ou plus récent. (A) Hiérarchie : glisse une ligne sur une
+autre → parenté ; sur le vide de la liste → déparenté ; vers le navigateur →
+carte MESH (l'original reste). (B) Navigateur : carte → carte-dossier et
+ligne d'arbre → dossier : la carte déménage ; grille ↔ arbre → la carte
+Copier/Déplacer apparaît ; carte matériau → un objet de la vue → le matériau
+s'applique ; carte modèle → vue vide → le modèle naît sous le curseur (menu
+enfant/indépendant sur un objet). (C) Pendant un glisser de carte, les lignes
+de la HIÉRARCHIE ne doivent PAS se surligner (et réciproquement). (D) Le
+fantôme (nom sous le curseur) est dessiné par NKGui — même rendu que Nogee.
+Envoie le journal (`MESURE clic carte`, `MESURE lacher`, `PICK lacher`).
+
+**Suite** : contrat d'import (d) matériaux/textures et (e) le dialogue.
+
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,
