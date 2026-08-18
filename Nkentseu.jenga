@@ -1533,6 +1533,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKGuiDrawTest/NKGuiDrawTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKGuiDemo/NKGuiDemo.jenga"):
 
         pass
