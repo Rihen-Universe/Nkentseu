@@ -10,7 +10,15 @@
 > **Règle d'or tenue partout dans les trois documents** : ce qui existe se dit
 > comme existant, ce qui n'existe pas se dit comme à faire. Jamais un espoir
 > présenté comme un acquis. Chaque section porte donc son état, et l'état est
-> daté du **2026-08-19**, branche `feat/noge-inventaire`.
+> daté du **2026-08-19 (fin de journée)**, branche `feat/noge-inventaire`,
+> commit `002566f7`.
+>
+> ⚠️ **Un état n'est pas un acquis : il a une date.** Ce document a été rédigé une
+> première fois quelques heures plus tôt et affirmait que *la fenêtre n'avait
+> jamais été ouverte*. C'était vrai à l'écriture et faux à la relecture — un autre
+> agent a ouvert la fenêtre entre-temps. Toutes les affirmations d'état ont été
+> revérifiées contre le dépôt, pas recopiées. **Refaites-le avant de vous appuyer
+> sur elles.**
 >
 > **Ce document est incomplet par construction**, et c'est voulu (règle du
 > corpus, Rodolf, 2026-08-16) : il est un point de départ, pas un contrat. Une
@@ -167,24 +175,56 @@ reste du document ne se lit pas comme une promesse.
 
 | chose | preuve |
 |---|---|
+| **l'application TOURNE** | fenêtre ouverte en **OpenGL**, trois lancements, trois fois le même résultat, fermeture propre |
 | l'application se construit | `jenga build --target NKUIDesign` : **20/20 SUCCESS** |
-| la sonde sans écran | `NKUIDesign --probe` : **58/58** |
-| la forme de déclaration se vérifie sans rien lier | banc de la forme : **34/34**, dont **11 témoins qui doivent rougir** |
-| le dessin des composants ne dépend pas de l'interface | banc de neutralité : vert, avec **deux témoins qui échouent bien** |
+| la sonde sans écran | `NKUIDesign --probe` : **72/72** |
+| la forme de déclaration se vérifie sans rien lier | banc de la forme : **43/43**, dont une série de **témoins qui doivent rougir** |
+| le dessin des composants ne dépend pas de l'interface | banc de neutralité : vert, avec **des témoins qui échouent bien** |
 | deux composants complets | `content_browser` et `tree_view` — déclaration + modèle + dessin |
 | cinq panneaux ancrés | Palette, Composition, Aperçu, Propriétés, IA |
 | quatre commandes avec raccourcis | `Ctrl+S`, `Ctrl+R`, `Ctrl+N`, `Ctrl+Q` |
-| le choix du backend graphique | `--gfx=`, `NK_GFX_API`, journalisé, refus explicite |
+| le choix du backend graphique | `--gfx=`, `NK_GFX_API`, résolution **pure et vérifiée par la sonde**, journal *demandé / source / retenu / pourquoi*, refus explicite |
 | deux thèmes | Sombre et Clair, rôles nommés, chargement texte avec héritage |
 | le document ne contient aucune coordonnée | vérifiable : cherchez `x`, `y`, `position` parmi les champs d'un nœud |
 | la provenance est écrite **et relue** | l'aller-retour la compte comme appliquée |
+| **le gabarit répété** | un élément déclare `une fois` / `par entrée` / `par entrée récursif` |
+| **les libellés sont des clés** | décidé et vérifié dans la forme — voir § 7.3, point 4 |
+
+#### ⚠️ Ce que l'ouverture de la fenêtre a immédiatement appris
+
+Le premier témoin visuel a montré **deux défauts que 68 essais verts n'avaient
+pas vus**. C'est la leçon la plus utile de ce document, et elle vaut pour tout ce
+qui suit :
+
+1. **Le journal du backend n'écrivait rien** — il imprimait littéralement ses
+   propres accolades au lieu des valeurs. La trace **existait et ne disait
+   rien**. Cause structurelle, et elle est instructive : le choix de backend
+   vivait dans le point d'entrée, donc **hors de portée d'une sonde sans écran**
+   — *le seul code que le GPU touchait était le seul code sans témoin*. Corrigé
+   en rendant la résolution **pure**, appelée par le programme **et vérifiée par
+   la sonde**.
+2. **Le navigateur de contenu se peignait en MAGENTA FRANC** — parce que les noms
+   de rôles de thème sont canoniquement en `snake_case` et que des rôles étaient
+   déclarés en `PascalCase` : aucun ne tombait juste, et le thème repliait sur sa
+   couleur « ça doit sauter aux yeux ». **Le repli a fait son travail.** Ce que
+   les 68 essais ne pouvaient pas voir : le résolveur de la sonde **acceptait
+   n'importe quel nom** — *un résolveur qui dit oui à tout ne peut pas voir un
+   nom faux*.
+
+🟡 **Reste ouvert** : **10 jetons d'un composant restent non résolus**. Ils sont
+**comptés et nommés** dans la sortie de sonde, et ils appartiennent au fichier
+d'un autre agent — **comptés, pas corrigés à sa place**.
+
+⚠️ **Ce que « l'application tourne » ne veut PAS dire** : aucune conformité aux
+planches de référence n'est revendiquée. La fenêtre s'ouvre et se ferme
+proprement ; **elle n'a pas été comparée à une cible visuelle**.
 
 ### 3.2 Ce qui n'existe pas — et qu'aucune phrase de ce document ne présentera autrement
 
 | manque | portée |
 |---|---|
-| ⚠️ **la fenêtre n'a jamais été ouverte** — **aucun pixel produit** | aucune conformité visuelle n'est revendiquée nulle part |
-| **le multilingue** : rien, nulle part, ni dans NKGui ni ailleurs | § 7 est intégralement à faire |
+| ⚠️ **aucune conformité visuelle** aux planches de référence | la fenêtre s'ouvre ; elle n'a été comparée à aucune cible |
+| **le catalogue multilingue** : aucun catalogue de traduction dans NKGui | § 7 : la forme déclare des clés, **rien ne les résout encore** |
 | **les icônes** : aucune notion d'icône dans NKGui ; l'adaptateur peint un carré plein ; 193 glyphes définis deux fois | § 8 est intégralement à faire |
 | **les blueprints** : `NKGraph` est hors des 175 modules du build, aucun éditeur visuel | § 9.7 |
 | **la création de composants ex nihilo** | on compose ce qui est déclaré |
@@ -193,7 +233,6 @@ reste du document ne se lit pas comme une promesse.
 | **l'édition d'un thème dans l'outil** | le format texte existe, l'éditeur non |
 | **l'ancrage complet** (marges par bord) | différé, nommé dans le code |
 | **le modèle d'IA spécialisé** | il s'entraînera sur des déclarations, et il n'y en a presque pas |
-| **le gabarit répété** (enfants engendrés par la donnée) | manque mesuré sur *deux* composants indépendamment |
 | **la zone sûre** : aucune ancre, aucune simulation d'appareil | § 9.5bis est intégralement à faire |
 
 ⚠️ **Un piège de nom à connaître** : `NKEditorKit/NkEditorExport.h` **n'a rien à
@@ -264,9 +303,11 @@ C'est l'écran de travail, et le seul qui existe aujourd'hui. Cinq panneaux :
 | **IA** | bas | un prompt en français, un backend remplaçable, une sortie qui passe par la même porte que la main | ✅ (la place) |
 
 ⚠️ **Ce que « existe » veut dire ici, exactement** : ces panneaux compilent, la
-sonde les exerce sans écran, et **personne ne les a encore vus**. Leur
-conformité aux planches de `Applications/Nogee/design/` n'est pas revendiquée —
-elle sera à mesurer le jour où une fenêtre s'ouvre.
+sonde les exerce sans écran, et **la fenêtre s'ouvre** depuis le 19/08. Mais leur
+conformité aux planches de `Applications/Nogee/design/` **n'est pas
+revendiquée** : personne ne les a comparés à une cible visuelle. Et le premier
+regard a déjà rapporté deux défauts (§ 3.1) — c'est ce qu'on doit attendre du
+second.
 
 #### E3 — Panneau Comportement *(à faire)*
 
@@ -483,8 +524,11 @@ en dur, du côté utilisateur cette fois. **On édite un rôle, jamais un élém
 
 ## 7. Les langues
 
-> **Rien de cette section n'existe.** Ni dans NkUIDesign, ni dans NKGui, ni
-> ailleurs dans le dépôt. Elle décrit une cible, entièrement.
+> **Presque rien de cette section n'existe.** Un seul point est acquis : **la
+> forme de déclaration décide que les libellés sont des clés** (§ 7.3, point 4).
+> Tout le reste — catalogue de traduction, résolution, changement à chaud,
+> invalidation des mesures, sélecteur — est **à faire**, et n'existe ni dans
+> NkUIDesign ni dans NKGui.
 
 ### 7.1 Où ça vit — et ce n'est pas ici
 
@@ -544,13 +588,25 @@ mensonge dans l'autre.
    produit des interfaces monolingues — et il serait absurde qu'un outil
    multilingue fabrique des interfaces qui ne le sont pas.
 
-   ⚠️ **Conséquence pour l'utilisateur, et il faut la penser côté ergonomie** :
-   quand on tape un libellé dans le panneau Propriétés, on saisit un texte, et
-   l'outil doit décider ce qu'il enregistre. Le comportement proposé — et c'est
-   une **proposition**, pas une décision : le champ accepte du texte libre et
-   l'outil crée une clé dérivée du nœud, affichée à côté du champ, modifiable.
-   L'utilisateur voit donc toujours **la clé qu'il vient de créer**, ce qui lui
-   apprend le mécanisme sans cours.
+   ✅ **C'est décidé et c'est dans la forme, depuis le 19/08.** Et la décision
+   mérite d'être connue, parce qu'elle est contre-intuitive : **aucun champ n'a
+   été ajouté**. La tentation était de poser une clé *à côté* du libellé ; ç'aurait
+   été **deux sources de vérité pour une même chose** — le défaut que cette forme
+   existe précisément pour supprimer, et déjà payé deux fois dans le mois.
+
+   > **Le libellé EST la clé.** Il n'y a rien à synchroniser parce qu'il n'y a
+   > qu'un champ.
+
+   Une clé a une **forme** contrôlable (pas d'espace, pas d'accent, pas de
+   majuscule), et un libellé écrit en clair se signale **en note, jamais en
+   erreur** — rougir aurait cassé le travail d'un autre agent qui n'avait rien
+   cassé.
+
+   ⚠️ **La migration n'est PAS faite, et c'est délibéré** : l'application affiche
+   encore les titres tels quels, et **aucun catalogue n'existe dans NKGui**.
+   Migrer maintenant afficherait `content_browser.title` à l'écran à la place de
+   « Navigateur de contenu ». **L'ordre est donc : le catalogue d'abord, la
+   migration ensuite.**
 
 5. **La police doit couvrir la langue.** Le français passe partout ; une écriture
    non latine exige un atlas adapté. **À dire plutôt qu'à découvrir** : si la
@@ -1018,8 +1074,8 @@ Ces points sont **ouverts**. Aucun n'est comblé en silence dans ce document.
    dépôt sont celles de l'éditeur. **Deux specs qui divergent : on ne tranche
    pas.** Le document 3 produit les maquettes sur les jetons du kit (§ 6.2), avec
    la palette antérieure notée en variante — pour que le choix reste à Rodolf.
-6. **Le comportement de saisie d'un libellé traduisible** (§ 7.3, point 4) : la
-   création automatique d'une clé dérivée est une proposition.
+6. **Le repli d'un backend refusé au redémarrage** (§ 10.3, point 4) : rouvrir
+   avec l'ancien backend **en l'annonçant** est une proposition, pas une décision.
 
 ---
 

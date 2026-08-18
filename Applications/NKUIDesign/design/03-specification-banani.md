@@ -7,11 +7,13 @@
 > **recoller le bloc « Système de design » en tête de chaque prompt**.
 >
 > ⚠️ **Ce que ces maquettes sont, et ne sont pas.** Elles décrivent **la cible
-> visuelle**. À ce jour, **aucune fenêtre de NkUIDesign n'a jamais été ouverte et
-> aucun pixel n'a été produit** : une maquette n'est donc jamais la preuve que
-> l'écran existe. Chaque section porte l'état de ce qu'elle montre — ✅ le code
-> existe (non vu), 🟡 partiel, 📝 à faire — et cet état ne doit pas disparaître
-> quand on recopie le prompt.
+> visuelle**. Depuis le 19/08, **la fenêtre de NkUIDesign s'ouvre** — mais elle
+> **n'a été comparée à aucune cible**, et le premier regard a déjà rapporté deux
+> défauts que 68 essais verts n'avaient pas vus (dont un composant peint en
+> magenta franc). **Une maquette n'est donc jamais la preuve que l'écran est
+> conforme** ; c'est au contraire elle qui servira à mesurer l'écart. Chaque
+> section porte l'état de ce qu'elle montre — ✅ le code existe, 🟡 partiel,
+> 📝 à faire — et cet état ne doit pas disparaître quand on recopie le prompt.
 >
 > **Les couleurs des maquettes doivent correspondre aux jetons du thème du
 > moteur** (§ 0), pour que la maquette et le rendu réel se comparent. Dans le
@@ -23,10 +25,10 @@
 
 | # | écran | état du code |
 |---|---|---|
-| 1 | Éditeur principal — vue Composition (thème Sombre) | ✅ existe, non vu |
+| 1 | Éditeur principal — vue Composition (thème Sombre) | ✅ existe, vu — non comparé |
 | 2 | Éditeur principal — thème Clair | 📝 (les deux thèmes existent, la bascule non) |
-| 3 | Panneau Propriétés — gros plan | ✅ existe, non vu |
-| 4 | Panneau Composition + Palette — gros plan | ✅ existe, non vu |
+| 3 | Panneau Propriétés — gros plan | ✅ existe, vu — non comparé |
+| 4 | Panneau Composition + Palette — gros plan | ✅ existe, vu — non comparé |
 | 5 | Panneau Aperçu — agencement et poignées | 🟡 |
 | 6 | Panneau IA — proposition avant validation | ✅ la place existe |
 | 7 | Palette de commandes (superposition) | 🟡 coquille |
@@ -100,7 +102,7 @@ Libellés en FRANÇAIS.
 
 ---
 
-## 1. Éditeur principal — vue Composition (thème Sombre) — ✅ le code existe, jamais vu
+## 1. Éditeur principal — vue Composition (thème Sombre) — ✅ le code existe, la fenêtre s'ouvre, rien n'est comparé
 
 ```
 [Coller le Système de design]
@@ -189,7 +191,7 @@ comparaison soit immédiate.
 
 ---
 
-## 3. Panneau Propriétés — gros plan — ✅ le code existe
+## 3. Panneau Propriétés — gros plan — ✅ le code existe (non comparé)
 
 ```
 [Coller le Système de design]
@@ -261,7 +263,7 @@ viennent de la déclaration, pas de la maquette.
 
 ---
 
-## 4. Palette + Composition — gros plan — ✅ le code existe
+## 4. Palette + Composition — gros plan — ✅ le code existe (non comparé)
 
 ```
 [Coller le Système de design]
@@ -828,6 +830,13 @@ manque ne passe pas en silence.
 2. « CLÉ DE TRADUCTION ABSENTE » — un libellé rendu comme
    « ⟦panneau.apercu.titre⟧ » dans un cadre d'avertissement discret.
 
+2bis. « RÔLE DE COULEUR NON RÉSOLU » — un petit composant peint en MAGENTA FRANC
+   (#FF00FF), avec l'étiquette « rôle inconnu du thème ». Ce n'est PAS une
+   fantaisie d'illustration : c'est le repli délibéré du thème, et il s'est
+   produit pour de vrai au premier lancement. Légende sous la vignette : « ça
+   doit sauter aux yeux, pas se fondre en noir ». À dessiner tel quel, jamais
+   adouci.
+
 3. « NŒUD SANS COMPOSANT (CADRE) » — un rectangle en pointillés fins, étiquette
    en italique gris « pied · cadre », avec la mention « arrange, ne dessine
    rien ». Ce n'est pas une erreur.
@@ -874,6 +883,7 @@ manque ne passe pas en silence.
    valeurs de zone sûre **changent** entre portrait et paysage, entre appareil
    avec et sans encoche. Ne jamais dessiner deux orientations avec les mêmes
    marges.
-5. **Aucune maquette ne vaut preuve.** À ce jour, la fenêtre de NkUIDesign n'a
-   jamais été ouverte. Ce que ces planches montrent est la **cible** ; l'état réel
-   de chaque écran est en tête de sa section, et dans le document 1, § 3.
+5. **Aucune maquette ne vaut preuve.** La fenêtre s'ouvre depuis le 19/08, mais
+   rien n'a été comparé à une cible. Ce que ces planches montrent est la
+   **cible** ; l'état réel de chaque écran est en tête de sa section, et dans le
+   document 1, § 3. Elles servent à **mesurer l'écart**, pas à le déclarer nul.
