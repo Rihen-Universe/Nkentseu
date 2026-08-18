@@ -137,7 +137,14 @@ int nkmain(const NkEntryState &state) {
 								 ? nkentseu::NkFile::ReadAllText(nkuidesign::NkGfxConfigPath())
 								 : NkString("");
 	char cfgGfx[32] = {0};
-	nkuidesign::NkGfxConfigValue(cfgText.Data(), "gfx", cfgGfx, sizeof(cfgGfx));
+	const nkuidesign::NkGfxConfigState cfgState = nkuidesign::NkGfxConfigClassify(
+		nkentseu::NkFile::Exists(nkuidesign::NkGfxConfigPath()), cfgText.Data(), cfgGfx,
+		sizeof(cfgGfx));
+	// ⚠️ UN FICHIER PRESENT ET INEXPLOITABLE SE DIT. Sans cette ligne, il se
+	//    comportait exactement comme un fichier absent — un repli MUET, et
+	//    l'utilisateur cherchait pourquoi son reglage ne prenait pas.
+	if (const char *m = nkuidesign::NkGfxConfigStateMessage(cfgState); m && *m)
+		logger.Warn("{0}", m);
 
 	const nkuidesign::NkGfxChoice gfx = nkuidesign::NkGfxResolve(
 		cfgGfx[0] ? cfgGfx : nullptr, nkentseu::env::GetEnvVar("NK_GFX_API"), argv, argCount);
@@ -160,6 +167,18 @@ int nkmain(const NkEntryState &state) {
 	}
 
 	gDesign.Init();
+
+	// ⚠️ RECOPIE DU RESULTAT, JAMAIS UN SECOND CALCUL. Le panneau Preferences
+	//    affiche ce que CETTE resolution a decide ; le laisser rappeler
+	//    `NkGfxResolve` creerait une seconde verite qui divergerait au premier
+	//    argument oublie.
+	gDesign.gfxEffective = NkString(gfx.effective);
+	gDesign.gfxSource = NkString(nkuidesign::NkGfxSourceName(gfx.source));
+	for (int32 i = 0; i < 6; ++i) {
+		static const char *kApis[] = {"auto", "opengl", "vulkan", "dx11", "dx12", "software"};
+		if (NkComponentDecl::StrEq(kApis[i], gfx.requested))
+			gDesign.prefsChoice = i;
+	}
 
 	// ⚠️ L'ETAT DES ROLES EST JOURNALISE AVANT L'OUVERTURE DE LA FENETRE. Le
 	//    18/08, la seule facon d'apprendre que 23 roles declares ne resolvaient
@@ -194,11 +213,13 @@ int nkmain(const NkEntryState &state) {
 	static nkuidesign::CompositionPanel composition(&gDesign);
 	static nkuidesign::PreviewPanel preview(&gDesign);
 	static nkuidesign::PropertiesPanel properties(&gDesign);
+	static nkuidesign::PreferencesPanel prefs(&gDesign);
 	static nkuidesign::AIPanel ai(&gDesign);
 	shell->AddPanel(&palette);
 	shell->AddPanel(&composition);
 	shell->AddPanel(&preview);
 	shell->AddPanel(&properties);
+	shell->AddPanel(&prefs);
 	shell->AddPanel(&ai);
 
 	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");

@@ -129,14 +129,42 @@ namespace nkuidesign {
 			//    pixels fixes : en pixels, un panneau plus etroit que la somme des
 			//    libelles deborderait au lieu de serrer.
 			float32 poids[12];
+			float32 total = 0.f;
 			for (int32 i = 0; i < n; ++i) {
 				const float32 w = ctx.font ? ctx.font->MeasureWidth(labels[i]) : 0.f;
 				// Le « + 24 » est la marge interne que `Selectable` ajoute autour
 				// de son libelle : sans elle, la cellule vaudrait exactement le
 				// texte et le rognerait de la valeur du padding.
 				poids[i] = -(w + 24.f);
+				total += w + 24.f;
 			}
+
+			// ⚠️ ET SI LES LIBELLES NE TIENNENT PAS SUR UNE LIGNE ? MESURE, PUIS
+			//    CHANGEMENT DE CONTENEUR. Les poids proportionnels partagent
+			//    l'espace DISPONIBLE : quand le total necessaire le depasse, ils
+			//    retrecissent tout **en meme proportion** — et six noms d'API dans
+			//    une colonne etroite se sont affiches « autoopenglvulkandx11dx12softw ».
+			//    C'est la TROISIEME fois que la troncature revient sous une forme
+			//    nouvelle, et a chaque fois la cause est la meme : **une largeur
+			//    decidee sans regarder si le contenu y tient**.
+			//
+			//    Le remede n'est pas un libelle plus court — les noms d'API sont un
+			//    vocabulaire partage avec le fichier et la ligne de commande, les
+			//    abreger ici enseignerait un mot que le fichier ne comprend pas.
+			//    C'est le CONTENEUR qui change : au-dela de la place disponible, on
+			//    passe en FLOT, qui met a la ligne. La forme « une ligne, N cases »
+			//    est preferable — un choix exclusif se lit d'un coup d'oeil — mais
+			//    **elle n'est pas preferable au point d'etre illisible**.
+			const float32 dispo = ctx.layout.region.w;
 			int32 chosen = -1;
+			if (dispo > 0.f && total > dispo) {
+				nkgui::BeginFlow(ctx);
+				for (int32 i = 0; i < n; ++i)
+					if (nkgui::Selectable(ctx, labels[i], i == current))
+						chosen = i;
+				nkgui::EndFlow(ctx);
+				return chosen;
+			}
 			nkgui::BeginRow(ctx, 0.f, poids, n);
 			for (int32 i = 0; i < n; ++i)
 				if (nkgui::Selectable(ctx, labels[i], i == current))
@@ -189,7 +217,40 @@ namespace nkuidesign {
 			/// des roles, sinon il faut ouvrir la fenetre pour l'apprendre -- et
 			/// c'est precisement ce qui a coute la seance du 18/08.
 			NkString roleAudit;
+
+			// ── CE QUE `main` A RESOLU, RECOPIE ICI POUR L'AFFICHAGE ─────────
+			// ⚠️ RECOPIE, ET NON RECALCULEE. Le panneau pourrait rappeler
+			//    `NkGfxResolve` — et il afficherait alors une SECONDE verite, qui
+			//    divergerait le jour ou l'un des deux appels changerait d'argument.
+			//    C'est exactement le defaut qui a laisse vivre le magenta. Une
+			//    seule resolution, au lancement ; l'interface en montre le
+			//    resultat.
+			NkString gfxEffective = NkString("?");
+			NkString gfxSource = NkString("?");
+			int32 prefsChoice = 0;		   ///< index dans la liste des API du panneau
+			bool prefsNeedsRestart = false; ///< un enregistrement attend un relancement
+			NkString prefsStatus;
+
 			char promptBuf[512] = {0};
+
+			/// Ecrit le backend choisi dans **notre** fichier, et nulle part
+			/// ailleurs. Relit avant d'ecrire, remplace la seule ligne `gfx`,
+			/// ecrit de facon atomique — voir `Backend.h`.
+			void SavePrefs(const char *api) {
+				if (NkGfxConfigSetKey(NkGfxConfigPath(), "gfx", api)) {
+					prefsNeedsRestart = true;
+					prefsStatus = NkString("Ecrit : gfx = ");
+					prefsStatus.Append(api);
+					prefsStatus.Append("  (nkuidesign.cfg)");
+				} else {
+					// ⚠️ UN ECHEC D'ECRITURE SE DIT AUSSI. Un bouton qui ne fait
+					//    rien et ne dit rien est pire qu'un bouton absent : on
+					//    croit avoir regle, et on mesure sur autre chose.
+					prefsNeedsRestart = false;
+					prefsStatus = NkString("ECHEC d'ecriture : le fichier n'a PAS ete modifie "
+										   "(rien n'est perdu).");
+				}
+			}
 
 			void Init() {
 				theme = NkTheme::Dark();
@@ -948,7 +1009,90 @@ namespace nkuidesign {
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
-	//  PANNEAU 5 — L'IA
+	//  PANNEAU 5 — LES PREFERENCES
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  Il ferme la chaine demandee par Rodolf : **Preferences (interface) ->
+	//  fichier de config -> lu par defaut au demarrage**. Les deux derniers
+	//  maillons existaient ; celui-ci est le premier.
+	//
+	//  ⚠️ POURQUOI UN PANNEAU ET PAS LA FENETRE « Preferences » DE LA COQUILLE.
+	//     Elle existe (`NkEditorShell::OpenPreferences`, categories Polices /
+	//     Theme) et ce serait sa place — mais `DrawPreferences` est **privee** et
+	//     la coquille n'expose **aucun point de greffe** pour qu'une application y
+	//     ajoute une categorie. La toucher demanderait de modifier NKEditorKit,
+	//     que je ne tiens pas. **Manque porte au canal** ; en attendant, un
+	//     panneau, qui a l'avantage d'etre testable et de ne rien casser chez
+	//     personne.
+	//
+	//  ⚠️ CE QUI EST ECRIT, ET CE QUI NE L'EST PAS. On ecrit **`nkuidesign.cfg`**,
+	//     a cote de l'executable. **Jamais `~/.nkcode_*.cfg`** : la coquille les
+	//     lit inconditionnellement (`NkLoadTheme`, `NkLoadFontPrefs`), donc cette
+	//     application en HERITE — mais NKCode est en pause depuis des semaines et
+	//     il fonctionne. Ecrire chez lui pour regler une autre application
+	//     casserait une application au repos : un cout pur, pour rien.
+	class PreferencesPanel : public NkEditorPanel {
+		public:
+			explicit PreferencesPanel(DesignState *st)
+				: NkEditorPanel("Preferences", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				ec.Text("Backend graphique");
+				nkgui::TextWrapped(ctx, "Le reglage est ecrit dans nkuidesign.cfg, a cote de "
+										"l'executable. Il vaut pour tous les lancements suivants.");
+				ec.Separator();
+
+				// ── CE QUI TOURNE MAINTENANT, ET QUI L'A DECIDE ──────────────
+				// ⚠️ LES DEUX LIGNES COMPTENT AUTANT. Afficher le backend sans
+				//    dire QUI l'a choisi laisserait un utilisateur regler « opengl »
+				//    ici, voir « dx11 » se lancer (parce qu'une variable
+				//    d'environnement gagne) et n'avoir aucun moyen de comprendre.
+				designkit::KeyValue(ctx, "en cours", mSt->gfxEffective.Data());
+				// ⚠️ PAS UN `KeyValue` POUR LA SOURCE : « fichier de configuration
+				//    nkuidesign.cfg (cle gfx) » ne tient dans aucune colonne, et
+				//    s'affichait « fichier de configura… ». Une valeur longue n'est
+				//    pas une valeur de tableau : elle se met a la ligne.
+				ec.Text("decide par");
+				nkgui::TextWrapped(ctx, mSt->gfxSource.Data());
+				ec.Separator();
+
+				// ── LE CHOIX ─────────────────────────────────────────────────
+				// Les memes noms que la ligne de commande et le fichier : un seul
+				// vocabulaire pour les quatre sources, sinon l'interface enseigne
+				// un mot que le fichier ne comprend pas.
+				static const char *kApis[] = {"auto", "opengl", "vulkan", "dx11", "dx12", "software"};
+				const int32 pick = designkit::Segmented(ctx, kApis, 6, mSt->prefsChoice);
+				if (pick >= 0)
+					mSt->prefsChoice = pick;
+
+				if (ec.Button("Enregistrer dans nkuidesign.cfg"))
+					mSt->SavePrefs(kApis[mSt->prefsChoice < 6 ? mSt->prefsChoice : 0]);
+
+				// ── LE REDEMARRAGE, ANNONCE ──────────────────────────────────
+				// ⚠️ REGLE DE RODOLF : ce qui implique un redemarrage le DIT ; ce
+				//    qui n'en a pas besoin ne le demande pas. Le backend graphique
+				//    en implique un — le contexte est cree une fois, au lancement.
+				//    La langue, elle, n'en impliquera pas : NKGui devra la gerer a
+				//    chaud, et ce panneau ne doit pas prendre l'habitude de
+				//    reclamer un redemarrage pour tout.
+				if (mSt->prefsNeedsRestart) {
+					ec.Separator();
+					nkgui::TextWrapped(ctx, "!! Enregistre. Le backend graphique ne change qu'au "
+											"PROCHAIN lancement : le contexte est cree une fois, au "
+											"demarrage. Fermez et relancez pour l'appliquer.");
+				}
+				if (!mSt->prefsStatus.Empty()) {
+					ec.Separator();
+					nkgui::TextWrapped(ctx, mSt->prefsStatus.Data());
+				}
+			}
+
+		private:
+			DesignState *mSt;
+	};
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  PANNEAU 6 — L'IA
 	// ═══════════════════════════════════════════════════════════════════════════
 	// La place, pas le modele. Ce panneau ne sait rien de ce qu'il y a derriere le
 	// backend, et c'est exactement ce qui permettra de le remplacer par Ilyana

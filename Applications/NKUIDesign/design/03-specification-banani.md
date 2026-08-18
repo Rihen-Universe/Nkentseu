@@ -7,7 +7,7 @@
 > **recoller le bloc « Système de design » en tête de chaque prompt**.
 >
 > ⚠️ **Ce que ces maquettes sont, et ne sont pas.** Elles décrivent **la cible
-> visuelle**. Depuis le 19/08, **la fenêtre de NkUIDesign s'ouvre** — mais elle
+> visuelle**. Depuis le 18/08, **la fenêtre de NkUIDesign s'ouvre** — mais elle
 > **n'a été comparée à aucune cible**, et le premier regard a déjà rapporté deux
 > défauts que 68 essais verts n'avaient pas vus (dont un composant peint en
 > magenta franc). **Une maquette n'est donc jamais la preuve que l'écran est
@@ -883,7 +883,7 @@ manque ne passe pas en silence.
    valeurs de zone sûre **changent** entre portrait et paysage, entre appareil
    avec et sans encoche. Ne jamais dessiner deux orientations avec les mêmes
    marges.
-5. **Aucune maquette ne vaut preuve.** La fenêtre s'ouvre depuis le 19/08, mais
+5. **Aucune maquette ne vaut preuve.** La fenêtre s'ouvre depuis le 18/08, mais
    rien n'a été comparé à une cible. Ce que ces planches montrent est la
    **cible** ; l'état réel de chaque écran est en tête de sa section, et dans le
    document 1, § 3. Elles servent à **mesurer l'écart**, pas à le déclarer nul.
