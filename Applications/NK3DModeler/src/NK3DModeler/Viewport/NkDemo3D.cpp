@@ -9377,6 +9377,64 @@ namespace nkentseu {
 							selAtDone = true; // levier absent : on n'y revient pas
 						}
 					}
+					// ── NK_VIEW_DRAG="f,x0,y0,x1,y1" : UN GLISSER DANS LA VUE ──────
+					// L'ABSENCE trouvee en essayant de m'en servir (Q57 §3) : rien ne
+					// permettait de PRESSER PUIS TIRER dans le viseur. `NK_AGENT_DRAG`
+					// alimente `ui.input` -- l'etat souris de NKGui -- et le viseur ne
+					// lit PAS ce canal : il lit `NkInput` (le singleton plateforme) et
+					// `st->pickPending`, pose par le callback d'evenement de FENETRE.
+					// Deux canaux disjoints : un glisser du shell ne pouvait donc, par
+					// construction, jamais atteindre le gizmo. Ce n'etait pas une portee
+					// de levier trop courte, c'etait le mauvais fil.
+					// ⚠️ PERIMETRE DECLARE : ce levier ecrase `gin` APRES sa
+					// construction, donc il court-circuite `nkvpHover`, `nkvpInputOn` et
+					// l'arbitrage des surcouches. Il exerce le GIZMO et le PICK, pas le
+					// routage du clic. Une course verte ici ne dit rien du routage.
+					// Meme decoupage temporel que NK_AGENT_DRAG : f survol, f+1 appui,
+					// f+2..f+9 glissement, f+10 relachement.
+					{
+						static int32 sVdFrame = -2;
+						static float32 sVd[4] = {0.f, 0.f, 0.f, 0.f};
+						static int32 sVdTick = 0;
+						if (sVdFrame == -2) {
+							sVdFrame = -1;
+							if (const char *v = getenv("NK_VIEW_DRAG")) {
+								float32 f[5] = {0.f, 0.f, 0.f, 0.f, 0.f};
+								const char *q = v;
+								for (int32 k = 0; k < 5 && *q; ++k) {
+									f[k] = (float32)atof(q);
+									while (*q && *q != ',')
+										++q;
+									if (*q == ',')
+										++q;
+								}
+								sVdFrame = (int32)f[0];
+								sVd[0] = f[1];
+								sVd[1] = f[2];
+								sVd[2] = f[3];
+								sVd[3] = f[4];
+							}
+						}
+						++sVdTick;
+						if (sVdFrame > 0) {
+							const int32 k = sVdTick - sVdFrame;
+							if (k >= 0 && k <= 10) {
+								const float32 t =
+									k <= 2 ? 0.f : (k >= 9 ? 1.f : (float32)(k - 2) / 7.f);
+								const float32 px = sVd[0] + (sVd[2] - sVd[0]) * t;
+								const float32 py = sVd[1] + (sVd[3] - sVd[1]) * t;
+								gin.mouseDX = px - gin.mouseX;
+								gin.mouseDY = py - gin.mouseY;
+								gin.mouseX = px;
+								gin.mouseY = py;
+								gin.leftPressed = (k == 1);
+								gin.leftDown = (k >= 1 && k <= 9);
+								logger.Info("[Demo3D] NK_VIEW_DRAG k={0} xy=({1}, {2}) presse={3} enfonce={4}\n",
+											k, px, py, gin.leftPressed ? 1 : 0,
+											gin.leftDown ? 1 : 0);
+							}
+						}
+					}
 					// ── PICK ET MANIPULATION DES LUMIERES ────────────────────────────
 					// Passe AVANT le gizmo des objets, parce qu'un clic doit etre attribue
 					// a un seul destinataire : si les deux le traitaient, deplacer une
@@ -9709,6 +9767,36 @@ namespace nkentseu {
 								}
 								nkvpPropNodeArmed = false; // le geste est fini
 							}
+							// ── MESURE (temporaire) : QUI LA BOUCLE DE COMMIT TOUCHE-T-ELLE ? ──
+							// Defaut n.3 de Rodolf (18/08) : « quand je selectionne plusieurs
+							// models a deplacer dans la scene, il n'y a que le premier qui se
+							// deplace ».
+							//
+							// TROIS causes donnent ce seul symptome a l'ecran, et l'ecran ne les
+							// separe pas : (a) la selection ne s'accumule pas, le gizmo n'a qu'UNE
+							// cible ; (b) elle s'accumule et cette boucle n'applique un delta qu'a
+							// l'actif ; (c) les deux marchent, et c'est en AVAL que ca se perd.
+							//
+							// On journalise donc CE QUE LA BOUCLE VOIT, pas ce qu'on croit : le
+							// nombre de selectionnes, et pour chacun le delta qu'il recoit.
+							// (a) -> « selectionnes=1 » ; (b) -> « selectionnes=N » avec tr=(0,0,0)
+							// partout sauf un ; (c) -> N deltas non nuls, le defaut est plus loin.
+							{
+								int32 nSelDbg = 0;
+								for (int32 es = 0; es < 70; ++es)
+									if (st->emptyGizmo.IsSelected(es))
+										++nSelDbg;
+								logger.Info("[Demo3D] MESURE commit gizmo : selectionnes={0} actif={1}\n",
+											nSelDbg, st->emptyGizmo.ActiveIndex());
+								for (int32 es = 0; es < 70; ++es) {
+									if (!st->emptyGizmo.IsSelected(es))
+										continue;
+									const NkVec3f trDbg = st->emptyGizmo.TranslateOf(es);
+									logger.Info("[Demo3D]   commit noeud={0} tr=({1}, {2}, {3}) avant=({4}, {5}, {6})\n",
+												kNkvpFirstEmpty + es, trDbg.x, trDbg.y, trDbg.z,
+												nkvpEmptyPos[es][0], nkvpEmptyPos[es][1], nkvpEmptyPos[es][2]);
+								}
+							}
 							for (int32 es = 0; es < 70; ++es) {
 								if (!st->emptyGizmo.IsSelected(es))
 									continue;
@@ -9786,6 +9874,66 @@ namespace nkentseu {
 					st->gizmo.SetSnapQuery(&Demo3D_SnapQuery, &sRayCtx);
 					st->emptyGizmo.SetSnapQuery(&Demo3D_SnapQuery, &sRayCtx);
 					st->gizmo.Update(targets, n, gin);
+					// ── INSTRUMENT : OU SONT LES POIGNEES, ET CE QUE LE VISEUR RECOIT ──
+					// Deux absences comblees d'un coup (Q57 §3-§4).
+					// (1) La position ECRAN d'une poignee de gizmo n'etait journalisee
+					//     nulle part -- on ne pouvait donc pas VISER une poignee dans une
+					//     course scriptee, et la course C n'a jamais saisi que du vide.
+					//     ⚠️ On ne REDESSINE pas les poignees pour les localiser : ce
+					//     serait mesurer une reconstruction (face 4). On interroge le
+					//     test de pick DU GIZMO LUI-MEME (`HandlePickDistPx`, publique),
+					//     donc l'autorite qui decide reellement du clic.
+					// (2) L'etat d'entree que le viseur recoit -- `gin`, qui n'a AUCUN
+					//     rapport avec `ui.input` du shell -- n'apparaissait pas au
+					//     journal : impossible de distinguer « mon injection n'arrive
+					//     pas » de « elle arrive et le gizmo l'ignore ».
+					//
+					// NK_GIZMO_PROBE=<frame> : a cette frame, balaye la vue et dessine
+					// la carte des pixels ou une poignee est pickable (# = poignee).
+					{
+						static int32 sProbeF = -2, sProbeTick = 0;
+						if (sProbeF == -2) {
+							const char *v = getenv("NK_GIZMO_PROBE");
+							sProbeF = v ? atoi(v) : -1;
+						}
+						++sProbeTick;
+						if (sProbeF > 0 && sProbeTick == sProbeF) {
+							const float32 vw = (float32)ctx.width, vh = (float32)ctx.height;
+							const int32 kCols = 64, kRows = 32;
+							float32 bx = -1.f, by = -1.f, bd = 1e30f;
+							logger.Info("[Demo3D] MESURE poignees : vue {0}x{1}, selection={2}, carte {3}x{4}\n",
+										vw, vh, st->emptyGizmo.HasSelection() ? 1 : 0, kCols, kRows);
+							for (int32 r = 0; r < kRows; ++r) {
+								char line[kCols + 1];
+								for (int32 c = 0; c < kCols; ++c) {
+									const float32 sx = (c + 0.5f) * vw / (float32)kCols;
+									const float32 sy = (r + 0.5f) * vh / (float32)kRows;
+									const float32 d = st->emptyGizmo.HandlePickDistPx(sx, sy);
+									line[c] = (d < 13.f) ? '#' : '.';
+									if (d < bd) {
+										bd = d;
+										bx = sx;
+										by = sy;
+									}
+								}
+								line[kCols] = 0;
+								logger.Info("[Demo3D]   |{0}|\n", line);
+							}
+							logger.Info("[Demo3D] MESURE poignees : meilleur point ({0}, {1}) distance={2} px\n",
+										bx, by, bd);
+						}
+					}
+					// Etat d'entree REEL du viseur, sur les seules frames qui comptent
+					// (un appui, ou pendant un glissement de poignee) -- pas a chaque
+					// image, sinon le journal de Rodolf devient illisible.
+					if (gin.leftPressed || st->emptyGizmo.IsDragging())
+						logger.Info("[Demo3D] MESURE entree vue : xy=({0}, {1}) d=({2}, {3}) presse={4} enfonce={5} ctrl={6} maj={7} poignee_a={8} px vides_glisse={9} objets_glisse={10}\n",
+									gin.mouseX, gin.mouseY, gin.mouseDX, gin.mouseDY,
+									gin.leftPressed ? 1 : 0, gin.leftDown ? 1 : 0,
+									gin.ctrlDown ? 1 : 0, gin.shiftDown ? 1 : 0,
+									st->emptyGizmo.HandlePickDistPx(gin.mouseX, gin.mouseY),
+									st->emptyGizmo.IsDragging() ? 1 : 0,
+									st->gizmo.IsDragging() ? 1 : 0);
 						// PICK ECRAN des MAILLAGES UTILISATEUR -- APRES le gizmo objets :
 						// une FLECHE saisie garde son clic, un objet derriere elle
 						// n'est plus vole (constate par Rihen). Un clic dans la vue
@@ -9828,6 +9976,27 @@ namespace nkentseu {
 									rootNode != pickedNode)
 									bestU = rootNode - kNkvpFirstEmpty;
 							}
+							// ── INSTRUMENT DU DEFAUT 3 : LE CLIC QUI COMMENCE LE GESTE ──
+							// H3d (Q57 §3) dit que le defaut n'est ni dans le gizmo ni
+							// dans la boucle de commit -- les deux ont ete REFUTES par la
+							// mesure -- mais ICI : presser un objet DEJA SELECTIONNE qui
+							// n'est pas l'ACTIF tombe dans `Select()`, qui est EXCLUSIF.
+							// La selection multiple s'effondre AVANT que le gizmo n'ait
+							// vu quoi que ce soit, et seul l'objet saisi bouge.
+							// La garde `clickedActive` ci-dessous ne protege QUE l'actif :
+							// c'est exactement la difference entre « je saisis le dernier
+							// objet clique » (qui marche) et « j'en saisis un autre du
+							// lot » (qui casse).
+							// On journalise donc le compte AVANT la decision et APRES :
+							// `avant=N apres=1` prouve l'effondrement, `avant=N apres=N`
+							// innocente ce chemin et renvoie l'enquete en aval.
+							const int32 pickedU0 = bestU;
+							int32 nSelAvPick = 0;
+							for (int32 sc = 0; sc < 70; ++sc)
+								if (st->emptyGizmo.IsSelected(sc))
+									++nSelAvPick;
+							const bool pickDejaSel =
+								(bestU >= 0 && st->emptyGizmo.IsSelected(bestU));
 							const bool clickedActive =
 								(bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex());
 							if (clickedActive)
@@ -9852,6 +10021,19 @@ namespace nkentseu {
 								// Les objets de demo, eux, se deselectionnaient deja
 								// via le gizmo.
 								st->emptyGizmo.ClearSelection();
+							}
+							{
+								int32 nSelApPick = 0;
+								for (int32 sc = 0; sc < 70; ++sc)
+									if (st->emptyGizmo.IsSelected(sc))
+										++nSelApPick;
+								logger.Info("[Demo3D] MESURE pick vue : xy=({0}, {1}) touche={2} actif={3} deja_selectionne={4} modificateur={5} selectionnes avant={6} apres={7}\n",
+											gin.mouseX, gin.mouseY,
+											pickedU0 >= 0 ? kNkvpFirstEmpty + pickedU0 : -1,
+											st->emptyGizmo.ActiveIndex(),
+											pickDejaSel ? 1 : 0,
+											(gin.shiftDown || gin.ctrlDown) ? 1 : 0,
+											nSelAvPick, nSelApPick);
 							}
 						}
 					if (getenv("NK_SEL_AT")) {

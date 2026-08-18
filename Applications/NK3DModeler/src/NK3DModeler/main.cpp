@@ -2089,6 +2089,60 @@ int nkmain(const NkEntryState &entry) {
 			st.projPending = 7;
 			agentOpenRecent = -1;
 		}
+		// ── NK_SEL_NODES="frame,n1,n2,n3..." : SELECTION MULTIPLE DE NOEUDS ──
+		// Crochet d'agent pose pour le defaut n.3 de Rodolf (18/08). Il n'existait
+		// aucun moyen de scripter une selection multiple de MODELS : NK_GIZMO_MULTI
+		// ne pilote que `st->gizmo` (les objets de demo, indices < kNumObj), alors
+		// que tous les models et maillages importes vivent dans `emptyGizmo`
+		// (noeuds >= kNkvpFirstEmpty). Le levier existant ne pouvait donc pas
+		// atteindre le regime ou le defaut se produit.
+		//
+		// ⚠️ IL N'INVENTE AUCUN CHEMIN : il appelle EXACTEMENT les deux fonctions
+		// que la ligne de hierarchie appelle sur un clic
+		// (NkModelerHierarchy.h:1349-1352) -- `SelectEmptyNode` pour la premiere,
+		// `ToggleEmptyNode` pour les suivantes, soit le Ctrl+clic reel. Mesurer une
+		// reconstruction au lieu de la chose est la 4e facon dont un controle se
+		// trompe ; ici la selection passe par le code de production.
+		//
+		// LA FRAME EST OBLIGATOIRE (dette connue : « les leviers d'agent ne disent
+		// pas QUAND ») : appliquer au premier passage selectionnerait dans une scene
+		// que NK_OPEN_RECENT n'a pas encore ouverte. Et l'application est UNIQUE --
+		// rejouer `Toggle` a chaque frame ferait clignoter la selection.
+		{
+			static int32 sSelFrame = -2;
+			static int32 sSelNodes[16];
+			static int32 sSelCount = 0;
+			if (sSelFrame == -2) {
+				sSelFrame = -1;
+				if (const char *v = std::getenv("NK_SEL_NODES")) {
+					const char *q = v;
+					sSelFrame = atoi(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+					while (*q && sSelCount < 16) {
+						sSelNodes[sSelCount++] = atoi(q);
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+				}
+			}
+			if (sSelFrame > 0 && agentFrame == sSelFrame && demo::Demo3DHostReady()) {
+				for (int32 s = 0; s < sSelCount; ++s) {
+					if (s == 0)
+						demo::Demo3DHostSelectEmptyNode(sSelNodes[s]);
+					else
+						demo::Demo3DHostToggleEmptyNode(sSelNodes[s]);
+					printf("[nk3d-sel] demande noeud=%d selectionne=%d\n", sSelNodes[s],
+						   demo::Demo3DHostEmptyNodeSelected(sSelNodes[s]) ? 1 : 0);
+				}
+				fflush(stdout);
+				sSelFrame = -1; // une seule fois
+			}
+		}
 		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
 			st.capturePending = 2; // « tutoriel » : toute la fenetre
 		// NK_AGENT_SAVE=<n> : « Enregistrer tout » (action 8) a la frame n —
@@ -2269,14 +2323,22 @@ int nkmain(const NkEntryState &entry) {
 		// inventes. Sans lui, la suite du geste -- assignation, position, menu
 		// -- n'est exercable que par une main, et les trois symptomes de Rodolf
 		// vivent tous APRES le pick, pas dedans.
+		//
+		// DEUX FENTES (NK_DROP_TOKEN et NK_DROP_TOKEN2), meme convention que
+		// NK_AGENT_DRAG/DRAG2 : poser DEUX models dans la scene en UN lancement.
+		// Une seule fente obligeait a enregistrer entre deux lancements pour
+		// obtenir deux instances -- donc a modifier le projet pour pouvoir le
+		// mesurer, ce qui change l'objet mesure. Le defaut n.3 de Rodolf (« il
+		// n'y a que le premier qui se deplace ») ne s'exerce qu'a partir de DEUX.
 		{
-			static bool dtDone = false;
+			static bool dtDone[2] = {false, false};
 			static int32 dtFrame = 0;
 			++dtFrame;
-			if (!dtDone) {
-				const char *dt = std::getenv("NK_DROP_TOKEN");
+			for (int32 dc = 0; dc < 2; ++dc) {
+			if (!dtDone[dc]) {
+				const char *dt = std::getenv(dc == 0 ? "NK_DROP_TOKEN" : "NK_DROP_TOKEN2");
 				if (!dt) {
-					dtDone = true;
+					dtDone[dc] = true;
 				} else {
 					float32 dv[4] = {0.f, 0.f, 0.f, 8.f};
 					int32 dk = 0;
@@ -2288,7 +2350,7 @@ int nkmain(const NkEntryState &entry) {
 							++dp;
 					}
 					if (dtFrame >= (int32)dv[3]) {
-						dtDone = true;
+						dtDone[dc] = true;
 						const int32 ci = (int32)dv[0];
 						if (ci >= 0 && ci < st.browserCount) {
 							st.dropIdx = ci;
@@ -2321,6 +2383,7 @@ int nkmain(const NkEntryState &entry) {
 						}
 					}
 				}
+			}
 			}
 		}
 		if (st.dropIdx >= 0 && st.dropMenuTarget < 0) {
