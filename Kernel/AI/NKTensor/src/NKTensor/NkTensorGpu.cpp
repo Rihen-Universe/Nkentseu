@@ -513,7 +513,7 @@ namespace nkentseu {
 			logger.Info("    TOTAL instrumente : {0} ms, soit {1}% du temps mural de la fenetre. Le reste "
 						"est HORS instrumentation (construction des lots, autograd CPU, journalisation).",
 						totalNs / 1.0e6, (secondesMurales > 0.0) ? (totalNs / 1.0e9 / secondesMurales * 100.0) : 0.0);
-			// ⚠️ DEUX DEFAUTS CORRIGES ICI LE 2026-08-19, et le second est le plus couteux.
+			// ⚠️ DEUX DEFAUTS CORRIGES ICI LE 2026-08-18, et le second est le plus couteux.
 			//
 			// 1. Le chiffre etait celui d'une RTX 3070 de BUREAU (20 300 GFLOP/s). La
 			//    machine est une RTX 3070 **Laptop**, ~16 600 GFLOP/s. Signale par Q12
