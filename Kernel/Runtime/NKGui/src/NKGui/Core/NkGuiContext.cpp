@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiFont.h"
+#include <cstddef> // offsetof — table de description des jetons
 
 namespace nkentseu {
 	namespace nkgui {
@@ -598,6 +599,106 @@ namespace nkentseu {
 			lastItemId = id;		   // pour le glisser-deposer (source/cible)
 			lastItemRect = r;
 			return pressed;
+		}
+
+
+		// ── TABLE DE DESCRIPTION DES JETONS DE THEME ───────────────────────────
+		// Ecrite UNE fois, lue par tout ce qui doit enumerer le theme sans en
+		// connaitre les champs : selecteur de theme, serialiseur, et le futur
+		// NKUIEditor. Ajouter un jeton = une ligne ici + un champ dans la struct ;
+		// le banc temoin verifie que les deux restent en phase.
+		namespace {
+#define NKGUI_TOK_C(field, grp)                                                                                        	{#field, grp, NkGuiTokenType::Color, static_cast<uint16>(offsetof(NkGuiTheme, field))}
+#define NKGUI_TOK_S(field, grp)                                                                                        	{#field, grp, NkGuiTokenType::Scalar, static_cast<uint16>(offsetof(NkGuiTheme, field))}
+
+			const NkGuiTokenDesc kTokens[] = {
+				// surfaces
+				NKGUI_TOK_C(bgPrimary, "surface"),
+				NKGUI_TOK_C(panel, "surface"),
+				NKGUI_TOK_C(header, "surface"),
+				NKGUI_TOK_C(card, "surface"),
+				NKGUI_TOK_C(track, "surface"),
+				NKGUI_TOK_C(scrim, "surface"),
+				NKGUI_TOK_C(shadow, "surface"),
+				// controles
+				NKGUI_TOK_C(button, "controle"),
+				NKGUI_TOK_C(buttonHover, "controle"),
+				NKGUI_TOK_C(buttonActive, "controle"),
+				NKGUI_TOK_C(rowHover, "controle"),
+				NKGUI_TOK_C(selection, "controle"),
+				NKGUI_TOK_C(scrollbar, "controle"),
+				NKGUI_TOK_C(scrollbarHover, "controle"),
+				// onglets
+				NKGUI_TOK_C(tabBar, "onglet"),
+				NKGUI_TOK_C(tab, "onglet"),
+				NKGUI_TOK_C(tabHover, "onglet"),
+				NKGUI_TOK_C(tabActive, "onglet"),
+				// traits
+				NKGUI_TOK_C(border, "trait"),
+				NKGUI_TOK_C(separator, "trait"),
+				// texte
+				NKGUI_TOK_C(text, "texte"),
+				NKGUI_TOK_C(textDisabled, "texte"),
+				NKGUI_TOK_C(textMuted, "texte"),
+				NKGUI_TOK_C(onAccent, "texte"),
+				// etats
+				NKGUI_TOK_C(accent, "etat"),
+				NKGUI_TOK_C(success, "etat"),
+				NKGUI_TOK_C(warning, "etat"),
+				NKGUI_TOK_C(danger, "etat"),
+				NKGUI_TOK_C(info, "etat"),
+				// geometrie
+				NKGUI_TOK_S(rounding, "geometrie"),
+				NKGUI_TOK_S(roundingSmall, "geometrie"),
+				NKGUI_TOK_S(roundingLarge, "geometrie"),
+				NKGUI_TOK_S(borderThickness, "geometrie"),
+				NKGUI_TOK_S(framePadX, "geometrie"),
+				NKGUI_TOK_S(framePadY, "geometrie"),
+			};
+#undef NKGUI_TOK_C
+#undef NKGUI_TOK_S
+
+			// Comparaison de noms sans <cstring> (zero-STL, et strcmp tirerait la
+			// libc la ou la Bare n'en aura pas).
+			bool NkGuiTokNameEq(const char *a, const char *b) noexcept {
+				if (!a || !b)
+					return false;
+				while (*a && *b) {
+					if (*a != *b)
+						return false;
+					++a;
+					++b;
+				}
+				return *a == *b;
+			}
+
+			const NkGuiTokenDesc *NkGuiFindTok(const char *name, NkGuiTokenType type) noexcept {
+				const int32 n = static_cast<int32>(sizeof(kTokens) / sizeof(kTokens[0]));
+				for (int32 i = 0; i < n; ++i)
+					if (kTokens[i].type == type && NkGuiTokNameEq(kTokens[i].name, name))
+						return &kTokens[i];
+				return nullptr;
+			}
+		} // namespace
+
+		const NkGuiTokenDesc *NkGuiThemeTokens(int32 *count) noexcept {
+			if (count)
+				*count = static_cast<int32>(sizeof(kTokens) / sizeof(kTokens[0]));
+			return kTokens;
+		}
+
+		NkColor *NkGuiThemeColor(NkGuiTheme &theme, const char *name) noexcept {
+			const NkGuiTokenDesc *d = NkGuiFindTok(name, NkGuiTokenType::Color);
+			if (!d)
+				return nullptr;
+			return reinterpret_cast<NkColor *>(reinterpret_cast<uint8 *>(&theme) + d->offset);
+		}
+
+		float32 *NkGuiThemeScalar(NkGuiTheme &theme, const char *name) noexcept {
+			const NkGuiTokenDesc *d = NkGuiFindTok(name, NkGuiTokenType::Scalar);
+			if (!d)
+				return nullptr;
+			return reinterpret_cast<float32 *>(reinterpret_cast<uint8 *>(&theme) + d->offset);
 		}
 
 	} // namespace nkgui
