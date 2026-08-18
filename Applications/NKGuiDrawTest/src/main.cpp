@@ -14,6 +14,8 @@
 // =============================================================================
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiDrawList.h"
+#include "NKGui/Core/NkGuiIcons.h"
+#include "NKGui/Widgets/NkGuiWidgets.h"
 
 #include <cstdio>
 
@@ -262,6 +264,268 @@ int main() {
 		Check(NkGuiThemeColor(th, "rounding") == nullptr, "mauvais type (scalaire lu en couleur) -> nullptr");
 		Check(NkGuiThemeScalar(th, "accent") == nullptr, "mauvais type (couleur lue en scalaire) -> nullptr");
 		Check(NkGuiThemeColor(th, "onAccent") != nullptr, "le jeton le plus attendu (onAccent) existe");
+	}
+
+
+	// ── 8. Jeu d'icones : atlas rasterise (source 1) ────────────────────────
+	printf("\n-- Icones, source BITMAP : la geometrie echantillonne-t-elle la bonne region ?\n");
+	{
+		NkGuiIconSet set;
+		set.Reset(7u, 128, 64); // texture 7, atlas 128x64
+		const NkGuiIconHandle a = set.AddBitmap("a", 0, 0, 16, 16);
+		const NkGuiIconHandle b = set.AddBitmap("b", 16, 0, 16, 16);
+		Check(a.Valid() && b.Valid() && a != b, "deux glyphes -> deux poignees distinctes et valides");
+		Check(set.Find("a") == a, "resolution par nom : retrouve la meme poignee");
+		Check(!set.Find("inconnu").Valid(), "nom inconnu -> poignee invalide");
+		Check(set.Find("b").Valid(), "controle positif : un nom connu -> poignee valide");
+
+		// LA mesure : les UV emises couvrent EXACTEMENT la region declaree.
+		NkGuiDrawList dl;
+		const NkRect dst{10.f, 10.f, 32.f, 32.f};
+		const NkGuiIconDraw res = AddIcon(dl, set, a, dst, col);
+		Check(res == NkGuiIconDraw::Glyph, "poignee valide -> le glyphe demande");
+		Check(dl.vtx.Size() == 4u && dl.idx.Size() == 6u, "un quad : 4 sommets, 6 indices");
+		Check(dl.cmds.Size() == 1u && dl.cmds[0].texId == 7u, "commande TEXTUREE sur la texture du jeu");
+		bool uvOk = true;
+		{
+			float32 u0 = 1.f, v0 = 1.f, u1 = 0.f, v1 = 0.f;
+			for (uint32 i = 0; i < dl.vtx.Size(); ++i) {
+				const NkVec2 &uv = dl.vtx[i].uv;
+				if (uv.x < u0)
+					u0 = uv.x;
+				if (uv.y < v0)
+					v0 = uv.y;
+				if (uv.x > u1)
+					u1 = uv.x;
+				if (uv.y > v1)
+					v1 = uv.y;
+			}
+			// region (0,0,16,16) dans 128x64 -> u [0, 0.125], v [0, 0.25]
+			uvOk = Abs(u0 - 0.f) < 1e-5f && Abs(v0 - 0.f) < 1e-5f && Abs(u1 - 0.125f) < 1e-5f &&
+				   Abs(v1 - 0.25f) < 1e-5f;
+		}
+		Check(uvOk, "UV = EXACTEMENT la region declaree (0,0,16,16) / atlas 128x64");
+
+		// Contre-epreuve : une AUTRE region donne d'AUTRES UV. Sans ca, le test
+		// ci-dessus passerait meme si le code renvoyait toujours le meme quad.
+		NkGuiDrawList db;
+		AddIcon(db, set, b, dst, col);
+		float32 bu0 = 1.f;
+		for (uint32 i = 0; i < db.vtx.Size(); ++i)
+			if (db.vtx[i].uv.x < bu0)
+				bu0 = db.vtx[i].uv.x;
+		Check(Abs(bu0 - 0.125f) < 1e-5f, "contre-epreuve : la region voisine donne u0 = 16/128");
+
+		// La teinte traverse : aucune couleur en dur dans le mecanisme.
+		Check(dl.vtx[0].col == NkGuiPackColor(col), "la teinte de l'appelant traverse (jeton de theme)");
+	}
+
+	// ── 9. Icones : ce qui doit ECHOUER, et le DIRE ─────────────────────────
+	printf("\n-- Icones : une demande qui n'aboutit pas doit se CONSTATER\n");
+	{
+		NkGuiIconSet set;
+		set.Reset(7u, 128, 64);
+		const NkGuiIconHandle a = set.AddBitmap("a", 0, 0, 16, 16);
+		const NkRect dst{0.f, 0.f, 32.f, 32.f};
+
+		NkGuiDrawList d1;
+		Check(AddIcon(d1, set, NkGuiIconHandle{}, dst, col) == NkGuiIconDraw::None,
+			  "poignee invalide sans secours -> None");
+		Check(d1.idx.Size() == 0u, "... et rien n'est dessine");
+
+		set.SetFallback(a);
+		NkGuiDrawList d2;
+		Check(AddIcon(d2, set, NkGuiIconHandle{}, dst, col) == NkGuiIconDraw::Fallback,
+			  "poignee invalide AVEC secours -> Fallback (et il le DIT)");
+		Check(d2.idx.Size() > 0u, "... et le glyphe de secours est bien dessine");
+
+		// LA propriete de securite : une poignee d'un AUTRE jeu ne doit jamais
+		// dessiner un glyphe de celui-ci comme si de rien n'etait.
+		NkGuiIconSet other;
+		other.Reset(9u, 64, 64);
+		const NkGuiIconHandle foreign = other.AddBitmap("x", 0, 0, 8, 8);
+		Check(foreign.Valid(), "controle positif : la poignee etrangere est valide DANS SON jeu");
+		Check(set.Glyph(foreign) == nullptr, "poignee etrangere -> rejetee par l'autre jeu");
+		NkGuiIconSet noFb;
+		noFb.Reset(7u, 128, 64);
+		noFb.AddBitmap("a", 0, 0, 16, 16);
+		NkGuiDrawList d3;
+		Check(AddIcon(d3, noFb, foreign, dst, col) == NkGuiIconDraw::None,
+			  "poignee etrangere sans secours -> None, PAS un mauvais glyphe");
+
+		// Declarations refusees, chacune doublee d'un controle positif.
+		Check(!set.AddBitmap("", 0, 0, 16, 16).Valid(), "nom vide -> refuse");
+		Check(!set.AddBitmap("hors", 120, 0, 16, 16).Valid(), "region hors de l'atlas -> refusee");
+		Check(!set.AddBitmap("nul", 0, 0, 0, 16).Valid(), "region de largeur nulle -> refusee");
+		Check(set.AddBitmap("bon", 0, 16, 16, 16).Valid(), "controle positif : region valide -> acceptee");
+
+		// Recharger ne doit pas invalider ce que l'application tient.
+		const NkGuiIconHandle again = set.AddBitmap("a", 32, 0, 16, 16);
+		Check(again == a, "re-declarer un nom conserve la poignee (rechargement sur)");
+	}
+
+	// ── 10. Jeu d'icones : contours VECTORIELS (source 2) ───────────────────
+	printf("\n-- Icones, source VECTORIELLE : editable, recolorable, nette a tout DPI\n");
+	{
+		NkGuiIconSet set;
+		set.Reset(); // aucun atlas : jeu 100 % vectoriel
+		const NkGuiIconHandle tri = set.AddPath("triangle");
+		Check(tri.Valid(), "un glyphe vectoriel s'ouvre");
+		// Triangle dans la boite unite.
+		const NkVec2 pts[3] = {{0.5f, 0.1f}, {0.9f, 0.9f}, {0.1f, 0.9f}};
+		Check(set.AddContour(tri, pts, 3, true), "un contour rempli s'ajoute");
+
+		NkGuiDrawList dl;
+		const NkRect dst{100.f, 200.f, 40.f, 40.f};
+		Check(AddIcon(dl, set, tri, dst, col) == NkGuiIconDraw::Glyph, "le glyphe vectoriel se dessine");
+		Check(dl.vtx.Size() == 3u && dl.idx.Size() == 3u, "3 points -> 1 triangle (aucune rasterisation)");
+		Check(AllInside(dl, dst, 0.001f), "la geometrie tient dans le rect demande");
+		Check(dl.cmds.Size() == 1u && dl.cmds[0].texId == 0u,
+			  "commande NON texturee : c'est de la geometrie, pas un echantillonnage");
+		// Mise a l'echelle exacte de la boite unite : (0.5,0.1) -> (120, 204).
+		bool mapped = false;
+		for (uint32 i = 0; i < dl.vtx.Size(); ++i)
+			if (Abs(dl.vtx[i].pos.x - 120.f) < 0.001f && Abs(dl.vtx[i].pos.y - 204.f) < 0.001f)
+				mapped = true;
+		Check(mapped, "boite unite -> rect : (0.5, 0.1) tombe bien sur (120, 204)");
+		Check(dl.vtx[0].col == NkGuiPackColor(col), "recoloration : la teinte traverse (pas d'atlas par couleur)");
+
+		// LA propriete DPI : le meme glyphe a deux echelles produit une geometrie
+		// PROPORTIONNELLE. Rien n'est echantillonne, donc rien ne peut flouter.
+		NkGuiDrawList p1, p4;
+		AddIcon(p1, set, tri, {0.f, 0.f, 16.f, 16.f}, col);
+		AddIcon(p4, set, tri, {0.f, 0.f, 64.f, 64.f}, col);
+		bool prop = (p1.vtx.Size() == p4.vtx.Size());
+		if (prop)
+			for (uint32 i = 0; i < p1.vtx.Size(); ++i)
+				if (Abs(p4.vtx[i].pos.x - 4.f * p1.vtx[i].pos.x) > 0.001f ||
+					Abs(p4.vtx[i].pos.y - 4.f * p1.vtx[i].pos.y) > 0.001f)
+					prop = false;
+		Check(prop, "x4 en taille -> geometrie x4 exactement (nette a tout facteur DPI)");
+
+		// Un contour en TRAIT : l'epaisseur suit l'echelle elle aussi.
+		const NkGuiIconHandle box = set.AddPath("cadre");
+		const NkVec2 sq[4] = {{0.2f, 0.2f}, {0.8f, 0.2f}, {0.8f, 0.8f}, {0.2f, 0.8f}};
+		Check(set.AddContour(box, sq, 4, false, 0.1f, true), "un contour en TRAIT s'ajoute");
+		NkGuiDrawList dbox;
+		Check(AddIcon(dbox, set, box, {0.f, 0.f, 40.f, 40.f}, col) == NkGuiIconDraw::Glyph,
+			  "le contour en trait se dessine");
+		Check(dbox.vtx.Size() == 16u, "trait ferme de 4 points -> 4 segments -> 16 sommets");
+
+		// Zeros, chacun double d'un controle positif.
+		const NkGuiIconHandle vide = set.AddPath("vide");
+		NkGuiDrawList dv;
+		Check(AddIcon(dv, set, vide, dst, col) == NkGuiIconDraw::None, "glyphe vectoriel SANS contour -> None");
+		Check(!set.AddContour(tri, pts, 3, true), "contour sur un glyphe qui n'est plus ouvert -> refuse");
+		Check(set.AddContour(vide, pts, 3, true), "controle positif : sur le glyphe ouvert -> accepte");
+		Check(!set.AddContour(vide, pts, 2, true), "remplissage a 2 points -> refuse");
+		Check(!set.AddContour(vide, nullptr, 3, true), "pointeur nul -> refuse");
+
+		// Le jeu s'ENUMERE — un futur NkUIDesign doit pouvoir lister et editer.
+		Check(set.Count() == 3, "le jeu s'enumere (3 glyphes declares)");
+		Check(set.GlyphAt(0) != nullptr && set.GlyphAt(99) == nullptr, "enumeration bornee");
+		Check(set.PointCount() > 0, "les points des contours sont lisibles (editables)");
+	}
+
+
+	// ── 11. PLACEMENT EXPLICITE — le manque qui debloquait 102 fonctions ────
+	printf("\n-- SetNextItemRect : un rectangle POSE l'emporte sur le placement automatique\n");
+	{
+		// Mesure a l'origine : sur 114 fonctions declarees dans NkGuiWidgets.h,
+		// 12 acceptent un NkRect et 102 se placent elles-memes. Une interface
+		// pilotee par rectangles ne pouvait en appeler que 12.
+		NkGuiContext ctx;
+		ctx.viewW = 800;
+		ctx.viewH = 600;
+		const NkRect region{0.f, 0.f, 400.f, 400.f};
+		const NkRect posed{50.f, 60.f, 120.f, 30.f};
+
+		// (a) Placement AUTOMATIQUE — le comportement historique.
+		ctx.BeginLayout(region);
+		ctx.DL().Reset();
+		Button(ctx, "auto");
+		const NkRect autoR = ctx.lastItemRect;
+		Check(autoR.w > 0.f && autoR.h > 0.f, "sans rectangle pose : le widget se place tout seul");
+		Check(!(Abs(autoR.x - posed.x) < 0.001f && Abs(autoR.y - posed.y) < 0.001f),
+			  "contre-epreuve : le placement automatique ne tombe PAS sur le rect pose");
+
+		// (b) Rectangle POSE — la geometrie doit tomber EXACTEMENT dedans.
+		ctx.BeginLayout(region);
+		ctx.DL().Reset();
+		ctx.SetNextItemRect(posed);
+		Button(ctx, "pose");
+		Check(Abs(ctx.lastItemRect.x - posed.x) < 0.001f && Abs(ctx.lastItemRect.y - posed.y) < 0.001f &&
+				  Abs(ctx.lastItemRect.w - posed.w) < 0.001f && Abs(ctx.lastItemRect.h - posed.h) < 0.001f,
+			  "le widget prend EXACTEMENT le rectangle pose");
+		Check(ctx.DL().idx.Size() > 0u, "il dessine bien quelque chose");
+		Check(AllInside(ctx.DL(), posed, 0.001f), "toute la geometrie produite tient dans le rectangle pose");
+
+		// (c) Le rectangle pose ne vaut QU'UNE FOIS.
+		ctx.DL().Reset();
+		Button(ctx, "suivant");
+		Check(!(Abs(ctx.lastItemRect.x - posed.x) < 0.001f && Abs(ctx.lastItemRect.y - posed.y) < 0.001f),
+			  "le widget SUIVANT reprend le placement automatique (pose = un seul appel)");
+
+		// (d) Un rectangle pose et jamais consomme ne survit pas a la frame.
+		ctx.BeginLayout(region);
+		ctx.SetNextItemRect(posed);
+		ctx.BeginFrame(0.016f);
+		ctx.BeginLayout(region);
+		ctx.DL().Reset();
+		Button(ctx, "apres frame");
+		Check(!(Abs(ctx.lastItemRect.x - posed.x) < 0.001f && Abs(ctx.lastItemRect.y - posed.y) < 0.001f),
+			  "un rect pose non consomme ne survit pas a la frame suivante");
+
+		// (e) L'etendue du contenu inclut le rectangle pose — sinon un panneau
+		//     defilable ne verrait pas ce qu'on y a place.
+		ctx.BeginLayout(region);
+		const float32 before = ctx.layout.maxY;
+		ctx.SetNextItemRect({10.f, 300.f, 50.f, 40.f});
+		Button(ctx, "bas");
+		Check(ctx.layout.maxY >= 340.f && ctx.layout.maxY > before,
+			  "l'etendue du contenu (maxY) inclut le rectangle pose");
+
+		// (f) Le curseur, lui, ne bouge PAS : celui qui pose place lui-meme.
+		ctx.BeginLayout(region);
+		const NkVec2 cur0 = ctx.layout.cursor;
+		ctx.SetNextItemRect(posed);
+		Button(ctx, "curseur");
+		Check(Abs(ctx.layout.cursor.x - cur0.x) < 0.001f && Abs(ctx.layout.cursor.y - cur0.y) < 0.001f,
+			  "le curseur de mise en page ne bouge pas apres un rect pose");
+	}
+
+
+	// ── 12. SEPARATEUR : dette recuperee de NKUI avant son extinction ───────
+	printf("\n-- Splitter : ratio + zone de prehension elargie (reprises de NkUILayout::DrawSplitter)\n");
+	{
+		const NkRect area{0.f, 0.f, 200.f, 100.f};
+		NkRect vis{}, grab{};
+
+		SplitterRects(area, true, 0.5f, 4.f, 12.f, &vis, &grab);
+		Check(Abs(vis.x - 98.f) < 0.001f && Abs(vis.w - 4.f) < 0.001f, "vertical, ratio 0.5 : trait fin centre en x=100");
+		Check(Abs(grab.x - 94.f) < 0.001f && Abs(grab.w - 12.f) < 0.001f, "prehension elargie a 12 px, meme centre");
+		Check(grab.w > vis.w, "on dessine FIN, on attrape LARGE");
+		Check(Abs((grab.x + grab.w * 0.5f) - (vis.x + vis.w * 0.5f)) < 0.001f,
+			  "les deux rectangles partagent exactement le meme centre");
+
+		// Le ratio suit la zone : c'est ce qu'une position en pixels ne sait pas.
+		NkRect v2{};
+		SplitterRects({0.f, 0.f, 400.f, 100.f}, true, 0.5f, 4.f, 12.f, &v2, nullptr);
+		Check(Abs(v2.x - 198.f) < 0.001f, "zone deux fois plus large : le ratio 0.5 suit (x=200)");
+
+		SplitterRects(area, false, 0.25f, 4.f, 12.f, &vis, &grab);
+		Check(Abs(vis.y - 23.f) < 0.001f && Abs(vis.h - 4.f) < 0.001f, "horizontal, ratio 0.25 : trait en y=25");
+		Check(Abs(grab.h - 12.f) < 0.001f, "prehension elargie aussi a l'horizontale");
+
+		// Bornes et controles positifs.
+		SplitterRects(area, true, 2.f, 4.f, 12.f, &vis, nullptr);
+		Check(Abs(vis.x - 198.f) < 0.001f, "ratio > 1 borne a 1 (le trait reste dans la zone)");
+		SplitterRects(area, true, -1.f, 4.f, 12.f, &vis, nullptr);
+		Check(Abs(vis.x + 2.f) < 0.001f, "ratio < 0 borne a 0");
+		SplitterRects(area, true, 0.5f, 4.f, 0.f, &vis, &grab);
+		Check(Abs(grab.w - vis.w) < 0.001f, "prehension 0 -> elle vaut le visuel (comportement historique)");
+		SplitterRects(area, true, 0.5f, 4.f, 20.f, &vis, &grab);
+		Check(Abs(grab.w - 20.f) < 0.001f, "controle positif : une prehension demandee est bien appliquee");
 	}
 
 	printf("\n=== %d/%d ===\n", g_pass, g_pass + g_fail);
