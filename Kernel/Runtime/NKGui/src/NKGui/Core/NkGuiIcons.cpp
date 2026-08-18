@@ -72,12 +72,28 @@ namespace nkentseu {
 												uint32 texId) noexcept {
 			if (mSetId == 0u || w <= 0 || h <= 0)
 				return NkGuiIconHandle{};
+			// Un glyphe BITMAP n'a aucun sens sans les dimensions de l'atlas : ce
+			// sont elles qui normalisent les UV. Sans elles, le dessin
+			// echantillonnerait en coordonnees PIXELS — soit, pour une region de
+			// 16 px, seize fois hors de la texture, et EN SILENCE. On refuse donc
+			// la declaration, pour que le defaut apparaisse au chargement du jeu
+			// (poignee invalide, verifiable) et non a l'ecran.
+			// Un jeu purement vectoriel (Reset() sans atlas) n'est pas concerne :
+			// il n'ajoute pas de bitmap.
+			//
+			// NOTE : la verification de bornes juste en dessous refuse deja ce cas
+			// (x + w > 0 est vrai des que w > 0). Le defaut d'origine n'etait donc
+			// pas l'absence de CETTE garde, mais le fait que les bornes etaient
+			// ENVELOPPEES dans un `if (mAtlasW > 0 && mAtlasH > 0)` qui les
+			// desactivait precisement quand elles servaient. La garde explicite
+			// reste : elle dit l'intention, et elle survivra a une reecriture des
+			// bornes. Le banc le confirme -- retirer cette garde seule ne change
+			// rien (111/111), remettre l'enveloppe d'origine casse (110/111).
+			if (mAtlasW <= 0 || mAtlasH <= 0)
+				return NkGuiIconHandle{};
 			// Hors de l'atlas : on refuse plutot que d'echantillonner n'importe ou.
-			// (Un atlas de taille nulle n'est pas verifiable — cas d'un jeu
-			// purement vectoriel a qui l'on ajoute quand meme un bitmap.)
-			if (mAtlasW > 0 && mAtlasH > 0)
-				if (x < 0 || y < 0 || x + w > mAtlasW || y + h > mAtlasH)
-					return NkGuiIconHandle{};
+			if (x < 0 || y < 0 || x + w > mAtlasW || y + h > mAtlasH)
+				return NkGuiIconHandle{};
 
 			NkGuiIconGlyph g;
 			if (!NameCopy(g.name, name))
@@ -251,8 +267,13 @@ namespace nkentseu {
 			// Normalisation par les dimensions de l'atlas, portees par le jeu.
 			const NkVec2 uv0{static_cast<float32>(g->x), static_cast<float32>(g->y)};
 			const NkVec2 uv1{static_cast<float32>(g->x + g->w), static_cast<float32>(g->y + g->h)};
-			const float32 sw = set.AtlasW() > 0 ? static_cast<float32>(set.AtlasW()) : 1.f;
-			const float32 sh = set.AtlasH() > 0 ? static_cast<float32>(set.AtlasH()) : 1.f;
+			// Ceinture : AddBitmap refuse deja de declarer un bitmap sans atlas, donc
+			// ce cas n'est plus atteignable par l'API publique. On le garde quand
+			// meme — il vaut mieux ne rien dessiner qu'emettre des UV en pixels.
+			if (set.AtlasW() <= 0 || set.AtlasH() <= 0)
+				return NkGuiIconDraw::None;
+			const float32 sw = static_cast<float32>(set.AtlasW());
+			const float32 sh = static_cast<float32>(set.AtlasH());
 			dl.AddImage(tex, r, {uv0.x / sw, uv0.y / sh}, {uv1.x / sw, uv1.y / sh}, tint);
 			return result;
 		}

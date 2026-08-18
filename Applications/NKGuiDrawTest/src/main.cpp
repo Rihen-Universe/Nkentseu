@@ -362,6 +362,19 @@ int main() {
 		// Recharger ne doit pas invalider ce que l'application tient.
 		const NkGuiIconHandle again = set.AddBitmap("a", 32, 0, 16, 16);
 		Check(again == a, "re-declarer un nom conserve la poignee (rechargement sur)");
+
+		// Un glyphe BITMAP sans dimensions d'atlas : les UV ne seraient pas
+		// normalisables, le dessin echantillonnerait en PIXELS -- pour une region
+		// de 16 px, seize fois hors de la texture, et en silence. La declaration
+		// doit donc echouer AU CHARGEMENT, la ou c'est verifiable.
+		NkGuiIconSet noAtlas;
+		noAtlas.Reset(7u, 0, 0); // texture, mais aucune dimension
+		Check(!noAtlas.AddBitmap("a", 0, 0, 16, 16).Valid(), "bitmap sans dimensions d'atlas -> refuse");
+		Check(noAtlas.AddPath("vecto").Valid(), "controle positif : un glyphe VECTORIEL, lui, reste permis");
+		NkGuiIconSet withAtlas;
+		withAtlas.Reset(7u, 128, 64);
+		Check(withAtlas.AddBitmap("a", 0, 0, 16, 16).Valid(),
+			  "controle positif : le meme bitmap AVEC dimensions -> accepte");
 	}
 
 	// ── 10. Jeu d'icones : contours VECTORIELS (source 2) ───────────────────
