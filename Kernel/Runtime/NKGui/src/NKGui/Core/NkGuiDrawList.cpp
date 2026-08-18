@@ -201,16 +201,164 @@ namespace nkentseu {
 			Tri(i0, i2, i3, 0u);
 		}
 
-		void NkGuiDrawList::AddRect(const NkRect &r, const NkColor &col, float32 thickness) noexcept {
-			// Bordure = 4 rectangles pleins tracés STRICTEMENT à l'intérieur du rect.
-			// (AddLine centrerait l'épaisseur sur l'arête → la moitié extérieure sort
-			// du rect et est rognée par le clip — scissor exclusif à droite/bas → bord
-			// droit invisible/aminci.) Ici chaque bord tient dans [r.x, r.x+r.w] etc.
-			const float32 t = thickness * thickScale;		  // épaisseur en px écran (DPI)
-			AddRectFilled({r.x, r.y, r.w, t}, col);			  // haut
-			AddRectFilled({r.x, r.y + r.h - t, r.w, t}, col); // bas
-			AddRectFilled({r.x, r.y, t, r.h}, col);			  // gauche
-			AddRectFilled({r.x + r.w - t, r.y, t, r.h}, col); // droite
+		// Segments d'un quart de cercle pour un rayon donne — MEME regle que
+		// AddCircleFilled (8*r/4 + 8, borne 12..128), divisee par 4 puis bornee
+		// 3..16. Deterministe : c'est ce qui rend la geometrie verifiable au banc.
+		static inline int32 NkGuiArcSegs(float32 radius) noexcept {
+			int32 segs = static_cast<int32>(8.f * radius / 4.f) + 8;
+			if (segs < 12)
+				segs = 12;
+			else if (segs > 128)
+				segs = 128;
+			int32 n = segs / 4;
+			if (n < 3)
+				n = 3;
+			else if (n > 16)
+				n = 16;
+			return n;
+		}
+
+		void NkGuiDrawList::AddRect(const NkRect &r, const NkColor &col, float32 thickness,
+									float32 rounding) noexcept {
+			const float32 t = thickness * thickScale; // épaisseur en px écran (DPI)
+			if (r.w <= 0.f || r.h <= 0.f || t <= 0.f)
+				return;
+
+			if (rounding < 0.5f) {
+				// Bordure DROITE = 4 rectangles pleins tracés STRICTEMENT à l'intérieur
+				// du rect. (AddLine centrerait l'épaisseur sur l'arête → la moitié
+				// extérieure sort du rect et est rognée par le clip — scissor exclusif à
+				// droite/bas → bord droit invisible/aminci.) Chemin HISTORIQUE, inchangé :
+				// chaque bord tient dans [r.x, r.x+r.w] etc.
+				AddRectFilled({r.x, r.y, r.w, t}, col);			  // haut
+				AddRectFilled({r.x, r.y + r.h - t, r.w, t}, col); // bas
+				AddRectFilled({r.x, r.y, t, r.h}, col);			  // gauche
+				AddRectFilled({r.x + r.w - t, r.y, t, r.h}, col); // droite
+				return;
+			}
+
+			// Bordure ARRONDIE : anneau entre le contour de `r` (rayon `ro`) et celui
+			// du rect rentre de `t` (rayon `ri`). Meme convention « strictement a
+			// l'interieur » que le cas droit — le bord exterieur EST celui de `r`.
+			const float32 x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h;
+			float32 ro = rounding;
+			const float32 romax = (r.w < r.h ? r.w : r.h) * 0.5f;
+			if (ro > romax)
+				ro = romax;
+			// Rect INTERIEUR (rentre de t). S'il est degenere, l'anneau couvre tout :
+			// on retombe sur le disque plein arrondi, ce qui est le resultat juste.
+			const float32 iw = r.w - 2.f * t, ih = r.h - 2.f * t;
+			if (iw <= 0.f || ih <= 0.f) {
+				AddRectFilled(r, col, ro);
+				return;
+			}
+			float32 ri = ro - t;
+			if (ri < 0.f)
+				ri = 0.f;
+			const float32 rimax = (iw < ih ? iw : ih) * 0.5f;
+			if (ri > rimax)
+				ri = rimax;
+
+			const int32 n = NkGuiArcSegs(ro);
+			const float32 PI = 3.14159265358979f;
+			// Centres d'arc, sens horaire (y vers le bas) : HG, HD, BD, BG.
+			const NkVec2 co[4] = {{x0 + ro, y0 + ro}, {x1 - ro, y0 + ro}, {x1 - ro, y1 - ro}, {x0 + ro, y1 - ro}};
+			const NkVec2 ci[4] = {{x0 + t + ri, y0 + t + ri},
+								  {x1 - t - ri, y0 + t + ri},
+								  {x1 - t - ri, y1 - t - ri},
+								  {x0 + t + ri, y1 - t - ri}};
+			const float32 a0[4] = {PI, 1.5f * PI, 0.f, 0.5f * PI};
+
+			const uint32 c = NkGuiPackColor(col);
+			const NkVec2 uv{0.f, 0.f};
+			uint32 pO = 0, pI = 0, fO = 0, fI = 0;
+			bool has = false;
+			for (int32 k = 0; k < 4; ++k) {
+				for (int32 i = 0; i <= n; ++i) {
+					const float32 a = a0[k] + (0.5f * PI) * (static_cast<float32>(i) / static_cast<float32>(n));
+					const float32 cs = std::cos(a), sn = std::sin(a);
+					const uint32 vO = Vtx({co[k].x + cs * ro, co[k].y + sn * ro}, uv, c);
+					const uint32 vI = Vtx({ci[k].x + cs * ri, ci[k].y + sn * ri}, uv, c);
+					if (has) {
+						Tri(pO, vO, vI, 0u);
+						Tri(pO, vI, pI, 0u);
+					} else {
+						fO = vO;
+						fI = vI;
+					}
+					pO = vO;
+					pI = vI;
+					has = true;
+				}
+			}
+			if (has) { // ferme l'anneau
+				Tri(pO, fO, fI, 0u);
+				Tri(pO, fI, pI, 0u);
+			}
+		}
+
+		void NkGuiDrawList::AddCircle(const NkVec2 &center, float32 r, const NkColor &col, float32 thickness,
+									  int32 segs) noexcept {
+			const float32 th = thickness * thickScale;
+			if (r <= 0.f || th <= 0.f)
+				return;
+			if (segs <= 0) {
+				segs = static_cast<int32>(8.f * r / 4.f) + 8;
+				if (segs < 12)
+					segs = 12;
+				else if (segs > 128)
+					segs = 128;
+			}
+			// `r` = ligne MEDIANE (convention des emulations remplacees).
+			const float32 ro = r + th * 0.5f;
+			float32 ri = r - th * 0.5f;
+			if (ri < 0.f)
+				ri = 0.f;
+			const uint32 c = NkGuiPackColor(col);
+			const NkVec2 uv{0.f, 0.f};
+			const float32 kTau = 6.28318530718f;
+			uint32 pO = Vtx({center.x + ro, center.y}, uv, c);
+			uint32 pI = Vtx({center.x + ri, center.y}, uv, c);
+			const uint32 fO = pO, fI = pI;
+			for (int32 s = 1; s < segs; ++s) {
+				const float32 a = kTau * static_cast<float32>(s) / static_cast<float32>(segs);
+				const float32 cs = std::cos(a), sn = std::sin(a);
+				const uint32 vO = Vtx({center.x + cs * ro, center.y + sn * ro}, uv, c);
+				const uint32 vI = Vtx({center.x + cs * ri, center.y + sn * ri}, uv, c);
+				Tri(pO, vO, vI, 0u);
+				Tri(pO, vI, pI, 0u);
+				pO = vO;
+				pI = vI;
+			}
+			Tri(pO, fO, fI, 0u); // ferme l'anneau
+			Tri(pO, fI, pI, 0u);
+		}
+
+		void NkGuiDrawList::AddConvexPolyFilled(const NkVec2 *pts, int32 n, const NkColor &col) noexcept {
+			if (!pts || n < 3)
+				return;
+			const uint32 c = NkGuiPackColor(col);
+			const NkVec2 uv{0.f, 0.f};
+			const uint32 i0 = Vtx(pts[0], uv, c);
+			uint32 prev = Vtx(pts[1], uv, c);
+			for (int32 i = 2; i < n; ++i) {
+				const uint32 cur = Vtx(pts[i], uv, c);
+				Tri(i0, prev, cur, 0u);
+				prev = cur;
+			}
+		}
+
+		void NkGuiDrawList::AddPolyline(const NkVec2 *pts, int32 n, const NkColor &col, float32 thickness,
+										bool closed) noexcept {
+			if (!pts || n < 2)
+				return;
+			// Un quad par segment, sans raccord d'onglet (miter) — meme modele que
+			// AddLine, dont c'est la generalisation. Aux angles vifs les deux quads
+			// laissent une encoche ; c'est assume (les emulations remplacees faisaient
+			// deja exactement cela).
+			const int32 last = closed ? n : n - 1;
+			for (int32 i = 0; i < last; ++i)
+				AddLine(pts[i], pts[(i + 1) % n], col, thickness);
 		}
 
 		void NkGuiDrawList::AddTriangleFilled(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c,
