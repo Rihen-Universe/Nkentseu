@@ -1131,7 +1131,13 @@ C'est dit plutôt que taisé, et la même mention est écrite dans le banc lui-m
                                        et le témoin `NkEditorInspector.h`
                                        ÉCHOUE bien (`NKGui/NKGui.h: No such file`)
     jenga build --target NKUIDesign :  20/20 SUCCESS
-    NKUIDesign --probe              :  58/58   (inchangé — rien n'est cassé)
+    NKUIDesign --probe              :  68/68   (vert — rien n'est cassé)
+
+⚠️ **Et la sonde a GRANDI pendant la passe : 58 → 68 essais.** L'agent de
+l'application l'a étendue entre ma première mesure et la dernière. Le chiffre
+ci-dessus est celui d'une **reconstruction complète faite par moi** (20/20),
+pas la lecture d'un fichier de rapport écrit par quelqu'un d'autre — c'est la
+leçon du binaire périmé (§7 du canal) appliquée d'avance.
 
 ⚠️ **ET UN ROUGE QUI N'EN ÉTAIT PAS UN, pour la deuxième fois en deux passes.**
 Ma première compilation a donné **BUILD FAILED, 6 erreurs dans `main.cpp`** — un
