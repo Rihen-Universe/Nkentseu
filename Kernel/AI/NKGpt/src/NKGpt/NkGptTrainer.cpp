@@ -886,6 +886,19 @@ namespace nkentseu {
 				const bool hasSave = !mCfg.savePath.Empty();
 
 				optim::NkAdam adam(mParams, peakLr, 0.9f, 0.999f, 1e-8f, /*weightDecay=AdamW*/ 0.01f);
+				// Ecretage de gradient : opt-in strict. Sans --clip, aucun appel, donc
+				// Step() garde exactement le comportement d'avant (cf. le commentaire de
+				// SetGradClip). C'est ce qui permet de comparer une course avec ecretage
+				// a une course de reference sans rejouer cette derniere.
+				if (mCfg.clip > 0.0f) {
+					adam.SetGradClip(optim::NkGradClipMode::NK_CLIP_BY_GLOBAL_NORM, mCfg.clip);
+					if (V)
+						logger.Info("   ECRETAGE DE GRADIENT : ACTIF, norme globale L2 bornee a {0}.",
+									(double)mCfg.clip);
+				} else if (V) {
+					logger.Info("   ECRETAGE DE GRADIENT : AUCUN (--clip <norme> pour l'activer ; la campagne "
+								"du socle a pique au pas 400 sans lui).");
+				}
 
 				// Reprise parfaite : restaure les moments Adam + le compteur de pas => pas de warmup ni de
 				// pic de perte, le schedule reprend là où il s'était arrêté. `base` = pas déjà effectués.
