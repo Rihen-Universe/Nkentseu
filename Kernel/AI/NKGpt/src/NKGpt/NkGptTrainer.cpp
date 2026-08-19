@@ -980,6 +980,25 @@ namespace nkentseu {
 				// cout de demarrage a des operations qui ne le paient qu'une fois.
 				NkChrono chronoProfil;
 				int64 pasProfiles = 0;
+
+				// --- GARDE DE PIC DE PERTE (JOURNALISATION SEULE) --------------------
+				// Ajoutee le 2026-08-19 apres le diagnostic de la campagne du socle :
+				// celle-ci est passee de 5,51658 a 7,84896 EN 25 PAS au pas 400, et ne
+				// s'en est jamais remise — 5 600 pas dans un regime degenere, decouvert
+				// seulement a la fin. Une course temoin a pique de la meme facon au pas
+				// 350 et s'en est, elle, remise : l'evenement est STOCHASTIQUE, donc il
+				// se reproduira et il faut qu'il se VOIE quand il arrive.
+				//
+				// Cette garde ne lit que `lv`, deja sur CPU pour la journalisation.
+				// Elle n'ajoute AUCUNE operation GPU, ne touche aucun gradient et
+				// n'interrompt rien : elle ne peut pas modifier une trajectoire. C'est
+				// la condition pour qu'on puisse l'activer sans rejouer les temoins.
+				const int kPicFenetre = 25;   // pas observes glissants
+				const double kPicSeuil = 1.0; // hausse jugee anormale sur la fenetre
+				double picHist[kPicFenetre];
+				int picN = 0, picIdx = 0;
+				int64 picDernier = -1000;
+				int64 picCompte = 0;
 				for (int s = 1; s <= STEPS; ++s) {
 					const int64 g = base + (int64)s; // pas global (pour le schedule)
 					float lr;
@@ -1197,6 +1216,32 @@ namespace nkentseu {
 										(NkTensorGpu::OpCount() > 0)
 											? (chrono.Elapsed().seconds * 1000.0) / (double)NkTensorGpu::OpCount()
 											: 0.0);
+					}
+					// --- GARDE DE PIC DE PERTE : on compare au PLANCHER de la fenetre ---
+					{
+						double plancher = lv;
+						for (int i = 0; i < picN; ++i)
+							if (picHist[i] < plancher)
+								plancher = picHist[i];
+						if (picN >= kPicFenetre && (lv - plancher) > kPicSeuil &&
+							(g - picDernier) > (int64)kPicFenetre) {
+							picDernier = g;
+							++picCompte;
+							logger.Info("*** PIC DE PERTE au pas {0} : {1} -> {2} (+{3}) en moins de {4} pas "
+										"(pic n°{5} de la course). ***",
+										(long long)g, plancher, lv, lv - plancher, (long long)kPicFenetre,
+										(long long)picCompte);
+							logger.Info("*** Un pic de cette taille casse souvent le modele DEFINITIVEMENT. "
+										"Surveiller les 150 pas suivants : si la perte ne revient pas vers {0}, la "
+										"course est perdue et il vaut mieux l'arreter que la finir. Remedes "
+										"habituels : ecretage de gradient (NkGradClipMode, PAS actif aujourd'hui), "
+										"pic de LR plus bas, echauffement plus long (--warmup). ***",
+										plancher);
+						}
+						picHist[picIdx] = lv;
+						picIdx = (picIdx + 1) % kPicFenetre;
+						if (picN < kPicFenetre)
+							++picN;
 					}
 					if (V && ((mCfg.logEvery > 0 && s % mCfg.logEvery == 0) || s == 1))
 						// Pas GLOBAL, pas local : apres une reprise, c'est le seul qui se lise
