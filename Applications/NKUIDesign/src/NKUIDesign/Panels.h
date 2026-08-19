@@ -172,6 +172,24 @@ namespace nkuidesign {
 					All().PushBack(e);
 				}
 
+				/// Publier un rectangle DEJA CONNU (une disposition calculee, pas un
+				/// widget). Pas de garde de region ici : l'appelant sait ce qu'il
+				/// publie, et un rectangle de disposition n'a pas d'onglet derriere
+				/// lequel se cacher.
+				static void NoteRect(const char *id, float32 x, float32 y, float32 w, float32 h) {
+					if (!Enabled() || !id || !*id)
+						return;
+					for (uint32 i = 0; i < (uint32)All().Size(); ++i)
+						if (StrEq(All()[i].id.Data(), id)) {
+							All()[i].r = {x, y, w, h};
+							return;
+						}
+					Entry e;
+					e.id = NkString(id);
+					e.r = {x, y, w, h};
+					All().PushBack(e);
+				}
+
 				/// A appeler JUSTE APRES le widget : `ctx.lastItemRect` porte alors
 				/// son rectangle. Remplace l'entree de meme nom (une image chasse
 				/// l'autre) plutot que d'empiler.
@@ -884,6 +902,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
+				designkit::UiRects::NoteRegion(ctx, "apercu");
 				ec.Text("Le document, dessine par le kit. Cliquez pour selectionner ;");
 				ec.Text("tirez le bord droit ou bas d'un noeud pour changer sa TAILLE.");
 
@@ -930,6 +949,29 @@ namespace nkuidesign {
 				//    « ferme ». Il surcharge `Icon` et RIEN d'autre.
 				NkDesignPaint paint(ctx, mSt->theme);
 				NkDrawDocument(paint, in, mSt->doc, mSt->layout, mSt->host);
+
+				// ⚠️ L'APERCU PUBLIE LE RECTANGLE DE CHAQUE NOEUD. Meme principe
+				//    que pour les widgets : un essai a la souris doit viser ce que
+				//    l'application a REELLEMENT dispose, jamais une coordonnee
+				//    recalculee dehors. Ici c'est encore plus vrai qu'ailleurs —
+				//    **la position d'un noeud est un RESULTAT** (elle se calcule
+				//    depuis les tailles declarees), donc la recalculer dans l'essai
+				//    reviendrait a reimplementer le solveur qu'on veut eprouver, et
+				//    il serait juste par construction.
+				//
+				//    ⚠️ Et ca ne contredit pas « l'outil n'enregistre jamais une
+				//    coordonnee » : ces rectangles ne vont PAS dans le document,
+				//    ils vont dans un fichier de diagnostic que seul `--dump-ui`
+				//    ecrit. Le document, lui, ne contient toujours que des tailles.
+				for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i) {
+					if (!mSt->layout.Has((int32)i))
+						continue;
+					const NkPaintRect r = mSt->layout.At((int32)i);
+					char clef[128];
+					snprintf(clef, sizeof(clef), "apercu.noeud.%s",
+							 mSt->doc.nodes[i].label.Data());
+					designkit::UiRects::NoteRect(clef, r.x, r.y, r.w, r.h);
+				}
 
 				// Le liseré de selection se peint APRES le document et n'en fait pas
 				// partie : c'est du mobilier d'editeur. La sonde ne le voit pas, et
