@@ -161,6 +161,60 @@ namespace nkuidesign {
 		return NkAuthor::Humain;
 	}
 
+	// ── LA PAIRE DE CORRECTION ──────────────────────────────────────────────
+	//
+	// 🛑 ETAT AU 2026-08-19, A LIRE AVANT DE S'EN SERVIR : **DECLAREE, PAS
+	//    BRANCHEE.** Rien ne l'ecrit, rien ne la relit, elle n'est ni serialisee
+	//    ni couverte par la sonde. Le chantier a ete mis en pause a cet endroit
+	//    precis (moyens concentres sur Ilyana).
+	//
+	//    Elle est conservee malgre tout **pour une seule raison** : elle porte la
+	//    precision de Rodolf ci-dessous, et le raisonnement qui dit pourquoi cette
+	//    donnee ne se reconstitue pas apres coup. C'est ca qui serait perdu, pas
+	//    les trente lignes de code qui restent a ecrire.
+	//
+	//    ⚠️ Ne pas la prendre pour une fonctionnalite : tant que les sites
+	//    d'edition n'appellent pas `NoteCorrection`, `corrections` reste vide et
+	//    `corrected` continue de resumer a lui seul. La suite exacte est ecrite
+	//    dans `CARNET.private.md`, section « reprise ».
+	// ⚠️ PRECISION DE RODOLF (2026-08-19), ET ELLE CHANGE CE QU'ON ENREGISTRE :
+	//
+	//    > **L'etape qui perd quelque chose a attendre, c'est la boucle de
+	//    > correction.** Chaque fois qu'un humain reprend a la main ce que l'IA a
+	//    > produit, la paire *« ce que la machine a propose / ce que l'humain
+	//    > voulait »* est **perdue pour toujours si elle n'est pas enregistree au
+	//    > moment du geste**. Aucun corpus ne la contient et on ne la reconstitue
+	//    > pas apres coup.
+	//
+	//    Un booleen `corrected` disait qu'une main etait passee. Il ne disait NI
+	//    ce qui a change, NI vers quoi. Or c'est exactement l'ecart qui a de la
+	//    valeur : « la machine a propose `fixed 260`, l'humain a retenu
+	//    `fixed 340`, en tirant le bord droit ». Le booleen jetait les trois
+	//    informations et gardait le fait le moins utile.
+	//
+	// ⚠️ POURQUOI ON NE PEUT PAS LE RECONSTITUER APRES COUP, et c'est la raison
+	//    d'etre de cette structure : une fois la valeur ecrasee, **la proposition
+	//    de la machine n'existe plus nulle part**. Ni le document, ni le journal,
+	//    ni la sortie du backend ne la contiennent — le document ne garde que
+	//    l'etat courant. La capture doit donc se faire **au moment du geste**, par
+	//    le code qui a les deux valeurs sous la main, ou jamais.
+	struct NkCorrection {
+			/// CE QUI a change, en chemin stable : « largeur.mode »,
+			/// « param.thumb_size », « parent ». Stable parce qu'il sert de cle :
+			/// deux corrections du meme champ doivent se reconnaitre.
+			NkString what;
+			/// Ce que la MACHINE avait pose. Capture a la PREMIERE correction de ce
+			/// champ, et **jamais reecrit ensuite** — voir `NoteCorrection`.
+			NkString proposed;
+			/// Ce que l'humain a retenu. Mis a jour a chaque nouvelle correction du
+			/// meme champ : c'est la valeur FINALE qui compte, pas les etapes.
+			NkString retained;
+			/// LE GESTE, parce qu'il porte l'intention : « glisser-bord-droit » et
+			/// « saisie-numerique » donnent la meme valeur et ne disent pas la meme
+			/// chose sur ce que l'humain cherchait.
+			NkString gesture;
+	};
+
 	struct NkProvenance {
 			NkAuthor author = NkAuthor::Humain;
 			/// REJOUEE et comparee : la declaration a produit le meme dessin apres
@@ -173,6 +227,11 @@ namespace nkuidesign {
 			/// Qui exactement : nom du backend, du modele, du fichier importe.
 			/// Vide pour une pose a la main.
 			NkString origin;
+			/// ⚠️ LES PAIRES DE CORRECTION. `corrected` reste, mais il n'est plus
+			///    que le RESUME de ceci : vrai des qu'il y a au moins une paire.
+			///    Le garder evite de casser ce qui le lit ; le remplacer par un
+			///    compte aurait fait deux verites a tenir d'accord.
+			NkVector<NkCorrection> corrections;
 	};
 
 	// ════════════════════════════════════════════════════════════════════════════
