@@ -389,7 +389,21 @@ namespace nkuidesign {
 		};
 		char buf[256];
 
+		// ⚠️ LE RAPPORT PORTE L'IDENTITE DU BINAIRE QUI L'A ECRIT, et ce n'est
+		//    pas de la decoration : le 19/08 au matin, un rapport annoncant
+		//    « 78/78 » a fait croire que le binaire livre etait perime. Il ne
+		//    l'etait pas -- le binaire rendait 103/103. **C'etait le FICHIER de
+		//    rapport qui datait de la veille** : la sonde ecrit dans le repertoire
+		//    COURANT, et toutes les courses suivantes avaient ete lancees depuis la
+		//    racine du depot, laissant intacte la copie posee a cote de
+		//    l'executable.
+		//
+		//    Un rapport sans date ressemble EXACTEMENT a un rapport frais. Avec
+		//    cette ligne, un fichier perime se denonce tout seul. C'est la lecon
+		//    « une mesure prise dans un etat qu'on n'a pas verifie » appliquee a
+		//    l'etat le plus banal qui soit : la fraicheur du fichier qu'on lit.
 		rep.Append("=== NKUIDesign --probe : la declaration est-elle LUE ? ===\n");
+		rep.Append("binaire compile le " __DATE__ " a " __TIME__ "\n");
 		rep.Append("Seance SANS GPU : aucune fenetre ouverte, aucun temoin visuel.\n");
 		rep.Append("Regime couvert : 12 entrees, panneau 900x600, echelle 1.0,\n");
 		rep.Append("variantes grid + dense_list. Hors regime : liste vide, filtre\n");
