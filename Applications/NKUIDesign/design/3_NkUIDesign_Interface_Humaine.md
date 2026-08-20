@@ -180,12 +180,13 @@ l'application visée — classe de cible, appareil, orientation, zone sûre, dé
 de fenêtre, curseur, points de rupture, rapport de transposition. `Fenêtre` reste
 à l'éditeur.
 
-⚠️ **Le coût est réel et il faut le dire** : la barre passe de huit à neuf entrées,
-donc **les planches déjà validées qui montrent la barre de menu deviennent
-périmées** (§22 du document Banani, et le plan de fenêtre). C'est peu de chose à
-regarder, mais c'est une reprise. **Décision de Rodolf** — en attendant, tout ce qui
-suit est écrit avec `Cible`, et il suffit de replier ces entrées dans `Objet` et
-`Affichage` pour revenir à huit.
+✅ **Adopté par Rodolf le 2026-08-20**, après validation de la planche du menu
+déroulant. **La barre porte neuf entrées.**
+
+⚠️ **Conséquence à ne pas perdre de vue** : les planches validées qui montrent la
+barre à huit entrées sont désormais **périmées** — §22.5 à §22.7 du document Banani
+et le `plan_fenetre_principale.svg`. Elles restent utilisables pour tout le reste
+de leur contenu ; **seule la barre est à reprendre**, au moment de la composition.
 
 ### 5bis.1 Règles communes à tous les menus
 
@@ -199,6 +200,14 @@ suit est écrit avec `Cible`, et il suffit de replier ces entrées dans `Objet` 
 - **Les entrées de premier niveau ne disparaîtnt jamais** : elles se grisent. Leur
   position est apprise par la main, et un menu dont la forme change casse ce que
   l'utilisateur a mémorisé. Seuls des **blocs entiers** sans objet se retirent.
+- ⚠️ **La coche se place toujours du même côté : à GAUCHE**, dans une colonne
+  réservée que les lignes non cochées laissent vide — et les libellés restent
+  alignés entre eux. Dans un sous-menu comme dans un menu principal, qu'il s'agisse
+  d'une bascule ou d'un choix exclusif.
+
+  *Le rendu du 2026-08-20 22h08 la mettait à gauche dans le menu et à droite dans
+  le sous-menu.* **C'est le même signe pour le même sens ; deux positions obligent
+  l'œil à chercher au lieu de balayer une colonne.**
 
 ### 5bis.2 `Fichier`
 
