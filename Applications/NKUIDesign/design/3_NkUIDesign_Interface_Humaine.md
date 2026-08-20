@@ -2643,6 +2643,16 @@ Un greffon exécute du code. Il déclare **avant installation** ce dont il a bes
 lecture du document, écriture du document, système de fichiers, réseau, presse-papiers,
 processus externes.
 
+⚠️ **L'énoncé de ce que l'action coûte ne doit JAMAIS être le plus petit texte de
+la boîte.** « Un greffon exécute du code dans l'éditeur » est la phrase qui porte
+tout le risque ; la reléguer en bas, en gris, plus petite que le reste, c'est le
+motif exact des bandeaux de consentement où la conséquence est en petits
+caractères. **Elle se place au-dessus des boutons, à la taille des libellés, dans
+la couleur du texte courant.**
+
+*Cette règle vaut pour toute boîte où l'on accorde quelque chose : la phrase qui
+dit ce qu'on accorde a le même poids typographique que celle qui le demande.*
+
 ⚠️ **La liste est montrée à l'installation, et un greffon ne peut pas l'élargir en
 silence à la mise à jour** — une extension qui gagne l'accès réseau entre deux
 versions sans le redemander est exactement le schéma par lequel des écosystèmes
