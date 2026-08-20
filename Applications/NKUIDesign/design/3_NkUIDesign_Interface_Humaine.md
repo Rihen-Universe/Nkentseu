@@ -1260,6 +1260,16 @@ Quarante entrées ne tiennent pas dans une liste plate.
   pré-focalisé à l'ouverture, et filtre sur les deux groupes à la fois ;
 - **les rôles récemment utilisés remontent** dans un petit groupe en tête.
 
+⚠️ **Le rôle courant se marque PARTOUT où il apparaît** — même fond, même coche,
+dans « Récents » *et* dans sa famille. Le rendu du 2026-08-20 12h28 le montrait
+coché en tête et non coché dans Actions : le même objet, deux états. C'est ainsi
+qu'on apprend à un utilisateur à ne pas faire confiance à la coche.
+
+⚠️ **Et on ne règle pas cela en retirant le rôle courant du groupe « Récents »** :
+le groupe changerait de contenu à chaque sélection, donc de hauteur, donc les
+familles en dessous se déplaceraient. On perdrait le repère de position qu'un
+groupe « récents » existe justement pour donner.
+
 ⚠️ **Les familles de §14ter.3 et les familles d'outils de §7.1 doivent porter les
 mêmes noms.** Deux taxonomies voisines mais différentes pour les mêmes objets, et
 personne ne saura plus dans laquelle chercher.
