@@ -882,6 +882,18 @@ séparés dans le document (voir doc 5 §3bis pour le modèle).
   point de départ. Double-clic sur une transition ouvre son détail dans
   l'Inspecteur : événement déclencheur (dropdown, catalogue doc 2 §9),
   durée, courbe d'interpolation.
+
+  ⚠️ **L'état `Disabled` de cette machine n'est PAS une notion propre à
+  l'animation.** Il est **piloté par la disponibilité de l'élément**
+  (§14quater), héritage d'un ancêtre compris. Le laisser se définir
+  indépendamment donnerait un widget **qui paraît actif en animation tout en
+  étant désactivé en réalité** — ou l'inverse. On dessine ici **l'apparence**
+  de cet état et les transitions qui y mènent ; **jamais la condition qui le
+  déclenche.**
+
+  De même, `Hover`, `Pressed` et `Focus` viennent du contrat de rôle
+  (§14ter) et n'existent que si le rôle les porte. **Un élément sans rôle n'a
+  pas d'état `Pressed` à animer**, et la machine ne doit pas lui en proposer.
 - **Dope Sheet / Curve Editor** (bascule via un bouton toggle, exactement
   comme pour Aetherion, voir `04-specification-humaine-animation-vfx.md`
   §6) : pour éditer *l'intérieur* d'un état ou d'une transition — quelles
