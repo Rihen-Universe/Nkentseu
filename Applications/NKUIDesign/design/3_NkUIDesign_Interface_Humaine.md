@@ -481,6 +481,22 @@ C'est une mémoire d'édition — elle ne s'affiche pas, elle ne se sérialise p
 - **un clic sur la ligne ouvre un popover** contenant, ensemble : la liste des
   modes, puis `min`, puis `max`. Ce sont les trois réponses à une même question.
 
+**Le popover porte en plus une ligne `Rapport`** — une aide à la saisie, pas un
+mécanisme de plus. On y écrit `largeur = 4 × espacement` ; l'outil résout
+
+```
+W + 2g = P   et   W = k·g     ⟹     g = P/(k+2),  W = kP/(k+2)
+```
+
+et **écrit les deux ancres proportionnelles** correspondantes (ici 16,67 %). Rien
+d'autre n'est enregistré : le fichier ne contient que des ancres, exactement comme
+si elles avaient été tapées à la main.
+
+⚠️ **C'est délibérément une aide à la saisie et rien de plus.** Conserver le
+rapport comme une propriété vivante ouvrirait un système de contraintes où toute
+propriété peut en citer une autre — donc des cycles, donc un solveur, donc un autre
+produit. *Le modèle ne gagne aucun champ ; seule l'interface gagne une phrase.*
+
 ⚠️ **Cacher les champs, jamais cacher le fait.** Le popover fait gagner la place
 que la ligne de bornes permanente coûtait sur *tous* les éléments alors que
 presque aucun n'a de borne. Mais une borne invisible est une borne oubliée : le
@@ -538,6 +554,27 @@ parce qu'elles ne répondent pas à la même question.
 Chacune se règle **par côté** (haut, droite, bas, gauche) ou d'un seul nombre pour
 les quatre, avec un cadenas de liaison dans l'Inspecteur. L'espacement se règle
 séparément en horizontal et en vertical.
+
+**Chaque valeur porte une unité** (décision Rodolf, 2026-08-20) :
+
+| unité | sens |
+|---|---|
+| `px` | une distance absolue |
+| `% du parent` | une fraction de la dimension correspondante du parent |
+| `% de ma taille` | une fraction de **ma propre** dimension |
+
+La troisième existe pour un cas que rien d'autre ne couvre : un bouton en `content`,
+dont la largeur vient du texte, et dont on veut que l'espacement à droite vaille
+toujours la moitié de cette largeur. **L'ancrage ne sait pas le dire** — les ancres
+se mesurent depuis le parent, jamais depuis l'élément lui-même.
+
+⚠️ **`% de ma taille` n'est autorisé que si la taille ne dépend pas de l'espace
+restant.** Donc permis sur `fixed`, `content` et `fraction` ; **interdit sur
+`expand` et `weight`**. Sur ceux-là, la marge alimenterait le calcul de l'espace
+restant, qui déterminerait la taille, qui déterminerait la marge. La saisie est
+refusée et la raison est dite ; **l'outil n'arbitre pas le cycle**, parce qu'un
+cycle brisé en silence produit une disposition dont plus personne ne sait
+expliquer l'origine.
 
 ⚠️ **La règle qui lève toute ambiguïté avec l'ancrage** (§8quater.3), et il faut
 l'énoncer une fois pour toutes :

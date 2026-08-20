@@ -274,14 +274,39 @@ pas. *Une règle morte qui ne se dit pas est du travail perdu qu'on croit fait.*
 ### 1ter.5 Marge, remplissage, espacement
 
 ```
-NkEdges { top, right, bottom, left : float32 }
+NkEdgeUnit { Px | PercentParent | PercentSelf }
+
+NkEdgeValue { value : float32; unit : NkEdgeUnit }
+
+NkEdges { top, right, bottom, left : NkEdgeValue }
 
 NkSpacing {
     padding : NkEdges      // bord -> contenu, vers l'interieur
     margin  : NkEdges      // bord -> voisinage, vers l'exterieur
-    gap     : { h, v : float32 }   // entre enfants
+    gap     : { h, v : NkEdgeValue }   // entre enfants
 }
 ```
+
+⚠️ **`PercentSelf` est refusé si le mode de la dimension correspondante est
+`Expand` ou `Weight`** — code `E-SPACING-CYCLE`. Sur ces deux modes la taille
+dépend de l'espace restant, l'espace restant dépend de la marge, la marge
+dépendrait de la taille. **Refuser à la saisie, pas casser le cycle au calcul :**
+un cycle brisé par une règle interne produit une disposition correcte au pixel
+près et inexplicable à la lecture.
+
+⚠️ **`PercentSelf` se résout après le clamp des bornes**, sur la taille finale de
+l'élément — sinon un `content` borné à `max 320` donnerait une marge calculée sur
+une largeur que l'élément n'occupe pas.
+
+⚠️ **La sérialisation écrit l'unité, jamais la valeur résolue.** Écrire les pixels
+calculés ferait qu'un document relu dans un parent de taille différente ne
+reproduirait pas la disposition enregistrée — le même défaut que `gap` simulé par
+des marges, une ligne plus bas.
+
+**Ligne `Rapport` du popover de taille (doc 3 §8quater.2) :** pur sucre d'édition.
+L'interface résout `W = k·g` et `W + 2g = P` en `g = P/(k+2)`, puis écrit deux
+`NkAnchorEdge` proportionnelles. **`k` n'est stocké nulle part.** Le stocker
+ferait du modèle un système de contraintes ; ce n'est pas ce produit.
 
 ⚠️ **La règle de composition avec l'ancrage, à implémenter une seule fois et à
 documenter dans le code** :
