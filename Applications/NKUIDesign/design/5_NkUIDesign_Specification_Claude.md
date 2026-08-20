@@ -356,8 +356,12 @@ voir.
 > Découle de `3_NkUIDesign_Interface_Humaine.md` §14ter.
 
 ```
+NkRoleOrigin { Native | Project }
+
 NkRoleContract {
     id             : NkString              // "button", "checkbox", …
+    origin         : NkRoleOrigin
+    derivesFrom    : NkRoleContract*       // Project : natif etendu, ou nul
     states         : liste de NkStateId    // repos, survol, pressé, désactivé, focus
     events         : liste de NkEventDecl  // nom + charge utile
     properties     : liste de NkPropDecl
@@ -383,6 +387,22 @@ NkRoleBinding {                 // ce que porte l'élément
 3. **`expectedChildren` non satisfait n'est pas une erreur** — c'est un
    **avertissement de validation nommé**. Un bouton sans libellé est peut-être un
    bouton-icône délibéré.
+
+4. **Changer de contrat convertit en `userEvents` tout événement de l'ancien
+   contrat qui portait une liaison** — il n'est jamais supprimé. La liaison désigne
+   un callback qui existe dans le code ; la perdre casse la compilation **loin du
+   geste qui l'a causée**, et personne ne remonte de l'erreur au changement de
+   rôle.
+5. **`origin == Project` exige que `derivesFrom` soit explicitement rempli ou
+   explicitement nul.** Pas de défaut implicite. Un rôle de projet sans dérivation
+   n'a d'interaction que celle de ses enfants, et l'éditeur doit le dire à la
+   création — sinon il promet un comportement que rien n'implémente, et l'écart ne
+   se découvre qu'à l'exécution.
+
+⚠️ **`origin == Native` n'est pas créable depuis l'éditeur.** Un rôle natif est
+adossé à un widget NKGui ; en fabriquer un depuis l'interface donnerait un `id`
+que le runtime ne sait pas instancier. La liste des rôles natifs est **fermée et
+fournie par le moteur**.
 
 ⚠️ **La composition est autorisée** : un élément porte un rôle **et** peut contenir
 des enfants qui portent les leurs. Aucune règle d'exclusion.
