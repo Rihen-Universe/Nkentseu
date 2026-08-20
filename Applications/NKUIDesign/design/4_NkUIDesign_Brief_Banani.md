@@ -1297,6 +1297,274 @@ lieu d'un Ease Out). **Ces deux ajouts n'ont pas été relancés.**
 
 ---
 
+---
+
+### 22.14 Panneau d'animation — ambiances et effets continus
+
+```
+Génère UNIQUEMENT un panneau d'édition d'animation d'éditeur d'interface, en gros
+plan vertical, thème DARK, occupant toute la hauteur de l'image.
+
+EN-TÊTE : une petite icône de bouton, "Bouton_Connexion" en gras, et en dessous en
+gris "Rôle : bouton".
+
+SOUS L'EN-TÊTE, TROIS ONGLETS : "Transitions" | "Ambiances" | "Effets continus".
+C'EST "Ambiances" QUI EST ACTIF — texte clair et fin liseré bleu dessous.
+
+LE CORPS contient DEUX BLOCS séparés par un fin trait, plus un bandeau en bas.
+
+=== BLOC 1, titre en petites capitales grises : "AMBIANCE — RESPIRATION" ===
+À droite du titre, un petit interrupteur ALLUMÉ.
+Sept lignes, libellé à gauche en gris, valeur à droite :
+   État          ->  "Idle"  (sélecteur, avec une petite icône de cadenas à sa
+                     gauche, et sous la ligne, en BLANC CASSÉ à la même taille que
+                     les libellés : "une ambiance appartient à un état")
+   Propriété     ->  "Échelle"
+   De … à        ->  "1.00"  et  "1.04"
+   Durée         ->  "1800"  puis "ms"
+   Répétition    ->  "Infinie"
+   Sens          ->  "Aller-retour"
+   Décalage      ->  "0" puis "ms", ET À DROITE UN PETIT BADGE AMBRÉ portant
+                     "12 instances en phase"
+
+=== BLOC 2, titre : "EFFET CONTINU — INCLINAISON" ===
+À droite du titre, un petit interrupteur ALLUMÉ.
+Six lignes :
+   Source        ->  "Position du pointeur — X"
+   Cible         ->  "Rotation Y"
+   Entrée        ->  "-1.0"  et  "1.0"
+   Sortie        ->  "-6°"  et  "6°"
+   Lissage       ->  un petit CURSEUR HORIZONTAL, poignée aux deux tiers, valeur
+                     "0.65" à sa droite
+   Valeur de repos -> le champ "0°", ENTOURÉ D'UN FIN CONTOUR BLEU, et sous la
+                     ligne, en BLANC CASSÉ à la même taille que les libellés :
+                     "prise quand il n'y a pas de pointeur — tactile, clavier"
+
+Sous ce bloc, une VIGNETTE DE PROJECTION : un carré sombre avec deux axes fins,
+une DROITE BLEUE du coin inférieur gauche au coin supérieur droit ; repères "-1"
+et "1" sur l'axe horizontal, "-6°" et "6°" sur le vertical ; un POINT BLEU posé
+sur la droite, aux deux tiers.
+
+=== BANDEAU DU BAS ===
+Titre "MOUVEMENT RÉDUIT", et sous lui trois BOUTONS SEGMENTÉS : "Arrêter" (ACTIF,
+fond bleu), "Raccourcir", "Conserver". Sous ces boutons, en BLANC CASSÉ : "Réglage
+système d'accessibilité. Les ambiances s'arrêtent, les transitions se
+raccourcissent."
+```
+
+⚠️ **Les deux phrases explicatives ont été passées en « blanc cassé » après coup.**
+Au lancement d'origine, demandées « en gris clair et bien lisible », elles sont
+sorties délavées — **quatrième occurrence du même dérapage**. La formulation
+ci-dessus n'a pas été relancée telle quelle.
+
+---
+
+### 22.15 Gestionnaire de greffons
+
+```
+Génère UNIQUEMENT une fenêtre "Gestionnaire de greffons", en gros plan, occupant
+toute l'image, plus large que haute. Thème DARK.
+
+EN-TÊTE : le titre "Greffons" à gauche ; à droite un champ de recherche avec loupe
+et texte gris "Rechercher…", puis un bouton plein bleu "+ Installer un greffon…".
+
+SOUS L'EN-TÊTE, quatre onglets-filtres : "Tous (6)" (actif) | "Actifs (3)" |
+"Désactivés (2)" | "Rejetés (1)".
+
+LE CORPS est une LISTE DE CARTES empilées, une par greffon, sur toute la largeur.
+Chaque carte porte DE GAUCHE À DROITE : une icône carrée, un bloc de texte (nom en
+gras, puis en gris "éditeur · version · identifiant"), un GROUPE D'ÉTAT, puis tout
+à droite un INTERRUPTEUR et un bouton "⋯".
+
+  CARTE 1 — "Lumen UI Kit" · "studio-lumen · v2.1 · lumen"
+  PASTILLE VERTE + "Actif". Étiquettes grises arrondies : "24 composants"
+  "6 effets" "2 sources d'animation", puis en gris terne "1,8 ms par image".
+  INTERRUPTEUR ALLUMÉ.
+
+  CARTE 2 — "Formes vectorielles avancées" · "rihen · v0.9 · rihen.vector"
+  PASTILLE VERTE + "Actif". Étiquettes : "3 outils" "1 format d'import", puis
+  "0,3 ms par image". INTERRUPTEUR ALLUMÉ.
+
+  CARTE 3 — "Pont Figma" · "communauté · v1.4 · figma.bridge"
+  PASTILLE VERTE + "Actif". Étiquette : "1 format d'import".
+  SOUS CES ÉTIQUETTES, UNE LIGNE D'AVERTISSEMENT AMBRÉE avec un petit triangle :
+  "Accès réseau et système de fichiers".
+  À droite : "14,2 ms par image" ÉCRIT EN AMBRÉ, pas en gris.
+  INTERRUPTEUR ALLUMÉ.
+
+  CARTE 4 — "Thèmes sombres étendus" · "communauté · v0.4 · dark.plus"
+  PASTILLE GRISE + "Désactivé". CARTE LÉGÈREMENT TERNE, mais son sous-titre reste
+  LISIBLE. INTERRUPTEUR ÉTEINT.
+
+  CARTE 5 — "Animations physiques" · "studio-lumen · v1.0 · lumen.physics"
+  PASTILLE GRISE + "Désactivé", carte terne, sous-titre lisible.
+  INTERRUPTEUR ÉTEINT.
+
+  CARTE 6 — "Anciens composants 2024" · "communauté · v0.2 · legacy2024"
+  CETTE CARTE EST DIFFÉRENTE DE TOUTES LES AUTRES : contour ROUGE PÂLE, nom BARRÉ,
+  PASTILLE ROUGE + "Rejeté". SOUS LE SOUS-TITRE, une LIGNE ROUGE PÂLE BIEN LISIBLE
+  sur fond très légèrement rouge : "Exige l'hôte 1.2 — celui-ci est en 1.0. Rien
+  n'a été chargé." À la place de l'interrupteur, un bouton en contour
+  "Désinstaller".
+
+EN BAS, une barre fine séparée par un trait : à gauche en gris "Hôte 1.0 ·
+6 greffons installés · 16,3 ms par image consommés au total", à droite un bouton
+en contour "Ouvrir le dossier des greffons".
+
+CE QUI DOIT SAUTER AUX YEUX :
+- la carte "Rejeté" ne ressemble à aucune autre, et sa raison est écrite en toutes
+  lettres, pas un simple code ;
+- "14,2 ms par image" est en ambré quand les deux autres durées sont grises ;
+- la ligne "Accès réseau et système de fichiers" est visible sans avoir à cliquer.
+```
+
+**Réserve** : les cartes désactivées sont sorties si ternes que leurs sous-titres
+passent sous la limite de lisibilité. La consigne « sous-titre reste LISIBLE » a
+été ajoutée après coup et n'a pas été relancée.
+
+---
+
+### 22.16 Dialogue d'installation d'un greffon
+
+**Base** — voir le corps du prompt ci-dessous. **Puis la correction**, qui est
+celle qui compte : au premier lancement, la phrase « Un greffon exécute du code
+dans l'éditeur » — **la seule qui porte le risque** — était le plus petit texte de
+la boîte, en gris sombre, sous les boutons. Le texte consolidé ci-dessous intègre
+la correction et **a été relancé et validé**.
+
+```
+Génère UNIQUEMENT une boîte de dialogue modale d'installation de greffon, centrée,
+occupant environ les trois quarts de la hauteur de l'image et la moitié de sa
+largeur. Thème DARK. Derrière elle, le fond est ASSOMBRI et FLOUTÉ.
+
+LA BOÎTE a des coins arrondis et une ombre portée nette.
+
+EN-TÊTE : à gauche une icône carrée de greffon, à droite le nom "Pont Figma" en
+gras et grande taille, puis en dessous en gris "communauté · v1.4 · figma.bridge".
+Une croix de fermeture en haut à droite.
+
+SECTION 1 — "CE QU'IL AJOUTE", titre en petites capitales grises.
+Trois lignes avec une petite icône à gauche :
+   "1 format d'import — fichiers .fig"
+   "12 composants"
+   "1 outil de canvas"
+Puis une ligne en gris : "Toutes ses contributions seront préfixées par figma."
+
+SECTION 2 — "CE À QUOI IL ACCÈDE"
+C'EST LA SECTION LA PLUS VISIBLE DE LA BOÎTE. Fond légèrement plus clair, LISERÉ
+AMBRÉ sur son bord gauche. Quatre lignes, chacune avec une icône, le nom de la
+permission en texte clair, et en dessous une phrase explicative écrite EN BLANC
+CASSÉ, À LA MÊME TAILLE que le nom de la permission — ni grise, ni bleutée, ni plus
+petite ; seule sa graisse est plus légère :
+
+   [icône réseau]   "Accès réseau"
+                    "Il pourra envoyer et recevoir des données sur Internet."
+   [icône dossier]  "Système de fichiers — lecture"
+                    "Il pourra lire des fichiers en dehors du projet."
+   [icône document] "Lecture du document"
+                    "Il pourra lire tout ce que contient votre projet."
+   [icône crayon]   "Écriture du document"
+                    "Il pourra modifier votre projet."
+
+SECTION 3 — "PROVENANCE"
+   Fichier   ->  "figma-bridge-1.4.nkgreffe"
+   Signature ->  le texte "NON SIGNÉ" EN AMBRÉ, précédé d'un petit triangle.
+Sous ces lignes, dans un encadré ambré, une phrase en AMBRE CLAIR VIF à la même
+taille que les autres textes de la boîte : "Personne ne garantit l'origine de ce
+fichier. Ne l'installez que si vous savez d'où il vient."
+
+EN BAS, séparé par un fin trait, ET DANS CET ORDRE :
+- D'ABORD, sur toute la largeur, la phrase "Un greffon exécute du code dans
+  l'éditeur." écrite EN BLANC, à la MÊME TAILLE que le libellé de la case à
+  cocher, précédée d'une petite icône d'information ;
+- PUIS, en dessous, à gauche une case à cocher NON COCHÉE avec le libellé "J'ai lu
+  ce à quoi ce greffon accède", et à droite deux boutons : "Annuler" en simple
+  contour et "Installer" en bouton plein — CE DERNIER GRISÉ ET ÉTEINT tant que la
+  case n'est pas cochée.
+
+CE QUI DOIT SAUTER AUX YEUX : en balayant la boîte, les deux textes les plus
+faciles à lire après le nom du greffon sont les quatre permissions et la phrase
+"Un greffon exécute du code dans l'éditeur.".
+```
+
+---
+
+### 22.17 Dialogue de désinstallation d'un greffon
+
+Validée du premier coup.
+
+```
+Génère UNIQUEMENT une boîte de dialogue modale de désinstallation de greffon,
+centrée, occupant environ les trois quarts de la hauteur de l'image et la moitié
+de sa largeur. Thème DARK, même style que la boîte d'installation. Derrière elle,
+le fond est assombri et flouté.
+
+EN-TÊTE : à gauche une icône carrée de greffon, à droite le titre en gras et
+grande taille "Désinstaller Lumen UI Kit ?", et en dessous en gris "studio-lumen ·
+v2.1 · lumen". Une croix de fermeture en haut à droite.
+
+SECTION 1 — "CE QUI SERA RETIRÉ", titre en petites capitales grises.
+Trois lignes avec une petite icône à gauche, en texte clair :
+   "24 composants"
+   "6 effets"
+   "2 sources d'animation"
+Puis une phrase en blanc cassé, même taille : "Tout ce qui est préfixé par lumen.
+sera retiré. Rien d'autre."
+
+SECTION 2 — "TROIS DOCUMENTS EN DÉPENDENT"
+C'EST LA SECTION LA PLUS VISIBLE DE LA BOÎTE. Fond légèrement plus clair, LISERÉ
+ROUGE PÂLE sur son bord gauche, TITRE EN ROUGE PÂLE et non en gris.
+Trois lignes, chacune avec une icône de document, le nom du fichier en texte CLAIR
+ET NET, et à l'extrémité droite en blanc cassé le nombre d'éléments :
+   "Dashboard_Admin.nkgui"  ->  "18 éléments"
+   "Landing_Page.nkgui"     ->  "7 éléments"
+   "HUD_Jeu.nkgui"          ->  "2 éléments"
+Sous ces lignes, un fin trait, puis DEUX PHRASES EN BLANC, à la même taille que les
+noms de fichiers :
+   "Ces éléments ne seront pas supprimés : ils deviendront inconnus et resteront
+   dans les documents."
+   "Mais ces trois documents ne pourront plus être exportés tant que le greffon
+   n'est pas réinstallé."
+
+SECTION 3 — "UNE AUTRE OPTION", fond neutre.
+Un bloc avec à gauche une icône d'interrupteur, à droite deux lignes : en gras
+"Désactiver au lieu de désinstaller", puis en blanc cassé "Le greffon reste
+installé et les documents continuent de s'ouvrir normalement. C'est réversible en
+un clic." À l'extrémité droite du bloc, un bouton en simple contour "Désactiver".
+
+EN BAS, séparé par un fin trait :
+- une case à cocher NON COCHÉE, libellé en BLANC : "J'ai lu que trois documents ne
+  pourront plus être exportés" ;
+- en dessous à droite, "Annuler" en simple contour et "Désinstaller" en bouton
+  plein ROUGE, GRISÉ ET ÉTEINT tant que la case n'est pas cochée.
+
+CE QUI DOIT SAUTER AUX YEUX :
+- la section des trois documents est la plus lourde de la boîte ;
+- "Désactiver au lieu de désinstaller" est présenté comme un vrai choix, pas comme
+  une note en bas de page ;
+- le bouton rouge "Désinstaller" est visiblement inactif.
+```
+
+---
+
+### ⚠️ 22.18 La leçon transversale des dix-sept planches
+
+**Quatre fois sur cinq, un texte demandé « en gris clair et bien lisible » est sorti
+délavé** — les libellés désactivés (§22.11), « piloté par la disponibilité »
+(§22.13), les deux phrases du panneau d'animation (§22.14), et la phrase de risque
+du dialogue d'installation (§22.16).
+
+**La consigne qui marche ne décrit pas l'intention, elle prescrit la valeur :**
+
+| ne pas écrire | écrire |
+|---|---|
+| « en gris clair et bien lisible » | « en blanc cassé, à la même taille que le libellé au-dessus » |
+| « discret mais visible » | « en ambre clair vif, même taille que les autres textes » |
+| « atténué » | « légèrement terne, mais le sous-titre reste lisible » |
+
+*C'est le même constat qu'en §0bis, sur un autre axe : ce qui passe, ce sont les
+valeurs concrètes ; ce qui échoue, ce sont les intentions.*
+
 ## Notes d'usage pour Banani
 
 - Générer les écrans 1 à 3 en premier (ils partagent la même coquille), puis 4-6
