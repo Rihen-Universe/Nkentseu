@@ -565,6 +565,80 @@ l'outil puisse affirmer** ; les autres demandent un jugement humain.
 
 ---
 
+## 1sexies. Les trois familles d'animation
+
+> Doc 3 §9ter.
+
+```
+NkReduceMotion { Stop | Shorten | Keep }
+
+// A -- transition entre etats, declenchee par un evenement (doc 3 9bis)
+NkTransitionAnim {
+    fromState, toState : NkStateId
+    event    : NkEventId
+    duration : uint32          // ms
+    curve    : NkCurve
+    reduce   : NkReduceMotion  // defaut Shorten
+}
+
+// B -- ambiance : tourne tant que l'etat dure
+NkAmbientAnim {
+    state     : NkStateId      // OBLIGATOIRE : une ambiance appartient a un etat
+    track     : NkPropertyTrack
+    duration  : uint32
+    repeat    : Infinite | Times(uint32)
+    direction : Forward | PingPong
+    delay     : uint32
+    jitter    : uint32         // decalage aleatoire max, en ms
+    reduce    : NkReduceMotion // defaut Stop
+}
+
+// C -- effet continu : une liaison, pas une timeline
+NkDrivenEffect {
+    source   : PointerX | PointerY | PointerDistance | Time | Scroll
+             | PropertyValue(NkPropRef)
+    target   : NkPropRef            // y compris un parametre de la pile d'effets
+    inRange  : { min, max : float32 }
+    outRange : { min, max : float32 }
+    curve    : NkCurve
+    smoothing: float32              // 0 = suit au pixel, 1 = tres amorti
+    atRest   : float32              // OBLIGATOIRE : valeur quand la source manque
+    reduce   : NkReduceMotion       // defaut Stop
+}
+```
+
+⚠️ **`NkAmbientAnim.state` est requis, pas optionnel.** Une ambiance attachée à
+l'élément plutôt qu'à un état continue de tourner pendant `Pressed` et pendant
+`Disabled` — un bouton gris qui respire, et rien dans le document pour expliquer
+d'où vient le tremblement.
+
+⚠️ **`NkDrivenEffect.atRest` est requis, pas `Optional`.** Sans pointeur — écran
+tactile, navigation au clavier — l'effet n'a pas de source ; sans valeur de repos
+déclarée, l'élément **conserve la dernière valeur reçue**. Une carte inclinée de
+travers en permanence, sur l'appareil de quelqu'un d'autre, sans cause lisible.
+
+⚠️ **`reduce` n'a pas le même défaut selon la famille.** Les ambiances et les effets
+continus s'**arrêtent** ; les transitions se **raccourcissent**. Supprimer les
+transitions ferait perdre le retour visuel qui dit qu'un clic a été pris en compte
+— le réglage vise le mouvement continu, pas l'accusé de réception.
+
+**Validation :**
+
+| code | condition |
+|---|---|
+| `E-AMBIENT-NO-STATE` | `NkAmbientAnim` sans `state` |
+| `E-DRIVEN-NO-REST` | `NkDrivenEffect` sans `atRest` |
+| `W-AMBIENT-COUNT` | plus de N ambiances actives simultanément sur une page |
+| `W-AMBIENT-IN-PHASE` | même ambiance sur plusieurs instances avec `jitter == 0` |
+| `W-REDUCE-KEEP` | `reduce == Keep` sur une animation purement décorative |
+
+⚠️ **`W-AMBIENT-COUNT` ne protège pas que la batterie.** Une page qui n'atteint
+jamais l'état de repos rend une capture automatique non reproductible, empêche un
+test visuel de conclure, et fait annoncer des changements en boucle par un lecteur
+d'écran. **L'état de repos est une condition technique, pas un confort.**
+
+---
+
 ## 1bis. Extensions de langage nécessaires — proposition pour le document 2
 
 **Point d'attention important** : la grammaire actuelle de

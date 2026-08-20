@@ -926,6 +926,126 @@ Animation filtré sur cette transition.
 
 ---
 
+## 9ter. Trois familles d'animation — la machine à états n'en couvre qu'une
+
+> **Précision de Rodolf, 2026-08-20** : « quand je parlais d'animation je parlais
+> des trucs comme le bouton qui gonfle quand il n'y a pas de souris, ou le bouton
+> qui donne des effets de miroir ou de lumière — les effets dépendent de
+> l'utilisateur et peuvent être de tout type. »
+
+⚠️ **§9bis ne décrivait qu'un tiers du besoin.** Une machine à états anime le
+**passage** d'un état à un autre, déclenché par un événement. Un bouton qui respire
+au repos n'est déclenché par rien, et un reflet qui suit le curseur n'a ni début
+ni fin. **Ce ne sont pas des transitions mal réglées : ce sont d'autres objets.**
+
+| famille | ce qui la déclenche | ce qui la décrit |
+|---|---|---|
+| **A. Transition** | un **événement** | durée + courbe (§9bis) |
+| **B. Ambiance** | **rien** — elle tourne | boucle : durée, répétition, sens, délai |
+| **C. Continu** | une **entrée** qui varie | une **liaison** source -> propriété |
+
+### 9ter.1 Famille B — les animations d'ambiance
+
+Elles tournent tant qu'un état dure : gonflement au repos, halo qui pulse,
+balayage de lumière périodique, léger flottement.
+
+Réglages : **durée**, **répétition** (infinie ou N fois), **sens** (aller, ou
+aller-retour), **délai avant départ**, et **décalage aléatoire**.
+
+⚠️ **Une ambiance appartient à un ÉTAT, jamais à l'élément en général.** Le
+gonflement vit dans `Idle` et doit **s'arrêter** dans `Pressed`. Attachée à
+l'élément, on obtient un bouton qui respire pendant qu'on appuie dessus — et
+personne ne saura dire d'où vient ce tremblement.
+
+⚠️ **Le décalage aléatoire n'est pas une coquetterie.** Vingt cartes qui pulsent
+exactement en phase forment une vague qui capte le regard bien plus fort que
+l'effet voulu sur une seule. Un décalage réparti casse la synchronisation — et
+l'outil doit le proposer dès qu'un élément animé est instancié plusieurs fois.
+
+### 9ter.2 Famille C — les effets continus pilotés par une entrée
+
+Inclinaison qui suit le curseur, projecteur qui suit le curseur, parallaxe,
+reflet qui se déplace, ondulation partant du point de clic.
+
+⚠️ **Ce ne sont pas des scénarios sur une ligne de temps, ce sont des fonctions.**
+On ne pose pas des images-clés : on déclare une **source** et une **projection**.
+
+| source | exemple d'usage |
+|---|---|
+| position du pointeur, relative à l'élément | inclinaison, projecteur, reflet |
+| distance du pointeur au centre | intensité d'un halo |
+| temps qui passe | balayage de lumière, déplacement d'un dégradé |
+| défilement | parallaxe |
+| valeur d'une propriété | une barre dont la couleur suit la valeur |
+
+La projection est un intervalle vers un intervalle : *« le pointeur de -1 à +1 sur
+l'axe X donne une rotation de -6° à +6° »*, avec une courbe et un **lissage**
+(l'élément rattrape la valeur cible au lieu de la suivre au pixel, sinon le
+mouvement est nerveux).
+
+⚠️ **Chaque effet continu DOIT déclarer sa valeur de repos** — celle qu'il prend
+quand sa source est absente. Sur un écran tactile il n'y a pas de pointeur ; en
+navigation au clavier non plus. Sans valeur de repos déclarée, l'élément **reste
+figé dans la dernière position qu'il avait** — une carte inclinée de travers pour
+toujours, sur l'appareil de quelqu'un d'autre, sans que rien ne l'explique.
+
+### 9ter.3 Ce qu'on anime : tout, y compris les effets
+
+Les propriétés animables ne se limitent pas à position, échelle, rotation et
+opacité. **Tous les paramètres de la pile d'effets (§8ter) le sont aussi** : rayon
+de flou, intensité et couleur d'un halo, angle et position d'un dégradé,
+décalage et diffusion d'une ombre, épaisseur d'un contour, mode de fusion.
+
+C'est de là que viennent les effets que Rodolf nomme :
+
+| effet | ce qui est animé | famille |
+|---|---|---|
+| gonflement au repos | échelle | B |
+| halo qui pulse | intensité du halo | B |
+| balayage de lumière | position d'un dégradé masqué | B ou C (temps) |
+| reflet / miroir | position et opacité d'un calque miroir | C (pointeur) |
+| inclinaison 3D | rotation X et Y | C (pointeur) |
+| projecteur | centre d'un dégradé radial | C (pointeur) |
+| ondulation au clic | rayon et opacité d'un cercle | A (événement) |
+| parallaxe | décalage de position | C (défilement) |
+
+> **Il n'y a donc pas de catalogue fermé d'effets à fournir.** Il y a des
+> propriétés animables, trois façons de les faire varier, et l'utilisateur compose.
+> *Un catalogue fermé aurait borné son imagination à la nôtre.*
+
+Des **préréglages** sont fournis — respiration, balayage, reflet, inclinaison,
+ondulation — mais comme **points de départ modifiables**, jamais comme la liste de
+ce qui est possible.
+
+### 9ter.4 ⚠️ Ce que les familles B et C coûtent, et qu'il faut dire
+
+**Le réglage système « réduire les animations » doit être respecté.** Il existe pour
+les personnes sujettes aux troubles vestibulaires, chez qui un mouvement continu
+provoque des nausées réelles. Quand il est actif : **les ambiances s'arrêtent**, les
+effets continus prennent leur valeur de repos, et **les transitions se raccourcissent
+au lieu de disparaître** — les supprimer entièrement ferait perdre le retour visuel
+qui dit qu'un clic a été pris en compte.
+
+Chaque animation porte donc un comportement déclaré dans ce cas : `arrêter`,
+`raccourcir`, ou `conserver` — ce dernier réservé à ce qui porte de l'information
+(une barre de progression n'est pas une décoration).
+
+**Une ambiance ne s'arrête jamais toute seule.** Sur une liste de deux cents
+éléments qui respirent, ce sont deux cents animations qui tournent en permanence :
+la batterie se vide, le ventilateur se met en route, et l'interface n'atteint
+**jamais** un état de repos.
+
+⚠️ **Cet état de repos n'est pas un confort, c'est une condition technique** : sans
+lui, une capture d'écran automatique n'est jamais deux fois la même, un test visuel
+ne peut pas conclure, et un lecteur d'écran annonce des changements en boucle.
+L'outil **compte les ambiances actives par page** et signale au-delà d'un seuil.
+
+**Un effet continu lié au pointeur s'évalue à chaque mouvement de souris.** Sur
+beaucoup d'éléments simultanément, c'est du travail à chaque image. Le lissage
+aide, il ne supprime pas le coût.
+
+---
+
 ## 10. Mode Split — combiner deux canvas au choix
 
 - Diviseur draggable entre les deux moitiés (poignée fine, curseur
