@@ -1221,9 +1221,17 @@ C'est exactement le défaut contre lequel §14ter.2 vient d'écrire une règle :
 rôle annoncé que rien n'implémente.** Deux issues, au choix de Rodolf, mais il faut
 en choisir une :
 
-1. **NKGui gagne `Switch` et `RadioButton`** — alors ils deviennent natifs ;
-2. **ils deviennent des rôles de projet dérivant de `case à cocher`** — même
-   état booléen, mêmes événements, apparence différente. Coûte zéro ligne de moteur.
+⚠️ **Et les deux cas ne se valent pas.**
+
+**`interrupteur` — rôle de projet dérivant de `case à cocher`.** Même état
+booléen, mêmes événements, seule l'apparence change. **Zéro ligne de moteur**, et
+rien ne manque à l'exécution.
+
+**`bouton radio` — la même astuce ne marche PAS.** Un bouton radio n'est pas une
+case à cocher habillée autrement : il porte l'**exclusivité dans un groupe**, et
+aucune case à cocher ne décoche ses voisines. C'est un comportement, donc du code.
+Il faut soit un `RadioButton` dans NKGui, soit un conteneur natif « groupe
+exclusif ». *La dérivation copie une apparence, elle n'invente pas une règle.*
 
 ⚠️ **Tant que le choix n'est pas fait, ils ne doivent pas apparaître dans le groupe
 « RôLES NATIFS » de l'interface.** Une planche qui les y montre — comme celle du
