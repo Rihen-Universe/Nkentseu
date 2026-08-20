@@ -253,8 +253,8 @@ entrée de menu qui jette du travail sans le décrire est un piège à un clic d
 |---|---|
 | Zoom avant · arrière | `Ctrl++` · `Ctrl+-` |
 | Zoom 100 % | `Ctrl+0` |
-| Ajuster à la sélection | `Ctrl+2` |
-| Ajuster à la page | `Ctrl+1` |
+| Ajuster à la sélection | `Maj+2` |
+| Ajuster à la page | `Maj+1` |
 | *—* | |
 | ☑ Grille | `Ctrl+'` |
 | ☑ Magnétisme | `Ctrl+;` |
@@ -265,17 +265,24 @@ entrée de menu qui jette du travail sans le décrire est un piège à un clic d
 | ☐ Régions de fenêtre | |
 | ☐ Éléments désactivés par héritage | |
 | *—* | |
-| Mode `▸` — Design `F1` · Behavior `F2` · Animation `F3` · Split `F4` | |
+| Mode `▸` — Design `Ctrl+1` · Behavior `Ctrl+2` · Animation `Ctrl+3` · Split `Ctrl+4` | |
 | Thème `▸` — Sombre · Clair · Système | |
 | Panneaux `▸` — Hiérarchie · Inspecteur · Console · Palette · Bibliothèque · Chat IA | |
 | Plein écran | `F11` |
 
-⚠️ **`F2` apparaît deux fois** — « Renommer » dans `Édition` et « mode Behavior »
-ici. **C'est exactement la collision que la première règle interdit**, et je la
-laisse visible plutôt que de la corriger à la va-vite : le renommage par `F2` est
-un réflexe universel, les modes méritent des touches contiguës. **Proposition :
-modes sur `Ctrl+1..4`**, et `Ctrl+1/Ctrl+2` d'ajustement passent sur `Maj+1/Maj+2`.
-À trancher, mais pas à laisser en l'état.
+⚠️ **Deux collisions ont été trouvées en écrivant ces tables, et tranchées par
+Rodolf le 2026-08-20.** Les modes étaient sur `F1..F4`, où `F1` heurtait la
+documentation (§5bis.10) et `F2` le renommage (§5bis.3). **Les modes passent sur
+`Ctrl+1..4`**, et l'ajustement de vue libère `Ctrl+1/2` pour `Maj+1/2`.
+
+*Le renommage par `F2` et l'aide par `F1` sont des réflexes que l'utilisateur
+apporte avec lui ; les modes n'ont pas d'antériorité à défendre.* **C'est le
+nouveau venu qui cède, jamais l'habitude.**
+
+⚠️ **Et l'exercice a une leçon qui dépasse ces deux touches** : ces collisions
+n'existaient nulle part tant que les raccourcis n'étaient pas écrits **dans une
+seule table**. Éparpillés section par section, ils se contredisaient sans que rien
+ne le montre — et on ne l'aurait découvert qu'en appuyant sur la touche.
 
 ### 5bis.5 `Objet`
 
@@ -381,9 +388,8 @@ silencieux.
 | Rechercher les mises à jour | |
 | À propos | |
 
-⚠️ **`F1` est pris deux fois** — documentation ici, mode Design en §5bis.4. Même
-remarque que pour `F2` : la proposition `Ctrl+1..4` pour les modes règle les deux
-collisions d'un coup.
+⚠️ **`F1` reste à la documentation.** Le mode Design, qui le partageait, est passé
+sur `Ctrl+1` (§5bis.4).
 
 ### 5bis.11 Les menus contextuels
 
