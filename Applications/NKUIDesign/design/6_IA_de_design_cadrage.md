@@ -45,11 +45,69 @@ vers celui de NkUIDesign. **Écrire ce convertisseur, c'est l'essentiel du trava
 de corpus.**
 
 Et il ne se jette pas après : **c'est exactement la fonction d'import** que §14bis
-prévoit déjà, et que le greffon d'exemple « Pont Figma » illustre. **Le travail de
-corpus et une fonctionnalité que les utilisateurs veulent sont la même chose.**
+prévoit déjà, et que le greffon d'exemple « Pont Figma » illustre.
 
-> C'est le seul argument qui rende ce chantier raisonnable pour un développeur
-> seul : il ne produit pas qu'un jeu de données, il produit une brique du produit.
+### 2.1bis ⚠️ Correction du 2026-08-20, 23h : « la même chose » était trop fort
+
+J'ai écrit plus haut, ce soir, que le travail de corpus et la fonction d'import
+étaient **la même chose**. **Vérification faite dans l'écosystème, c'est à moitié
+vrai, et la moitié fausse coûte cher.**
+
+Le convertisseur a **deux consommateurs aux contraintes opposees** :
+
+| | corpus | import dans le produit |
+|---|---|---|
+| quand | hors ligne, par lots | dans l'éditeur, en direct |
+| où | poste de travail | dans le moteur |
+| langage | libre — Python convient | **C++ zero-STL, sans dépendance tierce** |
+| tolérance à l'échec | on jette la page et on passe | il faut un message à l'utilisateur |
+
+**Ce qui est réellement partagé, c'est la SPÉCIFICATION DE LA CORRESPONDANCE** —
+quelle construction HTML devient quelle construction NkUIDesign. Écrite une fois,
+implémentée deux fois.
+
+⚠️ **Et le côté produit est bien plus cher que je ne l'ai laissé entendre.**
+Relevé le 2026-08-20 dans `Kernel/` : cinq modules Foundation, vingt-deux Runtime,
+huit System — **aucun ne lit du balisage**. Ni HTML, ni CSS, ni XML. Un analyseur
+HTML5 conforme est un chantier notoire ; la cascade CSS et sa disposition en sont
+un autre. **En zero-STL et sans bibliothèque tierce, ce n'est pas une brique, c'est
+un module.**
+
+Conclusion à retenir pour la décision : **le corpus n'attend pas le produit.** La
+chaîne hors ligne peut démarrer immédiatement ; l'import dans l'éditeur est un
+chantier séparé, à chiffrer à part, et probablement à viser sur des formats
+**déjà structurés** (JSON de Figma, XML Android) plutôt que sur du HTML brut.
+
+### 2.1ter ⚠️ Ne pas écrire de moteur CSS : conduire un navigateur
+
+Convertir fidèlement du HTML demande de **résoudre la disposition** — c'est le CSS
+qui produit les positions, et on ne peut pas déduire une boîte d'une feuille de
+style sans l'appliquer.
+
+**Donc on n'écrit pas de moteur : on en conduit un.** Edge en mode sans tête est
+**déjà utilisé dans ce projet** pour rendre les SVG en PNG. La même commande peut :
+
+1. charger la page ;
+2. rendre la **capture** ;
+3. extraire, pour chaque élément, sa **géométrie calculée**, ses **styles
+   calculés**, sa **balise** et ses **attributs ARIA**.
+
+> **On cartographie à partir des valeurs CALCULÉES, jamais du CSS source.**
+
+C'est ce qui fait passer le coût de « écrire un navigateur » à « piloter celui qui
+est déjà installé ». Et cela rend la paire exacte par construction : la capture et
+la géométrie viennent du **même rendu**, au même instant.
+
+⚠️ **Le piège de cette voie** : les valeurs calculées donnent des positions
+absolues, pas des **intentions**. Un élément à `x=240` ne dit pas s'il est ancré à
+gauche, centré, ou en `fraction`. **Il faut redimensionner la fenêtre et observer
+comment la géométrie bouge pour déduire l'ancrage.** Deux ou trois largeurs
+suffisent à distinguer fixe, proportionnel et étiré — mais il faut le faire, sinon
+le corpus n'enseigne que des positions gelées, et le modèle produira des
+dispositions qui ne survivent pas au premier redimensionnement.
+
+> C'est le vrai contenu technique de la chaîne : **rendre à plusieurs largeurs et
+> déduire l'intention du mouvement.** Le reste est de la plomberie.
 
 ### 2.2 ⚠️ Le web enseigne précisément la partie la plus difficile
 
