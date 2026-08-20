@@ -2460,6 +2460,108 @@ permanence alors qu'il n'est pas utilisé à chaque instant. Comportement :
 
 ---
 
+## 16bis. Ce que l'IA fait, et dans quelles limites
+
+> **Demande de Rodolf, 2026-08-20** : « je veux que l'IA nous aide non seulement à
+> concevoir mais aussi à designer, créer des animations et tout. »
+>
+> §16 décrivait **où** le chat vit et **comment** on applique une proposition. Il ne
+> disait pas **ce qu'elle peut produire**, ni **ce qu'elle voit**, ni **où va ce
+> qu'elle voit**.
+
+### 16bis.1 Les six axes
+
+| axe | ce qu'elle produit |
+|---|---|
+| **structure** | une hiérarchie d'éléments, groupée, nommée |
+| **rôles** | une **proposition** de rôle par élément (§17.2) |
+| **apparence** | couleurs, typographie, espacement, effets — dans la pile de §8ter |
+| **disposition** | modes de taille, ancrages, bornes, points de rupture |
+| **animation** | les **trois familles** de §9ter : transitions, ambiances, effets continus |
+| **comportement** | un squelette de graphe et ses points de connexion |
+
+⚠️ **Elle produit dans le vocabulaire de l'outil, jamais dans le sien.** Une
+animation générée est un `NkAmbientAnim` ou un `NkDrivenEffect` — pas une
+description libre qu'il faudrait ensuite traduire. Le jour où l'IA invente un
+quatrième mécanisme d'animation, on a **deux systèmes** : celui qu'on a spécifié et
+celui qu'elle écrit. Et c'est le sien qu'il faudra maintenir, parce qu'il sera dans
+les documents.
+
+Cela vaut pour tous les axes : **ce qu'elle écrit doit être exactement ce qu'un
+humain aurait pu écrire à la main dans l'éditeur.** C'est la seule garantie qu'on
+puisse reprendre, corriger et comprendre son travail.
+
+### 16bis.2 ⚠️ Le modèle est local ou distant, et ça doit se voir en permanence
+
+Le panneau affiche **en clair** quel modèle répond, et **où il tourne** :
+
+| | ce que cela implique |
+|---|---|
+| **local** | rien ne quitte la machine |
+| **distant** | **le contexte envoyé sort du poste** |
+
+C'est la même question que les permissions d'un greffon (§20bis.5), et elle mérite
+le même traitement : **dite avant, pas découverte après.**
+
+⚠️ **Un basculement automatique de local vers distant — parce que le modèle local
+ne répond pas, parce qu'il est trop lent — doit être REFUSÉ par défaut**, et
+demandé explicitement. Un repli silencieux enverrait le projet dehors au moment
+précis où personne ne regarde. *C'est le même défaut que le repli silencieux de
+backend (§20ter.2), avec des conséquences d'une autre nature.*
+
+### 16bis.3 Ce qu'elle voit — et l'utilisateur le sait
+
+La portée du contexte est un **choix explicite**, affiché dans le panneau :
+
+`la sélection` · `la page courante` · `le projet entier` · `+ la bibliothèque`
+
+⚠️ **« Le projet entier » avec un modèle distant, c'est le projet entier qui
+part.** L'outil affiche la portée à côté du champ de saisie, en permanence, et non
+dans un réglage qu'on ouvre une fois puis qu'on oublie.
+
+### 16bis.4 Une proposition est un ENSEMBLE, pas une suite de retouches
+
+Une réponse produit une **proposition unique**, même quand elle touche quarante
+propriétés sur six éléments. Elle s'affiche comme un **relevé de changements** :
+ce qui est ajouté, ce qui est modifié (ancienne valeur -> nouvelle), ce qui est
+supprimé.
+
+- **`Appliquer`** l'applique en **une seule opération annulable** ;
+- **`Rejeter`** ne laisse rien ;
+- **on peut décocher des lignes** du relevé avant d'appliquer.
+
+⚠️ **Une opération annulable, pas quarante.** Si l'application se décompose en
+quarante petites modifications, revenir en arrière demande quarante annulations —
+et on s'arrête au milieu, dans un état que personne n'a voulu.
+
+⚠️ **Et le relevé se lit AVANT d'appliquer.** Une miniature d'aperçu montre à quoi
+ça ressemble ; elle ne montre pas **ce qui a changé**. Deux mises en page peuvent
+se ressembler et différer sur douze propriétés.
+
+### 16bis.5 Elle dit pourquoi
+
+Chaque proposition porte une **justification courte**, propriété par propriété
+quand c'est utile : *« `expand` plutôt que `fixed` pour que le bouton suive la
+largeur du formulaire »*.
+
+⚠️ **Sans justification, on ne peut ni corriger ni apprendre — seulement accepter
+ou refuser en bloc.** Et l'utilisateur qui accepte sans comprendre hérite d'un
+document qu'il ne saura pas modifier.
+
+### 16bis.6 Ce qu'elle ne fait pas d'elle-même
+
+- **elle n'attribue pas un rôle** (§17.2) : elle le propose ;
+- **elle ne corrige pas un rapport de transposition** (§8quater.1bis) : elle peut
+  proposer une correction, ligne par ligne, dans un relevé ;
+- **elle n'installe pas de greffon** ;
+- **elle n'écrit jamais dans le document sans passage par un relevé**, y compris
+  depuis le popover contextuel `✨`.
+
+⚠️ **Le popover rapide est là pour aller vite, pas pour sauter la revue.** C'est
+le raccourci qu'on serait tenté d'exempter, et c'est celui qu'on utilise le plus.
+
+---
+
 ## 17. Génération IA — points d'entrée sur le canvas
 
 Récapitulatif de tous les points d'entrée IA, tous alimentant le même Chat
