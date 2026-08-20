@@ -192,15 +192,13 @@ bas si dépliée, vers la droite si repliée) :
 2. "DISPOSITION" — dépliée. C'EST LA SECTION LA PLUS IMPORTANTE DE L'IMAGE.
    - une ligne "Position" avec deux champs côte à côte étiquetés "X 24" et
      "Y 512" ;
-   - une ligne "Largeur" avec un sélecteur affichant "expand", et JUSTE EN
-     DESSOUS une ligne subordonnée, en retrait et en texte plus petit, portant
-     deux champs : "min 120" et "max 320" ;
-   - une ligne "Hauteur" avec un sélecteur affichant "fixed 44", et JUSTE EN
-     DESSOUS la même ligne subordonnée en retrait : "min 36" et "max —".
-     LE TIRET EST VOLONTAIRE : il signifie "aucune borne". Ne pas mettre 0, ne
-     pas laisser le champ vide.
-     Comme la hauteur est en "fixed", ces deux champs de bornes sont GRISÉS
-     mais bien présents et lisibles.
+   - une ligne "Largeur" avec un sélecteur affichant "expand", et à l'extrémité
+     droite de cette MÊME ligne un PETIT MARQUEUR GRIS en lecture seule
+     "120–320" ;
+   - une ligne "Hauteur" avec un sélecteur affichant "fixed 44", et AUCUN
+     marqueur à sa droite — aucune borne n'est posée sur la hauteur.
+     AUCUNE ligne supplémentaire sous les lignes de taille : une dimension =
+     une seule ligne.
 
 3. "ANCRAGE" — dépliée. Au centre de la section, un CARRÉ D'ANCRAGE : un
    rectangle gris au milieu représentant l'élément, et quatre traits autour de
