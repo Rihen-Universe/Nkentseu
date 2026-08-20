@@ -866,6 +866,61 @@ paie à chaque ouverture sans que personne sache le nommer.
 
 ---
 
+## 1decies. Infobulles
+
+> Doc 3 §14quinquies.
+
+```
+NkTooltipSide { Auto | Top | Bottom | Left | Right }
+
+NkTooltip {
+    content     : NkNodeRef          // texte OU sous-arbre
+    side        : NkTooltipSide
+    showDelayMs : uint32
+    hideDelayMs : uint32
+    groupMs     : uint32             // fenetre pendant laquelle le voisin s'affiche sans delai
+    onFocus     : bool               // defaut true
+}
+```
+
+⚠️ **`NkTooltip` est un CHAMP d'un élément, jamais un nœud de l'arbre.** Frère, il
+n'a pas d'ancre ; enfant, il entre dans le calcul de disposition du parent et le
+déforme. Son `content` vit dans un sous-arbre **hors flux**.
+
+⚠️ **`groupMs` est le réglage qui décide de l'utilisabilité.** Sans lui, parcourir
+dix icônes coûte dix fois `showDelayMs`, et l'utilisateur renonce à chercher.
+
+**À implémenter, pas seulement à peindre :**
+
+| propriété | valeur |
+|---|---|
+| test de pointage | **désactivé** — l'infobulle est transparente aux clics |
+| couche | au-dessus de tout sauf des modales |
+| basculement | obligatoire si elle sortirait de l'écran **ou du cadre simulé** |
+| recouvrement de l'ancre | interdit |
+| `Échap` | ferme sans déplacer le focus |
+
+⚠️ **Le test de pointage désactivé n'est pas un détail.** Une infobulle qui avale
+le clic rend inaccessible ce qu'elle décrit — au moment précis où l'utilisateur,
+ayant lu, veut agir.
+
+**Validation :**
+
+| code | condition |
+|---|---|
+| `W-TOOLTIP-REDUNDANT` | le texte reproduit le libellé visible de l'élément |
+| `W-TOOLTIP-MISSING` | élément interactif **sans libellé visible** et sans infobulle |
+| `E-TOOLTIP-ONLY-SOURCE` | une information marquée requise n'existe QUE dans une infobulle |
+| `W-TOOLTIP-ON-DISABLED` | infobulle posée directement sur un élément `Disabled` — elle ne s'affichera jamais (doc 3 §14quater.5) |
+
+⚠️ **`E-TOOLTIP-ONLY-SOURCE` est une erreur, pas un avertissement.** Sur écran
+tactile il n'y a pas de survol ; au clavier, l'infobulle ne s'affiche que si
+`onFocus` ; sous lecteur d'écran elle peut n'être jamais annoncée. **Une
+information qui n'existe que là n'existe pas pour une partie des utilisateurs** —
+et le concepteur ne peut pas le voir, puisque lui la voit.
+
+---
+
 ## 1bis. Extensions de langage nécessaires — proposition pour le document 2
 
 **Point d'attention important** : la grammaire actuelle de

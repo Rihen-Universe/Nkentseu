@@ -1968,7 +1968,6 @@ instancier aujourd'hui.** Un rôle natif qui ne figure pas dans ce fichier serai
 | histogramme | `PlotHistogram` |
 | séparateur | `Separator` |
 | espace | `Spacer` |
-| infobulle | `SetTooltip` |
 
 ⚠️ **Les rôles d'Affichage portent un contrat à états et événements VIDES.** C'est
 légitime — `NkRoleContract` l'autorise — mais l'interface ne doit pas leur
@@ -2302,6 +2301,107 @@ session, le journal le dit — `jamais atteint : ancêtre désactivé`.
 
 > **C'est la seule cause de non-atteinte que l'outil connaisse avec certitude.**
 > Toutes les autres demandent un jugement humain ; celle-là, il la nomme.
+
+---
+
+## 14quinquies. Infobulles
+
+> **Question de Rodolf, 2026-08-20.** La réponse honnête était « à moitié », et de
+> la pire façon : **trois choses différentes s'appelaient « infobulle »** dans ce
+> document, sans que rien ne les distingue.
+
+| | de quoi il s'agit | dans le document exporté ? |
+|---|---|---|
+| **infobulle de l'éditeur** | le nom d'une pastille, d'une icône d'outil, d'une valeur tronquée | **non** |
+| **infobulle conçue** | celle que l'utilisateur attache à un élément de SON application | **oui** |
+| **raison d'indisponibilité** | §14quater.5 — pourquoi ce contrôle est grisé | oui, cas particulier |
+
+### ⚠️ 14quinquies.1 Une infobulle n'est pas un élément qu'on pose
+
+§14ter.3 listait `infobulle` parmi les **rôles natifs**, adossée à `SetTooltip`.
+**C'est une erreur de classement, et je la corrige** : une infobulle n'a pas de
+place à elle dans l'arbre.
+
+- **frère** d'un élément, elle n'a rien à quoi s'accrocher ;
+- **enfant** de cet élément, elle entre dans son calcul de disposition et le
+  déforme.
+
+Elle est donc une **propriété d'un élément**, comme le glisser-déposer et la
+modalité (§14ter.4) — **troisième fois que ce même classement est corrigé**. Une
+capacité transversale n'entre jamais au catalogue des rôles : sinon il faudrait
+« bouton avec infobulle », « champ avec infobulle », et le catalogue doublerait.
+
+Son **contenu**, en revanche, peut être riche : un sous-arbre d'éléments, pas
+seulement du texte. Il vit à part, hors du flux de disposition du parent.
+
+### 14quinquies.2 La règle qui prime toutes les autres
+
+> ⚠️ **Une infobulle ne porte JAMAIS une information dont on a besoin pour agir.**
+
+Sur un écran tactile il n'y a pas de survol. En navigation au clavier, elle
+n'apparaît que si on la déclenche au focus. Chez quelqu'un qui utilise un lecteur
+d'écran, elle peut ne jamais être annoncée.
+
+Une infobulle **complète**, elle ne **remplace** pas. Le jour où une information
+n'existe que là, elle n'existe pas pour une partie des utilisateurs — et rien dans
+l'interface ne le montre à celui qui l'a conçue, puisque **lui** la voit.
+
+### 14quinquies.3 Délais — et la règle du groupe
+
+Trois réglages : **délai d'apparition**, **délai de disparition**, et **délai de
+groupe**.
+
+⚠️ **Le délai de groupe est celui qu'on oublie et qui décide de tout.** Une fois
+qu'une infobulle est apparue, passer sur un élément voisin doit afficher la
+sienne **immédiatement**, sans repayer le délai. Sans cette règle, parcourir une
+barre d'outils de dix icônes coûte dix attentes — et l'utilisateur renonce à
+chercher.
+
+Le groupe se referme après un court silence : on repaie alors le délai complet.
+
+### 14quinquies.4 Position
+
+Un côté **préféré** (haut, bas, gauche, droite) et un **basculement** automatique
+quand l'infobulle sortirait de l'écran ou du cadre simulé.
+
+⚠️ **Une infobulle coupée par un bord est pire qu'absente** : elle occupe la
+place, capte l'attention, et ne dit pas ce qu'elle avait à dire. Le basculement
+n'est pas une finition, c'est la condition pour que la fonction serve.
+
+⚠️ **Et elle ne doit jamais recouvrir ce qu'elle décrit.** Une infobulle posée sur
+son propre élément empêche de vérifier de quoi elle parle.
+
+⚠️ **Elle est transparente aux clics.** Une infobulle qui avale un clic rend
+inaccessible ce qui se trouve dessous — au moment précis où l'utilisateur, ayant
+lu, veut agir.
+
+### 14quinquies.5 Clavier et fermeture
+
+- elle apparaît **aussi au focus clavier**, pas seulement au survol — sinon celui
+  qui navigue au clavier ne la voit jamais ;
+- **`Échap` la ferme** sans déplacer le focus ;
+- elle disparaît au clic, à la sortie du pointeur, et à la perte du focus.
+
+### 14quinquies.6 Contenu — ce qui ne sert à rien
+
+⚠️ **Une infobulle qui répète le libellé visible n'ajoute rien.** « Enregistrer »
+sur un bouton portant déjà le mot « Enregistrer » coûte un délai et une occultation
+pour zéro information. La validation le signale (`W-TOOLTIP-REDUNDANT`).
+
+Ce qu'elle doit porter : le **raccourci clavier**, la **valeur complète** quand
+l'affichage est tronqué, ou une **précision** que le libellé ne peut pas contenir.
+
+Sur une icône seule, en revanche, elle est **obligatoire** : c'est le seul endroit
+où le nom existe. La validation le signale aussi, dans l'autre sens.
+
+### 14quinquies.7 Dans l'éditeur et dans la simulation
+
+L'infobulle conçue est **dessinable** : elle a son apparence, ses états, ses
+animations d'apparition (famille A, §9ter) — qui respectent « mouvement réduit ».
+
+⚠️ **Et elle doit être épinglable sur le canvas pendant qu'on la dessine.** Une
+infobulle qui disparaît dès que le pointeur bouge est impossible à mettre au point :
+on la quitte pour aller régler sa couleur, et elle s'évanouit.
 
 ---
 
