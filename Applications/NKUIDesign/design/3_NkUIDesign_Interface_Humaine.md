@@ -409,6 +409,86 @@ bureau, et l'outil doit le savoir.
 canvas infini — c'est ainsi qu'on conçoit une application bureau **et** sa version
 mobile sans changer de fichier.
 
+### 8quater.1bis Trois classes de cible — bureau, mobile, web
+
+> **Demande de Rodolf, 2026-08-20.**
+
+Une cible ne se résume pas à une largeur et une hauteur. **Trois classes, et
+chacune impose des contraintes que les deux autres n'ont pas.**
+
+| classe | ce qu'elle impose |
+|---|---|
+| **Bureau** | fenêtre redimensionnable librement, pas de zone imposée, pointeur précis |
+| **Mobile** | **zone sûre**, orientation, cibles tactiles plus grandes, clavier qui recouvre |
+| **Web** | chrome du navigateur, hauteur visible **variable pendant l'usage** |
+
+#### La zone sûre n'est pas une marge
+
+Encoche, indicateur d'accueil, coins arrondis, barre d'état : le matériel réserve
+des bandes où l'on peut **dessiner** mais pas **placer ce qui doit être lu ou
+touché**.
+
+⚠️ **Ne surtout pas la représenter par une valeur de remplissage.** Un remplissage
+est un nombre que l'auteur écrit ; la zone sûre est **imposée par l'appareil et
+change avec lui** — et avec l'orientation. Figée en `padding: 44`, elle cesse de
+suivre l'appareil le jour où l'on change de modèle, et **plus rien ne le signale**.
+
+Le cadre expose donc la zone sûre comme un **retrait de premier ordre**, dessiné en
+hachures sur le canvas, non éditable à la main.
+
+#### ⚠️ Ancrer au cadre ou ancrer à la zone sûre sont deux intentions
+
+Une image de fond doit aller **bord à bord**, sous l'encoche. Un bouton, **jamais**.
+
+Chaque ancre (§8quater.3) porte donc une référence : **bord du cadre** ou **bord de
+la zone sûre**. Sans ce choix, on obtient soit des fonds qui laissent des bandes
+blanches, soit des boutons sous l'encoche — et l'un des deux défauts est invisible
+sur l'appareil du concepteur.
+
+**Par défaut** : les éléments de décor s'ancrent au cadre, tout ce qui porte un
+rôle interactif s'ancre à la zone sûre. Le défaut se change, mais il est du bon côté.
+
+#### L'orientation n'est pas un point de rupture de largeur
+
+Tourner un téléphone échange largeur et hauteur, **et déplace la zone sûre de façon
+asymétrique** : l'encoche passe sur le côté, l'indicateur d'accueil reste en bas.
+Deux appareils de même largeur en paysage n'ont donc pas la même zone utile.
+
+⚠️ **Une règle de rupture fondée sur la largeur ne capture pas l'orientation.**
+L'orientation est un **axe à part** dans `NkBreakpoint`, pas une largeur déguisée.
+
+La barre du canvas porte une bascule **Portrait / Paysage** qui applique les deux
+changements ensemble — dimensions et zone sûre — parce que les séparer permettrait
+de composer un état qui n'existe sur aucun appareil.
+
+#### Voir une interface de bureau sur un mobile
+
+C'est l'usage que Rodolf demande explicitement : prendre un cadre conçu pour le
+bureau et le regarder à la taille d'un téléphone.
+
+L'outil le permet en changeant la **cible** d'un cadre sans toucher à son contenu.
+Il affiche alors un **rapport de transposition** :
+
+- les éléments qui **sortent** du cadre ;
+- ceux qui passent **sous la zone sûre** ;
+- ceux dont la **cible tactile** devient trop petite (§14ter, `a11y.minTargetPx`) ;
+- les points de rupture qui **ne se déclenchent pas** à cette taille.
+
+⚠️ **Ce rapport ne corrige rien.** Il nomme. Une transposition automatique
+produirait une mise en page que personne n'a dessinée et que tout le monde
+croirait validée.
+
+#### Web : la hauteur visible change pendant l'usage
+
+Sur un navigateur mobile, la barre d'adresse apparaît et disparaît au défilement :
+**la hauteur utile change en cours d'utilisation**, sans rotation ni
+redimensionnement.
+
+⚠️ **Une cible Web porte donc deux hauteurs — barre visible et barre masquée — et
+la simulation doit pouvoir basculer entre les deux.** Un pied de page ancré en bas
+qui n'a été vérifié qu'à une seule des deux se retrouvera un jour coupé, sur
+l'appareil de quelqu'un d'autre.
+
 ### 8quater.2 Taille — le vocabulaire est déjà celui de l'application
 
 Chaque élément porte une largeur et une hauteur exprimées dans le **même
@@ -844,6 +924,48 @@ losange devant son nom, **plein** si elle est conforme à sa source, **creux** s
 elle porte des surcharges locales. Déplier une instance montre ses enfants en
 lecture seule, sauf ceux qui sont surchargés.
 
+### 11.6 Le panneau se coupe en deux : la page en haut, les composants du projet en bas
+
+> **Proposition de Rodolf, 2026-08-20 — retenue.**
+
+Le panneau Hiérarchie porte **deux sections empilées**, séparées par une poignée
+qu'on peut tirer :
+
+- **en haut, l'arbre de la page courante** — ce que cette page *contient* ;
+- **en bas, les composants du projet** — ce que ce projet *possède*.
+
+**Pourquoi c'est la bonne ligne** : les deux sont *le contenu du projet*. Les pages
+et les composants du projet sont de la même matière — ils naissent ici, ils se
+renomment ici, ils se perdent ici. La Bibliothèque devient alors **ce que le projet
+utilise sans le posséder** : Partagé, Importé, Système. Une seule signification par
+panneau, au lieu d'un panneau fourre-tout.
+
+⚠️ **Le coût réel, à ne pas balayer : la hauteur.** Un arbre profond a besoin de
+place, et couper le panneau en deux la divise. D'où : **poignée déplaçable**,
+**section basse repliée par défaut** (elle n'affiche alors qu'un bandeau
+`Composants du projet (7)`), et **mémorisation de la hauteur choisie**. Sur un
+portable, une section qu'on ne peut pas replier coûte plus qu'elle ne rapporte.
+
+⚠️ **Le risque à surveiller : trois endroits pour « poser quelque chose ».** La
+Palette (§14, rôles natifs), le bas de la Hiérarchie (composants du projet) et la
+Bibliothèque (le reste). Une même intention éclatée en trois surfaces, c'est trois
+endroits où chercher avant de trouver.
+
+**La règle qui lève le risque : un verbe par panneau, et un seul.**
+
+| panneau | verbe |
+|---|---|
+| **Palette** | **poser** — et elle cherche dans *tout*, y compris les composants |
+| **Bas de la Hiérarchie** | **gérer** — renommer, compter les instances, éditer le maître, promouvoir en Partagé |
+| **Bibliothèque** | **acquérir** — importer, mettre à jour, retirer |
+
+*Trois panneaux, trois verbes : la question « où dois-je aller ? » a une réponse
+qui ne dépend pas de l'objet, seulement de ce qu'on veut en faire.*
+
+Chaque ligne de la section basse porte : miniature, nom, **compte d'instances**, et
+un point coloré si le composant est utilisé dans une **autre** page que la courante
+— parce que c'est l'information qui manque au moment où l'on s'apprête à le modifier.
+
 ### 11.5 Sélection multiple
 
 `Ctrl`+clic ajoute, `Maj`+clic étend une plage. La sélection est **la même** que
@@ -1088,13 +1210,38 @@ instance.
 Ce sont trois choses différentes, et **la bibliothèque doit les séparer visiblement**
 parce qu'elles n'accordent pas les mêmes droits :
 
-| provenance | éditer la source | mise à jour amont | détacher |
+| provenance | portée | éditer la source | qui décide de la mise à jour |
 |---|---|---|---|
-| **Projet** — les miens | oui, directement | sans objet | oui |
-| **Importé** — ceux d'autrui | non : **bifurcation explicite** | oui, signalée | oui |
-| **Système** — fournis par le moteur | non | avec la version du moteur | oui |
+| **Projet** | ce projet seul | oui, directement | sans objet |
+| **Partagé** | toutes **mes** applications | oui, directement | **moi** |
+| **Importé** | vient d'autrui | non : **bifurcation explicite** | l'amont, mais j'applique |
+| **Système** | fourni par le moteur | **jamais** | la version du moteur |
 
-Le panneau les affiche en **trois groupes** ; chaque miniature porte sa provenance.
+⚠️ **« Partagé » a été ajouté le 2026-08-20 après une proposition de Rodolf**, qui
+voulait « promouvoir un composant de projet en composant système pour ne pas le
+perdre d'une application à l'autre ». Le besoin est juste ; **le mot était faux**, et
+la confusion aurait coûté cher.
+
+Un composant **Système** suit **la version du moteur** : on ne le modifie pas, et il
+change quand NKGui change. Y déposer ses propres composants produirait l'une de ces
+deux catastrophes, sans qu'on puisse choisir laquelle :
+
+- soit une mise à jour du moteur **écrase du travail personnel** ;
+- soit les composants du moteur **accumulent des modifications locales** et cessent
+  d'être les mêmes d'une machine à l'autre.
+
+**Partagé** donne exactement ce que Rodolf demande — vivre hors du projet, survivre
+d'une application à l'autre — **avec le versionnage entre ses mains**. C'est la même
+portée, sans le couplage au moteur.
+
+> *Deux choses qui se mettent à jour selon deux calendriers différents ne peuvent
+> pas partager un tiroir.*
+
+`Promouvoir en composant partagé` figure au clic droit d'un composant de Projet.
+L'opération est **réversible** et le composant garde son historique.
+
+Le panneau Bibliothèque affiche **Partagé, Importé et Système** ; les composants de
+**Projet** vivent désormais dans la Hiérarchie (§11.6).
 
 ⚠️ **Modifier un composant importé ne doit JAMAIS le bifurquer en silence.** Deux
 chemins légitimes, et l'outil demande **une fois** lequel on prend :
