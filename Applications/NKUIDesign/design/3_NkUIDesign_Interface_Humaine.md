@@ -1,0 +1,1136 @@
+# NkUIDesign — Interface humaine
+### Document 3 — Spécification lisible par un humain (fenêtre par fenêtre)
+
+> Complète `1_NkUIDesign_Specification_Application.md` (positionnement, modules) et
+> `2_NkUIDesign_Langage_Description_NodeBlueprint.md` (langage `.nkgui`). Là où ce
+> document diverge du document 1 sur l'agencement des fenêtres, **ce document fait
+> foi** — il traduit une demande explicite de disposition. Le thème visuel réutilise
+> le système GitHub Light / GitHub Dark Pro déjà établi pour le reste de la suite
+> Nkentseu (Aetherion Engine / Animate & FX), pour une cohérence d'écosystème.
+
+---
+
+## 0. Sommaire
+
+1. Rappel de positionnement
+2. Système de thème
+3. Launcher
+4. Anatomie de la fenêtre principale
+5. Barre de menu
+6. Barre d'onglets de projets
+7. Barre d'outils flottante — une par mode de canvas
+8. Canvas infini — mode Design
+8bis. Édition vectorielle au sommet (Pen tool, ancres, booléens)
+8ter. Panneau Effets (ombres, flou, dégradés, contours, fusion)
+8quater. Cibles, responsive, ancrage, marges et alignement
+9. Canvas — mode Behavior (Node Graph / Code)
+9bis. Canvas — mode Animation (widgets animés par événement)
+10. Mode Split — combiner deux canvas au choix
+11. Panneau Hiérarchie (Structure)
+12. Panneau Inspecteur + vue "Objets de la scène"
+13. Système de pastilles rétractables (Dock Rail)
+14. Palette de composants
+14bis. Bibliothèque de composants — import, instances, overrides
+14ter. Donner un rôle à un composant
+15. Gestionnaire de callbacks / contrôleurs
+16. Chat IA
+17. Génération IA — points d'entrée sur le canvas
+18. Simulation du système — la fenêtre d'essai
+19. Export / Validation
+20. Préférences
+21. Glossaire des composants
+
+---
+
+## 1. Rappel de positionnement
+
+NkUIDesign est un éditeur de design d'interface pour NKGui, à trois vues d'un
+même document (Design / Structure / Behavior — doc 1 §1). Ce document ne
+redéfinit pas le modèle de données ni le langage `.nkgui` : il spécifie
+uniquement **où et comment** ces concepts apparaissent à l'écran.
+
+**Extension actée pour cette version** : le design doit pouvoir se faire
+« la totale » — édition vectorielle libre au sommet près (comme un outil de
+dessin vectoriel complet, pas seulement des rectangles), effets visuels
+(ombres, flou, dégradés), import et modification libre de composants
+existants, et un **système d'animation de widgets déclenché par les
+événements** (distinct du Behavior logique, mais qui s'y articule). Ce
+dernier point vise en priorité le jeu vidéo et l'application (menus, HUD,
+transitions d'état d'un bouton…), le web restant un cas d'usage futur plutôt
+qu'une contrainte de conception actuelle — les choix ci-dessous privilégient
+donc un modèle proche de l'animation UI de moteur de jeu (façon Unity
+Animator / Rive) plutôt qu'un modèle strictement CSS.
+
+---
+
+## 2. Système de thème
+
+Identique à `01-specification-humaine.md` §2 (Aetherion Engine) : palette
+GitHub Light et GitHub Dark Pro, mêmes tokens de couleur, même règle « pas de
+noir/blanc pur », mêmes principes de densité. Une différence assumée :
+
+- Le **canvas de design** garde un fond neutre clair légèrement texturé
+  (petit motif de points de grille, pas de damier de transparence par
+  défaut — NkUIDesign dessine des interfaces, pas des images à canal alpha en
+  priorité), aussi bien en thème Light qu'en thème Dark, pour rester lisible
+  quel que soit le thème choisi pour l'app elle-même.
+- Le **canvas Behavior (Node Graph)** reprend le même traitement que le
+  Material/Blueprint Editor d'Aetherion (doc 1 §12-13) : fond quadrillé
+  sombre, câbles colorés par type — cohérence intentionnelle avec le reste de
+  l'écosystème puisqu'il s'agit du même paradigme visuel (nœuds Blueprint).
+
+---
+
+## 3. Launcher
+
+Réutilise la structure du Launcher Aetherion (doc 1 §3 : sidebar gauche +
+grille de projets), avec son propre contenu :
+
+- Sidebar : `Bibliothèque`, `Marketplace de composants`, `Apprendre`,
+  `Préférences`
+- Bibliothèque : grille de cartes projets `.nkgui`, miniature = rendu du
+  premier écran du projet
+- Bouton `+ Nouveau projet` ouvre un choix à 3 branches (pas un stepper
+  complet comme Aetherion, plus direct car NkUIDesign a moins de paramètres
+  cibles) :
+  - **Vierge** : canvas infini vide, une page "Page 1" créée par défaut
+  - **Gabarit** : galerie de gabarits (Formulaire de connexion, Dashboard,
+    Palette d'outils, HUD de jeu…)
+  - **Via IA** : champ de description libre → génère un ou plusieurs écrans
+    complets (doc 1 §6.1), ouvre directement l'éditeur avec un aperçu à
+    valider avant écriture définitive dans le document
+
+---
+
+## 4. Anatomie de la fenêtre principale
+
+⚠️ **Deux bandes horizontales seulement en haut.** La barre d'outils n'est plus
+une bande : c'est un **panneau flottant vertical** posé entre la Hiérarchie et le
+canvas (§7).
+
+```
+┌────┬────────────────────────────────────────────────────────────┐
+│ ▓▓ │ Fichier Édition Affichage …     Nom du design     [—][□][x] │ ← Barre de menu   28px
+│ ▓▓ ├────────────────────────────────────────────────────────────┤
+│ ▓▓ │ [Projet A ×] [Projet B ×] [+]                               │ ← Barre d'onglets 28px
+├────┴───────┬──┬──────────────────────────────────────┬───────────┤
+│            │▐▌│   [ Design │ Behavior │ Animation │ Split ]      │ ← bascule de mode, flottante
+│ Hiérarchie │▐▌│                                      │ Inspecteur│
+│            │▐▌│           CANVAS INFINI              │           │
+│            │▐▌│                                      │           │
+│            │▐▌│                       [100% ▾][⊞][🧲]│           │ ← cluster canvas, flottant
+├────────────┴──┴──────────────────────────────────────┴───────────┤
+│  Rail de pastilles (bas) — Console / Validation, ancré discret    │
+└──────────────────────────────────────────────────────────────────┘
+              ▲
+              └── Barre d'outils FLOTTANTE, verticale, propre au mode actif
+```
+
+**Le logo (`▓▓`) occupe les deux bandes** : il commence sur la barre de menu et se
+termine sur la barre d'onglets. **56 × 56 px, strictement carré**, collé au coin
+supérieur gauche. Les deux bandes sont ramenées à **28px chacune** (contre 32 et
+34 auparavant) — la hauteur totale de l'en-tête passe de 66 à 56px, et le logo
+devient l'ancre visuelle de la fenêtre.
+
+Rails de pastilles supplémentaires en bordure gauche et droite de la zone
+canvas (fines bandes de 28px, en dehors de la Hiérarchie/Inspecteur qui sont
+des panneaux fixes distincts) — détaillés en §13.
+
+---
+
+## 5. Barre de menu
+
+Hauteur **28px**. ⚠️ **Le logo n'est plus dedans** : il occupe un bloc carré de
+**56 × 56 px** à gauche, qui **chevauche cette barre et celle des onglets**. Les
+deux bandes commencent donc à `x = 56`, jamais à `x = 0`.
+
+Trois zones, dans cet ordre exact de gauche à droite :
+
+- **Zone gauche** : le menu principal horizontal en texte simple, **collé au bord
+  droit du bloc logo** : `Fichier · Édition · Affichage · Objet · Comportement ·
+  IA · Fenêtre · Aide`. Pas d'espace mort entre le logo et le menu — ils forment
+  un seul groupe visuel.
+- **Zone centrale** : nom du design/projet actif (ex. `Dashboard_Admin.nkgui`),
+  centré par rapport à la fenêtre entière (pas par rapport à l'espace
+  restant), petit indicateur `•` si modifications non sauvegardées,
+  double-clic pour renommer inline.
+- **Zone droite** : trois boutons standard de fenêtre — Réduire, Agrandir/
+  Restaurer, Fermer.
+
+La barre de menu est **draggable** sur toute sa zone vide (comportement OS
+standard) sauf sur les zones interactives (menu, nom, boutons). **Le bloc logo
+est draggable lui aussi.**
+
+---
+
+## 6. Barre d'onglets de projets
+
+Hauteur **28px**, immédiatement sous la barre de menu, commençant à `x = 56`
+(après le bloc logo). **Chaque onglet
+représente un projet `.nkgui` ouvert** (pas une page à l'intérieur du
+projet — voir §8 pour les pages, qui vivent toutes sur le canvas infini d'un
+même onglet).
+
+- Onglet : icône miniature très réduite du projet (optionnelle, sinon icône
+  générique), nom du projet, point `•` si non sauvegardé, bouton `×` fermer
+  au survol
+- Onglet actif : fond légèrement différent (`--bg-canvas` vs `--bg-subtle`
+  pour les inactifs), petit liseré accent en bas de l'onglet actif
+- Bouton `+` en fin de bande : ouvre le Launcher en modal rapide (choix
+  Vierge/Gabarit/IA) sans quitter la fenêtre courante
+- Drag d'un onglet pour réordonner ; drag hors de la bande = détache le
+  projet dans une **fenêtre NkUIDesign indépendante** (comportement type
+  navigateur web / VS Code)
+- Molette de la souris au-dessus de la bande = scroll horizontal si trop
+  d'onglets pour la largeur disponible, chevron `»` de dépassement avec menu
+  déroulant listant les onglets masqués
+
+---
+
+## 7. Barre d'outils flottante — une par mode de canvas
+
+⚠️ **Ce n'est plus une bande horizontale.** C'est un **panneau flottant vertical**,
+posé **entre la Hiérarchie et le canvas** — donc à droite de la Hiérarchie, à
+gauche du canvas. Largeur 48px, hauteur ajustée à son contenu, centré
+verticalement, ombre portée, coins arrondis. Il **flotte au-dessus du canvas** :
+le canvas passe dessous, la barre ne lui vole pas de place.
+
+**Chaque mode de canvas a sa propre barre d'outils, au même endroit.** Changer de
+mode remplace le contenu du panneau, jamais sa position — l'œil n'a pas à
+chercher.
+
+⚠️ **La bascule de mode n'est PAS dans cette barre**, et c'est délibéré : elle
+choisit *quelle* barre s'affiche, elle ne peut donc pas vivre dedans. Elle devient
+un **segmented control flottant, centré en haut du canvas** :
+`[ Design │ Behavior │ Animation │ Split ]`, raccourcis `1`/`2`/`3`/`4`. En mode
+`Split`, le menu de combinaison et d'orientation apparaît juste à côté (§10).
+
+De même, le **cluster canvas** — zoom éditable `100% ▾`, grille, magnétisme —
+flotte **en bas à droite** du canvas. Ce sont des réglages de vue, pas des outils.
+
+### 7.1 Outils groupés en familles — le principe
+
+Un bouton ne porte pas un outil mais une **famille**. Le bouton montre le dernier
+outil utilisé de sa famille et porte un petit chevron `⌄` en bas à droite.
+
+- **clic** → active l'outil affiché ;
+- **clic maintenu**, ou clic sur le chevron → **déplie la famille en éventail
+  horizontal**, vers le canvas ;
+- choisir un outil le rend actif **et** le fait devenir la face visible du bouton ;
+- **la touche du raccourci fait tourner la famille** — `R` puis `R` passe du
+  rectangle au rectangle arrondi, etc.
+
+C'est le comportement de Lunacy, et il tient dans 48px de large parce que la
+famille se déplie **par-dessus** le canvas.
+
+### 7.2 Barre d'outils — mode **Design**
+
+| famille | outils |
+|---|---|
+| **Sélection** `V` | Sélection · Sélection directe (points) · Main/Pan `Espace` |
+| **Cadre** `F` | Cadre/Artboard · Section · Groupe |
+| **Formes fixes** `R` | **Rectangle · Rectangle arrondi · Cercle/Ellipse · Triangle · N-gone · Étoile · Ligne · Flèche** |
+| **Vectoriel** `P` | **Plume · Crayon libre · Courbe · Ciseaux · Booléens (union, soustraction, intersection, exclusion)** |
+| **Texte** `T` | Texte simple · Texte de zone · Texte sur tracé |
+| **Média** | Image · Icône · Masque |
+| **Mesure** | Règle · Cotation · Pipette |
+
+⚠️ Le **N-gone** demande son nombre de côtés : une petite saisie apparaît sous le
+bouton au moment du tracé, et le nombre reste modifiable ensuite dans
+l'Inspecteur — une forme fixe reste **paramétrique**, jamais convertie en tracé
+tant que l'utilisateur ne le demande pas explicitement.
+
+### 7.3 Barre d'outils — mode **Behavior**
+
+| famille | outils |
+|---|---|
+| **Sélection** `V` | Sélection · Main/Pan |
+| **Nœud** `N` | Nœud d'événement · Nœud d'action · Nœud de condition · Nœud de calcul |
+| **Liaison** `L` | Liaison · Coupe-liaison · Reroutage |
+| **Commentaire** | Note · Cadre de groupe |
+
+### 7.4 Barre d'outils — mode **Animation**
+
+| famille | outils |
+|---|---|
+| **Sélection** `V` | Sélection · Main/Pan |
+| **Clé** `K` | Poser une clé · Supprimer · Copier la pose |
+| **Courbe** `C` | Linéaire · Accéléré · Ralenti · Personnalisé (éditeur de courbe) |
+| **Déclencheur** | Au chargement · Au survol · Au clic · Sur événement nommé |
+
+### 7.5 En mode **Split**
+
+**Deux barres flottantes**, une par sous-canvas, chacune contre le bord gauche de
+son propre volet. Elles ne fusionnent jamais : chaque canvas garde ses outils.
+
+---
+
+## 8. Canvas infini — mode Design
+
+- **Toutes les pages du projet coexistent sur le même canvas infini**,
+  chacune représentée par un **cadre (artboard/frame)** rectangulaire nommé
+  (étiquette au-dessus du cadre, ex. `Page — Connexion`, `Page — Dashboard`,
+  `Composant — CarteProduit`), positionnable librement par glisser-déposer
+  du cadre lui-même. Pas de notion d'onglet "par page" : on navigue entre
+  pages en zoomant/scrollant sur le canvas, ou via le panneau Hiérarchie
+  (§11) qui liste les pages comme des racines et permet un double-clic pour
+  **cadrer la vue** dessus (`Maj+2` ou "Zoom to fit" façon Figma).
+- Zoom/pan fluide (molette = zoom au curseur, espace+drag ou clic molette =
+  pan), règles horizontales/verticales optionnelles (toggle), guides
+  draggables depuis les règles.
+- Grille et snapping configurables (pas, couleur d'accroche, snap aux bords/
+  centres des autres éléments avec lignes de repère roses/violettes
+  temporaires façon Figma au moment du drag).
+- Sélection : clic simple, rectangle de sélection, double-clic pour entrer
+  dans un groupe/cadre et sélectionner un enfant.
+- Un élément sélectionné affiche ses poignées de redimensionnement, son
+  contour accent, et — spécificité NkUIDesign — un **badge de rôle** discret
+  en coin supérieur gauche de la sélection si l'élément est déjà promu en
+  widget (ex. petit tag `Button`), absent si c'est encore une forme
+  décorative non promue.
+- Menu contextuel clic-droit : Grouper, Créer un cadre depuis la sélection,
+  **Promouvoir en widget…** (ouvre un sous-menu = catalogue de rôles, cf.
+  doc 1 §4.5 / §14), **Rétrograder en forme**, Convertir en composant
+  réutilisable, Copier le style, Définir des événements… (raccourci direct
+  vers le mode Behavior filtré sur cet élément).
+
+---
+
+## 8bis. Édition vectorielle au sommet (Pen tool, ancres, booléens)
+
+Réponse au besoin « designer au sommet près » : NkUIDesign n'est pas limité à
+des rectangles/ellipses paramétriques, il inclut un véritable outil de dessin
+vectoriel, activable via l'outil `Tracé (P)` de la toolbar (§7) ou en
+double-cliquant une forme existante pour entrer en **mode édition de points**.
+
+- **Points d'ancrage** : petits carrés blancs à contour accent sur le tracé,
+  déplaçables individuellement. Chaque ancre a un type de coin : `Sommet dur`
+  (angle droit, pas de poignée), `Miroir` (poignées symétriques, tangente
+  continue), `Asymétrique` (poignées de longueur indépendante, même
+  direction), `Libre` (poignées totalement indépendantes) — cycle au clic
+  droit sur l'ancre, ou boutons dédiés dans l'Inspecteur (onglet Design,
+  section "Point" affichée seulement en mode édition de points).
+- **Poignées de courbe de Bézier** : segments fins sortant de chaque ancre,
+  extrémité = petit rond creux draggable ; afficher la courbe en temps réel
+  pendant le drag.
+- **Rayon de coin par sommet** : un sommet dur peut recevoir un arrondi
+  numérique individuel (pas seulement un rayon global de rectangle) —
+  champ dans l'Inspecteur quand une seule ancre est sélectionnée.
+- **Outils complémentaires de la barre d'outils Tracé** : Ajouter un point sur
+  segment, Supprimer un point, Couper un tracé, Fermer/ouvrir un tracé.
+- **Opérations booléennes** (menu contextuel sur une sélection de ≥2 formes,
+  aussi accessible en boutons dans l'Inspecteur) : `Union`, `Soustraction`,
+  `Intersection`, `Exclusion` — produisent un tracé composé unique, toujours
+  redécomposable (`Détacher les composants`) sans perte, cohérent avec le
+  principe non-destructif du doc 1 §3.
+- **Import vectoriel** : `Fichier > Importer > SVG…` convertit les tracés SVG
+  en formes `ShapeNode` de type tracé natif (pas une image bitmap encapsulée)
+  — immédiatement éditable au sommet comme un tracé dessiné à la main.
+
+---
+
+## 8ter. Panneau Effets (ombres, flou, dégradés, contours, fusion)
+
+Section dédiée de l'onglet **Design** de l'Inspecteur (doc 3 §12.2), pour
+tout élément sélectionné (forme ou widget) :
+
+- **Remplissage** : couleur unie, dégradé (linéaire/radial/angulaire/
+  diamant — éditeur de dégradé avec curseurs de couleur draggables sur une
+  rampe), image (avec mode d'ajustement Cover/Contain/Tile/Stretch)
+- **Contour** : couleur/dégradé, épaisseur, position (intérieur/centre/
+  extérieur), style de tirets (motif éditable, pas seulement plein/pointillé)
+- **Ombres** : `+ Ajouter une ombre`, chaque ombre = ligne avec décalage X/Y,
+  flou, étendue, couleur, toggle `Ombre portée` / `Ombre interne`, liste
+  réordonnable par glisser (empilement comme des calques d'effet)
+- **Flou** : `Flou de calque` (flou l'élément lui-même) ou `Flou d'arrière-
+  plan` (effet verre dépoli sur ce qui est derrière), slider d'intensité
+- **Mode de fusion** (blend mode) : dropdown standard (Normal, Multiplier,
+  Écran, Superposition, etc.), affecte le rendu par rapport aux calques en
+  dessous
+- **Opacité globale** de l'élément, distincte de l'opacité de chaque
+  remplissage individuel
+- Tous ces effets sont des propriétés normales du modèle de document (pas un
+  mode à part) : ils s'exportent dans `.nkgui` comme des `shape_prop`/
+  `prop_decl` standards (doc 2 §2-4), donc rejouables tels quels par le
+  runtime NKGui — aucune fonctionnalité de l'éditeur qui ne soit pas
+  restituable en production.
+
+---
+
+Bascule accessible depuis le segmented control de la toolbar (§7) ou depuis
+le menu contextuel d'un élément (§8).
+
+- **Portée du graphe affiché**, sélectionnable en haut du canvas Behavior
+  via un dropdown contextuel `Portée : [ Composant sélectionné ▾ ]` avec
+  options `Ce composant`, `Cette page (tous les événements)`, `Vue globale
+  (tous les contrôleurs du projet)` — répond directement au besoin
+  « définir les événements d'un composant ou de toute une page ».
+- Sous-barre d'outils spécifique Behavior : toggle `Code ⇄ Node Graph`
+  (doc 1 §4.6), recherche de nœud, minimap, mode debug (surbrillance du
+  chemin exécuté pendant un test — voir §18).
+- Le graphe lui-même reprend le style `NodeGraphCanvas` déjà établi pour
+  Aetherion (câbles Bézier, pins colorés par type de donnée), avec les
+  familles de nœuds propres au langage `.nkgui` (doc 2 §6.2) : Événement
+  (rose), Flux (blanc épais), Donnée (fin coloré par type), Action (bleu),
+  Commentaire (gris pointillé, cosmétique).
+- Vue Code : éditeur texte avec coloration `NkGuiSyntax` (doc 1 §4.6),
+  panneau d'erreurs ancré en bas de cette vue uniquement (distinct de la
+  Console générale du rail de pastilles, §13), autocomplétion des callbacks
+  déclarés.
+- Un élément du canvas Design correspondant au nœud/callback survolé dans le
+  Behavior s'illumine brièvement dans l'autre vue si elle est visible
+  (utile surtout en mode Split, §10).
+
+---
+
+## 8quater. Cibles, responsive, ancrage, marges et alignement
+
+> Le mode Behavior, annoncé au sommaire et longtemps absent du corps, est
+> désormais écrit en **§9**.
+
+### 8quater.1 Un cadre porte une cible
+
+Tout cadre (artboard) porte une **cible** choisie à sa création et modifiable
+ensuite dans l'Inspecteur :
+
+| cible | exemples de gabarits |
+|---|---|
+| **Bureau** | 1920×1080 · 1440×900 · 1366×768 · libre |
+| **Mobile** | 390×844 · 360×800 · 412×915 · libre |
+| **Tablette** | 820×1180 · 768×1024 · libre |
+| **Libre** | dimensions saisies à la main |
+
+⚠️ **La cible n'est pas décorative** : elle fixe la **zone sûre** (§ safe area), la
+densité de pixels de référence, et les gabarits de composants proposés par la
+palette. Un bouton mobile n'a pas la même taille de cible tactile qu'un bouton de
+bureau, et l'outil doit le savoir.
+
+**Un même projet contient des cadres de cibles différentes** côte à côte sur le
+canvas infini — c'est ainsi qu'on conçoit une application bureau **et** sa version
+mobile sans changer de fichier.
+
+### 8quater.2 Taille — le vocabulaire est déjà celui de l'application
+
+Chaque élément porte une largeur et une hauteur exprimées dans le **même
+vocabulaire que la déclaration**, celui que l'aperçu écrit déjà :
+
+| mode | signification |
+|---|---|
+| `fixed <n>` | taille fixe en pixels logiques |
+| `content` | la taille du contenu |
+| `fraction <n>` | une fraction de l'espace du parent |
+| `weight <n>` | un poids dans la répartition entre frères |
+| `expand` | prend tout l'espace restant |
+
+⚠️ **Ne pas inventer un second vocabulaire pour l'interface.** L'aperçu écrit
+`fixed 260` → `fixed 340` quand on tire un bord ; l'Inspecteur doit montrer et
+éditer **exactement ces mots**. Deux vocabulaires pour une même chose, c'est deux
+sources de vérité.
+
+**Bornes minimale et maximale.** Chaque dimension porte, en plus de son mode, une
+borne basse et une borne haute **optionnelles** :
+
+- elles s'appliquent **après** le mode — `expand` prend tout l'espace restant,
+  *puis* la borne le ramène dans l'intervalle ;
+- elles ont un sens pour tous les modes sauf `fixed`, où elles seraient muettes —
+  l'interface les grise alors plutôt que de les cacher, pour que la ligne ne
+  change pas de forme selon le mode ;
+- **une borne absente s'écrit `—`, jamais `0` et jamais un champ vide.** Un zéro
+  est une borne à zéro ; un champ vide ne dit pas si la valeur est absente ou
+  perdue. Le tiret dit « pas de borne » et ne se confond avec rien.
+
+⚠️ **Une borne qui contredit le mode doit se dire.** `fraction 1` avec un maximum
+de 100px sur un parent de 1440px, c'est un élément qui n'atteindra jamais sa
+fraction. L'outil le signale — il ne corrige pas à la place du concepteur.
+
+⚠️ **Une borne minimale supérieure à la borne maximale est une erreur, pas un
+arbitrage.** L'outil refuse la saisie plutôt que de choisir laquelle gagne : deux
+règles contradictoires acceptées en silence produisent une mise en page dont
+personne ne sait dire d'où elle vient.
+
+### 8quater.3 Ancrage au parent
+
+Indépendamment de la taille, chaque élément porte quatre **ancres** — gauche,
+droite, haut, bas — **relatives à son parent**, jamais au cadre :
+
+- **ancre fixe** : la distance à ce bord du parent reste constante ;
+- **ancre proportionnelle** : la distance reste un pourcentage de la dimension du
+  parent ;
+- **deux ancres opposées actives** = l'élément **s'étire** avec le parent ;
+- **aucune des deux** = l'élément reste **centré** sur cet axe.
+
+L'Inspecteur affiche un petit **carré d'ancrage** — quatre traits autour d'un
+rectangle central, cliquables — qui rend la règle lisible d'un coup d'œil. C'est
+la convention que tout designer d'interface reconnaît.
+
+### 8quater.4 Responsive
+
+Le responsive **découle** des ancres et des modes de taille : il n'y a pas de
+mécanisme séparé, et c'est délibéré — un second système de règles finirait par
+contredire le premier.
+
+Ce que l'outil ajoute par-dessus :
+
+- **Points de rupture** optionnels par cadre — au-delà/en-deçà d'une largeur, un
+  élément peut prendre une autre valeur d'ancrage, de taille ou de visibilité. La
+  valeur de base reste visible, la valeur de rupture s'affiche à côté avec un
+  liseré ;
+- **poignée de redimensionnement du cadre** : tirer le bord d'un cadre applique
+  les règles en direct — **on voit le responsive au lieu de l'imaginer** ;
+- **aperçu multi-cibles** : afficher côte à côte le même cadre à trois largeurs.
+
+⚠️ **Une règle de rupture qui n'est jamais atteinte doit se dire.** Un point de
+rupture à 2000px sur un cadre mobile est du travail mort ; l'outil le signale
+plutôt que de le laisser dormir.
+
+### 8quater.5 Marge, remplissage et espacement
+
+Trois notions distinctes, souvent confondues, et qu'il faut nommer séparément
+parce qu'elles ne répondent pas à la même question.
+
+| notion | question à laquelle elle répond | portée |
+|---|---|---|
+| **remplissage** (*padding*) | quelle distance entre **mon bord et mon contenu** ? | vers l'intérieur |
+| **marge** (*margin*) | quelle distance entre **mon bord et ce qui m'entoure** ? | vers l'extérieur |
+| **espacement** (*gap*) | quelle distance **entre mes enfants** ? | entre frères |
+
+Chacune se règle **par côté** (haut, droite, bas, gauche) ou d'un seul nombre pour
+les quatre, avec un cadenas de liaison dans l'Inspecteur. L'espacement se règle
+séparément en horizontal et en vertical.
+
+⚠️ **La règle qui lève toute ambiguïté avec l'ancrage** (§8quater.3), et il faut
+l'énoncer une fois pour toutes :
+
+> **Le remplissage du parent définit sa zone de contenu. La marge de l'enfant
+> définit sa boîte de marge. Les ancres se mesurent entre les deux.**
+
+Autrement dit : une ancre gauche de 12px sur un enfant qui porte 8px de marge, dans
+un parent qui porte 16px de remplissage, place le bord visible de l'enfant à
+16 + 12 + 8 = 36px du bord du parent. **Chaque nombre a une seule signification et
+ils s'additionnent** — aucun ne remplace l'autre, aucun n'est ignoré.
+
+⚠️ **Et l'espacement ne se simule pas avec des marges.** Deux enfants séparés par
+`gap 8` restent séparés de 8 quel que soit leur nombre ; les mêmes séparés par des
+marges de 4 chacun donnent 8 entre eux **mais aussi 4 contre les bords**, ce qui
+n'est presque jamais voulu. L'outil doit proposer l'espacement en premier.
+
+**Affichage sur le canvas** : au survol d'un élément sélectionné, le remplissage
+s'affiche en aplat translucide vers l'intérieur, la marge en hachures vers
+l'extérieur, l'espacement par des barres entre enfants — chacun avec sa valeur
+lisible et **modifiable en tirant directement**, jamais seulement dans un champ.
+
+---
+
+### 8quater.6 Alignement
+
+**Sur l'élément** (comment il se place dans son parent) : gauche · centre ·
+droite pour l'horizontal, haut · milieu · bas pour le vertical, plus
+**étirer**.
+
+**Sur le contenu** (comment ses enfants se placent en lui) : les mêmes, plus la
+**distribution** — espacement égal, espace entre, espace autour.
+
+**Sur le texte**, en plus : alignement horizontal (gauche, centre, droite,
+justifié), alignement vertical dans sa boîte, et **alignement sur la ligne de
+base** — deux textes de tailles différentes posés côte à côte doivent pouvoir
+partager leur ligne de base, sinon la composition semble bancale sans qu'on sache
+dire pourquoi.
+
+**Sur une sélection multiple** : aligner et distribuer les éléments entre eux,
+avec le choix de la référence — la sélection, le premier élément, ou le parent.
+
+---
+
+## 9. Canvas — mode Behavior (Node Graph / Code)
+
+Le mode qui répond à *« que se passe-t-il quand on clique ? »*. Même document que
+le mode Design — **un seul fichier, deux vues**. Un nœud qui référence un widget
+supprimé se signale immédiatement ; il ne devient pas orphelin en silence.
+
+### 9.1 Le canvas
+
+Fond sombre quadrillé, façon Blueprint (§2), pan et zoom identiques au mode Design
+pour ne pas réapprendre les gestes. **La barre d'outils flottante (§7.3) est au même
+endroit** que celle du mode Design — seul son contenu change.
+
+**Sélecteur de portée** en haut à gauche du canvas, flottant : `Portée : Ce
+composant ▾` · `Cette page` · `Ce projet`. Il filtre ce que le graphe montre —
+sans lui, un projet un peu gros devient illisible.
+
+### 9.2 Les nœuds
+
+| famille | rôle | apparence |
+|---|---|---|
+| **Événement** | point d'entrée — `cliqué`, `survol entré`, `au chargement`, ou un événement créé à la main (§14ter) | en-tête rose, une seule sortie de flux |
+| **Action** | appelle un callback, change une propriété, joue une animation | en-tête bleue |
+| **Condition** | branche selon un test | en-tête ambrée, deux sorties `vrai`/`faux` |
+| **Calcul** | lit une valeur, compose, transforme | en-tête grise, pas de flux — **données seulement** |
+
+⚠️ **Les événements disponibles viennent des rôles.** Attribuer le rôle `bouton`
+à une forme (§14ter) fait apparaître `pressé`, `relâché`, `cliqué`, `survol
+entré`, `survol sorti` comme nœuds d'événement posables. **Un élément sans rôle
+n'offre que les événements que l'utilisateur a créés lui-même.** C'est le lien
+direct entre le dessin et le comportement.
+
+### 9.3 Les câbles
+
+- **flux d'exécution** : trait blanc épais, dit *dans quel ordre* les choses
+  arrivent ;
+- **données** : trait fin **coloré par type** — un coup d'œil suffit à voir qu'un
+  texte entre là où un nombre est attendu ;
+- **événement** : rose, du widget vers son nœud d'entrée.
+
+Un câble refusé ne se branche pas : l'extrémité incompatible s'assombrit pendant
+le glisser, et une bulle dit **pourquoi** — jamais un simple refus muet.
+
+### 9.4 La vue Code
+
+Bascule `⟨⟩` en haut à droite du canvas : le même comportement, **écrit dans le
+langage `.nkgui`** (document 2). Ce n'est pas un export : c'est **la même chose,
+lue autrement**.
+
+⚠️ **Les deux sens fonctionnent.** Éditer le texte met le graphe à jour ; déplacer
+un nœud met le texte à jour. Une vue en lecture seule ferait du graphe la seule
+vérité, et priverait d'un moyen de réparer ce que le graphe ne sait pas exprimer.
+
+### 9.5 Débogage pendant la simulation
+
+Quand la fenêtre de simulation (§18) tourne et que le canvas Behavior est visible,
+**le chemin réellement exécuté s'illumine en direct** — les câbles de flux
+parcourus pulsent, les nœuds atteints s'éclairent, les branches non prises restent
+ternes.
+
+> **C'est ce qui transforme le graphe en instrument de diagnostic.** On ne se
+> demande plus pourquoi rien ne se passe : on voit où le flux s'arrête.
+
+Un compteur discret sur chaque nœud indique **combien de fois il a été atteint**
+depuis le début de la simulation. Un nœud à zéro, alors qu'on vient de cliquer,
+est le défaut lui-même.
+
+---
+
+## 9bis. Canvas — mode Animation (widgets animés par événement)
+
+Réponse au besoin « ajouter des animations sur un widget en fonction des
+événements reçus ». C'est un **troisième canvas**, distinct du Behavior
+logique : le Behavior décide *quoi déclencher* (callback, variable...),
+l'Animation décide *comment ça bouge à l'écran*. Les deux se déclenchent par
+les mêmes événements (catalogue doc 2 §9) mais restent deux programmes
+séparés dans le document (voir doc 5 §3bis pour le modèle).
+
+### Deux façons de construire une animation, réutilisant volontairement les
+### éditeurs déjà définis pour Aetherion Animate & FX (mêmes composants,
+### cohérence totale de l'écosystème) :
+
+- **State Machine de widget** (vue par défaut) : reprend exactement le style
+  de l'AnimGraph/State Machine d'Aetherion (voir `04-specification-humaine-
+  animation-vfx.md` §7) — des états ("Idle", "Hover", "Pressed",
+  "Disabled") reliés par des transitions déclenchées par un **événement du
+  widget** plutôt que par une condition de gameplay. Un état "Entry" fixe le
+  point de départ. Double-clic sur une transition ouvre son détail dans
+  l'Inspecteur : événement déclencheur (dropdown, catalogue doc 2 §9),
+  durée, courbe d'interpolation.
+- **Dope Sheet / Curve Editor** (bascule via un bouton toggle, exactement
+  comme pour Aetherion, voir `04-specification-humaine-animation-vfx.md`
+  §6) : pour éditer *l'intérieur* d'un état ou d'une transition — quelles
+  propriétés du widget varient dans le temps (Position, Échelle, Rotation,
+  Opacité, Couleur de fond, Rayon de coin, intensité de Flou/Ombre — tout ce
+  qui est exposé en §8ter est animable) et selon quelle courbe d'accélération
+  (Curve Editor, mêmes poignées de tangente Bézier que dans Aetherion).
+
+### Barre d'outils spécifique
+`Portée : [ Ce widget ▾ ]` (widget sélectionné / groupe / page entière —
+même principe que `BehaviorScopeSelector`, doc 5 §6.7), bouton `+ Ajouter un
+état`, toggle `State Machine / Dope Sheet`, bouton `▶ Prévisualiser
+l'animation` (joue la transition dans le canvas Design en incrustation, sans
+quitter le mode Animation).
+
+### Bibliothèque de courbes d'accélération
+Preset rapide dans le Curve Editor : `Linéaire`, `Ease In`, `Ease Out`,
+`Ease In-Out`, `Bounce`, `Élastique`, plus la possibilité de dessiner une
+courbe entièrement custom — cohérent avec les attentes d'animation UI de jeu
+vidéo (menus, feedback de bouton) plus que le jeu d'easings CSS standard,
+tout en restant un sur-ensemble compatible si un export web est envisagé
+plus tard.
+
+### Lien avec l'Inspecteur
+L'onglet **Behavior** de l'Inspecteur (doc 3 §12.2) affiche le statut lié/
+non lié des *callbacks* par événement ; un nouvel indicateur discret (petite
+icône "vague"/pulse) apparaît à côté de chaque événement qui a **en plus**
+une animation définie, cliquable pour basculer directement en mode
+Animation filtré sur cette transition.
+
+---
+
+## 10. Mode Split — combiner deux canvas au choix
+
+- Diviseur draggable entre les deux moitiés (poignée fine, curseur
+  redimensionnement au survol), ratio par défaut 50/50, min 25%/75%.
+- Le menu à côté du bouton `Split` (§7) permet de choisir **laquelle des
+  trois paires** afficher : `Design + Behavior`, `Design + Animation`, ou
+  `Behavior + Animation` — la combinaison la plus utilisée au quotidien est
+  `Design + Animation` (régler une transition en voyant le widget bouger en
+  direct à côté), mais les trois restent disponibles.
+- Chaque moitié a sa **propre** sous-barre d'outils réduite, mais partagent
+  la même sélection courante : sélectionner un élément dans une moitié
+  centre/filtre automatiquement l'autre moitié sur cet élément (son graphe
+  Behavior, sa State Machine d'Animation, ou sa position sur le canvas
+  Design selon le cas).
+- Cas où l'élément sélectionné n'a aucun programme défini côté Behavior ou
+  Animation : la moitié correspondante affiche un état vide avec un bouton
+  centré `+ Définir un événement…` ou `+ Créer une animation…` selon le cas.
+- Le mode Split n'est pas un troisième document ni une troisième vue de
+  données indépendante — c'est un pur choix d'affichage de la même vérité
+  documentaire (cohérent avec le principe « un seul modèle de vérité »,
+  doc 1 §3), désormais étendu à trois programmes (Design, Behavior,
+  Animation) plutôt que deux.
+
+---
+
+## 11. Panneau Hiérarchie (Structure)
+
+Panneau **fixe** à gauche (pas dans le rail de pastilles rétractables — il
+reste toujours visible, mais peut être réduit à une bande fine par un
+bouton de collapse dédié dans son en-tête, distinct du mécanisme de pastille
+du §13, car c'est un panneau structurant permanent de l'outil, pas un
+panneau secondaire).
+
+- Racines = **pages/cadres du projet** (chacune avec icône "page", petit
+  badge du nombre d'enfants), puis, sous chaque page, son arbre de calques/
+  widgets — exactement la structure déjà décrite en doc 1 §4.3.
+- Icône de rôle par ligne : icône générique "forme" tant que non promu,
+  icône spécifique du widget une fois promu (bouton, slider, panel…) —
+  cohérent avec le catalogue doc 2 §8.
+- Double-clic sur une racine "page" = la vue canvas se recentre/zoome sur
+  cette page (cf. §8).
+- Actions en clic-droit : Renommer, Dupliquer, **Promouvoir en…** /
+  **Rétrograder**, Définir des événements (raccourci vers Behavior filtré),
+  Supprimer.
+- Recherche/filtre en haut, avec un toggle "Afficher seulement les widgets
+  promus" pour masquer les calques purement décoratifs quand on veut
+  auditer la structure fonctionnelle.
+
+---
+
+## 12. Panneau Inspecteur + vue "Objets de la scène"
+
+Panneau **fixe** à droite, symétrique de la Hiérarchie (même mécanisme de
+collapse simple, hors rail de pastilles).
+
+### 12.1 Rien n'est sélectionné → vue "Objets de la scène"
+Plutôt qu'un panneau vide, affiche par défaut une **grille de vignettes des
+pages/cadres du projet** (miniature rendue de chaque page, nom en dessous,
+clic = sélectionne/centre cette page sur le canvas) — répond directement au
+besoin exprimé. C'est la même information que les racines de la Hiérarchie,
+présentée différemment (visuel plutôt que texte), pour un choix rapide à la
+souris. Un bouton `+ Nouvelle page` en bas de cette grille.
+
+### 12.2 Sélection active → Inspecteur classique
+
+⚠️ **Cette section a été réécrite après §8quater et §14ter.** L'ancienne version
+décrivait trois onglets sans dire ce qu'ils contenaient exactement ; elle datait
+d'avant le vocabulaire de taille, l'ancrage, l'espacement et le rôle. Ce qui suit
+énumère les sections **dans l'ordre où elles apparaissent**, parce qu'un ordre
+laissé au hasard se met à varier d'un écran à l'autre.
+
+**En-tête du panneau**, toujours visible, jamais replié :
+nom de l'élément (éditable au double-clic) · icône du rôle s'il en porte un ·
+type · un bouton `Attribuer un rôle` **si l'élément n'en a pas encore** (§14ter).
+
+Puis **trois onglets** : `Design` · `Widget` · `Behavior`.
+
+#### Onglet **Design** — les sections, dans cet ordre
+
+| # | Section | Contenu | Repliée par défaut |
+|---|---|---|---|
+| 1 | **Cible** | cible du cadre, en lecture seule si l'élément n'est pas le cadre lui-même (§8quater.1) | non |
+| 2 | **Disposition** | Position X/Y · Largeur et Hauteur dans le vocabulaire `fixed/content/fraction/weight/expand` · **la ligne de bornes `min · max` sous chaque dimension** (§8quater.2) | non |
+| 3 | **Ancrage** | le carré d'ancrage — quatre traits autour d'un rectangle central, cliquables (§8quater.3) | non |
+| 4 | **Alignement** | deux rangées d'icônes, horizontale et verticale, `étirer` compris (§8quater.6) | non |
+| 5 | **Espacement** | Remplissage (4 champs + cadenas de liaison) · Marge (4 champs) · Espacement enfants (H, V) — §8quater.5 | **oui** |
+| 6 | **Apparence** | fond, bordure, rayon de coin, opacité | non |
+| 7 | **Typographie** | police, graisse, taille, interlignage, alignement du texte — **présente seulement si l'élément porte du texte** | non |
+| 8 | **Effets** | pile d'effets (§8ter) | **oui** |
+| 9 | **Points de rupture** | liste, avec le badge ambré des règles jamais atteintes (§8quater.4) | **oui** |
+| 10 | **Layout parent** | n'apparaît **que** si l'élément est dans un conteneur live (VBox/HBox/Grid/Flow/Stack, doc 2 §8) : gap, colonnes, tailles, exposés comme des `PropertyRow` ordinaires | non |
+
+⚠️ **Une section qui ne s'applique pas ne s'affiche pas — elle ne s'affiche pas
+vide.** Une section vide fait croire à une propriété manquante ; une section
+absente dit que la question ne se pose pas. En revanche un **champ** d'une section
+affichée qui ne s'applique pas se **grise** au lieu de disparaître, pour que la
+ligne garde sa place et que l'œil n'ait pas à la rechercher.
+
+⚠️ **L'état replié/déplié de chaque section se retient par type d'élément, pas
+globalement.** Celui qui déplie Typographie sur un texte ne veut pas la voir
+dépliée sur un panneau.
+
+#### Onglet **Widget** — les propriétés du rôle
+
+Propriétés spécifiques au rôle promu (bind, min/max de valeur, flags — doc 2
+§4/§8). Champ **flags combinables** rendu comme une liste de cases à cocher
+plutôt qu'un champ texte brut (ex. `NkGuiWindowFlags` : `Resizable`, `Closable`,
+`NoTitleBar`…), cohérent avec la grammaire `flags := Identifier ('|' Identifier)*`
+du doc 2 §3.
+
+En tête de cet onglet : les **états du rôle** (repos, survol, pressé, désactivé,
+focus) sous forme d'une rangée de pastilles ; cliquer une pastille bascule le
+canvas sur l'édition de cet état. Une pastille **jamais éditée** se distingue de
+celle qui l'a été — c'est ainsi que l'outil tient sa promesse « aucun état oublié »
+(§14ter).
+
+⚠️ **Si l'élément ne porte pas de rôle, cet onglet n'est pas vide : il porte le
+bouton `Attribuer un rôle` et la liste des rôles.** Un onglet vide est une impasse ;
+là, c'est l'entrée du moment décisif de l'outil.
+
+#### Onglet **Behavior** — les événements
+
+Liste des événements disponibles pour ce rôle (catalogue doc 2 §9), chaque ligne
+avec un statut visuel :
+
+| pastille | sens |
+|---|---|
+| grise | non lié |
+| bleue | lié à un Node Graph / du Code |
+| orange | lié mais callback non déclaré (`E-CALLBACK-UNDECLARED`, doc 2 §12) |
+
+Clic sur une ligne = bascule le canvas en mode Behavior **filtré sur cet événement
+précis**.
+
+Sous les événements du rôle, une seconde liste — **les événements ajoutés à la
+main** (§14ter) — et un bouton `+ Nouvel événement`. Les deux listes sont
+séparées et étiquetées : on doit voir d'un coup d'œil ce qui vient du contrat et
+ce qui vient du concepteur, **parce qu'un rôle retiré emporte la première et laisse
+la seconde**.
+
+Un événement du rôle que l'utilisateur a **retiré** reste affiché, barré, avec un
+bouton pour le rétablir. *Retirer n'est pas supprimer : sans trace, on ne
+distingue pas un événement écarté d'un événement jamais vu.*
+
+Si l'élément sélectionné est un **groupe ou une page entière** plutôt qu'un widget
+unique, l'onglet Behavior affiche les événements de portée « page » (`OnPageOpen`,
+`OnPageClose`…) plutôt qu'une liste vide.
+
+#### Sélection multiple
+
+⚠️ **Ce cas ne peut pas rester non spécifié — c'est celui où un éditeur ment le
+plus facilement.** Quand plusieurs éléments sont sélectionnés :
+
+- une propriété **identique** partout s'affiche normalement ;
+- une propriété qui **diffère** s'affiche `Multiple` en italique grisé — jamais la
+  valeur du premier élément, qui ferait croire à une uniformité fausse ;
+- **éditer** ce champ applique la nouvelle valeur à toute la sélection ;
+- une section ne s'affiche que si **tous** les éléments sélectionnés la portent.
+
+---
+
+## 13. Système de pastilles rétractables (Dock Rail)
+
+Réponse directe à la demande : éviter que Palette, Callback Manager, Chat
+IA, Console, Preview ne saturent l'écran en permanence, tout en restant
+accessibles en un clic.
+
+### 13.1 Principe
+Deux rails fins (28px) verticaux, ancrés aux bords extérieurs de la zone
+canvas (donc **en dehors** de la Hiérarchie et de l'Inspecteur, qui sont des
+panneaux fixes distincts — voir §11-12), plus un rail horizontal fin en bas
+de fenêtre. Chaque rail contient des **pastilles** (icônes rondes/carrées
+28x28, une par panneau secondaire) empilées verticalement (rails latéraux)
+ou horizontalement (rail bas).
+
+| Rail | Pastilles par défaut |
+|---|---|
+| Gauche (sous la Hiérarchie, rail additionnel) | Palette de composants, Bibliothèque de composants |
+| Droite (sous l'Inspecteur, rail additionnel) | Gestionnaire de callbacks, Chat IA |
+| Bas | Console/Validation, Preview/Test |
+
+### 13.2 Trois états par pastille
+1. **Repliée** (défaut) : seule l'icône est visible dans le rail, tooltip au
+   survol donnant le nom.
+2. **Dépliée en overlay** : un clic simple fait glisser un panneau **par-
+   dessus** le canvas (overlay semi-transparent en dessous, comme un tiroir),
+   depuis le bord correspondant, largeur/hauteur par défaut ~320px. Ne
+   redimensionne pas le canvas. Un clic ailleurs sur le canvas, ou un
+   deuxième clic sur la pastille, la referme. Petite icône "épingle" en
+   en-tête du panneau pour la faire passer en mode **ancré** (état 3).
+3. **Ancrée** : le panneau devient un vrai panneau dockable poussant le
+   canvas (redimensionne réellement la zone de travail), intégré au système
+   de docking classique décrit en doc 1 §5 (glisser pour redocker ailleurs,
+   empiler en onglets avec Hiérarchie/Inspecteur si l'utilisateur le
+   souhaite). Une icône "détacher" symétrique permet de revenir en overlay
+   ou de passer directement en **fenêtre flottante indépendante** (état 4).
+4. **Fenêtre flottante** : identique au comportement de détachement décrit
+   pour Aetherine (doc 1 §5) — fenêtre indépendante, toujours au-dessus,
+   redockable en la glissant vers un rail ou vers un bord du canvas.
+
+### 13.3 Règle de non-encombrement
+Au maximum **une pastille par rail peut être dépliée en overlay
+simultanément** par défaut (dérouler une deuxième pastille du même rail
+referme la première) — sauf si l'utilisateur a explicitement ancré ou
+détaché un panneau, auquel cas il n'est plus soumis à cette règle (il occupe
+sa propre place stable). Ce compromis garde l'écran lisible sans empêcher un
+usage avancé multi-panneaux pour qui le souhaite.
+
+---
+
+## 14. Palette de composants
+
+Contenu de la pastille "Palette" (§13), catalogue exact des rôles disponibles
+(doc 1 §4.5, doc 2 §8), généré automatiquement — jamais tenu à la main.
+
+- Grille d'icônes+labels par catégorie repliable (`Conteneurs`, `Entrées`,
+  `Affichage`, `Navigation`, `Feedback` — regroupement logique des rôles du
+  tableau doc 2 §8)
+- Glisser un rôle directement sur le canvas = insère le widget avec ses
+  valeurs par défaut **et** promeut automatiquement (pas de forme
+  intermédiaire à promouvoir manuellement dans ce cas précis)
+- Recherche par nom de rôle ou de fonction moteur associée (ex. taper
+  `SliderFloat` ou `slider` trouve le même résultat)
+
+---
+
+## 14bis. Bibliothèque de composants — import, instances, overrides
+
+Réponse au besoin « charger des composants existants, les modifier comme on
+veut, sans restriction ». Distinct de la Palette (§14, qui liste les **rôles
+natifs du moteur**) : la Bibliothèque de composants liste les **assemblages
+réutilisables propres au projet ou importés** (un bouton stylisé complet,
+une carte, un menu entier).
+
+### Créer un composant
+Clic-droit sur une sélection (Hiérarchie ou Canvas) → `Convertir en
+composant` (déjà mentionné doc 3 §8) : la sélection devient un **composant
+maître**, stocké dans la Bibliothèque, remplacé sur le canvas par une
+**instance** qui le référence.
+
+### Importer un composant existant
+- Depuis un fichier `.nkgui` externe (`Fichier > Importer > Composant…`)
+- Depuis le Marketplace du Launcher (doc 3 §3, sidebar `Marketplace de
+  composants`)
+- Depuis un autre projet ouvert (glisser un composant d'un onglet de projet
+  vers un autre, cf. §6)
+
+### Modifier une instance — liberté totale sans casser la source
+- Par défaut, une instance suit son maître (toute modification du maître se
+  répercute sur toutes les instances).
+- **Toute propriété modifiée directement sur une instance** (couleur,
+  texte, taille, sous-élément ajouté/supprimé…) devient un **override
+  local** : petite pastille violette dans la marge de l'Inspecteur à côté de
+  la propriété concernée (même traitement visuel que les propriétés
+  modifiées par rapport à un parent dans Aetherion, `01-specification-
+  humaine.md` §8), avec un clic droit `Réinitialiser au maître` pour annuler
+  l'override ponctuel.
+- **Bouton `Détacher l'instance`** (Inspecteur, en-tête, ou clic-droit) :
+  rompt définitivement le lien au maître, l'élément redevient un
+  assemblage de formes/widgets 100% libre, éditable au sommet près (§8bis),
+  avec effets (§8ter) et animations (§9bis) propres — c'est la réponse
+  directe à « la designer de manière libre et complète » quand l'utilisateur
+  ne veut plus aucune contrainte d'héritage.
+- Éditer le maître directement : double-clic sur une instance dans le
+  Canvas avec `Alt` maintenu (ou bouton dédié dans l'Inspecteur) ouvre le
+  maître dans un onglet de canvas isolé (pas un nouvel onglet de projet,
+  un mode d'édition contextuel avec bandeau `Édition du composant maître —
+  Retour` en haut du canvas).
+
+### Panneau Bibliothèque (pastille du rail, §13)
+Grille de miniatures des composants maîtres du projet (+ ceux importés),
+recherche, tri par date/nom/utilisation, badge du nombre d'instances actives
+par composant, glisser directement sur le canvas pour créer une nouvelle
+instance.
+
+---
+
+## 14ter. Donner un rôle à un composant
+
+⚠️ **Le moment décisif de tout l'outil.** On dessine une forme ; on lui **attribue
+un rôle** ; elle devient un composant qui *se comporte*.
+
+**Comment** : sélectionner l'élément (ou le groupe) → `Attribuer un rôle` dans
+l'Inspecteur, ou clic droit → `Devenir…`. Une liste des rôles connus s'ouvre :
+`bouton · case à cocher · interrupteur · champ de saisie · curseur · liste ·
+onglets · arbre · menu · fenêtre modale · barre de progression…`
+
+**Ce que l'attribution apporte immédiatement** — sans rien écrire :
+
+- **les états** du rôle : repos, survol, pressé, désactivé, focus — chacun
+  éditable visuellement, et l'outil garantit qu'aucun n'est oublié ;
+- **les événements** du rôle : un bouton reçoit `pressé`, `relâché`, `cliqué`,
+  `survol entré`, `survol sorti` — déjà nommés, déjà branchables ;
+- **les propriétés** du rôle : libellé, icône, activé/désactivé, valeur ;
+- **les sous-éléments attendus** : un bouton attend un libellé et
+  optionnellement une icône ; l'outil les propose et signale ce qui manque ;
+- **les contraintes d'accessibilité** : taille de cible minimale selon la cible
+  du cadre (§8quater.1), contraste du texte sur le fond.
+
+⚠️ **Et l'utilisateur n'est pas enfermé dans le rôle.** Il peut :
+
+- **ajouter ses propres événements**, nommés librement, à côté de ceux du rôle ;
+- **retirer un événement du rôle** dont il n'a pas l'usage ;
+- **redéfinir l'apparence d'un état** sans perdre les autres ;
+- **composer** : un élément peut porter un rôle **et** contenir des
+  sous-éléments qui portent les leurs.
+
+> **Le rôle donne un point de départ complet, jamais une cage.**
+
+⚠️ **Un rôle retiré ne détruit pas le travail** : les événements créés à la main
+survivent, les états dessinés restent des groupes ordinaires. On perd le contrat,
+on ne perd pas le dessin.
+
+---
+
+## 15. Gestionnaire de callbacks / contrôleurs
+
+Contenu de la pastille "Callbacks" (§13) — vue centralisée (doc 1 §4.7) :
+
+- Tableau : Nom du callback, Contrôleur parent, Signature (types d'arguments
+  formatés comme dans le langage, ex. `(axis: Enum[X,Y,Z], value: Float) →
+  Void`), colonne "Utilisé par" (liste cliquable des widgets/événements qui
+  l'appellent, ouvre/sélectionne dans le canvas), colonne Statut (`Lié en
+  test` / `Jamais lié` — cf. `W-CALLBACK-UNBOUND`, doc 2 §12)
+- Bouton `+ Nouveau contrôleur` / `+ Nouveau callback` (ouvre un petit
+  formulaire : nom, liste de paramètres typés, type de retour — génère la
+  déclaration `controller`/`callback` du doc 2 §10)
+- Filtre "Callbacks orphelins" (déclarés mais jamais appelés) et "Appels
+  invalides" (callback appelé mais jamais déclaré, `E-CALLBACK-UNDECLARED`)
+  en surbrillance rouge
+
+---
+
+## 16. Chat IA
+
+Contenu de la pastille "Chat IA" (§13) — **repositionné en pastille rétractable
+plutôt qu'en bande fixe en bas**, pour ne pas manger de hauteur canvas en
+permanence alors qu'il n'est pas utilisé à chaque instant. Comportement :
+
+- Pastille dans le rail droit, icône distincte (étincelle/étoile), badge
+  numérique si une génération en cours ou une réponse en attente
+- Dépliée : panneau de chat vertical classique (historique de messages,
+  champ de saisie en bas, boutons rapides `Générer un écran`, `Modifier la
+  sélection`, `Générer un comportement` qui pré-remplissent le contexte —
+  cf. doc 1 §6.1)
+- Chaque réponse de génération affiche une **carte d'aperçu inline dans le
+  chat** (miniature de ce qui serait ajouté/modifié) avec deux boutons
+  directement dans la carte : `Appliquer` / `Rejeter` — jamais d'écriture
+  automatique dans le document (doc 1 §6.2)
+- Peut être **détachée en fenêtre flottante** (état 4 du §13.2) pour un
+  usage prolongé côte à côte avec le canvas sur un deuxième écran par
+  exemple — c'est la réponse concrète à « elle peut même être flottante »
+- **Entrée contextuelle additionnelle**, indépendante de la pastille : un
+  petit bouton `✨` apparaît au survol d'une sélection sur le canvas
+  (Design ou Behavior), ouvrant un **popover léger ancré près de la
+  sélection** avec juste un champ de prompt — pour les demandes rapides
+  sans ouvrir le panneau complet (ex. « rends ce panneau plus dense »,
+  doc 1 tableau §6.1)
+
+---
+
+## 17. Génération IA — points d'entrée sur le canvas
+
+Récapitulatif de tous les points d'entrée IA, tous alimentant le même Chat
+IA / popover contextuel décrit en §16, jamais un système parallèle :
+
+| Point d'entrée | Déclenchement |
+|---|---|
+| Launcher | Carte "Via IA" (§3) |
+| Canvas Design vide/cadre | Popover contextuel (clic-droit → "Générer avec l'IA…") |
+| Sélection Design | Bouton `✨` flottant au survol (§16) |
+| Canvas Behavior, élément sélectionné | Bouton `✨` identique, propose un squelette de Node Graph (doc 1 tableau §6.1, dernière ligne) |
+
+Chaque génération applique le badge "Généré par IA" décrit en doc 1 §6.2,
+visible comme une petite icône étincelle dans l'en-tête de l'Inspecteur
+(§12.2) tant que l'élément n'a pas été modifié manuellement.
+
+---
+
+## 18. Simulation du système — la fenêtre d'essai
+
+⚠️ **Ce n'est pas un aperçu, c'est une simulation.** L'aperçu montre ; la
+simulation **se comporte**. C'est la différence entre voir un bouton et pouvoir
+appuyer dessus et constater ce qui arrive.
+
+- Bouton `▶ Simuler` **en haut à droite du canvas**, dans le cluster flottant
+  (§7), distinct du reste — icône verte, cohérence d'écosystème avec le Play
+  d'Aetherine. Raccourci `F5`.
+- ⚠️ **Ouvre une véritable fenêtre séparée**, pas un panneau — parce qu'on simule
+  une **application**, et qu'une application a sa propre fenêtre, sa propre
+  barre de titre, ses propres bords redimensionnables. La simuler dans un
+  panneau enseignerait de mauvaises proportions.
+- Cette fenêtre affiche le design **rendu par NKGui réel** — le même moteur que
+  l'application finale. Ce qu'on voit là est ce qu'on livrera.
+- **Sa taille de départ est celle de la cible du cadre simulé** (§8quater.1) : un cadre
+  mobile ouvre une fenêtre à la taille d'un téléphone. On peut la
+  redimensionner à la souris, **et le responsive s'applique en direct** — c'est
+  le moyen le plus rapide de vérifier §8quater.4.
+- **Les interactions sont réelles** : clic, survol, saisie, glisser. Elles
+  déclenchent les callbacks avec des implémentations factices journalisées dans
+  une **console de simulation** dédiée (distincte de la pastille
+  Console/Validation du §13, accessible depuis le même rail bas).
+- **Barre de simulation** en haut de cette fenêtre : cible courante, taille
+  actuelle, `⟲ Recharger`, `⏸ Geler` (fige l'état pour inspecter), et
+  `⧉ Comparer` (affiche le design à côté du rendu, pour voir l'écart).
+- Les interactions déclenchent réellement les callbacks avec des
+  implémentations factices journalisées dans une **console de test** dédiée
+  (distincte de la pastille "Console/Validation" générale du §13, mais
+  accessible depuis le même rail bas)
+- En mode debug du Node Graph (§9), le chemin exécuté pendant le test
+  s'illumine en direct dans le canvas Behavior si celui-ci est visible
+
+---
+
+## 19. Export / Validation
+
+Modal (réutilise `<Modal>` standard) accessible depuis le menu principal
+(`Fichier > Exporter`) :
+
+- Résumé avant export : nombre de pages, de widgets, de callbacks déclarés/
+  liés/orphelins
+- **Rapport de validation** : liste des erreurs/avertissements du doc 2 §12
+  (`E-PARSE`, `E-TYPE`, `E-CALLBACK-UNDECLARED` en rouge bloquant ;
+  `W-CALLBACK-UNBOUND`, `W-ID-DUPLICATE` en jaune ; `W-ORPHAN-GEOMETRY` en
+  gris info), chaque ligne cliquable = sélectionne l'élément fautif sur le
+  canvas
+- Choix du découpage en fichiers `include` (doc 2 §7) : arbre éditable où
+  glisser des pages/composants dans des regroupements de fichiers avant
+  export
+- Bouton final `Exporter` désactivé tant qu'une erreur bloquante existe
+
+---
+
+## 20. Préférences
+
+Reprend la structure standard (doc 1 §16), catégorie additionnelle
+"Intelligence Artificielle" : fournisseur IA, clé API, modèle, quota/usage
+affiché en jauge, et catégorie "Canvas" : grille/snap par défaut, position
+par défaut des pastilles au premier lancement, comportement du rail
+(règle « une seule pastille ouverte », §13.3, désactivable ici pour les
+utilisateurs avancés).
+
+---
+
+## 21. Glossaire des composants
+
+En plus du glossaire générique déjà défini (doc 1 §19, réutilisé tel quel) :
+
+| Composant | Description |
+|---|---|
+| `ProjectTabStrip` | Bande d'onglets où chaque onglet = un projet `.nkgui` ouvert |
+| `CanvasModeSwitch` | Segmented control Design/Behavior/Split de la toolbar |
+| `InfiniteDesignCanvas` | Canvas avec toutes les pages/cadres du projet |
+| `SceneObjectsGrid` | Vue par défaut de l'Inspecteur quand rien n'est sélectionné |
+| `DockRailPill` | Pastille rétractable à 4 états (repliée/overlay/ancrée/flottante) |
+| `RoleBadge` | Petit tag affiché sur une sélection déjà promue en widget |
+| `BehaviorScopeSelector` | Dropdown "Composant / Page / Global" du canvas Behavior |
+| `AIContextButton` | Bouton `✨` flottant au survol d'une sélection |
+| `AIPreviewCard` | Carte d'aperçu Appliquer/Rejeter dans le chat IA |
+| `CallbackStatusPill` | Pastille de statut lié/non lié/invalide dans l'Inspecteur Behavior |
+| `VectorPathEditor` | Outil d'édition de tracé au sommet (ancres, poignées Bézier) |
+| `EffectsStackPanel` | Section Effets de l'Inspecteur (ombres, flou, dégradés, fusion) |
+| `ComponentLibraryPanel` | Grille des composants maîtres, import et instanciation |
+| `InstanceOverrideBadge` | Pastille violette marquant une propriété d'instance modifiée localement |
+| `WidgetAnimationCanvas` | Éditeur d'animation de widget (State Machine + Dope Sheet/Curve, réutilise Aetherion Animate) |
+| `AnimationEventLink` | Icône reliant un événement de l'Inspecteur Behavior à une transition d'animation définie |
+
+---
+
+**Fin du document 3.** Voir `4_NkUIDesign_Brief_Banani.md` pour les prompts de
+génération visuelle et `5_NkUIDesign_Specification_Claude.md` pour la
+spécification technique d'implémentation.
