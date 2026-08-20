@@ -1457,6 +1457,61 @@ précisément ce qui rend ce tableau lisible pour l'utilisateur sans qu'on le lu
 montre : un « interrupteur — dérive de case à cocher » dit tout seul qu'il n'a que
 le comportement d'une case à cocher.
 
+### 14ter.5 Composant et rôle ne sont pas des alternatives
+
+⚠️ **Question de Rodolf, 2026-08-20 — et le document n'y répondait pas.** §14bis
+décrit les composants, §14ter décrit les rôles, et **aucun des deux ne dit ce qu'ils
+sont l'un pour l'autre.** On peut donc croire qu'il faut choisir. Il ne faut pas.
+
+> **Un rôle est un contrat. Un composant est un morceau de document réutilisable.**
+> Deux axes, pas deux options.
+
+| | sans rôle | avec rôle |
+|---|---|---|
+| **pas un composant** | une forme dessinée | un bouton dessiné sur une page |
+| **un composant** | une carte purement visuelle | **un explorateur de contenu** |
+
+Les quatre cases existent et servent. La dernière est celle des gros objets
+d'interface.
+
+**Un explorateur de contenu** (*content browser*) est **les deux à la fois** : un
+composant — réutilisable, instanciable, aux entrailles surchargeables — **portant
+un rôle de projet** dont la dérivation est `composition`. Il déclare ses événements
+(`sélection changée`, `élément activé`, `dossier ouvert`), ses propriétés (`racine`,
+`filtre`, `mode d'affichage`) et ses états. Aucun widget natif unique derrière lui :
+son interactivité vient entièrement de ses enfants — arbre, éléments
+sélectionnables, champ de recherche.
+
+⚠️ **Mais il restera lent tant que la liste virtualisée (§14ter.4, 🔴) n'existe
+pas.** Un explorateur bâti sur des éléments réels construit dix mille lignes pour en
+montrer trente. **« Dérivable » ne veut pas dire « utilisable à l'échelle »** — et
+c'est une distinction que le tableau des statuts ne portait pas.
+
+### 14ter.6 Le dialogue de fichier — deux choses sous un seul nom
+
+⚠️ **« Dialogue de fichier » désigne deux objets sans rapport, et les confondre
+promet du contrôle là où il n'y en a aucun.**
+
+**1. Le dialogue natif du système.** Ce n'est **pas un widget** : c'est un **appel**
+qui rend un chemin. Il ne vit pas dans l'arbre du document, ne porte ni états ni
+apparence, ne se dessine pas sur le canvas, et relève de **NKSystem, pas de
+NKGui**. Il n'a donc **aucun rôle** et n'apparaît pas dans le catalogue.
+
+Ce qui apparaît dans le catalogue, c'est le **bouton** qui le déclenche et le
+**champ** qui montre le chemin obtenu. *L'éditeur ne doit jamais laisser croire
+qu'on peut styliser une fenêtre que le système dessine.*
+
+**2. Le sélecteur de fichier dessiné dans l'application.** Celui-là est **un
+composant portant un rôle de projet dérivant de `fenêtre`** (avec le drapeau de
+modalité, §14ter.4), et il contient généralement un explorateur de contenu. Il se
+dessine, se style, se surcharge — tout ce que le premier interdit.
+
+⚠️ **Les deux ne se substituent pas l'un à l'autre.** Le natif connaît les
+permissions, les lecteurs réseau et les raccourcis du système ; celui qu'on dessine
+connaît le projet. **Un outil sérieux offre les deux et nomme lequel est lequel** —
+parce que le jour où une ouverture de fichier échoue, la première question est de
+savoir qui a dessiné la fenêtre.
+
 ---
 
 ## 15. Gestionnaire de callbacks / contrôleurs
