@@ -163,6 +163,257 @@ est draggable lui aussi.**
 
 ---
 
+## 5bis. Les menus, entrée par entrée
+
+> §5 déclarait la barre et ses huit entrées, **sans jamais dire ce qu'elles
+> contiennent**. Voici le contenu.
+
+### ⚠️ Une collision à trancher : le mot « Fenêtre » désigne deux choses
+
+Depuis §8quater.1ter, l'utilisateur **dessine la fenêtre de son application**. Or la
+barre porte déjà un menu **Fenêtre** qui parle des fenêtres de l'**éditeur**.
+Laisser les deux sous le même mot garantit qu'on cherchera la décoration Client
+dans le menu qui gère les dispositions de panneaux.
+
+**Proposition : une neuvième entrée, `Cible`**, qui rassemble ce qui relève de
+l'application visée — classe de cible, appareil, orientation, zone sûre, décoration
+de fenêtre, curseur, points de rupture, rapport de transposition. `Fenêtre` reste
+à l'éditeur.
+
+⚠️ **Le coût est réel et il faut le dire** : la barre passe de huit à neuf entrées,
+donc **les planches déjà validées qui montrent la barre de menu deviennent
+périmées** (§22 du document Banani, et le plan de fenêtre). C'est peu de chose à
+regarder, mais c'est une reprise. **Décision de Rodolf** — en attendant, tout ce qui
+suit est écrit avec `Cible`, et il suffit de replier ces entrées dans `Objet` et
+`Affichage` pour revenir à huit.
+
+### 5bis.1 Règles communes à tous les menus
+
+- **Un raccourci n'existe qu'à un seul endroit.** Le même geste dans deux menus,
+  et le jour où l'un change, l'autre ment.
+- Une entrée qui ouvre une boîte de dialogue se termine par **`…`** ; une entrée
+  qui ouvre un sous-menu porte **`▸`**. La distinction se lit avant le clic.
+- Une entrée qui bascule un état porte une **coche**, jamais un libellé qui
+  s'inverse. ⚠️ « Afficher la grille » qui devient « Masquer la grille » oblige à
+  déduire l'état courant du libellé proposé — on se trompe une fois sur deux.
+- **Les entrées de premier niveau ne disparaîtnt jamais** : elles se grisent. Leur
+  position est apprise par la main, et un menu dont la forme change casse ce que
+  l'utilisateur a mémorisé. Seuls des **blocs entiers** sans objet se retirent.
+
+### 5bis.2 `Fichier`
+
+| entrée | raccourci |
+|---|---|
+| Nouveau projet… | `Ctrl+N` |
+| Ouvrir… | `Ctrl+O` |
+| Ouvrir récent `▸` | |
+| Fermer le projet | `Ctrl+W` |
+| *—* | |
+| Enregistrer | `Ctrl+S` |
+| Enregistrer sous… | `Ctrl+Maj+S` |
+| Enregistrer tout | `Ctrl+Alt+S` |
+| Revenir à la version enregistrée | |
+| *—* | |
+| Importer `▸` — Composant… · Document… · Ressources… | |
+| Exporter `▸` — Document `.nkgui` · Ressources · Code | `Ctrl+E` |
+| Valider le document | `Ctrl+Maj+V` |
+| *—* | |
+| Préférences… | `Ctrl+,` |
+| Quitter | `Alt+F4` |
+
+⚠️ **« Revenir à la version enregistrée » demande confirmation en nommant ce qui
+sera perdu** — nombre d'éléments modifiés, heure du dernier enregistrement. Une
+entrée de menu qui jette du travail sans le décrire est un piège à un clic de
+« Enregistrer ».
+
+### 5bis.3 `Édition`
+
+| entrée | raccourci |
+|---|---|
+| Annuler | `Ctrl+Z` |
+| Rétablir | `Ctrl+Y` |
+| *—* | |
+| Couper · Copier · Coller | `Ctrl+X` · `Ctrl+C` · `Ctrl+V` |
+| Coller à la même place | `Ctrl+Maj+V` |
+| Coller le style seul | `Ctrl+Alt+V` |
+| Dupliquer | `Ctrl+D` |
+| Supprimer | `Suppr` |
+| *—* | |
+| Tout sélectionner | `Ctrl+A` |
+| Sélectionner tous les éléments du même rôle | |
+| Désélectionner | `Échap` |
+| *—* | |
+| Rechercher… | `Ctrl+F` |
+| Remplacer une propriété… | `Ctrl+H` |
+| Renommer | `F2` |
+
+### 5bis.4 `Affichage`
+
+| entrée | raccourci |
+|---|---|
+| Zoom avant · arrière | `Ctrl++` · `Ctrl+-` |
+| Zoom 100 % | `Ctrl+0` |
+| Ajuster à la sélection | `Ctrl+2` |
+| Ajuster à la page | `Ctrl+1` |
+| *—* | |
+| ☑ Grille | `Ctrl+'` |
+| ☑ Magnétisme | `Ctrl+;` |
+| ☐ Règles | |
+| ☑ Repères intelligents | |
+| *—* | |
+| ☑ Marges et remplissage | |
+| ☐ Régions de fenêtre | |
+| ☐ Éléments désactivés par héritage | |
+| *—* | |
+| Mode `▸` — Design `F1` · Behavior `F2` · Animation `F3` · Split `F4` | |
+| Thème `▸` — Sombre · Clair · Système | |
+| Panneaux `▸` — Hiérarchie · Inspecteur · Console · Palette · Bibliothèque · Chat IA | |
+| Plein écran | `F11` |
+
+⚠️ **`F2` apparaît deux fois** — « Renommer » dans `Édition` et « mode Behavior »
+ici. **C'est exactement la collision que la première règle interdit**, et je la
+laisse visible plutôt que de la corriger à la va-vite : le renommage par `F2` est
+un réflexe universel, les modes méritent des touches contiguës. **Proposition :
+modes sur `Ctrl+1..4`**, et `Ctrl+1/Ctrl+2` d'ajustement passent sur `Maj+1/Maj+2`.
+À trancher, mais pas à laisser en l'état.
+
+### 5bis.5 `Objet`
+
+| entrée | raccourci |
+|---|---|
+| Attribuer un rôle… | |
+| Retirer le rôle | |
+| *—* | |
+| Grouper | `Ctrl+G` |
+| Dégrouper | `Ctrl+Maj+G` |
+| Convertir en composant | `Ctrl+K` |
+| Détacher l'instance | |
+| Promouvoir en composant partagé | |
+| *—* | |
+| Aligner `▸` · Répartir `▸` | |
+| Ordre `▸` — Premier plan · Avancer · Reculer · Arrière-plan | |
+| *—* | |
+| ☐ Verrouiller | `Ctrl+L` |
+| ☐ Masquer dans l'éditeur | `Ctrl+Maj+H` |
+| Disponibilité `▸` — Actif · Désactivé · Lecture seule · Occupé | |
+
+⚠️ **« Masquer dans l'éditeur » porte ces trois mots, et pas seulement
+« Masquer ».** C'est la distinction de §11.1 : masquer pour travailler n'est pas
+rendre invisible à l'utilisateur final. Le libellé court les confondrait au moment
+où l'on choisit.
+
+### 5bis.6 `Cible`
+
+| entrée | |
+|---|---|
+| Classe `▸` — Bureau · Mobile · Web | |
+| Appareil… | |
+| Orientation `▸` — Portrait · Paysage | |
+| *—* | |
+| ☑ Afficher la zone sûre | |
+| Décoration `▸` — Native · Client | |
+| Curseur… | |
+| *—* | |
+| Points de rupture… | |
+| Aperçu multi-cibles | |
+| **Rapport de transposition…** | |
+
+### 5bis.7 `Comportement`
+
+| entrée | raccourci |
+|---|---|
+| Ouvrir le graphe | |
+| Vue Code | `Ctrl+²` |
+| *—* | |
+| Ajouter un événement… | |
+| Lier à un callback… · Délier | |
+| Gestionnaire de callbacks… | |
+| *—* | |
+| Simuler | `F5` |
+| Geler la simulation | `F6` |
+| Recharger la simulation | `Maj+F5` |
+| Système simulé… | |
+| **Rapport de couverture…** | |
+
+### 5bis.8 `IA`
+
+| entrée | |
+|---|---|
+| Générer un composant… · un comportement… · une animation… | |
+| Proposer un rôle pour la sélection | |
+| *—* | |
+| ☑ Chercher dans la bibliothèque avant de générer | |
+| *—* | |
+| Ouvrir le chat IA | |
+| Réglages du modèle… | |
+
+⚠️ **La coche « chercher avant de générer » est exposée ici, et cochée par
+défaut** (§17.1). La rendre visible dit à l'utilisateur que l'outil réutilise plutôt
+qu'il ne duplique — une garantie qu'on ne peut pas donner par un comportement
+silencieux.
+
+### 5bis.9 `Fenêtre` — celles de l'éditeur
+
+| entrée | raccourci |
+|---|---|
+| Nouvelle fenêtre | |
+| Détacher l'onglet dans une fenêtre | |
+| *—* | |
+| Disposition `▸` — Par défaut · Design · Comportement · Enregistrer la disposition… · Réinitialiser | |
+| *—* | |
+| Onglet suivant · précédent | `Ctrl+Tab` · `Ctrl+Maj+Tab` |
+| *—* | |
+| *(liste des fenêtres ouvertes, la courante cochée)* | |
+
+### 5bis.10 `Aide`
+
+| entrée | raccourci |
+|---|---|
+| Documentation | `F1` |
+| Raccourcis clavier… | |
+| Glossaire des composants | |
+| *—* | |
+| **Gestionnaire de greffons…** | |
+| *—* | |
+| Console… | |
+| Informations système — copier | |
+| *—* | |
+| Rechercher les mises à jour | |
+| À propos | |
+
+⚠️ **`F1` est pris deux fois** — documentation ici, mode Design en §5bis.4. Même
+remarque que pour `F2` : la proposition `Ctrl+1..4` pour les modes règle les deux
+collisions d'un coup.
+
+### 5bis.11 Les menus contextuels
+
+Le clic droit ne montre **pas** un sous-ensemble d'un menu unique : il montre ce
+qui s'applique **à ce qu'on a sous le curseur**.
+
+| contexte | entrées |
+|---|---|
+| **canvas vide** | Coller · Coller à la même place · *—* · Ajouter un cadre… · Générer avec l'IA… · *—* · Ajuster à la page · Grille · Magnétisme |
+| **élément** | Devenir… · Retirer le rôle · *—* · Couper · Copier · Dupliquer · Supprimer · *—* · Grouper · Convertir en composant · *—* · Ordre `▸` · Aligner `▸` · *—* · Verrouiller · Masquer dans l'éditeur · Disponibilité `▸` · *—* · Définir des événements… |
+| **page / cadre** | Renommer · Dupliquer la page · Supprimer la page · *—* · Cible `▸` · Orientation `▸` · *—* · Centrer sur cette page · Rapport de transposition… |
+| **instance de composant** | Éditer le maître · Réinitialiser au maître · Détacher l'instance · *—* · Sélectionner toutes les instances · *—* · Promouvoir en composant partagé |
+| **composant (section basse)** | Renommer · Éditer · Dupliquer · Supprimer · *—* · Promouvoir en composant partagé · *—* · Sélectionner ses instances |
+| **ligne d'événement** | Lier… · Délier · Ouvrir dans le graphe · *—* · Retirer du rôle · Rétablir |
+| **nœud du graphe** | Couper · Copier · Supprimer · *—* · Désactiver ce nœud · Ajouter un commentaire · *—* · Aller à la définition |
+| **greffon** | Activer · Désactiver · *—* · Voir les permissions… · Voir les contributions… · *—* · Désinstaller… |
+
+⚠️ **Dans un menu contextuel, un bloc entier sans objet se retire ; une entrée
+isolée se grise.** C'est le même principe qu'en §12.2, appliqué avec une nuance :
+un menu contextuel apparaît sous le curseur et se lit une seule fois, donc une
+longue liste de gris coûte un balayage inutile — mais garder la position des
+entrées de tête préserve le geste appris. **On retire des blocs, on ne déplace pas
+les premières lignes.**
+
+⚠️ **Le clic droit sur une sélection multiple n'affiche que ce qui vaut pour
+TOUS.** Proposer « Éditer le maître » quand un seul des cinq éléments est une
+instance ferait porter l'action à un objet que l'utilisateur n'a pas désigné.
+
+---
+
 ## 6. Barre d'onglets de projets
 
 Hauteur **28px**, immédiatement sous la barre de menu, commençant à `x = 56`
