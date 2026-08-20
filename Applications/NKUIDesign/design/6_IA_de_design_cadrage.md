@@ -244,6 +244,127 @@ de la capture d'origine.
 
 ---
 
+## 5bis. La spécification de la correspondance
+
+> **C'est l'artefact partagé de §2.1bis** : écrit une fois, implémenté deux fois —
+> hors ligne pour le corpus, en moteur pour l'import.
+>
+> ⚠️ **Tout se lit dans les valeurs CALCULÉES** rendues par le navigateur, jamais
+> dans le CSS source (§2.1ter).
+
+### 5bis.1 Rôles — depuis la balise et l'ARIA
+
+| source | rôle NkUIDesign | note |
+|---|---|---|
+| `<button>`, `role="button"` | bouton | |
+| `<input type=text\|email\|password>` | champ de saisie | `password` -> drapeau de masquage 🔴 (§14ter.4) |
+| `<textarea>` | champ multiligne | |
+| `<input type=number>` | champ entier ou décimal | selon `step` |
+| `<input type=checkbox>` | case à cocher | |
+| `<input type=radio>` | **bouton radio** 🔴 | pas de natif — à jeter ou à marquer |
+| `<input type=range>` | curseur | |
+| `<input type=color>` | sélecteur de couleur | |
+| `<select>` | liste déroulante | |
+| `<a href>` | lien | rôle de projet dérivant de bouton |
+| `<img>`, `<svg>` | image | |
+| `<p>`, `<span>`, `<h1..h6>`, texte nu | texte | |
+| `<hr>` | séparateur | |
+| `<progress>` | barre de progression | |
+| `role="tablist"` | barre d'onglets | |
+| `role="tree"` | nœud d'arbre + conteneur | |
+| `role="menu"`, `<menu>` | menu | |
+| `role="dialog"` | fenêtre + drapeau modal | |
+| `title=`, `aria-label` sur une icône seule | **infobulle** | c'est une propriété, pas un rôle (§14quinquies.1) |
+| `<div>`, `<section>`, `<nav>`… | **conteneur**, sans rôle | voir 5bis.2 |
+
+⚠️ **`aria-disabled` et l'attribut `disabled` ne donnent pas le même état.**
+`readonly` -> `ReadOnly`, `disabled` -> `Disabled`, `aria-busy` -> `Busy`
+(§14quater.1). Les confondre effacerait précisément la distinction que la
+spécification a pris la peine d'écrire.
+
+### 5bis.2 Conteneurs — depuis `display` calculé
+
+| `display` calculé | conteneur |
+|---|---|
+| `flex` + `row` | HBox |
+| `flex` + `column` | VBox |
+| `grid` | Grille |
+| `block` avec plusieurs enfants en flux | VBox |
+| `inline`, `inline-block` en série | Flux |
+| `position: absolute` dans un parent positionné | Pile |
+| `table` | Tableau |
+
+⚠️ **Un conteneur à un seul enfant se supprime.** Le HTML réel empile des `div`
+sans rôle structurel ; les recopier produirait des hiérarchies à douze niveaux
+qu'aucun humain n'aurait dessinées — et le modèle apprendrait à les produire.
+**On aplatit tant que l'aplatissement ne change ni la géométrie ni l'espacement.**
+
+### 5bis.3 Taille — le point délicat
+
+| observé | mode |
+|---|---|
+| largeur identique à toutes les largeurs de fenêtre | `fixed n` |
+| largeur = fraction constante du parent | `fraction f` |
+| `flex-grow > 0`, partage avec des frères | `weight g` |
+| prend tout le reste, seul à grandir | `expand` |
+| largeur suit le contenu, change avec le texte | `content` |
+| `min-width` / `max-width` calculés | `NkSizeBounds` |
+
+⚠️ **Le mode ne se lit pas sur un seul rendu.** `x=240` ne dit rien : il faut
+**rendre à trois largeurs** et regarder bouger. C'est le cœur de la chaîne, pas un
+raffinement (§2.1ter).
+
+### 5bis.4 Ancrage — déduit du mouvement
+
+Sur trois largeurs de fenêtre, pour chaque élément, on observe ses distances aux
+bords du parent :
+
+| observation | ancrage |
+|---|---|
+| distance gauche constante, droite variable | ancre gauche fixe |
+| distance droite constante, gauche variable | ancre droite fixe |
+| **les deux constantes** | **deux ancres actives : l'élément s'étire** |
+| les deux variables, rapport constant | ancres proportionnelles |
+| les deux variables, égales entre elles | centré, aucune ancre |
+
+⚠️ **Trois largeurs, pas deux.** Deux points ne distinguent pas une relation
+constante d'une relation proportionnelle qui passerait par là par hasard. Le
+troisième point est ce qui transforme une coïncidence en règle.
+
+### 5bis.5 Espacement, alignement, apparence
+
+`padding` -> remplissage · `margin` -> marge · `gap` -> espacement enfants
+(§8quater.5, et la distinction y est déjà écrite : **ne jamais convertir un `gap`
+en marges**).
+
+`justify-content` / `align-items` -> alignement (§8quater.6), `stretch` -> étirer.
+
+`background-color`, `border`, `border-radius`, `opacity` -> Apparence.
+`font-family/size/weight/line-height/letter-spacing`, `text-align` -> Typographie.
+`box-shadow` -> ombre · `filter: blur` -> flou · `linear-gradient` -> dégradé ·
+`mix-blend-mode` -> fusion (§8ter).
+
+`@media (max-width:…)` -> `NkBreakpoint` sur l'axe largeur, **mais seulement pour
+les règles qui changent effectivement la géométrie observée** entre deux rendus.
+Une règle média qui ne déplace rien est du bruit.
+
+### 5bis.6 ⚠️ Ce qui n'a PAS d'équivalent se journalise, jamais ne se jette en silence
+
+Sans correspondance : `float`, `position: sticky`, `transform` 3D composé,
+`clip-path`, animations CSS, pseudo-éléments `::before/::after` porteurs de
+contenu, `<canvas>`, `<video>`, `<iframe>`, tout script.
+
+**Chaque élément non convertible est compté et nommé dans un journal de perte.**
+
+> C'est ce journal qui produit la mesure de §5 — la fraction de pages converties
+> sans perte. **Sans lui, le chiffre serait inventé.**
+
+⚠️ **Et il faut se méfier du silence des pseudo-éléments** : `::before` porte
+souvent une icône ou un chevron **visible à l'écran**. Ignoré, le document produit
+paraît complet et l'aller-retour visuel échoue sans qu'on sache pourquoi.
+
+---
+
 ## 6. Ce que je n'ai PAS fait ce soir
 
 - aucun corpus n'a été collecté ;
