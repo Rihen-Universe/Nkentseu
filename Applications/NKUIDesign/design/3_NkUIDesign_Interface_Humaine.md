@@ -1613,6 +1613,105 @@ appuyer dessus et constater ce qui arrive.
 
 ---
 
+## 18bis. Le système simulé — NkUIDesign comme conteneur
+
+> **Décision Rodolf, 2026-08-20.** Énoncé à partir du cas du dialogue de fichier
+> (§14ter.6), mais il vaut pour tout le reste du système.
+
+Un service du système — ouvrir un fichier, enregistrer, lire l'heure, joindre le
+réseau — **n'est pas dessiné par NkUIDesign**. Il est **appelé**, et il **rend une
+donnée** : un chemin, un contenu, un échec. Ce que NkUIDesign possède, ce n'est pas
+le service : c'est **le point de connexion où la donnée arrive**.
+
+D'où le rôle de l'outil : **un conteneur dans lequel on branche l'interface, et où
+l'on peut simuler les parties du système qui ne sont pas encore là.** On dessine,
+on câble les événements, on simule, un journal dit si les branchements sont
+atteints — puis on branche l'application réelle sur **les mêmes points**.
+
+### ⚠️ L'invariant qui porte tout le reste
+
+> **Le point de connexion est le MÊME objet à la conception, en simulation et à
+> l'exécution.**
+
+Si la simulation passait par un mécanisme et l'application finale par un autre,
+**la simulation cesserait de prouver quoi que ce soit sur l'application** : elle
+deviendrait une démonstration qui rassure. Or c'est précisément quand elle rassure
+à tort qu'elle coûte le plus cher — on cesse de vérifier ce qu'on croit vérifié.
+
+Cet invariant est **la raison d'être** du mode simulation. Tout le reste de cette
+section en découle.
+
+### 18bis.1 Le catalogue des doublures
+
+Chaque service simulable est une **doublure** dont on règle la valeur de retour :
+
+| service | ce que la doublure rend |
+|---|---|
+| dialogue d'ouverture | un chemin, ou l'annulation |
+| dialogue d'enregistrement | un chemin, ou l'annulation |
+| système de fichiers | un contenu, ou une erreur de lecture |
+| horloge | une date fixe, ou une horloge accélérée |
+| réseau | une réponse, une lenteur, une coupure |
+| presse-papiers | un contenu |
+| locale et clavier | une langue, une disposition |
+
+⚠️ **Chaque doublure doit pouvoir rendre l'échec, pas seulement le succès** —
+annulation, permission refusée, réseau coupé, disque plein. **Le chemin d'annulation
+est celui que personne ne câble**, et c'est celui qui casse l'application le jour où
+l'utilisateur ferme la fenêtre au lieu de choisir un fichier. Une simulation qui ne
+rend que des succès entraîne à n'écrire que le cas heureux.
+
+⚠️ **Une doublure doit se voir comme telle dans le journal.** Sans marque
+distinctive, une session simulée finit par se lire comme une session réelle — et
+une capture de journal circule bien plus loin que le contexte qui l'a produite.
+
+### 18bis.2 Le journal dit surtout ce qui n'a PAS été atteint
+
+Le journal connaît **d'avance** la liste complète des points de connexion déclarés
+dans le document. À la fin d'une session il rend deux colonnes : **atteints** et
+**jamais atteints**, avec le nombre de passages.
+
+⚠️ **C'est la colonne « jamais atteints » qui a de la valeur.** Un journal qui
+n'énumère que ce qui s'est produit ne peut pas montrer ce qui manque : l'événement
+qui ne se déclenche jamais **n'y laisse aucune ligne**, et son absence ressemble à
+un journal propre. *C'est exactement le défaut qu'on vient chercher en simulant.*
+
+Un point jamais atteint n'est pas une erreur en soi — il peut appartenir à un
+chemin qu'on n'a pas essayé. Le journal le **nomme**, il ne le condamne pas.
+
+### 18bis.3 Ce que la simulation ne prouve pas
+
+À écrire avant de simuler, pas après :
+
+- elle prouve que **le branchement existe et qu'il est atteignable** ;
+- elle **ne prouve pas** que le callback fait la bonne chose — la doublure ne
+  contient pas la logique métier ;
+- elle **ne prouve pas** les temps de réponse : la doublure répond instantanément
+  là où un disque ou un réseau prendra du temps ;
+- elle **ne prouve pas** que le service réel se comporte comme sa doublure — c'est
+  une hypothèse qu'on pose, pas un résultat qu'on obtient.
+
+⚠️ **« La simulation passe » ne signifie donc jamais « l'application marche ».**
+Le dire ici évite d'avoir à le découvrir plus tard, quand quelqu'un aura pris la
+première phrase pour la seconde.
+
+### 18bis.4 Le passage à l'application réelle
+
+L'export (§19) écrit **les points de connexion, pas les doublures**. L'application
+les implémente ; **les noms sont le contrat**.
+
+⚠️ **Un point de connexion exporté que l'application n'implémente pas doit être une
+erreur de compilation, jamais un silence à l'exécution.** Sinon l'écart entre ce
+qu'on a dessiné et ce qui tourne se découvre par un bouton qui ne fait rien, et
+c'est le symptôme le plus coûteux à diagnostiquer : rien ne s'est produit, donc
+rien n'est à lire.
+
+C'est le pendant exact de `E-CALLBACK-UNDECLARED` (§12.2), dans l'autre sens : là,
+un branchement désignait un callback absent ; ici, un point déclaré n'est branché
+par personne.
+
+---
+
 ## 19. Export / Validation
 
 Modal (réutilise `<Modal>` standard) accessible depuis le menu principal
