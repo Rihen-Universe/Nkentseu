@@ -253,6 +253,65 @@ lecture seule `min–max` affiché **si et seulement si** `bounds` n'est pas vid
 les champs sans afficher l'existence de la borne échange un encombrement mesuré
 contre une classe de bug non mesurable.
 
+### 1ter.3bis Fenêtre et curseur (cible Bureau)
+
+```
+NkWindowDecoration { Native | Client }
+
+NkWindowRegion {
+    kind   : Drag | ResizeN | ResizeS | ResizeE | ResizeW
+           | ResizeNE | ResizeNW | ResizeSE | ResizeSW
+    bounds : rect relatif au cadre
+}
+
+NkWindowSpec {
+    decoration     : NkWindowDecoration
+    regions        : liste de NkWindowRegion    // vide si Native
+    maximizedStyle : { corners : float32, shadow : bool }
+}
+
+NkCursorSpec {
+    kind : System(NkSystemCursor) | Custom {
+        image    : NkAssetRef
+        hotspot  : { x, y : uint32 }     // OBLIGATOIRE
+        fallback : NkSystemCursor        // OBLIGATOIRE
+    }
+}
+```
+
+**Validation :**
+
+| code | condition |
+|---|---|
+| `E-WINDOW-NO-DRAG-REGION` | `decoration == Client` et aucune région `Drag` — **bloque l'export** |
+| `W-WINDOW-NO-RESIZE-EDGES` | `Client` sans régions de redimensionnement |
+| `W-WINDOW-NO-CLOSE` | `Client` sans affordance de fermeture |
+| `W-WINDOW-MAXIMIZED-CHROME` | `maximizedStyle.corners > 0` ou `shadow == true` |
+| `E-CURSOR-NO-HOTSPOT` | `Custom` sans point chaud |
+| `E-CURSOR-NO-FALLBACK` | `Custom` sans doublure système |
+| `W-WINDOW-IGNORED-ON-TARGET` | `NkWindowSpec` non vide sur une cible Mobile ou Web |
+
+⚠️ **`E-WINDOW-NO-DRAG-REGION` bloque l'export, il n'avertit pas.** Une fenêtre en
+décoration Client sans zone de saisie **ne peut pas être déplacée**, et rien dans
+l'éditeur ne le montre : elle se dessine, elle s'exporte, et l'utilisateur final
+reçoit une fenêtre clouée à son écran. Un avertissement se lit et s'oublie ; ici la
+conséquence est inutilisable, donc le refus est proportionné.
+
+⚠️ **`hotspot` et `fallback` sont des champs requis du variant `Custom`, pas des
+`Optional` avec une valeur par défaut.** Un point chaud par défaut à (0,0) fait
+cliquer à côté de la cible en permanence sans que personne n'en identifie la cause ;
+une doublure absente laisse l'utilisateur **sans curseur du tout** quand le
+chargement échoue — il ne peut alors ni viser, ni comprendre, ni le signaler.
+
+⚠️ **La taille du curseur personnalisé se résout à l'exécution**, en combinant la
+densité de l'écran et le **réglage système de taille de curseur**. Fixer la taille
+à la conception ignore un réglage d'accessibilité — et l'ignore exactement pour les
+personnes qui l'ont activé.
+
+⚠️ **Changer de cible ne supprime jamais `NkWindowSpec`.** Il est conservé, marqué
+inactif, et signalé par `W-WINDOW-IGNORED-ON-TARGET`. Un travail effacé par un
+changement de cible ne se redécouvre qu'au retour, quand il n'est plus là.
+
 ### 1ter.4 Points de rupture
 
 ```

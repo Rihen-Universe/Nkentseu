@@ -489,6 +489,100 @@ la simulation doit pouvoir basculer entre les deux.** Un pied de page ancré en 
 qui n'a été vérifié qu'à une seule des deux se retrouvera un jour coupé, sur
 l'appareil de quelqu'un d'autre.
 
+### 8quater.1ter Concevoir la fenêtre elle-même, et le curseur — Bureau
+
+> **Demande de Rodolf, 2026-08-20 : « l'utilisateur doit être libre. »**
+
+Il l'est. **Mais l'outil doit nommer ce que chaque liberté lui transfère comme
+responsabilité** — sinon la liberté se paie en défauts qu'on ne voit pas sur sa
+propre machine.
+
+#### Deux régimes de décoration
+
+| régime | qui dessine la fenêtre | qui gère déplacement, redimensionnement, ancrage |
+|---|---|---|
+| **Native** | le système | le système |
+| **Client** | **l'application** | **l'application** |
+
+Le régime **Client** est celui qui rend la fenêtre dessinable : barre de titre,
+bordures, coins, ombre, boutons — tout devient du contenu qu'on compose.
+
+⚠️ **Passer en décoration Client, ce n'est pas gagner une surface à dessiner : c'est
+reprendre une liste de charges que le système assurait.** L'outil l'affiche au
+moment du basculement, et la validation vérifie ce qu'elle peut vérifier :
+
+| charge reprise | ce que l'outil contrôle |
+|---|---|
+| **zone de saisie** (où l'on attrape pour déplacer) | **erreur** si aucune n'est déclarée |
+| **huit bords de redimensionnement** | avertissement si absents |
+| affordance de fermeture | avertissement si absente |
+| double-clic sur le titre = agrandir | rappelé, non vérifiable |
+| ancrage système (`Win`+flèches, bords) | dépend de la zone de saisie déclarée |
+| menu système (`Alt`+Espace), `Alt`+F4 | rappelés |
+| état agrandi : ni coins arrondis ni ombre | avertissement si conservés |
+| thèmes système, contraste élevé | rappelés |
+| changement de densité entre deux écrans | rappelé |
+
+⚠️ **Une fenêtre en décoration Client sans zone de saisie déclarée ne peut PAS Être
+DÉPLACÉE — et rien sur le canvas ne le montre.** Elle se dessine parfaitement, elle
+s'exporte, et l'utilisateur final se retrouve avec une fenêtre clouée à l'écran.
+C'est le défaut emblématique de ce régime, et la seule chose qui le prévienne est
+un refus à l'export.
+
+⚠️ **Et l'état agrandi n'est pas l'état normal avec d'autres dimensions.** Une
+fenêtre agrandie qui garde ses coins arrondis laisse quatre triangles du bureau
+visibles aux angles de l'écran ; si elle garde son ombre, elle en projette une sur
+rien. Ces deux défauts n'apparaissent jamais sur le canvas, seulement en usage.
+
+#### Ce que le canvas montre
+
+En cible **Bureau**, le cadre porte une **bande de décoration** au-dessus de la zone
+de contenu — l'équivalent exact de la zone sûre du mobile (§8quater.1bis), et
+traitée de la même façon : hachurée en régime **Native** (on ne peut rien y poser,
+le système la dessine), **éditable** en régime **Client**.
+
+Les **zones de saisie** et les **bords de redimensionnement** se dessinent en
+surimpression colorée, comme le remplissage et les marges (§8quater.5) : visibles
+au survol de l'élément sélectionné, modifiables en tirant.
+
+#### Le curseur
+
+Deux choses, très inégales, qu'il ne faut pas ranger dans le même champ.
+
+**1. Choisir un curseur système** par élément ou par région : flèche, main, texte,
+redimensionnement (huit directions), interdit, attente, croix. C'est le cas
+courant, il ne coûte rien, et **c'est le défaut** : un élément à rôle interactif
+reçoit le curseur de son rôle sans qu'on ait à le dire.
+
+**2. Dessiner son propre curseur** — une image. Là, trois obligations :
+
+- ⚠️ **le point chaud doit être déclaré** : quel pixel de l'image *est* le curseur.
+  Sans lui, l'utilisateur clique à côté de ce qu'il vise, de quelques pixels,
+  **partout et tout le temps** — une gêne permanente dont personne n'identifie la
+  cause ;
+- ⚠️ **une doublure système est obligatoire**, pas optionnelle. Un curseur
+  personnalisé qui échoue à se charger laisse l'utilisateur **sans aucun curseur** ;
+  il ne peut alors plus ni viser, ni comprendre pourquoi, ni le signaler ;
+- ⚠️ **la taille doit suivre la densité de l'écran ET le réglage système de taille
+  de curseur.** Ce réglage existe pour les personnes qui voient mal ; une image de
+  taille fixe l'ignore, et l'ignore **précisément pour celles qui en ont besoin**.
+
+⚠️ **Le système reprend la main par endroits** — pendant un glisser natif, au-dessus
+de la décoration en régime Native, sur certains dialogues. Un curseur personnalisé
+n'est donc **jamais garanti partout** : le dire, plutôt que de laisser découvrir le
+clignotement.
+
+#### ⚠️ Fenêtre et curseur n'existent qu'en cible Bureau
+
+Sur **Mobile** il n'y a pas de fenêtre et pas de curseur. Sur **Web**, la fenêtre
+appartient au navigateur ; seul le curseur survit, et parmi les curseurs système
+seulement.
+
+Changer la cible d'un cadre qui porte une décoration Client **ne doit pas la
+supprimer en silence** : elle est conservée, marquée inactive, et le rapport de
+transposition (§8quater.1bis) la nomme. *Un travail effacé par un changement de
+cible se redécouvre au moment de revenir en arrière, quand il n'est plus là.*
+
 ### 8quater.2 Taille — le vocabulaire est déjà celui de l'application
 
 Chaque élément porte une largeur et une hauteur exprimées dans le **même
