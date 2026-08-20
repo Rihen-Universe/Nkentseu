@@ -813,7 +813,7 @@ laissé au hasard se met à varier d'un écran à l'autre.
 
 **En-tête du panneau**, toujours visible, jamais replié :
 nom de l'élément (éditable au double-clic) · icône du rôle s'il en porte un ·
-type · un bouton `Attribuer un rôle` **si l'élément n'en a pas encore** (§14ter).
+**la ligne de rôle, qui est le contrôle d'attribution lui-même** (§14ter).
 
 Puis **trois onglets** : `Design` · `Widget` · `Behavior`.
 
@@ -856,9 +856,10 @@ canvas sur l'édition de cet état. Une pastille **jamais éditée** se distingu
 celle qui l'a été — c'est ainsi que l'outil tient sa promesse « aucun état oublié »
 (§14ter).
 
-⚠️ **Si l'élément ne porte pas de rôle, cet onglet n'est pas vide : il porte le
-bouton `Attribuer un rôle` et la liste des rôles.** Un onglet vide est une impasse ;
-là, c'est l'entrée du moment décisif de l'outil.
+⚠️ **Si l'élément ne porte pas de rôle, cet onglet affiche une seule phrase qui
+renvoie à la ligne de rôle de l'en-tête** — il ne duplique pas le contrôle. Le
+rôle reconfigure les *trois* onglets ; son contrôle ne peut pas vivre dans l'un
+d'eux (§14ter).
 
 #### Onglet **Behavior** — les événements
 
@@ -1022,10 +1023,27 @@ instance.
 ⚠️ **Le moment décisif de tout l'outil.** On dessine une forme ; on lui **attribue
 un rôle** ; elle devient un composant qui *se comporte*.
 
-**Comment** : sélectionner l'élément (ou le groupe) → `Attribuer un rôle` dans
-l'Inspecteur, ou clic droit → `Devenir…`. Une liste des rôles connus s'ouvre :
-`bouton · case à cocher · interrupteur · champ de saisie · curseur · liste ·
-onglets · arbre · menu · fenêtre modale · barre de progression…`
+**Où** (décision Rodolf, 2026-08-20) : **la ligne de rôle de l'en-tête de
+l'Inspecteur EST le contrôle**, au même endroit dans tous les cas :
+
+| état | ce que lit la ligne | au clic |
+|---|---|---|
+| aucun rôle | `Aucun rôle — Attribuer…` en bleu | la liste des rôles |
+| rôle posé | `Rôle : bouton ▾` | la liste, plus `Changer de rôle` et `Retirer le rôle` |
+| sélection multiple hétérogène | `Rôle : Multiple` | attribuer s'applique à toute la sélection |
+
+⚠️ **Pourquoi l'en-tête et pas l'onglet Widget.** Le rôle reconfigure les **trois**
+onglets à la fois — Widget reçoit ses propriétés, Behavior ses événements, Design
+ses états et ses contraintes d'accessibilité. Un contrôle qui redéfinit les trois
+ne peut pas vivre à l'intérieur de l'un d'eux : on regarderait les événements d'un
+rôle sans pouvoir atteindre le rôle qui les produit.
+
+Le clic droit → `Devenir…` sur le canvas et dans la Hiérarchie reste, comme
+raccourci vers la même commande.
+
+La liste des rôles connus : `bouton · case à cocher · interrupteur · champ de
+saisie · curseur · liste · onglets · arbre · menu · fenêtre modale · barre de
+progression…`
 
 **Ce que l'attribution apporte immédiatement** — sans rien écrire :
 
@@ -1052,6 +1070,60 @@ onglets · arbre · menu · fenêtre modale · barre de progression…`
 ⚠️ **Un rôle retiré ne détruit pas le travail** : les événements créés à la main
 survivent, les états dessinés restent des groupes ordinaires. On perd le contrat,
 on ne perd pas le dessin.
+
+### 14ter.1 Changer de rôle
+
+Retirer était spécifié ; **changer ne l'était pas**, et c'est le cas dangereux —
+`bouton` → `interrupteur` laisse des événements que le nouveau rôle ne connaît pas
+et des états qu'il n'a pas.
+
+⚠️ **Un événement de l'ancien rôle qui était lié ne disparaît pas : il devient un
+événement ajouté à la main.** Sa liaison pointe vers un callback qui existe dans le
+code ; l'effacer casserait le programme sans que le programme ait bougé, et
+l'erreur apparaîtrait à la compilation, **loin du geste qui l'a causée**.
+
+Le changement ouvre une confirmation qui **énumère, un par un** : ce qui devient
+un événement ajouté, ce qui reste en groupe ordinaire, ce qui sera perdu.
+
+⚠️ **Jamais un « êtes-vous sûr ? » générique.** Une confirmation qui n'énumère pas
+déplace la responsabilité sans donner de quoi décider — et on apprend à la cliquer
+sans la lire, ce qui la rend pire qu'absente.
+
+### 14ter.2 Définir ses propres rôles
+
+Oui — **mais deux choses très différentes se cachent derrière cette demande**, et
+l'outil ne doit surtout pas les confondre.
+
+| | **Rôles natifs** | **Rôles de projet** |
+|---|---|---|
+| d'où ils viennent | catalogue fermé, adossé aux widgets NKGui | définis par l'utilisateur, dans le projet |
+| ce qui les fait vivre | du code dans le moteur | de la **composition** |
+| extensibles depuis l'éditeur | **non** | oui |
+
+**Comment on définit un rôle de projet** : on prend un groupe déjà dessiné, on
+déclare ses états, ses événements, ses propriétés et ses sous-éléments attendus,
+et on l'enregistre comme rôle réutilisable ailleurs dans le projet. C'est le
+prolongement naturel des composants de bibliothèque (§14bis) : même matière, mais
+on déclare un **contrat** en plus d'une apparence.
+
+⚠️ **Un rôle de projet doit déclarer ce dont il dérive** — soit rien (pure
+composition : il n'a d'interaction que celle de ses enfants), soit un rôle natif
+qu'il étend (« carte cliquable » dérive de `bouton`, et reçoit donc réellement le
+comportement de clic du moteur).
+
+⚠️ **Sans cette déclaration, on fabrique des rôles qui ont l'air interactifs dans
+l'éditeur et sont inertes à l'exécution.** C'est le pire défaut possible pour cet
+outil : l'éditeur promet un comportement que rien n'implémente, et l'écart ne se
+découvre qu'une fois l'application lancée.
+
+⚠️ **Et un rôle de projet ne peut pas créer une primitive.** Un potentiomètre
+circulaire, une roue chromatique — leur comportement est du code, il n'apparaît
+pas parce qu'on l'a nommé. L'outil doit dire cette limite au moment de la
+création, pas la laisser découvrir. *Nommer une chose ne la fait pas exister.*
+
+Les deux familles s'affichent **dans deux groupes séparés** de la liste des rôles,
+les natifs d'abord, et un rôle de projet porte visiblement le nom de ce dont il
+dérive.
 
 ---
 
