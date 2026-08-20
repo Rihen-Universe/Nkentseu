@@ -1214,6 +1214,7 @@ n'affiche pas une liste vide, il dit que ce rôle n'a pas d'événements.
 
 ⚠️ **`interrupteur` et `bouton radio` n'existent pas dans NKGui.** Vérifié le
 2026-08-20 : aucun `Switch`, aucun `Toggle`, aucun `RadioButton` dans les en-têtes.
+L'inventaire complet des manques est en §14ter.4.
 L'`interrupteur` figurait pourtant dans la liste d'exemples de ce document depuis
 le début.
 
@@ -1262,6 +1263,125 @@ Quarante entrées ne tiennent pas dans une liste plate.
 ⚠️ **Les familles de §14ter.3 et les familles d'outils de §7.1 doivent porter les
 mêmes noms.** Deux taxonomies voisines mais différentes pour les mêmes objets, et
 personne ne saura plus dans laquelle chercher.
+
+### 14ter.4 Inventaire des manques — ce qu'une trousse complète exige
+
+⚠️ **Relevé le 2026-08-20 dans les en-têtes de NKGui.** Trois statuts, et **le
+statut est la seule information qui compte** — il dit ce que ça coûte.
+
+| statut | sens | coût |
+|---|---|---|
+| ✅ **natif** | le moteur le porte | rien |
+| 🔵 **dérivable** | rôle de projet, par composition ou habillage d'un natif | **zéro ligne de moteur** |
+| 🔴 **code** | comportement qu'aucune composition ne produit | du travail dans NKGui |
+
+#### Actions
+
+| rôle | statut | note |
+|---|---|---|
+| bouton, à répétition, image, couleur, élément de menu | ✅ | |
+| bouton à bascule | 🔵 | `Checkbox` habillé en bouton — même booléen |
+| bouton fractionné | 🔵 | `Button` + `BeginPopupMenu` |
+| bouton d'icône seul | 🔵 | `Button` sans libellé ; §1quater invariant 3 prévoit déjà l'avertissement |
+| bouton flottant d'action | 🔵 | pure apparence |
+| lien hypertexte | 🔵 | `Button` habillé en texte, curseur main |
+| **groupe de boutons segmentés** | 🔴 | **exclusivité** |
+
+#### Booléens et sélection
+
+| rôle | statut | note |
+|---|---|---|
+| case à cocher, à trois états, liste, liste déroulante, sélectionnable, nœud d'arbre | ✅ | |
+| sélection multiple | ✅ | `NkGuiSelectFlags::MultiSelect` existe déjà |
+| **interrupteur** | 🔵 | dérive de `case à cocher` |
+| liste déroulante éditable | 🔵 | `InputText` + `BeginCombo` |
+| jetons / étiquettes | 🔵 | composition |
+| arbre (le conteneur) | 🔵 | composition de `TreeNode` |
+| **bouton radio** | 🔴 | **exclusivité** |
+| **groupe exclusif** | 🔴 | **la primitive manquante** |
+
+#### Saisie
+
+| rôle | statut | note |
+|---|---|---|
+| champ, multiligne, entier, décimal, curseur, glisseur, couleur | ✅ | |
+| champ de recherche | 🔵 | `InputText` + icône + bouton d'effacement |
+| champ à incréments | 🔵 | `InputInt` + deux `RepeatButton` |
+| champ de mot de passe | 🔴 | aucun masquage dans `NkGuiInputFlags` — **à vérifier avant de trancher** |
+| **curseur entier** | 🔴 | `SliderFloat` seul existe ; pas de `SliderInt` |
+| **curseur à deux poignées** | 🔴 | une plage n'est pas deux curseurs côte à côte |
+| **sélecteur de date, calendrier** | 🔴 | |
+| **sélecteur d'heure** | 🔴 | |
+| **sélecteur de fichier** | 🔴 | dialogue système — relève de NKSystem, pas de NKGui |
+| **potentiomètre circulaire** | 🔴 | |
+| **éditeur de texte riche** | 🔴 | |
+| **éditeur de code** | 🔴 | coloration, pliage, numéros de ligne |
+
+#### Navigation
+
+| rôle | statut | note |
+|---|---|---|
+| onglets, barre de menu, menu, menu contextuel, en-tête repliable, ancrage | ✅ | |
+| **accordéon non exclusif** | 🔵 | plusieurs `CollapsingHeader` empilés |
+| **accordéon exclusif** | 🔴 | **exclusivité** — un seul volet ouvert à la fois |
+| fil d'Ariane | 🔵 | composition |
+| pagination | 🔵 | composition |
+| assistant par étapes | 🔵 | composition |
+| barre d'outils, barre d'état | 🔵 | composition |
+
+#### Conteneurs
+
+| rôle | statut | note |
+|---|---|---|
+| fenêtre, panneau, groupe, enfant, VBox, HBox, grille, pile, flux, tableau, splitter | ✅ | |
+| zone défilante | ✅ | `NkGuiScrollState` |
+| carte | 🔵 | composition |
+| tiroir | 🔵 | composition + animation |
+| **liste virtualisée** | 🔴 | des milliers de lignes sans les construire toutes |
+
+#### Affichage et retour
+
+| rôle | statut | note |
+|---|---|---|
+| texte, image, progression, courbe, histogramme, séparateur, espace, infobulle | ✅ | |
+| badge, avatar, bandeau d'alerte, squelette de chargement | 🔵 | composition |
+| notification éphémère | 🔵 | composition + minuterie |
+| indicateur d'activité | 🔵 | dessin via la `DrawList` |
+| **vidéo** | 🔴 | |
+| **visionneuse 3D** | 🔴 | intégration NKRenderer |
+
+#### ⚠️ Le résultat qui compte : une seule primitive débloque quatre rôles
+
+**bouton radio · groupe de boutons segmentés · accordéon exclusif · groupe
+exclusif** butent tous sur la même chose : **une seule sélection vivante parmi
+plusieurs éléments frères.** Ce n'est pas quatre chantiers, c'en est **un**.
+
+C'est le meilleur rapport de tout ce tableau : une primitive `groupe exclusif`
+dans NKGui, et quatre rôles deviennent dérivables sans code supplémentaire.
+
+⚠️ **Et c'est aussi la frontière exacte entre 🔵 et 🔴.** Tout ce qui est
+dérivable l'est parce qu'aucun élément n'a besoin de savoir ce que font ses frères.
+Dès qu'un élément doit en éteindre un autre, la composition ne suffit plus — *elle
+copie une apparence, elle n'invente pas une règle*.
+
+#### ⚠️ La « fenêtre modale » n'est pas un rôle
+
+Ce document la listait comme un rôle. NKGui porte la modalité comme un **état de
+contexte** (`modalDepth`, `appModal`, couche 100), pas comme un widget. C'est donc
+un **drapeau de `fenêtre`**, exactement comme le glisser-déposer est une capacité
+et non un rôle. Une fenêtre modale et une fenêtre ordinaire ont les mêmes états,
+les mêmes événements et les mêmes propriétés ; seul leur rapport au reste change.
+
+#### Ce que l'interface doit montrer de tout ça
+
+⚠️ **Un rôle 🔴 non implémenté ne doit pas apparaître dans le menu**, même grisé,
+même « bientôt ». Un catalogue qui montre ce qu'il n'a pas fait perdre du temps à
+chaque ouverture, et le jour où l'entrée devient réelle personne ne le remarque.
+
+En revanche, **un rôle de projet doit dire de quoi il dérive** (§14ter.2), et c'est
+précisément ce qui rend ce tableau lisible pour l'utilisateur sans qu'on le lui
+montre : un « interrupteur — dérive de case à cocher » dit tout seul qu'il n'a que
+le comportement d'une case à cocher.
 
 ---
 

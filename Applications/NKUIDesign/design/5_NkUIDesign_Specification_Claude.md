@@ -408,6 +408,23 @@ pas les déclarer `Native` tant que le moteur ne les porte pas.
 un drapeau sur `NkRoleBinding`, jamais une entrée de catalogue. Sinon chaque
 capacité transversale double le nombre de contrats.
 
+⚠️ **La modalité non plus n'est pas un rôle.** NKGui la porte en état de contexte
+(`modalDepth`, `appModal`, couche 100) ; c'est un **drapeau de `fenêtre`**. Mêmes
+états, mêmes événements, mêmes propriétés qu'une fenêtre ordinaire.
+
+**Inventaire complet des manques : doc 3 §14ter.4.** Trois statuts — natif,
+dérivable (zéro moteur), code.
+
+⚠️ **Une seule primitive manquante débloque quatre rôles** : `bouton radio`,
+`groupe de boutons segmentés`, `accordéon exclusif` et `groupe exclusif` butent
+tous sur **une seule sélection vivante parmi des frères**. C'est un chantier, pas
+quatre — et c'est la frontière exacte entre ce qui se compose et ce qui se code :
+la composition cesse de suffire dès qu'un élément doit en éteindre un autre.
+
+⚠️ **Un contrat `origin == Native` dont l'API NKGui n'existe pas ne doit pas
+être enregistré, même désactivé** — code `E-ROLE-UNBACKED`. Un catalogue qui
+annonce ce qu'il n'a pas se fait apprendre par cœur comme étant faux.
+
 ⚠️ **`origin == Native` n'est pas créable depuis l'éditeur.** Un rôle natif est
 adossé à un widget NKGui ; en fabriquer un depuis l'interface donnerait un `id`
 que le runtime ne sait pas instancier. La liste des rôles natifs est **fermée et
