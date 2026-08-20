@@ -1304,6 +1304,72 @@ composants serait un bug, exactement comme pour le design system de base
 
 ---
 
+### 6.13 `<GreffonManager>`
+```ts
+interface GreffonManagerProps {
+  records: NkGreffonRecord[];
+  filter: "all" | "active" | "disabled" | "rejected";
+  onToggle: (id: string, next: boolean) => void;
+  onUninstall: (id: string) => void;          // ouvre <GreffonUninstallDialog>
+  onInstall: () => void;                      // ouvre <GreffonInstallDialog>
+}
+```
+Une carte `Rejected` rend `rejectCause` **en toutes lettres**, pas le code. Un
+`frameCostUs` au-dessus du seuil se rend en `--status-invalid`, pas en gris.
+
+### 6.14 `<GreffonInstallDialog>`
+```ts
+interface GreffonInstallDialogProps {
+  manifest: NkGreffonManifest;
+  newPermissions?: NkGreffonPermission[];  // mise a jour : seulement les AJOUTS
+  acknowledged: boolean;                   // la case a cocher
+  onAcknowledge: (v: boolean) => void;
+  onConfirm: () => void;                   // desactive tant que !acknowledged
+}
+```
+⚠️ **Chaque permission se rend avec sa phrase en langage ordinaire**, pas son
+identifiant. `Network` ne dit rien ; « il pourra envoyer et recevoir des données
+sur Internet » dit ce qui se passe.
+
+⚠️ **La phrase « un greffon exécute du code dans l'éditeur » se place au-dessus des
+boutons, à la taille des libellés** (doc 3 §20bis.5). Le composant ne doit pas
+l'exposer comme un texte secondaire : c'est l'énoncé du coût.
+
+### 6.15 `<GreffonUninstallDialog>`
+```ts
+interface DependentDoc { path: string; elementCount: number }
+interface GreffonUninstallDialogProps {
+  record: NkGreffonRecord;
+  dependents: DependentDoc[];      // CALCULE, jamais suppose vide
+  acknowledged: boolean;
+  onDisableInstead: () => void;    // chemin reversible, presente comme un vrai choix
+  onConfirm: () => void;
+}
+```
+⚠️ **`dependents` se calcule avant d'ouvrir la boîte.** Une liste vide par défaut,
+remplie ensuite, laisserait une fenêtre de temps où l'on confirme sans voir la
+conséquence.
+
+⚠️ **`onDisableInstead` n'est pas un lien secondaire** : c'est l'option sûre et
+réversible, rendue avec son propre bouton.
+
+### 6.16 `<ConsolePanel>`
+```ts
+interface ConsolePanelProps {
+  tab: NkConsoleTab;
+  validation: ValidationEntry[];   // clic = selectionne l'element fautif
+  simulation: SimLogEntry[];       // doublures marquees, doc 3 18bis.2
+  greffons: NkGreffonRecord[];
+  system: NkSystemInfo;
+  onCopySystemInfo: () => void;    // une seule action
+}
+```
+⚠️ **`system.backend` est unique.** Si `backend != backendAsked`, le panneau
+affiche le repli **avant** le reste : c'est l'information qui explique tout le
+reste de la session.
+
+---
+
 ## 7. Check-list d'implémentation
 
 1. `NkGuiDocumentStore` + `nkgui-parser` (round-trip testé) — fondation, tout
