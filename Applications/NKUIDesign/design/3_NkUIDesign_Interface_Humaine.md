@@ -781,12 +781,76 @@ panneau secondaire).
   cohérent avec le catalogue doc 2 §8.
 - Double-clic sur une racine "page" = la vue canvas se recentre/zoome sur
   cette page (cf. §8).
-- Actions en clic-droit : Renommer, Dupliquer, **Promouvoir en…** /
-  **Rétrograder**, Définir des événements (raccourci vers Behavior filtré),
+- Actions en clic-droit : Renommer, Dupliquer, **`Devenir…`** /
+  **`Retirer le rôle`**, Définir des événements (raccourci vers Behavior filtré),
   Supprimer.
-- Recherche/filtre en haut, avec un toggle "Afficher seulement les widgets
-  promus" pour masquer les calques purement décoratifs quand on veut
+- Recherche/filtre en haut, avec un toggle "Afficher seulement les éléments
+  à rôle" pour masquer les calques purement décoratifs quand on veut
   auditer la structure fonctionnelle.
+
+⚠️ **Vocabulaire aligné sur §14ter** (corrigé le 2026-08-20) : cette section disait
+« Promouvoir / Rétrograder », là où le reste du document dit « attribuer / retirer un
+rôle ». **Deux mots pour un même geste, c'est deux gestes pour l'utilisateur** — il
+cherchera « promouvoir » dans l'Inspecteur et ne le trouvera pas.
+
+### 11.1 Ce que chaque ligne porte
+
+De gauche à droite : chevron de pliage · icône de rôle · nom · **badge
+d'avertissement** si besoin · **œil de visibilité** · **cadenas de verrouillage**.
+Les deux dernières n'apparaissent qu'au survol, sauf quand elles sont actives —
+un élément masqué ou verrouillé le montre en permanence.
+
+⚠️ **La visibilité de l'éditeur et la visibilité à l'exécution sont DEUX choses, et
+elles ne doivent jamais partager une icône.** L'œil de la Hiérarchie masque pendant
+qu'on travaille ; la propriété `visible` du widget décide de ce que voit
+l'utilisateur final. Les confondre livre un jour une application où un panneau
+entier manque parce que quelqu'un l'avait caché pour dessiner derrière.
+
+L'œil fermé se **sérialise comme état d'éditeur**, pas comme propriété du document
+exporté. Le verrou empêche la sélection au canvas mais **jamais** la sélection dans
+la Hiérarchie — sinon un élément verrouillé par erreur devient inatteignable.
+
+### 11.2 Le badge d'avertissement remonte
+
+Une ligne porte un petit badge ambré si l'élément a un problème de validation :
+événement lié à un callback non déclaré (§12.2), point de rupture jamais atteint
+(§8quater.4), borne contradictoire (§8quater.2), sous-élément attendu absent
+(§14ter).
+
+⚠️ **Un parent replié affiche le badge de ce qui se trouve sous lui**, avec le
+compte. Sans cette remontée, **plier une branche fait disparaître ses erreurs** —
+et on plie justement les branches qu'on croit terminées.
+
+Le badge du parent se distingue de celui de l'enfant : celui du parent est creux,
+celui de l'élément fautif est plein. *Sinon on cherche l'erreur sur la ligne qui ne
+fait que la signaler.*
+
+### 11.3 Déplacer, reparenter
+
+Glisser une ligne la déplace ; la déposer **sur** une autre la reparente, **entre**
+deux la réordonne. Un liseré horizontal indique le réordonnancement, un
+sur-lignage du parent indique le reparentage — **deux retours visuels différents,
+parce que ce sont deux opérations différentes**.
+
+⚠️ **Une cible qui ne peut pas accueillir d'enfant refuse VISIBLEMENT** — curseur
+d'interdiction, aucun liseré — plutôt que d'accepter puis de replacer l'élément
+ailleurs. Un dépôt silencieusement réinterprété se remarque trois manipulations
+plus tard, quand on ne peut plus le relier au geste.
+
+### 11.4 Instances de composants
+
+Une ligne qui est l'instance d'un composant de bibliothèque (§14bis) porte un
+losange devant son nom, **plein** si elle est conforme à sa source, **creux** si
+elle porte des surcharges locales. Déplier une instance montre ses enfants en
+lecture seule, sauf ceux qui sont surchargés.
+
+### 11.5 Sélection multiple
+
+`Ctrl`+clic ajoute, `Maj`+clic étend une plage. La sélection est **la même** que
+celle du canvas et que celle de l'Inspecteur — sélectionner trois lignes ici fait
+apparaître `Multiple` dans les champs qui diffèrent (§12.2). *Trois panneaux, une
+seule sélection : deux notions de « ce qui est sélectionné » finiraient par
+diverger, et personne ne saurait laquelle fait foi.*
 
 ---
 
