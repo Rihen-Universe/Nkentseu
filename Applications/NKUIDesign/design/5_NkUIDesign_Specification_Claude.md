@@ -399,6 +399,15 @@ NkRoleBinding {                 // ce que porte l'élément
    création — sinon il promet un comportement que rien n'implémente, et l'écart ne
    se découvre qu'à l'exécution.
 
+**Le catalogue natif est énuméré en doc 3 §14ter.3**, relevé dans
+`Kernel/Runtime/NKGui/src/NKGui/Widgets/NkGuiWidgets.h`. — `interrupteur` et
+`bouton radio` **n'y figurent pas** : NKGui n'a ni `Switch` ni `RadioButton`. Ne
+pas les déclarer `Native` tant que le moteur ne les porte pas.
+
+⚠️ **`BeginDragSource` / `BeginDropTarget` sont des capacités, pas des rôles** —
+un drapeau sur `NkRoleBinding`, jamais une entrée de catalogue. Sinon chaque
+capacité transversale double le nombre de contrats.
+
 ⚠️ **`origin == Native` n'est pas créable depuis l'éditeur.** Un rôle natif est
 adossé à un widget NKGui ; en fabriquer un depuis l'interface donnerait un `id`
 que le runtime ne sait pas instancier. La liste des rôles natifs est **fermée et
