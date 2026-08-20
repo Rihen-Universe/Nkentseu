@@ -2560,6 +2560,70 @@ document qu'il ne saura pas modifier.
 ⚠️ **Le popover rapide est là pour aller vite, pas pour sauter la revue.** C'est
 le raccourci qu'on serait tenté d'exempter, et c'est celui qu'on utilise le plus.
 
+### 16bis.7 Choisir le modèle depuis l'interface
+
+> **Demande de Rodolf, 2026-08-20.**
+
+La bande de modèle (§16bis.2) porte un **sélecteur**. Elle liste :
+
+- les modèles **locaux** détectés sur la machine ;
+- les modèles **distants** configurés ;
+- une entrée `Ajouter un modèle…`.
+
+Chaque entrée affiche son nom, son emplacement (**local** / **distant**), et sa
+**fenêtre de contexte**.
+
+⚠️ **Passer d'un modèle local à un modèle distant redemande confirmation, en
+nommant ce qui sortira de la machine** — pas un simple changement de valeur dans
+une liste. C'est le même geste que d'accorder une permission à un greffon
+(§20bis.5), et il mérite le même arrêt.
+
+⚠️ **Et la portée du contexte doit être confrontée à la fenêtre du modèle.** Choisir
+« le projet entier » avec un modèle dont la fenêtre ne le contient pas produit une
+**troncature silencieuse** : le modèle répond, la réponse a l'air normale, et elle
+est fondée sur une fraction du projet que personne n'a choisie.
+
+L'interface l'annonce **avant** l'envoi : *« le projet fait 180 k jetons, ce modèle
+en accepte 32 k — 82 % ne sera pas envoyé »*, avec le choix de réduire la portée ou
+de changer de modèle. **Une troncature qui ne se dit pas est un mensonge par
+omission sur la base du raisonnement.**
+
+### 16bis.8 Mettre au point l'IA sur un élément
+
+> **Demande de Rodolf, 2026-08-20** : « sélectionner un widget ou un bloc pour
+> demander de se concentrer dessus. »
+
+Au-delà de la portée (§16bis.3), on peut **épingler** un ou plusieurs éléments
+comme **point de mire** : clic droit → `Mettre au point l'IA sur ceci`, ou bouton
+dédié dans le panneau.
+
+**Épingler n'est pas sélectionner** :
+
+| | sélection | point de mire |
+|---|---|---|
+| change quand on clique ailleurs | **oui** | **non** |
+| sert à éditer | oui | non |
+| dit à l'IA où regarder | par défaut | **explicitement** |
+
+⚠️ **C'est exactement pour ça que les deux doivent être distincts.** Sans épingle,
+demander « et maintenant compare avec la carte d'à côté » oblige à garder le
+premier élément sélectionné — donc à ne pas pouvoir aller voir le second.
+
+**Le point de mire est visible sur le canvas** : les éléments épinglés portent un
+liseré distinct et une petite épingle, et le panneau affiche `Point de mire :
+Carte_Produit, Bouton_Valider (2)` au-dessus du champ de saisie.
+
+⚠️ **Une épingle invisible est pire qu'aucune épingle.** On oublie ce sur quoi
+l'IA regarde, on lui pose une question sur autre chose, et on ne comprend pas
+pourquoi elle répond à côté. L'épingle se retire d'un clic sur son marqueur, et se
+vide entièrement par `Effacer le point de mire`.
+
+**Ce que le point de mire change pour l'IA** : ces éléments sont fournis **en
+entier** — avec leurs propriétés, leurs états, leurs animations, leurs événements
+— tandis que le reste de la portée n'est fourni qu'en **structure**. C'est ce qui
+rend la mise au point utile plutôt que décorative : à fenêtre de contexte égale,
+on dépense les jetons là où la question porte.
+
 ---
 
 ## 17. Génération IA — points d'entrée sur le canvas
