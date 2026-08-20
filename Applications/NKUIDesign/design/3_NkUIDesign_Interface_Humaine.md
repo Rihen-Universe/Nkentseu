@@ -433,8 +433,8 @@ borne basse et une borne haute **optionnelles** :
 - elles s'appliquent **après** le mode — `expand` prend tout l'espace restant,
   *puis* la borne le ramène dans l'intervalle ;
 - elles ont un sens pour tous les modes sauf `fixed`, où elles seraient muettes —
-  l'interface les grise alors plutôt que de les cacher, pour que la ligne ne
-  change pas de forme selon le mode ;
+  l'interface les grise alors dans le popover plutôt que de les cacher, pour que
+  la question ne change pas de forme selon le mode ;
 - **une borne absente s'écrit `—`, jamais `0` et jamais un champ vide.** Un zéro
   est une borne à zéro ; un champ vide ne dit pas si la valeur est absente ou
   perdue. Le tiret dit « pas de borne » et ne se confond avec rien.
@@ -447,6 +447,47 @@ fraction. L'outil le signale — il ne corrige pas à la place du concepteur.
 arbitrage.** L'outil refuse la saisie plutôt que de choisir laquelle gagne : deux
 règles contradictoires acceptées en silence produisent une mise en page dont
 personne ne sait dire d'où elle vient.
+
+**Il n'y a pas de troisième nombre.** (Décision Rodolf, 2026-08-20.)
+
+| mode | le nombre qu'il porte |
+|---|---|
+| `fixed 44` | **44 est la valeur** |
+| `fraction 0.5` | 0.5 est la valeur ; la taille se calcule depuis le parent |
+| `weight 2` | 2 est la valeur ; la taille se calcule entre frères |
+| `content` | aucun — le contenu décide |
+| `expand` | aucun — l'espace restant décide |
+
+Chaque mode porte déjà son paramètre, ou n'en porte aucun. **Aucune « taille par
+défaut » ne manque nulle part** ; en ajouter une redonnerait à `fixed` deux champs
+pour une seule valeur, c'est-à-dire la seconde source de vérité qu'on vient
+d'enlever.
+
+⚠️ **Et le défaut n'est pas le minimum.** Si un `expand` ramené à sa borne basse
+s'affichait comme un `fixed min`, « l'espace manque » et « je l'ai voulu ainsi »
+deviendraient indistinguables. Deux causes différentes ne doivent pas produire le
+même affichage.
+
+⚠️ **Mais basculer de mode ne doit rien détruire.** L'outil **mémorise le dernier
+nombre de chaque mode** : quitter `fixed 44` pour `expand` puis revenir rend 44.
+C'est une mémoire d'édition — elle ne s'affiche pas, elle ne se sérialise pas.
+*Un champ visible en ferait une donnée que l'utilisateur doit entretenir.*
+
+**Comment la ligne de taille se présente.** Deux lignes, pas quatre :
+
+- état normal : `Largeur : expand ▾` et `Hauteur : fixed 44 ▾`, **rien d'autre** ;
+- **si et seulement si une borne est posée**, la ligne porte à sa droite un petit
+  marqueur en lecture seule — `120–320`, `120–…`, `…–320` — gris, non éditable ;
+- **un clic sur la ligne ouvre un popover** contenant, ensemble : la liste des
+  modes, puis `min`, puis `max`. Ce sont les trois réponses à une même question.
+
+⚠️ **Cacher les champs, jamais cacher le fait.** Le popover fait gagner la place
+que la ligne de bornes permanente coûtait sur *tous* les éléments alors que
+presque aucun n'a de borne. Mais une borne invisible est une borne oubliée : le
+jour où un `expand` refuse de remplir, personne ne doit avoir à cliquer pour
+découvrir un `max 320` posé trois semaines plus tôt. **Le marqueur est la
+contrepartie non négociable du popover** — l'un sans l'autre échange du bruit
+permanent contre des bugs invisibles.
 
 ### 8quater.3 Ancrage au parent
 
@@ -744,7 +785,7 @@ Puis **trois onglets** : `Design` · `Widget` · `Behavior`.
 | # | Section | Contenu | Repliée par défaut |
 |---|---|---|---|
 | 1 | **Cible** | cible du cadre, en lecture seule si l'élément n'est pas le cadre lui-même (§8quater.1) | non |
-| 2 | **Disposition** | Position X/Y · Largeur et Hauteur dans le vocabulaire `fixed/content/fraction/weight/expand` · **la ligne de bornes `min · max` sous chaque dimension** (§8quater.2) | non |
+| 2 | **Disposition** | Position X/Y · Largeur et Hauteur dans le vocabulaire `fixed/content/fraction/weight/expand`, **une seule ligne chacune** · marqueur `120–320` à droite de la ligne **seulement si une borne est posée** · clic sur la ligne = popover mode + `min` + `max` (§8quater.2) | non |
 | 3 | **Ancrage** | le carré d'ancrage — quatre traits autour d'un rectangle central, cliquables (§8quater.3) | non |
 | 4 | **Alignement** | deux rangées d'icônes, horizontale et verticale, `étirer` compris (§8quater.6) | non |
 | 5 | **Espacement** | Remplissage (4 champs + cadenas de liaison) · Marge (4 champs) · Espacement enfants (H, V) — §8quater.5 | **oui** |

@@ -217,6 +217,42 @@ une taille que personne n'occupe.
 redevient active dès que le mode change ; l'effacer d'office détruirait une
 intention au moment précis où elle est invisible.
 
+**Pas de troisième champ de taille.** Le modèle porte `mode` (avec son paramètre)
+et `bounds`. Aucune `defaultSize`. Sur `fixed`, un tel champ dupliquerait le
+paramètre du mode ; sur `expand`/`content`, il désignerait une valeur que
+personne ne calcule.
+
+```
+NkSizeSpec {
+    mode   : Fixed(u32) | Content | Fraction(f32) | Weight(f32) | Expand
+    bounds : NkSizeBounds
+}
+```
+
+**Mémoire d'édition — hors modèle, hors fichier :**
+
+```
+// Etat d'EDITEUR uniquement. Jamais serialise dans .nkgui.
+NkSizeModeMemory {
+    lastFixed    : Optional<uint32>
+    lastFraction : Optional<float>
+    lastWeight   : Optional<float>
+}
+```
+
+⚠️ **Cette mémoire ne va pas dans le document.** La sérialiser la ferait
+apparaître dans les diffs, les revues et les fusions, pour une valeur sans aucun
+effet sur le rendu — du bruit que les relecteurs apprendraient à ignorer, ce
+qu'ils finissent toujours par faire aussi pour le reste.
+
+**Rendu de la ligne (doc 3 §8quater.2) :** une ligne par dimension ; marqueur
+lecture seule `min–max` affiché **si et seulement si** `bounds` n'est pas vide
+(`…` du côté absent) ; clic = popover `mode + min + max`.
+
+⚠️ **Le marqueur n'est pas décoratif, il est la condition du popover.** Masquer
+les champs sans afficher l'existence de la borne échange un encombrement mesuré
+contre une classe de bug non mesurable.
+
 ### 1ter.4 Points de rupture
 
 ```
