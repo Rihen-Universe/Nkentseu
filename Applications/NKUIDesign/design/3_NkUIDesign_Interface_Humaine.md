@@ -1826,6 +1826,96 @@ savoir qui a dessiné la fenêtre.
 
 ---
 
+## 14quater. États d'indisponibilité — désactivé, lecture seule, occupé
+
+> **Question de Rodolf, 2026-08-20 : « des zones et des widgets peuvent être
+> inactifs, donc gris — est-ce pris en compte ? »**
+>
+> À moitié. `désactivé` figurait dans la liste des états d'un rôle (§14ter), mais
+> **rien ne disait qui en décide, ni ce qui arrive quand c'est toute une zone.**
+
+### 14quater.1 Trois indisponibilités, souvent confondues
+
+| état | ce qu'il dit à l'utilisateur | focus | copie du contenu |
+|---|---|---|---|
+| **Désactivé** | « pas disponible dans ce contexte » | **non** | non |
+| **Lecture seule** | « disponible, mais pas modifiable » | **oui** | **oui** |
+| **Occupé** | « temporairement indisponible, ça revient » | non | non |
+
+⚠️ **Désactivé et lecture seule ne sont pas la même chose, et les confondre a un
+coût immédiat : on ne peut plus copier le contenu d'un champ.** Un numéro de
+référence qu'on ne peut ni modifier ni sélectionner oblige à le recopier à la main.
+
+⚠️ **Occupé n'est pas désactivé non plus.** « Revenez plus tard » et « ce n'est pas
+pour vous ici » appellent deux comportements différents de la part de l'utilisateur.
+Les peindre du même gris lui fait attendre ce qui ne viendra pas, ou abandonner ce
+qui allait revenir.
+
+### 14quater.2 D'où vient l'indisponibilité
+
+Le gris est une **conséquence**, jamais une propriété qu'on peint. Trois sources :
+
+1. **Constante d'auteur** — cet élément est désactivé dans ce design ;
+2. **Liée à une condition** — désactivé tant que le formulaire est invalide ;
+3. **Héritée d'un ancêtre** — le panneau entier est désactivé.
+
+⚠️ **Un enfant ne peut pas se réactiver sous un ancêtre désactivé.** Si c'était
+permis, « ce panneau est désactivé » cesserait de vouloir dire quoi que ce soit : il
+faudrait inspecter chaque descendant pour savoir ce qui reste cliquable. **La règle
+descend, elle ne se négocie pas.**
+
+### 14quater.3 Désactivé doit BLOQUER, pas seulement repeindre
+
+⚠️ **Un élément désactivé sort du test de pointage et de l'ordre de tabulation.**
+Un gris qui laisse passer le clic donne un contrôle **qui a l'air mort et qui agit
+vivant** — et le défaut se manifeste loin de sa cause, dans le callback, où rien
+n'indique que le bouton n'aurait pas dû être cliquable.
+
+⚠️ **Et si l'élément portait le focus au moment où il devient désactivé, le focus
+doit se déplacer.** Sinon la personne qui navigue au clavier reste posée sur un
+élément qui ne répond à rien, sans rien à l'écran pour lui dire où elle est. Elle
+n'a alors plus aucun moyen d'avancer.
+
+### 14quater.4 Le contraste du gris se vérifie aussi
+
+⚠️ **Un texte désactivé doit rester LISIBLE.** Il faut pouvoir lire ce qu'est un
+contrôle pour comprendre pourquoi il n'est pas disponible — un bouton gris
+illisible n'informe de rien, il occupe de la place.
+
+La vérification de contraste (§14ter, `a11y.minContrast`) s'applique donc à l'état
+`désactivé` **comme aux autres**. C'est l'état qu'on oublie de tester, parce qu'on
+le regarde rarement et qu'il « a le droit » d'être pâle.
+
+### 14quater.5 Dire POURQUOI
+
+Un contrôle désactivé sans explication est une impasse : on voit qu'on ne peut
+pas, on ne voit pas ce qu'il faudrait faire. Chaque élément peut donc porter une
+**raison d'indisponibilité**, affichée au survol.
+
+⚠️ **Mais la raison ne peut pas être portée par l'élément désactivé lui-même** —
+puisqu'il ne reçoit plus les événements, il ne reçoit pas non plus le survol.
+L'outil l'attache à une **région enveloppante** qui, elle, reste active. Sans cette
+précaution l'infobulle est écrite, enregistrée, exportée — et **ne s'affiche
+jamais**.
+
+### 14quater.6 Ce que le canvas et la simulation doivent montrer
+
+**Dans l'éditeur** : les pastilles d'état de l'onglet Widget (§12.2) permettent de
+dessiner l'apparence de `désactivé` sans désactiver l'élément sur le canvas.
+
+⚠️ **Mais le canvas doit signaler les éléments désactivés PAR HÉRITAGE**, d'une
+marque discrète. Sans elle, on passe une heure à soigner un bouton qui ne sera
+jamais cliquable, parce que son panneau est désactivé six niveaux plus haut.
+
+**Dans la simulation** (§18bis.2) : quand un point de connexion figure dans la
+colonne « jamais atteints » **et** que son élément était désactivé pendant toute la
+session, le journal le dit — `jamais atteint : ancêtre désactivé`.
+
+> **C'est la seule cause de non-atteinte que l'outil connaisse avec certitude.**
+> Toutes les autres demandent un jugement humain ; celle-là, il la nomme.
+
+---
+
 ## 15. Gestionnaire de callbacks / contrôleurs
 
 Contenu de la pastille "Callbacks" (§13) — vue centralisée (doc 1 §4.7) :

@@ -494,6 +494,77 @@ des enfants qui portent les leurs. Aucune règle d'exclusion.
 
 ---
 
+## 1quinquies. Disponibilité d'un élément
+
+> Doc 3 §14quater.
+
+```
+NkAvailability { Enabled | Disabled | ReadOnly | Busy }
+
+NkAvailabilitySource {
+    Constant                       // pose par l'auteur
+  | Bound(NkExprRef)               // liee a une condition
+  | Inherited                      // calculee : un ancetre est Disabled/Busy
+}
+
+NkAvailabilityState {
+    value  : NkAvailability
+    source : NkAvailabilitySource
+    reason : Optional<NkString>    // affichee au survol de la REGION enveloppante
+}
+```
+
+⚠️ **`Inherited` est calculé, jamais stocké.** Le sérialiser produirait deux
+vérités sur le même fait : celle de l'ancêtre et la copie chez l'enfant — et elles
+divergeraient au premier déplacement dans l'arbre.
+
+⚠️ **Un descendant ne peut pas remonter à `Enabled` sous un ancêtre `Disabled`.** La
+résolution prend le **minimum** le long du chemin depuis la racine. Autoriser la
+réactivation locale viderait « ce panneau est désactivé » de son sens : il faudrait
+parcourir tout le sous-arbre pour savoir ce qui reste cliquable.
+
+**Conséquences à implémenter, pas seulement à peindre :**
+
+| état | test de pointage | ordre de tabulation | sélection du texte |
+|---|---|---|---|
+| `Enabled` | oui | oui | oui |
+| `Disabled` | **non** | **exclu** | non |
+| `ReadOnly` | **oui** | **oui** | **oui** |
+| `Busy` | non | exclu | non |
+
+⚠️ **`Disabled` retire du test de pointage.** Repeindre sans bloquer donne un
+contrôle qui a l'air mort et agit vivant ; le défaut apparaît dans le callback,
+loin de sa cause.
+
+⚠️ **Si l'élément focalisé devient `Disabled` ou `Busy`, le focus se déplace au
+suivant focalisable.** Le laisser en place immobilise la navigation au clavier sur
+un élément muet, sans rien à l'écran pour l'indiquer.
+
+**Validation :**
+
+| code | condition |
+|---|---|
+| `E-DISABLED-REENABLE` | un descendant tente `Enabled` sous un ancêtre `Disabled` |
+| `W-DISABLED-CONTRAST` | l'état `désactivé` viole `a11y.minContrast` |
+| `W-REASON-UNREACHABLE` | une `reason` posée sans région enveloppante active |
+| `W-READONLY-AS-DISABLED` | un champ de saisie `Disabled` dont la valeur n'est jamais modifiée par le programme — `ReadOnly` était probablement voulu |
+
+⚠️ **`W-DISABLED-CONTRAST` n'est pas du zèle.** C'est l'état qu'on oublie de
+tester, parce qu'on le regarde rarement et qu'on lui accorde le droit d'être pâle —
+alors qu'il faut pouvoir **lire** un contrôle pour comprendre pourquoi il n'est pas
+disponible.
+
+⚠️ **`W-REASON-UNREACHABLE` attrape un piège coûteux** : une infobulle attachée à
+l'élément désactivé lui-même est écrite, enregistrée, exportée — et ne s'affiche
+jamais, puisque l'élément ne reçoit plus le survol.
+
+**Lien avec la couverture de simulation (doc 3 §18bis.2)** : un point de connexion
+non atteint dont l'élément est resté `Disabled` toute la session est reporté
+`jamais atteint : ancetre desactive`. **C'est la seule cause de non-atteinte que
+l'outil puisse affirmer** ; les autres demandent un jugement humain.
+
+---
+
 ## 1bis. Extensions de langage nécessaires — proposition pour le document 2
 
 **Point d'attention important** : la grammaire actuelle de
