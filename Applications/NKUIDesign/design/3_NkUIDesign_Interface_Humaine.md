@@ -1080,6 +1080,77 @@ recherche, tri par date/nom/utilisation, badge du nombre d'instances actives
 par composant, glisser directement sur le canvas pour créer une nouvelle
 instance.
 
+### 14bis.1 Trois provenances, trois droits
+
+> **Demande de Rodolf, 2026-08-20** : réutiliser ce qu'on a déjà fait, utiliser ce
+> que d'autres ont fait, et utiliser ce que le système fournit.
+
+Ce sont trois choses différentes, et **la bibliothèque doit les séparer visiblement**
+parce qu'elles n'accordent pas les mêmes droits :
+
+| provenance | éditer la source | mise à jour amont | détacher |
+|---|---|---|---|
+| **Projet** — les miens | oui, directement | sans objet | oui |
+| **Importé** — ceux d'autrui | non : **bifurcation explicite** | oui, signalée | oui |
+| **Système** — fournis par le moteur | non | avec la version du moteur | oui |
+
+Le panneau les affiche en **trois groupes** ; chaque miniature porte sa provenance.
+
+⚠️ **Modifier un composant importé ne doit JAMAIS le bifurquer en silence.** Deux
+chemins légitimes, et l'outil demande **une fois** lequel on prend :
+
+- **surcharge** — l'instance change, la source reste liée et **continue de recevoir
+  les mises à jour** ;
+- **bifurcation** — une copie devient un composant de Projet, nommée, et **ne reçoit
+  plus rien**.
+
+Sans ce choix, on croit surcharger et on a bifurqué : la mise à jour amont n'arrive
+jamais, et **rien ne le signale** — le composant continue de fonctionner, simplement
+il ne bouge plus. *Un lien rompu sans bruit ne se découvre qu'au moment où l'on
+comptait dessus.*
+
+### 14bis.2 Mise à jour d'une source externe
+
+Un composant importé porte **la version de sa source**. Quand l'amont change, la
+bibliothèque affiche une pastille « mise à jour disponible » sur sa miniature.
+
+⚠️ **Une mise à jour ne s'applique jamais toute seule.** On la demande, et l'outil
+montre **ce qui change avant d'appliquer** : propriétés modifiées, sous-éléments
+ajoutés ou retirés, surcharges locales qui entrent en conflit.
+
+Une mise à jour automatique modifierait ce qui est à l'écran sans que personne
+l'ait demandé — et on le découvrirait au pire moment, en croyant à une erreur de
+sa propre main. **Le contrôle de version d'un projet ne doit pas dépendre de
+l'humeur d'un serveur.**
+
+⚠️ **Une surcharge locale en conflit avec la mise à jour se conserve et se nomme**,
+elle ne se résout pas d'office. L'outil présente les deux valeurs et laisse
+choisir ; il n'a aucun moyen de savoir laquelle porte l'intention.
+
+### 14bis.3 Un composant importé apporte son contrat de rôle
+
+Depuis §14ter, un composant peut porter un **rôle de projet**. L'import doit donc
+amener **le composant et son contrat** — événements, propriétés, états.
+
+⚠️ **Un composant importé sans son contrat donne un objet dont les événements ne
+pointent nulle part.** Il se dessine, il s'instancie, et il ne se branche pas —
+l'échec le plus déroutant, parce que tout a l'air correct.
+
+⚠️ **Et si le contrat importé dérive d'un rôle natif que ce moteur-ci ne porte pas
+(version différente), l'import est REFUSÉ et le rôle manquant est nommé.** Importer
+à moitié produirait un composant partiellement inerte — exactement le défaut que
+§14ter.2 interdit, arrivé par une autre porte.
+
+### 14bis.4 Les composants du système suivent le moteur, pas le projet
+
+Un composant Système change quand le moteur change. **Chaque instance retient donc
+la version du moteur avec laquelle elle a été posée**, et la validation signale
+l'écart plutôt que de le laisser deviner.
+
+⚠️ **Sans cette trace, une mise à jour du moteur peut changer une interface sans
+que rien dans le projet n'ait bougé** — et on cherchera la cause dans le projet,
+qui est le seul endroit où elle ne se trouve pas.
+
 ---
 
 ## 14ter. Donner un rôle à un composant
@@ -1575,6 +1646,37 @@ IA / popover contextuel décrit en §16, jamais un système parallèle :
 Chaque génération applique le badge "Généré par IA" décrit en doc 1 §6.2,
 visible comme une petite icône étincelle dans l'en-tête de l'Inspecteur
 (§12.2) tant que l'élément n'a pas été modifié manuellement.
+
+### 17.1 L'IA cherche avant de générer
+
+⚠️ **Avant de produire un composant, l'IA fouille la bibliothèque** (§14bis) — les
+trois provenances — et **propose la réutilisation en premier**, la génération
+ensuite. Elle dit toujours laquelle des deux elle a choisie, et pourquoi.
+
+Générer un composant qui existe déjà crée **deux sources pour une même chose** — le
+défaut contre lequel ce document se bat partout ailleurs. Et il est pire ici
+qu'ailleurs : les deux versions divergeront lentement, chacune corrigée séparément,
+**sans que rien ne signale qu'elles auraient dû rester identiques**.
+
+### 17.2 L'IA peut proposer un rôle, elle ne l'attribue pas
+
+Sur une forme dessinée, l'IA peut reconnaître une intention et **proposer** un rôle
+(§14ter). Elle ne l'applique pas d'elle-même.
+
+⚠️ **Attribuer un rôle reconfigure les trois onglets de l'Inspecteur et engage un
+contrat.** Ce n'est pas une suggestion de style qu'on annule d'un `Ctrl+Z` sans y
+penser : c'est le geste qui fait passer un dessin au rang de composant qui se
+comporte. Il appartient à la personne.
+
+### 17.3 Ce qu'un composant généré porte
+
+Il entre en provenance **Projet** — il est à nous — et garde le badge « Généré par
+IA » jusqu'à la première modification manuelle.
+
+⚠️ **Le badge disparaît à la première retouche, et c'est voulu** : il ne dit pas
+« ceci vient d'une IA » pour l'éternité, il dit **« personne n'a encore relu ceci »**.
+Un badge qui survivrait à la relecture cesserait d'informer, et on apprendrait à ne
+plus le voir.
 
 ---
 
