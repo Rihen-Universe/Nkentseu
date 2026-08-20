@@ -553,6 +553,750 @@ TRÈS IMPORTANT — le graphe est en cours d'exécution : les câbles blancs du 
 
 ---
 
+## 22. Planches validées — repartir de là, ne pas réécrire
+
+> **Archivées le 2026-08-20.** Toutes ont produit un résultat jugé conforme par
+> Rodolf. §0bis s'applique : **on repart de ce texte, on ne le réécrit pas pour
+> l'améliorer.**
+
+⚠️ **Elles sont consignées TELLES QU'ELLES ONT ÉTÉ LANCÉES**, y compris quand il a
+fallu deux passes : le prompt de base, puis le prompt de correction. **Je n'ai pas
+fusionné les deux en un prompt unique** — une version consolidée n'aurait jamais
+été exécutée, et l'archiver comme validée en ferait une promesse que rien ne
+soutient. *La suite a marché ; sa fusion est une hypothèse.*
+
+Le prompt du **canvas Design** est en §1bis, celui de l'**inspecteur** en §1ter.
+Chaque planche ci-dessous se lance après avoir collé le Système de design (§0).
+
+---
+
+### 22.1 Inspecteur — onglet Design (consolidé après trois passes)
+
+**Base : §1ter.** Puis trois passes de correction, dans cet ordre.
+
+**Passe 1** — ce que Banani avait ajouté de trop ou d'incohérent :
+
+```
+1. SUPPRIME entièrement le liseré rouge-orangé qui court le long du bord gauche du
+   panneau. Le bord gauche du panneau est neutre, de la même couleur que le fond.
+2. SUPPRIME la bordure rouge du champ "X 24" et la bordure verte du champ
+   "Y 512". Ces deux champs ont exactement la même apparence que tous les autres
+   champs du panneau : fond sombre, fin contour gris. Aucune couleur.
+3. Sur la ligne "Cible du cadre", le sélecteur "Mobile — 390 x 844" est en LECTURE
+   SEULE : texte gris terne, pas de texte coloré, pas de chevron de menu.
+4. Dans la section TYPOGRAPHIE, SUPPRIME la ligne "Style : Regular".
+5. Dans la section APPARENCE, SUPPRIME la ligne "Ombre" et son bouton "+ Ajouter",
+   la ligne "Type : Arrondi" et la ligne "Coins". Il ne reste que quatre lignes :
+   "Fond #4C6FFF", "Bordure 1 px", "Arrondi 8", "Opacité 100 %".
+6. Sur la ligne des bornes de la LARGEUR, SUPPRIME le champ "default". Sur celle
+   de la HAUTEUR, SUPPRIME le champ "current". Les deux lignes portent alors
+   STRICTEMENT les mêmes éléments : "min" puis un champ, "max" puis un champ.
+```
+
+**Passe 2** — le bas du panneau et l'alignement :
+
+```
+1. Les champs "X 24" et "Y 512" restent strictement neutres. Ne réintroduis AUCUNE
+   bordure colorée sur aucun champ du panneau.
+2. Dans ALIGNEMENT, une SEULE icône est active par rangée : rangée "H", seule la
+   DEUXIÈME (centrer) a le fond bleu ; rangée "V", seule la DEUXIÈME (milieu).
+3. LE BAS DU PANNEAU. Supprime "CONTENU" et "INTERACTIONS", qui n'existent pas.
+   Les deux dernières sections sont "EFFETS" (repliée, badge rond gris "2") et
+   "POINTS DE RUPTURE" (repliée, badge "1" plus un BADGE AMBRÉ "1 jamais
+   atteinte"). APPARENCE et TYPOGRAPHIE ne portent AUCUN badge.
+4. LA SECTION DISPOSITION EST REFAITE : trois lignes seulement, aucune ligne
+   subordonnée de bornes. "Position" (X 24, Y 512) ; "Largeur : expand" avec à
+   l'extrémité droite de la MÊME ligne un petit marqueur gris "120–320" ;
+   "Hauteur : fixed 44" avec RIEN à sa droite.
+   PAR-DESSUS, un POPOVER ouvert ancré sous la ligne "Largeur" : titre gris
+   "Largeur", cinq options empilées (fixed, content, fraction, weight, expand —
+   expand sur fond bleu avec une coche), un trait de séparation, puis deux champs
+   côte à côte "min 120" et "max 320".
+```
+
+**Réserves relevées, non corrigées** : la ligne « Cible du cadre » reperd son grisé
+de lecture seule d'une passe à l'autre ; le marqueur `120–320` est masqué tant que
+le popover est ouvert (normal).
+
+---
+
+### 22.2 Inspecteur — onglet Behavior
+
+```
+Génère UNIQUEMENT le panneau Inspecteur d'un éditeur de design d'interface, en
+gros plan vertical, thème DARK, occupant toute la hauteur de l'image. Même style
+exactement que le panneau précédent.
+
+EN-TÊTE identique : petite icône de bouton, "Bouton_Connexion" en gras, et en
+dessous en gris "Rôle : bouton".
+
+LES TROIS ONGLETS : "Design" | "Widget" | "Behavior". CETTE FOIS C'EST "Behavior"
+QUI EST ACTIF — texte clair et fin liseré bleu en dessous.
+
+LE CORPS CONTIENT DEUX GROUPES SÉPARÉS, ET RIEN D'AUTRE.
+
+PREMIER GROUPE, titre en petites capitales grises : "ÉVÉNEMENTS DU RÔLE".
+Cinq lignes. Chaque ligne porte DE GAUCHE À DROITE : une PASTILLE RONDE de
+couleur, le nom de l'événement, puis à l'extrémité droite le nom de la liaison en
+gris plus petit.
+
+  - pastille BLEUE — "pressé" — à droite : "OnPressStart"
+  - pastille GRISE — "relâché" — à droite : rien, la ligne s'arrête
+  - pastille BLEUE — "cliqué" — à droite : "OnSubmitForm"
+  - pastille ORANGE — "survol entré" — à droite : "OnHoverIn" et un minuscule
+    triangle d'avertissement ambré
+  - la cinquième ligne est DIFFÉRENTE : "survol sorti" est BARRÉ et en gris très
+    pâle, sa pastille est un cercle en contour non rempli, et à l'extrémité droite
+    se trouve une petite icône de flèche circulaire de restauration.
+
+UN ESPACE VERTICAL BIEN VISIBLE sépare les deux groupes, avec un fin trait de
+séparation en son milieu.
+
+SECOND GROUPE, titre "ÉVÉNEMENTS AJOUTÉS" :
+  - pastille BLEUE — "envoi validé" — à droite : "OnFormValidated"
+  - pastille GRISE — "double appui" — à droite : rien
+
+Sous ce second groupe uniquement, un bouton en trait pointillé sur toute la
+largeur : "+ Nouvel événement".
+
+Le bas du panneau est vide : pas de section EFFETS, pas de POINTS DE RUPTURE.
+```
+
+**Réserve** : l'icône de restauration de la ligne barrée est presque invisible, à
+grossir.
+
+---
+
+### 22.3 Menu des rôles — partie haute
+
+```
+Génère UNIQUEMENT le HAUT d'un panneau Inspecteur, en gros plan, thème DARK. On ne
+voit que l'en-tête, les trois onglets, et un grand menu déroulant ouvert
+par-dessus. Le menu dépasse le bas de l'image et porte une BARRE DE DÉFILEMENT
+verticale fine le long de son bord droit.
+
+EN-TÊTE : une petite icône carrée de bouton ; à sa droite "Bouton_Connexion" en
+gras ; JUSTE EN DESSOUS DU NOM, la ligne de rôle, qui est un CONTRÔLE CLIQUABLE et
+non du texte : "Rôle : bouton" suivi d'un petit chevron, sur un fond plus clair
+que l'en-tête, coins arrondis, entourée d'un fin contour bleu parce que son menu
+est ouvert.
+
+SOUS L'EN-TÊTE, les trois onglets "Design" | "Widget" | "Behavior", "Design"
+actif, légèrement assombris car le menu est ouvert par-dessus.
+
+LE MENU DÉROULANT, ancré sous la ligne de rôle, large, coins arrondis, ombre
+portée nette :
+
+1. Un champ de recherche avec loupe et texte gris "Rechercher un rôle…", entouré
+   d'un CONTOUR BLEU — il est pré-focalisé.
+2. Titre "RÉCENTS" en petites capitales grises. Trois lignes avec icône et nom :
+   "bouton" (fond bleu, coche à droite), "champ de saisie", "carte cliquable".
+3. Un fin trait de séparation.
+4. Titre "RÔLES NATIFS" en petites capitales grises. En dessous, SIX SOUS-GROUPES.
+   Le nom de chaque sous-groupe est en gris, plus petit, EN RETRAIT vers la droite
+   par rapport au titre "RÔLES NATIFS" :
+
+   "Actions" — bouton · bouton à répétition · bouton image · bouton de couleur ·
+               élément de menu
+   "Saisie" — champ de saisie · champ multiligne · champ entier · champ décimal ·
+              curseur · glisseur · sélecteur de couleur
+   "Sélection" — case à cocher · case à trois états · liste déroulante · liste ·
+                 élément sélectionnable · nœud d'arbre
+   "Navigation" — barre d'onglets · barre de menu · menu · menu contextuel ·
+                  en-tête repliable · espace d'ancrage
+   "Conteneurs" — fenêtre · panneau · groupe · boîte verticale · boîte
+                  horizontale · grille · tableau · zone défilante
+   "Affichage" — texte · image · barre de progression · courbe · séparateur ·
+                 infobulle
+
+   Chaque ligne porte une petite icône à gauche puis son nom. AUCUNE ligne
+   "interrupteur", "bouton radio", "accordéon" ou "fenêtre modale" ici.
+```
+
+⚠️ **La dernière consigne est normative, pas décorative** : ces quatre rôles ne
+sont pas portés par NKGui (§14ter.4 du document humain). Les montrer dans le groupe
+natif documenterait une promesse sans code derrière.
+
+**Réserve** : `bouton` apparaît coché dans RÉCENTS et non coché dans Actions. Le
+rôle courant doit être marqué **partout où il apparaît**.
+
+---
+
+### 22.4 Menu des rôles — partie basse
+
+```
+Génère UNIQUEMENT la PARTIE BASSE d'un menu déroulant de sélection de rôle, comme
+si on avait fait défiler ce menu jusqu'en bas. Le menu occupe toute l'image. Thème
+DARK, même style que les panneaux précédents. Une BARRE DE DÉFILEMENT verticale
+fine longe le bord droit, son curseur POSITIONNÉ TOUT EN BAS de sa course.
+
+1. TOUT EN HAUT DE L'IMAGE, coupées par le bord supérieur, les deux dernières
+   lignes du groupe précédent, à moitié visibles : "en-tête repliable" et "espace
+   d'ancrage". Elles doivent donner l'impression que le menu continue au-dessus.
+2. Un nom de sous-groupe en gris, petit et EN RETRAIT : "Conteneurs". En dessous,
+   huit lignes avec icône : "fenêtre", "panneau", "groupe", "boîte verticale",
+   "boîte horizontale", "grille", "tableau", "zone défilante".
+3. Un nom de sous-groupe en gris, petit et en retrait : "Affichage". En dessous,
+   six lignes : "texte", "image", "barre de progression", "courbe", "séparateur",
+   "infobulle".
+4. Un fin trait de séparation horizontal sur toute la largeur.
+5. Un TITRE DE GROUPE en petites capitales grises, PAS en retrait : "RÔLES DE
+   PROJET".
+6. HUIT lignes. Chacune porte une petite icône, le nom en texte clair, puis À
+   L'EXTRÉMITÉ DROITE une petite étiquette en gris plus terne :
+   - "interrupteur"      — "dérive de case à cocher"
+   - "bouton à bascule"  — "dérive de case à cocher"
+   - "accordéon"         — "composition"
+   - "carte cliquable"   — "dérive de bouton"
+   - "champ recherche"   — "dérive de champ de saisie"
+   - "fil d'Ariane"      — "composition"
+   - "badge"             — "composition"
+   - "carte produit"     — "composition"
+7. Un fin trait de séparation.
+8. Une dernière ligne, en BLEU, avec un "+" devant : "+ Définir un rôle de
+   projet…".
+
+AUCUNE ligne de cette image n'est sélectionnée : pas de fond bleu, pas de coche.
+Le rôle courant se trouve plus haut dans le menu, hors de l'image.
+```
+
+**Réserve** : environ 130 px de vide sous la dernière ligne — le menu doit
+s'arrêter après elle.
+
+---
+
+### 22.5 Hiérarchie — arbre seul
+
+```
+Génère UNIQUEMENT le panneau Hiérarchie d'un éditeur de design d'interface, en
+gros plan vertical, thème DARK, occupant toute la hauteur de l'image.
+
+EN-TÊTE : le titre "Hiérarchie" à gauche, et à droite deux petites icônes — un
+chevron de repliement du panneau, et une icône d'œil barré servant de filtre.
+
+SOUS L'EN-TÊTE : un champ de recherche avec loupe et texte gris "Filtrer…", puis
+un petit interrupteur avec le libellé "Afficher seulement les éléments à rôle" —
+il est ÉTEINT.
+
+LE CORPS est un ARBRE. Chaque ligne porte DE GAUCHE À DROITE : un chevron de
+pliage (si la ligne a des enfants), une petite icône de rôle, le nom, et tout à
+droite les icônes d'état. L'indentation marque la profondeur.
+
+  ▾ Page — Connexion                                    [badge gris "6"]
+      Fond_Degrade                                      [œil barré affiché]
+      Titre_Connexion
+    ▾ Groupe_Formulaire
+        Champ_Email
+        Champ_MotDePasse                                [cadenas fermé affiché]
+        Bouton_Connexion    <- SÉLECTIONNÉE : fond bleu sur toute la largeur, et à
+                               droite un DISQUE AMBRÉ PLEIN, uni, sans chiffre.
+        Lien_MotDePasseOublie
+
+  ▸ Page — Dashboard                                    [badge gris "12"]
+        <- REPLIÉE. À droite de son nom, un CERCLE AMBRÉ CREUX — un anneau vide au
+           centre duquel est écrit "3" en ambré : l'erreur est PLUS BAS, dans la
+           branche repliée.
+
+  ▾ Page — Paramètres                                   [badge gris "4"]
+    ▾ Groupe_Onglets
+        Onglet_General
+        Onglet_Avance
+      ◇ Carte_Profil        <- un VRAI LOSANGE en contour (un carré posé sur la
+                               pointe, vide au centre) devant son icône : instance
+                               d'un composant, avec des surcharges.
+
+TROIS CHOSES DOIVENT ÊTRE IMMÉDIATEMENT LISIBLES :
+- le disque ambré PLEIN (l'erreur est ICI) contre l'anneau ambré CREUX portant "3"
+  (l'erreur est PLUS BAS) — on doit les distinguer d'un seul coup d'œil ;
+- le losange creux de "Carte_Profil" ;
+- l'œil barré sur "Fond_Degrade" et le cadenas sur "Champ_MotDePasse", visibles en
+  permanence parce qu'ils sont actifs, alors que les autres lignes n'affichent
+  aucune de ces deux icônes.
+
+EN BAS DU PANNEAU, une ligne de boutons d'icônes : ajouter une page, dupliquer,
+supprimer.
+```
+
+---
+
+### 22.6 Hiérarchie — la section basse des composants du projet
+
+À lancer en correction de 22.5.
+
+```
+Reprends EXACTEMENT le panneau Hiérarchie précédent. Conserve tout. AJOUTE UNE
+SECONDE SECTION EN BAS DU PANNEAU, séparée de l'arbre par une POIGNÉE
+HORIZONTALE : un trait épais avec trois petits points au centre, montrant qu'on
+peut la tirer pour redimensionner.
+
+Sous cette poignée, un bandeau de section : un chevron pointant vers le bas, le
+titre "COMPOSANTS DU PROJET" en petites capitales grises, et le compteur "(7)".
+
+En dessous, SEPT LIGNES portant DE GAUCHE À DROITE : une petite miniature carrée
+grise du composant, son nom, puis à l'extrémité droite un petit badge gris rond
+avec son nombre d'instances. Certaines lignes portent en plus, juste avant le
+badge, un PETIT POINT BLEU signifiant que le composant est utilisé dans une autre
+page que la page courante :
+
+   - Bouton_Primaire      [point bleu]  [12]
+   - Carte_Produit        [point bleu]  [5]
+   - Champ_Recherche                    [3]
+   - Bandeau_Alerte                     [1]
+   - Entete_Page          [point bleu]  [8]
+   - Pied_Page            [point bleu]  [8]
+   - Vignette_Utilisateur               [2]
+
+Cette section occupe environ le tiers inférieur du panneau. L'arbre au-dessus est
+raccourci d'autant, et sa dernière ligne visible peut être coupée par la poignée —
+on doit sentir que l'arbre continue derrière.
+```
+
+**Réserves** : l'arbre ne semble pas continuer derrière la poignée (trop de vide
+au-dessus) ; et la barre d'actions du bas devient ambiguë — elle agit sur l'arbre
+ou sur les composants ? Chaque section doit porter les siennes.
+
+---
+
+### 22.7 Bibliothèque de composants
+
+```
+Génère UNIQUEMENT le panneau "Bibliothèque de composants", en gros plan vertical,
+thème DARK, occupant toute la hauteur de l'image.
+
+EN-TÊTE : le titre "Bibliothèque" à gauche, une petite icône d'épingle et un
+chevron de fermeture à droite.
+
+SOUS L'EN-TÊTE : un champ de recherche avec loupe et texte gris "Rechercher…",
+puis une rangée de trois petits onglets-filtres "Tous" (actif) | "Grille" |
+"Liste", et une icône de tri.
+
+LE CORPS contient TROIS GROUPES, chacun introduit par un titre en petites
+capitales grises suivi d'un compteur entre parenthèses. Chaque groupe présente ses
+composants en GRILLE DE VIGNETTES : deux par rangée, chaque vignette est un
+rectangle à coins arrondis montrant un aperçu simplifié en gris du composant, avec
+son nom en dessous et un petit badge de comptage d'instances en bas à droite.
+
+1. "PROJET (4)" — "Bouton_Primaire" (badge "12"), "Carte_Produit" (badge "5"),
+   "Champ_Recherche" (badge "3"), "Bandeau_Alerte" (badge "1").
+   La vignette "Carte_Produit" porte en HAUT À GAUCHE une PETITE ICÔNE ÉTINCELLE
+   bleue — générée par l'IA, pas encore relue.
+
+2. "IMPORTÉ (3)" — "Menu_Lateral" (badge "2"), "Selecteur_Date" (badge "4"),
+   "Grille_Tarifs" (badge "1"). Chaque vignette porte SOUS SON NOM une petite
+   ligne grise indiquant sa source et sa version : "studio-lumen · v2.1",
+   "openui-kit · v1.4", "studio-lumen · v2.1".
+   La vignette "Selecteur_Date" porte EN HAUT À DROITE une PASTILLE AMBRÉE avec
+   une petite flèche vers le haut : une mise à jour est disponible. Elle est la
+   seule à en porter une.
+
+3. "SYSTÈME (2)" — visuellement plus sobres, avec un léger contour au lieu d'un
+   fond plein : "Barre_Outils_Standard" (badge "1") et "Dialogue_Confirmation"
+   (badge "6"). Sous chaque nom, une petite ligne grise "NKGui · moteur 0.9".
+
+EN BAS, un bouton en trait pointillé sur toute la largeur : "+ Importer un
+composant…".
+
+CE QUI DOIT SAUTER AUX YEUX : on distingue immédiatement un composant de PROJET
+(fond plein, pas de ligne de source) d'un composant IMPORTÉ (ligne de source et
+version) et d'un composant SYSTÈME (contour au lieu de fond plein).
+```
+
+⚠️ **Cette planche est en retard sur la spécification** : §14bis.1 porte désormais
+**quatre** provenances — Projet, **Partagé**, Importé, Système — et les composants
+de **Projet** ont migré vers la Hiérarchie (§11.6). À relancer avec les groupes
+« PARTAGÉ · IMPORTÉ · SYSTÈME » quand on y reviendra.
+
+**Réserve** : le groupe SYSTÈME n'est pas assez sobre visuellement par rapport aux
+deux autres.
+
+---
+
+### 22.8 Cible mobile — zone sûre et orientation
+
+**Base :**
+
+```
+Génère UNIQUEMENT une zone de canvas d'éditeur d'interface, en gros plan, occupant
+toute l'image. Fond gris très pâle, presque blanc, avec un semis de points de
+grille discret. Clair, PAS sombre. Un seul cadre au centre, grand, occupant la
+majeure partie de la hauteur.
+
+LE CADRE est un rectangle blanc étroit et haut, aux proportions d'un téléphone,
+ombre portée légère, COINS FRANCHEMENT ARRONDIS. Étiquette en gris juste au-dessus :
+"Connexion — Mobile 390 x 844 · Portrait".
+
+DANS CE CADRE, LA ZONE SÛRE EST DESSINÉE — c'est le sujet de l'image :
+- EN HAUT, une bande horizontale sur toute la largeur, en HACHURES DIAGONALES
+  bleu-gris translucides, assez haute pour contenir une ENCOCHE : au milieu, une
+  forme noire arrondie en pilule qui descend depuis le bord supérieur. La bande
+  hachurée l'englobe.
+- EN BAS, une bande plus fine, également hachurée, au milieu de laquelle est
+  dessiné un petit TRAIT NOIR HORIZONTAL ARRONDI centré.
+- SUR LES CÔTÉS, aucune bande.
+- Entre les deux bandes, une FINE LIGNE POINTILLÉE bleue délimite la zone sûre,
+  avec une minuscule étiquette "zone sûre" posée dessus, en bleu, à gauche.
+
+LE CONTENU, qui doit montrer la différence entre les deux ancrages :
+- UNE IMAGE DE FOND : un grand rectangle en dégradé doux, violet vers bleu, qui
+  occupe la TOTALITÉ du cadre, D'UN BORD À L'AUTRE — il PASSE SOUS LES HACHURES,
+  sous l'encoche et sous l'indicateur d'accueil.
+- PAR-DESSUS, à l'intérieur de la zone sûre uniquement : un titre "Connexion" en
+  blanc, deux champs de saisie blancs arrondis, et un bouton plein bleu
+  "Se connecter", nettement AU-DESSUS de la bande hachurée du bas.
+- Deux ÉTIQUETTES FLOTTANTES à l'extérieur du cadre, reliées par un fin trait :
+  "ancré au bord du cadre" vers le fond dégradé, "ancré à la zone sûre" vers le
+  bouton.
+
+FLOTTANT EN HAUT AU CENTRE, un petit panneau sombre à coins arrondis contenant :
+un sélecteur "Mobile ▾" ; un séparateur ; DEUX BOUTONS SEGMENTÉS avec icônes de
+téléphone — un téléphone DEBOUT portant "Portrait" (ACTIF, fond bleu) et un
+téléphone COUCHÉ portant "Paysage" (terne) ; un séparateur ; un sélecteur
+"iPhone 14 Pro ▾".
+
+CE QUI DOIT SAUTER AUX YEUX : le dégradé va vraiment d'un bord à l'autre et passe
+sous les hachures, tandis que tout le contenu lisible reste strictement à
+l'intérieur de la ligne pointillée bleue.
+```
+
+**Correction — les hachures ne sortaient pas :**
+
+```
+Reprends EXACTEMENT le canvas précédent. Conserve tout. Ne change que deux choses.
+
+1. LES DEUX BANDES DE ZONE SÛRE DOIVENT DEVENIR TRÈS VISIBLES. Chacune est remplie
+   de HACHURES DIAGONALES ÉPAISSES ET BIEN ESPACÉES — traits obliques nets à 45
+   degrés, bleu vif, semi-transparents, espacés d'environ 10 pixels. On doit voir
+   chaque trait individuellement, comme sur un plan d'architecte.
+   - LA BANDE DU HAUT part du bord supérieur du cadre jusqu'à la ligne pointillée,
+     sur TOUTE LA LARGEUR. L'encoche noire est POSÉE PAR-DESSUS ces hachures.
+   - LA BANDE DU BAS part de la ligne pointillée inférieure jusqu'au bord
+     inférieur, sur TOUTE LA LARGEUR. L'indicateur d'accueil est POSÉ PAR-DESSUS.
+   - Le dégradé reste visible SOUS les hachures : on le voit à travers, rayé par
+     les traits obliques.
+2. RAPPROCHE LES DEUX ÉTIQUETTES D'ANNOTATION DU CENTRE pour qu'elles soient
+   ENTIÈREMENT VISIBLES, sans être coupées par les bords.
+```
+
+**Réserve** : l'étiquette de gauche reste coupée par le bord.
+
+---
+
+### 22.9 Cible bureau — fenêtre en décoration Client
+
+**Base :**
+
+```
+Génère UNIQUEMENT une zone de canvas d'éditeur d'interface, en gros plan, occupant
+toute l'image. Fond gris très pâle avec un semis de points de grille. Un seul
+cadre, LARGE, aux proportions d'un écran d'ordinateur, centré.
+
+ÉTIQUETTE au-dessus : "Editeur — Bureau 1440 x 900 · décoration Client".
+
+LE CADRE est un rectangle blanc à COINS ARRONDIS avec une ombre portée nette :
+1. UNE BARRE DE TITRE dessinée par l'application, gris foncé, sur toute la largeur
+   du haut : à gauche une petite icône carrée et le texte "Mon Application", à
+   droite TROIS BOUTONS DE FENÊTRE dessinés à la main — un trait (réduire), un
+   carré (agrandir), une croix (fermer).
+2. SOUS ELLE, le contenu : une barre latérale grise à gauche avec quatre lignes de
+   menu, et à droite une grande zone claire avec trois cartes rectangulaires et un
+   rectangle de graphique.
+
+LES RÉGIONS DE FENÊTRE SONT DESSINÉES EN SURIMPRESSION :
+- LES HUIT BORDS DE REDIMENSIONNEMENT : des BANDES VERTES TRANSLUCIDES étroites le
+  long des quatre côtés, plus quatre PETITS CARRÉS VERTS aux coins. Sur chaque
+  bande, une minuscule icône de curseur de redimensionnement pointant dans la
+  bonne direction.
+
+TROIS ÉTIQUETTES FLOTTANTES à l'extérieur du cadre, reliées par un fin trait :
+vers la barre de titre : "zone de saisie — sans elle, la fenêtre ne peut pas être
+déplacée" ; vers une bande verte : "bord de redimensionnement" ; vers les trois
+boutons : "dessinés par l'application, pas par le système".
+
+FLOTTANT EN HAUT AU CENTRE : un sélecteur "Bureau ▾", un séparateur, puis DEUX
+BOUTONS SEGMENTÉS "Native" (terne) et "Client" (ACTIF, fond bleu).
+
+EN BAS À GAUCHE, FLOTTANT, un petit panneau sombre intitulé "Curseur" : une flèche
+avec le mot "Flèche" et une coche, une main avec "Main", et une ligne
+"Personnalisé…" en bleu. Sous un fin trait, deux petits champs côte à côte
+étiquetés "point chaud x" et "point chaud y", tous deux GRISÉS.
+```
+
+**Correction — la zone de saisie n'était qu'une étiquette :**
+
+```
+Reprends EXACTEMENT le canvas précédent. Conserve tout. Ne change QU'UNE chose.
+
+LA ZONE DE SAISIE DOIT DEVENIR UNE SURFACE, PAS UNE ÉTIQUETTE.
+
+Pose un APLAT BLEU VIF TRANSLUCIDE par-dessus la barre de titre. Cet aplat :
+- couvre TOUTE LA HAUTEUR de la barre de titre et TOUTE SA LARGEUR, du bord gauche
+  du cadre jusqu'aux boutons de fenêtre ;
+- S'ARRÊTE NET AVANT LES TROIS BOUTONS, qui restent entièrement découverts, nets,
+  sans voile par-dessus ;
+- laisse voir au travers l'icône et le texte "Mon Application", qui restent
+  lisibles sous le bleu ;
+- porte une BORDURE BLEUE CONTINUE de 2 pixels tout autour de son contour, y
+  compris le long de la limite verticale où il s'arrête avant les boutons ;
+- est traversé de HACHURES DIAGONALES bleues plus soutenues, traits obliques à 45
+  degrés espacés d'environ 12 pixels, pour qu'on lise une ZONE et non une teinte.
+
+La petite étiquette "zone de saisie" se pose DANS cet aplat, à gauche, juste après
+le texte "Mon Application".
+
+CE QUI DOIT SAUTER AUX YEUX : la barre de titre est presque entièrement recouverte
+d'une aire bleue hachurée, et les trois boutons forment un trou net dans cette aire.
+```
+
+---
+
+### 22.10 Console de simulation et système simulé
+
+```
+Génère UNIQUEMENT un panneau de simulation d'éditeur d'interface, en gros plan,
+occupant toute l'image, plus large que haut. Thème DARK, police à chasse fixe pour
+les journaux.
+
+EN-TÊTE sur toute la largeur : à gauche un petit CARRÉ VERT et le titre
+"Simulation en cours" ; au centre le texte gris "Connexion — Mobile 390 x 844" ; à
+droite trois petits boutons : "⟲ Recharger", "⏸ Geler", "⧉ Comparer".
+
+LE CORPS EST DIVISÉ EN DEUX COLONNES par un fin trait vertical.
+
+=== COLONNE DE GAUCHE, environ un tiers ===
+Titre "SYSTÈME SIMULÉ". Sept lignes, chacune avec le nom du service puis à
+l'extrémité droite un petit sélecteur montrant ce que la doublure rend. DEUX
+lignes sont en MODE ÉCHEC : leur sélecteur est AMBRÉ et une minuscule icône
+d'avertissement le précède.
+
+  - "Dialogue d'ouverture"      ->  "/projets/rapport.pdf"
+  - "Dialogue d'enregistrement" ->  "ANNULÉ"                [ambré]
+  - "Système de fichiers"       ->  "lecture OK"
+  - "Horloge"                   ->  "2026-08-20 09:00 (figée)"
+  - "Réseau"                    ->  "COUPÉ"                 [ambré]
+  - "Presse-papiers"            ->  "(vide)"
+  - "Locale et clavier"         ->  "fr-FR · AZERTY"
+
+Sous un fin trait, une phrase en gris clair sur deux lignes : "Une doublure rend
+aussi l'échec. Le chemin d'annulation est celui que personne ne câble."
+
+=== COLONNE DE DROITE, les deux tiers ===
+Titre "POINTS DE CONNEXION" avec à sa droite un badge VERT "7 atteints" et un
+badge GRIS "3 jamais atteints".
+
+DEUX SOUS-COLONNES CÔTE À CÔTE, DE MÊME LARGEUR ET DE MÊME POIDS VISUEL :
+
+  Sous-colonne gauche, titre "ATTEINTS" — sept lignes avec PASTILLE VERTE PLEINE,
+  nom, et nombre de passages à droite :
+     cliqué ×3 · champ non vide ×3 · OnSubmitForm ×3 · survol entré ×8 ·
+     survol sorti ×8 · texte modifié ×14 · page ouverte ×1
+
+  Sous-colonne droite, titre "JAMAIS ATTEINTS" — trois lignes avec CERCLE GRIS
+  CREUX, en texte plus terne : OnCancel · réseau indisponible · page fermée.
+  Elle est ENTOURÉE D'UN FIN LISERÉ et porte sous ses lignes : "Un point jamais
+  atteint n'est pas une erreur — il n'a pas été essayé."
+
+=== BANDEAU DE JOURNAL, EN BAS, sur toute la largeur ===
+Titre "JOURNAL" à gauche. Cinq lignes à chasse fixe avec horodatage. TROIS
+commencent par une petite ÉTIQUETTE AMBRÉE portant le mot "doublure" :
+
+  09:00:02  [doublure] dialogue d'ouverture -> /projets/rapport.pdf
+  09:00:02  fichier chargé          -> OnFileLoaded    (atteint ×1)
+  09:00:07  [doublure] réseau       -> COUPÉ
+  09:00:07  envoi                   -> échec réseau, branche non câblée
+  09:00:11  [doublure] enregistrement -> ANNULÉ
+
+CE QUI DOIT SAUTER AUX YEUX : les deux sous-colonnes ont EXACTEMENT le même poids
+visuel et la même largeur — "JAMAIS ATTEINTS" n'est pas une note de bas de page,
+c'est la moitié du résultat.
+```
+
+⚠️ **La dernière consigne a été renforcée après coup** : au premier lancement,
+« JAMAIS ATTEINTS » est sortie en petite boîte à droite pendant qu'« ATTEINTS »
+occupait une large surface — exactement ce que §18bis.2 interdit. La formulation
+ci-dessus intègre la correction ; **elle n'a pas encore été relancée telle quelle.**
+
+---
+
+### 22.11 États d'indisponibilité
+
+```
+Génère UNIQUEMENT une zone de canvas d'éditeur d'interface, en gros plan, occupant
+toute l'image. Fond gris très pâle avec un semis de points. Un seul cadre, blanc,
+aux proportions d'un écran d'ordinateur, centré. Étiquette au-dessus :
+"Paramètres — Bureau 1440 x 900".
+
+DANS LE CADRE, un formulaire en une colonne, CINQ BLOCS empilés montrant chacun un
+état différent. Chaque bloc porte à sa GAUCHE et À L'EXTÉRIEUR du cadre une
+étiquette flottante reliée par un fin trait.
+
+BLOC 1 — NORMAL
+"Nom du projet" en gris foncé, et sous lui un champ blanc à bordure nette
+contenant le texte noir "Nkentseu". Net et contrasté.
+Étiquette : "actif".
+
+BLOC 2 — LECTURE SEULE
+"Identifiant" et sous lui un champ dont le FOND EST LÉGÈREMENT GRIS mais dont le
+TEXTE "NK-2026-0084" RESTE NOIR ET NET. UNE PARTIE DE CE TEXTE EST SURLIGNÉE EN
+BLEU, comme sélectionnée à la souris, et une petite icône de cadenas est posée à
+droite dans le champ.
+Étiquette : "lecture seule — sélectionnable et copiable".
+
+BLOC 3 — DÉSACTIVÉ AVEC RAISON
+"Clé de licence" en gris moyen, et sous lui un champ au fond gris avec le texte
+"—". Le champ est TERNE mais son libellé reste PARFAITEMENT LISIBLE.
+À DROITE du champ, une INFOBULLE SOMBRE à coins arrondis, avec une petite flèche
+pointant vers le champ, portant : "Disponible après activation du compte". Autour
+du champ ET de sa zone, un FIN LISERÉ POINTILLÉ délimite une région nettement plus
+grande que le champ.
+Étiquette : "désactivé — la raison est portée par la région enveloppante".
+
+BLOC 4 — OCCUPÉ
+"Synchronisation" et sous lui un rectangle gris clair contenant à gauche un PETIT
+CERCLE DE CHARGEMENT (un anneau dont un quart est plus foncé) et à droite le texte
+gris "Vérification en cours…".
+Étiquette : "occupé — indisponible, mais ça revient".
+
+BLOC 5 — PANNEAU DÉSACTIVÉ PAR HÉRITAGE
+Un grand rectangle encadré en bas du cadre, titre "Options avancées" en haut à
+gauche. TOUT SON CONTENU EST TERNE : deux cases à cocher grises, un curseur gris,
+un bouton gris "Réinitialiser". LE PANNEAU EST RECOUVERT D'UN VOILE GRIS TRÈS
+LÉGER, et son coin supérieur droit porte un PETIT BADGE GRIS avec une icône de
+chaîne et le texte "hérité". CHACUN de ses quatre enfants porte, dans son propre
+coin supérieur droit, une MINUSCULE ICÔNE DE CHAÎNE grise.
+Étiquette : "désactivé par héritage — aucun enfant ne peut se réactiver".
+
+CE QUI DOIT SAUTER AUX YEUX :
+- le texte du bloc LECTURE SEULE est aussi noir et net que celui du bloc NORMAL,
+  et il porte une sélection bleue ;
+- les libellés des blocs DÉSACTIVÉ et OCCUPÉ restent PARFAITEMENT LISIBLES — gris,
+  mais jamais effacés ni pâlis au point de se deviner ;
+- les quatre enfants du panneau hérité portent tous la même petite chaîne.
+```
+
+⚠️ **La consigne de lisibilité a été renforcée après coup.** Au premier lancement,
+« Clé de licence » et « Réinitialiser » sont sortis à la limite du lisible : la
+planche censée illustrer `W-DISABLED-CONTRAST` le violait elle-même. **Preuve que
+la règle n'est pas du zèle — même en y pensant, on pâlit trop.**
+
+---
+
+### 22.12 Canvas Behavior — graphe en cours d'exécution
+
+```
+Génère UNIQUEMENT le canvas de comportement d'un éditeur d'interface, en gros
+plan, occupant toute l'image. Thème DARK. Le fond est SOMBRE et QUADRILLÉ — une
+grille fine de carrés, façon Blueprint d'Unreal.
+
+FLOTTANT AU-DESSUS DU CANVAS :
+- EN HAUT À GAUCHE, un petit sélecteur sombre : "Portée : Bouton_Connexion ▾".
+- EN HAUT À DROITE, deux petits boutons d'icônes collés : un "⟨⟩" pour basculer en
+  vue Code, et une icône de loupe.
+- CONTRE LE BORD GAUCHE, à mi-hauteur, une barre d'outils verticale étroite de
+  48px, coins arrondis, ombre portée, cinq icônes empilées : flèche de sélection
+  (active, fond bleu), nœud, câble, commentaire, recadrage.
+
+LE GRAPHE, de GAUCHE À DROITE, en nœuds rectangulaires à coins arrondis. Chaque
+nœud a un EN-TÊTE COLORÉ portant son titre, et un corps sombre listant ses entrées
+à gauche et ses sorties à droite, chacune précédée d'une petite pastille ronde.
+
+1. À GAUCHE, EN-TÊTE ROSE : "Événement — cliqué". Une seule sortie.
+2. AU CENTRE, EN-TÊTE AMBRÉE : "Condition — champ non vide". Une entrée de flux à
+   gauche, une entrée de donnée en dessous, DEUX sorties "vrai" et "faux".
+3. EN HAUT À DROITE, EN-TÊTE BLEUE : "Action — appeler OnSubmitForm".
+4. EN BAS À DROITE, à l'écart, EN-TÊTE BLEUE plus terne : "Action — afficher
+   l'erreur".
+5. EN BAS À GAUCHE, décalé, EN-TÊTE GRISE : "Valeur — texte du champ".
+
+LES CÂBLES :
+- Événement -> Condition, puis "vrai" -> OnSubmitForm : CÂBLES BLANCS ÉPAIS en
+  courbe douce, LUMINEUX, portant un HALO BLEUTÉ comme s'ils pulsaient.
+- "faux" -> afficher l'erreur : câble BLANC MAIS TERNE, GRISÂTRE, sans halo.
+- Valeur -> entrée de donnée de Condition : câble PLUS FIN ET VERT.
+
+L'EXÉCUTION EN COURS est le sujet :
+- les trois nœuds du chemin parcouru sont ÉCLAIRÉS, contour bleu lumineux, corps
+  légèrement plus clair que le fond ;
+- "afficher l'erreur" est TERNE, presque fondu dans le fond ;
+- compteur discret dans le coin supérieur droit de chaque nœud : "×3", "×3", "×3",
+  et "×0" EN ROUGE PÂLE sur "afficher l'erreur".
+
+EN BAS, sur toute la largeur, un BANDEAU DE CONSOLE séparé par un fin trait, titre
+"Console de simulation" à gauche et trois lignes à chasse fixe :
+   12:04:31  cliqué          -> OnSubmitForm      (atteint ×3)
+   12:04:31  champ non vide  -> vrai
+   12:04:29  survol entré    -> non lié
+La dernière ligne est en gris plus terne.
+
+CE QUI DOIT SAUTER AUX YEUX : la différence entre le chemin lumineux qui pulse et
+la branche "faux" éteinte à "×0".
+```
+
+**Réserve** : le bouton `⟨⟩` et la loupe en haut à droite n'ont pas été rendus.
+
+---
+
+### 22.13 Canvas Animation — machine à états
+
+```
+Génère UNIQUEMENT le canvas d'animation d'un éditeur d'interface, en gros plan,
+occupant toute l'image. Thème DARK. Le fond est sombre avec une GRILLE DE POINTS
+espacés — PAS un quadrillage de lignes, pour qu'on le distingue au premier coup
+d'œil du canvas de comportement.
+
+FLOTTANT EN HAUT, une barre d'outils sombre à coins arrondis : un sélecteur
+"Portée : Ce widget ▾", un séparateur, un bouton "+ Ajouter un état", un
+séparateur, DEUX BOUTONS SEGMENTÉS "State Machine" (ACTIF, fond bleu) et "Dope
+Sheet" (terne), un séparateur, un bouton "▶ Prévisualiser" avec une icône de
+lecture VERTE.
+
+LE GRAPHE D'ÉTATS. Chaque état est une BOÎTE à coins arrondis contenant une petite
+VIGNETTE carrée montrant l'apparence du bouton dans cet état, puis le nom en
+dessous. Les états sont reliés par des FLÈCHES COURBES.
+
+  - EN HAUT À GAUCHE, un petit ovale plein vert foncé portant seulement "Entry",
+    sans vignette.
+  - AU CENTRE GAUCHE, "Idle" : vignette d'un bouton bleu ordinaire. Une flèche
+    part de "Entry" vers lui.
+  - AU CENTRE HAUT, "Hover" : vignette d'un bouton bleu plus clair.
+  - AU CENTRE DROITE, "Pressed" : vignette d'un bouton bleu foncé, plus petit.
+  - EN BAS À DROITE, "Disabled" : vignette d'un bouton GRIS. CETTE BOÎTE EST
+    DIFFÉRENTE : contour en TRAIT POINTILLÉ, et coin supérieur droit portant une
+    PETITE ICÔNE DE CADENAS. Sous son nom, une ligne de texte gris CLAIR ET BIEN
+    LISIBLE : "piloté par la disponibilité".
+
+LES TRANSITIONS, flèches courbes portant chacune une petite ÉTIQUETTE en leur
+milieu, nom de l'événement puis durée :
+  Idle -> Hover      "survol entré · 120 ms"
+  Hover -> Idle      "survol sorti · 120 ms"
+  Hover -> Pressed   "pressé · 60 ms"
+  Pressed -> Hover   "relâché · 90 ms"
+
+UNE TRANSITION EST SÉLECTIONNÉE : "Hover -> Pressed" est BLEU VIF et plus épaisse,
+son étiquette porte un contour bleu.
+
+DES FLÈCHES VERS "Disabled" partent de "Idle", "Hover" et "Pressed", TOUTES EN
+POINTILLÉS GRIS ET TERNES, et SANS AUCUNE étiquette d'événement.
+
+EN BAS À DROITE, FLOTTANT, un petit panneau sombre "TRANSITION SÉLECTIONNÉE" :
+   Événement   ->  "pressé"     (sélecteur)
+   Durée       ->  "60"  "ms"
+   Courbe      ->  "Ease Out"   (sélecteur)
+   puis une VIGNETTE DE COURBE : un carré sombre où une courbe blanche part du coin
+   inférieur gauche, MONTE VITE, et S'APLATIT NETTEMENT vers le coin supérieur
+   droit — un Ease Out, pas une courbe en S. Deux POIGNÉES DE TANGENTE rondes
+   reliées par de fins segments.
+
+CE QUI DOIT SAUTER AUX YEUX : l'état "Disabled" ne ressemble pas aux autres —
+contour pointillé, cadenas — et ses flèches entrantes sont grises et sans
+étiquette, parce que rien dans le widget ne les déclenche.
+```
+
+⚠️ **Deux consignes renforcées après coup** : la lisibilité de « piloté par la
+disponibilité » (sorti presque illisible) et la forme de la courbe (sortie en S au
+lieu d'un Ease Out). **Ces deux ajouts n'ont pas été relancés.**
+
+---
+
 ## Notes d'usage pour Banani
 
 - Générer les écrans 1 à 3 en premier (ils partagent la même coquille), puis 4-6
