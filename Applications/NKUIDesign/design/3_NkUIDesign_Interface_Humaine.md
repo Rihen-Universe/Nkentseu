@@ -1041,9 +1041,8 @@ rôle sans pouvoir atteindre le rôle qui les produit.
 Le clic droit → `Devenir…` sur le canvas et dans la Hiérarchie reste, comme
 raccourci vers la même commande.
 
-La liste des rôles connus : `bouton · case à cocher · interrupteur · champ de
-saisie · curseur · liste · onglets · arbre · menu · fenêtre modale · barre de
-progression…`
+La liste complète des rôles natifs est en §14ter.3 — **elle est dérivée du
+catalogue réel de NKGui, pas inventée.**
 
 **Ce que l'attribution apporte immédiatement** — sans rien écrire :
 
@@ -1124,6 +1123,137 @@ création, pas la laisser découvrir. *Nommer une chose ne la fait pas exister.*
 Les deux familles s'affichent **dans deux groupes séparés** de la liste des rôles,
 les natifs d'abord, et un rôle de projet porte visiblement le nom de ce dont il
 dérive.
+
+### 14ter.3 Catalogue des rôles natifs
+
+⚠️ **Cette liste est relevée dans `Kernel/Runtime/NKGui/src/NKGui/Widgets/NkGuiWidgets.h`,
+le 2026-08-20. Elle n'est pas une proposition : c'est ce que le moteur sait
+instancier aujourd'hui.** Un rôle natif qui ne figure pas dans ce fichier serait un
+`id` que le runtime ne sait pas construire.
+
+**Actions**
+
+| rôle | API NKGui |
+|---|---|
+| bouton | `Button` / `ButtonEx` |
+| bouton à répétition | `RepeatButton` |
+| bouton image | `ImageButton` |
+| bouton de couleur | `ColorButton` |
+| élément de menu | `MenuItem` |
+
+**Saisie**
+
+| rôle | API NKGui |
+|---|---|
+| champ de saisie | `InputText` / `InputTextEx` |
+| champ multiligne | `InputTextMultiline` |
+| champ entier | `InputInt` |
+| champ décimal | `InputFloat` |
+| curseur | `SliderFloat` |
+| glisseur | `DragFloat` / `DragInt` |
+| sélecteur de couleur | `ColorEdit4` / `ColorPicker4` |
+
+**Sélection**
+
+| rôle | API NKGui |
+|---|---|
+| case à cocher | `Checkbox` |
+| case à trois états | `CheckboxTristate` / `CheckBox3` |
+| liste déroulante | `BeginCombo` |
+| liste | `BeginListBox` |
+| élément sélectionnable | `Selectable` / `SelectableEditable` |
+| élément de sélection | `SelectItem` / `SelectItemEditable` |
+| nœud d'arbre | `TreeNode` / `TreeNodeEditable` |
+
+**Navigation**
+
+| rôle | API NKGui |
+|---|---|
+| barre d'onglets | `TabBar` / `TabBarEx` / `TabBarEditable` |
+| barre de menu | `BeginMenuBar` |
+| menu | `BeginMenu` |
+| menu contextuel | `BeginPopupMenu` |
+| en-tête repliable | `CollapsingHeader` |
+| espace d'ancrage | `DockSpace` / `DockSpaceOverViewport` |
+
+**Conteneurs**
+
+| rôle | API NKGui |
+|---|---|
+| fenêtre | `Begin` / `EndWindow` |
+| panneau | `BeginPanel` |
+| groupe | `BeginGroup` |
+| enfant | `BeginChild` |
+| boîte verticale | `BeginVBox` |
+| boîte horizontale | `BeginHBox` |
+| grille | `BeginGrid` |
+| pile | `BeginStack` |
+| flux | `BeginFlow` |
+| tableau | `BeginTable` |
+| séparateur ajustable | `Splitter` |
+
+**Affichage** — aucun état, aucun événement
+
+| rôle | API NKGui |
+|---|---|
+| texte | `Text` / `TextWrapped` / `TextAt` |
+| image | `Image` |
+| barre de progression | `ProgressBar` |
+| courbe | `PlotLines` |
+| histogramme | `PlotHistogram` |
+| séparateur | `Separator` |
+| espace | `Spacer` |
+| infobulle | `SetTooltip` |
+
+⚠️ **Les rôles d'Affichage portent un contrat à états et événements VIDES.** C'est
+légitime — `NkRoleContract` l'autorise — mais l'interface ne doit pas leur
+présenter les mêmes affordances qu'à un bouton : l'onglet Behavior d'un `texte`
+n'affiche pas une liste vide, il dit que ce rôle n'a pas d'événements.
+
+#### Deux rôles promis par la spécification que le moteur ne porte pas
+
+⚠️ **`interrupteur` et `bouton radio` n'existent pas dans NKGui.** Vérifié le
+2026-08-20 : aucun `Switch`, aucun `Toggle`, aucun `RadioButton` dans les en-têtes.
+L'`interrupteur` figurait pourtant dans la liste d'exemples de ce document depuis
+le début.
+
+C'est exactement le défaut contre lequel §14ter.2 vient d'écrire une règle : **un
+rôle annoncé que rien n'implémente.** Deux issues, au choix de Rodolf, mais il faut
+en choisir une :
+
+1. **NKGui gagne `Switch` et `RadioButton`** — alors ils deviennent natifs ;
+2. **ils deviennent des rôles de projet dérivant de `case à cocher`** — même
+   état booléen, mêmes événements, apparence différente. Coûte zéro ligne de moteur.
+
+⚠️ **Tant que le choix n'est pas fait, ils ne doivent pas apparaître dans le groupe
+« RôLES NATIFS » de l'interface.** Une planche qui les y montre — comme celle du
+2026-08-20 11h55 — documente une promesse qui n'a pas de code derrière.
+
+#### Le glisser-déposer n'est pas un rôle
+
+`BeginDragSource` et `BeginDropTarget` existent dans NKGui, mais ils ne décrivent
+pas *ce qu'un élément est* — ils décrivent *ce qu'il accepte*. Un bouton, une
+ligne de liste et un nœud d'arbre peuvent tous être source ou cible.
+
+⚠️ **Donc ce sont des capacités cochables sur n'importe quel rôle, pas des entrées
+du catalogue.** En faire des rôles obligerait à créer « bouton déplaçable »,
+« ligne déplaçable », « nœud déplaçable »… et le catalogue doublerait à chaque
+capacité transversale ajoutée.
+
+#### Conséquence sur le menu de la ligne de rôle
+
+Quarante entrées ne tiennent pas dans une liste plate.
+
+- **Les natifs s'affichent groupés par famille** — Actions, Saisie, Sélection,
+  Navigation, Conteneurs, Affichage — comme les outils de §7.1. Même principe,
+  même vocabulaire, pas un second système de rangement ;
+- **le champ de recherche devient indispensable**, plus décoratif : il est
+  pré-focalisé à l'ouverture, et filtre sur les deux groupes à la fois ;
+- **les rôles récemment utilisés remontent** dans un petit groupe en tête.
+
+⚠️ **Les familles de §14ter.3 et les familles d'outils de §7.1 doivent porter les
+mêmes noms.** Deux taxonomies voisines mais différentes pour les mêmes objets, et
+personne ne saura plus dans laquelle chercher.
 
 ---
 
