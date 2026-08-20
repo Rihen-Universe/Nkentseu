@@ -2307,6 +2307,163 @@ utilisateurs avancés).
 
 ---
 
+## 22. Greffons — le système d'extension
+
+> **Nom retenu par Rodolf, 2026-08-20 : un « greffon ».** Le mot est déjà le terme
+> français pour *plugin*, donc personne n'a à l'apprendre — et la métaphore porte
+> l'ingénierie : **une greffe doit être compatible avec l'hôte, elle peut être
+> rejetée, et une fois prise elle fait partie de l'organisme.**
+
+⚠️ **Ce système appartient à l'écosystème, pas à NkUIDesign.** Rodolf le veut dans
+**toutes** les applications. Cette section est écrite ici parce que NkUIDesign en
+est le premier consommateur ; **elle doit migrer vers le document partagé de
+l'écosystème** dès qu'une deuxième application l'utilise. La recopier ailleurs
+créerait deux contrats qui divergeraient.
+
+### 22.1 Ce qu'un greffon peut ajouter
+
+Tout ce que la spécification a fermé jusqu'ici :
+
+| axe | aujourd'hui fermé par | ce qu'un greffon ajoute |
+|---|---|---|
+| **composants** | bibliothèque du projet (§14bis) | des composants livrés avec leur contrat |
+| **rôles** | catalogue natif (§14ter.3) | des rôles dérivant d'un natif |
+| **effets** | pile d'effets (§8ter) | de nouveaux effets et leurs paramètres |
+| **animations** | trois familles (§9ter) | de nouvelles **sources** d'effet continu, de nouvelles courbes |
+| **propriétés** | par rôle | des propriétés supplémentaires sur un rôle existant |
+| **événements** | catalogue de rôle (§12.2) | de nouveaux événements |
+| **outils** | barre flottante (§7) | un outil de canvas |
+| **import / export** | §19 | un format de plus |
+| **doublures** | système simulé (§18bis.1) | un service simulable de plus |
+
+⚠️ **Un greffon ne crée jamais un rôle natif.** Un rôle natif est adossé à un
+widget du moteur (§14ter.2) ; un greffon qui en déclarerait un produirait un `id`
+que le runtime ne sait pas instancier. Il déclare des **rôles de projet**, avec
+leur dérivation obligatoire.
+
+### 22.2 La greffe se rejette — c'est le cœur du mécanisme
+
+Chaque greffon déclare **la version d'hôte qu'il exige**. À l'ouverture, l'hôte
+vérifie **avant** de charger quoi que ce soit.
+
+⚠️ **Un greffon incompatible est REJETÉ, nommé, et l'application continue.** Ni
+chargement « pour voir », ni plantage. Un système d'extension qui charge d'abord et
+découvre ensuite fait tomber l'application au démarrage — **et l'utilisateur ne
+peut même plus ouvrir l'outil pour retirer le greffon fautif**. La seule sortie
+devient la ligne de commande, que la plupart des gens n'ont pas.
+
+Le rejet est **visible et réversible** : le greffon apparaît dans la liste, barré,
+avec la raison écrite — *« exige l'hôte 1.2, celui-ci est en 1.0 »*.
+
+### 22.3 Chaque contribution porte le nom de son greffon
+
+Tout ce qu'un greffon ajoute est **préfixé par son identifiant** : `lumen.carte`,
+`lumen.reflet`, `lumen.OnCarteRetournee`.
+
+⚠️ **Sans préfixe, deux greffons qui ajoutent tous deux « carte » entrent en
+collision — et le gagnant dépend de l'ordre de chargement**, c'est-à-dire de rien
+de lisible. Le document, lui, ne référence qu'un nom : il changerait de sens d'une
+machine à l'autre.
+
+⚠️ **Et retirer un greffon doit retirer EXACTEMENT ses contributions**, ni plus ni
+moins. C'est le préfixe qui le rend possible.
+
+### 22.4 Un document enregistre les greffons dont il dépend
+
+Un `.nkgui` qui utilise `lumen.carte` écrit cette dépendance, avec sa version.
+
+⚠️ **Ouvrir un document dont un greffon manque ne doit RIEN supprimer.** L'outil
+nomme le greffon absent, affiche les éléments concernés comme **inconnus mais
+préservés**, et refuse d'exporter tant que la dépendance n'est pas résolue.
+
+Charger, ignorer les éléments inconnus puis enregistrer **détruit du travail en
+silence** — et la perte n'apparaît qu'à la prochaine ouverture sur la machine qui,
+elle, avait le greffon.
+
+### 22.5 Un greffon déclare ce à quoi il touche
+
+Un greffon exécute du code. Il déclare **avant installation** ce dont il a besoin :
+lecture du document, écriture du document, système de fichiers, réseau, presse-papiers,
+processus externes.
+
+⚠️ **La liste est montrée à l'installation, et un greffon ne peut pas l'élargir en
+silence à la mise à jour** — une extension qui gagne l'accès réseau entre deux
+versions sans le redemander est exactement le schéma par lequel des écosystèmes
+entiers se sont fait prendre. Un élargissement redemande l'accord.
+
+### 22.6 Un greffon qui tombe ne doit pas emporter l'application
+
+Un greffon défaillant est **désactivé et signalé**, l'application continue. Son
+temps d'exécution est mesuré et visible dans la console (§23).
+
+⚠️ **Sans cette mesure, un greffon lent devient « l'application est lente »**, et
+personne ne remonte de l'un à l'autre — on réécrit du code d'éditeur pendant que la
+cause est une extension installée trois semaines plus tôt.
+
+### 22.7 Quand un greffon change ses contributions
+
+Renommer ou supprimer une propriété casse les documents qui l'utilisent. Le greffon
+fournit donc une **table de migration** — ancien nom vers nouveau nom.
+
+⚠️ **En l'absence de migration, l'ouverture échoue avec le nom exact de ce qui a
+disparu**, et non par un élément qui ne s'affiche plus. Un nom manquant se cherche ;
+un élément absent ne se remarque même pas.
+
+---
+
+## 23. Console — et le backend graphique en cours
+
+> **Décision Rodolf, 2026-08-20 : « on doit avoir un seul backend pour les deux. »**
+
+§13 posait une pastille « Console/Validation » et §18 une console de simulation,
+**sans jamais dire ce qu'elles affichent**. Voici ce qu'elles affichent.
+
+### 23.1 Quatre flux, quatre onglets
+
+| onglet | contenu |
+|---|---|
+| **Validation** | les codes d'erreur et d'avertissement du document, cliquables : le clic sélectionne l'élément fautif |
+| **Simulation** | le journal de §18bis.2, avec les doublures marquées et la couverture des points de connexion |
+| **Greffons** | ce qui est chargé, ce qui est rejeté et pourquoi, le temps d'exécution de chacun |
+| **Système** | version de l'hôte, backend graphique, mémoire, images par seconde |
+
+### 23.2 Un seul backend pour l'éditeur et la simulation
+
+§18 promet que la simulation rend « par NKGui réel, le même moteur que
+l'application finale ». **Cette promesse n'a de sens que si l'éditeur et la
+simulation partagent le même backend.** C'est désormais une règle : un seul
+backend, choisi une fois, pour les deux.
+
+⚠️ **Mais cela ne supprime qu'un écart sur deux, et il faut le dire.** Un seul
+backend garantit que **ce que montre l'éditeur est ce que montre la simulation**.
+Il ne garantit **pas** que la simulation montre ce que verra l'utilisateur final :
+si l'application est livrée sur DirectX 12 et que tout le travail se fait sur
+Vulkan, l'écart demeure — il a seulement changé de place.
+
+La console affiche donc **le backend en cours** et, quand la cible déclare une
+autre plateforme, **le dit** : *« rendu Vulkan · la cible Windows livre en
+DirectX 12 — non vérifié ici »*. Nommer l'écart ne le referme pas ; le taire le
+rend invisible jusqu'à la livraison.
+
+⚠️ **Et un repli automatique de backend doit être BRUYANT.** Si le backend demandé
+échoue à s'initialiser et que l'outil retombe sur un autre en silence, la garantie
+« un seul backend » devient fausse **sans que rien ne l'annonce** — et c'est
+précisément le jour où les couleurs changent que personne ne saura pourquoi.
+*(L'historique du magenta et l'état de NkSL — cinq backends propres sur six —
+rendent ce cas concret, pas théorique.)*
+
+### 23.3 Ce que l'onglet Système montre en permanence
+
+Backend et version de pilote · adaptateur et mémoire vidéo · densité de l'écran
+courant · images par seconde de l'éditeur · nombre d'ambiances actives (§9ter.4) ·
+version de l'hôte et des greffons chargés.
+
+⚠️ **Ces lignes doivent être copiables en un geste.** C'est ce qu'on demande à
+quelqu'un qui signale un défaut, et une capture d'écran illisible de ces
+informations coûte un aller-retour à chaque rapport.
+
+---
+
 ## 21. Glossaire des composants
 
 En plus du glossaire générique déjà défini (doc 1 §19, réutilisé tel quel) :
