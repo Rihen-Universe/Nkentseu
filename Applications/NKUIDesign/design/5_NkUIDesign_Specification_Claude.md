@@ -639,6 +639,233 @@ d'écran. **L'état de repos est une condition technique, pas un confort.**
 
 ---
 
+## 1septies. Greffons — le contrat d'extension
+
+> Doc 3 §20bis. ⚠️ **Contrat d'écosystème, pas de NkUIDesign** : à déplacer dans le
+> document partagé dès qu'une deuxième application l'utilise.
+
+```
+NkGreffonId = NkString          // "lumen" -- prefixe de TOUTES ses contributions
+
+NkGreffonPermission {
+    ReadDocument | WriteDocument | FileRead | FileWrite
+  | Network | Clipboard | SpawnProcess
+}
+
+NkGreffonManifest {
+    id          : NkGreffonId
+    name        : NkString
+    publisher   : NkString
+    version     : NkVersion
+    hostRange   : { min, max : NkVersion }
+    permissions : NkFlags<NkGreffonPermission>
+    contributions : liste de NkContributionDecl
+    migrations  : liste de { fromVersion, oldKey, newKey }
+    signature   : Optional<NkSignature>
+}
+
+NkGreffonState { Active | Disabled | Rejected }
+
+NkGreffonRecord {
+    manifest    : NkGreffonManifest
+    state       : NkGreffonState
+    rejectCause : Optional<NkString>   // phrase lisible, pas un code
+    frameCostUs : uint32               // mesure, mise a jour en continu
+}
+```
+
+### 1septies.1 Le rejet est une DONNÉE, jamais une exception
+
+⚠️ **`hostRange` se vérifie avant de charger la moindre ligne de code du greffon.**
+Un greffon hors intervalle devient `Rejected` avec sa `rejectCause`, et l'hôte
+démarre normalement.
+
+Charger d'abord et rattraper l'exception ensuite ne suffit pas : le code a déjà
+tourné, il a pu enregistrer des contributions et modifier de l'état global. **Et
+si le plantage survient au démarrage, l'utilisateur ne peut plus ouvrir l'outil
+pour retirer le greffon fautif** — la seule sortie devient la ligne de commande.
+
+### 1septies.2 Le préfixe est imposé à l'enregistrement, pas par convention
+
+Toute clé de contribution vaut `id + "." + nomLocal`. **L'hôte la compose
+lui-même** ; le greffon ne fournit que `nomLocal`.
+
+⚠️ **Laisser le greffon écrire sa clé complète revient à lui faire confiance pour
+respecter une convention** — et il suffit d'un greffon distrait pour écraser les
+contributions d'un autre. Le déchargement, lui, retire **exactement** les clés
+portant le préfixe : c'est le préfixe imposé qui rend cette opération sûre.
+
+| code | condition |
+|---|---|
+| `E-GREFFON-HOST-RANGE` | version d'hôte hors `hostRange` |
+| `E-GREFFON-KEY-COLLISION` | deux greffons revendiquent la même clé complète |
+| `E-GREFFON-NATIVE-ROLE` | un greffon déclare un rôle `origin == Native` |
+| `W-GREFFON-UNSIGNED` | `signature` absente |
+| `W-GREFFON-SLOW` | `frameCostUs` au-dessus du seuil |
+
+### 1septies.3 Élargir les permissions redemande l'accord
+
+À la mise à jour, l'hôte compare l'ancien et le nouveau `permissions`. **Tout bit
+ajouté suspend l'activation et redemande le consentement**, en ne montrant que les
+bits nouveaux.
+
+⚠️ **Comparer les ensembles, pas les versions.** Une mise à jour « mineure » qui
+gagne `Network` est exactement le schéma par lequel des écosystèmes entiers se
+sont fait prendre — le numéro de version ne dit rien de ce que le code fait.
+
+### 1septies.4 Isolation et coût
+
+Tout appel dans un greffon est encadré : une erreur le fait passer `Disabled` avec
+sa cause, **sans se propager à l'hôte**. Le temps passé est cumulé par greffon et
+par image dans `frameCostUs`.
+
+⚠️ **Sans cette mesure par greffon, un greffon lent devient « l'application est
+lente »**, et l'attribution est impossible : on optimise du code d'éditeur pendant
+que la cause est une extension installée trois semaines plus tôt.
+
+### 1septies.5 Dépendances du document — et la règle qui les rend tenables
+
+```
+NkDocumentDependency {
+    greffonId : NkGreffonId
+    version   : NkVersion
+    usedKeys  : liste de NkString
+}
+```
+
+⚠️ **Le sérialiseur doit conserver la représentation BRUTE des éléments dont le
+greffon est absent, et la réécrire à l'identique.** C'est la contrainte
+d'implémentation qui découle de « ouvrir sans greffon ne supprime rien » : on ne
+peut pas préserver ce qu'on ne sait pas modéliser en le passant par le modèle. Il
+faut garder le texte tel quel.
+
+Sans cette règle, ouvrir puis enregistrer **détruit du travail en silence** — et la
+perte n'apparaît qu'à la prochaine ouverture sur la machine qui, elle, avait le
+greffon.
+
+| code | condition |
+|---|---|
+| `E-DEP-MISSING` | greffon absent — éléments préservés, **export bloqué** |
+| `E-DEP-KEY-GONE` | greffon présent, clé disparue et **aucune migration** ne la couvre |
+
+⚠️ **`E-DEP-KEY-GONE` nomme la clé exacte.** Échouer en nommant ce qui a disparu
+se corrige ; afficher un élément vide ne se remarque même pas.
+
+---
+
+## 1octies. Console et backend graphique
+
+> Doc 3 §20ter.
+
+```
+NkConsoleTab { Validation | Simulation | Greffons | Systeme }
+
+NkSystemInfo {
+    hostVersion   : NkVersion
+    backend       : NkRhiBackend      // UNIQUE : editeur ET simulation
+    backendAsked  : NkRhiBackend      // ce qui etait demande
+    driver        : NkString
+    adapter       : NkString
+    vramMo        : uint32
+    dpiScale      : float32
+    fps           : float32
+    ambientCount  : uint32            // doc 3 9ter.4
+    greffons      : liste de NkGreffonRecord
+}
+```
+
+⚠️ **`backend` est un champ unique, partagé par l'éditeur et la simulation.** Deux
+champs distincts rendraient possible — donc inévitable — qu'ils divergent, et la
+promesse de §18 (« le même moteur que l'application finale ») tomberait sans que
+rien ne le signale.
+
+⚠️ **`backendAsked` existe pour rendre le repli VISIBLE.** Si l'initialisation
+échoue et que l'hôte retombe sur un autre backend, `backend != backendAsked` et la
+console le dit. Un repli silencieux est le pire cas : les couleurs changent, les
+performances changent, **et rien dans l'interface n'explique pourquoi**.
+*(L'historique du magenta et l'état de NkSL — cinq backends propres sur six —
+rendent ce cas concret.)*
+
+| code | condition |
+|---|---|
+| `W-BACKEND-FALLBACK` | `backend != backendAsked` |
+| `W-BACKEND-NOT-TARGET` | la cible déclare une plateforme dont le backend n'est pas celui-ci |
+
+⚠️ **`W-BACKEND-NOT-TARGET` n'est pas une erreur à corriger, c'est un écart à
+nommer.** Travailler en Vulkan pour livrer en DirectX 12 est légitime ; **croire
+qu'on a vérifié le rendu de la cible ne l'est pas.** Un seul backend supprime
+l'écart éditeur/simulation ; il ne supprime pas l'écart simulation/livraison, il
+le déplace.
+
+`NkSystemInfo` expose **une représentation texte copiable en une action** : c'est
+ce qu'on demande à quelqu'un qui signale un défaut.
+
+---
+
+## 1nonies. Menus — un registre unique de commandes
+
+> Doc 3 §5bis.
+
+```
+NkCommandId = NkString
+
+NkCommand {
+    id          : NkCommandId
+    label       : NkString
+    kind        : Action | Submenu | Toggle | Separator
+    shortcut    : Optional<NkChord>
+    enabledWhen : NkPredicate
+    checkedWhen : Optional<NkPredicate>
+    opensDialog : bool          // rend le suffixe "..." -- doc 3 5bis.1
+}
+```
+
+### 1nonies.1 Un seul registre, deux présentations
+
+⚠️ **La barre de menu et les menus contextuels se construisent à partir du MÊME
+registre**, filtré par `enabledWhen` et par le contexte. Jamais deux listes.
+
+Deux listes, et la même commande finit par se comporter différemment selon qu'on
+l'atteint par la barre ou par le clic droit — un écart que personne ne pense à
+tester, parce qu'on suppose que c'est « le même bouton ».
+
+### 1nonies.2 L'unicité des raccourcis se vérifie au démarrage
+
+⚠️ **Le registre refuse deux commandes portant le même `NkChord`** — code
+`E-SHORTCUT-DUPLICATE`, **vérifié à la construction du registre, pas à la frappe.**
+
+C'est la forme implémentable d'une leçon du 2026-08-20 : `F1` et `F2` étaient
+attribués deux fois chacun, **et ces collisions n'existaient nulle part tant que
+les raccourcis n'étaient pas rassemblés dans une seule table.** Éparpillés, ils se
+contredisaient sans que rien ne le montre — on ne l'aurait découvert qu'en
+appuyant sur la touche.
+
+*Règle d'arbitrage retenue : **c'est le nouveau venu qui cède, jamais l'habitude.***
+`F1` reste à l'aide, `F2` au renommage ; les modes de canvas sont passés sur
+`Ctrl+1..4`.
+
+### 1nonies.3 Bascules et libellés
+
+⚠️ **Une commande `Toggle` porte `checkedWhen` et un libellé INVARIANT.** Un
+libellé qui s'inverse — « Afficher la grille » / « Masquer la grille » — oblige à
+déduire l'état courant de l'action proposée. On se trompe une fois sur deux, et le
+modèle ne peut même pas exprimer l'état.
+
+### 1nonies.4 Grisage et retrait
+
+- **barre de menu** : une entrée de premier niveau ne disparaît jamais, elle se
+  grise. Seuls des blocs entiers sans objet se retirent ;
+- **menu contextuel** : même règle, mêmes motifs — on retire des blocs, on ne
+  déplace pas les premières lignes ;
+- **sélection multiple** : une commande n'apparaît que si `enabledWhen` est vraie
+  pour **tous** les éléments sélectionnés.
+
+⚠️ **La position d'une entrée est apprise par la main.** Un menu dont la forme
+change à chaque contexte détruit ce que l'utilisateur a mémorisé, et le coût se
+paie à chaque ouverture sans que personne sache le nommer.
+
+---
+
 ## 1bis. Extensions de langage nécessaires — proposition pour le document 2
 
 **Point d'attention important** : la grammaire actuelle de
