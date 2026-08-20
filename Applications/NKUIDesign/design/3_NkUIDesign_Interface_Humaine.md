@@ -2307,7 +2307,7 @@ utilisateurs avancés).
 
 ---
 
-## 22. Greffons — le système d'extension
+## 20bis. Greffons — le système d'extension
 
 > **Nom retenu par Rodolf, 2026-08-20 : un « greffon ».** Le mot est déjà le terme
 > français pour *plugin*, donc personne n'a à l'apprendre — et la métaphore porte
@@ -2320,7 +2320,7 @@ est le premier consommateur ; **elle doit migrer vers le document partagé de
 l'écosystème** dès qu'une deuxième application l'utilise. La recopier ailleurs
 créerait deux contrats qui divergeraient.
 
-### 22.1 Ce qu'un greffon peut ajouter
+### 20bis.1 Ce qu'un greffon peut ajouter
 
 Tout ce que la spécification a fermé jusqu'ici :
 
@@ -2341,7 +2341,7 @@ widget du moteur (§14ter.2) ; un greffon qui en déclarerait un produirait un `
 que le runtime ne sait pas instancier. Il déclare des **rôles de projet**, avec
 leur dérivation obligatoire.
 
-### 22.2 La greffe se rejette — c'est le cœur du mécanisme
+### 20bis.2 La greffe se rejette — c'est le cœur du mécanisme
 
 Chaque greffon déclare **la version d'hôte qu'il exige**. À l'ouverture, l'hôte
 vérifie **avant** de charger quoi que ce soit.
@@ -2355,7 +2355,7 @@ devient la ligne de commande, que la plupart des gens n'ont pas.
 Le rejet est **visible et réversible** : le greffon apparaît dans la liste, barré,
 avec la raison écrite — *« exige l'hôte 1.2, celui-ci est en 1.0 »*.
 
-### 22.3 Chaque contribution porte le nom de son greffon
+### 20bis.3 Chaque contribution porte le nom de son greffon
 
 Tout ce qu'un greffon ajoute est **préfixé par son identifiant** : `lumen.carte`,
 `lumen.reflet`, `lumen.OnCarteRetournee`.
@@ -2368,7 +2368,7 @@ machine à l'autre.
 ⚠️ **Et retirer un greffon doit retirer EXACTEMENT ses contributions**, ni plus ni
 moins. C'est le préfixe qui le rend possible.
 
-### 22.4 Un document enregistre les greffons dont il dépend
+### 20bis.4 Un document enregistre les greffons dont il dépend
 
 Un `.nkgui` qui utilise `lumen.carte` écrit cette dépendance, avec sa version.
 
@@ -2380,7 +2380,7 @@ Charger, ignorer les éléments inconnus puis enregistrer **détruit du travail 
 silence** — et la perte n'apparaît qu'à la prochaine ouverture sur la machine qui,
 elle, avait le greffon.
 
-### 22.5 Un greffon déclare ce à quoi il touche
+### 20bis.5 Un greffon déclare ce à quoi il touche
 
 Un greffon exécute du code. Il déclare **avant installation** ce dont il a besoin :
 lecture du document, écriture du document, système de fichiers, réseau, presse-papiers,
@@ -2391,16 +2391,16 @@ silence à la mise à jour** — une extension qui gagne l'accès réseau entre 
 versions sans le redemander est exactement le schéma par lequel des écosystèmes
 entiers se sont fait prendre. Un élargissement redemande l'accord.
 
-### 22.6 Un greffon qui tombe ne doit pas emporter l'application
+### 20bis.6 Un greffon qui tombe ne doit pas emporter l'application
 
 Un greffon défaillant est **désactivé et signalé**, l'application continue. Son
-temps d'exécution est mesuré et visible dans la console (§23).
+temps d'exécution est mesuré et visible dans la console (§20ter).
 
 ⚠️ **Sans cette mesure, un greffon lent devient « l'application est lente »**, et
 personne ne remonte de l'un à l'autre — on réécrit du code d'éditeur pendant que la
 cause est une extension installée trois semaines plus tôt.
 
-### 22.7 Quand un greffon change ses contributions
+### 20bis.7 Quand un greffon change ses contributions
 
 Renommer ou supprimer une propriété casse les documents qui l'utilisent. Le greffon
 fournit donc une **table de migration** — ancien nom vers nouveau nom.
@@ -2411,14 +2411,14 @@ un élément absent ne se remarque même pas.
 
 ---
 
-## 23. Console — et le backend graphique en cours
+## 20ter. Console — et le backend graphique en cours
 
 > **Décision Rodolf, 2026-08-20 : « on doit avoir un seul backend pour les deux. »**
 
 §13 posait une pastille « Console/Validation » et §18 une console de simulation,
 **sans jamais dire ce qu'elles affichent**. Voici ce qu'elles affichent.
 
-### 23.1 Quatre flux, quatre onglets
+### 20ter.1 Quatre flux, quatre onglets
 
 | onglet | contenu |
 |---|---|
@@ -2427,7 +2427,7 @@ un élément absent ne se remarque même pas.
 | **Greffons** | ce qui est chargé, ce qui est rejeté et pourquoi, le temps d'exécution de chacun |
 | **Système** | version de l'hôte, backend graphique, mémoire, images par seconde |
 
-### 23.2 Un seul backend pour l'éditeur et la simulation
+### 20ter.2 Un seul backend pour l'éditeur et la simulation
 
 §18 promet que la simulation rend « par NKGui réel, le même moteur que
 l'application finale ». **Cette promesse n'a de sens que si l'éditeur et la
@@ -2452,7 +2452,7 @@ précisément le jour où les couleurs changent que personne ne saura pourquoi.
 *(L'historique du magenta et l'état de NkSL — cinq backends propres sur six —
 rendent ce cas concret, pas théorique.)*
 
-### 23.3 Ce que l'onglet Système montre en permanence
+### 20ter.3 Ce que l'onglet Système montre en permanence
 
 Backend et version de pilote · adaptateur et mémoire vidéo · densité de l'écran
 courant · images par seconde de l'éditeur · nombre d'ambiances actives (§9ter.4) ·
