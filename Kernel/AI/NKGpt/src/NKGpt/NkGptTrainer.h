@@ -101,6 +101,18 @@ namespace nkentseu {
 					NkString stopFile;
 					float lr = 3e-4f;  // pic de learning-rate (puis cosine, plancher 10%)
 
+					// Ecretage de gradient. 0 = DESACTIVE, et c'est le defaut : sans
+					// appel explicite a SetGradClip, Step() est strictement inchange,
+					// donc toute course lancee sans --clip reste comparable bit-a-bit
+					// aux courses d'avant l'ajout de ce reglage.
+					//
+					// Pourquoi ce reglage existe (2026-08-19) : la campagne du socle a
+					// pique de 5,51658 a 7,84896 en 25 pas au pas 400 et n'en est jamais
+					// revenue. L'ecretage de gradient est le remede standard d'un pic de
+					// perte -- il etait deja implemente et complet dans NKOptim, mais
+					// AUCUN appelant ne l'activait.
+					float clip = 0.0f; // >0 -> NK_CLIP_BY_GLOBAL_NORM a cette norme (usage courant : 1,0)
+
 					// Validation (held-out) : mesure la généralisation (≠ mémorisation).
 					float valFrac = 0.f; // fraction de queue de CHAQUE langue réservée au val (0 = désactivé)
 					int valEvery = 0;	 // évalue le val tous les N pas (0 = seulement à la fin si valFrac>0)
