@@ -866,8 +866,85 @@ namespace nkentseu {
 			}
 		}
 
+		// ── SOUS-MAILLES DEDUITES DU MATERIAU PAR FACE ──────────────────────────
+		// On ne range RIEN : on triangule dans l'ordre courant des faces et on ouvre
+		// une plage a chaque changement d'index. Un slot porte par deux faces non
+		// voisines produit donc DEUX plages — c'est la propriete demandee (« lier ou
+		// non »), pas un defaut a corriger en triant.
+		void NkEditMesh::BuildSubMeshRanges(NkVector<NkVertex3D> &outV, NkVector<uint32> &outIdx,
+											NkVector<SubMeshRange> &outRanges, uint32 *outDistinctSlots) const {
+			NkVector<NkEmId> triFace;
+			TriangulateShaded(outV, outIdx, triFace);
+			outRanges.Clear();
+
+			// Slots distincts : compte de presence sur 16 bits, sans allocation
+			// dependant du nombre de faces. On ne peut pas se contenter de compter les
+			// plages — deux plages peuvent designer le meme slot, c'est tout l'objet.
+			NkVector<uint8> seen;
+			uint32 distinct = 0;
+
+			const uint32 triCount = (uint32)triFace.Size();
+			for (uint32 t = 0; t < triCount; ++t) {
+				const NkEmId f = triFace[t];
+				const uint16 mat = (f < (NkEmId)faces.Size()) ? faces[f].material : (uint16)0;
+				if ((uint32)mat >= (uint32)seen.Size()) {
+					const uint32 old = (uint32)seen.Size();
+					seen.Resize((uint32)mat + 1);
+					for (uint32 i = old; i <= (uint32)mat; ++i)
+						seen[i] = 0;
+				}
+				if (!seen[mat]) {
+					seen[mat] = 1;
+					++distinct;
+				}
+				// Prolonge la plage courante si l'index n'a pas change, sinon en ouvre
+				// une neuve a la position courante du tampon d'indices.
+				if (outRanges.Size() > 0 && outRanges[(uint32)outRanges.Size() - 1].material == mat) {
+					outRanges[(uint32)outRanges.Size() - 1].indexCount += 3;
+				} else {
+					SubMeshRange r;
+					r.material = mat;
+					r.firstIndex = t * 3;
+					r.indexCount = 3;
+					outRanges.PushBack(r);
+				}
+			}
+			if (outDistinctSlots)
+				*outDistinctSlots = distinct;
+		}
+
+		// Regle de Blender : une face n'est affectee que si TOUS ses coins sont
+		// selectionnes (cf. la declaration pour le pourquoi). Un sommet ne porte
+		// jamais de materiau.
+		uint32 NkEditMesh::AssignMaterialToSelectedFaces(uint16 slot) {
+			uint32 n = 0;
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				loop.Clear();
+				GetFaceVerts(f, loop);
+				if (loop.Size() < 3)
+					continue; // une arete fil n'est pas une surface : pas de materiau
+				bool all = true;
+				for (uint32 k = 0; k < (uint32)loop.Size(); ++k) {
+					if (loop[k] >= (NkEmId)verts.Size() || !verts[loop[k]].sel) {
+						all = false;
+						break;
+					}
+				}
+				// La face DEJA selectionnee compte aussi : en mode face, c'est `sel` de
+				// la face qui porte l'intention, pas celui de ses coins.
+				if (all || faces[f].sel) {
+					faces[f].material = slot;
+					++n;
+				}
+			}
+			return n;
+		}
+
 		void NkEditMesh::ToPolygons(NkVector<NkVertex3D> &ov, NkVector<uint32> &ofaceStart,
-									NkVector<uint32> &ofaceVerts) const {
+									NkVector<uint32> &ofaceVerts, NkVector<uint16> *ofaceMaterial) const {
 			ov.Resize((uint32)verts.Size());
 			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
 				NkVertex3D nv{};
@@ -886,6 +963,8 @@ namespace nkentseu {
 			}
 			ofaceStart.Clear();
 			ofaceVerts.Clear();
+			if (ofaceMaterial)
+				ofaceMaterial->Clear();
 			ofaceStart.PushBack(0);
 			NkVector<NkEmId> loop;
 			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
@@ -902,11 +981,18 @@ namespace nkentseu {
 				for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
 					ofaceVerts.PushBack(loop[k]);
 				ofaceStart.PushBack((uint32)ofaceVerts.Size());
+				// Emis DANS LA MEME BOUCLE et sous les memes `continue` que
+				// ofaceStart : c'est ce qui garantit l'alignement des deux tableaux.
+				// Les remplir separement en reparcourant `faces` reintroduirait
+				// exactement le decalage que ce transport existe pour eviter (les
+				// faces mortes et les aretes fil ne sont pas emises).
+				if (ofaceMaterial)
+					ofaceMaterial->PushBack(faces[f].material);
 			}
 		}
 
 		void NkEditMesh::BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
-										   const uint32 *faceVerts) {
+										   const uint32 *faceVerts, const uint16 *faceMaterial) {
 			Clear();
 			verts.Resize(vc);
 			for (uint32 i = 0; i < vc; ++i) {
@@ -940,6 +1026,11 @@ namespace nkentseu {
 				Face fc;
 				fc.hedge = h0;
 				fc.alive = 1;
+				// Indexe par `f`, l'index de la face D'ENTREE — pas par faces.Size().
+				// Les deux different des qu'une face d'entree est sautee ci-dessus, et
+				// c'est exactement le decalage silencieux qu'on cherche a eviter.
+				if (faceMaterial)
+					fc.material = faceMaterial[f];
 				faces.PushBack(fc);
 			}
 			LinkTwins();
@@ -1180,7 +1271,13 @@ namespace nkentseu {
 		bool NkEditMesh::ExtrudeSelectedFaces(const NkExtrudeParams &p) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// MATERIAU PAR FACE : les faces non touchees gardent leur index, la face
+			// extrudee le transmet a son CAPUCHON et a toutes ses PAROIS laterales.
+			// Regle de Blender : les faces neuves d'une extrusion heritent de la face
+			// d'origine, pas du slot 0.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			ToPolygons(pv, fs, fv, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			NkVec3f avgN{0.f, 0.f, 0.f};
 			int32 selCount = 0;
@@ -1285,6 +1382,7 @@ namespace nkentseu {
 					for (uint32 k = fs[f]; k < fs[f + 1]; k++)
 						nfv.PushBack(fv[k]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 				}
 				for (uint32 f = 0; f < fc; f++) {
 					if (!faceSel[f])
@@ -1310,6 +1408,7 @@ namespace nkentseu {
 					for (uint32 k = 0; k < n; k++)
 						nfv.PushBack(dup[k]);
 					nfs.PushBack((uint32)nfv.Size()); // cap
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					for (uint32 k = 0; k < n; k++) {
 						uint32 a = fv[s + k], b = fv[s + (k + 1) % n], na = dup[k], nb = dup[(k + 1) % n];
 						nfv.PushBack(a);
@@ -1317,9 +1416,11 @@ namespace nkentseu {
 						nfv.PushBack(nb);
 						nfv.PushBack(na);
 						nfs.PushBack((uint32)nfv.Size());
+						nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					}
 				}
-				BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+				BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+				  nfm.Data());
 				ApplyVertSel(vsel);
 				return true;
 			}
@@ -1364,6 +1465,7 @@ namespace nkentseu {
 				for (uint32 k = fs[f]; k < fs[f + 1]; k++)
 					nfv.PushBack(fv[k]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
 			for (uint32 f = 0; f < fc; f++) {
 				if (!faceSel[f])
@@ -1371,6 +1473,7 @@ namespace nkentseu {
 				for (uint32 k = fs[f]; k < fs[f + 1]; k++)
 					nfv.PushBack((uint32)vmap[fv[k]]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
 			for (uint32 f = 0; f < fc; f++) {
 				if (!faceSel[f])
@@ -1386,9 +1489,11 @@ namespace nkentseu {
 					nfv.PushBack(nb);
 					nfv.PushBack(na);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 				}
 			}
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+			  nfm.Data());
 			ApplyVertSel(vsel);
 			return true;
 		}
@@ -1573,7 +1678,10 @@ namespace nkentseu {
 			for (int32 lvl = 0; lvl < levels; ++lvl) {
 				NkVector<NkVertex3D> pv;
 				NkVector<uint32> fs, fv;
-				ToPolygons(pv, fs, fv);
+				// MATERIAU PAR FACE : meme transport que la subdivision lineaire.
+				NkVector<uint16> fm;
+				NkVector<uint16> nfm;
+				ToPolygons(pv, fs, fv, &fm);
 				const uint32 vc = (uint32)pv.Size();
 				const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 				if (vc == 0 || fc == 0)
@@ -1767,6 +1875,8 @@ namespace nkentseu {
 						nfv.PushBack(fIdx);		  // centre de face
 						nfv.PushBack(ep[prev]);	  // arete precedente
 						nfs.PushBack((uint32)nfv.Size());
+						// Chaque quad fille herite de sa face mere, comme en subdivision lineaire.
+						nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					}
 				}
 				if (nfs.Size() < 2)
@@ -1775,7 +1885,8 @@ namespace nkentseu {
 				vsel.Resize((uint32)ov.Size());
 				for (uint32 i = 0; i < (uint32)ov.Size(); ++i)
 					vsel[i] = (i < vc && i < (uint32)verts.Size()) ? verts[i].sel : (uint8)0;
-				BuildFromPolygons(ov.Data(), (uint32)ov.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+				BuildFromPolygons(ov.Data(), (uint32)ov.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+						  nfm.Data());
 				ApplyVertSel(vsel);
 				RecomputeNormals();
 				RebuildEdges();
@@ -2565,7 +2676,14 @@ namespace nkentseu {
 		bool NkEditMesh::SubdivideSelectedOnce() {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// MATERIAU PAR FACE : recupere l'index de chaque face SOURCE, et le repose
+			// sur chaque face FILLE. Sans ce transport, BuildFromPolygons reconstruit des
+			// Face neuves et toutes retombent sur le slot 0 -- mesure prise avant le
+			// correctif : un cube dont deux faces portaient le slot 1 tombait a
+			// « slot1 2 -> 0 » des la premiere subdivision.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			ToPolygons(pv, fs, fv, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			if (fc == 0)
 				return false;
@@ -2613,6 +2731,7 @@ namespace nkentseu {
 				for (uint32 k = fs[f]; k < fs[f + 1]; k++)
 					nfv.PushBack(fv[k]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
 			for (uint32 f = 0; f < fc; f++) {
 				if (!faceSel[f])
@@ -2622,6 +2741,9 @@ namespace nkentseu {
 					for (uint32 k = s; k < e; k++)
 						nfv.PushBack(fv[k]);
 					nfs.PushBack((uint32)nfv.Size());
+					// Chaque fille herite de sa mere : regle de Blender, et la seule qui
+					// garde l'affectation stable sur plusieurs subdivisions de suite.
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					continue;
 				}
 				NkVertex3D ctr{};
@@ -2655,6 +2777,9 @@ namespace nkentseu {
 					nfv.PushBack(cidx);
 					nfv.PushBack(m0);
 					nfs.PushBack((uint32)nfv.Size());
+					// Chaque fille herite de sa mere : regle de Blender, et la seule qui
+					// garde l'affectation stable sur plusieurs subdivisions de suite.
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					vsel[cidx] = 1;
 					vsel[m1] = 1;
 					vsel[m0] = 1;
@@ -2662,7 +2787,8 @@ namespace nkentseu {
 						vsel[v0] = 1;
 				}
 			}
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+					  nfm.Data());
 			ApplyVertSel(vsel);
 			return true;
 		}

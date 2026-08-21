@@ -3097,6 +3097,337 @@ static void LinkedBattery() {
 	}
 }
 
+// ── MATERIAU PAR FACE ───────────────────────────────────────────────────────
+// CE QUE MESURE CETTE BATTERIE, ET POURQUOI ELLE EXISTE
+// Rodolf : « l'objectif est que un groupe de vertex ou de face lier ou non
+// partage meme material comme sur blender ». Le mot qui commande est
+// « lier ou NON » : les faces d'un meme materiau n'ont aucune raison d'etre
+// connexes. La figure de reference est donc DEUX FACES OPPOSEES d'un cube
+// (+Z et -Z), qui ne partagent aucune arete.
+//
+// La partie facile est le stockage. La partie difficile — et la seule qui
+// distingue un vrai materiau par face d'un decoupage cosmetique — est la
+// SURVIE AUX OPERATIONS TOPOLOGIQUES : toutes passent par le round-trip
+// ToPolygons/BuildFromPolygons, qui reconstruit les `Face` a neuf.
+//
+// REGIMES COUVERTS : subdivision lineaire, Catmull-Clark, extrusion,
+// triangulation, soudure. NON COUVERTS : la decimation (la regle d'heritage
+// lors d'une fusion de faces n'est pas encore tranchee — voir la ligne
+// mat/decim-non-tranche, qui MESURE l'etat actuel sans le valider), et tout
+// ce qui touche au rendu.
+static void MaterialBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+
+	// Trouve la face dont la normale est la plus proche de `dir`. On designe les
+	// faces par leur GEOMETRIE et jamais par un index en dur : quadify peut
+	// reordonner, et un test qui suppose l'ordre mesurerait l'ordre, pas le
+	// materiau.
+	auto faceAlong = [](const NkEditMesh &m, NkVec3f dir) -> uint32 {
+		uint32 best = 0;
+		float32 bestDot = -2.f;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			const float32 d = m.faces[f].normal.Dot(dir);
+			if (d > bestDot) {
+				bestDot = d;
+				best = f;
+			}
+		}
+		return best;
+	};
+
+	auto countMat = [](const NkEditMesh &m, uint16 slot) -> uint32 {
+		uint32 n = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == slot)
+				n++;
+		return n;
+	};
+
+	// Deux faces partagent-elles une arete ? Sert a PROUVER que la figure est bien
+	// « non liee » au lieu de le supposer.
+	auto shareEdge = [](const NkEditMesh &m, uint32 fa, uint32 fb) -> bool {
+		NkVector<NkEmId> la, lb;
+		m.GetFaceVerts(fa, la);
+		m.GetFaceVerts(fb, lb);
+		uint32 common = 0;
+		for (uint32 i = 0; i < (uint32)la.Size(); ++i)
+			for (uint32 j = 0; j < (uint32)lb.Size(); ++j)
+				if (la[i] == lb[j])
+					common++;
+		return common >= 2; // deux sommets communs = une arete commune
+	};
+
+	// Construit le cube SOUDE (quadify) et pose le slot 1 sur +Z et -Z.
+	auto makeTwoIslands = [&](NkEditMesh &m) {
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const uint32 fz = faceAlong(m, {0.f, 0.f, 1.f});
+		const uint32 fmz = faceAlong(m, {0.f, 0.f, -1.f});
+		m.faces[fz].material = 1;
+		m.faces[fmz].material = 1;
+		return shareEdge(m, fz, fmz);
+	};
+
+	// ── 1. La figure elle-meme : deux ilots, aucune arete commune ────────────
+	{
+		NkEditMesh m;
+		const bool touching = makeTwoIslands(m);
+		GraphPut("%-34s faces=%u slot1=%u slot0=%u aretecommune=%d (0 attendu)", "mat/ilots-disjoints",
+				 (uint32)m.faces.Size(), countMat(m, 1), countMat(m, 0), touching ? 1 : 0);
+	}
+
+	// ── 2. Les sous-mailles sont DEDUITES, et un slot donne DEUX plages ──────
+	// ⚠ FIGURE CHOISIE : DEUX CUBES SEPARES, pas les deux faces opposees d'un
+	// seul. Premiere version de ce cas ecrite sur un cube unique : elle exigeait
+	// 2 plages et n'en obtenait qu'1 — non parce que le regroupement etait faux,
+	// mais parce que +Z et -Z sont CONSECUTIVES dans l'ordre des faces, donc
+	// elles fusionnent en une seule plage. Le cas mesurait l'ordre des faces, pas
+	// le regroupement par materiau. Deux cubes distants mettent d'autres faces
+	// entre les deux ilots : la plage ne PEUT plus etre unique, et le resultat ne
+	// depend plus d'un hasard d'ordonnancement.
+	{
+		NkVector<NkVertex3D> v2 = v;
+		NkVector<uint32> i2 = idx;
+		const uint32 base = (uint32)v.Size();
+		for (uint32 i = 0; i < (uint32)v.Size(); ++i) {
+			NkVertex3D t = v[i];
+			t.pos.x += 10.f; // largement hors tolerance de soudure
+			v2.PushBack(t);
+		}
+		for (uint32 i = 0; i < (uint32)idx.Size(); ++i)
+			i2.PushBack(idx[i] + base);
+
+		NkEditMesh m;
+		m.BuildFromIndexed(v2.Data(), (uint32)v2.Size(), i2.Data(), (uint32)i2.Size(), true);
+		m.RebuildEdges();
+		// Le +Z de CHAQUE cube porte le slot 1. Aucun des deux ne touche l'autre.
+		uint32 fa = 0, fb = 0;
+		float32 da = -2.f, db = -2.f;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			NkVector<NkEmId> lp;
+			m.GetFaceVerts(f, lp);
+			if (lp.Size() == 0)
+				continue;
+			const bool droite = m.verts[lp[0]].pos.x > 5.f; // le cube translate
+			const float32 d = m.faces[f].normal.Dot({0.f, 0.f, 1.f});
+			if (droite && d > db) {
+				db = d;
+				fb = f;
+			}
+			if (!droite && d > da) {
+				da = d;
+				fa = f;
+			}
+		}
+		m.faces[fa].material = 1;
+		m.faces[fb].material = 1;
+
+		NkVector<NkVertex3D> ov;
+		NkVector<uint32> oi;
+		NkVector<NkEditMesh::SubMeshRange> ranges;
+		uint32 distinct = 0;
+		m.BuildSubMeshRanges(ov, oi, ranges, &distinct);
+		uint32 plagesSlot1 = 0, idxSlot1 = 0;
+		for (uint32 r = 0; r < (uint32)ranges.Size(); ++r)
+			if (ranges[r].material == 1) {
+				plagesSlot1++;
+				idxSlot1 += ranges[r].indexCount;
+			}
+		GraphPut("%-34s slots=%u plages=%u plages-slot1=%u (2 attendues) indices-slot1=%u total=%u",
+				 "mat/sous-mailles-deduites", distinct, (uint32)ranges.Size(), plagesSlot1, idxSlot1,
+				 (uint32)oi.Size());
+	}
+
+	// ── 3. SURVIE A LA SUBDIVISION LINEAIRE — le cas qui tranche ─────────────
+	// Deux subdivisions : chaque face mere donne 4 filles, puis 16. Les deux
+	// ilots doivent porter 16 faces slot 1 au total (2 x 4 x ... selon le
+	// decoupage), et SURTOUT rester non nuls.
+	{
+		NkEditMesh m;
+		makeTwoIslands(m);
+		const uint32 avant = countMat(m, 1);
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		const uint32 apres1 = countMat(m, 1);
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		const uint32 apres2 = countMat(m, 1);
+		GraphPut("%-34s slot1 %u -> %u -> %u | faces=%u (doit croitre, jamais tomber a 0)",
+				 "mat/survie-subdivision", avant, apres1, apres2, (uint32)m.faces.Size());
+	}
+
+	// ── 4. SURVIE A CATMULL-CLARK ───────────────────────────────────────────
+	{
+		NkEditMesh m;
+		makeTwoIslands(m);
+		const uint32 avant = countMat(m, 1);
+		m.SubdivideCatmullClark(1);
+		GraphPut("%-34s slot1 %u -> %u | faces=%u", "mat/survie-catmull", avant, countMat(m, 1),
+				 (uint32)m.faces.Size());
+	}
+
+	// ── 5. SURVIE A L'EXTRUSION ─────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		makeTwoIslands(m);
+		const uint32 avant = countMat(m, 1);
+		const uint32 facesAvant = (uint32)m.faces.Size();
+		// ⚠ SelectAll, pas un `faces[f].sel = 1` pose a la main. Premiere version
+		// de ce cas : elle selectionnait la seule face +Z par son drapeau et
+		// affichait « slot1 2 -> 2 », donc VERT — alors que le compte de faces
+		// n'avait pas bouge d'une unite : l'extrusion n'avait rien fait. Un cas
+		// qui reussit parce que l'operation ne s'est pas produite ne prouve rien.
+		// D'ou le temoin `faces` dans la signature : il rend le no-op visible.
+		m.SelectAll();
+		NkExtrudeParams ep;
+		ep.offset = 0.5f;
+		const bool ok = m.ExtrudeSelectedFaces(ep);
+		GraphPut("%-34s slot1 %u -> %u | faces %u -> %u ok=%d (faces DOIVENT croitre)", "mat/survie-extrusion",
+				 avant, countMat(m, 1), facesAvant, (uint32)m.faces.Size(), ok ? 1 : 0);
+	}
+
+	// ── 6. SURVIE A LA TRIANGULATION ────────────────────────────────────────
+	// Les n triangles d'un n-gon doivent TOUS porter l'index de leur face mere :
+	// slot 1 sur 2 quads = 4 triangles = 12 indices, jamais 6.
+	{
+		NkEditMesh m;
+		makeTwoIslands(m);
+		NkVector<NkVertex3D> ov;
+		NkVector<uint32> oi;
+		NkVector<NkEditMesh::SubMeshRange> ranges;
+		m.BuildSubMeshRanges(ov, oi, ranges, nullptr);
+		uint32 idxSlot1 = 0;
+		for (uint32 r = 0; r < (uint32)ranges.Size(); ++r)
+			if (ranges[r].material == 1)
+				idxSlot1 += ranges[r].indexCount;
+		GraphPut("%-34s indices-slot1=%u (12 attendus : 2 quads -> 4 tris) total=%u", "mat/survie-triangulation",
+				 idxSlot1, (uint32)oi.Size());
+	}
+
+	// ── 7. AFFECTATION PAR SOMMETS — la regle de Blender ─────────────────────
+	// Selectionner les 4 coins d'une face affecte CETTE face ; une face dont un
+	// seul coin manque n'est PAS affectee. C'est ce qui rend « un groupe de
+	// vertex partage meme material » sans inventer de materiau par sommet.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const uint32 fz = faceAlong(m, {0.f, 0.f, 1.f});
+		NkVector<NkEmId> loop;
+		m.GetFaceVerts(fz, loop);
+		m.SelectNone();
+		for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
+			m.verts[loop[k]].sel = 1;
+		const uint32 nAffect = m.AssignMaterialToSelectedFaces(2);
+		// Puis on RETIRE un coin : plus aucune face ne doit etre entierement
+		// couverte par la selection.
+		NkEditMesh m2;
+		m2.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m2.RebuildEdges();
+		NkVector<NkEmId> loop2;
+		m2.GetFaceVerts(faceAlong(m2, {0.f, 0.f, 1.f}), loop2);
+		m2.SelectNone();
+		for (uint32 k = 1; k < (uint32)loop2.Size(); ++k) // saute le premier coin
+			m2.verts[loop2[k]].sel = 1;
+		const uint32 nPartiel = m2.AssignMaterialToSelectedFaces(2);
+		GraphPut("%-34s tousCoins=%u (1 attendu) unCoinManquant=%u (0 attendu)", "mat/assign-par-sommets", nAffect,
+				 nPartiel);
+	}
+
+	// ── 8. LES SLOTS NE SE RENUMEROTENT JAMAIS ──────────────────────────────
+	// Supprimer un slot du milieu laisse un TROU. Si on decalait, toutes les
+	// faces d'index superieur changeraient de materiau EN SILENCE.
+	{
+		NkEditMesh m;
+		makeTwoIslands(m);
+		m.materialSlots.Clear();
+		for (uint32 i = 0; i < 3; ++i) {
+			NkEditMesh::MaterialSlot s;
+			s.id = 100u + i;
+			m.materialSlots.PushBack(s);
+		}
+		const uint32 fmz = faceAlong(m, {0.f, 0.f, -1.f});
+		m.faces[fmz].material = 2;
+		m.materialSlots[1].alive = 0; // supprime CELUI DU MILIEU
+		GraphPut("%-34s slots=%u vivants=%u id[2]=%u (102 attendu) faceMz=%u (2 attendu)",
+				 "mat/slots-trou-jamais-decalage", (uint32)m.materialSlots.Size(),
+				 (uint32)(m.materialSlots[0].alive + m.materialSlots[1].alive + m.materialSlots[2].alive),
+				 m.materialSlots[2].id, (uint32)m.faces[fmz].material);
+	}
+
+	// ── 9. LES SLOTS SURVIVENT A UNE OPERATION D'EDITION ─────────────────────
+	// Clear() est appele a chaque BuildFromPolygons : si les slots y passaient,
+	// la liste des materiaux du maillage disparaitrait a la premiere extrusion.
+	{
+		NkEditMesh m;
+		makeTwoIslands(m);
+		NkEditMesh::MaterialSlot s;
+		s.id = 777;
+		m.materialSlots.PushBack(s);
+		const uint32 avant = (uint32)m.materialSlots.Size();
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		GraphPut("%-34s slots %u -> %u | dernier id=%u (777 attendu)", "mat/slots-survivent-a-l-edition", avant,
+				 (uint32)m.materialSlots.Size(),
+				 m.materialSlots.Size() ? m.materialSlots[(uint32)m.materialSlots.Size() - 1].id : 0u);
+	}
+
+	// ── 10. DECIMATION : ETAT MESURE, REGLE NON TRANCHEE ────────────────────
+	// Quand une contraction fusionne des faces, de qui la survivante herite-t-elle ?
+	// La question n'est PAS tranchee (elle demande un arbitrage produit). Cette
+	// ligne MESURE le comportement actuel pour qu'un changement se voie ; elle ne
+	// le valide pas. Ecrire un attendu ici serait inventer une decision.
+	{
+		NkEditMesh m;
+		makeTwoIslands(m);
+		const uint32 avant = countMat(m, 1);
+		NkDecimateParams dp;
+		dp.targetRatio = 0.5f;
+		NkDecimateStats st;
+		NkMeshDecimate::DecimateQEM(m, dp, &st);
+		GraphPut("%-34s slot1 %u -> %u | tris %u->%u (MESURE, pas un attendu)", "mat/decim-non-tranche", avant,
+				 countMat(m, 1), st.trisBefore, st.trisAfter);
+	}
+
+	// ── 11. TEMOIN : ce que `smooth` fait DEJA, et qui a dicte la conception ──
+	// `smooth` ne traverse PAS le round-trip : BuildFromPolygons cree des Face
+	// neuves, donc smooth retombe a 0. Il n'a jamais gene parce que
+	// BuildFromIndexed le RE-DEDUIT des normales des coins. Un materiau ne peut
+	// pas se re-deduire — d'ou le transport explicite. Cette ligne fige le
+	// comportement de smooth pour qu'on voie si quelqu'un le change.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			m.faces[f].smooth = 1;
+		uint32 avant = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].smooth)
+				avant++;
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		uint32 apres = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].smooth)
+				apres++;
+		GraphPut("%-34s smooth %u -> %u sur %u faces (TEMOIN du comportement existant)", "mat/temoin-smooth",
+				 avant, apres, (uint32)m.faces.Size());
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -3131,6 +3462,9 @@ int main(int argc, char **argv) {
 	// AJOUTEE EN FIN, pour la meme raison que SelOrderBattery : les lignes
 	// precedentes gardent leur numero, donc la reference reste comparable.
 	LinkedBattery();
+	// AJOUTEE EN FIN, meme raison : les 169 lignes precedentes gardent leur
+	// numero, donc `--check` compare toujours l'ancien perimetre a l'identique.
+	MaterialBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
