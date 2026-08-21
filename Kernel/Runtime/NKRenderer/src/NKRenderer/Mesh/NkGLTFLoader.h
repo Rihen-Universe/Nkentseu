@@ -113,9 +113,20 @@ namespace nkentseu {
 				// ci-dessus decrivait DEJA l accident et ne l a pas empeche : une fusion
 				// ne lit pas les commentaires. La seule parade qui marche est mecanique --
 				// AVANT d ajouter un membre a cette struct, faire
-				//     grep -n "NkString name;" NkGLTFLoader.h
+				//     grep -nE "^[[:space:]]*NkString name;" NkGLTFLoader.h
 				// et verifier qu il y en a exactement TROIS, un par struct (NkGLTFMaterial,
-				// NkGLTFAnimation, NkGLTFNode). Deux membres de meme nom ajoutes a deux
+				// NkGLTFAnimation, NkGLTFNode).
+				//
+				// ⚠ L ancre "^[[:space:]]*" n est pas un ornement. La parade a ete ecrite
+				// d abord sans elle -- grep -n "NkString name;" -- et elle rendait QUATRE
+				// resultats sur un fichier sain, parce que la ligne de commentaire
+				// ci-dessus CONTIENT le motif qu elle demande de chercher. Une consigne
+				// qui echoue quand on la suit a la lettre est pire que pas de consigne :
+				// le lecteur conclut qu il reste un doublon, ou apprend a ignorer le
+				// chiffre. L ancre exclut les lignes de commentaire, donc la parade ne se
+				// compte plus elle-meme. Verifie le 2026-08-21 : 3, pas 4.
+				//
+				// Deux membres de meme nom ajoutes a deux
 				// ENDROITS differents de la struct ne produisent AUCUN conflit textuel :
 				// git garde sagement les deux, et l erreur n apparait qu a la compilation.
 				NkString name;
