@@ -202,6 +202,11 @@ namespace nkentseu {
 					if (fread(&ln, 1, 1, f) != 1 || (ln != 0 && fseek(f, (long)ln, SEEK_CUR) != 0))
 						return 0;
 				}
+				// v6 : deux octets d'architecture. Un fichier anterieur n'en a pas, et
+				// sauter deux octets qui n'existent pas decalerait TOUT le reste de la
+				// lecture -- d'ou le branchement sur la version, ici comme partout.
+				if (ver >= 6u && fseek(f, 2, SEEK_CUR) != 0)
+					return 0;
 				return ver;
 			}
 
@@ -256,7 +261,10 @@ namespace nkentseu {
 				// v5 = v4 + queue {rng} : l'etat du flux aleatoire d'echantillonnage des
 				// lots. Sans lui, une reprise repart du meme etat initial du flux et
 				// RE-TIRE les memes fenetres que le debut de la course precedente.
-				uint32 ver = 5u;
+				// v6 = v5 + deux octets d'ARCHITECTURE apres les langues. Le fichier dit
+				// desormais lui-meme s'il faut construire un NkLlamaLM et si les tables
+				// sont liees ; l'inference n'a plus a le deviner (cf. NkGptCore.h).
+				uint32 ver = 6u;
 				bool ok = fwrite(magic, 1, 4, f) == 4 && fwrite(&ver, sizeof(uint32), 1, f) == 1;
 				int32 hdr[5] = {m.V, m.d, m.H, m.L, m.T};
 				ok = ok && fwrite(hdr, sizeof(int32), 5, f) == 5;
@@ -272,6 +280,13 @@ namespace nkentseu {
 					uint8 ln = (uint8)m.langs[(nk_size)i].Size();
 					ok = ok && fwrite(&ln, 1, 1, f) == 1 &&
 						 (ln == 0 || fwrite(m.langs[(nk_size)i].CStr(), 1, ln, f) == ln);
+				}
+				// Architecture (v6). Deux octets, ecrits meme quand ils valent 0 : un
+				// champ present et faux se distingue d'un champ absent, et c'est
+				// exactement la distinction qui manquait.
+				{
+					uint8 arch[2] = {(uint8)(m.architectureLlama ? 1 : 0), (uint8)(m.weightTying ? 1 : 0)};
+					ok = ok && fwrite(arch, 1, 2, f) == 2;
 				}
 				uint32 count = params.Size();
 				ok = ok && fwrite(&count, sizeof(uint32), 1, f) == 1;
@@ -340,7 +355,7 @@ namespace nkentseu {
 				char magic[4];
 				uint32 ver = 0;
 				bool ok = fread(magic, 1, 4, f) == 4 && magic[0] == 'N' && magic[1] == 'K' && magic[2] == 'G' &&
-						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver >= 3u && ver <= 5u);
+						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver >= 3u && ver <= 6u);
 				fclose(f);
 				if (!ok)
 					return false;
@@ -402,7 +417,7 @@ namespace nkentseu {
 				uint32 ver = 0;
 				int32 hdr[5] = {0};
 				bool ok = fread(magic, 1, 4, f) == 4 && magic[0] == 'N' && magic[1] == 'K' && magic[2] == 'G' &&
-						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver >= 3u && ver <= 5u) &&
+						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver >= 3u && ver <= 6u) &&
 						  fread(hdr, sizeof(int32), 5, f) == 5;
 				if (ok) {
 					m.V = hdr[0];
@@ -436,6 +451,18 @@ namespace nkentseu {
 							m.langs.PushBack(NkString(buf, (NkString::SizeType)ln));
 					}
 				}
+				// Architecture : v6 seulement. Sur un fichier anterieur, `architectureConnue`
+				// reste false et l'appelant garde ce que la ligne de commande demande --
+				// c'est la retro-compatibilite, et elle ne coute qu'un `if`.
+				if (ok && ver >= 6u) {
+					uint8 arch[2] = {0, 0};
+					ok = fread(arch, 1, 2, f) == 2;
+					if (ok) {
+						m.architectureLlama = arch[0] != 0;
+						m.weightTying = arch[1] != 0;
+						m.architectureConnue = true;
+					}
+				}
 				fclose(f);
 				return ok;
 			}
@@ -463,6 +490,8 @@ namespace nkentseu {
 						ok = fread(&ln, 1, 1, f) == 1 && (ln == 0 || fseek(f, (long)ln, SEEK_CUR) == 0);
 					}
 				}
+				if (ok && ver >= 6u) // deux octets d'architecture (v6) ; absents avant
+					ok = fseek(f, 2, SEEK_CUR) == 0;
 				uint32 count = 0;
 				ok = ok && fread(&count, sizeof(uint32), 1, f) == 1 && count == params.Size();
 				for (uint32 i = 0; ok && i < params.Size(); ++i) {
