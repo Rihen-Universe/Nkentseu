@@ -106,6 +106,9 @@ namespace nkentseu {
 				// sans conflit textuel — git a garde les deux (« duplicate member
 				// 'name' », NKRenderer ne compilait plus sur main). Corrige deux fois
 				// (#68 cote Noge, 41f75ba0 cote NKRenderer), refusionne ici (2026-08-17).
+				// 4e occurrence le 2026-08-21 : le merge ec69f2ac (feat/nkanimation) a
+				// remis les deux membres, NKRenderer ne compilait plus sur main (22
+				// erreurs, 11 fichiers). Si tu ajoutes un nom ici, CHERCHE d abord.
 				NkString name;
 				NkVec3f translation = {0, 0, 0};
 				NkVec4f rotation = {0, 0, 0, 1}; // quaternion (x,y,z,w)
@@ -114,13 +117,6 @@ namespace nkentseu {
 				NkMat4f matrix = NkMat4f::Identity();
 				int32 mesh = -1; // index dans meshes[] (-1 = aucun)
 				NkVector<int32> children;
-				// Nom du node glTF (clé "name", optionnelle — vide si absente).
-				// Ajout 2026-08-17, ADDITIF (aucun appelant existant modifié) : les
-				// joints d'un skin sont des nodes, et leurs noms alimentent la
-				// distribution de masse anthropométrique côté éditeur
-				// (NKAnimPhysics::NkPoseMass::SetAnthropometric). Avant : le parseur
-				// lisait "name" pour meshes, matériaux, animations — jamais les nodes.
-				NkString name;
 		};
 
 		struct NkGLTFMeshData {
