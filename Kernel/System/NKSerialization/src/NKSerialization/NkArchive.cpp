@@ -153,6 +153,10 @@ namespace nkentseu {
 			// Copie sémantique du tableau via NkVector::operator=
 			dst.array = src.array;
 		}
+
+		// NOTE : la trivia n'est PAS copiée ici. CloneNode est une fonction libre,
+		// et CopyTriviaFrom() est privée ; les deux appelants (constructeur de
+		// copie et affectation par copie) la copient eux-mêmes, juste après.
 	}
 
 	// -------------------------------------------------------------------------
@@ -170,6 +174,7 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 	NkArchiveNode::~NkArchiveNode() noexcept {
 		FreeObject();
+		FreeTrivia();
 	}
 
 	// -------------------------------------------------------------------------
@@ -178,6 +183,11 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 	NkArchiveNode::NkArchiveNode(const NkArchiveNode &o) noexcept {
 		CloneNode(*this, o);
+		// Trivia : DUPLIQUÉE, jamais partagée. C'est un pointeur possédant, au
+		// même titre que `object` — le partager provoquerait une double
+		// libération, et modifier la mise en forme d'une copie remonterait dans
+		// l'original.
+		CopyTriviaFrom(o);
 	}
 
 	// -------------------------------------------------------------------------
@@ -185,9 +195,11 @@ namespace nkentseu {
 	// DESCRIPTION : Transfert de propriété avec réinitialisation de la source
 	// -------------------------------------------------------------------------
 	NkArchiveNode::NkArchiveNode(NkArchiveNode &&o) noexcept
-		: kind(o.kind), value(traits::NkMove(o.value)), object(o.object), array(traits::NkMove(o.array)) {
+		: kind(o.kind), value(traits::NkMove(o.value)), object(o.object), array(traits::NkMove(o.array)),
+		  mTrivia(o.mTrivia) {
 		// Réinitialisation de la source pour sécurité post-move
 		o.object = nullptr;
+		o.mTrivia = nullptr;
 		o.kind = NkNodeKind::NK_NODE_SCALAR;
 		// array est déjà vidé par traits::NkMove, value est dans état valide
 	}
@@ -201,6 +213,7 @@ namespace nkentseu {
 			FreeObject();
 			array.Clear();
 			CloneNode(*this, o);
+			CopyTriviaFrom(o); // libère l'ancien bloc avant de dupliquer
 		}
 		return *this;
 	}
@@ -213,12 +226,15 @@ namespace nkentseu {
 		if (this != &o) {
 			FreeObject();
 			array.Clear();
+			FreeTrivia();
 			kind = o.kind;
 			value = traits::NkMove(o.value);
 			object = o.object;
 			array = traits::NkMove(o.array);
+			mTrivia = o.mTrivia;
 			// Réinitialisation de la source
 			o.object = nullptr;
+			o.mTrivia = nullptr;
 			o.kind = NkNodeKind::NK_NODE_SCALAR;
 		}
 		return *this;
@@ -233,6 +249,404 @@ namespace nkentseu {
 		array.Clear();
 		kind = NkNodeKind::NK_NODE_OBJECT;
 		object = new NkArchive(arc);
+	}
+
+
+	// =============================================================================
+	// NkArchiveNode — TRIVIA (mise en forme d'origine, facultative)
+	// =============================================================================
+	// Bloc alloué à la demande : un nœud fabriqué par le code n'alloue rien.
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : FreeTrivia
+	// DESCRIPTION : Libère le bloc de trivia possédé si présent
+	// -------------------------------------------------------------------------
+	void NkArchiveNode::FreeTrivia() noexcept {
+		delete mTrivia;
+		mTrivia = nullptr;
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : CopyTriviaFrom
+	// DESCRIPTION : Duplique le bloc de trivia d'un autre nœud (jamais partagé)
+	// -------------------------------------------------------------------------
+	void NkArchiveNode::CopyTriviaFrom(const NkArchiveNode &o) noexcept {
+		FreeTrivia();
+		if (o.mTrivia) {
+			mTrivia = new NkArchiveTrivia(*o.mTrivia);
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : EnsureTrivia
+	// DESCRIPTION : Alloue le bloc à la première demande
+	// -------------------------------------------------------------------------
+	NkArchiveTrivia &NkArchiveNode::EnsureTrivia() noexcept {
+		if (!mTrivia) {
+			mTrivia = new NkArchiveTrivia();
+		}
+		return *mTrivia;
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : ClearTrivia
+	// -------------------------------------------------------------------------
+	void NkArchiveNode::ClearTrivia() noexcept {
+		FreeTrivia();
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODES : Trivia — accès par champ
+	// -------------------------------------------------------------------------
+	void NkArchiveNode::SetLeadingTrivia(NkStringView t) noexcept {
+		EnsureTrivia().leading = NkString(t);
+	}
+
+	void NkArchiveNode::SetTrailingTrivia(NkStringView t) noexcept {
+		EnsureTrivia().trailing = NkString(t);
+	}
+
+	NkStringView NkArchiveNode::LeadingTrivia() const noexcept {
+		return mTrivia ? mTrivia->leading.View() : NkStringView();
+	}
+
+	NkStringView NkArchiveNode::TrailingTrivia() const noexcept {
+		return mTrivia ? mTrivia->trailing.View() : NkStringView();
+	}
+
+	void NkArchiveNode::SetSourceOrder(nk_int32 rank) noexcept {
+		if (rank < 0) {
+			// Effacer un rang ne doit pas allouer un bloc pour rien.
+			if (mTrivia) {
+				mTrivia->sourceOrder = -1;
+			}
+			return;
+		}
+		EnsureTrivia().sourceOrder = rank;
+	}
+
+	nk_int32 NkArchiveNode::SourceOrder() const noexcept {
+		return mTrivia ? mTrivia->sourceOrder : -1;
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : SetLiteral
+	// DESCRIPTION : Pose le lexème d'origine ET le texte canonique qu'il dénotait
+	// -------------------------------------------------------------------------
+	// `literalOf` est renseigné ICI, depuis la valeur courante — jamais par
+	// l'appelant. C'est ce qui rend le garde-fou anti-périmé impossible à oublier :
+	// il n'y a pas d'appel où on pourrait « ne pas le faire ».
+	void NkArchiveNode::SetLiteral(NkStringView literal) noexcept {
+		NkArchiveTrivia &t = EnsureTrivia();
+		t.literal = NkString(literal);
+		t.literalOf = NkString(CanonicalLexeme());
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : HasUsableLiteral
+	// DESCRIPTION : Un littéral n'est utilisable que s'il dénote ENCORE la valeur
+	// -------------------------------------------------------------------------
+	bool NkArchiveNode::HasUsableLiteral() const noexcept {
+		if (!mTrivia || mTrivia->literal.Empty()) {
+			return false;
+		}
+		if (kind != NkNodeKind::NK_NODE_SCALAR) {
+			return false;
+		}
+		return mTrivia->literalOf.View() == CanonicalLexeme();
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : CanonicalLexeme
+	// DESCRIPTION : Ce que l'archive écrirait sans rien savoir du fichier
+	// -------------------------------------------------------------------------
+	NkStringView NkArchiveNode::CanonicalLexeme() const noexcept {
+		if (kind != NkNodeKind::NK_NODE_SCALAR) {
+			return NkStringView();
+		}
+		if (value.type == NkArchiveValueType::NK_VALUE_NULL) {
+			// `text` est vide pour un null : la forme canonique est le mot-clé.
+			// Sans ce cas, un null s'imprimerait vide — exactement le défaut de
+			// NkGValue::raw qu'on ne veut pas reproduire.
+			return NkStringView("null");
+		}
+		return value.text.View();
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : Lexeme
+	// DESCRIPTION : L'UNIQUE point d'impression d'un scalaire
+	// -------------------------------------------------------------------------
+	NkStringView NkArchiveNode::Lexeme() const noexcept {
+		if (HasUsableLiteral()) {
+			return mTrivia->literal.View();
+		}
+		return CanonicalLexeme();
+	}
+
+	// =============================================================================
+	// NkArchive — BIG FIVE EXPLICITE (à cause du pointeur possédant mTrivia)
+	// =============================================================================
+	// Ces cinq méthodes étaient `= default` jusqu'au 2026-08-21. L'archive ne
+	// contenait qu'un NkVector, dont la sémantique de valeur suffisait. Depuis
+	// qu'elle porte un pointeur POSSÉDANT (mTrivia), un `= default` copierait le
+	// pointeur : deux archives libéreraient le même bloc.
+
+	NkArchive::NkArchive(const NkArchive &o) noexcept : mEntries(o.mEntries) {
+		if (o.mTrivia) {
+			mTrivia = new NkArchiveTrivia(*o.mTrivia);
+		}
+	}
+
+	NkArchive::NkArchive(NkArchive &&o) noexcept : mEntries(traits::NkMove(o.mEntries)), mTrivia(o.mTrivia) {
+		o.mTrivia = nullptr;
+	}
+
+	NkArchive &NkArchive::operator=(const NkArchive &o) noexcept {
+		if (this != &o) {
+			FreeTrivia();
+			mEntries = o.mEntries;
+			if (o.mTrivia) {
+				mTrivia = new NkArchiveTrivia(*o.mTrivia);
+			}
+		}
+		return *this;
+	}
+
+	NkArchive &NkArchive::operator=(NkArchive &&o) noexcept {
+		if (this != &o) {
+			FreeTrivia();
+			mEntries = traits::NkMove(o.mEntries);
+			mTrivia = o.mTrivia;
+			o.mTrivia = nullptr;
+		}
+		return *this;
+	}
+
+	NkArchive::~NkArchive() noexcept {
+		FreeTrivia();
+	}
+
+	// =============================================================================
+	// NkArchive — TRIVIA (en-tête / pied, et accès par clé)
+	// =============================================================================
+
+	void NkArchive::FreeTrivia() noexcept {
+		delete mTrivia;
+		mTrivia = nullptr;
+	}
+
+	NkArchiveTrivia &NkArchive::EnsureTrivia() noexcept {
+		if (!mTrivia) {
+			mTrivia = new NkArchiveTrivia();
+		}
+		return *mTrivia;
+	}
+
+	void NkArchive::ClearTrivia() noexcept {
+		FreeTrivia();
+	}
+
+	void NkArchive::SetHeaderTrivia(NkStringView t) noexcept {
+		EnsureTrivia().leading = NkString(t);
+	}
+
+	void NkArchive::SetFooterTrivia(NkStringView t) noexcept {
+		EnsureTrivia().trailing = NkString(t);
+	}
+
+	NkStringView NkArchive::HeaderTrivia() const noexcept {
+		return mTrivia ? mTrivia->leading.View() : NkStringView();
+	}
+
+	NkStringView NkArchive::FooterTrivia() const noexcept {
+		return mTrivia ? mTrivia->trailing.View() : NkStringView();
+	}
+
+	nk_bool NkArchive::SetLeadingTrivia(NkStringView key, NkStringView t) noexcept {
+		NkArchiveNode *n = FindNode(key);
+		if (!n) {
+			return false;
+		}
+		n->SetLeadingTrivia(t);
+		return true;
+	}
+
+	nk_bool NkArchive::SetTrailingTrivia(NkStringView key, NkStringView t) noexcept {
+		NkArchiveNode *n = FindNode(key);
+		if (!n) {
+			return false;
+		}
+		n->SetTrailingTrivia(t);
+		return true;
+	}
+
+	nk_bool NkArchive::SetLiteral(NkStringView key, NkStringView literal) noexcept {
+		NkArchiveNode *n = FindNode(key);
+		if (!n) {
+			return false;
+		}
+		n->SetLiteral(literal);
+		return true;
+	}
+
+	nk_bool NkArchive::SetSourceOrder(NkStringView key, nk_int32 rank) noexcept {
+		NkArchiveNode *n = FindNode(key);
+		if (!n) {
+			return false;
+		}
+		n->SetSourceOrder(rank);
+		return true;
+	}
+
+	nk_int32 NkArchive::GetSourceOrder(NkStringView key) const noexcept {
+		const NkArchiveNode *n = FindNode(key);
+		return n ? n->SourceOrder() : -1;
+	}
+
+	NkStringView NkArchive::Lexeme(NkStringView key) const noexcept {
+		const NkArchiveNode *n = FindNode(key);
+		return n ? n->Lexeme() : NkStringView();
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : SortBySourceOrder
+	// DESCRIPTION : Remet les entrées dans l'ordre du fichier d'origine
+	// -------------------------------------------------------------------------
+	// Tri par INSERTION, donc STABLE — et la stabilité n'est pas un détail : les
+	// entrées sans rang (une propriété ajoutée après lecture) doivent conserver
+	// leur ordre relatif et finir à la fin, pas se retrouver à un endroit
+	// arbitraire. Insertion et non tri rapide : n est petit (< 100 clés par objet,
+	// hypothèse déjà posée par la recherche linéaire de FindIndex).
+	void NkArchive::SortBySourceOrder(bool recursive) noexcept {
+		const nk_size count = mEntries.Size();
+
+		for (nk_size i = 1; i < count; ++i) {
+			// Rang de l'entrée à replacer ; -1 (inconnu) compte comme +infini.
+			const nk_int32 rankI = mEntries[i].node.SourceOrder();
+			if (rankI < 0) {
+				continue; // sans rang : reste où elle est, donc après les rangées
+			}
+
+			nk_size j = i;
+			while (j > 0) {
+				const nk_int32 rankPrev = mEntries[j - 1].node.SourceOrder();
+				const bool prevIsLater = (rankPrev < 0) || (rankPrev > rankI);
+				if (!prevIsLater) {
+					break;
+				}
+				NkArchiveEntry tmp = traits::NkMove(mEntries[j - 1]);
+				mEntries[j - 1] = traits::NkMove(mEntries[j]);
+				mEntries[j] = traits::NkMove(tmp);
+				--j;
+			}
+		}
+
+		if (!recursive) {
+			return;
+		}
+
+		for (nk_size i = 0; i < mEntries.Size(); ++i) {
+			SortNodeBySourceOrder(mEntries[i].node);
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE PRIVÉE : SortNodeBySourceOrder
+	// DESCRIPTION : Descend le tri dans les objets et les tableaux
+	// -------------------------------------------------------------------------
+	void NkArchive::SortNodeBySourceOrder(NkArchiveNode &node) noexcept {
+		if (node.IsObject()) {
+			node.object->SortBySourceOrder(true);
+			return;
+		}
+		if (node.IsArray()) {
+			// L'ordre d'un tableau est intrinsèque : on ne le trie PAS, on
+			// descend seulement dans ses éléments.
+			for (nk_size i = 0; i < node.array.Size(); ++i) {
+				SortNodeBySourceOrder(node.array[i]);
+			}
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE PRIVÉE : AdoptNodeFormatting
+	// DESCRIPTION : Greffe la mise en forme d'un nœud source sur un nœud cible
+	// -------------------------------------------------------------------------
+	void NkArchive::AdoptNodeFormatting(NkArchiveNode &dst, const NkArchiveNode &src) noexcept {
+		const NkArchiveTrivia *st = src.Trivia();
+
+		if (st) {
+			// Un commentaire appartient à la LIGNE, pas à la valeur : il survit à
+			// une modification de la valeur. L'ordre aussi.
+			if (!st->leading.Empty()) {
+				dst.SetLeadingTrivia(st->leading.View());
+			}
+			if (!st->trailing.Empty()) {
+				dst.SetTrailingTrivia(st->trailing.View());
+			}
+			if (st->sourceOrder >= 0) {
+				dst.SetSourceOrder(st->sourceOrder);
+			}
+
+			// La forme littérale, elle, appartient à LA VALEUR. On ne la reprend
+			// que si la valeur n'a pas bougé : réimprimer 0.50 sur une valeur
+			// devenue 0.75 ne serait pas « préserver la mise en forme », ce serait
+			// PERDRE la modification.
+			if (!st->literal.Empty() && dst.IsScalar() && src.IsScalar() && dst.value.type == src.value.type &&
+				dst.value.text == src.value.text) {
+				dst.SetLiteral(st->literal.View());
+			}
+		}
+
+		if (dst.IsObject() && src.IsObject()) {
+			dst.object->AdoptFormattingNoSort(*src.object);
+			return;
+		}
+
+		if (dst.IsArray() && src.IsArray()) {
+			// Appariement par INDICE : un tableau n'a pas de clé.
+			const nk_size n = (dst.array.Size() < src.array.Size()) ? dst.array.Size() : src.array.Size();
+			for (nk_size i = 0; i < n; ++i) {
+				AdoptNodeFormatting(dst.array[i], src.array[i]);
+			}
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE PRIVÉE : AdoptFormattingNoSort
+	// DESCRIPTION : Le corps récursif de AdoptFormatting, sans le tri final
+	// -------------------------------------------------------------------------
+	void NkArchive::AdoptFormattingNoSort(const NkArchive &source) noexcept {
+		const NkArchiveTrivia *st = source.Trivia();
+		if (st) {
+			if (!st->leading.Empty()) {
+				SetHeaderTrivia(st->leading.View());
+			}
+			if (!st->trailing.Empty()) {
+				SetFooterTrivia(st->trailing.View());
+			}
+		}
+
+		for (nk_size i = 0; i < mEntries.Size(); ++i) {
+			const NkArchiveNode *sn = source.FindNode(mEntries[i].key.View());
+			if (!sn) {
+				// Clé absente de la source : elle est neuve, elle n'a pas de
+				// passé. On ne lui invente ni commentaire ni rang — elle ira
+				// donc à la fin, ce qui est le comportement voulu.
+				continue;
+			}
+			AdoptNodeFormatting(mEntries[i].node, *sn);
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// MÉTHODE : AdoptFormatting
+	// DESCRIPTION : Greffe complète + remise en ordre du fichier
+	// -------------------------------------------------------------------------
+	void NkArchive::AdoptFormatting(const NkArchive &source) noexcept {
+		AdoptFormattingNoSort(source);
+		SortBySourceOrder(true);
 	}
 
 	// =============================================================================
@@ -276,8 +690,20 @@ namespace nkentseu {
 		nk_size idx = FindIndex(key);
 
 		if (idx != NPOS) {
-			// Mise à jour de l'entrée existante
-			mEntries[idx].node = node;
+			// Mise à jour de l'entrée existante.
+			//
+			// ⚠️ Un commentaire appartient à la LIGNE, pas à la valeur : écrire
+			// `width = 400` là où il y avait `width = 320  # largeur du panneau`
+			// ne doit pas faire disparaître le commentaire. On conserve donc la
+			// trivia de l'entrée quand le nœud entrant n'en apporte pas.
+			// Le littéral périmé, lui, se désarme tout seul (voir literalOf).
+			if (!node.HasTrivia() && mEntries[idx].node.HasTrivia()) {
+				NkArchiveTrivia kept = *mEntries[idx].node.Trivia();
+				mEntries[idx].node = node;
+				mEntries[idx].node.EnsureTrivia() = kept;
+			} else {
+				mEntries[idx].node = node;
+			}
 			return true;
 		}
 

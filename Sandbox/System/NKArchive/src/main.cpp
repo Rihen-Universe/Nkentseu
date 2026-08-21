@@ -1,0 +1,787 @@
+// =============================================================================
+// Sandbox/System/NKArchive/src/main.cpp
+// Banc EXECUTABLE de la mise a jour NkArchive : commentaires, ordre du fichier,
+// forme litterale.
+//
+// POURQUOI CE FICHIER EXISTE
+// --------------------------
+// Meme raison que Sandbox/System/NKSerialization : la politique du workspace
+// (`disableunittestexecution`) COMPILE les `tests/**.cpp` SANS JAMAIS LES
+// EXECUTER. Un banc qui vit sous `tests/` ne prouve rien -- c'est exactement ce
+// qui a permis a l'en-tete de NkReflectSerializer.h de mentir deux mois. Ce banc
+// est donc une APPLICATION CONSOLE, convention documentee par NKGuiDrawTest.
+//
+// CE QU'IL PROUVE
+// ---------------
+// `NkArchive` ne portait rien de ce qu'un format texte editable a la main doit
+// rendre a l'octet. Trois manques, pas un :
+//
+//   1. les commentaires et les lignes vides ;
+//   2. L'ORDRE DU FICHIER -- l'archive est ordonnee par insertion, donc
+//      deterministe, mais l'ordre obtenu est celui de la DECLARATION DU SCHEMA.
+//      Des qu'un aller-retour passe par l'archive, les proprietes sont
+//      reordonnees et « octet pour octet » tombe ;
+//   3. la forme litterale des valeurs (`0.50` contre `0.5`, la casse d'une
+//      couleur hexadecimale, les guillemets).
+//
+//   T0  L'ECART EXISTE VRAIMENT. Meme aller-retour avec un ecrivain qui ne sait
+//       rien de la trivia : le resultat DIFFERE de l'entree, et on nomme les
+//       trois causes une par une. C'est le temoin permanent du probleme -- si
+//       T0 devenait vert, c'est que le banc ne mesure plus rien.
+//   T1  LE CAS QUI TRANCHE. Le meme `.nkgui` -- proprietes dans un ordre
+//       DIFFERENT de l'ordre de declaration du schema, commentaire en fin de
+//       ligne, flottant ecrit `0.50` -- aller-retour complet en passant par le
+//       modele reflechi : OCTET POUR OCTET.
+//   T2  Ordre : une propriete ajoutee apres lecture n'a pas de rang, elle va a
+//       la FIN, et l'ordre relatif des sans-rang est preserve (tri stable).
+//   T3  Valeur EDITEE : le commentaire survit (il appartient a la ligne), le
+//       litteral perime NE ressort PAS (il appartient a la valeur).
+//   T4  LE PIEGE DE NkGValue::raw, ferme par construction : une valeur sans
+//       forme litterale s'imprime CANONIQUEMENT, jamais vide -- pour les six
+//       types, `null` compris.
+//   T5  ADDITIF / JSON : la meme archive, avec et sans trivia, produit les
+//       MEMES octets JSON. Un ecrivain qui ignore la trivia ne voit rien.
+//   T6  ADDITIF / NKS1 : idem pour le binaire natif, relecture comprise.
+//   T7  Cycle de vie : copie profonde (aucun partage de pointeur), move
+//       (source desarmee), affectation.
+//   T8  AdoptFormatting : greffe par cle, recursion objets, appariement par
+//       indice dans les tableaux, et une cle absente de la source reste NUE.
+//
+// Sortie : un compte n/n, code de sortie 0 si tout passe.
+//
+// Zero-STL cote moteur (<cstdio> seulement pour l'affichage du banc).
+//
+// Auteur : Rihen
+// License : Proprietary - All Rights Reserved (see LICENSE)
+// =============================================================================
+
+#include <cstdio>
+
+#include "NKReflection/NkRegistry.h"
+#include "NKReflection/NkContainerTrait.h"
+#include "NKSerialization/NkArchive.h"
+#include "NKSerialization/JSON/NkJSONWriter.h"
+#include "NKSerialization/Native/NkNativeFormat.h"
+#include "NKSerialization/Reflection/NkReflectSerializer.h"
+
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
+
+using namespace nkentseu;
+using namespace nkentseu::reflection;
+
+// ---------------------------------------------------------------------------
+// Compteurs et macros du banc
+// ---------------------------------------------------------------------------
+static int s_pass = 0;
+static int s_fail = 0;
+
+#define EXPECT_TRUE(expr)                                                                                              \
+	do {                                                                                                               \
+		if (!(expr)) {                                                                                                 \
+			printf("  FAIL [%s:%d] %s\n", __FILE__, __LINE__, #expr);                                                  \
+			++s_fail;                                                                                                  \
+		} else {                                                                                                       \
+			++s_pass;                                                                                                  \
+		}                                                                                                              \
+	} while (0)
+
+#define EXPECT_STREQ(a, b)                                                                                             \
+	do {                                                                                                               \
+		const NkString &va_ = (a);                                                                                     \
+		const NkString &vb_ = (b);                                                                                     \
+		if (!(va_ == vb_)) {                                                                                           \
+			printf("  FAIL [%s:%d] %s != %s\n", __FILE__, __LINE__, #a, #b);                                           \
+			printf("    obtenu  : <<%s>>\n", va_.CStr());                                                              \
+			printf("    attendu : <<%s>>\n", vb_.CStr());                                                              \
+			++s_fail;                                                                                                  \
+		} else {                                                                                                       \
+			++s_pass;                                                                                                  \
+		}                                                                                                              \
+	} while (0)
+
+// =============================================================================
+// LE SCHEMA -- un panneau, cinq proprietes, DANS CET ORDRE
+// =============================================================================
+// L'ordre de declaration ci-dessous est title, width, height, opacity, accent.
+// Le fichier temoin, lui, ecrit height, opacity, title, accent, width. C'est
+// tout le probleme : l'archive rend l'ordre du SCHEMA, le fichier veut le sien.
+
+struct Panel {
+		NKENTSEU_REFLECT_CLASS(Panel)
+	public:
+		NKENTSEU_PROPERTY(NkString, title)
+	public:
+		NKENTSEU_PROPERTY(nk_int32, width)
+	public:
+		NKENTSEU_PROPERTY(nk_int32, height)
+	public:
+		NKENTSEU_PROPERTY(nk_float32, opacity)
+	public:
+		NKENTSEU_PROPERTY(NkString, accent)
+	public:
+};
+
+static void WireClasses() {
+	(void)Panel::GetStaticClass();
+}
+
+// =============================================================================
+// LE FICHIER TEMOIN
+// =============================================================================
+// Ecrit a la main, comme un humain l'ecrirait. Trois pieges dedans :
+//  - l'ordre n'est PAS celui du schema ;
+//  - il y a des commentaires, dont un en FIN DE LIGNE, et une ligne vide ;
+//  - `opacity` vaut `0.50` (deux decimales) et `accent` porte une casse HAUTE.
+// La forme canonique de 0.50 est "0.5" : un ecrivain canonique reecrirait donc
+// une ligne que personne n'a touchee.
+
+static const char *const kWitness = "# Panneau d inspection -- temoin du banc NkArchive\n"
+									"# Les proprietes ne sont PAS dans l ordre du schema.\n"
+									"\n"
+									"height = 240          # hauteur utile, en points\n"
+									"opacity = 0.50        # deux decimales, expres\n"
+									"\n"
+									"title = \"Inspecteur\"\n"
+									"accent = \"#F79A28\"    # casse HAUTE : un ecrivain canonique la garderait\n"
+									"width = 320\n"
+									"# derniere ligne, apres la derniere propriete\n";
+
+// =============================================================================
+// UNE COUCHE DE SYNTAXE CONCRETE MINIMALE, POSEE SUR NkArchive
+// =============================================================================
+// Ce n'est PAS le format `.nkgui` (qui viendra a l'etape suivante) : c'est le
+// plus petit lecteur/ecrivain qui exerce reellement les trois manques. La
+// grammaire tient en une phrase : une ligne est soit du bruit (vide ou
+// commentaire), soit `cle = valeur` suivie eventuellement d'un commentaire de
+// fin de ligne.
+
+// --- helpers de chaine ------------------------------------------------------
+
+static bool IsSpaceChar(char c) noexcept {
+	return c == ' ' || c == '\t';
+}
+
+static NkString Slice(const char *s, nk_size begin, nk_size end) noexcept {
+	if (end <= begin) {
+		return NkString();
+	}
+	return NkString(s + begin, end - begin);
+}
+
+// --- lecture ----------------------------------------------------------------
+//
+// Ce que le lecteur depose dans l'archive, en plus de la valeur :
+//   - `leading`     : les lignes de bruit qui precedent la propriete, telles quelles
+//   - `trailing`    : tout ce qui suit la valeur sur la meme ligne (espaces compris)
+//   - `sourceOrder` : le rang de la propriete dans le fichier
+//   - `literal`     : le lexeme brut, tel qu'ecrit
+//   - en-tete / pied de l'archive : le bruit du debut et celui de la fin
+
+static bool ReadWitness(const char *src, NkArchive &out) noexcept {
+	out.Clear();
+
+	NkString pending; // bruit accumule en attente d'une propriete
+	nk_int32 rank = 0;
+	nk_size i = 0;
+
+	while (src[i] != '\0') {
+		// Decoupe de la ligne courante, saut de ligne compris.
+		nk_size lineBegin = i;
+		while (src[i] != '\0' && src[i] != '\n') {
+			++i;
+		}
+		nk_size lineEnd = i;			  // sans le '\n'
+		if (src[i] == '\n') {
+			++i;
+		}
+		nk_size fullEnd = i;			  // avec le '\n'
+
+		// Une ligne vide ou commencant par '#' est du bruit.
+		nk_size p = lineBegin;
+		while (p < lineEnd && IsSpaceChar(src[p])) {
+			++p;
+		}
+		if (p == lineEnd || src[p] == '#') {
+			pending.Append(Slice(src, lineBegin, fullEnd));
+			continue;
+		}
+
+		// `cle = valeur`
+		nk_size keyBegin = p;
+		while (p < lineEnd && !IsSpaceChar(src[p]) && src[p] != '=') {
+			++p;
+		}
+		NkString key = Slice(src, keyBegin, p);
+		while (p < lineEnd && IsSpaceChar(src[p])) {
+			++p;
+		}
+		if (p >= lineEnd || src[p] != '=') {
+			return false; // grammaire violee
+		}
+		++p;
+		while (p < lineEnd && IsSpaceChar(src[p])) {
+			++p;
+		}
+
+		// Le lexeme : jusqu'au premier espace hors guillemets, ou fin de ligne.
+		nk_size valBegin = p;
+		bool inQuotes = false;
+		while (p < lineEnd) {
+			if (src[p] == '"') {
+				inQuotes = !inQuotes;
+			} else if (!inQuotes && IsSpaceChar(src[p])) {
+				break;
+			}
+			++p;
+		}
+		NkString literal = Slice(src, valBegin, p);
+		NkString trailing = Slice(src, p, lineEnd); // espaces + commentaire, tels quels
+
+		// Typage du lexeme : "..." = chaine, un point = flottant, sinon entier.
+		if (literal.Length() >= 2 && literal[0] == '"') {
+			NkString inner = Slice(literal.CStr(), 1, literal.Length() - 1);
+			out.SetString(key.View(), inner.View());
+		} else if (literal.Find(NkStringView(".")) != NkString::npos) {
+			nk_float64 f = 0.0;
+			literal.ToDouble(f);
+			out.SetFloat32(key.View(), static_cast<nk_float32>(f));
+		} else {
+			nk_int64 n = 0;
+			literal.ToInt64(n);
+			out.SetInt32(key.View(), static_cast<nk_int32>(n));
+		}
+
+		// La mise en forme, deposee sur le noeud qu'on vient de poser.
+		if (!pending.Empty()) {
+			out.SetLeadingTrivia(key.View(), pending.View());
+			pending.Clear();
+		}
+		if (!trailing.Empty()) {
+			out.SetTrailingTrivia(key.View(), trailing.View());
+		}
+		out.SetSourceOrder(key.View(), rank);
+		out.SetLiteral(key.View(), literal.View());
+		++rank;
+	}
+
+	// Ce qui reste apres la derniere propriete est le pied du fichier.
+	if (!pending.Empty()) {
+		out.SetFooterTrivia(pending.View());
+	}
+	return true;
+}
+
+// --- ecriture ---------------------------------------------------------------
+//
+// `honorTrivia == false` reproduit exactement ce que ferait un ecrivain qui ne
+// sait rien de la mise en forme -- c'est la branche que T0 mesure.
+
+static NkString WriteWitness(const NkArchive &ar, bool honorTrivia) noexcept {
+	NkString out;
+
+	if (honorTrivia) {
+		out.Append(ar.HeaderTrivia());
+	}
+
+	const NkVector<NkArchiveEntry> &entries = ar.Entries();
+	for (nk_size i = 0; i < entries.Size(); ++i) {
+		const NkArchiveEntry &e = entries[i];
+
+		if (honorTrivia) {
+			out.Append(e.node.LeadingTrivia());
+		}
+
+		out.Append(e.key);
+		out.Append(" = ");
+
+		// Une chaine se reecrit entre guillemets si elle n'a pas de litteral :
+		// le litteral, lui, PORTE DEJA ses guillemets tels qu'ecrits.
+		if (honorTrivia) {
+			out.Append(e.node.Lexeme());
+		} else if (e.node.value.type == NkArchiveValueType::NK_VALUE_STRING) {
+			out.Append('"');
+			out.Append(e.node.value.text);
+			out.Append('"');
+		} else {
+			out.Append(e.node.CanonicalLexeme());
+		}
+
+		if (honorTrivia) {
+			out.Append(e.node.TrailingTrivia());
+		}
+		out.Append('\n');
+	}
+
+	if (honorTrivia) {
+		out.Append(ar.FooterTrivia());
+	}
+	return out;
+}
+
+// --- le chemin complet ------------------------------------------------------
+//
+// fichier -> archive LUE -> modele reflechi -> archive RECONSTRUITE (nue, dans
+// l'ordre du schema) -> greffe de la mise en forme -> fichier.
+
+static NkString RoundTrip(const char *src, bool honorTrivia, Panel *edited = nullptr) noexcept {
+	NkArchive read;
+	if (!ReadWitness(src, read)) {
+		return NkString("<<lecture impossible>>");
+	}
+
+	Panel model;
+	if (!NkReflectSerializer::DeserializeObject(model, read)) {
+		return NkString("<<deserialisation impossible>>");
+	}
+	if (edited) {
+		model = *edited; // point d'injection d'une edition, pour T3
+	}
+
+	NkArchive rebuilt;
+	if (!NkReflectSerializer::SerializeObject(model, rebuilt)) {
+		return NkString("<<serialisation impossible>>");
+	}
+
+	if (honorTrivia) {
+		rebuilt.AdoptFormatting(read);
+	}
+	return WriteWitness(rebuilt, honorTrivia);
+}
+
+// =============================================================================
+// T0 -- L'ECART EXISTE VRAIMENT
+// =============================================================================
+// Temoin permanent : sans la mise a jour de NkArchive, l'aller-retour ABIME le
+// fichier. On ne se contente pas de constater une difference, on nomme les
+// trois causes -- sinon un jour la difference viendrait d'autre chose et
+// personne ne le verrait.
+static void T0_EcartSansTrivia() {
+	printf("[T0] L'ecart existe : aller-retour SANS trivia -> le fichier est abime\n");
+
+	const NkString witness(kWitness);
+	const NkString plain = RoundTrip(kWitness, /*honorTrivia=*/false);
+
+	EXPECT_TRUE(!(plain == witness)); // c'est bien le probleme qu'on corrige
+
+	// Cause 1 : les commentaires et la ligne vide ont disparu.
+	EXPECT_TRUE(plain.Find(NkStringView("# hauteur utile")) == NkString::npos);
+	EXPECT_TRUE(plain.Find(NkStringView("# Panneau d inspection")) == NkString::npos);
+
+	// Cause 2 : l'ordre est celui du SCHEMA (title en premier), pas du fichier
+	// (height en premier).
+	EXPECT_TRUE(plain.Find(NkStringView("title")) < plain.Find(NkStringView("height")));
+	EXPECT_TRUE(witness.Find(NkStringView("height")) < witness.Find(NkStringView("title")));
+
+	// Cause 3 : `0.50` est reecrit canoniquement `0.5`.
+	EXPECT_TRUE(plain.Find(NkStringView("opacity = 0.5\n")) != NkString::npos);
+	EXPECT_TRUE(plain.Find(NkStringView("0.50")) == NkString::npos);
+}
+
+// =============================================================================
+// T1 -- LE CAS QUI TRANCHE : OCTET POUR OCTET
+// =============================================================================
+static void T1_OctetPourOctet() {
+	printf("[T1] Aller-retour AVEC trivia -> OCTET POUR OCTET\n");
+
+	const NkString witness(kWitness);
+	const NkString back = RoundTrip(kWitness, /*honorTrivia=*/true);
+
+	EXPECT_STREQ(back, witness);
+	EXPECT_TRUE(back.Length() == witness.Length());
+}
+
+// =============================================================================
+// T2 -- ORDRE : une propriete neuve va a la FIN, et le tri est stable
+// =============================================================================
+static void T2_OrdreEtProprieteNeuve() {
+	printf("[T2] Ordre du fichier, et propriete neuve rangee a la fin\n");
+
+	NkArchive read;
+	EXPECT_TRUE(ReadWitness(kWitness, read));
+
+	// Rangs tels que le fichier les a donnes.
+	EXPECT_TRUE(read.GetSourceOrder(NkStringView("height")) == 0);
+	EXPECT_TRUE(read.GetSourceOrder(NkStringView("opacity")) == 1);
+	EXPECT_TRUE(read.GetSourceOrder(NkStringView("title")) == 2);
+	EXPECT_TRUE(read.GetSourceOrder(NkStringView("accent")) == 3);
+	EXPECT_TRUE(read.GetSourceOrder(NkStringView("width")) == 4);
+
+	// Une archive dans l'ordre du schema, PLUS deux proprietes que le fichier
+	// n'a jamais connues.
+	NkArchive rebuilt;
+	Panel model;
+	EXPECT_TRUE(NkReflectSerializer::DeserializeObject(model, read));
+	EXPECT_TRUE(NkReflectSerializer::SerializeObject(model, rebuilt));
+	rebuilt.SetInt32(NkStringView("zIndex"), 7);   // neuve, inseree en premier
+	rebuilt.SetInt32(NkStringView("marginTop"), 4); // neuve, inseree en second
+
+	rebuilt.AdoptFormatting(read);
+
+	const NkVector<NkArchiveEntry> &e = rebuilt.Entries();
+	EXPECT_TRUE(e.Size() == 7);
+	if (e.Size() == 7) {
+		// Les cinq du fichier, dans l'ordre du fichier.
+		EXPECT_TRUE(e[0].key == NkString("height"));
+		EXPECT_TRUE(e[1].key == NkString("opacity"));
+		EXPECT_TRUE(e[2].key == NkString("title"));
+		EXPECT_TRUE(e[3].key == NkString("accent"));
+		EXPECT_TRUE(e[4].key == NkString("width"));
+		// Les deux neuves a la fin, DANS LEUR ORDRE D'INSERTION (tri stable).
+		EXPECT_TRUE(e[5].key == NkString("zIndex"));
+		EXPECT_TRUE(e[6].key == NkString("marginTop"));
+	}
+
+	// Et une cle absente de la source reste NUE : ni commentaire, ni rang.
+	EXPECT_TRUE(rebuilt.GetSourceOrder(NkStringView("zIndex")) == -1);
+	const NkArchiveNode *zn = rebuilt.FindNode(NkStringView("zIndex"));
+	EXPECT_TRUE(zn != nullptr && !zn->HasTrivia());
+}
+
+// =============================================================================
+// T3 -- VALEUR EDITEE : le commentaire reste, le litteral perime ne revient pas
+// =============================================================================
+// Le commentaire appartient a la LIGNE ; la forme litterale appartient a la
+// VALEUR. Reimprimer `0.50` sur une opacite devenue 0.75 ne serait pas
+// « preserver la mise en forme », ce serait PERDRE la modification.
+static void T3_ValeurEditee() {
+	printf("[T3] Valeur editee : le commentaire survit, le litteral perime non\n");
+
+	NkArchive read;
+	EXPECT_TRUE(ReadWitness(kWitness, read));
+
+	Panel model;
+	EXPECT_TRUE(NkReflectSerializer::DeserializeObject(model, read));
+	model.opacity = 0.75f; // l'utilisateur a bouge le curseur
+
+	const NkString back = RoundTrip(kWitness, /*honorTrivia=*/true, &model);
+
+	// La nouvelle valeur est ecrite, canoniquement.
+	EXPECT_TRUE(back.Find(NkStringView("opacity = 0.75")) != NkString::npos);
+	// L'ancien lexeme n'est PAS ressorti.
+	EXPECT_TRUE(back.Find(NkStringView("0.50")) == NkString::npos);
+	// Le commentaire de fin de ligne, lui, est toujours la.
+	EXPECT_TRUE(back.Find(NkStringView("# deux decimales, expres")) != NkString::npos);
+	// Et tout le reste du fichier est intact, y compris l'ordre.
+	EXPECT_TRUE(back.Find(NkStringView("height = 240          # hauteur utile, en points")) != NkString::npos);
+	EXPECT_TRUE(back.Find(NkStringView("accent = \"#F79A28\"")) != NkString::npos);
+
+	// Le meme fait, vu au niveau du noeud : le litteral est encore stocke mais
+	// il n'est plus UTILISABLE, et c'est ce que Lexeme() consulte.
+	NkArchiveNode *n = read.FindNode(NkStringView("opacity"));
+	EXPECT_TRUE(n != nullptr);
+	if (n) {
+		EXPECT_TRUE(n->HasUsableLiteral());
+		EXPECT_TRUE(NkString(n->Lexeme()) == NkString("0.50"));
+		n->value = NkArchiveValue::FromFloat32(0.75f);
+		EXPECT_TRUE(!n->HasUsableLiteral()); // desarme tout seul
+		EXPECT_TRUE(NkString(n->Lexeme()) == NkString("0.75"));
+	}
+}
+
+// =============================================================================
+// T4 -- LE PIEGE DE NkGValue::raw, FERME PAR CONSTRUCTION
+// =============================================================================
+// L'ecrivain `.nkgui` reemet `NkGValue::raw` verbatim : un document construit en
+// memoire a un `raw` vide, il s'ecrit donc avec des valeurs VIDES, sans la
+// moindre erreur, et se relit sans broncher. Ici, une valeur sans forme
+// litterale doit s'imprimer CANONIQUEMENT -- jamais vide.
+static void T4_JamaisVide() {
+	printf("[T4] Une valeur sans litteral s'imprime canoniquement, jamais vide\n");
+
+	NkArchive ar; // fabriquee par le CODE : aucune trivia nulle part
+	ar.SetNull(NkStringView("rien"));
+	ar.SetBool(NkStringView("actif"), false);
+	ar.SetInt32(NkStringView("compte"), 0);
+	ar.SetUInt64(NkStringView("masque"), 0u);
+	ar.SetFloat32(NkStringView("ratio"), 0.5f);
+	ar.SetString(NkStringView("nom"), NkStringView("Inspecteur"));
+	ar.SetString(NkStringView("vide"), NkStringView(""));
+
+	// Aucun noeud ne porte de trivia : c'est le cas normal et il est valide.
+	const NkVector<NkArchiveEntry> &e = ar.Entries();
+	for (nk_size i = 0; i < e.Size(); ++i) {
+		EXPECT_TRUE(!e[i].node.HasTrivia());
+	}
+
+	// Et pourtant aucun Lexeme() ne rend du vide -- sauf la chaine reellement
+	// vide, pour laquelle vide EST la bonne reponse.
+	EXPECT_TRUE(NkString(ar.Lexeme(NkStringView("rien"))) == NkString("null"));
+	EXPECT_TRUE(NkString(ar.Lexeme(NkStringView("actif"))) == NkString("false"));
+	EXPECT_TRUE(NkString(ar.Lexeme(NkStringView("compte"))) == NkString("0"));
+	EXPECT_TRUE(NkString(ar.Lexeme(NkStringView("masque"))) == NkString("0"));
+	EXPECT_TRUE(NkString(ar.Lexeme(NkStringView("ratio"))) == NkString("0.5"));
+	EXPECT_TRUE(NkString(ar.Lexeme(NkStringView("nom"))) == NkString("Inspecteur"));
+	EXPECT_TRUE(NkString(ar.Lexeme(NkStringView("vide"))).Empty());
+
+	// Les faux et les zeros, precisement ceux qu'une « optimisation » omettrait,
+	// s'impriment bien.
+	EXPECT_TRUE(!NkString(ar.Lexeme(NkStringView("actif"))).Empty());
+	EXPECT_TRUE(!NkString(ar.Lexeme(NkStringView("compte"))).Empty());
+	EXPECT_TRUE(!NkString(ar.Lexeme(NkStringView("rien"))).Empty());
+
+	// Et un litteral pose puis vide ne peut pas faire retomber dans le vide.
+	NkArchiveNode *n = ar.FindNode(NkStringView("ratio"));
+	EXPECT_TRUE(n != nullptr);
+	if (n) {
+		n->SetLiteral(NkStringView(""));
+		EXPECT_TRUE(!n->HasUsableLiteral());
+		EXPECT_TRUE(NkString(n->Lexeme()) == NkString("0.5"));
+	}
+}
+
+// =============================================================================
+// T5 -- ADDITIF / JSON : la trivia est INVISIBLE a qui ne la demande pas
+// =============================================================================
+static void T5_AdditifJSON() {
+	printf("[T5] Additif : le JSON produit est identique avec et sans trivia\n");
+
+	NkArchive nue;
+	nue.SetInt32(NkStringView("height"), 240);
+	nue.SetFloat32(NkStringView("opacity"), 0.5f);
+	nue.SetString(NkStringView("title"), NkStringView("Inspecteur"));
+	NkArchive sub;
+	sub.SetInt32(NkStringView("x"), 1);
+	nue.SetObject(NkStringView("origine"), sub);
+	NkVector<NkArchiveValue> arr;
+	arr.PushBack(NkArchiveValue::FromInt32(3));
+	arr.PushBack(NkArchiveValue::FromInt32(4));
+	nue.SetArray(NkStringView("marges"), arr);
+
+	NkArchive ornee(nue); // meme contenu...
+	ornee.SetHeaderTrivia(NkStringView("# en-tete\n"));
+	ornee.SetFooterTrivia(NkStringView("# pied\n"));
+	ornee.SetLeadingTrivia(NkStringView("opacity"), NkStringView("\n# un commentaire\n"));
+	ornee.SetTrailingTrivia(NkStringView("height"), NkStringView("   # en fin de ligne"));
+	ornee.SetLiteral(NkStringView("opacity"), NkStringView("0.50"));
+	ornee.SetSourceOrder(NkStringView("title"), 0);
+
+	const NkString jNue = NkJSONWriter::WriteArchive(nue, true, 2);
+	const NkString jOrnee = NkJSONWriter::WriteArchive(ornee, true, 2);
+
+	EXPECT_STREQ(jOrnee, jNue);
+	EXPECT_TRUE(jOrnee.Find(NkStringView("0.50")) == NkString::npos);
+	EXPECT_TRUE(jOrnee.Find(NkStringView("commentaire")) == NkString::npos);
+	// L'ordre n'a pas bouge non plus : SetSourceOrder ne trie pas toute seule.
+	EXPECT_TRUE(ornee.Entries()[0].key == NkString("height"));
+}
+
+// =============================================================================
+// T6 -- ADDITIF / NKS1 : idem pour le binaire natif
+// =============================================================================
+static void T6_AdditifNKS1() {
+	printf("[T6] Additif : le binaire NKS1 est identique avec et sans trivia\n");
+
+	NkArchive nue;
+	nue.SetInt32(NkStringView("height"), 240);
+	nue.SetFloat32(NkStringView("opacity"), 0.5f);
+	nue.SetString(NkStringView("title"), NkStringView("Inspecteur"));
+
+	NkArchive ornee(nue);
+	ornee.SetHeaderTrivia(NkStringView("# en-tete\n"));
+	ornee.SetTrailingTrivia(NkStringView("height"), NkStringView("  # utile"));
+	ornee.SetLiteral(NkStringView("opacity"), NkStringView("0.50"));
+	ornee.SetSourceOrder(NkStringView("opacity"), 0);
+
+	NkVector<nk_uint8> binNue;
+	NkVector<nk_uint8> binOrnee;
+	EXPECT_TRUE(native::NkNativeWriter::WriteArchive(nue, binNue));
+	EXPECT_TRUE(native::NkNativeWriter::WriteArchive(ornee, binOrnee));
+
+	EXPECT_TRUE(binNue.Size() == binOrnee.Size());
+	bool same = (binNue.Size() == binOrnee.Size());
+	if (same) {
+		for (nk_size i = 0; i < binNue.Size(); ++i) {
+			if (binNue[i] != binOrnee[i]) {
+				same = false;
+				break;
+			}
+		}
+	}
+	EXPECT_TRUE(same); // octet pour octet : NKS1 ne voit pas la trivia
+
+	// Et la relecture rend une archive nue, sans inventer de mise en forme.
+	NkArchive relu;
+	EXPECT_TRUE(native::NkNativeReader::ReadArchive(binOrnee.Data(), binOrnee.Size(), relu));
+	EXPECT_TRUE(relu.Size() == 3);
+	EXPECT_TRUE(!relu.HasTrivia());
+	for (nk_size i = 0; i < relu.Entries().Size(); ++i) {
+		EXPECT_TRUE(!relu.Entries()[i].node.HasTrivia());
+	}
+	nk_int32 h = 0;
+	EXPECT_TRUE(relu.GetInt32(NkStringView("height"), h) && h == 240);
+}
+
+// =============================================================================
+// T7 -- CYCLE DE VIE : copie profonde, move, affectation
+// =============================================================================
+// Le bloc de trivia est un pointeur POSSEDANT. C'est exactement le piege qui a
+// oblige NkArchive a cesser d'etre `= default` : un pointeur copie, c'est deux
+// proprietaires et une double liberation.
+static void T7_CycleDeVie() {
+	printf("[T7] Cycle de vie : copie profonde, move, affectation\n");
+
+	NkArchive a;
+	a.SetInt32(NkStringView("k"), 1);
+	a.SetTrailingTrivia(NkStringView("k"), NkStringView("  # note"));
+	a.SetHeaderTrivia(NkStringView("# tete\n"));
+
+	// Copie : le contenu suit, le POINTEUR non.
+	NkArchive b(a);
+	EXPECT_TRUE(NkString(b.HeaderTrivia()) == NkString("# tete\n"));
+	const NkArchiveNode *na = a.FindNode(NkStringView("k"));
+	const NkArchiveNode *nb = b.FindNode(NkStringView("k"));
+	EXPECT_TRUE(na && nb && na->Trivia() != nb->Trivia());
+	EXPECT_TRUE(a.Trivia() != b.Trivia());
+
+	// Modifier la copie ne remonte pas dans l'original.
+	b.SetTrailingTrivia(NkStringView("k"), NkStringView("  # autre"));
+	EXPECT_TRUE(NkString(a.FindNode(NkStringView("k"))->TrailingTrivia()) == NkString("  # note"));
+
+	// Affectation par copie : idem, et l'ancien bloc de la cible est libere.
+	NkArchive c;
+	c.SetInt32(NkStringView("z"), 9);
+	c.SetHeaderTrivia(NkStringView("# a jeter\n"));
+	c = a;
+	EXPECT_TRUE(NkString(c.HeaderTrivia()) == NkString("# tete\n"));
+	EXPECT_TRUE(c.Trivia() != a.Trivia());
+
+	// Move : la source est desarmee, elle ne possede plus rien.
+	NkArchive d(traits::NkMove(c));
+	EXPECT_TRUE(NkString(d.HeaderTrivia()) == NkString("# tete\n"));
+	EXPECT_TRUE(!c.HasTrivia());
+
+	// Move d'un noeud : meme regle.
+	NkArchiveNode n1(NkArchiveValue::FromInt32(5));
+	n1.SetTrailingTrivia(NkStringView("  # x"));
+	NkArchiveNode n2(traits::NkMove(n1));
+	EXPECT_TRUE(n2.HasTrivia());
+	EXPECT_TRUE(!n1.HasTrivia());
+
+	// Une reaffectation de valeur par cle conserve le commentaire de la ligne
+	// (il appartient a la ligne) mais desarme le litteral (il appartient a la
+	// valeur).
+	NkArchive e;
+	e.SetFloat32(NkStringView("opacity"), 0.5f);
+	e.SetTrailingTrivia(NkStringView("opacity"), NkStringView("  # curseur"));
+	e.SetLiteral(NkStringView("opacity"), NkStringView("0.50"));
+	EXPECT_TRUE(NkString(e.Lexeme(NkStringView("opacity"))) == NkString("0.50"));
+	e.SetFloat32(NkStringView("opacity"), 0.75f);
+	EXPECT_TRUE(NkString(e.FindNode(NkStringView("opacity"))->TrailingTrivia()) == NkString("  # curseur"));
+	EXPECT_TRUE(NkString(e.Lexeme(NkStringView("opacity"))) == NkString("0.75"));
+}
+
+// =============================================================================
+// T8 -- AdoptFormatting : objets imbriques et tableaux
+// =============================================================================
+static void T8_GreffeRecursive() {
+	printf("[T8] AdoptFormatting : recursion dans les objets et les tableaux\n");
+
+	// La source : ce qu'un fichier aurait donne.
+	NkArchive srcSub;
+	srcSub.SetInt32(NkStringView("x"), 1);
+	srcSub.SetInt32(NkStringView("y"), 2);
+	srcSub.SetSourceOrder(NkStringView("y"), 0);
+	srcSub.SetSourceOrder(NkStringView("x"), 1);
+	srcSub.SetTrailingTrivia(NkStringView("y"), NkStringView("  # ordonnee"));
+
+	NkArchive src;
+	src.SetObject(NkStringView("origine"), srcSub);
+	NkVector<NkArchiveValue> vals;
+	vals.PushBack(NkArchiveValue::FromFloat32(0.5f));
+	vals.PushBack(NkArchiveValue::FromFloat32(0.25f));
+	src.SetArray(NkStringView("marges"), vals);
+	{
+		NkArchiveNode *m = src.FindNode(NkStringView("marges"));
+		EXPECT_TRUE(m != nullptr);
+		if (m) {
+			m->array[0].SetLiteral(NkStringView("0.50"));
+			m->array[1].SetLiteral(NkStringView(".25"));
+		}
+	}
+
+	// La cible : la meme chose, reconstruite depuis un modele, dans un autre
+	// ordre et sans la moindre mise en forme.
+	NkArchive dstSub;
+	dstSub.SetInt32(NkStringView("x"), 1);
+	dstSub.SetInt32(NkStringView("y"), 2);
+	NkArchive dst;
+	dst.SetObject(NkStringView("origine"), dstSub);
+	dst.SetArray(NkStringView("marges"), vals);
+
+	dst.AdoptFormatting(src);
+
+	// Objet imbrique : ordre du fichier et commentaire greffes.
+	const NkArchiveNode *o = dst.FindNode(NkStringView("origine"));
+	EXPECT_TRUE(o != nullptr && o->IsObject());
+	if (o && o->IsObject()) {
+		EXPECT_TRUE(o->object->Entries()[0].key == NkString("y"));
+		EXPECT_TRUE(o->object->Entries()[1].key == NkString("x"));
+		EXPECT_TRUE(NkString(o->object->FindNode(NkStringView("y"))->TrailingTrivia()) == NkString("  # ordonnee"));
+	}
+
+	// Tableau : appariement par INDICE, litteraux repris.
+	const NkArchiveNode *m = dst.FindNode(NkStringView("marges"));
+	EXPECT_TRUE(m != nullptr && m->IsArray() && m->array.Size() == 2);
+	if (m && m->IsArray() && m->array.Size() == 2) {
+		EXPECT_TRUE(NkString(m->array[0].Lexeme()) == NkString("0.50"));
+		EXPECT_TRUE(NkString(m->array[1].Lexeme()) == NkString(".25"));
+	}
+
+	// Un tableau n'est PAS trie : son ordre est intrinseque.
+	NkArchive dst2;
+	dst2.SetArray(NkStringView("marges"), vals);
+	dst2.AdoptFormatting(src);
+	const NkArchiveNode *m2 = dst2.FindNode(NkStringView("marges"));
+	EXPECT_TRUE(m2 && m2->array.Size() == 2);
+	if (m2 && m2->array.Size() == 2) {
+		EXPECT_TRUE(m2->array[0].value.text == NkString("0.5"));
+		EXPECT_TRUE(m2->array[1].value.text == NkString("0.25"));
+	}
+
+	// Une valeur de tableau MODIFIEE ne recupere pas le litteral perime.
+	NkVector<NkArchiveValue> autres;
+	autres.PushBack(NkArchiveValue::FromFloat32(0.75f));
+	autres.PushBack(NkArchiveValue::FromFloat32(0.25f));
+	NkArchive dst3;
+	dst3.SetArray(NkStringView("marges"), autres);
+	dst3.AdoptFormatting(src);
+	const NkArchiveNode *m3 = dst3.FindNode(NkStringView("marges"));
+	EXPECT_TRUE(m3 && m3->array.Size() == 2);
+	if (m3 && m3->array.Size() == 2) {
+		EXPECT_TRUE(NkString(m3->array[0].Lexeme()) == NkString("0.75")); // pas "0.50"
+		EXPECT_TRUE(NkString(m3->array[1].Lexeme()) == NkString(".25"));  // inchangee
+	}
+}
+
+// =============================================================================
+// POINT D'ENTREE
+// =============================================================================
+int main() {
+	printf("=========================================================\n");
+	printf(" SandboxNKArchive -- trivia, ordre du fichier, litteraux\n");
+	printf("=========================================================\n\n");
+
+	WireClasses();
+
+	T0_EcartSansTrivia();
+	T1_OctetPourOctet();
+	T2_OrdreEtProprieteNeuve();
+	T3_ValeurEditee();
+	T4_JamaisVide();
+	T5_AdditifJSON();
+	T6_AdditifNKS1();
+	T7_CycleDeVie();
+	T8_GreffeRecursive();
+
+	const int total = s_pass + s_fail;
+	printf("\n---------------------------------------------------------\n");
+	printf(" RESULTAT : %d / %d\n", s_pass, total);
+	printf("---------------------------------------------------------\n");
+
+	return (s_fail == 0) ? 0 : 1;
+}
+
+// ============================================================
+// Copyright (c) 2024-2026 Rihen. Tous droits reserves.
+// ============================================================
