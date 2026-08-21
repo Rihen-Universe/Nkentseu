@@ -441,7 +441,15 @@ complexité, on mesure la **diversité** :
 | répartition des valeurs d'espacement | tout tombe sur la même échelle (4/8/16…) |
 | nombre de colonnes des grilles | une seule valeur domine |
 | rayons de coin, hauteurs de bouton | quelques valeurs concentrent tout |
-| origine des documents | un seul système dépasse ~30 % du total |
+| origine des documents | un seul **auteur** dépasse ~30 % du total |
+
+⚠️ **Le plafond porte sur l'AUTEUR, pas sur la source — constaté en le mesurant le
+2026-08-21.** Sur la semence Godot, aucun dépôt ne dépassait 30,2 %… mais
+`gdquest-demos` apparaissait **deux fois**, totalisant **42 % des scènes**. Un même
+studio, un même goût, deux dépôts — et le plafond par source ne voyait rien.
+
+*Compter par dépôt, par domaine ou par fichier laisse toujours une façon de se
+répartir sous le seuil. C'est la main qui a dessiné qu'il faut compter.*
 
 **Contre-mesure** : répartir délibérément entre plusieurs systèmes — Bootstrap,
 Bulma, Material, Ant Design, Tailwind, Foundation — et plusieurs maisons de
