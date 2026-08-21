@@ -141,13 +141,118 @@ namespace nkentseu {
 				// Idempotent : deux appels avec le meme nom rendent le meme
 				// identifiant. Une application peut donc enregistrer ses roles sans
 				// se demander si une autre l'a deja fait.
+				//
+				// ⚠️ IL COMPARE OCTET POUR OCTET, sans canoniser, et c'est voulu :
+				//    il ENREGISTRE un nom, il ne le resout pas. Canoniser ici
+				//    changerait ce qu'une application a demande (« MonRole »
+				//    deviendrait « mon_role ») et polluerait l'audit de `Find` d'une
+				//    faute imaginaire a chaque premier enregistrement.
 				static uint16 Register(const char *name);
+
+				// LA RESOLUTION. Trois tentatives, dans cet ordre, et l'ordre n'est
+				// pas indifferent :
+				//   1. le nom BRUT, coeur puis extensions ;
+				//   2. sa forme CANONISEE (`NkCanonicalRoleName`), meme parcours ;
+				//   3. echec -> compte et nomme dans `NkRoleAudit`, rend
+				//      NK_ROLE_INVALID.
+				//
+				// ⚠️ LA CANONISATION VIENT APRES LE NOM BRUT, JAMAIS AVANT. Une
+				//    application enregistre ses propres roles sous n'importe quelle
+				//    graphie ; canoniser d'abord ferait manquer un role d'extension
+				//    legitimement nomme « MonRole ». Dans cet ordre, la canonisation
+				//    ne peut QUE rattraper — elle ne casse aucun nom qui resolvait
+				//    deja. Le banc NKEditorKitTest tient ce point par deux controles
+				//    negatifs (essais 1h et 1i).
 				static uint16 Find(const char *name); ///< NK_ROLE_INVALID si absent
 				static const char *Name(uint16 id);
 				static uint16 Total(); ///< roles du coeur + extensions enregistrees
 		};
 
-		// Resout un nom vers un identifiant, coeur PUIS extensions.
+		// ── LA CANONISATION D'UN NOM DE ROLE ────────────────────────────────────
+		// PascalCase / camelCase -> snake_case. PURE : aucune allocation, aucun
+		// etat, aucune dependance au theme. Elle est publique parce qu'un outil
+		// (editeur de theme, verificateur de declaration) doit pouvoir dire a
+		// l'auteur quelle forme SON nom aurait prise.
+		//
+		// REGLE, en une phrase : on insere un « _ » devant toute MAJUSCULE qui
+		// suit une minuscule ou un chiffre, puis on met tout en minuscules.
+		//
+		//   PanelBg      -> panel_bg          TextOnAccent -> text_on_accent
+		//   PanelHeader  -> panel_header      AccentUi     -> accent_ui
+		//   TypeFolder   -> type_folder       panel_bg     -> panel_bg  (inchange)
+		//   nk3d.AnneauBrosse -> nk3d.anneau_brosse
+		//
+		// ⚠️ SA LIMITE, ECRITE AVEC ELLE PLUTOT QUE DECOUVERTE PLUS TARD : un
+		//    ACRONYME colle ne se coupe pas. « NKThing » donne « nkthing », pas
+		//    « nk_thing » -- la regle ne peut pas savoir ou finit l'acronyme.
+		//    Aucun des roles du coeur n'est dans ce cas ; le jour ou l'un le sera,
+		//    c'est le REPLI FRANC (NkRoleAudit) qui le dira, pas le magenta.
+		//
+		// Rend `false` si l'entree est nulle, vide, ou si le resultat ne tient pas
+		// dans `cap` — une troncature silencieuse fabriquerait un nom qui ne resout
+		// pas et DEPLACERAIT le defaut au lieu de le signaler.
+		bool NkCanonicalRoleName(const char *in, char *out, uint32 cap);
+
+		// ── LE REPLI FRANC ──────────────────────────────────────────────────────
+		// CE QUE LE MAGENTA NE DISAIT PAS : *quel* role. Une couleur criarde dit
+		// qu'il y a un probleme ; elle ne dit ni lequel, ni combien, ni ou. Le
+		// 18/08, NkUIDesign a peint un panneau entier en magenta pendant que sa
+		// sonde annoncait 72/72 — personne ne pouvait nommer le role fautif.
+		//
+		// ⚠️ IL RETIENT AUSSI LES RATTRAPAGES (les noms que la canonisation a
+		//    sauves), et ce n'est PAS de la decoration : c'est la LISTE DE TRAVAIL
+		//    de la correction a la source. Sans elle, la canonisation rendrait les
+		//    declarations fausses invisibles — l'ecran serait juste, personne ne
+		//    corrigerait rien, et le jour ou la regle de canonisation bougerait,
+		//    tous les jetons casseraient d'un coup. C'est exactement « une
+		//    protection qui empeche d'aller verifier », et la seule facon de ne pas
+		//    la subir est de PUBLIER ce qu'elle a masque.
+		//
+		// ⚠️ POURQUOI UN PUITS PLUTOT QU'UN APPEL A NKLogger : l'en-tete declare
+		//    ZERO DEPENDANCE, et cette propriete porte (le banc NKEditorKitTest en
+		//    vit). Le puits par defaut n'est donc pas NUL — il ecrit sur `stderr`.
+		//    Un puits par defaut nul aurait fait de ce repli « un parametre qui
+		//    n'est pas honore » : present dans la signature, muet en pratique.
+		//    Une application qui a un vrai journal remplace le puits par le sien.
+		using NkRoleAuditSink = void (*)(void *user, const char *line);
+
+		class NkRoleAudit {
+			public:
+				struct Entry {
+						NkString name;  ///< le nom tel qu'il est DECLARE
+						NkString canon; ///< la forme qui a resolu, vide si aucune
+				};
+
+				/// Un nom qui n'a resolu sous AUCUNE forme. C'est le magenta.
+				static NkVector<Entry> &Faults();
+				/// Un nom qui n'a resolu qu'APRES canonisation : l'ecran est juste,
+				/// mais la declaration est a corriger a la source.
+				static NkVector<Entry> &Rescued();
+
+				static void Reset();
+				static uint32 FaultCount();
+				static uint32 RescuedCount();
+
+				/// Remplace le puits. `fn == nullptr` fait taire la sortie — reserve
+				/// aux bancs qui veulent lire les listes sans polluer leur console.
+				static void SetSink(NkRoleAuditSink fn, void *user);
+
+				/// Une ligne lisible par un humain, pour le journal et pour un
+				/// bandeau d'interface. BORNEE : un bandeau qui deborde ne se lit
+				/// pas, et une liste de 23 noms n'apprend rien de plus que les cinq
+				/// premiers suivis du compte.
+				static void Summary(NkString &out, uint32 maxNames = 5);
+
+				/// Ajout DEDUPLIQUE. Le dessin passe par la resolution a CHAQUE
+				/// image : sans deduplication, la liste grossirait de N entrees par
+				/// image et la fuite se presenterait comme un ralentissement, jamais
+				/// comme un defaut de roles.
+				static void Note(NkVector<Entry> &into, const char *name, const char *canon);
+		};
+
+		// Resout un nom vers un identifiant, coeur PUIS extensions, PUIS forme
+		// canonisee. Un nom qui n'aboutit sous aucune forme est compte et nomme
+		// dans NkRoleAudit avant que NK_ROLE_INVALID ne soit rendu.
 		uint16 NkResolveRole(const char *name);
 
 		// Une paire qui n'atteint pas le contraste exige pour son usage.

@@ -823,6 +823,16 @@ static int ModeTrain(int argc, char **argv) {
 	// 8,8 Mo au lieu de 26,1 Mo, soit exactement le tiers (poids sans les deux
 	// moments).
 
+	// Ce qu'on lui demande a la fin. `--amorce` etait lu dans `cfg.seed` depuis
+	// toujours... et jamais utilise : la fin de course generait deux questions
+	// CODEES EN DUR, quoi qu'on demande. Sur un socle de prose, ces deux
+	// questions ne mesurent rien -- il n'a jamais vu de dialogue. Quand une
+	// amorce est donnee, c'est ELLE qu'on continue, sur `--genlen` tokens.
+	if (Arg(argc, argv, "--amorce", nullptr)) {
+		logger.Info("--- Ce qu'elle ecrit a partir de l'amorce ---");
+		logger.Info("{0}", t.Generate(cfg.seed, cfg.genLen, 0.8, t.GenLangIndex()).CStr());
+		return 0;
+	}
 	// La question qui donne son sens au jalon.
 	logger.Info("--- Ce qu'elle repond ---");
 	NkString r = t.Generate(NkString("Question: Qui est ton pere ?\nReponse:"), 60, 0.8, t.GenLangIndex());
@@ -843,6 +853,20 @@ static int ModeParler(int argc, char **argv) {
 	cfg.verbose = true;
 	cfg.genLen = (int)ArgEntier(argc, argv, "--genlen", 80);
 	cfg.genLang = NkString("fr"); // meme etiquette de langue qu'a l'entrainement
+	// ⚠️ LES MEMES DRAPEAUX D'ARCHITECTURE QU'A L'ENTRAINEMENT (2026-08-21).
+	//
+	// `--train` lisait `--llama` et `--tying` ; ce mode-ci construisait toujours
+	// un NkGPT par defaut. Un modele entraine en NkLlamaLM avec tables liees
+	// s'arretait donc sur « Poids du checkpoint incompatibles avec les dims »
+	// puis « ERREUR : modele illisible » -- 21 heures de calcul et 91,4 M de
+	// parametres inutilisables, pour deux booleens non relus.
+	//
+	// Depuis le checkpoint v6, le FICHIER porte lui-meme son architecture et
+	// prend le dessus sur ces deux lignes (cf. NkGptTrainer::Prepare). Elles
+	// restent indispensables pour les checkpoints v3-v5 deja ecrits, qui ne la
+	// declarent pas -- et ce sont precisement ceux qui ont coute des jours.
+	cfg.architectureLlama = Drapeau(argc, argv, "--llama");
+	cfg.weightTying = Drapeau(argc, argv, "--tying");
 
 	gpt::NkGptTrainer t(cfg);
 	if (!t.Prepare()) {
@@ -850,6 +874,16 @@ static int ModeParler(int argc, char **argv) {
 		return 1;
 	}
 	const char *q = Arg(argc, argv, "--question", nullptr);
+	// --amorce "<texte>" : CONTINUATION LIBRE, sans aucune mise en forme.
+	//
+	// `--question` enveloppe ce qu'on lui donne dans « Question: … \nReponse: »,
+	// la forme apprise pour le dialogue. C'est ce qu'il faut pour interroger le
+	// modele, et c'est exactement ce qu'il ne faut PAS pour eprouver sa langue :
+	// un socle s'evalue sur de la prose continuee, pas sur un formulaire. Sans
+	// cette option, le seul moyen d'obtenir une continuation libre etait de
+	// relancer un entrainement -- ce qui touche au checkpoint pour une question
+	// de lecture.
+	const char *amorceLibre = Arg(argc, argv, "--amorce", nullptr);
 	gpt::NkSampleParams sp;
 	sp.temperature = ArgReel(argc, argv, "--temp", 0.8);
 	sp.topK = (int)ArgEntier(argc, argv, "--topk", 40);
@@ -865,6 +899,15 @@ static int ModeParler(int argc, char **argv) {
 	// ⚠️ La SOURCE est affichée à côté de la réponse, toujours. Une réponse
 	// fondée sur un passage qu'on ne montre pas ne vaut pas mieux qu'une réponse
 	// inventée : elle est seulement plus difficile à démentir.
+	// Continuation libre : traitee AVANT tout le reste, parce qu'elle ne demande
+	// ni bibliotheque ni mise en forme -- juste le texte, tel quel.
+	if (amorceLibre) {
+		logger.Info("--- amorce libre ({0} tokens demandes, temp {1}, top-k {2}) ---", cfg.genLen, sp.temperature,
+					sp.topK);
+		logger.Info("{0}", t.Generate(NkString(amorceLibre), cfg.genLen, sp, t.GenLangIndex()).CStr());
+		return 0;
+	}
+
 	const char *dossierBiblio = Arg(argc, argv, "--bibliotheque", nullptr);
 	if (q && dossierBiblio) {
 		ilyana::NkIndex index;
@@ -948,6 +991,11 @@ static int ModeCauser(int argc, char **argv) {
 	cfg.resume = false;
 	cfg.verbose = false;
 	cfg.genLang = NkString("fr");
+	// Memes drapeaux d'architecture qu'a l'entrainement -- meme raison que dans
+	// `--parler` ci-dessus. Un checkpoint v6 les redonne lui-meme ; les anciens
+	// (v3-v5) dependent entierement de ces deux lignes.
+	cfg.architectureLlama = Drapeau(argc, argv, "--llama");
+	cfg.weightTying = Drapeau(argc, argv, "--tying");
 
 	gpt::NkGptTrainer t(cfg);
 	if (!t.Prepare()) {
@@ -2541,7 +2589,12 @@ int main(int argc, char **argv) {
 	logger.Info("  --train   [--corpus f] [--bpe f] [--save f] [--load f] [--steps n] [--d n] [--layers n]");
 	logger.Info("            [--heads n] [--T n] [--B n] [--accum n] [--lr x] [--saveevery n]");
 	logger.Info("            [--saveminutes x] [--stop fichier] [--horizon n] [--echantillons n] [--sans-reserve]");
-	logger.Info("  --parler  [--load f] [--bpe f] [--question \"...\"] [--temp x] [--topk n] [--topp x]");
+	logger.Info("            [--llama] [--tying] [--amorce \"...\"] [--genlen n]");
+	logger.Info("  --parler  [--load f] [--bpe f] [--question \"...\"] [--amorce \"...\"] [--temp x] [--topk n]");
+	logger.Info("            [--topp x] [--genlen n] [--llama] [--tying]");
+	logger.Info("            --question = forme apprise « Question:/Reponse: » ; --amorce = prose continuee telle quelle");
+	logger.Info("            --llama/--tying : OBLIGATOIRES pour un checkpoint anterieur a v6 entraine ainsi");
+	logger.Info("  --causer  [--load f] [--bpe f] [--temp x] [--topk n] [--topp x] [--genlen n] [--llama] [--tying]");
 	logger.Info("  --melange --identite f --corpus f [--sortie f] [--part 0.25] [--taille 8]");
 	logger.Info("            corpus de la 2e phase : identite entrelacee avec de la prose prelevee");
 	return 0;
