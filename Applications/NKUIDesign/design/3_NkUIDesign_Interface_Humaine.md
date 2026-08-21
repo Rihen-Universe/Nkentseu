@@ -1963,7 +1963,102 @@ Trois issues possibles, à trancher par Rodolf :
    texte libre.
 
 **Tant que ce n'est pas tranché, aucun convertisseur ne peut produire un document
-complet.** C'est la première question à poser au réveil.
+complet.**
+
+### ✅ Tranché par Rodolf, 2026-08-21 : le format accueille `Text` et `Spacer`
+
+Issue **1** retenue. Mais les trois mots de la question n'ont pas le même statut, et
+les traiter pareil créerait un doublon.
+
+#### `Text` — un vrai rôle, et il lui faut plus que `text`
+
+| propriété | pourquoi |
+|---|---|
+| `text` | la chaîne |
+| `wrap` | passe à la ligne ou non |
+| `align` | `start` · `center` · `end` · `justify` |
+| **`maxLines`** | nombre maximal de lignes |
+| **`overflow`** | `ellipsis` · `clip` · `visible` |
+| `for` | *optionnel* : identifiant du contrôle que ce texte étiquette |
+
+⚠️ **`maxLines` et `overflow` ne sont pas du confort.** Le texte qui ne rentre pas
+est **le défaut de disposition le plus fréquent qui existe** — un libellé traduit en
+allemand, un nom d'utilisateur long, et la mise en page casse. Si le format ne sait
+pas dire « tronque avec des points de suspension », **tout document produit portera
+ce défaut sans pouvoir l'exprimer**, et l'outil n'aura aucun moyen de le signaler.
+
+#### `Label` — **non**, ce serait un doublon
+
+`Button` porte déjà `label`. `MenuItem`, `CollapsingHeader`, `TreeNode`,
+`Selectable` aussi. Ajouter un rôle `Label` donnerait **deux façons d'écrire le
+texte d'un bouton**, et deux façons d'écrire la même chose finissent toujours par
+diverger.
+
+> **Le texte est une PROPRIÉTÉ quand il appartient au contrat du contrôle** — un
+> bouton sans libellé n'est pas un bouton. **Il est un NŒUD quand il tient debout
+> seul** : un paragraphe, un titre de section, une légende.
+
+⚠️ **Le cas qui tranche, et qui justifie `for`** : l'étiquette d'un champ de
+saisie. En propriété du champ, on ne peut plus la placer où l'on veut — au-dessus,
+à côté, alignée à droite — et les concepteurs en ont besoin. En nœud indépendant,
+on perd le lien sémantique dont un lecteur d'écran a besoin pour annoncer « champ
+Adresse e-mail » au lieu de « champ de saisie ». **`Text` avec `for` garde les
+deux** : la liberté de placement et le lien déclaré.
+
+#### `Spacer` — **oui, mais pour une raison qui n'est pas technique**
+
+Techniquement il est **redondant** : un conteneur vide en `expand` fait exactement
+le même travail.
+
+⚠️ **On le garde quand même, parce qu'il déclare une INTENTION.** `Spacer` dit
+« ce vide est voulu » ; un `Panel {}` vide dit « quelqu'un a oublié de le remplir ».
+**Aucun validateur ne peut distinguer les deux** sans que l'auteur le dise. Un
+rôle dédié coûte une ligne dans la table et évite un avertissement inutile sur
+chaque espace délibéré.
+
+---
+
+### 🔴 Ce que la question de Rodolf a fait sortir de plus gros : l'apparence n'a nulle part où aller
+
+En vérifiant où mettre les propriétés de `Text`, j'ai relevé ceci dans le
+document 2 : **aucun rôle de la table §8 ne porte la moindre propriété
+d'apparence.** Ni couleur, ni police, ni remplissage, ni rayon de coin, ni ombre.
+Sur aucun rôle. Et §4 précise que **le compilateur rejette toute propriété absente
+du schéma du rôle**.
+
+La seule trace d'un mécanisme de style est un `include "Theme.nkgui"` dans un
+exemple — **dont la grammaire n'est définie nulle part.**
+
+**Ce n'est peut-être pas un défaut.** Séparer la structure de l'apparence est une
+vertu, et c'est cohérent avec NKGui, qui est une interface en mode immédiat dont
+l'apparence vient d'une pile de style, pas de chaque widget.
+
+⚠️ **Mais alors ce document-ci est en contradiction avec le format.** §12.2 donne
+à l'Inspecteur une section **Apparence** (fond, bordure, rayon, opacité) et une
+section **Typographie**, par élément. §8ter donne une pile d'effets par élément.
+**Si l'apparence ne peut pas s'écrire par widget, tout ce que l'Inspecteur laisse
+régler n'a nulle part où aller** — et l'éditeur exporterait moins que ce qu'il
+laisse dessiner.
+
+**Trois issues, et il faut en choisir une :**
+
+| | |
+|---|---|
+| **a. Le widget porte des surcharges** | un bloc de style optionnel par nœud ; le thème donne les défauts |
+| **b. L'Inspecteur édite le THÈME** | l'apparence se règle par style nommé, pas par élément |
+| **c. L'apparence va dans `geometry`** | les widgets restent purs — mais la couleur d'un bouton vivrait dans une autre section que le bouton |
+
+**Ma recommandation : (a), avec un garde-fou.** (c) est à écarter : deux sections à
+tenir synchronisées pour un même objet, c'est la garantie qu'elles divergeront.
+(b) est le plus propre en théorie et le plus frustrant en pratique — on ne peut
+plus rendre *ce* bouton-ci rouge sans créer un style.
+
+⚠️ **Le garde-fou de (a) : la validation compte les surcharges.** Un document où
+presque chaque élément surcharge son apparence a **abandonné son thème sans le
+dire** — changer le thème ne changera plus rien, et c'est exactement ce qui rend un
+système de design sans valeur. L'outil doit le dire avant que ce soit irréversible.
+
+**C'est une décision plus lourde que celle du texte, et elle appartient à Rodolf.**
 
 **Actions**
 
