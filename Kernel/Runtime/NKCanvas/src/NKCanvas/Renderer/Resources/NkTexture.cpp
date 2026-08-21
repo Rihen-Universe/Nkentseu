@@ -115,12 +115,12 @@ namespace nkentseu {
 				if (!compactRgba8) {
 					if (image.IsHDR()) {
 						// HDR -> tone-mapping standard, puis on repasse ici en LDR.
-						NkImage *ldr = NkImage::ConvertToTexture(image, 1.0f);
-						if (!ldr)
+						// NkImage est desormais move-only et ConvertToTexture rend une VALEUR
+						// (plus de pointeur ni de Free() : le destructeur libere les pixels).
+						NkImage ldr = NkImage::ConvertToTexture(image, 1.0f);
+						if (!ldr.IsValid())
 							return false;
-						const bool ok = LoadFromImage(renderer, *ldr);
-						ldr->Free(); // libere pixels + wrapper (pattern Alloc/Free)
-						return ok;
+						return LoadFromImage(renderer, ldr);
 					}
 					NkImage rgba;
 					if (!rgba.Create((uint32)image.Width(), (uint32)image.Height(),
