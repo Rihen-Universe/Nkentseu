@@ -1397,8 +1397,117 @@ oublie toujours.
 
 **Et Rodolf a raison sur le fond** : les familles B et C sont ce qui fait qu'une
 interface paraît vivante plutôt que dessinée. Un bouton qui respire, un reflet qui
-suit la souris — c'est peu de calcul et beaucoup d'effet. *Mais rien de tout cela
-n'existe aujourd'hui, et §9ter décrivait un pays sans y avoir mis les pieds.*
+suit la souris — c'est peu de calcul et beaucoup d'effet.
+
+---
+
+### ⚠️ 9quater.5 CORRECTION, une heure plus tard : j'avais regardé NKGui sans regarder NKUI
+
+Rodolf : *« je pensais que NKGui avait déjà son mode retenu. »* La question m'a fait
+ouvrir un module que je n'avais pas ouvert. **Deux affirmations de §9quater sont
+fausses.**
+
+#### 1. La table d'états d'animation par identifiant N'EST PAS à construire
+
+`Kernel/Runtime/NKUI/NkUIAnimation.h` — écrit par Rodolf lui-même — porte
+**`NkUIAnimator`**, un bassin de `NkUITween` **indexés par identifiant** :
+
+```
+float32 v = animator.Play("btn_hover", 0.f, 1.f, 0.15f, NkEase::NK_OUT_QUAD);
+float32 v = animator.Get("btn_hover");
+animator.Stop("btn_hover");
+```
+
+Et le guide de NKUI le dit en toutes lettres : *« l'état persistant est conservé
+dans des stores (ids, focus, **animation**, scroll, window states) »*.
+
+**C'est exactement le mécanisme que j'ai décrit comme manquant.** Il existe, il
+tourne, et il règle le problème du mode immédiat de la façon que j'avais proposée —
+sauf que quelqu'un l'avait fait avant.
+
+#### 2. La famille B a déjà son nom dans le code
+
+Le même fichier annonce des **effets prêts à l'emploi** :
+
+| effet NKUI | famille de §9ter |
+|---|---|
+| **`Pulse`** — *« battement, attirer l'attention »* | **B — ambiance** |
+| `Shake` — oscillation rapide | A, sur événement |
+| `Bounce` — rebond à l'atterrissage | A |
+| `FadeIn` / `FadeOut` | A |
+| `SlideIn` | A |
+
+⚠️ **« Un bouton qui respire », que §9ter.1 présente comme à concevoir, s'appelle
+`Pulse` et existe depuis un moment.** J'ai décrit un pays en ignorant qu'il était
+déjà cartographié.
+
+#### 3. Sur le mode retenu : la mémoire de Rodolf est juste — comme intention
+
+`NKGui.h` annonce *« deux paradigmes — immédiat ET retenu »*, puis, quatre lignes
+plus bas : *« État : Phase 1 (squelette). Le cœur, les widgets, fenêtres, docking
+**et le mode retenu** arrivent aux phases 2→6. »*
+
+**Le mode retenu est donc prévu, pas construit.** Ce qui tourne aujourd'hui, c'est
+**NKUI**, en mode immédiat avec ses magasins d'état.
+
+⚠️ **Et une contradiction que je ne peux PAS trancher depuis les en-têtes** :
+`NKGui.h` se dit « squelette de phase 1 », mais `NkGuiWidgets.h` déclare un jeu de
+widgets complet — quatre-vingts fonctions, conteneurs, tableaux, docking. **L'un
+des deux fichiers est périmé**, et lire les en-têtes ne dit pas lequel.
+
+**C'est une question pour Rodolf, et elle porte loin** : le document 2 fait
+correspondre les rôles `.nkgui` à l'API **NKGui**. Si NKGui est un squelette et NKUI
+le moteur qui tourne, **l'éditeur vise une cible qui n'existe pas encore** — ou bien
+le commentaire de phase est simplement vieux.
+
+#### 4. Ce qui reste vrai de §9quater
+
+- **le format `.nkgui` n'a toujours aucune section d'animation** — ce manque-là est
+  réel et il est le seul qui bloque réellement ;
+- **la famille C n'est toujours pas un tween** : `NkUITween` interpole *de start à
+  end sur une durée*. Un reflet qui suit le curseur n'a ni durée ni fin ;
+- **le respect du « mouvement réduit »** n'apparaît nulle part dans NKUI, et il se
+  fait au début ou jamais.
+
+> **Leçon, la même que celle du drapeau et du journal** : j'ai cherché dans le module
+> dont je connaissais le nom, conclu à l'absence, et écrit cette absence comme un
+> fait. **Une recherche qui ne trouve pas ne prouve rien tant qu'on n'a pas
+> énuméré où l'on a cherché.**
+
+#### 5. ⚠️ Ce que le mode retenu change — et pourquoi cet éditeur le réclame
+
+**Précision de Rodolf, 2026-08-21** : *« NKUI n'a pas le mode retenu ; on devait
+concevoir le mode retenu dans NKGui, en plus de son mode immédiat. »*
+
+Cela déplace la question, et dans un sens qui compte pour NkUIDesign.
+
+> **Un `.nkgui` décrit un ARBRE PERSISTANT. C'est un objet de mode retenu par
+> nature.** Une interface en mode immédiat est un *programme* qu'on réexécute à
+> chaque image ; un `.nkgui` est une *structure*, pas un programme.
+
+Charger un document dans un moteur immédiat oblige donc à écrire un **interprète**
+qui parcourt l'arbre à chaque image et appelle `Begin`/`End` — c'est faisable, NKUI
+le ferait, mais **chaque état par widget doit alors vivre dans un magasin à côté**,
+indexé par identifiant : animation, défilement, focus, repli.
+
+En **mode retenu**, la correspondance est directe : un nœud du document devient un
+objet, et son état vit sur lui.
+
+**Deux des trois manques trouvés cette nuit en découlent** — et je le dis avec
+mesure, parce que le troisième n'en découle pas :
+
+| manque | lié au mode immédiat ? |
+|---|---|
+| pas de section d'animation | **oui** — l'animation demande un état qui dure |
+| pas d'apparence par widget | **oui** — en immédiat, le style s'empile globalement, il ne s'attache pas |
+| pas de rôle `Text` | **non** — le moteur a `Text()`, c'est la table §8 qui l'a oublié |
+
+⚠️ **Le mode retenu n'est donc pas une case de plus sur la feuille de route : c'est
+la cible naturelle de cet éditeur.** Le construire règle deux manques d'un coup au
+lieu de les rustiner séparément dans un moteur qui n'est pas fait pour eux.
+
+*Ce qui ne dit pas quand le faire — seulement que le retarder coûtera deux
+contournements qu'il faudra ensuite défaire.*
 
 ---
 
