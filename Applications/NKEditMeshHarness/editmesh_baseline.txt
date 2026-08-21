@@ -186,3 +186,10 @@ hist/branche-abandonnee            refaisableAvant=1 (1 attendu) apresNouveauCom
 hist/materiau-survit               slot7 1 -> 4 -> 1 (retour a 1 attendu) | slots=1 id=4242
 hist/selection-survit              selectionnes 4 -> 4 | somme des rangs 10 -> 10 (identiques attendus)
 hist/chaine                        remontees=3 (3 attendues) retourOrigine=1 profondeur=0 refaisables=3
+ops/supprimer-faces                ok=1 faces 6 -> 5 | bord 0 -> 4 (un trou s ouvre) nonmanif=0
+ops/supprimer-refus                ok=0 (0 attendu) faces 6 -> 6 (inchange attendu)
+ops/extruder-sommets               ok=1 sommets 24 -> 27 | faces pleines 6 -> 6 (INCHANGE attendu) aretes fil=3
+ops/faire-face                     ok=1 faces 5 -> 6 | bord 4 -> 0 (retour a 0 attendu)
+ops/coupe-de-boucle                ok=1 sommets 25 -> 30 faces 16 -> 20 | nonmanif=0 bord 16 -> 18
+ops/vis-revolution                 ok=1 sommets 25 -> 175 faces 16 -> 112 | nonmanif 0 -> 0 (temoin)
+ops/coupe-par-plan                 ok=1 sommets 24 -> 32 faces 6 -> 10 | bord 0 -> 0 nonmanif 0 -> 0
