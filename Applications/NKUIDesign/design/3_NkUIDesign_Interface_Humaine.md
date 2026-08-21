@@ -1905,6 +1905,66 @@ le 2026-08-20. Elle n'est pas une proposition : c'est ce que le moteur sait
 instancier aujourd'hui.** Un rôle natif qui ne figure pas dans ce fichier serait un
 `id` que le runtime ne sait pas construire.
 
+### ⚠️ Correction du 2026-08-21 : j'avais spécifié sans lire le document 2
+
+Ce catalogue a été dérivé des en-têtes du moteur **sans jamais ouvrir
+`2_NkUIDesign_Langage_Description_NodeBlueprint.md`**, qui définit le format
+`.nkgui` et porte déjà, en §8, sa propre table de correspondance. Trois écarts en
+résultent, et il faut les connaître avant d'écrire quoi que ce soit qui produise
+des fichiers.
+
+**1. Les noms français de ce tableau ne sont PAS les identifiants du fichier.**
+
+| ici, dans l'interface | dans un `.nkgui` (doc 2 §8) |
+|---|---|
+| bouton | `Button` |
+| champ de saisie | `InputText` |
+| case à cocher | `Checkbox` |
+| liste déroulante | `Combo` |
+| boîte verticale | `VBox` |
+| en-tête repliable | `CollapsingHeader` |
+
+⚠️ **Ce sont deux registres distincts : le français est l'étiquette qu'on montre,
+le `NkPascalCase` est ce qui s'écrit dans le fichier.** Sans cette table écrite
+noir sur blanc, quelqu'un finira par écrire `bouton` dans un `.nkgui` — et le
+compilateur le refusera sans que personne comprenne pourquoi le mot affiché par
+l'outil n'est pas celui que le format accepte.
+
+**2. Le doc 2 disait déjà que l'infobulle n'est pas un nœud.** §14quinquies.1
+présente cette correction comme une découverte de la nuit du 20 août. Elle était
+écrite depuis le début : *« `Tooltip` (modificateur, pas un nœud) »*. **La
+conclusion était bonne, la découverte ne l'était pas** — il suffisait de lire.
+
+**3. `bouton à répétition` n'est pas un rôle à part.** Doc 2 le porte comme deux
+propriétés de `Button` : `repeatDelay` et `repeatRate`. Ce tableau l'a compté comme
+un rôle natif distinct, parce que `RepeatButton` existe dans les en-têtes du
+moteur. **Les deux sont vrais à leur niveau** — fonction moteur d'un côté, rôle du
+format de l'autre — et c'est le format qui fait foi pour le catalogue de rôles.
+
+### 🔴 Et un manque qui bloque : le format ne sait pas dire « texte »
+
+**La table du doc 2 §8 ne contient ni `Text`, ni `Label`, ni `Spacer`.** Le moteur
+les porte (`Text`, `TextWrapped`, `TextAt`, `Spacer` dans `NkGuiWidgets.h`), mais
+**le langage `.nkgui` n'offre aucun rôle pour les écrire.**
+
+⚠️ **Un libellé est l'élément le plus fréquent de toute interface.** Sans rôle
+`Text`, un document ne peut pas porter un titre, une étiquette de champ, un
+paragraphe — et tout convertisseur bute sur `<p>`, `<h1>`, `<span>`, qui sont
+partout.
+
+Trois issues possibles, à trancher par Rodolf :
+
+1. **c'est une omission du doc 2 §8** — le plus probable — et il faut y ajouter
+   `Text` avec ses propriétés (`text`, `wrap`, `align`) ;
+2. le texte vit dans la section `geometry` — mais `geometry` est décrite comme
+   « formes visuelles brutes », ce qui en ferait un calque et non un widget, donc
+   sans rôle, sans état, sans événement ;
+3. le texte n'est qu'une propriété `label` d'un autre rôle — ce qui interdirait le
+   texte libre.
+
+**Tant que ce n'est pas tranché, aucun convertisseur ne peut produire un document
+complet.** C'est la première question à poser au réveil.
+
 **Actions**
 
 | rôle | API NKGui |

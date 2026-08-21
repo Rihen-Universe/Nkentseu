@@ -592,6 +592,66 @@ paraît complet et l'aller-retour visuel échoue sans qu'on sache pourquoi.
 
 ---
 
+## 5ter. ⚠️ Ce que la lecture du format réel change (2026-08-21, 3h20)
+
+J'ai enfin ouvert `2_NkUIDesign_Langage_Description_NodeBlueprint.md`. **La
+correspondance de §5bis a été écrite sans lui** ; voici ce que sa lecture impose.
+
+### 5ter.1 La cible d'écriture est précise, et ce n'est pas du JSON
+
+Un `.nkgui` est un fichier **texte à grammaire définie** (EBNF au §3 du doc 2) :
+
+```
+nkgui 0.2
+widgets {
+  Panel "carte" {
+    Button "valider" { label = "Valider" }
+  }
+}
+```
+
+Quatre sections — `geometry`, `widgets`, `behavior`, `controller` — dont seule
+`widgets` est obligatoire. Le convertisseur vise donc `widgets`, et rien d'autre
+dans un premier temps.
+
+⚠️ **Les identifiants de rôle sont en `NkPascalCase`**, pas en français :
+`Button`, `InputText`, `Checkbox`, `Combo`, `VBox`, `CollapsingHeader`. La table de
+§5bis.1, écrite en français, est une table d'**étiquettes d'interface** — il faut
+la traduire avant de l'utiliser pour écrire des fichiers.
+
+⚠️ **Le compilateur rejette toute propriété absente du schéma du rôle** (doc 2
+§4). On ne peut donc pas déverser les styles calculés tels quels : chaque
+propriété écrite doit exister pour ce rôle-là. **C'est une bonne nouvelle pour la
+mesure** — le fichier produit se valide, et un document accepté est un document
+correct par construction (§3.1).
+
+### 5ter.2 🔴 Un obstacle dur : le format ne sait pas dire « texte »
+
+**La table des rôles du doc 2 §8 ne contient ni `Text`, ni `Label`, ni `Spacer`.**
+
+Sur le web, `<p>`, `<h1>`, `<span>` représentent l'écrasante majorité des éléments
+d'une page. **Sans rôle de texte, ils n'ont aucune cible de conversion** — et le
+taux de conversion sans perte de §5 serait plafonné très bas, pour une raison qui
+n'a rien à voir avec la qualité du convertisseur.
+
+> **Mesurer avant de trancher cette question donnerait un chiffre qui ne mesure
+> pas ce qu'on croit.** Il mesurerait un trou du format, pas la faisabilité de la
+> voie web.
+
+**C'est donc bloquant, et c'est la première question à poser à Rodolf** — avant la
+collecte à l'échelle, avant tout seuil. Le détail des trois issues possibles est
+en §14ter.3 du document humain.
+
+### 5ter.3 Ce qui reste faisable sans attendre
+
+La **moisson** ne dépend pas de cette décision (§2.1bis : la moisson est stable,
+l'interprétation est volatile). On peut donc collecter dès maintenant, et
+convertir quand le format sera fixé.
+
+**C'est exactement pourquoi les deux passages sont séparés.**
+
+---
+
 ## 6. Ce que je n'ai PAS fait ce soir
 
 - aucun corpus n'a été collecté ;
