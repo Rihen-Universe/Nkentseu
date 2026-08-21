@@ -33,16 +33,79 @@
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKPlatform/NkPlatformDetect.h"
 
 #include "NkGuiFormat.h"
 
 #include <cstdio>
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+#include <windows.h>
+#endif
 
 namespace nkuidesign {
 	namespace guifmt {
 
 		using nkentseu::NkDirectory;
 		using nkentseu::NkFile;
+
+		// ════════════════════════════════════════════════════════════════════════
+		//  PUBLIER LE RAPPORT — et le probleme, releve le 2026-08-21
+		// ════════════════════════════════════════════════════════════════════════
+		//
+		//  ⚠️ `fputs(rep, stdout)` NE SORT NULLE PART DANS CETTE APPLICATION, et il a
+		//     fallu qu'un relecteur lance la commande pour s'en apercevoir.
+		//
+		//     `NkWindowsDesktop.h` (le point d'entree Windows du moteur) fait, en
+		//     Debug, juste avant d'appeler `nkmain` :
+		//
+		//         AllocConsole();
+		//         freopen_s(..., "CONOUT$", "w", stdout);
+		//         freopen_s(..., "CONOUT$", "w", stderr);
+		//
+		//     Le flux C `stdout` est donc reattache a un TAMPON DE CONSOLE. Tout ce
+		//     qu'on y ecrit part dans cette console-la — pas dans le terminal
+		//     appelant, et **surtout pas dans une redirection `> fichier`**, qui est
+		//     court-circuitee. Le programme rend 0, n'affiche rien, et a pourtant
+		//     tout ecrit. `--probe` a le meme comportement depuis toujours.
+		//
+		//     ⚠️ `NkConsoleStream` (NKStream) ne repond pas au besoin : il ecrit
+		//        avec `WriteConsoleA`, qui ECHOUE sur un tuyau ou un fichier. Il sert
+		//        a peindre une console, pas a alimenter une sortie standard.
+		//
+		//     Le handle systeme, lui, est intact : `freopen_s` rebranche le flux du
+		//     CRT, il ne touche pas a `GetStdHandle(STD_OUTPUT_HANDLE)`. On ecrit
+		//     donc **directement dessus**, avec `WriteFile` — qui marche sur une
+		//     console, un tuyau ET un fichier redirige, la ou `WriteConsoleA` n'en
+		//     couvre qu'un des trois.
+		//
+		//  Le fichier reste ecrit en plus, et son chemin ABSOLU est affiche : un banc
+		//  dont il faut deviner ou est le resultat ne sert qu'a celui qui l'a ecrit.
+		inline void NkGPublish(NkString &rep, const char *fileName) {
+			const nkentseu::NkPath cwd = NkDirectory::GetCurrentDirectory();
+			rep.Append("\nRapport ecrit dans : ");
+			rep.Append(cwd.ToString());
+			rep.Append('/');
+			rep.Append(fileName);
+			rep.Append('\n');
+
+			NkFile::WriteAllText(fileName, rep.Data());
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+			const HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+			if (out && out != INVALID_HANDLE_VALUE) {
+				DWORD written = 0;
+				WriteFile(out, rep.Data(), (DWORD)rep.Size(), &written, nullptr);
+			}
+#else
+			// ⚠️ L'UN OU L'AUTRE, JAMAIS LES DEUX. Sur Windows, le flux `stdout` du
+			//    CRT et le handle systeme designent desormais la meme sortie : y
+			//    ecrire par les deux chemins imprimerait le rapport en double, et un
+			//    banc qui affiche deux fois « 14 / 14 » fait douter des deux.
+			fputs(rep.Data(), stdout);
+			fflush(stdout);
+#endif
+		}
 
 		/// Le style d'ecriture LU dans le fichier source. Ce n'est pas de la
 		/// devinette de confort : sans lui, reecrire un document indente a deux
@@ -181,9 +244,7 @@ namespace nkuidesign {
 
 			if (!directory || !NkDirectory::Exists(directory)) {
 				rep.Append("ECHEC : le dossier n'existe pas. Rien n'a ete mesure.\n");
-				fputs(rep.Data(), stdout);
-				fflush(stdout);
-				NkFile::WriteAllText("nkuidesign_roundtrip.txt", rep.Data());
+				NkGPublish(rep, "nkuidesign_roundtrip.txt");
 				return 2;
 			}
 
@@ -234,9 +295,7 @@ namespace nkuidesign {
 					 equivalent, total, identical, total);
 			rep.Append(buf);
 
-			fputs(rep.Data(), stdout);
-			fflush(stdout);
-			NkFile::WriteAllText("nkuidesign_roundtrip.txt", rep.Data());
+			NkGPublish(rep, "nkuidesign_roundtrip.txt");
 			return (total > 0 && equivalent == total) ? 0 : 1;
 		}
 
@@ -485,9 +544,7 @@ namespace nkuidesign {
 
 			snprintf(buf, sizeof(buf), "\n=== CONTROLES : %u / %u ===\n", pass, total);
 			rep.Append(buf);
-			fputs(rep.Data(), stdout);
-			fflush(stdout);
-			NkFile::WriteAllText("nkuidesign_roundtrip_controles.txt", rep.Data());
+			NkGPublish(rep, "nkuidesign_roundtrip_controles.txt");
 			return (pass == total) ? 0 : 1;
 		}
 
