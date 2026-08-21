@@ -686,7 +686,14 @@ namespace nkentseu {
 			// =====================================================================
 
 			// Read-data callback : audioData = frames capturées, audioDataSize en OCTETS.
-			static void CaptureReadDataOH(OH_AudioCapturer *, void *userData, void *audioData, int32_t audioDataSize) {
+			// API STRUCT (OH_AudioCapturer_Callbacks, API 10, depreciee) et PAS
+			// OH_AudioStreamBuilder_SetCapturerReadDataCallback (API 12) : la
+			// libohaudio.so de l'emulateur NEXT (5.0.0.25) n'exporte pas les
+			// setters modernes — le symbole manquant ferait echouer le dlopen
+			// de TOUTE app qui tire NkAudioCapture.o (meme lecon que le backend
+			// de rendu, NkAudioBackends.cpp).
+			static int32_t CaptureReadDataOH(OH_AudioCapturer *, void *userData, void *audioData,
+											 int32_t audioDataSize) {
 				NkAudioCapture::Impl *im = (NkAudioCapture::Impl *)userData;
 				const uint64 floats = (uint64)audioDataSize / sizeof(float32);
 				im->ring.Write((const float32 *)audioData, floats);
@@ -694,6 +701,7 @@ namespace nkentseu {
 					const int32 ch = im->cfg.channels > 0 ? im->cfg.channels : 1;
 					im->cb((const float32 *)audioData, (int32)(floats / (uint64)ch), ch);
 				}
+				return 0;
 			}
 
 			NkVector<NkCaptureDeviceInfo> NkAudioCapture::EnumerateDevices() {
@@ -722,7 +730,10 @@ namespace nkentseu {
 				OH_AudioStreamBuilder_SetChannelCount(b, mImpl->cfg.channels);
 				OH_AudioStreamBuilder_SetSampleFormat(b, AUDIOSTREAM_SAMPLE_F32LE);
 				OH_AudioStreamBuilder_SetCapturerInfo(b, AUDIOSTREAM_SOURCE_TYPE_MIC);
-				OH_AudioStreamBuilder_SetCapturerReadDataCallback(b, CaptureReadDataOH, mImpl);
+				OH_AudioCapturer_Callbacks ccbs;
+				memset(&ccbs, 0, sizeof(ccbs));
+				ccbs.OH_AudioCapturer_OnReadData = CaptureReadDataOH;
+				OH_AudioStreamBuilder_SetCapturerCallback(b, ccbs, mImpl);
 
 				OH_AudioCapturer *cap = nullptr;
 				if (OH_AudioStreamBuilder_GenerateCapturer(b, &cap) != AUDIOSTREAM_SUCCESS || !cap) {

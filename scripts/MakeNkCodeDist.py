@@ -154,6 +154,13 @@ def MakeInnoInstaller(distDir: Path, outDir: Path, config: str, withCompiler: bo
     administrateur requis), et signature Authenticode possible ensuite.
     """
     version = ReadNkCodeVersion()
+    # Chemins ABSOLUS : le .iss est ecrit dans outDir, et Inno resout les
+    # chemins relatifs de [Files] PAR RAPPORT AU .iss. Avec un --out relatif
+    # (« --out dist-beta4 »), la source devenait « dist-beta4/dist-beta4/NKCode »
+    # et la compilation s'arretait sur « No files found matching ». On resout
+    # une fois ici plutot que d'imposer un chemin absolu a l'appelant.
+    distDir = distDir.resolve()
+    outDir = outDir.resolve()
     iss = outDir / "NKCode.iss"
     # Les DEUX variantes (avec/sans compilateur embarque) ecrivaient le MEME
     # nom : construire la complete apres la legere ECRASAIT silencieusement

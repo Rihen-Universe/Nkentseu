@@ -284,7 +284,7 @@ namespace nkentseu {
 	// NkEventSystem
 	// =========================================================================
 
-	class NkGamepadSystem; // forward � d�fini dans NkGamepadSystem.h
+	class NkGamepadSystem; // forward � d�fini dans NkGamepadSystem.h
 
 	class NkEventSystem {
 		public:
@@ -492,6 +492,12 @@ namespace nkentseu {
 		private:
 			void PumpOS();
 			void DispatchToCallbacks(NkEvent *ev, NkWindowId winId);
+			// Rejoue, sur le thread pump, les événements mis de côté parce
+			// qu'ils venaient d'un thread étranger (cf. mForeignEvents).
+			void DrainForeignEvents();
+			// Corps commun de Enqueue une fois qu'on est sur le bon thread :
+			// dispatch aux callbacks, mise à jour de l'état d'entrée, file.
+			void DeliverOnPumpThread(NkEvent &evt, NkWindowId winId);
 			void UpdateInputState(NkEvent *ev);
 			void RemoveCallbackToken(NkEventType::Value type, uint64 token);
 			void AddEventCallbackRaw(NkEventType::Value type, NkEventCallback callback);
@@ -536,6 +542,26 @@ namespace nkentseu {
 			// CORRECTION 5 : thread ID enregistré à Init() pour assertions
 			// PollEvent() et PumpOS() doivent être appelés depuis ce thread.
 			uint64 mPumpThreadId = 0;
+
+			// ── Événements venus d'un THREAD ÉTRANGER ────────────────────────
+			// Sur mobile (HarmonyOS/Android), les callbacks système — surface
+			// créée/redimensionnée/détruite, orientation, clavier — s'exécutent
+			// sur le thread UI de la plateforme, PAS sur le thread qui possède
+			// le contexte graphique. Dispatcher les callbacks applicatifs
+			// depuis ce thread-là fait exécuter du code GPU sans contexte GL
+			// courant : chaque appel devient un no-op silencieux.
+			//
+			// Symptôme vécu (HarmonyOS, retour d'arrière-plan) : la rotation
+			// implicite déclenchait un resize -> reconstruction du graphe de
+			// rendu -> tous les framebuffers créés « incomplets » sans la
+			// moindre erreur GL. Résultat : plus de 3D, seul l'overlay 2D
+			// restait à l'écran.
+			//
+			// On met donc ces événements de côté et on les rejoue au début du
+			// PollEvents() suivant, sur le thread pump. Les plateformes de
+			// bureau, où tout arrive déjà sur ce thread, ne passent jamais ici.
+			NkVector<NkEventPtr> mForeignEvents;
+			mutable NkSpinLock mForeignMutex;
 
 			bool mPumping = false;
 

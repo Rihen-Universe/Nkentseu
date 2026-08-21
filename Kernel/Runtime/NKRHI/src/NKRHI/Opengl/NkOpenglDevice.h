@@ -346,6 +346,11 @@ namespace nkentseu {
 			// compare au NkSurfaceDesc courant dans RecreateSurface() pour detecter
 			// une fenetre native recreee par l'OS (cf. NkIDevice::RecreateSurface).
 			void *mEglNativeWindow = nullptr;
+			// Generation de la surface effectivement liee. Comparer le seul
+			// pointeur ne suffit pas : au retour d'arriere-plan, HarmonyOS
+			// detruit puis recree la surface en reutilisant souvent la MEME
+			// adresse. On gardait alors une EGLSurface morte.
+			uint32 mEglSurfaceGeneration = 0;
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 			// Contexte WebGL (Emscripten). Handle opaque (long) pour NE PAS tirer
 			// <emscripten/html5.h> dans ce header — meme logique que GLX/EGL ci-dessus.

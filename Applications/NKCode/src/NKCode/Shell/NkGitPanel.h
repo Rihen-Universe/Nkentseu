@@ -130,9 +130,9 @@ namespace nkentseu {
 					if (mProc.Running())
 						return;
 
-					if (mPending != Cmd::None) {
+					if (mPending != Cmd::Aucune) {
 						Consume();
-						mPending = Cmd::None;
+						mPending = Cmd::Aucune;
 						mAcc.Clear();
 					}
 					// L'historique s'enchaine juste apres le statut : une seule commande a
@@ -140,7 +140,7 @@ namespace nkentseu {
 					if (mNeedLog) {
 						mNeedLog = false;
 						mAcc.Clear();
-						mPending = Cmd::Log;
+						mPending = Cmd::Journal;
 						mProc.Start(NkString("git -C \"") + mS->root.ToString().CStr() +
 									"\" log --oneline -n 12");
 						return;
@@ -152,7 +152,7 @@ namespace nkentseu {
 						return;
 					mTimer = 0.f;
 					mAcc.Clear();
-					mPending = Cmd::Status;
+					mPending = Cmd::Etat;
 					mProc.Start(NkString("git -C \"") + mS->root.ToString().CStr() +
 								"\" status --porcelain --branch");
 				}
@@ -171,7 +171,7 @@ namespace nkentseu {
 							mLast = NkString("La commande git a echoue.");
 						return;
 					}
-					if (mPending == Cmd::Log) {
+					if (mPending == Cmd::Journal) {
 						mLog.Clear();
 						for (usize i = 0; i < mAcc.Size(); ++i)
 							if (!mAcc[i].Empty())
@@ -227,12 +227,14 @@ namespace nkentseu {
 						mS->OpenPath(p);
 				}
 
-				enum class Cmd { None, Status, Log, Action };
+				// Aucun de ces noms ne doit heurter les macros de X11 (None, Status,
+				// Success, Bool...) : ce panneau se compile aussi sur le backend XLib.
+				enum class Cmd { Aucune, Etat, Journal, Action };
 
 				NkCodeState *mS = nullptr;
 				NkProcess mProc;
 				NkVector<NkString> mAcc;
-				Cmd mPending = Cmd::None;
+				Cmd mPending = Cmd::Aucune;
 				float32 mTimer = 999.f; // premier rafraichissement immediat
 				bool mNoGit = false, mNeedLog = false;
 				NkString mBranch, mDiag, mLast;

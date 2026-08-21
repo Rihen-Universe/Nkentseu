@@ -182,7 +182,13 @@ with project("NKCanvas"):
         pchheader("")
         pchsource("")
         usetoolchain("ohos-ndk")
-        defines([_VK_ON] + _GLAD_DEF_OTHER)
+        # glad ACTIF (comme Linux). NK_NO_GLAD2 empeche le CHARGEMENT des
+        # pointeurs, mais l'en-tete de glad redirige quand meme chaque appel GL
+        # vers eux : ils restaient nuls et la premiere fonction appelee sautait
+        # a l'adresse 0 — SIGSEGV dans glCreateShader, alors que le contexte
+        # venait de s'initialiser « avec succes ». Le chargement pour HarmonyOS
+        # existe deja dans NkOpenGLContext (gladLoaderLoadEGL/LoadGLES2).
+        defines([_VK_ON] + _GLAD_DEF_LINUX)
         _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
         if _WANT_VULKAN:
             _HARMONY_LINKS.append("vulkan")
