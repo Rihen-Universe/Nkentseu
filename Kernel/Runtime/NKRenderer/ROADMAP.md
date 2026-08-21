@@ -76,6 +76,40 @@ Non corrigé ici parce que le corriger déplace une valeur de référence et sup
 une décision (l'ombrage suit-il la face mère, ou reste-t-il déduit ?). La ligne
 `mat/temoin-smooth` fige le comportement pour qu'un changement se voie.
 
+#### 🔴 REMONTÉ À RODOLF COMME UN CHOIX À FAIRE (arbitrage du 2026-08-22)
+
+**Le chiffre** : `smooth 12 → 0` — douze faces passées en SMOOTH, une
+subdivision, **zéro survivante** (cas `mat/temoin-smooth`).
+
+**La cause** : `ToPolygons` n'émet aucun attribut de face ; `BuildFromPolygons`
+reconstruit des `Face` neuves. `smooth` ne traverse donc rien — il est
+**re-dérivé** par `BuildFromIndexed` en comparant les normales des coins.
+
+**L'effet visible** : poser « Shade Smooth » sur un modèle puis subdiviser le
+rend **facetté, sans un message**.
+
+⚠️ **POURQUOI CE N'EST PAS LA MÊME RÉPARATION QUE LE MATÉRIAU, ET POURQUOI IL NE
+FAUT PAS LES ENCHAÎNER.** Le chantier matériau-par-face a **prouvé que les deux
+champs ne sont pas la même espèce de donnée** :
+
+| | `smooth` | `material` |
+|---|---|---|
+| nature | **dérivée** — l'ombrage EST une propriété des normales | **choix** — dérivable de rien |
+| remède | re-dériver, ou décider qu'il se transporte | **doit** être transporté |
+
+Les corriger ensemble ferait croire à un mécanisme commun qui n'existe pas. Le
+transport per-face est en place et pourrait porter `smooth` en trois lignes —
+**c'est justement pour ça qu'il faut se retenir** : la vraie question n'est pas
+technique, elle est *« l'ombrage suit-il la face mère, ou reste-t-il déduit de la
+géométrie ? »*. Les deux réponses sont défendables :
+- **suivre la mère** = ce que fait Blender, l'utilisateur garde son choix ;
+- **rester déduit** = une surface lissée dense reste lissée même sans mémoire,
+  et l'import d'un modèle externe retrouve le bon ombrage tout seul.
+
+**C'est une décision de Rodolf, pas une dette à solder en douce.** Tant qu'elle
+n'est pas prise, la ligne `mat/temoin-smooth` garde le comportement sous
+surveillance : s'il change, le harnais le dira.
+
 ---
 
 ## 🧾 DETTES NOMMÉES — chantier « dettes NKRenderer » (agent nkrenderer, 2026-08-16)
