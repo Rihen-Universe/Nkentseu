@@ -102,6 +102,81 @@ orthographique) ; sortie automatique si la caméra disparaît ou change de docum
 - Ombres par lumière, portée/atténuation affinées, IES éventuellement.
 - Widget de sélection dans la vue pour les lumières utilisateur.
 
+## 🎨 CHANGER LE TYPE D'UN MATÉRIAU RÉINITIALISE TOUT — livré (agent nk3dmodeler, 2026-08-22, `849a7e5e`)
+
+Rodolf : « si je modifie le type de material d'un model sans changer le material,
+le nouveau type hérite des propriétés communes […] pourtant ça devait faire comme
+si on avait reset ce dernier aux valeurs par défaut du nouveau type. »
+
+⚠️ **Il l'avait déjà signalé le 14 août.** La correction d'alors était deux `if`
+écrits à la main (verre → `alpha`, émissif → `emissive`). **Une liste, pas une
+règle** — et une liste ne couvre que ce à quoi on a pensé.
+
+> 🎯 **LA LEÇON, ET ELLE DÉPASSE CE FICHIER** : une correction par **énumération
+> de cas** se périme à chaque champ ajouté, et elle se périme **silencieusement**.
+> Même motif que le membre `name` déclaré quatre fois : le correctif tenait dans
+> un commentaire que rien n'obligeait à relire. **Le remède n'est pas une
+> meilleure liste, c'est un contrôle qui parcourt les champs.**
+
+**Mesure de la fuite** (cas témoin `type/ancienne-regle-fuit`) : après un
+changement verre → Standard sous l'ancienne règle, **22 champs sur 23** gardaient
+encore leur ancienne valeur.
+
+**Second défaut, corrigé aussi** : le défaut du nouveau type n'était appliqué que
+si la valeur n'avait jamais été touchée (`if type == 5 && alpha >= 0.999f`). **Le
+même geste donnait deux résultats selon un historique invisible.**
+
+### Ce qui est livré
+
+- `Viewport/NkVpMatTypeDefaults.h` — **un seul point d'accès**,
+  `NkVpMatTypeDefaultsFor(type) -> NkVpMatParams`, et de la **donnée** derrière.
+- Le changement de type applique la ligne du nouveau type **entière et sans
+  condition**, et **vide les chemins de texture** (« on doit tout vider même les
+  texture, c'est comme ça que fait blender », Rodolf, 22 août).
+- `Applications/NKMatTypeResetTest` — banc **console, sans fenêtre ni device**,
+  11 cas.
+
+### 🛡️ LES DEUX GARDE-FOUS — c'est eux qui empêchent la 3ᵉ occurrence
+
+1. **Contrôle de couverture** (`type/couverture-des-champs`) : la somme des
+   tailles des descripteurs doit valoir **exactement** `sizeof(NkVpMatParams)`,
+   et les descripteurs doivent être **contigus**. Un champ ajouté sans entrée →
+   **banc rouge**. *Vérifié en ajoutant réellement un champ : `somme=132
+   sizeof=136`, FAIL. Un garde-fou qu'on n'a pas vu échouer ne garde rien.*
+   (C'est pour ça que `emiEclaire` est un `int32` et non un `bool` : sans octet
+   de bourrage, le contrôle est exact au lieu d'être tolérant.)
+2. **`static_assert(sizeof(NkVpProjMat) == 1480)`** à côté de la recopie, dans
+   `NkDemo3D.cpp` : si la struct du modeleur grandit, **le build casse**. Un
+   échec de build ne peut pas être ignoré, contrairement à un commentaire.
+
+### Ce qui reste, et ce qui est assumé
+
+- ⚠️ **`A → B → A` ne rend pas les valeurs d'origine** mais les défauts de `A`.
+  **Conséquence assumée de la règle**, écrite dans le banc pour que personne ne la
+  prenne un jour pour un bug et ne « répare » en réintroduisant une mémoire.
+- **Seuls le verre et l'émissif ont une ligne propre** — ce sont les deux seuls
+  préréglages qui existaient dans le code. Peau, cheveux, tissu, carrosserie,
+  feuillage, eau **retombent sur la base entière** (donc rien de l'ancien ne
+  survit). Leur donner des valeurs physiques est une **décision produit**, pas une
+  correction de défaut : à trancher par Rodolf. Ajouter une ligne est un `case`.
+- **La cible visée par Rodolf reste le pilotage par le SHADER, sans aucun `if`.**
+  NkSL ne peut pas encore le porter : `NkSLReflection` rend les blocs uniformes,
+  leurs bindings et leur taille, **jamais leurs membres**, et aucune valeur par
+  défaut. La table est donc écrite pour être **remplaçable** : le jour où NkSL
+  réfléchira les membres, **seul le corps de `NkVpMatTypeDefaultsFor` change, et
+  aucun appelant ne s'en aperçoit.**
+
+### 🧾 Dette de méthode nommée : le banc ne couvre pas la recopie
+
+`Demo3DHostProjMatSetType` vit dans `NkDemo3D.cpp` (18 636 lignes, device requis)
+et **n'est pas linkable depuis une console** — c'est le mur des 118 symboles
+`Demo3DHost*` qui a fait retirer `NkMatInventaireTest` du workspace le 17/08. Le
+banc exerce donc la **règle**, pas la recopie dans `NkVpProjMat` ; c'est le
+`static_assert` qui garde celle-ci. **Le jour où `Demo3DHost` devient une
+bibliothèque, le banc peut couvrir les deux.**
+
+---
+
 ## 📐 Modes objet / édition, et ce qu'est un sous-mesh — SPÉCIFICATION (Rihen, 2026-08-17)
 
 *Écrite ici parce qu'elle n'existait que dans un fichier d'échange non versionné.
