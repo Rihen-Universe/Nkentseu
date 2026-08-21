@@ -337,9 +337,47 @@ backend.
   réellement sur hot-plug d'écran.
 
 ### Window management avancé
-- Set window opacity dynamique (déjà câblé sur Win32 via
-  `LWA_ALPHA`, à uniformiser).
-- Stick to desktop / always-on-top runtime (`WS_EX_TOPMOST` toggle).
+- ✅ **Fenêtre discrète — LIVRÉ 2026-08-11** (chantier NkRef, app type PureRef) :
+  API publique `SetOpacity`/`GetOpacity`, `SetAlwaysOnTop`/`IsAlwaysOnTop`,
+  `SetClickThrough`/`IsClickThrough` + champs `NkWindowConfig::{opacity,
+  alwaysOnTop, clickThrough}` appliqués dès la création (sans clignotement).
+  Implémentée dans les 12 backends (réel ou intention mémorisée + doc header) :
+  - **Win32** : réel — `WS_EX_LAYERED`+`LWA_ALPHA` (opacité), `HWND_TOPMOST`
+    (toujours-devant), `WS_EX_TRANSPARENT` (click-through). Règle : le style
+    `WS_EX_LAYERED` reste posé tant qu'un consommateur en a besoin
+    (transparent/opacité/click-through) et est retiré sinon.
+  - **XLib/XCB** : réel — `_NET_WM_WINDOW_OPACITY` (compositeur requis) et
+    `_NET_WM_STATE_ABOVE` (ClientMessage EWMH, le WM fait autorité, getters
+    relisent `_NET_WM_STATE`). ⚠ non testé sur machine Linux réelle.
+  - **Wayland** : click-through réel (région d'entrée vide, double-bufferisée
+    → commit) ; opacité/topmost sans protocole client → intention seulement.
+    ⚠ non testé sur compositeur réel.
+  - **Cocoa** : réel — `alphaValue`, `NSFloatingWindowLevel`,
+    `ignoresMouseEvents`. ⚠ non testé (pas de machine macOS).
+  - **UIKit/Android/HarmonyOS/Emscripten/UWP/Xbox/Noop** : notions de bureau
+    inexistantes → intention mémorisée, getters cohérents.
+- ✅ **Presse-papiers IMAGE — LIVRÉ 2026-08-11** : `NkClipboardImage` (RGBA8
+  brut — NKWindow ne dépend pas de NKImage, même choix que `NkDropImageData`),
+  `SetClipboardImage`/`GetClipboardImage`/`HasClipboardImage`.
+  - **Win32** : réel — écrit CF_DIBV5 (alpha) + CF_DIB (compat), lit CF_DIBV5
+    puis CF_DIB (synthétisé depuis CF_BITMAP par l'OS → captures d'écran OK) ;
+    décodeur 24/32 bpp, BI_RGB/BI_BITFIELDS, bottom-up/top-down, heuristique
+    « tous alphas à 0 = opaque ». Limite assumée : sources qui ne posent QUE
+    du PNG (sans DIB) non lues (décoder du PNG exigerait NKImage).
+  - **Autres plateformes** : fallback interne process-global
+    (`Core/NkWindowClipboardImage.cpp`), copier/coller intra-app.
+  - Correctif au passage : guard de `Core/NkWindowClipboard.cpp` (texte)
+    élargi — UWP/Xbox recevaient un trou de link, ils reçoivent le fallback.
+- **Restes « fenêtre discrète » par plateforme** (chantiers ouverts) :
+  - Click-through X11 : extension Shape (`ShapeInput`) — exige de lier
+    Xext (XLib) / xcb-shape (XCB) dans NKWindow.jenga.
+  - Presse-papiers image OS réel : X11 CLIPBOARD `image/png` (boucle de
+    sélection), macOS NSPasteboard, Wayland wl_data_device.
+  - Événement `NkClipboardUpdateEvent` (Win32 `WM_CLIPBOARDUPDATE` via
+    `AddClipboardFormatListener`) pour activer un « Coller » sans polling.
+  - Lecture PNG du presse-papiers Win32 : à faire CÔTÉ APPLICATION (qui a
+    NKImage) via un futur accès au format brut, ou accepter la limite.
+- Stick to desktop (sous le bureau, l'inverse de topmost).
 - Snap to edges hint (Windows 11 Snap Layouts).
 - Tablet mode detection (Win32 `GetSystemMetrics(SM_CONVERTIBLESLATEMODE)`).
 
