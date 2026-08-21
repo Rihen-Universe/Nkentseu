@@ -141,7 +141,7 @@ ce choix). D'où :
 d'objets, C3 conteneurs **imbriqués** sur trois niveaux (la forme de
 `NkUIDocument`), C4 provenance jamais omise même au défaut.
 
-**`Sandbox/System/NKArchive` — second banc EXÉCUTABLE, 101/101 le 2026-08-21.**
+**`Sandbox/System/NKArchive` — second banc EXÉCUTABLE, 105/105 le 2026-08-21.**
 `jenga build --target SandboxNKArchive --config Debug` puis
 `./Build/Bin/Debug-Windows/SandboxNKArchive/SandboxNKArchive.exe`. Couvre la
 mise à jour trivia / ordre / forme littérale de `NkArchive` — détail dans la
@@ -220,7 +220,7 @@ double libération. Mesuré : la mutation qui partage le pointeur au lieu de le
 dupliquer tue le banc par **corruption de tas** (`0xC0000374`), avant même la
 première ligne de sortie.
 
-**Preuve — `Sandbox/System/NKArchive`, application console, 101/101, sortie 0.**
+**Preuve — `Sandbox/System/NKArchive`, application console, 105/105, sortie 0.**
 Sous `Sandbox/` et pas sous `tests/`, pour la raison de la section précédente.
 Le cas qui tranche est **T1** : un fichier dont les propriétés sont dans un ordre
 différent de l'ordre de déclaration du schéma, avec un commentaire en fin de
@@ -239,6 +239,21 @@ c'est que le banc ne mesurerait plus rien.
 | garde-fou anti-périmé désactivé | 95/101 — **T1 reste VERT** : un aller-retour sans édition ne peut pas révéler un littéral périmé. Seul un contrôle qui ÉDITE l'attrape |
 | trivia partagée au lieu d'être dupliquée | **crash**, corruption de tas |
 | commentaires non greffés par `AdoptFormatting` | 96/101 — T1, T3, T8 rouges |
+| écrivain JSON rendant du vide (contrôle de l'ancrage de T5) | 102/105 — **seules les trois lignes d'ancrage rougissent**, `EXPECT_STREQ` reste vert |
+
+⚠️ **Un contrôle et ce qu'il contrôle ne doivent jamais partager une cause.**
+T5 violait cette règle et a été corrigé le 2026-08-21 (`cafac51b`) : il comparait
+le JSON d'une archive **avec** trivia au JSON de la même archive **sans** trivia,
+donc **deux sorties de la même fonction**. Un `NkJSONWriter::WriteArchive` qui
+rendrait du vide aurait rendu les deux côtés vides — égalité vraie, contrôles
+d'absence vrais, **T5 vert sur un écrivain JSON mort**. La parade est d'ancrer un
+côté sur du texte **écrit à la main**, qui ne peut pas venir du code testé.
+Mesuré par une sixième mutation : écrivain JSON rendant du vide → **102/105**, et
+les trois seules lignes rouges sont les trois lignes d'ancrage, `EXPECT_STREQ`
+restant vert. La même nuit, trois autres contrôles du dépôt sont tombés par ce
+même défaut (une parade `grep` dont le commentaire contenait le motif compté ; un
+banc où `0 == 0` passait sur un maillage jamais chargé ; un garde défensif qui
+remplissait lui-même la condition qu'il testait).
 
 **Limite nommée.** La trivia est portée par les nœuds et par l'archive ; elle ne
 couvre donc pas ce qui n'est ni l'un ni l'autre — typiquement un commentaire
