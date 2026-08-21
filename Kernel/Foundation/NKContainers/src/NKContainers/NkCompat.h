@@ -25,7 +25,13 @@
 // NKContainers dépend de NKPlatform pour toutes les macros de base.
 // Nous importons d'abord les détections de plateforme et les assertions.
 
-#include "NKPlatform/NkPlatformDetect.h" // NKENTSEU_PLATFORM_*, NKENTSEU_CXX_*
+// ⚠️ NkPlatformDetect.h ne porte AUCUNE macro de standard C++ — elles vivent
+// dans son voisin NkCompilerDetect.h (NKENTSEU_HAS_CPP11, NK_CPP11, chaîne
+// __cplusplus l. 386+). Ce commentaire disait « NKENTSEU_CXX_* » : c'est cette
+// annotation fausse qui a maintenu les gardes NK_CPP11 fermées en silence
+// pendant des années (cf. NKContainers/ROADMAP.md §5).
+#include "NKPlatform/NkPlatformDetect.h" // NKENTSEU_PLATFORM_* (plateforme seulement)
+#include "NKPlatform/NkCompilerDetect.h" // NKENTSEU_HAS_CPP11, NK_CPP11 (standards C++)
 #include "NKCore/Assert/NkAssert.h"		 // NKENTSEU_ASSERT, NKENTSEU_ASSERT_MSG
 #include "NKPlatform/NkPlatformInline.h" // NKENTSEU_INLINE, NKENTSEU_FORCE_INLINE
 #include "NkContainersApi.h"
@@ -396,7 +402,11 @@
 
 	Ancien code (déprécié)          | Nouveau code (recommandé)
 	--------------------------------|----------------------------------
-	NK_CPP11                        | NKENTSEU_CXX11_OR_LATER
+	NK_CPP11                        | (VIVANTE, ne pas migrer — définie depuis
+	                                |  le 2026-08-17, dérivée de
+	                                |  NKENTSEU_HAS_CPP11, NkCompilerDetect.h.
+	                                |  L'ancienne cible NKENTSEU_CXX11_OR_LATER
+	                                |  n'a JAMAIS existé nulle part.)
 	NK_CONSTEXPR                    | NKENTSEU_CONTAINERS_CONSTEXPR
 	NK_NOEXCEPT                     | NKENTSEU_CONTAINERS_NOEXCEPT
 	NK_ASSERT(expr)                 | NKENTSEU_CONTAINERS_ASSERT(expr)

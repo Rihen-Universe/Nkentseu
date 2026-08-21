@@ -969,6 +969,137 @@ namespace nkentseu {
 			return false;
 		}
 
+		// ── COMPOSANTES CONNEXES ────────────────────────────────────────────────
+		// Parcours en profondeur sur l'IDENTITE SOUDEE. Le cycle disque (VertEdges)
+		// est deja renseigne pour TOUTE copie coincidente — RebuildEdges donne a
+		// chaque copie la tranche de son representant — donc on peut partir de
+		// n'importe quel indice brut sans le canoniser d'abord. Verifie dans
+		// RebuildEdges AVANT d'ecrire ceci : l'inverse aurait fait mourir le
+		// parcours sur place, en silence, avec un resultat qui ressemble a une
+		// reponse — une composante d'un seul sommet.
+		uint32 NkEditMesh::ComputeConnectedComponents(NkVector<int32> &compOf) const {
+			const uint32 n = (uint32)verts.Size();
+			compOf.Clear();
+			compOf.Resize(n);
+			for (uint32 i = 0; i < n; ++i)
+				compOf[i] = -1;
+			if (n == 0)
+				return 0;
+
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			auto cn = [&](uint32 v) -> uint32 {
+				const uint32 r = (v < (uint32)canon.Size()) ? canon[v] : v;
+				return (r < n) ? r : v;
+			};
+
+			// Composante du REPRESENTANT ; les copies la recopient a la fin.
+			NkVector<int32> compRep;
+			compRep.Resize(n);
+			for (uint32 i = 0; i < n; ++i)
+				compRep[i] = -1;
+
+			NkVector<uint32> stack;
+			NkVector<NkEmId> inc;
+			uint32 count = 0;
+
+			for (uint32 i = 0; i < n; ++i) {
+				const uint32 r0 = cn(i);
+				if (compRep[r0] >= 0)
+					continue;
+				// Nouvelle composante. Un sommet ISOLE (aucune arete) en forme une a
+				// lui seul : c'est voulu — Blender traite un sommet libre comme une
+				// loose part, et l'invariant de somme l'exige.
+				compRep[r0] = (int32)count;
+				stack.Clear();
+				stack.PushBack(r0);
+				while (!stack.Empty()) {
+					const uint32 v = stack.Back();
+					stack.PopBack();
+					VertEdges(v, inc);
+					for (uint32 k = 0; k < (uint32)inc.Size(); ++k) {
+						const NkEmId e = inc[k];
+						if (e >= (NkEmId)edges.Size() || !edges[e].alive)
+							continue;
+						// L'arete porte deja des indices SOUDES ; on prend l'autre bout.
+						const uint32 a = cn(edges[e].v0);
+						const uint32 b = cn(edges[e].v1);
+						const uint32 o = (a == v) ? b : a;
+						if (o < n && compRep[o] < 0) {
+							compRep[o] = (int32)count;
+							stack.PushBack(o);
+						}
+					}
+				}
+				++count;
+			}
+
+			for (uint32 i = 0; i < n; ++i)
+				compOf[i] = compRep[cn(i)];
+			return count;
+		}
+
+		bool NkEditMesh::SelectLinked(uint32 seed, bool additive) {
+			const uint32 n = (uint32)verts.Size();
+			if (seed >= n)
+				return false;
+			NkVector<int32> compOf;
+			ComputeConnectedComponents(compOf);
+			const int32 want = compOf[seed];
+			if (want < 0)
+				return false;
+			bool changed = false;
+			for (uint32 i = 0; i < n; ++i) {
+				if (compOf[i] != want)
+					continue;
+				if (!verts[i].sel) {
+					verts[i].selOrder = ++selCounter; // entre dans l'historique, comme un clic
+					verts[i].sel = 1;
+					changed = true;
+				}
+			}
+			if (!additive)
+				for (uint32 i = 0; i < n; ++i)
+					if (compOf[i] != want && verts[i].sel) {
+						verts[i].sel = 0;
+						verts[i].selOrder = 0;
+						changed = true;
+					}
+			return changed;
+		}
+
+		bool NkEditMesh::SelectLinkedFromSelection() {
+			const uint32 n = (uint32)verts.Size();
+			NkVector<int32> compOf;
+			const uint32 nc = ComputeConnectedComponents(compOf);
+			if (nc == 0)
+				return false;
+			// Quelles composantes la selection touche-t-elle deja ?
+			NkVector<uint8> hit;
+			hit.Resize(nc);
+			for (uint32 c = 0; c < nc; ++c)
+				hit[c] = 0;
+			bool any = false;
+			for (uint32 i = 0; i < n; ++i)
+				if (verts[i].sel && compOf[i] >= 0) {
+					hit[(uint32)compOf[i]] = 1;
+					any = true;
+				}
+			// RIEN DE SELECTIONNE = ON NE FAIT RIEN. Tout selectionner serait une
+			// surprise, et un geste qui surprend est un geste qu'on annule.
+			if (!any)
+				return false;
+			bool changed = false;
+			for (uint32 i = 0; i < n; ++i) {
+				if (compOf[i] < 0 || !hit[(uint32)compOf[i]] || verts[i].sel)
+					continue;
+				verts[i].selOrder = ++selCounter;
+				verts[i].sel = 1;
+				changed = true;
+			}
+			return changed;
+		}
+
 		bool NkEditMesh::PolyFaceSelected(const NkVector<uint32> &fv, uint32 s, uint32 e) const {
 			for (uint32 k = s; k < e; k++) {
 				const uint32 vi = fv[k];

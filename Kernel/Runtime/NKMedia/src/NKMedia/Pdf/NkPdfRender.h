@@ -89,6 +89,26 @@ namespace nkentseu {
 					struct TextItem {
 							float32 x = 0.f, y = 0.f, w = 0.f, h = 0.f;
 							NkString text; // UTF-8 ; vide si la police n'a pas de /ToUnicode
+
+							// Identifiant du CONTENU MARQUE dont ce caractere fait partie
+							// (operateurs BDC/EMC), ou -1 hors de tout bloc marque.
+							//
+							// C'est le seul lien entre le texte et l'arbre /StructTreeRoot,
+							// donc entre l'ordre VISUEL et l'ordre LOGIQUE de lecture. Sans
+							// lui, un document a deux colonnes ressort entrelace : le texte
+							// reste plausible mais les phrases sont fausses.
+							//
+							// ⚠️ L'identite d'un bloc est ici le couple (PAGE, mcid). Les
+							// MCID sont pourtant numerotes par FLUX de contenu, pas par
+							// page : un formulaire (Form XObject) a sa propre numerotation.
+							// Cette simplification repose sur une MESURE, pas sur une
+							// hypothese — sondage du 13/08/2026 sur 258 documents :
+							// AUCUN /MCR ne porte de cle /Stm (0 document, 0 occurrence),
+							// c'est-a-dire qu'aucun arbre de structure du corpus ne place
+							// de contenu marque hors du flux de sa page. Si un document se
+							// met a deraper, c'est CE chiffre qu'il faut revérifier :
+							// `NKIlyana --sonder` le remesure.
+							int32 mcid = -1;
 					};
 					const NkVector<TextItem> &TextItems() const { return mText; }
 

@@ -23,9 +23,17 @@
 
 @binding(set=0, binding=0) uniform sampler2D uHDR;
 @binding(set=0, binding=1) uniform sampler2D uPrevLuma;
+// LE HALO FAIT PARTIE DE CE QU'ON MESURE. Le tonemap affiche scène + halo ; en
+// ne mesurant que la scène, l'exposition ne voyait jamais le halo qu'elle
+// amplifie ensuite — face à une source éblouissante dans un décor sombre, elle
+// s'OUVRAIT au lieu de se fermer. Pas de flip Y ici, contrairement au tonemap :
+// la grille d'échantillonnage et sa pondération centrale sont symétriques en Y,
+// donc la moyenne est identique à l'endroit comme à l'envers.
+@binding(set=0, binding=2) uniform sampler2D uBloom;
 
 layout(push_constant) uniform PC {
     vec4 p0;   // (dtSeconds, adaptSpeed, minLuma, maxLuma)
+    vec4 p1;   // (bloomStrength, hasBloom, _, _)
 } pc;
 
 @stage(fragment)
@@ -36,27 +44,137 @@ void main() {
     float minLuma  = pc.p0.z;
     float maxLuma  = pc.p0.w;
 
+    // ── ÉCRÊTAGE DES PERCENTILES ─────────────────────────────────────────────
+    // La moyenne logarithmique seule ne survit pas à un décor sombre : log diverge
+    // vers −∞ près de zéro, donc un champ noir écrase la mesure, tandis qu'une
+    // source à 1000 n'apporte que +6,9. Résultat constaté (Rihen, 14 août, ambiance
+    // 0,050) : luminance mesurée 0,013 -> exposition ×13,7. L'exposition s'OUVRAIT
+    // face à une source éblouissante. Ce n'est pas un défaut de la moyenne
+    // géométrique, c'est sa nature : elle est dominée par les sombres.
+    //
+    // Remède : jeter les 30 % les plus sombres et les 2 % les plus brillants AVANT
+    // de moyenner. Le champ noir ne pilote plus l'exposition, et une petite source
+    // éblouissante ne la pilote pas davantage.
+    //
+    // Méthode sans tri ni tableau (256 valeurs à classer dans UNE invocation) :
+    // histogramme CUMULÉ sur 16 seuils fixes en log-luminance. Chaque compteur est
+    // un scalaire, aucune indexation dynamique — le tri coûteux est évité, et le
+    // dialecte n'a ni tableau local ni boucle imbriquée supplémentaire à digérer.
     const int kGrid = 16;                   // 256 échantillons
     float invGrid = 1.0 / float(kGrid);
     float logSum = 0.0;
     float wSum   = 0.0;
 
+    // Seuils : log-luminance de −12 (≈6e-6) à +8,25 (≈3800), pas de 1,35.
+    const float kBase = -12.0;
+    const float kStep = 1.35;
+    float c00 = 0.0; float c01 = 0.0; float c02 = 0.0; float c03 = 0.0;
+    float c04 = 0.0; float c05 = 0.0; float c06 = 0.0; float c07 = 0.0;
+    float c08 = 0.0; float c09 = 0.0; float c10 = 0.0; float c11 = 0.0;
+    float c12 = 0.0; float c13 = 0.0; float c14 = 0.0; float c15 = 0.0;
+
     for (int y = 0; y < kGrid; y = y + 1) {
         for (int x = 0; x < kGrid; x = x + 1) {
             vec2 uv = (vec2(float(x), float(y)) + 0.5) * invGrid;
             vec3 c = texture(uHDR, uv).rgb;
+            if (pc.p1.y > 0.5) c = c + texture(uBloom, uv).rgb * pc.p1.x;
             float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+            // max(l, 1e-4) : log(0) = -inf contaminerait toute la somme.
+            float lg = log(max(l, 0.0001));
             // Pondération centrale : le bord compte 0.4, le centre 1.0. Évite qu'un
             // ciel très lumineux en haut d'image sous-expose le sujet.
             vec2 d = uv - vec2(0.5, 0.5);
             float w = 1.0 - 0.6 * clamp(length(d) * 1.41421356, 0.0, 1.0);
-            // max(l, 1e-4) : log(0) = -inf contaminerait toute la somme.
-            logSum = logSum + log(max(l, 0.0001)) * w;
+            logSum = logSum + lg * w;
             wSum   = wSum + w;
+            // Comptage cumulé NON pondéré : un percentile compte des échantillons,
+            // pas des poids. c_k = nombre d'échantillons au-dessus du seuil k.
+            if (lg >= kBase +  0.0 * kStep) c00 = c00 + 1.0;
+            if (lg >= kBase +  1.0 * kStep) c01 = c01 + 1.0;
+            if (lg >= kBase +  2.0 * kStep) c02 = c02 + 1.0;
+            if (lg >= kBase +  3.0 * kStep) c03 = c03 + 1.0;
+            if (lg >= kBase +  4.0 * kStep) c04 = c04 + 1.0;
+            if (lg >= kBase +  5.0 * kStep) c05 = c05 + 1.0;
+            if (lg >= kBase +  6.0 * kStep) c06 = c06 + 1.0;
+            if (lg >= kBase +  7.0 * kStep) c07 = c07 + 1.0;
+            if (lg >= kBase +  8.0 * kStep) c08 = c08 + 1.0;
+            if (lg >= kBase +  9.0 * kStep) c09 = c09 + 1.0;
+            if (lg >= kBase + 10.0 * kStep) c10 = c10 + 1.0;
+            if (lg >= kBase + 11.0 * kStep) c11 = c11 + 1.0;
+            if (lg >= kBase + 12.0 * kStep) c12 = c12 + 1.0;
+            if (lg >= kBase + 13.0 * kStep) c13 = c13 + 1.0;
+            if (lg >= kBase + 14.0 * kStep) c14 = c14 + 1.0;
+            if (lg >= kBase + 15.0 * kStep) c15 = c15 + 1.0;
         }
     }
 
-    float target = exp(logSum / max(wSum, 0.0001));
+    float nTot = float(kGrid * kGrid);
+    float nLo  = nTot * 0.70;   // 30 % les plus sombres rejetés
+    float nHi  = nTot * 0.02;   // 2 % les plus brillants rejetés
+
+    // Les compteurs décroissent avec k. Le seuil bas est le PLUS HAUT seuil au-dessus
+    // duquel il reste encore 70 % des échantillons : chaîne écrite en k croissant,
+    // la dernière affectation vraie l'emporte.
+    float loLog = kBase;
+    if (c01 >= nLo) loLog = kBase +  1.0 * kStep;
+    if (c02 >= nLo) loLog = kBase +  2.0 * kStep;
+    if (c03 >= nLo) loLog = kBase +  3.0 * kStep;
+    if (c04 >= nLo) loLog = kBase +  4.0 * kStep;
+    if (c05 >= nLo) loLog = kBase +  5.0 * kStep;
+    if (c06 >= nLo) loLog = kBase +  6.0 * kStep;
+    if (c07 >= nLo) loLog = kBase +  7.0 * kStep;
+    if (c08 >= nLo) loLog = kBase +  8.0 * kStep;
+    if (c09 >= nLo) loLog = kBase +  9.0 * kStep;
+    if (c10 >= nLo) loLog = kBase + 10.0 * kStep;
+    if (c11 >= nLo) loLog = kBase + 11.0 * kStep;
+    if (c12 >= nLo) loLog = kBase + 12.0 * kStep;
+    if (c13 >= nLo) loLog = kBase + 13.0 * kStep;
+    if (c14 >= nLo) loLog = kBase + 14.0 * kStep;
+    if (c15 >= nLo) loLog = kBase + 15.0 * kStep;
+
+    // Seuil haut : le PLUS BAS seuil au-dessus duquel il reste 2 % ou moins.
+    // Chaîne écrite en k décroissant, même raison.
+    float hiLog = kBase + 15.0 * kStep;
+    if (c14 <= nHi) hiLog = kBase + 14.0 * kStep;
+    if (c13 <= nHi) hiLog = kBase + 13.0 * kStep;
+    if (c12 <= nHi) hiLog = kBase + 12.0 * kStep;
+    if (c11 <= nHi) hiLog = kBase + 11.0 * kStep;
+    if (c10 <= nHi) hiLog = kBase + 10.0 * kStep;
+    if (c09 <= nHi) hiLog = kBase +  9.0 * kStep;
+    if (c08 <= nHi) hiLog = kBase +  8.0 * kStep;
+    if (c07 <= nHi) hiLog = kBase +  7.0 * kStep;
+    if (c06 <= nHi) hiLog = kBase +  6.0 * kStep;
+    if (c05 <= nHi) hiLog = kBase +  5.0 * kStep;
+    if (c04 <= nHi) hiLog = kBase +  4.0 * kStep;
+    if (c03 <= nHi) hiLog = kBase +  3.0 * kStep;
+    if (c02 <= nHi) hiLog = kBase +  2.0 * kStep;
+    if (c01 <= nHi) hiLog = kBase +  1.0 * kStep;
+
+    // Une fenêtre vide ou inversée n'a pas de sens : on garde tout.
+    if (hiLog <= loLog) { loLog = kBase; hiLog = kBase + 16.0 * kStep; }
+
+    // Seconde passe : moyenne logarithmique pondérée DANS la fenêtre seulement.
+    float clipSum = 0.0;
+    float clipW   = 0.0;
+    for (int y2 = 0; y2 < kGrid; y2 = y2 + 1) {
+        for (int x2 = 0; x2 < kGrid; x2 = x2 + 1) {
+            vec2 uv = (vec2(float(x2), float(y2)) + 0.5) * invGrid;
+            vec3 c = texture(uHDR, uv).rgb;
+            if (pc.p1.y > 0.5) c = c + texture(uBloom, uv).rgb * pc.p1.x;
+            float l  = dot(c, vec3(0.2126, 0.7152, 0.0722));
+            float lg = log(max(l, 0.0001));
+            if (lg >= loLog && lg <= hiLog) {
+                vec2 d = uv - vec2(0.5, 0.5);
+                float w = 1.0 - 0.6 * clamp(length(d) * 1.41421356, 0.0, 1.0);
+                clipSum = clipSum + lg * w;
+                clipW   = clipW + w;
+            }
+        }
+    }
+
+    // Repli sur la moyenne non écrêtée si la fenêtre n'a rien retenu.
+    float target = (clipW > 0.0001) ? exp(clipSum / clipW)
+                                    : exp(logSum / max(wSum, 0.0001));
     target = clamp(target, minLuma, maxLuma);
 
     float prev = texture(uPrevLuma, vec2(0.5, 0.5)).r;

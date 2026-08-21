@@ -12,6 +12,61 @@
 namespace nkentseu {
 	namespace nkgui {
 
+		// ── Convention `##id` des libelles (2026-08-17) ──────────────────────
+		// Tout ce qui suit `##` dans un libelle sert a l'IDENTITE, jamais a
+		// l'AFFICHAGE : `Rechercher##filtre` s'affiche « Rechercher » et reste
+		// identifie par la chaine complete (GetId hache tout, INCHANGE — deux
+		// widgets « OK##a » / « OK##b » restent distincts). Renvoie la borne de
+		// fin de la partie AFFICHEE : premier `##`, ou fin de chaine. Un libelle
+		// entierement `##...` a une partie affichee VIDE (widget sans texte).
+		NKENTSEU_NKGUI_API const char *LabelEnd(const char *label) noexcept;
+
+		// ── Glisser-deposer (2026-08-17) — API minimale ──────────────────────
+		// La bibliotheque porte l'etat, gere le survol, le fantome et la
+		// livraison ; l'application DECLARE (meme conception que l'occultation
+		// par couches). Pas de multi-selection glissee, pas d'annulation
+		// animee : le minimum qui debloque le reparentage d'arbre et le
+		// glisser d'assets.
+		//
+		//   // source — juste APRES le widget source :
+		//   if (BeginDragSource(ctx)) {
+		//       SetDragPayload(ctx, "entity", &id, sizeof(id), node->name);
+		//       EndDragSource(ctx);
+		//   }
+		//   // cible — juste APRES le widget cible :
+		//   if (BeginDropTarget(ctx)) {
+		//       if (const void *p = AcceptDragPayload(ctx, "entity"))
+		//           Reparent(*(const NkEntityId *)p, myId);
+		//       EndDropTarget(ctx);
+		//   }
+		//
+		// True tant qu'un glisser DEPUIS le dernier widget soumis est en cours
+		// (demarre apres ~4 px de mouvement souris maintenue sur ce widget).
+		NKENTSEU_NKGUI_API bool BeginDragSource(NkGuiContext &ctx) noexcept;
+		// Charge TYPEE, copiee (taille max NkGuiContext::DragPayloadMax octets).
+		// `ghostLabel` = texte du fantome que la bibliotheque dessine sous la
+		// souris (couche overlay). A appeler chaque frame du glisser.
+		NKENTSEU_NKGUI_API void SetDragPayload(NkGuiContext &ctx, const char *type, const void *data, int32 size,
+											   const char *ghostLabel) noexcept;
+		NKENTSEU_NKGUI_API void EndDragSource(NkGuiContext &ctx) noexcept;
+		// True si un glisser survole le dernier widget soumis (la bibliotheque
+		// surligne le rect en accent). Le TYPE se verifie a l'acceptation.
+		NKENTSEU_NKGUI_API bool BeginDropTarget(NkGuiContext &ctx) noexcept;
+		// CIBLE EXPLICITE (2026-08-17, NK3DModeler) : pour une ZONE qui n'est pas
+		// un widget -- un panneau entier, un fond de liste -- et qui contient deja
+		// des widgets. `ButtonBehavior` sur une telle zone capturerait le clic
+		// (soumis avant eux : activeId bloque leur ItemHoverable) ou volerait
+		// hotId (soumis apres : le greedy les prive du survol). Cette forme ne
+		// capture RIEN : elle pose seulement ce que la livraison consomme
+		// (lastItemId/lastItemRect) puis suit le meme chemin que BeginDropTarget.
+		// Une source reste un widget (BeginDragSource a besoin d'activeId).
+		NKENTSEU_NKGUI_API bool BeginDropTarget(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept;
+		// Livraison : non-nul UNE frame — au relachement sur la cible, si le
+		// type correspond. Un lacher HORS de toute cible ne livre rien.
+		NKENTSEU_NKGUI_API const void *AcceptDragPayload(NkGuiContext &ctx, const char *type,
+														 int32 *outSize = nullptr) noexcept;
+		NKENTSEU_NKGUI_API void EndDropTarget(NkGuiContext &ctx) noexcept;
+
 		// Fond de panneau (rectangle thème + bord).
 		NKENTSEU_NKGUI_API void PanelBackground(NkGuiContext &ctx, const NkRect &r) noexcept;
 
@@ -176,8 +231,28 @@ namespace nkentseu {
 		SpringRight(NkGuiContext &ctx,
 					float32 width) noexcept; ///< pousse les items suivants à droite (réserve `width`)
 		// Poignée de redimensionnement : glisse *value (px) entre min/max. vertical=true → barre verticale (glisse X).
+		// `grabPx` (2026-08-18) : LARGEUR DE PREHENSION, en px. La zone attrapable
+		// est elargie a `grabPx` sans que le trait dessine change. 0 = comportement
+		// historique (on attrape exactement ce qu'on voit). Dette recuperee de
+		// `NkUILayout::DrawSplitter`, que l'extinction de NKUI va supprimer : sans
+		// zone elargie, on attrape la barre d'onglets voisine par erreur — et un
+		// clic manque devient un desancrage au lieu d'un redimensionnement.
 		NKENTSEU_NKGUI_API bool Splitter(NkGuiContext &ctx, const char *idStr, const NkRect &handle, bool vertical,
-										 float32 *value, float32 minV, float32 maxV) noexcept;
+										 float32 *value, float32 minV, float32 maxV,
+										 float32 grabPx = 0.f) noexcept;
+		// Geometrie PURE d'un separateur : depuis la zone entiere et un RATIO,
+		// rend le rectangle VISUEL et le rectangle de PREHENSION. Extraite pour
+		// etre verifiable sans GPU — les deux formes de Splitter l'utilisent.
+		// `grabPx` <= `thickness` : la prehension vaut le visuel.
+		NKENTSEU_NKGUI_API void SplitterRects(const NkRect &area, bool vertical, float32 ratio, float32 thickness,
+											  float32 grabPx, NkRect *visual, NkRect *grab) noexcept;
+		// Separateur pilote par un RATIO dans [minR, maxR] (fraction de la zone),
+		// et non par une position en pixels. Seconde propriete recuperee de NKUI :
+		// un ratio survit au redimensionnement de la fenetre, une position en px
+		// non. `area` est la zone ENTIERE que le separateur coupe.
+		NKENTSEU_NKGUI_API bool SplitterRatio(NkGuiContext &ctx, const char *idStr, const NkRect &area, bool vertical,
+											  float32 *ratio, float32 minR = 0.1f, float32 maxR = 0.9f,
+											  float32 thickness = 4.f, float32 grabPx = 12.f) noexcept;
 		// Stack : enfants superposés dans une boîte width×height ; ancrer le prochain via StackAnchor.
 		NKENTSEU_NKGUI_API void BeginStack(NkGuiContext &ctx, float32 width, float32 height) noexcept;
 		NKENTSEU_NKGUI_API void StackAnchor(NkGuiContext &ctx,
