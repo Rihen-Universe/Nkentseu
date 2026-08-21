@@ -2158,6 +2158,16 @@ namespace nkentseu {
 			return mn;
 		} // menu clic droit (partage)
 
+		// Vrai tant qu'une boite de dialogue VRAIMENT modale (ex. confirmation de fermeture
+		// d'onglet non enregistre, Panels.h::DrawCloseConfirm/DrawCloseGroupConfirm) est ouverte
+		// au-dessus de l'editeur : CodeEditor() l'utilise pour bloquer TOUT clic/frappe destine
+		// au texte le temps que la boite reste affichee (pas seulement ceux geographiquement
+		// dans son rect, cf. bug "les evenements traversent" remonte par Rihen).
+		inline bool &NkCodeModalBlocking() {
+			static bool v = false;
+			return v;
+		}
+
 		namespace detail {
 			inline bool InRect(const NkRect &r, const NkVec2 &p) {
 				return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
@@ -2312,6 +2322,15 @@ namespace nkentseu {
 			NkCodeFontScope _cfs(ctx); // tout l'editeur dessine avec la police monospace (code)
 			if (!ctx.font || !ctx.font->Face())
 				return false;
+			// Boite modale (ex. confirmation de fermeture non enregistree) ouverte AU-DESSUS de
+			// cet editeur : emprunte temporairement ctx.popupDepth (deja verifie par overText, le
+			// chevron de repli, la gouttiere des points d'arret, la minimap...) pour l'ENTIERE
+			// duree de ce draw -> aucun clic/frappe destine au texte ne "traverse" la boite. Purement
+			// local a cet appel (restaure a la valeur d'origine en sortie, cf. `return changed;`
+			// plus bas) : ne touche pas au cycle de vie reel des popups NkGui (OpenPopup/ClosePopup).
+			const int32 _savedPopupDepth = ctx.popupDepth;
+			if (NkCodeModalBlocking() && ctx.popupDepth == 0)
+				ctx.popupDepth = 1;
 			d.EnsureNonEmpty();
 			++d.tick; // horloge en frames (fenêtre du multi-clic)
 			// ── Repli de code : mapping lignes visibles À JOUR avant souris/scroll/rendu. ──
@@ -4985,6 +5004,7 @@ namespace nkentseu {
 			// ecrasait le calcul fait par Undo()/Redo() et le point ne s'eteignait jamais.
 			if (changed)
 				d.dirty = (d.SymSig() != d.savedSig);
+			ctx.popupDepth = _savedPopupDepth; // repli du snapshot local (cf. debut de la fonction)
 			return changed;
 		}
 
