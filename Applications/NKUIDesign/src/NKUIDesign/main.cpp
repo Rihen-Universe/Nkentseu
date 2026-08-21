@@ -11,6 +11,9 @@
 //   `--roundtrip-controles` : les temoins de bruit, controles positifs et
 //                negatifs de ce meme aller-retour. ⚠️ A LANCER AVANT DE CROIRE UN
 //                TAUX : un banc qui ne sait dire que « oui » ne mesure rien.
+//   `--valider=<dossier>` : la VALIDATION par role et par type (vocabulaire du
+//                document 7). Separee de la lecture a dessein : un document
+//                fautif doit rester ouvrable, sinon sa faute est incorrigeable.
 //   (defaut)   : l'editeur fenetre.
 //
 // ⚠️ LE MODE SONDE EST TESTE AVANT TOUTE CREATION DE FENETRE, deliberement : la
@@ -179,10 +182,20 @@ int nkmain(const NkEntryState &state) {
 			return nkuidesign::guifmt::NkGRunControls();
 		if (NkComponentDecl::StrEq(a, "--roundtrip"))
 			return nkuidesign::guifmt::NkGRunRoundTrip(".");
+		// ⚠️ LIRE ET JUGER SONT DEUX GESTES, ET DEUX MODES. `--valider` verifie
+		//    les roles et les types contre le vocabulaire du document 7 ; il ne
+		//    touche pas au modele, donc un document fautif reste lisible,
+		//    modifiable et enregistrable. Un outil qui refuserait d'ouvrir ce
+		//    qu'il signale serait celui qui empeche de le reparer.
+		if (NkComponentDecl::StrEq(a, "--valider"))
+			return nkuidesign::guifmt::NkGRunValidate(".");
 		{
 			const NkString arg(a);
 			if (arg.StartsWith("--roundtrip=")) {
 				return nkuidesign::guifmt::NkGRunRoundTrip(arg.SubStr(12).Data());
+			}
+			if (arg.StartsWith("--valider=")) {
+				return nkuidesign::guifmt::NkGRunValidate(arg.SubStr(10).Data());
 			}
 		}
 		// Fenetre reduite : sert aux essais quand la carte est occupee ailleurs.

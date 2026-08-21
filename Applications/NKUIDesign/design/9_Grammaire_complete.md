@@ -540,51 +540,141 @@ se lire.*
 
 ---
 
-## 8. État d'implémentation, au 2026-08-21
+## 8. État d'implémentation — **mis à jour le 2026-08-21, format `nkgui 0.3`**
 
-| § | proposé | implémenté dans le parseur |
+> **Rodolf a tranché le 2026-08-21.** Ses cinq décisions sont descendues dans le
+> code ; le format passe de **0.2 à 0.3**. Le document 2 n'a toujours **pas** été
+> touché : il lui appartient, et ce tableau dit exactement ce qu'il aurait à y
+> reporter.
+
+| § | proposé | implémenté dans le lecteur/écrivain v0.3 |
 |---|---|---|
-| 2 — `Text`, `Spacer` | ✅ | ✅ *(aucune ligne à écrire : `Kind := Identifier`)* |
-| 3 — apparence | ✅ | ❌ **en attente du OUI de Rodolf** |
-| 4 — animation | ✅ | ❌ **en attente du OUI de Rodolf** |
-| 5 — polices | ✅ | ❌ **en attente du OUI de Rodolf** |
-| 6.1 — littéral de liste | 🔴 | ❌ refusé avec `E-PARSE`, jamais deviné |
-| 6.2 — identifiant pointé | 🔴 | ⚠️ **lu**, pour que les exemples du doc 2 se lisent |
-| 6.3 — grammaire du thème | 🔴 | ❌ `include` est lu, sa cible n'est pas résolue |
-| 6.4 — validation par rôle | 🔴 | ❌ syntaxe seulement |
+| 2 — `Text`, `Spacer` | ✅ | ✅ rôles au catalogue de validation (`NkGuiValidate.h`) |
+| 3 — apparence | ✅ | ✅ `appearance` / `appearance(État)` / `fill·stroke·shadow·blur`, forme en ligne conservée |
+| 4 — animation | ✅ | ✅ `transition` · `ambience` · `continuous`, avec `track` / `key` / `map` |
+| 5 — polices | ✅ | ✅ `fonts` / `font` / `source` / `fallback` / `metrics` + `glyph "A" -> 1366` |
+| 6.1 — littéral de liste | ✅ **tranché** | ✅ **et les dictionnaires aussi** : `[a, b]` et `{ clé = v }`, imbriqués |
+| 6.2 — identifiant pointé | ✅ **tranché** | ✅ `n1.value`, `Enum.X`, `a.b.c` — en argument, en pin, en expression ; `NkGSplitPath` pour qui doit résoudre |
+| 6.3 — grammaire du thème | 🔴 | ❌ **toujours ouvert** — `include` est lu, sa cible n'est pas résolue |
+| 6.4 — validation par rôle | ✅ **tranché** | ✅ `NkGuiValidate.h`, **contre le vocabulaire du document 7**, alias compris |
 
-⚠️ **Le parseur livré implémente le document 2 v0.2 tel qu'il est écrit, et rien
-de plus.** Les sections 3, 4 et 5 de ce document sont des propositions ; les
-coder avant l'accord ferait exister un format que personne n'a validé — et c'est
-justement contre ça que le document 8 §6 vient d'écrire une règle.
+### 8.1 Les deux choix de la validation, et ils ne sont pas neutres
+
+**Le vocabulaire de référence est celui du document 7, pas la table §8 du
+document 2.** Les dix documents du corpus sont écrits en `Text`, `TextField`,
+`Dropdown`, `Item`, `Progress` ; valider contre la table §8 les rejetterait en
+bloc — c'est-à-dire rejeter tout ce qui existe. Les anciens noms restent lus, en
+**alias**, avec un avertissement `W-ROLE-ALIAS` qui nomme le nouveau.
+
+**Un rôle inconnu produit une erreur nommée, jamais un rejet muet du fichier
+entier.** C'est pour ça que la validation vit dans un fichier *séparé* du
+lecteur : le document se lit d'abord, intégralement, et se juge ensuite. *Un
+outil qui refuse d'ouvrir ce qu'il signale est celui qui empêche de le réparer.*
+
+Codes émis : `E-ROLE-INCONNU`, `E-TYPE` (propriété hors schéma **ou** valeur d'un
+type que le rôle n'attend pas), `W-ROLE-ALIAS`.
+
+### 8.2 ⚠️ La contrainte qui prime : mettre à jour sans rien détruire
+
+Rodolf, mot pour mot : *« rassure-toi que le système pourra facilement être mis à
+jour sans tout détruire et sans bug. »* Quatre règles la tiennent, et elles sont
+dans le code, pas seulement dans ce document :
+
+| | règle | où elle vit |
+|---|---|---|
+| **a** | le fichier porte sa version, relue et **réémise telle quelle** | `NkGDocument::versionMajor/Minor` — un 0.2 se réécrit en 0.2 |
+| **b** | un lecteur récent lit **tous** les fichiers anciens | rien de la v0.2 n'a été retiré ni resserré ; corpus 0.2 à 10/10 |
+| **c** | un lecteur ancien **refuse clairement** un fichier plus récent | **majeure** supérieure → `E-VERSION-INCOMPATIBLE`, « ce fichier est trop récent pour moi » |
+| **d** | ce qu'on ne comprend pas, on le **préserve tel quel** | **mineure** supérieure → section (et membre de widget) inconnus gardés en **texte brut**, réémis à l'octet près |
+
+⚠️ **La frontière entre (c) et (d) est la MAJEURE, et ce n'est pas un détail de
+numérotation.** Refuser aussi la mineure serait plus simple et plus faux : ça
+transformerait le moindre ajout futur en rupture, et le format ne pourrait plus
+jamais grandir sans casser les outils déjà déployés.
+
+⚠️ **La règle (d) impose sa forme au code.** On ne peut pas préserver ce qu'on ne
+sait pas modéliser en le faisant passer par le modèle : il faut garder **la
+tranche de source**. C'est pour ça que le lexeur note l'offset de début et de fin
+de chaque jeton et que le modèle porte un type `NkGRaw`.
+
+⚠️ **Ce que la règle (d) exige du format, et il vaut mieux le dire maintenant** :
+une construction future doit être un **bloc accoladé**. Une construction sans
+bloc n'est pas délimitable sans connaître sa grammaire, donc pas préservable.
+C'est une contrainte sur les versions à venir, pas une limite de cette
+implémentation.
+
+### 8.3 Ce qui a été retiré, et c'est un progrès
+
+Les deux réglages « ligne vide après l'en-tête » et « ligne vide entre les
+sections » de `NkGWriteOptions` **n'existent plus**. C'étaient des heuristiques :
+on devinait l'intention de l'auteur à partir d'une seule observation. Les lignes
+vides sont désormais **lues et conservées** comme les commentaires — il n'y a
+plus rien à deviner, donc plus rien qui puisse se tromper.
+
+### 8.4 La trivia, et pourquoi un découpage naïf suffit
+
+Tout ce que le lexeur jette entre deux jetons est récupéré **verbatim**, découpé
+en lignes, et rattaché soit à la fin de la ligne du jeton précédent, soit au
+début de celle du suivant. Un commentaire de bloc sur plusieurs lignes est coupé
+en autant de morceaux — et se recolle à l'identique à l'écriture, parce que
+chaque morceau est réémis tel quel suivi d'un retour à la ligne. *Le modèle n'a
+pas besoin de savoir que c'était un commentaire ; il a besoin de ne rien perdre.*
+
+Seule l'indentation de la dernière ligne — celle qui précède immédiatement le
+jeton — est délibérément abandonnée : c'est l'écrivain qui la régénère, sinon
+deux règles se disputeraient la même colonne.
 
 ### Où il vit, et comment on le vérifie
 
 | | |
 |---|---|
 | lecteur, écrivain, modèle | `src/NKUIDesign/NkGuiFormat.h` |
+| validation rôles et types | `src/NKUIDesign/NkGuiValidate.h` |
 | le banc d'aller-retour | `src/NKUIDesign/NkGuiRoundTrip.h` |
 | `NKUIDesign --roundtrip=<dossier>` | l'aller-retour sur tous les `.nkgui` d'un dossier |
-| `NKUIDesign --roundtrip-controles` | les témoins de bruit et contrôles positifs/négatifs |
+| `NKUIDesign --roundtrip-controles` | les témoins de bruit, contrôles positifs et négatifs |
+| `NKUIDesign --valider=<dossier>` | la validation par rôle et par type |
 
-**Mesure du 2026-08-21**, sur les dix documents de
-`D:/Projets/Camrail/AI/CorpusUI/sortie/nkgui` (271 à 3 015 nœuds, jusqu'à 13
-niveaux d'imbrication) : **10/10 équivalents, et 10/10 identiques octet pour
-octet**. Contrôles : **14/14**.
+**Mesure du 2026-08-21 (v0.3)**, sur les dix documents de
+`D:/Projets/Camrail/AI/CorpusUI/sortie/nkgui` (270 à 3 015 nœuds, jusqu'à 13
+niveaux d'imbrication) : **10/10 équivalents, 10/10 identiques octet pour octet**,
+et **0 erreur / 0 avertissement** à la validation. Contrôles : **36/36**.
 
 ⚠️ **Le taux seul ne vaut rien sans les contrôles, et c'est pour ça qu'ils sont
 livrés avec.** Une fonction de comparaison qui répondrait « égal » en toutes
-circonstances donnerait exactement le même 10/10. Les contrôles 2a à 2f
-vérifient qu'une valeur, un identifiant, **l'ordre des membres**, un lexème
-numérique réécrit, une section en trop et l'ordre des drapeaux sont bien
-**détectés** ; le contrôle 7 vérifie qu'une expression réémise garde sa
+circonstances donnerait exactement le même 10/10. Les contrôles 2a à 2j vérifient
+qu'une valeur, un identifiant, **l'ordre des membres**, un lexème numérique
+réécrit, une section en trop, l'ordre des drapeaux, **un commentaire manquant**,
+**une ligne vide manquante**, un élément de liste et une clé de dictionnaire sont
+bien **détectés** ; le contrôle 7 vérifie qu'une expression réémise garde sa
 précédence — *une expression peut se réécrire juste et se calculer faux.*
 
-⚠️ **Une limite mesurée, pas supposée** : **les commentaires et les lignes vides
-ne survivent pas** à l'aller-retour. Le document reste équivalent, le fichier
-n'est plus identique. Un `.nkgui` écrit à la main et enregistré par l'éditeur
-perd donc ses commentaires — à dire à l'utilisateur, ou à corriger en portant
-la trivia dans le modèle. **Décision de Rodolf.**
+⚠️ **Le contrôle 20b est le plus important du banc.** Un document **0.4 fictif**
+contient une section inconnue *et* un membre de widget inconnu, commentaires
+intérieurs compris : les deux doivent revenir à l'octet près. Le 20c vérifie
+l'inverse — la même source estampillée **0.3** doit être **refusée**. Sans cette
+paire, la préservation ne serait pas liée à la version : elle serait une
+tolérance permanente, c'est-à-dire un trou.
+
+⚠️ **La limite nommée le 2026-08-21 est levée** : les commentaires et les lignes
+vides **survivent** à l'aller-retour, et la trivia **entre dans la comparaison
+d'équivalence** — sans quoi un écrivain qui jetterait tous les commentaires
+resterait « équivalent ».
+
+### 8.5 Ce qui reste ouvert
+
+1. **La grammaire du thème** (§6.3) — `include "Theme.nkgui"` se lit, sa cible ne
+   se résout pas. `NkTheme` (NKEditorKit, 302 lignes) porte déjà des rôles de
+   couleur nommés avec héritage : c'est de là qu'il faut partir.
+2. **Les noms des états d'apparence** (§3.2) — le lecteur accepte n'importe quel
+   identifiant en `appearance(X)`. `Idle · Hover · Pressed · Disabled · Focus`
+   est la transposition évidente, mais personne ne l'a écrite.
+3. **La forme du chemin de propriété animée** (§4.3) — `"shadow.blur"` suppose
+   qu'on sait désigner la propriété d'un effet empilé. Nommer les blocs d'effet
+   (`shadow "portee" { … }`) est **implémenté** et évite l'indice ; rendre ce nom
+   obligatoire dès qu'on anime un effet reste une décision de Rodolf.
+4. **`W-THEME-ABANDONNE` et `I-SURCHARGE`** (§3.3) — les deux diagnostics de
+   garde-fou sur les surcharges d'apparence ne sont pas encore comptés.
 
 ---
 

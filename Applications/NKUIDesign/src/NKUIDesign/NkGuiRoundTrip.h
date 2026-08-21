@@ -8,19 +8,38 @@
 //
 // Caracteristiques :
 //   - deux mesures, PAS une, et elles ne disent pas la meme chose :
-//       1. EQUIVALENCE  — relire ce qu'on a ecrit redonne le meme document
-//                         (`NkGEqual`). C'est le critere qui fait foi ;
-//       2. IDENTITE OCTET — le texte reemis est exactement le fichier d'origine.
-//                         C'est plus fort, et ca depend de la mise en forme ;
+//       1. EQUIVALENCE  -- relire ce qu'on a ecrit redonne le meme document
+//                          (`NkGEqual`). C'est le critere qui fait foi ;
+//       2. IDENTITE OCTET -- le texte reemis est exactement le fichier d'origine.
+//                          C'est plus fort, et ca depend de la mise en forme ;
 //   - le style d'ecriture du fichier SOURCE est detecte et repris (largeur
 //     d'indentation, fins de ligne). Un editeur qui reformate le fichier de
 //     quelqu'un d'autre a chaque enregistrement produit des diffs illisibles.
 //
-// ⚠️ POURQUOI DEUX MESURES, ET POURQUOI L'ORDRE COMPTE :
+// POURQUOI DEUX MESURES, ET POURQUOI L'ORDRE COMPTE :
 //    l'identite octet seule punirait une difference d'indentation comme une
 //    perte de donnee. L'equivalence seule laisserait passer un ecrivain qui
 //    ecrit du charabia, du moment que son propre lecteur le relit pareil.
 //    **Les deux ensemble ne laissent passer ni l'un ni l'autre.**
+//
+// =============================================================================
+//  LA SORTIE PASSE PAR NKLOGGER  (Rodolf, 2026-08-21)
+// =============================================================================
+//  La version precedente de ce banc ecrivait son rapport avec `fputs`/`WriteFile`.
+//  Rodolf l'a releve : **le depot journalise par NKLogger, le banc aussi.** Un
+//  outil qui se fabrique sa propre sortie echappe au niveau de journalisation, au
+//  fichier `logs/app.log` et aux sinks ajoutes -- et il faut se souvenir qu'il
+//  existe pour aller chercher son resultat.
+//
+//  `NkConsoleSink` est actif par defaut en Debug (`NkLog::NkLog`) et ecrit sur
+//  `stdout` par `fwrite`, ce qui marche sur une console, un tuyau ET une
+//  redirection. Le detournement de `stdout` par `AllocConsole()` -- corrige le
+//  2026-08-21 dans `NKWindow/EntryPoints/NkWindowsDesktop.h` -- ne s'applique
+//  plus : la console n'est prise que si l'appelant n'en fournit pas.
+//
+//  Le rapport reste ECRIT EN FICHIER en plus, et son chemin absolu est
+//  journalise : un banc dont il faut deviner ou est le resultat ne sert qu'a
+//  celui qui l'a ecrit.
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -33,15 +52,10 @@
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
-#include "NKPlatform/NkPlatformDetect.h"
+#include "NKLogger/NkLog.h"
 
 #include "NkGuiFormat.h"
-
-#include <cstdio>
-
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-#include <windows.h>
-#endif
+#include "NkGuiValidate.h"
 
 namespace nkuidesign {
 	namespace guifmt {
@@ -49,38 +63,34 @@ namespace nkuidesign {
 		using nkentseu::NkDirectory;
 		using nkentseu::NkFile;
 
-		// ════════════════════════════════════════════════════════════════════════
-		//  PUBLIER LE RAPPORT — et le probleme, releve le 2026-08-21
-		// ════════════════════════════════════════════════════════════════════════
-		//
-		//  ⚠️ `fputs(rep, stdout)` NE SORT NULLE PART DANS CETTE APPLICATION, et il a
-		//     fallu qu'un relecteur lance la commande pour s'en apercevoir.
-		//
-		//     `NkWindowsDesktop.h` (le point d'entree Windows du moteur) fait, en
-		//     Debug, juste avant d'appeler `nkmain` :
-		//
-		//         AllocConsole();
-		//         freopen_s(..., "CONOUT$", "w", stdout);
-		//         freopen_s(..., "CONOUT$", "w", stderr);
-		//
-		//     Le flux C `stdout` est donc reattache a un TAMPON DE CONSOLE. Tout ce
-		//     qu'on y ecrit part dans cette console-la — pas dans le terminal
-		//     appelant, et **surtout pas dans une redirection `> fichier`**, qui est
-		//     court-circuitee. Le programme rend 0, n'affiche rien, et a pourtant
-		//     tout ecrit. `--probe` a le meme comportement depuis toujours.
-		//
-		//     ⚠️ `NkConsoleStream` (NKStream) ne repond pas au besoin : il ecrit
-		//        avec `WriteConsoleA`, qui ECHOUE sur un tuyau ou un fichier. Il sert
-		//        a peindre une console, pas a alimenter une sortie standard.
-		//
-		//     Le handle systeme, lui, est intact : `freopen_s` rebranche le flux du
-		//     CRT, il ne touche pas a `GetStdHandle(STD_OUTPUT_HANDLE)`. On ecrit
-		//     donc **directement dessus**, avec `WriteFile` — qui marche sur une
-		//     console, un tuyau ET un fichier redirige, la ou `WriteConsoleA` n'en
-		//     couvre qu'un des trois.
-		//
-		//  Le fichier reste ecrit en plus, et son chemin ABSOLU est affiche : un banc
-		//  dont il faut deviner ou est le resultat ne sert qu'a celui qui l'a ecrit.
+		// ====================================================================
+		//  PUBLIER LE RAPPORT
+		// ====================================================================
+
+		/// Journalise le rapport LIGNE PAR LIGNE. Une ligne de journal par ligne de
+		/// rapport, parce qu'un sink formate par MESSAGE : envoyer le rapport entier
+		/// en un seul appel donnerait un pave sans horodatage ni niveau, et le
+		/// filtrage habituel cesserait de marcher.
+		inline void NkGLogReport(const NkString &rep) {
+			const char *p = rep.Data();
+			const uint32 n = (uint32)rep.Size();
+			uint32 begin = 0;
+			for (uint32 i = 0; i <= n; ++i) {
+				if (i == n || p[i] == '\n') {
+					uint32 e = i;
+					if (e > begin && p[e - 1] == '\r') {
+						--e;
+					}
+					const NkString line(p + begin, e - begin);
+					// `{0}` et pas la ligne en format direct : le rapport contient des
+					// accolades (messages de refus, extraits de source) et elles
+					// seraient prises pour des marqueurs de substitution.
+					logger.Info("{0}", line.Data());
+					begin = i + 1;
+				}
+			}
+		}
+
 		inline void NkGPublish(NkString &rep, const char *fileName) {
 			const nkentseu::NkPath cwd = NkDirectory::GetCurrentDirectory();
 			rep.Append("\nRapport ecrit dans : ");
@@ -90,27 +100,20 @@ namespace nkuidesign {
 			rep.Append('\n');
 
 			NkFile::WriteAllText(fileName, rep.Data());
-
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-			const HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
-			if (out && out != INVALID_HANDLE_VALUE) {
-				DWORD written = 0;
-				WriteFile(out, rep.Data(), (DWORD)rep.Size(), &written, nullptr);
-			}
-#else
-			// ⚠️ L'UN OU L'AUTRE, JAMAIS LES DEUX. Sur Windows, le flux `stdout` du
-			//    CRT et le handle systeme designent desormais la meme sortie : y
-			//    ecrire par les deux chemins imprimerait le rapport en double, et un
-			//    banc qui affiche deux fois « 14 / 14 » fait douter des deux.
-			fputs(rep.Data(), stdout);
-			fflush(stdout);
-#endif
+			NkGLogReport(rep);
+			// Le banc rend la main tout de suite apres : sans vidage explicite, les
+			// dernieres lignes resteraient dans les tampons des sinks.
+			logger.Flush();
 		}
 
 		/// Le style d'ecriture LU dans le fichier source. Ce n'est pas de la
 		/// devinette de confort : sans lui, reecrire un document indente a deux
 		/// espaces le rendrait indente a quatre, et le diff porterait sur chaque
 		/// ligne du fichier au lieu de porter sur ce qui a change.
+		///
+		/// CE QUI A DISPARU EN v0.3 : la detection des lignes vides. Elles sont
+		/// desormais LUES et conservees avec le reste de la trivia -- il n'y a plus
+		/// d'heuristique a caler, donc plus d'heuristique a se tromper.
 		inline NkGWriteOptions NkGDetectStyle(const char *text, uint32 length) {
 			NkGWriteOptions opt;
 			opt.crlf = false;
@@ -142,41 +145,16 @@ namespace nkuidesign {
 					break;
 				}
 			}
-
-			// La ligne vide apres l'en-tete (et, par la meme convention, entre les
-			// sections). Le convertisseur du corpus Camrail en met une, les
-			// exemples du document 2 n'en mettent pas.
-			//
-			// ⚠️ UNE SEULE OBSERVATION SERT AUX DEUX REGLAGES, et c'est une
-			//    HEURISTIQUE assumee : rien ne garantit qu'un auteur qui aere son
-			//    en-tete aere aussi ses sections. Elle ne porte que sur la mise en
-			//    forme — se tromper coute une ligne vide, jamais une donnee.
-			opt.blankLineAfterHeader = false;
-			for (uint32 i = 0; i < length; ++i) {
-				if (text[i] != '\n') {
-					continue;
-				}
-				uint32 j = i + 1;
-				// Les lignes `include` font encore partie de l'en-tete.
-				if (j + 7 <= length && text[j] == 'i' && text[j + 1] == 'n' && text[j + 2] == 'c'
-					&& text[j + 3] == 'l' && text[j + 4] == 'u' && text[j + 5] == 'd'
-					&& text[j + 6] == 'e') {
-					continue;
-				}
-				opt.blankLineAfterHeader = (j < length && (text[j] == '\n' || text[j] == '\r'));
-				break;
-			}
-			opt.blankLineBetweenSections = opt.blankLineAfterHeader;
 			return opt;
 		}
 
 		struct NkGRoundTripResult {
 				NkString file;
 				bool parsed = false;
-				bool equivalent = false;	///< le critere qui fait foi
-				bool byteIdentical = false;	///< la mesure plus forte
+				bool equivalent = false;	 ///< le critere qui fait foi
+				bool byteIdentical = false;	 ///< la mesure plus forte
 				uint32 nodeCount = 0;
-				uint32 firstDiffOffset = 0;	///< si !byteIdentical
+				uint32 firstDiffOffset = 0;	 ///< si !byteIdentical
 				NkGDiag diag;
 		};
 
@@ -195,20 +173,20 @@ namespace nkuidesign {
 			const NkGWriteOptions opt = NkGDetectStyle(original, length);
 			const NkString emitted = NkGWrite(doc1, opt);
 
-			// ── Mesure 1 : l'equivalence ────────────────────────────────────
+			// -- Mesure 1 : l'equivalence ---------------------------------
 			NkGDiag err2;
 			NkGDocument doc2;
 			if (NkGParse(emitted.Data(), (uint32)emitted.Size(), doc2, err2)) {
 				r.equivalent = NkGEqual(doc1, doc2);
 			} else {
-				// ⚠️ Ce cas merite d'etre distingue d'une simple inegalite : il dit
-				//    que l'ecrivain a produit un fichier que le lecteur REFUSE. Ce
-				//    n'est pas une perte de fidelite, c'est une sortie invalide.
+				// Ce cas merite d'etre distingue d'une simple inegalite : il dit que
+				// l'ecrivain a produit un fichier que le lecteur REFUSE. Ce n'est pas
+				// une perte de fidelite, c'est une sortie invalide.
 				r.diag = err2;
 				r.diag.message.Append(" [dans le texte REEMIS, pas dans le fichier source]");
 			}
 
-			// ── Mesure 2 : l'identite octet ─────────────────────────────────
+			// -- Mesure 2 : l'identite octet ------------------------------
 			const uint32 n = (uint32)emitted.Size();
 			if (n == length) {
 				r.byteIdentical = true;
@@ -230,12 +208,9 @@ namespace nkuidesign {
 			return r;
 		}
 
-		/// L'aller-retour sur tout un dossier. Ecrit son rapport sur la sortie
-		/// standard ET dans `nkuidesign_roundtrip.txt` — une application fenetree
-		/// n'a pas toujours de console attachee, et un resultat qu'on ne peut pas
-		/// relire ne prouve rien.
+		/// L'aller-retour sur tout un dossier.
 		inline int NkGRunRoundTrip(const char *directory) {
-			NkString rep("=== ALLER-RETOUR .nkgui — le temoin du lecteur/ecrivain ===\n");
+			NkString rep("=== ALLER-RETOUR .nkgui -- le temoin du lecteur/ecrivain ===\n");
 			rep.Append("dossier : ");
 			rep.Append(directory ? directory : "(aucun)");
 			rep.Append('\n');
@@ -252,7 +227,6 @@ namespace nkuidesign {
 			uint32 total = 0;
 			uint32 equivalent = 0;
 			uint32 identical = 0;
-			char buf[512];
 
 			for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
 				++total;
@@ -267,91 +241,210 @@ namespace nkuidesign {
 				}
 
 				if (!r.parsed) {
-					snprintf(buf, sizeof(buf),
-							 "  [ECHEC ANALYSE] %s\n      %s ligne %u colonne %u : %s\n",
-							 files[i].Data(), r.diag.code.Data(), r.diag.line, r.diag.column,
-							 r.diag.message.Data());
+					rep.Append("  [ECHEC ANALYSE] ");
+					rep.Append(files[i]);
+					rep.Append("\n      ");
+					rep.Append(r.diag.code);
+					rep.Append(" ligne ");
+					rep.Append(NkGU32(r.diag.line));
+					rep.Append(" colonne ");
+					rep.Append(NkGU32(r.diag.column));
+					rep.Append(" : ");
+					rep.Append(r.diag.message);
+					rep.Append('\n');
 				} else if (!r.equivalent) {
-					snprintf(buf, sizeof(buf),
-							 "  [NON EQUIVALENT] %s (%u noeuds) — %s\n", files[i].Data(),
-							 r.nodeCount,
-							 r.diag.message.Empty() ? "le document relu differe de l'original"
-													: r.diag.message.Data());
+					rep.Append("  [NON EQUIVALENT] ");
+					rep.Append(files[i]);
+					rep.Append(" (");
+					rep.Append(NkGU32(r.nodeCount));
+					rep.Append(" noeuds) -- ");
+					rep.Append(r.diag.message.Empty()
+								   ? NkString("le document relu differe de l'original")
+								   : r.diag.message);
+					rep.Append('\n');
 				} else if (!r.byteIdentical) {
-					snprintf(buf, sizeof(buf),
-							 "  [OK, mise en forme differente] %s (%u noeuds), premier ecart a "
-							 "l'octet %u\n",
-							 files[i].Data(), r.nodeCount, r.firstDiffOffset);
+					rep.Append("  [OK, mise en forme differente] ");
+					rep.Append(files[i]);
+					rep.Append(" (");
+					rep.Append(NkGU32(r.nodeCount));
+					rep.Append(" noeuds), premier ecart a l'octet ");
+					rep.Append(NkGU32(r.firstDiffOffset));
+					rep.Append('\n');
 				} else {
-					snprintf(buf, sizeof(buf), "  [OK, octet pour octet] %s (%u noeuds)\n",
-							 files[i].Data(), r.nodeCount);
+					rep.Append("  [OK, octet pour octet] ");
+					rep.Append(files[i]);
+					rep.Append(" (");
+					rep.Append(NkGU32(r.nodeCount));
+					rep.Append(" noeuds)\n");
 				}
-				rep.Append(buf);
 			}
 
-			snprintf(buf, sizeof(buf),
-					 "\n=== TAUX D'ALLER-RETOUR : %u / %u equivalents — %u / %u identiques octet "
-					 "pour octet ===\n",
-					 equivalent, total, identical, total);
-			rep.Append(buf);
+			rep.Append("\n=== TAUX D'ALLER-RETOUR : ");
+			rep.Append(NkGU32(equivalent));
+			rep.Append(" / ");
+			rep.Append(NkGU32(total));
+			rep.Append(" equivalents -- ");
+			rep.Append(NkGU32(identical));
+			rep.Append(" / ");
+			rep.Append(NkGU32(total));
+			rep.Append(" identiques octet pour octet ===\n");
 
 			NkGPublish(rep, "nkuidesign_roundtrip.txt");
 			return (total > 0 && equivalent == total) ? 0 : 1;
 		}
 
-		// ═══════════════════════════════════════════════════════════════════════
-		//  LES CONTROLES — sans eux, « 10 / 10 » ne veut rien dire
-		// ═══════════════════════════════════════════════════════════════════════
+		// ====================================================================
+		//  LA VALIDATION D'UN DOSSIER
+		// ====================================================================
 		//
-		//  ⚠️ UN BANC QUI NE SAIT DIRE QUE « OUI » NE MESURE RIEN. Le taux
-		//     d'aller-retour du corpus est un chiffre flatteur tant que personne
-		//     n'a montre que ce banc SAIT ECHOUER. Trois familles, reprises de la
-		//     discipline de `Probe.h` :
+		//  Mode SEPARE, et c'est le point : lire et juger sont deux gestes. Un
+		//  dossier peut etre a 10/10 d'aller-retour ET plein de roles hors
+		//  vocabulaire -- ce sont deux mesures differentes, et les melanger ferait
+		//  croire qu'un fichier fidele est un fichier juste.
+		inline int NkGRunValidate(const char *directory) {
+			NkString rep("=== VALIDATION .nkgui -- roles et types (vocabulaire du doc 7) ===\n");
+			rep.Append("dossier : ");
+			rep.Append(directory ? directory : "(aucun)");
+			rep.Append("\n\n");
+			if (!directory || !NkDirectory::Exists(directory)) {
+				rep.Append("ECHEC : le dossier n'existe pas. Rien n'a ete mesure.\n");
+				NkGPublish(rep, "nkuidesign_validation.txt");
+				return 2;
+			}
+			NkVector<NkString> files = NkDirectory::GetFiles(directory, "*.nkgui");
+			uint32 totalErr = 0;
+			uint32 totalWarn = 0;
+			for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
+				NkVector<nkentseu::uint8> bytes = NkFile::ReadAllBytes(files[i].Data());
+				NkGDocument doc;
+				NkGDiag err;
+				if (!NkGParse((const char *)bytes.Data(), (uint32)bytes.Size(), doc, err)) {
+					rep.Append("  [ILLISIBLE] ");
+					rep.Append(files[i]);
+					rep.Append(" : ");
+					rep.Append(err.message);
+					rep.Append('\n');
+					++totalErr;
+					continue;
+				}
+				NkVector<NkGDiag> diags;
+				const NkGValidateResult vr = NkGValidate(doc, diags);
+				totalErr += vr.errors;
+				totalWarn += vr.warnings;
+				rep.Append(vr.errors == 0 ? "  [OK] " : "  [FAUTES] ");
+				rep.Append(files[i]);
+				rep.Append(" -- ");
+				rep.Append(NkGU32(vr.errors));
+				rep.Append(" erreur(s), ");
+				rep.Append(NkGU32(vr.warnings));
+				rep.Append(" avertissement(s)\n");
+				for (uint32 d = 0; d < (uint32)diags.Size() && d < 20; ++d) {
+					rep.Append("      ");
+					rep.Append(diags[d].code);
+					rep.Append(" ligne ");
+					rep.Append(NkGU32(diags[d].line));
+					rep.Append(" : ");
+					rep.Append(diags[d].message);
+					rep.Append('\n');
+				}
+			}
+			rep.Append("\n=== TOTAL : ");
+			rep.Append(NkGU32(totalErr));
+			rep.Append(" erreur(s), ");
+			rep.Append(NkGU32(totalWarn));
+			rep.Append(" avertissement(s) ===\n");
+			NkGPublish(rep, "nkuidesign_validation.txt");
+			return (totalErr == 0) ? 0 : 1;
+		}
+
+		// ====================================================================
+		//  LES CONTROLES -- sans eux, « 10 / 10 » ne veut rien dire
+		// ====================================================================
 		//
-		//     1. TEMOIN DE BRUIT — la meme mesure repetee sans rien changer. Le
-		//        serialiseur est deterministe : le plancher attendu est EXACTEMENT
-		//        zero difference, et on le verifie au lieu de le supposer ;
-		//     2. CONTROLES POSITIFS — un changement connu DOIT etre vu. Sans eux,
-		//        `NkGEqual` pourrait rendre `true` en toutes circonstances et le
-		//        corpus passerait a 10/10 sans rien prouver ;
-		//     3. CONTROLES NEGATIFS — ce que le format ne dit pas doit etre REFUSE
-		//        avec un message, jamais devine. C'est ce qui distingue un lecteur
-		//        strict d'un lecteur qui accepte tout et perd la moitie du fichier.
+		//  UN BANC QUI NE SAIT DIRE QUE « OUI » NE MESURE RIEN. Le taux
+		//  d'aller-retour du corpus est un chiffre flatteur tant que personne n'a
+		//  montre que ce banc SAIT ECHOUER. Quatre familles :
 		//
-		//  Et une quatrieme famille, qui n'est pas un controle mais une LIMITE
-		//  mesuree : les commentaires et les lignes vides ne survivent pas. Mieux
-		//  vaut un banc qui l'affiche qu'une documentation qui l'oublie.
+		//   1. TEMOIN DE BRUIT -- la meme mesure repetee sans rien changer. Le
+		//      serialiseur est deterministe : le plancher attendu est EXACTEMENT
+		//      zero difference, et on le verifie au lieu de le supposer ;
+		//   2. CONTROLES POSITIFS -- un changement connu DOIT etre vu. Sans eux,
+		//      `NkGEqual` pourrait rendre `true` en toutes circonstances et le
+		//      corpus passerait a 10/10 sans rien prouver ;
+		//   3. CONTROLES NEGATIFS -- ce que le format ne dit pas doit etre REFUSE
+		//      avec un message, jamais devine ;
+		//   4. LES NOUVEAUTES DE LA v0.3 -- listes, dictionnaires, chemins pointes,
+		//      commentaires, apparence, animation, polices, validation, et surtout
+		//      **la preservation d'une section inconnue d'un fichier plus recent**.
+		//      Ce dernier est le temoin de la regle (d) : sans lui, rien ne prouve
+		//      qu'une evolution future ne detruira pas les documents.
 
 		inline int NkGRunControls() {
-			NkString rep("=== CONTROLES du lecteur/ecrivain .nkgui ===\n");
+			NkString rep("=== CONTROLES du lecteur/ecrivain .nkgui v0.3 ===\n");
 			uint32 pass = 0;
 			uint32 total = 0;
-			char buf[512];
 
 			auto check = [&](const char *label, bool ok, const char *detail) {
 				++total;
 				if (ok) {
 					++pass;
 				}
-				snprintf(buf, sizeof(buf), "  [%s] %s%s%s\n", ok ? "OK " : "NON", label,
-						 (detail && *detail) ? " -- " : "", detail ? detail : "");
-				rep.Append(buf);
+				rep.Append(ok ? "  [OK ] " : "  [NON] ");
+				rep.Append(label);
+				if (detail && *detail) {
+					rep.Append(" -- ");
+					rep.Append(detail);
+				}
+				rep.Append('\n');
 			};
-			auto parse = [](const char *src, NkGDocument &d, NkGDiag &e) {
+			auto len = [](const char *s) {
 				uint32 n = 0;
-				while (src[n]) {
+				while (s[n]) {
 					++n;
 				}
-				return NkGParse(src, n, d, e);
+				return n;
+			};
+			auto parse = [&](const char *src, NkGDocument &d, NkGDiag &e) {
+				return NkGParse(src, len(src), d, e);
 			};
 			auto rejects = [&](const char *src, const char *why) {
 				NkGDocument d;
 				NkGDiag e;
 				const bool ko = !parse(src, d, e);
-				snprintf(buf, sizeof(buf), "      refus attendu (%s) : %s\n", why,
-						 ko ? e.message.Data() : "*** ACCEPTE ***");
-				rep.Append(buf);
+				rep.Append("      refus attendu (");
+				rep.Append(why);
+				rep.Append(") : ");
+				rep.Append(ko ? e.message : NkString("*** ACCEPTE ***"));
+				rep.Append('\n');
 				return ko;
+			};
+			/// L'aller-retour COMPLET sur une source litterale : equivalent ET
+			/// identique octet pour octet. C'est le geste repete par presque tous les
+			/// controles de la v0.3, il merite un nom.
+			auto roundtrip = [&](const char *src, bool &equivalent, bool &identical,
+								 NkString &why) {
+				equivalent = false;
+				identical = false;
+				NkGDocument d;
+				NkGDiag e;
+				if (!parse(src, d, e)) {
+					why = NkString("refuse a la lecture : ");
+					why.Append(e.message);
+					return;
+				}
+				const NkString out = NkGWrite(d, NkGDetectStyle(src, len(src)));
+				NkGDocument d2;
+				NkGDiag e2;
+				if (!NkGParse(out.Data(), (uint32)out.Size(), d2, e2)) {
+					why = NkString("le texte REEMIS n'est pas relisible : ");
+					why.Append(e2.message);
+					return;
+				}
+				equivalent = NkGEqual(d, d2);
+				identical = (out.Compare(NkString(src)) == 0);
+				if (!identical) {
+					why = NkString("mise en forme differente a la reemission");
+				}
 			};
 
 			// 1. Le temoin de bruit.
@@ -386,8 +479,21 @@ namespace nkuidesign {
 					{"2f. l'ORDRE des drapeaux est DETECTE",
 					 "nkgui 0.2\nwidgets {\n B \"a\" { f = X | Y }\n}\n",
 					 "nkgui 0.2\nwidgets {\n B \"a\" { f = Y | X }\n}\n"},
+					{"2g. un COMMENTAIRE en moins est DETECTE (la trivia entre dans "
+					 "l'egalite)",
+					 "nkgui 0.3\nwidgets {\n // note\n B \"a\" { }\n}\n",
+					 "nkgui 0.3\nwidgets {\n B \"a\" { }\n}\n"},
+					{"2h. une LIGNE VIDE en moins est DETECTEE",
+					 "nkgui 0.3\nwidgets {\n\n B \"a\" { }\n}\n",
+					 "nkgui 0.3\nwidgets {\n B \"a\" { }\n}\n"},
+					{"2i. un element de LISTE different est DETECTE",
+					 "nkgui 0.3\nwidgets {\n Dropdown \"d\" { items = [\"a\", \"b\"] }\n}\n",
+					 "nkgui 0.3\nwidgets {\n Dropdown \"d\" { items = [\"a\", \"c\"] }\n}\n"},
+					{"2j. une CLE de dictionnaire differente est DETECTEE",
+					 "nkgui 0.3\nwidgets {\n B \"a\" { m = { x = 1 } }\n}\n",
+					 "nkgui 0.3\nwidgets {\n B \"a\" { m = { y = 1 } }\n}\n"},
 				};
-				for (uint32 i = 0; i < 6; ++i) {
+				for (uint32 i = 0; i < 10; ++i) {
 					NkGDocument d1;
 					NkGDocument d2;
 					NkGDiag e;
@@ -406,27 +512,29 @@ namespace nkuidesign {
 			badEsc.Append('\\');
 			badEsc.Append("z\" }\n}\n");
 
-			const bool r1 =
-				rejects("nkgui 0.2\nwidgets {\n Combo \"c\" { items = [\"a\", \"b\"] }\n}\n",
-						"litteral de liste, doc 9 §6.1");
-			const bool r2 = rejects(badEsc.Data(), "echappement hors des trois du doc 2 §2");
-			const bool r3 = rejects("nkgui 0.2\nwidgets {\n Button \"a\" { label = \"x\" \n}\n",
+			const bool r1 = rejects(badEsc.Data(), "echappement hors des trois du doc 2 §2");
+			const bool r2 = rejects("nkgui 0.2\nwidgets {\n Button \"a\" { label = \"x\" \n}\n",
 									"accolade jamais fermee");
-			const bool r4 = rejects("nkgui 0.2\nwidgets {\n Button \"a\" { c = #12345 }\n}\n",
+			const bool r3 = rejects("nkgui 0.2\nwidgets {\n Button \"a\" { c = #12345 }\n}\n",
 									"couleur a 5 chiffres");
-			const bool r5 = rejects("widgets { }\n", "en-tete nkgui manquant");
-			const bool r6 =
+			const bool r4 = rejects("widgets { }\n", "en-tete nkgui manquant");
+			const bool r5 =
 				rejects("nkgui 0.2\n/* jamais ferme\nwidgets { }\n", "commentaire de bloc ouvert");
-			const bool r7 = rejects("nkgui 0.2\ninconnue { }\n", "section inconnue");
-			const bool r8 =
+			const bool r6 = rejects("nkgui 0.2\ninconnue { }\n",
+									"section inconnue dans un fichier de NOTRE version");
+			const bool r7 =
 				rejects("nkgui 0.2\nwidgets {\n B \"a\" { p = }\n}\n", "valeur manquante");
-			rep.Append("\n");
-			check("3. les 8 documents fautifs sont TOUS refuses",
-				  r1 && r2 && r3 && r4 && r5 && r6 && r7 && r8, "");
+			const bool r8 = rejects("nkgui 0.3\nwidgets {\n D \"d\" { i = [\"a\",] }\n}\n",
+									"virgule finale dans une liste");
+			const bool r9 = rejects("nkgui 0.3\nwidgets {\n B \"a\" { m = { 1 = 2 } }\n}\n",
+									"cle de dictionnaire ni identifiant ni chaine");
+			rep.Append('\n');
+			check("3. les 9 documents fautifs sont TOUS refuses",
+				  r1 && r2 && r3 && r4 && r5 && r6 && r7 && r8 && r9, "");
 
-			// 4. Ce qui DOIT passer : les trois echappements du document 2, l'UTF-8
-			//    et la chaine vide. C'est le seul endroit du serialiseur qui
-			//    REGENERE une valeur — donc le seul qui puisse la perdre.
+			// 4. Ce qui DOIT passer : les trois echappements du document 2, l'UTF-8 et
+			//    la chaine vide. C'est le seul endroit du serialiseur qui REGENERE une
+			//    valeur -- donc le seul qui puisse la perdre.
 			{
 				NkString src("nkgui 0.2\nwidgets {\n    T \"t\" {\n        text = \"a");
 				src.Append('\\');
@@ -452,26 +560,43 @@ namespace nkuidesign {
 					  ok && out.Compare(src) == 0, "");
 			}
 
-			// 5. LA LIMITE, mesuree et non supposee.
+			// 5. LES COMMENTAIRES ET LES LIGNES VIDES -- decision 3 de Rodolf.
+			//    C'etait la LIMITE nommee du 2026-08-21 (« ce n'est pas normal ») ;
+			//    c'est maintenant un controle. Le fichier melange volontairement les
+			//    six endroits ou un commentaire peut se poser : en-tete, avant un
+			//    membre, en fin de ligne, sur plusieurs lignes, en fin de bloc et en
+			//    pied de fichier.
 			{
-				const char *src =
-					"nkgui 0.2\nwidgets {\n // un commentaire\n\n Button \"a\" { }\n}\n";
-				NkGDocument d;
-				NkGDiag e;
-				const bool ok = parse(src, d, e);
-				uint32 n = 0;
-				while (src[n]) {
-					++n;
-				}
-				const NkString out = NkGWrite(d, NkGDetectStyle(src, n));
-				check("5. LIMITE : commentaires et lignes vides ne survivent pas",
-					  ok && !out.Contains("commentaire"),
-					  "equivalent oui, identique octet non — la limite est nommee, pas tue");
+				const char *src = "nkgui 0.3\n"
+								  "// en-tete : ce fichier est le temoin des commentaires\n"
+								  "\n"
+								  "widgets {\n"
+								  "    // le bouton principal\n"
+								  "    Button \"valider\" {\n"
+								  "        label = \"Valider\"   // le libelle vu par l'usager\n"
+								  "\n"
+								  "        /* un commentaire\n"
+								  "           sur deux lignes */\n"
+								  "        on Click -> Callback \"F\"()\n"
+								  "    }\n"
+								  "\n"
+								  "    // fin des widgets\n"
+								  "}\n"
+								  "\n"
+								  "// pied de page\n";
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("5. un fichier COMMENTE fait l'aller-retour", eq, why.Data());
+				check("5b. et il revient IDENTIQUE octet pour octet -- commentaires, lignes "
+					  "vides et pied de fichier compris",
+					  id, why.Data());
 			}
 
 			// 6. Les exemples du document 2 (§4.1, §5, §6.3, §10) tels qu'ils sont
-			//    ecrits. Un format dont la specification ne se relit pas elle-meme
-			//    n'a pas de reference.
+			//    ecrits. Un format dont la specification ne se relit pas elle-meme n'a
+			//    pas de reference.
 			{
 				const char *src =
 					"nkgui 0.2\n"
@@ -503,52 +628,383 @@ namespace nkuidesign {
 					"    callback OnPositionChanged(axis: Enum[X,Y,Z], value: Float) -> Void\n"
 					"}\n"
 					"callback WarnHighValue() -> Void\n";
-				uint32 n = 0;
-				while (src[n]) {
-					++n;
-				}
-				NkGDocument d;
-				NkGDiag e;
-				const bool ok = parse(src, d, e);
-				const NkString out = NkGWrite(d, NkGDetectStyle(src, n));
-				NkGDocument d2;
-				NkGDiag e2;
-				const bool ok2 = NkGParse(out.Data(), (uint32)out.Size(), d2, e2);
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
 				check("6. les exemples du document 2 (§4.1, §5, §6.3, §10) font l'aller-retour",
-					  ok && ok2 && NkGEqual(d, d2), ok ? "" : e.message.Data());
-				check("6b. et ils reviennent identiques octet pour octet",
-					  ok && out.Compare(src) == 0, "");
+					  eq, why.Data());
+				check("6b. et ils reviennent identiques octet pour octet", id, why.Data());
 			}
 
-			// 7. La precedence des operateurs. ⚠️ Une expression peut se reecrire
-			//    JUSTE et se calculer FAUX : `a + b * c` reemis en `(a + b) * c` est
-			//    un fichier valide, relisible, et qui ne fait plus la meme chose.
-			//    C'est le defaut le plus difficile a voir d'un aller-retour.
+			// 7. La precedence des operateurs. Une expression peut se reecrire JUSTE
+			//    et se calculer FAUX : `a + b * c` reemis en `(a + b) * c` est un
+			//    fichier valide, relisible, et qui ne fait plus la meme chose. C'est
+			//    le defaut le plus difficile a voir d'un aller-retour.
 			{
 				const char *src = "nkgui 0.2\nbehavior \"P\" {\n"
 								  "    set r = a + b * c\n"
 								  "    set s = (a + b) * c\n"
 								  "    set t = a - -3\n"
 								  "}\n";
-				uint32 n = 0;
-				while (src[n]) {
-					++n;
-				}
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("7. precedence, parentheses et nombre negatif survivent", eq && id,
+					  why.Data());
+			}
+
+			// 8-9. LES LISTES ET LES DICTIONNAIRES -- decision 1 de Rodolf. Les cinq
+			//      roles qui les exigeaient (doc 9 §6.1) sont tous representes ici :
+			//      `columns[]`, `items[]`, `tabs[]`, `values[]`, `sizes[]`.
+			{
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "    Table \"t\" {\n"
+								  "        columns = [\"Nom\", \"Type\", \"Valeur\"]\n"
+								  "    }\n"
+								  "    Dropdown \"d\" {\n"
+								  "        items = [\"Rouge\", \"Vert\", \"Bleu\"]\n"
+								  "    }\n"
+								  "    TabBar \"tb\" {\n"
+								  "        tabs = [\"Un\", \"Deux\"]\n"
+								  "    }\n"
+								  "    Chart \"c\" {\n"
+								  "        values = [0, 0.5, 1, 0.25]\n"
+								  "    }\n"
+								  "    Grid \"g\" {\n"
+								  "        sizes = [1, 2, 1]\n"
+								  "        vide = []\n"
+								  "        imbriquee = [[1, 2], [3, 4]]\n"
+								  "    }\n"
+								  "}\n";
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("8. LISTES : les cinq roles du doc 9 §6.1 s'ecrivent enfin, et "
+					  "reviennent identiques",
+					  eq && id, why.Data());
+			}
+			{
+				const char *src =
+					"nkgui 0.3\n"
+					"widgets {\n"
+					"    Table \"t\" {\n"
+					"        entetes = { nom = \"Nom\", largeur = 120 }\n"
+					"        style = { \"couleur de fond\" = #101418, marge = (4, 2) }\n"
+					"        vide = { }\n"
+					"        imbrique = { a = { b = [1, 2] } }\n"
+					"    }\n"
+					"}\n";
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("9. DICTIONNAIRES : cles identifiant ET cles chaine, imbrication, "
+					  "aller-retour identique",
+					  eq && id, why.Data());
+			}
+
+			// 10. LES CHEMINS POINTES -- decision 2. Le document 2 les emploie dans
+			//     ses propres exemples et son lecteur les refusait.
+			{
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "    Slider \"s\" {\n"
+								  "        on Commit(value) -> Callback \"F\"(Enum.X, n1.value, "
+								  "a.b.c)\n"
+								  "    }\n"
+								  "}\n"
+								  "behavior \"G\" graph {\n"
+								  "    node n2 Multiply { a = n1.value, b = 100 }\n"
+								  "    node n4 Compare { a = n1.value, op = \">\", b = 0.8 }\n"
+								  "    wire n1.exec -> n3.exec\n"
+								  "}\n"
+								  "behavior \"S\" {\n"
+								  "    set r = n1.value * 100\n"
+								  "    if n1.value > 0.8 {\n"
+								  "        Callback \"W\"(Enum.Y)\n"
+								  "    }\n"
+								  "}\n";
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("10. `n1.value`, `Enum.X` et `a.b.c` se lisent en argument, en pin et "
+					  "en expression",
+					  eq && id, why.Data());
+				const NkVector<NkString> segs = NkGSplitPath(NkString("a.b.c"));
+				check("10b. et le chemin se decoupe en segments pour qui doit le resoudre",
+					  segs.Size() == 3 && segs[0].Compare("a") == 0 && segs[2].Compare("c") == 0,
+					  "");
+			}
+
+			// 11-13. L'APPARENCE, L'ANIMATION ET LES POLICES (doc 9 §3, §4, §5).
+			{
+				const char *src =
+					"nkgui 0.3\n"
+					"widgets {\n"
+					"    Button \"valider\" {\n"
+					"        label = \"Valider\"\n"
+					"        appearance {\n"
+					"            radius = 6\n"
+					"            font = \"Inter\"\n"
+					"            fill { color = #2F6F7A }\n"
+					"            shadow \"portee\" { offset = (0, 2), blur = 6, color = "
+					"#0000003A }\n"
+					"        }\n"
+					"        appearance(Hover) {\n"
+					"            fill { color = #3A8894 }\n"
+					"        }\n"
+					"    }\n"
+					"}\n";
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("11. APPARENCE : surcharges par etat, effets nommes, forme en ligne "
+					  "conservee",
+					  eq && id, why.Data());
+			}
+			{
+				const char *src = "nkgui 0.3\n"
+								  "animation \"bouton_valider\" {\n"
+								  "    transition \"appui\" {\n"
+								  "        target = \"valider\"\n"
+								  "        on = Click\n"
+								  "        duration = 0.12\n"
+								  "        track \"scale\" {\n"
+								  "            key 0.0 -> 1.0\n"
+								  "            key 1.0 -> 0.96, curve = EaseOut\n"
+								  "        }\n"
+								  "    }\n"
+								  "    ambience \"respiration\" {\n"
+								  "        state = Idle\n"
+								  "        repeat = 0\n"
+								  "    }\n"
+								  "    continuous \"reflet\" {\n"
+								  "        rest = 0.0\n"
+								  "        map {\n"
+								  "            source = PointerX\n"
+								  "            property = \"fill.angle\"\n"
+								  "        }\n"
+								  "    }\n"
+								  "}\n";
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("12. ANIMATION : les trois familles, les pistes et les cles", eq && id,
+					  why.Data());
+			}
+			{
+				const char *src = "nkgui 0.3\n"
+								  "fonts {\n"
+								  "    font \"titre\" {\n"
+								  "        family = \"Inter\"\n"
+								  "        kind = text\n"
+								  "        source {\n"
+								  "            mode = embedded\n"
+								  "            path = \"Fonts/Inter-SemiBold.ttf\"\n"
+								  "        }\n"
+								  "        fallback {\n"
+								  "            family = \"Noto Sans\"\n"
+								  "            family = \"DejaVu Sans\"\n"
+								  "        }\n"
+								  "        metrics {\n"
+								  "            unitsPerEm = 2048\n"
+								  "            glyph \"A\" -> 1366\n"
+								  "            glyph \"M\" -> 1774\n"
+								  "        }\n"
+								  "    }\n"
+								  "}\n";
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("13. POLICES : source, chaine de repli ordonnee et empreinte de glyphes",
+					  eq && id, why.Data());
+			}
+
+			// 14-17. LA VALIDATION PAR ROLE ET PAR TYPE -- decision 4.
+			{
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "    VBox \"v\" {\n"
+								  "        Text \"t\" { text = \"bonjour\" }\n"
+								  "        TextField \"f\" { bind = email }\n"
+								  "        Dropdown \"d\" { items = [\"a\"] }\n"
+								  "        Item \"i\" { label = \"x\" }\n"
+								  "        Progress \"p\" { bind = avancement }\n"
+								  "        Button \"b\" { label = \"ok\" tooltip = \"aide\" }\n"
+								  "    }\n"
+								  "}\n";
 				NkGDocument d;
 				NkGDiag e;
 				const bool ok = parse(src, d, e);
-				const NkString out = NkGWrite(d, NkGDetectStyle(src, n));
-				check("7. precedence, parentheses et nombre negatif survivent",
-					  ok && out.Compare(src) == 0, ok ? "" : e.message.Data());
+				NkVector<NkGDiag> diags;
+				const NkGValidateResult vr = NkGValidate(d, diags);
+				check("14. le VOCABULAIRE DU DOCUMENT 7 passe la validation sans une faute",
+					  ok && vr.errors == 0 && vr.warnings == 0, ok ? "" : e.message.Data());
+			}
+			{
+				// UN ROLE INCONNU : ERREUR NOMMEE, ET LE FICHIER RESTE LISIBLE. C'est
+				// la moitie de la decision 4 -- « jamais un rejet muet du fichier
+				// entier ».
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "    Zorglub \"z\" {\n"
+								  "        bidule = 1\n"
+								  "    }\n"
+								  "}\n";
+				NkGDocument d;
+				NkGDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGDiag> diags;
+				NkGValidate(d, diags);
+				bool nomme = false;
+				for (uint32 i = 0; i < (uint32)diags.Size(); ++i) {
+					if (diags[i].code.Compare("E-ROLE-INCONNU") == 0
+						&& diags[i].message.Contains("Zorglub")) {
+						nomme = true;
+					}
+				}
+				const NkString out = NkGWrite(d, NkGDetectStyle(src, len(src)));
+				check("15. un ROLE INCONNU produit une erreur NOMMEE...", lu && nomme, "");
+				check("15b. ...et le document reste lisible ET reenregistrable a l'identique "
+					  "(on doit pouvoir CORRIGER la faute qu'on signale)",
+					  lu && out.Compare(NkString(src)) == 0, "");
+			}
+			{
+				const char *src = "nkgui 0.3\nwidgets {\n    Combo \"c\" { items = [\"a\"] }\n}\n";
+				NkGDocument d;
+				NkGDiag e;
+				parse(src, d, e);
+				NkVector<NkGDiag> diags;
+				const NkGValidateResult vr = NkGValidate(d, diags);
+				bool alias = false;
+				for (uint32 i = 0; i < (uint32)diags.Size(); ++i) {
+					if (diags[i].code.Compare("W-ROLE-ALIAS") == 0
+						&& diags[i].message.Contains("Dropdown")) {
+						alias = true;
+					}
+				}
+				check("16. un ANCIEN nom (doc 7 §5) est lu, signale, et le nouveau est nomme",
+					  alias && vr.errors == 0, "");
+			}
+			{
+				const char *src = "nkgui 0.3\nwidgets {\n"
+								  "    Slider \"s\" { min = \"zero\" }\n"
+								  "    Text \"t\" { couleur = #FF0000 }\n"
+								  "    Dropdown \"d\" { items = \"pas une liste\" }\n"
+								  "}\n";
+				NkGDocument d;
+				NkGDiag e;
+				parse(src, d, e);
+				NkVector<NkGDiag> diags;
+				const NkGValidateResult vr = NkGValidate(d, diags);
+				check("17. VALIDATION PAR TYPE : nombre attendu, propriete hors schema, liste "
+					  "attendue -- 3 fautes vues",
+					  vr.errors == 3, "");
 			}
 
-			snprintf(buf, sizeof(buf), "\n=== CONTROLES : %u / %u ===\n", pass, total);
-			rep.Append(buf);
+			// 18-20. LA VERSION -- regles (a) (b) (c) (d).
+			{
+				NkGDocument d;
+				NkGDiag e;
+				const bool lu02 = parse("nkgui 0.2\nwidgets { }\n", d, e);
+				const bool garde02 =
+					lu02 && d.versionMajor.Compare("0") == 0 && d.versionMinor.Compare("2") == 0;
+				const NkString out = NkGWrite(d, NkGWriteOptions());
+				check("18. (a)(b) un fichier 0.2 se lit et se REECRIT en 0.2, jamais "
+					  "reestampille",
+					  garde02 && out.StartsWith("nkgui 0.2"), "");
+			}
+			{
+				rep.Append("\n  -- refus de version --\n");
+				const bool refuse =
+					rejects("nkgui 1.0\nwidgets { }\n", "MAJEURE plus recente -- regle (c)");
+				NkGDocument d;
+				NkGDiag e;
+				parse("nkgui 1.0\nwidgets { }\n", d, e);
+				rep.Append('\n');
+				check("19. (c) une MAJEURE plus recente est REFUSEE, avec « ce fichier est trop "
+					  "recent pour moi »",
+					  refuse && e.code.Compare("E-VERSION-INCOMPATIBLE") == 0
+						  && e.message.Contains("trop recent"),
+					  "");
+			}
+			{
+				// LE TEMOIN DE LA REGLE (d), ET C'EST LE CONTROLE LE PLUS IMPORTANT DU
+				// FICHIER. Un document 0.4 fictif contient une section que ce lecteur
+				// ne connait pas, ET un membre de widget qu'il ne connait pas non plus.
+				// Les deux doivent revenir a l'octet pres.
+				//
+				// Sans ce controle, rien ne prouve qu'une version future du format ne
+				// sera pas silencieusement effacee par un outil d'aujourd'hui qui se
+				// contente d'ouvrir et d'enregistrer.
+				const char *src = "nkgui 0.4\n"
+								  "\n"
+								  "widgets {\n"
+								  "    Button \"a\" {\n"
+								  "        label = \"ok\"\n"
+								  "        futurMembre(x) {\n"
+								  "            profondeur = 3\n"
+								  "        }\n"
+								  "    }\n"
+								  "}\n"
+								  "\n"
+								  "// une section que la 0.4 a ajoutee et que je ne connais pas\n"
+								  "theme \"sombre\" {\n"
+								  "    fond = #101418\n"
+								  "    roles {\n"
+								  "        // un commentaire a l'interieur du bloc inconnu\n"
+								  "        accent = #F79A28\n"
+								  "    }\n"
+								  "}\n";
+				NkGDocument d;
+				NkGDiag e;
+				const bool lu = parse(src, d, e);
+				bool sectionRaw = false;
+				for (uint32 i = 0; i < (uint32)d.sections.Size(); ++i) {
+					if (d.sections[i].kind == NkGSectionKind::Raw) {
+						sectionRaw = true;
+					}
+				}
+				bool eq = false;
+				bool id = false;
+				NkString why;
+				roundtrip(src, eq, id, why);
+				check("20. (d) un fichier 0.4 se LIT malgre sa section inconnue",
+					  lu && d.futureMinor && sectionRaw, lu ? "" : e.message.Data());
+				check("20b. (d) LE TEMOIN : la section inconnue et le membre inconnu sont "
+					  "PRESERVES et reemis a l'octet pres, commentaires interieurs compris",
+					  eq && id, why.Data());
+				// Et la preuve par la negative : la meme source en 0.3 doit ECHOUER.
+				// Sinon la preservation ne serait pas liee a la version, elle serait une
+				// tolerance permanente -- c'est-a-dire un trou.
+				NkString v03("nkgui 0.3");
+				v03.Append(NkString(src).SubStr(9));
+				NkGDocument d3;
+				NkGDiag e3;
+				const bool ko = !NkGParse(v03.Data(), (uint32)v03.Size(), d3, e3);
+				check("20c. (d) et la MEME source estampillee 0.3 est REFUSEE : preserver "
+					  "n'est pas tolerer, c'est reconnaitre un fichier plus recent",
+					  ko, ko ? "" : "*** ACCEPTEE ***");
+			}
+
+			rep.Append("\n=== CONTROLES : ");
+			rep.Append(NkGU32(pass));
+			rep.Append(" / ");
+			rep.Append(NkGU32(total));
+			rep.Append(" ===\n");
 			NkGPublish(rep, "nkuidesign_roundtrip_controles.txt");
 			return (pass == total) ? 0 : 1;
 		}
 
-	} // namespace guifmt
-} // namespace nkuidesign
+	}  // namespace guifmt
+}  // namespace nkuidesign
 
-#endif // __NKENTSEU_NKUIDESIGN_NKGUIROUNDTRIP_H__
+#endif	// __NKENTSEU_NKUIDESIGN_NKGUIROUNDTRIP_H__

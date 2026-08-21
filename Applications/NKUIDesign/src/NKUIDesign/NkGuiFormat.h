@@ -2,35 +2,80 @@
 // NkGuiFormat.h
 // =============================================================================
 // Description :
-//   Le LECTEUR et l'ECRIVAIN du format `.nkgui` v0.2, tel que le document 2
-//   (`2_NkUIDesign_Langage_Description_NodeBlueprint.md`) le definit -- lexeur,
-//   analyseur descendant recursif, modele de document en memoire, et
-//   serialiseur. C'est ce qui manquait pour que NkUIDesign puisse ENREGISTRER
-//   et RELIRE ses documents (inventaire, document 8 §5 : « chemin critique »).
+//   Le LECTEUR et l'ECRIVAIN du format `.nkgui` **v0.3** -- lexeur, analyseur
+//   descendant recursif, modele de document en memoire, et serialiseur.
+//   La reference est le document 2
+//   (`2_NkUIDesign_Langage_Description_NodeBlueprint.md`) pour le socle v0.2, et
+//   `design/9_Grammaire_complete.md` pour ce que la v0.3 ajoute.
+//
+// Ce que la v0.3 ajoute au socle v0.2 (decisions de Rodolf, 2026-08-21) :
+//   - LISTES `[a, b, c]` et DICTIONNAIRES `{ cle = valeur, ... }` comme valeurs.
+//     Sans elles, `columns[]`, `items[]`, `tabs[]`, `values[]`, `sizes[]` ne
+//     s'ecrivaient pas : cinq roles etaient inecrivables (doc 9 §6.1) ;
+//   - l'IDENTIFIANT POINTE (`n1.value`, `Enum.X`, `a.b.c`) dans `expr`, que le
+//     document 2 emploie dans ses propres exemples (doc 9 §6.2) ;
+//   - les COMMENTAIRES et LIGNES VIDES survivent a l'aller-retour ;
+//   - les blocs `appearance` portes par le widget, la section `animation` et la
+//     section `fonts` (doc 9 §3, §4, §5) ;
+//   - la VALIDATION par role, dans `NkGuiValidate.h` -- separee volontairement :
+//     lire n'est pas juger, et un document invalide doit rester LISIBLE.
+//
+// =============================================================================
+//  ATTENTION -- LA COMPATIBILITE ASCENDANTE PRIME SUR TOUT LE RESTE
+// =============================================================================
+//  Rodolf, mot pour mot : « rassure-toi que le systeme pourra facilement etre
+//  mis a jour sans tout detruire et sans bug. » Quatre regles la tiennent, et
+//  elles sont dans le code, pas seulement dans ce commentaire :
+//
+//   (a) LE FICHIER PORTE SA VERSION. `nkgui <majeure>.<mineure>`, relue et
+//       reemise telle quelle. Un document ecrit en 0.2 se reecrit en 0.2 : un
+//       outil qui reestampille silencieusement les fichiers qu'il touche rend
+//       tout diagnostic de version impossible.
+//
+//   (b) UN LECTEUR RECENT LIT TOUS LES FICHIERS ANCIENS. Rien de la v0.2 n'a
+//       ete retire ni resserre. Le corpus 0.2 reste a 10/10.
+//
+//   (c) UN LECTEUR ANCIEN REFUSE CLAIREMENT UN FICHIER PLUS RECENT. Une
+//       MAJEURE superieure = rupture : `E-VERSION-INCOMPATIBLE`, et on ne lit
+//       pas. « ce fichier est trop recent pour moi » vaut mieux que l'ouvrir en
+//       perdant la moitie.
+//
+//   (d) CE QU'ON NE COMPREND PAS, ON LE PRESERVE TEL QUEL. Une MINEURE
+//       superieure = ajout compatible : le fichier se lit, et toute section
+//       (ou tout membre de widget) inconnu est garde **en TEXTE BRUT**
+//       (`NkGRaw`) puis reemis a l'octet pres.
+//
+//       C'est la regle qui fait le travail, et elle impose sa forme au code :
+//       **on ne peut pas preserver ce qu'on ne sait pas modeliser en le faisant
+//       passer par le modele.** Il faut garder la tranche de source. Sans ca,
+//       la version 0.4 ajouterait une section, et le premier outil 0.3 qui
+//       ouvrirait puis enregistrerait un document 0.4 la supprimerait -- sans
+//       message, sans trace, et sans que personne ne s'en apercoive avant que
+//       le document ne serve.
 //
 // Caracteristiques :
 //   - zero-STL : `NkString` / `NkVector` (NKContainers), allocateurs NKMemory ;
-//   - ARENES PLATES : tous les noeuds, expressions et instructions vivent dans
+//   - ARENES PLATES : noeuds, valeurs, expressions et instructions vivent dans
 //     des `NkVector` du document, references par INDICE. Aucun pointeur vers
 //     l'interieur d'un conteneur qui peut se reallouer ;
 //   - ORDRE D'ECRITURE PRESERVE : un noeud garde la suite exacte de ses membres
-//     (propriete / evenement / enfant), et le fichier garde la suite exacte de
-//     ses sections. Sans ca, l'aller-retour reordonne le document ;
+//     (propriete / evenement / apparence / enfant), et le fichier garde la suite
+//     exacte de ses sections ;
 //   - LEXEMES CONSERVES : un nombre, une couleur, un vecteur et un identifiant
 //     sont reemis TELS QU'ILS ONT ETE LUS. Le document 2 ne definit aucune forme
-//     canonique pour eux ; normaliser reecrirait le document de l'auteur.
+//     canonique pour eux ; normaliser reecrirait le document de l'auteur ;
+//   - TRIVIA CONSERVEE : chaque element porte les lignes de commentaire et les
+//     lignes vides qui le precedent, **verbatim**, plus le commentaire de fin de
+//     sa propre ligne. C'est ce qui rend l'aller-retour sur un fichier ecrit a
+//     la main non destructeur.
 //
 // Algorithmes implementes :
 //   - analyse descendante recursive a un seul jeton d'avance (LL(1)) ;
-//   - analyse des expressions par PRECEDENCE GRIMPANTE (precedence climbing),
-//     sur les operateurs du document 2 §3.
-//
-// ⚠️ PORTEE, et elle est etroite -- a lire avant de s'en servir :
-//    ce fichier fait la validation SYNTAXIQUE (`E-PARSE`) et RIEN d'autre. La
-//    validation par role (`E-TYPE`, doc 2 §4) exige la table §8, que le
-//    document 7 propose justement de remplacer : la coder aujourd'hui, ce serait
-//    trancher a la place de Rodolf. Detail et manques releves :
-//    `design/9_Grammaire_complete.md` §6.
+//   - analyse des expressions par PRECEDENCE GRIMPANTE (precedence climbing) ;
+//   - rattachement de la trivia par BALAYAGE DES INTERVALLES entre jetons : le
+//     lexeur note l'offset de debut et de fin de chaque jeton, et une passe
+//     unique decoupe le texte laisse entre deux jetons en « commentaire de fin
+//     de ligne du precedent » + « lignes qui precedent le suivant ».
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -60,32 +105,90 @@ namespace nkuidesign {
 		/// premier `PushBack`.
 		static const uint32 kNoIndex = 0xFFFFFFFFu;
 
-		// ═══════════════════════════════════════════════════════════════════════
-		//  LES VALEURS  (doc 2 §3 : value := String | Number | Color | Vec2
-		//                                  | flags | Identifier)
-		// ═══════════════════════════════════════════════════════════════════════
+		/// La version que CE lecteur comprend. Regle (c) : au-dela de la majeure,
+		/// on refuse ; au-dela de la mineure, on lit et on preserve (regle (d)).
+		static const int32 kFormatMajor = 0;
+		static const int32 kFormatMinor = 3;
+
+		// =====================================================================
+		//  LA TRIVIA  (commentaires et lignes vides)
+		// =====================================================================
+
+		/// LA TRIVIA EST STOCKEE VERBATIM, INDENTATION COMPRISE, et ce n'est pas
+		/// de la paresse : une ligne de commentaire n'a pas de « profondeur »
+		/// dans le modele -- elle peut commenter le bloc, le membre suivant, ou
+		/// rien du tout. La reindenter, c'est decider a la place de l'auteur ;
+		/// la recopier, c'est ne rien decider. Un commentaire de bloc sur
+		/// plusieurs lignes est simplement decoupe en autant d'entrees, et se
+		/// recolle a l'identique a l'ecriture.
+		struct NkGTrivia {
+				NkVector<NkString> lead;  ///< lignes completes AVANT l'element ("" = ligne vide)
+				NkString trail;			  ///< le reste de la ligne APRES l'element, verbatim
+
+				bool Empty() const {
+					return lead.Size() == 0 && trail.Empty();
+				}
+		};
+
+		/// Ce qu'un BLOC porte en plus : le commentaire colle a son accolade
+		/// ouvrante, et les lignes qui precedent sa fermante. Sans ces deux-la,
+		/// un commentaire en fin de bloc disparait.
+		struct NkGBlockTrivia {
+				NkString openTrail;	 ///< apres l'accolade ouvrante, verbatim
+				NkGTrivia tail;		 ///< lignes avant l'accolade fermante
+
+				bool Empty() const {
+					return openTrail.Empty() && tail.lead.Size() == 0;
+				}
+		};
+
+		inline bool NkGEqualTrivia(const NkGTrivia &a, const NkGTrivia &b) {
+			if (a.lead.Size() != b.lead.Size() || a.trail.Compare(b.trail) != 0) {
+				return false;
+			}
+			for (uint32 i = 0; i < (uint32)a.lead.Size(); ++i) {
+				if (a.lead[i].Compare(b.lead[i]) != 0) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		inline bool NkGEqualBlockTrivia(const NkGBlockTrivia &a, const NkGBlockTrivia &b) {
+			return a.openTrail.Compare(b.openTrail) == 0 && NkGEqualTrivia(a.tail, b.tail);
+		}
+
+		// =====================================================================
+		//  LES VALEURS  (doc 2 §3, etendu v0.3)
+		//    value := String | Number | Color | Vec2 | flags | Identifier
+		//           | '[' (value (',' value)*)? ']'                     (v0.3)
+		//           | '{' (key '=' value (',' ...)*)? '}'               (v0.3)
+		// =====================================================================
 
 		enum class NkGValueKind : uint8 {
 			None = 0,
-			String,	 ///< `"..."` — `text` porte le contenu DECODE
-			Number,	 ///< `-?[0-9]+(\.[0-9]+)?`
-			Color,	 ///< `#RRGGBB` ou `#RRGGBBAA`
-			Vec2,	 ///< `(x, y)`
-			Ident,	 ///< un identifiant seul (`true`, `false`, `EaseOut`, `Enum.X`)
-			Flags	 ///< `A | B | C`
+			String,	 ///< contenu entre guillemets -- `text` porte le contenu DECODE
+			Number,	 ///< -?[0-9]+(\.[0-9]+)?
+			Color,	 ///< #RRGGBB ou #RRGGBBAA
+			Vec2,	 ///< (x, y)
+			Ident,	 ///< un identifiant seul, eventuellement pointe (`Enum.X`)
+			Flags,	 ///< A | B | C
+			List,	 ///< [ ... ]         -- v0.3
+			Dict	 ///< { cle = ... }   -- v0.3
 		};
 
-		/// ⚠️ DEUX FORMES COHABITENT, ET C'EST VOULU : `text` est la forme LUE
-		///    (contenu decode d'une chaine), `raw` est la forme ECRITE (le lexeme
-		///    source, guillemets compris pour une chaine).
+		/// DEUX FORMES COHABITENT, ET C'EST VOULU : `text` est la forme LUE
+		/// (contenu decode d'une chaine), `raw` est la forme ECRITE (le lexeme
+		/// source, guillemets compris pour une chaine).
 		///
-		///    Le serialiseur reemet `raw` pour tout sauf les chaines, qu'il
-		///    re-encode depuis `text`. Raison : le document 2 ne definit aucune
-		///    forme canonique pour un nombre (`0.20` vaut `0.2`), une couleur
-		///    (`#ff0000` vaut `#FF0000`) ni un vecteur (`(1,2)` vaut `(1, 2)`).
-		///    **Normaliser reecrirait silencieusement le fichier de l'auteur** —
-		///    un diff de trois cents lignes le lendemain d'un simple
-		///    enregistrement, sans qu'aucune valeur n'ait change.
+		/// Le serialiseur reemet `raw` pour tout sauf les chaines, qu'il
+		/// re-encode depuis `text`, et sauf les listes/dictionnaires, qu'il
+		/// reconstruit depuis leurs elements. Raison : le document 2 ne definit
+		/// aucune forme canonique pour un nombre (`0.20` vaut `0.2`), une
+		/// couleur (`#ff0000` vaut `#FF0000`) ni un vecteur (`(1,2)` vaut
+		/// `(1, 2)`). **Normaliser reecrirait silencieusement le fichier de
+		/// l'auteur** -- un diff de trois cents lignes le lendemain d'un simple
+		/// enregistrement, sans qu'aucune valeur n'ait change.
 		struct NkGValue {
 				NkGValueKind kind = NkGValueKind::None;
 				NkString text;	 ///< String : contenu decode. Ident/Flags : le texte.
@@ -94,41 +197,75 @@ namespace nkuidesign {
 				uint32 color = 0;	  ///< Color, en RGBA8
 				float64 vx = 0.0;	  ///< Vec2
 				float64 vy = 0.0;	  ///< Vec2
+
+				/// List : les elements. Dict : les VALEURS, alignees sur `keys`.
+				/// Indices dans `NkGDocument::values` -- une valeur ne peut pas se
+				/// contenir elle-meme par valeur, et une arene evite d'inventer un
+				/// type recursif que `NkVector` ne saurait pas instancier.
+				NkVector<uint32> items;
+				NkVector<NkString> keys;	 ///< Dict : les cles, DECODEES
+				NkVector<uint8> keyQuoted;	 ///< Dict : 1 si la cle etait une chaine
 		};
 
 		struct NkGProp {
 				NkString name;
 				NkGValue value;
+				NkGTrivia tv;
+				/// La LIGNE SOURCE, pour le diagnostic seul. Un message de validation
+				/// sans ligne oblige a chercher dans un fichier de trois mille noeuds ;
+				/// elle ne participe ni a l'egalite ni a l'ecriture.
+				uint32 line = 0;
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 		//  LES EXPRESSIONS  (doc 2 §3, section behavior)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		enum class NkGExprKind : uint8 {
 			Literal = 0,  ///< String | Number | Color | true | false
-			Ident,		  ///< un identifiant, pointe ou non (cf. §6.2 du doc 9)
-			Binary,		  ///< `lhs op rhs`
-			Paren		  ///< `( inner )` — conserve pour reemettre le groupement
+			Ident,		  ///< un identifiant, POINTE ou non (`n1.value`, `Enum.X`, `a.b.c`)
+			Binary,		  ///< lhs op rhs
+			Paren		  ///< ( inner ) -- conserve pour reemettre le groupement
 		};
 
 		struct NkGExpr {
 				NkGExprKind kind = NkGExprKind::Literal;
 				NkGValue literal;	 ///< Literal
-				NkString ident;		 ///< Ident
+				NkString ident;		 ///< Ident : le chemin COMPLET, points compris
 				NkString op;		 ///< Binary
 				uint32 lhs = kNoIndex;
 				uint32 rhs = kNoIndex;	 ///< Paren : reutilise `lhs`
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		/// Decoupe `a.b.c` en ses segments. Le modele garde le chemin ENTIER dans
+		/// `ident` -- c'est lui qui est reemis, donc c'est lui qui fait foi. Cette
+		/// fonction est un service pour qui CONSOMME le document (resolution de
+		/// pin, resolution d'enum) ; elle ne participe pas a l'aller-retour.
+		inline NkVector<NkString> NkGSplitPath(const NkString &ident) {
+			NkVector<NkString> out;
+			const char *p = ident.Data();
+			if (!p) {
+				return out;
+			}
+			const uint32 n = (uint32)ident.Size();
+			uint32 begin = 0;
+			for (uint32 i = 0; i <= n; ++i) {
+				if (i == n || p[i] == '.') {
+					out.PushBack(NkString(p + begin, i - begin));
+					begin = i + 1;
+				}
+			}
+			return out;
+		}
+
+		// =====================================================================
 		//  LES INSTRUCTIONS  (doc 2 §5)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		enum class NkGStmtKind : uint8 {
-			Assign = 0,	 ///< `set Identifier = expr`
-			If,			 ///< `if expr { ... } else { ... }`
-			Call		 ///< `Callback "X"(args)`
+			Assign = 0,	 ///< set Identifier = expr
+			If,			 ///< if expr { ... } else { ... }
+			Call		 ///< Callback "X"(args)
 		};
 
 		struct NkGStmt {
@@ -139,79 +276,134 @@ namespace nkuidesign {
 				NkVector<uint32> thenStmts;
 				NkVector<uint32> elseStmts;
 				bool hasElse = false;
+				NkGTrivia tv;
+				NkGBlockTrivia blkThen;
+				NkGBlockTrivia blkElse;
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 		//  LES EVENEMENTS  (doc 2 §3 : event_decl)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		enum class NkGActionKind : uint8 {
-			Callback = 0,  ///< `Callback "X"(args)`
-			Behavior,	   ///< `Behavior "X"`
-			Inline		   ///< `{ statement* }`
+			Callback = 0,  ///< Callback "X"(args)
+			Behavior,	   ///< Behavior "X"
+			Inline		   ///< { statement* }
 		};
 
 		struct NkGEvent {
 				NkString name;				 ///< l'identifiant apres `on`
-				NkVector<NkString> params;	 ///< `(value, text)`
+				NkVector<NkString> params;	 ///< (value, text)
 				bool hasParams = false;		 ///< distingue `on Click` de `on Click()`
 				NkGActionKind action = NkGActionKind::Callback;
 				NkString target;		 ///< nom du callback ou du behavior
 				NkVector<uint32> args;	 ///< Callback
 				NkVector<uint32> stmts;	 ///< Inline
+				NkGTrivia tv;
+				NkGBlockTrivia blk;	 ///< Inline
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
-		//  LES NOEUDS DE WIDGETS  (doc 2 §3 : node_decl)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
+		//  L'APPARENCE  (doc 9 §3 -- v0.3)
+		//    appearance_blk    := "appearance" ('(' Identifier ')')? '{' m* '}'
+		//    appearance_member := prop_decl | effect_blk
+		//    effect_blk        := ("fill"|"stroke"|"shadow"|"blur") String? '{' p* '}'
+		// =====================================================================
 
-		/// ⚠️ CE TYPE EXISTE POUR UNE SEULE RAISON, ET ELLE EST L'ALLER-RETOUR.
-		///    `node_decl := Kind String? '{' (prop_decl | event_decl | node_decl)* '}'`
-		///    autorise les trois membres dans N'IMPORTE QUEL ORDRE. Les ranger dans
-		///    trois listes separees et les reemettre « proprietes d'abord » suffit
-		///    a rendre le fichier different de l'original — et un outil qui
-		///    reordonne un document a chaque enregistrement produit des diffs que
-		///    personne ne peut relire.
-		enum class NkGMemberKind : uint8 { Prop = 0, Event, Child };
+		/// `oneLine` N'EST PAS DE LA COSMETIQUE. Le document 9 ecrit ses effets sur
+		/// une seule ligne (`fill { color = #2F6F7A }`) ; les reemettre eclates
+		/// ferait diverger le fichier de son auteur des le premier enregistrement.
+		/// On note donc la forme lue et on la rend.
+		struct NkGEffect {
+				NkString kind;	 ///< fill | stroke | shadow | blur
+				NkString name;	 ///< le String? optionnel (doc 9 §4.3 : nommer une ombre)
+				bool hasName = false;
+				NkVector<NkGProp> props;
+				bool oneLine = false;	 ///< le bloc tenait sur une ligne
+				bool commas = false;	 ///< ses proprietes etaient separees par des virgules
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
+		};
+
+		enum class NkGAppMemberKind : uint8 { Prop = 0, Effect };
+
+		struct NkGAppMember {
+				NkGAppMemberKind kind = NkGAppMemberKind::Prop;
+				uint32 index = kNoIndex;
+		};
+
+		struct NkGAppearance {
+				NkString state;	 ///< appearance(Hover) -- doc 9 §3.2 : liste non fermee
+				bool hasState = false;
+				NkVector<NkGProp> props;
+				NkVector<NkGEffect> effects;
+				NkVector<NkGAppMember> members;	 ///< l'ordre du fichier
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
+		};
+
+		// =====================================================================
+		//  LES NOEUDS DE WIDGETS  (doc 2 §3 : node_decl, etendu doc 9 §3.1)
+		// =====================================================================
+
+		/// CE TYPE EXISTE POUR UNE SEULE RAISON, ET ELLE EST L'ALLER-RETOUR.
+		/// `node_decl` autorise ses membres dans N'IMPORTE QUEL ORDRE. Les ranger
+		/// dans des listes separees et les reemettre « proprietes d'abord » suffit
+		/// a rendre le fichier different de l'original -- et un outil qui reordonne
+		/// un document a chaque enregistrement produit des diffs que personne ne
+		/// peut relire.
+		///
+		/// `Raw` est le membre de la regle (d) : un membre qu'un lecteur plus
+		/// ancien ne comprend pas, garde en texte brut et reemis tel quel.
+		enum class NkGMemberKind : uint8 { Prop = 0, Event, Child, Appearance, Raw };
 
 		struct NkGMember {
 				NkGMemberKind kind = NkGMemberKind::Prop;
-				uint32 index = kNoIndex;  ///< indice dans props / events / children
+				uint32 index = kNoIndex;  ///< indice dans props / events / children / ...
 		};
 
 		struct NkGNode {
-				NkString kind;	 ///< `Kind` — n'importe quel identifiant (cf. doc 9 §6.4)
-				NkString id;	 ///< le `String?` optionnel
+				NkString kind;	 ///< Kind -- n'importe quel identifiant (validation : NkGuiValidate.h)
+				NkString id;	 ///< le String? optionnel
 				bool hasId = false;
 				NkVector<NkGProp> props;
 				NkVector<NkGEvent> events;
-				NkVector<uint32> children;	 ///< indices dans `NkGDocument::nodes`
-				NkVector<NkGMember> members;	 ///< l'ordre du fichier
+				NkVector<uint32> children;	 ///< indices dans NkGDocument::nodes
+				NkVector<NkGAppearance> appearances;
+				NkVector<uint32> raws;		  ///< indices dans NkGDocument::raws
+				NkVector<NkGMember> members;  ///< l'ordre du fichier
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
+				uint32 line = 0;  ///< pour le diagnostic seul (cf. NkGProp::line)
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 		//  LA GEOMETRIE  (doc 2 §3 : geometry_sec)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		struct NkGShape {
 				NkString name;
 				NkVector<NkGProp> props;
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 		//  LE COMPORTEMENT  (doc 2 §5 et §6)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		struct NkGGraphNode {
-				NkString name;	 ///< `node <name> <type>`
+				NkString name;	 ///< node <name> <type>
 				NkString type;
-				NkVector<NkGProp> pins;	 ///< pin_init, valeurs = expressions
-				NkVector<uint32> pinExprs;	 ///< indices dans `NkGDocument::exprs`
+				NkVector<NkGProp> pins;		 ///< pin_init, valeurs = expressions
+				NkVector<uint32> pinExprs;	 ///< indices dans NkGDocument::exprs
 				bool hasPins = false;		 ///< distingue `node n1 X` de `node n1 X { }`
+				NkGTrivia tv;
 		};
 
 		struct NkGWire {
-				NkVector<NkString> refs;  ///< `a.b -> c.d -> e.f`, en texte tel que lu
+				NkVector<NkString> refs;  ///< a.b -> c.d -> e.f, en texte tel que lu
+				NkGTrivia tv;
 		};
 
 		struct NkGBehavior {
@@ -220,16 +412,161 @@ namespace nkuidesign {
 				NkVector<uint32> stmts;	 ///< script
 				NkVector<NkGGraphNode> gnodes;
 				NkVector<NkGWire> wires;
+				/// L'ordre du fichier pour un graphe : Prop = noeud, Event = fil.
+				/// (on reutilise NkGMember plutot que d'inventer un enum de plus)
+				NkVector<NkGMember> gorder;
+				NkGBlockTrivia blk;
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
+		//  L'ANIMATION  (doc 9 §4 -- v0.3)
+		// =====================================================================
+
+		struct NkGAnimKey {
+				NkString at;	 ///< le lexeme du temps, tel que lu
+				NkGValue value;
+				NkString curve;
+				bool hasCurve = false;
+				NkGTrivia tv;
+		};
+
+		struct NkGAnimTrack {
+				NkString name;	 ///< un CHEMIN de propriete ("scale", "shadow.blur")
+				NkVector<NkGAnimKey> keys;
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
+		};
+
+		struct NkGAnimMap {
+				NkVector<NkGProp> props;
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
+		};
+
+		enum class NkGAnimFamily : uint8 { Transition = 0, Ambience, Continuous };
+		enum class NkGAnimMemberKind : uint8 { Prop = 0, Track, Map };
+
+		struct NkGAnimMember {
+				NkGAnimMemberKind kind = NkGAnimMemberKind::Prop;
+				uint32 index = kNoIndex;
+		};
+
+		struct NkGAnimDecl {
+				NkGAnimFamily family = NkGAnimFamily::Transition;
+				NkString name;
+				NkVector<NkGProp> props;
+				NkVector<NkGAnimTrack> tracks;
+				NkVector<NkGAnimMap> maps;
+				NkVector<NkGAnimMember> members;
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
+		};
+
+		struct NkGAnimation {
+				NkString name;
+				bool hasName = false;
+				NkVector<NkGAnimDecl> decls;
+				NkGBlockTrivia blk;
+		};
+
+		// =====================================================================
+		//  LES POLICES  (doc 9 §5 -- v0.3)
+		// =====================================================================
+
+		struct NkGFontMetric {
+				bool isGlyph = false;  ///< glyph "A" -> 712
+				NkString glyph;		   ///< le glyphe, DECODE
+				NkString name;		   ///< sinon : unitsPerEm, lineHeight, ...
+				NkGValue value;
+				NkGTrivia tv;
+		};
+
+		enum class NkGFontBlockKind : uint8 { Source = 0, Fallback, Metrics };
+
+		struct NkGFontBlock {
+				NkGFontBlockKind kind = NkGFontBlockKind::Source;
+				NkVector<NkGProp> props;		  ///< Source et Fallback
+				NkVector<NkGFontMetric> metrics;  ///< Metrics
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
+		};
+
+		enum class NkGFontMemberKind : uint8 { Prop = 0, Block };
+
+		struct NkGFontMember {
+				NkGFontMemberKind kind = NkGFontMemberKind::Prop;
+				uint32 index = kNoIndex;
+		};
+
+		struct NkGFont {
+				NkString name;
+				NkVector<NkGProp> props;
+				NkVector<NkGFontBlock> blocks;
+				NkVector<NkGFontMember> members;
+				NkGTrivia tv;
+				NkGBlockTrivia blk;
+		};
+
+		struct NkGFonts {
+				NkVector<NkGFont> fonts;
+				NkGBlockTrivia blk;
+		};
+
+		// =====================================================================
+		//  LE TEXTE BRUT PRESERVE  --  LA REGLE (d)
+		// =====================================================================
+
+		/// Une tranche de source qu'on ne sait pas modeliser et qu'on garde donc
+		/// **telle quelle**. C'est le seul moyen honnete de survivre a un fichier
+		/// ecrit par une version plus recente du format : on ne peut pas preserver
+		/// ce qu'on ne sait pas representer en le faisant passer par le modele.
+		struct NkGRaw {
+				NkString text;	 ///< la tranche EXACTE du fichier source
+				NkString what;	 ///< le mot-cle qui l'ouvrait, pour le diagnostic
+				NkGTrivia tv;
+		};
+
+		// =====================================================================
+		//  LE DOCUMENT
+		// =====================================================================
+
+		enum class NkGSectionKind : uint8 {
+			Geometry = 0,
+			Widgets,
+			Behavior,
+			Controller,
+			Callback,
+			Animation,
+			Fonts,
+			Raw
+		};
+
+		struct NkGSection {
+				NkGSectionKind kind = NkGSectionKind::Widgets;
+				uint32 index = kNoIndex;  ///< indice dans l'arene correspondante
+				NkGTrivia tv;
+		};
+
+		/// Une section geometry ou widgets : ses membres de premier niveau.
+		struct NkGTopSection {
+				NkVector<uint32> shapes;  ///< Geometry : indices dans shapes
+				NkVector<uint32> roots;	  ///< Widgets : indices dans nodes
+				NkGBlockTrivia blk;
+		};
+
+		struct NkGInclude {
+				NkString path;
+				NkGTrivia tv;
+		};
+
+		// =====================================================================
 		//  LES CONTRATS  (doc 2 §10)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		struct NkGParam {
 				NkString name;
-				NkString type;					///< `Void`|`Bool`|... tel que lu
-				NkVector<NkString> enumLabels;	///< `Enum[X,Y,Z]`
+				NkString type;					///< Void|Bool|... tel que lu
+				NkVector<NkString> enumLabels;	///< Enum[X,Y,Z]
 				bool isEnum = false;
 		};
 
@@ -239,78 +576,82 @@ namespace nkuidesign {
 				NkString ret;
 				NkVector<NkString> retEnumLabels;
 				bool retIsEnum = false;
+				NkGTrivia tv;
 		};
 
 		struct NkGController {
 				NkString name;
-				NkVector<uint32> callbacks;	 ///< indices dans `NkGDocument::callbacks`
-		};
-
-		// ═══════════════════════════════════════════════════════════════════════
-		//  LE DOCUMENT
-		// ═══════════════════════════════════════════════════════════════════════
-
-		enum class NkGSectionKind : uint8 { Geometry = 0, Widgets, Behavior, Controller, Callback };
-
-		struct NkGSection {
-				NkGSectionKind kind = NkGSectionKind::Widgets;
-				uint32 index = kNoIndex;  ///< indice dans l'arene correspondante
-		};
-
-		/// Une section `geometry` ou `widgets` : ses membres de premier niveau.
-		struct NkGTopSection {
-				NkVector<uint32> shapes;	///< Geometry : indices dans `shapes`
-				NkVector<uint32> roots;		///< Widgets : indices dans `nodes`
+				NkVector<uint32> callbacks;	 ///< indices dans NkGDocument::callbacks
+				NkGBlockTrivia blk;
 		};
 
 		struct NkGDocument {
-				NkString versionMajor = NkString("0");  ///< lexeme, pas un nombre
-				NkString versionMinor = NkString("2");
-				NkVector<NkString> includes;
+				NkString versionMajor = NkString("0");	///< lexeme, pas un nombre
+				NkString versionMinor = NkString("3");
+				/// Vrai quand la MINEURE du fichier depasse celle du lecteur.
+				/// Regle (d) : dans ce mode, ce qu'on ne comprend pas est PRESERVE
+				/// au lieu d'etre refuse.
+				bool futureMinor = false;
 
-				// ── Les arenes ────────────────────────────────────────────────
+				NkVector<NkGInclude> includes;
+
+				// -- Les arenes ------------------------------------------------
 				NkVector<NkGNode> nodes;
 				NkVector<NkGShape> shapes;
+				NkVector<NkGValue> values;	 ///< elements de listes / dictionnaires
 				NkVector<NkGExpr> exprs;
 				NkVector<NkGStmt> stmts;
 				NkVector<NkGBehavior> behaviors;
 				NkVector<NkGCallbackSig> callbacks;
 				NkVector<NkGController> controllers;
 				NkVector<NkGTopSection> topSections;
+				NkVector<NkGAnimation> animations;
+				NkVector<NkGFonts> fontSections;
+				NkVector<NkGRaw> raws;
 
-				/// L'ORDRE DES SECTIONS DU FICHIER. Meme raison que `NkGNode::members`.
+				/// L'ORDRE DES SECTIONS DU FICHIER. Meme raison que NkGNode::members.
 				NkVector<NkGSection> sections;
+
+				NkGTrivia headTv;  ///< avant / apres la ligne `nkgui X.Y`
+				NkGTrivia tailTv;  ///< les lignes de la fin du fichier
 
 				void Clear() {
 					versionMajor = NkString("0");
-					versionMinor = NkString("2");
+					versionMinor = NkString("3");
+					futureMinor = false;
 					includes.Clear();
 					nodes.Clear();
 					shapes.Clear();
+					values.Clear();
 					exprs.Clear();
 					stmts.Clear();
 					behaviors.Clear();
 					callbacks.Clear();
 					controllers.Clear();
 					topSections.Clear();
+					animations.Clear();
+					fontSections.Clear();
+					raws.Clear();
 					sections.Clear();
+					headTv = NkGTrivia();
+					tailTv = NkGTrivia();
 				}
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
-		//  LES DIAGNOSTICS  (doc 2 §12)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
+		//  LES DIAGNOSTICS  (doc 2 §12, etendu)
+		// =====================================================================
 
 		struct NkGDiag {
-				NkString code;	 ///< `E-PARSE`, ...
+				NkString code;	 ///< E-PARSE, E-VERSION-INCOMPATIBLE, E-ROLE-INCONNU, ...
 				NkString message;
 				uint32 line = 0;
 				uint32 column = 0;
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 		//  LE LEXEUR  (doc 2 §2)
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		enum class NkGTok : uint8 {
 			End = 0,
@@ -322,14 +663,14 @@ namespace nkuidesign {
 			RBrace,
 			LParen,
 			RParen,
-			LBracket,  ///< jamais produit par la grammaire v0.2 — refuse (doc 9 §6.1)
+			LBracket,  ///< v0.3 : ouvre un litteral de liste
 			RBracket,
 			Equal,
 			Comma,
 			Pipe,
-			Arrow,	///< `->`
+			Arrow,	///< ->
 			Colon,
-			Op	///< `+ - * / > < >= <= == && ||`
+			Op	///< + - * / > < >= <= == && ||
 		};
 
 		struct NkGToken {
@@ -338,6 +679,15 @@ namespace nkuidesign {
 				NkString raw;	 ///< le lexeme source exact
 				uint32 line = 1;
 				uint32 column = 1;
+				/// Les OFFSETS, et ils ne servent pas au confort : sans eux, ni la
+				/// trivia ni la preservation en texte brut de la regle (d) ne sont
+				/// possibles. Les deux ont besoin de retrouver la SOURCE, pas le
+				/// jeton.
+				uint32 begin = 0;
+				uint32 end = 0;
+				/// Rempli par NkGAttachTrivia, jamais par le lexeur lui-meme.
+				NkVector<NkString> lead;
+				NkString trail;
 		};
 
 		inline bool NkGIsSpace(char c) {
@@ -364,7 +714,7 @@ namespace nkuidesign {
 
 		/// Le lexeur produit la SUITE COMPLETE des jetons avant que l'analyseur ne
 		/// commence. Sur les plus gros documents du corpus (250 Ko, ~3 000 noeuds)
-		/// ca reste quelques centaines de milliers de jetons — et un analyseur qui
+		/// ca reste quelques centaines de milliers de jetons -- et un analyseur qui
 		/// peut regarder en arriere sans relire le texte est bien plus simple.
 		class NkGLexer {
 			public:
@@ -387,15 +737,29 @@ namespace nkuidesign {
 							t.kind = NkGTok::End;
 							t.line = mLine;
 							t.column = mCol;
+							t.begin = mLen;
+							t.end = mLen;
 							out.PushBack(t);
 							return true;
 						}
 						NkGToken tok;
+						tok.begin = mPos;
 						if (!Next(tok, out, err)) {
 							return false;
 						}
+						tok.end = mPos;
 						out.PushBack(tok);
 					}
+				}
+
+				/// L'offset du premier octet significatif (apres BOM). La passe de
+				/// trivia en a besoin pour ne pas prendre le BOM pour un commentaire.
+				uint32 FirstOffset() const {
+					if (mLen >= 3 && (uint8)mSrc[0] == 0xEF && (uint8)mSrc[1] == 0xBB
+						&& (uint8)mSrc[2] == 0xBF) {
+						return 3;
+					}
+					return 0;
 				}
 
 			private:
@@ -444,9 +808,9 @@ namespace nkuidesign {
 								Advance();
 							}
 							if (!closed) {
-								// ⚠️ Un commentaire de bloc non ferme avale la fin du fichier
-								//    en silence si on ne le dit pas : le document se lit
-								//    « valide » avec la moitie de son contenu disparue.
+								// Un commentaire de bloc non ferme avale la fin du fichier
+								// en silence si on ne le dit pas : le document se lit
+								// « valide » avec la moitie de son contenu disparue.
 								err.code = NkString("E-PARSE");
 								err.message = NkString("commentaire de bloc jamais ferme");
 								err.line = openLine;
@@ -460,10 +824,10 @@ namespace nkuidesign {
 					return true;
 				}
 
-				/// `-` est ambigu : debut d'un nombre negatif, ou soustraction. On
-				/// tranche sur le jeton PRECEDENT — s'il peut terminer un operande,
+				/// Le tiret est ambigu : debut d'un nombre negatif, ou soustraction. On
+				/// tranche sur le jeton PRECEDENT -- s'il peut terminer un operande,
 				/// c'est une soustraction. C'est la seule information disponible sans
-				/// remonter a la grammaire, et elle suffit pour la v0.2.
+				/// remonter a la grammaire, et elle suffit.
 				static bool CanEndOperand(const NkVector<NkGToken> &out) {
 					if (out.Size() == 0) {
 						return false;
@@ -493,10 +857,12 @@ namespace nkuidesign {
 						while (mPos < mLen && (NkGIsAlpha(mSrc[mPos]) || NkGIsDigit(mSrc[mPos]))) {
 							Advance();
 						}
-						// L'identifiant POINTE (`n1.value`, `Enum.X`) : le document 2 §3
-						// ne l'a pas dans `expr`, mais ses propres exemples §4.1 et §6.3
-						// l'utilisent. Il est lu comme UN identifiant, et le manque est
-						// porte tel quel dans `design/9_Grammaire_complete.md` §6.2.
+						// L'IDENTIFIANT POINTE (`n1.value`, `Enum.X`, `a.b.c`). Le
+						// document 2 §3 ne l'a pas dans `expr`, mais ses propres
+						// exemples §4.1 et §6.3 l'utilisent -- c'est la decision 2 de
+						// Rodolf (doc 9 §6.2). Il est lu comme UN identifiant : le
+						// chemin complet est ce qui se reemet, `NkGSplitPath` sert a
+						// qui doit le resoudre.
 						while (mPos + 1 < mLen && mSrc[mPos] == '.' && NkGIsAlpha(mSrc[mPos + 1])) {
 							Advance();
 							while (mPos < mLen
@@ -550,7 +916,8 @@ namespace nkuidesign {
 					// Les operateurs, du plus long au plus court.
 					static const char *kTwo[] = {"->", ">=", "<=", "==", "&&", "||"};
 					for (uint32 i = 0; i < 6; ++i) {
-						if (mPos + 1 < mLen && mSrc[mPos] == kTwo[i][0] && mSrc[mPos + 1] == kTwo[i][1]) {
+						if (mPos + 1 < mLen && mSrc[mPos] == kTwo[i][0]
+							&& mSrc[mPos + 1] == kTwo[i][1]) {
 							Advance();
 							Advance();
 							tok.kind = (i == 0) ? NkGTok::Arrow : NkGTok::Op;
@@ -604,11 +971,11 @@ namespace nkuidesign {
 								break;
 							}
 							const char e = mSrc[mPos + 1];
-							// ⚠️ TROIS ECHAPPEMENTS, PAS QUATRE. Le document 2 §2 en
-							//    definit exactement trois. En accepter d'autres en les
-							//    recopiant tels quels ferait perdre l'aller-retour : le
-							//    re-encodage doublerait la contre-oblique. Un echappement
-							//    inconnu est donc une ERREUR nommee, pas une tolerance.
+							// TROIS ECHAPPEMENTS, PAS QUATRE. Le document 2 §2 en
+							// definit exactement trois. En accepter d'autres en les
+							// recopiant tels quels ferait perdre l'aller-retour : le
+							// re-encodage doublerait la contre-oblique. Un echappement
+							// inconnu est donc une ERREUR nommee, pas une tolerance.
 							if (e == '"') {
 								decoded.Append('"');
 							} else if (e == '\\') {
@@ -652,7 +1019,7 @@ namespace nkuidesign {
 					const uint32 begin = mPos;
 					const uint32 openLine = mLine;
 					const uint32 openCol = mCol;
-					Advance();	// le dièse
+					Advance();	// le diese
 					uint32 digits = 0;
 					while (mPos < mLen && NkGIsHex(mSrc[mPos])) {
 						Advance();
@@ -699,8 +1066,103 @@ namespace nkuidesign {
 				}
 		};
 
+		// =====================================================================
+		//  LE RATTACHEMENT DE LA TRIVIA
+		// =====================================================================
+		//
+		//  DECISION 3 DE RODOLF : « les commentaires et les lignes vides doivent
+		//  survivre a l'aller-retour ». Aujourd'hui un .nkgui ecrit a la main puis
+		//  enregistre perdait ses commentaires -- « ce n'est pas normal ».
+		//
+		//  LE PRINCIPE, ET IL TIENT EN UNE PHRASE : tout ce que le lexeur a jete
+		//  entre deux jetons est recupere VERBATIM, decoupe en lignes, et rattache
+		//  soit a la fin de la ligne du jeton precedent, soit au debut de celle du
+		//  jeton suivant.
+		//
+		//  POURQUOI UN DECOUPAGE NAIF PAR RETOUR A LA LIGNE SUFFIT, y compris pour
+		//  un commentaire de bloc sur plusieurs lignes : chaque morceau est reemis
+		//  tel quel, suivi d'un retour a la ligne. Recoller les morceaux redonne
+		//  donc exactement la source -- meme quand la coupure tombe au milieu d'un
+		//  /* ... */. Le modele n'a pas besoin de savoir que c'etait un commentaire ;
+		//  il a besoin de ne rien perdre.
+		//
+		//  CE QUI EST DELIBEREMENT ABANDONNE : l'indentation de la derniere ligne,
+		//  celle qui precede immediatement le jeton. C'est l'ecrivain qui la
+		//  regenere, sinon deux regles se disputeraient la meme colonne.
+		inline void NkGAttachTrivia(const char *src, uint32 len, uint32 firstOffset,
+									NkVector<NkGToken> &toks) {
+			uint32 prevEnd = firstOffset;
+			for (uint32 i = 0; i < (uint32)toks.Size(); ++i) {
+				const uint32 b = toks[i].begin;
+				if (b < prevEnd) {
+					prevEnd = b;
+				}
+				uint32 p = prevEnd;
+
+				// -- Le morceau qui reste sur la ligne du jeton PRECEDENT --------
+				uint32 q = p;
+				while (q < b && src[q] != '\n') {
+					++q;
+				}
+				if (i > 0) {
+					uint32 e = q;
+					if (e > p && src[e - 1] == '\r') {
+						--e;
+					}
+					bool hasCode = false;
+					for (uint32 k = p; k < e; ++k) {
+						if (!NkGIsSpace(src[k])) {
+							hasCode = true;
+							break;
+						}
+					}
+					if (hasCode) {
+						toks[i - 1].trail = NkString(src + p, e - p);
+					}
+				}
+
+				// -- Les lignes qui precedent le jeton COURANT -------------------
+				if (q < b) {
+					uint32 lineStart = q + 1;
+					while (lineStart <= b) {
+						uint32 lineEnd = lineStart;
+						while (lineEnd < b && src[lineEnd] != '\n') {
+							++lineEnd;
+						}
+						if (lineEnd < b) {
+							uint32 e = lineEnd;
+							if (e > lineStart && src[e - 1] == '\r') {
+								--e;
+							}
+							toks[i].lead.PushBack(e > lineStart ? NkString(src + lineStart, e - lineStart)
+																: NkString());
+							lineStart = lineEnd + 1;
+							continue;
+						}
+						// Dernier morceau : l'indentation du jeton. On ne la garde
+						// que si elle porte autre chose que des blancs -- cas rare
+						// d'un /* ... */ colle devant le jeton, qu'il vaut mieux
+						// remonter d'une ligne que perdre.
+						bool hasCode = false;
+						for (uint32 k = lineStart; k < b; ++k) {
+							if (!NkGIsSpace(src[k])) {
+								hasCode = true;
+								break;
+							}
+						}
+						if (hasCode) {
+							toks[i].lead.PushBack(NkString(src + lineStart, b - lineStart));
+						}
+						break;
+					}
+				}
+				prevEnd = toks[i].end;
+			}
+			(void)len;
+		}
+
 		/// Decodage d'un lexeme numerique. Maison, parce que `strtod` depend de la
-		/// locale : sous une locale francaise il lit `3,14` et rejette `3.14` — et
+		/// locale : sous une locale francaise il lit `3,14` et rejette `3.14` -- et
 		/// le format, lui, ne connait que le point.
 		inline float64 NkGParseNumber(const NkString &raw) {
 			const char *p = raw.Data();
@@ -742,25 +1204,45 @@ namespace nkuidesign {
 				++p;
 				++n;
 			}
-			// Un `#RRGGBB` vaut `#RRGGBBFF` : sans cette ligne, une couleur opaque
-			// se comparerait comme totalement transparente.
+			// Un #RRGGBB vaut #RRGGBBFF : sans cette ligne, une couleur opaque se
+			// comparerait comme totalement transparente.
 			if (n == 6) {
 				v = (v << 8) | 0xFFu;
 			}
 			return v;
 		}
 
-		// ═══════════════════════════════════════════════════════════════════════
+		/// Ecriture d'un entier sans `printf`. Le depot journalise par NKLogger ;
+		/// un banc qui formate a la main garde la meme discipline jusqu'au bout.
+		inline NkString NkGU32(uint32 v) {
+			char buf[16];
+			uint32 n = 0;
+			if (v == 0) {
+				buf[n++] = '0';
+			}
+			while (v > 0 && n < 15) {
+				buf[n++] = (char)('0' + (v % 10));
+				v /= 10;
+			}
+			NkString out;
+			for (uint32 i = 0; i < n; ++i) {
+				out.Append(buf[n - 1 - i]);
+			}
+			return out;
+		}
+
+		// =====================================================================
 		//  L'ANALYSEUR
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		class NkGParser {
 			public:
-				NkGParser(const NkVector<NkGToken> &toks, NkGDocument &doc)
-					: mToks(&toks), mDoc(&doc) {}
+				NkGParser(const NkVector<NkGToken> &toks, NkGDocument &doc, const char *src)
+					: mToks(&toks), mDoc(&doc), mSrc(src) {}
 
 				bool ParseFile(NkGDiag &err) {
-					// `file := "nkgui" version_lit include* section*`
+					// file := "nkgui" version_lit include* section*
+					mDoc->headTv.lead = (*mToks)[0].lead;
 					if (!ExpectIdentText("nkgui", err)) {
 						return false;
 					}
@@ -772,6 +1254,7 @@ namespace nkuidesign {
 					// lexeme. On le rescinde ici plutot que de compliquer le lexeur.
 					const NkString ver = Peek().raw;
 					Take();
+					mDoc->headTv.trail = (*mToks)[mPos - 1].trail;
 					uint32 dot = 0;
 					while (dot < (uint32)ver.Size() && ver[dot] != '.') {
 						++dot;
@@ -782,13 +1265,21 @@ namespace nkuidesign {
 					mDoc->versionMajor = ver.SubStr(0, dot);
 					mDoc->versionMinor = ver.SubStr(dot + 1);
 
+					if (!CheckVersion(err)) {
+						return false;
+					}
+
 					while (Peek().kind == NkGTok::Ident && Peek().text.Compare("include") == 0) {
+						const uint32 startTok = mPos;
 						Take();
 						if (Peek().kind != NkGTok::String) {
 							return Fail(err, "chemin attendu apres 'include'");
 						}
-						mDoc->includes.PushBack(Peek().text);
+						NkGInclude inc;
+						inc.path = Peek().text;
 						Take();
+						CaptureTv(inc.tv, startTok);
+						mDoc->includes.PushBack(inc);
 					}
 
 					while (Peek().kind != NkGTok::End) {
@@ -796,12 +1287,14 @@ namespace nkuidesign {
 							return false;
 						}
 					}
+					mDoc->tailTv.lead = Peek().lead;
 					return true;
 				}
 
 			private:
 				const NkVector<NkGToken> *mToks = nullptr;
 				NkGDocument *mDoc = nullptr;
+				const char *mSrc = nullptr;
 				uint32 mPos = 0;
 
 				const NkGToken &Peek(uint32 ahead = 0) const {
@@ -817,12 +1310,36 @@ namespace nkuidesign {
 					return t;
 				}
 
+				/// La trivia d'un element : les lignes qui precedaient son PREMIER
+				/// jeton, le reste de la ligne apres son DERNIER. Un seul point de
+				/// capture pour tous les elements -- sans ca, chaque construction
+				/// aurait sa propre facon d'oublier un commentaire.
+				void CaptureTv(NkGTrivia &tv, uint32 startTok) const {
+					tv.lead = (*mToks)[startTok].lead;
+					const uint32 last = (mPos > 0) ? mPos - 1 : 0;
+					tv.trail = (*mToks)[last].trail;
+				}
+
+				bool OpenBlock(NkGBlockTrivia &blk, NkGDiag &err) {
+					if (!Expect(NkGTok::LBrace, "'{'", err)) {
+						return false;
+					}
+					blk.openTrail = (*mToks)[mPos - 1].trail;
+					return true;
+				}
+				/// L'appelant garantit que le jeton courant est bien l'accolade
+				/// fermante ; les boucles de membres testent RBrace pour sortir.
+				void CloseBlock(NkGBlockTrivia &blk) {
+					blk.tail.lead = Peek().lead;
+					Take();
+				}
+
 				bool Fail(NkGDiag &err, const char *msg) const {
 					err.code = NkString("E-PARSE");
 					err.message = NkString(msg);
-					// ⚠️ LE LEXEME FAUTIF EST DANS LE MESSAGE. « symbole inattendu ligne
-					//    412 » oblige a ouvrir le fichier ; « symbole inattendu '[' ligne
-					//    412 » dit tout de suite ce qui manque au format.
+					// LE LEXEME FAUTIF EST DANS LE MESSAGE. « symbole inattendu ligne
+					// 412 » oblige a ouvrir le fichier ; « symbole inattendu '[' ligne
+					// 412 » dit tout de suite ce qui manque au format.
 					const NkGToken &t = Peek();
 					if (!t.raw.Empty()) {
 						err.message.Append(" (lu : '");
@@ -832,6 +1349,46 @@ namespace nkuidesign {
 					err.line = t.line;
 					err.column = t.column;
 					return false;
+				}
+
+				bool FailCode(NkGDiag &err, const char *code, const NkString &msg) const {
+					err.code = NkString(code);
+					err.message = msg;
+					const NkGToken &t = Peek();
+					err.line = t.line;
+					err.column = t.column;
+					return false;
+				}
+
+				// -- LA VERSION, ET LES REGLES (b) (c) (d) ----------------------
+				//
+				//  Deux comportements, et la frontiere est la MAJEURE :
+				//    majeure superieure  -> rupture annoncee : on REFUSE, en le
+				//                           disant. C'est la regle (c) ;
+				//    mineure superieure  -> ajout compatible : on LIT, et tout ce
+				//                           qu'on ne comprend pas est garde en texte
+				//                           brut. C'est la regle (d).
+				//
+				//  Refuser aussi la mineure serait plus simple et plus faux : ca
+				//  transformerait le moindre ajout futur en rupture, et le format ne
+				//  pourrait plus jamais grandir sans casser les outils deployes.
+				bool CheckVersion(NkGDiag &err) {
+					const int32 maj = (int32)NkGParseNumber(mDoc->versionMajor);
+					const int32 min = (int32)NkGParseNumber(mDoc->versionMinor);
+					if (maj > kFormatMajor) {
+						NkString m("ce fichier est trop recent pour moi : nkgui ");
+						m.Append(mDoc->versionMajor);
+						m.Append('.');
+						m.Append(mDoc->versionMinor);
+						m.Append(" ; ce lecteur comprend jusqu'a ");
+						m.Append(NkGU32((uint32)kFormatMajor));
+						m.Append('.');
+						m.Append(NkGU32((uint32)kFormatMinor));
+						m.Append(" (majeure superieure = rupture annoncee, on ne devine pas)");
+						return FailCode(err, "E-VERSION-INCOMPATIBLE", m);
+					}
+					mDoc->futureMinor = (maj == kFormatMajor && min > kFormatMinor);
+					return true;
 				}
 
 				bool ExpectIdentText(const char *what, NkGDiag &err) {
@@ -854,7 +1411,12 @@ namespace nkuidesign {
 					return true;
 				}
 
-				// ── Les valeurs ───────────────────────────────────────────────
+				// -- Les valeurs -----------------------------------------------
+				uint32 AddValue(const NkGValue &v) {
+					mDoc->values.PushBack(v);
+					return (uint32)mDoc->values.Size() - 1;
+				}
+
 				bool ParseValue(NkGValue &v, NkGDiag &err) {
 					const NkGToken &t = Peek();
 					switch (t.kind) {
@@ -878,6 +1440,10 @@ namespace nkuidesign {
 							return true;
 						case NkGTok::LParen:
 							return ParseVec2(v, err);
+						case NkGTok::LBracket:
+							return ParseList(v, err);
+						case NkGTok::LBrace:
+							return ParseDict(v, err);
 						case NkGTok::Ident: {
 							NkString joined(t.text);
 							NkString raw(t.raw);
@@ -900,17 +1466,80 @@ namespace nkuidesign {
 							v.raw = raw;
 							return true;
 						}
-						case NkGTok::LBracket:
-							// Voir `design/9_Grammaire_complete.md` §6.1 : le document 2
-							// n'a AUCUN litteral de liste, alors que sa table §8 en
-							// demande un pour cinq roles. On refuse en le disant plutot
-							// que d'en inventer un.
-							return Fail(err,
-										"litteral de liste : le document 2 v0.2 n'en definit "
-										"aucun (cf. doc 9 §6.1, decision en attente)");
 						default:
 							return Fail(err, "valeur attendue");
 					}
+				}
+
+				/// LA LISTE -- decision 1 de Rodolf. Cinq roles l'exigeaient
+				/// (`columns[]`, `items[]`, `tabs[]`, `values[]`, `sizes[]`) et
+				/// aucun n'etait ecrivable : ni tableau, ni liste deroulante, ni
+				/// barre d'onglets. Les elements sont des VALEURS, donc une liste
+				/// peut contenir une liste ou un dictionnaire.
+				bool ParseList(NkGValue &v, NkGDiag &err) {
+					Take();	 // '['
+					v.kind = NkGValueKind::List;
+					if (Peek().kind == NkGTok::RBracket) {
+						Take();
+						return true;
+					}
+					while (true) {
+						NkGValue item;
+						if (!ParseValue(item, err)) {
+							return false;
+						}
+						v.items.PushBack(AddValue(item));
+						if (Peek().kind == NkGTok::Comma) {
+							Take();
+							// Pas de virgule finale : la tolerer obligerait a decider
+							// si on la reemet, et une decision de mise en forme prise
+							// en silence est exactement ce qui rend les diffs
+							// illisibles.
+							continue;
+						}
+						break;
+					}
+					return Expect(NkGTok::RBracket, "']'", err);
+				}
+
+				/// LE DICTIONNAIRE -- decision 1 de Rodolf, deuxieme moitie. La cle
+				/// est un identifiant ou une chaine : une cle libre (« Mon libelle »)
+				/// n'est pas toujours un identifiant valide, et l'imposer forcerait a
+				/// inventer un encodage.
+				bool ParseDict(NkGValue &v, NkGDiag &err) {
+					Take();	 // '{'
+					v.kind = NkGValueKind::Dict;
+					if (Peek().kind == NkGTok::RBrace) {
+						Take();
+						return true;
+					}
+					while (true) {
+						if (Peek().kind == NkGTok::Ident) {
+							v.keys.PushBack(Peek().text);
+							v.keyQuoted.PushBack(0);
+						} else if (Peek().kind == NkGTok::String) {
+							v.keys.PushBack(Peek().text);
+							v.keyQuoted.PushBack(1);
+						} else {
+							return Fail(err, "cle attendue dans un dictionnaire "
+											 "(identifiant ou chaine)");
+						}
+						Take();
+						if (!Expect(NkGTok::Equal, "'='", err)) {
+							return false;
+						}
+						NkGValue item;
+						if (!ParseValue(item, err)) {
+							return false;
+						}
+						v.items.PushBack(AddValue(item));
+						if (Peek().kind == NkGTok::Comma) {
+							Take();
+							continue;
+						}
+						break;
+					}
+					return Expect(NkGTok::RBrace, "'}'", err);
 				}
 
 				bool ParseVec2(NkGValue &v, NkGDiag &err) {
@@ -943,7 +1572,7 @@ namespace nkuidesign {
 					return true;
 				}
 
-				// ── Les expressions, par precedence grimpante ─────────────────
+				// -- Les expressions, par precedence grimpante ------------------
 				static int32 Precedence(const NkString &op) {
 					if (op.Compare("||") == 0) {
 						return 1;
@@ -990,7 +1619,8 @@ namespace nkuidesign {
 						return true;
 					}
 					if (t.kind == NkGTok::String || t.kind == NkGTok::Number
-						|| t.kind == NkGTok::Color) {
+						|| t.kind == NkGTok::Color || t.kind == NkGTok::LBracket
+						|| t.kind == NkGTok::LBrace) {
 						e.kind = NkGExprKind::Literal;
 						if (!ParseValue(e.literal, err)) {
 							return false;
@@ -999,6 +1629,9 @@ namespace nkuidesign {
 						return true;
 					}
 					if (t.kind == NkGTok::Ident) {
+						// `n1.value` et `Enum.X` arrivent ici en UN seul jeton : c'est
+						// le lexeur qui a recolle le chemin. Le document 2 les emploie
+						// dans ses propres exemples (§4.1, §6.3) -- decision 2.
 						e.kind = NkGExprKind::Ident;
 						e.ident = t.text;
 						Take();
@@ -1058,14 +1691,14 @@ namespace nkuidesign {
 					return Expect(NkGTok::RParen, "')'", err);
 				}
 
-				// ── Les instructions ──────────────────────────────────────────
+				// -- Les instructions ------------------------------------------
 				uint32 AddStmt(const NkGStmt &s) {
 					mDoc->stmts.PushBack(s);
 					return (uint32)mDoc->stmts.Size() - 1;
 				}
 
-				bool ParseStmtBlock(NkVector<uint32> &out, NkGDiag &err) {
-					if (!Expect(NkGTok::LBrace, "'{'", err)) {
+				bool ParseStmtBlock(NkVector<uint32> &out, NkGBlockTrivia &blk, NkGDiag &err) {
+					if (!OpenBlock(blk, err)) {
 						return false;
 					}
 					while (Peek().kind != NkGTok::RBrace) {
@@ -1078,11 +1711,12 @@ namespace nkuidesign {
 						}
 						out.PushBack(s);
 					}
-					Take();
+					CloseBlock(blk);
 					return true;
 				}
 
 				bool ParseStmt(uint32 &out, NkGDiag &err) {
+					const uint32 startTok = mPos;
 					const NkGToken &t = Peek();
 					if (t.kind != NkGTok::Ident) {
 						return Fail(err, "instruction attendue");
@@ -1102,6 +1736,7 @@ namespace nkuidesign {
 						if (!ParseExpr(s.expr, 0, err)) {
 							return false;
 						}
+						CaptureTv(s.tv, startTok);
 						out = AddStmt(s);
 						return true;
 					}
@@ -1112,16 +1747,17 @@ namespace nkuidesign {
 						if (!ParseExpr(s.expr, 0, err)) {
 							return false;
 						}
-						if (!ParseStmtBlock(s.thenStmts, err)) {
+						if (!ParseStmtBlock(s.thenStmts, s.blkThen, err)) {
 							return false;
 						}
 						if (Peek().kind == NkGTok::Ident && Peek().text.Compare("else") == 0) {
 							Take();
 							s.hasElse = true;
-							if (!ParseStmtBlock(s.elseStmts, err)) {
+							if (!ParseStmtBlock(s.elseStmts, s.blkElse, err)) {
 								return false;
 							}
 						}
+						CaptureTv(s.tv, startTok);
 						out = AddStmt(s);
 						return true;
 					}
@@ -1137,14 +1773,16 @@ namespace nkuidesign {
 						if (!ParseArgList(s.args, err)) {
 							return false;
 						}
+						CaptureTv(s.tv, startTok);
 						out = AddStmt(s);
 						return true;
 					}
 					return Fail(err, "instruction attendue ('set', 'if' ou 'Callback')");
 				}
 
-				// ── Les evenements ────────────────────────────────────────────
+				// -- Les evenements --------------------------------------------
 				bool ParseEvent(NkGEvent &ev, NkGDiag &err) {
+					const uint32 startTok = mPos;
 					Take();	 // 'on'
 					if (Peek().kind != NkGTok::Ident) {
 						return Fail(err, "nom d'evenement attendu apres 'on'");
@@ -1178,7 +1816,11 @@ namespace nkuidesign {
 					const NkGToken &a = Peek();
 					if (a.kind == NkGTok::LBrace) {
 						ev.action = NkGActionKind::Inline;
-						return ParseStmtBlock(ev.stmts, err);
+						if (!ParseStmtBlock(ev.stmts, ev.blk, err)) {
+							return false;
+						}
+						CaptureTv(ev.tv, startTok);
+						return true;
 					}
 					if (a.kind == NkGTok::Ident && a.text.Compare("Callback") == 0) {
 						Take();
@@ -1188,7 +1830,11 @@ namespace nkuidesign {
 						}
 						ev.target = Peek().text;
 						Take();
-						return ParseArgList(ev.args, err);
+						if (!ParseArgList(ev.args, err)) {
+							return false;
+						}
+						CaptureTv(ev.tv, startTok);
+						return true;
 					}
 					if (a.kind == NkGTok::Ident && a.text.Compare("Behavior") == 0) {
 						Take();
@@ -1198,19 +1844,184 @@ namespace nkuidesign {
 						}
 						ev.target = Peek().text;
 						Take();
+						CaptureTv(ev.tv, startTok);
 						return true;
 					}
 					return Fail(err, "action attendue ('Callback', 'Behavior' ou un bloc)");
 				}
 
-				// ── Les noeuds de widgets ─────────────────────────────────────
-				/// ⚠️ L'INDICE EST RESERVE AVANT L'ANALYSE DES ENFANTS, et c'est
-				///    obligatoire : `mDoc->nodes` grandit pendant la recursion. Copier
-				///    le noeud en fin d'analyse ecraserait ce que les enfants y ont
-				///    ajoute — et remplir un noeud par reference le ferait pointer dans
-				///    un tampon qui a demenage.
+				// -- L'apparence (doc 9 §3) ------------------------------------
+				static bool IsEffectKind(const NkString &s) {
+					return s.Compare("fill") == 0 || s.Compare("stroke") == 0
+						   || s.Compare("shadow") == 0 || s.Compare("blur") == 0;
+				}
+
+				bool ParseEffect(NkGEffect &ef, NkGDiag &err) {
+					const uint32 startTok = mPos;
+					ef.kind = Peek().text;
+					Take();
+					if (Peek().kind == NkGTok::String) {
+						ef.hasName = true;
+						ef.name = Peek().text;
+						Take();
+					}
+					const uint32 lineOpen = Peek().line;
+					if (!OpenBlock(ef.blk, err)) {
+						return false;
+					}
+					while (Peek().kind != NkGTok::RBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "'}' attendu");
+						}
+						if (Peek().kind != NkGTok::Ident) {
+							return Fail(err, "nom de propriete attendu");
+						}
+						const uint32 pStart = mPos;
+						NkGProp p;
+						p.line = Peek().line;
+						p.name = Peek().text;
+						Take();
+						if (!Expect(NkGTok::Equal, "'='", err)) {
+							return false;
+						}
+						if (!ParseValue(p.value, err)) {
+							return false;
+						}
+						CaptureTv(p.tv, pStart);
+						ef.props.PushBack(p);
+						if (Peek().kind == NkGTok::Comma) {
+							ef.commas = true;
+							Take();
+						}
+					}
+					const uint32 lineClose = Peek().line;
+					CloseBlock(ef.blk);
+					ef.oneLine = (lineOpen == lineClose);
+					CaptureTv(ef.tv, startTok);
+					return true;
+				}
+
+				bool ParseAppearance(NkGAppearance &ap, NkGDiag &err) {
+					const uint32 startTok = mPos;
+					Take();	 // 'appearance'
+					if (Peek().kind == NkGTok::LParen) {
+						Take();
+						if (Peek().kind != NkGTok::Ident) {
+							return Fail(err, "nom d'etat attendu dans appearance(...)");
+						}
+						ap.hasState = true;
+						ap.state = Peek().text;
+						Take();
+						if (!Expect(NkGTok::RParen, "')'", err)) {
+							return false;
+						}
+					}
+					if (!OpenBlock(ap.blk, err)) {
+						return false;
+					}
+					while (Peek().kind != NkGTok::RBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "'}' attendu");
+						}
+						if (Peek().kind != NkGTok::Ident) {
+							return Fail(err, "propriete ou effet attendu dans 'appearance'");
+						}
+						if (IsEffectKind(Peek().text)
+							&& (Peek(1).kind == NkGTok::LBrace || Peek(1).kind == NkGTok::String)) {
+							NkGEffect ef;
+							if (!ParseEffect(ef, err)) {
+								return false;
+							}
+							NkGAppMember m;
+							m.kind = NkGAppMemberKind::Effect;
+							m.index = (uint32)ap.effects.Size();
+							ap.effects.PushBack(ef);
+							ap.members.PushBack(m);
+							continue;
+						}
+						const uint32 pStart = mPos;
+						NkGProp p;
+						p.line = Peek().line;
+						p.name = Peek().text;
+						Take();
+						if (!Expect(NkGTok::Equal, "'='", err)) {
+							return false;
+						}
+						if (!ParseValue(p.value, err)) {
+							return false;
+						}
+						CaptureTv(p.tv, pStart);
+						NkGAppMember m;
+						m.kind = NkGAppMemberKind::Prop;
+						m.index = (uint32)ap.props.Size();
+						ap.props.PushBack(p);
+						ap.members.PushBack(m);
+					}
+					CloseBlock(ap.blk);
+					CaptureTv(ap.tv, startTok);
+					return true;
+				}
+
+				// -- LA PRESERVATION EN TEXTE BRUT -- regle (d) ------------------
+				//
+				//  On avance jusqu'a la premiere accolade, puis on equilibre. La
+				//  tranche gardee va du PREMIER octet du mot-cle au DERNIER de
+				//  l'accolade fermante : commentaires interieurs compris, puisqu'on
+				//  ne repasse pas par le modele.
+				//
+				//  CE QUE CETTE REGLE EXIGE DU FORMAT, ET IL FAUT LE DIRE : une
+				//  construction future doit etre un BLOC accolade. Une construction
+				//  sans bloc ne serait pas delimitable sans connaitre sa grammaire,
+				//  donc pas preservable. C'est une contrainte sur les versions a
+				//  venir, pas une limite de cette implementation.
+				bool ParseRawBlock(uint32 &out, NkGDiag &err) {
+					const uint32 startTok = mPos;
+					NkGRaw r;
+					r.what = Peek().text;
+					while (Peek().kind != NkGTok::LBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "construction inconnue sans bloc '{ }' : elle n'est "
+											 "pas preservable, la grammaire future doit "
+											 "l'encadrer");
+						}
+						Take();
+					}
+					uint32 depth = 0;
+					while (true) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "bloc jamais ferme dans une construction inconnue");
+						}
+						if (Peek().kind == NkGTok::LBrace) {
+							++depth;
+						} else if (Peek().kind == NkGTok::RBrace) {
+							--depth;
+							if (depth == 0) {
+								Take();
+								break;
+							}
+						}
+						Take();
+					}
+					const uint32 endTok = (mPos > 0) ? mPos - 1 : 0;
+					const uint32 b = (*mToks)[startTok].begin;
+					const uint32 e = (*mToks)[endTok].end;
+					r.text = NkString(mSrc + b, e - b);
+					CaptureTv(r.tv, startTok);
+					mDoc->raws.PushBack(r);
+					out = (uint32)mDoc->raws.Size() - 1;
+					return true;
+				}
+
+				// -- Les noeuds de widgets --------------------------------------
+				/// L'INDICE EST RESERVE AVANT L'ANALYSE DES ENFANTS, et c'est
+				/// obligatoire : `mDoc->nodes` grandit pendant la recursion. Copier
+				/// le noeud en fin d'analyse ecraserait ce que les enfants y ont
+				/// ajoute -- et remplir un noeud par reference le ferait pointer dans
+				/// un tampon qui a demenage.
 				bool ParseNode(uint32 &out, NkGDiag &err) {
+					const uint32 startTok = mPos;
 					NkGNode node;
+					node.line = Peek().line;
 					node.kind = Peek().text;
 					Take();
 					if (Peek().kind == NkGTok::String) {
@@ -1218,9 +2029,11 @@ namespace nkuidesign {
 						node.id = Peek().text;
 						Take();
 					}
-					if (!Expect(NkGTok::LBrace, "'{'", err)) {
+					NkGBlockTrivia blk;
+					if (!OpenBlock(blk, err)) {
 						return false;
 					}
+					node.blk = blk;
 
 					mDoc->nodes.PushBack(node);
 					const uint32 self = (uint32)mDoc->nodes.Size() - 1;
@@ -1244,18 +2057,49 @@ namespace nkuidesign {
 							mDoc->nodes[self].members.PushBack(m);
 							continue;
 						}
+						if (Peek().text.Compare("appearance") == 0
+							&& (Peek(1).kind == NkGTok::LBrace || Peek(1).kind == NkGTok::LParen)) {
+							NkGAppearance ap;
+							if (!ParseAppearance(ap, err)) {
+								return false;
+							}
+							NkGMember m;
+							m.kind = NkGMemberKind::Appearance;
+							m.index = (uint32)mDoc->nodes[self].appearances.Size();
+							mDoc->nodes[self].appearances.PushBack(ap);
+							mDoc->nodes[self].members.PushBack(m);
+							continue;
+						}
 						if (Peek(1).kind == NkGTok::Equal) {
+							const uint32 pStart = mPos;
 							NkGProp p;
+							p.line = Peek().line;
 							p.name = Peek().text;
 							Take();
 							Take();	 // '='
 							if (!ParseValue(p.value, err)) {
 								return false;
 							}
+							CaptureTv(p.tv, pStart);
 							NkGMember m;
 							m.kind = NkGMemberKind::Prop;
 							m.index = (uint32)mDoc->nodes[self].props.Size();
 							mDoc->nodes[self].props.PushBack(p);
+							mDoc->nodes[self].members.PushBack(m);
+							continue;
+						}
+						// Regle (d), au niveau du widget : un membre en bloc qu'on ne
+						// sait pas lire, dans un fichier plus recent, est GARDE.
+						if (mDoc->futureMinor && Peek(1).kind != NkGTok::String
+							&& Peek(1).kind != NkGTok::LBrace) {
+							uint32 rawIdx = kNoIndex;
+							if (!ParseRawBlock(rawIdx, err)) {
+								return false;
+							}
+							NkGMember m;
+							m.kind = NkGMemberKind::Raw;
+							m.index = (uint32)mDoc->nodes[self].raws.Size();
+							mDoc->nodes[self].raws.PushBack(rawIdx);
 							mDoc->nodes[self].members.PushBack(m);
 							continue;
 						}
@@ -1269,13 +2113,18 @@ namespace nkuidesign {
 						mDoc->nodes[self].children.PushBack(child);
 						mDoc->nodes[self].members.PushBack(m);
 					}
+					mDoc->nodes[self].blk.tail.lead = Peek().lead;
 					Take();	 // '}'
+					CaptureTv(mDoc->nodes[self].tv, startTok);
 					out = self;
 					return true;
 				}
 
-				// ── Les sections ──────────────────────────────────────────────
+				// -- Les sections ----------------------------------------------
 				bool ParseSection(NkGDiag &err) {
+					// L'indice du premier jeton de la section : c'est lui qui porte
+					// les lignes de commentaire et les lignes vides qui la precedent.
+					mSectionStart = mPos;
 					const NkGToken &t = Peek();
 					if (t.kind != NkGTok::Ident) {
 						return Fail(err, "section attendue");
@@ -1295,13 +2144,39 @@ namespace nkuidesign {
 					if (t.text.Compare("callback") == 0) {
 						return ParseTopCallback(err);
 					}
+					if (t.text.Compare("animation") == 0) {
+						return ParseAnimation(err);
+					}
+					if (t.text.Compare("fonts") == 0) {
+						return ParseFonts(err);
+					}
+					// REGLE (d). Dans un fichier de MINEURE plus recente, une section
+					// inconnue est un AJOUT du format, pas une faute de l'auteur : on
+					// la garde telle quelle. Dans un fichier de notre version ou plus
+					// ancien, c'est une faute, et on le dit.
+					if (mDoc->futureMinor) {
+						const uint32 startTok = mPos;
+						uint32 rawIdx = kNoIndex;
+						if (!ParseRawBlock(rawIdx, err)) {
+							return false;
+						}
+						NkGSection ref;
+						ref.kind = NkGSectionKind::Raw;
+						ref.index = rawIdx;
+						ref.tv = mDoc->raws[rawIdx].tv;
+						mDoc->raws[rawIdx].tv = NkGTrivia();
+						(void)startTok;
+						mDoc->sections.PushBack(ref);
+						return true;
+					}
 					return Fail(err,
 								"section inconnue ('geometry', 'widgets', 'behavior', "
-								"'controller' ou 'callback' attendus)");
+								"'controller', 'callback', 'animation' ou 'fonts' attendus)");
 				}
 
-				bool ParsePropBlock(NkVector<NkGProp> &props, NkGDiag &err) {
-					if (!Expect(NkGTok::LBrace, "'{'", err)) {
+				bool ParsePropBlock(NkVector<NkGProp> &props, NkGBlockTrivia &blk, bool allowCommas,
+									NkGDiag &err) {
+					if (!OpenBlock(blk, err)) {
 						return false;
 					}
 					while (Peek().kind != NkGTok::RBrace) {
@@ -1311,7 +2186,9 @@ namespace nkuidesign {
 						if (Peek().kind != NkGTok::Ident) {
 							return Fail(err, "nom de propriete attendu");
 						}
+						const uint32 pStart = mPos;
 						NkGProp p;
+						p.line = Peek().line;
 						p.name = Peek().text;
 						Take();
 						if (!Expect(NkGTok::Equal, "'='", err)) {
@@ -1320,22 +2197,27 @@ namespace nkuidesign {
 						if (!ParseValue(p.value, err)) {
 							return false;
 						}
+						CaptureTv(p.tv, pStart);
 						props.PushBack(p);
+						if (allowCommas && Peek().kind == NkGTok::Comma) {
+							Take();
+						}
 					}
-					Take();
+					CloseBlock(blk);
 					return true;
 				}
 
 				bool ParseGeometry(NkGDiag &err) {
 					Take();	 // 'geometry'
-					if (!Expect(NkGTok::LBrace, "'{'", err)) {
+					NkGTopSection sec;
+					if (!OpenBlock(sec.blk, err)) {
 						return false;
 					}
-					NkGTopSection sec;
 					while (Peek().kind != NkGTok::RBrace) {
 						if (Peek().kind == NkGTok::End) {
 							return Fail(err, "'}' attendu");
 						}
+						const uint32 startTok = mPos;
 						if (!ExpectIdentText("shape", err)) {
 							return false;
 						}
@@ -1345,27 +2227,39 @@ namespace nkuidesign {
 						}
 						sh.name = Peek().text;
 						Take();
-						if (!ParsePropBlock(sh.props, err)) {
+						if (!ParsePropBlock(sh.props, sh.blk, false, err)) {
 							return false;
 						}
+						CaptureTv(sh.tv, startTok);
 						mDoc->shapes.PushBack(sh);
 						sec.shapes.PushBack((uint32)mDoc->shapes.Size() - 1);
 					}
-					Take();
+					CloseBlock(sec.blk);
 					mDoc->topSections.PushBack(sec);
 					NkGSection ref;
 					ref.kind = NkGSectionKind::Geometry;
 					ref.index = (uint32)mDoc->topSections.Size() - 1;
-					mDoc->sections.PushBack(ref);
+					FinishSection(ref);
 					return true;
+				}
+
+				/// La trivia d'une section se capture APRES coup, sur les jetons
+				/// bornes : `mPos` est deja passe a la suite, et le premier jeton de
+				/// la section est celui du mot-cle. On memorise donc l'indice de
+				/// depart avant chaque section.
+				void FinishSection(NkGSection &ref) {
+					ref.tv.lead = (*mToks)[mSectionStart].lead;
+					const uint32 last = (mPos > 0) ? mPos - 1 : 0;
+					ref.tv.trail = (*mToks)[last].trail;
+					mDoc->sections.PushBack(ref);
 				}
 
 				bool ParseWidgets(NkGDiag &err) {
 					Take();	 // 'widgets'
-					if (!Expect(NkGTok::LBrace, "'{'", err)) {
+					NkGTopSection sec;
+					if (!OpenBlock(sec.blk, err)) {
 						return false;
 					}
-					NkGTopSection sec;
 					while (Peek().kind != NkGTok::RBrace) {
 						if (Peek().kind == NkGTok::End) {
 							return Fail(err, "'}' attendu");
@@ -1379,12 +2273,12 @@ namespace nkuidesign {
 						}
 						sec.roots.PushBack(root);
 					}
-					Take();
+					CloseBlock(sec.blk);
 					mDoc->topSections.PushBack(sec);
 					NkGSection ref;
 					ref.kind = NkGSectionKind::Widgets;
 					ref.index = (uint32)mDoc->topSections.Size() - 1;
-					mDoc->sections.PushBack(ref);
+					FinishSection(ref);
 					return true;
 				}
 
@@ -1400,7 +2294,7 @@ namespace nkuidesign {
 						b.isGraph = true;
 						Take();
 					}
-					if (!Expect(NkGTok::LBrace, "'{'", err)) {
+					if (!OpenBlock(b.blk, err)) {
 						return false;
 					}
 					mDoc->behaviors.PushBack(b);
@@ -1422,15 +2316,17 @@ namespace nkuidesign {
 						}
 						mDoc->behaviors[self].stmts.PushBack(s);
 					}
+					mDoc->behaviors[self].blk.tail.lead = Peek().lead;
 					Take();
 					NkGSection ref;
 					ref.kind = NkGSectionKind::Behavior;
 					ref.index = self;
-					mDoc->sections.PushBack(ref);
+					FinishSection(ref);
 					return true;
 				}
 
 				bool ParseGraphItem(uint32 self, NkGDiag &err) {
+					const uint32 startTok = mPos;
 					if (Peek().kind != NkGTok::Ident) {
 						return Fail(err, "'node' ou 'wire' attendu");
 					}
@@ -1456,6 +2352,7 @@ namespace nkuidesign {
 										return Fail(err, "nom de pin attendu");
 									}
 									NkGProp p;
+									p.line = Peek().line;
 									p.name = Peek().text;
 									Take();
 									if (!Expect(NkGTok::Equal, "'='", err)) {
@@ -1478,7 +2375,12 @@ namespace nkuidesign {
 								return false;
 							}
 						}
+						CaptureTv(gn.tv, startTok);
+						NkGMember m;
+						m.kind = NkGMemberKind::Prop;  // Prop = un noeud de graphe
+						m.index = (uint32)mDoc->behaviors[self].gnodes.Size();
 						mDoc->behaviors[self].gnodes.PushBack(gn);
+						mDoc->behaviors[self].gorder.PushBack(m);
 						return true;
 					}
 					if (Peek().text.Compare("wire") == 0) {
@@ -1500,12 +2402,322 @@ namespace nkuidesign {
 						if (w.refs.Size() < 2) {
 							return Fail(err, "un fil relie au moins deux pins");
 						}
+						CaptureTv(w.tv, startTok);
+						NkGMember m;
+						m.kind = NkGMemberKind::Event;	// Event = un fil
+						m.index = (uint32)mDoc->behaviors[self].wires.Size();
 						mDoc->behaviors[self].wires.PushBack(w);
+						mDoc->behaviors[self].gorder.PushBack(m);
 						return true;
 					}
 					return Fail(err, "'node' ou 'wire' attendu");
 				}
 
+				// -- L'animation (doc 9 §4) -------------------------------------
+				bool ParseAnimTrack(NkGAnimTrack &tr, NkGDiag &err) {
+					const uint32 startTok = mPos;
+					Take();	 // 'track'
+					if (Peek().kind != NkGTok::String) {
+						return Fail(err, "chemin de propriete attendu apres 'track' (chaine)");
+					}
+					tr.name = Peek().text;
+					Take();
+					if (!OpenBlock(tr.blk, err)) {
+						return false;
+					}
+					while (Peek().kind != NkGTok::RBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "'}' attendu");
+						}
+						const uint32 kStart = mPos;
+						if (!ExpectIdentText("key", err)) {
+							return false;
+						}
+						NkGAnimKey k;
+						if (Peek().kind != NkGTok::Number) {
+							return Fail(err, "temps attendu apres 'key' (nombre)");
+						}
+						k.at = Peek().raw;
+						Take();
+						if (!Expect(NkGTok::Arrow, "'->'", err)) {
+							return false;
+						}
+						if (!ParseValue(k.value, err)) {
+							return false;
+						}
+						if (Peek().kind == NkGTok::Comma) {
+							Take();
+							if (!ExpectIdentText("curve", err)) {
+								return false;
+							}
+							if (!Expect(NkGTok::Equal, "'='", err)) {
+								return false;
+							}
+							if (Peek().kind != NkGTok::Ident) {
+								return Fail(err, "nom de courbe attendu");
+							}
+							k.hasCurve = true;
+							k.curve = Peek().text;
+							Take();
+						}
+						CaptureTv(k.tv, kStart);
+						tr.keys.PushBack(k);
+					}
+					CloseBlock(tr.blk);
+					CaptureTv(tr.tv, startTok);
+					return true;
+				}
+
+				bool ParseAnimDecl(NkGAnimDecl &d, NkGDiag &err) {
+					const uint32 startTok = mPos;
+					const NkString fam = Peek().text;
+					if (fam.Compare("transition") == 0) {
+						d.family = NkGAnimFamily::Transition;
+					} else if (fam.Compare("ambience") == 0) {
+						d.family = NkGAnimFamily::Ambience;
+					} else {
+						d.family = NkGAnimFamily::Continuous;
+					}
+					Take();
+					if (Peek().kind != NkGTok::String) {
+						return Fail(err, "nom attendu apres la famille d'animation (chaine)");
+					}
+					d.name = Peek().text;
+					Take();
+					if (!OpenBlock(d.blk, err)) {
+						return false;
+					}
+					while (Peek().kind != NkGTok::RBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "'}' attendu");
+						}
+						if (Peek().kind != NkGTok::Ident) {
+							return Fail(err, "propriete, 'track' ou 'map' attendu");
+						}
+						if (Peek().text.Compare("track") == 0 && Peek(1).kind == NkGTok::String) {
+							NkGAnimTrack tr;
+							if (!ParseAnimTrack(tr, err)) {
+								return false;
+							}
+							NkGAnimMember m;
+							m.kind = NkGAnimMemberKind::Track;
+							m.index = (uint32)d.tracks.Size();
+							d.tracks.PushBack(tr);
+							d.members.PushBack(m);
+							continue;
+						}
+						if (Peek().text.Compare("map") == 0 && Peek(1).kind == NkGTok::LBrace) {
+							const uint32 mStart = mPos;
+							Take();	 // 'map'
+							NkGAnimMap mp;
+							if (!ParsePropBlock(mp.props, mp.blk, true, err)) {
+								return false;
+							}
+							CaptureTv(mp.tv, mStart);
+							NkGAnimMember m;
+							m.kind = NkGAnimMemberKind::Map;
+							m.index = (uint32)d.maps.Size();
+							d.maps.PushBack(mp);
+							d.members.PushBack(m);
+							continue;
+						}
+						const uint32 pStart = mPos;
+						NkGProp p;
+						p.line = Peek().line;
+						p.name = Peek().text;
+						Take();
+						if (!Expect(NkGTok::Equal, "'='", err)) {
+							return false;
+						}
+						if (!ParseValue(p.value, err)) {
+							return false;
+						}
+						CaptureTv(p.tv, pStart);
+						NkGAnimMember m;
+						m.kind = NkGAnimMemberKind::Prop;
+						m.index = (uint32)d.props.Size();
+						d.props.PushBack(p);
+						d.members.PushBack(m);
+					}
+					CloseBlock(d.blk);
+					CaptureTv(d.tv, startTok);
+					return true;
+				}
+
+				bool ParseAnimation(NkGDiag &err) {
+					Take();	 // 'animation'
+					NkGAnimation an;
+					if (Peek().kind == NkGTok::String) {
+						an.hasName = true;
+						an.name = Peek().text;
+						Take();
+					}
+					if (!OpenBlock(an.blk, err)) {
+						return false;
+					}
+					while (Peek().kind != NkGTok::RBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "'}' attendu");
+						}
+						if (Peek().kind != NkGTok::Ident
+							|| (Peek().text.Compare("transition") != 0
+								&& Peek().text.Compare("ambience") != 0
+								&& Peek().text.Compare("continuous") != 0)) {
+							return Fail(err, "'transition', 'ambience' ou 'continuous' attendu");
+						}
+						NkGAnimDecl d;
+						if (!ParseAnimDecl(d, err)) {
+							return false;
+						}
+						an.decls.PushBack(d);
+					}
+					CloseBlock(an.blk);
+					mDoc->animations.PushBack(an);
+					NkGSection ref;
+					ref.kind = NkGSectionKind::Animation;
+					ref.index = (uint32)mDoc->animations.Size() - 1;
+					FinishSection(ref);
+					return true;
+				}
+
+				// -- Les polices (doc 9 §5) -------------------------------------
+				bool ParseFontMetrics(NkGFontBlock &fb, NkGDiag &err) {
+					if (!OpenBlock(fb.blk, err)) {
+						return false;
+					}
+					while (Peek().kind != NkGTok::RBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "'}' attendu");
+						}
+						if (Peek().kind != NkGTok::Ident) {
+							return Fail(err, "metrique attendue ('glyph' ou un nom)");
+						}
+						const uint32 mStart = mPos;
+						NkGFontMetric mt;
+						if (Peek().text.Compare("glyph") == 0 && Peek(1).kind == NkGTok::String) {
+							Take();
+							mt.isGlyph = true;
+							mt.glyph = Peek().text;
+							Take();
+							if (!Expect(NkGTok::Arrow, "'->'", err)) {
+								return false;
+							}
+						} else {
+							mt.name = Peek().text;
+							Take();
+							if (!Expect(NkGTok::Equal, "'='", err)) {
+								return false;
+							}
+						}
+						if (!ParseValue(mt.value, err)) {
+							return false;
+						}
+						CaptureTv(mt.tv, mStart);
+						fb.metrics.PushBack(mt);
+					}
+					CloseBlock(fb.blk);
+					return true;
+				}
+
+				bool ParseFont(NkGFont &f, NkGDiag &err) {
+					const uint32 startTok = mPos;
+					Take();	 // 'font'
+					if (Peek().kind != NkGTok::String) {
+						return Fail(err, "nom de police attendu (chaine)");
+					}
+					f.name = Peek().text;
+					Take();
+					if (!OpenBlock(f.blk, err)) {
+						return false;
+					}
+					while (Peek().kind != NkGTok::RBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "'}' attendu");
+						}
+						if (Peek().kind != NkGTok::Ident) {
+							return Fail(err, "propriete ou bloc attendu dans 'font'");
+						}
+						const NkString w = Peek().text;
+						const bool isBlock = Peek(1).kind == NkGTok::LBrace
+											 && (w.Compare("source") == 0
+												 || w.Compare("fallback") == 0
+												 || w.Compare("metrics") == 0);
+						if (isBlock) {
+							const uint32 bStart = mPos;
+							NkGFontBlock fb;
+							Take();
+							if (w.Compare("metrics") == 0) {
+								fb.kind = NkGFontBlockKind::Metrics;
+								if (!ParseFontMetrics(fb, err)) {
+									return false;
+								}
+							} else {
+								fb.kind = (w.Compare("source") == 0) ? NkGFontBlockKind::Source
+																	 : NkGFontBlockKind::Fallback;
+								if (!ParsePropBlock(fb.props, fb.blk, true, err)) {
+									return false;
+								}
+							}
+							CaptureTv(fb.tv, bStart);
+							NkGFontMember m;
+							m.kind = NkGFontMemberKind::Block;
+							m.index = (uint32)f.blocks.Size();
+							f.blocks.PushBack(fb);
+							f.members.PushBack(m);
+							continue;
+						}
+						const uint32 pStart = mPos;
+						NkGProp p;
+						p.line = Peek().line;
+						p.name = Peek().text;
+						Take();
+						if (!Expect(NkGTok::Equal, "'='", err)) {
+							return false;
+						}
+						if (!ParseValue(p.value, err)) {
+							return false;
+						}
+						CaptureTv(p.tv, pStart);
+						NkGFontMember m;
+						m.kind = NkGFontMemberKind::Prop;
+						m.index = (uint32)f.props.Size();
+						f.props.PushBack(p);
+						f.members.PushBack(m);
+					}
+					CloseBlock(f.blk);
+					CaptureTv(f.tv, startTok);
+					return true;
+				}
+
+				bool ParseFonts(NkGDiag &err) {
+					Take();	 // 'fonts'
+					NkGFonts fs;
+					if (!OpenBlock(fs.blk, err)) {
+						return false;
+					}
+					while (Peek().kind != NkGTok::RBrace) {
+						if (Peek().kind == NkGTok::End) {
+							return Fail(err, "'}' attendu");
+						}
+						if (Peek().kind != NkGTok::Ident || Peek().text.Compare("font") != 0) {
+							return Fail(err, "'font' attendu dans la section 'fonts'");
+						}
+						NkGFont f;
+						if (!ParseFont(f, err)) {
+							return false;
+						}
+						fs.fonts.PushBack(f);
+					}
+					CloseBlock(fs.blk);
+					mDoc->fontSections.PushBack(fs);
+					NkGSection ref;
+					ref.kind = NkGSectionKind::Fonts;
+					ref.index = (uint32)mDoc->fontSections.Size() - 1;
+					FinishSection(ref);
+					return true;
+				}
+
+				// -- Les contrats ----------------------------------------------
 				bool ParseType(NkString &type, NkVector<NkString> &labels, bool &isEnum,
 							   NkGDiag &err) {
 					if (Peek().kind != NkGTok::Ident) {
@@ -1535,6 +2747,7 @@ namespace nkuidesign {
 				}
 
 				bool ParseCallbackSig(NkGCallbackSig &sig, NkGDiag &err) {
+					const uint32 startTok = mPos;
 					if (!ExpectIdentText("callback", err)) {
 						return false;
 					}
@@ -1574,7 +2787,11 @@ namespace nkuidesign {
 					if (!Expect(NkGTok::Arrow, "'->'", err)) {
 						return false;
 					}
-					return ParseType(sig.ret, sig.retEnumLabels, sig.retIsEnum, err);
+					if (!ParseType(sig.ret, sig.retEnumLabels, sig.retIsEnum, err)) {
+						return false;
+					}
+					CaptureTv(sig.tv, startTok);
+					return true;
 				}
 
 				bool ParseController(NkGDiag &err) {
@@ -1585,7 +2802,7 @@ namespace nkuidesign {
 					}
 					c.name = Peek().text;
 					Take();
-					if (!Expect(NkGTok::LBrace, "'{'", err)) {
+					if (!OpenBlock(c.blk, err)) {
 						return false;
 					}
 					while (Peek().kind != NkGTok::RBrace) {
@@ -1599,12 +2816,12 @@ namespace nkuidesign {
 						mDoc->callbacks.PushBack(sig);
 						c.callbacks.PushBack((uint32)mDoc->callbacks.Size() - 1);
 					}
-					Take();
+					CloseBlock(c.blk);
 					mDoc->controllers.PushBack(c);
 					NkGSection ref;
 					ref.kind = NkGSectionKind::Controller;
 					ref.index = (uint32)mDoc->controllers.Size() - 1;
-					mDoc->sections.PushBack(ref);
+					FinishSection(ref);
 					return true;
 				}
 
@@ -1617,27 +2834,34 @@ namespace nkuidesign {
 					NkGSection ref;
 					ref.kind = NkGSectionKind::Callback;
 					ref.index = (uint32)mDoc->callbacks.Size() - 1;
-					mDoc->sections.PushBack(ref);
+					FinishSection(ref);
 					return true;
 				}
+
+			private:
+				uint32 mSectionStart = 0;
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 		//  LE SERIALISEUR
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
-		/// ⚠️ CE SONT DES OPTIONS DE MISE EN FORME, PAS DE SEMANTIQUE. Deux fichiers
-		///    qui ne different que par elles decrivent la meme interface. Elles
-		///    existent parce que le document 2 n'impose pas de style d'ecriture :
-		///    ses exemples indentent de quatre espaces, le convertisseur du corpus
-		///    Camrail en met deux, et il faut pouvoir reecrire l'un comme l'autre
-		///    sans reformater le fichier de quelqu'un d'autre.
+		/// CE SONT DES OPTIONS DE MISE EN FORME, PAS DE SEMANTIQUE. Deux fichiers
+		/// qui ne different que par elles decrivent la meme interface. Elles
+		/// existent parce que le document 2 n'impose pas de style d'ecriture : ses
+		/// exemples indentent de quatre espaces, le convertisseur du corpus Camrail
+		/// en met deux, et il faut pouvoir reecrire l'un comme l'autre sans
+		/// reformater le fichier de quelqu'un d'autre.
+		///
+		/// CE QUI A DISPARU EN v0.3, ET C'EST UN PROGRES : les deux reglages
+		/// « ligne vide apres l'en-tete » et « ligne vide entre les sections ».
+		/// C'etaient des HEURISTIQUES -- on devinait l'intention de l'auteur a
+		/// partir d'une seule observation. Les lignes vides sont desormais LUES et
+		/// conservees comme le reste de la trivia : il n'y a plus rien a deviner.
 		struct NkGWriteOptions {
 				uint32 indent = 4;
 				bool crlf = false;
-				bool inlineEmptyBlock = true;	///< `Button "x" { }` sur une ligne
-				bool blankLineAfterHeader = true;
-				bool blankLineBetweenSections = true;
+				bool inlineEmptyBlock = true;  ///< `Button "x" { }` sur une ligne
 		};
 
 		class NkGWriter {
@@ -1650,25 +2874,26 @@ namespace nkuidesign {
 					// Une reserve grossiere evite quelques dizaines de reallocations
 					// sur les gros documents ; elle n'a pas besoin d'etre juste.
 					mOut.Reserve(4096);
+					WriteLead(mDoc->headTv);
 					mOut.Append("nkgui ");
 					mOut.Append(mDoc->versionMajor);
 					mOut.Append('.');
 					mOut.Append(mDoc->versionMinor);
-					NewLine();
+					EndLine(mDoc->headTv);
 					for (uint32 i = 0; i < (uint32)mDoc->includes.Size(); ++i) {
+						const NkGInclude &inc = mDoc->includes[i];
+						WriteLead(inc.tv);
 						mOut.Append("include ");
-						WriteQuoted(mDoc->includes[i]);
-						NewLine();
-					}
-					if (mOpt.blankLineAfterHeader && mDoc->sections.Size() > 0) {
-						NewLine();
+						WriteQuoted(inc.path);
+						EndLine(inc.tv);
 					}
 					for (uint32 i = 0; i < (uint32)mDoc->sections.Size(); ++i) {
-						if (i > 0 && mOpt.blankLineBetweenSections) {
-							NewLine();
-						}
 						WriteSection(mDoc->sections[i]);
 					}
+					// Les lignes de la fin du fichier : commentaire de pied de page,
+					// ligne vide finale. Sans elles, chaque enregistrement rognerait
+					// un peu plus la fin du document.
+					WriteLead(mDoc->tailTv);
 					return mOut;
 				}
 
@@ -1690,7 +2915,29 @@ namespace nkuidesign {
 					}
 				}
 
-				/// Le seul endroit du serialiseur qui REGENERE une valeur au lieu de
+				/// Les lignes de trivia sont reemises TELLES QUELLES, sans indenter :
+				/// elles portent deja la leur. Voir la note sur `NkGTrivia`.
+				void WriteLead(const NkGTrivia &tv) {
+					for (uint32 i = 0; i < (uint32)tv.lead.Size(); ++i) {
+						mOut.Append(tv.lead[i]);
+						NewLine();
+					}
+				}
+				void EndLine(const NkGTrivia &tv) {
+					if (!tv.trail.Empty()) {
+						mOut.Append(tv.trail);
+					}
+					NewLine();
+				}
+				void OpenBrace(const NkGBlockTrivia &blk) {
+					mOut.Append(" {");
+					if (!blk.openTrail.Empty()) {
+						mOut.Append(blk.openTrail);
+					}
+					NewLine();
+				}
+
+				/// Le seul endroit du serialiseur qui REGENERE une chaine au lieu de
 				/// recopier son lexeme. Il doit donc etre l'inverse exact de
 				/// `NkGLexer::LexString`, sinon l'aller-retour ne tient pas.
 				void WriteQuoted(const NkString &s) {
@@ -1715,6 +2962,38 @@ namespace nkuidesign {
 				void WriteValue(const NkGValue &v) {
 					if (v.kind == NkGValueKind::String) {
 						WriteQuoted(v.text);
+						return;
+					}
+					if (v.kind == NkGValueKind::List) {
+						mOut.Append('[');
+						for (uint32 i = 0; i < (uint32)v.items.Size(); ++i) {
+							if (i > 0) {
+								mOut.Append(", ");
+							}
+							WriteValue(mDoc->values[v.items[i]]);
+						}
+						mOut.Append(']');
+						return;
+					}
+					if (v.kind == NkGValueKind::Dict) {
+						if (v.items.Size() == 0) {
+							mOut.Append("{ }");
+							return;
+						}
+						mOut.Append("{ ");
+						for (uint32 i = 0; i < (uint32)v.items.Size(); ++i) {
+							if (i > 0) {
+								mOut.Append(", ");
+							}
+							if (i < (uint32)v.keyQuoted.Size() && v.keyQuoted[i]) {
+								WriteQuoted(v.keys[i]);
+							} else {
+								mOut.Append(v.keys[i]);
+							}
+							mOut.Append(" = ");
+							WriteValue(mDoc->values[v.items[i]]);
+						}
+						mOut.Append(" }");
 						return;
 					}
 					mOut.Append(v.raw);
@@ -1761,44 +3040,47 @@ namespace nkuidesign {
 
 				void WriteStmt(uint32 idx, uint32 depth) {
 					const NkGStmt &s = mDoc->stmts[idx];
+					WriteLead(s.tv);
 					Indent(depth);
 					if (s.kind == NkGStmtKind::Assign) {
 						mOut.Append("set ");
 						mOut.Append(s.name);
 						mOut.Append(" = ");
 						WriteExpr(s.expr);
-						NewLine();
+						EndLine(s.tv);
 						return;
 					}
 					if (s.kind == NkGStmtKind::Call) {
 						mOut.Append("Callback ");
 						WriteQuoted(s.name);
 						WriteArgs(s.args);
-						NewLine();
+						EndLine(s.tv);
 						return;
 					}
 					mOut.Append("if ");
 					WriteExpr(s.expr);
-					mOut.Append(" {");
-					NewLine();
+					OpenBrace(s.blkThen);
 					for (uint32 i = 0; i < (uint32)s.thenStmts.Size(); ++i) {
 						WriteStmt(s.thenStmts[i], depth + 1);
 					}
+					WriteLead(s.blkThen.tail);
 					Indent(depth);
 					mOut.Append('}');
 					if (s.hasElse) {
-						mOut.Append(" else {");
-						NewLine();
+						mOut.Append(" else");
+						OpenBrace(s.blkElse);
 						for (uint32 i = 0; i < (uint32)s.elseStmts.Size(); ++i) {
 							WriteStmt(s.elseStmts[i], depth + 1);
 						}
+						WriteLead(s.blkElse.tail);
 						Indent(depth);
 						mOut.Append('}');
 					}
-					NewLine();
+					EndLine(s.tv);
 				}
 
 				void WriteEvent(const NkGEvent &ev, uint32 depth) {
+					WriteLead(ev.tv);
 					Indent(depth);
 					mOut.Append("on ");
 					mOut.Append(ev.name);
@@ -1817,61 +3099,153 @@ namespace nkuidesign {
 						mOut.Append("Callback ");
 						WriteQuoted(ev.target);
 						WriteArgs(ev.args);
-						NewLine();
+						EndLine(ev.tv);
 						return;
 					}
 					if (ev.action == NkGActionKind::Behavior) {
 						mOut.Append("Behavior ");
 						WriteQuoted(ev.target);
-						NewLine();
+						EndLine(ev.tv);
 						return;
 					}
 					mOut.Append('{');
+					if (!ev.blk.openTrail.Empty()) {
+						mOut.Append(ev.blk.openTrail);
+					}
 					NewLine();
 					for (uint32 i = 0; i < (uint32)ev.stmts.Size(); ++i) {
 						WriteStmt(ev.stmts[i], depth + 1);
 					}
+					WriteLead(ev.blk.tail);
 					Indent(depth);
 					mOut.Append('}');
-					NewLine();
+					EndLine(ev.tv);
 				}
 
 				void WriteProp(const NkGProp &p, uint32 depth) {
+					WriteLead(p.tv);
 					Indent(depth);
 					mOut.Append(p.name);
 					mOut.Append(" = ");
 					WriteValue(p.value);
-					NewLine();
+					EndLine(p.tv);
+				}
+
+				void WriteEffect(const NkGEffect &ef, uint32 depth) {
+					WriteLead(ef.tv);
+					Indent(depth);
+					mOut.Append(ef.kind);
+					if (ef.hasName) {
+						mOut.Append(' ');
+						WriteQuoted(ef.name);
+					}
+					if (ef.props.Size() == 0) {
+						mOut.Append(" { }");
+						EndLine(ef.tv);
+						return;
+					}
+					if (ef.oneLine) {
+						// La forme LUE est rendue : le document 9 ecrit ses effets sur
+						// une ligne, et un outil qui les eclaterait ferait un diff de
+						// tout le fichier au premier enregistrement.
+						mOut.Append(" { ");
+						for (uint32 i = 0; i < (uint32)ef.props.Size(); ++i) {
+							if (i > 0) {
+								mOut.Append(ef.commas ? ", " : " ");
+							}
+							mOut.Append(ef.props[i].name);
+							mOut.Append(" = ");
+							WriteValue(ef.props[i].value);
+						}
+						mOut.Append(" }");
+						EndLine(ef.tv);
+						return;
+					}
+					OpenBrace(ef.blk);
+					for (uint32 i = 0; i < (uint32)ef.props.Size(); ++i) {
+						WriteProp(ef.props[i], depth + 1);
+					}
+					WriteLead(ef.blk.tail);
+					Indent(depth);
+					mOut.Append('}');
+					EndLine(ef.tv);
+				}
+
+				void WriteAppearance(const NkGAppearance &ap, uint32 depth) {
+					WriteLead(ap.tv);
+					Indent(depth);
+					mOut.Append("appearance");
+					if (ap.hasState) {
+						mOut.Append('(');
+						mOut.Append(ap.state);
+						mOut.Append(')');
+					}
+					if (ap.members.Size() == 0 && ap.blk.Empty() && mOpt.inlineEmptyBlock) {
+						mOut.Append(" { }");
+						EndLine(ap.tv);
+						return;
+					}
+					OpenBrace(ap.blk);
+					for (uint32 i = 0; i < (uint32)ap.members.Size(); ++i) {
+						const NkGAppMember &m = ap.members[i];
+						if (m.kind == NkGAppMemberKind::Prop) {
+							WriteProp(ap.props[m.index], depth + 1);
+						} else {
+							WriteEffect(ap.effects[m.index], depth + 1);
+						}
+					}
+					WriteLead(ap.blk.tail);
+					Indent(depth);
+					mOut.Append('}');
+					EndLine(ap.tv);
+				}
+
+				/// LA REEMISSION DU TEXTE BRUT -- regle (d). On recopie la tranche
+				/// source telle quelle : c'est tout l'interet. Seule l'indentation de
+				/// sa PREMIERE ligne est regeneree, parce que c'est nous qui la
+				/// posons ; les suivantes sont deja dans la tranche.
+				void WriteRaw(uint32 rawIdx, uint32 depth, const NkGTrivia &tv) {
+					const NkGRaw &r = mDoc->raws[rawIdx];
+					WriteLead(tv);
+					Indent(depth);
+					mOut.Append(r.text);
+					EndLine(tv);
 				}
 
 				void WriteNode(uint32 idx, uint32 depth) {
 					const NkGNode &n = mDoc->nodes[idx];
+					WriteLead(n.tv);
 					Indent(depth);
 					mOut.Append(n.kind);
 					if (n.hasId) {
 						mOut.Append(' ');
 						WriteQuoted(n.id);
 					}
-					if (n.members.Size() == 0 && mOpt.inlineEmptyBlock) {
+					if (n.members.Size() == 0 && n.blk.Empty() && mOpt.inlineEmptyBlock) {
 						mOut.Append(" { }");
-						NewLine();
+						EndLine(n.tv);
 						return;
 					}
-					mOut.Append(" {");
-					NewLine();
+					OpenBrace(n.blk);
 					for (uint32 i = 0; i < (uint32)n.members.Size(); ++i) {
 						const NkGMember &m = n.members[i];
 						if (m.kind == NkGMemberKind::Prop) {
 							WriteProp(n.props[m.index], depth + 1);
 						} else if (m.kind == NkGMemberKind::Event) {
 							WriteEvent(n.events[m.index], depth + 1);
+						} else if (m.kind == NkGMemberKind::Appearance) {
+							WriteAppearance(n.appearances[m.index], depth + 1);
+						} else if (m.kind == NkGMemberKind::Raw) {
+							const uint32 ri = n.raws[m.index];
+							WriteRaw(ri, depth + 1, mDoc->raws[ri].tv);
 						} else {
 							WriteNode(n.children[m.index], depth + 1);
 						}
 					}
+					WriteLead(n.blk.tail);
 					Indent(depth);
 					mOut.Append('}');
-					NewLine();
+					EndLine(n.tv);
 				}
 
 				void WriteTypeRef(const NkString &type, const NkVector<NkString> &labels,
@@ -1891,6 +3265,7 @@ namespace nkuidesign {
 				}
 
 				void WriteCallbackSig(const NkGCallbackSig &sig, uint32 depth) {
+					WriteLead(sig.tv);
 					Indent(depth);
 					mOut.Append("callback ");
 					mOut.Append(sig.name);
@@ -1906,46 +3281,184 @@ namespace nkuidesign {
 					}
 					mOut.Append(") -> ");
 					WriteTypeRef(sig.ret, sig.retEnumLabels, sig.retIsEnum);
-					NewLine();
+					EndLine(sig.tv);
+				}
+
+				void WriteAnimTrack(const NkGAnimTrack &tr, uint32 depth) {
+					WriteLead(tr.tv);
+					Indent(depth);
+					mOut.Append("track ");
+					WriteQuoted(tr.name);
+					OpenBrace(tr.blk);
+					for (uint32 i = 0; i < (uint32)tr.keys.Size(); ++i) {
+						const NkGAnimKey &k = tr.keys[i];
+						WriteLead(k.tv);
+						Indent(depth + 1);
+						mOut.Append("key ");
+						mOut.Append(k.at);
+						mOut.Append(" -> ");
+						WriteValue(k.value);
+						if (k.hasCurve) {
+							mOut.Append(", curve = ");
+							mOut.Append(k.curve);
+						}
+						EndLine(k.tv);
+					}
+					WriteLead(tr.blk.tail);
+					Indent(depth);
+					mOut.Append('}');
+					EndLine(tr.tv);
+				}
+
+				void WriteAnimDecl(const NkGAnimDecl &d, uint32 depth) {
+					WriteLead(d.tv);
+					Indent(depth);
+					if (d.family == NkGAnimFamily::Transition) {
+						mOut.Append("transition ");
+					} else if (d.family == NkGAnimFamily::Ambience) {
+						mOut.Append("ambience ");
+					} else {
+						mOut.Append("continuous ");
+					}
+					WriteQuoted(d.name);
+					OpenBrace(d.blk);
+					for (uint32 i = 0; i < (uint32)d.members.Size(); ++i) {
+						const NkGAnimMember &m = d.members[i];
+						if (m.kind == NkGAnimMemberKind::Prop) {
+							WriteProp(d.props[m.index], depth + 1);
+						} else if (m.kind == NkGAnimMemberKind::Track) {
+							WriteAnimTrack(d.tracks[m.index], depth + 1);
+						} else {
+							const NkGAnimMap &mp = d.maps[m.index];
+							WriteLead(mp.tv);
+							Indent(depth + 1);
+							mOut.Append("map");
+							OpenBrace(mp.blk);
+							for (uint32 p = 0; p < (uint32)mp.props.Size(); ++p) {
+								WriteProp(mp.props[p], depth + 2);
+							}
+							WriteLead(mp.blk.tail);
+							Indent(depth + 1);
+							mOut.Append('}');
+							EndLine(mp.tv);
+						}
+					}
+					WriteLead(d.blk.tail);
+					Indent(depth);
+					mOut.Append('}');
+					EndLine(d.tv);
+				}
+
+				void WriteFont(const NkGFont &f, uint32 depth) {
+					WriteLead(f.tv);
+					Indent(depth);
+					mOut.Append("font ");
+					WriteQuoted(f.name);
+					OpenBrace(f.blk);
+					for (uint32 i = 0; i < (uint32)f.members.Size(); ++i) {
+						const NkGFontMember &m = f.members[i];
+						if (m.kind == NkGFontMemberKind::Prop) {
+							WriteProp(f.props[m.index], depth + 1);
+							continue;
+						}
+						const NkGFontBlock &fb = f.blocks[m.index];
+						WriteLead(fb.tv);
+						Indent(depth + 1);
+						if (fb.kind == NkGFontBlockKind::Source) {
+							mOut.Append("source");
+						} else if (fb.kind == NkGFontBlockKind::Fallback) {
+							mOut.Append("fallback");
+						} else {
+							mOut.Append("metrics");
+						}
+						OpenBrace(fb.blk);
+						if (fb.kind == NkGFontBlockKind::Metrics) {
+							for (uint32 k = 0; k < (uint32)fb.metrics.Size(); ++k) {
+								const NkGFontMetric &mt = fb.metrics[k];
+								WriteLead(mt.tv);
+								Indent(depth + 2);
+								if (mt.isGlyph) {
+									mOut.Append("glyph ");
+									WriteQuoted(mt.glyph);
+									mOut.Append(" -> ");
+								} else {
+									mOut.Append(mt.name);
+									mOut.Append(" = ");
+								}
+								WriteValue(mt.value);
+								EndLine(mt.tv);
+							}
+						} else {
+							for (uint32 k = 0; k < (uint32)fb.props.Size(); ++k) {
+								WriteProp(fb.props[k], depth + 2);
+							}
+						}
+						WriteLead(fb.blk.tail);
+						Indent(depth + 1);
+						mOut.Append('}');
+						EndLine(fb.tv);
+					}
+					WriteLead(f.blk.tail);
+					Indent(depth);
+					mOut.Append('}');
+					EndLine(f.tv);
 				}
 
 				void WriteSection(const NkGSection &ref) {
+					// LE CALLBACK DE PREMIER NIVEAU EST LE SEUL CAS OU LA SECTION ET
+					// SON CONTENU PARTAGENT LE MEME PREMIER JETON. Ecrire la trivia
+					// de la section PUIS celle de la signature la doublerait -- et un
+					// commentaire qui se duplique a chaque enregistrement finit par
+					// remplir le fichier.
+					if (ref.kind == NkGSectionKind::Callback) {
+						WriteCallbackSig(mDoc->callbacks[ref.index], 0);
+						return;
+					}
+					WriteLead(ref.tv);
+					if (ref.kind == NkGSectionKind::Raw) {
+						mOut.Append(mDoc->raws[ref.index].text);
+						EndLine(ref.tv);
+						return;
+					}
 					if (ref.kind == NkGSectionKind::Widgets) {
 						const NkGTopSection &sec = mDoc->topSections[ref.index];
-						mOut.Append("widgets {");
-						NewLine();
+						mOut.Append("widgets");
+						OpenBrace(sec.blk);
 						for (uint32 i = 0; i < (uint32)sec.roots.Size(); ++i) {
 							WriteNode(sec.roots[i], 1);
 						}
+						WriteLead(sec.blk.tail);
 						mOut.Append('}');
-						NewLine();
+						EndLine(ref.tv);
 						return;
 					}
 					if (ref.kind == NkGSectionKind::Geometry) {
 						const NkGTopSection &sec = mDoc->topSections[ref.index];
-						mOut.Append("geometry {");
-						NewLine();
+						mOut.Append("geometry");
+						OpenBrace(sec.blk);
 						for (uint32 i = 0; i < (uint32)sec.shapes.Size(); ++i) {
 							const NkGShape &sh = mDoc->shapes[sec.shapes[i]];
+							WriteLead(sh.tv);
 							Indent(1);
 							mOut.Append("shape ");
 							WriteQuoted(sh.name);
-							if (sh.props.Size() == 0 && mOpt.inlineEmptyBlock) {
+							if (sh.props.Size() == 0 && sh.blk.Empty() && mOpt.inlineEmptyBlock) {
 								mOut.Append(" { }");
-								NewLine();
+								EndLine(sh.tv);
 								continue;
 							}
-							mOut.Append(" {");
-							NewLine();
+							OpenBrace(sh.blk);
 							for (uint32 p = 0; p < (uint32)sh.props.Size(); ++p) {
 								WriteProp(sh.props[p], 2);
 							}
+							WriteLead(sh.blk.tail);
 							Indent(1);
 							mOut.Append('}');
-							NewLine();
+							EndLine(sh.tv);
 						}
+						WriteLead(sec.blk.tail);
 						mOut.Append('}');
-						NewLine();
+						EndLine(ref.tv);
 						return;
 					}
 					if (ref.kind == NkGSectionKind::Behavior) {
@@ -1955,77 +3468,107 @@ namespace nkuidesign {
 						if (b.isGraph) {
 							mOut.Append(" graph");
 						}
-						mOut.Append(" {");
-						NewLine();
+						OpenBrace(b.blk);
 						if (b.isGraph) {
-							for (uint32 i = 0; i < (uint32)b.gnodes.Size(); ++i) {
-								const NkGGraphNode &gn = b.gnodes[i];
-								Indent(1);
-								mOut.Append("node ");
-								mOut.Append(gn.name);
-								mOut.Append(' ');
-								mOut.Append(gn.type);
-								if (gn.hasPins) {
-									mOut.Append(" { ");
-									for (uint32 p = 0; p < (uint32)gn.pins.Size(); ++p) {
-										if (p > 0) {
-											mOut.Append(", ");
+							for (uint32 i = 0; i < (uint32)b.gorder.Size(); ++i) {
+								const NkGMember &m = b.gorder[i];
+								if (m.kind == NkGMemberKind::Prop) {
+									const NkGGraphNode &gn = b.gnodes[m.index];
+									WriteLead(gn.tv);
+									Indent(1);
+									mOut.Append("node ");
+									mOut.Append(gn.name);
+									mOut.Append(' ');
+									mOut.Append(gn.type);
+									if (gn.hasPins) {
+										mOut.Append(" { ");
+										for (uint32 p = 0; p < (uint32)gn.pins.Size(); ++p) {
+											if (p > 0) {
+												mOut.Append(", ");
+											}
+											mOut.Append(gn.pins[p].name);
+											mOut.Append(" = ");
+											WriteExpr(gn.pinExprs[p]);
 										}
-										mOut.Append(gn.pins[p].name);
-										mOut.Append(" = ");
-										WriteExpr(gn.pinExprs[p]);
+										mOut.Append(" }");
 									}
-									mOut.Append(" }");
+									EndLine(gn.tv);
+									continue;
 								}
-								NewLine();
-							}
-							for (uint32 i = 0; i < (uint32)b.wires.Size(); ++i) {
+								const NkGWire &w = b.wires[m.index];
+								WriteLead(w.tv);
 								Indent(1);
 								mOut.Append("wire ");
-								for (uint32 r = 0; r < (uint32)b.wires[i].refs.Size(); ++r) {
+								for (uint32 r = 0; r < (uint32)w.refs.Size(); ++r) {
 									if (r > 0) {
 										mOut.Append(" -> ");
 									}
-									mOut.Append(b.wires[i].refs[r]);
+									mOut.Append(w.refs[r]);
 								}
-								NewLine();
+								EndLine(w.tv);
 							}
 						} else {
 							for (uint32 i = 0; i < (uint32)b.stmts.Size(); ++i) {
 								WriteStmt(b.stmts[i], 1);
 							}
 						}
+						WriteLead(b.blk.tail);
 						mOut.Append('}');
-						NewLine();
+						EndLine(ref.tv);
 						return;
 					}
-					if (ref.kind == NkGSectionKind::Controller) {
-						const NkGController &c = mDoc->controllers[ref.index];
-						mOut.Append("controller ");
-						WriteQuoted(c.name);
-						mOut.Append(" {");
-						NewLine();
-						for (uint32 i = 0; i < (uint32)c.callbacks.Size(); ++i) {
-							WriteCallbackSig(mDoc->callbacks[c.callbacks[i]], 1);
+					if (ref.kind == NkGSectionKind::Animation) {
+						const NkGAnimation &an = mDoc->animations[ref.index];
+						mOut.Append("animation");
+						if (an.hasName) {
+							mOut.Append(' ');
+							WriteQuoted(an.name);
 						}
+						OpenBrace(an.blk);
+						for (uint32 i = 0; i < (uint32)an.decls.Size(); ++i) {
+							WriteAnimDecl(an.decls[i], 1);
+						}
+						WriteLead(an.blk.tail);
 						mOut.Append('}');
-						NewLine();
+						EndLine(ref.tv);
 						return;
 					}
-					WriteCallbackSig(mDoc->callbacks[ref.index], 0);
+					if (ref.kind == NkGSectionKind::Fonts) {
+						const NkGFonts &fs = mDoc->fontSections[ref.index];
+						mOut.Append("fonts");
+						OpenBrace(fs.blk);
+						for (uint32 i = 0; i < (uint32)fs.fonts.Size(); ++i) {
+							WriteFont(fs.fonts[i], 1);
+						}
+						WriteLead(fs.blk.tail);
+						mOut.Append('}');
+						EndLine(ref.tv);
+						return;
+					}
+					// Controller
+					const NkGController &c = mDoc->controllers[ref.index];
+					mOut.Append("controller ");
+					WriteQuoted(c.name);
+					OpenBrace(c.blk);
+					for (uint32 i = 0; i < (uint32)c.callbacks.Size(); ++i) {
+						WriteCallbackSig(mDoc->callbacks[c.callbacks[i]], 1);
+					}
+					WriteLead(c.blk.tail);
+					mOut.Append('}');
+					EndLine(ref.tv);
 				}
 		};
 
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 		//  L'API PUBLIQUE
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
 
 		/// Analyse `text` dans `doc`. En cas d'echec, `err` porte le code, le
-		/// message, la ligne et la colonne — et `doc` est laisse VIDE.
+		/// message, la ligne et la colonne -- et `doc` est laisse VIDE.
 		///
-		/// ⚠️ VIDE, PAS A MOITIE REMPLI. Un document partiel apres une erreur est le
-		///    pire des etats : l'appelant qui oublie de tester le retour affiche une
-		///    interface amputee au lieu de dire que le fichier est casse.
+		/// VIDE, PAS A MOITIE REMPLI. Un document partiel apres une erreur est le
+		/// pire des etats : l'appelant qui oublie de tester le retour affiche une
+		/// interface amputee au lieu de dire que le fichier est casse.
 		inline bool NkGParse(const char *text, uint32 length, NkGDocument &doc, NkGDiag &err) {
 			doc.Clear();
 			if (!text) {
@@ -2039,7 +3582,8 @@ namespace nkuidesign {
 				doc.Clear();
 				return false;
 			}
-			NkGParser parser(toks, doc);
+			NkGAttachTrivia(text, length, lex.FirstOffset(), toks);
+			NkGParser parser(toks, doc, text);
 			if (!parser.ParseFile(err)) {
 				doc.Clear();
 				return false;
@@ -2060,28 +3604,55 @@ namespace nkuidesign {
 			return NkGWrite(doc, NkGWriteOptions());
 		}
 
-		// ═══════════════════════════════════════════════════════════════════════
-		//  LA COMPARAISON — c'est elle qui rend l'aller-retour verifiable
-		// ═══════════════════════════════════════════════════════════════════════
+		// =====================================================================
+		//  LA COMPARAISON -- c'est elle qui rend l'aller-retour verifiable
+		// =====================================================================
 
-		/// ⚠️ CETTE COMPARAISON EST LE CRITERE D'ACCEPTATION, elle merite donc d'etre
-		///    lue avec autant d'attention que le parseur. Elle compare la SEMANTIQUE
-		///    (roles, identifiants, valeurs, ordre des membres), **pas** la mise en
-		///    forme. Deux documents egaux au sens de cette fonction decrivent la meme
-		///    interface, meme si l'un indente de deux espaces et l'autre de quatre.
+		/// CETTE COMPARAISON EST LE CRITERE D'ACCEPTATION, elle merite donc d'etre
+		/// lue avec autant d'attention que le parseur. Elle compare la SEMANTIQUE
+		/// (roles, identifiants, valeurs, ordre des membres) ET LA TRIVIA, **pas**
+		/// la mise en forme. Deux documents egaux au sens de cette fonction
+		/// decrivent la meme interface et portent les memes commentaires, meme si
+		/// l'un indente de deux espaces et l'autre de quatre.
+		///
+		/// LA TRIVIA EST DANS LA COMPARAISON DEPUIS LA v0.3, et c'est le seul moyen
+		/// de rendre la decision 3 de Rodolf verifiable : sans elle, un ecrivain
+		/// qui jetterait tous les commentaires resterait « equivalent ».
 		bool NkGEqualNode(const NkGDocument &a, uint32 ia, const NkGDocument &b, uint32 ib);
+		bool NkGEqualValue(const NkGDocument &a, const NkGValue &x, const NkGDocument &b,
+						   const NkGValue &y);
 
-		inline bool NkGEqualValue(const NkGValue &a, const NkGValue &b) {
-			if (a.kind != b.kind) {
+		inline bool NkGEqualValue(const NkGDocument &a, const NkGValue &x, const NkGDocument &b,
+								  const NkGValue &y) {
+			if (x.kind != y.kind) {
 				return false;
 			}
-			if (a.kind == NkGValueKind::String) {
-				return a.text.Compare(b.text) == 0;
+			if (x.kind == NkGValueKind::String) {
+				return x.text.Compare(y.text) == 0;
+			}
+			if (x.kind == NkGValueKind::List || x.kind == NkGValueKind::Dict) {
+				if (x.items.Size() != y.items.Size() || x.keys.Size() != y.keys.Size()) {
+					return false;
+				}
+				for (uint32 i = 0; i < (uint32)x.keys.Size(); ++i) {
+					if (x.keys[i].Compare(y.keys[i]) != 0) {
+						return false;
+					}
+					if (x.keyQuoted[i] != y.keyQuoted[i]) {
+						return false;
+					}
+				}
+				for (uint32 i = 0; i < (uint32)x.items.Size(); ++i) {
+					if (!NkGEqualValue(a, a.values[x.items[i]], b, b.values[y.items[i]])) {
+						return false;
+					}
+				}
+				return true;
 			}
 			// Pour tout le reste on compare le LEXEME : c'est ce que le serialiseur
 			// reemet, donc c'est ce qui doit survivre. Comparer la valeur decodee
 			// laisserait passer un `0.20` devenu `0.2`.
-			return a.raw.Compare(b.raw) == 0;
+			return x.raw.Compare(y.raw) == 0;
 		}
 
 		inline bool NkGEqualExpr(const NkGDocument &a, uint32 ia, const NkGDocument &b, uint32 ib) {
@@ -2095,7 +3666,7 @@ namespace nkuidesign {
 			}
 			switch (x.kind) {
 				case NkGExprKind::Literal:
-					return NkGEqualValue(x.literal, y.literal);
+					return NkGEqualValue(a, x.literal, b, y.literal);
 				case NkGExprKind::Ident:
 					return x.ident.Compare(y.ident) == 0;
 				case NkGExprKind::Paren:
@@ -2122,7 +3693,8 @@ namespace nkuidesign {
 			return true;
 		}
 
-		inline bool NkGEqualPropList(const NkVector<NkGProp> &xa, const NkVector<NkGProp> &xb) {
+		inline bool NkGEqualPropList(const NkGDocument &a, const NkVector<NkGProp> &xa,
+									 const NkGDocument &b, const NkVector<NkGProp> &xb) {
 			if (xa.Size() != xb.Size()) {
 				return false;
 			}
@@ -2130,7 +3702,10 @@ namespace nkuidesign {
 				if (xa[i].name.Compare(xb[i].name) != 0) {
 					return false;
 				}
-				if (!NkGEqualValue(xa[i].value, xb[i].value)) {
+				if (!NkGEqualValue(a, xa[i].value, b, xb[i].value)) {
+					return false;
+				}
+				if (!NkGEqualTrivia(xa[i].tv, xb[i].tv)) {
 					return false;
 				}
 			}
@@ -2164,6 +3739,10 @@ namespace nkuidesign {
 			if (x.name.Compare(y.name) != 0) {
 				return false;
 			}
+			if (!NkGEqualTrivia(x.tv, y.tv) || !NkGEqualBlockTrivia(x.blkThen, y.blkThen)
+				|| !NkGEqualBlockTrivia(x.blkElse, y.blkElse)) {
+				return false;
+			}
 			if (!NkGEqualExpr(a, x.expr, b, y.expr)) {
 				return false;
 			}
@@ -2182,6 +3761,9 @@ namespace nkuidesign {
 			if (x.target.Compare(y.target) != 0) {
 				return false;
 			}
+			if (!NkGEqualTrivia(x.tv, y.tv) || !NkGEqualBlockTrivia(x.blk, y.blk)) {
+				return false;
+			}
 			if (x.params.Size() != y.params.Size()) {
 				return false;
 			}
@@ -2194,17 +3776,60 @@ namespace nkuidesign {
 				   && NkGEqualStmtList(a, x.stmts, b, y.stmts);
 		}
 
+		inline bool NkGEqualEffect(const NkGDocument &a, const NkGEffect &x, const NkGDocument &b,
+								   const NkGEffect &y) {
+			if (x.kind.Compare(y.kind) != 0 || x.hasName != y.hasName
+				|| x.name.Compare(y.name) != 0 || x.oneLine != y.oneLine || x.commas != y.commas) {
+				return false;
+			}
+			if (!NkGEqualTrivia(x.tv, y.tv) || !NkGEqualBlockTrivia(x.blk, y.blk)) {
+				return false;
+			}
+			return NkGEqualPropList(a, x.props, b, y.props);
+		}
+
+		inline bool NkGEqualAppearance(const NkGDocument &a, const NkGAppearance &x,
+									   const NkGDocument &b, const NkGAppearance &y) {
+			if (x.hasState != y.hasState || x.state.Compare(y.state) != 0) {
+				return false;
+			}
+			if (!NkGEqualTrivia(x.tv, y.tv) || !NkGEqualBlockTrivia(x.blk, y.blk)) {
+				return false;
+			}
+			if (x.members.Size() != y.members.Size() || x.effects.Size() != y.effects.Size()) {
+				return false;
+			}
+			for (uint32 i = 0; i < (uint32)x.members.Size(); ++i) {
+				if (x.members[i].kind != y.members[i].kind
+					|| x.members[i].index != y.members[i].index) {
+					return false;
+				}
+			}
+			for (uint32 i = 0; i < (uint32)x.effects.Size(); ++i) {
+				if (!NkGEqualEffect(a, x.effects[i], b, y.effects[i])) {
+					return false;
+				}
+			}
+			return NkGEqualPropList(a, x.props, b, y.props);
+		}
+
+		inline bool NkGEqualRaw(const NkGRaw &x, const NkGRaw &y) {
+			return x.text.Compare(y.text) == 0 && NkGEqualTrivia(x.tv, y.tv);
+		}
+
 		inline bool NkGEqualNode(const NkGDocument &a, uint32 ia, const NkGDocument &b, uint32 ib) {
 			const NkGNode &x = a.nodes[ia];
 			const NkGNode &y = b.nodes[ib];
-			if (x.kind.Compare(y.kind) != 0 || x.hasId != y.hasId
-				|| x.id.Compare(y.id) != 0) {
+			if (x.kind.Compare(y.kind) != 0 || x.hasId != y.hasId || x.id.Compare(y.id) != 0) {
+				return false;
+			}
+			if (!NkGEqualTrivia(x.tv, y.tv) || !NkGEqualBlockTrivia(x.blk, y.blk)) {
 				return false;
 			}
 			if (x.members.Size() != y.members.Size()) {
 				return false;
 			}
-			if (!NkGEqualPropList(x.props, y.props)) {
+			if (!NkGEqualPropList(a, x.props, b, y.props)) {
 				return false;
 			}
 			if (x.events.Size() != y.events.Size()) {
@@ -2212,6 +3837,22 @@ namespace nkuidesign {
 			}
 			for (uint32 i = 0; i < (uint32)x.events.Size(); ++i) {
 				if (!NkGEqualEvent(a, x.events[i], b, y.events[i])) {
+					return false;
+				}
+			}
+			if (x.appearances.Size() != y.appearances.Size()) {
+				return false;
+			}
+			for (uint32 i = 0; i < (uint32)x.appearances.Size(); ++i) {
+				if (!NkGEqualAppearance(a, x.appearances[i], b, y.appearances[i])) {
+					return false;
+				}
+			}
+			if (x.raws.Size() != y.raws.Size()) {
+				return false;
+			}
+			for (uint32 i = 0; i < (uint32)x.raws.Size(); ++i) {
+				if (!NkGEqualRaw(a.raws[x.raws[i]], b.raws[y.raws[i]])) {
 					return false;
 				}
 			}
@@ -2237,6 +3878,9 @@ namespace nkuidesign {
 				|| x.retIsEnum != y.retIsEnum) {
 				return false;
 			}
+			if (!NkGEqualTrivia(x.tv, y.tv)) {
+				return false;
+			}
 			if (x.params.Size() != y.params.Size()) {
 				return false;
 			}
@@ -2258,16 +3902,136 @@ namespace nkuidesign {
 			return true;
 		}
 
+		inline bool NkGEqualAnimation(const NkGDocument &a, const NkGAnimation &x,
+									  const NkGDocument &b, const NkGAnimation &y) {
+			if (x.hasName != y.hasName || x.name.Compare(y.name) != 0
+				|| x.decls.Size() != y.decls.Size() || !NkGEqualBlockTrivia(x.blk, y.blk)) {
+				return false;
+			}
+			for (uint32 i = 0; i < (uint32)x.decls.Size(); ++i) {
+				const NkGAnimDecl &dx = x.decls[i];
+				const NkGAnimDecl &dy = y.decls[i];
+				if (dx.family != dy.family || dx.name.Compare(dy.name) != 0
+					|| dx.members.Size() != dy.members.Size()
+					|| dx.tracks.Size() != dy.tracks.Size() || dx.maps.Size() != dy.maps.Size()) {
+					return false;
+				}
+				if (!NkGEqualTrivia(dx.tv, dy.tv) || !NkGEqualBlockTrivia(dx.blk, dy.blk)) {
+					return false;
+				}
+				for (uint32 m = 0; m < (uint32)dx.members.Size(); ++m) {
+					if (dx.members[m].kind != dy.members[m].kind
+						|| dx.members[m].index != dy.members[m].index) {
+						return false;
+					}
+				}
+				if (!NkGEqualPropList(a, dx.props, b, dy.props)) {
+					return false;
+				}
+				for (uint32 t = 0; t < (uint32)dx.tracks.Size(); ++t) {
+					const NkGAnimTrack &tx = dx.tracks[t];
+					const NkGAnimTrack &ty = dy.tracks[t];
+					if (tx.name.Compare(ty.name) != 0 || tx.keys.Size() != ty.keys.Size()) {
+						return false;
+					}
+					if (!NkGEqualTrivia(tx.tv, ty.tv) || !NkGEqualBlockTrivia(tx.blk, ty.blk)) {
+						return false;
+					}
+					for (uint32 k = 0; k < (uint32)tx.keys.Size(); ++k) {
+						if (tx.keys[k].at.Compare(ty.keys[k].at) != 0
+							|| tx.keys[k].hasCurve != ty.keys[k].hasCurve
+							|| tx.keys[k].curve.Compare(ty.keys[k].curve) != 0) {
+							return false;
+						}
+						if (!NkGEqualValue(a, tx.keys[k].value, b, ty.keys[k].value)) {
+							return false;
+						}
+						if (!NkGEqualTrivia(tx.keys[k].tv, ty.keys[k].tv)) {
+							return false;
+						}
+					}
+				}
+				for (uint32 mp = 0; mp < (uint32)dx.maps.Size(); ++mp) {
+					if (!NkGEqualPropList(a, dx.maps[mp].props, b, dy.maps[mp].props)) {
+						return false;
+					}
+					if (!NkGEqualTrivia(dx.maps[mp].tv, dy.maps[mp].tv)
+						|| !NkGEqualBlockTrivia(dx.maps[mp].blk, dy.maps[mp].blk)) {
+						return false;
+					}
+				}
+			}
+			return true;
+		}
+
+		inline bool NkGEqualFonts(const NkGDocument &a, const NkGFonts &x, const NkGDocument &b,
+								  const NkGFonts &y) {
+			if (x.fonts.Size() != y.fonts.Size() || !NkGEqualBlockTrivia(x.blk, y.blk)) {
+				return false;
+			}
+			for (uint32 i = 0; i < (uint32)x.fonts.Size(); ++i) {
+				const NkGFont &fx = x.fonts[i];
+				const NkGFont &fy = y.fonts[i];
+				if (fx.name.Compare(fy.name) != 0 || fx.members.Size() != fy.members.Size()
+					|| fx.blocks.Size() != fy.blocks.Size()) {
+					return false;
+				}
+				if (!NkGEqualTrivia(fx.tv, fy.tv) || !NkGEqualBlockTrivia(fx.blk, fy.blk)) {
+					return false;
+				}
+				for (uint32 m = 0; m < (uint32)fx.members.Size(); ++m) {
+					if (fx.members[m].kind != fy.members[m].kind
+						|| fx.members[m].index != fy.members[m].index) {
+						return false;
+					}
+				}
+				if (!NkGEqualPropList(a, fx.props, b, fy.props)) {
+					return false;
+				}
+				for (uint32 k = 0; k < (uint32)fx.blocks.Size(); ++k) {
+					const NkGFontBlock &bx = fx.blocks[k];
+					const NkGFontBlock &by = fy.blocks[k];
+					if (bx.kind != by.kind || bx.metrics.Size() != by.metrics.Size()) {
+						return false;
+					}
+					if (!NkGEqualTrivia(bx.tv, by.tv) || !NkGEqualBlockTrivia(bx.blk, by.blk)) {
+						return false;
+					}
+					if (!NkGEqualPropList(a, bx.props, b, by.props)) {
+						return false;
+					}
+					for (uint32 t = 0; t < (uint32)bx.metrics.Size(); ++t) {
+						if (bx.metrics[t].isGlyph != by.metrics[t].isGlyph
+							|| bx.metrics[t].glyph.Compare(by.metrics[t].glyph) != 0
+							|| bx.metrics[t].name.Compare(by.metrics[t].name) != 0) {
+							return false;
+						}
+						if (!NkGEqualValue(a, bx.metrics[t].value, b, by.metrics[t].value)) {
+							return false;
+						}
+						if (!NkGEqualTrivia(bx.metrics[t].tv, by.metrics[t].tv)) {
+							return false;
+						}
+					}
+				}
+			}
+			return true;
+		}
+
 		inline bool NkGEqual(const NkGDocument &a, const NkGDocument &b) {
 			if (a.versionMajor.Compare(b.versionMajor) != 0
 				|| a.versionMinor.Compare(b.versionMinor) != 0) {
+				return false;
+			}
+			if (!NkGEqualTrivia(a.headTv, b.headTv) || !NkGEqualTrivia(a.tailTv, b.tailTv)) {
 				return false;
 			}
 			if (a.includes.Size() != b.includes.Size()) {
 				return false;
 			}
 			for (uint32 i = 0; i < (uint32)a.includes.Size(); ++i) {
-				if (a.includes[i].Compare(b.includes[i]) != 0) {
+				if (a.includes[i].path.Compare(b.includes[i].path) != 0
+					|| !NkGEqualTrivia(a.includes[i].tv, b.includes[i].tv)) {
 					return false;
 				}
 			}
@@ -2280,10 +4044,14 @@ namespace nkuidesign {
 				if (ra.kind != rb.kind) {
 					return false;
 				}
+				if (!NkGEqualTrivia(ra.tv, rb.tv)) {
+					return false;
+				}
 				if (ra.kind == NkGSectionKind::Widgets) {
 					const NkGTopSection &xa = a.topSections[ra.index];
 					const NkGTopSection &xb = b.topSections[rb.index];
-					if (xa.roots.Size() != xb.roots.Size()) {
+					if (xa.roots.Size() != xb.roots.Size()
+						|| !NkGEqualBlockTrivia(xa.blk, xb.blk)) {
 						return false;
 					}
 					for (uint32 i = 0; i < (uint32)xa.roots.Size(); ++i) {
@@ -2296,13 +4064,17 @@ namespace nkuidesign {
 				if (ra.kind == NkGSectionKind::Geometry) {
 					const NkGTopSection &xa = a.topSections[ra.index];
 					const NkGTopSection &xb = b.topSections[rb.index];
-					if (xa.shapes.Size() != xb.shapes.Size()) {
+					if (xa.shapes.Size() != xb.shapes.Size()
+						|| !NkGEqualBlockTrivia(xa.blk, xb.blk)) {
 						return false;
 					}
 					for (uint32 i = 0; i < (uint32)xa.shapes.Size(); ++i) {
 						const NkGShape &sa = a.shapes[xa.shapes[i]];
 						const NkGShape &sb = b.shapes[xb.shapes[i]];
-						if (sa.name.Compare(sb.name) != 0 || !NkGEqualPropList(sa.props, sb.props)) {
+						if (sa.name.Compare(sb.name) != 0
+							|| !NkGEqualPropList(a, sa.props, b, sb.props)
+							|| !NkGEqualTrivia(sa.tv, sb.tv)
+							|| !NkGEqualBlockTrivia(sa.blk, sb.blk)) {
 							return false;
 						}
 					}
@@ -2311,20 +4083,28 @@ namespace nkuidesign {
 				if (ra.kind == NkGSectionKind::Behavior) {
 					const NkGBehavior &ba = a.behaviors[ra.index];
 					const NkGBehavior &bb = b.behaviors[rb.index];
-					if (ba.name.Compare(bb.name) != 0 || ba.isGraph != bb.isGraph) {
+					if (ba.name.Compare(bb.name) != 0 || ba.isGraph != bb.isGraph
+						|| !NkGEqualBlockTrivia(ba.blk, bb.blk)) {
 						return false;
 					}
 					if (!NkGEqualStmtList(a, ba.stmts, b, bb.stmts)) {
 						return false;
 					}
-					if (ba.gnodes.Size() != bb.gnodes.Size()
-						|| ba.wires.Size() != bb.wires.Size()) {
+					if (ba.gnodes.Size() != bb.gnodes.Size() || ba.wires.Size() != bb.wires.Size()
+						|| ba.gorder.Size() != bb.gorder.Size()) {
 						return false;
+					}
+					for (uint32 i = 0; i < (uint32)ba.gorder.Size(); ++i) {
+						if (ba.gorder[i].kind != bb.gorder[i].kind
+							|| ba.gorder[i].index != bb.gorder[i].index) {
+							return false;
+						}
 					}
 					for (uint32 i = 0; i < (uint32)ba.gnodes.Size(); ++i) {
 						if (ba.gnodes[i].name.Compare(bb.gnodes[i].name) != 0
 							|| ba.gnodes[i].type.Compare(bb.gnodes[i].type) != 0
-							|| ba.gnodes[i].hasPins != bb.gnodes[i].hasPins) {
+							|| ba.gnodes[i].hasPins != bb.gnodes[i].hasPins
+							|| !NkGEqualTrivia(ba.gnodes[i].tv, bb.gnodes[i].tv)) {
 							return false;
 						}
 						if (ba.gnodes[i].pins.Size() != bb.gnodes[i].pins.Size()) {
@@ -2341,7 +4121,8 @@ namespace nkuidesign {
 						}
 					}
 					for (uint32 i = 0; i < (uint32)ba.wires.Size(); ++i) {
-						if (ba.wires[i].refs.Size() != bb.wires[i].refs.Size()) {
+						if (ba.wires[i].refs.Size() != bb.wires[i].refs.Size()
+							|| !NkGEqualTrivia(ba.wires[i].tv, bb.wires[i].tv)) {
 							return false;
 						}
 						for (uint32 r = 0; r < (uint32)ba.wires[i].refs.Size(); ++r) {
@@ -2356,7 +4137,8 @@ namespace nkuidesign {
 					const NkGController &ca = a.controllers[ra.index];
 					const NkGController &cb = b.controllers[rb.index];
 					if (ca.name.Compare(cb.name) != 0
-						|| ca.callbacks.Size() != cb.callbacks.Size()) {
+						|| ca.callbacks.Size() != cb.callbacks.Size()
+						|| !NkGEqualBlockTrivia(ca.blk, cb.blk)) {
 						return false;
 					}
 					for (uint32 i = 0; i < (uint32)ca.callbacks.Size(); ++i) {
@@ -2364,6 +4146,29 @@ namespace nkuidesign {
 											  b.callbacks[cb.callbacks[i]])) {
 							return false;
 						}
+					}
+					continue;
+				}
+				if (ra.kind == NkGSectionKind::Animation) {
+					if (!NkGEqualAnimation(a, a.animations[ra.index], b,
+										   b.animations[rb.index])) {
+						return false;
+					}
+					continue;
+				}
+				if (ra.kind == NkGSectionKind::Fonts) {
+					if (!NkGEqualFonts(a, a.fontSections[ra.index], b,
+									   b.fontSections[rb.index])) {
+						return false;
+					}
+					continue;
+				}
+				if (ra.kind == NkGSectionKind::Raw) {
+					// LE TEMOIN DE LA REGLE (d) : la tranche brute doit revenir a
+					// l'IDENTIQUE. Si elle bouge d'un octet, une version future du
+					// format perd du contenu en passant par un outil ancien.
+					if (a.raws[ra.index].text.Compare(b.raws[rb.index].text) != 0) {
+						return false;
 					}
 					continue;
 				}
