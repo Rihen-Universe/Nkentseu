@@ -313,6 +313,65 @@ Ce qui n'en fait pas une source à jeter, **mais pour un autre usage** :
 format texte lisible, les nœuds `Control` portent leurs ancres, et il existe
 beaucoup de jeux libres. Unity (UXML) et LOVE sont des sources secondaires.
 
+#### ⚠️ Correction (Rodolf, 2026-08-21) : Kenney donne quelque chose que RIEN d'autre ne donne
+
+Rodolf : *« dans les planches de Kenney on a des assets spécifiques — bouton,
+panneau, case à cocher et bien d'autres — donc des composants seuls qu'on peut
+utiliser pour apprendre à designer des composants spécifiques aux jeux vidéo. »*
+
+**Il a raison, et ma correction était trop courte.** J'ai écarté Kenney parce qu'il
+ne donne pas de **disposition** — ce qui reste vrai — en oubliant qu'il donne des
+**composants**, et que les composants sont la moitié de §14bis et de §14ter.
+
+Ce qu'un jeu d'assets d'interface apporte, et que les trois autres sources
+n'apportent pas :
+
+| apport | pourquoi les autres sources ne l'ont pas |
+|---|---|
+| **les ÉTATS d'un même composant** — repos, survol, pressé, désactivé | le web ne rend **qu'un seul état** ; Godot et Qt décrivent la structure, pas l'apparence de chaque état |
+| **le vocabulaire visuel du jeu vidéo** | web, Android et Qt produisent des interfaces d'**application**, pas de jeu |
+| **le découpage en neuf tranches** des panneaux | dit comment un cadre est **censé s'étirer** — une intention, pas une mesure |
+| **l'étiquette gratuite** | le nom du fichier porte le rôle et souvent l'état |
+
+> ⚠️ **Les états sont le point décisif.** §14ter promet qu'attribuer un rôle donne
+> « les états du rôle, chacun éditable visuellement, et l'outil garantit qu'aucun
+> n'est oublié ». **Aucune des trois autres sources n'enseigne à quoi ressemble un
+> bouton pressé.** Sans cette famille, le modèle dessinerait des états de repos et
+> inventerait le reste.
+
+⚠️ **Mais l'étiquette par le nom de fichier est bon marché ET bruyante.** Les
+conventions de nommage varient d'une planche à l'autre ; une expression régulière
+générique étiquettera un jour un curseur comme une case à cocher, et **le modèle
+apprendra la faute sans que rien ne le signale**. Il faut une correspondance
+**écrite par planche**, et vérifiée sur un échantillon avant d'ingérer le reste.
+
+#### Deux corpus pour deux capacités — et ce qui les recolle
+
+Ce désaccord fait apparaître une distinction que le document n'avait pas :
+
+| corpus | ce qu'il enseigne | sources |
+|---|---|---|
+| **structure** | disposer, ancrer, dimensionner, nommer les rôles | web, Android, Godot, Qt |
+| **composants** | à quoi ressemble un bouton de jeu, et **ses états** | Kenney et équivalents CC0 |
+
+Un modèle entraîné seulement sur le premier produirait des interfaces de jeu
+**structurellement correctes et visuellement web**. C'est exactement l'écart que
+Rodolf cherche à éviter en visant « des applications **et** des jeux ».
+
+⚠️ **Et c'est ce qui remonte la génération synthétique dans les priorités** — je
+l'avais descendue en §4bis.2, trop vite. C'est elle qui **recolle les deux
+corpus** : prendre des composants Kenney dont on connaît le rôle et l'état, les
+disposer selon des schémas appris de Godot, rendre, et obtenir des documents qui
+ont **la structure d'un vrai jeu et l'apparence d'un vrai jeu**. Ni l'une ni
+l'autre source ne le donne seule.
+
+**Licence** : l'essentiel du catalogue Kenney est en CC0 — à vérifier planche par
+planche, pas à supposer. Autres pistes du même ordre : OpenGameArt (licences
+mélangées, à filtrer), game-icons.net (CC-BY, donc attribution obligatoire).
+
+**Reste à trancher** : combien de planches, et si l'on accepte des licences à
+attribution ou seulement du CC0.
+
 ### 4bis.4 Le seuil de 25 % ne veut pas dire la même chose partout
 
 ⚠️ **25 % est un chiffre de WEB.** Convertir une page demande de résoudre une
