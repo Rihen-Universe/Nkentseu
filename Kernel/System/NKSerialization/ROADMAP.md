@@ -118,6 +118,55 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - [NkAssetImporter](src/NKSerialization/Asset/NkAssetImporter.h) : pipeline
   source → .nkasset (header-only, à enrichir).
 
+### ⚠️ Les bancs de `tests/` NE S'EXECUTENT PAS — mesuré le 2026-08-21
+
+`jenga test --project NKSerialization --config Debug` répond
+**« Unit-test execution is disabled by workspace policy (`disableunittestexecution`) »**.
+Les `testfiles(["tests/**.cpp"])` du `.jenga` (l. 77-80) **compilent sans jamais
+tourner**, et `find Build -ipath "*NKSerialization*" -name "*.exe"` ne renvoie
+rien. Les 15 tests de `test_smoke.cpp` et les trois bancs réflexion listés
+ci-dessous **n'ont donc jamais produit un seul résultat**.
+
+C'est la convention du dépôt : un banc doit être une **application console**
+(voir `Applications/NKGuiDrawTest/NKGuiDrawTest.jenga` l. 10-13, qui documente
+ce choix). D'où :
+
+**`Sandbox/System/NKSerialization` — banc EXÉCUTABLE, 47/47 le 2026-08-21.**
+`jenga build --target SandboxNKSerialization --config Debug` puis
+`./Build/Bin/Debug-Windows/SandboxNKSerialization/SandboxNKSerialization.exe`
+(code de sortie 0 = tout passe). Couvre C1 conteneur de scalaires, C2 conteneur
+d'objets, C3 conteneurs **imbriqués** sur trois niveaux (la forme de
+`NkUIDocument`), C4 provenance jamais omise même au défaut.
+
+**Ce que ça a coûté de ne pas l'avoir** : l'en-tête de `NkReflectSerializer.h`
+annonçait la Phase 3 « repoussée, non gérée » alors que le `.cpp` l'implémentait
+déjà. Aucun test ne tournant, rien ne contredisait l'en-tête, et cette
+affirmation fausse a servi de base à une décision d'architecture du chantier
+NkUIDesign. **Un en-tête est une promesse ; seul un banc qui tourne est une
+preuve.**
+
+### Phase 3 du pont réflexion — FAITE (et non « repoussée »)
+
+Vérifié dans le corps de `Reflection/NkReflectSerializer.cpp`, pas dans son
+en-tête, et **mesuré** par le banc ci-dessus :
+
+| capacité | implémentation | état |
+|---|---|---|
+| conteneur de scalaires / strings `NkVector<T>` | `WriteContainerProperty` / `ReadContainerProperty` (l. 386 / 440) | ✅ |
+| conteneur d'**objets réfléchis** (object-array récursif) | `WriteObjectContainerProperty` / `ReadObjectContainerProperty` (l. 358 / 416) | ✅ |
+| conteneurs **imbriqués** (objets portant eux-mêmes des conteneurs) | par récursion de `SerializeReflected` | ✅ |
+| **pointeurs** | — | ❌ **reste à faire** |
+
+Support des deux côtés : `NKReflection/NkContainerTrait.h`
+(`NkContainerDescriptor`, thunks templates spécialisés pour `NkVector<T>`) et
+`NkArchive` (`SetArray`/`GetArray`, `SetObjectArray`/`GetObjectArray`,
+`SetNodeArray`/`GetNodeArray`).
+
+**Dette nommée — les pointeurs.** Seul morceau de Phase 3 non couvert. Sans
+objet pour un document d'interface (`NkUIDocument` est **plat** : `NkVector<NkUINode>`
+et une parenté en indices `int32`, zéro pointeur), mais à traiter avant tout
+modèle qui en contiendrait — un graphe de scène, typiquement.
+
 ### Tests — suite standalone
 [test_smoke.cpp](tests/test_smoke.cpp) — 15 tests sans framework externe :
 1. Archive flat (Set/Get scalars, Remove, Has).

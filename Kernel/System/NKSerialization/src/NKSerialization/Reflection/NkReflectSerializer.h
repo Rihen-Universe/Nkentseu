@@ -15,9 +15,27 @@
 //  - Enums (categorie NK_ENUM, traites comme int64)              : OK
 //  - Objets imbriques reflechis (NK_CLASS avec NkClass associe)  : OK (recursif)
 //  - Heritage (proprietes des classes de base)                  : OK (remontee)
-// Repousse Phase 3 :
-//  - Conteneurs (NkVector / tableaux) et pointeurs               : non geres
+//
+// Couverture Phase 3 -- FAITE, et MESUREE le 2026-08-21 :
+//  - Conteneurs de scalaires/strings (NkVector<T>)               : OK
+//    (WriteContainerProperty / ReadContainerProperty, .cpp l. 386 / 440)
+//  - Conteneurs d'OBJETS reflechis, en object-array recursif     : OK
+//    (WriteObjectContainerProperty / ReadObjectContainerProperty, .cpp l. 358 / 416)
+//  - Conteneurs IMBRIQUES : un conteneur d'objets dont les objets
+//    portent eux-memes un conteneur, sur trois niveaux           : OK
+// Restant (Phase 4) :
+//  - Pointeurs                                                   : non geres
 //  - Noms symboliques d'enum (ici stockes en valeur numerique)
+//
+// ATTENTION -- ce bloc a menti pendant deux mois. Il annoncait la Phase 3
+// "repoussee, non geree" alors que le .cpp l'implementait deja, et cette
+// affirmation a servi de base a une decision d'architecture (chantier
+// NkUIDesign, 2026-08-21) qui a failli refaire un travail deja fait.
+// Les bancs de tests/ NE TOURNENT PAS : la politique du workspace
+// (disableunittestexecution) les compile sans les executer, donc rien ne
+// contredisait l'en-tete. La preuve executable est desormais dans
+// Sandbox/System/NKSerialization (application console, 47/47).
+// Si tu modifies la couverture, mets ce bloc a jour DANS LE MEME COMMIT.
 //
 // Zero-STL : aucune dependance std::, conteneurs/chaines maison, NKMemory.
 //
