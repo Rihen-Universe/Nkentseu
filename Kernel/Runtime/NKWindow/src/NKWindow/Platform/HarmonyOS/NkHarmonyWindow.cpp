@@ -50,6 +50,16 @@ namespace nkentseu {
 	static OH_NativeXComponent *sPendingXComponent = nullptr;
 	static OHNativeWindow *sPendingNativeWindow = nullptr;
 
+	// ── Zone sûre en attente (même raison que la surface) ────────────────────
+	// Le pont ArkTS s'initialise dans onWindowStageCreate, donc AVANT que
+	// nkmain() n'ait créé la NkWindow. Les insets arrivaient dans le vide : la
+	// boucle sur les fenêtres n'en trouvait aucune, et comme le système ne
+	// renvoie la zone sûre que lorsqu'elle CHANGE, la valeur initiale était
+	// perdue pour de bon. Une interface plein écran passait alors sous
+	// l'encoche sans que rien ne le signale.
+	static NkSafeAreaInsets sPendingSafeArea;
+	static bool sHasPendingSafeArea = false;
+
 	/**
 	 * @brief Retourne le vecteur global des fenêtres HarmonyOS
 	 * @return NkVector<NkWindow*>& Référence vers le vecteur statique des fenêtres
@@ -239,7 +249,9 @@ namespace nkentseu {
 	 * @param xcomp Le composant XComponent à rechercher
 	 * @return NkWindow* Pointeur vers la fenêtre trouvée, ou nullptr
 	 */
-	static NkWindow *_FindWindowByXComp(OH_NativeXComponent *xcomp) {
+	// Exposee (plus `static`) : le routage tactile vit dans NkHarmonyOS.h, du
+	// cote du point d'entree, et a besoin de la meme resolution.
+	NkWindow *NkHarmonyGetWindowForXComponent(OH_NativeXComponent *xcomp) {
 		char id[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
 		uint64_t len = OH_XCOMPONENT_ID_LEN_MAX;
 
@@ -286,7 +298,7 @@ namespace nkentseu {
 			return;
 		}
 
-		NkWindow *win = _FindWindowByXComp(x);
+		NkWindow *win = NkHarmonyGetWindowForXComponent(x);
 
 		if (!win) {
 			// Aucune fenêtre ne correspond : soit l'id XComponent ne matche pas
@@ -316,6 +328,9 @@ namespace nkentseu {
 
 		win->mData.mXComponent = x;
 		win->mData.mNativeWindow = n;
+		// Nouvelle surface : meme si l'adresse est identique a la precedente,
+		// c'est une AUTRE file de tampons. La generation le dit aux backends.
+		++win->mData.mSurfaceGeneration;
 
 		uint64_t w = 0;
 		uint64_t h = 0;
@@ -344,8 +359,35 @@ namespace nkentseu {
 		}
 #endif
 
+		// Combien de fois la surface est-elle creee, et de quelle taille ?
+		// Un lancement depuis l'icone du lanceur passe par une animation et
+		// applique l'orientation : la surface peut etre detruite puis recreee,
+		// la ou un lancement direct n'en cree qu'une. Compter tranche entre
+		// « l'application ne dessine pas » et « elle dessine dans une surface
+		// qui n'est plus la bonne ».
+		{
+			static unsigned sCreations = 0;
+			logger.Infof("[NkHarmonyOS] surface creee #%u : %llux%llu (generation %u)\n", ++sCreations,
+						 (unsigned long long)w, (unsigned long long)h, win->mData.mSurfaceGeneration);
+		}
+
 		NkWindowSurfaceCreatedEvent evt(static_cast<uint32>(w), static_cast<uint32>(h));
 		NkWESystem::Events().Enqueue_Public(evt, win->GetId());
+
+		// … et le MEME evenement qu'Android emet dans ce cas (APP_CMD_INIT_WINDOW).
+		//
+		// C'est sur NkWindowShownEvent que les applications rattachent leur
+		// surface GPU — c'est ce que fait le code de Pong comme celui de Mou, et
+		// c'est ce qui marche sur Android. HarmonyOS n'emettait que
+		// SurfaceCreated : personne ne l'ecoutait, donc au retour d'arriere-plan
+		// (ou quand une autre application passe devant puis rend la main)
+		// l'application continuait de dessiner dans une surface morte — ecran
+		// NOIR, sans aucune erreur.
+		//
+		// Emettre les deux aligne HarmonyOS sur Android sans qu'aucune
+		// application ait a distinguer les deux plateformes.
+		NkWindowShownEvent shown;
+		NkWESystem::Events().Enqueue_Public(shown, win->GetId());
 	}
 
 	/**
@@ -358,7 +400,7 @@ namespace nkentseu {
 			return;
 		}
 
-		NkWindow *win = _FindWindowByXComp(x);
+		NkWindow *win = NkHarmonyGetWindowForXComponent(x);
 
 		if (!win) {
 			return;
@@ -392,7 +434,7 @@ namespace nkentseu {
 			return;
 		}
 
-		NkWindow *win = _FindWindowByXComp(x);
+		NkWindow *win = NkHarmonyGetWindowForXComponent(x);
 
 		if (!win) {
 			return;
@@ -401,8 +443,20 @@ namespace nkentseu {
 		win->mData.mNativeWindow = nullptr;
 		win->mData.mXComponent = nullptr;
 
+		{
+			static unsigned sDestructions = 0;
+			logger.Infof("[NkHarmonyOS] surface DETRUITE #%u\n", ++sDestructions);
+		}
+
 		NkWindowSurfaceDestroyedEvent evt;
 		NkWESystem::Events().Enqueue_Public(evt, win->GetId());
+
+		// Pendant du Shown emis a la creation : c'est sur Hidden que les
+		// applications cessent de rendre (Android fait de meme sur
+		// APP_CMD_TERM_WINDOW). Sans lui, elles continuaient de dessiner dans une
+		// surface deja detruite.
+		NkWindowHiddenEvent hidden;
+		NkWESystem::Events().Enqueue_Public(hidden, win->GetId());
 	}
 
 	// =========================================================================
@@ -439,6 +493,24 @@ namespace nkentseu {
 	 * @param left Marge gauche
 	 */
 	void NkHarmonyOnSafeAreaChanged(float top, float right, float bottom, float left) {
+		// Trace volontairement conservee : la zone sure ne change qu'a
+		// l'ouverture, a la rotation et a l'apparition du clavier — aucun bruit.
+		// Quand une interface passe sous l'encoche, la premiere question est
+		// « le pont ArkTS a-t-il seulement parle ? » ; cette ligne y repond.
+		logger.Infof("[NkHarmonyOS] zone sure : haut=%.0f droite=%.0f bas=%.0f gauche=%.0f\n", (double)top,
+					 (double)right, (double)bottom, (double)left);
+
+		// Toujours memoriser : si la fenetre n'existe pas encore, c'est elle qui
+		// viendra chercher la valeur a sa creation (cf. sPendingSafeArea).
+		{
+			NkScopedSpinLock l(sHarmonyWindowsMutex);
+			sPendingSafeArea.top = top;
+			sPendingSafeArea.right = right;
+			sPendingSafeArea.bottom = bottom;
+			sPendingSafeArea.left = left;
+			sHasPendingSafeArea = true;
+		}
+
 		for (NkWindow *win : NkHarmonyGetWindowsSnapshot()) {
 			if (!win) {
 				continue;
@@ -623,6 +695,20 @@ namespace nkentseu {
 
 		mIsOpen = true;
 		NkHarmonyRegisterWindow(this);
+
+		// ── Adoption de la zone sûre déjà annoncée par ArkTS ─────────────────
+		// Le pont parle depuis onWindowStageCreate, avant que cette fenêtre
+		// n'existe. Le système, lui, ne renverra les insets que lorsqu'ils
+		// CHANGERONT : sans cette reprise, la fenêtre resterait à zéro pour
+		// toute sa vie sur un appareil dont la zone sûre ne bouge jamais.
+		{
+			NkScopedSpinLock l(sHarmonyWindowsMutex);
+			if (sHasPendingSafeArea) {
+				mData.mSafeArea = sPendingSafeArea;
+				logger.Infof("[NkHarmonyOS] zone sure reprise a la creation : haut=%.0f bas=%.0f\n",
+							 (double)sPendingSafeArea.top, (double)sPendingSafeArea.bottom);
+			}
+		}
 
 		// ── Adoption d'une surface XComponent en attente ─────────────────────
 		// Si le XComponent ArkTS a déjà créé sa surface (OnSurfaceCreated arrivé
@@ -1180,6 +1266,7 @@ namespace nkentseu {
 		// NkSurfaceDesc Harmony : `ohNativeWindow` (OHNativeWindow*) — pas
 		// `nativeWindow`. Voir NkSurface.h #elif NKENTSEU_PLATFORM_HARMONYOS.
 		d.ohNativeWindow = reinterpret_cast<OHNativeWindow *>(mData.mNativeWindow);
+		d.ohSurfaceGeneration = mData.mSurfaceGeneration;
 		d.appliedHints = mData.mAppliedHints;
 
 		return d;

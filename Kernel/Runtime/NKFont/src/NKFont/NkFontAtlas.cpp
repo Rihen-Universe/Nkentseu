@@ -591,7 +591,25 @@ namespace nkentseu {
 
 			font->AddGlyph(g);
 		}
-		logger.Info("[NkFontAtlas] Build():{0} glyphes rasterises\n", glyphsRast);
+		// Compter ce qui a REELLEMENT ete ecrit dans l'atlas, et non le nombre
+		// de glyphes traites.
+		//
+		// Les deux ne disent pas la meme chose : sur HarmonyOS, l'atlas ressort
+		// entierement a zero alors que la rasterisation annonce son travail fait.
+		// Un atlas vide rend tout le texte invisible — une interface complete se
+		// reduit alors a des silhouettes sur fond sombre, sans qu'aucune erreur
+		// ne soit signalee nulle part.
+		{
+			nkft_uint32 nonNuls = 0;
+			const nkft_int32 total = atlasW * atlasH;
+			for (nkft_int32 i = 0; i < total; i += 97) { // pas premier : balayage reparti
+				if (texPixels[i] != 0) {
+					++nonNuls;
+				}
+			}
+			logger.Info("[NkFontAtlas] Build():{0} glyphes rasterises, atlas {1}x{2}, {3} points non nuls\n",
+						glyphsRast, atlasW, atlasH, nonNuls);
+		}
 
 		if (sdfTemp)
 			nkentseu::memory::NkFree(sdfTemp);

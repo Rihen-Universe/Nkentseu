@@ -99,9 +99,33 @@
 // -----------------------------------------------------------------------------
 #if defined(NKENTSEU_PLATFORM_HARMONYOS)
 #define NK_NATIVE_WIN(s) ((s).ohNativeWindow)
+#include <native_window/external_window.h>
 #else
 #define NK_NATIVE_WIN(s) ((s).nativeWindow)
 #endif
+
+namespace {
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+	// Impose au tampon de la fenetre native la geometrie annoncee par le
+	// XComponent, AVANT toute creation de surface EGL : c'est ce qui garantit
+	// que l'on dessine dans un tampon de la forme attendue par l'ecran.
+	//
+	// Le code de retour est journalise a dessein. eglQuerySurface continuera
+	// d'annoncer les dimensions transposees meme quand cet appel REUSSIT (code
+	// 0) — sans cette trace on croirait l'appel sans effet, et on serait tente
+	// de suivre eglQuerySurface, ce qui fait rendre a l'envers.
+	inline void NkHarmonyAlignerTampon(void *nativeWindow, unsigned int largeur, unsigned int hauteur) {
+		if (!nativeWindow || largeur == 0u || hauteur == 0u) {
+			return;
+		}
+		const int32_t r =
+			OH_NativeWindow_NativeWindowHandleOpt(static_cast<OHNativeWindow *>(nativeWindow), SET_BUFFER_GEOMETRY,
+												  static_cast<int32_t>(largeur), static_cast<int32_t>(hauteur));
+		logger.Infof("[NkOpenGL] geometrie du tampon %ux%u -> code %d\n", largeur, hauteur, (int)r);
+	}
+#endif
+} // namespace
+
 
 // Constantes WGL ARB (utilisÃ©es si GLAD2 absent, magic numbers nommÃ©s)
 #ifndef WGL_DRAW_TO_WINDOW_ARB
@@ -278,6 +302,19 @@ namespace nkentseu {
 
 		mData.width = surf.width;
 		mData.height = surf.height;
+
+		// ⚠️ NE PAS remplacer ces dimensions par celles de eglQuerySurface.
+		//
+		// Sur HarmonyOS, EGL exprime la taille de la surface dans l'orientation
+		// PHYSIQUE de la dalle : pour une fenêtre portrait de 1260x2503, il
+		// rapporte 2503x1260 — et ce, MÊME après un SET_BUFFER_GEOMETRY accepté
+		// (code de retour 0) pour 1260x2503. Se fier à cette valeur fait rendre
+		// en paysage une application portrait : l'image sort tournée d'un quart
+		// de tour, ce qui a été constaté sur Mou comme sur Pong.
+		//
+		// La géométrie de la FENÊTRE est la seule vérité pour le viewport et la
+		// projection.
+
 		mIsValid = true;
 		mVSync = (desc.opengl.swapInterval != NkGLSwapInterval::Immediate);
 		NK_GL_LOG("Ready - %s | %s | %s\n", mData.renderer, mData.version, mData.vendor);
@@ -308,20 +345,40 @@ namespace nkentseu {
 		}
 		NK_GL_LOG("GLAD2 GL %d.%d\n", GLAD_VERSION_MAJOR(ver), GLAD_VERSION_MINOR(ver));
 
+// Les plateformes MOBILES sont testées AVANT X11, et ce n'est pas un détail de
+// style : HarmonyOS et Android sont bâtis sur Linux, donc les macros de
+// fenêtrage X11 peuvent être définies chez eux. Testées en premier, elles
+// emmenaient HarmonyOS dans la branche GLX ; glXGetProcAddressARB n'y résout
+// évidemment rien, et glad gardait ses pointeurs à zéro. Le contexte
+// s'initialisait « avec succès », puis la première fonction GL appelée sautait
+// à l'adresse 0 — SIGSEGV dans glCreateShader, sans aucun message.
+#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS) ||                                    \
+	defined(NKENTSEU_WINDOWING_WAYLAND)
+		// Loaders glad (dlopen libEGL/libGLESv2) : indispensables car eglGetProcAddress NE
+		// resout PAS les fonctions GLES2 CORE (glGetString, glClear...) sur Mesa -> NULL.
+		gladLoaderLoadEGL(mData.eglDisplay);
+		// Deux chemins, dans cet ordre — même stratégie que NKRHI, pour la même
+		// raison. Le loader par dlopen est préféré : sur certains pilotes
+		// (émulateurs notamment) eglGetProcAddress rend des pointeurs vers une
+		// implémentation GLES distincte de celle liée à la swapchain, et le
+		// rendu « réussit » sans jamais être composé. Mais il cherche
+		// libGLESv2.so, qui n'existe pas sous ce nom sur HarmonyOS : sans le
+		// repli ci-dessous, le chargement échouait et toutes les fonctions GL
+		// restaient nulles.
+		int ver = gladLoaderLoadGLES2();
+		if (!ver) {
+			NK_GL_LOG("gladLoaderLoadGLES2 (dlopen) a echoue, repli sur eglGetProcAddress\n");
+			ver = gladLoadGLES2((GLADloadfunc)eglGetProcAddress);
+		}
+		if (!ver) {
+			NK_GL_ERR("gladLoadGLES2 failed\n");
+			return false;
+		}
+
 #elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
 		int ver = gladLoadGL((GLADloadfunc)glXGetProcAddressARB);
 		if (!ver) {
 			NK_GL_ERR("gladLoadGL(GLX) failed\n");
-			return false;
-		}
-
-#elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
-		// Loaders glad (dlopen libEGL/libGLESv2) : indispensables car eglGetProcAddress NE
-		// resout PAS les fonctions GLES2 CORE (glGetString, glClear...) sur Mesa -> NULL.
-		gladLoaderLoadEGL(mData.eglDisplay);
-		int ver = gladLoaderLoadGLES2();
-		if (!ver) {
-			NK_GL_ERR("gladLoaderLoadGLES2 failed\n");
 			return false;
 		}
 
@@ -530,6 +587,32 @@ namespace nkentseu {
 			// Pas de native window valide (app encore en background sur Android).
 			return false;
 		}
+		// Rien n'a changé -> NE RIEN FAIRE. Sans cette garde, la fonction
+		// détruisait et recréait la surface EGL à CHAQUE appel. Appelée une fois
+		// par frame — ce qu'exige le cycle de vie mobile, où la fenêtre native
+		// peut être remplacée à tout moment — elle jetait la surface juste
+		// remplie avant même que le compositeur ne l'affiche.
+		//
+		// La TAILLE fait partie de la comparaison, et c'est le point essentiel :
+		// sur HarmonyOS la surface est d'abord créée pendant que le XComponent
+		// n'a pas encore sa géométrie définitive (mesuré : 2503x1260 pour un
+		// écran de 1260x2720). Le pointeur de fenêtre, lui, ne change jamais —
+		// une garde qui ne regarderait que lui figerait l'application sur cette
+		// surface bâtarde, que le compositeur n'affiche pas : écran noir, sans
+		// une seule erreur GL ni le moindre échec de eglSwapBuffers.
+		if (NK_NATIVE_WIN(surf) == mData.eglNativeWindow && mData.eglSurface != EGL_NO_SURFACE) {
+			EGLint curW = 0, curH = 0;
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_WIDTH, &curW);
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_HEIGHT, &curH);
+			const math::NkVec2u taille = window.GetSize();
+			const EGLint wantW = static_cast<EGLint>(taille.x);
+			const EGLint wantH = static_cast<EGLint>(taille.y);
+			if (wantW <= 0 || wantH <= 0 || (curW == wantW && curH == wantH)) {
+				return true; // conforme (ou taille de fenêtre pas encore connue)
+			}
+			logger.Infof("[NkOpenGL] surface %dx%d != fenetre %dx%d -> recreation\n", (int)curW, (int)curH,
+						 (int)wantW, (int)wantH);
+		}
 #endif
 
 		// 1. Libere le current context (eglDestroySurface ne marche pas si la
@@ -569,6 +652,10 @@ namespace nkentseu {
 		EGLNativeWindowType nwin = reinterpret_cast<EGLNativeWindowType>(NK_NATIVE_WIN(surf));
 #endif
 
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		NkHarmonyAlignerTampon(NK_NATIVE_WIN(surf), surf.width, surf.height);
+#endif
+
 		// 3. Cree une nouvelle eglSurface attachee au nouveau native window.
 		mData.eglSurface = eglCreateWindowSurface(mData.eglDisplay, mData.eglConfig, nwin, nullptr);
 		if (mData.eglSurface == EGL_NO_SURFACE) {
@@ -580,6 +667,15 @@ namespace nkentseu {
 			return false;
 		}
 		eglSwapInterval(mData.eglDisplay, mVSync ? 1 : 0);
+
+		// Même règle qu'à l'initialisation : c'est la FENÊTRE qui fait autorité
+		// (eglQuerySurface transpose sur HarmonyOS, cf. le commentaire là-bas).
+		// Cette reprise reste nécessaire pour qu'une rotation ne laisse pas le
+		// contexte sur l'ancienne géométrie.
+		if (surf.width > 0 && surf.height > 0) {
+			mData.width = surf.width;
+			mData.height = surf.height;
+		}
 		return true;
 #else
 		// PC / iOS / Web : surface non perdue par le system. No-op.
@@ -1091,10 +1187,24 @@ namespace nkentseu {
 		int renderType = kForceES ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_BIT;
 		int surfTypes = EGL_WINDOW_BIT | (h.pbufferSurface ? EGL_PBUFFER_BIT : 0);
 
+		// ⚠️ NE PAS demander zéro bit d'alpha sur HarmonyOS.
+		//
+		// Cela a été tenté pour rendre la fenêtre opaque, en supposant que le
+		// compositeur assombrissait le rendu via le canal alpha. Le résultat est
+		// bien pire : l'application continue de dessiner correctement — la sonde
+		// d'image lit des couleurs justes dans le framebuffer — mais son image
+		// n'atteint plus l'écran du tout. Le compositeur attend une couche au
+		// format RGBA ; une surface sans alpha n'est jamais composée, et l'écran
+		// reste noir alors qu'aucune erreur n'est signalée, ni au rendu ni au
+		// eglSwapBuffers.
+		//
+		// L'alpha demandé reste donc celui de la configuration.
+		const EGLint alphaDemande = h.alphaBits;
+
 		const EGLint cfgAttribs[] = {EGL_RENDERABLE_TYPE, renderType,		  EGL_SURFACE_TYPE,
 									 surfTypes,			  EGL_RED_SIZE,		  h.redBits,
 									 EGL_GREEN_SIZE,	  h.greenBits,		  EGL_BLUE_SIZE,
-									 h.blueBits,		  EGL_ALPHA_SIZE,	  h.alphaBits,
+									 h.blueBits,		  EGL_ALPHA_SIZE,	  alphaDemande,
 									 EGL_DEPTH_SIZE,	  gl.depthBits,		  EGL_STENCIL_SIZE,
 									 gl.stencilBits,	  EGL_SAMPLE_BUFFERS, gl.msaaSamples > 1 ? 1 : 0,
 									 EGL_SAMPLES,		  gl.msaaSamples,	  EGL_NONE};
@@ -1200,6 +1310,10 @@ namespace nkentseu {
 		logger.Warnf("[NkOpenGL][DBG] InitEGL nativeWindow=%p", mData.eglNativeWindow);
 		EGLNativeWindowType nwin = reinterpret_cast<EGLNativeWindowType>(NK_NATIVE_WIN(surf));
 #endif
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		NkHarmonyAlignerTampon(NK_NATIVE_WIN(surf), surf.width, surf.height);
+#endif
+
 		logger.Warn("[NkOpenGL][DBG] InitEGL before eglCreateWindowSurface");
 		mData.eglSurface = eglCreateWindowSurface(mData.eglDisplay, mData.eglConfig, nwin, nullptr);
 		logger.Warnf("[NkOpenGL][DBG] InitEGL eglSurface=%p", mData.eglSurface);
@@ -1215,6 +1329,19 @@ namespace nkentseu {
 #endif
 			NK_GL_ERR("eglCreateWindowSurface failed\n");
 			return false;
+		}
+
+		// Taille REELLE de la surface obtenue. Une surface de dimensions nulles
+		// ou differentes de la fenetre ne montre rien, et c'est indetectable
+		// autrement : la creation « reussit » et le rendu ne signale aucune
+		// erreur.
+		{
+			EGLint sw = 0, sh = 0;
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_WIDTH, &sw);
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_HEIGHT, &sh);
+			logger.Infof("[NkOpenGL] surface EGL %dx%d | contexte %ux%u | surf.desc %ux%u | natif %p\n", (int)sw,
+						 (int)sh, mData.width, mData.height, surf.width, surf.height,
+						 (void *)mData.eglNativeWindow);
 		}
 
 		logger.Warn("[NkOpenGL][DBG] InitEGL before eglBindAPI");
@@ -1284,6 +1411,98 @@ namespace nkentseu {
 	}
 
 	void NkOpenGLContext::SwapEGL() {
+		// ── Sonde d'image (NK_GL_PROBE=1) ────────────────────────────────────
+		// Sur appareil, la capture d'écran du système NE VOIT PAS la couche GPU :
+		// elle rend l'interface du système à la place de l'application. Impossible
+		// donc de juger le rendu par une capture — c'est ce qui a fait tourner en
+		// rond tout un diagnostic HarmonyOS.
+		//
+		// On demande donc à l'application ce qu'elle a RÉELLEMENT dessiné, juste
+		// avant de présenter. Le journal, lui, sort parfaitement de l'appareil.
+		//
+		// Lit cinq points : centre et quatre coins (rentrés de 5 %, pour éviter
+		// les bordures). Les coins révèlent une image transposée ou décalée ;
+		// le centre dit si la scène est en couleur ou noire.
+		//
+		// glReadPixels synchronise le pipeline : réservé au diagnostic, jamais
+		// actif par défaut. Une image sur 60 suffit à suivre l'évolution.
+		{
+			static const bool sonde = [] {
+#if defined(NKENTSEU_DEBUG) && (defined(NKENTSEU_PLATFORM_HARMONYOS) || defined(NKENTSEU_PLATFORM_ANDROID))
+				// Sur appareil, une application ne reçoit pas l'environnement du
+				// shell : la variable ne servirait à rien. En Debug, la sonde est
+				// donc active d'office — c'est précisément là qu'on en a besoin,
+				// et c'est le seul endroit où l'on ne peut PAS voir l'écran
+				// autrement. Les builds Release n'en portent aucune trace.
+				return true;
+#else
+				const char *v = std::getenv("NK_GL_PROBE");
+				return v && *v && *v != '0';
+#endif
+			}();
+			if (sonde && mData.width > 8 && mData.height > 8) {
+				static uint64 frame = 0;
+				if ((frame++ % 60u) == 0u) {
+					const int w = static_cast<int>(mData.width);
+					const int h = static_cast<int>(mData.height);
+					const int mx = w / 20, my = h / 20; // marge de 5 %
+
+					// Balayage d'une GRILLE, en plus des cinq points nommes.
+					//
+					// Cinq points ne disent pas si un ecran est vide : ils peuvent
+					// tous tomber entre les elements d'interface. Compter les
+					// teintes distinctes et retenir la plus claire tranche enfin
+					// entre « rien n'est dessine » et « c'est dessine, mais
+					// sombre » — la question sur laquelle on tournait en rond.
+					{
+						unsigned distinctes = 0, plusClair = 0;
+						unsigned vues[64] = {};
+						for (int gy = 0; gy < 8; ++gy) {
+							for (int gx = 0; gx < 8; ++gx) {
+								unsigned char q[4] = {0, 0, 0, 0};
+								glReadPixels(mx + (w - 2 * mx) * gx / 7, my + (h - 2 * my) * gy / 7, 1, 1, GL_RGBA,
+											 GL_UNSIGNED_BYTE, q);
+								const unsigned c = (unsigned)q[0] << 16 | (unsigned)q[1] << 8 | q[2];
+								const unsigned lum = (unsigned)q[0] + q[1] + q[2];
+								if (lum > plusClair) {
+									plusClair = lum;
+								}
+								bool connue = false;
+								for (unsigned k = 0; k < distinctes && !connue; ++k) {
+									connue = (vues[k] == c);
+								}
+								if (!connue && distinctes < 64u) {
+									vues[distinctes++] = c;
+								}
+							}
+						}
+						logger.Infof("[NkGL grille] %u teintes distinctes sur 64 points, luminosite max %u/765\n",
+									 distinctes, plusClair);
+					}
+					struct Point {
+							const char *nom;
+							int x, y;
+					};
+					const Point pts[] = {
+						{"centre", w / 2, h / 2},
+						{"bas-gauche", mx, my}, // origine GL = bas-gauche
+						{"bas-droite", w - 1 - mx, my},
+						{"haut-gauche", mx, h - 1 - my},
+						{"haut-droite", w - 1 - mx, h - 1 - my},
+					};
+					char ligne[256];
+					int n = std::snprintf(ligne, sizeof(ligne), "[NkGL sonde] %dx%d :", w, h);
+					for (const Point &p : pts) {
+						unsigned char px[4] = {0, 0, 0, 0};
+						glReadPixels(p.x, p.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+						n += std::snprintf(ligne + n, sizeof(ligne) - (size_t)n, " %s=%02X%02X%02X/%02X", p.nom, px[0],
+										   px[1], px[2], px[3]);
+					}
+					logger.Infof("%s\n", ligne);
+				}
+			}
+		}
+
 		eglSwapBuffers(mData.eglDisplay, mData.eglSurface);
 	}
 

@@ -377,6 +377,92 @@ namespace nkentseu {
 #endif // NKENTSEU_PLATFORM_LINUX
 
 		// ====================================================================
+		// OHAUDIO BACKEND (HarmonyOS)
+		// ====================================================================
+
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+
+		/**
+		 * @brief Backend OHAudio (HarmonyOS / OpenHarmony)
+		 *
+		 * Miroir d'AAudio (l'API OHAudio en est un quasi-clone) :
+		 * OH_AudioRenderer + write-data callback, format F32LE — le même
+		 * couple que la capture (NkAudioCapture, OH_AudioCapturer) déjà
+		 * en service. Attention : le callback OHAudio livre une taille en
+		 * OCTETS, pas en frames comme AAudio.
+		 */
+		class NKENTSEU_AUDIO_API OHAudioBackend : public IAudioBackend {
+			public:
+				bool Initialize(int32 sampleRate, int32 channels, int32 bufferSize) override;
+				void Shutdown() override;
+				void SetCallback(AudioCallback callback) override;
+				void Start() override;
+				void Stop() override;
+				void Pause() override;
+				void Resume() override;
+
+				int32 GetSampleRate() const override {
+					return mSampleRate;
+				}
+
+				int32 GetChannels() const override {
+					return mChannels;
+				}
+
+				int32 GetBufferSize() const override {
+					return mBufferSize;
+				}
+
+				float32 GetLatencyMs() const override {
+					return (float32)mBufferSize / (float32)mSampleRate * 1000.0f;
+				}
+
+				bool IsRunning() const override {
+					return mRunning;
+				}
+
+				const char *GetName() const override {
+					return "OHAudio";
+				}
+
+				// Accesseurs pour le callback OHAudio (defini en C, hors classe).
+				const AudioCallback &GetCallback() const noexcept {
+					return mCallback;
+				}
+
+				bool IsPaused() const noexcept {
+					return mPaused;
+				}
+
+				// Mode S16LE : l'emulateur NEXT refuse F32LE (« Unsupported
+				// audio parameter ») — le mixeur produit du float32, converti
+				// vers int16 dans le callback via un scratch buffer.
+				bool UsesS16() const noexcept {
+					return mUseS16;
+				}
+
+				float32 *EnsureScratch(int32 floatCount) noexcept;
+
+			private:
+				bool _CreateStream(bool useS16);
+
+				int32 mSampleRate = 48000;
+				int32 mChannels = 2;
+				int32 mBufferSize = 256;
+				bool mRunning = false;
+				bool mPaused = false;
+				bool mUseS16 = false;
+				AudioCallback mCallback;
+				float32 *mScratch = nullptr;
+				int32 mScratchFloats = 0;
+
+				struct OHImpl;
+				OHImpl *mImpl = nullptr;
+		};
+
+#endif // NKENTSEU_PLATFORM_HARMONYOS
+
+		// ====================================================================
 		// AAUDIO BACKEND (Android 8.0+)
 		// ====================================================================
 
