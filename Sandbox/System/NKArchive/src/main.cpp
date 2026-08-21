@@ -559,6 +559,20 @@ static void T5_AdditifJSON() {
 	const NkString jNue = NkJSONWriter::WriteArchive(nue, true, 2);
 	const NkString jOrnee = NkJSONWriter::WriteArchive(ornee, true, 2);
 
+	// ⚠️ ANCRAGE OBLIGATOIRE, ET C'EST LE POINT DELICAT DE CE CONTROLE.
+	//
+	// La comparaison qui suit oppose deux sorties de LA MEME fonction. Si
+	// NkJSONWriter::WriteArchive rendait du vide, les deux seraient vides,
+	// l'egalite serait vraie et les deux `Find(...) == npos` seraient vrais
+	// aussi : T5 passerait au vert sur un ecrivain JSON entierement casse.
+	// Le controle et ce qu'il controle partageraient une cause.
+	//
+	// On ancre donc UN cote sur du texte ECRIT A LA MAIN, qui ne peut pas venir
+	// du code teste. Sans ces trois lignes, l'egalite ne prouve rien.
+	EXPECT_TRUE(!jNue.Empty());
+	EXPECT_TRUE(jNue.Find(NkStringView("\"height\": 240")) != NkString::npos);
+	EXPECT_TRUE(jNue.Find(NkStringView("\"title\": \"Inspecteur\"")) != NkString::npos);
+
 	EXPECT_STREQ(jOrnee, jNue);
 	EXPECT_TRUE(jOrnee.Find(NkStringView("0.50")) == NkString::npos);
 	EXPECT_TRUE(jOrnee.Find(NkStringView("commentaire")) == NkString::npos);
@@ -587,6 +601,11 @@ static void T6_AdditifNKS1() {
 	NkVector<nk_uint8> binOrnee;
 	EXPECT_TRUE(native::NkNativeWriter::WriteArchive(nue, binNue));
 	EXPECT_TRUE(native::NkNativeWriter::WriteArchive(ornee, binOrnee));
+
+	// Meme ancrage qu'en T5 : deux sorties de la meme fonction ne prouvent rien
+	// tant qu'on n'a pas verifie qu'elles ne sont pas vides. Ici la relecture
+	// plus bas (h == 240) sert de second ancrage independant.
+	EXPECT_TRUE(binNue.Size() > 0);
 
 	EXPECT_TRUE(binNue.Size() == binOrnee.Size());
 	bool same = (binNue.Size() == binOrnee.Size());
