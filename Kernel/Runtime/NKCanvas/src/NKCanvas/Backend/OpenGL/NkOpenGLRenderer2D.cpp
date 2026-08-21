@@ -539,7 +539,13 @@ namespace nkentseu {
 			// Chaque frame demarre sans scissor (sinon un Clear serait clippe par le
 			// scissor laisse par la frame precedente, l'etat GL etant persistant).
 			glDisable(GL_SCISSOR_TEST);
-			mLastBoundTexId = 0;
+			// Sentinelle IMPOSSIBLE, et non zero : le cache doit dire « j'ignore
+			// ce qui est lie », pas « la texture 0 est liee ». Zero est une valeur
+			// legitime (aucune texture, ou texture pas encore televersee) : la
+			// placer ici faisait passer BindTexture pour un no-op au moment
+			// precis ou il fallait agir. L'etat GL reel n'est de toute facon pas
+			// connu en debut d'image — d'autres systemes dessinent aussi.
+			mLastBoundTexId = 0xFFFFFFFFu;
 			// L'etat MEMORISE doit decrire l'etat REEL qu'on vient de poser
 			// ci-dessus : glEnable(GL_BLEND) + SRC_ALPHA/ONE_MINUS_SRC_ALPHA,
 			// c'est-a-dire le mode ALPHA. Declarer NK_NONE ici mentait au cache :
@@ -610,6 +616,26 @@ namespace nkentseu {
 			uint32 id = tex ? tex->GetGPUId() : mWhiteTexId;
 			if (!id)
 				id = mWhiteTexId;
+
+			// Ne JAMAIS court-circuiter sur l'identifiant 0.
+			//
+			// Zero n'est pas un nom de texture : c'est « aucune texture », et
+			// c'est aussi ce que vaut une texture pas encore televersee. Quand le
+			// cache contenait cette valeur — ce qu'il faisait au debut de chaque
+			// image — un dessin demandant 0 sortait d'ici sans rien lier, et le
+			// shader echantillonnait une unite vide. Or GL rend alors exactement
+			// (0,0,0,1) : du NOIR OPAQUE.
+			//
+			// A l'ecran, cela donnait un logo circulaire transforme en carre noir
+			// (ses zones transparentes devenant opaques) et des elements colores
+			// rendus en gris — le noir module par la couleur du sommet reste noir,
+			// seul l'alpha du sommet subsistait. Une fois sur trois seulement, le
+			// hasard de l'ordre d'initialisation donnait le bon rendu.
+			if (id == 0u) {
+				mLastBoundTexId = 0u;
+				glBindTexture(GL_TEXTURE_2D, 0);
+				return;
+			}
 			if (id == mLastBoundTexId)
 				return;
 			mLastBoundTexId = id;
