@@ -2,6 +2,11 @@
 // =============================================================================
 // NkUICanvasBackend.h — Backend NKUI -> NkRenderer2D (NKCanvas)
 // -----------------------------------------------------------------------------
+// ⚠️ DÉPRÉCIÉ (Rihen, 2026-08-11) : NKUI est remplacé par NKGui. Pour toute
+// NOUVELLE interface sur NKCanvas, utiliser NkGuiCanvasBackend.h (header-only,
+// à côté de ce fichier). Ce pont reste compilable (NK_CANVAS_WITH_NKUI=1)
+// uniquement pour le code existant. Cf. Kernel/Runtime/NKUI/ROADMAP.md.
+// -----------------------------------------------------------------------------
 // Rend les draw-lists immediate-mode de NKUI (NkUIContext) via le renderer 2D
 // de NKCanvas (NkIRenderer2D). Equivalent de NkUINKRHIBackend mais sans la
 // plomberie GPU bas-niveau : NkRenderer2D absorbe pipeline/buffers/clip/textures.

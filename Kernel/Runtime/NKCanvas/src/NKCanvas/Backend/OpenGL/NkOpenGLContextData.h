@@ -55,9 +55,13 @@ using PFNWGLSWAPINTERVALEXTPROC = BOOL(WINAPI *)(int);
 #ifdef __OBJC__
 #import <AppKit/AppKit.h>
 #else
-struct NSOpenGLContext;
-struct NSOpenGLPixelFormat;
-struct NSView;
+// Aligné sur NkCocoaWindow.h (using = objc_object), comme la branche iOS
+// ci-dessous : `struct NSView;` entrait en conflit « struct vs type alias »
+// dès qu'une unité .cpp non-ObjC incluait les deux en-têtes (révélé par la
+// première CI macOS, 2026-08-11).
+using NSOpenGLContext = struct objc_object;
+using NSOpenGLPixelFormat = struct objc_object;
+using NSView = struct objc_object;
 #endif
 
 #elif defined(NKENTSEU_PLATFORM_IOS)

@@ -1243,6 +1243,11 @@ namespace nkentseu {
 		}
 		logger.Warn("[NkWayland][DBG] after drop init");
 
+		// Fenêtre discrète demandée à la création : seul le click-through a un
+		// effet réel sur Wayland (région d'entrée) — cf. les setters plus bas.
+		if (config.clickThrough)
+			SetClickThrough(true);
+
 		logger.Warn("[NkWayland][DBG] before mIsOpen=true");
 		mIsOpen = true;
 		return true;
@@ -1544,6 +1549,59 @@ namespace nkentseu {
 
 	bool NkWindow::IsDecorated() const {
 		return mConfig.frame;
+	}
+
+	// ── Fenêtre discrète ─────────────────────────────────────────────────────────
+
+	// Opacité : AUCUN protocole Wayland côté client ne règle l'opacité d'un
+	// toplevel (choix du compositeur). Intention mémorisée sans effet — la doc
+	// du header dit le support réel. Un rendu avec alpha (surface ARGB) reste
+	// possible côté application, mais c'est un autre mécanisme.
+	void NkWindow::SetOpacity(float32 opacity) {
+		if (opacity < 0.0f)
+			opacity = 0.0f;
+		if (opacity > 1.0f)
+			opacity = 1.0f;
+		mConfig.opacity = opacity;
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	// Toujours-devant : pas de protocole xdg pour un toplevel « above » (le
+	// compositeur décide de l'empilement). Intention mémorisée sans effet.
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		return mConfig.alwaysOnTop;
+	}
+
+	// Click-through : ICI Wayland sait faire proprement — une région d'entrée
+	// VIDE sur la surface, et le compositeur route pointeur/tactile vers ce qui
+	// est dessous. Région nulle (NULL) = toute la surface redevient sensible.
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+		if (!mData.mSurface || !mData.mCompositor)
+			return;
+		if (clickThrough) {
+			::wl_region *empty = wl_compositor_create_region(mData.mCompositor);
+			if (!empty)
+				return;
+			wl_surface_set_input_region(mData.mSurface, empty); // vide = rien n'est cliquable
+			wl_region_destroy(empty);							// la surface a copié la région
+		} else {
+			wl_surface_set_input_region(mData.mSurface, nullptr); // NULL = surface entière
+		}
+		wl_surface_commit(mData.mSurface); // la région d'entrée est double-bufferisée
+		if (mData.mDisplay)
+			wl_display_flush(mData.mDisplay);
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		return mConfig.clickThrough;
 	}
 
 	bool NkWindow::IsMaximized() const {
