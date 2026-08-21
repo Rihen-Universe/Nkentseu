@@ -179,3 +179,10 @@ mat/slots-survivent-a-l-edition    slots 1 -> 1 | dernier id=777 (777 attendu)
 mat/decim-non-tranche              slot1 2 -> 0 | tris 12->6 (MESURE, pas un attendu)
 mat/temoin-smooth                  smooth 12 -> 0 sur 24 faces (TEMOIN du comportement existant)
 mat/survie-soudure                 slot1 2 -> 2 | sommets 24 -> 8 ok=1
+hist/aller-retour                  undo=1 redo=1 | retourExact=1 refaitExact=1 muteDifferent=1
+hist/pile-vide                     undoVide=0 (0 attendu) redoVide=0 (0 attendu) etatIntact=1 canUndo=0
+hist/plafond                       profondeur=3 (3 attendue) remontees=3 | x 0.5 -> 2.5 (x0+2 attendu : 2 plus anciens jetes)
+hist/branche-abandonnee            refaisableAvant=1 (1 attendu) apresNouveauCommit=0 (0 attendu) canRedo=0
+hist/materiau-survit               slot7 1 -> 4 -> 1 (retour a 1 attendu) | slots=1 id=4242
+hist/selection-survit              selectionnes 4 -> 4 | somme des rangs 10 -> 10 (identiques attendus)
+hist/chaine                        remontees=3 (3 attendues) retourOrigine=1 profondeur=0 refaisables=3
