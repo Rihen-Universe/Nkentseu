@@ -18,6 +18,66 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 
 ---
 
+## 🎨 MATÉRIAU PAR FACE (façon Blender) — livré partiellement (agent nk3dmodeler, 2026-08-21, `942fae39`)
+
+Demande de Rodolf : « un groupe de vertex ou de face **lier ou non** partage même
+material comme sur blender ». Le mot qui commande est **« lier ou non »** : deux
+faces d'un même matériau n'ont aucune raison d'être connexes.
+
+**Livré** — `NkEditMesh::Face::material` (index) + `NkEditMesh::materialSlots`
+(le maillage possède la liste, la face n'en porte que l'index) + `BuildSubMeshRanges`
+(sous-mailles **déduites** de l'index, un slot pouvant donner **plusieurs plages**)
++ `AssignMaterialToSelectedFaces` (règle Blender : faces dont **tous** les coins
+sont sélectionnés). Preuve : 11 cas `mat/` dans `NKEditMeshHarness`, référence
+passée de 169 à 180 lignes, les 169 premières identiques octet pour octet.
+
+### ⚠️ LE FAIT QUI A DICTÉ LA CONCEPTION — `smooth` NE SURVIT PAS AUX OPÉRATIONS
+
+**Mesuré, pas supposé** (cas `mat/temoin-smooth`) : 12 faces passées en SMOOTH,
+une subdivision, **`smooth 12 -> 0`**. Zéro survivante.
+
+**Cause** : toute opération d'édition passe par `ToPolygons`/`BuildFromPolygons`,
+qui **reconstruit des `Face` à neuf**. `ToPolygons` n'émettait **aucun attribut de
+face** — tout ce que portait `Face` était perdu à chaque opération.
+
+Si `smooth` n'a jamais gêné, c'est qu'il est **RE-DÉDUIT** par `BuildFromIndexed`
+en comparant les normales des coins : **l'ombrage EST une propriété des normales**.
+**Un matériau n'est déductible de rien.** D'où le transport explicite par
+paramètres optionnels sur les deux bouts du round-trip — et non la copie du
+« précédent `smooth` », qui aurait donné un champ vidé à la première subdivision.
+
+> 🎯 **Règle pour qui ajoute un attribut à `Face`** : demande-toi s'il est
+> **déductible de la géométrie**. Si non, il doit être transporté explicitement à
+> travers `ToPolygons`/`BuildFromPolygons`, sinon il disparaît en silence à la
+> première opération d'édition.
+
+### 🧾 CE QUI RESTE — dette nommée, et elle est mécanique
+
+**Trois opérations transportent le matériau** : subdivision linéaire,
+Catmull-Clark, extrusion (ses **deux** branches, `individual` et région).
+
+**Ne le transportent PAS encore** — même motif de câblage à appliquer :
+soudure (`MergeSelectedVerts`), `BevelSelected`, `InsetSelectedFaces`,
+`LoopCutFromSelectedEdge`, `DissolveSelected`, `BisectByPlane`,
+`SplitSelectedEdges`, `SpinSelected`, `ShrinkFattenSelected`,
+`MakeFaceFromSelected`, `DeleteSelectedFaces`.
+
+**Et une DÉCISION DE PRODUIT non tranchée** : à la **décimation**, quand une
+contraction fusionne deux faces de matériaux différents, de qui la survivante
+hérite-t-elle (la plus grande ? la première ? celle du sommet conservé) ? Le cas
+`mat/decim-non-tranche` **mesure** l'état actuel (`slot1 2 -> 0`) et le déclare
+explicitement « MESURE, pas un attendu » — écrire un attendu ici serait inventer
+une décision qui revient à Rodolf.
+
+### ⚠️ `smooth` perdu est un DÉFAUT RÉEL, laissé tel quel volontairement
+
+Poser « Shade Smooth » puis subdiviser rend le modèle facetté, **sans un message**.
+Non corrigé ici parce que le corriger déplace une valeur de référence et suppose
+une décision (l'ombrage suit-il la face mère, ou reste-t-il déduit ?). La ligne
+`mat/temoin-smooth` fige le comportement pour qu'un changement se voie.
+
+---
+
 ## 🧾 DETTES NOMMÉES — chantier « dettes NKRenderer » (agent nkrenderer, 2026-08-16)
 
 Ouvert sur décision de Rodolf : « on doit remplir cette dette ». **Ce qui suit est
