@@ -18,6 +18,81 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 
 ---
 
+## 📊 COUVERTURE PAR LES BANCS CONSOLE — la « colonne trois » (mesuré le 2026-08-22)
+
+L'inventaire d'écart du mandat demandait trois colonnes : ce que la sandbox
+exerce · ce que le noyau offre · **ce qu'un banc console couvre**. La troisième
+est la seule qui dise si une capacité est *prouvée*. La voici, mesurée méthode
+par méthode plutôt qu'à l'impression.
+
+**Périmètre de la mesure** : les six bancs console sans fenêtre —
+`NKEditMeshHarness`, `NkEditableMeshDemo`, `NKSmoothMeshTest`, `NkAssetIODemo`,
+`NkFBXParityDemo`, `NKMatTypeResetTest`.
+
+| domaine | API publique | exercée par un banc |
+|---|---|---|
+| `Mesh/NkEditMesh` | **102** méthodes | **69** |
+| `Materials/` (`NkMaterialSystem` + `NkMaterial` + `NkMaterialLibrary`) | **79** méthodes | **0** |
+
+### ⚠️ Matériaux : zéro, et ce n'est pas un oubli — c'est un couplage
+
+**Aucun banc n'inclut un seul en-tête de `Materials/`.** (Contrôle que la commande
+sait trouver : les mêmes bancs incluent bien `NKRenderer/Mesh/*` et
+`NKRenderer/Core/NkGizmo.h`.)
+
+⚠️ **Quatre faux positifs écartés** : un comptage par nom de méthode donnait « 4
+couvertes » — `Bind`, `IsValid`, `Load`, `Save`. Ce sont des **collisions de
+noms** (le `Bind` d'un raccourci clavier, le `IsValid` d'un maillage, les
+`Load`/`Save` du graphe). Aucune n'est un appel matériau. *Compter des noms au
+lieu de mesurer des objets aurait transformé 0 en 4.*
+
+**La cause est connue et mesurée** : `NkMaterialSystem::Init` déréférence le
+device dès sa ligne 45, et `CreateInstance` fait `mDevice->CreateBuffer` sans
+garde (19 déréférencements de `mDevice->` au total). **Toute la sémantique
+intéressante est pourtant du CPU pur** — hiérarchie parent/enfant, masques
+d'override, propagation sélective, couches V1, sérialisation `.nkasset`. Elle est
+enfermée derrière une porte GPU.
+
+> ⚠️ `Materials/` appartient à l'agent **matgraph** depuis le 2026-08-22. Le
+> déverrouillage headless est **son** chantier, pas celui de nk3dmodeler.
+
+### Maillage : 33 méthodes non exercées, dont deux ensembles qui comptent
+
+**1. La pile UNDO/REDO du maillage — entièrement non couverte.**
+`Push`, `CanUndo`/`CanRedo`, `UndoCount`/`RedoCount`, `SetLimit`, `ReplayOnto`,
+`MoveDown`, `SelectionStamp`, `ApplyVertSel`.
+
+⚠️ **Piège évité** : le harnais contient bien `h.Undo(g)` / `h.Redo(g)` — mais
+c'est l'historique du **graphe** (`NkGraph`), pas celui du maillage. Un comptage
+par mot-clé aurait déclaré l'undo couvert.
+
+**2. Six opérations d'édition sans aucun banc** :
+`BisectByPlane`, `DeleteSelectedFaces`, `ExtrudeSelectedVertices`,
+`LoopCutFromSelectedEdge`, `MakeFaceFromSelected`, `SpinSelected`.
+
+⚠️ **Même piège pour `Spin`** : le harnais le mentionne, mais seulement comme
+**liaison de raccourci clavier** (`t.Bind("mesh.spin", …)`) — l'opération n'est
+jamais appelée.
+
+> 🎯 **La leçon de méthode, valable pour toute mesure de couverture** : chercher
+> le NOM d'une capacité et chercher son USAGE donnent deux résultats différents.
+> Ici l'écart valait 4 matériaux fantômes, un système d'undo, et une opération.
+> **Une couverture se mesure sur l'objet appelé, pas sur le mot trouvé.**
+
+**3. Le reste** (≈20) sont des accesseurs et requêtes de topologie —
+`EdgeIsBoundary`, `EdgeIsManifold`, `RadialTwin`, `FaceIsSelected`… Leur absence
+pèse moins : les cycles radial/disque sont exercés par la famille `bmesh2` à
+travers les opérations qui s'en servent.
+
+### Chargeurs de maillage
+
+| chargeur | banc |
+|---|---|
+| OBJ · glTF · FBX | `NkAssetIODemo`, `NkFBXParityDemo` |
+| **PLY · STL · DAE · USDA** | **aucun** |
+
+---
+
 ## 🎨 MATÉRIAU PAR FACE (façon Blender) — livré partiellement (agent nk3dmodeler, 2026-08-21, `942fae39`)
 
 Demande de Rodolf : « un groupe de vertex ou de face **lier ou non** partage même
