@@ -420,6 +420,15 @@ namespace nkentseu {
 		// Synchronisation initiale : mConfig reflète l'état réel
 		SyncConfigFromWindow(sDisplay, mData.mXid, mConfig, mData);
 
+		// Fenêtre discrète demandée à la création : appliquer via les setters
+		// runtime (ils vérifient les handles et centralisent la mécanique).
+		if (config.alwaysOnTop)
+			SetAlwaysOnTop(true);
+		if (config.opacity < 1.0f)
+			SetOpacity(config.opacity);
+		if (config.clickThrough)
+			SetClickThrough(true);
+
 		mIsOpen = true;
 		return true;
 	}
@@ -853,6 +862,104 @@ namespace nkentseu {
 
 	bool NkWindow::IsDecorated() const {
 		return mConfig.frame;
+	}
+
+	// ── Fenêtre discrète ─────────────────────────────────────────────────────────
+
+	// Opacité : propriété _NET_WM_WINDOW_OPACITY (cardinal 0..0xFFFFFFFF), que
+	// les compositeurs courants (picom, KWin, Mutter…) appliquent à toute la
+	// fenêtre. Sans compositeur actif la propriété est ignorée — l'intention
+	// reste mémorisée et s'appliquera dès qu'un compositeur tourne.
+	void NkWindow::SetOpacity(float32 opacity) {
+		if (opacity < 0.0f)
+			opacity = 0.0f;
+		if (opacity > 1.0f)
+			opacity = 1.0f;
+		mConfig.opacity = opacity;
+		if (!mData.mDisplay || !mData.mXid)
+			return;
+		const Atom prop = XInternAtom(mData.mDisplay, "_NET_WM_WINDOW_OPACITY", False);
+		if (prop == None)
+			return;
+		if (opacity >= 1.0f) {
+			// Pleinement opaque = absence de propriété (état par défaut propre).
+			XDeleteProperty(mData.mDisplay, mData.mXid, prop);
+		} else {
+			const unsigned long value =
+				static_cast<unsigned long>(opacity * static_cast<float32>(0xFFFFFFFFu) + 0.5f);
+			XChangeProperty(mData.mDisplay, mData.mXid, prop, XA_CARDINAL, 32, PropModeReplace,
+							reinterpret_cast<const unsigned char *>(&value), 1);
+		}
+		XFlush(mData.mDisplay);
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	// Toujours-devant : _NET_WM_STATE_ABOVE par ClientMessage — même mécanique
+	// EWMH que Maximize() ci-dessus, le gestionnaire de fenêtres fait autorité.
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+		if (!mData.mDisplay || !mData.mXid)
+			return;
+		const Atom wmState = XInternAtom(mData.mDisplay, "_NET_WM_STATE", False);
+		const Atom above = XInternAtom(mData.mDisplay, "_NET_WM_STATE_ABOVE", False);
+		if (wmState == None || above == None)
+			return;
+		XEvent ev = {};
+		ev.type = ClientMessage;
+		ev.xclient.window = mData.mXid;
+		ev.xclient.message_type = wmState;
+		ev.xclient.format = 32;
+		ev.xclient.data.l[0] = onTop ? 1 : 0; // _NET_WM_STATE_ADD / _NET_WM_STATE_REMOVE
+		ev.xclient.data.l[1] = static_cast<long>(above);
+		XSendEvent(mData.mDisplay, DefaultRootWindow(mData.mDisplay), False,
+				   SubstructureNotifyMask | SubstructureRedirectMask, &ev);
+		XFlush(mData.mDisplay);
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		// Le WM fait autorité (l'utilisateur peut basculer l'état hors app) :
+		// on lit _NET_WM_STATE, comme IsMaximized().
+		if (!mData.mDisplay || !mData.mXid)
+			return mConfig.alwaysOnTop;
+		const Atom wmState = XInternAtom(mData.mDisplay, "_NET_WM_STATE", True);
+		const Atom above = XInternAtom(mData.mDisplay, "_NET_WM_STATE_ABOVE", True);
+		if (wmState == None || above == None)
+			return mConfig.alwaysOnTop;
+		Atom actualType = None;
+		int actualFormat = 0;
+		unsigned long numItems = 0, bytesAfter = 0;
+		unsigned char *data = nullptr;
+		bool found = false;
+		if (XGetWindowProperty(mData.mDisplay, mData.mXid, wmState, 0, 1024, False, XA_ATOM, &actualType,
+							   &actualFormat, &numItems, &bytesAfter, &data) == Success) {
+			if (actualType == XA_ATOM && actualFormat == 32 && data) {
+				const Atom *atoms = reinterpret_cast<const Atom *>(data);
+				for (unsigned long i = 0; i < numItems; ++i) {
+					if (atoms[i] == above) {
+						found = true;
+						break;
+					}
+				}
+			}
+			platform::NkX11Free(data);
+		}
+		return found;
+	}
+
+	// Click-through : exigerait l'extension Shape (XShapeCombineRectangles sur
+	// ShapeInput, lib Xext) que NKWindow ne lie pas encore. On mémorise
+	// l'intention sans l'appliquer — chantier noté dans la ROADMAP (« Fenêtre
+	// discrète — restes par plateforme »). Pas de demi-mesure silencieuse :
+	// IsClickThrough() reflète la DEMANDE, la doc du header dit le support réel.
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		return mConfig.clickThrough;
 	}
 
 	bool NkWindow::IsMaximized() const {

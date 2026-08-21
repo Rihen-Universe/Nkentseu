@@ -21,6 +21,20 @@
 // =============================================================================
 #include "NKCode/Project/NkCodeState.h"
 #include "NKEditorKit/NkEditorKit.h"
+// X11 définit les MACROS None/Status : l'enum Cmd { None, Status, ... } de ce
+// fichier explosait en « expected identifier » sur Linux (probe CI 2026-08-11).
+// Le nettoyeur maison neutralise ces macros — et il doit venir APRÈS le
+// dernier include qui touche X11 (les deux ci-dessus finissent par inclure
+// NKWindow/Xlib, qui REPOSE les macros : en tête de fichier il ne servait à
+// rien — 2e leçon du même probe).
+#include "NKPlatform/NkX11Clean.h"
+// `Status`, lui, ne PEUT PAS être neutralisé globalement : Xutil s'en sert
+// comme TYPE (leçon déjà payée, documentée dans NkX11Clean.h). Undef LOCAL :
+// ce header vient toujours après les en-têtes X11 de sa TU et n'utilise
+// aucun type X11 — 3e leçon du même probe.
+#ifdef Status
+#undef Status
+#endif
 
 namespace nkentseu {
 	namespace nkcode {

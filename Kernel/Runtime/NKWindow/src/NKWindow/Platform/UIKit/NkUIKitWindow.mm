@@ -787,6 +787,33 @@ namespace nkentseu {
 	void NkWindow::BeginResize(NkResizeEdge) {
 	}
 
+	// ── Fenêtre discrète : notions de BUREAU (opacité de fenêtre, toujours-
+	// devant, click-through) inexistantes sur iOS (app plein écran). Intention
+	// mémorisée pour des getters cohérents, rien d'appliqué.
+	void NkWindow::SetOpacity(float32 opacity) {
+		mConfig.opacity = opacity < 0.0f ? 0.0f : (opacity > 1.0f ? 1.0f : opacity);
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		return mConfig.alwaysOnTop;
+	}
+
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		return mConfig.clickThrough;
+	}
+
 	void NkWindow::SetFullscreen(bool fullscreen) {
 		if (mData.mFullscreen == fullscreen) {
 			return;

@@ -32,7 +32,11 @@ typedef void(WINAPI *PFN_ClosePseudoConsole)(void *);
 //
 // Les membres du .h sont des void* pour ne pas exposer windows.h ; on y range
 // ici un descripteur de fichier et un PID, via les conversions ci-dessous.
+#if defined(__APPLE__)
+#include <util.h> // forkpty : macOS le met dans util.h, pas pty.h (CI 2026-08-11)
+#else
 #include <pty.h> // forkpty (bibliotheque util : lier `util`)
+#endif
 #include <unistd.h>
 #include <signal.h>
 #include <sys/ioctl.h>
