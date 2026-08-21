@@ -2651,6 +2651,69 @@ session, le journal le dit — `jamais atteint : ancêtre désactivé`.
 
 ---
 
+## 14quater bis. Polices personnalisées
+
+> **Question de Rodolf, 2026-08-21.** Vérification faite : **le moteur sait le
+> faire, le format ne sait pas le dire.**
+
+**Ce qui existe** — `NKFont` charge TTF et OTF/CFF (`AddFontFromFile`), détecte le
+type, et `NkGuiFont` porte des **polices de repli externes** pour les glyphes
+qu'une police ne couvre pas. `NkFontPrefs` (NKEditorKit) garde les préférences de
+l'éditeur.
+
+**Ce qui manque** — rien dans un `.nkgui` ne déclare une police. §12.2 expose
+« police, graisse, taille » dans l'Inspecteur ; **ces valeurs n'ont nulle part où
+aller**, comme le reste de l'apparence (§14ter.3).
+
+### ⚠️ Ce qui rend la police plus grave que le reste de l'apparence
+
+Une couleur qui manque donne une couleur fausse. **Une police qui manque donne une
+MISE EN PAGE fausse.**
+
+Un texte substitué n'a ni la même largeur, ni la même hauteur de ligne. Donc :
+
+- les éléments en `content` changent de taille ;
+- `maxLines` et `overflow` (§14ter.3) se déclenchent à des endroits différents ;
+- les bornes `min`/`max` sont atteintes ou non ;
+- **et le document reste parfaitement valide.**
+
+> **Un dessin est mesuré dans la police avec laquelle il a été fait.** Changer la
+> police sans le dire, c'est livrer une mise en page que personne n'a dessinée.
+
+### Ce que le format doit porter
+
+| | |
+|---|---|
+| **déclaration** | famille, graisse, style — et **la source** : embarquée ou référencée |
+| **repli déclaré** | la chaîne de polices à essayer, dans l'ordre |
+| **empreinte de métrique** | de quoi détecter une substitution |
+
+⚠️ **L'empreinte de métrique est la pièce que personne ne pense à mettre.** Sans
+elle, la substitution est **indetectable** : le document s'ouvre, il est valide, il
+est faux. Avec elle — quelques largeurs de glyphes de référence, la hauteur de
+ligne — l'outil compare à l'ouverture et **dit** : *« la police Inter est absente,
+elle a été remplacée, la mise en page a changé »*.
+
+**Embarquer ou référencer** — les deux, au choix par police :
+
+- **embarquée** : le document est autonome, il pèse plus lourd, et ⚠️ **la licence
+  de la police doit le permettre** ; beaucoup de polices commerciales interdisent la
+  redistribution, y compris incluse dans un fichier ;
+- **référencée** : le document reste léger, et il dépend de la machine.
+
+⚠️ **Le choix se déclare par police, pas globalement.** Un projet mélange presque
+toujours une police de marque (à embarquer) et des polices système (à référencer).
+
+### Et les polices d'icônes
+
+Une icône rendue par une police est un **glyphe**, pas une image. Elle hérite donc
+de tout ce qui précède — et de la pire façon : **substituée, elle ne devient pas
+une autre icône, elle devient un carré vide.** La chaîne de repli doit donc
+distinguer *police de texte* et *police d'icônes* : replier une police d'icônes sur
+une police de texte ne produit jamais rien de lisible.
+
+---
+
 ## 14quinquies. Infobulles
 
 > **Question de Rodolf, 2026-08-20.** La réponse honnête était « à moitié », et de
