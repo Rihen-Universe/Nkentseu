@@ -390,6 +390,77 @@ pas de rendu à interpréter.
 > C'est la différence qui compte : sur le web, un échec accuse **le corpus** ; sur
 > un format structuré, un échec accuse **notre code**.
 
+### 4bis.6 Le web : cibler les systèmes de composants et les gabarits
+
+> **Décision Rodolf, 2026-08-21** : *« pour l'instant on ne se préoccupe pas des
+> licences, tire le maximum, surtout sur des sites qui offrent des gabarits
+> d'application, des systèmes de composants comme Bootstrap, ou des applications
+> web modernes. »*
+
+**C'est une bien meilleure cible qu'un ramassage au hasard**, pour trois raisons
+qui n'ont rien à voir avec le volume.
+
+**1. Les rôles sont étiquetés par le document lui-même.** La page de documentation
+d'un système de composants porte littéralement un titre « Buttons » au-dessus des
+boutons, « Forms » au-dessus des champs. **L'étiquette n'est plus devinée depuis la
+balise : elle est écrite par l'auteur.**
+
+**2. Ces pages sont sémantiques par construction.** §2.2 exigeait un filtre
+privilégiant les pages à balises et attributs ARIA — les bibliothèques de
+composants soignent l'accessibilité, **le filtre devient presque gratuit**.
+
+**3. Elles montrent souvent les VARIANTES ET LES ÉTATS** — bouton normal,
+survolé, désactivé, chaque taille, chaque couleur. Cela **recoupe en partie** ce
+que §4bis.3 attribuait à Kenney seul, pour le versant application.
+
+Et les **gabarits d'application** — tableaux de bord, écrans de connexion, pages de
+réglages — sont exactement **les écrans que les utilisateurs de NkUIDesign vont
+construire**. Ce n'est plus un corpus du web en général : c'est un corpus
+d'**applications**.
+
+#### ⚠️ Mais on a échangé un biais contre un autre, et le nouveau est invisible
+
+Le danger de §5 était « on ne collecte que des pages simples ». En ciblant des
+gabarits, ce risque tombe. **Un autre le remplace, et il se voit beaucoup moins :
+l'homogénéité.**
+
+Si l'essentiel du corpus vient de Bootstrap, le modèle apprend **Bootstrap** : la
+même grille à douze colonnes, la même échelle d'espacement, les mêmes rayons de
+coin, les mêmes hauteurs de bouton. **Tous les documents seront valides, bien
+structurés, sémantiques — et tous les mêmes.** Rien dans la validation ne le
+signalera, parce que ce n'est pas une faute.
+
+> *Un biais de difficulté se voit dans un taux d'échec. Un biais de style ne se
+> voit nulle part — sauf en le mesurant exprès.*
+
+**Donc la mesure de §5 change pour cette famille** : au lieu du biais de
+complexité, on mesure la **diversité** :
+
+| à mesurer | signal d'alerte |
+|---|---|
+| répartition des valeurs d'espacement | tout tombe sur la même échelle (4/8/16…) |
+| nombre de colonnes des grilles | une seule valeur domine |
+| rayons de coin, hauteurs de bouton | quelques valeurs concentrent tout |
+| origine des documents | un seul système dépasse ~30 % du total |
+
+**Contre-mesure** : répartir délibérément entre plusieurs systèmes — Bootstrap,
+Bulma, Material, Ant Design, Tailwind, Foundation — et plusieurs maisons de
+gabarits, plutôt que de tirer le maximum du plus accessible.
+
+#### Licences : différées, mais la provenance se garde
+
+Rodolf tranche : on ne s'en préoccupe pas pour l'instant. **Noté, et je n'y
+reviens pas.**
+
+⚠️ **Une seule précaution, qui ne coûte rien aujourd'hui** : chaque document
+produit conserve **l'URL de sa source et la date**. S'entraîner est une chose ;
+**redistribuer un corpus ou publier un modèle qui reproduirait un gabarit à
+l'identique en est une autre**, et cette question se posera le jour de la
+publication, pas aujourd'hui.
+
+Garder la provenance **préserve l'option de filtrer plus tard**. Ne pas la garder
+la ferme définitivement — et il faudrait alors tout recollecter.
+
 ### 4bis.5 Ce qui reste à vérifier avant de collecter
 
 - **licences** : F-Droid et Godot sont libres, mais chaque projet a la sienne —
