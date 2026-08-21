@@ -88,6 +88,11 @@ namespace nkentseu {
 				//  - GLOBALE : modules finis / total de modules (connu des l'en-tete
 				//    "Build Order (N projects)" -> jamais 100% avant la vraie fin)
 				int32 buildTotal = 0, buildDone = 0; // module courant : fichiers total / faits
+				// Nom du module EN COURS. La donnee transitait deja dans chaque evenement
+				// de progression (champ `project`) sans que personne ne la lise : « 40 %
+				// (module 12 %) » ne disait pas DE QUEL module il s'agissait, alors qu'un
+				// build en enchaine une vingtaine.
+				NkString buildModule;
 				int32 projTotal = 0, projDone = 0;	 // global : modules total / finis
 
 				bool IsBuilding() const {
@@ -5134,6 +5139,7 @@ namespace nkentseu {
 						case NkJengaProgressEvent::FILE_TOTAL:
 							buildTotal = e.total;
 							buildDone = 0;
+							buildModule = e.project;
 							break;
 						case NkJengaProgressEvent::FILE_DONE:
 							buildDone = e.index;
@@ -6808,6 +6814,7 @@ namespace nkentseu {
 					// construction a l'autre, et on croirait avoir corrige un fichier qui
 					// continue d'y figurer.
 					buildDiags.Clear();
+					buildModule.Clear();
 					mCmdLog.Clear(); // transcript de CETTE commande (-> lastBuildFail si echec)
 					mCmdLog.PushBack(NkString("$ ") + next.CStr());
 					mCmdCur = next;

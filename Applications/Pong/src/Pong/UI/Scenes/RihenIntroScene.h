@@ -115,6 +115,18 @@ namespace nkentseu {
 				int mCurrentFrame = 0;
 				float mFrameAccum = 0.0f;
 
+				// ── Liberation au fil de la lecture ─────────────────────────────
+				// L'animation ne se lit qu'une fois, dans l'ordre : une image
+				// passee est liberee au lieu de rester en memoire graphique. Sans
+				// cela les 156 textures 1920x1080 occupent ~1,3 Go, de quoi faire
+				// echouer les allocations suivantes sur un telephone.
+				//
+				// La marge evite de liberer trop pres de l'image affichee : le
+				// rendu retombe sur la derniere texture valide quand une image
+				// manque, et ce repli clignoterait.
+				static constexpr int kFramesConservees = 3;
+				int mDernierLibere = 0; ///< premiere image encore susceptible d'exister
+
 				// ── Worker thread (decode CPU only, pas d'appel GL) ─────────────
 				std::thread mWorker;
 				std::atomic<bool> mWorkerStop{false};
