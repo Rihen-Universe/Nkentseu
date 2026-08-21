@@ -872,9 +872,14 @@ namespace nkentseu {
 						mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
 						const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
 							f.path.ToString()); // macros effectives (dump compilo) -> grisage préproc exact
+						// Confirmation de fermeture (onglet seul ou groupe) ouverte AU-DESSUS de
+						// l'editeur : bloque tout clic/frappe destine au texte le temps qu'elle reste
+						// affichee (sinon la boite laisse "traverser" les evenements a l'editeur).
+						NkCodeModalBlocking() = (mCloseConfirm.open || mCloseGroupConfirm.open);
 						CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()),
 								   mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
 								   ppDefs);
+						NkCodeModalBlocking() = false;
 					}
 					// Bascule Apercu/Editer pour .md/.json/.csv — dessinee AU-DESSUS du contenu (sinon la preview la recouvre).
 					if (isMd || isJson || isCsv) {
