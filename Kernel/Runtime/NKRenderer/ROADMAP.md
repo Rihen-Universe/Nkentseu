@@ -56,6 +56,41 @@ enfermée derrière une porte GPU.
 > ⚠️ `Materials/` appartient à l'agent **matgraph** depuis le 2026-08-22. Le
 > déverrouillage headless est **son** chantier, pas celui de nk3dmodeler.
 
+### ✅ RÉSORPTION EN COURS — la pile annuler/refaire est couverte (2026-08-22, `5c026b3d`)
+
+`NkEditHistory` est passée de **0 méthode exercée** à couverte par **7 cas
+`hist/`** dans `NKEditMeshHarness` : aller-retour, pile vide, plafond, branche
+abandonnée, chaîne de trois annulations, et la survie des attributs.
+
+**Aucun défaut trouvé** — la pile était juste. Mais deux choses méritent d'être
+notées, parce qu'une batterie verte du premier coup sur un système jamais exercé
+ne prouve rien par elle-même :
+
+1. ⚠️ **Les sept cas savent échouer, et c'est vérifié.** Deux défauts ont été
+   injectés dans `NkEditHistory` puis retirés : `EM_PushCapped` jetant le plus
+   **récent** (→ `hist/plafond` : `x 0.5 -> 0.5` au lieu de `-> 2.5`), et
+   `Commit` ne vidant plus la pile de refaire (→ `hist/branche-abandonnee` :
+   `apresNouveauCommit=1`, `canRedo=1`). Dans les deux essais, **les cinq autres
+   cas sont restés verts** : les cas ne se contaminent pas.
+2. ⚠️ **Un cas de cette batterie a dû être corrigé pour être lisible.** La
+   première version de `hist/plafond` affichait `x=2.5` **sans dire d'où l'on
+   part ni combien de retours ont eu lieu** — donc invérifiable, et incapable de
+   distinguer « 3 retours sur la bonne pile » de « 2 retours seulement ». Elle
+   affiche désormais `x0`, le nombre de remontées et la profondeur.
+   **Un chiffre sans son référentiel n'est pas une mesure.**
+
+La signature compare un **hachage d'état complet** (positions, index de matériau,
+sélection, rangs de sélection), pas un compte de sommets : une annulation qui
+restaure le bon *nombre* de sommets aux *mauvaises* positions passerait un
+comptage.
+
+> 🔗 Le cas `hist/materiau-survit` relie les deux chantiers : l'index de matériau
+> par face et les slots du maillage survivent bien à `Undo` après une
+> subdivision (`slot7 1 → 4 → 1`, slot `id=4242` conservé). C'était vrai « par
+> construction » puisque l'instantané est une copie — **et « par construction »
+> est exactement le genre d'affirmation qui devient fausse le jour où un champ
+> est ajouté après coup.** D'où la mesure.
+
 ### Maillage : 33 méthodes non exercées, dont deux ensembles qui comptent
 
 **1. La pile UNDO/REDO du maillage — entièrement non couverte.**
