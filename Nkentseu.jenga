@@ -920,6 +920,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Sandbox/System/NKSerialization/NKSerializationSandbox.jenga"):
+
+        pass
+
+
+
     with include("Kernel/Runtime/NKRenderer/NKRenderer.jenga"):
 
         pass
