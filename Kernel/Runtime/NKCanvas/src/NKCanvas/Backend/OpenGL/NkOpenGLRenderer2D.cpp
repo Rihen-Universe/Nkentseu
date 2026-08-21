@@ -513,7 +513,22 @@ namespace nkentseu {
 		void NkOpenGLRenderer2D::BeginBackend() {
 			// Save relevant GL state
 			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			// SEPARATE, et non glBlendFunc : le canal alpha de DESTINATION doit
+			// etre traite a part.
+			//
+			// Avec glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA), l'alpha du
+			// framebuffer devient srcA*srcA + dstA*(1-srcA) : il DIMINUE a chaque
+			// couche dessinee. Sur un ecran ou l'on empile des dizaines de traces
+			// par image, il s'effondre — mesure sur HarmonyOS : 255 au demarrage,
+			// 206 apres une minute. La fenetre devient alors semi-transparente,
+			// le compositeur laisse voir le fond au travers, et l'interface
+			// n'apparait plus qu'en silhouettes sombres.
+			//
+			// Avec (GL_ONE, GL_ONE_MINUS_SRC_ALPHA) sur l'alpha, la couverture
+			// s'accumule au lieu de se ronger, et la fenetre reste opaque.
+			// ApplyBlendMode(NK_ALPHA) utilisait deja cette variante : les deux
+			// chemins font desormais la meme chose.
+			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 			glDisable(GL_DEPTH_TEST);
 			glDisable(GL_CULL_FACE);
 			glUseProgram((GLuint)mProgram);
@@ -524,8 +539,21 @@ namespace nkentseu {
 			// Chaque frame demarre sans scissor (sinon un Clear serait clippe par le
 			// scissor laisse par la frame precedente, l'etat GL etant persistant).
 			glDisable(GL_SCISSOR_TEST);
-			mLastBoundTexId = 0;
-			mLastBlend = NkBlendMode::NK_NONE;
+			// Sentinelle IMPOSSIBLE, et non zero : le cache doit dire « j'ignore
+			// ce qui est lie », pas « la texture 0 est liee ». Zero est une valeur
+			// legitime (aucune texture, ou texture pas encore televersee) : la
+			// placer ici faisait passer BindTexture pour un no-op au moment
+			// precis ou il fallait agir. L'etat GL reel n'est de toute facon pas
+			// connu en debut d'image — d'autres systemes dessinent aussi.
+			mLastBoundTexId = 0xFFFFFFFFu;
+			// L'etat MEMORISE doit decrire l'etat REEL qu'on vient de poser
+			// ci-dessus : glEnable(GL_BLEND) + SRC_ALPHA/ONE_MINUS_SRC_ALPHA,
+			// c'est-a-dire le mode ALPHA. Declarer NK_NONE ici mentait au cache :
+			// une demande ulterieure de NK_NONE sortait aussitot (« deja dans ce
+			// mode ») sans jamais appeler glDisable, et inversement le premier
+			// ApplyBlendMode(NK_ALPHA) refaisait un travail deja fait. Un cache
+			// d'etat qui ment finit toujours par se voir a l'ecran.
+			mLastBlend = NkBlendMode::NK_ALPHA;
 		}
 
 		// =============================================================================
@@ -555,6 +583,13 @@ namespace nkentseu {
 		void NkOpenGLRenderer2D::ApplyBlendMode(NkBlendMode mode) {
 			if (mode == mLastBlend)
 				return;
+#if defined(NKENTSEU_DEBUG) && (defined(NKENTSEU_PLATFORM_HARMONYOS) || defined(NKENTSEU_PLATFORM_ANDROID))
+			// Une image detouree qui ressort en carre noir opaque signifie que le
+			// blending etait DESACTIVE au moment de son trace. Les transitions
+			// sont rares (quelques-unes par frame) : les journaliser dit quel mode
+			// portait reellement le dessin, au lieu de le supposer.
+			logger.Infof("[NkGL2D] blend %d -> %d\n", (int)mLastBlend, (int)mode);
+#endif
 			mLastBlend = mode;
 			switch (mode) {
 				case NkBlendMode::NK_ALPHA:
@@ -581,6 +616,26 @@ namespace nkentseu {
 			uint32 id = tex ? tex->GetGPUId() : mWhiteTexId;
 			if (!id)
 				id = mWhiteTexId;
+
+			// Ne JAMAIS court-circuiter sur l'identifiant 0.
+			//
+			// Zero n'est pas un nom de texture : c'est « aucune texture », et
+			// c'est aussi ce que vaut une texture pas encore televersee. Quand le
+			// cache contenait cette valeur — ce qu'il faisait au debut de chaque
+			// image — un dessin demandant 0 sortait d'ici sans rien lier, et le
+			// shader echantillonnait une unite vide. Or GL rend alors exactement
+			// (0,0,0,1) : du NOIR OPAQUE.
+			//
+			// A l'ecran, cela donnait un logo circulaire transforme en carre noir
+			// (ses zones transparentes devenant opaques) et des elements colores
+			// rendus en gris — le noir module par la couleur du sommet reste noir,
+			// seul l'alpha du sommet subsistait. Une fois sur trois seulement, le
+			// hasard de l'ordre d'initialisation donnait le bon rendu.
+			if (id == 0u) {
+				mLastBoundTexId = 0u;
+				glBindTexture(GL_TEXTURE_2D, 0);
+				return;
+			}
 			if (id == mLastBoundTexId)
 				return;
 			mLastBoundTexId = id;
@@ -592,6 +647,46 @@ namespace nkentseu {
 											   uint32 vCount, const uint32 *idx, uint32 iCount) {
 			if (!mVAO || !vCount || !iCount)
 				return;
+
+#if defined(NKENTSEU_DEBUG) && (defined(NKENTSEU_PLATFORM_HARMONYOS) || defined(NKENTSEU_PLATFORM_ANDROID))
+			// Ce que le renderer RECOIT, et non ce qu'il a en entree.
+			//
+			// Tout l'amont a ete verifie et se revele sain : textures chargees,
+			// atlas peuple, alpha preserve, viewport correct. Si l'ecran reste
+			// sombre malgre cela, la reponse est dans les COMMANDES : combien de
+			// quads, et surtout de quelle couleur sont leurs sommets. Une teinte
+			// de sommet noire ou a alpha nul eteint le rendu quelle que soit la
+			// qualite des textures.
+			{
+				static uint64 frame = 0;
+				if ((frame++ % 120u) == 0u) {
+					unsigned cMin[4] = {255u, 255u, 255u, 255u};
+					unsigned cMax[4] = {0u, 0u, 0u, 0u};
+					const uint32 pas = vCount > 512u ? vCount / 256u : 1u;
+					for (uint32 v = 0; v < vCount; v += pas) {
+						const unsigned canaux[4] = {verts[v].r, verts[v].g, verts[v].b, verts[v].a};
+						for (int k = 0; k < 4; ++k) {
+							if (canaux[k] < cMin[k]) {
+								cMin[k] = canaux[k];
+							}
+							if (canaux[k] > cMax[k]) {
+								cMax[k] = canaux[k];
+							}
+						}
+					}
+					// Le VIEWPORT est joint a dessein : il est calcule une seule
+					// fois, a l'initialisation du renderer. S'il ne correspond pas
+					// a la surface courante, la geometrie est dessinee dans un coin
+					// de l'ecran, ou hors champ — et le reste garde la couleur
+					// d'effacement, ce qui donne un ecran sombre ou l'on ne devine
+					// que quelques formes.
+					logger.Infof("[NkGL2D lots] %u groupes, %u sommets | teinte R%u-%u V%u-%u B%u-%u A%u-%u | "
+								 "viewport %d,%d %dx%d\n",
+								 groupCount, vCount, cMin[0], cMax[0], cMin[1], cMax[1], cMin[2], cMax[2], cMin[3],
+								 cMax[3], mViewport.left, mViewport.top, mViewport.width, mViewport.height);
+				}
+			}
+#endif
 
 			glBindVertexArray((GLuint)mVAO);
 
@@ -625,6 +720,43 @@ namespace nkentseu {
 			GLuint id = 0;
 			glGenTextures(1, &id);
 			glBindTexture(GL_TEXTURE_2D, id);
+
+			// Le contenu source est-il seulement NON VIDE ?
+			//
+			// Une texture entierement noire a l'ecran a deux causes possibles, et
+			// une seule question les separe : les octets televerses sont-ils deja a
+			// zero, ou le probleme est-il cote GPU ? Un decodeur peut rendre
+			// « succes » avec des dimensions valides et un contenu vide — c'est
+			// precisement ce que rapporte l'atlas de police (« all zero »).
+			//
+			// On echantillonne plutot que de tout parcourir : une grande texture
+			// couterait cher a chaque chargement.
+			// ⚠️ Un echantillonnage a pas FIXE ne dit RIEN d'une image creuse.
+			//
+			// Deux fois cette sonde a conclu « entierement noire » a tort : sur des
+			// PNG detoures remplis a 5 %, puis sur un atlas de police rempli a
+			// 0,06 % (mesure : 2417 points non nuls sur quatre millions, pour 720
+			// glyphes parfaitement rasterises). Le pas tombait sur le vide et
+			// declarait l'image morte. Deux fausses pistes ont ete suivies a cause
+			// de cela.
+			//
+			// On parcourt donc TOUT le contenu, et on ne signale qu'un fait
+			// indiscutable : pas un seul pixel visible dans toute l'image. Le cout
+			// est paye une fois par texture, au chargement.
+			if (rgba && w > 0u && h > 0u) {
+				const usize total = static_cast<usize>(w) * static_cast<usize>(h) * 4u;
+				bool aucunPixelVisible = true;
+				for (usize i = 0; (i + 3u) < total && aucunPixelVisible; i += 4u) {
+					// Visible = un canal de couleur non nul ET une opacite non nulle.
+					if (rgba[i + 3u] != 0u && (rgba[i] != 0u || rgba[i + 1u] != 0u || rgba[i + 2u] != 0u)) {
+						aucunPixelVisible = false;
+					}
+				}
+				if (aucunPixelVisible) {
+					logger.Warnf("[NkGL2D] texture %ux%u : AUCUN pixel visible dans toute l'image\n", w, h);
+				}
+			}
+
 			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);

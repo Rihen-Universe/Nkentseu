@@ -287,6 +287,11 @@ namespace nkentseu {
 					// Onglets Chat/Génération/Revue : uniquement l'Assistant général (mKind==0) —
 					// les agents CLI (Claude Code/Codex/NkAI) restent Chat seul, pas de sous-vues.
 					const float32 tabsH = (mKind == 0) ? (ctx.ItemHeight() + ctx.S(8.f)) : 0.f;
+					// Barre de SESSION : le titre de la conversation courante n'apparaissait
+					// nulle part — il fallait ouvrir le popover de liste pour savoir dans
+					// quel fil on ecrivait. Fine a dessein (maquette de Rihen) : elle
+					// informe, elle ne prend pas la place du contenu.
+					const float32 sessH = ctx.ItemHeight() + ctx.S(6.f);
 					const bool chatView = (mView == 0) || (mKind != 0);
 					// Barre d'outils du bas = DEUX lignes : (1) fichiers attachés au contexte,
 					// (2) crayon + Mode/Portée/Édition + envoi. Absente hors de la vue Chat (les
@@ -320,8 +325,8 @@ namespace nkentseu {
 					}
 					const float32 bannerH = showBanner ? (ctx.ItemHeight() + ctx.S(10.f)) : 0.f;
 					const NkRect hdr = {r.x, r.y, r.w, hdrH};
-					const float32 bodyY = r.y + hdrH + tabsH;
-					const float32 bodyH = r.h - hdrH - tabsH - inH - toolH - bannerH;
+					const float32 bodyY = r.y + hdrH + sessH + tabsH;
+					const float32 bodyH = r.h - hdrH - sessH - tabsH - inH - toolH - bannerH;
 					const NkRect body = {r.x, bodyY, r.w, bodyH};
 
 					dl.AddRectFilled(r, kBody);
@@ -411,6 +416,74 @@ namespace nkentseu {
 									  ctx.theme.buttonHover, ctx.theme.text, /*maxW=*/dispo);
 					}
 
+					// ══ BARRE DE SESSION : titre courant · historique · nouveau ══════════
+					{
+						const NkRect sb = {r.x, r.y + hdrH, r.w, sessH};
+						dl.AddRectFilled(sb, kHdr);
+						dl.AddRectFilled({sb.x, sb.y + sessH - 1.f, sb.w, 1.f}, ctx.theme.border);
+						const float32 scy = sb.y + sessH * 0.5f;
+						const float32 isz2 = ctx.S(16.f);
+						// Les deux actions a DROITE, comme dans la maquette ; le titre prend
+						// tout ce qui reste et s'ellipse plutot que de pousser les icones.
+						float32 srx = sb.x + sb.w - pad;
+
+						// « + » : nouvelle conversation.
+						{
+							const NkRect b = {srx - isz2, scy - isz2 * 0.5f, isz2, isz2};
+							const bool hov = NkGuiRectContains(b, mp);
+							if (hov)
+								dl.AddRectFilled({b.x - ctx.S(3.f), b.y - ctx.S(3.f), isz2 + ctx.S(6.f), isz2 + ctx.S(6.f)},
+												 ctx.theme.buttonHover, ctx.theme.rounding);
+							const float32 a = ctx.S(5.f), bcx = b.x + isz2 * 0.5f;
+							const NkColor c = hov ? ctx.theme.text : ctx.theme.textDisabled;
+							dl.AddLine({bcx - a, scy}, {bcx + a, scy}, c, 1.6f);
+							dl.AddLine({bcx, scy - a}, {bcx, scy + a}, c, 1.6f);
+							if (hov && ctx.input.mouseClicked[0]) {
+								NewChat();
+								ctx.input.mouseClicked[0] = false;
+							}
+							srx -= isz2 + ctx.S(10.f);
+						}
+
+						// Horloge : l'HISTORIQUE des conversations (meme popover que la liste
+						// de l'en-tete — une seule implementation, deux points d'entree).
+						{
+							const NkRect b = {srx - isz2, scy - isz2 * 0.5f, isz2, isz2};
+							const bool hov = NkGuiRectContains(b, mp);
+							if (hov || mChatListOpen)
+								dl.AddRectFilled({b.x - ctx.S(3.f), b.y - ctx.S(3.f), isz2 + ctx.S(6.f), isz2 + ctx.S(6.f)},
+												 mChatListOpen ? kViolet : ctx.theme.buttonHover, ctx.theme.rounding);
+							const NkColor c = mChatListOpen ? NkColor{255, 255, 255, 255}
+														   : (hov ? ctx.theme.text : ctx.theme.textDisabled);
+							const float32 rad = isz2 * 0.42f;
+							const NkVec2 cc{b.x + isz2 * 0.5f, scy};
+							// Cadran + deux aiguilles : dessine, aucun asset requis.
+							for (int32 k = 0; k < 16; ++k) {
+								const float32 a0 = (float32)k * 0.3927f, a1 = a0 + 0.3927f;
+								dl.AddLine({cc.x + rad * math::NkCos(a0), cc.y + rad * math::NkSin(a0)},
+										   {cc.x + rad * math::NkCos(a1), cc.y + rad * math::NkSin(a1)}, c, 1.3f);
+							}
+							dl.AddLine(cc, {cc.x, cc.y - rad * 0.55f}, c, 1.4f);
+							dl.AddLine(cc, {cc.x + rad * 0.45f, cc.y}, c, 1.4f);
+							mChatListAnchor = b;
+							if (hov && ctx.input.mouseClicked[0]) {
+								mChatListOpen = !mChatListOpen;
+								ctx.input.mouseClicked[0] = false;
+							}
+							srx -= isz2 + ctx.S(10.f);
+						}
+
+						// Titre de la conversation courante, ellipse sur la place restante.
+						if (mActiveChat >= 0 && mActiveChat < (int32)mChats.Size()) {
+							const NkString &t = mChats[static_cast<usize>(mActiveChat)].title;
+							const float32 dispo = srx - (sb.x + pad) - ctx.S(6.f);
+							if (dispo > ctx.S(20.f) && font && font->Valid())
+								dl.AddText(font->Face(), font->TexId(),
+										   {sb.x + pad, scy - lineH * 0.5f + font->Ascent()}, t.CStr(),
+										   ctx.theme.text, dispo);
+						}
+					}
+
 					// ══ Onglets (Assistant général UNIQUEMENT) : Chat / Génération de Code / Revue de
 					//    Code IA — façon Section 6 du spec Banani. ══
 					if (mKind == 0)
@@ -422,7 +495,7 @@ namespace nkentseu {
 					// palette d'actions scrollait le chat au lieu de la liste filtrée).
 					const bool overlayOpen =
 						mComboOpen != 0 || mPropsOpen || mChatListOpen || mPlusOpen || mActionsOpen || mUsageOpen ||
-						mAccountsOpen;
+						mAccountsOpen || mSlashOpen;
 
 					// ══ CORPS : conversation, OU sous-vue Génération/Revue (Assistant général). ══
 					if (chatView) {
@@ -518,6 +591,8 @@ namespace nkentseu {
 						DrawUsagePopover(ctx, r, kViolet);
 					if (mAccountsOpen)
 						DrawAccountsPopover(ctx, r, kViolet);
+					if (mSlashOpen)
+						DrawSlashPopover(ctx, r, kViolet);
 				}
 
 			private:
@@ -539,6 +614,11 @@ namespace nkentseu {
 				struct ChatSession {
 						NkString title;
 						NkVector<Msg> msgs;
+						// Messages ecrits pendant que l'agent travaillait, envoyes l'un
+						// apres l'autre a mesure qu'il se libere. La file appartient a la
+						// CONVERSATION : basculer de chat ne doit pas melanger les files,
+						// et revenir sur un chat doit retrouver la sienne intacte.
+						NkVector<NkString> queued;
 						float32 scroll = 0.f;
 						bool stick = true; // colle en bas tant qu'on n'a pas scrollé
 						// Brouillon de saisie, PROPRE a ce chat. Taille FIXE imposee par le
@@ -686,6 +766,8 @@ namespace nkentseu {
 				// srt-win.exe), pas devines : le drapeau existe mais ne figure pas dans --help.
 				// Defaut OFF, comme le CLI lui-meme — l'activer sans provisionnement echouerait.
 				bool mSandbox = false;
+				bool mSlashOpen = false;      // popover des commandes slash (bouton « / »)
+				NkRect mSlashAnchor = {0, 0, 0, 0};
 				bool mAccountsOpen = false;   // popover "Comptes Claude Code"
 				bool mAccAdding = false;      // saisie du nom d'un nouveau compte en cours
 				bool mAccJustOpened = false;  // -> donne le focus au champ de nom a l'ouverture
@@ -2411,7 +2493,14 @@ namespace nkentseu {
 				// Y a-t-il seulement quelque chose a montrer dans cette rangee ? Sert a la
 				// FOIS a la mise en page (hauteur reservee) et au dessin : une seule source
 				// de verite, sinon les deux divergent des le premier ajout.
-				bool HasChips() const { return mCtxFileOn && mS && mS->HasActive(); }
+				bool HasChips() const {
+					if (mCtxFileOn && mS && mS->HasActive())
+						return true;
+					// Les messages en attente occupent la meme rangee : sans cela ils
+					// seraient invisibles et on ne saurait pas ce qui va partir.
+					return mActiveChat >= 0 && mActiveChat < (int32)mChats.Size() &&
+						   !mChats[static_cast<usize>(mActiveChat)].queued.Empty();
+				}
 				float32 ChipsRowH(NkGuiContext &ctx) const {
 					return HasChips() ? (ctx.ItemHeight() * 0.8f + ctx.S(6.f)) : 0.f;
 				}
@@ -2450,6 +2539,43 @@ namespace nkentseu {
 						if (xhov && ctx.input.mouseClicked[0])
 							mCtxFileOn = false;
 						x += cw + gap;
+					}
+					// ── Messages EN ATTENTE ─────────────────────────────────────────
+					// Un par chip, dans l'ordre d'envoi, avec une croix pour retirer celui
+					// qu'on regrette. Le texte est tronque a l'affichage : on veut
+					// reconnaitre son message d'un coup d'oeil, pas le relire.
+					if (mActiveChat >= 0 && mActiveChat < (int32)mChats.Size()) {
+						ChatSession &c = mChats[static_cast<usize>(mActiveChat)];
+						for (usize q = 0; q < c.queued.Size(); ++q) {
+							NkString apercu = c.queued[q];
+							apercu.Trim();
+							// Une seule ligne : un message colle sur dix lignes ne doit pas
+							// deformer la rangee.
+							const usize nl = apercu.Find('\n');
+							if (nl != NkString::npos)
+								apercu = apercu.SubStr(0, nl);
+							if (apercu.Size() > 28)
+								apercu = apercu.SubStr(0, 26) + "…";
+							const NkString lbl = NkPrintf("%d. %s", (int32)q + 1, apercu.CStr());
+							const float32 tw = measure(lbl.CStr());
+							const float32 xw = h * 0.58f;
+							const float32 cw = ctx.S(8.f) + tw + ctx.S(6.f) + xw + ctx.S(6.f);
+							const NkRect ch = {x, cy - h * 0.5f, cw, h};
+							dl.AddRectFilled(ch, chip, ctx.S(6.f));
+							textAt(ch.x + ctx.S(8.f), lbl.CStr(), ctx.theme.text);
+							const NkRect xb = {ch.x + cw - xw - ctx.S(5.f), cy - xw * 0.5f, xw, xw};
+							const bool xhov = NkGuiRectContains(xb, mp);
+							const NkColor xc = xhov ? ctx.theme.text : ctx.theme.textDisabled;
+							const float32 a = ctx.S(3.f), xcx = xb.x + xw * 0.5f;
+							dl.AddLine({xcx - a, cy - a}, {xcx + a, cy + a}, xc, 1.4f);
+							dl.AddLine({xcx - a, cy + a}, {xcx + a, cy - a}, xc, 1.4f);
+							if (xhov && ctx.input.mouseClicked[0]) {
+								c.queued.Erase(c.queued.Begin() + q);
+								ctx.input.mouseClicked[0] = false;
+								break; // le tableau a bouge : on reprend a la frame suivante
+							}
+							x += cw + gap;
+						}
 					}
 					// Bouton (+) retiré d'ici : fixe en bas à gauche de la barre d'outils
 					// (DrawBottomToolbar), à côté du crayon — plus dans cette rangée de chips.
@@ -2514,8 +2640,8 @@ namespace nkentseu {
 									   len >= cap ? NkColor{232, 106, 106, 255} : ctx.theme.textDisabled);
 						}
 					}
-					if (enterSend && !mBusy && mInput[0] != 0)
-						Send();
+					if (enterSend && mInput[0] != 0)
+						SendOrQueue(); // pendant une reponse : mise en file, pas de refus
 				}
 
 				// ── Ligne case-à-cocher (toggle) réutilisée par Génération de Code / Revue de
@@ -3043,8 +3169,8 @@ namespace nkentseu {
 						 {{NkString(NkT("ai.act.helpdocs")), 0, nullptr, 50}, {NkString(NkT("ai.act.report")), 0, nullptr, 51}},
 						 2},
 					};
-					static const char *const kSlash[] = {"/explain", "/fix",	  "/optimize", "/test",	 "/doc",
-														 "/refactor", "/review", "/commit",	 "/search", "/new"};
+					int32 nSlash = 0;
+					const char *const *kSlash = SlashCommands(nSlash);
 
 					const float32 w = PopoverW(ctx, bounds, ctx.S(320.f), ctx.S(180.f));
 					const float32 filterH = ctx.ItemHeight() + ctx.S(14.f);
@@ -3069,7 +3195,7 @@ namespace nkentseu {
 					for (int32 g = 0; g < 6; ++g) {
 						int32 shown = 0;
 						if (g == 3) {
-							for (int32 i = 0; i < 10; ++i)
+							for (int32 i = 0; i < nSlash; ++i)
 								if (matches(kSlash[i]))
 									++shown;
 						} else {
@@ -3163,7 +3289,7 @@ namespace nkentseu {
 					for (int32 g = 0; g < 6; ++g) {
 						int32 shown = 0;
 						if (g == 3) {
-							for (int32 i = 0; i < 10; ++i)
+							for (int32 i = 0; i < nSlash; ++i)
 								if (matches(kSlash[i]))
 									++shown;
 						} else {
@@ -3178,7 +3304,7 @@ namespace nkentseu {
 									   groups[g].title, ctx.theme.textDisabled);
 						y += groupTitleH;
 						if (g == 3) {
-							for (int32 i = 0; i < 10; ++i)
+							for (int32 i = 0; i < nSlash; ++i)
 								if (matches(kSlash[i]))
 									drawRow(NkString(kSlash[i]), 0, nullptr, 100 + i);
 						} else {
@@ -3322,7 +3448,27 @@ namespace nkentseu {
 							ctx.input.mouseClicked[0] = false;
 						}
 					}
-					const NkRect actionsBtn = {plusBtn.x + btn + gap, cy - btn * 0.5f, btn, btn};
+					// Bouton « / » : acces DIRECT aux commandes slash (maquette de Rihen).
+					// Elles n'etaient joignables qu'en ouvrant la palette d'actions puis en
+					// descendant jusqu'a leur groupe — trois gestes pour une commande d'un
+					// seul mot.
+					const NkRect slashBtn = {plusBtn.x + btn + gap, cy - btn * 0.5f, btn, btn};
+					{
+						const bool hov = NkGuiRectContains(slashBtn, mp);
+						dl.AddRectFilled(slashBtn, (hov || mSlashOpen) ? ctx.theme.buttonHover : chip, ctx.S(6.f));
+						const NkColor c = mSlashOpen ? ctx.theme.text : ctx.theme.textDisabled;
+						// Barre oblique dessinee : lisible a toute taille, aucun asset requis.
+						const float32 a = ctx.S(6.f), scx = slashBtn.x + btn * 0.5f;
+						dl.AddLine({scx + a * 0.55f, cy - a}, {scx - a * 0.55f, cy + a}, c, 1.8f);
+						mSlashAnchor = slashBtn;
+						if (hov && ctx.input.mouseClicked[0]) {
+							mSlashOpen = !mSlashOpen;
+							if (mSlashOpen)
+								ctx.inputId = NKGUI_ID_NONE; // le popover prend la main sur la frappe
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+					const NkRect actionsBtn = {slashBtn.x + btn + gap, cy - btn * 0.5f, btn, btn};
 					{
 						const bool hov = NkGuiRectContains(actionsBtn, mp);
 						dl.AddRectFilled(actionsBtn, (hov || mActionsOpen) ? ctx.theme.buttonHover : chip, ctx.S(6.f));
@@ -3424,7 +3570,7 @@ namespace nkentseu {
 						if (canCancel)
 							CancelClaudeCli();
 						else if (canSend)
-							Send();
+							SendOrQueue();
 					}
 				}
 
@@ -3612,6 +3758,82 @@ namespace nkentseu {
 						return ver.Empty() ? NkString(table[i].nom) : NkPrintf("%s %s", table[i].nom, ver.CStr());
 					}
 					return id;
+				}
+
+				// Commandes slash, source UNIQUE : la palette d'actions ET le bouton « / »
+				// du composeur lisent celle-ci. En dupliquer une seconde garantissait
+				// qu'elles divergent des le premier ajout.
+				static const char *const *SlashCommands(int32 &n) {
+					static const char *const k[] = {"/explain", "/fix",	   "/optimize", "/test",   "/doc",
+													"/refactor", "/review", "/commit",	"/search", "/new"};
+					n = 10;
+					return k;
+				}
+
+				// Insere une commande dans la saisie, suivie d'une espace : l'utilisateur
+				// enchaine directement sur son argument.
+				void InsertSlash(const char *cmd) {
+					const NkString t = NkString(cmd) + " ";
+					int32 L = 0;
+					while (mInput[L])
+						++L;
+					for (int32 k = 0; t.CStr()[k] && L < (int32)sizeof(mInput) - 1; ++k)
+						mInput[L++] = t.CStr()[k];
+					mInput[L] = 0;
+				}
+
+				// ── Popover des commandes slash (bouton « / » du composeur) ─────────
+				void DrawSlashPopover(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
+					// Meme double protection que les autres popovers : sans elevation de
+					// couche, il s'aveugle avec son propre rectangle d'occlusion.
+					NkGuiContext::NkInputLayerScope _layer(ctx, 50);
+					if (ctx.popupDepth == 0)
+						ctx.popupDepth = 1;
+					auto &dl = ctx.DL();
+					const NkGuiFont *font = ctx.font;
+					const NkVec2 mp = ctx.input.mousePos;
+					int32 n = 0;
+					const char *const *cmds = SlashCommands(n);
+					const float32 it = ctx.ItemHeight(), rowH = it + ctx.S(4.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(200.f), ctx.S(140.f));
+					const float32 menuH = ctx.S(8.f) + (float32)n * rowH + ctx.S(8.f);
+					NkRect menu = {mSlashAnchor.x, mSlashAnchor.y - menuH - ctx.S(4.f), w, menuH};
+					if (menu.y < bounds.y + ctx.S(4.f))
+						menu.y = bounds.y + ctx.S(4.f);
+					if (menu.x + menu.w > bounds.x + bounds.w - ctx.S(4.f))
+						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
+					if (menu.x < bounds.x + ctx.S(4.f))
+						menu.x = bounds.x + ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50);
+					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
+					dl.AddRect(menu, ctx.theme.border, 1.f);
+					float32 y = menu.y + ctx.S(8.f);
+					for (int32 i = 0; i < n; ++i) {
+						const NkRect row = {menu.x + ctx.S(6.f), y, w - ctx.S(12.f), rowH};
+						const bool hov = NkGuiRectContains(row, mp);
+						if (hov)
+							dl.AddRectFilled(row, violet, ctx.S(4.f));
+						if (font && font->Valid())
+							dl.AddText(font->Face(), font->TexId(),
+									   {row.x + ctx.S(8.f), row.y + (rowH - font->LineHeight()) * 0.5f + font->Ascent()},
+									   cmds[i], hov ? NkColor{255, 255, 255, 255} : ctx.theme.text,
+									   row.w - ctx.S(16.f));
+						if (hov && ctx.input.mouseClicked[0]) {
+							InsertSlash(cmds[i]);
+							mSlashOpen = false;
+							ctx.input.mouseClicked[0] = false;
+						}
+						y += rowH;
+					}
+					const bool dans = ctx.input.mouseClicked[0] && NkGuiRectContains(menu, mp);
+					if (ctx.input.mouseClicked[0] && !dans && !NkGuiRectContains(mSlashAnchor, mp))
+						mSlashOpen = false;
+					if (dans) {
+						ctx.input.mouseClicked[0] = false;
+						ctx.input.mouseClicked[1] = false;
+					}
+					if (!mSlashOpen)
+						ctx.popupDepth = 0;
 				}
 
 				const char *const *ClaudeModelTitles(int32 &n) const {
@@ -5432,6 +5654,37 @@ namespace nkentseu {
 					SendComposed(userText);
 				}
 
+				// Envoi demande par l'utilisateur (Entree ou bouton). Pendant qu'une
+				// reponse est en cours, le message n'est plus REFUSE mais MIS EN FILE :
+				// on peut continuer a formuler sa pensee sans attendre. C'est la
+				// difference entre une interface qui bloque et une qui encaisse.
+				void SendOrQueue() {
+					const NkString t = OutText();
+					if (t.Empty())
+						return;
+					if (!mBusy) {
+						Send();
+						return;
+					}
+					mChats[static_cast<usize>(mActiveChat)].queued.PushBack(t);
+					ClearOut();
+					mChats[static_cast<usize>(mActiveChat)].stick = true;
+				}
+
+				// Envoie le prochain message en attente, s'il y en a un. Appelee quand
+				// une reponse se termine. Un seul a la fois : le suivant partira a la fin
+				// de celle-ci, exactement comme si l'utilisateur avait attendu.
+				void DrainQueue() {
+					if (mBusy || mActiveChat < 0 || mActiveChat >= (int32)mChats.Size())
+						return;
+					ChatSession &c = mChats[static_cast<usize>(mActiveChat)];
+					if (c.queued.Empty())
+						return;
+					const NkString suivant = c.queued[0];
+					c.queued.Erase(c.queued.Begin());
+					SendComposed(suivant);
+				}
+
 				void Send() {
 					if (mBusy || OutText().Empty())
 						return;
@@ -5493,6 +5746,13 @@ namespace nkentseu {
 				}
 
 				void Poll() {
+					// Une reponse vient de se terminer et des messages attendent : le
+					// suivant part tout seul. Teste a chaque frame plutot qu'a un seul
+					// endroit de fin de requete — il y a TROIS sites ou mBusy retombe a
+					// false (CLI, curl, annulation), les cabler un par un se serait
+					// desynchronise au premier ajout de backend.
+					if (!mBusy)
+						DrainQueue();
 					PollAccountStatus(); // independant de mBusy (requete ponctuelle "claude auth status")
 					PollPendingLogin();  // inscrit le compte SEULEMENT une fois connecte
 					if (mKind == 1) {

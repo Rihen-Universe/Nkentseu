@@ -286,6 +286,12 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             # installe en echouant sur « install parse native so failed » — un
             # message qui ne dit nulle part que le probleme est l'architecture.
             harmonyabis(["arm64-v8a", "x86_64"])
+            # Paysage : une demo 3D en portrait n'a aucun sens sur telephone, et
+            # sans cette cle le systeme impose son defaut (portrait).
+            harmonyorientation("landscape")
+            # Logo de l'application. Sans lui, Jenga genere une icone unie de
+            # repli — correcte mais anonyme.
+            harmonyappicon("%{wks.location}/Resources/Icons/NogeLogo.png")
             # Demo par defaut = 3D. Sur HarmonyOS il n'existe AUCUN canal de
             # selection runtime accessible : le sandbox NEXT ne monte pas
             # /data/local/tmp (fichiers kDemoFiles invisibles), et le NDK public

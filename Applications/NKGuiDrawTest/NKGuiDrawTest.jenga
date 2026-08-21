@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKGuiDrawTest — banc TEMOIN NON VISUEL des primitives de dessin NKGui.
+
+Verifie la GEOMETRIE PRODUITE (sommets, indices, commandes) par NkGuiDrawList,
+et la table de description des jetons de theme. Aucune fenetre, aucun device,
+aucun GPU : c'est ce qui permet de l'exercer pendant qu'une campagne occupe la
+carte. Sortie : un compte `n/n` et un code de sortie (0 = tout passe).
+
+Application console et non `unittest()` : l'execution des tests unitaires est
+DESACTIVEE par la politique du workspace (`disableunittestexecution`) — un test
+Unitest compilerait sans jamais tourner. Meme raison que les autres bancs
+declares en applications.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKGuiDrawTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # Strictement les dependances de NKGui : rien de graphique.
+    nkentseudependson(
+        ["NKGui", "NKFont", "NKImage", "NKEvent", "NKMath", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows"):
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

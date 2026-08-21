@@ -223,7 +223,13 @@ with project("NKWindow"):
             "src/NKWindow/Platform/HarmonyOS/NkHarmonyGamepad.h",
         ])
         # Libs OHOS NDK : XComponent (ace_ndk), hilog, native window + EGL/GLES.
-        links(["ace_ndk.z", "hilog_ndk.z", "native_window", "EGL", "GLESv3"])
+        # ace_napi.z : napi_module_register, appele par NkHarmonyOS.h pour
+        # enregistrer le module natif que le XComponent reclame. C'est NKWindow
+        # qui fournit ce point d'entree, donc c'est ici que le besoin se declare
+        # — sinon chaque application devrait y penser, et son oubli ne se voyait
+        # qu'au chargement sur l'appareil (« symbol not found »), sans que rien
+        # ne demarre.
+        links(["ace_ndk.z", "ace_napi.z", "hilog_ndk.z", "native_window", "EGL", "GLESv3"])
         # Metadonnees HAP (coherence avec le bloc Android ci-dessus).
         harmonybundlename("com.nkentseu.nkwindow")
         harmonyminsdk(12)

@@ -1515,6 +1515,21 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # Banc SANS FENETRE de NKEditorKit : resolution des roles de theme (le
+    # magenta du 18/08) et vocabulaire du backend graphique (Metal compris).
+    # Console, aucun GPU, code de sortie 0/1 -- il peut donc tourner partout.
+    with include("Applications/NKEditorKitTest/NKEditorKitTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKUIDesign/NKUIDesign.jenga"):
+
+        pass
+
+
+
     with include("Applications/ConquerorLab/ConquerorLab.jenga"):
 
         pass
@@ -1528,6 +1543,12 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/ImGuiRef/ImGuiRef.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKGuiDrawTest/NKGuiDrawTest.jenga"):
 
         pass
 
