@@ -527,6 +527,28 @@ namespace nkentseu {
 					mL = meta.L;
 					mT = meta.T;
 					mLangs = meta.langs;
+					// ARCHITECTURE : le fichier a le dernier mot quand il la porte (v6).
+					// Les dimensions viennent DEJA du checkpoint depuis toujours ; laisser
+					// l'architecture, elle, dependre de la ligne de commande revenait a
+					// demander a l'utilisateur de se souvenir d'un detail que le fichier
+					// connait. Quand il ne la porte pas (v3-v5), on garde ce qui est
+					// demande -- et on le DIT, pour que « ca ne charge pas » ait un nom.
+					if (meta.architectureConnue) {
+						if (meta.architectureLlama != mCfg.architectureLlama ||
+							meta.weightTying != mCfg.weightTying) {
+							logger.Info("Architecture : le checkpoint declare llama={0}, tying={1} ; la ligne de "
+										"commande demandait llama={2}, tying={3}. LE FICHIER FAIT AUTORITE.",
+										meta.architectureLlama ? "OUI" : "non", meta.weightTying ? "OUI" : "non",
+										mCfg.architectureLlama ? "OUI" : "non", mCfg.weightTying ? "OUI" : "non");
+						}
+						mCfg.architectureLlama = meta.architectureLlama;
+						mCfg.weightTying = meta.weightTying;
+					} else if (V) {
+						logger.Info("Checkpoint anterieur a v6 : il ne declare pas son architecture. On applique ce "
+									"que demande la ligne de commande (llama={0}, tying={1}) -- si les poids sont "
+									"refuses plus bas, c'est ICI qu'il faut regarder.",
+									mCfg.architectureLlama ? "OUI" : "non", mCfg.weightTying ? "OUI" : "non");
+					}
 					for (int64 i = 0; i < (int64)meta.merges.Size(); ++i)
 						mBpe.merges.PushBack(meta.merges[(nk_size)i]);
 					mBpe.BuildVocabRank();
@@ -734,7 +756,19 @@ namespace nkentseu {
 
 				if (!mCfg.loadPath.Empty()) {
 					if (!LoadCheckpointWeights(mCfg.loadPath.CStr(), mParams)) {
-						logger.Info("Poids du checkpoint incompatibles avec les dims.");
+						// Le message d'origine s'arretait a « incompatibles avec les dims »
+						// et envoyait chercher du cote des dimensions -- qui viennent
+						// pourtant du fichier et ne peuvent pas etre fausses. La vraie
+						// cause, neuf fois sur dix, est l'ARCHITECTURE : un NkLlamaLM
+						// n'a pas le meme nombre de tenseurs qu'un NkGPT. On le dit.
+						logger.Info("Poids du checkpoint incompatibles avec le modele construit "
+									"({0} tenseurs attendus, architecture {1}{2}).",
+									(unsigned long long)mParams.Size(),
+									mCfg.architectureLlama ? "NkLlamaLM" : "NkGPT",
+									mCfg.weightTying ? " + tables liees" : "");
+						if (!mCfg.architectureLlama)
+							logger.Info("   Si ce modele a ete entraine avec --llama (et peut-etre --tying), "
+										"il faut passer les MEMES drapeaux ici.");
 						return false;
 					}
 					if (V)
@@ -862,6 +896,12 @@ namespace nkentseu {
 				meta.L = (int32)mL;
 				meta.T = (int32)mT;
 				meta.langs = mLangs;
+				// L'architecture EST une dimension du modele : sans elle, les tenseurs
+				// relus n'ont ni le meme nombre ni les memes formes. On l'ecrit donc au
+				// meme titre que d, tetes et couches (checkpoint v6, cf. NkGptCore.h).
+				meta.architectureLlama = mCfg.architectureLlama;
+				meta.weightTying = mCfg.weightTying;
+				meta.architectureConnue = true;
 				for (int64 i = 0; i < (int64)mBpe.merges.Size(); ++i)
 					meta.merges.PushBack(mBpe.merges[(nk_size)i]);
 			}
