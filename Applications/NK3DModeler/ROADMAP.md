@@ -2894,3 +2894,422 @@ utilisateur ne peut pas voir que sa selection vient de s'effondrer. **A ajouter
 apres le correctif**, pas avant : afficher un compte faux ne ferait que rendre le
 defaut plus visible sans le corriger. (Meme famille que l'ecart n.6 du navigateur,
 `16 items (1 selected)` -> a mutualiser dans NKGui.)
+
+
+---
+
+## 2026-08-18 — AUDIT DES 22 000 LIGNES D'INTERFACE LOCALE (commande de Rodolf)
+
+**Ce que Rodolf a demande** apres la mesure de l'agent du kit (*« ce n'est pas
+normal qu'il reimplemente tout »*) : classer mes lignes d'interface en quatre
+tas chiffres, et repondre a **pourquoi j'ai ecrit local alors que ca existait**.
+**Aucune migration dans ce lot.** Seance sans GPU : tout ce qui suit est de la
+**lecture et de la mesure statique**, aucun temoin visuel n'est pris ni
+revendique.
+
+**PERIMETRE, enonce avec le resultat** (face 8) : `Applications/NK3DModeler/src/NK3DModeler/Shell/*.h`,
+**17 fichiers, 21 960 lignes** — c'est bien la source du « ~22 000 » de la mesure
+du kit. **Hors perimetre et declare comme tel** : `Viewport/` (24 008 l., dont
+`NkDemo3D.cpp` 18 636 l. = le moteur de la scene, pas de l'interface), `Project/`
+(3 922 l.) et `main.cpp` (2 905 l. — verifie : **1 seul appel de dessin**, c'est
+de l'orchestration).
+
+### 0. AVANT LES QUATRE TAS — le chiffre de depart surestime d'un facteur 6
+
+Regle du `CLAUDE.md` parent : *« est-ce qu'on a le probleme ? mesure X d'abord »*.
+J'ai donc mesure X avant de le decouper. Classement ligne a ligne des 21 960 :
+
+| nature | lignes | part |
+|---|---|---|
+| commentaires | **5 712** | 26,0 % |
+| lignes vides | 515 | 2,3 % |
+| **appels de dessin** (`p.Fill`, `p.TextV`, `p.IconV`...) | **1 244** | 5,7 % |
+| **zones cliquables** (`hit.Add/Clicked/Hovered`) | **665** | 3,0 % |
+| **appels de widget local** | **327** | 1,5 % |
+| **geometrie / rectangles** | **1 265** | 5,8 % |
+| **RESTE — logique applicative** (etat de scene, projet, actions de menu, conversions) | **12 232** | **55,7 %** |
+
+> **L'interface reelle, c'est 3 501 lignes (15,9 %), pas 22 000.** Le reste est
+> ce que l'application FAIT, et aucune bibliotheque d'interface ne le portera
+> jamais.
+
+Le decompte brut par primitive le confirme : **1 173 appels de dessin** dans tout
+`Shell/` (412 `TextV`, 269 `Fill`, 135 `Outline`, 133 `IconV`, le reste sous 50).
+Et la densite le montre par fonction : `PaintPropObject` fait **1 498 lignes pour
+59 dessins** — c'est du metier, pas du pixel.
+
+**Ce que cette mesure ne prouve PAS, et ses biais, dans le sens ou ils vont** :
+c'est un classement par **expression reguliere, premiere regle gagnante** dans un
+ordre fixe. Une ligne qui calcule un rectangle *et* dessine compte comme dessin ;
+une ligne de metier qui contient `.x +` compte comme geometrie. **Donc
+« geometrie » est surestime et « logique applicative » sous-estime : les 15,9 %
+sont une BORNE HAUTE de la surface d'interface.** Le probleme est donc **plus
+petit** que le chiffre de depart, jamais plus grand.
+
+**Ca ne dissout pas la commande de Rodolf** — 3 501 lignes d'interface locale,
+c'est reel ; `Splitter` est bien reecrit ; et l'audit ci-dessous trouve **355
+lignes deja mortes**. Ca la **recadre** : on ne cherche pas a rapatrier 22 000
+lignes, on cherche a rapatrier ce qui est dans le tas A.
+
+### 1. TAS A — REMPLACABLE AUJOURD'HUI (une fonction existante, nommee)
+
+Critere retenu, et il est plus dur que « une fonction du meme nom existe » : la
+fonction doit **accepter un rectangle explicite** ou **posseder toute sa
+surface**, sinon elle ne peut pas se poser ou ma maquette l'exige (cf. §5).
+
+| ce qui est local | lignes | ce qui le remplace | preuve |
+|---|---|---|---|
+| **`NkModelerFileDialog.h`** — fichier entier | **355** | `editorkit::NkFilePicker`, **deja adopte ET specialise** (`NkModelerPicker : public NkFilePickerState`, `NkModelerMatTypes.h:77`) | **c'est du CODE MORT** : `NkFileDialogOpen` a **une seule occurrence dans tout le depot — sa propre definition**. L'unique `NkFileDialogState` est un statique de fonction (`NkModelerProperties.h:785`) que rien n'ouvre, donc `if (fdlg.open)` (l. 7474) n'est **jamais vrai** et `NkFileDialogPaint` **ne s'execute jamais**. La migration a DEJA eu lieu ; seul le cadavre reste |
+| `PaintCloseDialog` + `PaintCloseRecDialog` + `PaintEncodeDoneDialog` | **188** | `editorkit::NkModalFrameDraw` | **deja adopte dans la meme application** pour `matAddModal` (`NkModelerProperties.h:6771`). Meme app, meme besoin : un adopte, trois non |
+| `PaintNewProjectDialog` (`NkModelerWelcome.h:269`) | **90** | idem | idem |
+| `Combo` + `DrawComboPopup` + `NkComboPending` | **188** | `editorkit::NkComboButton` + `NkComboMenu(..., const NkRect &anchor, ...)` | le composant du kit prend une **ancre rectangulaire explicite** |
+| `CheckCombo` + `DrawCheckPopup` + `NkCheckPending` | **110** | `NkComboMenu` + case a cocher | partiel : la multi-selection est a ajouter au composant |
+| `PaintOpenMenu` + `PaintModifierMenu` + `PaintAddObjectMenu` | 376, dont **~120 de chrome** | `editorkit::NkCtxMenuDraw` — items, `enabled[]`, sous-menus (`hasSub`), icones par item, **barre de recherche** et defilement | 376 lignes pour **29 dessins** : le chrome est mince, le reste sont les ACTIONS et reste chez moi |
+| `PaintSplitters` — le cœur du glisser (`NkModelerChrome.h:31`) | **22** sur 79 | `nkgui::Splitter(ctx, id, handle, vertical, value, min, max)` — **a rectangle explicite** | le cas qui pique, et il est plus nuance que « il l'a reecrit » : voir §5.3 |
+| `NkModelerPainter::VScroll` / `HScroll` (`NkModelerUI.h:261`) | **37** | `editorkit::NkVScrollbar` / `NkHScrollbar`, **deja adoptes** | le local ne survit plus que comme repli `if (!guiCtx)` dans `NkPaintVScroll` |
+
+> ### **TAS A = ~1 110 lignes**, soit **32 % de l'interface reelle (3 501 l.)** et **5,1 % des 21 960**.
+> **Dont 355 deja mortes** — donc supprimables sans rien migrer, et sans risque.
+
+**Ce que le tas A n'est PAS.** Il ne contient **ni** `DragFloat` (139 l., 220
+sites d'appel), **ni** la roue chromatique (145 l.), **ni** les 412 `TextV` :
+leurs equivalents NKGui existent bel et bien, mais **ne prennent pas de
+rectangle** — ils sont donc dans le tas B, et c'est la tout le sujet du §5.
+
+### 2. TAS B — BLOQUE PAR UN MANQUE NOMME
+
+| ce qui est local | lignes | manque qui bloque |
+|---|---|---|
+| `DragFloat` (+ **220 sites d'appel**) | **139** | **le point d'entree geometrique** (manque neuf, §5.1) + **jonction des deux themes** (manque n.7 deja transmis) |
+| `NkColorWheel` + `NkColorPickerSV` | **145** | idem (`ColorPicker4` existe, sans rectangle) |
+| `NkModelerPainter::Outline` (2 rectangles superposes) | **13** | **contour arrondi** (n.1) |
+| `NkModelerPainter::Ring` (2 disques) | **22** | **cercle creux** (n.2) |
+| `NkModelerPainter::TextClipped` | **33** | **ellipse de troncature** (n.4) — et son tampon est de **64 octets, ASCII** |
+| `NkModelerPainter::TextV` / `IconV` / `TextWrap` (+ **545 sites**) | **113** | **texte centre verticalement** (n.5) |
+| `NkModelerIcons.h` — rasterisation SVG, une texture par glyphe | **384** | **atlas d'icones** (n.3) — 102 glyphes ici, 91 autres dans NKCode |
+| **1 187 litteraux `S(nn.f)`** dissemines | (dans les 1 265 l. de geometrie) | **jetons de metrique** (n.6) |
+| l'encodage actif/choisi du navigateur | — | **selection a deux etats** (n.8) |
+
+**Total implementation du tas B : ~849 lignes**, plus les **1 265 lignes de
+geometrie** qui n'existent que parce qu'il n'y a pas de jetons de metrique.
+
+**UN NEUVIEME MANQUE, ET IL PRIME SUR LES HUIT AUTRES** — voir §5.1. Il est
+transmis a l'agent NKGui au canal.
+
+### 3. TAS C — VRAIE SPECIALISATION DU MODELAGE (reste chez moi)
+
+| ce qui reste | lignes | pourquoi, en une ligne |
+|---|---|---|
+| `PaintPropObject/Material/World/Output/Scene/Mode/Tool/Modifier` — le CONTENU des pastilles | **6 130** | ce qu'un materiau, un monde ou un rendu **possede** ; aucune bibliotheque ne connait ce vocabulaire |
+| `NkModelerState` (`NkModelerInput.h:138`) | **1 025** | l'etat du document et de la session — pur metier |
+| `NkModelerImport.h` | **620** | la decomposition a l'import (frontiere = le `model`) ; ce n'est pas de l'interface |
+| `NkModelerTables.h` | **444** | catalogues de donnees (projections, ombrages, objets, modificateurs) ; ne peint rien |
+| `NkModelerCommon.h` | **270** | nommage de nœuds, unicite des materiaux, depot d'un modele |
+| `NkModelerMatTypes.h` | **227** | catalogue des types de materiau **+ la specialisation du selecteur du kit** — c'est le patron d'adoption reussie du depot |
+| `NkModelerTheme.h` | **150** | roles de couleur propres au produit (anneau de brosse du sculpt) ; les monter ferait grossir l'enumeration commune a chaque application — garde-fou n.1 de NKGraph |
+| `PaintViewport` + surcouches de la vue (gizmo de navigation, matcap, popups de vue) | **1 951** | la vue 3D et ses incrustations sont le produit lui-meme |
+
+> **TAS C = ~10 817 lignes** (49 % du perimetre).
+
+### 4. TAS D — CANDIDATS A MONTER DANS LE KIT (pour les autres editeurs)
+
+| ce qui monte | lignes | qui d'autre en a besoin |
+|---|---|---|
+| **`NkModelerPainter`** (`NkModelerUI.h:168`) | **~340** | **palier 1 deja convenu** avec l'agent du kit — c'est l'etage reellement partageable aujourd'hui |
+| **`NkLayout::Compute`** (`NkModelerUI.h:101`) | **65** | la disposition nommee d'un editeur (menu / onglets / outils / gauche / vue / droite / navigateur / etat + poignees + fractions). **Tout editeur a exactement ca**, et Nogee la reecrit |
+| la machinerie de rangee de proprietes — `PaintTransformRow`, `PaintColorRow`, `PaintColorPicker`, `PaintGroupBlock`, `PaintListSection`, `PaintPropGroup`, `PaintPropGroupMenu`, `PaintXformGroup`, `SectionHeader`, `NkPropButton` | **770** | le composite `PropertyRow` **n'existe nulle part** ; 4 copies de panneau de proprietes mesurees par l'agent du kit |
+| `PaintBrowser` — le navigateur de contenu | **1 077** | **3 copies** dans le depot ; 6 des 18 ecarts mesures seront ecrits deux fois sinon |
+| `PaintHierarchy` — l'arbre de scene | **628** | **3 copies** |
+| `PaintJournal` — la console | **261** | **3 copies** |
+| `PaintStatus` — la barre d'etat | **225** | le kit a deja un pied de page ; c'est la meme famille |
+| `PaintSearch` + `NkNameMatches` — champ de filtre | **117** | navigateur, hierarchie, menus a recherche |
+| `NkHitRegistry` (`NkModelerInput.h:1163`) | **321** | **a POSER, pas a affirmer** : son arbitrage par COUCHES (`mHoverLayer`) resout le conflit surcouches/panneaux que `activeId`/`hoveredId` ne traite pas. **Question ouverte a l'agent NKGui** : est-ce un doublon de son arbitrage, ou le manque que ses surcouches ont ? |
+| `NkModelerIcons.h` | **384** | aussi en B — c'est l'atlas que le kit reclame |
+
+> **TAS D = ~4 188 lignes** — a monter progressivement, apres le peintre.
+
+**Recapitulatif** : A 1 110 + B 849 + C 10 817 + D 4 188 = 16 964, plus 5 712
+lignes de commentaires **reparties dans tous les tas** (26 % du fichier) et 515
+vides — le compte se referme sur 21 960 a la marge de recouvrement pres (le
+peintre est compte une fois en D, ses fonctions de contournement une fois en B).
+
+---
+
+### 5. LA REPONSE A « POURQUOI AS-TU ECRIT LOCAL ALORS QUE CA EXISTAIT ? »
+
+C'est ce que Rodolf attend, et je ne m'excuse pas : je mesure. **Trois causes,
+dont une que ma propre mesure a REFUTEE** — je l'ecris quand meme, parce que
+c'etait mon explication la plus seduisante et qu'elle etait fausse.
+
+#### 5.1 CAUSE PRINCIPALE — 105 des 116 fonctions de NKGui se placent elles-memes
+
+**La mesure** : `NkGuiWidgets.h` expose **116 fonctions publiques**. **11**
+acceptent un `NkRect` explicite — `Button`, `ButtonEx`, `RepeatButton`,
+`Splitter`, `PanelBackground`, `BeginChild`, `BeginListBox`, `BeginMenuBar`,
+`BeginPanel`, `BeginDropTarget`, `DockSpace`. **Les 105 autres se posent au
+curseur de mise en page** (`NextItemRect` lit `layout.cursor` et impose souvent
+la hauteur, parfois la largeur).
+
+**Et mon interface est integralement pilotee par rectangles** : `NkLayout::Compute`
+calcule 12 zones nommees, puis chaque panneau place ses rangees en pixels
+absolus — **1 173 dessins et 665 zones cliquables**, tous a des coordonnees que
+la maquette fixe.
+
+> **Il n'existe aucun `SetNextItemRect` / `SetCursorPos` dans l'API publique.**
+> `ctx.layout.cursor` est un champ public et donc ecrivable — mais ce n'est pas
+> une API, ce n'est documente nulle part, et ca ne fixe ni la largeur ni la
+> hauteur de l'item.
+
+**C'est le neuvieme manque, et il prime sur les huit autres** : les huit debloquent
+un dessin chacun ; **celui-la debloque 105 fonctions d'un coup**. Sans lui,
+completer la liste produira des fonctions correctes que personne n'appellera —
+exactement le sort actuel de `Splitter`.
+
+#### 5.2 CAUSE — la jonction des themes manque, et son absence a deja force une violation
+
+**Mesure** : `ui.theme` / `ctx.theme` : **ZERO occurrence dans toute l'application**.
+Rien ne pousse mon `NkTheme` (29 roles) dans `NkGuiTheme` (28 couleurs). Donc
+**tout widget NKGui appele aujourd'hui peindrait dans une palette par defaut sans
+rapport**, et ne suivrait pas le theme clair.
+
+**La preuve qu'elle coute vraiment, et elle est chez moi** : `NkPaintVScroll`
+(`NkModelerScreens.h:964`) adopte `NkVScrollbar` — et doit lui injecter ses
+couleurs **a la main** par `NkScrollbarUserSkin()`, avec **4 `NkColor{...}` en
+dur**. Dans une application dont le peintre affiche en tete *« pas un seul
+0xRRGGBB »*. **La deconnexion des themes a force une violation de la regle des
+couleurs pour pouvoir adopter un composant partage.**
+
+C'est le manque n.7 deja transmis ; **cette mesure le fait passer en tete**, juste
+derriere le point d'entree geometrique.
+
+#### 5.3 LE CAS `Splitter` — ce n'est pas de l'indiscipline, et ce n'est pas non plus une excuse
+
+Trois faits, dans l'ordre ou ils comptent.
+
+**a) La fonction etait INTROUVABLE PAR LE CHEMIN QUE LES REGLES PRESCRIVENT.**
+Les regles disent : *« avant d'ecrire un composant, cherche s'il existe deja ; la
+recherche coute deux minutes »*. La porte d'entree d'une bibliotheque, c'est son
+`README.md`. Celui de NKGui dit, **aujourd'hui encore** :
+
+> `## État : Phase 1 — squelette` ... `⏳ Phases 3-6 : widgets, fenêtres/interaction, docking`
+
+**Il annonce que les widgets ne sont pas ecrits.** Or `NkGuiWidgets.h` en porte
+**116**, dont `Splitter`. Les dates tranchent :
+
+| evenement | date | commit |
+|---|---|---|
+| `Splitter` ajoute a NKGui | **2026-06-26** | `b055449f` |
+| le README qui dit « widgets ⏳ » — **meme commit** | 2026-06-26 | `b055449f` |
+| dernier commit du README depuis | **jamais** | — |
+| `PaintSplitters` ecrit dans NK3DModeler | **2026-07-31** | `16ce485d` |
+
+**Cinq semaines plus tard.** Et le mot « Splitter » n'apparait dans
+`ARCHITECTURE.md` que sous la forme `DragSplitter`, une valeur d'enumeration
+d'interaction — jamais comme fonction disponible. **Il n'existe aucun inventaire.**
+Un agent qui a fait la verification de deux minutes s'est fait repondre que la
+chose n'existait pas. C'est le point 2 du remede de Rodolf (*« rendre l'existant
+trouvable »*), et il est **mesure** : le correctif le moins cher du dossier est
+de mettre le README a jour.
+
+**b) Meme trouvee, elle n'aurait pas fait le compte — et il faut le dire aussi.**
+`nkgui::Splitter` glisse une **valeur en PIXELS** par accumulation de
+`mouseDelta`. Mes quatre separateurs glissent une **FRACTION** de la fenetre,
+avec un **signe** (deux croissent, deux decroissent) et une **portee** de
+reference differente (largeur, hauteur, ou la hauteur du panneau droit) — parce
+que la disposition doit se retrouver identique a la reouverture **quelle que soit
+la taille de la fenetre**. Il manque aussi la condition « vivant » (un separateur
+meurt quand son panneau est replie). **Sur 79 lignes, `Splitter` en couvre 22.**
+Et il aurait peint avec `ctx.theme.border` (cf. §5.2), donc de la mauvaise
+couleur.
+
+**c) Ca reste un doublon, et je ne le defends pas.** 22 lignes de comportement de
+glisser existaient et ont ete reecrites. Le tas A les compte.
+
+#### 5.4 LA CAUSE QUE J'AI CRUE, ET QUE MA PROPRE MESURE A REFUTEE
+
+J'allais ecrire — c'etait propre, mecanique et faux : *« le peintre porte la
+`NkGuiDrawList`, pas le `NkGuiContext` ; appeler un widget exigerait de faire
+descendre le contexte dans 65 signatures »*. Les 65 signatures sont exactes.
+
+**La conclusion ne l'est pas** : `NkUiCtx()` (`NkModelerWidgets.h:35`) est un
+accesseur global **pose une fois par frame** (`main.cpp:1068`) qui rend le
+contexte disponible **partout, a cout nul**. Il est deja utilise a **11
+endroits** — c'est par lui que `NkTooltip`, `NkOverlayTextField` et `NkVScrollbar`
+sont appeles.
+
+> **Il n'y a donc AUCUNE barriere d'acces.** Ce que je prenais pour un cout
+> d'infrastructure etait un cout que j'avais deja paye et oublie.
+
+C'est la face « retirer une premisse ne retire pas ses conclusions », prise a
+l'endroit : la premisse tombe, et **le tas A grossit** — plus rien ne protege les
+1 110 lignes.
+
+*(Au passage, pour l'agent du kit : `NkUiCtx()` et `NkOvPainter()` sont deux
+globales de processus de la meme famille que `gUiScale` — a traiter avec lui au
+moment de la montee du peintre.)*
+
+#### 5.5 LA LOI, SOUS SA FORME UTILISABLE
+
+Quatre briques partagees adoptees (`NkFilePicker`, `NkVScrollbar`,
+`NkOverlayTextField`, `NkModalFrameDraw`) contre huit reecrites. **Le
+discriminant n'est ni la connaissance, ni la discipline** :
+
+> **Une brique partagee est adoptee quand (1) elle accepte un rectangle explicite
+> ou possede toute sa surface, ET (2) elle laisse l'appelant injecter ses
+> couleurs. Aucune des deux n'est negociable, et il suffit qu'une manque pour que
+> la reecriture locale soit moins chere.**
+>
+> Etat mesure de NKGui : **(1) vrai pour 11 fonctions sur 116** ; **(2) vrai pour
+> aucune**. Etat de NKEditorKit : **(1) vrai pour tous ses composants** — et c'est
+> exactement ceux-la que j'ai adoptes.
+
+**Ce que ca predit, et c'est verifiable** : `NkVScrollbar` satisfaisait (1) mais
+pas (2) — il a ete adopte **avec un contournement** (les 4 couleurs en dur). Une
+brique qui satisfait (1) et pas (2) est adoptee **et salit l'appelant** ; une
+brique qui ne satisfait pas (1) n'est pas adoptee du tout.
+
+**Ce que ca vaut pour Nogee et NkAnimaEditor** : leur reecriture ne s'expliquera
+pas plus par l'indiscipline que la mienne. Tant que (1) et (2) sont faux, la
+regle sera contournee — non par choix, mais parce que l'adoption ne compile pas
+la ou la maquette la demande.
+
+---
+
+### 6. CE QUI N'EST PAS FAIT DANS CE LOT, ET POURQUOI
+
+- **Aucune migration.** C'etait la consigne : audit seulement.
+- **L'extraction de `NkModelerPainter` vers `Engine/NKEditorKit/` n'est PAS
+  commencee.** Ce que l'agent du kit attend a l'arrivee est lu et enregistre
+  (trois globales -> membres : `gUiScale`/`S()`, `NkPopupBoundsW/H()`,
+  `NkModelerIcons` concret ; ensemble d'icones injecte par poignee opaque ;
+  garder `Px`/`PxRect`, zero couleur en dur, et **marquer `Outline`/`Ring` comme
+  contournements temporaires**). **A ajouter a sa liste** : `NkUiCtx()` et
+  `NkOvPainter()` sont deux globales de processus supplementaires du meme
+  fichier. L'extraction demande un temoin visuel (« rien n'a change chez moi »)
+  que **le GPU indisponible interdit** : elle est **differee et nommee**, pas
+  oubliee.
+- **Les 355 lignes mortes de `NkModelerFileDialog.h` ne sont pas supprimees.**
+  Une suppression est irreversible et sort du perimetre « aucune migration » ;
+  elle est proposee, elle n'est pas faite.
+- **Contrat d'import (d) materiaux/textures et (e) dialogue : toujours pas
+  commence** (inchange depuis Q58).
+
+### 7. LE DEVIS DE L'EXTRACTION DU PEINTRE — chiffre, pour que la prochaine seance parte d'un nombre
+
+L'agent du kit demande trois etats globaux transformes en **membres** (son
+exigence A), faute de quoi il devra rouvrir l'extraction. J'ai mesure le cout de
+chacun **avant** de commencer, et le resultat concentre tout le chantier sur un
+seul point.
+
+| son exigence | sites d'appel chez moi | cout |
+|---|---|---|
+| `NkPopupBoundsW()` / `NkPopupBoundsH()` -> membres | **8** | trivial |
+| `NkModelerIcons` concret -> poignee opaque | **403 `NkIcon::`**, mais ils restent chez moi ; seul le **parametre du constructeur** change | faible |
+| **`gUiScale` + `S(px)` -> membre** | **1 191 sites** (1 187 dans `Shell/`) | ⚠️ **c'est tout le chantier** |
+| *(a ajouter a sa liste)* `NkUiCtx()` + `NkOvPainter()` | **14** | faible |
+
+> **L'extraction du peintre, c'est un probleme a une variable : `S()`.**
+
+**Et il y a un arbitrage a trancher AVANT de toucher une ligne**, parce que les
+deux issues n'ont pas le meme cout ni la meme valeur :
+
+- **(i) `S` devient une methode du peintre.** Satisfait litteralement l'exigence
+  (deux fenetres a deux facteurs DPI), mais demande **1 191 reecritures** — et
+  surtout `S()` est appelee la ou **aucun peintre n'est en portee** :
+  `NkLayout::Compute` est une methode d'une structure de disposition, et
+  `NkModelerTables.h` s'en sert pour ses metriques sans rien peindre. Cette issue
+  n'est donc pas une simple substitution : elle oblige a faire circuler le
+  peintre dans du code qui ne dessine pas.
+- **(ii) `S` reste libre mais lit une echelle portee par un contexte injecte.**
+  Cout de reecriture proche de zero, mais ca ne satisfait l'exigence que si
+  l'echelle vit dans un objet atteignable depuis les deux fenetres — donc ca
+  deplace le probleme au lieu de le supprimer.
+
+**Je ne tranche pas seul** : c'est le kit qui recoit et generalise, et l'issue
+choisie determine la forme de ce qu'il recoit. Question posee au canal (Q59 §7).
+
+**Pourquoi l'extraction n'est PAS commencee dans ce lot, en une phrase** : une
+transformation qui touche 1 191 sites n'a de valeur que si je peux prouver
+« rien n'a change chez moi » — et cette preuve est un **temoin visuel**, que le
+GPU indisponible interdit. Differee et nommee, pas oubliee. Ce devis est ce que
+je peux livrer sans fenetre, et il fait gagner la phase de decouverte a la
+seance suivante.
+
+### 8. CE QU'UN CONTROLE « INUTILE » A RENVERSE — trois faits, dont un chiffre du `CLAUDE.md` parent
+
+J'avais ecrit au §5.1 la phrase *« le sort actuel de `Splitter` : une fonction
+correcte que personne n'appelle »*. Avant de la laisser se propager, j'ai verifie
+qu'elle etait vraie. **Elle l'est** — `nkgui::Splitter` a **zero appelant hors de
+NKGui**, contre-epreuve faite (le grep remonte bien 163 occurrences de
+« Splitter » dans le depot : il sait trouver). **Et le controle a renverse trois
+autres choses.**
+
+#### a) « NKCode : 0 appel [NKGui] » est FAUX — c'est 164
+
+Le chiffre figure dans le bloc de regle du `CLAUDE.md` parent. Mesure :
+
+| | |
+|---|---|
+| `Applications/NKCode/` inclut `NKGui/NKGui.h` | oui, au moins 5 fichiers |
+| `using namespace nkentseu::nkgui;` | oui, au moins 3 fichiers |
+| appels de widget NKGui **reels** | **164** — `MenuItem` **151**, `Selectable` 10, `InputText` 2, `BeginCombo` 1 |
+
+**Cause du zero, mecanique** : un `grep "nkgui::"` ne voit que les appels
+**qualifies**. Sous une directive `using`, `MenuItem(ctx, ...)` est invisible a ce
+grep — et c'est pourtant un appel a NKGui. *(Faux positif ecarte : NKCode a aussi
+son peintre local `Shell/NkUi.h` ; je n'ai compte que la forme `X(ctx, ...)`, qui
+ne peut pas viser ses methodes.)*
+
+⚠️ **Mon propre 11 tient, et je l'ai verifie sur moi AVANT de contester** :
+`using namespace nkgui` -> **aucune occurrence** dans NK3DModeler, qui n'importe
+nommement que **cinq TYPES** et aucune fonction. **Les quatre tas ne bougent pas.**
+
+**Je ne corrige pas le `CLAUDE.md` parent moi-meme** : ce chiffre y justifie une
+regle de Rodolf, et le remplacer **change l'argument**. Signale au canal (Q60).
+
+#### b) ⭐ LA CORRECTION DONNE LE GROUPE TEMOIN QUI PROUVE LA LOI DU §5.5
+
+« NKCode : 0 » servait a dire *« personne n'utilise NKGui »*. Le vrai chiffre dit
+mieux :
+
+> **Sur les 164 appels de NKCode, 151 sont `MenuItem`** — precisement la fonction
+> qui **possede toute sa surface** (un menu se place lui-meme ; sa position n'est
+> jamais disputee par une maquette). C'est la seconde branche de la condition (1)
+> de la loi, verifiee sur une autre application.
+
+Et l'autre branche se verifie sur la meme application : **la ou il lui faut des
+panneaux au pixel, NKCode a ecrit son PROPRE peintre** (`Shell/NkUi.h`, a
+rectangles et couleurs injectees) — **la meme forme que `NkModelerPainter`**, sans
+que nos deux applications se soient jamais parle.
+
+**Reformulation exacte du diagnostic** : ce n'est pas *« les applications ignorent
+NKGui »*, c'est **« elles appellent NKGui exactement la ou le placement n'est pas
+dispute, et elles ecrivent un peintre local partout ailleurs »**. Deux
+applications, meme partage : un groupe temoin, pas une coincidence. *Et ca rend le
+peintre encore plus evidemment le bon palier 1 — il a ete ecrit deux fois.*
+
+#### c) ⚠️ DETTE URGENTE — le separateur A RATIO existe dans NKUI, et l'extinction va l'emporter
+
+`NkUILayout::DrawSplitter` (`Kernel/Runtime/NKUI/src/NKUI/NkUILayout.cpp:286`) :
+
+```cpp
+bool DrawSplitter(NkUIContext &ctx, NkUIDrawList &dl, NkRect rect, bool vertical,
+                  float32 &ratio, NkUIID id)
+```
+
+**Un rectangle ET un `float32 &ratio`** — pas des pixels. Plus une **zone de
+prehension elargie** (`grabHw`), justifiee dans son commentaire par la meme raison
+que la mienne. **C'est `PaintSplitters`, ecrit avant `PaintSplitters`, dans la
+bibliotheque qu'on eteint.** Sa remplacante `nkgui::Splitter` glisse des pixels et
+n'a aucune zone elargie.
+
+> **La reecriture NKUI -> NKGui a fait REGRESSER ce widget sur ses deux
+> caracteristiques utiles.** Ma reecriture locale n'est donc pas un defaut de
+> recherche : c'est la reconstruction d'une fonctionnalite **supprimee**.
+
+**Ce que ca vaut, et pourquoi c'est date** : une surcharge a ratio plus une zone
+elargie, deja ecrites, a reprendre dans NKGui. **NKUI est en cours de suppression
+— une fois le fichier retire, la version qui marchait part avec.** Signale au
+canal pour l'agent qui mene l'extinction : *verifier ce que NKGui n'a pas repris
+avant de retirer `NkUILayout.cpp`*. `DrawSplitter` est un cas prouve ; je n'ai pas
+balaye le reste, **je n'affirme donc rien au-dela de celui-la**.
