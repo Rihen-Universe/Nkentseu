@@ -28,9 +28,29 @@ namespace nkentseu {
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 #if defined(_DEBUG) || defined(NKENTSEU_DEBUG_CONSOLE)
-	AllocConsole();
-	freopen_s(reinterpret_cast<FILE **>(stdout), "CONOUT$", "w", stdout);
-	freopen_s(reinterpret_cast<FILE **>(stderr), "CONOUT$", "w", stderr);
+	// ⚠️ NE PRENDRE UNE CONSOLE QUE SI L'APPELANT N'EN A PAS DONNE UNE.
+	//
+	//    Releve le 2026-08-21 : `AllocConsole()` REINITIALISE les handles standard
+	//    du processus vers la console qu'elle vient de creer. Lance depuis un
+	//    terminal, l'application VOLAIT donc la sortie standard de l'appelant :
+	//    tout ce qu'elle imprimait partait dans une console jetable, detruite
+	//    quelques lignes plus bas par `FreeConsole()`. Et une redirection
+	//    `> fichier` etait purement et simplement court-circuitee.
+	//
+	//    Consequence concrete : `NKUIDesign --probe` et `--roundtrip` rendaient 0
+	//    avec une sortie VIDE alors qu'ils avaient tout ecrit. Un banc de mesure
+	//    dont personne ne voit le resultat ne sert qu'a celui qui l'a ecrit.
+	//
+	//    La console reste allouee dans le seul cas ou elle sert vraiment : un
+	//    lancement sans sortie standard (double-clic depuis l'explorateur), ou
+	//    `GetStdHandle` rend un handle nul ou invalide.
+	const HANDLE nkInheritedOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	const bool nkConsoleAllocated = (!nkInheritedOut || nkInheritedOut == INVALID_HANDLE_VALUE);
+	if (nkConsoleAllocated) {
+		AllocConsole();
+		freopen_s(reinterpret_cast<FILE **>(stdout), "CONOUT$", "w", stdout);
+		freopen_s(reinterpret_cast<FILE **>(stderr), "CONOUT$", "w", stderr);
+	}
 #endif
 
 	// --- RÃ©cupÃ©ration des arguments CLI (UTF-8) ---
@@ -69,7 +89,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 #if defined(_DEBUG) || defined(NKENTSEU_DEBUG_CONSOLE)
 	fflush(stdout);
 	fflush(stderr);
-	FreeConsole();
+	// Symetrique du bloc d'entree : on ne libere que ce qu'on a alloue. Appeler
+	// `FreeConsole()` sur la console de l'appelant l'en detacherait.
+	if (nkConsoleAllocated) {
+		FreeConsole();
+	}
 #endif
 
 	return result;
