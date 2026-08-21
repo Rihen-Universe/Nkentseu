@@ -3451,6 +3451,252 @@ static void MaterialBattery() {
 	}
 }
 
+// ── HISTORIQUE ANNULER / REFAIRE DU MAILLAGE ────────────────────────────────
+// POURQUOI CETTE BATTERIE EXISTE
+// `NkEditHistory` etait, au 2026-08-22, un SYSTEME ENTIER NON PROUVE : aucune de
+// ses methodes n'etait appelee par un banc console du depot. Mesure de la
+// colonne trois (cf. NKRenderer/ROADMAP.md) : `Commit`, `CanUndo`, `UndoCount`,
+// `SetLimit`, `Undo`, `Redo` -- zero couverture.
+//
+// ⚠️ Le harnais contenait pourtant deja `h.Undo(g)` : c'est l'historique du
+// GRAPHE (NkGraph), pas celui du maillage. Un comptage par mot-cle declarait
+// donc l'annulation couverte. C'est la raison pour laquelle cette batterie
+// existe, et la raison pour laquelle elle nomme ses cas `hist/` et non `undo/`.
+//
+// CE QUE MESURE LA SIGNATURE
+// Un HACHAGE D'ETAT COMPLET (positions, index de materiau, selection, rangs de
+// selection) plutot qu'un compte de sommets : une annulation qui restaure le bon
+// NOMBRE de sommets aux MAUVAISES positions passerait un comptage.
+//
+// REGIMES COUVERTS : aller-retour simple et en chaine, pile vide, plafond,
+// branche abandonnee, et la survie des attributs (materiau par face, selection,
+// ordre de selection). NON COUVERT : la concurrence (l'historique n'est pas
+// thread-safe et ne pretend pas l'etre) et le cout memoire des instantanes.
+// ⚠️ CES SEPT CAS SAVENT ECHOUER — VERIFIE, PAS SUPPOSE (2026-08-22).
+// Une batterie verte du premier coup sur un systeme jamais exerce doit etre
+// suspectee avant d'etre crue : c'est « reussir pour la mauvaise raison ».
+// Deux defauts ont donc ete injectes dans NkEditHistory, puis retires :
+//   • EM_PushCapped jetant le plus RECENT au lieu du plus ancien
+//       -> hist/plafond : « x 0.5 -> 0.5 » au lieu de « -> 2.5 »
+//   • Commit ne vidant plus la pile de refaire
+//       -> hist/branche-abandonnee : « apresNouveauCommit=1 » au lieu de 0,
+//          « canRedo=1 » au lieu de 0
+// Dans les deux essais, les CINQ autres cas sont restes verts : les cas ne se
+// contaminent pas entre eux. Un garde-fou qu'on n'a pas vu echouer ne garde rien.
+static void HistoryBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+
+	// Hachage d'ETAT COMPLET. On veut qu'un octet qui bouge se voie : un
+	// aller-retour d'annulation doit rendre un etat IDENTIQUE, pas un etat
+	// « de la meme taille ».
+	auto empreinte = [](const NkEditMesh &m) -> uint64 {
+		uint64 h = 1469598103934665603ull; // FNV-1a 64
+		auto mange = [&h](const void *p, uint32 n) {
+			const unsigned char *b = (const unsigned char *)p;
+			for (uint32 i = 0; i < n; ++i) {
+				h ^= (uint64)b[i];
+				h *= 1099511628211ull;
+			}
+		};
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i) {
+			mange(&m.verts[i].pos, (uint32)sizeof(NkVec3f));
+			mange(&m.verts[i].sel, 1u);
+			mange(&m.verts[i].selOrder, (uint32)sizeof(uint32));
+		}
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			mange(&m.faces[f].alive, 1u);
+			mange(&m.faces[f].sel, 1u);
+			mange(&m.faces[f].material, (uint32)sizeof(uint16));
+		}
+		return h;
+	};
+
+	auto cube = [&](NkEditMesh &m) {
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+	};
+
+	// ── 1. ALLER-RETOUR : annuler rend l'etat EXACT, refaire rend le mute ────
+	{
+		NkEditMesh m;
+		cube(m);
+		NkEditHistory h;
+		const uint64 avant = empreinte(m);
+		h.Commit(m); // pre-etat, AVANT la mutation
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		const uint64 mute = empreinte(m);
+		const bool undo = h.Undo(m);
+		const uint64 apresUndo = empreinte(m);
+		const bool redo = h.Redo(m);
+		const uint64 apresRedo = empreinte(m);
+		GraphPut("%-34s undo=%d redo=%d | retourExact=%d refaitExact=%d muteDifferent=%d", "hist/aller-retour",
+				 undo ? 1 : 0, redo ? 1 : 0, apresUndo == avant ? 1 : 0, apresRedo == mute ? 1 : 0,
+				 mute != avant ? 1 : 0);
+	}
+
+	// ── 2. PILE VIDE : ne ment pas, ne casse rien ────────────────────────────
+	{
+		NkEditMesh m;
+		cube(m);
+		NkEditHistory h;
+		const uint64 avant = empreinte(m);
+		const bool u = h.Undo(m);
+		const bool r = h.Redo(m);
+		GraphPut("%-34s undoVide=%d (0 attendu) redoVide=%d (0 attendu) etatIntact=%d canUndo=%d",
+				 "hist/pile-vide", u ? 1 : 0, r ? 1 : 0, empreinte(m) == avant ? 1 : 0, h.CanUndo() ? 1 : 0);
+	}
+
+	// ── 3. PLAFOND : jette le PLUS ANCIEN, pas le plus recent ────────────────
+	// Le sens compte : jeter le plus recent rendrait l'annulation inutile.
+	{
+		NkEditMesh m;
+		cube(m);
+		NkEditHistory h;
+		h.SetLimit(3);
+		const float32 x0 = m.verts[0].pos.x; // referentiel : sans lui, x final ne prouve rien
+		// Cinq mutations distinctes, chacune precedee de son Commit.
+		for (int32 k = 0; k < 5; ++k) {
+			h.Commit(m);
+			m.verts[0].pos.x += 1.f; // mutation minimale et tracable
+		}
+		const uint32 prof = h.UndoCount();
+		// On remonte tout ce qu'on peut : avec un plafond de 3, on doit revenir a
+		// x0 + 2 (les deux plus anciens points de retour ont ete jetes), pas a x0.
+		// ⚠️ ON COMPTE LES REMONTEES ET ON RAPPELLE x0. Premiere version de ce cas :
+		// elle affichait « x=2.5 » sans dire d'ou l'on part ni combien de retours ont
+		// eu lieu -- donc invérifiable, et incapable de distinguer « 3 retours sur la
+		// bonne pile » de « 2 retours seulement ». Un chiffre sans son referentiel
+		// n'est pas une mesure.
+		uint32 remontees = 0;
+		while (h.CanUndo() && h.Undo(m))
+			remontees++;
+		GraphPut("%-34s profondeur=%u (3 attendue) remontees=%u | x %.1f -> %.1f (x0+2 attendu : 2 plus anciens jetes)",
+				 "hist/plafond", prof, remontees, (double)x0, (double)m.verts[0].pos.x);
+	}
+
+	// ── 4. BRANCHE ABANDONNEE : un commit apres annulation invalide le refaire ─
+	{
+		NkEditMesh m;
+		cube(m);
+		NkEditHistory h;
+		h.Commit(m);
+		m.verts[0].pos.x += 1.f;
+		h.Undo(m);
+		const uint32 refaisableAvant = h.RedoCount();
+		h.Commit(m); // nouvelle branche
+		m.verts[0].pos.y += 1.f;
+		GraphPut("%-34s refaisableAvant=%u (1 attendu) apresNouveauCommit=%u (0 attendu) canRedo=%d",
+				 "hist/branche-abandonnee", refaisableAvant, h.RedoCount(), h.CanRedo() ? 1 : 0);
+	}
+
+	// ── 5. LE MATERIAU PAR FACE SURVIT A L'ANNULATION ────────────────────────
+	// Le lien entre les deux chantiers de la nuit, et il n'avait jamais ete
+	// verifie. L'instantane est une COPIE de NkEditMesh, donc l'index de materiau
+	// devrait suivre « par construction » -- mais « par construction » est
+	// exactement le genre d'affirmation qui se revele fausse le jour ou un champ
+	// est ajoute apres coup. On le mesure au lieu de le supposer.
+	{
+		NkEditMesh m;
+		cube(m);
+		uint32 fz = 0;
+		float32 meilleur = -2.f;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			const float32 d = m.faces[f].normal.Dot({0.f, 0.f, 1.f});
+			if (d > meilleur) {
+				meilleur = d;
+				fz = f;
+			}
+		}
+		m.faces[fz].material = 7;
+		NkEditMesh::MaterialSlot slot;
+		slot.id = 4242;
+		m.materialSlots.PushBack(slot);
+
+		auto compte7 = [](const NkEditMesh &x) {
+			uint32 n = 0;
+			for (uint32 f = 0; f < (uint32)x.faces.Size(); ++f)
+				if (x.faces[f].alive && x.faces[f].material == 7)
+					n++;
+			return n;
+		};
+		const uint32 avant = compte7(m);
+
+		NkEditHistory h;
+		h.Commit(m);
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		const uint32 apresSubdiv = compte7(m);
+		h.Undo(m);
+		GraphPut("%-34s slot7 %u -> %u -> %u (retour a %u attendu) | slots=%u id=%u", "hist/materiau-survit",
+				 avant, apresSubdiv, compte7(m), avant, (uint32)m.materialSlots.Size(),
+				 m.materialSlots.Size() ? m.materialSlots[(uint32)m.materialSlots.Size() - 1].id : 0u);
+	}
+
+	// ── 6. LA SELECTION ET SON ORDRE SURVIVENT ───────────────────────────────
+	// L'ordre de selection n'est pas un detail : « fusionner au premier / au
+	// dernier » en depend (famille `ordre/`). Une annulation qui rend la bonne
+	// selection dans le mauvais ORDRE casserait ces commandes en silence.
+	{
+		NkEditMesh m;
+		cube(m);
+		// La selection passe par SetVertSelection (tableau ENTIER), comme le fait
+		// l'editeur : c'est lui qui attribue les rangs de selection.
+		NkVector<uint8> f1;
+		f1.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			f1[i] = (i < 4) ? (uint8)1 : (uint8)0;
+		m.SetVertSelection(f1.Data(), (uint32)f1.Size());
+		uint32 selAvant = 0, ordreAvant = 0;
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i)
+			if (m.verts[i].sel) {
+				selAvant++;
+				ordreAvant += m.verts[i].selOrder;
+			}
+		NkEditHistory h;
+		h.Commit(m);
+		NkVector<uint8> f2;
+		f2.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			f2[i] = (i == 9) ? (uint8)1 : (uint8)0;
+		m.SetVertSelection(f2.Data(), (uint32)f2.Size());
+		h.Undo(m);
+		uint32 selApres = 0, ordreApres = 0;
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i)
+			if (m.verts[i].sel) {
+				selApres++;
+				ordreApres += m.verts[i].selOrder;
+			}
+		GraphPut("%-34s selectionnes %u -> %u | somme des rangs %u -> %u (identiques attendus)",
+				 "hist/selection-survit", selAvant, selApres, ordreAvant, ordreApres);
+	}
+
+	// ── 7. ANNULATIONS EN CHAINE : trois mutations, trois retours ────────────
+	{
+		NkEditMesh m;
+		cube(m);
+		NkEditHistory h;
+		const uint64 origine = empreinte(m);
+		for (int32 k = 0; k < 3; ++k) {
+			h.Commit(m);
+			m.verts[(uint32)k].pos.y += 0.5f;
+		}
+		uint32 remontees = 0;
+		while (h.CanUndo() && h.Undo(m))
+			remontees++;
+		GraphPut("%-34s remontees=%u (3 attendues) retourOrigine=%d profondeur=%u refaisables=%u", "hist/chaine",
+				 remontees, empreinte(m) == origine ? 1 : 0, h.UndoCount(), h.RedoCount());
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -3488,6 +3734,8 @@ int main(int argc, char **argv) {
 	// AJOUTEE EN FIN, meme raison : les 169 lignes precedentes gardent leur
 	// numero, donc `--check` compare toujours l'ancien perimetre a l'identique.
 	MaterialBattery();
+	// AJOUTEE EN FIN, meme raison : les 181 lignes precedentes gardent leur numero.
+	HistoryBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
