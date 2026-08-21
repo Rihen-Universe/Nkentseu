@@ -694,6 +694,7 @@ static int ModeTrain(int argc, char **argv) {
 	cfg.seedPoids = (uint32)ArgEntier(argc, argv, "--graine", 1234);
 	cfg.accum = (int)ArgEntier(argc, argv, "--accum", 4);
 	cfg.lr = (float)ArgReel(argc, argv, "--lr", 3e-4);
+	cfg.clip = (float)ArgReel(argc, argv, "--clip", 0.0); // 0 = pas d ecretage (defaut historique)
 	cfg.warmup = (int)ArgEntier(argc, argv, "--warmup", -1);
 	cfg.saveEvery = (int)ArgEntier(argc, argv, "--saveevery", 200);
 	// REDEMARRAGE SECURISE (Rodolf, 2026-08-17 : « avec des protections pour le

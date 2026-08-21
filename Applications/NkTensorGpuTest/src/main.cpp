@@ -312,10 +312,26 @@ static int BancAdd(NkTensorGpu &gpu, int passes) {
 //   trafic REEL du pave 4x4 : chaque tuile 4x4 lit 4 lignes de A et 4 colonnes
 //   de B, soit 8*K flottants (32*K octets) pour 16 sorties et 32*K FLOPs
 //   -> intensite arithmetique = 1 FLOP/octet EXACTEMENT.
-//   A ~448 Go/s, le plafond de ce noyau est donc ~448 GFLOP/s, soit ~2,2 % de
-//   la crete de 20 300 GFLOPS. Un point proche de 2,2 % tourne AU MAXIMUM de ce
-//   que son intensite permet : il n'y a rien a y gagner sans changer
-//   l'intensite (c'est-a-dire sans passer en memoire partagee).
+//   A ~448 Go/s, le plafond de ce noyau serait donc ~448 GFLOP/s, soit ~2,7 %
+//   de la crete de 16 600 GFLOPS (RTX 3070 **Laptop** ; le 20 300 utilise
+//   jusqu'au 2026-08-18 etait celui d'une carte de BUREAU, ~22 % trop haut).
+//
+// ⚠️ CE PLAFOND A ETE DEPASSE PAR LA MESURE — ET C'EST LE MODELE QUI A TORT.
+//   Mesure du 2026-08-16 sur `1536x32769x640` : **1 066 GFLOP/s**, soit 2,4x
+//   au-dessus des 448 GFLOP/s calcules ci-dessus. Le calcul suppose que CHAQUE
+//   relecture atteint la DRAM ; en pratique le **cache L2 sert une large part**
+//   des colonnes de B relues entre groupes de travail.
+//   -> « intensite = 1 FLOP/octet » decrit le trafic EMIS par le noyau, pas
+//      celui qui atteint la DRAM. Seul le second fixe un plafond, et on ne le
+//      connait pas sans compteurs materiels.
+//   -> Donc NE PAS conclure « un point proche du plafond tourne au maximum de
+//      ce que son intensite permet » : c'etait ecrit ici, et c'est faux. Le
+//      noyau est a 15,6x de son plancher CALCUL (3,88 ms contre 60,43 ms
+//      mesurees) et 2,4x SOUS son plafond MEMOIRE sans cache. Les deux
+//      ressources restent candidates ; ce banc ne les separe pas.
+//   -> Ce qui les separerait : des compteurs DRAM (Nsight), ou une serie a FLOP
+//      constant et intensite variable. Tant que ce n'est pas fait, aucune
+//      conclusion sur « il n'y a rien a y gagner ».
 
 struct MatPoint {
 		uint32 M, N, K;
@@ -419,7 +435,9 @@ static void BancMatSerie(NkTensorGpu &gpu, const char *titre, bool avecAlloc, co
 		snprintf(forme, sizeof(forme), "%ux%ux%u", t[i].M, t[i].N, t[i].K);
 		const double flops = 2.0 * (double)t[i].M * (double)t[i].N * (double)t[i].K;
 		const double gflops = flops / (p.minUs * 1.0e-6) / 1.0e9;
-		const double pctCrete = gflops / 20300.0 * 100.0;
+		// RTX 3070 LAPTOP. Le 20 300 employe jusqu'au 2026-08-18 etait la crete
+		// d'une carte de BUREAU : il sous-estimait tous les « % de crete » de ~22 %.
+		const double pctCrete = gflops / 16600.0 * 100.0;
 		const double ratio = p.maxUs / p.minUs;
 		printf("  %-20s %9.1f %9.1f %9.1f %9.1f %8.2f %9.1f %8.3f  %s\n", forme, p.minUs, p.medUs, p.moyUs,
 			   p.maxUs, ratio, gflops, pctCrete, t[i].quoi);
@@ -441,8 +459,11 @@ static int BancMatmul(NkTensorGpu &gpu, int passes) {
 
 	printf("\n=== BANC D'ECHELLE `matmul_t4` — LA VARIANCE D'ABORD ===\n");
 	printf("Intensite arithmetique du pave 4x4 : 1 FLOP/octet EXACTEMENT.\n");
-	printf("Plafond de CE noyau = ~448 Go/s x 1 = ~448 GFLOP/s = ~2,2 %% de la crete (20 300 GFLOPS).\n");
-	printf("Un point proche de 2,2 %% tourne au MAXIMUM de ce que son intensite permet.\n");
+	printf("Plafond MODELE de ce noyau = ~448 Go/s x 1 = ~448 GFLOP/s = ~2,7 %% de la crete (16 600 GFLOPS, 3070 Laptop).\n");
+	printf("ATTENTION : ce plafond a DEJA ete depasse — 1 066 GFLOP/s mesures le 16/08, soit 2,4x au-dessus.\n");
+	printf("Le L2 sert une part des relectures, donc l'intensite 1 FLOP/o decrit le trafic EMIS, pas celui qui\n");
+	printf("atteint la DRAM. Ne PAS lire un point proche de 2,7 %% comme  au maximum de son intensite  :\n");
+	printf("ce banc ne separe pas la borne calcul de la borne memoire.\n");
 	printf("Repetitions par point : %d (3 de chauffe jetees). Passes : %d (TEMOIN).\n", reps, passes);
 	printf("⚠️ Horloge MURALE hote : inclut lancement et synchronisation, pas seulement le GPU.\n");
 	printf("⚠️ Ce banc ne dit RIEN du debit d'entrainement : il mesure un noyau isole.\n");

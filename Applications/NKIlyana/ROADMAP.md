@@ -2159,3 +2159,118 @@ seule chose qu'on lui demandera le jour où on discutera d'agrandir le budget.
 - les deux affichés côte à côte avec des noms clairs (témoin `ModeTrain` +
   ligne « VRAM suivie » du trainer) — la leçon des métriques figées de NKXR :
   jamais une ligne qui mélange du vivant et du mort sans le dire.
+
+## 🚨 REDÉMARRAGE BRUTAL DU 17/08 23:18 — premier test réel du protocole, état des courses, et CE QUE RODOLF FAIT SEUL (2026-08-18)
+
+### Ce qui s'est passé (mesuré, pas supposé)
+
+- Observateur d'événements : **Kernel-Power 41** (redémarrage sans arrêt), **BugCheck 0x119 VIDEO_SCHEDULER_INTERNAL_ERROR** (`C:\Windows\Minidump\081726-12156-01.dmp`), démarrage 23:19:14. Deux événements pilote `nvlddmkm` pendant mes courses : **23:13:41** (course B6a4 : dispatch `ce_idx_fwd` non calculé, 1 536 lignes — le filet ln(V) l'a arrêté au pas 1) et **23:18:00** (course B12a2, dernière ligne de journal 23:17:57 en pleine compilation de noyaux → écran bleu).
+- Contexte : bureau à **4,6 Go de VRAM** (MEmu, Blender, Chrome, Horizon) + 14 clang au lancement ; pic physique de B6a4 mesuré à **7,0 Go** ; B12a2 extrapolé à ~12,7 Go sur une carte de 8 Go. Corrélation forte, pas preuve : *le pilote a lâché deux fois exactement quand mes courses sur-souscrivaient la carte*. Un 0x119 identique existe le 03/08 (hors campagne).
+- **Borne physique (2 points, ordonnée cohérente = poids+Adam 1,07 Go)** : `pic(B) ≈ 1,3 Go + 0,95 Go × B` à d640/L10/T256. Sur 8 Go avec le bureau à 1,5 Go : **B ≤ 5**. B6a4 est à la limite (6,2-7,0 Go selon la course), **B12a2 et B24a1 ne tiennent PAS** sur cette carte — inutile de les lancer, et dangereux.
+
+### État des courses de dimensionnement (`D:/Projets/Camrail/AI/IlyanaReel/dim2/`, journal `RESULTATS.txt`)
+
+| course | état | verdict |
+|---|---|---|
+| d640/L10 **B3a8** | 8/8 pas, `exit=0`, fin propre 23:16:37 (`ckpt_fin_course.etat.txt` : « fin de course 8/8 ») | **VALIDE** — 14,2 s/pas, pic physique 4 352 Mo (calcul 4 138), réserve 63,6 % de service. Pertes 10,45 → 9,29 sur 8 pas |
+| d640/L10 B6a4 | ARRET pas 1 (filet ln(V), dispatch non calculé) | **INVALIDE** — panne GPU sous sur-souscription, à refaire bureau ≤ 1 Go |
+| d640/L10 B12a2 | journal tronqué 23:17:57, pas de `FIN` | **INVALIDE** (écran bleu) — et physiquement infaisable ici |
+| d640/L12 **B3a8** | 8/8 pas, `exit=0`, `FIN` 00:35:59 (18/08, bureau 2,0 Go, 0 clang) | **VALIDE** — 15,7 s/pas, pic physique 4 934,7 Mo (calcul 4 720,3), réserve 63,5 % de service. Pertes 10,45 → **9,29613** au pas 8, indiscernable de L10 (9,29063) : 8 pas ne départagent pas la capacité. +14 % de paramètres (80,2 M contre 70,3 M), +10-14 % de temps/pas |
+| d640/L10 B6a4 (reprise), B12a2, B24a1 ; d640/L12 B6a4 | refusées par la garde VRAM le 18/08 00:32-00:35, chiffres dans `RESULTATS.txt` | **CLOSES — infaisables ici** : besoin estimé 7 000 / 12 700 / 24 100 / 8 140 Mo contre 8 192 − ~2 000 (bureau) de disponible. B6a4 ne redeviendrait mesurable qu'avec un bureau ≤ 1 Go |
+
+**SÉRIE CLOSE le 18/08 00:36.** Deux configs tiennent sur cette carte : **L10/B3a8** (validée, recommandée — la conf de campagne) et **L12/B3a8** (option : +14 % de paramètres pour +10-14 % de temps, indiscernable en 8 pas — en changer = figer une autre taille de modèle, décision de Rodolf, pas de l'agent).
+
+**Rien de partiel n'est compté** : un journal sans `FIN` n'est pas une mesure. `courses.sh` corrigé (copie dans `Applications/NKIlyana/reference/courses_dimensionnement.sh`) : `--save` DANS le dossier de la course, garde VRAM avant lancement, `FIN` par course, **STOP SÉRIE au premier défaut GPU**.
+
+### ⚠️ Un dégât de mon fait, réparé : le checkpoint par défaut
+
+`courses.sh` ne passait pas `--save` → chaque fin de course a écrit **844 Mo sur `D:/Projets/Camrail/AI/Ilyana/ilyana.nkgp`**, le modèle du 10/08 (d384/L4, celui que `--chat` charge par défaut). **La rotation à trois l'a sauvé** : il était descendu en `.prev2` — une course de plus et il disparaissait. Restauré à la main (md5 `fd883a7a…`, 237 697 195 o, daté 10/08 07:47) ; les deux checkpoints parasites sont déplacés dans `dim2/d640_L10_B*/ckpt_*_ECRIT_PAR_ERREUR_*.nkgp` (à supprimer). *Le premier service rendu par le protocole n'a pas été de reprendre une campagne : ça a été d'absorber ma propre erreur.*
+
+### Ce que le protocole a fait / aurait fait
+
+- **Courses courtes (8 pas, `--saveevery 0`)** : rien à reprendre — c'est voulu, la mesure se rejoue. Le journal d'état daté a dit exactement où on en était (fin B3a8 23:16:39), le journal tronqué de B12a2 a dit qu'elle ne compte pas.
+- **Campagne longue** : elle aurait perdu au plus 20 min (`--saveminutes 20`), et la relance ci-dessous aurait choisi le plus récent des trois checkpoints **valide** (lecture jusqu'au bout avant acceptation, témoin du 17/08 : `.prev` repris après troncature de `<save>`).
+- **Ce que le protocole ne couvre PAS et que ce redémarrage a montré** : il protège l'état, pas la machine. Un bureau à 4,7 Go de VRAM tue la course (ou la machine) *avant* tout checkpoint. → condition de lancement ci-dessous.
+
+### 🟢 CAMPAGNE LONGUE : LANCÉE le 2026-08-18 à 00:36 — par la tâche planifiée elle-même
+
+*(Le 🟥 de la veille disait : pas de lancement — écran bleu une heure avant, dimensionnement à 1/6, borne physique. Les trois conditions sont tombées avant le lancement, chacune vérifiée :)*
+1. **pilote** : nuit calme après le redémarrage — témoin (2×400 pas) et course L12 passés sans défaut GPU ;
+2. **dimensionnement** : série **CLOSE** (tableau ci-dessus), L10/B3a8 reste la seule config validée ET recommandée ;
+3. **borne physique** : bureau 1,95-2,06 Go + pic mesuré 4,35 Go = **6,3-6,4 Go < 8,19 Go**, marge ~1,8 Go.
+
+**Le lancement EST le test de la chaîne réelle** : `schtasks /Run /TN IlyanaCampagneToutes15min` → tâche → `reprise_ilyana.ps1` → garde VRAM passée (2 059 MiB < 3 000) → `LANCE PID 9824 | AUCUN checkpoint -> depart du debut | horizon 6000`. Second `/Run` pendant la course : `DEJA EN COURS (verrou PID 9824 vivant) -> rien fait`, un seul processus — **le verrou est prouvé sur la voie réelle**, pas seulement sur le témoin. Durée estimée bornée : **~24 h** (6 000 pas ; 14,2 s/pas borne haute mesurée bureau chargé, 13,8 mesuré au calme — l'encodage du corpus à 200 M caractères s'ajoute et n'était pas mesuré à cette taille). La campagne est désormais **protégée par la tâche** : coupure, écran bleu ou kill → reprise seule au prochain quart d'heure de session ouverte, perte bornée à 20 min (`--saveminutes 20`).
+
+### ▶️ COMMANDE POUR RODOLF SEUL — lancer, regarder, reprendre (une ligne chacune)
+
+Configuration recommandée = la seule mesurée valide et qui tient : **d640 / L10 / B3 / accum 8** (lot effectif 6 144), corpus `prose_socle_dedup`, tokenizer v5, `--horizon 6000` (≈ 24 h à 14,2 s/pas, borne haute : bureau chargé pendant la mesure). Deux boutons restent à lui : `--horizon` et `--maxchars` (200 M caractères ≈ 50 M jetons ≥ les 36,9 M consommés par 6 000 pas × 6 144 ; le temps d'encodage du corpus au démarrage n'est pas mesuré à cette taille).
+
+```
+:: PRÉ-REQUIS : nvidia-smi doit montrer < 3 000 MiB utilisés (le bureau au repos fait ~1,8 Go ; fermer MEmu / Blender / Horizon). Sinon NE PAS LANCER — c'est le même seuil que la garde du script de reprise.
+mkdir D:\Projets\Camrail\AI\IlyanaReel\campagne
+cd /d D:\Projets\Camrail\AI\IlyanaReel\campagne
+copy D:\Projets\2026\Nkentseu\Nkentseu-ilyana\Build\Bin\Release-Windows\NKIlyana\NKIlyana.exe .
+
+:: LANCER (détaché de toute console : survit à la fermeture du terminal)
+start "ilyana-campagne" /min NKIlyana.exe --train --llama --tying --d 640 --layers 10 --heads 8 --T 256 --B 3 --accum 8 --lr 3e-4 --corpus D:\Projets\Camrail\AI\IlyanaReel\socle\prose_socle_dedup.txt --bpe D:\Projets\Camrail\AI\IlyanaReel\tokenizer\ilyana_v5_mixte.nkbpe --maxchars 200000000 --horizon 6000 --save D:\Projets\Camrail\AI\IlyanaReel\campagne\ilyana_socle.nkgp --echantillons 0 --saveevery 200 --saveminutes 20 --journal 25
+
+:: REGARDER (à tout moment, sans rien relancer)
+type D:\Projets\Camrail\AI\IlyanaReel\campagne\ilyana_socle.nkgp.etat.txt      (pas global / horizon, perte, s/pas, reste estimé)
+tail  D:\Projets\Camrail\AI\IlyanaReel\campagne\logs\app.log                    (le journal est dans <répertoire courant>/logs/app.log)
+
+:: ARRÊT PROPRE (checkpoint à la fin du pas en cours, puis sortie)
+type nul > D:\Projets\Camrail\AI\IlyanaReel\campagne\ilyana_socle.nkgp.stop
+
+:: REPRENDRE après coupure / redémarrage : MÊME ligne + --load <save> (le plus récent VALIDE de <save>/.prev/.prev2 est choisi, dit dans le journal)
+start "ilyana-campagne" /min NKIlyana.exe --train --llama --tying --d 640 --layers 10 --heads 8 --T 256 --B 3 --accum 8 --lr 3e-4 --corpus D:\Projets\Camrail\AI\IlyanaReel\socle\prose_socle_dedup.txt --bpe D:\Projets\Camrail\AI\IlyanaReel\tokenizer\ilyana_v5_mixte.nkbpe --maxchars 200000000 --horizon 6000 --save D:\Projets\Camrail\AI\IlyanaReel\campagne\ilyana_socle.nkgp --load D:\Projets\Camrail\AI\IlyanaReel\campagne\ilyana_socle.nkgp --echantillons 0 --saveevery 200 --saveminutes 20 --journal 25
+```
+
+Règles inchangées : `1/N` intouchable ; C1 non forcée ; sur les durées on lit le `min` d'une course calme, jamais une paire courte ; toute durée annoncée est bornée par la physique avant d'être annoncée.
+
+## 🔁 REDÉMARRAGE AUTOMATIQUE — EN PLACE, PROUVÉ PAR TÉMOIN DOUBLE (2026-08-18)
+
+**Exigence de Rodolf : « je veux que son entraînement redémarre seul si le PC s'est éteint. »** C'est en place, et c'est prouvé — cette section est ce qu'il lit **sans agent et sans guide**.
+
+### Ce qui est en place
+
+- **Script idempotent** `D:\Projets\Camrail\AI\IlyanaReel\campagne\reprise_ilyana.ps1` (sa config — chemins, modèle, `$VramMax` — dans `campagne.conf.ps1` à côté). À chaque passage il fait au plus UNE chose : rien si un entraîneur vit déjà (**verrou PID**), rien si la campagne est finie, rien si la VRAM est déjà occupée (> 3 000 MiB — garde née de l'écran bleu du 17/08), rien si 3 lancements ont eu lieu dans l'heure (**anti-boucle**) ; sinon il relance l'entraîneur **détaché**, sur le plus récent des checkpoints `<save>`/`.prev`/`.prev2` (l'entraîneur re-vérifie l'intégrité et se replie seul — « partiel = pas un checkpoint »), et écrit une ligne au journal.
+- **Tâche planifiée `IlyanaCampagneToutes15min`** : lance ce script **toutes les 15 minutes**, session ouverte. Coût d'un passage où tout va bien : une ligne de journal, rien d'autre.
+
+### Le témoin double du 18/08 (conf jouet 400 pas — journal : `IlyanaReel\reprise_auto_temoin\reprises.log`)
+
+| geste | résultat consigné |
+|---|---|
+| script → départ du début | `LANCE PID 20992 \| AUCUN checkpoint -> depart du debut` |
+| script relancé pendant la course | `DEJA EN COURS (verrou PID 20992 vivant) -> rien fait` |
+| **kill brutal au pas 190** puis script | `LANCE \| reprise sur t.nkgp \| pas global lu 190/400` — perte **8,79 → 7,43**, jamais de retour à ln(V)≈10,4 : **trajectoire continue, pas un redépart** |
+| script après la fin (400/400) | `CAMPAGNE TERMINEE (etat : pas 400/400) -> rien fait` |
+| garde VRAM (la veille, 00:19) | `VRAM occupee 1716 MiB > 1500 -> NON lance` |
+
+Et la **voie réelle** (tâche → script → campagne) est prouvée par le lancement lui-même : section 🟢 ci-dessus.
+
+### CE QUE RODOLF FAIT SEUL
+
+```
+:: REPRISE MANUELLE (une seule ligne — mêmes gardes que la tâche : verrou, VRAM, fin de course)
+powershell -ExecutionPolicy Bypass -File D:\Projets\Camrail\AI\IlyanaReel\campagne\reprise_ilyana.ps1 -Motif manuel
+
+:: LIRE LE JOURNAL DES REPRISES (une ligne datée par passage : ce qui a été fait, et sinon pourquoi)
+type D:\Projets\Camrail\AI\IlyanaReel\campagne\reprises.log
+
+:: DÉSACTIVER / RÉACTIVER / SUPPRIMER la relance automatique
+schtasks /Change /TN IlyanaCampagneToutes15min /DISABLE
+schtasks /Change /TN IlyanaCampagneToutes15min /ENABLE
+schtasks /Delete /TN IlyanaCampagneToutes15min /F
+```
+
+Lecture du journal, cinq verdicts possibles : `LANCE` = un entraîneur est parti (PID, checkpoint pris, pas global lu) ; `DEJA EN COURS` = verrou, rien fait ; `VRAM occupee N MiB > seuil` = garde, rien lancé — fermer MEmu/Blender/Horizon, la tâche retentera au quart d'heure suivant ; `CAMPAGNE TERMINEE` = plus rien à reprendre (**penser à désactiver la tâche**, sinon elle l'écrira toutes les 15 min) ; `3 LANCEMENTS EN MOINS D UNE HEURE` = quelque chose tue l'entraîneur au démarrage — lire `campagne\logs\app.log`, puis effacer les lignes `LANCE` récentes du journal pour réautoriser.
+
+### Limite connue, et l'option pour la lever (facultative)
+
+La tâche ne tourne que **session ouverte** (créer un déclencheur « au boot » exige l'élévation, refusée à l'agent — `ONSTART` et `ONLOGON` tentés le 18/08, `Accès refusé` les deux). Après un redémarrage, la reprise part donc **au premier quart d'heure suivant l'ouverture de session**. Pour le strict « au boot, avant toute session », une console **administrateur**, une fois :
+
+```
+schtasks /Create /TN IlyanaCampagneBoot /SC ONSTART /DELAY 0002:00 /RU SYSTEM /F /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File D:\Projets\Camrail\AI\IlyanaReel\campagne\reprise_ilyana.ps1 -Motif boot"
+```
+
+⚠️ Non testé ici (élévation refusée) ; sous SYSTEM/session 0 le GPU n'est **pas prouvé**. Au premier boot réel : vérifier une ligne `LANCE` au journal puis que `logs\app.log` avance ; sinon supprimer `IlyanaCampagneBoot` et garder `IlyanaCampagneToutes15min` — les deux cohabitent sans risque, le verrou les départage.
