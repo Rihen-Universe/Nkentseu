@@ -926,6 +926,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Sandbox/System/NKArchive/NKArchiveSandbox.jenga"):
+
+        pass
+
+
+
     with include("Kernel/Runtime/NKRenderer/NKRenderer.jenga"):
 
         pass

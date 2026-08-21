@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+SandboxNKArchive
+================
+Banc EXECUTABLE de la mise a jour NkArchive : commentaires et lignes vides,
+ordre du fichier, forme litterale des valeurs.
+
+Application console et non `unittest()` : l'execution des tests unitaires est
+DESACTIVEE par la politique du workspace (`disableunittestexecution`), donc un
+banc pose sous `tests/` compile sans jamais tourner et ne prouve rien. Meme
+raison et meme convention que NKGuiDrawTest et que SandboxNKSerialization.
+
+Sortie : un compte `n/n` et un code de sortie (0 = tout passe).
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+
+with project("SandboxNKArchive"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files([
+        "src/main.cpp",
+    ])
+
+    nkentseudependson(
+        ["NKSerialization", "NKReflection", "NKFileSystem", "NKLogger",
+         "NKThreading", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "shell32"])
+
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread"])
+
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        links(["pthread"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

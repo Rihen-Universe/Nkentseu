@@ -124,6 +124,7 @@ namespace nkentseu {
 	// Déclarations anticipées pour briser les dépendances circulaires.
 
 	struct NkArchiveValue;
+	struct NkArchiveTrivia;
 	struct NkArchiveEntry;
 	class NkArchive;
 	struct NkArchiveNode;
@@ -365,6 +366,102 @@ namespace nkentseu {
 	}; // struct NkArchiveValue
 
 	// =============================================================================
+	// STRUCTURE : NkArchiveTrivia
+	// DESCRIPTION : ce que le FICHIER disait, et que le MODELE n'a pas a savoir
+	// =============================================================================
+	/**
+	 * @struct NkArchiveTrivia
+	 * @brief Bloc FACULTATIF portant la mise en forme d'origine d'un noeud
+	 * @ingroup SerializationComponents
+	 *
+	 * Un format texte editable a la main (`.nkgui`, YAML, un JSON commente) porte
+	 * trois choses qu'un modele en memoire n'a aucune raison de connaitre, et que
+	 * l'archive perdait jusqu'ici :
+	 *
+	 *  1. **les commentaires et les lignes vides** (`leading`, `trailing`) ;
+	 *  2. **l'ordre du fichier** (`sourceOrder`) -- l'archive est ordonnee par
+	 *     insertion, donc deterministe, mais l'ordre obtenu est celui de la
+	 *     DECLARATION DU SCHEMA, pas celui du fichier. Sans ce rang, un
+	 *     aller-retour qui passe par l'archive reordonne les proprietes et le
+	 *     seuil « octet pour octet » tombe ;
+	 *  3. **la forme litterale de la valeur** (`literal`) -- `0.50` contre `0.5`,
+	 *     `#F79A28` contre `#f79a28`, les guillemets choisis. Reecrire une valeur
+	 *     canoniquement, c'est modifier une ligne que l'utilisateur n'a pas
+	 *     touchee.
+	 *
+	 * ## Facultatif, et c'est le point
+	 *
+	 * Un document FABRIQUE PAR LE CODE n'a ni commentaire, ni ordre d'origine, ni
+	 * forme litterale : c'est normal et c'est valide. Le bloc n'existe alors pas
+	 * du tout (`NkArchiveNode::HasTrivia() == false`, aucune allocation), et tout
+	 * ecrivain qui l'ignore produit exactement ce qu'il produisait avant.
+	 *
+	 * ## Le piege que `literalOf` ferme PAR CONSTRUCTION
+	 *
+	 * `NKUIDesign/NkGuiFormat.h` a resolu le meme probleme une fois, en local :
+	 * son ecrivain reemet `NkGValue::raw` verbatim. Deux defauts en sont sortis,
+	 * et aucun des deux ne doit etre reproduit ici :
+	 *
+	 *  - **imprimer vide** : un document construit en memoire a un `raw` vide, il
+	 *    s'ecrit donc avec des valeurs VIDES, sans la moindre erreur, et se relit
+	 *    sans broncher. Ici c'est impossible : `NkArchiveNode::Lexeme()` retombe
+	 *    sur la forme canonique quand il n'y a pas de litteral, il ne rend jamais
+	 *    du vide (sauf pour une chaine reellement vide, qui est la bonne reponse).
+	 *  - **imprimer perime** : une valeur EDITEE (0.50 -> 0.75) reimprimee avec
+	 *    l'ancien litteral reecrirait `0.50`, c'est-a-dire perdrait la
+	 *    modification. `literalOf` retient le texte canonique auquel `literal`
+	 *    correspondait ; `Lexeme()` n'utilise `literal` que s'il correspond
+	 *    ENCORE. Une valeur qui change desarme son litteral toute seule, sans que
+	 *    personne ait a y penser.
+	 *
+	 * @note Zero-STL : NkString uniquement, aucune dependance std::.
+	 */
+	struct NKENTSEU_SERIALIZATION_API NkArchiveTrivia {
+			/**
+			 * @brief Ce qui PRECEDE l'entree dans le fichier, tel quel
+			 * @note Commentaires de ligne, lignes vides, indentation -- non
+			 *       interprete : l'archive ne sait pas ce qu'est un commentaire,
+			 *       elle sait seulement le rendre a l'octet.
+			 */
+			NkString leading;
+
+			/**
+			 * @brief Ce qui SUIT l'entree sur la MEME ligne, tel quel
+			 * @note Le commentaire de fin de ligne, cas explicitement exige.
+			 */
+			NkString trailing;
+
+			/**
+			 * @brief Forme litterale de la valeur scalaire, telle qu'ecrite
+			 * @note Vide = aucune forme litterale connue -> impression canonique.
+			 */
+			NkString literal;
+
+			/**
+			 * @brief Texte canonique auquel `literal` correspondait quand il a ete pose
+			 * @note Garde-fou anti-perime : voir la section « piege » ci-dessus.
+			 *       Ne jamais l'ecrire a la main -- NkArchiveNode::SetLiteral() le
+			 *       renseigne depuis la valeur courante du noeud.
+			 */
+			NkString literalOf;
+
+			/**
+			 * @brief Rang de l'entree dans le fichier d'origine
+			 * @note -1 = inconnu (entree fabriquee par le code, ou ajoutee apres
+			 *       lecture). Les entrees sans rang se rangent APRES celles qui en
+			 *       ont un, dans leur ordre d'insertion : une propriete neuve
+			 *       s'ecrit a la fin, elle ne s'insere pas au hasard.
+			 */
+			nk_int32 sourceOrder = -1;
+
+			/// @brief Vrai si ce bloc ne porte rien : il aurait pu ne pas exister
+			[[nodiscard]] bool Empty() const noexcept {
+				return leading.Empty() && trailing.Empty() && literal.Empty() && sourceOrder < 0;
+			}
+
+	}; // struct NkArchiveTrivia
+
+	// =============================================================================
 	// STRUCTURE : NkArchiveNode
 	// DESCRIPTION : Nœud polymorphe de l'arbre hiérarchique
 	// =============================================================================
@@ -543,6 +640,93 @@ namespace nkentseu {
 			}
 
 			// -----------------------------------------------------------------
+			// TRIVIA : LA MISE EN FORME D'ORIGINE (FACULTATIVE)
+			// -----------------------------------------------------------------
+			/**
+			 * @defgroup ArchiveNodeTrivia Mise en forme d'origine
+			 * @brief Commentaires, ordre du fichier et forme litterale d'un noeud
+			 *
+			 * ADDITIF : tant que personne n'appelle ces methodes, le bloc n'est pas
+			 * alloue (8 octets de pointeur nul par noeud) et le noeud se comporte
+			 * exactement comme avant. Le binaire NKS1, le JSON et l'ECS n'en savent
+			 * rien et produisent les memes octets.
+			 */
+
+			/// @brief Vrai si ce noeud porte un bloc de trivia
+			[[nodiscard]] bool HasTrivia() const noexcept {
+				return mTrivia != nullptr;
+			}
+
+			/// @brief Acces lecture au bloc de trivia (nullptr si absent)
+			[[nodiscard]] const NkArchiveTrivia *Trivia() const noexcept {
+				return mTrivia;
+			}
+
+			/// @brief Acces ecriture au bloc de trivia (nullptr si absent)
+			[[nodiscard]] NkArchiveTrivia *Trivia() noexcept {
+				return mTrivia;
+			}
+
+			/// @brief Renvoie le bloc de trivia, en l'allouant s'il n'existait pas
+			NkArchiveTrivia &EnsureTrivia() noexcept;
+
+			/// @brief Detruit le bloc de trivia s'il existe
+			/// @post HasTrivia() == false ; le noeud redevient un noeud nu
+			void ClearTrivia() noexcept;
+
+			/// @brief Definit ce qui PRECEDE l'entree dans le fichier, tel quel
+			void SetLeadingTrivia(NkStringView t) noexcept;
+
+			/// @brief Definit ce qui SUIT l'entree sur la MEME ligne, tel quel
+			void SetTrailingTrivia(NkStringView t) noexcept;
+
+			/// @brief Ce qui precede l'entree ; vue vide si aucun bloc
+			[[nodiscard]] NkStringView LeadingTrivia() const noexcept;
+
+			/// @brief Ce qui suit l'entree sur la meme ligne ; vue vide si aucun bloc
+			[[nodiscard]] NkStringView TrailingTrivia() const noexcept;
+
+			/// @brief Definit le rang de l'entree dans le fichier d'origine
+			/// @param rank Rang >= 0 ; une valeur negative efface le rang
+			void SetSourceOrder(nk_int32 rank) noexcept;
+
+			/// @brief Rang dans le fichier d'origine, -1 si inconnu
+			[[nodiscard]] nk_int32 SourceOrder() const noexcept;
+
+			/**
+			 * @brief Enregistre la forme litterale de la valeur, telle qu'ecrite
+			 * @param literal Le lexeme du fichier ("0.50", "#F79A28", "'oui'"...)
+			 * @note Le texte canonique COURANT de la valeur est memorise avec lui.
+			 *       Si la valeur change ensuite, le litteral cesse tout seul d'etre
+			 *       utilise : voir Lexeme(). C'est le garde-fou anti-perime, et il
+			 *       n'y a aucun moyen de l'oublier puisque personne ne le pose a la
+			 *       main.
+			 * @note A appeler APRES avoir affecte la valeur, jamais avant.
+			 */
+			void SetLiteral(NkStringView literal) noexcept;
+
+			/// @brief Vrai si un litteral est present ET correspond ENCORE a la valeur
+			[[nodiscard]] bool HasUsableLiteral() const noexcept;
+
+			/**
+			 * @brief Forme canonique de la valeur, telle que l'archive la formaterait
+			 * @return "null" pour NK_VALUE_NULL, sinon NkArchiveValue::text
+			 * @note Ne rend du vide que pour une chaine reellement vide.
+			 */
+			[[nodiscard]] NkStringView CanonicalLexeme() const noexcept;
+
+			/**
+			 * @brief CE QU'IL FAUT IMPRIMER pour ce noeud scalaire
+			 * @return le litteral d'origine s'il est encore valable, sinon la forme
+			 *         canonique -- JAMAIS du vide par defaut d'information
+			 * @note C'est l'unique point d'impression a utiliser dans un ecrivain
+			 *       texte qui veut respecter le fichier d'origine. Le defaut de
+			 *       NkGValue::raw (reemission verbatim d'un champ qui peut etre vide)
+			 *       est structurellement impossible ici.
+			 */
+			[[nodiscard]] NkStringView Lexeme() const noexcept;
+
+			// -----------------------------------------------------------------
 			// MÉTHODES PRIVÉES D'IMPLÉMENTATION
 			// -----------------------------------------------------------------
 		private:
@@ -552,6 +736,30 @@ namespace nkentseu {
 			 * @note Méthode noexcept : delete sur nullptr est safe en C++
 			 */
 			void FreeObject() noexcept;
+
+			/**
+			 * @brief Libere le bloc de trivia si present
+			 * @post mTrivia = nullptr
+			 */
+			void FreeTrivia() noexcept;
+
+			/**
+			 * @brief Duplique le bloc de trivia d'un autre noeud
+			 * @note L'ancien bloc est libere d'abord ; le pointeur n'est JAMAIS
+			 *       partage entre deux noeuds.
+			 */
+			void CopyTriviaFrom(const NkArchiveNode &o) noexcept;
+
+			// -----------------------------------------------------------------
+			// VARIABLES MEMBRES PRIVEES
+			// -----------------------------------------------------------------
+			/**
+			 * @brief Bloc FACULTATIF de mise en forme d'origine (owning pointer)
+			 * @note nullptr = le noeud ne porte aucune trivia, ce qui est le cas
+			 *       normal d'un document fabrique par le code. Aucune allocation
+			 *       tant que personne n'appelle EnsureTrivia().
+			 */
+			NkArchiveTrivia *mTrivia = nullptr;
 
 	}; // struct NkArchiveNode
 
@@ -638,33 +846,37 @@ namespace nkentseu {
 
 			/**
 			 * @brief Constructeur de copie : duplication profonde
-			 * @note Défaut : copie membre-à-membre via NkVector::operator=
+			 * @note Les entrées sont copiées par NkVector ; le bloc de trivia
+			 *       facultatif (mTrivia) est DUPLIQUÉ, jamais partagé.
+			 * @note Ces cinq méthodes ont cessé d'être `= default` le 2026-08-21,
+			 *       quand l'archive a reçu un pointeur possédant : un `= default`
+			 *       aurait copié le pointeur et provoqué une double libération.
 			 */
-			NkArchive(const NkArchive &) noexcept = default;
+			NkArchive(const NkArchive &o) noexcept;
 
 			/**
 			 * @brief Constructeur de move : transfert de propriété
-			 * @note Défaut : move sémantique via NkVector::operator=
+			 * @post o.mTrivia = nullptr : la source ne possède plus rien
 			 */
-			NkArchive(NkArchive &&) noexcept = default;
+			NkArchive(NkArchive &&o) noexcept;
 
 			/**
 			 * @brief Opérateur d'affectation par copie
-			 * @note Défaut : copie profonde via NkVector
+			 * @note Auto-affectation protégée, trivia existante libérée avant copie
 			 */
-			NkArchive &operator=(const NkArchive &) noexcept = default;
+			NkArchive &operator=(const NkArchive &o) noexcept;
 
 			/**
 			 * @brief Opérateur d'affectation par move
-			 * @note Défaut : transfert via NkVector
+			 * @note Auto-affectation protégée, trivia existante libérée avant transfert
 			 */
-			NkArchive &operator=(NkArchive &&) noexcept = default;
+			NkArchive &operator=(NkArchive &&o) noexcept;
 
 			/**
 			 * @brief Destructeur : libération automatique des ressources
-			 * @note Défaut : NkVector gère la destruction des NkArchiveEntry
+			 * @note NkVector gère les NkArchiveEntry ; mTrivia est libéré ici.
 			 */
-			~NkArchive() noexcept = default;
+			~NkArchive() noexcept;
 
 			// -----------------------------------------------------------------
 			// SETTERS SCALAIRES : API PLATE
@@ -1097,6 +1309,123 @@ namespace nkentseu {
 			}
 
 			// -----------------------------------------------------------------
+			// TRIVIA : COMMENTAIRES, ORDRE DU FICHIER, FORME LITTERALE
+			// -----------------------------------------------------------------
+			/**
+			 * @defgroup ArchiveTrivia Mise en forme d'origine
+			 * @brief Ce que le fichier disait et que le modele n'a pas a savoir
+			 *
+			 * Trois manques que `NkArchive` avait, et qui empechaient un format
+			 * texte editable a la main de faire un aller-retour a l'octet :
+			 *
+			 *  - **commentaires et lignes vides** : SetLeadingTrivia /
+			 *    SetTrailingTrivia par cle, SetHeaderTrivia / SetFooterTrivia pour
+			 *    ce qui borde l'objet lui-meme (l'en-tete d'un fichier, le
+			 *    commentaire apres la derniere propriete) ;
+			 *  - **ordre du fichier** : SetSourceOrder + SortBySourceOrder. Sans
+			 *    lui, l'archive rend l'ordre de DECLARATION DU SCHEMA, et « octet
+			 *    pour octet » est hors d'atteinte des qu'on passe par l'archive ;
+			 *  - **forme litterale** : SetLiteral par cle, et Lexeme() a
+			 *    l'impression.
+			 *
+			 * Et AdoptFormatting() les greffe d'un coup : c'est l'operation qui
+			 * rend l'aller-retour possible en pratique, puisque l'archive
+			 * reconstruite depuis le modele ne sait rien du fichier.
+			 *
+			 * ADDITIF : une archive sur laquelle personne n'appelle ces methodes
+			 * n'alloue rien de plus et se serialise exactement comme avant.
+			 */
+
+			/// @brief Vrai si l'archive porte un bloc de trivia (en-tete / pied)
+			[[nodiscard]] bool HasTrivia() const noexcept {
+				return mTrivia != nullptr;
+			}
+
+			/// @brief Acces lecture au bloc de trivia de l'archive (nullptr si absent)
+			[[nodiscard]] const NkArchiveTrivia *Trivia() const noexcept {
+				return mTrivia;
+			}
+
+			/// @brief Renvoie le bloc de trivia de l'archive, en l'allouant au besoin
+			NkArchiveTrivia &EnsureTrivia() noexcept;
+
+			/// @brief Detruit le bloc de trivia de l'archive s'il existe
+			void ClearTrivia() noexcept;
+
+			/// @brief Definit l'en-tete : ce qui precede la PREMIERE entree
+			void SetHeaderTrivia(NkStringView t) noexcept;
+
+			/// @brief Definit le pied : ce qui suit la DERNIERE entree
+			void SetFooterTrivia(NkStringView t) noexcept;
+
+			/// @brief En-tete de l'archive ; vue vide si aucun bloc
+			[[nodiscard]] NkStringView HeaderTrivia() const noexcept;
+
+			/// @brief Pied de l'archive ; vue vide si aucun bloc
+			[[nodiscard]] NkStringView FooterTrivia() const noexcept;
+
+			/// @brief Definit ce qui precede l'entree `key`
+			/// @return false si la cle n'existe pas
+			nk_bool SetLeadingTrivia(NkStringView key, NkStringView t) noexcept;
+
+			/// @brief Definit ce qui suit l'entree `key` sur la meme ligne
+			/// @return false si la cle n'existe pas
+			nk_bool SetTrailingTrivia(NkStringView key, NkStringView t) noexcept;
+
+			/// @brief Definit la forme litterale de la valeur de `key`, telle qu'ecrite
+			/// @return false si la cle n'existe pas
+			/// @note A appeler APRES avoir pose la valeur : le garde-fou anti-perime
+			///       memorise le texte canonique courant.
+			nk_bool SetLiteral(NkStringView key, NkStringView literal) noexcept;
+
+			/// @brief Definit le rang de `key` dans le fichier d'origine
+			/// @return false si la cle n'existe pas
+			nk_bool SetSourceOrder(NkStringView key, nk_int32 rank) noexcept;
+
+			/// @brief Rang de `key` dans le fichier d'origine, -1 si inconnu ou absent
+			[[nodiscard]] nk_int32 GetSourceOrder(NkStringView key) const noexcept;
+
+			/// @brief Ce qu'il faut IMPRIMER pour `key` : litteral valable, sinon canonique
+			/// @return vue vide seulement si la cle est absente ou si la chaine est vide
+			[[nodiscard]] NkStringView Lexeme(NkStringView key) const noexcept;
+
+			/**
+			 * @brief Remet les entrees dans l'ordre du fichier d'origine
+			 * @param recursive true pour descendre dans les objets et les tableaux
+			 * @note Tri STABLE : les entrees sans rang (-1) conservent leur ordre
+			 *       relatif et se rangent APRES toutes celles qui en ont un. Une
+			 *       propriete ajoutee apres lecture s'ecrit donc a la fin, elle ne
+			 *       s'insere pas a un endroit arbitraire.
+			 */
+			void SortBySourceOrder(bool recursive = true) noexcept;
+
+			/**
+			 * @brief Greffe sur cette archive la mise en forme d'une archive source
+			 * @param source Archive telle qu'elle a ete LUE du fichier
+			 *
+			 * C'est l'operation qui rend l'aller-retour possible. Le chemin est :
+			 * fichier -> archive LUE (avec trivia) -> modele -> archive RECONSTRUITE
+			 * (nue, dans l'ordre du schema) -> AdoptFormatting(archive lue) ->
+			 * fichier. La reconstruite recupere alors les commentaires, l'ordre et
+			 * les formes litterales de celle qui a ete lue.
+			 *
+			 * Regles, dans l'ordre :
+			 *  - appariement par CLE, recursif dans les objets, par INDICE dans les
+			 *    tableaux ;
+			 *  - `leading`, `trailing` et `sourceOrder` sont toujours repris : un
+			 *    commentaire appartient a la ligne, pas a la valeur, il survit donc
+			 *    a une modification de la valeur ;
+			 *  - `literal` n'est repris QUE si la valeur n'a pas change (meme type,
+			 *    meme texte canonique). Une valeur editee se reecrit canoniquement :
+			 *    reimprimer l'ancien lexeme reviendrait a PERDRE la modification ;
+			 *  - une cle absente de `source` reste nue -- elle est neuve, elle n'a
+			 *    pas de passe ;
+			 *  - l'en-tete et le pied de l'archive sont repris de la meme facon ;
+			 *  - SortBySourceOrder() est appele a la fin, sur toute la hierarchie.
+			 */
+			void AdoptFormatting(const NkArchive &source) noexcept;
+
+			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PRIVÉS (IMPLÉMENTATION INTERNE)
 			// -----------------------------------------------------------------
 		private:
@@ -1128,6 +1457,38 @@ namespace nkentseu {
 			 * @note Recherche linéaire : optimisée pour petits dictionnaires (<100 entrées)
 			 */
 			NkVector<NkArchiveEntry> mEntries;
+
+			/**
+			 * @brief Bloc FACULTATIF d'en-tête / pied de l'archive (owning pointer)
+			 * @note nullptr = aucune trivia. `leading` porte l'en-tête (ce qui
+			 *       précède la première entrée), `trailing` porte le pied (ce qui
+			 *       suit la dernière). Aucune allocation tant que personne ne le
+			 *       demande.
+			 */
+			NkArchiveTrivia *mTrivia = nullptr;
+
+			/**
+			 * @brief Libère le bloc de trivia de l'archive s'il existe
+			 */
+			void FreeTrivia() noexcept;
+
+			/**
+			 * @brief Descend SortBySourceOrder() dans un nœud (objet ou tableau)
+			 * @note Un tableau n'est PAS trié : son ordre est intrinsèque.
+			 */
+			static void SortNodeBySourceOrder(NkArchiveNode &node) noexcept;
+
+			/**
+			 * @brief Greffe la mise en forme d'un nœud source sur un nœud cible
+			 * @note Règle du littéral : repris seulement si la valeur n'a pas changé.
+			 */
+			static void AdoptNodeFormatting(NkArchiveNode &dst, const NkArchiveNode &src) noexcept;
+
+			/**
+			 * @brief Corps récursif de AdoptFormatting(), sans le tri final
+			 * @note Le tri n'a lieu qu'une fois, au sommet, sur toute la hiérarchie.
+			 */
+			void AdoptFormattingNoSort(const NkArchive &source) noexcept;
 
 			/**
 			 * @brief Constante représentant "non trouvé" pour FindIndex()
