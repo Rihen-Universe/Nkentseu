@@ -1,9 +1,16 @@
 // =============================================================================
 // main.cpp — NkUIDesign : designer des interfaces a partir de composants declares.
 //
-// DEUX MODES :
+// TROIS MODES :
 //   `--probe`  : la sonde headless. Aucune fenetre, aucun GPU. C'est le TEMOIN
 //                de chaque capacite ajoutee.
+//   `--roundtrip=<dossier>` : l'ALLER-RETOUR du format `.nkgui`. Analyse chaque
+//                `.nkgui` du dossier, le reemet, le reanalyse, et compare. C'est
+//                le critere d'acceptation du lecteur/ecrivain, et il ne depend
+//                d'aucun jugement. Sans dossier, prend le dossier courant.
+//   `--roundtrip-controles` : les temoins de bruit, controles positifs et
+//                negatifs de ce meme aller-retour. ⚠️ A LANCER AVANT DE CROIRE UN
+//                TAUX : un banc qui ne sait dire que « oui » ne mesure rien.
 //   (defaut)   : l'editeur fenetre.
 //
 // ⚠️ LE MODE SONDE EST TESTE AVANT TOUTE CREATION DE FENETRE, deliberement : la
@@ -47,6 +54,7 @@
 #include "NKWindow/NKWindow.h"
 
 #include "Backend.h"
+#include "NkGuiRoundTrip.h"
 #include "Panels.h"
 #include "Probe.h"
 
@@ -159,6 +167,24 @@ int nkmain(const NkEntryState &state) {
 			continue;
 		if (NkComponentDecl::StrEq(a, "--probe"))
 			return nkuidesign::RunProbe();
+		// ⚠️ AVANT TOUTE FENETRE, pour la meme raison que la sonde : l'aller-retour
+		//    ne touche ni au GPU ni a l'ecran, et il doit pouvoir tourner sur la
+		//    machine d'integration qui n'en a pas. C'est aussi ce qui le rend
+		//    utilisable comme controle de non-regression a chaque changement du
+		//    format.
+		// ⚠️ LES CONTROLES SE TESTENT AVANT L'ALLER-RETOUR, et l'ordre n'est pas
+		//    esthetique : `--roundtrip-controles` commence par `--roundtrip`, donc
+		//    le tester apres le ferait avaler par la comparaison prefixee.
+		if (NkComponentDecl::StrEq(a, "--roundtrip-controles"))
+			return nkuidesign::guifmt::NkGRunControls();
+		if (NkComponentDecl::StrEq(a, "--roundtrip"))
+			return nkuidesign::guifmt::NkGRunRoundTrip(".");
+		{
+			const NkString arg(a);
+			if (arg.StartsWith("--roundtrip=")) {
+				return nkuidesign::guifmt::NkGRunRoundTrip(arg.SubStr(12).Data());
+			}
+		}
 		// Fenetre reduite : sert aux essais quand la carte est occupee ailleurs.
 		// 1024x640 est le PLANCHER de la coquille (`NkEditorShell::Init` impose
 		// minWidth 1024 / minHeight 640) — demander moins ne donnerait pas moins,

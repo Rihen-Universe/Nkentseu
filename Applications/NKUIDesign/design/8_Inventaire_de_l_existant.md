@@ -127,7 +127,7 @@ qu'« une infobulle existe déjà ». La première ne se sérialise pas ; la sec
 
 | manque | ampleur | bloque quoi |
 |---|---|---|
-| **parseur / sérialiseur `.nkgui`** | grammaire écrite, code inexistant | **tout** — l'éditeur ne peut ni enregistrer ni relire |
+| ~~**parseur / sérialiseur `.nkgui`**~~ | ✅ **LEVÉ le 2026-08-21** — `src/NKUIDesign/NkGuiFormat.h` (lexeur, analyseur, sérialiseur) et son banc `NkGuiRoundTrip.h`. Aller-retour **10/10 octet pour octet** sur le corpus Camrail, contrôles 14/14. ⚠️ Syntaxe seulement : la validation par rôle attend une table (document 9 §6.4) | — |
 | rôle `Text`, `Spacer` dans le format | table à compléter | la conversion, le corpus |
 | apparence par widget | décision + grammaire | l'export de ce qu'on dessine |
 | section d'animation dans le format | grammaire + sérialisation | §9ter en entier |
