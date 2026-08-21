@@ -158,6 +158,20 @@ namespace nkentseu {
 			//                ou callback bridge ArkTS (presentCallback)
 			OHNativeWindow *ohNativeWindow = nullptr;
 
+			// GENERATION de la surface, incrementee a CHAQUE creation.
+			//
+			// Indispensable : quand l'application revient d'arriere-plan, le
+			// systeme detruit puis recree la surface du XComponent en
+			// REUTILISANT SOUVENT LA MEME ADRESSE. Un backend qui compare
+			// seulement `ohNativeWindow` conclut alors « rien n'a change » et
+			// garde son EGLSurface — qui pointe pourtant sur une file de
+			// tampons morte. Symptome observe : la 3D disparait, la 2D deja
+			// chargee continue de s'afficher, et le pilote signale
+			// « eglSwapBuffers : sync get ret 0 error 1 » sans autre erreur.
+			//
+			// Comparer la generation tranche sans ambiguite.
+			uint32 ohSurfaceGeneration = 0;
+
 			// Callback de présentation pour le backend Software (optionnel).
 			// Signature : void(*)(const uint8* pixels, uint32 w, uint32 h)
 			// Fourni par NkHarmonyBridge si OHNativeWindow n'est pas utilisable

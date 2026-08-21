@@ -41,6 +41,11 @@ namespace nkentseu {
 	struct NkWindowData {
 			// ── Surface native ───────────────────────────────────────────────────
 			OHNativeWindow *mNativeWindow = nullptr;
+
+			// Incrementee a CHAQUE creation de surface. Le systeme reutilise
+			// souvent la MEME adresse apres un passage en arriere-plan : comparer
+			// le pointeur ne suffit donc pas a savoir qu'il faut tout recreer.
+			uint32 mSurfaceGeneration = 0;
 			OH_NativeXComponent *mXComponent = nullptr;
 			char mXComponentId[128] = {};
 
@@ -94,6 +99,10 @@ namespace nkentseu {
 
 	NkWindow *NkHarmonyFindWindowById(NkWindowId id);
 	NkVector<NkWindow *> NkHarmonyGetWindowsSnapshot();
+
+	// Fenetre associee a un XComponent donne (comparaison par identifiant).
+	// Utilisee par le routage tactile, cote point d'entree.
+	NkWindow *NkHarmonyGetWindowForXComponent(OH_NativeXComponent *xcomp);
 	NkWindow *NkHarmonyGetLastWindow();
 	void NkHarmonyRegisterWindow(NkWindow *window);
 	void NkHarmonyUnregisterWindow(NkWindow *window);

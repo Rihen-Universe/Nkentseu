@@ -235,7 +235,7 @@ namespace nkentseu {
 
 		void PanelBackground(NkGuiContext &ctx, const NkRect &r) noexcept {
 			ctx.DL().AddRectFilled(r, ctx.theme.panel, ctx.theme.rounding);
-			ctx.DL().AddRect(r, ctx.theme.border, 1.f);
+			ctx.DL().AddRect(r, ctx.theme.border, 1.f, ctx.theme.rounding);
 		}
 
 		float32 TextAt(NkGuiContext &ctx, const NkVec2 &topLeft, const char *s, const NkColor &col) noexcept {
@@ -274,7 +274,7 @@ namespace nkentseu {
 
 			const NkColor col = held ? ctx.theme.buttonActive : hovered ? ctx.theme.buttonHover : ctx.theme.button;
 			ctx.DL().AddRectFilled(r, col, ctx.theme.rounding);
-			ctx.DL().AddRect(r, ctx.theme.border, 1.f);
+			ctx.DL().AddRect(r, ctx.theme.border, 1.f, ctx.theme.rounding);
 			const NkColor lc = ctx.IsDisabled() ? ctx.theme.textDisabled
 							   : held			? NkColor{255, 255, 255, 255}
 												: ctx.theme.text;
@@ -406,7 +406,7 @@ namespace nkentseu {
 			if (!StyleDraw(ctx, NkGuiStyleKind::CheckMark, boxR, id, label, hov, held, state == NkGuiCheck::On,
 						   ctx.IsDisabled())) {
 				ctx.DL().AddRectFilled(boxR, hov ? ctx.theme.buttonHover : ctx.theme.button, 3.f);
-				ctx.DL().AddRect(boxR, ctx.theme.border, 1.f);
+				ctx.DL().AddRect(boxR, ctx.theme.border, 1.f, 3.f);
 				if (state == NkGuiCheck::On) {
 					ctx.DL().AddRectFilled({boxR.x + 4.f, boxR.y + 4.f, boxR.w - 8.f, boxR.h - 8.f}, ctx.theme.accent,
 										   2.f);
@@ -448,7 +448,7 @@ namespace nkentseu {
 
 			const NkRect boxR = {r.x, r.y + (r.h - box) * 0.5f, box, box};
 			ctx.DL().AddRectFilled(boxR, hov ? ctx.theme.buttonHover : ctx.theme.button, 3.f);
-			ctx.DL().AddRect(boxR, ctx.theme.border, 1.f);
+			ctx.DL().AddRect(boxR, ctx.theme.border, 1.f, 3.f);
 			if (state == NkGuiCheck::On) {
 				ctx.DL().AddRectFilled({boxR.x + 4.f, boxR.y + 4.f, boxR.w - 8.f, boxR.h - 8.f}, ctx.theme.accent, 2.f);
 			} else if (state == NkGuiCheck::Mixed) {
@@ -693,7 +693,7 @@ namespace nkentseu {
 			// ── Rendu du champ + valeur + label (les boutons sont déjà dessinés) ─
 			const bool active = (ctx.activeId == id);
 			ctx.DL().AddRectFilled(field, ctx.theme.track, ctx.theme.rounding);
-			ctx.DL().AddRect(field, (active || over) ? ctx.theme.accent : ctx.theme.border, active ? 1.5f : 1.f);
+			ctx.DL().AddRect(field, (active || over) ? ctx.theme.accent : ctx.theme.border, active ? 1.5f : 1.f, ctx.theme.rounding);
 			{
 				const NkString s = fmtVal();
 				DrawCenteredLabel(ctx, field, s.CStr(), ctx.theme.text);
@@ -846,7 +846,7 @@ namespace nkentseu {
 
 			// Rendu du champ (fond plus sombre si lecture seule).
 			ctx.DL().AddRectFilled(field, readOnly ? NkColor{28, 30, 36, 255} : ctx.theme.track, ctx.theme.rounding);
-			ctx.DL().AddRect(field, focused ? ctx.theme.accent : ctx.theme.border, focused ? 1.5f : 1.f);
+			ctx.DL().AddRect(field, focused ? ctx.theme.accent : ctx.theme.border, focused ? 1.5f : 1.f, ctx.theme.rounding);
 
 			const NkRect clip = {field.x + padX, field.y, field.w - padX * 2.f, field.h};
 			ctx.DL().PushClipRect(clip, true);
@@ -1050,7 +1050,7 @@ namespace nkentseu {
 
 			// Fond + bordure.
 			ctx.DL().AddRectFilled(rect, readOnly ? NkColor{28, 30, 36, 255} : ctx.theme.track, ctx.theme.rounding);
-			ctx.DL().AddRect(rect, focused ? ctx.theme.accent : ctx.theme.border, focused ? 1.5f : 1.f);
+			ctx.DL().AddRect(rect, focused ? ctx.theme.accent : ctx.theme.border, focused ? 1.5f : 1.f, ctx.theme.rounding);
 
 			int32 len = 0;
 			while (len < bufSize - 1 && buf[len])
@@ -1625,11 +1625,100 @@ namespace nkentseu {
 
 		// Poignée de redimensionnement (splitter) : glisse `*value` (px) entre min et max
 		// selon l'axe. `vertical`=true → barre verticale, glisse en X. Renvoie true si bougé.
-		bool Splitter(NkGuiContext &ctx, const char *idStr, const NkRect &handle, bool vertical, float32 *value,
-					  float32 minV, float32 maxV) noexcept {
+		// ── GEOMETRIE PURE D'UN SEPARATEUR ──────────────────────────────────
+		// Sortie du widget pour etre VERIFIABLE sans GPU : deux rectangles,
+		// aucune interaction, aucun etat. Dette recuperee de NKUI avant que
+		// l'extinction n'efface le fichier.
+		void SplitterRects(const NkRect &area, bool vertical, float32 ratio, float32 thickness, float32 grabPx,
+						   NkRect *visual, NkRect *grab) noexcept {
+			if (ratio < 0.f)
+				ratio = 0.f;
+			else if (ratio > 1.f)
+				ratio = 1.f;
+			if (thickness < 1.f)
+				thickness = 1.f;
+			// La prehension ne peut pas etre plus etroite que ce qu'on voit.
+			float32 g = grabPx < thickness ? thickness : grabPx;
+			const float32 hv = thickness * 0.5f;
+			const float32 hg = g * 0.5f;
+
+			NkRect v = area, k = area;
+			if (vertical) { // barre VERTICALE : elle coupe en X
+				const float32 cx = area.x + area.w * ratio;
+				v.x = cx - hv;
+				v.w = thickness;
+				k.x = cx - hg;
+				k.w = g;
+			} else {
+				const float32 cy = area.y + area.h * ratio;
+				v.y = cy - hv;
+				v.h = thickness;
+				k.y = cy - hg;
+				k.h = g;
+			}
+			if (visual)
+				*visual = v;
+			if (grab)
+				*grab = k;
+		}
+
+		bool SplitterRatio(NkGuiContext &ctx, const char *idStr, const NkRect &area, bool vertical, float32 *ratio,
+						   float32 minR, float32 maxR, float32 thickness, float32 grabPx) noexcept {
+			if (!ratio || area.w <= 0.f || area.h <= 0.f)
+				return false;
+			NkRect vis{}, hit{};
+			SplitterRects(area, vertical, *ratio, ctx.S(thickness), ctx.S(grabPx), &vis, &hit);
+
 			const NkGuiId id = ctx.GetId(idStr);
 			bool hov = false, held = false;
-			ctx.ButtonBehavior(id, handle, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
+			// L'interaction porte sur la zone ELARGIE, le dessin sur la fine.
+			ctx.ButtonBehavior(id, hit, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
+			const bool active = (ctx.activeId == id);
+
+			bool changed = false;
+			if (active) {
+				// Position ABSOLUE de la souris rapportee a la zone : un ratio suit
+				// le curseur meme si la fenetre a change de taille entre-temps —
+				// c'est ce qu'un deplacement cumule en pixels ne sait pas faire.
+				const float32 d = vertical ? (ctx.input.mousePos.x - area.x) / area.w
+										   : (ctx.input.mousePos.y - area.y) / area.h;
+				float32 v = d;
+				if (v < minR)
+					v = minR;
+				if (v > maxR)
+					v = maxR;
+				if (v != *ratio) {
+					*ratio = v;
+					changed = true;
+					SplitterRects(area, vertical, *ratio, ctx.S(thickness), ctx.S(grabPx), &vis, &hit);
+				}
+			}
+			if (hov || active)
+				ctx.wantCursor = vertical ? NkGuiCursor::ResizeEW : NkGuiCursor::ResizeNS;
+			ctx.DL().AddRectFilled(vis, (hov || active) ? ctx.theme.accent : ctx.theme.separator, 0.f);
+			return changed;
+		}
+
+		bool Splitter(NkGuiContext &ctx, const char *idStr, const NkRect &handle, bool vertical, float32 *value,
+					  float32 minV, float32 maxV, float32 grabPx) noexcept {
+			const NkGuiId id = ctx.GetId(idStr);
+			bool hov = false, held = false;
+			// Zone de PREHENSION elargie autour du trait visible (dette NKUI) :
+			// on dessine fin, on attrape large. grabPx = 0 -> historique exact.
+			NkRect hit = handle;
+			const float32 g = ctx.S(grabPx);
+			if (vertical) {
+				if (g > handle.w) {
+					hit.x = handle.x + (handle.w - g) * 0.5f;
+					hit.w = g;
+				}
+			} else {
+				if (g > handle.h) {
+					hit.y = handle.y + (handle.h - g) * 0.5f;
+					hit.h = g;
+				}
+			}
+			ctx.ButtonBehavior(id, hit, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
 			const bool active = (ctx.activeId == id);
 			bool changed = false;
 			if (active && value) {
@@ -1949,7 +2038,7 @@ namespace nkentseu {
 			else if (hov)
 				ctx.DL().AddRectFilled(r, ctx.theme.header, 3.f);
 			if (focused)
-				ctx.DL().AddRect(r, ctx.theme.accent, 1.5f); // liseré de focus clavier
+				ctx.DL().AddRect(r, ctx.theme.accent, 1.5f, 3.f); // liseré de focus clavier
 
 			const NkColor lc = ctx.IsDisabled() ? ctx.theme.textDisabled
 							   : selected		? NkColor{255, 255, 255, 255}
@@ -2028,7 +2117,7 @@ namespace nkentseu {
 			else if (hov)
 				ctx.DL().AddRectFilled(r, ctx.theme.header, 3.f);
 			if (focused)
-				ctx.DL().AddRect(r, ctx.theme.accent, 1.5f);
+				ctx.DL().AddRect(r, ctx.theme.accent, 1.5f, 3.f);
 
 			const NkColor lc = ctx.IsDisabled() ? ctx.theme.textDisabled
 							   : selected		? NkColor{255, 255, 255, 255}
@@ -2072,7 +2161,7 @@ namespace nkentseu {
 				if (selected)
 					ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
 				else
-					ctx.DL().AddRect(r, ctx.theme.border, 1.f);
+					ctx.DL().AddRect(r, ctx.theme.border, 1.f, 4.f);
 				const NkColor lc = !en		  ? ctx.theme.textDisabled
 								   : selected ? ctx.theme.text
 											  : NkColor{180, 185, 196, 255};
@@ -2165,7 +2254,7 @@ namespace nkentseu {
 				if (selected)
 					ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
 				else
-					ctx.DL().AddRect(r, ctx.theme.border, 1.f);
+					ctx.DL().AddRect(r, ctx.theme.border, 1.f, 4.f);
 				const NkColor lc = !en		  ? ctx.theme.textDisabled
 								   : selected ? ctx.theme.text
 											  : NkColor{180, 185, 196, 255};
@@ -2192,7 +2281,7 @@ namespace nkentseu {
 
 			// Bordure EN DERNIER → entoure tout le panneau (en-tête inclus), n'est
 			// plus recouverte par le fond de la barre de titre.
-			ctx.DL().AddRect(r, ctx.theme.border, 1.f);
+			ctx.DL().AddRect(r, ctx.theme.border, 1.f, ctx.theme.rounding);
 
 			// Le contenu (sous l'en-tête) est une ZONE DÉFILABLE : si les widgets
 			// dépassent la hauteur visible, une scrollbar apparaît automatiquement
@@ -2337,7 +2426,7 @@ namespace nkentseu {
 				for (int32 g = 0; g < 3; ++g) // poignée (3 points) = « déplacer »
 					ctx.DL().AddRectFilled({hr.x + 8.f + g * 5.f, hr.y + tt * 0.5f - 1.f, 2.f, 2.f},
 										   ctx.theme.textDisabled);
-				ctx.DL().AddRect(hr, ctx.theme.border, 1.f);
+				ctx.DL().AddRect(hr, ctx.theme.border, 1.f, ctx.theme.rounding);
 				const NkRect treeR = {hr.x, hr.y + tt, hr.w, hr.h - tt};
 				DockComputeRects(ctx, m->hostRoot, treeR);
 				DockRenderNode(ctx, m->hostRoot); // tab bars + fond contenu + pose dockRect/dockActiveTab
@@ -2589,7 +2678,7 @@ namespace nkentseu {
 					ctx.DL().AddLine({cx - s, cy + s}, {cx + s, cy - s}, xcol, 1.6f);
 				}
 			}
-			ctx.DL().AddRect(winR, ctx.theme.border, 1.f);
+			ctx.DL().AddRect(winR, ctx.theme.border, 1.f, ctx.theme.rounding);
 			if (canResize && !m->collapsed) { // grip du coin bas-droit (indice visuel)
 				ctx.DL().AddLine({wr.x + wr.w - 3.f, wr.y + wr.h - 13.f}, {wr.x + wr.w - 13.f, wr.y + wr.h - 3.f},
 								 ctx.theme.border, 1.5f);
@@ -2631,7 +2720,7 @@ namespace nkentseu {
 						prev.h *= 0.5f;
 					}
 					ctx.dlOverlay.AddRectFilled(prev, NkColor{96, 165, 250, 70}, ctx.theme.rounding);
-					ctx.dlOverlay.AddRect(prev, ctx.theme.accent, 2.f);
+					ctx.dlOverlay.AddRect(prev, ctx.theme.accent, 2.f, ctx.theme.rounding);
 				}
 				for (int32 d = 0; d < 5; ++d) {
 					const NkRect pr = {pos[d].x - ps * 0.5f, pos[d].y - ps * 0.5f, ps, ps};
@@ -2639,7 +2728,7 @@ namespace nkentseu {
 					if (StyleDrawDockTarget(ctx, pr, on, d))
 						continue;
 					ctx.dlOverlay.AddRectFilled(pr, on ? ctx.theme.accent : NkColor{58, 64, 80, 235}, 4.f);
-					ctx.dlOverlay.AddRect(pr, ctx.theme.border, 1.f);
+					ctx.dlOverlay.AddRect(pr, ctx.theme.border, 1.f, 4.f);
 					const NkColor ic = on ? NkColor{20, 24, 30, 255} : ctx.theme.text;
 					const float32 cx = pos[d].x, cy = pos[d].y, a = 5.f;
 					if (d == 0)
@@ -3254,7 +3343,7 @@ namespace nkentseu {
 							if (StyleDrawDockTarget(ctx, pr, on, d))
 								continue;
 							ctx.dlOverlay.AddRectFilled(pr, on ? ctx.theme.accent : pillBg, 4.f);
-							ctx.dlOverlay.AddRect(pr, ctx.theme.border, 1.f);
+							ctx.dlOverlay.AddRect(pr, ctx.theme.border, 1.f, 4.f);
 							const NkColor ic = on ? NkColor{20, 24, 30, 255} : ctx.theme.text;
 							const float32 cx = pos[d].x, cy = pos[d].y, a = 5.f;
 							if (d == 0)
@@ -3763,7 +3852,7 @@ namespace nkentseu {
 			const NkGuiId id = ctx.GetId(idStr);
 			if (border) {
 				ctx.DL().AddRectFilled(rect, ctx.theme.track, ctx.theme.rounding);
-				ctx.DL().AddRect(rect, ctx.theme.border, 1.f);
+				ctx.DL().AddRect(rect, ctx.theme.border, 1.f, ctx.theme.rounding);
 			}
 			return BeginScrollFrame(ctx, id, rect, horizontal);
 		}
@@ -4081,7 +4170,7 @@ namespace nkentseu {
 			ctx.DL().AddRectFilled(r, ctx.theme.track, ctx.theme.rounding);
 			if (fraction > 0.f)
 				ctx.DL().AddRectFilled({r.x, r.y, r.w * fraction, r.h}, ctx.theme.accent, ctx.theme.rounding);
-			ctx.DL().AddRect(r, ctx.theme.border, 1.f);
+			ctx.DL().AddRect(r, ctx.theme.border, 1.f, ctx.theme.rounding);
 			NkString pct;
 			const char *txt = overlay;
 			if (!txt) {
@@ -4097,7 +4186,7 @@ namespace nkentseu {
 			const float32 h = height > 0.f ? height : 60.f;
 			const NkRect r = ctx.NextItemRect(0.f, h);
 			ctx.DL().AddRectFilled(r, ctx.theme.track, ctx.theme.rounding);
-			ctx.DL().AddRect(r, ctx.theme.border, 1.f);
+			ctx.DL().AddRect(r, ctx.theme.border, 1.f, ctx.theme.rounding);
 			if (!values || count < 1)
 				return;
 
@@ -4354,7 +4443,7 @@ namespace nkentseu {
 			const bool clicked =
 				ctx.ButtonBehavior(ctx.GetId(idStr), r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
 			ctx.DL().AddRectFilled(r, ColFromF(col, false), ctx.theme.rounding);
-			ctx.DL().AddRect(r, hov ? ctx.theme.accent : ctx.theme.border, 1.f);
+			ctx.DL().AddRect(r, hov ? ctx.theme.accent : ctx.theme.border, 1.f, ctx.theme.rounding);
 			return clicked;
 		}
 
@@ -4587,7 +4676,7 @@ namespace nkentseu {
 			bool shov = false, sheld = false;
 			const bool sclick = ctx.ButtonBehavior(id, sw, NkGuiButtonFlags::None, -1.f, -1.f, &shov, &sheld);
 			ctx.DL().AddRectFilled(sw, ColFromF(col, false), ctx.theme.rounding);
-			ctx.DL().AddRect(sw, (shov || ctx.IsPopupOpen(id)) ? ctx.theme.accent : ctx.theme.border, 1.f);
+			ctx.DL().AddRect(sw, (shov || ctx.IsPopupOpen(id)) ? ctx.theme.accent : ctx.theme.border, 1.f, ctx.theme.rounding);
 			if (sclick) {
 				if (ctx.IsPopupOpen(id))
 					ctx.ClosePopup();
@@ -4750,7 +4839,7 @@ namespace nkentseu {
 			// rognée par un scissor serré == rect. Puis clip serré pour le CONTENU seul.
 			ctx.DL().PushClipRect({0.f, 0.f, 1.0e9f, 1.0e9f}, false); // plein écran
 			ctx.DL().AddRectFilled(rect, ctx.theme.panel, ctx.theme.rounding);
-			ctx.DL().AddRect(rect, ctx.theme.border, 1.f);
+			ctx.DL().AddRect(rect, ctx.theme.border, 1.f, ctx.theme.rounding);
 			ctx.DL().PopClipRect();
 			ctx.DL().PushClipRect(rect, false); // contenu
 			ctx.BeginLayout(rect);
@@ -4804,7 +4893,7 @@ namespace nkentseu {
 
 			// Champ (couche principale).
 			ctx.DL().AddRectFilled(field, ctx.theme.track, ctx.theme.rounding);
-			ctx.DL().AddRect(field, (hov || open) ? ctx.theme.accent : ctx.theme.border, open ? 1.5f : 1.f);
+			ctx.DL().AddRect(field, (hov || open) ? ctx.theme.accent : ctx.theme.border, open ? 1.5f : 1.f, ctx.theme.rounding);
 			if (ctx.font && ctx.font->Valid() && preview) {
 				const NkRect clip = {field.x + 6.f, field.y, field.w - 26.f, field.h};
 				ctx.DL().PushClipRect(clip, true);
@@ -5093,7 +5182,7 @@ namespace nkentseu {
 			// OVERLAY direct + clip plein écran (jamais rogné, bordure complète).
 			ctx.dlOverlay.PushClipRect({0.f, 0.f, 1.0e9f, 1.0e9f}, false);
 			ctx.dlOverlay.AddRectFilled(r, NkColor{24, 26, 32, 245}, ctx.theme.rounding);
-			ctx.dlOverlay.AddRect(r, ctx.theme.border, 1.f);
+			ctx.dlOverlay.AddRect(r, ctx.theme.border, 1.f, ctx.theme.rounding);
 			ctx.dlOverlay.AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + padX, CenteredBaseline(ctx, r)}, text,
 								  ctx.theme.text);
 			ctx.dlOverlay.PopClipRect();

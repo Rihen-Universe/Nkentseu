@@ -32,12 +32,16 @@
 
 import window from '@ohos.window';
 import display from '@ohos.display';
+import deviceInfo from '@ohos.deviceInfo';
 import inputMethod from '@ohos.inputMethod';
 import { common } from '@kit.AbilityKit';
 
-// Import du module natif C++ (généré par Jenga/hvigor)
-// Le nom 'entry' doit correspondre au module déclaré dans NKENTSEU_HARMONY_DEFINE_MODULE
-const nkNative = requireNapi('entry');
+// Module natif C++ : fourni par l'appelant a init(), jamais importe ici.
+// Le nom de la bibliotheque depend de l'application (librenderdemo.so,
+// libmou.so...) ; seul l'EntryAbility, genere par Jenga, le connait. Les
+// appels ci-dessous sont tous optionnels (`?.`) : une application qui
+// n'exporte pas telle fonction native ne plante pas, elle ne recoit rien.
+let nkNative: Record<string, Function> = {};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -60,9 +64,19 @@ export class NkHarmonyBridge {
 
     static async init(
         stage: window.WindowStage,
-        context: common.UIAbilityContext
+        context: common.UIAbilityContext,
+        nativeModule?: Record<string, Function>
     ): Promise<void> {
         NkHarmonyBridge.windowStage = stage;
+        if (nativeModule) {
+            nkNative = nativeModule;
+        }
+        // Tous les appels natifs de ce fichier sont OPTIONNELS (`?.`) : si le
+        // module n'expose pas la fonction attendue, rien ne se passe et aucune
+        // erreur n'est levee. Cette ligne est donc le seul moyen de voir que le
+        // pont parle dans le vide.
+        console.info('[NkBridge] module natif : ' +
+            (nativeModule ? JSON.stringify(Object.keys(nativeModule)) : 'ABSENT'));
 
         try {
             NkHarmonyBridge.mainWindow = await stage.getMainWindow();
@@ -71,11 +85,12 @@ export class NkHarmonyBridge {
             return;
         }
 
-        // Détecter PC 2in1
+        // Detecter PC 2in1. deviceInfo.deviceType est une CHAINE
+        // ('phone', 'tablet', '2in1', 'tv', 'wearable'...) ; l'ancien code
+        // lisait un champ numerique sur Display qui n'existe pas.
         try {
-            const d = display.getDefaultDisplaySync();
-            // deviceType: UNKNOWN=0 PHONE=1 TABLET=2 DESKTOP=3
-            NkHarmonyBridge.isPC = (d.deviceType === 3);
+            const type = deviceInfo.deviceType;
+            NkHarmonyBridge.isPC = (type === '2in1' || type === 'pc');
         } catch (_) {}
 
         NkHarmonyBridge._registerWindowCallbacks();
@@ -98,9 +113,14 @@ export class NkHarmonyBridge {
         const win = NkHarmonyBridge.mainWindow;
         if (!win) return;
 
-        // Focus
-        win.on('windowFocusChange', (focused: boolean) => {
-            nkNative.onWindowFocusChanged?.(focused);
+        // Focus. Le SDK n'a pas de 'windowFocusChange' : c'est 'windowEvent'
+        // qui porte l'activation, via WINDOW_ACTIVE / WINDOW_INACTIVE.
+        win.on('windowEvent', (evt: window.WindowEventType) => {
+            if (evt === window.WindowEventType.WINDOW_ACTIVE) {
+                nkNative.onWindowFocusChanged?.(true);
+            } else if (evt === window.WindowEventType.WINDOW_INACTIVE) {
+                nkNative.onWindowFocusChanged?.(false);
+            }
         });
 
         // Redimensionnement (PC 2in1)
@@ -172,16 +192,46 @@ export class NkHarmonyBridge {
 
     private static _sendSafeArea(win: window.Window): void {
         try {
-            // Zone de coupe système (notch, barre de navigation, etc.)
-            const area = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-            const density = NkHarmonyBridge._getDensity();
-            // HarmonyOS retourne les insets en vp (virtual pixels) → convertir en px
-            nkNative.onSafeAreaChanged?.(
-                area.topRect.height   * density,  // top
-                0,                                 // right (pas d'inset standard droit)
-                area.bottomRect.height * density,  // bottom
-                0                                  // left
-            );
+            // La zone à éviter n'est PAS un seul rectangle : le système la
+            // publie par catégorie. Ne lire que TYPE_SYSTEM laissait passer
+            // l'encoche — vérifié sur émulateur en paysage, où le système
+            // annonçait 72 px de découpe À GAUCHE (TYPE_CUTOUT) pendant que
+            // TYPE_SYSTEM était entièrement à zéro. Une interface plein écran
+            // dessinait donc sous l'encoche.
+            //
+            // On retient le maximum de chaque côté sur les catégories qui
+            // masquent réellement du contenu :
+            //   TYPE_SYSTEM               barre d'état, barre de navigation
+            //   TYPE_CUTOUT               encoche / poinçon de la caméra
+            //   TYPE_NAVIGATION_INDICATOR barre de gestes
+            // Le clavier a son propre canal (onVirtualKeyboardChanged) : le
+            // mêler ici ferait sauter la mise en page à chaque saisie.
+            const types: window.AvoidAreaType[] = [
+                window.AvoidAreaType.TYPE_SYSTEM,
+                window.AvoidAreaType.TYPE_CUTOUT,
+                window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR
+            ];
+
+            let top = 0;
+            let right = 0;
+            let bottom = 0;
+            let left = 0;
+
+            for (const t of types) {
+                try {
+                    const a = win.getWindowAvoidArea(t);
+                    // Les rectangles sont en PIXELS, pas en vp : les multiplier
+                    // par la densité triplait les marges sur un écran x3.
+                    top = Math.max(top, a.topRect.height);
+                    bottom = Math.max(bottom, a.bottomRect.height);
+                    left = Math.max(left, a.leftRect.width);
+                    right = Math.max(right, a.rightRect.width);
+                } catch (_) {
+                    // Une catégorie non gérée par l'appareil n'est pas une erreur.
+                }
+            }
+
+            nkNative.onSafeAreaChanged?.(top, right, bottom, left);
         } catch (e) {
             console.warn('[NkBridge] safe area read failed:', e);
         }
