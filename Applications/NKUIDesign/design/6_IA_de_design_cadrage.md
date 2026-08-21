@@ -244,6 +244,103 @@ de la capture d'origine.
 
 ---
 
+## 4bis. Les quatre catégories — et la découverte qui change le plan
+
+> **Cadrage de Rodolf, 2026-08-21, 2h50** : quatre familles de documents — **apps
+> web**, **apps mobiles**, **UI de jeux** (PC, web, mobile), **apps de bureau** —
+> **1 000 sources tentées par famille**, et **au moins 25 % converties**.
+>
+> Objectif énoncé : *« assez de marge pour que notre système sache concevoir des
+> applications et des jeux le plus facilement possible »*.
+
+⚠️ **1 000 par famille est la taille de la SONDE, pas celle du corpus.** À 25 %,
+cela donne 250 documents par famille — très en dessous de ce qu'un entraînement
+demande. Ce que ces 4 000 tentatives mesurent, c'est **si la voie tient** ; si oui,
+on passe à l'échelle sur le même outillage.
+
+### 4bis.1 ⚠️ Trois familles sur quatre ne passent PAS par le navigateur
+
+C'est le point qui change le plan de §2.1ter. J'avais construit toute la chaîne
+autour du rendu sans tête, parce que je raisonnais sur le web. **Les trois autres
+familles vivent dans des formats déjà structurés** — du texte, pas des pixels.
+
+| famille | source | format | coût |
+|---|---|---|---|
+| **web** | pages publiques | HTML + CSS | **rendu à 3 largeurs** (§2.1ter) |
+| **mobile** | applications libres (F-Droid) | **XML de disposition Android** | lecture directe |
+| **jeux** | jeux libres faits avec Godot | **`.tscn`** | lecture directe |
+| **bureau** | applications libres Qt / GTK | **`.ui` Qt**, **Glade**, **XAML** | lecture directe |
+
+> **Le navigateur ne sert que pour le web.** Pour les trois autres, on lit un arbre
+> déjà écrit — c'est plus simple, plus fiable, et sans étape de rendu.
+
+### 4bis.2 ⚠️ Ces formats donnent ce que le web ne donne PAS
+
+§2.3 affirmait que le web n'enseigne ni ancres, ni bornes, ni rôles complets, et
+que **le synthétique devrait combler ces trous**. **C'est en grande partie faux
+maintenant** :
+
+| ce qui manquait au web | qui le porte, nativement |
+|---|---|
+| **ancres aux quatre bords** | **Godot** — `anchor_left/right/top/bottom` par nœud `Control` |
+| **bornes min/max liées à un mode** | **Qt** — `minimumSize` / `maximumSize` |
+| **modes de taille** | **Qt** — `sizePolicy` : `Fixed`, `Minimum`, `Maximum`, `Preferred`, `Expanding` |
+| **conteneurs explicites** | Godot `VBoxContainer` / `HBoxContainer` / `GridContainer` ; Qt `QVBoxLayout` / `QHBoxLayout` / `QGridLayout` |
+| **rôles** | Android (`Button`, `EditText`, `Switch`, `CheckBox`…), Qt, Godot |
+
+⚠️ **La `sizePolicy` de Qt et le vocabulaire de §8quater.2 se recouvrent presque
+mot pour mot**, et les ancres de Godot sont **exactement** §8quater.3. Ce n'est pas
+une coïncidence : ces systèmes résolvent le même problème, et NkUIDesign a
+redécouvert leurs réponses.
+
+**Conséquence pour le plan** : la génération synthétique **descend en priorité**.
+Elle reste utile pour ce que personne ne porte — zone sûre, les trois familles
+d'animation de §9ter — mais elle ne doit plus enseigner la grammaire de base.
+
+### 4bis.3 ⚠️ Kenney donne des pièces, pas des interfaces
+
+Rodolf propose Kenney pour l'UI de jeux. **Kenney publie des jeux d'assets** —
+panneaux, boutons, cadres, icônes, en images. **Il n'y a aucune structure à en
+extraire** : une planche de sprites ne dit pas comment les éléments étaient
+disposés, ni quel élément était un bouton.
+
+Ce qui n'en fait pas une source à jeter, **mais pour un autre usage** :
+
+- **apparence** — matière pour habiller des documents synthétiques ;
+- **licence** — CC0 sur l'essentiel du catalogue, donc utilisable sans question.
+
+**Pour de vraies dispositions de jeu**, la source est **Godot** : `.tscn` est un
+format texte lisible, les nœuds `Control` portent leurs ancres, et il existe
+beaucoup de jeux libres. Unity (UXML) et LOVE sont des sources secondaires.
+
+### 4bis.4 Le seuil de 25 % ne veut pas dire la même chose partout
+
+⚠️ **25 % est un chiffre de WEB.** Convertir une page demande de résoudre une
+disposition, de deviner des intentions, et d'accepter que beaucoup de pages soient
+inexploitables. **Pour les trois formats structurés, 25 % serait un mauvais
+résultat, pas un succès** : l'arbre est déjà écrit, les rôles sont nommés, il n'y a
+pas de rendu à interpréter.
+
+**Attente honnête, à écrire avant de mesurer :**
+
+| famille | plancher | ce qu'un résultat sous le plancher signifierait |
+|---|---|---|
+| web | **25 %** | la voie web coûte trop cher, on s'appuie sur les trois autres |
+| mobile / jeux / bureau | **60 %** | **notre convertisseur est mauvais**, pas la source |
+
+> C'est la différence qui compte : sur le web, un échec accuse **le corpus** ; sur
+> un format structuré, un échec accuse **notre code**.
+
+### 4bis.5 Ce qui reste à vérifier avant de collecter
+
+- **licences** : F-Droid et Godot sont libres, mais chaque projet a la sienne —
+  à relever automatiquement, pas à supposer ;
+- **le web n'a pas de licence** — c'est le point le plus flou des quatre, et il
+  doit être tranché par Rodolf avant toute collecte à l'échelle ;
+- **biais de complexité** (§5) : mesuré par famille, pas globalement.
+
+---
+
 ## 5bis. La spécification de la correspondance
 
 > **C'est l'artefact partagé de §2.1bis** : écrit une fois, implémenté deux fois —
