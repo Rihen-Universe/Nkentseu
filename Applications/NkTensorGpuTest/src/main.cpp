@@ -1670,6 +1670,439 @@ int main(int argc, char **argv) {
 		check(dt.Numel() == 6 && ed < 1e-4f, "embedding backward GPU (scatter-add) == CPU");
 	}
 
+	// =========================================================================
+	// 21) NOYAUX DU PROFIL QUI N'AVAIENT AUCUN ESSAI ICI — ajoutes le 2026-08-19
+	// =========================================================================
+	// Motif : le profil par noyau liste 28 noyaux ; le banc en couvrait deja ~45
+	// cas mais PAS ceux du chemin transformer. Or c'est exactement la famille ou
+	// un noyau muet est deja passe : le 13/08, `rope` ne compilait pas (`half`,
+	// mot reserve GLSL), le tampon de sortie restait a ZERO, et l'entrainement
+	// continuait sans une alerte. Un noyau sans essai est un noyau dont personne
+	// ne sait s'il calcule.
+	//
+	// ⚠️ Les oracles ci-dessous sont ecrits DEPUIS LA DEFINITION MATHEMATIQUE,
+	// pas par appel a une autre implementation du depot : une sonde qui rejoue la
+	// strategie du code mesure autre chose que ce code.
+	{
+		printf("\n-- 21) noyaux transformer : oracles independants --\n");
+
+		// ---- 21a) RMSNorm avant : y = x / sqrt(mean(x^2) + eps) --------------
+		{
+			const int64 R = 3, C = 4;
+			float xd[12] = {1.f, -2.f, 3.f, 0.5f, 4.f, 1.f, -1.f, 2.f, 0.25f, -0.5f, 1.5f, -3.f};
+			NkShape s;
+			s.PushBack(R);
+			s.PushBack(C);
+			NkTensor x = NkTensor::FromData(s, xd, NkDType::NK_F32);
+			const double eps = 1e-6;
+			NkTensor y = NkGpuRmsNorm(x.ToGPU(), eps).ToCPU();
+			const float *yp = y.DataAs<float>();
+			float e = 0.f;
+			for (int64 r = 0; r < R; ++r) {
+				double ss = 0.0;
+				for (int64 c = 0; c < C; ++c)
+					ss += (double)xd[r * C + c] * (double)xd[r * C + c];
+				const double inv = 1.0 / sqrt(ss / (double)C + eps);
+				for (int64 c = 0; c < C; ++c) {
+					const float ref = (float)((double)xd[r * C + c] * inv);
+					const float d = fabsf(yp[r * C + c] - ref);
+					if (d > e)
+						e = d;
+				}
+			}
+			check(y.Numel() == R * C && e < 1e-4f, "rmsnorm_fwd GPU == oracle (definition)");
+		}
+
+		// ---- 21b) RMSNorm arriere ------------------------------------------
+		// dx_j = g_j/r - x_j * (somme_i g_i x_i) / (n r^3),  r = sqrt(mean(x^2)+eps)
+		{
+			const int64 R = 2, C = 4;
+			float xd[8] = {1.f, -2.f, 3.f, 0.5f, 4.f, 1.f, -1.f, 2.f};
+			float gd[8] = {0.5f, 1.f, -0.5f, 2.f, 1.f, -1.f, 0.25f, 0.75f};
+			NkShape s;
+			s.PushBack(R);
+			s.PushBack(C);
+			NkTensor x = NkTensor::FromData(s, xd, NkDType::NK_F32);
+			NkTensor g = NkTensor::FromData(s, gd, NkDType::NK_F32);
+			const double eps = 1e-6;
+			NkTensor dx = NkGpuRmsNormBackward(x.ToGPU(), g.ToGPU(), eps).ToCPU();
+			const float *dp = dx.DataAs<float>();
+			float e = 0.f;
+			for (int64 r = 0; r < R; ++r) {
+				double ss = 0.0, gx = 0.0;
+				for (int64 c = 0; c < C; ++c) {
+					ss += (double)xd[r * C + c] * (double)xd[r * C + c];
+					gx += (double)gd[r * C + c] * (double)xd[r * C + c];
+				}
+				const double rr = sqrt(ss / (double)C + eps);
+				for (int64 c = 0; c < C; ++c) {
+					const double ref = (double)gd[r * C + c] / rr -
+									   (double)xd[r * C + c] * gx / ((double)C * rr * rr * rr);
+					const float d = fabsf(dp[r * C + c] - (float)ref);
+					if (d > e)
+						e = d;
+				}
+			}
+			check(dx.Numel() == R * C && e < 1e-3f, "rmsnorm_bwd GPU == oracle (derivee analytique)");
+		}
+
+		// ---- 21c) RoPE : oracle INDEPENDANT DE LA DISPOSITION DE LA TABLE ----
+		// Une rotation est inversible et conserve la norme. Ces deux proprietes
+		// se verifient SANS connaitre la convention d'indexation de `table` — et
+		// elles echouent toutes les deux si le tampon de sortie reste a zero,
+		// qui est precisement la panne du 13/08.
+		{
+			const int64 T = 4, D = 8;
+			float xd[32];
+			for (int i = 0; i < 32; ++i)
+				xd[i] = (float)((i % 7) - 3) * 0.5f + 0.125f;
+			// Table de cos/sin plausible : [T, D/2] paires. On la remplit d'angles
+			// non nuls et non multiples de pi, pour que la rotation soit reelle.
+			float td[32];
+			for (int64 t = 0; t < T; ++t)
+				for (int64 k = 0; k < D / 2; ++k) {
+					const double ang = 0.3 * (double)(t + 1) / (double)(k + 1);
+					td[t * D + 2 * k + 0] = (float)cos(ang);
+					td[t * D + 2 * k + 1] = (float)sin(ang);
+				}
+			NkShape xs;
+			xs.PushBack(T);
+			xs.PushBack(D);
+			NkShape ts;
+			ts.PushBack(T);
+			ts.PushBack(D);
+			NkTensor x = NkTensor::FromData(xs, xd, NkDType::NK_F32);
+			NkTensor tab = NkTensor::FromData(ts, td, NkDType::NK_F32);
+
+			NkTensor gx = x.ToGPU(), gt = tab.ToGPU();
+			NkTensor fwd = NkGpuRoPE(gx, gt, 1.0);
+			NkTensor back = NkGpuRoPE(fwd, gt, -1.0).ToCPU();
+			const float *bp = back.DataAs<float>();
+
+			// (i) sortie NON nulle : le controle qui aurait attrape le 13/08.
+			NkTensor fcpu = fwd.ToCPU();
+			const float *fp = fcpu.DataAs<float>();
+			float amax = 0.f;
+			for (int i = 0; i < 32; ++i)
+				if (fabsf(fp[i]) > amax)
+					amax = fabsf(fp[i]);
+			check(amax > 1e-6f, "rope : sortie NON nulle (le noyau a bien tourne)");
+
+			// (ii) aller-retour = identite.
+			float e = 0.f;
+			for (int i = 0; i < 32; ++i) {
+				const float d = fabsf(bp[i] - xd[i]);
+				if (d > e)
+					e = d;
+			}
+			check(back.Numel() == 32 && e < 1e-3f, "rope : aller-retour (+1 puis -1) rend l'entree");
+
+			// (iii) conservation de la norme globale (propriete d'une rotation).
+			double n0 = 0.0, n1 = 0.0;
+			for (int i = 0; i < 32; ++i) {
+				n0 += (double)xd[i] * (double)xd[i];
+				n1 += (double)fp[i] * (double)fp[i];
+			}
+			check(fabs(n0 - n1) < 1e-2 * (n0 + 1.0), "rope : la norme est conservee (c'est une rotation)");
+		}
+
+		// ---- 21d) SwiGLU avant/arriere : silu(g)*u --------------------------
+		{
+			const int64 N = 8;
+			float gd[8] = {0.5f, -1.f, 2.f, 0.f, -0.25f, 3.f, 1.f, -2.f};
+			float ud[8] = {1.f, 2.f, -1.f, 0.5f, 3.f, -0.5f, 0.25f, 1.5f};
+			float hd[8] = {1.f, 0.5f, -1.f, 2.f, 0.25f, 1.f, -0.5f, 0.75f}; // dh
+			NkShape s;
+			s.PushBack(N);
+			NkTensor g = NkTensor::FromData(s, gd, NkDType::NK_F32);
+			NkTensor u = NkTensor::FromData(s, ud, NkDType::NK_F32);
+			NkTensor dh = NkTensor::FromData(s, hd, NkDType::NK_F32);
+
+			NkTensor h = NkGpuSwiGLU(g.ToGPU(), u.ToGPU()).ToCPU();
+			const float *hp = h.DataAs<float>();
+			float eh = 0.f;
+			for (int i = 0; i < N; ++i) {
+				const double sg = 1.0 / (1.0 + exp(-(double)gd[i]));
+				const double ref = (double)gd[i] * sg * (double)ud[i];
+				const float d = fabsf(hp[i] - (float)ref);
+				if (d > eh)
+					eh = d;
+			}
+			check(h.Numel() == N && eh < 1e-4f, "swiglu_fwd GPU == oracle (silu(g)*u)");
+
+			// du = dh * silu(g)
+			NkTensor du = NkGpuSwiGLUBackwardDu(g.ToGPU(), dh.ToGPU()).ToCPU();
+			const float *dup = du.DataAs<float>();
+			float edu = 0.f;
+			for (int i = 0; i < N; ++i) {
+				const double sg = 1.0 / (1.0 + exp(-(double)gd[i]));
+				const double ref = (double)hd[i] * (double)gd[i] * sg;
+				const float d = fabsf(dup[i] - (float)ref);
+				if (d > edu)
+					edu = d;
+			}
+			check(du.Numel() == N && edu < 1e-4f, "swiglu_bwd_du GPU == oracle (dh*silu(g))");
+
+			// dg = dhu * silu'(g), silu'(g) = sg*(1 + g*(1-sg)). `dhu` = dh (deja multiplie par u).
+			NkTensor dg = NkGpuSwiGLUBackwardDg(g.ToGPU(), dh.ToGPU()).ToCPU();
+			const float *dgp = dg.DataAs<float>();
+			float edg = 0.f;
+			for (int i = 0; i < N; ++i) {
+				const double sg = 1.0 / (1.0 + exp(-(double)gd[i]));
+				const double dsilu = sg * (1.0 + (double)gd[i] * (1.0 - sg));
+				const double ref = (double)hd[i] * dsilu;
+				const float d = fabsf(dgp[i] - (float)ref);
+				if (d > edg)
+					edg = d;
+			}
+			check(dg.Numel() == N && edg < 1e-4f, "swiglu_bwd_dg GPU == oracle (dhu*silu'(g))");
+		}
+
+		// ---- 21e) Adam FUSE : mise a jour EN PLACE de param, m, v ------------
+		{
+			const int64 N = 6;
+			float pd[6] = {1.f, -2.f, 0.5f, 3.f, -0.25f, 0.f};
+			float gd[6] = {0.1f, -0.2f, 0.3f, -0.05f, 0.4f, 0.15f};
+			float md[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+			float vd[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+			NkShape s;
+			s.PushBack(N);
+			NkTensor p = NkTensor::FromData(s, pd, NkDType::NK_F32).ToGPU();
+			NkTensor g = NkTensor::FromData(s, gd, NkDType::NK_F32).ToGPU();
+			NkTensor m = NkTensor::FromData(s, md, NkDType::NK_F32).ToGPU();
+			NkTensor v = NkTensor::FromData(s, vd, NkDType::NK_F32).ToGPU();
+
+			const float lr = 0.01f, b1 = 0.9f, b2 = 0.999f, epsA = 1e-8f, wd = 0.f;
+			// b1t = 1 - b1^t, b2t = 1 - b2^t, pour t = 1.
+			const float b1t = 1.f - b1, b2t = 1.f - b2;
+			const bool fait = NkGpuAdamStep(p, g, m, v, lr, b1, b2, epsA, b1t, b2t, wd);
+
+			NkTensor pc = p.ToCPU();
+			const float *pp = pc.DataAs<float>();
+			float e = 0.f;
+			for (int i = 0; i < N; ++i) {
+				const double mi = (1.0 - (double)b1) * (double)gd[i];
+				const double vi = (1.0 - (double)b2) * (double)gd[i] * (double)gd[i];
+				const double mh = mi / (double)b1t;
+				const double vh = vi / (double)b2t;
+				const double ref = (double)pd[i] - (double)lr * mh / (sqrt(vh) + (double)epsA);
+				const float d = fabsf(pp[i] - (float)ref);
+				if (d > e)
+					e = d;
+			}
+			check(fait && e < 1e-4f, "adam fuse GPU == oracle (param mis a jour en place)");
+		}
+
+		// ---- 21f) Entropie croisee a cible par INDICES ----------------------
+		{
+			const int64 B = 3, V = 4;
+			float pd[12] = {0.7f, 0.1f, 0.1f, 0.1f, 0.2f, 0.5f, 0.2f, 0.1f, 0.1f, 0.2f, 0.3f, 0.4f};
+			float cd[3] = {0.f, 1.f, 3.f}; // cibles, en f32
+			NkShape ps;
+			ps.PushBack(B);
+			ps.PushBack(V);
+			NkShape cs;
+			cs.PushBack(B);
+			NkTensor probs = NkTensor::FromData(ps, pd, NkDType::NK_F32);
+			NkTensor cib = NkTensor::FromData(cs, cd, NkDType::NK_F32);
+
+			NkTensor pertes = NkGpuCeIdxForward(probs.ToGPU(), cib.ToGPU()).ToCPU();
+			const float *lp = pertes.DataAs<float>();
+			float e = 0.f;
+			for (int64 b = 0; b < B; ++b) {
+				const int t = (int)cd[b];
+				const float ref = (float)(-log((double)pd[b * V + t]));
+				const float d = fabsf(lp[b] - ref);
+				if (d > e)
+					e = d;
+			}
+			check(pertes.Numel() == B && e < 1e-3f, "ce_idx_fwd GPU == oracle (-log p[cible])");
+
+			const double coef = 0.5;
+			NkTensor dl = NkGpuCeIdxBackward(probs.ToGPU(), cib.ToGPU(), coef).ToCPU();
+			const float *dp = dl.DataAs<float>();
+			float e2 = 0.f;
+			for (int64 b = 0; b < B; ++b)
+				for (int64 vv = 0; vv < V; ++vv) {
+					const double oh = ((int)cd[b] == (int)vv) ? 1.0 : 0.0;
+					const double ref = coef * ((double)pd[b * V + vv] - oh);
+					const float d = fabsf(dp[b * V + vv] - (float)ref);
+					if (d > e2)
+						e2 = d;
+				}
+			check(dl.Numel() == B * V && e2 < 1e-3f, "ce_idx_bwd GPU == oracle (coef*(p - onehot))");
+		}
+
+		// ---- 21g) Scalaires et diffusion par ligne --------------------------
+		{
+			const int64 R = 2, C = 3;
+			float ad[6] = {1.f, -2.f, 3.f, 0.5f, 4.f, -1.f};
+			float vd[3] = {10.f, 20.f, 30.f};
+			NkShape s;
+			s.PushBack(R);
+			s.PushBack(C);
+			NkShape vs;
+			vs.PushBack(C);
+			NkTensor a = NkTensor::FromData(s, ad, NkDType::NK_F32);
+			NkTensor vec = NkTensor::FromData(vs, vd, NkDType::NK_F32);
+
+			NkTensor ms = NkGpuMulScalar(a.ToGPU(), 2.5).ToCPU();
+			const float *mp = ms.DataAs<float>();
+			float e1 = 0.f;
+			for (int i = 0; i < 6; ++i) {
+				const float d = fabsf(mp[i] - ad[i] * 2.5f);
+				if (d > e1)
+					e1 = d;
+			}
+			check(e1 < 1e-4f, "mulscalar GPU == oracle");
+
+			NkTensor as = NkGpuAddScalar(a.ToGPU(), -1.25).ToCPU();
+			const float *ap = as.DataAs<float>();
+			float e2 = 0.f;
+			for (int i = 0; i < 6; ++i) {
+				const float d = fabsf(ap[i] - (ad[i] - 1.25f));
+				if (d > e2)
+					e2 = d;
+			}
+			check(e2 < 1e-4f, "addscalar GPU == oracle");
+
+			NkTensor ab = NkGpuAddBroadcastRow(a.ToGPU(), vec.ToGPU()).ToCPU();
+			const float *abp = ab.DataAs<float>();
+			float e3 = 0.f;
+			for (int64 r = 0; r < R; ++r)
+				for (int64 c = 0; c < C; ++c) {
+					const float d = fabsf(abp[r * C + c] - (ad[r * C + c] + vd[c]));
+					if (d > e3)
+						e3 = d;
+				}
+			check(ab.Numel() == R * C && e3 < 1e-4f, "addbcast (vecteur sur dernier axe) GPU == oracle");
+
+			NkTensor mb = NkGpuMulBroadcastRow(a.ToGPU(), vec.ToGPU()).ToCPU();
+			const float *mbp = mb.DataAs<float>();
+			float e4 = 0.f;
+			for (int64 r = 0; r < R; ++r)
+				for (int64 c = 0; c < C; ++c) {
+					const float d = fabsf(mbp[r * C + c] - ad[r * C + c] * vd[c]);
+					if (d > e4)
+						e4 = d;
+				}
+			check(mb.Numel() == R * C && e4 < 1e-4f, "mulbcast (vecteur sur dernier axe) GPU == oracle");
+		}
+	}
+
+	// =========================================================================
+	// 22) ORDONNANCEMENT — les deux essais qui gardent le chantier de soumission
+	// =========================================================================
+	// ⚠️ AVERTISSEMENT D'HONNETETE, ecrit le 2026-08-19 AVANT toute modification.
+	//
+	// Ces deux essais NE PEUVENT PAS ECHOUER aujourd'hui : chaque operation de
+	// NkTensorGpu se termine par `WaitIdle()`, donc le GPU est idle et tout est
+	// deja arrive quand on lit. **Un essai qui ne peut pas echouer ne prouve
+	// rien** — pour l'instant ce sont des GARDES ARMEES POUR PLUS TARD, pas des
+	// preuves.
+	//
+	// Ils ne deviennent des instruments qu'apres avoir ete rejoues contre une
+	// variante DELIBEREMENT CASSEE (barriere retiree, destruction non differee) et
+	// avoir echoue dessus. Ce controle est a faire avant de leur faire confiance ;
+	// tant qu'il n'est pas fait, leur vert ne vaut rien.
+	//
+	// Chaque essai tourne TROIS fois : une course se manifeste par un vert
+	// intermittent, pas par un rouge franc.
+	{
+		printf("\n-- 22) ordonnancement : gardes pour le chantier de soumission --\n");
+		const int kReps = 3;
+
+		// ---- 22a) CHAINE DEPENDANTE : c = a+b ; e = c*d ; f = somme(e) -------
+		// Attrape une barriere manquante entre deux operations DEPENDANTES : si
+		// `c*d` part avant que `a+b` ne soit ecrit, le resultat est faux ou nul.
+		{
+			const int64 N = 4096; // assez grand pour que le noyau ne soit pas instantane
+			int passes = 0;
+			for (int rep = 0; rep < kReps; ++rep) {
+				NkShape s;
+				s.PushBack(N);
+				float *ad = (float *)malloc((size_t)N * sizeof(float));
+				float *bd = (float *)malloc((size_t)N * sizeof(float));
+				float *dd = (float *)malloc((size_t)N * sizeof(float));
+				for (int64 i = 0; i < N; ++i) {
+					ad[i] = (float)((i % 13) + 1);
+					bd[i] = (float)((i % 7) + 1);
+					dd[i] = (float)((i % 3) + 1);
+				}
+				NkTensor a = NkTensor::FromData(s, ad, NkDType::NK_F32).ToGPU();
+				NkTensor b = NkTensor::FromData(s, bd, NkDType::NK_F32).ToGPU();
+				NkTensor d = NkTensor::FromData(s, dd, NkDType::NK_F32).ToGPU();
+
+				NkTensor c = ops::Add(a, b);   // depend de a, b
+				NkTensor e = ops::Mul(c, d);   // DEPEND DE c
+				NkTensor f = NkGpuReduceAll(e, 0).ToCPU(); // DEPEND DE e
+
+				double ref = 0.0;
+				for (int64 i = 0; i < N; ++i)
+					ref += ((double)ad[i] + (double)bd[i]) * (double)dd[i];
+				const float got = f.DataAs<float>()[0];
+				// Tolerance relative : la somme GPU n'associe pas dans le meme ordre
+				// que la boucle CPU, et 4096 termes suffisent a l'ecarter d'un ulp.
+				const bool ok = fabs((double)got - ref) <= 1e-3 * (fabs(ref) + 1.0);
+				if (ok)
+					++passes;
+				free(ad);
+				free(bd);
+				free(dd);
+			}
+			check(passes == kReps, "chaine dependante (add -> mul -> reduce) juste 3 fois sur 3");
+		}
+
+		// ---- 22b) DUREE DE VIE : detruire les entrees JUSTE APRES le lancement
+		// Attrape la destruction anticipee d'un tampon encore en vol. C'est le
+		// scenario de `NkTensorStorage::Release`, qui libere le tampon GPU d'un
+		// temporaire des la fin de l'instruction — et cote Vulkan c'est un
+		// `vkDestroyBuffer` + `vkFreeMemory` IMMEDIATS, sans differe.
+		{
+			const int64 N = 65536; // gros, pour maximiser la fenetre de vol
+			const nk_size octets = (nk_size)N * sizeof(float);
+			int passes = 0;
+			for (int rep = 0; rep < kReps; ++rep) {
+				uint64 ba = gpu.CreateBuffer(octets);
+				uint64 bb = gpu.CreateBuffer(octets);
+				uint64 bc = gpu.CreateBuffer(octets);
+				float *tmp = (float *)malloc((size_t)octets);
+				for (int64 i = 0; i < N; ++i)
+					tmp[i] = (float)(i & 255);
+				gpu.Upload(ba, tmp, octets);
+				gpu.Upload(bb, tmp, octets);
+
+				gpu.RunBinary("add", NkString(kAddNkSL), ba, bb, bc, (uint32)N);
+
+				// ⚠️ LE POINT DE L'ESSAI : on rend les ENTREES au pilote tout de
+				// suite, avant d'avoir lu la sortie.
+				gpu.DestroyBuffer(ba);
+				gpu.DestroyBuffer(bb);
+
+				float *out = (float *)malloc((size_t)octets);
+				for (int64 i = 0; i < N; ++i)
+					out[i] = -1.f;
+				const bool dl = gpu.Download(bc, out, octets);
+				bool ok = dl;
+				for (int64 i = 0; ok && i < N; ++i)
+					if (fabsf(out[i] - 2.f * (float)(i & 255)) > 1e-3f)
+						ok = false;
+				if (ok)
+					++passes;
+				gpu.DestroyBuffer(bc);
+				free(tmp);
+				free(out);
+			}
+			check(passes == kReps, "duree de vie : entrees detruites juste apres le lancement, sortie juste 3/3");
+		}
+
+		// ---- 22c) Le compteur de DEFAUTS n'a pas bouge ----------------------
+		// Un noyau qui ne compile pas, une allocation refusee : rien de tout cela
+		// ne leve d'erreur a l'appel. `DefautCount` est le seul temoin.
+		check(NkTensorGpu::DefautCount() == 0,
+			  "aucun DEFAUT GPU signale pendant tout le banc (noyau muet / alloc refusee)");
+	}
+
 	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", g_ok, g_fail);
 	gpu.Shutdown();
 	return g_fail;
