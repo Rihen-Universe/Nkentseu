@@ -52,6 +52,11 @@
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTypes.h"
 #include "NKEditorKit/Components/NkComponentDecl.h"
+// Pour l'adaptateur `NkMetricsOf` en bas de fichier : le resolveur de
+// disposition doit pouvoir lire les valeurs EDITEES, pas seulement les defauts
+// compiles. La dependance va dans ce sens-la et jamais dans l'autre -- le
+// resolveur reste compilable et executable sans `NkVector`/`NkString`.
+#include "NKEditorKit/Components/NkLayoutSolve.h"
 
 namespace nkentseu {
 	namespace editorkit {
@@ -158,6 +163,37 @@ namespace nkentseu {
 				void Bind(const NkComponentDecl &d) {
 					mDecl = &d;
 				}
+
+				// ── LA PROVENANCE (ajout 4 de Rodolf, 2026-08-19) ────────────────
+				// ⚠️ ELLE EST PORTEE PAR L'INSTANCE AUTANT QUE PAR LA DECLARATION, et
+				//    c'est ici qu'elle sert VRAIMENT aujourd'hui : la declaration est
+				//    ecrite en C++ par une main, tandis que l'instance est le seul
+				//    objet que NkUIDesign produit, sauve et rouvre. C'est donc elle
+				//    qui devient de la donnee d'entrainement, et elle qui doit dire
+				//    d'ou elle vient.
+				//
+				// LE CAS QUI JUSTIFIE `corrected` A LUI SEUL : l'IA produit une
+				// instance, Rodolf la rouvre et deplace trois valeurs. `author`
+				// reste `AI` -- c'est la verite de l'origine -- et `corrected`
+				// passe a vrai. Ecraser `author` en `Human` perdrait justement
+				// l'information la plus chere du corpus : ce que la main a change
+				// APRES la machine.
+				const NkProvenance &Provenance() const {
+					return mProv;
+				}
+				void SetProvenance(const NkProvenance &p) {
+					mProv = p;
+				}
+				/// A appeler quand une main modifie une instance : n'ecrase pas
+				/// l'auteur d'origine, marque la reprise, et invalide la
+				/// verification -- une paire corrigee n'est plus la paire qui avait
+				/// ete rejouee.
+				void MarkCorrectedByHuman() {
+					if (mProv.author != NkAuthorKind::Human)
+						mProv.corrected = true;
+					mProv.verified = false;
+				}
+
 				const NkComponentDecl *Decl() const {
 					return mDecl;
 				}
@@ -179,6 +215,19 @@ namespace nkentseu {
 							return mParams[i].value;
 					return mDecl ? mDecl->Param(n, fallback) : fallback;
 				}
+				/// UN NOMBRE NOMME, ecart d'abord, declaration ensuite -- metrique
+				/// puis parametre des deux cotes. C'est ce que lit la disposition
+				/// (cf. `NkComponentDecl::Number`).
+				float32 Number(const char *n, float32 fallback = 0.f) const {
+					for (uint32 i = 0; i < (uint32)mMetrics.Size(); ++i)
+						if (instdetail::StrEqZ(mMetrics[i].name.Data(), n))
+							return mMetrics[i].value;
+					for (uint32 i = 0; i < (uint32)mParams.Size(); ++i)
+						if (instdetail::StrEqZ(mParams[i].name.Data(), n))
+							return mParams[i].value;
+					return mDecl ? mDecl->Number(n, fallback) : fallback;
+				}
+
 				/// Le NOM du role auquel un jeton est lie. La resolution en
 				/// identifiant appartient a l'application (`NkResolveRole`) : ce
 				/// fichier ne connait pas le theme, et c'est voulu.
@@ -320,6 +369,20 @@ namespace nkentseu {
 					out.Append("composant ");
 					out.Append(mDecl && mDecl->name ? mDecl->name : "");
 					out.Append('\n');
+					// ── LA PROVENANCE, TOUJOURS ECRITE ──────────────────────────
+					// Meme quand elle vaut le defaut. Une etiquette absente serait
+					// relue comme « humain, non verifie » -- ce qui est le defaut,
+					// donc indiscernable d'une etiquette perdue. Trois lignes de
+					// texte contre une ambiguite permanente sur tout le corpus.
+					out.Append("provenance auteur = ");
+					out.Append(NkAuthorName(mProv.author));
+					out.Append('\n');
+					out.Append("provenance verifie = ");
+					out.Append(mProv.verified ? "1" : "0");
+					out.Append('\n');
+					out.Append("provenance corrige = ");
+					out.Append(mProv.corrected ? "1" : "0");
+					out.Append('\n');
 					if (mVariant >= 0 && mDecl && mVariant < (int32)mDecl->variantCount) {
 						out.Append("variante ");
 						out.Append(mDecl->variants[mVariant].name);
@@ -361,6 +424,11 @@ namespace nkentseu {
 					if (!text)
 						return false;
 					ResetAll();
+					// La provenance se relit du fichier ou retombe au defaut. La
+					// remettre a zero ICI et pas dans `ResetAll` : `ResetAll` est
+					// aussi le bouton « Reinitialiser » de l'editeur, et remettre a
+					// zero les ecarts n'efface pas qui a produit le fichier.
+					mProv = NkProvenance{};
 
 					const char *p = text;
 					bool sawHeader = false;
@@ -401,6 +469,51 @@ namespace nkentseu {
 							const int32 idx = mDecl ? mDecl->VariantIndex(val) : -1;
 							if (idx >= 0) {
 								mVariant = idx;
+								if (outApplied)
+									(*outApplied)++;
+							} else if (outUnknown)
+								(*outUnknown)++;
+						} else if (instdetail::StrEqZ(kind, "provenance")) {
+							// Meme grammaire que les autres : `cle = valeur`. Une cle
+							// de provenance inconnue se COMPTE comme inconnue, elle ne
+							// fait pas echouer -- meme tolerance que partout ailleurs
+							// dans ce chargeur.
+							uint32 n = 0;
+							while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != '\n' &&
+								   *p != '\r' && n < 63)
+								key[n++] = *p++;
+							key[n] = 0;
+							while (*p == ' ' || *p == '\t')
+								++p;
+							if (*p == '=') {
+								++p;
+								while (*p == ' ' || *p == '\t')
+									++p;
+							}
+							uint32 v = 0;
+							while (*p && *p != '\n' && *p != '\r' && v < 63)
+								val[v++] = *p++;
+							val[v] = 0;
+							TrimEnd(val);
+
+							bool ok = true;
+							if (instdetail::StrEqZ(key, "auteur")) {
+								if (instdetail::StrEqZ(val, "humain"))
+									mProv.author = NkAuthorKind::Human;
+								else if (instdetail::StrEqZ(val, "ia"))
+									mProv.author = NkAuthorKind::AI;
+								else if (instdetail::StrEqZ(val, "importe"))
+									mProv.author = NkAuthorKind::Imported;
+								else
+									ok = false; // auteur inconnu : on n'invente pas une origine
+							} else if (instdetail::StrEqZ(key, "verifie"))
+								mProv.verified = (val[0] == '1');
+							else if (instdetail::StrEqZ(key, "corrige"))
+								mProv.corrected = (val[0] == '1');
+							else
+								ok = false;
+
+							if (ok) {
 								if (outApplied)
 									(*outApplied)++;
 							} else if (outUnknown)
@@ -484,11 +597,34 @@ namespace nkentseu {
 				}
 
 				const NkComponentDecl *mDecl = nullptr;
+				/// ⚠️ HORS de `IsPristine()` et de `OverrideCount()` a dessein : la
+				///    provenance n'est pas un ECART, c'est une etiquette sur le
+				///    fichier. Une instance qui n'a rien change reste vierge meme si
+				///    elle sait qui l'a produite -- sinon toute instance deviendrait
+				///    « modifiee » du seul fait d'etre tracee, et le test 5 de la
+				///    sonde (« une instance vierge se comporte comme la
+				///    declaration ») mesurerait autre chose que ce qu'il annonce.
+				NkProvenance mProv;
 				NkVector<NkValueOverride> mParams;
 				NkVector<NkValueOverride> mMetrics;
 				NkVector<NkTokenBinding> mTokens;
 				int32 mVariant = -1; ///< -1 = celle de la declaration
 		};
+
+		// ── LA DISPOSITION SUIT LES VALEURS EDITEES ─────────────────────────────
+		// Sans cet adaptateur, `NkSolveLayout` lirait les defauts COMPILES et une
+		// gouttiere changee dans NkUIDesign ne deplacerait rien. Ce serait « un
+		// parametre qui n'est pas honore » sous sa forme la plus trompeuse : les
+		// couleurs suivraient l'edition, les positions non, et on chercherait le
+		// defaut dans le dessin.
+		inline NkMetricSource NkMetricsOf(const NkComponentInstance &inst) {
+			NkMetricSource s;
+			s.user = &inst;
+			s.get = [](const void *u, const char *n, float32 f) -> float32 {
+				return ((const NkComponentInstance *)u)->Number(n, f);
+			};
+			return s;
+		}
 
 		// ⚠️ CE QUE CE FORMAT N'ENGAGE PAS, et il faut le dire avant qu'on le
 		//    relaie autrement. Le §9 du devis pose « le format de fichier des

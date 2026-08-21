@@ -866,3 +866,300 @@ existants sont intacts. NKEditorKit gagne trois `.cpp` et cinq en-têtes ;
 ⚠️ **Et un fait vérifiable qui vaut mieux qu'une affirmation sur la frontière** :
 `NKUIDesign.jenga` **ne déclare pas `NKReflection`**. L'éditeur de composants
 n'en lie pas une ligne — la déclaration ne lui doit rien.
+
+---
+
+## 9. Les quatre ajouts de Rodolf, et le CRITÈRE D'ÉCHEC écrit d'avance (2026-08-19)
+
+> ⚠️ **Cette section est écrite AVANT la déclaration du second composant, et
+> elle est commitée séparément.** Un critère d'échec rédigé après le résultat ne
+> discrimine rien : on l'ajuste, sans même le vouloir, à ce qu'on vient de
+> trouver. L'ordre des commits est la seule preuve d'antériorité qui ne se
+> raconte pas.
+
+### 9.1 Ce que la forme porte désormais
+
+Aux quatre acquis de la tranche (paramètres · jetons · variantes · greffes ·
+événements avec charge · l'entrée) s'ajoutent les quatre demandes de Rodolf du
+18/08 au soir :
+
+| ajout | où il vit | ce qu'il change |
+|---|---|---|
+| **le rôle** | `NkComponentRole.h` + champ `role` | on dessine une apparence, on lui **attribue une capacité**. Une poignée de rôles sert des milliers d'apparences |
+| **l'arbre** | `NkComponentLayout.h` + `elements` | une apparence est un arbre ; une interface complète est un composant qui en contient d'autres — **même mécanisme aux deux échelles** |
+| **taille et agencement** | `NkComponentLayout.h` + `NkLayoutSolve.h` | l'enfant déclare figé/contenu/fraction/poids/extensible + bornes, le parent déclare ligne/colonne/grille/ancrage. **La position devient un résultat** |
+| **la provenance** | `NkProvenance`, 3 champs | qui l'a produite, si elle a été vérifiée par rejeu, si elle a été corrigée ensuite |
+
+### 9.2 Pourquoi un second composant, et pourquoi un ARBRE
+
+Mon prédécesseur l'a écrit lui-même en fermant la tranche : *« la forme n'est
+validée que sur UN composant, celui pour lequel elle a été écrite. »* Une forme
+validée sur un seul cas décrit ce cas, pas une famille.
+
+`TreeView` (palier 4) est le meilleur second cas parce qu'il **stresse ce que le
+navigateur ne stressait pas** : un état d'ouverture par nœud, une structure
+récursive de profondeur inconnue, une sélection **multiple**, et un
+glisser-déposer qui **réordonne** au lieu de simplement déposer.
+
+### 9.3 LE CRITÈRE D'ÉCHEC — six questions, et ce qui compte comme échec
+
+**Écrire ce qui prouverait qu'on a tort est la seule façon de ne pas se donner
+raison.** Si aucune réponse ne peut être « la forme ne tient pas », le test ne
+discrimine pas.
+
+| # | ce qui serait un ÉCHEC de la forme | ce qui serait acceptable |
+|---|---|---|
+| **1** | déclarer `TreeView` **oblige à ajouter un champ** à `NkComponentDecl` / `NkElementDecl` qui ne sert qu'aux arbres | tout ce qui est propre à l'arbre atterrit dans `params` / `metrics` / `tokens` / `events` / `elements`, **sans nouveau champ** |
+| **2** | une charge d'événement de `TreeView` **ne s'exprime pas** dans `NkArgKind`, et il faut **ajouter un type** — ce qui casserait l'invariant « exactement la table §11 de `.nkgui`, sans un type de plus » | toutes les charges s'écrivent avec les huit types existants |
+| **3** | le **rôle** doit connaître quelque chose du **dessin** (l'indentation, la vignette) pour être utilisable — la séparation apparence/comportement serait alors fausse | le rôle ne porte que des **faits** et des **états** ; `content_browser` et `TreeView` partagent la famille de rôles sans qu'aucun ne soit taillé pour un seul |
+| **4** | l'arbre de sous-éléments **ne sait pas exprimer la récursion** des lignes, et il faut un mécanisme réservé aux arbres | le besoin se règle par un ajout **général** — qui sert aussi les cartes du navigateur — ou par une frontière écrite entre partie statique et partie répétée par les données |
+| **5** | l'indentation force une **coordonnée** dans la déclaration | l'indentation est une **métrique déclarée**, consommée là où la donnée est connue ; aucun `x` n'apparaît |
+| **6** | la **provenance** ne sait pas décrire l'origine d'une déclaration d'arbre | rien de spécifique n'est attendu ici : **ce critère ne discrimine pas**, et il est écrit pour qu'on ne le compte pas comme une réussite |
+
+**Prédictions, posées avant l'écriture** — elles valent d'être fausses :
+
+1. **le n°2 va mordre.** Une sélection multiple veut porter *l'ensemble des
+   entrées choisies* ; aucun des huit types n'est une collection. Je m'attends à
+   ne pas pouvoir l'exprimer sans inventer un type — et **inventer un type de la
+   spec `.nkgui` n'est pas à ma main** ;
+2. **le n°4 va mordre aussi**, mais je m'attends à ce que la réparation soit
+   **générale** : les cartes du navigateur sont, elles aussi, un gabarit répété
+   par la donnée. Si la réparation n'est générale que pour les arbres, c'est un
+   échec au sens du n°1 ;
+3. les n°1, 3 et 5 devraient passer. S'ils passent **tous les trois sans la
+   moindre gêne**, il faudra se demander si le second composant a été choisi
+   assez loin du premier — un test qui ne coûte rien n'a rien mesuré.
+
+### 9.4 Comment le résultat se mesure
+
+Trois bancs, et aucun ne remplace les autres :
+
+1. **`Engine/NKEditorKit/tests/NkFormProbe.cpp`** — banc de la **forme**,
+   compilé *et exécuté* avec `g++` seul, **sans lier quoi que ce soit**. Il fait
+   passer les deux déclarations par `NkCheckComponent`, résout des dispositions
+   et vérifie que les positions **bougent quand une métrique bouge** ;
+2. **le banc de neutralité** (§5), rejoué avec son témoin qui échoue ;
+3. **`NKUIDesign --probe`**, qui doit **rester à 21/21** : les ajouts ne valent
+   rien s'ils cassent la tranche déjà livrée.
+
+---
+
+## 10. LE RÉSULTAT — ce que le second composant a dit (2026-08-19)
+
+> Le §9 a été écrit et **commité avant** que le second composant soit examiné.
+> Cette section-ci est ajoutée après. L'ordre des deux commits est la preuve.
+
+### 10.1 Le second composant n'a pas été écrit par moi, et c'est mieux
+
+Je m'apprêtais à écrire la déclaration de `TreeView`. **L'agent du composant
+l'avait déjà écrite** — `NkTreeViewModel.h`, dans la même heure, dans le même
+répertoire de travail. J'ai renoncé à en écrire une seconde : deux déclarations
+du même composant, c'est exactement la duplication que cette forme existe pour
+supprimer.
+
+**Et le test en sort renforcé, pas affaibli.** Une forme que son auteur valide
+sur un composant qu'il écrit lui-même ne prouve presque rien : il contourne sans
+s'en apercevoir ce qu'elle ne sait pas dire. Ici la déclaration vient d'une
+**autre main**, sur une **autre famille**, sans relecture préalable de ma part.
+
+### 10.2 Les six critères, un par un
+
+| # | prédiction du §9.3 | ce qui s'est passé | verdict |
+|---|---|---|---|
+| **1** | devrait passer | `tree_view` se déclare **sans ajouter un seul champ** à `NkComponentDecl` ou `NkElementDecl`. Tout ce qui lui est propre (pliage, renommage, glisser-déposer réordonnant, drapeaux visible/verrouillé) tient dans `params` / `metrics` / `tokens` / `events` / `elements` | **PASSE** |
+| **2** | *« va mordre »* | **A MORDU, et exactement là où c'était prédit.** Une sélection multiple veut porter *l'ensemble* des entrées choisies ; aucun des huit types de `NkArgKind` n'est une collection. L'agent du composant l'a rencontré **indépendamment** et l'a écrit dans son propre fichier : *« ma première écriture portait un `selectedCount` ; il a dû partir. La sélection multiple n'est donc PAS observable depuis un blueprint, et ce n'est pas un oubli. »* | **ÉCHOUE — arbitrage de Rodolf** |
+| **3** | devrait passer | le rôle ne porte que des **faits** et des **états**. `content_browser` endosse `list`, `tree_view` endosse `tree` : deux familles, **un catalogue de 9 rôles**, aucun taillé pour l'un des deux | **PASSE** |
+| **4** | *« va mordre, mais la réparation sera générale »* | **A MORDU, et la réparation est bien générale.** L'arbre statique ne sait pas dire les enfants **répétés par la donnée**. La note `agencement_sans_enfant` tombe sur `content_browser.grid` (les cartes) **et** sur `tree_view.rows` (les lignes) — deux composants, deux mains, **le même manque**. Ce n'est donc pas un besoin d'arbres | **ÉCHOUE — réparation générale, non faite** |
+| **5** | devrait passer | aucun `x`, aucun `y` nulle part. L'indentation est une **métrique déclarée** (`row_indent`), consommée là où la profondeur est connue | **PASSE** |
+| **6** | *« ne discrimine pas »* | il n'a rien discriminé, comme annoncé. Écrit pour ne pas être compté comme une réussite | **NUL, et prévu** |
+
+**Trois passent, deux mordent, un est nul.** Et le §9.3 prévenait : *« s'ils
+passent tous les trois sans la moindre gêne, il faudra se demander si le second
+composant a été choisi assez loin du premier. »* Ils n'ont pas tous passé — le
+test a coûté quelque chose, donc il a mesuré quelque chose.
+
+### 10.3 Ce que le test n'avait PAS prévu, et qui est le plus instructif
+
+Les deux vraies surprises ne sont dans aucun des six critères.
+
+**a) Un champ inséré au milieu casse tout le monde.** `role` placé après
+`summary` a produit **12 erreurs** dans `NkTreeViewModel.h` — un fichier que je
+ne devais pas toucher, écrit à la même heure. C++17 n'ayant pas d'initialiseurs
+désignés, toute déclaration s'écrit en liste **positionnelle**. La règle est donc
+écrite dans la structure : **tout champ neuf s'ajoute à la fin.**
+
+⚠️ **Et le cas bénin est le vrai danger** : ici les types étaient incompatibles,
+donc ça a rougi. Avec deux `const char*` voisins, le décalage aurait **compilé**
+et décrit un autre composant.
+
+**b) Deux solveurs, deux sémantiques.** Mon résolveur partageait le reste en une
+seule passe ; celui écrit en parallèle par l'agent NkUIDesign le faisait **en
+boucle**, rendant aux autres ce qu'une borne refuse. Sans cela, un creux
+inexpliqué apparaît dans le parent. **Deux solveurs qui divergent, c'est deux
+sémantiques pour une même déclaration** — précisément ce que cette forme existe
+pour empêcher. Le meilleur des deux est adopté dans `NkLayoutSolve.h`, qui fait
+foi, et l'essai n°31 du banc échouerait si la boucle disparaissait.
+
+**c) Trois mains écrivaient les mêmes mots.** L'application définissait ses
+propres `NkCrossAlignName` / `NkParseCrossAlign` pendant que la forme définissait
+`NkAlign`. **Une forme partagée doit fournir ses mots**, sinon chaque main écrit
+les siens — et un fichier écrit par l'une devient illisible par l'autre. Les
+douze fonctions de nommage/lecture sont donc dans `NkComponentLayout.h`, une
+seule fois.
+
+### 10.4 Les deux questions qui remontent à Rodolf
+
+1. **La charge COLLECTION.** Une sélection multiple n'est pas exprimable : la
+   table §11 de `.nkgui` n'a pas de type liste, et **en ajouter un est une
+   décision sur la spec**, pas sur le kit. Deux issues : (i) `List[T]` entre dans
+   la spec §11 et dans `NkArgKind` ; (ii) la forme gagne la notion de **propriété
+   exposée** — un état qu'un blueprint peut *lire* sans qu'il soit une charge
+   d'événement (utile aussi pour `currentPath`, le filtre, le nœud courant).
+   ⚠️ L'issue (ii) est plus large et probablement la bonne, mais elle n'est pas
+   à ma main.
+2. **Le gabarit répété.** Deux composants attendent des enfants répétés par la
+   donnée. La réparation est générale et connue (un marqueur de répétition sur
+   `NkElementDecl`, `une fois / par entrée / par entrée récursif`). Elle **n'a
+   pas été faite aujourd'hui**, et volontairement : ajouter un champ au contrat
+   une seconde fois dans la même heure, pendant que deux agents compilent
+   dessus, coûte plus que d'attendre. C'est le premier geste de la passe
+   suivante.
+
+---
+
+## 11. LA PASSE DU 2026-08-19 (soir) — les deux dettes du §10.4, et une règle neuve
+
+> Reprise après un **redémarrage brutal de la machine**. Premier geste : mesurer.
+> `git status` (10 fichiers de WIP, dont **aucun n'était à moi** — ils
+> appartenaient à l'agent de l'arbre et à celui de l'application), puis un
+> **contrôle d'octets NUL en Python sur 54 fichiers** — une coupure en pleine
+> écriture en avait déjà laissé deux fois. **Zéro NUL.** Rien n'était à réparer.
+
+### 11.1 Ce qui restait ouvert, et qui est fait
+
+Le §10.4 laissait **deux dettes**. Une troisième est arrivée entre-temps, du
+`CLAUDE.md` : **« LE MULTILINGUE VIT DANS NKGui »**, point 5 — *les libellés d'un
+composant déclaré sont des clés, pas du texte*.
+
+| dette | état |
+|---|---|
+| **le gabarit répété** (§10.4 n°2) — *« le premier geste de la passe suivante »* | **FAIT** — `NkRepeatKind` + le champ `repeat` |
+| **la charge COLLECTION** (§10.4 n°1) | **TOUJOURS CHEZ RODOLF** — c'est une décision sur la spec `.nkgui` §11, pas sur le kit. Rien n'a bougé, et rien ne doit bouger sans lui |
+| **les libellés = clés** (règle neuve) | **FAIT**, en note et non en erreur — voir 11.3 |
+
+### 11.2 Le gabarit répété — la réparation était bien GÉNÉRALE
+
+C'est le point que le §10.4 avait promis, et la promesse tient pour la raison
+qui avait été écrite : la note `agencement_sans_enfant` tombait sur
+`content_browser.grid` **et** sur `tree_view.rows` — deux composants, **deux
+mains**, le même manque. Une réparation taillée pour les arbres aurait raté la
+moitié du problème.
+
+**Trois champs auraient pu être ajoutés ; un seul l'a été.** `NkElementDecl`
+gagne `repeat` (`once` / `per_entry` / `per_entry_tree`), **et rien d'autre** :
+ni compteur, ni source de données, ni index. La forme **ne sait pas** combien il
+y a d'entrées, et c'est voulu — la donnée appartient à l'application, jamais au
+kit. La déclaration porte une **intention** de répétition ; le dessin, qui tient
+la donnée, instancie le gabarit autant de fois qu'il le faut.
+
+⚠️ **Et la position reste un résultat.** Un gabarit répété déclare sa taille
+comme n'importe quel élément ; c'est le solveur qui place les N copies, comme il
+place N frères écrits à la main. Aucun `x`, aucun `y` n'est apparu — la règle ne
+souffre pas d'exception parce qu'un enfant est répété.
+
+**Le champ est ajouté À LA FIN**, et c'est la leçon du §10.3 (a) appliquée le
+lendemain de son coût : `role` inséré au milieu avait cassé 12 initialisations
+chez un agent qui compilait en parallèle. L'essai **n°41** vérifie qu'une table
+écrite *avant* l'existence de `repeat` compile toujours et vaut `Once` —
+c'est-à-dire **exactement le comportement d'avant**. Cet ajout **ne peut casser
+personne**, et ce n'est pas une affirmation : c'est un essai.
+
+### 11.3 Les libellés sont des clés — et pourquoi c'est une NOTE, pas une ERREUR
+
+**La décision de conception qui a coûté le plus de réflexion, et elle est de
+refuser un champ.** La tentation immédiate était d'ajouter un `labelKey` à côté
+de `label`. Refusée : deux champs pour une même chose, c'est deux sources de
+vérité, donc une divergence garantie — le défaut exact que cette forme existe
+pour supprimer, et qu'elle a **déjà payé deux fois ce mois-ci** (`NkCrossAlignName`
+en double, le solveur en double, cf. §10.3 b et c). **Le libellé EST la clé.** Il
+n'y a rien à synchroniser parce qu'il n'y a qu'un champ.
+
+**Pourquoi une note et pas une erreur — c'est raisonné, pas mou.** Au moment où
+la règle est écrite, **deux composants portent des libellés en clair**, dont un
+(`tree_view`) écrit par une autre main **qui compile en ce moment sur ce
+fichier**. Une erreur rougirait le travail de quelqu'un qui n'a rien cassé, pour
+une règle plus jeune que son code. La note **garde l'information et la compte** :
+
+    content_browser  ->  0 erreur, 15 notes (dont 12 `libelle_non_cle`)
+    tree_view        ->  0 erreur, 23 notes (dont 22 `libelle_non_cle`)
+
+Le compte descend à mesure que les mains migrent, et il dit à tout moment ce qui
+reste monolingue.
+
+⚠️ **CE QUI N'A PAS ÉTÉ FAIT, ET C'EST DÉLIBÉRÉ : la migration.** Les libellés de
+`content_browser` — pourtant **mon** fichier — n'ont **pas** été convertis en
+clés. La mesure qui l'a décidé : l'application **affiche réellement**
+`decl->title` (`Document.h:402`, `Panels.h:187`). Migrer aujourd'hui, alors
+qu'**aucun catalogue de traduction n'existe encore dans NKGui**, ferait afficher
+`content_browser.title` à l'écran à la place de « Navigateur de contenu ». Ce
+serait échanger une interface monolingue **correcte** contre une interface
+monolingue **laide**, et appeler ça un progrès. Le catalogue vit dans NKGui,
+**qui n'est pas mon périmètre**. La forme est prête ; la migration suivra le
+catalogue.
+
+### 11.4 Le critère d'échec, et une réserve d'honnêteté sur son antériorité
+
+Les quatre critères de cette passe :
+
+| # | ce qui prouverait que ça ne tient pas | résultat |
+|---|---|---|
+| **39** | ⚠️ **LE DÉCISIF.** Si une déclaration à libellés en clair produisait **ne serait-ce qu'UNE erreur**, la règle serait cassante et il faudrait la **retirer** — pas la garder en espérant que les autres migrent vite | **0 erreur, 2 notes** — la règle ne casse personne |
+| **40** | contrôle positif : si une déclaration entièrement migrée produisait quand même une note, le n°39 se contenterait d'une note qui ne dépend de rien | **0 note** |
+| **41** | si une table écrite avant `repeat` cessait de compiler, l'ajout serait cassant | **compile, et vaut `Once`** |
+| **44** | si le gabarit déclaré ne **désarmait pas** `agencement_sans_enfant`, la réparation ne réparerait rien | **1 note → 0** |
+
+⚠️ **RÉSERVE, ET ELLE EST À MA CHARGE.** Au §10, l'antériorité du critère était
+**prouvable** : le §9 avait été commité **avant** le §10, et l'ordre des deux
+commits en faisait foi. **Ici, critère et résultat tombent dans le même commit.**
+Il faut donc me croire sur parole — ce qu'un banc est précisément censé éviter.
+C'est dit plutôt que taisé, et la même mention est écrite dans le banc lui-même.
+
+### 11.5 Les trois bancs, rejoués
+
+    banc de la forme (NkFormProbe)  :  43/43   (34 -> 43, neuf essais neufs)
+    banc de neutralité              :  la forme PASSE sans aucun chemin NKGui,
+                                       et le témoin `NkEditorInspector.h`
+                                       ÉCHOUE bien (`NKGui/NKGui.h: No such file`)
+    jenga build --target NKUIDesign :  20/20 SUCCESS
+    NKUIDesign --probe              :  68/68   (vert — rien n'est cassé)
+
+⚠️ **Et la sonde a GRANDI pendant la passe : 58 → 68 essais.** L'agent de
+l'application l'a étendue entre ma première mesure et la dernière. Le chiffre
+ci-dessus est celui d'une **reconstruction complète faite par moi** (20/20),
+pas la lecture d'un fichier de rapport écrit par quelqu'un d'autre — c'est la
+leçon du binaire périmé (§7 du canal) appliquée d'avance.
+
+⚠️ **ET UN ROUGE QUI N'EN ÉTAIT PAS UN, pour la deuxième fois en deux passes.**
+Ma première compilation a donné **BUILD FAILED, 6 erreurs dans `main.cpp`** — un
+fichier que je ne dois pas toucher, en cours d'écriture par l'agent de
+l'application. Rejouée deux minutes plus tard sans que rien ne change de mon
+côté : **20/20**. L'agent écrivait pendant que je compilais.
+
+> *Quand trois agents écrivent dans le même répertoire, un échec de compilation
+> a l'ancienneté d'une seconde, pas d'un fichier.* C'est la leçon du §10.3
+> rencontrée sous une autre forme — là un binaire périmé, ici une source en
+> cours d'écriture. **Dans les deux cas, la bonne réaction est la même : rejouer
+> avant d'écrire quoi que ce soit à l'agent concerné.** Je ne lui ai donc signalé
+> aucun défaut, parce qu'il n'y en avait aucun.
+
+### 11.6 Ce qui reste, et à qui
+
+1. **La charge COLLECTION** — toujours chez **Rodolf**, inchangée depuis le
+   §10.4. Deux issues, dont la (ii) — la notion de **propriété exposée** — reste
+   la plus large et probablement la bonne.
+2. **La migration des libellés en clés** — attend le **catalogue de NKGui**
+   (agent NKGui). 12 notes chez `content_browser`, 22 chez `tree_view`.
+3. **`tree_view.rows` peut maintenant déclarer son gabarit** — la note
+   `agencement_sans_enfant` qui subsiste chez lui n'est plus un manque de la
+   forme, c'est un champ à poser. **C'est à l'agent de l'arbre de le faire, pas
+   à moi** : je ne touche pas ses fichiers.

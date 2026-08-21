@@ -10,6 +10,25 @@
 //    desormais consomme par `NkContentBrowserDraw.cpp` (le dessin lit la
 //    declaration) et par l'application `NKUIDesign` (l'editeur lit et ecrase).
 //
+// ETAT (2026-08-19, troisieme passe) : les QUATRE AJOUTS de Rodolf du 18/08 au
+//    soir sont integres, et la forme est mise a l'epreuve d'un SECOND COMPOSANT
+//    d'une autre famille (`NkTreeViewDecl.h`) -- une forme validee sur le seul
+//    composant pour lequel elle a ete ecrite n'est pas validee.
+//
+//        1. LE ROLE           -> `NkComponentRole.h`   (+ champ `role` ci-dessous)
+//        2. L'ARBRE           -> `NkComponentLayout.h` (+ `elements` ci-dessous)
+//        3. TAILLE/AGENCEMENT -> `NkComponentLayout.h` (+ `NkLayoutSolve.h`)
+//        4. LA PROVENANCE     -> `NkProvenance` ci-dessous, trois champs
+//
+//    LES CINQ FICHIERS DE LA FORME, ET DANS QUEL ORDRE LES LIRE :
+//        NkComponentLayout.h   l'arbre, la taille, l'agencement  (aucune dependance)
+//        NkComponentDecl.h     CE FICHIER : ce qu'un composant declare
+//        NkComponentRole.h     le catalogue des capacites
+//        NkComponentCheck.h    les verifications -- une seule porte d'entree
+//        NkLayoutSolve.h       la position, calculee : la SEMANTIQUE de la forme
+//    Puis, autour : `NkComponentInstance.h` (les ecarts sauves, et la provenance
+//    persistee) et `NkComponentPaint.h` (le peintre vu par un composant).
+//
 // =============================================================================
 //  LA FRONTIERE AVEC `NKReflection` — ECRITE NOIR SUR BLANC (Rodolf, 2026-08-18)
 // =============================================================================
@@ -105,9 +124,137 @@
 // -----------------------------------------------------------------------------
 
 #include "NKCore/NkTypes.h"
+// L'ARBRE, LA TAILLE ET L'AGENCEMENT (ajouts 2 et 3 de Rodolf). Cet en-tete
+// n'inclut lui-meme que `NKCore/NkTypes.h` : le banc de neutralite tient.
+#include "NKEditorKit/Components/NkComponentLayout.h"
 
 namespace nkentseu {
 	namespace editorkit {
+
+		// ── LA PROVENANCE ───────────────────────────────────────────────────────
+		// QUATRIEME AJOUT DE RODOLF (2026-08-19), et il l'a chiffre lui-meme :
+		// « trois champs aujourd'hui contre une refonte plus tard ».
+		//
+		// POURQUOI CA VIT DANS LA FORME ET PAS A COTE : chaque declaration produite
+		// dans NkUIDesign est de la DONNEE D'ENTRAINEMENT, quelle qu'en soit la
+		// main. Sans provenance, tout se vaut et le modele apprend la MOYENNE --
+		// c'est-a-dire le niveau median de ce qui passe, pas la cible. Avec elle, on
+		// pondere, on filtre et on compare **sans rien avoir a refaire**.
+		//
+		//    les designs de Rodolf          -> la reference, le style vise
+		//    une paire synthetique verifiee -> du volume sain
+		//    une declaration CORRIGEE apres l'IA -> la plus precieuse : elle dit ce
+		//                                           qui n'allait pas
+		//    un premier essai d'etudiant    -> du volume, a ponderer, pas a jeter
+		//
+		// ⚠️ EXACTEMENT TROIS CHAMPS, et en ajouter un quatrieme est une decision,
+		//    pas un detail. La tentation immediate est un `note` en clair ; elle se
+		//    refuse tant que personne n'a de lecteur pour ce texte. Un champ que
+		//    rien ne lit se remplit mal, puis ment.
+		enum class NkAuthorKind : uint8 {
+			Human = 0, ///< une main -- Rodolf, un agent humain, un etudiant
+			AI,		   ///< produite par un modele
+			Imported,  ///< convertie depuis une source externe (image, autre outil)
+			Count
+		};
+
+		struct NkProvenance {
+				NkAuthorKind author = NkAuthorKind::Human;
+				/// REJOUEE et comparee a sa source. C'est l'avantage de Rihen : la
+				/// declaration se rend, donc la paire se verifie automatiquement --
+				/// le moteur est le juge du corpus. `false` ne veut pas dire
+				/// « fausse », il veut dire « pas encore passee au juge ».
+				bool verified = false;
+				/// REPRISE A LA MAIN APRES LA MACHINE. Le signal le plus cher du
+				/// corpus : ce que Rodolf a change apres l'IA vaut plus que ce
+				/// qu'elle avait produit.
+				bool corrected = false;
+		};
+
+		/// Le nom TEL QU'IL S'ECRIT DANS UN FICHIER. Un seul point de verite, meme
+		/// raison que `NkArgTypeName` plus bas : deux tables donneraient deux
+		/// orthographes et un fichier illisible par l'autre moitie du code.
+		inline const char *NkAuthorName(NkAuthorKind a) {
+			switch (a) {
+				case NkAuthorKind::Human:
+					return "humain";
+				case NkAuthorKind::AI:
+					return "ia";
+				case NkAuthorKind::Imported:
+					return "importe";
+				default:
+					return "humain";
+			}
+		}
+
+		// ── LES LIBELLES SONT DES CLES, PAS DU TEXTE ────────────────────────────
+		// REGLE DE RODOLF DU 2026-08-18, « LE MULTILINGUE VIT DANS NKGui », point 5 :
+		// *« Les interfaces produites par NkUIDesign sont traduisibles aussi : les
+		// libelles d'un composant declare sont des CLES, pas du texte. Sinon l'outil
+		// produit des interfaces monolingues. »*
+		//
+		// CE QUE CA CHANGE, ET C'EST UN SEUL CHANGEMENT : les champs `label` et
+		// `title` de ce fichier ne portent plus la chaine A AFFICHER, ils portent la
+		// chaine A RESOUDRE. Aucun champ n'est ajoute -- et c'est deliberement :
+		//
+		// ⚠️ LA TENTATION ETAIT D'AJOUTER UN `labelKey` A COTE DE `label`. Elle se
+		//    refuse. Deux champs pour une meme chose, c'est deux sources de verite,
+		//    donc une divergence garantie -- exactement le defaut que cette forme
+		//    existe pour supprimer, et qu'elle a deja paye deux fois ce mois-ci
+		//    (`NkCrossAlignName` en double, le solveur en double). Le libelle EST la
+		//    cle. Il n'y a rien a synchroniser parce qu'il n'y a qu'un champ.
+		//
+		// ⚠️ LA FORME NE TRADUIT RIEN, ET NE LE PEUT PAS. Le banc de neutralite exige
+		//    qu'elle compile sans le moindre chemin NKGui ; or le catalogue de langues
+		//    vit dans NKGui, qui en change A CHAUD. La forme DECLARE des cles ; NKGui
+		//    les RESOUT au moment du dessin. C'est la seule repartition qui laisse la
+		//    langue changer sans redemarrer, puisque rien n'est fige a la declaration.
+		//
+		// LE REPLI, ET IL EST VOULU VISIBLE (regle 3 du meme bloc de Rodolf : « une
+		// cle manquante se voit, jamais un vide silencieux ») : une cle non resolue
+		// s'affiche TELLE QUELLE. Consequence heureuse pour la migration -- une
+		// declaration ecrite avant cette regle, qui porte « Grille » en clair,
+		// continue d'afficher « Grille ». Elle n'est pas cassee, elle est seulement
+		// MONOLINGUE, et `NkCheckComponent` le signale en NOTE (jamais en erreur).
+		//
+		// ⚠️ POURQUOI UNE NOTE ET PAS UNE ERREUR -- c'est une decision, pas une
+		//    mollesse : au moment ou cette regle est ecrite, DEUX composants portent
+		//    des libelles en clair, dont un ecrit par une autre main qui compile en
+		//    ce moment meme sur ce fichier. Une erreur les rougirait tous les deux
+		//    sans que leur auteur ait rien casse. La note garde l'information, la
+		//    COMPTE, et laisse chaque main migrer a son rythme.
+		//
+		// LA CONVENTION : minuscules ASCII, chiffres, `_` et `.` comme separateur de
+		// niveau. Ni espace, ni accent, ni majuscule -- une cle traverse un fichier,
+		// un catalogue et peut-etre un tableur de traduction ; tout ce qui s'encode
+		// mal quelque part est banni d'avance.
+		//     `content_browser.title`
+		//     `content_browser.variant.grid`
+		//     `content_browser.param.thumb_size`
+		//     `content_browser.event.on_select`
+		//
+		/// VRAI si `s` a la FORME d'une cle. Ne dit PAS si la cle existe dans un
+		/// catalogue -- la forme n'en connait aucun (voir le banc de neutralite).
+		/// Une chaine vide n'est pas une cle : elle veut dire « pas de libelle ».
+		inline bool NkIsLabelKey(const char *s) {
+			if (!s || !*s)
+				return false;
+			bool prevDot = true; // interdit un point en tete
+			for (const char *p = s; *p; ++p) {
+				const char c = *p;
+				if (c == '.') {
+					if (prevDot) // ni « .. » ni un point initial
+						return false;
+					prevDot = true;
+					continue;
+				}
+				const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+				if (!ok)
+					return false;
+				prevDot = false;
+			}
+			return !prevDot; // interdit un point final
+		}
 
 		// ── NATURE D'UN PARAMETRE ───────────────────────────────────────────────
 		// APPEND-ONLY, meme raison que NkRole : la valeur est destinee a etre
@@ -131,7 +278,7 @@ namespace nkentseu {
 		// devient impossible que la description et le dessin divergent.
 		struct NkParamDecl {
 				const char *name = "";	///< cle STABLE, telle qu'elle apparaitra dans un fichier
-				const char *label = ""; ///< libelle affichable (traduisible)
+				const char *label = ""; ///< CLE de traduction (cf. « LES LIBELLES SONT DES CLES »)
 				NkParamKind kind = NkParamKind::Float;
 				float32 defVal = 0.f; ///< defaut ; pour Bool : 0 ou 1 ; pour Enum : l'index
 				float32 minVal = 0.f; ///< borne basse (Float/Int) — 0 si sans objet
@@ -153,7 +300,7 @@ namespace nkentseu {
 		//    supprimer vient de rentrer par la fenetre.
 		struct NkVariantDecl {
 				const char *name = ""; ///< cle stable : « grid », « dense_list », « columns »
-				const char *label = "";
+				const char *label = "";   ///< CLE de traduction, ex. « content_browser.variant.grid »
 				const char *summary = ""; ///< a quoi elle sert, pour l'editeur et pour l'humain
 		};
 
@@ -289,7 +436,7 @@ namespace nkentseu {
 		//     callback OnActivate(index: Int, path: String) -> Void
 		struct NkEventDecl {
 				const char *name = "";	  ///< `onSelect`, `onDoubleClick`, `onDrop` — cle STABLE
-				const char *label = "";	  ///< libelle affichable dans l'editeur
+				const char *label = "";	  ///< CLE de traduction, affichee dans l'editeur
 				const char *purpose = ""; ///< quand il part, en une ligne
 				const NkArgDecl *args = nullptr;
 				uint8 argCount = 0;
@@ -308,7 +455,7 @@ namespace nkentseu {
 		// structures a la main -- la forme ne change pas, seule la provenance.
 		struct NkComponentDecl {
 				const char *name = "";	///< cle stable : « content_browser »
-				const char *title = ""; ///< libelle affichable
+				const char *title = ""; ///< CLE de traduction, ex. « content_browser.title »
 				const char *summary = "";
 
 				const NkParamDecl *params = nullptr;
@@ -323,6 +470,61 @@ namespace nkentseu {
 				uint16 hookCount = 0;
 				const NkEventDecl *events = nullptr;
 				uint16 eventCount = 0;
+
+				// ═══════════════════════════════════════════════════════════════
+				//  ⚠️ LES CHAMPS AJOUTES LE 2026-08-19 SONT ICI, A LA FIN, ET C'EST
+				//     UNE REGLE -- PAS UNE PARESSE DE MISE EN PAGE
+				// ═══════════════════════════════════════════════════════════════
+				//  `role` appartient logiquement en haut, avec `name` et `title`. Il
+				//  est en bas quand meme, et la raison a ete MESUREE le jour meme :
+				//  insere apres `summary`, il a casse **12 initialisations** dans
+				//  `NkTreeViewModel.h` -- le second composant, ecrit en parallele par
+				//  un autre agent, dans la meme heure.
+				//
+				//  C++17 n'a pas d'initialiseurs designes : toute declaration de
+				//  composant s'ecrit en liste POSITIONNELLE. Un champ insere au
+				//  milieu decale donc tout ce qui suit, chez tout le monde, y compris
+				//  chez qui n'a pas encore commite.
+				//
+				//  > **TOUT CHAMP NOUVEAU S'AJOUTE A LA FIN DE CETTE STRUCTURE.**
+				//  > C'est la meme discipline append-only que les enumerations de
+				//  > cette forme, pour une raison voisine : ici c'est la POSITION qui
+				//  > est le contrat, la-bas c'est la VALEUR.
+				//
+				//  Et le cas benin est le vrai danger : si les types avaient ete
+				//  compatibles, le decalage aurait COMPILE et decrit un autre
+				//  composant. Il n'a rougi que par chance de typage.
+
+				/// ── LA CAPACITE DU COMPOSANT ENTIER (ajout 1 de Rodolf) ──────────
+				/// « On dessine une apparence, puis on lui attribue une capacite. »
+				/// Un NOM du catalogue de `NkComponentRole.h` -- jamais un pointeur :
+				/// une declaration chargee depuis un fichier porte des chaines, et
+				/// c'est le meme mot qui s'ecrit dans le fichier et se lit ici.
+				/// "" = le composant n'endosse aucune capacite du catalogue ; ses
+				/// evenements sont alors entierement les siens.
+				/// `NkCheckComponent` verifie que ce que le role EXIGE est bien
+				/// declare -- un role annonce et non honore est le pire des deux
+				/// mondes : l'application branche un ecouteur et attend.
+				const char *role = "";
+
+				/// ── L'ARBRE DE SOUS-ELEMENTS (ajout 2 de Rodolf) ─────────────────
+				/// « Une apparence est un arbre ; une interface complete est un
+				/// composant qui en contient d'autres. MEME MECANISME AUX DEUX
+				/// ECHELLES. » La table est PLATE et chaque ligne nomme son parent ;
+				/// un parent apparait toujours plus haut que ses enfants, ce qui rend
+				/// un cycle impossible a ecrire (cf. `NkComponentLayout.h`).
+				///
+				/// Vide = le composant est une boite noire qui se dessine d'un bloc.
+				/// C'est un etat legitime, pas un manque : la console n'a pas de
+				/// structure interne a exposer a un editeur.
+				const NkElementDecl *elements = nullptr;
+				uint16 elementCount = 0;
+
+				/// ── D'OU VIENT CETTE DECLARATION (ajout 4 de Rodolf) ─────────────
+				/// Le defaut -- main humaine, non verifiee, non corrigee -- decrit
+				/// exactement une declaration ecrite en C++ dans ce depot. Une
+				/// declaration chargee depuis un fichier porte la sienne.
+				NkProvenance provenance;
 
 				static bool StrEq(const char *a, const char *b) {
 					if (!a || !b)
@@ -363,6 +565,27 @@ namespace nkentseu {
 					const NkParamDecl *p = FindParam(n);
 					return p ? p->defVal : fallback;
 				}
+
+				/// UN NOMBRE NOMME DU COMPOSANT -- metrique d'abord, parametre
+				/// ensuite. C'est ce que lit la DISPOSITION, et il a fallu le
+				/// decouvrir plutot que le prevoir : `tree_width` (la largeur de la
+				/// colonne d'arbre) est declaree comme PARAMETRE, pas comme metrique,
+				/// et c'est juste -- une fraction n'est pas une longueur en pixels.
+				/// Interdire aux tailles de la nommer aurait force a recopier `0.18`
+				/// dans l'agencement : deux verites pour un nombre, exactement le
+				/// defaut que cette forme existe pour supprimer.
+				///
+				/// ⚠️ LES DEUX TABLES PARTAGENT DONC UN ESPACE DE NOMS DU POINT DE VUE
+				///    DE LA DISPOSITION. Un meme nom dans les deux serait ambigu :
+				///    `NkCheckComponent` le refuse, plutot que de laisser l'ordre de
+				///    lecture trancher en silence.
+				float32 Number(const char *n, float32 fallback = 0.f) const {
+					const NkMetricDecl *m = FindMetric(n);
+					if (m)
+						return m->defVal;
+					const NkParamDecl *p = FindParam(n);
+					return p ? p->defVal : fallback;
+				}
 				int32 VariantIndex(const char *n) const {
 					for (uint16 i = 0; i < variantCount; ++i)
 						if (StrEq(variants[i].name, n))
@@ -374,6 +597,40 @@ namespace nkentseu {
 						if (StrEq(events[i].name, n))
 							return &events[i];
 					return nullptr;
+				}
+
+				// ── LECTURE DE L'ARBRE ──────────────────────────────────────────
+				// Trois fonctions, et elles suffisent a tout parcourir. Elles sont
+				// LINEAIRES : un composant a une dizaine de sous-elements, pas mille.
+				// Le jour ou l'un en aurait mille, c'est l'arbre qu'il faudrait
+				// regarder, pas la recherche.
+				int32 ElementIndex(const char *n) const {
+					for (uint16 i = 0; i < elementCount; ++i)
+						if (StrEq(elements[i].name, n))
+							return (int32)i;
+					return -1;
+				}
+				const NkElementDecl *FindElement(const char *n) const {
+					const int32 i = ElementIndex(n);
+					return i >= 0 ? &elements[i] : nullptr;
+				}
+				/// La racine : le seul element sans parent. `NkCheckComponent`
+				/// verifie qu'il n'y en a qu'une -- deux racines ne sont pas un arbre,
+				/// et le resolveur en dessinerait une seule sans rien dire.
+				const NkElementDecl *RootElement() const {
+					for (uint16 i = 0; i < elementCount; ++i)
+						if (!elements[i].parent || !*elements[i].parent)
+							return &elements[i];
+					return nullptr;
+				}
+				/// Les enfants directs de `n`, dans l'ordre de la table -- qui est
+				/// l'ordre d'affichage. `from` est l'index de reprise : appeler avec
+				/// `from = resultat + 1` pour obtenir le suivant.
+				int32 NextChildOf(const char *n, uint16 from) const {
+					for (uint16 i = from; i < elementCount; ++i)
+						if (StrEq(elements[i].parent, n))
+							return (int32)i;
+					return -1;
 				}
 		};
 
