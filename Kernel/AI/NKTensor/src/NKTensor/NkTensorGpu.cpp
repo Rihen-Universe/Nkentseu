@@ -10,6 +10,7 @@
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Core/NkGraphicsApi.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+#include "NKPlatform/NkEnv.h" // INSTRUMENT jetable : interrupteur NK_GPU_RECYCLE_CMD
 #include "NKSL/Compiler/NkSLCompiler.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -48,6 +49,70 @@ namespace nkentseu {
 				};
 
 				NkVector<Kernel> kernels; // cache par nom (peu d'entrées -> linéaire)
+
+				// =============================================================
+				// ⚠️⚠️ INSTRUMENT JETABLE — PAS LA CONCEPTION FINALE ⚠️⚠️
+				// Ecrit le 2026-08-19 par l'agent « debit GPU », methode 1 :
+				// « mesure le correctif, pas ses composants ».
+				//
+				// A QUOI CA SERT : le profil de 2 418 pas enveloppe tout `RunX`
+				// dans UN SEUL chrono. Il ne dit donc pas si les 10 sites qui font
+				// `vkCreateCommandPool` + `vkDestroyCommandPool` par operation
+				// (17 388 tampons de commandes par pas) coutent quelque chose AU
+				// MILIEU des 52 908 autres operations. Un banc synthetique
+				// PREDIRAIT ce que le correctif donnerait ; ce prototype le DONNE.
+				//
+				// CE QUE CE N'EST PAS : la conception finale. Il ne gere ni la
+				// rotation de tampons, ni la duree de vie apres suppression du
+				// `WaitIdle`. Il est sur UNIQUEMENT parce que chaque operation
+				// finit encore par `WaitIdle()` : le tampon est donc libre d'etre
+				// reinitialise au retour.
+				//
+				// A EFFACER avant d'ecrire le vrai correctif. S'il est encore la
+				// quand le correctif arrive, c'est une dette, pas un instrument.
+				//
+				// LES DEUX BRAS TOURNENT DEPUIS LE MEME BINAIRE — c'est ce qui rend
+				// la mesure defendable : aucun ecart de compilation ne peut se
+				// glisser dans le resultat. Interrupteur :
+				//     NK_GPU_RECYCLE_CMD=1   -> pool cree UNE FOIS, `Reset()`
+				//     absent ou 0            -> comportement historique
+				// =============================================================
+				NkICommandBuffer *cmdRecycle = nullptr;
+				int recyclage = -1; // -1 = pas encore lu, 0 = non, 1 = oui
+
+				bool Recyclage() {
+					if (recyclage < 0) {
+						NkString v = nkentseu::env::GetEnvVar("NK_GPU_RECYCLE_CMD");
+						recyclage = (!v.Empty() && v[0] == '1') ? 1 : 0;
+						logger_src.Infof("[NkTensorGpu] INSTRUMENT recyclage des tampons de commandes : %s "
+										 "(NK_GPU_RECYCLE_CMD). Jetable, a retirer avant le vrai correctif.",
+										 recyclage ? "ACTIF" : "inactif");
+					}
+					return recyclage == 1;
+				}
+
+				// Rend un tampon de commandes PRET A ENREGISTRER (Begin() deja fait
+				// par l'appelant, comme avant). En mode recycle, on reinitialise
+				// celui qu'on garde au lieu d'en creer un neuf.
+				NkICommandBuffer *CmdAcquire() {
+					if (!Recyclage())
+						return device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+					if (!cmdRecycle)
+						cmdRecycle = device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+					else
+						cmdRecycle->Reset(); // vkResetCommandBuffer : le pool SURVIT
+					return cmdRecycle;
+				}
+
+				// Symetrique. En mode recycle on ne detruit RIEN : c'est tout le
+				// point de la mesure.
+				void CmdRelease(NkICommandBuffer *cmd) {
+					if (!Recyclage()) {
+						device->DestroyCommandBuffer(cmd);
+						return;
+					}
+					(void)cmd; // conserve pour le prochain tour
+				}
 
 				// Compile (ou récupère du cache) un kernel NkSL compute.
 				// nBuffers storage buffers (bindings 0..n-1) + 1 UBO au binding uboBinding.
@@ -337,6 +402,119 @@ namespace nkentseu {
 		static int64 gReserveTampons = 0;			   // nombre de tampons retenus
 		static int64 gReserveEvictions = 0;			   // detruits faute de budget
 
+		// =====================================================================
+		// RESERVE SANS EVICTION (opt-in, 2026-08-19) — `NK_RESERVE_SANS_EVICTION=1`
+		//
+		// ⚠️ DEFAUT INCHANGE. Sans la variable, le comportement historique (budget
+		// + eviction) reste en place. Aucune campagne ne change de comportement
+		// sans qu'on l'ait decide.
+		//
+		// CE QUI L'AUTORISE, ET C'EST MESURE, PAS SUPPOSE :
+		//   - **13 classes de taille distinctes** sur 1 073 096 demandes ;
+		//   - **`taille DEJA VUE : 100,00 %`** — zero allocation pour une taille
+		//     inedite. Le motif d'allocation est donc PERIODIQUE.
+		// Une pile libre par classe suffit : un tampon rendu retourne dans la pile
+		// de SA classe et nulle part ailleurs. **Aucune fragmentation possible** —
+		// il n'y a pas de bloc partage, donc rien a fragmenter.
+		//
+		// LA BORNE HAUTE EST DEMONTREE. Total physique = vivants + retenus. Si on
+		// ne detruit jamais, la reserve converge vers le HAUT-DE-MARQUE : le nombre
+		// maximal de tampons ayant coexiste. A cet instant, retenus = 0 et
+		// vivants = ce maximum ; ensuite vivants baisse, retenus monte, mais leur
+		// SOMME ne le depasse jamais. Mesure : pic calcul seul 3 946-4 138 Mo,
+		// contre 4 352 Mo de pic physique actuel. On rend donc de la memoire.
+		//
+		// ⚠️⚠️ MAIS UN MECANISME QUI NE REND JAMAIS RIEN EST UNE FUITE SI SON
+		// HYPOTHESE TOMBE. D'ou la SOUPAPE ci-dessous. Elle ne doit JAMAIS se
+		// declencher en regime normal — et si elle se declenche, elle CRIE, parce
+		// qu'un repli silencieux ferait passer une hypothese fausse pour un succes.
+		static int gSansEviction = -1;	  // -1 = pas lu, 0 = non, 1 = oui
+		static int64 gPlafondOctets = 0;  // soupape : plafond du physique retenu
+		static int64 gPurges = 0;		  // nombre de declenchements de la soupape
+		static int64 gPurgeOctets = 0;	  // VRAM rendue par les purges
+		static uint32 gClassesMax = 0;	  // plus grand nombre de classes vu
+
+		// Au-dela, l'hypothese « peu de classes, toutes revues » est CASSEE : ce
+		// n'est plus le motif qu'on a mesure, et retenir sans fin n'est plus fonde.
+		static const uint32 kClassesSeuil = 64u;
+
+		static bool SansEviction() {
+			if (gSansEviction < 0) {
+				const char *e = getenv("NK_RESERVE_SANS_EVICTION");
+				gSansEviction = (e && e[0] == '1') ? 1 : 0;
+				if (gSansEviction == 1) {
+					const char *pl = getenv("NK_RESERVE_PLAFOND_MO");
+					int64 mo = 0;
+					if (pl)
+						for (const char *c = pl; *c >= '0' && *c <= '9'; ++c)
+							mo = mo * 10 + (int64)(*c - '0');
+					if (mo <= 0)
+						mo = 6000; // sous les 8 192 Mo de la carte, marge pour le pilote
+					gPlafondOctets = mo * 1000000;
+					logger_src.Infof("[NkTensorGpu] RESERVE SANS EVICTION : ACTIVE (opt-in). Aucun tampon "
+									 "n'est detruit ; la reserve converge vers le haut-de-marque. SOUPAPE : "
+									 "purge si le retenu depasse %lld Mo ou si les classes depassent %u.",
+									 (long long)mo, kClassesSeuil);
+				}
+			}
+			return gSansEviction == 1;
+		}
+
+
+		// =====================================================================
+		// DISTRIBUTION DES TAILLES DEMANDEES — l'instrument qui separe les deux
+		// causes possibles d'un echec de reserve. Ajoute le 2026-08-19.
+		//
+		// LE POURQUOI. La reserve sature (retenu = 536 870 912 o = 512 MiB au
+		// dernier octet, et `neufs` 15 416 970 contre `evictions` 15 416 665,
+		// soit 0,002 % d'ecart). Donc on va essayer de monter le budget. Mais un
+		// balayage de budget sans effet ne saurait pas dire POURQUOI, et il y a
+		// exactement deux raisons possibles a un echec :
+		//
+		//   (1) la taille avait DEJA ete demandee -> le tampon a ete evince faute
+		//       de budget -> UN BUDGET PLUS GRAND L'AURAIT SERVI ;
+		//   (2) la taille n'avait JAMAIS ete demandee -> aucun budget, aussi grand
+		//       soit-il, n'aurait pu la servir.
+		//
+		// `neufsRevue` contre `neufsPremiere` tranche. C'est le meme genre de
+		// diagnostic que « neufs contre evictions » : un compteur global ne
+		// distingue pas deux mecanismes, il faut la paire qui les oppose.
+		//
+		// ⚠️ Cet instrument doit pouvoir SURPRENDRE : si `neufsPremiere` domine,
+		// le balayage de budget est condamne d'avance et le sous-allocateur (ou
+		// un changement de CLE de la reserve) redevient le chantier.
+		// =====================================================================
+		struct NkGpuTailleLigne {
+				uint64 octets = 0;
+				int64 demandes = 0;		 // total des CreateBuffer pour cette taille
+				int64 servis = 0;		 // rendus par la reserve
+				int64 neufsPremiere = 0; // alloues a neuf, taille JAMAIS vue avant
+				int64 neufsRevue = 0;	 // alloues a neuf alors que la taille etait CONNUE
+		};
+
+		static NkGpuTailleLigne gTailles[256];
+		static uint32 gTaillesN = 0;
+		static int64 gTaillesHorsTable = 0; // on perd la ligne, jamais le compte
+
+		// Rend la ligne de cette taille, ou nullptr si la table est pleine.
+		// `outPremiere` dit si la taille est vue pour la PREMIERE fois.
+		static NkGpuTailleLigne *NkGpuTailleLigneDe(uint64 octets, bool *outPremiere) {
+			for (uint32 i = 0; i < gTaillesN; ++i)
+				if (gTailles[i].octets == octets) {
+					if (outPremiere)
+						*outPremiere = false;
+					return &gTailles[i];
+				}
+			if (outPremiere)
+				*outPremiere = true;
+			if (gTaillesN >= 256) {
+				++gTaillesHorsTable;
+				return nullptr;
+			}
+			NkGpuTailleLigne &l = gTailles[gTaillesN++];
+			l.octets = octets;
+			return &l;
+		}
 		// ---- PROFIL PAR NOYAU ---------------------------------------------------
 		// Voir NkTensorGpu.h pour ce que cette table mesure — et surtout ce qu'elle
 		// ne mesure PAS (temps mural attribue, pas temps GPU pur).
@@ -462,6 +640,8 @@ namespace nkentseu {
 
 		void NkTensorGpu::ProfilRaz(bool actif) {
 			gProfilN = 0;
+			gTaillesN = 0; // sinon deux fenetres de profil se melangent
+			gTaillesHorsTable = 0;
 			gBasculeN = 0;
 			gBasculeHorsTable = 0;
 			gProfilActif = actif;
@@ -553,7 +733,83 @@ namespace nkentseu {
 					totAppels += gBascule[i].appels;
 					totOctets += gBascule[i].octets;
 				}
-				logger.Info("=== BASCULES CPU -> GPU (ToGPU) — {0} sites, {1} appels, {2} Mo, sur {3} pas ===",
+				// ---- DISTRIBUTION DES TAILLES : budget insuffisant ou cle inadaptee ? --
+			// Ce bloc repond a UNE question et pas a une autre : un echec de reserve
+			// vient-il d'un budget trop petit (taille deja vue, tampon evince) ou
+			// d'une taille jamais revue (qu'aucun budget n'aurait servie) ?
+			if (gTaillesN > 0) {
+				int64 tDem = 0, tSer = 0, tPre = 0, tRev = 0;
+				for (uint32 i = 0; i < gTaillesN; ++i) {
+					tDem += gTailles[i].demandes;
+					tSer += gTailles[i].servis;
+					tPre += gTailles[i].neufsPremiere;
+					tRev += gTailles[i].neufsRevue;
+				}
+				const int64 tNeufs = tPre + tRev;
+				logger.Info("=== DISTRIBUTION DES TAILLES — {0} tailles distinctes, {1} demandes, sur {2} pas ===",
+							(long long)gTaillesN, (long long)tDem, (long long)pas);
+				if (gTaillesHorsTable > 0)
+					logger.Info("    ⚠️ {0} demandes HORS TABLE (plus de 256 tailles distinctes) : le total est juste, "
+								"la repartition par ligne est incomplete.",
+								(long long)gTaillesHorsTable);
+				logger.Info("    servis par la reserve : {0} ({1:.2f}%)   alloues a neuf : {2} ({3:.2f}%)",
+							(long long)tSer, (tDem > 0) ? (100.0 * (double)tSer / (double)tDem) : 0.0,
+							(long long)tNeufs, (tDem > 0) ? (100.0 * (double)tNeufs / (double)tDem) : 0.0);
+				logger.Info("    ⚠️⚠️ LE DISCRIMINANT — parmi les {0} allocations REELLES :", (long long)tNeufs);
+				logger.Info("        taille DEJA VUE (tampon evince)  : {0} ({1:.2f}%)  -> UN BUDGET PLUS GRAND LES SERVIRAIT",
+							(long long)tRev, (tNeufs > 0) ? (100.0 * (double)tRev / (double)tNeufs) : 0.0);
+				logger.Info("        taille JAMAIS VUE (premiere fois) : {0} ({1:.2f}%)  -> AUCUN budget ne les servirait",
+							(long long)tPre, (tNeufs > 0) ? (100.0 * (double)tPre / (double)tNeufs) : 0.0);
+				logger.Info("    Lecture : si la premiere ligne domine, monter le budget de la reserve suffit et le "
+							"sous-allocateur est un chantier de second ordre. Si la seconde domine, aucun budget "
+							"n'y fera rien — il faut changer la CLE de la reserve (classes de taille) ou "
+							"sous-allouer. Le taux de service seul ne distingue PAS ces deux mondes.");
+				// Tri decroissant par demandes, et on n'imprime que les 12 premieres :
+				// une table de 256 lignes dans un journal n'est pas une mesure, c'est du bruit.
+				uint32 ordT[256];
+				for (uint32 i = 0; i < gTaillesN; ++i)
+					ordT[i] = i;
+				for (uint32 i = 1; i < gTaillesN; ++i) {
+					uint32 v = ordT[i];
+					uint32 j = i;
+					while (j > 0 && gTailles[ordT[j - 1]].demandes < gTailles[v].demandes) {
+						ordT[j] = ordT[j - 1];
+						--j;
+					}
+					ordT[j] = v;
+				}
+				logger.Info("    {0:>12} {1:>11} {2:>11} {3:>11} {4:>9}", "octets", "demandes", "servis", "neufs(revue)",
+							"%servis");
+				const uint32 nImp = (gTaillesN < 12u) ? gTaillesN : 12u;
+				for (uint32 k = 0; k < nImp; ++k) {
+					const NkGpuTailleLigne &l = gTailles[ordT[k]];
+					logger.Info("    {0:>12} {1:>11} {2:>11} {3:>11} {4:>8.2f}%", (long long)l.octets,
+								(long long)l.demandes, (long long)l.servis, (long long)l.neufsRevue,
+								(l.demandes > 0) ? (100.0 * (double)l.servis / (double)l.demandes) : 0.0);
+				}
+			}
+
+			// ---- TEMOIN DE LA RESERVE SANS EVICTION, ecrit AVANT la mesure -----
+			// Les quatre cases sont fixees d'avance : evictions ZERO, pic physique
+			// SOUS 4 352 Mo, classes EGALES a 13, et zero purge. Une seule qui manque
+			// et le mode n'est pas valide — on ne negocie pas un temoin apres coup.
+			{
+				logger.Info("=== RESERVE SANS EVICTION — temoin ===");
+				logger.Info("    mode          : {0}", SansEviction() ? "ACTIF (opt-in)" : "inactif (defaut)");
+				logger.Info("    evictions     : {0}   (attendu en mode actif : 0)", (long long)gReserveEvictions);
+				logger.Info("    classes vues  : {0}   (attendu : 13 ; seuil de soupape : {1})",
+							(long long)gClassesMax, (long long)kClassesSeuil);
+				logger.Info("    purges        : {0}   (attendu : 0 — toute purge INVALIDE l'hypothese)",
+							(long long)gPurges);
+				if (gPurges > 0)
+					logger.Info("    ⚠️ {0} Mo purges au total : la course a tourne, mais le mode N'EST PAS "
+								"valide sur ce profil.",
+								(double)gPurgeOctets / 1.0e6);
+				logger.Info("    retenu final  : {0} Mo en {1} tampons", (double)gReserveOctets / 1.0e6,
+							(long long)gReserveTampons);
+			}
+
+			logger.Info("=== BASCULES CPU -> GPU (ToGPU) — {0} sites, {1} appels, {2} Mo, sur {3} pas ===",
 							(long long)gBasculeN, (long long)totAppels, totOctets / 1.0e6, (long long)pas);
 				logger.Info("    ⚠️ CHAQUE LIGNE EST UNE ALLOCATION *ET* UN UPLOAD : ToGPU fait CreateBuffer "
 							"puis Upload. Les postes « reserve de tampons » et « supprimer les uploads » "
@@ -765,6 +1021,12 @@ namespace nkentseu {
 			// un gain mesure ne prouverait rien, une reserve repondant toujours.
 			NkBufferHandle h{};
 			bool servi = false;
+			// INSTRUMENT (2026-08-19) : la taille est-elle DEJA CONNUE ? La question
+			// se pose AVANT de servir, sinon la reponse est toujours « connue ».
+			bool taillePremiere = false;
+			NkGpuTailleLigne *ligneT = NkGpuTailleLigneDe((uint64)bytes, &taillePremiere);
+			if (ligneT)
+				++ligneT->demandes;
 			if (gReserveActive) {
 				auto *pile = mImpl->reserve.Find((uint64)bytes);
 				if (pile && pile->Size() > 0) {
@@ -772,6 +1034,8 @@ namespace nkentseu {
 					pile->PopBack();
 					servi = true;
 					++gReserveServis;
+					if (ligneT)
+						++ligneT->servis;
 					gReserveOctets -= (int64)bytes;
 					--gReserveTampons;
 				}
@@ -780,6 +1044,16 @@ namespace nkentseu {
 			if (!servi) {
 				h = mImpl->device->CreateBuffer(NkBufferDesc::Storage(bytes, false));
 				++gReserveNeufs;
+				// ⚠️ LE DISCRIMINANT. Taille jamais vue -> aucun budget n'aurait pu
+				// servir. Taille connue -> le tampon a ete evince, donc un budget
+				// plus grand L'AURAIT servi. C'est cette paire qui dit si le
+				// balayage de budget peut marcher.
+				if (ligneT) {
+					if (taillePremiere)
+						++ligneT->neufsPremiere;
+					else
+						++ligneT->neufsRevue;
+				}
 			}
 			if (!h.IsValid()) {
 				NkGpuSignalerDefaut("CreateBuffer", "allocation refusee, octets demandes", (int64)bytes);
@@ -819,7 +1093,12 @@ namespace nkentseu {
 				if (gReserveActive) {
 					auto *t = mImpl->tailles.Find(id);
 					const int64 oct = t ? (int64)*t : 0;
-					if (oct > 0 && gReserveOctets + oct <= gReserveBudget) {
+					// ⚠️ EN MODE SANS EVICTION, le budget ne decide plus : on retient
+					// TOUJOURS. C'est tout le principe — et c'est la soupape, plus bas,
+					// qui garde la VRAM, pas un refus au coup par coup. Un refus au coup
+					// par coup EST l'eviction qu'on veut supprimer.
+					const bool place = SansEviction() || (gReserveOctets + oct <= gReserveBudget);
+					if (oct > 0 && place) {
 						auto *pile = mImpl->reserve.Find((uint64)oct);
 						if (!pile) {
 							mImpl->reserve.Insert((uint64)oct, NkVector<NkBufferHandle>{});
@@ -833,6 +1112,39 @@ namespace nkentseu {
 						}
 					} else if (oct > 0) {
 						++gReserveEvictions;
+					}
+
+					// ---- SOUPAPE (mode sans eviction seulement) ------------------
+					// Elle repond a « et si l'hypothese tombe ? ». Deux facons qu'elle
+					// tombe, et une seule suffit :
+					//   (a) une 14e classe apparait -> le motif n'est plus periodique ;
+					//   (b) le retenu depasse le plafond -> le haut-de-marque n'est pas
+					//       celui qu'on a mesure.
+					// Dans les deux cas on PURGE et on CRIE. Un repli silencieux ferait
+					// passer une hypothese fausse pour un succes — et c'est precisement
+					// ce que ce depot a paye plusieurs fois.
+					if (SansEviction()) {
+						const uint32 nbClasses = (uint32)mImpl->reserve.Size();
+						if (nbClasses > gClassesMax)
+							gClassesMax = nbClasses;
+						const bool tropDeClasses = nbClasses > kClassesSeuil;
+						const bool tropDOctets = gReserveOctets > gPlafondOctets;
+						if (tropDeClasses || tropDOctets) {
+							logger_src.Warnf(
+								"[NkTensorGpu] ⚠️ SOUPAPE DE LA RESERVE DECLENCHEE (purge #%lld). "
+								"Raison : %s. classes=%u (seuil %u), retenu=%lld Mo (plafond %lld Mo). "
+								"L'hypothese qui autorisait la reserve sans eviction — 13 classes, 100%% de "
+								"tailles deja vues — NE TIENT PLUS SUR CETTE COURSE. On purge pour ne pas "
+								"faire deborder la VRAM, mais LE CHIFFRE A RETENIR EST CE DECLENCHEMENT, pas "
+								"le fait que la course continue.",
+								(long long)(gPurges + 1),
+								tropDeClasses ? "trop de classes de taille" : "plafond de VRAM retenue",
+								nbClasses, kClassesSeuil, (long long)(gReserveOctets / 1000000),
+								(long long)(gPlafondOctets / 1000000));
+							gPurgeOctets += gReserveOctets;
+							++gPurges;
+							NkTensorGpu::ReserveVider(); // detruit vraiment, remet les compteurs a zero
+						}
 					}
 				}
 				if (!retenu)
@@ -889,7 +1201,7 @@ namespace nkentseu {
 			if ((bytes % 4) != 0)
 				return false;
 
-			auto *cmd = mImpl->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = mImpl->CmdAcquire();
 			if (!cmd)
 				return false;
 			cmd->Begin();
@@ -900,7 +1212,7 @@ namespace nkentseu {
 			// tampon a l'appelant. Supprimer ce WaitIdle est le chantier n°3 (un
 			// tampon de commandes par pas), pas celui-ci.
 			mImpl->device->WaitIdle();
-			mImpl->device->DestroyCommandBuffer(cmd);
+			mImpl->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1000,7 +1312,7 @@ namespace nkentseu {
 			BindSSBO(d->device, set, 2, hc);
 			d->device->BindUniformBuffer(set, 3, k->params);
 
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1015,7 +1327,7 @@ namespace nkentseu {
 			d->device->WaitIdle(); // flush avant le Download (ReadBuffer synchronise aussi via Map)
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1046,7 +1358,7 @@ namespace nkentseu {
 			BindSSBO(d->device, set, 1, hb);
 			d->device->BindUniformBuffer(set, 2, k->params);
 
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1061,7 +1373,7 @@ namespace nkentseu {
 			d->device->WaitIdle(); // flush avant le Download (ReadBuffer synchronise aussi via Map)
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1094,7 +1406,7 @@ namespace nkentseu {
 			BindSSBO(d->device, set, 1, hb);
 			d->device->BindUniformBuffer(set, 2, k->params);
 
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1105,7 +1417,7 @@ namespace nkentseu {
 			d->device->WaitIdle();
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1141,7 +1453,7 @@ namespace nkentseu {
 			d->device->BindUniformBuffer(set, 2, k->params);
 
 			const uint32 total = outer * inner;
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1152,7 +1464,7 @@ namespace nkentseu {
 			d->device->WaitIdle();
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1225,7 +1537,7 @@ void main() {
 			BindSSBO(d->device, set, 1, hb);
 			d->device->BindUniformBuffer(set, 2, k->params);
 
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1236,7 +1548,7 @@ void main() {
 			d->device->WaitIdle();
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1271,7 +1583,7 @@ void main() {
 			BindSSBO(d->device, set, 1, hb);
 			d->device->BindUniformBuffer(set, 2, k->params);
 
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1286,7 +1598,7 @@ void main() {
 			d->device->WaitIdle();
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1322,7 +1634,7 @@ void main() {
 			BindSSBO(d->device, set, 2, hc);
 			d->device->BindUniformBuffer(set, 3, k->params);
 
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1337,7 +1649,7 @@ void main() {
 			d->device->WaitIdle();
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1403,7 +1715,7 @@ void main() {
 			BindSSBO(d->device, set, 3, hv);
 			d->device->BindUniformBuffer(set, 4, k->params);
 
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1414,7 +1726,7 @@ void main() {
 			d->device->WaitIdle();
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 
@@ -1581,7 +1893,7 @@ void main() {
 			BindSSBO(d->device, set, 2, hc);
 			d->device->BindUniformBuffer(set, 3, k->params);
 
-			auto *cmd = d->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			auto *cmd = d->CmdAcquire();
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
@@ -1594,7 +1906,7 @@ void main() {
 			d->device->WaitIdle(); // flush avant le Download (ReadBuffer synchronise aussi via Map)
 
 			d->device->FreeDescriptorSet(set);
-			d->device->DestroyCommandBuffer(cmd);
+			d->CmdRelease(cmd);
 			return true;
 		}
 

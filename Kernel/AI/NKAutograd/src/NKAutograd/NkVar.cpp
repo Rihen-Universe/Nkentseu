@@ -248,6 +248,60 @@ namespace nkentseu {
 			return etat == 1;
 		}
 
+		// =====================================================================
+		// OPT-IN (2026-08-19, agent debit GPU) — INVALIDER au lieu de REMPLIR DE ZEROS
+		//
+		// ⚠️ DEFAUT INCHANGE. `NK_GRAD_INVALIDER=1` est l'OPTION ; sans elle, la
+		// pre-remise a zero historique reste en place. C'est voulu :
+		//   - le chemin par defaut ne change pas, donc rien n'est en danger pendant
+		//     les courses d'Ilyana ;
+		//   - la validation bit-a-bit du chantier de soumission tourne sur ce defaut
+		//     inchange : deux changements ne doivent pas se croiser sur le meme
+		//     critere, sinon on ne sait plus lequel a bouge les octets ;
+		//   - les deux bras sortent DU MEME BINAIRE, donc on mesure sans reconstruire.
+		//
+		// LE FOND. `Backward()` remet a zero le gradient de chaque nœud non-feuille :
+		// 3 915 `~clear` par pas, **12,30 Go remis a zero par pas** (12,15 % du temps
+		// mural, mesure sur la campagne de 2 418 pas). Or `AccumGrad` sait deja
+		// affecter directement quand le gradient est invalide :
+		//     node->grad = node->grad.IsValid() ? ops::Add(node->grad, c) : c;
+		// La pre-remise a zero rend donc `IsValid()` TOUJOURS vrai et **achete une
+		// addition inutile en plus du remplissage** : le mal paie deux fois.
+		//
+		// Ce que la boucle voulait vraiment, c'est effacer un gradient PERIME. Un
+		// tenseur invalide fait cela exactement, et gratuitement.
+		//
+		// ⚠️ RESERVE NUMERIQUE, dite precisement : `0.0 + c == c` exactement en
+		// IEEE 754 pour tout `c`, denormaux compris. La SEULE difference est `-0.0`,
+		// que `0.0 + (-0.0)` rend `+0.0`. Donc **bit-a-bit SAUF LE SIGNE DES ZEROS**,
+		// et non « bit-a-bit ». Aucun effet sur un gradient, mais ce n'est pas une
+		// identite parfaite et on ne l'annoncera pas comme telle.
+		//
+		// ⚠️ LE BASCULEMENT DU DEFAUT NE M'APPARTIENT PAS. C'est un changement de
+		// comportement numerique du cœur d'autograd, et il touche TOUT ce qui
+		// s'entraine dans ce depot, pas seulement Ilyana. Decision de Rodolf.
+		// =====================================================================
+		static bool GradInvalider() {
+			static int etat = -1;
+			if (etat < 0) {
+				const char *e = getenv("NK_GRAD_INVALIDER");
+				etat = (e && e[0] == '1') ? 1 : 0;
+				if (etat == 1)
+					logger.Info("[NkVar] NK_GRAD_INVALIDER=1 : les gradients intermediaires sont INVALIDES "
+								"au lieu d'etre remis a zero (economie du remplissage ET de l'addition sur "
+								"zero). ⚠️ bit-a-bit SAUF le signe des zeros (-0.0 devient +0.0).");
+			}
+			return etat == 1;
+		}
+
+		// ---- Compteurs de l'INSTRUMENT (CPU pur, aucun GPU) ------------------
+		// Pas d'atomique : le module est deja thread-UNSAFE par conception, et une
+		// course benigne fausserait au pire un compte de diagnostic, jamais un calcul.
+		static int64 gPremieresTouches = 0;	 // nœuds recevant leur 1re contribution
+		static int64 gPremieresSurZero = 0;	 // ... dont le gradient etait DEJA valide
+		static int64 gAccumTotal = 0;		 // appels a AccumGrad qui accumulent
+		static int64 gBackwards = 0;		 // passes arriere
+
 		static NkTensor ZerosCommeSur(const NkTensor &ref) {
 			if (ref.Device() == NkDevice::NK_GPU && !ZerosLegacy()) {
 				NkTensor z = NkGpuZeros(ref.Shape(), NkDType::NK_F32);
@@ -280,7 +334,18 @@ namespace nkentseu {
 			if (!node || !node->requiresGrad)
 				return;
 			NkTensor c = Unbroadcast(contrib, node->value.Shape());
-			node->grad = node->grad.IsValid() ? ops::Add(node->grad, c) : c;
+			// INSTRUMENT : `avaitGrad` sur une PREMIERE touche vaut exactement
+			// « cette addition etait inutile » — le gradient ne contenait que les
+			// zeros que la pre-remise venait d'ecrire.
+			const bool avaitGrad = node->grad.IsValid();
+			++gAccumTotal;
+			if (!node->gradTouche) {
+				++gPremieresTouches;
+				if (avaitGrad)
+					++gPremieresSurZero;
+				node->gradTouche = true;
+			}
+			node->grad = avaitGrad ? ops::Add(node->grad, c) : c;
 		}
 
 		// Softmax sur le DERNIER axe (F32), stable (soustraction du max).
@@ -1309,7 +1374,13 @@ namespace nkentseu {
 				NkVarNode *n = order[i];
 				if (n->op == NkAutoOp::NK_LEAF && n->requiresGrad)
 					continue;
-				n->grad = ZerosCommeSur(n->value);
+				n->gradTouche = false; // INSTRUMENT : une passe arriere = un cycle de touches
+				// OPT-IN : invalider est gratuit et a la meme semantique (« effacer le
+				// gradient perime »). Le DEFAUT reste la pre-remise a zero.
+				if (GradInvalider())
+					n->grad = NkTensor{};
+				else
+					n->grad = ZerosCommeSur(n->value);
 			}
 			// La racine est la PERTE, un scalaire : la monter coute 4 octets. On la
 			// laisse sur le chemin historique — un noyau « remplir de 1 » pour un
@@ -1319,6 +1390,23 @@ namespace nkentseu {
 			// Remonte de la racine vers les feuilles (ordre post-fixe inversé).
 			for (int64 i = (int64)order.Size() - 1; i >= 0; --i)
 				BackwardNode(order[(uint32)i]);
+
+			// ---- INSTRUMENT : combien d'additions sur zero, exactement ? --------
+			// Etrangle a une ligne toutes les 500 passes : assez pour se voir des le
+			// premier pas d'un entrainement, pas assez pour noyer un journal.
+			++gBackwards;
+			if (gBackwards <= 2 || (gBackwards % 500) == 0) {
+				logger.Info("[NkVar instrument] passes={0}  premieres touches={1}  dont sur ZEROS={2} "
+							"({3:.2f}%)  accumulations totales={4}  |  mode={5}",
+							(long long)gBackwards, (long long)gPremieresTouches, (long long)gPremieresSurZero,
+							(gPremieresTouches > 0) ? (100.0 * (double)gPremieresSurZero /
+													   (double)gPremieresTouches)
+												   : 0.0,
+							(long long)gAccumTotal, GradInvalider() ? "INVALIDER" : "zeros (defaut)");
+				logger.Info("    Lecture : « sur ZEROS » compte les additions que la pre-remise a zero rend "
+							"OBLIGATOIRES alors que AccumGrad saurait affecter directement. En mode defaut ce "
+							"nombre EST le nombre d'additions inutiles ; en mode INVALIDER il doit tomber a 0.");
+			}
 		}
 
 		// ⚠️ Les zéros sont écrits LÀ OÙ VIT LE PARAMÈTRE (`ZerosCommeSur`), jamais
@@ -1341,8 +1429,15 @@ namespace nkentseu {
 				return;
 			NkVector<NkVarNode *> order, seen;
 			CollectTopo(mNode, order, seen);
-			for (uint32 i = 0; i < order.Size(); ++i)
+			for (uint32 i = 0; i < order.Size(); ++i) {
+				order[i]->gradTouche = false;
+				// ⚠️ ICI le defaut NE CHANGE PAS et l'opt-in NE S'APPLIQUE PAS.
+				// `ZeroGrad()` est l'API PUBLIQUE : l'appelant demande explicitement des
+				// gradients a zero, et NKOptim peut lire ceux des parametres juste apres.
+				// Invalider ici changerait un contrat visible, pas un detail interne.
+				// L'economie porte sur les gradients INTERMEDIAIRES de `Backward()`.
 				order[i]->grad = ZerosCommeSur(order[i]->value);
+			}
 		}
 
 		// =====================================================================
