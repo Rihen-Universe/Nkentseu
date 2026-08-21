@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkRef — Tableau de références d'images type PureRef, sur NKCanvas + NKGui.
+# Philosophie : le canevas EST l'application (aucune barre de menus) ; tout le
+# reste vit dans le clic droit et les raccourcis. Cf. NKREF_MISSION_IA.md.
+# Étape 0 : canevas infini nu (pan, zoom centré curseur, grille adaptative).
+# Stack : NKCanvas (OpenGL — seul backend Renderer2D validé à ce jour) +
+#         NKImage (captures agent + futur décodage des références) +
+#         NKFileSystem (captures/, fichiers récents à venir).
+# Build : jenga build --target NkRef --config Release
+# Run   : .\Build\Bin\Release-Windows\NkRef\NkRef.exe (depuis la racine)
+# =============================================================================
+from Jenga import *
+from jengaconfig import *
+import os
+
+# NKCanvas.lib référence des symboles Vulkan quand le backend est compilé ;
+# motif conditionnel repris de ConquerorLab/NK3DModeler (pas de SDK = pas de lien).
+_VULKAN_LIB = os.path.join(os.getenv("VULKAN_SDK", ""), "Lib").replace("\\", "/") if os.getenv("VULKAN_SDK") else ""
+
+with project("NkRef"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    # Un seul appel : includedirs + links + dependson + defines transitifs.
+    # NKWindow, NKEvent, NKCore, NKMemory, NKMath, NKLogger, NKTime… sont tirés
+    # automatiquement par NKCanvas/NKFont.
+    nkentseudependson(
+        ["NKGui", "NKCanvas", "NKFont", "NKImage", "NKStream", "NKTime", "NKFileSystem", "NKGlad"],
+        extra_includes=["src"],
+        extra_defines=[
+            # OpenGL only : on n'active pas le backend Vulkan (pas de SDK requis).
+            "NKENTSEU_ENABLE_VULKAN_BACKEND=0",
+        ],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # La police runtime (texte des notes, HUD — étapes suivantes).
+    dependfiles(["../../Resources/Fonts"])
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+
+    # ===== Windows ===========================================================
+    with filter("system:Windows"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "ole32", "uuid",
+            # dinput8 : NKWindow utilise DirectInput (manette) -> c_dfDIJoystick2.
+            "dinput8", "dxguid",
+            # NKCanvas compile aussi les backends DX sur Windows -> symboles au link.
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "vulkan-1",
+        ])
+
+    # Frameworks Apple via ldflags NIVEAU PROJET : l'API frameworks() de Jenga
+    # écrit dans la TOOLCHAIN courante (None au niveau projet → perdu en
+    # silence) et project.frameworks n'est jamais rempli par l'API — les
+    # -framework n'atteignaient donc jamais le link (_glGetString non résolu,
+    # 2 itérations de CI pour le comprendre). Le builder macOS lit
+    # project.ldflags tel quel ; la condition Python (le parse s'exécute SUR la
+    # machine qui compile) évite de polluer les linkers non-Apple.
+    # Bug à corriger côté Jenga (session dédiée) : frameworks() par projet.
+    import platform as _pyplat
+    if _pyplat.system() == "Darwin":
+        ldflags(["-framework", "Cocoa", "-framework", "QuartzCore",
+                 "-framework", "OpenGL", "-framework", "Metal"])
+
+    # ===== macOS =============================================================
+    # Préparé pour la compilation Mac (machine ou CI GitHub Actions) — non
+    # testé localement, aucun Mac sous la main.
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+
+    # ===== Linux (XLib) ======================================================
+    with filter("system:Linux && !options:linux-backend=wayland"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xrandr", "Xext", "GL", "m"])
+
+    # ===== Web (Emscripten / WebGL2) =========================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+        emscripteninitialmemory(32)
+        emscriptenextraflags([
+            "-s", "ASYNCIFY",
+            "-s", "ALLOW_MEMORY_GROWTH=1",
+            "-s", "FULL_ES3=1",
+            "-s", "USE_WEBGL2=1",
+            "-s", "NO_EXIT_RUNTIME=1",
+        ])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

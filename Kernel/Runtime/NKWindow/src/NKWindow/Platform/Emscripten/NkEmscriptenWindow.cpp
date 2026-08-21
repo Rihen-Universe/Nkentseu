@@ -665,6 +665,35 @@ namespace nkentseu {
 		return mConfig.frame;
 	}
 
+	// ── Fenêtre discrète : notions de BUREAU (opacité de fenêtre, toujours-
+	// devant, click-through) sans équivalent pour un canvas dans une page. Même
+	// règle que SetDecorated ci-dessus : intention mémorisée, rien d'appliqué.
+	// (Une opacité CSS du canvas serait possible mais serait un AUTRE contrat :
+	// elle n'estompe pas la fenêtre au-dessus des autres applications.)
+	void NkWindow::SetOpacity(float32 opacity) {
+		mConfig.opacity = opacity < 0.0f ? 0.0f : (opacity > 1.0f ? 1.0f : opacity);
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		return mConfig.alwaysOnTop;
+	}
+
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		return mConfig.clickThrough;
+	}
+
 	void NkWindow::SetTitle(const NkString &title) {
 		mConfig.title = title;
 		SetDocumentTitle(title);

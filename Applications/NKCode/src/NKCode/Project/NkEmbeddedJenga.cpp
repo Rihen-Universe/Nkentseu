@@ -162,6 +162,10 @@ namespace nkentseu {
 				// tools/python-embed une fois empaquetes.
 #if defined(_WIN32)
 				const NkString dev = devRoot + "/Externals/Libs/PythonEmbed/runtime";
+#elif defined(__APPLE__)
+				// macOS : python-build-standalone pose sous macos/ (meme
+				// disposition UNIX que linux/, cf. NKCode.jenga).
+				const NkString dev = devRoot + "/Externals/Libs/PythonEmbed/macos";
 #else
 				const NkString dev = devRoot + "/Externals/Libs/PythonEmbed/linux";
 #endif

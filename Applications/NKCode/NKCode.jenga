@@ -59,6 +59,18 @@ _PYEMBED_LINUX_LIB  = _PYEMBED_LINUX + "/lib"
 _PYEMBED_LINUX_NAME = "python" + _PYEMBED_LINUX_VER
 _HAS_PYEMBED_LINUX  = os.path.isdir(_PYEMBED_LINUX_INC)
 
+# macOS : MEME distribution relogeable python-build-standalone que linux/ (la
+# disposition UNIX — bin/, lib/pythonX.Y, include/ — est identique, la branche
+# POSIX de NkEmbeddedJenga::WorkerMain la couvre donc sans changement). Le
+# dossier n'est pas commite (poids) : la CI le telecharge avant le build
+# (build-remote.yml), un dev Mac le pose a la main.
+_PYEMBED_MACOS      = _PYEMBED_DIR + "/macos"
+_PYEMBED_MACOS_VER  = "3.12"
+_PYEMBED_MACOS_INC  = _PYEMBED_MACOS + "/include/python" + _PYEMBED_MACOS_VER
+_PYEMBED_MACOS_LIB  = _PYEMBED_MACOS + "/lib"
+_PYEMBED_MACOS_NAME = "python" + _PYEMBED_MACOS_VER
+_HAS_PYEMBED_MACOS  = os.path.isdir(_PYEMBED_MACOS_INC)
+
 # Sources Jenga a embarquer (tools/jenga-src/Jenga) : depot Jenga voisin, ou
 # NKCODE_JENGA_SRC. Sans elles, l'interpreteur embarque n'a rien a executer.
 # ── Sources Jenga a embarquer : on part du WHEEL, pas de l'arbre du depot ──
@@ -329,7 +341,28 @@ with project("NKCode"):
     with filter("system:macOS"):
         windowedapp()
         usetoolchain("clang-native")
-        frameworks(["Cocoa", "QuartzCore", "OpenGL", "AudioToolbox", "CoreAudio", "AudioUnit"]) # NKAudio (CoreAudio)
+        # + Metal : les .mm Metal de NKCanvas compilent desormais sur macOS
+        # (probe CI : _MTLCreateSystemDefaultDevice non resolu sans lui).
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal", "AudioToolbox", "CoreAudio", "AudioUnit"]) # NKAudio (CoreAudio)
+
+        # ── Jenga EMBARQUE (Phase 12) sur macOS — meme logique que Linux ─────
+        # rpath @executable_path (l'equivalent Mach-O de $ORIGIN) : le binaire
+        # doit trouver libpython3.12.dylib A COTE DE LUI chez le testeur, sans
+        # DYLD_LIBRARY_PATH. Le second rpath (arbre du repo) sert au dev local.
+        #
+        # ⚠ python-build-standalone enregistre un install_name ABSOLU dans son
+        # dylib : le paquet CI le rebascule sur @rpath/ via install_name_tool
+        # puis re-signe ad hoc (obligatoire sur arm64) — cf. build-remote.yml.
+        if _HAS_PYEMBED_MACOS:
+            defines(["NKCODE_EMBED_PYTHON=1", 'NKCODE_PYEMBED_VER="' + _PYEMBED_MACOS_VER + '"'])
+            includedirs([_PYEMBED_MACOS_INC])
+            libdirs([_PYEMBED_MACOS_LIB])
+            links([_PYEMBED_MACOS_NAME])
+            ldflags(["-Wl,-rpath,@executable_path/tools/python-embed/lib",
+                     "-Wl,-rpath," + _PYEMBED_MACOS_LIB])
+            dependfiles([_PYEMBED_MACOS + " => tools/python-embed"])
+        if _HAS_JENGA_SRC:
+            dependfiles([_JENGA_STAGE + "/Jenga => tools/jenga-src/Jenga"])
 
     # ===== iOS ====================================================================
     # Rendu via Metal (NkContextFactory sélectionne automatiquement le backend
