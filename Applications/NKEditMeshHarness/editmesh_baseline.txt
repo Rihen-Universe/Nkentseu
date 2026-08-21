@@ -167,3 +167,14 @@ theme/palette-imposee              porteuses de sens=3/3 | ecart sarcelles=1.004
 linked/cube-soude                  composantes=1 sommets=24 assignes=24
 linked/deux-cubes                  composantes=2 somme=48 sommets=48 orphelins=0 L(ok=1)=24
 linked/ctrl-L                      aChange=0 apres=24 surSelectionVide=0
+mat/ilots-disjoints                faces=12 slot1=2 slot0=4 aretecommune=0 (0 attendu)
+mat/sous-mailles-deduites          slots=2 plages=4 plages-slot1=2 (2 attendues) indices-slot1=12 total=72
+mat/survie-subdivision             slot1 2 -> 8 -> 32 | faces=96 (doit croitre, jamais tomber a 0)
+mat/survie-catmull                 slot1 2 -> 8 | faces=24
+mat/survie-extrusion               slot1 2 -> 10 | faces 12 -> 30 ok=1 (faces DOIVENT croitre)
+mat/survie-triangulation           indices-slot1=12 (12 attendus : 2 quads -> 4 tris) total=36
+mat/assign-par-sommets             tousCoins=1 (1 attendu) unCoinManquant=0 (0 attendu)
+mat/slots-trou-jamais-decalage     slots=3 vivants=2 id[2]=102 (102 attendu) faceMz=2 (2 attendu)
+mat/slots-survivent-a-l-edition    slots 1 -> 1 | dernier id=777 (777 attendu)
+mat/decim-non-tranche              slot1 2 -> 0 | tris 12->6 (MESURE, pas un attendu)
+mat/temoin-smooth                  smooth 12 -> 0 sur 24 faces (TEMOIN du comportement existant)
