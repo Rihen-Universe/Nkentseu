@@ -91,6 +91,30 @@ comptage.
 > est exactement le genre d'affirmation qui devient fausse le jour où un champ
 > est ajouté après coup.** D'où la mesure.
 
+### ✅ RÉSORPTION (2) — les six opérations sans banc sont couvertes (2026-08-22, `85038194`)
+
+`BisectByPlane`, `DeleteSelectedFaces`, `ExtrudeSelectedVertices`,
+`LoopCutFromSelectedEdge`, `MakeFaceFromSelected`, `SpinSelected` : **7 cas
+`ops/`**, chacun mesurant l'effet **topologique** attendu et non le seul booléen
+de retour (une opération peut rendre `true` sans rien faire).
+
+**Aucun défaut trouvé dans le moteur.** Les trois anomalies apparentes venaient
+toutes **du banc**, et chacune enseigne quelque chose :
+
+| observation | vraie cause |
+|---|---|
+| `ops/vis-revolution` : **88 arêtes non-manifold** | **figure mal choisie** — l'axe traversait la grille, la surface balayée se recoupait. Axe décalé → `0 → 0`. Le chiffre ne disait rien du code |
+| `ops/coupe-par-plan` : **`nonmanif=18`** sur un cube manifold | ⚠️ **format désaligné** — sept `%u` pour six arguments. Le chiffre était **lu dans de la mémoire indéterminée**, et il était crédible |
+| `ops/extruder-sommets` : « faces pleines 6 → 9 » | **libellé faux** — le compteur incluait les **arêtes fil** (faces à 2 sommets), que l'extrusion de sommet crée par définition. Séparés : `6 → 6` pleines, `3` fils |
+
+> 🛡️ **Parade posée, et vérifiée en la faisant échouer** : `GraphPut` porte
+> désormais `__attribute__((format(printf, 1, 2)))`, et le fichier active
+> `#pragma GCC diagnostic error "-Wformat"`. **Un format désaligné arrête
+> maintenant la compilation**, dans ce fichier uniquement. Les ~60 appels
+> existants sont passés indemnes. Un avertissement se noie dans un build de
+> 25 projets ; **un banc qui affiche un chiffre faux est pire qu'un banc absent,
+> parce qu'on lui fait confiance.**
+
 ### Maillage : 33 méthodes non exercées, dont deux ensembles qui comptent
 
 **1. La pile UNDO/REDO du maillage — entièrement non couverte.**
