@@ -73,6 +73,17 @@ namespace nkentseu {
 				double fparam = 0.0;			// paramètre scalaire de l'op (Mul/AddScalar)
 				NkTensor aux;					// données auxiliaires de l'op (ex. argmax maxpool)
 
+				// INSTRUMENT (2026-08-19, agent debit GPU). Vrai des que ce nœud a recu
+				// sa PREMIERE contribution de gradient dans la passe arriere courante.
+				// Remis a faux par `Backward()` / `ZeroGrad()`.
+				// Il ne sert QU'A MESURER : combien de premieres contributions passent
+				// par `ops::Add(zeros, c)` — une addition que la pre-remise a zero rend
+				// obligatoire alors que `AccumGrad` sait affecter directement. Sans ce
+				// bit, on ne peut pas distinguer une premiere touche d'une seconde
+				// accumulation legitime, et le compte des additions inutiles reste une
+				// borne au lieu d'une mesure.
+				bool gradTouche = false;
+
 				static NkVarNode *New();
 				static void Retain(NkVarNode *n);
 				static void Release(NkVarNode *n);
