@@ -1,0 +1,45 @@
+DOSSIER DES TOTEMS
+==================
+
+Un dossier = un totem. Le nom du dossier est le nom qui apparait dans le
+panneau « Joueurs ».
+
+    totems/
+        Guerrier/
+            n0.png          niveau 0, image fixe
+            n1.png          niveau 1
+            n2.png  n3.png  n4.png
+        Esprit/
+            n0_000.png      niveau 0, ANIMATION : suffixe numerique a trois
+            n0_001.png      chiffres, a partir de 000, sans trou
+            n0_002.png
+            n1.png          niveau 1, fixe — on peut melanger
+        Pierre/
+            base.png        AUCUN niveau : cette image sert a tous
+
+TROIS REGLES DE NOMMAGE, ET RIEN D'AUTRE
+
+    nN.png          image du niveau N (0 a 4)
+    nN_KKK.png      Kieme image de l'animation du niveau N
+    base(.png ou _KKK.png)   s'applique a TOUS les niveaux
+
+Un niveau sans image retombe sur `base`. Sans `base` non plus, l'atelier
+dessine le disque colore. UNE IMAGE MANQUANTE NE FAIT JAMAIS DISPARAITRE UN
+TOTEM : le jeu reste jouable pendant que vous dessinez.
+
+FORMAT
+
+PNG, avec canal alpha. Sans alpha, votre totem sera un carre pose sur la
+cellule au lieu d'une silhouette.
+
+TAILLE
+
+Celle qui vous arrange. L'atelier ajuste a la cellule en conservant les
+proportions — la taille d'une cellule depend du plateau, de la fenetre et du
+zoom, trois choses qu'aucun fichier PNG ne peut connaitre.
+
+APRES AVOIR MODIFIE UN FICHIER
+
+Panneau « Joueurs » -> « Recharger les totems ». Ce n'est pas automatique :
+decoder des PNG soixante fois par seconde figerait l'atelier, et vous savez
+quand vous venez de modifier un fichier.

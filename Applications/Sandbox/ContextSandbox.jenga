@@ -16,9 +16,15 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
 
         files(source_files)  # Now accepts a list of strings
 
+        # NKUI retire des deps le 2026-08-17 (campagne retrait NKUI, decision R1) :
+        # les seules cibles qui l'incluaient (NkUICanvasDemo, NkUICanvasOptimizedDemo)
+        # sont deregistrees en bas de ce fichier ; aucune source des projets restants
+        # ne l'inclut (les 3 occurrences dans NkCanvas*Demo sont des commentaires
+        # "AUCUN NKUI"). NKUI reste dans la cloture de link via NKCanvas tant que le
+        # pont USE_CANVAS_NKUI existe (chantier Noge).
         nkentseudependson(
             ["NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
-             "NKMath", "NKTime", "NKStream", "NKFileSystem", "NKFont", "NKImage", "NKUI",
+             "NKMath", "NKTime", "NKStream", "NKFileSystem", "NKFont", "NKImage",
              "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
             extra_includes=["src", "%{NKGlad.location}/include",
                             "%{wks.location}/Externals"]
@@ -206,12 +212,23 @@ sandboxusenkcontext("Gamepad", ["src/DemoNkentseu/Base01/main8.cpp"], "sandbox.n
 sandboxusenkcontext("NKRHIDemo", ["src/DemoNkentseu/Base03/NKRHIDemo.cpp"], "sandbox.nkentseu.rhidemo")
 sandboxusenkcontext("cr2d", ["src/Context/Renderer2D/Renderer2dExample.cpp"], "sandbox.nkentseu.r2dexemples")
 sandboxusenkcontext("firsttriangle", ["src/Opengl/firsttriangle.cpp"], "sandbox.nkentseu.firsttriangle")
+# Desactivee AVANT le 2026-08-15, sans raison ecrite. La raison est : ancienne
+# API NKFont disparue (NkFontLibrary/NkTextShaper/nk_handle...). Voir le bloc
+# detaille dans RhiSandbox.jenga et DETTE_LISIBILITE.md chantier 11.
 # sandboxusenkcontext("oglfont", ["src/Opengl/Nkfontgltest.cpp"], "sandbox.nkentseu.oglfont")
-# ===== Demos d'exemple NKCanvas / NKUI (5) ====================================
-# 1) NKUI -> NKCanvas, version NON optimisee (boucle inline simple, lisible) :
-sandboxusenkcontext("NkUICanvasDemo", ["src/DemoNkentseu/NkUICanvas/NkUICanvasDemo.cpp"], "sandbox.nkui.canvas")
-# 2) Idem mais OPTIMISEE : rendu fluide pendant le drag fenetre (WM_ENTERSIZEMOVE) :
-sandboxusenkcontext("NkUICanvasOptimizedDemo", ["src/DemoNkentseu/NkUICanvas/NkUICanvasOptimizedDemo.cpp"], "sandbox.nkui.canvasopt")
+# ===== Demos d'exemple NKCanvas (3) ===========================================
+# ─────────────────────────────────────────────────────────────────────────────
+# DEMOS DE NKUI DEREGISTREES — campagne de retrait NKUI (2026-08-17, decision R1)
+#
+# NkUICanvasDemo et NkUICanvasOptimizedDemo sont des demos DONT L'OBJET est
+# NKUI, module deprecie remplace par NKGui. Une demo d'une bibliotheque
+# depreciee suit sa bibliotheque : les porter vers NKGui n'a pas de sens
+# (NKGui a ses propres bancs). Sources conservees
+# (src/DemoNkentseu/NkUICanvas/) ; elles meurent avec le module NKUI le jour
+# ou Rodolf en decide la suppression (compteur de dependants a zero).
+# ─────────────────────────────────────────────────────────────────────────────
+# sandboxusenkcontext("NkUICanvasDemo", ["src/DemoNkentseu/NkUICanvas/NkUICanvasDemo.cpp"], "sandbox.nkui.canvas")
+# sandboxusenkcontext("NkUICanvasOptimizedDemo", ["src/DemoNkentseu/NkUICanvas/NkUICanvasOptimizedDemo.cpp"], "sandbox.nkui.canvasopt")
 # 3) NKCanvas SEUL (sans UI) : formes animees via NkRenderer2D (style SFML/SDL) :
 sandboxusenkcontext("NkCanvasDemo", ["src/DemoNkentseu/NkCanvas/NkCanvasDemo.cpp"], "sandbox.nkcanvas.shapes")
 # 4) Sprites : texture procedurale (NkImage) + NkSprite (SetPosition/Rotation/...) :

@@ -117,6 +117,7 @@ int main() {
 	printf("-- Entraînement du VAE 3D (Conv3D + ConvTranspose3D + KL) --\n");
 	double reconMse = 0.0;
 	for (int e = 0; e <= 700; ++e) {
+		adam.ZeroGrad(); // Backward() n'efface plus les feuilles : un pas = un gradient
 		NkVar mu, logvar;
 		vae.Encode(xin, mu, logvar);
 		FillRandn(epsT, rng);

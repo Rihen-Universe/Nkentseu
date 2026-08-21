@@ -46,6 +46,13 @@ namespace nkentseu {
                 void Destroy();
 
                 // A appeler dans une render pass active. fbW/fbH = framebuffer cible.
+                //
+                // UNE SEULE FOIS PAR FRAME. La geometrie est ecrite AU DEBUT du tampon de
+                // sommets partage, alors que les DrawIndexed enregistres ici ne s'executent
+                // qu'a la presentation : un second appel dans la meme frame ecrase les
+                // sommets que les dessins du premier iront lire. L'appelant qui a plusieurs
+                // listes (contenu + surcouche) les FUSIONNE avant d'appeler -- cf.
+                // NkEditorRHIRenderer, qui a paye cette lecon le 13 aout 2026.
                 void Submit(NkICommandBuffer* cmd, const NkGuiDrawList& dl, uint32 fbW, uint32 fbH);
 
                 bool UploadTextureRGBA8(uint32 texId, const uint8* data, int32 width, int32 height);

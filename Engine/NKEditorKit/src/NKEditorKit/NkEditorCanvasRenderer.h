@@ -11,6 +11,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/NkIEditorRenderer.h"
+#include "NKLogger/NkLog.h" // refus motive d'un backend indisponible
 #include "NKWindow/NKWindow.h"
 #include "NKCanvas/Core/NkContextDesc.h"
 #include "NKCanvas/Renderer/Targets/NkRenderWindow.h"
@@ -23,6 +24,21 @@ namespace nkentseu {
 		class NkEditorCanvasRenderer final : public NkIEditorRenderer {
 			public:
 				bool Init(NkWindow &window, NkEditorGfxApi api) override {
+					// ── LA GARDE, AVANT TOUT LE RESTE ───────────────────────
+					// Directive de Rodolf, regle 3 : « un backend indisponible se
+					// dit, il ne se remplace pas en silence ». Sans cette garde,
+					// `Metal` demande sur Windows tomberait dans le `default:`
+					// ci-dessous et lancerait DX11 sans un mot -- l'appelant
+					// croirait mesurer Metal. Une entree qui retombe en silence est
+					// pire que son absence : l'absence force a chercher, la presence
+					// dispense de verifier.
+					const char *raison = "";
+					if (!NkEditorGfxApiSupported(api, &raison)) {
+						logger.Errorf("[NKEditorKit] backend graphique '%s' REFUSE : %s\n",
+									  NkEditorGfxApiName(api), raison);
+						return false;
+					}
+
 					NkContextDesc desc;
 					switch (api) {
 						case NkEditorGfxApi::OpenGL:
@@ -36,6 +52,11 @@ namespace nkentseu {
 							break;
 						case NkEditorGfxApi::DX12:
 							desc.api = NkGraphicsApi::NK_GFX_API_DX12;
+							break;
+						case NkEditorGfxApi::Metal:
+							// Atteignable UNIQUEMENT sur Apple : la garde ci-dessus
+							// a deja refuse Metal partout ailleurs.
+							desc.api = NkGraphicsApi::NK_GFX_API_METAL;
 							break;
 						case NkEditorGfxApi::Software:
 							desc.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;

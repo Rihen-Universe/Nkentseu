@@ -329,6 +329,7 @@ int main() {
 		NkTensor xt = gen::NkDiffusionForward(x0Batch, sched, tIdx.Data(), eps);
 		NkTensor modelIn = model.BuildModelInput(xt, tIdx.Data());
 
+		adam.ZeroGrad(); // Backward() n'efface plus les feuilles : un pas = un gradient
 		NkVar xin = NkVar::Leaf(modelIn, false);
 		NkVar epsTarget = NkVar::Leaf(eps, false);
 		NkVar epsPred = model.PredictNoise(xin);
@@ -431,6 +432,7 @@ int main() {
 		NkTensor xt = gen::NkDiffusionForward(x0Batch, schedC, tIdx.Data(), eps);
 		NkTensor modelIn = modelC.BuildModelInput(xt, tIdx.Data(), clsIdx.Data());
 
+		adamC.ZeroGrad(); // Backward() n'efface plus les feuilles : un pas = un gradient
 		NkVar xin = NkVar::Leaf(modelIn, false);
 		NkVar epsTarget = NkVar::Leaf(eps, false);
 		NkVar epsPred = modelC.PredictNoise(xin);
@@ -541,6 +543,7 @@ int main() {
 		NkTensor xt = gen::NkDiffusionForward(x0Batch, sched3, tIdx.Data(), eps);
 		NkTensor modelIn = model3.BuildModelInput(xt, tIdx.Data());
 
+		adam3.ZeroGrad(); // Backward() n'efface plus les feuilles : un pas = un gradient
 		NkVar xin = NkVar::Leaf(modelIn, false);
 		NkVar epsTarget = NkVar::Leaf(eps, false);
 		NkVar epsPred = model3.PredictNoise(xin);

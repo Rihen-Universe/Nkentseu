@@ -27,7 +27,7 @@
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKTime/NkTime.h"
 #include "NKLogger/NkLog.h"
-#include "NKImage/NkImage.h"
+#include "NKImage/NKImage.h"
 
 #include "NKCamera/NkCameraSystem.h"
 

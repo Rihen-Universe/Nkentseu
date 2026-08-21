@@ -171,6 +171,32 @@ namespace nkentseu {
 					}
 
 #endif
+
+					// ====================================================================
+					// CONSTRUCTEUR PIECEWISE — hors garde, actif dans les deux régimes
+					// ====================================================================
+
+					/**
+					 * @brief Construit la clé par copie et la valeur SUR PLACE
+					 * @tparam Args Types déduits des arguments destinés au constructeur de Value
+					 * @param key Clé à copier dans la paire
+					 * @param parent Pointeur vers le nœud parent
+					 * @param args Arguments forwardés vers le constructeur de Value
+					 *
+					 * @note HORS de `#if defined(NK_CPP11)`, et il y reste : c'est ce
+					 *       constructeur-ci qui porte Insert(Key, Value&&) et Emplace() —
+					 *       construction in-place VARIADIQUE de Value, sans équivalent
+					 *       dans le bloc gardé. (`NK_CPP11` est OUVERTE depuis le
+					 *       2026-08-17, dérivée de NKENTSEU_HAS_CPP11 ; l'ancienne
+					 *       justification « macro définie nulle part » ne tient plus.)
+					 * @note Le tag évite tout recouvrement avec les constructeurs existants :
+					 *       aucun appel écrit avant ce jour ne peut le sélectionner.
+					 */
+					template <typename... Args>
+					Node(const Key &key, Node *parent, NkPiecewiseTag, Args &&...args)
+						: Data(NkPiecewiseTag{}, key, traits::NkForward<Args>(args)...), Left(nullptr),
+						  Right(nullptr), Parent(parent), NodeColor(RED) {
+					}
 			};
 
 			// ====================================================================
@@ -391,6 +417,21 @@ namespace nkentseu {
 			Node *CreateNode(const Key &key, const Value &value, Node *parent = nullptr) {
 				Node *node = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
 				new (node) Node(key, value, parent);
+				return node;
+			}
+
+			/**
+			 * @brief Alloue un nœud dont la valeur est construite SUR PLACE
+			 * @tparam Args Types déduits des arguments du constructeur de Value
+			 * @param key Clé à stocker dans le nœud (copiée en const)
+			 * @param parent Pointeur vers le nœud parent
+			 * @param args Arguments forwardés vers le constructeur de Value
+			 * @return Pointeur vers le nœud nouvellement créé et initialisé
+			 * @note Voie des types move-only et sans constructeur par défaut.
+			 */
+			template <typename... Args> Node *CreateNodePiecewise(const Key &key, Node *parent, Args &&...args) {
+				Node *node = static_cast<Node *>(mAllocator->Allocate(sizeof(Node)));
+				new (node) Node(key, parent, NkPiecewiseTag{}, traits::NkForward<Args>(args)...);
 				return node;
 			}
 
@@ -896,6 +937,92 @@ namespace nkentseu {
 				}
 				++mSize;
 				FixInsert(newNode);
+			}
+
+			/**
+			 * @brief Insère ou met à jour une paire clé-valeur en DÉPLAÇANT la valeur
+			 * @param key Clé d'indexation pour l'élément (toujours copiée)
+			 * @param value Valeur rvalue dont les ressources sont transférées dans la map
+			 * @note SURCHARGE : ne remplace rien. Un appel passant une lvalue continue de
+			 *       résoudre vers Insert(const Key &, const Value &) et de copier, au même
+			 *       coût qu'avant. Seules les rvalues empruntent cette voie.
+			 * @note Rend la map utilisable avec un Value **move-only** : la version par
+			 *       copie échoue à la compilation sur `Data.Second = value`.
+			 * @note Si la clé existe déjà : la valeur en place est déplacée-assignée.
+			 * @note Complexité : O(log n)
+			 */
+			void Insert(const Key &key, Value &&value) {
+				if (!mRoot) {
+					mRoot = CreateNodePiecewise(key, nullptr, traits::NkMove(value));
+					mRoot->NodeColor = BLACK;
+					++mSize;
+					return;
+				}
+				Node *current = mRoot;
+				Node *parent = nullptr;
+				while (current) {
+					parent = current;
+					if (mCompare(key, current->Data.First)) {
+						current = current->Left;
+					} else if (mCompare(current->Data.First, key)) {
+						current = current->Right;
+					} else {
+						current->Data.Second = traits::NkMove(value);
+						return;
+					}
+				}
+				Node *newNode = CreateNodePiecewise(key, parent, traits::NkMove(value));
+				if (mCompare(key, parent->Data.First)) {
+					parent->Left = newNode;
+				} else {
+					parent->Right = newNode;
+				}
+				++mSize;
+				FixInsert(newNode);
+			}
+
+			/**
+			 * @brief Construit la valeur SUR PLACE dans le nœud, sans copie ni déplacement
+			 * @tparam Args Types déduits des arguments du constructeur de Value
+			 * @param key Clé d'indexation pour l'élément (copiée, comme partout ailleurs)
+			 * @param args Arguments forwardés au constructeur de Value
+			 * @return true si l'élément a été inséré, false si la clé était déjà présente
+			 *
+			 * @note SÉMANTIQUE : n'écrase JAMAIS une valeur existante — c'est ce qui
+			 *       distingue Emplace() d'Insert(). Rien n'est construit lorsque la clé
+			 *       est déjà là, donc Value n'a pas besoin d'être assignable.
+			 * @note Seule voie pour un Value **sans constructeur par défaut** et **non
+			 *       copiable**.
+			 * @note Complexité : O(log n)
+			 */
+			template <typename... Args> bool Emplace(const Key &key, Args &&...args) {
+				if (!mRoot) {
+					mRoot = CreateNodePiecewise(key, nullptr, traits::NkForward<Args>(args)...);
+					mRoot->NodeColor = BLACK;
+					++mSize;
+					return true;
+				}
+				Node *current = mRoot;
+				Node *parent = nullptr;
+				while (current) {
+					parent = current;
+					if (mCompare(key, current->Data.First)) {
+						current = current->Left;
+					} else if (mCompare(current->Data.First, key)) {
+						current = current->Right;
+					} else {
+						return false;
+					}
+				}
+				Node *newNode = CreateNodePiecewise(key, parent, traits::NkForward<Args>(args)...);
+				if (mCompare(key, parent->Data.First)) {
+					parent->Left = newNode;
+				} else {
+					parent->Right = newNode;
+				}
+				++mSize;
+				FixInsert(newNode);
+				return true;
 			}
 
 			// ====================================================================

@@ -6,7 +6,11 @@
 #include "NKTensor/NkTensor.h"
 #include "NKTensor/NkTensorOps.h"
 
+#include "NKTime/NkChrono.h" // banc d'echelle : horloge monotone haute resolution
+
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <cmath>
 
 using namespace nkentseu;
@@ -40,13 +44,675 @@ static void check(bool cond, const char *what) {
 		++g_fail;
 }
 
-int main() {
+// =============================================================================
+// BANC D'ECHELLE SUR `add` — separer un COUT FIXE d'un DEBIT
+// =============================================================================
+// Le profil par noyau du 15/08 mesurait `add` a 1,25-1,36 ms pour 15,1 Mo de
+// trafic obligatoire, la ou 448 Go/s en demanderaient 34 µs — facteur ~40. Deux
+// causes possibles que le profil ne separe PAS (grille, face 9 : mesurer juste
+// sans pouvoir separer deux causes) :
+//   - un cout FIXE par operation (descripteurs, tampon de commandes, soumission,
+//     WaitIdle), auquel cas la taille ne change presque rien ;
+//   - un DEBIT reel tres inferieur a la crete, auquel cas le temps est
+//     proportionnel a la taille.
+//
+// L'instrument qui les separe n'est pas une mesure plus fine du meme point :
+// c'est de FAIRE VARIER la taille et de regarder la PENTE. Modele :
+//     t(N) = F + 12N / B      (12 octets par element : 2 lectures + 1 ecriture)
+// Temps plat  -> F domine  -> le remede est de LANCER MOINS d'operations.
+// Pente nette -> B domine  -> le remede est de deplacer MOINS d'octets.
+//
+// ⚠️ REGIMES COUVERTS (face 7 : un banc doit declarer ses regimes).
+//   serie A — dispatch SEUL, tampons deja alloues et deja remplis ;
+//   serie B — forme de PRODUCTION : `NkGpuAdd` alloue son tampon de sortie a
+//             chaque appel, donc CreateBuffer + dispatch + DestroyBuffer.
+// L'ecart A/B attribue directement la part de l'allocation, qui est le poste
+// n°1 de l'ordre de bataille.
+//
+// ⚠️ Le noyau appele ici est le MEME que celui de production : `RunBinary("add",
+// kAddNkSL, ...)` est litteralement l'appel que fait `NkGpuAdd` dans
+// NkTensorGpu.cpp. Ce n'est donc pas une reconstruction du chemin (face 4), mais
+// le chemin lui-meme.
+
+struct BancPoint {
+		int64 n;
+		double minUs, medUs, moyUs;
+};
+
+static int cmpDouble(const void *a, const void *b) {
+	const double x = *(const double *)a, y = *(const double *)b;
+	return (x < y) ? -1 : (x > y) ? 1 : 0;
+}
+
+// Renvoie min / mediane / moyenne des R mesures, en microsecondes.
+static BancPoint BancMesure(NkTensorGpu &gpu, int64 n, int reps, bool avecAlloc) {
+	const nk_size octets = (nk_size)n * sizeof(float);
+	uint64 ba = gpu.CreateBuffer(octets);
+	uint64 bb = gpu.CreateBuffer(octets);
+	uint64 bcFixe = avecAlloc ? 0 : gpu.CreateBuffer(octets);
+
+	// Remplissage : un upload par tampon, HORS de la boucle chronometree.
+	{
+		float *tmp = (float *)malloc((size_t)octets);
+		for (int64 i = 0; i < n; ++i)
+			tmp[i] = (float)(i & 1023);
+		gpu.Upload(ba, tmp, octets);
+		gpu.Upload(bb, tmp, octets);
+		free(tmp);
+	}
+
+	// Chauffe : le TOUT PREMIER appel compile le noyau et paie la relecture
+	// « sortie non nulle ». Le mesurer melangerait un cout unique au cout par appel.
+	for (int w = 0; w < 3; ++w) {
+		uint64 bc = avecAlloc ? gpu.CreateBuffer(octets) : bcFixe;
+		gpu.RunBinary("add", NkString(kAddNkSL), ba, bb, bc, (uint32)n);
+		if (avecAlloc)
+			gpu.DestroyBuffer(bc);
+	}
+
+	double *ech = (double *)malloc(sizeof(double) * (size_t)reps);
+	for (int r = 0; r < reps; ++r) {
+		const double t0 = NkChrono::Now().nanoseconds;
+		uint64 bc = avecAlloc ? gpu.CreateBuffer(octets) : bcFixe;
+		gpu.RunBinary("add", NkString(kAddNkSL), ba, bb, bc, (uint32)n);
+		if (avecAlloc)
+			gpu.DestroyBuffer(bc);
+		ech[r] = (NkChrono::Now().nanoseconds - t0) / 1000.0; // µs
+	}
+
+	double somme = 0.0;
+	for (int r = 0; r < reps; ++r)
+		somme += ech[r];
+	qsort(ech, (size_t)reps, sizeof(double), cmpDouble);
+
+	BancPoint p;
+	p.n = n;
+	p.minUs = ech[0];
+	p.medUs = ech[reps / 2];
+	p.moyUs = somme / (double)reps;
+	free(ech);
+
+	gpu.DestroyBuffer(ba);
+	gpu.DestroyBuffer(bb);
+	if (!avecAlloc)
+		gpu.DestroyBuffer(bcFixe);
+	return p;
+}
+
+static void BancSerie(NkTensorGpu &gpu, const char *titre, bool avecAlloc, const int64 *tailles, int nT,
+					  int reps) {
+	printf("\n--- %s ---\n", titre);
+	printf("  %12s %10s %10s %10s %10s %9s\n", "N", "Mo trafic", "min µs", "med µs", "moy µs", "Go/s");
+	BancPoint pts[16];
+	for (int i = 0; i < nT; ++i) {
+		pts[i] = BancMesure(gpu, tailles[i], reps, avecAlloc);
+		const double mo = 12.0 * (double)tailles[i] / 1.0e6;
+		const double gos = (12.0 * (double)tailles[i]) / (pts[i].minUs * 1.0e-6) / 1.0e9;
+		printf("  %12lld %10.2f %10.1f %10.1f %10.1f %9.2f\n", (long long)tailles[i], mo, pts[i].minUs,
+			   pts[i].medUs, pts[i].moyUs, gos);
+	}
+	// Ajustement sur les DEUX EXTREMES : t = F + 12N/B. Deux points suffisent, et
+	// les extremes sont ceux qui ecartent le plus les deux causes.
+	if (nT >= 2) {
+		const BancPoint &p0 = pts[0], &p1 = pts[nT - 1];
+		const double dOctets = 12.0 * (double)(p1.n - p0.n);
+		const double dSec = (p1.minUs - p0.minUs) * 1.0e-6;
+		const double debit = (dSec > 0.0) ? (dOctets / dSec / 1.0e9) : 0.0;
+		const double fixe = p0.minUs - (12.0 * (double)p0.n / (debit * 1.0e9)) * 1.0e6;
+		printf("  => pente entre N=%lld et N=%lld : debit marginal %.1f Go/s, cout fixe %.1f µs\n",
+			   (long long)p0.n, (long long)p1.n, debit, fixe);
+	}
+}
+
+// ---- LEST : reproduire l'ETAT du peripherique pendant l'entrainement --------
+// Le banc ci-dessus tourne sur un peripherique quasi vide : 3 tampons, ~450 Mo.
+// L'entrainement, lui, tient ~9 316 allocations vivantes et ~6,6 Go de VRAM.
+// Si le dispatch mesure 150 µs a vide et 1 270 µs en production, l'ECART est une
+// propriete de l'ETAT, pas du noyau — et il faut savoir LAQUELLE des deux
+// grandeurs le porte, parce que le remede n'est pas le meme :
+//   beaucoup de TAMPONS  -> une reserve de tampons (poste n°1) le supprime ;
+//   beaucoup de VRAM     -> aucune reserve n'y change rien, il faut moins de
+//                           tenseurs vivants (ce qui est un autre chantier).
+// Les tester ensemble ne repondrait pas (grille, face 9 : un instrument qui ne
+// separe pas deux causes ne mesure ni l'une ni l'autre, il constate).
+struct Lest {
+		uint64 *ids;
+		int64 n;
+};
+
+static Lest LestPoser(NkTensorGpu &gpu, int64 nTampons, nk_size octetsChacun) {
+	Lest l;
+	l.ids = (uint64 *)malloc(sizeof(uint64) * (size_t)nTampons);
+	l.n = 0;
+	for (int64 i = 0; i < nTampons; ++i) {
+		uint64 id = gpu.CreateBuffer(octetsChacun);
+		if (!id)
+			break; // allocation refusee : on s'arrete et on DIT combien on a pose
+		l.ids[l.n++] = id;
+	}
+	printf("  [lest] %lld tampons de %.1f Ko poses = %.2f Go (demande : %lld)\n", (long long)l.n,
+		   (double)octetsChacun / 1024.0, (double)l.n * (double)octetsChacun / 1.0e9, (long long)nTampons);
+	return l;
+}
+
+static void LestRetirer(NkTensorGpu &gpu, Lest &l) {
+	for (int64 i = 0; i < l.n; ++i)
+		gpu.DestroyBuffer(l.ids[i]);
+	free(l.ids);
+	l.ids = nullptr;
+	l.n = 0;
+}
+
+static int BancAdd(NkTensorGpu &gpu, int passes) {
+	// Le point de PRODUCTION est 1 258 291 elements : 15,1 Mo de trafic par appel,
+	// exactement la ligne `add` du profil du 15/08.
+	static const int64 tailles[] = {1024, 16384, 262144, 1258291, 4194304, 12582912};
+	const int nT = (int)(sizeof(tailles) / sizeof(tailles[0]));
+	const int reps = 20;
+
+	printf("\n=== BANC D'ECHELLE `add` — cout fixe contre debit ===\n");
+	printf("Modele : t(N) = F + 12N/B. Crete memoire de la carte : ~448 Go/s.\n");
+	printf("Point de production : N = 1 258 291 (15,1 Mo de trafic), mesure a 1250-1360 µs le 15/08.\n");
+	printf("Repetitions par point : %d (3 de chauffe jetees). Passes : %d (temoin).\n", reps, passes);
+
+	for (int pass = 0; pass < passes; ++pass) {
+		printf("\n########## PASSE %d / %d ##########\n", pass + 1, passes);
+		BancSerie(gpu, "SERIE A — dispatch seul (tampons preexistants)", false, tailles, nT, reps);
+		BancSerie(gpu, "SERIE B — forme production (CreateBuffer + dispatch + DestroyBuffer)", true, tailles,
+				  nT, reps);
+
+		// SERIE C — le meme dispatch seul, mais sous l'ETAT de l'entrainement.
+		// Trois lests, pour separer le NOMBRE de tampons de la QUANTITE de VRAM.
+		{
+			printf("\n  ..... C1 : BEAUCOUP de tampons, PEU de VRAM .....\n");
+			Lest l = LestPoser(gpu, 9316, 4096); // ~38 Mo
+			BancSerie(gpu, "SERIE C1 — dispatch seul, 9 316 tampons vivants (~38 Mo)", false, tailles, nT,
+					  reps);
+			LestRetirer(gpu, l);
+		}
+		{
+			printf("\n  ..... C2 : PEU de tampons, BEAUCOUP de VRAM .....\n");
+			Lest l = LestPoser(gpu, 11, 500ull * 1000ull * 1000ull); // ~5,5 Go
+			BancSerie(gpu, "SERIE C2 — dispatch seul, 11 tampons vivants (~5,5 Go)", false, tailles, nT, reps);
+			LestRetirer(gpu, l);
+		}
+		// SERIE D — la MEME forme production, mais vue par l'instrument DE LA
+		// PRODUCTION. C'est le seul moyen de savoir OU le cout de l'allocation est
+		// FACTURE. Hypothese a refuter : `CreateBuffer` rend la main avant que le
+		// pilote ait engage la memoire, et l'attente reelle tombe dans le
+		// `WaitIdle` du dispatch — donc sur la ligne `add`, pas sur `~alloc`.
+		// Si c'est vrai, la ligne `add` du profil du 15/08 (10,5 % du pas) mesure
+		// en grande partie de l'ALLOCATION, et le poste n°1 vaut bien plus que ses
+		// 17,8-22,0 % annonces.
+		{
+			printf("\n  ..... D : forme production, vue par l'instrument de production .....\n");
+			const int64 nProd = 1258291;
+			const int repsD = 60;
+			NkTensorGpu::ProfilRaz(true);
+			const double t0 = NkChrono::Now().nanoseconds;
+			BancMesure(gpu, nProd, repsD, /*avecAlloc*/ true);
+			const double sec = (NkChrono::Now().nanoseconds - t0) / 1.0e9;
+			NkTensorGpu::ProfilRapport(sec, 1);
+			NkTensorGpu::ProfilRaz(false);
+			printf("  (fenetre D : %.3f s murales pour %d appels + 3 de chauffe, N = %lld)\n", sec, repsD,
+				   (long long)nProd);
+		}
+
+		{
+			printf("\n  ..... C3 : les DEUX, forme de l'entrainement .....\n");
+			Lest l = LestPoser(gpu, 9316, 590000); // ~5,5 Go en 9 316 tampons
+			BancSerie(gpu, "SERIE C3 — dispatch seul, 9 316 tampons vivants (~5,5 Go)", false, tailles, nT,
+					  reps);
+			LestRetirer(gpu, l);
+		}
+	}
+	return 0;
+}
+
+// ============================================================================
+// BANC D'ECHELLE `matmul_t4` — LA VARIANCE D'ABORD, LE DEBIT ENSUITE
+// ============================================================================
+// ⚠️ POURQUOI CE BANC COMMENCE PAR LE BRUIT, ET NON PAR LE DEBIT.
+// `matmul_t4` a varie d'un facteur ~1,8 entre deux executions du MEME binaire
+// (ROADMAP, 15-16/08), et ce n'est pas la machine : le banc `add` se reproduit
+// a mieux de 15 % sur trois executions. L'instabilite est donc PROPRE a ce
+// noyau. Tant qu'elle n'est pas bornee, aucun chiffre de debit sur ce noyau ne
+// vaut rien — on ne saurait pas si un ecart mesure est un effet ou du bruit
+// (grille, face 6 : mesurer un ecart sans avoir mesure le bruit).
+// C'est pourquoi chaque point rapporte MIN / MED / MOY / MAX et le rapport
+// max/min : le plancher sous lequel on ne conclura pas.
+//
+// ⚠️ REGIMES COUVERTS (face 7 : un banc doit declarer ses regimes).
+//   serie A  — dispatch SEUL, tampons deja alloues et deja remplis ;
+//   serie B  — forme de PRODUCTION : allocation du tampon de sortie a chaque
+//              appel (CreateBuffer + dispatch + DestroyBuffer) ;
+//   serie C1 — dispatch seul, BEAUCOUP de tampons vivants, PEU de VRAM ;
+//   serie C2 — dispatch seul, PEU de tampons, BEAUCOUP de VRAM.
+// C1/C2 separent le NOMBRE de tampons de la QUANTITE de VRAM, parce que le
+// remede n'est pas le meme (face 9 : un instrument qui ne separe pas deux
+// causes ne mesure ni l'une ni l'autre, il constate).
+//
+// ⚠️ CE QUE CE BANC NE COUVRE PAS, et il faut le lire AVEC le resultat :
+//   - il mesure UN noyau isole, PAS le debit d'entrainement. Le pas de
+//     production enchaine 28 119 operations ; un chiffre de matmul seul ne dit
+//     rien du temps total, et la ROADMAP montre deja que l'essentiel du temps
+//     attribue a un noyau n'est PAS du temps GPU ;
+//   - le plafond de `matmul_t4` SEUL est chiffre x1,11 a x1,19 en ROADMAP :
+//     meme parfait, ce noyau ne decide pas du run ;
+//   - horloge MURALE cote hote (NkChrono), pas d'horodatage GPU : le temps
+//     inclut le cout de lancement et l'attente de synchronisation.
+//
+// ⚠️ Le chemin appele est celui de PRODUCTION : `RunMatMul` est litteralement
+// ce qu'appelle `ops::Matmul`, et le choix `matmul_t4` contre `matmul` se fait
+// DANS RunMatMul sur M*N >= 65536 && K >= 16. Toutes les tailles ci-dessous
+// respectent ce seuil : on mesure donc bien `matmul_t4`, pas le naif.
+//
+// Modele : t = F + travail / debit_effectif.
+//   FLOPs = 2*M*N*K
+//   trafic REEL du pave 4x4 : chaque tuile 4x4 lit 4 lignes de A et 4 colonnes
+//   de B, soit 8*K flottants (32*K octets) pour 16 sorties et 32*K FLOPs
+//   -> intensite arithmetique = 1 FLOP/octet EXACTEMENT.
+//   A ~448 Go/s, le plafond de ce noyau est donc ~448 GFLOP/s, soit ~2,2 % de
+//   la crete de 20 300 GFLOPS. Un point proche de 2,2 % tourne AU MAXIMUM de ce
+//   que son intensite permet : il n'y a rien a y gagner sans changer
+//   l'intensite (c'est-a-dire sans passer en memoire partagee).
+
+struct MatPoint {
+		uint32 M, N, K;
+		double minUs, medUs, moyUs, maxUs;
+};
+
+struct MatTaille {
+		uint32 M, N, K;
+		const char *quoi;
+};
+
+static MatPoint BancMatMesure(NkTensorGpu &gpu, uint32 M, uint32 N, uint32 K, int reps, bool avecAlloc) {
+	const nk_size octA = (nk_size)M * (nk_size)K * sizeof(float);
+	const nk_size octB = (nk_size)K * (nk_size)N * sizeof(float);
+	const nk_size octC = (nk_size)M * (nk_size)N * sizeof(float);
+
+	MatPoint p;
+	p.M = M;
+	p.N = N;
+	p.K = K;
+	p.minUs = p.medUs = p.moyUs = p.maxUs = 0.0;
+
+	uint64 ba = gpu.CreateBuffer(octA);
+	uint64 bb = gpu.CreateBuffer(octB);
+	uint64 bcFixe = avecAlloc ? 0 : gpu.CreateBuffer(octC);
+	if (!ba || !bb || (!avecAlloc && !bcFixe)) {
+		// Allocation refusee : on le DIT, au lieu de rendre un zero qui passerait
+		// pour une mesure (face 2 : reussir pour la mauvaise raison).
+		printf("  [!] allocation refusee pour M=%u N=%u K=%u — point NON mesure\n", M, N, K);
+		if (ba)
+			gpu.DestroyBuffer(ba);
+		if (bb)
+			gpu.DestroyBuffer(bb);
+		if (bcFixe)
+			gpu.DestroyBuffer(bcFixe);
+		return p;
+	}
+
+	// Remplissage HORS de la boucle chronometree.
+	{
+		const nk_size nA = (nk_size)M * (nk_size)K, nB = (nk_size)K * (nk_size)N;
+		float *tmp = (float *)malloc((size_t)(octA > octB ? octA : octB));
+		for (nk_size i = 0; i < nA; ++i)
+			tmp[i] = (float)((int64)(i & 255) - 128) * 0.01f;
+		gpu.Upload(ba, tmp, octA);
+		for (nk_size i = 0; i < nB; ++i)
+			tmp[i] = (float)((int64)(i & 127) - 64) * 0.01f;
+		gpu.Upload(bb, tmp, octB);
+		free(tmp);
+	}
+
+	// Chauffe : le premier appel compile le noyau. Le mesurer melangerait un cout
+	// unique au cout par appel.
+	for (int w = 0; w < 3; ++w) {
+		uint64 bc = avecAlloc ? gpu.CreateBuffer(octC) : bcFixe;
+		if (bc)
+			gpu.RunMatMul(ba, bb, bc, M, N, K);
+		if (avecAlloc && bc)
+			gpu.DestroyBuffer(bc);
+	}
+
+	double *ech = (double *)malloc(sizeof(double) * (size_t)reps);
+	for (int r = 0; r < reps; ++r) {
+		const double t0 = NkChrono::Now().nanoseconds;
+		uint64 bc = avecAlloc ? gpu.CreateBuffer(octC) : bcFixe;
+		if (bc)
+			gpu.RunMatMul(ba, bb, bc, M, N, K);
+		if (avecAlloc && bc)
+			gpu.DestroyBuffer(bc);
+		ech[r] = (NkChrono::Now().nanoseconds - t0) / 1000.0; // µs
+	}
+
+	double somme = 0.0;
+	for (int r = 0; r < reps; ++r)
+		somme += ech[r];
+	qsort(ech, (size_t)reps, sizeof(double), cmpDouble);
+
+	p.minUs = ech[0];
+	p.medUs = ech[reps / 2];
+	p.moyUs = somme / (double)reps;
+	p.maxUs = ech[reps - 1];
+	free(ech);
+
+	gpu.DestroyBuffer(ba);
+	gpu.DestroyBuffer(bb);
+	if (!avecAlloc)
+		gpu.DestroyBuffer(bcFixe);
+	return p;
+}
+
+static void BancMatSerie(NkTensorGpu &gpu, const char *titre, bool avecAlloc, const MatTaille *t, int nT,
+						 int reps) {
+	printf("\n--- %s ---\n", titre);
+	printf("  %-20s %9s %9s %9s %9s %8s %9s %8s  %s\n", "M x N x K", "min us", "med us", "moy us", "max us",
+		   "max/min", "GFLOP/s", "% crete", "quoi");
+	for (int i = 0; i < nT; ++i) {
+		MatPoint p = BancMatMesure(gpu, t[i].M, t[i].N, t[i].K, reps, avecAlloc);
+		if (p.minUs <= 0.0)
+			continue;
+		char forme[64];
+		snprintf(forme, sizeof(forme), "%ux%ux%u", t[i].M, t[i].N, t[i].K);
+		const double flops = 2.0 * (double)t[i].M * (double)t[i].N * (double)t[i].K;
+		const double gflops = flops / (p.minUs * 1.0e-6) / 1.0e9;
+		const double pctCrete = gflops / 20300.0 * 100.0;
+		const double ratio = p.maxUs / p.minUs;
+		printf("  %-20s %9.1f %9.1f %9.1f %9.1f %8.2f %9.1f %8.3f  %s\n", forme, p.minUs, p.medUs, p.moyUs,
+			   p.maxUs, ratio, gflops, pctCrete, t[i].quoi);
+	}
+}
+
+static int BancMatmul(NkTensorGpu &gpu, int passes) {
+	// Tailles : de petit a la PRODUCTION. Les formes de production viennent du
+	// montage d'entrainement `--d 640 --layers 10 --heads 8 --T 256 --B 6` :
+	// 6*256 = 1536 lignes, d = 640, vocabulaire 32 769.
+	// Toutes respectent M*N >= 65536 et K >= 16, donc toutes passent par t4.
+	static const MatTaille tailles[] = {
+		{128, 512, 64, "petit"},		 {256, 512, 128, "petit"},
+		{512, 512, 256, "moyen"},		 {1536, 640, 640, "PROD projection"},
+		{1536, 2560, 640, "PROD mlp"}, {1536, 32769, 640, "PROD logits"},
+	};
+	const int nT = (int)(sizeof(tailles) / sizeof(tailles[0]));
+	const int reps = 15;
+
+	printf("\n=== BANC D'ECHELLE `matmul_t4` — LA VARIANCE D'ABORD ===\n");
+	printf("Intensite arithmetique du pave 4x4 : 1 FLOP/octet EXACTEMENT.\n");
+	printf("Plafond de CE noyau = ~448 Go/s x 1 = ~448 GFLOP/s = ~2,2 %% de la crete (20 300 GFLOPS).\n");
+	printf("Un point proche de 2,2 %% tourne au MAXIMUM de ce que son intensite permet.\n");
+	printf("Repetitions par point : %d (3 de chauffe jetees). Passes : %d (TEMOIN).\n", reps, passes);
+	printf("⚠️ Horloge MURALE hote : inclut lancement et synchronisation, pas seulement le GPU.\n");
+	printf("⚠️ Ce banc ne dit RIEN du debit d'entrainement : il mesure un noyau isole.\n");
+
+	for (int pass = 0; pass < passes; ++pass) {
+		printf("\n########## PASSE %d / %d ##########\n", pass + 1, passes);
+		BancMatSerie(gpu, "SERIE A — dispatch seul (tampons preexistants)", false, tailles, nT, reps);
+		BancMatSerie(gpu, "SERIE B — forme production (CreateBuffer + dispatch + DestroyBuffer)", true,
+					 tailles, nT, reps);
+		{
+			printf("\n  ..... C1 : BEAUCOUP de tampons, PEU de VRAM .....\n");
+			Lest l = LestPoser(gpu, 9316, 4096);
+			BancMatSerie(gpu, "SERIE C1 — dispatch seul, 9 316 tampons vivants (~38 Mo)", false, tailles, nT,
+						 reps);
+			LestRetirer(gpu, l);
+		}
+		{
+			printf("\n  ..... C2 : PEU de tampons, BEAUCOUP de VRAM .....\n");
+			Lest l = LestPoser(gpu, 8, 500ull * 1000ull * 1000ull);
+			BancMatSerie(gpu, "SERIE C2 — dispatch seul, 8 tampons vivants (~4 Go)", false, tailles, nT,
+						 reps);
+			LestRetirer(gpu, l);
+		}
+	}
+	return 0;
+}
+
+// ============================================================================
+// BANC DE LA RESERVE DE TAMPONS (chantier n°2)
+// ============================================================================
+// ⚠️ UNE RESERVE EST UN CACHE, ET UN CACHE REPOND TOUJOURS. C'est la famille de
+// defauts que ce depot paie depuis une semaine. Donc ce banc mesure DEUX choses
+// dans cet ordre, et la seconde ne vaut rien sans la premiere :
+//   1. LA JUSTESSE — la reserve sert-elle VRAIMENT, et que rend-elle ?
+//      Compteurs `servis` / `neufs` : leur somme doit egaler le nombre d'appels.
+//      Si `servis == 0`, tout gain affiche serait une illusion.
+//   2. LE GAIN — serie B (forme production) avec et sans reserve.
+//
+// ⚠️ MEME BINAIRE pour les deux bras : `ReserveActive()` est un interrupteur.
+// C'est ce qui a rendu defendable le x1,57 du chantier n°1 — aucun ecart de
+// compilation ne peut se glisser entre LEGACY et NEUF.
+//
+// ⚠️ ORDRE ALTERNE. Alterner les modes ne suffit pas : la machine s'accelere au
+// fil des courses (mesure du 16/08 : -25 % sur un bras non modifie). Chaque mode
+// occupe donc les deux positions.
+
+static void ReserveEtat(const char *quand) {
+	printf("  [temoin %s] servis=%lld  neufs=%lld  retenus=%lld tampons (%.1f Mo)  evictions=%lld\n", quand,
+		   (long long)NkTensorGpu::ReserveServis(), (long long)NkTensorGpu::ReserveNeufs(),
+		   (long long)NkTensorGpu::ReserveTamponsRetenus(),
+		   (double)NkTensorGpu::ReserveOctetsRetenus() / 1.0e6, (long long)NkTensorGpu::ReserveEvictions());
+}
+
+// TEMOIN DE JUSTESSE : que rend exactement un tampon recycle ?
+// Ce cas existe parce qu'un tampon recycle porte les DONNEES DE SON PRECEDENT
+// USAGE. Si un appelant comptait sur un tampon neuf implicitement nul, la
+// reserve produirait un resultat faux EN SILENCE. On le montre, puis on montre
+// que le zerotage EXPLICITE (chantier n°1) est ce qui rend le recyclage sur.
+static int ReserveTemoinJustesse(NkTensorGpu &gpu) {
+	printf("\n=== TEMOIN DE JUSTESSE — que rend un tampon RECYCLE ? ===\n");
+	int echecs = 0;
+	const nk_size n = 4096, oct = n * sizeof(float);
+
+	NkTensorGpu::ReserveVider();
+	NkTensorGpu::ReserveActive(true);
+	NkTensorGpu::ReserveRazCompteurs();
+
+	// 1) un tampon, rempli d'un motif NON NUL, puis rendu a la reserve.
+	uint64 b1 = gpu.CreateBuffer(oct);
+	{
+		float *m = (float *)malloc(oct);
+		for (nk_size i = 0; i < n; ++i)
+			m[i] = 123.5f;
+		gpu.Upload(b1, m, oct);
+		free(m);
+	}
+	gpu.DestroyBuffer(b1);
+	printf("  1) tampon rempli de 123.5 puis rendu a la reserve\n");
+
+	// 2) un tampon de MEME TAILLE : il DOIT venir de la reserve.
+	const int64 servisAvant = NkTensorGpu::ReserveServis();
+	uint64 b2 = gpu.CreateBuffer(oct);
+	const bool vientDeLaReserve = (NkTensorGpu::ReserveServis() == servisAvant + 1);
+	printf("  2) nouveau tampon de meme taille -> %s\n",
+		   vientDeLaReserve ? "SERVI PAR LA RESERVE (compteur +1)" : "alloue a neuf (compteur inchange)");
+	if (!vientDeLaReserve) {
+		printf("  [ KO ] la reserve n'a PAS servi : tout gain mesure ensuite serait une illusion\n");
+		++echecs;
+	} else {
+		printf("  [ OK ] la reserve sert reellement — le compteur le prouve\n");
+	}
+
+	// 3) ce qu'il CONTIENT : la preuve que le recyclage rend des donnees remanentes.
+	{
+		float *v = (float *)malloc(oct);
+		for (nk_size i = 0; i < n; ++i)
+			v[i] = -1.0f;
+		gpu.Download(b2, v, oct);
+		const bool remanent = (v[0] == 123.5f);
+		printf("  3) contenu du tampon recycle : v[0] = %.1f -> %s\n", (double)v[0],
+			   remanent ? "REMANENT (donnees du precedent usage)" : "non remanent");
+		if (remanent)
+			printf("      ⚠️ c'est le RISQUE de toute reserve : un appelant qui compterait sur un\n"
+				   "         tampon neuf implicitement nul obtiendrait un resultat FAUX en silence.\n");
+
+		// 4) le zerotage EXPLICITE est ce qui rend le recyclage sur.
+		if (gpu.Clear(b2, oct, 0)) {
+			for (nk_size i = 0; i < n; ++i)
+				v[i] = -1.0f;
+			gpu.Download(b2, v, oct);
+			const bool nul = (v[0] == 0.0f && v[n - 1] == 0.0f);
+			printf("  4) apres Clear() explicite : v[0] = %.1f, v[n-1] = %.1f -> %s\n", (double)v[0],
+				   (double)v[n - 1], nul ? "ZEROS" : "PAS zeros");
+			if (!nul) {
+				printf("  [ KO ] le zerotage explicite ne nettoie pas un tampon recycle\n");
+				++echecs;
+			} else {
+				printf("  [ OK ] `NkGpuZeros` remet a zero APRES CreateBuffer : le recyclage est SUR\n"
+					   "         sur ce chemin. C'est le chantier n°1 qui a rendu ce zerotage explicite.\n");
+			}
+		}
+		free(v);
+	}
+	gpu.DestroyBuffer(b2);
+
+	// 5) l'instrument est-il juste ? servis + neufs doit egaler le nombre d'appels.
+	const int64 s = NkTensorGpu::ReserveServis(), nf = NkTensorGpu::ReserveNeufs();
+	printf("  5) instrument : servis=%lld + neufs=%lld = %lld pour 2 appels a CreateBuffer -> %s\n",
+		   (long long)s, (long long)nf, (long long)(s + nf), (s + nf == 2) ? "COHERENT" : "INCOHERENT");
+	if (s + nf != 2) {
+		printf("  [ KO ] le compteur ne couvre pas tous les appels : aucun gain ne serait lisible\n");
+		++echecs;
+	}
+
+	NkTensorGpu::ReserveActive(false);
+	printf("\n  => temoin de justesse : %d echec(s)\n", echecs);
+	return echecs;
+}
+
+static int BancReserve(NkTensorGpu &gpu) {
+	if (ReserveTemoinJustesse(gpu) != 0) {
+		printf("\n⚠️ LE TEMOIN DE JUSTESSE A ECHOUE — on ne mesure PAS le gain.\n"
+			   "   Mesurer la vitesse d'un cache dont on n'a pas prouve qu'il sert est\n"
+			   "   exactement le piege que ce banc existe pour eviter.\n");
+		return 1;
+	}
+
+	static const MatTaille tailles[] = {
+		{128, 512, 64, "petit"},
+		{256, 512, 128, "petit"},
+		{512, 512, 256, "moyen"},
+		{1536, 640, 640, "PROD projection"},
+	};
+	const int nT = (int)(sizeof(tailles) / sizeof(tailles[0]));
+	const int reps = 15;
+
+	printf("\n=== GAIN DE LA RESERVE — serie B (forme production) ===\n");
+	printf("La serie B alloue le tampon de sortie a chaque appel : c'est LA ou vit le\n");
+	printf("cout d'allocation mesure a +427 a +492 us (banc `add` ET banc `matmul`).\n");
+	printf("Ordre ALTERNE : la machine s'accelere au fil des courses.\n");
+
+	for (int tour = 0; tour < 2; ++tour) {
+		const bool neufDabord = (tour == 1);
+		printf("\n########## TOUR %d / 2 — %s en premier ##########\n", tour + 1,
+			   neufDabord ? "NEUF" : "LEGACY");
+		for (int bras = 0; bras < 2; ++bras) {
+			const bool actif = neufDabord ? (bras == 0) : (bras == 1);
+			NkTensorGpu::ReserveVider();
+			NkTensorGpu::ReserveActive(actif);
+			NkTensorGpu::ReserveRazCompteurs();
+			BancMatSerie(gpu, actif ? "RESERVE ACTIVE (NEUF)" : "RESERVE INACTIVE (LEGACY)", true, tailles,
+						 nT, reps);
+			ReserveEtat(actif ? "NEUF" : "LEGACY");
+			if (actif && NkTensorGpu::ReserveServis() == 0) {
+				printf("  ⚠️ servis = 0 alors que la reserve est ACTIVE : le gain affiche ne\n"
+					   "     viendrait PAS de la reserve. Resultat a jeter.\n");
+			}
+		}
+	}
+	NkTensorGpu::ReserveActive(false);
+	return 0;
+}
+
+int main(int argc, char **argv) {
+	bool bancAdd = false;
+	bool bancMat = false;
+	bool bancRes = false;
+	for (int i = 1; i < argc; ++i) {
+		if (strcmp(argv[i], "--banc-add") == 0)
+			bancAdd = true;
+		if (strcmp(argv[i], "--banc-matmul") == 0)
+			bancMat = true;
+		if (strcmp(argv[i], "--banc-reserve") == 0)
+			bancRes = true;
+	}
+
 	printf("=== NkTensorGpuTest ===\n");
 	NkTensorGpu &gpu = NkTensorGpu::Get();
 	printf("GPU disponible : %d  (backend: %s)\n", gpu.IsAvailable(), gpu.BackendName());
 	if (!gpu.IsAvailable()) {
 		printf("Pas de GPU compute -> test ignoré.\n");
 		return 0;
+	}
+
+	if (bancAdd) {
+		// Deux passes DANS le meme processus : c'est le temoin (face 6 de la
+		// grille). Sans lui, aucune echelle ne dit si un ecart entre deux tailles
+		// est un effet ou du bruit — et `matmul_t4` a deja varie d'un facteur 1,8
+		// entre deux executions du meme binaire.
+		int r = BancAdd(gpu, 2);
+		gpu.Shutdown();
+		return r;
+	}
+
+	if (bancMat) {
+		// Deux passes DANS le meme processus, meme raison que pour `add` : c'est le
+		// TEMOIN. Ici il est le sujet meme du banc — la variance de ~1,8x de
+		// `matmul_t4` entre executions est ce qu'on vient borner.
+		int r = BancMatmul(gpu, 2);
+		gpu.Shutdown();
+		return r;
+	}
+
+	if (bancRes) {
+		int r = BancReserve(gpu);
+		gpu.Shutdown();
+		return r;
+	}
+
+	// ---- 0) ClearBuffer : la primitive fait-elle VRAIMENT quelque chose ? -------
+	// ⚠️ Ce cas existe parce que `NkICommandBuffer::ClearBuffer` a vecu des mois
+	// declare sur les six backends et implemente sur AUCUN : corps vide, zero
+	// surcharge, deux appelants convaincus du contraire. Une signature ne prouve
+	// rien. Ce test ecrit un motif non nul, appelle la remise a zero, et RELIT.
+	{
+		const uint32 N = 64;
+		uint32 motif[N], relu[N];
+		for (uint32 i = 0; i < N; i++) {
+			motif[i] = 0xDEADBEEFu;
+			relu[i] = 0xFFFFFFFFu;
+		}
+		uint64 b = gpu.CreateBuffer(N * sizeof(uint32));
+		gpu.Upload(b, motif, N * sizeof(uint32));
+		const bool efface = gpu.Clear(b, N * sizeof(uint32), 0);
+		gpu.Download(b, relu, N * sizeof(uint32));
+		bool zeros = efface;
+		for (uint32 i = 0; i < N; i++)
+			if (relu[i] != 0u)
+				zeros = false;
+		printf("  clear: relu[0..3]=[%08X %08X %08X %08X] (attendu 00000000 x4), backend=%s\n", relu[0], relu[1],
+			   relu[2], relu[3], gpu.BackendName());
+		check(zeros, "ClearBuffer met REELLEMENT le tampon a zero (temoin ecriture/relecture)");
+		check(NkTensorGpu::ClearDisponible() == zeros, "ClearDisponible() dit la meme chose que le temoin");
+		gpu.DestroyBuffer(b);
+
+		// Et le tenseur de zeros GPU, qui est ce qui interesse l'entrainement.
+		NkTensor z = NkGpuZeros(NkShape{4, 5});
+		bool zok = z.IsValid() && z.Device() == NkDevice::NK_GPU;
+		if (zok) {
+			NkTensor c = z.ToCPU();
+			const float *p = c.DataAs<float>();
+			for (int i = 0; i < 20 && zok; i++)
+				if (p[i] != 0.f)
+					zok = false;
+		}
+		check(zok, "NkGpuZeros([4,5]) : tenseur GPU valide et rempli de zeros, SANS upload");
+
+		// Le parametre `device` des fabriques CPU doit echouer BRUYAMMENT, pas mentir.
+		NkTensor piege = NkTensor::Zeros(NkShape{4}, NkDType::NK_F32, NkDevice::NK_GPU);
+		check(!piege.IsValid(), "NkTensor::Zeros(..., NK_GPU) refuse au lieu de rendre un tenseur qui ment");
 	}
 
 	// ---- 1) Élémentaire : C = A + B --------------------------------------------

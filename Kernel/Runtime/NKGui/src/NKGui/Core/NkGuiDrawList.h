@@ -64,7 +64,15 @@ namespace nkentseu {
 
 				// ── Primitives ────────────────────────────────────────────────────
 				void AddRectFilled(const NkRect &r, const NkColor &col, float32 rounding = 0.f) noexcept;
-				void AddRect(const NkRect &r, const NkColor &col, float32 thickness = 1.f) noexcept;
+				// Contour de rectangle, DROIT ou ARRONDI. Le trait est trace STRICTEMENT
+				// A L'INTERIEUR de `r` (le scissor est exclusif a droite/bas : un trait
+				// centre sur l'arete perdrait sa moitie exterieure). `rounding` = rayon
+				// des coins, borne a min(w,h)/2 ; 0 = coins droits (chemin historique,
+				// inchange). Existe parce que AddRectFilled arrondit depuis toujours et
+				// que son contour ne le pouvait pas : 29 des 41 AddRect de NKGui meme
+				// bordent un fond arrondi d'un cadre carre.
+				void AddRect(const NkRect &r, const NkColor &col, float32 thickness = 1.f,
+							 float32 rounding = 0.f) noexcept;
 				// Rectangle à DÉGRADÉ (4 couleurs de coin) — carré SV / barres du color picker.
 				void AddRectFilledMultiColor(const NkRect &r, const NkColor &tl, const NkColor &tr, const NkColor &br,
 											 const NkColor &bl) noexcept;
@@ -78,14 +86,32 @@ namespace nkentseu {
 				void AddTriangleMultiColor(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &ca,
 										   const NkColor &cb, const NkColor &cc) noexcept;
 				void AddCircleFilled(const NkVec2 &center, float32 r, const NkColor &col, int32 segs = 0) noexcept;
+				// Contour de cercle (anneau). `r` est le rayon de la LIGNE MEDIANE : le
+				// trait occupe [r - th/2, r + th/2] — meme convention que les emulations
+				// qu'il remplace (Mou/Nkoung `CircleOutline`, ConquerorLab `NkcRing`),
+				// donc leur migration est un simple renommage. `segs` <= 0 : meme regle
+				// automatique que AddCircleFilled.
+				void AddCircle(const NkVec2 &center, float32 r, const NkColor &col, float32 thickness = 1.f,
+							   int32 segs = 0) noexcept;
+				// Polygone CONVEXE plein (eventail depuis le 1er sommet). Non convexe :
+				// le resultat est faux, ce n'est pas verifie (cout).
+				void AddConvexPolyFilled(const NkVec2 *pts, int32 n, const NkColor &col) noexcept;
+				// Ligne brisee. `closed` relie le dernier point au premier. Le trait est
+				// centre sur le chemin (contrairement a AddRect, qui rentre a l'interieur).
+				void AddPolyline(const NkVec2 *pts, int32 n, const NkColor &col, float32 thickness = 1.f,
+								 bool closed = false) noexcept;
 
 				// Texte : émet des quads texturés (atlas `texId`) à partir de la
 				// face NKFont. `baseline` = ligne de base du 1er glyphe. `maxWidth`
 				// >= 0 tronque (coupe au glyphe qui déborde).
 				// `skew` > 0 : italique factice (penche les glyphes, décalage horizontal
 				// proportionnel à la hauteur au-dessus de la ligne de base ; 0 = normal).
+				// `textEnd` (optionnel) borne la partie DESSINEE — support de la
+				// convention `##id` des libelles (cf. LabelEnd, NkGuiWidgets.h) :
+				// nullptr = jusqu'au NUL, comportement historique inchange.
 				void AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
-							 const NkColor &col, float32 maxWidth = -1.f, float32 skew = 0.f) noexcept;
+							 const NkColor &col, float32 maxWidth = -1.f, float32 skew = 0.f,
+							 const char *textEnd = nullptr) noexcept;
 				// Dessine la sous-chaîne [begin, end) (sans troncature) — brique du
 				// retour à la ligne (TextWrapped) qui passe des plages de ligne.
 				void AddTextRange(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *begin,

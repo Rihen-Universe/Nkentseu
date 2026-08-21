@@ -247,17 +247,17 @@ namespace nkentseu {
 	//  NkHDRCodec::Decode
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkHDRCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkHDRCodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 10)
-			return nullptr;
+			return NkImage();
 		NkImageStream s(data, size);
 		char line[512];
 
 		// Ligne 1 : magic
 		if (!ReadHdrLine(s, line, sizeof(line)))
-			return nullptr;
+			return NkImage();
 		if (::strncmp(line, "#?RADIANCE", 10) != 0 && ::strncmp(line, "#?RGBE", 6) != 0)
-			return nullptr;
+			return NkImage();
 
 		float32 exposure = 1.f;
 
@@ -277,26 +277,25 @@ namespace nkentseu {
 
 		// Ligne dimensions
 		if (!ReadHdrLine(s, line, sizeof(line)))
-			return nullptr;
+			return NkImage();
 		int32 w = 0, h = 0;
 		bool flipX = false, flipY = false, primaryIsX = false;
 		// BUG B CORRIGÉ : récupération de primaryIsX
 		if (!ParseDimLine(line, w, h, flipX, flipY, primaryIsX))
-			return nullptr;
+			return NkImage();
 
 		// BUG B CORRIGÉ : si l'axe primaire est X, les scanlines sont verticales
 		// → on décode avec les dimensions inversées puis on transpose
 		const int32 scanW = primaryIsX ? h : w;
 		const int32 scanH = primaryIsX ? w : h;
 
-		NkImage *img = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGB96F);
-		if (!img)
-			return nullptr;
+		NkImage img = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGB96F);
+		if (!img.IsValid())
+			return NkImage();
 
 		uint8 *scan = static_cast<uint8 *>(NkAlloc(usize(scanW) * 4));
 		if (!scan) {
-			img->Free();
-			return nullptr;
+			return NkImage();
 		}
 
 		for (int32 y = 0; y < scanH; ++y) {
@@ -353,7 +352,7 @@ namespace nkentseu {
 
 				if (dstX < 0 || dstX >= w || dstY < 0 || dstY >= h)
 					continue;
-				float32 *rowF = reinterpret_cast<float32 *>(img->RowPtr(dstY));
+				float32 *rowF = reinterpret_cast<float32 *>(img.RowPtr(dstY));
 				rowF[dstX * 3 + 0] = rgb[0];
 				rowF[dstX * 3 + 1] = rgb[1];
 				rowF[dstX * 3 + 2] = rgb[2];
@@ -503,18 +502,18 @@ namespace nkentseu {
 		return uint8(::fminf(::fmaxf(x * 255.0f, 0.0f), 255.0f));
 	}
 
-	NkImage *NkHDRCodec::ConvertToTexture(const NkImage &hdrImage, float32 exposure, float32 gamma) noexcept {
+	NkImage NkHDRCodec::ConvertToTexture(const NkImage &hdrImage, float32 exposure, float32 gamma) noexcept {
 		if (!hdrImage.IsValid() || hdrImage.Format() != NkImagePixelFormat::NK_RGB96F)
-			return nullptr;
+			return NkImage();
 
 		const int32 w = hdrImage.Width();
 		const int32 h = hdrImage.Height();
-		NkImage *rgbaImage = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGBA32);
-		if (!rgbaImage)
-			return nullptr;
+		NkImage rgbaImage = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGBA32);
+		if (!rgbaImage.IsValid())
+			return NkImage();
 
 		const float32 *src = reinterpret_cast<const float32 *>(hdrImage.Pixels());
-		uint8 *dst = reinterpret_cast<uint8 *>(rgbaImage->Pixels());
+		uint8 *dst = reinterpret_cast<uint8 *>(rgbaImage.Pixels());
 
 		for (int32 y = 0; y < h; ++y) {
 			for (int32 x = 0; x < w; ++x) {
@@ -538,20 +537,18 @@ namespace nkentseu {
 	//                                     NkTextureData& outData,
 	//                                     float32 exposure,
 	//                                     float32 gamma) noexcept {
-	//     NkImage* temp = ConvertToTexture(hdrImage, exposure, gamma);
-	//     if (!temp) return false;
+	//     NkImage temp = ConvertToTexture(hdrImage, exposure, gamma);
+	//     if (!temp.IsValid()) return false;
 
-	//     outData.width  = temp->Width();
-	//     outData.height = temp->Height();
+	//     outData.width  = temp.Width();
+	//     outData.height = temp.Height();
 	//     outData.size   = usize(outData.width) * outData.height * 4;
 	//     outData.data   = static_cast<uint8*>(NkAlloc(outData.size));
 	//     if (!outData.data) {
-	//         temp->Free();
 	//         return false;
 	//     }
 
-	//     memcpy(outData.data, temp->Pixels(), outData.size);
-	//     temp->Free();
+	//     memcpy(outData.data, temp.Pixels(), outData.size);
 	//     return true;
 	// }
 } // namespace nkentseu

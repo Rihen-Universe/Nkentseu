@@ -26,7 +26,7 @@ with project("NkUIHudDemo"):
     nkentseudependson(
         ["Noge", "NKCanvas", "NKCollision", "NKPhysics", "NKNavigation",
          "NKRenderer", "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross",
-         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKUI", "NKGlad",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKGlad",
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src"],

@@ -8,10 +8,19 @@
 // =============================================================================
 #include "Noge/Core/NkApplication.h"
 #include "Nogee/UkConfig.h"
-#include "Nogee/NogeeApp.h"
+#include "Nogee/Shell/NogeeShell.h" // coquille NKEditorKit/NKGui — SEUL chemin depuis la coupe
 #include "NKWindow/NKMain.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKLogger/NkLog.h"
+// ⚠️ COUPE NKUI (2026-08-17, decision de Rodolf : « retirer NKUI des
+// dependances des autres applications ») : `NogeeApp.h` n'est plus inclus — il
+// tire UILayer, donc NKUI. Le chemin legacy (NogeApp + LayerStack + UILayer)
+// est EXCLU du build (cf. Nogee.jenga, excludefiles) ; ses sources restent au
+// depot, depreciees. La coquille a la parite MESUREE : les 4 panneaux portes
+// affichent les memes donnees (temoin visuel + numerique, rejoue dans les deux
+// sens, 0 [ERR]), le monde ECS et les systemes editeur sont cables cote shell
+// (NogeeShell.cpp), et le viewport NKUI ne rendait RIEN (RenderScene et
+// RenderGizmos etaient des TODO — le FBO etait seulement nettoye).
 
 // ── AppData global (consommé par le runtime NKWindow avant nkmain) ───────────
 nkentseu::NkAppData appData = [] {
@@ -54,27 +63,23 @@ int nkmain(const nkentseu::NkEntryState &state) {
 	// ── Parse des arguments CLI ───────────────────────────────────────────────
 	ukConfig.Initialize();
 
-	// ── Migration douce UI (2026-07-24) ──────────────────────────────────────
-	// --ui=rhi demande la coquille NkEditorShell (NKEditorKit) rendue par le
-	// renderer RHI GÉNÉRALISÉ nkentseu::nkgui::NkEditorRHIRenderer
-	// (Integrations/NKGui/NkEditorRHIRenderer.h). Le câblage effectif (modèle :
-	// Applications/NkAnimaEditor/src/NkAnimaEditor/main.cpp — NkEditorShellConfig
-	// cfg; cfg.renderer = &rhi; + SetPreUI pour le viewport offscreen) sera fait
-	// à la reprise de Nogee ; en attendant on reste sur l'UILayer NKUI legacy
-	// (voir NogeeUiBackend dans UkConfig.h pour l'écart documenté).
-	if (ukConfig.uiBackend == NogeeUiBackend::RHIShell) {
-		logger.Warn("[Nogee] --ui=rhi demande : chemin NkEditorShell+NkEditorRHIRenderer "
-					"pas encore cable — repli sur l'UI NKUI legacy.\n");
+	// ── COQUILLE NKEditorKit/NKGui — le chemin UNIQUE depuis la coupe ────────
+	// Historique : jusqu'au 2026-08-17, la coquille etait le chemin OPTIONNEL
+	// (--ui=rhi) et NogeApp+UILayer (NKUI) le defaut. Les 4 panneaux sont
+	// portes, le monde et les systemes editeur sont cables cote shell, et la
+	// parite est mesuree (temoin dans les deux sens) : la coquille devient le
+	// seul chemin. `--ui=rhi` reste accepte (sans effet) ; `NogeeUiBackend`
+	// documente la migration dans UkConfig.h.
+	for (const auto &a : state.GetArgs()) {
+		if (a == "--occlusion-test")
+			NogeeShellEnableOcclusionProbe(false); // palette Ctrl+P
+		else if (a == "--occlusion-test-prefs")
+			NogeeShellEnableOcclusionProbe(true); // fenetre Preferences
+		else if (a == "--no-mask-body")
+			NogeeShellReproduceConquerorLabCondition(); // condition ConquerorLab
+		else if (a == "--dragdrop-test")
+			NogeeShellEnableDragDropProbe(); // sonde glisser-deposer §7/§9
 	}
-
-	// ── Création + boucle ─────────────────────────────────────────────────────
-	NogeApp *app = new NogeApp(ukConfig);
-	if (!app->Init()) {
-		logger.Error("[Nogee] Erreur d'initialisation de l'application");
-		delete app;
-		return 2;
-	}
-	app->Run();
-	delete app;
-	return 0;
+	logger.Info("[Nogee] montage de la coquille NkEditorShell (chemin unique depuis la coupe NKUI)\n");
+	return RunNogeeEditorShell(ukConfig);
 }

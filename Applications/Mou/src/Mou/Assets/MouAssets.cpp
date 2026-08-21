@@ -5,7 +5,7 @@
 #include "Core/MouConfig.h"
 #include "NKImage/Codecs/SVG/NkSVGCodec.h"
 #include "NKImage/Core/NkImage.h"
-#include "NKCanvas/UI/NkUICanvasBackend.h"
+#include "NKCanvas/UI/NkGuiCanvasBackend.h"
 #include <cstdio>
 #include <cstring>
 
@@ -13,7 +13,7 @@ namespace mou {
 
 	using namespace nkentseu;
 
-	bool MouAssets::Init(renderer::NkUICanvasBackend *backend) noexcept {
+	bool MouAssets::Init(renderer::NkGuiCanvasBackend *backend) noexcept {
 		mBackend = backend;
 		mNextTexId = 10000;
 		return mBackend != nullptr;
@@ -42,27 +42,25 @@ namespace mou {
 		const char *dot = std::strrchr(relPath, '.');
 		const bool isSvg = dot && (std::strcmp(dot, ".svg") == 0 || std::strcmp(dot, ".SVG") == 0);
 
-		NkImage *img = nullptr;
+		NkImage img;
 		if (isSvg) {
 			img = NkSVGCodec::DecodeFromFile(full, w, h);
 		} else {
 			img = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
-			if (img && (!img->Load(full, 4) || !img->IsValid())) {
-				img->Free();
-				img = nullptr;
+			if (img.IsValid() && (!img.Load(full, 4) || !img.IsValid())) {
+				img.Unload();
 			}
 		}
-		if (!img) {
+		if (!img.IsValid()) {
 			MOU_LOG_WARNF("[MouAssets] Asset introuvable ou invalide: %s", full);
 			return 0;
 		}
 
-		const int32 iw = img->Width(), ih = img->Height();
+		const int32 iw = img.Width(), ih = img.Height();
 		mLastW = iw;
 		mLastH = ih;
 		const uint32 id = mNextTexId++;
-		const bool ok = mBackend->UploadTextureRGBA8(id, img->Pixels(), iw, ih);
-		img->Free();
+		const bool ok = mBackend->UploadImageRGBA(id, img.Pixels(), iw, ih);
 		if (!ok) {
 			MOU_LOG_WARNF("[MouAssets] Upload texture echoue: %s", full);
 			return 0;

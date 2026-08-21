@@ -10,12 +10,12 @@
 #include "NKCore/NkTypes.h"
 #include "NKWindow/NkWindow.h"
 #include "NKCanvas/Renderer/Targets/NkRenderWindow.h"
-#include "NKUI/NKUI.h"
+#include "NKGui/NKGui.h"
 #include "Games/Common/NkoungGame.h"
 #include "Games/Common/GameMetadata.h"
 #include "NKMemory/NkUniquePtr.h"
-#include "NKTime/NkClock.h"				   // NkClock (game loop)
-#include "NKCanvas/UI/NkUICanvasBackend.h" // renderer::NkUICanvasBackend
+#include "NKTime/NkClock.h"					// NkClock (game loop)
+#include "NKCanvas/UI/NkGuiCanvasBackend.h" // renderer::NkGuiCanvasBackend (header-only)
 
 namespace nkoung {
 
@@ -69,17 +69,16 @@ namespace nkoung {
 			nkentseu::NkWindow mWindow;
 			nkentseu::renderer::NkRenderWindow *mRenderTarget = nullptr;
 
-			// === État de l'UI globale ===
-			nkentseu::nkui::NkUIContext *mUIContext = nullptr;
-			nkentseu::nkui::NkUIWindowManager *mUIWindowManager = nullptr;
-			nkentseu::renderer::NkUICanvasBackend *mUIBackend = nullptr;
-			nkentseu::nkui::NkUIFont *mUIFont = nullptr;
-			nkentseu::nkui::NkUIFont *mTitleFont = nullptr;
-			nkentseu::uint32 mBodyFontId = 0;
-			nkentseu::uint32 mTitleFontId = 0;
+			// === État de l'UI globale (NKGui, rendu par NkGuiCanvasBackend) ===
+			// L'input brut (souris/tactile) est posé directement dans mUIContext->input.
+			// Deux polices = deux atlas : mTitleFont porte texId+1 (le backend résout
+			// un atlas par texId). Si la police titre échoue, mTitleFont == mUIFont.
+			nkentseu::nkgui::NkGuiContext *mUIContext = nullptr;
+			nkentseu::renderer::NkGuiCanvasBackend *mUIBackend = nullptr;
+			nkentseu::nkgui::NkGuiFont *mUIFont = nullptr;
+			nkentseu::nkgui::NkGuiFont *mTitleFont = nullptr;
 
-			// État d'entrée NKUI (pour le draw list du menu) + survol + FPS lissé.
-			nkentseu::nkui::NkUIInputState mUIInput;
+			// Survol + FPS lissé (menu).
 			nkentseu::int32 mHoveredGame = -1;
 			nkentseu::float32 mFpsSmooth = 60.f;
 

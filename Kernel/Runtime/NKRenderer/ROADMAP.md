@@ -284,6 +284,77 @@ Et la portée dépasse NKXR : **tout** appel à `NkRenderer::Create` traverse ce
 ligne, et qu'une application survive ne prouve pas qu'elle est saine — une
 corruption de tas ne tue que quand elle est constatée.
 
+### ⚠️ Les « 9 trappes glslang » n'étaient pas glslang — c'était la DLL du lanceur (2026-08-17)
+
+La trappe résiduelle mesurée après le correctif NKSL (pile `_free_base ←
+glslang::TIntermediate::~TIntermediate ← InitializeSymbolTable`, 9 occurrences
+pendant le premier parse) avait été attribuée au sous-module NKGLSlang, avec
+pour hypothèses « la migration de version répare » ou « mélange NKMemory/glslang ».
+**Les deux sont réfutées par la mesure du 17/08** — banc NKXRDemo Vulkan sous
+gdb, racine du worktree, cache `.nksc` **vidé** (sonde : breakpoint
+`nkentseu::NkGLSLToSPIRV`, accroché avant tout comptage) :
+
+| glslang | PATH devant gdb | trappes | parses réels |
+|---|---|---|---|
+| 16.5.0 (essai) | `/c/msys64/ucrt64/bin` en tête | **0** | 42 `.nksc` réécrits |
+| ancien (pointeur déclaré) | `/c/msys64/ucrt64/bin` en tête | **0** | 42 `.nksc` réécrits |
+| ancien (pointeur déclaré) | par défaut (Git `/mingw64/bin` en tête) | **10 SIGTRAP**, pile identique à celle du 16/08 | — |
+| 16.5.0 (essai) | par défaut | **ne démarre pas** : `0xc0000139` ENTRYPOINT_NOT_FOUND | — |
+
+**Cause** : l'exe est construit avec clang-mingw **ucrt64**, mais le shell de
+l'outillage (Git Bash) met `/mingw64/bin` de Git avant `/c/msys64/ucrt64/bin`
+dans le PATH — l'application charge alors les DLL runtime MinGW **de Git**
+(`libstdc++-6.dll`/`libgcc`/`libwinpthread`, non isolées individuellement).
+Runtimes mélangés → `RtlFreeHeap` sur une adresse d'un autre tas. Ni glslang,
+ni NKMemory : **le lanceur**. Corollaire mesuré : glslang 16.5.0 (C++17)
+transforme cette corruption **silencieuse** en **refus de démarrage bruyant** —
+la mauvaise DLL n'a pas les exports GLIBCXX requis.
+
+**Deux pièges de banc payés au passage, à re-déclarer dans tout banc shader :**
+- **l'état du cache `.nksc`** (`Build/Bin/<cfg>/<Cible>/cache/shaders/`) : cache
+  chaud → `CompileVF` tourne mais le SPIR-V sort du disque, glslang n'est
+  **jamais traversé** — un zéro qui ne mesure rien ;
+- **la sonde d'accrochage** : breakpoint sur `NkGLSLToSPIRV` AVANT de compter —
+  s'il n'accroche pas, le zéro est un zéro de sonde.
+
+**Décisions ouvertes (Rodolf)** : engager ou non la montée 16.5.0 (adaptations
+en stash du sous-module : C++17, `OGLCompilersDLL/` supprimé en amont,
+`build_info.h` à générer) ; et le remède de fond côté build — `-static-libstdc++`
+ou livraison des DLL ucrt64 à côté des exe — pour que le PATH du lanceur cesse
+d'être une variable de comportement.
+
+### 🦴 Chantier « FBX opérationnel » (commande de Rodolf, ouvert 2026-08-17)
+
+Justification : l'export (origine à 0,0,0) passera par FBX, et le corpus NKGen
+recevra du FBX. Mesure d'ouverture : `NkFBXLoader.cpp` (963 l.) ne lisait QUE la
+géométrie — zéro `Deformer`, jamais `out.nodes`/`skinJoints`/`animations`, et
+`AnimBridge.cpp` appelle `LoadGLTF` en dur. **Le parseur d'arbre (binaire+ASCII)
+lit déjà TOUS les nœuds** — Deformer/AnimationCurve sont dans `roots`, jamais
+consommés : le chantier est de l'extraction, pas du parsing.
+
+**Témoin bilatéral** : le même modèle par les deux chemins —
+`Resources/Models/CesiumMan/CesiumMan.glb` (chemin glTF prouvé) et
+`CesiumMan.fbx` (exporté du .glb, Blender 5.1 headless ; asset local,
+`Resources/Models/` étant gitignoré). Contenu mesuré par un inspecteur
+indépendant du moteur : 23 Model (19 LimbNode), 19 Cluster
+(Indexes/Weights/Transform/TransformLink), 1 Skin, 57 AnimationCurveNode,
+171 AnimationCurve, 374 Connections ; KeyTime en ticks KTime
+(46 186 158 000/s) ; euler en degrés, PreRotation absente de l'export Blender
+mais requise pour Mixamo. Banc : **`Applications/NkFBXParityDemo`** — vérifie à
+chaque course les invariants glTF (19 joints, 1 anim — le chemin glTF ne doit
+pas bouger) ET l'état FBX.
+
+| étape | état | preuve |
+|---|---|---|
+| (a) squelette + noms de nœuds | ✅ 2026-08-17 | 18 OK / 0 échec : 23 nodes nommés, 20 arêtes (3 racines), TRS conformes à l'inspecteur, `Skeleton_torso_joint_1` retrouvé **par son nom** (le chemin glTF ne garde aucun nom — `NkGLTFAnimBake` nomme `joint_{i}`) |
+| (b) skinning (poids) | ✅ 2026-08-17 | 29 OK / 0 échec (témoin des deux sens : le banc rend 19 OK + **4 FAIL** sur le code d'avant) : 19 joints = 19 Cluster, correspondance sommet émis → control point conservée par `ExtractGeometry`, poids top-4 normalisés (somme = 1 partout, 12 160/14 256 sommets multi-influences ≈ les 86 % de l'inspecteur), `inverseBind = TransformLink⁻¹·Transform` **numériquement conforme à l'inspecteur indépendant** (translation à 1e-3) — la pose de bind vient des Cluster, PAS des Lcl du graphe (écart mesuré jusqu'à 1,5). Sommets hors skin : défaut `{1,0,0,0}` — même règle que glTF, portée par les initialiseurs de `NkVertexSkinned` (`NkRendererTypes.h:153`). UpAxis=Z sur mesh skinné : conversion SAUTÉE et dite (elle ne retourne que les sommets, elle désaccorderait nodes/inverseBind) |
+| (c) animations | ✅ 2026-08-17 | 40 OK / 0 échec (témoin des deux sens : 29 OK + **2 FAIL** sur le loader d'avant) : 1 Stack « Scene » → 57 canaux (19 joints × T/R/S, couverture exacte vérifiée), échantillonnage sur l'union des clés d\|X/Y/Z (linéaire, clampé, défaut P70 du CurveNode), ticks KTime → secondes **sans rebasage** (même règle que glTF : `duration = max`), euler→quat par clé avec RotationOrder + PreRotation composée devant (le consommateur `EvaluateGLTFPose` REMPLACE la rotation statique — le canal doit porter le quaternion complet). Clé 0 de torso_joint_1 conforme à l'inspecteur (T à 1e-4, quat à 1e-3). ⚠️ Durée 10,417 s ≠ 2,0 s glTF : l'export Blender étale la timeline de scène — donnée changée par l'EXPORTEUR ; la parité de durée est impossible sur ce témoin, l'inspecteur fait foi |
+| routage extension `AnimBridge` | ✅ 2026-08-17 | `.fbx` → `LoadFBX`, sinon `LoadGLTF` — même critère (insensible à la casse) que `NkMeshSystem::Import`, qui routait déjà. Témoin d'exécution : NkAnimaEditor sur son `.glb` → `19 os, dur=2s, 61 clés`, Anim3D prêt — le chemin historique n'a pas bougé. **Honnêteté** : le chemin `.fbx` d'AnimBridge n'a pas encore d'appelant réel — sa première preuve sera le premier import FBX (même statut que les accesseurs Noge en leur temps) |
+
+| (d) **Mixamo natif** — X Bot / Y Bot contre leurs .glb (Q30 nkanim) | ✅ 2026-08-17 soir | **72 OK / 0 échec** (témoin des deux sens : 51 OK + **7 FAIL** sur le loader de #70). Trois causes réelles + une fausse alerte : (1) squelette « bâton » = artefact de la sonde nkanim (enfants non imprimés) — hiérarchie et PreRotation étaient déjà composées, mains/hanches == glb ×100 à 1 mm ; PostRotation ajoutée selon la formule SDK `R = Rpre·Rlcl·Rpost⁻¹` (non exercée, dit). (2) **inverseBind : `TL⁻¹·Transform` composait `TL⁻¹` deux fois** — Transform = TL⁻¹ · mondeMesh chez Blender comme chez Mixamo ; le chiffre glTF de Q10 était la translation de Transform seule : **la « parité impossible » de (b) était l'artefact de la formule**. Désormais `inverseBind = TL⁻¹`, sommets skinnés ramenés dans l'espace du squelette par `TL·Transform` (identité Mixamo, R·S(100) CesiumMan), **tous les Skin** lus (Beta_Surface restait en bone 0). (3) `stacks[0]` = « Take 001 » VIDE → chaque stack non vide = une animation. (4) feuilles sans Cluster complétées par parcours préfixe des LimbNode (Y Bot 13/65), `bind(feuille) = bind(parent)·local`. À l'écran (NkAnimaEditor, arg de modèle) : XBot.fbx et XBot.glb → même mesh, même pose, même squelette ; CesiumMan.fbx → homme qui marche, squelette attaché. Captures + inspecteur : `Captures/2026-08-17_fbx_mixamo/` (worktree nkrenderer). Hors contrat, dit : InheritType, pivots/offsets. |
+
+⚠️ **Correction de (b)** : la note « les inverseBind glTF et FBX ne sont PAS comparables » est **fausse** — elles le sont (translation de Transform == inverseBind glTF à 1e-3) ; c'est la formule d'alors qui ne l'était pas. Gardée ci-dessus telle qu'écrite, corrigée ici, pour que la trace du raisonnement reste lisible.
+
 ### Voyant de santé des shaders (demande de l'agent Noge)
 
 `NkShaderLibrary::GetValidProgramCount()` / `GetProgramCount()` — de quoi afficher
@@ -889,8 +960,42 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
   Note d'usage : la cible 0,18 donne une image plus claire que l'exposition
   manuelle historique (147 vs 98) — baisser `autoExposureKey` vers ~0,10 pour
   retrouver le rendu d'avant.
-  Reste V2 : réduction en **compute** (au lieu de 256 taps dans un fragment) et
-  histogramme + percentiles pour ignorer les extrêmes.
+  Reste V2 : réduction en **compute** (au lieu de 256 taps dans un fragment).
+  ~~histogramme + percentiles~~ → **LIVRÉ le 2026-08-14** (`d226565f`), voir
+  l'entrée ci-dessous : histogramme cumulé sur 16 seuils fixes en log-luminance,
+  fenêtre [30ᵉ, 98ᵉ] percentile. *(Cette ligne annonçait encore le travail comme
+  restant : corrigée le 15/08.)*
+- ✅ **Exposition : la chaîne rendue cohérente** (2026-08-14 → 15) — quatre
+  défauts distincts, tous mesurés, sur le trajet « ce qui est mesuré → ce qui
+  est appliqué → ce qui est transmis » :
+  1. l'exposition était appliquée **avant** l'ajout du bloom dans
+     `pp_tonemap.frag.nksl` : aucune valeur d'exposition ne pouvait assombrir un
+     halo (`d226565f`) ;
+  2. `RunAutoExposure` mesurait `mainColor`, **avant** composition du bloom —
+     elle ne voyait jamais le halo qu'elle amplifiait ensuite ;
+  3. moyenne logarithmique → **histogramme de percentiles** [30ᵉ, 98ᵉ] : `log`
+     diverge vers −∞ près de zéro, donc un décor sombre écrasait la mesure ;
+  4. **le seuil de bloom s'ancre sur le blanc affiché** (`ca3f5fb8`) et non sur
+     le HDR brut, via l'exposition résolue relevée par anneau (`3851e985`).
+- ✅ **Exposition résolue : transmission réparée** (2026-08-15) — trois défauts
+  liés, trouvés en mesurant le cas 4 (auto puis bloom, tout décocher, bloom
+  seul) :
+  1. `PumpExposureReadback` portait une branche « auto éteinte » **inatteignable**
+     (son unique appelant, `RunAutoExposure`, retourne avant) : personne ne
+     posait donc l'exposition manuelle. Réponse déplacée dans
+     `ResolvedExposure()` — le point où la question est posée, seul valable hors
+     frame, or le graphe se construit hors frame. Branche morte **retirée** ;
+  2. `autoExposureStrength` manquait dans la liste de `SetPostConfig` qui salit
+     le graphe : cocher l'auto ne créait aucune passe jusqu'au prochain
+     redimensionnement. Seuil d'activation unifié en
+     `NkPostConfig::kAutoExposureOn` + `AutoExposureRequested()` ;
+  3. conséquence des deux : après extinction de l'auto, le seuil de bloom
+     s'ancrait sur une exposition **héritée** — mesuré `bloomThr = 1,19` au lieu
+     de `6,15` (0,85 × 7,24 / 5,15). Corrigé : `valid=1`, `aeExposure=1`.
+  **Banc d'essai** : bloom rallumé sur les démos Sandbox cas 12 (DemoSkin) et 13
+  (DemoIK), éteintes des mois durant à cause de ce défaut — plus aucun effet
+  mesurable. Deux exécutions du même binaire diffèrent davantage (écart max 53)
+  que bloom éteint contre allumé (49).
 - ✅ **NkRHI compute audit** (2026-05-23) — compute support OK cross-API
   VK+GL (cf. `memory/nkrhi_compute_support.md`). Déjà utilisé par NkML,
   NkAnimationSystem morph, NkComputeContext wrapper. Foundation prête pour
@@ -1088,6 +1193,51 @@ limité, DX12+Metal OK. Plan :
 - Reflection probes par pièce/zone (cubemap localisé)
 
 ### Bugs/quirks connus
+- ✅ **LE SEUIL DE BLOOM NE SUIVAIT PAS L'AUTO-EXPOSITION — facteur 20 mesuré,
+  puis CORRIGÉ** (2026-08-15, `2fc4d39f` puis `bbd4a469`). `bloomThr` était
+  calculé dans `BuildDefaultRenderGraph` puis **capturé par valeur** dans les
+  lambdas des 6 passes. Il ne bougeait donc qu'au rebuild du graphe, alors que
+  l'exposition s'adapte à chaque frame.
+  **Correctif** : le calcul vit dans `NkRendererImpl::ComputeBloomThreshold()`,
+  appelée **dans la lambda** de `Bloom_Down_0` — on capture le *rang* de la
+  passe, plus une valeur. Gratuit : `threshold` est déjà un push constant de
+  `DrawBloomDownPass`, donc le réévaluer chaque frame ne recrée aucun pipeline.
+  **Après correctif** : `resolved=0.05 → bloomThr=144.8` (restait à 7,24 avant).
+  **Banc du point 4 rejoué SOUS AUTO ACTIVE** — première mesure des cas 12 et 13
+  dans le régime où ils avaient été éteints : témoin 0,306 % / 2,718 %, test
+  0,278 % / 2,425 %. Le témoin bouge plus que le test, luma stable à 141.
+  *Réserve* : sur le cas 12, l'écart max du test (88) dépasse celui du témoin
+  (79) — au plus quelques pixels de highlight, ce qu'un bloom doit faire.
+  ---
+  **Le diagnostic, gardé parce qu'il explique la forme du défaut.**
+  **Ce n'était pas un retard qui se résorbe** : à la première frame `resolved = 1`
+  — le seuil était calculé **avant que la première mesure d'auto-exposition
+  n'existe** — puis l'exposition convergeait et le seuil restait sur l'ancienne
+  valeur indéfiniment, aucun rebuild n'ayant lieu.
+  **Mesure** (Demo4 + `NK_AUTOEXP=1`, orbite, 900 frames) : seuil appliqué
+  **7,24** contre **144,8** réclamé, rapport **0,05 stable sur 841 frames**.
+  Conséquence : sous auto active, le bloom captait 20× trop bas — **le défaut que
+  les six compensations contournaient revient intégralement**. Le banc d'essai
+  du 15/08 ne pouvait pas le voir : il tourne en exposition manuelle, où la
+  valeur est désormais juste ET stable.
+  *Nuance* : `resolved` sature ici à `autoExposureMinExp = 0,05` sur une scène
+  réglée pour exposition manuelle 1 — le facteur 20 est un cas franc, pas une
+  moyenne. Le mécanisme, lui, ne dépend pas de la saturation.
+- 🔄 **DETTE — six compensations d'un défaut désormais corrigé** (nommée le
+  2026-08-15, retrait **non arbitré**). Le seuil de bloom s'appliquait sur le
+  HDR brut : toute surface diffuse bien éclairée entrait dans le bright pass.
+  Six fichiers ont compensé, sur des mois, **sans qu'aucun ne nomme la cause** :
+  `Sandbox/src/Demo/main.cpp` cas 12 et 13 (`bloom = false`), `main.cpp:349` et
+  `:368`, `DemoSkin.cpp:296` (soleil abaissé), `Demo11_FPSArena.cpp:492`
+  (lumières retirées), `Demo3D.cpp:3011` (couleur choisie sous le seuil).
+  Le banc d'essai du 15/08 montre que les cas 12 et 13 n'en ont **plus besoin**
+  (aucun effet mesurable au-dessus du bruit inter-exécutions). Les quatre autres
+  **n'ont pas été mesurés**. Ne pas retirer en bloc : chacun a été posé pour un
+  symptôme qui lui est propre, et un seul de ces symptômes pourrait avoir une
+  autre cause. Leçon associée : le commentaire du cas 12 décrivait exactement le
+  défaut (« le bloom faisait BRILLER les textures saturées alors qu'elles ne
+  reflètent pas la lumière ») des mois avant qu'il ne soit diagnostiqué —
+  **une compensation documentée reste une cause non cherchée.**
 - **FPS chute Vulkan Debug** : 500→100 fps en ~2s sans interaction
   observée 2026-05-16. Probable Vulkan validation layers + UBO writes
   + descriptor updates intensifs en Debug. À vérifier en Release.

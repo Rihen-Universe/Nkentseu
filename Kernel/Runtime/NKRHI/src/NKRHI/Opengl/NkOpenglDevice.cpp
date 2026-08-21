@@ -1250,6 +1250,8 @@ namespace nkentseu {
 		glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->id);
 		void *ptr = glMapBufferRange(GL_COPY_WRITE_BUFFER, (GLintptr)off, (GLsizeiptr)mapSz, access);
 		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+		if (!ptr)
+			return {};
 		return {ptr, mapSz};
 #elif defined(NK_OPENGL_ES)
 		GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER))	? GL_UNIFORM_BUFFER
@@ -1259,9 +1261,15 @@ namespace nkentseu {
 		glBindBuffer(target, buffer->id);
 		void *ptr = glMapBufferRange(target, (GLintptr)off, (GLsizeiptr)mapSz, access);
 		glBindBuffer(target, 0);
+		if (!ptr)
+			return {};
 		return {ptr, mapSz};
 #else
 		void *ptr = glMapNamedBufferRange(buffer->id, (GLintptr)off, (GLsizeiptr)mapSz, access);
+		// Echec -> memoire NULLE, jamais un pointeur nul accompagne d'une TAILLE
+		// non nulle : l'appelant y lirait une plage qu'il croit valide.
+		if (!ptr)
+			return {};
 		return {ptr, mapSz};
 #endif
 	}

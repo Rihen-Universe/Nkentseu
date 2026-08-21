@@ -22,7 +22,7 @@ with project("NkAudioECSDemo"):
 
     nkentseudependson(
         ["Noge", "NKAudio", "NKMedia", "NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
-         "NKRL", "NKAgent", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKUI", "NKGlad",
+         "NKRL", "NKAgent", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKGlad",
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src"],

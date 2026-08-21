@@ -6,19 +6,27 @@
  *
  * ─── PHILOSOPHIE DE L'API ────────────────────────────────────────────────────
  *
- *  Il existe deux familles de méthodes :
+ *  `NkImage` est un TYPE VALEUR. Une image se déclare, se remplit, et libère ses
+ *  pixels toute seule à la fin de sa portée, comme n'importe quelle variable
+ *  locale. Il n'existe plus d'API « tas » : AUCUNE méthode ne rend un
+ *  `NkImage *`, et `Free()` N'EXISTE PLUS.
  *
- *  1. API STATIQUE  → retourne `NkImage*`  (ownership explicite, heap-alloué)
- *     - NkImage::Alloc(...)       fabriques bas niveau pour les codecs
- *     - NkImage::Wrap(...)        vue non-owning sur un buffer externe
- *     - NkImage::Create(...)      création statique avec couleur de remplissage
- *     - NkImage::Convert(...)     conversion de format, retourne une nouvelle image
- *     - NkImage::Resize(...)      redimensionnement, retourne une nouvelle image
- *     - NkImage::Crop(...)        sous-région, retourne une nouvelle image
- *     - NkImage::Copy()           clone profond, retourne une nouvelle image
- *     - NkImage::CopyAs(fmt)      clone + conversion, retourne une nouvelle image
+ *  ⚠️ Ne réintroduisez pas de `NkImage *` possédé. C'est la forme qui a produit
+ *  120 sites divergents et deux `c0000374` en production : `Free()` faisait
+ *  `nkFree(this)`, et rien ne distinguait une instance du tas d'une instance
+ *  valeur. Historique complet : DETTE_LISIBILITE.md, chantier 12.
+ *
+ *  1. FABRIQUES  → retournent `NkImage` PAR VALEUR
+ *     (le move-ctor transfère le buffer : aucune copie de pixels)
+ *     - NkImage::Alloc(...)       image vide, fabrique bas niveau des codecs
+ *     - NkImage::Wrap(...)        vue NON-OWNING sur un buffer externe
+ *     - NkImage::Create(...)      image remplie d'une couleur
  *     - NkImage::ConvertToTexture(...)  tone-mapping HDR→LDR
- *     L'appelant est responsable d'appeler img->Free() sur le résultat.
+ *     - img.Convert(fmt) · img.Resize(...) · img.Crop(...) · img.Copy() ·
+ *       img.CopyAs(fmt)           transforment SANS toucher à la source et
+ *                                 rendent la nouvelle image par valeur
+ *     ÉCHEC : l'image rendue est INVALIDE — on teste `IsValid()`, il n'y a plus
+ *     de `nullptr`. La source n'est jamais modifiée, même en cas d'échec.
  *
  *  2. API INSTANCE  → retourne `bool`  (opère sur *this, aucune allocation visible)
  *     - img.Create(...)           crée/réinitialise *this
@@ -29,11 +37,12 @@
  *     Ces méthodes libèrent automatiquement l'ancien buffer avant de remplir *this.
  *
  *  RÈGLE DE MÉMOIRE :
- *    Les buffers alloués via l'API statique DOIVENT être libérés avec img->Free().
- *    Les buffers encodés (EncodePNG, EncodeJPEG, …) DOIVENT être libérés avec
- *    nkentseu::memory::NkFree(ptr).  Ne jamais utiliser std::free / delete[] :
- *    l'allocateur custom NKMemory n'est pas compatible avec le heap CRT standard
- *    (crash c0000374 sur Windows en cas de mélange).
+ *    Les PIXELS sont libérés par le destructeur, ou par `Unload()` qui vide
+ *    l'image en la laissant réutilisable. Rien d'autre n'est à libérer à la main.
+ *    Les buffers ENCODÉS (EncodePNG, EncodeJPEG, …) restent des `uint8 *` bruts
+ *    et DOIVENT être libérés avec nkentseu::memory::NkFree(ptr).  Ne jamais
+ *    utiliser std::free / delete[] : l'allocateur custom NKMemory n'est pas
+ *    compatible avec le heap CRT standard (crash c0000374 sur Windows).
  *
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Proprietary - All Rights Reserved (see LICENSE)
@@ -192,9 +201,8 @@ namespace nkentseu {
 
 			/**
 			 * Destructeur : libère mPixels si mOwning==true.
-			 * N'appelle PAS Free() (qui libérerait aussi le struct lui-même via nkFree).
-			 * Virtuel (hérité de NKIResource) — n'altère pas le pattern Alloc/Free
-			 * car Alloc/Wrap utilisent placement new (le vptr est donc initialisé).
+			 * Virtuel (hérité de NKIResource). C'est le SEUL chemin de libération des
+			 * pixels avec Unload() : il n'y a plus de Free() ni d'instance du tas.
 			 */
 			~NkImage() noexcept override;
 
@@ -292,8 +300,9 @@ namespace nkentseu {
 			 */
 			bool LoadFromMemory(const uint8 *data, usize size, int32 desiredChannels) noexcept;
 
-			// ── API STATIQUE : fabriques retournant NkImage* ──────────────────────────
-			//    L'appelant possède le résultat et DOIT appeler img->Free().
+			// ── FABRIQUES : retournent une NkImage PAR VALEUR ─────────────────────────
+			//    Le resultat se detruit tout seul. En cas d'echec il est INVALIDE
+			//    (IsValid()==false) : il n'y a pas de nullptr a tester.
 
 			/**
 			 * Crée une image allouée sur le heap, remplie avec une couleur RGBA packed.
@@ -303,9 +312,9 @@ namespace nkentseu {
 			 * @param desiredChannels  0 ou 4 → RGBA32, 1 → GRAY8, 2 → GRAY_A16, 3 → RGB24.
 			 * @param color            Couleur RGBA packed big-endian : 0xRRGGBBAA.
 			 *                         0x00000000 = transparent black (buffer zero-fill).
-			 * @return Nouvelle image owning, ou nullptr en cas d'échec.
+			 * @return La nouvelle image, ou une image INVALIDE en cas d'échec.
 			 */
-			static NkImage *Create(uint32 width, uint32 height, int32 desiredChannels = 0, uint32 color = 0) noexcept;
+			static NkImage Create(uint32 width, uint32 height, int32 desiredChannels = 0, uint32 color = 0) noexcept;
 
 			/**
 			 * Surcharge de Create() avec format pixel explicite.
@@ -314,7 +323,7 @@ namespace nkentseu {
 			 * @param fmt   Format pixel cible.
 			 * @param color Couleur RGBA packed big-endian (0xRRGGBBAA).
 			 */
-			static NkImage *Create(uint32 width, uint32 height, NkImagePixelFormat fmt, uint32 color = 0) noexcept;
+			static NkImage Create(uint32 width, uint32 height, NkImagePixelFormat fmt, uint32 color = 0) noexcept;
 
 			// ── NKIResource : surcharges Save « minces » (signatures exactes) ───────────
 			//    Délèguent aux variantes riches. SaveToMemory encode en PNG par défaut
@@ -389,19 +398,19 @@ namespace nkentseu {
 
 			/**
 			 * Convertit l'image vers un nouveau format pixel.
-			 * Retourne une nouvelle image allouée (API statique, l'appelant possède le résultat).
+			 * Rend la nouvelle image PAR VALEUR ; *this n'est pas modifiée.
 			 * Si newFmt == mFormat, fait un clone pur.
 			 * Conversions HDR↔LDR supportées via troncature/normalisation.
 			 */
-			NkImage *Convert(NkImagePixelFormat newFmt) const noexcept;
+			NkImage Convert(NkImagePixelFormat newFmt) const noexcept;
 
 			/**
 			 * Redimensionne l'image à (nw × nh) pixels.
-			 * Retourne une nouvelle image allouée.
+			 * Rend la nouvelle image PAR VALEUR ; *this n'est pas modifiée.
 			 *
 			 * @param f  Filtre d'interpolation (défaut : NK_BILINEAR).
 			 */
-			NkImage *Resize(int32 nw, int32 nh, NkResizeFilter f = NkResizeFilter::NK_BILINEAR) const noexcept;
+			NkImage Resize(int32 nw, int32 nh, NkResizeFilter f = NkResizeFilter::NK_BILINEAR) const noexcept;
 
 			/**
 			 * Copie (blit) l'image `src` entière dans *this à la position (dstX, dstY).
@@ -465,24 +474,24 @@ namespace nkentseu {
 							NkResizeFilter filter) noexcept;
 
 			/**
-			 * Retourne une sous-région de l'image comme nouvelle image allouée.
+			 * Rend une sous-région comme nouvelle image, PAR VALEUR ; *this intacte.
 			 * Les coordonnées doivent être entièrement dans les bornes.
 			 *
 			 * @param x, y  Coin supérieur gauche de la région.
 			 * @param w, h  Dimensions de la région.
-			 * @return Nouvelle image allouée, ou nullptr si hors bornes.
+			 * @return La sous-région, ou une image INVALIDE si hors bornes.
 			 */
-			NkImage *Crop(int32 x, int32 y, int32 w, int32 h) const noexcept;
+			NkImage Crop(int32 x, int32 y, int32 w, int32 h) const noexcept;
 
 			// ── Copies ────────────────────────────────────────────────────────────────
 
 			/**
-			 * Clone profond : retourne une nouvelle image avec les mêmes pixels/format.
-			 * API statique — l'appelant possède le résultat (appeler ->Free()).
+			 * Clone profond, rendu PAR VALEUR : mêmes pixels, même format.
+			 * Ne touche pas à *this ; le clone est rendu PAR VALEUR.
 			 *
-			 * @return Nouvelle image owning, ou nullptr si *this est invalide.
+			 * @return Le clone, ou une image INVALIDE si *this l'est.
 			 */
-			NkImage *Copy() const noexcept;
+			NkImage Copy() const noexcept;
 
 			/**
 			 * Copie une région de `src` dans *this à la position (dstX, dstY).
@@ -516,11 +525,11 @@ namespace nkentseu {
 			/**
 			 * Retourne un clone éventuellement converti vers `fmt`.
 			 * Si fmt == mFormat, équivalent à Copy() (pas de conversion inutile).
-			 * API statique — l'appelant possède le résultat (appeler ->Free()).
+			 * Ne touche pas à *this ; le clone est rendu PAR VALEUR.
 			 *
-			 * @return Nouvelle image owning, ou nullptr si *this invalide ou fmt inconnu.
+			 * @return Le clone converti, ou une image INVALIDE si *this l'est ou fmt inconnu.
 			 */
-			NkImage *CopyAs(NkImagePixelFormat fmt) const noexcept;
+			NkImage CopyAs(NkImagePixelFormat fmt) const noexcept;
 
 			// ── Accès aux métadonnées ─────────────────────────────────────────────────
 
@@ -766,17 +775,10 @@ namespace nkentseu {
 
 			// ── Gestion mémoire ───────────────────────────────────────────────────────
 
-			/**
-			 * Libère les pixels (si owning) ET libère le struct NkImage lui-même via nkFree.
-			 * À utiliser UNIQUEMENT sur les images créées via les fabriques statiques
-			 * (Alloc, Wrap, Create statique, Copy, CopyAs, Convert, Resize, Crop, …).
-			 * Ne jamais appeler Free() sur une image allouée sur la stack.
-			 */
-			void Free() noexcept;
 
 			/**
 			 * [NKIResource] Libère les pixels (si owning) et remet *this dans l'état
-			 * « image vide » SANS libérer le struct (contrairement à Free()).
+			 * « image vide », réutilisable ensuite (un Load ultérieur repart proprement).
 			 * Sûr sur une instance pile comme heap : c'est l'opération de « déchargement »
 			 * réutilisable (un Load ultérieur réinitialise *this proprement).
 			 */
@@ -787,13 +789,13 @@ namespace nkentseu {
 			/**
 			 * Alloue une image vide (pixels zeroed) de dimensions (w × h) et de format fmt.
 			 * Utilisé par les codecs pour construire leur résultat.
-			 * L'appelant possède le résultat et DOIT appeler ->Free().
+			 * Le résultat est rendu par valeur et se détruit tout seul.
 			 */
-			static NkImage *Alloc(int32 w, int32 h, NkImagePixelFormat fmt) noexcept;
+			static NkImage Alloc(int32 w, int32 h, NkImagePixelFormat fmt) noexcept;
 
 			/**
 			 * Crée une vue non-owning sur un buffer pixel externe.
-			 * Le buffer n'est PAS libéré par le destructeur ni par Free().
+			 * Le buffer n'est PAS libéré par le destructeur (vue non-owning).
 			 * L'appelant reste responsable de la durée de vie du buffer.
 			 *
 			 * @param pixels  Pointeur vers les données pixel.
@@ -801,7 +803,7 @@ namespace nkentseu {
 			 * @param fmt     Format pixel.
 			 * @param stride  Stride en octets (0 = calculé automatiquement w*bpp).
 			 */
-			static NkImage *Wrap(uint8 *pixels, int32 w, int32 h, NkImagePixelFormat fmt, int32 stride = 0) noexcept;
+			static NkImage Wrap(uint8 *pixels, int32 w, int32 h, NkImagePixelFormat fmt, int32 stride = 0) noexcept;
 
 			/**
 			 * Tone-mapping d'une image HDR (RGB96F/RGBA128F) vers RGBA32 LDR.
@@ -810,9 +812,9 @@ namespace nkentseu {
 			 * @param hdrImage  Image source HDR (doit être IsHDR()==true).
 			 * @param exposure  Facteur d'exposition (défaut 1.0).
 			 * @param gamma     Gamma de correction (défaut 2.2, sRGB standard).
-			 * @return Nouvelle image RGBA32, ou nullptr si hdrImage invalide.
+			 * @return L'image RGBA32, ou une image INVALIDE si hdrImage l'est.
 			 */
-			static NkImage *ConvertToTexture(const NkImage &hdrImage, float exposure = 1.0f,
+			static NkImage ConvertToTexture(const NkImage &hdrImage, float exposure = 1.0f,
 											 float gamma = 2.2f) noexcept;
 
 		private:
@@ -839,7 +841,7 @@ namespace nkentseu {
 			 * Dispatch vers le codec approprié selon le format détecté.
 			 * Si `desired` > 0 et différent du format natif, convertit après décodage.
 			 */
-			static NkImage *Dispatch(const uint8 *data, usize size, int32 desired, NkImageFormat fmt) noexcept;
+			static NkImage Dispatch(const uint8 *data, usize size, int32 desired, NkImageFormat fmt) noexcept;
 
 			/**
 			 * Conversion bas niveau de canaux pour des données pixel brutes.

@@ -220,6 +220,7 @@ namespace nkentseu {
 								gn.rotation = {r[0], r[1], r[2], r[3]}; // x,y,z,w
 						}
 						gn.mesh = (int32)ObjGetInt(*node, "mesh", -1);
+						ObjGetString(*node, "name", gn.name); // optionnel : vide si absent
 						const NkArchiveNode *ch = node->FindNode(NkStringView("children"));
 						if (ch && ch->IsArray()) {
 							for (nk_size ci = 0; ci < ch->array.Size(); ++ci)
