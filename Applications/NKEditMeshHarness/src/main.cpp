@@ -3426,6 +3426,29 @@ static void MaterialBattery() {
 		GraphPut("%-34s smooth %u -> %u sur %u faces (TEMOIN du comportement existant)", "mat/temoin-smooth",
 				 avant, apres, (uint32)m.faces.Size());
 	}
+
+	// ── 12. SURVIE A LA SOUDURE ─────────────────────────────────────────────
+	// ⚠ AJOUTEE EN FIN, comme SelOrderBattery et LinkedBattery le font au niveau
+	// des batteries : une insertion AU MILIEU decale toutes les lignes suivantes
+	// et `--check` les signale comme des divergences alors qu'aucune valeur n'a
+	// bouge. Erreur commise puis corrigee ici : 2 fausses divergences.
+	// Le cube importe duplique ses coins par face (24 sommets pour 8 positions).
+	// Une soudure par distance les fusionne : les faces SURVIVANTES doivent
+	// garder leur index. C'est le cas le plus proche d'un import reel, ou le
+	// premier geste de l'utilisateur est « Remove Doubles ».
+	{
+		NkEditMesh m;
+		makeTwoIslands(m);
+		const uint32 avant = countMat(m, 1);
+		const uint32 vAvant = (uint32)m.verts.Size();
+		m.SelectAll();
+		NkMergeParams mp;
+		mp.mode = NkMergeParams::ByDistance;
+		mp.distance = 0.001f;
+		const bool ok = m.MergeSelectedVerts(mp);
+		GraphPut("%-34s slot1 %u -> %u | sommets %u -> %u ok=%d", "mat/survie-soudure", avant, countMat(m, 1),
+				 vAvant, (uint32)m.verts.Size(), ok ? 1 : 0);
+	}
 }
 
 int main(int argc, char **argv) {
