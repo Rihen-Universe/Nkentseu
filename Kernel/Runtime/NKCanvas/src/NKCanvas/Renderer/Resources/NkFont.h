@@ -20,6 +20,7 @@ namespace nkentseu {
 	// renderer::NkFont ci-dessous est un WRAPPER GPU autour de ces types CPU.
 	struct NkFontAtlas;
 	struct NkFont;
+	enum class NkEmbeddedFontId : unsigned int; // NKFont/Embedded (nkft_uint32)
 
 	namespace renderer {
 
@@ -78,6 +79,11 @@ namespace nkentseu {
 				// ── Load (le renderer sert à créer les textures atlas GPU) ──────────
 				bool LoadFromFile(NkIRenderer2D &renderer, const char *path);
 				bool LoadFromMemory(NkIRenderer2D &renderer, const void *data, usize sizeBytes);
+				// Police EMBARQUÉE du module NKFont (aucun fichier sur disque) —
+				// passe par NkFontEmbedded::AddToAtlas, qui applique la config
+				// optimale (profil détecté, oversampling, hinting) : le rendu le
+				// plus net, à préférer pour l'UI (demande Rihen, NkRef 2026-08-11).
+				bool LoadEmbedded(NkIRenderer2D &renderer, NkEmbeddedFontId id);
 
 				// ── Glyph access ────────────────────────────────────────────────────
 				// bold ignoré (le module ne fait pas de faux-gras ; charger une
@@ -92,7 +98,7 @@ namespace nkentseu {
 				const NkTexture *GetAtlasTexture(uint32 characterSize) const;
 
 				bool IsValid() const {
-					return !mFontData.Empty();
+					return mUseEmbedded || !mFontData.Empty();
 				}
 
 				void Destroy();
@@ -109,6 +115,8 @@ namespace nkentseu {
 				Page *GetOrCreatePage(uint32 characterSize) const;
 
 				NkVector<uint8> mFontData;		 // données fonte conservées vivantes
+				bool mUseEmbedded = false;		 // police embarquée NKFont au lieu d'un fichier
+				NkEmbeddedFontId mEmbeddedId{};	 // valide si mUseEmbedded
 				mutable NkVector<Page *> mPages; // une page par taille de caractère
 				NkIRenderer2D *mRenderer = nullptr;
 				mutable NkGlyph mScratchGlyph; // pour retourner une const ref

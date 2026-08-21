@@ -1,0 +1,114 @@
+# =============================================================================
+# build-macos.yml — Compilation macOS ET Linux de NkRef sur runners GitHub,
+# avec ARTEFACTS téléchargeables (paquets pour les testeurs).
+#
+# POURQUOI : aucun Mac sous la main — cette CI est notre seule machine Apple
+# (demande Rihen, 2026-08-11). Jenga et Nkentseu étant publics, le runner
+# clone tout en HTTPS sans secret, minutes illimitées.
+#
+# Déclenchement : manuel (workflow_dispatch) + push sur main et feat/**.
+# Le backend Cocoa a été complété À L'AVEUGLE (SetDecorated, BeginDragMove…) :
+# les premières exécutions SERVENT à révéler les erreurs — un échec macOS est
+# une information, pas une surprise. Le job Linux, lui, reproduit un chemin
+# déjà prouvé sous WSL2 (XLib + GLX Mesa).
+# =============================================================================
+name: build-desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "feat/**"]
+    paths:
+      - "Kernel/**"
+      - "Applications/NkRef/**"
+      - "Nkentseu.jenga"
+      - ".github/workflows/build-macos.yml"
+
+jobs:
+  nkref-macos:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          # La branche VIVANTE de Rihen (fix frameworks() inclus) — main public est en retard.
+          ref: feat/evenement-avertissement
+          path: jenga-src
+
+      - name: Builder NkRef (Release)
+        env:
+          # Le paquet Python `Jenga` vit a la racine du depot Jenga.
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 --version
+          python3 -m Jenga build --target NkRef --config Release
+
+      - name: Empaqueter (tar.gz pour testeurs)
+        run: |
+          set -e
+          BIN=$(find Build/Bin -type f -name NkRef -path "*Release*" | head -1)
+          echo "binaire: $BIN"
+          mkdir -p paquet/NkRef-macOS
+          cp "$BIN" paquet/NkRef-macOS/
+          cp Applications/NkRef/LISEZMOI-TESTEURS.md paquet/NkRef-macOS/ || true
+          tar -czf NkRef-macOS.tar.gz -C paquet NkRef-macOS
+          ls -l NkRef-macOS.tar.gz
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NkRef-macOS
+          path: NkRef-macOS.tar.gz
+
+  nkref-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          # La branche VIVANTE de Rihen (fix frameworks() inclus) — main public est en retard.
+          ref: feat/evenement-avertissement
+          path: jenga-src
+
+      - name: Dependances systeme (XLib + GL, le chemin prouve sous WSL2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev
+
+      - name: Builder NkRef (Release)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 --version
+          python3 -m Jenga build --target NkRef --config Release
+
+      - name: Empaqueter (tar.gz pour testeurs)
+        run: |
+          set -e
+          BIN=Build/Bin/Release-Linux/NkRef/NkRef
+          test -f "$BIN"
+          mkdir -p paquet/NkRef-Linux
+          cp "$BIN" paquet/NkRef-Linux/
+          cp Applications/NkRef/LISEZMOI-TESTEURS.md paquet/NkRef-Linux/ || true
+          tar -czf NkRef-Linux-x86_64.tar.gz -C paquet NkRef-Linux
+          ls -l NkRef-Linux-x86_64.tar.gz
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NkRef-Linux-x86_64
+          path: NkRef-Linux-x86_64.tar.gz

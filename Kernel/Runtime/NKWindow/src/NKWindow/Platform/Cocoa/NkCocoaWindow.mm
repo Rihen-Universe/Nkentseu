@@ -50,18 +50,23 @@
 
 	NSRect contentRect = [nswin contentRectForFrameRect:nswin.frame];
 	const float scale = static_cast<float>(nswin.backingScaleFactor);
-	uint32 newW = static_cast<uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.width)) * scale);
-	uint32 newH = static_cast<uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.height)) * scale);
+	nkentseu::uint32 newW =
+		static_cast<nkentseu::uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.width)) * scale);
+	nkentseu::uint32 newH =
+		static_cast<nkentseu::uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.height)) * scale);
 
-	// Mettre à jour mData
+	// L'ANCIENNE taille d'abord (l'événement transporte prev) — l'écraser avant
+	// de la lire donnait un prev toujours égal au nouveau.
+	const nkentseu::uint32 prevW = win->mData.mWidth, prevH = win->mData.mHeight;
 	win->mData.mWidth = newW;
 	win->mData.mHeight = newH;
 
-	// Synchroniser mConfig
-	win->mConfig.width = newW;
-	win->mConfig.height = newH;
+	// mConfig est privé : le délégué ObjC n'est pas membre de NkWindow —
+	// ConfigData() existe exactement pour ces callbacks (précédent Wayland).
+	win->ConfigData().width = newW;
+	win->ConfigData().height = newH;
 
-	nkentseu::NkWindowResizeEvent e(newW, newH, win->mData.mWidth, win->mData.mHeight);
+	nkentseu::NkWindowResizeEvent e(newW, newH, prevW, prevH);
 	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
 }
 
@@ -93,11 +98,13 @@
 		return;
 	NSRect frame = nswin.frame;
 
-	// Mettre à jour mConfig avec la nouvelle position
-	win->mConfig.x = static_cast<int32>(frame.origin.x);
-	win->mConfig.y = static_cast<int32>(frame.origin.y);
+	// mConfig via ConfigData() (privé sinon) ; types qualifiés — ce bloc ObjC
+	// vit hors du namespace nkentseu.
+	win->ConfigData().x = static_cast<nkentseu::int32>(frame.origin.x);
+	win->ConfigData().y = static_cast<nkentseu::int32>(frame.origin.y);
 
-	nkentseu::NkWindowMoveEvent mv(static_cast<int32>(frame.origin.x), static_cast<int32>(frame.origin.y));
+	nkentseu::NkWindowMoveEvent mv(static_cast<nkentseu::int32>(frame.origin.x),
+								   static_cast<nkentseu::int32>(frame.origin.y));
 	nkentseu::NkWESystem::Events().Enqueue_Public(mv, win->GetId());
 	nkentseu::NkWindowMoveEndEvent e;
 	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
@@ -136,7 +143,7 @@ namespace nkentseu {
 		if (!window || iconPath.Empty()) {
 			return;
 		}
-		NSString *path = [NSString stringWithUTF8String:iconPath.c_str()];
+		NSString *path = [NSString stringWithUTF8String:iconPath.CStr()];
 		if (!path || path.length == 0) {
 			return;
 		}
@@ -177,7 +184,7 @@ namespace nkentseu {
 	// Fonctions de synchronisation mData ↔ mConfig
 	// =========================================================================
 
-	static void SyncConfigFromWindow(const NkCocoaWindowData &data, NkWindowConfig &config) {
+	static void SyncConfigFromWindow(const NkWindowData &data, NkWindowConfig &config) {
 		config.width = data.mWidth;
 		config.height = data.mHeight;
 		config.visible = data.mVisible;
@@ -186,7 +193,7 @@ namespace nkentseu {
 		// Le titre est mis à jour dans GetTitle/SetTitle
 	}
 
-	static void SyncWindowFromConfig(NkCocoaWindowData &data, const NkWindowConfig &config) {
+	static void SyncWindowFromConfig(NkWindowData &data, const NkWindowConfig &config) {
 		data.mVisible = config.visible;
 		data.mFullscreen = config.fullscreen;
 		// Les autres propriétés seront appliquées via les méthodes dédiées
@@ -255,7 +262,7 @@ namespace nkentseu {
 				[window setAcceptsMouseMovedEvents:YES];
 
 				if (!config.title.Empty()) {
-					[window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
+					[window setTitle:[NSString stringWithUTF8String:config.title.CStr()]];
 				}
 			} else {
 				NSWindowStyleMask style = NSWindowStyleMaskBorderless;
@@ -299,7 +306,7 @@ namespace nkentseu {
 
 				[window setContentView:view];
 				[window setReleasedWhenClosed:NO];
-				[window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
+				[window setTitle:[NSString stringWithUTF8String:config.title.CStr()]];
 				[window setAcceptsMouseMovedEvents:YES];
 			}
 
@@ -396,6 +403,15 @@ namespace nkentseu {
 				}
 			}
 		}
+
+		// Fenêtre discrète demandée à la création : appliquer via les setters
+		// runtime (ils vérifient les handles et centralisent la mécanique).
+		if (config.alwaysOnTop)
+			SetAlwaysOnTop(true);
+		if (config.opacity < 1.0f)
+			SetOpacity(config.opacity);
+		if (config.clickThrough)
+			SetClickThrough(true);
 
 		mIsOpen = true;
 
@@ -495,7 +511,7 @@ namespace nkentseu {
 	void NkWindow::SetTitle(const NkString &title) {
 		mConfig.title = title;
 		if (mData.mNSWindow) {
-			[mData.mNSWindow setTitle:[NSString stringWithUTF8String:title.c_str()]];
+			[mData.mNSWindow setTitle:[NSString stringWithUTF8String:title.CStr()]];
 		}
 	}
 
@@ -615,7 +631,7 @@ namespace nkentseu {
 			info.name[sizeof(info.name) - 1] = '\0';
 		} else {
 			NkString fallback = NkString::Fmt("Display {0}", index + 1);
-			::strncpy(info.name, fallback.c_str(), sizeof(info.name) - 1);
+			::strncpy(info.name, fallback.CStr(), sizeof(info.name) - 1);
 			info.name[sizeof(info.name) - 1] = '\0';
 		}
 		return info;
@@ -747,6 +763,100 @@ namespace nkentseu {
 			NkWindowWindowedEvent event;
 			NkWESystem::Events().Enqueue_Public(event, mId);
 		}
+	}
+
+	// ── Fenêtre discrète ─────────────────────────────────────────────────────────
+	// Cocoa a les trois nativement : alphaValue (opacité de toute la fenêtre),
+	// level NSFloatingWindowLevel (toujours-devant), ignoresMouseEvents
+	// (click-through).
+
+	void NkWindow::SetOpacity(float32 opacity) {
+		if (opacity < 0.0f)
+			opacity = 0.0f;
+		if (opacity > 1.0f)
+			opacity = 1.0f;
+		mConfig.opacity = opacity;
+		if (mData.mNSWindow) {
+			[mData.mNSWindow setAlphaValue:(CGFloat)opacity];
+		}
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+		if (mData.mNSWindow) {
+			// Floating : au-dessus des fenêtres normales, mais sous les alertes
+			// système — le niveau attendu d'un outil flottant.
+			[mData.mNSWindow setLevel:(onTop ? NSFloatingWindowLevel : NSNormalWindowLevel)];
+		}
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		if (mData.mNSWindow)
+			return [mData.mNSWindow level] != NSNormalWindowLevel;
+		return mConfig.alwaysOnTop;
+	}
+
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+		if (mData.mNSWindow) {
+			[mData.mNSWindow setIgnoresMouseEvents:(clickThrough ? YES : NO)];
+		}
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		if (mData.mNSWindow)
+			return [mData.mNSWindow ignoresMouseEvents] != NO;
+		return mConfig.clickThrough;
+	}
+
+	// ── Fenêtre sans bordure / barre de titre custom (préparation NkRef) ─────
+	// Ces méthodes manquaient au backend Cocoa (trou de link pour toute app qui
+	// les appelle — NkRef borderless en dépend). Écrites d'après AppKit, à
+	// VALIDER sur machine réelle (aucun Mac sous la main, 2026-08-11).
+
+	void NkWindow::SetDecorated(bool decorated) {
+		mConfig.frame = decorated;
+		if (!mData.mNSWindow)
+			return;
+		NSUInteger mask = mData.mNSWindow.styleMask;
+		if (decorated) {
+			mask |= (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable |
+					 NSWindowStyleMaskResizable);
+		} else {
+			// Borderless MAIS résizable : les bords AppKit continuent de
+			// fonctionner sans chrome (équivalent du WM_NCCALCSIZE Win32).
+			mask &= ~(NSUInteger)(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+								  NSWindowStyleMaskMiniaturizable);
+			mask |= NSWindowStyleMaskResizable;
+		}
+		mData.mNSWindow.styleMask = mask;
+	}
+
+	bool NkWindow::IsDecorated() const {
+		return mConfig.frame;
+	}
+
+	bool NkWindow::IsMaximized() const {
+		return mData.mNSWindow && [mData.mNSWindow isZoomed];
+	}
+
+	void NkWindow::BeginDragMove() {
+		// Hand-off natif : AppKit prend la main sur le déplacement.
+		if (mData.mNSWindow) {
+			NSEvent *ev = [NSApp currentEvent];
+			if (ev)
+				[mData.mNSWindow performWindowDragWithEvent:ev];
+		}
+	}
+
+	void NkWindow::BeginResize(NkResizeEdge /*edge*/) {
+		// Pas de hand-off natif « par bord » dans AppKit : une fenêtre
+		// NSWindowStyleMaskResizable (même borderless) gère déjà ses bords.
+		// Intention consommée sans effet — documenté, pas un contournement.
 	}
 
 	bool NkWindow::SupportsOrientationControl() const {

@@ -33,6 +33,9 @@
 #include <GLES3/gl31.h>
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #include <GLES3/gl3.h>
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+// Apple : pas de GL/gl.h — cœur GL dans OpenGL/gl3.h (CI macOS 2026-08-11).
+#include <OpenGL/gl3.h>
 #else
 #include <GL/gl.h>
 #include <GL/glext.h>

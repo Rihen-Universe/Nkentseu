@@ -68,6 +68,11 @@
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #include <emscripten/html5.h>
 #include <GLES3/gl3.h>
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+// Apple ne livre pas GL/gl.h : le cœur GL 3.2+ vit dans OpenGL/gl3.h.
+// Branche ABSENTE jusqu'à la première CI macOS (aucun header GL inclus →
+// GL_RENDERER inconnu).
+#include <OpenGL/gl3.h>
 #endif
 #define GLAD_WGL_EXT_swap_control 0
 #define GLAD_WGL_EXT_swap_control_tear 0

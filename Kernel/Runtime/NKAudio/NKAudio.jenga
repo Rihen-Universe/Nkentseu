@@ -74,19 +74,15 @@ with project("NKAudio"):
 
     with filter("system:macOS"):
         usetoolchain("clang-native")
-        links([
-            "AudioToolbox.framework",
-            "CoreAudio.framework",
-            "CoreFoundation.framework",
-        ])
+        # frameworks(), pas links("X.framework") : les entrées .framework de
+        # links() se propagent aux APPS via nkentseudependson et le linker les
+        # traite comme des CHEMINS relatifs inexistants (« no such file:
+        # Applications/NKCode/AudioToolbox.framework », probe CI 2026-08-11).
+        frameworks(["AudioToolbox", "CoreAudio", "CoreFoundation"])
 
     with filter("system:iOS"):
         usetoolchain("clang-native-ios")
-        links([
-            "AudioToolbox.framework",
-            "AVFoundation.framework",
-            "CoreAudio.framework",
-        ])
+        frameworks(["AudioToolbox", "AVFoundation", "CoreAudio"])
 
     with filter("system:Android"):
         usetoolchain("android-ndk")

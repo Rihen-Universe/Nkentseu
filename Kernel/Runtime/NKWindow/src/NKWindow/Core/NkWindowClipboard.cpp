@@ -8,9 +8,13 @@
 //   partout. TODO : presse-papiers OS reel par plateforme (X11 CLIPBOARD,
 //   NSPasteboard, wl_data_device...).
 // =============================================================================
-#if !defined(_WIN32)
-
 #include "NKWindow/Core/NkWindow.h"
+
+// Guard elargi (2026-08-11) : `!defined(_WIN32)` excluait AUSSI UWP et Xbox,
+// qui n'ont pas l'implementation desktop de NkWin32Window.cpp -> symboles
+// manquants au link. Meme expression que NkWindowCursor.cpp : seul le desktop
+// Win32 a sa vraie implementation OS, tout le reste recoit ce fallback.
+#if !(defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX))
 
 namespace nkentseu {
 
@@ -30,4 +34,4 @@ namespace nkentseu {
 
 } // namespace nkentseu
 
-#endif // !_WIN32
+#endif // !(desktop Win32)
