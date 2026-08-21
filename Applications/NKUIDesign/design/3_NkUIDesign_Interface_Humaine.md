@@ -3238,6 +3238,41 @@ machine à l'autre.
 ⚠️ **Et retirer un greffon doit retirer EXACTEMENT ses contributions**, ni plus ni
 moins. C'est le préfixe qui le rend possible.
 
+### 20bis.3bis ⚠️ Trois couches, et celle de l'utilisateur gagne toujours
+
+*Demande de Rodolf, 2026-08-21 : ces systèmes doivent évoluer et l'utilisateur
+doit pouvoir les modifier.*
+
+Tout ce qu'un greffon peut étendre — raccourcis, commandes, thème, éditeurs de
+propriétés, menus contextuels — se lit en **trois couches empilées** :
+
+| couche | qui la pose | qui peut l'écraser |
+|---|---|---|
+| **défaut** | le produit | greffon, puis utilisateur |
+| **apport** | un greffon | l'utilisateur |
+| **choix** | **l'utilisateur** | **personne** |
+
+⚠️ **La couche de l'utilisateur gagne toujours, et une mise à jour ne la touche
+jamais.** Un greffon qui change son raccourci par défaut, ou une nouvelle version
+du produit qui déplace une commande, **ne doit pas défaire ce que quelqu'un a
+réglé**. C'est la façon la plus sûre de faire perdre confiance en un outil : on
+revient le lendemain et ses touches ne sont plus les siennes.
+
+⚠️ **Et toute surcharge doit être VISIBLE et RÉVERSIBLE.** À côté de chaque
+réglage modifié, la valeur du dessous et un bouton pour y revenir. Sans cela,
+l'utilisateur qui a changé trois choses il y a six mois ne sait plus lesquelles —
+et il attribue au produit un comportement qu'il a lui-même réglé.
+
+⚠️ **Le conflit se nomme, il ne se résout pas tout seul.** Deux greffons qui
+revendiquent `Ctrl+K` : les deux entrent dans la table, le conflit est **affiché**,
+et l'utilisateur tranche. Attribuer au premier chargé fait dépendre le
+comportement de l'ordre d'installation — c'est-à-dire de rien de lisible.
+
+> `NkShortcutTable` porte déjà cette intention : *« la liaison touche → commande
+> vit en donnée, jamais en dur »*, et *« la détection des conflits AVANT qu'ils ne
+> se manifestent à l'usage »*. **Il reste à tenir la même promesse pour le thème,
+> les commandes, l'inspecteur et les menus contextuels.**
+
 ### 20bis.4 Un document enregistre les greffons dont il dépend
 
 Un `.nkgui` qui utilise `lumen.carte` écrit cette dépendance, avec sa version.
