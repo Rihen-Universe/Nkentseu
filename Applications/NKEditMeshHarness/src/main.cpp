@@ -1687,6 +1687,29 @@ static void AnalysisBattery() {
 //     verrait pas au compte de liens seul.
 // Ecriture d'une ligne de rapport. Fonction STATIQUE et non lambda : une lambda
 // a ellipse C n'est pas du C++ valide.
+// ⚠️ VERIFICATION DU FORMAT PAR LE COMPILATEUR (ajoutee le 2026-08-22).
+// Sans cet attribut, un format qui reclame plus de valeurs qu'on ne lui en passe
+// ne casse RIEN de visible : il lit de la memoire indeterminee et affiche un
+// chiffre PLAUSIBLE. Constate ici meme -- `ops/coupe-par-plan` annoncait
+// « nonmanif=18 » sur un cube parfaitement manifold, parce que le format
+// demandait sept %u et n'en recevait que six. Le chiffre etait credible, et il
+// accusait BisectByPlane a tort.
+// L'attribut fait verifier CHAQUE appel a la compilation : un desalignement
+// devient un avertissement, plus un faux resultat.
+#if defined(__GNUC__) || defined(__clang__)
+// ⚠️ ERREUR, PAS AVERTISSEMENT, ET SEULEMENT DANS CE FICHIER. Un avertissement
+// se noie dans la sortie d'un build de 25 projets ; or un banc qui affiche un
+// chiffre faux est PIRE qu'un banc absent -- on lui fait confiance. Ici, un
+// format desaligne doit arreter la compilation. La portee reste locale : aucun
+// autre projet du depot n'est affecte.
+#pragma GCC diagnostic error "-Wformat"
+#define NK_FMT_CHECK(a, b) __attribute__((format(printf, a, b)))
+#else
+#define NK_FMT_CHECK(a, b)
+#endif
+
+static void GraphPut(const char *fmt, ...) NK_FMT_CHECK(1, 2);
+
 static void GraphPut(const char *fmt, ...) {
 	if (gLineCount >= 512)
 		return;
@@ -3697,6 +3720,285 @@ static void HistoryBattery() {
 	}
 }
 
+// ── LES SIX OPERATIONS QUI N'AVAIENT AUCUN BANC ─────────────────────────────
+// POURQUOI CETTE BATTERIE EXISTE
+// Mesure de la colonne trois (cf. NKRenderer/ROADMAP.md, 2026-08-22) : six
+// commandes d'edition de `NkEditMesh` n'etaient appelees par AUCUN banc console
+// du depot -- `BisectByPlane`, `DeleteSelectedFaces`, `ExtrudeSelectedVertices`,
+// `LoopCutFromSelectedEdge`, `MakeFaceFromSelected`, `SpinSelected`.
+//
+// ⚠️ `SpinSelected` comptait pourtant comme exercee : le harnais contient bien
+// « Spin », mais uniquement en LIAISON DE RACCOURCI CLAVIER
+// (`t.Bind("mesh.spin", ...)`). L'operation n'etait jamais appelee. C'est le
+// motif « compter des noms au lieu de mesurer des usages » -- chercher le NOM
+// d'une capacite et chercher son USAGE donnent deux reponses differentes.
+//
+// CE QUE MESURE LA SIGNATURE
+// Pour chaque operation : son booleen de retour, ET l'effet TOPOLOGIQUE attendu
+// (comptes de sommets/faces/aretes, bord, non-manifold). Le booleen seul ne
+// prouve rien -- une operation peut rendre `true` sans avoir rien change ; c'est
+// exactement le faux vert qui avait ete pris en flagrant delit sur
+// `mat/survie-extrusion`. D'ou le temoin « avant -> apres » sur chaque ligne.
+//
+// REGIMES COUVERTS : le cas nominal de chaque operation, plus son REFUS quand la
+// selection ne s'y prete pas. NON COUVERT : la qualite geometrique du resultat
+// (planeite du chanfrein, regularite du pas de la vis) -- ces bancs mesurent la
+// topologie, pas l'esthetique.
+static void SixOpsBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	NkVector<NkVertex3D> gv;
+	NkVector<uint32> gi;
+	MakeGrid(4, gv, gi);
+
+	auto cube = [&](NkEditMesh &m) {
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+	};
+	auto grille = [&](NkEditMesh &m) {
+		m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		m.RebuildEdges();
+	};
+	auto facesVivantes = [](const NkEditMesh &m) {
+		uint32 n = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				n++;
+		return n;
+	};
+	// Selectionne toutes les copies coincidentes d'une position : le cube duplique
+	// ses coins par face, donc « cliquer un coin » en touche plusieurs.
+	auto selPos = [](NkEditMesh &m, const NkVec3f &p, float32 eps = 1e-5f) {
+		NkVector<uint8> f;
+		f.Resize(m.VertCount());
+		uint32 n = 0;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const bool hit = (m.verts[i].pos - p).Len() < eps;
+			f[i] = hit ? (uint8)1 : (uint8)0;
+			if (hit)
+				n++;
+		}
+		m.SetVertSelection(f.Data(), (uint32)f.Size());
+		return n;
+	};
+
+	// ── 1. SUPPRIMER LES FACES SELECTIONNEES ────────────────────────────────
+	// Supprimer une face d'un cube ouvre un TROU : le bord passe de 0 a 4 aretes.
+	// C'est cet invariant qu'on mesure, pas le seul compte de faces.
+	{
+		NkEditMesh m;
+		cube(m);
+		const Sig avant = Signature(m);
+		// Selectionne la face +Z par ses quatre coins.
+		uint32 fz = 0;
+		float32 best = -2.f;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			const float32 d = m.faces[f].normal.Dot({0.f, 0.f, 1.f});
+			if (d > best) {
+				best = d;
+				fz = f;
+			}
+		}
+		NkVector<NkEmId> boucle;
+		m.GetFaceVerts(fz, boucle);
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			fl[i] = 0;
+		for (uint32 k = 0; k < (uint32)boucle.Size(); ++k)
+			fl[boucle[k]] = 1;
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+		const bool ok = m.DeleteSelectedFaces();
+		m.RebuildEdges();
+		const Sig apres = Signature(m);
+		GraphPut("%-34s ok=%d faces %u -> %u | bord %u -> %u (un trou s ouvre) nonmanif=%u", "ops/supprimer-faces",
+				 ok ? 1 : 0, avant.faces, apres.faces, avant.boundary, apres.boundary, apres.nonManifold);
+	}
+
+	// ── 2. SUPPRIMER SANS RIEN DE SELECTIONNE : doit REFUSER ────────────────
+	// Le refus compte autant que l'effet : une commande qui « reussit » sur une
+	// selection vide detruirait le modele au premier raccourci mal frappe.
+	{
+		NkEditMesh m;
+		cube(m);
+		m.SelectNone();
+		const uint32 avant = facesVivantes(m);
+		const bool ok = m.DeleteSelectedFaces();
+		GraphPut("%-34s ok=%d (0 attendu) faces %u -> %u (inchange attendu)", "ops/supprimer-refus", ok ? 1 : 0,
+				 avant, facesVivantes(m));
+	}
+
+	// ── 3. EXTRUDER DES SOMMETS -> ARETES FIL ───────────────────────────────
+	// L'extrusion de sommet ne cree pas de surface : elle cree des « faces » a
+	// deux sommets, les aretes fil de Blender. Le compte de FACES ne doit donc
+	// pas bouger comme pour une extrusion de face -- c'est le piege de ce cas.
+	{
+		NkEditMesh m;
+		cube(m);
+		const uint32 vAvant = m.VertCount();
+		const uint32 fAvant = facesVivantes(m);
+		selPos(m, m.verts[0].pos);
+		NkExtrudeParams p;
+		p.offset = 0.4f;
+		const bool ok = m.ExtrudeSelectedVertices(p);
+		m.RebuildEdges();
+		// ⚠️ ON SEPARE FACES PLEINES ET ARETES FIL. Premiere version de ce cas :
+		// elle affichait « faces pleines 6 -> 9 » en comptant TOUTES les faces
+		// vivantes -- or l extrusion de sommet ne cree aucune surface, elle cree
+		// des faces a DEUX sommets (les aretes fil de Blender). Le libelle mentait
+		// sur ce qu il comptait, et c est precisement le piege que le commentaire
+		// d en-tete annonce.
+		uint32 pleines = 0, fils = 0;
+		{
+			NkVector<NkEmId> b;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+				if (!m.faces[f].alive)
+					continue;
+				b.Clear();
+				m.GetFaceVerts(f, b);
+				if (b.Size() >= 3)
+					pleines++;
+				else if (b.Size() == 2)
+					fils++;
+			}
+		}
+		GraphPut("%-34s ok=%d sommets %u -> %u | faces pleines %u -> %u (INCHANGE attendu) aretes fil=%u",
+				 "ops/extruder-sommets", ok ? 1 : 0, vAvant, m.VertCount(), fAvant, pleines, fils);
+	}
+
+	// ── 4. FAIRE UNE FACE DEPUIS LA SELECTION (touche F) ────────────────────
+	// On supprime une face puis on la RECONSTRUIT depuis les quatre coins du
+	// trou : le bord doit revenir a 0. C'est l'aller-retour qui prouve
+	// l'operation, pas un simple « +1 face ».
+	{
+		NkEditMesh m;
+		cube(m);
+		uint32 fz = 0;
+		float32 best = -2.f;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			const float32 d = m.faces[f].normal.Dot({0.f, 0.f, 1.f});
+			if (d > best) {
+				best = d;
+				fz = f;
+			}
+		}
+		NkVector<NkEmId> boucle;
+		m.GetFaceVerts(fz, boucle);
+		NkVector<NkVec3f> coins;
+		for (uint32 k = 0; k < (uint32)boucle.Size(); ++k)
+			coins.PushBack(m.verts[boucle[k]].pos);
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			fl[i] = 0;
+		for (uint32 k = 0; k < (uint32)boucle.Size(); ++k)
+			fl[boucle[k]] = 1;
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+		m.DeleteSelectedFaces();
+		m.RebuildEdges();
+		const Sig troue = Signature(m);
+		// Re-selectionne les memes positions (les indices ont pu bouger) puis F.
+		NkVector<uint8> fl2;
+		fl2.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			fl2[i] = 0;
+			for (uint32 k = 0; k < (uint32)coins.Size(); ++k)
+				if ((m.verts[i].pos - coins[k]).Len() < 1e-5f)
+					fl2[i] = 1;
+		}
+		m.SetVertSelection(fl2.Data(), (uint32)fl2.Size());
+		const bool ok = m.MakeFaceFromSelected();
+		m.RebuildEdges();
+		const Sig refait = Signature(m);
+		GraphPut("%-34s ok=%d faces %u -> %u | bord %u -> %u (retour a 0 attendu)", "ops/faire-face", ok ? 1 : 0,
+				 troue.faces, refait.faces, troue.boundary, refait.boundary);
+	}
+
+	// ── 5. COUPE DE BOUCLE (Ctrl+R) ─────────────────────────────────────────
+	// Sur une grille de quads, inserer une boucle ajoute des sommets ET des
+	// faces sans ouvrir de bord ni creer de non-manifold.
+	{
+		NkEditMesh m;
+		grille(m);
+		const Sig avant = Signature(m);
+		// Une arete interieure : ses DEUX extremites selectionnees.
+		bool pose = false;
+		for (uint32 h = 0; h < (uint32)m.hedges.Size() && !pose; ++h) {
+			const uint32 o = m.hedges[h].origin;
+			const uint32 d = m.hedges[m.hedges[h].next].origin;
+			if (o >= m.VertCount() || d >= m.VertCount())
+				continue;
+			NkVector<uint8> fl;
+			fl.Resize(m.VertCount());
+			for (uint32 i = 0; i < m.VertCount(); ++i)
+				fl[i] = (i == o || i == d) ? (uint8)1 : (uint8)0;
+			m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+			pose = true;
+		}
+		NkLoopCutParams p;
+		p.cuts = 1;
+		const bool ok = m.LoopCutFromSelectedEdge(p);
+		m.RebuildEdges();
+		const Sig apres = Signature(m);
+		GraphPut("%-34s ok=%d sommets %u -> %u faces %u -> %u | nonmanif=%u bord %u -> %u", "ops/coupe-de-boucle",
+				 ok ? 1 : 0, avant.verts, apres.verts, avant.faces, apres.faces, apres.nonManifold, avant.boundary,
+				 apres.boundary);
+	}
+
+	// ── 6. VIS / REVOLUTION (SpinSelected) ──────────────────────────────────
+	// Une revolution de 360 degres en 12 pas autour de Y, sur une grille : elle
+	// doit multiplier la geometrie. `duplicate=false` -> la source est deplacee.
+	{
+		NkEditMesh m;
+		grille(m);
+		m.SelectAll();
+		const Sig avant = Signature(m);
+		NkSpinParams p;
+		// ⚠️ AXE DECALE, ET C EST LE FOND DU CAS. Premiere version : centre a
+		// l origine, donc l axe TRAVERSAIT la grille -- la surface balayee se
+		// recoupait elle-meme et rendait 88 aretes non-manifold. Ce chiffre ne
+		// disait rien du code : il disait que la FIGURE etait mal choisie. Un tour
+		// de potier tourne autour d un axe EXTERIEUR au profil.
+		p.center = {-3.f, 0.f, 0.f};
+		p.axis = {0.f, 1.f, 0.f};
+		p.angle = 3.14159265f; // demi-tour : evite le recouvrement exact du tour complet
+		p.steps = 6;
+		p.duplicate = true;
+		const bool ok = m.SpinSelected(p, NkMat4f::Identity());
+		m.RebuildEdges();
+		const Sig apres = Signature(m);
+		GraphPut("%-34s ok=%d sommets %u -> %u faces %u -> %u | nonmanif %u -> %u (temoin)", "ops/vis-revolution",
+				 ok ? 1 : 0, avant.verts, apres.verts, avant.faces, apres.faces, avant.nonManifold,
+				 apres.nonManifold);
+	}
+
+	// ── 7. COUPE PAR UN PLAN (Bisect) ───────────────────────────────────────
+	// Le plan Y=0 traverse le cube en son milieu : la coupe doit AJOUTER des
+	// sommets sur l'intersection, sans ouvrir le volume.
+	{
+		NkEditMesh m;
+		cube(m);
+		m.SelectAll();
+		const Sig avant = Signature(m);
+		const bool ok = m.BisectByPlane({0.f, 0.f, 0.f}, {0.f, 1.f, 0.f}, NkMat4f::Identity());
+		m.RebuildEdges();
+		const Sig apres = Signature(m);
+		// ⚠️ LE NON-MANIFOLD EST DONNE AVANT ET APRES. Sans son temoin, « nonmanif=18 »
+		// ne dit pas si la coupe l a INTRODUIT ou s il etait deja la -- et la
+		// signature mesure sur l IDENTITE SOUDEE, ou des sommets coincidents crees
+		// par la coupe peuvent confondre deux aretes distinctes. Le chiffre est
+		// donc une OBSERVATION a instruire, pas un verdict sur BisectByPlane.
+		GraphPut("%-34s ok=%d sommets %u -> %u faces %u -> %u | bord %u -> %u nonmanif %u -> %u",
+				 "ops/coupe-par-plan", ok ? 1 : 0, avant.verts, apres.verts, avant.faces, apres.faces,
+				 avant.boundary, apres.boundary, avant.nonManifold, apres.nonManifold);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -3736,6 +4038,8 @@ int main(int argc, char **argv) {
 	MaterialBattery();
 	// AJOUTEE EN FIN, meme raison : les 181 lignes precedentes gardent leur numero.
 	HistoryBattery();
+	// AJOUTEE EN FIN, meme raison : les 188 lignes precedentes gardent leur numero.
+	SixOpsBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
