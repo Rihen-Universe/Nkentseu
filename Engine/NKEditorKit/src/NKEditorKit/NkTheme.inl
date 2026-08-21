@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 #include <math.h>
+#include <stdio.h> // puits par defaut du repli franc (NkRoleAudit) : stderr
 
 namespace nkentseu {
 	namespace editorkit {
@@ -135,8 +136,188 @@ namespace nkentseu {
 			}
 		} // namespace themedetail
 
+		namespace themedetail {
+
+			// LA RECHERCHE BRUTE : octet pour octet, coeur puis extensions. Aucune
+			// canonisation, aucun audit, aucun effet de bord.
+			//
+			// ⚠️ ELLE EXISTE POUR QUE `Register` NE PASSE PAS PAR `Find`. Le detail
+			//    a l'air mineur et ne l'est pas : `Register` appelle la recherche
+			//    pour son idempotence, et si cette recherche comptait une faute,
+			//    enregistrer un role d'application parfaitement legitime
+			//    (« nk3d.anneau_brosse », premier appel) inscrirait une faute
+			//    IMAGINAIRE dans l'audit. Un audit faux est pire qu'aucun audit :
+			//    il fait chercher un defaut qui n'existe pas, et il decredibilise
+			//    les vrais. Tenu par l'essai 3g du banc NKEditorKitTest.
+			inline uint16 FindExactRole(const char *name) {
+				// Le coeur d'abord : une application ne doit pas pouvoir redefinir
+				// « accent_ui » en role d'extension et se retrouver avec deux
+				// entrees portant le meme nom dans un fichier de theme.
+				const NkRole core = NkRoleFromName(name);
+				if (core != NkRole::Count)
+					return (uint16)core;
+				const NkVector<NkString> &n = ExtNames();
+				for (uint16 i = 0; i < (uint16)n.Size(); ++i)
+					if (StrEqZ(n[i].CStr(), name))
+						return (uint16)((uint16)NkRole::Count + i);
+				return NK_ROLE_INVALID;
+			}
+
+			// Le puits du repli franc. Statique LOCALE A LA FONCTION, meme raison
+			// que `ExtNames()` : immunisee contre l'ordre d'initialisation des
+			// statiques globales.
+			struct AuditSinkSlot {
+					NkRoleAuditSink fn;
+					void *user;
+			};
+
+			// Puits PAR DEFAUT : stderr. Il n'est pas nul, et c'est le coeur de la
+			// regle — un repli qui ne se dit pas est un repli silencieux, et un
+			// repli silencieux est ce qui a laisse vivre le magenta trois seances.
+			inline void DefaultAuditSink(void *user, const char *line) {
+				(void)user;
+				if (line && *line)
+					fprintf(stderr, "[NKEditorKit/theme] %s\n", line);
+			}
+
+			inline AuditSinkSlot &AuditSink() {
+				static AuditSinkSlot slot = {&DefaultAuditSink, nullptr};
+				return slot;
+			}
+
+		} // namespace themedetail
+
+		// ── LA CANONISATION ─────────────────────────────────────────────────────
+		// PURE ET SANS ETAT : elle ne lit ni le registre, ni le theme, ni rien
+		// d'autre que son entree. C'est ce qui la rend testable seule, et ce qui
+		// garantit qu'elle ne peut pas dependre de l'ordre des appels.
+		inline bool NkCanonicalRoleName(const char *in, char *out, uint32 cap) {
+			if (!in || !*in || !out || cap == 0)
+				return false;
+			uint32 n = 0;
+			char prev = 0;
+			for (const char *p = in; *p; ++p) {
+				const char c = *p;
+				const bool upper = (c >= 'A' && c <= 'Z');
+				const bool prevLowerOrDigit =
+					(prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9');
+				if (upper && prevLowerOrDigit) {
+					if (n + 1 >= cap)
+						return false; // pas de troncature silencieuse
+					out[n++] = '_';
+				}
+				if (n + 1 >= cap)
+					return false;
+				out[n++] = upper ? (char)(c - 'A' + 'a') : c;
+				prev = c;
+			}
+			out[n] = 0;
+			return n > 0;
+		}
+
+		// ── LE REPLI FRANC ──────────────────────────────────────────────────────
+		inline NkVector<NkRoleAudit::Entry> &NkRoleAudit::Faults() {
+			static NkVector<Entry> v;
+			return v;
+		}
+
+		inline NkVector<NkRoleAudit::Entry> &NkRoleAudit::Rescued() {
+			static NkVector<Entry> v;
+			return v;
+		}
+
+		inline void NkRoleAudit::Reset() {
+			Faults().Clear();
+			Rescued().Clear();
+		}
+
+		inline uint32 NkRoleAudit::FaultCount() {
+			return (uint32)Faults().Size();
+		}
+
+		inline uint32 NkRoleAudit::RescuedCount() {
+			return (uint32)Rescued().Size();
+		}
+
+		inline void NkRoleAudit::SetSink(NkRoleAuditSink fn, void *user) {
+			themedetail::AuditSinkSlot &slot = themedetail::AuditSink();
+			slot.fn = fn;
+			slot.user = user;
+		}
+
+		inline void NkRoleAudit::Note(NkVector<Entry> &into, const char *name, const char *canon) {
+			for (uint32 i = 0; i < (uint32)into.Size(); ++i)
+				if (themedetail::StrEqZ(into[i].name.CStr(), name))
+					return; // deja vu : une seule entree, quel que soit le nombre d'images
+			Entry e;
+			e.name = NkString(name ? name : "");
+			e.canon = NkString(canon ? canon : "");
+			into.PushBack(e);
+
+			// LA VOIX DU REPLI. Une fois par nom DISTINCT, grace a la deduplication
+			// ci-dessus : la trace reste lisible meme si le dessin resout le meme
+			// nom soixante fois par seconde.
+			const themedetail::AuditSinkSlot &slot = themedetail::AuditSink();
+			if (!slot.fn)
+				return;
+			char line[256];
+			if (canon && *canon)
+				snprintf(line, sizeof(line),
+						 "role « %s » rattrape par canonisation -> « %s » ; A CORRIGER A LA SOURCE",
+						 name ? name : "(nul)", canon);
+			else
+				snprintf(line, sizeof(line),
+						 "role « %s » NON RESOLU : il sera peint avec la couleur de repli",
+						 name ? name : "(nul)");
+			slot.fn(slot.user, line);
+		}
+
+		inline void NkRoleAudit::Summary(NkString &out, uint32 maxNames) {
+			out = NkString("");
+			char b[160];
+			snprintf(b, sizeof(b), "%u role(s) NON RESOLU(S), %u rattrape(s) par canonisation",
+					 FaultCount(), RescuedCount());
+			out.Append(b);
+
+			// Deux listes, deux significations : la premiere est ce qui est PERDU,
+			// la seconde ce qui est SAUVE mais faux a la source. Les fondre en une
+			// seule ferait disparaitre la distinction qui dicte quoi faire.
+			struct Local {
+					static void Append(NkString &o, const NkVector<Entry> &v, const char *lead,
+									   uint32 maxN, bool withCanon) {
+						if (v.Size() == 0)
+							return;
+						o.Append(lead);
+						const uint32 n = (uint32)v.Size();
+						const uint32 shown = n < maxN ? n : maxN;
+						for (uint32 i = 0; i < shown; ++i) {
+							if (i)
+								o.Append(", ");
+							o.Append(v[i].name);
+							if (withCanon && !v[i].canon.Empty()) {
+								o.Append("->");
+								o.Append(v[i].canon);
+							}
+						}
+						if (n > shown) {
+							char t[48];
+							snprintf(t, sizeof(t), " (+%u)", n - shown);
+							o.Append(t);
+						}
+					}
+			};
+			Local::Append(out, Faults(), "  |  non resolus : ", maxNames, false);
+			Local::Append(out, Rescued(), "  |  a corriger a la source : ", maxNames, true);
+		}
+
 		inline uint16 NkRoleRegistry::Register(const char *name) {
-			const uint16 found = Find(name);
+			// ⚠️ `FindExactRole`, PAS `Find` : voir le bloc de `FindExactRole`.
+			//    Passer par `Find` inscrirait une faute a chaque enregistrement neuf
+			//    et ferait resoudre « PanelBg » vers le role du coeur au lieu de
+			//    creer l'extension demandee — un changement de comportement que
+			//    personne n'a demande. Un refactor se juge sur ce qu'il ne change
+			//    pas : `Register` se comporte EXACTEMENT comme avant.
+			const uint16 found = themedetail::FindExactRole(name);
 			if (found != NK_ROLE_INVALID)
 				return found; // idempotent, comme NkNodeGraph::RegisterType
 			NkVector<NkString> &n = themedetail::ExtNames();
@@ -145,16 +326,26 @@ namespace nkentseu {
 		}
 
 		inline uint16 NkRoleRegistry::Find(const char *name) {
-			// Le coeur d'abord : une application ne doit pas pouvoir redefinir
-			// « accent_ui » en role d'extension et se retrouver avec deux entrees
-			// portant le meme nom dans un fichier de theme.
-			const NkRole core = NkRoleFromName(name);
-			if (core != NkRole::Count)
-				return (uint16)core;
-			const NkVector<NkString> &n = themedetail::ExtNames();
-			for (uint16 i = 0; i < (uint16)n.Size(); ++i)
-				if (themedetail::StrEqZ(n[i].CStr(), name))
-					return (uint16)((uint16)NkRole::Count + i);
+			// 1. LE NOM BRUT D'ABORD. Il ne peut donc rien arriver a un nom qui
+			//    resolvait deja — la canonisation ne peut QUE rattraper.
+			const uint16 direct = themedetail::FindExactRole(name);
+			if (direct != NK_ROLE_INVALID)
+				return direct;
+
+			// 2. LA FORME CANONISEE ENSUITE.
+			char canon[96];
+			if (NkCanonicalRoleName(name, canon, sizeof(canon))) {
+				const uint16 id = themedetail::FindExactRole(canon);
+				if (id != NK_ROLE_INVALID) {
+					// Rattrape, mais faux a la source : on le dit, sinon la
+					// canonisation rend les declarations fausses invisibles.
+					NkRoleAudit::Note(NkRoleAudit::Rescued(), name, canon);
+					return id;
+				}
+			}
+
+			// 3. ECHEC FRANC. Compte, nomme, et le dit. Jamais peint en silence.
+			NkRoleAudit::Note(NkRoleAudit::Faults(), name, "");
 			return NK_ROLE_INVALID;
 		}
 

@@ -47,6 +47,20 @@ namespace nkentseu {
 		class NkEditorRHIRenderer final : public editorkit::NkIEditorRenderer {
 			public:
 				bool Init(NkWindow &window, editorkit::NkEditorGfxApi api) override {
+					// Meme garde que dans NkEditorCanvasRenderer, et pour la meme
+					// raison : sans elle, `Metal` demande hors Apple tomberait dans
+					// le `default:` et lancerait DX11 ou OpenGL en silence.
+					// ⚠️ Elle est d'autant plus necessaire ICI que la creation du
+					//    device passe ensuite par `CreateWithFallback` -- un repli
+					//    deliberé, utile en production, mais qui rendrait un backend
+					//    refuse indiscernable d'un backend obtenu.
+					const char *raison = "";
+					if (!editorkit::NkEditorGfxApiSupported(api, &raison)) {
+						logger.Errorf("[NkEditorRHI] backend graphique '%s' REFUSE : %s\n",
+									  editorkit::NkEditorGfxApiName(api), raison);
+						return false;
+					}
+
 					NkDeviceInitInfo di;
 					switch (api) {
 						case editorkit::NkEditorGfxApi::OpenGL:
@@ -60,6 +74,10 @@ namespace nkentseu {
 							break;
 						case editorkit::NkEditorGfxApi::DX12:
 							di.api = NkGraphicsApi::NK_GFX_API_DX12;
+							break;
+						case editorkit::NkEditorGfxApi::Metal:
+							// Atteignable UNIQUEMENT sur Apple (garde ci-dessus).
+							di.api = NkGraphicsApi::NK_GFX_API_METAL;
 							break;
 						case editorkit::NkEditorGfxApi::Software:
 							di.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
