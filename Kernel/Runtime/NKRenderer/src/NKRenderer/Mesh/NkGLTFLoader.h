@@ -106,6 +106,18 @@ namespace nkentseu {
 				// sans conflit textuel — git a garde les deux (« duplicate member
 				// 'name' », NKRenderer ne compilait plus sur main). Corrige deux fois
 				// (#68 cote Noge, 41f75ba0 cote NKRenderer), refusionne ici (2026-08-17).
+				//
+				// ⚠ QUATRIEME occurrence corrigee le 2026-08-21, cette fois sur main
+				// lui-meme (la fusion ec69f2ac de feat/nkanimation l avait reintroduite ;
+				// NKRenderer ne compilait plus, 11 fichiers, 22 erreurs). Le commentaire
+				// ci-dessus decrivait DEJA l accident et ne l a pas empeche : une fusion
+				// ne lit pas les commentaires. La seule parade qui marche est mecanique --
+				// AVANT d ajouter un membre a cette struct, faire
+				//     grep -n "NkString name;" NkGLTFLoader.h
+				// et verifier qu il y en a exactement TROIS, un par struct (NkGLTFMaterial,
+				// NkGLTFAnimation, NkGLTFNode). Deux membres de meme nom ajoutes a deux
+				// ENDROITS differents de la struct ne produisent AUCUN conflit textuel :
+				// git garde sagement les deux, et l erreur n apparait qu a la compilation.
 				NkString name;
 				NkVec3f translation = {0, 0, 0};
 				NkVec4f rotation = {0, 0, 0, 1}; // quaternion (x,y,z,w)
@@ -114,13 +126,6 @@ namespace nkentseu {
 				NkMat4f matrix = NkMat4f::Identity();
 				int32 mesh = -1; // index dans meshes[] (-1 = aucun)
 				NkVector<int32> children;
-				// Nom du node glTF (clé "name", optionnelle — vide si absente).
-				// Ajout 2026-08-17, ADDITIF (aucun appelant existant modifié) : les
-				// joints d'un skin sont des nodes, et leurs noms alimentent la
-				// distribution de masse anthropométrique côté éditeur
-				// (NKAnimPhysics::NkPoseMass::SetAnthropometric). Avant : le parseur
-				// lisait "name" pour meshes, matériaux, animations — jamais les nodes.
-				NkString name;
 		};
 
 		struct NkGLTFMeshData {
