@@ -526,6 +526,17 @@ namespace nkentseu {
 				// (normale, UV) restent SÉPARÉS. Le rendu est donc strictement inchangé (pas
 				// de lissage parasite, UV intacts) — c'est exactement le modèle de Blender :
 				// maillage soudé + attributs portés par les coins (loops).
+				//
+				// 🔗 COORDINATION (2026-08-22) — LA COQUE INVERSEE DU CONTOUR TOON PASSE ICI.
+				// Un contour par coque inversee a besoin d'une normale MOYENNEE PAR POSITION,
+				// pas par indice de sommet : sur un cube aux coins dedoubles, extruder le long
+				// de la normale d'indice ouvre les coins et le contour se dechire. `canon[]` est
+				// exactement l'identite qu'il faut -- moyenner les normales des sommets qui
+				// partagent un representant donne la normale continue attendue.
+				// ⚠️ Si tu es l'agent rendu et que tu allais ecrire ta propre soudure spatiale :
+				// celle-ci existe, elle est en O(n) par grille de hachage, et elle est deja
+				// exercee par les familles `subsurf`, `linked` et `bmesh2` de NKEditMeshHarness.
+				// Un second soudeur divergerait du premier au premier changement d'epsilon.
 				void BuildVertexMerge(NkVector<uint32> &canon, float32 eps = 1e-4f) const;
 				// Étend la sélection à TOUS les sommets coïncidents d'un sommet sélectionné :
 				// sans ça, cliquer un coin ne sélectionne qu'une des N copies et les faces

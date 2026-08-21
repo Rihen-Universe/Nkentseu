@@ -51,8 +51,17 @@
 //     zero resultat (controle : `NK_GLASS` en remonte 3 sur le meme perimetre —
 //     la commande sait donc trouver).
 // CONCLUSION : le moteur n'expose AUCUN jeu de defauts numeriques par archetype.
-// Cette table n'en duplique donc aucun — elle est la premiere source de verite,
+// Cette table n'en duplique donc aucun -- elle est la premiere source de verite,
 // pas une seconde.
+//
+// 🔗 COORDINATION (2026-08-22) -- `Kernel/Runtime/NKRenderer/Materials/` appartient
+// desormais a l'agent MATGRAPH, et les « defauts de prise » du graphe de materiaux
+// y sont un sujet ouvert. **C'est LA MEME DONNEE que cette table, vue de l'autre
+// bout.** Avant d'etendre ce fichier -- surtout avant d'y ajouter des lignes pour
+// peau/cheveux/tissu/carrosserie/feuillage/eau -- **demande a matgraph si le
+// graphe va porter ces defauts.** Si oui, cette table doit DISPARAITRE au profit
+// de la sienne, pas grossir a cote. C'est pour ca qu'il n'y a qu'un seul point
+// d'acces : le jour ou l'on bascule, un seul corps de fonction change.
 //
 // -----------------------------------------------------------------------------
 // ⚠️ CETTE TABLE EST FAITE POUR ETRE REMPLACEE — c'est son cahier des charges
