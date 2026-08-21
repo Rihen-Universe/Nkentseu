@@ -1312,6 +1312,96 @@ aide, il ne supprime pas le coût.
 
 ---
 
+## 9quater. Y a-t-il une route pour animer côté client ? — relevé du 2026-08-21
+
+> **Question de Rodolf** : *« est-ce qu'on a une route pour animer des UI
+> directement côté client ? ça peut en plus permettre de jolis effets. »*
+
+§9bis et §9ter décrivent trois familles d'animation avec leurs invariants. **Rien
+n'avait vérifié que le moteur sache les jouer.** Vérification faite, voici l'état
+réel — et il est plus favorable que je ne le craignais.
+
+### 9quater.1 Ce qui existe déjà, et qui est générique
+
+`Kernel/Runtime/NKAnimation` porte une machinerie **qui n'est pas liée au
+maillage** :
+
+| type | ce qu'il donne |
+|---|---|
+| `NkAnimationClip`, `NkAnimationTrack`, `NkKeyframe` | des pistes de valeurs dans le temps |
+| `NkInterpMode`, `NkMotionCurve` | l'interpolation et les courbes |
+| `NkAnimationPlayer` | la lecture |
+| `NkAnimStateMachine`, `NkAnimationState`, `NkCondKind` | **une machine à états** |
+| `NkBlendTree` | le mélange |
+
+⚠️ **La machine à états de §9bis n'est donc pas à inventer : elle existe.** Les
+familles **A** (transitions) et **B** (ambiances) sont des pistes jouées en boucle
+ou une fois — exactement ce que `NkAnimationPlayer` fait déjà.
+
+### 9quater.2 Ce qui manque — trois raccordements, pas un moteur
+
+**1. Rien ne relie une piste à une propriété de widget.** `NkAnimationTrack` sait
+faire varier une valeur ; personne ne lui dit que cette valeur est l'échelle du
+bouton `Bouton_Connexion`.
+
+**2. 🔴 Le format `.nkgui` n'a pas de section d'animation.** Quatre sections —
+`geometry`, `widgets`, `behavior`, `controller` — et **aucune ne peut stocker une
+transition, une ambiance ou un effet continu**. Tout §9ter décrit donc quelque
+chose qui **n'a nulle part où s'écrire**. *(Troisième manque de la même famille
+après `Text` et l'apparence — et le plus lourd des trois : le texte est un rôle,
+l'apparence une section, l'animation un sous-système.)*
+
+**3. ⚠️ NKGui est en mode immédiat, et c'est LE point technique.** En mode immédiat,
+un widget est redessiné de zéro à chaque image et **ne conserve aucun état entre
+deux images**. Or une animation n'est que cela : une valeur courante, une
+progression, un instant de départ.
+
+> **La route existe pourtant, et elle est déjà posée** : NKGui identifie chaque
+> widget par un `NkGuiId` stable (haché FNV-1a, doc 2 §4), justement pour retenir
+> son état d'interaction d'une image à l'autre. **L'état d'animation se range au
+> même endroit, sous la même clé.**
+
+C'est ce qui rend l'affaire raisonnable : on n'ajoute pas un système d'identité,
+on se branche sur celui qui existe.
+
+⚠️ **Et la conséquence à ne pas manquer : un widget qui disparaît une image doit
+perdre son état d'animation — ou le retrouver s'il revient.** En mode immédiat, un
+widget non appelé n'existe pas ; sans règle d'expiration, la table d'états grossit
+sans fin, et un bouton qui réapparaît reprend une animation vieille de dix minutes.
+
+### 9quater.3 La famille C ne se joue pas, elle se calcule
+
+Les familles A et B sont des **lignes de temps** : `NkAnimationPlayer` sait faire.
+
+**La famille C n'en est pas une.** Une inclinaison qui suit le curseur n'a ni
+début, ni fin, ni durée — c'est une **fonction d'une entrée**, réévaluée à chaque
+image. La faire passer pour un clip obligerait à fabriquer une ligne de temps
+factice qu'on repositionnerait sans cesse.
+
+**Elle demande donc un mécanisme distinct** : lire la source, projeter, lisser vers
+la cible. C'est peu de code, mais ce n'est pas le même code.
+
+### 9quater.4 Ce que ça coûte, honnêtement
+
+| à faire | ampleur |
+|---|---|
+| section `animation` dans le format | petite — grammaire + sérialisation |
+| table d'états d'animation par `NkGuiId`, avec expiration | moyenne |
+| raccord piste -> propriété de widget | moyenne |
+| évaluateur d'effets continus (famille C) | petite |
+| respect du réglage « mouvement réduit » (§9ter.4) | petite, **à faire dès le début** |
+
+⚠️ **Le dernier point se fait au début ou jamais.** Ajouter le respect du mouvement
+réduit après coup oblige à repasser sur chaque animation déjà écrite — et on en
+oublie toujours.
+
+**Et Rodolf a raison sur le fond** : les familles B et C sont ce qui fait qu'une
+interface paraît vivante plutôt que dessinée. Un bouton qui respire, un reflet qui
+suit la souris — c'est peu de calcul et beaucoup d'effet. *Mais rien de tout cela
+n'existe aujourd'hui, et §9ter décrivait un pays sans y avoir mis les pieds.*
+
+---
+
 ## 10. Mode Split — combiner deux canvas au choix
 
 - Diviseur draggable entre les deux moitiés (poignée fine, curseur
