@@ -1898,7 +1898,10 @@ namespace nkentseu {
 		bool NkEditMesh::MergeSelectedVerts(const NkMergeParams &p) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// MATERIAU PAR FACE : transporte a travers la soudure.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			ToPolygons(pv, fs, fv, &fm);
 			NkVec3f c{0.f, 0.f, 0.f};
 			int32 n = 0;
 			for (uint32 i = 0; i < (uint32)pv.Size(); i++)
@@ -2077,8 +2080,12 @@ namespace nkentseu {
 					nfv.PushBack((uint32)remap[vi]);
 				}
 				nfs.PushBack((uint32)nfv.Size());
+				// SOUDURE : la face survivante garde SON index. Une face degeneree par la
+				// fusion est sautee juste au-dessus, donc `nfm` reste aligne sur `nfs`.
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
-			BuildFromPolygons(nv2.Data(), (uint32)nv2.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(nv2.Data(), (uint32)nv2.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+				  nfm.Data());
 			ApplyVertSel(vsel);
 			return true;
 		}

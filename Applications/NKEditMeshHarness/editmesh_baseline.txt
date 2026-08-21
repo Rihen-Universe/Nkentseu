@@ -178,3 +178,4 @@ mat/slots-trou-jamais-decalage     slots=3 vivants=2 id[2]=102 (102 attendu) fac
 mat/slots-survivent-a-l-edition    slots 1 -> 1 | dernier id=777 (777 attendu)
 mat/decim-non-tranche              slot1 2 -> 0 | tris 12->6 (MESURE, pas un attendu)
 mat/temoin-smooth                  smooth 12 -> 0 sur 24 faces (TEMOIN du comportement existant)
+mat/survie-soudure                 slot1 2 -> 2 | sommets 24 -> 8 ok=1
