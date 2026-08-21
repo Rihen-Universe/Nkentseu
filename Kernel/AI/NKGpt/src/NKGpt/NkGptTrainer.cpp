@@ -10,6 +10,9 @@
 #include "NKMath/NkFunctions.h" // NkExp, NkCos (au lieu de <math.h>)
 #include "NKLogger/NkLog.h"		// logger (macro) : status + texte généré (console + fichiers)
 
+#include <cstdio> // journal d'etat <savePath>.etat.txt, sentinelle d'arret
+#include <ctime>  // horodatage du journal d'etat
+
 using namespace nkentseu;
 using namespace nkentseu::ai;	// nn::, optim::, autograd::
 using namespace nkentseu::math; // NkExp, NkCos
@@ -23,6 +26,7 @@ namespace nkentseu {
 
 			NkGptTrainer::~NkGptTrainer() {
 				delete mGpt;
+				delete mLlama;
 			}
 
 			double NkGptTrainer::NextRand() {
@@ -186,8 +190,119 @@ namespace nkentseu {
 						logger.Info("Validation held-out : {0} tokens réservés ({1}% de queue par langue, jamais vus "
 									"à l'entraînement).",
 									(unsigned long long)valTok, (double)(mCfg.valFrac * 100.f));
+					// Les fenetres ne peuvent PAS etre construites ici : mT n'est affecte
+					// qu'apres cet appel dans le chemin « depart de zero ». L'appel est
+					// donc pose dans Prepare, une fois les dimensions connues.
 				}
 				return totalTok;
+			}
+
+			// Tire UNE FOIS les fenetres de validation, puis n'y touche plus.
+			//
+			// Flux aleatoire LOCAL, germe constant : ni --graine ni le deroulement de
+			// l'entrainement ne peuvent le decaler. Deux entrainements quelconques
+			// evaluent donc exactement le meme texte, ce qui rend leurs pertes
+            // comparables terme a terme.
+			//
+			// Repartition PROPORTIONNELLE a la taille de chaque langue : prendre autant
+			// de fenetres partout sur-representerait une langue peu presente, et la perte
+			// de validation ne refleterait plus le corpus.
+			void NkGptTrainer::ConstruireFenetresVal() {
+				mValFenetres.Clear();
+				const int nL = (int)mValData.Size();
+				if (nL <= 0 || mT <= 0)
+					return;
+
+				int64 total = 0;
+				for (int li = 0; li < nL; ++li)
+					total += (int64)mValData[(nk_size)li].Size();
+				if (total <= 0)
+					return;
+
+				// Assez de fenetres pour que la mesure ne depende pas du tirage, assez peu
+				// pour que l'evaluation reste breve : forward seul, sans gradient.
+				const int voulu = mCfg.valFenetres > 0 ? mCfg.valFenetres : 192;
+				uint64 rng = 0xD1B54A32D192ED03ull; // flux SEPARE de mRng, volontairement
+
+				for (int li = 0; li < nL; ++li) {
+					const int64 N = (int64)mValData[(nk_size)li].Size();
+					if (N <= mT + 1)
+						continue; // trop court pour une seule fenetre
+					int part = (int)(((double)N / (double)total) * (double)voulu + 0.5);
+					if (part < 1)
+						part = 1; // une langue presente compte au moins une fois
+					for (int k = 0; k < part; ++k) {
+						rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+						const double u = (double)((rng >> 11) & 0xFFFFFFFFFFFFFull) / (double)(1ull << 52);
+						FenetreVal f;
+						f.langue = li;
+						f.decalage = (int64)(u * (double)(N - mT - 1));
+						mValFenetres.PushBack(f);
+					}
+				}
+				// Empreinte du jeu de fenetres, ECRITE AU JOURNAL.
+				//
+				// « Les deux entrainements ont bien vu le meme texte » est une promesse
+				// qu'on ne peut pas tenir sur parole : il suffit d'un argument different
+				// pour qu'elle devienne fausse sans que rien ne le signale. L'empreinte
+				// rend la promesse CONSTATABLE — deux journaux qui portent le meme nombre
+				// se comparent, deux journaux qui different se rejettent.
+				uint64 emp = 1469598103934665603ull; // FNV-1a 64
+				for (nk_size i = 0; i < mValFenetres.Size(); ++i) {
+					const uint64 v = ((uint64)(uint32)mValFenetres[i].langue << 40) ^ (uint64)mValFenetres[i].decalage;
+					for (int o = 0; o < 8; ++o) {
+						emp ^= (v >> (o * 8)) & 0xFFull;
+						emp *= 1099511628211ull;
+					}
+				}
+				// Rendue en HEXADECIMAL, et le formatage est fait a la main : le
+				// journal rend un entier non signe comme signe, et une empreinte
+				// affichee « -7720886274511702334 » se lit comme une anomalie alors
+				// qu'elle est juste. Seize chiffres hexadecimaux ne posent pas la question.
+				char hex[17];
+				for (int i = 0; i < 16; ++i) {
+					const unsigned d = (unsigned)((emp >> ((15 - i) * 4)) & 0xFull);
+					hex[i] = (char)(d < 10 ? ('0' + d) : ('a' + (d - 10)));
+				}
+				hex[16] = '\0';
+				if (mCfg.verbose)
+					logger.Info("Validation figée : {0} fenêtres de {1} tokens ({2} tokens évalués), "
+								"empreinte {3} — identiques à chaque évaluation et d'un entraînement à "
+								"l'autre (comparer cette empreinte entre journaux).",
+								(unsigned long long)mValFenetres.Size(), (long long)mT,
+								(unsigned long long)((int64)mValFenetres.Size() * mT), hex);
+			}
+
+			// Lot de validation numero `indexLot` pris dans le jeu fige.
+			// Meme mise en forme que MakeBatchIdxFrom (tag de langue en tete, cible
+			// decalee d'un token), mais le decalage vient de mValFenetres au lieu du hasard.
+			void NkGptTrainer::MakeBatchValFige(int indexLot, NkTensor &x, NkTensor &targetIdx) {
+				NkShape xs;
+				xs.PushBack(mB);
+				xs.PushBack(mT);
+				x = NkTensor::Zeros(xs);
+				targetIdx = NkTensor::Full(NkShape{mB * mT}, -1.0);
+				float *xp = x.DataAs<float>();
+				float *tp = targetIdx.DataAs<float>();
+				const int64 base = (int64)indexLot * mB;
+				for (int64 b = 0; b < mB; ++b) {
+					const int64 idx = base + b;
+					if (idx >= (int64)mValFenetres.Size())
+						break; // dernier lot incomplet : les lignes restantes restent masquees (-1)
+					const FenetreVal &f = mValFenetres[(nk_size)idx];
+					const NkVector<float> &dd = mValData[(nk_size)f.langue];
+					const NkVector<float> &mk = mValMask[(nk_size)f.langue];
+					const bool hasMask = (mk.Size() == dd.Size());
+					const int64 off = f.decalage;
+					xp[b * mT + 0] = (float)(mNByte + f.langue);
+					if (!hasMask || mk[(nk_size)off] != 0.f)
+						tp[b * mT + 0] = dd[(nk_size)off];
+					for (int64 t = 1; t < mT; ++t) {
+						xp[b * mT + t] = dd[(nk_size)(off + t - 1)];
+						if (!hasMask || mk[(nk_size)(off + t)] != 0.f)
+							tp[b * mT + t] = dd[(nk_size)(off + t)];
+					}
+				}
 			}
 
 			// Lot d'entraînement (échantillonné depuis mLangData).
@@ -200,24 +315,53 @@ namespace nkentseu {
 			// apprendrait que tout commence à la position zéro d'une fenêtre, ce qui
 			// est faux dès qu'on lui parle vraiment : le hasard garde cette souplesse.
 			int64 NkGptTrainer::ChoisirDecalage(int li, int64 N) {
+				// ⚠️ LE FLUX ALEATOIRE SE CONSOMME INCONDITIONNELLEMENT.
+				//
+				// La version precedente ecrivait :
+				//     auDebut = A && B && (NextRand() < 0.5);
+				// Le && COURT-CIRCUITE : quand B est faux (aucun debut de bloc
+				// enregistre), NextRand() n'etait pas appele. Et les deux chemins ne
+				// tiraient pas le meme nombre de fois. Le NOMBRE DE TIRAGES dependait
+				// donc du CONTENU du corpus.
+				//
+				// Consequence : « meme graine » ne designait plus « meme course » des
+				// que le corpus changeait — c'est le contenu qui decidait de la position
+				// dans le flux. Deux regimes, meme declares proprement, produisaient deux
+				// UNIVERS differents et restaient incomparables.
+				//
+				// REGLE GENERALE : un flux pseudo-aleatoire ne se consomme JAMAIS sous
+				// condition des donnees. Sinon la reproductibilite devient fonction du
+				// fichier, et « meme graine, resultat different » redevient possible —
+				// ce qui a deja coute une chasse cette semaine.
+				//
+				// On tire donc TOUJOURS trois fois, et on jette ce qui ne sert pas. Seul
+				// le MODE change entre deux regimes, plus l'univers entier.
+				const double rMode = NextRand();  // choix du mode
+				const double rBloc = NextRand();  // index du bloc
+				const double rUnif = NextRand();  // decalage uniforme (et repli)
+
 				const int64 maxOff = N - mT - 1;
 				if (maxOff <= 0)
 					return 0;
-				const bool auDebut =
-					((nk_size)li < mLangStarts.Size()) && (mLangStarts[(nk_size)li].Size() > 0) && (NextRand() < 0.5);
+
+				const bool blocsDispo =
+					((nk_size)li < mLangStarts.Size()) && (mLangStarts[(nk_size)li].Size() > 0);
+				// Mode DECLARE, plus deduit d'un Find sur le contenu : voir mCfg.debutsDeBloc.
+				const bool modeBlocs = (mCfg.debutsDeBloc < 0) ? blocsDispo : (mCfg.debutsDeBloc != 0);
+				const bool auDebut = modeBlocs && blocsDispo && (rMode < 0.5);
 				if (!auDebut)
-					return (int64)(NextRand() * (double)(N - mT));
+					return (int64)(rUnif * (double)(N - mT));
+
 				const NkVector<int64> &st = mLangStarts[(nk_size)li];
-				nk_size k = (nk_size)(NextRand() * (double)st.Size());
+				nk_size k = (nk_size)(rBloc * (double)st.Size());
 				if (k >= st.Size())
 					k = st.Size() - 1;
 				const int64 off = st[k];
-				// La validation retire la QUEUE des données d'entraînement : un début
-				// de bloc peut donc tomber au-delà. Le rabattre sur la limite ferait
-				// converger tous ces cas vers la MÊME fenêtre, sur-représentée en
-				// silence. On repasse au hasard, qui n'a pas ce défaut.
+				// La validation retire la QUEUE des donnees : un debut de bloc peut tomber
+				// au-dela. Le rabattre ferait converger tous ces cas vers la MEME fenetre,
+				// sur-representee en silence. On reprend le tirage uniforme deja consomme.
 				if (off < 0 || off > maxOff)
-					return (int64)(NextRand() * (double)(N - mT));
+					return (int64)(rUnif * (double)(N - mT));
 				return off;
 			}
 
@@ -256,6 +400,46 @@ namespace nkentseu {
 			}
 
 			// Lot d'entraînement à cible INDICES (depuis mLangData).
+			volatile bool NkGptTrainer::sArretDemande = false;
+
+			static bool FichierExiste(const char *chemin) {
+				FILE *f = fopen(chemin, "rb");
+				if (!f)
+					return false;
+				fclose(f);
+				return true;
+			}
+
+			void NkGptTrainer::EcrireEtat(int64 pasGlobal, int64 horizon, double perte, double lr, double sParPas,
+										  const char *motif) {
+				if (mCfg.savePath.Empty())
+					return;
+				NkString chemin(mCfg.savePath);
+				chemin.Append(".etat.txt");
+				FILE *f = fopen(chemin.CStr(), "wb");
+				if (!f)
+					return;
+				::time_t now = ::time(nullptr); // `::` : nkentseu::time est un namespace
+				char horo[64];
+				::strftime(horo, sizeof(horo), "%Y-%m-%d %H:%M:%S", ::localtime(&now));
+				const int64 restants = (horizon > pasGlobal) ? (horizon - pasGlobal) : 0;
+				const double hRestantes = (sParPas > 0.0) ? (double)restants * sParPas / 3600.0 : -1.0;
+				fprintf(f, "Ilyana -- etat de la campagne (ecrit a chaque checkpoint)\n");
+				fprintf(f, "horodatage        : %s\n", horo);
+				fprintf(f, "motif             : %s\n", motif);
+				fprintf(f, "pas global        : %lld / %lld\n", (long long)pasGlobal, (long long)horizon);
+				fprintf(f, "perte (moy. gliss): %.5f\n", perte);
+				fprintf(f, "lr                : %.3e\n", lr);
+				fprintf(f, "s / pas (moyenne) : %.2f\n", sParPas);
+				if (hRestantes >= 0.0)
+					fprintf(f, "reste (estime)    : %.1f h  (%.1f jours) a ce debit\n", hRestantes, hRestantes / 24.0);
+				fprintf(f, "flux aleatoire    : 0x%016llx\n", (unsigned long long)mRng);
+				fprintf(f, "checkpoint        : %s (+ .prev, .prev2)\n", mCfg.savePath.CStr());
+				fprintf(f, "arret propre      : creer le fichier %s\n",
+						mCfg.stopFile.Empty() ? "<savePath>.stop" : mCfg.stopFile.CStr());
+				fclose(f);
+			}
+
 			void NkGptTrainer::MakeBatchIdx(NkTensor &x, NkTensor &targetIdx) {
 				MakeBatchIdxFrom(mLangData, mLangMask, x, targetIdx);
 			}
@@ -293,15 +477,22 @@ namespace nkentseu {
 			}
 
 			// Perte moyenne sur le held-out (forward seul, aucun gradient). -1 si pas de val.
-			double NkGptTrainer::EvaluateVal(int nBatches) {
-				if (mValData.Size() == 0)
+			//
+			// Parcourt TOUT le jeu fige, a chaque appel. Pas de parametre « nombre de
+			// lots » : evaluer tantot 4 lots tantot 8 ferait varier la mesure pour une
+			// raison etrangere au modele. La quantite se regle une fois, a la
+			// construction du jeu (--valfenetres).
+			double NkGptTrainer::EvaluateVal() {
+				if (mValData.Size() == 0 || mValFenetres.Size() == 0)
 					return -1.0;
 				double sum = 0.0;
 				int cnt = 0;
-				for (int i = 0; i < nBatches; ++i) {
+				const int nLots = (int)((mValFenetres.Size() + (nk_size)mB - 1) / (nk_size)mB);
+				for (int i = 0; i < nLots; ++i) {
 					NkTensor x, tgt;
-					MakeBatchIdxFrom(mValData, mValMask, x, tgt);
-					NkVar logits = mGpt->Forward(mUseGpu ? x.ToGPU() : x);
+					MakeBatchValFige(i, x, tgt);
+					NkVar logits = mLlama ? mLlama->Forward(mUseGpu ? x.ToGPU() : x)
+                                     : mGpt->Forward(mUseGpu ? x.ToGPU() : x);
 					NkVar loss = autograd::SoftmaxCrossEntropyIndexed(logits, NkVar::Leaf(tgt, false));
 					sum += loss.Value().ToCPU().GetItem(NkShape{(int64)0});
 					++cnt;
@@ -315,6 +506,15 @@ namespace nkentseu {
 				mB = mCfg.B;
 
 				if (!mCfg.loadPath.Empty()) {
+					// Repli automatique : si <load> est tronque (coupure pendant l'ecriture,
+					// zeros NTFS), on reprend sur .prev puis .prev2 -- le plus recent VALIDE.
+					// Sans ce repli, une campagne s'arreterait devant un fichier mort alors
+					// qu'un checkpoint sain dort a cote.
+					{
+						NkString retenu;
+						if (ChoisirCheckpointValide(mCfg.loadPath.CStr(), retenu) && !(retenu == mCfg.loadPath))
+							mCfg.loadPath = retenu;
+					}
 					GptMeta meta;
 					if (!LoadCheckpointMeta(mCfg.loadPath.CStr(), meta)) {
 						logger.Info("Checkpoint illisible ou format obsolète (attendu BPE v3) : {0}",
@@ -458,6 +658,32 @@ namespace nkentseu {
 									(unsigned long long)totalTok, (int)mLangs.Size());
 				}
 
+				// Le regime d'echantillonnage est DIT, toujours. Un regime deduit qu'on
+				// ne journalise pas se decouvre en comparant deux courses incomparables.
+				if (V) {
+					nk_size blocs = 0;
+					for (nk_size i = 0; i < mLangStarts.Size(); ++i)
+						blocs += mLangStarts[i].Size();
+					const bool actif = (mCfg.debutsDeBloc < 0) ? (blocs > 0) : (mCfg.debutsDeBloc != 0);
+					logger.Info("Echantillonnage : {0} ({1} debuts de bloc recenses) — reglage `debutsDeBloc` = {2}.",
+								actif ? "1 fenetre sur 2 demarre sur un debut de bloc" : "decalage UNIFORME pur",
+								(unsigned long long)blocs, mCfg.debutsDeBloc);
+				}
+
+				// Jeu de validation fige : ICI, et pas dans EncodeCorpus, parce que la
+				// taille de fenetre mT n'est connue qu'apres. Place a l'interieur
+				// d'EncodeCorpus, la construction sortait sans rien faire et SANS RIEN
+				// DIRE — le seul indice etait une ligne de journal absente.
+				ConstruireFenetresVal();
+				if (mValData.Size() > 0 && mValFenetres.Size() == 0) {
+					// Une validation demandee qui n'evalue rien renverrait -1 a chaque
+					// appel, et une courbe vide se lit comme « pas encore mesure » plutot
+					// que comme une panne. On le dit donc franchement.
+					logger.Info("ATTENTION : validation demandee mais AUCUNE fenetre construite (held-out trop "
+								"court pour T={0} ?). Les pertes de validation seront absentes.",
+								(long long)mT);
+				}
+
 				// Langue de génération demandée.
 				mGenLang = -1;
 				if (!mCfg.genLang.Empty())
@@ -468,8 +694,44 @@ namespace nkentseu {
 						}
 
 				// Construction du modèle + (chargement des poids | init aléatoire).
-				mGpt = new nn::NkGPT((uint32)mV, (uint32)mD, (uint32)mH, (uint32)mL, (uint32)mT, 1234u);
-				mGpt->Parameters(mParams);
+				//
+				// Exactement UN des deux modèles est construit. NkLlamaLM ne prend pas
+				// `mT` : sans table de positions, il n'a aucune longueur maximale
+				// inscrite dans ses poids — c'est précisément ce qui le rend
+				// extensible après coup.
+				if (mCfg.architectureLlama) {
+					mLlama = new nn::NkLlamaLM((uint32)mV, (uint32)mD, (uint32)mH, (uint32)mL,
+											   mCfg.seedPoids, mCfg.weightTying);
+					mLlama->Parameters(mParams);
+					if (V)
+						logger.Info("Architecture : NkLlamaLM (RMSNorm + RoPE + SwiGLU), graine {0}, "
+									"tables liees = {1}",
+									(long long)mCfg.seedPoids, mCfg.weightTying ? "OUI" : "non");
+				} else {
+					mGpt = new nn::NkGPT((uint32)mV, (uint32)mD, (uint32)mH, (uint32)mL, (uint32)mT,
+										 mCfg.seedPoids);
+					mGpt->Parameters(mParams);
+					if (V)
+						logger.Info("Architecture : NkGPT (LayerNorm + positions apprises + GELU), graine {0}",
+									(long long)mCfg.seedPoids);
+				}
+				// Compte RÉEL des paramètres, depuis mParams — pas la formule théorique
+				// calculée en amont par l'appelant, qui ignore le weight tying et
+				// afficherait le même chiffre dans les deux cas. C'est ce compte-ci qui
+				// dit si les tables sont VRAIMENT liées.
+				//
+				// Il attrape aussi l'erreur inverse : si mTokEmb était poussé DEUX FOIS
+				// dans la liste, le total le montrerait (et l'optimiseur l'avancerait au
+				// double du taux demandé, ce qui se lirait comme « le tying dégrade »).
+				if (V) {
+					int64 total = 0;
+					for (nk_size i = 0; i < mParams.Size(); ++i)
+						total += mParams[i].Value().Numel();
+					logger.Info("Paramètres RÉELS : {0} tenseurs, {1} valeurs ({2} Mo de poids).",
+								(unsigned long long)mParams.Size(), (long long)total,
+								(double)total * 4.0 / 1048576.0);
+				}
+
 				if (!mCfg.loadPath.Empty()) {
 					if (!LoadCheckpointWeights(mCfg.loadPath.CStr(), mParams)) {
 						logger.Info("Poids du checkpoint incompatibles avec les dims.");
@@ -481,11 +743,29 @@ namespace nkentseu {
 				// Reprise : tente de restaurer l'état optimiseur (moments Adam + pas). Absent (v3) =>
 				// reprise des poids seuls (le warmup redémarrera). Moments gardés sur CPU jusqu'à Fit().
 				if (mCfg.resume && !mCfg.loadPath.Empty()) {
-					if (LoadCheckpointOptState(mCfg.loadPath.CStr(), mOptM, mOptV, mResumeStep)) {
+					const uint64 rngAvant = mRng;
+					if (LoadCheckpointOptState(mCfg.loadPath.CStr(), mOptM, mOptV, mResumeStep, &mRng)) {
 						mHasOptState = true;
 						if (V)
 							logger.Info("État optimiseur repris : pas {0}, {1} moments (reprise parfaite).",
 										(long long)mResumeStep, (unsigned long long)mOptM.Size());
+						if (mRng != rngAvant) {
+							if (V)
+								logger.Info("Flux aleatoire d'echantillonnage repris du checkpoint (v5) : 0x{0} -- "
+											"la reprise ne re-tire pas les fenetres deja vues.",
+											(unsigned long long)mRng);
+						} else {
+							// Checkpoint v4 : pas d'etat du flux. Repartir de l'etat initial
+							// rejouerait EXACTEMENT les fenetres du debut de la course
+							// precedente. On decale le flux d'une quantite qui depend du pas
+							// global : deterministe (deux reprises au meme pas tirent pareil),
+							// mais distinct du debut.
+							mRng ^= 0xA5A5A5A5A5A5A5A5ull * (uint64)(mResumeStep + 1);
+							if (V)
+								logger.Info("Checkpoint v4 sans etat du flux aleatoire : flux decale par le pas global "
+											"({0}) pour ne pas rejouer les premieres fenetres.",
+											(long long)mResumeStep);
+						}
 					} else if (V)
 						logger.Info("Checkpoint sans état optimiseur (v3) : reprise des poids seuls.");
 				}
@@ -515,7 +795,13 @@ namespace nkentseu {
 
 				// Chemin RAPIDE (KV-cache) : possible si tout le décodage tient dans la fenêtre T
 				// (positions absolues valides, math identique à Forward sur le préfixe complet).
-				const bool canCache = !mUseGpu && ((int64)ctx.Size() + (int64)nToks) <= mT;
+				// ⚠️ NkLlamaLM n'a PAS de décodage incrémental : le chemin à cache
+				// clé/valeur lui est fermé, il retraite tout le contexte à chaque
+				// token. Correct mais coûteux — et c'est un manque ASSUMÉ tant que
+				// l'architecture n'est pas retenue : écrire `ForwardStep` avec RoPE
+				// demande de passer l'index ABSOLU du token, et un index faux ne
+				// planterait pas, il dégraderait en silence.
+				const bool canCache = !mUseGpu && !mLlama && ((int64)ctx.Size() + (int64)nToks) <= mT;
 				if (canCache) {
 					nn::NkKVCache cache;
 					cache.Reset((uint32)mL);
@@ -546,7 +832,8 @@ namespace nkentseu {
 					float *tp = tok.DataAs<float>();
 					for (int64 t = 0; t < len; ++t)
 						tp[t] = (float)ctx[(nk_size)((int64)ctx.Size() - len + t)];
-					NkVar logits = mGpt->Forward(mUseGpu ? tok.ToGPU() : tok);
+					NkVar logits = mLlama ? mLlama->Forward(mUseGpu ? tok.ToGPU() : tok)
+                                 : mGpt->Forward(mUseGpu ? tok.ToGPU() : tok);
 					NkTensor lc = logits.Value().ToCPU().Contiguous();
 					const float *lp = lc.DataAs<float>() + (len - 1) * mV;
 					const int next = NkSampleToken(lp, mNByte, sp, mRng);
@@ -586,7 +873,7 @@ namespace nkentseu {
 			}
 
 			void NkGptTrainer::Fit() {
-				if (!mGpt)
+				if (!mGpt && !mLlama)
 					return;
 				const bool V = mCfg.verbose;
 				int STEPS = mCfg.steps; // ajusté plus bas si un horizon absolu est donné
@@ -655,6 +942,44 @@ namespace nkentseu {
 				}
 				mEma = 0;
 				NkChrono chrono;
+				// Redemarrage securise : sentinelle d'arret + horloge de sauvegarde.
+				NkString stopFile = mCfg.stopFile;
+				if (stopFile.Empty() && hasSave) {
+					stopFile = mCfg.savePath;
+					stopFile.Append(".stop");
+				}
+				if (!stopFile.Empty() && FichierExiste(stopFile.CStr())) {
+					// Une sentinelle laissee par un arret precedent bloquerait la reprise
+					// des le premier pas : on la retire, en le disant.
+					remove(stopFile.CStr());
+					if (V)
+						logger.Info("   Sentinelle d'arret {0} trouvee au demarrage : retiree (elle datait d'un arret "
+									"precedent).",
+									stopFile.CStr());
+				}
+				NkChrono chronoSauve; // depuis le dernier checkpoint
+				double lrCourant = peakLr;
+				auto sauver = [&](int64 gGlobal, const char *motif) -> bool {
+					const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),
+												   &adam.SecondMoments(), adam.StepCount(), mRng);
+					if (sv) {
+						const int64 faits = gGlobal - base;
+						const double sParPas = (faits > 0) ? chrono.Elapsed().seconds / (double)faits : 0.0;
+						EcrireEtat(gGlobal, totalHorizon, mEma, lrCourant, sParPas, motif);
+						chronoSauve = NkChrono();
+					}
+					return sv;
+				};
+				if (V && hasSave)
+					logger.Info("   Redemarrage securise : checkpoint tous les {0} pas et/ou {1} min, rotation "
+								"<save>/.prev/.prev2, arret propre par SIGINT/SIGTERM ou fichier {2}, journal {3}.etat.txt",
+								SAVEEVERY, mCfg.saveMinutes, stopFile.CStr(), mCfg.savePath.CStr());
+				// Fenetre de profil : ARMEE APRES LE PREMIER PAS. Le pas 1 compile les
+				// noyaux (NkSL -> SPIR-V -> pipeline) et paie la relecture de controle
+				// « sortie non nulle » de chaque noyau : l'y inclure attribuerait un
+				// cout de demarrage a des operations qui ne le paient qu'une fois.
+				NkChrono chronoProfil;
+				int64 pasProfiles = 0;
 				for (int s = 1; s <= STEPS; ++s) {
 					const int64 g = base + (int64)s; // pas global (pour le schedule)
 					float lr;
@@ -667,20 +992,132 @@ namespace nkentseu {
 						lr = (float)(peakLr * (minLrRatio + (1.0 - minLrRatio) * cosv));
 					}
 					adam.SetLearningRate(lr);
+					lrCourant = (double)lr;
 					adam.ZeroGrad();
 					double lv = 0.0;
+					// ⚠️ NE JAMAIS DIVISER PAR UNE CONSTANTE. La version precedente faisait
+					// `lv += perte / ACCUM` : un micro-lot SANS position contributive rend une
+					// perte de 0, et ce 0 entrait dans la moyenne comme une mesure valide.
+					//
+					// Constate le 14 aout 2026 : un run a rendu 2,61397 la ou son jumeau (meme
+					// config, meme graine) rendait 10,4482. Rapport 0,250184 — un QUART a
+					// 0,07 % pres : UN seul micro-lot sur quatre avait somme quelque chose, et
+					// on divisait quand meme par quatre. Au pas suivant, ZERO micro-lot, donc
+					// perte nulle. C'est de l'arithmetique, pas du stochastique.
+					//
+					// Le danger depasse ce cas : a un quart de remplissage la perte tombe a
+					// 2,61 et saute aux yeux, mais a neuf dixiemes elle baisse de 10 % — et une
+					// perte 10 % plus basse ne ressemble pas a un defaut, elle ressemble a un
+					// PROGRES. Un run peut donc etre contamine pendant des milliers de pas en
+					// presentant une courbe meilleure.
+					//
+					// Moyenne ponderee par les positions reellement sommees : elle redonne la
+					// vraie perte moyenne, quel que soit le remplissage des micro-lots.
+					double sommePonderee = 0.0;
+					int64 posTotal = 0;
+					int microVides = 0;
 					for (int m = 0; m < ACCUM; ++m) {
 						NkTensor x, tgt;
 						MakeBatchIdx(x, tgt); // cible = indices [B*T] (pas de one-hot dense)
-						NkVar logits = mGpt->Forward(mUseGpu ? x.ToGPU() : x);
+						NkVar logits = mLlama ? mLlama->Forward(mUseGpu ? x.ToGPU() : x)
+                                     : mGpt->Forward(mUseGpu ? x.ToGPU() : x);
 						// tgt reste sur CPU (minuscule ; le forward et le backward la lisent en CPU).
 						NkVar loss = autograd::SoftmaxCrossEntropyIndexed(logits, NkVar::Leaf(tgt, false));
 						NkVar scaled = (ACCUM > 1) ? autograd::MulScalar(loss, 1.0 / (double)ACCUM) : loss;
 						scaled.Backward();
-						lv += loss.Value().ToCPU().GetItem(NkShape{(int64)0}) / (double)ACCUM;
+
+						// Positions contributives comptees sur la CIBLE elle-meme : independant
+						// du chemin (GPU ou repli CPU) et de la structure interne du noeud.
+						int64 actifs = 0;
+						{
+							NkTensor tc = tgt.Contiguous();
+							const float *tp = tc.DataAs<float>();
+							for (int64 i = 0; i < tc.Numel(); ++i)
+								if (tp[i] >= 0.f)
+									++actifs;
+						}
+						if (actifs == 0)
+							++microVides;
+						sommePonderee += loss.Value().ToCPU().GetItem(NkShape{(int64)0}) * (double)actifs;
+						posTotal += actifs;
+					}
+					lv = (posTotal > 0) ? sommePonderee / (double)posTotal : 0.0;
+
+					// ---- FILET 0 : le lot etait-il seulement REMPLI ? ----
+					// Journalise TOUJOURS, pas seulement en cas de panne : un compteur qu'on
+					// ne lit qu'apres coup ne previent de rien.
+					{
+						const int64 attendu = (int64)ACCUM * mB * mT;
+						const double taux = (attendu > 0) ? (double)posTotal / (double)attendu : 0.0;
+						if (s <= 3 || microVides > 0 || taux < 0.999)
+							logger.Info("   [lot] pas {0} : {1} positions sommees sur {2} attendues "
+										"({3}%), micro-lots vides = {4}",
+										(long long)s, (long long)posTotal, (long long)attendu, taux * 100.0,
+										microVides);
+						if (microVides > 0) {
+							logger.Info("*** ARRET au pas {0} : {1} micro-lot(s) sur {2} n'ont somme AUCUNE "
+										"position. La perte affichee serait divisee d'autant sans que rien "
+										"ne le signale. ***",
+										(long long)s, microVides, ACCUM);
+							break;
+						}
+					}
+
+					// ---- FILET 0bis : la perte INITIALE n'a qu'une valeur licite ----
+					// Un modele fraichement initialise ne sait rien : il repartit sa masse
+					// uniformement sur le vocabulaire, donc -log(1/V) = ln(V). Tout ecart
+					// notable au premier pas denonce un lot mal rempli, une cible decalee ou
+					// une initialisation hors norme — AVANT que des heures ne soient depensees.
+					//
+					// ⚠️ SEULEMENT SUR UN MODELE NEUF. Trouve par le temoin de reprise du
+					// 2026-08-17 : `s` est le pas LOCAL, donc apres une reprise il revaut 1
+					// alors que le modele a deja appris — sa perte est SOUS ln(V), et ce filet
+					// arretait la reprise en l'accusant d'etre « impossible ». Une campagne
+					// longue aurait donc ete impossible a reprendre des que la perte serait
+					// descendue de 0,02 sous l'uniforme, c'est-a-dire tres vite. Le filet ne
+					// vaut que si aucun poids n'a ete charge.
+					if (s == 1 && mCfg.loadPath.Empty()) {
+						const double attendue = math::NkLog((double)mV);
+						// ⚠️ SEUIL ASYMETRIQUE, ET C'EST MESURE, PAS SUPPOSE.
+						//
+						// Premiere version : |perte - ln(V)| < 0,05, symetrique. Elle a arrete
+						// CINQ runs SAINS sur cinq (14 aout 2026). L'exces au-dessus de ln(V)
+						// est en effet STRUCTUREL et croit avec la largeur : +0,008 a d=384,
+						// +0,024 a d=512, +0,051 a d=640 — la table d'embedding n'est pas nulle
+						// a l'initialisation, donc les logits ne le sont pas non plus et la
+						// perte depasse legerement l'uniforme. Un seuil symetrique arretait donc
+						// precisement les configurations les plus larges, celles qu'on mesure.
+						//
+						// Les deux cotes n'ont PAS le meme statut :
+						//  - EN DESSOUS de ln(V) : IMPOSSIBLE. On ne fait pas mieux que
+						//    l'uniforme sans avoir appris. Le run fautif etait a -7,78.
+						//  - AU-DESSUS : anomalie d'initialisation, tolerable jusqu'a un point.
+						const double margeBasse = 0.02; // sous ln(V) : impossibilite
+						const double margeHaute = 0.50; // au-dessus : init hors norme
+						if (lv < attendue - margeBasse) {
+							logger.Info("*** ARRET au pas 1 : perte = {0}, INFERIEURE a ln(V) = {1}. Un modele "
+										"non entraine ne peut PAS faire mieux que l'uniforme : le lot est mal "
+										"rempli, ou des lignes n'ont pas ete calculees. ***",
+										lv, attendue);
+							break;
+						}
+						if (lv > attendue + margeHaute) {
+							logger.Info("*** ARRET au pas 1 : perte = {0}, trop au-dessus de ln(V) = {1} "
+										"(marge {2}). Initialisation hors norme. ***",
+										lv, attendue, margeHaute);
+							break;
+						}
+						logger.Info("   [init] perte au pas 1 = {0}, ln(V) = {1}, exces {2} : conforme.", lv,
+									attendue, lv - attendue);
 					}
 					adam.Step();
 					mEma = (s == 1) ? lv : 0.98 * mEma + 0.02 * lv;
+					if (s == 1) {
+						NkTensorGpu::ProfilRaz(true);
+						chronoProfil.Reset();
+						pasProfiles = 0;
+					} else
+						++pasProfiles;
 
 					// ---- FILET 1 : la perte est-elle seulement UNE PERTE ? ----
 					// L'entropie croisée vaut -log(p) avec p strictement inférieur à 1 :
@@ -732,7 +1169,14 @@ namespace nkentseu {
 						const double ecart = (mPerteInitiale - lv) / mPerteInitiale;
 						const double bouge = (ecart < 0.0) ? -ecart : ecart;
 						const int64 defauts = NkTensorGpu::DefautCount();
-						if (bouge < 0.001 || defauts > 0) {
+						// EN REPRISE (poids charges), « n'a pas bouge » ne prouve rien : un
+						// modele deja entraine, au plancher du pas d'apprentissage, rend deux
+						// pertes de lots differents qui peuvent coincider a 0,1 % pres par
+						// hasard — et un modele charge n'est plus uniforme, donc le symptome
+						// « colle a ln(V) » n'existe plus. Seul un defaut GPU declare arrete
+						// une reprise. (Vu en preparant le temoin de reprise du 2026-08-17.)
+						const bool modeleNeuf = mCfg.loadPath.Empty();
+						if ((modeleNeuf && bouge < 0.001) || defauts > 0) {
 							logger.Info("*** ARRET : apres 30 pas la perte n'a pas bouge ({0} -> {1}, soit {2}%). "
 										"Defauts GPU signales : {3}. ***",
 										mPerteInitiale, lv, bouge * 100.0, (long long)defauts);
@@ -754,10 +1198,28 @@ namespace nkentseu {
 											? (chrono.Elapsed().seconds * 1000.0) / (double)NkTensorGpu::OpCount()
 											: 0.0);
 					}
-					if (V && (s % 25 == 0 || s == 1))
-						logger.Info("  pas {0} : perte = {1}  (moy. {2})  lr={3}", s, lv, mEma, (double)lr);
+					if (V && ((mCfg.logEvery > 0 && s % mCfg.logEvery == 0) || s == 1))
+						// Pas GLOBAL, pas local : apres une reprise, c'est le seul qui se lise
+						// d'un journal a l'autre sans arithmetique.
+						logger.Info("  pas {0} : perte = {1}  (moy. {2})  lr={3}", (long long)g, lv, mEma, (double)lr);
+					// Pic de VRAM releve APRES quelques pas complets : le premier pas
+					// n'a pas encore materialise l'etat de l'optimiseur (moments Adam),
+					// donc un releve precoce sous-estime l'occupation reelle — et
+					// sous-estimer la memoire est la facon la plus couteuse de se
+					// tromper (la configuration ne tient pas, on le decouvre tard).
+					if (s == 3 && mCfg.verbose) {
+						const double pic = (double)NkTensorGpu::VramPic() / 1048576.0;
+						const double picCalc = (double)NkTensorGpu::VramPicCalcul() / 1048576.0;
+						const double viv = (double)NkTensorGpu::VramVivante() / 1048576.0;
+						logger.Info("VRAM suivie apres {0} pas : PIC physique {1} Mo (calcul seul {2} Mo), "
+									"vivante {3} Mo. (nos tampons SEULEMENT : ni pilote, ni fragmentation "
+									"— plancher de l'occupation reelle, pas son total ; le pic physique "
+									"compte ce que la reserve retient.)",
+									(long long)s, pic, picCalc, viv);
+					}
+
 					if (mCfg.valEvery > 0 && mValData.Size() > 0 && s % mCfg.valEvery == 0) {
-						const double vl = EvaluateVal(4);
+						const double vl = EvaluateVal();
 						if (V && vl >= 0.0)
 							logger.Info("  [val] pas {0} : perte val = {1}  (train {2})", s, vl, mEma);
 					}
@@ -771,20 +1233,36 @@ namespace nkentseu {
 											Generate(mCfg.seed, 80, 0.8, li).CStr());
 						logger.Info("    ---------------------------");
 					}
-					if (SAVEEVERY > 0 && hasSave && s % SAVEEVERY == 0) {
-						const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),
-													   &adam.SecondMoments(), adam.StepCount());
+					// ARRET PROPRE : signal recu ou sentinelle apparue. On sauve a la fin du
+					// pas en cours -- jamais au milieu d'un pas -- et on sort. Ce qui est
+					// perdu : rien ; ce qui est fait : tout, jusqu'a ce pas inclus.
+					const bool arret = sArretDemande || (!stopFile.Empty() && FichierExiste(stopFile.CStr()));
+					const bool echeanceMinutes =
+						(mCfg.saveMinutes > 0.0) && (chronoSauve.Elapsed().seconds >= mCfg.saveMinutes * 60.0);
+					if (hasSave && (arret || (SAVEEVERY > 0 && s % SAVEEVERY == 0) || echeanceMinutes)) {
+						const bool sv = sauver(g, arret ? "arret propre demande"
+													   : (echeanceMinutes ? "echeance minutes" : "echeance pas"));
 						if (sv && V)
-							logger.Info("  [checkpoint pas {0} (global {1}) -> {2}]", s, (long long)g,
-										mCfg.savePath.CStr());
+							logger.Info("  [checkpoint pas {0} (global {1}) -> {2}]{3}", s, (long long)g,
+										mCfg.savePath.CStr(), arret ? "  ARRET PROPRE : sortie." : "");
+					}
+					if (arret) {
+						if (!stopFile.Empty())
+							remove(stopFile.CStr());
+						logger.Info("*** ARRET PROPRE au pas global {0} : checkpoint ecrit, l'entrainement s'interrompt. "
+									"Relancer avec le meme --horizon pour reprendre. ***",
+									(long long)g);
+						return;
 					}
 				}
 				if (V)
 					logger.Info("Entraînement terminé en {0} s ({1}).", chrono.Elapsed().seconds,
 								mUseGpu ? "GPU-résident" : "CPU");
+				if (V && mUseGpu && pasProfiles > 0)
+					NkTensorGpu::ProfilRapport(chronoProfil.Elapsed().seconds, pasProfiles);
 
 				if (mValData.Size() > 0) {
-					const double vl = EvaluateVal(8);
+					const double vl = EvaluateVal();
 					if (V && vl >= 0.0)
 						logger.Info("Perte VALIDATION finale (held-out) : {0}  (train moy. {1}) — écart = "
 									"généralisation vs mémorisation.",
@@ -792,8 +1270,7 @@ namespace nkentseu {
 				}
 
 				if (hasSave) {
-					const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),
-												   &adam.SecondMoments(), adam.StepCount());
+					const bool sv = sauver(totalHorizon, "fin de course");
 					if (sv) {
 						if (V)
 							logger.Info("Modèle sauvegardé (avec état optimiseur, pas global {0}) : {1}",

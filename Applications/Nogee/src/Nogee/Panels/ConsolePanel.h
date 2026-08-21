@@ -12,47 +12,28 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKLogger/NkLogLevel.h"
+#include "Nogee/Panels/Model/NkConsoleModel.h" // NkConsoleLine + etat/logique neutres
 
 namespace nkentseu {
 	namespace noge {
 
-		struct NkConsoleLine {
-				NkString text;
-				NkLogLevel level = NkLogLevel::NK_INFO;
-				nk_uint32 count = 1; // répétitions consécutives
-		};
-
-		class ConsolePanel {
+		// Le modele (lignes, filtres, compteurs, PushLine/Clear/Passes/LevelPrefix)
+		// vit dans NkConsoleModel, en-tete NEUTRE sans dependance d'interface —
+		// PARTAGE avec ConsolePanelGui, la version portee sur NKGui. Seule la
+		// COULEUR d'un niveau reste ici : `nkui::NkColor` et `nkgui::NkColor` sont
+		// deux types distincts, sans conversion possible.
+		class ConsolePanel : public NkConsoleModel {
 			public:
-				static constexpr nk_uint32 kMaxLines = 2048;
-
 				ConsolePanel() = default;
 
-				// ── API de log (à appeler depuis NkLogger sink) ───────────────────
-				void PushLine(const char *text, NkLogLevel level) noexcept;
-				void Clear() noexcept;
+				// PushLine / Clear / Passes / LevelPrefix : hérités de NkConsoleModel.
 
 				// ── Rendu ─────────────────────────────────────────────────────────
 				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
 							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, nkui::NkRect rect) noexcept;
 
 			private:
-				NkVector<NkConsoleLine> mLines;
-				bool mAutoScroll = true;
-				bool mScrollToEnd = false;
-
-				// Filtres
-				bool mShowInfo = true;
-				bool mShowWarn = true;
-				bool mShowError = true;
-				bool mShowDebug = false;
-				char mFilterBuf[128] = {};
-
-				nk_uint32 mErrorCount = 0;
-				nk_uint32 mWarnCount = 0;
-
 				static nkui::NkColor LevelColor(NkLogLevel lv) noexcept;
-				static const char *LevelPrefix(NkLogLevel lv) noexcept;
 		};
 
 	} // namespace noge

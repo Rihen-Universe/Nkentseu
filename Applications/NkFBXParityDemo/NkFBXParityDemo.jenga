@@ -1,0 +1,43 @@
+"""NkFBXParityDemo — banc de parite FBX / glTF du chantier « FBX operationnel »
+(agent nkrenderer, 2026-08-17).
+
+Temoin bilateral : le MEME modele (CesiumMan) charge par les DEUX chemins —
+renderer::LoadGLTF (Resources/Models/CesiumMan/CesiumMan.glb, chemin prouve)
+et renderer::LoadFBX (Resources/Models/CesiumMan/CesiumMan.fbx, exporte du
+.glb via Blender 5.1). Les chiffres de reference du FBX viennent d'un
+inspecteur independant du moteur (Python, scratchpad de session) : 23 Model,
+19 LimbNode, 19 Cluster, 1 Skin, 57 AnimationCurveNode, 171 AnimationCurve.
+
+Etape (a) squelette+noms : nodes/hierarchie/TRS. Etapes (b) skinning et
+(c) animations : les checks s'ajouteront ici au fur et a mesure.
+
+Console classique (pas une TestSuite : politique de workspace « Unit-test
+execution disabled », meme contournement que NkAssetIODemo). Lancer depuis la
+racine du worktree (chemins Resources/ relatifs au repertoire courant).
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkFBXParityDemo"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKGlad",
+         "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])

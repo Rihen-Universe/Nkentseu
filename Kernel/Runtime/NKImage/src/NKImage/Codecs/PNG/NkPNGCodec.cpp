@@ -180,9 +180,9 @@ namespace nkentseu {
 	// ─────────────────────────────────────────────────────────────────────────────
 	//  NkPNGCodec::Decode
 	// ─────────────────────────────────────────────────────────────────────────────
-	NkImage *NkPNGCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkPNGCodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 8)
-			return nullptr;
+			return NkImage();
 		crcInit();
 		NkImageStream s(data, size);
 
@@ -191,7 +191,7 @@ namespace nkentseu {
 		s.ReadBytes(sig, 8);
 		static const uint8 kSIG[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
 		if (NkCompare(sig, kSIG, 8) != 0)
-			return nullptr;
+			return NkImage();
 
 		int32 imgW = 0, imgH = 0, bd = 0, ct = 0, interlace = 0;
 		bool hasIHDR = false;
@@ -207,7 +207,7 @@ namespace nkentseu {
 		// Collecte IDAT
 		uint8 *idat = static_cast<uint8 *>(pngMalloc(size));
 		if (!idat)
-			return nullptr;
+			return NkImage();
 		usize idatLen = 0;
 
 		while (!s.IsEOF() && !s.HasError()) {
@@ -270,11 +270,11 @@ namespace nkentseu {
 
 		if (!hasIHDR || imgW <= 0 || imgH <= 0 || idatLen == 0) {
 			pngFree(idat);
-			return nullptr;
+			return NkImage();
 		}
 		if (interlace != 0) {
 			pngFree(idat);
-			return nullptr;
+			return NkImage();
 		} // Adam7 non supporté
 
 		// Décompression zlib (NkDeflate avec le fix FDICT)
@@ -286,14 +286,14 @@ namespace nkentseu {
 		uint8 *raw = static_cast<uint8 *>(pngMalloc(rawSz));
 		if (!raw) {
 			pngFree(idat);
-			return nullptr;
+			return NkImage();
 		}
 
 		usize written = 0;
 		if (!NkDeflate::Decompress(idat, idatLen, raw, rawSz, written)) {
 			pngFree(idat);
 			pngFree(raw);
-			return nullptr;
+			return NkImage();
 		}
 		pngFree(idat);
 
@@ -319,10 +319,10 @@ namespace nkentseu {
 									   : outN == 3 ? NkImagePixelFormat::NK_RGB24
 												   : NkImagePixelFormat::NK_RGBA32;
 
-		NkImage *img = NkImage::Alloc(imgW, imgH, fmt);
-		if (!img) {
+		NkImage img = NkImage::Alloc(imgW, imgH, fmt);
+		if (!img.IsValid()) {
 			pngFree(raw);
-			return nullptr;
+			return NkImage();
 		}
 
 		// Buffer ligne précédente (filtre Up/Avg/Paeth)
@@ -333,8 +333,7 @@ namespace nkentseu {
 			pngFree(prev);
 			pngFree(tmp);
 			pngFree(raw);
-			img->Free();
-			return nullptr;
+			return NkImage();
 		}
 
 		usize rp = 0;
@@ -348,7 +347,7 @@ namespace nkentseu {
 
 			// Destination dans NkImage : RowPtr(y) pointe sur stride bytes,
 			// on écrit seulement imgW*outN octets utiles (le reste du stride est du padding)
-			uint8 *dst = img->RowPtr(y);
+			uint8 *dst = img.RowPtr(y);
 
 			if (ct == 3) {
 				// Palette indexée

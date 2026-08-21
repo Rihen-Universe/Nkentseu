@@ -55,6 +55,7 @@
 #include "NKFileSystem/NkFileSystem.h"
 #include "NKImage/NKImage.h" // reduction des miniatures de scene
 #include "NKMemory/NkMemory.h"
+#include "NKLogger/NkLog.h"
 #include "NKSerialization/JSON/NkJSONWriter.h"
 #include "NKSerialization/JSON/NkJSONReader.h"
 
@@ -333,6 +334,16 @@ namespace nkentseu {
 			demo::Demo3DHostProjMatEmissive(slot, emi);
 			NkScSetVec3(o, "emissif", emi);
 			o.SetInt32("apercu", demo::Demo3DHostProjMatPrevShape(slot));
+			o.SetBool("emissifEclaire", demo::Demo3DHostProjMatEmiLights(slot));
+			// LA VIGNETTE VOYAGE AVEC LE MATERIAU (Rihen, 14 aout) : un PNG encode
+			// en base64, dans le fichier meme. Un fichier voisin se serait separe de
+			// lui au premier deplacement, et une bibliotheque de materiaux se
+			// deplace beaucoup. Quelques kilo-octets pour une image de 128 px.
+			{
+				const char *vig = demo::Demo3DHostProjMatThumb(slot);
+				if (vig && *vig)
+					o.SetString("vignette", vig);
+			}
 			// LES CANAUX, indexes et non nommes un a un : la table des canaux vit
 			// dans l'hote, la recopier ici la ferait diverger au premier ajout.
 			NkArchive maps;
@@ -345,6 +356,10 @@ namespace nkentseu {
 			o.SetObject("cartes", maps);
 		}
 
+	// TRACE DE CHARGEMENT : elle dit ce qui est REELLEMENT relu du disque, et
+		// pour quel emplacement. Sans elle, « la couleur n'a pas persiste » laisse
+		// trois coupables possibles -- l'ecriture, la lecture, ou un ecrasement
+		// apres coup -- et on ne peut que deviner.
 		inline void NkAsMatRestore(const NkArchive &in, const NkString &root, int32 slot,
 								   int32 *texMiss) {
 			const NkString nm = NkScStr(in, "nom");
@@ -352,6 +367,8 @@ namespace nkentseu {
 				demo::Demo3DHostProjMatSetName(slot, nm.CStr());
 			float32 alb[3];
 			NkScGetVec3(in, "albedo", alb, 0.7f, 0.7f, 0.7f);
+			NkLog::Instance().Info("[materiau] relu emplacement {0} : albedo {1} {2} {3}",
+								   slot, alb[0], alb[1], alb[2]);
 			demo::Demo3DHostProjMatSetParams(slot, alb, NkScFloat(in, "rugosite", 0.85f),
 											 NkScFloat(in, "metallique", 0.f));
 			// Physique de surface : defaut 0 — un .nkmat ecrit avant le 9 aout
@@ -416,6 +433,8 @@ namespace nkentseu {
 			NkScGetVec3(in, "emissif", emi, 0.f, 0.f, 0.f);
 			demo::Demo3DHostProjMatSetEmissive(slot, emi);
 			demo::Demo3DHostProjMatSetPrevShape(slot, NkScInt(in, "apercu", 1));
+			demo::Demo3DHostProjMatSetEmiLights(slot, NkScBool(in, "emissifEclaire", false));
+			demo::Demo3DHostProjMatSetThumb(slot, NkScStr(in, "vignette").CStr());
 			NkArchive maps;
 			if (!in.GetObject("cartes", maps))
 				return;
@@ -726,6 +745,17 @@ namespace nkentseu {
 						if (ms2 >= 0)
 							(void)demo::Demo3DHostNodeMatAdd(n, ms2);
 					}
+					// ── UN OBJET IMPORTE RECOIT LE MATERIAU PAR DEFAUT ───────
+					// Un fichier venu d'ailleurs (ou ecrit avant que les listes
+					// existent) n'a aucun materiau a rattacher : sans cela l'objet
+					// apparaitrait en MAGENTA, ce qui est le signal d'un probleme,
+					// pas d'un import normal (Rihen, 13 aout : « le vrai correctif
+					// est d'attribuer le materiau par defaut a l'import »).
+					// Le magenta reste pour ce qu'il designe : une absence VOULUE,
+					// obtenue en retirant les materiaux a la main.
+					if (demo::Demo3DHostNodeMatCount(n) == 0 &&
+						demo::Demo3DHostProjMatOf(n) < 0)
+						(void)demo::Demo3DHostNodeMatAdd(n, demo::Demo3DHostProjMatEnsureDefault());
 				}
 			}
 			// LA REPARATION APRES LES PARENTES : elle a besoin de l'arbre complet
@@ -1224,14 +1254,14 @@ namespace nkentseu {
 			if (im.Load(abs.CStr()) && im.Width() > 320u) {
 				const int32 w = 320;
 				const int32 h = (int32)((im.Height() * 320u) / im.Width());
-				NkImage *petit =
-					(h >= 8) ? im.Resize(w, h, NkResizeFilter::NK_BICUBIC) : nullptr;
-				if (petit) {
-					const bool ok = petit->Save(abs.CStr());
+				NkImage petit;
+				if (h >= 8)
+					petit = im.Resize(w, h, NkResizeFilter::NK_BICUBIC);
+				if (petit.IsValid()) {
+					const bool ok = petit.Save(abs.CStr());
 					printf("[NK3DModeler] Miniature %s : %ux%u -> %ux%u (%s)\n",
-						   rel.CStr(), im.Width(), im.Height(), petit->Width(),
-						   petit->Height(), ok ? "ecrite" : "REECRITURE RATEE");
-					petit->Free();
+						   rel.CStr(), im.Width(), im.Height(), petit.Width(),
+						   petit.Height(), ok ? "ecrite" : "REECRITURE RATEE");
 				}
 			}
 			st.docThumb[d] = 0; // le televerseur (main.cpp) la rechargera
@@ -1318,6 +1348,13 @@ namespace nkentseu {
 				if (dd >= 0 && dd < NkModelerState::kMaxDocs)
 					docRank[(usize)dd] = rank[(usize)b];
 			}
+			// ⚠️ « navigateur » et « triNavigateur » SONT DES CLES DE FICHIER, pas
+			// des libelles. Le panneau s'appelle desormais « Navigateur de
+			// contenu » (Content Browser des specs Nogee), mais ces clefs NE
+			// DOIVENT PAS suivre ce renommage : elles sont ecrites dans tous les
+			// .nk3dm existants, et les renommer rendrait leur navigateur vide au
+			// rechargement -- sans erreur, une cle absente se lit comme un tableau
+			// vide. Un renommage cosmetique qui efface des donnees.
 			o.SetObjectArray("navigateur", cards);
 
 			// ── VUES OUVERTES : la DISPOSITION, pas les scenes ──
@@ -1335,6 +1372,70 @@ namespace nkentseu {
 			}
 			o.SetObjectArray("vues", views);
 			o.SetInt32("vueActive", activeRank);
+		}
+
+		/// Ecrit LE FICHIER D'UNE CARTE (scene, model ou materiau) sous la racine
+		/// du projet, puis met a jour le chemin et la date memorises de la carte.
+		/// C'est le corps de la boucle d'« Enregistrer », sorti pour etre appele
+		/// AUSSI par l'import (contrat de Rodolf du 17/08 : « un import ECRIT » --
+		/// les `.nkmesh` partent au moment de l'import, par le MEME chemin que la
+		/// sauvegarde, jamais par un second ecrivain). Rend vrai si la carte n'a
+		/// rien a ecrire (nature sans fichier, document absent) : « rien a faire »
+		/// n'est pas un echec. Rend faux, avec `err`, si l'ecriture echoue.
+		inline bool NkProjectWriteCard(const NkString &root, NkModelerState &st, int32 b,
+									   NkString *err) {
+			const uint8 k = st.browserKind[b];
+			if (k == 255 || !NkAsExtFor(k))
+				return true;
+			const NkString rel = NkAsRelFor(st, b);
+			if (rel.Empty())
+				return true;
+			NkArchive a;
+			if (k == 5) {
+				const int32 d = st.browserDoc[b] - 1;
+				if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
+					return true;
+				NkAsSceneCapture(a, root, st, d);
+			} else if (k == 6) {
+				NkAsModelCapture(a, root, st, b);
+			} else {
+				const int32 m = st.browserMat[b] - 1;
+				if (m < 0)
+					return true;
+				NkAsMatCapture(a, root, m);
+			}
+			if (!NkAsWrite(root, rel, a, err))
+				return false;
+			// L'ORIGINE CORRIGEE EST SUR LE DISQUE : la carte se desarme.
+			// APRES l'ecriture reussie, jamais avant -- un desarmement sur une
+			// ecriture echouee perdrait la correction sans un message.
+			if (k == 6)
+				st.browserOriginDirty[b] = false;
+			// ── LA VIGNETTE D'UN MATERIAU SE PREND ICI ──────────────────
+			// « Les cartes recoivent le resultat correct, sous forme de
+			// capture a la sauvegarde » (Rihen, 13 aout) : le fichier et son
+			// image datent ainsi du meme geste, comme pour les scenes. C'est
+			// une DEMANDE, pas un rendu -- la capture a besoin d'une frame,
+			// et nous ne sommes pas dans le rendu ici.
+			if (k == 2) {
+				const int32 m = st.browserMat[b] - 1;
+				if (m >= 0)
+					demo::Demo3DHostMatThumbRequest(m, nullptr);
+			}
+			// RENOMMEE OU DEPLACEE : l'ancien fichier est retire. Sans cela le
+			// dossier du projet accumulerait des orphelins que plus rien ne
+			// designe -- et qu'on prendrait, plus tard, pour du travail perdu.
+			const NkString old(st.browserFile[b]);
+			if (!old.Empty() && !(old == rel))
+				(void)NkFile::Delete(NkScToAbs(root, old.CStr()).CStr());
+			NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
+			// La DATE sert au classement du navigateur. Relevee ICI, a
+			// l'ecriture, plutot qu'interrogee a la peinture : trente-deux
+			// appels au systeme de fichiers par image couteraient plus cher que
+			// tout le navigateur.
+			st.browserTime[b] =
+				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
+			return true;
 		}
 
 		/// Ecrit UN FICHIER PAR ASSET sous la racine du projet, puis met a jour le
@@ -1374,42 +1475,25 @@ namespace nkentseu {
 				const uint8 k = st.browserKind[b];
 				if (k == 255 || !NkAsExtFor(k))
 					continue;
-				if (onlyCard >= 0 && b != onlyCard && k != 2)
-					continue; // « Enregistrer » : ce fichier-ci, et les materiaux
-				const NkString rel = NkAsRelFor(st, b);
-				if (rel.Empty())
-					continue;
-				NkArchive a;
-				if (k == 5) {
-					const int32 d = st.browserDoc[b] - 1;
-					if (d < 0 || d >= NkModelerState::kMaxDocs || !st.docUsed[d])
-						continue;
-					NkAsSceneCapture(a, root, st, d);
-				} else if (k == 6) {
-					NkAsModelCapture(a, root, st, b);
-				} else {
-					const int32 m = st.browserMat[b] - 1;
-					if (m < 0)
-						continue;
-					NkAsMatCapture(a, root, m);
-				}
-				if (!NkAsWrite(root, rel, a, err))
+				// « Enregistrer » ecrit CE QU'ON REGARDE (regle de Rihen), plus deux
+				// exemptions : les MATERIAUX (deja la), et les MODELS DONT L'ORIGINE
+				// A ETE CORRIGEE EN MEMOIRE au depot (browserOriginDirty -- decision
+				// de Rihen, 17/08 : l'origine stockee dans le `.nkmesh` est la
+				// reference du pipeline d'export ; FBX repositionnera l'objet pour
+				// que son origine soit a (0,0,0), donc une origine fausse dans le
+				// fichier produirait un export decale). L'utilisateur ne peut pas
+				// « regarder » cette correction : elle est faite par le systeme, et
+				// c'est precisement pour ca qu'elle suit l'exemption, pas la regle.
+				// La garde `browserSrcNode > 0` protege d'un drapeau devenu orphelin
+				// sur un emplacement recycle : huit sites remettent srcNode a zero,
+				// et le drapeau ne se justifie que tant que l'archive existe.
+				if (onlyCard >= 0 && b != onlyCard && k != 2 &&
+					!(k == 6 && st.browserOriginDirty[b] && st.browserSrcNode[b] > 0))
+					continue; // « Enregistrer » : ce fichier-ci, et les exemptions
+				// LE CORPS EST NkProjectWriteCard : le meme pour « Enregistrer » et
+				// pour l'import -- un seul ecrivain de carte dans tout le modeleur.
+				if (!NkProjectWriteCard(root, st, b, err))
 					return false;
-				// La DATE sert au classement du navigateur. Relevee ICI, a
-				// l'ecriture, plutot qu'interrogee a la peinture : trente-deux
-				// appels au systeme de fichiers par image couteraient plus cher que
-				// tout le navigateur.
-				st.browserTime[b] =
-					NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
-				// RENOMMEE OU DEPLACEE : l'ancien fichier est retire. Sans cela le
-				// dossier du projet accumulerait des orphelins que plus rien ne
-				// designe -- et qu'on prendrait, plus tard, pour du travail perdu.
-				const NkString old(st.browserFile[b]);
-				if (!old.Empty() && !(old == rel))
-					(void)NkFile::Delete(NkScToAbs(root, old.CStr()).CStr());
-				NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
-			st.browserTime[b] =
-				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
 			}
 			return true;
 		}
@@ -1453,6 +1537,7 @@ namespace nkentseu {
 				st.browserDoc[b] = 0;
 				st.browserMat[b] = 0;
 				st.browserFile[b][0] = 0;
+				st.browserOriginDirty[b] = false; // transient : jamais serialise
 			}
 			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
 				st.DocFree(d);
@@ -1699,6 +1784,54 @@ namespace nkentseu {
 			return parent;
 		}
 
+		/// Dossier du navigateur correspondant a un chemin DISQUE absolu, cree au
+		/// besoin ; -1 pour la racine du projet (ou pour un chemin qui n'est pas
+		/// dedans). C'est le pont qui manquait entre le selecteur de fichiers --
+		/// qui parle en chemins absolus, puisqu'il navigue le disque -- et le
+		/// navigateur de contenu, qui parle en cartes. Sans lui, un materiau cree
+		/// depuis le selecteur atterrissait a la racine quel que soit le dossier
+		/// choisi (Rihen, 13 aout : « ca ne se sauvegarde pas dans le bon dossier »).
+		inline int32 NkAsFolderFromAbs(NkModelerState &st, const NkString &root,
+									   const char *abs) {
+			if (!abs || !*abs || root.Empty())
+				return -1;
+			// Separateurs UNIFIES et comparaison INSENSIBLE A LA CASSE : sous
+			// Windows le meme dossier s'ecrit indifferemment `C:/x/y`, `C:\x\y` ou
+			// `c:/X/Y`, et le selecteur ne rend pas toujours la meme forme que celle
+			// gardee dans le projet.
+			auto norm = [](const char *s) {
+				NkString o;
+				for (const char *c = s; c && *c; ++c) {
+					char x = (*c == '\\') ? '/' : *c;
+					if (x >= 'A' && x <= 'Z')
+						x = (char)(x - 'A' + 'a');
+					o += x;
+				}
+				while (!o.Empty() && o[o.Size() - 1] == '/')
+					o.PopBack();
+				return o;
+			};
+			const NkString r = norm(root.CStr()), a = norm(abs);
+			if (a.Size() < r.Size())
+				return -1;
+			for (NkString::SizeType i = 0; i < r.Size(); ++i)
+				if (a[i] != r[i])
+					return -1; // hors du projet : la racine, faute de mieux
+			if (a.Size() == r.Size())
+				return -1; // c'est la racine elle-meme
+			if (a[r.Size()] != '/')
+				return -1; // simple homonymie de prefixe (`.../AgentTest2`)
+			// Le relatif est repris sur la casse D'ORIGINE : `norm` ne sert qu'a
+			// comparer, jamais a nommer -- un dossier « Textures » ne doit pas
+			// devenir « textures » dans le navigateur.
+			NkString rel;
+			for (NkString::SizeType i = r.Size() + 1; i < a.Size(); ++i)
+				rel += (abs[i] == '\\') ? '/' : abs[i];
+			if (rel.Empty())
+				return -1;
+			return NkAsEnsureFolder(st, rel);
+		}
+
 		/// Retire une carte que le disque n'a plus. Ce qu'elle portait s'en va avec
 		/// elle : le document d'une scene, les noeuds archives d'un model. Les
 		/// ONGLETS qui la montraient se referment -- une vue sur un fichier efface
@@ -1828,6 +1961,38 @@ namespace nkentseu {
 					root.CStr(), kPat[p], NkSearchOption::NK_ALL_DIRECTORIES);
 				for (usize i = 0; i < f.Size(); ++i)
 					found.PushBack(NkScToRel(root, f[i].CStr()));
+			}
+			// ── DOSSIERS DU DISQUE : ils existent AUSSI ─────────────────────
+			// Le balayage ne cherchait que des FICHIERS. Un dossier cree hors de
+			// l'application -- ou par elle, comme « Apercus » qui porte les
+			// vignettes -- n'apparaissait donc jamais dans le navigateur, alors que
+			// le selecteur de fichiers, lui, le montrait : deux sources de verite
+			// pour la meme chose (Rihen, 13 aout : « pas normal »).
+			//
+			// Un dossier VIDE compte : c'est un rangement que l'utilisateur a voulu.
+			{
+				const NkVector<NkString> dirs = NkDirectory::GetDirectories(
+					root.CStr(), "*", NkSearchOption::NK_ALL_DIRECTORIES);
+				for (usize i = 0; i < dirs.Size(); ++i) {
+					const NkString rel = NkScToRel(root, dirs[i].CStr());
+					if (rel.Empty())
+						continue;
+					// Les dossiers caches (« .git », « .vs »...) ne sont pas du
+					// contenu de projet : ils encombreraient le navigateur.
+					bool cache = false;
+					for (NkString::SizeType k = 0u; k + 1u < rel.Size() && !cache; ++k)
+						cache = (rel[k] == '.') && (k == 0u || rel[k - 1u] == '/');
+					if (cache)
+						continue;
+					// ON NE COMPTE QUE LES CREATIONS. `NkAsEnsureFolder` rend l'index
+					// qu'il ait cree la carte ou simplement retrouve l'existante :
+					// compter son succes ferait croire a un changement A CHAQUE
+					// balayage, et le projet se declarerait modifie en permanence.
+					const int32 avant = st.browserCount;
+					(void)NkAsEnsureFolder(st, rel);
+					if (st.browserCount != avant)
+						++changes;
+				}
 			}
 			// ── FICHIERS NOUVEAUX : on les adopte ───────────────────────────
 			for (usize i = 0; i < found.Size(); ++i) {

@@ -1,0 +1,87 @@
+"""NkMatInventaireTest — rend un APERCU par fichier .nkmat, sans souris.
+
+⚠️ BANC ARRETE ET NON ENREGISTRE : ce fichier n'est PLUS inclus dans
+Nkentseu.jenga (retire le 17/08 — il echouait au lien PAR CONSTRUCTION, 118
+symboles Demo3DHost* definis dans NkDemo3D.cpp jamais compile ici, et cassait
+le build complet de main ; trouve par l'agent Ilyana). Le commentaire du
+retrait, dans Nkentseu.jenga, dit pourquoi on ne le « repare » pas en ajoutant
+NkDemo3D.cpp aux sources. Il se re-enregistre le jour ou Demo3DHost devient
+une bibliotheque — il linkera alors sans une ligne de plus.
+
+Instrument de l'inventaire des materiaux : ouvre une fenetre CACHEE, initialise
+l'hote du viseur (device + taille, rien d'autre), charge chaque .nkmat par le
+chemin OFFICIEL du modeleur (NkAsMatRestore) et ecrit un PNG par materiau, plus
+un `regime.txt` qui declare ce que ces captures couvrent et ce qu'elles ne
+couvrent PAS.
+
+Application et non test unitest() : aucun des 26 dossiers tests/ du depot
+n'ouvre de device. Voir la dette « les bancs GPU sont des tests declares en
+applications » dans Applications/NK3DModeler/ROADMAP.md."""
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+def _norm(p):
+    return p.replace("\\", "/") if p else p
+
+
+_VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_VULKAN_OPT     = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE)
+
+_GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
+
+with project("NkMatInventaireTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        # Le banc passe par l'hote du viseur du modeleur (NkDemo3DHost) : c'est
+        # le seul chemin qui charge un .nkmat, et c'est VOULU -- un second
+        # lecteur rendrait ce que le banc lit et non ce que le modeleur affiche.
+        ["NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage",
+         "NKAudio", "NKMedia", "NKCanvas", "NKGui", "NKEditorKit",
+         "NKFileSystem", "NKSerialization", "NKReflection", "NKGlad", "NKMath", "NKTime",
+         "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src",
+                        "%{wks.location}/Applications/NK3DModeler/src",
+                        "%{NKGlad.location}/include"]
+                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        _WIN_LINKS = [
+            "NKGLSlang", "NKSPIRVCross",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "uuid", "ole32", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+            if not _IS_MINGW:
+                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+        links(_WIN_LINKS)

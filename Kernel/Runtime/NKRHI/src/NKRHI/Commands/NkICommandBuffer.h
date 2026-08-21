@@ -269,14 +269,38 @@ namespace nkentseu {
 			// =========================================================================
 			// Clear explicite (hors render pass — pour les textures storage)
 			// =========================================================================
+			// ⚠️ MEME MALADIE QUE `ClearBuffer`, DESAMORCEE AVANT SA PREMIERE VICTIME
+			// (2026-08-16). Corps VIDE, **0 surcharge sur les six backends**, et — a la
+			// difference de `ClearBuffer` — **0 appelant a ce jour** : c'etait un piege
+			// arme, pas encore un defaut actif. Mesure faite avant correction :
+			// `ClearTexture` n'apparaissait qu'UNE fois dans tout le depot, ici meme.
+			//
+			// C'est le seul cas ou la reparation est gratuite : le prochain appelant
+			// croira mettre une texture a zero et verra un avertissement au lieu de
+			// devenir une victime silencieuse. Le corps est defini hors ligne
+			// (NkICommandBuffer.cpp), comme celui de `ClearBuffer`, pour ne pas tirer
+			// NKLogger dans un en-tete inclus par une trentaine d'applications.
 			virtual void ClearTexture(NkTextureHandle texture, const NkClearValue &value, uint32 baseMip = 0,
 									  uint32 mipCount = UINT32_MAX, uint32 baseLayer = 0,
-									  uint32 layerCount = UINT32_MAX) {
-			}
+									  uint32 layerCount = UINT32_MAX);
 
+			// ⚠️ CORPS DE BASE NON SILENCIEUX (2026-08-16). Ce virtuel avait un corps
+			// VIDE, et AUCUN des six backends ne le surchargeait : tout appel etait
+			// un no-op *silencieux*, sur toutes les plateformes. `Core/NkML.cpp:77`
+			// (commentaire « Init gradient a zero ») et `:106` comptaient dessus —
+			// ces tampons n'etaient mis a zero nulle part. Un virtuel a corps vide ne
+			// se distingue pas d'un virtuel implemente, ni au point d'appel ni a la
+			// lecture ; la seule protection est qu'il PARLE. Le corps par defaut est
+			// donc defini hors ligne (NkICommandBuffer.cpp) et journalise « non
+			// implemente sur ce backend » au lieu de ne rien faire.
+			//
+			// Surcharge existante a ce jour : **Vulkan seul** (vkCmdFillBuffer).
+			// DX11, DX12, OpenGL, Metal, Software tombent sur l'avertissement — c'est
+			// le comportement voulu : bruyamment incomplet plutot que silencieusement
+			// faux. Un appelant qui a besoin de la garantie doit VERIFIER (temoin
+			// ecriture/relecture), pas se fier a la presence de la signature.
 			virtual void ClearBuffer(NkBufferHandle buffer, uint32 value = 0, uint64 offset = 0,
-									 uint64 size = UINT64_MAX) {
-			}
+									 uint64 size = UINT64_MAX);
 
 			// =========================================================================
 			// Timestamp queries (GPU timing)

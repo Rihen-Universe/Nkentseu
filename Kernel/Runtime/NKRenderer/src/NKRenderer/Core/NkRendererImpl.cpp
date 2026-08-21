@@ -709,6 +709,69 @@ namespace nkentseu {
 		}
 
 		// ── Build default render graph ─────────────────────────────────────────────
+		// ── SEUIL DU BRIGHT PASS : ANCRE SUR LE BLANC AFFICHE ────────────────────
+		// Il etait applique sur le HDR BRUT, sans rapport avec le blanc a l'ecran :
+		// 0,85 se lisait « juste sous le blanc » alors qu'il etait 3,1 diaphragmes
+		// en dessous, et toute surface diffuse bien eclairee entrait dans le bright
+		// pass. Un bloom ne doit capter que ce qui DEPASSE le blanc.
+		//
+		// LA CIRCULARITE, ET SA SORTIE : le blanc depend de l'exposition, or
+		// l'exposition se mesure a partir d'une image qui contient le bloom. On prend
+		// donc l'exposition RESOLUE la plus fraiche disponible — celle relevee par
+		// l'anneau du post-traitement. Gratuit : 2 frames a 60 ips = 33 ms contre
+		// ~500 ms de constante d'adaptation, soit 15x plus rapide que la grandeur
+		// suivie. (Les passes de bloom sont enregistrees AVANT la passe
+		// AutoExposure : a l'execution, la valeur lue est donc celle de la frame
+		// precedente, ce que ce raisonnement assume explicitement.)
+		//
+		// POURQUOI CETTE FONCTION EXISTE, ET POURQUOI ON L'APPELLE A L'EXECUTION :
+		// le calcul vivait dans BuildDefaultRenderGraph et les lambdas des 6 passes
+		// le capturaient PAR VALEUR. Le graphe ne se reconstruisant presque jamais,
+		// le seuil restait fige sur l'exposition d'AVANT la premiere mesure
+		// d'auto-exposition — pas un retard qui se resorbe, un ancrage permanent sur
+		// la seule valeur qui ne signifie rien. Mesure du 2026-08-15 (Demo4 +
+		// NK_AUTOEXP=1, orbite) : seuil applique 7,24 contre 144,8 reclame,
+		// rapport 0,05 STABLE sur 841 frames. Sous auto active, le bloom captait
+		// donc 20x trop bas et le defaut d'origine revenait entier.
+		//
+		// JAMAIS 0 : un seuil nul ferait entrer toute l'image dans le bright pass ;
+		// une exposition nulle enverrait le seuil a l'infini et le bloom
+		// disparaitrait sans bruit.
+		float NkRendererImpl::ComputeBloomThreshold() const {
+			float aeExposure = mCfg.postProcess.exposure;
+			float32 resolved = 1.f;
+			bool stale = false;
+			bool valid = false;
+			if (mPostProcess) {
+				// Hors auto, ResolvedExposure rend l'exposition de la config : il n'y
+				// a donc pas de cas « pas encore de releve » a traiter a part.
+				valid = mPostProcess->ResolvedExposure(&resolved, &stale);
+				if (valid && resolved > 0.0001f)
+					aeExposure = resolved;
+			}
+			if (aeExposure < 0.0001f)
+				aeExposure = 0.0001f;
+			const float thr = mCfg.postProcess.bloomThreshold * renderer::kNkAcesWhitePoint / aeExposure;
+
+			// [MESURE cas4 — TEMPORAIRE, a retirer apres le run de Rodolf]
+			// On ne trace QUE les transitions (>1 % d'ecart) : la fonction est
+			// appelee a chaque frame, et ce sont les basculements de cases qui
+			// interessent, pas le regime etabli.
+			{
+				static float sLast = -1.f;
+				const bool first = (sLast < 0.f);
+				if (first || thr > sLast * 1.01f || thr < sLast * 0.99f) {
+					logger.Info("[MESURE cas4] autoOn={0} cfgExpo={1} resolved={2} valid={3} "
+								"stale={4} aeExposure={5} seuilBrut={6} bloomThr={7}\n",
+								(mPostProcess && mPostProcess->IsAutoExposureEnabled()) ? 1 : 0,
+								mCfg.postProcess.exposure, resolved, valid ? 1 : 0, stale ? 1 : 0,
+								aeExposure, mCfg.postProcess.bloomThreshold, thr);
+					sLast = thr;
+				}
+			}
+			return thr;
+		}
+
 		// Construit un graphe de rendu opt-in en fonction des sous-systemes actifs.
 		// Si l'utilisateur a desactive RENDER3D, on n'ajoute ni Shadow ni Geometry.
 		// Si POST_PROCESS est off, on ecrit Geometry directement dans Swapchain.
@@ -912,7 +975,12 @@ namespace nkentseu {
 				// 6 passes downsample : extrait highlights + downsample x2 par mip.
 				// Pass 0 : src = mainColor (HDR), threshold actif.
 				// Pass 1..5 : src = bloomMip[i-1], threshold = 0 (passthrough).
-				const float bloomThr = mCfg.postProcess.bloomThreshold;
+				// LE SEUIL N'EST PLUS CALCULE ICI. Il l'etait, et comme les lambdas
+				// le capturaient PAR VALEUR il restait fige sur l'exposition d'AVANT
+				// la premiere mesure d'auto-exposition (7,24 applique contre 144,8
+				// reclame, facteur 20 sur 841 frames). Il se calcule desormais a
+				// l'execution de chaque passe : voir ComputeBloomThreshold(), qui
+				// porte l'ancrage sur le blanc affiche et la sortie de circularite.
 				for (int i = 0; i < kBloomMipsRG; i++) {
 					char passName[32];
 					snprintf(passName, sizeof(passName), "Bloom_Down_%d", i);
@@ -923,10 +991,16 @@ namespace nkentseu {
 					uint32 div = 1u << i; // mip i source resolution = W/(2^i) avant downsample
 					uint32 srcW = (i == 0) ? mCfg.width : (mCfg.width / div ? mCfg.width / div : 1);
 					uint32 srcH = (i == 0) ? mCfg.height : (mCfg.height / div ? mCfg.height / div : 1);
-					float thr = (i == 0) ? bloomThr : 0.0f;
-					dp.Execute([this, src, srcW, srcH, thr](NkICommandBuffer *cmd) {
+					// SEUIL CALCULE A L'EXECUTION. On capture le RANG de la passe, pas
+					// une valeur : `threshold` est un push constant (cf.
+					// DrawBloomDownPass), donc le reevaluer chaque frame ne recree
+					// aucun pipeline. Seule la passe 0 filtre ; les suivantes
+					// re-echantillonnent une pyramide deja filtree.
+					const bool isBright = (i == 0);
+					dp.Execute([this, src, srcW, srcH, isBright](NkICommandBuffer *cmd) {
 						NkTextureHandle srcTex = mRenderGraph->GetResourceTexture(src);
 						if (mPostProcess && srcTex.IsValid()) {
+							const float thr = isBright ? ComputeBloomThreshold() : 0.0f;
 							mPostProcess->DrawBloomDownPass(cmd, srcTex, srcW, srcH, thr);
 						}
 					});
@@ -1021,20 +1095,67 @@ namespace nkentseu {
 				// render pass — meme modele que la passe d'ombres. Reads(mainColor)
 				// reste necessaire pour que le RG insere la barriere
 				// COLOR_ATTACHMENT -> SHADER_READ sur le HDR avant l'echantillonnage.
+				// ── LE JETON D'ORDRE, ET POURQUOI IL EXISTE ──────────────────────
+				// Le tonemap CONSOMME ce que l'auto-exposition PRODUIT (la cible 1x1,
+				// binding 4). Cette dependance est REELLE et le graphe ne la voyait
+				// pas : la cible est hors-graph, donc aucune passe ne declarait
+				// dependre d'AutoExposure.
+				//
+				// L'ordre etait pourtant correct — par la rencontre de TROIS
+				// proprietes independantes, verifiees le 15/08 : (1) le tri de Kahn
+				// a une file STABLE (FIFO sur l'index de declaration) ; (2) les
+				// lectures d'AutoExposure sont un SOUS-ENSEMBLE de celles du
+				// tonemap, donc elle est prete au plus tot ; (3) elle est declaree
+				// avant lui. Qu'UNE seule de ces trois change — un Reads ajoute au
+				// tonemap, une passe deplacee — et l'ordre s'inverse EN SILENCE :
+				// le tonemap exposerait alors avec la mesure de la frame
+				// precedente, ce qui ne se voit pas en regime etabli et saute aux
+				// yeux sur une transition.
+				//
+				// Un jeton 1x1 rend l'invariant EXPLICITE : ce qui etait une
+				// coincidence structurelle devient une arete du graphe. Cout : un
+				// pixel. Il ne transporte aucune donnee — seulement l'ordre.
+				NkGraphResId aeOrderTok = NK_INVALID_RES_ID;
 				if (mPostProcess && mPostProcess->IsAutoExposureEnabled()) {
+					aeOrderTok = g.CreateTransient(
+						"AutoExposureOrder", NkTextureDesc::RenderTarget(1, 1, NkGPUFormat::NK_R8_UNORM));
 					auto &ae = g.AddPass("AutoExposure", NkPassType::NK_POST_PROCESS);
 					ae.Reads(mainColor);
+					// Ecriture DECLAREE mais jamais faite : le jeton n'est pas un
+					// attachement de cette passe (elle rend hors-graph). C'est
+					// exactement ce qu'on veut — une arete de dependance, pas un
+					// transfert.
+					ae.WritesStorage(aeOrderTok);
+					// LA MESURE PORTE SUR CE QUI SERA AFFICHE : le tonemap compose
+					// scene + halo, donc la mesure doit lire les deux. En ne voyant
+					// que la scene, elle s'ouvrait face a une source eblouissante
+					// posee dans un decor sombre — puis amplifiait le halo qu'elle
+					// n'avait pas mesure.
+					const bool aeBloom = hasBloom && bloomMip[0] != NK_INVALID_RES_ID;
+					if (aeBloom)
+						ae.Reads(bloomMip[0]);
 					ae.SetAlwaysExecute(true); // sortie hors-graph (cible 1x1 interne)
 					NkGraphResId aeHdrId = mainColor;
-					ae.Execute([this, aeHdrId](NkICommandBuffer *cmd) {
+					NkGraphResId aeBloomId = aeBloom ? bloomMip[0] : NK_INVALID_RES_ID;
+					const float32 aeBloomStr = mCfg.postProcess.bloomStrength;
+					ae.Execute([this, aeHdrId, aeBloomId, aeBloomStr](NkICommandBuffer *cmd) {
 						NkTextureHandle hdr = mRenderGraph->GetResourceTexture(aeHdrId);
+						NkTextureHandle bloom =
+							(aeBloomId != NK_INVALID_RES_ID)
+								? mRenderGraph->GetResourceTexture(aeBloomId)
+								: NkTextureHandle{};
 						if (mPostProcess && hdr.IsValid())
-							mPostProcess->RunAutoExposure(cmd, hdr);
+							mPostProcess->RunAutoExposure(cmd, hdr, bloom, aeBloomStr);
 					});
 				}
 
 				auto &pp = g.AddPass("PostProcess", NkPassType::NK_POST_PROCESS);
 				pp.Reads(mainColor);
+				// L'AUTRE BOUT DU JETON : le tonemap lit l'exposition mesuree par
+				// la passe precedente. Declare uniquement quand l'auto tourne —
+				// sinon le graphe attendrait une ressource que personne n'ecrit.
+				if (aeOrderTok != NK_INVALID_RES_ID)
+					pp.Reads(aeOrderTok);
 				if (mainDepth != NK_INVALID_RES_ID)
 					pp.Reads(mainDepth);
 				if (hasBloom && bloomMip[0] != NK_INVALID_RES_ID)
@@ -1532,12 +1653,25 @@ namespace nkentseu {
 			// pose un drapeau consomme a l'aplomb de la frame suivante, exactement
 			// comme l'outline de selection (ConsumeSelOutlineGraphDirty).
 			const NkPostConfig &old = mCfg.postProcess;
+			// L'AUTO-EXPOSITION AJOUTE UNE PASSE, elle appartient donc a cette
+			// liste au meme titre que la SSAO : la passe « AutoExposure » n'est
+			// ajoutee au graphe que si IsAutoExposureEnabled() (cf.
+			// BuildDefaultRenderGraph). Sans cette comparaison, cocher la case
+			// ne creait AUCUNE passe et l'auto ne demarrait qu'au prochain
+			// redimensionnement -- exactement le defaut que le commentaire
+			// ci-dessus decrit pour la SSAO, sur un champ qu'il avait oublie.
+			// On compare l'ACTIVATION, pas la valeur : passer la force de 0,5 a
+			// 0,6 ne change aucune passe.
+			const bool autoChanged = old.AutoExposureRequested() != pp.AutoExposureRequested();
 			if (old.ssao != pp.ssao || old.bloom != pp.bloom || old.fxaa != pp.fxaa ||
-				old.toneMapping != pp.toneMapping || old.aces != pp.aces || old.taa != pp.taa) {
+				old.toneMapping != pp.toneMapping || old.aces != pp.aces || old.taa != pp.taa ||
+				autoChanged) {
 				mPostGraphDirty = true;
 				logger.Info("[NkRendererImpl] SetPostConfig : jeu de passes change "
-							"(ssao {0}->{1}) — graphe a reconstruire\n",
-							old.ssao ? 1 : 0, pp.ssao ? 1 : 0);
+							"(ssao {0}->{1}, auto {2}->{3}) — graphe a reconstruire\n",
+							old.ssao ? 1 : 0, pp.ssao ? 1 : 0,
+							old.AutoExposureRequested() ? 1 : 0,
+							pp.AutoExposureRequested() ? 1 : 0);
 			}
 			mCfg.postProcess = pp;
 			if (mPostProcess)

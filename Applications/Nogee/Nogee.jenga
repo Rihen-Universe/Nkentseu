@@ -28,27 +28,48 @@ with project("Nogee"):
 
     files(["src/Nogee/**.cpp", "src/Nogee/**.m", "src/Nogee/**.mm"])  # Now accepts a list of strings
 
+    # ── COUPE NKUI (2026-08-17, decision de Rodolf : « retirer NKUI des
+    # dependances des autres applications ») ─────────────────────────────────
+    # Le chemin legacy NKUI est EXCLU du build, PAS supprime du depot :
+    #   - NogeeApp + UILayer : l'app legacy et son orchestrateur NKUI ;
+    #   - les 4 panneaux NKUI (leurs jumeaux NKGui sont portes ET affiches) ;
+    #   - EditorLayer/ViewportLayer restent COMPILES (zero include NKUI ;
+    #     camera/gizmos y vivent pour le futur viewport de la coquille).
+    # Parite MESUREE avant la coupe : 4 panneaux affiches via le shell (temoin
+    # visuel + numerique, rejoue dans les deux sens, 0 [ERR]) ; le viewport
+    # NKUI ne rendait RIEN (RenderScene/RenderGizmos = TODO, FBO clear).
+    excludefiles([
+        "src/Nogee/NogeeApp.cpp",
+        "src/Nogee/Layers/UILayer.cpp",
+        "src/Nogee/Panels/SceneTreePanel.cpp",
+        "src/Nogee/Panels/InspectorPanel.cpp",
+        "src/Nogee/Panels/AssetBrowser.cpp",
+        "src/Nogee/Panels/ConsolePanel.cpp",
+    ])
+
     # Mode app : nkentseudependson emet includedirs + links + dependson + defines
     # _STATIC_LIB (transitifs) automatiquement. Includes propres a l'app + Vulkan SDK
     # en extra ; le link des libs SDK (glslang) + systeme reste dans les filtres.
     # Fermeture transitive complete : Nogee depend d'Engine/Noge (NkApplication,
     # LayerStack, ECS Scene/Reflect) qui tire NKECS, NKRenderer, NKSerialization,
     # NKFileSystem, NKAudio/NKMedia/NKNetwork, NKRL/NKAgent (cf. Noge.jenga _DEPS).
+    # NKEditorKit/NKGui/NKCanvas/NKReflection : la coque d'editeur et ses panneaux.
+    # « NKUI » et « NKUIIntegration » RETIRES le 2026-08-17 (coupe ci-dessus).
     nkentseudependson(
         ["Noge", "NKAgent", "NKRL", "NKTensor", "NKAudio", "NKMedia", "NKNetwork",
          "NKRenderer", "NKSL", "NKCollision", "NKPhysics", "NKNavigation",
          "NKSerialization", "NKFileSystem", "NKECS", "NKRHI",
-         "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKUI", "NKFont", "NKImage",
+         "NKEditorKit", "NKGui", "NKCanvas", "NKReflection",
+         "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKFont", "NKImage",
          "NKEvent", "NKWindow", "NKLogger", "NKMath", "NKTime", "NKStream",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src", "%{wks.location}/Integrations"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
     )
-    # Rendu des draw-lists NKUI via NKRHI (Integrations/NKUI) — les integrations ne
-    # sont PAS dans le registre nkentseudependson : dependance projet brute (meme
-    # pattern que NkAnimaEditor.jenga avec NKGuiIntegration).
-    dependson(["NKUIIntegration"])
+    # NKGuiIntegration : backend NKGui->NKRHI (NkGuiRHIBackend) dont depend
+    # nkgui::NkEditorRHIRenderer — requis par la coquille, desormais chemin unique.
+    dependson(["NKGuiIntegration"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

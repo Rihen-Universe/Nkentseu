@@ -8,9 +8,11 @@
 // tactile) → les jeux marchent au doigt comme à la souris sur toutes les
 // plateformes (Windows, Linux, Web, Android, HarmonyOS).
 //
-// Le rendu passe par le draw list NKUI (rects arrondis + texte + lignes/cercles),
-// cohérent avec le menu. RAPPEL : le texte se dessine via NkUIFont::RenderText
-// (pos.y = baseline), pas via NkUIDrawList::AddText (stub vide).
+// Le rendu passe par la draw-list NKGui (rects arrondis + texte + lignes/cercles),
+// cohérente avec le menu ; contours arrondis et cercles émulés par UI/NkoungDraw.h.
+// RAPPEL : NkGuiDrawList::AddText attend une BASELINE ; les helpers Text*
+// prennent un Y de HAUT et ajoutent l'ascent de la police.
+// (Portage NKUI -> NKGui, campagne de retrait NKUI 2026-08.)
 // =============================================================================
 #pragma once
 
@@ -18,14 +20,15 @@
 #define NKOUNG_FRAME_H
 
 #include "NKMath/NKMath.h"
-#include "NKUI/NKUI.h"
+#include "NKGui/NKGui.h"
+#include "UI/NkoungDraw.h"
 
 namespace nkoung {
 
 	struct NkoungFrame {
-			nkentseu::nkui::NkUIDrawList *dl = nullptr;	   // liste de dessin courante
-			nkentseu::nkui::NkUIFont *font = nullptr;	   // police corps
-			nkentseu::nkui::NkUIFont *titleFont = nullptr; // police titres
+			nkentseu::nkgui::NkGuiDrawList *dl = nullptr;   // liste de dessin courante
+			nkentseu::nkgui::NkGuiFont *font = nullptr;	    // police corps
+			nkentseu::nkgui::NkGuiFont *titleFont = nullptr; // police titres
 
 			nkentseu::float32 width = 0.f, height = 0.f; // taille de rendu complète
 			// Zone sûre : rectangle où placer le contenu (insets appliqués).
@@ -41,14 +44,14 @@ namespace nkoung {
 			void Rect(nkentseu::float32 x, nkentseu::float32 y, nkentseu::float32 w, nkentseu::float32 h,
 					  const nkentseu::math::NkColor &c, nkentseu::float32 round = 0.f) const noexcept {
 				if (dl)
-					dl->AddRectFilled(nkentseu::math::NkFloatRect{x, y, w, h}, c, round, round);
+					dl->AddRectFilled(nkentseu::math::NkFloatRect{x, y, w, h}, c, round);
 			}
 
 			void Border(nkentseu::float32 x, nkentseu::float32 y, nkentseu::float32 w, nkentseu::float32 h,
 						const nkentseu::math::NkColor &c, nkentseu::float32 th = 1.5f,
 						nkentseu::float32 round = 0.f) const noexcept {
 				if (dl)
-					dl->AddRect(nkentseu::math::NkFloatRect{x, y, w, h}, c, th, round, round);
+					draw::RectOutline(*dl, nkentseu::math::NkFloatRect{x, y, w, h}, c, th, round);
 			}
 
 			void Line(nkentseu::math::NkVec2f a, nkentseu::math::NkVec2f b, const nkentseu::math::NkColor &c,
@@ -66,29 +69,29 @@ namespace nkoung {
 			void CircleOutline(nkentseu::math::NkVec2f center, nkentseu::float32 r, const nkentseu::math::NkColor &c,
 							   nkentseu::float32 th = 2.f, nkentseu::int32 segs = 0) const noexcept {
 				if (dl)
-					dl->AddCircle(center, r, c, th, segs);
+					draw::CircleOutline(*dl, center, r, c, th, segs);
 			}
 
-			// ── Texte (RenderText : pos.y = baseline → on passe un Y de HAUT) ──
-			void Text(nkentseu::nkui::NkUIFont *f, nkentseu::float32 x, nkentseu::float32 topY, const char *s,
+			// ── Texte (AddText : baseline → on passe un Y de HAUT et on ajoute l'ascent) ──
+			void Text(nkentseu::nkgui::NkGuiFont *f, nkentseu::float32 x, nkentseu::float32 topY, const char *s,
 					  const nkentseu::math::NkColor &c, nkentseu::float32 maxW = -1.f) const noexcept {
-				if (f && s && dl)
-					f->RenderText(*dl, nkentseu::math::NkVec2f{x, topY + f->metrics.ascender}, s, c, maxW);
+				if (f && f->Face() && s && dl)
+					dl->AddText(f->Face(), f->TexId(), nkentseu::math::NkVec2f{x, topY + f->Ascent()}, s, c, maxW);
 			}
 
-			void TextCentered(nkentseu::nkui::NkUIFont *f, nkentseu::float32 x, nkentseu::float32 w,
+			void TextCentered(nkentseu::nkgui::NkGuiFont *f, nkentseu::float32 x, nkentseu::float32 w,
 							  nkentseu::float32 topY, const char *s, const nkentseu::math::NkColor &c) const noexcept {
 				if (!f || !s)
 					return;
 				Text(f, x + (w - f->MeasureWidth(s)) * 0.5f, topY, s, c);
 			}
 
-			nkentseu::float32 TextW(nkentseu::nkui::NkUIFont *f, const char *s) const noexcept {
+			nkentseu::float32 TextW(nkentseu::nkgui::NkGuiFont *f, const char *s) const noexcept {
 				return (f && s) ? f->MeasureWidth(s) : 0.f;
 			}
 
-			nkentseu::float32 LineH(nkentseu::nkui::NkUIFont *f) const noexcept {
-				return f ? f->metrics.lineHeight : 14.f;
+			nkentseu::float32 LineH(nkentseu::nkgui::NkGuiFont *f) const noexcept {
+				return (f && f->Face()) ? f->LineHeight() : 14.f;
 			}
 
 			// ── Entrée ─────────────────────────────────────────────────────────
@@ -108,7 +111,7 @@ namespace nkoung {
 				if (border)
 					Border(x, y, w, h, *border, 1.5f, 8.f);
 				if (font && label)
-					Text(font, x + (w - font->MeasureWidth(label)) * 0.5f, y + (h - font->metrics.lineHeight) * 0.5f,
+					Text(font, x + (w - font->MeasureWidth(label)) * 0.5f, y + (h - font->LineHeight()) * 0.5f,
 						 label, fg);
 				return over && pointerReleased;
 			}

@@ -14,10 +14,13 @@
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
+#include "NKTime/NkChrono.h" // profil par noyau : horloge monotone haute resolution
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
 	namespace ai {
+		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur);
+
 
 		// ---- État interne (pimpl) : tout NKRHI/NKSL confiné ici -----------------
 		struct NkTensorGpu::Impl {
@@ -26,7 +29,13 @@ namespace nkentseu {
 				const char *backend = "none";
 
 				NkUnorderedMap<uint64, NkBufferHandle> buffers; // id opaque -> handle
+				NkUnorderedMap<uint64, nk_size> tailles;	   // id opaque -> octets (suivi VRAM)
 				uint64 nextId = 1;
+
+				// RESERVE DE TAMPONS (chantier n°2) : cle = TAILLE EXACTE en octets.
+				// Jamais « assez grand » : rendre un tampon plus large que demande
+				// marcherait a l'usage et fausserait tout calcul de trafic ou de borne.
+				NkUnorderedMap<uint64, NkVector<NkBufferHandle>> reserve;
 
 				struct Kernel {
 						NkString name;
@@ -34,12 +43,21 @@ namespace nkentseu {
 						NkPipelineHandle pipe;
 						NkDescSetHandle layout;
 						NkBufferHandle params; // UBO 16o persistant (pas de churn par dispatch)
+						// Vrai des que le controle « sortie non nulle » a ete passe une fois.
+						bool verifie = false;
 				};
 
 				NkVector<Kernel> kernels; // cache par nom (peu d'entrées -> linéaire)
 
 				// Compile (ou récupère du cache) un kernel NkSL compute.
 				// nBuffers storage buffers (bindings 0..n-1) + 1 UBO au binding uboBinding.
+				// ⚠ UN NOYAU QUI NE COMPILE PAS DOIT SE VOIR.
+				// Ces echecs n'etaient ecrits QUE dans le journal, que personne ne lit
+				// pendant un entrainement. Resultat constate le 13 aout 2026 : le noyau
+				// RoPE ne compilait pas (`half`, mot reserve GLSL), le tampon de sortie
+				// restait a ZERO, et l'entrainement continuait sans une alerte. Chaque
+				// sortie en echec incremente desormais le compteur de defauts, que
+				// l'entrainement consulte (NkTensorGpu::DefautCount).
 				Kernel *GetOrCompile(const char *name, const NkString &nksl, uint32 nBuffers, uint32 uboBinding) {
 					for (uint32 i = 0; i < kernels.Size(); i++)
 						if (kernels[i].name == name)
@@ -49,6 +67,7 @@ namespace nkentseu {
 					NkSLCompileResult gl = slc.Compile(nksl, NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL_VULKAN);
 					if (!gl.success) {
 						logger_src.Errorf("[NkTensorGpu] NkSL->GLSL KO (%s)\n", name);
+						NkGpuSignalerDefaut(name, "COMPILATION DU NOYAU : NkSL vers GLSL refuse", 0);
 						return nullptr;
 					}
 
@@ -70,6 +89,7 @@ namespace nkentseu {
 						hl = NkShaderConverter::GlslToHlsl(gl.source, NkSLStage::NK_COMPUTE, sm, name);
 						if (!hl.success) {
 							logger_src.Errorf("[NkTensorGpu] GLSL->HLSL KO (%s): %s\n", name, hl.errors.CStr());
+							NkGpuSignalerDefaut(name, "COMPILATION DU NOYAU : GLSL vers HLSL refuse", 0);
 							return nullptr;
 						}
 						sd.AddHLSL(NkShaderStage::NK_COMPUTE, hl.source.CStr(), "main");
@@ -77,6 +97,7 @@ namespace nkentseu {
 						sp = NkShaderConverter::GlslToSpirv(gl.source, NkSLStage::NK_COMPUTE, name);
 						if (!sp.success) {
 							logger_src.Errorf("[NkTensorGpu] GLSL->SPIRV KO (%s)\n", name);
+							NkGpuSignalerDefaut(name, "COMPILATION DU NOYAU : GLSL vers SPIRV refuse", 0);
 							return nullptr;
 						}
 						sd.AddSPIRV(NkShaderStage::NK_COMPUTE, sp.binary.Data(), (uint64)sp.binary.Size());
@@ -84,6 +105,7 @@ namespace nkentseu {
 						ms = NkShaderConverter::GlslToMsl(gl.source, NkSLStage::NK_COMPUTE, name);
 						if (!ms.success) {
 							logger_src.Errorf("[NkTensorGpu] GLSL->MSL KO (%s)\n", name);
+							NkGpuSignalerDefaut(name, "COMPILATION DU NOYAU : GLSL vers MSL refuse", 0);
 							return nullptr;
 						}
 						sd.AddMSL(NkShaderStage::NK_COMPUTE, ms.source.CStr(), "main");
@@ -91,17 +113,20 @@ namespace nkentseu {
 						glo = slc.Compile(nksl, NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL);
 						if (!glo.success) {
 							logger_src.Errorf("[NkTensorGpu] NkSL->GLSL(GL) KO (%s)\n", name);
+							NkGpuSignalerDefaut(name, "COMPILATION DU NOYAU : NkSL vers GLSL(GL) refuse", 0);
 							return nullptr;
 						}
 						sd.AddGLSL(NkShaderStage::NK_COMPUTE, glo.source.CStr(), "main");
 					} else {
 						logger_src.Errorf("[NkTensorGpu] API compute non supportée (%s)\n", name);
+						NkGpuSignalerDefaut(name, "COMPILATION DU NOYAU : API compute non supportee", 0);
 						return nullptr;
 					}
 
 					NkShaderHandle sh = device->CreateShader(sd);
 					if (!sh.IsValid()) {
 						logger_src.Errorf("[NkTensorGpu] CreateShader KO (%s)\n", name);
+						NkGpuSignalerDefaut(name, "COMPILATION DU NOYAU : CreateShader refuse", 0);
 						return nullptr;
 					}
 
@@ -119,6 +144,7 @@ namespace nkentseu {
 					NkPipelineHandle pipe = device->CreateComputePipeline(cpd);
 					if (!pipe.IsValid()) {
 						logger_src.Errorf("[NkTensorGpu] Pipeline KO (%s)\n", name);
+						NkGpuSignalerDefaut(name, "COMPILATION DU NOYAU : CreateComputePipeline refuse", 0);
 						return nullptr;
 					}
 
@@ -233,6 +259,10 @@ namespace nkentseu {
 					if (mImpl->kernels[i].params.IsValid())
 						mImpl->device->DestroyBuffer(mImpl->kernels[i].params);
 				}
+				// La reserve d'abord : ses tampons sont vivants et le peripherique va
+				// disparaitre. Les oublier ici fuirait a l'arret sans le moindre
+				// message — le genre de defaut qu'aucun test ne voit.
+				ReserveVider();
 				mImpl->buffers.ForEach([this](const uint64 &, NkBufferHandle &h) { mImpl->device->DestroyBuffer(h); });
 				NkDeviceFactory::Destroy(mImpl->device);
 				mImpl->device = nullptr;
@@ -270,6 +300,268 @@ namespace nkentseu {
 		// attaque, plutot qu'une intuition.
 		static int64 gGpuOps = 0;
 
+		// Occupation VRAM SUIVIE PAR NOUS : somme des tampons vivants, et son PIC.
+		// Le pic est la seule grandeur qui decide si une configuration tient : une
+		// moyenne, ou un releve a un instant arbitraire, rate le moment ou la passe
+		// ARRIERE materialise les gradients par-dessus les activations.
+		// ⚠️ Ne compte QUE nos tampons de calcul : ni le pilote, ni la fragmentation,
+		// ni les allocations d'autres modules. C'est un PLANCHER de l'occupation
+		// reelle, pas son total — d'ou la marge exigee dans le critere.
+		//
+		// ⚠️ DEUX PICS, PAS UN (corrige 2026-08-17). Un tampon RETENU par la reserve
+		// n'est plus « vivant » pour le calcul mais sa VRAM reste allouee : le
+		// compter comme libere faisait afficher un pic IDENTIQUE avec et sans
+		// reserve — un instrument incapable de dire la seule chose qu'on lui
+		// demandera le jour ou on discutera d'agrandir le budget.
+		//   gVramPic       : pic de l'occupation PHYSIQUE (vivants + retenus) —
+		//                    la grandeur qui decide si ca tient sur la carte ;
+		//   gVramPicCalcul : pic des tampons de calcul SEULS — le besoin
+		//                    incompressible, independant de la politique de cache.
+		// Melanger les deux dans un seul chiffre serait la lecon des metriques
+		// figees de NKXR : une ligne qui melange du vivant et du mort sans le dire.
+		static int64 gVramVivante = 0;
+		static int64 gVramPic = 0;		 // pic PHYSIQUE : vivants + retenus par la reserve
+		static int64 gVramPicCalcul = 0; // pic des tampons de calcul seuls
+
+		// ---- RESERVE DE TAMPONS : COMPTEURS TEMOINS -----------------------------
+		// ⚠️ Ces compteurs ne sont PAS de la decoration : une reserve REPOND
+		// TOUJOURS. Sans eux, « la reserve marche » est indiscernable de « la
+		// reserve ne sert jamais et tout retombe en allocation ». La seule preuve
+		// qu'elle sert est `gReserveServis > 0`, et la seule preuve que
+		// l'instrument est juste est `servis + neufs == appels a CreateBuffer`.
+		static bool gReserveActive = false;			   // defaut LEGACY : on n'active rien en douce
+		static int64 gReserveBudget = 512ll * 1024 * 1024; // 512 Mo retenus au plus
+		static int64 gReserveServis = 0;			   // rendus PAR la reserve
+		static int64 gReserveNeufs = 0;				   // allocations REELLES
+		static int64 gReserveOctets = 0;			   // VRAM immobilisee par la reserve
+		static int64 gReserveTampons = 0;			   // nombre de tampons retenus
+		static int64 gReserveEvictions = 0;			   // detruits faute de budget
+
+		// ---- PROFIL PAR NOYAU ---------------------------------------------------
+		// Voir NkTensorGpu.h pour ce que cette table mesure — et surtout ce qu'elle
+		// ne mesure PAS (temps mural attribue, pas temps GPU pur).
+		struct NkGpuProfilLigne {
+				char nom[40];
+				int64 appels;
+				double ns;
+				double flops;  // operations flottantes utiles demandees
+				double octets; // trafic OBLIGATOIRE (lectures + ecritures minimales)
+		};
+
+		static NkGpuProfilLigne gProfil[64];
+		static uint32 gProfilN = 0;
+		static bool gProfilActif = false;
+
+		// ---- ATTRIBUTION DES BASCULES CPU -> GPU --------------------------------
+		// Le profil du 15/08 comptait 2 704 `~upload` par pas, ~12,6 Go, et
+		// `~download` a ~0 : ce ne sont donc PAS des allers-retours, ce sont des
+		// tenseurs NES sur CPU puis montes. On ne peut pas supprimer des uploads
+		// dont on ignore l'origine — d'ou cette table.
+		//
+		// ⚠️ TOUS passent par UN SEUL site : `NkTensor::ToGPU()`. Ce qui varie est
+		// son APPELANT, et c'est lui qu'il faut nommer. On enregistre donc
+		// l'adresse de retour, resolue apres coup par `addr2line` : aucun
+		// etiquetage a poser sur les 68 gardes `(t.Device()==GPU) ? t : t.ToGPU()`,
+		// donc aucun risque d'en etiqueter 67 et de conclure sur les 68.
+		//
+		// ⚠️ ASLR : une adresse d'execution ne veut rien dire seule. On journalise
+		// donc aussi l'adresse d'une ANCRE du meme module ; l'ecart entre les deux
+		// est stable, et `nm` donne l'adresse de liaison de l'ancre.
+		struct NkGpuBasculeLigne {
+				const void *retour;
+				int64 appels;
+				double octets;
+		};
+
+		static NkGpuBasculeLigne gBascule[64];
+		static uint32 gBasculeN = 0;
+		static int64 gBasculeHorsTable = 0;
+
+		void NkGpuAncre() {} // ancre de resolution — ne fait rien, doit exister
+
+		static void NkGpuAttribuerBascule(const void *retour, double octets) {
+			if (!gProfilActif)
+				return;
+			for (uint32 i = 0; i < gBasculeN; ++i) {
+				if (gBascule[i].retour == retour) {
+					gBascule[i].appels += 1;
+					gBascule[i].octets += octets;
+					return;
+				}
+			}
+			if (gBasculeN >= 64) {
+				++gBasculeHorsTable; // on perd le site, jamais le compte
+				return;
+			}
+			NkGpuBasculeLigne &l = gBascule[gBasculeN++];
+			l.retour = retour;
+			l.appels = 1;
+			l.octets = octets;
+		}
+
+		static NkGpuProfilLigne *NkGpuProfilLigneDe(const char *nom) {
+			for (uint32 i = 0; i < gProfilN; ++i) {
+				const char *a = gProfil[i].nom;
+				const char *b = nom;
+				while (*a && *a == *b) {
+					++a;
+					++b;
+				}
+				if (*a == 0 && *b == 0)
+					return &gProfil[i];
+			}
+			if (gProfilN >= 64)
+				return nullptr; // table pleine : on perd la ligne, jamais la mesure des autres
+			NkGpuProfilLigne &l = gProfil[gProfilN++];
+			uint32 i = 0;
+			for (; nom[i] && i < 39; ++i)
+				l.nom[i] = nom[i];
+			l.nom[i] = 0;
+			l.appels = 0;
+			l.ns = 0.0;
+			l.flops = 0.0;
+			l.octets = 0.0;
+			return &l;
+		}
+
+		// Chronometre de portee. Le cout par appel est d'une lecture d'horloge haute
+		// resolution (~20 ns) contre un dispatch suivi d'un WaitIdle (~100 µs mesure) :
+		// l'instrument ne peut pas deplacer ce qu'il mesure.
+		class NkGpuChrono {
+			public:
+				explicit NkGpuChrono(const char *nom) : mNom(nom) {
+					if (gProfilActif)
+						mT0 = NkChrono::Now().nanoseconds;
+				}
+
+				// Travail demande par l'operation : sert a comparer chaque noyau a son
+				// PROPRE plafond (bande passante x intensite) et non a la crete de la carte.
+				void Travail(double flops, double octets) {
+					mFlops = flops;
+					mOctets = octets;
+				}
+
+				~NkGpuChrono() {
+					if (!gProfilActif)
+						return;
+					NkGpuProfilLigne *l = NkGpuProfilLigneDe(mNom);
+					if (!l)
+						return;
+					l->appels += 1;
+					l->ns += NkChrono::Now().nanoseconds - mT0;
+					l->flops += mFlops;
+					l->octets += mOctets;
+				}
+
+			private:
+				const char *mNom;
+				double mT0 = 0.0;
+				double mFlops = 0.0;
+				double mOctets = 0.0;
+		};
+
+		void NkTensorGpu::ProfilRaz(bool actif) {
+			gProfilN = 0;
+			gBasculeN = 0;
+			gBasculeHorsTable = 0;
+			gProfilActif = actif;
+		}
+
+		void NkTensorGpu::ProfilRapport(double secondesMurales, int64 pas) {
+			if (gProfilN == 0) {
+				logger.Info("[profil noyaux] AUCUNE ligne — le profil n'a pas ete arme (ProfilRaz(true)) ou "
+							"aucune operation GPU n'a eu lieu dans la fenetre.");
+				return;
+			}
+			double totalNs = 0.0;
+			int64 totalAppels = 0;
+			for (uint32 i = 0; i < gProfilN; ++i) {
+				totalNs += gProfil[i].ns;
+				totalAppels += gProfil[i].appels;
+			}
+			// Tri decroissant par temps (insertion : au plus 64 lignes).
+			uint32 ordre[64];
+			for (uint32 i = 0; i < gProfilN; ++i)
+				ordre[i] = i;
+			for (uint32 i = 1; i < gProfilN; ++i) {
+				uint32 v = ordre[i];
+				uint32 j = i;
+				while (j > 0 && gProfil[ordre[j - 1]].ns < gProfil[v].ns) {
+					ordre[j] = ordre[j - 1];
+					--j;
+				}
+				ordre[j] = v;
+			}
+
+			logger.Info("=== PROFIL PAR NOYAU — fenetre de {0} pas, {1} s murales, {2} operations ===",
+						(long long)pas, secondesMurales, (long long)totalAppels);
+			logger.Info("    (temps MURAL attribue par operation : noyau + cout fixe de lancement, "
+						"chaque dispatch etant suivi d'un WaitIdle. Ce n'est pas un temps GPU pur.)");
+			logger.Info("    {0:<22} {1:>9} {2:>11} {3:>7} {4:>9} {5:>10} {6:>8} {7:>9}", "nom", "appels", "ms",
+						"% mural", "µs/appel", "GFLOP/s", "Go/s", "FLOP/o");
+			for (uint32 k = 0; k < gProfilN; ++k) {
+				const NkGpuProfilLigne &l = gProfil[ordre[k]];
+				const double ms = l.ns / 1.0e6;
+				const double sec = l.ns / 1.0e9;
+				logger.Info("    {0:<22} {1:>9} {2:>11.3f} {3:>6.2f}% {4:>9.1f} {5:>10.1f} {6:>8.1f} {7:>9.3f}",
+							l.nom, (long long)l.appels, ms,
+							(secondesMurales > 0.0) ? (sec / secondesMurales * 100.0) : 0.0,
+							(l.appels > 0) ? (l.ns / 1000.0 / (double)l.appels) : 0.0,
+							(sec > 0.0) ? (l.flops / sec / 1.0e9) : 0.0, (sec > 0.0) ? (l.octets / sec / 1.0e9) : 0.0,
+							(l.octets > 0.0) ? (l.flops / l.octets) : 0.0);
+			}
+			logger.Info("    TOTAL instrumente : {0} ms, soit {1}% du temps mural de la fenetre. Le reste "
+						"est HORS instrumentation (construction des lots, autograd CPU, journalisation).",
+						totalNs / 1.0e6, (secondesMurales > 0.0) ? (totalNs / 1.0e9 / secondesMurales * 100.0) : 0.0);
+			logger.Info("    Repere machine : une RTX 3070 fait ~20 300 GFLOP/s pour ~448 Go/s, soit "
+						"~45 FLOP/octet. Un noyau sous ce rapport est borne par la BANDE PASSANTE : "
+						"son plafond vaut 448 x son intensite, et aucun pavage ne le depasse.");
+
+			// ---- Attribution des bascules CPU -> GPU ----------------------------
+			if (gBasculeN > 0) {
+				uint32 ord[64];
+				for (uint32 i = 0; i < gBasculeN; ++i)
+					ord[i] = i;
+				for (uint32 i = 1; i < gBasculeN; ++i) {
+					uint32 v = ord[i];
+					uint32 j = i;
+					while (j > 0 && gBascule[ord[j - 1]].appels < gBascule[v].appels) {
+						ord[j] = ord[j - 1];
+						--j;
+					}
+					ord[j] = v;
+				}
+				int64 totAppels = 0;
+				double totOctets = 0.0;
+				for (uint32 i = 0; i < gBasculeN; ++i) {
+					totAppels += gBascule[i].appels;
+					totOctets += gBascule[i].octets;
+				}
+				logger.Info("=== BASCULES CPU -> GPU (ToGPU) — {0} sites, {1} appels, {2} Mo, sur {3} pas ===",
+							(long long)gBasculeN, (long long)totAppels, totOctets / 1.0e6, (long long)pas);
+				logger.Info("    ⚠️ CHAQUE LIGNE EST UNE ALLOCATION *ET* UN UPLOAD : ToGPU fait CreateBuffer "
+							"puis Upload. Les postes « reserve de tampons » et « supprimer les uploads » "
+							"comptent donc les memes objets.");
+				logger.Info("    ANCRE de resolution : NkGpuAncre a l'execution = {0}. Adresse de liaison "
+							"donnee par : nm -C <exe> | grep NkGpuAncre. Site = liaison(ancre) + (retour - "
+							"ancre).",
+							(unsigned long long)(uintptr_t)&NkGpuAncre);
+				logger.Info("    {0:>18} {1:>14} {2:>9} {3:>12} {4:>10}", "retour", "ecart/ancre", "appels",
+							"Mo", "Ko/appel");
+				for (uint32 k = 0; k < gBasculeN; ++k) {
+					const NkGpuBasculeLigne &l = gBascule[ord[k]];
+					const long long ecart = (long long)((intptr_t)l.retour - (intptr_t)&NkGpuAncre);
+					logger.Info("    {0:>18} {1:>14} {2:>9} {3:>12.2f} {4:>10.1f}",
+								(unsigned long long)(uintptr_t)l.retour, ecart, (long long)l.appels,
+								l.octets / 1.0e6, l.octets / 1000.0 / (double)l.appels);
+				}
+				if (gBasculeHorsTable > 0)
+					logger.Info("    ⚠️ {0} bascules HORS TABLE (plus de 64 sites distincts) — le compte "
+								"total reste juste, l'attribution de celles-la est perdue.",
+								(long long)gBasculeHorsTable);
+			}
+		}
+
 		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur) {
 			++gGpuDefauts;
 			// On ne noie pas le journal : les 12 premiers suffisent à identifier
@@ -282,6 +574,71 @@ namespace nkentseu {
 			}
 		}
 
+		// Un noyau qui ecrit un tampon ENTIEREMENT NUL alors que son entree ne l'est
+		// pas n'a rien calcule. C'est la signature exacte d'un shader qui n'a pas
+		// compile : le tampon de sortie reste tel qu'il a ete alloue, et rien ne
+		// remonte a l'appelant (constate le 13 aout 2026 sur RoPE, mot reserve GLSL).
+		//
+		// Controle fait UNE SEULE FOIS par noyau, a son premier usage : le cout est
+		// d'une relecture par noyau et par processus (une trentaine en tout),
+		// negligeable devant un entrainement, alors que le defaut qu'il attrape
+		// couterait des heures de calcul sur des valeurs inchangees.
+		//
+		// On exige qu'une ENTREE soit non nulle avant de conclure : sans cela, un
+		// noyau parfaitement correct nourri de zeros serait accuse a tort.
+		static void NkGpuVerifierSortieNonNulle(NkTensorGpu &gpu, const char *nom, uint64 entree, uint64 sortie,
+												uint32 count) {
+			// ⚠ LA SORTIE SE LIT EN ENTIER, PAS PAR SON DEBUT.
+			//
+			// Premiere version : on echantillonnait les 4096 PREMIERS elements. Faux
+			// des que la sortie est CREUSE. Cas vecu le 14 aout 2026 : `embedding_bwd`
+			// produit le gradient de la table [V, d], ou seules les lignes des tokens
+			// presents dans le lot sont non nulles. Les 4096 premieres valeurs couvrent
+			// une dizaine de lignes du vocabulaire : si aucun de ces tokens n'est dans
+			// le lot, elles sont LEGITIMEMENT nulles. Le garde-fou a donc signale un
+			// defaut inexistant, et le filet de securite de l'entrainement a coupe une
+			// course de 300 pas au 30e.
+			//
+			// Lire TOUTE la sortie supprime le probleme a la racine : un tampon jamais
+			// ecrit est nul PARTOUT, tandis qu'une sortie creuse a toujours au moins une
+			// valeur non nulle quelque part. Le cout reste d'une relecture par noyau et
+			// par processus.
+			const uint32 kMaxSortie = 67108864u; // 64 M valeurs = 256 Mo, borne de securite
+			const uint32 nSortie = (count < kMaxSortie) ? count : kMaxSortie;
+			if (nSortie == 0u)
+				return;
+
+			// L'entree, elle, garde un petit echantillon : elle sert seulement a etablir
+			// « il y avait de la matiere a calculer ». On ne peut PAS y lire `count`
+			// valeurs — les deux tampons n'ont pas la meme taille (pour embedding_bwd,
+			// l'entree fait B*T*d et la sortie V*d) et la relecture deborderait.
+			const uint32 kEchEntree = (count < 4096u) ? count : 4096u;
+			NkVector<float> ein;
+			ein.Resize((nk_size)kEchEntree);
+			if (!gpu.Download(entree, ein.Data(), (nk_size)kEchEntree * sizeof(float)))
+				return; // relecture impossible : on ne conclut pas, on ne crie pas non plus
+			bool entreeNonNulle = false;
+			for (uint32 i = 0; i < kEchEntree; ++i)
+				if (ein[(nk_size)i] != 0.0f) {
+					entreeNonNulle = true;
+					break;
+				}
+			if (!entreeNonNulle)
+				return; // rien a calculer : une sortie nulle serait normale
+
+			NkVector<float> eout;
+			eout.Resize((nk_size)nSortie);
+			if (!gpu.Download(sortie, eout.Data(), (nk_size)nSortie * sizeof(float)))
+				return;
+			for (uint32 i = 0; i < nSortie; ++i)
+				if (eout[(nk_size)i] != 0.0f)
+					return; // au moins une valeur ecrite : le noyau a calcule
+
+			NkGpuSignalerDefaut(nom, "sortie ENTIEREMENT NULLE sur une entree non nulle "
+									 "(shader non compile ? indexation fausse ?)",
+								(int64)count);
+		}
+
 		int64 NkTensorGpu::DefautCount() {
 			return gGpuDefauts;
 		}
@@ -290,8 +647,79 @@ namespace nkentseu {
 			return gGpuOps;
 		}
 
+		int64 NkTensorGpu::VramPic() {
+			return gVramPic; // PHYSIQUE : vivants + retenus par la reserve
+		}
+
+		int64 NkTensorGpu::VramPicCalcul() {
+			return gVramPicCalcul; // tampons de calcul seuls, hors retention
+		}
+
+		int64 NkTensorGpu::VramVivante() {
+			return gVramVivante;
+		}
+
+		void NkTensorGpu::RazVramPic() {
+			gVramPic = gVramVivante + gReserveOctets;
+			gVramPicCalcul = gVramVivante;
+		}
+
+		// ---- RESERVE DE TAMPONS : pilotage et TEMOIN ----------------------------
+		// L'interrupteur existe pour que LEGACY et NEUF tournent depuis LE MEME
+		// BINAIRE. C'est ce qui a rendu defendable la mesure du x1,57 sur le
+		// chantier n°1 : rien d'autre ne change entre les deux bras, donc aucun
+		// ecart de compilation ne peut se glisser dans le resultat.
+		void NkTensorGpu::ReserveActive(bool actif) {
+			if (!actif)
+				ReserveVider(); // sinon on garderait de la VRAM immobilisee pour rien
+			gReserveActive = actif;
+		}
+		bool NkTensorGpu::ReserveEstActive() {
+			return gReserveActive;
+		}
+		void NkTensorGpu::ReserveBudget(int64 octetsMax) {
+			gReserveBudget = octetsMax;
+		}
+		int64 NkTensorGpu::ReserveServis() {
+			return gReserveServis;
+		}
+		int64 NkTensorGpu::ReserveNeufs() {
+			return gReserveNeufs;
+		}
+		int64 NkTensorGpu::ReserveOctetsRetenus() {
+			return gReserveOctets;
+		}
+		int64 NkTensorGpu::ReserveTamponsRetenus() {
+			return gReserveTampons;
+		}
+		int64 NkTensorGpu::ReserveEvictions() {
+			return gReserveEvictions;
+		}
+		void NkTensorGpu::ReserveRazCompteurs() {
+			gReserveServis = 0;
+			gReserveNeufs = 0;
+			gReserveEvictions = 0;
+		}
+
+		void NkTensorGpu::ReserveVider() {
+			NkTensorGpu &g = NkTensorGpu::Get();
+			if (!g.mImpl || !g.mImpl->device)
+				return;
+			Impl *d = g.mImpl;
+			d->reserve.ForEach([d](const uint64 &, NkVector<NkBufferHandle> &pile) {
+				for (uint32 i = 0; i < pile.Size(); ++i)
+					d->device->DestroyBuffer(pile[i]);
+				pile.Clear();
+			});
+			d->reserve.Clear();
+			gReserveOctets = 0;
+			gReserveTampons = 0;
+		}
+
 		// ---- Buffers ------------------------------------------------------------
 		uint64 NkTensorGpu::CreateBuffer(nk_size bytes) {
+			NkGpuChrono chr("~alloc");
+			chr.Travail(0.0, 0.0);
 			if (!EnsureInit())
 				return 0;
 
@@ -315,27 +743,98 @@ namespace nkentseu {
 				}
 			}
 
-			NkBufferHandle h = mImpl->device->CreateBuffer(NkBufferDesc::Storage(bytes, false));
+			// ---- RESERVE : servir un tampon deja alloue, de TAILLE EXACTE ---------
+			// ⚠️ Le compteur est incremente ICI et NULLE PART AILLEURS. C'est lui qui
+			// distingue « servi depuis la reserve » de « alloue a neuf » — sans quoi
+			// un gain mesure ne prouverait rien, une reserve repondant toujours.
+			NkBufferHandle h{};
+			bool servi = false;
+			if (gReserveActive) {
+				auto *pile = mImpl->reserve.Find((uint64)bytes);
+				if (pile && pile->Size() > 0) {
+					h = (*pile)[pile->Size() - 1];
+					pile->PopBack();
+					servi = true;
+					++gReserveServis;
+					gReserveOctets -= (int64)bytes;
+					--gReserveTampons;
+				}
+			}
+
+			if (!servi) {
+				h = mImpl->device->CreateBuffer(NkBufferDesc::Storage(bytes, false));
+				++gReserveNeufs;
+			}
 			if (!h.IsValid()) {
 				NkGpuSignalerDefaut("CreateBuffer", "allocation refusee, octets demandes", (int64)bytes);
 				return 0;
 			}
 			uint64 id = mImpl->nextId++;
 			mImpl->buffers.Insert(id, h);
+			mImpl->tailles.Insert(id, bytes);
+			gVramVivante += (int64)bytes;
+			if (gVramVivante > gVramPicCalcul)
+				gVramPicCalcul = gVramVivante;
+			// Le pic PHYSIQUE compte aussi ce que la reserve retient. C'est ICI le
+			// seul endroit ou l'occupation physique peut monter : la retention est
+			// un TRANSFERT (vivant -> retenu, total inchange), servir depuis la
+			// reserve aussi (retenu -> vivant), l'eviction et la destruction font
+			// baisser. Nul besoin de toucher au pic dans DestroyBuffer.
+			const int64 physique = gVramVivante + gReserveOctets;
+			if (physique > gVramPic)
+				gVramPic = physique;
 			return id;
 		}
 
 		void NkTensorGpu::DestroyBuffer(uint64 id) {
+			NkGpuChrono chr("~free");
+			chr.Travail(0.0, 0.0);
 			if (!mImpl || !mImpl->device || id == 0)
 				return;
 			auto *h = mImpl->buffers.Find(id);
 			if (h) {
-				mImpl->device->DestroyBuffer(*h);
+				// ---- RESERVE : retenir au lieu de detruire, dans la limite du budget --
+				// ⚠️ Le budget existe parce qu'une reserve NE LIBERE PLUS LA VRAM. Le
+				// pic mesure est de 6 659 Mo sur 8 Go : sans plafond, retenir suffirait
+				// a faire deborder, et l'echec se presenterait comme une allocation
+				// refusee loin d'ici. Au-dela du budget on detruit VRAIMENT, et on
+				// compte l'eviction pour que le rapport le dise.
+				bool retenu = false;
+				if (gReserveActive) {
+					auto *t = mImpl->tailles.Find(id);
+					const int64 oct = t ? (int64)*t : 0;
+					if (oct > 0 && gReserveOctets + oct <= gReserveBudget) {
+						auto *pile = mImpl->reserve.Find((uint64)oct);
+						if (!pile) {
+							mImpl->reserve.Insert((uint64)oct, NkVector<NkBufferHandle>{});
+							pile = mImpl->reserve.Find((uint64)oct);
+						}
+						if (pile) {
+							pile->PushBack(*h);
+							gReserveOctets += oct;
+							++gReserveTampons;
+							retenu = true;
+						}
+					} else if (oct > 0) {
+						++gReserveEvictions;
+					}
+				}
+				if (!retenu)
+					mImpl->device->DestroyBuffer(*h);
 				mImpl->buffers.Erase(id);
+				// Decompte APRES la destruction reussie : compter une liberation qui
+				// n'a pas eu lieu ferait mentir le pic dans le sens rassurant.
+				auto *t = mImpl->tailles.Find(id);
+				if (t) {
+					gVramVivante -= (int64)*t;
+					mImpl->tailles.Erase(id);
+				}
 			}
 		}
 
 		bool NkTensorGpu::Upload(uint64 id, const void *data, nk_size bytes) {
+			NkGpuChrono chr("~upload");
+			chr.Travail(0.0, (double)bytes);
 			if (!mImpl || !mImpl->device)
 				return false;
 			NkBufferHandle h = mImpl->Handle(id);
@@ -345,12 +844,105 @@ namespace nkentseu {
 		}
 
 		bool NkTensorGpu::Download(uint64 id, void *out, nk_size bytes) {
+			NkGpuChrono chr("~download");
+			chr.Travail(0.0, (double)bytes);
 			if (!mImpl || !mImpl->device)
 				return false;
 			NkBufferHandle h = mImpl->Handle(id);
 			if (!h.IsValid())
 				return false;
 			return mImpl->device->ReadBuffer(h, out, bytes);
+		}
+
+		// ---- Remise a zero SUR PLACE (pas de transfert depuis l'hote) ------------
+		// Le poste `~clear` est instrumente comme `~upload` : c'est exactement le
+		// poste qui doit le remplacer dans le profil, et on veut pouvoir les
+		// comparer ligne a ligne au lieu de le deduire.
+		bool NkTensorGpu::Clear(uint64 id, nk_size bytes, uint32 motif) {
+			NkGpuChrono chr("~clear");
+			chr.Travail(0.0, (double)bytes); // trafic ECRIT cote GPU (rien ne traverse le bus)
+			if (!mImpl || !mImpl->device)
+				return false;
+			NkBufferHandle h = mImpl->Handle(id);
+			if (!h.IsValid())
+				return false;
+
+			// `size` doit etre un multiple de 4 pour vkCmdFillBuffer ; nos tampons de
+			// tenseurs sont des multiples de 4 octets (f32/i32). On refuse le reste
+			// plutot que de nettoyer une plage tronquee.
+			if ((bytes % 4) != 0)
+				return false;
+
+			auto *cmd = mImpl->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			if (!cmd)
+				return false;
+			cmd->Begin();
+			cmd->ClearBuffer(h, motif, 0, (uint64)bytes);
+			cmd->End();
+			mImpl->device->Submit(&cmd, 1);
+			// Meme discipline que les dispatches : on attend avant de rendre le
+			// tampon a l'appelant. Supprimer ce WaitIdle est le chantier n°3 (un
+			// tampon de commandes par pas), pas celui-ci.
+			mImpl->device->WaitIdle();
+			mImpl->device->DestroyCommandBuffer(cmd);
+			return true;
+		}
+
+		// ⚠️ TEMOIN, PAS DECLARATION. `NkICommandBuffer::ClearBuffer` a existe des
+		// mois avec un corps vide et zero surcharge : la signature etait la, deux
+		// appelants s'en servaient, et elle ne mettait rien a zero nulle part. Un
+		// `grep` du nom plus un appelant avaient suffi a la croire implementee — un
+		// appelant ne prouve rien sur l'appele.
+		// Donc on ECRIT un motif non nul, on appelle Clear, on RELIT, et on exige
+		// des zeros. Le resultat est calcule une seule fois et journalise.
+		bool NkTensorGpu::ClearDisponible() {
+			static int etat = -1; // -1 = pas encore mesure, 0 = non, 1 = oui
+			if (etat >= 0)
+				return etat == 1;
+			etat = 0;
+
+			NkTensorGpu &g = Get();
+			if (!g.IsAvailable())
+				return false;
+
+			const nk_size n = 64;
+			const nk_size octets = n * sizeof(uint32);
+			uint64 buf = g.CreateBuffer(octets);
+			if (!buf) {
+				logger_src.Warnf("[NkTensorGpu] temoin ClearBuffer : allocation refusee, remise a zero GPU "
+								 "declaree INDISPONIBLE (repli sur le chemin historique).");
+				return false;
+			}
+
+			uint32 motif[n];
+			for (nk_size i = 0; i < n; ++i)
+				motif[i] = 0xDEADBEEFu;
+			bool ok = g.Upload(buf, motif, octets);
+			ok = ok && g.Clear(buf, octets, 0);
+
+			uint32 relu[n];
+			for (nk_size i = 0; i < n; ++i)
+				relu[i] = 0xFFFFFFFFu; // valeur de depart differente de 0 ET du motif
+			ok = ok && g.Download(buf, relu, octets);
+			if (ok)
+				for (nk_size i = 0; i < n; ++i)
+					if (relu[i] != 0u) {
+						ok = false;
+						break;
+					}
+			g.DestroyBuffer(buf);
+
+			etat = ok ? 1 : 0;
+			if (ok)
+				logger_src.Infof("[NkTensorGpu] temoin ClearBuffer : OK sur %s — la remise a zero se fait SUR "
+								 "le GPU, plus aucun tenseur de zeros ne transite par le bus.",
+								 g.BackendName());
+			else
+				logger_src.Warnf("[NkTensorGpu] temoin ClearBuffer : ECHEC sur %s — la primitive ne met pas le "
+								 "tampon a zero. Repli sur le chemin historique (fabrication CPU + upload), "
+								 "correct mais couteux. Ce backend n'a pas de surcharge de ClearBuffer.",
+								 g.BackendName());
+			return etat == 1;
 		}
 
 		// ---- Dispatch helpers ---------------------------------------------------
@@ -366,6 +958,8 @@ namespace nkentseu {
 		bool NkTensorGpu::RunBinary(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint64 c,
 									uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)count, 12.0 * (double)count); // 2 lectures + 1 ecriture f32
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -398,6 +992,10 @@ namespace nkentseu {
 			cmd->UAVBarrier(hc);
 			cmd->End();
 			d->device->Submit(&cmd, 1);
+			if (!k->verifie) {
+				k->verifie = true;
+				NkGpuVerifierSortieNonNulle(*this, name, a, c, count);
+			}
 			d->device->WaitIdle(); // flush avant le Download (ReadBuffer synchronise aussi via Map)
 
 			d->device->FreeDescriptorSet(set);
@@ -407,6 +1005,8 @@ namespace nkentseu {
 
 		bool NkTensorGpu::RunUnary(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)count, 8.0 * (double)count); // 1 lecture + 1 ecriture f32
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -438,6 +1038,10 @@ namespace nkentseu {
 			cmd->UAVBarrier(hb);
 			cmd->End();
 			d->device->Submit(&cmd, 1);
+			if (!k->verifie) {
+				k->verifie = true;
+				NkGpuVerifierSortieNonNulle(*this, name, a, b, count);
+			}
 			d->device->WaitIdle(); // flush avant le Download (ReadBuffer synchronise aussi via Map)
 
 			d->device->FreeDescriptorSet(set);
@@ -448,6 +1052,8 @@ namespace nkentseu {
 		bool NkTensorGpu::RunUnaryScalar(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint32 count,
 										 float s) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)count, 8.0 * (double)count); // 1 lecture + 1 ecriture f32
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -492,6 +1098,9 @@ namespace nkentseu {
 		bool NkTensorGpu::RunReduce(const char *name, const NkString &nkslSrc, uint64 a, uint64 out, uint32 outer,
 									uint32 reduce, uint32 inner) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)outer * (double)reduce * (double)inner,
+						4.0 * ((double)outer * (double)reduce * (double)inner + (double)outer * (double)inner));
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -566,6 +1175,8 @@ void main() {
 		bool NkTensorGpu::RunGather(uint64 in, uint64 out, uint32 rank, uint32 offset, const uint32 *shape,
 									const uint32 *strides, uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr("gather");
+			chr.Travail(0.0, 8.0 * (double)count); // pur deplacement : aucun FLOP utile
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -617,6 +1228,8 @@ void main() {
 		bool NkTensorGpu::RunConvOp(const char *name, const NkString &nkslSrc, uint64 in, uint64 out, const uint32 *p12,
 									uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail(0.0, 8.0 * (double)count);
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -650,6 +1263,10 @@ void main() {
 			cmd->UAVBarrier(hb);
 			cmd->End();
 			d->device->Submit(&cmd, 1);
+			if (!k->verifie) {
+				k->verifie = true;
+				NkGpuVerifierSortieNonNulle(*this, name, in, out, count);
+			}
 			d->device->WaitIdle();
 
 			d->device->FreeDescriptorSet(set);
@@ -661,6 +1278,8 @@ void main() {
 		bool NkTensorGpu::RunOp3(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint64 c,
 								 const uint32 *p12, uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)count, 12.0 * (double)count);
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -695,6 +1314,10 @@ void main() {
 			cmd->UAVBarrier(hc);
 			cmd->End();
 			d->device->Submit(&cmd, 1);
+			if (!k->verifie) {
+				k->verifie = true;
+				NkGpuVerifierSortieNonNulle(*this, name, a, c, count);
+			}
 			d->device->WaitIdle();
 
 			d->device->FreeDescriptorSet(set);
@@ -705,6 +1328,15 @@ void main() {
 		// Pas d'Adam fusé : buffers 0,1,2,3 (param,grad,m,v) + UBO binding 4. Tout en place.
 		bool NkTensorGpu::RunAdam(uint64 param, uint64 grad, uint64 m, uint64 v, uint32 count, float lr, float b1,
 								  float b2, float eps, float b1t, float b2t, float wd) {
+			// ⚠️ CE COMPTEUR MANQUAIT (trouve le 2026-08-16). RunAdam est le SEUL
+			// dispatch qui ne s'annoncait pas : `OpCount()` ignorait un lancement par
+			// tenseur de parametres et par pas, et le « cout fixe par operation »
+			// journalise au pas 30 divisait donc le temps par un nombre trop petit —
+			// il SURESTIMAIT ce cout. Portee bornee : +1 operation par tenseur de
+			// parametres et par pas.
+			++gGpuOps;
+			NkGpuChrono chr("adam");
+			chr.Travail(11.0 * (double)count, 28.0 * (double)count); // param/m/v lus+ecrits, grad lu
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -896,6 +1528,13 @@ void main() {
 
 		bool NkTensorGpu::RunMatMul(uint64 a, uint64 b, uint64 c, uint32 M, uint32 N, uint32 K) {
 			++gGpuOps;
+			// Le NOM porte la variante : `matmul` (naif) et `matmul_t4` (pave 4x4) ont
+			// des intensites arithmetiques differentes d'un facteur 4, donc des plafonds
+			// differents. Les confondre dans une seule ligne effacerait justement ce
+			// qu'on cherche a mesurer.
+			NkGpuChrono chr((((uint64)M * (uint64)N >= 65536ull) && K >= 16u) ? "matmul_t4" : "matmul");
+			chr.Travail(2.0 * (double)M * (double)N * (double)K,
+						4.0 * ((double)M * (double)K + (double)K * (double)N + (double)M * (double)N));
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -968,6 +1607,37 @@ void main() {
 					return t.mOffset;
 				}
 		};
+
+		// =====================================================================
+		// Zeros fabriques DIRECTEMENT sur le GPU — le remede du chantier n°1.
+		//
+		// Avant : `ToDevOf(NkTensor::Zeros(shape), ref)` fabriquait les zeros sur
+		// CPU puis les montait. Mesure du 16/08 : 12,77 Go par pas, 99,9 % de tout
+		// le trafic CPU->GPU de l'entrainement, depuis la SEULE ligne
+		// `NkVar.cpp:1249`. Il n'y a aucune information dans ce transfert.
+		//
+		// ⚠️ Ne renvoie JAMAIS un tampon au contenu indetermine. Si la remise a zero
+		// echoue, on detruit le tampon et on renvoie un tenseur invalide : l'appelant
+		// doit pouvoir se replier. Des gradients faux ne se distinguent pas de
+		// gradients justes — c'est precisement pour ca qu'on ne devine pas.
+		// =====================================================================
+		NkTensor NkGpuZeros(const NkShape &shape, NkDType dtype) {
+			if (!NkTensorGpu::Get().IsAvailable() || !NkTensorGpu::ClearDisponible())
+				return NkTensor{};
+			const int64 n = NkShapeNumel(shape);
+			const nk_size bytes = (nk_size)(n < 0 ? 0 : n) * NkDTypeSize(dtype);
+			if (bytes == 0)
+				return NkTensor{};
+			uint64 buf = NkTensorGpu::Get().CreateBuffer(bytes);
+			if (!buf)
+				return NkTensor{};
+			if (!NkTensorGpu::Get().Clear(buf, bytes, 0)) {
+				NkTensorGpu::Get().DestroyBuffer(buf);
+				NkGpuSignalerDefaut("NkGpuZeros", "remise a zero GPU refusee apres allocation, octets", (int64)bytes);
+				return NkTensor{};
+			}
+			return NkTensorInternal::MakeGpu(shape, dtype, buf);
+		}
 
 		// Kernel élémentaire add (mêmes bindings que RunBinary attend).
 		static const char *kAddNkSL = R"NKSL(
@@ -1420,6 +2090,39 @@ void main() {
 			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)B * NkDTypeSize(gp.DType()));
 			if (!ob)
 				return NkTensor{};
+
+			// ⚠️ EMPOISONNER LE TAMPON, NE PAS LE METTRE A ZERO.
+			//
+			// Une ligne que le noyau n'ecrit pas garde ce qui trainait la. Si c'est
+			// ZERO, elle ressemble a une perte tres basse -- plausible, donc invisible.
+			// Si c'est le RESTE DU PAS PRECEDENT, c'est pire encore : une vraie valeur
+			// de perte, indetectable par construction.
+			//
+			// Une entropie croisee vaut -log(p) avec 0 < p <= 1 : elle est FINIE et
+			// POSITIVE. Un NaN est donc hors domaine, quelle que soit la configuration
+			// et quel que soit le mecanisme de la panne. On remplace ainsi la regle
+			// « zero = defaut », vraie d'un seul cas, par « hors domaine = defaut »,
+			// qui est strictement plus forte et ne se perime pas.
+			//
+			// Motivation mesuree (14 aout 2026) : un run a rendu le QUART de la perte
+			// de son jumeau parce que trois lignes sur quatre n'etaient pas calculees,
+			// sans qu'aucune erreur ne soit signalee. A 8 % de lignes manquantes, une
+			// telle perte ne ressemble pas a un defaut : elle ressemble a un PROGRES.
+			{
+				NkVector<float> poison;
+				poison.Resize((nk_size)B);
+				const uint32 kNaN = 0x7FC00000u; // NaN silencieux
+				for (int64 i = 0; i < B; ++i) {
+					float v;
+					const unsigned char *s = (const unsigned char *)&kNaN;
+					unsigned char *d = (unsigned char *)&v;
+					for (int k = 0; k < 4; ++k)
+						d[k] = s[k];
+					poison[(nk_size)i] = v;
+				}
+				NkTensorGpu::Get().Upload(ob, poison.Data(), (nk_size)B * sizeof(float));
+			}
+
 			uint32 p[12] = {(uint32)B, (uint32)C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			NkTensorGpu::Get().RunOp3("ce_idx_fwd", NkString(kCeIdxFwdNkSL), NkTensorInternal::GpuBuffer(gp),
 									  NkTensorInternal::GpuBuffer(gt), ob, p, (uint32)B);
@@ -1912,6 +2615,273 @@ void main() {
 			NkTensorGpu::Get().RunOp3("layernorm_bwd", NkString(kLayerNormBwdNkSL), NkTensorInternal::GpuBuffer(gx),
 									  NkTensorInternal::GpuBuffer(gg), db, p, (uint32)rows);
 			return NkTensorInternal::MakeGpu(gx.Shape(), gx.DType(), db);
+		}
+
+		// ---- RMSNorm (dernier axe) GPU : fwd (x->y) + bwd (x,g->dx) ---------------
+		// y_j = x_j / sqrt(mean(x²) + eps).  Pas de moyenne a retrancher : c'est ce
+		// qui la rend moins chere que LayerNorm.
+		static const char *kRmsNormFwdNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufA { float data[]; } A;
+@binding(set=0, binding=1) buffer BufB { float data[]; } B;
+@binding(set=0, binding=2) uniform P { uint rows; uint D; float eps; uint pad; } d;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint r = gl_GlobalInvocationID.x;
+    if (r < d.rows) {
+        uint base = r * d.D; float fD = float(d.D);
+        float ms = 0.0;
+        for (uint c=0u;c<d.D;c=c+1u) { float v = A.data[base+c]; ms = ms + v*v; }
+        ms = ms / fD;
+        float inv = 1.0 / sqrt(ms + d.eps);
+        for (uint c=0u;c<d.D;c=c+1u) B.data[base+c] = A.data[base+c] * inv;
+    }
+}
+)NKSL";
+		// dx_j = inv·dy_j − (inv³/d)·x_j·Σ_i(x_i·dy_i)
+		static const char *kRmsNormBwdNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufX { float data[]; } X;
+@binding(set=0, binding=1) buffer BufG { float data[]; } G;
+@binding(set=0, binding=2) buffer BufD { float data[]; } DX;
+@binding(set=0, binding=3) uniform P { uint rows; uint D; float eps; uint pad; } d;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint r = gl_GlobalInvocationID.x;
+    if (r < d.rows) {
+        uint base = r * d.D; float fD = float(d.D);
+        float ms = 0.0; float dot = 0.0;
+        for (uint c=0u;c<d.D;c=c+1u) {
+            float v = X.data[base+c];
+            ms = ms + v*v;
+            dot = dot + v * G.data[base+c];
+        }
+        ms = ms / fD;
+        float inv = 1.0 / sqrt(ms + d.eps);
+        float coef = inv * inv * inv * dot / fD;
+        for (uint c=0u;c<d.D;c=c+1u)
+            DX.data[base+c] = inv * G.data[base+c] - coef * X.data[base+c];
+    }
+}
+)NKSL";
+
+		// ---- RoPE GPU : rotation par paires (i, i+moitie) du dernier axe ---------
+		//
+		// Les cosinus/sinus sont LUS DANS UNE TABLE fournie par l'appelant, ils ne
+		// sont PAS recalcules ici. Deux raisons, et la seconde est la vraie :
+		//  1. la table supprime pow/cos/sin de la boucle interne ;
+		//  2. en flottant simple, l'angle pos*freq atteint ~256 radians, dont l'ulp
+		//     vaut ~1.5e-5 : un noyau qui calculerait l'angle lui-meme s'ecarterait
+		//     du chemin CPU (qui calcule en double) BIEN AU-DELA de la tolerance,
+		//     et le test d'equivalence echouerait pour une raison etrangere a ce
+		//     qu'il verifie. La table est construite en double, une seule fois.
+		//
+		// Disposition de la table : pour t dans [0,T), i dans [0,moitie) ->
+		// TAB[2*(t*moitie+i)] = cos, TAB[2*(t*moitie+i)+1] = sin.
+		// `sens` vaut +1 en avant, −1 en arriere (rotation transposee).
+		//
+		// ⚠ NOMS DES CHAMPS : `half` est un MOT RESERVE en GLSL et un TYPE en HLSL.
+		// Le shader ne compilait pas, le noyau ne tournait pas, et le tampon de sortie
+		// restait a ZERO -- sans la moindre erreur remontee jusqu'a l'appelant. C'est le
+		// test d'equivalence qui l'a vu (ecart relatif 1,0 et norme non conservee).
+		// Meme famille que `line`, deja rencontre en HLSL. D'ou `moitie` et `tlen`.
+		static const char *kRoPENkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufX { float data[]; } X;
+@binding(set=0, binding=1) buffer BufT { float data[]; } TAB;
+@binding(set=0, binding=2) buffer BufO { float data[]; } O;
+@binding(set=0, binding=3) uniform P { uint rows; uint hd; uint tlen; uint moitie; float sens; uint pad; } d;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint r = gl_GlobalInvocationID.x;
+    if (r < d.rows) {
+        uint base = r * d.hd;
+        uint t = r - (r / d.tlen) * d.tlen;
+        for (uint i=0u;i<d.moitie;i=i+1u) {
+            uint k = 2u * (t * d.moitie + i);
+            float c = TAB.data[k];
+            float sn = TAB.data[k+1u] * d.sens;
+            float x0 = X.data[base+i];
+            float x1 = X.data[base+i+d.moitie];
+            O.data[base+i] = x0 * c - x1 * sn;
+            O.data[base+i+d.moitie] = x0 * sn + x1 * c;
+        }
+        // Dimension de tete impaire : la composante orpheline passe telle quelle
+        // plutot que d'etre perdue en silence (meme regle que le chemin CPU).
+        if (d.hd - 2u * d.moitie == 1u) O.data[base+d.hd-1u] = X.data[base+d.hd-1u];
+    }
+}
+)NKSL";
+
+		// ---- SwiGLU GPU : h = silu(g) ⊙ u, silu(g) = g·σ(g) ----------------------
+		static const char *kSwiGLUFwdNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufG { float data[]; } G;
+@binding(set=0, binding=1) buffer BufU { float data[]; } U;
+@binding(set=0, binding=2) buffer BufO { float data[]; } O;
+@binding(set=0, binding=3) uniform P { uint count; uint pad0; uint pad1; uint pad2; } d;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < d.count) {
+        float gv = G.data[i];
+        float sig = 1.0 / (1.0 + exp(-gv));
+        O.data[i] = gv * sig * U.data[i];
+    }
+}
+)NKSL";
+		// dU = dh ⊙ silu(g). Ne depend que de (g, dh) : deux entrees suffisent.
+		static const char *kSwiGLUBwdDuNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufG { float data[]; } G;
+@binding(set=0, binding=1) buffer BufH { float data[]; } H;
+@binding(set=0, binding=2) buffer BufO { float data[]; } O;
+@binding(set=0, binding=3) uniform P { uint count; uint pad0; uint pad1; uint pad2; } d;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < d.count) {
+        float gv = G.data[i];
+        float sig = 1.0 / (1.0 + exp(-gv));
+        O.data[i] = H.data[i] * (gv * sig);
+    }
+}
+)NKSL";
+		// dG = (dh ⊙ u) ⊙ silu'(g), avec silu'(g) = σ(g)·(1 + g·(1−σ(g))).
+		// L'appelant fournit deja le produit dh⊙u : le noyau reste a deux entrees,
+		// ce qui evite d'ajouter un lanceur a quatre tampons pour un seul usage.
+		static const char *kSwiGLUBwdDgNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufG { float data[]; } G;
+@binding(set=0, binding=1) buffer BufT { float data[]; } T;
+@binding(set=0, binding=2) buffer BufO { float data[]; } O;
+@binding(set=0, binding=3) uniform P { uint count; uint pad0; uint pad1; uint pad2; } d;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < d.count) {
+        float gv = G.data[i];
+        float sig = 1.0 / (1.0 + exp(-gv));
+        float dsilu = sig * (1.0 + gv * (1.0 - sig));
+        O.data[i] = T.data[i] * dsilu;
+    }
+}
+)NKSL";
+
+		// Recopie les octets d'un float dans un emplacement uint32 du bloc de
+		// parametres (declare en uint cote hote, relu en float par le shader).
+		static uint32 BitsOf(float f) {
+			uint32 bits = 0;
+			const unsigned char *src = (const unsigned char *)&f;
+			unsigned char *dst = (unsigned char *)&bits;
+			for (int k = 0; k < 4; ++k)
+				dst[k] = src[k];
+			return bits;
+		}
+
+		NkTensor NkGpuRmsNorm(const NkTensor &x, double eps) {
+			NkTensor gx = (x.Device() == NkDevice::NK_GPU) ? x : x.ToGPU();
+			if (!gx.IsValid() || gx.Rank() < 1)
+				return NkTensor{};
+			const int64 D = gx.Shape()[gx.Rank() - 1];
+			const int64 rows = (D > 0) ? gx.Numel() / D : 0;
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)gx.Numel() * NkDTypeSize(gx.DType()));
+			if (!ob)
+				return NkTensor{};
+			uint32 p[12] = {(uint32)rows, (uint32)D, BitsOf((float)eps), 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunConvOp("rmsnorm_fwd", NkString(kRmsNormFwdNkSL), NkTensorInternal::GpuBuffer(gx), ob,
+										 p, (uint32)rows);
+			return NkTensorInternal::MakeGpu(gx.Shape(), gx.DType(), ob);
+		}
+
+		NkTensor NkGpuRmsNormBackward(const NkTensor &x, const NkTensor &grad, double eps) {
+			NkTensor gx = (x.Device() == NkDevice::NK_GPU) ? x : x.ToGPU();
+			NkTensor gg = (grad.Device() == NkDevice::NK_GPU) ? grad : grad.ToGPU();
+			if (!gx.IsValid() || !gg.IsValid() || gx.Rank() < 1)
+				return NkTensor{};
+			const int64 D = gx.Shape()[gx.Rank() - 1];
+			const int64 rows = (D > 0) ? gx.Numel() / D : 0;
+			uint64 db = NkTensorGpu::Get().CreateBuffer((nk_size)gx.Numel() * NkDTypeSize(gx.DType()));
+			if (!db)
+				return NkTensor{};
+			uint32 p[12] = {(uint32)rows, (uint32)D, BitsOf((float)eps), 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunOp3("rmsnorm_bwd", NkString(kRmsNormBwdNkSL), NkTensorInternal::GpuBuffer(gx),
+									  NkTensorInternal::GpuBuffer(gg), db, p, (uint32)rows);
+			return NkTensorInternal::MakeGpu(gx.Shape(), gx.DType(), db);
+		}
+
+		// `table` : tenseur [T * moitie * 2] construit par l'appelant (en double).
+		NkTensor NkGpuRoPE(const NkTensor &x, const NkTensor &table, double sens) {
+			NkTensor gx = (x.Device() == NkDevice::NK_GPU) ? x : x.ToGPU();
+			NkTensor gt = (table.Device() == NkDevice::NK_GPU) ? table : table.ToGPU();
+			if (!gx.IsValid() || !gt.IsValid() || gx.Rank() < 1)
+				return NkTensor{};
+			const int64 hd = gx.Shape()[gx.Rank() - 1];
+			const int64 T = (gx.Rank() >= 2) ? gx.Shape()[gx.Rank() - 2] : 1;
+			const int64 half = hd / 2;
+			const int64 rows = (hd > 0) ? gx.Numel() / hd : 0;
+			if (rows <= 0 || T <= 0)
+				return NkTensor{};
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)gx.Numel() * NkDTypeSize(gx.DType()));
+			if (!ob)
+				return NkTensor{};
+			uint32 p[12] = {(uint32)rows,		(uint32)hd, (uint32)T, (uint32)half, BitsOf((float)sens), 0, 0, 0, 0,
+							0,					0,			0};
+			NkTensorGpu::Get().RunOp3("rope", NkString(kRoPENkSL), NkTensorInternal::GpuBuffer(gx),
+									  NkTensorInternal::GpuBuffer(gt), ob, p, (uint32)rows);
+			return NkTensorInternal::MakeGpu(gx.Shape(), gx.DType(), ob);
+		}
+
+		NkTensor NkGpuSwiGLU(const NkTensor &gate, const NkTensor &up) {
+			NkTensor gg = (gate.Device() == NkDevice::NK_GPU) ? gate : gate.ToGPU();
+			NkTensor gu = (up.Device() == NkDevice::NK_GPU) ? up : up.ToGPU();
+			if (!gg.IsValid() || !gu.IsValid())
+				return NkTensor{};
+			const int64 n = gg.Numel();
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)n * NkDTypeSize(gg.DType()));
+			if (!ob)
+				return NkTensor{};
+			uint32 p[12] = {(uint32)n, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunOp3("swiglu_fwd", NkString(kSwiGLUFwdNkSL), NkTensorInternal::GpuBuffer(gg),
+									  NkTensorInternal::GpuBuffer(gu), ob, p, (uint32)n);
+			return NkTensorInternal::MakeGpu(gg.Shape(), gg.DType(), ob);
+		}
+
+		NkTensor NkGpuSwiGLUBackwardDu(const NkTensor &gate, const NkTensor &dh) {
+			NkTensor gg = (gate.Device() == NkDevice::NK_GPU) ? gate : gate.ToGPU();
+			NkTensor gh = (dh.Device() == NkDevice::NK_GPU) ? dh : dh.ToGPU();
+			if (!gg.IsValid() || !gh.IsValid())
+				return NkTensor{};
+			const int64 n = gg.Numel();
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)n * NkDTypeSize(gg.DType()));
+			if (!ob)
+				return NkTensor{};
+			uint32 p[12] = {(uint32)n, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunOp3("swiglu_bwd_du", NkString(kSwiGLUBwdDuNkSL), NkTensorInternal::GpuBuffer(gg),
+									  NkTensorInternal::GpuBuffer(gh), ob, p, (uint32)n);
+			return NkTensorInternal::MakeGpu(gg.Shape(), gg.DType(), ob);
+		}
+
+		// `dhu` = dh ⊙ u, deja calcule par l'appelant (NkGpuMul).
+		NkTensor NkGpuSwiGLUBackwardDg(const NkTensor &gate, const NkTensor &dhu) {
+			NkTensor gg = (gate.Device() == NkDevice::NK_GPU) ? gate : gate.ToGPU();
+			NkTensor gt = (dhu.Device() == NkDevice::NK_GPU) ? dhu : dhu.ToGPU();
+			if (!gg.IsValid() || !gt.IsValid())
+				return NkTensor{};
+			const int64 n = gg.Numel();
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)n * NkDTypeSize(gg.DType()));
+			if (!ob)
+				return NkTensor{};
+			uint32 p[12] = {(uint32)n, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunOp3("swiglu_bwd_dg", NkString(kSwiGLUBwdDgNkSL), NkTensorInternal::GpuBuffer(gg),
+									  NkTensorInternal::GpuBuffer(gt), ob, p, (uint32)n);
+			return NkTensorInternal::MakeGpu(gg.Shape(), gg.DType(), ob);
 		}
 
 		NkTensor NkGpuSoftmaxRows(const NkTensor &x) {
@@ -2733,6 +3703,11 @@ void main() {
 				return NkTensor{};
 			NkTensor cont = Contiguous();
 			const nk_size bytes = (nk_size)cont.Numel() * NkDTypeSize(cont.DType());
+			// ⚠️ CE SITE FAIT LES DEUX : une allocation ET un upload. Les postes n°1
+			// (reserve de tampons) et n°2 (supprimer les uploads) de l'ordre de
+			// bataille ne sont donc pas deux chantiers independants — chaque bascule
+			// CPU->GPU compte une fois dans chacun.
+			NkGpuAttribuerBascule(__builtin_return_address(0), (double)bytes);
 			uint64 buf = NkTensorGpu::Get().CreateBuffer(bytes);
 			if (!buf)
 				return NkTensor{};

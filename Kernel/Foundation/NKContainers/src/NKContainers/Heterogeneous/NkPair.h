@@ -28,6 +28,13 @@ namespace nkentseu {
 	// ====================================================================
 	// CLASSE PRINCIPALE : NK PAIR
 	// ====================================================================
+	//
+	// NOTE : le tag de construction piecewise (`NkPiecewiseTag`) est défini dans
+	// `NKContainers/NkContainersApi.h`, PAS ici. Raison mesurée : il sert aussi à
+	// `NkSet` et `NkUnorderedSet`, qui n'incluent pas `NkPair.h`. Le définir ici
+	// faisait échouer la compilation de NKContainers — défaut que le témoin de
+	// syntaxe n'a pas vu, parce qu'il incluait les maps AVANT les sets et que
+	// celles-ci tiraient `NkPair.h` : l'ordre d'inclusion masquait le manque.
 
 	/**
 	 * @brief Structure template représentant une paire de valeurs hétérogènes
@@ -111,6 +118,34 @@ namespace nkentseu {
 			 */
 			template <typename U1, typename U2>
 			NKENTSEU_CONSTEXPR NkPair(const NkPair<U1, U2> &other) : First(other.First), Second(other.Second) {
+			}
+
+			/**
+			 * @brief Construit First par copie et Second SUR PLACE depuis des arguments forwardés
+			 * @tparam Args Types déduits des arguments destinés au constructeur de T2
+			 * @param first Valeur à copier dans le premier membre
+			 * @param args Arguments forwardés vers le constructeur de T2
+			 *
+			 * @note C'est la voie de construction IN-PLACE VARIADIQUE de Second :
+			 *       le constructeur gardé `NkPair(U1 &&, U2 &&)` prend exactement
+			 *       deux arguments, celui-ci en accepte N pour construire T2 sur
+			 *       place. Les Emplace(key, args...) des conteneurs associatifs
+			 *       passent par lui. (Historique : né comme contournement quand
+			 *       `NK_CPP11` n'était définie nulle part ; la macro est OUVERTE
+			 *       depuis le 2026-08-17 — dérivée de NKENTSEU_HAS_CPP11 dans
+			 *       NkCompilerDetect.h — et ce constructeur reste, car il n'a pas
+			 *       d'équivalent gardé.)
+			 *
+			 * @note AJOUT PUR : le tag rend ce constructeur insélectionnable par tout
+			 *       appel existant. Les appelants qui copiaient continuent de copier,
+			 *       au même coût — la résolution de surcharge le garantit, pas la vigilance.
+			 *
+			 * @example
+			 * NkPair<const int, MonType> p(NkPiecewiseTag{}, 1, arg1, arg2);
+			 */
+			template <typename... Args>
+			NKENTSEU_CONSTEXPR NkPair(NkPiecewiseTag, const T1 &first, Args &&...args)
+				: First(first), Second(traits::NkForward<Args>(args)...) {
 			}
 
 // ====================================================================

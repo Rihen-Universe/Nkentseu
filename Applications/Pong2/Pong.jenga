@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # =============================================================================
 # Pong Ultra Arena — Build config Jenga
-# Stack : NkContext (OpenGL/GLES) + NKGlad + NKFont + NKImage + NKUI
+# Stack : NkContext (OpenGL/GLES) + NKGlad + NKFont + NKImage
 # Conforme au GDD v1.1 (docs/GDD_PONG_ULTRA_ARENA_v1.1.docx).
 # =============================================================================
 
@@ -74,7 +74,6 @@ with project("Pong"):
         "%{NKWindow.location}/src",
         "%{NKImage.location}/src",
         "%{NKFont.location}/src",
-        "%{NKUI.location}/src",
         "%{NKCanvas.location}/src",
         "%{NKStream.location}/src",
         "%{NKGlad.location}/include",
@@ -89,7 +88,7 @@ with project("Pong"):
 
     _BASE_DEPS = [
         "NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
-        "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+        "NKMath", "NKTime", "NKStream", "NKFont", "NKImage",
         "NKFileSystem", "NKNetwork",
         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio", "NKMedia"
     ]

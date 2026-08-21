@@ -101,7 +101,12 @@ with project("Noge"):
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    _DEPS = ["NKGlad", "NKUI", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKRenderer", "NKCollision", "NKPhysics", "NKNavigation", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS", "NKRL", "NKAgent", "NKAudio", "NKMedia", "NKNetwork"]
+    # « NKUI » RETIRE le 2026-08-17 (coupe NKUI, decision de Rodolf) : la
+    # dependance etait FANTOME — zero `#include "NKUI/` dans tout
+    # Engine/Noge/src (verifie) ; elle ne pilotait que l'ordre de build et
+    # forcait la construction de NKUI dans la fermeture de TOUTE application
+    # dependant de Noge.
+    _DEPS = ["NKGlad", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKRenderer", "NKCollision", "NKPhysics", "NKNavigation", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS", "NKRL", "NKAgent", "NKAudio", "NKMedia", "NKNetwork"]
    
     dependson(_DEPS)
     _RENDERER_DEFINES = [

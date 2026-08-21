@@ -144,7 +144,13 @@ namespace nkentseu {
 // ============================================================
 
 namespace nkentseu {
-	namespace literals {
+	// `inline`, obligatoirement : NkStringView.h:1857 et NkStringHash.h (dans
+	// nkentseu::string) rouvrent `literals` en INLINE sous la garde NK_CPP11.
+	// Un namespace ouvert non-inline ne peut plus être rouvert inline —
+	// c'était le verrou qui maintenait 914 lignes de NKContainers fermées
+	// (13 échecs identiques au build, une seule cause). `inline` aligne aussi
+	// sur l'idiome std::literals : les suffixes sont visibles depuis nkentseu::.
+	inline namespace literals {
 
 		constexpr nk_uint8 operator""_u8(unsigned long long val) noexcept {
 			return static_cast<nk_uint8>(val);

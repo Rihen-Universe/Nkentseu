@@ -47,6 +47,7 @@ int main() {
 	const int epochs = 5000;
 	double lastLoss = 0.0;
 	for (int e = 0; e <= epochs; ++e) {
+		opt.ZeroGrad(); // Backward() n'efface plus les feuilles : un pas = un gradient
 		NkVar o = forward(xin);
 		NkVar loss = nn::MSELoss(o, yt);
 		loss.Backward();
@@ -113,6 +114,7 @@ int main() {
 
 	double clsLoss = 0.0;
 	for (int e = 0; e <= 2000; ++e) {
+		adam.ZeroGrad(); // un pas = un gradient
 		NkVar logits = fwd2(xin2);
 		NkVar loss = nn::CrossEntropyLoss(logits, yoh);
 		loss.Backward();
@@ -241,6 +243,7 @@ int main() {
 			NkVar xin3 = NkVar::Leaf(X2, false), yt3 = NkVar::Leaf(Y2, false);
 			double lastLoss = 0.0;
 			for (int e = 0; e <= 500; ++e) {
+				sgd.ZeroGrad(); // un pas = un gradient
 				NkVar h3 = nn::Tanh(d1.Forward(xin3));
 				NkVar o3 = nn::Sigmoid(d2.Forward(h3));
 				NkVar loss3 = nn::MSELoss(o3, yt3);
@@ -315,6 +318,7 @@ int main() {
 
 		double mlpLoss = 0.0;
 		for (int e = 0; e <= 2000; ++e) {
+			adamMlp.ZeroGrad(); // un pas = un gradient
 			NkVar logitsMlp = mlp.Forward(xin2);
 			NkVar lossMlp = nn::CrossEntropyLoss(logitsMlp, yoh);
 			lossMlp.Backward();
