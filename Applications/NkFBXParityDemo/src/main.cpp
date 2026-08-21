@@ -20,6 +20,7 @@
 #include "NKLogger/NkLog.h"
 
 #include <cmath>
+#include <cstdio> // fopen -- distinguer « fichier absent » de « fichier faux »
 
 using namespace nkentseu;
 
@@ -27,6 +28,38 @@ namespace {
 
 	int gPassCount = 0;
 	int gFailCount = 0;
+
+	// TROISIEME ETAT, AJOUTE LE 2026-08-22 : « PASSE SON TOUR », DISTINCT DE
+	// L'ECHEC. Ce banc comptait 4 echecs qui n'en etaient pas : les cas
+	// CesiumMan.fbx echouaient parce que LE FICHIER N'EST PAS DANS LE DEPOT
+	// (seul le .glb y est), pas parce que le chargeur avait tort.
+	//
+	// Ce n'est pas cosmetique : UN BANC QUI ECHOUE FAUTE DE FICHIER APPREND A
+	// SON LECTEUR A IGNORER LE ROUGE. Une fois qu'on sait que ce banc est
+	// « normalement rouge », il ne signale plus rien -- et un VRAI defaut FBX
+	// passerait inapercu au milieu des memes quatre lignes rouges.
+	//
+	// La section Mixamo faisait DEJA la bonne chose (elle sautait proprement) :
+	// l'incoherence etait entre deux sections du meme fichier.
+	int gSkipCount = 0;
+
+	// Une section sautee n'est ni un succes ni un echec : elle est ABSENTE du
+	// verdict, et elle le dit.
+	void Skip(const char *quoi) noexcept {
+		++gSkipCount;
+		logger.Warnf("  [SKIP] %s\n", quoi);
+	}
+
+	// Un fichier HORS DEPOT manque legitimement : on saute. Un fichier PRESENT
+	// mais illisible est un VRAI echec -- et cette distinction est exactement ce
+	// que le banc ne savait pas faire.
+	bool FichierPresent(const char *chemin) noexcept {
+		FILE *f = fopen(chemin, "rb");
+		if (!f)
+			return false;
+		fclose(f);
+		return true;
+	}
 
 	void Check(bool cond, const char *what) noexcept {
 		if (cond) {
@@ -102,6 +135,10 @@ namespace {
 	// ── Etape (a) : squelette + noms depuis le FBX ─────────────────────────
 	void TestFBXNodes(renderer::NkGLTFMeshData &fbx) noexcept {
 		logger.Infof("-- FBX etape (a) : CesiumMan.fbx (squelette + noms) --\n");
+		if (!FichierPresent("Resources/Models/CesiumMan/CesiumMan.fbx")) {
+			Skip("CesiumMan.fbx ABSENT du depot (seul le .glb y est) - etapes (a)(b)(c) non jouees");
+			return;
+		}
 		const bool ok = renderer::LoadFBX(NkString("Resources/Models/CesiumMan/CesiumMan.fbx"), fbx);
 		Check(ok && fbx.IsValid(), "LoadFBX CesiumMan.fbx reussit");
 		if (!ok)
@@ -161,7 +198,22 @@ namespace {
 	// dans l'espace du squelette (M = TL * Transform = R(-180,-90,0) * S(100)).
 	void TestFBXSkin(const renderer::NkGLTFMeshData &fbx) noexcept {
 		logger.Infof("-- FBX etape (b) : CesiumMan.fbx (skinning) --\n");
+		if (!fbx.IsValid()) {
+			Skip("CesiumMan.fbx non charge (fichier hors depot) - etape (b) non jouee");
+			return;
+		}
 		Check(fbx.isSkinned, "FBX : isSkinned (le Deformer Skin est extrait)");
+		// ⚠️ CES DEUX CONTROLES PASSAIENT A VIDE AVANT LE 2026-08-22, et c'est
+		// pourquoi le compte d'OK de ce banc est passe de 10 a 8 le jour ou les
+		// etapes (a)(b)(c) ont appris a SAUTER : ce ne sont pas deux couvertures
+		// perdues, ce sont deux FAUX VERTS qui ont disparu.
+		// Ils comparent deux TAILLES sans verifier l'EXISTENCE : sur un fbx non
+		// charge, `0 == 0` est vrai, donc ils annonçaient « parallele » sur deux
+		// tableaux vides. C'est « reussir pour la mauvaise raison » -- la meme
+		// forme que le script qui annoncait « une seule empreinte » sur quatre
+		// valeurs toutes ABSENTES.
+		// Ils ne tournent desormais que lorsque le fichier existe, donc quand la
+		// comparaison a un sens.
 		Check(fbx.skinJoints.Size() == 19, "FBX : 19 joints (19 Cluster — inspecteur independant)");
 		Check(fbx.inverseBind.Size() == fbx.skinJoints.Size(), "FBX : inverseBind parallele a skinJoints");
 		Check(fbx.skinnedVertices.Size() == fbx.vertices.Size(),
@@ -249,6 +301,10 @@ namespace {
 	// XYZ sans PreRotation -> quat (0.706668, 0.025899, 0.025933, 0.706595).
 	void TestFBXAnim(const renderer::NkGLTFMeshData &fbx) noexcept {
 		logger.Infof("-- FBX etape (c) : CesiumMan.fbx (animations) --\n");
+		if (!fbx.IsValid()) {
+			Skip("CesiumMan.fbx non charge (fichier hors depot) - etape (c) non jouee");
+			return;
+		}
 		Check(fbx.animations.Size() == 1, "FBX : 1 animation (1 AnimationStack)");
 		if (fbx.animations.Size() != 1)
 			return;
@@ -350,9 +406,7 @@ namespace {
 		const bool okG = renderer::LoadGLTF(NkString("Resources/Models/XBot/XBot.glb"), glb);
 		const bool okF = renderer::LoadFBX(NkString("Resources/Models/XBot/X Bot.fbx"), fbx);
 		if (!okG || !okF) {
-			logger.Warnf("  [SKIP] fichiers XBot absents de Resources/Models/XBot/ (glb=%d fbx=%d) — "
-						 "section Mixamo non jouee\n",
-						 okG ? 1 : 0, okF ? 1 : 0);
+			Skip("fichiers XBot absents de Resources/Models/XBot/ - section non jouee");
 			return;
 		}
 		// 1. Squelette : 67 nodes, 64 aretes, hierarchie et PreRotation
@@ -475,8 +529,7 @@ namespace {
 		const bool okG = renderer::LoadGLTF(NkString("Resources/Models/XBot/YBot.glb"), glb);
 		const bool okF = renderer::LoadFBX(NkString("Resources/Models/XBot/Y Bot.fbx"), fbx);
 		if (!okG || !okF) {
-			logger.Warnf("  [SKIP] fichiers YBot absents de Resources/Models/XBot/ (glb=%d fbx=%d)\n", okG ? 1 : 0,
-						 okF ? 1 : 0);
+			Skip("fichiers YBot absents de Resources/Models/XBot/ - section non jouee");
 			return;
 		}
 		Check(glb.skinJoints.Size() == 65, "YBot glb : 65 joints (reference)");
@@ -553,6 +606,12 @@ int main() {
 			  "parite : autant d'animations FBX que glTF (1 chacun)");
 	}
 
-	logger.Infof("=== Resultat : %d OK, %d echec(s) ===\n", gPassCount, gFailCount);
+	// Le verdict distingue les TROIS etats. Le code de sortie ne depend QUE des
+	// echecs : un banc dont il ne manque que des fichiers sort en 0, et son rouge
+	// redevient donc un signal au lieu d'un bruit de fond.
+	logger.Infof("=== Resultat : %d OK, %d echec(s), %d saute(s) ===\n", gPassCount, gFailCount, gSkipCount);
+	if (gSkipCount > 0)
+		logger.Warnf("     %d section(s) sautee(s) faute de fichiers HORS DEPOT - ce n'est PAS un echec\n",
+				 gSkipCount);
 	return gFailCount == 0 ? 0 : 1;
 }
