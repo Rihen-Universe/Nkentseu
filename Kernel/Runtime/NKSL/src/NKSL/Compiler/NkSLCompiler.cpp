@@ -325,9 +325,37 @@ namespace nkentseu {
 				}
 				res = CompileToSPIRV(glslRes.source, stage, opts);
 				if (!res.success) {
-					NKSL_ERR("GLSL-Vulkan→SPIR-V failed, returning GLSL-Vulkan text\n");
+					// ⚠ ON GARDE LE TEXTE POUR LE DIAGNOSTIC, JAMAIS LE VERDICT.
+					//
+					// Ce repli rendait `res = glslRes` — donc `success = true` — sur un shader
+					// que glslang venait de REFUSER. Mesure le 2026-08-22 : un appel a une
+					// fonction jamais declaree ressortait en `success=1`, et les deux cas ne se
+					// distinguaient que par les quatre premiers octets (`#ver` contre le magique
+					// SPIR-V). Pire : le resultat rate etant mis en cache, le message d'erreur
+					// disparaissait au deuxieme appel.
+					//
+					// Consequence en aval : NkSLIntegration copiait ce resultat dans
+					// `spirvBinary` -- le chemin VULKAN recevait du texte GLSL la ou il attend
+					// du SPIR-V. L'erreur ne disparaissait pas, elle CHANGEAIT DE COUPABLE :
+					// elle ressortait comme une faute Vulkan au lieu de « ta fonction n'existe
+					// pas ».
+					//
+					// Regle generale : une couche qui rattrape un echec doit changer le VERDICT,
+					// jamais seulement le contenu. Un `success` preserve detruit le travail du
+					// seul composant qui avait raison.
+					//
+					// Verifie AVANT de corriger : les 82 shaders du corpus moteur passent
+					// glslang (82/82). Cette correction ne reveille rien.
+					NkSLCompileResult echec = res;
+					NKSL_ERR("GLSL-Vulkan->SPIR-V failed: texte GLSL renvoye pour DIAGNOSTIC, success reste FAUX\n");
 					res = glslRes;
 					res.target = NkSLTarget::NK_GLSL_VULKAN;
+					res.success = false;
+					res.bytecode.Clear(); // rien ne doit ressembler a du SPIR-V
+					for (auto &e : echec.errors)
+						res.errors.PushBack(e);
+					if (res.errors.Empty())
+						res.AddError(0, "compilation SPIR-V echouee (glslang), aucun detail remonte", true);
 				}
 				break;
 			}

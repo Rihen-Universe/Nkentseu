@@ -112,7 +112,14 @@ namespace nkentseu {
 					sd.hlslSource = compiled.result.source.CStr();
 				} else if (NkSLTargetIsMSL(target)) {
 					sd.mslSource = compiled.result.source.CStr();
-				} else if (target == NkSLTarget::NK_SPIRV) {
+				}
+				// ⚠ SECONDE GARDE : on verifie que le resultat EST du SPIR-V, pas seulement
+				// que le SPIR-V a ete DEMANDE. `NkSLCompiler` renvoyait le texte GLSL avec
+				// `success=true` quand glslang echouait ; ce chemin copiait alors du texte
+				// dans `spirvBinary`, et Vulkan se plaignait a la place du shader fautif.
+				// La cause est corrigee dans NkSLCompiler ; cette garde est la ceinture :
+				// elle coute une comparaison de champ et rend l'accident irrepresentable.
+				else if (target == NkSLTarget::NK_SPIRV && compiled.result.target == NkSLTarget::NK_SPIRV) {
 					sd.spirvBinary.Resize((uint64)compiled.result.bytecode.Size());
 					memcpy(sd.spirvBinary.Data(), compiled.result.bytecode.Data(),
 						   (size_t)compiled.result.bytecode.Size());
@@ -227,7 +234,9 @@ namespace nkentseu {
 					sd.hlslSource = compiled.result.source.CStr();
 				if (NkSLTargetIsMSL(target))
 					sd.mslSource = compiled.result.source.CStr();
-				if (target == NkSLTarget::NK_SPIRV) {
+				// Meme garde qu au-dessus : le resultat doit ETRE du SPIR-V, pas seulement
+				// avoir ete demande. Voir la note longue du premier site.
+				if (target == NkSLTarget::NK_SPIRV && compiled.result.target == NkSLTarget::NK_SPIRV) {
 					sd.spirvBinary.Resize((uint64)compiled.result.bytecode.Size());
 					memcpy(sd.spirvBinary.Data(), compiled.result.bytecode.Data(),
 						   (size_t)compiled.result.bytecode.Size());
