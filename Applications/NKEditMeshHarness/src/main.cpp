@@ -4546,6 +4546,439 @@ static void LoadersBattery() {
 	}
 }
 
+// -- ACCESSEURS, PREDICATS TOPOLOGIQUES ET LES TROIS SYSTEMES VOISINS --------
+// Ce que couvre cette batterie : les 19 methodes publiques que les six bancs
+// n'appelaient pas. Elles sont pour l'essentiel des LECTURES -- et c'est
+// precisement pourquoi elles etaient restees dehors : un accesseur ne casse
+// rien de visible quand il ment, il fait mentir celui qui s'en sert.
+//
+// DEUX REGLES APPLIQUEES A CHAQUE CAS.
+//  1. Pour une operation, son booleen de retour ET son effet observable --
+//     jamais l'un des deux seul (`MoveDown`, `ReplayOnto`).
+//  2. Pour un predicat, une forme ou il repond OUI et une ou il repond NON.
+//     Un predicat teste sur un seul cas ne prouve pas qu'il discrimine : la
+//     fonction qui rend toujours `true` passerait.
+static void AccessBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+
+	// -- 1. LES QUATRE CLASSES D'ARETE : une PARTITION, pas quatre comptes ----
+	// L'invariant qui tient a toute taille de maillage : chaque arete vivante
+	// tombe dans EXACTEMENT une classe. Un cube ferme n'a que du manifold ;
+	// une grille ouverte a des bords. Les deux formes ensemble prouvent que les
+	// predicats discriminent.
+	for (int32 forme = 0; forme < 2; ++forme) {
+		if (forme == 0)
+			MakeCube(v, idx);
+		else
+			MakeGrid(3, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		uint32 vivantes = 0, fil = 0, bord = 0, manif = 0, nonmanif = 0;
+		for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+			if (!m.edges[e].alive)
+				continue;
+			vivantes++;
+			if (m.EdgeIsWire((NkEmId)e))
+				fil++;
+			if (m.EdgeIsBoundary((NkEmId)e))
+				bord++;
+			if (m.EdgeIsManifold((NkEmId)e))
+				manif++;
+			if (m.EdgeIsNonManifold((NkEmId)e))
+				nonmanif++;
+		}
+		const int32 partition = ((fil + bord + manif + nonmanif) == vivantes) ? 1 : 0;
+		Put("{0:<34} vivantes={1} fil={2} bord={3} manif={4} nonmanif={5} | partition exacte={6}",
+			forme == 0 ? "acces/classes-arete-cube" : "acces/classes-arete-grille", vivantes, fil, bord, manif,
+			nonmanif, partition);
+	}
+
+	// -- 2. ALLER-RETOUR DEMI-ARETE <-> ARETE --------------------------------
+	// `EdgeHedges` rend le cycle radial, `EdgeOfHedge` fait le chemin inverse.
+	// Le controle ne porte AUCUN nombre ecrit a la main : pour chaque arete, le
+	// nombre de demi-aretes rendues doit valoir son `RadialCount`, et chacune
+	// doit renvoyer a l'arete dont elle vient. C'est vrai a 12 aretes comme a
+	// 12 000.
+	{
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		uint32 aretes = 0, ecartCompte = 0, ecartRetour = 0;
+		NkVector<NkEmId> hs;
+		for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+			if (!m.edges[e].alive)
+				continue;
+			aretes++;
+			hs.Clear();
+			const uint32 n = m.EdgeHedges((NkEmId)e, hs);
+			if (n != m.RadialCount((NkEmId)e) || n != (uint32)hs.Size())
+				ecartCompte++;
+			for (uint32 k = 0; k < (uint32)hs.Size(); ++k)
+				if (m.EdgeOfHedge(hs[k]) != (NkEmId)e)
+					ecartRetour++;
+		}
+		Put("{0:<34} aretes={1} ecart compte={2} ecart retour={3} (0 attendu)", "acces/aller-retour-demi-arete",
+			aretes, ecartCompte, ecartRetour);
+	}
+
+	// -- 3. JUMELLE RADIALE : elle doit REFUSER sur un bord ------------------
+	// Le contrat le dit : sur une arete non manifold ou de bord, il n'y a pas
+	// d'oppose unique, et en designer un serait un mensonge. Le cas mesure donc
+	// les DEUX reponses -- involution sur le cube ferme, refus sur les bords de
+	// la grille. Sans le second, une fonction qui rend toujours `twin`
+	// passerait.
+	{
+		MakeCube(v, idx);
+		NkEditMesh mc;
+		mc.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		mc.RebuildEdges();
+		uint32 hCube = 0, involution = 0, memeArete = 0;
+		for (uint32 h = 0; h < (uint32)mc.hedges.Size(); ++h) {
+			const NkEmId e = mc.EdgeOfHedge((NkEmId)h);
+			if (e == NK_EM_INVALID)
+				continue;
+			hCube++;
+			const NkEmId t = mc.RadialTwin((NkEmId)h);
+			if (t == NK_EM_INVALID)
+				continue;
+			if (mc.EdgeOfHedge(t) == e)
+				memeArete++;
+			if (mc.RadialTwin(t) == (NkEmId)h)
+				involution++;
+		}
+		MakeGrid(3, v, idx);
+		NkEditMesh mg;
+		mg.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		mg.RebuildEdges();
+		uint32 hBord = 0, refus = 0;
+		NkVector<NkEmId> hs;
+		for (uint32 e = 0; e < (uint32)mg.edges.Size(); ++e) {
+			if (!mg.edges[e].alive || !mg.EdgeIsBoundary((NkEmId)e))
+				continue;
+			hs.Clear();
+			mg.EdgeHedges((NkEmId)e, hs);
+			for (uint32 k = 0; k < (uint32)hs.Size(); ++k) {
+				hBord++;
+				if (mg.RadialTwin(hs[k]) == NK_EM_INVALID)
+					refus++;
+			}
+		}
+		Put("{0:<34} cube h={1} involution={2} meme arete={3} | grille bord h={4} refus={5}",
+			"acces/jumelle-radiale", hCube, involution, memeArete, hBord, refus);
+	}
+
+	// -- 4. SELECTION : les deux etats, et la face qui suit ses sommets ------
+	{
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		uint32 facesVivantes = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				facesVivantes++;
+		m.SelectAll();
+		const int32 anyTout = m.AnyVertSelected() ? 1 : 0;
+		uint32 selTout = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.FaceIsSelected((NkEmId)f))
+				selTout++;
+		m.SelectNone();
+		const int32 anyRien = m.AnyVertSelected() ? 1 : 0;
+		uint32 selRien = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.FaceIsSelected((NkEmId)f))
+				selRien++;
+		Put("{0:<34} faces={1} | tout: any={2} faces sel={3} | rien: any={4} faces sel={5}",
+			"acces/selection-tout-rien", facesVivantes, anyTout, selTout, anyRien, selRien);
+	}
+
+	// -- 5. TAMPON DE SELECTION : un RANG qui avance, pas un nombre fige -----
+	// Ce qui est verifie est une RELATION -- le compteur ne recule jamais et
+	// avance quand la selection change reellement. Le cas resterait juste si le
+	// rang de depart changeait.
+	{
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const uint32 n = (uint32)m.verts.Size();
+		NkVector<uint8> flags;
+		flags.Resize(n);
+		for (uint32 i = 0; i < n; ++i)
+			flags[i] = 0u;
+		const uint32 s0 = m.SelectionStamp();
+		flags[0] = 1u;
+		m.SetVertSelection(flags.Data(), n);
+		const uint32 s1 = m.SelectionStamp();
+		flags[1] = 1u;
+		m.SetVertSelection(flags.Data(), n);
+		const uint32 s2 = m.SelectionStamp();
+		// Repousser la MEME selection ne doit rien consommer : c'est ce qui
+		// permet a l'editeur de pousser son tableau entier a chaque frame.
+		m.SetVertSelection(flags.Data(), n);
+		const uint32 s3 = m.SelectionStamp();
+		Put("{0:<34} rangs {1}->{2}->{3}->{4} | croit={5} stable sur rappel identique={6}",
+			"acces/tampon-de-selection", s0, s1, s2, s3, (s2 > s1 && s1 > s0) ? 1 : 0, (s3 == s2) ? 1 : 0);
+	}
+
+	// -- 6. PROPAGATION AUX COINCIDENTS --------------------------------------
+	// Le cube de test a ses coins DEDOUBLES (24 sommets pour 8 positions) :
+	// selectionner un coin n'en marque qu'une copie sur trois. C'est le defaut
+	// que cette methode existe pour reparer, et il n'est mesurable que sur une
+	// forme aux coins dedoubles -- d'ou le choix du cube plutot que de la
+	// grille.
+	{
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const uint32 n = (uint32)m.verts.Size();
+		NkVector<uint8> flags;
+		flags.Resize(n);
+		for (uint32 i = 0; i < n; ++i)
+			flags[i] = 0u;
+		flags[0] = 1u;
+		m.SetVertSelection(flags.Data(), n);
+		uint32 avant = 0;
+		for (uint32 i = 0; i < n; ++i)
+			if (m.verts[i].sel)
+				avant++;
+		m.PropagateSelectionToCoincident();
+		uint32 apres = 0;
+		for (uint32 i = 0; i < n; ++i)
+			if (m.verts[i].sel)
+				apres++;
+		// Toutes les copies retenues doivent occuper la MEME position que la
+		// graine : sinon la propagation aurait deborde.
+		const NkVec3f graine = m.verts[0].pos;
+		uint32 horsPosition = 0;
+		for (uint32 i = 0; i < n; ++i) {
+			if (!m.verts[i].sel)
+				continue;
+			const NkVec3f d = m.verts[i].pos - graine;
+			if (d.Dot(d) > 1e-8f)
+				horsPosition++;
+		}
+		Put("{0:<34} sommets={1} selection {2}->{3} croit={4} | hors position={5} (0 attendu)",
+			"acces/propagation-coincidente", n, avant, apres, (apres > avant) ? 1 : 0, horsPosition);
+	}
+
+	// -- 7. OMBRAGE : les TROIS etats, parce que deux ne suffisent pas -------
+	// `AnyFaceSmooth` et `AllFacesSmooth` ne se distinguent que sur un maillage
+	// MIXTE. Teste seulement en tout-lisse et tout-plat, une implantation qui
+	// confondrait les deux passerait.
+	{
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		m.SelectAll();
+		m.SetShadeSmooth(false);
+		const int32 aPlat = m.AnyFaceSmooth() ? 1 : 0, tPlat = m.AllFacesSmooth() ? 1 : 0;
+		m.SetShadeSmooth(true);
+		const int32 aLisse = m.AnyFaceSmooth() ? 1 : 0, tLisse = m.AllFacesSmooth() ? 1 : 0;
+		// Etat MIXTE : on ne remet a plat qu'UNE face, via la selection de ses
+		// seuls sommets (une face est selectionnee si tous ses sommets le sont).
+		NkVector<NkEmId> boucle;
+		NkEmId cible = NK_EM_INVALID;
+		for (uint32 f = 0; f < (uint32)m.faces.Size() && cible == NK_EM_INVALID; ++f)
+			if (m.faces[f].alive)
+				cible = (NkEmId)f;
+		m.GetFaceVerts(cible, boucle);
+		const uint32 n = (uint32)m.verts.Size();
+		NkVector<uint8> flags;
+		flags.Resize(n);
+		for (uint32 i = 0; i < n; ++i)
+			flags[i] = 0u;
+		for (uint32 k = 0; k < (uint32)boucle.Size(); ++k)
+			flags[boucle[k]] = 1u;
+		m.SetVertSelection(flags.Data(), n);
+		const int32 change = m.SetShadeSmooth(false, true) ? 1 : 0;
+		const int32 aMixte = m.AnyFaceSmooth() ? 1 : 0, tMixte = m.AllFacesSmooth() ? 1 : 0;
+		Put("{0:<34} plat any={1} all={2} | lisse any={3} all={4} | mixte change={5} any={6} all={7}",
+			"acces/ombrage-trois-etats", aPlat, tPlat, aLisse, tLisse, change, aMixte, tMixte);
+	}
+
+	// -- 8. TRIANGULATION OMBREE : identique quand personne ne se dispute ----
+	// Le contrat annonce deux regimes. Cube (coins dedoubles) : aucun sommet
+	// dispute, sortie STRICTEMENT identique a `Triangulate`. Grille (sommets
+	// partages, faces plates) : les coins doivent etre dedoubles, donc la
+	// sortie GRANDIT. Le controle porte sur la RELATION entre les deux tailles,
+	// pas sur un compte en dur.
+	for (int32 forme = 0; forme < 2; ++forme) {
+		if (forme == 0)
+			MakeCube(v, idx);
+		else
+			MakeGrid(3, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		m.SelectAll();
+		m.SetShadeSmooth(false); // tout plat : c'est le regime qui dedouble
+		NkVector<NkVertex3D> pv, sv;
+		NkVector<uint32> pi, si;
+		NkVector<NkEmId> pf, sf;
+		m.Triangulate(pv, pi, pf);
+		m.TriangulateShaded(sv, si, sf);
+		const int32 memeIdx = (pi.Size() == si.Size()) ? 1 : 0;
+		const int32 identique = (pv.Size() == sv.Size() && memeIdx) ? 1 : 0;
+		Put("{0:<34} verts={1} plate V={2} ombree V={3} identique={4} | tris idem={5}",
+			forme == 0 ? "acces/triangule-ombree-cube" : "acces/triangule-ombree-grille", (uint32)m.verts.Size(),
+			(uint32)pv.Size(), (uint32)sv.Size(), identique, memeIdx);
+	}
+
+	// -- 9. POIDS PROPORTIONNEL : la courbe, pas un point --------------------
+	// Cette fonction est exposee pour que l'editeur DESSINE le cercle avec la
+	// meme courbe que celle appliquee : si elle diverge, l'utilisateur voit un
+	// rayon et en obtient un autre. On mesure donc ce qui doit valoir pour
+	// TOUTES les courbes -- plein au centre, nul hors du rayon, jamais
+	// croissante -- plutot que six valeurs en dur.
+	{
+		const float32 r = 2.f;
+		uint32 modes = 0, centrePlein = 0, horsNul = 0, decroissantes = 0;
+		char detail[96];
+		detail[0] = 0;
+		for (int32 fo = 0; fo <= 5; ++fo) {
+			modes++;
+			const float32 w0 = NkEditMesh::ProportionalWeight(0.f, r, fo);
+			const float32 wHors = NkEditMesh::ProportionalWeight(r * 1.5f, r, fo);
+			if (w0 > 0.999f && w0 < 1.001f)
+				centrePlein++;
+			if (wHors > -0.001f && wHors < 0.001f)
+				horsNul++;
+			bool decroit = true;
+			float32 prec = 2.f;
+			for (int32 k = 0; k <= 16; ++k) {
+				const float32 w = NkEditMesh::ProportionalWeight(r * (float32)k / 16.f, r, fo);
+				if (w > prec + 1e-4f)
+					decroit = false;
+				prec = w;
+			}
+			if (decroit)
+				decroissantes++;
+			const float32 mi = NkEditMesh::ProportionalWeight(r * 0.5f, r, fo);
+			char un[16];
+			snprintf(un, sizeof(un), "%s%.2f", fo ? "/" : "", (double)mi);
+			strncat(detail, un, sizeof(detail) - strlen(detail) - 1);
+		}
+		Put("{0:<34} modes={1} centre plein={2} hors nul={3} decroissantes={4} | w(r/2)={5}",
+			"acces/poids-proportionnel", modes, centrePlein, horsNul, decroissantes, detail);
+	}
+
+	// -- 10. BOUCLE DE FACES -------------------------------------------------
+	// L'anneau des faces TRAVERSEES par une arete. Ce qui est verifiable sans
+	// figer un compte : toutes vivantes, toutes distinctes, et sur une grille
+	// n x n l'anneau traverse une RANGEE entiere -- donc autant de faces que la
+	// grille a de colonnes. Le cas reste juste si quelqu'un change `n`.
+	{
+		const uint32 n = 4;
+		MakeGrid(n, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		// Deux depart : une arete de BORD (0,1) sur la rangee du bas, et une
+		// arete INTERIEURE (6,7). L'anneau de faces doit traverser la grille
+		// dans les deux cas -- c'est la difference avec la boucle d'ARETES, qui
+		// ne progresse qu'a travers des quads et s'arrete donc sur un bord.
+		const uint32 dep[2][2] = {{0u, 1u}, {6u, 7u}};
+		for (int32 d = 0; d < 2; ++d) {
+			NkVector<NkEmId> faces;
+			m.GetFaceLoop(dep[d][0], dep[d][1], faces);
+			uint32 vivantes = 0, doublons = 0;
+			for (uint32 i = 0; i < (uint32)faces.Size(); ++i) {
+				if (faces[i] < (NkEmId)m.faces.Size() && m.faces[faces[i]].alive)
+					vivantes++;
+				for (uint32 j = i + 1; j < (uint32)faces.Size(); ++j)
+					if (faces[i] == faces[j])
+						doublons++;
+			}
+			NkVector<uint32> paires;
+			m.GetEdgeLoop(dep[d][0], dep[d][1], paires);
+			Put("{0:<34} grille={1} faces={2} vivantes={3} doublons={4} rangee entiere={5} | boucle aretes={6}",
+				d == 0 ? "acces/boucle-de-faces-bord" : "acces/boucle-de-faces-interieur", n, (uint32)faces.Size(),
+				vivantes, doublons, ((uint32)faces.Size() == n) ? 1 : 0, (uint32)(paires.Size() / 2u));
+		}
+	}
+
+	// -- 11. PILE DE MODIFICATEURS : trouver par identifiant, et DESCENDRE ---
+	// `MoveDown` est juge sur son booleen ET sur l'ordre obtenu. Une
+	// implantation qui rendrait `true` sans rien deplacer passerait le premier
+	// controle seul -- et l'ordre de la pile est un PARAMETRE DE RESULTAT
+	// (miroir puis tableau ne donne pas tableau puis miroir).
+	{
+		NkMeshModifier mir;
+		mir.type = NkModifierType::Mirror;
+		NkMeshModifier arr;
+		arr.type = NkModifierType::Array;
+		arr.arrayCount = 3;
+		NkModifierStack st;
+		const uint32 idMir = st.Add(mir);
+		const uint32 idArr = st.Add(arr);
+		// Trouver par identifiant : present, absent, et coherent avec l'indice.
+		const NkMeshModifier *tMir = st.FindById(idMir);
+		const NkMeshModifier *tArr = st.FindById(idArr);
+		const NkMeshModifier *tRien = st.FindById(0xFFFFFFFFu);
+		const int32 trouve = (tMir && tMir->id == idMir && tArr && tArr->id == idArr) ? 1 : 0;
+		const int32 refuseInconnu = (tRien == nullptr) ? 1 : 0;
+		// DESCENDRE le premier : booleen, puis ordre reellement echange.
+		const int32 okBas = st.MoveDown(0) ? 1 : 0;
+		const int32 echange = (st.Count() == 2u && st.modifiers[0].id == idArr && st.modifiers[1].id == idMir) ? 1 : 0;
+		// Descendre le DERNIER doit refuser, et ne rien bouger.
+		const int32 okFin = st.MoveDown(st.Count() - 1u) ? 1 : 0;
+		const int32 intact = (st.Count() == 2u && st.modifiers[0].id == idArr && st.modifiers[1].id == idMir) ? 1 : 0;
+		// L'identifiant survit au deplacement, l'indice non.
+		const NkMeshModifier *apres = st.FindById(idMir);
+		const int32 idStable = (apres && apres->id == idMir && st.IndexOfId(idMir) == 1) ? 1 : 0;
+		Put("{0:<34} trouve={1} refus inconnu={2} | bas ok={3} echange={4} | fin ok={5} intact={6} | id stable={7}",
+			"acces/pile-trouver-et-descendre", trouve, refuseInconnu, okBas, echange, okFin, intact, idStable);
+	}
+
+	// -- 12. ENREGISTREUR DE COMMANDES : empiler, puis REJOUER ---------------
+	// C'est la couche de commandes rendue DONNEE -- le socle des modificateurs
+	// non destructifs et des donnees d'imitation NKAI. Un rejeu qui rend un
+	// compte sans rien appliquer serait le pire des faux verts : la session
+	// serait reputee rejouee alors que le maillage n'aurait pas bouge. Le cas
+	// exige donc le compte rendu ET le maillage change.
+	{
+		MakeCube(v, idx);
+		NkEditMesh base;
+		base.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		base.RebuildEdges();
+		uint32 facesAvant = 0;
+		for (uint32 f = 0; f < (uint32)base.faces.Size(); ++f)
+			if (base.faces[f].alive)
+				facesAvant++;
+
+		NkMeshEditCommand c;
+		c.op = NkMeshEditOp::Subdivide;
+		c.subdiv.cuts = 1;
+		for (uint32 i = 0; i < (uint32)base.verts.Size(); ++i)
+			c.selection.PushBack(i);
+
+		NkMeshEditRecorder rec;
+		const uint32 n0 = rec.Count();
+		rec.Push(c);
+		const uint32 n1 = rec.Count();
+		rec.Push(c);
+		const uint32 n2 = rec.Count();
+		// `At` doit rendre ce qui a ete empile, sinon le rejeu porterait sur
+		// autre chose que la session enregistree.
+		const int32 relu = (rec.Count() == 2u && rec.At(0).op == NkMeshEditOp::Subdivide) ? 1 : 0;
+
+		NkEditMesh cible = base;
+		const uint32 applique = rec.ReplayOnto(cible);
+		uint32 facesApres = 0;
+		for (uint32 f = 0; f < (uint32)cible.faces.Size(); ++f)
+			if (cible.faces[f].alive)
+				facesApres++;
+		Put("{0:<34} count {1}->{2}->{3} relu={4} | applique={5} faces {6}->{7} change={8}",
+			"acces/enregistreur-rejeu", n0, n1, n2, relu, applique, facesAvant, facesApres,
+			(facesApres != facesAvant) ? 1 : 0);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -4593,6 +5026,8 @@ int main(int argc, char **argv) {
 	MatSurvieBattery();
 	// AJOUTEE EN FIN, meme raison : les 208 lignes precedentes gardent leur numero.
 	LoadersBattery();
+	// AJOUTEE EN FIN, meme raison : les 217 lignes precedentes gardent leur numero.
+	AccessBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
