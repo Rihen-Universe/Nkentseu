@@ -150,6 +150,169 @@ d'organisation, qui est souvent plus long que le câblage.
 
 ---
 
+## 5bis. ⚠️ Tableaux et dictionnaires — tu as raison, et ça manquait
+
+**Ils existent déjà sans être nommés.** Les arrêts d'un `ColorRamp` **sont** un
+tableau : une charge utile de longueur variable, déjà portée par le format. Ce
+qui manque, c'est de pouvoir les faire **circuler entre nœuds**.
+
+| | contenu | où ça sert |
+|---|---|---|
+| **tableau** | N valeurs du même type, ordonnées | une liste d'objets, de positions, les arrêts d'une rampe, une trajectoire |
+| **dictionnaire** | des paires nom → valeur | des paramètres nommés, un jeu d'attributs, une configuration |
+
+**Ce que ça impose au dessin :**
+
+- une prise de tableau **n'a pas la même apparence** qu'une prise simple — sinon
+  brancher une liste sur une entrée scalaire paraît possible ;
+- il faut pouvoir montrer **le type contenu** : un tableau *de réels* et un
+  tableau *de couleurs* ne sont pas interchangeables ;
+- ⚠️ **et la longueur n'est pas connue au dessin.** Un nœud qui affiche ses N
+  éléments doit avoir une hauteur qui s'adapte, **et une limite au-delà de
+  laquelle il replie** — sinon un tableau de 500 entrées détruit le canevas.
+
+**Côté blueprint**, les tableaux commandent des nœuds qui n'existent pas encore :
+*Pour chaque* · *Longueur* · *Élément à l'indice* · *Ajouter* · *Filtrer*.
+Côté **matériau**, ils sont plus rares mais réels : un dégradé à N arrêts, une
+pile de couches.
+
+---
+
+## 5ter. 🔴 Plier / déplier — mais ce sont DEUX choses, et les confondre coûte cher
+
+Ton exemple du `vec3` est juste, et il recouvre **deux mécanismes différents**
+qu'il faut décider séparément.
+
+### (a) Plier / déplier — c'est de l'AFFICHAGE
+
+Une prise `vec3` non connectée montre sa valeur. Deux façons de la montrer :
+
+```
+  Position   [ 0.0 ] [ 1.0 ] [ 0.0 ]        <- plié : une ligne
+
+  Position                                  <- déplié : quatre lignes
+      X  [ 0.0 ]
+      Y  [ 1.0 ]
+      Z  [ 0.0 ]
+```
+
+**Une seule prise. Un seul lien possible. Rien ne change dans le graphe.**
+C'est un confort de lecture, réversible, et il ne se sérialise que comme une
+préférence d'affichage.
+
+### (b) Séparer / recombiner — c'est de la STRUCTURE
+
+```
+  Position          devient        Position X
+                                   Position Y
+                                   Position Z
+```
+
+⚠️ **Là, il y a maintenant TROIS prises**, et chacune peut recevoir **un lien
+différent**. Ce n'est plus de l'affichage : **la connectivité du graphe a
+changé**, et le fichier doit l'enregistrer. C'est ce qu'Unreal appelle *Split
+Struct Pin*, et c'est une opération **annulable** au même titre qu'un
+branchement.
+
+> **La règle qui les sépare : est-ce que le nombre de LIENS possibles change ?**
+> Non → affichage. Oui → structure.
+
+**Pourquoi ça compte maintenant** : (a) est gratuit et peut se décider au dessin.
+(b) touche le modèle, la sérialisation et l'annulation — **il coûte peu
+aujourd'hui et cher dans six mois**, exactement comme le drapeau "exposé" qu'on
+a dû poser avant la première optimisation.
+
+⚠️ **Et un piège à nommer** : que devient un lien branché sur `Position` quand on
+sépare ? Unreal le **casse**. L'autre voie serait de le router vers les trois —
+plus aimable, mais alors recombiner devient ambigu. **À trancher, et à écrire.**
+
+---
+
+## 5quater. Ce que je vois — les huit formes de nœud
+
+Tu m'as demandé une description pour partir dessus. **Décrire 26 nœuds donnerait
+26 textes presque identiques** : la forme d'un nœud suit **sa forme de
+connectivité**, jamais son nom. Voici les huit que j'y vois.
+
+### 1. La SOURCE — `RGB`, `Value`, `Texture Coordinate`
+
+*Aucune entrée. Une ou plusieurs sorties.* Un bloc court, un en-tête, et son
+éditeur de valeur qui occupe presque tout le corps — une pastille de couleur, un
+curseur. **Le côté gauche est vide** : c'est ce qui la fait reconnaître de loin.
+
+### 2. Le TRANSFORMATEUR — `Math`, `Mix Color`, `Map Range`, `Clamp`
+
+*N entrées, une sortie.* La forme la plus fréquente. Entrées à gauche, sortie à
+droite, et **une liste déroulante dans l'en-tête ou juste dessous** quand le nœud
+porte une opération (`Math` en a douze). ⚠️ Ce choix **change le nombre d'entrées
+visibles** — une addition en prend deux, un `clamp` en prend trois : le nœud
+change de hauteur quand on change son opération.
+
+### 3. Le PUITS — `Material Output`
+
+*Des entrées, aucune sortie.* **Le côté droit est vide.** Il termine le graphe,
+et il est unique : le dessin peut se permettre de le rendre plus imposant.
+
+### 4. Le SÉPARATEUR — `Separate XYZ`, `Image Texture`
+
+*Une ou deux entrées, plusieurs sorties.* La symétrie du transformateur.
+⚠️ `Image Texture` sort **couleur ET alpha** : deux prises qu'on doit pouvoir
+distinguer sans lire, sinon on branche l'alpha en croyant brancher la couleur.
+
+### 5. Le nœud À CHARGE VARIABLE — `ColorRamp`, `Float Curve`, `Image Texture`
+
+*Il porte un éditeur, pas seulement des valeurs.* Une barre de dégradé avec ses
+curseurs déplaçables, une courbe qu'on édite à la souris, une vignette d'image.
+
+⚠️ **C'est le plus difficile à dessiner, et le plus important pour l'usage.**
+Sa hauteur dépend de son contenu, il doit rester lisible **dezômé**, et il faut
+décider ce qu'il devient quand on ne peut plus le manipuler — se replie-t-il en
+une bande de couleur ? Devient-il un simple rectangle nommé ?
+
+### 6. La SURFACE — `Principled`, `Diffuse`, `Mix Shader`
+
+*Beaucoup d'entrées, une sortie d'un type à part.* Le `Principled` de Blender en
+porte une vingtaine, groupées en sections repliables (*Subsurface*, *Specular*,
+*Coat*, *Sheen*, *Emission*). **Il est haut, et il doit pouvoir se replier
+section par section**, pas seulement en entier.
+
+Sa sortie n'est ni une couleur ni un nombre : **elle mérite une forme de prise
+qui n'appartient qu'à elle**, parce que rien d'autre ne s'y branche.
+
+### 7. Le nœud À EXÉCUTION — tout le monde blueprint
+
+*Une ligne d'exécution traverse le nœud, en haut.* Entrée d'exécution en haut à
+gauche, sortie en haut à droite — **au-dessus des prises de valeur**, séparées
+par un filet.
+
+⚠️ **C'est ce qui permet de lire un blueprint en diagonale** : la ligne de vie
+traverse le graphe horizontalement, les calculs pendent en dessous. Un
+`Si / Sinon` a **deux** sorties d'exécution — elles doivent se distinguer par
+leur étiquette **et** leur position, jamais par la seule couleur.
+
+### 8. L'INERTE — commentaire, cadre, relais
+
+*Ni entrée ni sortie, ou une prise qui ne transforme rien.* Le **cadre** est un
+rectangle coloré derrière les nœuds, avec un titre éditable ; il **passe
+derrière** tout le reste. Le **relais** est un simple point sur un fil — il doit
+être assez petit pour ne pas déranger, assez grand pour se saisir.
+
+---
+
+## 5quinquies. Ce que j'aimerais que tu tranches au dessin
+
+1. **Les prises : forme, couleur, ou les deux ?** ⚠️ La couleur seule exclut ceux
+   qui la distinguent mal, et il y a douze types — douze couleurs discernables,
+   c'est beaucoup.
+2. **Les fils d'exécution et de valeur cohabitent-ils dans le même graphe ?**
+   Si oui, ils doivent se lire sans effort **quand ils se croisent**.
+3. **Que devient un nœud dezômé ?** Les prises disparaissent-elles avant les
+   noms ? À partir de quel niveau ne reste-t-il qu'un rectangle coloré ?
+4. **Le nœud en erreur** : bordure, teinte du corps, icône ? Il doit se voir
+   **sans survol**, y compris dans un graphe de cent nœuds.
+5. **Un tableau branché** : le fil est-il plus épais ? Doublé ? La prise est-elle
+   creuse ?
+
 ## 6. Ce que le DESSIN doit pouvoir montrer
 
 C'est la liste qui te servira le plus. Chaque ligne est un état que l'éditeur
