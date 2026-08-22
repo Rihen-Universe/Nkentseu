@@ -215,3 +215,18 @@ chargeurs/usda                     ok=1 sommets=24 triangles=12 | bbox 2.000x2.0
 chargeurs/ply-ascii-vs-binaire     PLY ascii/bin sommets 8/8 tris 12/12 identiques=1 | cote 2.000/2.000
 chargeurs/stl-ascii-vs-binaire     STL ascii/bin sommets 36/36 tris 12/12 identiques=1 | cote 2.000/2.000
 chargeurs/refus-fichier-absent     ply=0 stl=0 dae=0 usda=0 (0 attendu partout)
+acces/classes-arete-cube           vivantes=12 fil=0 bord=0 manif=12 nonmanif=0 | partition exacte=1
+acces/classes-arete-grille         vivantes=24 fil=0 bord=12 manif=12 nonmanif=0 | partition exacte=1
+acces/aller-retour-demi-arete      aretes=12 ecart compte=0 ecart retour=0 (0 attendu)
+acces/jumelle-radiale              cube h=24 involution=24 meme arete=24 | grille bord h=12 refus=12
+acces/selection-tout-rien          faces=6 | tout: any=1 faces sel=6 | rien: any=0 faces sel=0
+acces/tampon-de-selection          rangs 0->1->2->2 | croit=1 stable sur rappel identique=1
+acces/propagation-coincidente      sommets=24 selection 1->3 croit=1 | hors position=0 (0 attendu)
+acces/ombrage-trois-etats          plat any=0 all=0 | lisse any=1 all=1 | mixte change=1 any=1 all=0
+acces/triangule-ombree-cube        verts=24 plate V=24 ombree V=24 identique=1 | tris idem=1
+acces/triangule-ombree-grille      verts=16 plate V=16 ombree V=36 identique=0 | tris idem=1
+acces/poids-proportionnel          modes=6 centre plein=6 hors nul=6 decroissantes=6 | w(r/2)=0.50/0.87/0.71/0.25/0.50/1.00
+acces/boucle-de-faces-bord         grille=4 faces=4 vivantes=4 doublons=0 rangee entiere=1 | boucle aretes=1
+acces/boucle-de-faces-interieur    grille=4 faces=4 vivantes=4 doublons=0 rangee entiere=1 | boucle aretes=4
+acces/pile-trouver-et-descendre    trouve=1 refus inconnu=1 | bas ok=1 echange=1 | fin ok=0 intact=1 | id stable=1
+acces/enregistreur-rejeu           count 0->1->2 relu=1 | applique=2 faces 6->96 change=1
