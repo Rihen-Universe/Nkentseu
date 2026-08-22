@@ -58,6 +58,7 @@
 
 #include "Backend.h"
 #include "NkGuiRoundTrip.h"
+#include "NkDocPoolControls.h"
 #include "Panels.h"
 #include "Probe.h"
 
@@ -180,6 +181,11 @@ int nkmain(const NkEntryState &state) {
 		//    le tester apres le ferait avaler par la comparaison prefixee.
 		if (NkComponentDecl::StrEq(a, "--roundtrip-controles"))
 			return nkuidesign::guifmt::NkGRunControls();
+		// Meme raison que ci-dessus : le pool de chaines du document ne touche ni
+		// au GPU ni a l ecran. Il porte les noms de metrique que le kit declare
+		// en const char* et que personne ne possedait a la relecture.
+		if (NkComponentDecl::StrEq(a, "--pool-controles"))
+			return ::nkuidesign::poolctl::RunPoolControls();
 		if (NkComponentDecl::StrEq(a, "--roundtrip"))
 			return nkuidesign::guifmt::NkGRunRoundTrip(".");
 		// ⚠️ LIRE ET JUGER SONT DEUX GESTES, ET DEUX MODES. `--valider` verifie
