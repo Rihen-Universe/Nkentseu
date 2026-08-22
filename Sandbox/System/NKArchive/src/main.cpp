@@ -418,9 +418,15 @@ static void T2_OrdreEtProprieteNeuve() {
 
 	rebuilt.AdoptFormatting(read);
 
+	// RELATION, pas compte fige : « les cles du fichier, plus les deux neuves ».
+	// Le jour ou le temoin gagne une propriete, un `== 7` tomberait et serait
+	// « repare » en 8 sans etre relu -- alors que la propriete testee, elle, n'a
+	// pas bouge. L'ancrage de non-vacuite garde la relation d'etre 0 == 0.
+	const nk_size kNeuves = 2;
 	const NkVector<NkArchiveEntry> &e = rebuilt.Entries();
-	EXPECT_TRUE(e.Size() == 7);
-	if (e.Size() == 7) {
+	EXPECT_TRUE(!read.Empty());
+	EXPECT_TRUE(e.Size() == read.Size() + kNeuves);
+	if (!read.Empty() && e.Size() == read.Size() + kNeuves) {
 		// Les cinq du fichier, dans l'ordre du fichier.
 		EXPECT_TRUE(e[0].key == NkString("height"));
 		EXPECT_TRUE(e[1].key == NkString("opacity"));
@@ -622,7 +628,8 @@ static void T6_AdditifNKS1() {
 	// Et la relecture rend une archive nue, sans inventer de mise en forme.
 	NkArchive relu;
 	EXPECT_TRUE(native::NkNativeReader::ReadArchive(binOrnee.Data(), binOrnee.Size(), relu));
-	EXPECT_TRUE(relu.Size() == 3);
+	EXPECT_TRUE(!nue.Empty());
+	EXPECT_TRUE(relu.Size() == nue.Size());
 	EXPECT_TRUE(!relu.HasTrivia());
 	for (nk_size i = 0; i < relu.Entries().Size(); ++i) {
 		EXPECT_TRUE(!relu.Entries()[i].node.HasTrivia());
@@ -741,8 +748,9 @@ static void T8_GreffeRecursive() {
 
 	// Tableau : appariement par INDICE, litteraux repris.
 	const NkArchiveNode *m = dst.FindNode(NkStringView("marges"));
-	EXPECT_TRUE(m != nullptr && m->IsArray() && m->array.Size() == 2);
-	if (m && m->IsArray() && m->array.Size() == 2) {
+	EXPECT_TRUE(!vals.Empty());
+	EXPECT_TRUE(m != nullptr && m->IsArray() && m->array.Size() == vals.Size());
+	if (!vals.Empty() && m && m->IsArray() && m->array.Size() == vals.Size()) {
 		EXPECT_TRUE(NkString(m->array[0].Lexeme()) == NkString("0.50"));
 		EXPECT_TRUE(NkString(m->array[1].Lexeme()) == NkString(".25"));
 	}
@@ -752,8 +760,8 @@ static void T8_GreffeRecursive() {
 	dst2.SetArray(NkStringView("marges"), vals);
 	dst2.AdoptFormatting(src);
 	const NkArchiveNode *m2 = dst2.FindNode(NkStringView("marges"));
-	EXPECT_TRUE(m2 && m2->array.Size() == 2);
-	if (m2 && m2->array.Size() == 2) {
+	EXPECT_TRUE(m2 && m2->array.Size() == vals.Size());
+	if (!vals.Empty() && m2 && m2->array.Size() == vals.Size()) {
 		EXPECT_TRUE(m2->array[0].value.text == NkString("0.5"));
 		EXPECT_TRUE(m2->array[1].value.text == NkString("0.25"));
 	}
@@ -766,8 +774,8 @@ static void T8_GreffeRecursive() {
 	dst3.SetArray(NkStringView("marges"), autres);
 	dst3.AdoptFormatting(src);
 	const NkArchiveNode *m3 = dst3.FindNode(NkStringView("marges"));
-	EXPECT_TRUE(m3 && m3->array.Size() == 2);
-	if (m3 && m3->array.Size() == 2) {
+	EXPECT_TRUE(m3 && m3->array.Size() == autres.Size());
+	if (!autres.Empty() && m3 && m3->array.Size() == autres.Size()) {
 		EXPECT_TRUE(NkString(m3->array[0].Lexeme()) == NkString("0.75")); // pas "0.50"
 		EXPECT_TRUE(NkString(m3->array[1].Lexeme()) == NkString(".25"));  // inchangee
 	}

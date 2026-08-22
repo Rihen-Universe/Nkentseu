@@ -316,8 +316,15 @@ static void C1_ScalarContainer() {
 
 	DocNode dst;
 	EXPECT_TRUE(NkReflectSerializer::DeserializeObject(dst, ar));
-	EXPECT_TRUE(dst.children.Size() == 3);
-	if (dst.children.Size() == 3) {
+	// RELATION, pas compte fige : ce qu'on teste est « la destination a autant
+	// d'elements que la source », pas « la destination en a trois ». Le trois est
+	// un accident du temoin ; le jour ou on lui ajoute un element, un compte fige
+	// tomberait et serait « repare » en changeant 3 en 4, sans etre relu.
+	// ⚠️ Et la relation seule ne suffit pas : si la source etait vide, 0 == 0
+	// passerait. D'ou l'ancrage de non-vacuite juste avant.
+	EXPECT_TRUE(!src.children.Empty());
+	EXPECT_TRUE(dst.children.Size() == src.children.Size());
+	if (!src.children.Empty() && dst.children.Size() == src.children.Size()) {
 		EXPECT_TRUE(dst.children[0] == 7);
 		EXPECT_TRUE(dst.children[1] == 8);
 		EXPECT_TRUE(dst.children[2] == 9);
@@ -351,8 +358,9 @@ static void C2_ObjectContainer() {
 
 	Polygon dst;
 	EXPECT_TRUE(NkReflectSerializer::DeserializeReflected(&Polygon::GetStaticClass(), &dst, ar));
-	EXPECT_TRUE(dst.points.Size() == 3);
-	if (dst.points.Size() == 3) {
+	EXPECT_TRUE(!src.points.Empty());
+	EXPECT_TRUE(dst.points.Size() == src.points.Size());
+	if (!src.points.Empty() && dst.points.Size() == src.points.Size()) {
 		EXPECT_TRUE(dst.points[2].x == 5.0f && dst.points[2].y == 8.0f);
 	}
 }
@@ -374,8 +382,9 @@ static void C3_NestedContainerInObjectArray() {
 	// Le conteneur imbrique doit etre PRESENT dans l'element serialise.
 	NkVector<NkArchive> nodeArchives;
 	EXPECT_TRUE(ar.GetObjectArray(NkStringView("nodes"), nodeArchives));
-	EXPECT_TRUE(nodeArchives.Size() == 3);
-	if (nodeArchives.Size() == 3) {
+	EXPECT_TRUE(!src.nodes.Empty());
+	EXPECT_TRUE(nodeArchives.Size() == src.nodes.Size());
+	if (!src.nodes.Empty() && nodeArchives.Size() == src.nodes.Size()) {
 		EXPECT_TRUE(nodeArchives[0].Has("children"));
 		EXPECT_TRUE(nodeArchives[0].Has("width"));
 		EXPECT_TRUE(nodeArchives[0].Has("prov"));
@@ -384,21 +393,26 @@ static void C3_NestedContainerInObjectArray() {
 	DocRoot dst;
 	EXPECT_TRUE(NkReflectSerializer::DeserializeObject(dst, ar));
 
-	EXPECT_TRUE(dst.nodes.Size() == 3);
-	EXPECT_TRUE(dst.metrics.Size() == 2);
+	EXPECT_TRUE(!src.metrics.Empty());
+	EXPECT_TRUE(dst.nodes.Size() == src.nodes.Size());
+	EXPECT_TRUE(dst.metrics.Size() == src.metrics.Size());
 
-	if (dst.nodes.Size() == 3) {
+	if (!src.nodes.Empty() && dst.nodes.Size() == src.nodes.Size()) {
 		// Le conteneur imbrique du premier noeud.
-		EXPECT_TRUE(dst.nodes[0].children.Size() == 2);
-		if (dst.nodes[0].children.Size() == 2) {
+		EXPECT_TRUE(!src.nodes[0].children.Empty());
+		EXPECT_TRUE(dst.nodes[0].children.Size() == src.nodes[0].children.Size());
+		if (!src.nodes[0].children.Empty() && dst.nodes[0].children.Size() == src.nodes[0].children.Size()) {
 			EXPECT_TRUE(dst.nodes[0].children[0] == 1);
 			EXPECT_TRUE(dst.nodes[0].children[1] == 2);
 		}
 		// Le conteneur VIDE du deuxieme -- vide n'est pas absent.
+		// ⚠️ ICI le compte fige est le BON choix, et c'est le seul du banc :
+		// ce conteneur ne doit PAS grandir, sa vacuite EST la propriete testee.
+		// Ecrire == src.nodes[1].children.Size() perdrait le sens.
 		EXPECT_TRUE(dst.nodes[1].children.Size() == 0);
 		// Le conteneur d'un seul element du troisieme.
-		EXPECT_TRUE(dst.nodes[2].children.Size() == 1);
-		if (dst.nodes[2].children.Size() == 1) {
+		EXPECT_TRUE(dst.nodes[2].children.Size() == src.nodes[2].children.Size());
+		if (!src.nodes[2].children.Empty() && dst.nodes[2].children.Size() == src.nodes[2].children.Size()) {
 			EXPECT_TRUE(dst.nodes[2].children[0] == 3);
 		}
 		// L'objet imbrique DANS l'element du conteneur.
@@ -431,9 +445,10 @@ static void C4_ProvenanceNeverOmitted() {
 
 	NkVector<NkArchive> nodeArchives;
 	EXPECT_TRUE(ar.GetObjectArray(NkStringView("nodes"), nodeArchives));
-	EXPECT_TRUE(nodeArchives.Size() == 3);
+	EXPECT_TRUE(!src.nodes.Empty());
+	EXPECT_TRUE(nodeArchives.Size() == src.nodes.Size());
 
-	if (nodeArchives.Size() == 3) {
+	if (!src.nodes.Empty() && nodeArchives.Size() == src.nodes.Size()) {
 		// Le noeud 1 a une provenance entierement par defaut.
 		EXPECT_TRUE(nodeArchives[1].Has("prov"));
 		NkArchive prov;
@@ -449,8 +464,8 @@ static void C4_ProvenanceNeverOmitted() {
 	// une absence : le noeud 1 doit etre EGAL a la source.
 	DocRoot dst;
 	EXPECT_TRUE(NkReflectSerializer::DeserializeObject(dst, ar));
-	EXPECT_TRUE(dst.nodes.Size() == 3);
-	if (dst.nodes.Size() == 3) {
+	EXPECT_TRUE(dst.nodes.Size() == src.nodes.Size());
+	if (!src.nodes.Empty() && dst.nodes.Size() == src.nodes.Size()) {
 		EXPECT_TRUE(ProvEqual(src.nodes[1].prov, dst.nodes[1].prov));
 	}
 }
