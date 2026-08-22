@@ -782,6 +782,106 @@ static void T8_GreffeRecursive() {
 }
 
 // =============================================================================
+// T9 -- ORDRE ENTRELACE PROPRIETES / ENFANTS (prerequis de l'etape 4)
+// =============================================================================
+// La vraie syntaxe `.nkgui` n'est pas plate. Elle imbrique, et surtout elle
+// ENTRELACE les proprietes et les enfants :
+//
+//     widgets {
+//       VBox "v" {
+//         a = 1              <-- propriete
+//         Text "t" { }       <-- ENFANT, entre deux proprietes
+//         b = 2              <-- propriete
+//       }
+//     }
+//
+// Le banc `.nkgui` v0.3 traite deja l'ordre inverse comme une DIFFERENCE
+// (controle 2c : `VBox "v" { a = 1 / Text "t" { } }` contre
+// `VBox "v" { Text "t" { } / a = 1 }`). L'entrelacement compte donc vraiment.
+//
+// ⚠️ LE RISQUE, et c'est pour ca que ce controle vient AVANT d'ecrire la couche :
+//    dans une archive, les proprietes sont des ENTREES de l'objet et les enfants
+//    vivent naturellement dans UNE entree de type tableau. Tous les enfants sont
+//    alors groupes a une seule position -- et `b = 2` ne peut plus revenir APRES
+//    l'enfant. `sourceOrder` sur les entrees ne suffirait pas.
+//
+// Ce que ce controle etablit : la trivia ayant ete posee sur le NOEUD (donc aussi
+// sur chaque element de tableau) et non sur l'entree, un rang global suffit a
+// reconstituer l'entrelacement. `NkArchive` n'a PAS besoin d'etre retouchee pour
+// l'etape 4 -- c'est le travail de l'ecrivain, et il a ce qu'il lui faut.
+static void T9_OrdreEntrelace() {
+	printf("[T9] Ordre entrelace proprietes / enfants -- prerequis de l'etape 4\n");
+
+	NkArchive v;
+	v.SetInt32(NkStringView("a"), 1);
+	v.SetInt32(NkStringView("b"), 2);
+
+	NkVector<NkArchiveNode> kids;
+	NkArchiveNode kid;
+	NkArchive kidBody;
+	kidBody.SetString(NkStringView("nom"), NkStringView("t"));
+	kid.SetObject(kidBody);
+	kids.PushBack(kid);
+	v.SetNodeArray(NkStringView("children"), kids);
+
+	// Le fichier disait : a (0), l'enfant (1), b (2).
+	v.SetSourceOrder(NkStringView("a"), 0);
+	v.SetSourceOrder(NkStringView("b"), 2);
+	NkArchiveNode *ch = v.FindNode(NkStringView("children"));
+	EXPECT_TRUE(ch != nullptr && ch->IsArray());
+	if (ch && ch->IsArray()) {
+		EXPECT_TRUE(!ch->array.Empty());
+		if (!ch->array.Empty()) {
+			ch->array[0].SetSourceOrder(1); // le rang vit sur l'ELEMENT
+		}
+	}
+
+	// Un rang porte par un element de tableau se relit : c'est ce qui rend
+	// l'entrelacement representable.
+	if (ch && ch->IsArray() && !ch->array.Empty()) {
+		EXPECT_TRUE(ch->array[0].SourceOrder() == 1);
+	}
+	EXPECT_TRUE(v.GetSourceOrder(NkStringView("a")) == 0);
+	EXPECT_TRUE(v.GetSourceOrder(NkStringView("b")) == 2);
+
+	// L'ecrivain fusionne les deux sources par rang. Ici, en miniature, la
+	// boucle que la couche de syntaxe concrete devra ecrire.
+	NkString out;
+	const nk_int32 kEnfant = -2;
+	for (nk_int32 rang = 0; rang < 3; ++rang) {
+		bool ecrit = false;
+		for (nk_size i = 0; i < v.Entries().Size() && !ecrit; ++i) {
+			const NkArchiveEntry &e = v.Entries()[i];
+			if (e.node.IsArray()) {
+				continue; // le tableau n'est pas une propriete
+			}
+			if (e.node.SourceOrder() == rang) {
+				out.Append(e.key);
+				out.Append(" = ");
+				out.Append(e.node.Lexeme());
+				out.Append('\n');
+				ecrit = true;
+			}
+		}
+		if (ecrit || !ch || !ch->IsArray()) {
+			continue;
+		}
+		for (nk_size k = 0; k < ch->array.Size(); ++k) {
+			if (ch->array[k].SourceOrder() == rang) {
+				out.Append("Text \"t\" { }");
+				out.Append('\n');
+				(void)kEnfant;
+				break;
+			}
+		}
+	}
+
+	// L'attendu est ECRIT A LA MAIN : il ne vient pas du code teste.
+	const NkString attendu("a = 1\nText \"t\" { }\nb = 2\n");
+	EXPECT_STREQ(out, attendu);
+}
+
+// =============================================================================
 // POINT D'ENTREE
 // =============================================================================
 int main() {
@@ -806,6 +906,7 @@ int main() {
 	T6_AdditifNKS1();
 	T7_CycleDeVie();
 	T8_GreffeRecursive();
+	T9_OrdreEntrelace();
 
 	const int total = s_pass + s_fail;
 	printf("\n---------------------------------------------------------\n");
