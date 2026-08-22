@@ -198,10 +198,39 @@ Support des deux côtés : `NKReflection/NkContainerTrait.h`
 `NkArchive` (`SetArray`/`GetArray`, `SetObjectArray`/`GetObjectArray`,
 `SetNodeArray`/`GetNodeArray`).
 
-**Dette nommée — les pointeurs.** Seul morceau de Phase 3 non couvert. Sans
-objet pour un document d'interface (`NkUIDocument` est **plat** : `NkVector<NkUINode>`
-et une parenté en indices `int32`, zéro pointeur), mais à traiter avant tout
-modèle qui en contiendrait — un graphe de scène, typiquement.
+**Dette nommée — les pointeurs.** Seul morceau de Phase 3 non couvert.
+
+⚠️ **CORRECTION du 2026-08-22 — j'avais écrit que cette dette était « sans objet
+pour un document d'interface, `NkUIDocument` étant plat, zéro pointeur ». C'est
+faux.** Vrai de `NkUINode` **directement**, faux **transitivement** : `NkUINode`
+porte deux `NkSizeDecl` et un `NkLayoutDecl` (types du kit,
+`NKEditorKit/Components/NkComponentLayout.h`), qui portent à eux trois **quatre
+`const char *`** — `valueMetric`, `spacingMetric`, `padMetric`,
+`gridCellMetric`. Ce ne sont pas des pointeurs d'objets : ce sont des **noms de
+métrique**, déclarés ainsi parce que ces types sont des types de *compilation*
+dont les chaînes sont des littéraux — le type ne possède rien.
+
+**Et le comportement est pire que « non géré » — mesuré par C5 du banc :**
+
+```
+SerializeObject   -> true      <-- il dit avoir REUSSI
+cle 'valueMetric' -> ABSENTE   <-- le champ est silencieusement OMIS
+DeserializeObject -> true      <-- il dit avoir REUSSI
+valueMetric       -> <<>>      <-- la metrique a disparu
+```
+
+Aucun signal, aucun code d'erreur. Une taille qui désigne `largeur_palette` se
+relit **sans métrique** et se résout au nombre : le document survit à
+l'aller-retour en ayant perdu sa raison d'être. Fait de typage sous-jacent :
+la réflexion classe `const char *` en `NK_POINTER`, jamais `NK_STRING`
+(`NkType.h` l. 500).
+
+**Trois réponses possibles, arbitrage ouvert** (il touche le kit, donc le
+gardien de la forme) : (a) gérer `const char *` dans le pont — trivial en
+écriture, impossible en lecture sans propriétaire ; (b) faire porter au document
+un pool de chaînes dans lequel les `const char *` pointent ; (c) refuser
+explicitement au lieu de retourner `true` — **celle-là est à faire quoi qu'il
+arrive**, une omission silencieuse ne devrait jamais rendre `true`.
 
 ### `NkArchive` porte la mise en forme d'origine — 2026-08-21
 
