@@ -1091,6 +1091,105 @@ static void T10_IdentiteDuNoeud() {
 	EXPECT_TRUE(!ArcString(anonyme, "$type").Empty());
 }
 
+
+// =============================================================================
+// T11 -- LA SECTION INCONNUE, CONSERVEE TELLE QUELLE (prerequis de l'etape 4)
+// =============================================================================
+// Troisieme et dernier prerequis de representation, apres T9 (l'entrelacement)
+// et T10 (l'identite). La regle de compatibilite ascendante de `.nkgui` v0.3 --
+// celle que le controle 20b de `--roundtrip-controles` protege -- dit qu'une
+// section introduite par une VERSION FUTURE doit etre relue et reemise **a
+// l'octet pres**, commentaires interieurs compris, sans etre comprise.
+//
+// Ce n'est PAS de la trivia : la trivia entoure une valeur. Ici il n'y a pas de
+// valeur -- c'est du contenu dont on ignore la structure.
+//
+// ⚠️ CE QUE LA MESURE A CHANGE PAR RAPPORT A CE QUE J'AVAIS PREVU. J'ai d'abord
+//    ecrit ce controle en posant la tranche brute A LA FOIS comme valeur ET
+//    comme litteral (`SetLiteral`), en pensant que c'etait le litteral qui la
+//    rendait verbatim. **La mutation I -- `Lexeme()` ignorant le litteral et
+//    rendant toujours la forme canonique -- tue 8 controles (T1, T3, T8...) mais
+//    PAS celui-ci.**
+//
+//    Raison : la forme canonique d'un noeud CHAINE est la chaine elle-meme. Une
+//    tranche brute n'a donc besoin d'AUCUN litteral, d'aucune trivia, d'aucun
+//    mecanisme : elle se represente par un simple noeud chaine, et
+//    `CanonicalLexeme()` la rend deja mot pour mot. Un mecanisme de moins a
+//    ecrire dans la couche, et il a fallu une mutation pour s'en apercevoir.
+static void T11_SectionInconnueVerbatim() {
+	printf("[T11] Une section inconnue se conserve telle quelle -- prerequis de l'etape 4\n");
+
+	// Une tranche EXACTE de fichier : plusieurs lignes, un commentaire dedans,
+	// une tabulation, et des espaces multiples qu'aucun formateur ne produirait.
+	const char *brut =
+		"theme_futur {\n"
+		"    # un commentaire que nous ne comprenons pas\n"
+		"\tcouleur   =   #F79A28\n"
+		"}";
+
+	NkArchive ar;
+	ar.SetString(NkStringView("$raw"), NkStringView(brut));
+	NkArchiveNode *n = ar.FindNode(NkStringView("$raw"));
+	EXPECT_TRUE(n != nullptr);
+	if (!n) {
+		return;
+	}
+
+	// 1. Le verbatim sort verbatim -- retours a la ligne, tabulation, espaces
+	//    multiples et commentaire compris -- SANS QUE RIEN N'AIT ETE POSE.
+	EXPECT_TRUE(!n->HasTrivia()); // aucune trivia : la representation est gratuite
+	EXPECT_STREQ(NkString(n->Lexeme()), NkString(brut));
+	EXPECT_STREQ(NkString(n->CanonicalLexeme()), NkString(brut));
+
+	// 2. Elle survit a une COPIE PROFONDE : une section inconnue traverse les
+	//    copies d'archive comme le reste.
+	NkArchive copie = ar;
+	NkArchiveNode *c = copie.FindNode(NkStringView("$raw"));
+	EXPECT_TRUE(c != nullptr);
+	if (c) {
+		EXPECT_STREQ(NkString(c->Lexeme()), NkString(brut));
+	}
+
+	// 3. ⚠️ LA CONTRAINTE QUE CE CONTROLE POSE A LA COUCHE, et elle ne se corrige
+	//    PAS dans `NkArchive`. Rien ne protege une tranche brute d'une
+	//    modification : si la valeur est remplacee, la sortie change, et il
+	//    n'existe aucune forme d'origine a laquelle revenir puisqu'une tranche
+	//    brute n'a pas de forme canonique distincte de son texte.
+	//
+	//    >>> UNE SECTION INCONNUE NE DOIT JAMAIS PASSER PAR LE MODELE. <<<
+	//
+	//    Elle se lit dans l'archive et s'y reecrit sans que rien ne la touche.
+	//    Le chemin `archive -> modele -> archive` n'a par construction rien a
+	//    lui faire correspondre -- ce controle montre ce qu'il en couterait.
+	NkArchive abime = ar;
+	NkArchiveNode *a = abime.FindNode(NkStringView("$raw"));
+	EXPECT_TRUE(a != nullptr);
+	if (a) {
+		a->value.text = NkString("autre chose");
+		EXPECT_TRUE(NkString(a->Lexeme()) != NkString(brut));
+	}
+
+	// 4. La contre-epreuve du point 3, pour qu'il ne se lise pas comme une
+	//    fatalite : l'original n'a pas bouge. La perte vient de la modification,
+	//    pas de la representation.
+	EXPECT_STREQ(NkString(n->Lexeme()), NkString(brut));
+
+	// 5. La cle est reservee, donc l'ecrivain la reconnait comme il reconnait
+	//    `$type` (T10) : une section brute ne s'emet pas en `cle = valeur`, elle
+	//    s'emet telle quelle.
+	EXPECT_TRUE(EstCleReservee(NkString("$raw")));
+
+	// 6. ⚠️ ET LA MOITIE QUE LES CINQ PRECEDENTES NE VOIENT PAS : une tranche
+	//    brute est du CONTENU, pas de la mise en forme. Elle doit donc rester
+	//    visible pour qui ne demande pas la trivia -- au contraire de T5/T6, ou
+	//    la trivia est invisible au JSON. Si elle etait rangee dans la trivia,
+	//    elle disparaitrait du binaire natif et d'un export JSON sans que rien
+	//    ne le signale.
+	EXPECT_TRUE(ar.Has(NkStringView("$raw")));
+	EXPECT_TRUE(n->kind == NkNodeKind::NK_NODE_SCALAR
+				&& n->value.type == NkArchiveValueType::NK_VALUE_STRING);
+}
+
 // =============================================================================
 // POINT D'ENTREE
 // =============================================================================
@@ -1118,6 +1217,7 @@ int main() {
 	T8_GreffeRecursive();
 	T9_OrdreEntrelace();
 	T10_IdentiteDuNoeud();
+	T11_SectionInconnueVerbatim();
 
 	const int total = s_pass + s_fail;
 	printf("\n---------------------------------------------------------\n");
