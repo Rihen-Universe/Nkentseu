@@ -7,6 +7,29 @@
 // l'exécution par la politique de workspace "disableunittestexecution") sous
 // forme d'application console classique, avec assertions manuelles.
 // =============================================================================
+// =============================================================================
+// ⚠️ POURQUOI LES ATTENTES DE NORMALES ONT CHANGE DE SIGNE (2026-08-22)
+// -----------------------------------------------------------------------------
+// Quatre cas de ce banc exigeaient une normale +Z pour un triangle
+// (0,0,0)-(1,0,0)-(0,1,0), c'est-a-dire la convention CCW / main droite. Ils
+// ETAIENT ROUGES, et ce n'etait pas une regression : c'est LE BANC qui portait
+// l'ancienne convention.
+//
+// LE MOTEUR REND EN FACE AVANT = SENS HORAIRE. `NkEmFaceCross` calcule donc
+// deliberement (p2-p0) x (p1-p0), soit l'OPPOSE du produit vectoriel CCW.
+//
+// ⚠️ VERIFIE CONTRE LA GEOMETRIE, PAS CONTRE LE COMMENTAIRE — un commentaire
+// n'est verifie par rien. Cube de NkMeshSystem.cpp:362-373, face du dessus :
+// normale DECLAREE n[4] = {0,1,0}, boucle fi[4] = {3,7,6,2}. Le produit CCW
+// (p1-p0) x (p2-p0) donne -Y, donc l'inverse de la normale declaree. C'est le
+// consommateur reel qui tranche, et il confirme la convention horaire.
+//
+// ⚠️ NE « RESTAURE » PAS LES ANCIENNES VALEURS EN CROYANT REPARER UNE
+// REGRESSION. Verdir ces cas en changeant le signe DANS LE NOYAU aurait inverse
+// l'eclairage de tout le maillage edite, envoye les extrusions vers l'INTERIEUR
+// et retourne l'orientation « Normal » du gizmo — et fait tomber une partie des
+// 181 cas de NKEditMeshHarness. Un banc rouge ne dit jamais OU est la faute.
+// =============================================================================
 #include "Noge/Modeling/NkEditableMesh.h"
 #include "NKLogger/NkLog.h"
 
@@ -46,8 +69,8 @@ namespace {
 		Check(mesh.Edit().FaceSize(f0) == 3, "FaceSize(f0) == 3");
 
 		const auto &face = mesh.Faces()[f0];
-		Check(Near(face.normal.x, 0.f) && Near(face.normal.y, 0.f) && Near(face.normal.z, 1.f),
-			  "normale face == (0,0,1)");
+		Check(Near(face.normal.x, 0.f) && Near(face.normal.y, 0.f) && Near(face.normal.z, -1.f),
+			  "normale face == (0,0,-1) [face avant = sens horaire, cf. bandeau]");
 
 		const auto &bounds = mesh.GetBounds();
 		Check(Near(bounds.min.x, 0.f) && Near(bounds.min.y, 0.f) && Near(bounds.max.x, 1.f) && Near(bounds.max.y, 1.f),
@@ -124,8 +147,8 @@ namespace {
 		mesh.RecalcNormals(true);
 
 		const auto &verts = mesh.Vertices();
-		Check(Near(verts[v0].normal.z, 1.f) && Near(verts[v2].normal.z, 1.f),
-			  "normales moyennees au vertex partage restent (0,0,1)");
+		Check(Near(verts[v0].normal.z, -1.f) && Near(verts[v2].normal.z, -1.f),
+			  "normales moyennees au vertex partage restent (0,0,-1) [convention horaire]");
 	}
 
 	void Test_FlipNormals() noexcept {
@@ -135,10 +158,10 @@ namespace {
 		const uint32 v1 = mesh.AddVertex({1.f, 0.f, 0.f});
 		const uint32 v2 = mesh.AddVertex({0.f, 1.f, 0.f});
 		mesh.AddTri(v0, v1, v2);
-		Check(Near(mesh.Faces()[0].normal.z, 1.f), "normale initiale +Z");
+		Check(Near(mesh.Faces()[0].normal.z, -1.f), "normale initiale -Z [convention horaire]");
 
 		mesh.FlipNormals();
-		Check(Near(mesh.Faces()[0].normal.z, -1.f), "normale inversee -Z apres FlipNormals");
+		Check(Near(mesh.Faces()[0].normal.z, 1.f), "normale inversee +Z apres FlipNormals [convention horaire]");
 
 		NkVector<uint32> fv;
 		mesh.Edit().GetFaceVerts(0, fv);

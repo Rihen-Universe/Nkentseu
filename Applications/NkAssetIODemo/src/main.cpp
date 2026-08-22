@@ -36,12 +36,37 @@
 #include "NKRenderer/Mesh/NkFBXLoader.h"
 #include "NKLogger/NkLog.h"
 
+#include <cstdio> // fopen : sonder la presence d'une ressource
+
 using namespace nkentseu;
 
 namespace {
 
 	int gPassCount = 0;
 	int gFailCount = 0;
+
+	// -- RESOLUTION DES RESSOURCES, INDEPENDANTE DU REPERTOIRE DE LANCEMENT --
+	// `Resources/` se resout depuis la RACINE du worktree. Lance depuis son
+	// propre dossier, ce banc rendait « 0 OK / N FAIL » -- il RESSEMBLAIT a un
+	// chargeur casse alors que rien n'etait casse. Un banc muet parce qu'il a
+	// ete lance d'ailleurs est pire qu'un banc absent : on le croit.
+	// Meme parade que dans NKEditMeshHarness (`CheminRessource`).
+	// DETTE ASSUMEE : trois bancs portent desormais la meme fonction de dix
+	// lignes (ici, NkFBXParityDemo, NKEditMeshHarness). La mutualiser demanderait
+	// un en-tete commun aux bancs, qui n'existe pas -- et la mettre dans le
+	// Kernel polluerait le moteur avec un utilitaire de test.
+	NkString CheminRessource(const char *relatif) noexcept {
+		const char *prefixes[3] = {"", "../../", "../../../"};
+		for (int i = 0; i < 3; ++i) {
+			NkString essai = NkString(prefixes[i]) + NkString(relatif);
+			FILE *f = fopen(essai.Data(), "rb");
+			if (f) {
+				fclose(f);
+				return essai;
+			}
+		}
+		return NkString(relatif); // aucun trouve : le chargeur dira non
+	}
 
 	void Check(bool cond, const char *what) noexcept {
 		if (cond) {
@@ -55,6 +80,8 @@ namespace {
 
 	// ── OBJ ────────────────────────────────────────────────────────────────
 	void TestOBJ(const char *path) noexcept {
+		const NkString resolu = CheminRessource(path);
+		path = resolu.Data();
 		logger.Infof("-- NkOBJIO: %s --\n", path);
 
 		renderer::NkGLTFMeshData baseline;
@@ -80,6 +107,8 @@ namespace {
 
 	// ── glTF/GLB ──────────────────────────────────────────────────────────
 	void TestGLTF(const char *path) noexcept {
+		const NkString resolu = CheminRessource(path);
+		path = resolu.Data();
 		logger.Infof("-- NkGLTFIO: %s --\n", path);
 
 		renderer::NkGLTFMeshData baseline;
@@ -136,6 +165,8 @@ namespace {
 
 	// ── FBX ───────────────────────────────────────────────────────────────
 	void TestFBX(const char *path) noexcept {
+		const NkString resolu = CheminRessource(path);
+		path = resolu.Data();
 		logger.Infof("-- NkFBXImporter: %s --\n", path);
 
 		renderer::NkGLTFMeshData baseline;
@@ -146,6 +177,11 @@ namespace {
 		}
 		const uint32 baseVerts = (uint32)baseline.vertices.Size();
 		const uint32 baseFaces = (uint32)baseline.indices.Size() / 3;
+		// Materiaux de la BASELINE : le chargeur FBX en rend depuis 2026-08 (voir le
+		// cas plus bas). On compare l'adaptateur a ce que le chargeur A LU, jamais a
+		// une constante ecrite a la main -- une constante se perime, une comparaison
+		// a la source suit la capacite.
+		const uint32 baseMats = (uint32)baseline.materials.Size();
 		logger.Infof("     baseline: %u sommets, %u faces\n", baseVerts, baseFaces);
 
 		NkFBXImporter importer;
@@ -161,9 +197,21 @@ namespace {
 			logger.Infof("     NkFBXImporter: %u sommets, %u faces\n", scene.meshes[0].VertexCount(),
 						 scene.meshes[0].FaceCount());
 		}
-		// Le loader reel ne supporte ni materiaux ni squelette/anim : verifie
-		// que l'adaptateur n'invente rien.
-		Check(scene.materials.Empty(), "NkFBXImporter::Import: 0 materiau (non supporte par le loader reel)");
+		// ⚠️ ATTENTE CHANGEE LE 2026-08-22 — ET CE N'ETAIT PAS UNE REGRESSION.
+		// Ce cas exigeait `scene.materials.Empty()` avec pour justification
+		// « non supporte par le loader reel ». Il ETAIT ROUGE, parce que le
+		// chargeur FBX a GAGNE les materiaux depuis : le journal de ce banc meme
+		// affiche « 3 materiaux, 3 textures » sur Futuristic_Car_2.1_fbx.fbx.
+		// Le banc mesurait donc une absence qui avait disparu — une attente
+		// perimee par une capacite acquise, pas un defaut du chargeur.
+		//
+		// ⚠️ NE REMETS PAS `Empty()` EN CROYANT REPARER UNE REGRESSION. Ce qu'il
+		// faut verifier ici n'est plus « zero materiau » mais que l'adaptateur
+		// N'INVENTE RIEN : il doit rendre exactement ce que le chargeur a lu.
+		// C'est ce que teste la ligne ci-dessous, et c'est une garantie plus
+		// forte que l'ancienne.
+		Check(scene.materials.Size() == baseMats,
+			  "NkFBXImporter::Import: nb materiaux == baseline renderer::LoadFBX (l'adaptateur n'invente rien)");
 		Check(scene.skeletons.Empty(), "NkFBXImporter::Import: 0 squelette (non supporte par le loader reel)");
 		Check(scene.animations.Empty(), "NkFBXImporter::Import: 0 animation (non supportee par le loader reel)");
 	}

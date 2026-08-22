@@ -167,3 +167,66 @@ theme/palette-imposee              porteuses de sens=3/3 | ecart sarcelles=1.004
 linked/cube-soude                  composantes=1 sommets=24 assignes=24
 linked/deux-cubes                  composantes=2 somme=48 sommets=48 orphelins=0 L(ok=1)=24
 linked/ctrl-L                      aChange=0 apres=24 surSelectionVide=0
+mat/ilots-disjoints                faces=12 slot1=2 slot0=4 aretecommune=0 (0 attendu)
+mat/sous-mailles-deduites          slots=2 plages=4 plages-slot1=2 (2 attendues) indices-slot1=12 total=72
+mat/survie-subdivision             slot1 2 -> 8 -> 32 | faces=96 (doit croitre, jamais tomber a 0)
+mat/survie-catmull                 slot1 2 -> 8 | faces=24
+mat/survie-extrusion               slot1 2 -> 10 | faces 12 -> 30 ok=1 (faces DOIVENT croitre)
+mat/survie-triangulation           indices-slot1=12 (12 attendus : 2 quads -> 4 tris) total=36
+mat/assign-par-sommets             tousCoins=1 (1 attendu) unCoinManquant=0 (0 attendu)
+mat/slots-trou-jamais-decalage     slots=3 vivants=2 id[2]=102 (102 attendu) faceMz=2 (2 attendu)
+mat/slots-survivent-a-l-edition    slots 1 -> 1 | dernier id=777 (777 attendu)
+mat/decim-non-tranche              slot1 2 -> 0 | tris 12->6 (MESURE, pas un attendu)
+mat/temoin-smooth                  smooth 12 -> 0 sur 24 faces (TEMOIN du comportement existant)
+mat/survie-soudure                 slot1 2 -> 2 | sommets 24 -> 8 ok=1
+hist/aller-retour                  undo=1 redo=1 | retourExact=1 refaitExact=1 muteDifferent=1
+hist/pile-vide                     undoVide=0 (0 attendu) redoVide=0 (0 attendu) etatIntact=1 canUndo=0
+hist/plafond                       profondeur=3 (3 attendue) remontees=3 | x 0.5 -> 2.5 (x0+2 attendu : 2 plus anciens jetes)
+hist/branche-abandonnee            refaisableAvant=1 (1 attendu) apresNouveauCommit=0 (0 attendu) canRedo=0
+hist/materiau-survit               slot7 1 -> 4 -> 1 (retour a 1 attendu) | slots=1 id=4242
+hist/selection-survit              selectionnes 4 -> 4 | somme des rangs 10 -> 10 (identiques attendus)
+hist/chaine                        remontees=3 (3 attendues) retourOrigine=1 profondeur=0 refaisables=3
+ops/supprimer-faces                ok=1 faces 6 -> 5 | bord 0 -> 4 (un trou s ouvre) nonmanif=0
+ops/supprimer-refus                ok=0 (0 attendu) faces 6 -> 6 (inchange attendu)
+ops/extruder-sommets               ok=1 sommets 24 -> 27 | faces pleines 6 -> 6 (INCHANGE attendu) aretes fil=3
+ops/faire-face                     ok=1 faces 5 -> 6 | bord 4 -> 0 (retour a 0 attendu)
+ops/coupe-de-boucle                ok=1 sommets 25 -> 30 faces 16 -> 20 | nonmanif=0 bord 16 -> 18
+ops/vis-revolution                 ok=1 sommets 25 -> 175 faces 16 -> 112 | nonmanif 0 -> 0 (temoin)
+ops/coupe-par-plan                 ok=1 sommets 24 -> 32 faces 6 -> 10 | bord 0 -> 0 nonmanif 0 -> 0
+enroulement/noyau-contre-primitive accord=6 desaccord=0 (0 attendu) pire ecart=0.0000 | CCW sur face +Y = -1.0 (negatif attendu)
+matops/supprimer-faces             slot1 6 -> 5 | faces 6 -> 5 (l operation a bien eu lieu)
+matops/faire-face                  slot1 6 -> 5 (5 attendu) | slot0=1 (1 : la face neuve) ok=1
+matops/extruder-sommets            slot1 6 -> 6 | sommets 24 -> 27
+matops/coupe-de-boucle             slot1 16 -> 20 | faces 16 -> 20
+matops/coupe-par-plan              slot1 6 -> 10 | faces 6 -> 10
+matops/vis-revolution              slot1 16 -> 112 | faces 16 -> 112
+matops/deformation-pure            ok=1 slot1 6 -> 6 | faces 6 -> 6 (si ok=0, ce cas ne prouve RIEN)
+matops/chanfrein                   ok=1 slot1 6 -> 0 | faces 6 -> 26
+matops/inset                       ok=1 slot1 6 -> 30 | faces 6 -> 30
+matops/split-aretes                ok=1 slot1 6 -> 6 | faces 6 -> 6
+matops/dissolve                    ok=1 slot1 16 -> 0 | faces 16 -> 1
+matops/extruder-aretes             ok=1 slot1 6 -> 0 | faces 6 -> 18
+chargeurs/ply-ascii                ok=1 sommets=8 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/ply-binaire              ok=1 sommets=8 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/stl-ascii                ok=1 sommets=36 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/stl-binaire              ok=1 sommets=36 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/dae                      ok=1 sommets=36 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/usda                     ok=1 sommets=24 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/ply-ascii-vs-binaire     PLY ascii/bin sommets 8/8 tris 12/12 identiques=1 | cote 2.000/2.000
+chargeurs/stl-ascii-vs-binaire     STL ascii/bin sommets 36/36 tris 12/12 identiques=1 | cote 2.000/2.000
+chargeurs/refus-fichier-absent     ply=0 stl=0 dae=0 usda=0 (0 attendu partout)
+acces/classes-arete-cube           vivantes=12 fil=0 bord=0 manif=12 nonmanif=0 | partition exacte=1
+acces/classes-arete-grille         vivantes=24 fil=0 bord=12 manif=12 nonmanif=0 | partition exacte=1
+acces/aller-retour-demi-arete      aretes=12 ecart compte=0 ecart retour=0 (0 attendu)
+acces/jumelle-radiale              cube h=24 involution=24 meme arete=24 | grille bord h=12 refus=12
+acces/selection-tout-rien          faces=6 | tout: any=1 faces sel=6 | rien: any=0 faces sel=0
+acces/tampon-de-selection          rangs 0->1->2->2 | croit=1 stable sur rappel identique=1
+acces/propagation-coincidente      sommets=24 selection 1->3 croit=1 | hors position=0 (0 attendu)
+acces/ombrage-trois-etats          plat any=0 all=0 | lisse any=1 all=1 | mixte change=1 any=1 all=0
+acces/triangule-ombree-cube        verts=24 plate V=24 ombree V=24 identique=1 | tris idem=1
+acces/triangule-ombree-grille      verts=16 plate V=16 ombree V=36 identique=0 | tris idem=1
+acces/poids-proportionnel          modes=6 centre plein=6 hors nul=6 decroissantes=6 | w(r/2)=0.50/0.87/0.71/0.25/0.50/1.00
+acces/boucle-de-faces-bord         grille=4 faces=4 vivantes=4 doublons=0 rangee entiere=1 | boucle aretes=1
+acces/boucle-de-faces-interieur    grille=4 faces=4 vivantes=4 doublons=0 rangee entiere=1 | boucle aretes=4
+acces/pile-trouver-et-descendre    trouve=1 refus inconnu=1 | bas ok=1 echange=1 | fin ok=0 intact=1 | id stable=1
+acces/enregistreur-rejeu           count 0->1->2 relu=1 | applique=2 faces 6->96 change=1
