@@ -1226,6 +1226,396 @@ namespace nkentseu {
 	// =========================================================================
 
 	// =========================================================================
+	//  COMPARER DEUX DOCUMENTS
+	// =========================================================================
+
+	namespace {
+
+		bool EqNode(const NkArchiveNode &a, const NkArchiveNode &b, bool tv);
+
+		bool EqView(NkStringView a, NkStringView b) {
+			if (a.Size() != b.Size()) {
+				return false;
+			}
+			for (nk_size i = 0; i < a.Size(); ++i) {
+				if (a.Data()[i] != b.Data()[i]) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		bool EqArchive(const NkArchive &a, const NkArchive &b, bool tv) {
+			if (a.Entries().Size() != b.Entries().Size()) {
+				return false;
+			}
+			if (tv && (!EqView(a.HeaderTrivia(), b.HeaderTrivia())
+					   || !EqView(a.FooterTrivia(), b.FooterTrivia()))) {
+				return false;
+			}
+			for (nk_size i = 0; i < a.Entries().Size(); ++i) {
+				// L'ORDRE DES ENTREES FAIT PARTIE DE L'EGALITE. Deux documents qui
+				// n'ont pas les memes proprietes dans le meme ordre ne sont pas le
+				// meme document : le banc `.nkgui` traite deja l'ordre inverse comme
+				// une difference (controle 2c).
+				if (a.Entries()[i].key.Compare(b.Entries()[i].key) != 0) {
+					return false;
+				}
+				if (!EqNode(a.Entries()[i].node, b.Entries()[i].node, tv)) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		bool EqNode(const NkArchiveNode &a, const NkArchiveNode &b, bool tv) {
+			if (a.kind != b.kind) {
+				return false;
+			}
+			if (a.SourceOrder() != b.SourceOrder()) {
+				return false;
+			}
+			if (tv && (!EqView(a.LeadingTrivia(), b.LeadingTrivia())
+					   || !EqView(a.TrailingTrivia(), b.TrailingTrivia()))) {
+				return false;
+			}
+			if (a.IsArray()) {
+				if (a.array.Size() != b.array.Size()) {
+					return false;
+				}
+				for (nk_size i = 0; i < a.array.Size(); ++i) {
+					if (!EqNode(a.array[i], b.array[i], tv)) {
+						return false;
+					}
+				}
+				return true;
+			}
+			if (a.IsObject()) {
+				if (!a.object || !b.object) {
+					return a.object == b.object;
+				}
+				return EqArchive(*a.object, *b.object, tv);
+			}
+			// ⚠️ ON COMPARE LE LEXEME, PAS LA VALEUR. `0.20` et `0.2` denotent le
+			//    meme nombre et NE SONT PAS le meme document -- reecrire l'un a la
+			//    place de l'autre modifie une ligne que l'auteur n'a pas touchee.
+			//    Le controle 2d du banc repose exactement la-dessus.
+			if (a.value.type != b.value.type) {
+				return false;
+			}
+			return EqView(a.Lexeme(), b.Lexeme());
+		}
+
+	} // namespace
+
+	bool NkGuiArchive::Equal(const NkArchive &a, const NkArchive &b, bool withTrivia) noexcept {
+		return EqArchive(a, b, withTrivia);
+	}
+
+	// =========================================================================
+	//  LE CLASSIFICATEUR DE VALEUR
+	// =========================================================================
+	//
+	// Un scanner de VALEURS, separe du lexeur de FICHIERS -- et c'est voulu. Les
+	// deux repondent a des questions differentes : le lexeur decoupe un fichier en
+	// jetons SANS JUGER, celui-ci demande « ce texte est-il une valeur bien formee,
+	// et laquelle ». Les melanger obligerait le lexeur a connaitre la forme d'une
+	// couleur, c'est-a-dire a juger -- exactement ce qu'on lui interdit.
+
+	namespace {
+
+		inline bool VHex(char c) {
+			return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+		}
+		inline bool VDigit(char c) {
+			return c >= '0' && c <= '9';
+		}
+		inline bool VAlpha(char c) {
+			return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+		}
+		inline void VSkip(const char *s, nk_size n, nk_size &i) {
+			while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n')) {
+				++i;
+			}
+		}
+
+		const nk_size kVBad = (nk_size)-1;
+
+		nk_size VScanValue(const char *s, nk_size n, nk_size i, NkGuiValueKind *kind);
+
+		/// Une chaine, avec les TROIS echappements du format et pas un de plus.
+		nk_size VScanString(const char *s, nk_size n, nk_size i) {
+			++i;  // le guillemet ouvrant
+			while (i < n && s[i] != '"') {
+				if (s[i] != '\\') {
+					++i;
+					continue;
+				}
+				if (i + 1 >= n) {
+					return kVBad;
+				}
+				const char e = s[i + 1];
+				if (e != '"' && e != '\\' && e != 'n') {
+					return kVBad;
+				}
+				i += 2;
+			}
+			return (i < n && s[i] == '"') ? (i + 1) : kVBad;
+		}
+
+		nk_size VScanNumber(const char *s, nk_size n, nk_size i) {
+			if (i < n && s[i] == '-') {
+				++i;
+			}
+			if (i >= n || !VDigit(s[i])) {
+				return kVBad;
+			}
+			while (i < n && VDigit(s[i])) {
+				++i;
+			}
+			if (i + 1 < n && s[i] == '.' && VDigit(s[i + 1])) {
+				++i;
+				while (i < n && VDigit(s[i])) {
+					++i;
+				}
+			}
+			return i;
+		}
+
+		/// UNE COULEUR A SIX OU HUIT CHIFFRES, ET RIEN D'AUTRE. `#12345` etait
+		/// refuse par l'ancien lecteur ; il est redevenu une faute ici.
+		nk_size VScanColor(const char *s, nk_size n, nk_size i) {
+			const nk_size begin = ++i;
+			while (i < n && VHex(s[i])) {
+				++i;
+			}
+			const nk_size len = i - begin;
+			return (len == 6 || len == 8) ? i : kVBad;
+		}
+
+		/// Un identifiant, eventuellement POINTE (`n1.value`, `Enum.X`, `a.b.c`).
+		nk_size VScanIdent(const char *s, nk_size n, nk_size i) {
+			if (i >= n || !VAlpha(s[i])) {
+				return kVBad;
+			}
+			while (i < n && (VAlpha(s[i]) || VDigit(s[i]))) {
+				++i;
+			}
+			while (i + 1 < n && s[i] == '.' && VAlpha(s[i + 1])) {
+				++i;
+				while (i < n && (VAlpha(s[i]) || VDigit(s[i]))) {
+					++i;
+				}
+			}
+			return i;
+		}
+
+		nk_size VScanVec2(const char *s, nk_size n, nk_size i) {
+			++i;  // (
+			VSkip(s, n, i);
+			i = VScanNumber(s, n, i);
+			if (i == kVBad) {
+				return kVBad;
+			}
+			VSkip(s, n, i);
+			if (i >= n || s[i] != ',') {
+				return kVBad;
+			}
+			++i;
+			VSkip(s, n, i);
+			i = VScanNumber(s, n, i);
+			if (i == kVBad) {
+				return kVBad;
+			}
+			VSkip(s, n, i);
+			return (i < n && s[i] == ')') ? (i + 1) : kVBad;
+		}
+
+		/// PAS DE VIRGULE FINALE. `["a",]` etait refuse par l'ancien lecteur, et il
+		/// le reste ici : une virgule finale se lit comme un element vide, et
+		/// « element vide » n'existe pas dans le format.
+		nk_size VScanList(const char *s, nk_size n, nk_size i) {
+			++i;  // [
+			VSkip(s, n, i);
+			if (i < n && s[i] == ']') {
+				return i + 1;
+			}
+			while (true) {
+				i = VScanValue(s, n, i, nullptr);
+				if (i == kVBad) {
+					return kVBad;
+				}
+				VSkip(s, n, i);
+				if (i < n && s[i] == ',') {
+					++i;
+					VSkip(s, n, i);
+					continue;
+				}
+				return (i < n && s[i] == ']') ? (i + 1) : kVBad;
+			}
+		}
+
+		/// UNE CLE EST UN IDENTIFIANT OU UNE CHAINE. `{ 1 = 2 }` etait refuse par
+		/// l'ancien lecteur, et il le reste.
+		nk_size VScanDict(const char *s, nk_size n, nk_size i) {
+			++i;  // {
+			VSkip(s, n, i);
+			if (i < n && s[i] == '}') {
+				return i + 1;
+			}
+			while (true) {
+				nk_size k = (i < n && s[i] == '"') ? VScanString(s, n, i) : VScanIdent(s, n, i);
+				if (k == kVBad) {
+					return kVBad;
+				}
+				i = k;
+				VSkip(s, n, i);
+				if (i >= n || s[i] != '=') {
+					return kVBad;
+				}
+				++i;
+				VSkip(s, n, i);
+				i = VScanValue(s, n, i, nullptr);
+				if (i == kVBad) {
+					return kVBad;
+				}
+				VSkip(s, n, i);
+				if (i < n && s[i] == ',') {
+					++i;
+					VSkip(s, n, i);
+					continue;
+				}
+				return (i < n && s[i] == '}') ? (i + 1) : kVBad;
+			}
+		}
+
+		nk_size VScanValue(const char *s, nk_size n, nk_size i, NkGuiValueKind *kind) {
+			VSkip(s, n, i);
+			if (i >= n) {
+				return kVBad;
+			}
+			const char c = s[i];
+			NkGuiValueKind k = NkGuiValueKind::Invalid;
+			nk_size e = kVBad;
+			if (c == '"') {
+				k = NkGuiValueKind::String;
+				e = VScanString(s, n, i);
+			} else if (c == '#') {
+				k = NkGuiValueKind::Color;
+				e = VScanColor(s, n, i);
+			} else if (c == '(') {
+				k = NkGuiValueKind::Vec2;
+				e = VScanVec2(s, n, i);
+			} else if (c == '[') {
+				k = NkGuiValueKind::List;
+				e = VScanList(s, n, i);
+			} else if (c == '{') {
+				k = NkGuiValueKind::Dict;
+				e = VScanDict(s, n, i);
+			} else if (c == '-' || VDigit(c)) {
+				k = NkGuiValueKind::Number;
+				e = VScanNumber(s, n, i);
+			} else if (VAlpha(c)) {
+				k = NkGuiValueKind::Ident;
+				e = VScanIdent(s, n, i);
+				// Les DRAPEAUX : `A | B | C`. Un seul identifiant reste un
+				// identifiant -- c'est la barre qui fait le drapeau.
+				while (e != kVBad) {
+					nk_size j = e;
+					VSkip(s, n, j);
+					if (j >= n || s[j] != '|') {
+						break;
+					}
+					++j;
+					VSkip(s, n, j);
+					const nk_size nx = VScanIdent(s, n, j);
+					if (nx == kVBad) {
+						return kVBad;
+					}
+					k = NkGuiValueKind::Flags;
+					e = nx;
+				}
+			}
+			if (e == kVBad) {
+				return kVBad;
+			}
+			if (kind) {
+				*kind = k;
+			}
+			return e;
+		}
+
+	} // namespace
+
+	NkGuiValueKind NkGuiArchive::KindOf(const NkArchiveNode &node) noexcept {
+		// Un noeud TABLEAU ou OBJET ne vient jamais d'un fichier -- il vient du
+		// code. Sa forme syntaxique est celle qu'il prendra a l'ecriture.
+		if (node.IsArray()) {
+			return NkGuiValueKind::List;
+		}
+		if (node.IsObject()) {
+			return NkGuiValueKind::Dict;
+		}
+		if (node.value.type == NkArchiveValueType::NK_VALUE_NULL) {
+			return NkGuiValueKind::Null;
+		}
+		if (node.value.type == NkArchiveValueType::NK_VALUE_BOOL) {
+			// LE BOOLEEN N'EST PAS UN TYPE DU LEXIQUE : c'est un identifiant qui
+			// vaut `true` ou `false`. On rend donc Ident, et c'est a l'appelant de
+			// regarder le TEXTE -- sinon `wrap = Vrai` passerait pour un booleen.
+			return NkGuiValueKind::Ident;
+		}
+		if (node.value.type != NkArchiveValueType::NK_VALUE_STRING) {
+			return NkGuiValueKind::Number;
+		}
+		// Une chaine SANS litteral utilisable s'ecrira entre guillemets : c'est
+		// donc une chaine, quel que soit son contenu.
+		if (!node.HasUsableLiteral()) {
+			return NkGuiValueKind::String;
+		}
+		const NkStringView lx = node.Lexeme();
+		const char *s = lx.Data();
+		const nk_size n = lx.Size();
+		if (!s || n == 0) {
+			return NkGuiValueKind::Invalid;
+		}
+		NkGuiValueKind k = NkGuiValueKind::Invalid;
+		nk_size e = VScanValue(s, n, 0, &k);
+		if (e == kVBad) {
+			return NkGuiValueKind::Invalid;
+		}
+		VSkip(s, n, e);
+		// TOUT le lexeme doit avoir ete consomme : `#12345 zut` n'est pas une
+		// couleur suivie de bruit, c'est une valeur invalide.
+		return (e == n) ? k : NkGuiValueKind::Invalid;
+	}
+
+	const char *NkGuiArchive::KindName(NkGuiValueKind k) noexcept {
+		switch (k) {
+			case NkGuiValueKind::Null:
+				return "null";
+			case NkGuiValueKind::Number:
+				return "un nombre";
+			case NkGuiValueKind::String:
+				return "une chaine";
+			case NkGuiValueKind::Color:
+				return "une couleur";
+			case NkGuiValueKind::Vec2:
+				return "un Vec2";
+			case NkGuiValueKind::Ident:
+				return "un identifiant";
+			case NkGuiValueKind::Flags:
+				return "des drapeaux";
+			case NkGuiValueKind::List:
+				return "une liste";
+			case NkGuiValueKind::Dict:
+				return "un dictionnaire";
+			default:
+				return "une valeur mal formee";
+		}
+	}
+
+	// =========================================================================
 	//  LES VERSIONS ET LES MIGRATIONS  (etape 5)
 	// =========================================================================
 
@@ -1480,10 +1870,14 @@ namespace nkentseu {
 			}
 		}
 		if (major > kMajor) {
+			// LE MESSAGE EST LA MOITIE DE LA REGLE (c). « ce fichier est trop recent
+			// pour moi » vaut mieux que l'ouvrir en en perdant la moitie -- et il
+			// faut que le message le DISE, sinon celui qui le lit ne sait pas s'il
+			// doit mettre son outil a jour ou reparer son fichier.
 			err.code = NkString("E-VERSION-INCOMPATIBLE");
-			err.message = NkString("version majeure ");
+			err.message = NkString("ce fichier est trop recent pour moi : version ");
 			err.message.Append(version);
-			err.message.Append(" au-dela de ce que ce lecteur comprend");
+			err.message.Append(", je ne comprends que la majeure 0");
 			err.line = toks[1].line;
 			err.column = toks[1].column;
 			return false;
