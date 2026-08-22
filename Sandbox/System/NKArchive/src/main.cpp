@@ -781,6 +781,43 @@ static void T8_GreffeRecursive() {
 	}
 }
 
+
+// --- outillage de T10 -------------------------------------------------------
+//
+// Une cle RESERVEE porte l'identite syntaxique du noeud, pas une propriete du
+// modele. Le prefixe `$` est illegal dans un identifiant `.nkgui` : voir T10.
+static bool EstCleReservee(const NkString &k) noexcept {
+	const char *c = k.Data();
+	return c && *c == '$';
+}
+
+static NkStringView ArcString(const NkArchive &ar, const char *key) noexcept {
+	const NkArchiveNode *n = const_cast<NkArchive &>(ar).FindNode(NkStringView(key));
+	if (!n || n->value.type != NkArchiveValueType::NK_VALUE_STRING) {
+		return NkStringView("");
+	}
+	return NkStringView(n->value.text.Data());
+}
+
+static bool Contient(const NkString &h, const char *needle) noexcept {
+	const char *s = h.Data();
+	if (!s || !needle || !*needle) {
+		return false;
+	}
+	for (; *s; ++s) {
+		const char *a = s;
+		const char *b = needle;
+		while (*a && *b && *a == *b) {
+			++a;
+			++b;
+		}
+		if (!*b) {
+			return true;
+		}
+	}
+	return false;
+}
+
 // =============================================================================
 // T9 -- ORDRE ENTRELACE PROPRIETES / ENFANTS (prerequis de l'etape 4)
 // =============================================================================
@@ -881,6 +918,179 @@ static void T9_OrdreEntrelace() {
 	EXPECT_STREQ(out, attendu);
 }
 
+
+// =============================================================================
+// T10 -- L'IDENTITE D'UN NOEUD N'EST PAS UNE PROPRIETE (prerequis de l'etape 4)
+// =============================================================================
+// T9 a montre que l'ordre ENTRELACE proprietes/enfants est representable. Il
+// reste la question que T9 ne pouvait pas voir, et elle decide de la couche :
+//
+//     VBox "v" { a = 1 }
+//     ^^^^ ^^^
+//
+// Un noeud `.nkgui` s'ouvre sur DEUX jetons -- un type et un identifiant
+// optionnel -- alors qu'une entree d'archive n'a qu'UNE cle. Si le type et
+// l'identifiant deviennent des entrees ordinaires, plus rien ne les distingue
+// d'une propriete : l'ecrivain rendrait
+//
+//     VBox "v" { $type = VBox / $id = v / a = 1 }
+//
+// c'est-a-dire le fichier ABIME, avec la meme cause que T0.
+//
+// ⚠️ LA CONCEPTION RETENUE, ET CE QUI LA REND SURE. Le type et l'identifiant
+//    sont des entrees a CLE RESERVEE (`$type`, `$id`) que l'ecrivain consomme
+//    pour composer l'en-tete du bloc au lieu de les emettre comme lignes.
+//
+//    Ca ne vaut que si une cle reservee ne peut JAMAIS entrer en collision avec
+//    un vrai nom de propriete. Mesure : le lexeur `.nkgui` definit un
+//    identifiant comme `[A-Za-z_][A-Za-z0-9_]*` (`NkGIsAlpha`,
+//    `NkGuiFormat.h` l. 699) -- **`$` n'est pas un caractere d'identifiant**,
+//    donc aucun fichier `.nkgui` valide ne peut nommer une propriete `$type`.
+//
+//    ⚠️ C'est une garantie EMPRUNTEE au lexeur, pas une garantie de l'archive.
+//       Le jour ou quelqu'un ajoute `$` aux identifiants, cette couche casse en
+//       silence. C'est pourquoi le canari vit LA-BAS, avec le lexeur, et pas
+//       ici : `NKUIDesign --roundtrip-controles`, controle 21.
+//
+// ⚠️ POURQUOI PAS UN RANG NEGATIF plutot qu'une cle reservee. C'etait l'autre
+//    candidat : marquer l'identite par `SetSourceOrder(-1)`. Il est ecarte pour
+//    une raison mesurable -- `-1` est deja la valeur que porte toute entree
+//    dont le rang n'a jamais ete pose (T2 : une propriete NEUVE va a la fin
+//    justement parce qu'elle n'a pas de rang). Une propriete ajoutee par le
+//    code serait donc prise pour l'identite du noeud. Deux sens pour une meme
+//    valeur, c'est le motif qu'on retire partout ailleurs.
+static void T10_IdentiteDuNoeud() {
+	printf("[T10] L'identite d'un noeud n'est pas une propriete -- prerequis de l'etape 4\n");
+
+	// Le noeud : VBox "v" { a = 1 / Text "t" { } / b = 2 }
+	NkArchive v;
+	v.SetString(NkStringView("$type"), NkStringView("VBox"));
+	v.SetString(NkStringView("$id"), NkStringView("v"));
+	v.SetInt32(NkStringView("a"), 1);
+	v.SetInt32(NkStringView("b"), 2);
+
+	NkVector<NkArchiveNode> kids;
+	NkArchiveNode kid;
+	NkArchive kidBody;
+	kidBody.SetString(NkStringView("$type"), NkStringView("Text"));
+	kidBody.SetString(NkStringView("$id"), NkStringView("t"));
+	kidBody.SetSourceOrder(NkStringView("$type"), 0);
+	kidBody.SetSourceOrder(NkStringView("$id"), 1);
+	kid.SetObject(kidBody);
+	kids.PushBack(kid);
+	v.SetNodeArray(NkStringView("children"), kids);
+
+	// ⚠️ LES CLES RESERVEES RECOIVENT UN RANG, ELLES AUSSI, ET C'EST LA CORRECTION
+	//    D'UN CONTROLE QUI ETAIT VERT POUR RIEN. Premiere version : `$type` et
+	//    `$id` n'avaient pas de rang. La boucle ne les atteignait donc jamais, et
+	//    le corps etait propre SANS QUE LE TEST DE CLE RESERVEE SERVE A RIEN --
+	//    mesure par la mutation H (`EstCleReservee` rendant toujours `false`) :
+	//    121/121, VERTE.
+	//
+	//    C'est exactement le piege que le commentaire de ce controle decrivait
+	//    deux paragraphes plus haut, et l'ecrire ne l'avait pas empeche. Un
+	//    lecteur reel numerote ce qu'il lit ; l'identite d'un noeud a une place
+	//    dans le fichier comme le reste. En lui donnant son rang, la SEULE chose
+	//    qui la tient hors du corps redevient `EstCleReservee`, et la mutation H
+	//    tue le controle.
+	v.SetSourceOrder(NkStringView("$type"), 0);
+	v.SetSourceOrder(NkStringView("$id"), 1);
+	v.SetSourceOrder(NkStringView("a"), 2);
+	v.SetSourceOrder(NkStringView("b"), 4);
+	NkArchiveNode *ch = v.FindNode(NkStringView("children"));
+	EXPECT_TRUE(ch != nullptr && ch->IsArray() && !ch->array.Empty());
+	if (ch && ch->IsArray() && !ch->array.Empty()) {
+		ch->array[0].SetSourceOrder(3);
+	}
+
+	// ── L'ECRIVAIN, en miniature : il CONSOMME les cles reservees ──────────
+	// La boucle de T9, plus l'en-tete compose depuis $type / $id, et le saut
+	// des cles reservees dans le corps.
+	NkString out;
+	out.Append(ArcString(v, "$type"));
+	NkStringView id = ArcString(v, "$id");
+	if (!id.Empty()) {
+		out.Append(" ");
+		out.Append('"');
+		out.Append(id);
+		out.Append('"');
+	}
+	out.Append(" {\n");
+
+	for (nk_int32 rang = 0; rang < 5; ++rang) {
+		bool ecrit = false;
+		for (nk_size i = 0; i < v.Entries().Size() && !ecrit; ++i) {
+			const NkArchiveEntry &e = v.Entries()[i];
+			if (e.node.IsArray() || EstCleReservee(e.key)) {
+				continue;
+			}
+			if (e.node.SourceOrder() == rang) {
+				out.Append("  ");
+				out.Append(e.key);
+				out.Append(" = ");
+				out.Append(e.node.Lexeme());
+				out.Append('\n');
+				ecrit = true;
+			}
+		}
+		if (ecrit || !ch || !ch->IsArray()) {
+			continue;
+		}
+		for (nk_size k = 0; k < ch->array.Size(); ++k) {
+			if (ch->array[k].SourceOrder() != rang) {
+				continue;
+			}
+			const NkArchive *corps = ch->array[k].object;
+			EXPECT_TRUE(corps != nullptr);
+			if (!corps) {
+				break;
+			}
+			out.Append("  ");
+			out.Append(ArcString(*corps, "$type"));
+			NkStringView cid = ArcString(*corps, "$id");
+			if (!cid.Empty()) {
+				out.Append(" ");
+				out.Append('"');
+				out.Append(cid);
+				out.Append('"');
+			}
+			out.Append(" { }\n");
+			break;
+		}
+	}
+	out.Append("}\n");
+
+	// L'attendu est ECRIT A LA MAIN : il ne vient pas du code teste.
+	const NkString attendu("VBox \"v\" {\n  a = 1\n  Text \"t\" { }\n  b = 2\n}\n");
+	EXPECT_STREQ(out, attendu);
+
+	// ⚠️ ET CE QUE L'EGALITE CI-DESSUS NE PEUT PAS VOIR -- avec la preuve que
+	//    l'ecrire ne suffit pas. Elle serait tout aussi verte si l'ecrivain
+	//    ignorait `$type`/`$id` pour une raison ACCIDENTELLE au lieu de les
+	//    reconnaitre. C'est precisement ce qui est arrive : la premiere version
+	//    de ce controle ne leur donnait pas de rang, et la mutation H
+	//    (`EstCleReservee` toujours `false`) restait VERTE a 121/121.
+	//
+	//    Le paragraphe d'avertissement etait deja ecrit, mot pour mot, au-dessus
+	//    du code fautif. **Nommer un piege ne le desamorce pas ; seule la
+	//    mutation le fait.**
+	//
+	//    Les deux moities se mesurent donc separement, ET les cles portent un
+	//    rang (voir plus haut) pour que le test de cle reservee soit la seule
+	//    chose qui les retienne :
+	//    (1) les cles reservees sont bien PRESENTES dans l'archive,
+	//    (2) et le corps n'en emet aucune.
+	EXPECT_TRUE(v.Has(NkStringView("$type")) && v.Has(NkStringView("$id")));
+	EXPECT_TRUE(!Contient(out, "$type") && !Contient(out, "$id"));
+
+	// Et l'identite se relit : un noeud sans identifiant n'est pas un noeud
+	// sans type. `Text "t"` a les deux ; un cadre anonyme n'aurait que $type.
+	NkArchive anonyme;
+	anonyme.SetString(NkStringView("$type"), NkStringView("VBox"));
+	EXPECT_TRUE(ArcString(anonyme, "$id").Empty());
+	EXPECT_TRUE(!ArcString(anonyme, "$type").Empty());
+}
+
 // =============================================================================
 // POINT D'ENTREE
 // =============================================================================
@@ -907,6 +1117,7 @@ int main() {
 	T7_CycleDeVie();
 	T8_GreffeRecursive();
 	T9_OrdreEntrelace();
+	T10_IdentiteDuNoeud();
 
 	const int total = s_pass + s_fail;
 	printf("\n---------------------------------------------------------\n");

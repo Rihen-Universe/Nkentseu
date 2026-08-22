@@ -995,6 +995,50 @@ namespace nkuidesign {
 					  ko, ko ? "" : "*** ACCEPTEE ***");
 			}
 
+			// =============================================================
+			// 21 -- LE CANARI DE L'ETAPE 4 : `$` N'EST PAS UN IDENTIFIANT
+			// =============================================================
+			// Ce controle ne mesure RIEN pour le lecteur `.nkgui` lui-meme. Il
+			// garde une hypothese que la couche `.nkgui` sur `NkArchive`
+			// (etape 4, `SandboxNKArchive` T10) EMPRUNTE a ce lexeur.
+			//
+			// Cette couche represente l'identite syntaxique d'un noeud
+			// (`VBox "v"`) par des entrees a cle RESERVEE `$type` / `$id`, que
+			// l'ecrivain consomme pour composer l'en-tete du bloc au lieu de les
+			// emettre comme des lignes `cle = valeur`. Le procede n'est sur que
+			// parce qu'une cle reservee ne peut jamais entrer en collision avec
+			// un vrai nom de propriete -- et ca, ce n'est pas l'archive qui le
+			// garantit, c'est CE lexeur : un identifiant est
+			// `[A-Za-z_][A-Za-z0-9_]*` (`NkGIsAlpha`), donc `$` en est exclu.
+			//
+			// ⚠️ UNE GARANTIE EMPRUNTEE DOIT ETRE GARDEE LA OU ELLE EST PRODUITE.
+			//    Le jour ou quelqu'un ajoutera `$` aux identifiants -- pour des
+			//    variables, pour une interpolation, peu importe -- il le fera
+			//    ici, dans ce fichier, et il n'aura aucune raison de penser a une
+			//    couche d'archive qui vit ailleurs. C'est ce controle qui l'en
+			//    avertira, a l'endroit exact ou il travaille.
+			//
+			//    Sans lui, la collision serait SILENCIEUSE : une propriete
+			//    legitimement nommee `$type` serait avalee par l'en-tete du bloc
+			//    et disparaitrait du fichier reecrit.
+			{
+				check("21. (etape 4) `$` est refuse comme debut d'identifiant : la cle "
+					  "reservee $type ne peut pas entrer en collision avec une propriete",
+					  rejects("nkgui 0.3\nwidgets {\n  VBox \"v\" {\n    $type = 1\n  }\n}\n",
+							  "`$` n'est pas un caractere d'identifiant"),
+					  "");
+				// La contre-epreuve, sinon le refus ci-dessus pourrait venir de
+				// n'importe quelle autre faute de cette source : le MEME fichier
+				// avec un nom legal doit passer.
+				NkGDocument dOk;
+				NkGDiag eOk;
+				const bool ok = parse("nkgui 0.3\nwidgets {\n  VBox \"v\" {\n    type = 1\n  }\n}\n",
+									  dOk, eOk);
+				check("21b. (temoin) le MEME fichier avec un nom legal est ACCEPTE : le refus "
+					  "de 21 vient bien du `$`",
+					  ok, ok ? "" : eOk.message.Data());
+			}
+
 			rep.Append("\n=== CONTROLES : ");
 			rep.Append(NkGU32(pass));
 			rep.Append(" / ");
