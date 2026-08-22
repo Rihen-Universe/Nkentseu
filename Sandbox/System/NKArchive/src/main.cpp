@@ -63,6 +63,7 @@
 #include "NKSerialization/JSON/NkJSONWriter.h"
 #include "NKSerialization/Native/NkNativeFormat.h"
 #include "NKSerialization/Reflection/NkReflectSerializer.h"
+#include "NKSerialization/NkGui/NkGuiArchive.h"
 
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -1190,10 +1191,12 @@ static void T11_SectionInconnueVerbatim() {
 				&& n->value.type == NkArchiveValueType::NK_VALUE_STRING);
 }
 
+#include "NkGuiLayer.h"
+
 // =============================================================================
 // POINT D'ENTREE
 // =============================================================================
-int main() {
+int main(int argc, char **argv) {
 	// Sortie SANS TAMPON. Un banc qui peut tuer le processus (violation d'acces,
 	// assertion, corruption de tas) perd tout son tampon au moment precis ou la
 	// trace compte le plus -- on ne voit alors ni le dernier controle atteint ni
@@ -1218,6 +1221,17 @@ int main() {
 	T9_OrdreEntrelace();
 	T10_IdentiteDuNoeud();
 	T11_SectionInconnueVerbatim();
+
+	// La couche `.nkgui` proprement dite. Le dossier du corpus se passe en
+	// argument ; le defaut est celui du releve du 2026-08-22.
+	const char *corpus = "D:/Projets/Camrail/AI/CorpusUI/sortie/nkgui";
+	for (int a = 1; a < argc; ++a) {
+		if (argv[a] && argv[a][0] == '-' && argv[a][1] == '-') {
+			continue;
+		}
+		corpus = argv[a];
+	}
+	NkGuiLayerSuite(corpus);
 
 	const int total = s_pass + s_fail;
 	printf("\n---------------------------------------------------------\n");
