@@ -185,6 +185,36 @@ paramètres optionnels sur les deux bouts du round-trip — et non la copie du
 > travers `ToPolygons`/`BuildFromPolygons`, sinon il disparaît en silence à la
 > première opération d'édition.
 
+### ✅ RÉSORPTION (3) — huit opérations de plus transportent le matériau (2026-08-22)
+
+**Câblées ce jour** : `DeleteSelectedFaces`, `MakeFaceFromSelected`,
+`ExtrudeSelectedVertices`, `LoopCutFromSelectedEdge`, `BisectByPlane`,
+`SpinSelected`, `InsetSelectedFaces`, `SplitSelectedEdges`.
+Avec les quatre de la veille : **douze opérations** transportent l'index de
+matériau. Preuve : famille `matops/`, 12 cas, **tous rouges avant** (`slot1 → 0`).
+
+`EM_ToWeldedPolygons` a reçu le même paramètre optionnel que `ToPolygons` — c'est
+par elle que passent les opérations qui soudent avant d'éditer.
+
+### 🔴 TROIS OPÉRATIONS NON CÂBLÉES — et c'est un refus motivé, pas un oubli
+
+| opération | pourquoi elle n'est PAS câblée |
+|---|---|
+| `DissolveSelected` | **fusionne plusieurs faces en une**. De qui la survivante hérite-t-elle ? C'est la **même question non tranchée que la décimation** — une décision produit, pas un problème technique |
+| `BevelSelected` | émet trois familles de faces : celles d'origine (héritables), les **bandes de chanfrein** nées d'une *arête*, et les **faces de coin** nées d'un *sommet*. Les deux dernières n'ont **aucune face mère**. De plus son émission passe par une lambda `endFace` indexée sur un maillage temporaire : **je ne peux pas prouver l'alignement** avec `fm` |
+| `ExtrudeSelectedEdges` | ne passe ni par `ToPolygons` ni par `EM_ToWeldedPolygons` — chemin propre, à instruire séparément |
+
+> 🎯 **Pourquoi les laisser rouges plutôt que poser un câblage plausible** : un
+> transport mal aligné ne casse rien de visible, il **déplace silencieusement des
+> matériaux d'une face à l'autre**. C'est exactement la classe de défaut que ce
+> chantier existe pour éliminer. **Mieux vaut une limite connue qu'un câblage
+> supposé** — les trois lignes `matops/` correspondantes affichent `slot1 → 0` et
+> disent donc la vérité sur l'état du code.
+
+**Précédent applicable quand la décision sera prise** : pour `SpinSelected`, les
+bandes latérales — qui n'ont pas non plus de face mère — reçoivent le **slot 0**,
+choix écrit et assumé dans le code plutôt que subi.
+
 ### 🧾 CE QUI RESTE — dette nommée, et elle est mécanique
 
 **Trois opérations transportent le matériau** : subdivision linéaire,

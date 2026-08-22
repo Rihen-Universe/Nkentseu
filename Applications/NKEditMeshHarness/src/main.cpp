@@ -4320,10 +4320,73 @@ static void MatSurvieBattery() {
 		m.SelectAll();
 		NkShrinkFattenParams p;
 		p.offset = 0.2f;
-		m.ShrinkFattenSelected(p);
+		// ⚠️ ON AFFICHE `ok`, ET C EST TOUT L INTERET DE CETTE LIGNE. Premiere
+		// version de ce cas : elle annonçait « slot1 6 -> 6 » et passait pour
+		// verte -- alors que sur un cube SelectAll, ShrinkFatten est REFUSE
+		// (la reference le dit depuis toujours : « cube/selectall+shrinkfatten
+		// [REFUSE] »). Le materiau etait conserve parce que RIEN N AVAIT EU LIEU.
+		// C est exactement le faux vert deja pris sur mat/survie-extrusion, et je
+		// l ai reproduit moi-meme deux jours plus tard.
+		const bool ok = m.ShrinkFattenSelected(p);
 		m.RebuildEdges();
-		Put("{0:<34} slot1 {1} -> {2} | faces {3} -> {4} (INCHANGE attendu)", "matops/deformation-pure", av,
-			compte(m, 1), fav, vivantes(m));
+		Put("{0:<34} ok={1} slot1 {2} -> {3} | faces {4} -> {5} (si ok=0, ce cas ne prouve RIEN)",
+			"matops/deformation-pure", ok ? 1 : 0, av, compte(m, 1), fav, vivantes(m));
+	}
+	// ⚠️ AJOUTEES EN FIN, et j'ai du les DEPLACER pour ca. Premiere version :
+	// inserees avant le cas 7, elles decalaient toutes les lignes suivantes et
+	// `--check` signalait une divergence de VALEUR sur `matops/deformation-pure`
+	// alors qu'aucune valeur n'avait bouge. Meme erreur que `mat/survie-soudure`
+	// la veille : dans ce fichier, un cas neuf va TOUJOURS a la fin.
+	// ── 8 a 12. LES CINQ DERNIERES OPERATIONS ───────────────────────────────
+	// Chacune est deja exercee par la batterie principale (familles `cube/` et
+	// `grille4/`), donc on sait qu'elles fonctionnent. Ce qu'on ajoute ici est la
+	// seule chose qu'aucune ne mesurait : le materiau survit-il ?
+	// Chaque ligne porte `ok` ET le compte de faces : sans les deux, un « slot1
+	// conserve » peut vouloir dire « l'operation a ete refusee ».
+	{
+		struct Cas {
+				const char *nom;
+				int32 quoi; // 0 bevel, 1 inset, 2 split, 3 dissolve, 4 extrude-aretes
+		};
+		const Cas cs[5] = {{"matops/chanfrein", 0},
+						   {"matops/inset", 1},
+						   {"matops/split-aretes", 2},
+						   {"matops/dissolve", 3},
+						   {"matops/extruder-aretes", 4}};
+		for (int32 c = 0; c < 5; ++c) {
+			NkEditMesh m;
+			// La grille pour dissolve (refuse sur un cube ferme), le cube sinon.
+			if (cs[c].quoi == 3)
+				grille(m);
+			else
+				cube(m);
+			peindre(m);
+			const uint32 av = compte(m, 1), fav = vivantes(m);
+			m.SelectAll();
+			bool ok = false;
+			if (cs[c].quoi == 0) {
+				NkBevelParams p;
+				p.segments = 1;
+				ok = m.BevelSelected(p);
+			} else if (cs[c].quoi == 1) {
+				NkInsetParams p;
+				p.thickness = 0.1f;
+				ok = m.InsetSelectedFaces(p);
+			} else if (cs[c].quoi == 2) {
+				NkEdgeSplitParams p;
+				ok = m.SplitSelectedEdges(p);
+			} else if (cs[c].quoi == 3) {
+				NkDissolveParams p;
+				ok = m.DissolveSelected(p);
+			} else {
+				NkExtrudeParams p;
+				p.offset = 0.2f;
+				ok = m.ExtrudeSelectedEdges(p);
+			}
+			m.RebuildEdges();
+			Put("{0:<34} ok={1} slot1 {2} -> {3} | faces {4} -> {5}", cs[c].nom, ok ? 1 : 0, av, compte(m, 1), fav,
+				vivantes(m));
+		}
 	}
 }
 

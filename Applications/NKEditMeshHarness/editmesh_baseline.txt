@@ -200,4 +200,9 @@ matops/extruder-sommets            slot1 6 -> 6 | sommets 24 -> 27
 matops/coupe-de-boucle             slot1 16 -> 20 | faces 16 -> 20
 matops/coupe-par-plan              slot1 6 -> 10 | faces 6 -> 10
 matops/vis-revolution              slot1 16 -> 112 | faces 16 -> 112
-matops/deformation-pure            slot1 6 -> 6 | faces 6 -> 6 (INCHANGE attendu)
+matops/deformation-pure            ok=1 slot1 6 -> 6 | faces 6 -> 6 (si ok=0, ce cas ne prouve RIEN)
+matops/chanfrein                   ok=1 slot1 6 -> 0 | faces 6 -> 26
+matops/inset                       ok=1 slot1 6 -> 30 | faces 6 -> 30
+matops/split-aretes                ok=1 slot1 6 -> 6 | faces 6 -> 6
+matops/dissolve                    ok=1 slot1 16 -> 0 | faces 16 -> 1
+matops/extruder-aretes             ok=1 slot1 6 -> 0 | faces 6 -> 18
