@@ -31,8 +31,22 @@ par méthode plutôt qu'à l'impression.
 
 | domaine | API publique | exercée par un banc |
 |---|---|---|
-| `Mesh/NkEditMesh` | **102** méthodes | **69** |
+| `Mesh/NkEditMesh` (+ `NkEditHistory`, `NkMeshEditRecorder`, `NkModifierStack`) | **94** méthodes | **94** — ✅ **complet le 2026-08-22** |
 | `Materials/` (`NkMaterialSystem` + `NkMaterial` + `NkMaterialLibrary`) | **79** méthodes | **0** |
+
+> 📐 **Pourquoi 94 et non 102.** Le premier relevé comptait les **surcharges**
+> séparément (`FindById` const et non-const, etc.). La mesure porte désormais sur
+> le **nom de méthode publique**, ce qui rend le chiffre stable quand une
+> surcharge est ajoutée. Le périmètre couvert, lui, est le même — et il est
+> maintenant entier.
+>
+> ⚠️ **L'instrument de mesure avait lui-même un angle mort, trouvé en le
+> relançant.** Il cherchait les appels sous la forme `.Methode(` ou `->Methode(`
+> et **ne voyait donc pas les méthodes `static`**, appelées `Classe::Methode(`.
+> `ProportionalWeight` est ressortie « non couverte » alors qu'un cas l'exerçait.
+> *Un outil de couverture qui ignore une forme d'appel sous-estime en silence —
+> c'est la même famille d'erreur que compter des noms au lieu d'objets, appliquée
+> cette fois à l'outil et non au code.*
 
 ### ⚠️ Matériaux : zéro, et ce n'est pas un oubli — c'est un couplage
 
@@ -115,7 +129,11 @@ toutes **du banc**, et chacune enseigne quelque chose :
 > 25 projets ; **un banc qui affiche un chiffre faux est pire qu'un banc absent,
 > parce qu'on lui fait confiance.**
 
-### Maillage : 33 méthodes non exercées, dont deux ensembles qui comptent
+### ✅ Maillage : 33 méthodes non exercées — **toutes couvertes depuis le 2026-08-22**
+
+> Section conservée pour ce qu'elle enseigne sur la **méthode de mesure**. Les
+> trois ensembles ci-dessous sont désormais exercés : l'undo/redo par la famille
+> `hist/`, les six opérations par `ops/`, et les accesseurs par `acces/`.
 
 **1. La pile UNDO/REDO du maillage — entièrement non couverte.**
 `Push`, `CanUndo`/`CanRedo`, `UndoCount`/`RedoCount`, `SetLimit`, `ReplayOnto`,
@@ -142,6 +160,13 @@ jamais appelée.
 `EdgeIsBoundary`, `EdgeIsManifold`, `RadialTwin`, `FaceIsSelected`… Leur absence
 pèse moins : les cycles radial/disque sont exercés par la famille `bmesh2` à
 travers les opérations qui s'en servent.
+
+> ⚠️ **Cette dernière phrase était trop indulgente, et je la corrige.** « Exercé à
+> travers une opération qui s'en sert » prouve que le cycle radial est
+> *parcouru*, pas que `RadialTwin` **refuse** quand elle le doit. Un accesseur ne
+> casse rien de visible quand il ment : **il fait mentir celui qui s'en sert.**
+> Mesure faite : `RadialTwin` refuse bien sur les 12 demi-arêtes de bord d'une
+> grille — mais rien ne le prouvait avant le 2026-08-22.
 
 ### Chargeurs de maillage
 
@@ -188,6 +213,41 @@ quelqu'un remplace le cube de test.
    « parallèle » de `NkFBXParityDemo` et `matops/deformation-pure`) :
    **un contrôle d'égalité sans contrôle d'existence réussit toujours sur du
    vide.**
+
+
+### ✅ RÉSORPTION (5) — les 19 dernières méthodes publiques sont couvertes (2026-08-22, `b0c5c8fd`)
+
+**15 cas `acces/`** dans `NKEditMeshHarness` ferment la colonne trois côté
+maillage : **94 / 94**. Ce sont pour l'essentiel des **lectures** — prédicats de
+topologie, sélection, ombrage, triangulation d'affichage — plus les trois
+systèmes voisins (`NkMeshEditRecorder::Push`/`ReplayOnto`,
+`NkModifierStack::MoveDown`/`FindById`).
+
+**Aucun défaut trouvé dans le moteur.** Ce qui compte ici est donc la **forme des
+cas**, pas leur couleur :
+
+| règle appliquée | ce qu'elle empêche |
+|---|---|
+| Un prédicat est mesuré sur une forme où il dit **OUI** et une où il dit **NON** | la fonction qui rend toujours `true` passerait un test à un seul cas |
+| Une opération est jugée sur son **booléen ET son effet observable** | `MoveDown` rendant `true` sans rien déplacer ; `ReplayOnto` comptant sans appliquer |
+| Les quatre classes d'arête sont vérifiées comme une **partition** | quatre comptes figés qu'il faudrait remettre à jour à chaque changement de primitive |
+| Les courbes d'influence sont jugées sur leurs **invariants** (pleine au centre, nulle hors rayon, jamais croissante) | six valeurs en dur qui tomberaient au premier réglage de courbe |
+
+Trois observations qui valent d'être gardées :
+
+1. **`AnyFaceSmooth` et `AllFacesSmooth` ne se distinguent que sur un maillage
+   MIXTE.** Testées seulement en tout-plat et tout-lisse, une implantation qui
+   confondrait les deux passerait. Le cas pose donc explicitement le troisième
+   état (`mixte any=1 all=0`).
+2. **`RadialTwin` refuse correctement sur un bord** — 12 demi-arêtes de bord,
+   12 refus. C'est le contrat de l'en-tête (« en choisir un au hasard serait un
+   mensonge »), et rien ne l'attestait.
+3. ⚠️ **`GetEdgeLoop` rend 1 seule paire sur une arête de BORD, et 4 sur une
+   arête intérieure.** Le premier chiffre ressemblait à un défaut ; c'est le
+   contrat (« s'arrête proprement sur un pôle, un n-gon ou un bord »). Il a été
+   **mesuré sur les deux départs plutôt que supposé** — et `GetFaceLoop`, lui,
+   traverse la grille dans les deux cas, ce qui est bien la différence entre les
+   deux parcours.
 
 ---
 
@@ -360,6 +420,42 @@ un autre dorsal** (Render2D, dialecte GL → `non-opaque uniforms outside a bloc
 de « source invalide » — ils n'ont pas le même remède, et les confondre envoie
 réécrire un shader qui n'a jamais été lu. Le dossier de l'exécutable est ajouté comme
 **seconde racine** (additive ; le répertoire courant reste essayé en premier).
+
+#### 🔁 La même dette touchait les BANCS, et là elle est pire (2026-08-22, `ab71c751`)
+
+Un shader introuvable fait une image fausse — visible. Un **banc** lancé du mauvais
+endroit rend un **verdict** faux, et un verdict on le croit sur parole.
+
+Mesuré, binaire identique, seul le répertoire de travail change :
+
+| banc | depuis la racine | depuis son propre dossier |
+|---|---|---|
+| `NkAssetIODemo` | 53 OK / 0 FAIL, sortie 0 | **0 OK / 6 FAIL**, sortie 1 |
+| `NkFBXParityDemo` | 8 OK / 0 échec / 5 sautés, sortie 0 | **0 OK / 2 échecs** / 5 sautés, sortie 1 |
+| `NKEditMeshHarness` | 232 conforme, sortie 0 | 232 conforme, sortie 0 *(corrigé le 2026-08-22)* |
+
+> ⚠️ **Aucun des deux ne dit qu'il n'a rien trouvé : ils disent « ÉCHEC ».** Le
+> symptôme d'un chemin non résolu est *indiscernable* de celui d'un chargeur
+> cassé. Un vérificateur qui lance un banc depuis son dossier diagnostiquera un
+> défaut de chargeur qui n'existe pas — et le diagnostiquera **à chaque passe**.
+
+**Corrigé** : les deux portent désormais le même `CheminRessource()` que
+`NKEditMeshHarness` (essaie le chemin tel quel, puis en remontant). Prouvé par
+**deux** comparaisons, pas une : sortie **inchangée** depuis la racine (donc
+aucune régression) **et** identique depuis les deux répertoires (donc la dette est
+bien levée).
+
+> 🧾 **Dette assumée** : trois bancs portent maintenant la même fonction de dix
+> lignes. La mutualiser demanderait un en-tête commun aux bancs, qui n'existe
+> pas ; la mettre dans le Kernel polluerait le moteur avec un utilitaire de test.
+> Le commentaire de chaque copie nomme les deux autres.
+
+**Signalé, non corrigé — hors périmètre `Mesh/`** : `NkSLCheck` lit
+`Resources/NKRenderer/Shaders/...` par chemin relatif. Il est **moins dangereux**
+(il écrit honnêtement `[!] introuvable:` au lieu d'un échec), mais il fait
+`return 0` inconditionnellement : **son code de sortie ne signale jamais rien**.
+Un vérificateur qui ne lirait que sa sortie processus le croirait toujours vert.
+*(À l'agent qui tient NkSL / matgraph.)*
 
 **NON corrigé — décision de déploiement, hors périmètre d'un seul module** : déployer
 `Resources/` à côté des binaires (règle Jenga), ou résoudre depuis une racine de
