@@ -995,12 +995,21 @@ plus que prévu :
   rectangle en fait partie ; sorti, il n'en fait plus partie. Raison : une
   appartenance déclarée finit toujours par mentir quand on déplace les choses,
   et il faudrait alors la montrer, ce qui coûte un signal de plus.
-- 🔴 **NON TRANCHÉ : reprend-on la teinture des nœuds contenus ?** C'est le
-  micro-élément le plus fort de la référence, **et il entre en conflit direct
-  avec notre en-tête = catégorie**. Teindre un nœud en vert parce qu'il est dans
-  un cadre vert **écrase l'information de catégorie** — la seule qui survit au
-  dézoom (§ 12.2). **PROPOSÉ : on ne teinte QUE le filet du corps, jamais
-  l'en-tête.** Mais c'est un vrai arbitrage, et il revient à Rodolf.
+- ✅ **DÉCIDÉ (Rodolf, 22/08) : on ne teinte QUE le filet du corps, JAMAIS
+  l'en-tête.** C'est le micro-élément le plus fort de la référence, et c'est
+  précisément pour ça qu'on ne le reprend pas tel quel : il entre en conflit
+  direct avec **en-tête = catégorie**.
+
+  **La raison, en une phrase : l'en-tête porte la catégorie, et la catégorie est
+  la seule information qui survit au dézoom.** Au palier 25 % (§ 12.2), il ne
+  reste du nœud qu'un rectangle de couleur — cette couleur. La teindre en vert
+  pour dire « ce nœud appartient à ce cadre » **détruirait l'information la plus
+  robuste de l'éditeur** pour en afficher une **que le cadre dit déjà en
+  entourant les nœuds**. On échangerait un signal qui résiste à tout contre un
+  signal redondant à 100 % et absent à 25 %.
+
+  Le filet du corps, lui, est libre : il ne code rien d'autre, il est visible à
+  100 % et à 55 %, et il disparaît au dézoom sans rien emporter avec lui.
 - **le compteur `12 nœuds` est repris** : gratuit, et il dit tout de suite si un
   nœud est tombé du cadre sans qu'on le voie.
 - **repli du cadre** : le bandeau seul reste, avec `▸ Éclairage · 12 nœuds`.
@@ -1233,7 +1242,7 @@ la structure part en dernier.
 
 ---
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **13 restants sur 14**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
@@ -1246,7 +1255,7 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 4 | **`corps de boucle` / `terminé`** : un signal plus fort qu'une ligne vide ? | § 5.5 | la faute n° 1 du débutant |
 | 5 | **shader** : forme de prise propre, ou couleur + glyphe ? | § 6.3 | une septième forme de prise |
 | 6 | **groupe** : sur place ou en onglet ? aperçu du contenu ? | § 7.6 | choix de fenêtrage, pas de dessin |
-| 7 | **cadre** : teinte-t-il ses nœuds ? | § 9.2 | ⚠️ **entre en conflit avec l'en-tête = catégorie** |
+| ~~7~~ | ~~**cadre** : teinte-t-il ses nœuds ?~~ | § 9.2 | ✅ **TRANCHÉ le 22/08 : filet du corps seulement, jamais l'en-tête** — la catégorie est la seule information qui survit au dézoom |
 | 8 | **cadre replié** : où aboutissent les fils entrants ? | § 9.2 | aucune référence |
 | 9 | **fil sélectionné** : halo ou éclaircissement ? | § 10 | déjà ⚠️ dans C5 |
 | 10 | **croisement de fils** : dessus, dessous, saut ? | § 10 | déjà ⚠️ dans C6 |

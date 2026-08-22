@@ -1,5 +1,19 @@
 # Générateurs des planches de la spécification visuelle
 
+> ## ⚠️ LA RÈGLE
+>
+> **Une planche n'est pas « faite » quand le script se termine sans erreur —
+> elle l'est quand le PNG a été REGARDÉ.**
+>
+> Toutes les pannes listées plus bas passent l'intégralité des contrôles
+> automatiques : XML bien formé, poids plausible, code de retour nul. Aucune ne
+> survit à un coup d'œil.
+>
+> Et le coup d'œil attrape ce qu'aucun contrôle ne peut voir : dans la première
+> version de la planche 05, le nœud légendé « hors cadre » était dessiné
+> **dedans**. **La planche contredisait en image la règle qu'elle enseignait en
+> texte.** Le SVG était valide, le PNG au bon poids, le script sans erreur.
+
 Les planches `../planche_0*.svg` **ne sont pas dessinées à la main** : elles sont
 produites par ces scripts. Ils vivaient dans un dossier temporaire de session —
 c'est-à-dire nulle part. Ils sont ici pour que les planches restent
