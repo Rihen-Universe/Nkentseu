@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1800,1580
+W,H=1800,1625
 VERT='#4E9A5A'
 
 s=head(W,H,u'Planche 05 \u2014 textures, mat\u00e9riaux, commentaires et cadres',
@@ -270,9 +270,10 @@ c9,hc9=cartouche(X9,R3+400,640,[
   u'VU \u00b7 bandeau de titre plein, texte SOMBRE sur la teinte \u00b7 compteur \u00ab 7 nodes \u00bb align\u00e9 \u00e0 droite',
   u'PROPOS\u00c9 \u00b7 le cadre passe DERRI\u00c8RE tout \u00b7 l\u2019appartenance est G\u00c9OM\u00c9TRIQUE, jamais d\u00e9clar\u00e9e',
   u'PROPOS\u00c9 \u00b7 tirer le BANDEAU d\u00e9place cadre + n\u0153uds ; tirer le CORPS ne d\u00e9place que le cadre \u2014 deux curseurs',
-  u'\ud83d\udd34 NON TRANCH\u00c9 \u00b7 la r\u00e9f\u00e9rence teinte AUSSI l\u2019en-t\u00eate des n\u0153uds contenus. \u00c7a \u00c9CRASERAIT la cat\u00e9gorie,',
-  u'   la seule information qui survit au d\u00e9zoom. PROPOS\u00c9 ici : on ne teinte QUE le filet du corps.'],
-  u'ce qui est VU, ce qui est PROPOS\u00c9, ce qui reste \u00e0 trancher')
+  u'\u2705 TRANCH\u00c9 22/08 \u00b7 la r\u00e9f\u00e9rence teinte AUSSI l\u2019en-t\u00eate des n\u0153uds contenus. \u00c7a \u00c9CRASERAIT la CAT\u00c9GORIE,',
+  u'   la SEULE information qui survit au d\u00e9zoom : \u00e0 25 % il ne reste QUE ce rectangle de couleur.',
+  u'   D\u00c9CID\u00c9 \u00b7 on ne teinte QUE le filet du corps. Le cadre dit D\u00c9J\u00c0 l\u2019appartenance en ENTOURANT les n\u0153uds.'],
+  u'ce qui est VU, ce qui est D\u00c9CID\u00c9, ce qui reste \u00e0 trancher')
 s+=c9
 
 # --- 10 : les deux relais ------------------------------------------------

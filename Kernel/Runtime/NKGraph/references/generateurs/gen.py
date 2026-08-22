@@ -184,3 +184,41 @@ def ecrire(nom,contenu):
     with io.open(OUT+'/'+nom,'w',encoding='utf-8') as f:
         f.write(contenu+'</svg>\n')
     print('ecrit', nom)
+
+
+def rendre(nom, w, h, mini=80000):
+    """Rend le SVG en PNG, et REFUSE les deux pieges qui produisaient un
+    fichier valide et faux.
+
+    1. L'URL est construite ABSOLUE et prefixee file:/// . Passe en chemin
+       relatif, Edge prend l'argument pour un NOM D'HOTE, echoue en DNS et
+       capture SA PROPRE PAGE D'ERREUR : le PNG sort a la bonne taille.
+    2. Le poids du PNG est verifie. C'etait le SEUL indice du piege n°1 :
+       ~40 Ko pour une page d'erreur, ~200 Ko pour une vraie planche. Un
+       controle de taille minimale coute une ligne ; ne pas l'avoir a coute
+       une planche rendue trois fois avant qu'on regarde.
+
+    Ne remplace PAS le coup d'oeil : un PNG de bon poids peut dessiner une
+    regle a l'envers. Voir la regle en tete du LISEZMOI.
+    """
+    import os, subprocess
+    svg = os.path.join(OUT, nom + '.svg')
+    png = os.path.join(OUT, nom + '.png')
+    if not os.path.isfile(svg):
+        raise IOError('SVG absent : ' + svg)
+    url = 'file:///' + os.path.abspath(svg).replace(chr(92), '/')
+    exe = r'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
+    subprocess.run([exe, '--headless=new', '--disable-gpu',
+                    '--screenshot=' + png,
+                    '--window-size=%d,%d' % (w, h),
+                    '--allow-file-access-from-files', url],
+                   check=False, capture_output=True)
+    if not os.path.isfile(png):
+        raise IOError('aucun PNG produit : ' + png)
+    taille = os.path.getsize(png)
+    if taille < mini:
+        raise IOError(
+            'PNG SUSPECT : %d octets (< %d). Edge a probablement capture sa '
+            'page d erreur au lieu de la planche. Verifier l URL.' % (taille, mini))
+    print('rendu %s.png (%d octets)' % (nom, taille))
+    return png
