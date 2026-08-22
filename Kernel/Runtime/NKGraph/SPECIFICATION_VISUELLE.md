@@ -1259,15 +1259,38 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 
 ## 14. Les planches
 
-| planche | contenu |
-|---|---|
-| `references/planche_01_noeuds.svg` | **existante** — les formes de base dans le style de la principale |
-| `references/planche_02_types.svg` | les 7 familles, les 16 types, pastilles, prises, **tableaux et dictionnaires** |
-| `references/planche_03_formes.svg` | les 14 formes de nœud, dont custom, groupe, itérateur, aperçu |
-| `references/planche_04_etats.svg` | tous les états, le tirage, les trois gris, les trois paliers de dézoom |
-| `references/planche_05_matieres.svg` | textures et matériaux, aperçu ON/OFF, commentaire, cadre, relais |
+| planche | état | contenu |
+|---|---|---|
+| `references/planche_01_noeuds.svg` | ✅ | les formes de base dans le style de la principale |
+| `references/planche_02_types.svg` | ✅ | les 7 familles, les 16 types, pastilles, prises, **tableaux et dictionnaires** |
+| `references/planche_03_formes.svg` | ✅ | les 14 formes de nœud, dont custom, groupe, itérateur, aperçu |
+| `references/planche_04_etats.svg` | ✅ | tous les états, le tirage, les trois gris, les trois paliers de dézoom |
+| `references/planche_05_matieres.svg` | ✅ | aperçu ON/OFF · texture · sRVB sur Normale · matériau · aperçu périmé · la règle absolue · l'aperçu au dézoom · commentaire · cadre · les deux relais |
 
-Rendu PNG : `msedge --headless=new --screenshot --window-size=L,H fichier.svg`.
+Rendu PNG : `msedge --headless=new --screenshot --window-size=L,H file:///CHEMIN/ABSOLU/fichier.svg`.
+
+⚠️ **L'URL doit être absolue et préfixée `file:///`.** Passé en chemin relatif,
+Edge traite l'argument comme un **nom d'hôte**, ne trouve aucun DNS, et
+**capture sa propre page d'erreur** : le PNG sort à la bonne taille, sans rien
+signaler. Le seul indice est son poids — quelques dizaines de Ko au lieu de
+quelques centaines.
+
+### 14.1 Deux pièges du générateur, tous deux **silencieux**
+
+Notés parce qu'ils ont chacun produit un fichier **valide et faux** — la pire
+catégorie de panne, celle qui ne crie pas :
+
+1. ⚠️ **Les demi-caractères étaient JETÉS, pas recombinés.** Un caractère hors
+   du plan de base écrit en deux moitiés dans un script était supprimé à
+   l'écriture. La planche 02 est ainsi restée **amputée de deux marqueurs** (le
+   rond des points non tranchés, la loupe) sans que le SVG soit invalide une
+   seule seconde. Corrigé : on recombine avant de filtrer.
+2. ⚠️ **Le rendu PNG ne vérifiait pas ce qu'il capturait** (piège ci-dessus).
+
+**Règle qui en découle : une planche n'est pas « faite » quand le script se
+termine sans erreur — elle l'est quand le PNG a été REGARDÉ.** Les deux pannes
+ci-dessus passent tous les contrôles automatiques : XML bien formé, taille de
+fichier plausible, code de retour nul.
 
 ---
 
