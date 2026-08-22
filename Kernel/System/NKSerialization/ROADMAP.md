@@ -254,6 +254,51 @@ Enregistrer deux `float32` sur la même classe rend deux fois **le même**
 C++ pure, pas un comportement à mesurer. **Ne pas utiliser ce helper** pour plus
 d'une propriété d'un type donné : déclarer les `NkProperty` en statiques nommés.
 
+### Le pool de chaînes du document — (b), appliquée le 2026-08-22
+
+`Applications/NKUIDesign/src/NKUIDesign/NkDocStringPool.h`. Le propriétaire qui
+manquait aux quatre `const char *` du kit. **Trois contrats, pas trois détails
+d'implémentation :**
+
+**1. Durée de vie.** Une chaîne du pool vit **exactement** aussi longtemps que le
+document qui la porte. Un pointeur rendu par `Intern()` ne doit jamais survivre à
+son document — ni dans un cache, ni dans une capture, ni dans un rapport.
+
+**2. Identité — PAS de déduplication, et c'est un choix.** Deux nœuds employant
+`largeur_palette` reçoivent **deux adresses différentes**. Dédupliquer ferait
+marcher la comparaison d'adresse comme test d'égalité de nom — mais **seulement à
+l'intérieur d'un document** : deux documents, une copie, un import, et elle
+redevient fausse. Quelqu'un l'essaierait, ça marcherait dans son test, et ça
+casserait en silence bien plus tard. Sans déduplication, l'égalité d'adresse est
+*systématiquement* fausse : le premier qui l'essaie échoue **tout de suite**.
+**On préfère l'échec visible et immédiat à l'échec silencieux et différé.**
+
+Mesure qui rend le choix sûr : **0 comparaison d'adresse** sur ces champs dans
+tout le dépôt (vérifié le 2026-08-22 — toutes les résolutions passent par
+`StrEq`, via `NkComponentDecl::FindMetric` et `NkUIDocument::Metric` ; les seuls
+tests sur le pointeur sont `name && *name`). **Comparer par contenu, jamais par
+adresse.**
+
+**3. Stabilité des adresses — le piège qui tue ce genre de pool.** Un
+`NkVector<NkString>` **reloge** ses éléments en grandissant : tous les
+`const char *` déjà distribués deviennent pendouillants, et le document se
+corrompt **à la Nième métrique, pas à la première**. D'où `NkVector<NkString *>` :
+le vecteur de pointeurs peut se reloger, les `NkString` désignées ne bougent
+jamais.
+
+**Preuve — `NKUIDesign --pool-controles`, 528/528, sortie 0.** P1 stabilité des
+adresses sous croissance forcée, P2 le contrat de non-déduplication, P3 la
+contre-épreuve (un document **sans** métrique reste valide et ne coûte rien), P4
+l'aller-retour du nom (la source meurt, le champ survit), P5 possession et
+libération.
+
+⚠️ **Mutation 10 — le pool naïf, `NkVector<NkString>` qui reloge : 525/528, et
+P4 RESTE VERT.** L'aller-retour du nom — la preuve qu'on croyait décisive —
+n'interne qu'une seule chaîne, donc ne déclenche aucune réallocation et **ne peut
+pas voir** le défaut. Seul P1, qui force la croissance, l'attrape. **La preuve la
+plus proche du besoin n'est pas celle qui attrape le plus** — troisième fois que
+ce motif sort sur ce chantier.
+
 ### La correction (c) — appliquée le 2026-08-22
 
 **Un repli qui préserve `success` n'est pas un repli, c'est un mensonge.**
@@ -267,6 +312,13 @@ livré** (tous dans les bancs et les `tests/`), et **`1` seul** dont le retour
 change — celui écrit exprès pour exposer la dette. Après correction : `0`
 appelant sain cassé. `SandboxNKSerialization` 63/63, `SandboxNKArchive` 108/108,
 `NKUIDesign` 36/36, NKECS compile.
+
+⚠️ **LE VERDICT N'A PAS LA MÊME DÉFINITION DANS LES DEUX SENS.** C'est la
+nuance que « ne mens pas sur le verdict » ne portait pas, et l'ignorer aurait
+transformé la correction en **régression déguisée** : appliquer la règle
+d'écriture au sens lecture aurait fait rendre `false` à **tout document
+antérieur à son schéma**, cassant la compatibilité ascendante que R4/R5
+protègent — et personne ne l'aurait vu avant de rouvrir un vieux fichier.
 
 **Deux règles distinctes, et la différence est voulue :**
 
