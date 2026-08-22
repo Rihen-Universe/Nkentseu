@@ -18,6 +18,363 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 
 ---
 
+## 📊 COUVERTURE PAR LES BANCS CONSOLE — la « colonne trois » (mesuré le 2026-08-22)
+
+L'inventaire d'écart du mandat demandait trois colonnes : ce que la sandbox
+exerce · ce que le noyau offre · **ce qu'un banc console couvre**. La troisième
+est la seule qui dise si une capacité est *prouvée*. La voici, mesurée méthode
+par méthode plutôt qu'à l'impression.
+
+**Périmètre de la mesure** : les six bancs console sans fenêtre —
+`NKEditMeshHarness`, `NkEditableMeshDemo`, `NKSmoothMeshTest`, `NkAssetIODemo`,
+`NkFBXParityDemo`, `NKMatTypeResetTest`.
+
+| domaine | API publique | exercée par un banc |
+|---|---|---|
+| `Mesh/NkEditMesh` (+ `NkEditHistory`, `NkMeshEditRecorder`, `NkModifierStack`) | **94** méthodes | **94** — ✅ **complet le 2026-08-22** |
+| `Materials/` (`NkMaterialSystem` + `NkMaterial` + `NkMaterialLibrary`) | **79** méthodes | **0** |
+
+> 📐 **Pourquoi 94 et non 102.** Le premier relevé comptait les **surcharges**
+> séparément (`FindById` const et non-const, etc.). La mesure porte désormais sur
+> le **nom de méthode publique**, ce qui rend le chiffre stable quand une
+> surcharge est ajoutée. Le périmètre couvert, lui, est le même — et il est
+> maintenant entier.
+>
+> ⚠️ **L'instrument de mesure avait lui-même un angle mort, trouvé en le
+> relançant.** Il cherchait les appels sous la forme `.Methode(` ou `->Methode(`
+> et **ne voyait donc pas les méthodes `static`**, appelées `Classe::Methode(`.
+> `ProportionalWeight` est ressortie « non couverte » alors qu'un cas l'exerçait.
+> *Un outil de couverture qui ignore une forme d'appel sous-estime en silence —
+> c'est la même famille d'erreur que compter des noms au lieu d'objets, appliquée
+> cette fois à l'outil et non au code.*
+
+### ⚠️ Matériaux : zéro, et ce n'est pas un oubli — c'est un couplage
+
+**Aucun banc n'inclut un seul en-tête de `Materials/`.** (Contrôle que la commande
+sait trouver : les mêmes bancs incluent bien `NKRenderer/Mesh/*` et
+`NKRenderer/Core/NkGizmo.h`.)
+
+⚠️ **Quatre faux positifs écartés** : un comptage par nom de méthode donnait « 4
+couvertes » — `Bind`, `IsValid`, `Load`, `Save`. Ce sont des **collisions de
+noms** (le `Bind` d'un raccourci clavier, le `IsValid` d'un maillage, les
+`Load`/`Save` du graphe). Aucune n'est un appel matériau. *Compter des noms au
+lieu de mesurer des objets aurait transformé 0 en 4.*
+
+**La cause est connue et mesurée** : `NkMaterialSystem::Init` déréférence le
+device dès sa ligne 45, et `CreateInstance` fait `mDevice->CreateBuffer` sans
+garde (19 déréférencements de `mDevice->` au total). **Toute la sémantique
+intéressante est pourtant du CPU pur** — hiérarchie parent/enfant, masques
+d'override, propagation sélective, couches V1, sérialisation `.nkasset`. Elle est
+enfermée derrière une porte GPU.
+
+> ⚠️ `Materials/` appartient à l'agent **matgraph** depuis le 2026-08-22. Le
+> déverrouillage headless est **son** chantier, pas celui de nk3dmodeler.
+
+### ✅ RÉSORPTION EN COURS — la pile annuler/refaire est couverte (2026-08-22, `5c026b3d`)
+
+`NkEditHistory` est passée de **0 méthode exercée** à couverte par **7 cas
+`hist/`** dans `NKEditMeshHarness` : aller-retour, pile vide, plafond, branche
+abandonnée, chaîne de trois annulations, et la survie des attributs.
+
+**Aucun défaut trouvé** — la pile était juste. Mais deux choses méritent d'être
+notées, parce qu'une batterie verte du premier coup sur un système jamais exercé
+ne prouve rien par elle-même :
+
+1. ⚠️ **Les sept cas savent échouer, et c'est vérifié.** Deux défauts ont été
+   injectés dans `NkEditHistory` puis retirés : `EM_PushCapped` jetant le plus
+   **récent** (→ `hist/plafond` : `x 0.5 -> 0.5` au lieu de `-> 2.5`), et
+   `Commit` ne vidant plus la pile de refaire (→ `hist/branche-abandonnee` :
+   `apresNouveauCommit=1`, `canRedo=1`). Dans les deux essais, **les cinq autres
+   cas sont restés verts** : les cas ne se contaminent pas.
+2. ⚠️ **Un cas de cette batterie a dû être corrigé pour être lisible.** La
+   première version de `hist/plafond` affichait `x=2.5` **sans dire d'où l'on
+   part ni combien de retours ont eu lieu** — donc invérifiable, et incapable de
+   distinguer « 3 retours sur la bonne pile » de « 2 retours seulement ». Elle
+   affiche désormais `x0`, le nombre de remontées et la profondeur.
+   **Un chiffre sans son référentiel n'est pas une mesure.**
+
+La signature compare un **hachage d'état complet** (positions, index de matériau,
+sélection, rangs de sélection), pas un compte de sommets : une annulation qui
+restaure le bon *nombre* de sommets aux *mauvaises* positions passerait un
+comptage.
+
+> 🔗 Le cas `hist/materiau-survit` relie les deux chantiers : l'index de matériau
+> par face et les slots du maillage survivent bien à `Undo` après une
+> subdivision (`slot7 1 → 4 → 1`, slot `id=4242` conservé). C'était vrai « par
+> construction » puisque l'instantané est une copie — **et « par construction »
+> est exactement le genre d'affirmation qui devient fausse le jour où un champ
+> est ajouté après coup.** D'où la mesure.
+
+### ✅ RÉSORPTION (2) — les six opérations sans banc sont couvertes (2026-08-22, `85038194`)
+
+`BisectByPlane`, `DeleteSelectedFaces`, `ExtrudeSelectedVertices`,
+`LoopCutFromSelectedEdge`, `MakeFaceFromSelected`, `SpinSelected` : **7 cas
+`ops/`**, chacun mesurant l'effet **topologique** attendu et non le seul booléen
+de retour (une opération peut rendre `true` sans rien faire).
+
+**Aucun défaut trouvé dans le moteur.** Les trois anomalies apparentes venaient
+toutes **du banc**, et chacune enseigne quelque chose :
+
+| observation | vraie cause |
+|---|---|
+| `ops/vis-revolution` : **88 arêtes non-manifold** | **figure mal choisie** — l'axe traversait la grille, la surface balayée se recoupait. Axe décalé → `0 → 0`. Le chiffre ne disait rien du code |
+| `ops/coupe-par-plan` : **`nonmanif=18`** sur un cube manifold | ⚠️ **format désaligné** — sept `%u` pour six arguments. Le chiffre était **lu dans de la mémoire indéterminée**, et il était crédible |
+| `ops/extruder-sommets` : « faces pleines 6 → 9 » | **libellé faux** — le compteur incluait les **arêtes fil** (faces à 2 sommets), que l'extrusion de sommet crée par définition. Séparés : `6 → 6` pleines, `3` fils |
+
+> 🛡️ **Parade posée, et vérifiée en la faisant échouer** : `GraphPut` porte
+> désormais `__attribute__((format(printf, 1, 2)))`, et le fichier active
+> `#pragma GCC diagnostic error "-Wformat"`. **Un format désaligné arrête
+> maintenant la compilation**, dans ce fichier uniquement. Les ~60 appels
+> existants sont passés indemnes. Un avertissement se noie dans un build de
+> 25 projets ; **un banc qui affiche un chiffre faux est pire qu'un banc absent,
+> parce qu'on lui fait confiance.**
+
+### ✅ Maillage : 33 méthodes non exercées — **toutes couvertes depuis le 2026-08-22**
+
+> Section conservée pour ce qu'elle enseigne sur la **méthode de mesure**. Les
+> trois ensembles ci-dessous sont désormais exercés : l'undo/redo par la famille
+> `hist/`, les six opérations par `ops/`, et les accesseurs par `acces/`.
+
+**1. La pile UNDO/REDO du maillage — entièrement non couverte.**
+`Push`, `CanUndo`/`CanRedo`, `UndoCount`/`RedoCount`, `SetLimit`, `ReplayOnto`,
+`MoveDown`, `SelectionStamp`, `ApplyVertSel`.
+
+⚠️ **Piège évité** : le harnais contient bien `h.Undo(g)` / `h.Redo(g)` — mais
+c'est l'historique du **graphe** (`NkGraph`), pas celui du maillage. Un comptage
+par mot-clé aurait déclaré l'undo couvert.
+
+**2. Six opérations d'édition sans aucun banc** :
+`BisectByPlane`, `DeleteSelectedFaces`, `ExtrudeSelectedVertices`,
+`LoopCutFromSelectedEdge`, `MakeFaceFromSelected`, `SpinSelected`.
+
+⚠️ **Même piège pour `Spin`** : le harnais le mentionne, mais seulement comme
+**liaison de raccourci clavier** (`t.Bind("mesh.spin", …)`) — l'opération n'est
+jamais appelée.
+
+> 🎯 **La leçon de méthode, valable pour toute mesure de couverture** : chercher
+> le NOM d'une capacité et chercher son USAGE donnent deux résultats différents.
+> Ici l'écart valait 4 matériaux fantômes, un système d'undo, et une opération.
+> **Une couverture se mesure sur l'objet appelé, pas sur le mot trouvé.**
+
+**3. Le reste** (≈20) sont des accesseurs et requêtes de topologie —
+`EdgeIsBoundary`, `EdgeIsManifold`, `RadialTwin`, `FaceIsSelected`… Leur absence
+pèse moins : les cycles radial/disque sont exercés par la famille `bmesh2` à
+travers les opérations qui s'en servent.
+
+> ⚠️ **Cette dernière phrase était trop indulgente, et je la corrige.** « Exercé à
+> travers une opération qui s'en sert » prouve que le cycle radial est
+> *parcouru*, pas que `RadialTwin` **refuse** quand elle le doit. Un accesseur ne
+> casse rien de visible quand il ment : **il fait mentir celui qui s'en sert.**
+> Mesure faite : `RadialTwin` refuse bien sur les 12 demi-arêtes de bord d'une
+> grille — mais rien ne le prouvait avant le 2026-08-22.
+
+### Chargeurs de maillage
+
+| chargeur | banc |
+|---|---|
+| OBJ · glTF · FBX | `NkAssetIODemo`, `NkFBXParityDemo` |
+| PLY · STL · DAE · USDA | ✅ `NKEditMeshHarness`, famille `chargeurs/` (2026-08-22, `71959d15`) |
+
+**Les sept chargeurs sont désormais couverts** (contre trois). Les quatre ajoutés
+**fonctionnent tous** — aucun défaut trouvé :
+
+| | sommets | triangles | bbox |
+|---|---|---|---|
+| PLY ascii / binaire | 8 / 8 | 12 / 12 | cubique |
+| STL ascii / binaire | 36 / 36 | 12 / 12 | cubique |
+| DAE | 36 | 12 | cubique |
+| USDA | 24 | 12 | cubique |
+
+Le contrôle le plus fort de cette famille ne dépend d'**aucune valeur écrite à la
+main** : ASCII et binaire encodent le même cube, donc le chargeur est comparé
+**à lui-même**. Et la bbox attrape ce qu'un comptage laisse passer — axe permuté,
+échelle, boutisme. « Cubique » est testé comme une **relation entre les trois
+côtés** (égaux à 1 % près), pas contre une taille en dur : le banc reste juste si
+quelqu'un remplace le cube de test.
+
+### ⚠️ DEUX DÉFAUTS TROUVÉS — dans le banc, pas dans les chargeurs
+
+1. **Les six chargeurs rendaient `ok=0`** au premier essai. Cause : le banc était
+   lancé depuis `Applications/NKEditMeshHarness/` (le dossier où vit
+   `editmesh_baseline.txt`, donc celui d'où l'on fait `--check`), alors que
+   `Resources/` se résout depuis la **racine du worktree**. Le banc a besoin des
+   **deux répertoires à la fois** — insoluble par le seul répertoire courant.
+   C'est la **même dette que celle déjà nommée pour les shaders** : deux
+   politiques de chemin dans un même programme.
+   → Remède local : `CheminRessource()` essaie le chemin tel quel puis en
+   remontant. **Vérifié depuis les deux répertoires : sortie identique.** Cela
+   compte pour le vérificateur, qui ne sait pas d'où lancer un banc.
+   ⚠️ *Un banc muet parce qu'il a été lancé d'ailleurs est pire qu'un banc
+   absent : il rend `ok=0` et ressemble à un chargeur cassé.*
+2. **`identiques=1` sur deux zéros.** La comparaison ASCII/binaire testait
+   l'égalité sans tester l'existence — elle réussissait donc sur du vide, pendant
+   que les six chargeurs échouaient. Corrigée en exigeant `> 0`.
+   *Troisième occurrence de ce motif dans ce chantier* (après les deux cas
+   « parallèle » de `NkFBXParityDemo` et `matops/deformation-pure`) :
+   **un contrôle d'égalité sans contrôle d'existence réussit toujours sur du
+   vide.**
+
+
+### ✅ RÉSORPTION (5) — les 19 dernières méthodes publiques sont couvertes (2026-08-22, `b0c5c8fd`)
+
+**15 cas `acces/`** dans `NKEditMeshHarness` ferment la colonne trois côté
+maillage : **94 / 94**. Ce sont pour l'essentiel des **lectures** — prédicats de
+topologie, sélection, ombrage, triangulation d'affichage — plus les trois
+systèmes voisins (`NkMeshEditRecorder::Push`/`ReplayOnto`,
+`NkModifierStack::MoveDown`/`FindById`).
+
+**Aucun défaut trouvé dans le moteur.** Ce qui compte ici est donc la **forme des
+cas**, pas leur couleur :
+
+| règle appliquée | ce qu'elle empêche |
+|---|---|
+| Un prédicat est mesuré sur une forme où il dit **OUI** et une où il dit **NON** | la fonction qui rend toujours `true` passerait un test à un seul cas |
+| Une opération est jugée sur son **booléen ET son effet observable** | `MoveDown` rendant `true` sans rien déplacer ; `ReplayOnto` comptant sans appliquer |
+| Les quatre classes d'arête sont vérifiées comme une **partition** | quatre comptes figés qu'il faudrait remettre à jour à chaque changement de primitive |
+| Les courbes d'influence sont jugées sur leurs **invariants** (pleine au centre, nulle hors rayon, jamais croissante) | six valeurs en dur qui tomberaient au premier réglage de courbe |
+
+Trois observations qui valent d'être gardées :
+
+1. **`AnyFaceSmooth` et `AllFacesSmooth` ne se distinguent que sur un maillage
+   MIXTE.** Testées seulement en tout-plat et tout-lisse, une implantation qui
+   confondrait les deux passerait. Le cas pose donc explicitement le troisième
+   état (`mixte any=1 all=0`).
+2. **`RadialTwin` refuse correctement sur un bord** — 12 demi-arêtes de bord,
+   12 refus. C'est le contrat de l'en-tête (« en choisir un au hasard serait un
+   mensonge »), et rien ne l'attestait.
+3. ⚠️ **`GetEdgeLoop` rend 1 seule paire sur une arête de BORD, et 4 sur une
+   arête intérieure.** Le premier chiffre ressemblait à un défaut ; c'est le
+   contrat (« s'arrête proprement sur un pôle, un n-gon ou un bord »). Il a été
+   **mesuré sur les deux départs plutôt que supposé** — et `GetFaceLoop`, lui,
+   traverse la grille dans les deux cas, ce qui est bien la différence entre les
+   deux parcours.
+
+---
+
+## 🎨 MATÉRIAU PAR FACE (façon Blender) — livré partiellement (agent nk3dmodeler, 2026-08-21, `942fae39`)
+
+Demande de Rodolf : « un groupe de vertex ou de face **lier ou non** partage même
+material comme sur blender ». Le mot qui commande est **« lier ou non »** : deux
+faces d'un même matériau n'ont aucune raison d'être connexes.
+
+**Livré** — `NkEditMesh::Face::material` (index) + `NkEditMesh::materialSlots`
+(le maillage possède la liste, la face n'en porte que l'index) + `BuildSubMeshRanges`
+(sous-mailles **déduites** de l'index, un slot pouvant donner **plusieurs plages**)
++ `AssignMaterialToSelectedFaces` (règle Blender : faces dont **tous** les coins
+sont sélectionnés). Preuve : 11 cas `mat/` dans `NKEditMeshHarness`, référence
+passée de 169 à 180 lignes, les 169 premières identiques octet pour octet.
+
+### ⚠️ LE FAIT QUI A DICTÉ LA CONCEPTION — `smooth` NE SURVIT PAS AUX OPÉRATIONS
+
+**Mesuré, pas supposé** (cas `mat/temoin-smooth`) : 12 faces passées en SMOOTH,
+une subdivision, **`smooth 12 -> 0`**. Zéro survivante.
+
+**Cause** : toute opération d'édition passe par `ToPolygons`/`BuildFromPolygons`,
+qui **reconstruit des `Face` à neuf**. `ToPolygons` n'émettait **aucun attribut de
+face** — tout ce que portait `Face` était perdu à chaque opération.
+
+Si `smooth` n'a jamais gêné, c'est qu'il est **RE-DÉDUIT** par `BuildFromIndexed`
+en comparant les normales des coins : **l'ombrage EST une propriété des normales**.
+**Un matériau n'est déductible de rien.** D'où le transport explicite par
+paramètres optionnels sur les deux bouts du round-trip — et non la copie du
+« précédent `smooth` », qui aurait donné un champ vidé à la première subdivision.
+
+> 🎯 **Règle pour qui ajoute un attribut à `Face`** : demande-toi s'il est
+> **déductible de la géométrie**. Si non, il doit être transporté explicitement à
+> travers `ToPolygons`/`BuildFromPolygons`, sinon il disparaît en silence à la
+> première opération d'édition.
+
+### ✅ RÉSORPTION (3) — huit opérations de plus transportent le matériau (2026-08-22)
+
+**Câblées ce jour** : `DeleteSelectedFaces`, `MakeFaceFromSelected`,
+`ExtrudeSelectedVertices`, `LoopCutFromSelectedEdge`, `BisectByPlane`,
+`SpinSelected`, `InsetSelectedFaces`, `SplitSelectedEdges`.
+Avec les quatre de la veille : **douze opérations** transportent l'index de
+matériau. Preuve : famille `matops/`, 12 cas, **tous rouges avant** (`slot1 → 0`).
+
+`EM_ToWeldedPolygons` a reçu le même paramètre optionnel que `ToPolygons` — c'est
+par elle que passent les opérations qui soudent avant d'éditer.
+
+### 🔴 TROIS OPÉRATIONS NON CÂBLÉES — et c'est un refus motivé, pas un oubli
+
+| opération | pourquoi elle n'est PAS câblée |
+|---|---|
+| `DissolveSelected` | **fusionne plusieurs faces en une**. De qui la survivante hérite-t-elle ? C'est la **même question non tranchée que la décimation** — une décision produit, pas un problème technique |
+| `BevelSelected` | émet trois familles de faces : celles d'origine (héritables), les **bandes de chanfrein** nées d'une *arête*, et les **faces de coin** nées d'un *sommet*. Les deux dernières n'ont **aucune face mère**. De plus son émission passe par une lambda `endFace` indexée sur un maillage temporaire : **je ne peux pas prouver l'alignement** avec `fm` |
+| `ExtrudeSelectedEdges` | ne passe ni par `ToPolygons` ni par `EM_ToWeldedPolygons` — chemin propre, à instruire séparément |
+
+> 🎯 **Pourquoi les laisser rouges plutôt que poser un câblage plausible** : un
+> transport mal aligné ne casse rien de visible, il **déplace silencieusement des
+> matériaux d'une face à l'autre**. C'est exactement la classe de défaut que ce
+> chantier existe pour éliminer. **Mieux vaut une limite connue qu'un câblage
+> supposé** — les trois lignes `matops/` correspondantes affichent `slot1 → 0` et
+> disent donc la vérité sur l'état du code.
+
+**Précédent applicable quand la décision sera prise** : pour `SpinSelected`, les
+bandes latérales — qui n'ont pas non plus de face mère — reçoivent le **slot 0**,
+choix écrit et assumé dans le code plutôt que subi.
+
+### 🧾 CE QUI RESTE — dette nommée, et elle est mécanique
+
+**Trois opérations transportent le matériau** : subdivision linéaire,
+Catmull-Clark, extrusion (ses **deux** branches, `individual` et région).
+
+**Ne le transportent PAS encore** — même motif de câblage à appliquer :
+soudure (`MergeSelectedVerts`), `BevelSelected`, `InsetSelectedFaces`,
+`LoopCutFromSelectedEdge`, `DissolveSelected`, `BisectByPlane`,
+`SplitSelectedEdges`, `SpinSelected`, `ShrinkFattenSelected`,
+`MakeFaceFromSelected`, `DeleteSelectedFaces`.
+
+**Et une DÉCISION DE PRODUIT non tranchée** : à la **décimation**, quand une
+contraction fusionne deux faces de matériaux différents, de qui la survivante
+hérite-t-elle (la plus grande ? la première ? celle du sommet conservé) ? Le cas
+`mat/decim-non-tranche` **mesure** l'état actuel (`slot1 2 -> 0`) et le déclare
+explicitement « MESURE, pas un attendu » — écrire un attendu ici serait inventer
+une décision qui revient à Rodolf.
+
+### ⚠️ `smooth` perdu est un DÉFAUT RÉEL, laissé tel quel volontairement
+
+Poser « Shade Smooth » puis subdiviser rend le modèle facetté, **sans un message**.
+Non corrigé ici parce que le corriger déplace une valeur de référence et suppose
+une décision (l'ombrage suit-il la face mère, ou reste-t-il déduit ?). La ligne
+`mat/temoin-smooth` fige le comportement pour qu'un changement se voie.
+
+#### 🔴 REMONTÉ À RODOLF COMME UN CHOIX À FAIRE (arbitrage du 2026-08-22)
+
+**Le chiffre** : `smooth 12 → 0` — douze faces passées en SMOOTH, une
+subdivision, **zéro survivante** (cas `mat/temoin-smooth`).
+
+**La cause** : `ToPolygons` n'émet aucun attribut de face ; `BuildFromPolygons`
+reconstruit des `Face` neuves. `smooth` ne traverse donc rien — il est
+**re-dérivé** par `BuildFromIndexed` en comparant les normales des coins.
+
+**L'effet visible** : poser « Shade Smooth » sur un modèle puis subdiviser le
+rend **facetté, sans un message**.
+
+⚠️ **POURQUOI CE N'EST PAS LA MÊME RÉPARATION QUE LE MATÉRIAU, ET POURQUOI IL NE
+FAUT PAS LES ENCHAÎNER.** Le chantier matériau-par-face a **prouvé que les deux
+champs ne sont pas la même espèce de donnée** :
+
+| | `smooth` | `material` |
+|---|---|---|
+| nature | **dérivée** — l'ombrage EST une propriété des normales | **choix** — dérivable de rien |
+| remède | re-dériver, ou décider qu'il se transporte | **doit** être transporté |
+
+Les corriger ensemble ferait croire à un mécanisme commun qui n'existe pas. Le
+transport per-face est en place et pourrait porter `smooth` en trois lignes —
+**c'est justement pour ça qu'il faut se retenir** : la vraie question n'est pas
+technique, elle est *« l'ombrage suit-il la face mère, ou reste-t-il déduit de la
+géométrie ? »*. Les deux réponses sont défendables :
+- **suivre la mère** = ce que fait Blender, l'utilisateur garde son choix ;
+- **rester déduit** = une surface lissée dense reste lissée même sans mémoire,
+  et l'import d'un modèle externe retrouve le bon ombrage tout seul.
+
+**C'est une décision de Rodolf, pas une dette à solder en douce.** Tant qu'elle
+n'est pas prise, la ligne `mat/temoin-smooth` garde le comportement sous
+surveillance : s'il change, le harnais le dira.
+
+---
+
 ## 🧾 DETTES NOMMÉES — chantier « dettes NKRenderer » (agent nkrenderer, 2026-08-16)
 
 Ouvert sur décision de Rodolf : « on doit remplir cette dette ». **Ce qui suit est
@@ -63,6 +420,42 @@ un autre dorsal** (Render2D, dialecte GL → `non-opaque uniforms outside a bloc
 de « source invalide » — ils n'ont pas le même remède, et les confondre envoie
 réécrire un shader qui n'a jamais été lu. Le dossier de l'exécutable est ajouté comme
 **seconde racine** (additive ; le répertoire courant reste essayé en premier).
+
+#### 🔁 La même dette touchait les BANCS, et là elle est pire (2026-08-22, `ab71c751`)
+
+Un shader introuvable fait une image fausse — visible. Un **banc** lancé du mauvais
+endroit rend un **verdict** faux, et un verdict on le croit sur parole.
+
+Mesuré, binaire identique, seul le répertoire de travail change :
+
+| banc | depuis la racine | depuis son propre dossier |
+|---|---|---|
+| `NkAssetIODemo` | 53 OK / 0 FAIL, sortie 0 | **0 OK / 6 FAIL**, sortie 1 |
+| `NkFBXParityDemo` | 8 OK / 0 échec / 5 sautés, sortie 0 | **0 OK / 2 échecs** / 5 sautés, sortie 1 |
+| `NKEditMeshHarness` | 232 conforme, sortie 0 | 232 conforme, sortie 0 *(corrigé le 2026-08-22)* |
+
+> ⚠️ **Aucun des deux ne dit qu'il n'a rien trouvé : ils disent « ÉCHEC ».** Le
+> symptôme d'un chemin non résolu est *indiscernable* de celui d'un chargeur
+> cassé. Un vérificateur qui lance un banc depuis son dossier diagnostiquera un
+> défaut de chargeur qui n'existe pas — et le diagnostiquera **à chaque passe**.
+
+**Corrigé** : les deux portent désormais le même `CheminRessource()` que
+`NKEditMeshHarness` (essaie le chemin tel quel, puis en remontant). Prouvé par
+**deux** comparaisons, pas une : sortie **inchangée** depuis la racine (donc
+aucune régression) **et** identique depuis les deux répertoires (donc la dette est
+bien levée).
+
+> 🧾 **Dette assumée** : trois bancs portent maintenant la même fonction de dix
+> lignes. La mutualiser demanderait un en-tête commun aux bancs, qui n'existe
+> pas ; la mettre dans le Kernel polluerait le moteur avec un utilitaire de test.
+> Le commentaire de chaque copie nomme les deux autres.
+
+**Signalé, non corrigé — hors périmètre `Mesh/`** : `NkSLCheck` lit
+`Resources/NKRenderer/Shaders/...` par chemin relatif. Il est **moins dangereux**
+(il écrit honnêtement `[!] introuvable:` au lieu d'un échec), mais il fait
+`return 0` inconditionnellement : **son code de sortie ne signale jamais rien**.
+Un vérificateur qui ne lirait que sa sortie processus le croirait toujours vert.
+*(À l'agent qui tient NkSL / matgraph.)*
 
 **NON corrigé — décision de déploiement, hors périmètre d'un seul module** : déployer
 `Resources/` à côté des binaires (règle Jenga), ou résoudre depuis une racine de

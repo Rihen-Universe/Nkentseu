@@ -22,6 +22,7 @@
 // APERCU DE MATERIAU rendu par le moteur : sa mini-scene vit a part, dans son
 // propre fichier -- ce fichier-ci en compte deja pres de dix-sept mille.
 #include "NK3DModeler/Viewport/NkMatPreview3D.h"
+#include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -15061,64 +15062,87 @@ namespace nkentseu {
 			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
 			return ok ? (int32)nkvpProjMats[i].matType : 0;
 		}
+		// ── APPLIQUE LA LIGNE DE DEFAUTS DU TYPE, ENTIERE ──────────────────
+		// Recopie CHAMP PAR CHAMP et SANS CONDITION. Le `static_assert` juste en
+		// dessous est le garde-fou : si `NkVpProjMat` grandit, il casse le BUILD
+		// au lieu de laisser un champ traverser en silence — c'est precisement ce
+		// qui s'est produit le 14 aout, ou une liste de deux `if` a survecu a
+		// l'ajout de plusieurs champs sans que rien ne le signale.
+		static void NkVpApplyMatParams(NkVpProjMat &m, const NkVpMatParams &d) {
+			m.albedo[0] = d.albedo[0];
+			m.albedo[1] = d.albedo[1];
+			m.albedo[2] = d.albedo[2];
+			m.rough = d.rough;
+			m.metal = d.metal;
+			m.clearcoat = d.clearcoat;
+			m.ccRough = d.ccRough;
+			m.subsurface = d.subsurface;
+			m.nrmStrength = d.nrmStrength;
+			m.emiStrength = d.emiStrength;
+			m.emissive[0] = d.emissive[0];
+			m.emissive[1] = d.emissive[1];
+			m.emissive[2] = d.emissive[2];
+			m.parallax = d.parallax;
+			m.shadowMode = d.shadowMode;
+			m.alpha = d.alpha;
+			m.aniso = d.aniso;
+			m.sheenV = d.sheenV;
+			m.toonThresh = d.toonThresh;
+			m.toonSmooth = d.toonSmooth;
+			m.toonShadow[0] = d.toonShadow[0];
+			m.toonShadow[1] = d.toonShadow[1];
+			m.toonShadow[2] = d.toonShadow[2];
+			m.outlineW = d.outlineW;
+			m.outlineCol[0] = d.outlineCol[0];
+			m.outlineCol[1] = d.outlineCol[1];
+			m.outlineCol[2] = d.outlineCol[2];
+			m.rimI = d.rimI;
+			m.rimCol[0] = d.rimCol[0];
+			m.rimCol[1] = d.rimCol[1];
+			m.rimCol[2] = d.rimCol[2];
+			m.specHard = d.specHard;
+			m.emiEclaire = (d.emiEclaire != 0);
+		}
+		// ⚠️ SI CE `static_assert` CASSE, C'EST QU'UN CHAMP A ETE AJOUTE A
+		// `NkVpProjMat`. Demande-toi s'il est un PARAMETRE DE MATIERE :
+		//   • oui  -> ajoute-le a `NkVpMatParams` (NkVpMatTypeDefaults.h), a la
+		//             table de descripteurs, a la ligne de base, et a la recopie
+		//             ci-dessus. Le banc NKMatTypeResetTest verifie la couverture.
+		//   • non  -> (nom, apercu, lien de melange...) ajuste juste la taille ici,
+		//             en disant pourquoi il ne se reinitialise pas.
+		// NE TE CONTENTE PAS DE CORRIGER LE NOMBRE : c'est ce raccourci qui a fait
+		// revenir le defaut une deuxieme fois.
+		static_assert(sizeof(NkVpProjMat) == 1480,
+					  "NkVpProjMat a change de taille : relire le commentaire ci-dessus "
+					  "avant de toucher a ce nombre (materiau par type, 22 aout)");
+
 		void Demo3DHostProjMatSetType(int32 i, int32 type) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
 				return;
 			if ((int32)nkvpProjMats[i].matType == type)
 				return;
-		// ── CE QUI APPARTENAIT A L'ANCIEN TYPE S'EN VA AVEC LUI ──────────
-			// « Quand je change son type, ca conserve des valeurs communes au type
-			// echange » (Rihen, 14 aout). En effet : les prereglages posent des
-			// valeurs -- le verre son opacite, l'emissif sa teinte -- et elles
-			// restaient apres coup. Repasser un verre en Standard laissait un objet
-			// transparent sans que rien ne l'explique dans le panneau, puisque
-			// l'opacite n'y est plus montree pour ce type.
+			// ── UN TYPE EST UN PREREGLAGE : EN CHANGER REINITIALISE TOUT ───────
+			// « ca devait faire comme si on avait reset ce dernier aux valeurs par
+			// defaut du nouveau type » (Rodolf, 21 aout — deja signale le 14).
 			//
-			// On neutralise donc les reglages PROPRES au type quitte. C'est un choix
-			// assume : un verre regle a 0,3 repasse en Standard puis en Verre
-			// retrouvera 0,12, pas 0,3. Prevoir l'autre comportement demanderait de
-			// retenir quelle valeur vient d'un prereglage et laquelle d'un geste --
-			// une memoire de plus pour un cas rare, contre une regle qu'on peut
-			// enoncer en une phrase.
-			{
-				const int32 ancien = (int32)nkvpProjMats[i].matType;
-				if (ancien == 5 && type != 5)
-					nkvpProjMats[i].alpha = 1.f; // le verre rendait opaque
-				if (ancien == 11 && type != 11) {
-					nkvpProjMats[i].emissive[0] = 0.f;
-					nkvpProjMats[i].emissive[1] = 0.f;
-					nkvpProjMats[i].emissive[2] = 0.f;
-				}
-			}
+			// L'ancienne correction neutralisait les reglages PROPRES au type quitte,
+			// cas par cas (verre -> alpha, emissif -> emissive), et ne posait le
+			// defaut du nouveau type QUE si la valeur n'avait jamais ete touchee.
+			// Deux defauts en un : la liste laissait passer tout ce qui n'y figurait
+			// pas, et le « sauf si » faisait dependre le resultat d'un historique
+			// invisible — le meme geste donnait deux resultats.
+			//
+			// Desormais : la ligne du nouveau type, ENTIERE, SANS CONDITION.
 			nkvpProjMats[i].matType = (uint8)(type < 0 ? 0 : (type > 255 ? 0 : type));
-			// UN TYPE EST UN PREREGLAGE (decision d'architecture du 12 aout) :
-			// choisir « Verre » doit donner une VITRE tout de suite, sans aller
-			// chercher un curseur. On ne pose ce defaut que si l'opacite n'a
-			// jamais ete touchee (exactement 1) — un reglage voulu se garde.
-			// L'opacite reste ensuite pleinement reglable : a 1 on obtient un
-			// verre teinte/laque, opaque MAIS qui reflete toujours.
-			if (type == 5 /* NK_GLASS */ && nkvpProjMats[i].alpha >= 0.999f)
-				nkvpProjMats[i].alpha = 0.12f;
-			// MEME REGLE POUR L'EMISSIF (11). Un materiau emissif ne rend QUE son
-			// emission : tant qu'elle est noire -- sa valeur de depart -- l'objet
-			// est NOIR, quelle que soit l'intensite. Choisir « Emissif » donnait
-			// donc un objet eteint, ce qui se lit comme une panne (Rihen, 14 aout :
-			// type Emissif, intensite 14,88, sphere noire).
-			//
-			// L'emission part de la COULEUR DE BASE, et non d'un blanc arbitraire :
-			// on emet la teinte que l'utilisateur a deja choisie. Une emission deja
-			// reglee n'est pas touchee -- un reglage voulu se garde.
-			if (type == 11 /* NK_EMISSIVE */ && nkvpProjMats[i].emissive[0] <= 0.001f &&
-				nkvpProjMats[i].emissive[1] <= 0.001f &&
-				nkvpProjMats[i].emissive[2] <= 0.001f) {
-				const float32 base[3] = {nkvpProjMats[i].albedo[0], nkvpProjMats[i].albedo[1],
-										 nkvpProjMats[i].albedo[2]};
-				const bool albedoNoir =
-					base[0] <= 0.001f && base[1] <= 0.001f && base[2] <= 0.001f;
-				nkvpProjMats[i].emissive[0] = albedoNoir ? 1.f : base[0];
-				nkvpProjMats[i].emissive[1] = albedoNoir ? 1.f : base[1];
-				nkvpProjMats[i].emissive[2] = albedoNoir ? 1.f : base[2];
-			}
+			NkVpApplyMatParams(nkvpProjMats[i], NkVpMatTypeDefaultsFor((int32)nkvpProjMats[i].matType));
+			// LES TEXTURES PARTENT AUSSI — « on doit tout vider meme les texture,
+			// c'est comme ca que fait blender » (Rodolf, 22 aout). Sans graphe de
+			// noeuds, une texture est une PROPRIETE du materiau : le type change,
+			// elle part. (Avec un graphe, l'image serait un NOEUD a part, qui
+			// resterait dans le graphe simplement debranche — meme regle, autre
+			// support de donnee. Cf. NkVpMatTypeDefaults.h.)
+			for (int32 c = 0; c < kNkvpMatChanCount; ++c)
+				nkvpProjMats[i].maps[c][0] = ' ';
 			HostMatRebuildEngine(i); // changer de type = changer de gabarit
 		}
 		void Demo3DHostProjMatPBRExtra(int32 i, float32 *alpha, float32 *aniso,

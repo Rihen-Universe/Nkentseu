@@ -129,6 +129,38 @@ namespace nkentseu {
 				// Deux membres de meme nom ajoutes a deux
 				// ENDROITS differents de la struct ne produisent AUCUN conflit textuel :
 				// git garde sagement les deux, et l erreur n apparait qu a la compilation.
+				// 4e occurrence le 2026-08-21 : le merge ec69f2ac (feat/nkanimation) a
+				// remis les deux membres, NKRenderer ne compilait plus sur main (22
+				// erreurs, 11 fichiers). Si tu ajoutes un nom ici, CHERCHE d abord.
+				//
+				// ── LIMITE CONNUE, ECRITE FAUTE DE PARADE (2026-08-22) ──────────────
+				// Le 21/08 au soir, `main` et huit branches ont ete corrigees puis
+				// propagees par cherry-pick aux dix arbres. Cela couvre les POINTES des
+				// branches : une fusion depuis l'une d'elles ne peut plus reintroduire le
+				// doublon.
+				//
+				// ⚠️ CE QUE CA NE COUVRE PAS : une branche creee a partir d'une base
+				// ANTERIEURE au correctif. Le reservoir n'est pas dans les branches
+				// vivantes, il est dans l'HISTORIQUE — et l'historique ne se corrige pas.
+				// Une telle branche reintroduira le doublon a sa fusion.
+				//
+				// Pourquoi aucune parade n'est posee ici. Un membre double EST DEJA une
+				// erreur de compilation : une parade n'ajouterait aucune detection, elle
+				// changerait seulement le MOMENT et le LIEU ou on l'apprend. Le cout des
+				// quatre recidives n'a jamais ete « on ne savait pas », c'est « on l'a su
+				// trop tard et ailleurs » — a la compilation, souvent sur la branche de
+				// quelqu'un d'autre.
+				//
+				// La seule parade qui tienne seule a ete REPRODUITE ET MESUREE dans un
+				// depot jetable : `.gitattributes` avec `merge=binary` sur ce fichier rend
+				// un vrai CONFLICT a la fusion, et il est versionne donc present dans les
+				// dix arbres sans installation. Son cout : toute edition concurrente de ce
+				// fichier devient un conflit manuel, soit ~7 changements legitimes par mois.
+				// (Le crochet `pre-merge-commit` a ete teste et ELIMINE : silencieux en
+				// avance rapide, muet sur rebase/cherry-pick, et non versionne.)
+				// Cinq agents editent ce depot en parallele : cette taxe est une decision
+				// de Rodolf, elle lui est posee. Tant qu'elle n'est pas prise, la limite
+				// ci-dessus est ce qu'il faut savoir.
 				NkString name;
 				NkVec3f translation = {0, 0, 0};
 				NkVec4f rotation = {0, 0, 0, 1}; // quaternion (x,y,z,w)
