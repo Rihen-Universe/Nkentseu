@@ -206,3 +206,12 @@ matops/inset                       ok=1 slot1 6 -> 30 | faces 6 -> 30
 matops/split-aretes                ok=1 slot1 6 -> 6 | faces 6 -> 6
 matops/dissolve                    ok=1 slot1 16 -> 0 | faces 16 -> 1
 matops/extruder-aretes             ok=1 slot1 6 -> 0 | faces 6 -> 18
+chargeurs/ply-ascii                ok=1 sommets=8 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/ply-binaire              ok=1 sommets=8 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/stl-ascii                ok=1 sommets=36 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/stl-binaire              ok=1 sommets=36 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/dae                      ok=1 sommets=36 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/usda                     ok=1 sommets=24 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
+chargeurs/ply-ascii-vs-binaire     PLY ascii/bin sommets 8/8 tris 12/12 identiques=1 | cote 2.000/2.000
+chargeurs/stl-ascii-vs-binaire     STL ascii/bin sommets 36/36 tris 12/12 identiques=1 | cote 2.000/2.000
+chargeurs/refus-fichier-absent     ply=0 stl=0 dae=0 usda=0 (0 attendu partout)

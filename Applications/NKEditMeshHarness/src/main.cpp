@@ -41,6 +41,10 @@
 #include "NKRenderer/Mesh/NkMeshRetopo.h"
 #include "NKRenderer/Mesh/NkMeshDecimate.h"
 #include "NKRenderer/Mesh/NkMeshAnalysis.h"
+#include "NKRenderer/Mesh/NkPLYLoader.h"
+#include "NKRenderer/Mesh/NkSTLLoader.h"
+#include "NKRenderer/Mesh/NkDAELoader.h"
+#include "NKRenderer/Mesh/NkUSDALoader.h"
 #include "NKRenderer/Core/NkGizmo.h"
 #include "NKEditorKit/NkTheme.h"
 #include "NKEditorKit/NkShortcutTable.h"
@@ -4390,6 +4394,158 @@ static void MatSurvieBattery() {
 	}
 }
 
+// ── LES QUATRE CHARGEURS QUI N AVAIENT AUCUN BANC ───────────────────────────
+// POURQUOI CETTE BATTERIE EXISTE
+// Mesure de la colonne trois (cf. NKRenderer/ROADMAP.md) : OBJ, glTF et FBX sont
+// couverts par NkAssetIODemo et NkFBXParityDemo. **PLY, STL, DAE et USDA ne
+// l etaient par aucun banc du depot** -- quatre chargeurs livres, jamais exerces.
+//
+// CE QUE MESURE LA SIGNATURE
+// Le compte de sommets et de triangles, plus la BOITE ENGLOBANTE. Le compte seul
+// ne suffit pas : un chargeur qui lit les bons NOMBRES aux mauvaises POSITIONS
+// (permutation d axes, echelle, boutisme) passerait un comptage. La bbox attrape
+// ces trois-la.
+//
+// ⚠️ LA FIGURE EST UN CUBE, ET C EST CE QUI REND LE BANC LISIBLE : sa bbox doit
+// etre un cube centre. Une bbox non cubique denonce immediatement une echelle ou
+// un axe permute, sans qu on ait besoin de connaitre le fichier.
+//
+// ⚠️ PLY et STL sont exerces en ASCII **ET** en BINAIRE, et la ligne compare les
+// deux entre eux : deux encodages du meme cube doivent donner la MEME geometrie.
+// C est le controle le plus fort de cette batterie, parce qu il ne depend
+// d aucune valeur ecrite a la main -- il compare le chargeur a lui-meme.
+//
+// REGIMES COUVERTS : lecture de fichiers presents, et refus propre sur fichier
+// absent. NON COUVERT : les materiaux et les hierarchies de ces formats (DAE et
+// USDA en portent ; ce banc ne regarde que la geometrie), et les gros fichiers.
+// ⚠️ LE BANC NE DOIT PAS DEPENDRE DU REPERTOIRE DE LANCEMENT.
+// Constate ici meme : lance depuis `Applications/NKEditMeshHarness` (le dossier
+// ou vit `editmesh_baseline.txt`, donc celui d'ou l'on fait `--check`), les six
+// chargeurs rendaient `ok=0` sur toute la ligne -- non parce qu'ils sont casses,
+// mais parce que `Resources/` se resout depuis la RACINE du worktree. Le banc a
+// donc besoin des DEUX repertoires a la fois, et c'est insoluble par le seul
+// repertoire courant.
+// C'est la meme dette que celle deja nommee pour les shaders dans le CLAUDE.md
+// parent : deux politiques de chemin dans un meme programme.
+// Remede local : on essaie le chemin tel quel, puis en remontant de deux crans.
+// Un banc muet parce qu'il a ete lance d'ailleurs est pire qu'un banc absent --
+// il rend `ok=0` et ressemble a un chargeur casse.
+static NkString CheminRessource(const char *relatif) {
+	const char *prefixes[3] = {"", "../../", "../../../"};
+	for (int32 i = 0; i < 3; ++i) {
+		NkString essai = NkString(prefixes[i]) + NkString(relatif);
+		FILE *f = fopen(essai.Data(), "rb");
+		if (f) {
+			fclose(f);
+			return essai;
+		}
+	}
+	return NkString(relatif); // aucun trouve : on rend l'original, le chargeur dira non
+}
+
+static void LoadersBattery() {
+	struct Cas {
+			const char *nom;
+			const char *chemin;
+			int32 type; // 0 PLY, 1 STL, 2 DAE, 3 USDA
+	};
+	const Cas cs[6] = {
+		{"chargeurs/ply-ascii", "Resources/Models/test/cube_ascii.ply", 0},
+		{"chargeurs/ply-binaire", "Resources/Models/test/cube_bin.ply", 0},
+		{"chargeurs/stl-ascii", "Resources/Models/test/cube_ascii.stl", 1},
+		{"chargeurs/stl-binaire", "Resources/Models/test/cube_bin.stl", 1},
+		{"chargeurs/dae", "Resources/Models/test/cube.dae", 2},
+		{"chargeurs/usda", "Resources/Models/test/cube.usda", 3},
+	};
+
+	// Empreintes gardees pour la comparaison ASCII <-> binaire.
+	uint32 vPly[2] = {0, 0}, tPly[2] = {0, 0};
+	uint32 vStl[2] = {0, 0}, tStl[2] = {0, 0};
+	float32 dPly[2] = {0.f, 0.f}, dStl[2] = {0.f, 0.f};
+
+	for (int32 c = 0; c < 6; ++c) {
+		renderer::NkGLTFMeshData d;
+		bool ok = false;
+		if (cs[c].type == 0)
+			ok = renderer::LoadPLY(CheminRessource(cs[c].chemin), d);
+		else if (cs[c].type == 1)
+			ok = renderer::LoadSTL(CheminRessource(cs[c].chemin), d);
+		else if (cs[c].type == 2)
+			ok = renderer::LoadDAE(CheminRessource(cs[c].chemin), d);
+		else
+			ok = renderer::LoadUSDA(CheminRessource(cs[c].chemin), d);
+
+		const uint32 nv = (uint32)d.vertices.Size();
+		const uint32 nt = (uint32)d.indices.Size() / 3u;
+		// Boite englobante : c est elle qui attrape un axe permute ou une echelle.
+		float32 mnx = 1e30f, mny = 1e30f, mnz = 1e30f;
+		float32 mxx = -1e30f, mxy = -1e30f, mxz = -1e30f;
+		for (uint32 i = 0; i < nv; ++i) {
+			const NkVec3f &p = d.vertices[i].pos;
+			if (p.x < mnx)
+				mnx = p.x;
+			if (p.y < mny)
+				mny = p.y;
+			if (p.z < mnz)
+				mnz = p.z;
+			if (p.x > mxx)
+				mxx = p.x;
+			if (p.y > mxy)
+				mxy = p.y;
+			if (p.z > mxz)
+				mxz = p.z;
+		}
+		const float32 dx = (nv ? mxx - mnx : 0.f), dy = (nv ? mxy - mny : 0.f), dz = (nv ? mxz - mnz : 0.f);
+		// « Cubique » : les trois cotes egaux a 1 % pres. Une RELATION entre les
+		// trois dimensions, pas une valeur en dur -- le banc reste juste si
+		// quelqu un remplace le cube de test par un cube d une autre taille.
+		const float32 mx = (dx > dy ? (dx > dz ? dx : dz) : (dy > dz ? dy : dz));
+		const float32 mn = (dx < dy ? (dx < dz ? dx : dz) : (dy < dz ? dy : dz));
+		const int32 cubique = (mx > 1e-6f && (mx - mn) / mx < 0.01f) ? 1 : 0;
+
+		if (cs[c].type == 0) {
+			vPly[c] = nv;
+			tPly[c] = nt;
+			dPly[c] = dx;
+		} else if (cs[c].type == 1) {
+			vStl[c - 2] = nv;
+			tStl[c - 2] = nt;
+			dStl[c - 2] = dx;
+		}
+
+		Put("{0:<34} ok={1} sommets={2} triangles={3} | bbox {4:.3f}x{5:.3f}x{6:.3f} cubique={7}", cs[c].nom,
+			ok ? 1 : 0, nv, nt, dx, dy, dz, cubique);
+	}
+
+	// ── LA COMPARAISON QUI NE DEPEND D AUCUNE VALEUR ECRITE A LA MAIN ────────
+	// ⚠️ `> 0` EN PLUS DE L EGALITE, ET CE N EST PAS DU ZELE. Premiere version :
+	// elle testait `vPly[0] == vPly[1]` seul, et annoncait « identiques=1 » alors
+	// que les DEUX valaient zero -- les fichiers n etaient pas trouves. Un
+	// controle d egalite sans controle d existence reussit toujours sur du vide.
+	// ASCII et binaire encodent le MEME cube : le chargeur doit rendre la meme
+	// geometrie. Si les deux divergent, l un des deux chemins est faux -- et on
+	// le sait sans avoir eu besoin de connaitre le bon compte.
+	Put("{0:<34} PLY ascii/bin sommets {1}/{2} tris {3}/{4} identiques={5} | cote {6:.3f}/{7:.3f}",
+		"chargeurs/ply-ascii-vs-binaire", vPly[0], vPly[1], tPly[0], tPly[1],
+		(vPly[0] > 0u && vPly[0] == vPly[1] && tPly[0] == tPly[1]) ? 1 : 0, dPly[0], dPly[1]);
+	Put("{0:<34} STL ascii/bin sommets {1}/{2} tris {3}/{4} identiques={5} | cote {6:.3f}/{7:.3f}",
+		"chargeurs/stl-ascii-vs-binaire", vStl[0], vStl[1], tStl[0], tStl[1],
+		(vStl[0] > 0u && vStl[0] == vStl[1] && tStl[0] == tStl[1]) ? 1 : 0, dStl[0], dStl[1]);
+
+	// ── REFUS PROPRE SUR FICHIER ABSENT ─────────────────────────────────────
+	// Un chargeur qui rend `true` sur un fichier inexistant ferait passer un
+	// maillage VIDE pour un import reussi.
+	{
+		renderer::NkGLTFMeshData a, b, e, u;
+		const int32 rp = renderer::LoadPLY(NkString("Resources/Models/test/_absent_.ply"), a) ? 1 : 0;
+		const int32 rs = renderer::LoadSTL(NkString("Resources/Models/test/_absent_.stl"), b) ? 1 : 0;
+		const int32 rd = renderer::LoadDAE(NkString("Resources/Models/test/_absent_.dae"), e) ? 1 : 0;
+		const int32 ru = renderer::LoadUSDA(NkString("Resources/Models/test/_absent_.usda"), u) ? 1 : 0;
+		Put("{0:<34} ply={1} stl={2} dae={3} usda={4} (0 attendu partout)", "chargeurs/refus-fichier-absent", rp,
+			rs, rd, ru);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -4435,6 +4591,8 @@ int main(int argc, char **argv) {
 	WindingBattery();
 	// AJOUTEE EN FIN, meme raison : les 196 lignes precedentes gardent leur numero.
 	MatSurvieBattery();
+	// AJOUTEE EN FIN, meme raison : les 208 lignes precedentes gardent leur numero.
+	LoadersBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
