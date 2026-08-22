@@ -1506,7 +1506,9 @@ namespace nkentseu {
 		bool NkEditMesh::ExtrudeSelectedVertices(const NkExtrudeParams &p) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// MATERIAU PAR FACE : transporte a travers le round-trip. Les faces conservees gardent leur index.
+			NkVector<uint16> fm;
+			ToPolygons(pv, fs, fv, &fm);
 			const uint32 baseVerts = (uint32)pv.Size();
 			NkVector<uint32> src; // sommets sélectionnés
 			for (uint32 i = 0; i < (uint32)verts.Size() && i < baseVerts; i++)
@@ -1529,8 +1531,14 @@ namespace nkentseu {
 				fv.PushBack(a); // arête fil a-b
 				fv.PushBack(b);
 				fs.PushBack((uint32)fv.Size());
+				// Une ARETE FIL n'est pas une surface : elle ne porte pas de
+				// materiau, donc slot 0. Mais elle DOIT avoir son entree, sinon
+				// `fm` et `fs` se desalignent et toutes les faces suivantes
+				// changeraient de materiau en silence.
+				fm.PushBack(0);
 			}
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1, fv.Data());
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1, fv.Data(),
+							  fm.Data());
 			ApplyVertSel(vsel);
 			return true;
 		}
@@ -1596,7 +1604,10 @@ namespace nkentseu {
 		bool NkEditMesh::DeleteSelectedFaces() {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// MATERIAU PAR FACE : transporte a travers le round-trip. Les faces survivantes gardent leur index ; la face supprimee ne laisse rien.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			ToPolygons(pv, fs, fv, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			NkVector<int32> remap;
 			remap.Resize((uint32)pv.Size());
@@ -1623,10 +1634,12 @@ namespace nkentseu {
 					nfv.PushBack((uint32)remap[vi]);
 				}
 				nfs.PushBack((uint32)nfv.Size());
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
 			if (removed == 0)
 				return false;
-			BuildFromPolygons(nv2.Data(), (uint32)nv2.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(nv2.Data(), (uint32)nv2.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+							  nfm.Data());
 			ApplyVertSel(vsel);
 			return true;
 		}
@@ -2579,7 +2592,9 @@ namespace nkentseu {
 		bool NkEditMesh::MakeFaceFromSelected() {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// MATERIAU PAR FACE : transporte a travers le round-trip. Les faces conservees gardent leur index.
+			NkVector<uint16> fm;
+			ToPolygons(pv, fs, fv, &fm);
 			// ── 1) UN SEUL REPRÉSENTANT PAR SOMMET TOPOLOGIQUE ──────────────────────
 			NkVector<uint32> canon;
 			BuildVertexMerge(canon);
@@ -2657,11 +2672,15 @@ namespace nkentseu {
 			for (uint32 k = 0; k < (uint32)sel.Size(); k++)
 				fv.PushBack(sel[k]);
 			fs.PushBack((uint32)fv.Size());
+			// LA FACE NEUVE N'HERITE DE PERSONNE : elle n'a pas de face mere, donc
+			// slot 0. Son entree reste OBLIGATOIRE pour que `fm` suive `fs`.
+			fm.PushBack(0);
 			NkVector<uint8> keep;
 			keep.Resize((uint32)pv.Size());
 			for (uint32 i = 0; i < (uint32)keep.Size(); i++)
 				keep[i] = (i < (uint32)verts.Size() ? verts[i].sel : (uint8)0);
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1, fv.Data());
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1, fv.Data(),
+							  fm.Data());
 			ApplyVertSel(keep);
 			return true;
 		}
@@ -2863,7 +2882,10 @@ namespace nkentseu {
 			} while (h != h0 && ++guard < 100000u);
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// MATERIAU PAR FACE : transporte a travers le round-trip. Chaque bande issue d un quad herite du quad d origine.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			ToPolygons(pv, fs, fv, &fm);
 			auto isRing = [&](uint32 a0, uint32 b0) -> bool {
 				const uint32 a = CV(a0), b = CV(b0);
 				uint32 lo = a < b ? a : b, hi = a < b ? b : a;
@@ -2965,6 +2987,7 @@ namespace nkentseu {
 					nfv.PushBack(B[(uint32)(cuts - 1)]);
 					nfv.PushBack(q3);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					// Bandes intermédiaires : Ai, Ai+1, B(cuts-2-i), B(cuts-1-i)
 					for (int32 c = 0; c + 1 < cuts; c++) {
 						nfv.PushBack(A[(uint32)c]);
@@ -2972,6 +2995,7 @@ namespace nkentseu {
 						nfv.PushBack(B[(uint32)(cuts - 2 - c)]);
 						nfv.PushBack(B[(uint32)(cuts - 1 - c)]);
 						nfs.PushBack((uint32)nfv.Size());
+						nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					}
 					// Bande finale : A(cuts-1), q1, q2, B0
 					nfv.PushBack(A[(uint32)(cuts - 1)]);
@@ -2979,15 +3003,18 @@ namespace nkentseu {
 					nfv.PushBack(q2);
 					nfv.PushBack(B[0]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 				} else {
 					for (uint32 k = s; k < e; k++)
 						nfv.PushBack(fv[k]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 				}
 			}
 			if (!changed)
 				return false;
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+							  nfm.Data());
 			ApplyVertSel(vsel);
 			return true;
 		}
@@ -3026,11 +3053,19 @@ namespace nkentseu {
 
 		// Polygones SOUDÉS : un sommet par position (représentant du groupe coïncident).
 		// vsel = sélection soudée (OU logique du groupe) ; wmap[i] = indice soudé de i.
+		// `ofm`, quand il est fourni, recoit l'index de materiau de chaque face
+		// EMISE -- donc apres le saut des faces effondrees par la soudure. C'est
+		// pour ca qu'il est rempli au meme endroit que `fs`, et pas dans une boucle
+		// separee : les deux tableaux doivent sauter les memes faces.
 		static void EM_ToWeldedPolygons(const NkEditMesh &m, NkVector<NkVertex3D> &pv, NkVector<uint32> &fs,
-										NkVector<uint32> &fv, NkVector<uint8> &vsel, NkVector<uint32> &wmap) {
+										NkVector<uint32> &fv, NkVector<uint8> &vsel, NkVector<uint32> &wmap,
+										NkVector<uint16> *ofm = nullptr) {
 			NkVector<NkVertex3D> rv;
 			NkVector<uint32> rfs, rfv;
-			m.ToPolygons(rv, rfs, rfv);
+			NkVector<uint16> rfm;
+			m.ToPolygons(rv, rfs, rfv, ofm ? &rfm : nullptr);
+			if (ofm)
+				ofm->Clear();
 			NkVector<uint32> canon;
 			m.BuildVertexMerge(canon);
 			const uint32 n = (uint32)rv.Size();
@@ -3074,6 +3109,8 @@ namespace nkentseu {
 					continue;
 				} // face effondrée
 				fs.PushBack((uint32)fv.Size());
+				if (ofm)
+					ofm->PushBack(f < (uint32)rfm.Size() ? rfm[f] : (uint16)0);
 			}
 		}
 
@@ -3910,7 +3947,10 @@ namespace nkentseu {
 			NkVector<uint32> fs, fv;
 			NkVector<uint8> vsel;
 			NkVector<uint32> wmap;
-			EM_ToWeldedPolygons(*this, pv, fs, fv, vsel, wmap);
+			// MATERIAU PAR FACE : transporte a travers la revolution.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			EM_ToWeldedPolygons(*this, pv, fs, fv, vsel, wmap, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			const uint32 baseVC = (uint32)pv.Size();
 			if (baseVC == 0)
@@ -3987,6 +4027,7 @@ namespace nkentseu {
 				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
 					nfv.PushBack(fv[k]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
 			if (p.duplicate) { // copies ISOLÉES des faces sélectionnées à chaque pas
 				for (int32 k = 1; k <= steps; ++k)
@@ -3996,6 +4037,8 @@ namespace nkentseu {
 						for (uint32 q = fs[f]; q < fs[f + 1]; ++q)
 							nfv.PushBack(ring[(uint32)k * pn + (uint32)slot[fv[q]]]);
 						nfs.PushBack((uint32)nfv.Size());
+						// Chaque copie herite de la face dont elle est la copie.
+						nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					}
 			} else { // bandes reliant les anneaux consécutifs
 				for (int32 k = 0; k < steps; ++k) {
@@ -4022,6 +4065,14 @@ namespace nkentseu {
 							nfv.PushBack(a1);
 						}
 						nfs.PushBack((uint32)nfv.Size());
+						// ⚠️ UNE BANDE LATERALE N'A PAS DE FACE MERE : elle nait
+						// d'une ARETE du profil, pas d'une face. Slot 0, donc, et
+						// c'est un CHOIX assume, pas un oubli -- heriter d'une des
+						// deux faces adjacentes privilegierait arbitrairement un
+						// cote. A rouvrir si l'usage montre que c'est genant.
+						// ⚠️ NON EXERCE par matops/vis-revolution, qui utilise
+						// duplicate=true : ce chemin-ci est celui de duplicate=false.
+						nfm.PushBack(0);
 					}
 				}
 			}
@@ -4031,7 +4082,8 @@ namespace nkentseu {
 				nsel[i] = 0;
 			for (uint32 j = 0; j < pn; ++j) // sélection = DERNIER anneau (façon Blender)
 				nsel[ring[(uint32)steps * pn + j]] = 1;
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+							  nfm.Data());
 			ApplyVertSel(nsel);
 			return true;
 		}
@@ -4186,7 +4238,10 @@ namespace nkentseu {
 		bool NkEditMesh::BisectByPlane(const NkVec3f &pPoint, const NkVec3f &pNormal, const NkMat4f &xform) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// MATERIAU PAR FACE : transporte a travers le round-trip. Les morceaux d une face coupee heritent de la face d origine.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			ToPolygons(pv, fs, fv, &fm);
 			NkVector<float32> sd;
 			sd.Resize((uint32)pv.Size());
 			for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
@@ -4237,20 +4292,24 @@ namespace nkentseu {
 					for (uint32 i = c0; i <= c1; i++)
 						nfv.PushBack(loop[i]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					for (uint32 i = c1; i < L; i++)
 						nfv.PushBack(loop[i]);
 					for (uint32 i = 0; i <= c0; i++)
 						nfv.PushBack(loop[i]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 				} else {
 					for (uint32 i = 0; i < (uint32)loop.Size(); i++)
 						nfv.PushBack(loop[i]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 				}
 			}
 			if (!changed)
 				return false;
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+							  nfm.Data());
 			NkVector<uint8> vsel;
 			vsel.Resize((uint32)pv.Size());
 			for (uint32 i = 0; i < (uint32)vsel.Size(); i++)
