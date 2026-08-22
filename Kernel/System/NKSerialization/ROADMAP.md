@@ -225,12 +225,73 @@ l'aller-retour en ayant perdu sa raison d'être. Fait de typage sous-jacent :
 la réflexion classe `const char *` en `NK_POINTER`, jamais `NK_STRING`
 (`NkType.h` l. 500).
 
+### ⚠️ Un type de VALEUR ne doit pas devenir POLYMORPHE pour être sérialisable
+
+Contrainte de conception établie le 2026-08-22, et elle resservira bien au-delà
+de ce module.
+
+`NKENTSEU_REFLECT_CLASS` est **intrusive** : elle injecte dans la classe un
+`using SelfType`, une méthode statique, **et une méthode virtuelle**
+`GetClass()`. Appliquée à un type de valeur simple comme `NkSizeDecl` (cinq
+champs, agrégat, aucun héritage), elle lui donnerait une **vtable** : `sizeof`
+change, la disposition mémoire change, `offsetof` devient douteux, le type cesse
+d'être un agrégat. Pour un type de mise en page instancié partout dans le kit,
+c'est un coût structurel imposé par un besoin de sérialisation — l'inverse du
+sens de dépendance souhaitable.
+
+**La voie non intrusive existe et doit être préférée** :
+`NkReflectSerializer::ResolveClass<T>()` (`NkReflectSerializer.h` l. 143-151) a
+un repli SFINAE vers `NkRegistry::Get().GetClass<T>()` quand `T::GetStaticClass()`
+n'existe pas. On peut donc construire un `NkClass` **depuis l'extérieur** —
+`NkClass(nom, sizeof, NkTypeOf<T>())`, des `NkProperty(nom, type, offset)`,
+`AddProperty`, puis `RegisterClass` — **sans toucher au type réfléchi**.
+
+⚠️ **Piège dans le helper prévu pour ça.** `NkClass::RegisterMemberProperty`
+(`NkClass.h` l. 524) déclare son `NkProperty` en `static` **local à une fonction
+template** : il n'y en a donc **qu'un par instanciation `<ClassType, ValueType>`**.
+Enregistrer deux `float32` sur la même classe rend deux fois **le même**
+`NkProperty`, et la seconde propriété écrase la première. C'est de la sémantique
+C++ pure, pas un comportement à mesurer. **Ne pas utiliser ce helper** pour plus
+d'une propriété d'un type donné : déclarer les `NkProperty` en statiques nommés.
+
+### La correction (c) — appliquée le 2026-08-22
+
+**Un repli qui préserve `success` n'est pas un repli, c'est un mensonge.**
+`SerializeReflected` rendait `true` **inconditionnellement**, en ayant omis en
+silence toute propriété qu'elle ne savait pas écrire — quatre sites, tous
+commentés « ignoré ». Idem pour `DeserializeReflected`.
+
+**Mesure d'impact faite AVANT la correction, pas après** : `19` appels de
+`SerializeObject`/`DeserializeObject` dans tout le dépôt, dont **`0` en code
+livré** (tous dans les bancs et les `tests/`), et **`1` seul** dont le retour
+change — celui écrit exprès pour exposer la dette. Après correction : `0`
+appelant sain cassé. `SandboxNKSerialization` 63/63, `SandboxNKArchive` 108/108,
+`NKUIDesign` 36/36, NKECS compile.
+
+**Deux règles distinctes, et la différence est voulue :**
+
+- **écriture** — toute propriété perdue rend `false`. On écrit quand même tout ce
+  qu'on peut : une archive partielle vaut mieux que rien, du moment que le retour
+  dit la vérité.
+- **lecture** — une clé **absente** est **légitime** (champ optionnel, document
+  d'une version antérieure) et ne rend pas `false` ; la traiter en erreur
+  casserait la compatibilité ascendante. Seule une clé **présente et illisible**
+  rend `false` : la donnée est dans le fichier et n'arrive pas dans l'objet.
+
+Verrouillé par `wrote == false` dans C5, plus un témoin de non-régression sur un
+type sain (`Point`) qui doit continuer à rendre `true`. **Mutation 8** — retour
+de `WriteScalarProperty` de nouveau jeté : **62/63**, `SerializeObject -> true`,
+le mensonge revient et le banc le voit.
+
 **Trois réponses possibles, arbitrage ouvert** (il touche le kit, donc le
 gardien de la forme) : (a) gérer `const char *` dans le pont — trivial en
 écriture, impossible en lecture sans propriétaire ; (b) faire porter au document
 un pool de chaînes dans lequel les `const char *` pointent ; (c) refuser
-explicitement au lieu de retourner `true` — **celle-là est à faire quoi qu'il
-arrive**, une omission silencieuse ne devrait jamais rendre `true`.
+explicitement au lieu de retourner `true` — **FAITE le 2026-08-22**, voir la
+section ci-dessus. (a) est **abandonnée** : triviale en écriture, impossible en
+lecture sans propriétaire — une voie qui ne marche que dans un sens n'est pas une
+voie. **(b) est la conception retenue**, et la réflexion non intrusive la rend
+abordable.
 
 ### `NkArchive` porte la mise en forme d'origine — 2026-08-21
 
