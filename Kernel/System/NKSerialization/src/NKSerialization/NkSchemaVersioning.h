@@ -679,6 +679,41 @@ namespace nkentseu {
 			 * NK_SCHEMA_CURRENT_VERSION(PlayerData, 1, 2, 0);
 			 * @endcode
 			 */
+			/**
+			 * @brief La version courante enregistrée pour un type
+			 * @param typeId Identifiant du type via NkTypeOf<T>()
+			 * @param found Optionnel : reçoit false si le type n'est pas enregistré
+			 * @return La version enregistrée, ou {0,0,0} si le type est inconnu
+			 * @ingroup SchemaRegistry
+			 *
+			 * ⚠️ AJOUTÉ LE 2026-08-22, ET LE MANQUE ÉTAIT STRUCTUREL. `MigrateArchive`
+			 *    amène une archive « à la version courante » sans jamais dire laquelle.
+			 *    L'appelant qui doit ensuite RÉESTAMPILLER son document — c'est le cas
+			 *    de tout format TEXTE, où la version est écrite dans le fichier et non
+			 *    dans `__meta__` — n'avait d'autre choix que de recopier la constante
+			 *    chez lui. Deux sources de vérité pour un même nombre, et la seconde
+			 *    dérive au premier changement de version.
+			 *
+			 * @note Lecture seule : sûre en concurrence une fois les enregistrements
+			 *       faits (mêmes garanties que MigrateArchive).
+			 */
+			[[nodiscard]] static NkSchemaVersion GetCurrentVersion(NkTypeId typeId,
+																   nk_bool *found = nullptr) noexcept {
+				auto &reg = Global();
+				for (nk_size i = 0; i < reg.mVersions.Size(); ++i) {
+					if (reg.mVersions[i].typeId == typeId) {
+						if (found) {
+							*found = true;
+						}
+						return reg.mVersions[i].version;
+					}
+				}
+				if (found) {
+					*found = false;
+				}
+				return NkSchemaVersion();
+			}
+
 			static void SetCurrentVersion(NkTypeId typeId, NkSchemaVersion version) noexcept {
 				auto &reg = Global();
 				for (nk_size i = 0; i < reg.mVersions.Size(); ++i) {

@@ -824,6 +824,153 @@ static void L15_MemeLigne() {
 	}
 }
 
+/// La transformation de la fixture de L16 : `label` devient `text`, partout, en
+/// descendant. Elle passe par l'ARCHIVE et rien d'autre -- c'est tout l'interet
+/// d'avoir une couche qui rend une archive et pas un modele.
+static void NkGRenommeRec(NkArchive &ar) {
+	NkArchiveNode *v = ar.FindNode(NkStringView("label"));
+	if (v) {
+		const NkArchiveNode copie = *v;
+		const nk_int32 rang = ar.GetSourceOrder(NkStringView("label"));
+		const NkString lead(ar.FindNode(NkStringView("label"))->LeadingTrivia());
+		ar.Remove(NkStringView("label"));
+		ar.SetNode(NkStringView("text"), copie);
+		ar.SetSourceOrder(NkStringView("text"), rang);
+		ar.SetLeadingTrivia(NkStringView("text"), NkStringView(lead));
+	}
+	NkArchiveNode *body = ar.FindNode(NkStringView(NkGuiArchive::KeyBody()));
+	if (!body || !body->IsArray()) {
+		return;
+	}
+	for (nk_size i = 0; i < body->array.Size(); ++i) {
+		if (body->array[i].IsObject() && body->array[i].object) {
+			NkGRenommeRec(*body->array[i].object);
+		}
+	}
+}
+
+static nk_bool NkGRenommeLabel(NkArchive &ar, NkSchemaVersion, NkSchemaVersion) noexcept {
+	NkGRenommeRec(ar);
+	return true;
+}
+
+// =============================================================================
+// L16 -- LES MIGRATIONS  (etape 5)
+// =============================================================================
+// `NkSchemaRegistry` migre des `NkArchive`, et cette couche PRODUIT des
+// `NkArchive` : le branchement ne demande aucun adaptateur. Trois choses ont
+// pourtant du etre reglees, et aucune n'etait devinable sans essayer.
+//
+//  1. `MigrateArchive` ecrit la version atteinte dans `__meta__.schema_version`.
+//     C'est une convention de format BINAIRE. Laissee en place dans un document
+//     texte, elle SORT DANS LE FICHIER : `__meta__ = { schema_version = 0.3.0 }`,
+//     une propriete que personne n'a ecrite, au milieu du document de
+//     l'utilisateur. La version d'un `.nkgui` a un seul domicile : `$version`.
+//
+//  2. Le registre n'avait pas de `GetCurrentVersion`. Un format TEXTE doit
+//     reestampiller son fichier apres migration, donc savoir vers quelle version
+//     il vient d'etre amene -- sans quoi il recopie la constante chez lui et les
+//     deux derivent. La methode a ete ajoutee a `NkSchemaVersioning.h`.
+//
+//  3. Il FAUT une migration 0.2 -> 0.3 meme si elle ne transforme rien : sans
+//     elle le registre repond « No migration path » et REFUSE les dix fichiers
+//     du corpus, qui sont tous en 0.2.
+static void L16_Migrations() {
+	printf("[L16] Les migrations de schema, branchees sur un document `.nkgui`\n");
+
+	const char *src =
+		"nkgui 0.2\n"
+		"widgets {\n"
+		"  Text \"t\" {\n"
+		"    label = \"bonjour\"\n"
+		"  }\n"
+		"}\n";
+	const nk_uint32 n = (nk_uint32)NkString(src).Size();
+
+	// -- 1. LA REGLE (a) TIENT TOUJOURS : ecrire ne reestampille PAS -----------
+	NkArchive brut;
+	NkGuiDiag e0;
+	EXPECT_TRUE(NkGuiArchive::Read(src, n, brut, e0));
+	NkGuiStyle st;
+	st.crlf = false;
+	EXPECT_STREQ(NkGuiArchive::Write(brut, st), NkString(src));
+	EXPECT_TRUE(NkGuiArchive::VersionOf(brut) == NkSchemaVersion(0, 2, 0));
+
+	// -- 2. MIGRER est une DECISION, et elle se voit dans le fichier -----------
+	NkArchive doc;
+	NkGuiDiag err;
+	EXPECT_TRUE(NkGuiArchive::Read(src, n, doc, err));
+	EXPECT_TRUE(NkGuiArchive::Migrate(doc, err));
+	EXPECT_TRUE(NkGuiArchive::VersionOf(doc) == NkSchemaVersion(0, 3, 0));
+
+	// Le document migre est le MEME, a la ligne de version pres. La v0.3 n'a
+	// rien retire a la v0.2 : la migration ne transforme donc rien, et c'est ce
+	// controle qui l'etablit au lieu de le promettre.
+	const NkString attendu(
+		"nkgui 0.3\n"
+		"widgets {\n"
+		"  Text \"t\" {\n"
+		"    label = \"bonjour\"\n"
+		"  }\n"
+		"}\n");
+	EXPECT_STREQ(NkGuiArchive::Write(doc, st), attendu);
+
+	// -- 3. `__meta__` NE SORT PAS DANS LE FICHIER -----------------------------
+	// ⚠️ Et le temoin qui empeche ce controle d'etre vert pour rien : `__meta__`
+	//    A BIEN ETE ECRIT par le registre. On le verifie en migrant une archive
+	//    NUE (pas un document) -- si le registre ne l'ecrivait pas, le point
+	//    ci-dessus ne prouverait rien du tout.
+	EXPECT_TRUE(!doc.Has(NkStringView("__meta__")));
+	{
+		NkArchive temoin;
+		NkGuiArchive::RegisterFormat();
+		NkString motif;
+		EXPECT_TRUE(NkSchemaRegistry::MigrateArchive(NkGuiArchive::DocumentType(), temoin,
+													 NkSchemaVersion(0, 2, 0), &motif));
+		EXPECT_TRUE(temoin.Has(NkStringView("__meta__")));
+	}
+
+	// -- 4. UNE VERSION SANS CHEMIN EST REFUSEE, ET LE DOCUMENT N'EST PAS TOUCHE
+	// La documentation de `MigrateArchive` promet un « rollback implicite ». On
+	// le MESURE : le document doit se reecrire exactement comme avant l'echec.
+	NkArchive orphelin;
+	NkGuiDiag e2;
+	const char *vieux = "nkgui 0.1\nwidgets {\n  Text \"t\" { }\n}\n";
+	EXPECT_TRUE(NkGuiArchive::Read(vieux, (nk_uint32)NkString(vieux).Size(), orphelin, e2));
+	NkGuiDiag e3;
+	EXPECT_TRUE(!NkGuiArchive::Migrate(orphelin, e3));
+	EXPECT_STREQ(e3.code, NkString("E-MIGRATION"));
+	EXPECT_STREQ(NkGuiArchive::Write(orphelin, st), NkString(vieux));
+
+	// -- 5. UNE MIGRATION QUI TRANSFORME VRAIMENT -----------------------------
+	// ⚠️ FIXTURE DE BANC, PAS UNE MIGRATION LIVREE. Les trois points precedents
+	//    ne montrent qu'une migration VIDE -- ils ne prouvent donc pas que le
+	//    mecanisme SAIT transformer. Il n'existe aucune transformation reelle a
+	//    ce jour (la v0.3 est purement additive), alors on en fabrique une : une
+	//    0.3 -> 0.4 hypothetique qui renomme `label` en `text`, le temps de ce
+	//    controle. Dire « ca marchera » sans l'avoir fait tourner une fois, c'est
+	//    exactement ce que le registre a fait pendant deux mois.
+	NkSchemaRegistry::RegisterMigration(NkGuiArchive::DocumentType(), NkSchemaVersion(0, 3, 0),
+										NkSchemaVersion(0, 4, 0), NkGRenommeLabel);
+	NkSchemaRegistry::SetCurrentVersion(NkGuiArchive::DocumentType(), NkSchemaVersion(0, 4, 0));
+
+	NkArchive futur;
+	NkGuiDiag e4;
+	EXPECT_TRUE(NkGuiArchive::Read(src, n, futur, e4));
+	EXPECT_TRUE(NkGuiArchive::Migrate(futur, e4));
+	const NkString attendu4(
+		"nkgui 0.4\n"
+		"widgets {\n"
+		"  Text \"t\" {\n"
+		"    text = \"bonjour\"\n"
+		"  }\n"
+		"}\n");
+	EXPECT_STREQ(NkGuiArchive::Write(futur, st), attendu4);
+
+	// On remet le registre dans l'etat que le reste du programme attend.
+	NkSchemaRegistry::SetCurrentVersion(NkGuiArchive::DocumentType(), NkSchemaVersion(0, 3, 0));
+}
+
 // =============================================================================
 // POINT D'ENTREE DU BANC DE LA COUCHE
 // =============================================================================
@@ -844,6 +991,7 @@ static void NkGuiLayerSuite(const char *corpusDir) {
 	L13_CorpusDesDocuments();
 	L14_BlocSurUneLigne();
 	L15_MemeLigne();
+	L16_Migrations();
 }
 
 // =============================================================================
