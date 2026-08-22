@@ -45,6 +45,7 @@
 #include "NKEditorKit/NkTheme.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKContainers/Associative/NkHashMap.h"
+#include "NKContainers/String/NkFormat.h" // formatage TYPE des lignes de mesure
 #include "NKLogger/NkLog.h"
 
 #include <math.h>
@@ -1710,6 +1711,41 @@ static void AnalysisBattery() {
 
 static void GraphPut(const char *fmt, ...) NK_FMT_CHECK(1, 2);
 
+// ── FORMATAGE TYPE : `Put` REMPLACE `GraphPut` DANS LES BATTERIES MESUREES ──
+// Consigne de Rodolf (2026-08-22) : pas de formatage variadique dans du code qui
+// produit une MESURE. `Infof` ne corrige rien -- meme mecanique, meme capacite a
+// fabriquer un nombre credible. C'est ce qui a produit ici « nonmanif=18 » sur un
+// cube parfaitement manifold : sept `%u` pour six arguments, le septieme lu dans
+// la pile.
+//
+// `NkFormat` capture chaque argument PAR SON TYPE : il n'y a plus de
+// reinterpretation possible, donc plus de nombre invente. Un argument absent
+// laisse un TROU VISIBLE au lieu d'un entier plausible.
+//
+// ⚠️ La sortie doit rester IDENTIQUE AU CARACTERE PRES : le harnais compare ses
+// lignes a une reference versionnee. Correspondance des specificateurs :
+//   %-34s -> {n:<34}   %u/%d -> {n}   %.4f -> {n:.4f}   %.1f -> {n:.1f}
+// ⚠️ COMPORTEMENT MESURE SUR ARGUMENT MANQUANT (2026-08-22) : `NkFormat` ne
+// laisse PAS un trou -- il LEVE et arrete le banc, sur
+// « nkformat: index d'argument hors limites ». C'est plus fort qu'un trou : un
+// banc qui meurt ne peut pas mentir, alors qu'un trou peut se lire de travers.
+// Mesure faite en injectant reellement un appel a court d'arguments, pas deduite
+// du code.
+// ⚠️ Effet de bord a connaitre : l'arret intervient EN COURS de course, apres que
+// les lignes precedentes ont ete produites. Une sortie tronquee est donc le
+// symptome d'un format fautif, pas d'un plantage du moteur.
+template <typename... A> static void Put(const char *fmt, const A &...a) {
+	if (gLineCount >= 512)
+		return;
+	const NkString ligne = NkFormat(NkStringView(fmt), a...);
+	const char *src = ligne.Data();
+	uint32 i = 0;
+	for (; src && src[i] && i < 255u; ++i)
+		gLines[gLineCount][i] = src[i];
+	gLines[gLineCount][i] = 0;
+	gLineCount++;
+}
+
 static void GraphPut(const char *fmt, ...) {
 	if (gLineCount >= 512)
 		return;
@@ -3199,7 +3235,7 @@ static void MaterialBattery() {
 	{
 		NkEditMesh m;
 		const bool touching = makeTwoIslands(m);
-		GraphPut("%-34s faces=%u slot1=%u slot0=%u aretecommune=%d (0 attendu)", "mat/ilots-disjoints",
+		Put("{0:<34} faces={1} slot1={2} slot0={3} aretecommune={4} (0 attendu)", "mat/ilots-disjoints",
 				 (uint32)m.faces.Size(), countMat(m, 1), countMat(m, 0), touching ? 1 : 0);
 	}
 
@@ -3262,7 +3298,7 @@ static void MaterialBattery() {
 				plagesSlot1++;
 				idxSlot1 += ranges[r].indexCount;
 			}
-		GraphPut("%-34s slots=%u plages=%u plages-slot1=%u (2 attendues) indices-slot1=%u total=%u",
+		Put("{0:<34} slots={1} plages={2} plages-slot1={3} (2 attendues) indices-slot1={4} total={5}",
 				 "mat/sous-mailles-deduites", distinct, (uint32)ranges.Size(), plagesSlot1, idxSlot1,
 				 (uint32)oi.Size());
 	}
@@ -3283,7 +3319,7 @@ static void MaterialBattery() {
 		m.SelectNone();
 		m.SubdivideSelectedFaces(p);
 		const uint32 apres2 = countMat(m, 1);
-		GraphPut("%-34s slot1 %u -> %u -> %u | faces=%u (doit croitre, jamais tomber a 0)",
+		Put("{0:<34} slot1 {1} -> {2} -> {3} | faces={4} (doit croitre, jamais tomber a 0)",
 				 "mat/survie-subdivision", avant, apres1, apres2, (uint32)m.faces.Size());
 	}
 
@@ -3293,7 +3329,7 @@ static void MaterialBattery() {
 		makeTwoIslands(m);
 		const uint32 avant = countMat(m, 1);
 		m.SubdivideCatmullClark(1);
-		GraphPut("%-34s slot1 %u -> %u | faces=%u", "mat/survie-catmull", avant, countMat(m, 1),
+		Put("{0:<34} slot1 {1} -> {2} | faces={3}", "mat/survie-catmull", avant, countMat(m, 1),
 				 (uint32)m.faces.Size());
 	}
 
@@ -3313,7 +3349,7 @@ static void MaterialBattery() {
 		NkExtrudeParams ep;
 		ep.offset = 0.5f;
 		const bool ok = m.ExtrudeSelectedFaces(ep);
-		GraphPut("%-34s slot1 %u -> %u | faces %u -> %u ok=%d (faces DOIVENT croitre)", "mat/survie-extrusion",
+		Put("{0:<34} slot1 {1} -> {2} | faces {3} -> {4} ok={5} (faces DOIVENT croitre)", "mat/survie-extrusion",
 				 avant, countMat(m, 1), facesAvant, (uint32)m.faces.Size(), ok ? 1 : 0);
 	}
 
@@ -3331,7 +3367,7 @@ static void MaterialBattery() {
 		for (uint32 r = 0; r < (uint32)ranges.Size(); ++r)
 			if (ranges[r].material == 1)
 				idxSlot1 += ranges[r].indexCount;
-		GraphPut("%-34s indices-slot1=%u (12 attendus : 2 quads -> 4 tris) total=%u", "mat/survie-triangulation",
+		Put("{0:<34} indices-slot1={1} (12 attendus : 2 quads -> 4 tris) total={2}", "mat/survie-triangulation",
 				 idxSlot1, (uint32)oi.Size());
 	}
 
@@ -3361,7 +3397,7 @@ static void MaterialBattery() {
 		for (uint32 k = 1; k < (uint32)loop2.Size(); ++k) // saute le premier coin
 			m2.verts[loop2[k]].sel = 1;
 		const uint32 nPartiel = m2.AssignMaterialToSelectedFaces(2);
-		GraphPut("%-34s tousCoins=%u (1 attendu) unCoinManquant=%u (0 attendu)", "mat/assign-par-sommets", nAffect,
+		Put("{0:<34} tousCoins={1} (1 attendu) unCoinManquant={2} (0 attendu)", "mat/assign-par-sommets", nAffect,
 				 nPartiel);
 	}
 
@@ -3380,7 +3416,7 @@ static void MaterialBattery() {
 		const uint32 fmz = faceAlong(m, {0.f, 0.f, -1.f});
 		m.faces[fmz].material = 2;
 		m.materialSlots[1].alive = 0; // supprime CELUI DU MILIEU
-		GraphPut("%-34s slots=%u vivants=%u id[2]=%u (102 attendu) faceMz=%u (2 attendu)",
+		Put("{0:<34} slots={1} vivants={2} id[2]={3} (102 attendu) faceMz={4} (2 attendu)",
 				 "mat/slots-trou-jamais-decalage", (uint32)m.materialSlots.Size(),
 				 (uint32)(m.materialSlots[0].alive + m.materialSlots[1].alive + m.materialSlots[2].alive),
 				 m.materialSlots[2].id, (uint32)m.faces[fmz].material);
@@ -3400,7 +3436,7 @@ static void MaterialBattery() {
 		p.cuts = 1;
 		m.SelectNone();
 		m.SubdivideSelectedFaces(p);
-		GraphPut("%-34s slots %u -> %u | dernier id=%u (777 attendu)", "mat/slots-survivent-a-l-edition", avant,
+		Put("{0:<34} slots {1} -> {2} | dernier id={3} (777 attendu)", "mat/slots-survivent-a-l-edition", avant,
 				 (uint32)m.materialSlots.Size(),
 				 m.materialSlots.Size() ? m.materialSlots[(uint32)m.materialSlots.Size() - 1].id : 0u);
 	}
@@ -3418,7 +3454,7 @@ static void MaterialBattery() {
 		dp.targetRatio = 0.5f;
 		NkDecimateStats st;
 		NkMeshDecimate::DecimateQEM(m, dp, &st);
-		GraphPut("%-34s slot1 %u -> %u | tris %u->%u (MESURE, pas un attendu)", "mat/decim-non-tranche", avant,
+		Put("{0:<34} slot1 {1} -> {2} | tris {3}->{4} (MESURE, pas un attendu)", "mat/decim-non-tranche", avant,
 				 countMat(m, 1), st.trisBefore, st.trisAfter);
 	}
 
@@ -3446,7 +3482,7 @@ static void MaterialBattery() {
 		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
 			if (m.faces[f].smooth)
 				apres++;
-		GraphPut("%-34s smooth %u -> %u sur %u faces (TEMOIN du comportement existant)", "mat/temoin-smooth",
+		Put("{0:<34} smooth {1} -> {2} sur {3} faces (TEMOIN du comportement existant)", "mat/temoin-smooth",
 				 avant, apres, (uint32)m.faces.Size());
 	}
 
@@ -3469,7 +3505,7 @@ static void MaterialBattery() {
 		mp.mode = NkMergeParams::ByDistance;
 		mp.distance = 0.001f;
 		const bool ok = m.MergeSelectedVerts(mp);
-		GraphPut("%-34s slot1 %u -> %u | sommets %u -> %u ok=%d", "mat/survie-soudure", avant, countMat(m, 1),
+		Put("{0:<34} slot1 {1} -> {2} | sommets {3} -> {4} ok={5}", "mat/survie-soudure", avant, countMat(m, 1),
 				 vAvant, (uint32)m.verts.Size(), ok ? 1 : 0);
 	}
 }
@@ -3557,7 +3593,7 @@ static void HistoryBattery() {
 		const uint64 apresUndo = empreinte(m);
 		const bool redo = h.Redo(m);
 		const uint64 apresRedo = empreinte(m);
-		GraphPut("%-34s undo=%d redo=%d | retourExact=%d refaitExact=%d muteDifferent=%d", "hist/aller-retour",
+		Put("{0:<34} undo={1} redo={2} | retourExact={3} refaitExact={4} muteDifferent={5}", "hist/aller-retour",
 				 undo ? 1 : 0, redo ? 1 : 0, apresUndo == avant ? 1 : 0, apresRedo == mute ? 1 : 0,
 				 mute != avant ? 1 : 0);
 	}
@@ -3570,7 +3606,7 @@ static void HistoryBattery() {
 		const uint64 avant = empreinte(m);
 		const bool u = h.Undo(m);
 		const bool r = h.Redo(m);
-		GraphPut("%-34s undoVide=%d (0 attendu) redoVide=%d (0 attendu) etatIntact=%d canUndo=%d",
+		Put("{0:<34} undoVide={1} (0 attendu) redoVide={2} (0 attendu) etatIntact={3} canUndo={4}",
 				 "hist/pile-vide", u ? 1 : 0, r ? 1 : 0, empreinte(m) == avant ? 1 : 0, h.CanUndo() ? 1 : 0);
 	}
 
@@ -3598,8 +3634,8 @@ static void HistoryBattery() {
 		uint32 remontees = 0;
 		while (h.CanUndo() && h.Undo(m))
 			remontees++;
-		GraphPut("%-34s profondeur=%u (3 attendue) remontees=%u | x %.1f -> %.1f (x0+2 attendu : 2 plus anciens jetes)",
-				 "hist/plafond", prof, remontees, (double)x0, (double)m.verts[0].pos.x);
+		Put("{0:<34} profondeur={1} (3 attendue) remontees={2} | x {3:.1f} -> {4:.1f} (x0+2 attendu : 2 plus anciens jetes)",
+				 "hist/plafond", prof, remontees, x0, m.verts[0].pos.x);
 	}
 
 	// ── 4. BRANCHE ABANDONNEE : un commit apres annulation invalide le refaire ─
@@ -3613,7 +3649,7 @@ static void HistoryBattery() {
 		const uint32 refaisableAvant = h.RedoCount();
 		h.Commit(m); // nouvelle branche
 		m.verts[0].pos.y += 1.f;
-		GraphPut("%-34s refaisableAvant=%u (1 attendu) apresNouveauCommit=%u (0 attendu) canRedo=%d",
+		Put("{0:<34} refaisableAvant={1} (1 attendu) apresNouveauCommit={2} (0 attendu) canRedo={3}",
 				 "hist/branche-abandonnee", refaisableAvant, h.RedoCount(), h.CanRedo() ? 1 : 0);
 	}
 
@@ -3659,7 +3695,7 @@ static void HistoryBattery() {
 		m.SubdivideSelectedFaces(p);
 		const uint32 apresSubdiv = compte7(m);
 		h.Undo(m);
-		GraphPut("%-34s slot7 %u -> %u -> %u (retour a %u attendu) | slots=%u id=%u", "hist/materiau-survit",
+		Put("{0:<34} slot7 {1} -> {2} -> {3} (retour a {4} attendu) | slots={5} id={6}", "hist/materiau-survit",
 				 avant, apresSubdiv, compte7(m), avant, (uint32)m.materialSlots.Size(),
 				 m.materialSlots.Size() ? m.materialSlots[(uint32)m.materialSlots.Size() - 1].id : 0u);
 	}
@@ -3698,7 +3734,7 @@ static void HistoryBattery() {
 				selApres++;
 				ordreApres += m.verts[i].selOrder;
 			}
-		GraphPut("%-34s selectionnes %u -> %u | somme des rangs %u -> %u (identiques attendus)",
+		Put("{0:<34} selectionnes {1} -> {2} | somme des rangs {3} -> {4} (identiques attendus)",
 				 "hist/selection-survit", selAvant, selApres, ordreAvant, ordreApres);
 	}
 
@@ -3715,7 +3751,7 @@ static void HistoryBattery() {
 		uint32 remontees = 0;
 		while (h.CanUndo() && h.Undo(m))
 			remontees++;
-		GraphPut("%-34s remontees=%u (3 attendues) retourOrigine=%d profondeur=%u refaisables=%u", "hist/chaine",
+		Put("{0:<34} remontees={1} (3 attendues) retourOrigine={2} profondeur={3} refaisables={4}", "hist/chaine",
 				 remontees, empreinte(m) == origine ? 1 : 0, h.UndoCount(), h.RedoCount());
 	}
 }
@@ -3814,7 +3850,7 @@ static void SixOpsBattery() {
 		const bool ok = m.DeleteSelectedFaces();
 		m.RebuildEdges();
 		const Sig apres = Signature(m);
-		GraphPut("%-34s ok=%d faces %u -> %u | bord %u -> %u (un trou s ouvre) nonmanif=%u", "ops/supprimer-faces",
+		Put("{0:<34} ok={1} faces {2} -> {3} | bord {4} -> {5} (un trou s ouvre) nonmanif={6}", "ops/supprimer-faces",
 				 ok ? 1 : 0, avant.faces, apres.faces, avant.boundary, apres.boundary, apres.nonManifold);
 	}
 
@@ -3827,7 +3863,7 @@ static void SixOpsBattery() {
 		m.SelectNone();
 		const uint32 avant = facesVivantes(m);
 		const bool ok = m.DeleteSelectedFaces();
-		GraphPut("%-34s ok=%d (0 attendu) faces %u -> %u (inchange attendu)", "ops/supprimer-refus", ok ? 1 : 0,
+		Put("{0:<34} ok={1} (0 attendu) faces {2} -> {3} (inchange attendu)", "ops/supprimer-refus", ok ? 1 : 0,
 				 avant, facesVivantes(m));
 	}
 
@@ -3865,7 +3901,7 @@ static void SixOpsBattery() {
 					fils++;
 			}
 		}
-		GraphPut("%-34s ok=%d sommets %u -> %u | faces pleines %u -> %u (INCHANGE attendu) aretes fil=%u",
+		Put("{0:<34} ok={1} sommets {2} -> {3} | faces pleines {4} -> {5} (INCHANGE attendu) aretes fil={6}",
 				 "ops/extruder-sommets", ok ? 1 : 0, vAvant, m.VertCount(), fAvant, pleines, fils);
 	}
 
@@ -3915,7 +3951,7 @@ static void SixOpsBattery() {
 		const bool ok = m.MakeFaceFromSelected();
 		m.RebuildEdges();
 		const Sig refait = Signature(m);
-		GraphPut("%-34s ok=%d faces %u -> %u | bord %u -> %u (retour a 0 attendu)", "ops/faire-face", ok ? 1 : 0,
+		Put("{0:<34} ok={1} faces {2} -> {3} | bord {4} -> {5} (retour a 0 attendu)", "ops/faire-face", ok ? 1 : 0,
 				 troue.faces, refait.faces, troue.boundary, refait.boundary);
 	}
 
@@ -3945,7 +3981,7 @@ static void SixOpsBattery() {
 		const bool ok = m.LoopCutFromSelectedEdge(p);
 		m.RebuildEdges();
 		const Sig apres = Signature(m);
-		GraphPut("%-34s ok=%d sommets %u -> %u faces %u -> %u | nonmanif=%u bord %u -> %u", "ops/coupe-de-boucle",
+		Put("{0:<34} ok={1} sommets {2} -> {3} faces {4} -> {5} | nonmanif={6} bord {7} -> {8}", "ops/coupe-de-boucle",
 				 ok ? 1 : 0, avant.verts, apres.verts, avant.faces, apres.faces, apres.nonManifold, avant.boundary,
 				 apres.boundary);
 	}
@@ -3972,7 +4008,7 @@ static void SixOpsBattery() {
 		const bool ok = m.SpinSelected(p, NkMat4f::Identity());
 		m.RebuildEdges();
 		const Sig apres = Signature(m);
-		GraphPut("%-34s ok=%d sommets %u -> %u faces %u -> %u | nonmanif %u -> %u (temoin)", "ops/vis-revolution",
+		Put("{0:<34} ok={1} sommets {2} -> {3} faces {4} -> {5} | nonmanif {6} -> {7} (temoin)", "ops/vis-revolution",
 				 ok ? 1 : 0, avant.verts, apres.verts, avant.faces, apres.faces, avant.nonManifold,
 				 apres.nonManifold);
 	}
@@ -3993,7 +4029,7 @@ static void SixOpsBattery() {
 		// signature mesure sur l IDENTITE SOUDEE, ou des sommets coincidents crees
 		// par la coupe peuvent confondre deux aretes distinctes. Le chiffre est
 		// donc une OBSERVATION a instruire, pas un verdict sur BisectByPlane.
-		GraphPut("%-34s ok=%d sommets %u -> %u faces %u -> %u | bord %u -> %u nonmanif %u -> %u",
+		Put("{0:<34} ok={1} sommets {2} -> {3} faces {4} -> {5} | bord {6} -> {7} nonmanif {8} -> {9}",
 				 "ops/coupe-par-plan", ok ? 1 : 0, avant.verts, apres.verts, avant.faces, apres.faces,
 				 avant.boundary, apres.boundary, avant.nonManifold, apres.nonManifold);
 	}
