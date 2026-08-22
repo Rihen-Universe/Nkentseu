@@ -355,7 +355,46 @@ namespace nkentseu {
 						//     incidentes au sommet SOUDÉ (identité topologique de BuildVertexMerge)
 						//     -> surface lissée continue. Mixte autorisé (comme Blender).
 						uint8 smooth = 0;
+						// MATERIAU PAR FACE façon Blender (« material_index » du polygone).
+						// Index dans `materialSlots` du maillage ; 0 = premier slot, et c'est
+						// le defaut — un maillage qui ignore les materiaux se comporte comme
+						// avant, toutes ses faces sur le slot 0.
+						//
+						// ⚠ LA CONNEXITE NE JOUE AUCUN ROLE. Deux faces qui ne partagent
+						// aucune arete peuvent porter le meme index : c'est le sens meme de
+						// « lier ou non ». Les sous-mailles sont DEDUITES de cet index
+						// (BuildSubMeshRanges), jamais l'inverse — l'ordre des faces
+						// n'impose plus le decoupage.
+						//
+						// ⚠ POURQUOI CE CHAMP NE PEUT PAS SE DEDUIRE, contrairement a
+						// `smooth` juste au-dessus. `smooth` traverse aujourd'hui les
+						// operations topologiques SANS etre transporte : BuildFromIndexed le
+						// RE-DEDUIT en comparant les normales des coins. Ca marche parce que
+						// l'ombrage EST une propriete des normales. Un materiau, lui, n'est
+						// deductible de rien — aucune donnee geometrique ne le porte. Il doit
+						// donc etre TRANSPORTE explicitement a travers le round-trip
+						// ToPolygons/BuildFromPolygons, par lequel passe toute operation
+						// d'edition. C'est la seule difference de nature entre les deux
+						// champs, et c'est elle qui a dicte la conception.
+						uint16 material = 0;
 				};
+
+				// ── SLOTS DE MATERIAU DU MAILLAGE ────────────────────────────────────
+				// Le maillage possede la liste ; la face n'en porte que l'index. C'est le
+				// modele Blender, et c'est lui qui permet a des faces DISJOINTES de
+				// partager un slot sans etre rangees ensemble.
+				struct MaterialSlot {
+						uint32 id = 0;	 // identifiant opaque du materiau (0 = slot vide)
+						uint8 alive = 1; // 0 = slot supprime
+				};
+
+				// ⚠ VALEURS SERIALISEES : on AJOUTE EN FIN, on ne renumerote JAMAIS —
+				// meme regle que NkModifierType, et pour la meme raison : une scene
+				// enregistree designe ses slots par ces entiers. Supprimer un slot du
+				// milieu pose `alive = 0` et laisse un TROU ; ca ne decale pas les
+				// suivants, sinon toutes les faces d'apres changeraient de materiau en
+				// silence, sans qu'aucune erreur ne se declenche.
+				NkVector<MaterialSlot> materialSlots;
 
 				NkVector<Vert> verts;
 				NkVector<Hedge> hedges;
@@ -377,6 +416,11 @@ namespace nkentseu {
 					hedges.Clear();
 					faces.Clear();
 					edges.Clear();
+					// ⚠ `materialSlots` N'EST PAS VIDE ICI, ET C'EST VOULU.
+					// BuildFromPolygons appelle Clear() a chaque operation d'edition :
+					// vider les slots ferait perdre la liste des materiaux du maillage a
+					// la premiere extrusion, alors que seule la TOPOLOGIE est refaite.
+					// Les slots appartiennent au maillage, pas a sa topologie courante.
 				}
 
 				uint32 VertCount() const {
@@ -417,11 +461,56 @@ namespace nkentseu {
 				// ── Représentation POLYGONES (n-gons) — CSR ─────────────────────────
 				// Extrait les faces vivantes : sommets + boucles (face i = outFaceVerts
 				// [outFaceStart[i] .. outFaceStart[i+1]]). outFaceStart a faceCount+1 entrées.
+				// `outFaceMaterial`, quand il est fourni, recoit l'index de materiau de
+				// chaque face vivante, dans le MEME ordre que outFaceStart. C'est le seul
+				// moyen de faire survivre le materiau a une operation d'edition : toutes
+				// passent par ce round-trip, et il perdait jusqu'ici tout ce que portait
+				// `Face` (cf. le commentaire de Face::material).
 				void ToPolygons(NkVector<NkVertex3D> &outVerts, NkVector<uint32> &outFaceStart,
-								NkVector<uint32> &outFaceVerts) const;
+								NkVector<uint32> &outFaceVerts,
+								NkVector<uint16> *outFaceMaterial = nullptr) const;
 				// (Re)construit le half-edge depuis des n-gons (même format CSR).
+				// `faceMaterial`, quand il est fourni, doit avoir `faceCount` entrees et
+				// donne l'index de materiau de chaque face reconstruite. Absent (nullptr),
+				// toutes les faces retombent sur le slot 0 — c'est le comportement
+				// historique, et c'est pour ca que le parametre est optionnel : aucun
+				// appelant existant ne change de comportement.
 				void BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
-									   const uint32 *faceVerts);
+									   const uint32 *faceVerts, const uint16 *faceMaterial = nullptr);
+
+				// ── SOUS-MAILLES DEDUITES DU MATERIAU PAR FACE ──────────────────────
+				// Une plage de triangles consecutifs partageant le meme index de materiau.
+				// ⚠ UN SLOT PEUT AVOIR PLUSIEURS PLAGES, et c'est le but : deux faces
+				// non voisines qui portent le meme index produisent deux plages
+				// distinctes sans etre rangees ensemble. C'est ce que le decoupage par
+				// sous-mesh « range a la main » ne savait pas faire.
+				struct SubMeshRange {
+						uint16 material = 0;
+						uint32 firstIndex = 0; // offset dans le tampon d'indices triangule
+						uint32 indexCount = 0;
+				};
+
+				// Triangule (via TriangulateShaded, donc en respectant l'ombrage) puis
+				// decoupe le tampon d'indices en plages par index de materiau. Les faces
+				// sont parcourues dans leur ordre courant : une nouvelle plage s'ouvre a
+				// chaque changement d'index. Rend aussi le nombre de slots DISTINCTS
+				// rencontres, qui est en general plus petit que le nombre de plages.
+				void BuildSubMeshRanges(NkVector<NkVertex3D> &outV, NkVector<uint32> &outIdx,
+										NkVector<SubMeshRange> &outRanges,
+										uint32 *outDistinctSlots = nullptr) const;
+
+				// Affecte `slot` aux faces dont TOUS les coins sont selectionnes.
+				// ⚠ REGLE DE BLENDER, adoptee telle quelle. Rodolf a demande « un groupe
+				// de vertex ou de face ». Chez Blender un SOMMET NE PORTE PAS de
+				// materiau : selectionner des sommets puis « Assign » affecte aux faces
+				// entierement couvertes par la selection. On adopte cette regle plutot
+				// que d'inventer un second mecanisme par sommet qu'il faudrait ensuite
+				// reconcilier avec celui-ci.
+				// ⚠ A NE PAS CONFONDRE avec les GROUPES DE SOMMETS (cf. NkModifierType,
+				// « Mask par groupe / Vertex Weight »), qui sont un autre systeme et qui
+				// n'existent pas encore.
+				// Rend le nombre de faces affectees.
+				uint32 AssignMaterialToSelectedFaces(uint16 slot);
 
 				// ── SOUDURE (weld) DES SOMMETS COÏNCIDENTS ──────────────────────────
 				// Les primitives et les imports DUPLIQUENT les sommets PAR FACE (cube = 24
@@ -437,6 +526,17 @@ namespace nkentseu {
 				// (normale, UV) restent SÉPARÉS. Le rendu est donc strictement inchangé (pas
 				// de lissage parasite, UV intacts) — c'est exactement le modèle de Blender :
 				// maillage soudé + attributs portés par les coins (loops).
+				//
+				// 🔗 COORDINATION (2026-08-22) — LA COQUE INVERSEE DU CONTOUR TOON PASSE ICI.
+				// Un contour par coque inversee a besoin d'une normale MOYENNEE PAR POSITION,
+				// pas par indice de sommet : sur un cube aux coins dedoubles, extruder le long
+				// de la normale d'indice ouvre les coins et le contour se dechire. `canon[]` est
+				// exactement l'identite qu'il faut -- moyenner les normales des sommets qui
+				// partagent un representant donne la normale continue attendue.
+				// ⚠️ Si tu es l'agent rendu et que tu allais ecrire ta propre soudure spatiale :
+				// celle-ci existe, elle est en O(n) par grille de hachage, et elle est deja
+				// exercee par les familles `subsurf`, `linked` et `bmesh2` de NKEditMeshHarness.
+				// Un second soudeur divergerait du premier au premier changement d'epsilon.
 				void BuildVertexMerge(NkVector<uint32> &canon, float32 eps = 1e-4f) const;
 				// Étend la sélection à TOUS les sommets coïncidents d'un sommet sélectionné :
 				// sans ça, cliquer un coin ne sélectionne qu'une des N copies et les faces
