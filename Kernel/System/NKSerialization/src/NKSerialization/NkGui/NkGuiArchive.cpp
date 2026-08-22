@@ -1225,6 +1225,107 @@ namespace nkentseu {
 	//  NkGuiArchive
 	// =========================================================================
 
+	// =========================================================================
+	//  LES VERSIONS ET LES MIGRATIONS  (etape 5)
+	// =========================================================================
+
+	namespace {
+
+		/// LA MIGRATION 0.2 -> 0.3, ET ELLE NE TOUCHE A RIEN.
+		///
+		/// ⚠️ CE N'EST PAS UN OUBLI, ET IL VAUT MIEUX L'ECRIRE QUE DE LAISSER
+		///    CROIRE QU'IL RESTE DU TRAVAIL ICI. Tout ce que la v0.3 a ajoute au
+		///    socle v0.2 est ADDITIF : listes et dictionnaires comme valeurs,
+		///    identifiant pointe, blocs `appearance`, sections `animation` et
+		///    `fonts`, conservation des commentaires. Rien n'a ete retire, rien n'a
+		///    ete resserre, aucune cle n'a change de nom. **Un document 0.2 EST un
+		///    document 0.3 valide**, et le corpus des 10 -- qui est en 0.2 -- le
+		///    montre : il se lit, se represente et se reemet a l'octet sans qu'une
+		///    seule valeur soit transformee.
+		///
+		///    Elle est enregistree quand meme, et c'est le point : sans elle, le
+		///    registre repondrait « No migration path from 0.2.0 to 0.3.0 » et
+		///    REFUSERAIT les dix fichiers. Une migration vide n'est pas du vide --
+		///    c'est la declaration explicite que la compatibilite est totale.
+		nk_bool NkGMigrate_0_2_vers_0_3(NkArchive &, NkSchemaVersion, NkSchemaVersion) noexcept {
+			return true;
+		}
+
+	} // namespace
+
+	NkTypeId NkGuiArchive::DocumentType() noexcept {
+		return NkTypeOf<NkGuiDocumentTag>();
+	}
+
+	NkSchemaVersion NkGuiArchive::VersionOf(const NkArchive &doc) noexcept {
+		const NkArchiveNode *n = doc.FindNode(NkStringView(KeyVersion()));
+		if (!n || !n->IsScalar()) {
+			return NkSchemaVersion((nk_uint16)kMajor, (nk_uint16)kMinor, 0);
+		}
+		const NkString &t = n->value.text;
+		nk_uint16 maj = 0;
+		nk_uint16 min = 0;
+		nk_size i = 0;
+		for (; i < t.Size() && t.Data()[i] >= '0' && t.Data()[i] <= '9'; ++i) {
+			maj = (nk_uint16)(maj * 10 + (t.Data()[i] - '0'));
+		}
+		if (i < t.Size() && t.Data()[i] == '.') {
+			++i;
+			for (; i < t.Size() && t.Data()[i] >= '0' && t.Data()[i] <= '9'; ++i) {
+				min = (nk_uint16)(min * 10 + (t.Data()[i] - '0'));
+			}
+		}
+		return NkSchemaVersion(maj, min, 0);
+	}
+
+	bool NkGuiArchive::SetVersion(NkArchive &doc, NkSchemaVersion v) noexcept {
+		if (v.patch != 0) {
+			return false;
+		}
+		NkString t;
+		t.Append(NkString::Fmtf("%u.%u", (unsigned)v.major, (unsigned)v.minor));
+		const nk_int32 rang = doc.GetSourceOrder(NkStringView(KeyVersion()));
+		if (!SetToken(doc, NkStringView(KeyVersion()), NkStringView(t))) {
+			return false;
+		}
+		doc.SetSourceOrder(NkStringView(KeyVersion()), rang < 0 ? 0 : rang);
+		return true;
+	}
+
+	void NkGuiArchive::RegisterFormat() noexcept {
+		static bool s_fait = false;
+		if (s_fait) {
+			return;
+		}
+		s_fait = true;
+		NkSchemaRegistry::SetCurrentVersion(DocumentType(),
+											NkSchemaVersion((nk_uint16)kMajor, (nk_uint16)kMinor, 0));
+		NkSchemaRegistry::RegisterMigration(DocumentType(), NkSchemaVersion(0, 2, 0),
+											NkSchemaVersion(0, 3, 0), NkGMigrate_0_2_vers_0_3);
+	}
+
+	bool NkGuiArchive::Migrate(NkArchive &doc, NkGuiDiag &err) noexcept {
+		RegisterFormat();
+		const NkSchemaVersion stored = VersionOf(doc);
+		NkString motif;
+		if (!NkSchemaRegistry::MigrateArchive(DocumentType(), doc, stored, &motif)) {
+			err.code = NkString("E-MIGRATION");
+			err.message = motif;
+			return false;
+		}
+		// La version atteinte, telle que le registre la connait -- et pas une
+		// constante recopiee ici, qui divergerait le jour ou elle changerait.
+		const NkSchemaVersion atteinte = NkSchemaRegistry::GetCurrentVersion(DocumentType());
+		doc.Remove(NkStringView("__meta__"));
+		if (!SetVersion(doc, atteinte)) {
+			err.code = NkString("E-MIGRATION");
+			err.message = NkString("version cible inexprimable en `.nkgui` : ");
+			err.message.Append(atteinte.ToString());
+			return false;
+		}
+		return true;
+	}
+
 	bool NkGuiArchive::IsReservedKey(NkStringView key) noexcept {
 		return key.Size() > 0 && key.Data() && key.Data()[0] == '$';
 	}

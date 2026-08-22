@@ -113,6 +113,27 @@ MUTATIONS = [
     ("M23 le pied de bloc n'est jamais pose",
      "\t\t\t\t\tif (!sameLine && !T[k].lead.Empty()) {",
      "\t\t\t\t\tif (false) {"),
+
+    # ---- etape 5 : les migrations -------------------------------------------
+    ("M24 Migrate laisse `__meta__` dans le document",
+     "\t\tdoc.Remove(NkStringView(\"__meta__\"));",
+     ""),
+
+    ("M25 Migrate ne reestampille pas `$version`",
+     "\t\tif (!SetVersion(doc, atteinte)) {",
+     "\t\tif (false) {"),
+
+    ("M26 la migration 0.2 -> 0.3 n'est pas enregistree",
+     "\t\tNkSchemaRegistry::RegisterMigration(DocumentType(), NkSchemaVersion(0, 2, 0),",
+     "\t\tif (s_fait) return;\n\t\tNkSchemaRegistry::RegisterMigration(DocumentType(), NkSchemaVersion(0, 2, 0),"),
+
+    ("M27 GetCurrentVersion rend une constante au lieu du registre",
+     "\t\tconst NkSchemaVersion atteinte = NkSchemaRegistry::GetCurrentVersion(DocumentType());",
+     "\t\tconst NkSchemaVersion atteinte = NkSchemaVersion(0, 3, 0);"),
+
+    ("M28 VersionOf ignore ce que le fichier disait",
+     "\t\tconst NkArchiveNode *n = doc.FindNode(NkStringView(KeyVersion()));\n\t\tif (!n || !n->IsScalar()) {",
+     "\t\tconst NkArchiveNode *n = doc.FindNode(NkStringView(KeyVersion()));\n\t\tif (true) {"),
 ]
 
 

@@ -98,6 +98,7 @@
 #define NKENTSEU_SERIALIZATION_NKGUIARCHIVE_H
 
 #include "NKSerialization/NkArchive.h"
+#include "NKSerialization/NkSchemaVersioning.h"
 #include "NKSerialization/NkSerializationApi.h"
 
 namespace nkentseu {
@@ -143,6 +144,11 @@ namespace nkentseu {
 			bool finalNewline = true;		 ///< le fichier finit par un saut de ligne
 			bool inlineEmptyBlock = true;	 ///< `Button "x" { }` sur une ligne
 	};
+
+	/// Le TYPE au nom duquel les migrations `.nkgui` sont enregistrees. Il n'a pas
+	/// de definition et n'en aura pas : `NkTypeOf<T>()` ne demande qu'un type, et
+	/// un document n'est pas une structure C++.
+	struct NkGuiDocumentTag;
 
 	// =========================================================================
 	// CLASSE : NkGuiArchive
@@ -282,6 +288,59 @@ namespace nkentseu {
 
 			/// @brief Le `$body` de `ar`, cree s'il n'existe pas
 			static NkArchiveNode &EnsureBody(NkArchive &ar) noexcept;
+
+			// -----------------------------------------------------------------
+			// LES VERSIONS ET LES MIGRATIONS  (etape 5)
+			// -----------------------------------------------------------------
+			/**
+			 * @brief L'identifiant sous lequel les migrations `.nkgui` sont enregistrees
+			 * @note Ce n'est PAS un type serialisable : c'est un FORMAT DE DOCUMENT.
+			 *       `NkSchemaRegistry` n'a jamais eu besoin d'autre chose qu'un
+			 *       `NkTypeId`, et sa signature de migration travaille deja sur une
+			 *       `NkArchive` -- c'est-a-dire exactement ce que cette couche produit.
+			 */
+			static NkTypeId DocumentType() noexcept;
+
+			/**
+			 * @brief La version ECRITE DANS LE FICHIER, en `NkSchemaVersion`
+			 * @note ⚠️ IMPEDANCE : `.nkgui` a DEUX composantes (`0.3`),
+			 *       `NkSchemaVersion` en a TROIS. Le correctif est donc toujours 0
+			 *       pour un document `.nkgui`, et `SetVersion` refuse d'en ecrire un
+			 *       autre plutot que de le perdre en silence.
+			 */
+			static NkSchemaVersion VersionOf(const NkArchive &doc) noexcept;
+
+			/**
+			 * @brief Reestampille le document
+			 * @return false si `v.patch != 0` (inexprimable en `.nkgui`)
+			 * @note ⚠️ REGLE (a) : `Write()` ne reestampille JAMAIS. Un document lu en
+			 *       0.2 se reecrit en 0.2. Reestampiller est une decision, et elle
+			 *       s'ecrit -- ici, ou dans `Migrate()`.
+			 */
+			static bool SetVersion(NkArchive &doc, NkSchemaVersion v) noexcept;
+
+			/**
+			 * @brief Enregistre le format et ses migrations dans `NkSchemaRegistry`
+			 * @note Idempotent -- et il a fallu le rendre tel : `RegisterMigration`
+			 *       AJOUTE une entree a chaque appel, elle n'en remplace pas.
+			 *       `Migrate()` l'appelle tout seul.
+			 */
+			static void RegisterFormat() noexcept;
+
+			/**
+			 * @brief Amene le document a la version que ce lecteur comprend
+			 * @param doc l'archive rendue par `Read`, modifiee sur place
+			 * @param err rempli seulement en cas d'echec ; l'archive n'est alors pas
+			 *            touchee (le chemin manquant est detecte avant toute ecriture)
+			 *
+			 * ⚠️ ET IL RETIRE `__meta__`. `NkSchemaRegistry::MigrateArchive` ecrit la
+			 *    version atteinte dans `__meta__.schema_version` -- une convention de
+			 *    format BINAIRE. Laissee en place, elle sortirait dans le fichier sous
+			 *    la forme `__meta__ = { schema_version = 0.3.0 }`, une propriete que
+			 *    personne n'a ecrite au milieu d'un document de l'utilisateur.
+			 *    La version d'un `.nkgui` a un seul domicile : `$version`.
+			 */
+			static bool Migrate(NkArchive &doc, NkGuiDiag &err) noexcept;
 
 			/// @brief Le type d'un bloc, vue vide si absent
 			static NkStringView TypeOf(const NkArchive &block) noexcept;
