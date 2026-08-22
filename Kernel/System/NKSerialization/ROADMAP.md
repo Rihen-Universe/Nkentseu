@@ -299,6 +299,71 @@ pas voir** le défaut. Seul P1, qui force la croissance, l'attrape. **La preuve 
 plus proche du besoin n'est pas celle qui attrape le plus** — troisième fois que
 ce motif sort sur ce chantier.
 
+#### Le pool **câblé** sur `NkUIDocument` — le 2026-08-22 au soir
+
+Le pool prouvé isolément ne servait encore à rien : aucun document ne passait par
+lui. Il l'est maintenant, et **l'absence nommée de `Document.h` l. 908 est levée**
+— `NkSizeDecl::valueMetric` s'écrit, se relit et **prime sur le nombre**.
+
+⚠️ **Il ne l'est PAS de la façon que ce commentaire annonçait.** Il disait que le
+jour venu le champ se traiterait « comme `spacingName` », c'est-à-dire par une
+`NkString` posée à côté. Ça aurait fait **deux vérités pour un seul fait** : le
+champ que le solveur du kit lit (`NkLayoutSolve.h` l. 131) et la chaîne que le
+document garde, à tenir d'accord pour toujours. Le pool donne un propriétaire au
+**champ lui-même** : le solveur lit la seule vérité qui existe.
+
+**Mesure qui a décidé de la conception : `NkUIDocument` EST copiée par valeur**
+— cinq fois rien que dans `Probe.h`. Un pool non copiable rendait donc la classe
+non copiable. D'où une copie explicite qui **re-interne** (`CopyValuesFrom`), et
+un déplacement qui, lui, n'a rien à re-interner — le pool est un
+`NkVector<NkString *>`, déplacer le vecteur ne déplace pas les `NkString`.
+
+**Le 5e jeton n'est écrit que s'il est non vide** : un document qui ne nomme
+aucune taille se réécrit **octet pour octet** comme avant.
+
+**Preuve — `NKUIDesign --pool-controles`, 573/573, sortie 0.** D1 l'aller-retour
+d'un document réel (le texte lu meurt, puis le solveur rend 240 et non le `1.f`
+écrit dans `value`), D2 la compatibilité ascendante, D3 la copie, D4 la greffe,
+D5 la croissance conjointe. Baselines intactes : `SandboxNKArchive` 114/114,
+`SandboxNKSerialization` 63/63 + 1 dette connue, `--roundtrip-controles` 36/36,
+`--probe` 103/103.
+
+⚠️ **Six mutations, et les DEUX qui ont survécu au premier tour visaient chacune
+un contrôle que je venais d'écrire pour elles.**
+
+- **Mutation E — écrire *toujours* le 5e jeton, même vide : 573/573, verte.** Le
+  contrôle « octet pour octet » comparait deux textes produits par **le même
+  écrivain** : quand l'écrivain change de format, les deux changent ensemble et
+  la comparaison reste vraie. **Un aller-retour ne peut pas juger le format ; il
+  ne juge que sa propre cohérence.** Il faut un invariant que l'écrivain
+  n'emporte pas avec lui (ici : une ligne d'axe ne finit jamais par une espace)
+  **et** un témoin qu'il n'a pas produit (un fichier écrit à la main dans le
+  format d'avant).
+- **Mutation F — `SetSizeMetric` garde le pointeur reçu au lieu de le copier :
+  572/573.** Tous les noms des bancs étaient des **littéraux**, donc statiques,
+  donc increvables. Il fallait un appelant dont le nom **meurt**. Et une fois ce
+  contrôle écrit, **F survivait encore** : `NkString` garde inline tout texte de
+  ≤ 23 caractères (`NK_STRING_SSO_SIZE`), donc dans le cadre de pile, que rien ne
+  piétinait. **Il a fallu choisir un nom de 34 caractères pour que la faute ait
+  lieu.**
+
+> **Un banc de durée de vie doit choisir ses données pour que la faute AIT LIEU,
+> pas seulement pour qu'elle soit possible.** Une chaîne courte, un seul
+> internement, un nom littéral : trois façons différentes d'écrire un contrôle
+> qui ne peut pas échouer.
+
+⚠️ **Et un contrôle est tombé sur le code SAIN**, ce qui a corrigé une croyance :
+« aucune ligne du fichier ne finit par une espace » est **faux** — `Field` écrit
+`  <clé> = <valeur>`, donc tout champ vide (`composant`, `origine`, `ancrage`…)
+finit déjà par une espace. L'invariant appartient à la **ligne d'axe**, pas au
+fichier.
+
+**Limite antérieure constatée au passage, sans rapport avec le pool** : un nœud à
+~300 frères ne se relit pas — `Load` lit une ligne entière dans `val[256]` et la
+ligne `enfants` déborde. Le comportement est celui qui est documenté : **refuser
+plutôt que reconstruire à moitié**. Figé par un contrôle dans D5 pour que le jour
+où la borne bouge, ça se dise.
+
 ### La correction (c) — appliquée le 2026-08-22
 
 **Un repli qui préserve `success` n'est pas un repli, c'est un mensonge.**
