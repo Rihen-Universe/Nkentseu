@@ -3558,7 +3558,10 @@ namespace nkentseu {
 			NkVector<uint32> fs, fv;
 			NkVector<uint8> vsel;
 			NkVector<uint32> wmap;
-			EM_ToWeldedPolygons(*this, pv, fs, fv, vsel, wmap);
+			// MATERIAU PAR FACE : transporte a travers le round-trip soude.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			EM_ToWeldedPolygons(*this, pv, fs, fv, vsel, wmap, &fm);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			if (fc == 0)
 				return false;
@@ -3602,6 +3605,7 @@ namespace nkentseu {
 				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
 					nfv.PushBack(fv[k]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
 
 			if (p.individual) {
@@ -3634,17 +3638,20 @@ namespace nkentseu {
 					for (uint32 k = 0; k < n; ++k) // face INTÉRIEURE (même winding)
 						nfv.PushBack(inner[k]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					for (uint32 k = 0; k < n; ++k) { // BANDE de raccord
 						nfv.PushBack(fv[s + k]);
 						nfv.PushBack(fv[s + (k + 1u) % n]);
 						nfv.PushBack(inner[(k + 1u) % n]);
 						nfv.PushBack(inner[k]);
 						nfs.PushBack((uint32)nfv.Size());
+						nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 					}
 				}
 				if (nfs.Size() < 2u)
 					return false;
-				BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+				BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+								  nfm.Data());
 				ApplyVertSel(nsel);
 				return true;
 			}
@@ -3718,6 +3725,7 @@ namespace nkentseu {
 				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
 					nfv.PushBack((uint32)innerOf[fv[k]]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
 			for (uint32 f = 0; f < fc; ++f) { // BANDE sur les seules arêtes de BORD
 				if (!faceSel[f])
@@ -3732,11 +3740,13 @@ namespace nkentseu {
 					nfv.PushBack((uint32)innerOf[b]);
 					nfv.PushBack((uint32)innerOf[a]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 				}
 			}
 			if (nfs.Size() < 2u)
 				return false;
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+							  nfm.Data());
 			ApplyVertSel(nsel);
 			return true;
 		}
@@ -3756,7 +3766,10 @@ namespace nkentseu {
 			NkVector<uint32> wfs, wfv;
 			NkVector<uint8> wsel;
 			NkVector<uint32> wmap;
-			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap);
+			// MATERIAU PAR FACE : transporte a travers le round-trip soude.
+			NkVector<uint16> fm;
+			NkVector<uint16> nfm;
+			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap, &fm);
 			const uint32 wfc = (wfs.Size() > 0) ? (uint32)wfs.Size() - 1 : 0;
 			if (wfc == 0)
 				return false;
@@ -3928,8 +3941,10 @@ namespace nkentseu {
 					h = W.hedges[h].next;
 				} while (h != s && h != NK_EM_INVALID && ++g < 100000u);
 				nfs.PushBack((uint32)nfv.Size());
+				nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : (uint16)0);
 			}
-			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
+							  nfm.Data());
 			ApplyVertSel(nsel);
 			return true;
 		}
