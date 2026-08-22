@@ -41,6 +41,31 @@
 //  journalise : un banc dont il faut deviner ou est le resultat ne sert qu'a
 //  celui qui l'a ecrit.
 //
+// =============================================================================
+//  BASCULE DU 2026-08-22 : LE MOTEUR A CHANGE, LE FORMAT NON
+// =============================================================================
+//  `NkGuiFormat.h` (4185 lignes, un modele par section du langage) a ete RETIRE.
+//  Ce banc mesure exactement le meme format, a travers
+//  `NKSerialization/NkGui/NkGuiArchive.h` -- une couche purement syntaxique.
+//
+//  Le critere de bascule etait celui-la meme qui a servi a ecrire la couche :
+//  **les dix fichiers du corpus, charges et reenregistres octet pour octet**.
+//  Tant qu'il n'etait pas tenu, `NkGuiFormat.h` restait ; des qu'il l'a ete, il
+//  est parti -- deux chemins de lecture pour un meme format finissent toujours
+//  par diverger, et c'est le genre de divergence qu'on decouvre chez un
+//  utilisateur.
+//
+//  ⚠️ TROIS CONTROLES ONT CHANGE DE SENS, ET AUCUN N'A ETE SUPPRIME :
+//     - le 3 se scinde. Cinq documents fautifs sont toujours REFUSES A LA
+//       LECTURE (ce que la couche ne sait pas representer) ; quatre autres --
+//       `#12345`, la virgule finale, la cle de dictionnaire qui n'en est pas
+//       une, la section inconnue -- sont devenus des fautes de VALIDATION. La
+//       frontiere a bouge, elle n'a pas disparu, et le controle 3b la mesure ;
+//     - le 20c disait « la meme source estampillee 0.3 est REFUSEE ». Un lecteur
+//       syntaxique n'a aucune raison de la refuser : c'est la validation qui dit
+//       desormais « section inconnue » ;
+//     - le 10b garde `NkGSplitPath`, descendu dans `NkGuiValidate.h`.
+//
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
@@ -54,14 +79,21 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"
 
-#include "NkGuiFormat.h"
+#include "NKSerialization/NkGui/NkGuiArchive.h"
+
 #include "NkGuiValidate.h"
 
 namespace nkuidesign {
 	namespace guifmt {
 
+		using nkentseu::NkArchive;
+		using nkentseu::NkArchiveNode;
 		using nkentseu::NkDirectory;
 		using nkentseu::NkFile;
+		using nkentseu::NkGuiArchive;
+		using nkentseu::NkGuiDiag;
+		using nkentseu::NkGuiStyle;
+		using nkentseu::NkGuiValueKind;
 
 		// ====================================================================
 		//  PUBLIER LE RAPPORT
@@ -114,38 +146,11 @@ namespace nkuidesign {
 		/// CE QUI A DISPARU EN v0.3 : la detection des lignes vides. Elles sont
 		/// desormais LUES et conservees avec le reste de la trivia -- il n'y a plus
 		/// d'heuristique a caler, donc plus d'heuristique a se tromper.
-		inline NkGWriteOptions NkGDetectStyle(const char *text, uint32 length) {
-			NkGWriteOptions opt;
-			opt.crlf = false;
-			for (uint32 i = 0; i + 1 < length; ++i) {
-				if (text[i] == '\r' && text[i + 1] == '\n') {
-					opt.crlf = true;
-					break;
-				}
-				if (text[i] == '\n') {
-					break;
-				}
-			}
-			// La premiere ligne qui commence par des espaces donne la largeur d'un
-			// cran : c'est forcement un cran, jamais deux, parce qu'un fichier
-			// commence par une section au niveau zero.
-			opt.indent = 4;
-			for (uint32 i = 0; i < length; ++i) {
-				if (text[i] != '\n') {
-					continue;
-				}
-				uint32 j = i + 1;
-				uint32 spaces = 0;
-				while (j < length && text[j] == ' ') {
-					++spaces;
-					++j;
-				}
-				if (spaces > 0 && j < length && text[j] != '\r' && text[j] != '\n') {
-					opt.indent = spaces;
-					break;
-				}
-			}
-			return opt;
+		/// LA DETECTION DE STYLE EST DESCENDUE DANS LA COUCHE. Elle y a sa place :
+		/// c'est le lecteur qui sait ce qu'il a lu. Ce banc n'en garde qu'un alias,
+		/// pour que les controles se relisent comme avant.
+		inline NkGuiStyle NkGDetectStyle(const char *text, uint32 length) {
+			return NkGuiArchive::DetectStyle(text, length);
 		}
 
 		struct NkGRoundTripResult {
@@ -155,29 +160,53 @@ namespace nkuidesign {
 				bool byteIdentical = false;	 ///< la mesure plus forte
 				uint32 nodeCount = 0;
 				uint32 firstDiffOffset = 0;	 ///< si !byteIdentical
-				NkGDiag diag;
+				NkGuiDiag diag;
 		};
+
+		/// Compte les BLOCS d'une archive, en descendant.
+		inline uint32 NkGCountBlocks(const NkArchive &ar) {
+			const NkArchiveNode *b = ar.FindNode(NkStringView(NkGuiArchive::KeyBody()));
+			if (!b || !b->IsArray()) {
+				return 0;
+			}
+			uint32 n = 0;
+			for (uint32 i = 0; i < (uint32)b->array.Size(); ++i) {
+				if (b->array[i].IsObject() && b->array[i].object) {
+					++n;
+					n += NkGCountBlocks(*b->array[i].object);
+				}
+			}
+			return n;
+		}
 
 		/// L'aller-retour sur UN document. `original` est le contenu du fichier, en
 		/// octets, tel qu'il est sur le disque.
+		///
+		/// ⚠️ LES DEUX MESURES SONT DES CONTROLES DE SYMETRIE, ET AUCUNE DES DEUX NE
+		///    VOIT UNE FAUTE SYMETRIQUE. Ecrire puis relire annule toute faute qui
+		///    traverse l'aller ET le retour -- une tranche gardee verbatim ressort
+		///    verbatim meme si l'archive l'a mal decoupee. Les controles qui
+		///    regardent DANS l'archive (banc `SandboxNKArchive`, L14) sont les seuls
+		///    a pouvoir le voir. Ne pas confondre « le fichier revient » avec « le
+		///    document a ete compris ».
 		inline NkGRoundTripResult NkGRoundTripOne(const char *original, uint32 length) {
 			NkGRoundTripResult r;
 
-			NkGDocument doc1;
-			if (!NkGParse(original, length, doc1, r.diag)) {
+			NkArchive doc1;
+			if (!NkGuiArchive::Read(original, length, doc1, r.diag)) {
 				return r;
 			}
 			r.parsed = true;
-			r.nodeCount = (uint32)doc1.nodes.Size();
+			r.nodeCount = NkGCountBlocks(doc1);
 
-			const NkGWriteOptions opt = NkGDetectStyle(original, length);
-			const NkString emitted = NkGWrite(doc1, opt);
+			const NkGuiStyle opt = NkGuiArchive::DetectStyle(original, length);
+			const NkString emitted = NkGuiArchive::Write(doc1, opt);
 
 			// -- Mesure 1 : l'equivalence ---------------------------------
-			NkGDiag err2;
-			NkGDocument doc2;
-			if (NkGParse(emitted.Data(), (uint32)emitted.Size(), doc2, err2)) {
-				r.equivalent = NkGEqual(doc1, doc2);
+			NkGuiDiag err2;
+			NkArchive doc2;
+			if (NkGuiArchive::Read(emitted.Data(), (uint32)emitted.Size(), doc2, err2)) {
+				r.equivalent = NkGuiArchive::Equal(doc1, doc2);
 			} else {
 				// Ce cas merite d'etre distingue d'une simple inegalite : il dit que
 				// l'ecrivain a produit un fichier que le lecteur REFUSE. Ce n'est pas
@@ -316,9 +345,9 @@ namespace nkuidesign {
 			uint32 totalWarn = 0;
 			for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
 				NkVector<nkentseu::uint8> bytes = NkFile::ReadAllBytes(files[i].Data());
-				NkGDocument doc;
-				NkGDiag err;
-				if (!NkGParse((const char *)bytes.Data(), (uint32)bytes.Size(), doc, err)) {
+				NkArchive doc;
+				NkGuiDiag err;
+				if (!NkGuiArchive::Read((const char *)bytes.Data(), (uint32)bytes.Size(), doc, err)) {
 					rep.Append("  [ILLISIBLE] ");
 					rep.Append(files[i]);
 					rep.Append(" : ");
@@ -327,7 +356,7 @@ namespace nkuidesign {
 					++totalErr;
 					continue;
 				}
-				NkVector<NkGDiag> diags;
+				NkVector<NkGuiDiag> diags;
 				const NkGValidateResult vr = NkGValidate(doc, diags);
 				totalErr += vr.errors;
 				totalWarn += vr.warnings;
@@ -404,12 +433,12 @@ namespace nkuidesign {
 				}
 				return n;
 			};
-			auto parse = [&](const char *src, NkGDocument &d, NkGDiag &e) {
-				return NkGParse(src, len(src), d, e);
+			auto parse = [&](const char *src, NkArchive &d, NkGuiDiag &e) {
+				return NkGuiArchive::Read(src, len(src), d, e);
 			};
 			auto rejects = [&](const char *src, const char *why) {
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				const bool ko = !parse(src, d, e);
 				rep.Append("      refus attendu (");
 				rep.Append(why);
@@ -425,22 +454,22 @@ namespace nkuidesign {
 								 NkString &why) {
 				equivalent = false;
 				identical = false;
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				if (!parse(src, d, e)) {
 					why = NkString("refuse a la lecture : ");
 					why.Append(e.message);
 					return;
 				}
-				const NkString out = NkGWrite(d, NkGDetectStyle(src, len(src)));
-				NkGDocument d2;
-				NkGDiag e2;
-				if (!NkGParse(out.Data(), (uint32)out.Size(), d2, e2)) {
+				const NkString out = NkGuiArchive::Write(d, NkGDetectStyle(src, len(src)));
+				NkArchive d2;
+				NkGuiDiag e2;
+				if (!NkGuiArchive::Read(out.Data(), (uint32)out.Size(), d2, e2)) {
 					why = NkString("le texte REEMIS n'est pas relisible : ");
 					why.Append(e2.message);
 					return;
 				}
-				equivalent = NkGEqual(d, d2);
+				equivalent = NkGuiArchive::Equal(d, d2);
 				identical = (out.Compare(NkString(src)) == 0);
 				if (!identical) {
 					why = NkString("mise en forme differente a la reemission");
@@ -449,11 +478,11 @@ namespace nkuidesign {
 
 			// 1. Le temoin de bruit.
 			{
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				parse("nkgui 0.2\nwidgets {\n  Button \"a\" { label = \"x\" }\n}\n", d, e);
-				const NkString a = NkGWrite(d);
-				const NkString b = NkGWrite(d);
+				const NkString a = NkGuiArchive::Write(d, NkGuiStyle());
+				const NkString b = NkGuiArchive::Write(d, NkGuiStyle());
 				check("1. temoin de bruit : deux ecritures donnent le meme texte",
 					  a.Compare(b) == 0, "");
 			}
@@ -494,12 +523,12 @@ namespace nkuidesign {
 					 "nkgui 0.3\nwidgets {\n B \"a\" { m = { y = 1 } }\n}\n"},
 				};
 				for (uint32 i = 0; i < 10; ++i) {
-					NkGDocument d1;
-					NkGDocument d2;
-					NkGDiag e;
+					NkArchive d1;
+					NkArchive d2;
+					NkGuiDiag e;
 					const bool ok1 = parse(kPairs[i][1], d1, e);
 					const bool ok2 = parse(kPairs[i][2], d2, e);
-					check(kPairs[i][0], ok1 && ok2 && !NkGEqual(d1, d2), "");
+					check(kPairs[i][0], ok1 && ok2 && !NkGuiArchive::Equal(d1, d2), "");
 				}
 			}
 
@@ -515,22 +544,73 @@ namespace nkuidesign {
 			const bool r1 = rejects(badEsc.Data(), "echappement hors des trois du doc 2 §2");
 			const bool r2 = rejects("nkgui 0.2\nwidgets {\n Button \"a\" { label = \"x\" \n}\n",
 									"accolade jamais fermee");
-			const bool r3 = rejects("nkgui 0.2\nwidgets {\n Button \"a\" { c = #12345 }\n}\n",
-									"couleur a 5 chiffres");
+			// ⚠️ r3, r6, r8 et r9 ONT QUITTE CETTE LISTE. Ils sont mesures par le
+			//    controle 3b : un lecteur purement syntaxique les LIT (ce sont des
+			//    jetons nus bien formes pour lui), c'est la validation qui les juge.
 			const bool r4 = rejects("widgets { }\n", "en-tete nkgui manquant");
 			const bool r5 =
 				rejects("nkgui 0.2\n/* jamais ferme\nwidgets { }\n", "commentaire de bloc ouvert");
-			const bool r6 = rejects("nkgui 0.2\ninconnue { }\n",
-									"section inconnue dans un fichier de NOTRE version");
+
 			const bool r7 =
 				rejects("nkgui 0.2\nwidgets {\n B \"a\" { p = }\n}\n", "valeur manquante");
-			const bool r8 = rejects("nkgui 0.3\nwidgets {\n D \"d\" { i = [\"a\",] }\n}\n",
-									"virgule finale dans une liste");
-			const bool r9 = rejects("nkgui 0.3\nwidgets {\n B \"a\" { m = { 1 = 2 } }\n}\n",
-									"cle de dictionnaire ni identifiant ni chaine");
 			rep.Append('\n');
-			check("3. les 9 documents fautifs sont TOUS refuses",
-				  r1 && r2 && r3 && r4 && r5 && r6 && r7 && r8 && r9, "");
+			check("3. les 5 documents que la couche ne sait pas REPRESENTER sont refuses "
+				  "a la lecture",
+				  r1 && r2 && r4 && r5 && r7, "");
+
+			// =============================================================
+			// 3b -- LES QUATRE REFUS QUI ONT CHANGE DE DOMICILE
+			// =============================================================
+			// ⚠️ SANS CE CONTROLE, QUATRE DIAGNOSTICS DISPARAITRAIENT SANS QUE RIEN
+			//    NE TOMBE. Le fichier se lirait, se reecrirait a l'octet, et personne
+			//    ne dirait que la couleur a cinq chiffres. C'est exactement la forme
+			//    de perte qu'une bascule produit quand on ne compte que ce qui reste.
+			{
+				struct Cas {
+						const char *quoi;
+						const char *src;
+						const char *code;
+				};
+				static const Cas kCas[] = {
+					{"couleur a 5 chiffres",
+					 "nkgui 0.3\nwidgets {\n Button \"a\" { color = #12345 }\n}\n", "E-VALEUR"},
+					{"virgule finale dans une liste",
+					 "nkgui 0.3\nwidgets {\n Dropdown \"d\" { items = [\"a\",] }\n}\n",
+					 "E-VALEUR"},
+					{"cle de dictionnaire ni identifiant ni chaine",
+					 "nkgui 0.3\nwidgets {\n Table \"t\" { style = { 1 = 2 } }\n}\n",
+					 "E-VALEUR"},
+					{"section inconnue dans un fichier de NOTRE version",
+					 "nkgui 0.3\ninconnue { }\n", "E-SECTION-INCONNUE"},
+				};
+				bool tous = true;
+				for (uint32 i = 0; i < 4; ++i) {
+					NkArchive dc;
+					NkGuiDiag ec;
+					const bool lu = parse(kCas[i].src, dc, ec);
+					NkVector<NkGuiDiag> dg;
+					NkGValidate(dc, dg);
+					bool vu = false;
+					for (uint32 k = 0; k < (uint32)dg.Size(); ++k) {
+						if (dg[k].code.Compare(kCas[i].code) == 0) {
+							vu = true;
+						}
+					}
+					rep.Append("      faute deplacee (");
+					rep.Append(kCas[i].quoi);
+					rep.Append(") : ");
+					rep.Append(!lu ? NkString("*** REFUSEE A LA LECTURE ***")
+								   : (vu ? NkString(kCas[i].code)
+										 : NkString("*** NON SIGNALEE ***")));
+					rep.Append('\n');
+					// LE FICHIER DOIT SE LIRE **ET** LA FAUTE ETRE VUE. Un refus a la
+					// lecture serait ici un echec : il rendrait la faute incorrigible.
+					tous = tous && lu && vu;
+				}
+				check("3b. les 4 refus qui ont change de domicile : le fichier se LIT, et la "
+					  "VALIDATION nomme la faute",
+					  tous, "");
+			}
 
 			// 4. Ce qui DOIT passer : les trois echappements du document 2, l'UTF-8 et
 			//    la chaine vide. C'est le seul endroit du serialiseur qui REGENERE une
@@ -547,15 +627,15 @@ namespace nkuidesign {
 				src.Append('n');
 				src.Append("d \xC3\xA9\xC3\xA8 \xE2\x9C\x93\"\n        vide = \"\"\n    }\n}\n");
 
-				NkGDocument d;
-				NkGDiag e;
-				const bool ok = NkGParse(src.Data(), (uint32)src.Size(), d, e);
-				const NkString out = NkGWrite(d, NkGDetectStyle(src.Data(), (uint32)src.Size()));
-				NkGDocument d2;
-				NkGDiag e2;
-				const bool ok2 = NkGParse(out.Data(), (uint32)out.Size(), d2, e2);
+				NkArchive d;
+				NkGuiDiag e;
+				const bool ok = NkGuiArchive::Read(src.Data(), (uint32)src.Size(), d, e);
+				const NkString out = NkGuiArchive::Write(d, NkGDetectStyle(src.Data(), (uint32)src.Size()));
+				NkArchive d2;
+				NkGuiDiag e2;
+				const bool ok2 = NkGuiArchive::Read(out.Data(), (uint32)out.Size(), d2, e2);
 				check("4. les trois echappements, l'UTF-8 et la chaine vide survivent",
-					  ok && ok2 && NkGEqual(d, d2), ok ? "" : e.message.Data());
+					  ok && ok2 && NkGuiArchive::Equal(d, d2), ok ? "" : e.message.Data());
 				check("4b. et le texte reemis est identique octet pour octet",
 					  ok && out.Compare(src) == 0, "");
 			}
@@ -841,10 +921,10 @@ namespace nkuidesign {
 								  "        Button \"b\" { label = \"ok\" tooltip = \"aide\" }\n"
 								  "    }\n"
 								  "}\n";
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				const bool ok = parse(src, d, e);
-				NkVector<NkGDiag> diags;
+				NkVector<NkGuiDiag> diags;
 				const NkGValidateResult vr = NkGValidate(d, diags);
 				check("14. le VOCABULAIRE DU DOCUMENT 7 passe la validation sans une faute",
 					  ok && vr.errors == 0 && vr.warnings == 0, ok ? "" : e.message.Data());
@@ -859,10 +939,10 @@ namespace nkuidesign {
 								  "        bidule = 1\n"
 								  "    }\n"
 								  "}\n";
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				const bool lu = parse(src, d, e);
-				NkVector<NkGDiag> diags;
+				NkVector<NkGuiDiag> diags;
 				NkGValidate(d, diags);
 				bool nomme = false;
 				for (uint32 i = 0; i < (uint32)diags.Size(); ++i) {
@@ -871,7 +951,7 @@ namespace nkuidesign {
 						nomme = true;
 					}
 				}
-				const NkString out = NkGWrite(d, NkGDetectStyle(src, len(src)));
+				const NkString out = NkGuiArchive::Write(d, NkGDetectStyle(src, len(src)));
 				check("15. un ROLE INCONNU produit une erreur NOMMEE...", lu && nomme, "");
 				check("15b. ...et le document reste lisible ET reenregistrable a l'identique "
 					  "(on doit pouvoir CORRIGER la faute qu'on signale)",
@@ -879,10 +959,10 @@ namespace nkuidesign {
 			}
 			{
 				const char *src = "nkgui 0.3\nwidgets {\n    Combo \"c\" { items = [\"a\"] }\n}\n";
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				parse(src, d, e);
-				NkVector<NkGDiag> diags;
+				NkVector<NkGuiDiag> diags;
 				const NkGValidateResult vr = NkGValidate(d, diags);
 				bool alias = false;
 				for (uint32 i = 0; i < (uint32)diags.Size(); ++i) {
@@ -900,10 +980,10 @@ namespace nkuidesign {
 								  "    Text \"t\" { couleur = #FF0000 }\n"
 								  "    Dropdown \"d\" { items = \"pas une liste\" }\n"
 								  "}\n";
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				parse(src, d, e);
-				NkVector<NkGDiag> diags;
+				NkVector<NkGuiDiag> diags;
 				const NkGValidateResult vr = NkGValidate(d, diags);
 				check("17. VALIDATION PAR TYPE : nombre attendu, propriete hors schema, liste "
 					  "attendue -- 3 fautes vues",
@@ -912,12 +992,12 @@ namespace nkuidesign {
 
 			// 18-20. LA VERSION -- regles (a) (b) (c) (d).
 			{
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				const bool lu02 = parse("nkgui 0.2\nwidgets { }\n", d, e);
-				const bool garde02 =
-					lu02 && d.versionMajor.Compare("0") == 0 && d.versionMinor.Compare("2") == 0;
-				const NkString out = NkGWrite(d, NkGWriteOptions());
+				const nkentseu::NkSchemaVersion v = NkGuiArchive::VersionOf(d);
+				const bool garde02 = lu02 && v.major == 0 && v.minor == 2;
+				const NkString out = NkGuiArchive::Write(d, NkGuiStyle());
 				check("18. (a)(b) un fichier 0.2 se lit et se REECRIT en 0.2, jamais "
 					  "reestampille",
 					  garde02 && out.StartsWith("nkgui 0.2"), "");
@@ -926,8 +1006,8 @@ namespace nkuidesign {
 				rep.Append("\n  -- refus de version --\n");
 				const bool refuse =
 					rejects("nkgui 1.0\nwidgets { }\n", "MAJEURE plus recente -- regle (c)");
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				parse("nkgui 1.0\nwidgets { }\n", d, e);
 				rep.Append('\n');
 				check("19. (c) une MAJEURE plus recente est REFUSEE, avec « ce fichier est trop "
@@ -964,35 +1044,102 @@ namespace nkuidesign {
 								  "        accent = #F79A28\n"
 								  "    }\n"
 								  "}\n";
-				NkGDocument d;
-				NkGDiag e;
+				NkArchive d;
+				NkGuiDiag e;
 				const bool lu = parse(src, d, e);
+				// ⚠️ CE QUE CE CONTROLE MESURE A CHANGE DE NATURE, ET C'EST TOUT
+				//    L'INTERET DE LA BASCULE. L'ancien lecteur rangeait `theme` dans
+				//    une section de type `Raw` -- un mecanisme d'EXCEPTION. Le lecteur
+				//    syntaxique n'a pas d'exception a declencher : `theme "sombre"` est
+				//    un bloc comme un autre, avec son type, son identifiant et ses
+				//    membres. La regle (d) n'est plus un mecanisme, c'est le regime
+				//    normal -- alors on mesure la PRESENCE du bloc, pas celle d'un
+				//    fourre-tout.
 				bool sectionRaw = false;
-				for (uint32 i = 0; i < (uint32)d.sections.Size(); ++i) {
-					if (d.sections[i].kind == NkGSectionKind::Raw) {
-						sectionRaw = true;
+				const NkArchiveNode *corps =
+					d.FindNode(NkStringView(NkGuiArchive::KeyBody()));
+				if (corps && corps->IsArray()) {
+					for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
+						if (corps->array[i].IsObject() && corps->array[i].object
+							&& NkString(NkGuiArchive::TypeOf(*corps->array[i].object))
+								   .Compare("theme")
+								   == 0) {
+							sectionRaw = true;
+						}
+					}
+				}
+				// Et le MEMBRE inconnu (`futurMembre(x) { ... }`), lui, n'a aucune
+				// forme de bloc : il est bien garde en TRANCHE BRUTE, c'est-a-dire un
+				// element SCALAIRE du corps du bouton. C'est le seul endroit ou la
+				// preservation verbatim joue encore, et il faut le voir.
+				bool membreBrut = false;
+				if (corps && corps->IsArray() && corps->array.Size() > 0
+					&& corps->array[0].object) {
+					const NkArchiveNode *w =
+						corps->array[0].object->FindNode(NkStringView(NkGuiArchive::KeyBody()));
+					if (w && w->IsArray() && w->array.Size() > 0 && w->array[0].object) {
+						const NkArchiveNode *b = w->array[0].object->FindNode(
+							NkStringView(NkGuiArchive::KeyBody()));
+						if (b && b->IsArray()) {
+							for (uint32 k = 0; k < (uint32)b->array.Size(); ++k) {
+								if (b->array[k].IsScalar()) {
+									membreBrut = true;
+								}
+							}
+						}
 					}
 				}
 				bool eq = false;
 				bool id = false;
 				NkString why;
 				roundtrip(src, eq, id, why);
-				check("20. (d) un fichier 0.4 se LIT malgre sa section inconnue",
-					  lu && d.futureMinor && sectionRaw, lu ? "" : e.message.Data());
+				check("20. (d) un fichier 0.4 se LIT, sa section inconnue devient un bloc "
+					  "ordinaire et son membre inconnu une tranche brute",
+					  lu && sectionRaw && membreBrut, lu ? "" : e.message.Data());
 				check("20b. (d) LE TEMOIN : la section inconnue et le membre inconnu sont "
 					  "PRESERVES et reemis a l'octet pres, commentaires interieurs compris",
 					  eq && id, why.Data());
 				// Et la preuve par la negative : la meme source en 0.3 doit ECHOUER.
 				// Sinon la preservation ne serait pas liee a la version, elle serait une
 				// tolerance permanente -- c'est-a-dire un trou.
+				// ⚠️ CE CONTROLE A CHANGE DE DOMICILE, IL N'A PAS DISPARU. Il disait
+				//    « la meme source estampillee 0.3 est REFUSEE A LA LECTURE ». Un
+				//    lecteur purement syntaxique n'a aucune raison de la refuser : il
+				//    ne connait aucune section, donc il ne peut pas en trouver une
+				//    inconnue. **C'est la validation qui doit le dire, et elle le
+				//    dit** -- sinon « preserver » deviendrait « tout accepter », et une
+				//    section mal orthographiee passerait sans un mot.
 				NkString v03("nkgui 0.3");
 				v03.Append(NkString(src).SubStr(9));
-				NkGDocument d3;
-				NkGDiag e3;
-				const bool ko = !NkGParse(v03.Data(), (uint32)v03.Size(), d3, e3);
-				check("20c. (d) et la MEME source estampillee 0.3 est REFUSEE : preserver "
-					  "n'est pas tolerer, c'est reconnaitre un fichier plus recent",
-					  ko, ko ? "" : "*** ACCEPTEE ***");
+				NkArchive d3;
+				NkGuiDiag e3;
+				const bool lu3 = NkGuiArchive::Read(v03.Data(), (uint32)v03.Size(), d3, e3);
+				NkVector<NkGuiDiag> dg3;
+				NkGValidate(d3, dg3);
+				bool signalee = false;
+				for (uint32 i = 0; i < (uint32)dg3.Size(); ++i) {
+					if (dg3[i].code.Compare("E-SECTION-INCONNUE") == 0) {
+						signalee = true;
+					}
+				}
+				check("20c. (d) la MEME source estampillee 0.3 se LIT, et sa section "
+					  "inconnue est SIGNALEE par la validation : preserver n'est pas "
+					  "tout accepter",
+					  lu3 && signalee, lu3 ? "" : e3.message.Data());
+				// Et la contre-epreuve, sans laquelle le signalement pourrait etre
+				// permanent : en 0.4 -- une mineure plus recente que la mienne -- la
+				// meme section ne doit PAS etre signalee. C'est la regle (d).
+				NkVector<NkGuiDiag> dg4;
+				NkGValidate(d, dg4);
+				bool signalee04 = false;
+				for (uint32 i = 0; i < (uint32)dg4.Size(); ++i) {
+					if (dg4[i].code.Compare("E-SECTION-INCONNUE") == 0) {
+						signalee04 = true;
+					}
+				}
+				check("20d. (d) LE TEMOIN : en 0.4, la MEME section n'est PAS signalee -- "
+					  "la compatibilite ascendante n'est pas une faute",
+					  !signalee04, "");
 			}
 
 			// =============================================================
@@ -1030,8 +1177,8 @@ namespace nkuidesign {
 				// La contre-epreuve, sinon le refus ci-dessus pourrait venir de
 				// n'importe quelle autre faute de cette source : le MEME fichier
 				// avec un nom legal doit passer.
-				NkGDocument dOk;
-				NkGDiag eOk;
+				NkArchive dOk;
+				NkGuiDiag eOk;
 				const bool ok = parse("nkgui 0.3\nwidgets {\n  VBox \"v\" {\n    type = 1\n  }\n}\n",
 									  dOk, eOk);
 				check("21b. (temoin) le MEME fichier avec un nom legal est ACCEPTE : le refus "

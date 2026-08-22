@@ -972,6 +972,210 @@ static void L16_Migrations() {
 }
 
 // =============================================================================
+// L17 -- CLASSER UNE VALEUR, ET LES QUATRE REFUS QUI ONT CHANGE DE DOMICILE
+// =============================================================================
+// ATTENTION -- LA FRONTIERE A BOUGE, ELLE N'A PAS DISPARU, ET C'EST LE POINT LE
+// PLUS FACILE A PERDRE DE TOUTE LA BASCULE.
+//
+// L'ancien lecteur (`NkGuiFormat.h`) REFUSAIT neuf documents fautifs. Le nouveau
+// n'en refuse que cinq -- ceux qu'il ne sait pas REPRESENTER (echappement
+// inconnu, accolade jamais fermee, en-tete absent, commentaire de bloc ouvert,
+// propriete sans valeur). Les quatre autres (`#12345`, une virgule finale dans
+// une liste, une cle de dictionnaire qui n'en est pas une, une section inconnue)
+// sont des JETONS NUS parfaitement lisibles pour une couche purement syntaxique.
+//
+// Ils redeviennent des fautes ICI, au moment de JUGER. Ce n'est pas un repli :
+// c'est ce que le format demandait deja, mot pour mot -- « lire n'est pas juger,
+// et un document invalide doit rester LISIBLE ». Un editeur qui refuse d'ouvrir
+// le fichier dont il signale la faute rend cette faute incorrigible.
+//
+// >>> Si ce controle disparait, quatre diagnostics disparaissent avec lui SANS
+//     QUE RIEN NE TOMBE : le fichier se lit, s'ecrit a l'octet, et personne ne
+//     dit que la couleur a cinq chiffres.
+static NkGuiValueKind NkGKindDe(const char *valeur) {
+	NkString src("nkgui 0.3\nT \"t\" {\n  p = ");
+	src.Append(valeur);
+	src.Append("\n}\n");
+	NkArchive ar;
+	NkGuiDiag err;
+	if (!NkGuiArchive::Read(src.Data(), (nk_uint32)src.Size(), ar, err)) {
+		return NkGuiValueKind::Invalid;
+	}
+	const NkArchive *b = NkGSousBloc(ar, 0);
+	if (!b) {
+		return NkGuiValueKind::Invalid;
+	}
+	const NkArchiveNode *n = b->FindNode(NkStringView("p"));
+	if (!n) {
+		return NkGuiValueKind::Invalid;
+	}
+	return NkGuiArchive::KindOf(*n);
+}
+
+static void L17_ClasserUneValeur() {
+	printf("[L17] Classer une valeur, et les quatre refus qui ont change de domicile\n");
+
+	// -- 1. LES FORMES BIEN FORMEES -------------------------------------------
+	EXPECT_TRUE(NkGKindDe("\"bonjour\"") == NkGuiValueKind::String);
+	EXPECT_TRUE(NkGKindDe("\"\"") == NkGuiValueKind::String);
+	EXPECT_TRUE(NkGKindDe("12") == NkGuiValueKind::Number);
+	EXPECT_TRUE(NkGKindDe("0.50") == NkGuiValueKind::Number);
+	EXPECT_TRUE(NkGKindDe("-3") == NkGuiValueKind::Number);
+	EXPECT_TRUE(NkGKindDe("#F79A28") == NkGuiValueKind::Color);
+	EXPECT_TRUE(NkGKindDe("#0000003A") == NkGuiValueKind::Color);
+	EXPECT_TRUE(NkGKindDe("(0, 2)") == NkGuiValueKind::Vec2);
+	EXPECT_TRUE(NkGKindDe("(-1.0, 2)") == NkGuiValueKind::Vec2);
+	EXPECT_TRUE(NkGKindDe("true") == NkGuiValueKind::Ident);
+	EXPECT_TRUE(NkGKindDe("false") == NkGuiValueKind::Ident);
+	EXPECT_TRUE(NkGKindDe("Enum.X") == NkGuiValueKind::Ident);
+	EXPECT_TRUE(NkGKindDe("Resizable | Closable") == NkGuiValueKind::Flags);
+	EXPECT_TRUE(NkGKindDe("[]") == NkGuiValueKind::List);
+	EXPECT_TRUE(NkGKindDe("[1, \"a\", #FF0000]") == NkGuiValueKind::List);
+	EXPECT_TRUE(NkGKindDe("{ }") == NkGuiValueKind::Dict);
+	EXPECT_TRUE(NkGKindDe("{ a = 1, \"b\" = [2] }") == NkGuiValueKind::Dict);
+
+	// -- 2. LES QUATRE REFUS QUI ONT CHANGE DE DOMICILE ------------------------
+	EXPECT_TRUE(NkGKindDe("#12345") == NkGuiValueKind::Invalid);		 // 5 chiffres
+	EXPECT_TRUE(NkGKindDe("#F79A288F2") == NkGuiValueKind::Invalid);	 // 9 chiffres
+	EXPECT_TRUE(NkGKindDe("[\"a\",]") == NkGuiValueKind::Invalid);		 // virgule finale
+	EXPECT_TRUE(NkGKindDe("{ 1 = 2 }") == NkGuiValueKind::Invalid);		 // cle qui n'en est pas une
+
+	// -- 3. ET LE TEMOIN QUI EMPECHE `Invalid` D'ETRE UNE REPONSE PARESSEUSE ---
+	// Chacun des quatre a un JUMEAU legal qui ne differe que par la faute. Sans
+	// lui, un classificateur qui rendrait Invalid un peu trop souvent passerait.
+	EXPECT_TRUE(NkGKindDe("#123456") == NkGuiValueKind::Color);
+	EXPECT_TRUE(NkGKindDe("#F79A288F") == NkGuiValueKind::Color);
+	EXPECT_TRUE(NkGKindDe("[\"a\"]") == NkGuiValueKind::List);
+	EXPECT_TRUE(NkGKindDe("{ a = 2 }") == NkGuiValueKind::Dict);
+
+	// -- 4. TOUT LE LEXEME DOIT ETRE CONSOMME ---------------------------------
+	// `#12345 zut` n'est pas une couleur suivie de bruit : c'est une faute.
+	EXPECT_TRUE(NkGKindDe("#123456 zut") == NkGuiValueKind::Invalid);
+	EXPECT_TRUE(NkGKindDe("(1, 2) (3, 4)") == NkGuiValueKind::Invalid);
+
+	// -- 5. LE FICHIER RESTE LISIBLE ET REENREGISTRABLE MALGRE LA FAUTE -------
+	// C'est la moitie que le classificateur ne dit pas tout seul, et c'est la
+	// raison d'etre du deplacement : signaler sans empecher de corriger.
+	const char *fautif = "nkgui 0.3\nT \"t\" {\n  c = #12345\n}\n";
+	NkString out;
+	NkGuiDiag err;
+	EXPECT_TRUE(NkGRoundTrip(fautif, out, err));
+	EXPECT_STREQ(out, NkString(fautif));
+
+	// -- 6. UNE VALEUR FABRIQUEE PAR LE CODE ----------------------------------
+	// Une chaine posee par `SetString` n'a pas de litteral : elle s'ecrira entre
+	// guillemets, donc c'est une chaine -- quel que soit son contenu.
+	{
+		NkArchive a;
+		a.SetString(NkStringView("p"), NkStringView("#12345"));
+		EXPECT_TRUE(NkGuiArchive::KindOf(*a.FindNode(NkStringView("p")))
+					== NkGuiValueKind::String);
+		NkGuiArchive::SetToken(a, NkStringView("q"), NkStringView("#12345"));
+		EXPECT_TRUE(NkGuiArchive::KindOf(*a.FindNode(NkStringView("q")))
+					== NkGuiValueKind::Invalid);
+		a.SetInt64(NkStringView("r"), 7);
+		EXPECT_TRUE(NkGuiArchive::KindOf(*a.FindNode(NkStringView("r")))
+					== NkGuiValueKind::Number);
+	}
+}
+
+// =============================================================================
+// L18 -- COMPARER DEUX DOCUMENTS  (la seconde mesure du banc `NKUIDesign`)
+// =============================================================================
+// ATTENTION -- CE CONTROLE EXISTE PARCE QUE `Equal` N'ETAIT MESURE NULLE PART.
+//    Il a ete ecrit pour le banc de `NKUIDesign`, qui vit dans un autre binaire
+//    et n'est pas rejoue par le harnais de mutation. Un `Equal` qui rendrait
+//    toujours `true` y aurait rendu la moitie des controles verts sans que rien
+//    ne tombe ici. Une fonction de la couche se mesure dans le banc de la
+//    couche, sinon elle ne se mesure pas.
+static void L18_Comparer() {
+	printf("[L18] Comparer deux documents : ce que `Equal` doit VOIR\n");
+
+	const char *ref = "nkgui 0.3\nVBox \"v\" {\n  a = 1\n  b = 2\n  Text \"t\" { }\n}\n";
+
+	// Un helper local : lire deux sources et les comparer.
+	struct Cmp {
+			static bool Egal(const char *x, const char *y, bool trivia) {
+				NkArchive a;
+				NkArchive b;
+				NkGuiDiag e;
+				if (!NkGuiArchive::Read(x, (nk_uint32)NkString(x).Size(), a, e)) {
+					return false;
+				}
+				if (!NkGuiArchive::Read(y, (nk_uint32)NkString(y).Size(), b, e)) {
+					return false;
+				}
+				return NkGuiArchive::Equal(a, b, trivia);
+			}
+	};
+
+	// 1. TEMOIN DE BRUIT : la meme source deux fois -> egales. Sans lui, tous les
+	//    controles ci-dessous seraient verts avec un `Equal` toujours faux.
+	EXPECT_TRUE(Cmp::Egal(ref, ref, true));
+
+	// 2. LES DIFFERENCES QUE `Equal` DOIT VOIR. Chacune est un controle POSITIF :
+	//    un `Equal` toujours vrai meurt sur la premiere.
+	EXPECT_TRUE(!Cmp::Egal(ref, "nkgui 0.3\nVBox \"v\" {\n  a = 9\n  b = 2\n  Text \"t\" { }\n}\n",
+						   true));	// une VALEUR
+	EXPECT_TRUE(!Cmp::Egal(ref, "nkgui 0.3\nVBox \"w\" {\n  a = 1\n  b = 2\n  Text \"t\" { }\n}\n",
+						   true));	// un IDENTIFIANT
+	EXPECT_TRUE(!Cmp::Egal(ref, "nkgui 0.3\nHBox \"v\" {\n  a = 1\n  b = 2\n  Text \"t\" { }\n}\n",
+						   true));	// un TYPE
+	EXPECT_TRUE(!Cmp::Egal(ref, "nkgui 0.3\nVBox \"v\" {\n  b = 2\n  a = 1\n  Text \"t\" { }\n}\n",
+						   true));	// l'ORDRE des membres
+	EXPECT_TRUE(!Cmp::Egal(ref, "nkgui 0.3\nVBox \"v\" {\n  a = 1\n  b = 2\n}\n",
+						   true));	// un ENFANT en moins
+	EXPECT_TRUE(!Cmp::Egal(ref, "nkgui 0.3\nVBox \"v\" {\n  a = 1\n  b = 2\n  c = 3\n"
+								"  Text \"t\" { }\n}\n",
+						   true));	// une PROPRIETE en plus
+
+	// 3. LE LEXEME, PAS LA VALEUR. `0.20` et `0.2` denotent le meme nombre et NE
+	//    SONT PAS le meme document : reecrire l'un a la place de l'autre modifie
+	//    une ligne que l'auteur n'a pas touchee.
+	EXPECT_TRUE(!Cmp::Egal("nkgui 0.3\nT \"t\" {\n  x = 0.20\n}\n",
+						   "nkgui 0.3\nT \"t\" {\n  x = 0.2\n}\n", true));
+
+	// 4. LA TRIVIA ENTRE DANS L'EGALITE quand on la demande, et pas sinon. Les
+	//    deux moities comptent : sans la seconde, `withTrivia` ne servirait a rien.
+	const char *avecCom = "nkgui 0.3\n// un commentaire\nVBox \"v\" {\n  a = 1\n  b = 2\n"
+						  "  Text \"t\" { }\n}\n";
+	EXPECT_TRUE(!Cmp::Egal(ref, avecCom, true));
+	EXPECT_TRUE(Cmp::Egal(ref, avecCom, false));
+
+	// 5. UNE LIGNE VIDE EN MOINS EST UNE DIFFERENCE, elle aussi.
+	const char *avecVide = "nkgui 0.3\nVBox \"v\" {\n  a = 1\n\n  b = 2\n  Text \"t\" { }\n}\n";
+	EXPECT_TRUE(!Cmp::Egal(ref, avecVide, true));
+	EXPECT_TRUE(Cmp::Egal(ref, avecVide, false));
+
+	// 6. ATTENTION -- DEUX ARCHIVES SANS RANG, ET C'EST UNE MUTATION SURVIVANTE
+	//    QUI A IMPOSE CE POINT. La mutation « Equal ignore l'ORDRE des entrees »
+	//    restait VERTE : tous les documents des points 1 a 5 viennent d'un
+	//    FICHIER, donc chaque entree porte un rang, et c'est la comparaison des
+	//    RANGS qui voyait la difference d'ordre. La comparaison des CLES ne
+	//    servait a rien -- sur des documents lus.
+	//
+	//    Elle sert des qu'un document est FABRIQUE PAR LE CODE : aucune entree
+	//    n'a de rang, et deux archives dont les memes valeurs sont rangees sous
+	//    des cles echangees seraient declarees egales. Ce sont pourtant deux
+	//    documents differents : ils ne s'ecrivent pas pareil.
+	{
+		NkArchive x;
+		x.SetInt64(NkStringView("a"), 1);
+		x.SetInt64(NkStringView("b"), 1);
+		NkArchive y;
+		y.SetInt64(NkStringView("b"), 1);
+		y.SetInt64(NkStringView("a"), 1);
+		// CONDITION D'EXISTENCE : sans rang, sinon ce controle mesurerait encore
+		// les rangs et pas les cles.
+		EXPECT_TRUE(x.GetSourceOrder(NkStringView("a")) < 0);
+		EXPECT_TRUE(!NkGuiArchive::Equal(x, y, true));
+		// Le temoin : la MEME archive reste egale a elle-meme.
+		NkArchive z = x;
+		EXPECT_TRUE(NkGuiArchive::Equal(x, z, true));
+	}
+}
+
+// =============================================================================
 // POINT D'ENTREE DU BANC DE LA COUCHE
 // =============================================================================
 static void NkGuiLayerSuite(const char *corpusDir) {
@@ -992,6 +1196,8 @@ static void NkGuiLayerSuite(const char *corpusDir) {
 	L14_BlocSurUneLigne();
 	L15_MemeLigne();
 	L16_Migrations();
+	L17_ClasserUneValeur();
+	L18_Comparer();
 }
 
 // =============================================================================

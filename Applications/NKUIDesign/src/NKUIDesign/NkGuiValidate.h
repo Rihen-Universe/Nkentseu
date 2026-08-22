@@ -37,6 +37,35 @@
 //   W-ROLE-ALIAS    ancien nom, encore lu, a remplacer             Avertissement
 //   W-ID-DUPLIQUE   deux widgets partagent le meme id (doc 2 §12)  Avertissement
 //
+//
+// =============================================================================
+//  BASCULE DU 2026-08-22 : CE FICHIER JUGE UNE `NkArchive`, PLUS UN `NkGDocument`
+// =============================================================================
+//  `NkGuiFormat.h` a ete retire. La lecture passe desormais par
+//  `NKSerialization/NkGui/NkGuiArchive.h`, une couche PUREMENT SYNTAXIQUE qui ne
+//  connait aucun mot-cle du langage. Deux consequences, et il vaut mieux les
+//  ecrire que de les decouvrir :
+//
+//   1. QUATRE REFUS ONT CHANGE DE DOMICILE. L'ancien lecteur refusait `#12345`,
+//      une liste a virgule finale, une cle de dictionnaire qui n'en est pas une,
+//      et une section inconnue dans un fichier de NOTRE version. Un lecteur
+//      syntaxique les lit tres bien -- ce sont des jetons nus. Ils sont donc
+//      devenus des FAUTES DE VALIDATION, ici : `E-VALEUR` et `E-SECTION-INCONNUE`.
+//      Ce n'est pas un relachement, c'est ce que ce fichier annonce depuis le
+//      debut -- **lire n'est pas juger, et un document invalide doit rester
+//      LISIBLE**. Un editeur qui refuse d'ouvrir le fichier dont il signale la
+//      faute rend cette faute incorrigible.
+//
+//   2. ⚠️ LES DIAGNOSTICS N'ONT PLUS DE NUMERO DE LIGNE, ILS ONT UN CHEMIN.
+//      L'archive porte la SYNTAXE du document, pas les positions dans la source :
+//      aucun noeud n'y connait sa ligne. Plutot que d'inventer un numero, chaque
+//      diagnostic nomme le chemin du noeud fautif -- `widgets / VBox "v" /
+//      Button "ok" . label`. C'est un echange, pas une amelioration gratuite :
+//      on perd le saut direct dans l'editeur de texte, on gagne une designation
+//      qui survit a la modification du fichier. Si la ligne redevient
+//      necessaire, elle se recalculera par une passe sur la source -- elle ne se
+//      stockera pas dans le document.
+//
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
@@ -46,10 +75,68 @@
 #ifndef __NKENTSEU_NKUIDESIGN_NKGUIVALIDATE_H__
 #define __NKENTSEU_NKUIDESIGN_NKGUIVALIDATE_H__
 
-#include "NkGuiFormat.h"
+#include "NKSerialization/NkGui/NkGuiArchive.h"
+
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
+#include "NKCore/NkTypes.h"
 
 namespace nkuidesign {
 	namespace guifmt {
+
+		using nkentseu::NkArchive;
+		using nkentseu::NkArchiveNode;
+		using nkentseu::NkGuiArchive;
+		using nkentseu::NkGuiValueKind;
+		using nkentseu::NkString;
+		using nkentseu::NkStringView;
+		using nkentseu::NkVector;
+		using nkentseu::uint32;
+
+		// =====================================================================
+		//  DEUX SERVICES QUI SURVIVENT A LA BASCULE
+		// =====================================================================
+		//  Ils vivaient dans `NkGuiFormat.h` et ne dependaient d'AUCUN modele :
+		//  l'un formate un entier, l'autre decoupe un chemin pointe. Les perdre
+		//  avec le fichier aurait ete les reecrire ailleurs.
+
+		inline NkString NkGU32(uint32 v) {
+			char buf[16];
+			uint32 n = 0;
+			if (v == 0) {
+				buf[n++] = '0';
+			}
+			while (v > 0 && n < 15) {
+				buf[n++] = (char)('0' + (v % 10));
+				v /= 10;
+			}
+			NkString out;
+			for (uint32 i = 0; i < n; ++i) {
+				out.Append(buf[n - 1 - i]);
+			}
+			return out;
+		}
+
+		/// Decoupe `a.b.c` en ses segments. Le document garde le chemin ENTIER --
+		/// c'est lui qui est reemis, donc c'est lui qui fait foi. Ce service est
+		/// pour qui CONSOMME le document (resolution de pin, resolution d'enum) ;
+		/// il ne participe pas a l'aller-retour.
+		inline NkVector<NkString> NkGSplitPath(const NkString &ident) {
+			NkVector<NkString> out;
+			const char *p = ident.Data();
+			if (!p) {
+				return out;
+			}
+			const uint32 n = (uint32)ident.Size();
+			uint32 begin = 0;
+			for (uint32 i = 0; i <= n; ++i) {
+				if (i == n || p[i] == '.') {
+					out.PushBack(NkString(p + begin, i - begin));
+					begin = i + 1;
+				}
+			}
+			return out;
+		}
 
 		// =====================================================================
 		//  LE SCHEMA
@@ -254,34 +341,58 @@ namespace nkuidesign {
 		// =====================================================================
 		//  LA VERIFICATION D'UNE VALEUR
 		// =====================================================================
+		//
+		//  La lettre du schema est confrontee au KIND SYNTAXIQUE rendu par
+		//  `NkGuiArchive::KindOf`. C'est exactement ce que l'ancienne version
+		//  faisait avec `NkGValue::kind` -- la seule difference est que le kind est
+		//  desormais CALCULE depuis le lexeme au lieu d'etre produit par
+		//  l'analyseur. La mesure faite avant la bascule dit pourquoi : rien dans
+		//  `NKUIDesign` ne lit les ELEMENTS d'une liste, seulement son type.
 
-		inline bool NkGValueMatches(const NkGValue &v, char kind) {
+		/// NOTE -- UNE VALEUR `Invalid` N'ARRIVE JAMAIS ICI, ET C'EST UNE MUTATION
+		/// SURVIVANTE QUI L'A ETABLI. Cette fonction a porte un garde
+		/// `if (k == Invalid) return false;` pendant exactement une heure. La
+		/// mutation qui le retirait restait VERTE a 40/40 : le seul appelant juge
+		/// deja la bonne formation AVANT de chercher la propriete dans le schema,
+		/// donc le garde n'etait jamais atteint.
+		///
+		/// >>> Deux mecanismes pour une seule question, dont un mort. Il est parti.
+		///     C'est la deuxieme fois de ce chantier qu'une mutation fait RETIRER du
+		///     code au lieu d'en ajouter -- et c'est toujours le meme signe : un
+		///     garde qu'on ecrit « au cas ou » est un garde que personne ne mesure.
+		inline bool NkGValueMatches(const NkArchiveNode &node, char kind) {
+			const NkGuiValueKind k = NkGuiArchive::KindOf(node);
 			switch (kind) {
 				case 'a':
 					return true;
 				case 'n':
-					return v.kind == NkGValueKind::Number;
+					return k == NkGuiValueKind::Number;
 				case 's':
-					return v.kind == NkGValueKind::String;
+					return k == NkGuiValueKind::String;
 				case 'v':
-					return v.kind == NkGValueKind::Vec2;
+					return k == NkGuiValueKind::Vec2;
 				case 'c':
-					return v.kind == NkGValueKind::Color;
+					return k == NkGuiValueKind::Color;
 				case 'l':
-					return v.kind == NkGValueKind::List;
+					return k == NkGuiValueKind::List;
 				case 'd':
-					return v.kind == NkGValueKind::Dict;
+					return k == NkGuiValueKind::Dict;
 				case 'i':
-					return v.kind == NkGValueKind::Ident || v.kind == NkGValueKind::Flags;
+					return k == NkGuiValueKind::Ident || k == NkGuiValueKind::Flags;
 				case 'e':
 				case 'r':
-					return v.kind == NkGValueKind::Ident || v.kind == NkGValueKind::String;
-				case 'b':
+					return k == NkGuiValueKind::Ident || k == NkGuiValueKind::String;
+				case 'b': {
 					// LE BOOLEEN N'EST PAS UN TYPE DU LEXIQUE (doc 2 §2) : c'est un
 					// identifiant qui vaut `true` ou `false`. On le verifie donc sur
 					// le TEXTE -- sinon `wrap = Vrai` passerait pour un booleen.
-					return v.kind == NkGValueKind::Ident
-						   && (v.text.Compare("true") == 0 || v.text.Compare("false") == 0);
+					if (k != NkGuiValueKind::Ident) {
+						return false;
+					}
+					const NkStringView t = node.Lexeme();
+					const NkString v(t);
+					return v.Compare("true") == 0 || v.Compare("false") == 0;
+				}
 				default:
 					return true;
 			}
@@ -314,27 +425,29 @@ namespace nkuidesign {
 			}
 		}
 
-		inline const char *NkGValueKindName(NkGValueKind k) {
-			switch (k) {
-				case NkGValueKind::String:
-					return "chaine";
-				case NkGValueKind::Number:
-					return "nombre";
-				case NkGValueKind::Color:
-					return "couleur";
-				case NkGValueKind::Vec2:
-					return "Vec2";
-				case NkGValueKind::Ident:
-					return "identifiant";
-				case NkGValueKind::Flags:
-					return "drapeaux";
-				case NkGValueKind::List:
-					return "liste";
-				case NkGValueKind::Dict:
-					return "dictionnaire";
-				default:
-					return "rien";
+		// =====================================================================
+		//  LES SECTIONS CONNUES
+		// =====================================================================
+		//
+		//  ⚠️ CETTE TABLE EXISTE PARCE QU'UN REFUS A CHANGE DE DOMICILE. L'ancien
+		//     lecteur connaissait les sections et refusait `inconnue { }` dans un
+		//     fichier de NOTRE version. Le lecteur syntaxique ne connait aucune
+		//     section -- c'est tout son interet -- donc c'est ici que la faute
+		//     redevient visible.
+		//
+		//  ⚠️ ET ELLE NE S'APPLIQUE PAS A UN FICHIER PLUS RECENT. Une MINEURE
+		//     superieure a la notre = regle (d) : ce qu'on ne comprend pas, on le
+		//     PRESERVE, on ne le signale pas comme une faute. Sans cette condition,
+		//     la validation transformerait la compatibilite ascendante en erreur.
+		inline bool NkGSectionConnue(const NkString &nom) {
+			static const char *kSections[] = {"geometry", "widgets",	"behavior", "controller",
+											  "callback", "animation", "fonts",	   "include"};
+			for (uint32 i = 0; i < 8; ++i) {
+				if (nom.Compare(kSections[i]) == 0) {
+					return true;
+				}
 			}
+			return false;
 		}
 
 		// =====================================================================
@@ -368,97 +481,193 @@ namespace nkuidesign {
 			return nullptr;
 		}
 
-		inline void NkGPushDiag(NkVector<NkGDiag> &out, const char *code, const NkString &msg,
-								uint32 line) {
-			NkGDiag d;
+		inline void NkGPushDiag(NkVector<nkentseu::NkGuiDiag> &out, const char *code,
+								const NkString &msg) {
+			nkentseu::NkGuiDiag d;
 			d.code = NkString(code);
 			d.message = msg;
-			d.line = line;
+			d.line = 0;	 // voir la note de bascule : le chemin remplace la ligne
 			out.PushBack(d);
 		}
 
-		inline void NkGValidateNode(const NkGDocument &doc, uint32 idx, NkVector<NkGDiag> &out) {
-			const NkGNode &n = doc.nodes[idx];
+		/// Le CHEMIN d'un bloc, tel qu'il s'ecrit dans un diagnostic :
+		/// `widgets / VBox "v" / Button "ok"`.
+		inline NkString NkGCheminEnfant(const NkString &parent, const NkArchive &bloc) {
+			NkString p(parent);
+			if (!p.Empty()) {
+				p.Append(" / ");
+			}
+			p.Append(NkString(NkGuiArchive::TypeOf(bloc)));
+			const NkStringView id = NkGuiArchive::IdOf(bloc);
+			if (id.Size() > 0) {
+				p.Append(" \"");
+				p.Append(NkString(id));
+				p.Append('"');
+			}
+			return p;
+		}
 
-			const NkGSchemaRole *def = NkGFindRole(n.kind);
+		/// Le `$body` d'un bloc, ou nullptr.
+		inline const NkArchiveNode *NkGCorps(const NkArchive &bloc) {
+			const NkArchiveNode *b = bloc.FindNode(NkStringView(NkGuiArchive::KeyBody()));
+			return (b && b->IsArray()) ? b : nullptr;
+		}
+
+		inline void NkGValidateNode(const NkArchive &noeud, const NkString &parent,
+									NkVector<nkentseu::NkGuiDiag> &out) {
+			const NkString role(NkGuiArchive::TypeOf(noeud));
+			const NkString chemin = NkGCheminEnfant(parent, noeud);
+
+			const NkGSchemaRole *def = NkGFindRole(role);
 			if (!def) {
-				const char *alias = NkGFindAlias(n.kind);
+				const char *alias = NkGFindAlias(role);
 				if (alias) {
-					NkString m("role '");
-					m.Append(n.kind);
-					m.Append("' : ancien nom, encore lu. Le vocabulaire du document 7 dit '");
+					NkString m(chemin);
+					m.Append(" : role '");
+					m.Append(role);
+					m.Append("' -- ancien nom, encore lu. Le vocabulaire du document 7 dit '");
 					m.Append(alias);
 					m.Append("'");
-					NkGPushDiag(out, "W-ROLE-ALIAS", m, n.line);
+					NkGPushDiag(out, "W-ROLE-ALIAS", m);
 					def = NkGFindRole(NkString(alias));
 				} else {
 					// UNE ERREUR NOMMEE, PAS UN REJET MUET DU FICHIER. Le document
 					// reste lisible, modifiable et enregistrable : c'est la seule
 					// facon de pouvoir CORRIGER la faute qu'on signale.
-					NkString m("role inconnu : '");
-					m.Append(n.kind);
+					NkString m(chemin);
+					m.Append(" : role inconnu -- '");
+					m.Append(role);
 					m.Append("' n'est pas dans le vocabulaire NkUI (document 7 §3)");
-					NkGPushDiag(out, "E-ROLE-INCONNU", m, n.line);
+					NkGPushDiag(out, "E-ROLE-INCONNU", m);
 				}
 			}
 
 			if (def) {
 				uint32 un = 0;
 				const NkGSchemaProp *uni = NkGUniversalProps(un);
-				for (uint32 p = 0; p < (uint32)n.props.Size(); ++p) {
-					const NkGProp &prop = n.props[p];
+				const NkVector<nkentseu::NkArchiveEntry> &ents = noeud.Entries();
+				for (uint32 p = 0; p < (uint32)ents.Size(); ++p) {
+					if (NkGuiArchive::IsReservedKey(NkStringView(ents[p].key))) {
+						continue;  // `$type`, `$id`, `$body`, `$layout` : de la syntaxe
+					}
+					const NkString &nom = ents[p].key;
+
+					// ⚠️ UNE VALEUR MAL FORMEE EST JUGEE AVANT TOUTE QUESTION DE
+					//    SCHEMA, ET C'EST UNE MESURE QUI L'A IMPOSE. La premiere
+					//    version cherchait d'abord la propriete dans le schema et
+					//    passait a la suivante si elle n'y etait pas -- si bien que
+					//    `color = #12345` sur un role qui n'a pas de `color` ne
+					//    produisait QUE « propriete hors schema » : la couleur a cinq
+					//    chiffres n'etait plus signalee nulle part. Le controle 3b l'a
+					//    vu, et il avait ete ecrit exactement pour ca.
+					//
+					//    Une valeur qui ne correspond a AUCUNE forme du format est une
+					//    faute LEXICALE. Elle ne depend d'aucun role, donc elle ne doit
+					//    dependre d'aucune recherche de role.
+					if (NkGuiArchive::KindOf(ents[p].node) == NkGuiValueKind::Invalid) {
+						NkString m(chemin);
+						m.Append(" . ");
+						m.Append(nom);
+						m.Append(" : valeur mal formee -- '");
+						m.Append(NkString(ents[p].node.Lexeme()));
+						m.Append("' n'est aucune des formes de valeur du format");
+						NkGPushDiag(out, "E-VALEUR", m);
+						continue;
+					}
+
 					const NkGSchemaProp *found = nullptr;
 					for (uint32 k = 0; k < def->count && !found; ++k) {
-						if (prop.name.Compare(def->props[k].name) == 0) {
+						if (nom.Compare(def->props[k].name) == 0) {
 							found = &def->props[k];
 						}
 					}
 					for (uint32 k = 0; k < un && !found; ++k) {
-						if (prop.name.Compare(uni[k].name) == 0) {
+						if (nom.Compare(uni[k].name) == 0) {
 							found = &uni[k];
 						}
 					}
 					if (!found) {
-						NkString m("propriete '");
-						m.Append(prop.name);
-						m.Append("' absente du schema du role '");
+						NkString m(chemin);
+						m.Append(" . ");
+						m.Append(nom);
+						m.Append(" : propriete absente du schema du role '");
 						m.Append(def->role);
 						m.Append("'");
-						NkGPushDiag(out, "E-TYPE", m, prop.line);
+						NkGPushDiag(out, "E-TYPE", m);
 						continue;
 					}
-					if (!NkGValueMatches(prop.value, found->kind)) {
-						NkString m("propriete '");
-						m.Append(prop.name);
-						m.Append("' du role '");
-						m.Append(def->role);
-						m.Append("' : ");
+					if (!NkGValueMatches(ents[p].node, found->kind)) {
+						const NkGuiValueKind k = NkGuiArchive::KindOf(ents[p].node);
+						NkString m(chemin);
+						m.Append(" . ");
+						m.Append(nom);
+						m.Append(" : ");
 						m.Append(NkGKindName(found->kind));
 						m.Append(" attendu, lu ");
-						m.Append(NkGValueKindName(prop.value.kind));
-						NkGPushDiag(out, "E-TYPE", m, prop.line);
+						m.Append(NkGuiArchive::KindName(k));
+						// `E-VALEUR` quand la valeur n'est bien formee pour AUCUN type
+						// -- c'est un des quatre refus qui ont change de domicile ;
+						// `E-TYPE` quand elle est bien formee mais du mauvais type.
+						NkGPushDiag(out, k == NkGuiValueKind::Invalid ? "E-VALEUR" : "E-TYPE", m);
 					}
 				}
 			}
 
-			for (uint32 c = 0; c < (uint32)n.children.Size(); ++c) {
-				NkGValidateNode(doc, n.children[c], out);
+			// Les enfants. Une TRANCHE BRUTE (element scalaire du corps) n'est pas
+			// un noeud : elle n'est pas jugee, elle est passee.
+			const NkArchiveNode *corps = NkGCorps(noeud);
+			if (!corps) {
+				return;
+			}
+			for (uint32 c = 0; c < (uint32)corps->array.Size(); ++c) {
+				if (corps->array[c].IsObject() && corps->array[c].object) {
+					NkGValidateNode(*corps->array[c].object, chemin, out);
+				}
 			}
 		}
 
-		/// Valide TOUT le document. Ne modifie rien : le modele reste exactement
-		/// celui qui a ete lu, donc l'aller-retour est intact meme sur un document
+		/// Valide TOUT le document. Ne modifie rien : l'archive reste exactement
+		/// celle qui a ete lue, donc l'aller-retour est intact meme sur un document
 		/// que la validation refuse.
-		inline NkGValidateResult NkGValidate(const NkGDocument &doc, NkVector<NkGDiag> &out) {
+		inline NkGValidateResult NkGValidate(const NkArchive &doc,
+											 NkVector<nkentseu::NkGuiDiag> &out) {
 			NkGValidateResult r;
-			for (uint32 s = 0; s < (uint32)doc.sections.Size(); ++s) {
-				const NkGSection &sec = doc.sections[s];
-				if (sec.kind != NkGSectionKind::Widgets) {
-					continue;
-				}
-				const NkGTopSection &ts = doc.topSections[sec.index];
-				for (uint32 i = 0; i < (uint32)ts.roots.Size(); ++i) {
-					NkGValidateNode(doc, ts.roots[i], out);
+			// Regle (d) : un fichier d'une MINEURE plus recente peut porter des
+			// sections que nous ne connaissons pas. Les signaler serait transformer
+			// la compatibilite ascendante en erreur.
+			const nkentseu::NkSchemaVersion v = NkGuiArchive::VersionOf(doc);
+			const bool plusRecent = (v.major > (nkentseu::nk_uint16)NkGuiArchive::kMajor)
+									|| (v.major == (nkentseu::nk_uint16)NkGuiArchive::kMajor
+										&& v.minor > (nkentseu::nk_uint16)NkGuiArchive::kMinor);
+
+			const NkArchiveNode *corps = NkGCorps(doc);
+			if (corps) {
+				for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
+					if (!corps->array[i].IsObject() || !corps->array[i].object) {
+						continue;  // une construction non modelisee : passee telle quelle
+					}
+					const NkArchive &sec = *corps->array[i].object;
+					const NkString nom(NkGuiArchive::TypeOf(sec));
+					if (!NkGSectionConnue(nom) && !plusRecent) {
+						NkString m("section inconnue : '");
+						m.Append(nom);
+						m.Append("' n'est pas une section du format, et ce fichier n'est pas "
+								 "d'une version plus recente que la mienne");
+						NkGPushDiag(out, "E-SECTION-INCONNUE", m);
+						continue;
+					}
+					if (nom.Compare("widgets") != 0) {
+						continue;
+					}
+					const NkArchiveNode *racines = NkGCorps(sec);
+					if (!racines) {
+						continue;
+					}
+					for (uint32 k = 0; k < (uint32)racines->array.Size(); ++k) {
+						if (racines->array[k].IsObject() && racines->array[k].object) {
+							NkGValidateNode(*racines->array[k].object, NkString("widgets"), out);
+						}
+					}
 				}
 			}
 			for (uint32 i = 0; i < (uint32)out.Size(); ++i) {

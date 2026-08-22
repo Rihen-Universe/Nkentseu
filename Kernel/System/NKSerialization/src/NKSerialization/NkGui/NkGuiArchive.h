@@ -145,6 +145,48 @@ namespace nkentseu {
 			bool inlineEmptyBlock = true;	 ///< `Button "x" { }` sur une ligne
 	};
 
+	// =========================================================================
+	// ENUMERATION : NkGuiValueKind
+	// =========================================================================
+	/**
+	 * @enum NkGuiValueKind
+	 * @brief Le TYPE SYNTAXIQUE d'une valeur `.nkgui`
+	 *
+	 * POURQUOI CE CLASSIFICATEUR EXISTE, ET POURQUOI IL NE CONSTRUIT RIEN.
+	 *    La couche garde une liste ou un dictionnaire en JETON NU (voir
+	 *    `SetToken`). La question s'est donc posee de les transformer en noeuds
+	 *    TABLEAU / OBJET pour que la validation puisse les juger. Mesure faite
+	 *    AVANT d'ecrire : `NKUIDesign` ne lit les ELEMENTS d'une liste NULLE PART
+	 *    -- sa validation ne demande que le KIND (« un nombre attendu, une liste
+	 *    lue »). Construire des tableaux aurait donc ete du code jamais exerce,
+	 *    et il aurait fallu poser un litteral sur un noeud non-scalaire, ce que
+	 *    `HasUsableLiteral()` refuse.
+	 *
+	 *    Ce classificateur repond a la question posee, et a aucune autre.
+	 *
+	 * ET IL PORTE `Invalid`, QUI N'EST PAS UNE COMMODITE. En passant a un lecteur
+	 *    purement syntaxique, quatre refus que l'ancien lecteur produisait
+	 *    (`#12345`, une liste a virgule finale, une cle de dictionnaire qui n'en
+	 *    est pas une) ont cesse d'exister : ces textes sont des jetons nus
+	 *    parfaitement lisibles. **La frontiere a bouge, elle n'a pas disparu** --
+	 *    ils redeviennent des fautes ici, au moment de JUGER. C'est d'ailleurs ce
+	 *    que le format demandait deja : « lire n'est pas juger, et un document
+	 *    invalide doit rester LISIBLE ». Un editeur qui refuse d'ouvrir le fichier
+	 *    dont il signale la faute rend cette faute incorrigible.
+	 */
+	enum class NkGuiValueKind : nk_uint8 {
+		Invalid = 0,  ///< ne correspond a AUCUNE forme de valeur du format
+		Null,
+		Number,	  ///< -?[0-9]+(.[0-9]+)?
+		String,	  ///< "..."
+		Color,	  ///< #RRGGBB ou #RRGGBBAA, et rien d'autre
+		Vec2,	  ///< (x, y)
+		Ident,	  ///< un identifiant, eventuellement pointe ; `true`/`false` compris
+		Flags,	  ///< A | B | C
+		List,	  ///< [ ... ]
+		Dict	  ///< { cle = valeur, ... }
+	};
+
 	/// Le TYPE au nom duquel les migrations `.nkgui` sont enregistrees. Il n'a pas
 	/// de definition et n'en aura pas : `NkTypeOf<T>()` ne demande qu'un type, et
 	/// un document n'est pas une structure C++.
@@ -288,6 +330,43 @@ namespace nkentseu {
 
 			/// @brief Le `$body` de `ar`, cree s'il n'existe pas
 			static NkArchiveNode &EnsureBody(NkArchive &ar) noexcept;
+
+			// -----------------------------------------------------------------
+			// COMPARER DEUX DOCUMENTS
+			// -----------------------------------------------------------------
+			/**
+			 * @brief Deux archives portent-elles le MEME document ?
+			 * @param withTrivia true pour exiger aussi la meme mise en forme
+			 *
+			 * ⚠️ POURQUOI CETTE MESURE EXISTE A COTE DE L'IDENTITE OCTET, et pourquoi
+			 *    l'ordre compte. L'identite octet seule punirait une difference
+			 *    d'indentation comme une perte de donnee. L'egalite seule laisserait
+			 *    passer un ecrivain qui ecrit du charabia, du moment que son propre
+			 *    lecteur le relit pareil. **Les deux ensemble ne laissent passer ni
+			 *    l'un ni l'autre.**
+			 *
+			 * ⚠️ ET AUCUNE DES DEUX NE VOIT UNE FAUTE SYMETRIQUE. Les deux sont des
+			 *    controles de symetrie (ecrire puis relire) : une faute qui traverse
+			 *    l'aller ET le retour s'annule et reste invisible. Pour celles-la il
+			 *    faut regarder AU MILIEU, c'est-a-dire dans l'archive elle-meme.
+			 */
+			static bool Equal(const NkArchive &a, const NkArchive &b,
+							  bool withTrivia = true) noexcept;
+
+			// -----------------------------------------------------------------
+			// CLASSER UNE VALEUR
+			// -----------------------------------------------------------------
+			/**
+			 * @brief Le type syntaxique de la valeur portee par ce noeud
+			 * @note Travaille sur le LEXEME (`Lexeme()`), c'est-a-dire sur ce qui
+			 *       s'ecrirait dans le fichier -- pas sur le type de stockage de
+			 *       l'archive. C'est la bonne question : `.nkgui` n'a pas de type
+			 *       « chaine » distinct de « ce qui est entre guillemets ».
+			 */
+			static NkGuiValueKind KindOf(const NkArchiveNode &node) noexcept;
+
+			/// @brief Le nom francais du type, pour un message de diagnostic
+			static const char *KindName(NkGuiValueKind k) noexcept;
 
 			// -----------------------------------------------------------------
 			// LES VERSIONS ET LES MIGRATIONS  (etape 5)

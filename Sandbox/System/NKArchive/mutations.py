@@ -134,6 +134,43 @@ MUTATIONS = [
     ("M28 VersionOf ignore ce que le fichier disait",
      "\t\tconst NkArchiveNode *n = doc.FindNode(NkStringView(KeyVersion()));\n\t\tif (!n || !n->IsScalar()) {",
      "\t\tconst NkArchiveNode *n = doc.FindNode(NkStringView(KeyVersion()));\n\t\tif (true) {"),
+
+    # ---- bascule : le classificateur de valeur et la comparaison -------------
+    ("M29 KindOf ne rend jamais Invalid",
+     "\t\tif (e == kVBad) {\n\t\t\treturn NkGuiValueKind::Invalid;\n\t\t}",
+     "\t\tif (e == kVBad) {\n\t\t\treturn NkGuiValueKind::String;\n\t\t}"),
+
+    ("M30 une couleur peut avoir n'importe quelle longueur",
+     "\t\t\treturn (len == 6 || len == 8) ? i : kVBad;",
+     "\t\t\treturn (len > 0) ? i : kVBad;"),
+
+    ("M31 une liste tolere la virgule finale",
+     "\t\t\t\t\tVSkip(s, n, i);\n\t\t\t\t\tcontinue;\n\t\t\t\t}\n\t\t\t\treturn (i < n && s[i] == ']') ? (i + 1) : kVBad;",
+     "\t\t\t\t\tVSkip(s, n, i);\n\t\t\t\t\tif (i < n && s[i] == ']') { return i + 1; }\n\t\t\t\t\tcontinue;\n\t\t\t\t}\n\t\t\t\treturn (i < n && s[i] == ']') ? (i + 1) : kVBad;"),
+
+    ("M32 une cle de dictionnaire peut etre n'importe quoi",
+     "\t\t\t\tnk_size k = (i < n && s[i] == '\"') ? VScanString(s, n, i) : VScanIdent(s, n, i);",
+     "\t\t\t\tnk_size k = VScanValue(s, n, i, nullptr);"),
+
+    ("M33 KindOf ne verifie pas que TOUT le lexeme est consomme",
+     "\t\treturn (e == n) ? k : NkGuiValueKind::Invalid;",
+     "\t\treturn k;"),
+
+    ("M34 Equal rend toujours true",
+     "\t\treturn EqArchive(a, b, withTrivia);",
+     "\t\treturn true;"),
+
+    ("M35 Equal ignore l'ORDRE des entrees",
+     "\t\t\t\tif (a.Entries()[i].key.Compare(b.Entries()[i].key) != 0) {",
+     "\t\t\t\tif (false) {"),
+
+    ("M36 Equal compare la VALEUR au lieu du LEXEME",
+     "\t\t\treturn EqView(a.Lexeme(), b.Lexeme());",
+     "\t\t\treturn EqView(a.CanonicalLexeme(), b.CanonicalLexeme());"),
+
+    ("M37 Equal ignore la trivia meme quand on la demande",
+     "\t\t\tif (tv && (!EqView(a.LeadingTrivia(), b.LeadingTrivia())",
+     "\t\t\tif (false && (!EqView(a.LeadingTrivia(), b.LeadingTrivia())"),
 ]
 
 
