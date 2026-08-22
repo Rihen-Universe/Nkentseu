@@ -148,7 +148,46 @@ travers les opérations qui s'en servent.
 | chargeur | banc |
 |---|---|
 | OBJ · glTF · FBX | `NkAssetIODemo`, `NkFBXParityDemo` |
-| **PLY · STL · DAE · USDA** | **aucun** |
+| PLY · STL · DAE · USDA | ✅ `NKEditMeshHarness`, famille `chargeurs/` (2026-08-22, `71959d15`) |
+
+**Les sept chargeurs sont désormais couverts** (contre trois). Les quatre ajoutés
+**fonctionnent tous** — aucun défaut trouvé :
+
+| | sommets | triangles | bbox |
+|---|---|---|---|
+| PLY ascii / binaire | 8 / 8 | 12 / 12 | cubique |
+| STL ascii / binaire | 36 / 36 | 12 / 12 | cubique |
+| DAE | 36 | 12 | cubique |
+| USDA | 24 | 12 | cubique |
+
+Le contrôle le plus fort de cette famille ne dépend d'**aucune valeur écrite à la
+main** : ASCII et binaire encodent le même cube, donc le chargeur est comparé
+**à lui-même**. Et la bbox attrape ce qu'un comptage laisse passer — axe permuté,
+échelle, boutisme. « Cubique » est testé comme une **relation entre les trois
+côtés** (égaux à 1 % près), pas contre une taille en dur : le banc reste juste si
+quelqu'un remplace le cube de test.
+
+### ⚠️ DEUX DÉFAUTS TROUVÉS — dans le banc, pas dans les chargeurs
+
+1. **Les six chargeurs rendaient `ok=0`** au premier essai. Cause : le banc était
+   lancé depuis `Applications/NKEditMeshHarness/` (le dossier où vit
+   `editmesh_baseline.txt`, donc celui d'où l'on fait `--check`), alors que
+   `Resources/` se résout depuis la **racine du worktree**. Le banc a besoin des
+   **deux répertoires à la fois** — insoluble par le seul répertoire courant.
+   C'est la **même dette que celle déjà nommée pour les shaders** : deux
+   politiques de chemin dans un même programme.
+   → Remède local : `CheminRessource()` essaie le chemin tel quel puis en
+   remontant. **Vérifié depuis les deux répertoires : sortie identique.** Cela
+   compte pour le vérificateur, qui ne sait pas d'où lancer un banc.
+   ⚠️ *Un banc muet parce qu'il a été lancé d'ailleurs est pire qu'un banc
+   absent : il rend `ok=0` et ressemble à un chargeur cassé.*
+2. **`identiques=1` sur deux zéros.** La comparaison ASCII/binaire testait
+   l'égalité sans tester l'existence — elle réussissait donc sur du vide, pendant
+   que les six chargeurs échouaient. Corrigée en exigeant `> 0`.
+   *Troisième occurrence de ce motif dans ce chantier* (après les deux cas
+   « parallèle » de `NkFBXParityDemo` et `matops/deformation-pure`) :
+   **un contrôle d'égalité sans contrôle d'existence réussit toujours sur du
+   vide.**
 
 ---
 
