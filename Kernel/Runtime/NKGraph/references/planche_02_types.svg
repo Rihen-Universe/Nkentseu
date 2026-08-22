@@ -296,7 +296,7 @@
 <path d="M957.0 873.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text x="650" y="1098" fill="#6A6A6A" font-size="10">chaque élément est une VRAIE prise — branchable seul · repli obligatoire au-delà de 8</text>
 <text x="960" y="1098" fill="#6A6A6A" font-size="10">l’entrée d’exécution est sur l’EN-TÊTE · ⚠ corps de boucle et terminé séparés par une ligne vide</text>
-<text x="34" y="1112" fill="#F79A28" font-size="13" font-weight="600">6 ·  BRANCHER UN TABLEAU SUR UNE ENTRÉE SCALAIRE — refus UTILE, en trois temps</text>
+<text x="34" y="1112" fill="#F79A28" font-size="13" font-weight="600">6 · 🔴 BRANCHER UN TABLEAU SUR UNE ENTRÉE SCALAIRE — refus UTILE, en trois temps</text>
 <g filter="url(#ombre)" opacity="1.0">
 <rect x="44" y="1138" width="230" height="66" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 1143a5 5 0 0 1 5 -5 h220 a5 5 0 0 1 5 5 v25 H44 z" fill="#0A555F"/>
@@ -338,7 +338,7 @@
 <path d="M274 1171C337.0 1171 351.0 1183 414 1183" fill="none" stroke="#17B2EB" stroke-width="1.4" transform="translate(0,1.7)"/>
 <text x="44" y="1234" fill="#8A8A8A" font-size="10.5">1 — la prise scalaire s’ÉTEINT (30 %) pendant le tirage</text>
 <rect x="700" y="1138" width="330" height="128" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
-<text x="714" y="1164" fill="#C8CCD4" font-size="12"> ______________</text>
+<text x="714" y="1164" fill="#C8CCD4" font-size="12">🔍 ______________</text>
 <text x="714" y="1184" fill="#6A6A6A" font-size="10.5">qui acceptent</text>
 <rect x="800" y="1172.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text x="815" y="1184" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">[1.0]</text>
