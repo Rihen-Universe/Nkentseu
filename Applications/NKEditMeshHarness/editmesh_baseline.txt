@@ -176,7 +176,7 @@ mat/survie-triangulation           indices-slot1=12 (12 attendus : 2 quads -> 4 
 mat/assign-par-sommets             tousCoins=1 (1 attendu) unCoinManquant=0 (0 attendu)
 mat/slots-trou-jamais-decalage     slots=3 vivants=2 id[2]=102 (102 attendu) faceMz=2 (2 attendu)
 mat/slots-survivent-a-l-edition    slots 1 -> 1 | dernier id=777 (777 attendu)
-mat/decim-non-tranche              slot1 2 -> 0 | tris 12->6 (MESURE, pas un attendu)
+mat/decim-transport                slot1 2 -> 1 | tris 12->6 (0 = le materiau disparaissait)
 mat/temoin-smooth                  smooth 12 -> 0 sur 24 faces (TEMOIN du comportement existant)
 mat/survie-soudure                 slot1 2 -> 2 | sommets 24 -> 8 ok=1
 hist/aller-retour                  undo=1 redo=1 | retourExact=1 refaitExact=1 muteDifferent=1
@@ -204,7 +204,7 @@ matops/deformation-pure            ok=1 slot1 6 -> 6 | faces 6 -> 6 (si ok=0, ce
 matops/chanfrein                   ok=1 slot1 6 -> 0 | faces 6 -> 26
 matops/inset                       ok=1 slot1 6 -> 30 | faces 6 -> 30
 matops/split-aretes                ok=1 slot1 6 -> 6 | faces 6 -> 6
-matops/dissolve                    ok=1 slot1 16 -> 0 | faces 16 -> 1
+matops/dissolve                    ok=1 slot1 16 -> 1 | faces 16 -> 1
 matops/extruder-aretes             ok=1 slot1 6 -> 0 | faces 6 -> 18
 chargeurs/ply-ascii                ok=1 sommets=8 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
 chargeurs/ply-binaire              ok=1 sommets=8 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
@@ -230,3 +230,15 @@ acces/boucle-de-faces-bord         grille=4 faces=4 vivantes=4 doublons=0 rangee
 acces/boucle-de-faces-interieur    grille=4 faces=4 vivantes=4 doublons=0 rangee entiere=1 | boucle aretes=4
 acces/pile-trouver-et-descendre    trouve=1 refus inconnu=1 | bas ok=1 echange=1 | fin ok=0 intact=1 | id stable=1
 acces/enregistreur-rejeu           count 0->1->2 relu=1 | applique=2 faces 6->96 change=1
+matfus/aire-de-face                tri 1.5000 + 2.0000 | ngon 3.5000 | morte 0.0000 horsbornes 0.0000
+matfus/quadify-aire-domine         faces 1 retenu=2 (2 = la GRANDE, pas l indice bas) perdus=1
+matfus/quadify-egalite-indice      faces 1 retenu=1 (1 = indice bas a aire egale) perdus=1
+matfus/quadify-sans-perte          faces 1 retenu=3 perdus=0 (0 : meme materiau des deux cotes)
+matfus/transport-par-triangle      slot5=1 slot7=1 slot0=0 perdus=0 (0 : sans fusion rien ne se perd)
+matfus/transport-puis-fusion       faces 1 retenu=2 perdus=1
+matfus/dissolve-face-interieure    ok=1 faces 9->1 retenu=1 (1 = la face INTERIEURE) perdus=8
+matfus/dissolve-couleur-majoritaire ok=1 faces 9->1 retenu=2 (2 = la couleur majoritaire) perdus=4
+matfus/dissolve-egalite-indice     ok=1 faces 16->1 retenu=1 (1 = indice bas a aire egale) perdus=8
+matfus/dissolve-sans-perte         ok=1 faces 16->1 retenu=4 perdus=0 (0 : une seule couleur)
+matfus/decimation-transport        ok=1 tris 32->15 slots 2->2 | slot1=9 slot2=6 slot0=0 fusions=0
+matfus/decimation-couleur-perdue   ok=1 tris 32->2 slots 2->1 | slot3 restant=0 fusions=0

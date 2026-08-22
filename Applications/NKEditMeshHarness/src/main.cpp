@@ -3175,9 +3175,10 @@ static void LinkedBattery() {
 // ToPolygons/BuildFromPolygons, qui reconstruit les `Face` a neuf.
 //
 // REGIMES COUVERTS : subdivision lineaire, Catmull-Clark, extrusion,
-// triangulation, soudure. NON COUVERTS : la decimation (la regle d'heritage
-// lors d'une fusion de faces n'est pas encore tranchee — voir la ligne
-// mat/decim-non-tranche, qui MESURE l'etat actuel sans le valider), et tout
+// triangulation, soudure. La DECIMATION l'est desormais aussi : la regle
+// d'heritage a ete tranchee le 2026-08-22 (contributeur dominant par l'aire,
+// egalite par l'indice le plus bas) et elle est mesuree par la batterie
+// `matfus/`, avec ses deux criteres MIS EN DESACCORD. NON COUVERTS : tout
 // ce qui touche au rendu.
 static void MaterialBattery() {
 	NkVector<NkVertex3D> v;
@@ -3446,11 +3447,20 @@ static void MaterialBattery() {
 				 m.materialSlots.Size() ? m.materialSlots[(uint32)m.materialSlots.Size() - 1].id : 0u);
 	}
 
-	// ── 10. DECIMATION : ETAT MESURE, REGLE NON TRANCHEE ────────────────────
-	// Quand une contraction fusionne des faces, de qui la survivante herite-t-elle ?
-	// La question n'est PAS tranchee (elle demande un arbitrage produit). Cette
-	// ligne MESURE le comportement actuel pour qu'un changement se voie ; elle ne
-	// le valide pas. Ecrire un attendu ici serait inventer une decision.
+	// ── 10. DECIMATION : LE MATERIAU SURVIT ─────────────────────────────────
+	// ⚠ LIGNE RENOMMEE (`mat/decim-non-tranche` -> `mat/decim-transport`) LE
+	// 2026-08-22, et sa valeur a change : `slot1 2 -> 0` est devenu `2 -> 1`.
+	// L'ancien nom disait vrai a l'epoque — la regle d'heritage attendait un
+	// arbitrage — et il aurait menti a partir du jour ou l'arbitrage est tombe.
+	// Un nom de cas qui decrit un ETAT PROVISOIRE devient faux sans que rien ne
+	// le signale : c'est la ligne elle-meme qui aurait rassure a tort.
+	//
+	// ⚠ ET LE ZERO D'AVANT N'ETAIT PAS « la regle n'est pas choisie », c'etait
+	// « le materiau DISPARAIT » : la decimation reconstruisait par
+	// BuildFromIndexed, qui ne transportait rien, donc TOUTES les faces
+	// retombaient sur le slot 0. Mesure, pas relecture. Ce qui manquait n'etait
+	// pas un arbitrage, c'etait un transport — et l'arbitrage ne portait meme
+	// pas sur ce chemin-la (QEM SUPPRIME des faces, il n'en fusionne aucune).
 	{
 		NkEditMesh m;
 		makeTwoIslands(m);
@@ -3459,7 +3469,7 @@ static void MaterialBattery() {
 		dp.targetRatio = 0.5f;
 		NkDecimateStats st;
 		NkMeshDecimate::DecimateQEM(m, dp, &st);
-		Put("{0:<34} slot1 {1} -> {2} | tris {3}->{4} (MESURE, pas un attendu)", "mat/decim-non-tranche", avant,
+		Put("{0:<34} slot1 {1} -> {2} | tris {3}->{4} (0 = le materiau disparaissait)", "mat/decim-transport", avant,
 				 countMat(m, 1), st.trisBefore, st.trisAfter);
 	}
 
@@ -4963,6 +4973,411 @@ static void AccessBattery() {
 	}
 }
 
+// -- FUSION DE FACES : DE QUI LA SURVIVANTE HERITE-T-ELLE SON MATERIAU ? -----
+// REGLE ARBITREE (2026-08-22) : contributeur DOMINANT PAR L AIRE ; a aire
+// egale, INDICE DE MATERIAU LE PLUS BAS.
+//
+// POURQUOI CETTE BATTERIE NE PEUT PAS SE CONTENTER D UN CAS PAR OPERATION.
+// La regle a DEUX criteres, et un cas ou ils sont d accord n en teste aucun :
+// sur deux moities d un carre, « la plus grande aire » et « l indice le plus
+// bas » designent la meme face, et une implantation qui ferait simplement
+// « garder la premiere » passerait. Chaque site de fusion est donc mesure
+// DEUX fois, avec les deux criteres EN DESACCORD puis EN EGALITE :
+//   - aires INEGALES et le plus petit indice sur la PETITE face -> l aire doit
+//     gagner ; « garder la premiere » et « le plus petit indice » echouent ;
+//   - aires EGALES et le plus petit indice en SECONDE position -> l indice doit
+//     gagner ; « garder la premiere » echoue.
+//
+// ET LE CAS QUI COMPTE LE PLUS N EST PAS QUI GAGNE, C EST CE QUI SE PERD.
+// Quand les faces fusionnees portent des materiaux differents, la fusion perd
+// de l information quelle que soit la regle. Ce n est pas a corriger, c est a
+// RAPPORTER : chaque ligne porte `perdus`, le nombre de faces source dont le
+// materiau n a pas ete retenu. Un zero rassure -- mais un zero ne s invente
+// pas, il se compte, et les lignes `perdus=0` de cette batterie voisinent des
+// lignes `perdus>0` produites par le MEME compteur.
+static void MatFusionBattery() {
+	// Quad plan a la carte, triangule en eventail (0,1,2)+(0,2,3) : les deux
+	// triangles sont CONSECUTIFS et adjacents, donc candidats a Quadify.
+	auto quad = [](NkEditMesh &m, NkVec3f p0, NkVec3f p1, NkVec3f p2, NkVec3f p3, uint16 mA, uint16 mB) {
+		NkVector<NkVertex3D> vv;
+		NkVector<uint32> ii;
+		const NkVec3f ps[4] = {p0, p1, p2, p3};
+		for (uint32 k = 0; k < 4; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, -1.f, 0.f};
+			t.tangent = {1.f, 0.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vv.PushBack(t);
+		}
+		const uint32 tri[6] = {0, 1, 2, 0, 2, 3};
+		for (uint32 k = 0; k < 6; ++k)
+			ii.PushBack(tri[k]);
+		// quadify=false : on peint AVANT de fusionner, sinon les deux triangles
+		// seraient deja un quad et il n y aurait plus rien a departager.
+		m.BuildFromIndexed(vv.Data(), 4u, ii.Data(), 6u, false);
+		m.faces[0].material = mA;
+		m.faces[1].material = mB;
+	};
+	auto compte = [](const NkEditMesh &m, uint16 slot) {
+		uint32 n = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == slot)
+				n++;
+		return n;
+	};
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 n = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				n++;
+		return n;
+	};
+	auto matPremiereVivante = [](const NkEditMesh &m) -> uint32 {
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				return m.faces[f].material;
+		return 9999u;
+	};
+
+	// -- 1. FaceArea : la mesure sur laquelle repose toute la regle ----------
+	// Elle est neuve et publique : si elle ment, la regle designe le mauvais
+	// gagnant sans qu aucune autre ligne ne le signale. Verifiee sur des aires
+	// CONNUES A LA MAIN (triangles 1,5 et 2,0), et sur le n-gon qu ils forment
+	// une fois fusionnes -- 3,5 = la somme, ce qu aucune formule de triangle ne
+	// rendrait sur un quad.
+	{
+		NkEditMesh m;
+		quad(m, {0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}, 0, 0);
+		const float32 a0 = m.FaceArea(0), a1 = m.FaceArea(1);
+		m.Quadify();
+		const float32 aq = m.FaceArea(0);
+		// Face MORTE et index HORS BORNES : deux refus qu aucun cas « normal »
+		// n exerce, et sans lesquels une lecture de memoire indeterminee
+		// passerait pour une aire.
+		Put("{0:<34} tri {1:.4f} + {2:.4f} | ngon {3:.4f} | morte {4:.4f} horsbornes {5:.4f}",
+			"matfus/aire-de-face", (double)a0, (double)a1, (double)aq, (double)m.FaceArea(1),
+			(double)m.FaceArea((NkEmId)9999));
+	}
+
+	// -- 2. QUADIFY, criteres EN DESACCORD : l aire doit gagner -------------
+	// Petite face (1,5) sur le slot 1, grande face (2,0) sur le slot 2.
+	// « Indice le plus bas » dirait 1. « Garder la premiere » dirait 1.
+	// La regle dit 2. C est la seule ligne qui distingue les trois.
+	{
+		NkEditMesh m;
+		quad(m, {0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}, 1, 2);
+		const uint32 perdus = m.Quadify();
+		Put("{0:<34} faces {1} retenu={2} (2 = la GRANDE, pas l indice bas) perdus={3}",
+			"matfus/quadify-aire-domine", vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 3. QUADIFY, aires EGALES : l indice le plus bas tranche ------------
+	// Carre coupe en deux : les deux moities ont la MEME aire. Slot 2 en
+	// premier, slot 1 en second. « Garder la premiere » dirait 2 ; la regle
+	// dit 1. Sans cette ligne, un depart d egalite implicite passerait.
+	{
+		NkEditMesh m;
+		quad(m, {0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}, {1.f, 0.f, 1.f}, {0.f, 0.f, 1.f}, 2, 1);
+		const uint32 perdus = m.Quadify();
+		Put("{0:<34} faces {1} retenu={2} (1 = indice bas a aire egale) perdus={3}",
+			"matfus/quadify-egalite-indice", vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 4. QUADIFY, materiaux IDENTIQUES : rien ne se perd -----------------
+	// Le temoin du compteur. Sans lui, un `perdus` qui compterait les fusions
+	// au lieu des pertes rendrait la meme chose que le cas 2 et personne ne le
+	// verrait.
+	{
+		NkEditMesh m;
+		quad(m, {0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}, 3, 3);
+		const uint32 perdus = m.Quadify();
+		Put("{0:<34} faces {1} retenu={2} perdus={3} (0 : meme materiau des deux cotes)",
+			"matfus/quadify-sans-perte", vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 5. BuildFromIndexed transporte le materiau PAR TRIANGLE ------------
+	// Le transport et la fusion sont deux choses : ici quadify=false, donc rien
+	// ne fusionne et les deux triangles doivent garder CHACUN le leur.
+	{
+		NkEditMesh m;
+		NkVector<NkVertex3D> vv;
+		NkVector<uint32> ii;
+		const NkVec3f ps[4] = {{0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}};
+		for (uint32 k = 0; k < 4; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, -1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vv.PushBack(t);
+		}
+		const uint32 tri[6] = {0, 1, 2, 0, 2, 3};
+		for (uint32 k = 0; k < 6; ++k)
+			ii.PushBack(tri[k]);
+		const uint16 tm[2] = {5, 7};
+		uint32 perdus = 123u; // valeur SALE : si la fonction ne l ecrit pas, ca se voit
+		m.BuildFromIndexed(vv.Data(), 4u, ii.Data(), 6u, false, tm, &perdus);
+		Put("{0:<34} slot5={1} slot7={2} slot0={3} perdus={4} (0 : sans fusion rien ne se perd)",
+			"matfus/transport-par-triangle", compte(m, 5), compte(m, 7), compte(m, 0), perdus);
+	}
+
+	// -- 6. Le meme, quadify=TRUE : le transport puis la fusion s enchainent -
+	// Bout en bout : le materiau entre par le parametre et la perte ressort par
+	// le compteur, sans que l appelant ait a toucher aux `Face`.
+	{
+		NkEditMesh m;
+		NkVector<NkVertex3D> vv;
+		NkVector<uint32> ii;
+		const NkVec3f ps[4] = {{0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}};
+		for (uint32 k = 0; k < 4; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, -1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vv.PushBack(t);
+		}
+		const uint32 tri[6] = {0, 1, 2, 0, 2, 3};
+		for (uint32 k = 0; k < 6; ++k)
+			ii.PushBack(tri[k]);
+		const uint16 tm[2] = {1, 2}; // petite=1, grande=2 -> l aire doit gagner
+		uint32 perdus = 123u;
+		m.BuildFromIndexed(vv.Data(), 4u, ii.Data(), 6u, true, tm, &perdus);
+		Put("{0:<34} faces {1} retenu={2} perdus={3}", "matfus/transport-puis-fusion", vivantes(m),
+			matPremiereVivante(m), perdus);
+	}
+}
+
+
+// -- FUSION DE FACES, SUITE : DISSOLVE (N faces) ET DECIMATION --------------
+// Quadify fusionne DEUX faces ; Dissolve en fusionne N. Le passage de 2 a N
+// fait apparaitre une question que deux contributeurs ne posaient pas, et
+// deux pieges que deux contributeurs ne pouvaient pas contenir.
+static void MatFusionNBattery() {
+	auto grille = [](NkEditMesh &m, uint32 n) {
+		NkVector<NkVertex3D> gv;
+		NkVector<uint32> gi;
+		MakeGrid(n, gv, gi);
+		m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		m.RebuildEdges();
+	};
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				k++;
+		return k;
+	};
+	auto matPremiereVivante = [](const NkEditMesh &m) -> uint32 {
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				return m.faces[f].material;
+		return 9999u;
+	};
+	auto toutSelectionner = [](NkEditMesh &m) {
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			fl[i] = 1;
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+	};
+	// Faces vivantes dans leur ordre, pour peindre par rang plutot que par index
+	// de table (les faces mortes de Quadify laissent des trous).
+	auto rangs = [](const NkEditMesh &m, NkVector<uint32> &out) {
+		out.Clear();
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				out.PushBack(f);
+	};
+
+	// -- 7. DISSOLVE : la face ENTIEREMENT INTERIEURE compte aussi ----------
+	// Grille 3x3 entierement dissoute. La face du CENTRE a ses quatre aretes
+	// retirees : elle n apparait sur AUCUN contour. Un calcul qui ne
+	// regarderait que les faces parcourues par le contour l ignorerait --
+	// et rendrait un resultat parfaitement plausible.
+	// FIGURE PIEGEE EXPRES : le centre porte le slot 1, les huit autres portent
+	// 5,6,7,8,9,10,11,12. Toutes les aires sont egales, donc l egalite tranche
+	// par l indice le plus bas -> 1, qui n existe QUE sur la face interieure.
+	// Si le centre etait oublie, la ligne dirait 5 sans avoir l air fausse.
+	{
+		NkEditMesh m;
+		grille(m, 3);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		// Centre = la face dont le barycentre est le plus proche de l origine.
+		uint32 centre = fr.Empty() ? 0u : fr[0];
+		float32 best = 1e30f;
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k) {
+			NkVector<NkEmId> b;
+			m.GetFaceVerts((NkEmId)fr[k], b);
+			NkVec3f c{0.f, 0.f, 0.f};
+			for (uint32 j = 0; j < (uint32)b.Size(); ++j)
+				c = c + m.verts[b[j]].pos;
+			if (b.Size())
+				c = c * (1.f / (float32)b.Size());
+			const float32 d = c.Len();
+			if (d < best) {
+				best = d;
+				centre = fr[k];
+			}
+		}
+		uint16 suivant = 5;
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (fr[k] == centre) ? (uint16)1 : suivant++;
+		const uint32 avant = vivantes(m);
+		toutSelectionner(m);
+		NkDissolveParams dp;
+		dp.mode = 0; // Verts
+		uint32 perdus = 123u;
+		const bool ok = m.DissolveSelected(dp, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2}->{3} retenu={4} (1 = la face INTERIEURE) perdus={5}",
+			"matfus/dissolve-face-interieure", ok ? 1 : 0, avant, vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 8. DISSOLVE : « la plus grande aire » de QUOI ? -------------------
+	// Grille 3x3, toutes les cellules de MEME aire. Cinq portent le slot 2,
+	// quatre portent le slot 1.
+	//   - lecture « la FACE la plus grande » : toutes egales -> egalite ->
+	//     indice le plus bas -> 1 ;
+	//   - lecture « la COULEUR qui couvrait le plus » : 5/9 contre 4/9 -> 2.
+	// C est la SEULE ligne du banc qui separe les deux lectures de l arbitrage.
+	// On retient la couleur (2) : c est ce que la justification ecrite decrit
+	// (« la couleur qui couvrait le plus doit rester ») et ce que voit
+	// l utilisateur. Ecart signale a l arbitre.
+	{
+		NkEditMesh m;
+		grille(m, 3);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		// ⚠ ORDRE CHOISI CONTRE LA REGLE, ET C'EST TOUT L'INTERET. La MINORITE
+		// (4 cellules) porte le slot 1 et vient EN PREMIER ; la majorite
+		// (5 cellules) porte le slot 2 et vient ensuite. Donc :
+		//   « garder la premiere »   dirait 1 ;
+		//   « l'indice le plus bas » dirait 1 ;
+		//   « la couleur dominante » dit  2.
+		// Premiere version de ce cas : majorite EN PREMIER — une mutation qui
+		// supprimait entierement la comparaison d'aires la laissait VERTE, parce
+		// que le bon resultat tombait par accident. Corrige apres l'avoir mesure.
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (k < 4u) ? (uint16)1 : (uint16)2;
+		const uint32 avant = vivantes(m);
+		toutSelectionner(m);
+		NkDissolveParams dp;
+		dp.mode = 0;
+		uint32 perdus = 123u;
+		const bool ok = m.DissolveSelected(dp, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2}->{3} retenu={4} (2 = la couleur majoritaire) perdus={5}",
+			"matfus/dissolve-couleur-majoritaire", ok ? 1 : 0, avant, vivantes(m), matPremiereVivante(m),
+			perdus);
+	}
+
+	// -- 9. DISSOLVE : EGALITE PARFAITE -> indice le plus bas --------------
+	// Grille 4x4 : huit cellules slot 2 (les premieres), huit slot 1. Aires
+	// cumulees rigoureusement egales. « Garder la premiere region rencontree »
+	// dirait 2 ; la regle dit 1.
+	{
+		NkEditMesh m;
+		grille(m, 4);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (k < 8u) ? (uint16)2 : (uint16)1;
+		const uint32 avant = vivantes(m);
+		toutSelectionner(m);
+		NkDissolveParams dp;
+		dp.mode = 0;
+		uint32 perdus = 123u;
+		const bool ok = m.DissolveSelected(dp, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2}->{3} retenu={4} (1 = indice bas a aire egale) perdus={5}",
+			"matfus/dissolve-egalite-indice", ok ? 1 : 0, avant, vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 10. DISSOLVE, materiau UNIQUE : rien ne se perd -------------------
+	// Temoin du compteur, cote N contributeurs. Sans lui, un `perdus` qui
+	// compterait « les faces absorbees » au lieu de « les materiaux perdus »
+	// rendrait 15 ici et personne ne verrait la difference.
+	{
+		NkEditMesh m;
+		grille(m, 4);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = 4;
+		const uint32 avant = vivantes(m);
+		toutSelectionner(m);
+		NkDissolveParams dp;
+		dp.mode = 0;
+		uint32 perdus = 123u;
+		const bool ok = m.DissolveSelected(dp, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2}->{3} retenu={4} perdus={5} (0 : une seule couleur)",
+			"matfus/dissolve-sans-perte", ok ? 1 : 0, avant, vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 11. DECIMATION : le materiau est TRANSPORTE ------------------------
+	// QEM ne fusionne aucune face -- il en SUPPRIME. Le materiau se transporte
+	// donc un pour un, et `facesMaterialChanged` doit valoir 0. C est une
+	// MESURE, pas une hypothese : la valeur remonte de BuildFromIndexed, la
+	// meme voie qui rend 1 dans matfus/transport-puis-fusion. Un compteur qui
+	// ne pourrait que valoir 0 n aurait rien prouve.
+	{
+		NkEditMesh m;
+		grille(m, 4);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (k < 8u) ? (uint16)1 : (uint16)2;
+		NkDecimateParams dp;
+		dp.targetRatio = 0.5f;
+		NkDecimateStats st;
+		const bool ok = NkMeshDecimate::DecimateQEM(m, dp, &st);
+		uint32 s1 = 0, s2 = 0, s0 = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			if (m.faces[f].material == 1)
+				s1++;
+			else if (m.faces[f].material == 2)
+				s2++;
+			else
+				s0++;
+		}
+		Put("{0:<34} ok={1} tris {2}->{3} slots {4}->{5} | slot1={6} slot2={7} slot0={8} fusions={9}",
+			"matfus/decimation-transport", ok ? 1 : 0, st.trisBefore, st.trisAfter, st.matSlotsBefore,
+			st.matSlotsAfter, s1, s2, s0, st.facesMaterialChanged);
+	}
+
+	// -- 12. DECIMATION : UNE COULEUR PEUT DISPARAITRE ---------------------
+	// UNE seule cellule sur seize porte le slot 3, et on decime tres fort.
+	// Le transport ne suffit pas a dire que rien n est perdu : les derniers
+	// porteurs d un slot peuvent tous etre supprimes, et alors la couleur sort
+	// du maillage sans qu aucun compte de faces ne bouge d une facon qui le
+	// dise. C est la ligne qui rend `matSlotsAfter` capable d etre PLUS PETIT
+	// que `matSlotsBefore` -- sans elle, les deux compteurs pourraient etre
+	// egaux par construction et personne ne le saurait.
+	{
+		NkEditMesh m;
+		grille(m, 4);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (k == 0u) ? (uint16)3 : (uint16)0;
+		NkDecimateParams dp;
+		dp.targetRatio = 0.1f;
+		NkDecimateStats st;
+		const bool ok = NkMeshDecimate::DecimateQEM(m, dp, &st);
+		uint32 s3 = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == 3)
+				s3++;
+		Put("{0:<34} ok={1} tris {2}->{3} slots {4}->{5} | slot3 restant={6} fusions={7}",
+			"matfus/decimation-couleur-perdue", ok ? 1 : 0, st.trisBefore, st.trisAfter, st.matSlotsBefore,
+			st.matSlotsAfter, s3, st.facesMaterialChanged);
+	}
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -5024,6 +5439,9 @@ int main(int argc, char **argv) {
 	LoadersBattery();
 	// AJOUTEE EN FIN, meme raison : les 217 lignes precedentes gardent leur numero.
 	AccessBattery();
+	// AJOUTEE EN FIN, meme raison : les 232 lignes precedentes gardent leur numero.
+	MatFusionBattery();
+	MatFusionNBattery();
 
 	// La reference vit A COTE DES SOURCES DU BANC, pas dans le repertoire de
 	// lancement : sinon `--baseline` depuis deux endroits ecrit deux references
