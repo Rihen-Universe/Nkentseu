@@ -125,9 +125,36 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 
 `jenga test --project NKSerialization --config Debug` répond
 **« Unit-test execution is disabled by workspace policy (`disableunittestexecution`) »**.
-Les `testfiles(["tests/**.cpp"])` du `.jenga` (l. 77-80) **compilent sans jamais
-tourner**, et `find Build -ipath "*NKSerialization*" -name "*.exe"` ne renvoie
-rien. Les 15 tests de `test_smoke.cpp` et les trois bancs réflexion listés
+Les `testfiles(["tests/**.cpp"])` du `.jenga` (l. 77-80) ne tournent jamais, et
+`find Build -ipath "*NKSerialization*" -name "*.exe"` ne renvoie rien.
+
+⚠️ **CORRECTION du 2026-08-22 — j'avais écrit « ils compilent sans jamais
+tourner ». C'est faux : ils NE COMPILENT PAS NON PLUS.** Mesuré avec
+`jenga build --target NKSerialization_Tests --config Debug --tests` (la cible
+existe, `dutc` l'exclut simplement du build par défaut) : **8 erreurs, 2 fichiers
+en échec**, dont trois causes distinctes :
+
+| cause | où | nature |
+|---|---|---|
+| `std::move` × 5 | `src/NKSerialization/Asset/NkAssetMetadata.h` | **violation zero-STL dans du code LIVRÉ** — et le fait qu'elle ne casse pas la lib prouve qu'aucun `.cpp` n'inclut ce header : il n'est jamais instancié, donc jamais compilé |
+| `NkVector<nk_uint8> payload(2048u)` ambigu | `tests/test_smoke.cpp:399` | test périmé vis-à-vis de l'API actuelle de `NkVector` |
+| `NKMath/NkVec.h` introuvable | via `NKReflection/NkMathReflect.h` | dépendance manquante dans la cible de tests |
+
+**La leçon est plus dure que celle d'hier.** Je disais « un module dont la preuve
+vit sous `tests/` n'est ni prouvé ni réfuté ». Il faut ajouter : **un header-only
+que personne n'instancie n'est même pas compilé** — `NkAssetMetadata.h` (891
+lignes) viole le zero-STL depuis on ne sait quand, et rien dans le dépôt ne
+pouvait le dire. Chercher `std::` par `grep` trouve en une seconde ce que le
+compilateur ne dira jamais.
+
+**Non corrigé ici, délibérément** : hors mandat du chantier NkUIDesign, et
+surtout corriger `NkAssetMetadata.h` sans banc qui l'instancie ne prouverait
+rien — ce serait refaire exactement l'erreur que cette section décrit.
+
+**`jenga test --force` existe depuis le 2026-08-22** et lève bien `dutc`/`dute`,
+mais répond `No test projects found` : `dutc` empêche la *création* de la cible,
+que `--force` ne recrée pas. Il faut passer par
+`jenga build --target <Projet>_Tests --tests`. Les 15 tests de `test_smoke.cpp` et les trois bancs réflexion listés
 ci-dessous **n'ont donc jamais produit un seul résultat**.
 
 C'est la convention du dépôt : un banc doit être une **application console**
