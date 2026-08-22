@@ -18,6 +18,7 @@
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkFBXLoader.h"
 #include "NKLogger/NkLog.h"
+#include "NkBenchRoot.h"
 
 #include <cmath>
 #include <cstdio> // fopen -- distinguer « fichier absent » de « fichier faux »
@@ -54,26 +55,13 @@ namespace {
 	// mais illisible est un VRAI echec -- et cette distinction est exactement ce
 	// que le banc ne savait pas faire.
 	// -- RESOLUTION DES RESSOURCES, INDEPENDANTE DU REPERTOIRE DE LANCEMENT --
-	// `Resources/` se resout depuis la RACINE du worktree. Lance depuis son
-	// propre dossier, ce banc rendait « 0 OK / N FAIL » -- il RESSEMBLAIT a un
-	// chargeur casse alors que rien n'etait casse. Un banc muet parce qu'il a
-	// ete lance d'ailleurs est pire qu'un banc absent : on le croit.
-	// Meme parade que dans NKEditMeshHarness (`CheminRessource`).
-	// DETTE ASSUMEE : trois bancs portent desormais la meme fonction de dix
-	// lignes (ici, NkAssetIODemo, NKEditMeshHarness). La mutualiser demanderait
-	// un en-tete commun aux bancs, qui n'existe pas -- et la mettre dans le
-	// Kernel polluerait le moteur avec un utilitaire de test.
+	// Mutualisee dans `Applications/Common/NkBenchRoot.h`. Elle etait ecrite
+	// ici, dans NkFBXParityDemo et dans NKEditMeshHarness -- trois copies, et
+	// la troisieme etait FAUSSE (elle n ancrait pas sa propre reference).
+	// ⚠️ L ancienne parade ne survivait pas non plus a un lancement HORS du
+	//    depot : mesure, code de sortie 1. La nouvelle passe par argv[0].
 	NkString CheminRessource(const char *relatif) noexcept {
-		const char *prefixes[3] = {"", "../../", "../../../"};
-		for (int i = 0; i < 3; ++i) {
-			NkString essai = NkString(prefixes[i]) + NkString(relatif);
-			FILE *f = fopen(essai.Data(), "rb");
-			if (f) {
-				fclose(f);
-				return essai;
-			}
-		}
-		return NkString(relatif); // aucun trouve : le chargeur dira non
+		return NkBenchPath(relatif);
 	}
 
 	bool FichierPresent(const char *chemin) noexcept {
@@ -598,7 +586,18 @@ namespace {
 
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
+	// ANCRE DU DEPOT, avant toute mesure. Pas de repli : un banc qui ne sait
+	// pas ou est le depot mesurerait des fichiers absents et le dirait comme
+	// s'il mesurait un chargeur.
+	NkBenchRootInit(argc, argv);
+	if (!NkBenchRootFound()) {
+		NkLog::Instance().Error("ECHEC : racine du depot introuvable (marqueur 'Nkentseu.jenga') "
+								"ni depuis le repertoire courant ni depuis {0}",
+								NkBenchArgv0());
+		return 3;
+	}
+
 	logger.Infof("=== NkFBXParityDemo — parite FBX / glTF (CesiumMan) ===\n");
 
 	renderer::NkGLTFMeshData gltf; // non copiable : vit ici, passe par reference

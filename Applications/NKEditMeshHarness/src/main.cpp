@@ -51,6 +51,7 @@
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/String/NkFormat.h" // formatage TYPE des lignes de mesure
 #include "NKLogger/NkLog.h"
+#include "NkBenchRoot.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -4418,90 +4419,12 @@ static void MatSurvieBattery() {
 // REGIMES COUVERTS : lecture de fichiers presents, et refus propre sur fichier
 // absent. NON COUVERT : les materiaux et les hierarchies de ces formats (DAE et
 // USDA en portent ; ce banc ne regarde que la geometrie), et les gros fichiers.
-// ⚠️ LE BANC NE DOIT PAS DEPENDRE DU REPERTOIRE DE LANCEMENT.
-// Constate ici meme : lance depuis `Applications/NKEditMeshHarness` (le dossier
-// ou vit `editmesh_baseline.txt`, donc celui d'ou l'on fait `--check`), les six
-// chargeurs rendaient `ok=0` sur toute la ligne -- non parce qu'ils sont casses,
-// mais parce que `Resources/` se resout depuis la RACINE du worktree.
-//
-// ⚠️ PREMIERE PARADE INSUFFISANTE, ET JE L'AI RAPPORTEE COMME COMPLETE (Q69 §1).
-// Elle n'ancrait que les RESSOURCES ; la reference `editmesh_baseline.txt`
-// restait resolue depuis le repertoire courant. Mesure : `--check` lance depuis
-// la racine sortait en **2** (« reference introuvable ») quand il sortait en 0
-// depuis `Applications/NKEditMeshHarness`. J'avais compare les LIGNES de mesure,
-// identiques des deux cotes, et conclu que le banc etait ancre -- alors que le
-// second lancement n'avait jamais atteint la comparaison.
-//   > Comparer les sorties de deux lancements ne prouve rien tant qu'on n'a pas
-//   > compare leurs CODES DE SORTIE : une sortie identique peut etre celle d'un
-//   > programme qui a renonce.
-//
-// PARADE : une SEULE ancre, la racine du depot, trouvee en remontant depuis le
-// repertoire courant PUIS depuis le repertoire du binaire (argv[0]) jusqu'a
-// rencontrer `Nkentseu.jenga`. Toutes les ressources ET la reference s'y
-// rapportent -- une seule politique de chemin, plus deux.
-//
-// ⚠️ ET SI L'ANCRE EST INTROUVABLE, LE BANC S'ARRETE EN ERREUR. Retomber sur
-// des chemins relatifs preserverait `success` en mesurant autre chose : c'est
-// exactement le repli qui ment. Un banc qui ne sait pas ou il est doit le dire.
-static char gArgv0[1024] = {0};
-static bool gRacineTrouvee = false;
-
-static bool FichierLisible(const char *p) {
-	FILE *f = fopen(p, "rb");
-	if (!f)
-		return false;
-	fclose(f);
-	return true;
-}
-
-// Remonte au plus 12 crans depuis `depart` (prefixe deja termine par '/', ou
-// vide) a la recherche du marqueur de racine.
-static bool CherchePlusHaut(const NkString &depart, NkString &out) {
-	NkString p = depart;
-	for (int32 i = 0; i < 12; ++i) {
-		if (FichierLisible((p + NkString("Nkentseu.jenga")).Data())) {
-			out = p;
-			return true;
-		}
-		p = p + NkString("../");
-	}
-	return false;
-}
-
-static NkString CalculeRacine() {
-	NkString r;
-	if (CherchePlusHaut(NkString(""), r)) {
-		gRacineTrouvee = true;
-		return r;
-	}
-	if (gArgv0[0]) {
-		char base[1024];
-		strncpy(base, gArgv0, sizeof(base) - 1);
-		base[sizeof(base) - 1] = 0;
-		for (char *ch = base; *ch; ++ch)
-			if (*ch == 0x5C)
-				*ch = '/';
-		char *slash = strrchr(base, '/');
-		if (slash)
-			*(slash + 1) = 0;
-		else
-			base[0] = 0;
-		if (CherchePlusHaut(NkString(base), r)) {
-			gRacineTrouvee = true;
-			return r;
-		}
-	}
-	gRacineTrouvee = false;
-	return NkString("");
-}
-
-static const NkString &RacineDepot() {
-	static NkString r = CalculeRacine();
-	return r;
-}
-
+// ANCRE DU DEPOT : mutualisee dans `Applications/Common/NkBenchRoot.h`.
+// Elle etait ecrite ici, et deux autres bancs en portaient une copie -- dont
+// une FAUSSE : elle n ancrait que les ressources, pas cette reference-ci.
+// Trois copies d une meme regle divergent ; une seule ne peut pas.
 static NkString CheminRessource(const char *relatif) {
-	return RacineDepot() + NkString(relatif);
+	return NkBenchPath(relatif);
 }
 
 static void LoadersBattery() {
@@ -5041,19 +4964,15 @@ static void AccessBattery() {
 }
 
 int main(int argc, char **argv) {
-	// ANCRE : retenue AVANT toute mesure. RacineDepot() la resout une fois, et
-	// c'est elle qui porte les ressources ET la reference (cf. CheminRessource).
-	if (argc > 0 && argv[0]) {
-		strncpy(gArgv0, argv[0], sizeof(gArgv0) - 1);
-		gArgv0[sizeof(gArgv0) - 1] = 0;
-	}
-	const NkString racine = RacineDepot();
-	if (!gRacineTrouvee) {
+	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
+	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
+	NkBenchRootInit(argc, argv);
+	if (!NkBenchRootFound()) {
 		// Pas de repli : un banc qui ne sait pas ou est le depot mesurerait des
 		// fichiers absents et le dirait comme s'il mesurait le moteur.
 		NkLog::Instance().Error("ECHEC : racine du depot introuvable (marqueur 'Nkentseu.jenga') ni depuis le "
 					 "repertoire courant ni depuis {0}",
-					 gArgv0[0] ? gArgv0 : "(argv[0] absent)");
+					 NkBenchArgv0());
 		return 3;
 	}
 
