@@ -194,3 +194,10 @@ ops/coupe-de-boucle                ok=1 sommets 25 -> 30 faces 16 -> 20 | nonman
 ops/vis-revolution                 ok=1 sommets 25 -> 175 faces 16 -> 112 | nonmanif 0 -> 0 (temoin)
 ops/coupe-par-plan                 ok=1 sommets 24 -> 32 faces 6 -> 10 | bord 0 -> 0 nonmanif 0 -> 0
 enroulement/noyau-contre-primitive accord=6 desaccord=0 (0 attendu) pire ecart=0.0000 | CCW sur face +Y = -1.0 (negatif attendu)
+matops/supprimer-faces             slot1 6 -> 5 | faces 6 -> 5 (l operation a bien eu lieu)
+matops/faire-face                  slot1 6 -> 5 (5 attendu) | slot0=1 (1 : la face neuve) ok=1
+matops/extruder-sommets            slot1 6 -> 6 | sommets 24 -> 27
+matops/coupe-de-boucle             slot1 16 -> 20 | faces 16 -> 20
+matops/coupe-par-plan              slot1 6 -> 10 | faces 6 -> 10
+matops/vis-revolution              slot1 16 -> 112 | faces 16 -> 112
+matops/deformation-pure            slot1 6 -> 6 | faces 6 -> 6 (INCHANGE attendu)

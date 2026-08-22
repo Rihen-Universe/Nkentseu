@@ -4109,6 +4109,224 @@ static void WindingBattery() {
 		"enroulement/noyau-contre-primitive", accord, desaccord, pireEcart, ccw.y);
 }
 
+// ── SURVIE DU MATERIAU A TRAVERS LES AUTRES OPERATIONS ──────────────────────
+// Le materiau par face traverse deja la subdivision lineaire, Catmull-Clark,
+// l'extrusion de faces et la soudure (famille `mat/`). Onze operations restaient
+// non cablees : toutes passent par le round-trip ToPolygons/BuildFromPolygons,
+// qui reconstruit les `Face` a neuf et perd donc tout ce qu'elles portaient.
+//
+// Cette batterie mesure la survie a travers celles qui ont deja un banc de
+// topologie (famille `ops/`), donc celles dont on peut verifier que l'operation
+// a REELLEMENT eu lieu -- sans quoi un « materiau conserve » ne prouverait que
+// l'inaction.
+//
+// ⚠️ CHAQUE LIGNE PORTE SON TEMOIN D'ACTIVITE (faces avant -> apres, ou sommets).
+// Une operation qui ne fait rien conserve trivialement le materiau : c'est le
+// faux vert deja pris en flagrant delit sur `mat/survie-extrusion`.
+static void MatSurvieBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	NkVector<NkVertex3D> gv;
+	NkVector<uint32> gi;
+	MakeGrid(4, gv, gi);
+
+	auto compte = [](const NkEditMesh &m, uint16 slot) {
+		uint32 n = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == slot)
+				n++;
+		return n;
+	};
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 n = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				n++;
+		return n;
+	};
+	// Pose le slot 1 sur TOUTES les faces vivantes : on veut voir si l'operation
+	// ramene des faces au slot 0, pas suivre une face en particulier.
+	auto peindre = [&](NkEditMesh &m) {
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				m.faces[f].material = 1;
+	};
+	auto cube = [&](NkEditMesh &m) {
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+	};
+	auto grille = [&](NkEditMesh &m) {
+		m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		m.RebuildEdges();
+	};
+	auto faceVers = [](const NkEditMesh &m, NkVec3f dir) {
+		uint32 best = 0;
+		float32 bd = -2.f;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			const float32 d = m.faces[f].normal.Dot(dir);
+			if (d > bd) {
+				bd = d;
+				best = f;
+			}
+		}
+		return best;
+	};
+	auto selFace = [](NkEditMesh &m, uint32 f) {
+		NkVector<NkEmId> b;
+		m.GetFaceVerts(f, b);
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			fl[i] = 0;
+		for (uint32 k = 0; k < (uint32)b.Size(); ++k)
+			fl[b[k]] = 1;
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+	};
+
+	// ── 1. SUPPRESSION DE FACES ─────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		cube(m);
+		peindre(m);
+		const uint32 av = compte(m, 1), fav = vivantes(m);
+		selFace(m, faceVers(m, {0.f, 0.f, 1.f}));
+		m.DeleteSelectedFaces();
+		m.RebuildEdges();
+		Put("{0:<34} slot1 {1} -> {2} | faces {3} -> {4} (l operation a bien eu lieu)", "matops/supprimer-faces",
+			av, compte(m, 1), fav, vivantes(m));
+	}
+
+	// ── 2. FAIRE UNE FACE (touche F) ────────────────────────────────────────
+	// La face NEUVE ne peut hériter de personne : elle prend le slot 0. Ce qui
+	// doit survivre, ce sont les AUTRES.
+	{
+		NkEditMesh m;
+		cube(m);
+		peindre(m);
+		const uint32 av = compte(m, 1);
+		const uint32 f0 = faceVers(m, {0.f, 0.f, 1.f});
+		NkVector<NkEmId> b;
+		m.GetFaceVerts(f0, b);
+		NkVector<NkVec3f> coins;
+		for (uint32 k = 0; k < (uint32)b.Size(); ++k)
+			coins.PushBack(m.verts[b[k]].pos);
+		selFace(m, f0);
+		m.DeleteSelectedFaces();
+		m.RebuildEdges();
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			fl[i] = 0;
+			for (uint32 k = 0; k < (uint32)coins.Size(); ++k)
+				if ((m.verts[i].pos - coins[k]).Len() < 1e-5f)
+					fl[i] = 1;
+		}
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+		const bool ok = m.MakeFaceFromSelected();
+		m.RebuildEdges();
+		Put("{0:<34} slot1 {1} -> {2} (5 attendu) | slot0={3} (1 : la face neuve) ok={4}", "matops/faire-face", av,
+			compte(m, 1), compte(m, 0), ok ? 1 : 0);
+	}
+
+	// ── 3. EXTRUSION DE SOMMETS ─────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		cube(m);
+		peindre(m);
+		const uint32 av = compte(m, 1), vav = m.VertCount();
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			fl[i] = ((m.verts[i].pos - m.verts[0].pos).Len() < 1e-5f) ? (uint8)1 : (uint8)0;
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+		NkExtrudeParams p;
+		p.offset = 0.4f;
+		m.ExtrudeSelectedVertices(p);
+		m.RebuildEdges();
+		Put("{0:<34} slot1 {1} -> {2} | sommets {3} -> {4}", "matops/extruder-sommets", av, compte(m, 1), vav,
+			m.VertCount());
+	}
+
+	// ── 4. COUPE DE BOUCLE ──────────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		grille(m);
+		peindre(m);
+		const uint32 av = compte(m, 1), fav = vivantes(m);
+		for (uint32 h = 0; h < (uint32)m.hedges.Size(); ++h) {
+			const uint32 o = m.hedges[h].origin;
+			const uint32 d = m.hedges[m.hedges[h].next].origin;
+			if (o >= m.VertCount() || d >= m.VertCount())
+				continue;
+			NkVector<uint8> fl;
+			fl.Resize(m.VertCount());
+			for (uint32 i = 0; i < m.VertCount(); ++i)
+				fl[i] = (i == o || i == d) ? (uint8)1 : (uint8)0;
+			m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+			break;
+		}
+		NkLoopCutParams p;
+		p.cuts = 1;
+		m.LoopCutFromSelectedEdge(p);
+		m.RebuildEdges();
+		Put("{0:<34} slot1 {1} -> {2} | faces {3} -> {4}", "matops/coupe-de-boucle", av, compte(m, 1), fav,
+			vivantes(m));
+	}
+
+	// ── 5. COUPE PAR UN PLAN ────────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		cube(m);
+		peindre(m);
+		const uint32 av = compte(m, 1), fav = vivantes(m);
+		m.SelectAll();
+		m.BisectByPlane({0.f, 0.f, 0.f}, {0.f, 1.f, 0.f}, NkMat4f::Identity());
+		m.RebuildEdges();
+		Put("{0:<34} slot1 {1} -> {2} | faces {3} -> {4}", "matops/coupe-par-plan", av, compte(m, 1), fav,
+			vivantes(m));
+	}
+
+	// ── 6. VIS / REVOLUTION ─────────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		grille(m);
+		peindre(m);
+		const uint32 av = compte(m, 1), fav = vivantes(m);
+		m.SelectAll();
+		NkSpinParams p;
+		p.center = {-3.f, 0.f, 0.f};
+		p.axis = {0.f, 1.f, 0.f};
+		p.angle = 3.14159265f;
+		p.steps = 6;
+		p.duplicate = true;
+		m.SpinSelected(p, NkMat4f::Identity());
+		m.RebuildEdges();
+		Put("{0:<34} slot1 {1} -> {2} | faces {3} -> {4}", "matops/vis-revolution", av, compte(m, 1), fav,
+			vivantes(m));
+	}
+
+	// ── 7. DEFORMATION PURE (shrink/fatten) ─────────────────────────────────
+	// Elle ne change AUCUNE face : le materiau doit survivre a l'identique, et
+	// le compte de faces doit rester constant -- c'est ce dernier qui prouve
+	// qu'on mesure bien une deformation et non une refonte topologique.
+	{
+		NkEditMesh m;
+		cube(m);
+		peindre(m);
+		const uint32 av = compte(m, 1), fav = vivantes(m);
+		m.SelectAll();
+		NkShrinkFattenParams p;
+		p.offset = 0.2f;
+		m.ShrinkFattenSelected(p);
+		m.RebuildEdges();
+		Put("{0:<34} slot1 {1} -> {2} | faces {3} -> {4} (INCHANGE attendu)", "matops/deformation-pure", av,
+			compte(m, 1), fav, vivantes(m));
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -4152,6 +4370,8 @@ int main(int argc, char **argv) {
 	SixOpsBattery();
 	// AJOUTEE EN FIN, meme raison : les 195 lignes precedentes gardent leur numero.
 	WindingBattery();
+	// AJOUTEE EN FIN, meme raison : les 196 lignes precedentes gardent leur numero.
+	MatSurvieBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
