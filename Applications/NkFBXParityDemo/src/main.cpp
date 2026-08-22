@@ -53,6 +53,29 @@ namespace {
 	// Un fichier HORS DEPOT manque legitimement : on saute. Un fichier PRESENT
 	// mais illisible est un VRAI echec -- et cette distinction est exactement ce
 	// que le banc ne savait pas faire.
+	// -- RESOLUTION DES RESSOURCES, INDEPENDANTE DU REPERTOIRE DE LANCEMENT --
+	// `Resources/` se resout depuis la RACINE du worktree. Lance depuis son
+	// propre dossier, ce banc rendait « 0 OK / N FAIL » -- il RESSEMBLAIT a un
+	// chargeur casse alors que rien n'etait casse. Un banc muet parce qu'il a
+	// ete lance d'ailleurs est pire qu'un banc absent : on le croit.
+	// Meme parade que dans NKEditMeshHarness (`CheminRessource`).
+	// DETTE ASSUMEE : trois bancs portent desormais la meme fonction de dix
+	// lignes (ici, NkAssetIODemo, NKEditMeshHarness). La mutualiser demanderait
+	// un en-tete commun aux bancs, qui n'existe pas -- et la mettre dans le
+	// Kernel polluerait le moteur avec un utilitaire de test.
+	NkString CheminRessource(const char *relatif) noexcept {
+		const char *prefixes[3] = {"", "../../", "../../../"};
+		for (int i = 0; i < 3; ++i) {
+			NkString essai = NkString(prefixes[i]) + NkString(relatif);
+			FILE *f = fopen(essai.Data(), "rb");
+			if (f) {
+				fclose(f);
+				return essai;
+			}
+		}
+		return NkString(relatif); // aucun trouve : le chargeur dira non
+	}
+
 	bool FichierPresent(const char *chemin) noexcept {
 		FILE *f = fopen(chemin, "rb");
 		if (!f)
@@ -116,7 +139,7 @@ namespace {
 	// ── Reference glTF : le chemin prouve, qui ne doit pas bouger ──────────
 	void TestGLTFReference(renderer::NkGLTFMeshData &gltf) noexcept {
 		logger.Infof("-- Reference glTF : CesiumMan.glb --\n");
-		const bool ok = renderer::LoadGLTF(NkString("Resources/Models/CesiumMan/CesiumMan.glb"), gltf);
+		const bool ok = renderer::LoadGLTF(CheminRessource("Resources/Models/CesiumMan/CesiumMan.glb"), gltf);
 		Check(ok && gltf.IsValid(), "LoadGLTF CesiumMan.glb reussit");
 		if (!ok)
 			return;
@@ -135,11 +158,11 @@ namespace {
 	// ── Etape (a) : squelette + noms depuis le FBX ─────────────────────────
 	void TestFBXNodes(renderer::NkGLTFMeshData &fbx) noexcept {
 		logger.Infof("-- FBX etape (a) : CesiumMan.fbx (squelette + noms) --\n");
-		if (!FichierPresent("Resources/Models/CesiumMan/CesiumMan.fbx")) {
+		if (!FichierPresent(CheminRessource("Resources/Models/CesiumMan/CesiumMan.fbx").Data())) {
 			Skip("CesiumMan.fbx ABSENT du depot (seul le .glb y est) - etapes (a)(b)(c) non jouees");
 			return;
 		}
-		const bool ok = renderer::LoadFBX(NkString("Resources/Models/CesiumMan/CesiumMan.fbx"), fbx);
+		const bool ok = renderer::LoadFBX(CheminRessource("Resources/Models/CesiumMan/CesiumMan.fbx"), fbx);
 		Check(ok && fbx.IsValid(), "LoadFBX CesiumMan.fbx reussit");
 		if (!ok)
 			return;
@@ -403,8 +426,8 @@ namespace {
 		logger.Infof("-- Mixamo natif : X Bot.fbx contre XBot.glb (Q30 nkanim) --\n");
 		renderer::NkGLTFMeshData glb;
 		renderer::NkGLTFMeshData fbx;
-		const bool okG = renderer::LoadGLTF(NkString("Resources/Models/XBot/XBot.glb"), glb);
-		const bool okF = renderer::LoadFBX(NkString("Resources/Models/XBot/X Bot.fbx"), fbx);
+		const bool okG = renderer::LoadGLTF(CheminRessource("Resources/Models/XBot/XBot.glb"), glb);
+		const bool okF = renderer::LoadFBX(CheminRessource("Resources/Models/XBot/X Bot.fbx"), fbx);
 		if (!okG || !okF) {
 			Skip("fichiers XBot absents de Resources/Models/XBot/ - section non jouee");
 			return;
@@ -526,8 +549,8 @@ namespace {
 		logger.Infof("-- Mixamo natif : Y Bot.fbx (feuilles sans Cluster) --\n");
 		renderer::NkGLTFMeshData glb;
 		renderer::NkGLTFMeshData fbx;
-		const bool okG = renderer::LoadGLTF(NkString("Resources/Models/XBot/YBot.glb"), glb);
-		const bool okF = renderer::LoadFBX(NkString("Resources/Models/XBot/Y Bot.fbx"), fbx);
+		const bool okG = renderer::LoadGLTF(CheminRessource("Resources/Models/XBot/YBot.glb"), glb);
+		const bool okF = renderer::LoadFBX(CheminRessource("Resources/Models/XBot/Y Bot.fbx"), fbx);
 		if (!okG || !okF) {
 			Skip("fichiers YBot absents de Resources/Models/XBot/ - section non jouee");
 			return;
@@ -567,7 +590,7 @@ namespace {
 	void TestFBXAscii() noexcept {
 		logger.Infof("-- FBX ASCII : cube_ascii.fbx (non-regression geometrie) --\n");
 		renderer::NkGLTFMeshData cube;
-		const bool ok = renderer::LoadFBX(NkString("Resources/Models/test/cube_ascii.fbx"), cube);
+		const bool ok = renderer::LoadFBX(CheminRessource("Resources/Models/test/cube_ascii.fbx"), cube);
 		Check(ok && cube.IsValid(), "LoadFBX cube_ascii.fbx reussit toujours");
 		if (ok)
 			Check(cube.nodes.Empty(), "FBX ASCII : 0 node (le fichier n'a aucun Model — zero invente)");

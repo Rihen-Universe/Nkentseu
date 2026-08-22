@@ -36,12 +36,37 @@
 #include "NKRenderer/Mesh/NkFBXLoader.h"
 #include "NKLogger/NkLog.h"
 
+#include <cstdio> // fopen : sonder la presence d'une ressource
+
 using namespace nkentseu;
 
 namespace {
 
 	int gPassCount = 0;
 	int gFailCount = 0;
+
+	// -- RESOLUTION DES RESSOURCES, INDEPENDANTE DU REPERTOIRE DE LANCEMENT --
+	// `Resources/` se resout depuis la RACINE du worktree. Lance depuis son
+	// propre dossier, ce banc rendait « 0 OK / N FAIL » -- il RESSEMBLAIT a un
+	// chargeur casse alors que rien n'etait casse. Un banc muet parce qu'il a
+	// ete lance d'ailleurs est pire qu'un banc absent : on le croit.
+	// Meme parade que dans NKEditMeshHarness (`CheminRessource`).
+	// DETTE ASSUMEE : trois bancs portent desormais la meme fonction de dix
+	// lignes (ici, NkFBXParityDemo, NKEditMeshHarness). La mutualiser demanderait
+	// un en-tete commun aux bancs, qui n'existe pas -- et la mettre dans le
+	// Kernel polluerait le moteur avec un utilitaire de test.
+	NkString CheminRessource(const char *relatif) noexcept {
+		const char *prefixes[3] = {"", "../../", "../../../"};
+		for (int i = 0; i < 3; ++i) {
+			NkString essai = NkString(prefixes[i]) + NkString(relatif);
+			FILE *f = fopen(essai.Data(), "rb");
+			if (f) {
+				fclose(f);
+				return essai;
+			}
+		}
+		return NkString(relatif); // aucun trouve : le chargeur dira non
+	}
 
 	void Check(bool cond, const char *what) noexcept {
 		if (cond) {
@@ -55,6 +80,8 @@ namespace {
 
 	// ── OBJ ────────────────────────────────────────────────────────────────
 	void TestOBJ(const char *path) noexcept {
+		const NkString resolu = CheminRessource(path);
+		path = resolu.Data();
 		logger.Infof("-- NkOBJIO: %s --\n", path);
 
 		renderer::NkGLTFMeshData baseline;
@@ -80,6 +107,8 @@ namespace {
 
 	// ── glTF/GLB ──────────────────────────────────────────────────────────
 	void TestGLTF(const char *path) noexcept {
+		const NkString resolu = CheminRessource(path);
+		path = resolu.Data();
 		logger.Infof("-- NkGLTFIO: %s --\n", path);
 
 		renderer::NkGLTFMeshData baseline;
@@ -136,6 +165,8 @@ namespace {
 
 	// ── FBX ───────────────────────────────────────────────────────────────
 	void TestFBX(const char *path) noexcept {
+		const NkString resolu = CheminRessource(path);
+		path = resolu.Data();
 		logger.Infof("-- NkFBXImporter: %s --\n", path);
 
 		renderer::NkGLTFMeshData baseline;
