@@ -785,6 +785,12 @@ static void T8_GreffeRecursive() {
 // POINT D'ENTREE
 // =============================================================================
 int main() {
+	// Sortie SANS TAMPON. Un banc qui peut tuer le processus (violation d'acces,
+	// assertion, corruption de tas) perd tout son tampon au moment precis ou la
+	// trace compte le plus -- on ne voit alors ni le dernier controle atteint ni
+	// la ligne qui l'a tue. Mesure du 2026-08-22 : C5 plantait en 0xC0000005 et
+	// n'imprimait RIEN, pas meme les controles deja passes.
+	setvbuf(stdout, nullptr, _IONBF, 0);
 	printf("=========================================================\n");
 	printf(" SandboxNKArchive -- trivia, ordre du fichier, litteraux\n");
 	printf("=========================================================\n\n");

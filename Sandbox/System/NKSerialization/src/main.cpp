@@ -57,6 +57,24 @@ using namespace nkentseu::reflection;
 // ---------------------------------------------------------------------------
 static int s_pass = 0;
 static int s_fail = 0;
+static int s_debt = 0;
+
+// Une DETTE CONNUE : un controle qui doit etre rouge aujourd'hui, et dont on
+// sait pourquoi. Il s'imprime, il se compte a part, et il ne fait PAS echouer le
+// banc -- sinon la baseline devient « 59/60 », on s'habitue au rouge, et le jour
+// ou un VRAI defaut apparait plus personne ne le distingue du 60e.
+// S'il se met a PASSER, c'est un evenement : la dette est reglee, et le banc le
+// dit pour qu'on vienne retirer la marque.
+#define EXPECT_KNOWN_DEBT(expr, why) \
+	do { \
+		if (!(expr)) { \
+			printf("  DETTE [%s:%d] %s\n         -> %s\n", __FILE__, __LINE__, #expr, why); \
+			++s_debt; \
+		} else { \
+			printf("  DETTE REGLEE [%s:%d] %s -- retirer la marque\n", __FILE__, __LINE__, #expr); \
+			++s_pass; \
+		} \
+	} while (0)
 
 #define EXPECT_TRUE(expr)                                                                                              \
 	do {                                                                                                               \
@@ -168,6 +186,95 @@ struct DocRoot {
 	public:
 };
 
+// =============================================================================
+// C5 -- LA FORME REELLE DES TYPES DU KIT : `const char *`
+// =============================================================================
+// NkSizeDecl et NkLayoutDecl (NKEditorKit/Components/NkComponentLayout.h), que
+// NkUINode porte DIRECTEMENT, ne sont PAS faits de NkString :
+//
+//     struct NkSizeDecl {
+//         NkSizeMode  mode;
+//         float32     value;
+//         const char *valueMetric = "";   <-- ICI
+//         float32     minVal, maxVal;
+//     };
+//
+// Ce sont des types de COMPILATION : leurs chaines sont des litteraux, et le
+// type ne possede rien. KitSize ci-dessous en est le calque exact.
+//
+// ⚠️ Ce controle refute une affirmation que j'ai ecrite moi-meme (Q2 §6) :
+//    « les pointeurs restent non geres, et c'est SANS EFFET ici : NkUIDocument
+//    est plat, zero pointeur ». C'etait vrai de NkUINode DIRECTEMENT et faux
+//    TRANSITIVEMENT -- NkUINode porte deux NkSizeDecl et un NkLayoutDecl, qui
+//    portent quatre `const char *` a eux trois.
+struct KitSize {
+		NKENTSEU_REFLECT_CLASS(KitSize)
+	public:
+		NKENTSEU_PROPERTY(nk_int32, mode)
+	public:
+		NKENTSEU_PROPERTY(nk_float32, value)
+	public:
+		// Le membre qui coince. Categorie NK_POINTER, pas NK_STRING.
+		// `= ""` comme dans le vrai NkSizeDecl : sans lui le pointeur est
+		// indetermine et le banc mourait en 0xC0000005 -- un defaut de MON
+		// calque, pas du pont. Le calque doit etre fidele, sinon il mesure autre
+		// chose que ce qu'il pretend mesurer.
+		const char *valueMetric = "";
+		NKENTSEU_REFLECT_PROPERTY(valueMetric)
+	public:
+		NKENTSEU_PROPERTY(nk_float32, minVal)
+	public:
+};
+
+static void C5_ConstCharStarDuKit() {
+	printf("[C5] `const char *` du kit : ce que le pont en fait reellement\n");
+
+	// 1. Le fait de typage, avant toute serialisation.
+	const NkClass &cls = KitSize::GetStaticClass();
+	const NkProperty *pm = cls.GetProperty("valueMetric");
+	EXPECT_TRUE(pm != nullptr);
+	if (pm) {
+		// C'est LA mesure : le kit ecrit une chaine, la reflexion voit un pointeur.
+		EXPECT_TRUE(pm->GetType().GetCategory() == NkTypeCategory::NK_POINTER);
+		EXPECT_TRUE(pm->GetType().GetCategory() != NkTypeCategory::NK_STRING);
+	}
+
+	KitSize src;
+	src.mode = 2;
+	src.value = 320.0f;
+	src.valueMetric = "largeur_palette"; // un nom de metrique, comme dans le kit
+	src.minVal = 120.0f;
+
+	NkArchive ar;
+	const nk_bool wrote = NkReflectSerializer::SerializeObject(src, ar);
+
+	// 2. Ce qui arrive vraiment. On n'AFFIRME pas le resultat a l'avance : on le
+	//    constate et on l'imprime, parce que c'est precisement ce qui etait
+	//    inconnu. Les champs qui ne sont PAS des pointeurs, eux, doivent passer.
+	printf("      SerializeObject -> %s\n", wrote ? "true" : "false");
+	printf("      cle 'valueMetric' presente dans l'archive : %s\n", ar.Has(NkStringView("valueMetric")) ? "oui" : "NON");
+
+	EXPECT_TRUE(ar.Has(NkStringView("mode")));
+	EXPECT_TRUE(ar.Has(NkStringView("value")));
+	EXPECT_TRUE(ar.Has(NkStringView("minVal")));
+
+	// 3. LE CONTROLE QUI TRANCHE, et il doit etre ROUGE tant que la dette des
+	//    pointeurs n'est pas reglee : le nom de metrique doit survivre a
+	//    l'aller-retour. Sans lui, `width = extensible min 120 metrique
+	//    "largeur_palette"` se relit sans sa metrique -- et une taille qui perd
+	//    sa metrique se resout au NOMBRE, silencieusement.
+	KitSize dst;
+	const nk_bool read = NkReflectSerializer::DeserializeObject(dst, ar);
+	printf("      DeserializeObject -> %s\n", read ? "true" : "false");
+
+	const char *m = dst.valueMetric;
+	const bool metricSurvived = (m != nullptr) && (NkString(m) == NkString("largeur_palette"));
+	printf("      valueMetric apres aller-retour : <<%s>>\n", m ? m : "(nul)");
+	EXPECT_KNOWN_DEBT(metricSurvived,
+					  "dette des pointeurs : NkReflectSerializer ne gere pas const char*. "
+					  "Il retourne true en OMETTANT le champ, sans le moindre signal.");
+}
+
 // ---------------------------------------------------------------------------
 // Enregistrement des NkClass (auto-link NkType -> NkClass).
 // ---------------------------------------------------------------------------
@@ -179,6 +286,7 @@ static void WireClasses() {
 	(void)DocNode::GetStaticClass();
 	(void)DocMetric::GetStaticClass();
 	(void)DocRoot::GetStaticClass();
+	(void)KitSize::GetStaticClass();
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +582,12 @@ static void C4_ProvenanceNeverOmitted() {
 // POINT D'ENTREE
 // =============================================================================
 int main() {
+	// Sortie SANS TAMPON. Un banc qui peut tuer le processus (violation d'acces,
+	// assertion, corruption de tas) perd tout son tampon au moment precis ou la
+	// trace compte le plus -- on ne voit alors ni le dernier controle atteint ni
+	// la ligne qui l'a tue. Mesure du 2026-08-22 : C5 plantait en 0xC0000005 et
+	// n'imprimait RIEN, pas meme les controles deja passes.
+	setvbuf(stdout, nullptr, _IONBF, 0);
 	printf("=========================================================\n");
 	printf(" SandboxNKSerialization -- pont Reflection <-> Archive\n");
 	printf("=========================================================\n\n");
@@ -484,8 +598,12 @@ int main() {
 	C2_ObjectContainer();
 	C3_NestedContainerInObjectArray();
 	C4_ProvenanceNeverOmitted();
+	C5_ConstCharStarDuKit();
 
 	const int total = s_pass + s_fail;
+	if (s_debt > 0) {
+		printf("\n  %d dette(s) connue(s) -- rouge attendu, n echoue pas le banc.\n", s_debt);
+	}
 	printf("\n---------------------------------------------------------\n");
 	printf(" RESULTAT : %d / %d\n", s_pass, total);
 	printf("---------------------------------------------------------\n");
