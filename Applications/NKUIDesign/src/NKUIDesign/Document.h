@@ -107,6 +107,8 @@
 #include "NKEditorKit/Components/NkComponentInstance.h"
 #include "NKEditorKit/Components/NkComponentLayout.h"
 
+#include "NkDocStringPool.h"
+
 namespace nkuidesign {
 
 	using nkentseu::float32;
@@ -345,6 +347,50 @@ namespace nkuidesign {
 			NkProvenance prov; ///< la provenance du DOCUMENT (qui l'a cree)
 			NkVector<NkUINode> nodes;
 
+			// ── LE PROPRIETAIRE DES NOMS PORTES PAR LES TYPES DU KIT ───────────
+			// `NkSizeDecl::valueMetric` est un `const char*` (cf. NkDocStringPool.h).
+			// Le document est ce qui possede ces chaines : elles vivent exactement
+			// aussi longtemps que lui.
+			//
+			// ⚠️ NE JAMAIS EXPOSER CE POOL EN ECRITURE A L'EXTERIEUR. Un appelant qui
+			//    internerait sans reaffecter le champ ferait grandir le pool sans
+			//    raison ; un appelant qui garderait le pointeur au-dela du document
+			//    aurait un pendouillant. Les deux seuls chemins legitimes sont
+			//    `SetSizeMetric` et la relecture.
+			NkDocStringPool pool;
+
+			// ── COPIE : PAR LES VALEURS, ET LE POOL DU DESTINATAIRE RE-INTERNE ──
+			// ⚠️ MESURE AVANT CONCEPTION (2026-08-22) : `NkUIDocument` EST copiee par
+			//    valeur — cinq fois rien que dans la sonde (`Probe.h`, « arranged =
+			//    doc », « grid = doc », « dragged = doc », « dragged2 = doc »,
+			//    « changed = reread »). Un pool non copiable rendrait donc la classe
+			//    non copiable, et ces cinq lignes cesseraient de compiler. Ce n'est
+			//    pas une raison de rendre le pool copiable : c'est la raison pour
+			//    laquelle la COPIE DU DOCUMENT doit re-interner.
+			//
+			//    La copie naive (celle que le compilateur aurait ecrite sans pool)
+			//    laisserait les `const char*` de la copie pointer dans le pool de la
+			//    SOURCE. Tant que la source vit, tout va bien — et c'est precisement
+			//    ce qui rend le defaut invisible : il n'apparait que le jour ou la
+			//    source meurt la premiere. D3 le mesure.
+			NkUIDocument() = default;
+			NkUIDocument(const NkUIDocument &o) {
+				CopyValuesFrom(o);
+			}
+			NkUIDocument &operator=(const NkUIDocument &o) {
+				if (this != &o)
+					CopyValuesFrom(o);
+				return *this;
+			}
+			// ⚠️ LE DEPLACEMENT, LUI, N'A RIEN A RE-INTERNER — et il faut savoir
+			//    pourquoi, sinon on le « corrige » un jour en le rendant couteux.
+			//    Le pool est un `NkVector<NkString *>` : deplacer le pool deplace le
+			//    tableau de POINTEURS, jamais les `NkString` pointees. Les adresses
+			//    de contenu deja distribuees restent donc exactes. C'est le meme
+			//    raisonnement qui a impose ce type dans NkDocStringPool.h.
+			NkUIDocument(NkUIDocument &&) = default;
+			NkUIDocument &operator=(NkUIDocument &&) = default;
+
 			// ── LES METRIQUES DU DOCUMENT ──────────────────────────────────────
 			// Cf. `NkDocMetric` : un agencement designe sa gouttiere par un NOM, et ce
 			// nom se resout ici. Une seule valeur, autant de noeuds qu'on veut.
@@ -369,6 +415,30 @@ namespace nkuidesign {
 				m.value = v;
 				metrics.PushBack(m);
 			}
+
+			/// @brief Nomme la metrique qui donne sa taille a un axe de noeud.
+			///
+			/// C'est LE point d'entree du pool cote document, et le seul chemin
+			/// legitime pour ecrire `NkSizeDecl::valueMetric` : la chaine est copiee
+			/// dans le pool, donc possedee par le document, donc valide aussi
+			/// longtemps que lui.
+			///
+			/// ⚠️ `valueMetric` PRIME SUR `value` cote kit (`NkLayoutSolve.h`, l. 131) :
+			///    nommer une metrique ici change la taille effective du noeud des le
+			///    prochain calcul. Un nom vide efface la designation et rend la main
+			///    au nombre — c'est le seul moyen de revenir en arriere.
+			///
+			/// @param node  index du noeud
+			/// @param horizontal `true` pour la largeur, `false` pour la hauteur
+			/// @param metricName nom de metrique ; vide = plus de metrique
+			/// @return `false` si l'index est invalide (rien n'est ecrit)
+			bool SetSizeMetric(int32 node, bool horizontal, const char *metricName) {
+				if (!IsValidIndex(node))
+					return false;
+				NkSizeDecl &a = horizontal ? nodes[(uint32)node].width : nodes[(uint32)node].height;
+				a.valueMetric = pool.Intern(metricName);
+				return true;
+			}
 			/// La source que le resolveur du kit sait lire. Le document se presente a
 			/// `NkLayoutSolve.h` exactement comme une declaration le ferait — c'est ce
 			/// qui evite une seconde facon de resoudre un nom de metrique.
@@ -385,7 +455,13 @@ namespace nkuidesign {
 			/// obligerait chaque appelant a traiter le cas « vide », et ce cas se
 			/// serait oublie quelque part.
 			void NewDocument(const char *docTitle, NkAuthor by) {
+				// ⚠️ LES NOEUDS D'ABORD, LE POOL ENSUITE, ET L'ORDRE EST LA REGLE :
+				//    vider le pool pendant que des noeuds tiennent encore ses
+				//    pointeurs les rendrait pendouillants le temps d'une ligne. Ca
+				//    passerait aujourd'hui ; ca cesserait de passer le jour ou
+				//    quelque chose lit un noeud entre les deux.
 				nodes.Clear();
+				pool.Clear();
 				title = NkString(docTitle && *docTitle ? docTitle : "Interface sans titre");
 				prov = NkProvenance();
 				prov.author = by;
@@ -748,6 +824,7 @@ namespace nkuidesign {
 				if (!text)
 					return false;
 				nodes.Clear();
+				pool.Clear(); // apres les noeuds : voir NewDocument
 				metrics.Clear();
 				title = NkString("");
 				prov = NkProvenance();
@@ -877,6 +954,53 @@ namespace nkuidesign {
 			}
 
 		private:
+
+			// ── LE POOL, VU DE L'INTERIEUR ──────────────────────────────────
+			// Les deux seuls gestes qui font entrer une chaine etrangere dans le pool
+			// de CE document. Tout le reste (relecture, `SetSizeMetric`) passe par eux
+			// ou par `pool.Intern` directement.
+
+			/// @brief Copie un axe en RE-INTERNANT son nom de metrique dans notre pool.
+			///
+			/// La copie membre a membre d'un `NkSizeDecl` recopie `valueMetric`, qui est
+			/// un pointeur. Entre deux noeuds du MEME document c'est inoffensif (meme
+			/// pool) ; depuis un AUTRE document c'est un pointeur qui survit a son
+			/// proprietaire. Comme rien dans le type ne distingue les deux cas, on
+			/// re-interne toujours : le cout est une chaine de plus dans un pool qui ne
+			/// deduplique deja pas, et la regle n'a aucune exception a retenir.
+			void AdoptSize(NkSizeDecl &dst, const NkSizeDecl &src) {
+				dst = src;
+				dst.valueMetric = pool.Intern(src.valueMetric);
+			}
+
+			/// @brief Rend un noeud DEJA copie proprietaire de ses chaines.
+			/// A appeler juste apres une copie de valeurs venue d'un autre document.
+			void AdoptNode(NkUINode &n) {
+				n.width.valueMetric = pool.Intern(n.width.valueMetric);
+				n.height.valueMetric = pool.Intern(n.height.valueMetric);
+			}
+
+			/// @brief Le corps de la copie et de l'affectation par copie.
+			///
+			/// ⚠️ L'ORDRE EST LA CORRECTION, PAS UN DETAIL. On copie les noeuds PENDANT
+			///    que `o` est vivante (leurs `valueMetric` pointent alors chez elle), on
+			///    vide NOTRE pool — ce qui n'invalide rien, puisque plus aucun de nos
+			///    noeuds ne le lit —, puis on re-interne. Vider le pool en premier
+			///    marcherait aussi ; re-interner avant de copier, non. Ecrit ici parce
+			///    que les trois ordres se ressemblent a la lecture.
+			///
+			/// ⚠️ L'AUTO-AFFECTATION EST ECARTEE PAR L'APPELANT (`this != &o`), et il
+			///    faut qu'elle le reste : `pool.Clear()` detruirait ici les chaines que
+			///    nos propres noeuds designent.
+			void CopyValuesFrom(const NkUIDocument &o) {
+				title = o.title;
+				prov = o.prov;
+				metrics = o.metrics;
+				nodes = o.nodes;
+				pool.Clear();
+				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
+					AdoptNode(nodes[i]);
+			}
 			// ── Ecriture ───────────────────────────────────────────────────────
 			// Les nombres passent par `instdetail::WriteFloat` — le meme ecrivain que
 			// le fichier d'ecarts. Un second formateur de flottants serait un second
@@ -903,17 +1027,30 @@ namespace nkuidesign {
 				WriteNum(out, v);
 				out.Append('\n');
 			}
-			/// `largeur = <mode> <valeur> <min> <max>`
+			/// `largeur = <mode> <valeur> <min> <max> [<metrique>]`
 			///
-			/// ⚠️ `NkSizeDecl::valueMetric` N'EST PAS ENREGISTRE, ET C'EST UNE ABSENCE
-			///    NOMMEE. C'est un `const char*` : le relire depuis un fichier voudrait
-			///    dire le faire pointer dans une chaine que le document possede et
-			///    reloge — le meme pointeur pendouillant que pour `spacingMetric`, et
-			///    la solution serait la meme (une `NkString` a cote). Tant qu'aucune
-			///    taille de noeud n'a besoin d'etre nommee, on ne paie pas ce champ ;
-			///    le jour ou ca arrive, il se traite comme `spacingName`. Ce qui est
-			///    interdit, c'est de l'ecrire a moitie : un nom sauve et non relu
-			///    donnerait un document qui change de taille en le rouvrant.
+			/// ⚠️ LE 2026-08-18 CE COMMENTAIRE DISAIT UNE ABSENCE ; ELLE EST LEVEE.
+			///    Il disait que `NkSizeDecl::valueMetric` n'etait pas enregistre parce que
+			///    c'est un `const char*` sans proprietaire, et que le jour venu il se
+			///    traiterait « comme `spacingName` », c'est-a-dire par une `NkString`
+			///    posee a cote. Ce n'est PAS ce qui a ete fait, et la difference porte :
+			///    une `NkString` a cote aurait fait DEUX verites pour un seul fait — le
+			///    champ que le solveur du kit lit (`NkLayoutSolve.h`, l. 131) et la chaine
+			///    que le document garde —, avec la charge permanente de les tenir
+			///    d'accord. Le pool (`NkDocStringPool.h`) donne un proprietaire au champ
+			///    LUI-MEME : le solveur lit la seule verite qui existe, et il n'y a rien
+			///    a synchroniser.
+			///
+			/// ⚠️ LE 5e JETON N'EST ECRIT QUE S'IL EST NON VIDE, et c'est un choix :
+			///    un document qui ne nomme aucune taille se reecrit OCTET POUR OCTET comme
+			///    avant cette tranche, donc le corpus existant n'a pas bouge — et ce
+			///    n'est pas une supposition, D5 le mesure sur un fichier ecrit avant. Le
+			///    prix est un champ de longueur variable ; le prix de l'autre choix aurait
+			///    ete de reecrire tous les fichiers du depot pour y poser un champ vide.
+			///
+			/// ⚠️ CE QUI RESTE INTERDIT est inchange : ECRIRE A MOITIE. Un nom sauve et
+			///    non relu donnerait un document qui change de taille en le rouvrant.
+			///    C'est pourquoi `ParseAxis` le relit DANS LE MEME COMMIT.
 			static void WriteAxis(NkString &out, const char *k, const NkSizeDecl &a) {
 				out.Append("  ");
 				out.Append(k);
@@ -925,6 +1062,10 @@ namespace nkuidesign {
 				WriteNum(out, a.minVal);
 				out.Append(' ');
 				WriteNum(out, a.maxVal);
+				if (a.valueMetric && *a.valueMetric) {
+					out.Append(' ');
+					out.Append(a.valueMetric);
+				}
 				out.Append('\n');
 			}
 			/// Les ecarts du composant, ecrits par `NkComponentInstance::Save` puis
@@ -1052,7 +1193,23 @@ namespace nkuidesign {
 				}
 				return t;
 			}
-			static void ParseAxis(const char *s, NkSizeDecl &a) {
+			/// ⚠️ N'EST PLUS `static` : relire le 5e jeton veut dire l'INTERNER, donc
+			///    toucher au pool, donc au document. C'est toute la raison du changement
+			///    de signature.
+			///
+			/// ⚠️ LA REGLE ASYMETRIQUE DU VERDICT S'APPLIQUE ICI, et elle explique
+			///    pourquoi cette fonction ne rend toujours rien. Un 5e jeton ABSENT est
+			///    LEGITIME : c'est tout fichier ecrit avant cette tranche, et le refuser
+			///    changerait une compatibilite ascendante en panne. Ce qui serait une
+			///    faute, c'est un jeton PRESENT et perdu — et il ne peut pas l'etre, il
+			///    est pris tel quel, sans grammaire a respecter.
+			///
+			/// ⚠️ BORNE CONNUE, ET ELLE N'EST PAS PROPRE A CE CHAMP : `Load` lit une
+			///    ligne entiere dans `val[256]`. Un nom tres long serait tronque avec le
+			///    reste de sa ligne — c'est la borne de TOUT le format, pas une nouvelle.
+			///    Le nom ne passe volontairement PAS par `Tokenize`, qui coupe lui a 31
+			///    caracteres : la troncature y aurait ete silencieuse ET propre a ce champ.
+			void ParseAxis(const char *s, NkSizeDecl &a) {
 				char tok[4][32];
 				const uint32 t = Tokenize(s, tok, 4);
 				if (t > 0)
@@ -1063,6 +1220,27 @@ namespace nkuidesign {
 					a.minVal = ParseNum(tok[2]);
 				if (t > 3)
 					a.maxVal = ParseNum(tok[3]);
+				if (t == 4) {
+					// Ce qui reste de la ligne apres les quatre nombres : le nom de
+					// metrique, pris entier.
+					const char *rest = SkipTokens(s, 4);
+					if (*rest)
+						a.valueMetric = pool.Intern(rest);
+				}
+			}
+			/// @brief Rend le pointeur juste apres les `n` premiers jetons de `s`, les
+			///        espaces de tete manges. Rend la fin de chaine s'il y a moins de
+			///        `n` jetons.
+			static const char *SkipTokens(const char *s, uint32 n) {
+				for (uint32 i = 0; i < n; ++i) {
+					while (*s == ' ' || *s == '\t')
+						++s;
+					while (*s && *s != ' ' && *s != '\t')
+						++s;
+				}
+				while (*s == ' ' || *s == '\t')
+					++s;
+				return s;
 			}
 
 			// ── Structure ──────────────────────────────────────────────────────
@@ -1109,8 +1287,13 @@ namespace nkuidesign {
 				{
 					NkUINode &d = nodes[(uint32)me];
 					d.label = s.label;
-					d.width = s.width;
-					d.height = s.height;
+					// ⚠️ LES DEUX AXES PASSENT PAR `AdoptSize`, JAMAIS PAR UNE AFFECTATION
+					//    DIRECTE. `NkSizeDecl` porte `valueMetric`, un `const char*` qui pointe
+					//    dans le pool de `src` — un AUTRE document. Le recopier tel quel ferait
+					//    un noeud qui lit chez son voisin, et le defaut n'apparaitrait qu'a la
+					//    mort du voisin, c'est-a-dire loin d'ici. D4 le mesure.
+					AdoptSize(d.width, s.width);
+					AdoptSize(d.height, s.height);
 					d.layout = s.layout;
 					d.anchorEdges = s.anchorEdges;
 					d.spacingName = s.spacingName;
