@@ -34,7 +34,8 @@ namespace nkentseu {
 			return t * (1.f / tl);
 		}
 
-		void NkEditMesh::BuildFromIndexed(const NkVertex3D *v, uint32 vc, const uint32 *idx, uint32 ic, bool quadify) {
+		void NkEditMesh::BuildFromIndexed(const NkVertex3D *v, uint32 vc, const uint32 *idx, uint32 ic,
+										  bool quadify, const uint16 *triMaterial, uint32 *outMaterialChanged) {
 			Clear();
 			verts.Resize(vc);
 			for (uint32 i = 0; i < vc; i++) {
@@ -94,6 +95,12 @@ namespace nkentseu {
 					fc.smooth =
 						(na.Dot(nb) >= kFlatDot && nb.Dot(nc) >= kFlatDot && nc.Dot(na) >= kFlatDot) ? 0 : 1;
 				}
+				// MATERIAU PAR FACE : TRANSPORTE, jamais deduit. Contrairement a
+				// `smooth` juste au-dessus, aucune donnee geometrique ne le porte —
+				// s'il n'est pas fourni ici, il est perdu et toutes les faces
+				// retombent sur le slot 0 sans qu'aucune erreur ne se declenche.
+				if (triMaterial)
+					fc.material = triMaterial[t];
 				faces.PushBack(fc);
 				if (verts[a].hedge == NK_EM_INVALID)
 					verts[a].hedge = h0;
@@ -104,8 +111,15 @@ namespace nkentseu {
 			}
 			LinkTwins();
 			RecomputeNormals();
-			if (quadify)
-				Quadify();
+			if (outMaterialChanged)
+				*outMaterialChanged = 0;
+			if (quadify) {
+				// Quadify FUSIONNE des faces : c'est le seul endroit de cette
+				// fonction ou un materiau peut se perdre, et le compte remonte.
+				const uint32 perdus = Quadify();
+				if (outMaterialChanged)
+					*outMaterialChanged = perdus;
+			}
 			// ── NORMALES DE SOMMET : on REND celles de la SOURCE ────────────────
 			// RecomputeNormals() (ci-dessus, et de nouveau depuis Quadify) recalcule
 			// chaque normale de sommet comme la moyenne, ponderee par l'aire, des faces
@@ -145,7 +159,97 @@ namespace nkentseu {
 			return n;
 		}
 
-		void NkEditMesh::Quadify(float32 coplanarDot) {
+		float32 NkEditMesh::FaceArea(NkEmId f) const {
+			if (f >= (NkEmId)faces.Size() || !faces[f].alive)
+				return 0.f;
+			const NkEmId start = faces[f].hedge;
+			if (start == NK_EM_INVALID)
+				return 0.f;
+			// NEWELL : somme des produits vectoriels le long du cycle. Vaut pour un
+			// n-gon quelconque, la ou 0.5*|AB x AC| ne vaut que pour un triangle —
+			// et une face fusionnee est justement un n-gon.
+			NkVec3f acc{0.f, 0.f, 0.f};
+			NkEmId h = start;
+			uint32 n = 0, guard = 0;
+			do {
+				const NkEmId nx = hedges[h].next;
+				if (nx == NK_EM_INVALID)
+					break;
+				const uint32 a = hedges[h].origin, b = hedges[nx].origin;
+				if (a >= (uint32)verts.Size() || b >= (uint32)verts.Size())
+					break;
+				acc = acc + verts[a].pos.Cross(verts[b].pos);
+				++n;
+				h = nx;
+			} while (h != start && ++guard < 100000u);
+			if (n < 3u)
+				return 0.f;
+			return 0.5f * acc.Len();
+		}
+
+		// REGLE DE FUSION DU MATERIAU (arbitrage 2026-08-22), appliquee partout ou
+		// des faces fusionnent — Quadify et Dissolve aujourd'hui. Ecrite UNE fois :
+		// deux copies d'une meme regle divergent, on l'a deja paye sur les chemins
+		// de ressources des bancs.
+		//   • contributeur DOMINANT PAR L'AIRE ;
+		//   • a aire egale (tolerance RELATIVE, cf. l'en-tete), INDICE LE PLUS BAS.
+		// ⚠ « LA PLUS GRANDE AIRE » : DE QUOI ? L'arbitrage dit « la face qui
+		// apportait la plus grande aire », mais il le justifie par « la couleur qui
+		// couvrait le plus doit rester ». Sur DEUX contributeurs les deux lectures
+		// coincident ; sur une region de Dissolve a N faces, elles divergent :
+		// deux petites faces slot 1 (0,6 + 0,6) contre une grande slot 2 (1,0)
+		// donnent slot 2 par face, slot 1 par couleur.
+		// ON RETIENT LA COULEUR — c'est ce que la justification decrit, c'est ce que
+		// l'utilisateur voit, et c'est le sur-ensemble : sur deux faces le resultat
+		// est identique a l'autre lecture. Ecart signale a l'arbitre.
+		static uint16 EM_MaterialDominant(const uint16 *mats, const float32 *aires, uint32 n) {
+			if (n == 0 || !mats || !aires)
+				return 0;
+			NkVector<uint16> ids;
+			NkVector<float32> tot;
+			for (uint32 i = 0; i < n; ++i) {
+				uint32 k = 0;
+				bool trouve = false;
+				for (; k < (uint32)ids.Size(); ++k)
+					if (ids[k] == mats[i]) {
+						trouve = true;
+						break;
+					}
+				if (!trouve) {
+					ids.PushBack(mats[i]);
+					tot.PushBack(aires[i]);
+				} else
+					tot[k] += aires[i];
+			}
+			uint16 best = ids[0];
+			float32 bestA = tot[0];
+			for (uint32 k = 1; k < (uint32)ids.Size(); ++k) {
+				const float32 ref = (bestA > tot[k]) ? bestA : tot[k];
+				const float32 tol = ((ref > 1.f) ? ref : 1.f) * 1e-6f;
+				if (tot[k] > bestA + tol) {
+					best = ids[k];
+					bestA = tot[k];
+				} else if (tot[k] >= bestA - tol && ids[k] < best) {
+					best = ids[k]; // egalite d'aire : l'indice le plus bas tranche
+					if (tot[k] > bestA)
+						bestA = tot[k];
+				}
+			}
+			return best;
+		}
+
+		// Nombre de contributeurs dont le materiau N'EST PAS celui retenu. C'est la
+		// PERTE, et elle se compte — elle ne se suppose pas nulle.
+		static uint32 EM_MaterialLost(const uint16 *mats, uint32 n, uint16 retenu) {
+			uint32 k = 0;
+			for (uint32 i = 0; i < n; ++i)
+				if (mats[i] != retenu)
+					++k;
+			return k;
+		}
+
+		uint32 NkEditMesh::Quadify(float32 coplanarDot) {
+			uint32 materiauxPerdus = 0;
 			// Paires de triangles CONSÉCUTIFS (issus de la triangulation quad-par-quad).
 			for (uint32 f1 = 0; f1 + 1 < (uint32)faces.Size(); f1 += 2) {
 				const uint32 f2 = f1 + 1;
@@ -168,6 +272,11 @@ namespace nkentseu {
 				} while (hh != start && ++guard < 100000u);
 				if (h == NK_EM_INVALID)
 					continue; // triangles non adjacents
+				// AIRES MESUREES AVANT LA COUTURE : apres, f2 est morte (aire 0) et
+				// f1 porte deja le quad. Les lire trop tard ferait gagner f1 a tous
+				// les coups — c'est-a-dire une regle qui ne peut pas departager.
+				const float32 aires[2] = {FaceArea((NkEmId)f1), FaceArea((NkEmId)f2)};
+				const uint16 mats[2] = {faces[f1].material, faces[f2].material};
 				const NkEmId tw = hedges[h].twin;
 				const NkEmId hA = hedges[h].next, hB = hedges[hA].next;	 // f1 : b->c, c->a
 				const NkEmId hC = hedges[tw].next, hD = hedges[hC].next; // f2 : a->d, d->b
@@ -182,6 +291,16 @@ namespace nkentseu {
 				// meme quad source portent normalement le meme reglage, mais on prend le OU
 				// pour ne jamais perdre un lissage lors de la fusion.
 				faces[f1].smooth = (uint8)(faces[f1].smooth | faces[f2].smooth);
+				// MATERIAU : contributeur dominant par l'aire, egalite tranchee par
+				// l'indice le plus bas. Un materiau ne se re-derive pas — contrairement
+				// a `smooth` juste au-dessus, qu'un OU suffit a conserver parce qu'il
+				// n'a que deux etats. Ici, ne rien faire equivaudrait a « f1 gagne
+				// toujours », c'est-a-dire a laisser l'ORDRE DE PARCOURS decider.
+				{
+					const uint16 retenu = EM_MaterialDominant(mats, aires, 2u);
+					materiauxPerdus += EM_MaterialLost(mats, 2u, retenu);
+					faces[f1].material = retenu;
+				}
 				faces[f2].alive = 0;
 				const uint32 a = hedges[h].origin, b = hedges[tw].origin;
 				hedges[h].alive = 0;
@@ -192,6 +311,7 @@ namespace nkentseu {
 				verts[b].hedge = hA; // repointe (h/tw morts)
 			}
 			RecomputeNormals();
+			return materiauxPerdus;
 		}
 
 		// Grille de hachage spatiale : positions quantifiées au pas `eps` puis hachées. Les
@@ -4114,17 +4234,24 @@ namespace nkentseu {
 		// Ce parcours saute naturellement les sommets devenus intérieurs à la région —
 		// c'est ce qui rend le dissolve de SOMMET et de FACE identiques à celui d'ARÊTE.
 		// =====================================================================
-		bool NkEditMesh::DissolveSelected(const NkDissolveParams &p) {
+		bool NkEditMesh::DissolveSelected(const NkDissolveParams &p, uint32 *outMaterialChanged) {
+			if (outMaterialChanged)
+				*outMaterialChanged = 0;
 			NkVector<NkVertex3D> wv;
 			NkVector<uint32> wfs, wfv;
 			NkVector<uint8> wsel;
 			NkVector<uint32> wmap;
-			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap);
+			// MATERIAU PAR FACE : recupere DES la soudure, donc dans le meme ordre
+			// que les faces de `W`. Le lire plus tard supposerait que cet ordre est
+			// conserve — une hypothese qu'on n'a pas a prendre.
+			NkVector<uint16> wfm;
+			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap, &wfm);
 			const uint32 wfc = (wfs.Size() > 0) ? (uint32)wfs.Size() - 1 : 0;
 			if (wfc == 0)
 				return false;
 			NkEditMesh W;
-			W.BuildFromPolygons(wv.Data(), (uint32)wv.Size(), wfs.Data(), wfc, wfv.Data());
+			W.BuildFromPolygons(wv.Data(), (uint32)wv.Size(), wfs.Data(), wfc, wfv.Data(),
+								(wfm.Size() == wfc) ? wfm.Data() : nullptr);
 			const uint32 NV = W.VertCount(), HC = (uint32)W.hedges.Size();
 			if (NV == 0 || HC == 0)
 				return false;
@@ -4176,12 +4303,84 @@ namespace nkentseu {
 			if (removedCount == 0)
 				return false;
 
+			// -- 1bis) REGIONS FUSIONNEES ET MATERIAU RETENU PAR REGION --------
+			// ⚠ LE CONTOUR NE SUFFIT PAS A CONNAITRE LES CONTRIBUTEURS. Une face
+			// entierement INTERIEURE a la region (toutes ses aretes retirees) n'est
+			// jamais visitee par le parcours du contour -- son materiau et son aire
+			// disparaitraient du calcul sans que rien ne le signale. On regroupe donc
+			// les faces par COMPOSANTE CONNEXE des aretes retirees, ce qui les tient
+			// toutes, contour ou pas.
+			const uint32 WFC = (uint32)W.faces.Size();
+			NkVector<uint32> parent;
+			parent.Resize(WFC);
+			for (uint32 i = 0; i < WFC; ++i)
+				parent[i] = i;
+			auto trouver = [&](uint32 x) {
+				while (parent[x] != x) {
+					parent[x] = parent[parent[x]]; // compression de chemin
+					x = parent[x];
+				}
+				return x;
+			};
+			for (uint32 h = 0; h < HC; ++h) {
+				if (!gone[h])
+					continue;
+				const NkEmId tw = W.hedges[h].twin;
+				if (tw == NK_EM_INVALID)
+					continue;
+				const NkEmId fa2 = W.hedges[h].face, fb2 = W.hedges[tw].face;
+				if (fa2 == NK_EM_INVALID || fb2 == NK_EM_INVALID || fa2 >= WFC || fb2 >= WFC)
+					continue;
+				const uint32 ra = trouver(fa2), rb = trouver(fb2);
+				if (ra != rb)
+					parent[ra] = rb;
+			}
+			// Regroupement en CSR : une seule passe par face, jamais un balayage par
+			// region (qui serait quadratique sur un gros maillage).
+			NkVector<uint32> cnt, deb, fill;
+			cnt.Resize(WFC);
+			deb.Resize(WFC + 1u);
+			for (uint32 i = 0; i < WFC; ++i)
+				cnt[i] = 0;
+			for (uint32 f = 0; f < WFC; ++f)
+				if (W.faces[f].alive)
+					cnt[trouver(f)]++;
+			deb[0] = 0;
+			for (uint32 i = 0; i < WFC; ++i)
+				deb[i + 1u] = deb[i] + cnt[i];
+			fill = deb;
+			NkVector<uint16> mflat;
+			NkVector<float32> aflat;
+			mflat.Resize(deb[WFC]);
+			aflat.Resize(deb[WFC]);
+			for (uint32 f = 0; f < WFC; ++f) {
+				if (!W.faces[f].alive)
+					continue;
+				const uint32 r = trouver(f), k = fill[r]++;
+				mflat[k] = W.faces[f].material;
+				aflat[k] = W.FaceArea((NkEmId)f);
+			}
+			NkVector<uint16> matRegion;
+			matRegion.Resize(WFC);
+			uint32 materiauxPerdus = 0;
+			for (uint32 r = 0; r < WFC; ++r) {
+				matRegion[r] = 0;
+				if (cnt[r] == 0)
+					continue;
+				const uint16 retenu = EM_MaterialDominant(&mflat[deb[r]], &aflat[deb[r]], cnt[r]);
+				matRegion[r] = retenu;
+				// Une region d'UNE seule face n'est pas une fusion : EM_MaterialLost y
+				// rend 0 de lui-meme, sans qu'on ait a le supposer.
+				materiauxPerdus += EM_MaterialLost(&mflat[deb[r]], cnt[r], retenu);
+			}
+
 			// ── 2) Contours des régions fusionnées ───────────────────────────
 			NkVector<uint8> seen;
 			seen.Resize(HC);
 			for (uint32 i = 0; i < HC; ++i)
 				seen[i] = 0;
 			NkVector<uint32> nfs, nfv;
+			NkVector<uint16> nfm; // materiau de chaque face EMISE (une entree par nfs)
 			nfs.PushBack(0);
 			NkVector<uint8> touchedV; // sommets du contour d'une région fusionnée -> sélection
 			touchedV.Resize(NV);
@@ -4221,6 +4420,12 @@ namespace nkentseu {
 				if (merged)
 					for (uint32 k = st; k < (uint32)nfv.Size(); ++k)
 						touchedV[nfv[k]] = 1;
+				// La face emise appartient a la region de la face d'ou part son
+				// contour : elle prend le materiau retenu pour cette region.
+				{
+					const NkEmId fh = W.hedges[h0].face;
+					nfm.PushBack((fh != NK_EM_INVALID && fh < WFC) ? matRegion[trouver(fh)] : (uint16)0);
+				}
 				nfs.PushBack((uint32)nfv.Size());
 			}
 			if (nfs.Size() < 2u)
@@ -4242,8 +4447,12 @@ namespace nkentseu {
 				}
 				nfv[k] = (uint32)remap[v];
 			}
-			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			const uint32 nfc = (uint32)nfs.Size() - 1u;
+			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), nfc, nfv.Data(),
+							  (nfm.Size() == nfc) ? nfm.Data() : nullptr);
 			ApplyVertSel(nsel);
+			if (outMaterialChanged)
+				*outMaterialChanged = materiauxPerdus;
 			return true;
 		}
 

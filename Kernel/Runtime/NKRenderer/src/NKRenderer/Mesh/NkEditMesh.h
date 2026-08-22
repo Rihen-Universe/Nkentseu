@@ -433,7 +433,15 @@ namespace nkentseu {
 
 				// Construit depuis un maillage indexé (triangles). Si quadify=true, fusionne
 				// les paires de triangles coplanaires partageant une arête en QUADS (n-gons).
-				void BuildFromIndexed(const NkVertex3D *v, uint32 vc, const uint32 *idx, uint32 ic, bool quadify);
+				// `triMaterial`, quand il est fourni, doit avoir ic/3 entrees et donne
+				// l'index de materiau de chaque TRIANGLE. Absent (nullptr), toutes les
+				// faces retombent sur le slot 0 -- comportement historique, donc aucun
+				// appelant existant ne change.
+				// `outMaterialChanged`, quand il est fourni, recoit le nombre de faces
+				// SOURCE dont le materiau n'a pas ete retenu par une fusion (quadify).
+				// Il vaut 0 quand quadify est faux : sans fusion, rien ne se perd.
+				void BuildFromIndexed(const NkVertex3D *v, uint32 vc, const uint32 *idx, uint32 ic, bool quadify,
+									  const uint16 *triMaterial = nullptr, uint32 *outMaterialChanged = nullptr);
 
 				// Triangule toutes les faces (éventail) -> mesh de rendu. outTriFace[i] = id
 				// de la face n-gon d'origine du i-ème triangle (pour le pick).
@@ -551,7 +559,13 @@ namespace nkentseu {
 
 				// Sommets (dans l'ordre du bord) d'une face n-gon.
 				void GetFaceVerts(NkEmId f, NkVector<NkEmId> &out) const;
-				uint32 FaceSize(NkEmId f) const; // nombre de sommets du bord
+				uint32 FaceSize(NkEmId f) const;
+				// AIRE d'une face vivante (formule de Newell : somme des produits
+				// vectoriels le long du cycle, / 2). Exacte pour une face plane, et une
+				// approximation raisonnable pour une face gauche -- ce qui suffit a son
+				// unique usage : DEPARTAGER deux contributeurs d'une fusion.
+				// Rend 0 pour une face morte ou de moins de 3 coins.
+				float32 FaceArea(NkEmId f) const; // nombre de sommets du bord
 				// Une face est SÉLECTIONNÉE si TOUS ses sommets le sont (convention Blender).
 				bool FaceIsSelected(NkEmId f) const;
 				// Les (au plus 2) faces incidentes à l'arête (a,b) — pour la normale d'arête.
@@ -575,7 +589,31 @@ namespace nkentseu {
 				// Fusionne les paires de triangles CONSÉCUTIFS (2k,2k+1) adjacents et
 				// coplanaires en QUADS. Adapté aux meshes triangulés quad-par-quad
 				// (primitives, grilles). coplanarDot ~0.9995 (cube) à 0.98 (sphère fine).
-				void Quadify(float32 coplanarDot = 0.985f);
+				//
+				// ⚠ C'EST UNE FUSION DE FACES, donc un endroit ou le MATERIAU PAR FACE
+				// se perd. Regle arbitree (2026-08-22) : la face survivante prend le
+				// materiau du CONTRIBUTEUR DOMINANT PAR L'AIRE ; a aire egale, l'INDICE
+				// DE MATERIAU LE PLUS BAS. Deterministe (deux courses sur la meme entree
+				// donnent le meme resultat, sur toute machine), visible (la couleur qui
+				// couvrait le plus reste) et mesurable (une aire se verifie ; « le plus
+				// pertinent » ne se verifie pas).
+				//
+				// ⚠ ET LE CAS QUI COMPTE LE PLUS EST CELUI OU LA REGLE NE SUFFIT PAS :
+				// quand les deux triangles portent des materiaux DIFFERENTS, la fusion
+				// perd de l'information QUELLE QUE SOIT la regle. Ce n'est pas a
+				// corriger, c'est a RAPPORTER -- d'ou la valeur rendue : le nombre de
+				// faces source dont le materiau n'a PAS ete retenu. Un zero rassure,
+				// mais un zero ne s'invente pas : il se compte.
+				//
+				// ⚠ L'EGALITE D'AIRE EST TESTEE A UNE TOLERANCE RELATIVE (1e-6), pas au
+				// bit pres : les deux moities d'un quad carre ont la meme aire
+				// mathematiquement, mais l'ordre des sommations en float32 ne le garantit
+				// pas. Sans tolerance, le departage « indice le plus bas » deviendrait
+				// un tirage au sort dependant de l'arrondi -- c'est-a-dire non
+				// deterministe pour l'utilisateur, qui voit deux triangles identiques.
+				//
+				// Rend le nombre de faces ayant PERDU leur materiau dans une fusion.
+				uint32 Quadify(float32 coplanarDot = 0.985f);
 
 				// Normales par face (produit vectoriel) puis par sommet, EN RESPECTANT
 				// l'ombrage par face (Face::smooth) :
@@ -916,7 +954,14 @@ namespace nkentseu {
 				//   • la face résultante peut être NON PLANE (autorisé, comme Blender) ;
 				//   • sommet de bord ou de valence < 3 en mode Verts : ignoré ;
 				//   • les sommets devenus inutilisés sont COMPACTÉS (pas de sommet isolé).
-				bool DissolveSelected(const NkDissolveParams &p = NkDissolveParams{});
+				// ⚠ DISSOLVE FUSIONNE DES FACES : meme regle que Quadify, et pour la
+				// meme raison. La face fusionnee prend le materiau du CONTRIBUTEUR
+				// DOMINANT PAR L'AIRE de sa region ; a aire egale, l'INDICE LE PLUS BAS.
+				// `outMaterialChanged`, quand il est fourni, recoit le nombre de faces
+				// source dont le materiau n'a pas ete retenu -- la perte, comptee et non
+				// supposee.
+				bool DissolveSelected(const NkDissolveParams &p = NkDissolveParams{},
+									  uint32 *outMaterialChanged = nullptr);
 				// planePoint / planeNormal sont exprimés dans l'espace de `localToPlaneSpace`
 				// (= matrice modèle→monde côté éditeur ; identité pour une op locale pure IA).
 				bool BisectByPlane(const NkVec3f &planePoint, const NkVec3f &planeNormal,
