@@ -193,3 +193,4 @@ ops/faire-face                     ok=1 faces 5 -> 6 | bord 4 -> 0 (retour a 0 a
 ops/coupe-de-boucle                ok=1 sommets 25 -> 30 faces 16 -> 20 | nonmanif=0 bord 16 -> 18
 ops/vis-revolution                 ok=1 sommets 25 -> 175 faces 16 -> 112 | nonmanif 0 -> 0 (temoin)
 ops/coupe-par-plan                 ok=1 sommets 24 -> 32 faces 6 -> 10 | bord 0 -> 0 nonmanif 0 -> 0
+enroulement/noyau-contre-primitive accord=6 desaccord=0 (0 attendu) pire ecart=0.0000 | CCW sur face +Y = -1.0 (negatif attendu)

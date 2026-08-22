@@ -4035,6 +4035,80 @@ static void SixOpsBattery() {
 	}
 }
 
+// ── LA CONVENTION D'ENROULEMENT, MESUREE SANS GPU ───────────────────────────
+// POURQUOI CE CAS EXISTE
+// Le 2026-08-22, un arbitrage demandant `frontFace = CW` dans tout le moteur a
+// ete RETIRE : l'agent rendu avait deduit une convention d'un « cull=FRONT et
+// cull=NONE donnent la meme image », et la vraie cause etait un retournement
+// vertical manquant dans le generateur GLSL. Il compensait un flip absent par une
+// fausse convention. La convention d'enroulement du depot a donc ete declaree
+// « question ouverte ».
+//
+// ⚠️ ELLE NE L'EST PAS COTE CPU, ET CE CAS LE PROUVE SANS ALLUMER DE GPU.
+// La question « quelle normale le noyau calcule-t-il pour une boucle donnee ? »
+// se tranche par arithmetique, pas par capture d'ecran. Aucun shader, aucun flip,
+// aucun etat de rasterisation n'intervient dans NkEmFaceCross.
+//
+// LA MESURE : on compare la normale que NkEditMesh CALCULE pour chaque face du
+// cube a la normale DECLAREE par la primitive dans ses propres donnees. Si les
+// deux coincident, la convention du noyau est celle des primitives -- et le
+// produit vectoriel CCW standard, lui, donne l'oppose.
+//
+// ⚠️ Ce cas ne dit RIEN de l'etat de rasterisation a declarer (`frontFace`) :
+// c'est une question de rendu, elle depend du GPU et du generateur de shaders, et
+// elle reste ouverte. Confondre les deux est exactement l'erreur qui a coute
+// l'arbitrage retire. Un banc doit dire ce qu'il ne couvre pas.
+static void WindingBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+
+	NkEditMesh m;
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+	m.RebuildEdges();
+
+	// Pour chaque face vivante : la normale calculee par le noyau, contre la
+	// normale portee par les sommets source (la primitive declare la sienne).
+	uint32 accord = 0, desaccord = 0;
+	float32 pireEcart = 0.f;
+	NkVector<NkEmId> boucle;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		boucle.Clear();
+		m.GetFaceVerts(f, boucle);
+		if (boucle.Size() < 3)
+			continue;
+		// Normale DECLAREE : celle du premier coin (la primitive donne la meme a
+		// tous les coins d'une face plate).
+		const NkVec3f declaree = m.verts[boucle[0]].normal;
+		const NkVec3f calculee = m.faces[f].normal;
+		const float32 d = declaree.Dot(calculee);
+		if (d > 0.9f)
+			accord++;
+		else
+			desaccord++;
+		const float32 ecart = 1.f - (d < 0.f ? -d : d);
+		if (ecart > pireEcart)
+			pireEcart = ecart;
+	}
+
+	// Le produit vectoriel CCW standard, calcule ICI a la main sur une face
+	// connue : il doit donner l'OPPOSE de ce que le noyau calcule.
+	//   face du dessus du cube : boucle {3,7,6,2}, normale declaree (0,1,0)
+	const NkVec3f p3 = {-0.5f, 0.5f, 0.5f};
+	const NkVec3f p7 = {-0.5f, 0.5f, -0.5f};
+	const NkVec3f p6 = {0.5f, 0.5f, -0.5f};
+	const NkVec3f u = p7 - p3;
+	const NkVec3f w = p6 - p3;
+	const NkVec3f ccw = {u.y * w.z - u.z * w.y, u.z * w.x - u.x * w.z, u.x * w.y - u.y * w.x};
+	// ccw.y < 0 alors que la primitive declare +Y => face avant = SENS HORAIRE.
+
+	Put("{0:<34} accord={1} desaccord={2} (0 attendu) pire ecart={3:.4f} | CCW sur face +Y = {4:.1f} (negatif "
+		"attendu)",
+		"enroulement/noyau-contre-primitive", accord, desaccord, pireEcart, ccw.y);
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -4076,6 +4150,8 @@ int main(int argc, char **argv) {
 	HistoryBattery();
 	// AJOUTEE EN FIN, meme raison : les 188 lignes precedentes gardent leur numero.
 	SixOpsBattery();
+	// AJOUTEE EN FIN, meme raison : les 195 lignes precedentes gardent leur numero.
+	WindingBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
