@@ -134,6 +134,7 @@ namespace nkentseu {
 			struct Ctx {
 					NkVector<V3> pos;
 					NkVector<uint32> tri;	 ///< 3 indices par triangle
+					NkVector<uint16> triMat; ///< materiau de la FACE MERE de chaque triangle
 					NkVector<uint8> triDead; ///< 1 = triangle supprime
 					NkVector<uint8> vertDead;
 					NkVector<uint32> stamp; ///< incremente a chaque modification d'un sommet
@@ -317,10 +318,31 @@ namespace nkentseu {
 
 		} // namespace
 
+		// Slots DISTINCTS portes par des faces VIVANTES. C'est une RELATION qu'on
+		// compare avant/apres, pas un compte fige : le nombre juste depend du
+		// maillage, mais « il ne doit pas diminuer sans qu'on le dise » vaut toujours.
+		static uint32 SlotsDistincts(const NkEditMesh &m) {
+			NkVector<uint16> vus;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+				if (!m.faces[f].alive)
+					continue;
+				const uint16 s = m.faces[f].material;
+				bool trouve = false;
+				for (uint32 k = 0; k < (uint32)vus.Size() && !trouve; ++k)
+					if (vus[k] == s)
+						trouve = true;
+				if (!trouve)
+					vus.PushBack(s);
+			}
+			return (uint32)vus.Size();
+		}
+
 		bool NkMeshDecimate::DecimateQEM(NkEditMesh &m, const NkDecimateParams &p, NkDecimateStats *out) {
 			NkDecimateStats st;
 			if (m.FaceCount() == 0 || m.VertCount() == 0)
 				return false;
+			// Mesure AVANT toute modification : `m` est reconstruit en place a la fin.
+			st.matSlotsBefore = SlotsDistincts(m);
 
 			// ── 1. Triangulation + SOUDURE ──────────────────────────────────────
 			// La soudure est indispensable : les primitives dupliquent les sommets par
@@ -365,6 +387,10 @@ namespace nkentseu {
 					c.tri.PushBack(a);
 					c.tri.PushBack(b);
 					c.tri.PushBack(d);
+					// MATERIAU DE LA FACE MERE. Un eventail decoupe UNE face : ses
+					// triangles heritent tous du meme index, sans ambiguite — il n'y a
+					// pas de fusion ici, donc pas de regle a arbitrer.
+					c.triMat.PushBack(m.faces[f].material);
 				}
 			}
 			const uint32 nTri = (uint32)c.tri.Size() / 3u;
@@ -550,6 +576,7 @@ namespace nkentseu {
 			// ── 5. RECONSTRUCTION ───────────────────────────────────────────────
 			NkVector<NkVertex3D> outV;
 			NkVector<uint32> outI;
+			NkVector<uint16> outMat; // un index par triangle SURVIVANT
 			NkVector<uint32> newIdx;
 			newIdx.Resize(nVert);
 			for (uint32 i = 0; i < nVert; ++i)
@@ -557,6 +584,7 @@ namespace nkentseu {
 			for (uint32 t = 0; t < nTri; ++t) {
 				if (c.triDead[t])
 					continue;
+				outMat.PushBack((t < (uint32)c.triMat.Size()) ? c.triMat[t] : (uint16)0);
 				for (uint32 s = 0; s < 3; ++s) {
 					const uint32 vi = c.tri[t * 3 + s];
 					if (newIdx[vi] == 0xFFFFFFFFu) {
@@ -574,9 +602,14 @@ namespace nkentseu {
 			if (outI.Empty())
 				return false;
 
-			m.BuildFromIndexed(outV.Data(), (uint32)outV.Size(), outI.Data(), (uint32)outI.Size(), false);
+			// `quadify` reste faux : QEM produit des triangles, c'est assume dans
+			// l'en-tete. Le compteur de fusion est branche quand meme — s'il devient
+			// vrai un jour, la perte sera comptee sans qu'on ait a y repenser.
+			m.BuildFromIndexed(outV.Data(), (uint32)outV.Size(), outI.Data(), (uint32)outI.Size(), false,
+							   outMat.Data(), &st.facesMaterialChanged);
 			m.RecomputeNormals();
 
+			st.matSlotsAfter = SlotsDistincts(m);
 			st.trisAfter = (uint32)outI.Size() / 3u;
 			st.vertsAfter = (uint32)outV.Size();
 			st.reachedTarget = (st.trisAfter <= target);
