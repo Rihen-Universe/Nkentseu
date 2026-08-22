@@ -254,9 +254,31 @@ static void C5_ConstCharStarDuKit() {
 	printf("      SerializeObject -> %s\n", wrote ? "true" : "false");
 	printf("      cle 'valueMetric' presente dans l'archive : %s\n", ar.Has(NkStringView("valueMetric")) ? "oui" : "NON");
 
+	// ⚠️ LE CONTROLE QUI VERROUILLE LA CORRECTION DU 2026-08-22.
+	// Avant : SerializeObject rendait `true` en ayant omis le champ. Un repli
+	// qui preserve `success` n'est pas un repli, c'est un mensonge. Maintenant
+	// il rend `false` -- et l'appelant peut enfin savoir.
+	EXPECT_TRUE(wrote == false);
+
+	// Et il ecrit quand meme TOUT CE QU'IL PEUT : une archive partielle vaut
+	// mieux que rien, du moment que le retour dit la verite. Ces trois-la sont
+	// donc presentes MALGRE le `false`.
 	EXPECT_TRUE(ar.Has(NkStringView("mode")));
 	EXPECT_TRUE(ar.Has(NkStringView("value")));
 	EXPECT_TRUE(ar.Has(NkStringView("minVal")));
+
+	// Le temoin de non-regression : un type SANS pointeur doit continuer a rendre
+	// `true`. C'est ce qui prouve que la correction n'a pas transforme le retour
+	// en « false des qu'on respire ».
+	{
+		Point sain;
+		sain.x = 1.0f;
+		sain.y = 2.0f;
+		NkArchive arSain;
+		EXPECT_TRUE(NkReflectSerializer::SerializeObject(sain, arSain));
+		Point relu;
+		EXPECT_TRUE(NkReflectSerializer::DeserializeObject(relu, arSain));
+	}
 
 	// 3. LE CONTROLE QUI TRANCHE, et il doit etre ROUGE tant que la dette des
 	//    pointeurs n'est pas reglee : le nom de metrique doit survivre a
@@ -267,12 +289,19 @@ static void C5_ConstCharStarDuKit() {
 	const nk_bool read = NkReflectSerializer::DeserializeObject(dst, ar);
 	printf("      DeserializeObject -> %s\n", read ? "true" : "false");
 
+	// Cote LECTURE la regle differe, et ce n'est pas un oubli : une cle ABSENTE
+	// est legitime (champ optionnel, document d'une version anterieure). Ici
+	// `valueMetric` n'a jamais ete ecrite, donc il n'y a rien a perdre a la
+	// relecture -- `true` est la bonne reponse.
+	EXPECT_TRUE(read == true);
+
 	const char *m = dst.valueMetric;
 	const bool metricSurvived = (m != nullptr) && (NkString(m) == NkString("largeur_palette"));
 	printf("      valueMetric apres aller-retour : <<%s>>\n", m ? m : "(nul)");
 	EXPECT_KNOWN_DEBT(metricSurvived,
 					  "dette des pointeurs : NkReflectSerializer ne gere pas const char*. "
-					  "Il retourne true en OMETTANT le champ, sans le moindre signal.");
+					  "Il le DIT desormais (SerializeObject rend false), mais la metrique "
+					  "est toujours perdue : il faut un proprietaire de la chaine.");
 }
 
 // ---------------------------------------------------------------------------
