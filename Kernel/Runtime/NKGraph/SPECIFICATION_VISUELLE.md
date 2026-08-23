@@ -123,7 +123,7 @@ hiérarchie montante et corriger A9.** (Question ouverte en `Q1`, point 1.)
 | rayon du **corps** | **0** | DÉCIDÉ (Rodolf) — appuyé par `174000` et `174227`, qui sont à rayon 0 |
 | rayon de l'**en-tête** | **5** (coins hauts seulement) | DÉCIDÉ (Rodolf) |
 | filet du corps | 1 px, `#33333C` | PROPOSÉ — il faut *une* séparation avec le fond quand deux nœuds se touchent |
-| filet d'exécution sous l'en-tête | **2,5 px** | DÉCIDÉ |
+| filet d'exécution sous l'en-tête | **0,087 × la hauteur d'en-tête** — soit **1,8 px** à l'échelle 1, **3,8 px** à l'échelle d'étude des planches (2,1 ×) | DÉCIDÉ, corrigé le 23/08 |
 | grille | **points** de 1 px, pas 22 px, `#1C1C1C` | VU (principale : points, pas ~11 px à son échelle) |
 
 ⚠️ **La grille est faite de POINTS, pas de lignes** — VU sur la principale.
@@ -177,7 +177,25 @@ pour laquelle `174227` le porte sur *tous* ses nœuds.
 
 ### 2.2 Le filet d'exécution — **DÉCIDÉ**
 
-Trait plein de 2,5 px collé sous l'en-tête, sur toute la largeur :
+Trait plein collé sous l'en-tête, sur toute la largeur. ⚠️ **Son épaisseur
+est un RATIO, pas un nombre de pixels** — c'est la règle zéro, et ce
+paragraphe l'enfreignait :
+
+> **filet d'exécution = 0,087 × la hauteur de l'en-tête** (mesuré :
+> 11,00 / 126,64 sur le nœud de référence de Rodolf).
+
+| | épaisseur |
+|---|---|
+| à l'échelle 1 de l'éditeur (en-tête 21 px) | **1,8 px** |
+| à l'échelle d'étude des planches (2,1 ×, celle des prises) | **3,8 px** |
+
+🔴 **Ce paragraphe a annoncé « 2,5 px » jusqu'au 23/08**, et ce nombre ne
+venait d'aucune mesure — il précédait le relevé du `.sketch`. Les huit
+planches l'ont donc dessiné à 2,5 : **ni l'une ni l'autre des deux valeurs
+justes**. Corrigé dans `gen.py` (`FILET_EXEC = 3.8`), les sept planches
+régénérées d'un seul geste.
+
+Couleur :
 
 - **orange `#F79A28`** — le nœud **exécute** (il a au moins une prise d'exécution) ;
 - **pétrole `#0A555F`** — le nœud **n'exécute pas** (il calcule).

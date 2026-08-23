@@ -203,7 +203,7 @@ s+='<path d="M%s %sa13 13 0 0 1 13 -13h30v34h-30a13 13 0 0 1 -13 -13z" fill="#2E
 s+=tt(px+22,py+22,u'\u26ad','#C7C0F0',12,None,'middle')
 s+=tt(px+56,py+22,u'position.monde',TXT,11.5)
 s+=prise(px,py+17,ORANGE,True,False)
-s+=prise(px+196,py+17,FAM['geom'],True,False)
+s+=prise(px+196,py+17,FAM['geom'],True,False,sortie=True)
 s+=tt(330,R4+104,u'relais NOMM\u00c9 (la puce) : VU sur la principale \u2014 entr\u00e9e ET sortie,',TXT3,10)
 s+=tt(330,R4+118,u'bloc-ic\u00f4ne plein \u00e0 gauche',TXT3,10)
 s+=tt(720,R4+44,u'Le repli du bruit vient d\u2019ici \u2014 ne pas y toucher',TXT2,13)

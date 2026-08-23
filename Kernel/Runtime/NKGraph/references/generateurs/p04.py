@@ -94,7 +94,7 @@ for i,(a,b,c,k) in enumerate(etats):
     s+='<rect x="1268" y="%s" width="440" height="38" rx="3" fill="%s"/>\n'%(y,CORPS)
     if k=='halo': s+='<rect x="1294" y="%s" width="%s" height="%s" rx="4" fill="none" stroke="%s" stroke-width="1.5" opacity="0.6"/>\n'%(y+5,PW+8,PH+6,c)
     if k=='halo_p': s+='<rect x="1294" y="%s" width="%s" height="%s" rx="4" fill="none" stroke="%s" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.35"/>\n'%(y+5,PW+8,PH+6,c)
-    s+='<g opacity="%s">'%(0.3 if k=='eteinte' else 1.0)+prise(1301,y+19,c,False)+'</g>\n'
+    s+='<g opacity="%s">'%(0.3 if k=='eteinte' else 1.0)+prise(1304,y+19,c,False)+'</g>\n'
     s+=tt(1322,y+23,a,TXT,12,'600')+tt(1696,y+23,b,TXT3,10,None,'end')
 s+=tt(1268,R2+44+3*46+16,u'\u26a0 compatible / convertible n\u2019est pas un raffinement : les conversions sont DIRIG\u00c9ES.',TXT3,10)
 s+=tt(1268,R2+44+3*46+30,u'R\u00e9el \u2192 couleur existe, couleur \u2192 r\u00e9el n\u2019existe pas. Deux \u00e9tats seulement enseigneraient',TXT3,10)
