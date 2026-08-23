@@ -739,3 +739,17 @@ nkwebmwriter_selftest.webm
 *.nkla
 *.nkgp
 *.gguf
+
+# Sorties des bancs media, ecrites dans le repertoire de lancement.
+# Elles se regenerent a chaque course : les suivre faisait grossir le depot
+# sans qu aucune ne serve d entree. Les ENTREES (cvframe_*.png via le prefixe
+# "cvframe_", h264_test.h264) restent suivies -- elles, on ne peut pas les refaire.
+Kernel/conv_seq.mp4
+Kernel/conv_src.avi
+Kernel/conv_trans.mp4
+Kernel/engine_capture.mp4
+Kernel/h264_recon.yuv
+Kernel/h264_test.mp4
+Kernel/vp9inter_out.yuv
+Kernel/nkvideoreader_selftest.avi
+Kernel/logs/
