@@ -95,6 +95,41 @@ mélanger rendrait les deux illisibles.
 > l'application : ils partagent son journal, et leurs traces vont dans la console,
 > pas ici. Le panneau Sortie est là pour **votre** code.
 
+### Le contrôle « Libelles hors cadre »
+
+Ce repli, en haut du panneau Sortie, ne parle pas de votre moteur : il parle de
+**l'atelier lui-même**. Il liste les libellés dont la largeur **rendue** dépasse
+la largeur du cadre où on les pose, avec les deux nombres qui permettent d'en
+juger :
+
+```
+3 libelles hors cadre
+  412 px demandes pour 268 px  (x91)  Reglage modifie — relance la partie pour mesurer
+```
+
+Il existe parce que « ça déborde » ne se compare pas, alors qu'une largeur
+mesurée contre une largeur disponible, si. Le 23 août 2026, un message
+d'avertissement du panneau Règles s'affichait **tronqué des deux côtés** : le
+texte sortait du cadre à gauche *et* se faisait couper avant le bord droit. La
+cause n'était ni le libellé ni la police, mais une règle de dessin :
+`AddText(maxWidth)` compte sa limite **depuis l'origine du texte**, pas depuis le
+bord du cadre. Un texte centré trop large commence à gauche du cadre, et la
+limite se déplace avec lui. Les fonctions de `NkcDraw.h` ajustent désormais le
+libellé — réduit, suivi de `...` — **avant** de le placer.
+
+**Ce compteur doit rester à zéro.** S'il ne l'est pas après avoir ouvert tous les
+panneaux et rétréci les fenêtres, c'est un défaut de l'atelier, pas du vôtre :
+signalez-le avec la ligne telle qu'elle s'affiche, les deux nombres suffisent à
+le reproduire. *Réinitialiser le contrôle* remet le registre à zéro, ce qui
+permet de vérifier qu'une correction a bien pris.
+
+> **Pourquoi ce contrôle resservira.** Le français est en moyenne **27 % plus
+> long** que l'anglais — mesuré sur la table de traduction de l'atelier :
+> 1115 caractères contre 878, et jusqu'à 2,8 fois sur un libellé isolé
+> (« Interrompre » / « Stop »). Le jour où une seconde langue sera réellement
+> branchée, chaque libellé changera de largeur. Ce compteur dira lesquels ne
+> tiennent plus, sans relire l'atelier écran par écran.
+
 ## 6.5 Reproduire un bug : le journal
 
 C'est la fonction la plus utile de l'atelier, et la moins spectaculaire.

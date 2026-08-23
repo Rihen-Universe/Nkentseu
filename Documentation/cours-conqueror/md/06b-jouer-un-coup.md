@@ -181,6 +181,10 @@ l'invention ne l'est pas.
   *Écrire des règles* (`02`).
 - Lire le plateau, les panneaux, le journal et la campagne : chapitre
   *Se servir de l'atelier* (`06`).
+- Un libellé qui sort de son cadre, ou qu'on ne lit qu'à moitié : chapitre
+  *Se servir de l'atelier* (`06`), section 6.4, contrôle **« Libelles hors
+  cadre »**. C'est un défaut de l'atelier et il se mesure — ne le contournez
+  pas en raccourcissant vos noms de modules.
 
 ## Exercice
 
