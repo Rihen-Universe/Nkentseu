@@ -334,6 +334,33 @@ namespace nkentseu {
 						++nb;
 					}
 
+					/// POUVOIR : `de` lance, `vers` subit, `idPouvoir` dit LEQUEL.
+					///
+					/// LES TROIS CHAMPS COMPTENT, ET LE TROISIEME EST CELUI QU'ON
+					/// OUBLIE. Deux pouvoirs differents du meme totem sur la meme
+					/// cible ne different QUE par `idPouvoir`. Si vous les generez
+					/// tous les deux avec le meme identifiant, ce sont deux coups
+					/// identiques : l'atelier n'en montrera qu'un, et vous chercherez
+					/// longtemps pourquoi votre second pouvoir « ne marche pas ».
+					/// Quand ils different, l'atelier affiche « P0 », « P1 » sur la
+					/// case et ouvre le menu « Quel coup ? » si la cible est la meme.
+					///
+					/// `idPouvoir` vous appartient : le contrat ne lui donne aucun
+					/// sens, il le transporte. Numerotez a partir de 0 et gardez la
+					/// meme numerotation dans `AppliquerCoup`.
+					void Pouvoir(uint8 joueur, NkcCoord de, NkcCoord vers, int16 idPouvoir) noexcept {
+						if (nb >= kFacileMaxCoups) return;
+						NkcMove &m = coups[nb];
+						std::memset(&m, 0, sizeof(m));
+						m.kind		  = NkcMoveKind::Power;
+						m.player	  = joueur;
+						m.from		  = de;
+						m.to		  = vers;
+						m.powerId	  = idPouvoir;
+						m.targetLevel = -1;
+						++nb;
+					}
+
 					void Passer(uint8 joueur) noexcept {
 						if (nb >= kFacileMaxCoups) return;
 						NkcMove &m = coups[nb];

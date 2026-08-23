@@ -30,7 +30,7 @@ chaque essai coûte une recompilation, on en essaiera trois.
 ## 4.2 Où déposer le fichier
 
 ```
-Build/ConquerorLab/boards/ma_grille.json
+travail/boards/ma_grille.json
 ```
 
 Le chemin exact est affiché dans le panneau *Règles*, section **Plateau**. Le
