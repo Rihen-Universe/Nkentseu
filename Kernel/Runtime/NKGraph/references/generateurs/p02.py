@@ -3,7 +3,7 @@ import sys, io
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1720,1350
+W,H=1720,1410   # +60 : le cartouche du bloc 6 descendait dans le pied
 s=head(W,H,u'Planche 02 \u2014 les types de donn\u00e9e, les tableaux et les dictionnaires',
        u'6 familles de couleur (plancher CIEDE2000 = 11,0 en vision normale, protanopie, deut\u00e9ranopie et tritanopie) \u00b7 le glyphe porte le type exact \u00b7 tableau et dictionnaire sont des FORMES, pas des couleurs')
 
@@ -107,7 +107,10 @@ n2,h2=noeud(960,872,290,[
 ], u'Pour chaque', u'Boucle', CAT['flot'], True, 0, etat=(u'0 / 495',))
 s+=n2
 s+=prise(960,872+12,ORANGE,True,True)
-s+=tt(650,872+h1+22,u'chaque \u00e9l\u00e9ment est une VRAIE prise \u2014 branchable seul \u00b7 repli obligatoire au-del\u00e0 de 8',TXT3,10)
+# Coupee en deux le 23/08 : 376 px dans une colonne de 310, elle
+# passait SOUS la legende voisine. Mesure par verifie_planches.py.
+s+=tt(650,872+h1+22,u'chaque \u00e9l\u00e9ment est une VRAIE prise \u2014',TXT3,10)
+s+=tt(650,872+h1+36,u'branchable seul \u00b7 repli obligatoire au-del\u00e0 de 8',TXT3,10)
 s+=tt(960,872+h2+22,u'l\u2019entr\u00e9e d\u2019ex\u00e9cution est sur l\u2019EN-T\u00caTE \u00b7 \u26a0 corps de boucle et termin\u00e9 s\u00e9par\u00e9s par une ligne vide',TXT3,10)
 
 # ---------- 6 · brancher un tableau sur un scalaire ----------

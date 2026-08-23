@@ -3,7 +3,12 @@ import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1800,2010
+# 2160 et non 2010 : la rangee 4 (l'apercu procedural, ajoutee dans
+# la nuit du 22 au 23) descend a ~2086, et les deux lignes de pied
+# sont posees a H-50 et H-26 : elles se retrouvaient DANS le dessin,
+# sur huit textes a la fois. Mesure par verifie_planches.py -- a
+# l'oeil, sur une planche de 2 m de haut, personne ne l'avait vu.
+W,H=1800,2160
 VERT='#4E9A5A'
 
 s=head(W,H,u'Planche 05 \u2014 textures, mat\u00e9riaux, commentaires et cadres',

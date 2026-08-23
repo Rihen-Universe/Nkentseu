@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="2010" viewBox="0 0 1800 2010" font-family="Segoe UI, Inter, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="2160" viewBox="0 0 1800 2160" font-family="Segoe UI, Inter, sans-serif">
 <defs>
 <pattern id="grille" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#1C1C1C"/></pattern>
 <pattern id="hachure" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="8" fill="#3A3A44" opacity="0.55"/></pattern>
@@ -9,7 +9,7 @@
 <filter id="bruit"><feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="4" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
 <filter id="ombre" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/></filter>
 </defs>
-<rect width="1800" height="2010" fill="#121212"/><rect width="1800" height="2010" fill="url(#grille)"/>
+<rect width="1800" height="2160" fill="#121212"/><rect width="1800" height="2160" fill="url(#grille)"/>
 <text x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 05 — textures, matériaux, commentaires et cadres</text>
 <text x="34" y="62" fill="#8A8A8A" font-size="12.5">Aperçu ON / OFF · le nœud de texture · le nœud de matériau · l’aperçu périmé · la règle absolue (aucun fil d’exécution) · l’aperçu au dézoom · le commentaire · le cadre · les deux relais</text>
 <defs>
@@ -573,6 +573,6 @@
 <text x="674" y="1892" fill="#8A8A8A" font-size="10.5">   celui-là est INTERACTIF et vit à la même place ; il DÉGRADE en aperçu au dézoom, il n’en est pas un.</text>
 <text x="674" y="1909" fill="#8A8A8A" font-size="10.5">‣ Le coût est déjà tranché (§6.3) : recalcul À LA FIN D’UN GESTE, jamais pendant qu’on tire un curseur,</text>
 <text x="674" y="1926" fill="#8A8A8A" font-size="10.5">   et il DIT qu’il est périmé tant qu’il ne l’a pas fait. Un aperçu périmé qui se tait est pire que pas d’aperçu.</text>
-<text x="34" y="1960" fill="#6A6A6A" font-size="10">corps #212121 rayon 0 · en-tête rayon 5 · filet PÉTROLE partout (aucun graphe de matière n’a de fil d’exécution) · aperçu = bloc de corps escamotable, pleine largeur · damier 10 px sous tout alpha</text>
-<text x="34" y="1984" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
+<text x="34" y="2110" fill="#6A6A6A" font-size="10">corps #212121 rayon 0 · en-tête rayon 5 · filet PÉTROLE partout (aucun graphe de matière n’a de fil d’exécution) · aperçu = bloc de corps escamotable, pleine largeur · damier 10 px sous tout alpha</text>
+<text x="34" y="2134" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
 </svg>
