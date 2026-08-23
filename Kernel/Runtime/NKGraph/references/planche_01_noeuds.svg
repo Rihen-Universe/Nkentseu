@@ -367,7 +367,7 @@
   <text x="52" y="1166" fill="#c8ccd4" font-size="12">· le FIL de dictionnaire — pointillé (mais collision avec le fil qu'on tire) ou triple trait ? (§ 5.3) C'est le seul point du dictionnaire qui reste ouvert : sa prise et son nœud sont écrits.</text>
   <text x="52" y="1188" fill="#c8ccd4" font-size="12">· le CHAMP DE SAISIE — plus clair (mesuré sur ta référence) ou plus sombre (ce que dessine A9 aujourd'hui) ? (§ 1.1) ⚠ ce point contredit un document déjà écrit.</text>
   <text x="52" y="1210" fill="#c8ccd4" font-size="12">· le SENS DE LECTURE — tout est écrit pour un graphe horizontal, comme cette planche. Rien ne l'interdit formellement, rien ne le prévoit non plus (§ 15.3).</text>
-  <text x="52" y="1232" fill="#c8ccd4" font-size="12">· QUI S'ALIGNE SUR QUI — les planches, ou ton nœud de référence ? Ton dessin est une maquette à 6 × et l'en-tête de 21 px est déjà juste ; il reste à le dire (§ 13, point 18).</text>
+  <text x="52" y="1232" fill="#c8ccd4" font-size="12">· QUI S'ALIGNE SUR QUI — les planches, ou ton nœud de référence ? Ton dessin est une maquette à 6 × et l'en-tête de 21 px est déjà juste ; il reste à le dire (§ 13, point 20).</text>
   <text x="52" y="1254" fill="#c8ccd4" font-size="12">· les COULEURS du panneau 12 — et c'est pire qu'une proposition : NkMatNodeProto n'a AUCUN champ de catégorie (§ 17.4). Cette couleur, seul signal qui survit à 25 %, n'a aucune source.</text>
 </g>
 

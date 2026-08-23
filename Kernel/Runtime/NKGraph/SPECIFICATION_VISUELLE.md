@@ -2059,7 +2059,7 @@ alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat néga
 sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
 qui existe.
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS — **13 restants sur 14**
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **15 restants sur 20**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
@@ -2071,7 +2071,7 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 3 | **fil de dictionnaire** : pointillé (collision avec le tirage) ou triple trait ? | § 5.3 | signal ambigu si mal choisi |
 | 4 | **`corps de boucle` / `terminé`** : un signal plus fort qu'une ligne vide ? | § 5.5 | la faute n° 1 du débutant |
 | 5 | **shader** : forme de prise propre, ou couleur + glyphe ? | § 6.3 | une septième forme de prise |
-| ~~6~~ | ~~**groupe** : sur place ou en onglet ?~~ | § 7.6 | ✅ **TRANCHÉ le 23/08 : SUR PLACE, pas d'onglets.** *Deux mécanismes de navigation pour une seule notion, c'est un de trop* — et le fil d'Ariane, devenu obligatoire, rend l'onglet redondant. 🔴 Reste seulement : **le groupe montre-t-il un aperçu de son contenu ?** |
+| ~~6~~ | ~~**groupe** : sur place ou en onglet ?~~ | § 7.6 | ✅ **TRANCHÉ le 23/08 : SUR PLACE, pas d'onglets.** *Deux mécanismes de navigation pour une seule notion, c'est un de trop* — et le fil d'Ariane, devenu obligatoire, rend l'onglet redondant. Le résidu ouvert de cette ligne est désormais la **ligne 19** |
 | ~~7~~ | ~~**cadre** : teinte-t-il ses nœuds ?~~ | § 9.2 | ✅ **TRANCHÉ le 22/08 par Rodolf — option A : JAMAIS, nulle part.** Ni corps, ni en-tête, ni filet, ni pastille ; le bandeau porte le sens. ✅ **Fait disparaître le conflit à trois** |
 | 8 | **cadre replié** : où aboutissent les fils entrants ? | § 9.2 | aucune référence. **Deux candidats chiffrés à 12 fils** au § 9.2 ; ne concerne **que** le cadre, jamais le groupe |
 | 9 | **fil sélectionné** : halo ou éclaircissement ? | § 10 | déjà ⚠️ dans C5 |
@@ -2080,10 +2080,12 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 12 | **minicarte** et **barre d'outils** | § 12.3 | déjà ⚠️ dans E3, E4 |
 | 13 | **champ de saisie** : plus clair (mesuré sur la principale) ou plus sombre (A9 actuel) ? | § 1.1 | ⚠️ **contredit un document déjà écrit** |
 | 14 | **`images (1)`** : cohérence avec l'inspecteur, ou autre attente ? | § 0 | je refuse de deviner |
-| ~~18~~ | ~~**l'échelle du nœud de Rodolf**~~ | § 3.1 | ✅ **MESURÉE : 1 unité = 1 px, son dessin est une maquette à 6 ×.** L'en-tête de 21 px est déjà juste ; 🔴 **reste à décider qui s'aligne** — les planches, ou son nœud de référence |
+| ~~18~~ | ~~**l'échelle du nœud de Rodolf**~~ | § 3.1 | ✅ **MESURÉE : 1 unité = 1 px, son dessin est une maquette à 6 ×.** L'en-tête de 21 px est déjà juste. Le résidu ouvert de cette ligne est désormais la **ligne 20** |
 | ~~15~~ | ~~**appartenance à un cadre** : géométrique ou déclarée ?~~ | § 9.2 | ✅ **TRANCHÉ : lien explicite sérialisé.** La géométrie ne sert qu'au dépôt. **C'est le repli du cadre qui l'exigeait** — on ne replie pas ce qu'on ne sait pas énumérer |
 | ~~16~~ | ~~**une directive inconnue casse-t-elle la relecture ?**~~ | § 16 | ✅ **MESURÉ : non, elle est ignorée** — mais elle est **perdue à la réécriture**, et une directive *mal formée*, elle, **corrompt en silence** |
 | 17 | **regroupement** : entrée/sortie dédupliquée, ordre, homonymes | § 7.6 | ✅ les quatre règles sont écrites ; 🔴 **reste à EXÉCUTER le critère grouper→dégrouper** |
+| 19 | **le groupe montre-t-il un aperçu de son contenu ?** | § 7.6 | résidu de la ligne 6, qui était tranchée ET ouverte à la fois |
+| 20 | **qui s'aligne sur qui** : les planches, ou le nœud de référence de Rodolf ? | § 3.1 | résidu de la ligne 18. L'échelle est MESURÉE ; il reste à dire laquelle des deux bouge |
 
 ---
 
