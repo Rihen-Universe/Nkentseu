@@ -156,3 +156,10 @@ s+=tt(34,H-50,u'Fond #121212 \u00b7 corps #212121 \u00b7 contr\u00f4le #2B2B2B (
 s+=tt(34,H-26,u'⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.',TXT3,10)
 
 ecrire('planche_02_types.svg',s)
+# LE RENDU PASSE PAR rendre(), PLUS JAMAIS PAR msedge A LA MAIN.
+# Ses trois controles -- URL absolue prefixee file:///, PNG precedent
+# SUPPRIME, dimensions comparees au viewBox -- existent pour des pannes qui
+# se sont REELLEMENT produites, dont un PNG aux bonnes dimensions qui etait
+# la page d erreur du navigateur. p02..p05 s en passaient encore : corrige
+# le 23/08, en meme temps que les quatre corrections de Rodolf.
+rendre('planche_02_types', W, H)
