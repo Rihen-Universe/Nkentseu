@@ -97,6 +97,14 @@ vaut 2,5 px sur les sept planches, alors que la mesure donne
 sept planches d'un coup. Il est remonte dans echanges/, pas bricole ici.
 """
 import io, os, hashlib
+# gen n'etait importe qu'a la toute fin de ce fichier (pour rendre()),
+# parce que p01 ecrit son SVG lui-meme. Mais la REGLE de la police doit
+# vivre a UN seul endroit : la recopier ici serait la deuxieme constante
+# a tenir a la main, et ce fichier explique deja pourquoi c'est un
+# garde-fou qui ment. On importe donc la fonction, pas sa copie.
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gen import poser_police
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
@@ -683,7 +691,7 @@ PARTIES.append(u'''<text x="1360" y="368" fill="#F79A28" font-size="13" font-wei
 PARTIES.append(u'''</svg>
 ''')
 
-svg = u''.join(PARTIES)
+svg = poser_police(u''.join(PARTIES))
 chemin = os.path.join(OUT, 'planche_01_noeuds.svg')
 
 # ----------------------------------------------------------------------
