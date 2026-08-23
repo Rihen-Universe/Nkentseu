@@ -5,263 +5,265 @@
 <pattern id="damier" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#3a3a3a"/><rect width="5" height="5" fill="#565656"/><rect x="5" y="5" width="5" height="5" fill="#565656"/></pattern>
 <linearGradient id="rampe" x1="0" x2="1"><stop offset="0%" stop-color="#0A555F"/><stop offset="45%" stop-color="#3aa0a8"/><stop offset="75%" stop-color="#F79A28"/><stop offset="100%" stop-color="#ffe9c2"/></linearGradient>
 <linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2b4a7a"/><stop offset="55%" stop-color="#d99a5a"/><stop offset="100%" stop-color="#141414"/></linearGradient>
+<radialGradient id="sphere" cx="0.35" cy="0.30" r="0.75"><stop offset="0%" stop-color="#e8d8c0"/><stop offset="55%" stop-color="#b07a4a"/><stop offset="100%" stop-color="#2a1a12"/></radialGradient>
+<filter id="bruit"><feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="4" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
 <filter id="ombre" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/></filter>
 </defs>
 <rect width="1760" height="1320" fill="#121212"/><rect width="1760" height="1320" fill="url(#grille)"/>
-<text x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 06 — ce qui a été décidé dans la nuit du 22 au 23/08</text>
-<text x="34" y="62" fill="#8A8A8A" font-size="12.5">le fil d’Ariane · le fil sélectionné (mesuré) · le nœud indisponible · le nœud survolé · les TROIS GRIS côte à côte</text>
-<text x="34" y="104" fill="#F79A28" font-size="12.5" font-weight="600">1 · LE FIL D’ARIANE — obligatoire depuis le 23/08</text>
-<text x="34" y="120" fill="#6A6A6A" font-size="10">entrer dans un groupe est le SEUL moyen de l’éditer ; sans lui on ne sait ni où l’on est, ni comment sortir</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 06 — ce qui a été décidé dans la nuit du 22 au 23/08</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="62" fill="#8A8A8A" font-size="12.5">le fil d’Ariane · le fil sélectionné (mesuré) · le nœud indisponible · le nœud survolé · les TROIS GRIS côte à côte</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="104" fill="#F79A28" font-size="12.5" font-weight="600">1 · LE FIL D’ARIANE — obligatoire depuis le 23/08</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="120" fill="#6A6A6A" font-size="10">entrer dans un groupe est le SEUL moyen de l’éditer ; sans lui on ne sait ni où l’on est, ni comment sortir</text>
 <rect x="34" y="138" width="820" height="24" rx="3" fill="#1E1E24" stroke="#33333C"/>
-<text x="46" y="154" fill="#9FB4C8" font-size="12">Matériau mur</text>
-<text x="138" y="154" fill="#6A6A6A" font-size="12">▸</text>
-<text x="154" y="154" fill="#EEF2F6" font-size="12" font-weight="600">Bruit de surface</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="46" y="154" fill="#9FB4C8" font-size="12">Matériau mur</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="138" y="154" fill="#6A6A6A" font-size="12">▸</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="154" y="154" fill="#EEF2F6" font-size="12" font-weight="600">Bruit de surface</text>
 <rect x="262" y="142.5" width="30" height="15" rx="7.5" fill="#F79A28" opacity="0.22"/>
-<text x="277" y="154" fill="#F79A28" font-size="11" font-weight="600" text-anchor="middle">⑶</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="277" y="154" fill="#F79A28" font-size="11" font-weight="600" text-anchor="middle">⑶</text>
 <rect x="626" y="142" width="78" height="16" rx="2" fill="#26262C"/>
-<text x="665.0" y="153.5" fill="#8A8A8A" font-size="10" text-anchor="middle">cadrer tout</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="665.0" y="153.5" fill="#8A8A8A" font-size="10" text-anchor="middle">cadrer tout</text>
 <rect x="712" y="142" width="74" height="16" rx="2" fill="#26262C"/>
-<text x="749.0" y="153.5" fill="#8A8A8A" font-size="10" text-anchor="middle">zoom 100 %</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="749.0" y="153.5" fill="#8A8A8A" font-size="10" text-anchor="middle">zoom 100 %</text>
 <rect x="794" y="142" width="40" height="16" rx="2" fill="#26262C"/>
-<text x="814.0" y="153.5" fill="#F79A28" font-size="10" text-anchor="middle">55 %</text>
-<text x="284" y="184" fill="#F79A28" font-size="10.5" font-weight="600">⑶ le COMPTEUR D’INSTANCES — et ce n’est pas de la décoration :</text>
-<text x="284" y="198" fill="#6A6A6A" font-size="10">on entre par UNE instance, mais on édite la DÉFINITION, qui est PARTAGÉE.</text>
-<text x="284" y="211" fill="#6A6A6A" font-size="10">Sans lui, on croit corriger un nœud et on en corrige trois.</text>
-<text x="34" y="184" fill="#6A6A6A" font-size="10">segments cliquables —</text>
-<text x="34" y="197" fill="#6A6A6A" font-size="10">chacun remonte d’un niveau</text>
-<text x="654" y="184" fill="#6A6A6A" font-size="10">les 3 actions d’E4 vivent ICI :</text>
-<text x="654" y="197" fill="#6A6A6A" font-size="10">aucune barre d’outils séparée</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="814.0" y="153.5" fill="#F79A28" font-size="10" text-anchor="middle">55 %</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="284" y="184" fill="#F79A28" font-size="10.5" font-weight="600">⑶ le COMPTEUR D’INSTANCES — et ce n’est pas de la décoration :</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="284" y="198" fill="#6A6A6A" font-size="10">on entre par UNE instance, mais on édite la DÉFINITION, qui est PARTAGÉE.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="284" y="211" fill="#6A6A6A" font-size="10">Sans lui, on croit corriger un nœud et on en corrige trois.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="184" fill="#6A6A6A" font-size="10">segments cliquables —</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="197" fill="#6A6A6A" font-size="10">chacun remonte d’un niveau</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="654" y="184" fill="#6A6A6A" font-size="10">les 3 actions d’E4 vivent ICI :</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="654" y="197" fill="#6A6A6A" font-size="10">aucune barre d’outils séparée</text>
 <rect x="34" y="234" width="820" height="24" rx="3" fill="#1E1E24" stroke="#33333C"/>
-<text x="46" y="250" fill="#9FB4C8" font-size="12">Racine</text>
-<text x="106" y="250" fill="#6A6A6A" font-size="12">▸</text>
-<text x="122" y="250" fill="#8A8A8A" font-size="12" font-weight="600">…</text>
-<text x="142" y="250" fill="#6A6A6A" font-size="12">▸</text>
-<text x="158" y="250" fill="#9FB4C8" font-size="12">Bruit</text>
-<text x="206" y="250" fill="#6A6A6A" font-size="12">▸</text>
-<text x="222" y="250" fill="#EEF2F6" font-size="12" font-weight="600">Détail</text>
-<text x="284" y="250" fill="#6A6A6A" font-size="10">au-delà de 4 niveaux : on élide AU MILIEU, jamais au début ni à la fin —</text>
-<text x="284" y="263" fill="#6A6A6A" font-size="10">l’origine et l’endroit où l’on est sont les deux seules choses qu’on cherche.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="46" y="250" fill="#9FB4C8" font-size="12">Racine</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="106" y="250" fill="#6A6A6A" font-size="12">▸</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="122" y="250" fill="#8A8A8A" font-size="12" font-weight="600">…</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="142" y="250" fill="#6A6A6A" font-size="12">▸</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="158" y="250" fill="#9FB4C8" font-size="12">Bruit</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="206" y="250" fill="#6A6A6A" font-size="12">▸</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="222" y="250" fill="#EEF2F6" font-size="12" font-weight="600">Détail</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="284" y="250" fill="#6A6A6A" font-size="10">au-delà de 4 niveaux : on élide AU MILIEU, jamais au début ni à la fin —</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="284" y="263" fill="#6A6A6A" font-size="10">l’origine et l’endroit où l’on est sont les deux seules choses qu’on cherche.</text>
 <rect x="34" y="286" width="820" height="104" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
-<text x="48" y="310" fill="#F79A28" font-size="12" font-weight="600">ce que la bande porte, et pourquoi</text>
-<text x="48" y="333" fill="#8A8A8A" font-size="10.5">✅ DÉCIDÉ 23/08 · bande de 24 px, TOUJOURS présente. Le chemin est celui de l’INSTANCIATION, pas de la définition.</text>
-<text x="48" y="350" fill="#8A8A8A" font-size="10.5">✅ DÉCIDÉ 23/08 · entrer dans un groupe se fait SUR PLACE, jamais en onglet — deux mécanismes de navigation pour</text>
-<text x="48" y="367" fill="#8A8A8A" font-size="10.5">   une seule notion, c’est un de trop. Deux chemins pour entrer, c’est deux chemins pour se perdre.</text>
-<text x="48" y="384" fill="#8A8A8A" font-size="10.5">📌 Le modèle le porte déjà : NkEvalStep::path produit « racine/Instance 1 ». Rien à inventer côté données.</text>
-<text x="900" y="104" fill="#F79A28" font-size="12.5" font-weight="600">2 · LE FIL SÉLECTIONNÉ — MESURÉ DEUX FOIS, la luminosité a perdu deux fois</text>
-<text x="900" y="120" fill="#6A6A6A" font-size="10">les deux poignées sont le SEUL signal — l’éclaircissement a été mesuré, puis RETIRÉ</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="310" fill="#F79A28" font-size="12" font-weight="600">ce que la bande porte, et pourquoi</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="333" fill="#8A8A8A" font-size="10.5">✅ DÉCIDÉ 23/08 · bande de 24 px, TOUJOURS présente. Le chemin est celui de l’INSTANCIATION, pas de la définition.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="350" fill="#8A8A8A" font-size="10.5">✅ DÉCIDÉ 23/08 · entrer dans un groupe se fait SUR PLACE, jamais en onglet — deux mécanismes de navigation pour</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="367" fill="#8A8A8A" font-size="10.5">   une seule notion, c’est un de trop. Deux chemins pour entrer, c’est deux chemins pour se perdre.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="384" fill="#8A8A8A" font-size="10.5">📌 Le modèle le porte déjà : NkEvalStep::path produit « racine/Instance 1 ». Rien à inventer côté données.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="900" y="104" fill="#F79A28" font-size="12.5" font-weight="600">2 · LE FIL SÉLECTIONNÉ — MESURÉ DEUX FOIS, la luminosité a perdu deux fois</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="900" y="120" fill="#6A6A6A" font-size="10">les deux poignées sont le SEUL signal — l’éclaircissement a été mesuré, puis RETIRÉ</text>
 <path d="M900 144C1035.0 144 1065.0 166 1200 166" fill="none" stroke="#17B2EB" stroke-width="2"/>
-<text x="1252" y="160" fill="#8A8A8A" font-size="10.5">non sélectionné</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1252" y="160" fill="#8A8A8A" font-size="10.5">non sélectionné</text>
 <path d="M900 200C1035.0 200 1065.0 222 1200 222" fill="none" stroke="#17B2EB" stroke-width="2"/>
 <rect x="896.5" y="196.5" width="7" height="7" rx="1" fill="#17B2EB"/>
 <rect x="1196.5" y="218.5" width="7" height="7" rx="1" fill="#17B2EB"/>
-<text x="1252" y="216" fill="#EEF2F6" font-size="10.5" font-weight="600">SÉLECTIONNÉ — deux poignées, AUCUN éclaircissement</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1252" y="216" fill="#EEF2F6" font-size="10.5" font-weight="600">SÉLECTIONNÉ — deux poignées, AUCUN éclaircissement</text>
 <rect x="900" y="247" width="300" height="40" fill="none" stroke="#2B2B33" stroke-dasharray="3 3"/>
 <path d="M866 256C1031.6 256 1068.4 278 1234 278" fill="none" stroke="#17B2EB" stroke-width="2"/>
 <path d="M891 258 l9 -5 l0 10 z" fill="#17B2EB"/>
 <path d="M1209 276 l-9 -5 l0 10 z" fill="#17B2EB"/>
-<text x="1252" y="272" fill="#EEF2F6" font-size="10.5" font-weight="600">SÉLECTIONNÉ, prises HORS CADRE — chevrons sur le bord</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1252" y="272" fill="#EEF2F6" font-size="10.5" font-weight="600">SÉLECTIONNÉ, prises HORS CADRE — chevrons sur le bord</text>
 <path d="M900 312C1035.0 312 1065.0 334 1200 334" fill="none" stroke="#F79A28" stroke-width="3.5"/>
-<text x="1252" y="328" fill="#8A8A8A" font-size="10.5">fil d’exécution (non sélectionné)</text>
-<text x="900" y="370" fill="#F79A28" font-size="10.5" font-weight="600">⚠ pourquoi l’épaisseur était disqualifiée d’avance :</text>
-<text x="900" y="384" fill="#6A6A6A" font-size="10">un fil de donnée (2 px) épaissi de 60 % donne 3,2 px —</text>
-<text x="900" y="397" fill="#6A6A6A" font-size="10">soit l’épaisseur d’un fil d’EXÉCUTION non sélectionné (3,5).</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1252" y="328" fill="#8A8A8A" font-size="10.5">fil d’exécution (non sélectionné)</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="900" y="370" fill="#F79A28" font-size="10.5" font-weight="600">⚠ pourquoi l’épaisseur était disqualifiée d’avance :</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="900" y="384" fill="#6A6A6A" font-size="10">un fil de donnée (2 px) épaissi de 60 % donne 3,2 px —</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="900" y="397" fill="#6A6A6A" font-size="10">soit l’épaisseur d’un fil d’EXÉCUTION non sélectionné (3,5).</text>
 <rect x="900" y="416" width="820" height="223" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
-<text x="914" y="440" fill="#F79A28" font-size="12" font-weight="600">le refus chiffré, et ce qu’il rend défendable</text>
-<text x="914" y="463" fill="#8A8A8A" font-size="10.5">🔴 MESURÉ · AUCUNE valeur de luminosité ne convient. Écart perçu / séparation entre familles (plancher = 11,0) :</text>
-<text x="914" y="480" fill="#8A8A8A" font-size="10.5">     +20 % → 2,74 / 17,25 (imperceptible)   ·   +35 % → 5,23 / 14,26   ·   +50 % → 8,21 / 11,42 (0,42 de marge)</text>
-<text x="914" y="497" fill="#8A8A8A" font-size="10.5">     +65 % → 11,81 / 7,96 ❌ le premier taux AUSSI LISIBLE qu’un écart de type CASSE le code couleur des types.</text>
-<text x="914" y="514" fill="#8A8A8A" font-size="10.5">❌ ET LE RENFORT EST TOMBÉ AUSSI : à +35 %, même en comparaison SIMULTANÉE (5 fils identiques, un seul éclairci,</text>
-<text x="914" y="531" fill="#8A8A8A" font-size="10.5">   poignées hors cadre), on ne repère PAS le bon fil. Un renfort imperceptible est un DÉCOR — retiré le 23/08.</text>
-<text x="914" y="548" fill="#8A8A8A" font-size="10.5">✅ CE QUI LE REMPLACE est géométrique, pas chromatique : LA POIGNÉE NE DISPARAÎT JAMAIS. Quand la prise sort du</text>
-<text x="914" y="565" fill="#8A8A8A" font-size="10.5">   cadre, elle se pose là où le fil COUPE le bord, en CHEVRON vers l’extérieur — 3ᵉ ligne ci-dessus. Il reste</text>
-<text x="914" y="582" fill="#8A8A8A" font-size="10.5">   à l’écran, et sa POINTE dit de quel côté est la prise : le signal le plus fort reste le seul qui informe.</text>
-<text x="914" y="599" fill="#8A8A8A" font-size="10.5">📌 Et elles informent : elles DÉSIGNENT LES DEUX PRISES RELIÉES. Un halo dirait « ce fil est sélectionné » ;</text>
-<text x="914" y="616" fill="#8A8A8A" font-size="10.5">   les poignées disent « ce fil relie CETTE prise à CELLE-LÀ ». On ne remplace pas un signal qui informe par un décor.</text>
-<text x="914" y="633" fill="#8A8A8A" font-size="10.5">⚠ Le maillon faible n’est pas #9AA3AD mais #81EBEB : ce n’est pas la clarté qui résiste, c’est la SATURATION.</text>
-<text x="34" y="640" fill="#F79A28" font-size="12.5" font-weight="600">3 · LE NŒUD INDISPONIBLE — le rang interdit</text>
-<text x="34" y="656" fill="#6A6A6A" font-size="10">Light Path, Raycast, Ambient Occlusion… ils supposent un tracé de rayons ; notre moteur rastérise</text>
-<text x="34" y="684" fill="#8A8A8A" font-size="11" font-weight="600">dans la BIBLIOTHÈQUE</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="440" fill="#F79A28" font-size="12" font-weight="600">le refus chiffré, et ce qu’il rend défendable</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="463" fill="#8A8A8A" font-size="10.5">🔴 MESURÉ · AUCUNE valeur de luminosité ne convient. Écart perçu / séparation entre familles (plancher = 11,0) :</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="480" fill="#8A8A8A" font-size="10.5">     +20 % → 2,74 / 17,25 (imperceptible)   ·   +35 % → 5,23 / 14,26   ·   +50 % → 8,21 / 11,42 (0,42 de marge)</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="497" fill="#8A8A8A" font-size="10.5">     +65 % → 11,81 / 7,96 ❌ le premier taux AUSSI LISIBLE qu’un écart de type CASSE le code couleur des types.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="514" fill="#8A8A8A" font-size="10.5">❌ ET LE RENFORT EST TOMBÉ AUSSI : à +35 %, même en comparaison SIMULTANÉE (5 fils identiques, un seul éclairci,</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="531" fill="#8A8A8A" font-size="10.5">   poignées hors cadre), on ne repère PAS le bon fil. Un renfort imperceptible est un DÉCOR — retiré le 23/08.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="548" fill="#8A8A8A" font-size="10.5">✅ CE QUI LE REMPLACE est géométrique, pas chromatique : LA POIGNÉE NE DISPARAÎT JAMAIS. Quand la prise sort du</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="565" fill="#8A8A8A" font-size="10.5">   cadre, elle se pose là où le fil COUPE le bord, en CHEVRON vers l’extérieur — 3ᵉ ligne ci-dessus. Il reste</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="582" fill="#8A8A8A" font-size="10.5">   à l’écran, et sa POINTE dit de quel côté est la prise : le signal le plus fort reste le seul qui informe.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="599" fill="#8A8A8A" font-size="10.5">📌 Et elles informent : elles DÉSIGNENT LES DEUX PRISES RELIÉES. Un halo dirait « ce fil est sélectionné » ;</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="616" fill="#8A8A8A" font-size="10.5">   les poignées disent « ce fil relie CETTE prise à CELLE-LÀ ». On ne remplace pas un signal qui informe par un décor.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="633" fill="#8A8A8A" font-size="10.5">⚠ Le maillon faible n’est pas #9AA3AD mais #81EBEB : ce n’est pas la clarté qui résiste, c’est la SATURATION.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="640" fill="#F79A28" font-size="12.5" font-weight="600">3 · LE NŒUD INDISPONIBLE — le rang interdit</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="656" fill="#6A6A6A" font-size="10">Light Path, Raycast, Ambient Occlusion… ils supposent un tracé de rayons ; notre moteur rastérise</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="684" fill="#8A8A8A" font-size="11" font-weight="600">dans la BIBLIOTHÈQUE</text>
 <rect x="34" y="694" width="300" height="44" rx="3" fill="#1E1E24" stroke="#33333C" opacity="0.5"/>
-<text x="48" y="714" fill="#C8CCD4" font-size="12" opacity="0.5">Light Path</text>
-<text x="48" y="729" fill="#6A6A6A" font-size="9.5">nécessite un tracé de rayons</text>
-<text x="34" y="758" fill="#6A6A6A" font-size="10">PRÉSENT, à 50 % — un nœud absent se cherche</text>
-<text x="34" y="771" fill="#6A6A6A" font-size="10">indéfiniment ; un nœud refusé se comprend une fois.</text>
-<text x="370" y="684" fill="#8A8A8A" font-size="11" font-weight="600">POSÉ SUR LE CANEVAS (fichier importé)</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="714" fill="#C8CCD4" font-size="12" opacity="0.5">Light Path</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="729" fill="#6A6A6A" font-size="9.5">nécessite un tracé de rayons</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="758" fill="#6A6A6A" font-size="10">PRÉSENT, à 50 % — un nœud absent se cherche</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="771" fill="#6A6A6A" font-size="10">indéfiniment ; un nœud refusé se comprend une fois.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="370" y="684" fill="#8A8A8A" font-size="11" font-weight="600">POSÉ SUR LE CANEVAS (fichier importé)</text>
 <g filter="url(#ombre)" opacity="0.72">
 <rect x="370" y="694" width="250" height="90" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M370 699a5 5 0 0 1 5 -5 h240 a5 5 0 0 1 5 5 v25 H370 z" fill="#0A555F"/>
-<text x="378" y="708" fill="#F3E9DA" font-size="8">▼</text>
-<text x="390" y="708" fill="#EEF2F6" font-size="12.5" font-weight="600">Light Path</text>
-<text x="390" y="720" fill="#EEF2F6" font-size="9.5" opacity="0.6">Entrée</text>
-<text x="610" y="708" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="378" y="708" fill="#F3E9DA" font-size="8">▼</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="390" y="708" fill="#EEF2F6" font-size="12.5" font-weight="600">Light Path</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="390" y="720" fill="#EEF2F6" font-size="9.5" opacity="0.6">Entrée</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="610" y="708" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
 <rect x="370" y="724" width="250" height="2.5" fill="#0A555F"/>
 <rect x="371" y="727" width="248" height="56" fill="url(#hachure)"/>
 <rect x="367.0" y="731.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
 <rect x="378" y="734.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
-<text x="393" y="746" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">XYZ</text>
-<text x="414" y="746" fill="#F79A28" font-size="11.5">Rayon</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="393" y="746" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">XYZ</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="414" y="746" fill="#F79A28" font-size="11.5">Rayon</text>
 <rect x="617.0" y="755.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="578" y="758.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="593" y="770" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">V/F</text>
-<text x="570" y="770" fill="#F79A28" font-size="11.5" text-anchor="end">Est-il éclairé</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="593" y="770" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">V/F</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="570" y="770" fill="#F79A28" font-size="11.5" text-anchor="end">Est-il éclairé</text>
 </g>
-<text x="370" y="800" fill="#6A6A6A" font-size="10">hachures de CORPS · en-tête à 50 % · prises et fils INTACTS</text>
-<text x="370" y="813" fill="#F79A28" font-size="10">la raison est écrite DANS le nœud : « ce moteur rastérise »</text>
-<text x="690" y="640" fill="#F79A28" font-size="12.5" font-weight="600">4 · LE NŒUD SURVOLÉ</text>
-<text x="690" y="656" fill="#6A6A6A" font-size="10">le FILET s’éclaircit — jamais le corps</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="370" y="800" fill="#6A6A6A" font-size="10">hachures de CORPS · en-tête à 50 % · prises et fils INTACTS</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="370" y="813" fill="#F79A28" font-size="10">la raison est écrite DANS le nœud : « ce moteur rastérise »</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="690" y="640" fill="#F79A28" font-size="12.5" font-weight="600">4 · LE NŒUD SURVOLÉ</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="690" y="656" fill="#6A6A6A" font-size="10">le FILET s’éclaircit — jamais le corps</text>
 <g filter="url(#ombre)" opacity="1.0">
 <rect x="690" y="694" width="250" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M690 699a5 5 0 0 1 5 -5 h240 a5 5 0 0 1 5 5 v25 H690 z" fill="#4a6b8a"/>
-<text x="698" y="708" fill="#F3E9DA" font-size="8">▼</text>
-<text x="710" y="708" fill="#EEF2F6" font-size="12.5" font-weight="600">Multiplier</text>
-<text x="710" y="720" fill="#EEF2F6" font-size="9.5" opacity="0.6">Maths</text>
-<text x="930" y="708" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="698" y="708" fill="#F3E9DA" font-size="8">▼</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="710" y="708" fill="#EEF2F6" font-size="12.5" font-weight="600">Multiplier</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="710" y="720" fill="#EEF2F6" font-size="9.5" opacity="0.6">Maths</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="930" y="708" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
 <rect x="690" y="724" width="250" height="2.5" fill="#0A555F"/>
 <rect x="687.0" y="731.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="698" y="734.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="713" y="746" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="734" y="746" fill="#F79A28" font-size="11.5">Valeur A</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="713" y="746" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="734" y="746" fill="#F79A28" font-size="11.5">Valeur A</text>
 <rect x="836" y="734" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="924" y="746" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="924" y="746" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
 <rect x="687.0" y="755.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="698" y="758.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="713" y="770" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="734" y="770" fill="#F79A28" font-size="11.5">Valeur B</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="713" y="770" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="734" y="770" fill="#F79A28" font-size="11.5">Valeur B</text>
 <rect x="836" y="758" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="924" y="770" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="924" y="770" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
 <rect x="937.0" y="779.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="898" y="782.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="913" y="794" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="890" y="794" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="913" y="794" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="890" y="794" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
-<text x="690" y="684" fill="#8A8A8A" font-size="11" font-weight="600">au repos — filet #33333C</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="690" y="684" fill="#8A8A8A" font-size="11" font-weight="600">au repos — filet #33333C</text>
 <g filter="url(#ombre)" opacity="1.0">
 <rect x="970" y="694" width="250" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M970 699a5 5 0 0 1 5 -5 h240 a5 5 0 0 1 5 5 v25 H970 z" fill="#4a6b8a"/>
-<text x="978" y="708" fill="#F3E9DA" font-size="8">▼</text>
-<text x="990" y="708" fill="#EEF2F6" font-size="12.5" font-weight="600">Multiplier</text>
-<text x="990" y="720" fill="#EEF2F6" font-size="9.5" opacity="0.6">Maths</text>
-<text x="1210" y="708" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="978" y="708" fill="#F3E9DA" font-size="8">▼</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="990" y="708" fill="#EEF2F6" font-size="12.5" font-weight="600">Multiplier</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="990" y="720" fill="#EEF2F6" font-size="9.5" opacity="0.6">Maths</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1210" y="708" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
 <rect x="970" y="724" width="250" height="2.5" fill="#0A555F"/>
 <rect x="967.0" y="731.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="978" y="734.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="993" y="746" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="1014" y="746" fill="#F79A28" font-size="11.5">Valeur A</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="993" y="746" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1014" y="746" fill="#F79A28" font-size="11.5">Valeur A</text>
 <rect x="1116" y="734" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="1204" y="746" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1204" y="746" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
 <rect x="967.0" y="755.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="978" y="758.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="993" y="770" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="1014" y="770" fill="#F79A28" font-size="11.5">Valeur B</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="993" y="770" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1014" y="770" fill="#F79A28" font-size="11.5">Valeur B</text>
 <rect x="1116" y="758" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="1204" y="770" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1204" y="770" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
 <rect x="1217.0" y="779.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="1178" y="782.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="1193" y="794" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="1170" y="794" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1193" y="794" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1170" y="794" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
 <rect x="970" y="694" width="250" height="114" fill="none" stroke="#5A5A68" stroke-width="1"/>
-<text x="970" y="684" fill="#EEF2F6" font-size="11" font-weight="600">SURVOLÉ — filet #5A5A68</text>
-<text x="690" y="824" fill="#6A6A6A" font-size="10">un signal FAIBLE suffit, et c’est un argument : le survol est transitoire et attaché au curseur.</text>
-<text x="690" y="837" fill="#6A6A6A" font-size="10">L’utilisateur sait déjà où est sa souris. C’est la SÉLECTION qui doit survivre au déplacement du curseur.</text>
-<text x="34" y="870" fill="#F79A28" font-size="12.5" font-weight="600">5 · LES TROIS GRIS, CÔTE À CÔTE — la collision qui n’en était pas une</text>
-<text x="34" y="886" fill="#6A6A6A" font-size="10">trois causes, trois responsables, trois signaux distincts. Les mettre côte à côte est la SEULE façon de le prouver.</text>
-<text x="34" y="914" fill="#EEF2F6" font-size="12" font-weight="600">INCONNU</text>
-<text x="34" y="929" fill="#6A6A6A" font-size="10">l’ÉDITEUR ne le connaît pas</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="970" y="684" fill="#EEF2F6" font-size="11" font-weight="600">SURVOLÉ — filet #5A5A68</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="690" y="824" fill="#6A6A6A" font-size="10">un signal FAIBLE suffit, et c’est un argument : le survol est transitoire et attaché au curseur.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="690" y="837" fill="#6A6A6A" font-size="10">L’utilisateur sait déjà où est sa souris. C’est la SÉLECTION qui doit survivre au déplacement du curseur.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="870" fill="#F79A28" font-size="12.5" font-weight="600">5 · LES TROIS GRIS, CÔTE À CÔTE — la collision qui n’en était pas une</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="886" fill="#6A6A6A" font-size="10">trois causes, trois responsables, trois signaux distincts. Les mettre côte à côte est la SEULE façon de le prouver.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="914" fill="#EEF2F6" font-size="12" font-weight="600">INCONNU</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="929" fill="#6A6A6A" font-size="10">l’ÉDITEUR ne le connaît pas</text>
 <g filter="url(#ombre)" opacity="1.0">
 <rect x="34" y="940" width="250" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M34 945a5 5 0 0 1 5 -5 h240 a5 5 0 0 1 5 5 v25 H34 z" fill="url(#hachure)"/>
-<text x="42" y="954" fill="#F3E9DA" font-size="8">▼</text>
-<text x="54" y="954" fill="#EEF2F6" font-size="12.5" font-weight="600">nœud.inconnu</text>
-<text x="54" y="966" fill="#EEF2F6" font-size="9.5" opacity="0.6">?</text>
-<text x="274" y="954" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="42" y="954" fill="#F3E9DA" font-size="8">▼</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="54" y="954" fill="#EEF2F6" font-size="12.5" font-weight="600">nœud.inconnu</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="54" y="966" fill="#EEF2F6" font-size="9.5" opacity="0.6">?</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="274" y="954" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
 <rect x="34" y="970" width="250" height="2.5" fill="#5A5A64"/>
 <rect x="31.0" y="977.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="42" y="980.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="57" y="992" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="78" y="992" fill="#F79A28" font-size="11.5">Valeur A</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="57" y="992" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="78" y="992" fill="#F79A28" font-size="11.5">Valeur A</text>
 <rect x="180" y="980" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="268" y="992" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="268" y="992" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
 <rect x="31.0" y="1001.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="42" y="1004.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="57" y="1016" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="78" y="1016" fill="#F79A28" font-size="11.5">Valeur B</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="57" y="1016" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="78" y="1016" fill="#F79A28" font-size="11.5">Valeur B</text>
 <rect x="180" y="1004" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="268" y="1016" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="268" y="1016" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
 <rect x="281.0" y="1025.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="242" y="1028.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="257" y="1040" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="234" y="1040" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="257" y="1040" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="234" y="1040" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
-<text x="34" y="1072" fill="#F79A28" font-size="10.5" font-weight="600">rayures d’EN-TÊTE</text>
-<text x="464" y="914" fill="#EEF2F6" font-size="12" font-weight="600">INDISPONIBLE</text>
-<text x="464" y="929" fill="#6A6A6A" font-size="10">le MOTEUR ne peut pas</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="1072" fill="#F79A28" font-size="10.5" font-weight="600">rayures d’EN-TÊTE</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="464" y="914" fill="#EEF2F6" font-size="12" font-weight="600">INDISPONIBLE</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="464" y="929" fill="#6A6A6A" font-size="10">le MOTEUR ne peut pas</text>
 <g filter="url(#ombre)" opacity="0.72">
 <rect x="464" y="940" width="250" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M464 945a5 5 0 0 1 5 -5 h240 a5 5 0 0 1 5 5 v25 H464 z" fill="#0A555F"/>
-<text x="472" y="954" fill="#F3E9DA" font-size="8">▼</text>
-<text x="484" y="954" fill="#EEF2F6" font-size="12.5" font-weight="600">Light Path</text>
-<text x="484" y="966" fill="#EEF2F6" font-size="9.5" opacity="0.6">Entrée</text>
-<text x="704" y="954" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="472" y="954" fill="#F3E9DA" font-size="8">▼</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="484" y="954" fill="#EEF2F6" font-size="12.5" font-weight="600">Light Path</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="484" y="966" fill="#EEF2F6" font-size="9.5" opacity="0.6">Entrée</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="704" y="954" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
 <rect x="464" y="970" width="250" height="2.5" fill="#0A555F"/>
 <rect x="465" y="973" width="248" height="80" fill="url(#hachure)"/>
 <rect x="461.0" y="977.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="472" y="980.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="487" y="992" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="508" y="992" fill="#F79A28" font-size="11.5">Valeur A</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="487" y="992" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="508" y="992" fill="#F79A28" font-size="11.5">Valeur A</text>
 <rect x="610" y="980" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="698" y="992" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="698" y="992" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
 <rect x="461.0" y="1001.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="472" y="1004.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="487" y="1016" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="508" y="1016" fill="#F79A28" font-size="11.5">Valeur B</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="487" y="1016" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="508" y="1016" fill="#F79A28" font-size="11.5">Valeur B</text>
 <rect x="610" y="1004" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="698" y="1016" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="698" y="1016" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
 <rect x="711.0" y="1025.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="672" y="1028.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="687" y="1040" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="664" y="1040" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="687" y="1040" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="664" y="1040" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
-<text x="464" y="1072" fill="#F79A28" font-size="10.5" font-weight="600">hachures de CORPS</text>
-<text x="894" y="914" fill="#EEF2F6" font-size="12" font-weight="600">DÉSACTIVÉ</text>
-<text x="894" y="929" fill="#6A6A6A" font-size="10">l’UTILISATEUR l’a éteint</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="464" y="1072" fill="#F79A28" font-size="10.5" font-weight="600">hachures de CORPS</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="894" y="914" fill="#EEF2F6" font-size="12" font-weight="600">DÉSACTIVÉ</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="894" y="929" fill="#6A6A6A" font-size="10">l’UTILISATEUR l’a éteint</text>
 <g filter="url(#ombre)" opacity="0.45">
 <rect x="894" y="940" width="250" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M894 945a5 5 0 0 1 5 -5 h240 a5 5 0 0 1 5 5 v25 H894 z" fill="#4a6b8a"/>
-<text x="902" y="954" fill="#F3E9DA" font-size="8">▼</text>
-<text x="914" y="954" fill="#EEF2F6" font-size="12.5" font-weight="600">Multiplier</text>
-<text x="914" y="966" fill="#EEF2F6" font-size="9.5" opacity="0.6">Maths</text>
-<text x="1134" y="954" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="902" y="954" fill="#F3E9DA" font-size="8">▼</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="954" fill="#EEF2F6" font-size="12.5" font-weight="600">Multiplier</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="914" y="966" fill="#EEF2F6" font-size="9.5" opacity="0.6">Maths</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="954" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
 <rect x="894" y="970" width="250" height="2.5" fill="#0A555F"/>
 <rect x="891.0" y="977.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="902" y="980.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="917" y="992" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="938" y="992" fill="#F79A28" font-size="11.5">Valeur A</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="917" y="992" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="938" y="992" fill="#F79A28" font-size="11.5">Valeur A</text>
 <rect x="1040" y="980" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="1128" y="992" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1128" y="992" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
 <rect x="891.0" y="1001.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="902" y="1004.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="917" y="1016" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="938" y="1016" fill="#F79A28" font-size="11.5">Valeur B</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="917" y="1016" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="938" y="1016" fill="#F79A28" font-size="11.5">Valeur B</text>
 <rect x="1040" y="1004" width="92" height="17" rx="2" fill="#2B2B2B"/>
-<text x="1128" y="1016" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1128" y="1016" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
 <rect x="1141.0" y="1025.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="1102" y="1028.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
-<text x="1117" y="1040" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<text x="1094" y="1040" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1117" y="1040" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1094" y="1040" fill="#F79A28" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
 <path d="M832 985C872 985 852 985 892 985" fill="none" stroke="#17B2EB" stroke-width="2" stroke-dasharray="5 4"/>
 <path d="M1146 985C1186 985 1166 985 1206 985" fill="none" stroke="#17B2EB" stroke-width="2" stroke-dasharray="5 4"/>
-<text x="894" y="1072" fill="#F79A28" font-size="10.5" font-weight="600">fil TRAVERSANT en pointillé</text>
-<text x="34" y="1098" fill="#6A6A6A" font-size="10.5">⚠ Je craignais une collision : les trois sont gris. Il n’y en a pas — le signal n’est pas la couleur, c’est L’ENDROIT.</text>
-<text x="34" y="1112" fill="#6A6A6A" font-size="10.5">En-tête, corps, ou fil : trois zones différentes, donc trois messages lisibles ensemble. Un seul gris pour les trois rendrait</text>
-<text x="34" y="1126" fill="#6A6A6A" font-size="10.5">l’éditeur inutilisable exactement au moment où l’utilisateur a besoin d’aide.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="894" y="1072" fill="#F79A28" font-size="10.5" font-weight="600">fil TRAVERSANT en pointillé</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="1098" fill="#6A6A6A" font-size="10.5">⚠ Je craignais une collision : les trois sont gris. Il n’y en a pas — le signal n’est pas la couleur, c’est L’ENDROIT.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="1112" fill="#6A6A6A" font-size="10.5">En-tête, corps, ou fil : trois zones différentes, donc trois messages lisibles ensemble. Un seul gris pour les trois rendrait</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="1126" fill="#6A6A6A" font-size="10.5">l’éditeur inutilisable exactement au moment où l’utilisateur a besoin d’aide.</text>
 <rect x="34" y="1146" width="1300" height="104" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
-<text x="48" y="1170" fill="#F79A28" font-size="12" font-weight="600">d’où viennent ces trois-là</text>
-<text x="48" y="1193" fill="#8A8A8A" font-size="10.5">✅ DÉCIDÉ 23/08 · D6 (indisponible) et D7 (survolé) sont confirmés. Ils étaient marqués PROPOSÉ aux § 8.4 et 11.4,</text>
-<text x="48" y="1210" fill="#8A8A8A" font-size="10.5">   pas DÉCIDÉ — l’inventaire les annonçait « non tranchés » alors que la spécification les avait déjà instruits.</text>
-<text x="48" y="1227" fill="#8A8A8A" font-size="10.5">📌 C’est cette divergence SILENCIEUSE qui a fait écrire verifie_coherence.py : chaque ligne de l’inventaire renvoie</text>
-<text x="48" y="1244" fill="#8A8A8A" font-size="10.5">   désormais au paragraphe qui doit la trancher, et le contrôle refuse qu’un « ouvert » pointe vers un « décidé ».</text>
-<text x="34" y="1270" fill="#6A6A6A" font-size="10">Fond #121212 · corps #212121 · filet #33333C, survol #5A5A68 · hachures 45° #3A3A44 · orange Rihen #F79A28</text>
-<text x="34" y="1294" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="1170" fill="#F79A28" font-size="12" font-weight="600">d’où viennent ces trois-là</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="1193" fill="#8A8A8A" font-size="10.5">✅ DÉCIDÉ 23/08 · D6 (indisponible) et D7 (survolé) sont confirmés. Ils étaient marqués PROPOSÉ aux § 8.4 et 11.4,</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="1210" fill="#8A8A8A" font-size="10.5">   pas DÉCIDÉ — l’inventaire les annonçait « non tranchés » alors que la spécification les avait déjà instruits.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="1227" fill="#8A8A8A" font-size="10.5">📌 C’est cette divergence SILENCIEUSE qui a fait écrire verifie_coherence.py : chaque ligne de l’inventaire renvoie</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="48" y="1244" fill="#8A8A8A" font-size="10.5">   désormais au paragraphe qui doit la trancher, et le contrôle refuse qu’un « ouvert » pointe vers un « décidé ».</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="1270" fill="#6A6A6A" font-size="10">Fond #121212 · corps #212121 · filet #33333C, survol #5A5A68 · hachures 45° #3A3A44 · orange Rihen #F79A28</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="1294" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
 </svg>
