@@ -2077,7 +2077,7 @@ alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat néga
 sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
 qui existe.
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS — **19 restants sur 26**
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **19 restants sur 27**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
@@ -2105,11 +2105,12 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 19 | **le groupe montre-t-il un aperçu de son contenu ?** | § 7.6 | résidu de la ligne 6, qui était tranchée ET ouverte à la fois |
 | 20 | **qui s'aligne sur qui** : les planches, ou le nœud de référence de Rodolf ? | § 3.1 | résidu de la ligne 18. L'échelle est MESURÉE ; il reste à dire laquelle des deux bouge |
 | 21 | **la PORTÉE du registre de types** : comparer la charge utile, ou remonter le registre au DOCUMENT ? | § 18.5 | 🔴 **décide où VIT le registre** — les quatre types composés en dépendent, et rien ne doit être codé avant |
-| 22 | **le mode ÉTATS** : le cœur refuse tout cycle et un lien ne porte aucune charge utile | § 19.3 | 🔴 **le graphe d'états de NkAnima n'est pas saisissable aujourd'hui** — A ⇄ B est refusé par `WouldCycle`, et une transition doit porter condition, seuil et fondu |
+| ~~22~~ | ~~**le mode ÉTATS est impossible sur le cœur**~~ | § 19.9 | ✅ **TRANCHÉ le 23/08 : la machine à états est un NŒUD**, ses cycles vivent dans son modèle interne. `WouldCycle` n'est pas touché — le seul choix qui n'affaiblit pas une règle générale pour un cas particulier |
 | 23 | ~~**NKScena** : quel domaine ?~~ | § 19.6 | ✅ **TRANCHÉ le 23/08 par Rodolf : la mise en scène cinématographique.** Trois applications distinctes, communiquant par fichiers |
 | 24 | **NKScena : est-elle seulement NODALE ?** | § 19.8 | 🟡 **proposition écrite, elle attend un oui** : PAS nodale — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'exécution. *Ce qui ordonne un séquenceur est une COORDONNÉE, pas un arc* |
 | ~~25~~ | ~~**la mise en scène est écrite trois fois**~~ | § 19.7 | ✅ **DISSOUS le 23/08, et sans arbitrage** : un mot désignait deux choses. Le MOTEUR de séquence va à NkAnima, les SÉMANTIQUES de cinéma à NKScena, les outils d'animation à NkAnimaEditor. Personne ne perd |
 | 26 | **`NkSequencer.h` est rangé sous Noge alors qu'il EST le moteur** | § 19.7 | 🔴 **à déplacer vers NkAnima** — 416 lignes, 0 `.cpp`, 0 consommateur : c'est le meilleur moment, il n'a encore rien cassé |
+| 27 | **le principe « un cycle vit dans un nœud » vaut-il aussi pour l'EXÉCUTION ?** | § 19.9 | 🟡 **conséquence de la décision du 23/08, signalée et non appliquée** : si oui, `WouldCycle` reste global, les deux familles restent acycliques, l'itération est un nœud — et le § 20.2 change avant de partir chez l'autre chantier |
 
 ---
 
@@ -2887,7 +2888,7 @@ erreur coûteuse — un graphe d'états ne « s'exécute » pas de gauche à dro
 | application | mode(s) | domaine du graphe | nœuds qui lui sont propres | état réel |
 |---|---|---|---|---|
 | **NK3DModeler** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
-| **NkAnima** | **FLOT** + **ÉTATS** — les deux, imbriqués | pose d'animation, et machine à états qui la choisit | **AnimGraph** (flot, type *pose*) : `Blend Poses by Bool`, `Layered Blend per Bone`, `State Machine`, `Output Pose` (final, non supprimable) · **sous-graphe d'états** : les états eux-mêmes, `Entry` non supprimable | runtime **livré** (`NkAnimStateMachine`, `NkBlendTree1D/2D`) ; **éditeur = embryon**, AnimGraph = 0 ligne |
+| **NkAnima** | **FLOT**, et la machine à états est **un NŒUD** dedans (§ 19.9) | pose d'animation, et machine à états qui la choisit | **AnimGraph** (flot, type *pose*) : `Blend Poses by Bool`, `Layered Blend per Bone`, `State Machine`, `Output Pose` (final, non supprimable) · **sous-graphe d'états** : les états eux-mêmes, `Entry` non supprimable | runtime **livré** (`NkAnimStateMachine`, `NkBlendTree1D/2D`) ; **éditeur = embryon**, AnimGraph = 0 ligne |
 | **NKScena** | 🟡 **proposé : PAS nodale** — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'EXÉCUTION (§ 19.8) | ✅ **la mise en scène cinématographique** (Rodolf, 23/08) : plans, caméras, déclenchements, enchaînements | ce qui existe n'est pas nodal : `NkSequence`, `NkTrack`, `NkCameraShot`, `NkMarker` — des **pistes**, pas des nœuds | `Applications/NKScena/` **n'existe pas**. `NkSequencer.h` = 416 lignes, **0 `.cpp`, 0 consommateur** |
 | **Nogee** | **FLOT** (matériaux) **+ EXÉCUTION** (Blueprint) | ① matériaux → NkSL · ② logique gameplay / ECS · ③ VFX | ① Material Output, non supprimable · ② `EventBeginPlay`, `EventCustom`, `PrintString`, `SwitchInt`, `AddFloat`, `Raycast`, `SpawnActor`, familles *Events · FlowControl · Math · Physics · Structs* · ③ Bruit de Perlin, Courbe, Collision, Force, Attribut de particule | coquille ; **`NkBlueprint.h` porte un vrai interpréteur, ~15 nœuds — et zéro consommateur** |
 | **PV3DE** | **ÉTATS**, s'il en ouvre un un jour | état clinique / émotion | aucun nœud écrit ; ce qui existe est une FSM **codée en dur** — `EmotionState` (9 états), `NkEmotionTransition`, fondu 500 ms | **le plus abouti en code** (8 210 lignes, l'UI médicale s'affiche) ; **aucune trace de graphe nodal**, et PV3DE n'est dans aucune liste de consommateurs de NKGraph |
@@ -2898,18 +2899,19 @@ ouvre un sous-graphe en mode ÉTATS »* — au lieu de le redécouvrir cinq fois
 
 ### 19.3 Trois choses que ce tableau fait apparaître, et qu'aucune planche ne montrait
 
-**① 🔴 LE MODE ÉTATS EST IMPOSSIBLE SUR LE CŒUR D'AUJOURD'HUI — et c'est le même
-mur que la boucle du § 18 / planche 08.**
+**① ❌ ~~LE MODE ÉTATS EST IMPOSSIBLE SUR LE CŒUR D'AUJOURD'HUI~~ — j'avais
+tort, et le § 19.9 dit pourquoi.**
 
-Un graphe d'états va et revient : `Marche → Saut`, `Saut → Marche`. C'est **un
-cycle**, et c'est le cas normal, pas un cas limite. Or `Connect()` refuse le lien
-au branchement, par `NkLinkError::WouldCycle`. **Le graphe d'états de NkAnima ne
-peut donc pas être saisi du tout**, et l'`any-state` du runtime
-(`AddTransition(from = -1, …)`) est encore plus loin de ce que le cœur sait
-représenter.
+Le raisonnement était : un graphe d'états va et revient (`Marche → Saut`,
+`Saut → Marche`), c'est **un cycle**, et `Connect()` refuse le lien par
+`NkLinkError::WouldCycle` — donc l'AnimGraph ne serait pas saisissable.
 
-Ce n'est pas un manque de plus : c'est **le même axe manquant**, vu depuis une
-autre application. Il ne faut pas le corriger deux fois.
+🔴 **L'erreur était de supposer que la machine à états devait être un
+`NkNodeGraph`.** ✅ **TRANCHÉ le 23/08 : c'est un NŒUD**, et ses cycles vivent
+**dans son propre modèle**, pas dans le graphe. Le graphe extérieur ne voit
+jamais de cycle, `WouldCycle` n'est pas touché, et l'`any-state`
+(`AddTransition(from = -1, …)`) est une ligne de sa liste de transitions, pas un
+lien impossible. **Voir § 19.9.**
 
 **② 🔴 UN ARC D'ÉTATS PORTE UNE CHARGE UTILE, ET `NkLink` N'EN A AUCUNE.**
 
@@ -3148,6 +3150,92 @@ elle-même n'est **pas** spécifiée par ce document. Elle n'est pas nodale, don
 elle n'est pas de son ressort. Ces planches décrivent le graphe **d'exécution**
 dans lequel les marqueurs entrent — pas les pistes qui les portent.
 
+### 19.9 ✅ **TRANCHÉ le 23/08** — la machine à états est un NŒUD, et l'AnimGraph n'est plus un mur
+
+**Rodolf :** *« c'est aussi mon choix depuis le début »* — la voie d'**Unreal**
+(la machine à états est un nœud du graphe d'animation), contre celle d'**Unity**
+(un éditeur séparé, l'Animator).
+
+#### L'argument décisif est technique, et il vaut d'être écrit avec la décision
+
+Notre cœur refuse les cycles (`NkLinkError::WouldCycle`, `NkNodeGraph.inl:243`).
+Et une machine à états **est** un cycle : `Marche → Saut → Marche` est le cas
+**normal**, pas un cas limite. Le § 19.3 en concluait que l'AnimGraph était
+**impossible sur le cœur d'aujourd'hui**. ❌ **Cette conclusion était fausse, et
+c'est la décision qui le montre :**
+
+> Si la machine à états est **un NŒUD**, ses cycles vivent **à l'intérieur** de
+> lui, dans **son propre modèle** — la liste de transitions que le runtime porte
+> déjà : `AddTransition(from, to, paramName, kind, threshold, fadeDur)`.
+> **Le graphe extérieur ne voit jamais de cycle.**
+
+📌 **On ne touche donc pas à `WouldCycle`**, et c'est tout l'intérêt : la
+garantie qui protège **tout le reste du moteur** reste intacte. C'est **le seul
+choix qui n'affaiblit pas une règle générale pour un cas particulier** — et c'est
+un critère de conception, pas une commodité.
+
+✅ **Ce que ça corrige dans ce document :** le contenu d'un nœud de machine à
+états **n'est pas un `NkNodeGraph`**. C'est une liste d'états et de transitions,
+avec son propre format. Le § 19.3 ① décrivait un mur ; il n'y en a plus.
+
+⚠️ **Ce qui reste vrai du § 19.3 ②** : une transition porte toujours une charge
+utile (condition, seuil, fondu). Mais elle ne la porte plus sur un `NkLink` —
+elle la porte dans le modèle interne du nœud. **Le besoin de qualifier un lien
+devient donc moins urgent, et il change de nature** : il n'est plus exigé par
+l'animation.
+
+#### 🔴 La conséquence que cette décision a AILLEURS, et qu'il faut trancher
+
+Le principe qu'elle pose est plus large que la machine à états :
+
+> **un cycle vit à l'intérieur d'un nœud, jamais dans le graphe.**
+
+Or le § 20.2 propose exactement le contraire pour l'exécution : que
+`WouldCreateCycle` et `TopoSort` ne voient plus que les liens de famille `Data`,
+**afin qu'un rebouclage d'exécution devienne traçable**. Les deux ne peuvent pas
+être vrais en même temps.
+
+✅ **Appliqué à la boucle, le principe donne la réponse que la planche 08 avait
+posée en question** : *« est-ce voulu — le corps de boucle se referme par la
+sémantique du nœud, pas par un fil — ou est-ce un mur ? »* Sous cette décision,
+c'est **voulu** : une boucle est un **nœud** (`Pour chaque`, `Tant que`) avec une
+sortie *corps de boucle*, et le corps ne revient **jamais** par un fil. C'est
+d'ailleurs la forme d'Unreal.
+
+🟡 **Je propose donc d'étendre la décision à l'exécution** — `WouldCycle` reste
+global, les deux familles restent acycliques, l'itération est un nœud — **et je
+le signale au lieu de l'appliquer en silence**, parce que ça modifie le § 20.2
+qui part chez un autre chantier. Ligne **27** du § 13.
+
+### 19.10 ✅ **TRANCHÉ le 23/08** — ce que le graphe d'animation porte VRAIMENT
+
+La question a été posée pour vérifier qu'on avait compris. La réponse complète :
+
+| | ce que ça porte | forme |
+|---|---|---|
+| **la LIGNE DE TEMPS** | ce qu'**EST** une animation — clés, courbes, trajectoires, physique | **pistes** |
+| **le GRAPHE** | ce qui **JOUE**, et comment ça se mélange, **à chaque image** | **nœuds** |
+
+Le graphe d'animation ne se réduit donc **pas** à « changer d'animation ». Il
+porte :
+
+- le **mélange par poids** ;
+- les **calques** — le haut du corps vise pendant que les jambes courent ;
+- la **cinématique inverse** — le pied qui se pose sur la pente, le regard qui
+  suit une cible ;
+- la **modification d'os** ;
+- **et** la machine à états, comme **un nœud parmi eux** (§ 19.9).
+
+📌 **Ça range les trois couches de Cascadeur**, et sans arbitrage : trajectoire,
+physique dosable et exagération, c'est **fabriquer un clip** — donc **la ligne de
+temps, dans l'éditeur**. Le graphe, lui, vit **dans le jeu** et décide **quel
+clip joue**.
+
+✅ **Et ça répond à la réserve du § 19.8** — *« si personne ne spécifie les
+pistes, ce document décrira une porte sans le mur »*. **Les pistes sont
+désormais nommées comme le porteur de l'animation elle-même**, pour l'animation
+comme pour la mise en scène. Le mur existe ; reste à savoir qui l'écrit.
+
 ### 19.5 La question que ce tableau rend décidable
 
 `CATALOGUE_NOEUDS.md` la pose : *« les blueprints doivent-ils utiliser le même
@@ -3215,7 +3303,7 @@ Ce que ce champ doit changer, et **rien d'autre** :
 | **compatibilité** | `Accepts()` compare des `NkTypeId` | comparer **d'abord les familles**, et refuser un croisement par une raison **nommée** — `NkLinkError::FamilyMismatch`. Un fil d'exécution branché sur une prise de donnée doit se refuser **en le disant** |
 | **arité d'une ENTRÉE** | une seule source ; une deuxième **remplace** la première | **Data** : inchangé. **Exec** : **plusieurs sources autorisées** — dix chemins peuvent mener au même nœud |
 | **arité d'une SORTIE** | autant de liens qu'on veut | **Data** : inchangé. **Exec** : **un seul** — une instruction n'a qu'une suite. Le second se refuse par `NkLinkError::ExecOutputAlreadyBound` |
-| **acyclicité** | `WouldCreateCycle` et `TopoSort` voient **tous** les liens | ils ne doivent voir que les liens de **famille Data**. Un cycle d'exécution est légitime ; l'ordre d'exécution est un **chemin parcouru**, pas un tri calculé |
+| **acyclicité** | `WouldCreateCycle` et `TopoSort` voient **tous** les liens | 🟡 **NE RIEN CHANGER, en attente de confirmation (§ 19.9, ligne 27).** Ce document a d'abord proposé de ne voir que les liens `Data`, pour rendre un rebouclage d'exécution traçable. La décision du 23/08 pose le principe inverse — **un cycle vit à l'intérieur d'un nœud, jamais dans le graphe** — et une boucle devient un **nœud** (`Pour chaque`, `Tant que`) dont le corps ne revient jamais par un fil. **Ne pas toucher `WouldCycle` tant que ce n'est pas confirmé** |
 
 ⚠️ **LE PIÈGE À NE PAS PRENDRE, et il ressemble à une bonne idée.** Le registre
 de types est plat et accepte n'importe quel nom : on peut y enregistrer un type
@@ -3318,3 +3406,62 @@ composés :
 ⚠️ **Le quatrième est celui qui attrape le § 20.4**, et c'est le seul qui le
 puisse : si les liens sont adressés par indice, l'insertion au milieu produira
 un fichier **valide** et **faux**, et seuls les octets le diront.
+
+---
+
+## 21. ✅ **TRANCHÉ le 23/08** — un seul de nos deux graphes est un LANGAGE
+
+**Rodolf.** La distinction est courte à écrire et elle décide beaucoup :
+
+| | est-ce un langage ? | pourquoi |
+|---|---|---|
+| **blueprint** | ✅ **oui** | flot de contrôle, variables, fonctions, **effets de bord**. C'est un **programme** |
+| **matériau** | ❌ **non** | c'est une **expression** — une fonction **pure**, sans état, sans ordre |
+
+📌 C'est la même frontière que le critère de la planche 08, dite depuis l'autre
+côté : *un domaine a besoin de fils d'exécution si son résultat dépend de
+l'ordre et des effets de bord.* Un **programme** en a ; une **expression**, non.
+Les deux formulations se recoupent — c'est ce qui donne confiance dans les deux.
+
+### 21.1 Ce que ça décide pour les types composés — **deux réponses, pas une**
+
+Le § 18 traitait « les types composés » comme **une** question. ❌ **C'en était
+deux**, et les mélanger aurait donné une réponse fausse des deux côtés :
+
+| | énumérations, structures, unions | pourquoi |
+|---|---|---|
+| **côté blueprint** | ✅ **sens plein** | un **programme tient un état** : une énumération y nomme un cas, une structure y regroupe des champs qui vivent dans le temps |
+| **côté matériau** | ❌ **elles n'ont de sens que si `NkMaterial` sait les représenter — et il ne sait pas** | il porte **flottant, vecteur, couleur, entier, booléen, texture**. Ni énumération, ni structure, ni union |
+
+⚠️ **Et ce n'est pas une limite subie, c'est une conséquence** — c'est la
+formulation qui compte :
+
+> **Ce n'est pas le graphe qui manque de types, c'est ce vers quoi il COMPILE.**
+
+Un graphe de matériau se compile vers NkSL, puis vers un shader. Lui donner des
+structures exigerait que **le shader** sache les porter. Le graphe n'est pas le
+bon endroit où corriger ça, et l'y corriger créerait un type que rien ne pourrait
+consommer.
+
+✅ **Conséquence pratique, et elle simplifie le § 18 au lieu de le compliquer :**
+les quatre types composés se spécifient **pour le blueprint d'abord**. Côté
+matériau, la question ne se pose que si `NkMaterial` gagne un jour de quoi les
+représenter — et c'est **là** qu'elle se poserait, pas ici.
+
+📌 Le chantier du graphe de matériaux est arrivé **indépendamment** à la même
+mesure. Deux chemins, une conclusion : c'est ce qui la rend sûre.
+
+### 21.2 Où ça nous place — et c'est cohérent, pas un compromis
+
+| | système de types dans le graphe | pourquoi |
+|---|---|---|
+| **Unreal** | ✅ **complet** — structures, énumérations, objets | **parce que le Blueprint EST un langage**, compilé vers un bytecode qui connaît les types du moteur |
+| **Unity** | ❌ s'arrête aux types de prise | |
+| **Blender** | ❌ s'arrête aux types de prise | Geometry Nodes et Shader Nodes sont des **expressions** |
+
+✅ **Nous sommes dans le cas d'Unreal du côté blueprint, et dans celui de Blender
+du côté matériau.** Ce n'est pas un demi-choix ni un compromis : **c'est la
+position cohérente**, parce que nos deux graphes ne sont pas la même chose. Unreal
+est le seul des trois à porter un système de types complet — et c'est
+**exactement** parce que son graphe est un langage. Nous avons les deux cas ; nous
+devons donc avoir les deux réponses.

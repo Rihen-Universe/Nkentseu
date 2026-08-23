@@ -49,10 +49,11 @@ C'est la regle d'arite INVERSEE du catalogue, et le coeur applique
 uniformement celle de la donnee. Ce n'est pas un defaut de dessin : c'est le
 modele qui manque d'un axe.
 
-🔴 LA BOUCLE : MESUREE LE 23/08, ET C'EST UN MUR
+✅ LA BOUCLE : TRANCHEE LE 23/08 -- ET C'EST « VOULU »
 La question posee ici -- un corps de boucle qui se reboucle serait-il refuse,
-et est-ce voulu ? -- est desormais tranchee par la lecture du code, pas par
-un avis :
+et est-ce voulu ou est-ce un mur ? -- a recu ses DEUX moities le meme jour.
+
+D'abord la mesure, qui dit CE QUI EST :
 
   - `Connect()` refuse le fil AU BRANCHEMENT : `if (WouldCreateCycle(from, to))
     return NkLinkError::WouldCycle;` (NkNodeGraph.inl:243). Le refus arrive
@@ -64,17 +65,24 @@ un avis :
   - en aval, `GraphExpand` rend `NkPlanError::Cycle` (NkGraphDocument.inl:262)
     et vide l'ordre : c'est le PLAN ENTIER qui tombe, pas la seule boucle.
 
-Ce n'est donc PAS un choix de conception : rien n'a ete decide contre la
-boucle, parce que rien n'a ete decide sur l'execution du tout -- le mot
-« exec » n'apparait nulle part dans NKGraph. C'est le meme axe manquant que
-pour l'arite, et c'est pour ca que les deux se corrigent ensemble.
+Puis la DECISION de Rodolf, le meme jour, qui dit CE QU'ON EN FAIT -- et elle
+repond « voulu » :
 
-CE QU'IL FAUT, et c'est une consequence, pas une preference : n'exiger
-l'acyclicite QUE du sous-graphe de DONNEE. Un cycle d'EXECUTION est legitime
--- l'ordre d'execution est un CHEMIN parcouru a l'execution, pas un tri
-calcule a l'edition. `WouldCreateCycle` et `TopoSort` doivent donc ignorer les
-liens d'execution, ce qu'ils ne peuvent pas faire tant que le socket ne porte
-pas sa famille.
+  UN CYCLE VIT A L'INTERIEUR D'UN NŒUD, JAMAIS DANS LE GRAPHE.
+
+La machine a etats est un NŒUD (§ 19.9) : ses cycles vivent dans son modele
+interne, et le graphe exterieur n'en voit aucun. Le meme principe donne la
+boucle : `Pour chaque` et `Tant que` sont des NŒUDS avec une sortie « corps de
+boucle », et le corps ne revient JAMAIS par un fil. C'est la forme d'Unreal.
+
+⚠️ J'AVAIS ECRIT L'INVERSE LE MATIN MEME -- « n'exiger l'acyclicite que du
+sous-graphe de DONNEE, un cycle d'EXECUTION est legitime ». C'etait affaiblir
+une regle GENERALE pour un cas PARTICULIER. La decision fait mieux : elle garde
+`WouldCycle` intact, donc la garantie qui protege tout le reste du moteur, et
+elle range le cycle la ou il se comprend -- dans la semantique d'un nœud.
+
+CE QUI RESTE VRAI : le socket doit porter sa famille. Mais pour l'ARITE
+inversee, plus pour le cycle.
 """
 import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
@@ -251,13 +259,13 @@ c3, hc3 = cartouche(1120, R3 + 40, 666, [
     u'▸ Pour l’exécution il faut exactement l’INVERSE, et le catalogue l’écrit déjà : « les arités sont INVERSÉES entre les deux familles ».',
     u'▸ 📌 Ce qui manque n’est pas une exception, c’est un AXE : le socket doit porter sa famille. Une seule valeur, deux lignes dans',
     u'   Connect() — et le refus doit SE NOMMER, comme les six raisons de NkLinkError le font déjà (ExecOutputAlreadyBound).',
-    u'▸ ✅ MESURÉ le 23/08 — c’est un MUR, pas un choix, et il tombe PLUS TÔT que je ne le croyais : Connect() refuse le fil lui-même,',
-    u'   par NkLinkError::WouldCycle (NkNodeGraph.inl:243). L’utilisateur ne peut pas même TRACER le rebouclage — pas seulement l’évaluer.',
-    u'▸ Et TopoSort compte les degrés entrants sur mLinks sans jamais regarder la famille du fil : NkLink ne porte que fromNode/fromSocket/',
-    u'   toNode/toSocket. En aval, GraphExpand rend NkPlanError::Cycle — c’est le PLAN ENTIER qui tombe, pas la seule boucle.',
-    u'▸ 📌 Rien n’a été décidé CONTRE la boucle : le mot « exec » n’apparaît nulle part dans NKGraph. Ce qu’il faut : n’exiger l’acyclicité',
-    u'   que du sous-graphe de DONNÉE. Un cycle d’EXÉCUTION est légitime — l’ordre d’exécution est un CHEMIN parcouru, pas un tri.',
-], u'ce qui manque au modèle — un seul axe absent, et il explique les trois refus')
+    u'▸ ✅ LA BOUCLE : TRANCHÉE le 23/08, et c’est la réponse que ce panneau posait en question — c’est VOULU. Mesure : Connect() refuse',
+    u'   le fil lui-même, par NkLinkError::WouldCycle (NkNodeGraph.inl:243) ; on ne peut pas même TRACER le rebouclage.',
+    u'▸ 📌 Et c’est BIEN AINSI : une boucle est un NŒUD (Pour chaque, Tant que) dont le corps ne revient JAMAIS par un fil — comme la',
+    u'   machine à états est un nœud dont les cycles vivent dans son modèle. UN CYCLE VIT À L’INTÉRIEUR D’UN NŒUD, JAMAIS DANS LE GRAPHE.',
+    u'▸ ✅ C’est le seul choix qui n’affaiblit pas une règle générale pour un cas particulier : WouldCycle protège tout le reste du moteur,',
+    u'   et on n’y touche pas. Ce qui reste vrai du constat : le socket doit porter sa famille — mais pour l’ARITÉ, plus pour le cycle.',
+], u'ce qui manque au modèle — un axe pour l’arité ; le cycle, lui, est tranché')
 s += c3
 
 # ══════════════════════════ 4 et 5 · LE FRANCHISSEMENT, DEUX MÉCANISMES

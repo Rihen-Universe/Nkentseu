@@ -233,19 +233,19 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="1110" fill="#E06C6C" font-size="10.5" font-weight="600">❌ Rien ne limite le nombre de liens partant d’une SORTIE.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="1124" fill="#8A8A8A" font-size="10">Deux suites, ce sont deux programmes — et rien ne dit lequel</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="1138" fill="#8A8A8A" font-size="10">passe en premier. Il faut REFUSER le second, en le nommant.</text>
-<g id="cartouche_ce_qui_manque_au_modele_un_seul_axe_absent_e_03">
+<g id="cartouche_ce_qui_manque_au_modele_un_axe_pour_l_arite__03">
 <rect x="1120" y="940" width="666" height="206" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="964" fill="#F79A28" font-size="12" font-weight="600">ce qui manque au modèle — un seul axe absent, et il explique les trois refus</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="964" fill="#F79A28" font-size="12" font-weight="600">ce qui manque au modèle — un axe pour l’arité ; le cycle, lui, est tranché</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="987" fill="#8A8A8A" font-size="10.5">▸ Le cœur applique UNIFORMÉMENT l’arité de la donnée : une entrée, une source ; une sortie, autant de liens qu’on veut.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1004" fill="#8A8A8A" font-size="10.5">▸ Pour l’exécution il faut exactement l’INVERSE, et le catalogue l’écrit déjà : « les arités sont INVERSÉES entre les deux familles ».</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1021" fill="#8A8A8A" font-size="10.5">▸ 📌 Ce qui manque n’est pas une exception, c’est un AXE : le socket doit porter sa famille. Une seule valeur, deux lignes dans</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1038" fill="#8A8A8A" font-size="10.5">   Connect() — et le refus doit SE NOMMER, comme les six raisons de NkLinkError le font déjà (ExecOutputAlreadyBound).</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1055" fill="#8A8A8A" font-size="10.5">▸ ✅ MESURÉ le 23/08 — c’est un MUR, pas un choix, et il tombe PLUS TÔT que je ne le croyais : Connect() refuse le fil lui-même,</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1072" fill="#8A8A8A" font-size="10.5">   par NkLinkError::WouldCycle (NkNodeGraph.inl:243). L’utilisateur ne peut pas même TRACER le rebouclage — pas seulement l’évaluer.</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1089" fill="#8A8A8A" font-size="10.5">▸ Et TopoSort compte les degrés entrants sur mLinks sans jamais regarder la famille du fil : NkLink ne porte que fromNode/fromSocket/</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1106" fill="#8A8A8A" font-size="10.5">   toNode/toSocket. En aval, GraphExpand rend NkPlanError::Cycle — c’est le PLAN ENTIER qui tombe, pas la seule boucle.</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1123" fill="#8A8A8A" font-size="10.5">▸ 📌 Rien n’a été décidé CONTRE la boucle : le mot « exec » n’apparaît nulle part dans NKGraph. Ce qu’il faut : n’exiger l’acyclicité</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1140" fill="#8A8A8A" font-size="10.5">   que du sous-graphe de DONNÉE. Un cycle d’EXÉCUTION est légitime — l’ordre d’exécution est un CHEMIN parcouru, pas un tri.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1055" fill="#8A8A8A" font-size="10.5">▸ ✅ LA BOUCLE : TRANCHÉE le 23/08, et c’est la réponse que ce panneau posait en question — c’est VOULU. Mesure : Connect() refuse</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1072" fill="#8A8A8A" font-size="10.5">   le fil lui-même, par NkLinkError::WouldCycle (NkNodeGraph.inl:243) ; on ne peut pas même TRACER le rebouclage.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1089" fill="#8A8A8A" font-size="10.5">▸ 📌 Et c’est BIEN AINSI : une boucle est un NŒUD (Pour chaque, Tant que) dont le corps ne revient JAMAIS par un fil — comme la</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1106" fill="#8A8A8A" font-size="10.5">   machine à états est un nœud dont les cycles vivent dans son modèle. UN CYCLE VIT À L’INTÉRIEUR D’UN NŒUD, JAMAIS DANS LE GRAPHE.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1123" fill="#8A8A8A" font-size="10.5">▸ ✅ C’est le seul choix qui n’affaiblit pas une règle générale pour un cas particulier : WouldCycle protège tout le reste du moteur,</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1140" fill="#8A8A8A" font-size="10.5">   et on n’y touche pas. Ce qui reste vrai du constat : le socket doit porter sa famille — mais pour l’ARITÉ, plus pour le cycle.</text>
 </g>
 </g>
 <g id="panneau_4_le_franchissement_1_par_parametre_expose_o">
