@@ -50,6 +50,7 @@
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/String/NkFormat.h" // formatage TYPE des lignes de mesure
+#include "NKTime/NkChrono.h" // mesure de cout, derriere --perf uniquement
 #include "NKLogger/NkLog.h"
 #include "NkBenchRoot.h"
 
@@ -5852,6 +5853,430 @@ static void MatCreationBattery() {
 	}
 }
 
+// ── LE MATERIAU SURVIT-IL AUX MODIFICATEURS ? ───────────────────────────────
+// POURQUOI CETTE BATTERIE EXISTE
+// ⚠ ELLE NAIT D UN TROU QUE PERSONNE N AVAIT VU, et le trou etait dans le BANC,
+// pas dans le code. La famille `matops/` mesure les OPERATIONS D EDITION ; les
+// modificateurs n etaient exerces par aucune ligne. Resultat : appliquer un
+// Mirror, un Array, un Solidify, un Triangulate ou un Mask **repeignait tout le
+// maillage en slot 0**, en silence, et le banc restait vert.
+//
+// > Une famille de cas qui porte le nom d un domaine (`matops/` = « le materiau
+// > survit aux operations ») donne l impression de couvrir ce domaine. Elle ne
+// > couvre que ce qu elle exerce.
+//
+// L HERITAGE EST ICI L IDENTITE, et ce n est pas un raccourci : un modificateur
+// qui COPIE (Mirror, Array), DECOUPE (Triangulate), SELECTIONNE (Build, Mask) ou
+// DOUBLE (Solidify) ne cree aucune face sans parent. Seule la tranche de bord de
+// Solidify est une face neuve, et elle suit la regle des faces sans mere.
+//
+// CE QUE CHAQUE CAS MESURE : une RELATION, pas un compte fige. « chaque slot
+// d origine apparait exactement k fois » reste vrai si la grille change de
+// taille ; `faces == 48` ne le resterait pas. Et `slot0` est sur chaque ligne :
+// c est la ou tombe toute face qui n a herite de personne.
+static void MatModBattery() {
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				k++;
+		return k;
+	};
+	auto compte = [](const NkEditMesh &m, uint16 slot) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == slot)
+				k++;
+		return k;
+	};
+	// RELATION : chaque slot de 1 a n apparait-il exactement `k` fois ? Rend 1 si
+	// oui. Un seul chiffre a lire, et il ne se perime pas quand la taille change.
+	auto chaqueSlotVaut = [&](const NkEditMesh &m, uint16 n, uint32 k) -> uint32 {
+		for (uint16 s = 1; s <= n; ++s)
+			if (compte(m, s) != k)
+				return 0u;
+		return 1u;
+	};
+	// Cube SOUDE, une couleur par face (slots 1..6).
+	auto cubePeint = [](NkEditMesh &m) {
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		uint16 s = 1;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				m.faces[f].material = s++;
+		m.RebuildEdges();
+	};
+
+	// -- 0. TEMOIN : le maillage de depart porte bien six couleurs -----------
+	// Sans lui, un « slot0=0 » apres modificateur pourrait vouloir dire que le
+	// maillage n avait aucune couleur a perdre.
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		Put("{0:<34} faces={1} chaque slot 1..6 une fois={2} slot0={3}", "matmod/temoin-cube-peint", vivantes(m),
+			chaqueSlotVaut(m, 6, 1u), compte(m, 0));
+	}
+
+	// -- 1. MIRROR : la face miroir est la MEME face, retournee --------------
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Mirror;
+		mo.mirrorAxis = 0;
+		mo.mirrorMerge = false;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} chaque slot x2={2} slot0={3} (slot0=0 : plus rien n est repeint)", "matmod/miroir",
+			vivantes(m), chaqueSlotVaut(m, 6, 2u), compte(m, 0));
+	}
+
+	// -- 2. ARRAY : chaque exemplaire est une copie ---------------------------
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Array;
+		mo.arrayCount = 3;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} chaque slot x3={2} slot0={3}", "matmod/array", vivantes(m), chaqueSlotVaut(m, 6, 3u),
+			compte(m, 0));
+	}
+
+	// -- 3. TRIANGULATE, chemin EVENTAIL (minVerts > 3) ----------------------
+	// Chaque quad donne deux triangles, tous deux du meme n-gon.
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Triangulate;
+		mo.triangulateMinVerts = 4;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} chaque slot x2={2} slot0={3}", "matmod/trianguler-eventail", vivantes(m),
+			chaqueSlotVaut(m, 6, 2u), compte(m, 0));
+	}
+
+	// -- 4. TRIANGULATE, chemin BuildFromIndexed (minVerts <= 3) -------------
+	// ⚠ UN AUTRE CHEMIN, pas une variante de reglage : celui-ci passe par
+	// BuildFromIndexed et non par BuildFromPolygons. Le corriger sur un seul des
+	// deux aurait laisse la moitie des utilisateurs avec des faces repeintes,
+	// selon un reglage qu ils n auraient pas relie au symptome.
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Triangulate;
+		mo.triangulateMinVerts = 3;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} chaque slot x2={2} slot0={3}", "matmod/trianguler-indexe", vivantes(m),
+			chaqueSlotVaut(m, 6, 2u), compte(m, 0));
+	}
+
+	// -- 5. SOLIDIFY sur une surface OUVERTE : coques + tranche de bord ------
+	// La grille est ouverte, donc la tranche de bord existe — sur un cube ferme
+	// elle n aurait aucune arete de bord et le chemin ne tournerait pas.
+	// 16 faces peintes 1..4 -> 16 externes + 16 internes + 16 tranches = 48.
+	// Chaque slot passe donc de 4 a 8 (coques) plus sa part de tranche.
+	{
+		NkEditMesh m;
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		uint16 s = 1;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive) {
+				m.faces[f].material = s;
+				s = (uint16)((s % 4u) + 1u);
+			}
+		m.RebuildEdges();
+		const uint32 avant = vivantes(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Solidify;
+		mo.solidifyThickness = 0.05f;
+		mo.solidifyRim = true;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces {1} -> {2} slot0={3} (slot0=0 : la tranche herite, elle ne retombe pas)",
+			"matmod/solidify-bord", avant, vivantes(m), compte(m, 0));
+	}
+
+	// -- 6. MASK : ne garde que les faces selectionnees -----------------------
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			m.verts[i].sel = 0;
+		// Selectionne tous les coins de la premiere face vivante.
+		{
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+				if (m.faces[f].alive) {
+					m.GetFaceVerts(f, loop);
+					break;
+				}
+			for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
+				m.verts[loop[k]].sel = 1;
+		}
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Mask;
+		mo.maskInvert = false;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} slot1={2} slot0={3} (slot1=1 : la face gardee garde SA couleur)", "matmod/mask",
+			vivantes(m), compte(m, 1), compte(m, 0));
+	}
+
+	// -- 7. BUILD : ne montre qu une proportion des faces ---------------------
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Build;
+		mo.buildRatio = 0.5f;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} slot0={2} slot1={3} slot2={4} slot3={5}", "matmod/build-proportion", vivantes(m),
+			compte(m, 0), compte(m, 1), compte(m, 2), compte(m, 3));
+	}
+
+	// -- 8. VIS/REVOLUTION, chemin des BANDES (duplicate=false) --------------
+	// ⚠ CE CHEMIN N ETAIT EXERCE PAR AUCUNE LIGNE : `matops/vis-revolution`
+	// utilise duplicate=true, qui COPIE des faces (elles ont donc une mere).
+	// Les bandes, elles, naissent d une ARETE et n ont pas de mere — c est la
+	// seule famille de SpinSelected qui posait la question, et c est justement
+	// celle que le banc ne touchait pas. Le commentaire du code le disait, en
+	// toutes lettres, et personne n en avait tire la ligne manquante.
+	//
+	// Deux quads soudes, slots 5 et 3. L arete partagee porte DEUX faces de
+	// couleurs differentes : sa bande doit arbitrer, donc perdre — et le
+	// compteur doit le dire.
+	{
+		const NkVec3f ps[6] = {{1.f, 0.f, 0.f}, {2.f, 0.f, 0.f}, {3.f, 0.f, 0.f},
+							   {1.f, 0.f, 1.f}, {2.f, 0.f, 1.f}, {3.f, 0.f, 1.f}};
+		NkVertex3D vs[6];
+		for (uint32 k = 0; k < 6; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, 1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vs[k] = t;
+		}
+		const uint32 fs[3] = {0u, 4u, 8u};
+		const uint32 fv[8] = {0u, 1u, 4u, 3u, 1u, 2u, 5u, 4u};
+		NkEditMesh::FaceAttrib fa[2];
+		fa[0].material = 5;
+		fa[1].material = 3;
+		NkEditMesh m;
+		m.BuildFromPolygons(vs, 6u, fs, 2u, fv, fa);
+		m.RebuildEdges();
+		m.SelectAll();
+		NkSpinParams sp;
+		sp.axis = {0.f, 0.f, 1.f};
+		sp.center = {0.f, 0.f, 0.f};
+		sp.angle = 1.5707963f;
+		sp.steps = 2;
+		sp.duplicate = false;
+		uint32 perdus = 123u; // valeur SALE : si la fonction ne l ecrit pas, ca se voit
+		const bool ok = m.SpinSelected(sp, NkMat4f::Identity(), &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces={2} slot0={3} slot5={4} slot3={5} perdus={6} (perdus>0 : les bandes arbitrent)",
+			"matmod/vis-bandes", ok ? 1 : 0, vivantes(m), compte(m, 0), compte(m, 5), compte(m, 3), perdus);
+	}
+}
+
+// ── COUT DU TRANSPORT DES ATTRIBUTS PAR FACE ────────────────────────────────
+// POURQUOI CE N EST PAS DANS LA REFERENCE
+// ⚠ UNE DUREE NE PEUT PAS ENTRER DANS `editmesh_baseline.txt` : la reference est
+// comparee OCTET POUR OCTET, et deux lancements ne donnent jamais la meme
+// milliseconde. La poser dans les lignes mesurees ferait tomber `--check` a
+// chaque passage, et le reflexe serait de recopier le nouveau chiffre — donc de
+// prendre l habitude de mettre la reference a jour sans la lire.
+// Elle vit derriere `--perf`, et elle s IMPRIME au lieu d etre comparee.
+//
+// CE QU ON MESURE, ET POURQUOI CE DECOUPAGE
+// Le travail AJOUTE par le chantier materiau-par-face est exactement deux
+// choses : `ToPolygons` remplit une table d attributs en plus, et
+// `BuildFromPolygons` la relit. On mesure donc CHACUNE avec et sans, sur le MEME
+// maillage, dans le MEME binaire — plutot que de comparer deux binaires, ce qui
+// melangerait le cout du transport a tout ce qui a bouge par ailleurs.
+//
+// ⚠ ET ON MESURE LE BRUIT AVANT DE PARLER D ECART : chaque mesure rend son
+// minimum ET son maximum sur N passes. Un ecart plus petit que la dispersion
+// d une seule variante ne se lit pas — c est la sixieme facon connue de se
+// tromper avec un controle (« mesurer un ecart sans avoir mesure le bruit »).
+template <typename F> static void PerfLigne(const char *nom, uint32 passes, F fn) {
+	float64 mn = 1e30, mx = 0.0, tot = 0.0;
+	for (uint32 r = 0; r < passes; ++r) {
+		NkChrono c;
+		fn();
+		const float64 ms = c.Elapsed().ToMilliseconds();
+		if (ms < mn)
+			mn = ms;
+		if (ms > mx)
+			mx = ms;
+		tot += ms;
+	}
+	printf("  %-40s min %8.3f  max %8.3f  moy %8.3f ms   (%u passes)\n", nom, mn, mx, tot / (double)passes, passes);
+}
+
+static void PerfBattery() {
+	// MAILLAGE DE TAILLE REELLE, pas un cube : 128 x 128 = 16 384 quads, 16 641
+	// sommets, SOUDES. Un cube a six faces rendrait toute mesure verte — c est le
+	// meme piege que le jeu de donnees incapable de produire le cas, applique
+	// cette fois a une duree.
+	const uint32 N = 128u;
+	NkVector<NkVertex3D> gv;
+	NkVector<uint32> gi;
+	MakeGrid(N, gv, gi);
+	NkEditMesh src;
+	src.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+	uint16 s = 1;
+	for (uint32 f = 0; f < (uint32)src.faces.Size(); ++f)
+		if (src.faces[f].alive) {
+			src.faces[f].material = s;
+			s = (uint16)((s % 8u) + 1u);
+		}
+	src.RebuildEdges();
+	uint32 fcount = 0;
+	for (uint32 f = 0; f < (uint32)src.faces.Size(); ++f)
+		if (src.faces[f].alive)
+			fcount++;
+	printf("\n=== COUT DU TRANSPORT DES ATTRIBUTS PAR FACE ===\n");
+	printf("  maillage : grille %ux%u soudee -- %u sommets, %u faces, 8 slots\n\n", N, N, src.VertCount(), fcount);
+
+	const uint32 P = 20u;
+
+	// -- 1. ToPolygons : le SEUL surcout a l aller ---------------------------
+	printf("  [aller] ToPolygons\n");
+	PerfLigne("sans attributs", P, [&]() {
+		NkVector<NkVertex3D> pv;
+		NkVector<uint32> fs, fv;
+		src.ToPolygons(pv, fs, fv);
+	});
+	PerfLigne("avec attributs", P, [&]() {
+		NkVector<NkVertex3D> pv;
+		NkVector<uint32> fs, fv;
+		NkVector<NkEditMesh::FaceAttrib> fa;
+		src.ToPolygons(pv, fs, fv, &fa);
+	});
+
+	// -- 2. BuildFromPolygons : le SEUL surcout au retour --------------------
+	NkVector<NkVertex3D> pv;
+	NkVector<uint32> fs, fv;
+	NkVector<NkEditMesh::FaceAttrib> fa;
+	src.ToPolygons(pv, fs, fv, &fa);
+	const uint32 nfc = (uint32)fs.Size() - 1u;
+	printf("\n  [retour] BuildFromPolygons\n");
+	PerfLigne("sans attributs", P, [&]() {
+		NkEditMesh d;
+		d.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), nfc, fv.Data());
+	});
+	PerfLigne("avec attributs", P, [&]() {
+		NkEditMesh d;
+		d.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), nfc, fv.Data(), fa.Data());
+	});
+
+	// -- 3. LES CINQ MODIFICATEURS CABLES, en absolu -------------------------
+	// Le round-trip complet, tel que l utilisateur le declenche. C est le chiffre
+	// qui compte pour lui : pas le surcout d une fonction, mais l attente devant
+	// l ecran quand il applique un modificateur a un maillage dense.
+	printf("\n  [complet] modificateurs sur le maillage ci-dessus\n");
+	struct Cas {
+			const char *nom;
+			NkModifierType t;
+	};
+	const Cas cs[5] = {{"Mirror", NkModifierType::Mirror},
+					   {"Array (x3)", NkModifierType::Array},
+					   {"Triangulate", NkModifierType::Triangulate},
+					   {"Solidify (+ tranche)", NkModifierType::Solidify},
+					   {"Mask", NkModifierType::Mask}};
+	for (uint32 c = 0; c < 5u; ++c) {
+		NkMeshModifier mo;
+		mo.type = cs[c].t;
+		mo.arrayCount = 3;
+		mo.mirrorMerge = false;
+		mo.solidifyRim = true;
+		PerfLigne(cs[c].nom, 5u, [&]() {
+			NkEditMesh d = src;
+			mo.Apply(d);
+		});
+	}
+
+	// -- 3bis. OU PART LE TEMPS DE SOLIDIFY ET DE TRIANGULATE ---------------
+	// Mirror fait le MEME aller-retour (ToPolygons + BuildFromPolygons, attributs
+	// compris) et sort MEME plus de faces que Triangulate, en 21 ms. Si Solidify
+	// et Triangulate coutent des secondes, ce n est donc pas le transport des
+	// attributs qui les coute -- ces deux lignes disent ou ca part vraiment.
+	printf("\n  [diagnostic] ou part le temps\n");
+	{
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Solidify;
+		mo.solidifyRim = false;
+		PerfLigne("Solidify SANS tranche de bord", 5u, [&]() {
+			NkEditMesh d = src;
+			mo.Apply(d);
+		});
+	}
+	PerfLigne("Triangulate() seul (jete si minVerts>3)", 5u, [&]() {
+		NkVector<NkVertex3D> tv;
+		NkVector<uint32> ti;
+		NkVector<NkEmId> tf;
+		src.Triangulate(tv, ti, tf);
+	});
+	PerfLigne("RebuildEdges seul", 5u, [&]() {
+		NkEditMesh d = src;
+		d.RebuildEdges();
+	});
+
+	// -- 3ter. CROISSANCE DE RebuildEdges -----------------------------------
+	// « Lent » et « super-lineaire » n appellent pas la meme suite. On double le
+	// cote de la grille : x4 faces. Si le temps fait x4, c est lineaire et il n y
+	// a qu une constante a soigner ; s il fait x16, la structure est en cause et
+	// le probleme grandit avec les modeles des utilisateurs.
+	printf("\n  [croissance] RebuildEdges, cote x2 = faces x4\n");
+	for (uint32 nn = 32u; nn <= 128u; nn *= 2u) {
+		NkVector<NkVertex3D> qv;
+		NkVector<uint32> qi;
+		MakeGrid(nn, qv, qi);
+		NkEditMesh q;
+		q.BuildFromIndexed(qv.Data(), (uint32)qv.Size(), qi.Data(), (uint32)qi.Size(), true);
+		char lbl[64];
+		snprintf(lbl, sizeof(lbl), "grille %ux%u (%u faces)", nn, nn, nn * nn);
+		PerfLigne(lbl, 3u, [&]() {
+			NkEditMesh d = q;
+			d.RebuildEdges();
+		});
+	}
+
+	// -- 4. LES DEUX OPERATIONS DE CE CHANTIER -------------------------------
+	printf("\n  [complet] chanfrein et extrusion d aretes\n");
+	PerfLigne("BevelSelected (tout selectionne)", 3u, [&]() {
+		NkEditMesh d = src;
+		d.SelectAll();
+		NkBevelParams bp;
+		bp.offset = 0.002f;
+		bp.segments = 1;
+		uint32 perdus = 0;
+		d.BevelSelected(bp, &perdus);
+	});
+	PerfLigne("ExtrudeSelectedEdges (tout selectionne)", 5u, [&]() {
+		NkEditMesh d = src;
+		d.SelectAll();
+		NkExtrudeParams ep;
+		ep.offset = 0.f;
+		uint32 perdus = 0;
+		d.ExtrudeSelectedEdges(ep, &perdus);
+	});
+	printf("\n");
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -5865,12 +6290,14 @@ int main(int argc, char **argv) {
 		return 3;
 	}
 
-	bool baseline = false, check = false;
+	bool baseline = false, check = false, perf = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
 			check = true;
+		else if (strcmp(argv[i], "--perf") == 0)
+			perf = true;
 	}
 
 	Battery();
@@ -5919,6 +6346,13 @@ int main(int argc, char **argv) {
 	SmoothHeritageBattery();
 	// AJOUTEE EN FIN, meme raison : les 250 lignes precedentes gardent leur numero.
 	MatCreationBattery();
+	// AJOUTEE EN FIN, meme raison : les 260 lignes precedentes gardent leur numero.
+	MatModBattery();
+
+	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
+	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.
+	if (perf)
+		PerfBattery();
 
 	// La reference vit A COTE DES SOURCES DU BANC, pas dans le repertoire de
 	// lancement : sinon `--baseline` depuis deux endroits ecrit deux references

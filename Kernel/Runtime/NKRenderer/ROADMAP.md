@@ -358,57 +358,110 @@ les deux extrémités de l'arête chanfreinée sont fermées. Cube 6 faces, six 
 distincts : **6 → 26 faces** (6 + 12 bandes + 8 raccords), `slot0=0`,
 **`perdus=28`** — soit exactement 12 bandes × 1 perte + 8 raccords × 2.
 
-### 🧾 CE QUI RESTE — dette nommée, **re-mesurée le 2026-08-23**
+### ✅ RÉSORPTION (6) — la pile de modificateurs transporte le matériau (2026-08-23)
 
-⚠️ **Ce bloc énumérait une liste devenue fausse.** Il annonçait « trois
-opérations transportent le matériau » et rangeait `BevelSelected`,
-`DissolveSelected`, `MergeSelectedVerts`, `InsetSelectedFaces`… parmi celles qui
-ne le transportaient pas — alors que les résorptions (3) et (4), juste au-dessus,
-disent le contraire. **Deux strates du même fichier se contredisaient**, et rien
-ne le signalait : une liste ne tombe pas comme un banc.
+> ⚠️ *Numérotation : ce document porte DEUX séries de « résorption » mêlées — la
+> couverture des bancs (2) et (5), et le transport du matériau (3), (4) et celle-ci.
+> Le (5) de la ligne 218 ne précède pas ce (6) : il parle d'autre chose. Renuméroter
+> après coup casserait les renvois déjà écrits ailleurs ; on le signale au lieu de le
+> réparer en silence.*
 
-**Re-mesuré, pas relu** — en classant les 25 appels à `BuildFromPolygons` du
-fichier selon qu'ils passent, ou non, le paramètre d'attributs :
+**Le même jour, en deux temps.** La re-mesure du matin avait déplacé la dette des
+opérations d'édition vers les **modificateurs** ; l'après-midi les a câblés. Le
+cadre posé par Rodolf tranchait la question du périmètre : *« en édition on doit
+être quasiment similaire à Blender, ou plus performant »* — et dans Blender,
+appliquer un Solidify ou un Array **ne perd pas les matériaux**.
 
-**Les 15 opérations d'édition le transportent, toutes** : `ExtrudeSelectedFaces`
-(ses deux branches), `ExtrudeSelectedVertices`, `ExtrudeSelectedEdges`,
-`DeleteSelectedFaces`, `SubdivideCatmullClark`, `SubdivideSelectedOnce`,
-`MergeSelectedVerts`, `MakeFaceFromSelected`, `LoopCutFromSelectedEdge`,
-`BevelSelected`, `InsetSelectedFaces`, `SplitSelectedEdges`, `SpinSelected`,
-`DissolveSelected`, `BisectByPlane`.
+| modificateur | héritage retenu | pourquoi |
+|---|---|---|
+| `Mirror`, `Array` | **identité** | ce sont des COPIES ; la face miroir est la même face, retournée |
+| `Triangulate` | **identité**, sur ses **deux** chemins | un éventail sort d'un seul n-gon. ⚠️ Le chemin `BuildFromIndexed` lisait déjà la parenté `tf` (elle sert au *picking*) : il n'y avait qu'à la brancher |
+| `Build`, `Mask` | **identité** | c'est une sélection, pas une création |
+| `Solidify` | coques externe et interne = **identité** ; **tranche de bord** = règle des faces sans mère | la tranche est la seule face réellement neuve |
 
-#### 🔴 LA DETTE A CHANGÉ D'ENDROIT : elle est dans la PILE DE MODIFICATEURS
+⚠️ **Un chemin sur deux aurait suffi à ne rien voir** : `Triangulate` bascule
+entre deux implémentations selon `triangulateMinVerts`. N'en corriger qu'une
+aurait laissé la moitié des utilisateurs avec des faces repeintes, **selon un
+réglage qu'ils n'auraient jamais relié au symptôme**. Les deux ont leur cas.
 
-Les **cinq** appels qui ne transportent rien ne sont plus dans les opérations
-d'édition — ils sont tous dans les modificateurs :
+#### 🟢 `SpinSelected` est aligné, et son exception est levée
 
-| modificateur | appel |
+Ses bandes latérales recevaient le **slot 0** — choix écrit et assumé *d'avant*
+l'arbitrage, dont la raison inscrite dans le code (« hériter d'un des deux côtés
+privilégierait arbitrairement un côté ») a été retirée par la règle. Elles
+héritent désormais de leur voisinage.
+
+> **Une règle qui traîne une exception que personne ne se rappelle est pire que
+> pas de règle : elle fait croire qu'on peut prédire le comportement.**
+
+#### 🕳️ Le trou n'était pas dans le code, il était dans le BANC
+
+`matops/` porte le nom d'un domaine — « le matériau survit aux opérations » — et
+n'exerçait que les opérations d'**édition**. Les modificateurs n'étaient touchés
+par aucune ligne : ils repeignaient tout en slot 0 et la référence restait verte.
+
+> **Une famille de cas qui porte le nom d'un domaine donne l'impression de
+> couvrir ce domaine. Elle ne couvre que ce qu'elle exerce.**
+
+Et le chemin des **bandes** de `SpinSelected` était dans le même cas : le seul cas
+qui l'approchait, `matops/vis-revolution`, utilise `duplicate=true`, qui **copie**
+des faces — donc précisément la branche qui *avait* des mères. Le commentaire du
+code le disait en toutes lettres, et personne n'en avait tiré la ligne manquante.
+
+**Preuve** : famille `matcre/` (10 cas) + `matmod/` (9 cas), référence de 250 à
+**269 lignes**, les 260 précédentes identiques octet pour octet. Chaque ligne
+`matmod/` porte `slot0` — c'est là que tombe toute face qui n'a hérité de
+personne — et exprime une **relation** (« chaque slot ×2 ») plutôt qu'un compte
+figé, pour ne pas se périmer quand la grille change de taille.
+
+### ⏱️ COÛT MESURÉ — et il n'est pas là où on le cherchait
+
+Mesure derrière `--perf`, **hors référence** : une durée ne peut pas être comparée
+octet pour octet, et la poser dans `editmesh_baseline.txt` ferait tomber `--check`
+à chaque passage — donc prendre l'habitude de recopier le nouveau chiffre sans le
+lire. Grille **128×128 soudée, 16 384 faces**, build **Release**.
+
+**Le surcoût du transport est négligeable, et il est plus petit que le bruit** —
+mesuré, pas supposé :
+
+| | sans attributs | avec attributs | écart | dispersion d'une variante |
+|---|---|---|---|---|
+| `ToPolygons` | 1,215 ms | 1,279 ms | **+0,06 ms** | ±0,34 ms |
+| `BuildFromPolygons` | 8,821 ms | 9,527 ms | **+0,71 ms** | ±2,26 ms |
+
+L'écart est **inférieur à l'étalement d'une seule variante** : il ne se lit qu'au
+minimum, et il ne se lirait pas du tout sans avoir mesuré le bruit d'abord.
+
+#### 🔴 EN REVANCHE, LA MESURE A TROUVÉ AUTRE CHOSE — `RebuildEdges` est superquadratique
+
+| opération (16 384 faces) | temps |
 |---|---|
-| `NkEmModSolidify` | la bordure engendrée par l'épaississement |
-| `NkEmModFaceSubset` | reconstruction du sous-ensemble de faces |
-| `Triangulate`, `Mirror`, `Array` (`NkMeshModifier::Apply`) | reconstruction complète |
+| `Mirror` (32 768 faces en sortie) | **21 ms** |
+| `Mask` | **5 ms** |
+| `Triangulate` | **2 785 ms** |
+| `Solidify` | **9 354 ms** |
+| `RebuildEdges` **seul** | **1 580 ms** |
 
-**Appliquer un modificateur repeint donc le maillage en slot 0**, en silence,
-exactement comme le faisait l'extrusion d'arêtes avant ce jour. ⚠️ **Et aucune
-ligne du harnais ne le mesure** : la famille `matops/` n'exerce que les
-opérations d'édition. C'est une dette **doublement** ouverte — le défaut *et*
-l'absence de témoin qui le verrait.
+`Mirror` fait le **même** aller-retour, attributs compris, et sort **plus** de
+faces que `Triangulate` — en 21 ms. La différence n'est donc ni le transport ni le
+volume : `Mirror` est le seul qui **n'appelle pas `RebuildEdges`**.
 
-#### 🟡 Et une exception à l'intérieur du périmètre réputé sain
+**Croissance mesurée** — on double le côté de la grille, donc ×4 faces :
 
-`SpinSelected` transporte bien le matériau de ses anneaux, **mais ses bandes
-latérales reçoivent `FaceAttrib{}`, c'est-à-dire le slot 0** — le choix écrit et
-assumé d'avant l'arbitrage. Il est désormais **en contradiction avec la règle**
-retenue pour les faces sans mère (héritage du voisinage géométrique). Le slot 0
-n'est pas « pas de matériau », c'est une couleur comme une autre.
+| grille | faces | `RebuildEdges` |
+|---|---|---|
+| 32×32 | 1 024 | 3,1 ms |
+| 64×64 | 4 096 | 73,8 ms *(×23,6)* |
+| 128×128 | 16 384 | 1 580 ms *(×21,4)* |
 
-**La décision de produit qui manquait est PRISE** — ce bloc annonçait encore
-« une DÉCISION DE PRODUIT non tranchée » pour la décimation, en citant un cas
-`mat/decim-non-tranche` qui **n'existe plus sous ce nom** (renommé
-`mat/decim-transport` le 2026-08-22, précisément parce qu'un nom décrivant un
-état provisoire devient faux sans que rien ne le signale). La règle est :
-**dominance par une mesure, égalité par l'indice le plus bas** — l'aire aux sites
-de fusion, la longueur de contour partagé aux sites de création.
+×4 faces coûtent **×22** de temps. Linéaire donnerait ×4, quadratique ×16 :
+**c'est au-delà du quadratique**. Sur un maillage dense, c'est ce seul appel qui
+fait l'attente — pas l'opération que l'utilisateur a demandée.
+
+⚠️ **Ce n'est pas une régression de ce chantier** : le transport des attributs
+coûte 0,7 ms là où `RebuildEdges` en coûte 1 580. Mais c'est **incompatible avec
+la cible « quasiment similaire à Blender, ou plus performant »**, et ça grandit
+avec les modèles des utilisateurs. **Chantier à ouvrir, avec son chiffre.**
 
 ### ⚠️ `smooth` perdu est un DÉFAUT RÉEL, laissé tel quel volontairement
 
