@@ -1176,6 +1176,184 @@ static void L18_Comparer() {
 }
 
 // =============================================================================
+// L19 -- LA LIGNE DU FICHIER, PORTEE JUSQU'AU NOEUD
+// =============================================================================
+// ATTENTION -- CE CONTROLE EXISTE PARCE QUE J'AVAIS LIVRE LE CHEMIN SEUL.
+//    La validation rendait `widgets / Button "x" . color` sans numero de ligne,
+//    et je l'avais presente comme « un echange : on perd le saut dans l'editeur,
+//    on gagne une designation stable ». C'en etait un, et il n'avait pas lieu
+//    d'etre : **l'information n'etait pas perdue, elle n'etait pas transportee.**
+//    Le lecteur connait la ligne au moment ou il analyse.
+//
+//    Le chemin dit QUOI, la ligne dit OU ALLER. Ce ne sont pas deux reponses a
+//    la meme question, donc l'une ne remplace pas l'autre.
+//
+// >>> ET IL VERIFIE LA VALEUR, PAS SA PRESENCE. Un controle qui demanderait
+//     seulement « la ligne est-elle non nulle » serait vert avec un compteur qui
+//     rend toujours 1. Les lignes attendues sont ECRITES A LA MAIN, et le
+//     point 3 les fait BOUGER pour qu'un numero constant ne puisse pas passer.
+static void L19_LigneDuFichier() {
+	printf("[L19] La ligne du fichier voyage jusqu'au noeud\n");
+
+	//  1: nkgui 0.3
+	//  2: widgets {
+	//  3:   VBox "v" {
+	//  4:     a = 1
+	//  5:
+	//  6:     // un commentaire
+	//  7:     b = 2
+	//  8:     Text "t" { }
+	//  9:   }
+	// 10: }
+	const char *src =
+		"nkgui 0.3\n"
+		"widgets {\n"
+		"  VBox \"v\" {\n"
+		"    a = 1\n"
+		"\n"
+		"    // un commentaire\n"
+		"    b = 2\n"
+		"    Text \"t\" { }\n"
+		"  }\n"
+		"}\n";
+
+	NkArchive ar;
+	NkGuiDiag err;
+	EXPECT_TRUE(NkGuiArchive::Read(src, (nk_uint32)NkString(src).Size(), ar, err));
+
+	const NkArchive *widgets = NkGSousBloc(ar, 0);
+	EXPECT_TRUE(widgets != nullptr);
+	if (!widgets) {
+		return;
+	}
+	const NkArchive *v = NkGSousBloc(*widgets, 0);
+	EXPECT_TRUE(v != nullptr);
+	if (!v) {
+		return;
+	}
+
+	// 1. LES PROPRIETES. `b` est en ligne 7 : ni la ligne vide ni le commentaire
+	//    ne comptent pour lui, ils appartiennent a sa trivia de tete.
+	EXPECT_TRUE(v->GetSourceLine(NkStringView("a")) == 4);
+	EXPECT_TRUE(v->GetSourceLine(NkStringView("b")) == 7);
+
+	// 2. LES BLOCS. La ligne d'un bloc vit sur le NOEUD qui le porte, pas dans
+	//    l'archive du bloc : un bloc est un element du `$body` de son parent.
+	const NkArchiveNode *wb = widgets->FindNode(NkStringView(NkGuiArchive::KeyBody()));
+	EXPECT_TRUE(wb && wb->IsArray() && !wb->array.Empty());
+	if (wb && wb->IsArray() && !wb->array.Empty()) {
+		EXPECT_TRUE(wb->array[0].SourceLine() == 3);  // VBox "v"
+	}
+	const NkArchiveNode *vb = v->FindNode(NkStringView(NkGuiArchive::KeyBody()));
+	EXPECT_TRUE(vb && vb->IsArray() && !vb->array.Empty());
+	if (vb && vb->IsArray() && !vb->array.Empty()) {
+		EXPECT_TRUE(vb->array[0].SourceLine() == 8);  // Text "t"
+	}
+
+	// 3. CONTROLE POSITIF : on DECALE la source de trois lignes, et TOUT doit
+	//    bouger de trois. Sans ce point, un compteur bloque sur une constante
+	//    passerait les deux precedents.
+	{
+		NkString decale("\n\n\n");
+		decale.Append(src);
+		NkArchive d2;
+		NkGuiDiag e2;
+		EXPECT_TRUE(NkGuiArchive::Read(decale.Data(), (nk_uint32)decale.Size(), d2, e2));
+		const NkArchive *w2 = NkGSousBloc(d2, 0);
+		EXPECT_TRUE(w2 != nullptr);
+		if (w2) {
+			const NkArchive *v2 = NkGSousBloc(*w2, 0);
+			EXPECT_TRUE(v2 != nullptr);
+			if (v2) {
+				EXPECT_TRUE(v2->GetSourceLine(NkStringView("a")) == 7);
+				EXPECT_TRUE(v2->GetSourceLine(NkStringView("b")) == 10);
+			}
+		}
+	}
+
+	// 4. UNE TRANCHE BRUTE porte sa ligne, elle aussi -- c'est le seul endroit ou
+	//    un diagnostic pourra pointer une construction non modelisee.
+	{
+		const char *b = "nkgui 0.3\nbehavior \"b\" {\n  set x = 1\n}\n";
+		NkArchive ab;
+		NkGuiDiag eb;
+		EXPECT_TRUE(NkGuiArchive::Read(b, (nk_uint32)NkString(b).Size(), ab, eb));
+		const NkArchive *bl = NkGSousBloc(ab, 0);
+		EXPECT_TRUE(bl != nullptr);
+		if (bl) {
+			const NkArchiveNode *bb = bl->FindNode(NkStringView(NkGuiArchive::KeyBody()));
+			EXPECT_TRUE(bb && bb->IsArray() && !bb->array.Empty());
+			if (bb && bb->IsArray() && !bb->array.Empty()) {
+				EXPECT_TRUE(bb->array[0].IsScalar() && bb->array[0].SourceLine() == 3);
+			}
+		}
+	}
+
+	// 5. CONTROLE NEGATIF : un document FABRIQUE PAR LE CODE n'a aucune ligne, et
+	//    n'alloue donc rien pour en porter une. `-1`, pas `0` : « inconnue » et
+	//    « premiere ligne » ne doivent pas se confondre.
+	{
+		NkArchive code;
+		code.SetInt64(NkStringView("a"), 1);
+		EXPECT_TRUE(code.GetSourceLine(NkStringView("a")) == -1);
+		EXPECT_TRUE(!code.FindNode(NkStringView("a"))->HasTrivia());
+	}
+
+	// 6. LA LIGNE SURVIT A LA COPIE. `NkUIDocument` est copiee par valeur ; un
+	//    diagnostic produit sur une copie doit pointer le meme endroit.
+	{
+		NkArchive copie = ar;
+		const NkArchive *w3 = NkGSousBloc(copie, 0);
+		EXPECT_TRUE(w3 != nullptr);
+		if (w3) {
+			const NkArchive *v3 = NkGSousBloc(*w3, 0);
+			EXPECT_TRUE(v3 != nullptr && v3->GetSourceLine(NkStringView("b")) == 7);
+		}
+	}
+
+	// 7. ET ELLE NE SORT PAS DANS LE FICHIER. C'est de la position de source, pas
+	//    du contenu : l'aller-retour doit rester octet pour octet.
+	NkString out;
+	NkGuiDiag e3;
+	EXPECT_TRUE(NkGRoundTrip(src, out, e3));
+	EXPECT_STREQ(out, NkString(src));
+
+	// 8. ATTENTION -- LA LIGNE SUIT `AdoptFormatting`, ET C'EST UNE MUTATION
+	//    SURVIVANTE QUI A TRANCHE. La mutation « la ligne ne survit pas a
+	//    AdoptFormatting » restait VERTE : rien ne le mesurait.
+	//
+	//    Deux issues etaient possibles -- retirer la propagation comme code mort,
+	//    ou la mesurer. C'est la seconde, et pour une raison de forme :
+	//    `AdoptFormatting` existe pour greffer sur une archive RECONSTRUITE tout ce
+	//    que le FICHIER disait. Le rang y va deja, la trivia et le litteral aussi.
+	//    Une ligne est un fait du fichier au meme titre que son rang -- la laisser
+	//    de cote ferait porter a cette operation trois faits de source sur quatre,
+	//    et c'est exactement le genre d'exception qu'on decouvre six mois plus tard.
+	{
+		NkArchive source;
+		source.SetInt64(NkStringView("a"), 1);
+		source.SetSourceOrder(NkStringView("a"), 3);
+		source.SetSourceLine(NkStringView("a"), 42);
+
+		// La destination est NUE : reconstruite depuis un modele, elle ne sait rien
+		// du fichier. C'est le cas d'usage exact d'AdoptFormatting.
+		NkArchive dest;
+		dest.SetInt64(NkStringView("a"), 1);
+		dest.SetInt64(NkStringView("neuve"), 7);
+		EXPECT_TRUE(dest.GetSourceLine(NkStringView("a")) == -1);
+
+		dest.AdoptFormatting(source);
+		EXPECT_TRUE(dest.GetSourceLine(NkStringView("a")) == 42);
+		// LE TEMOIN : le rang passe aussi. Sans lui, ce controle serait vert avec
+		// un AdoptFormatting qui ne ferait plus rien du tout.
+		EXPECT_TRUE(dest.GetSourceOrder(NkStringView("a")) == 3);
+		// CONTROLE NEGATIF : une cle absente de la source reste NUE -- on
+		// n'invente pas une ligne pour une propriete que le fichier n'avait pas.
+		EXPECT_TRUE(dest.GetSourceLine(NkStringView("neuve")) == -1);
+	}
+}
+
+// =============================================================================
 // POINT D'ENTREE DU BANC DE LA COUCHE
 // =============================================================================
 static void NkGuiLayerSuite(const char *corpusDir) {
@@ -1198,6 +1376,7 @@ static void NkGuiLayerSuite(const char *corpusDir) {
 	L16_Migrations();
 	L17_ClasserUneValeur();
 	L18_Comparer();
+	L19_LigneDuFichier();
 }
 
 // =============================================================================

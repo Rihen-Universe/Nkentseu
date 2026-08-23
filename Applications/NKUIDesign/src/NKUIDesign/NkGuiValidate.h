@@ -56,15 +56,20 @@
 //      LISIBLE**. Un editeur qui refuse d'ouvrir le fichier dont il signale la
 //      faute rend cette faute incorrigible.
 //
-//   2. ⚠️ LES DIAGNOSTICS N'ONT PLUS DE NUMERO DE LIGNE, ILS ONT UN CHEMIN.
-//      L'archive porte la SYNTAXE du document, pas les positions dans la source :
-//      aucun noeud n'y connait sa ligne. Plutot que d'inventer un numero, chaque
-//      diagnostic nomme le chemin du noeud fautif -- `widgets / VBox "v" /
-//      Button "ok" . label`. C'est un echange, pas une amelioration gratuite :
-//      on perd le saut direct dans l'editeur de texte, on gagne une designation
-//      qui survit a la modification du fichier. Si la ligne redevient
-//      necessaire, elle se recalculera par une passe sur la source -- elle ne se
-//      stockera pas dans le document.
+//   2. LES DIAGNOSTICS PORTENT LA LIGNE **ET** LE CHEMIN.
+//      `widgets / VBox "v" / Button "ok" . label`, ligne 47. Les deux, parce
+//      qu'ils repondent a deux questions : **le chemin dit QUOI, la ligne dit OU
+//      ALLER**. Celui qui corrige un `.nkgui` l'a ouvert dans un editeur de
+//      texte ; lui donner le chemin seul, c'est le laisser chercher.
+//
+//      ⚠️ ET J'AVAIS D'ABORD LIVRE LE CHEMIN SEUL, en le presentant comme un
+//         « echange ». C'en etait un, et il n'avait pas lieu d'etre :
+//         l'information n'etait pas PERDUE, elle n'etait pas TRANSPORTEE -- le
+//         lecteur connait la ligne au moment ou il analyse. Chiffrage fait avant
+//         d'ecrire : 4 octets dans un bloc de trivia DEJA alloue, zero
+//         allocation nouvelle, aucun changement de forme de l'archive. Quand le
+//         cout d'une information utile se compte en octets, « c'est un echange »
+//         est une facon de ne pas la porter.
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -91,6 +96,7 @@ namespace nkuidesign {
 		using nkentseu::NkString;
 		using nkentseu::NkStringView;
 		using nkentseu::NkVector;
+		using nkentseu::nk_int32;
 		using nkentseu::uint32;
 
 		// =====================================================================
@@ -482,11 +488,13 @@ namespace nkuidesign {
 		}
 
 		inline void NkGPushDiag(NkVector<nkentseu::NkGuiDiag> &out, const char *code,
-								const NkString &msg) {
+								const NkString &msg, nk_int32 line) {
 			nkentseu::NkGuiDiag d;
 			d.code = NkString(code);
 			d.message = msg;
-			d.line = 0;	 // voir la note de bascule : le chemin remplace la ligne
+			// -1 = le noeud ne vient pas d'un fichier (document fabrique par le
+			// code). On rend 0, que le rapport affiche comme « pas de ligne ».
+			d.line = (line > 0) ? (nkentseu::nk_uint32)line : 0u;
 			out.PushBack(d);
 		}
 
@@ -513,8 +521,14 @@ namespace nkuidesign {
 			return (b && b->IsArray()) ? b : nullptr;
 		}
 
+		/// ⚠️ LA LIGNE D'UN BLOC VIT SUR LE NOEUD QUI LE PORTE, pas dans l'archive
+		///    du bloc. Un bloc est un element du `$body` de son parent : c'est cet
+		///    element qui a une trivia, donc une ligne. L'archive interieure, elle,
+		///    n'est qu'une table de membres. Le parametre `ligne` existe pour ca --
+		///    l'oublier redonnerait des diagnostics a la ligne 0 sans que rien ne
+		///    tombe, puisque le message reste juste.
 		inline void NkGValidateNode(const NkArchive &noeud, const NkString &parent,
-									NkVector<nkentseu::NkGuiDiag> &out) {
+									nk_int32 ligne, NkVector<nkentseu::NkGuiDiag> &out) {
 			const NkString role(NkGuiArchive::TypeOf(noeud));
 			const NkString chemin = NkGCheminEnfant(parent, noeud);
 
@@ -528,7 +542,7 @@ namespace nkuidesign {
 					m.Append("' -- ancien nom, encore lu. Le vocabulaire du document 7 dit '");
 					m.Append(alias);
 					m.Append("'");
-					NkGPushDiag(out, "W-ROLE-ALIAS", m);
+					NkGPushDiag(out, "W-ROLE-ALIAS", m, ligne);
 					def = NkGFindRole(NkString(alias));
 				} else {
 					// UNE ERREUR NOMMEE, PAS UN REJET MUET DU FICHIER. Le document
@@ -538,7 +552,7 @@ namespace nkuidesign {
 					m.Append(" : role inconnu -- '");
 					m.Append(role);
 					m.Append("' n'est pas dans le vocabulaire NkUI (document 7 §3)");
-					NkGPushDiag(out, "E-ROLE-INCONNU", m);
+					NkGPushDiag(out, "E-ROLE-INCONNU", m, ligne);
 				}
 			}
 
@@ -571,7 +585,7 @@ namespace nkuidesign {
 						m.Append(" : valeur mal formee -- '");
 						m.Append(NkString(ents[p].node.Lexeme()));
 						m.Append("' n'est aucune des formes de valeur du format");
-						NkGPushDiag(out, "E-VALEUR", m);
+						NkGPushDiag(out, "E-VALEUR", m, ents[p].node.SourceLine());
 						continue;
 					}
 
@@ -593,7 +607,7 @@ namespace nkuidesign {
 						m.Append(" : propriete absente du schema du role '");
 						m.Append(def->role);
 						m.Append("'");
-						NkGPushDiag(out, "E-TYPE", m);
+						NkGPushDiag(out, "E-TYPE", m, ents[p].node.SourceLine());
 						continue;
 					}
 					if (!NkGValueMatches(ents[p].node, found->kind)) {
@@ -608,7 +622,8 @@ namespace nkuidesign {
 						// `E-VALEUR` quand la valeur n'est bien formee pour AUCUN type
 						// -- c'est un des quatre refus qui ont change de domicile ;
 						// `E-TYPE` quand elle est bien formee mais du mauvais type.
-						NkGPushDiag(out, k == NkGuiValueKind::Invalid ? "E-VALEUR" : "E-TYPE", m);
+						NkGPushDiag(out, k == NkGuiValueKind::Invalid ? "E-VALEUR" : "E-TYPE", m,
+									ents[p].node.SourceLine());
 					}
 				}
 			}
@@ -621,7 +636,8 @@ namespace nkuidesign {
 			}
 			for (uint32 c = 0; c < (uint32)corps->array.Size(); ++c) {
 				if (corps->array[c].IsObject() && corps->array[c].object) {
-					NkGValidateNode(*corps->array[c].object, chemin, out);
+					NkGValidateNode(*corps->array[c].object, chemin,
+									corps->array[c].SourceLine(), out);
 				}
 			}
 		}
@@ -653,7 +669,8 @@ namespace nkuidesign {
 						m.Append(nom);
 						m.Append("' n'est pas une section du format, et ce fichier n'est pas "
 								 "d'une version plus recente que la mienne");
-						NkGPushDiag(out, "E-SECTION-INCONNUE", m);
+						NkGPushDiag(out, "E-SECTION-INCONNUE", m,
+									corps->array[i].SourceLine());
 						continue;
 					}
 					if (nom.Compare("widgets") != 0) {
@@ -665,7 +682,8 @@ namespace nkuidesign {
 					}
 					for (uint32 k = 0; k < (uint32)racines->array.Size(); ++k) {
 						if (racines->array[k].IsObject() && racines->array[k].object) {
-							NkGValidateNode(*racines->array[k].object, NkString("widgets"), out);
+							NkGValidateNode(*racines->array[k].object, NkString("widgets"),
+											racines->array[k].SourceLine(), out);
 						}
 					}
 				}

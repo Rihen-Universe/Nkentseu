@@ -554,9 +554,12 @@ namespace nkuidesign {
 			const bool r7 =
 				rejects("nkgui 0.2\nwidgets {\n B \"a\" { p = }\n}\n", "valeur manquante");
 			rep.Append('\n');
+			const uint32 refusesLecture =
+				(uint32)(r1 ? 1 : 0) + (uint32)(r2 ? 1 : 0) + (uint32)(r4 ? 1 : 0)
+				+ (uint32)(r5 ? 1 : 0) + (uint32)(r7 ? 1 : 0);
 			check("3. les 5 documents que la couche ne sait pas REPRESENTER sont refuses "
 				  "a la lecture",
-				  r1 && r2 && r4 && r5 && r7, "");
+				  refusesLecture == 5, "");
 
 			// =============================================================
 			// 3b -- LES QUATRE REFUS QUI ONT CHANGE DE DOMICILE
@@ -584,6 +587,7 @@ namespace nkuidesign {
 					 "nkgui 0.3\ninconnue { }\n", "E-SECTION-INCONNUE"},
 				};
 				bool tous = true;
+				uint32 signalesValidation = 0;
 				for (uint32 i = 0; i < 4; ++i) {
 					NkArchive dc;
 					NkGuiDiag ec;
@@ -606,10 +610,42 @@ namespace nkuidesign {
 					// LE FICHIER DOIT SE LIRE **ET** LA FAUTE ETRE VUE. Un refus a la
 					// lecture serait ici un echec : il rendrait la faute incorrigible.
 					tous = tous && lu && vu;
+					if (lu && vu) {
+						++signalesValidation;
+					}
 				}
 				check("3b. les 4 refus qui ont change de domicile : le fichier se LIT, et la "
 					  "VALIDATION nomme la faute",
 					  tous, "");
+
+				// =========================================================
+				// 3c -- LE COMPTE DES REFUS, ET C'EST UNE FAMILLE ENTIERE
+				// =========================================================
+				// ⚠️ UNE MIGRATION CONSERVE CE QUE LES CONTROLES MESURENT, ET PERD
+				//    SILENCIEUSEMENT CE QU'ILS NE MESURENT PAS -- EN PARTICULIER LA
+				//    CAPACITE A REFUSER.
+				//
+				//    C'est ce qui a failli arriver le 2026-08-22. L'ancien lecteur
+				//    refusait NEUF documents fautifs ; le nouveau en refuse CINQ.
+				//    Aucun banc ne pouvait le voir : les quatre autres se lisent, se
+				//    reecrivent a l'octet, et tous les controles restaient verts. **Le
+				//    moteur avait juste cesse de savoir dire que la couleur a cinq
+				//    chiffres**, et un refus qu'on ne fait plus ne se mesure nulle
+				//    part -- il n'a pas de trace, pas de sortie, pas de ligne rouge.
+				//
+				//    C'est PIRE qu'un controle qui rend un faux vert : c'est une
+				//    CAPACITE QUI DISPARAIT SANS LAISSER DE TRACE.
+				//
+				// >>> LA PARADE, ET ELLE SE POSE AVANT DE COMPARER CE QU'ON ACCEPTE :
+				//     COMPTER LES REFUS DE L'ANCIEN ET DU NOUVEAU, ET EXIGER
+				//     L'EGALITE. Ce controle fige ce compte a NEUF. Il ne dit pas
+				//     « les fautes sont bien vues » -- 3 et 3b le disent deja -- il
+				//     dit **combien de fautes ce systeme sait encore nommer**. Le
+				//     jour ou ce nombre baissera, ce sera une DECISION, pas une
+				//     consequence.
+				check("3c. LE COMPTE DES REFUS : 9 fautes nommees, autant qu'avant la "
+					  "bascule -- 5 a la lecture + 4 a la validation",
+					  refusesLecture + signalesValidation == 9, "");
 			}
 
 			// 4. Ce qui DOIT passer : les trois echappements du document 2, l'UTF-8 et
@@ -1184,6 +1220,73 @@ namespace nkuidesign {
 				check("21b. (temoin) le MEME fichier avec un nom legal est ACCEPTE : le refus "
 					  "de 21 vient bien du `$`",
 					  ok, ok ? "" : eOk.message.Data());
+			}
+
+			// =============================================================
+			// 22 -- UN DIAGNOSTIC DIT **OU ALLER**, PAS SEULEMENT **QUOI**
+			// =============================================================
+			// ATTENTION -- CE CONTROLE EXISTE PARCE QUE J'AVAIS LIVRE LE CHEMIN SEUL.
+			//    A la bascule, les diagnostics ont perdu leur numero de ligne et j'ai
+			//    presente ca comme un echange acceptable : le chemin
+			//    (`widgets / Button "x" . color`) designe le noeud et survit aux
+			//    modifications, la ligne non.
+			//
+			//    C'etait vrai et c'etait insuffisant. **Le chemin dit QUOI, la ligne
+			//    dit OU ALLER**, et celui qui corrige un `.nkgui` l'a ouvert dans un
+			//    editeur de texte. Ce sont deux questions differentes, donc l'une ne
+			//    remplace pas l'autre.
+			//
+			//    ⚠️ Et l'information n'etait pas PERDUE, elle n'etait pas TRANSPORTEE :
+			//       le lecteur connait la ligne au moment ou il analyse. Cout mesure
+			//       avant d'ecrire : 4 octets dans un bloc de trivia deja alloue.
+			//       Quand le cout d'une information utile se compte en octets,
+			//       « c'est un echange » est une facon de ne pas la porter.
+			{
+				//  1: nkgui 0.3
+				//  2: widgets {
+				//  3:   Button "ok" {
+				//  4:     label = "x"
+				//  5:
+				//  6:     // un commentaire
+				//  7:     color = #12345      <-- la faute
+				//  8:   }
+				//  9:   Inconnu "z" { }       <-- role inconnu
+				// 10: }
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "  Button \"ok\" {\n"
+								  "    label = \"x\"\n"
+								  "\n"
+								  "    // un commentaire\n"
+								  "    color = #12345\n"
+								  "  }\n"
+								  "  Inconnu \"z\" { }\n"
+								  "}\n";
+				NkArchive d;
+				NkGuiDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGuiDiag> dg;
+				NkGValidate(d, dg);
+
+				uint32 ligneValeur = 0;
+				uint32 ligneRole = 0;
+				bool cheminValeur = false;
+				for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+					if (dg[i].code.Compare("E-VALEUR") == 0) {
+						ligneValeur = dg[i].line;
+						cheminValeur = dg[i].message.Contains("Button \"ok\" . color");
+					}
+					if (dg[i].code.Compare("E-ROLE-INCONNU") == 0) {
+						ligneRole = dg[i].line;
+					}
+				}
+				// LES LIGNES SONT ECRITES A LA MAIN, sinon ce controle mesurerait le
+				// code teste avec lui-meme. Ni la ligne vide ni le commentaire ne
+				// comptent pour la propriete : ils appartiennent a sa trivia de tete.
+				check("22. un diagnostic de PROPRIETE porte la ligne exacte (7) ET le chemin",
+					  lu && ligneValeur == 7 && cheminValeur, "");
+				check("22b. un diagnostic de BLOC porte la ligne du bloc (9)",
+					  lu && ligneRole == 9, "");
 			}
 
 			rep.Append("\n=== CONTROLES : ");

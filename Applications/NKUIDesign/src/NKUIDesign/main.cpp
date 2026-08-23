@@ -48,6 +48,8 @@
 //       reviendrait a lancer silencieusement autre chose sur macOS. **Manque
 //       porte au canal** — c'est un fichier de NKEditorKit, pas d'ici.
 // =============================================================================
+#include <cstdio>
+
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
@@ -219,6 +221,30 @@ int nkmain(const NkEntryState &state) {
 		if (NkComponentDecl::StrEq(a, "--small")) {
 			width = 1024;
 			height = 640;
+		}
+		// ⚠️ UN DRAPEAU INCONNU EST REFUSE, IL NE TOMBE PAS DANS LE CHEMIN PAR
+		//    DEFAUT. Mesure du 2026-08-23, et elle m'a coute dix minutes : j'ai
+		//    tape `--validate=` au lieu de `--valider=`. Le programme n'a pas
+		//    bouclé -- **il attendait**, parce qu'un argument non reconnu laissait
+		//    passer jusqu'a l'ouverture de la fenetre de l'editeur. J'ai cherche
+		//    une boucle infinie dans du code que je venais d'ecrire.
+		//
+		//    Une faute de frappe doit couter une ligne de message, pas une
+		//    seance de diagnostic. Tout ce qui commence par `--` et que personne
+		//    n'a reconnu plus haut est donc une erreur nommee, avec la liste de
+		//    ce qui existe.
+		if (a[0] == '-' && a[1] == '-') {
+			fputs("drapeau inconnu : ", stdout);
+			puts(a);
+			puts("drapeaux reconnus :");
+			puts("  --probe                 la sonde headless");
+			puts("  --roundtrip[=<dossier>] l'aller-retour du format .nkgui");
+			puts("  --roundtrip-controles   les temoins du lecteur/ecrivain");
+			puts("  --pool-controles        les temoins du pool de chaines");
+			puts("  --valider[=<dossier>]   la validation par role et par type");
+			puts("  --dump-ui               publier les rectangles dessines");
+			puts("  --small                 fenetre reduite (1024x640)");
+			return 2;
 		}
 	}
 

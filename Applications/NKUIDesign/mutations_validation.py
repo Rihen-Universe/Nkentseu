@@ -37,6 +37,14 @@ MUTATIONS = [
     # V4 -- « une valeur mal formee satisfait n'importe quelle lettre » -- A SURVECU
     # le 2026-08-23, et le code qu'elle visait a ete RETIRE : voir la note sur
     # NkGValueMatches. Elle n'a plus d'ancre parce qu'elle n'a plus de cible.
+
+    ("V5 le diagnostic d un BLOC perd sa ligne",
+     "\t\t\t\t\t\tNkGValidateNode(*racines->array[k].object, NkString(\"widgets\"),\n\t\t\t\t\t\t\tracines->array[k].SourceLine(), out);",
+     "\t\t\t\t\t\tNkGValidateNode(*racines->array[k].object, NkString(\"widgets\"), 0, out);"),
+
+    ("V6 le diagnostic d une PROPRIETE perd sa ligne",
+     "\t\t\t\t\t\tNkGPushDiag(out, k == NkGuiValueKind::Invalid ? \"E-VALEUR\" : \"E-TYPE\", m,\n\t\t\t\t\t\t\t\t\tents[p].node.SourceLine());",
+     "\t\t\t\t\t\tNkGPushDiag(out, k == NkGuiValueKind::Invalid ? \"E-VALEUR\" : \"E-TYPE\", m, 0);"),
 ]
 
 

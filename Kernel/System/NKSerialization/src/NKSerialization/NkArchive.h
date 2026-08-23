@@ -454,9 +454,30 @@ namespace nkentseu {
 			 */
 			nk_int32 sourceOrder = -1;
 
+			/**
+			 * @brief LIGNE de l'entree dans le fichier d'origine, 1 pour la premiere
+			 * @note -1 = inconnue (entree fabriquee par le code, ou format binaire).
+			 *
+			 * AJOUTE LE 2026-08-23, ET IL A FALLU QU'ON ME LE DEMANDE. La couche
+			 * `.nkgui` sur archive rendait des diagnostics de validation SANS ligne,
+			 * avec un chemin a la place (`widgets / Button "x" . color`). C'etait
+			 * honnete et c'etait insuffisant : **le chemin dit QUOI, la ligne dit OU
+			 * ALLER**, et celui qui corrige un fichier texte l'a ouvert dans un
+			 * editeur de texte. Les deux repondent a des questions differentes.
+			 *
+			 * L'information n'etait pas PERDUE, elle n'etait pas TRANSPORTEE : le
+			 * lecteur la connait au moment ou il analyse. Sa place est ici, exactement
+			 * a cote de `sourceOrder` -- meme nature (« ce que le fichier disait »),
+			 * meme optionalite, meme bloc deja alloue. Cout mesure avant d'ecrire :
+			 * 4 octets par bloc de trivia DEJA existant, zero allocation nouvelle,
+			 * aucun changement de forme de l'archive.
+			 */
+			nk_int32 sourceLine = -1;
+
 			/// @brief Vrai si ce bloc ne porte rien : il aurait pu ne pas exister
 			[[nodiscard]] bool Empty() const noexcept {
-				return leading.Empty() && trailing.Empty() && literal.Empty() && sourceOrder < 0;
+				return leading.Empty() && trailing.Empty() && literal.Empty() && sourceOrder < 0
+					   && sourceLine < 0;
 			}
 
 	}; // struct NkArchiveTrivia
@@ -692,6 +713,13 @@ namespace nkentseu {
 
 			/// @brief Rang dans le fichier d'origine, -1 si inconnu
 			[[nodiscard]] nk_int32 SourceOrder() const noexcept;
+
+			/// @brief Definit la LIGNE de l'entree dans le fichier d'origine
+			/// @param line Ligne >= 1 ; une valeur negative efface la ligne
+			void SetSourceLine(nk_int32 line) noexcept;
+
+			/// @brief Ligne dans le fichier d'origine, -1 si inconnue
+			[[nodiscard]] nk_int32 SourceLine() const noexcept;
 
 			/**
 			 * @brief Enregistre la forme litterale de la valeur, telle qu'ecrite
@@ -1384,6 +1412,13 @@ namespace nkentseu {
 
 			/// @brief Rang de `key` dans le fichier d'origine, -1 si inconnu ou absent
 			[[nodiscard]] nk_int32 GetSourceOrder(NkStringView key) const noexcept;
+
+			/// @brief Definit la ligne de `key` dans le fichier d'origine
+			/// @return false si la cle n'existe pas
+			nk_bool SetSourceLine(NkStringView key, nk_int32 line) noexcept;
+
+			/// @brief Ligne de `key` dans le fichier d'origine, -1 si inconnue ou absente
+			[[nodiscard]] nk_int32 GetSourceLine(NkStringView key) const noexcept;
 
 			/// @brief Ce qu'il faut IMPRIMER pour `key` : litteral valable, sinon canonique
 			/// @return vue vide seulement si la cle est absente ou si la chaine est vide
