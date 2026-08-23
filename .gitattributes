@@ -8,6 +8,15 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
+# Corpus .nkgui : TOUJOURS LF, et ce n est pas une preference de style.
+# Ces fichiers sont des REFERENCES dont le contenu exact fait foi : leur
+# README documente des positions EN OCTETS ("premier ecart a l octet 533").
+# Sous `text=auto`, un checkout Windows les rendrait en CRLF et ces positions
+# deviendraient fausses selon la machine. Le lecteur, lui, encaisse les deux --
+# l aller-retour reste 6/6 octet pour octet en CRLF. C est la REFERENCE qu on
+# fige, pas le lecteur qu on protege.
+*.nkgui text eol=lf
+
 # Binaires courants (jamais de conversion).
 *.png binary
 *.jpg binary
