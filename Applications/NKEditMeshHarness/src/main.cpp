@@ -3473,12 +3473,19 @@ static void MaterialBattery() {
 				 countMat(m, 1), st.trisBefore, st.trisAfter);
 	}
 
-	// ── 11. TEMOIN : ce que `smooth` fait DEJA, et qui a dicte la conception ──
-	// `smooth` ne traverse PAS le round-trip : BuildFromPolygons cree des Face
-	// neuves, donc smooth retombe a 0. Il n'a jamais gene parce que
-	// BuildFromIndexed le RE-DEDUIT des normales des coins. Un materiau ne peut
-	// pas se re-deduire — d'ou le transport explicite. Cette ligne fige le
-	// comportement de smooth pour qu'on voie si quelqu'un le change.
+	// ── 11. `smooth` TRAVERSE MAINTENANT, PAR LA MEME TABLE QUE LE MATERIAU ──
+	// ⚠ CETTE LIGNE A CHANGE DE VALEUR LE 2026-08-22 : `12 -> 0` est devenu
+	// `12 -> 24`. Elle avait ete ecrite comme un TEMOIN — « voici ce que smooth
+	// fait deja » — et elle disait vrai. Mais elle presentait un DEFAUT comme un
+	// comportement : `BuildFromPolygons` creait des Face neuves et perdait
+	// l'ombrage, alors que `BuildFromIndexed` le RE-DEDUIT des normales des
+	// coins. Un attribut qui « survit » grace a un AUTRE chemin ne survit qu'aux
+	// operations qui passent par ce chemin-la.
+	//
+	// ⚠ ET LE TEMOIN NE POUVAIT PAS LE DIRE : il mesure un maillage
+	// ENTIEREMENT lisse, ou « tout perdre » et « tout garder » sont les deux
+	// seules reponses possibles. C'est la batterie `smooth/`, sur un maillage
+	// MIXTE, qui distingue l'heredite d'un `smooth = 1` pose partout.
 	{
 		NkEditMesh m;
 		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
@@ -3497,7 +3504,7 @@ static void MaterialBattery() {
 		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
 			if (m.faces[f].smooth)
 				apres++;
-		Put("{0:<34} smooth {1} -> {2} sur {3} faces (TEMOIN du comportement existant)", "mat/temoin-smooth",
+		Put("{0:<34} smooth {1} -> {2} sur {3} faces (24 = les filles heritent)", "mat/temoin-smooth",
 				 avant, apres, (uint32)m.faces.Size());
 	}
 
@@ -5378,6 +5385,171 @@ static void MatFusionNBattery() {
 	}
 }
 
+
+// -- OMBRAGE PAR FACE : HERITE DE LA MERE, PAR LA MEME TABLE QUE LE MATERIAU --
+// ARBITRAGE (2026-08-22) : une face fille herite de sa mere, et la question
+// « d ou vient cette face » se resout UNE fois, pour tous les attributs par
+// face. D ou l entree unique `NkEditMesh::FaceAttrib`.
+//
+// CE QUE MESURAIT L ANCIEN TEMOIN, ET POURQUOI IL NE SUFFISAIT PAS.
+// `mat/temoin-smooth` figeait `smooth 12 -> 0` en decrivant ce zero comme
+// « le comportement existant ». Il l etait -- mais il etait aussi un DEFAUT,
+// et le temoin ne pouvait pas faire la difference : il mesurait un maillage
+// ENTIEREMENT lisse, ou « tout perdre » et « tout garder » sont les deux
+// seules reponses possibles.
+//
+// LE CAS QUI TRANCHE EST LE MAILLAGE MIXTE. Trois faces lisses, trois plates.
+// Une implantation qui poserait `smooth = 1` partout rendrait 24/24 ; une qui
+// le poserait a 0 rendrait 0/24 ; seule l heredite rend 12/12. Sans melange,
+// les trois se ressemblent.
+static void SmoothHeritageBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	auto cube = [&](NkEditMesh &m) {
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+	};
+	auto compteLisses = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].smooth)
+				k++;
+		return k;
+	};
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				k++;
+		return k;
+	};
+
+	// -- 1. MIXTE : la moitie lisse, la moitie plate -----------------------
+	// Trois des six faces du cube passent en lisse, puis subdivision. Chaque
+	// face donne quatre filles : on attend 12 lisses sur 24, pas 0 et pas 24.
+	{
+		NkEditMesh m;
+		cube(m);
+		uint32 pose = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				m.faces[f].smooth = (pose++ < 3u) ? 1 : 0;
+		const uint32 avantL = compteLisses(m), avantF = vivantes(m);
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		Put("{0:<34} lisses {1}/{2} -> {3}/{4} (12/24 : ni tout, ni rien)",
+			"smooth/mixte-subdivision", avantL, avantF, compteLisses(m), vivantes(m));
+	}
+
+	// -- 2. MIXTE, mais l INVERSE ------------------------------------------
+	// Les trois PREMIERES faces plates et les trois suivantes lisses. Une
+	// implantation qui lirait le mauvais parent (decalage d une face) rendrait
+	// encore 12/24 dans le cas 1 : elle ne se verrait qu ici, ou le motif
+	// change de place. On mesure donc quelles faces sont lisses, pas seulement
+	// combien.
+	{
+		NkEditMesh m;
+		cube(m);
+		uint32 pose = 0;
+		NkVector<uint32> mereLisse;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive) {
+				const uint8 sm = (pose++ >= 3u) ? 1 : 0;
+				m.faces[f].smooth = sm;
+				if (sm)
+					mereLisse.PushBack(f);
+			}
+		// Signature de POSITION : somme des centres des faces lisses. Elle
+		// distingue « trois faces lisses » de « trois AUTRES faces lisses »,
+		// ce qu un compte ne peut pas faire.
+		auto signature = [](const NkEditMesh &mm) {
+			float32 acc = 0.f;
+			for (uint32 f = 0; f < (uint32)mm.faces.Size(); ++f) {
+				if (!mm.faces[f].alive || !mm.faces[f].smooth)
+					continue;
+				NkVector<NkEmId> b;
+				mm.GetFaceVerts((NkEmId)f, b);
+				NkVec3f c{0.f, 0.f, 0.f};
+				for (uint32 j = 0; j < (uint32)b.Size(); ++j)
+					c = c + mm.verts[b[j]].pos;
+				if (b.Size())
+					c = c * (1.f / (float32)b.Size());
+				acc += c.x * 1.f + c.y * 10.f + c.z * 100.f;
+			}
+			return acc;
+		};
+		const float32 sigAvant = signature(m);
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		Put("{0:<34} lisses {1}/{2} | position avant {3:.4f} apres {4:.4f} (x4 filles)",
+			"smooth/mixte-position", compteLisses(m), vivantes(m), (double)sigAvant, (double)signature(m));
+	}
+
+	// -- 3. TOUT PLAT reste TOUT PLAT --------------------------------------
+	// Le temoin de l autre bord. Sans lui, un transport qui poserait 1 partout
+	// passerait les cas 1 et 2 si le hasard des index l arrangeait.
+	{
+		NkEditMesh m;
+		cube(m);
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			m.faces[f].smooth = 0;
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		Put("{0:<34} lisses {1}/{2} (0 attendu : rien ne s invente)", "smooth/tout-plat-reste-plat",
+			compteLisses(m), vivantes(m));
+	}
+
+	// -- 4. L OMBRAGE SURVIT AUX AUTRES OPERATIONS AUSSI -------------------
+	// La subdivision n est pas un cas particulier : toutes les operations
+	// passent par le meme round-trip. Extrusion et triangulation le prouvent
+	// sur la MEME figure mixte -- et si l une d elles n empruntait pas ce
+	// chemin, elle seule rendrait 0.
+	{
+		struct Cas {
+				const char *nom;
+				int32 quoi; // 0 extrusion, 1 triangulation, 2 soudure
+		};
+		const Cas cs[3] = {{"smooth/survit-extrusion", 0},
+						   {"smooth/survit-inset", 1},
+						   {"smooth/survit-soudure", 2}};
+		for (uint32 c = 0; c < 3u; ++c) {
+			NkEditMesh m;
+			cube(m);
+			uint32 pose = 0;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+				if (m.faces[f].alive)
+					m.faces[f].smooth = (pose++ < 3u) ? 1 : 0;
+			const uint32 avantL = compteLisses(m), avantF = vivantes(m);
+			m.SelectAll();
+			bool ok = false;
+			if (cs[c].quoi == 0) {
+				NkExtrudeParams ep;
+				ok = m.ExtrudeSelectedFaces(ep);
+			} else if (cs[c].quoi == 1) {
+				NkInsetParams ip;
+				ok = m.InsetSelectedFaces(ip);
+			} else {
+				NkMergeParams mp;
+				mp.mode = NkMergeParams::ByDistance;
+				mp.distance = 0.001f;
+				ok = m.MergeSelectedVerts(mp);
+			}
+			m.RebuildEdges();
+			// `ok` est sur la ligne : sans lui, un « ombrage conserve » peut
+			// vouloir dire « l operation a ete refusee ».
+			Put("{0:<34} ok={1} lisses {2}/{3} -> {4}/{5}", cs[c].nom, ok ? 1 : 0, avantL, avantF,
+				compteLisses(m), vivantes(m));
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -5442,6 +5614,7 @@ int main(int argc, char **argv) {
 	// AJOUTEE EN FIN, meme raison : les 232 lignes precedentes gardent leur numero.
 	MatFusionBattery();
 	MatFusionNBattery();
+	SmoothHeritageBattery();
 
 	// La reference vit A COTE DES SOURCES DU BANC, pas dans le repertoire de
 	// lancement : sinon `--baseline` depuis deux endroits ecrit deux references

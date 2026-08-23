@@ -367,15 +367,25 @@ namespace nkentseu {
 						// n'impose plus le decoupage.
 						//
 						// ⚠ POURQUOI CE CHAMP NE PEUT PAS SE DEDUIRE, contrairement a
-						// `smooth` juste au-dessus. `smooth` traverse aujourd'hui les
-						// operations topologiques SANS etre transporte : BuildFromIndexed le
-						// RE-DEDUIT en comparant les normales des coins. Ca marche parce que
-						// l'ombrage EST une propriete des normales. Un materiau, lui, n'est
-						// deductible de rien — aucune donnee geometrique ne le porte. Il doit
-						// donc etre TRANSPORTE explicitement a travers le round-trip
-						// ToPolygons/BuildFromPolygons, par lequel passe toute operation
-						// d'edition. C'est la seule difference de nature entre les deux
-						// champs, et c'est elle qui a dicte la conception.
+						// `smooth` juste au-dessus. `smooth` EST une propriete des normales :
+						// BuildFromIndexed le RE-DEDUIT en comparant les normales des coins.
+						// Un materiau, lui, n'est deductible de rien — aucune donnee
+						// geometrique ne le porte. Il doit donc etre TRANSPORTE a travers le
+						// round-trip ToPolygons/BuildFromPolygons, par lequel passe toute
+						// operation d'edition.
+						//
+						// ⚠ CORRECTION DU 2026-08-22 — CETTE NOTE DISAIT AUSSI QUE `smooth`
+						// « traverse les operations topologiques SANS etre transporte ».
+						// C'ETAIT FAUX, et la mesure l'a montre : 12 faces lisses en donnaient
+						// 0 apres subdivision. La re-derivation n'opere que dans
+						// BuildFromIndexed ; BuildFromPolygons, lui, n'a aucune normale de
+						// coin a interroger — il n'a que la parente, et il l'ignorait.
+						// `smooth` est desormais transporte comme le materiau, par la MEME
+						// entree FaceAttrib (arbitrage : une face fille herite de sa mere).
+						//   > Un attribut « qui survit » parce qu'un AUTRE chemin le
+						//   > reconstruit ne survit qu'aux operations qui passent par ce
+						//   > chemin-la. La distinction ne se voit pas tant qu'on ne
+						//   > l'exerce pas.
 						uint16 material = 0;
 				};
 
@@ -395,6 +405,28 @@ namespace nkentseu {
 				// suivants, sinon toutes les faces d'apres changeraient de materiau en
 				// silence, sans qu'aucune erreur ne se declenche.
 				NkVector<MaterialSlot> materialSlots;
+
+				// ── ATTRIBUTS PAR FACE QUI TRAVERSENT LES OPERATIONS ────────────────
+				// UNE SEULE TABLE POUR DEUX ATTRIBUTS, ET C'EST LA RAISON D'ETRE DE CE
+				// TYPE. Le materiau a d'abord ete transporte seul, dans un
+				// `NkVector<uint16>` parallele aux faces ; `smooth`, lui, retombait a 0 a
+				// chaque round-trip (mesure : 12 -> 0 apres subdivision) parce qu'aucune
+				// operation ne le portait.
+				//
+				// ⚠ LA TENTATION ETAIT D'AJOUTER UN SECOND TABLEAU PARALLELE. Elle est
+				// refusee : chaque operation devrait alors repondre DEUX FOIS a la meme
+				// question — « de quelle face vient cette face ? » — et deux reponses
+				// finissent par diverger, sans qu'aucune erreur ne se declenche. Un seul
+				// tableau d'attributs impose UNE table de parente, donc un desaccord
+				// devient irrepresentable au lieu d'etre seulement improbable.
+				//
+				// ⚠ ET LE TROISIEME ATTRIBUT N'AURA PAS A CHOISIR SON CAMP : il s'ajoute
+				// ici et suit la meme parente sans qu'aucune operation ne soit modifiee.
+				// C'etait le motif ecrit de l'arbitrage du 2026-08-22.
+				struct FaceAttrib {
+						uint16 material = 0;
+						uint8 smooth = 0;
+				};
 
 				NkVector<Vert> verts;
 				NkVector<Hedge> hedges;
@@ -469,22 +501,22 @@ namespace nkentseu {
 				// ── Représentation POLYGONES (n-gons) — CSR ─────────────────────────
 				// Extrait les faces vivantes : sommets + boucles (face i = outFaceVerts
 				// [outFaceStart[i] .. outFaceStart[i+1]]). outFaceStart a faceCount+1 entrées.
-				// `outFaceMaterial`, quand il est fourni, recoit l'index de materiau de
-				// chaque face vivante, dans le MEME ordre que outFaceStart. C'est le seul
-				// moyen de faire survivre le materiau a une operation d'edition : toutes
-				// passent par ce round-trip, et il perdait jusqu'ici tout ce que portait
-				// `Face` (cf. le commentaire de Face::material).
+				// `outFaceAttrib`, quand il est fourni, recoit les attributs par face
+				// (materiau ET ombrage) de chaque face vivante, dans le MEME ordre que
+				// outFaceStart. C'est le seul moyen de les faire survivre a une operation
+				// d'edition : toutes passent par ce round-trip, et il perdait jusqu'ici
+				// tout ce que portait `Face`.
 				void ToPolygons(NkVector<NkVertex3D> &outVerts, NkVector<uint32> &outFaceStart,
 								NkVector<uint32> &outFaceVerts,
-								NkVector<uint16> *outFaceMaterial = nullptr) const;
+								NkVector<FaceAttrib> *outFaceAttrib = nullptr) const;
 				// (Re)construit le half-edge depuis des n-gons (même format CSR).
-				// `faceMaterial`, quand il est fourni, doit avoir `faceCount` entrees et
-				// donne l'index de materiau de chaque face reconstruite. Absent (nullptr),
-				// toutes les faces retombent sur le slot 0 — c'est le comportement
-				// historique, et c'est pour ca que le parametre est optionnel : aucun
-				// appelant existant ne change de comportement.
+				// `faceAttrib`, quand il est fourni, doit avoir `faceCount` entrees et
+				// donne le materiau ET l'ombrage de chaque face reconstruite. Absent
+				// (nullptr), toutes les faces retombent sur le slot 0 et sur FLAT — c'est
+				// le comportement historique, et c'est pour ca que le parametre est
+				// optionnel : aucun appelant existant ne change de comportement.
 				void BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
-									   const uint32 *faceVerts, const uint16 *faceMaterial = nullptr);
+									   const uint32 *faceVerts, const FaceAttrib *faceAttrib = nullptr);
 
 				// ── SOUS-MAILLES DEDUITES DU MATERIAU PAR FACE ──────────────────────
 				// Une plage de triangles consecutifs partageant le meme index de materiau.
