@@ -10,6 +10,131 @@
 namespace nkentseu {
 	namespace renderer {
 
+		// ── TABLE PLATE uint64 -> uint32, POUR LES TROIS POINTS CHAUDS ────────
+		// POURQUOI UNE TABLE DE PLUS ALORS QUE `NkHashMap` EXISTE, ET MARCHE
+		// `NkHashMap` est CORRECT ici depuis la correction du melangeur (Q73). Ce
+		// qu'on lui reproche n'est pas sa justesse mais son COUT PAR ENTREE : c'est
+		// une table CHAINEE, un noeud alloue par insertion. Le banc `--perf` le
+		// mesure hors moteur : 131 072 insertions, MEME avec `Reserve`, 25,6 ms —
+		// soit ~195 ns par entree. Une extrusion de 3 faces sur 65 536 faces passe
+		// par 262 144 de ces insertions (LinkTwins) plus 66 049 (BuildVertexMerge) :
+		// la table EST le cout de l'operation.
+		//
+		// Ici : adressage ouvert, sondage lineaire, un seul bloc contigu, AUCUNE
+		// allocation par entree. 16 octets par case, donc 4 cases par ligne de
+		// cache — un sondage rate reste dans la ligne deja chargee.
+		//
+		// ⚠ CE QU'ELLE NE CHANGE PAS, ET C'EST LA CONDITION POUR L'ADOPTER.
+		// Les trois appelants ont tous la meme regle : LA PREMIERE INSERTION GAGNE
+		// (`canon[i] = i` au premier passage, `map.Find(opp)` avant d'inserer,
+		// `seen.Find(key)` avant de creer l'arete). Cette regle ne depend QUE de
+		// l'ordre de la boucle appelante, jamais de l'ordre des seaux — donc
+		// remplacer la table ne peut pas changer un seul resultat. C'est
+		// exactement ce que la reference du harnais (274 lignes, dont les cinq
+		// empreintes `aretes/`) est la pour attester : elle est comparee octet pour
+		// octet, et le hachage de Catmull-Clark a deja montre en Q73 qu'un
+		// changement d'ordre d'iteration s'y voit.
+		//
+		// Elle n'expose ni iteration ni suppression : les trois appelants n'en ont
+		// pas besoin, et une iteration reintroduirait precisement la dependance a
+		// l'ordre des seaux qui a coute une re-etalonnage de reference en Q73.
+		class NkEmFlatMap {
+			public:
+				explicit NkEmFlatMap(uint32 hint) {
+					uint32 cap = 16u;
+					// Charge maximale 1/2 : au-dela, le sondage lineaire s'allonge
+					// vite. `hint` est une BORNE SUPERIEURE chez les trois appelants,
+					// donc la table ne grandira normalement jamais.
+					while (cap < (hint + 1u) * 2u && cap < 0x40000000u)
+						cap <<= 1;
+					Alloc(cap);
+				}
+
+				const uint32 *Find(uint64 k) const {
+					uint32 i = Slot(k);
+					while (mSlots[i].used) {
+						if (mSlots[i].key == k)
+							return &mSlots[i].val;
+						i = (i + 1u) & mMask;
+					}
+					return nullptr;
+				}
+
+				// N'ECRASE PAS une cle deja presente : c'est la regle « la premiere
+				// insertion gagne » des trois appelants, posee ici une seule fois
+				// plutot que re-decidee trois fois par un `if (!found)` a cote.
+				void Insert(uint64 k, uint32 v) {
+					if (mSize * 2u >= mCap)
+						Grow();
+					uint32 i = Slot(k);
+					while (mSlots[i].used) {
+						if (mSlots[i].key == k)
+							return;
+						i = (i + 1u) & mMask;
+					}
+					mSlots[i].key = k;
+					mSlots[i].val = v;
+					mSlots[i].used = 1u;
+					++mSize;
+				}
+
+				uint32 Size() const {
+					return mSize;
+				}
+
+			private:
+				struct Case {
+						uint64 key = 0;
+						uint32 val = 0;
+						uint32 used = 0;
+				};
+
+				// splitmix64 : le MEME finisseur que celui pose dans NkHashMap en Q73,
+				// et pour la meme raison — la cle d'arete `(lo << 32) | hi` a des bits
+				// bas qui valent `lo ^ hi`, minuscules entre sommets voisins. Un modulo
+				// par puissance de deux ne regarderait que ceux-la : 131 072 aretes dans
+				// 18 seaux. Ce n'est pas une precaution, c'est le defaut deja paye.
+				static uint64 Melange(uint64 x) {
+					x += 0x9E3779B97F4A7C15ull;
+					x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+					x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+					return x ^ (x >> 31);
+				}
+
+				uint32 Slot(uint64 k) const {
+					return (uint32)(Melange(k) & (uint64)mMask);
+				}
+
+				void Alloc(uint32 cap) {
+					mCap = cap;
+					mMask = cap - 1u;
+					mSize = 0;
+					mStore.Resize(cap);
+					for (uint32 i = 0; i < cap; ++i) {
+						mStore[i].key = 0;
+						mStore[i].val = 0;
+						mStore[i].used = 0;
+					}
+					mSlots = mStore.Data();
+				}
+
+				void Grow() {
+					NkVector<Case> ancien;
+					ancien.Resize(mCap);
+					for (uint32 i = 0; i < mCap; ++i)
+						ancien[i] = mStore[i];
+					const uint32 vieuxCap = mCap;
+					Alloc(mCap << 1);
+					for (uint32 i = 0; i < vieuxCap; ++i)
+						if (ancien[i].used)
+							Insert(ancien[i].key, ancien[i].val);
+				}
+
+				NkVector<Case> mStore;
+				Case *mSlots = nullptr;
+				uint32 mCap = 0, mMask = 0, mSize = 0;
+		};
+
 		// ── Tangente ORTHOGONALE à la normale (anti-NaN) ──────────────────────────
 		// ⚠ BUG « carrés blancs » : la tangente était figée à (1,0,0) pour TOUS les
 		// sommets. Sur les faces ±X d'un cube (normale (±1,0,0)) la tangente est alors
@@ -376,8 +501,7 @@ namespace nkentseu {
 			if (eps <= 0.f)
 				eps = 1e-4f;
 			const float32 inv = 1.f / eps;
-			NkHashMap<uint64, uint32> cell;
-			cell.Reserve(n);
+			NkEmFlatMap cell(n);
 			for (uint32 i = 0; i < n; ++i) {
 				const NkVec3f p = verts[i].pos;
 				// Arrondi (et non plancher) : deux coordonnées EXACTEMENT égales donnent la
@@ -387,12 +511,12 @@ namespace nkentseu {
 				const int64 qz = (int64)(p.z * inv + (p.z >= 0.f ? 0.5f : -0.5f));
 				const uint64 key = ((uint64)(qx & 0x1FFFFF)) | (((uint64)(qy & 0x1FFFFF)) << 21) |
 								   (((uint64)(qz & 0x1FFFFF)) << 42);
-				uint32 *found = cell.Find(key);
+				const uint32 *found = cell.Find(key);
 				if (found)
 					canon[i] = *found; // rattaché au représentant du groupe
 				else {
 					canon[i] = i;
-					cell.InsertOrAssign(key, i);
+					cell.Insert(key, i);
 				}
 			}
 		}
@@ -440,8 +564,7 @@ namespace nkentseu {
 			auto C = [&](uint32 v) -> uint64 { return (uint64)((v < nv) ? canon[v] : v); };
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
 				hedges[h].twin = NK_EM_INVALID;
-			NkHashMap<uint64, NkEmId> map;
-			map.Reserve((uint32)hedges.Size());
+			NkEmFlatMap map((uint32)hedges.Size());
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
 				if (!hedges[h].alive || hedges[h].next == NK_EM_INVALID)
 					continue;
@@ -450,12 +573,12 @@ namespace nkentseu {
 				if (o == d)
 					continue; // arête dégénérée
 				const uint64 opp = (d << 32) | o; // demi-arête opposée (d->o)
-				NkEmId *found = map.Find(opp);
+				const uint32 *found = map.Find(opp);
 				if (found && hedges[*found].twin == NK_EM_INVALID) {
-					hedges[h].twin = *found;
+					hedges[h].twin = (NkEmId)*found;
 					hedges[*found].twin = h;
 				} else if (!found) {
-					map.InsertOrAssign((o << 32) | d, h);
+					map.Insert((o << 32) | d, h);
 				}
 			}
 		}
@@ -2415,13 +2538,16 @@ namespace nkentseu {
 			diskPool.Clear();
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
 				hedges[h].edge = NK_EM_INVALID;
-			NkHashMap<uint64, uint32> seen;
-			// MESURE (banc --perf, 131 072 entrees) : sans Reserve 27,3 ms, avec 18,9 ms.
-			// Le nombre d'aretes vaut au plus le nombre de demi-aretes ; la moitie en est
-			// une borne serree pour une variete. Ce n'est PAS ce qui rendait la fonction
-			// super-quadratique (c'etait la repartition dans les seaux, cf. NkHashMap),
-			// c'est le reste une fois la classe redressee.
-			seen.Reserve((uint32)hedges.Size() / 2u + 16u);
+			// TAILLE ANNONCEE, ET NON DEVINEE. Le nombre d'aretes vaut au plus le
+			// nombre de demi-aretes ; la moitie en est une borne serree pour une
+			// variete. La table plate ne grandit donc jamais ici — la dimensionner
+			// juste n'etait PAS ce qui rendait la fonction super-quadratique
+			// (c'etait la repartition dans les seaux, corrigee en Q73), c'est ce qui
+			// reste une fois la classe redressee.
+			// ⚠ La mesure « sans Reserve 27,3 ms / avec 18,9 ms » qui figurait ici
+			// portait sur `NkHashMap`, qui n'est plus la table employee : elle a ete
+			// retiree plutot que laissee decrire un objet disparu.
+			NkEmFlatMap seen((uint32)hedges.Size() / 2u + 16u);
 			NkVector<NkEmId> loop;
 			// Demi-aretes rattachees a chaque arete, collectees AVANT d'etre aplaties
 			// dans radialPool : on ne connait le nombre d'incidences qu'a la fin du
@@ -2443,7 +2569,7 @@ namespace nkentseu {
 					if (o != d) {
 						const uint64 lo = o < d ? o : d, hi = o < d ? d : o;
 						const uint64 key = (lo << 32) | hi;
-						uint32 *ex = seen.Find(key);
+						const uint32 *ex = seen.Find(key);
 						uint32 ei;
 						if (ex) {
 							ei = *ex;
@@ -2457,7 +2583,7 @@ namespace nkentseu {
 							e.faceCount = 1;
 							e.alive = 1;
 							ei = (uint32)edges.Size();
-							seen.InsertOrAssign(key, ei);
+							seen.Insert(key, ei);
 							edges.PushBack(e);
 							radial.PushBack(NkVector<NkEmId>{});
 						}
