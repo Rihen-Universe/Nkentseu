@@ -66,10 +66,11 @@
 //         « echange ». C'en etait un, et il n'avait pas lieu d'etre :
 //         l'information n'etait pas PERDUE, elle n'etait pas TRANSPORTEE -- le
 //         lecteur connait la ligne au moment ou il analyse. Chiffrage fait avant
-//         d'ecrire : 4 octets dans un bloc de trivia DEJA alloue, zero
-//         allocation nouvelle, aucun changement de forme de l'archive. Quand le
-//         cout d'une information utile se compte en octets, « c'est un echange »
-//         est une facon de ne pas la porter.
+//         d'ecrire, et MESURE ensuite : le champ tient dans le rembourrage que la
+//         trivia portait deja -- `sizeof` 200 avec, 200 sans. **Zero octet**, zero
+//         allocation nouvelle, aucun changement de forme de l'archive. Quand une
+//         information utile ne coute rien, « c'est un echange » est une facon de
+//         ne pas la porter.
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.

@@ -1237,9 +1237,10 @@ namespace nkuidesign {
 			//    remplace pas l'autre.
 			//
 			//    ⚠️ Et l'information n'etait pas PERDUE, elle n'etait pas TRANSPORTEE :
-			//       le lecteur connait la ligne au moment ou il analyse. Cout mesure
-			//       avant d'ecrire : 4 octets dans un bloc de trivia deja alloue.
-			//       Quand le cout d'une information utile se compte en octets,
+			//       le lecteur connait la ligne au moment ou il analyse. Cout chiffre
+			//       avant d'ecrire, puis MESURE : le champ tient dans le rembourrage
+			//       que la trivia portait deja -- `sizeof` 200 avec, 200 sans.
+			//       **Zero octet.** Quand une information utile ne coute rien,
 			//       « c'est un echange » est une facon de ne pas la porter.
 			{
 				//  1: nkgui 0.3
@@ -1287,6 +1288,66 @@ namespace nkuidesign {
 					  lu && ligneValeur == 7 && cheminValeur, "");
 				check("22b. un diagnostic de BLOC porte la ligne du bloc (9)",
 					  lu && ligneRole == 9, "");
+			}
+
+			// =============================================================
+			// 22c -- LA VALEUR **BIEN FORMEE MAIS DU MAUVAIS TYPE**
+			// =============================================================
+			// ⚠️ CE CONTROLE EXISTE PARCE QU'UNE MUTATION A SURVECU. « V6 -- le
+			//    diagnostic d'une PROPRIETE perd sa ligne » restait VERTE : 22 la
+			//    croyait couverte, elle ne l'etait pas.
+			//
+			//    La raison est qu'il y a DEUX portes vers un diagnostic de propriete,
+			//    et 22 n'en franchit qu'une. `color = #12345` est mal formee : elle
+			//    sort par la porte « aucune forme de valeur du format ». Une valeur
+			//    BIEN formee du MAUVAIS type -- `maxLines = "trois"` la ou un nombre
+			//    est attendu -- sort par l'autre, celle de `NkGValueMatches`. C'est
+			//    celle-la que la mutation visait, et aucun controle n'y passait.
+			//
+			// >>> LA LECON, ET ELLE VAUT AU-DELA D'ICI : **UN MECANISME PRESENT A
+			//     PLUSIEURS ENDROITS DOIT ETRE MESURE A CHACUN.** Un seul site
+			//     verifie donne la sensation d'avoir couvert la fonction, pas la
+			//     couverture. La ligne se pose a cinq endroits dans ce fichier ;
+			//     22, 22b et 22c en franchissent trois -- les deux autres
+			//     (`W-ROLE-ALIAS` et `E-SECTION-INCONNUE`) partagent leur ligne avec
+			//     un site deja mesure.
+			{
+				//  1: nkgui 0.3
+				//  2: widgets {
+				//  3:   Text "t" {
+				//  4:     text = "ok"
+				//  5:     maxLines = "trois"   <-- bien formee, mais un nombre est attendu
+				//  6:   }
+				//  7: }
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "  Text \"t\" {\n"
+								  "    text = \"ok\"\n"
+								  "    maxLines = \"trois\"\n"
+								  "  }\n"
+								  "}\n";
+				NkArchive d;
+				NkGuiDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGuiDiag> dg;
+				NkGValidate(d, dg);
+
+				uint32 ligneType = 0;
+				bool cheminType = false;
+				uint32 combien = 0;
+				for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+					if (dg[i].code.Compare("E-TYPE") == 0) {
+						++combien;
+						ligneType = dg[i].line;
+						cheminType = dg[i].message.Contains("Text \"t\" . maxLines");
+					}
+				}
+				// LA LIGNE EST ECRITE A LA MAIN, et elle vaut 5 -- ni 7 ni 9, pour
+				// qu'un compteur bloque sur une constante ne puisse pas passer les
+				// trois controles a la fois.
+				check("22c. une valeur BIEN FORMEE mais du MAUVAIS TYPE porte sa ligne (5) "
+					  "ET son chemin -- l'autre porte vers un diagnostic de propriete",
+					  lu && combien == 1 && ligneType == 5 && cheminType, "");
 			}
 
 			rep.Append("\n=== CONTROLES : ");

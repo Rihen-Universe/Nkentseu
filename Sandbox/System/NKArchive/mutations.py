@@ -262,4 +262,11 @@ def main():
     print("SURVIVANTES : %s" % (", ".join(survivants) if survivants else "aucune"))
 
 
-main()
+# ⚠️ LE GARDE `__main__`, ET IL A FALLU QUE JE ME FASSE PRENDRE. Ce fichier
+#    appelait `main()` a nu : un simple `import mutations` -- que j avais tape
+#    pour VERIFIER les ancres sans rien lancer -- a demarre trente minutes de
+#    mutation des sources. Rien n a ete perdu parce que le point de reprise
+#    etait commite, mais un fichier qui MODIFIE des sources ne doit jamais
+#    partir sur un import.
+if __name__ == "__main__":
+    main()

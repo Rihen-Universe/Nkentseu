@@ -38,9 +38,14 @@ MUTATIONS = [
     # le 2026-08-23, et le code qu'elle visait a ete RETIRE : voir la note sur
     # NkGValueMatches. Elle n'a plus d'ancre parce qu'elle n'a plus de cible.
 
+    # ⚠️ L ANCRE DE V5 ETAIT FAUSSE AU PREMIER JET : six tabulations au lieu de
+    #    sept. Le harnais a repondu « ANCRE INTROUVABLE », et c est la seule raison
+    #    pour laquelle je l ai vu. Une mutation dont l ancre ne mord pas ne mesure
+    #    rien et ne se plaint pas d elle-meme : le message « introuvable » est
+    #    aussi important que le message « survit ».
     ("V5 le diagnostic d un BLOC perd sa ligne",
-     "\t\t\t\t\t\tNkGValidateNode(*racines->array[k].object, NkString(\"widgets\"),\n\t\t\t\t\t\t\tracines->array[k].SourceLine(), out);",
-     "\t\t\t\t\t\tNkGValidateNode(*racines->array[k].object, NkString(\"widgets\"), 0, out);"),
+     "\t\t\t\t\t\t\tNkGValidateNode(*racines->array[k].object, NkString(\"widgets\"),\n\t\t\t\t\t\t\t\t\t\t\tracines->array[k].SourceLine(), out);",
+     "\t\t\t\t\t\t\tNkGValidateNode(*racines->array[k].object, NkString(\"widgets\"), 0, out);"),
 
     ("V6 le diagnostic d une PROPRIETE perd sa ligne",
      "\t\t\t\t\t\tNkGPushDiag(out, k == NkGuiValueKind::Invalid ? \"E-VALEUR\" : \"E-TYPE\", m,\n\t\t\t\t\t\t\t\t\tents[p].node.SourceLine());",
@@ -102,4 +107,11 @@ def main():
     print("SURVIVANTES : %s" % (", ".join(survivants) if survivants else "aucune"))
 
 
-main()
+# ⚠️ LE GARDE `__main__`, ET IL A FALLU QUE JE ME FASSE PRENDRE. Ce fichier
+#    appelait `main()` a nu : un simple `import mutations` -- que j avais tape
+#    pour VERIFIER les ancres sans rien lancer -- a demarre trente minutes de
+#    mutation des sources. Rien n a ete perdu parce que le point de reprise
+#    etait commite, mais un fichier qui MODIFIE des sources ne doit jamais
+#    partir sur un import.
+if __name__ == "__main__":
+    main()

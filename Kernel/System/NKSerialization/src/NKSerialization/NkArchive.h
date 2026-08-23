@@ -468,9 +468,22 @@ namespace nkentseu {
 			 * L'information n'etait pas PERDUE, elle n'etait pas TRANSPORTEE : le
 			 * lecteur la connait au moment ou il analyse. Sa place est ici, exactement
 			 * a cote de `sourceOrder` -- meme nature (« ce que le fichier disait »),
-			 * meme optionalite, meme bloc deja alloue. Cout mesure avant d'ecrire :
-			 * 4 octets par bloc de trivia DEJA existant, zero allocation nouvelle,
-			 * aucun changement de forme de l'archive.
+			 * meme optionalite, meme bloc deja alloue.
+			 *
+			 * >>> LE COUT, ET IL A FALLU LE MESURER POUR CESSER DE SE TROMPER. J'avais
+			 *     ecrit ici « 4 octets par bloc de trivia », en comptant la taille du
+			 *     type. **La mesure dit ZERO.** `sourceOrder` occupe les octets
+			 *     192..195 ; la structure porte quatre `NkString` de 48 octets et
+			 *     s'aligne sur 8, donc elle faisait DEJA 200 octets, dont quatre de
+			 *     rembourrage inutilise a la fin. `sourceLine` s'y loge exactement.
+			 *
+			 *     Releve du 2026-08-23, par comparaison avec une structure temoin
+			 *     privee du champ : `sizeof` 200 avec, 200 sans, alignement 8.
+			 *     Zero allocation nouvelle, aucun changement de forme de l'archive.
+			 *
+			 *     ⚠️ Deduire un cout du nombre d'octets d'un type est une estimation,
+			 *        pas une mesure : elle ignore le rembourrage, et elle se trompe
+			 *        toujours dans le sens qui decourage d'ajouter le champ.
 			 */
 			nk_int32 sourceLine = -1;
 
