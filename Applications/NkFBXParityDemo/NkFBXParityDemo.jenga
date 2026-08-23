@@ -30,7 +30,7 @@ with project("NkFBXParityDemo"):
          "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKGlad",
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
-        extra_includes=["src"],
+        extra_includes=["src", "%{wks.location}/Applications/Common"],
     )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
