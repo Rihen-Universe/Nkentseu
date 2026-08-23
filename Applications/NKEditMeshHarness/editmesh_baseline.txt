@@ -267,3 +267,8 @@ matmod/solidify-bord               faces 16 -> 48 slot0=0 (slot0=0 : la tranche 
 matmod/mask                        faces=1 slot1=1 slot0=0 (slot1=1 : la face gardee garde SA couleur)
 matmod/build-proportion            faces=3 slot0=0 slot1=1 slot2=1 slot3=1
 matmod/vis-bandes                  ok=1 faces=16 slot0=0 slot5=7 slot3=9 perdus=2 (perdus>0 : les bandes arbitrent)
+aretes/cube-soude                  A=12 fil=0 bord=0 int=12 nonmanif=0 part=1 radial=24 disk=24 hl=24 ord=-6127073244435171064 ens=-6592464031444356629
+aretes/grille-bords                A=40 fil=0 bord=16 int=24 nonmanif=0 part=1 radial=64 disk=80 hl=64 ord=7633482496382160485 ens=-3528136031102226895
+aretes/idempotence                 A 40 -> 40 ord identique=1 ens identique=1 (1/1 : rejouer ne change rien)
+aretes/filaire-survit              ok=1 A 12 -> 13 fil=1 (fil>=1 : le filaire survit au rebuild)
+aretes/jonction-T-radial3          A=10 fil=0 bord=9 int=0 nonmanif=1 part=1 radial=12 disk=20 hl=12 ord=5285430129815656378 ens=-5493720026203631423
