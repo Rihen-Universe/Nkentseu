@@ -83,6 +83,25 @@ namespace nkentseu {
 				uint32 rejectedCost = 0; ///< refusees par le plafond d'erreur
 				float32 maxCost = 0.f;	 ///< cout de la contraction la plus chere acceptee
 				bool reachedTarget = false;
+
+				// ── CE QUE LA DECIMATION FAIT AU MATERIAU PAR FACE ───────────────
+				// Le materiau est TRANSPORTE : chaque triangle garde celui de la face
+				// dont il est issu. Contrairement a `smooth`, il ne se re-derive de
+				// rien — aucune donnee geometrique ne le porte. Sans transport
+				// explicite, une decimation ramenait TOUTES les faces au slot 0 sans
+				// qu'aucun compteur ne le signale.
+				//
+				// ⚠ MAIS LE TRANSPORT NE SUFFIT PAS A DIRE QUE RIEN N'EST PERDU. Une
+				// contraction SUPPRIME des triangles ; si les derniers porteurs d'un
+				// slot disparaissent, ce slot sort du maillage. Le compte de faces ne
+				// le dit pas, l'image ne le dit qu'a celui qui cherchait cette couleur.
+				//   > Un zero rassure, mais un zero ne s'invente pas : il se compte.
+				uint32 matSlotsBefore = 0;		  ///< slots DISTINCTS portes par des faces vivantes, avant
+				uint32 matSlotsAfter = 0;		  ///< ... apres. Plus petit = une couleur a disparu.
+				uint32 facesMaterialChanged = 0;  ///< faces dont le materiau n'a pas survecu a une FUSION
+												  ///< (0 ici : QEM supprime des faces, il n'en fusionne
+												  ///< aucune — mesure, pas hypothese ; la valeur remonte
+												  ///< de BuildFromIndexed, elle n'est pas ecrite en dur)
 		};
 
 		class NkMeshDecimate {

@@ -548,7 +548,49 @@ namespace nkentseu {
 			 * @note Alternative optimisée : utiliser bitmask si mBucketCount est puissance de 2
 			 */
 			usize GetBucketIndex(usize hash) const {
-				return hash % mBucketCount;
+				// ⚠ MELANGE FINAL OBLIGATOIRE, ET IL A COUTE 30 SECONDES SUR UN MAILLAGE.
+				// `mBucketCount` est une PUISSANCE DE DEUX (16, puis doublement), donc
+				// `hash % mBucketCount` ne retient QUE LES BITS BAS du hash. Or le hash
+				// entier vaut `k ^ (k >> 32)` : pour une cle de PAIRE empaquetee
+				// `(lo << 32) | hi` -- l'idiome des cles d'aretes dans tout le moteur --
+				// les bits bas valent donc `lo ^ hi`. Deux indices de sommets voisins
+				// donnent un `lo ^ hi` MINUSCULE, et toutes les aretes s'entassent dans
+				// une poignee de seaux.
+				//
+				// MESURE (2026-08-23) : 131 072 aretes consecutives n'occupaient que
+				// 18 SEAUX SUR 262 144 -- des chaines de 7 281 noeuds. L'insertion
+				// devenait lineaire, donc la construction quadratique : RebuildEdges
+				// mettait 29,7 s sur 65 536 faces, et x4 faces coutaient x22 de temps.
+				//
+				// Le finisseur de splitmix64 fait remonter les bits hauts dans les bits
+				// bas. Il ne change RIEN au contrat de la table (memes cles, memes
+				// valeurs) : il ne deplace que la REPARTITION dans les seaux.
+				//   > Un conteneur peut etre juste et rester inutilisable : ici rien
+				//   > n'etait faux, et c'est la structure d'une cle legitime qui
+				//   > rencontrait un modulo qui n'en regardait qu'une moitie.
+				//
+				// ⚠ CE QUE CA CHANGE POUR L'APPELANT : l'ORDRE D'ITERATION de la table
+				// change. Il n'a jamais ete garanti, mais du code qui s'y appuyait sans
+				// le dire s'en apercevra. Verifie au banc, cf. le commit.
+				return MixHash(hash) % mBucketCount;
+			}
+
+			// ⚠ UN SEUL ENDROIT QUI MELANGE, ET C'EST LA CORRECTION DE MA PROPRE
+			// FAUTE. En posant d'abord le melangeur dans le seul GetBucketIndex, j'ai
+			// laisse RehashInternal replacer les noeuds avec `node->Hash % n` -- le hash
+			// BRUT. Les deux chemins calculaient alors des seaux differents pour la meme
+			// cle : les entrees devenaient introuvables, et un maillage soude perdait ses
+			// identites (grille 4x4 : 40 aretes devenues 48, 16 bords devenus 32).
+			//   > Deux chemins qui calculent la meme chose, et on n'en change qu'un.
+			//   > C'est pour ca que le melange vit ici, en UN point, et que ni
+			//   > GetBucketIndex ni RehashInternal ne le recrivent.
+			static usize MixHash(usize h) {
+				h ^= h >> 33;
+				h *= 0xFF51AFD7ED558CCDull;
+				h ^= h >> 33;
+				h *= 0xC4CEB9FE1A85EC53ull;
+				h ^= h >> 33;
+				return h;
 			}
 
 			/**
@@ -582,7 +624,9 @@ namespace nkentseu {
 					Node *node = mBuckets[i];
 					while (node) {
 						Node *next = node->Next;
-						SizeType newIdx = node->Hash % newBucketCount;
+						// MEME melange que GetBucketIndex : sinon les noeuds sont replaces
+						// la ou personne ne les cherchera plus.
+						SizeType newIdx = MixHash(node->Hash) % newBucketCount;
 						node->Next = newBuckets[newIdx];
 						newBuckets[newIdx] = node;
 						node = next;

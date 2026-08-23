@@ -50,7 +50,9 @@
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/String/NkFormat.h" // formatage TYPE des lignes de mesure
+#include "NKTime/NkChrono.h" // mesure de cout, derriere --perf uniquement
 #include "NKLogger/NkLog.h"
+#include "NkBenchRoot.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -3174,9 +3176,10 @@ static void LinkedBattery() {
 // ToPolygons/BuildFromPolygons, qui reconstruit les `Face` a neuf.
 //
 // REGIMES COUVERTS : subdivision lineaire, Catmull-Clark, extrusion,
-// triangulation, soudure. NON COUVERTS : la decimation (la regle d'heritage
-// lors d'une fusion de faces n'est pas encore tranchee — voir la ligne
-// mat/decim-non-tranche, qui MESURE l'etat actuel sans le valider), et tout
+// triangulation, soudure. La DECIMATION l'est desormais aussi : la regle
+// d'heritage a ete tranchee le 2026-08-22 (contributeur dominant par l'aire,
+// egalite par l'indice le plus bas) et elle est mesuree par la batterie
+// `matfus/`, avec ses deux criteres MIS EN DESACCORD. NON COUVERTS : tout
 // ce qui touche au rendu.
 static void MaterialBattery() {
 	NkVector<NkVertex3D> v;
@@ -3445,11 +3448,20 @@ static void MaterialBattery() {
 				 m.materialSlots.Size() ? m.materialSlots[(uint32)m.materialSlots.Size() - 1].id : 0u);
 	}
 
-	// ── 10. DECIMATION : ETAT MESURE, REGLE NON TRANCHEE ────────────────────
-	// Quand une contraction fusionne des faces, de qui la survivante herite-t-elle ?
-	// La question n'est PAS tranchee (elle demande un arbitrage produit). Cette
-	// ligne MESURE le comportement actuel pour qu'un changement se voie ; elle ne
-	// le valide pas. Ecrire un attendu ici serait inventer une decision.
+	// ── 10. DECIMATION : LE MATERIAU SURVIT ─────────────────────────────────
+	// ⚠ LIGNE RENOMMEE (`mat/decim-non-tranche` -> `mat/decim-transport`) LE
+	// 2026-08-22, et sa valeur a change : `slot1 2 -> 0` est devenu `2 -> 1`.
+	// L'ancien nom disait vrai a l'epoque — la regle d'heritage attendait un
+	// arbitrage — et il aurait menti a partir du jour ou l'arbitrage est tombe.
+	// Un nom de cas qui decrit un ETAT PROVISOIRE devient faux sans que rien ne
+	// le signale : c'est la ligne elle-meme qui aurait rassure a tort.
+	//
+	// ⚠ ET LE ZERO D'AVANT N'ETAIT PAS « la regle n'est pas choisie », c'etait
+	// « le materiau DISPARAIT » : la decimation reconstruisait par
+	// BuildFromIndexed, qui ne transportait rien, donc TOUTES les faces
+	// retombaient sur le slot 0. Mesure, pas relecture. Ce qui manquait n'etait
+	// pas un arbitrage, c'etait un transport — et l'arbitrage ne portait meme
+	// pas sur ce chemin-la (QEM SUPPRIME des faces, il n'en fusionne aucune).
 	{
 		NkEditMesh m;
 		makeTwoIslands(m);
@@ -3458,16 +3470,23 @@ static void MaterialBattery() {
 		dp.targetRatio = 0.5f;
 		NkDecimateStats st;
 		NkMeshDecimate::DecimateQEM(m, dp, &st);
-		Put("{0:<34} slot1 {1} -> {2} | tris {3}->{4} (MESURE, pas un attendu)", "mat/decim-non-tranche", avant,
+		Put("{0:<34} slot1 {1} -> {2} | tris {3}->{4} (0 = le materiau disparaissait)", "mat/decim-transport", avant,
 				 countMat(m, 1), st.trisBefore, st.trisAfter);
 	}
 
-	// ── 11. TEMOIN : ce que `smooth` fait DEJA, et qui a dicte la conception ──
-	// `smooth` ne traverse PAS le round-trip : BuildFromPolygons cree des Face
-	// neuves, donc smooth retombe a 0. Il n'a jamais gene parce que
-	// BuildFromIndexed le RE-DEDUIT des normales des coins. Un materiau ne peut
-	// pas se re-deduire — d'ou le transport explicite. Cette ligne fige le
-	// comportement de smooth pour qu'on voie si quelqu'un le change.
+	// ── 11. `smooth` TRAVERSE MAINTENANT, PAR LA MEME TABLE QUE LE MATERIAU ──
+	// ⚠ CETTE LIGNE A CHANGE DE VALEUR LE 2026-08-22 : `12 -> 0` est devenu
+	// `12 -> 24`. Elle avait ete ecrite comme un TEMOIN — « voici ce que smooth
+	// fait deja » — et elle disait vrai. Mais elle presentait un DEFAUT comme un
+	// comportement : `BuildFromPolygons` creait des Face neuves et perdait
+	// l'ombrage, alors que `BuildFromIndexed` le RE-DEDUIT des normales des
+	// coins. Un attribut qui « survit » grace a un AUTRE chemin ne survit qu'aux
+	// operations qui passent par ce chemin-la.
+	//
+	// ⚠ ET LE TEMOIN NE POUVAIT PAS LE DIRE : il mesure un maillage
+	// ENTIEREMENT lisse, ou « tout perdre » et « tout garder » sont les deux
+	// seules reponses possibles. C'est la batterie `smooth/`, sur un maillage
+	// MIXTE, qui distingue l'heredite d'un `smooth = 1` pose partout.
 	{
 		NkEditMesh m;
 		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
@@ -3486,7 +3505,7 @@ static void MaterialBattery() {
 		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
 			if (m.faces[f].smooth)
 				apres++;
-		Put("{0:<34} smooth {1} -> {2} sur {3} faces (TEMOIN du comportement existant)", "mat/temoin-smooth",
+		Put("{0:<34} smooth {1} -> {2} sur {3} faces (24 = les filles heritent)", "mat/temoin-smooth",
 				 avant, apres, (uint32)m.faces.Size());
 	}
 
@@ -4418,29 +4437,12 @@ static void MatSurvieBattery() {
 // REGIMES COUVERTS : lecture de fichiers presents, et refus propre sur fichier
 // absent. NON COUVERT : les materiaux et les hierarchies de ces formats (DAE et
 // USDA en portent ; ce banc ne regarde que la geometrie), et les gros fichiers.
-// ⚠️ LE BANC NE DOIT PAS DEPENDRE DU REPERTOIRE DE LANCEMENT.
-// Constate ici meme : lance depuis `Applications/NKEditMeshHarness` (le dossier
-// ou vit `editmesh_baseline.txt`, donc celui d'ou l'on fait `--check`), les six
-// chargeurs rendaient `ok=0` sur toute la ligne -- non parce qu'ils sont casses,
-// mais parce que `Resources/` se resout depuis la RACINE du worktree. Le banc a
-// donc besoin des DEUX repertoires a la fois, et c'est insoluble par le seul
-// repertoire courant.
-// C'est la meme dette que celle deja nommee pour les shaders dans le CLAUDE.md
-// parent : deux politiques de chemin dans un meme programme.
-// Remede local : on essaie le chemin tel quel, puis en remontant de deux crans.
-// Un banc muet parce qu'il a ete lance d'ailleurs est pire qu'un banc absent --
-// il rend `ok=0` et ressemble a un chargeur casse.
+// ANCRE DU DEPOT : mutualisee dans `Applications/Common/NkBenchRoot.h`.
+// Elle etait ecrite ici, et deux autres bancs en portaient une copie -- dont
+// une FAUSSE : elle n ancrait que les ressources, pas cette reference-ci.
+// Trois copies d une meme regle divergent ; une seule ne peut pas.
 static NkString CheminRessource(const char *relatif) {
-	const char *prefixes[3] = {"", "../../", "../../../"};
-	for (int32 i = 0; i < 3; ++i) {
-		NkString essai = NkString(prefixes[i]) + NkString(relatif);
-		FILE *f = fopen(essai.Data(), "rb");
-		if (f) {
-			fclose(f);
-			return essai;
-		}
-	}
-	return NkString(relatif); // aucun trouve : on rend l'original, le chargeur dira non
+	return NkBenchPath(relatif);
 }
 
 static void LoadersBattery() {
@@ -4979,13 +4981,1588 @@ static void AccessBattery() {
 	}
 }
 
+// -- FUSION DE FACES : DE QUI LA SURVIVANTE HERITE-T-ELLE SON MATERIAU ? -----
+// REGLE ARBITREE (2026-08-22) : contributeur DOMINANT PAR L AIRE ; a aire
+// egale, INDICE DE MATERIAU LE PLUS BAS.
+//
+// POURQUOI CETTE BATTERIE NE PEUT PAS SE CONTENTER D UN CAS PAR OPERATION.
+// La regle a DEUX criteres, et un cas ou ils sont d accord n en teste aucun :
+// sur deux moities d un carre, « la plus grande aire » et « l indice le plus
+// bas » designent la meme face, et une implantation qui ferait simplement
+// « garder la premiere » passerait. Chaque site de fusion est donc mesure
+// DEUX fois, avec les deux criteres EN DESACCORD puis EN EGALITE :
+//   - aires INEGALES et le plus petit indice sur la PETITE face -> l aire doit
+//     gagner ; « garder la premiere » et « le plus petit indice » echouent ;
+//   - aires EGALES et le plus petit indice en SECONDE position -> l indice doit
+//     gagner ; « garder la premiere » echoue.
+//
+// ET LE CAS QUI COMPTE LE PLUS N EST PAS QUI GAGNE, C EST CE QUI SE PERD.
+// Quand les faces fusionnees portent des materiaux differents, la fusion perd
+// de l information quelle que soit la regle. Ce n est pas a corriger, c est a
+// RAPPORTER : chaque ligne porte `perdus`, le nombre de faces source dont le
+// materiau n a pas ete retenu. Un zero rassure -- mais un zero ne s invente
+// pas, il se compte, et les lignes `perdus=0` de cette batterie voisinent des
+// lignes `perdus>0` produites par le MEME compteur.
+static void MatFusionBattery() {
+	// Quad plan a la carte, triangule en eventail (0,1,2)+(0,2,3) : les deux
+	// triangles sont CONSECUTIFS et adjacents, donc candidats a Quadify.
+	auto quad = [](NkEditMesh &m, NkVec3f p0, NkVec3f p1, NkVec3f p2, NkVec3f p3, uint16 mA, uint16 mB) {
+		NkVector<NkVertex3D> vv;
+		NkVector<uint32> ii;
+		const NkVec3f ps[4] = {p0, p1, p2, p3};
+		for (uint32 k = 0; k < 4; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, -1.f, 0.f};
+			t.tangent = {1.f, 0.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vv.PushBack(t);
+		}
+		const uint32 tri[6] = {0, 1, 2, 0, 2, 3};
+		for (uint32 k = 0; k < 6; ++k)
+			ii.PushBack(tri[k]);
+		// quadify=false : on peint AVANT de fusionner, sinon les deux triangles
+		// seraient deja un quad et il n y aurait plus rien a departager.
+		m.BuildFromIndexed(vv.Data(), 4u, ii.Data(), 6u, false);
+		m.faces[0].material = mA;
+		m.faces[1].material = mB;
+	};
+	auto compte = [](const NkEditMesh &m, uint16 slot) {
+		uint32 n = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == slot)
+				n++;
+		return n;
+	};
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 n = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				n++;
+		return n;
+	};
+	auto matPremiereVivante = [](const NkEditMesh &m) -> uint32 {
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				return m.faces[f].material;
+		return 9999u;
+	};
+
+	// -- 1. FaceArea : la mesure sur laquelle repose toute la regle ----------
+	// Elle est neuve et publique : si elle ment, la regle designe le mauvais
+	// gagnant sans qu aucune autre ligne ne le signale. Verifiee sur des aires
+	// CONNUES A LA MAIN (triangles 1,5 et 2,0), et sur le n-gon qu ils forment
+	// une fois fusionnes -- 3,5 = la somme, ce qu aucune formule de triangle ne
+	// rendrait sur un quad.
+	{
+		NkEditMesh m;
+		quad(m, {0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}, 0, 0);
+		const float32 a0 = m.FaceArea(0), a1 = m.FaceArea(1);
+		m.Quadify();
+		const float32 aq = m.FaceArea(0);
+		// Face MORTE et index HORS BORNES : deux refus qu aucun cas « normal »
+		// n exerce, et sans lesquels une lecture de memoire indeterminee
+		// passerait pour une aire.
+		Put("{0:<34} tri {1:.4f} + {2:.4f} | ngon {3:.4f} | morte {4:.4f} horsbornes {5:.4f}",
+			"matfus/aire-de-face", (double)a0, (double)a1, (double)aq, (double)m.FaceArea(1),
+			(double)m.FaceArea((NkEmId)9999));
+	}
+
+	// -- 2. QUADIFY, criteres EN DESACCORD : l aire doit gagner -------------
+	// Petite face (1,5) sur le slot 1, grande face (2,0) sur le slot 2.
+	// « Indice le plus bas » dirait 1. « Garder la premiere » dirait 1.
+	// La regle dit 2. C est la seule ligne qui distingue les trois.
+	{
+		NkEditMesh m;
+		quad(m, {0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}, 1, 2);
+		const uint32 perdus = m.Quadify();
+		Put("{0:<34} faces {1} retenu={2} (2 = la GRANDE, pas l indice bas) perdus={3}",
+			"matfus/quadify-aire-domine", vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 3. QUADIFY, aires EGALES : l indice le plus bas tranche ------------
+	// Carre coupe en deux : les deux moities ont la MEME aire. Slot 2 en
+	// premier, slot 1 en second. « Garder la premiere » dirait 2 ; la regle
+	// dit 1. Sans cette ligne, un depart d egalite implicite passerait.
+	{
+		NkEditMesh m;
+		quad(m, {0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}, {1.f, 0.f, 1.f}, {0.f, 0.f, 1.f}, 2, 1);
+		const uint32 perdus = m.Quadify();
+		Put("{0:<34} faces {1} retenu={2} (1 = indice bas a aire egale) perdus={3}",
+			"matfus/quadify-egalite-indice", vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 4. QUADIFY, materiaux IDENTIQUES : rien ne se perd -----------------
+	// Le temoin du compteur. Sans lui, un `perdus` qui compterait les fusions
+	// au lieu des pertes rendrait la meme chose que le cas 2 et personne ne le
+	// verrait.
+	{
+		NkEditMesh m;
+		quad(m, {0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}, 3, 3);
+		const uint32 perdus = m.Quadify();
+		Put("{0:<34} faces {1} retenu={2} perdus={3} (0 : meme materiau des deux cotes)",
+			"matfus/quadify-sans-perte", vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 5. BuildFromIndexed transporte le materiau PAR TRIANGLE ------------
+	// Le transport et la fusion sont deux choses : ici quadify=false, donc rien
+	// ne fusionne et les deux triangles doivent garder CHACUN le leur.
+	{
+		NkEditMesh m;
+		NkVector<NkVertex3D> vv;
+		NkVector<uint32> ii;
+		const NkVec3f ps[4] = {{0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}};
+		for (uint32 k = 0; k < 4; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, -1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vv.PushBack(t);
+		}
+		const uint32 tri[6] = {0, 1, 2, 0, 2, 3};
+		for (uint32 k = 0; k < 6; ++k)
+			ii.PushBack(tri[k]);
+		const uint16 tm[2] = {5, 7};
+		uint32 perdus = 123u; // valeur SALE : si la fonction ne l ecrit pas, ca se voit
+		m.BuildFromIndexed(vv.Data(), 4u, ii.Data(), 6u, false, tm, &perdus);
+		Put("{0:<34} slot5={1} slot7={2} slot0={3} perdus={4} (0 : sans fusion rien ne se perd)",
+			"matfus/transport-par-triangle", compte(m, 5), compte(m, 7), compte(m, 0), perdus);
+	}
+
+	// -- 6. Le meme, quadify=TRUE : le transport puis la fusion s enchainent -
+	// Bout en bout : le materiau entre par le parametre et la perte ressort par
+	// le compteur, sans que l appelant ait a toucher aux `Face`.
+	{
+		NkEditMesh m;
+		NkVector<NkVertex3D> vv;
+		NkVector<uint32> ii;
+		const NkVec3f ps[4] = {{0.f, 0.f, 0.f}, {3.f, 0.f, 0.f}, {4.f, 0.f, 1.f}, {0.f, 0.f, 1.f}};
+		for (uint32 k = 0; k < 4; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, -1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vv.PushBack(t);
+		}
+		const uint32 tri[6] = {0, 1, 2, 0, 2, 3};
+		for (uint32 k = 0; k < 6; ++k)
+			ii.PushBack(tri[k]);
+		const uint16 tm[2] = {1, 2}; // petite=1, grande=2 -> l aire doit gagner
+		uint32 perdus = 123u;
+		m.BuildFromIndexed(vv.Data(), 4u, ii.Data(), 6u, true, tm, &perdus);
+		Put("{0:<34} faces {1} retenu={2} perdus={3}", "matfus/transport-puis-fusion", vivantes(m),
+			matPremiereVivante(m), perdus);
+	}
+}
+
+
+// -- FUSION DE FACES, SUITE : DISSOLVE (N faces) ET DECIMATION --------------
+// Quadify fusionne DEUX faces ; Dissolve en fusionne N. Le passage de 2 a N
+// fait apparaitre une question que deux contributeurs ne posaient pas, et
+// deux pieges que deux contributeurs ne pouvaient pas contenir.
+static void MatFusionNBattery() {
+	auto grille = [](NkEditMesh &m, uint32 n) {
+		NkVector<NkVertex3D> gv;
+		NkVector<uint32> gi;
+		MakeGrid(n, gv, gi);
+		m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		m.RebuildEdges();
+	};
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				k++;
+		return k;
+	};
+	auto matPremiereVivante = [](const NkEditMesh &m) -> uint32 {
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				return m.faces[f].material;
+		return 9999u;
+	};
+	auto toutSelectionner = [](NkEditMesh &m) {
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			fl[i] = 1;
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+	};
+	// Faces vivantes dans leur ordre, pour peindre par rang plutot que par index
+	// de table (les faces mortes de Quadify laissent des trous).
+	auto rangs = [](const NkEditMesh &m, NkVector<uint32> &out) {
+		out.Clear();
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				out.PushBack(f);
+	};
+
+	// -- 7. DISSOLVE : la face ENTIEREMENT INTERIEURE compte aussi ----------
+	// Grille 3x3 entierement dissoute. La face du CENTRE a ses quatre aretes
+	// retirees : elle n apparait sur AUCUN contour. Un calcul qui ne
+	// regarderait que les faces parcourues par le contour l ignorerait --
+	// et rendrait un resultat parfaitement plausible.
+	// FIGURE PIEGEE EXPRES : le centre porte le slot 1, les huit autres portent
+	// 5,6,7,8,9,10,11,12. Toutes les aires sont egales, donc l egalite tranche
+	// par l indice le plus bas -> 1, qui n existe QUE sur la face interieure.
+	// Si le centre etait oublie, la ligne dirait 5 sans avoir l air fausse.
+	{
+		NkEditMesh m;
+		grille(m, 3);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		// Centre = la face dont le barycentre est le plus proche de l origine.
+		uint32 centre = fr.Empty() ? 0u : fr[0];
+		float32 best = 1e30f;
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k) {
+			NkVector<NkEmId> b;
+			m.GetFaceVerts((NkEmId)fr[k], b);
+			NkVec3f c{0.f, 0.f, 0.f};
+			for (uint32 j = 0; j < (uint32)b.Size(); ++j)
+				c = c + m.verts[b[j]].pos;
+			if (b.Size())
+				c = c * (1.f / (float32)b.Size());
+			const float32 d = c.Len();
+			if (d < best) {
+				best = d;
+				centre = fr[k];
+			}
+		}
+		uint16 suivant = 5;
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (fr[k] == centre) ? (uint16)1 : suivant++;
+		const uint32 avant = vivantes(m);
+		toutSelectionner(m);
+		NkDissolveParams dp;
+		dp.mode = 0; // Verts
+		uint32 perdus = 123u;
+		const bool ok = m.DissolveSelected(dp, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2}->{3} retenu={4} (1 = la face INTERIEURE) perdus={5}",
+			"matfus/dissolve-face-interieure", ok ? 1 : 0, avant, vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 8. DISSOLVE : « la plus grande aire » de QUOI ? -------------------
+	// Grille 3x3, toutes les cellules de MEME aire. Cinq portent le slot 2,
+	// quatre portent le slot 1.
+	//   - lecture « la FACE la plus grande » : toutes egales -> egalite ->
+	//     indice le plus bas -> 1 ;
+	//   - lecture « la COULEUR qui couvrait le plus » : 5/9 contre 4/9 -> 2.
+	// C est la SEULE ligne du banc qui separe les deux lectures de l arbitrage.
+	// On retient la couleur (2) : c est ce que la justification ecrite decrit
+	// (« la couleur qui couvrait le plus doit rester ») et ce que voit
+	// l utilisateur. Ecart signale a l arbitre.
+	{
+		NkEditMesh m;
+		grille(m, 3);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		// ⚠ ORDRE CHOISI CONTRE LA REGLE, ET C'EST TOUT L'INTERET. La MINORITE
+		// (4 cellules) porte le slot 1 et vient EN PREMIER ; la majorite
+		// (5 cellules) porte le slot 2 et vient ensuite. Donc :
+		//   « garder la premiere »   dirait 1 ;
+		//   « l'indice le plus bas » dirait 1 ;
+		//   « la couleur dominante » dit  2.
+		// Premiere version de ce cas : majorite EN PREMIER — une mutation qui
+		// supprimait entierement la comparaison d'aires la laissait VERTE, parce
+		// que le bon resultat tombait par accident. Corrige apres l'avoir mesure.
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (k < 4u) ? (uint16)1 : (uint16)2;
+		const uint32 avant = vivantes(m);
+		toutSelectionner(m);
+		NkDissolveParams dp;
+		dp.mode = 0;
+		uint32 perdus = 123u;
+		const bool ok = m.DissolveSelected(dp, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2}->{3} retenu={4} (2 = la couleur majoritaire) perdus={5}",
+			"matfus/dissolve-couleur-majoritaire", ok ? 1 : 0, avant, vivantes(m), matPremiereVivante(m),
+			perdus);
+	}
+
+	// -- 9. DISSOLVE : EGALITE PARFAITE -> indice le plus bas --------------
+	// Grille 4x4 : huit cellules slot 2 (les premieres), huit slot 1. Aires
+	// cumulees rigoureusement egales. « Garder la premiere region rencontree »
+	// dirait 2 ; la regle dit 1.
+	{
+		NkEditMesh m;
+		grille(m, 4);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (k < 8u) ? (uint16)2 : (uint16)1;
+		const uint32 avant = vivantes(m);
+		toutSelectionner(m);
+		NkDissolveParams dp;
+		dp.mode = 0;
+		uint32 perdus = 123u;
+		const bool ok = m.DissolveSelected(dp, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2}->{3} retenu={4} (1 = indice bas a aire egale) perdus={5}",
+			"matfus/dissolve-egalite-indice", ok ? 1 : 0, avant, vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 10. DISSOLVE, materiau UNIQUE : rien ne se perd -------------------
+	// Temoin du compteur, cote N contributeurs. Sans lui, un `perdus` qui
+	// compterait « les faces absorbees » au lieu de « les materiaux perdus »
+	// rendrait 15 ici et personne ne verrait la difference.
+	{
+		NkEditMesh m;
+		grille(m, 4);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = 4;
+		const uint32 avant = vivantes(m);
+		toutSelectionner(m);
+		NkDissolveParams dp;
+		dp.mode = 0;
+		uint32 perdus = 123u;
+		const bool ok = m.DissolveSelected(dp, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2}->{3} retenu={4} perdus={5} (0 : une seule couleur)",
+			"matfus/dissolve-sans-perte", ok ? 1 : 0, avant, vivantes(m), matPremiereVivante(m), perdus);
+	}
+
+	// -- 11. DECIMATION : le materiau est TRANSPORTE ------------------------
+	// QEM ne fusionne aucune face -- il en SUPPRIME. Le materiau se transporte
+	// donc un pour un, et `facesMaterialChanged` doit valoir 0. C est une
+	// MESURE, pas une hypothese : la valeur remonte de BuildFromIndexed, la
+	// meme voie qui rend 1 dans matfus/transport-puis-fusion. Un compteur qui
+	// ne pourrait que valoir 0 n aurait rien prouve.
+	{
+		NkEditMesh m;
+		grille(m, 4);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (k < 8u) ? (uint16)1 : (uint16)2;
+		NkDecimateParams dp;
+		dp.targetRatio = 0.5f;
+		NkDecimateStats st;
+		const bool ok = NkMeshDecimate::DecimateQEM(m, dp, &st);
+		uint32 s1 = 0, s2 = 0, s0 = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			if (m.faces[f].material == 1)
+				s1++;
+			else if (m.faces[f].material == 2)
+				s2++;
+			else
+				s0++;
+		}
+		Put("{0:<34} ok={1} tris {2}->{3} slots {4}->{5} | slot1={6} slot2={7} slot0={8} fusions={9}",
+			"matfus/decimation-transport", ok ? 1 : 0, st.trisBefore, st.trisAfter, st.matSlotsBefore,
+			st.matSlotsAfter, s1, s2, s0, st.facesMaterialChanged);
+	}
+
+	// -- 12. DECIMATION : UNE COULEUR PEUT DISPARAITRE ---------------------
+	// UNE seule cellule sur seize porte le slot 3, et on decime tres fort.
+	// Le transport ne suffit pas a dire que rien n est perdu : les derniers
+	// porteurs d un slot peuvent tous etre supprimes, et alors la couleur sort
+	// du maillage sans qu aucun compte de faces ne bouge d une facon qui le
+	// dise. C est la ligne qui rend `matSlotsAfter` capable d etre PLUS PETIT
+	// que `matSlotsBefore` -- sans elle, les deux compteurs pourraient etre
+	// egaux par construction et personne ne le saurait.
+	{
+		NkEditMesh m;
+		grille(m, 4);
+		NkVector<uint32> fr;
+		rangs(m, fr);
+		for (uint32 k = 0; k < (uint32)fr.Size(); ++k)
+			m.faces[fr[k]].material = (k == 0u) ? (uint16)3 : (uint16)0;
+		NkDecimateParams dp;
+		dp.targetRatio = 0.1f;
+		NkDecimateStats st;
+		const bool ok = NkMeshDecimate::DecimateQEM(m, dp, &st);
+		uint32 s3 = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == 3)
+				s3++;
+		Put("{0:<34} ok={1} tris {2}->{3} slots {4}->{5} | slot3 restant={6} fusions={7}",
+			"matfus/decimation-couleur-perdue", ok ? 1 : 0, st.trisBefore, st.trisAfter, st.matSlotsBefore,
+			st.matSlotsAfter, s3, st.facesMaterialChanged);
+	}
+}
+
+
+// -- OMBRAGE PAR FACE : HERITE DE LA MERE, PAR LA MEME TABLE QUE LE MATERIAU --
+// ARBITRAGE (2026-08-22) : une face fille herite de sa mere, et la question
+// « d ou vient cette face » se resout UNE fois, pour tous les attributs par
+// face. D ou l entree unique `NkEditMesh::FaceAttrib`.
+//
+// CE QUE MESURAIT L ANCIEN TEMOIN, ET POURQUOI IL NE SUFFISAIT PAS.
+// `mat/temoin-smooth` figeait `smooth 12 -> 0` en decrivant ce zero comme
+// « le comportement existant ». Il l etait -- mais il etait aussi un DEFAUT,
+// et le temoin ne pouvait pas faire la difference : il mesurait un maillage
+// ENTIEREMENT lisse, ou « tout perdre » et « tout garder » sont les deux
+// seules reponses possibles.
+//
+// LE CAS QUI TRANCHE EST LE MAILLAGE MIXTE. Trois faces lisses, trois plates.
+// Une implantation qui poserait `smooth = 1` partout rendrait 24/24 ; une qui
+// le poserait a 0 rendrait 0/24 ; seule l heredite rend 12/12. Sans melange,
+// les trois se ressemblent.
+static void SmoothHeritageBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	auto cube = [&](NkEditMesh &m) {
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+	};
+	auto compteLisses = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].smooth)
+				k++;
+		return k;
+	};
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				k++;
+		return k;
+	};
+
+	// -- 1. MIXTE : la moitie lisse, la moitie plate -----------------------
+	// Trois des six faces du cube passent en lisse, puis subdivision. Chaque
+	// face donne quatre filles : on attend 12 lisses sur 24, pas 0 et pas 24.
+	{
+		NkEditMesh m;
+		cube(m);
+		uint32 pose = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				m.faces[f].smooth = (pose++ < 3u) ? 1 : 0;
+		const uint32 avantL = compteLisses(m), avantF = vivantes(m);
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		Put("{0:<34} lisses {1}/{2} -> {3}/{4} (12/24 : ni tout, ni rien)",
+			"smooth/mixte-subdivision", avantL, avantF, compteLisses(m), vivantes(m));
+	}
+
+	// -- 2. MIXTE, mais l INVERSE ------------------------------------------
+	// Les trois PREMIERES faces plates et les trois suivantes lisses. Une
+	// implantation qui lirait le mauvais parent (decalage d une face) rendrait
+	// encore 12/24 dans le cas 1 : elle ne se verrait qu ici, ou le motif
+	// change de place. On mesure donc quelles faces sont lisses, pas seulement
+	// combien.
+	{
+		NkEditMesh m;
+		cube(m);
+		uint32 pose = 0;
+		NkVector<uint32> mereLisse;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive) {
+				const uint8 sm = (pose++ >= 3u) ? 1 : 0;
+				m.faces[f].smooth = sm;
+				if (sm)
+					mereLisse.PushBack(f);
+			}
+		// Signature de POSITION : somme des centres des faces lisses. Elle
+		// distingue « trois faces lisses » de « trois AUTRES faces lisses »,
+		// ce qu un compte ne peut pas faire.
+		auto signature = [](const NkEditMesh &mm) {
+			float32 acc = 0.f;
+			for (uint32 f = 0; f < (uint32)mm.faces.Size(); ++f) {
+				if (!mm.faces[f].alive || !mm.faces[f].smooth)
+					continue;
+				NkVector<NkEmId> b;
+				mm.GetFaceVerts((NkEmId)f, b);
+				NkVec3f c{0.f, 0.f, 0.f};
+				for (uint32 j = 0; j < (uint32)b.Size(); ++j)
+					c = c + mm.verts[b[j]].pos;
+				if (b.Size())
+					c = c * (1.f / (float32)b.Size());
+				acc += c.x * 1.f + c.y * 10.f + c.z * 100.f;
+			}
+			return acc;
+		};
+		const float32 sigAvant = signature(m);
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		Put("{0:<34} lisses {1}/{2} | position avant {3:.4f} apres {4:.4f} (x4 filles)",
+			"smooth/mixte-position", compteLisses(m), vivantes(m), (double)sigAvant, (double)signature(m));
+	}
+
+	// -- 3. TOUT PLAT reste TOUT PLAT --------------------------------------
+	// Le temoin de l autre bord. Sans lui, un transport qui poserait 1 partout
+	// passerait les cas 1 et 2 si le hasard des index l arrangeait.
+	{
+		NkEditMesh m;
+		cube(m);
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			m.faces[f].smooth = 0;
+		NkSubdivideParams p;
+		p.cuts = 1;
+		m.SelectNone();
+		m.SubdivideSelectedFaces(p);
+		Put("{0:<34} lisses {1}/{2} (0 attendu : rien ne s invente)", "smooth/tout-plat-reste-plat",
+			compteLisses(m), vivantes(m));
+	}
+
+	// -- 4. L OMBRAGE SURVIT AUX AUTRES OPERATIONS AUSSI -------------------
+	// La subdivision n est pas un cas particulier : toutes les operations
+	// passent par le meme round-trip. Extrusion et triangulation le prouvent
+	// sur la MEME figure mixte -- et si l une d elles n empruntait pas ce
+	// chemin, elle seule rendrait 0.
+	{
+		struct Cas {
+				const char *nom;
+				int32 quoi; // 0 extrusion, 1 triangulation, 2 soudure
+		};
+		const Cas cs[3] = {{"smooth/survit-extrusion", 0},
+						   {"smooth/survit-inset", 1},
+						   {"smooth/survit-soudure", 2}};
+		for (uint32 c = 0; c < 3u; ++c) {
+			NkEditMesh m;
+			cube(m);
+			uint32 pose = 0;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+				if (m.faces[f].alive)
+					m.faces[f].smooth = (pose++ < 3u) ? 1 : 0;
+			const uint32 avantL = compteLisses(m), avantF = vivantes(m);
+			m.SelectAll();
+			bool ok = false;
+			if (cs[c].quoi == 0) {
+				NkExtrudeParams ep;
+				ok = m.ExtrudeSelectedFaces(ep);
+			} else if (cs[c].quoi == 1) {
+				NkInsetParams ip;
+				ok = m.InsetSelectedFaces(ip);
+			} else {
+				NkMergeParams mp;
+				mp.mode = NkMergeParams::ByDistance;
+				mp.distance = 0.001f;
+				ok = m.MergeSelectedVerts(mp);
+			}
+			m.RebuildEdges();
+			// `ok` est sur la ligne : sans lui, un « ombrage conserve » peut
+			// vouloir dire « l operation a ete refusee ».
+			Put("{0:<34} ok={1} lisses {2}/{3} -> {4}/{5}", cs[c].nom, ok ? 1 : 0, avantL, avantF,
+				compteLisses(m), vivantes(m));
+		}
+	}
+}
+
+// ── MATERIAU DES FACES CREEES SANS MERE : CHANFREIN ET EXTRUSION D ARETES ──
+// POURQUOI CETTE BATTERIE EXISTE
+// `matfus/` couvre les sites de FUSION, ou la face resultante a des meres et ou
+// la question est « laquelle gagne ». Ici la face n a AUCUNE mere : elle nait
+// entre des faces existantes. La regle arbitree est la MEME phrase — dominance
+// par une mesure, egalite par l indice le plus bas — mais la mesure change :
+// c est la LONGUEUR DE CONTOUR PARTAGE avec la voisine, non son aire.
+//
+// ⚠ CE QUE CETTE BATTERIE DOIT PROUVER EN PREMIER, avant toute question de
+// justesse : que `outMaterialChanged` PEUT valoir autre chose que zero. Un
+// compteur nul par construction n atteste rien, et on vient d en payer un
+// (`facesMaterialChanged`). Le cas `extrusion-arete-interieure` existe pour ca
+// et pour rien d autre : si un jour il rend 0, le compteur a cesse de compter.
+//
+// ⚠ ET LE PIEGE EST ICI STRUCTUREL, pas accidentel : sur un maillage NON SOUDE
+// (un cube importe porte 24 sommets pour 8 positions) une arete n a qu UNE face
+// incidente. Aucune ambiguite, donc jamais de perte, donc un compteur toujours
+// nul — sans qu une seule ligne soit fausse. C est pourquoi les cas ci-dessous
+// construisent des maillages SOUDES a la main plutot que de reutiliser `cube()`.
+static void MatCreationBattery() {
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				k++;
+		return k;
+	};
+	auto compte = [](const NkEditMesh &m, uint16 slot) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == slot)
+				k++;
+		return k;
+	};
+	// La face CREEE est la DERNIERE emise : un compte par slot ne distinguerait
+	// pas « la face creee porte 3 » de « une face d origine portait deja 3 ».
+	auto matDerniereVivante = [](const NkEditMesh &m) -> uint32 {
+		for (uint32 f = (uint32)m.faces.Size(); f-- > 0;)
+			if (m.faces[f].alive)
+				return m.faces[f].material;
+		return 9999u;
+	};
+
+	// Deux quads SOUDES partageant l arete (1,4) — la soudure est le point : elle
+	// donne a cette arete DEUX faces incidentes, donc une ambiguite a trancher.
+	//   3---4---5      f0 = (0,1,4,3)   f1 = (1,2,5,4)
+	//   | f0| f1|      arete partagee = (1,4)
+	//   0---1---2      `h` > 0 souleve l arete en aretier (chanfrein non degenere)
+	auto deuxQuads = [](NkEditMesh &m, uint16 mat0, uint16 mat1, float32 h) {
+		const NkVec3f ps[6] = {{0.f, 0.f, 0.f}, {1.f, h, 0.f}, {2.f, 0.f, 0.f},
+							   {0.f, 0.f, 1.f}, {1.f, h, 1.f}, {2.f, 0.f, 1.f}};
+		NkVertex3D vs[6];
+		for (uint32 k = 0; k < 6; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, 1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vs[k] = t;
+		}
+		const uint32 fs[3] = {0u, 4u, 8u};
+		const uint32 fv[8] = {0u, 1u, 4u, 3u, 1u, 2u, 5u, 4u};
+		NkEditMesh::FaceAttrib fa[2];
+		fa[0].material = mat0;
+		fa[1].material = mat1;
+		m.BuildFromPolygons(vs, 6u, fs, 2u, fv, fa);
+		m.RebuildEdges();
+	};
+	auto selVerts = [](NkEditMesh &m, uint32 a, uint32 b) {
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i)
+			m.verts[i].sel = (i == a || i == b) ? 1 : 0;
+	};
+
+	// -- 0. LE MAILLAGE SOUDE EST BIEN SOUDE --------------------------------
+	// Temoin du temoin. Si `BuildFromPolygons` ne partageait pas l arete (1,4),
+	// tous les cas suivants mesureraient un bord et rendraient 0 sans mentir.
+	// On compte les faces incidentes a (1,4) par les demi-aretes qui la portent.
+	{
+		NkEditMesh m;
+		deuxQuads(m, 5, 3, 0.f);
+		uint32 inc = 0;
+		for (uint32 hh = 0; hh < (uint32)m.hedges.Size(); ++hh) {
+			if (!m.hedges[hh].alive || m.hedges[hh].face == NK_EM_INVALID)
+				continue;
+			const NkEmId nx = m.hedges[hh].next;
+			const uint32 a = m.hedges[hh].origin;
+			const uint32 b = (nx == NK_EM_INVALID) ? a : m.hedges[nx].origin;
+			if ((a == 1u && b == 4u) || (a == 4u && b == 1u))
+				inc++;
+		}
+		Put("{0:<34} faces={1} incidentes a (1,4)={2} (2 = soude ; 1 = bord, les cas suivants mentiraient)",
+			"matcre/temoin-maillage-soude", vivantes(m), inc);
+	}
+
+	// -- 1. EXTRUSION d une arete INTERIEURE : LA PERTE EXISTE ---------------
+	// ⚠ LE CAS QUI FAIT VIVRE LE COMPTEUR. Arete (1,4) partagee par f0 (slot 5)
+	// et f1 (slot 3). Le quad cree touche les deux par le MEME segment, donc les
+	// deux longueurs sont egales et l indice le plus bas tranche : 3. La voisine
+	// slot 5 n est pas retenue -> perdus = 1, et non zero.
+	{
+		NkEditMesh m;
+		deuxQuads(m, 5, 3, 0.f);
+		selVerts(m, 1, 4);
+		NkExtrudeParams p;
+		p.offset = 0.f;
+		uint32 perdus = 123u; // valeur SALE : si la fonction ne l ecrit pas, ca se voit
+		const bool ok = m.ExtrudeSelectedEdges(p, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2} creee={3} (3 = indice bas a longueur egale) perdus={4} (1 : PAS zero)",
+			"matcre/extrusion-arete-interieure", ok ? 1 : 0, vivantes(m), matDerniereVivante(m), perdus);
+	}
+
+	// -- 2. EXTRUSION d une arete de BORD : une seule voisine, rien a perdre --
+	// Arete (0,3), incidente a f0 seule. Le quad cree herite de f0 (slot 5) et
+	// perdus vaut 0 — non parce que le compteur est mort, mais parce qu il n y
+	// avait rien a arbitrer. Le cas 1 est la pour faire la difference.
+	{
+		NkEditMesh m;
+		deuxQuads(m, 5, 3, 0.f);
+		selVerts(m, 0, 3);
+		NkExtrudeParams p;
+		p.offset = 0.f;
+		uint32 perdus = 123u;
+		const bool ok = m.ExtrudeSelectedEdges(p, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2} creee={3} (5 = l unique voisine) perdus={4} (0 : rien a arbitrer)",
+			"matcre/extrusion-arete-bord", ok ? 1 : 0, vivantes(m), matDerniereVivante(m), perdus);
+	}
+
+	// -- 3. EXTRUSION, memes materiaux des deux cotes : le TEMOIN ------------
+	// Meme topologie qu au cas 1 — deux voisines, donc l arbitrage a bien lieu —
+	// mais les deux portent le slot 4. Sans cette ligne, un compteur qui
+	// compterait les VOISINES au lieu des PERTES rendrait 1 comme au cas 1 et
+	// personne ne verrait la difference.
+	{
+		NkEditMesh m;
+		deuxQuads(m, 4, 4, 0.f);
+		selVerts(m, 1, 4);
+		NkExtrudeParams p;
+		p.offset = 0.f;
+		uint32 perdus = 123u;
+		const bool ok = m.ExtrudeSelectedEdges(p, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2} creee={3} perdus={4} (0 : deux voisines, une seule couleur)",
+			"matcre/extrusion-sans-perte", ok ? 1 : 0, vivantes(m), matDerniereVivante(m), perdus);
+	}
+
+	// -- 4. EXTRUSION : les faces d ORIGINE gardent leur materiau ------------
+	// La regression que le transport des attributs jusqu a `ToPolygons` a
+	// corrigee : sans lui, l operation repeignait TOUT le maillage en slot 0.
+	// Un cas qui ne regarderait que la face creee ne l aurait jamais vue.
+	{
+		NkEditMesh m;
+		deuxQuads(m, 5, 3, 0.f);
+		selVerts(m, 1, 4);
+		NkExtrudeParams p;
+		p.offset = 0.f;
+		const bool ok = m.ExtrudeSelectedEdges(p, nullptr); // nullptr : le compteur est FACULTATIF
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} slot5={2} slot3={3} slot0={4} (slot0=0 : les faces d origine pas repeintes)",
+			"matcre/extrusion-origine-intacte", ok ? 1 : 0, compte(m, 5), compte(m, 3), compte(m, 0));
+	}
+
+	// -- 5. CHANFREIN d une arete entre DEUX MATERIAUX -----------------------
+	// Aretier (h=0,5) pour que le chanfrein ne soit pas degenere. L arete (1,4)
+	// separe f0 (slot 5) de f1 (slot 3). La bande creee n a pas de mere : elle
+	// herite des deux voisines, et la perte doit etre COMPTEE.
+	{
+		NkEditMesh m;
+		deuxQuads(m, 5, 3, 0.5f);
+		selVerts(m, 1, 4);
+		NkBevelParams p;
+		p.offset = 0.15f;
+		p.segments = 1;
+		uint32 perdus = 123u;
+		const bool ok = m.BevelSelected(p, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2} slot5={3} slot3={4} slot0={5} perdus={6}", "matcre/chanfrein-deux-couleurs",
+			ok ? 1 : 0, vivantes(m), compte(m, 5), compte(m, 3), compte(m, 0), perdus);
+	}
+
+	// -- 6. CHANFREIN, une seule couleur : le TEMOIN -------------------------
+	// Meme geometrie, meme nombre de faces creees, mais une seule couleur : la
+	// perte doit tomber a 0. Si elle ne tombe pas, le compteur compte des faces
+	// creees et non des couleurs perdues.
+	{
+		NkEditMesh m;
+		deuxQuads(m, 4, 4, 0.5f);
+		selVerts(m, 1, 4);
+		NkBevelParams p;
+		p.offset = 0.15f;
+		p.segments = 1;
+		uint32 perdus = 123u;
+		const bool ok = m.BevelSelected(p, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2} slot4={3} slot0={4} perdus={5} (0 : une seule couleur)",
+			"matcre/chanfrein-sans-perte", ok ? 1 : 0, vivantes(m), compte(m, 4), compte(m, 0), perdus);
+	}
+
+	// -- 7. CHANFREIN A PLUSIEURS SEGMENTS : la bande reste D UNE COULEUR ----
+	// Trois segments, donc trois quads dans la bande. Ils doivent porter TOUS le
+	// meme slot : seuls le premier et le dernier touchent une voisine, et donner
+	// aux autres une couleur « propre » ferait une couture au milieu d un
+	// chanfrein. On mesure que slot0 reste vide — c est la ou tomberaient les
+	// quads du milieu s ils n heritaient de personne.
+	{
+		NkEditMesh m;
+		deuxQuads(m, 5, 3, 0.5f);
+		selVerts(m, 1, 4);
+		NkBevelParams p;
+		p.offset = 0.15f;
+		p.segments = 3;
+		uint32 perdus = 123u;
+		const bool ok = m.BevelSelected(p, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2} slot5={3} slot3={4} slot0={5} perdus={6} (slot0=0 : pas de couture)",
+			"matcre/chanfrein-trois-segments", ok ? 1 : 0, vivantes(m), compte(m, 5), compte(m, 3), compte(m, 0),
+			perdus);
+	}
+
+	// -- 8. CHANFREIN : LA LONGUEUR DOIT DOMINER L INDICE --------------------
+	// ⚠ LE CAS SANS LEQUEL LES SEPT PRECEDENTS NE PROUVENT RIEN DE LA REGLE.
+	// Dans tous, le gagnant est AUSSI l indice le plus bas : ils ne distinguent
+	// pas « dominance par la longueur » de « toujours le plus petit slot ». Un
+	// critere qui ne peut pas departager est aussi vide qu un compteur qui ne
+	// peut pas valoir autre chose que zero.
+	//
+	// Ici les deux criteres sont MIS EN DESACCORD. Le sommet 0 est recule en z,
+	// ce qui rend le coin de f0 en v1 AIGU (66 degres) la ou celui de f1 reste
+	// DROIT. Un coin plus aigu recule plus loin, donc le contour que la bande
+	// partage avec f0 est PLUS COURT que celui qu elle partage avec f1.
+	// f0 porte le slot 3, f1 le slot 5 : « indice le plus bas » dirait 3, la
+	// regle dit 5. C est la seule ligne du banc qui les separe.
+	{
+		const NkVec3f ps[6] = {{0.f, 0.f, 0.5f}, {1.f, 0.5f, 0.f}, {2.f, 0.f, 0.f},
+							   {0.f, 0.f, 1.f},  {1.f, 0.5f, 1.f}, {2.f, 0.f, 1.f}};
+		NkVertex3D vs[6];
+		for (uint32 k = 0; k < 6; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, 1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vs[k] = t;
+		}
+		const uint32 fs[3] = {0u, 4u, 8u};
+		const uint32 fv[8] = {0u, 1u, 4u, 3u, 1u, 2u, 5u, 4u};
+		NkEditMesh::FaceAttrib fa[2];
+		fa[0].material = 3; // f0 : coin AIGU en v1 -> contour partage PLUS COURT
+		fa[1].material = 5; // f1 : coin DROIT      -> contour partage PLUS LONG
+		NkEditMesh m;
+		m.BuildFromPolygons(vs, 6u, fs, 2u, fv, fa);
+		m.RebuildEdges();
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i)
+			m.verts[i].sel = (i == 1u || i == 4u) ? 1 : 0;
+		NkBevelParams p;
+		p.offset = 0.15f;
+		p.segments = 1;
+		uint32 perdus = 123u;
+		const bool ok = m.BevelSelected(p, &perdus);
+		m.RebuildEdges();
+		// La BANDE est la face creee : slot3=1 signifie qu elle a suivi l indice
+		// (regle non appliquee), slot5=2 qu elle a suivi la LONGUEUR.
+		Put("{0:<34} ok={1} faces {2} slot3={3} slot5={4} perdus={5} (slot5=2 : la LONGUEUR gagne, pas l indice)",
+			"matcre/chanfrein-longueur-domine", ok ? 1 : 0, vivantes(m), compte(m, 3), compte(m, 5), perdus);
+	}
+
+	// -- 9. CHANFREIN D UN CUBE ENTIER : les faces de RACCORD aux sommets ----
+	// ⚠ LES HUIT CAS PRECEDENTS N EN EXERCENT AUCUNE. Ils chanfreinent une arete
+	// dont les DEUX extremites sont sur le bord du maillage : aucun coin ne se
+	// ferme, et la branche (c) — la face de raccord au sommet — n a jamais tourne.
+	// Elle porte pourtant sa propre regle de ponderation ET son cas degenere
+	// documente (les deux aretes du coin chanfreinees -> longueurs toutes nulles,
+	// l indice le plus bas tranche). Un chemin non exerce n est pas un chemin sur.
+	//
+	// Le cube ferme les fait apparaitre : 6 faces + 12 bandes + 8 raccords = 26.
+	// Chaque face porte un slot distinct (1 a 6), donc tout raccord arbitre entre
+	// trois couleurs differentes et toute bande entre deux : la perte ne peut pas
+	// etre nulle, et slot0 doit rester VIDE — c est la que tomberait toute face
+	// creee qui n aurait herite de personne.
+	{
+		NkVector<NkVertex3D> cv;
+		NkVector<uint32> ci;
+		MakeCube(cv, ci);
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.RebuildEdges();
+		uint16 slot = 1;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				m.faces[f].material = slot++;
+		const uint32 avant = vivantes(m);
+		m.SelectAll();
+		NkBevelParams p;
+		p.offset = 0.1f;
+		p.segments = 1;
+		uint32 perdus = 123u;
+		const bool ok = m.BevelSelected(p, &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces {2} -> {3} slot0={4} perdus={5} (slot0=0 ; perdus>0 : les coins arbitrent)",
+			"matcre/chanfrein-cube-raccords", ok ? 1 : 0, avant, vivantes(m), compte(m, 0), perdus);
+	}
+}
+
+// ── LE MATERIAU SURVIT-IL AUX MODIFICATEURS ? ───────────────────────────────
+// POURQUOI CETTE BATTERIE EXISTE
+// ⚠ ELLE NAIT D UN TROU QUE PERSONNE N AVAIT VU, et le trou etait dans le BANC,
+// pas dans le code. La famille `matops/` mesure les OPERATIONS D EDITION ; les
+// modificateurs n etaient exerces par aucune ligne. Resultat : appliquer un
+// Mirror, un Array, un Solidify, un Triangulate ou un Mask **repeignait tout le
+// maillage en slot 0**, en silence, et le banc restait vert.
+//
+// > Une famille de cas qui porte le nom d un domaine (`matops/` = « le materiau
+// > survit aux operations ») donne l impression de couvrir ce domaine. Elle ne
+// > couvre que ce qu elle exerce.
+//
+// L HERITAGE EST ICI L IDENTITE, et ce n est pas un raccourci : un modificateur
+// qui COPIE (Mirror, Array), DECOUPE (Triangulate), SELECTIONNE (Build, Mask) ou
+// DOUBLE (Solidify) ne cree aucune face sans parent. Seule la tranche de bord de
+// Solidify est une face neuve, et elle suit la regle des faces sans mere.
+//
+// CE QUE CHAQUE CAS MESURE : une RELATION, pas un compte fige. « chaque slot
+// d origine apparait exactement k fois » reste vrai si la grille change de
+// taille ; `faces == 48` ne le resterait pas. Et `slot0` est sur chaque ligne :
+// c est la ou tombe toute face qui n a herite de personne.
+static void MatModBattery() {
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				k++;
+		return k;
+	};
+	auto compte = [](const NkEditMesh &m, uint16 slot) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == slot)
+				k++;
+		return k;
+	};
+	// RELATION : chaque slot de 1 a n apparait-il exactement `k` fois ? Rend 1 si
+	// oui. Un seul chiffre a lire, et il ne se perime pas quand la taille change.
+	auto chaqueSlotVaut = [&](const NkEditMesh &m, uint16 n, uint32 k) -> uint32 {
+		for (uint16 s = 1; s <= n; ++s)
+			if (compte(m, s) != k)
+				return 0u;
+		return 1u;
+	};
+	// Cube SOUDE, une couleur par face (slots 1..6).
+	auto cubePeint = [](NkEditMesh &m) {
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		uint16 s = 1;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				m.faces[f].material = s++;
+		m.RebuildEdges();
+	};
+
+	// -- 0. TEMOIN : le maillage de depart porte bien six couleurs -----------
+	// Sans lui, un « slot0=0 » apres modificateur pourrait vouloir dire que le
+	// maillage n avait aucune couleur a perdre.
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		Put("{0:<34} faces={1} chaque slot 1..6 une fois={2} slot0={3}", "matmod/temoin-cube-peint", vivantes(m),
+			chaqueSlotVaut(m, 6, 1u), compte(m, 0));
+	}
+
+	// -- 1. MIRROR : la face miroir est la MEME face, retournee --------------
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Mirror;
+		mo.mirrorAxis = 0;
+		mo.mirrorMerge = false;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} chaque slot x2={2} slot0={3} (slot0=0 : plus rien n est repeint)", "matmod/miroir",
+			vivantes(m), chaqueSlotVaut(m, 6, 2u), compte(m, 0));
+	}
+
+	// -- 2. ARRAY : chaque exemplaire est une copie ---------------------------
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Array;
+		mo.arrayCount = 3;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} chaque slot x3={2} slot0={3}", "matmod/array", vivantes(m), chaqueSlotVaut(m, 6, 3u),
+			compte(m, 0));
+	}
+
+	// -- 3. TRIANGULATE, chemin EVENTAIL (minVerts > 3) ----------------------
+	// Chaque quad donne deux triangles, tous deux du meme n-gon.
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Triangulate;
+		mo.triangulateMinVerts = 4;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} chaque slot x2={2} slot0={3}", "matmod/trianguler-eventail", vivantes(m),
+			chaqueSlotVaut(m, 6, 2u), compte(m, 0));
+	}
+
+	// -- 4. TRIANGULATE, chemin BuildFromIndexed (minVerts <= 3) -------------
+	// ⚠ UN AUTRE CHEMIN, pas une variante de reglage : celui-ci passe par
+	// BuildFromIndexed et non par BuildFromPolygons. Le corriger sur un seul des
+	// deux aurait laisse la moitie des utilisateurs avec des faces repeintes,
+	// selon un reglage qu ils n auraient pas relie au symptome.
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Triangulate;
+		mo.triangulateMinVerts = 3;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} chaque slot x2={2} slot0={3}", "matmod/trianguler-indexe", vivantes(m),
+			chaqueSlotVaut(m, 6, 2u), compte(m, 0));
+	}
+
+	// -- 5. SOLIDIFY sur une surface OUVERTE : coques + tranche de bord ------
+	// La grille est ouverte, donc la tranche de bord existe — sur un cube ferme
+	// elle n aurait aucune arete de bord et le chemin ne tournerait pas.
+	// 16 faces peintes 1..4 -> 16 externes + 16 internes + 16 tranches = 48.
+	// Chaque slot passe donc de 4 a 8 (coques) plus sa part de tranche.
+	{
+		NkEditMesh m;
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		uint16 s = 1;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive) {
+				m.faces[f].material = s;
+				s = (uint16)((s % 4u) + 1u);
+			}
+		m.RebuildEdges();
+		const uint32 avant = vivantes(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Solidify;
+		mo.solidifyThickness = 0.05f;
+		mo.solidifyRim = true;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces {1} -> {2} slot0={3} (slot0=0 : la tranche herite, elle ne retombe pas)",
+			"matmod/solidify-bord", avant, vivantes(m), compte(m, 0));
+	}
+
+	// -- 6. MASK : ne garde que les faces selectionnees -----------------------
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			m.verts[i].sel = 0;
+		// Selectionne tous les coins de la premiere face vivante.
+		{
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+				if (m.faces[f].alive) {
+					m.GetFaceVerts(f, loop);
+					break;
+				}
+			for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
+				m.verts[loop[k]].sel = 1;
+		}
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Mask;
+		mo.maskInvert = false;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} slot1={2} slot0={3} (slot1=1 : la face gardee garde SA couleur)", "matmod/mask",
+			vivantes(m), compte(m, 1), compte(m, 0));
+	}
+
+	// -- 7. BUILD : ne montre qu une proportion des faces ---------------------
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Build;
+		mo.buildRatio = 0.5f;
+		mo.Apply(m);
+		m.RebuildEdges();
+		Put("{0:<34} faces={1} slot0={2} slot1={3} slot2={4} slot3={5}", "matmod/build-proportion", vivantes(m),
+			compte(m, 0), compte(m, 1), compte(m, 2), compte(m, 3));
+	}
+
+	// -- 8. VIS/REVOLUTION, chemin des BANDES (duplicate=false) --------------
+	// ⚠ CE CHEMIN N ETAIT EXERCE PAR AUCUNE LIGNE : `matops/vis-revolution`
+	// utilise duplicate=true, qui COPIE des faces (elles ont donc une mere).
+	// Les bandes, elles, naissent d une ARETE et n ont pas de mere — c est la
+	// seule famille de SpinSelected qui posait la question, et c est justement
+	// celle que le banc ne touchait pas. Le commentaire du code le disait, en
+	// toutes lettres, et personne n en avait tire la ligne manquante.
+	//
+	// Deux quads soudes, slots 5 et 3. L arete partagee porte DEUX faces de
+	// couleurs differentes : sa bande doit arbitrer, donc perdre — et le
+	// compteur doit le dire.
+	{
+		const NkVec3f ps[6] = {{1.f, 0.f, 0.f}, {2.f, 0.f, 0.f}, {3.f, 0.f, 0.f},
+							   {1.f, 0.f, 1.f}, {2.f, 0.f, 1.f}, {3.f, 0.f, 1.f}};
+		NkVertex3D vs[6];
+		for (uint32 k = 0; k < 6; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, 1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vs[k] = t;
+		}
+		const uint32 fs[3] = {0u, 4u, 8u};
+		const uint32 fv[8] = {0u, 1u, 4u, 3u, 1u, 2u, 5u, 4u};
+		NkEditMesh::FaceAttrib fa[2];
+		fa[0].material = 5;
+		fa[1].material = 3;
+		NkEditMesh m;
+		m.BuildFromPolygons(vs, 6u, fs, 2u, fv, fa);
+		m.RebuildEdges();
+		m.SelectAll();
+		NkSpinParams sp;
+		sp.axis = {0.f, 0.f, 1.f};
+		sp.center = {0.f, 0.f, 0.f};
+		sp.angle = 1.5707963f;
+		sp.steps = 2;
+		sp.duplicate = false;
+		uint32 perdus = 123u; // valeur SALE : si la fonction ne l ecrit pas, ca se voit
+		const bool ok = m.SpinSelected(sp, NkMat4f::Identity(), &perdus);
+		m.RebuildEdges();
+		Put("{0:<34} ok={1} faces={2} slot0={3} slot5={4} slot3={5} perdus={6} (perdus>0 : les bandes arbitrent)",
+			"matmod/vis-bandes", ok ? 1 : 0, vivantes(m), compte(m, 0), compte(m, 5), compte(m, 3), perdus);
+	}
+}
+
+// ── COUT DU TRANSPORT DES ATTRIBUTS PAR FACE ────────────────────────────────
+// POURQUOI CE N EST PAS DANS LA REFERENCE
+// ⚠ UNE DUREE NE PEUT PAS ENTRER DANS `editmesh_baseline.txt` : la reference est
+// comparee OCTET POUR OCTET, et deux lancements ne donnent jamais la meme
+// milliseconde. La poser dans les lignes mesurees ferait tomber `--check` a
+// chaque passage, et le reflexe serait de recopier le nouveau chiffre — donc de
+// prendre l habitude de mettre la reference a jour sans la lire.
+// Elle vit derriere `--perf`, et elle s IMPRIME au lieu d etre comparee.
+//
+// CE QU ON MESURE, ET POURQUOI CE DECOUPAGE
+// Le travail AJOUTE par le chantier materiau-par-face est exactement deux
+// choses : `ToPolygons` remplit une table d attributs en plus, et
+// `BuildFromPolygons` la relit. On mesure donc CHACUNE avec et sans, sur le MEME
+// maillage, dans le MEME binaire — plutot que de comparer deux binaires, ce qui
+// melangerait le cout du transport a tout ce qui a bouge par ailleurs.
+//
+// ⚠ ET ON MESURE LE BRUIT AVANT DE PARLER D ECART : chaque mesure rend son
+// minimum ET son maximum sur N passes. Un ecart plus petit que la dispersion
+// d une seule variante ne se lit pas — c est la sixieme facon connue de se
+// tromper avec un controle (« mesurer un ecart sans avoir mesure le bruit »).
+template <typename F> static void PerfLigne(const char *nom, uint32 passes, F fn) {
+	float64 mn = 1e30, mx = 0.0, tot = 0.0;
+	for (uint32 r = 0; r < passes; ++r) {
+		NkChrono c;
+		fn();
+		const float64 ms = c.Elapsed().ToMilliseconds();
+		if (ms < mn)
+			mn = ms;
+		if (ms > mx)
+			mx = ms;
+		tot += ms;
+	}
+	printf("  %-40s min %8.3f  max %8.3f  moy %8.3f ms   (%u passes)\n", nom, mn, mx, tot / (double)passes, passes);
+}
+
+static void PerfBattery() {
+	// MAILLAGE DE TAILLE REELLE, pas un cube : 128 x 128 = 16 384 quads, 16 641
+	// sommets, SOUDES. Un cube a six faces rendrait toute mesure verte — c est le
+	// meme piege que le jeu de donnees incapable de produire le cas, applique
+	// cette fois a une duree.
+	const uint32 N = 128u;
+	NkVector<NkVertex3D> gv;
+	NkVector<uint32> gi;
+	MakeGrid(N, gv, gi);
+	NkEditMesh src;
+	src.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+	uint16 s = 1;
+	for (uint32 f = 0; f < (uint32)src.faces.Size(); ++f)
+		if (src.faces[f].alive) {
+			src.faces[f].material = s;
+			s = (uint16)((s % 8u) + 1u);
+		}
+	src.RebuildEdges();
+	uint32 fcount = 0;
+	for (uint32 f = 0; f < (uint32)src.faces.Size(); ++f)
+		if (src.faces[f].alive)
+			fcount++;
+	printf("\n=== COUT DU TRANSPORT DES ATTRIBUTS PAR FACE ===\n");
+	printf("  maillage : grille %ux%u soudee -- %u sommets, %u faces, 8 slots\n\n", N, N, src.VertCount(), fcount);
+
+	const uint32 P = 20u;
+
+	// -- 1. ToPolygons : le SEUL surcout a l aller ---------------------------
+	printf("  [aller] ToPolygons\n");
+	PerfLigne("sans attributs", P, [&]() {
+		NkVector<NkVertex3D> pv;
+		NkVector<uint32> fs, fv;
+		src.ToPolygons(pv, fs, fv);
+	});
+	PerfLigne("avec attributs", P, [&]() {
+		NkVector<NkVertex3D> pv;
+		NkVector<uint32> fs, fv;
+		NkVector<NkEditMesh::FaceAttrib> fa;
+		src.ToPolygons(pv, fs, fv, &fa);
+	});
+
+	// -- 2. BuildFromPolygons : le SEUL surcout au retour --------------------
+	NkVector<NkVertex3D> pv;
+	NkVector<uint32> fs, fv;
+	NkVector<NkEditMesh::FaceAttrib> fa;
+	src.ToPolygons(pv, fs, fv, &fa);
+	const uint32 nfc = (uint32)fs.Size() - 1u;
+	printf("\n  [retour] BuildFromPolygons\n");
+	PerfLigne("sans attributs", P, [&]() {
+		NkEditMesh d;
+		d.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), nfc, fv.Data());
+	});
+	PerfLigne("avec attributs", P, [&]() {
+		NkEditMesh d;
+		d.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), nfc, fv.Data(), fa.Data());
+	});
+
+	// -- 3. LES CINQ MODIFICATEURS CABLES, en absolu -------------------------
+	// Le round-trip complet, tel que l utilisateur le declenche. C est le chiffre
+	// qui compte pour lui : pas le surcout d une fonction, mais l attente devant
+	// l ecran quand il applique un modificateur a un maillage dense.
+	printf("\n  [complet] modificateurs sur le maillage ci-dessus\n");
+	struct Cas {
+			const char *nom;
+			NkModifierType t;
+	};
+	const Cas cs[5] = {{"Mirror", NkModifierType::Mirror},
+					   {"Array (x3)", NkModifierType::Array},
+					   {"Triangulate", NkModifierType::Triangulate},
+					   {"Solidify (+ tranche)", NkModifierType::Solidify},
+					   {"Mask", NkModifierType::Mask}};
+	for (uint32 c = 0; c < 5u; ++c) {
+		NkMeshModifier mo;
+		mo.type = cs[c].t;
+		mo.arrayCount = 3;
+		mo.mirrorMerge = false;
+		mo.solidifyRim = true;
+		PerfLigne(cs[c].nom, 5u, [&]() {
+			NkEditMesh d = src;
+			mo.Apply(d);
+		});
+	}
+
+	// -- 3bis. OU PART LE TEMPS DE SOLIDIFY ET DE TRIANGULATE ---------------
+	// Mirror fait le MEME aller-retour (ToPolygons + BuildFromPolygons, attributs
+	// compris) et sort MEME plus de faces que Triangulate, en 21 ms. Si Solidify
+	// et Triangulate coutent des secondes, ce n est donc pas le transport des
+	// attributs qui les coute -- ces deux lignes disent ou ca part vraiment.
+	printf("\n  [diagnostic] ou part le temps\n");
+	{
+		NkMeshModifier mo;
+		mo.type = NkModifierType::Solidify;
+		mo.solidifyRim = false;
+		PerfLigne("Solidify SANS tranche de bord", 5u, [&]() {
+			NkEditMesh d = src;
+			mo.Apply(d);
+		});
+	}
+	PerfLigne("Triangulate() seul (jete si minVerts>3)", 5u, [&]() {
+		NkVector<NkVertex3D> tv;
+		NkVector<uint32> ti;
+		NkVector<NkEmId> tf;
+		src.Triangulate(tv, ti, tf);
+	});
+	PerfLigne("RebuildEdges seul", 5u, [&]() {
+		NkEditMesh d = src;
+		d.RebuildEdges();
+	});
+
+	// -- 3ter. COURBE DE RebuildEdges ---------------------------------------
+	// ⚠ ECRIT AVANT LA CORRECTION, et c est le point : sans courbe prise AVANT,
+	// on ne peut prouver apres coup qu on a change la CLASSE DE COMPLEXITE et pas
+	// seulement gagne une constante. Quatre tailles, chacune x4 de la precedente :
+	// le rapport entre deux lignes consecutives EST l exposant.
+	//   x4  = lineaire      x16 = quadratique      x22 = pire que quadratique
+	printf("\n  [courbe] RebuildEdges -- cote x2 = faces x4 ; le RAPPORT est la mesure\n");
+	{
+		double prec = 0.0;
+		for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+			NkVector<NkVertex3D> qv;
+			NkVector<uint32> qi;
+			MakeGrid(nn, qv, qi);
+			NkEditMesh q;
+			q.BuildFromIndexed(qv.Data(), (uint32)qv.Size(), qi.Data(), (uint32)qi.Size(), true);
+			double mn = 1e30;
+			const uint32 passes = (nn >= 128u) ? 3u : 5u;
+			for (uint32 r = 0; r < passes; ++r) {
+				NkEditMesh d = q;
+				NkChrono c;
+				d.RebuildEdges();
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mn)
+					mn = ms;
+			}
+			if (prec > 0.0)
+				printf("    %6u faces : %10.3f ms   x%.1f par rapport a la ligne precedente\n", nn * nn, mn,
+					   mn / prec);
+			else
+				printf("    %6u faces : %10.3f ms\n", nn * nn, mn);
+			prec = mn;
+		}
+	}
+
+	// -- 3quater. PROFIL : ou part le temps DANS RebuildEdges ---------------
+	// Sonde la moins invasive possible : BuildVertexMerge est PUBLIC, on peut le
+	// chronometrer seul sans toucher au moteur. Si la courbe de RebuildEdges est
+	// deja toute entiere dans cette ligne, le coupable est trouve sans instrumenter
+	// quoi que ce soit.
+	printf("\n  [profil] BuildVertexMerge seul (fonction PUBLIQUE, appelee par RebuildEdges)\n");
+	{
+		double prec = 0.0;
+		for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+			NkVector<NkVertex3D> qv;
+			NkVector<uint32> qi;
+			MakeGrid(nn, qv, qi);
+			NkEditMesh q;
+			q.BuildFromIndexed(qv.Data(), (uint32)qv.Size(), qi.Data(), (uint32)qi.Size(), true);
+			double mn = 1e30;
+			for (uint32 r = 0; r < 3u; ++r) {
+				NkVector<uint32> canon;
+				NkChrono c;
+				q.BuildVertexMerge(canon);
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mn)
+					mn = ms;
+			}
+			if (prec > 0.0)
+				printf("    %6u sommets : %10.3f ms   x%.1f\n", q.VertCount(), mn, mn / prec);
+			else
+				printf("    %6u sommets : %10.3f ms\n", q.VertCount(), mn);
+			prec = mn;
+		}
+	}
+
+	// -- 3quinquies. LES DEUX SUSPECTS RESTANTS, ISOLES ---------------------
+	// BuildVertexMerge est lineaire, la mise a plat radiale et le cycle disque
+	// sont des tris par comptage. Il ne reste que la boucle sur les faces, et
+	// dedans deux structures : la table  (SANS Reserve) et le tableau de
+	// tableaux . On les exerce SEULES, avec les memes ordres de grandeur.
+	printf("\n  [profil] les deux suspects, isoles hors du moteur\n");
+	for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+		const uint32 E = nn * nn * 2u; // ordre de grandeur du nombre d aretes
+		double mh = 1e30, mv = 1e30;
+		for (uint32 r = 0; r < 3u; ++r) {
+			{
+				NkChrono c;
+				NkHashMap<uint64, uint32> seen; // SANS Reserve
+				for (uint32 i = 0; i < E; ++i) {
+					const uint64 lo = i, hi = i + 1u;
+					seen.InsertOrAssign((lo << 32) | hi, i);
+				}
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mh)
+					mh = ms;
+			}
+			{
+				NkChrono c;
+				NkVector<NkVector<NkEmId>> radial;
+				for (uint32 i = 0; i < E; ++i) {
+					radial.PushBack(NkVector<NkEmId>{});
+					radial[i].PushBack((NkEmId)i);
+				}
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mv)
+					mv = ms;
+			}
+		}
+		double mr = 1e30;
+		for (uint32 r = 0; r < 3u; ++r) {
+			NkChrono c;
+			NkHashMap<uint64, uint32> seen2;
+			seen2.Reserve(E); // LA SEULE DIFFERENCE
+			for (uint32 i = 0; i < E; ++i) {
+				const uint64 lo = i, hi = i + 1u;
+				seen2.InsertOrAssign((lo << 32) | hi, i);
+			}
+			const double ms = c.Elapsed().ToMilliseconds();
+			if (ms < mr)
+				mr = ms;
+		}
+		printf("    %7u entrees : sans Reserve %9.3f ms | AVEC Reserve %8.3f ms | NkVector<NkVector> %8.3f ms\n",
+			   E, mh, mr, mv);
+	}
+
+	// -- 4. LES DEUX OPERATIONS DE CE CHANTIER -------------------------------
+	printf("\n  [complet] chanfrein et extrusion d aretes\n");
+	PerfLigne("BevelSelected (tout selectionne)", 3u, [&]() {
+		NkEditMesh d = src;
+		d.SelectAll();
+		NkBevelParams bp;
+		bp.offset = 0.002f;
+		bp.segments = 1;
+		uint32 perdus = 0;
+		d.BevelSelected(bp, &perdus);
+	});
+	PerfLigne("ExtrudeSelectedEdges (tout selectionne)", 5u, [&]() {
+		NkEditMesh d = src;
+		d.SelectAll();
+		NkExtrudeParams ep;
+		ep.offset = 0.f;
+		uint32 perdus = 0;
+		d.ExtrudeSelectedEdges(ep, &perdus);
+	});
+	printf("\n");
+}
+
+// ── TEMOIN DE JUSTESSE DE RebuildEdges ──────────────────────────────────────
+// POURQUOI CE TEMOIN EXISTE, ET POURQUOI MAINTENANT
+// `RebuildEdges` va etre REECRIT pour sa complexite (cf. --perf : x4 faces
+// coutent x22 de temps). Une reconstruction d aretes plus RAPIDE et FAUSSE
+// serait invisible jusqu au premier biseau de travers -- et le banc, lui, ne
+// mesurait la topologie reconstruite par AUCUNE ligne dediee.
+//
+// ⚠ DEUX EMPREINTES, ET C EST LE POINT DE CE TEMOIN.
+// Une seule empreinte ordonnee ne saurait pas distinguer deux echecs tres
+// differents : « la topologie a change » (grave) et « les memes aretes sortent
+// dans un autre ordre » (benin, mais qui fait tomber la ligne quand meme).
+//   - `ord`   : empreinte de la SUITE (v0,v1,radialCount) -- sensible a l ordre ;
+//   - `ens`   : somme des empreintes par arete -- INVARIANTE par reordonnancement.
+// Si `ens` tient et que `ord` bouge, la reecriture a seulement change l ordre
+// d emission. Si `ens` bouge, elle a change la TOPOLOGIE, et c est un defaut.
+// Sans les deux, on ne saurait pas laquelle des deux vient d arriver.
+static uint64 EmpreinteMele(uint64 h, uint64 v) {
+	h ^= v + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2);
+	return h;
+}
+
+struct SigAretes {
+		uint32 aretes = 0, filaires = 0, bords = 0, interieures = 0, nonManifold = 0;
+		uint32 radialTotal = 0, diskTotal = 0, hedgesLiees = 0;
+		uint64 ord = 0, ens = 0;
+};
+
+static SigAretes SignerAretes(const NkEditMesh &m) {
+	SigAretes s;
+	s.ord = 1469598103934665603ull;
+	for (uint32 i = 0; i < (uint32)m.edges.Size(); ++i) {
+		const NkEditMesh::Edge &e = m.edges[i];
+		if (!e.alive)
+			continue;
+		s.aretes++;
+		if (e.radialCount == 0u)
+			s.filaires++;
+		else if (e.radialCount == 1u)
+			s.bords++;
+		else if (e.radialCount == 2u)
+			s.interieures++;
+		else
+			s.nonManifold++;
+		s.radialTotal += e.radialCount;
+		// L empreinte porte (v0,v1,radialCount) : l identite de l arete ET son
+		// nombre d incidences. Deux maillages qui n auraient pas les memes faces
+		// autour d une meme arete ne peuvent pas rendre la meme valeur.
+		uint64 h = 1469598103934665603ull;
+		h = EmpreinteMele(h, (uint64)e.v0);
+		h = EmpreinteMele(h, (uint64)e.v1);
+		h = EmpreinteMele(h, (uint64)e.radialCount);
+		s.ord = EmpreinteMele(s.ord, h);
+		s.ens += h; // somme : insensible a l ordre, sensible au contenu
+	}
+	s.diskTotal = (uint32)m.diskPool.Size();
+	for (uint32 h = 0; h < (uint32)m.hedges.Size(); ++h)
+		if (m.hedges[h].alive && m.hedges[h].edge != NK_EM_INVALID)
+			s.hedgesLiees++;
+	return s;
+}
+
+static void AretesBattery() {
+	auto ligne = [](const char *nom, const NkEditMesh &m) {
+		const SigAretes s = SignerAretes(m);
+		// La partition est sur la ligne : filaires + bords + interieures +
+		// nonManifold DOIT valoir `aretes`. Une classe oubliee se verrait ici et
+		// nulle part ailleurs.
+		const uint32 somme = s.filaires + s.bords + s.interieures + s.nonManifold;
+		Put("{0:<34} A={1} fil={2} bord={3} int={4} nonmanif={5} part={6} radial={7} disk={8} hl={9} ord={10} ens={11}",
+			nom, s.aretes, s.filaires, s.bords, s.interieures, s.nonManifold, (somme == s.aretes) ? 1u : 0u,
+			s.radialTotal, s.diskTotal, s.hedgesLiees, s.ord, s.ens);
+	};
+
+	// -- 1. CUBE : sommets DUPLIQUES par face (24 pour 8 positions) ----------
+	// C est le cas qui exige l identite soudee : sans elle, 24 aretes au lieu
+	// de 12. Le temoin le fige.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		ligne("aretes/cube-soude", m);
+	}
+
+	// -- 2. GRILLE OUVERTE : des aretes de BORD, que le cube n a pas ---------
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		ligne("aretes/grille-bords", m);
+	}
+
+	// -- 3. IDEMPOTENCE : reconstruire deux fois ne change RIEN --------------
+	// ⚠ Un defaut classique d une reecriture : la deuxieme passe voit un etat
+	// deja peuple et double des incidences, ou perd les filaires. Une seule
+	// reconstruction ne le montrerait jamais.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const SigAretes a = SignerAretes(m);
+		m.RebuildEdges();
+		m.RebuildEdges();
+		const SigAretes b = SignerAretes(m);
+		Put("{0:<34} A {1} -> {2} ord identique={3} ens identique={4} (1/1 : rejouer ne change rien)",
+			"aretes/idempotence", a.aretes, b.aretes, (a.ord == b.ord) ? 1u : 0u, (a.ens == b.ens) ? 1u : 0u);
+	}
+
+	// -- 4. ARETE FILAIRE : elle ne se deduit d aucune face ------------------
+	// C est toute la raison d etre de la liste `edges` : une reconstruction qui
+	// repart des demi-aretes ne peut PAS la retrouver. Si une reecriture oublie
+	// de la reinserer, elle disparait sans qu aucune face ne change.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const uint32 avant = (uint32)m.edges.Size();
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			m.verts[i].sel = 0;
+		// DIAGONALE d une face (sommets 0 et 2) : elle n existe pas apres quadify,
+		// donc MakeEdgeFromSelected cree une arete FILAIRE, portee par aucune face.
+		// ⚠ La premiere version de ce cas appelait MakeFaceFromSelected et rendait
+		// ok=0 : l operation etait REFUSEE, fil valait 0, et la ligne avait pourtant
+		// l air de mesurer quelque chose. Un cas dont la precondition echoue ne
+		// prouve rien -- c est le `ok` sur la ligne qui l a fait voir.
+		m.verts[0].sel = 1;
+		m.verts[2].sel = 1;
+		const bool ok = m.MakeEdgeFromSelected();
+		m.RebuildEdges();
+		const SigAretes s = SignerAretes(m);
+		Put("{0:<34} ok={1} A {2} -> {3} fil={4} (fil>=1 : le filaire survit au rebuild)", "aretes/filaire-survit",
+			ok ? 1 : 0, avant, s.aretes, s.filaires);
+	}
+
+	// -- 5. JONCTION EN T : une arete portee par TROIS faces -----------------
+	// Le cas que `twin` seul ne sait pas representer. Le cycle radial doit voir
+	// les trois ; une reecriture qui n en garderait que deux serait invisible
+	// partout ailleurs.
+	{
+		const NkVec3f ps[8] = {{0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}, {1.f, 0.f, 1.f}, {0.f, 0.f, 1.f},
+							   {1.f, 1.f, 0.f}, {1.f, 1.f, 1.f}, {2.f, 0.f, 0.f}, {2.f, 0.f, 1.f}};
+		NkVertex3D vs[8];
+		for (uint32 k = 0; k < 8; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, 1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vs[k] = t;
+		}
+		// Trois quads partageant l arete (1,2).
+		const uint32 fs[4] = {0u, 4u, 8u, 12u};
+		const uint32 fv[12] = {0u, 1u, 2u, 3u, 1u, 4u, 5u, 2u, 1u, 6u, 7u, 2u};
+		NkEditMesh m;
+		m.BuildFromPolygons(vs, 8u, fs, 3u, fv);
+		m.RebuildEdges();
+		ligne("aretes/jonction-T-radial3", m);
+	}
+}
+
 int main(int argc, char **argv) {
-	bool baseline = false, check = false;
+	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
+	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
+	NkBenchRootInit(argc, argv);
+	if (!NkBenchRootFound()) {
+		// Pas de repli : un banc qui ne sait pas ou est le depot mesurerait des
+		// fichiers absents et le dirait comme s'il mesurait le moteur.
+		NkLog::Instance().Error("ECHEC : racine du depot introuvable (marqueur 'Nkentseu.jenga') ni depuis le "
+					 "repertoire courant ni depuis {0}",
+					 NkBenchArgv0());
+		return 3;
+	}
+
+	bool baseline = false, check = false, perf = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
 			check = true;
+		else if (strcmp(argv[i], "--perf") == 0)
+			perf = true;
 	}
 
 	Battery();
@@ -5028,8 +6605,27 @@ int main(int argc, char **argv) {
 	LoadersBattery();
 	// AJOUTEE EN FIN, meme raison : les 217 lignes precedentes gardent leur numero.
 	AccessBattery();
+	// AJOUTEE EN FIN, meme raison : les 232 lignes precedentes gardent leur numero.
+	MatFusionBattery();
+	MatFusionNBattery();
+	SmoothHeritageBattery();
+	// AJOUTEE EN FIN, meme raison : les 250 lignes precedentes gardent leur numero.
+	MatCreationBattery();
+	// AJOUTEE EN FIN, meme raison : les 260 lignes precedentes gardent leur numero.
+	MatModBattery();
+	// AJOUTEE EN FIN, meme raison : les 269 lignes precedentes gardent leur numero.
+	AretesBattery();
 
-	const char *path = "editmesh_baseline.txt";
+	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
+	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.
+	if (perf)
+		PerfBattery();
+
+	// La reference vit A COTE DES SOURCES DU BANC, pas dans le repertoire de
+	// lancement : sinon `--baseline` depuis deux endroits ecrit deux references
+	// differentes, et `--check` compare a celle qu'il trouve.
+	const NkString refPath = CheminRessource("Applications/NKEditMeshHarness/editmesh_baseline.txt");
+	const char *path = refPath.Data();
 	if (baseline) {
 		FILE *f = fopen(path, "wb");
 		if (!f) {

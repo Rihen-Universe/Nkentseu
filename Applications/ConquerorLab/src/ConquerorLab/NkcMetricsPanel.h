@@ -180,7 +180,7 @@ namespace nkentseu {
 					std::snprintf(buf, sizeof(buf), "configuration %016llx",
 								  static_cast<unsigned long long>(mSig.hash));
 					NkcText(ctx, ctx.layout.cursor.x, ctx.layout.cursor.y, buf,
-							NkcPalette::TextDim(), 0.f);
+							NkcPalette::TextDim(), ctx.ContentWidth());
 					ctx.layout.cursor.y += NkcLineH(ctx) + ctx.S(2.f);
 
 					std::snprintf(buf, sizeof(buf), "regles  %s", mSig.rules.CStr());

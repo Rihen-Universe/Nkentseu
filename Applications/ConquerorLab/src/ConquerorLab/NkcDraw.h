@@ -17,6 +17,10 @@
 #include "NKGui/NKGui.h"
 #include "NKMath/NkFunctions.h"
 
+#include "ConquerorLab/NkcTextAudit.h"
+
+#include <cstring>
+
 namespace nkentseu {
 	namespace conqueror {
 
@@ -27,6 +31,19 @@ namespace nkentseu {
 
 		// ---------------------------------------------------------------------
 		// Texte
+		//
+		// LE PIEGE QUE CES FONCTIONS FERMENT
+		// ----------------------------------
+		// `NkGuiDrawList::AddText(maxWidth)` coupe a `baseline.x + maxWidth` — la
+		// limite part de l'ORIGINE DU TEXTE, pas du bord du cadre. Un texte centre
+		// commence a `r.x + (r.w - tw) * 0.5` : quand il est trop large, cette
+		// origine passe A GAUCHE de `r.x`. Le texte deborde alors du cadre a gauche
+		// ET se fait couper avant le bord droit — tronque des deux cotes, illisible
+		// aux deux bouts. Le meme calcul vaut pour l'alignement a droite.
+		//
+		// On ajuste donc le libelle AVANT de le placer : reduit et suivi de points
+		// de suite s'il ne tient pas, origine jamais a gauche du cadre. Un texte
+		// coupe reste lisible du debut ; un texte coupe des deux cotes ne l'est pas.
 		// ---------------------------------------------------------------------
 		inline float32 NkcTextW(NkGuiContext &ctx, const char *s) noexcept {
 			if (!ctx.font || !ctx.font->Valid() || !s) return 0.f;
@@ -37,32 +54,77 @@ namespace nkentseu {
 			return (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
 		}
 
-		/// Texte au coin haut-gauche.
+		/// Ajuste `s` a `avail` pixels. Rend `s` tel quel s'il tient ; sinon ecrit
+		/// dans `out` le plus long prefixe suivi de « ... » qui tienne, et note le
+		/// depassement au registre (cf. NkcTextAudit.h).
+		///
+		/// La coupe recule sur une frontiere UTF-8 : couper au milieu d'un « é » ou
+		/// d'un tiret cadratin produirait un glyphe de remplacement, c'est-a-dire un
+		/// second defaut a la place du premier.
+		inline const char *NkcFitText(NkGuiContext &ctx, const char *s, float32 avail, char *out,
+									  uint32 cap) noexcept {
+			if (!s || !*s || !out || cap < 8) return s;
+			if (avail <= 0.f || !ctx.font || !ctx.font->Valid()) return s;
+
+			const float32 tw = ctx.font->MeasureWidth(s);
+			if (tw <= avail) return s;
+
+			NkcNoteOverflow(s, tw, avail);
+
+			static const char kEll[] = "...";
+			uint32			  cut	   = static_cast<uint32>(std::strlen(s));
+			if (cut > cap - 4) cut = cap - 4;
+			for (;;) {
+				if (cut == 0) break;
+				--cut;
+				while (cut > 0 && (static_cast<unsigned char>(s[cut]) & 0xC0u) == 0x80u) --cut;
+				std::memcpy(out, s, cut);
+				std::memcpy(out + cut, kEll, sizeof(kEll));
+				if (ctx.font->MeasureWidth(out) <= avail) return out;
+			}
+			out[0] = '\0';
+			return out;
+		}
+
+		/// Texte au coin haut-gauche. `maxWidth < 0` : aucune limite (le cadre est
+		/// alors la responsabilite de l'appelant).
 		inline void NkcText(NkGuiContext &ctx, float32 x, float32 y, const char *s,
 							const NkColor &col, float32 maxWidth = -1.f) noexcept {
 			if (!ctx.font || !ctx.font->Valid() || !s || !*s) return;
-			ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {x, y + ctx.font->Ascent()}, s, col,
+			char		 buf[256];
+			const char	*t = (maxWidth >= 0.f) ? NkcFitText(ctx, s, maxWidth, buf, sizeof(buf)) : s;
+			if (!t || !*t) return;
+			ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {x, y + ctx.font->Ascent()}, t, col,
 							 maxWidth);
 		}
 
-		/// Texte centre horizontalement ET verticalement dans `r`.
+		/// Texte centre horizontalement ET verticalement dans `r`, sans jamais en
+		/// sortir : ajuste s'il est trop large, origine bornee au bord gauche.
 		inline void NkcTextCenter(NkGuiContext &ctx, const NkRect &r, const char *s,
 								  const NkColor &col) noexcept {
 			if (!ctx.font || !ctx.font->Valid() || !s || !*s) return;
-			const float32 tw = ctx.font->MeasureWidth(s);
-			const float32 bx = r.x + (r.w - tw) * 0.5f;
+			char		 buf[256];
+			const char	*t = NkcFitText(ctx, s, r.w, buf, sizeof(buf));
+			if (!t || !*t) return;
+			const float32 tw = ctx.font->MeasureWidth(t);
+			float32		  bx = r.x + (r.w - tw) * 0.5f;
+			if (bx < r.x) bx = r.x;
 			const float32 by = r.y + (r.h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent();
-			ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {bx, by}, s, col, r.w);
+			ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {bx, by}, t, col, r.x + r.w - bx);
 		}
 
-		/// Texte aligne a droite dans `r`, centre verticalement.
+		/// Texte aligne a droite dans `r`, centre verticalement. Meme garde.
 		inline void NkcTextRight(NkGuiContext &ctx, const NkRect &r, const char *s,
 								 const NkColor &col) noexcept {
 			if (!ctx.font || !ctx.font->Valid() || !s || !*s) return;
-			const float32 tw = ctx.font->MeasureWidth(s);
-			const float32 bx = r.x + r.w - tw;
+			char		 buf[256];
+			const char	*t = NkcFitText(ctx, s, r.w, buf, sizeof(buf));
+			if (!t || !*t) return;
+			const float32 tw = ctx.font->MeasureWidth(t);
+			float32		  bx = r.x + r.w - tw;
+			if (bx < r.x) bx = r.x;
 			const float32 by = r.y + (r.h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent();
-			ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {bx, by}, s, col, r.w);
+			ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {bx, by}, t, col, r.x + r.w - bx);
 		}
 
 		// ---------------------------------------------------------------------

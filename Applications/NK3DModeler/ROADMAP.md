@@ -3388,3 +3388,93 @@ elargie, deja ecrites, a reprendre dans NKGui. **NKUI est en cours de suppressio
 canal pour l'agent qui mene l'extinction : *verifier ce que NKGui n'a pas repris
 avant de retirer `NkUILayout.cpp`*. `DrawSplitter` est un cas prouve ; je n'ai pas
 balaye le reste, **je n'affirme donc rien au-dela de celui-la**.
+
+---
+
+## 2026-08-23 — Attributs par face : la regle de fusion est cablee, et **la decimation ne fusionnait rien, elle effacait tout**
+
+### Ce qui est FAIT, et mesure
+
+| chantier | etat |
+|---|---|
+| dette du repertoire de lancement | **CLOSE** — 12 lancements, 3 bancs x 4 repertoires (dont un hors du depot), tous code 0 |
+| materiau par face a travers la decimation | **transporte** (`slot1 2 -> 0` etait un effacement, pas une regle manquante) |
+| regle de fusion du materiau | **cablee** dans `Quadify` et `DissolveSelected` |
+| ce qui se perd dans une fusion | **compte**, pas suppose |
+| ombrage (`smooth`) herite de la face mere | **fait**, par la MEME entree que le materiau |
+| reference du harnais | 232 -> **250** lignes |
+
+### Les trois faits qu'il faut connaitre avant de toucher a ce code
+
+**1. `NkMeshDecimate` NE FUSIONNE AUCUNE FACE.** QEM contracte des aretes, ce qui
+en SUPPRIME. Le materiau s'y transporte un pour un ; la regle de fusion n'y a
+aucun site. Les vrais sites sont `Quadify` (2 -> 1) et `DissolveSelected`
+(N -> 1). *Chercher la fusion la ou l'arbitrage la supposait a evite de cabler
+une regle dans une fonction qui n'en avait pas besoin — et a trouve le vrai
+defaut, qui etait l'absence de transport.*
+
+**2. LE CONTOUR NE SUFFIT PAS A CONNAITRE LES CONTRIBUTEURS D'UN DISSOLVE.** Une
+face **entierement interieure** a la region (toutes ses aretes retirees)
+n'apparait sur aucun contour. D'ou le regroupement par **composante connexe** des
+aretes retirees. Mesure de la mutation qui retire l'union : resultat plausible
+(`retenu=5` au lieu de `1`) **et** `perdus=0` — une attestation que rien n'a ete
+perdu. Ne pas « simplifier » ce passage en relisant le contour.
+
+**3. `smooth` NE SURVIVAIT PAS, contrairement a ce qu'affirmait le commentaire de
+`Face::material`.** La re-derivation par les normales de coin n'existe que dans
+`BuildFromIndexed` ; `BuildFromPolygons`, par lequel passe **toute** operation
+d'edition, n'a pas de normale de coin a interroger. Mesure : 12 faces lisses -> 0
+apres subdivision. Corrige par `NkEditMesh::FaceAttrib`.
+
+> **Un attribut qui « survit » parce qu'un AUTRE chemin le reconstruit ne survit
+> qu'aux operations qui passent par ce chemin-la.**
+
+### Un seul canal pour tous les attributs par face
+
+`ToPolygons` / `BuildFromPolygons` transportent desormais un
+`NkVector<NkEditMesh::FaceAttrib>` (materiau + ombrage) et non plus un
+`NkVector<uint16>`. **Le troisieme attribut s'ajoute dans cette structure et suit
+la meme parente sans qu'aucune operation ne soit modifiee.** Ne PAS ajouter un
+second tableau parallele : chaque operation devrait alors repondre deux fois a
+« de quelle face vient cette face ? », et deux reponses divergent.
+
+⚠️ **Deux regles d'AGREGATION, une seule table de PARENTE.** `smooth` fusionne par
+le OU (un booleen dont la reunion a un sens) ; le materiau par la dominance en
+aire (l'union de deux couleurs n'est pas une couleur). Uniformiser les deux ferait
+basculer a FLAT une face lissee des qu'un voisin plat et plus grand la rejoint.
+
+### La regle de fusion, telle qu'elle est cablee
+
+Contributeur **dominant par l'aire**, egalite tranchee par l'**indice de materiau
+le plus bas**, tolerance relative `1e-6` sur l'egalite d'aire (sans elle, le
+departage dependrait de l'arrondi, donc serait non deterministe pour un
+utilisateur qui voit deux triangles identiques).
+
+⚠️ **ECART AVEC LE TEXTE DE L'ARBITRAGE, ASSUME ET SIGNALE** : « la face qui
+apportait la plus grande aire » et « la couleur qui couvrait le plus » coincident
+sur DEUX contributeurs et divergent sur N. **On retient la COULEUR** (aires
+cumulees par index). Cas temoin : `matfus/dissolve-couleur-majoritaire`.
+
+### Ce que les bancs mesurent, et pourquoi ils sont faits comme ca
+
+La regle a **deux criteres** : un cas ou ils sont d'accord n'en teste aucun.
+Chaque site est mesure **criteres en desaccord** puis **en egalite**.
+
+⚠️ **Piege rencontre** : la premiere version de `dissolve-couleur-majoritaire`
+mettait la majorite en premier ; une mutation supprimant toute comparaison
+d'aires la laissait **verte**, le bon resultat tombant par accident.
+
+⚠️ **Et un COMPTE ne prouve pas une PARENTE.** Sous la mutation « mauvais parent »,
+`smooth/mixte-subdivision` reste vert (12/24 dans les deux cas) ; seule la
+**signature de position** de `smooth/mixte-position` la voit. Mesurer **ou** sont
+les faces, pas seulement combien.
+
+### Reste ouvert
+
+- **`BevelSelected` et `ExtrudeSelectedEdges`** : seules operations sans
+  transport. Elles **creent** des faces sans face mere. Question produit : une
+  face neuve entre deux materiaux prend-elle l'un des deux, ou le slot 0 ?
+- `NkRef` ne compile pas (`NkImage::Resize` / `NkImage::Free`) — **verifie
+  present sur `main` sans mes changements**, appartient a NKImage/NkRef.
+- `NkSLCheck` lit ses shaders par chemin relatif et fait `return 0`
+  inconditionnellement : son code de sortie ne signale jamais rien.

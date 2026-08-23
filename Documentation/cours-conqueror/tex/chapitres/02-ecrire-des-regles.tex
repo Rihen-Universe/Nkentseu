@@ -270,6 +270,11 @@ propre IA. Le symptôme est spectaculaire — « l'IA a proposé un coup ILLÉGA
 et la cause est trois lignes plus haut.
 \end{nkpiege}
 
+Ce même \texttt{fuseCells} est ce qui rend une fusion \textbf{jouable ou non à
+la souris} : un coup \texttt{Fuse} laisse \texttt{from} à zéro et met ses cases
+là. Ce que le joueur voit alors à l'écran, et où il doit cliquer, sont décrits au
+chapitre \textbf{«~Jouer un coup à la souris~»}.
+
 \textbf{Exigence 3 — \texttt{cap} peut être trop petit.} La fonction écrit
 \emph{au plus} \texttt{cap} coups mais renvoie le nombre \emph{total}. Remarquez
 que \texttt{++n} est en dehors du \texttt{if (n < cap)} : l'appelant apprend ainsi
@@ -437,7 +442,7 @@ en-têtes.
 
 \begin{enumerate}
   \item copiez \nkfile{exemples/rules/RegleContratNu.cpp} vers
-        \nkfile{Build/ConquerorLab/rules/mes\_regles.cpp} ;
+        \nkfile{travail/rules/mes\_regles.cpp} ;
   \item changez le nom dans \texttt{FillFactory} — sinon vous aurez deux entrées
         identiques dans le menu et vous ne saurez pas laquelle vous testez ;
   \item sauvegardez, attendez une seconde : le panneau \emph{Modules} affiche

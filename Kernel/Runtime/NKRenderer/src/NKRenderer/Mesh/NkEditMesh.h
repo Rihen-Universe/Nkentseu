@@ -367,15 +367,25 @@ namespace nkentseu {
 						// n'impose plus le decoupage.
 						//
 						// ⚠ POURQUOI CE CHAMP NE PEUT PAS SE DEDUIRE, contrairement a
-						// `smooth` juste au-dessus. `smooth` traverse aujourd'hui les
-						// operations topologiques SANS etre transporte : BuildFromIndexed le
-						// RE-DEDUIT en comparant les normales des coins. Ca marche parce que
-						// l'ombrage EST une propriete des normales. Un materiau, lui, n'est
-						// deductible de rien — aucune donnee geometrique ne le porte. Il doit
-						// donc etre TRANSPORTE explicitement a travers le round-trip
-						// ToPolygons/BuildFromPolygons, par lequel passe toute operation
-						// d'edition. C'est la seule difference de nature entre les deux
-						// champs, et c'est elle qui a dicte la conception.
+						// `smooth` juste au-dessus. `smooth` EST une propriete des normales :
+						// BuildFromIndexed le RE-DEDUIT en comparant les normales des coins.
+						// Un materiau, lui, n'est deductible de rien — aucune donnee
+						// geometrique ne le porte. Il doit donc etre TRANSPORTE a travers le
+						// round-trip ToPolygons/BuildFromPolygons, par lequel passe toute
+						// operation d'edition.
+						//
+						// ⚠ CORRECTION DU 2026-08-22 — CETTE NOTE DISAIT AUSSI QUE `smooth`
+						// « traverse les operations topologiques SANS etre transporte ».
+						// C'ETAIT FAUX, et la mesure l'a montre : 12 faces lisses en donnaient
+						// 0 apres subdivision. La re-derivation n'opere que dans
+						// BuildFromIndexed ; BuildFromPolygons, lui, n'a aucune normale de
+						// coin a interroger — il n'a que la parente, et il l'ignorait.
+						// `smooth` est desormais transporte comme le materiau, par la MEME
+						// entree FaceAttrib (arbitrage : une face fille herite de sa mere).
+						//   > Un attribut « qui survit » parce qu'un AUTRE chemin le
+						//   > reconstruit ne survit qu'aux operations qui passent par ce
+						//   > chemin-la. La distinction ne se voit pas tant qu'on ne
+						//   > l'exerce pas.
 						uint16 material = 0;
 				};
 
@@ -395,6 +405,28 @@ namespace nkentseu {
 				// suivants, sinon toutes les faces d'apres changeraient de materiau en
 				// silence, sans qu'aucune erreur ne se declenche.
 				NkVector<MaterialSlot> materialSlots;
+
+				// ── ATTRIBUTS PAR FACE QUI TRAVERSENT LES OPERATIONS ────────────────
+				// UNE SEULE TABLE POUR DEUX ATTRIBUTS, ET C'EST LA RAISON D'ETRE DE CE
+				// TYPE. Le materiau a d'abord ete transporte seul, dans un
+				// `NkVector<uint16>` parallele aux faces ; `smooth`, lui, retombait a 0 a
+				// chaque round-trip (mesure : 12 -> 0 apres subdivision) parce qu'aucune
+				// operation ne le portait.
+				//
+				// ⚠ LA TENTATION ETAIT D'AJOUTER UN SECOND TABLEAU PARALLELE. Elle est
+				// refusee : chaque operation devrait alors repondre DEUX FOIS a la meme
+				// question — « de quelle face vient cette face ? » — et deux reponses
+				// finissent par diverger, sans qu'aucune erreur ne se declenche. Un seul
+				// tableau d'attributs impose UNE table de parente, donc un desaccord
+				// devient irrepresentable au lieu d'etre seulement improbable.
+				//
+				// ⚠ ET LE TROISIEME ATTRIBUT N'AURA PAS A CHOISIR SON CAMP : il s'ajoute
+				// ici et suit la meme parente sans qu'aucune operation ne soit modifiee.
+				// C'etait le motif ecrit de l'arbitrage du 2026-08-22.
+				struct FaceAttrib {
+						uint16 material = 0;
+						uint8 smooth = 0;
+				};
 
 				NkVector<Vert> verts;
 				NkVector<Hedge> hedges;
@@ -433,7 +465,15 @@ namespace nkentseu {
 
 				// Construit depuis un maillage indexé (triangles). Si quadify=true, fusionne
 				// les paires de triangles coplanaires partageant une arête en QUADS (n-gons).
-				void BuildFromIndexed(const NkVertex3D *v, uint32 vc, const uint32 *idx, uint32 ic, bool quadify);
+				// `triMaterial`, quand il est fourni, doit avoir ic/3 entrees et donne
+				// l'index de materiau de chaque TRIANGLE. Absent (nullptr), toutes les
+				// faces retombent sur le slot 0 -- comportement historique, donc aucun
+				// appelant existant ne change.
+				// `outMaterialChanged`, quand il est fourni, recoit le nombre de faces
+				// SOURCE dont le materiau n'a pas ete retenu par une fusion (quadify).
+				// Il vaut 0 quand quadify est faux : sans fusion, rien ne se perd.
+				void BuildFromIndexed(const NkVertex3D *v, uint32 vc, const uint32 *idx, uint32 ic, bool quadify,
+									  const uint16 *triMaterial = nullptr, uint32 *outMaterialChanged = nullptr);
 
 				// Triangule toutes les faces (éventail) -> mesh de rendu. outTriFace[i] = id
 				// de la face n-gon d'origine du i-ème triangle (pour le pick).
@@ -461,22 +501,22 @@ namespace nkentseu {
 				// ── Représentation POLYGONES (n-gons) — CSR ─────────────────────────
 				// Extrait les faces vivantes : sommets + boucles (face i = outFaceVerts
 				// [outFaceStart[i] .. outFaceStart[i+1]]). outFaceStart a faceCount+1 entrées.
-				// `outFaceMaterial`, quand il est fourni, recoit l'index de materiau de
-				// chaque face vivante, dans le MEME ordre que outFaceStart. C'est le seul
-				// moyen de faire survivre le materiau a une operation d'edition : toutes
-				// passent par ce round-trip, et il perdait jusqu'ici tout ce que portait
-				// `Face` (cf. le commentaire de Face::material).
+				// `outFaceAttrib`, quand il est fourni, recoit les attributs par face
+				// (materiau ET ombrage) de chaque face vivante, dans le MEME ordre que
+				// outFaceStart. C'est le seul moyen de les faire survivre a une operation
+				// d'edition : toutes passent par ce round-trip, et il perdait jusqu'ici
+				// tout ce que portait `Face`.
 				void ToPolygons(NkVector<NkVertex3D> &outVerts, NkVector<uint32> &outFaceStart,
 								NkVector<uint32> &outFaceVerts,
-								NkVector<uint16> *outFaceMaterial = nullptr) const;
+								NkVector<FaceAttrib> *outFaceAttrib = nullptr) const;
 				// (Re)construit le half-edge depuis des n-gons (même format CSR).
-				// `faceMaterial`, quand il est fourni, doit avoir `faceCount` entrees et
-				// donne l'index de materiau de chaque face reconstruite. Absent (nullptr),
-				// toutes les faces retombent sur le slot 0 — c'est le comportement
-				// historique, et c'est pour ca que le parametre est optionnel : aucun
-				// appelant existant ne change de comportement.
+				// `faceAttrib`, quand il est fourni, doit avoir `faceCount` entrees et
+				// donne le materiau ET l'ombrage de chaque face reconstruite. Absent
+				// (nullptr), toutes les faces retombent sur le slot 0 et sur FLAT — c'est
+				// le comportement historique, et c'est pour ca que le parametre est
+				// optionnel : aucun appelant existant ne change de comportement.
 				void BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
-									   const uint32 *faceVerts, const uint16 *faceMaterial = nullptr);
+									   const uint32 *faceVerts, const FaceAttrib *faceAttrib = nullptr);
 
 				// ── SOUS-MAILLES DEDUITES DU MATERIAU PAR FACE ──────────────────────
 				// Une plage de triangles consecutifs partageant le meme index de materiau.
@@ -551,7 +591,13 @@ namespace nkentseu {
 
 				// Sommets (dans l'ordre du bord) d'une face n-gon.
 				void GetFaceVerts(NkEmId f, NkVector<NkEmId> &out) const;
-				uint32 FaceSize(NkEmId f) const; // nombre de sommets du bord
+				uint32 FaceSize(NkEmId f) const;
+				// AIRE d'une face vivante (formule de Newell : somme des produits
+				// vectoriels le long du cycle, / 2). Exacte pour une face plane, et une
+				// approximation raisonnable pour une face gauche -- ce qui suffit a son
+				// unique usage : DEPARTAGER deux contributeurs d'une fusion.
+				// Rend 0 pour une face morte ou de moins de 3 coins.
+				float32 FaceArea(NkEmId f) const; // nombre de sommets du bord
 				// Une face est SÉLECTIONNÉE si TOUS ses sommets le sont (convention Blender).
 				bool FaceIsSelected(NkEmId f) const;
 				// Les (au plus 2) faces incidentes à l'arête (a,b) — pour la normale d'arête.
@@ -575,7 +621,31 @@ namespace nkentseu {
 				// Fusionne les paires de triangles CONSÉCUTIFS (2k,2k+1) adjacents et
 				// coplanaires en QUADS. Adapté aux meshes triangulés quad-par-quad
 				// (primitives, grilles). coplanarDot ~0.9995 (cube) à 0.98 (sphère fine).
-				void Quadify(float32 coplanarDot = 0.985f);
+				//
+				// ⚠ C'EST UNE FUSION DE FACES, donc un endroit ou le MATERIAU PAR FACE
+				// se perd. Regle arbitree (2026-08-22) : la face survivante prend le
+				// materiau du CONTRIBUTEUR DOMINANT PAR L'AIRE ; a aire egale, l'INDICE
+				// DE MATERIAU LE PLUS BAS. Deterministe (deux courses sur la meme entree
+				// donnent le meme resultat, sur toute machine), visible (la couleur qui
+				// couvrait le plus reste) et mesurable (une aire se verifie ; « le plus
+				// pertinent » ne se verifie pas).
+				//
+				// ⚠ ET LE CAS QUI COMPTE LE PLUS EST CELUI OU LA REGLE NE SUFFIT PAS :
+				// quand les deux triangles portent des materiaux DIFFERENTS, la fusion
+				// perd de l'information QUELLE QUE SOIT la regle. Ce n'est pas a
+				// corriger, c'est a RAPPORTER -- d'ou la valeur rendue : le nombre de
+				// faces source dont le materiau n'a PAS ete retenu. Un zero rassure,
+				// mais un zero ne s'invente pas : il se compte.
+				//
+				// ⚠ L'EGALITE D'AIRE EST TESTEE A UNE TOLERANCE RELATIVE (1e-6), pas au
+				// bit pres : les deux moities d'un quad carre ont la meme aire
+				// mathematiquement, mais l'ordre des sommations en float32 ne le garantit
+				// pas. Sans tolerance, le departage « indice le plus bas » deviendrait
+				// un tirage au sort dependant de l'arrondi -- c'est-a-dire non
+				// deterministe pour l'utilisateur, qui voit deux triangles identiques.
+				//
+				// Rend le nombre de faces ayant PERDU leur materiau dans une fusion.
+				uint32 Quadify(float32 coplanarDot = 0.985f);
 
 				// Normales par face (produit vectoriel) puis par sommet, EN RESPECTANT
 				// l'ombrage par face (Face::smooth) :
@@ -673,7 +743,27 @@ namespace nkentseu {
 				// dégénérée à 2 sommets : pas de surface, mais une vraie arête éditable).
 				bool ExtrudeSelectedVertices(const NkExtrudeParams &p = NkExtrudeParams{});
 				// Arête sélectionnée -> nouvelle arête + FACE (quad) reliante.
-				bool ExtrudeSelectedEdges(const NkExtrudeParams &p = NkExtrudeParams{});
+				//
+				// ⚠ LE QUAD CREE N'A PAS DE FACE MERE. Regle arbitree (2026-08-23) : une
+				// face creee herite de la face a laquelle elle est GEOMETRIQUEMENT
+				// ADJACENTE ; en cas d'ambiguite, celle qui apporte le plus de LONGUEUR
+				// DE CONTOUR PARTAGE, egalite tranchee par l'INDICE LE PLUS BAS. C'est la
+				// meme forme qu'aux sites de fusion (dominance par une mesure, egalite par
+				// l'indice) : une seule regle a comprendre pour les deux familles.
+				//
+				// ⚠ ET ICI LE CRITERE DE LONGUEUR EST INERTE PAR CONSTRUCTION, ce qu'il
+				// faut savoir avant de le croire discriminant : le quad partage avec ses
+				// deux voisines EXACTEMENT le meme segment (a,b). Les deux longueurs sont
+				// donc egales par definition, et c'est toujours l'indice le plus bas qui
+				// tranche. Sur un maillage NON soude (un cube importe compte 24 sommets
+				// pour 8 positions) l'arete n'a meme qu'UNE face incidente : aucune
+				// ambiguite. Le critere est ecrit quand meme, parce que c'est la MEME
+				// fonction qui sert au chanfrein, ou il discrimine vraiment.
+				//
+				// `outMaterialChanged` recoit le nombre de faces voisines dont le materiau
+				// n'a pas ete retenu — la perte, comptee et non supposee.
+				bool ExtrudeSelectedEdges(const NkExtrudeParams &p = NkExtrudeParams{},
+										  uint32 *outMaterialChanged = nullptr);
 				bool DeleteSelectedFaces();
 				// ── SELECTION ORDONNEE ──────────────────────────────────────────────
 				// Pose la selection COMPLETE en une passe, tout en enregistrant l'ORDRE.
@@ -861,7 +951,38 @@ namespace nkentseu {
 				//   perpendiculaire la largeur perçue diffère donc légèrement de Blender) ;
 				//   aucun traitement particulier des arêtes CONCAVES ni des auto-
 				//   intersections quand l'offset est grand (l'écrêtage à 45 % l'évite).
-				bool BevelSelected(const NkBevelParams &p = NkBevelParams{});
+				//
+				// ⚠ LE CHANFREIN CREE DES FACES SANS MERE — c'est meme sa raison d'etre.
+				// Regle arbitree (2026-08-23), la meme que pour l'extrusion d'aretes :
+				// une face creee herite de la face a laquelle elle est GEOMETRIQUEMENT
+				// ADJACENTE ; en cas d'ambiguite, celle qui apporte le plus de LONGUEUR
+				// DE CONTOUR PARTAGE, egalite tranchee par l'INDICE LE PLUS BAS.
+				// Trois familles de faces sortent d'ici, et elles n'heritent pas pareil :
+				//   (a) faces d'origine aux coins remplaces -> elles ONT une mere ;
+				//   (b) BANDE d'une arete chanfreinee -> deux voisines, ponderees par la
+				//       longueur du contour partage LE LONG de l'arete (elles different
+				//       des que les reculs des deux cotes different) ;
+				//   (c) face de RACCORD a un sommet -> toutes les faces incidentes,
+				//       ponderees par la longueur de l'anneau posee sur chacune.
+				//
+				// ⚠ UNE BANDE ENTIERE PORTE UN SEUL MATERIAU, meme a plusieurs segments.
+				// Geometriquement, seuls le PREMIER et le DERNIER quad d'une bande
+				// touchent une face voisine ; ceux du milieu ne touchent que l'arc. Leur
+				// donner un materiau « propre » ferait apparaitre une couture au milieu
+				// d'un chanfrein — une frontiere de couleur la ou la geometrie est
+				// continue. Un chanfrein est UNE surface.
+				//
+				// ⚠ CAS DEGENERE ASSUME : quand les deux aretes d'un coin sont
+				// chanfreinees, le point de recul est unique (ptPrev == ptNext) et la
+				// longueur posee sur chaque face incidente vaut ZERO. Toutes les
+				// ponderations sont alors egales et c'est l'indice le plus bas qui
+				// tranche — ce qui est exactement la clause d'egalite de la regle, pas
+				// une exception a part.
+				//
+				// `outMaterialChanged` recoit le nombre de faces voisines dont le materiau
+				// n'a pas ete retenu.
+				bool BevelSelected(const NkBevelParams &p = NkBevelParams{},
+								   uint32 *outMaterialChanged = nullptr);
 
 				// ── INSET FACES (I) ─────────────────────────────────────────────────
 				// Insère une face plus PETITE à l'intérieur de chaque face sélectionnée,
@@ -900,7 +1021,8 @@ namespace nkentseu {
 				// ⚠ LIMITE : l'orientation des faces créées est décidée par un test RADIAL
 				//   (normale sortante par rapport à l'axe), ce qui convient aux profils de
 				//   révolution usuels ; un profil qui croise l'axe peut sortir retourné.
-				bool SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin = NkMat4f::Identity());
+				bool SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin = NkMat4f::Identity(),
+								  uint32 *outMaterialChanged = nullptr);
 
 				// ── DISSOLVE (Ctrl+X) — fusion en n-gon, PAS un trou ────────────────
 				// Principe unique aux trois modes : on marque un ensemble d'arêtes à
@@ -916,7 +1038,14 @@ namespace nkentseu {
 				//   • la face résultante peut être NON PLANE (autorisé, comme Blender) ;
 				//   • sommet de bord ou de valence < 3 en mode Verts : ignoré ;
 				//   • les sommets devenus inutilisés sont COMPACTÉS (pas de sommet isolé).
-				bool DissolveSelected(const NkDissolveParams &p = NkDissolveParams{});
+				// ⚠ DISSOLVE FUSIONNE DES FACES : meme regle que Quadify, et pour la
+				// meme raison. La face fusionnee prend le materiau du CONTRIBUTEUR
+				// DOMINANT PAR L'AIRE de sa region ; a aire egale, l'INDICE LE PLUS BAS.
+				// `outMaterialChanged`, quand il est fourni, recoit le nombre de faces
+				// source dont le materiau n'a pas ete retenu -- la perte, comptee et non
+				// supposee.
+				bool DissolveSelected(const NkDissolveParams &p = NkDissolveParams{},
+									  uint32 *outMaterialChanged = nullptr);
 				// planePoint / planeNormal sont exprimés dans l'espace de `localToPlaneSpace`
 				// (= matrice modèle→monde côté éditeur ; identité pour une op locale pure IA).
 				bool BisectByPlane(const NkVec3f &planePoint, const NkVec3f &planeNormal,

@@ -140,7 +140,13 @@ kit   :   travail/rules|ai|boards
 
 Le chemin diffère parce que « Build » est un mot de dépôt : dans un kit, personne
 ne construit rien. C'est \nkfile{NkcLayout.h} qui détecte la disposition, et lui
-seul les connaît toutes les deux.
+seul les connaît toutes les deux. \textbf{En cas de doute, ne devinez pas :} le
+panneau \emph{Règles} affiche en clair le chemin exact où il regarde.
+
+\textbf{\texttt{boards}, au pluriel, et \texttt{.json} à la fin.} Un dossier
+nommé \texttt{board} ou un fichier sans extension ne sont pas lus. Depuis le
+2026-08-23 l'atelier vous le \textbf{dit} --- il nomme les fichiers qu'il ignore
+et le dossier voisin mal nommé --- mais il ne devine pas à votre place.
 
 Le troisième contient déjà \nkfile{exemple\_plateau\_par\_defaut.json}, écrit par
 l'atelier : c'est le plateau du moteur de référence, exporté. Un format qu'on

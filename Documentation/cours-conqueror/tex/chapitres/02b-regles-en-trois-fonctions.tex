@@ -136,6 +136,156 @@ Le prix : vous ne pouvez pas ranger dans \texttt{Partie} un état de taille libr
 --- une liste qui grandit, un cache, un arbre. Tant que votre jeu tient dans les
 cases, les joueurs, l'énergie et la conquête, vous n'y penserez jamais.
 
+\section{Le palier 1 : \textsc{fusionner} --- et comment ça se joue à l'écran}
+
+C'est la question qui bloque le plus de monde, alors on y répond dans l'ordre :
+\textbf{d'abord le geste}, ensuite le code.
+
+\subsection*{Le geste, à la souris}
+
+Exactement le même que \textsc{dupliquer} : \textbf{deux clics.}
+
+\begin{enumerate}
+  \item vous cliquez \textbf{une des cases à consommer} : elle prend le contour
+        orange «~sélection~», et des \textbf{anneaux verts} apparaissent sur les
+        destinations ;
+  \item vous cliquez \textbf{l'anneau vert} : le coup part ;
+  \item le totem résultat apparaît un niveau plus haut, le journal affiche
+        \textbf{\texttt{FUSIONNER}}, et l'atelier joue l'animation de fusion.
+\end{enumerate}
+
+Vous \textbf{ne sélectionnez pas} les cases une par une. Votre module a déjà
+énuméré les groupes possibles dans \texttt{CoupsPossibles} ; l'interface ne fait
+que \textbf{retrouver} le coup que vous désignez par ces deux clics.
+
+\begin{nkpiege}[Réparé le 2026-08-23 --- et il faut savoir pourquoi]
+Un coup \textsc{dupliquer} porte sa source dans \texttt{from}. Un coup
+\textsc{fusionner} laisse \texttt{from} \textbf{à zéro} et met les cases
+consommées dans \texttt{fuseCells[0..fuseCount-1]}. Or l'atelier cherchait la
+case cliquée dans \texttt{from}, et seulement là : \textbf{toutes} les fusions
+lui semblaient partir de la case \texttt{(0,0)}. Conséquence mesurée : une IA
+jouait vos fusions sans broncher, le journal les affichait, et \textbf{vous ne
+pouviez pas les cliquer}. Si vous avez un kit antérieur au 23/08, c'est ce que
+vous constatiez --- le défaut était dans l'atelier, pas dans vos règles.
+\end{nkpiege}
+
+\subsection*{Le code : une trentaine de lignes de plus}
+
+\nkfile{Applications/ConquerorLab/exemples/rules/RegleFusion.cpp} est
+\nkfile{RegleFacile.cpp} avec cette seule action en plus. Copiez-le dans
+\texttt{travail/rules/} et jouez-le : c'est plus court à lire que ce chapitre.
+
+\begin{nkcode}{exemples/rules/RegleFusion.cpp --- generer le coup}
+const NkcCoord paire[2] = {a, voisin};
+out.Fusionner(p.joueur, paire, 2, a, niveau + 1);
+//            joueur    cases  nb  vers  niveau vise
+\end{nkcode}
+
+\texttt{Fusionner} existe pour \textbf{la même raison que \texttt{Dupliquer}} :
+le contrat compare les coups \textbf{octet par octet}, un coup de fusion a deux
+champs de plus (\texttt{fuseCount}, \texttt{fuseCells}), et les cases
+inutilisées du tableau doivent être à zéro. Sinon le coup que votre IA propose
+n'est \textbf{pas égal} au coup que \texttt{CoupsPossibles} avait généré,
+l'atelier le refuse, et rien dans votre logique n'est faux. Le \texttt{memset}
+est dans le raccourci.
+
+\begin{nkcode}{exemples/rules/RegleFusion.cpp --- l'appliquer}
+if (m.kind == NkcMoveKind::Fuse) {
+    for (int32 k = 0; k < m.fuseCount; ++k) p.Vider(m.fuseCells[k]);  // VIDER d'abord
+    const int8 niveau = (m.targetLevel >= 0) ? m.targetLevel : 1;
+    p.Poser(m.to, m.player, niveau);                                  // POSER ensuite
+    ev.Fusionne(m.player, m.to, niveau);
+    p.conquete[m.player] += 10 * niveau;
+    p.PasserLaMain();
+    return;
+}
+\end{nkcode}
+
+\textbf{Trois pièges, dans l'ordre où ils vous tomberont dessus.}
+
+\begin{enumerate}
+  \item \textbf{Vider avant de poser.} \texttt{m.to} fait partie du groupe
+        consommé. Poser avant de vider efface le totem qu'on vient de créer ---
+        et ça ne se voit qu'à la dixième partie, quand un totem disparaît sans
+        raison.
+  \item \textbf{Ne proposer chaque paire qu'une fois.} Sans le filtre
+        \texttt{Index(voisin) > i}, la paire \{A,B\} sort deux fois --- vue de
+        A, puis vue de B. Rien ne plante : la distribution des coups est
+        seulement fausse, et votre campagne mesure autre chose que ce que vous
+        croyez.
+  \item \textbf{Payer la fusion en conquête.} Un totem de niveau $n$ vaut $n+1$
+        totems. Si la conquête ne le reflète pas, fusionner fait \textbf{perdre}
+        des points, aucune IA ne le fera jamais, et vous chercherez le bug dans
+        votre générateur de coups.
+\end{enumerate}
+
+\begin{nkretenir}[Ce qu'on en mesure]
+Deux campagnes, \textbf{même graine}, fusion activée puis désactivée. Si la
+durée des parties ne bouge pas, votre fusion ne sert à rien : le problème est
+dans le \textbf{coût} que vous lui donnez, pas dans le code.
+
+\begin{nkretenir}[Comment se joue une fusion à la souris ?]
+Ce n'est pas dans ce chapitre : il est écrit du point de vue de celui qui
+\textbf{écrit} le moteur. Le geste, les marques à l'écran et le menu
+«~Quel coup ?~» sont au chapitre \textbf{«~Jouer un coup à la souris~»}.
+\end{nkretenir}
+
+Mesure du 2026-08-23 sur \nkfile{RegleFusion.cpp} (carré 5$\times$5, 2 joueurs,
+en prenant systématiquement la fusion quand elle existe) : \textbf{196 coups
+joués dont 87 fusions, niveau 3 atteint, tous les coups légaux, rejeu
+déterministe.}
+\end{nkretenir}
+
+\section{Artefacts et pouvoirs : ce qui existe, et ce qui n'existe pas}
+
+Vous voulez anticiper --- bien. Voici l'état \textbf{exact}, pour ne pas
+construire sur du vide.
+
+\begin{center}
+\begin{tabular}{@{}p{2.4cm}p{3.6cm}p{3.6cm}p{3.4cm}@{}}
+\textbf{} & \textbf{Dans le contrat} & \textbf{Dans l'atelier} & \textbf{Dans un module livré} \\
+\textsc{fusionner} & oui --- \texttt{NkcMoveKind::Fuse}, \texttt{fuseCells}, \texttt{fuseCount}, \texttt{targetLevel} & oui --- jouable à la souris depuis le 23/08, journal \texttt{FUSIONNER} & \textbf{oui} --- \texttt{exemples/rules/RegleFusion.cpp} \\
+\textsc{pouvoir} & oui --- \texttt{NkcMoveKind::Power}, \texttt{powerId}, \texttt{NkcCellView::power} & \textbf{oui depuis le 23/08} --- clic sur le lanceur, clic sur la cible ; étiquette \texttt{P0}, \texttt{P1}, menu «~Quel coup ?~» si plusieurs pouvoirs visent la même case & non \\
+\textsc{artefact} & oui --- \texttt{NkcCellView::artefact}, \texttt{ArtefactPlaced} / \texttt{ArtefactExpired} & \textbf{non} --- rien ne les dessine & non \\
+\end{tabular}
+\end{center}
+
+Autrement dit : \textbf{les trois sont prévus dans le contrat, deux sont jouables
+à la souris, aucun module livré ne pose encore d'artefact.}
+
+\begin{itemize}
+  \item Un \textbf{pouvoir} est un coup \texttt{Power} avec \texttt{from} = le
+        lanceur, \texttt{to} = la cible, \texttt{powerId} = lequel. Le geste est
+        donc le même que pour dupliquer : \textbf{clic sur le lanceur, clic sur
+        la cible}. Le troisième champ, \texttt{powerId}, est celui que deux clics
+        ne peuvent pas dire --- c'est pourquoi l'atelier ouvre le menu
+        \textbf{«~Quel coup ?~»} dès que deux coups partagent la même
+        destination. Avant le 23/08 il jouait « le premier coup qui correspond » :
+        le second pouvoir d'un totem sur une même cible était
+        \textbf{injouable à la souris}, sans le moindre message. Le raccourci
+        \texttt{Pouvoir(joueur, de, vers, idPouvoir)} construit le coup avec la
+        mise à zéro qu'exige le contrat. Mesurez tout de même vos pouvoirs
+        \textbf{en campagne IA contre IA} : c'est là que se tranche
+        l'équilibrage.
+  \item Un \textbf{artefact} est un état \textbf{de case}, pas un coup :
+        \texttt{artefact} porte son id, et vous émettez
+        \texttt{ArtefactPlaced} / \texttt{ArtefactExpired} quand il apparaît et
+        disparaît. Le champ est \textbf{sérialisé} --- un rejeu reste donc
+        valide --- mais rien ne l'affiche encore.
+        \nkfile{ConquerorRulesV2.cpp} le remet à \texttt{-1} et s'arrête là :
+        c'est du palier 2.
+  \item \texttt{NkcCellView::powerUsed} existe pour la \textbf{réserve} : un
+        pouvoir attaché à un totem, consommable une fois. Le contrat le
+        transporte ; personne ne s'en sert encore.
+\end{itemize}
+
+\begin{nkretenir}[La règle, si vous vous lancez]
+Ne codez pas contre un champ que rien ne lit. Écrivez le pouvoir, faites-le jouer
+par l'IA, mesurez-le en campagne, et \textbf{dites dans votre fiche que vous
+n'avez pas pu le vérifier à la main} --- c'est une réponse recevable, l'invention
+ne l'est pas.
+\end{nkretenir}
+
 \section{Quand partir --- et ce n'est pas un échec}
 
 \begin{quote}
