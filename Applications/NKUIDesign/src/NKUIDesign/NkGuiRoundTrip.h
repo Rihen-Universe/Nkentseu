@@ -1350,6 +1350,304 @@ namespace nkuidesign {
 					  lu && combien == 1 && ligneType == 5 && cheminType, "");
 			}
 
+
+			// =============================================================
+			// 23 -- L'APPARENCE EST JUGEE DANS **SON** VOCABULAIRE
+			// =============================================================
+			// ⚠️ CES CONTROLES EXISTENT PARCE QUE LA VALIDATION SE TROMPAIT, ET QUE
+			//    LE LECTEUR AVAIT RAISON. `appearance`, `fill` et `shadow` sont des
+			//    constructions du document 9 §3, pas des roles de widget. La
+			//    validation les traversait comme des roles et rendait
+			//    `E-ROLE-INCONNU` sur chacun -- trois faux positifs sur un fichier
+			//    parfaitement legal, dont l'aller-retour etait deja octet pour octet.
+			//
+			// >>> ET LE PIEGE DE CE CORRECTIF EST PLUS DANGEREUX QUE LE DEFAUT : un
+			//     validateur d'apparence qui ne ferait RIEN ferait disparaitre les
+			//     trois faux positifs tout aussi bien, et 23a serait VERT. C'est
+			//     exactement la forme du 2026-08-22 -- **une capacite de refuser qui
+			//     disparait sans laisser de trace**. 23b, 23c et 23f sont donc des
+			//     controles POSITIFS du refus : ils ne demandent pas « le faux positif
+			//     a-t-il disparu », ils demandent **« que sait encore refuser ce
+			//     vocabulaire-la ».**
+			{
+				//  1: nkgui 0.3
+				//  2: widgets {
+				//  3:   Button "valider" {
+				//  4:     label = "Valider"
+				//  5:     appearance {
+				//  6:       radius = 6
+				//  7:       font = "Inter"
+				//  8:       fill { color = #2F6F7A }
+				//  9:       shadow "portee" { offset = (0, 2), blur = 6 }
+				// 10:     }
+				// 11:     appearance(Hover) {
+				// 12:       fill { color = #3A8894 }
+				// 13:     }
+				// 14:   }
+				// 15: }
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "  Button \"valider\" {\n"
+								  "    label = \"Valider\"\n"
+								  "    appearance {\n"
+								  "      radius = 6\n"
+								  "      font = \"Inter\"\n"
+								  "      fill { color = #2F6F7A }\n"
+								  "      shadow \"portee\" { offset = (0, 2), blur = 6 }\n"
+								  "    }\n"
+								  "    appearance(Hover) {\n"
+								  "      fill { color = #3A8894 }\n"
+								  "    }\n"
+								  "  }\n"
+								  "}\n";
+				NkArchive d;
+				NkGuiDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGuiDiag> dg;
+				NkGValidate(d, dg);
+				const NkString out = NkGuiArchive::Write(
+					d, NkGDetectStyle(src, (uint32)NkString(src).Size()));
+
+				// LE FICHIER EST LEGAL : aucun diagnostic, et il revient a l'octet.
+				// Les deux comptent -- une validation muette sur un document que le
+				// lecteur abime ne vaudrait rien.
+				check("23a. `appearance`, `fill` et `shadow` ne sont plus pris pour des "
+					  "roles : 0 diagnostic sur un fichier legal, et l'octet est rendu",
+					  lu && dg.Size() == 0 && out.Compare(NkString(src)) == 0,
+					  lu ? "" : e.message.Data());
+			}
+
+			{
+				//  1: nkgui 0.3
+				//  2: widgets {
+				//  3:   Button "b" {
+				//  4:     appearance {
+				//  5:       rayon = 6            <-- nom hors schema d'appearance
+				//  6:       fill { colour = #FFFFFF }   <-- nom hors schema de fill
+				//  7:       shadow { offset = 4 }       <-- Vec2 attendu, nombre lu
+				//  8:       glow { }                    <-- effet hors liste fermee
+				//  9:     }
+				// 10:   }
+				// 11: }
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "  Button \"b\" {\n"
+								  "    appearance {\n"
+								  "      rayon = 6\n"
+								  "      fill { colour = #FFFFFF }\n"
+								  "      shadow { offset = 4 }\n"
+								  "      glow { }\n"
+								  "    }\n"
+								  "  }\n"
+								  "}\n";
+				NkArchive d;
+				NkGuiDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGuiDiag> dg;
+				NkGValidate(d, dg);
+
+				// LES LIGNES SONT ECRITES A LA MAIN -- 5, 6, 7, 8 -- sinon ce controle
+				// mesurerait le code teste avec lui-meme. Le mecanisme de la ligne a
+				// CHANGE DE DOMICILE (il se pose desormais dans l'apparence aussi),
+				// donc il change de harnais avec lui.
+				bool p5 = false, p6 = false, p7 = false, p8 = false;
+				for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+					const NkGuiDiag &g = dg[i];
+					if (g.code.Compare("E-TYPE") == 0 && g.line == 5
+						&& g.message.Contains("appearance . rayon")) {
+						p5 = true;
+					}
+					if (g.code.Compare("E-TYPE") == 0 && g.line == 6
+						&& g.message.Contains("appearance / fill . colour")) {
+						p6 = true;
+					}
+					if (g.code.Compare("E-TYPE") == 0 && g.line == 7
+						&& g.message.Contains("appearance / shadow . offset")) {
+						p7 = true;
+					}
+					if (g.code.Compare("E-EFFET-INCONNU") == 0 && g.line == 8
+						&& g.message.Contains("appearance / glow")) {
+						p8 = true;
+					}
+				}
+				check("23b. LE REFUS EXISTE : nom hors schema d'`appearance` (5), hors "
+					  "schema de `fill` (6), mauvais type dans `shadow` (7), effet hors "
+					  "liste fermee (8) -- chacun avec sa ligne ET son chemin",
+					  lu && dg.Size() == 4 && p5 && p6 && p7 && p8, "");
+			}
+
+			{
+				//  1: nkgui 0.3
+				//  2: widgets {
+				//  3:   Button "b" {
+				//  4:     appearance {
+				//  5:       Button "dedans" { }     <-- un widget dans une apparence
+				//  6:       fill { shadow { } }     <-- un bloc dans un effet
+				//  7:     }
+				//  8:   }
+				//  9:   Mystere "z" { }             <-- un role VRAIMENT inconnu
+				// 10: }
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "  Button \"b\" {\n"
+								  "    appearance {\n"
+								  "      Button \"dedans\" { }\n"
+								  "      fill { shadow { } }\n"
+								  "    }\n"
+								  "  }\n"
+								  "  Mystere \"z\" { }\n"
+								  "}\n";
+				NkArchive d;
+				NkGuiDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGuiDiag> dg;
+				NkGValidate(d, dg);
+
+				bool widgetRefuse = false, blocRefuse = false, roleRefuse = false;
+				for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+					const NkGuiDiag &g = dg[i];
+					// ⚠️ UN WIDGET DANS UNE APPARENCE SORT EN `E-EFFET-INCONNU`, PAS EN
+					//    `E-ROLE-INCONNU`. La grammaire du document 9 §3.1 dit
+					//    `appearance_member := prop_decl | effect_blk` : `Button` est un
+					//    role parfaitement connu, il est simplement AU MAUVAIS ENDROIT.
+					//    Se plaindre du vocabulaire des roles ici serait refaire, en
+					//    plus discret, l'erreur que ce chantier corrige.
+					if (g.code.Compare("E-EFFET-INCONNU") == 0 && g.line == 5
+						&& g.message.Contains("appearance / Button")) {
+						widgetRefuse = true;
+					}
+					if (g.code.Compare("E-EFFET-INCONNU") == 0 && g.line == 6
+						&& g.message.Contains("fill / shadow")) {
+						blocRefuse = true;
+					}
+					if (g.code.Compare("E-ROLE-INCONNU") == 0 && g.line == 9
+						&& g.message.Contains("Mystere")) {
+						roleRefuse = true;
+					}
+				}
+				check("23c. LA CAPACITE A REFUSER N'A PAS DEMENAGE : un widget dans une "
+					  "apparence (5) et un bloc dans un effet (6) sont refuses, et un "
+					  "role VRAIMENT inconnu rend TOUJOURS `E-ROLE-INCONNU` (9)",
+					  lu && dg.Size() == 3 && widgetRefuse && blocRefuse && roleRefuse, "");
+			}
+
+			{
+				// LES CAPACITES TRANSVERSALES NE FUIENT PAS DANS L'APPARENCE.
+				// `tooltip` et `enabled` sont admis sur TOUT ROLE (document 7 §4) --
+				// c'est une propriete du widget, pas du dessin. Les laisser passer
+				// dans un `fill` aurait rendu la table d'apparence plus permissive que
+				// le document, et personne ne l'aurait vu : un contournement de schema
+				// ne produit aucune sortie.
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "  Button \"b\" {\n"
+								  "    tooltip = \"admis ici\"\n"
+								  "    appearance {\n"
+								  "      fill { tooltip = \"pas ici\" }\n"
+								  "    }\n"
+								  "  }\n"
+								  "}\n";
+				NkArchive d;
+				NkGuiDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGuiDiag> dg;
+				NkGValidate(d, dg);
+
+				bool refuseDansFill = false;
+				for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+					if (dg[i].code.Compare("E-TYPE") == 0 && dg[i].line == 6
+						&& dg[i].message.Contains("fill . tooltip")) {
+						refuseDansFill = true;
+					}
+				}
+				check("23d. `tooltip` reste admis sur le WIDGET et refuse dans un `fill` : "
+					  "les capacites transversales du document 7 §4 ne fuient pas dans le "
+					  "vocabulaire d'apparence",
+					  lu && dg.Size() == 1 && refuseDansFill, "");
+			}
+
+			{
+				// ⚠️ LA LIMITE DECLAREE, MESUREE PLUTOT QU'AFFIRMEE -- ET ELLE RESTE
+				//    OUVERTE. `appearance(Hover)` reste une TRANCHE VERBATIM : son
+				//    contenu n'est pas juge. La validation est donc ASYMETRIQUE, et ce
+				//    controle FIGE cette asymetrie au lieu de la laisser se decouvrir :
+				//    la meme faute, ecrite dans `appearance` et dans
+				//    `appearance(Hover)`, sort une fois et une seule.
+				//
+				//    C'est la forme generale du defaut que ce chantier a trouve :
+				//    **la partie modelisee crie, la partie non modelisee se tait.**
+				//    Ici le silence est CONNU et NOMME, pas subi -- et le fermer
+				//    demande d'abord la liste fermee des etats, que le document 9 §3.2
+				//    marque « a trancher » et que personne n'a ecrite.
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "  Button \"b\" {\n"
+								  "    appearance { glow { } }\n"
+								  "    appearance(Hover) { glow { } }\n"
+								  "  }\n"
+								  "}\n";
+				NkArchive d;
+				NkGuiDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGuiDiag> dg;
+				NkGValidate(d, dg);
+
+				uint32 effets = 0;
+				for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+					if (dg[i].code.Compare("E-EFFET-INCONNU") == 0) {
+						++effets;
+					}
+				}
+				check("23e. LIMITE DECLAREE, TOUJOURS OUVERTE : la meme faute est vue dans "
+					  "`appearance` et TUE dans `appearance(Hover)`, qui reste une tranche "
+					  "verbatim -- 1 diagnostic, pas 2",
+					  lu && effets == 1 && dg.Size() == 1, "");
+			}
+
+			{
+				// =========================================================
+				// 23f -- LE COMPTE DES REFUS DU VOCABULAIRE D'APPARENCE
+				// =========================================================
+				// Meme parade que le controle 3c, sur le vocabulaire neuf. 3c fige a
+				// NEUF ce que le format sait refuser depuis la bascule ; celui-ci fige
+				// a SIX ce que l'apparence sait refuser depuis aujourd'hui.
+				//
+				// Il ne dit pas « les fautes sont bien vues » -- 23b, 23c et 23d le
+				// disent deja. Il dit **combien de fautes ce vocabulaire sait nommer**,
+				// et le jour ou ce nombre baissera, ce sera une DECISION, pas une
+				// consequence. Un schema qu'on elargit « parce qu'un fichier reel ne
+				// passait pas » se relache toujours d'un cran de plus que necessaire.
+				const char *src = "nkgui 0.3\n"
+								  "widgets {\n"
+								  "  Button \"b\" {\n"
+								  "    appearance {\n"
+								  "      rayon = 6\n"
+								  "      fill { color = #2F6F7A, colour = #FFFFFF }\n"
+								  "      shadow { offset = 4 }\n"
+								  "      glow { color = #FFFFFF }\n"
+								  "      fill { shadow { blur = 2 } }\n"
+								  "      Button \"dedans\" { label = \"x\" }\n"
+								  "    }\n"
+								  "  }\n"
+								  "}\n";
+				NkArchive d;
+				NkGuiDiag e;
+				const bool lu = parse(src, d, e);
+				NkVector<NkGuiDiag> dg;
+				NkGValidate(d, dg);
+
+				uint32 bloquants = 0;
+				for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+					if (dg[i].code.StartsWith("E-")) {
+						++bloquants;
+					}
+				}
+				check("23f. LE COMPTE DES REFUS D'APPARENCE : 6 fautes nommees sur un "
+					  "fichier qui les cumule -- le jour ou ce nombre baisse, c'est une "
+					  "decision",
+					  lu && bloquants == 6, "");
+			}
+
 			rep.Append("\n=== CONTROLES : ");
 			rep.Append(NkGU32(pass));
 			rep.Append(" / ");
