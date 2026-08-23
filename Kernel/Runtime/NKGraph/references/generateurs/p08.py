@@ -85,7 +85,7 @@ W, H = 1820, 1750
 # Ce que cette planche presente encore comme ouvert, en forme lisible par
 # verifie_planches.py. Voir p01.py pour le pourquoi.
 OUVERTS_DECLARES = [
-    ('hors', '18.4', u'arite d execution : le modele applique celle de la donnee'),
+    ('hors', 'arite_exec', u'arite d execution : le modele applique celle de la donnee'),
 ]
 
 s = head(W, H, u'Planche 08 — EXÉCUTION et VALEUR : la cohabitation, et le franchissement',
