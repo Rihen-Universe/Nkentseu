@@ -194,16 +194,10 @@ PARTIES = []
 # panneau 11 dessinait des prises A CHEVAL sans que personne le voie.
 PARTIES.append(u'''<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1340" viewBox="0 0 1680 1340" font-family="Segoe UI, Inter, sans-serif">
 <defs>
-  <pattern id="grille" width="22" height="22" patternUnits="userSpaceOnUse">
-    <circle cx="1.5" cy="1.5" r="1" fill="#2b2b33"/>
-  </pattern>
   <linearGradient id="rampe" x1="0" y1="0" x2="1" y2="0">
     <stop offset="0%" stop-color="#0A555F"/><stop offset="42%" stop-color="#3aa0a8"/>
     <stop offset="72%" stop-color="#F79A28"/><stop offset="100%" stop-color="#ffe9c2"/>
   </linearGradient>
-  <filter id="ombre" x="-20%" y="-20%" width="140%" height="140%">
-    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.5"/>
-  </filter>
   <!-- PRISE DE DONNEE, ENTREE : 6 x 22, ENTIEREMENT DEHORS, collee au bord -->
   <g id="pinD"><rect x="-6" y="-11" width="6" height="22" rx="2"/></g>
   <!-- PRISE DE DONNEE, SORTIE : la meme, de l'autre cote du bord -->
@@ -215,7 +209,6 @@ PARTIES.append(u'''<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="
 </defs>
 
 <rect width="1680" height="1340" fill="#17171b"/>
-<rect width="1680" height="1340" fill="url(#grille)"/>
 
 <text x="34" y="40" fill="#e8e8ee" font-size="21" font-weight="600">Planche 01 — nos nœuds dans le style de la référence principale</text>
 <text x="34" y="62" fill="#8a8a96" font-size="12.5">v4 — les prises sont enfin DESSINÉES comme le texte les décrit : languette de ratio 1 : 3,7, haute comme la MOITIÉ de l'en-tête, collée au bord et entièrement dehors · seule l'EXÉCUTION chevauche le corps</text>
@@ -231,7 +224,7 @@ PARTIES.append(u'''<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="
 # de la planche, et c'est elle qui fixe 22 comme un PLAFOND, pas comme un
 # confort -- si la prise grandissait encore, c'est ici que ca casserait.
 PARTIES.append(u'''<text x="34" y="106" fill="#F79A28" font-size="13" font-weight="600">1 · NŒUD DE CALCUL — entrées ajoutables</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="40" y="120" width="252" height="176" rx="3" fill="#232329" stroke="#3a3a44"/>
   <path d="M40 123a3 3 0 0 1 3-3h246a3 3 0 0 1 3 3v21H40z" fill="#4a6b8a"/>
   <text x="52" y="139" fill="#eef2f6" font-size="12.5" font-weight="600">Math</text>
@@ -270,7 +263,7 @@ PARTIES.append(u'''<text x="34" y="106" fill="#F79A28" font-size="13" font-weigh
 # 2 · NŒUD D'INSTRUCTION
 # --------------------------------------------------------------------------
 PARTIES.append(u'''<text x="368" y="106" fill="#F79A28" font-size="13" font-weight="600">2 · NŒUD D'INSTRUCTION</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="374" y="120" width="266" height="150" rx="3" fill="#232329" stroke="#3a3a44"/>
   <path d="M374 123a3 3 0 0 1 3-3h260a3 3 0 0 1 3 3v21H374z" fill="#8a5a2a"/>
   <text x="386" y="139" fill="#f6ecdf" font-size="12.5" font-weight="600">Si / Sinon</text>
@@ -303,7 +296,7 @@ PARTIES.append(u'''<text x="368" y="106" fill="#F79A28" font-size="13" font-weig
 # 20 d'ecart. A 12 px de haut elles tenaient ; a 22 les deux dernieres se
 # seraient chevauchees. Ecart porte a 28 partout.
 PARTIES.append(u'''<text x="700" y="106" fill="#F79A28" font-size="13" font-weight="600">3 · LES PRISES — la DONNÉE reste DEHORS</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="706" y="122" width="164" height="128" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="706" y="122" width="164" height="21" rx="3" fill="#2a6b6b"/>
   <text x="716" y="137" fill="#e2f2f2" font-size="11.5" font-weight="600">détail</text>
@@ -343,7 +336,7 @@ PARTIES.append(u'''<text x="700" y="330" fill="#F79A28" font-size="13" font-weig
 # 5 · DONNÉE COMPOSÉE — pliée, puis dépliée
 # --------------------------------------------------------------------------
 PARTIES.append(u'''<text x="1000" y="106" fill="#F79A28" font-size="13" font-weight="600">5 · DONNÉE COMPOSÉE — pliée, puis dépliée</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="1006" y="120" width="248" height="60" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="1006" y="120" width="248" height="21" rx="3" fill="#0A555F"/>
   <text x="1016" y="135" fill="#dff0f2" font-size="11.5" font-weight="600">Mapping</text>
@@ -355,7 +348,7 @@ PARTIES.append(u'''<text x="1000" y="106" fill="#F79A28" font-size="13" font-wei
   <rect x="1150" y="154" width="42" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="1156" y="166" fill="#cfd6de" font-size="10">1.0</text>
   <rect x="1196" y="154" width="42" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="1202" y="166" fill="#cfd6de" font-size="10">0.0</text>
 </g>
-<g filter="url(#ombre)">
+<g>
   <rect x="1006" y="196" width="248" height="98" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="1006" y="196" width="248" height="21" rx="3" fill="#0A555F"/>
   <text x="1016" y="211" fill="#dff0f2" font-size="11.5" font-weight="600">Mapping</text>
@@ -398,7 +391,7 @@ PARTIES.append(u'''<text x="1000" y="106" fill="#F79A28" font-size="13" font-wei
 #    arrets n'ayant AUCUNE prise, c'est le seul endroit d'ou on peut les
 #    regler. C'etait un detail de dessin, c'est devenu une necessite.
 PARTIES.append(u'''<text x="34" y="368" fill="#F79A28" font-size="13" font-weight="600">6 · RAMPE DE COULEUR — le panneau des arrêts</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="40" y="382" width="300" height="258" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="40" y="382" width="300" height="21" rx="3" fill="#8a6b2a"/>
   <text x="52" y="397" fill="#f6eddc" font-size="12.5" font-weight="600">Rampe de couleur</text>
@@ -448,7 +441,7 @@ PARTIES.append(u'''<text x="34" y="368" fill="#F79A28" font-size="13" font-weigh
 # x = 712. Elle est coupee en trois lignes courtes pour tenir dans les
 # 320 px disponibles.
 PARTIES.append(u'''<text x="380" y="368" fill="#F79A28" font-size="13" font-weight="600">7 · VINGT ENTRÉES — sections repliables</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="386" y="382" width="284" height="300" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="386" y="382" width="284" height="21" rx="3" fill="#2a6b6b"/>
   <text x="398" y="397" fill="#e2f2f2" font-size="12.5" font-weight="600">Principled BSDF</text>
@@ -514,7 +507,7 @@ PARTIES.append(u'''<text x="706" y="368" fill="#F79A28" font-size="13" font-weig
 # 9 · NŒUD EN ERREUR
 # --------------------------------------------------------------------------
 PARTIES.append(u'''<text x="706" y="654" fill="#F79A28" font-size="13" font-weight="600">9 · NŒUD EN ERREUR</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="712" y="668" width="252" height="92" rx="3" fill="#2a2024" stroke="#c4483a" stroke-width="1.6"/>
   <rect x="712" y="668" width="252" height="21" rx="3" fill="#8a3a30"/>
   <text x="724" y="683" fill="#f6dedb" font-size="12.5" font-weight="600">Image Texture</text>
@@ -559,14 +552,14 @@ PARTIES.append(u'''<text x="1000" y="368" fill="#F79A28" font-size="13" font-wei
   <text x="1016" y="399" fill="#10240F" font-size="12.5" font-weight="600">Habillage du mur</text>
   <text x="1326" y="399" fill="#10240F" font-size="11" text-anchor="end">3 nœuds</text>
   <rect x="1014" y="412" width="314" height="142" rx="4" fill="none" stroke="#4E9A5A" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>
-  <g filter="url(#ombre)">
+  <g>
     <rect x="1032" y="428" width="126" height="54" rx="3" fill="#232329" stroke="#e8e8ee" stroke-width="1.6"/>
     <rect x="1032" y="428" width="126" height="17" rx="3" fill="#8a6b2a"/>
     <text x="1042" y="441" fill="#f6eddc" font-size="10.5" font-weight="600">Bruit</text>
     <rect x="1032" y="445" width="126" height="2" fill="#0A555F"/>
     <use href="#pinD" x="1032" y="464" fill="#9fe8a8"/><use href="#pinS" x="1158" y="464" fill="#5aa9d6"/>
   </g>
-  <g filter="url(#ombre)">
+  <g>
     <rect x="1192" y="428" width="126" height="54" rx="3" fill="#232329" stroke="#e8e8ee" stroke-width="1.6"/>
     <rect x="1192" y="428" width="126" height="17" rx="3" fill="#8a6b2a"/>
     <text x="1202" y="441" fill="#f6eddc" font-size="10.5" font-weight="600">Rampe</text>
@@ -574,7 +567,7 @@ PARTIES.append(u'''<text x="1000" y="368" fill="#F79A28" font-size="13" font-wei
     <use href="#pinD" x="1192" y="464" fill="#5aa9d6"/><use href="#pinS" x="1318" y="464" fill="#d8c08a"/>
   </g>
   <path d="M1164 464h28" fill="none" stroke="#5aa9d6" stroke-width="2"/>
-  <g filter="url(#ombre)">
+  <g>
     <rect x="1032" y="498" width="126" height="44" rx="3" fill="#232329" stroke="#3a3a44"/>
     <rect x="1032" y="498" width="126" height="17" rx="3" fill="#4a6b8a"/>
     <text x="1042" y="511" fill="#eef2f6" font-size="10.5" font-weight="600">Math</text>
@@ -597,7 +590,7 @@ PARTIES.append(u'''<text x="1000" y="368" fill="#F79A28" font-size="13" font-wei
 # ailleurs. Personne ne l'avait vu : a 10 px de large l'ecart valait
 # 5 px. L'ancre au bord rend ce genre d'erreur impossible a ECRIRE.
 PARTIES.append(u'''<text x="1000" y="662" fill="#F79A28" font-size="13" font-weight="600">11 · DÉZOOM — trois paliers</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="1006" y="676" width="116" height="54" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="1006" y="676" width="116" height="17" rx="3" fill="#4a6b8a"/>
   <text x="1015" y="689" fill="#eef2f6" font-size="10" font-weight="600">Math</text>
@@ -607,7 +600,7 @@ PARTIES.append(u'''<text x="1000" y="662" fill="#F79A28" font-size="13" font-wei
   <use href="#pinS" x="1122" y="712" fill="#5aa9d6"/>
 </g>
 <text x="1006" y="748" fill="#6f6f7b" font-size="10">100 % — tout</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="1146" y="676" width="84" height="44" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="1146" y="676" width="84" height="15" rx="3" fill="#4a6b8a"/>
   <text x="1154" y="687" fill="#eef2f6" font-size="9" font-weight="600">Math</text>
@@ -616,7 +609,7 @@ PARTIES.append(u'''<text x="1000" y="662" fill="#F79A28" font-size="13" font-wei
 </g>
 <text x="1146" y="738" fill="#6f6f7b" font-size="10">55 % — les valeurs</text>
 <text x="1146" y="752" fill="#6f6f7b" font-size="10">disparaissent</text>
-<g filter="url(#ombre)">
+<g>
   <rect x="1254" y="676" width="52" height="20" rx="2" fill="#4a6b8a" stroke="#3a3a44"/>
   <rect x="1254" y="692" width="52" height="4" fill="#0A555F"/>
 </g>

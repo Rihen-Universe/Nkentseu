@@ -33,7 +33,7 @@ def lab(x,y,n,titre,note=''):
 # c est le motif que ce depot a paye quatre fois en une nuit.
 
 def image_apercu(x,y,w,h,grad='brique'):
-    return ('<rect x="%s" y="%s" width="%s" height="%s" fill="url(#damier)"/>\n'%(x,y,w,h)
+    return (damier(x,y,w,h)
            +'<rect x="%s" y="%s" width="%s" height="%s" fill="url(#%s)"/>\n'%(x,y,w,h,grad))
 
 TEX_ROWS=[{'lab':u'Coordonn\u00e9es','coul':FAM['geom'],'plein':True,'branchee':True,'glyphe':'XY'},

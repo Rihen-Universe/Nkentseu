@@ -38,14 +38,7 @@ FILET_EXEC = 3.8        # filet d'execution sous l en-tete (2,5 avant)
 def head(w,h,titre,sous):
     return ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" '
       'font-family="Segoe UI, Inter, sans-serif">\n<defs>\n'
-      '<pattern id="grille" width="22" height="22" patternUnits="userSpaceOnUse">'
-      '<circle cx="1.5" cy="1.5" r="1" fill="#1C1C1C"/></pattern>\n'
-      '<pattern id="hachure" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
-      '<rect width="4" height="8" fill="#3A3A44" opacity="0.55"/></pattern>\n'
-      '<pattern id="damier" width="10" height="10" patternUnits="userSpaceOnUse">'
-      '<rect width="10" height="10" fill="#3a3a3a"/><rect width="5" height="5" fill="#565656"/>'
-      '<rect x="5" y="5" width="5" height="5" fill="#565656"/></pattern>\n'
-      '<linearGradient id="rampe" x1="0" x2="1"><stop offset="0%%" stop-color="#0A555F"/>'
+                        '<linearGradient id="rampe" x1="0" x2="1"><stop offset="0%%" stop-color="#0A555F"/>'
       '<stop offset="45%%" stop-color="#3aa0a8"/><stop offset="75%%" stop-color="#F79A28"/>'
       '<stop offset="100%%" stop-color="#ffe9c2"/></linearGradient>\n'
       '<linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%%" stop-color="#2b4a7a"/>'
@@ -53,14 +46,114 @@ def head(w,h,titre,sous):
       '<radialGradient id="sphere" cx="0.35" cy="0.30" r="0.75">'
       '<stop offset="0%%" stop-color="#e8d8c0"/><stop offset="55%%" stop-color="#b07a4a"/>'
       '<stop offset="100%%" stop-color="#2a1a12"/></radialGradient>\n'
-      '<filter id="bruit"><feTurbulence type="fractalNoise" baseFrequency="0.09" '
-      'numOctaves="4" stitchTiles="stitch"/>'
-      '<feColorMatrix type="saturate" values="0"/></filter>\n'
-      '<filter id="ombre" x="-25%%" y="-25%%" width="150%%" height="150%%">'
-      '<feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/></filter>\n'
-      '</defs>\n'
-      '<rect width="%d" height="%d" fill="'+FOND+'"/><rect width="%d" height="%d" fill="url(#grille)"/>\n')%(w,h,w,h,w,h,w,h) \
+                  '</defs>\n'
+      '<rect width="%d" height="%d" fill="'+FOND+'"/>\n')%(w,h,w,h,w,h) \
       + tt(34,40,titre,'#E8E8EE',21,'600') + tt(34,62,sous,TXT2,12.5)
+
+# == CE QUE LUNACY SAIT LIRE ==============================================
+# Rodolf importe ces SVG DIRECTEMENT dans Lunacy : le SVG est le livrable.
+# Lunacy lit mal deux choses, et on ne les debogue pas -- on les EVITE :
+#   - les FILTRES (feDropShadow, feTurbulence) ;
+#   - les REMPLISSAGES A MOTIF (<pattern>), souvent importes VIDES.
+#
+# ⚠️ Les deux ne se traitent pas pareil, et c est tout le raisonnement :
+#   - l OMBRE PORTEE ne porte AUCUNE decision. Personne ne tranchera quoi que
+#     ce soit sur une ombre -> on la RETIRE. Le filet de 1 px du corps suffit
+#     a detacher un noeud du fond, et il est deja specifie (§ 1).
+#   - LES MOTIFS, eux, PORTENT une decision : ils distinguent l inconnu (la
+#     hachure) de la transparence (le damier) du procedural (le bruit). On
+#     garde donc le SENS et on change le MOYEN : des formes explicites, que
+#     Lunacy sait lire, au lieu d un <pattern> qu il vide.
+#
+# 📌 La grille de fond est le seul motif qu on ne remplace PAS par des formes :
+# 6 640 cercles par planche la rendraient inutilisable a l edition. Elle etait
+# de la DECORATION sur les huit planches -- le fond devient plat, et la regle
+# « la grille est faite de POINTS, pas de lignes » se montre la ou elle se
+# decide : un specimen explicite, borne, sur la planche 07.
+
+
+def pointilles(x, y, w, h, pas=22, r=1, coul='#2b2b33'):
+    """La grille du canevas, en points EXPLICITES -- pas un <pattern>."""
+    o = []
+    i = x + 1.5
+    while i < x + w:
+        j = y + 1.5
+        while j < y + h:
+            o.append('<circle cx="%s" cy="%s" r="%s" fill="%s"/>' % (i, j, r, coul))
+            j += pas
+        i += pas
+    return ''.join(o) + '\n'
+
+
+def damier(x, y, w, h, cel=8, a='#3a3a3a', b='#565656'):
+    """Le damier de TRANSPARENCE, en carres explicites.
+
+    On pose l aplat sombre puis SEULEMENT les cases claires : moitie moins de
+    formes pour le meme dessin. Les cases de bord sont rognees a la main --
+    un clipPath serait un second element que Lunacy lit mal.
+    """
+    o = ['<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>' % (x, y, w, h, a)]
+    for i in range(int(w // cel) + 1):
+        for j in range(int(h // cel) + 1):
+            if (i + j) % 2:
+                continue
+            cx, cy = x + i * cel, y + j * cel
+            cw, ch = min(cel, x + w - cx), min(cel, y + h - cy)
+            if cw <= 0 or ch <= 0:
+                continue
+            o.append('<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>'
+                     % (cx, cy, cw, ch, b))
+    return ''.join(o) + '\n'
+
+
+def hachures(x, y, w, h, pas=8, coul='#3A3A44', ep=3.4, op=0.55, fond='#2A2A30'):
+    """La hachure de l INCONNU, en traits obliques explicites.
+
+    Les segments sont rognes ANALYTIQUEMENT sur le rectangle (une diagonale a
+    45 degres verifie px + py = c), donc SANS clipPath : un clipPath aurait
+    ete le second element que Lunacy lit mal, apres le motif qu il remplace.
+    """
+    o = []
+    if fond:
+        o.append('<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>'
+                 % (x, y, w, h, fond))
+    c = x + y
+    while c <= x + w + y + h:
+        x1 = max(x, c - (y + h))
+        x2 = min(x + w, c - y)
+        if x2 > x1:
+            o.append('<line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" '
+                     'stroke-width="%s" opacity="%s"/>'
+                     % (round(x1, 2), round(c - x1, 2), round(x2, 2),
+                        round(c - x2, 2), coul, ep, op))
+        c += pas
+    return ''.join(o) + '\n'
+
+
+def grain(x, y, w, h, cel=10, teinte=None):
+    """Le bruit PROCEDURAL, en cellules explicites au lieu de feTurbulence.
+
+    Le tirage est DETERMINISTE (une fonction du couple d indices) : deux
+    executions donnent le meme dessin. Un tirage aleatoire ferait bouger un
+    PNG a chaque regeneration sans qu aucune decision ait change, et le
+    garde-fou d empreinte hurlerait pour rien.
+    """
+    o = ['<rect x="%s" y="%s" width="%s" height="%s" fill="#111"/>' % (x, y, w, h)]
+    for i in range(int(w // cel) + 1):
+        for j in range(int(h // cel) + 1):
+            v = ((i * 73856093) ^ (j * 19349663)) >> 4
+            g = 40 + (v % 140)
+            cx, cy = x + i * cel, y + j * cel
+            cw, ch = min(cel, x + w - cx), min(cel, y + h - cy)
+            if cw <= 0 or ch <= 0:
+                continue
+            o.append('<rect x="%s" y="%s" width="%s" height="%s" fill="#%02x%02x%02x"/>'
+                     % (cx, cy, cw, ch, g, g, g))
+    if teinte:
+        o.append('<rect x="%s" y="%s" width="%s" height="%s" fill="%s" opacity="0.30"/>'
+                 % (x, y, w, h, teinte))
+    return ''.join(o) + '\n'
+
 
 def esc(s):
     return s.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
@@ -127,13 +220,15 @@ def noeud(x,y,w,rows,titre,sous=None,cat='#4a6b8a',exec_=False,apercu=0,
           etat=None,aide=True,marque=True,filet=None,tete_clair=False,arrondi_debut=False):
     eh=21 if not sous else 30
     hh=eh+4+apercu+len(rows)*24+(18 if etat else 0)+8
-    s='<g filter="url(#ombre)" opacity="%s">\n'%opacite
+    s='<g opacity="%s">\n'%opacite
     s+='<rect x="%s" y="%s" width="%s" height="%s" fill="%s" stroke="%s" stroke-width="%s"/>\n'%(
         x,y,w,hh,corps,erreur or FILET,1.5 if erreur else 1)
-    tete='url(#hachure)' if inconnu else cat
+    tete='#2A2A30' if inconnu else cat
     r0=12 if arrondi_debut else 5
     s+='<path d="M%s %sa%s %s 0 0 1 %s -%s h%s a5 5 0 0 1 5 5 v%s H%s z" fill="%s"/>\n'%(
         x,y+r0,r0,r0,r0,r0,w-r0-5,eh-5,x,tete)
+    if inconnu:
+        s+=hachures(x+1,y+1,w-2,eh-2,pas=6,fond=None,op=0.5)
     if tete_clair:
         s+='<path d="M%s %sa%s %s 0 0 1 %s -%s h%s a5 5 0 0 1 5 5 v%s H%s z" fill="#FFFFFF" opacity="0.15"/>\n'%(
             x,y+r0,r0,r0,r0,r0,w-r0-5,eh-5,x)
@@ -148,10 +243,10 @@ def noeud(x,y,w,rows,titre,sous=None,cat='#4a6b8a',exec_=False,apercu=0,
     else:
         s+='<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>\n'%(x,y+eh,w,FILET_EXEC,fil)
     if hachure:
-        s+='<rect x="%s" y="%s" width="%s" height="%s" fill="url(#hachure)"/>\n'%(x+1,y+eh+3,w-2,hh-eh-4)
+        s+=hachures(x+1,y+eh+3,w-2,hh-eh-4,fond=None)
     cy=y+eh+6
     if apercu:
-        s+='<rect x="%s" y="%s" width="%s" height="%s" fill="url(#damier)"/>\n'%(x+8,cy,w-16,apercu-6)
+        s+=damier(x+8,cy,w-16,apercu-6)
         s+='<rect x="%s" y="%s" width="%s" height="%s" fill="url(#ciel)" opacity="0.92"/>\n'%(x+8,cy,w-16,apercu-6)
         cy+=apercu
     for r in rows:
@@ -182,7 +277,7 @@ def noeud(x,y,w,rows,titre,sous=None,cat='#4a6b8a',exec_=False,apercu=0,
             elif r.get('ctrl')=='case':
                 s+='<rect x="%s" y="%s" width="12" height="12" rx="2" fill="none" stroke="%s" stroke-width="1.5"/>\n'%(x+w-24,yc-6,TXT2)
             elif r.get('ctrl')=='nuancier':
-                s+='<rect x="%s" y="%s" width="36" height="14" fill="url(#damier)"/>\n'%(x+w-48,yc-7)
+                s+=damier(x+w-48,yc-7,36,14,cel=4)
                 s+='<rect x="%s" y="%s" width="36" height="14" fill="%s" stroke="#5a5a64"/>\n'%(x+w-48,yc-7,r.get('val','#7ec8e8'))
             elif r.get('ctrl')=='liste':
                 s+='<rect x="%s" y="%s" width="112" height="17" rx="2" fill="%s"/>\n'%(x+w-124,yc-8,CTRL)
@@ -208,7 +303,7 @@ def sphere(x,y,w,h):
     """
     cx,cy = x+w/2.0, y+h/2.0
     r = min(w,h)/2.0-4
-    o  = '<rect x="%s" y="%s" width="%s" height="%s" fill="url(#damier)"/>\n'%(x,y,w,h)
+    o  = damier(x,y,w,h)
     o += '<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill="#000" opacity="0.35"/>\n'%(cx,y+h-6,r*0.8,4)
     o += '<circle cx="%s" cy="%s" r="%s" fill="url(#sphere)"/>\n'%(cx,cy,r)
     o += '<circle cx="%s" cy="%s" r="%s" fill="#fff" opacity="0.55"/>\n'%(cx-r*0.32,cy-r*0.36,r*0.13)
@@ -223,7 +318,7 @@ def bruit(x,y,w,h,teinte=None):
     trois nombres dont aucun ne se lit. C est le cas ou la vignette sert le plus.
     """
     o  = '<rect x="%s" y="%s" width="%s" height="%s" fill="#111"/>\n'%(x,y,w,h)
-    o += '<rect x="%s" y="%s" width="%s" height="%s" filter="url(#bruit)" opacity="0.85"/>\n'%(x,y,w,h)
+    o += grain(x,y,w,h)
     if teinte:
         o += '<rect x="%s" y="%s" width="%s" height="%s" fill="%s" opacity="0.30"/>\n'%(x,y,w,h,teinte)
     return o

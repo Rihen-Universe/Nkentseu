@@ -212,6 +212,27 @@ c4, h4 = cartouche(X2, R4 + 150, 330, [
 ], u'les deux points qui ne s’inventent pas')
 s += c4
 
+# ---- 5 - LA GRILLE DU CANEVAS, EN SPECIMEN ---------------------------------
+# Le fond des huit planches etait un <pattern> de points, et il est devenu PLAT :
+# Lunacy importe les remplissages a motif vides, et 6 640 cercles par planche
+# la rendraient inutilisable a l edition.
+# Mais « la grille est faite de POINTS, pas de lignes » est une decision (§ 1,
+# VUE sur la principale). On ne la perd donc pas : on la montre LA OU ELLE SE
+# DECIDE, en points explicites, sur la planche du canevas -- et une seule fois.
+GX, GY, GW, GH = 34, H - 210, 300, 130
+s += lab(GX, GY - 34, '5', u'LA GRILLE DU CANEVAS — des POINTS, jamais des lignes',
+         u'pas de 22 px · point de 1 px · #2b2b33 sur le fond #17171b')
+s += '<rect x="%s" y="%s" width="%s" height="%s" fill="#17171b" stroke="#2E2E36"/>\n' % (
+    GX, GY, GW, GH)
+s += pointilles(GX, GY, GW, GH)
+s += tt(GX + GW + 18, GY + 18, u'⚠ CE CARRÉ EST LE SEUL ENDROIT où la grille est dessinée.', ORANGE, 10.5, '600')
+s += tt(GX + GW + 18, GY + 34, u'Le fond des huit planches est PLAT depuis le 23/08 : un', TXT2, 10)
+s += tt(GX + GW + 18, GY + 48, u'remplissage à motif s’importe VIDE dans Lunacy, et Rodolf', TXT2, 10)
+s += tt(GX + GW + 18, GY + 62, u'importe ces SVG directement. Le sens est gardé, le moyen a', TXT2, 10)
+s += tt(GX + GW + 18, GY + 76, u'changé — même règle que la hachure et le damier (planches 03, 06).', TXT2, 10)
+s += tt(GX + GW + 18, GY + 100, u'✅ Les lignes ont été VUES sur quatre références, et ÉCARTÉES :', u'#7FB77E', 10.5, '600')
+s += tt(GX + GW + 18, GY + 114, u'la principale montre des POINTS, et c’est elle qui fait foi.', TXT2, 10)
+
 s += tt(34, H - 30, u'⚠ PLANCHE D’ÉTUDE — les six éléments sont B6, B7, B9, E1, E2 et E5 d’ELEMENTS_A_DESSINER.md. '
         u'Les RATIOS de la spécification font foi, jamais les pixels de cette planche.', TXT3, 10.5)
 ecrire('planche_07_canevas.svg', s)
