@@ -4,7 +4,7 @@
 > Produit le 2026-08-23. **Aucun document du dépôt n'a été modifié ni supprimé.**
 > Les seuls fichiers créés sont ceux de `cartographie_markdown/`.
 >
-> Trois fichiers accompagnent ce rapport :
+> Quatre fichiers accompagnent ce rapport :
 > - `inventaire.csv` — les 747, avec taille, lignes, date de dernière modification ;
 > - `divergences.md` — tâche 1 : fichier, ligne, affirmation, décision contredite ;
 > - `carte_consolidation.csv` — tâche 2 : une ligne par fichier, avec action,
