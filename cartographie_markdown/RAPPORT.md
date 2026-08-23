@@ -159,6 +159,35 @@ Les messages de commit de `feat/verificateur` sont eux-mêmes des mesures :
 *« Passe complet du 23/08 : 12 bancs, 10 OK, 2 ÉCHEC, 0 IGNORÉ »*,
 *« GetCaps() n'est pas appelé 45 fois, mais 29 »*.
 
+### 2bis. Pire que « pas sur `main` » : pas encore commité
+
+Mesuré au moment d'écrire ce rapport, dans cet arbre même, `git status` :
+
+- **3 markdown non suivis par git** sont sur le disque —
+  `Kernel/Runtime/NKGraph/SPECIFICATION_VISUELLE.md`,
+  `Kernel/Runtime/NKGraph/tests/LISEZMOI.md`,
+  `Kernel/Runtime/NKGraph/references/generateurs/LISEZMOI.md`.
+  Les deux `LISEZMOI` sont précisément des **notices de témoins**.
+- **3 markdown suivis sont modifiés et non commités** :
+  `CATALOGUE_NOEUDS.md`, `DESIGN_EDITEUR_NODAL.md`, `ELEMENTS_A_DESSINER.md`
+  — tous trois dans `NKGraph/`, tous trois cités dans la commande de mission
+  comme portant des mesures coûteuses.
+- s'y ajoutent une trentaine de fichiers non suivis (planches SVG/PNG,
+  `verifie_coherence.py`, `verifie_planches.py`) qui sont les **bancs** dont ces
+  notices décrivent le protocole.
+
+Je n'ai touché à aucun d'eux : mes quatre commits ne contiennent que
+`cartographie_markdown/`. Mais **ces six fichiers ne sont dans aucune de mes
+mesures** — l'inventaire est bâti sur `git ls-files`. Le vrai total est donc
+747 sur `main`, 771 toutes branches, et **au moins 774 sur ce disque**.
+
+**C'est le même défaut, un cran plus grave.** La leçon la plus chère du dépôt
+— comment un témoin a été mesuré — est aujourd'hui à un `git clean` de
+disparaître. Aucune règle de consolidation ne la protège, parce qu'aucune règle
+ne s'applique à un fichier que git ne voit pas. D'où la règle (E) du §5.2, qu'il
+faut élargir : *un document qui porte une mesure se commite le jour où il est
+écrit.*
+
 **Conséquence pratique : ne pas consolider `main` avant d'avoir fusionné ces
 branches**, sinon on consolide autour du mauvais ensemble et on réintroduit
 les fichiers manquants après coup, sous d'autres noms. C'est aussi la preuve
