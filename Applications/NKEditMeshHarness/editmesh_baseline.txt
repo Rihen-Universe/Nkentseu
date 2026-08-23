@@ -177,7 +177,7 @@ mat/assign-par-sommets             tousCoins=1 (1 attendu) unCoinManquant=0 (0 a
 mat/slots-trou-jamais-decalage     slots=3 vivants=2 id[2]=102 (102 attendu) faceMz=2 (2 attendu)
 mat/slots-survivent-a-l-edition    slots 1 -> 1 | dernier id=777 (777 attendu)
 mat/decim-transport                slot1 2 -> 1 | tris 12->6 (0 = le materiau disparaissait)
-mat/temoin-smooth                  smooth 12 -> 0 sur 24 faces (TEMOIN du comportement existant)
+mat/temoin-smooth                  smooth 12 -> 24 sur 24 faces (24 = les filles heritent)
 mat/survie-soudure                 slot1 2 -> 2 | sommets 24 -> 8 ok=1
 hist/aller-retour                  undo=1 redo=1 | retourExact=1 refaitExact=1 muteDifferent=1
 hist/pile-vide                     undoVide=0 (0 attendu) redoVide=0 (0 attendu) etatIntact=1 canUndo=0
@@ -242,3 +242,9 @@ matfus/dissolve-egalite-indice     ok=1 faces 16->1 retenu=1 (1 = indice bas a a
 matfus/dissolve-sans-perte         ok=1 faces 16->1 retenu=4 perdus=0 (0 : une seule couleur)
 matfus/decimation-transport        ok=1 tris 32->15 slots 2->2 | slot1=9 slot2=6 slot0=0 fusions=0
 matfus/decimation-couleur-perdue   ok=1 tris 32->2 slots 2->1 | slot3 restant=0 fusions=0
+smooth/mixte-subdivision           lisses 3/6 -> 12/24 (12/24 : ni tout, ni rien)
+smooth/mixte-position              lisses 12/24 | position avant 0.5000 apres 2.0000 (x4 filles)
+smooth/tout-plat-reste-plat        lisses 0/24 (0 attendu : rien ne s invente)
+smooth/survit-extrusion            ok=1 lisses 3/6 -> 15/30
+smooth/survit-inset                ok=1 lisses 3/6 -> 15/30
+smooth/survit-soudure              ok=1 lisses 3/6 -> 3/6
