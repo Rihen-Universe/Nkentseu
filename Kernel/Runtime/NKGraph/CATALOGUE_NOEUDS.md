@@ -141,12 +141,35 @@ cette liste est la cible.
 | | rôle |
 |---|---|
 | **commentaire** | une note posée sur le canevas |
-| **cadre** | un rectangle qui groupe et se déplace avec son contenu |
+| **cadre** | un rectangle qui **entoure** et se déplace avec ses membres — ⚠️ **il ne groupe RIEN** : voir la mise au point ci-dessous |
 | **relais** (reroute) | un point de passage pour ranger un fil, sans rien changer |
 
 ⚠️ **Ils doivent survivre à l'enregistrement et à la relecture** au même titre
 que les autres. Un fichier qui perd les commentaires perd le travail
 d'organisation, qui est souvent plus long que le câblage.
+
+📌 **Ce n'est plus une inquiétude, c'est une mesure.** Banc exécuté le 22/08
+contre `NkNodeGraph` : une directive que le modèle ne comprend pas est **relue
+sans erreur**, mais elle est **effacée dès le premier annuler ou le premier
+enregistrement** — l'historique réécrit depuis le modèle, pas depuis le texte.
+**Aucune de ces trois notions ne survivra tant qu'elle ne sera pas un champ du
+modèle.** Détail et protocole : `SPECIFICATION_VISUELLE.md` § 16.
+
+### ⚠️ Mise au point du 22/08 — **le cadre et le groupe ne sont pas voisins**
+
+Ce document les a longtemps listés ensemble, et c'était une erreur.
+
+| | **cadre** | **groupe** |
+|---|---|---|
+| effet sur le graphe | **aucun** — il décore | **il abstrait** : N nœuds deviennent 1 |
+| interface | aucune | **des entrées et des sorties**, calculées à partir des fils qui traversaient la frontière |
+| réutilisation | un seul endroit | **autant d'instances qu'on veut**, comme une fonction |
+| replié | il **cache** | il **EST un nœud** |
+| dans le modèle | ❌ **rien** — à construire | ✅ **déjà là en entier** : `NK_NODE_INSTANCE`, `NK_NODE_GROUP_IN/OUT`, `subgraph`, `BuildPlan` |
+
+✅ **Le groupe est donc le moins coûteux des deux à livrer**, ce qui est
+l'inverse de ce que ce document laissait croire : c'est le **cadre**, l'inerte,
+qui n'a aucun foyer dans le modèle.
 
 ---
 
@@ -294,7 +317,11 @@ leur étiquette **et** leur position, jamais par la seule couleur.
 
 *Ni entrée ni sortie, ou une prise qui ne transforme rien.* Le **cadre** est un
 rectangle coloré derrière les nœuds, avec un titre éditable ; il **passe
-derrière** tout le reste. Le **relais** est un simple point sur un fil — il doit
+derrière** tout le reste. ✅ **Validé le 22/08** — fond à 8 %, filet extérieur
+plein 1,5 px, **second filet intérieur pointillé**, bandeau plein de 20 px,
+compteur aligné à droite. ⚠️ **Sa teinte ne déteint JAMAIS sur un nœud** — ni
+corps, ni en-tête, ni filet, ni pastille (option A, tranchée par Rodolf) ; c'est
+**son bandeau qui porte le sens**, donc **son titre est obligatoire**. Le **relais** est un simple point sur un fil — il doit
 être assez petit pour ne pas déranger, assez grand pour se saisir.
 
 ---
@@ -347,8 +374,18 @@ rencontrera, et qui doit avoir une apparence décidée.
 - la **recherche de nœud** : ce qui s'ouvre quand on tire un fil dans le vide,
   ⚠️ **filtré par le type de la prise d'origine** ;
 - la **minicarte**, si tu en veux une ;
-- le **groupe** : plusieurs nœuds repliés en un seul, avec ses propres entrées
-  et sorties.
+- le **groupe** : plusieurs nœuds empaquetés en un seul **réutilisable comme une
+  fonction**, avec ses propres entrées et sorties — ✅ tranché le 22/08. Ses
+  prises **ne se déclarent pas, elles se calculent** : ce sont les fils qui
+  traversaient la frontière de la sélection, **dédupliqués par source**, dans un
+  **ordre écrit** (Y puis X puis index) pour que grouper deux fois la même
+  sélection donne deux fois le même nœud ;
+- ✅ **le critère qui valide tout ça, et qui s'exécute** : **grouper puis
+  dégrouper doit rendre le graphe identique**, octet pour octet après
+  sérialisation, aux identifiants près. S'il échoue, le regroupement perd
+  quelque chose — et l'utilisateur le perdra aussi ;
+- le **fil d'Ariane** — ⚠️ **plus optionnel** : entrer dans un groupe est le
+  seul moyen de l'éditer, et sans lui on ne sait plus comment sortir.
 
 ---
 
