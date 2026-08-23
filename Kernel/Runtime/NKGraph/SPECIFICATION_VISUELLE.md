@@ -651,7 +651,12 @@ de rangées à charge variable** :
 ```
 
 - **chaque élément est une vraie prise** — il peut être branché individuellement.
-  Même choix que le `ColorRamp` de `planche_01`, où chaque arrêt est une prise ;
+  ⚠️ **Ce n'est PAS le choix du `ColorRamp`, contrairement à ce que ce paragraphe
+  disait** : les arrêts d'une rampe sont une **propriété** (§ 7.5, § 17 C1), pas
+  des prises. **Les deux nœuds ont l'air voisins et ne le sont pas** — un
+  `Construire tableau` produit N valeurs *que l'on branche* ; une rampe porte N
+  arrêts *que l'on règle*. **La ressemblance de silhouette est un piège, et je
+  m'y étais pris** ;
 - la rangée d'ajout et le `−` par ligne pilotent la longueur ;
 - ⚠️ **repli obligatoire au-delà de 8 éléments** : les rangées 9 et suivantes sont
   remplacées par une **rangée `… et 492 autres`**, dépliable. `CATALOGUE_NOEUDS.md`
@@ -762,6 +767,40 @@ pas nœud par nœud.
 ⚠️ **Ce que la référence ne montre PAS** : ni la taille, ni le chemin, ni
 l'espace colorimétrique n'apparaissent nulle part sur le nœud. Rodolf les demande
 explicitement. **Tout le § 6.2 est donc PROPOSÉ.**
+
+### 6.1bis Quels nœuds portent un aperçu — ✅ **DÉCIDÉ le 23/08** (Rodolf)
+
+> *« il manque les prévisualisations : sur le `Principled BSDF`, sur les nœuds de
+> texture, et sur le bruit de surface. »* — **Rodolf, 23/08.**
+
+⚠️ **Il n'y a qu'UN mécanisme d'aperçu, et ce paragraphe ne l'invente pas** : le
+bloc de corps escamotable du § 6.1, avec sa bascule ON/OFF, son voile de 30 % +
+point qui pulse quand il est périmé (§ 6.3), et sa dégradation par palier
+(§ 6.5). **Ce qui manquait n'était pas le mécanisme — c'était la liste des nœuds
+qui le portent.** La voici.
+
+| famille | ce que la vignette montre | pourquoi elle vaut son coût |
+|---|---|---|
+| **texture** (`Texture image`) | l'image chargée, recadrée au centre, **damier sous l'alpha** | **VU** (`images (3)`). Sans elle, un nœud de texture est un chemin de fichier : on ne sait pas ce qu'on a chargé |
+| **surface** (`Principled`, `Diffus`, `Émission`, `Mélange shader`) | une **sphère rendue** avec le matériau, sur damier | **VU** (`images (4)`). C'est le seul endroit où l'on voit l'effet d'un réglage **sans compiler tout le graphe** |
+| **procédural** (`Bruit`, `Damier`, `Voronoi`, `Onde`, `Briques`, `Dégradé`) | le motif engendré, **carré, en niveaux de gris pour une sortie `fac`**, en couleur pour une sortie `color` | 🔴 **c'est le cas où l'aperçu sert le PLUS.** Un bruit se règle par `échelle` / `détail` / `octaves` — **trois nombres dont aucun ne se lit.** Sans vignette, on règle un bruit à l'aveugle et l'on recompile à chaque essai |
+| **charge variable** (`ColorRamp`, `Courbe`) | ⚠️ **pas un aperçu : leur ÉDITEUR** (§ 7.5) — la barre, le tracé | **à ne pas confondre.** L'éditeur est *interactif* et vit à la même place ; il **dégrade** en aperçu au dézoom (§ 6.5), il n'en est pas un |
+
+**Ce qui n'en porte PAS**, et il faut le dire pour que l'absence soit lisible :
+`Maths`, `Mélanger couleur`, `Séparer`/`Combiner`, `Mappage`, `Coordonnées`, les
+relais, les groupes. **Raison : leur sortie n'a pas d'aspect** — l'aperçu d'un
+`Maths` serait un carré uni, c'est-à-dire un mensonge coûteux.
+
+> 📌 **La règle qui décide, et elle évite d'avoir à trancher nœud par nœud** :
+> **un nœud porte un aperçu quand sa sortie a un ASPECT qu'on ne peut pas deviner
+> depuis ses entrées.** Une texture, une surface, un procédural : oui. Une
+> addition : non.
+
+⚠️ **Et le coût est réel — il est déjà tranché au § 6.3, ne pas le rouvrir** :
+l'aperçu se recalcule **à la fin d'un geste**, jamais pendant qu'on tire un
+curseur, et il **dit qu'il est périmé** tant qu'il ne l'a pas fait. **Un aperçu
+périmé qui ne le dit pas est pire que pas d'aperçu du tout**, parce qu'on lui
+fait confiance.
 
 ### 6.2 Le nœud de TEXTURE — **PROPOSÉ**
 
@@ -926,10 +965,63 @@ spéciale : elles ne se ressemblent déjà pas. C'est le meilleur genre de solut
 
 `ColorRamp`, `Courbe`. **PROPOSÉ**, et le corpus n'en montre aucun.
 
-- **la barre de dégradé occupe la largeur** du corps moins 16 px, hauteur 20 px ;
-- **chaque arrêt est une prise** (déjà dans `planche_01`) : sa position **et** sa
-  couleur sont pilotables ;
-- **au dézoom 55 %, les poignées d'arrêt disparaissent, la barre reste** — elle
+> ⚠️ **Corrigé le 23/08 sur deux points, et les deux viennent du réel** : Rodolf
+> a regardé la planche 03 (*« il manque le panneau de couleur qui permet de voir
+> les différents arrêts et d'en ajouter directement là »*), et la lecture de
+> `NkMatGraphCheck` (§ 17, C1) a montré que **la version précédente de ce
+> paragraphe décrivait un nœud que le modèle ne permet pas.**
+
+#### ❌ Ce qui était écrit et qui est FAUX
+
+> ~~*« chaque arrêt est une prise (déjà dans `planche_01`) : sa position **et**
+> sa couleur sont pilotables »*~~
+
+**Mesuré (§ 17, C1)** : `kColorRamp` a **exactement deux prises** — `fac` en
+entrée, `color` en sortie. Les arrêts vivent dans **une propriété de nœud**,
+`NK_MPROP_STOPS`, une charge utile de **4 N réels** (position, r, v, b). Même
+dessin pour `Float Curve` : deux prises, et les points dans `NK_MPROP_POINTS`.
+
+> **Un arrêt n'est PAS branchable, et il ne le sera pas sans changer le modèle.**
+
+#### 🔴 Et c'est exactement ce qui rend le panneau OBLIGATOIRE
+
+Les deux corrections se rencontrent, et il faut le dire **parce qu'elles se
+renforcent** :
+
+- si les arrêts étaient des prises, on pourrait les éditer **par les fils**, et un
+  panneau ne serait qu'un confort ;
+- **puisqu'ils sont une propriété, le panneau est le SEUL moyen de les voir et de
+  les modifier.**
+
+> ✅ **« L'éditeur EST le nœud » cesse d'être une formule : c'est une nécessité
+> structurelle.** Sans le panneau, `ColorRamp` est un nœud dont on ne peut rien
+> régler.
+
+#### ✅ Le dessin — DÉCIDÉ le 23/08
+
+| élément | spécification |
+|---|---|
+| **la barre de dégradé** | pleine largeur du corps moins 16 px, **hauteur 20 px**, rendu continu de la rampe |
+| **les poignées d'arrêt** | posées **sur** la barre, à leur position : un triangle de 7 px pointant vers le bas, **rempli de la couleur de l'arrêt**, filet blanc 1 px pour rester visible sur un dégradé clair comme sur un sombre |
+| 🔴 **le panneau des arrêts** | **sous la barre**, une **rangée par arrêt** : la **position** (champ numérique, 3 décimales) et la **couleur** (nuancier, § 2.4 contrôle 4, avec damier si alpha). L'arrêt **sélectionné** porte le liseré orange `#F79A28` |
+| **la rangée d'ajout** | `+ ajouter un arrêt`, bandeau `#2B2B2B` pleine largeur (§ 2.4 contrôle 8) — **et un `−` par rangée** pour retirer |
+| **le compteur** | ligne d'état en pied : **`3 / 32 arrêts`** |
+
+⚠️ **Le compteur affiche le PLAFOND, et ce n'est pas décoratif** (§ 17, C2) :
+`NK_RAMP_ARRETS_MAX = 32`, et le modèle refuse au 33ᵉ **en disant le compte**
+(*« 33 demandées, plafond 32 »*). **Un nœud qui ne montre pas sa limite laisse
+l'auteur la découvrir par un refus.** Même règle pour `Courbe`
+(`NK_CURVE_POINTS_MAX = 32`).
+
+⚠️ **Deux prises seulement sur le bord, et il faut résister à la tentation
+inverse** : la rangée d'un arrêt **n'a PAS de prise**, ni à gauche ni à droite.
+C'est le même dessin que la **rangée sans point de connexion** du § 2.4 (§ 17,
+N1) — *« une prise sans point dit : ce paramètre est une constante, ce qui est la
+vérité »*.
+
+#### Le dézoom, inchangé
+
+- **à 55 %, les poignées et le panneau disparaissent, la barre reste** — elle
   devient un aperçu. Même logique que § 6.5 : **l'éditeur graphique dégrade en
   aperçu, il ne disparaît pas.** C'est ce qui distingue un nœud à charge variable
   d'un nœud ordinaire quand le texte est perdu ;
@@ -1285,20 +1377,51 @@ d'aide.**
 libre posé sur le canevas.** `node-based-…webp` montre des paragraphes de texte,
 mais **logés dans le corps d'un nœud**, pas flottants.
 
+### ✅ La règle qui commande tout le reste — **Rodolf, 23/08**
+
+> *« je veux les commentaires présents pour que l'utilisateur ne fasse pas
+> d'effort pour les lire, mais s'il veut, il active la possibilité de voir les
+> commentaires au survol. »*
+
+> 🔴 **UN COMMENTAIRE QU'IL FAUT ALLER CHERCHER N'EST PAS LU.**
+
+**C'est le principe, et il vaut au-delà du commentaire** : tout ce qui explique
+se paie en attention, et une explication qui demande un geste préalable coûte
+plus cher que ce qu'elle rapporte. On la saute, puis on ne l'écrit plus, puis le
+canevas n'a plus de commentaires du tout. ⚠️ **Ne pas retirer cette phrase :
+sans elle, quelqu'un reproposera un jour le survol par défaut, parce que c'est
+plus propre — et ce sera plus propre et illisible.**
+
 ✅ **DÉCIDÉ le 23/08** — en assumant que c'est une invention, faute de corpus :
 
 - **du texte posé sur le fond, sans corps, sans filet, sans fond** — le
   commentaire n'est pas un nœud et ne doit pas y ressembler ;
 - 13 px, `#8A8A8A`, **aligné à gauche**, retour à la ligne à une largeur qu'on
   redimensionne par une poignée (§ 2.3) ;
-- **au survol seulement**, un rectangle `#1A1A1A` à 60 % apparaît derrière pour
-  qu'on sache où cliquer ;
+- 🔴 **PAR DÉFAUT, LE TEXTE EST AFFICHÉ EN PERMANENCE.** Il n'y a **aucun geste
+  à faire pour le lire** ;
+- **au survol**, un rectangle `#1A1A1A` à 60 % apparaît derrière — ⚠️ **il ne
+  révèle rien : le texte était déjà là.** Il dit seulement **où cliquer** pour
+  saisir le commentaire ;
+- ✅ **et une OPTION, que l'utilisateur active s'il la veut : « n'afficher les
+  commentaires qu'au survol ».** Elle est **désactivée à l'installation**, et
+  elle sert le cas — réel — d'un canevas dense qu'on veut nettoyer pour une
+  capture ou une relecture de structure ;
 - **il ne se branche à rien**, ne se replie pas, **et il passe DEVANT les fils,
   DERRIÈRE les nœuds** ;
 - au dézoom **25 %, il disparaît entièrement** — c'est le seul objet qu'on
   efface complètement. Raison : illisible, il ne serait plus qu'une tache grise
   qui brouille la lecture de structure, et **c'est justement la lecture qu'on
-  fait à 25 %**.
+  fait à 25 %**. ⚠️ **Ce n'est pas une contradiction avec « visible par
+  défaut »** : à 25 % le texte n'est pas *caché*, il est **illisible de toute
+  façon** — on retire une tache, pas une information.
+
+⚠️ **Ce qui a rendu la correction nécessaire, et c'est une leçon de
+formulation** : ce paragraphe écrivait déjà *« au survol seulement, un rectangle
+apparaît »*, et la planche 07 légendait son second panneau **« COMMENTAIRE — au
+survol seulement »**. La phrase parlait du **rectangle** ; la légende s'est lue
+comme si elle parlait du **commentaire**. 📌 **Une légende qui abrège une règle
+en change le sujet.** Les deux disent maintenant lequel des deux apparaît.
 
 📌 **Pourquoi cet ordre d'empilement précis — devant les fils, derrière les
 nœuds — et pas l'inverse :**
@@ -1313,9 +1436,9 @@ nœuds — et pas l'inverse :**
 l'emporte sur ce qui commente.**
 
 ⚠️ **Et le rectangle de survol reste un signal FAIBLE volontairement** (`#1A1A1A`
-à 60 %, au survol seulement) : plus marqué, il donnerait au commentaire l'allure
-d'un nœud sans en-tête — **exactement ce que la première ligne de ce paragraphe
-interdit.**
+à 60 %, **au survol du commentaire déjà visible**) : plus marqué, il donnerait au
+commentaire l'allure d'un nœud sans en-tête — **exactement ce que la première
+ligne de ce paragraphe interdit.**
 
 ### 9.1bis La source et le puits — ✅ **DÉCIDÉ le 23/08 : ne RIEN ajouter**
 
@@ -1818,7 +1941,7 @@ la structure part en dernier.
 
 | élément | état |
 |---|---|
-| **sélection au lasso** | ✅ **DÉCIDÉ 23/08 — et PAS en pointillé** : filet **plein** `#F79A28` 1,5 px + remplissage orange à **8 %**. Voir § 12.4 |
+| **sélection au lasso** | ✅ **DÉCIDÉ 23/08 par Rodolf — le pointillé est ADOPTÉ** : filet **pointillé** `#F79A28` 1,5 px + remplissage orange à **8 %**. La collision avec le cadre se résout sur **trois axes qui ne sont pas le motif** — et la collision de GESTES que j'avais invoquée **n'existait pas**. Voir § 12.4 |
 | **fil d'Ariane de sous-graphe** | ✅ **DÉCIDÉ 23/08 — OBLIGATOIRE.** Bande de **24 px**, chemin d'**instanciation**, segments cliquables, **élision au milieu** au-delà de 4 niveaux, et ⚠️ **un compteur d'instances** : *on entre par UNE instance et on édite la DÉFINITION, qui est PARTAGÉE* — sans lui on croit corriger un nœud et on en corrige trois. **Cette phrase justifie le compteur : ne pas la retirer, sinon quelqu'un le retirera comme décoratif** |
 | **aide contextuelle** | ligne de texte libre en haut du canevas — **VU** (`node-based-…webp`) ; **PROPOSÉ : oui, elle ne coûte rien et remplace un tutoriel** |
 | **menu contextuel** | ✅ **DÉCIDÉ 23/08** : trois contenus, et **« ajouter un nœud » rouvre le panneau du § 12.1, sans filtre** — un seul mécanisme de recherche. Voir § 12.5 |
@@ -1827,10 +1950,15 @@ la structure part en dernier.
 
 ---
 
-### 12.4 Le lasso — ✅ **DÉCIDÉ le 23/08**, et le pointillé est REFUSÉ
+### 12.4 Le lasso — ✅ **DÉCIDÉ le 23/08 : le pointillé est ADOPTÉ** (Rodolf)
 
-Ce document proposait un **rectangle pointillé**. ⚠️ **Recensement fait avant
-d'écrire : le pointillé est déjà employé six fois.**
+> *« la planche 07 dit que le pointillé est refusé, pourtant c'est pas le cas, on
+> l'adopte. »* — **Rodolf, 23/08.** La décision précédente de ce paragraphe est
+> **annulée** ; le recensement qui l'appuyait, lui, reste vrai et **devient
+> l'argument de la solution au lieu de celui du refus.**
+
+**Le pointillé est déjà employé six fois**, et le recensement garde toute sa
+valeur :
 
 | usage | l'endroit | la forme |
 |---|---|---|
@@ -1838,28 +1966,62 @@ d'écrire : le pointillé est déjà employé six fois.**
 | fil en cours de tirage | un **fil** au curseur | pointillé gris |
 | nœud désactivé (§ 11.3) | le **fil traversant** | pointillé de la couleur du fil |
 | prise convertible | un **halo de prise** | pointillé |
-| **cadre (§ 9.2)** | **un RECTANGLE sur le canevas** | second filet intérieur, pointillé `4 4` |
-| lasso *(proposé)* | **un RECTANGLE sur le canevas** | pointillé orange |
+| **cadre (§ 9.2)** | **un RECTANGLE sur le canevas** | second filet **intérieur**, pointillé `4 4` |
+| **lasso** | **un RECTANGLE sur le canevas** | **filet unique, pointillé orange** |
 
 ✅ **Quatre des six ne se gênent pas** — prise, fil, halo : *le signal n'est pas
-le pointillé, c'est l'endroit*, exactement comme les trois gris.
+le pointillé, c'est l'endroit*, exactement comme les trois gris. **Cette moitié
+du raisonnement était juste et elle ne bouge pas.**
 
-❌ **Mais les deux derniers occupent le MÊME endroit**, et la collision n'est pas
-seulement visuelle : **tirer un rectangle sur le fond est aussi le geste qui crée
-un cadre.** Un rectangle pointillé qui apparaît sous le curseur pendant ce geste
-dit littéralement « je suis en train de fabriquer un cadre ».
+#### ⚠️ Mon erreur, et il faut la dire avant la solution
 
-> ✅ **DÉCIDÉ : le lasso est un filet PLEIN `#F79A28` de 1,5 px, avec un
-> remplissage orange à 8 %. Aucun pointillé.**
+Le paragraphe refusait le pointillé sur cette phrase :
 
-**Et il a le droit à un signal simple**, pour la raison déjà admise au § 11.4 sur
-le survol : **il est transitoire et attaché au curseur.** L'utilisateur sait ce
-qu'il fait pendant qu'il le fait — c'est ce qui reste après le relâchement qui
-doit être fort.
+> ~~*« tirer un rectangle sur le fond est aussi le geste qui crée un cadre. Un
+> rectangle pointillé qui apparaît sous le curseur pendant ce geste dit
+> littéralement : je suis en train de fabriquer un cadre. »*~~
+
+❌ **C'est faux, et c'est mon propre § 12.5 qui le dit** : le menu contextuel du
+fond porte **« créer un cadre autour de la sélection »**. **Le cadre ne se crée
+pas en tirant un rectangle — il se crée par le menu, autour de ce qui est déjà
+sélectionné.** Les deux gestes ne se rencontrent donc jamais : tirer un rectangle
+sur le fond ne fabrique **que** du lasso.
+
+> 📌 **J'ai mesuré une collision de FORMES et j'en ai déduit une collision de
+> GESTES, sans vérifier le geste — alors que la réponse était deux paragraphes
+> plus bas, dans ce document.** C'est la même faute que le § 17.6 : *avant
+> d'attacher une décision à un fait, vérifier que le fait existe.*
+
+#### ✅ Ce qui est décidé — et ce qui reste vraiment à distinguer
+
+> **Le lasso est un rectangle à filet POINTILLÉ orange `#F79A28`, 1,5 px, avec un
+> remplissage orange à 8 %.**
+
+La collision de gestes n'existe pas ; **la collision visuelle, elle, existe
+encore** — deux rectangles pointillés peuvent se trouver au même endroit du
+canevas. Elle se résout sur **trois axes, dont aucun n'est le motif** :
+
+| # | ce qui distingue | pourquoi cet axe et pas un autre |
+|---|---|---|
+| **1** | 🔴 **le cadre a DEUX filets, le lasso UN.** Le cadre : filet **plein** dehors + filet **pointillé** en retrait de 8 px. Le lasso : **un seul filet, pointillé**, et rien à l'intérieur | ✅ **c'est le discriminant le plus fort, et le seul qui ne dépende d'aucun choix de l'utilisateur.** Le pointillé du cadre n'est jamais sur son bord — il est *à l'intérieur*, doublé d'un trait plein. Un pointillé **sur le bord** ne peut être qu'un lasso |
+| **2** | **le cadre porte TOUJOURS un bandeau de titre**, plein, 20 px, dès sa création (§ 9.2 : le titre est obligatoire depuis l'option A, et il naît sélectionné pour saisie). **Le lasso n'a jamais de bandeau** | gratuit : le bandeau existe de toute façon, et il occupe le bord haut, là où l'œil arrive |
+| **3** | **l'orange `#F79A28` est réservé au lasso** ; la palette de teintes de cadre proposée à l'utilisateur **n'en propose pas** | ⚠️ **axe le plus faible, et il faut dire pourquoi : la teinte du cadre est CHOISIE par l'utilisateur.** Si rien ne l'en empêche, il prendra un jour un orange proche. C'est donc une contrainte **sur la palette offerte**, pas une propriété du dessin — et elle ne tiendrait pas seule |
+
+⚠️ **L'ordre de ces trois axes n'est pas décoratif** : le premier tient sans
+condition, le deuxième tient tant que le titre reste obligatoire, le troisième ne
+tient que si personne n'élargit la palette. **Quand quelqu'un voudra un jour
+laisser choisir n'importe quelle teinte, c'est le troisième qui tombe — et les
+deux premiers doivent suffire. Ils suffisent.**
+
+📌 **Et le lasso a droit à un signal simple**, pour la raison déjà admise au
+§ 11.4 sur le survol : **il est transitoire et attaché au curseur.** L'utilisateur
+sait ce qu'il fait pendant qu'il le fait ; c'est ce qui **reste** après le
+relâchement qui doit être fort — et ce qui reste, c'est le cadre.
 
 📌 **Le remplissage n'est pas une décoration** : sans lui, un lasso réduit à un
 filet est invisible dès qu'il croise un nœud clair. **Avec lui, la zone prise est
-lisible d'un coup d'œil**, ce qui est exactement l'information cherchée.
+lisible d'un coup d'œil**, ce qui est exactement l'information cherchée. Le cadre
+en a un aussi, à la même opacité — mais il est **teinté**, jamais orange (axe 3).
 
 ### 12.5 Le menu contextuel — ✅ **DÉCIDÉ le 23/08**
 
@@ -1935,7 +2097,7 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | `references/planche_04_etats.svg` | ✅ | tous les états, le tirage, les trois gris, les trois paliers de dézoom |
 | `references/planche_05_matieres.svg` | ✅ | aperçu ON/OFF · texture · sRVB sur Normale · matériau · aperçu périmé · la règle absolue · l'aperçu au dézoom · commentaire · cadre · les deux relais |
 | `references/planche_06_decisions.svg` | ✅ | **les décisions de la nuit du 22 au 23/08**, qui n'existaient nulle part en image : le **fil d'Ariane** (avec le compteur d'instances) · le **fil sélectionné** mesuré, montré à côté d'un fil normal et d'un fil d'exécution · le **nœud indisponible** · le **nœud survolé** · **les TROIS GRIS côte à côte** |
-| `references/planche_07_canevas.svg` | ✅ | **le lasso contre le cadre** (la collision, avant/après) · la recherche sans résultat · la source · le puits · le commentaire au repos et au survol · les trois menus contextuels |
+| `references/planche_07_canevas.svg` | ✅ | **le lasso contre le cadre** — refait le 23/08 : *deux rectangles pointillés au même endroit, et les trois axes qui les distinguent* · la recherche sans résultat · la source · le puits · **le commentaire, VISIBLE par défaut** · les trois menus contextuels |
 | `references/essai_c5.svg` | 🟡 | **banc de mesure, pas une planche** : le même fil à +20/+35/+50 %, avec et sans poignées, sur les sept familles. Il a servi à trancher C5 et il reste consultable |
 | `references/essai_c5b.svg` | 🟡 | **second banc** : cinq fils identiques, un seul éclairci, **poignées hors cadre**. Il a montré que le renfort ne sert pas non plus en comparaison simultanée — et que **le chevron sur le bord**, lui, suffit seul |
 
