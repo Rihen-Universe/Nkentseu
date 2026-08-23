@@ -258,3 +258,12 @@ matcre/chanfrein-sans-perte        ok=1 faces 3 slot4=3 slot0=0 perdus=0 (0 : un
 matcre/chanfrein-trois-segments    ok=1 faces 5 slot5=1 slot3=4 slot0=0 perdus=1 (slot0=0 : pas de couture)
 matcre/chanfrein-longueur-domine   ok=1 faces 3 slot3=1 slot5=2 perdus=1 (slot5=2 : la LONGUEUR gagne, pas l indice)
 matcre/chanfrein-cube-raccords     ok=1 faces 6 -> 26 slot0=0 perdus=28 (slot0=0 ; perdus>0 : les coins arbitrent)
+matmod/temoin-cube-peint           faces=6 chaque slot 1..6 une fois=1 slot0=0
+matmod/miroir                      faces=12 chaque slot x2=1 slot0=0 (slot0=0 : plus rien n est repeint)
+matmod/array                       faces=18 chaque slot x3=1 slot0=0
+matmod/trianguler-eventail         faces=12 chaque slot x2=1 slot0=0
+matmod/trianguler-indexe           faces=12 chaque slot x2=1 slot0=0
+matmod/solidify-bord               faces 16 -> 48 slot0=0 (slot0=0 : la tranche herite, elle ne retombe pas)
+matmod/mask                        faces=1 slot1=1 slot0=0 (slot1=1 : la face gardee garde SA couleur)
+matmod/build-proportion            faces=3 slot0=0 slot1=1 slot2=1 slot3=1
+matmod/vis-bandes                  ok=1 faces=16 slot0=0 slot5=7 slot3=9 perdus=2 (perdus>0 : les bandes arbitrent)

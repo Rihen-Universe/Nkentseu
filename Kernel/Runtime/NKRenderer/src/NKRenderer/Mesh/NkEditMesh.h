@@ -1021,7 +1021,8 @@ namespace nkentseu {
 				// ⚠ LIMITE : l'orientation des faces créées est décidée par un test RADIAL
 				//   (normale sortante par rapport à l'axe), ce qui convient aux profils de
 				//   révolution usuels ; un profil qui croise l'axe peut sortir retourné.
-				bool SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin = NkMat4f::Identity());
+				bool SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin = NkMat4f::Identity(),
+								  uint32 *outMaterialChanged = nullptr);
 
 				// ── DISSOLVE (Ctrl+X) — fusion en n-gon, PAS un trou ────────────────
 				// Principe unique aux trois modes : on marque un ensemble d'arêtes à
