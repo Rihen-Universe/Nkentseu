@@ -174,6 +174,8 @@ def cartouche(x,y,w,lignes,titre=None):
     return s,h
 
 def ecrire(nom,contenu):
+    # ATTENTION : c est ELLE qui ecrit le </svg> final. Un script de planche qui
+    # l ajoute aussi produit un SVG mal forme -- arrive le 23/08 sur p07.
     import io
     # Les demi-caracteres (paires de substitution) ecrits en deux moities dans les
     # scripts de planche sont RECOMBINES ici, pas jetes : les jeter faisait
@@ -201,6 +203,31 @@ def rendre(nom, w, h, mini=80000):
     Ne remplace PAS le coup d'oeil : un PNG de bon poids peut dessiner une
     regle a l'envers. Voir la regle en tete du LISEZMOI.
     """
+
+    # PIEGE 3 -- MESURE le 23/08, et il a produit un PNG PARFAITEMENT CONFORME :
+    # bon poids, bonnes dimensions, et pourtant le rendu d une PAGE D ERREUR du
+    # navigateur (« Extra content at the end of the document »). Un </svg> en
+    # double suffit. Les deux controles precedents ne pouvaient pas le voir : la
+    # page d erreur du navigateur fait exactement la taille demandee.
+    # => valider le XML AVANT d appeler le navigateur. Ne jamais rendre ce qu on
+    #    n a pas valide.
+    import xml.etree.ElementTree as _E
+    _svg = OUT + '/' + nom + '.svg'
+    try:
+        _E.parse(_svg)
+    except Exception as _ex:
+        # ET ON SUPPRIME LE PNG PRECEDENT. Le laisser serait pire que de ne rien
+        # controler : il est VALIDE, PLAUSIBLE et PERIME -- on regarderait une
+        # image d hier en croyant voir le travail d aujourd hui. C est la meme
+        # regle que pour le PNG tronque : un controle qui echoue ne laisse
+        # aucun artefact derriere lui, meme un artefact qu il n a pas produit.
+        _png = OUT + '/' + nom + '.png'
+        _vieux = _os.path.exists(_png)
+        if _vieux:
+            _os.remove(_png)
+        raise SystemExit('SVG MAL FORME, rien n a ete rendu%s : %s.svg -- %s'
+                         % (' (PNG perime supprime)' if _vieux else '', nom, _ex))
+
     import os, subprocess
     svg = os.path.join(OUT, nom + '.svg')
     png = os.path.join(OUT, nom + '.png')
@@ -220,5 +247,32 @@ def rendre(nom, w, h, mini=80000):
         raise IOError(
             'PNG SUSPECT : %d octets (< %d). Edge a probablement capture sa '
             'page d erreur au lieu de la planche. Verifier l URL.' % (taille, mini))
-    print('rendu %s.png (%d octets)' % (nom, taille))
+    # 3. Les DIMENSIONS du PNG sont comparees au viewBox du SVG. Piege
+    #    rencontre le 22/08 : le cartouche d une planche a grandi, le SVG est
+    #    passe a 1735 de haut, et la fenetre de capture valait toujours 1580 --
+    #    le bas etait coupe NET, sans erreur, avec un poids parfaitement
+    #    plausible. Une valeur de fenetre figee dans une note ne protege de
+    #    rien ; seule une comparaison le fait.
+    import re, struct, io
+    tete = io.open(svg, encoding='utf-8').read(400)
+    vb = re.search(r'viewBox="0 0 (\d+) (\d+)"', tete)
+    if vb:
+        attendu = (int(vb.group(1)), int(vb.group(2)))
+        d = open(png, 'rb').read(33)
+        reel = struct.unpack('>II', d[16:24])
+        if reel != attendu:
+            # On SUPPRIME le PNG faux avant de lever. Sinon le controle detecte
+            # -- et laisse quand meme sur le disque un fichier tronque qui a
+            # l air normal. Mesure le 23/08 : un test du garde-fou lui-meme
+            # avait laisse planche_04_etats.png a 1780x1100 pendant une heure.
+            # Un controle qui echoue ne doit pas laisser d artefact derriere lui.
+            os.remove(png)
+            raise IOError(
+                'PNG TRONQUE (et supprime) : %dx%d rendu pour un viewBox de '
+                '%dx%d. Passer --window-size=%d,%d.'
+                % (reel[0], reel[1], attendu[0], attendu[1], attendu[0], attendu[1]))
+        print('rendu %s.png (%d octets, %dx%d = viewBox)'
+              % (nom, taille, reel[0], reel[1]))
+    else:
+        print('rendu %s.png (%d octets, viewBox illisible)' % (nom, taille))
     return png

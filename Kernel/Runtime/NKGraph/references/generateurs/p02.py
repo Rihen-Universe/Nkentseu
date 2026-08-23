@@ -3,7 +3,7 @@ import sys, io
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1720,1330
+W,H=1720,1350
 s=head(W,H,u'Planche 02 \u2014 les types de donn\u00e9e, les tableaux et les dictionnaires',
        u'6 familles de couleur (plancher CIEDE2000 = 11,0 en vision normale, protanopie, deut\u00e9ranopie et tritanopie) \u00b7 le glyphe porte le type exact \u00b7 tableau et dictionnaire sont des FORMES, pas des couleurs')
 
@@ -150,5 +150,9 @@ c,ch=cartouche(1080,1112,610,[
 ],u'Pourquoi ces choix')
 s+=c.replace('Fai)blesse','Faiblesse')
 
-s+=tt(34,1300,u'Fond #121212 \u00b7 corps #212121 \u00b7 contr\u00f4le #2B2B2B (MESUR\u00c9S sur la r\u00e9f\u00e9rence principale) \u00b7 rayon 0 sur le corps, 5 sur l\u2019en-t\u00eate \u00b7 prise au ratio 17:63 \u00b7 grille de points, pas 22 px',TXT3,10)
+s+=tt(34,H-50,u'Fond #121212 \u00b7 corps #212121 \u00b7 contr\u00f4le #2B2B2B (MESUR\u00c9S sur la r\u00e9f\u00e9rence principale) \u00b7 rayon 0 sur le corps, 5 sur l\u2019en-t\u00eate \u00b7 prise au ratio 17:63 \u00b7 grille de points, pas 22 px',TXT3,10)
+# MENTION D’ÉCHELLE : la planche declare elle-meme qu elle ne doit pas
+# etre mesuree. Sans elle, un pixel releve ici deviendrait une valeur.
+s+=tt(34,H-26,u'⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.',TXT3,10)
+
 ecrire('planche_02_types.svg',s)

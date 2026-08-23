@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1780,1400
+W,H=1780,1420
 s=head(W,H,u'Planche 03 \u2014 les quatorze formes de n\u0153ud',
        u'La forme suit la CONNECTIVIT\u00c9, jamais le nom \u2014 c\u2019est pourquoi il y en a quatorze et non cinquante-quatre \u00b7 filet ORANGE = le n\u0153ud ex\u00e9cute \u00b7 filet P\u00c9TROLE = il calcule \u00b7 filet GRIS = on ne sait pas')
 
@@ -180,5 +180,9 @@ c,ch=cartouche(1180,R4-6,560,[
 ],u'Ce qui reste')
 s+=c
 
-s+=tt(34,1370,u'Fond #121212 \u00b7 corps #212121 \u00b7 contr\u00f4le #2B2B2B \u00b7 rayon 0 corps / 5 en-t\u00eate (12 pour un \u00e9v\u00e9nement) \u00b7 prise au ratio 17:63 \u00b7 les couleurs de CAT\u00c9GORIE (en-t\u00eate) restent \u00e0 valider',TXT3,10)
+s+=tt(34,H-50,u'Fond #121212 \u00b7 corps #212121 \u00b7 contr\u00f4le #2B2B2B \u00b7 rayon 0 corps / 5 en-t\u00eate (12 pour un \u00e9v\u00e9nement) \u00b7 prise au ratio 17:63 \u00b7 les couleurs de CAT\u00c9GORIE (en-t\u00eate) restent \u00e0 valider',TXT3,10)
+# MENTION D’ÉCHELLE : la planche declare elle-meme qu elle ne doit pas
+# etre mesuree. Sans elle, un pixel releve ici deviendrait une valeur.
+s+=tt(34,H-26,u'⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.',TXT3,10)
+
 ecrire('planche_03_formes.svg',s)
