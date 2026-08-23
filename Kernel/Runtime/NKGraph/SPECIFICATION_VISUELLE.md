@@ -2077,7 +2077,7 @@ alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat néga
 sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
 qui existe.
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS — **18 restants sur 23**
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **19 restants sur 25**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
@@ -2106,7 +2106,9 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 20 | **qui s'aligne sur qui** : les planches, ou le nœud de référence de Rodolf ? | § 3.1 | résidu de la ligne 18. L'échelle est MESURÉE ; il reste à dire laquelle des deux bouge |
 | 21 | **la PORTÉE du registre de types** : comparer la charge utile, ou remonter le registre au DOCUMENT ? | § 18.5 | 🔴 **décide où VIT le registre** — les quatre types composés en dépendent, et rien ne doit être codé avant |
 | 22 | **le mode ÉTATS** : le cœur refuse tout cycle et un lien ne porte aucune charge utile | § 19.3 | 🔴 **le graphe d'états de NkAnima n'est pas saisissable aujourd'hui** — A ⇄ B est refusé par `WouldCycle`, et une transition doit porter condition, seuil et fondu |
-| 23 | **NKScena** : quel domaine, quel mode ? | § 19.2 | 🔴 **rien n'est écrit nulle part** — un nom cité 8 fois dans les documents des autres, jamais dans un document à elle. Je refuse de deviner |
+| 23 | ~~**NKScena** : quel domaine ?~~ | § 19.6 | ✅ **TRANCHÉ le 23/08 par Rodolf : la mise en scène cinématographique.** Trois applications distinctes, communiquant par fichiers |
+| 24 | **NKScena : est-elle seulement NODALE ?** ligne de temps à pistes, ou quatrième famille « le temps » ? | § 19.6 | 🔴 **ce qui ordonne un séquenceur est une COORDONNÉE, pas un arc** — les trois modes échouent. Proposition : pistes + marqueurs d'événement entrant dans un graphe d'exécution |
+| 25 | **la mise en scène est déjà écrite TROIS FOIS** — sous Noge, sous NkAnima, sous Nogee | § 19.6 | 🔴 **avant de dire ce qu'ouvre NKScena, dire ce qu'on RETIRE aux trois autres**, sinon elle sera écrite quatre fois |
 
 ---
 
@@ -2885,7 +2887,7 @@ erreur coûteuse — un graphe d'états ne « s'exécute » pas de gauche à dro
 |---|---|---|---|---|
 | **NK3DModeler** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
 | **NkAnima** | **FLOT** + **ÉTATS** — les deux, imbriqués | pose d'animation, et machine à états qui la choisit | **AnimGraph** (flot, type *pose*) : `Blend Poses by Bool`, `Layered Blend per Bone`, `State Machine`, `Output Pose` (final, non supprimable) · **sous-graphe d'états** : les états eux-mêmes, `Entry` non supprimable | runtime **livré** (`NkAnimStateMachine`, `NkBlendTree1D/2D`) ; **éditeur = embryon**, AnimGraph = 0 ligne |
-| **NKScena** | 🔴 **indéterminable** | — | — | **rien trouvé** : un nom réservé, cité 8 fois dans les documents des autres, orthographié `NkScena` et `NKScena`. Aucun domaine écrit nulle part |
+| **NKScena** | 🔴 **à trancher — voir § 19.6** | ✅ **la mise en scène cinématographique** (Rodolf, 23/08) : plans, caméras, déclenchements, enchaînements | ce qui existe n'est pas nodal : `NkSequence`, `NkTrack`, `NkCameraShot`, `NkMarker` — des **pistes**, pas des nœuds | `Applications/NKScena/` **n'existe pas**. `NkSequencer.h` = 416 lignes, **0 `.cpp`, 0 consommateur** |
 | **Nogee** | **FLOT** (matériaux) **+ EXÉCUTION** (Blueprint) | ① matériaux → NkSL · ② logique gameplay / ECS · ③ VFX | ① Material Output, non supprimable · ② `EventBeginPlay`, `EventCustom`, `PrintString`, `SwitchInt`, `AddFloat`, `Raycast`, `SpawnActor`, familles *Events · FlowControl · Math · Physics · Structs* · ③ Bruit de Perlin, Courbe, Collision, Force, Attribut de particule | coquille ; **`NkBlueprint.h` porte un vrai interpréteur, ~15 nœuds — et zéro consommateur** |
 | **PV3DE** | **ÉTATS**, s'il en ouvre un un jour | état clinique / émotion | aucun nœud écrit ; ce qui existe est une FSM **codée en dur** — `EmotionState` (9 états), `NkEmotionTransition`, fondu 500 ms | **le plus abouti en code** (8 210 lignes, l'UI médicale s'affiche) ; **aucune trace de graphe nodal**, et PV3DE n'est dans aucune liste de consommateurs de NKGraph |
 
@@ -2950,10 +2952,100 @@ une cible de compilation. Ces planches décrivent donc **ce qu'il faut construir
 pas ce qui existe. C'est légitime pour une étude, mais il ne faut pas le laisser
 croire l'inverse.
 
-**NKScena ne peut pas être spécifiée sans inventer.** Elle apparaît dans les
-documents des autres comme le quatrième éditeur, jamais dans un document à elle.
-La case reste vide **exprès** : la remplir serait deviner, et une case devinée
-dans ce tableau coûterait plus qu'une case vide.
+⚠️ **NKScena : le domaine est désormais connu, le mode ne l'est toujours pas.**
+Rodolf a répondu le 23/08 — c'est l'application de **cinéma**. Mais le domaine ne
+donne pas le mode : ce qui existe en matière de séquencement n'est **pas un
+graphe**, c'est une ligne de temps à **pistes**. Le § 19.6 mesure ce qui existe,
+montre que les trois modes échouent, et **pose la question au lieu d'inventer la
+réponse**.
+
+### 19.6 NKScena — ✅ le domaine est connu, 🔴 le mode ne l'est pas, et je ne l'invente pas
+
+**Rodolf, 23/08 :** *« C'est l'application de cinéma. À la base je voulais que
+NK3DModeler soit une application tout-en-un, mais tu m'as convaincu d'en faire 3
+distinctes : une pour la modélisation et la sculpture, une pour l'animation et
+les VFX, et une dernière pour la mise en scène, avec une communication par
+fichiers d'une application à l'autre. »*
+
+Le domaine est donc **la mise en scène cinématographique** : plans, caméras,
+déclenchements, enchaînements. La case du § 19.2 est remplie. **Celle du MODE ne
+l'est pas**, et ce paragraphe explique pourquoi c'est une question, pas un oubli.
+
+#### Ce qui existe déjà — et ce n'est pas un graphe
+
+| ce qui existe | où | état |
+|---|---|---|
+| `NkSequence`, `NkTrack`, `NkClipOnTrack`, `NkKeyframeSet`, `NkPlaybackCtrl`, `NkNLATrack`, `NkCameraShot`, `NkMarker`, `NkRenderOutput` | `Engine/Noge/src/Noge/Sequencer/NkSequencer.h` (416 lignes) | 🔴 **en-tête seul : 0 `.cpp`, 0 consommateur** |
+| `NkKeyframe<T>`, `NkAnimationTrack<T>`, et un `NkAnimationClip` qui porte **déjà** `cameraPosition / cameraTarget / cameraFOV / cameraDOFFocus`, les pistes de lumière et de post-traitement | `Kernel/Runtime/NKAnimation/` | ✅ **livré et exercé** |
+| une ligne de temps qui **tourne** — playhead, losanges de clés, scrubbing, glisser, annuler/refaire | `NkAnimationEditor.h` + `Applications/NkAnimaEditor/…/Panels.h` | ✅ **le seul widget de ligne de temps écrit du dépôt** |
+| un format de séquence | — | ❌ **aucun.** `.nkanim` est un **clip**, pas une séquence. `NkSequence::SaveToFile/LoadFromFile` sont déclarés **sans corps** |
+
+📌 **Le fait qui commande tout le reste : le modèle de séquencement qui existe
+n'est PAS nodal. Il est en PISTES.** Une piste, un instant, une durée, un
+marqueur. La ligne de temps de NkAnima est en pistes ; le `NkSequencer` est en
+pistes ; les maquettes de Nogee sont en pistes.
+
+#### Pourquoi je ne peux pas ranger NKScena dans les trois modes
+
+Le critère de la planche 08 se vérifie mode par mode, et **les trois échouent** :
+
+| mode | pourquoi ça ne colle pas |
+|---|---|
+| **FLOT** | l'ordre viendrait du tri topologique. Mais rien ne dépend de rien : le plan 2 ne consomme pas la sortie du plan 1, il commence à `t = 72` |
+| **EXÉCUTION** | l'auteur écrirait l'ordre **arc par arc**. Or il ne l'écrit pas : il **pose des choses sur un axe**, et l'ordre se lit sur l'axe. Supprimer l'arc ne changerait rien ; déplacer le clip, si |
+| **ÉTATS** | il n'y a pas d'état courant qui persiste jusqu'à ce qu'une condition bascule : il y a un **temps qui avance tout seul** |
+
+🔴 **Ce qui ordonne un séquenceur, c'est une COORDONNÉE, pas un arc.** C'est une
+différence de nature, et c'est la seule chose dont je sois sûr. Deux lectures
+restent possibles, et **c'est à Rodolf de trancher, pas à moi** :
+
+**① NKScena n'est PAS un éditeur nodal — et alors il n'a rien à faire dans cette
+étude.** Une ligne de temps à pistes est une interface complète et connue ; le
+dépôt en a déjà une qui tourne. Dans cette lecture, la case « mode » du § 19.2
+reste vide **pour toujours**, et c'est la bonne réponse.
+
+**② NKScena est nodal, et c'est une QUATRIÈME famille — le TEMPS.** Un mode où
+un nœud porte un **instant** et une **durée**, où la position sur l'axe *est*
+l'information, et où les arcs (s'il y en a) ne servent qu'à passer des valeurs.
+
+⚠️ **Et il y a un indice sérieux pour la lecture ② — un point de passage déjà
+écrit.** `NkSequencer.h` définit `NkTrackType::Event` et :
+
+```cpp
+struct NkMarker {
+        float32 time = 0.f;
+        enum class Type : uint8 { Scene, Audio, Event, Note };
+        char eventFunction[128] = {};   ///< Type::Event — nom de fonction à appeler
+};
+```
+
+Un marqueur **appelle une fonction à un instant**. C'est très exactement le
+**franchissement** du § 4-5 de la planche 08, dans l'autre sens : la ligne de
+temps ne calcule rien, elle **lance**. La forme la plus probable n'est donc ni
+« un graphe » ni « pas de graphe », mais **une ligne de temps à pistes dont les
+marqueurs d'événement entrent dans un graphe d'EXÉCUTION** — le même mécanisme
+que le blueprint, et donc aucune quatrième famille à inventer.
+
+✅ **C'est ce que je proposerais. Mais c'est une proposition, pas une mesure**, et
+elle attend un oui. La ligne 24 du § 13 la porte.
+
+#### 🔴 Et un fait qu'il faut dire avant tout ça
+
+**Le domaine de NKScena est déjà attribué à trois autres applications**, dans des
+documents écrits :
+
+1. `Engine/Noge/src/Noge/Sequencer/NkSequencer.h` — le séquenceur cinéma complet,
+   **rangé sous Noge** ;
+2. `Applications/NkAnimaEditor/important/interface.md` — un *« Sequenceur de
+   Coupes (Cut Manager) »*, une *« cinématographie virtuelle »*, des transitions
+   `Cut / Fade / Dissolve` — **rangés sous NkAnima** ;
+3. `Applications/Nogee/design/01-specification-humaine.md` — *« Sequencer /
+   Timeline d'animation »*, *« Icône Cinématique (ouvre Sequencer) »*, pistes
+   Caméra et Événement — **rangés sous Nogee**.
+
+**Avant de décider quel mode ouvre NKScena, il faut décider ce qu'on retire aux
+trois autres.** Sinon la mise en scène sera écrite quatre fois — et elle l'est
+déjà trois.
 
 ### 19.5 La question que ce tableau rend décidable
 
@@ -2977,3 +3069,151 @@ pas l'éditeur, qui change ce que le canevas autorise :
 🔴 **Ce tableau des modes est la vraie liste de ce qui manque au cœur** — et les
 trois colonnes se corrigent par le **même** changement : que le lien et le socket
 sachent à quelle famille ils appartiennent.
+
+
+---
+
+## 20. Ce que la PRISE et le LIEN doivent porter — 🟡 **PROPOSÉ**, à l'intention de qui tient `NkNodeGraph`
+
+⚠️ **Ce paragraphe ne code rien et ne doit pas être codé depuis ici.** Il est
+écrit pour l'agent qui tient le graphe de matériaux, parce que `NkNodeGraph` est
+son module. Il dit **ce qu'il faut**, **pourquoi**, et **comment le vérifier** —
+pas comment l'écrire.
+
+**Trois besoins, trois sections, un seul axe.** Le § 18 (types composés), le
+§ 19.3 (mode états) et la planche 08 (exécution) sont arrivés au **même
+manque**, par trois chemins qui ne se connaissaient pas. C'est ce qui rend ce
+chantier sûr : trois mesures indépendantes désignent la même pièce.
+
+### 20.1 ✅ Ce qui existe aujourd'hui — le point de départ, mesuré
+
+```cpp
+struct NkSocket { NkString name; NkTypeId type; NkSocketDir dir; };
+struct NkLink   { NkLinkId id; NkNodeId fromNode; int32 fromSocket;
+                  NkNodeId toNode;   int32 toSocket;   bool alive; };
+```
+
+Trois champs, cinq champs. **Aucun des deux ne sait à quelle famille il
+appartient**, et le mot `exec` n'apparaît nulle part dans `src/NKGraph/`.
+
+### 20.2 🔴 Besoin 1 — LA PRISE DOIT PORTER SA FAMILLE
+
+**Un champ, et il commande quatre comportements.** Proposition :
+
+```cpp
+enum class NkSocketFamily : uint8 { Data = 0, Exec = 1 };
+```
+
+`Data = 0` **exprès** : tout socket existant garde sa signification sans être
+touché, et un fichier ancien se relit inchangé.
+
+Ce que ce champ doit changer, et **rien d'autre** :
+
+| ce qui change | aujourd'hui | ce qu'il faut |
+|---|---|---|
+| **compatibilité** | `Accepts()` compare des `NkTypeId` | comparer **d'abord les familles**, et refuser un croisement par une raison **nommée** — `NkLinkError::FamilyMismatch`. Un fil d'exécution branché sur une prise de donnée doit se refuser **en le disant** |
+| **arité d'une ENTRÉE** | une seule source ; une deuxième **remplace** la première | **Data** : inchangé. **Exec** : **plusieurs sources autorisées** — dix chemins peuvent mener au même nœud |
+| **arité d'une SORTIE** | autant de liens qu'on veut | **Data** : inchangé. **Exec** : **un seul** — une instruction n'a qu'une suite. Le second se refuse par `NkLinkError::ExecOutputAlreadyBound` |
+| **acyclicité** | `WouldCreateCycle` et `TopoSort` voient **tous** les liens | ils ne doivent voir que les liens de **famille Data**. Un cycle d'exécution est légitime ; l'ordre d'exécution est un **chemin parcouru**, pas un tri calculé |
+
+⚠️ **LE PIÈGE À NE PAS PRENDRE, et il ressemble à une bonne idée.** Le registre
+de types est plat et accepte n'importe quel nom : on peut y enregistrer un type
+`"exec"` et brancher exec-sur-exec **dès aujourd'hui**, sans toucher au cœur.
+**Ça marcherait, et c'est exactement ce qui le rend dangereux** —
+`Accepts()` serait content, mais **les quatre lignes du tableau ci-dessus
+resteraient fausses** : l'arité serait celle de la donnée, le cycle serait
+refusé, et rien ne le signalerait. La famille **n'est pas un type**. Un type dit
+*ce qui passe* ; une famille dit *comment ça se branche*.
+
+📌 La réponse existe déjà, écrite dans l'écosystème :
+`Engine/Noge/src/Noge/ECS/VisualScript/NkBlueprint.h` porte
+`enum class NkPinPrimitiveType { Exec, Float, Int, String, Vec3, GameObject }`.
+⚠️ **Mais ce n'est pas la bonne forme** — `Exec` y est mélangé aux types, et
+c'est précisément le piège ci-dessus. La bonne lecture : *le besoin est le même,
+la famille doit être un **axe séparé** du type, et ça se code une fois, dans le
+cœur.* Ce fichier est un en-tête sans `.cpp` ; il doit être réaligné, pas
+recopié.
+
+### 20.3 🔴 Besoin 2 — LE LIEN DOIT POUVOIR ÊTRE QUALIFIÉ
+
+Mesuré au § 19.3 : une transition d'animation porte
+`(paramName, NkCondKind, threshold, fadeDur)`, et l'interface veut en plus **un
+mini-graphe de condition** par flèche. `NkLink` ne porte que ses deux extrémités.
+
+**Ce sont deux besoins distincts, et les confondre coûterait cher :**
+
+| | ce que c'est | ce qu'il faut | déjà représentable ? |
+|---|---|---|---|
+| **la condition** | un calcul booléen | une **référence de sous-graphe** portée par le lien | ✅ **oui, presque** : `NkNode` porte déjà un champ `subgraph` pour `NK_NODE_INSTANCE`. Il faut le même sur le lien |
+| **les réglages de l'arc** (`threshold`, `fadeDur`) | des **valeurs** | un stockage de valeur | ❌ **non** — et c'est **le même manque** que le cas choisi d'une énumération (§ 18.1). Il n'existe **aucune** valeur dans NKGraph, pour rien |
+
+✅ **Donc : un seul mécanisme de valeur sert les deux**, et il ne faut pas en
+écrire deux. Le § 18.5 le disait déjà pour les types ; le voici confirmé depuis
+le mode états, qui ne connaissait pas le § 18.
+
+⚠️ **Ce qu'il ne faut PAS faire : une union typée dans `NkLink`.** Elle
+grossirait à chaque consommateur — l'animation aujourd'hui, le séquenceur
+demain — et chaque ajout casserait le format de fichier. Une **indirection**
+(une référence, un identifiant de valeur) ne grossit pas.
+
+⚠️ **Et il n'existe que TROIS conditions** — `BOOL_TRUE`, `FLOAT_GREATER`,
+`FLOAT_LESS`. Ni égalité, ni intervalle, ni « et », ni « ou ». Dessiner un
+« mini-graphe de condition » promettrait donc **plus que ce que le runtime sait
+évaluer**. Il faut choisir : étendre `NkCondKind`, ou dessiner trois cas et
+l'écrire.
+
+### 20.4 🔴 Besoin 3 — LE LIEN DOIT ADRESSER PAR NOM, ET C'EST UN PRÉALABLE
+
+C'est la mesure du § 18.2, et elle conditionne les deux besoins précédents.
+
+`NkLink` adresse ses extrémités par **INDICE** (`int32 fromSocket / toSocket`),
+et le fichier écrit ces indices tels quels. Or `NkSocket::name` est documenté
+*« CLÉ stable, jamais un libellé »* : **c'est le nom qui est stable, pas
+l'indice.**
+
+Tout ce qui insère ou retire une prise **au milieu** de la liste repointe donc
+**en silence** tous les liens situés après. Et les trois chantiers en cours le
+font tous les trois :
+
+- séparer une structure en sous-prises (§ 18.2) ;
+- ajouter une prise d'exécution à un nœud qui n'en avait pas (§ 20.2) ;
+- une arité variable (`+ ajouter une entrée`, déjà dessinée planche 01).
+
+✅ **À faire en premier, donc** : ré-adresser les liens **par nom de prise**, ou
+interdire explicitement l'insertion ailleurs qu'en fin de liste. La seconde
+option est moins chère et parfaitement acceptable — **mais il faut alors
+l'écrire et la faire respecter**, sinon elle sera violée par le premier
+consommateur qui insère au milieu, et sans aucun message.
+
+### 20.5 Ce qu'il ne faut **PAS** mettre sur la prise ni sur le lien
+
+Une liste courte, mais elle évite trois erreurs classiques :
+
+| ❌ pas dans le modèle | pourquoi | où ça vit |
+|---|---|---|
+| la **position**, la **couleur**, le **libellé affiché** | c'est de la vue. Le même graphe doit se dessiner en clair et en sombre, plié et déplié | le canevas |
+| l'état **sélectionné / survolé / en cours de tirage** | transitoire, jamais sérialisé — sinon deux utilisateurs ouvrant le même fichier héritent de la sélection de l'autre | la session d'édition |
+| la **forme** de la prise (tableau, dictionnaire) | c'est une **conséquence** du type, pas une donnée. Le § 5 l'a tranché : *un tableau n'est pas un type, c'est une FORME* | déduit du type |
+
+### 20.6 ✅ Le critère d'acceptation — quatre contrôles, tous mesurables
+
+**À écrire AVANT le code**, comme celui du regroupement et celui des types
+composés :
+
+1. **arité croisée.** Sur un nœud à une entrée d'exécution et une entrée de
+   donnée : brancher **deux** sources d'exécution → **les deux tiennent** ;
+   brancher deux sources de donnée → la seconde **remplace**. Et symétriquement
+   sur les sorties, avec `ExecOutputAlreadyBound` **nommé** ;
+2. **refus croisé nommé.** Brancher une sortie d'exécution sur une entrée de
+   donnée rend `FamilyMismatch`, **jamais** `TypeMismatch` — le message est ce
+   qui distingue un refus compris d'un refus subi ;
+3. **cycle d'exécution accepté, cycle de donnée refusé.** Un rebouclage
+   d'exécution se **trace** ; le même motif en donnée rend `WouldCycle`. C'est
+   le contrôle qui prouve que `TopoSort` ne regarde plus que la donnée ;
+4. **aller-retour identique.** Écrire → relire → réécrire rend le fichier
+   identique **octet pour octet**, sur un document portant les deux familles,
+   une transition qualifiée et une prise insérée **au milieu** d'une liste.
+
+⚠️ **Le quatrième est celui qui attrape le § 20.4**, et c'est le seul qui le
+puisse : si les liens sont adressés par indice, l'insertion au milieu produira
+un fichier **valide** et **faux**, et seuls les octets le diront.
