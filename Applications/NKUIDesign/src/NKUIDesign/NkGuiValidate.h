@@ -36,6 +36,7 @@
 //                   d'un type que le role n'attend pas             Bloquant
 //   W-ROLE-ALIAS    ancien nom, encore lu, a remplacer             Avertissement
 //   W-ID-DUPLIQUE   deux widgets partagent le meme id (doc 2 §12)  Avertissement
+//   E-EFFET-INCONNU bloc inconnu dans un `appearance` (doc 9 §3.1) Bloquant
 //
 //
 // =============================================================================
@@ -522,6 +523,249 @@ namespace nkuidesign {
 			return (b && b->IsArray()) ? b : nullptr;
 		}
 
+		// =====================================================================
+		//  LE VOCABULAIRE D'APPARENCE -- DOCUMENT 9 §3, ET CE N'EST PAS UN ROLE
+		// =====================================================================
+		//  ⚠️ CE BLOC EST LE CORRECTIF DE TROIS FAUX POSITIFS, ET LE DEFAUT ETAIT
+		//     DANS LA VALIDATION, PAS DANS LE LECTEUR. `appearance`, `fill` et
+		//     `shadow` sont des constructions du document 9 §3 ; la validation les
+		//     traversait comme des roles de widget et rendait `E-ROLE-INCONNU` sur
+		//     chacun. L'aller-retour, lui, etait deja octet pour octet.
+		//
+		//  >>> CE QUE LE FICHIER `limites/01_apparence_faux_positifs.nkgui` A MONTRE,
+		//      ET C'EST PLUS INTERESSANT QUE LE DEFAUT LUI-MEME : `appearance(Hover)`
+		//      -- l'en-tete a parentheses, la LIMITE DECLAREE -- ne produisait AUCUNE
+		//      erreur, parce qu'il reste une tranche verbatim que la validation ne
+		//      regarde pas. **LA PARTIE MODELISEE CRIE, LA PARTIE NON MODELISEE SE
+		//      TAIT.** Une limite qui protege d'un faux positif ne protege de rien :
+		//      elle cache que c'est le faux positif qu'il fallait traiter.
+		//
+		//  ⚠️ CETTE LIMITE N'EST PAS FERMEE ICI, ET C'EST VOULU. `appearance(Hover)`
+		//     reste une tranche brute, donc son contenu reste NON JUGE. La validation
+		//     devient donc ASYMETRIQUE : `appearance { fill { ... } }` est jugee,
+		//     `appearance(Hover) { fill { ... } }` ne l'est pas. C'est un manque
+		//     NOMME, pas un manque decouvert -- et le fermer demande d'abord la liste
+		//     fermee des etats, que le document 9 §3.2 marque explicitement « a
+		//     trancher » et que personne n'a ecrite.
+		//
+		//  ⚠️ LES TYPES NE SONT POSES QUE LA OU LE DOCUMENT LES POSE. Le document 9
+		//     §3.2 n'annote que `offset` (Vec2), `inner` (Bool) et `backdrop` (Bool).
+		//     Le reste est deduit du nom et de l'exemple §3.4 -- sauf `from` et `to`,
+		//     laisses a `a` : un degrade peut aller d'une couleur a une couleur comme
+		//     d'un point a un point, le document ne le dit pas, et **inventer une
+		//     contrainte ici recreerait exactement le faux positif qu'on corrige**.
+
+		/// Les propriedes portees par `appearance` LUI-MEME : celles du document 9
+		/// §3.2 ligne `appearance`, plus la TYPOGRAPHIE, qui s'y pose directement.
+		inline const NkGSchemaProp *NkGApparenceProps(uint32 &count) {
+			static const NkGSchemaProp kProps[] = {
+				{"opacity", 'n'},	 {"radius", 'n'},	  {"blend", 'e'},
+				{"font", 'e'},		 {"weight", 'n'},	  {"size", 'n'},
+				{"lineHeight", 'n'}, {"textAlign", 'e'},
+			};
+			count = 8;
+			return kProps;
+		}
+
+		/// LES QUATRE EFFETS, et la liste est FERMEE (document 9 §3.1 :
+		/// `effect_kind := "fill" | "stroke" | "shadow" | "blur"`). C'est ce qui
+		/// permet de refuser `glow` sans le confondre avec un role de widget.
+		inline const NkGSchemaRole *NkGEffetTable(uint32 &count) {
+			static const NkGSchemaProp pFill[] = {{"color", 'c'}, {"gradient", 'e'},
+												  {"from", 'a'},  {"to", 'a'},
+												  {"angle", 'n'}, {"image", 'e'},
+												  {"fit", 'e'}};
+			static const NkGSchemaProp pStroke[] = {
+				{"color", 'c'}, {"width", 'n'}, {"position", 'e'}, {"dash", 'l'}};
+			static const NkGSchemaProp pShadow[] = {{"offset", 'v'}, {"blur", 'n'},
+													{"spread", 'n'}, {"color", 'c'},
+													{"inner", 'b'}};
+			static const NkGSchemaProp pBlur[] = {{"radius", 'n'}, {"backdrop", 'b'}};
+
+			static const NkGSchemaRole kTable[] = {
+				{"fill", pFill, 7},
+				{"stroke", pStroke, 4},
+				{"shadow", pShadow, 5},
+				{"blur", pBlur, 2},
+			};
+			count = sizeof(kTable) / sizeof(NkGSchemaRole);
+			return kTable;
+		}
+
+		inline const NkGSchemaRole *NkGFindEffet(const NkString &nom) {
+			uint32 n = 0;
+			const NkGSchemaRole *t = NkGEffetTable(n);
+			for (uint32 i = 0; i < n; ++i) {
+				if (nom.Compare(t[i].role) == 0) {
+					return &t[i];
+				}
+			}
+			return nullptr;
+		}
+
+		/// Vrai si ce bloc ouvre une APPARENCE et non un widget. Un seul endroit
+		/// decide, parce que l'aiguillage doit se lire d'un coup d'oeil.
+		inline bool NkGEstApparence(const NkString &nom) {
+			return nom.Compare("appearance") == 0;
+		}
+
+		// =====================================================================
+		//  LES PROPRIETES D'UN BLOC, JUGEES CONTRE UNE TABLE -- UN SEUL ENDROIT
+		// =====================================================================
+		//  ⚠️ CE SERVICE EXISTE PARCE QUE LE FORMAT A **DEUX** VOCABULAIRES, PAS UN.
+		//     Les widgets (document 7 §3) et l'apparence (document 9 §3) sont deux
+		//     domaines distincts, mais la facon de juger une propriete est la meme
+		//     dans les deux : la valeur mal formee d'abord, le nom ensuite, le type
+		//     enfin.
+		//
+		//     Le RECOPIER pour l'apparence aurait ete tomber exactement dans le piege
+		//     que la mutation V6 a deja puni le 2026-08-23 : **un mecanisme present a
+		//     plusieurs endroits doit etre mesure a chacun**, et deux copies se
+		//     desynchronisent en silence. Une seule copie, deux appelants -- et les
+		//     controles 22 et 22c, qui franchissent les DEUX portes du diagnostic de
+		//     propriete, valent desormais pour l'apparence aussi.
+		//
+		//  `universels` vaut nullptr pour l'apparence : `tooltip` et `enabled` sont
+		//  des capacites transversales du WIDGET (document 7 §4), elles n'ont aucun
+		//  sens dans un bloc `fill`. Les admettre partout « pour simplifier » aurait
+		//  rendu la table d'apparence plus permissive que le document.
+		inline void NkGValidateProps(const NkArchive &noeud, const NkString &chemin,
+									 const NkGSchemaProp *props, uint32 count,
+									 const NkGSchemaProp *universels, uint32 un,
+									 const NkString &nomDuRole,
+									 NkVector<nkentseu::NkGuiDiag> &out) {
+			const NkGSchemaProp *uni = universels;
+			const NkVector<nkentseu::NkArchiveEntry> &ents = noeud.Entries();
+			for (uint32 p = 0; p < (uint32)ents.Size(); ++p) {
+				if (NkGuiArchive::IsReservedKey(NkStringView(ents[p].key))) {
+					continue;  // `$type`, `$id`, `$body`, `$layout` : de la syntaxe
+				}
+				const NkString &nom = ents[p].key;
+
+				// ⚠️ UNE VALEUR MAL FORMEE EST JUGEE AVANT TOUTE QUESTION DE
+				//    SCHEMA, ET C'EST UNE MESURE QUI L'A IMPOSE. La premiere
+				//    version cherchait d'abord la propriete dans le schema et
+				//    passait a la suivante si elle n'y etait pas -- si bien que
+				//    `color = #12345` sur un role qui n'a pas de `color` ne
+				//    produisait QUE « propriete hors schema » : la couleur a cinq
+				//    chiffres n'etait plus signalee nulle part. Le controle 3b l'a
+				//    vu, et il avait ete ecrit exactement pour ca.
+				//
+				//    Une valeur qui ne correspond a AUCUNE forme du format est une
+				//    faute LEXICALE. Elle ne depend d'aucun role, donc elle ne doit
+				//    dependre d'aucune recherche de role.
+				if (NkGuiArchive::KindOf(ents[p].node) == NkGuiValueKind::Invalid) {
+					NkString m(chemin);
+					m.Append(" . ");
+					m.Append(nom);
+					m.Append(" : valeur mal formee -- '");
+					m.Append(NkString(ents[p].node.Lexeme()));
+					m.Append("' n'est aucune des formes de valeur du format");
+					NkGPushDiag(out, "E-VALEUR", m, ents[p].node.SourceLine());
+					continue;
+				}
+
+				const NkGSchemaProp *found = nullptr;
+				for (uint32 k = 0; k < count && !found; ++k) {
+					if (nom.Compare(props[k].name) == 0) {
+						found = &props[k];
+					}
+				}
+				for (uint32 k = 0; k < un && !found; ++k) {
+					if (nom.Compare(uni[k].name) == 0) {
+						found = &uni[k];
+					}
+				}
+				if (!found) {
+					NkString m(chemin);
+					m.Append(" . ");
+					m.Append(nom);
+					m.Append(" : propriete absente du schema du role '");
+					m.Append(nomDuRole);
+					m.Append("'");
+					NkGPushDiag(out, "E-TYPE", m, ents[p].node.SourceLine());
+					continue;
+				}
+				if (!NkGValueMatches(ents[p].node, found->kind)) {
+					const NkGuiValueKind k = NkGuiArchive::KindOf(ents[p].node);
+					NkString m(chemin);
+					m.Append(" . ");
+					m.Append(nom);
+					m.Append(" : ");
+					m.Append(NkGKindName(found->kind));
+					m.Append(" attendu, lu ");
+					m.Append(NkGuiArchive::KindName(k));
+					// `E-VALEUR` quand la valeur n'est bien formee pour AUCUN type
+					// -- c'est un des quatre refus qui ont change de domicile ;
+					// `E-TYPE` quand elle est bien formee mais du mauvais type.
+					NkGPushDiag(out, k == NkGuiValueKind::Invalid ? "E-VALEUR" : "E-TYPE", m,
+								ents[p].node.SourceLine());
+				}
+			}
+		}
+
+		/// Valide un bloc `appearance` et les effets qu'il contient.
+		///
+		/// ⚠️ IL NE RAPPELLE PAS `NkGValidateNode`, ET C'EST LA GRAMMAIRE QUI LE DIT :
+		///    `appearance_member := prop_decl | effect_blk` (document 9 §3.1). Un
+		///    widget ne peut pas vivre dans une apparence, un effet ne contient que
+		///    des proprietes. Aiguiller vers la validation de widget « au cas ou »
+		///    aurait rendu `appearance { Button "x" { } }` legal, ce que le document
+		///    ne dit nulle part.
+		inline void NkGValidateApparence(const NkArchive &bloc, const NkString &parent,
+										 nk_int32 ligne, NkVector<nkentseu::NkGuiDiag> &out) {
+			(void)ligne;
+			const NkString chemin = NkGCheminEnfant(parent, bloc);
+
+			uint32 an = 0;
+			const NkGSchemaProp *ap = NkGApparenceProps(an);
+			NkGValidateProps(bloc, chemin, ap, an, nullptr, 0, NkString("appearance"), out);
+
+			const NkArchiveNode *corps = NkGCorps(bloc);
+			if (!corps) {
+				return;
+			}
+			for (uint32 c = 0; c < (uint32)corps->array.Size(); ++c) {
+				if (!corps->array[c].IsObject() || !corps->array[c].object) {
+					continue;  // une tranche brute : passee, comme partout ailleurs
+				}
+				const NkArchive &eff = *corps->array[c].object;
+				const NkString nom(NkGuiArchive::TypeOf(eff));
+				const NkString cheminEff = NkGCheminEnfant(chemin, eff);
+				const NkGSchemaRole *def = NkGFindEffet(nom);
+				if (!def) {
+					// ⚠️ UN CODE A LUI, PAS `E-ROLE-INCONNU`. Dire « role inconnu »
+					//    dans une apparence serait refaire, en plus discret, l'erreur
+					//    qu'on corrige : ce n'est pas le vocabulaire des roles qu'on
+					//    consulte ici, donc ce n'est pas de lui qu'il faut se plaindre.
+					NkString m(cheminEff);
+					m.Append(" : effet inconnu -- '");
+					m.Append(nom);
+					m.Append("' n'est pas un effet d'apparence (document 9 §3.1 : "
+							 "fill, stroke, shadow, blur)");
+					NkGPushDiag(out, "E-EFFET-INCONNU", m, corps->array[c].SourceLine());
+					continue;
+				}
+				NkGValidateProps(eff, cheminEff, def->props, def->count, nullptr, 0, nom, out);
+
+				// Un effet ne contient QUE des proprietes. Un bloc a l'interieur est
+				// une faute, et la taire rendrait `fill { shadow { } }` legal.
+				const NkArchiveNode *dedans = NkGCorps(eff);
+				if (!dedans) {
+					continue;
+				}
+				for (uint32 k = 0; k < (uint32)dedans->array.Size(); ++k) {
+					if (!dedans->array[k].IsObject() || !dedans->array[k].object) {
+						continue;
+					}
+					NkString m(NkGCheminEnfant(cheminEff, *dedans->array[k].object));
+					m.Append(" : un effet d'apparence ne contient que des proprietes "
+							 "(document 9 §3.1)");
+					NkGPushDiag(out, "E-EFFET-INCONNU", m, dedans->array[k].SourceLine());
+				}
+			}
+		}
+
 		/// ⚠️ LA LIGNE D'UN BLOC VIT SUR LE NOEUD QUI LE PORTE, pas dans l'archive
 		///    du bloc. Un bloc est un element du `$body` de son parent : c'est cet
 		///    element qui a une trivia, donc une ligne. L'archive interieure, elle,
@@ -560,73 +804,8 @@ namespace nkuidesign {
 			if (def) {
 				uint32 un = 0;
 				const NkGSchemaProp *uni = NkGUniversalProps(un);
-				const NkVector<nkentseu::NkArchiveEntry> &ents = noeud.Entries();
-				for (uint32 p = 0; p < (uint32)ents.Size(); ++p) {
-					if (NkGuiArchive::IsReservedKey(NkStringView(ents[p].key))) {
-						continue;  // `$type`, `$id`, `$body`, `$layout` : de la syntaxe
-					}
-					const NkString &nom = ents[p].key;
-
-					// ⚠️ UNE VALEUR MAL FORMEE EST JUGEE AVANT TOUTE QUESTION DE
-					//    SCHEMA, ET C'EST UNE MESURE QUI L'A IMPOSE. La premiere
-					//    version cherchait d'abord la propriete dans le schema et
-					//    passait a la suivante si elle n'y etait pas -- si bien que
-					//    `color = #12345` sur un role qui n'a pas de `color` ne
-					//    produisait QUE « propriete hors schema » : la couleur a cinq
-					//    chiffres n'etait plus signalee nulle part. Le controle 3b l'a
-					//    vu, et il avait ete ecrit exactement pour ca.
-					//
-					//    Une valeur qui ne correspond a AUCUNE forme du format est une
-					//    faute LEXICALE. Elle ne depend d'aucun role, donc elle ne doit
-					//    dependre d'aucune recherche de role.
-					if (NkGuiArchive::KindOf(ents[p].node) == NkGuiValueKind::Invalid) {
-						NkString m(chemin);
-						m.Append(" . ");
-						m.Append(nom);
-						m.Append(" : valeur mal formee -- '");
-						m.Append(NkString(ents[p].node.Lexeme()));
-						m.Append("' n'est aucune des formes de valeur du format");
-						NkGPushDiag(out, "E-VALEUR", m, ents[p].node.SourceLine());
-						continue;
-					}
-
-					const NkGSchemaProp *found = nullptr;
-					for (uint32 k = 0; k < def->count && !found; ++k) {
-						if (nom.Compare(def->props[k].name) == 0) {
-							found = &def->props[k];
-						}
-					}
-					for (uint32 k = 0; k < un && !found; ++k) {
-						if (nom.Compare(uni[k].name) == 0) {
-							found = &uni[k];
-						}
-					}
-					if (!found) {
-						NkString m(chemin);
-						m.Append(" . ");
-						m.Append(nom);
-						m.Append(" : propriete absente du schema du role '");
-						m.Append(def->role);
-						m.Append("'");
-						NkGPushDiag(out, "E-TYPE", m, ents[p].node.SourceLine());
-						continue;
-					}
-					if (!NkGValueMatches(ents[p].node, found->kind)) {
-						const NkGuiValueKind k = NkGuiArchive::KindOf(ents[p].node);
-						NkString m(chemin);
-						m.Append(" . ");
-						m.Append(nom);
-						m.Append(" : ");
-						m.Append(NkGKindName(found->kind));
-						m.Append(" attendu, lu ");
-						m.Append(NkGuiArchive::KindName(k));
-						// `E-VALEUR` quand la valeur n'est bien formee pour AUCUN type
-						// -- c'est un des quatre refus qui ont change de domicile ;
-						// `E-TYPE` quand elle est bien formee mais du mauvais type.
-						NkGPushDiag(out, k == NkGuiValueKind::Invalid ? "E-VALEUR" : "E-TYPE", m,
-									ents[p].node.SourceLine());
-					}
-				}
+				NkGValidateProps(noeud, chemin, def->props, def->count, uni, un,
+								 NkString(def->role), out);
 			}
 
 			// Les enfants. Une TRANCHE BRUTE (element scalaire du corps) n'est pas
@@ -636,10 +815,20 @@ namespace nkuidesign {
 				return;
 			}
 			for (uint32 c = 0; c < (uint32)corps->array.Size(); ++c) {
-				if (corps->array[c].IsObject() && corps->array[c].object) {
-					NkGValidateNode(*corps->array[c].object, chemin,
-									corps->array[c].SourceLine(), out);
+				if (!corps->array[c].IsObject() || !corps->array[c].object) {
+					continue;
 				}
+				const NkArchive &enfant = *corps->array[c].object;
+				// ⚠️ `appearance` N'EST PAS UN ROLE, C'EST UN MEMBRE DU NOEUD
+				//    (document 9 §3.1). Sans cet aiguillage, il partait dans la
+				//    validation de widget et en ressortait avec `E-ROLE-INCONNU`,
+				//    lui et chacun de ses effets -- trois faux positifs sur un
+				//    fichier parfaitement legal.
+				if (NkGEstApparence(NkString(NkGuiArchive::TypeOf(enfant)))) {
+					NkGValidateApparence(enfant, chemin, corps->array[c].SourceLine(), out);
+					continue;
+				}
+				NkGValidateNode(enfant, chemin, corps->array[c].SourceLine(), out);
 			}
 		}
 
