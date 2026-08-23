@@ -411,6 +411,102 @@ def etats_inventaire():
     return etats
 
 
+# ----------------------------------------------------------------------
+# C. UN GENERATEUR ECRIT-IL UN SVG AUTREMENT QUE PAR ecrire() ?
+# ----------------------------------------------------------------------
+# POURQUOI CE CONTROLE EXISTE : c'est une prediction qu'on refuse de laisser
+# se verifier.
+#
+# p01.py ecrivait son fichier elle-meme. Le 23/08 elle a rate DEUX
+# ameliorations du chemin commun, a quelques heures d'intervalle :
+#   - la pose de font-family sur chaque <text> : 0 sur 192, quand les sept
+#     autres planches etaient a 100 % ;
+#   - le rangement en groupes nommes : 0 groupe, quand les sept autres en
+#     avaient 68.
+# Les deux fois, le defaut n'a ete vu que parce que quelqu'un REGARDAIT le
+# resultat. La troisieme fois, personne ne regarderait.
+#
+# Ce n'est pas « un fichier est en retard d'une amelioration », c'est « un
+# fichier sera en retard de TOUTES les ameliorations a venir », et chacune
+# coutera une decouverte. Le prix de la correction est fixe ; celui de
+# l'inaction s'accumule.
+#
+# ⚠️ CE QU'IL NE VERIFIE PAS : que ecrire() fasse la bonne chose. Il verifie
+# qu'on PASSE PAR ELLE. C'est un controle de CHEMIN, pas de resultat -- les
+# sections A et B s'occupent du resultat.
+
+# Les essais ne sont PAS des planches : ce sont des bacs a sable qui mesurent
+# un seuil et l'ecrivent en toutes lettres (« PLANCHE D'ESSAI -- elle sert a
+# MESURER un seuil, pas a figer un dessin »). Ils n'importent meme pas gen.
+# On les exempte -- mais NOMMEMENT, et en le disant a chaque passage : une
+# exemption silencieuse est exactement le defaut que cette section combat.
+EXEMPTES = ('essai_c5.py', 'essai_c5b.py')
+
+RE_OPEN = re.compile(r'(?:io\.)?open\s*\(([^)]*)\)')
+RE_MODE_ECRITURE = re.compile(r'''['"](?:w|wb|a|ab|w\+|r\+)['"]''')
+
+
+def ouverture_en_ecriture(ligne):
+    """Rend les arguments de la premiere ouverture EN ECRITURE de la ligne."""
+    for m in RE_OPEN.finditer(ligne):
+        if RE_MODE_ECRITURE.search(m.group(1)):
+            return m.group(1)
+    return None
+
+
+def controle_c():
+    print(u'\n=== C. un generateur ecrit-il un SVG autrement que par ecrire() ? ===')
+    dur = 0
+    for f in sorted(os.listdir(GENS)):
+        if not f.startswith('p') or not f.endswith('.py'):
+            continue
+        src = io.open(os.path.join(GENS, f), encoding='utf-8').read()
+        if 'ecrire(' not in src:
+            dur += 1
+            print(u'  \U0001F534 %s N APPELLE PAS ecrire() : il ecrit son SVG a la'
+                  u' main, et ratera la prochaine amelioration EN SILENCE' % f)
+        else:
+            print(u'  ✅ %s passe par ecrire()' % f)
+        for i, l in enumerate(src.split('\n'), 1):
+            args = ouverture_en_ecriture(l)
+            # EMPREINTES est le garde-fou anti-ecrasement, pas un SVG.
+            if args is None or 'EMPREINTES' in args:
+                continue
+            dur += 1
+            print(u'  \U0001F534 %s:%d ouvre un fichier EN ECRITURE hors de '
+                  u'ecrire() : %s' % (f, i, args.strip()))
+
+    # gen.py : l'ecriture n'y est permise QUE dans le corps de ecrire().
+    lignes = io.open(os.path.join(GENS, 'gen.py'),
+                     encoding='utf-8').read().split('\n')
+    debut = next((i for i, l in enumerate(lignes)
+                  if l.startswith('def ecrire(')), None)
+    if debut is None:
+        print(u'  \U0001F534 gen.py ne definit plus ecrire() -- ce controle ne '
+              u'peut plus rien dire, et il le DIT plutot que de rendre un vert.')
+        return dur + 1
+    fin = next((i for i in range(debut + 1, len(lignes))
+                if lignes[i].startswith('def ')), len(lignes))
+    for i, l in enumerate(lignes):
+        args = ouverture_en_ecriture(l)
+        if args is None or 'EMPREINTES' in args:
+            continue
+        if debut <= i < fin:
+            continue
+        dur += 1
+        print(u'  \U0001F534 gen.py:%d ecrit hors de ecrire() : %s'
+              % (i + 1, args.strip()))
+
+    for f in EXEMPTES:
+        if os.path.exists(os.path.join(GENS, f)):
+            print(u'  [exempte, et on le dit] %s : bac a sable de mesure, pas '
+                  u'une planche. S il devient une planche, il devra passer par '
+                  u'ecrire().' % f)
+    if not dur:
+        print(u'  ✅ les huit planches passent toutes par le chemin commun.')
+    return dur
+
+
 def controle_b():
     print('\n=== B. une planche dit-elle « pas tranche » de ce qui est tranche ? ===')
     recap = etats_recap()
@@ -495,7 +591,7 @@ def main():
         if f.startswith('planche_') and f.endswith('.svg'))
     if not planches:
         raise SystemExit('REFUS : aucune planche trouvee dans ' + REFS)
-    dur = controle_a(planches, mes) + controle_b()
+    dur = controle_a(planches, mes) + controle_b() + controle_c()
     print('')
     if dur:
         print('%d defaut(s). Code de retour 1.' % dur)
