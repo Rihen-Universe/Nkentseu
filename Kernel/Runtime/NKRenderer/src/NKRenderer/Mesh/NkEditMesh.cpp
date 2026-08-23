@@ -202,8 +202,16 @@ namespace nkentseu {
 		// ON RETIENT LA COULEUR — c'est ce que la justification decrit, c'est ce que
 		// l'utilisateur voit, et c'est le sur-ensemble : sur deux faces le resultat
 		// est identique a l'autre lecture. Ecart signale a l'arbitre.
-		static uint16 EM_MaterialDominant(const uint16 *mats, const float32 *aires, uint32 n) {
-			if (n == 0 || !mats || !aires)
+		// ⚠ LE POIDS N'EST PAS TOUJOURS UNE AIRE, et c'est voulu. Aux sites de FUSION
+		// (Quadify, Dissolve) le contributeur est une face absorbee et son poids est son
+		// AIRE. Aux sites de CREATION (chanfrein, extrusion d'aretes) le contributeur
+		// est une face VOISINE, qui n'est pas absorbee du tout — son poids est la
+		// LONGUEUR DE CONTOUR qu'elle partage avec la face creee.
+		// Les deux cas sont la meme phrase : « dominance par une mesure, egalite par
+		// l'indice le plus bas ». Les separer en deux fonctions aurait fait diverger
+		// deux enonces identiques — la faute qu'on a deja payee trois fois ici.
+		static uint16 EM_MaterialDominant(const uint16 *mats, const float32 *poids, uint32 n) {
+			if (n == 0 || !mats || !poids)
 				return 0;
 			NkVector<uint16> ids;
 			NkVector<float32> tot;
@@ -217,9 +225,9 @@ namespace nkentseu {
 					}
 				if (!trouve) {
 					ids.PushBack(mats[i]);
-					tot.PushBack(aires[i]);
+					tot.PushBack(poids[i]);
 				} else
-					tot[k] += aires[i];
+					tot[k] += poids[i];
 			}
 			uint16 best = ids[0];
 			float32 bestA = tot[0];
@@ -268,6 +276,23 @@ namespace nkentseu {
 				if (mats[i] != retenu)
 					++k;
 			return k;
+		}
+
+		// ATTRIBUT D'UNE FACE CREEE (sans mere) : elle herite de ses faces VOISINES.
+		// `poids[i]` = longueur de contour que la face creee partage avec la voisine i.
+		// Accumule dans `outLost` le nombre de voisines dont le materiau n'a pas ete
+		// retenu — la perte, comptee et non supposee. Le compteur est ACCUMULATIF :
+		// une operation cree plusieurs faces, et c'est leur total qui interesse.
+		static NkEditMesh::FaceAttrib EM_AttribFromNeighbours(const uint16 *mats, const uint8 *smooths,
+															  const float32 *poids, uint32 n, uint32 *outLost) {
+			NkEditMesh::FaceAttrib a;
+			if (n == 0)
+				return a; // aucune voisine : slot 0 et FLAT, faute de mieux — et rien de perdu
+			a.material = EM_MaterialDominant(mats, poids, n);
+			a.smooth = EM_SmoothMerged(smooths, n);
+			if (outLost)
+				*outLost += EM_MaterialLost(mats, n, a.material);
+			return a;
 		}
 
 		uint32 NkEditMesh::Quadify(float32 coplanarDot) {
@@ -1709,7 +1734,9 @@ namespace nkentseu {
 		// engendre une NOUVELLE arête (sommets dupliqués, partagés entre arêtes voisines) et
 		// une FACE quad reliante (a,b,b',a'). Sélection = les nouveaux sommets. Offset 0 par
 		// défaut (comportement Blender : le quad est plat tant que l'utilisateur n'a pas bougé).
-		bool NkEditMesh::ExtrudeSelectedEdges(const NkExtrudeParams &p) {
+		bool NkEditMesh::ExtrudeSelectedEdges(const NkExtrudeParams &p, uint32 *outMaterialChanged) {
+			if (outMaterialChanged)
+				*outMaterialChanged = 0;
 			NkVector<uint32> pairs;
 			GetUniqueEdges(pairs);
 			NkVector<uint32> selA, selB;
@@ -1726,7 +1753,39 @@ namespace nkentseu {
 				return false;
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			ToPolygons(pv, fs, fv);
+			// ATTRIBUTS PAR FACE : les faces EXISTANTES gardent les leurs. Sans ce
+			// `&fa`, cette operation les remettait toutes a zero — une extrusion
+			// d'arete repeignait le maillage entier en slot 0 et le rendait FLAT.
+			NkVector<NkEditMesh::FaceAttrib> fa;
+			ToPolygons(pv, fs, fv, &fa);
+			const uint32 faceCountAvant = (fs.Size() > 0) ? (uint32)fs.Size() - 1u : 0u;
+			// Faces incidentes a chaque arete (par INDICE de sommet, comme selA/selB).
+			// Construit en UNE passe sur les faces emises par ToPolygons : c'est la
+			// meme numerotation que `fa`, donc aucun decalage possible.
+			NkHashMap<uint64, uint64> edgeFaces; // cle arete -> (f0+1) | ((f1+1) << 32)
+			{
+				auto ek = [](uint32 a, uint32 b) -> uint64 {
+					const uint32 lo = (a < b) ? a : b, hi = (a < b) ? b : a;
+					return ((uint64)lo << 32) | (uint64)hi;
+				};
+				for (uint32 f = 0; f < faceCountAvant; ++f) {
+					const uint32 s0 = fs[f], e0 = fs[f + 1u], n0 = e0 - s0;
+					if (n0 < 2u)
+						continue;
+					for (uint32 k = 0; k < n0; ++k) {
+						const uint32 a = fv[s0 + k], b = fv[s0 + ((k + 1u) % n0)];
+						if (a == b)
+							continue;
+						const uint64 key = ek(a, b);
+						uint64 *q = edgeFaces.Find(key);
+						const uint64 tag = (uint64)(f + 1u);
+						if (!q)
+							edgeFaces.InsertOrAssign(key, tag);
+						else if ((*q & 0xFFFFFFFFull) != tag && (*q >> 32) == 0ull)
+							edgeFaces.InsertOrAssign(key, *q | (tag << 32));
+					}
+				}
+			}
 			const uint32 baseVerts = (uint32)pv.Size();
 			const float32 off = (p.offset > 0.f) ? p.offset : 0.f;
 			NkVector<int32> dup; // sommet d'origine -> son duplicata (partagé)
@@ -1748,6 +1807,7 @@ namespace nkentseu {
 				dup[v] = (int32)id;
 				return id;
 			};
+			uint32 perdus = 0;
 			for (uint32 k = 0; k < (uint32)selA.Size(); k++) {
 				const uint32 a = selA[k], b = selB[k];
 				const uint32 na = dupOf(a), nb = dupOf(b);
@@ -1756,9 +1816,46 @@ namespace nkentseu {
 				fv.PushBack(nb);
 				fv.PushBack(na);
 				fs.PushBack((uint32)fv.Size());
+				// LE QUAD CREE N'A PAS DE MERE : il herite de ses VOISINES, celles qui
+				// touchent l'arete (a,b). Poids = longueur de contour partage — ici la
+				// meme pour les deux, puisque c'est le MEME segment. L'egalite tranche
+				// donc toujours, par l'indice le plus bas ; on passe quand meme par la
+				// regle commune plutot que d'ecrire « prends le plus petit index », qui
+				// serait un second enonce a maintenir.
+				{
+					const uint32 lo = (a < b) ? a : b, hi = (a < b) ? b : a;
+					const uint64 key = ((uint64)lo << 32) | (uint64)hi;
+					uint64 *q = edgeFaces.Find(key);
+					uint16 mats[2];
+					uint8 sms[2];
+					float32 poids[2];
+					uint32 nn = 0;
+					const float32 lg = (pv[a].pos - pv[b].pos).Len();
+					if (q) {
+						const uint32 f0 = (uint32)((*q) & 0xFFFFFFFFull);
+						const uint32 f1 = (uint32)((*q) >> 32);
+						if (f0 > 0u && (f0 - 1u) < (uint32)fa.Size()) {
+							mats[nn] = fa[f0 - 1u].material;
+							sms[nn] = fa[f0 - 1u].smooth;
+							poids[nn] = lg;
+							++nn;
+						}
+						if (f1 > 0u && (f1 - 1u) < (uint32)fa.Size()) {
+							mats[nn] = fa[f1 - 1u].material;
+							sms[nn] = fa[f1 - 1u].smooth;
+							poids[nn] = lg;
+							++nn;
+						}
+					}
+					fa.PushBack(EM_AttribFromNeighbours(mats, sms, poids, nn, &perdus));
+				}
 			}
-			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1, fv.Data());
+			const uint32 nfc = (uint32)fs.Size() - 1u;
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), nfc, fv.Data(),
+							  (fa.Size() == nfc) ? fa.Data() : nullptr);
 			ApplyVertSel(vsel);
+			if (outMaterialChanged)
+				*outMaterialChanged = perdus;
 			return true;
 		}
 
@@ -3299,17 +3396,24 @@ namespace nkentseu {
 		// sélectionnés touchés » : chaque face incidente gagne un point, l'anneau devient
 		// la petite face de coin.
 		// =====================================================================
-		bool NkEditMesh::BevelSelected(const NkBevelParams &p) {
+		bool NkEditMesh::BevelSelected(const NkBevelParams &p, uint32 *outMaterialChanged) {
+			if (outMaterialChanged)
+				*outMaterialChanged = 0;
 			NkVector<NkVertex3D> wv;
 			NkVector<uint32> wfs, wfv;
 			NkVector<uint8> wsel;
 			NkVector<uint32> wmap;
-			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap);
+			// Les attributs par face voyagent jusqu'au maillage soude : c'est LUI qui
+			// porte l'adjacence dont les faces creees vont heriter.
+			NkVector<NkEditMesh::FaceAttrib> wfa;
+			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap, &wfa);
 			const uint32 wfc = (wfs.Size() > 0) ? (uint32)wfs.Size() - 1 : 0;
 			if (wfc == 0)
 				return false;
 			NkEditMesh W;
-			W.BuildFromPolygons(wv.Data(), (uint32)wv.Size(), wfs.Data(), wfc, wfv.Data());
+			W.BuildFromPolygons(wv.Data(), (uint32)wv.Size(), wfs.Data(), wfc, wfv.Data(),
+								(wfa.Size() == wfc) ? wfa.Data() : nullptr);
+			uint32 perdus = 0;
 			const uint32 NV = W.VertCount();
 			for (uint32 i = 0; i < NV && i < (uint32)wsel.Size(); ++i)
 				W.verts[i].sel = wsel[i];
@@ -3534,13 +3638,18 @@ namespace nkentseu {
 
 			// ── Faces de sortie ──────────────────────────────────────────────
 			NkVector<uint32> nfs, nfv;
+			// UNE entree d'attribut par face EMISE. Poussee dans `endFace`, sous la
+			// meme condition d'acceptation que `nfs` : une face refusee (anneau
+			// degenere) ne doit pas laisser d'attribut orphelin derriere elle, sinon
+			// TOUTES les faces suivantes changent de couleur en silence.
+			NkVector<NkEditMesh::FaceAttrib> nfa;
 			nfs.PushBack(0);
 			auto pushCorner = [&](uint32 st, uint32 id) {
 				if ((uint32)nfv.Size() > st && nfv[(uint32)nfv.Size() - 1] == id)
 					return; // doublon consécutif
 				nfv.PushBack(id);
 			};
-			auto endFace = [&](uint32 st, uint32 minN) -> bool {
+			auto endFace = [&](uint32 st, uint32 minN, const NkEditMesh::FaceAttrib &at) -> bool {
 				while ((uint32)nfv.Size() > st + 1u && nfv[(uint32)nfv.Size() - 1] == nfv[st])
 					nfv.Resize((uint32)nfv.Size() - 1);
 				if ((uint32)nfv.Size() - st < minN) {
@@ -3548,7 +3657,18 @@ namespace nkentseu {
 					return false;
 				}
 				nfs.PushBack((uint32)nfv.Size());
+				nfa.PushBack(at);
 				return true;
+			};
+			// Attribut d'une face incidente de `W`, sous une forme directement
+			// utilisable par la regle d'heritage.
+			auto attribDe = [&](NkEmId f) -> NkEditMesh::FaceAttrib {
+				NkEditMesh::FaceAttrib a;
+				if (f != NK_EM_INVALID && f < (NkEmId)W.faces.Size() && W.faces[f].alive) {
+					a.material = W.faces[f].material;
+					a.smooth = W.faces[f].smooth;
+				}
+				return a;
 			};
 			// (a) faces d'origine, coins remplacés
 			for (uint32 f = 0; f < (uint32)W.faces.Size(); ++f) {
@@ -3564,7 +3684,9 @@ namespace nkentseu {
 					pushCorner(st, ptNext[h]);
 					h = W.hedges[h].next;
 				} while (h != s && h != NK_EM_INVALID && ++g < 100000u);
-				endFace(st, minN);
+				// (a) CETTE FACE A UNE MERE : c'est la face d'origine elle-meme, dont on
+				// n'a remplace que les coins. Aucune regle a arbitrer, aucune perte.
+				endFace(st, minN, attribDe((NkEmId)f));
 			}
 			// (b) BANDES de chanfrein (une par arête chanfreinée, `seg` quads chacune)
 			NkVector<uint32> A, B;
@@ -3594,13 +3716,34 @@ namespace nkentseu {
 				B.PushBack(ptPrev[rotB]);
 				if ((int32)A.Size() != seg + 1 || (int32)B.Size() != seg + 1)
 					continue;
+				// (b) LA BANDE N'A PAS DE MERE. Ses deux voisines sont les faces de part
+				// et d'autre de l'arete chanfreinee ; le poids de chacune est la longueur
+				// du contour partage LE LONG de cette arete — cote face(h) entre A[0] et
+				// B[seg], cote face(tw) entre A[seg] et B[0]. Les deux different des que
+				// les reculs des deux cotes different, ce qui est le cas general.
+				//
+				// ⚠ UN SEUL ATTRIBUT POUR TOUTE LA BANDE, calcule ici et non par quad :
+				// seuls le premier et le dernier quad touchent une voisine, ceux du
+				// milieu ne touchent que l'arc. Leur donner un attribut « propre »
+				// ferait apparaitre une couture de couleur au milieu d'un chanfrein,
+				// la ou la geometrie est continue.
+				NkEditMesh::FaceAttrib atBande;
+				{
+					const uint16 mats[2] = {W.faces[W.hedges[h].face].material,
+											W.faces[W.hedges[tw].face].material};
+					const uint8 sms[2] = {W.faces[W.hedges[h].face].smooth,
+										  W.faces[W.hedges[tw].face].smooth};
+					const float32 poids[2] = {(np[A[0]].pos - np[B[(uint32)seg]].pos).Len(),
+											  (np[A[(uint32)seg]].pos - np[B[0]].pos).Len()};
+					atBande = EM_AttribFromNeighbours(mats, sms, poids, 2u, &perdus);
+				}
 				for (int32 j = 0; j < seg; ++j) {
 					const uint32 st = (uint32)nfv.Size();
 					pushCorner(st, B[(uint32)(seg - j)]);
 					pushCorner(st, A[(uint32)j]);
 					pushCorner(st, A[(uint32)(j + 1)]);
 					pushCorner(st, B[(uint32)(seg - j - 1)]);
-					endFace(st, 3u);
+					endFace(st, 3u, atBande);
 				}
 			}
 			// (c) faces de RACCORD aux sommets (anneau des points autour du sommet, parcouru
@@ -3610,6 +3753,16 @@ namespace nkentseu {
 				if (!touched[v] || W.verts[v].hedge == NK_EM_INVALID)
 					continue;
 				ring.Clear();
+				// (c) LA FACE DE RACCORD N'A PAS DE MERE NON PLUS. Ses voisines sont
+				// TOUTES les faces incidentes au sommet, et le poids de chacune est la
+				// longueur du morceau d'anneau pose sur elle : le segment ptPrev[h] ->
+				// ptNext[h] de la demi-arete qui lui appartient.
+				// Collecte faite DANS le meme tour que l'anneau, sous les memes sorties
+				// (`open`) : un second parcours pourrait s'arreter ailleurs et ponderer
+				// des faces qui ne sont pas celles de l'anneau retenu.
+				NkVector<uint16> cmats;
+				NkVector<uint8> csms;
+				NkVector<float32> cpoids;
 				bool open = false;
 				const NkEmId h0 = W.verts[v].hedge;
 				NkEmId h = h0;
@@ -3617,6 +3770,20 @@ namespace nkentseu {
 				do {
 					ring.PushBack(ptPrev[h]);
 					ring.PushBack(ptNext[h]);
+					{
+						const NkEmId fh = W.hedges[h].face;
+						if (fh != NK_EM_INVALID && fh < (NkEmId)W.faces.Size() && W.faces[fh].alive) {
+							cmats.PushBack(W.faces[fh].material);
+							csms.PushBack(W.faces[fh].smooth);
+							// ⚠ VAUT ZERO quand les deux aretes du coin sont chanfreinees
+							// (ptPrev == ptNext, le recul est un point unique). Toutes les
+							// ponderations sont alors nulles et l'indice le plus bas
+							// tranche — c'est la clause d'egalite de la regle, pas une
+							// exception : le cas est frequent (chanfreiner TOUTES les
+							// aretes d'un cube le produit a chaque coin).
+							cpoids.PushBack((np[ptPrev[h]].pos - np[ptNext[h]].pos).Len());
+						}
+					}
 					if (arcBase[h] >= 0)
 						for (int32 j = 0; j < seg - 1; ++j)
 							ring.PushBack(arcData[(uint32)arcBase[h] + (uint32)j]);
@@ -3646,11 +3813,18 @@ namespace nkentseu {
 				const uint32 rn = (uint32)rr.Size();
 				if (rn < 3u)
 					continue; // anneau dégénéré -> le coin est déjà fermé par les faces voisines
+				// UN SEUL attribut pour tout le raccord, eventail compris : un coin de
+				// chanfrein est UNE surface, comme la bande. Les triangles de l'eventail
+				// ne sont qu'une triangulation, pas des faces distinctes pour l'oeil.
+				const NkEditMesh::FaceAttrib atCoin =
+					EM_AttribFromNeighbours(cmats.Data(), csms.Data(), cpoids.Data(), (uint32)cmats.Size(),
+											&perdus);
 				if (rn <= 4u) {
 					const uint32 st = (uint32)nfv.Size();
 					for (uint32 k = 0; k < rn; ++k)
 						nfv.PushBack(rr[k]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfa.PushBack(atCoin);
 					continue;
 				}
 				// COIN ARRONDI (bevel à plusieurs segments) : l'anneau est très NON PLAN.
@@ -3691,14 +3865,19 @@ namespace nkentseu {
 						nfv.PushBack(rr[k]);
 						nfv.PushBack(rr[(k + 1u) % rn]);
 						nfs.PushBack((uint32)nfv.Size());
+						nfa.PushBack(atCoin);
 					}
 				}
 			}
 
 			if (nfs.Size() < 2u || np.Empty())
 				return false;
-			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			const uint32 nfc = (uint32)nfs.Size() - 1u;
+			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), nfc, nfv.Data(),
+							  (nfa.Size() == nfc) ? nfa.Data() : nullptr);
 			ApplyVertSel(nsel);
+			if (outMaterialChanged)
+				*outMaterialChanged = perdus;
 			return true;
 		}
 
