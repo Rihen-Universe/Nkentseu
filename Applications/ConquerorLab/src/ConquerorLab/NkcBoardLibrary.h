@@ -44,6 +44,8 @@
 #include "NKSerialization/JSON/NkJSONReader.h"
 #include "NKSerialization/NkArchive.h"
 
+#include <cstdio>
+
 namespace nkentseu {
 	namespace conqueror {
 
@@ -154,8 +156,10 @@ namespace nkentseu {
 				/// journaliser ici ne noie rien.
 				void Refresh() noexcept {
 					mFiles.Clear();
+					mMsg.Clear();
 					if (mDir.Empty()) {
 						logger.Warnf("[lab] grilles de travail : aucun dossier defini");
+						mMsg = "Aucun dossier de grilles defini.";
 						return;
 					}
 					NkVector<NkString> paths = NkDirectory::GetFiles(mDir.CStr(), "*.json");
@@ -174,6 +178,93 @@ namespace nkentseu {
 								 static_cast<uint32>(paths.Size()),
 								 ignores ? " (des noms illisibles ont ete ignores)" : "",
 								 mDir.CStr());
+					SignalerCeQuiEstIgnore(static_cast<uint32>(paths.Size()));
+				}
+
+				/// CE QU'ON NE LIT PAS DOIT SE DIRE, SINON C'EST LE MEME SILENCE.
+				///
+				/// `Refresh` ne balaie que `*.json`. Un fichier depose sous un autre
+				/// nom -- `mon_plateau` sans extension, `.txt`, ou `.json.txt` que
+				/// l'Explorateur affiche comme `.json` -- est donc INVISIBLE, et rien
+				/// ne le disait : la liste restait la meme, et le stagiaire concluait
+				/// que « ca ne marche pas ». Un fichier ignore en silence est un defaut
+				/// de l'atelier, pas une erreur de l'utilisateur.
+				///
+				/// Journalise ET affiche : le panneau « Regles » est le seul endroit
+				/// que le stagiaire regarde, le journal le seul qu'on relira apres coup.
+				void SignalerCeQuiEstIgnore(uint32 vusJson) noexcept {
+					NkVector<NkString> tous = NkDirectory::GetFiles(mDir.CStr(), "*");
+					NkString		   noms;
+					uint32			   autres = 0;
+					for (usize i = 0; i < tous.Size(); ++i) {
+						const NkString nom = NkPath(tous[i]).GetFileName();
+						if (nom.Empty() || FinitParJson(nom)) continue;
+						++autres;
+						if (autres <= 3) {
+							if (!noms.Empty()) noms += ", ";
+							noms += nom;
+						}
+					}
+					if (autres > 0) {
+						logger.Warnf("[lab] %u fichier(s) IGNORE(S) dans %s : %s%s "
+									 "-- une grille doit se terminer par .json",
+									 autres, mDir.CStr(), noms.CStr(),
+									 autres > 3 ? ", ..." : "");
+						char tmp[96];
+						std::snprintf(tmp, sizeof(tmp),
+									  "%u fichier(s) ignore(s), pas en .json : ", autres);
+						mMsg = tmp;
+						mMsg += noms;
+						if (autres > 3) mMsg += ", ...";
+					}
+					SignalerDossierVoisin(vusJson + autres);
+				}
+
+				static bool FinitParJson(const NkString &nom) noexcept {
+					const usize n = nom.Size();
+					if (n < 5) return false;
+					const char *c = nom.CStr() + (n - 5);
+					return c[0] == '.' &&
+						   (c[1] == 'j' || c[1] == 'J') && (c[2] == 's' || c[2] == 'S') &&
+						   (c[3] == 'o' || c[3] == 'O') && (c[4] == 'n' || c[4] == 'N');
+				}
+
+				/// Le dossier d'a cote qui ressemble au bon. On ne le lit PAS -- on le
+				/// NOMME. Deviner ce que l'utilisateur voulait est le debut des
+				/// comportements qu'on ne sait plus expliquer ; le lui dire lui laisse
+				/// la main, et lui coute dix secondes au lieu d'une journee. Un
+				/// stagiaire ecrit `travail/board` (singulier) ou `travail/grilles`,
+				/// l'atelier lit `travail/boards`, et les deux ont raison de leur point
+				/// de vue. Seul l'atelier peut lever le malentendu.
+				void SignalerDossierVoisin(uint32 vus) noexcept {
+					if (vus > 0) return;   // le bon dossier n'est pas vide : rien a chercher
+					const usize cut = DerniereBarre(mDir);
+					if (cut == NkString::npos) return;
+					const NkString parent = mDir.SubStr(0, cut);
+					static const char *const kProches[] = {"board", "grille", "grilles",
+															   "plateau", "plateaux", "Boards"};
+					for (usize k = 0; k < sizeof(kProches) / sizeof(kProches[0]); ++k) {
+						NkString cand = parent;
+						cand += "/";
+						cand += kProches[k];
+						if (!NkDirectory::Exists(cand.CStr())) continue;
+						if (NkDirectory::GetFiles(cand.CStr(), "*").Empty()) continue;
+						logger.Warnf("[lab] le dossier %s contient des fichiers, mais "
+									 "l'atelier lit %s -- renommez-le en \"boards\"",
+									 cand.CStr(), mDir.CStr());
+						mMsg = "Vos fichiers sont dans le dossier \"";
+						mMsg += kProches[k];
+						mMsg += "\" ; l'atelier lit \"boards\". Renommez le dossier.";
+						return;
+					}
+				}
+
+				static usize DerniereBarre(const NkString &p) noexcept {
+					const usize a = p.RFind('/');
+					const usize b = p.RFind('\\');
+					if (a == NkString::npos) return b;
+					if (b == NkString::npos) return a;
+					return (a > b) ? a : b;
 				}
 
 				/// Ecrit un exemple si le dossier est vide, a partir du plateau que le
@@ -199,10 +290,34 @@ namespace nkentseu {
 					if (!inst || !vt.LoadBoardJson) { mMsg = "Le moteur n'accepte pas de plateau."; return false; }
 					if (idx >= mFiles.Size()) { mMsg = "Fichier introuvable."; return false; }
 
-					const NkString text = NkFile::ReadAllText(mFiles[idx].path.CStr());
+					// « ILLISIBLE » SANS RAISON EST LE MEME SILENCE QU'AILLEURS.
+					// Le message d'avant disait « vide ou illisible » suivi du seul NOM
+					// de fichier : le lecteur ne pouvait savoir ni LEQUEL des deux, ni
+					// OU l'atelier avait regarde. Les trois causes se distinguent en
+					// trois appels, et chacune appelle un geste DIFFERENT -- c'est
+					// exactement pour cela qu'il faut les separer. Le chemin COMPLET,
+					// pas le nom : un nom ne dit pas dans quel dossier on a cherche.
+					const char *chemin = mFiles[idx].path.CStr();
+					if (!NkFile::Exists(chemin)) {
+						mMsg = "Fichier disparu depuis le dernier Rafraichir : ";
+						mMsg += mFiles[idx].path;
+						return false;
+					}
+					const nk_int64 taille = NkFile::GetFileSize(chemin);
+					if (taille == 0) {
+						mMsg = "Fichier VIDE (0 octet) : ";
+						mMsg += mFiles[idx].path;
+						return false;
+					}
+					const NkString text = NkFile::ReadAllText(chemin);
 					if (text.Empty()) {
-						mMsg = "Fichier vide ou illisible : ";
-						mMsg += mFiles[idx].name;
+						char tmp[112];
+						std::snprintf(tmp, sizeof(tmp),
+									  "Fichier ILLISIBLE : %lld octets sur le disque, 0 lu "
+									  "(droits, ou fichier ouvert ailleurs) : ",
+									  static_cast<long long>(taille));
+						mMsg = tmp;
+						mMsg += mFiles[idx].path;
 						return false;
 					}
 					if (!vt.LoadBoardJson(inst, text.CStr())) {
