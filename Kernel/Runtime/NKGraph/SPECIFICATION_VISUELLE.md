@@ -2116,6 +2116,19 @@ l'arbre `Nkentseu-matgraph`, en **lecture seule**. Chaque affirmation ci-dessous
 cite le cas ou la déclaration qui la fonde. **Aucune ligne de leur code n'a été
 touchée.**
 
+⚠️ **Correction, et elle porte sur ce paragraphe lui-même.** Le message du commit
+`206b3a2b` annonce *« § 17 : 148 lignes »*. **C'était faux d'un facteur 2,3** —
+le nombre avait été écrit de mémoire, pas compté. C'est exactement le *« nombre
+plausible qui se recopie dans un rapport, puis dans une ROADMAP, puis dans une
+décision »* que le banc voisin passe ses nuits à traquer.
+
+📌 **Et la première correction est tombée dans le piège suivant** : j'ai réécrit
+le compte mesuré (343) **dans le paragraphe qu'il compte**, ce qui l'a fait
+passer à 350 dans le même geste. **Un document ne peut pas porter sa propre
+taille.** Le chiffre est donc retiré, pas corrigé — et la règle qui reste est la
+seule utile : **aucun compte non mesuré dans un message de commit, et aucun
+compte auto-référent dans un document.**
+
 ⚠️ **Ce que cette lecture ne prouve pas** : ce banc mesure des **structures de
 données** et du **texte de shader**. Il n'a ni GPU ni fenêtre, et il le déclare en
 tête. Il ne peut donc rien dire des § 4 (palette), § 12.2 (dézoom), § 10 (fils),
