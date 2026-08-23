@@ -104,7 +104,7 @@ import io, os, hashlib
 # garde-fou qui ment. On importe donc la fonction, pas sa copie.
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gen import poser_police, structurer, panneau
+from gen import panneau, ecrire, OUT as _OUT
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
@@ -762,12 +762,34 @@ def nommer_groupes(svg):
 # enferme la balise fermante du document dans le <g> du dernier panneau, et
 # produit <g> ... </svg></g> : mal imbrique. On la DETACHE avant de ranger,
 # et on la remet apres.
-_brut = nommer_groupes(poser_police(u''.join(PARTIES)))
+# ⚠️ p01 ECRIT DESORMAIS PAR gen.ecrire(), COMME LES SEPT AUTRES.
+# Elle ecrivait son fichier elle-meme, et l'a paye DEUX FOIS dans la meme
+# journee : elle a rate la pose de la police (0 <text> sur 192 quand les
+# sept autres etaient a 100 %), puis le rangement en groupes (0 groupe).
+# Les deux fois, le defaut n'a ete vu que parce que quelqu'un regardait.
+#
+# Le cout de ne rien faire n'est pas « p01 est en retard d'une
+# amelioration » : c'est « p01 sera en retard de TOUTES les ameliorations
+# a venir », et chacune coutera une decouverte. Le prix de la correction
+# est fixe ; celui de l'inaction s'accumule.
+#
+# CE QUI RESTE ICI est ce qui est PROPRE a cette planche, et rien d'autre :
+#   - nommer_groupes()   : ses 23 <g> ecrits a la main n'ont pas de nom ;
+#   - marquer_panneaux() : ses titres sont du SVG brut, pas des appels lab() ;
+#   - le garde-fou d'empreinte, qui protege les retouches de Rodolf.
+# La PLOMBERIE (police, groupes, </svg>, encodage, fins de ligne) part dans
+# ecrire(), une fois pour les huit.
+#
+# ⚠️ Le </svg> final vit DANS la derniere entree de PARTIES ; ecrire() ajoute
+# le sien. On DETACHE donc celui de PARTIES, sinon le document en porte deux
+# -- le piege paye sur p07 le 23/08.
+_brut = nommer_groupes(u''.join(PARTIES))
 _fin = '</svg>'
 assert _brut.rstrip().endswith(_fin), 'p01 : le </svg> final a bouge'
-_corps = _brut.rstrip()[:-len(_fin)]
-svg = structurer(marquer_panneaux(_corps)) + _fin + chr(10)
+_contenu = marquer_panneaux(_brut.rstrip()[:-len(_fin)])
 chemin = os.path.join(OUT, 'planche_01_noeuds.svg')
+assert os.path.abspath(OUT) == os.path.abspath(_OUT), (
+    'p01 et gen ne visent pas le meme dossier de sortie')
 
 # ----------------------------------------------------------------------
 # 1. LA PLANCHE SUR LE DISQUE A-T-ELLE ETE RETOUCHEE A LA MAIN ?
@@ -814,22 +836,21 @@ elif not attendue:
 # protege. L'empreinte PRECEDENTE est deja dans empreintes.txt ; la
 # comparaison se fait donc toute seule, et elle dit ce qui a change au
 # lieu de demander qu'on s'en souvienne.
-empreinte = hashlib.md5(svg.encode('utf-8')).hexdigest()
-if attendue is None:
-    print('planche 01 : premiere generation suivie.')
-else:
-    print('planche 01 : empreinte du contenu %s' % empreinte)
+# (l'empreinte du contenu est calculee APRES l'ecriture, sur ce qui est
+#  reellement sur le disque -- voir plus bas.)
 
-# Fins de ligne : les six autres planches sont en CRLF sur le disque,
-# parce que gen.ecrire ouvre en mode TEXTE et que Windows y traduit.
-# Ecrire en LF ici changerait 400 octets sans changer un pixel.
-#
-# On encode AVANT d'ouvrir : une erreur d'encodage doit echouer sans
-# avoir touche au fichier -- open(.., 'w') tronque des l'ouverture, et
-# cette troncature-la a deja detruit un fichier sur ce chantier.
-donnees = svg.replace(chr(10), chr(13) + chr(10)).encode('utf-8')
-open(chemin, 'wb').write(donnees)
-print('ecrit %s (%d octets)' % (chemin, len(donnees)))
+# L'ECRITURE, par le chemin commun. Les fins de ligne CRLF, l'encodage et
+# le </svg> final sont son affaire, plus la notre.
+ecrire('planche_01_noeuds.svg', _contenu)
+
+# On relit ce qui est REELLEMENT sur le disque plutot que de calculer
+# l'empreinte de ce qu'on croit avoir ecrit. Un « ok » affiche avant
+# l'ecriture ne prouve pas l'ecriture -- et une empreinte prise sur la
+# variable, pas sur le fichier, ne prouve rien du fichier.
+donnees = io.open(chemin, 'rb').read()
+print('  %d octets sur le disque' % len(donnees))
+print('  empreinte du contenu %s'
+      % hashlib.md5(donnees.replace(chr(13).encode(), b'')).hexdigest())
 
 nouvelle = hashlib.md5(donnees).hexdigest()
 CONNUES['planche_01_noeuds.svg'] = nouvelle
