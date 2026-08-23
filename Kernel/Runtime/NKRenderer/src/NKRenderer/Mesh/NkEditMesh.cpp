@@ -4298,7 +4298,10 @@ namespace nkentseu {
 		// transforme comme une différence de deux points, ce qui reste juste sous une
 		// transform à rotation/échelle quelconque).
 		// =====================================================================
-		bool NkEditMesh::SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin) {
+		bool NkEditMesh::SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin,
+										  uint32 *outMaterialChanged) {
+			if (outMaterialChanged)
+				*outMaterialChanged = 0;
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			NkVector<uint8> vsel;
@@ -4358,6 +4361,33 @@ namespace nkentseu {
 			}
 			if (eA.Empty() && !p.duplicate)
 				return false; // pas d'arête à balayer
+
+			// FACES INCIDENTES A CHAQUE ARETE DU PROFIL. Une bande laterale nait d une
+			// ARETE, pas d une face : elle herite donc de son VOISINAGE, comme toute
+			// face creee. Construit sur la MEME numerotation que `fm` (celle de
+			// EM_ToWeldedPolygons), donc aucun decalage possible.
+			NkHashMap<uint64, uint64> edgeFaces; // cle arete -> (f0+1) | ((f1+1) << 32)
+			{
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s = fs[f], e = fs[f + 1], n = e - s;
+					if (n < 2u)
+						continue;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 a = fv[s + k], b = fv[s + (k + 1u) % n];
+						if (a == b)
+							continue;
+						const uint32 lo = (a < b) ? a : b, hi = (a < b) ? b : a;
+						const uint64 key = ((uint64)lo << 32) | (uint64)hi;
+						uint64 *q = edgeFaces.Find(key);
+						const uint64 tag = (uint64)(f + 1u);
+						if (!q)
+							edgeFaces.InsertOrAssign(key, tag);
+						else if ((*q & 0xFFFFFFFFull) != tag && (*q >> 32) == 0ull)
+							edgeFaces.InsertOrAssign(key, *q | (tag << 32));
+					}
+				}
+			}
+			uint32 perdus = 0;
 
 			// Anneaux successifs du balayage : ring[k * pn + j].
 			const uint32 pn = (uint32)prof.Size();
@@ -4421,14 +4451,52 @@ namespace nkentseu {
 							nfv.PushBack(a1);
 						}
 						nfs.PushBack((uint32)nfv.Size());
-						// ⚠️ UNE BANDE LATERALE N'A PAS DE FACE MERE : elle nait
-						// d'une ARETE du profil, pas d'une face. Slot 0, donc, et
-						// c'est un CHOIX assume, pas un oubli -- heriter d'une des
-						// deux faces adjacentes privilegierait arbitrairement un
-						// cote. A rouvrir si l'usage montre que c'est genant.
-						// ⚠️ NON EXERCE par matops/vis-revolution, qui utilise
-						// duplicate=true : ce chemin-ci est celui de duplicate=false.
-						nfm.PushBack(NkEditMesh::FaceAttrib{});
+						// ⚠️ UNE BANDE LATERALE N'A PAS DE FACE MERE : elle nait d'une
+						// ARETE du profil, pas d'une face.
+						//
+						// ⚠️ CORRIGE LE 2026-08-23. Cette ligne posait le SLOT 0, avec
+						// pour raison ecrite qu'heriter d'une des deux faces adjacentes
+						// « privilegierait arbitrairement un cote ». L'arbitrage de
+						// Rodolf a retire cette raison : une face creee herite de son
+						// VOISINAGE, dominance par la longueur de contour partage,
+						// egalite par l'indice le plus bas. Ce n'est plus arbitraire,
+						// et le slot 0 est une couleur comme une autre, pas un
+						// « sans materiau » : le poser repeignait la bande en silence.
+						//   > Une regle qui traine une exception que personne ne se
+						//   > rappelle est pire que pas de regle : elle fait croire
+						//   > qu on peut predire le comportement.
+						{
+							const uint32 va = eA[e], vb = eB[e];
+							const uint32 lo = (va < vb) ? va : vb, hi = (va < vb) ? vb : va;
+							const uint64 key = ((uint64)lo << 32) | (uint64)hi;
+							uint64 *q = edgeFaces.Find(key);
+							uint16 mats[2];
+							uint8 sms[2];
+							float32 poids[2];
+							uint32 nn = 0;
+							// Les deux voisines partagent le MEME segment : longueurs
+							// egales, donc c'est l'indice le plus bas qui tranche. On passe
+							// quand meme par la regle commune plutot que de recrire
+							// « prends le plus petit », qui serait un second enonce.
+							const float32 lg = (pv[a0].pos - pv[b0].pos).Len();
+							if (q) {
+								const uint32 f0 = (uint32)((*q) & 0xFFFFFFFFull);
+								const uint32 f1 = (uint32)((*q) >> 32);
+								if (f0 > 0u && (f0 - 1u) < (uint32)fm.Size()) {
+									mats[nn] = fm[f0 - 1u].material;
+									sms[nn] = fm[f0 - 1u].smooth;
+									poids[nn] = lg;
+									++nn;
+								}
+								if (f1 > 0u && (f1 - 1u) < (uint32)fm.Size()) {
+									mats[nn] = fm[f1 - 1u].material;
+									sms[nn] = fm[f1 - 1u].smooth;
+									poids[nn] = lg;
+									++nn;
+								}
+							}
+							nfm.PushBack(EM_AttribFromNeighbours(mats, sms, poids, nn, &perdus));
+						}
 					}
 				}
 			}
@@ -4441,6 +4509,8 @@ namespace nkentseu {
 			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data(),
 							  nfm.Data());
 			ApplyVertSel(nsel);
+			if (outMaterialChanged)
+				*outMaterialChanged = perdus;
 			return true;
 		}
 
@@ -5226,7 +5296,11 @@ namespace nkentseu {
 		static void NkEmModSolidify(NkEditMesh &m, const NkMeshModifier &p) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			m.ToPolygons(pv, fs, fv);
+			// ATTRIBUTS PAR FACE. Solidify DOUBLE une surface : la coque externe et la
+			// coque interne sont deux copies de la meme face, elles en heritent donc par
+			// IDENTITE. Seule la tranche de bord est une face NEUVE.
+			NkVector<NkEditMesh::FaceAttrib> fa;
+			m.ToPolygons(pv, fs, fv, &fa);
 			const uint32 vc = (uint32)pv.Size();
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			if (vc == 0 || fc == 0 || p.solidifyThickness <= 0.f)
@@ -5246,17 +5320,24 @@ namespace nkentseu {
 				ov[vc + i].normal = pv[i].normal * -1.f; // la coque interne regarde dedans
 			}
 			NkVector<uint32> nfs, nfv;
+			NkVector<NkEditMesh::FaceAttrib> nfa;
 			nfs.PushBack(0);
+			auto attrDe = [&](uint32 f) -> NkEditMesh::FaceAttrib {
+				return (f < (uint32)fa.Size()) ? fa[f] : NkEditMesh::FaceAttrib{};
+			};
 			for (uint32 f = 0; f < fc; ++f) { // coque externe
 				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
 					nfv.PushBack(fv[k]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfa.PushBack(attrDe(f));
 			}
 			for (uint32 f = 0; f < fc; ++f) { // coque interne, winding INVERSE
 				const uint32 s0 = fs[f], s1 = fs[f + 1];
 				for (uint32 k = s1; k > s0; --k)
 					nfv.PushBack(vc + fv[k - 1]);
 				nfs.PushBack((uint32)nfv.Size());
+				// La coque interne DOUBLE la face externe : meme materiau, meme ombrage.
+				nfa.PushBack(attrDe(f));
 			}
 			if (p.solidifyRim) {
 				// BORD = arete portee par UNE seule face (identite soudee). C'est la
@@ -5296,10 +5377,29 @@ namespace nkentseu {
 						nfv.PushBack(vc + ia);
 						nfv.PushBack(vc + ib);
 						nfs.PushBack((uint32)nfv.Size());
+						// TRANCHE DE BORD : une face NEUVE, donc la regle des faces sans mere.
+						// Ses deux voisines sont la coque externe et la coque interne de la MEME
+						// face d'origine, ponderees par le meme segment de contour.
+						// ⚠ AUCUN COMPTEUR DE PERTE N'EST EXPOSE ICI, et c'est deliberé : les
+						// deux voisines portent le meme materiau PAR CONSTRUCTION, donc la perte
+						// ne peut que valoir zero. Un compteur qui ne peut pas etre non nul
+						// n'atteste rien — on ecrit la raison plutot qu'un zero rassurant.
+						{
+							const NkEditMesh::FaceAttrib at = attrDe(f);
+							const uint16 mats[2] = {at.material, at.material};
+							const uint8 sms[2] = {at.smooth, at.smooth};
+							const float32 lg = (ov[ia].pos - ov[ib].pos).Len();
+							const float32 poids[2] = {lg, lg};
+							nfa.PushBack(EM_AttribFromNeighbours(mats, sms, poids, 2u, nullptr));
+						}
 					}
 				}
 			}
-			m.BuildFromPolygons(ov.Data(), (uint32)ov.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			{
+				const uint32 nfc = (uint32)nfs.Size() - 1u;
+				m.BuildFromPolygons(ov.Data(), (uint32)ov.Size(), nfs.Data(), nfc, nfv.Data(),
+							    (nfa.Size() == nfc) ? nfa.Data() : nullptr);
+			}
 			m.RecomputeNormals();
 			m.RebuildEdges();
 		}
@@ -5310,7 +5410,10 @@ namespace nkentseu {
 		static void NkEmModFaceSubset(NkEditMesh &m, const NkMeshModifier &p, bool byRatio) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
-			m.ToPolygons(pv, fs, fv);
+			// ATTRIBUTS PAR FACE : Build et Mask SELECTIONNENT des faces, ils n'en
+			// creent aucune. Heritage par IDENTITE, comme Mirror et Array.
+			NkVector<NkEditMesh::FaceAttrib> fa;
+			m.ToPolygons(pv, fs, fv, &fa);
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			if (fc == 0)
 				return;
@@ -5321,6 +5424,7 @@ namespace nkentseu {
 				keepN = (uint32)((float32)fc * r + 0.5f);
 			}
 			NkVector<uint32> nfs, nfv;
+			NkVector<NkEditMesh::FaceAttrib> nfa;
 			nfs.PushBack(0);
 			for (uint32 f = 0; f < fc; ++f) {
 				bool keep;
@@ -5344,6 +5448,7 @@ namespace nkentseu {
 				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
 					nfv.PushBack(fv[k]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfa.PushBack(f < (uint32)fa.Size() ? fa[f] : NkEditMesh::FaceAttrib{});
 			}
 			if (nfs.Size() < 2) {
 				// Tout retirer donnerait un maillage vide et une scene qui semble avoir
@@ -5351,7 +5456,11 @@ namespace nkentseu {
 				// reglage est a l'extreme.
 				return;
 			}
-			m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			{
+				const uint32 nfc = (uint32)nfs.Size() - 1u;
+				m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), nfc, nfv.Data(),
+							    (nfa.Size() == nfc) ? nfa.Data() : nullptr);
+			}
 			m.RebuildEdges();
 		}
 
@@ -5595,16 +5704,22 @@ namespace nkentseu {
 					if (triangulateMinVerts > 3) {
 						NkVector<NkVertex3D> pv;
 						NkVector<uint32> fs, fv;
-						m.ToPolygons(pv, fs, fv);
+						// IDENTITE : trianguler DECOUPE une face, ca n'en cree pas de neuve. Les
+						// triangles d'un eventail sortent tous du MEME n-gon et en heritent.
+						NkVector<NkEditMesh::FaceAttrib> fa;
+						m.ToPolygons(pv, fs, fv, &fa);
 						const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 						NkVector<uint32> nfs, nfv;
+						NkVector<NkEditMesh::FaceAttrib> nfa;
 						nfs.PushBack(0);
 						for (uint32 f = 0; f < fc; ++f) {
 							const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+							const NkEditMesh::FaceAttrib at = (f < (uint32)fa.Size()) ? fa[f] : NkEditMesh::FaceAttrib{};
 							if ((int32)n < triangulateMinVerts) {
 								for (uint32 k = s0; k < s1; ++k)
 									nfv.PushBack(fv[k]);
 								nfs.PushBack((uint32)nfv.Size());
+								nfa.PushBack(at);
 								continue;
 							}
 							for (uint32 k = 1; k + 1 < n; ++k) { // eventail
@@ -5612,13 +5727,28 @@ namespace nkentseu {
 								nfv.PushBack(fv[s0 + k]);
 								nfv.PushBack(fv[s0 + k + 1]);
 								nfs.PushBack((uint32)nfv.Size());
+								nfa.PushBack(at);
 							}
 						}
-						if (nfs.Size() > 1)
-							m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1,
-												nfv.Data());
+						if (nfs.Size() > 1) {
+							const uint32 nfc = (uint32)nfs.Size() - 1u;
+							m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), nfc, nfv.Data(),
+												(nfa.Size() == nfc) ? nfa.Data() : nullptr);
+						}
 					} else if (!tv.Empty() && !ti.Empty()) {
-						m.BuildFromIndexed(tv.Data(), (uint32)tv.Size(), ti.Data(), (uint32)ti.Size(), false);
+						// IDENTITE, par une parente qui existait DEJA : `tf` donne le n-gon
+						// d'origine de chaque triangle - elle sert au picking. Il n'y avait
+						// qu'a la lire. Sans ca, ce chemin repeignait tout en slot 0.
+						NkVector<uint16> tm;
+						const uint32 triN = (uint32)ti.Size() / 3u;
+						tm.Resize(triN);
+						for (uint32 t = 0; t < triN; ++t) {
+							const NkEmId sf = (t < (uint32)tf.Size()) ? tf[t] : NK_EM_INVALID;
+							tm[t] = (sf != NK_EM_INVALID && sf < (NkEmId)m.faces.Size()) ? m.faces[sf].material
+																					 : (uint16)0;
+						}
+						m.BuildFromIndexed(tv.Data(), (uint32)tv.Size(), ti.Data(), (uint32)ti.Size(), false,
+									   tm.Data());
 					}
 					m.RebuildEdges();
 					return;
@@ -5711,7 +5841,12 @@ namespace nkentseu {
 			// Mirror & Array travaillent en représentation polygones (CSR).
 			NkVector<NkVertex3D> base;
 			NkVector<uint32> fs, fv;
-			m.ToPolygons(base, fs, fv);
+			// ATTRIBUTS PAR FACE : Mirror et Array COPIENT des faces, ils n'en creent
+			// aucune. L'heritage est donc l'IDENTITE : chaque copie garde le materiau
+			// et l'ombrage de son originale. Sans ce `&fa`, appliquer un modificateur
+			// repeignait TOUT le maillage en slot 0, en silence, jusqu'au rendu.
+			NkVector<NkEditMesh::FaceAttrib> fa;
+			m.ToPolygons(base, fs, fv, &fa);
 			const uint32 baseVC = (uint32)base.Size();
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			if (baseVC == 0 || fc == 0)
@@ -5746,19 +5881,30 @@ namespace nkentseu {
 					}
 				}
 				NkVector<uint32> nfs, nfv;
+				NkVector<NkEditMesh::FaceAttrib> nfa;
 				nfs.PushBack(0);
+				auto attrDe = [&](uint32 f) -> NkEditMesh::FaceAttrib {
+					return (f < (uint32)fa.Size()) ? fa[f] : NkEditMesh::FaceAttrib{};
+				};
 				for (uint32 f = 0; f < fc; f++) {
 					for (uint32 k = fs[f]; k < fs[f + 1]; k++)
 						nfv.PushBack(fv[k]);
 					nfs.PushBack((uint32)nfv.Size());
+					nfa.PushBack(attrDe(f));
 				}
 				for (uint32 f = 0; f < fc; f++) {
 					const uint32 s = fs[f], e = fs[f + 1]; // faces miroir : winding inversé
 					for (uint32 k = e; k > s; --k)
 						nfv.PushBack((uint32)mir[fv[k - 1]]);
 					nfs.PushBack((uint32)nfv.Size());
+					// La face miroir est la MEME face, retournee : meme materiau.
+					nfa.PushBack(attrDe(f));
 				}
-				m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+				{
+					const uint32 nfc = (uint32)nfs.Size() - 1u;
+					m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), nfc, nfv.Data(),
+								    (nfa.Size() == nfc) ? nfa.Data() : nullptr);
+				}
 				return;
 			}
 
@@ -5768,11 +5914,16 @@ namespace nkentseu {
 				return;
 			NkVector<NkVertex3D> pv = base;
 			NkVector<uint32> nfs, nfv;
+			NkVector<NkEditMesh::FaceAttrib> nfa;
 			nfs.PushBack(0);
+			auto attrDe = [&](uint32 f) -> NkEditMesh::FaceAttrib {
+				return (f < (uint32)fa.Size()) ? fa[f] : NkEditMesh::FaceAttrib{};
+			};
 			for (uint32 f = 0; f < fc; f++) {
 				for (uint32 k = fs[f]; k < fs[f + 1]; k++)
 					nfv.PushBack(fv[k]);
 				nfs.PushBack((uint32)nfv.Size());
+				nfa.PushBack(attrDe(f));
 			}
 			for (int32 c = 1; c < cnt; c++) {
 				const uint32 voff = (uint32)pv.Size();
@@ -5785,9 +5936,15 @@ namespace nkentseu {
 					for (uint32 k = fs[f]; k < fs[f + 1]; k++)
 						nfv.PushBack(fv[k] + voff);
 					nfs.PushBack((uint32)nfv.Size());
+					// Chaque exemplaire est une COPIE : meme materiau que son originale.
+					nfa.PushBack(attrDe(f));
 				}
 			}
-			m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			{
+				const uint32 nfc = (uint32)nfs.Size() - 1u;
+				m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), nfc, nfv.Data(),
+							    (nfa.Size() == nfc) ? nfa.Data() : nullptr);
+			}
 		}
 
 		// ── TABLES DE PARAMETRES ────────────────────────────────────────────────
