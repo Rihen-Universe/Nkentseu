@@ -743,7 +743,27 @@ namespace nkentseu {
 				// dégénérée à 2 sommets : pas de surface, mais une vraie arête éditable).
 				bool ExtrudeSelectedVertices(const NkExtrudeParams &p = NkExtrudeParams{});
 				// Arête sélectionnée -> nouvelle arête + FACE (quad) reliante.
-				bool ExtrudeSelectedEdges(const NkExtrudeParams &p = NkExtrudeParams{});
+				//
+				// ⚠ LE QUAD CREE N'A PAS DE FACE MERE. Regle arbitree (2026-08-23) : une
+				// face creee herite de la face a laquelle elle est GEOMETRIQUEMENT
+				// ADJACENTE ; en cas d'ambiguite, celle qui apporte le plus de LONGUEUR
+				// DE CONTOUR PARTAGE, egalite tranchee par l'INDICE LE PLUS BAS. C'est la
+				// meme forme qu'aux sites de fusion (dominance par une mesure, egalite par
+				// l'indice) : une seule regle a comprendre pour les deux familles.
+				//
+				// ⚠ ET ICI LE CRITERE DE LONGUEUR EST INERTE PAR CONSTRUCTION, ce qu'il
+				// faut savoir avant de le croire discriminant : le quad partage avec ses
+				// deux voisines EXACTEMENT le meme segment (a,b). Les deux longueurs sont
+				// donc egales par definition, et c'est toujours l'indice le plus bas qui
+				// tranche. Sur un maillage NON soude (un cube importe compte 24 sommets
+				// pour 8 positions) l'arete n'a meme qu'UNE face incidente : aucune
+				// ambiguite. Le critere est ecrit quand meme, parce que c'est la MEME
+				// fonction qui sert au chanfrein, ou il discrimine vraiment.
+				//
+				// `outMaterialChanged` recoit le nombre de faces voisines dont le materiau
+				// n'a pas ete retenu — la perte, comptee et non supposee.
+				bool ExtrudeSelectedEdges(const NkExtrudeParams &p = NkExtrudeParams{},
+										  uint32 *outMaterialChanged = nullptr);
 				bool DeleteSelectedFaces();
 				// ── SELECTION ORDONNEE ──────────────────────────────────────────────
 				// Pose la selection COMPLETE en une passe, tout en enregistrant l'ORDRE.
@@ -931,7 +951,38 @@ namespace nkentseu {
 				//   perpendiculaire la largeur perçue diffère donc légèrement de Blender) ;
 				//   aucun traitement particulier des arêtes CONCAVES ni des auto-
 				//   intersections quand l'offset est grand (l'écrêtage à 45 % l'évite).
-				bool BevelSelected(const NkBevelParams &p = NkBevelParams{});
+				//
+				// ⚠ LE CHANFREIN CREE DES FACES SANS MERE — c'est meme sa raison d'etre.
+				// Regle arbitree (2026-08-23), la meme que pour l'extrusion d'aretes :
+				// une face creee herite de la face a laquelle elle est GEOMETRIQUEMENT
+				// ADJACENTE ; en cas d'ambiguite, celle qui apporte le plus de LONGUEUR
+				// DE CONTOUR PARTAGE, egalite tranchee par l'INDICE LE PLUS BAS.
+				// Trois familles de faces sortent d'ici, et elles n'heritent pas pareil :
+				//   (a) faces d'origine aux coins remplaces -> elles ONT une mere ;
+				//   (b) BANDE d'une arete chanfreinee -> deux voisines, ponderees par la
+				//       longueur du contour partage LE LONG de l'arete (elles different
+				//       des que les reculs des deux cotes different) ;
+				//   (c) face de RACCORD a un sommet -> toutes les faces incidentes,
+				//       ponderees par la longueur de l'anneau posee sur chacune.
+				//
+				// ⚠ UNE BANDE ENTIERE PORTE UN SEUL MATERIAU, meme a plusieurs segments.
+				// Geometriquement, seuls le PREMIER et le DERNIER quad d'une bande
+				// touchent une face voisine ; ceux du milieu ne touchent que l'arc. Leur
+				// donner un materiau « propre » ferait apparaitre une couture au milieu
+				// d'un chanfrein — une frontiere de couleur la ou la geometrie est
+				// continue. Un chanfrein est UNE surface.
+				//
+				// ⚠ CAS DEGENERE ASSUME : quand les deux aretes d'un coin sont
+				// chanfreinees, le point de recul est unique (ptPrev == ptNext) et la
+				// longueur posee sur chaque face incidente vaut ZERO. Toutes les
+				// ponderations sont alors egales et c'est l'indice le plus bas qui
+				// tranche — ce qui est exactement la clause d'egalite de la regle, pas
+				// une exception a part.
+				//
+				// `outMaterialChanged` recoit le nombre de faces voisines dont le materiau
+				// n'a pas ete retenu.
+				bool BevelSelected(const NkBevelParams &p = NkBevelParams{},
+								   uint32 *outMaterialChanged = nullptr);
 
 				// ── INSET FACES (I) ─────────────────────────────────────────────────
 				// Insère une face plus PETITE à l'intérieur de chaque face sélectionnée,
