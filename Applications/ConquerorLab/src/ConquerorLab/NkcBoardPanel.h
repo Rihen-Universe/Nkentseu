@@ -295,10 +295,69 @@ namespace nkentseu {
 								NkcPolyOutline(dl, poly, n, NkcPalette::Accent(), ctx.S(2.5f));
 							}
 						}
-						// destinations legales
+						// ---- CE QUE LE COUP FERA, PAS SEULEMENT OU IL VA ----
+						//
+						// L'anneau vert seul repondait « on peut cliquer la ». Il ne
+						// disait ni QUOI s'y passerait, ni -- pour une fusion -- QUELLES
+						// CASES seraient consommees. Le stagiaire voyait « FUSIONNER »
+						// apparaitre dans le menu des regles et concluait qu'il manquait
+						// un bouton : rien a l'ecran ne designait la case du RESULTAT,
+						// et personne ne devine une case.
+						//
+						// Trois traits, et le geste devient lisible SANS SURVOL — c'est
+						// la condition : ce qui n'apparait qu'au survol n'existe pas
+						// pour qui ne sait pas ou passer la souris.
+						//   1. les cases CONSOMMEES prennent un anneau orange et un
+						//      trait vers le resultat ;
+						//   2. la case RESULTAT prend un anneau plein, plus epais ;
+						//   3. une etiquette dit le genre du coup (D / F3 / P2).
 						for (usize i = 0; i < prev.Size(); ++i) {
+							const NkcPreview &pv  = prev[i];
+							const NkVec2	  cto = ProjPixelCenter(proj, mLayout, pv.to);
+
+							if (pv.kind == NkcMoveKind::Fuse) {
+								for (int32 k = 0; k < pv.partCount; ++k) {
+									if (CoordEqual(pv.parts[k], pv.to)) continue;
+									const NkVec2 cp = ProjPixelCenter(proj, mLayout, pv.parts[k]);
+									dl.AddLine(cp, cto, NkcFade(NkcPalette::LastMove(), 0.75f), ctx.S(2.f));
+									NkcRing(dl, cp, mLayout.cell * 0.70f,
+												NkcFade(NkcPalette::LastMove(), 0.85f), ctx.S(2.f));
+								}
+								// Le resultat : plein, et plus gros que les participantes.
+								NkcRing(dl, cto, mLayout.cell * 0.58f, NkcPalette::LastMove(), ctx.S(3.5f));
+							} else {
+								NkcRing(dl, cto, mLayout.cell * 0.60f, NkcPalette::MoveLegal(), ctx.S(2.5f));
+							}
+
+							// Etiquette du genre. Courte : elle tient dans une case, et elle
+							// n'est la que pour distinguer deux anneaux voisins.
+							char tag[8];
+							if (pv.kind == NkcMoveKind::Fuse)
+								std::snprintf(tag, sizeof(tag), "F%d", pv.partCount);
+							else if (pv.kind == NkcMoveKind::Power)
+								std::snprintf(tag, sizeof(tag), "P%d", static_cast<int32>(pv.powerId));
+							else
+								std::snprintf(tag, sizeof(tag), "D");
+							const NkRect lab = {cto.x - mLayout.cell, cto.y + mLayout.cell * 0.42f,
+															mLayout.cell * 2.f, NkcLineH(ctx)};
+							NkcTextCenter(ctx, lab, tag, NkcPalette::Text());
+						}
+
+						// UNE MEME CASE, PLUSIEURS COUPS : le dire AVANT le clic. Sans cela
+						// le joueur clique, un coup part, et il ne saura jamais que
+						// l'autre existait.
+						for (usize i = 0; i < prev.Size(); ++i) {
+							int32 partages = 0;
+							for (usize j = 0; j < prev.Size(); ++j)
+								if (CoordEqual(prev[j].to, prev[i].to)) ++partages;
+							if (partages < 2) continue;
 							const NkVec2 c = ProjPixelCenter(proj, mLayout, prev[i].to);
-							NkcRing(dl, c, mLayout.cell * 0.60f, NkcPalette::MoveLegal(), ctx.S(2.5f));
+							NkcRing(dl, c, mLayout.cell * 0.80f, NkcFade(NkcPalette::Accent(), 0.9f), ctx.S(2.f));
+							char n[8];
+							std::snprintf(n, sizeof(n), "x%d", partages);
+							const NkRect lab = {c.x - mLayout.cell, c.y - mLayout.cell * 0.95f,
+															mLayout.cell * 2.f, NkcLineH(ctx)};
+							NkcTextCenter(ctx, lab, n, NkcPalette::Accent());
 						}
 						// ennemis qui seraient retournes par le coup SURVOLE
 						if (hoverPrev >= 0) {
@@ -368,13 +427,83 @@ namespace nkentseu {
 					DrawOccupancy(ctx, area, v);
 					if (v.finished) DrawVerdict(ctx, area, v);
 
+					// ---- QUEL COUP ? ----------------------------------------
+					// Le menu se dessine APRES le plateau et AVANT la prise du clic :
+					// tant qu'il est ouvert, le plateau ne repond plus. Un clic qui
+					// traverserait un menu ouvert jouerait le coup que le joueur
+					// croyait etre en train de choisir.
+					const bool choixOuvert = DrawChoix(ctx, area, proj);
+
 					// ---- clic ------------------------------------------------
-					if (interactive && hover >= 0) {
+					if (!choixOuvert && interactive && hover >= 0) {
 						const NkVec2 ctr = ProjPixelCenter(proj, mLayout, v.coords[hover]);
 						const NkRect box = {ctr.x - mLayout.cell, ctr.y - mLayout.cell, mLayout.cell * 2.f,
 											mLayout.cell * 2.f};
 						if (ctx.ClickIn(box)) mS->ClickCell(v.coords[hover]);
 					}
+				}
+
+				// -------------------------------------------------------------
+				// PLUSIEURS COUPS VISENT LA CASE CLIQUEE : on DEMANDE lequel.
+				//
+				// C'est le second defaut de l'interaction, et le plus difficile a
+				// voir : un POUVOIR est designe par (lanceur, cible, powerId). Deux
+				// pouvoirs du meme totem sur la meme cible partagent donc tout sauf
+				// leur identifiant. L'interface jouait « le premier coup qui
+				// correspond » : le second pouvoir figurait dans la liste des coups
+				// legaux, l'IA pouvait le jouer, et l'humain ne pouvait PAS. Meme
+				// histoire pour deux fusions dont le groupe differe mais dont la case
+				// resultat est la meme.
+				//
+				// Mesure : Applications/ConquerorLab/tests/ambiguite.ps1.
+				// Renvoie vrai tant que le menu est ouvert : le plateau est alors gele.
+				bool DrawChoix(NkGuiContext &ctx, const NkRect &area, const NkcProjector &proj) noexcept {
+					const int32 n = mS->ChoixCount();
+					if (n <= 0) return false;
+
+					NkGuiDrawList &dl	= ctx.DL();
+					const float32  lh	= NkcLineH(ctx);
+					const float32  rowH = lh + ctx.S(10.f);
+					const float32  w	= ctx.S(232.f);
+					const float32  h	= rowH * static_cast<float32>(n + 2) + ctx.S(14.f);
+
+					// Ancre sur la case cliquee, puis rabattu dans le cadre : un menu a
+					// moitie hors du panneau est un menu qu'on ne peut plus fermer.
+					const NkVec2 c	 = ProjPixelCenter(proj, mLayout, mS->ChoixAt());
+					NkRect		 box = {c.x + mLayout.cell * 0.6f, c.y - h * 0.4f, w, h};
+					if (box.x + box.w > area.x + area.w) box.x = c.x - mLayout.cell * 0.6f - w;
+					if (box.x < area.x) box.x = area.x + ctx.S(4.f);
+					if (box.y < area.y) box.y = area.y + ctx.S(4.f);
+					if (box.y + box.h > area.y + area.h) box.y = area.y + area.h - box.h - ctx.S(4.f);
+
+					dl.AddRectFilled(box, NkcFade(NkcPalette::BgPrimary(), 0.97f), ctx.theme.rounding);
+					dl.AddRect(box, NkcPalette::Accent(), ctx.S(1.5f));
+					NkcTextCenter(ctx, {box.x, box.y + ctx.S(6.f), box.w, lh}, "Quel coup ?", NkcPalette::Text());
+
+					float32 y = box.y + ctx.S(6.f) + rowH;
+					for (int32 i = 0; i < n; ++i) {
+						char nom[48];
+						NkcSession::NommerCoup(mS->ChoixMove(i), nom, sizeof(nom));
+
+						// Ce que le coup RETOURNE : deja simule, il suffit de le retrouver.
+						char		ligne[80];
+						const int32 flips = FlipsDe(mS->Previews(), mS->ChoixIndex(i));
+						if (flips > 0) std::snprintf(ligne, sizeof(ligne), "%s  (retourne %d)", nom, flips);
+						else		   std::snprintf(ligne, sizeof(ligne), "%s", nom);
+
+						const NkRect r = {box.x + ctx.S(8.f), y, box.w - ctx.S(16.f), rowH - ctx.S(4.f)};
+						if (Button(ctx, ligne, r)) { mS->JouerChoix(i); return true; }
+						y += rowH;
+					}
+					const NkRect ra = {box.x + ctx.S(8.f), y, box.w - ctx.S(16.f), rowH - ctx.S(4.f)};
+					if (Button(ctx, "Annuler", ra)) mS->AnnulerChoix();
+					return true;
+				}
+
+				static int32 FlipsDe(const NkVector<NkcPreview> &prev, int32 moveIndex) noexcept {
+					for (usize i = 0; i < prev.Size(); ++i)
+						if (prev[i].moveIndex == static_cast<uint32>(moveIndex)) return prev[i].flipCount;
+					return 0;
 				}
 
 				// -------------------------------------------------------------
