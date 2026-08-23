@@ -2077,7 +2077,7 @@ alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat néga
 sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
 qui existe.
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS — **19 restants sur 25**
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **19 restants sur 26**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
@@ -2107,8 +2107,9 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 21 | **la PORTÉE du registre de types** : comparer la charge utile, ou remonter le registre au DOCUMENT ? | § 18.5 | 🔴 **décide où VIT le registre** — les quatre types composés en dépendent, et rien ne doit être codé avant |
 | 22 | **le mode ÉTATS** : le cœur refuse tout cycle et un lien ne porte aucune charge utile | § 19.3 | 🔴 **le graphe d'états de NkAnima n'est pas saisissable aujourd'hui** — A ⇄ B est refusé par `WouldCycle`, et une transition doit porter condition, seuil et fondu |
 | 23 | ~~**NKScena** : quel domaine ?~~ | § 19.6 | ✅ **TRANCHÉ le 23/08 par Rodolf : la mise en scène cinématographique.** Trois applications distinctes, communiquant par fichiers |
-| 24 | **NKScena : est-elle seulement NODALE ?** ligne de temps à pistes, ou quatrième famille « le temps » ? | § 19.6 | 🔴 **ce qui ordonne un séquenceur est une COORDONNÉE, pas un arc** — les trois modes échouent. Proposition : pistes + marqueurs d'événement entrant dans un graphe d'exécution |
-| 25 | **la mise en scène est déjà écrite TROIS FOIS** — sous Noge, sous NkAnima, sous Nogee | § 19.6 | 🔴 **avant de dire ce qu'ouvre NKScena, dire ce qu'on RETIRE aux trois autres**, sinon elle sera écrite quatre fois |
+| 24 | **NKScena : est-elle seulement NODALE ?** | § 19.8 | 🟡 **proposition écrite, elle attend un oui** : PAS nodale — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'exécution. *Ce qui ordonne un séquenceur est une COORDONNÉE, pas un arc* |
+| ~~25~~ | ~~**la mise en scène est écrite trois fois**~~ | § 19.7 | ✅ **DISSOUS le 23/08, et sans arbitrage** : un mot désignait deux choses. Le MOTEUR de séquence va à NkAnima, les SÉMANTIQUES de cinéma à NKScena, les outils d'animation à NkAnimaEditor. Personne ne perd |
+| 26 | **`NkSequencer.h` est rangé sous Noge alors qu'il EST le moteur** | § 19.7 | 🔴 **à déplacer vers NkAnima** — 416 lignes, 0 `.cpp`, 0 consommateur : c'est le meilleur moment, il n'a encore rien cassé |
 
 ---
 
@@ -2887,7 +2888,7 @@ erreur coûteuse — un graphe d'états ne « s'exécute » pas de gauche à dro
 |---|---|---|---|---|
 | **NK3DModeler** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
 | **NkAnima** | **FLOT** + **ÉTATS** — les deux, imbriqués | pose d'animation, et machine à états qui la choisit | **AnimGraph** (flot, type *pose*) : `Blend Poses by Bool`, `Layered Blend per Bone`, `State Machine`, `Output Pose` (final, non supprimable) · **sous-graphe d'états** : les états eux-mêmes, `Entry` non supprimable | runtime **livré** (`NkAnimStateMachine`, `NkBlendTree1D/2D`) ; **éditeur = embryon**, AnimGraph = 0 ligne |
-| **NKScena** | 🔴 **à trancher — voir § 19.6** | ✅ **la mise en scène cinématographique** (Rodolf, 23/08) : plans, caméras, déclenchements, enchaînements | ce qui existe n'est pas nodal : `NkSequence`, `NkTrack`, `NkCameraShot`, `NkMarker` — des **pistes**, pas des nœuds | `Applications/NKScena/` **n'existe pas**. `NkSequencer.h` = 416 lignes, **0 `.cpp`, 0 consommateur** |
+| **NKScena** | 🟡 **proposé : PAS nodale** — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'EXÉCUTION (§ 19.8) | ✅ **la mise en scène cinématographique** (Rodolf, 23/08) : plans, caméras, déclenchements, enchaînements | ce qui existe n'est pas nodal : `NkSequence`, `NkTrack`, `NkCameraShot`, `NkMarker` — des **pistes**, pas des nœuds | `Applications/NKScena/` **n'existe pas**. `NkSequencer.h` = 416 lignes, **0 `.cpp`, 0 consommateur** |
 | **Nogee** | **FLOT** (matériaux) **+ EXÉCUTION** (Blueprint) | ① matériaux → NkSL · ② logique gameplay / ECS · ③ VFX | ① Material Output, non supprimable · ② `EventBeginPlay`, `EventCustom`, `PrintString`, `SwitchInt`, `AddFloat`, `Raycast`, `SpawnActor`, familles *Events · FlowControl · Math · Physics · Structs* · ③ Bruit de Perlin, Courbe, Collision, Force, Attribut de particule | coquille ; **`NkBlueprint.h` porte un vrai interpréteur, ~15 nœuds — et zéro consommateur** |
 | **PV3DE** | **ÉTATS**, s'il en ouvre un un jour | état clinique / émotion | aucun nœud écrit ; ce qui existe est une FSM **codée en dur** — `EmotionState` (9 états), `NkEmotionTransition`, fondu 500 ms | **le plus abouti en code** (8 210 lignes, l'UI médicale s'affiche) ; **aucune trace de graphe nodal**, et PV3DE n'est dans aucune liste de consommateurs de NKGraph |
 
@@ -2959,7 +2960,11 @@ graphe**, c'est une ligne de temps à **pistes**. Le § 19.6 mesure ce qui exist
 montre que les trois modes échouent, et **pose la question au lieu d'inventer la
 réponse**.
 
-### 19.6 NKScena — ✅ le domaine est connu, 🔴 le mode ne l'est pas, et je ne l'invente pas
+### 19.6 NKScena — ✅ le domaine est connu, 🟡 le mode est PROPOSÉ (§ 19.8)
+
+> 📌 **Ce paragraphe est la MESURE.** La décision d'attribution est au § 19.7,
+> et la proposition de mode au § 19.8. On lit dans cet ordre : ce qui existe,
+> puis à qui ça appartient, puis ce qu'on en fait.
 
 **Rodolf, 23/08 :** *« C'est l'application de cinéma. À la base je voulais que
 NK3DModeler soit une application tout-en-un, mais tu m'as convaincu d'en faire 3
@@ -3029,10 +3034,12 @@ que le blueprint, et donc aucune quatrième famille à inventer.
 ✅ **C'est ce que je proposerais. Mais c'est une proposition, pas une mesure**, et
 elle attend un oui. La ligne 24 du § 13 la porte.
 
-#### 🔴 Et un fait qu'il faut dire avant tout ça
+#### ✅ Et un fait qui semblait bloquant — il est dissous au § 19.7
 
-**Le domaine de NKScena est déjà attribué à trois autres applications**, dans des
-documents écrits :
+Le domaine de NKScena **était déjà attribué à trois autres applications**, dans
+des documents écrits. ⚠️ **Ce n'était pas un conflit d'applications : c'était un
+mot qui désignait deux choses** (le moteur de séquence, et les sémantiques de
+cinéma). Le § 19.7 sépare les couches, et personne ne perd. Les trois documents :
 
 1. `Engine/Noge/src/Noge/Sequencer/NkSequencer.h` — le séquenceur cinéma complet,
    **rangé sous Noge** ;
@@ -3043,9 +3050,103 @@ documents écrits :
    Timeline d'animation »*, *« Icône Cinématique (ouvre Sequencer) »*, pistes
    Caméra et Événement — **rangés sous Nogee**.
 
-**Avant de décider quel mode ouvre NKScena, il faut décider ce qu'on retire aux
-trois autres.** Sinon la mise en scène sera écrite quatre fois — et elle l'est
-déjà trois.
+✅ **Ce qu'il fallait retirer aux trois est désormais écrit au § 19.7**, et se
+retire par NIVEAU, pas par arbitrage : ce qui s'évalue à un instant `t` est le
+moteur et va chez NkAnima ; ce qui **nomme** une notion de cinéma va chez
+NKScena.
+
+### 19.7 ✅ **TRANCHÉ le 23/08** — les trois couches du séquencement, et pourquoi personne ne perd
+
+**Rodolf :** *« Si NkAnima est la bibliothèque d'animation, le moteur d'animation
+à la Cascadeur comme défini, alors il garde le séquenceur, car ce dernier sera
+utile à l'app éditeur d'animation, au cinéma et au jeu vidéo. »*
+
+Les trois attributions concurrentes du § 19.6 n'étaient pas un conflit
+d'applications : c'était **un mot qui désignait deux choses**. Un séquenceur est
+une **capacité d'exécution** — il évalue une ligne de temps, déclenche des
+marqueurs, mélange des pistes. **S'il vit dans une application, les deux autres
+ne peuvent pas s'en servir.** Ce qui suit ne choisit donc pas un gagnant : ça
+sépare les couches.
+
+#### La règle, une phrase par couche
+
+| couche | elle porte | elle NE porte PAS | où elle vit |
+|---|---|---|---|
+| **le MOTEUR de séquence** | les pistes, les clips, les marqueurs, l'évaluation à `t`, le mélange, la lecture | **aucune sémantique de métier** : il ne sait pas ce qu'est un « plan », ni une « pose » | ✅ **NkAnima** (bibliothèque) |
+| **les outils de CINÉMA** | les plans, le *Cut Manager*, le cadrage, la cinématographie virtuelle, `Cut / Fade / Dissolve` | **il n'évalue rien** : il pose du sens **sur** le moteur | ✅ **NKScena** |
+| **les outils d'ANIMATION** | les courbes, les poses, les trajectoires, le *retiming* | **ni plans, ni caméras de cinéma** | ✅ **NkAnimaEditor** |
+
+📌 **Le critère qui range n'importe quel élément futur, et il tient en une
+question :** *est-ce que ça s'évalue à un instant `t` ?* Si oui, c'est le
+**moteur**. Sinon, ça **nomme** une notion de métier, et ça va dans l'outil de ce
+métier.
+
+✅ **Personne ne perd, et c'est ce qui rend la décision stable :** chacun garde ce
+qui appartient à sa couche. **Nogee consomme le même moteur** pour ses
+cinématiques, sans dépendre ni de NKScena ni de l'éditeur d'animation.
+
+#### Ce que ça fait des trois documents fautifs
+
+⚠️ **Ils se corrigent en RETIRANT ce qui n'est pas de leur niveau, pas en
+arbitrant** — et c'est toute la différence, parce qu'un arbitrage se rediscute
+tandis qu'une couche se vérifie :
+
+| document | ce qu'il faut en retirer | ce qui y reste, légitimement |
+|---|---|---|
+| `Applications/NkAnimaEditor/important/interface.md` | *« cinématographie virtuelle »*, *« Séquenceur de Coupes (Cut Manager) »*, `Cut / Fade / Dissolve` — ce sont des **sémantiques de cinéma** | le **moteur** de séquence, les courbes, les poses, le rigging |
+| `Applications/Nogee/design/01-specification-humaine.md` | rien à retirer par principe : Nogee **consomme** le moteur. Mais il doit dire qu'il le **consomme**, pas qu'il le **contient** | l'icône *Cinématique*, les pistes Caméra et Événement — en tant qu'**usage** |
+| `Engine/Noge/src/Noge/Sequencer/NkSequencer.h` | 🔴 **il est rangé sous Noge alors qu'il EST le moteur** → il appartient à **NkAnima**. 416 lignes, 0 `.cpp`, 0 consommateur : c'est le meilleur moment pour le déplacer, il n'a encore rien cassé | — |
+
+⚠️ **Ces trois corrections ne sont pas faites ici** : elles touchent les
+documents d'autres chantiers. Elles sont écrites pour être exécutées par qui
+tient ces documents.
+
+### 19.8 📌 La règle d'ordre — et NKScena en est la démonstration
+
+**Rodolf :** *« Le nodal vient appuyer le non nodal. Il faut toujours le non
+nodal, et après définir le nodal par-dessus. »*
+
+C'est une règle de méthode, et elle vaut au-delà du séquenceur : **on n'invente
+pas un graphe pour un domaine dont le modèle non nodal n'existe pas encore.** Le
+graphe est une *façon d'écrire* un modèle ; s'il n'y a pas de modèle, le graphe
+écrit du vide.
+
+✅ **NKScena en est la démonstration, et c'est ce qui rend la proposition du
+§ 19.6 évidente :**
+
+1. **le non nodal existait déjà, et je l'ai trouvé en le cherchant** — `NkTrack`,
+   `NkClipOnTrack`, `NkCameraShot`, `NkMarker`, et une ligne de temps à pistes
+   qui **tourne** dans `NkAnimaEditor` ;
+2. **il n'est pas nodal, et il n'a pas à l'être** : *ce qui ordonne un séquenceur
+   est une **coordonnée**, pas un arc.* Le plan 2 ne consomme pas la sortie du
+   plan 1 — il commence à `t = 72`. Supprimer un arc ne changerait rien ;
+   déplacer le clip, si ;
+3. **le nodal vient donc PAR-DESSUS, et seulement là où il appuie** : `NkMarker`
+   porte `Type::Event` et `eventFunction[128]` — **un marqueur appelle une
+   fonction à un instant**. C'est le point exact où le non nodal a besoin d'être
+   appuyé, et le seul.
+
+🟡 **LA PROPOSITION, et c'en est une — elle attend un oui :**
+
+> **NKScena n'ouvre pas un éditeur nodal. Elle ouvre une LIGNE DE TEMPS À
+> PISTES.** Ses **marqueurs d'événement** entrent dans un graphe d'**EXÉCUTION**
+> — le même mécanisme que le blueprint, décrit aux panneaux 4-5 de la planche 08,
+> et **dans l'autre sens** : la ligne de temps ne calcule pas, elle **lance**.
+
+✅ **Trois raisons de la préférer à une quatrième famille :**
+
+1. **elle n'invente rien.** Le franchissement par appel est déjà spécifié, déjà
+   dessiné, et déjà présent dans le modèle (`NkNode::subgraph`) ;
+2. **elle respecte la règle d'ordre** : le modèle de temps existe d'abord, le
+   graphe vient l'appuyer là où il en a besoin ;
+3. **elle ne coûte rien au cœur.** Une quatrième famille aurait exigé un mode de
+   plus dans `NkNodeGraph`, à sérialiser, à comparer et à dessiner — pour un
+   domaine dont le modèle n'est même pas un graphe.
+
+⚠️ **Ce qu'elle laisse ouvert, et il faut le dire** : la ligne de temps
+elle-même n'est **pas** spécifiée par ce document. Elle n'est pas nodale, donc
+elle n'est pas de son ressort. Ces planches décrivent le graphe **d'exécution**
+dans lequel les marqueurs entrent — pas les pistes qui les portent.
 
 ### 19.5 La question que ce tableau rend décidable
 
