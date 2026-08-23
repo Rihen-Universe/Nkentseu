@@ -1,1 +1,0 @@
-[nkdbg5] skip=192,128,64 tx8=100 tx16=20,152 tx32=3,136,37 ymode0_0=65 partition0_0=199 intermode0_0=2 joints=32,64,96 compRow_sign=128 compRow_classes0=224 compRow_bits0=136
