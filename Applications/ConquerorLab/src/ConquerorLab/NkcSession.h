@@ -35,6 +35,7 @@
 #include "ConquerorLab/NkcParamSchema.h"
 #include "ConquerorLab/NkcBoardLibrary.h"
 #include "ConquerorLab/NkcCellLabel.h"
+#include "ConquerorLab/NkcMoveChoice.h"
 
 #include "NKCore/NkAtomic.h"
 #include "NKThreading/NkThread.h"
@@ -103,11 +104,24 @@ namespace nkentseu {
 
 		/// Apercu d'un coup candidat : sa destination et les totems qu'il
 		/// retournerait. Produit par simulation, pas par deduction.
+		///
+		/// IL PORTE AUSSI LA FORME DU COUP, ET CE N'EST PAS DU CONFORT.
+		/// Un apercu qui ne transportait que `to` obligeait le plateau a dessiner
+		/// le MEME anneau vert pour un DUPLIQUER, une FUSION a trois cases et un
+		/// POUVOIR. Le joueur voyait donc une destination, jamais ce qui allait
+		/// s'y passer ni CE QUE ca allait lui couter -- et pour une fusion, jamais
+		/// QUELLES CASES seraient consommees. `kind`, `powerId` et
+		/// `parts[0..partCount-1]` sont exactement ce qu'il manquait pour que
+		/// l'ecran dise la meme chose que le coup.
 		struct NkcPreview {
-				NkcCoord to;
-				NkcCoord flips[kMaxFlips];
-				int32	 flipCount = 0;
-				uint32	 moveIndex = 0;	 ///< index dans la liste des coups legaux
+				NkcCoord	to;
+				NkcCoord	flips[kMaxFlips];
+				int32		flipCount = 0;
+				uint32		moveIndex = 0;	 ///< index dans la liste des coups legaux
+				NkcMoveKind kind	  = NkcMoveKind::None;
+				int16		powerId	  = -1;	 ///< Power : id du pouvoir, sinon -1
+				NkcCoord	parts[kMaxFuseCells];  ///< Fuse : les cases CONSOMMEES
+				int32		partCount = 0;
 		};
 
 		struct NkcPlayerCfg {
@@ -503,17 +517,23 @@ namespace nkentseu {
 				/// ailleurs l'annule.
 				void ClickCell(NkcCoord c) noexcept {
 					if (!Ready() || !IsHumanTurn() || mCursor >= 0) return;
+					if (mChoixCount > 0) return;   // un choix est ouvert : il doit se fermer
 
 					if (mHasSel) {
-						for (usize i = 0; i < mLegal.Size(); ++i) {
-							const NkcMove &m = mLegal[i];
-							if (m.kind == NkcMoveKind::Pass) continue;
-							if (CoordEqual(m.from, mSel) && CoordEqual(m.to, c)) {
-								PlayMove(m, false);
-								mHasSel = false;
-								RefreshPreviews();
-								return;
-							}
+						// `Touche` et non `m.from == mSel` : une FUSION ne remplit pas
+						// `from`, elle remplit `fuseCells`. Voir MoveTouches.
+						const int32 n = CollecterCoups(mLegal, mSel, c, mChoix, kMaxChoix);
+						if (n == 1) {
+							PlayMove(mLegal[static_cast<usize>(mChoix[0])], false);
+							mHasSel = false;
+							RefreshPreviews();
+							return;
+						}
+						if (n > 1) {
+							// PLUSIEURS COUPS, UNE SEULE CASE : on DEMANDE, on ne choisit pas.
+							mChoixCount = n;
+							mChoixAt	= c;
+							return;
 						}
 					}
 					if (HasMoveFrom(c)) {
@@ -523,6 +543,60 @@ namespace nkentseu {
 						mHasSel = false;
 					}
 					RefreshPreviews();
+				}
+
+				// ---- quand plusieurs coups visent la MEME case ---------------
+				//
+				// LE DEFAUT QU'ON CORRIGE ICI, ET POURQUOI IL ETAIT INVISIBLE.
+				//
+				// `ClickCell` jouait « le premier coup qui correspond ». Or la
+				// destination NE SUFFIT PAS a designer un coup :
+				//
+				//   POUVOIR   `from` = lanceur, `to` = cible, `powerId` = LEQUEL.
+				//             Deux pouvoirs differents lances par le meme totem sur
+				//             la meme cible sont deux coups distincts et legaux ;
+				//             le second n'etait JAMAIS jouable a la souris. Aucun
+				//             message, aucune trace : le coup existait dans la
+				//             liste, l'IA pouvait le jouer, l'humain non.
+				//   FUSIONNER meme case resultat, groupes de cases differents. Trois
+				//             totems voisins de meme niveau : {A,B}->A et {A,C}->A
+				//             partagent `to`. Un seul des deux partait.
+				//
+				// La correction ne devine pas : elle COLLECTE, et si l'ambiguite est
+				// reelle, elle rend la main au joueur (voir NkcBoardPanel, le menu
+				// « Quel coup ? »). Fonction statique et sans etat : c'est elle que
+				// le banc d'essai `NkcAmbiguite.cpp` mesure, sans fenetre ni module.
+				static int32 CollecterCoups(const NkVector<NkcMove> &legal, NkcCoord sel,
+											NkcCoord dest, int32 *out, int32 cap) noexcept {
+					return NkcCollectMoves(legal, sel, dest, out, cap);
+				}
+
+				/// Nombre de coups en attente de desambiguisation (0 = aucun choix).
+				int32 ChoixCount() const noexcept { return mChoixCount; }
+				/// Case ou le joueur a clique, celle que tous ces coups visent.
+				NkcCoord ChoixAt() const noexcept { return mChoixAt; }
+				/// Le i-eme coup candidat.
+				const NkcMove &ChoixMove(int32 i) const noexcept {
+					return mLegal[static_cast<usize>(mChoix[i])];
+				}
+				/// Son index dans la liste des coups legaux — c'est par lui que
+				/// l'apercu DEJA simule se retrouve, sans resimuler.
+				int32 ChoixIndex(int32 i) const noexcept { return mChoix[i]; }
+				/// Joue le i-eme candidat et referme le choix.
+				void JouerChoix(int32 i) noexcept {
+					if (i < 0 || i >= mChoixCount) return;
+					const NkcMove m = mLegal[static_cast<usize>(mChoix[i])];
+					mChoixCount		= 0;
+					PlayMove(m, false);
+					mHasSel = false;
+					RefreshPreviews();
+				}
+				void AnnulerChoix() noexcept { mChoixCount = 0; }
+
+				/// Nom court d'un coup, pour le menu de choix ET pour l'etiquette
+				/// posee sur la case. `buf` doit faire au moins 48 octets.
+				static void NommerCoup(const NkcMove &m, char *buf, usize cap) noexcept {
+					NkcNameMove(m, buf, cap);
 				}
 
 				/// Vrai quand PASSER est le seul coup legal — le panneau Plateau
@@ -630,9 +704,30 @@ namespace nkentseu {
 					mLegalTotal = total;
 				}
 
+				/// UN COUP PART-IL DE CETTE CASE ?
+				///
+				/// La question n'a pas la meme reponse selon le GENRE du coup, et
+				/// c'est ce qui rendait la FUSION injouable a la souris :
+				///
+				///   DUPLIQUER  `from` = la source, `to` = la case creee.
+				///   FUSIONNER  `from` est INUTILISE (donc {0,0} apres la mise a
+				///              zero exigee par le contrat) ; les cases consommees
+				///              sont dans `fuseCells[0..fuseCount-1]`, la case du
+				///              resultat dans `to`.
+				///
+				/// Les trois endroits qui filtraient sur `m.from == case` --
+				/// HasMoveFrom, RefreshPreviews, ClickCell -- voyaient donc TOUTES
+				/// les fusions comme partant de la case (0,0). Consequence mesurable :
+				/// un moteur qui genere des fusions les laisse jouer a l'IA, le
+				/// journal affiche bien « FUSIONNER », et l'humain ne peut PAS les
+				/// cliquer. Le contrat prevoyait l'action, l'interface l'ignorait.
+				static bool MoveTouches(const NkcMove &m, NkcCoord c) noexcept {
+					return NkcMoveTouches(m, c);
+				}
+
 				bool HasMoveFrom(NkcCoord c) const noexcept {
 					for (usize i = 0; i < mLegal.Size(); ++i)
-						if (mLegal[i].kind != NkcMoveKind::Pass && CoordEqual(mLegal[i].from, c)) return true;
+						if (MoveTouches(mLegal[i], c)) return true;
 					return false;
 				}
 
@@ -661,7 +756,7 @@ namespace nkentseu {
 					for (usize i = 0; i < mLegal.Size(); ++i) {
 						const NkcMove &m = mLegal[i];
 						if (m.kind == NkcMoveKind::Pass) continue;
-						if (!CoordEqual(m.from, mSel)) continue;
+						if (!MoveTouches(m, mSel)) continue;
 
 						mRulesVt.CloneState(mRules, mProbe, mState);
 						FlipCollect fc;
@@ -672,6 +767,17 @@ namespace nkentseu {
 						pv.moveIndex = static_cast<uint32>(i);
 						pv.flipCount = fc.count;
 						for (int32 k = 0; k < fc.count; ++k) pv.flips[k] = fc.cells[k];
+						// La forme du coup, pour que le plateau la DESSINE au lieu de
+						// la resumer a un anneau vert de plus.
+						pv.kind	   = m.kind;
+						pv.powerId = m.powerId;
+						if (m.kind == NkcMoveKind::Fuse) {
+							const int32 nf = m.fuseCount < static_cast<int32>(kMaxFuseCells)
+												 ? m.fuseCount
+												 : static_cast<int32>(kMaxFuseCells);
+							pv.partCount = nf;
+							for (int32 k = 0; k < nf; ++k) pv.parts[k] = m.fuseCells[k];
+						}
 						mPreviews.PushBack(pv);
 					}
 				}
@@ -878,6 +984,9 @@ namespace nkentseu {
 				NkcMoveEcho mEcho;
 				NkcCoord	mSel;
 				bool		mHasSel = false;
+				int32		mChoix[kMaxChoix] = {};	  ///< index des coups candidats
+				int32		mChoixCount		  = 0;	  ///< 0 = aucun choix ouvert
+				NkcCoord	mChoixAt;				  ///< case cliquee, cible commune
 				int32		mCursor = -1;
 
 				uint64		 mSeed		  = 12345ull;

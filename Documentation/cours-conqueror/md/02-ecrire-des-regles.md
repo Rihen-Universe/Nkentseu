@@ -270,6 +270,11 @@ plateforme.
 > l'atelier rejetterait le coup de votre propre IA. Le symptôme est spectaculaire
 > — « l'IA a proposé un coup ILLÉGAL » — et la cause est trois lignes plus haut.
 
+Ce même `fuseCells` est ce qui rend une fusion **jouable ou non à la souris** :
+un coup `Fuse` laisse `from` à zéro et met ses cases là. Ce que le joueur voit
+alors à l'écran, et où il doit cliquer, sont décrits au chapitre **6bis,
+[« Jouer un coup à la souris »](06b-jouer-un-coup.md)**.
+
 **Exigence 3 — `cap` peut être trop petit.** La fonction écrit **au plus** `cap`
 coups mais renvoie le nombre **total**. Remarquez que `++n` est en dehors du
 `if (n < cap)` : l'appelant apprend ainsi qu'il doit agrandir son tampon.
@@ -446,7 +451,7 @@ contre de vieux en-têtes.
 ## 2.10 Votre premier module, en quatre gestes
 
 1. Copiez `exemples/rules/RegleContratNu.cpp` vers
-   `Build/ConquerorLab/rules/mes_regles.cpp`.
+   `travail/rules/mes_regles.cpp`.
 2. Changez le nom dans `FillFactory` — sinon vous aurez deux entrées identiques
    dans le menu et vous ne saurez pas laquelle vous testez.
 3. Sauvegardez. Attendez une seconde. Le panneau *Modules* affiche votre module.

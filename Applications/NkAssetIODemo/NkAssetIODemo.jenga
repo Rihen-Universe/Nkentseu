@@ -27,7 +27,7 @@ with project("NkAssetIODemo"):
          "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKGlad",
          "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
-        extra_includes=["src", "%{Noge.location}/src"],
+        extra_includes=["src", "%{Noge.location}/src", "%{wks.location}/Applications/Common"],
     )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

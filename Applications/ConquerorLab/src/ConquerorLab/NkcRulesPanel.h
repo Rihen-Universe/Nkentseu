@@ -155,12 +155,18 @@ namespace nkentseu {
 
 					if (!lib.Message().Empty()) {
 						const NkRect r = ctx.NextItemRect(0.f, ctx.ItemHeight());
-						const bool	 bad = lib.Message().Find("REFUSE") != NkString::npos ||
-										   lib.Message().Find("impossible") != NkString::npos ||
-										   lib.Message().Find("illisible") != NkString::npos;
-						ctx.DL().AddRectFilled(
-							r, NkcFade(bad ? NkcPalette::Error() : NkcPalette::Ok(), 0.22f),
-							ctx.theme.rounding);
+						// La gravite VIENT de la bibliotheque. Elle etait devinee ici en
+						// cherchant des mots dans le texte, sensible a la casse : le
+						// message « Fichier ILLISIBLE » ne contenait pas « illisible »
+						// et s'affichait donc en VERT, comme une reussite.
+						NkColor teinte = NkcPalette::Ok();
+						switch (lib.MessageKind()) {
+							case NkcMsgKind::Erreur:		teinte = NkcPalette::Error(); break;
+							case NkcMsgKind::Avertissement: teinte = NkcPalette::Warn(); break;
+							case NkcMsgKind::Info:			teinte = NkcPalette::Border(); break;
+							default:						teinte = NkcPalette::Ok(); break;
+						}
+						ctx.DL().AddRectFilled(r, NkcFade(teinte, 0.22f), ctx.theme.rounding);
 						NkcTextCenter(ctx, r, lib.Message().CStr(), NkcPalette::Text());
 					}
 				}

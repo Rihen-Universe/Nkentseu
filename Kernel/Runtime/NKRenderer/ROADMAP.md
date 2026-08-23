@@ -295,42 +295,173 @@ matériau. Preuve : famille `matops/`, 12 cas, **tous rouges avant** (`slot1 →
 `EM_ToWeldedPolygons` a reçu le même paramètre optionnel que `ToPolygons` — c'est
 par elle que passent les opérations qui soudent avant d'éditer.
 
-### 🔴 TROIS OPÉRATIONS NON CÂBLÉES — et c'est un refus motivé, pas un oubli
+### ✅ RÉSORPTION (4) — les trois opérations « non câblées » le sont (2026-08-23)
 
-| opération | pourquoi elle n'est PAS câblée |
+Ce titre disait, jusqu'à ce jour, **« 🔴 TROIS OPÉRATIONS NON CÂBLÉES — et c'est
+un refus motivé, pas un oubli »**. Le refus était motivé ; il n'a plus d'objet.
+Les trois sont câblées, et chacune par une règle **arbitrée**, pas devinée.
+
+| opération | ce qui bloquait | ce qui a tranché |
+|---|---|---|
+| `DissolveSelected` | de qui la survivante d'une fusion hérite-t-elle ? | **dominance par l'aire**, égalité par l'indice le plus bas |
+| `BevelSelected` | bandes et coins n'ont **aucune face mère** ; alignement de `endFace` non prouvable | héritage des faces **géométriquement adjacentes**, dominance par la **longueur de contour partagé** ; l'attribut est poussé **dans `endFace` lui-même**, sous la même condition d'acceptation que `nfs` — l'alignement n'est plus à prouver, il est **structurel** |
+| `ExtrudeSelectedEdges` | chemin propre, ne passant par aucune des deux fonctions de round-trip | même règle ; et le passage de `&fa` à `ToPolygons` a corrigé au passage une régression que personne ne mesurait (l'opération **repeignait tout le maillage en slot 0**) |
+
+**Une seule phrase couvre les deux familles** — *dominance par une mesure,
+égalité par l'indice le plus bas* — et c'est délibéré : aux sites de **fusion** la
+mesure est l'**aire** de la face absorbée, aux sites de **création** la **longueur
+de contour partagé** avec la voisine. `EM_MaterialDominant` prend donc un *poids*
+et non plus une aire. Deux fonctions auraient laissé diverger deux énoncés
+identiques.
+
+#### ⚠️ Ce que la mesure a corrigé de ce qui était écrit ici
+
+> 🎯 L'ancien encadré disait : *« mieux vaut une limite connue qu'un câblage
+> supposé — les trois lignes `matops/` correspondantes affichent `slot1 → 0` et
+> disent donc la vérité sur l'état du code »*. C'était juste. Ces deux lignes
+> **ont changé de valeur** avec ce câblage, et c'est le résultat attendu :
+> `matops/chanfrein` passe de `slot1 6 -> 0` à **`6 -> 26`**, et
+> `matops/extruder-aretes` de `6 -> 0` à **`6 -> 18`**. Aucune face créée ne
+> tombe plus dans le slot 0.
+
+**Précédent NON suivi, et il faut le dire** : `SpinSelected` donne le **slot 0**
+à ses bandes latérales, qui n'ont pas non plus de face mère. C'était un choix
+écrit et assumé, mais il **ne devient pas la règle** : le slot 0 est une couleur
+comme une autre, pas un « sans matériau », et l'y envoyer repeint la bande en
+silence. Les faces créées héritent désormais de leur voisinage.
+⚠️ **`SpinSelected` reste donc à reprendre** — c'est la dette que cette
+résorption laisse derrière elle, nommée plutôt que refermée.
+
+#### 🧪 Preuve : famille `matcre/`, 10 cas, référence de 250 à 260 lignes
+
+Deux d'entre eux ne mesurent pas l'opération mais **le banc lui-même**, et ils
+sont là pour une raison précise :
+
+- **`matcre/temoin-maillage-soude`** — sur un maillage **non soudé** (un cube
+  importé porte 24 sommets pour 8 positions) une arête n'a qu'**une** face
+  incidente : jamais d'ambiguïté, donc jamais de perte, donc **un compteur
+  toujours nul sans qu'une seule ligne soit fausse**. Ce cas vérifie que l'arête
+  mesurée en porte bien **deux**. Sans lui, les autres mesureraient un bord.
+- **`matcre/chanfrein-longueur-domine`** — dans tous les autres cas le gagnant
+  est **aussi** l'indice le plus bas : ils ne distinguent pas « dominance par la
+  longueur » de « toujours le plus petit slot ». Ce cas met les deux critères en
+  **désaccord** (coin aigu d'un côté ⇒ recul plus grand ⇒ contour partagé plus
+  court) et mesure **`slot5=2`** : la longueur gagne contre l'indice.
+
+> ⚠️ **Un critère qui ne peut pas départager est aussi vide qu'un compteur qui ne
+> peut pas valoir autre chose que zéro.** Les deux se prouvent de la même façon :
+> en construisant le cas où ils devraient parler, et en regardant s'ils parlent.
+
+`matcre/chanfrein-cube-raccords` exerce la troisième famille de faces, la seule
+qu'aucun autre cas n'atteignait — les **raccords aux sommets** n'existent que si
+les deux extrémités de l'arête chanfreinée sont fermées. Cube 6 faces, six slots
+distincts : **6 → 26 faces** (6 + 12 bandes + 8 raccords), `slot0=0`,
+**`perdus=28`** — soit exactement 12 bandes × 1 perte + 8 raccords × 2.
+
+### ✅ RÉSORPTION (6) — la pile de modificateurs transporte le matériau (2026-08-23)
+
+> ⚠️ *Numérotation : ce document porte DEUX séries de « résorption » mêlées — la
+> couverture des bancs (2) et (5), et le transport du matériau (3), (4) et celle-ci.
+> Le (5) de la ligne 218 ne précède pas ce (6) : il parle d'autre chose. Renuméroter
+> après coup casserait les renvois déjà écrits ailleurs ; on le signale au lieu de le
+> réparer en silence.*
+
+**Le même jour, en deux temps.** La re-mesure du matin avait déplacé la dette des
+opérations d'édition vers les **modificateurs** ; l'après-midi les a câblés. Le
+cadre posé par Rodolf tranchait la question du périmètre : *« en édition on doit
+être quasiment similaire à Blender, ou plus performant »* — et dans Blender,
+appliquer un Solidify ou un Array **ne perd pas les matériaux**.
+
+| modificateur | héritage retenu | pourquoi |
+|---|---|---|
+| `Mirror`, `Array` | **identité** | ce sont des COPIES ; la face miroir est la même face, retournée |
+| `Triangulate` | **identité**, sur ses **deux** chemins | un éventail sort d'un seul n-gon. ⚠️ Le chemin `BuildFromIndexed` lisait déjà la parenté `tf` (elle sert au *picking*) : il n'y avait qu'à la brancher |
+| `Build`, `Mask` | **identité** | c'est une sélection, pas une création |
+| `Solidify` | coques externe et interne = **identité** ; **tranche de bord** = règle des faces sans mère | la tranche est la seule face réellement neuve |
+
+⚠️ **Un chemin sur deux aurait suffi à ne rien voir** : `Triangulate` bascule
+entre deux implémentations selon `triangulateMinVerts`. N'en corriger qu'une
+aurait laissé la moitié des utilisateurs avec des faces repeintes, **selon un
+réglage qu'ils n'auraient jamais relié au symptôme**. Les deux ont leur cas.
+
+#### 🟢 `SpinSelected` est aligné, et son exception est levée
+
+Ses bandes latérales recevaient le **slot 0** — choix écrit et assumé *d'avant*
+l'arbitrage, dont la raison inscrite dans le code (« hériter d'un des deux côtés
+privilégierait arbitrairement un côté ») a été retirée par la règle. Elles
+héritent désormais de leur voisinage.
+
+> **Une règle qui traîne une exception que personne ne se rappelle est pire que
+> pas de règle : elle fait croire qu'on peut prédire le comportement.**
+
+#### 🕳️ Le trou n'était pas dans le code, il était dans le BANC
+
+`matops/` porte le nom d'un domaine — « le matériau survit aux opérations » — et
+n'exerçait que les opérations d'**édition**. Les modificateurs n'étaient touchés
+par aucune ligne : ils repeignaient tout en slot 0 et la référence restait verte.
+
+> **Une famille de cas qui porte le nom d'un domaine donne l'impression de
+> couvrir ce domaine. Elle ne couvre que ce qu'elle exerce.**
+
+Et le chemin des **bandes** de `SpinSelected` était dans le même cas : le seul cas
+qui l'approchait, `matops/vis-revolution`, utilise `duplicate=true`, qui **copie**
+des faces — donc précisément la branche qui *avait* des mères. Le commentaire du
+code le disait en toutes lettres, et personne n'en avait tiré la ligne manquante.
+
+**Preuve** : famille `matcre/` (10 cas) + `matmod/` (9 cas), référence de 250 à
+**269 lignes**, les 260 précédentes identiques octet pour octet. Chaque ligne
+`matmod/` porte `slot0` — c'est là que tombe toute face qui n'a hérité de
+personne — et exprime une **relation** (« chaque slot ×2 ») plutôt qu'un compte
+figé, pour ne pas se périmer quand la grille change de taille.
+
+### ⏱️ COÛT MESURÉ — et il n'est pas là où on le cherchait
+
+Mesure derrière `--perf`, **hors référence** : une durée ne peut pas être comparée
+octet pour octet, et la poser dans `editmesh_baseline.txt` ferait tomber `--check`
+à chaque passage — donc prendre l'habitude de recopier le nouveau chiffre sans le
+lire. Grille **128×128 soudée, 16 384 faces**, build **Release**.
+
+**Le surcoût du transport est négligeable, et il est plus petit que le bruit** —
+mesuré, pas supposé :
+
+| | sans attributs | avec attributs | écart | dispersion d'une variante |
+|---|---|---|---|---|
+| `ToPolygons` | 1,215 ms | 1,279 ms | **+0,06 ms** | ±0,34 ms |
+| `BuildFromPolygons` | 8,821 ms | 9,527 ms | **+0,71 ms** | ±2,26 ms |
+
+L'écart est **inférieur à l'étalement d'une seule variante** : il ne se lit qu'au
+minimum, et il ne se lirait pas du tout sans avoir mesuré le bruit d'abord.
+
+#### 🔴 EN REVANCHE, LA MESURE A TROUVÉ AUTRE CHOSE — `RebuildEdges` est superquadratique
+
+| opération (16 384 faces) | temps |
 |---|---|
-| `DissolveSelected` | **fusionne plusieurs faces en une**. De qui la survivante hérite-t-elle ? C'est la **même question non tranchée que la décimation** — une décision produit, pas un problème technique |
-| `BevelSelected` | émet trois familles de faces : celles d'origine (héritables), les **bandes de chanfrein** nées d'une *arête*, et les **faces de coin** nées d'un *sommet*. Les deux dernières n'ont **aucune face mère**. De plus son émission passe par une lambda `endFace` indexée sur un maillage temporaire : **je ne peux pas prouver l'alignement** avec `fm` |
-| `ExtrudeSelectedEdges` | ne passe ni par `ToPolygons` ni par `EM_ToWeldedPolygons` — chemin propre, à instruire séparément |
+| `Mirror` (32 768 faces en sortie) | **21 ms** |
+| `Mask` | **5 ms** |
+| `Triangulate` | **2 785 ms** |
+| `Solidify` | **9 354 ms** |
+| `RebuildEdges` **seul** | **1 580 ms** |
 
-> 🎯 **Pourquoi les laisser rouges plutôt que poser un câblage plausible** : un
-> transport mal aligné ne casse rien de visible, il **déplace silencieusement des
-> matériaux d'une face à l'autre**. C'est exactement la classe de défaut que ce
-> chantier existe pour éliminer. **Mieux vaut une limite connue qu'un câblage
-> supposé** — les trois lignes `matops/` correspondantes affichent `slot1 → 0` et
-> disent donc la vérité sur l'état du code.
+`Mirror` fait le **même** aller-retour, attributs compris, et sort **plus** de
+faces que `Triangulate` — en 21 ms. La différence n'est donc ni le transport ni le
+volume : `Mirror` est le seul qui **n'appelle pas `RebuildEdges`**.
 
-**Précédent applicable quand la décision sera prise** : pour `SpinSelected`, les
-bandes latérales — qui n'ont pas non plus de face mère — reçoivent le **slot 0**,
-choix écrit et assumé dans le code plutôt que subi.
+**Croissance mesurée** — on double le côté de la grille, donc ×4 faces :
 
-### 🧾 CE QUI RESTE — dette nommée, et elle est mécanique
+| grille | faces | `RebuildEdges` |
+|---|---|---|
+| 32×32 | 1 024 | 3,1 ms |
+| 64×64 | 4 096 | 73,8 ms *(×23,6)* |
+| 128×128 | 16 384 | 1 580 ms *(×21,4)* |
 
-**Trois opérations transportent le matériau** : subdivision linéaire,
-Catmull-Clark, extrusion (ses **deux** branches, `individual` et région).
+×4 faces coûtent **×22** de temps. Linéaire donnerait ×4, quadratique ×16 :
+**c'est au-delà du quadratique**. Sur un maillage dense, c'est ce seul appel qui
+fait l'attente — pas l'opération que l'utilisateur a demandée.
 
-**Ne le transportent PAS encore** — même motif de câblage à appliquer :
-soudure (`MergeSelectedVerts`), `BevelSelected`, `InsetSelectedFaces`,
-`LoopCutFromSelectedEdge`, `DissolveSelected`, `BisectByPlane`,
-`SplitSelectedEdges`, `SpinSelected`, `ShrinkFattenSelected`,
-`MakeFaceFromSelected`, `DeleteSelectedFaces`.
-
-**Et une DÉCISION DE PRODUIT non tranchée** : à la **décimation**, quand une
-contraction fusionne deux faces de matériaux différents, de qui la survivante
-hérite-t-elle (la plus grande ? la première ? celle du sommet conservé) ? Le cas
-`mat/decim-non-tranche` **mesure** l'état actuel (`slot1 2 -> 0`) et le déclare
-explicitement « MESURE, pas un attendu » — écrire un attendu ici serait inventer
-une décision qui revient à Rodolf.
+⚠️ **Ce n'est pas une régression de ce chantier** : le transport des attributs
+coûte 0,7 ms là où `RebuildEdges` en coûte 1 580. Mais c'est **incompatible avec
+la cible « quasiment similaire à Blender, ou plus performant »**, et ça grandit
+avec les modèles des utilisateurs. **Chantier à ouvrir, avec son chiffre.**
 
 ### ⚠️ `smooth` perdu est un DÉFAUT RÉEL, laissé tel quel volontairement
 

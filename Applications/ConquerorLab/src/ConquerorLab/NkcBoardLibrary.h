@@ -44,6 +44,8 @@
 #include "NKSerialization/JSON/NkJSONReader.h"
 #include "NKSerialization/NkArchive.h"
 
+#include <cstdio>
+
 namespace nkentseu {
 	namespace conqueror {
 
@@ -76,6 +78,17 @@ namespace nkentseu {
 				/// comportement d'avant, et il n'y a rien a migrer.
 				NkString libelle;
 		};
+
+		/// GRAVITE D'UN MESSAGE — PORTEE, JAMAIS DEVINEE.
+		///
+		/// Le panneau Regles colorait le bandeau en cherchant des MOTS dans le
+		/// texte : « REFUSE », « impossible », « illisible ». Le message d'erreur
+		/// ecrit « Fichier ILLISIBLE » en capitales ; la recherche etait sensible
+		/// a la casse ; l'echec le plus grave de la liste s'affichait donc en
+		/// VERT, exactement comme un chargement reussi. Deviner la gravite depuis
+		/// la prose est un piege : la prose change, la couleur ment, et personne
+		/// ne relit le panneau qui colore pour verifier.
+		enum class NkcMsgKind : uint8 { Info = 0, Ok = 1, Avertissement = 2, Erreur = 3 };
 
 		class NkcBoardLibrary {
 			public:
@@ -138,6 +151,8 @@ namespace nkentseu {
 				const NkString				   &Dir() const noexcept { return mDir; }
 				const NkVector<NkcBoardFile>   &Files() const noexcept { return mFiles; }
 				const NkString				   &Message() const noexcept { return mMsg; }
+				/// Gravite du dernier message. Le panneau s'en sert pour la couleur.
+				NkcMsgKind					   MessageKind() const noexcept { return mKind; }
 
 				/// Relit le dossier de travail. Meme piege que `SeedFrom` : `GetFiles`
 				/// rend des chemins COMPLETS. On garde le chemin tel quel, et on
@@ -154,8 +169,12 @@ namespace nkentseu {
 				/// journaliser ici ne noie rien.
 				void Refresh() noexcept {
 					mFiles.Clear();
+					mMsg.Clear();
+					mKind = NkcMsgKind::Info;
 					if (mDir.Empty()) {
 						logger.Warnf("[lab] grilles de travail : aucun dossier defini");
+						mMsg  = "Aucun dossier de grilles defini.";
+						mKind = NkcMsgKind::Erreur;
 						return;
 					}
 					NkVector<NkString> paths = NkDirectory::GetFiles(mDir.CStr(), "*.json");
@@ -174,6 +193,95 @@ namespace nkentseu {
 								 static_cast<uint32>(paths.Size()),
 								 ignores ? " (des noms illisibles ont ete ignores)" : "",
 								 mDir.CStr());
+					SignalerCeQuiEstIgnore(static_cast<uint32>(paths.Size()));
+				}
+
+				/// CE QU'ON NE LIT PAS DOIT SE DIRE, SINON C'EST LE MEME SILENCE.
+				///
+				/// `Refresh` ne balaie que `*.json`. Un fichier depose sous un autre
+				/// nom -- `mon_plateau` sans extension, `.txt`, ou `.json.txt` que
+				/// l'Explorateur affiche comme `.json` -- est donc INVISIBLE, et rien
+				/// ne le disait : la liste restait la meme, et le stagiaire concluait
+				/// que « ca ne marche pas ». Un fichier ignore en silence est un defaut
+				/// de l'atelier, pas une erreur de l'utilisateur.
+				///
+				/// Journalise ET affiche : le panneau « Regles » est le seul endroit
+				/// que le stagiaire regarde, le journal le seul qu'on relira apres coup.
+				void SignalerCeQuiEstIgnore(uint32 vusJson) noexcept {
+					NkVector<NkString> tous = NkDirectory::GetFiles(mDir.CStr(), "*");
+					NkString		   noms;
+					uint32			   autres = 0;
+					for (usize i = 0; i < tous.Size(); ++i) {
+						const NkString nom = NkPath(tous[i]).GetFileName();
+						if (nom.Empty() || FinitParJson(nom)) continue;
+						++autres;
+						if (autres <= 3) {
+							if (!noms.Empty()) noms += ", ";
+							noms += nom;
+						}
+					}
+					if (autres > 0) {
+						logger.Warnf("[lab] %u fichier(s) IGNORE(S) dans %s : %s%s "
+									 "-- une grille doit se terminer par .json",
+									 autres, mDir.CStr(), noms.CStr(),
+									 autres > 3 ? ", ..." : "");
+						char tmp[96];
+						std::snprintf(tmp, sizeof(tmp),
+									  "%u fichier(s) ignore(s), pas en .json : ", autres);
+						mKind = NkcMsgKind::Avertissement;
+						mMsg  = tmp;
+						mMsg += noms;
+						if (autres > 3) mMsg += ", ...";
+					}
+					SignalerDossierVoisin(vusJson + autres);
+				}
+
+				static bool FinitParJson(const NkString &nom) noexcept {
+					const usize n = nom.Size();
+					if (n < 5) return false;
+					const char *c = nom.CStr() + (n - 5);
+					return c[0] == '.' &&
+						   (c[1] == 'j' || c[1] == 'J') && (c[2] == 's' || c[2] == 'S') &&
+						   (c[3] == 'o' || c[3] == 'O') && (c[4] == 'n' || c[4] == 'N');
+				}
+
+				/// Le dossier d'a cote qui ressemble au bon. On ne le lit PAS -- on le
+				/// NOMME. Deviner ce que l'utilisateur voulait est le debut des
+				/// comportements qu'on ne sait plus expliquer ; le lui dire lui laisse
+				/// la main, et lui coute dix secondes au lieu d'une journee. Un
+				/// stagiaire ecrit `travail/board` (singulier) ou `travail/grilles`,
+				/// l'atelier lit `travail/boards`, et les deux ont raison de leur point
+				/// de vue. Seul l'atelier peut lever le malentendu.
+				void SignalerDossierVoisin(uint32 vus) noexcept {
+					if (vus > 0) return;   // le bon dossier n'est pas vide : rien a chercher
+					const usize cut = DerniereBarre(mDir);
+					if (cut == NkString::npos) return;
+					const NkString parent = mDir.SubStr(0, cut);
+					static const char *const kProches[] = {"board", "grille", "grilles",
+															   "plateau", "plateaux", "Boards"};
+					for (usize k = 0; k < sizeof(kProches) / sizeof(kProches[0]); ++k) {
+						NkString cand = parent;
+						cand += "/";
+						cand += kProches[k];
+						if (!NkDirectory::Exists(cand.CStr())) continue;
+						if (NkDirectory::GetFiles(cand.CStr(), "*").Empty()) continue;
+						logger.Warnf("[lab] le dossier %s contient des fichiers, mais "
+									 "l'atelier lit %s -- renommez-le en \"boards\"",
+									 cand.CStr(), mDir.CStr());
+						mKind = NkcMsgKind::Avertissement;
+						mMsg  = "Vos fichiers sont dans le dossier \"";
+						mMsg += kProches[k];
+						mMsg += "\" ; l'atelier lit \"boards\". Renommez le dossier.";
+						return;
+					}
+				}
+
+				static usize DerniereBarre(const NkString &p) noexcept {
+					const usize a = p.RFind('/');
+					const usize b = p.RFind('\\');
+					if (a == NkString::npos) return b;
+					if (b == NkString::npos) return a;
+					return (a > b) ? a : b;
 				}
 
 				/// Ecrit un exemple si le dossier est vide, a partir du plateau que le
@@ -196,19 +304,72 @@ namespace nkentseu {
 				/// que l'auteur du fichier aura.
 				bool LoadInto(const NkcRulesVTable &vt, NkcRules inst, usize idx) noexcept {
 					mMsg.Clear();
-					if (!inst || !vt.LoadBoardJson) { mMsg = "Le moteur n'accepte pas de plateau."; return false; }
-					if (idx >= mFiles.Size()) { mMsg = "Fichier introuvable."; return false; }
+					mKind = NkcMsgKind::Info;
+					if (!inst || !vt.LoadBoardJson) { mMsg = "Le moteur n'accepte pas de plateau."; mKind = NkcMsgKind::Erreur; return false; }
+					if (idx >= mFiles.Size()) { mMsg = "Fichier introuvable."; mKind = NkcMsgKind::Erreur; return false; }
 
-					const NkString text = NkFile::ReadAllText(mFiles[idx].path.CStr());
+					// « ILLISIBLE » SANS RAISON EST LE MEME SILENCE QU'AILLEURS.
+					// Le message d'avant disait « vide ou illisible » suivi du seul NOM
+					// de fichier : le lecteur ne pouvait savoir ni LEQUEL des deux, ni
+					// OU l'atelier avait regarde. Les trois causes se distinguent en
+					// trois appels, et chacune appelle un geste DIFFERENT -- c'est
+					// exactement pour cela qu'il faut les separer. Le chemin COMPLET,
+					// pas le nom : un nom ne dit pas dans quel dossier on a cherche.
+					const char *chemin = mFiles[idx].path.CStr();
+					if (!NkFile::Exists(chemin)) {
+						mKind = NkcMsgKind::Erreur;
+						mMsg  = "Fichier disparu depuis le dernier Rafraichir : ";
+						mMsg += mFiles[idx].path;
+						return false;
+					}
+					const nk_int64 taille = NkFile::GetFileSize(chemin);
+					if (taille == 0) {
+						mKind = NkcMsgKind::Erreur;
+						mMsg  = "Fichier VIDE (0 octet) : ";
+						mMsg += mFiles[idx].path;
+						return false;
+					}
+					const NkString text = NkFile::ReadAllText(chemin);
 					if (text.Empty()) {
-						mMsg = "Fichier vide ou illisible : ";
-						mMsg += mFiles[idx].name;
+						char tmp[112];
+						std::snprintf(tmp, sizeof(tmp),
+									  "Fichier ILLISIBLE : %lld octets sur le disque, 0 lu "
+									  "(droits, ou fichier ouvert ailleurs) : ",
+									  static_cast<long long>(taille));
+						mKind = NkcMsgKind::Erreur;
+						mMsg  = tmp;
+						mMsg += mFiles[idx].path;
 						return false;
 					}
 					if (!vt.LoadBoardJson(inst, text.CStr())) {
-						mMsg = "Le moteur a REFUSE ce plateau : ";
-						mMsg += mFiles[idx].name;
-						mMsg += "  (cellules manquantes ou JSON invalide)";
+						// « CELLULES MANQUANTES OU JSON INVALIDE » EST ENCORE UN OU.
+						// Le module renvoie un simple faux : il ne dit pas pourquoi, et
+						// il n'a pas a le dire — c'est le contrat. L'atelier, lui, a le
+						// texte en main : il peut RELIRE le fichier avec l'analyseur de
+						// la pile et rapporter la cause exacte, en distinguant les deux
+						// gestes qui n'ont rien a voir — corriger une virgule, ou
+						// ajouter une clef.
+						NkString erreur;
+						NkArchive archive;
+						if (!NkJSONReader::ReadArchive(text.View(), archive, &erreur)) {
+							mMsg = "JSON INVALIDE : ";
+							mMsg += erreur.Empty() ? NkString("syntaxe incorrecte") : erreur;
+							mMsg += "  --  ";
+							mMsg += mFiles[idx].path;
+						} else {
+							const char *manque = ClefManquante(text);
+							if (manque) {
+								mMsg = "JSON correct, mais la clef \"";
+								mMsg += manque;
+								mMsg += "\" manque : ";
+								mMsg += mFiles[idx].path;
+							} else {
+								mMsg = "Le moteur a REFUSE ce plateau (JSON correct, clefs "
+									   "presentes : valeurs hors bornes ?) : ";
+								mMsg += mFiles[idx].path;
+							}
+						}
+						mKind = NkcMsgKind::Erreur;
 						return false;
 					}
 					// La FORME DES CELLULES est de la presentation : le contrat ne la
@@ -216,9 +377,26 @@ namespace nkentseu {
 					// C'est donc l'atelier qui la lit, ici, ou il a le texte en main.
 					mShape = ReadCellShape(text);
 
-					mMsg = "Plateau charge : ";
+					mKind = NkcMsgKind::Ok;
+					mMsg  = "Plateau charge : ";
 					mMsg += mFiles[idx].name;
 					return true;
+				}
+
+				/// La premiere clef ATTENDUE qui manque, ou nullptr si elles sont la.
+				/// La liste vit ici et nulle part ailleurs : c'est l'atelier qui lit
+				/// les plateaux du stagiaire, et un fichier a qui il manque `cells`
+				/// n'est pas « invalide », il est INCOMPLET — le geste n'est pas le
+				/// meme, et le message doit le dire.
+				static const char *ClefManquante(const NkString &texte) noexcept {
+					static const char *const kClefs[] = {"topology", "cells"};
+					for (usize k = 0; k < sizeof(kClefs) / sizeof(kClefs[0]); ++k) {
+						NkString motif = "\"";
+						motif += kClefs[k];
+						motif += "\"";
+						if (texte.Find(motif.CStr()) == NkString::npos) return kClefs[k];
+					}
+					return nullptr;
 				}
 
 				/// Forme declaree par le dernier plateau charge. `Auto` si le fichier
@@ -251,11 +429,13 @@ namespace nkentseu {
 					path += "/";
 					path += name;
 					if (!NkFile::WriteAllText(path.CStr(), vt.GetBoardJson(inst))) {
-						mMsg = "Ecriture impossible : ";
+						mKind = NkcMsgKind::Erreur;
+						mMsg  = "Ecriture impossible : ";
 						mMsg += path;
 						return false;
 					}
-					mMsg = "Plateau exporte : ";
+					mKind = NkcMsgKind::Ok;
+					mMsg  = "Plateau exporte : ";
 					mMsg += name;
 					Refresh();
 					return true;
@@ -286,6 +466,7 @@ namespace nkentseu {
 				NkString			   mDir;
 				NkVector<NkcBoardFile> mFiles;
 				NkString			   mMsg;
+				NkcMsgKind			   mKind = NkcMsgKind::Info;
 				/// Forme declaree par le dernier plateau charge (presentation).
 				NkcCellShape		   mShape = NkcCellShape::Auto;
 		};

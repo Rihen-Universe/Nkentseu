@@ -10,9 +10,9 @@ Vous déposez un fichier dans un dossier, et l'atelier fait le reste.
 
 | Je veux ajouter… | Je dépose… | Ce qui se passe |
 |---|---|---|
-| un **moteur de règles** | `Build/ConquerorLab/rules/mes_regles.cpp` | détecté → **compilé** → chargé → apparaît dans le panneau *Modules* |
-| une **IA** | `Build/ConquerorLab/ai/mon_ia.cpp` | idem → apparaît dans la liste des pilotes, panneau *Joueurs* |
-| une **grille** | `Build/ConquerorLab/boards/diamant.json` | **aucune compilation** → apparaît dans le panneau *Règles* |
+| un **moteur de règles** | `travail/rules/mes_regles.cpp` | détecté → **compilé** → chargé → apparaît dans le panneau *Modules* |
+| une **IA** | `travail/ai/mon_ia.cpp` | idem → apparaît dans la liste des pilotes, panneau *Joueurs* |
+| une **grille** | `travail/boards/diamant.json` | **aucune compilation** → apparaît dans le panneau *Règles* |
 
 La différence entre les deux premiers et le troisième n'est pas une commodité,
 c'est une décision de conception :
@@ -33,7 +33,7 @@ c'est une décision de conception :
 ## 1.2 Le cycle de travail
 
 ```
-1.  vous ecrivez   Build/ConquerorLab/rules/mes_regles.cpp
+1.  vous ecrivez   travail/rules/mes_regles.cpp
 2.  vous sauvegardez
 3.  l'atelier detecte le changement (il scrute une fois par seconde)
 4.  il COMPILE  ->  il charge  ->  votre module apparait dans le menu

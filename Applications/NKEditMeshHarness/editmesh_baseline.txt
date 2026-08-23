@@ -143,16 +143,16 @@ graphe/interface-groupe            conforme=ok | nom-absent=interface-incompatib
 graphe/interface-messages          [racine/inst : socket absent sur l'instance : e] [racine/inst : type different sur e : groupe=flux instance=maillage] [racine/inst : socket en trop sur l'instance : oublie]
 decim/plan-erreur-nulle            ok=1 tris 128->19 contract=66 | erreur moy=0.00000 max=0.00000 | bbox 1.00x1.00
 decim/bord-retenu-ou-non           depart larg=1.000 | avec-bord larg=1.000 bords=8 | sans-bord larg=0.873 bords=7 | perte=0.127
-decim/ferme-reste-manifold         tris 768->268 | nonmanif 0->0 ferme=1 | err moy=0.0041
+decim/ferme-reste-manifold         tris 768->268 | nonmanif 0->0 ferme=1 | err moy=0.0042
 decim/cible-absurde-degenere       tris 768->2 (cible 3) | refus lien=0 flip=0 | nonmanif=0 ferme=1
 decim/condition-de-lien            avec ok=1 tris=4 refus-lien=6 nonmanif=0 | sans ok=1 tris=4 nonmanif=0
-decim/erreur-croit-avec-la-cible   60%:tris=460,err=0.0025 | 30%:tris=230,err=0.0046 | 12%:tris=92,err=0.0094
-decim/plafond-erreur               tris 768->168 cible-atteinte=0 (0 attendu) refus-cout=1 cout-max=0.000010
+decim/erreur-croit-avec-la-cible   60%:tris=460,err=0.0025 | 30%:tris=230,err=0.0047 | 12%:tris=92,err=0.0089
+decim/plafond-erreur               tris 768->170 cible-atteinte=0 (0 attendu) refus-cout=1 cout-max=0.000010
 retopo/champ-lissage-travaille     faces=128 epinglees=30 | align 0-iter=0.777 -> 20-iter=0.999 (doit monter)
 retopo/cylindre-alignement         naif quads=64 (cellules PLANES : il reussit aussi) | champ ok=1 quads=64 align=0.999 nonmanif=0
-retopo/apres-decimation-naif-champ naif quads=43 | champ quads=108 tris-restants=52 (le champ doit dominer largement)
-retopo/pipeline-ferme-manifold     ok=1 decim 768->268 tris | sortie quads=108 tris=52 ratio=0.68 | ferme=1 manifold=1 genre=0
-retopo/seuil-qualite-agit          defaut(0,25) quads=108 | strict(0,75) quads=13 (doit chuter)
+retopo/apres-decimation-naif-champ naif quads=37 | champ quads=100 tris-restants=68 (le champ doit dominer largement)
+retopo/pipeline-ferme-manifold     ok=1 decim 768->268 tris | sortie quads=100 tris=68 ratio=0.60 | ferme=1 manifold=1 genre=0
+retopo/seuil-qualite-agit          defaut(0,25) quads=100 | strict(0,75) quads=14 (doit chuter)
 retopo/aretes-vives-epinglees      faces=12 epinglees=12 (toutes attendues) | align-axes=1.000 (1,0 attendu)
 theme/aller-retour                 lu=1 appliques=30 inconnus=0 | roles differents=0 (0 attendu) nom=Mon theme
 theme/heritage-partiel             appliques=3 | herites=27/27 noirs=0 (0 attendu) | accent_ui=#2266FF nom=Bleu nuit
@@ -176,8 +176,8 @@ mat/survie-triangulation           indices-slot1=12 (12 attendus : 2 quads -> 4 
 mat/assign-par-sommets             tousCoins=1 (1 attendu) unCoinManquant=0 (0 attendu)
 mat/slots-trou-jamais-decalage     slots=3 vivants=2 id[2]=102 (102 attendu) faceMz=2 (2 attendu)
 mat/slots-survivent-a-l-edition    slots 1 -> 1 | dernier id=777 (777 attendu)
-mat/decim-non-tranche              slot1 2 -> 0 | tris 12->6 (MESURE, pas un attendu)
-mat/temoin-smooth                  smooth 12 -> 0 sur 24 faces (TEMOIN du comportement existant)
+mat/decim-transport                slot1 2 -> 1 | tris 12->6 (0 = le materiau disparaissait)
+mat/temoin-smooth                  smooth 12 -> 24 sur 24 faces (24 = les filles heritent)
 mat/survie-soudure                 slot1 2 -> 2 | sommets 24 -> 8 ok=1
 hist/aller-retour                  undo=1 redo=1 | retourExact=1 refaitExact=1 muteDifferent=1
 hist/pile-vide                     undoVide=0 (0 attendu) redoVide=0 (0 attendu) etatIntact=1 canUndo=0
@@ -201,11 +201,11 @@ matops/coupe-de-boucle             slot1 16 -> 20 | faces 16 -> 20
 matops/coupe-par-plan              slot1 6 -> 10 | faces 6 -> 10
 matops/vis-revolution              slot1 16 -> 112 | faces 16 -> 112
 matops/deformation-pure            ok=1 slot1 6 -> 6 | faces 6 -> 6 (si ok=0, ce cas ne prouve RIEN)
-matops/chanfrein                   ok=1 slot1 6 -> 0 | faces 6 -> 26
+matops/chanfrein                   ok=1 slot1 6 -> 26 | faces 6 -> 26
 matops/inset                       ok=1 slot1 6 -> 30 | faces 6 -> 30
 matops/split-aretes                ok=1 slot1 6 -> 6 | faces 6 -> 6
-matops/dissolve                    ok=1 slot1 16 -> 0 | faces 16 -> 1
-matops/extruder-aretes             ok=1 slot1 6 -> 0 | faces 6 -> 18
+matops/dissolve                    ok=1 slot1 16 -> 1 | faces 16 -> 1
+matops/extruder-aretes             ok=1 slot1 6 -> 18 | faces 6 -> 18
 chargeurs/ply-ascii                ok=1 sommets=8 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
 chargeurs/ply-binaire              ok=1 sommets=8 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
 chargeurs/stl-ascii                ok=1 sommets=36 triangles=12 | bbox 2.000x2.000x2.000 cubique=1
@@ -230,3 +230,45 @@ acces/boucle-de-faces-bord         grille=4 faces=4 vivantes=4 doublons=0 rangee
 acces/boucle-de-faces-interieur    grille=4 faces=4 vivantes=4 doublons=0 rangee entiere=1 | boucle aretes=4
 acces/pile-trouver-et-descendre    trouve=1 refus inconnu=1 | bas ok=1 echange=1 | fin ok=0 intact=1 | id stable=1
 acces/enregistreur-rejeu           count 0->1->2 relu=1 | applique=2 faces 6->96 change=1
+matfus/aire-de-face                tri 1.5000 + 2.0000 | ngon 3.5000 | morte 0.0000 horsbornes 0.0000
+matfus/quadify-aire-domine         faces 1 retenu=2 (2 = la GRANDE, pas l indice bas) perdus=1
+matfus/quadify-egalite-indice      faces 1 retenu=1 (1 = indice bas a aire egale) perdus=1
+matfus/quadify-sans-perte          faces 1 retenu=3 perdus=0 (0 : meme materiau des deux cotes)
+matfus/transport-par-triangle      slot5=1 slot7=1 slot0=0 perdus=0 (0 : sans fusion rien ne se perd)
+matfus/transport-puis-fusion       faces 1 retenu=2 perdus=1
+matfus/dissolve-face-interieure    ok=1 faces 9->1 retenu=1 (1 = la face INTERIEURE) perdus=8
+matfus/dissolve-couleur-majoritaire ok=1 faces 9->1 retenu=2 (2 = la couleur majoritaire) perdus=4
+matfus/dissolve-egalite-indice     ok=1 faces 16->1 retenu=1 (1 = indice bas a aire egale) perdus=8
+matfus/dissolve-sans-perte         ok=1 faces 16->1 retenu=4 perdus=0 (0 : une seule couleur)
+matfus/decimation-transport        ok=1 tris 32->15 slots 2->2 | slot1=9 slot2=6 slot0=0 fusions=0
+matfus/decimation-couleur-perdue   ok=1 tris 32->2 slots 2->1 | slot3 restant=0 fusions=0
+smooth/mixte-subdivision           lisses 3/6 -> 12/24 (12/24 : ni tout, ni rien)
+smooth/mixte-position              lisses 12/24 | position avant 0.5000 apres 2.0000 (x4 filles)
+smooth/tout-plat-reste-plat        lisses 0/24 (0 attendu : rien ne s invente)
+smooth/survit-extrusion            ok=1 lisses 3/6 -> 15/30
+smooth/survit-inset                ok=1 lisses 3/6 -> 15/30
+smooth/survit-soudure              ok=1 lisses 3/6 -> 3/6
+matcre/temoin-maillage-soude       faces=2 incidentes a (1,4)=2 (2 = soude ; 1 = bord, les cas suivants mentiraient)
+matcre/extrusion-arete-interieure  ok=1 faces 3 creee=3 (3 = indice bas a longueur egale) perdus=1 (1 : PAS zero)
+matcre/extrusion-arete-bord        ok=1 faces 3 creee=5 (5 = l unique voisine) perdus=0 (0 : rien a arbitrer)
+matcre/extrusion-sans-perte        ok=1 faces 3 creee=4 perdus=0 (0 : deux voisines, une seule couleur)
+matcre/extrusion-origine-intacte   ok=1 slot5=1 slot3=2 slot0=0 (slot0=0 : les faces d origine pas repeintes)
+matcre/chanfrein-deux-couleurs     ok=1 faces 3 slot5=1 slot3=2 slot0=0 perdus=1
+matcre/chanfrein-sans-perte        ok=1 faces 3 slot4=3 slot0=0 perdus=0 (0 : une seule couleur)
+matcre/chanfrein-trois-segments    ok=1 faces 5 slot5=1 slot3=4 slot0=0 perdus=1 (slot0=0 : pas de couture)
+matcre/chanfrein-longueur-domine   ok=1 faces 3 slot3=1 slot5=2 perdus=1 (slot5=2 : la LONGUEUR gagne, pas l indice)
+matcre/chanfrein-cube-raccords     ok=1 faces 6 -> 26 slot0=0 perdus=28 (slot0=0 ; perdus>0 : les coins arbitrent)
+matmod/temoin-cube-peint           faces=6 chaque slot 1..6 une fois=1 slot0=0
+matmod/miroir                      faces=12 chaque slot x2=1 slot0=0 (slot0=0 : plus rien n est repeint)
+matmod/array                       faces=18 chaque slot x3=1 slot0=0
+matmod/trianguler-eventail         faces=12 chaque slot x2=1 slot0=0
+matmod/trianguler-indexe           faces=12 chaque slot x2=1 slot0=0
+matmod/solidify-bord               faces 16 -> 48 slot0=0 (slot0=0 : la tranche herite, elle ne retombe pas)
+matmod/mask                        faces=1 slot1=1 slot0=0 (slot1=1 : la face gardee garde SA couleur)
+matmod/build-proportion            faces=3 slot0=0 slot1=1 slot2=1 slot3=1
+matmod/vis-bandes                  ok=1 faces=16 slot0=0 slot5=7 slot3=9 perdus=2 (perdus>0 : les bandes arbitrent)
+aretes/cube-soude                  A=12 fil=0 bord=0 int=12 nonmanif=0 part=1 radial=24 disk=24 hl=24 ord=-6127073244435171064 ens=-6592464031444356629
+aretes/grille-bords                A=40 fil=0 bord=16 int=24 nonmanif=0 part=1 radial=64 disk=80 hl=64 ord=7633482496382160485 ens=-3528136031102226895
+aretes/idempotence                 A 40 -> 40 ord identique=1 ens identique=1 (1/1 : rejouer ne change rien)
+aretes/filaire-survit              ok=1 A 12 -> 13 fil=1 (fil>=1 : le filaire survit au rebuild)
+aretes/jonction-T-radial3          A=10 fil=0 bord=9 int=0 nonmanif=1 part=1 radial=12 disk=20 hl=12 ord=5285430129815656378 ens=-5493720026203631423
