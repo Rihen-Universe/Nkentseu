@@ -49,11 +49,32 @@ C'est la regle d'arite INVERSEE du catalogue, et le coeur applique
 uniformement celle de la donnee. Ce n'est pas un defaut de dessin : c'est le
 modele qui manque d'un axe.
 
-⚠️ ET UNE QUESTION QUE JE NE TRANCHE PAS, parce qu'elle demande une mesure que
-je n'ai pas faite : `TopoSort` / `HasCycle` REFUSENT tout cycle. Un corps de
-boucle qui se reboucle explicitement -- ce qu'un blueprint permet -- serait
-donc refuse. Est-ce voulu (le corps de boucle se referme par la semantique du
-noeud, pas par un fil) ou est-ce un mur ? Il faut le mesurer, pas le supposer.
+🔴 LA BOUCLE : MESUREE LE 23/08, ET C'EST UN MUR
+La question posee ici -- un corps de boucle qui se reboucle serait-il refuse,
+et est-ce voulu ? -- est desormais tranchee par la lecture du code, pas par
+un avis :
+
+  - `Connect()` refuse le fil AU BRANCHEMENT : `if (WouldCreateCycle(from, to))
+    return NkLinkError::WouldCycle;` (NkNodeGraph.inl:243). Le refus arrive
+    donc PLUS TOT que le tri -- l'utilisateur ne peut meme pas TRACER le
+    rebouclage.
+  - `TopoSort` compte les degres entrants sur `mLinks` sans jamais regarder la
+    famille du fil, et `NkLink` ne porte que fromNode/fromSocket/toNode/
+    toSocket : rien ne distingue un fil d'execution d'un fil de donnee.
+  - en aval, `GraphExpand` rend `NkPlanError::Cycle` (NkGraphDocument.inl:262)
+    et vide l'ordre : c'est le PLAN ENTIER qui tombe, pas la seule boucle.
+
+Ce n'est donc PAS un choix de conception : rien n'a ete decide contre la
+boucle, parce que rien n'a ete decide sur l'execution du tout -- le mot
+« exec » n'apparait nulle part dans NKGraph. C'est le meme axe manquant que
+pour l'arite, et c'est pour ca que les deux se corrigent ensemble.
+
+CE QU'IL FAUT, et c'est une consequence, pas une preference : n'exiger
+l'acyclicite QUE du sous-graphe de DONNEE. Un cycle d'EXECUTION est legitime
+-- l'ordre d'execution est un CHEMIN parcouru a l'execution, pas un tri
+calcule a l'edition. `WouldCreateCycle` et `TopoSort` doivent donc ignorer les
+liens d'execution, ce qu'ils ne peuvent pas faire tant que le socket ne porte
+pas sa famille.
 """
 import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
@@ -65,7 +86,6 @@ W, H = 1820, 1750
 # verifie_planches.py. Voir p01.py pour le pourquoi.
 OUVERTS_DECLARES = [
     ('hors', '18.4', u'arite d execution : le modele applique celle de la donnee'),
-    ('hors', '18.5', u'un corps de boucle qui se reboucle : refuse par HasCycle ?'),
 ]
 
 s = head(W, H, u'Planche 08 — EXÉCUTION et VALEUR : la cohabitation, et le franchissement',
@@ -231,9 +251,13 @@ c3, hc3 = cartouche(1120, R3 + 40, 666, [
     u'▸ Pour l’exécution il faut exactement l’INVERSE, et le catalogue l’écrit déjà : « les arités sont INVERSÉES entre les deux familles ».',
     u'▸ 📌 Ce qui manque n’est pas une exception, c’est un AXE : le socket doit porter sa famille. Une seule valeur, deux lignes dans',
     u'   Connect() — et le refus doit SE NOMMER, comme les six raisons de NkLinkError le font déjà (ExecOutputAlreadyBound).',
-    u'▸ ⚠ NON MESURÉ, et je refuse de le supposer : TopoSort et HasCycle REFUSENT tout cycle. Un corps de boucle qui se reboucle',
-    u'   explicitement serait donc refusé. Est-ce voulu — le corps se referme par la sémantique du nœud, pas par un fil — ou est-ce un mur ?',
-], u'ce qui manque au modèle, et la seule chose que je n’ai pas mesurée')
+    u'▸ ✅ MESURÉ le 23/08 — c’est un MUR, pas un choix, et il tombe PLUS TÔT que je ne le croyais : Connect() refuse le fil lui-même,',
+    u'   par NkLinkError::WouldCycle (NkNodeGraph.inl:243). L’utilisateur ne peut pas même TRACER le rebouclage — pas seulement l’évaluer.',
+    u'▸ Et TopoSort compte les degrés entrants sur mLinks sans jamais regarder la famille du fil : NkLink ne porte que fromNode/fromSocket/',
+    u'   toNode/toSocket. En aval, GraphExpand rend NkPlanError::Cycle — c’est le PLAN ENTIER qui tombe, pas la seule boucle.',
+    u'▸ 📌 Rien n’a été décidé CONTRE la boucle : le mot « exec » n’apparaît nulle part dans NKGraph. Ce qu’il faut : n’exiger l’acyclicité',
+    u'   que du sous-graphe de DONNÉE. Un cycle d’EXÉCUTION est légitime — l’ordre d’exécution est un CHEMIN parcouru, pas un tri.',
+], u'ce qui manque au modèle — un seul axe absent, et il explique les trois refus')
 s += c3
 
 # ══════════════════════════ 4 et 5 · LE FRANCHISSEMENT, DEUX MÉCANISMES
