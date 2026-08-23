@@ -6235,24 +6235,119 @@ static void PerfBattery() {
 		d.RebuildEdges();
 	});
 
-	// -- 3ter. CROISSANCE DE RebuildEdges -----------------------------------
-	// « Lent » et « super-lineaire » n appellent pas la meme suite. On double le
-	// cote de la grille : x4 faces. Si le temps fait x4, c est lineaire et il n y
-	// a qu une constante a soigner ; s il fait x16, la structure est en cause et
-	// le probleme grandit avec les modeles des utilisateurs.
-	printf("\n  [croissance] RebuildEdges, cote x2 = faces x4\n");
-	for (uint32 nn = 32u; nn <= 128u; nn *= 2u) {
-		NkVector<NkVertex3D> qv;
-		NkVector<uint32> qi;
-		MakeGrid(nn, qv, qi);
-		NkEditMesh q;
-		q.BuildFromIndexed(qv.Data(), (uint32)qv.Size(), qi.Data(), (uint32)qi.Size(), true);
-		char lbl[64];
-		snprintf(lbl, sizeof(lbl), "grille %ux%u (%u faces)", nn, nn, nn * nn);
-		PerfLigne(lbl, 3u, [&]() {
-			NkEditMesh d = q;
-			d.RebuildEdges();
-		});
+	// -- 3ter. COURBE DE RebuildEdges ---------------------------------------
+	// ⚠ ECRIT AVANT LA CORRECTION, et c est le point : sans courbe prise AVANT,
+	// on ne peut prouver apres coup qu on a change la CLASSE DE COMPLEXITE et pas
+	// seulement gagne une constante. Quatre tailles, chacune x4 de la precedente :
+	// le rapport entre deux lignes consecutives EST l exposant.
+	//   x4  = lineaire      x16 = quadratique      x22 = pire que quadratique
+	printf("\n  [courbe] RebuildEdges -- cote x2 = faces x4 ; le RAPPORT est la mesure\n");
+	{
+		double prec = 0.0;
+		for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+			NkVector<NkVertex3D> qv;
+			NkVector<uint32> qi;
+			MakeGrid(nn, qv, qi);
+			NkEditMesh q;
+			q.BuildFromIndexed(qv.Data(), (uint32)qv.Size(), qi.Data(), (uint32)qi.Size(), true);
+			double mn = 1e30;
+			const uint32 passes = (nn >= 128u) ? 3u : 5u;
+			for (uint32 r = 0; r < passes; ++r) {
+				NkEditMesh d = q;
+				NkChrono c;
+				d.RebuildEdges();
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mn)
+					mn = ms;
+			}
+			if (prec > 0.0)
+				printf("    %6u faces : %10.3f ms   x%.1f par rapport a la ligne precedente\n", nn * nn, mn,
+					   mn / prec);
+			else
+				printf("    %6u faces : %10.3f ms\n", nn * nn, mn);
+			prec = mn;
+		}
+	}
+
+	// -- 3quater. PROFIL : ou part le temps DANS RebuildEdges ---------------
+	// Sonde la moins invasive possible : BuildVertexMerge est PUBLIC, on peut le
+	// chronometrer seul sans toucher au moteur. Si la courbe de RebuildEdges est
+	// deja toute entiere dans cette ligne, le coupable est trouve sans instrumenter
+	// quoi que ce soit.
+	printf("\n  [profil] BuildVertexMerge seul (fonction PUBLIQUE, appelee par RebuildEdges)\n");
+	{
+		double prec = 0.0;
+		for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+			NkVector<NkVertex3D> qv;
+			NkVector<uint32> qi;
+			MakeGrid(nn, qv, qi);
+			NkEditMesh q;
+			q.BuildFromIndexed(qv.Data(), (uint32)qv.Size(), qi.Data(), (uint32)qi.Size(), true);
+			double mn = 1e30;
+			for (uint32 r = 0; r < 3u; ++r) {
+				NkVector<uint32> canon;
+				NkChrono c;
+				q.BuildVertexMerge(canon);
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mn)
+					mn = ms;
+			}
+			if (prec > 0.0)
+				printf("    %6u sommets : %10.3f ms   x%.1f\n", q.VertCount(), mn, mn / prec);
+			else
+				printf("    %6u sommets : %10.3f ms\n", q.VertCount(), mn);
+			prec = mn;
+		}
+	}
+
+	// -- 3quinquies. LES DEUX SUSPECTS RESTANTS, ISOLES ---------------------
+	// BuildVertexMerge est lineaire, la mise a plat radiale et le cycle disque
+	// sont des tris par comptage. Il ne reste que la boucle sur les faces, et
+	// dedans deux structures : la table  (SANS Reserve) et le tableau de
+	// tableaux . On les exerce SEULES, avec les memes ordres de grandeur.
+	printf("\n  [profil] les deux suspects, isoles hors du moteur\n");
+	for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+		const uint32 E = nn * nn * 2u; // ordre de grandeur du nombre d aretes
+		double mh = 1e30, mv = 1e30;
+		for (uint32 r = 0; r < 3u; ++r) {
+			{
+				NkChrono c;
+				NkHashMap<uint64, uint32> seen; // SANS Reserve
+				for (uint32 i = 0; i < E; ++i) {
+					const uint64 lo = i, hi = i + 1u;
+					seen.InsertOrAssign((lo << 32) | hi, i);
+				}
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mh)
+					mh = ms;
+			}
+			{
+				NkChrono c;
+				NkVector<NkVector<NkEmId>> radial;
+				for (uint32 i = 0; i < E; ++i) {
+					radial.PushBack(NkVector<NkEmId>{});
+					radial[i].PushBack((NkEmId)i);
+				}
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mv)
+					mv = ms;
+			}
+		}
+		double mr = 1e30;
+		for (uint32 r = 0; r < 3u; ++r) {
+			NkChrono c;
+			NkHashMap<uint64, uint32> seen2;
+			seen2.Reserve(E); // LA SEULE DIFFERENCE
+			for (uint32 i = 0; i < E; ++i) {
+				const uint64 lo = i, hi = i + 1u;
+				seen2.InsertOrAssign((lo << 32) | hi, i);
+			}
+			const double ms = c.Elapsed().ToMilliseconds();
+			if (ms < mr)
+				mr = ms;
+		}
+		printf("    %7u entrees : sans Reserve %9.3f ms | AVEC Reserve %8.3f ms | NkVector<NkVector> %8.3f ms\n",
+			   E, mh, mr, mv);
 	}
 
 	// -- 4. LES DEUX OPERATIONS DE CE CHANTIER -------------------------------
@@ -6275,6 +6370,176 @@ static void PerfBattery() {
 		d.ExtrudeSelectedEdges(ep, &perdus);
 	});
 	printf("\n");
+}
+
+// ── TEMOIN DE JUSTESSE DE RebuildEdges ──────────────────────────────────────
+// POURQUOI CE TEMOIN EXISTE, ET POURQUOI MAINTENANT
+// `RebuildEdges` va etre REECRIT pour sa complexite (cf. --perf : x4 faces
+// coutent x22 de temps). Une reconstruction d aretes plus RAPIDE et FAUSSE
+// serait invisible jusqu au premier biseau de travers -- et le banc, lui, ne
+// mesurait la topologie reconstruite par AUCUNE ligne dediee.
+//
+// ⚠ DEUX EMPREINTES, ET C EST LE POINT DE CE TEMOIN.
+// Une seule empreinte ordonnee ne saurait pas distinguer deux echecs tres
+// differents : « la topologie a change » (grave) et « les memes aretes sortent
+// dans un autre ordre » (benin, mais qui fait tomber la ligne quand meme).
+//   - `ord`   : empreinte de la SUITE (v0,v1,radialCount) -- sensible a l ordre ;
+//   - `ens`   : somme des empreintes par arete -- INVARIANTE par reordonnancement.
+// Si `ens` tient et que `ord` bouge, la reecriture a seulement change l ordre
+// d emission. Si `ens` bouge, elle a change la TOPOLOGIE, et c est un defaut.
+// Sans les deux, on ne saurait pas laquelle des deux vient d arriver.
+static uint64 EmpreinteMele(uint64 h, uint64 v) {
+	h ^= v + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2);
+	return h;
+}
+
+struct SigAretes {
+		uint32 aretes = 0, filaires = 0, bords = 0, interieures = 0, nonManifold = 0;
+		uint32 radialTotal = 0, diskTotal = 0, hedgesLiees = 0;
+		uint64 ord = 0, ens = 0;
+};
+
+static SigAretes SignerAretes(const NkEditMesh &m) {
+	SigAretes s;
+	s.ord = 1469598103934665603ull;
+	for (uint32 i = 0; i < (uint32)m.edges.Size(); ++i) {
+		const NkEditMesh::Edge &e = m.edges[i];
+		if (!e.alive)
+			continue;
+		s.aretes++;
+		if (e.radialCount == 0u)
+			s.filaires++;
+		else if (e.radialCount == 1u)
+			s.bords++;
+		else if (e.radialCount == 2u)
+			s.interieures++;
+		else
+			s.nonManifold++;
+		s.radialTotal += e.radialCount;
+		// L empreinte porte (v0,v1,radialCount) : l identite de l arete ET son
+		// nombre d incidences. Deux maillages qui n auraient pas les memes faces
+		// autour d une meme arete ne peuvent pas rendre la meme valeur.
+		uint64 h = 1469598103934665603ull;
+		h = EmpreinteMele(h, (uint64)e.v0);
+		h = EmpreinteMele(h, (uint64)e.v1);
+		h = EmpreinteMele(h, (uint64)e.radialCount);
+		s.ord = EmpreinteMele(s.ord, h);
+		s.ens += h; // somme : insensible a l ordre, sensible au contenu
+	}
+	s.diskTotal = (uint32)m.diskPool.Size();
+	for (uint32 h = 0; h < (uint32)m.hedges.Size(); ++h)
+		if (m.hedges[h].alive && m.hedges[h].edge != NK_EM_INVALID)
+			s.hedgesLiees++;
+	return s;
+}
+
+static void AretesBattery() {
+	auto ligne = [](const char *nom, const NkEditMesh &m) {
+		const SigAretes s = SignerAretes(m);
+		// La partition est sur la ligne : filaires + bords + interieures +
+		// nonManifold DOIT valoir `aretes`. Une classe oubliee se verrait ici et
+		// nulle part ailleurs.
+		const uint32 somme = s.filaires + s.bords + s.interieures + s.nonManifold;
+		Put("{0:<34} A={1} fil={2} bord={3} int={4} nonmanif={5} part={6} radial={7} disk={8} hl={9} ord={10} ens={11}",
+			nom, s.aretes, s.filaires, s.bords, s.interieures, s.nonManifold, (somme == s.aretes) ? 1u : 0u,
+			s.radialTotal, s.diskTotal, s.hedgesLiees, s.ord, s.ens);
+	};
+
+	// -- 1. CUBE : sommets DUPLIQUES par face (24 pour 8 positions) ----------
+	// C est le cas qui exige l identite soudee : sans elle, 24 aretes au lieu
+	// de 12. Le temoin le fige.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		ligne("aretes/cube-soude", m);
+	}
+
+	// -- 2. GRILLE OUVERTE : des aretes de BORD, que le cube n a pas ---------
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		ligne("aretes/grille-bords", m);
+	}
+
+	// -- 3. IDEMPOTENCE : reconstruire deux fois ne change RIEN --------------
+	// ⚠ Un defaut classique d une reecriture : la deuxieme passe voit un etat
+	// deja peuple et double des incidences, ou perd les filaires. Une seule
+	// reconstruction ne le montrerait jamais.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const SigAretes a = SignerAretes(m);
+		m.RebuildEdges();
+		m.RebuildEdges();
+		const SigAretes b = SignerAretes(m);
+		Put("{0:<34} A {1} -> {2} ord identique={3} ens identique={4} (1/1 : rejouer ne change rien)",
+			"aretes/idempotence", a.aretes, b.aretes, (a.ord == b.ord) ? 1u : 0u, (a.ens == b.ens) ? 1u : 0u);
+	}
+
+	// -- 4. ARETE FILAIRE : elle ne se deduit d aucune face ------------------
+	// C est toute la raison d etre de la liste `edges` : une reconstruction qui
+	// repart des demi-aretes ne peut PAS la retrouver. Si une reecriture oublie
+	// de la reinserer, elle disparait sans qu aucune face ne change.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const uint32 avant = (uint32)m.edges.Size();
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			m.verts[i].sel = 0;
+		// DIAGONALE d une face (sommets 0 et 2) : elle n existe pas apres quadify,
+		// donc MakeEdgeFromSelected cree une arete FILAIRE, portee par aucune face.
+		// ⚠ La premiere version de ce cas appelait MakeFaceFromSelected et rendait
+		// ok=0 : l operation etait REFUSEE, fil valait 0, et la ligne avait pourtant
+		// l air de mesurer quelque chose. Un cas dont la precondition echoue ne
+		// prouve rien -- c est le `ok` sur la ligne qui l a fait voir.
+		m.verts[0].sel = 1;
+		m.verts[2].sel = 1;
+		const bool ok = m.MakeEdgeFromSelected();
+		m.RebuildEdges();
+		const SigAretes s = SignerAretes(m);
+		Put("{0:<34} ok={1} A {2} -> {3} fil={4} (fil>=1 : le filaire survit au rebuild)", "aretes/filaire-survit",
+			ok ? 1 : 0, avant, s.aretes, s.filaires);
+	}
+
+	// -- 5. JONCTION EN T : une arete portee par TROIS faces -----------------
+	// Le cas que `twin` seul ne sait pas representer. Le cycle radial doit voir
+	// les trois ; une reecriture qui n en garderait que deux serait invisible
+	// partout ailleurs.
+	{
+		const NkVec3f ps[8] = {{0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}, {1.f, 0.f, 1.f}, {0.f, 0.f, 1.f},
+							   {1.f, 1.f, 0.f}, {1.f, 1.f, 1.f}, {2.f, 0.f, 0.f}, {2.f, 0.f, 1.f}};
+		NkVertex3D vs[8];
+		for (uint32 k = 0; k < 8; ++k) {
+			NkVertex3D t{};
+			t.pos = ps[k];
+			t.normal = {0.f, 1.f, 0.f};
+			t.color = 0xFFFFFFFFu;
+			vs[k] = t;
+		}
+		// Trois quads partageant l arete (1,2).
+		const uint32 fs[4] = {0u, 4u, 8u, 12u};
+		const uint32 fv[12] = {0u, 1u, 2u, 3u, 1u, 4u, 5u, 2u, 1u, 6u, 7u, 2u};
+		NkEditMesh m;
+		m.BuildFromPolygons(vs, 8u, fs, 3u, fv);
+		m.RebuildEdges();
+		ligne("aretes/jonction-T-radial3", m);
+	}
 }
 
 int main(int argc, char **argv) {
@@ -6348,6 +6613,8 @@ int main(int argc, char **argv) {
 	MatCreationBattery();
 	// AJOUTEE EN FIN, meme raison : les 260 lignes precedentes gardent leur numero.
 	MatModBattery();
+	// AJOUTEE EN FIN, meme raison : les 269 lignes precedentes gardent leur numero.
+	AretesBattery();
 
 	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
 	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.
