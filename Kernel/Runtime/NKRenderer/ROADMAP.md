@@ -295,42 +295,120 @@ matériau. Preuve : famille `matops/`, 12 cas, **tous rouges avant** (`slot1 →
 `EM_ToWeldedPolygons` a reçu le même paramètre optionnel que `ToPolygons` — c'est
 par elle que passent les opérations qui soudent avant d'éditer.
 
-### 🔴 TROIS OPÉRATIONS NON CÂBLÉES — et c'est un refus motivé, pas un oubli
+### ✅ RÉSORPTION (4) — les trois opérations « non câblées » le sont (2026-08-23)
 
-| opération | pourquoi elle n'est PAS câblée |
+Ce titre disait, jusqu'à ce jour, **« 🔴 TROIS OPÉRATIONS NON CÂBLÉES — et c'est
+un refus motivé, pas un oubli »**. Le refus était motivé ; il n'a plus d'objet.
+Les trois sont câblées, et chacune par une règle **arbitrée**, pas devinée.
+
+| opération | ce qui bloquait | ce qui a tranché |
+|---|---|---|
+| `DissolveSelected` | de qui la survivante d'une fusion hérite-t-elle ? | **dominance par l'aire**, égalité par l'indice le plus bas |
+| `BevelSelected` | bandes et coins n'ont **aucune face mère** ; alignement de `endFace` non prouvable | héritage des faces **géométriquement adjacentes**, dominance par la **longueur de contour partagé** ; l'attribut est poussé **dans `endFace` lui-même**, sous la même condition d'acceptation que `nfs` — l'alignement n'est plus à prouver, il est **structurel** |
+| `ExtrudeSelectedEdges` | chemin propre, ne passant par aucune des deux fonctions de round-trip | même règle ; et le passage de `&fa` à `ToPolygons` a corrigé au passage une régression que personne ne mesurait (l'opération **repeignait tout le maillage en slot 0**) |
+
+**Une seule phrase couvre les deux familles** — *dominance par une mesure,
+égalité par l'indice le plus bas* — et c'est délibéré : aux sites de **fusion** la
+mesure est l'**aire** de la face absorbée, aux sites de **création** la **longueur
+de contour partagé** avec la voisine. `EM_MaterialDominant` prend donc un *poids*
+et non plus une aire. Deux fonctions auraient laissé diverger deux énoncés
+identiques.
+
+#### ⚠️ Ce que la mesure a corrigé de ce qui était écrit ici
+
+> 🎯 L'ancien encadré disait : *« mieux vaut une limite connue qu'un câblage
+> supposé — les trois lignes `matops/` correspondantes affichent `slot1 → 0` et
+> disent donc la vérité sur l'état du code »*. C'était juste. Ces deux lignes
+> **ont changé de valeur** avec ce câblage, et c'est le résultat attendu :
+> `matops/chanfrein` passe de `slot1 6 -> 0` à **`6 -> 26`**, et
+> `matops/extruder-aretes` de `6 -> 0` à **`6 -> 18`**. Aucune face créée ne
+> tombe plus dans le slot 0.
+
+**Précédent NON suivi, et il faut le dire** : `SpinSelected` donne le **slot 0**
+à ses bandes latérales, qui n'ont pas non plus de face mère. C'était un choix
+écrit et assumé, mais il **ne devient pas la règle** : le slot 0 est une couleur
+comme une autre, pas un « sans matériau », et l'y envoyer repeint la bande en
+silence. Les faces créées héritent désormais de leur voisinage.
+⚠️ **`SpinSelected` reste donc à reprendre** — c'est la dette que cette
+résorption laisse derrière elle, nommée plutôt que refermée.
+
+#### 🧪 Preuve : famille `matcre/`, 10 cas, référence de 250 à 260 lignes
+
+Deux d'entre eux ne mesurent pas l'opération mais **le banc lui-même**, et ils
+sont là pour une raison précise :
+
+- **`matcre/temoin-maillage-soude`** — sur un maillage **non soudé** (un cube
+  importé porte 24 sommets pour 8 positions) une arête n'a qu'**une** face
+  incidente : jamais d'ambiguïté, donc jamais de perte, donc **un compteur
+  toujours nul sans qu'une seule ligne soit fausse**. Ce cas vérifie que l'arête
+  mesurée en porte bien **deux**. Sans lui, les autres mesureraient un bord.
+- **`matcre/chanfrein-longueur-domine`** — dans tous les autres cas le gagnant
+  est **aussi** l'indice le plus bas : ils ne distinguent pas « dominance par la
+  longueur » de « toujours le plus petit slot ». Ce cas met les deux critères en
+  **désaccord** (coin aigu d'un côté ⇒ recul plus grand ⇒ contour partagé plus
+  court) et mesure **`slot5=2`** : la longueur gagne contre l'indice.
+
+> ⚠️ **Un critère qui ne peut pas départager est aussi vide qu'un compteur qui ne
+> peut pas valoir autre chose que zéro.** Les deux se prouvent de la même façon :
+> en construisant le cas où ils devraient parler, et en regardant s'ils parlent.
+
+`matcre/chanfrein-cube-raccords` exerce la troisième famille de faces, la seule
+qu'aucun autre cas n'atteignait — les **raccords aux sommets** n'existent que si
+les deux extrémités de l'arête chanfreinée sont fermées. Cube 6 faces, six slots
+distincts : **6 → 26 faces** (6 + 12 bandes + 8 raccords), `slot0=0`,
+**`perdus=28`** — soit exactement 12 bandes × 1 perte + 8 raccords × 2.
+
+### 🧾 CE QUI RESTE — dette nommée, **re-mesurée le 2026-08-23**
+
+⚠️ **Ce bloc énumérait une liste devenue fausse.** Il annonçait « trois
+opérations transportent le matériau » et rangeait `BevelSelected`,
+`DissolveSelected`, `MergeSelectedVerts`, `InsetSelectedFaces`… parmi celles qui
+ne le transportaient pas — alors que les résorptions (3) et (4), juste au-dessus,
+disent le contraire. **Deux strates du même fichier se contredisaient**, et rien
+ne le signalait : une liste ne tombe pas comme un banc.
+
+**Re-mesuré, pas relu** — en classant les 25 appels à `BuildFromPolygons` du
+fichier selon qu'ils passent, ou non, le paramètre d'attributs :
+
+**Les 15 opérations d'édition le transportent, toutes** : `ExtrudeSelectedFaces`
+(ses deux branches), `ExtrudeSelectedVertices`, `ExtrudeSelectedEdges`,
+`DeleteSelectedFaces`, `SubdivideCatmullClark`, `SubdivideSelectedOnce`,
+`MergeSelectedVerts`, `MakeFaceFromSelected`, `LoopCutFromSelectedEdge`,
+`BevelSelected`, `InsetSelectedFaces`, `SplitSelectedEdges`, `SpinSelected`,
+`DissolveSelected`, `BisectByPlane`.
+
+#### 🔴 LA DETTE A CHANGÉ D'ENDROIT : elle est dans la PILE DE MODIFICATEURS
+
+Les **cinq** appels qui ne transportent rien ne sont plus dans les opérations
+d'édition — ils sont tous dans les modificateurs :
+
+| modificateur | appel |
 |---|---|
-| `DissolveSelected` | **fusionne plusieurs faces en une**. De qui la survivante hérite-t-elle ? C'est la **même question non tranchée que la décimation** — une décision produit, pas un problème technique |
-| `BevelSelected` | émet trois familles de faces : celles d'origine (héritables), les **bandes de chanfrein** nées d'une *arête*, et les **faces de coin** nées d'un *sommet*. Les deux dernières n'ont **aucune face mère**. De plus son émission passe par une lambda `endFace` indexée sur un maillage temporaire : **je ne peux pas prouver l'alignement** avec `fm` |
-| `ExtrudeSelectedEdges` | ne passe ni par `ToPolygons` ni par `EM_ToWeldedPolygons` — chemin propre, à instruire séparément |
+| `NkEmModSolidify` | la bordure engendrée par l'épaississement |
+| `NkEmModFaceSubset` | reconstruction du sous-ensemble de faces |
+| `Triangulate`, `Mirror`, `Array` (`NkMeshModifier::Apply`) | reconstruction complète |
 
-> 🎯 **Pourquoi les laisser rouges plutôt que poser un câblage plausible** : un
-> transport mal aligné ne casse rien de visible, il **déplace silencieusement des
-> matériaux d'une face à l'autre**. C'est exactement la classe de défaut que ce
-> chantier existe pour éliminer. **Mieux vaut une limite connue qu'un câblage
-> supposé** — les trois lignes `matops/` correspondantes affichent `slot1 → 0` et
-> disent donc la vérité sur l'état du code.
+**Appliquer un modificateur repeint donc le maillage en slot 0**, en silence,
+exactement comme le faisait l'extrusion d'arêtes avant ce jour. ⚠️ **Et aucune
+ligne du harnais ne le mesure** : la famille `matops/` n'exerce que les
+opérations d'édition. C'est une dette **doublement** ouverte — le défaut *et*
+l'absence de témoin qui le verrait.
 
-**Précédent applicable quand la décision sera prise** : pour `SpinSelected`, les
-bandes latérales — qui n'ont pas non plus de face mère — reçoivent le **slot 0**,
-choix écrit et assumé dans le code plutôt que subi.
+#### 🟡 Et une exception à l'intérieur du périmètre réputé sain
 
-### 🧾 CE QUI RESTE — dette nommée, et elle est mécanique
+`SpinSelected` transporte bien le matériau de ses anneaux, **mais ses bandes
+latérales reçoivent `FaceAttrib{}`, c'est-à-dire le slot 0** — le choix écrit et
+assumé d'avant l'arbitrage. Il est désormais **en contradiction avec la règle**
+retenue pour les faces sans mère (héritage du voisinage géométrique). Le slot 0
+n'est pas « pas de matériau », c'est une couleur comme une autre.
 
-**Trois opérations transportent le matériau** : subdivision linéaire,
-Catmull-Clark, extrusion (ses **deux** branches, `individual` et région).
-
-**Ne le transportent PAS encore** — même motif de câblage à appliquer :
-soudure (`MergeSelectedVerts`), `BevelSelected`, `InsetSelectedFaces`,
-`LoopCutFromSelectedEdge`, `DissolveSelected`, `BisectByPlane`,
-`SplitSelectedEdges`, `SpinSelected`, `ShrinkFattenSelected`,
-`MakeFaceFromSelected`, `DeleteSelectedFaces`.
-
-**Et une DÉCISION DE PRODUIT non tranchée** : à la **décimation**, quand une
-contraction fusionne deux faces de matériaux différents, de qui la survivante
-hérite-t-elle (la plus grande ? la première ? celle du sommet conservé) ? Le cas
-`mat/decim-non-tranche` **mesure** l'état actuel (`slot1 2 -> 0`) et le déclare
-explicitement « MESURE, pas un attendu » — écrire un attendu ici serait inventer
-une décision qui revient à Rodolf.
+**La décision de produit qui manquait est PRISE** — ce bloc annonçait encore
+« une DÉCISION DE PRODUIT non tranchée » pour la décimation, en citant un cas
+`mat/decim-non-tranche` qui **n'existe plus sous ce nom** (renommé
+`mat/decim-transport` le 2026-08-22, précisément parce qu'un nom décrivant un
+état provisoire devient faux sans que rien ne le signale). La règle est :
+**dominance par une mesure, égalité par l'indice le plus bas** — l'aire aux sites
+de fusion, la longueur de contour partagé aux sites de création.
 
 ### ⚠️ `smooth` perdu est un DÉFAUT RÉEL, laissé tel quel volontairement
 
