@@ -14,7 +14,7 @@ s=head(W,H,u'Planche 04 \u2014 tous les \u00e9tats',
        u'Erreur \u00b7 avertissement \u00b7 d\u00e9sactiv\u00e9 \u00b7 survol\u00e9 \u00b7 s\u00e9lectionn\u00e9 \u00b7 ACTIF \u00b7 inconnu \u00b7 indisponible \u00b7 le tirage d\u2019un fil \u00b7 le graphe invalide \u00b7 les trois paliers de d\u00e9zoom')
 
 def lab(x,y,n,titre,note=''):
-    return tt(x,y,u'%s \u00b7 %s'%(n,titre),ORANGE,12.5,'600')+tt(x,y+16,note,TXT3,10)
+    return panneau(u'%s_%s'%(n,titre))+tt(x,y,u'%s \u00b7 %s'%(n,titre),ORANGE,12.5,'600')+tt(x,y+16,note,TXT3,10)
 
 ROWS=[{'lab':u'Valeur A','coul':FAM['nombre'],'plein':False,'val':'0.500','glyphe':'1.0'},
       {'lab':u'Valeur B','coul':FAM['nombre'],'plein':True,'branchee':True,'glyphe':'1.0'},

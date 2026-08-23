@@ -82,7 +82,7 @@ def pointilles(x, y, w, h, pas=22, r=1, coul='#2b2b33'):
             o.append('<circle cx="%s" cy="%s" r="%s" fill="%s"/>' % (i, j, r, coul))
             j += pas
         i += pas
-    return ''.join(o) + '\n'
+    return groupe(''.join(o), 'grille')
 
 
 def damier(x, y, w, h, cel=8, a='#3a3a3a', b='#565656'):
@@ -103,7 +103,7 @@ def damier(x, y, w, h, cel=8, a='#3a3a3a', b='#565656'):
                 continue
             o.append('<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>'
                      % (cx, cy, cw, ch, b))
-    return ''.join(o) + '\n'
+    return groupe(''.join(o), 'damier')
 
 
 def hachures(x, y, w, h, pas=8, coul='#3A3A44', ep=3.4, op=0.55, fond='#2A2A30'):
@@ -127,7 +127,7 @@ def hachures(x, y, w, h, pas=8, coul='#3A3A44', ep=3.4, op=0.55, fond='#2A2A30')
                      % (round(x1, 2), round(c - x1, 2), round(x2, 2),
                         round(c - x2, 2), coul, ep, op))
         c += pas
-    return ''.join(o) + '\n'
+    return groupe(''.join(o), 'hachures')
 
 
 def grain(x, y, w, h, cel=10, teinte=None):
@@ -152,7 +152,7 @@ def grain(x, y, w, h, cel=10, teinte=None):
     if teinte:
         o.append('<rect x="%s" y="%s" width="%s" height="%s" fill="%s" opacity="0.30"/>'
                  % (x, y, w, h, teinte))
-    return ''.join(o) + '\n'
+    return groupe(''.join(o), 'grain')
 
 
 def esc(s):
@@ -165,7 +165,8 @@ def tt(x,y,s,fill=TXT,size=11.5,w=None,anchor=None,op=None):
     return '<text x="%s" y="%s" fill="%s" font-size="%s"%s%s%s>%s</text>\n'%(x,y,fill,size,b,a,o,esc(s))
 
 def titre_bloc(x,y,s):
-    return tt(x,y,s,ORANGE,13,'600')
+    # p02 n'a pas de lab() : c'est SON ouverture de panneau.
+    return panneau(s) + tt(x,y,s,ORANGE,13,'600')
 
 def prise(x,y,coul,plein=True,exec_=False,forme='simple',sortie=False):
     """x est TOUJOURS le bord du noeud, jamais le centre de la prise.
@@ -220,7 +221,7 @@ def noeud(x,y,w,rows,titre,sous=None,cat='#4a6b8a',exec_=False,apercu=0,
           etat=None,aide=True,marque=True,filet=None,tete_clair=False,arrondi_debut=False):
     eh=21 if not sous else 30
     hh=eh+4+apercu+len(rows)*24+(18 if etat else 0)+8
-    s='<g opacity="%s">\n'%opacite
+    s='<g id="%s" opacity="%s">\n'%(_id('noeud', slug(titre)), opacite)
     s+='<rect x="%s" y="%s" width="%s" height="%s" fill="%s" stroke="%s" stroke-width="%s"/>\n'%(
         x,y,w,hh,corps,erreur or FILET,1.5 if erreur else 1)
     tete='#2A2A30' if inconnu else cat
@@ -307,7 +308,7 @@ def sphere(x,y,w,h):
     o += '<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill="#000" opacity="0.35"/>\n'%(cx,y+h-6,r*0.8,4)
     o += '<circle cx="%s" cy="%s" r="%s" fill="url(#sphere)"/>\n'%(cx,cy,r)
     o += '<circle cx="%s" cy="%s" r="%s" fill="#fff" opacity="0.55"/>\n'%(cx-r*0.32,cy-r*0.36,r*0.13)
-    return o
+    return groupe(o, 'apercu_sphere')
 
 
 def bruit(x,y,w,h,teinte=None):
@@ -325,6 +326,13 @@ def bruit(x,y,w,h,teinte=None):
 
 
 def fil(x1,y1,x2,y2,coul,ep=2,style='simple'):
+    # Un fil est UN objet pour l'oeil ; les styles 'tableau' et 'dico' en
+    # tracent DEUX traits. Sans groupe, Lunacy montrerait deux calques pour
+    # un seul fil, et deplacer l'un sans l'autre serait trop facile.
+    return groupe(_fil(x1,y1,x2,y2,coul,ep,style), 'fil')
+
+
+def _fil(x1,y1,x2,y2,coul,ep=2,style='simple'):
     dx=max(40,abs(x2-x1)*0.45)
     d='M%s %sC%s %s %s %s %s %s'%(x1,y1,x1+dx,y1,x2-dx,y2,x2,y2)
     if style=='simple': return '<path d="%s" fill="none" stroke="%s" stroke-width="%s"/>\n'%(d,coul,ep)
@@ -344,7 +352,7 @@ def cartouche(x,y,w,lignes,titre=None):
     if titre: s+=tt(x+14,cy,titre,ORANGE,12,'600'); cy+=23
     for l in lignes:
         s+=tt(x+14,cy,l,TXT2,10.5); cy+=17
-    return s,h
+    return groupe(s, 'cartouche', titre or ''),h
 
 POLICE = 'Segoe UI, Inter, sans-serif'
 
@@ -361,6 +369,80 @@ def poser_police(contenu):
     import re as _re
     return _re.sub(r'<text (?![^>]*font-family)',
                    '<text font-family="%s" ' % POLICE, contenu)
+
+
+# == LE RANGEMENT POUR LUNACY ============================================
+# Rodolf : « ca devrait etre facile de definir des groupes et sous-groupes
+# reutilisables, c est comme ca que fonctionne Lunacy. » Un <g> du SVG devient
+# un GROUPE a l import, et son id devient le NOM du calque.
+#
+# 3 318 objets a plat sont ingerables ; les memes dans douze groupes nommes se
+# manipulent tres bien, et Rodolf peut REPLIER ce qu il ne travaille pas. C est
+# du rangement, pas de la suppression : le rendu ne change pas d un pixel, et
+# c est precisement ce qui le PROUVE (voir le commit).
+#
+# Deux niveaux, et pas un de plus :
+#   1. UN GROUPE PAR PANNEAU  -- pose par panneau(), assemble par structurer() ;
+#   2. UN GROUPE PAR OBJET COMPOSE -- noeud, fil, cartouche, damier, hachures,
+#      grain, pointilles, sphere. Ce sont eux qui portent les centaines de
+#      formes ; un damier de 281 rectangles devient UNE ligne repliable.
+# Les prises et les pastilles ne sont PAS groupees : trois formes chacune, et
+# elles vivent deja dans le groupe de leur noeud.
+
+_COMPTEURS = {}
+
+
+def _id(prefixe, nom=''):
+    """Un identifiant UNIQUE et lisible. Unique parce que deux calques du meme
+    nom dans Lunacy sont deux calques qu on ne sait plus distinguer."""
+    _COMPTEURS[prefixe] = _COMPTEURS.get(prefixe, 0) + 1
+    base = prefixe + ('_' + nom if nom else '')
+    return '%s_%02d' % (base, _COMPTEURS[prefixe])
+
+
+def slug(s):
+    """Le libelle affiche -> un nom de calque sobre. Les accents sont RETIRES
+    (pas remplaces par un point d interrogation) : un id SVG doit rester
+    ascii pour survivre a l import."""
+    import unicodedata as _u, re as _re
+    s = _u.normalize('NFKD', s)
+    s = u''.join(c for c in s if not _u.combining(c))
+    s = _re.sub(r'[^A-Za-z0-9]+', '_', s).strip('_').lower()
+    return s[:44]
+
+
+def groupe(contenu, prefixe, nom=''):
+    """Enveloppe un objet compose dans un <g> nomme."""
+    return '<g id="%s">\n%s</g>\n' % (_id(prefixe, slug(nom) if nom else ''),
+                                        contenu)
+
+
+# Le marqueur de panneau. Il ne DESSINE rien : structurer() le remplace par
+# l ouverture d un <g>, et ferme le precedent. On ne peut pas ouvrir le <g>
+# directement dans lab(), parce que personne ne sait ou le FERMER -- un panneau
+# se termine quand le suivant commence, pas a un appel explicite.
+MARQUE = '<!--PANNEAU:%s-->'
+
+
+def panneau(nom):
+    return (MARQUE % slug(nom)) + '\n'
+
+
+def structurer(contenu):
+    """Transforme les marqueurs de panneau en <g> imbriques.
+
+    Ce qui precede le PREMIER marqueur (l en-tete du SVG, les defs, le fond et
+    le titre de planche) reste a la racine : ce n est pas un panneau.
+    """
+    import re as _re
+    morceaux = _re.split(r'<!--PANNEAU:([a-z0-9_]*)-->', contenu)
+    if len(morceaux) == 1:
+        return contenu
+    out = [morceaux[0]]
+    for i in range(1, len(morceaux), 2):
+        nom, corps = morceaux[i], morceaux[i + 1]
+        out.append('<g id="panneau_%s">\n%s</g>\n' % (nom, corps))
+    return ''.join(out)
 
 
 def ecrire(nom,contenu):
@@ -385,6 +467,7 @@ def ecrire(nom,contenu):
     # changement -- le navigateur resolvait deja la meme police par heritage.
     # Si un PNG bouge, c'est que la police posee n'est pas celle qui servait.
     contenu=poser_police(contenu)
+    contenu=structurer(contenu)
     with io.open(OUT+'/'+nom,'w',encoding='utf-8') as f:
         f.write(contenu+'</svg>\n')
     print('ecrit', nom)
