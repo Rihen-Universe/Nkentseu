@@ -394,7 +394,7 @@ namespace nkentseu {
 						NkString motif = "\"";
 						motif += kClefs[k];
 						motif += "\"";
-						if (texte.Find(motif) == NkString::npos) return kClefs[k];
+						if (texte.Find(motif.CStr()) == NkString::npos) return kClefs[k];
 					}
 					return nullptr;
 				}
