@@ -59,7 +59,7 @@ import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W, H = 1820, 1640
+W, H = 1820, 1750
 
 # Ce que cette planche presente encore comme ouvert, en forme lisible par
 # verifie_planches.py. Voir p01.py pour le pourquoi.
@@ -265,8 +265,8 @@ s += fil(720, R4 + 40 + 30 + 6 + 12, 770, R4 + 40 + 30 + 6 + 12, FAM['nombre'], 
 # la FRONTIERE, dessinee : deux canevas, pas un
 s += ('<rect x="404" y="%d" width="2" height="150" fill="%s" opacity="0.45"/>\n'
       % (R4 + 30, ORANGE))
-s += tt(414, R4 + 44, u'FRONTIÈRE — deux documents', ORANGE, 10, '600')
-s += tt(414, R4 + 58, u'aucun fil ne la traverse', TXT3, 10)
+s += tt(414, R4 + 198, u'FRONTIÈRE — deux documents', ORANGE, 10, '600')
+s += tt(414, R4 + 212, u'aucun fil ne la traverse', TXT3, 10)
 s += tt(44, R4 + 40 + hg + 16, u'le blueprint ne CONNAÎT pas le graphe de matière : il nomme un paramètre.', TXT2, 10)
 s += tt(44, R4 + 40 + hg + 30, u'⚠ le nom est donc une CLÉ publique — le renommer casse le blueprint, en silence,', ORANGE, 10)
 s += tt(44, R4 + 40 + hg + 44, u'et c’est le seul coût réel de ce mécanisme. Il faut le refuser ou le répercuter.', TXT2, 10)
@@ -286,7 +286,7 @@ s += tt(1070, R4 + 40 + hj + 44, u'document », renseigné uniquement sur un nœ
 s += tt(1070, R4 + 40 + hj + 62, u'⚠ Et ③ n’est pas un ornement : on entre par UNE instance mais on édite la', ORANGE, 10)
 s += tt(1070, R4 + 40 + hj + 76, u'DÉFINITION, qui est PARTAGÉE. C’est le compteur du fil d’Ariane (planche 06).', TXT2, 10)
 
-c4, hc4 = cartouche(34, R4 + 250, 1010, [
+c4, hc4 = cartouche(34, R4 + 300, 1010, [
     u'▸ LES DEUX MÉCANISMES NE SONT PAS DES VARIANTES DU MÊME, et les confondre coûterait cher : le PARAMÈTRE pousse une valeur dans un graphe',
     u'   qui VIT et se recalcule tout seul ; l’APPEL évalue un graphe à la demande et récupère son résultat. L’un écrit, l’autre lit.',
     u'▸ Le choix ne se discute pas non plus, il se déduit : le blueprint veut-il CHANGER l’apparence d’un objet du monde (paramètre), ou',
