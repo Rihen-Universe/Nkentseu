@@ -1981,9 +1981,12 @@ Par honnêteté, et pour que personne ne croie le contraire :
    le 22/08** — relèvement des cinq fichiers du module **et** trois bancs de
    mesure exécutés. Résultat au **§ 16** : onze notions n'ont pas de foyer, le
    registre de types est **plat** (aucun constructeur `tableau DE`), et le
-   format ne conserve pas ce qu'il ne comprend pas. ⚠️ **En revanche je n'ai
+   format ne conserve pas ce qu'il ne comprend pas. ~~⚠️ **En revanche je n'ai
    toujours pas lu les CONSOMMATEURS** (`NkMatGraphCheck`), qui portent
-   peut-être déjà des conventions pour une partie de ces onze.
+   peut-être déjà des conventions pour une partie de ces onze.~~ ✅ **LU
+   INTÉGRALEMENT le 23/08 — § 17.** Ils en portent huit, **ils en contredisent
+   huit**, et ils n'ont toujours **aucune** des onze notions sans foyer. Le trou
+   est fermé ; l'écart est le § 17.
 3. **Il n'a pas décidé le sens de lecture.** Tout est écrit pour un graphe
    **horizontal** (la principale l'est). `secondaire_prises_verticales.png`
    montre l'autre monde, et `DESIGN_EDITEUR_NODAL.md` § 2 déconseille de mélanger
@@ -2094,3 +2097,349 @@ dictionnaire · état plié/séparé d'une struct · bascule d'aperçu · drapea
   les liens ; un nœud désactivé **reste branché** et le fil le traverse en
   pointillé. Il faut un **second booléen**, pas un détournement du premier —
   sinon éteindre un nœud débrancherait ses voisins, résultat plausible et faux.
+
+---
+
+## 17. ✅ FERMÉ — l'écart avec `NkMatGraphCheck`, le dernier consommateur non lu
+
+> C'était le **dernier trou déclaré** de ce chantier, et le seul endroit où cette
+> spécification pouvait décrire autre chose que ce qui existe. Le § 15 point 2
+> disait : *« je n'ai toujours pas lu les CONSOMMATEURS, qui portent peut-être
+> déjà des conventions pour une partie de ces onze »*. **Ils en portent — et ils
+> en contredisent huit.**
+
+**Protocole (2026-08-23)** : lecture intégrale de
+`Applications/NkMatGraphCheck/src/main.cpp` (**5 820 lignes**, ~120 cas), plus
+les deux en-têtes qu'il consomme —
+`NKRenderer/Materials/Graph/NkMatGraphTypes.h` et `NkMatGraphCompile.h` — dans
+l'arbre `Nkentseu-matgraph`, en **lecture seule**. Chaque affirmation ci-dessous
+cite le cas ou la déclaration qui la fonde. **Aucune ligne de leur code n'a été
+touchée.**
+
+⚠️ **Ce que cette lecture ne prouve pas** : ce banc mesure des **structures de
+données** et du **texte de shader**. Il n'a ni GPU ni fenêtre, et il le déclare en
+tête. Il ne peut donc rien dire des § 4 (palette), § 12.2 (dézoom), § 10 (fils),
+§ 11.4 (survol / sélection) — **et son silence n'y est pas un avis.**
+
+---
+
+### 17.1 ✅ Ce que le code PORTE — la spécification dit vrai
+
+| § | la règle | ce qui la porte |
+|---|---|---|
+| **12.1** | la recherche de nœud est **filtrée par le type de la prise d'origine** | ✅ **portée en entier**, par deux fonctions : `NkMatNoeudsPourPrise(reg, g, type, …)` et `NkMatNoeudsPourPriseDe(reg, g, cleNoeud, prise, …)`. Ce n'était pas une supposition de dessin : *« dans Blender, le menu de `Base Color` et celui de `Roughness` n'ont pas le même contenu »* est **la demande de Rodolf du 22/08**, et elle est implantée |
+| **11.5** | les conversions sont **DIRIGÉES** — `réel → couleur` existe, `couleur → réel` n'existe pas | ✅ **mesurée dans les deux sens** (`types/conversion-dirigee`) et **jusque dans le menu** (`biblio/menu-asymetrique-couleur-reel`). Le code va plus loin que ma justification : *« luminance ? moyenne ? canal rouge ? trois réponses plausibles, donc aucune par défaut »* |
+| **7.4** | le séparateur : `Couleur` et `Alpha` **se distinguent par le typage**, sans règle spéciale | ✅ **mesuré, pas supposé** : `Image Texture` figure dans le menu **couleur** par `color` et dans le menu **réel** par `alpha`. *« C'est le meilleur genre de solution — celle qui n'ajoute rien »* était juste |
+| **7.3** | un **second** nœud de sortie est une **ERREUR**, pas un avertissement | ✅ `NkMatGraphError::MultipleOutput` (`graphe/deux-sorties-refusees`), et le retrait du second **rend** le graphe valide |
+| **11.6** | **le graphe invalide doit rester dessinable** | ✅ **le point le mieux tenu du code.** `validation/cycle-par-le-fichier` exige explicitement les deux liens chargés : *« l'invalide doit être REPRÉSENTABLE **et** DÉTECTÉ »*. Six diagnostics de lien distincts existent (`Cycle`, `LinkDirection`, `LinkTypeMismatch`, `LinkUnknownNode`, `LinkSocketOutOfRange`, `LinkDuplicateTarget`) |
+| **8.3** | 🔴 « **les liens sont conservés et redessinés** » — que j'avais marquée *la règle la plus importante du paragraphe* | ✅ **portée ET mesurée** : `groupe/coeur-accepte-type-runtime` vérifie qu'un nœud d'un type inconnu se relie **dans les deux sens**, garde ses prises, **traverse le fichier mot pour mot** et **prend son rang dans le tri topologique** |
+| **7.6** | le groupe : définition + instances, interface déduite, récursion refusée | ✅ porté, et **au-delà** — voir § 17.4 |
+| **3.3** | une entrée branchée **perd son champ de saisie** | ✅ compatible, **avec une précision que le code rend obligatoire** : le modèle **garde** le défaut sous le lien. Le graphe d'essai du regroupement pose exprès un défaut sur une prise **câblée** (`m1.b`), avec sa raison : *« il sert dès qu'on débranche »*. ⚠️ **Le dessin CACHE le champ, il ne l'efface pas.** Cette phrase manquait au § 3.3 |
+
+---
+
+### 17.2 ❌ Ce que le code CONTREDIT — huit points, et deux touchent une planche
+
+> **C'est la partie qui justifiait de ne pas cocher ce trou.**
+
+#### C1 · 🔴 « chaque arrêt du `ColorRamp` est une prise » — **FAUX**
+
+`kColorRamp` a **exactement deux prises** : `fac` en entrée, `color` en sortie.
+Les arrêts vivent dans **une propriété**, `NK_MPROP_STOPS`, charge utile de
+**4 N réels** (position, r, v, b). Idem pour `Float Curve` : `kFloatCurve` =
+`fac`, `value` en entrée, `value` en sortie — les points sont dans
+`NK_MPROP_POINTS`, **2 réels par point**.
+
+> **Un arrêt n'est PAS branchable.**
+
+⚠️ **Ça périme une affirmation de ce document ET un dessin.** Le § 7.5 écrit
+*« chaque arrêt est une prise (déjà dans `planche_01`) : sa position **et** sa
+couleur sont pilotables »*, et le § 5.4 s'y adosse explicitement (*« Même choix
+que le `ColorRamp` de `planche_01`, où chaque arrêt est une prise »*).
+**`planche_01_noeuds.svg` dessine un nœud que ce modèle ne permet pas.**
+
+📌 **Et la conséquence est plus grande que le dessin** : si les arrêts sont une
+propriété, **la barre de dégradé est le SEUL moyen de les éditer**. Le § 7.5 la
+décrivait comme un confort (*« l'éditeur EST le nœud »*) ; **c'est en réalité une
+nécessité**, et son absence rendrait le nœud inutilisable.
+
+#### C2 · le plafond des charges variables est **32**, pas « au-delà de 8 »
+
+`NK_RAMP_ARRETS_MAX = 32` et `NK_CURVE_POINTS_MAX = 32`, et le refus **dit le
+compte** : *« 33 demandées, plafond 32 »* (`colorramp/refus-nommes-et-distincts`,
+`courbe/refus-nommes-et-distincts`).
+
+Mon **8** reste défendable — c'est un seuil d'**affichage**, pas de modèle. Mais
+le § 5.4 illustre le repli par *« … et 492 autres »* sur un tableau de 500, et
+**500 est impossible ici**. ✅ **Ce qu'il faut écrire à la place** : le nœud à
+charge variable **affiche son plafond** (`28 / 32 arrêts`), parce que le refus,
+lui, le dit déjà.
+
+#### C3 · 🔴 le nœud indisponible « **présent dans la bibliothèque** » — le code fait l'INVERSE
+
+Le § 8.4 tranche : *« dans la bibliothèque : **présent**, en 50 % d'opacité, avec
+sa raison en seconde ligne. **Présent, parce qu'un nœud absent se cherche
+indéfiniment ; un nœud refusé se comprend une fois.** »*
+
+**Mesuré** : `NkMatAddNode(gReg, g, NK_MN_OBJECT_INFO)` rend `NK_NODE_INVALID`,
+le prototype **n'est pas dans le registre**, et **le menu interroge le même
+registre** (`groupe/catalogue-materiau-ferme` le mesure pour les quatre types de
+prise). Un nœud indisponible est donc **absent de TOUS les menus**.
+
+⚠️ **Et la table existe pourtant** : `detail::kIndisponibles[]`, avec
+`{cle, pourquoiPas}` et `kIndisponiblesCount`. **Mais elle est dans
+`namespace detail`, et le seul accès public est
+`NkMatPourquoiIndisponible(cle)` — une recherche PAR CLÉ, pas une énumération.**
+
+> 📌 **Conclusion nette : la bibliothèque du § 8.4 n'est pas constructible avec
+> l'API publique d'aujourd'hui.** Il manque exactement deux fonctions,
+> `NkMatIndisponibleCount()` / `NkMatIndisponibleAt(i)`, du même dessin que
+> `NkMatAttributCount()` / `NkMatAttributAt(i)` qui existent quinze lignes plus
+> haut. **C'est le seul point de cet écart qui demande une ligne de code, et il
+> est minuscule.** ⚠️ **Je ne l'écris pas : ce n'est pas mon dépôt.**
+
+#### C4 · les **exemples** du § 8.4 n'existent pas, et la raison est d'une autre famille
+
+Le § 8.4 nomme `Light Path`, `Raycast`, `Ambient Occlusion`, `Curves Info`,
+`Particle Info`, et fait écrire dans le nœud la raison **`ce moteur rastérise`**.
+
+**Aucun de ces cinq n'existe.** Le seul indisponible réel est `mat.info_objet`,
+et sa raison est tout autre :
+
+> *« aucune donnée PAR OBJET n'atteint le fragment : le shader engendré ne dispose
+> que du bloc caméra et des paramètres exposés — ni matrice de modèle, ni index,
+> ni couleur, ni graine d'objet. Le nœud attend un bloc uniforme par objet ;
+> **il n'est pas refusé par principe**. »*
+
+✅ **L'ÉTAT est bon — la spécification l'avait inventé et il existe.** ❌ **Mais
+la raison ne s'écrit pas dans la spécification : elle vient du code**, elle est
+longue, et elle porte une phrase que mon dessin doit savoir afficher — *« il n'est
+pas refusé par principe »*, qui est exactement ce que le § 8.4 voulait dire par
+*« un nœud refusé se comprend une fois »*. **La rangée de raison doit donc être
+multiligne**, pas la ligne unique que le § 8.4 dessine.
+
+#### C5 · l'indisponible n'est pas un état **local** : il rend le document **incompilable**
+
+Le § 8.4 le pose comme un état de nœud (*« corps hachuré, en-tête à 50 %, prises
+intactes et fils conservés »*) — ce qui reste vrai au dessin. **Mais
+`rang4/object-info-indisponible-avec-sa-raison` mesure autre chose** : un graphe
+qui le porte est **refusé en entier**, et `r.source` est **vide**.
+
+> ⚠️ **Un nœud gris quelque part rend TOUT le matériau non compilable, et ma
+> spécification ne le dit nulle part.** Il faut un signal **au niveau du graphe**
+> — pas seulement du nœud —, sans quoi l'utilisateur voit un nœud grisé, croit
+> avoir perdu une fonctionnalité locale, et ne comprend pas pourquoi rien ne rend.
+
+#### C6 · mes trois niveaux de connaissance sont une **échelle** ; le code en fait **deux axes**
+
+Le § 8.1 range A (déclaré) / B (prises sans types) / C (inconnu) sur une seule
+ligne graduée. Le code a **deux mécanismes orthogonaux** :
+
+| axe | code | cas |
+|---|---|---|
+| le **type de NŒUD** est inconnu | `NkMatGraphError::UnknownNodeType`, avec `&coupable` (l'identifiant) **et** `&quoi` (le nom du type) | `groupe/refus-du-type-inconnu-situe` |
+| le **type d'une PRISE** est inconnu | `NkGraphIssue::SocketUnknownType`, **par prise**, avec son nom en détail | `validation/types-inconnus-par-fichier` |
+
+❌ **Ils se combinent librement, et le cas dominant est le pire pour mon dessin :
+un nœud de type inconnu entre avec des prises PARFAITEMENT TYPÉES** (le `sock` du
+fichier porte un `typeId` que le registre connaît). **La maquette du § 8.3 dessine
+toutes les prises en `?` gris : c'est faux dans ce cas-là**, et ça jette une
+information qu'on a.
+
+✅ **La règle correcte** : l'en-tête rayé dit *« je ne connais pas ce nœud »* ;
+**chaque prise garde sa couleur si son type est connu**, et ne passe en `?` gris
+que si `SocketUnknownType` la vise. **Deux signaux indépendants, deux causes
+indépendantes.**
+
+#### C7 · 🔴 il existe un **second puits**, et il n'est pas unique
+
+`NK_MN_OUTPUT_VALUE` — libellé `Named Output`, `kOutputValue` = deux entrées
+(`value` réel, `color` couleur). Ce nœud :
+
+- **n'est pas unique** : on en pose autant qu'on veut (`sortie/plusieurs-et-graphes-sans-sortie` en monte deux) ;
+- porte un **nom public éditable**, validé (`2 mots` est refusé : *« nom absent ou invalide »*), **et unique dans le graphe** (*« deux sorties portent le nom »*) ;
+- porte un **étage obligatoire SANS DÉFAUT** — l'absence est refusée, parce que *« se replier sur (a) transformerait silencieusement une sortie voulue par pixel en constante calculée une seule fois »* ;
+- **une seule de ses deux entrées doit être branchée** (`aucune source` et `DEUX sources` sont deux refus distincts) ;
+- et **selon son étage, il change ce que le graphe accepte en AMONT**, à distance et par contagion.
+
+❌ **Le § 7 n'a que « 3 · puits », décrit comme unique, en-tête orange, corps 20 %
+plus large.** Appliquées à `Named Output`, ces trois exceptions sont fausses : un
+graphe à cinq sorties nommées aurait cinq en-têtes orange et cinq nœuds
+surdimensionnés, et **l'argument même de l'exception — *« il est unique par graphe
+et il en est la fin »* — tombe.**
+
+> ✅ **À écrire : une quinzième forme, `puits nommé`.** Côté droit vide comme le
+> puits, mais **en-tête ordinaire**, largeur ordinaire, **et un champ de nom en
+> première rangée**. L'orange et la largeur restent réservés au `Material Output`,
+> qui, lui, est bien unique.
+
+#### C8 · « le cadre n'a **aucun effet sur le graphe** — il décore » — faux dès qu'il déplace
+
+Le tableau du § 7.6 oppose cadre et groupe par *« effet sur le graphe : **aucun**
+— il décore »*. Mais le § 9.2 décide que **déplacer un cadre emporte ses
+membres**, et la forme canonique du contrôle de regroupement (`DecritNoeud`)
+porte **`x` et `y`** — l'aller-retour grouper/dégrouper les exige **identiques**.
+
+> **Un cadre qui déplace ses membres modifie des champs sérialisés. Il n'est pas
+> décoratif : il est le seul objet d'interface qui écrit dans le modèle sans
+> qu'on ait touché un nœud.** À corriger dans le tableau — et c'est un argument
+> de plus pour l'appartenance par **lien explicite** (§ 9.2), déjà décidée.
+
+---
+
+### 17.3 🔇 Ce dont le code NE DIT RIEN — et la preuve exécutable du § 16.5
+
+#### La liste complète des champs du modèle, écrite dans un contrôle qui tourne
+
+`FormeCanonique()` / `DecritNoeud()` du banc énumèrent **tout ce qui définit un
+nœud** pour le critère d'acceptation de R9 :
+
+```
+type · libellé · x · y · prises (nom, type, sens, valeur par défaut) · propriétés
+```
+
+**Rien d'autre.** Ni largeur, ni repli, ni repli de section, ni plié/séparé, ni
+bascule d'aperçu, ni commentaire, ni cadre, ni désactivé, ni tableau, ni
+dictionnaire. Vérifié aussi par relevé sur les deux en-têtes : **zéro occurrence**
+de ces notions comme champ (les seules occurrences des mots sont de la prose sur
+autre chose — *« repli »* y signifie **valeur de secours**, *« cadre »* y désigne
+le **cadre cotangent**).
+
+> ✅ **C'est la confirmation exécutable du § 16.5, et elle vaut mieux qu'un
+> relevé** : les onze notions sans foyer **n'en ont toujours pas**, et cette fois
+> c'est un contrôle vert qui le dit.
+
+📌 **Et il y a un point de raccrochage à nommer au chantier du graphe de
+matériaux** : le jour où une notion d'interface entre dans `NkNode`,
+**`DecritNoeud` devra être mis à jour, sinon le contrôle d'aller-retour devient
+aveugle à sa perte** — un champ absent du descripteur est un champ dont la
+disparition ne fait pas rougir le contrôle. C'est exactement la famille de piège
+que ce banc documente sous *« il manquait la matière »*.
+
+#### Les trois manques qui touchent le dessin de plein fouet
+
+`NkMatNodeProto` est **`{ key, label, sockets, socketCount, parPixel }`**. Rien
+de plus. Confronté au § 8.2, qui liste ce qu'une déclaration doit fournir :
+
+| § 8.2 | dans le prototype | conséquence pour le dessin |
+|---|---|---|
+| 1 · nom affiché **et catégorie** | `key` + `label` — ❌ **aucune catégorie** | 🔴 **le manque le plus lourd.** Le § 2.1 fait de la **couleur d'en-tête = catégorie** la seule information qui survit au dézoom 25 % (§ 12.2), et c'est l'argument qui a fait **refuser** que le cadre teinte ses nœuds (§ 9.2, option A). **Cette couleur n'a aujourd'hui aucune source de vérité.** Tout le raisonnement du § 9.2 repose sur un champ qui n'existe pas |
+| 2 · **s'il exécute** | ❌ absent | le filet orange / pétrole n'a pas de champ. Vrai **par construction** dans un graphe de matériau (aucun type d'exécution parmi `real, vector, color, shader, ramp, curve`), donc la § 6.4 tient — mais le § 8.2 exige que ce soit **une déclaration, pas une inférence**, et il n'y a rien à déclarer |
+| 3 · prises : nom, type, sens | ✅ porté par `NkMatSocketDecl` | |
+| 3 · **valeur par défaut** de l'entrée | ❌ pas dans le prototype — elle vit sur la **prise du nœud instancié** | ✅ **et le code a raison contre moi.** `variable/le-defaut-est-celui-de-la-prise` mesure que le défaut d'un paramètre exposé **EST** celui de la prise, *« jamais une seconde valeur rangée à côté »*, parce que *« deux sources pour une même chose divergent, et c'est alors l'éditeur qui montre l'une pendant que le moteur envoie l'autre »*. **Adopter la position du code, corriger le § 8.2** |
+| 4 · **texte d'aide** | ❌ absent | ma règle *« sans aide, le `?` n'est pas dessiné du tout »* **tient** — et aujourd'hui elle vide l'en-tête de tous les nœuds |
+| 5 · pictogramme, largeur préférée, sections de repli | ❌ absents | déclarés facultatifs, ils le restent |
+
+#### L'espace colorimétrique — mon avertissement du § 6.2 est **inapplicable**
+
+Le § 6.2 fait de l'espace colorimétrique *« le seul champ qui change
+silencieusement le rendu »*, l'écrit **en toutes lettres** sur le nœud, et bâtit
+sur lui **l'état « avertissement » tout entier** (§ 11.2 : *« il manque, et le
+§ 6.2 le prouve »*).
+
+❌ **`Image Texture` n'a qu'une propriété de fichier : `NK_MPROP_IMAGE`, le
+chemin.** Pas d'espace colorimétrique, pas de taille, pas de format. **Ma « carte
+d'identité » — `2048 × 2048 · RVBA8 · sRVB` — n'a de donnée que pour le chemin, et
+mon déclencheur d'avertissement n'existe pas.**
+
+⚠️ **Mais le code met à cette place exacte une propriété de la même famille, et
+elle est le modèle à suivre** : `NK_MPROP_NORMAL_CONV` (`opengl` / `directx`),
+avec trois propriétés que l'espace colorimétrique devrait copier mot pour mot —
+c'est **une donnée de provenance du fichier**, elle se convertit **à l'import et
+jamais dans le shader** (`normalmap/convention-ne-change-pas-le-shader` exige les
+deux sources **identiques au caractère près**), et **un mot inconnu est refusé en
+le nommant**.
+
+> 📌 **Ce que j'en retiens contre moi** : le § 6.2 a inventé un champ et lui a
+> accroché un état. La convention de normales prouve que le champ **aurait** sa
+> place et **quelle forme** il prendrait — mais **l'état « avertissement » du
+> § 11.2 n'a, aujourd'hui, aucun déclencheur réel.** Il ne faut pas le coder
+> avant que la propriété existe.
+
+#### Ce que le banc ne peut pas dire, et il le dit lui-même
+
+Aperçu, vignette, bascule globale (§ 6.1, § 6.3, § 6.5) : **rien**, et c'est
+normal — *« AUCUN GPU, AUCUNE FENÊTRE »* est la première phrase du fichier. ✅ **Un
+banc qui déclare ce qu'il ne sait pas faire est exactement le dessin du témoin
+d'instrument** que la Règle Zéro impose aux planches. Son silence n'est pas un
+avis.
+
+⚠️ **Une donnée qu'il porte quand même pour le § 6.3** : le nombre de textures
+d'un graphe est **borné** (`renderer::NK_MATBIND_GRAPH_SLOT_COUNT`), et le refus
+dit *« ce graphe demande N textures, le plafond est M »*. Ma ligne d'identité
+proposée — *« `4 textures · 12 nœuds` »* — doit donc s'écrire **`4 / M
+textures`** : le plafond est une information que l'auteur cherchera, et elle
+existe déjà.
+
+---
+
+### 17.4 ✅ Ce que le code porte et que la spécification n'avait PAS — quatorze règles
+
+> **C'est la moitié utile de l'exercice.** Chacune est une règle de dessin qui
+> manquait, et plusieurs sont écrites **dans le code lui-même**, en français, par
+> l'auteur du module.
+
+| # | ce que le code impose | où c'est écrit |
+|---|---|---|
+| **N1** | 🔴 **la rangée SANS point de connexion.** `NkMatSocketDecl::constanteSeulement` : certaines entrées alimentent l'**état du pipeline** et ne peuvent pas varier par pixel. **Le code écrit lui-même la règle de dessin** : *« l'interface doit NE PAS AFFICHER le point de connexion, plutôt qu'ouvrir un menu vide : un menu vide laisse croire à une panne, une prise sans point dit “ce paramètre est une constante”, ce qui est la vérité »* | `NkMatSocketDecl`, `biblio/prise-constante-seulement`. ⚠️ **Aucun prototype ne l'emploie encore, et le banc le dit.** → **douzième micro-élément du § 2.4** |
+| **N2** | **`parPixel` et sa CONTAGION** : une sortie « par matériau » refuse toute source par pixel **à distance** (mesuré à **deux nœuds d'écart**), et le refus **nomme le nœud coupable**. Le même `Mapping` est accepté ou refusé **selon son amont** | `sortie/refus-par-pixel-a-deux-noeuds-en-nommant`, `sortie/mappage-par-contagion-seulement`. → **aucun de mes onze états ne sait montrer une CHAÎNE fautive** ; il faudra surligner un chemin, pas un nœud |
+| **N3** | 🔴 **prise CÂBLÉE *et* EXPOSÉE = refus nommé.** Et le code dit **pourquoi c'est une commande au dessin** : *« Chez Blender le problème ne se pose pas parce que brancher un lien FAIT DISPARAÎTRE le widget : l'interface rend l'état impossible. **Nous n'avons pas d'interface** — c'est donc la validation qui doit le rendre impossible. »* | `variable/prise-connectee-et-exposee-refusee`. → **un état de rangée « en conflit » absent de ma spécification**, et à montrer **au branchement**, pas à la compilation |
+| **N4** | **nommer un groupe a QUATRE refus distincts** : `NomVide`, `SansPrise`, `DejaEnregistre`, et **`DejaStatique`** — un groupe ne peut pas **éclipser** un nœud du catalogue, *« un catalogue où le dernier inscrit gagne est un catalogue dont on ne peut plus prédire le contenu »* (Rodolf, 22/08) | `groupe/refus-d-eclipse-nomme`. → **§ 12.5 : « grouper en sous-graphe » n'est pas une entrée de menu simple, c'est un geste qui ouvre une saisie de nom REFUSABLE**, avec quatre messages |
+| **N5** | la **récursion est refusée À L'INSERTION**, pas seulement à l'aplatissement — *« à ce moment-là l'utilisateur sait ce qu'il vient de faire ; à l'aplatissement, l'erreur sort loin de sa cause »* — **et les deux filets restent**, parce qu'un graphe peut arriver **par un fichier**. Mesuré jusqu'à **trois maillons** (`A→B→C`, puis `C→A` refusé) | `groupe/recursion-refusee-aux-deux-portes`. → le message se dessine **au dépôt de l'instance** |
+| **N6** | 🔴 **le registre de prototypes est PAR DOCUMENT** (`NkMatRegistreProtos`, depuis le 23/08). Deux documents ouverts **ne voient pas** leurs groupes, **peuvent employer le même nom**, et fermer l'un n'abîme pas l'autre | `groupe/deux-documents-ne-voient-pas-leurs-groupes`. → **un groupe n'est PAS global.** La bibliothèque et le fil d'Ariane (§ 12.3) sont **par document**, et ma § 7.6 ne le dit nulle part |
+| **N7** | **le pont sous-graphe → prototype INVERSE le sens des prises** : `graph.entree` porte des prises de **sortie** (il alimente l'intérieur) qui deviennent des **entrées** sur le prototype | `groupe/pont-interface-deduite-du-sous-graphe`. ✅ Ma § 7.6 dit *« les prises du groupe se voient DE L'INTÉRIEUR »* — **c'est vrai, et l'inversion en est la conséquence non écrite** |
+| **N8** | un groupe **hérite** du `parPixel` de son contenu, **côté sûr en cas de doute** (un groupe imbriqué non résolu est déclaré par pixel), parce que *« parPixel faux à tort accepte une valeur qui change à chaque pixel en la faisant passer pour celle du matériau — faux, PLAUSIBLE, jamais signalé »* | `groupe/pont-par-pixel-conservateur` |
+| **N9** | ⚠️ **piège d'affichage direct sur le § 12.1** : `NkMatNoeudsPourPrise` rend **le compte VRAI** même quand elle a écrit moins que `maxOut` (`if (out && n < maxOut) out[n] = p;` puis `++n`). Un panneau qui afficherait « N nœuds » et itérerait sur le tampon **annoncerait plus qu'il ne montre** | le banc note que le tampon *« l'a été [dépassé] à 17 »* et se dimensionne désormais sur le nombre de prototypes. → **à écrire dans le § 12.1** |
+| **N10** | 🔴 **le menu rend des PROTOTYPES, pas des couples (prototype, prise).** `Image Texture` est **la même entrée** dans le menu couleur (par `color`) et dans le menu réel (par `alpha`) | `biblio/menu-asymetrique-couleur-reel`. → **le § 5.6 point 3 — *« le nœud choisi s'insère entre les deux et les deux liens se font »* — ne sait pas QUELLE prise brancher.** Manque direct, et il touche le pivot du § 5.6 |
+| **N11** | **les types n'ont pas de libellé** : `TypeName()` rend la **clé** (`mat.couleur`, `mat.reel`). Seul le *prototype* a un `label` | → le § 12.1 veut le filtre **« en toutes lettres »** (`qui acceptent [1.0] tableau de réels`). Il n'y a que des clés : **écrire `qui acceptent mat.couleur` serait laid et technique.** Il manque un libellé par type |
+| **N12** | ⚠️ **`t.ramp` et `t.curve` ne sont JAMAIS des types de prise** — ils servent à typer une **propriété** (`NkValueText(t.ramp, "image.png")`) | → **règle à ajouter au § 4 : la couleur de type ne se lit que sur les PRISES, jamais sur les propriétés.** Sinon un chemin d'image se peindrait de la couleur « rampe » |
+| **N13** | **deux régimes de diagnostic, et ma § 11.1 suppose partout le second** : `NkMatValidate` rend **UN** coupable (`&coupable`, `&quoi`) et `NkMatCompileResult::error` est **une seule chaîne** ; `Validate(diags)` du cœur rend **une liste** | → *« la raison est écrite DANS le nœud, en pied »* (§ 11.1) n'est vrai que pour les diagnostics du cœur. **La couche matériau refuse au premier fautif** : l'éditeur ne peut pas peindre tous les nœuds en erreur d'un coup |
+| **N14** | ⚠️ pour le **cycle**, le diagnostic ne dit **pas quels fils** — `NkGraphIssue::Cycle` rend un diagnostic et un détail | → ma § 11.6 veut *« les fils du cycle passent en `#E4443C`, tous ensemble »*. **Il faut retrouver la boucle soi-même**, coût que ma spécification ne chiffrait pas |
+
+⚠️ **Et un piège d'API à écrire noir sur blanc avant le codage** :
+**`Accepts(destination, source)`**, dans cet ordre. Le code le montre deux fois —
+`g.Accepts(t.color, t.real)` signifie **réel → couleur**. Inversé, tout le § 11.5
+(compatible / convertible / incompatible) se dessinerait **à l'envers**, et le
+résultat serait parfaitement plausible.
+
+📌 **Une nuance sur le § 11.5, mesurée** : le modèle n'expose **qu'un booléen**.
+« Compatible » et « convertible » **ne se distinguent pas par une fonction** —
+il faut les calculer : *compatible* = `dst == src`, *convertible* =
+`dst != src && Accepts(dst, src)`. **C'est déductible, pas absent** — mais c'est à
+l'éditeur de le faire, et ma § 11.5 laissait croire que le modèle rendait trois
+états.
+
+---
+
+### 17.5 Trois points du § 13 que cette lecture ferme ou déplace
+
+| # | question | ce que la mesure en dit |
+|---|---|---|
+| **1** | **largeur du nœud** : fixe, adaptative ou redimensionnable ? | ⚠️ **toujours ouverte, mais son coût est maintenant chiffré** : `DecritNoeud` porte `x` et `y` et **pas de largeur**, et l'aller-retour du regroupement exige l'identité. **Une largeur libre ne survivrait à rien aujourd'hui**, exactement comme ce document l'annonçait |
+| **2** | **séparer une struct casse-t-il le lien existant ?** | ✅ **SANS OBJET côté matériau.** Le modèle n'a pas d'état « séparé » : il a **deux nœuds**, `Separate XYZ` et `Combine XYZ`. Séparer, c'est **poser un nœud**, ce qui ne casse aucun lien. 🔴 **À reposer seulement si le blueprint apporte un vrai séparateur d'affichage** — et alors ce sera une question neuve, pas celle-ci |
+| **9.1bis 🟡** | *« le catalogue dit le puits unique ; un fichier importé peut en apporter plusieurs, dont un seul actif — je ne tranche pas si le modèle l'autorise »* | ✅ **FERMÉ.** Le modèle **représente** les deux (le fichier charge, le tri passe) et **les refuse** (`MultipleOutput`). **Il n'y a AUCUNE notion de puits actif.** Mon *« c'est le puits ACTIF qui porte un signal positif »* est sans objet — et le **quatrième gris** est évité, mais pour une autre raison que celle que j'écrivais : il n'y a rien à griser, il y a une erreur à montrer |
+
+---
+
+### 17.6 📌 Ce que cette lecture m'apprend sur ce document
+
+**Quatre des huit contradictions ont la même forme, et il faut la nommer :
+j'ai spécifié un dessin à partir d'un EXEMPLE que je n'avais pas vérifié.**
+
+- les arrêts-prises du `ColorRamp` (C1) viennent de **ma propre planche 01** ;
+- le tableau de 500 (C2) vient d'une phrase du catalogue, pas d'un modèle ;
+- les cinq nœuds à tracé de rayons (C4) viennent du catalogue, et **aucun
+  n'existe** ;
+- l'espace colorimétrique (§ 17.3) est un champ que **j'ai inventé** pour
+  justifier un état.
+
+> ⚠️ **C'est la même famille que les pièges de la nuit du 22 au 23 : la
+> connaissance existe, mais pas là où je l'ai cherchée.** Ici je ne l'ai pas
+> cherchée du tout — j'ai lu le catalogue, qui décrit **une intention**, et pas le
+> code, qui décrit **ce qui est**. Le catalogue est un bon document ; ce n'en est
+> pas un de vérité.
+
+✅ **La règle qui en sort, et elle vaut pour la suite** : **avant d'attacher un
+état visuel à un champ, vérifier que le champ existe.** Un état sans déclencheur
+(le § 11.2) et une planche sans modèle (la 01) coûtent tous les deux la même
+chose : ils se codent, et ils ne peuvent pas marcher.
