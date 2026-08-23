@@ -88,6 +88,28 @@ nodal** — c'est une capture de l'éditeur Unreal avec ses 7 zones numérotées
 je la traite comme une contrainte de cohérence avec l'inspecteur, pas comme une
 référence de style (question posée en `Q1`).
 
+
+### 0.4 ⚠️ Une décision retirée est BARRÉE, jamais effacée
+
+Ce document contient des affirmations **barrées** avec, à côté, la raison pour
+laquelle on avait cru autre chose. **C'est délibéré, et c'est une règle.**
+
+> **Une correction qui efface sa trace fait qu'on ne peut plus savoir POURQUOI
+> on avait cru autre chose — et quelqu'un y reviendra, avec le même
+> raisonnement, dans six mois.**
+
+Barré et expliqué, c'est un **vaccin** : le lecteur suivant rencontre l'idée
+*et* sa réfutation en même temps, au lieu de la redécouvrir seul et de la
+réintroduire.
+
+**Ce qui est barré porte donc toujours trois choses** — ce qui était affirmé, ce
+qui l'a remplacé, et **ce qui rendait l'erreur plausible**. Sans la troisième, le
+barré ne vaccine pas : il humilie l'auteur sans instruire le lecteur.
+
+📌 Exemples vivants dans ce document, tous du 23/08 : *« l'acyclicité ne doit
+valoir que pour la donnée »* (§ 19.9 et § 20.2), *« le mode états est impossible
+sur le cœur »* (§ 19.3), *« le filet d'exécution vaut 2,5 px »* (§ 2.2).
+
 ---
 
 ## 1. Le socle géométrique
@@ -2077,7 +2099,7 @@ alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat néga
 sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
 qui existe.
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS — **19 restants sur 27**
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **18 restants sur 27**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
@@ -2107,10 +2129,10 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 21 | **la PORTÉE du registre de types** : comparer la charge utile, ou remonter le registre au DOCUMENT ? | § 18.5 | 🔴 **décide où VIT le registre** — les quatre types composés en dépendent, et rien ne doit être codé avant |
 | ~~22~~ | ~~**le mode ÉTATS est impossible sur le cœur**~~ | § 19.9 | ✅ **TRANCHÉ le 23/08 : la machine à états est un NŒUD**, ses cycles vivent dans son modèle interne. `WouldCycle` n'est pas touché — le seul choix qui n'affaiblit pas une règle générale pour un cas particulier |
 | 23 | ~~**NKScena** : quel domaine ?~~ | § 19.6 | ✅ **TRANCHÉ le 23/08 par Rodolf : la mise en scène cinématographique.** Trois applications distinctes, communiquant par fichiers |
-| 24 | **NKScena : est-elle seulement NODALE ?** | § 19.8 | 🟡 **proposition écrite, elle attend un oui** : PAS nodale — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'exécution. *Ce qui ordonne un séquenceur est une COORDONNÉE, pas un arc* |
+| ~~24~~ | ~~**NKScena : est-elle seulement NODALE ?**~~ | § 19.8 | ✅ **TRANCHÉ le 23/08 : NON.** Une ligne de temps à **pistes**, dont les **marqueurs d'événement** entrent dans un graphe d'**exécution**. *Ce qui ordonne un séquenceur est une COORDONNÉE, pas un arc* |
 | ~~25~~ | ~~**la mise en scène est écrite trois fois**~~ | § 19.7 | ✅ **DISSOUS le 23/08, et sans arbitrage** : un mot désignait deux choses. Le MOTEUR de séquence va à NkAnima, les SÉMANTIQUES de cinéma à NKScena, les outils d'animation à NkAnimaEditor. Personne ne perd |
-| 26 | **`NkSequencer.h` est rangé sous Noge alors qu'il EST le moteur** | § 19.7 | 🔴 **à déplacer vers NkAnima** — 416 lignes, 0 `.cpp`, 0 consommateur : c'est le meilleur moment, il n'a encore rien cassé |
-| 27 | **le principe « un cycle vit dans un nœud » vaut-il aussi pour l'EXÉCUTION ?** | § 19.9 | 🟡 **conséquence de la décision du 23/08, signalée et non appliquée** : si oui, `WouldCycle` reste global, les deux familles restent acycliques, l'itération est un nœud — et le § 20.2 change avant de partir chez l'autre chantier |
+| 26 | **`NkSequencer.h` : la SÉPARATION du séquencement pur et de ce qui l'attache à un monde** | § 19.11 | 🔴 **surtout PAS un `git mv`** — le fichier inclut `NkAnimation.h` et `NkRenderComponents.h` de Noge et emploie `NkEntityId` dix fois. Le déplacer ferait dépendre **NkAnima de Noge**, l'inversion exacte qu'on évite |
+| ~~27~~ | ~~**le principe vaut-il aussi pour l'EXÉCUTION ?**~~ | § 19.9 | ✅ **OUI, TRANCHÉ le 23/08 : l'acyclicité est UNIVERSELLE.** Une règle sans exception est une règle que les outils n'ont pas à interroger ; le tri topologique reste valide sur le graphe entier ; tous les cas connus sont couverts. **Coût assumé : `Portail (aller à)` sort du catalogue** |
 
 ---
 
@@ -2889,7 +2911,7 @@ erreur coûteuse — un graphe d'états ne « s'exécute » pas de gauche à dro
 |---|---|---|---|---|
 | **NK3DModeler** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
 | **NkAnima** | **FLOT**, et la machine à états est **un NŒUD** dedans (§ 19.9) | pose d'animation, et machine à états qui la choisit | **AnimGraph** (flot, type *pose*) : `Blend Poses by Bool`, `Layered Blend per Bone`, `State Machine`, `Output Pose` (final, non supprimable) · **sous-graphe d'états** : les états eux-mêmes, `Entry` non supprimable | runtime **livré** (`NkAnimStateMachine`, `NkBlendTree1D/2D`) ; **éditeur = embryon**, AnimGraph = 0 ligne |
-| **NKScena** | 🟡 **proposé : PAS nodale** — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'EXÉCUTION (§ 19.8) | ✅ **la mise en scène cinématographique** (Rodolf, 23/08) : plans, caméras, déclenchements, enchaînements | ce qui existe n'est pas nodal : `NkSequence`, `NkTrack`, `NkCameraShot`, `NkMarker` — des **pistes**, pas des nœuds | `Applications/NKScena/` **n'existe pas**. `NkSequencer.h` = 416 lignes, **0 `.cpp`, 0 consommateur** |
+| **NKScena** | ✅ **PAS nodale** (tranché 23/08) — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'EXÉCUTION (§ 19.8) | ✅ **la mise en scène cinématographique** (Rodolf, 23/08) : plans, caméras, déclenchements, enchaînements | ce qui existe n'est pas nodal : `NkSequence`, `NkTrack`, `NkCameraShot`, `NkMarker` — des **pistes**, pas des nœuds | `Applications/NKScena/` **n'existe pas**. `NkSequencer.h` = 416 lignes, **0 `.cpp`, 0 consommateur** |
 | **Nogee** | **FLOT** (matériaux) **+ EXÉCUTION** (Blueprint) | ① matériaux → NkSL · ② logique gameplay / ECS · ③ VFX | ① Material Output, non supprimable · ② `EventBeginPlay`, `EventCustom`, `PrintString`, `SwitchInt`, `AddFloat`, `Raycast`, `SpawnActor`, familles *Events · FlowControl · Math · Physics · Structs* · ③ Bruit de Perlin, Courbe, Collision, Force, Attribut de particule | coquille ; **`NkBlueprint.h` porte un vrai interpréteur, ~15 nœuds — et zéro consommateur** |
 | **PV3DE** | **ÉTATS**, s'il en ouvre un un jour | état clinique / émotion | aucun nœud écrit ; ce qui existe est une FSM **codée en dur** — `EmotionState` (9 états), `NkEmotionTransition`, fondu 500 ms | **le plus abouti en code** (8 210 lignes, l'UI médicale s'affiche) ; **aucune trace de graphe nodal**, et PV3DE n'est dans aucune liste de consommateurs de NKGraph |
 
@@ -3128,7 +3150,7 @@ graphe est une *façon d'écrire* un modèle ; s'il n'y a pas de modèle, le gra
    fonction à un instant**. C'est le point exact où le non nodal a besoin d'être
    appuyé, et le seul.
 
-🟡 **LA PROPOSITION, et c'en est une — elle attend un oui :**
+✅ **LA PROPOSITION A ÉTÉ VALIDÉE PAR RODOLF le 23/08. Elle tient :**
 
 > **NKScena n'ouvre pas un éditeur nodal. Elle ouvre une LIGNE DE TEMPS À
 > PISTES.** Ses **marqueurs d'événement** entrent dans un graphe d'**EXÉCUTION**
@@ -3184,28 +3206,60 @@ elle la porte dans le modèle interne du nœud. **Le besoin de qualifier un lien
 devient donc moins urgent, et il change de nature** : il n'est plus exigé par
 l'animation.
 
-#### 🔴 La conséquence que cette décision a AILLEURS, et qu'il faut trancher
+#### ✅ **TRANCHÉ le 23/08** — l'acyclicité reste UNIVERSELLE
 
-Le principe qu'elle pose est plus large que la machine à états :
+Le principe que cette décision pose est plus large que la machine à états :
 
 > **un cycle vit à l'intérieur d'un nœud, jamais dans le graphe.**
 
-Or le § 20.2 propose exactement le contraire pour l'exécution : que
-`WouldCreateCycle` et `TopoSort` ne voient plus que les liens de famille `Data`,
-**afin qu'un rebouclage d'exécution devienne traçable**. Les deux ne peuvent pas
-être vrais en même temps.
+⚠️ Ce document a d'abord proposé le contraire pour l'exécution (§ 20.2, le matin
+du 23/08) : que `WouldCreateCycle` et `TopoSort` ne voient plus que les liens de
+famille `Data`, **afin qu'un rebouclage d'exécution devienne traçable**. ❌ **Cette
+proposition est retirée.** Elle affaiblissait une règle **générale** pour un cas
+**particulier**. Elle reste écrite, barrée, au § 20.2 et sur la planche 08 — voir
+§ 0.4 sur pourquoi on ne l'efface pas.
 
-✅ **Appliqué à la boucle, le principe donne la réponse que la planche 08 avait
-posée en question** : *« est-ce voulu — le corps de boucle se referme par la
-sémantique du nœud, pas par un fil — ou est-ce un mur ? »* Sous cette décision,
-c'est **voulu** : une boucle est un **nœud** (`Pour chaque`, `Tant que`) avec une
-sortie *corps de boucle*, et le corps ne revient **jamais** par un fil. C'est
-d'ailleurs la forme d'Unreal.
+**Trois raisons rendent la décision ferme :**
 
-🟡 **Je propose donc d'étendre la décision à l'exécution** — `WouldCycle` reste
-global, les deux familles restent acycliques, l'itération est un nœud — **et je
-le signale au lieu de l'appliquer en silence**, parce que ça modifie le § 20.2
-qui part chez un autre chantier. Ligne **27** du § 13.
+1. ⚠️ **Une règle sans exception est une règle que les outils n'ont pas à
+   interroger.** Le jour où l'acyclicité dépend de la famille du lien, **tout** ce
+   qui parcourt un graphe doit savoir dans quelle famille il se trouve. Or on
+   vient de passer trois jours sur des défauts causés par des choses qui **ne
+   savaient pas à quelle famille elles appartenaient** ;
+2. **le tri topologique reste valide sur le graphe ENTIER.** C'est lui qui donne
+   un ordre d'évaluation défini. Autoriser un cycle **quelque part**, c'est le
+   perdre **partout** ;
+3. **tous les cas connus sont couverts** — boucle → nœud de boucle ; machine à
+   états → nœud de machine à états. **Aucun n'exige un fil qui revienne.**
+
+📌 **Unreal donne le même verdict par l'usage** : son `For Loop` a une sortie
+*corps de boucle* et une sortie *terminé*, et **le corps ne revient jamais au
+nœud par un fil** — le nœud itère lui-même. C'est la même règle, appliquée par le
+moteur le plus utilisé du métier.
+
+✅ **La planche 08 reçoit donc sa réponse**, celle qu'elle posait en question
+depuis le début : *« est-ce voulu — le corps de boucle se referme par la
+sémantique du nœud, pas par un fil — ou est-ce un mur ? »* → **c'est voulu.**
+
+#### ⚠️ Ce que cette décision COÛTE — et il faut l'écrire, pas le taire
+
+Le catalogue liste **`Portail (aller à)`** dans la famille *flot*
+(`CATALOGUE_NOEUDS.md` § 4). **Un portail qui saute en arrière est un cycle.**
+Sous cette décision, **il n'existe pas sous cette forme**.
+
+⚠️ **Le laisser dans la liste serait exactement le défaut qu'on traque : une
+capacité DÉCLARÉE que le moteur ne saura pas honorer.** Il est donc barré au
+catalogue, avec ce qui le remplace :
+
+| ce qu'on voulait en faire | ce qui le fait |
+|---|---|
+| **revenir en arrière** (répéter) | un **nœud de boucle** — `Boucle Pour`, `Boucle Tant que`. C'est le cas que la décision tranche |
+| **sauter en avant sans tirer un long fil** | le **relais** (`reroute`), déjà au catalogue § 5 — il range un fil sans rien changer au graphe |
+| **sauter en avant en changeant le flot** | un fil d'exécution ordinaire vers le nœud visé : un saut avant **est** déjà exprimable, et il n'a pas besoin d'un nœud pour ça |
+
+📌 **Aucun des trois usages n'est perdu.** C'est ce qui rend le retrait
+acceptable : le portail n'apportait rien qu'un autre nœud ne fasse déjà, **sauf
+le retour en arrière** — et c'est précisément ce que la décision refuse.
 
 ### 19.10 ✅ **TRANCHÉ le 23/08** — ce que le graphe d'animation porte VRAIMENT
 
@@ -3235,6 +3289,39 @@ clip joue**.
 pistes, ce document décrira une porte sans le mur »*. **Les pistes sont
 désormais nommées comme le porteur de l'animation elle-même**, pour l'animation
 comme pour la mise en scène. Le mur existe ; reste à savoir qui l'écrit.
+
+
+### 19.11 🔴 `NkSequencer.h` — une SÉPARATION, surtout pas un `git mv`
+
+Le § 19.7 conclut que `NkSequencer.h` **est** le moteur de séquence, et qu'il est
+rangé sous Noge. ⚠️ **J'en avais déduit « à déplacer vers NkAnima ». C'était une
+conclusion tirée d'une mesure incomplète** : j'avais compté ce que le fichier
+**est** (416 lignes, 0 `.cpp`, 0 consommateur) sans regarder **ce dont il
+dépend**.
+
+**Ce qu'il inclut, et qui interdit le déplacement tel quel :**
+
+| ce que le fichier tire de Noge | conséquence si on le déplace |
+|---|---|
+| `Noge/ECS/Components/Animation/NkAnimation.h` | |
+| `Noge/ECS/Components/Rendering/NkRenderComponents.h` | |
+| `NkEntityId` — **employé dix fois** | 🔴 **NkAnima dépendrait de Noge** — l'inversion exacte qu'on évite, retournée |
+
+📌 **Mais la même mesure dit comment faire, et c'est mon propre critère
+(§ 19.7) qui tranche** : *est-ce que ça s'évalue à un instant `t` ?*
+
+| | ce que c'est | où ça va |
+|---|---|---|
+| `NkTrack`, `NkClipOnTrack`, `NkMarker`, `NkInterpolation`, `NkNLATrack`, `NkAnimChannel` | du **séquencement pur** — une piste, un instant, une durée. **Ça s'évalue à `t`** | ✅ le **moteur**, chez **NkAnima** |
+| `NkEntityId`, `NkCameraShot`, `NkCutType` | ce qui **attache** le séquencement **à un monde** — un identifiant d'entité ne s'évalue pas à `t`, **c'est une cible** | ✅ reste du côté qui connaît le monde |
+
+✅ **Ce n'est donc pas un déplacement, c'est une coupe** — et elle tombe
+exactement sur la frontière que le § 19.7 avait déjà tracée pour d'autres
+raisons. Deux chemins, la même ligne : c'est ce qui la rend sûre.
+
+⚠️ **Écrit, non exécuté.** Ce fichier appartient à un autre chantier. Et le
+moment reste favorable — 0 `.cpp`, 0 consommateur — mais **le geste est une
+séparation à faire avec soin, pas un `git mv` de trente secondes.**
 
 ### 19.5 La question que ce tableau rend décidable
 
@@ -3303,7 +3390,7 @@ Ce que ce champ doit changer, et **rien d'autre** :
 | **compatibilité** | `Accepts()` compare des `NkTypeId` | comparer **d'abord les familles**, et refuser un croisement par une raison **nommée** — `NkLinkError::FamilyMismatch`. Un fil d'exécution branché sur une prise de donnée doit se refuser **en le disant** |
 | **arité d'une ENTRÉE** | une seule source ; une deuxième **remplace** la première | **Data** : inchangé. **Exec** : **plusieurs sources autorisées** — dix chemins peuvent mener au même nœud |
 | **arité d'une SORTIE** | autant de liens qu'on veut | **Data** : inchangé. **Exec** : **un seul** — une instruction n'a qu'une suite. Le second se refuse par `NkLinkError::ExecOutputAlreadyBound` |
-| **acyclicité** | `WouldCreateCycle` et `TopoSort` voient **tous** les liens | 🟡 **NE RIEN CHANGER, en attente de confirmation (§ 19.9, ligne 27).** Ce document a d'abord proposé de ne voir que les liens `Data`, pour rendre un rebouclage d'exécution traçable. La décision du 23/08 pose le principe inverse — **un cycle vit à l'intérieur d'un nœud, jamais dans le graphe** — et une boucle devient un **nœud** (`Pour chaque`, `Tant que`) dont le corps ne revient jamais par un fil. **Ne pas toucher `WouldCycle` tant que ce n'est pas confirmé** |
+| **acyclicité** | `WouldCreateCycle` et `TopoSort` voient **tous** les liens | ✅ **NE RIEN CHANGER — TRANCHÉ le 23/08.** ~~Ce document a d'abord proposé de ne voir que les liens `Data`, pour rendre un rebouclage d'exécution traçable.~~ ❌ Retiré : ça affaiblissait une règle **générale** pour un cas **particulier**. **L'acyclicité reste universelle**, `WouldCycle` reste global, et un cycle vit **à l'intérieur d'un nœud** — boucle et machine à états sont des nœuds. Trois raisons au § 19.9 |
 
 ⚠️ **LE PIÈGE À NE PAS PRENDRE, et il ressemble à une bonne idée.** Le registre
 de types est plat et accepte n'importe quel nom : on peut y enregistrer un type
