@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1800,1625
+W,H=1800,1755
 VERT='#4E9A5A'
 
 s=head(W,H,u'Planche 05 \u2014 textures, mat\u00e9riaux, commentaires et cadres',
@@ -237,7 +237,7 @@ s+=c8
 
 # --- 9 : le cadre --------------------------------------------------------
 X9=510
-s+=lab(X9,R3,'9',u'LE CADRE \u2014 VU, et richement',u'node-based\u2026webp est la seule r\u00e9f\u00e9rence \u00e0 en montrer un, et elle en montre plus que pr\u00e9vu')
+s+=lab(X9,R3,'9',u'LE CADRE \u2014 VALID\u00c9 par Rodolf le 22/08',u'\u00ab tu as d\u00e9fini le bon cadre comme je veux \u00bb \u2014 ces valeurs sont d\u00e9sormais des D\u00c9CISIONS')
 fx,fy,fw,fh=X9,R3+34,450,300
 s+='<rect x="%s" y="%s" width="%s" height="%s" rx="6" fill="%s" opacity="0.08"/>\n'%(fx,fy,fw,fh,VERT)
 s+='<rect x="%s" y="%s" width="%s" height="%s" rx="6" fill="none" stroke="%s" stroke-width="1.5"/>\n'%(fx,fy,fw,fh,VERT)
@@ -253,27 +253,36 @@ inner=[(fx+26,fy+46,u'Texture image',u'Texture',CAT['texture'],
        (fx+26,fy+180,u'Constante',u'Entr\u00e9e',CAT['entree'],
         [{'lab':u'Valeur','coul':FAM['nombre'],'plein':True,'sortie':True,'glyphe':'1.0'}])]
 for x,y,t,so,c,rows in inner:
-    n,hh=noeud(x,y,170,rows,t,so,c,erreur=VERT); s+=n
+    # OPTION A (Rodolf, 22/08) : la teinte du cadre n'est JAMAIS repliquee
+    # sur un noeud. Filet NORMAL, exactement comme un noeud hors cadre.
+    n,hh=noeud(x,y,170,rows,t,so,c); s+=n
 s+=fil(fx+196,fy+88,fx+236,fy+88,FAM['appar'],2)
 # noeud HORS cadre
 n,hh=noeud(fx+486,fy+180,150,[{'lab':u'Sortie','coul':FAM['appar'],'plein':True,'branchee':True,'glyphe':'RVB'}],
            u'Rendu',u'Sortie',CAT['sortie']); s+=n
-s+=tt(fx+430,fy+180+hh+16,u'hors cadre \u2014 filet NORMAL',TXT3,10)
+s+=tt(fx+232,fy+180+hh+30,u'dedans et dehors se ressemblent \u2014 c\u2019est le BUT',TXT3,10)
 s+=fil(fx+406,fy+112,fx+486,fy+206,FAM['appar'],2)
 # cadre replie
 s+='<path d="M%s %sa6 6 0 0 1 6 -6 h%s a6 6 0 0 1 6 6 v20 H%s z" fill="%s"/>\n'%(fx,R3+358,fw*0.52,fx,VERT)
 s+=tt(fx+12,R3+371,u'\u25b8 \u00c9clairage \u00b7 12 n\u0153uds',u'#10240F',12,'600')
 s+=tt(fx+fw*0.52+24,R3+371,u'repli \u2014 le bandeau seul reste',TXT3,10)
-s+=tt(fx+fw*0.52+24,R3+384,u'\ud83d\udd34 NON TRANCH\u00c9 : o\u00f9 aboutissent les fils qui entraient dans le cadre ?',ORANGE,10)
-c9,hc9=cartouche(X9,R3+400,640,[
-  u'VU \u00b7 remplissage vert \u00e0 8 % \u00b7 filet ext\u00e9rieur plein 1,5 px \u00b7 SECOND filet INT\u00c9RIEUR pointill\u00e9 \u00e0 8 px',
-  u'VU \u00b7 bandeau de titre plein, texte SOMBRE sur la teinte \u00b7 compteur \u00ab 7 nodes \u00bb align\u00e9 \u00e0 droite',
-  u'PROPOS\u00c9 \u00b7 le cadre passe DERRI\u00c8RE tout \u00b7 l\u2019appartenance est G\u00c9OM\u00c9TRIQUE, jamais d\u00e9clar\u00e9e',
-  u'PROPOS\u00c9 \u00b7 tirer le BANDEAU d\u00e9place cadre + n\u0153uds ; tirer le CORPS ne d\u00e9place que le cadre \u2014 deux curseurs',
-  u'\u2705 TRANCH\u00c9 22/08 \u00b7 la r\u00e9f\u00e9rence teinte AUSSI l\u2019en-t\u00eate des n\u0153uds contenus. \u00c7a \u00c9CRASERAIT la CAT\u00c9GORIE,',
-  u'   la SEULE information qui survit au d\u00e9zoom : \u00e0 25 % il ne reste QUE ce rectangle de couleur.',
-  u'   D\u00c9CID\u00c9 \u00b7 on ne teinte QUE le filet du corps. Le cadre dit D\u00c9J\u00c0 l\u2019appartenance en ENTOURANT les n\u0153uds.'],
-  u'ce qui est VU, ce qui est D\u00c9CID\u00c9, ce qui reste \u00e0 trancher')
+s+=tt(fx+fw*0.52+24,R3+384,u'\ud83d\udd34 NON TRANCH\u00c9 : o\u00f9 aboutissent les fils entrants ?',ORANGE,10)
+s+=tt(fx+fw*0.52+24,R3+397,u'A = sur le bandeau \u2014 12 fils sur 20 px, illisible',TXT3,10)
+s+=tt(fx+fw*0.52+24,R3+410,u'B = ils disparaissent, le bandeau les COMPTE',TXT3,10)
+c9,hc9=cartouche(X9,R3+426,640,[
+  u'\u2705 VALID\u00c9 22/08 \u00b7 remplissage \u00e0 8 % \u00b7 filet ext\u00e9rieur plein 1,5 px \u00b7 SECOND filet INT\u00c9RIEUR pointill\u00e9 4-4 \u00e0 8 px',
+  u'\u2705 VALID\u00c9 22/08 \u00b7 bandeau plein de 20 px, texte SOMBRE sur la teinte \u00b7 compteur de n\u0153uds align\u00e9 \u00e0 droite',
+  u'\u2705 D\u00c9CID\u00c9 22/08 par Rodolf \u00b7 la teinte du cadre n\u2019est JAMAIS r\u00e9pliqu\u00e9e sur un n\u0153ud \u2014 ni corps, ni en-t\u00eate,',
+  u'   ni filet, ni pastille. Le cadre ENTOURE, et son BANDEAU porte le sens. L\u2019en-t\u00eate garde la CAT\u00c9GORIE,',
+  u'   seule information qui survit au d\u00e9zoom : \u00e0 25 % il ne reste QUE ce rectangle de couleur.',
+  u'\u2705 EN PRIME \u00b7 le conflit \u00e0 TROIS dispara\u00eet : la bordure du n\u0153ud n\u2019a plus que deux pr\u00e9tendants, s\u00e9lection et erreur.',
+  u'\u26a0 CONTREPARTIE \u00b7 le TITRE devient obligatoire \u2014 il est d\u00e9sormais le SEUL porteur du sens du cadre.',
+  u'\u2705 D\u00c9CID\u00c9 \u00b7 l\u2019appartenance est un LIEN EXPLICITE S\u00c9RIALIS\u00c9. La g\u00e9om\u00e9trie ne sert qu\u2019au D\u00c9P\u00d4T : le cadre le',
+  u'   plus int\u00e9rieur contenant l\u2019ORIGINE du n\u0153ud. Raison : un cadre REPLI\u00c9 n\u2019a plus de g\u00e9om\u00e9trie \u00e0 interroger,',
+  u'   et le compteur \u00ab 12 n\u0153uds \u00bb compte une LISTE, pas une intersection. DUR_H1, DUR_H2, DUR_H3 tombent.',
+  u'PROPOS\u00c9 \u00b7 le cadre passe DERRI\u00c8RE tout \u00b7 tirer le BANDEAU d\u00e9place cadre + membres ; tirer le CORPS ne',
+  u'   d\u00e9place que le cadre \u2014 deux gestes, donc deux curseurs.'],
+  u'ce qui est VALID\u00c9, ce qui est D\u00c9CID\u00c9, ce qui reste \u00e0 trancher')
 s+=c9
 
 # --- 10 : les deux relais ------------------------------------------------
@@ -311,6 +320,10 @@ c10,hc10=cartouche(X10,y11+130,560,[
   u'les deux, c\u00f4te \u00e0 c\u00f4te')
 s+=c10
 
-s+=tt(34,H-24,u'corps #212121 rayon 0 \u00b7 en-t\u00eate rayon 5 \u00b7 filet P\u00c9TROLE partout (aucun graphe de mati\u00e8re n\u2019a de fil d\u2019ex\u00e9cution) \u00b7 aper\u00e7u = bloc de corps escamotable, pleine largeur \u00b7 damier 10 px sous tout alpha',TXT3,10)
+s+=tt(34,H-50,u'corps #212121 rayon 0 \u00b7 en-t\u00eate rayon 5 \u00b7 filet P\u00c9TROLE partout (aucun graphe de mati\u00e8re n\u2019a de fil d\u2019ex\u00e9cution) \u00b7 aper\u00e7u = bloc de corps escamotable, pleine largeur \u00b7 damier 10 px sous tout alpha',TXT3,10)
+
+# MENTION D’ÉCHELLE : la planche declare elle-meme qu elle ne doit pas
+# etre mesuree. Sans elle, un pixel releve ici deviendrait une valeur.
+s+=tt(34,H-26,u'⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.',TXT3,10)
 
 ecrire('planche_05_matieres.svg',s)

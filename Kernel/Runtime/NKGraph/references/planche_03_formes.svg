@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1400" viewBox="0 0 1780 1400" font-family="Segoe UI, Inter, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1420" viewBox="0 0 1780 1420" font-family="Segoe UI, Inter, sans-serif">
 <defs>
 <pattern id="grille" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#1C1C1C"/></pattern>
 <pattern id="hachure" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="8" fill="#3A3A44" opacity="0.55"/></pattern>
@@ -7,7 +7,7 @@
 <linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2b4a7a"/><stop offset="55%" stop-color="#d99a5a"/><stop offset="100%" stop-color="#141414"/></linearGradient>
 <filter id="ombre" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/></filter>
 </defs>
-<rect width="1780" height="1400" fill="#121212"/><rect width="1780" height="1400" fill="url(#grille)"/>
+<rect width="1780" height="1420" fill="#121212"/><rect width="1780" height="1420" fill="url(#grille)"/>
 <text x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 03 — les quatorze formes de nœud</text>
 <text x="34" y="62" fill="#8A8A8A" font-size="12.5">La forme suit la CONNECTIVITÉ, jamais le nom — c’est pourquoi il y en a quatorze et non cinquante-quatre · filet ORANGE = le nœud exécute · filet PÉTROLE = il calcule · filet GRIS = on ne sait pas</text>
 <text x="44" y="118" fill="#F79A28" font-size="12.5" font-weight="600">1 · SOURCE</text>
@@ -356,4 +356,5 @@
 <text x="1194" y="1285" fill="#8A8A8A" font-size="10.5">   `Example node` de node-based…webp est exactement le squelette nu</text>
 <text x="1194" y="1302" fill="#8A8A8A" font-size="10.5">   d’un nœud dont l’éditeur ne sait rien.</text>
 <text x="34" y="1370" fill="#6A6A6A" font-size="10">Fond #121212 · corps #212121 · contrôle #2B2B2B · rayon 0 corps / 5 en-tête (12 pour un événement) · prise au ratio 17:63 · les couleurs de CATÉGORIE (en-tête) restent à valider</text>
+<text x="34" y="1394" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
 </svg>

@@ -13,6 +13,55 @@
 
 ---
 
+## ⚠️ RÈGLE ZÉRO — **les ratios font foi, les pixels ne font foi de rien**
+
+> Écrit le 22/08 après mesure. **À lire avant tout le reste**, parce que c'est la
+> règle qui détermine comment lire tous les nombres de ce document.
+
+**Toute valeur en pixels écrite ici, ou relevée sur une planche, ou lue dans le
+`.sketch` de Rodolf, est une valeur À UNE ÉCHELLE DONNÉE. Seuls les RAPPORTS se
+transportent.**
+
+Les trois échelles en présence, et aucune n'est « la bonne » dans l'absolu :
+
+| document | échelle | pourquoi |
+|---|---|---|
+| **le `.sketch` de Rodolf** | **× 6** | c'est une **maquette d'étude** : il l'a agrandie pour pouvoir dessiner |
+| **les planches 01 à 05** | **≈ × 2,1** pour les prises | à l'échelle 1, `tableau` et `dico` deviennent **indistinguables** — mesuré |
+| **l'éditeur** | **× 1** | en-tête 21 px, prise 2,9 × 10,5 |
+
+### Les trois conséquences, et elles sont des règles
+
+1. ✅ **Les RATIOS font foi.** `prise_hauteur / en-tête_hauteur = 0,5000` est une
+   décision de dessin. `prise = 63,3 px` n'en est pas une : c'est cette décision
+   **à l'échelle de la maquette**. ⚠️ **Quand un nombre de ce document contredit un
+   ratio, c'est le ratio qui a raison.**
+2. ✅ **Chaque planche PORTE sa mention d'échelle**, en pied :
+   *« ⚠ PLANCHE D'ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle
+   relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais
+   les pixels de cette planche. »*
+   ⚠️ **Ce n'est pas une excuse, c'est le mécanisme.** Sans elle, quelqu'un
+   mesurera un jour un pixel sur une planche et en fera une valeur. Avec elle,
+   **la planche dit elle-même qu'elle ne doit pas être mesurée** — même dessin
+   qu'un témoin d'instrument : **l'outil déclare ce qu'il ne sait pas faire.**
+3. ✅ **Le seul document qui doit être à l'échelle 1 est celui qui montre
+   l'ÉDITEUR.** Il n'existe pas encore ; **s'il en faut un, il sera à part et il
+   le dira**. On ne mélange pas une planche d'étude et une maquette d'interface.
+
+📌 **Pourquoi on ne « corrige » pas les planches à l'échelle 1** : essayé en bac
+à sable, PNG rendu et regardé. Les segments du `tableau` tombent à **2,17 px**, la
+demi-largeur du `dico` à **0,65 px**, et le panneau qui **enseigne cette
+distinction** ne la montre plus. **Une planche qui perd ce qu'elle enseigne n'est
+pas plus juste, elle est inutile.** Et l'échelle × 2,1 coûterait une refonte
+complète de mise en page **pour rendre une propriété que personne ne lira sur une
+planche.**
+
+✅ **L'argument décisif est de Rodolf** : il a dessiné son nœud à **6 ×**. Il
+savait qu'il produisait un document d'étude. **On ne rend pas les planches
+« exactes » contre l'intention de celui qui a posé la référence.**
+
+---
+
 ## 0. Comment lire ce document — trois niveaux, jamais mélangés
 
 Chaque affirmation porte une étiquette. **C'est la règle la plus importante du
@@ -183,8 +232,104 @@ pas éditable sur le nœud — il faut le panneau. Le dessin le dit sans un mot.
 
 ### 3.1 Géométrie — **DÉCIDÉ**, et confirmée par la mesure
 
-**Rectangle à cheval sur le bord, la moitié dehors.** Format **17 × 63** (ratio
-1 : 3,7), rayon 2.
+**Rectangle haut et étroit** (ratio 1 : 3,7), rayon 2. ⚠️ **Deux corrections
+apportées par le relevé du 22/08 dans `editeur_nodal.sketch` :**
+
+1. ❌ **elle n'est PAS à cheval.** Le corps commence à `x = 17,3` et la prise
+   occupe `[0 ; 17,3]` : elle est **entièrement à l'extérieur, collée au bord**.
+   ⚠️ **La prise d'EXÉCUTION, elle, chevauche vraiment** — 33,7 px à l'intérieur du
+   corps. C'est une **différence voulue** entre les deux familles : *« les prises
+   d'instruction doivent bien se marier au nœud »*.
+2. ❌ **`17 × 63` n'est pas une taille finale.** Le `.sketch` est à l'échelle
+   **1 unité = 1 pixel** (prouvé : la capture de référence y est posée à ses
+   dimensions exactes, 751 × 473), et le nœud de Rodolf y fait **1 168,5 px de
+   large** — **six fois** un nœud réel. C'est une **maquette d'étude**.
+
+✅ **La règle à retenir n'est donc pas un nombre de pixels, c'est un rapport, et
+il est exact : `63,3 / 126,6 = 0,500000`.**
+
+> **La prise de donnée fait exactement la MOITIÉ de la hauteur de l'en-tête.**
+
+| | rapport à l'en-tête | à l'échelle finale (en-tête 21 px) |
+|---|---|---|
+| prise de **donnée** | **0,1367 × 0,5000** | **2,9 × 10,5 px** |
+| prise d'**exécution** | 0,351 × **0,409** — *pas* la moitié | **8,6 × 10,9 px** |
+| largeur du corps | **9,23** | **194 px** |
+| barre d'exécution | 0,087 | **1,8 px** |
+
+🔴 **CONSÉQUENCE à trancher, et elle touche les cinq planches — mais pas comme
+ce document l'a d'abord écrit.**
+
+⚠️ **Correction du 22/08** : j'ai annoncé « la prise est 2,095 × trop grosse et le
+nœud 1,140 × trop étroit ». **Les deux moitiés étaient mal dites.**
+
+- ❌ **Le nœud n'est pas trop étroit.** J'avais comparé **un** nœud de 170 px :
+  c'est le **second plus étroit sur 38**, et **87 % des nœuds des planches sont
+  PLUS LARGES** que le ratio de Rodolf (médiane 270 px). ✅ **La largeur suit le
+  CONTENU, pas l'en-tête** — il n'y a aucun écart de largeur à corriger.
+- ⚠️ **Le `2,095` n'est pas une prise trop grosse, c'est un MÉLANGE D'ÉCHELLES** :
+  les prises des planches sont à l'échelle **0,3476** du dessin de Rodolf, leur
+  en-tête à l'échelle **0,1659**. Le rapport des deux **est** 2,095. Et `0,1659`
+  n'est pas une erreur : **c'est l'échelle 1 de l'éditeur réel**.
+
+🔴 **Ce qui reste à trancher est donc l'ÉCHELLE PROPRE DES PLANCHES**, à appliquer
+une seule fois à **tous** les éléments. ⚠️ **Ramener simplement les prises à
+2,9 × 10,5 a été essayé en bac à sable et REGARDÉ : les formes `tableau` et `dico`
+deviennent indistinguables** (segments à 2,17 px, demi-largeur à 0,65 px) et la
+distinction creux / plein disparaît — **la planche 02 perd exactement ce qu'elle
+enseigne.** Détail et options : `ELEMENTS_A_DESSINER.md` § A0.
+
+📌 **Le principe qui en sort, et il vaut au-delà de ce cas** : **une planche
+adopte les RATIOS de la référence, jamais ses pixels.** Rodolf a lui-même dessiné
+son nœud à **6 ×** la taille réelle — un document d'étude n'est pas une capture
+d'écran de l'éditeur.
+
+### ✅ DÉCIDÉ le 22/08 — on garde ses proportions, on élargit la ZONE SENSIBLE
+
+🔄 **Décision réversible**, prise sur l'autorité déléguée (robustesse et
+modularité) en l'absence de Rodolf. **Elle ne coûte rien à défaire** : si Rodolf
+retouche son nœud de référence, **seul le facteur d'échelle change** et tout le
+reste de ce paragraphe reste vrai.
+
+**Le problème posé** : à l'échelle mesurée, la prise de donnée fait **2,9 px de
+large** — plus fin que ce qu'une souris attrape confortablement.
+
+**Ce qui a été pesé, et pourquoi ça ne remet pas le dessin en cause** : `17,3 ×
+63,3` est un rapport de **1 : 3,66**. Ce n'est pas un carré rétréci, c'est une
+**languette fine et haute** — un parti pris de dessin courant, qui se lit très
+bien comme une bande colorée sur le bord. ⚠️ **Le problème n'est donc pas la
+lisibilité, c'est la SAISIE** — et confondre les deux aurait conduit à grossir le
+dessin pour régler un problème qui n'est pas dans le dessin.
+
+**La règle :**
+
+> **La zone sensible est plus large que la forme.** La prise se DESSINE à
+> `2,9 × 10,5 px` et se SAISIT sur **10 à 12 px de large**, centrée sur elle et
+> débordant des deux côtés du bord.
+
+✅ **Trois raisons de préférer ça à une prise plus grosse :**
+
+1. **ça ne touche pas au dessin** — donc ça ne périme aucune planche, aucune
+   valeur, et ça ne se contredit avec rien ;
+2. **la zone sensible est de toute façon nécessaire**, même avec des prises de
+   6 px : un éditeur nodal utilisable a toujours une tolérance de saisie plus
+   large que ses cibles ;
+3. **elle est modulable indépendamment** : on peut l'élargir au toucher ou la
+   réduire à la souris de précision **sans redessiner quoi que ce soit**.
+
+⚠️ **Deux choses à tenir avec cette règle**, sans quoi elle se retourne :
+
+- **les zones sensibles de deux prises voisines ne doivent pas se recouvrir.** À
+  10-12 px de large pour un pas de rangée de 24 px, il reste de la marge
+  verticalement — mais **deux prises sur le MÊME bord à moins de 12 px l'une de
+  l'autre deviendraient indiscernables au clic**. C'est le seul cas à vérifier ;
+- **la zone sensible ne se dessine JAMAIS**, même au survol. Ce qui s'éclaire au
+  survol, c'est la **prise** — sinon l'utilisateur apprend une cible qui n'est pas
+  celle qu'il vise.
+
+🔴 **À confirmer par Rodolf** : soit les planches s'alignent sur son nœud, soit
+il retouche son nœud de référence. **Ce qu'on ne peut pas garder, c'est les deux
+à la fois.** En attendant, ses proportions font foi.
 
 > **VU** : la principale utilise des barres verticales à coins arrondis, ~5 × 14
 > px à son échelle (ratio 1 : 2,8), **exactement la même famille de forme**. Le
@@ -790,16 +935,197 @@ spéciale : elles ne se ressemblent déjà pas. C'est le meilleur genre de solut
   d'un nœud ordinaire quand le texte est perdu ;
 - **à 25 %, la barre devient la couleur moyenne du dégradé.**
 
-### 7.6 Le nœud de GROUPE — 🔴 le plus mal couvert
+### 7.6 Le nœud de GROUPE — ✅ **DÉCIDÉ le 22/08, et intégralement porté par le modèle**
 
-`ELEMENTS_A_DESSINER.md` B8 le marque déjà ⚠️. **Aucune référence du corpus ne
-montre un sous-graphe replié.** Le seul indice est le bouton `Project` en haut à
-gauche de `images (5)`, qui est un **fil d'Ariane** — donc le concept existe chez
-eux, mais l'image ne montre pas le nœud.
+> Rodolf, 22/08 : *« un groupe est un groupement de nœuds que l'utilisateur peut
+> **empaqueter pour réutiliser à volonté comme des fonctions**. »*
 
-Ce que je peux proposer avec une raison, et ce que je ne peux pas :
+⚠️ **Correction d'une erreur de ce document : le cadre et le groupe n'ont rien en
+commun**, et les § 7.6 et 9.2 les traitaient en voisins. Ils ne le sont pas.
 
-**PROPOSÉ :**
+| | **cadre** (§ 9.2) | **groupe** (ici) |
+|---|---|---|
+| effet sur le graphe | **aucun** — il décore | **il abstrait** : N nœuds deviennent 1 |
+| interface | pas d'entrées ni de sorties | **des entrées et des sorties** |
+| réutilisation | un cadre entoure **un** endroit | **autant d'instances qu'on veut** |
+| replié | il **cache** | il **EST un nœud** |
+| identité | un titre | **un type de nœud à part entière** |
+
+**Ce qui en découle, et qui ne relève pas du dessin :**
+
+1. **définition + instances** — modifier la définition modifie toutes les
+   instances. Il faut donc une commande **« rendre unique »** (dupliquer la
+   définition pour une seule instance), sinon on n'a aucune sortie de secours ;
+2. **les prises du groupe se voient DE L'INTÉRIEUR**, portées par deux nœuds
+   ordinaires `Entrées du groupe` / `Sorties du groupe`. Un groupe est un graphe
+   comme un autre — rien de nouveau à inventer ;
+3. **la sérialisation écrit la définition une fois**, chaque instance ne portant
+   qu'une **référence** ;
+4. **un groupe est un type de nœud créé par l'utilisateur à l'exécution.**
+
+#### ✅ Point 4 — MESURÉ, et la réponse est oui
+
+C'était le point qui pouvait tout bloquer, et j'ai refusé de le supposer. Bancs
+exécutés le 22/08 contre `NkNodeGraph` / `NkGraphDocument` (g++ 16.1, les 62
+unités de NKCore/NKMemory/NKContainers liées ; **0 échec sur 24 vérifications**) :
+
+| ce qui a été mesuré | résultat |
+|---|---|
+| type de **prise** enregistré après coup, sur un graphe déjà peuplé | ✅ identifiant neuf, prise portable, **distinct** des existants |
+| conversion déclarée à l'exécution | ✅ prise en compte immédiatement |
+| survie du type à l'aller-retour | ✅ **et il garde le MÊME identifiant** |
+| type de **nœud** | ✅ `NkNode::type` est une chaîne libre : **il n'y a rien à enregistrer** — tout type de nœud est déjà « créé à l'exécution » |
+| **le groupe lui-même** | ✅ **il existe déjà en entier** : `NK_NODE_INSTANCE`, `NK_NODE_GROUP_IN/OUT`, le champ `subgraph`, et `BuildPlan` |
+| définition écrite une seule fois | ✅ mesuré : `graphe MonGroupe` **1 fois**, `sousgraphe` **2 fois** pour deux instances |
+| plan aplati | ✅ instances et frontières **ont disparu** ; le corps du groupe apparaît **deux fois**, chemins `racine/Instance 1` et `racine/Instance 2` |
+| définition modifiée **après** instanciation | ✅ `InterfaceMismatch`, **avec le détail** : `racine/Instance 1 : socket absent sur l'instance : V2` |
+| groupe qui s'instancie lui-même | ✅ `RecursiveSubgraph` — refusé, pas explosé |
+| instance nommant un groupe absent | ✅ `UnknownSubgraph` |
+
+**Conclusion : aucun point d'architecture à remonter sur le groupe.** Les points
+1, 2 et 3 ne sont pas à construire — **ils sont déjà là**, et le point 2 est
+*exactement* le mécanisme que le modèle a choisi. Le travail restant est **de
+dessin et d'édition**, pas de modèle.
+
+⚠️ **Un défaut trouvé au passage, et il est réel** : sur `UnknownSubgraph`,
+`NkEvalPlan::errorDetail` revient **vide**, alors que l'en-tête promet qu'il est
+« rempli en cas d'échec ». `InterfaceMismatch` le remplit bien. L'utilisateur
+apprend donc qu'un groupe est introuvable **sans apprendre lequel** — dans un
+document qui peut en compter des dizaines, c'est le cas où le détail sert le
+plus. À corriger côté modèle.
+
+#### ✅ Comment l'interface se forme — **DÉCIDÉ le 22/08, et elle est CALCULÉE**
+
+> Rodolf : *« lorsqu'on regroupe ces nœuds en groupe, le groupe résultat a des
+> entrées et des sorties qui peuvent directement se voir dans le groupe, et le
+> groupe devient donc un nœud à lui seul. »*
+
+**L'utilisateur ne déclare rien.** Il sélectionne des nœuds, il demande le
+regroupement, et **ce sont les fils qui traversent la frontière de la sélection
+qui deviennent les prises** :
+
+| fil | ce qu'il devient |
+|---|---|
+| **dehors → dedans** | une **entrée** du groupe |
+| **dedans → dehors** | une **sortie** du groupe |
+| **dedans → dedans** | rien — il reste interne, entièrement |
+| **dehors → dehors** | rien — il ne concerne pas le groupe |
+
+⚠️ **Appliquée naïvement, cette règle est fausse dans quatre cas**, et chacun
+produit un groupe qui *paraît* correct :
+
+| # | le piège | la règle qui le corrige |
+|---|---|---|
+| 1 | une **même prise source extérieure** alimente cinq nœuds internes | ❌ cinq entrées identiques. ✅ **On déduplique par la SOURCE** : une prise de sortie extérieure donnée ne crée **qu'une** entrée, et les cinq fils internes s'y rebranchent |
+| 2 | une **sortie interne** alimente trois nœuds extérieurs | ❌ trois sorties. ✅ Symétrique : **on déduplique par la prise interne**, une sortie, trois fils au-dehors |
+| 3 | l'**ordre** des prises | ❌ grouper deux fois la même sélection donnerait deux nœuds de formes différentes. ✅ **L'ordre est écrit, pas émergent** : tri par **Y croissant du nœud interne**, puis X, puis **index de prise**, puis **identifiant du nœud**. ⚠️ **QUATRE clés — ce document en annonçait trois, et c'était faux** : deux nœuds peuvent partager une position au pixel près, et `(y, x, index)` serait alors à égalité. L'implantation a corrigé |
+| 4 | les **noms** | ❌ deux prises internes nommées `Couleur` donnent deux prises publiques homonymes. ✅ Le nom public est celui de la prise interne ; **en cas d'homonymie, on suffixe par le libellé du nœud** (`Couleur (Mélange)`), et si ça collisionne encore, par un numéro. La désambiguïsation suit l'ordre du point 3, donc **elle est stable** |
+
+⚠️ **Un cas de REFUS, et il faut le nommer plutôt que grouper de travers** : si
+**deux fils d'exécution distincts** entrent dans la sélection en **deux points
+internes différents**, le groupe aurait besoin de deux entrées d'exécution — or
+une entrée d'exécution est **unique par construction** (§ 3.4, arité inversée).
+**La sélection n'est pas groupable.** L'éditeur doit le dire ainsi : *« ces nœuds
+ne peuvent pas être groupés : deux fils d'exécution y entrent en deux endroits
+(`Si` et `Boucle`). Groupez-les avec leur point d'entrée commun. »* — **avec les
+deux noms**, sinon l'utilisateur cherche.
+
+#### ✅ Le critère d'acceptation — **nécessaire, mais PAS suffisant**
+
+> **Grouper puis dégrouper doit rendre le graphe identique** — après
+> sérialisation, aux identifiants près.
+
+⚠️ **Ce critère seul ne prouve pas la déduplication, et il faut le dire.** Un
+groupe qui créerait **cinq entrées identiques** pour une constante partagée par
+cinq nœuds les redistribuerait correctement au dégroupement : **les liens se
+recollent en repassant par le milieu**, et le graphe revient identique. L'erreur
+survit à l'aller-retour parce qu'elle est **symétrique**.
+
+✅ **Il faut donc regarder l'INTERFACE elle-même**, et pas seulement le graphe
+qui en ressort.
+
+#### ✅ IMPLÉMENTÉ — `NkGraphGroup.h/.inl`, et le vérificateur est à 106/106
+
+⚠️ **Ce paragraphe décrit du code qui EXISTE**, livré par l'agent du graphe de
+matériaux le 22/08 (13 mutations sur 13 détectées). Il n'est pas à réécrire, et
+la spécification n'a pas à en proposer une seconde version : **elle doit dire la
+même chose que lui.** `NkGrouper` / `NkDegrouper`, avec `NkGroupError` qui rend
+une **raison**, comme `NkLinkError` et `NkPlanError`.
+
+**Les cinq contrôles réellement exécutés :**
+
+| contrôle | ce qu'il attrape |
+|---|---|
+| `regroupement/aller-retour-identique` | la perte de contenu — par une **forme canonique** qui range les nœuds par leur **contenu**, jamais par leur rang, et décrit les liens par les **descripteurs** de leurs extrémités, jamais par des numéros |
+| `regroupement/interface-deduite-et-dedupliquee` | **le complément indispensable** : une prise source qui traverse deux fois doit donner **une** entrée, pas deux. Une implantation qui compterait les **liens** au lieu des **prises sources** tombe ici, et **nulle part ailleurs** |
+| `regroupement/ordre-des-prises-deterministe` | le piquet 3 — le même graphe construit par **deux histoires d'édition différentes** doit donner la même interface |
+| `regroupement/refus-nommes` | qu'un refus **dise** lequel |
+| `regroupement/conversions-traversent-la-frontière` | voir l'avertissement ci-dessous |
+
+📌 **Deux finesses de l'implantation qui méritent d'être connues ici**, parce
+qu'elles disent pourquoi un contrôle honnête est plus dur à écrire qu'il n'y
+paraît :
+
+1. **la comparaison n'est PAS textuelle**, alors que c'était la lettre du critère.
+   Après un aller-retour les nœuds sont **recréés**, donc renumérotés **et
+   réordonnés** ; renuméroter le texte par ordre d'apparition comparerait des
+   nœuds qui n'ont rien à voir. Le contrôle rendrait « différent » sur un
+   aller-retour parfait — puis serait relâché jusqu'à ne plus rien dire ;
+2. **sa limite est écrite dans le code plutôt que tue** : si deux nœuds ont le
+   même descripteur, la forme canonique ne peut plus les distinguer. Le contrôle
+   le **détecte et l'annonce** (`ambigu`) au lieu de rendre un vert trompeur.
+   ✅ **Un cas qui ne peut pas discriminer doit le dire, pas se taire.**
+
+#### ⚠️ Le piège que cette spécification n'avait PAS vu : **chaque graphe a son propre registre de types**
+
+Trouvé par l'implantation, et il aurait tout cassé en silence :
+
+> Un sous-graphe créé vide **refuserait à l'intérieur** un lien `réel → couleur`
+> que le parent acceptait — et **le regroupement perdrait un fil sans que rien ne
+> le dise**, puisque `Connect` rend une erreur que personne ne lit.
+
+Le registre **et** les conversions dirigées sont donc **recopiés du parent vers
+l'enfant** avant tout le reste, et les types sont traduits **par leur nom**, les
+identifiants n'étant pas garantis égaux d'un registre à l'autre.
+
+📌 **C'est la même racine que le « registre plat » du § 5** : un `NkTypeId` est un
+entier **local à un graphe**, pas une identité globale. On ne le voit pas tant
+qu'il n'y a qu'un graphe.
+
+#### 🔴 Ce qui reste à couvrir côté EXÉCUTION
+
+`NkGroupError` couvre sélection vide, nœud inconnu, graphe inconnu, nom déjà
+pris, « pas une instance », sous-graphe inconnu. ⚠️ **Il ne couvre pas le refus
+décrit plus haut** — deux fils d'exécution entrant dans la sélection en **deux
+points internes différents**. C'est normal : un graphe de matériaux n'a **aucun**
+fil d'exécution (§ 6.4), donc l'implantation actuelle ne pouvait pas le
+rencontrer. **À ajouter quand le blueprint arrivera, pas avant.**
+
+⚠️ **Divergence mineure, signalée sans être imposée** : ce document proposait de
+désambiguïser deux prises homonymes **par le libellé du nœud** (`Couleur
+(Mélange)`) ; l'implantation suffixe **par un numéro** (`couleur_2`). Le numéro
+est stable et suffit au modèle — **le nom lisible relève de l'affichage, pas de
+la clé**, et les deux peuvent coexister : clé numérotée, étiquette parlante.
+
+#### Effets de bord sur le dessin
+
+- ✅ **`E6 · fil d'Ariane` cesse d'être optionnel.** Entrer dans un groupe pour
+  l'éditer est le **seul** chemin ; sans fil d'Ariane on ne sait plus où l'on est
+  ni comment sortir. Il passe de ⚠️ à **obligatoire**.
+- ✅ La question « où aboutissent les fils entrants quand c'est replié ? » (§ 9.2)
+  **ne concerne que le cadre**. Pour un groupe, les fils aboutissent à **ses
+  prises**, qui existent et sont nommées.
+- ⚠️ Le repli d'un groupe **n'est pas** le repli d'un nœud (§ 2.4) : replier un
+  nœud cache ses rangées ; un groupe replié **ne cache rien** — c'est son état
+  normal.
+- ⚠️ **Les deux nœuds d'interface se dessinent comme des nœuds ordinaires**, et
+  c'est voulu : ils **sont** des nœuds ordinaires. Un seul écart — ils n'ont
+  qu'un côté (le `Entrées` n'a aucune entrée, le `Sorties` aucune sortie), donc
+  ils tombent exactement dans les formes déjà spécifiées **source** (§ 7.1) et
+  **puits** (§ 7.3). Rien de neuf à dessiner.
+
+**PROPOSÉ pour le dessin :**
+
 - l'en-tête porte **un pictogramme de pile** (deux rectangles décalés) à gauche
   du titre — c'est le seul élément qui dit « il y a quelque chose dedans » ;
 - **double-clic pour entrer**, et le fil d'Ariane apparaît en haut du canevas
@@ -810,9 +1136,13 @@ Ce que je peux proposer avec une raison, et ce que je ne peux pas :
   pétrole sinon. Raison : sinon le repli **cache la ligne de vie**, ce qui est
   exactement ce qu'un repli ne doit jamais faire.
 
+✅ **DÉCIDÉ le 23/08 — SUR PLACE, jamais en onglet.** *Deux mécanismes de
+navigation pour une seule notion, c'est un de trop.* Le fil d'Ariane étant devenu
+obligatoire (E6), l'onglet ferait double emploi avec lui — et deux chemins pour
+entrer dans un groupe, c'est deux chemins pour en sortir, donc deux façons de se
+perdre.
+
 🔴 **NON TRANCHÉ :**
-- **entre-t-on dans le groupe sur place, ou dans un onglet ?** Les deux existent
-  et ce n'est pas un choix de dessin — c'est un choix de fenêtrage NKEditorKit ;
 - **le groupe montre-t-il un aperçu de son contenu** (une miniature du
   sous-graphe) ? Séduisant, et je n'ai **aucune référence** ni aucune mesure pour
   dire si c'est lisible à 200 × 120 px.
@@ -916,7 +1246,7 @@ faux » ; ici le graphe est probablement juste, c'est **l'éditeur** qui est
 incomplet. Utiliser le rouge d'erreur pousserait l'utilisateur à supprimer le
 nœud — exactement le geste qui perd le travail.
 
-### 8.4 Le nœud INDISPONIBLE — le rang interdit
+### 8.4 Le nœud INDISPONIBLE — le rang interdit — ✅ **DÉCIDÉ le 23/08**
 
 `CATALOGUE_NOEUDS.md` § 3.3 : `Light Path`, `Raycast`, `Ambient Occlusion`,
 `Curves Info`, `Particle Info` supposent un tracé de rayons ; notre moteur
@@ -955,7 +1285,7 @@ d'aide.**
 libre posé sur le canevas.** `node-based-…webp` montre des paragraphes de texte,
 mais **logés dans le corps d'un nœud**, pas flottants.
 
-**PROPOSÉ**, en assumant que c'est une invention :
+✅ **DÉCIDÉ le 23/08** — en assumant que c'est une invention, faute de corpus :
 
 - **du texte posé sur le fond, sans corps, sans filet, sans fond** — le
   commentaire n'est pas un nœud et ne doit pas y ressembler ;
@@ -970,6 +1300,57 @@ mais **logés dans le corps d'un nœud**, pas flottants.
   qui brouille la lecture de structure, et **c'est justement la lecture qu'on
   fait à 25 %**.
 
+📌 **Pourquoi cet ordre d'empilement précis — devant les fils, derrière les
+nœuds — et pas l'inverse :**
+
+| | ce qui se passerait |
+|---|---|
+| **derrière les fils** | un fil qui passe barre le texte en diagonale : **le commentaire devient illisible** sans que rien ne soit déplaçable |
+| **devant les nœuds** | il masquerait des **valeurs éditables** — du texte fixe cacherait de l'information vivante |
+
+✅ **Il passe donc devant ce qui est décoratif pour lui, derrière ce qui est
+éditable.** C'est la même règle que partout ailleurs ici : **ce qui informe
+l'emporte sur ce qui commente.**
+
+⚠️ **Et le rectangle de survol reste un signal FAIBLE volontairement** (`#1A1A1A`
+à 60 %, au survol seulement) : plus marqué, il donnerait au commentaire l'allure
+d'un nœud sans en-tête — **exactement ce que la première ligne de ce paragraphe
+interdit.**
+
+### 9.1bis La source et le puits — ✅ **DÉCIDÉ le 23/08 : ne RIEN ajouter**
+
+`ELEMENTS_A_DESSINER.md` B6 et B7. **La tentation était de leur donner une marque
+distinctive. Refusée, et pour la meilleure des raisons : ils en ont déjà une.**
+
+| | ce qui les distingue | faut-il autre chose ? |
+|---|---|---|
+| **source** (`RGB`, `Value`) | **le côté gauche est vide** | ❌ non |
+| **puits** (`Material Output`) | **le côté droit est vide** | ❌ non |
+
+> ✅ **DÉCIDÉ : aucune marque supplémentaire.** L'absence de prises d'un côté est
+> déjà visible **à 25 %**, où il ne reste pourtant qu'un rectangle coloré — c'est
+> le seul trait de forme qui survit au dézoom maximal.
+
+⚠️ **Ce que le catalogue autorisait et que je ne prends pas** : *« il est unique :
+le dessin peut se permettre de le rendre plus imposant. »* **Un puits plus grand
+coûterait une exception à la grille de largeurs pour une information que le côté
+droit vide donne déjà.** On ne dépense pas une exception pour un doublon.
+
+#### 🟡 La seule question qui reste ouverte, et elle n'est pas visuelle
+
+Le catalogue dit le puits **unique**. Un fichier importé peut en apporter
+**plusieurs, dont un seul actif** — c'est le cas chez Blender. **Je ne tranche pas
+si le modèle l'autorise : c'est une question de modèle, pas de dessin.**
+
+✅ **Mais si le cas existe, le dessin est déjà contraint, et il faut l'écrire
+maintenant : c'est le puits ACTIF qui porte un signal POSITIF** — jamais les
+autres un signal d'effacement.
+
+> ⚠️ **Raison, et elle est chère payée** : marquer les puits inactifs en gris
+> créerait **un QUATRIÈME gris** — après *inconnu*, *indisponible* et *désactivé*,
+> qu'on vient tout juste de séparer par l'endroit (§ 11.5). Le quatrième n'aurait
+> plus d'endroit libre. **On marque l'exception, jamais la règle.**
+
 ### 9.2 Le cadre — **VU**, et richement
 
 `node-based-…webp` est la seule référence à en montrer un, et elle en montre
@@ -982,39 +1363,115 @@ plus que prévu :
 | **second filet intérieur** | **pointillé**, à ~8 px du bord |
 | **bandeau de titre** | plein, en haut, texte sombre sur la teinte |
 | **compteur** | **`7 nodes`, aligné à droite du bandeau** |
-| **teinte des nœuds contenus** | ⚠️ **les nœuds à l'intérieur prennent la teinte du cadre** (filet et en-tête verdis) alors que ceux du dehors restent bleus |
+| **teinte des nœuds contenus** | ⚠️ **les nœuds à l'intérieur prennent la teinte du cadre** (filet et en-tête verdis) alors que ceux du dehors restent bleus — ❌ **VU, et REJETÉ** : voir la décision ci-dessous |
 
-**PROPOSÉ pour la suite :**
+### ✅ Les valeurs du cadre — **VALIDÉES par Rodolf le 22/08**
+
+> *« dans la planche 05 tu as défini le bon cadre comme je veux. »*
+
+Le cadre du panneau 9 de `planche_05_matieres.svg` **est la référence**. Ces
+valeurs ne sont plus des propositions :
+
+| élément | valeur validée |
+|---|---|
+| remplissage | teinte à **8 %** (`opacity="0.08"`) |
+| filet extérieur | teinte pleine, **1,5 px**, `rx="6"` |
+| **second filet intérieur** | **pointillé `4 4`**, 1 px, opacité 0,7, **8 px de retrait**, `rx="4"` |
+| bandeau de titre | teinte **pleine**, hauteur **20 px**, coins hauts arrondis `r=6` |
+| texte du titre | **sombre sur la teinte** (`#10240F` sur teinte verte), 12,5 px, graisse 600 |
+| compteur de nœuds | **aligné à droite** du bandeau, 11 px, même teinte sombre |
+| état replié | **le bandeau seul subsiste**, préfixé `▸`, titre et compteur sur une ligne |
+
+⚠️ **Le double filet — plein dehors, pointillé dedans — est ce qui distingue un
+cadre d'un simple rectangle de fond. Ne pas le simplifier.**
+
+### ✅ DÉCIDÉ le 22/08 par Rodolf — **option A : la teinte n'est JAMAIS répliquée**
+
+> *« pour mon cas je préfère A sachant que la couleur du cadre ne sera jamais
+> répliquée et qu'il y ait un texte pour commentaire sur le cadre au début. »*
+
+**Règle absolue : la teinte d'appartenance ne touche jamais le nœud** — ni son
+corps, ni son en-tête, ni son filet, ni une pastille. **Le cadre entoure, et son
+bandeau porte le sens.**
+
+**La raison, en une phrase : l'en-tête porte la catégorie, et la catégorie est la
+seule information qui survit au dézoom.** Au palier 25 % (§ 12.2), il ne reste du
+nœud qu'un rectangle de couleur — cette couleur. La teindre en vert pour dire
+« ce nœud appartient à ce cadre » **détruirait l'information la plus robuste de
+l'éditeur** pour en afficher une **que le cadre dit déjà en entourant les
+nœuds**. On échangerait un signal qui résiste à tout contre un signal redondant à
+100 % et absent à 25 %.
+
+✅ **Ce que la décision offre en prime : le conflit à trois disparaît.** La bordure
+du nœud n'avait pas assez de place pour trois prétendants — sélection, erreur,
+appartenance. Il n'en reste que deux. **C'est un cas dur de moins à spécifier, et
+un de moins à coder.**
+
+⚠️ **Contrepartie, et elle est réelle : le titre devient obligatoire.** Puisque la
+couleur ne dit plus rien sur les nœuds, **le bandeau est le seul porteur du sens
+du cadre**. Un cadre sans titre ne veut rien dire. Deux conséquences à trancher :
+
+| | question ouverte |
+|---|---|
+| **titre vide** | 🔴 **PROPOSÉ** : à la création, le cadre naît avec le titre `Cadre` déjà sélectionné pour saisie — on ne peut pas produire un cadre anonyme sans le vouloir. Un titre effacé affiche `Sans titre` en italique atténué, **jamais rien** |
+| **titre à 25 %** | 🔴 **PROPOSÉ** : sous 40 %, le texte devient illisible et le bandeau **reste** — il garde sa teinte pleine et sa hauteur. À 25 %, le cadre est donc un rectangle teinté surmonté d'une barre pleine : c'est la **silhouette** qui identifie, pas le mot. La teinte redevient utile là où le texte ne l'est plus |
+
+### ✅ DÉCIDÉ — l'appartenance est un **lien explicite sérialisé**, pas une géométrie
+
+C'est l'inverse de ce que ce document proposait, et **c'est le dessin lui-même qui
+l'a tranché** : le cadre se replie sur son bandeau, et **un cadre replié n'a plus
+de géométrie à interroger**. Le compteur `12 nœuds` du bandeau replié compte une
+**liste**, pas une intersection. On ne replie pas ce qu'on ne sait pas énumérer.
+
+**La règle :**
+
+- **au dépôt seulement**, la géométrie décide : on lâche un nœud, on cherche le
+  cadre **le plus intérieur** qui contient son **origine** — le coin haut-gauche
+  de l'en-tête, **ni son centre, ni son recouvrement** — et on **écrit le lien** ;
+- **ensuite le lien ne bouge plus** tant qu'on ne redépose pas le nœud ;
+- **déplacer un cadre emporte ses membres**, ce qui n'est possible qu'avec un lien.
+
+**Ce que ça règle, et qui n'a donc plus besoin de règle de rendu :**
+
+| ancien cas dur | ce qu'il devient |
+|---|---|
+| `DUR_H1` — un nœud dans l'**intersection** de deux cadres | ✅ **résolu** : il appartient à celui que le dépôt a écrit. Le modèle sait, il ne devine pas |
+| `DUR_H2` — un nœud **à cheval** sur un bord | ✅ **résolu** : dedans ou dehors est une donnée, pas une mesure |
+| `DUR_H3` — le conflit à trois sur la bordure | ✅ **disparu** avec l'option A |
+
+⚠️ **Conséquence pour la sérialisation : `cadre` n'est pas seulement un rectangle
+à dessiner, c'est une RELATION à écrire** (§ 16). Une appartenance recalculée à
+chaque chargement changerait si un cadre a bougé d'un pixel ; un lien explicite
+est stable.
+
+**PROPOSÉ pour le reste :**
 
 - **le cadre passe DERRIÈRE tout** — nœuds et fils ;
 - **il se déplace avec son contenu** : tirer le bandeau déplace le cadre **et**
-  les nœuds ; tirer le corps du cadre **ne déplace que le cadre** (donc on peut
+  ses membres ; tirer le corps du cadre **ne déplace que le cadre** (donc on peut
   cadrer autre chose). ⚠️ **Ces deux gestes doivent avoir deux curseurs
   différents** ;
-- **l'appartenance est géométrique, pas déclarée** : un nœud déposé dans le
-  rectangle en fait partie ; sorti, il n'en fait plus partie. Raison : une
-  appartenance déclarée finit toujours par mentir quand on déplace les choses,
-  et il faudrait alors la montrer, ce qui coûte un signal de plus.
-- ✅ **DÉCIDÉ (Rodolf, 22/08) : on ne teinte QUE le filet du corps, JAMAIS
-  l'en-tête.** C'est le micro-élément le plus fort de la référence, et c'est
-  précisément pour ça qu'on ne le reprend pas tel quel : il entre en conflit
-  direct avec **en-tête = catégorie**.
-
-  **La raison, en une phrase : l'en-tête porte la catégorie, et la catégorie est
-  la seule information qui survit au dézoom.** Au palier 25 % (§ 12.2), il ne
-  reste du nœud qu'un rectangle de couleur — cette couleur. La teindre en vert
-  pour dire « ce nœud appartient à ce cadre » **détruirait l'information la plus
-  robuste de l'éditeur** pour en afficher une **que le cadre dit déjà en
-  entourant les nœuds**. On échangerait un signal qui résiste à tout contre un
-  signal redondant à 100 % et absent à 25 %.
-
-  Le filet du corps, lui, est libre : il ne code rien d'autre, il est visible à
-  100 % et à 55 %, et il disparaît au dézoom sans rien emporter avec lui.
 - **le compteur `12 nœuds` est repris** : gratuit, et il dit tout de suite si un
-  nœud est tombé du cadre sans qu'on le voie.
-- **repli du cadre** : le bandeau seul reste, avec `▸ Éclairage · 12 nœuds`.
-  🔴 **NON TRANCHÉ** : que deviennent les fils qui entraient dans le cadre ? Ils
-  doivent aboutir quelque part sur le bandeau, et je n'ai aucune référence.
+  nœud est tombé du cadre sans qu'on le voie. Il compte désormais **la liste des
+  membres**, ce qui le rend juste même quand le cadre est replié.
+
+#### 🔴 NON TRANCHÉ — où aboutissent les fils qui entraient dans un cadre replié ?
+
+Deux candidats, et je donne ce que chacun coûte **quand douze fils entrent** :
+
+| | ce qu'on voit | ce que ça coûte à 12 fils |
+|---|---|---|
+| **A · le fil aboutit au bandeau** | chaque fil se termine sur le bord gauche du bandeau, à la hauteur où était son nœud | douze fils convergent sur **20 px de hauteur** : ils se superposent, on ne distingue plus lequel va où, et la couleur de type devient un empilement. Le lien reste visible, **mais illisible** |
+| **B · le fil disparaît, le bandeau compte** | le bandeau affiche `▸ Éclairage · 12 nœuds · ⇥ 12` | rien ne se superpose et le repli tient sa promesse — mais **un fil qui disparaît ment sur la connectivité** : on croit le graphe coupé là où il ne l'est pas |
+
+**Mon avis, et il est faible** : B pour le rendu, **à condition** que le compteur
+d'entrées soit cliquable et rouvre le cadre. Un fil illisible (A) coûte plus cher
+qu'un fil absent mais annoncé (B). ⚠️ **Mais je n'ai aucune référence pour ça dans
+le corpus, et c'est un choix d'usage, pas de dessin — à Rodolf de trancher.**
+
+⚠️ **Cette question ne concerne QUE le cadre.** Pour un **groupe** (§ 7.6) elle ne
+se pose pas : un groupe replié **est un nœud**, et les fils aboutissent à ses
+prises, qui existent.
 
 ### 9.3 Le relais (reroute)
 
@@ -1037,7 +1494,7 @@ ferait chercher le nœud auquel il appartient.
 
 ---
 
-## 10. Les fils
+## 10. Les fils — **VU**, **PROPOSÉ**, et ✅ **DÉCIDÉ le 23/08** pour C5 et C6
 
 | famille | trait | source |
 |---|---|---|
@@ -1078,11 +1535,139 @@ des **polylignes à angles** quand ses fils de donnée sont des courbes. **Un
 quatrième signal, gratuit, et qui survit au noir et blanc.** 🔴 **NON TRANCHÉ** :
 c'est un écart de style avec la principale, qui n'a que des courbes.
 
-🔴 **NON TRANCHÉ — deux cas que `ELEMENTS_A_DESSINER.md` C5 et C6 laissent déjà
-ouverts, et que je ne sais pas mieux trancher :**
-- **fil sélectionné** — halo ? éclaircissement ? Je n'ai aucune référence.
-- **croisement** — dessus, dessous, ou saut ? Le saut est le plus lisible et le
-  plus cher à calculer ; sans mesure, je ne le recommande pas.
+
+### ✅ C5 · Le fil sélectionné — **MESURÉ le 23/08**, et le résultat est un NON
+
+> Le § 10 disait : *« halo ? éclaircissement ? Je n'ai aucune référence. »*
+> Banc `essai_c5.py` : CIEDE2000 sur les sept familles, planche rendue en PNG et
+> **regardée** sur le fond réel du canevas.
+
+#### La question posée, et pourquoi elle a deux contraintes et non une
+
+Éclaircir un fil sélectionné doit **se voir**, mais **sans rapprocher les
+familles entre elles** — sinon on gagne un signal d'état en détruisant le code
+couleur des types, qui a coûté tout le § 4.2. Les deux se mesurent avec la même
+métrique.
+
+| éclaircissement | écart **perçu** du changement (min sur 7 familles) | séparation **entre familles** (plancher § 4.2 = **11,0**) | verdict |
+|---|---|---|---|
+| +20 % | **2,74** | 17,25 | ❌ imperceptible |
+| **+35 %** | **5,23** | **14,26** | 🟡 visible, marge confortable |
+| **+50 %** | **8,21** | **11,42** | 🟡 net, **marge de 0,42 seulement** |
+| +65 % | 11,81 | **7,96** | ❌ **casse le code couleur** |
+| +80 % | 16,19 | 4,58 | ❌ casse |
+
+#### 🔴 Le résultat : **aucune valeur ne satisfait les deux**
+
+**Le premier taux qui rendrait le changement aussi lisible qu'une différence de
+type (ΔE ≥ 11,0) est +65 % — et à +65 % la séparation entre familles tombe à
+7,96, donc sous ce même plancher.** Les deux contraintes se croisent **avant** de
+se rencontrer.
+
+> ⚠️ **La luminosité ne peut pas porter seule le signal de sélection.** Ce n'est
+> pas un défaut de réglage, c'est une propriété de la palette : elle occupe déjà
+> tout l'espace disponible.
+
+#### ⚠️ Et je me trompais de couleur
+
+J'avais annoncé `#9AA3AD` (quelconque) comme maillon faible parce qu'il est
+« déjà clair ». **Mesuré : le maillon faible est `#81EBEB` (référence)**, un cyan
+saturé — ΔE de 5,23 à +35 % contre 9,13 pour `#9AA3AD`. **Ce n'est pas la
+clarté qui résiste à l'éclaircissement, c'est la saturation** : un cyan très
+saturé est déjà proche du blanc en luminance, il lui reste peu de chemin.
+
+#### ✅ Ce que le PNG regardé montre, et qu'aucun calcul n'annonçait
+
+**Les deux poignées se voient immédiatement, à tous les taux, sur toutes les
+familles — l'éclaircissement, lui, se devine.** Sur la planche d'essai, la ligne
+du bas (avec poignées) se distingue de celle du haut d'un coup d'œil, y compris
+là où l'éclaircissement est indétectable.
+
+**DÉCIDÉ, et c'est l'inverse de ce que ce document proposait :**
+
+| | rôle |
+|---|---|
+| **les deux poignées carrées de 7 px** aux extrémités | ✅ **le signal, et le SEUL** |
+| ~~l'éclaircissement à +35 %~~ | ❌ **RETIRÉ le 23/08 — voir ci-dessous** |
+
+### ❌ L'éclaircissement est RETIRÉ — un renfort imperceptible est un décor
+
+J'avais gardé les +35 % comme « renfort ». **Question posée en regardant la
+planche 06 : à quoi sert un renfort qui est sous le seuil de perception ?** Deux
+réponses possibles, et elles ne se valent pas : *une redondance qui ne coûte
+rien et couvre le cas où les poignées sont hors écran*, ou *un décor qui a l'air
+d'un signal*. **Mesuré plutôt que supposé** (`essai_c5b.py`).
+
+⚠️ **Ce que la première mesure ne pouvait pas dire** : les 5,23 valaient pour une
+comparaison **temporelle** (le même fil, avant et après, de mémoire). Le cas
+« poignées hors cadre » est une comparaison **spatiale et simultanée** — plusieurs
+fils de même couleur à l'écran, un seul éclairci. **Le seuil n'y est pas le même,
+et il ne se déduit pas.** Planche d'essai : cinq fils bleus identiques, un seul
+éclairci, poignées hors cadre.
+
+| cas | le 3ᵉ fil se repère-t-il ? |
+|---|---|
+| poignées visibles | ✅ **immédiatement** |
+| +35 %, poignées hors cadre | ❌ **non** |
+| +50 %, poignées hors cadre | ❌ non |
+| +65 %, poignées hors cadre | 🟡 à peine — et à +65 % le code couleur casse |
+
+✅ **Conclusion : le renfort ne sert ni isolément ni en comparaison simultanée.
+C'est un décor.** On vient de passer une nuit à chasser ce qui ressemble à une
+mesure sans en être une ; **un « renfort » imperceptible en est une.** Retiré.
+
+### ✅ Ce qui le remplace — **la poignée ne disparaît JAMAIS**
+
+Retirer l'éclaircissement laisserait le cas « les deux prises hors cadre » sans
+aucun signal. **La solution n'est pas chromatique, elle est géométrique** — et
+c'est le même raisonnement que les trois gris : *le signal n'est pas la couleur,
+c'est l'endroit.*
+
+> **Quand une extrémité sort du cadre, sa poignée se pose là où le fil COUPE le
+> bord, en chevron pointant vers l'extérieur.**
+
+✅ **Vérifié sur la planche d'essai (cas f) : le fil sélectionné se repère
+immédiatement, sans aucun éclaircissement.**
+
+**Et le chevron garde les deux propriétés qui ont fait choisir les poignées :**
+
+1. il **reste à l'écran** quoi qu'il arrive — un signal qui peut sortir du cadre
+   n'est pas un signal ;
+2. il **informe encore** : sa pointe dit **de quel côté** se trouve la prise, ce
+   qu'un halo ou une teinte ne diraient pas.
+
+**Coût** : l'intersection du fil avec le bord du cadre, qui est de toute façon
+calculée pour ne pas dessiner ce qui est hors champ.
+
+📌 **Bénéfice qui n'était pas cherché, et il faut le garder écrit ICI** : les
+poignées **désignent les deux prises reliées** — exactement ce qu'on veut savoir en
+sélectionnant un fil dans un graphe dense. **Le signal le plus fort est aussi le
+seul qui informe.**
+
+⚠️ **C'est l'argument à opposer à toute simplification future.** Quelqu'un
+proposera un jour « un simple halo » ou « juste plus clair », parce que c'est moins
+de code. Ce sera plus simple **et ça n'apprendra rien** : un halo dit *ce fil est
+sélectionné*, les poignées disent *ce fil relie CETTE prise à CELLE-LÀ*. On ne
+remplace pas un signal qui informe par un signal qui décore.
+
+⚠️ **Ce qui reste à vérifier au dessin** : deux fils sélectionnés dont les
+poignées se superposent, et le fil très court où les deux poignées se touchent.
+**Non mesuré.**
+
+### ✅ C6 · Le croisement de fils — **DÉCIDÉ le 23/08 : ne rien faire**
+
+Les fils se croisent, simplement. Pas de saut, pas de passage dessous.
+
+1. **aucune des douze références du corpus ne fait de saut** ;
+2. **le saut vient des schémas électriques, où les fils sont ORTHOGONAUX** — deux
+   segments perpendiculaires qui se coupent sont réellement ambigus ; **nos fils
+   sont des courbes de directions différentes, l'œil les suit sans aide** ;
+3. **le coût croît en n²** — **190** paires à 20 fils, **1 225** à 50,
+   **19 900 à 200**, et il faut recommencer à chaque déplacement de nœud.
+
+✅ **N'empêche rien** : le saut est purement du rendu, ajoutable plus tard sans
+toucher au modèle. 📌 **Garder le chiffre à côté de la décision** — c'est lui qui
+évitera qu'on la rouvre tous les six mois.
 
 ---
 
@@ -1122,7 +1707,7 @@ passe en pointillé de part en part.** Un nœud désactivé dans une chaîne ne 
 pas la chaîne, il la laisse passer ; le pointillé le dit à distance, sans lire le
 nœud.
 
-### 11.4 Survolé, sélectionné, actif
+### 11.4 Survolé, sélectionné, actif — ✅ **DÉCIDÉ le 23/08** (le survol éclaircit le FILET)
 
 `ELEMENTS_A_DESSINER.md` D7 laisse le survol ⚠️. Le corpus, lui, répond — et il
 répond mieux que prévu, parce qu'il montre **trois** états là où nos documents
@@ -1142,7 +1727,7 @@ sait pas à qui envoyer le clavier** quand douze nœuds sont sélectionnés.
 corps**. Raison confirmée par le corpus : la teinte du corps est déjà prise par
 l'erreur et le désactivé.
 
-### 11.5 Pendant le tirage d'un fil
+### 11.5 Pendant le tirage d'un fil — **PROPOSÉ**
 
 C'est, d'après `CATALOGUE_NOEUDS.md` § 2, *« le retour visuel le plus utile de
 tout l'éditeur »*, et **aucune référence ne le montre.**
@@ -1179,7 +1764,7 @@ dessine la spécification.**
 
 ## 12. Le canevas
 
-### 12.1 La recherche de nœud filtrée
+### 12.1 La recherche de nœud filtrée — **PROPOSÉ**
 
 `ELEMENTS_A_DESSINER.md` E1, ⬜. **PROPOSÉ**, et c'est le pivot du § 5.6.
 
@@ -1203,7 +1788,7 @@ type de la prise d'origine**, et son en-tête dit le filtre **en toutes lettres*
 n'accepte pas ce type ». C'est la même faute que la face n° 8 du `CLAUDE.md`
 parent — **un résultat négatif sans son périmètre est une rumeur.**
 
-### 12.2 Le dézoom — trois paliers
+### 12.2 Le dézoom — trois paliers — **DÉCIDÉ**, la mesure en plus
 
 **DÉCIDÉ** dans `ELEMENTS_A_DESSINER.md` D11. Ce que j'ajoute, c'est **la mesure
 qui justifie les seuils** : `images (2)` et `images (5)` sont deux références
@@ -1229,18 +1814,88 @@ encore, **seuls les fils structurent l'image**.
 Raison : on dézoome pour lire la **structure**, jamais les nombres. Ce qui sert à
 la structure part en dernier.
 
-### 12.3 Le reste du canevas
+### 12.3 Le reste du canevas — ✅ **DÉCIDÉ le 23/08** (E3 reportée, E4 supprimée, fil d'Ariane adopté)
 
 | élément | état |
 |---|---|
-| **sélection au lasso** | rectangle pointillé `#F79A28` pendant le glissé — PROPOSÉ |
-| **fil d'Ariane de sous-graphe** | bandeau en haut à gauche — **VU** (`images (5)` : bouton `Project`) |
+| **sélection au lasso** | ✅ **DÉCIDÉ 23/08 — et PAS en pointillé** : filet **plein** `#F79A28` 1,5 px + remplissage orange à **8 %**. Voir § 12.4 |
+| **fil d'Ariane de sous-graphe** | ✅ **DÉCIDÉ 23/08 — OBLIGATOIRE.** Bande de **24 px**, chemin d'**instanciation**, segments cliquables, **élision au milieu** au-delà de 4 niveaux, et ⚠️ **un compteur d'instances** : *on entre par UNE instance et on édite la DÉFINITION, qui est PARTAGÉE* — sans lui on croit corriger un nœud et on en corrige trois. **Cette phrase justifie le compteur : ne pas la retirer, sinon quelqu'un le retirera comme décoratif** |
 | **aide contextuelle** | ligne de texte libre en haut du canevas — **VU** (`node-based-…webp`) ; **PROPOSÉ : oui, elle ne coûte rien et remplace un tutoriel** |
-| **menu contextuel** | trois contenus (fond / nœud / fil) — ⬜, PROPOSÉ inchangé |
-| **minicarte** | 🔴 **NON TRANCHÉ** (E3) |
-| **barre d'outils** | 🔴 **NON TRANCHÉ** (E4) |
+| **menu contextuel** | ✅ **DÉCIDÉ 23/08** : trois contenus, et **« ajouter un nœud » rouvre le panneau du § 12.1, sans filtre** — un seul mécanisme de recherche. Voir § 12.5 |
+| **minicarte** | ✅ **DÉCIDÉ 23/08 — REPORTÉE.** `cadrer tout` sert le même besoin pour bien moins cher. 🔴 **Critère de réouverture** : le premier graphe réel de plus de 50 nœuds où l'on se perd |
+| **barre d'outils** | ✅ **DÉCIDÉ 23/08 — AUCUNE.** Les trois actions utiles (`cadrer tout`, `zoom 100 %`, **niveau de zoom en texte**) vont à droite de la bande du fil d'Ariane, qui existe de toute façon : **coût de place nul** |
 
 ---
+
+### 12.4 Le lasso — ✅ **DÉCIDÉ le 23/08**, et le pointillé est REFUSÉ
+
+Ce document proposait un **rectangle pointillé**. ⚠️ **Recensement fait avant
+d'écrire : le pointillé est déjà employé six fois.**
+
+| usage | l'endroit | la forme |
+|---|---|---|
+| dictionnaire (§ 5.3) | sous une **prise** | trait double, inférieur pointillé |
+| fil en cours de tirage | un **fil** au curseur | pointillé gris |
+| nœud désactivé (§ 11.3) | le **fil traversant** | pointillé de la couleur du fil |
+| prise convertible | un **halo de prise** | pointillé |
+| **cadre (§ 9.2)** | **un RECTANGLE sur le canevas** | second filet intérieur, pointillé `4 4` |
+| lasso *(proposé)* | **un RECTANGLE sur le canevas** | pointillé orange |
+
+✅ **Quatre des six ne se gênent pas** — prise, fil, halo : *le signal n'est pas
+le pointillé, c'est l'endroit*, exactement comme les trois gris.
+
+❌ **Mais les deux derniers occupent le MÊME endroit**, et la collision n'est pas
+seulement visuelle : **tirer un rectangle sur le fond est aussi le geste qui crée
+un cadre.** Un rectangle pointillé qui apparaît sous le curseur pendant ce geste
+dit littéralement « je suis en train de fabriquer un cadre ».
+
+> ✅ **DÉCIDÉ : le lasso est un filet PLEIN `#F79A28` de 1,5 px, avec un
+> remplissage orange à 8 %. Aucun pointillé.**
+
+**Et il a le droit à un signal simple**, pour la raison déjà admise au § 11.4 sur
+le survol : **il est transitoire et attaché au curseur.** L'utilisateur sait ce
+qu'il fait pendant qu'il le fait — c'est ce qui reste après le relâchement qui
+doit être fort.
+
+📌 **Le remplissage n'est pas une décoration** : sans lui, un lasso réduit à un
+filet est invisible dès qu'il croise un nœud clair. **Avec lui, la zone prise est
+lisible d'un coup d'œil**, ce qui est exactement l'information cherchée.
+
+### 12.5 Le menu contextuel — ✅ **DÉCIDÉ le 23/08**
+
+Trois contenus, selon ce qui est sous le curseur :
+
+| clic droit sur… | ce que le menu contient |
+|---|---|
+| **le fond** | *ajouter un nœud* · coller · cadrer tout · **créer un cadre autour de la sélection** |
+| **un nœud** | couper/copier/dupliquer · **désactiver** · grouper en sous-graphe · supprimer |
+| **un fil** | ⚠️ **insérer un nœud ICI** · supprimer le fil |
+
+⚠️ **« Insérer un nœud ici » est la seule entrée qu'on ne peut pas obtenir
+autrement.** Sans elle, insérer un nœud au milieu d'un fil demande de couper,
+poser, rebrancher deux fois — quatre gestes pour un.
+
+> ✅ **DÉCIDÉ : « ajouter un nœud » ouvre le MÊME panneau que le § 12.1, sans
+> filtre.**
+
+📌 **C'est la règle du fil d'Ariane appliquée une seconde fois** : *deux chemins
+pour entrer dans un groupe, c'est deux chemins pour se perdre.* Deux panneaux de
+recherche d'apparence différente — un « filtré » et un « complet » — feraient
+croire à deux catalogues de nœuds différents. **Il n'y en a qu'un ; le filtre est
+un état du panneau, pas un autre panneau.**
+
+### 12.6 La recherche sans résultat — ✅ **DÉCIDÉ le 23/08**
+
+Conséquence directe de la règle du § 12.1, et elle ne s'invente pas :
+
+> ❌ **Une liste vide est INTERDITE.** Le panneau affiche
+> **« aucun nœud n'accepte *tableau de réels* »** — le type en toutes lettres —
+> avec le bouton ✕ qui retire le filtre **juste à côté**.
+
+⚠️ **Une liste vide sous un filtre invisible fait lire « ce nœud n'existe pas »
+alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat négatif
+sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
+qui existe.
 
 ## 13. Récapitulatif des 🔴 NON TRANCHÉS — **13 restants sur 14**
 
@@ -1254,15 +1909,19 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 3 | **fil de dictionnaire** : pointillé (collision avec le tirage) ou triple trait ? | § 5.3 | signal ambigu si mal choisi |
 | 4 | **`corps de boucle` / `terminé`** : un signal plus fort qu'une ligne vide ? | § 5.5 | la faute n° 1 du débutant |
 | 5 | **shader** : forme de prise propre, ou couleur + glyphe ? | § 6.3 | une septième forme de prise |
-| 6 | **groupe** : sur place ou en onglet ? aperçu du contenu ? | § 7.6 | choix de fenêtrage, pas de dessin |
-| ~~7~~ | ~~**cadre** : teinte-t-il ses nœuds ?~~ | § 9.2 | ✅ **TRANCHÉ le 22/08 : filet du corps seulement, jamais l'en-tête** — la catégorie est la seule information qui survit au dézoom |
-| 8 | **cadre replié** : où aboutissent les fils entrants ? | § 9.2 | aucune référence |
+| ~~6~~ | ~~**groupe** : sur place ou en onglet ?~~ | § 7.6 | ✅ **TRANCHÉ le 23/08 : SUR PLACE, pas d'onglets.** *Deux mécanismes de navigation pour une seule notion, c'est un de trop* — et le fil d'Ariane, devenu obligatoire, rend l'onglet redondant. 🔴 Reste seulement : **le groupe montre-t-il un aperçu de son contenu ?** |
+| ~~7~~ | ~~**cadre** : teinte-t-il ses nœuds ?~~ | § 9.2 | ✅ **TRANCHÉ le 22/08 par Rodolf — option A : JAMAIS, nulle part.** Ni corps, ni en-tête, ni filet, ni pastille ; le bandeau porte le sens. ✅ **Fait disparaître le conflit à trois** |
+| 8 | **cadre replié** : où aboutissent les fils entrants ? | § 9.2 | aucune référence. **Deux candidats chiffrés à 12 fils** au § 9.2 ; ne concerne **que** le cadre, jamais le groupe |
 | 9 | **fil sélectionné** : halo ou éclaircissement ? | § 10 | déjà ⚠️ dans C5 |
 | 10 | **croisement de fils** : dessus, dessous, saut ? | § 10 | déjà ⚠️ dans C6 |
 | 11 | **fils d'exécution en polylignes** à angles, ou en courbes comme la principale ? | § 10 | écart de style assumé ou non |
 | 12 | **minicarte** et **barre d'outils** | § 12.3 | déjà ⚠️ dans E3, E4 |
 | 13 | **champ de saisie** : plus clair (mesuré sur la principale) ou plus sombre (A9 actuel) ? | § 1.1 | ⚠️ **contredit un document déjà écrit** |
 | 14 | **`images (1)`** : cohérence avec l'inspecteur, ou autre attente ? | § 0 | je refuse de deviner |
+| ~~18~~ | ~~**l'échelle du nœud de Rodolf**~~ | § 3.1 | ✅ **MESURÉE : 1 unité = 1 px, son dessin est une maquette à 6 ×.** L'en-tête de 21 px est déjà juste ; 🔴 **reste à décider qui s'aligne** — les planches, ou son nœud de référence |
+| ~~15~~ | ~~**appartenance à un cadre** : géométrique ou déclarée ?~~ | § 9.2 | ✅ **TRANCHÉ : lien explicite sérialisé.** La géométrie ne sert qu'au dépôt. **C'est le repli du cadre qui l'exigeait** — on ne replie pas ce qu'on ne sait pas énumérer |
+| ~~16~~ | ~~**une directive inconnue casse-t-elle la relecture ?**~~ | § 16 | ✅ **MESURÉ : non, elle est ignorée** — mais elle est **perdue à la réécriture**, et une directive *mal formée*, elle, **corrompt en silence** |
+| 17 | **regroupement** : entrée/sortie dédupliquée, ordre, homonymes | § 7.6 | ✅ les quatre règles sont écrites ; 🔴 **reste à EXÉCUTER le critère grouper→dégrouper** |
 
 ---
 
@@ -1275,8 +1934,15 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | `references/planche_03_formes.svg` | ✅ | les 14 formes de nœud, dont custom, groupe, itérateur, aperçu |
 | `references/planche_04_etats.svg` | ✅ | tous les états, le tirage, les trois gris, les trois paliers de dézoom |
 | `references/planche_05_matieres.svg` | ✅ | aperçu ON/OFF · texture · sRVB sur Normale · matériau · aperçu périmé · la règle absolue · l'aperçu au dézoom · commentaire · cadre · les deux relais |
+| `references/planche_06_decisions.svg` | ✅ | **les décisions de la nuit du 22 au 23/08**, qui n'existaient nulle part en image : le **fil d'Ariane** (avec le compteur d'instances) · le **fil sélectionné** mesuré, montré à côté d'un fil normal et d'un fil d'exécution · le **nœud indisponible** · le **nœud survolé** · **les TROIS GRIS côte à côte** |
+| `references/planche_07_canevas.svg` | ✅ | **le lasso contre le cadre** (la collision, avant/après) · la recherche sans résultat · la source · le puits · le commentaire au repos et au survol · les trois menus contextuels |
+| `references/essai_c5.svg` | 🟡 | **banc de mesure, pas une planche** : le même fil à +20/+35/+50 %, avec et sans poignées, sur les sept familles. Il a servi à trancher C5 et il reste consultable |
+| `references/essai_c5b.svg` | 🟡 | **second banc** : cinq fils identiques, un seul éclairci, **poignées hors cadre**. Il a montré que le renfort ne sert pas non plus en comparaison simultanée — et que **le chevron sur le bord**, lui, suffit seul |
 
-Rendu PNG : `msedge --headless=new --screenshot --window-size=L,H file:///CHEMIN/ABSOLU/fichier.svg`.
+Rendu PNG : **`gen.rendre(nom, largeur, hauteur)`**, qui construit l'URL absolue,
+vérifie le poids du PNG **et compare ses dimensions au `viewBox`**. ⚠️ **Ne plus
+appeler `msedge` à la main** : les trois contrôles sont là pour des pannes qui se
+sont réellement produites, et qui passent toutes les vérifications naïves.
 
 ⚠️ **L'URL doit être absolue et préfixée `file:///`.** Passé en chemin relatif,
 Edge traite l'argument comme un **nom d'hôte**, ne trouve aucun DNS, et
@@ -1311,13 +1977,120 @@ Par honnêteté, et pour que personne ne croie le contraire :
    calculées, pas observées sur un écran. La première planche rendue en PNG et
    regardée à 55 % et à 25 % peut contredire le § 12.2 — **et c'est elle qui
    aura raison.**
-2. **Il n'a pas vérifié que le modèle NKGraph porte ces notions.** Le tableau, le
-   dictionnaire, le nœud inconnu, le drapeau « exécute » d'un nœud custom, la
-   largeur sérialisée : je les ai spécifiés **visuellement** sans lire
-   `NkNodeGraph.h`. **Plusieurs n'existent probablement pas encore dans le
-   modèle**, et le dire est plus utile que de le supposer.
+2. ~~**Il n'a pas vérifié que le modèle NKGraph porte ces notions.**~~ ✅ **Fait
+   le 22/08** — relèvement des cinq fichiers du module **et** trois bancs de
+   mesure exécutés. Résultat au **§ 16** : onze notions n'ont pas de foyer, le
+   registre de types est **plat** (aucun constructeur `tableau DE`), et le
+   format ne conserve pas ce qu'il ne comprend pas. ⚠️ **En revanche je n'ai
+   toujours pas lu les CONSOMMATEURS** (`NkMatGraphCheck`), qui portent
+   peut-être déjà des conventions pour une partie de ces onze.
 3. **Il n'a pas décidé le sens de lecture.** Tout est écrit pour un graphe
    **horizontal** (la principale l'est). `secondaire_prises_verticales.png`
    montre l'autre monde, et `DESIGN_EDITEUR_NODAL.md` § 2 déconseille de mélanger
    les deux. **Rien ici ne l'interdit formellement** — mais rien ne le prévoit
    non plus.
+
+---
+
+## 16. ⚠️ MESURÉ — ce que la sérialisation fait de ce qu'elle ne comprend pas
+
+> C'était la **question ouverte n° 1** de ce chantier, et la seule dont dépendait
+> le logement des notions sans foyer. Je l'avais laissée non mesurée en disant
+> que je ne la supposerais pas. **Elle est mesurée.**
+
+**Protocole** — bancs `mesure_directive_inconnue.cpp` et `mesure_malformee.cpp`
+compilés contre le vrai `NKGraph` (g++ 16.1, 62 unités de NKCore / NKMemory /
+NKContainers liées), exécutés le 2026-08-22. On sérialise un graphe témoin non
+trivial (2 nœuds, 4 prises, 2 types, 1 conversion, 1 lien), on abîme le flux
+texte d'une façon précise, on désérialise, et on **recompare octet pour octet**
+la resérialisation au témoin.
+
+### 16.1 Directive INCONNUE → **cas 1 : ignorée**, avec deux nuances
+
+| cas | ce qu'on a inséré | résultat mesuré |
+|---|---|---|
+| **A** | `cadre 7 0 0 400 300 Mon Cadre` après une ligne `noeud` | ✅ `true`, graphe **identique octet pour octet** |
+| **B** | `commentaire 1 50 50 …` juste après l'en-tête | ✅ identique |
+| **C** | la même directive **avant** la ligne `nkgraph` | ⚠️ **`false` — refusée.** L'en-tête doit rester la **première** ligne |
+| **D** | `noeudcadre …` — un mot-clé **préfixé** d'un mot-clé connu | ✅ non confondu avec `noeud` : la comparaison porte sur le jeton entier |
+| **E** | une ligne vide | ✅ sans effet |
+| **G1** | une inconnue **au niveau document**, entre `racine` et `graphe` | ✅ ignorée |
+| **G2** | une inconnue dans le **corps** d'un graphe d'un document | ✅ ignorée |
+| **G3** | `graphecadre` — préfixe de `graphe` au niveau document | ✅ non confondu : 1 graphe, pas 2 |
+
+### 16.2 ⚠️ Le fait qui change la conclusion : ignorée, mais **PERDUE**
+
+| cas | mesure |
+|---|---|
+| **F** | on charge un fichier contenant `cadre …`, on modifie le graphe, on **annule une fois** — la directive **a disparu** |
+
+**C'est le résultat le plus important des bancs, et il n'était dans aucun des
+trois cas annoncés.** `NkGraphHistory` resérialise **depuis le modèle**, pas
+depuis le texte. Une directive que le modèle ne porte pas ne survit donc **ni à
+un annuler, ni à une sauvegarde** — la première écriture l'efface.
+
+### 16.3 ⚠️ Le TROISIÈME cas existe bel et bien — il est ailleurs
+
+Une directive **connue mais mal formée** corrompt en silence. Dans **tous** les
+cas ci-dessous, `Deserialize` rend **`true`** et le graphe est resérialisé sans
+un mot :
+
+| ce qu'on donne | ce que le modèle en fait |
+|---|---|
+| `noeud abc 10 20 math.add A` — identifiant non numérique | ❌ **un nœud d'identifiant `0`**, c'est-à-dire `NK_NODE_INVALID`, **vivant et compté** |
+| `noeud 2` — deux jetons au lieu de cinq | ❌ un nœud de type vide et de libellé vide, vivant ; la ligne réécrite se termine par **deux espaces** |
+| `lien 1 1 0 99 0` — vers un nœud absent | ❌ **le lien pendant est conservé**, vivant, et réécrit tel quel. C'est exactement ce que `RemoveNode` s'interdit de laisser — *« laisser des liens pendants serait pire qu'une suppression refusée »* — mais la relecture, elle, en fabrique |
+| deux `noeud` de **même identifiant** | ❌ les deux sont acceptés ; `Find` ne rendra jamais que le premier, le second est inatteignable mais réécrit à chaque sauvegarde |
+| `sock 42 …` **avant** que le nœud 42 existe | ❌ **la prise est perdue en silence**. ⚠️ Et c'est le pire des cinq : **l'ordre des prises EST leur index**, et les liens s'y réfèrent par numéro. Une prise avalée ne perd pas *une* prise — **elle décale toutes les suivantes**, et les liens pointent alors sur la mauvaise |
+
+✅ **Un seul se répare tout seul**, et c'est celui que l'en-tête annonçait :
+`compteurs` absente est reconstruite par le balayage final (mesuré : `compteurs 8`
+pour un nœud d'identifiant 7). **La ligne la plus importante du fichier est aussi
+la seule qui se rattrape.**
+
+📌 **Ce que je remonte, sans le trancher** : `Deserialize` gagnerait à rendre une
+**raison**, comme `Connect` et `BuildPlan` le font déjà (`NkLinkError`,
+`NkPlanError`). Le modèle a ce réflexe partout ailleurs — *« on REND une raison
+plutôt qu'un simple booléen »* — et c'est la relecture, là où les données
+viennent du dehors, qui en aurait le plus besoin. Aujourd'hui son booléen vaut
+`true` partout sauf si l'en-tête manque.
+
+### 16.4 Les conclusions, et ce ne sont pas celles qu'on attendait
+
+1. ✅ **Ajouter des directives est rétro-compatible dans le sens ancien → neuf.**
+   Un fichier écrit par une version future se relit sans erreur dans une version
+   ancienne. **Aucune migration de format n'est nécessaire.**
+2. ❌ **Mais pas dans l'autre sens.** Ouvrir un fichier récent avec une version
+   ancienne, puis **simplement annuler une fois ou enregistrer**, détruit tous
+   les cadres, commentaires et replis. **Silencieusement** est le mot :
+   `Deserialize` rend `true`, rien ne prévient, le fichier réécrit paraît sain.
+   C'est le défaut que l'en-tête dénonce à propos de `compteurs` : *« un défaut
+   qui ne se voit qu'au résultat, longtemps après. »*
+3. ⚠️ **Donc « où loger les notions manquantes » ne se règle PAS par la
+   rétro-compatibilité de lecture.** Ça se règle par **le modèle** : tant qu'une
+   notion n'est pas un champ de `NkNode` / `NkNodeGraph`, l'écrire dans le
+   fichier ne la conserve pas. **Il n'y a pas de raccourci par le format.**
+
+### 16.5 Où loger les notions sans foyer
+
+| option | ce que la mesure en dit |
+|---|---|
+| ranger l'état d'interface dans `NkNode::props` | ❌ **toujours refusé** — l'auteur du modèle a écrit noir sur blanc pourquoi (*« une convention de nommage finit toujours par être violée »*), et ça reste vrai |
+| ajouter des directives **sans** champs de modèle | ❌ **éliminé par la mesure 16.2** : elles ne survivent pas à un annuler |
+| ajouter les champs au modèle, **avec une directive dédiée par notion** | ✅ **la seule qui tienne**, et le modèle a déjà ce réflexe : `sousgraphe` est une directive dédiée plutôt qu'un champ de plus sur la ligne `noeud`, *« pour que les fichiers écrits avant restent lisibles tels quels »* |
+
+**Les notions concernées** (relevées sur les cinq fichiers du module, zéro
+occurrence de `collaps`, `repli`, `enabled`, `width`, `comment`, `frame`,
+`reroute`) : largeur du nœud · repli du nœud · repli par section · tableau ·
+dictionnaire · état plié/séparé d'une struct · bascule d'aperçu · drapeau
+« exécute » d'un custom · commentaire libre · **cadre** · **désactivé**.
+
+⚠️ Deux précisions qui changent la forme de la liste :
+
+- **`cadre` y entre comme RELATION**, pas seulement comme rectangle (§ 9.2) : il
+  lui faut un rectangle, un titre, une teinte, un repli **et la liste de ses
+  membres** ;
+- **`alive` n'est PAS « désactivé »**. `alive` marque la **suppression** et coupe
+  les liens ; un nœud désactivé **reste branché** et le fil le traverse en
+  pointillé. Il faut un **second booléen**, pas un détournement du premier —
+  sinon éteindre un nœud débrancherait ses voisins, résultat plausible et faux.
