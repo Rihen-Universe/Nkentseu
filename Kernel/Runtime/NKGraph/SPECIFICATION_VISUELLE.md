@@ -2077,7 +2077,7 @@ alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat néga
 sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
 qui existe.
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS — **16 restants sur 21**
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **18 restants sur 23**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
@@ -2105,6 +2105,8 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 19 | **le groupe montre-t-il un aperçu de son contenu ?** | § 7.6 | résidu de la ligne 6, qui était tranchée ET ouverte à la fois |
 | 20 | **qui s'aligne sur qui** : les planches, ou le nœud de référence de Rodolf ? | § 3.1 | résidu de la ligne 18. L'échelle est MESURÉE ; il reste à dire laquelle des deux bouge |
 | 21 | **la PORTÉE du registre de types** : comparer la charge utile, ou remonter le registre au DOCUMENT ? | § 18.5 | 🔴 **décide où VIT le registre** — les quatre types composés en dépendent, et rien ne doit être codé avant |
+| 22 | **le mode ÉTATS** : le cœur refuse tout cycle et un lien ne porte aucune charge utile | § 19.3 | 🔴 **le graphe d'états de NkAnima n'est pas saisissable aujourd'hui** — A ⇄ B est refusé par `WouldCycle`, et une transition doit porter condition, seuil et fondu |
+| 23 | **NKScena** : quel domaine, quel mode ? | § 19.2 | 🔴 **rien n'est écrit nulle part** — un nom cité 8 fois dans les documents des autres, jamais dans un document à elle. Je refuse de deviner |
 
 ---
 
@@ -2837,3 +2839,141 @@ perdue (§ 16), les identifiants réattribués à la relecture — que
 `NkNodeGraphIO.inl:226-234` promet pourtant de **respecter** —, les champs
 déordonnés et la fermeture transitive incomplète. **Écrire ce contrôle avant
 d'écrire les types**, pas après.
+
+
+---
+
+## 19. Les APPLICATIONS et leur mode de graphe — 🟡 **PROPOSÉ**
+
+**Pourquoi cette section existe.** Ces planches sont une **étude** : elles servent
+à voir à quoi ressembleront les éditeurs nodaux de nos applications. Mais une
+étude ne dit rien tant qu'on ne sait pas, application par application, **quel
+graphe elle ouvre et avec quels nœuds**. Sans ce tableau, la question se
+redécouvre cinq fois — et se tranche cinq fois différemment.
+
+⚠️ **Ce n'est pas un vœu d'architecture, c'est une décision déjà prise** :
+
+> `Kernel/Runtime/NKGraph/ROADMAP.md:3-6` — *« Décision d'architecture validée par
+> Rihen le 2026-07-09. **Un seul système de graphe de nodes** pour tout
+> l'écosystème : matériaux, VFX, Blueprint/Scratch, modélisation procédurale,
+> anim graphs / state machines, futur rig graph. »*
+
+Ce paragraphe ne fait qu'en tirer les conséquences, une par application.
+
+### 19.1 Les TROIS modes, et le critère qui les sépare
+
+La planche 08 a posé le critère. Il ne se discute pas, il se vérifie :
+
+> **un domaine a besoin de fils d'exécution si, et seulement si, son résultat
+> dépend de l'ORDRE et des EFFETS DE BORD.**
+
+| mode | ce que porte un arc | ce qui l'ordonne | acyclique ? |
+|---|---|---|---|
+| **FLOT** (pur) | une **valeur** | le tri topologique le déduit — rien à énoncer | ✅ **oui, nécessairement** |
+| **EXÉCUTION** | un **passage de relais** | l'auteur l'écrit, arc par arc | ❌ **non** — une boucle est légitime |
+| **ÉTATS** | une **transition conditionnelle** | rien : il n'y a pas d'ordre, il y a un état COURANT | ❌ **non** — A ⇄ B est le cas normal |
+
+⚠️ **Le mode ÉTATS est une troisième famille, pas une variante des deux autres.**
+Ses arcs ne transportent rien et ne déclenchent rien : ils portent une
+**condition** et une **durée de fondu**. Le ranger dans « exécution » serait une
+erreur coûteuse — un graphe d'états ne « s'exécute » pas de gauche à droite : il
+**est** dans un état, et il y reste.
+
+### 19.2 Le tableau — cinq applications, ce qu'elles ouvrent
+
+| application | mode(s) | domaine du graphe | nœuds qui lui sont propres | état réel |
+|---|---|---|---|---|
+| **NK3DModeler** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
+| **NkAnima** | **FLOT** + **ÉTATS** — les deux, imbriqués | pose d'animation, et machine à états qui la choisit | **AnimGraph** (flot, type *pose*) : `Blend Poses by Bool`, `Layered Blend per Bone`, `State Machine`, `Output Pose` (final, non supprimable) · **sous-graphe d'états** : les états eux-mêmes, `Entry` non supprimable | runtime **livré** (`NkAnimStateMachine`, `NkBlendTree1D/2D`) ; **éditeur = embryon**, AnimGraph = 0 ligne |
+| **NKScena** | 🔴 **indéterminable** | — | — | **rien trouvé** : un nom réservé, cité 8 fois dans les documents des autres, orthographié `NkScena` et `NKScena`. Aucun domaine écrit nulle part |
+| **Nogee** | **FLOT** (matériaux) **+ EXÉCUTION** (Blueprint) | ① matériaux → NkSL · ② logique gameplay / ECS · ③ VFX | ① Material Output, non supprimable · ② `EventBeginPlay`, `EventCustom`, `PrintString`, `SwitchInt`, `AddFloat`, `Raycast`, `SpawnActor`, familles *Events · FlowControl · Math · Physics · Structs* · ③ Bruit de Perlin, Courbe, Collision, Force, Attribut de particule | coquille ; **`NkBlueprint.h` porte un vrai interpréteur, ~15 nœuds — et zéro consommateur** |
+| **PV3DE** | **ÉTATS**, s'il en ouvre un un jour | état clinique / émotion | aucun nœud écrit ; ce qui existe est une FSM **codée en dur** — `EmotionState` (9 états), `NkEmotionTransition`, fondu 500 ms | **le plus abouti en code** (8 210 lignes, l'UI médicale s'affiche) ; **aucune trace de graphe nodal**, et PV3DE n'est dans aucune liste de consommateurs de NKGraph |
+
+📌 **Ce que ce tableau permet de dire, et qui manquait :** *« NkAnima ouvre
+l'éditeur en mode FLOT avec la bibliothèque de pose, et son nœud `State Machine`
+ouvre un sous-graphe en mode ÉTATS »* — au lieu de le redécouvrir cinq fois.
+
+### 19.3 Trois choses que ce tableau fait apparaître, et qu'aucune planche ne montrait
+
+**① 🔴 LE MODE ÉTATS EST IMPOSSIBLE SUR LE CŒUR D'AUJOURD'HUI — et c'est le même
+mur que la boucle du § 18 / planche 08.**
+
+Un graphe d'états va et revient : `Marche → Saut`, `Saut → Marche`. C'est **un
+cycle**, et c'est le cas normal, pas un cas limite. Or `Connect()` refuse le lien
+au branchement, par `NkLinkError::WouldCycle`. **Le graphe d'états de NkAnima ne
+peut donc pas être saisi du tout**, et l'`any-state` du runtime
+(`AddTransition(from = -1, …)`) est encore plus loin de ce que le cœur sait
+représenter.
+
+Ce n'est pas un manque de plus : c'est **le même axe manquant**, vu depuis une
+autre application. Il ne faut pas le corriger deux fois.
+
+**② 🔴 UN ARC D'ÉTATS PORTE UNE CHARGE UTILE, ET `NkLink` N'EN A AUCUNE.**
+
+Le runtime le dit exactement : `AddTransition(from, to, paramName, NkCondKind,
+threshold, fadeDur)` — une transition porte **un nom de paramètre, un type de
+condition, un seuil et une durée de fondu**. Et l'interface va plus loin : chaque
+flèche de transition doit ouvrir *« un mini-graphe de condition »*.
+
+Or `NkLink` ne porte que `id / fromNode / fromSocket / toNode / toSocket`. **Un
+lien ne peut rien porter d'autre que ses deux extrémités**, ni valeur, ni
+sous-graphe. C'est le pendant, côté LIEN, de ce que le § 18 a mesuré côté TYPE :
+le modèle sait relier, il ne sait pas **qualifier**.
+
+⚠️ Et les trois conditions qui existent sont **exactement trois** —
+`BOOL_TRUE`, `FLOAT_GREATER`, `FLOAT_LESS`. Ni égalité, ni intervalle, ni « et »,
+ni « ou ». Une interface qui dessine un mini-graphe de condition promettrait donc
+**plus que ce que le runtime sait évaluer** : soit on étend `NkCondKind`, soit on
+dessine trois cas et on le dit.
+
+**③ ✅ LA RÉPONSE À L'AXE MANQUANT EXISTE DÉJÀ — écrite dans Noge, exactement dans
+la forme que la planche 08 réclame.**
+
+La planche 08 conclut : *« ce qui manque n'est pas une exception, c'est un AXE :
+le socket doit porter sa famille »*. Or `Engine/Noge/src/Noge/ECS/VisualScript/
+NkBlueprint.h` porte `enum class NkPinPrimitiveType { Exec, Float, Int, String,
+Vec3, GameObject }` : **`Exec` y est une valeur du type de broche** — c'est-à-dire
+la solution, déjà écrite.
+
+⚠️ Ce fichier est un **en-tête de spécification de 696 lignes sans aucun `.cpp`**,
+et NKGraph demande explicitement qu'il soit **réaligné sur NKGraph** au moment de
+son implémentation, *« ne pas l'implémenter en silo »*. **La bonne lecture n'est
+donc pas « Noge a déjà résolu le problème » mais « les deux documents proposent la
+même solution, et il faut la coder une seule fois — dans le cœur. »**
+
+### 19.4 Deux choses qu'il faut dire franchement
+
+**Aucun éditeur nodal ne tourne aujourd'hui, dans aucune des cinq
+applications.** La couche 1 (le cœur `NKGraph`) est livrée ; la couche 2 — le
+canevas d'édition dans `NKEditorKit` — n'existe pas, et NKGraph n'est même pas
+une cible de compilation. Ces planches décrivent donc **ce qu'il faut construire**,
+pas ce qui existe. C'est légitime pour une étude, mais il ne faut pas le laisser
+croire l'inverse.
+
+**NKScena ne peut pas être spécifiée sans inventer.** Elle apparaît dans les
+documents des autres comme le quatrième éditeur, jamais dans un document à elle.
+La case reste vide **exprès** : la remplir serait deviner, et une case devinée
+dans ce tableau coûterait plus qu'une case vide.
+
+### 19.5 La question que ce tableau rend décidable
+
+`CATALOGUE_NOEUDS.md` la pose : *« les blueprints doivent-ils utiliser le même
+canevas que les matériaux, avec des nœuds différents — ou deux éditeurs
+distincts ? »*
+
+Le tableau y répond, et pas par goût : **NK3DModeler ouvre déjà deux
+bibliothèques dans un seul canevas, et NkAnima en imbrique deux modes dans un
+seul écran.** Faire deux éditeurs obligerait à en faire quatre, puis six. ✅ **Un
+seul canevas, plusieurs bibliothèques, et un MODE par graphe** — c'est le mode,
+pas l'éditeur, qui change ce que le canevas autorise :
+
+| ce que le mode décide | FLOT | EXÉCUTION | ÉTATS |
+|---|---|---|---|
+| cycle autorisé | ❌ | ✅ | ✅ |
+| arité d'une entrée | 1 source | **plusieurs** | — |
+| arité d'une sortie | n liens | **1 seul** | n transitions |
+| l'arc porte une charge utile | non | non | **oui** (condition, seuil, fondu) |
+
+🔴 **Ce tableau des modes est la vraie liste de ce qui manque au cœur** — et les
+trois colonnes se corrigent par le **même** changement : que le lien et le socket
+sachent à quelle famille ils appartiennent.
