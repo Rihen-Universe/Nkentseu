@@ -1,0 +1,173 @@
+\chapter{Jouer un coup à la souris}
+
+Tous les autres chapitres sont écrits du point de vue de \textbf{celui qui écrit
+un moteur}. Celui-ci est écrit du point de vue de \textbf{celui qui joue}. C'est
+le point de vue qui manquait, et ce chapitre existe à cause d'une phrase :
+
+\begin{quote}
+« Le labo compile bien mon code du palier 1 et un menu déroulant sur la gestion
+des ressources de fusion est apparu dans les règles, mais \textbf{il n'y a pas de
+bouton pour jouer la fusion}. Et je pense que c'est la même chose pour les
+pouvoirs et les artefacts. »
+\end{quote}
+
+Cette phrase était juste sur les trois points. Voici, pour chacun, ce qu'on voit
+à l'écran et où l'on clique.
+
+\begin{nkretenir}[Ce qui a été vérifié, et comment]
+Ce qui est écrit ici sur \emph{dupliquer} a été observé à l'écran : atelier
+lancé, un totem cliqué, capture d'écran --- le contour de sélection et les
+anneaux verts étiquetés \texttt{D} y sont. La fusion, les pouvoirs et
+l'ambiguïté ont été \textbf{mesurés hors interface} par le banc
+\nkfile{Applications/ConquerorLab/tests/ambiguite.ps1}, qui appelle directement
+la fonction décidant quel coup part au clic : \textbf{13 vérifications, 0
+échec}. Ce qui n'a été ni vu ni mesuré est dit comme tel, en clair, plutôt que
+déduit du contrat.
+\end{nkretenir}
+
+\section{La règle unique : deux clics}
+
+Il n'y a \textbf{qu'un seul geste} dans l'atelier, quel que soit le genre du
+coup :
+
+\begin{enumerate}
+  \item \textbf{un clic sur une case de départ} --- elle prend un contour
+        orange, et toutes les cases où ce totem peut agir s'allument ;
+  \item \textbf{un clic sur une case allumée} --- le coup part.
+\end{enumerate}
+
+Il n'existe \textbf{aucun bouton} «~Fusionner~», «~Lancer un pouvoir~» ou
+«~Ramasser l'artefact~», et il n'en manque pas : ce sont les \textbf{cases} qui
+portent l'action.
+
+Un clic ailleurs annule la sélection ; un clic sur un autre de vos totems y
+déplace la sélection. \textbf{On ne peut pas jouer un coup illégal} : une case
+qui n'est pas allumée ne répond pas. Et si rien ne s'allume, c'est que ce totem
+n'a aucun coup --- pas que l'atelier vous ignore.
+
+\section{Ce que les marques veulent dire}
+
+\begin{center}
+\begin{tabular}{@{}p{5.2cm}p{8.6cm}@{}}
+\toprule
+\textbf{Marque} & \textbf{Sens} \\
+\midrule
+contour orange épais & la case \textbf{sélectionnée} \\
+anneau vert $+$ \texttt{D} & destination d'un \textsc{dupliquer} \\
+anneau orange plein $+$ \texttt{F3} & la \textbf{case du résultat} d'une \textsc{fusion} à 3 cases \\
+anneau orange fin, relié par un trait & une case que la fusion va \textbf{consommer} \\
+anneau vert $+$ \texttt{P0}, \texttt{P1} & cible d'un \textsc{pouvoir}, et \textbf{lequel} \\
+\texttt{$\times$2} au-dessus d'une case & \textbf{plusieurs coups différents} visent cette case \\
+anneaux rouges & les ennemis que le coup \emph{survolé} retournerait \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ces marques restent affichées \textbf{tant que la sélection dure}. C'est un point
+de conception, pas un détail : ce qui n'apparaît qu'au \emph{survol} n'existe pas
+pour qui ne sait pas où passer la souris. Avant le 23 août 2026, la case du
+résultat d'une fusion ne se distinguait d'aucune autre destination --- d'où
+l'impression qu'il manquait un bouton.
+
+
+Tous les coups se jouent du même geste : \textbf{un clic sur une case de départ,
+un clic sur la case d'arrivée}. Ce qui change d'un genre de coup à l'autre,
+c'est \emph{quelle} case est le départ et \emph{quelle} case est l'arrivée.
+C'est la seule chose à savoir, et c'est ce que le plateau dessine.
+
+\section{Dupliquer}
+
+Cliquez votre totem : il prend le contour orange, et les cases voisines
+atteignables prennent un anneau vert marqué \texttt{D}. Cliquez l'une d'elles :
+le coup part.
+
+\section{Fusionner --- où est la « case du résultat »}
+
+Une fusion consomme \emph{plusieurs} cases et n'en produit qu'une. Il n'y a donc
+pas de case de départ unique, et c'est ce qui déroute :
+
+\begin{itemize}
+  \item cliquez \textbf{n'importe laquelle} des cases que la fusion consomme ---
+        elles fonctionnent toutes ;
+  \item l'atelier trace alors un trait \textbf{orange} de chaque case consommée
+        vers la \textbf{case du résultat}, qui porte un anneau plein et
+        l'étiquette \texttt{F} suivie du nombre de cases ;
+  \item cliquez cette case du résultat : la fusion part. Le journal affiche
+        \textsc{fusionner}, et le totem réapparaît un niveau plus haut.
+\end{itemize}
+
+Vous ne sélectionnez donc \textbf{pas} les cases une par une. Le moteur a déjà
+énuméré les groupes possibles dans \texttt{CoupsPossibles} ; l'interface ne fait
+que retrouver celui que vous désignez.
+
+\begin{nkpiege}[« Il n'y a pas de bouton pour jouer la fusion »]
+C'est la phrase exacte d'un stagiaire, et elle décrivait un vrai défaut. Dans
+les ateliers antérieurs au \textbf{23 août 2026}, la sélection filtrait sur le
+champ \texttt{from} du coup. Or une fusion laisse \texttt{from} \emph{à zéro} et
+met ses cases dans \texttt{fuseCells}. Cliquer une case à consommer ne la
+sélectionnait donc même pas : aucun contour, aucun anneau, rien --- d'où
+l'impression qu'il manquait un bouton. Pire : \texttt{from} mis à zéro
+\emph{vaut} la coordonnée $(0,0)$, si bien que le coin du plateau passait pour
+la source de toutes les fusions. Si votre atelier se comporte ainsi,
+\textbf{votre version est périmée} : reprenez le kit.
+\end{nkpiege}
+
+\section{Les pouvoirs, et le menu « Quel coup ? »}
+
+Un pouvoir est désigné par \emph{trois} choses : le lanceur (\texttt{from}), la
+cible (\texttt{to}) et \textbf{lequel} (\texttt{powerId}). Deux pouvoirs
+différents d'un même totem sur une même cible partagent donc leur départ et leur
+arrivée : la case cliquée ne suffit plus à dire quel coup vous voulez.
+
+L'atelier ne choisit pas à votre place. Quand plusieurs coups visent la case que
+vous cliquez, il affiche « $\times$2 » \emph{avant} le clic, puis ouvre un menu
+\textbf{« Quel coup ? »} qui les nomme --- \texttt{POUVOIR n1},
+\texttt{FUSIONNER 2 cases} --- et indique entre parenthèses combien de totems
+chacun retourne. Tant que ce menu est ouvert, le plateau ne répond plus : un
+clic ne peut pas le traverser et jouer un coup à votre insu.
+
+\begin{nkretenir}
+Deux coups qui partagent leur destination restent deux coups \emph{différents},
+et vous devez pouvoir jouer les deux. En revanche, deux pouvoirs générés avec le
+\textbf{même} \texttt{powerId} sont identiques octet pour octet : l'atelier n'en
+montrera qu'un, et ce n'est pas un bug de l'atelier. Numérotez vos pouvoirs.
+\end{nkretenir}
+
+Côté écriture, le raccourci \texttt{Pouvoir(joueur, de, vers, idPouvoir)} de
+\texttt{ConquerorRegleFacile.h} met le coup à zéro pour vous, comme
+\texttt{Dupliquer} et \texttt{Fusionner}.
+
+\section{Les artefacts}
+
+Il n'y a \textbf{pas} de genre de coup « artefact » dans le contrat :
+\texttt{NkcMoveKind} vaut \texttt{None}, \texttt{Duplicate}, \texttt{Fuse},
+\texttt{Power} ou \texttt{Pass}. Un artefact est un \emph{champ de case},
+\texttt{NkcCellView::artefact} --- un identifiant, $-1$ quand il n'y en a pas.
+Il se ramasse donc en jouant un coup ordinaire vers la case qui le porte, ou se
+déclenche par un \textsc{pouvoir} dont vous choisissez l'identifiant.
+
+C'est un choix de conception, pas un oubli : ajouter un genre de coup casserait
+l'ABI de tous les modules déjà compilés, alors qu'un champ de case n'oblige
+personne. Aucun moteur livré ne pose d'artefact aujourd'hui --- c'est le palier
+2 : le champ existe, il vaut $-1$ partout, et il vous attend.
+
+
+\section{Où lire la suite}
+
+\begin{itemize}
+  \item Écrire un moteur qui \textbf{génère} des fusions : chapitre \emph{Les
+        règles en trois fonctions}, section «~Fusionner~», et l'exemple complet
+        \nkfile{exemples/rules/RegleFusion.cpp}.
+  \item Le contrat nu, champ par champ (\texttt{fuseCells}, \texttt{powerId},
+        \texttt{artefact}) : chapitre \emph{Écrire des règles}.
+  \item Lire le plateau, les panneaux, le journal et la campagne : chapitre
+        \emph{Se servir de l'atelier}.
+\end{itemize}
+
+\begin{nkexo}
+Reprenez \nkfile{RegleFusion.cpp}, ajoutez \textbf{deux} pouvoirs qui visent la
+même case, et vérifiez à l'écran que le menu «~Quel coup ?~» propose bien les
+deux et que \textbf{les deux partent}. Si l'un des deux ne part jamais, regardez
+d'abord vos \texttt{powerId} : deux coups qui ne diffèrent par rien sont un seul
+coup.
+\end{nkexo}

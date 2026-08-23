@@ -120,13 +120,25 @@ jenga build --target ConquerorLab --config Release
 .\Build\Bin\Release-Windows\ConquerorLab\ConquerorLab.exe
 ```
 
-Trois dossiers sont créés au premier lancement, à côté du dépôt :
+Trois dossiers sont créés au premier lancement :
 
 ```
-Build/ConquerorLab/rules/    ← vos moteurs de règles   (.cpp)
-Build/ConquerorLab/ai/       ← vos IA                  (.cpp)
-Build/ConquerorLab/boards/   ← vos grilles             (.json)
+travail/rules/    ← vos moteurs de règles   (.cpp)
+travail/ai/       ← vos IA                  (.cpp)
+travail/boards/   ← vos grilles             (.json)
 ```
+
+⚠️ **Ce sont les chemins du KIT**, celui que vous avez reçu en `.zip`. Dans le
+dépôt complet, les trois mêmes dossiers s'appellent
+`Build/ConquerorLab/rules|ai|boards` — « Build » est un mot de dépôt, et dans un
+kit personne ne construit rien. C'est `NkcLayout.h` qui détecte la disposition,
+et lui seul les connaît toutes les deux. **En cas de doute, ne devinez pas :** le
+panneau *Règles* affiche en clair le chemin exact où il regarde.
+
+⚠️ **`boards`, au pluriel, et `.json` à la fin.** Un dossier nommé `board` ou un
+fichier sans extension ne sont pas lus. Depuis le 2026-08-23 l'atelier vous le
+**dit** — il nomme les fichiers qu'il ignore et le dossier voisin mal nommé —
+mais il ne devine pas à votre place.
 
 Le troisième contient déjà `exemple_plateau_par_defaut.json`, écrit par
 l'atelier : c'est le plateau du moteur de référence, exporté. Un format qu'on

@@ -330,7 +330,7 @@ lui dit de tout jeter (nouvelle partie).
 
 ## 3.10 Votre première IA, en quatre gestes
 
-1. Copiez `exemples/ai/IAMinimale.cpp` vers `Build/ConquerorLab/ai/mon_ia.cpp`.
+1. Copiez `exemples/ai/IAMinimale.cpp` vers `travail/ai/mon_ia.cpp`.
 2. Changez le nom dans `FillFactory`.
 3. Sauvegardez, attendez une seconde, ouvrez le panneau *Joueurs* : votre IA est
    dans la liste des pilotes.

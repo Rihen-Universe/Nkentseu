@@ -28,7 +28,13 @@ Tous sont dockables : on les déplace, on les empile en onglets, on les ferme.
 
 - **Disques colorés** : les totems. Le **niveau** se lit à la *taille* et au
   liseré, jamais à la seule couleur — celle-ci porte déjà le propriétaire.
-- **Anneaux verts** : les destinations légales du totem sélectionné.
+- **Anneaux verts** : les destinations légales du totem sélectionné, avec une
+  étiquette qui dit le *genre* du coup — `D` (dupliquer), `F3` (fusionner trois
+  cases), `P1` (pouvoir n°1).
+- **Anneaux orange reliés par un trait** : les cases qu'une **fusion** va
+  consommer, et au bout du trait la case du **résultat**, en anneau plein.
+- **« ×2 » au-dessus d'une case** : plusieurs coups différents visent cette
+  case. Cliquez : l'atelier demandera lequel.
 - **Anneaux rouges** : les totems ennemis que le coup **survolé** retournerait.
 - **Anneau orange qui pulse** : le dernier coup joué, une seconde environ.
 - **« CASCADE ×N »** au centre : deux totems ou plus retournés d'un coup.
@@ -55,7 +61,20 @@ bug : *au tour du joueur humain*, *l'IA réfléchit*, *en pause*, *rejeu en paus
 | **Siège : Humain / IA** | bascule le siège **au trait** |
 | **Voisinage** | trace les liens d'adjacence de la case survolée (mise au point) |
 
-## 6.3 Le panneau Sortie : vos propres traces
+## 6.3 Jouer un coup à la souris
+
+Dupliquer, fusionner, lancer un pouvoir : **un clic sur une case de départ, un
+clic sur la case d'arrivée**. Le geste ne change jamais ; ce qui change, c'est
+quelle case est le départ et quelle case est l'arrivée — et pour une fusion,
+cela ne se devine pas.
+
+Tout est dans le chapitre **6bis, « Jouer un coup à la souris »**
+([`06b-jouer-un-coup.md`](06b-jouer-un-coup.md)). Il répond à trois questions
+précises : où cliquer pour jouer une **fusion**, comment jouer un **pouvoir** et
+en choisir un quand plusieurs visent la même case, et ce qui existe réellement
+pour les **artefacts**.
+
+## 6.4 Le panneau Sortie : vos propres traces
 
 Le panneau **Modules** montre ce que dit le *compilateur* ; celui-ci montre ce
 que dit votre *code* une fois qu'il tourne. Les deux sont nécessaires, et les
@@ -76,7 +95,7 @@ mélanger rendrait les deux illisibles.
 > l'application : ils partagent son journal, et leurs traces vont dans la console,
 > pas ici. Le panneau Sortie est là pour **votre** code.
 
-## 6.4 Reproduire un bug : le journal
+## 6.5 Reproduire un bug : le journal
 
 C'est la fonction la plus utile de l'atelier, et la moins spectaculaire.
 
@@ -123,7 +142,7 @@ Le curseur de rejeu reconstruit la position (`Setup` + N coups) au lieu de
 « défaire » le dernier coup : le contrat n'impose au moteur aucune opération
 inverse, et une annulation approximative donnerait un état qui n'a jamais existé.
 
-## 6.5 Deux garde-fous contre les erreurs silencieuses
+## 6.6 Deux garde-fous contre les erreurs silencieuses
 
 Ce sont les plus dangereuses : rien ne plante, les chiffres sortent, et ils sont
 faux.
@@ -177,7 +196,7 @@ Les deux resultats ne se comparent pas.
 > une semaine plus tard, de ce qui avait bougé. On n'empêche personne de changer
 > deux choses ; on rend impossible de ne pas s'en apercevoir.
 
-## 6.6 La campagne : ce qu'elle mesure, et comment
+## 6.7 La campagne : ce qu'elle mesure, et comment
 
 Panneau *Métriques*. Réglez le nombre de parties, les threads, le budget, les IA
 de chaque camp, puis **Lancer la campagne**.
@@ -252,7 +271,7 @@ a proposé un coup que le moteur refuse — presque toujours un `memset` manquan
   très étalée, ou un pic contre la dernière barre, signale des parties qui
   traînent.
 
-## 6.7 Une méthode de mesure qui tient
+## 6.8 Une méthode de mesure qui tient
 
 Quatre règles, apprises à leurs dépens par d'autres.
 
@@ -279,7 +298,7 @@ levier. C'est une information, pas un échec.
 > parce que les coups **déjà joués** ne sont pas rejoués avec la nouvelle règle.
 > Une partie à cheval sur deux réglages ne mesure rien.
 
-## 6.8 Quand ça ne marche pas
+## 6.9 Quand ça ne marche pas
 
 | Symptôme | Regardez d'abord |
 |---|---|
@@ -292,7 +311,7 @@ levier. C'est une information, pas un échec.
 | « le moteur a REFUSÉ ce plateau » | `cells` vide, JSON malformé, ou moteur sans `LoadBoardJson` |
 | la campagne refuse de démarrer | chaque siège doit être tenu par une IA **chargée** |
 
-## 6.9 Le banc d'essai, hors interface
+## 6.10 Le banc d'essai, hors interface
 
 Avant de croire à quoi que ce soit, faites tourner le banc d'essai. Il vérifie le
 contrat de bout en bout, sans interface :
