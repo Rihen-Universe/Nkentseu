@@ -508,7 +508,9 @@ namespace nkentseu {
 						for (usize i = 0; i < mLegal.Size(); ++i) {
 							const NkcMove &m = mLegal[i];
 							if (m.kind == NkcMoveKind::Pass) continue;
-							if (CoordEqual(m.from, mSel) && CoordEqual(m.to, c)) {
+							// `Touche` et non `m.from == mSel` : une FUSION ne remplit pas
+							// `from`, elle remplit `fuseCells`. Voir MoveTouches.
+							if (MoveTouches(m, mSel) && CoordEqual(m.to, c)) {
 								PlayMove(m, false);
 								mHasSel = false;
 								RefreshPreviews();
@@ -630,9 +632,37 @@ namespace nkentseu {
 					mLegalTotal = total;
 				}
 
+				/// UN COUP PART-IL DE CETTE CASE ?
+				///
+				/// La question n'a pas la meme reponse selon le GENRE du coup, et
+				/// c'est ce qui rendait la FUSION injouable a la souris :
+				///
+				///   DUPLIQUER  `from` = la source, `to` = la case creee.
+				///   FUSIONNER  `from` est INUTILISE (donc {0,0} apres la mise a
+				///              zero exigee par le contrat) ; les cases consommees
+				///              sont dans `fuseCells[0..fuseCount-1]`, la case du
+				///              resultat dans `to`.
+				///
+				/// Les trois endroits qui filtraient sur `m.from == case` --
+				/// HasMoveFrom, RefreshPreviews, ClickCell -- voyaient donc TOUTES
+				/// les fusions comme partant de la case (0,0). Consequence mesurable :
+				/// un moteur qui genere des fusions les laisse jouer a l'IA, le
+				/// journal affiche bien « FUSIONNER », et l'humain ne peut PAS les
+				/// cliquer. Le contrat prevoyait l'action, l'interface l'ignorait.
+				static bool MoveTouches(const NkcMove &m, NkcCoord c) noexcept {
+					if (m.kind == NkcMoveKind::Pass) return false;
+					if (m.kind == NkcMoveKind::Fuse) {
+						const int32 n = m.fuseCount < kMaxFuseCells ? m.fuseCount : kMaxFuseCells;
+						for (int32 k = 0; k < n; ++k)
+							if (CoordEqual(m.fuseCells[k], c)) return true;
+						return false;
+					}
+					return CoordEqual(m.from, c);
+				}
+
 				bool HasMoveFrom(NkcCoord c) const noexcept {
 					for (usize i = 0; i < mLegal.Size(); ++i)
-						if (mLegal[i].kind != NkcMoveKind::Pass && CoordEqual(mLegal[i].from, c)) return true;
+						if (MoveTouches(mLegal[i], c)) return true;
 					return false;
 				}
 
@@ -661,7 +691,7 @@ namespace nkentseu {
 					for (usize i = 0; i < mLegal.Size(); ++i) {
 						const NkcMove &m = mLegal[i];
 						if (m.kind == NkcMoveKind::Pass) continue;
-						if (!CoordEqual(m.from, mSel)) continue;
+						if (!MoveTouches(m, mSel)) continue;
 
 						mRulesVt.CloneState(mRules, mProbe, mState);
 						FlipCollect fc;

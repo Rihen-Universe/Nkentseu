@@ -201,6 +201,15 @@ namespace nkentseu {
 					bool AMoi(NkcCoord c, uint8 j) const noexcept {
 						return Proprietaire(c) == static_cast<int8>(j);
 					}
+					/// Niveau du totem pose sur `c`, 0 s'il n'y en a pas. Indispensable
+					/// des le palier 1 : une FUSION se decide sur les niveaux, et sans
+					/// lecteur il fallait passer par `cases[Index(c)].level` -- exact,
+					/// mais personne ne le devine en lisant les autres accesseurs.
+					int8 Niveau(NkcCoord c) const noexcept {
+						const int32 i = Index(c);
+						return i < 0 ? 0 : cases[i].level;
+					}
+
 					bool Ennemie(NkcCoord c, uint8 j) const noexcept {
 						const int8 o = Proprietaire(c);
 						return o >= 0 && o != static_cast<int8>(j);
@@ -295,6 +304,36 @@ namespace nkentseu {
 						++nb;
 					}
 
+					/// FUSIONNER : plusieurs totems a vous disparaissent, un seul
+					/// reparait en `vers`, un niveau plus haut.
+					///
+					/// Le raccourci existe pour LA MEME RAISON que `Dupliquer` : le
+					/// contrat compare les coups OCTET PAR OCTET, un coup de fusion a
+					/// deux champs de plus que les autres (`fuseCount`, `fuseCells`),
+					/// et les cases NON UTILISEES du tableau doivent etre a zero --
+					/// sinon le coup que votre IA propose n'est pas egal au coup que
+					/// `CoupsPossibles` avait genere, et l'atelier le refuse sans que
+					/// rien ne soit faux dans votre logique. Le memset est ici.
+					///
+					/// `vers` est libre : la plupart des regles la prennent parmi les
+					/// cases consommees, mais rien ne l'impose.
+					/// `niveauVise` = -1 laisse le moteur decider.
+					void Fusionner(uint8 joueur, const NkcCoord *cases, int32 nbCases,
+								   NkcCoord vers, int8 niveauVise = -1) noexcept {
+						if (nbCases <= 0 || nbCases > static_cast<int32>(kMaxFuseCells)) return;
+						if (nb >= kFacileMaxCoups) return;
+						NkcMove &m = coups[nb];
+						std::memset(&m, 0, sizeof(m));
+						m.kind		  = NkcMoveKind::Fuse;
+						m.player	  = joueur;
+						m.to		  = vers;
+						m.fuseCount	  = static_cast<uint8>(nbCases);
+						m.targetLevel = niveauVise;
+						m.powerId	  = -1;
+						for (int32 k = 0; k < nbCases; ++k) m.fuseCells[k] = cases[k];
+						++nb;
+					}
+
 					void Passer(uint8 joueur) noexcept {
 						if (nb >= kFacileMaxCoups) return;
 						NkcMove &m = coups[nb];
@@ -335,6 +374,13 @@ namespace nkentseu {
 					}
 					void Cascade(uint8 j, NkcCoord ou, int32 combien) noexcept {
 						Emettre(NkcEventKind::Cascade, j, ou, ou, combien);
+					}
+					/// FUSION accomplie. `ou` = la case du RESULTAT, `niveau` = celui
+					/// du totem qui vient d'apparaitre. L'atelier s'en sert pour
+					/// l'animation et pour la ligne « FUSIONNER » du journal : sans
+					/// l'emettre, la fusion se joue mais ne se VOIT pas.
+					void Fusionne(uint8 j, NkcCoord ou, int32 niveau) noexcept {
+						Emettre(NkcEventKind::FusionPerformed, j, ou, ou, niveau);
 					}
 					void Bloque(uint8 j) noexcept {
 						Emettre(NkcEventKind::PlayerBlocked, j, NkcCoord{}, NkcCoord{}, j);
