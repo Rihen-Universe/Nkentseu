@@ -418,6 +418,29 @@ def controle_b():
     print('  § 13 : %d lignes lues · inventaire : %d lignes lues'
           % (len(recap), len(inv)))
     dur, declarants = 0, 0
+
+    # LA TABLE ELLE-MEME, avant toute planche. Une ligne BARREE qui porte
+    # encore un point rouge dit DEUX etats a la fois : elle est fermee ET
+    # ouverte. Aucune planche ne peut alors la citer de facon concluante --
+    # le controle rendait un 🟡 « a verifier a la main », c est-a-dire qu il
+    # renvoyait a l humain un defaut qui n etait PAS dans la planche mais
+    # dans la table.
+    #
+    # ⚠️ On ne le signalait que si une planche citait la ligne. Une ligne
+    # mixte que personne ne cite passait donc en silence -- le controle
+    # regardait en AVAL du bon endroit. Il regarde maintenant la source.
+    # Mesure : la ligne 6 etait mixte depuis le 23/08 et rien ne l a dit,
+    # parce que aucune planche ne la declarait.
+    mixtes = sorted((k for k, v in recap.items() if v == 'FERME_MIXTE'),
+                    key=lambda k: int(k))
+    for cle in mixtes:
+        dur += 1
+        print(u'  🔴 LIGNE MIXTE : § 13 ligne %s est BARREE et porte '
+              u'encore un point rouge.' % cle)
+        print(u'     Une ligne = un etat. Le residu ouvert doit devenir sa '
+              u'PROPRE ligne, numerotee.')
+    if not mixtes:
+        print(u'  ✅ § 13 : aucune ligne ne dit deux etats a la fois.')
     for f in sorted(os.listdir(GENS)):
         if not f.startswith('p') or not f.endswith('.py'):
             continue
