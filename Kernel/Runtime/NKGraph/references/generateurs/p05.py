@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1800,1755
+W,H=1800,2010
 VERT='#4E9A5A'
 
 s=head(W,H,u'Planche 05 \u2014 textures, mat\u00e9riaux, commentaires et cadres',
@@ -11,9 +11,6 @@ s=head(W,H,u'Planche 05 \u2014 textures, mat\u00e9riaux, commentaires et cadres'
 
 # defs supplementaires (une deuxieme balise defs est valide en SVG)
 s+=('<defs>\n'
-    '<radialGradient id="sphere" cx="0.35" cy="0.30" r="0.78">'
-    '<stop offset="0%" stop-color="#F4DCB6"/><stop offset="42%" stop-color="#B07A45"/>'
-    '<stop offset="100%" stop-color="#241608"/></radialGradient>\n'
     '<linearGradient id="brique" x1="0" y1="0" x2="0" y2="1">'
     '<stop offset="0%" stop-color="#8a5a44"/><stop offset="50%" stop-color="#6d4534"/>'
     '<stop offset="100%" stop-color="#4a2e23"/></linearGradient>\n'
@@ -25,14 +22,10 @@ s+=('<defs>\n'
 def lab(x,y,n,titre,note=''):
     return tt(x,y,u'%s \u00b7 %s'%(n,titre),ORANGE,12.5,'600')+tt(x,y+16,note,TXT3,10)
 
-def sphere(x,y,w,h):
-    """une sphere rendue posee sur le damier, comme images (4)"""
-    cx,cy=x+w/2.0,y+h/2.0; r=min(w,h)/2.0-4
-    o ='<rect x="%s" y="%s" width="%s" height="%s" fill="url(#damier)"/>\n'%(x,y,w,h)
-    o+='<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill="#000" opacity="0.35"/>\n'%(cx,y+h-6,r*0.8,4)
-    o+='<circle cx="%s" cy="%s" r="%s" fill="url(#sphere)"/>\n'%(cx,cy,r)
-    o+='<circle cx="%s" cy="%s" r="%s" fill="#fff" opacity="0.55"/>\n'%(cx-r*0.32,cy-r*0.36,r*0.13)
-    return o
+# ⚠️ sphere() VIT DESORMAIS DANS gen.py, avec son degrade.
+# Elle etait ici en double avec p03, qui en a eu besoin le 23/08 pour
+# l apercu du Principled. Deux exemplaires d un meme dessin divergent :
+# c est le motif que ce depot a paye quatre fois en une nuit.
 
 def image_apercu(x,y,w,h,grad='brique'):
     return ('<rect x="%s" y="%s" width="%s" height="%s" fill="url(#damier)"/>\n'%(x,y,w,h)
@@ -320,6 +313,51 @@ c10,hc10=cartouche(X10,y11+130,560,[
   u'les deux, c\u00f4te \u00e0 c\u00f4te')
 s+=c10
 
+
+# ============================================================ RANGEE 4
+R4 = 1760
+
+# --- 11 : l'apercu PROCEDURAL --------------------------------------------
+# Correction 4 de Rodolf : « il manque les previsualisations [...] sur le bruit
+# de surface ». C'est le cas ou la vignette sert le PLUS, et il faut le dire :
+# un bruit se regle par echelle / detail / octaves -- TROIS NOMBRES DONT AUCUN
+# NE SE LIT. Sans vignette, on regle a l'aveugle et on recompile a chaque essai.
+s+=lab(44,R4,'11',u'L\u2019APER\u00c7U PROC\u00c9DURAL \u2014 demand\u00e9 par Rodolf le 23/08',
+       u'm\u00eame bloc, m\u00eame bascule, m\u00eame voile de p\u00e9rim\u00e9 : UN SEUL m\u00e9canisme (\u00a76.1bis) \u2014 seul le CONTENU de la vignette change')
+
+BR=[{'lab':u'Vecteur','coul':FAM['geom'],'plein':False,'ctrl':'lecture','val':u'UV du maillage','glyphe':'XYZ'},
+    {'lab':u'\u00c9chelle','coul':FAM['nombre'],'plein':False,'val':'4.000','glyphe':'1.0'},
+    {'lab':u'D\u00e9tail','coul':FAM['nombre'],'plein':False,'val':'3.000','glyphe':'1.0'},
+    {'lab':u'Facteur','coul':FAM['nombre'],'plein':False,'sortie':True,'glyphe':'1.0'},
+    {'lab':u'Couleur','coul':FAM['appar'],'plein':False,'sortie':True,'glyphe':'RVB'}]
+n,hb=noeud(44,R4+34,280,BR,u'Bruit',u'Proc\u00e9dural',CAT['texture'],apercu=96)
+s+=n
+s+=bruit(52,R4+34+30+6,264,90)
+s+=tt(44,R4+34+hb+16,u'\u2705 LA VIGNETTE EST LE MOTIF R\u00c9ELLEMENT ENGENDR\u00c9 \u2014 pas un d\u00e9grad\u00e9,',u'#7FB77E',10.5,'600')
+s+=tt(44,R4+34+hb+30,u'qui mentirait sur ce qu\u2019un bruit produit.',TXT3,10)
+
+# le TEMOIN de l autre bord : un noeud dont la sortie n a PAS d aspect
+n2,h2b=noeud(370,R4+34,250,[
+  {'lab':u'A','coul':FAM['nombre'],'plein':False,'val':'0.200','glyphe':'1.0'},
+  {'lab':u'B','coul':FAM['nombre'],'plein':False,'val':'0.500','glyphe':'1.0'},
+  {'lab':u'R\u00e9sultat','coul':FAM['nombre'],'plein':False,'sortie':True,'glyphe':'1.0'}],
+  u'Math',u'Multiplier',CAT['outil'])
+s+=n2
+s+=tt(370,R4+34+h2b+16,u'\u274c AUCUN APER\u00c7U ICI, et c\u2019est la r\u00e8gle qui d\u00e9cide :',u'#E06C6C',10.5,'600')
+s+=tt(370,R4+34+h2b+30,u'un n\u0153ud porte un aper\u00e7u quand sa sortie a un ASPECT',TXT2,10)
+s+=tt(370,R4+34+h2b+44,u'qu\u2019on ne peut pas deviner depuis ses entr\u00e9es.',TXT2,10)
+s+=tt(370,R4+34+h2b+58,u'L\u2019aper\u00e7u d\u2019un Math serait un carr\u00e9 uni : un mensonge co\u00fbteux.',TXT3,10)
+
+c11,hc11=cartouche(660,R4+34,700,[
+  u'\u2023 LE PORTENT : texture (l\u2019image) \u00b7 surface / Principled (une sph\u00e8re rendue) \u00b7 proc\u00e9dural (le motif engendr\u00e9).',
+  u'\u2023 NE LE PORTENT PAS : Maths, M\u00e9langer couleur, S\u00e9parer / Combiner, Mappage, Coordonn\u00e9es, relais, groupes.',
+  u'\u2023 \u26a0 \u00c0 NE PAS CONFONDRE avec l\u2019\u00c9DITEUR d\u2019un n\u0153ud \u00e0 charge variable (ColorRamp, Courbe, planche 03) :',
+  u'   celui-l\u00e0 est INTERACTIF et vit \u00e0 la m\u00eame place ; il D\u00c9GRADE en aper\u00e7u au d\u00e9zoom, il n\u2019en est pas un.',
+  u'\u2023 Le co\u00fbt est d\u00e9j\u00e0 tranch\u00e9 (\u00a76.3) : recalcul \u00c0 LA FIN D\u2019UN GESTE, jamais pendant qu\u2019on tire un curseur,',
+  u'   et il DIT qu\u2019il est p\u00e9rim\u00e9 tant qu\u2019il ne l\u2019a pas fait. Un aper\u00e7u p\u00e9rim\u00e9 qui se tait est pire que pas d\u2019aper\u00e7u.',
+], u'quels n\u0153uds portent un aper\u00e7u \u2014 et la r\u00e8gle qui \u00e9vite d\u2019avoir \u00e0 trancher n\u0153ud par n\u0153ud')
+s+=c11
+
 s+=tt(34,H-50,u'corps #212121 rayon 0 \u00b7 en-t\u00eate rayon 5 \u00b7 filet P\u00c9TROLE partout (aucun graphe de mati\u00e8re n\u2019a de fil d\u2019ex\u00e9cution) \u00b7 aper\u00e7u = bloc de corps escamotable, pleine largeur \u00b7 damier 10 px sous tout alpha',TXT3,10)
 
 # MENTION D’ÉCHELLE : la planche declare elle-meme qu elle ne doit pas
@@ -327,3 +365,10 @@ s+=tt(34,H-50,u'corps #212121 rayon 0 \u00b7 en-t\u00eate rayon 5 \u00b7 filet P
 s+=tt(34,H-26,u'⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.',TXT3,10)
 
 ecrire('planche_05_matieres.svg',s)
+# LE RENDU PASSE PAR rendre(), PLUS JAMAIS PAR msedge A LA MAIN.
+# Ses trois controles -- URL absolue prefixee file:///, PNG precedent
+# SUPPRIME, dimensions comparees au viewBox -- existent pour des pannes qui
+# se sont REELLEMENT produites, dont un PNG aux bonnes dimensions qui etait
+# la page d erreur du navigateur. p02..p05 s en passaient encore : corrige
+# le 23/08, en meme temps que les quatre corrections de Rodolf.
+rendre('planche_05_matieres', W, H)

@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1780,1420
+W,H=1780,1480
 s=head(W,H,u'Planche 03 \u2014 les quatorze formes de n\u0153ud',
        u'La forme suit la CONNECTIVIT\u00c9, jamais le nom \u2014 c\u2019est pourquoi il y en a quatorze et non cinquante-quatre \u00b7 filet ORANGE = le n\u0153ud ex\u00e9cute \u00b7 filet P\u00c9TROLE = il calcule \u00b7 filet GRIS = on ne sait pas')
 
@@ -13,7 +13,7 @@ def lab(x,y,n,titre,note):
     return o
 
 CO=310
-R1,R2,R3=118,432,830
+R1,R2,R3=118,432,880
 COLX=[44,420,796,1172,1548]
 
 # 1 SOURCE
@@ -56,22 +56,54 @@ n,h=noeud(1172,R1+28,290,[
 s+=n
 
 # 5 CHARGE VARIABLE
-s+=lab(44,R2,'5',u'CHARGE VARIABLE',u'l\u2019\u00e9diteur EST le n\u0153ud \u00b7 chaque arr\u00eat est une PRISE')
-n,h=noeud(44,R2+28,330,[
+s+=lab(44,R2,'5',u'CHARGE VARIABLE',
+       u'l\u2019\u00e9diteur EST le n\u0153ud \u00b7 les arr\u00eats sont une PROPRI\u00c9T\u00c9, pas des prises')
+
+ARRETS=[(0.00,'#0A555F'),(0.45,'#3aa0a8'),(1.00,'#F79A28')]
+NX,NY,NW=44,R2+34,330
+n,h=noeud(NX,NY,NW,[
  {'lab':u'Facteur','coul':FAM['nombre'],'plein':False,'val':'0.500','glyphe':'1.0'},
- {'note':''},
- {'lab':u'arr\u00eat 1','coul':FAM['appar'],'plein':False,'ctrl':'nuancier','val':'#0A555F'},
- {'lab':u'arr\u00eat 2','coul':FAM['appar'],'plein':True,'ctrl':'nuancier','val':'#3aa0a8'},
- {'lab':u'arr\u00eat 3','coul':FAM['appar'],'plein':False,'ctrl':'nuancier','val':'#F79A28'},
+ {'note':''},                                   # la BARRE se pose ici
+ {'note':''},                                   # les POIGNEES juste dessous
+ {'lab':u'arr\u00eat 1','ctrl':'nuancier','val':ARRETS[0][1]},
+ {'lab':u'arr\u00eat 2','ctrl':'nuancier','val':ARRETS[1][1]},
+ {'lab':u'arr\u00eat 3','ctrl':'nuancier','val':ARRETS[2][1]},
  {'ajout':u'+ ajouter un arr\u00eat'},
  {'lab':u'Couleur','coul':FAM['appar'],'plein':False,'sortie':True,'glyphe':'RVB'},
-],u'Rampe de couleur',u'Couleur',CAT['texture'])
-s+=n.replace('<g filter="url(#ombre)" opacity="1.0">',
-  '<g filter="url(#ombre)" opacity="1.0"><rect x="60" y="%d" width="298" height="20" rx="2" fill="url(#rampe)"/>'%(R2+28+21+4+24+6))
-s+=tt(44,R2+28+h+18,u'au d\u00e9zoom 55 % les poign\u00e9es partent, la BARRE reste : elle devient un aper\u00e7u.',TXT3,10)
+],u'Rampe de couleur',u'Couleur',CAT['texture'],etat=(u'3 / 32 arr\u00eats',TXT3))
+s+=n
+
+# La geometrie des rangees est CALCULEE depuis celle de noeud(), pas devinee :
+# en-tete AVEC sous-titre = 30, premiere rangee a +6, pas de 24.
+EH=30
+CY0=NY+EH+6
+def rangee(i): return CY0+i*24
+BX,BW=NX+16,NW-32          # la barre : largeur du corps moins 16 de chaque cote
+
+# la BARRE de degrade -- rangee 1, hauteur 20 (la valeur de la specification)
+s+='<rect x="%d" y="%d" width="%d" height="20" rx="2" fill="url(#rampe)" stroke="#33333c"/>\n'%(BX,rangee(1)+2,BW)
+
+# les POIGNEES : un triangle de 7 px REMPLI de la couleur de son arret, filet
+# blanc pour rester visible sur un degrade clair COMME sur un sombre.
+for (pos,coul) in ARRETS:
+    hx=BX+pos*BW
+    s+='<path d="M%.1f %d l7 -9 h-14 z" fill="%s" stroke="#FFFFFF" stroke-width="1"/>\n'%(hx,rangee(2)+10,coul)
+s+=tt(NX+16,rangee(2)+21,u'les poign\u00e9es portent la couleur de leur arr\u00eat',TXT3,9)
+
+# les CHAMPS DE POSITION : la rangee d un arret porte DEUX controles (position +
+# nuancier), ce que le dessin de base de noeud() ne prevoyait pas.
+for k,(pos,coul) in enumerate(ARRETS):
+    yc=rangee(3+k)+12
+    s+='<rect x="%d" y="%d" width="56" height="17" rx="2" fill="%s"/>\n'%(NX+NW-116,yc-8,CTRL)
+    s+=tt(NX+NW-64,yc+4,u'%.3f'%pos,TXT,10.5,None,'end')
+
+s+=tt(NX,NY+h+18,u'⚠ les rangées d’arrêt n’ont AUCUNE prise :',ORANGE,10)
+s+=tt(NX,NY+h+32,u'un arrêt n’est pas branchable — rangée SANS point (§2.4).',TXT3,10)
+s+=tt(NX,NY+h+50,u'à 55 % : poignées et panneau partent, la BARRE reste.',TXT3,10)
+s+=tt(NX,NY+h+64,u'le compteur dit le PLAFOND (32), comme le modèle.',TXT3,10)
 
 # 6 SURFACE
-s+=lab(420,R2,'6',u'SURFACE',u'haut \u00b7 sections repliables \u00b7 sortie d\u2019un type \u00e0 part')
+s+=lab(420,R2,'6',u'SURFACE',u'haut \u00b7 sections repliables \u00b7 et un APER\u00c7U : une sph\u00e8re rendue avec le mat\u00e9riau')
 n,h=noeud(420,R2+28,330,[
  {'lab':u'Couleur de base','coul':FAM['appar'],'plein':True,'branchee':True,'glyphe':'RVB'},
  {'lab':u'M\u00e9tallique','coul':FAM['nombre'],'plein':False,'val':'0.000','glyphe':'1.0'},
@@ -83,8 +115,13 @@ n,h=noeud(420,R2+28,330,[
  {'lab':u'Intensit\u00e9','coul':FAM['nombre'],'plein':False,'sub':True,'val':'1.000'},
  {'section':u'Voile \u00b7 Vernis \u00b7 Film mince'},
  {'lab':u'Surface','coul':FAM['appar'],'plein':True,'sortie':True,'glyphe':'SH'},
-],u'Principled',u'Surface',CAT['surface'])
+],u'Principled',u'Surface',CAT['surface'],apercu=88)
 s+=n
+# Le bloc d apercu de noeud() pose damier + ciel ; on met la SPHERE dessus, a
+# la geometrie EXACTE qu il emploie : x+8, y+en-tete+6, w-16, apercu-6.
+# sphere() vient de gen.py -- un seul exemplaire, partage avec p05.
+s+=sphere(428,R2+28+30+6,314,82)
+s+=tt(420,R2+28+h+18,u'APERÇU — le MÊME bloc que la texture : un SEUL mécanisme (§6.1bis).',TXT3,10)
 
 # 7 EXECUTION
 s+=lab(796,R2,'7',u'EX\u00c9CUTION',u'entr\u00e9e d\u2019ex\u00e9c. UNIQUE sur l\u2019EN-T\u00caTE \u00b7 2 sorties \u2192 dans le CORPS')
@@ -186,3 +223,10 @@ s+=tt(34,H-50,u'Fond #121212 \u00b7 corps #212121 \u00b7 contr\u00f4le #2B2B2B \
 s+=tt(34,H-26,u'⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.',TXT3,10)
 
 ecrire('planche_03_formes.svg',s)
+# LE RENDU PASSE PAR rendre(), PLUS JAMAIS PAR msedge A LA MAIN.
+# Ses trois controles -- URL absolue prefixee file:///, PNG precedent
+# SUPPRIME, dimensions comparees au viewBox -- existent pour des pannes qui
+# se sont REELLEMENT produites, dont un PNG aux bonnes dimensions qui etait
+# la page d erreur du navigateur. p02..p05 s en passaient encore : corrige
+# le 23/08, en meme temps que les quatre corrections de Rodolf.
+rendre('planche_03_formes', W, H)

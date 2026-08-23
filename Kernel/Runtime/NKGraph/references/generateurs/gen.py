@@ -26,6 +26,12 @@ def head(w,h,titre,sous):
       '<stop offset="100%%" stop-color="#ffe9c2"/></linearGradient>\n'
       '<linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%%" stop-color="#2b4a7a"/>'
       '<stop offset="55%%" stop-color="#d99a5a"/><stop offset="100%%" stop-color="#141414"/></linearGradient>\n'
+      '<radialGradient id="sphere" cx="0.35" cy="0.30" r="0.75">'
+      '<stop offset="0%%" stop-color="#e8d8c0"/><stop offset="55%%" stop-color="#b07a4a"/>'
+      '<stop offset="100%%" stop-color="#2a1a12"/></radialGradient>\n'
+      '<filter id="bruit"><feTurbulence type="fractalNoise" baseFrequency="0.09" '
+      'numOctaves="4" stitchTiles="stitch"/>'
+      '<feColorMatrix type="saturate" values="0"/></filter>\n'
       '<filter id="ombre" x="-25%%" y="-25%%" width="150%%" height="150%%">'
       '<feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/></filter>\n'
       '</defs>\n'
@@ -150,6 +156,36 @@ def noeud(x,y,w,rows,titre,sous=None,cat='#4a6b8a',exec_=False,apercu=0,
         s+='<rect x="%s" y="%s" width="%s" height="%s" fill="none" stroke="%s" stroke-width="1.8"/>\n'%(x-1.5,y-1.5,w+3,hh+3,selection)
     s+='</g>\n'
     return s,hh
+
+def sphere(x,y,w,h):
+    """Une sphere rendue posee sur le damier -- VU sur images (4).
+
+    Elle vivait dans p05.py ; p03 en a eu besoin le 23/08 pour l apercu du
+    Principled. La RECOPIER l aurait fait diverger : c est exactement le motif
+    que ce depot a paye quatre fois en une nuit. Un seul exemplaire, partage.
+    """
+    cx,cy = x+w/2.0, y+h/2.0
+    r = min(w,h)/2.0-4
+    o  = '<rect x="%s" y="%s" width="%s" height="%s" fill="url(#damier)"/>\n'%(x,y,w,h)
+    o += '<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill="#000" opacity="0.35"/>\n'%(cx,y+h-6,r*0.8,4)
+    o += '<circle cx="%s" cy="%s" r="%s" fill="url(#sphere)"/>\n'%(cx,cy,r)
+    o += '<circle cx="%s" cy="%s" r="%s" fill="#fff" opacity="0.55"/>\n'%(cx-r*0.32,cy-r*0.36,r*0.13)
+    return o
+
+
+def bruit(x,y,w,h,teinte=None):
+    """L apercu d un noeud PROCEDURAL : le motif reellement engendre.
+
+    feTurbulence, et pas un degrade : un degrade MENTIRAIT sur ce qu un bruit
+    produit. Et l apercu sert justement a regler echelle / detail / octaves --
+    trois nombres dont aucun ne se lit. C est le cas ou la vignette sert le plus.
+    """
+    o  = '<rect x="%s" y="%s" width="%s" height="%s" fill="#111"/>\n'%(x,y,w,h)
+    o += '<rect x="%s" y="%s" width="%s" height="%s" filter="url(#bruit)" opacity="0.85"/>\n'%(x,y,w,h)
+    if teinte:
+        o += '<rect x="%s" y="%s" width="%s" height="%s" fill="%s" opacity="0.30"/>\n'%(x,y,w,h,teinte)
+    return o
+
 
 def fil(x1,y1,x2,y2,coul,ep=2,style='simple'):
     dx=max(40,abs(x2-x1)*0.45)
