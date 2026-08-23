@@ -7,9 +7,11 @@
 <rect width="1820" height="1750" fill="#121212"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 08 — EXÉCUTION et VALEUR : la cohabitation, et le franchissement</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="62" fill="#8A8A8A" font-size="12.5">quels domaines ont besoin de fils d’exécution · comment les deux familles tiennent dans un même nœud · comment un blueprint et un graphe de matière se parlent SANS se toucher</text>
+<g id="panneau_1_un_blueprint_reel_les_deux_familles_de_fil">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="108" fill="#F79A28" font-size="12.5" font-weight="600">1 · UN BLUEPRINT RÉEL — les deux familles de fil dans le même graphe</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="124" fill="#6A6A6A" font-size="10">l’exécution passe AU-DESSUS du filet et se lit de gauche à droite · la valeur passe EN DESSOUS et n’a pas d’ordre</text>
-<g opacity="1.0">
+<g id="noeud_sur_porte_ouverte_01" opacity="1.0">
 <rect x="44" y="148" width="250" height="90" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 153a5 5 0 0 1 5 -5 h240 a5 5 0 0 1 5 5 v25 H44 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="52" y="162" fill="#F3E9DA" font-size="8">▼</text>
@@ -25,7 +27,7 @@
 </g>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="254" fill="#6A6A6A" font-size="10">un ÉVÉNEMENT : aucune entrée d’exécution —</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="268" fill="#6A6A6A" font-size="10">c’est LUI qui démarre le fil.</text>
-<g opacity="1.0">
+<g id="noeud_jouer_l_animation_02" opacity="1.0">
 <rect x="374" y="148" width="260" height="162" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M374 153a5 5 0 0 1 5 -5 h250 a5 5 0 0 1 5 5 v25 H374 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="382" y="162" fill="#F3E9DA" font-size="8">▼</text>
@@ -49,7 +51,7 @@
 <rect x="530" y="284" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="618" y="296" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.400</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_jouer_un_son_03" opacity="1.0">
 <rect x="714" y="148" width="260" height="162" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M714 153a5 5 0 0 1 5 -5 h250 a5 5 0 0 1 5 5 v25 H714 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="722" y="162" fill="#F3E9DA" font-size="8">▼</text>
@@ -72,7 +74,7 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="758" y="296" fill="#F79A28" font-size="11.5">Volume</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="964" y="296" fill="#6A6A6A" font-size="10" text-anchor="end">branchée</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_multiplier_04" opacity="1.0">
 <rect x="374" y="358" width="260" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M374 363a5 5 0 0 1 5 -5 h250 a5 5 0 0 1 5 5 v25 H374 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="382" y="372" fill="#F3E9DA" font-size="8">▼</text>
@@ -96,13 +98,20 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="607" y="458" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="584" y="458" fill="#C8CCD4" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
+<g id="fil_01">
 <path d="M294 196C334 196 334 196 374 196" fill="none" stroke="#F79A28" stroke-width="3.5"/>
+</g>
+<g id="fil_02">
 <path d="M634 196C674 196 674 196 714 196" fill="none" stroke="#F79A28" stroke-width="3.5"/>
+</g>
+<g id="fil_03">
 <path d="M634 454C674 454 674 292 714 292" fill="none" stroke="#17B2EB" stroke-width="2"/>
+</g>
 <text font-family="Segoe UI, Inter, sans-serif" x="374" y="488" fill="#F79A28" font-size="10">⚠ ce nœud n’est dans AUCUNE chaîne d’exécution, et pourtant il</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="374" y="502" fill="#8A8A8A" font-size="10">est évalué : une valeur est calculée QUAND ON LA DEMANDE.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="374" y="516" fill="#8A8A8A" font-size="10">C’est la différence de nature entre les deux familles, et c’est</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="374" y="530" fill="#8A8A8A" font-size="10">la seule chose que ce panneau doit faire comprendre.</text>
+<g id="cartouche_ce_que_les_deux_familles_sont_et_pourquoi_le_01">
 <rect x="1000" y="148" width="786" height="138" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="172" fill="#F79A28" font-size="12" font-weight="600">ce que les deux familles sont, et pourquoi le dessin les sépare ainsi</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="195" fill="#8A8A8A" font-size="10.5">▸ L’EXÉCUTION est un CHEMIN : elle a un début (l’événement), un ordre, et un seul point à la fois. Elle répond à « quand ».</text>
@@ -111,6 +120,10 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="246" fill="#8A8A8A" font-size="10.5">   La valeur est posée sur ses rangées, parce que c’est la rangée qu’elle alimente. Le filet orange n’est pas un ornement : c’est la frontière.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="263" fill="#8A8A8A" font-size="10.5">▸ ⚠ Un nœud d’exécution garde ses entrées de valeur. L’inverse est faux : un nœud de calcul n’a JAMAIS de prise d’exécution.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="280" fill="#8A8A8A" font-size="10.5">   C’est ce qui permet aux deux mondes de partager le même catalogue de nœuds de calcul, sans en dupliquer un seul.</text>
+</g>
+</g>
+<g id="panneau_2_quels_domaines_ont_besoin_de_fils_d_execut">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="560" fill="#F79A28" font-size="12.5" font-weight="600">2 · QUELS DOMAINES ONT BESOIN DE FILS D’EXÉCUTION — et le critère qui décide</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="576" fill="#6A6A6A" font-size="10">la question n’est pas ce qu’on veut, c’est ce dont le domaine a BESOIN · le critère se vérifie domaine par domaine, sans discuter</text>
 <rect x="44" y="590" width="66" height="19" rx="3" fill="#4E9A5A" opacity="0.20"/>
@@ -137,6 +150,7 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="774" fill="#C8CCD4" font-size="11">un domaine a besoin de fils d’exécution si, et seulement si, son résultat dépend de l’ORDRE et des EFFETS DE BORD.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="792" fill="#8A8A8A" font-size="10.5">Quand le résultat est une FONCTION des entrées, il n’y a aucun ordre à énoncer : le tri topologique en fournit un, et</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="808" fill="#8A8A8A" font-size="10.5">n’importe quel autre ordre valide donne le même résultat. Dessiner un fil d’exécution y ajouterait une contrainte FAUSSE.</text>
+<g id="cartouche_le_cas_qui_ne_rentre_dans_aucune_des_deux_ca_02">
 <rect x="1000" y="600" width="786" height="138" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="624" fill="#F79A28" font-size="12" font-weight="600">le cas qui ne rentre dans aucune des deux cases — et ce que la frontière offre</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="647" fill="#8A8A8A" font-size="10.5">▸ ⚠ LE GRAPHE D’ÉTATS D’ANIMATION N’EST NI L’UN NI L’AUTRE, et le ranger dans « exécution » serait une erreur coûteuse :</text>
@@ -145,10 +159,14 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="698" fill="#8A8A8A" font-size="10.5">▸ ✅ CE QUE CE DÉCOUPAGE OFFRE, et c’est la vraie raison de le poser maintenant : un graphe SANS exécution est APPELABLE COMME</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="715" fill="#8A8A8A" font-size="10.5">   UNE FONCTION. Pur, sans effet de bord, il peut être évalué à la demande, mis en cache, appelé depuis un blueprint (panneau 5).</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="732" fill="#8A8A8A" font-size="10.5">   Un graphe AVEC exécution ne le peut pas : l’appeler, c’est le LANCER. La frontière du panneau 2 est donc aussi celle du panneau 5.</text>
+</g>
+</g>
+<g id="panneau_3_ce_que_le_modele_ne_permet_pas_aujourd_hui">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="900" fill="#F79A28" font-size="12.5" font-weight="600">3 · 🔴 CE QUE LE MODÈLE NE PERMET PAS AUJOURD’HUI — les DEUX moitiés de la règle d’arité</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="916" fill="#6A6A6A" font-size="10">relevé dans src/NKGraph/NkNodeGraph.h · ce n’est pas un défaut de dessin, c’est un axe qui manque au modèle</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="946" fill="#C8CCD4" font-size="11.5" font-weight="600">a · PLUSIEURS chemins doivent pouvoir mener au MÊME nœud</text>
-<g opacity="1.0">
+<g id="noeud_si_vrai_05" opacity="1.0">
 <rect x="44" y="960" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 965a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v16 H44 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="975" fill="#EEF2F6" font-size="12.5" font-weight="600">Si — vrai</text>
@@ -156,7 +174,7 @@
 <path d="M222.2 990.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="220" y="1003" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_si_faux_06" opacity="1.0">
 <rect x="44" y="1040" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 1045a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v16 H44 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="1055" fill="#EEF2F6" font-size="12.5" font-weight="600">Si — faux</text>
@@ -164,7 +182,7 @@
 <path d="M222.2 1070.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="220" y="1083" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_fermer_la_porte_07" opacity="1.0">
 <rect x="330" y="1000" width="200" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M330 1005a5 5 0 0 1 5 -5 h190 a5 5 0 0 1 5 5 v16 H330 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="350" y="1015" fill="#EEF2F6" font-size="12.5" font-weight="600">Fermer la porte</text>
@@ -172,13 +190,17 @@
 <path d="M326.3 1030.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="342" y="1043" fill="#F79A28" font-size="11.5">Entrer</text>
 </g>
+<g id="fil_04">
 <path d="M234 999C277.2 999 286.8 1039 330 1039" fill="none" stroke="#F79A28" stroke-width="3.5"/>
+</g>
+<g id="fil_05">
 <path d="M234 1079C277.2 1079 286.8 1039 330 1039" fill="none" stroke="#F79A28" stroke-width="3.5"/>
+</g>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="1110" fill="#E06C6C" font-size="10.5" font-weight="600">❌ Connect() : « une ENTRÉE n’accepte qu’UNE source :</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="1124" fill="#8A8A8A" font-size="10">brancher une seconde REMPLACE la première ». Le second</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="1138" fill="#8A8A8A" font-size="10">fil DÉBRANCHERAIT le premier, en silence.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="946" fill="#C8CCD4" font-size="11.5" font-weight="600">b · UNE sortie d’exécution n’a qu’UNE suite</text>
-<g opacity="1.0">
+<g id="noeud_ouvrir_la_porte_08" opacity="1.0">
 <rect x="600" y="1000" width="200" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M600 1005a5 5 0 0 1 5 -5 h190 a5 5 0 0 1 5 5 v16 H600 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="620" y="1015" fill="#EEF2F6" font-size="12.5" font-weight="600">Ouvrir la porte</text>
@@ -186,7 +208,7 @@
 <path d="M788.2 1030.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="786" y="1043" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_jouer_un_son_09" opacity="1.0">
 <rect x="880" y="960" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M880 965a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v16 H880 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="900" y="975" fill="#EEF2F6" font-size="12.5" font-weight="600">Jouer un son</text>
@@ -194,7 +216,7 @@
 <path d="M876.3 990.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="892" y="1003" fill="#F79A28" font-size="11.5">Entrer</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_compter_un_point_10" opacity="1.0">
 <rect x="880" y="1040" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M880 1045a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v16 H880 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="900" y="1055" fill="#EEF2F6" font-size="12.5" font-weight="600">Compter un point</text>
@@ -202,11 +224,16 @@
 <path d="M876.3 1070.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="892" y="1083" fill="#F79A28" font-size="11.5">Entrer</text>
 </g>
+<g id="fil_06">
 <path d="M806 1039C846 1039 840 999 880 999" fill="none" stroke="#F79A28" stroke-width="3.5"/>
+</g>
+<g id="fil_07">
 <path d="M806 1039C846 1039 840 1079 880 1079" fill="none" stroke="#E06C6C" stroke-width="3.5"/>
+</g>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="1110" fill="#E06C6C" font-size="10.5" font-weight="600">❌ Rien ne limite le nombre de liens partant d’une SORTIE.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="1124" fill="#8A8A8A" font-size="10">Deux suites, ce sont deux programmes — et rien ne dit lequel</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="1138" fill="#8A8A8A" font-size="10">passe en premier. Il faut REFUSER le second, en le nommant.</text>
+<g id="cartouche_ce_qui_manque_au_modele_un_seul_axe_absent_e_03">
 <rect x="1120" y="940" width="666" height="206" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="964" fill="#F79A28" font-size="12" font-weight="600">ce qui manque au modèle — un seul axe absent, et il explique les trois refus</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="987" fill="#8A8A8A" font-size="10.5">▸ Le cœur applique UNIFORMÉMENT l’arité de la donnée : une entrée, une source ; une sortie, autant de liens qu’on veut.</text>
@@ -219,9 +246,13 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1106" fill="#8A8A8A" font-size="10.5">   toNode/toSocket. En aval, GraphExpand rend NkPlanError::Cycle — c’est le PLAN ENTIER qui tombe, pas la seule boucle.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1123" fill="#8A8A8A" font-size="10.5">▸ 📌 Rien n’a été décidé CONTRE la boucle : le mot « exec » n’apparaît nulle part dans NKGraph. Ce qu’il faut : n’exiger l’acyclicité</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1140" fill="#8A8A8A" font-size="10.5">   que du sous-graphe de DONNÉE. Un cycle d’EXÉCUTION est légitime — l’ordre d’exécution est un CHEMIN parcouru, pas un tri.</text>
+</g>
+</g>
+<g id="panneau_4_le_franchissement_1_par_parametre_expose_o">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="1210" fill="#F79A28" font-size="12.5" font-weight="600">4 · LE FRANCHISSEMENT (1) — par PARAMÈTRE EXPOSÉ : on POUSSE une valeur dans un graphe vivant</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="1226" fill="#6A6A6A" font-size="10">aucun fil ne traverse · les deux graphes ne partagent jamais un canevas · le lien se fait par un NOM</text>
-<g opacity="1.0">
+<g id="noeud_definir_un_parametre_11" opacity="1.0">
 <rect x="44" y="1250" width="290" height="186" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 1255a5 5 0 0 1 5 -5 h280 a5 5 0 0 1 5 5 v25 H44 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="52" y="1264" fill="#F3E9DA" font-size="8">▼</text>
@@ -250,7 +281,7 @@
 <rect x="230" y="1410" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="318" y="1422" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.850</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_parametre_rugosite_12" opacity="1.0">
 <rect x="470" y="1250" width="250" height="66" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M470 1255a5 5 0 0 1 5 -5 h240 a5 5 0 0 1 5 5 v25 H470 z" fill="#0A555F"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="478" y="1264" fill="#F3E9DA" font-size="8">▼</text>
@@ -262,7 +293,7 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="693" y="1302" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="670" y="1302" fill="#C8CCD4" font-size="11.5" text-anchor="end">Valeur</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_principled_13" opacity="1.0">
 <rect x="770" y="1250" width="230" height="90" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M770 1255a5 5 0 0 1 5 -5 h220 a5 5 0 0 1 5 5 v25 H770 z" fill="#2a6b6b"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="778" y="1264" fill="#F3E9DA" font-size="8">▼</text>
@@ -279,16 +310,21 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="973" y="1326" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">SH</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="950" y="1326" fill="#F79A28" font-size="11.5" text-anchor="end">Surface</text>
 </g>
+<g id="fil_08">
 <path d="M720 1298C760 1298 730 1298 770 1298" fill="none" stroke="#17B2EB" stroke-width="2"/>
+</g>
 <rect x="404" y="1240" width="2" height="150" fill="#F79A28" opacity="0.45"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="414" y="1408" fill="#F79A28" font-size="10" font-weight="600">FRONTIÈRE — deux documents</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="414" y="1422" fill="#6A6A6A" font-size="10">aucun fil ne la traverse</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="1452" fill="#8A8A8A" font-size="10">le blueprint ne CONNAÎT pas le graphe de matière : il nomme un paramètre.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="1466" fill="#F79A28" font-size="10">⚠ le nom est donc une CLÉ publique — le renommer casse le blueprint, en silence,</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="1480" fill="#8A8A8A" font-size="10">et c’est le seul coût réel de ce mécanisme. Il faut le refuser ou le répercuter.</text>
+</g>
+<g id="panneau_5_le_franchissement_2_par_appel_de_graphe_co">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="1060" y="1210" fill="#F79A28" font-size="12.5" font-weight="600">5 · LE FRANCHISSEMENT (2) — par APPEL DE GRAPHE, comme une FONCTION</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1060" y="1226" fill="#6A6A6A" font-size="10">le graphe appelé devient un NŒUD · ses prises sont celles de son interface · il DOIT être pur, et le panneau 2 dit lequel l’est</text>
-<g opacity="1.0">
+<g id="noeud_bruit_de_surface_14" opacity="1.0">
 <rect x="1070" y="1250" width="300" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M1070 1255a5 5 0 0 1 5 -5 h290 a5 5 0 0 1 5 5 v25 H1070 z" fill="#6b4a8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1078" y="1264" fill="#F3E9DA" font-size="8">▼</text>
@@ -316,6 +352,7 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1070" y="1408" fill="#8A8A8A" font-size="10">document », renseigné uniquement sur un nœud de type NK_NODE_INSTANCE.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1070" y="1426" fill="#F79A28" font-size="10">⚠ Et ③ n’est pas un ornement : on entre par UNE instance mais on édite la</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1070" y="1440" fill="#8A8A8A" font-size="10">DÉFINITION, qui est PARTAGÉE. C’est le compteur du fil d’Ariane (planche 06).</text>
+<g id="cartouche_quand_employer_l_un_plutot_que_l_autre_et_le_04">
 <rect x="34" y="1510" width="1010" height="172" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="1534" fill="#F79A28" font-size="12" font-weight="600">quand employer l’un plutôt que l’autre — et le sens qu’il faut refuser</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="1557" fill="#8A8A8A" font-size="10.5">▸ LES DEUX MÉCANISMES NE SONT PAS DES VARIANTES DU MÊME, et les confondre coûterait cher : le PARAMÈTRE pousse une valeur dans un graphe</text>
@@ -326,6 +363,8 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="1642" fill="#8A8A8A" font-size="10.5">   et il faudrait décider quand. C’est exactement la frontière du panneau 2 : ce qui n’a pas de fil d’exécution est appelable, le reste non.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="1659" fill="#8A8A8A" font-size="10.5">▸ ⚠ Le sens inverse — un graphe de matière qui appellerait un blueprint — est REFUSÉ, et il faut le dire au moment du branchement :</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="1676" fill="#8A8A8A" font-size="10.5">   un matériau se recalcule à chaque image et à chaque pixel. Y loger un effet de bord, c’est le déclencher un million de fois.</text>
+</g>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="1706" fill="#6A6A6A" font-size="10">fil d’exécution : 3,5 px, TOUJOURS orange, jamais coloré par un type · fil de valeur : 2 px, couleur du type · prise d’exécution sur l’EN-TÊTE, prise de donnée sur sa rangée</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="1724" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
+</g>
 </svg>

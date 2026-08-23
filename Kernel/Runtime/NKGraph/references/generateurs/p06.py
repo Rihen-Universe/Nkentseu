@@ -19,7 +19,7 @@ s = head(W, H, u'Planche 06 — ce qui a été décidé dans la nuit du 22 au 23
 
 
 def lab(x, y, n, titre, note=u''):
-    return tt(x, y, u'%s · %s' % (n, titre), ORANGE, 12.5, '600') + tt(x, y + 16, note, TXT3, 10)
+    return panneau(u'%s_%s'%(n,titre))+tt(x, y, u'%s · %s' % (n, titre), ORANGE, 12.5, '600') + tt(x, y + 16, note, TXT3, 10)
 
 
 def eclaircir(h, k=0.35):

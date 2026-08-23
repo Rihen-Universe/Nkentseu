@@ -7,6 +7,8 @@
 <rect width="1760" height="1050" fill="#121212"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 07 — le lasso, le menu, la recherche vide, la source, le puits, le commentaire</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="62" fill="#8A8A8A" font-size="12.5">six éléments tranchés le 23/08 — deux corrections de Rodolf intégrées : le pointillé du lasso est ADOPTÉ, et le commentaire est VISIBLE PAR DÉFAUT</text>
+<g id="panneau_1_le_lasso_et_le_cadre_deux_rectangles_point">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="104" fill="#F79A28" font-size="12.5" font-weight="600">1 · LE LASSO ET LE CADRE — deux rectangles POINTILLÉS, et les trois axes qui les distinguent</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="120" fill="#6A6A6A" font-size="10">le pointillé est ADOPTÉ (Rodolf, 23/08) ; ce qui les sépare n’est pas le motif — c’est le NOMBRE DE FILETS, le bandeau, et la couleur</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="150" fill="#EEF2F6" font-size="11.5" font-weight="600">LES DEUX PORTENT DU POINTILLÉ — et c’est très bien</text>
@@ -42,6 +44,7 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="377" fill="#F79A28" font-size="10">⚠ le plus FAIBLE, et il faut dire pourquoi : la teinte du cadre est CHOISIE par</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="391" fill="#8A8A8A" font-size="10">l’utilisateur. C’est une contrainte sur la PALETTE OFFERTE, pas une propriété du</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="405" fill="#8A8A8A" font-size="10">dessin — elle tombe le jour où quelqu’un laisse choisir n’importe quelle teinte.</text>
+<g id="cartouche_ce_que_ce_panneau_disait_hier_et_pourquoi_il_01">
 <rect x="34" y="426" width="1062" height="138" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="450" fill="#F79A28" font-size="12" font-weight="600">ce que ce panneau disait hier, et pourquoi il a changé</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="473" fill="#8A8A8A" font-size="10.5">❌ CE QUE CETTE PLANCHE DISAIT, ET QUI ÉTAIT FAUX : « tirer un rectangle sur le fond est aussi le geste qui crée un cadre ».</text>
@@ -50,6 +53,10 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="524" fill="#8A8A8A" font-size="10.5">⚠ LE POINTILLÉ EST EMPLOYÉ SIX FOIS : dictionnaire (sous une PRISE) · fil tiré (un FIL) · nœud désactivé (le fil TRAVERSANT) · prise</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="541" fill="#8A8A8A" font-size="10.5">   convertible (un HALO) · cadre (un RECTANGLE) · lasso (un RECTANGLE). ✅ Quatre ne se gênent pas : le signal n’est pas le pointillé, c’est L’ENDROIT.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="48" y="558" fill="#8A8A8A" font-size="10.5">✅ Et pour les deux qui partagent l’endroit, la réponse n’est pas de retirer le motif à l’un — c’est de les séparer sur trois AUTRES axes.</text>
+</g>
+</g>
+<g id="panneau_2_la_recherche_sans_resultat">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="1140" y="104" fill="#F79A28" font-size="12.5" font-weight="600">2 · LA RECHERCHE SANS RÉSULTAT</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1140" y="120" fill="#6A6A6A" font-size="10">un résultat négatif sans son périmètre est une rumeur</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1140" y="150" fill="#E06C6C" font-size="11.5" font-weight="600">❌ la liste vide, interdite</text>
@@ -71,6 +78,7 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1156" y="394" fill="#EEF2F6" font-size="11" font-weight="600">aucun nœud n’accepte</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1156" y="409" fill="#F79A28" font-size="11" font-weight="600">tableau de réels</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1156" y="424" fill="#6A6A6A" font-size="9.5">↑ et le ✕ qui le retire est juste au-dessus</text>
+<g id="cartouche_la_faute_que_ca_evite_02">
 <rect x="1140" y="456" width="330" height="121" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="480" fill="#F79A28" font-size="12" font-weight="600">la faute que ça évite</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="503" fill="#8A8A8A" font-size="10.5">⚠ La vraie phrase n’est pas « ce nœud</text>
@@ -78,9 +86,13 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="537" fill="#8A8A8A" font-size="10.5">   n’accepte pas CE TYPE ».</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="554" fill="#8A8A8A" font-size="10.5">✅ Le filtre s’écrit en toutes lettres,</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="571" fill="#8A8A8A" font-size="10.5">   et son ✕ est JUSTE À CÔTÉ du refus.</text>
+</g>
+</g>
+<g id="panneau_3_la_source_le_puits_le_commentaire">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="608" fill="#F79A28" font-size="12.5" font-weight="600">3 · LA SOURCE, LE PUITS, LE COMMENTAIRE</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="624" fill="#6A6A6A" font-size="10">les deux premiers : « ne RIEN ajouter », chacun avait déjà sa marque. Le troisième : VISIBLE PAR DÉFAUT — « un commentaire qu’il faut aller chercher n’est pas lu »</text>
-<g opacity="1.0">
+<g id="noeud_rvb_01" opacity="1.0">
 <rect x="34" y="652" width="190" height="66" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M34 657a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v25 H34 z" fill="#D9B6A3"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="42" y="666" fill="#F3E9DA" font-size="8">▼</text>
@@ -94,7 +106,7 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="758" fill="#EEF2F6" font-size="11" font-weight="600">SOURCE — le côté GAUCHE est vide</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="773" fill="#6A6A6A" font-size="10">le seul trait de forme qui survit à 25 %,</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="787" fill="#6A6A6A" font-size="10">où il ne reste qu’un rectangle coloré</text>
-<g opacity="1.0">
+<g id="noeud_sortie_materiau_02" opacity="1.0">
 <rect x="280" y="652" width="190" height="90" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M280 657a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v25 H280 z" fill="#D9B6A3"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="288" y="666" fill="#F3E9DA" font-size="8">▼</text>
@@ -110,7 +122,9 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="280" y="758" fill="#EEF2F6" font-size="11" font-weight="600">PUITS — le côté DROIT est vide</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="280" y="773" fill="#6A6A6A" font-size="10">le catalogue permettait « plus imposant » :</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="280" y="787" fill="#6A6A6A" font-size="10">refusé — une exception à la grille pour un doublon</text>
+<g id="fil_01">
 <path d="M534 686C637.5 686 660.5 704 764 704" fill="none" stroke="#17B2EB" stroke-width="2"/>
+</g>
 <text font-family="Segoe UI, Inter, sans-serif" x="534" y="666" fill="#6A6A6A" font-size="13">ce bloc gère le cas où la texture manque</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="530" y="758" fill="#7FB77E" font-size="11" font-weight="600">COMMENTAIRE — PAR DÉFAUT : toujours affiché</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="530" y="773" fill="#6A6A6A" font-size="10">ni corps, ni filet, ni fond : ce n’est pas un nœud —</text>
@@ -124,6 +138,9 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="806" y="801" fill="#6A6A6A" font-size="10">commentaire l’allure d’un nœud sans en-tête, ce qu’on interdit</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="530" y="821" fill="#8A8A8A" font-size="10.5">✅ OPTION, désactivée à l’installation : « n’afficher les commentaires qu’au survol » — pour un canevas dense qu’on veut nettoyer.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="530" y="836" fill="#F79A28" font-size="10.5">⚠ C’est l’utilisateur qui l’active. Par défaut le commentaire est LÀ : un commentaire qu’il faut aller chercher n’est pas lu.</text>
+</g>
+<g id="panneau_4_le_menu_contextuel_trois_contenus">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="1140" y="619" fill="#F79A28" font-size="12.5" font-weight="600">4 · LE MENU CONTEXTUEL — trois contenus</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1140" y="635" fill="#6A6A6A" font-size="10">et « ajouter un nœud » rouvre LE MÊME panneau que le 2, sans filtre</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1140" y="663" fill="#8A8A8A" font-size="10" font-weight="600">sur le FOND</text>
@@ -142,6 +159,7 @@
 <rect x="1372" y="671" width="106" height="50" rx="4" fill="#1E1E24" stroke="#3A3A44"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1380" y="690" fill="#F79A28" font-size="9.5" font-weight="600">insérer un nœud ici</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1380" y="709" fill="#8A8A8A" font-size="9.5">supprimer le fil</text>
+<g id="cartouche_les_deux_points_qui_ne_s_inventent_pas_03">
 <rect x="1140" y="769" width="330" height="206" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="793" fill="#F79A28" font-size="12" font-weight="600">les deux points qui ne s’inventent pas</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="816" fill="#8A8A8A" font-size="10.5">⚠ « INSÉRER UN NŒUD ICI » est la seule</text>
@@ -154,10 +172,15 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="935" fill="#8A8A8A" font-size="10.5">   différente feraient croire à deux</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="952" fill="#8A8A8A" font-size="10.5">   catalogues de nœuds. C’est la règle du</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1154" y="969" fill="#8A8A8A" font-size="10.5">   fil d’Ariane, appliquée une 2ᵉ fois.</text>
+</g>
+</g>
+<g id="panneau_5_la_grille_du_canevas_des_points_jamais_des">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="806" fill="#F79A28" font-size="12.5" font-weight="600">5 · LA GRILLE DU CANEVAS — des POINTS, jamais des lignes</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="822" fill="#6A6A6A" font-size="10">pas de 22 px · point de 1 px · #2b2b33 sur le fond #17171b</text>
 <rect x="34" y="840" width="300" height="130" fill="#17171b" stroke="#2E2E36"/>
-<circle cx="35.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="951.5" r="1" fill="#2b2b33"/>
+<g id="grille_01">
+<circle cx="35.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="35.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="57.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="79.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="101.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="123.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="145.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="167.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="189.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="211.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="233.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="255.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="277.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="299.5" cy="951.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="841.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="863.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="885.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="907.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="929.5" r="1" fill="#2b2b33"/><circle cx="321.5" cy="951.5" r="1" fill="#2b2b33"/></g>
 <text font-family="Segoe UI, Inter, sans-serif" x="352" y="858" fill="#F79A28" font-size="10.5" font-weight="600">⚠ CE CARRÉ EST LE SEUL ENDROIT où la grille est dessinée.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="352" y="874" fill="#8A8A8A" font-size="10">Le fond des huit planches est PLAT depuis le 23/08 : un</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="352" y="888" fill="#8A8A8A" font-size="10">remplissage à motif s’importe VIDE dans Lunacy, et Rodolf</text>
@@ -166,4 +189,5 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="352" y="940" fill="#7FB77E" font-size="10.5" font-weight="600">✅ Les lignes ont été VUES sur quatre références, et ÉCARTÉES :</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="352" y="954" fill="#8A8A8A" font-size="10">la principale montre des POINTS, et c’est elle qui fait foi.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="1020" fill="#6A6A6A" font-size="10.5">⚠ PLANCHE D’ÉTUDE — les six éléments sont B6, B7, B9, E1, E2 et E5 d’ELEMENTS_A_DESSINER.md. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
+</g>
 </svg>

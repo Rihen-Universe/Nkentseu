@@ -25,7 +25,7 @@ s+=('<defs>\n'
     '</defs>\n')
 
 def lab(x,y,n,titre,note=''):
-    return tt(x,y,u'%s \u00b7 %s'%(n,titre),ORANGE,12.5,'600')+tt(x,y+16,note,TXT3,10)
+    return panneau(u'%s_%s'%(n,titre))+tt(x,y,u'%s \u00b7 %s'%(n,titre),ORANGE,12.5,'600')+tt(x,y+16,note,TXT3,10)
 
 # ⚠️ sphere() VIT DESORMAIS DANS gen.py, avec son degrade.
 # Elle etait ici en double avec p03, qui en a eu besoin le 23/08 pour
