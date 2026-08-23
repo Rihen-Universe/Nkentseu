@@ -20,10 +20,10 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="52" y="162" fill="#F3E9DA" font-size="8">▼</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="162" fill="#EEF2F6" font-size="12.5" font-weight="600">Sur porte ouverte</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="174" fill="#EEF2F6" font-size="9.5" opacity="0.6">Événement</text>
-<rect x="44" y="178" width="250" height="2.5" fill="#F79A28"/>
-<path d="M291.0 185.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="44" y="178" width="250" height="3.8" fill="#F79A28"/>
+<path d="M282.2 187.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="280" y="200" fill="#F79A28" font-size="11.5" text-anchor="end">Ouverte</text>
-<rect x="291.0" y="209.0" width="6" height="22" rx="2" fill="#212121" stroke="#81EBEB" stroke-width="1.6"/>
+<rect x="294" y="209.0" width="6" height="22" rx="2" fill="#212121" stroke="#81EBEB" stroke-width="1.6"/>
 <rect x="252" y="212.5" width="30" height="15" rx="2" fill="#81EBEB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="267" y="224" fill="#81EBEB" font-size="8.5" font-weight="600" text-anchor="middle">obj</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="244" y="224" fill="#C8CCD4" font-size="11.5" text-anchor="end">Acteur</text>
@@ -36,18 +36,18 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="382" y="162" fill="#F3E9DA" font-size="8">▼</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="394" y="162" fill="#EEF2F6" font-size="12.5" font-weight="600">Jouer l’animation</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="394" y="174" fill="#EEF2F6" font-size="9.5" opacity="0.6">Action</text>
-<rect x="374" y="178" width="260" height="2.5" fill="#F79A28"/>
-<path d="M371.0 185.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="374" y="178" width="260" height="3.8" fill="#F79A28"/>
+<path d="M370.3 187.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="386" y="200" fill="#F79A28" font-size="11.5">Entrer</text>
-<path d="M631.0 209.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<path d="M622.2 211.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="620" y="224" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="384" y="248" fill="#6A6A6A" font-size="10"></text>
-<rect x="371.0" y="257.0" width="6" height="22" rx="2" fill="#81EBEB" stroke="#81EBEB" stroke-width="1.6"/>
+<rect x="368" y="257.0" width="6" height="22" rx="2" fill="#81EBEB" stroke="#81EBEB" stroke-width="1.6"/>
 <rect x="382" y="260.5" width="30" height="15" rx="2" fill="#81EBEB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="397" y="272" fill="#81EBEB" font-size="8.5" font-weight="600" text-anchor="middle">obj</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="418" y="272" fill="#F79A28" font-size="11.5">Cible</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="624" y="272" fill="#6A6A6A" font-size="10" text-anchor="end">branchée</text>
-<rect x="371.0" y="281.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="368" y="281.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="382" y="284.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="397" y="296" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="418" y="296" fill="#C8CCD4" font-size="11.5">Durée</text>
@@ -60,18 +60,18 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="722" y="162" fill="#F3E9DA" font-size="8">▼</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="734" y="162" fill="#EEF2F6" font-size="12.5" font-weight="600">Jouer un son</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="734" y="174" fill="#EEF2F6" font-size="9.5" opacity="0.6">Action</text>
-<rect x="714" y="178" width="260" height="2.5" fill="#F79A28"/>
-<path d="M711.0 185.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="714" y="178" width="260" height="3.8" fill="#F79A28"/>
+<path d="M710.3 187.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="726" y="200" fill="#F79A28" font-size="11.5">Entrer</text>
-<path d="M971.0 209.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<path d="M962.2 211.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="960" y="224" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="724" y="248" fill="#6A6A6A" font-size="10"></text>
-<rect x="711.0" y="257.0" width="6" height="22" rx="2" fill="#212121" stroke="#81EBEB" stroke-width="1.6"/>
+<rect x="708" y="257.0" width="6" height="22" rx="2" fill="#212121" stroke="#81EBEB" stroke-width="1.6"/>
 <rect x="722" y="260.5" width="30" height="15" rx="2" fill="#81EBEB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="737" y="272" fill="#81EBEB" font-size="8.5" font-weight="600" text-anchor="middle">obj</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="758" y="272" fill="#C8CCD4" font-size="11.5">Son</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="962" y="272" fill="#6A6A6A" font-size="10.5" text-anchor="end">grincement</text>
-<rect x="711.0" y="281.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="708" y="281.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="722" y="284.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="737" y="296" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="758" y="296" fill="#F79A28" font-size="11.5">Volume</text>
@@ -83,20 +83,20 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="382" y="372" fill="#F3E9DA" font-size="8">▼</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="394" y="372" fill="#EEF2F6" font-size="12.5" font-weight="600">Multiplier</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="394" y="384" fill="#EEF2F6" font-size="9.5" opacity="0.6">Maths</text>
-<rect x="374" y="388" width="260" height="2.5" fill="#0A555F"/>
-<rect x="371.0" y="395.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="374" y="388" width="260" height="3.8" fill="#0A555F"/>
+<rect x="368" y="395.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="382" y="398.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="397" y="410" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="418" y="410" fill="#C8CCD4" font-size="11.5">A</text>
 <rect x="530" y="398" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="618" y="410" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.800</text>
-<rect x="371.0" y="419.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="368" y="419.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="382" y="422.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="397" y="434" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="418" y="434" fill="#C8CCD4" font-size="11.5">B</text>
 <rect x="530" y="422" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="618" y="434" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
-<rect x="631.0" y="443.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="634" y="443.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="592" y="446.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="607" y="458" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="584" y="458" fill="#C8CCD4" font-size="11.5" text-anchor="end">Résultat</text>
@@ -157,24 +157,24 @@
 <rect x="44" y="960" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 965a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v16 H44 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="975" fill="#EEF2F6" font-size="12.5" font-weight="600">Si — vrai</text>
-<rect x="44" y="981" width="190" height="2.5" fill="#F79A28"/>
-<path d="M231.0 988.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="44" y="981" width="190" height="3.8" fill="#F79A28"/>
+<path d="M222.2 990.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="220" y="1003" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 </g>
 <g filter="url(#ombre)" opacity="1.0">
 <rect x="44" y="1040" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 1045a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v16 H44 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="1055" fill="#EEF2F6" font-size="12.5" font-weight="600">Si — faux</text>
-<rect x="44" y="1061" width="190" height="2.5" fill="#F79A28"/>
-<path d="M231.0 1068.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="44" y="1061" width="190" height="3.8" fill="#F79A28"/>
+<path d="M222.2 1070.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="220" y="1083" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 </g>
 <g filter="url(#ombre)" opacity="1.0">
 <rect x="330" y="1000" width="200" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M330 1005a5 5 0 0 1 5 -5 h190 a5 5 0 0 1 5 5 v16 H330 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="350" y="1015" fill="#EEF2F6" font-size="12.5" font-weight="600">Fermer la porte</text>
-<rect x="330" y="1021" width="200" height="2.5" fill="#F79A28"/>
-<path d="M327.0 1028.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="330" y="1021" width="200" height="3.8" fill="#F79A28"/>
+<path d="M326.3 1030.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="342" y="1043" fill="#F79A28" font-size="11.5">Entrer</text>
 </g>
 <path d="M234 999C277.2 999 286.8 1039 330 1039" fill="none" stroke="#F79A28" stroke-width="3.5"/>
@@ -187,24 +187,24 @@
 <rect x="600" y="1000" width="200" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M600 1005a5 5 0 0 1 5 -5 h190 a5 5 0 0 1 5 5 v16 H600 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="620" y="1015" fill="#EEF2F6" font-size="12.5" font-weight="600">Ouvrir la porte</text>
-<rect x="600" y="1021" width="200" height="2.5" fill="#F79A28"/>
-<path d="M797.0 1028.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="600" y="1021" width="200" height="3.8" fill="#F79A28"/>
+<path d="M788.2 1030.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="786" y="1043" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 </g>
 <g filter="url(#ombre)" opacity="1.0">
 <rect x="880" y="960" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M880 965a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v16 H880 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="900" y="975" fill="#EEF2F6" font-size="12.5" font-weight="600">Jouer un son</text>
-<rect x="880" y="981" width="190" height="2.5" fill="#F79A28"/>
-<path d="M877.0 988.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="880" y="981" width="190" height="3.8" fill="#F79A28"/>
+<path d="M876.3 990.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="892" y="1003" fill="#F79A28" font-size="11.5">Entrer</text>
 </g>
 <g filter="url(#ombre)" opacity="1.0">
 <rect x="880" y="1040" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M880 1045a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v16 H880 z" fill="#8a5a2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="900" y="1055" fill="#EEF2F6" font-size="12.5" font-weight="600">Compter un point</text>
-<rect x="880" y="1061" width="190" height="2.5" fill="#F79A28"/>
-<path d="M877.0 1068.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="880" y="1061" width="190" height="3.8" fill="#F79A28"/>
+<path d="M876.3 1070.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="892" y="1083" fill="#F79A28" font-size="11.5">Entrer</text>
 </g>
 <path d="M806 1039C846 1039 840 999 880 999" fill="none" stroke="#F79A28" stroke-width="3.5"/>
@@ -232,23 +232,23 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="52" y="1264" fill="#F3E9DA" font-size="8">▼</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="1264" fill="#EEF2F6" font-size="12.5" font-weight="600">Définir un paramètre</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="1276" fill="#EEF2F6" font-size="9.5" opacity="0.6">Action · blueprint</text>
-<rect x="44" y="1280" width="290" height="2.5" fill="#F79A28"/>
-<path d="M41.0 1287.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<rect x="44" y="1280" width="290" height="3.8" fill="#F79A28"/>
+<path d="M40.3 1289.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="56" y="1302" fill="#F79A28" font-size="11.5">Entrer</text>
-<path d="M331.0 1311.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<path d="M322.2 1313.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="320" y="1326" fill="#F79A28" font-size="11.5" text-anchor="end">Terminé</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="54" y="1350" fill="#6A6A6A" font-size="10"></text>
-<rect x="41.0" y="1359.0" width="6" height="22" rx="2" fill="#212121" stroke="#81EBEB" stroke-width="1.6"/>
+<rect x="38" y="1359.0" width="6" height="22" rx="2" fill="#212121" stroke="#81EBEB" stroke-width="1.6"/>
 <rect x="52" y="1362.5" width="30" height="15" rx="2" fill="#81EBEB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="67" y="1374" fill="#81EBEB" font-size="8.5" font-weight="600" text-anchor="middle">obj</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="88" y="1374" fill="#C8CCD4" font-size="11.5">Matériau</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="322" y="1374" fill="#6A6A6A" font-size="10.5" text-anchor="end">mur_pierre</text>
-<rect x="41.0" y="1383.0" width="6" height="22" rx="2" fill="#F2559B" stroke="#F2559B" stroke-width="1.6"/>
+<rect x="38" y="1383.0" width="6" height="22" rx="2" fill="#F2559B" stroke="#F2559B" stroke-width="1.6"/>
 <rect x="52" y="1386.5" width="30" height="15" rx="2" fill="#F2559B" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="67" y="1398" fill="#F2559B" font-size="8.5" font-weight="600" text-anchor="middle">txt</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="88" y="1398" fill="#F79A28" font-size="11.5">Nom</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="322" y="1398" fill="#6A6A6A" font-size="10.5" text-anchor="end">« Rugosité »</text>
-<rect x="41.0" y="1407.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="38" y="1407.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="52" y="1410.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="67" y="1422" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="88" y="1422" fill="#C8CCD4" font-size="11.5">Valeur</text>
@@ -261,8 +261,8 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="478" y="1264" fill="#F3E9DA" font-size="8">▼</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="490" y="1264" fill="#EEF2F6" font-size="12.5" font-weight="600">Paramètre « Rugosité »</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="490" y="1276" fill="#EEF2F6" font-size="9.5" opacity="0.6">Source · matériau</text>
-<rect x="470" y="1280" width="250" height="2.5" fill="#0A555F"/>
-<rect x="717.0" y="1287.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="470" y="1280" width="250" height="3.8" fill="#0A555F"/>
+<rect x="720" y="1287.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="678" y="1290.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="693" y="1302" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="670" y="1302" fill="#C8CCD4" font-size="11.5" text-anchor="end">Valeur</text>
@@ -273,13 +273,13 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="778" y="1264" fill="#F3E9DA" font-size="8">▼</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="790" y="1264" fill="#EEF2F6" font-size="12.5" font-weight="600">Principled</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="790" y="1276" fill="#EEF2F6" font-size="9.5" opacity="0.6">Surface</text>
-<rect x="770" y="1280" width="230" height="2.5" fill="#0A555F"/>
-<rect x="767.0" y="1287.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="770" y="1280" width="230" height="3.8" fill="#0A555F"/>
+<rect x="764" y="1287.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="778" y="1290.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="793" y="1302" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="814" y="1302" fill="#F79A28" font-size="11.5">Rugosité</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="990" y="1302" fill="#6A6A6A" font-size="10" text-anchor="end">branchée</text>
-<rect x="997.0" y="1311.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="1000" y="1311.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
 <rect x="958" y="1314.5" width="30" height="15" rx="2" fill="#D9B6A3" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="973" y="1326" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">SH</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="950" y="1326" fill="#F79A28" font-size="11.5" text-anchor="end">Surface</text>
@@ -299,19 +299,19 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1078" y="1264" fill="#F3E9DA" font-size="8">▼</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1090" y="1264" fill="#EEF2F6" font-size="12.5" font-weight="600">Bruit de surface</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1090" y="1276" fill="#EEF2F6" font-size="9.5" opacity="0.6">Graphe appelé ③</text>
-<rect x="1070" y="1280" width="300" height="2.5" fill="#0A555F"/>
-<rect x="1067.0" y="1287.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="1070" y="1280" width="300" height="3.8" fill="#0A555F"/>
+<rect x="1064" y="1287.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="1078" y="1290.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1093" y="1302" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1114" y="1302" fill="#C8CCD4" font-size="11.5">Échelle</text>
 <rect x="1266" y="1290" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1354" y="1302" fill="#C8CCD4" font-size="10.5" text-anchor="end">4.000</text>
-<rect x="1067.0" y="1311.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="1064" y="1311.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="1078" y="1314.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1093" y="1326" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1114" y="1326" fill="#F79A28" font-size="11.5">Détail</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1360" y="1326" fill="#6A6A6A" font-size="10" text-anchor="end">branchée</text>
-<rect x="1367.0" y="1335.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="1370" y="1335.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="1328" y="1338.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1343" y="1350" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1320" y="1350" fill="#C8CCD4" font-size="11.5" text-anchor="end">Facteur</text>

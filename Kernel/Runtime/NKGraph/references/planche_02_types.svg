@@ -50,113 +50,113 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1470" y="182" fill="#6A6A6A" font-size="9.5">non résolu — gris : absence de couleur</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="224" fill="#F79A28" font-size="13" font-weight="600">2 · LES 16 TYPES — couleur de famille + glyphe + prise creuse (non branchée) et pleine (branchée)</text>
 <rect x="44" y="252" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="41.0" y="258.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
-<rect x="105.0" y="258.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="41" y="258.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="105" y="258.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="136" y="261.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="151" y="273" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="178" y="273" fill="#C8CCD4" font-size="12" font-weight="600">réel</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="296" y="273" fill="#6A6A6A" font-size="10">champ, 3 décimales</text>
 <rect x="44" y="294" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="41.0" y="300.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
-<rect x="105.0" y="300.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="41" y="300.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="105" y="300.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="136" y="303.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="151" y="315" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">12</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="178" y="315" fill="#C8CCD4" font-size="12" font-weight="600">entier</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="296" y="315" fill="#6A6A6A" font-size="10">champ, sans décimale</text>
 <rect x="44" y="336" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="41.0" y="342.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
-<rect x="105.0" y="342.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="41" y="342.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="105" y="342.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="136" y="345.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="151" y="357" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">V/F</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="178" y="357" fill="#C8CCD4" font-size="12" font-weight="600">booléen</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="296" y="357" fill="#6A6A6A" font-size="10">case à cocher, jamais un champ</text>
 <rect x="44" y="378" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="41.0" y="384.0" width="6" height="22" rx="2" fill="#212121" stroke="#F2559B" stroke-width="1.6"/>
-<rect x="105.0" y="384.0" width="6" height="22" rx="2" fill="#F2559B" stroke="#F2559B" stroke-width="1.6"/>
+<rect x="41" y="384.0" width="6" height="22" rx="2" fill="#212121" stroke="#F2559B" stroke-width="1.6"/>
+<rect x="105" y="384.0" width="6" height="22" rx="2" fill="#F2559B" stroke="#F2559B" stroke-width="1.6"/>
 <rect x="136" y="387.5" width="30" height="15" rx="2" fill="#F2559B" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="151" y="399" fill="#F2559B" font-size="8.5" font-weight="600" text-anchor="middle">abc</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="178" y="399" fill="#C8CCD4" font-size="12" font-weight="600">texte</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="296" y="399" fill="#6A6A6A" font-size="10">champ de texte + invite</text>
 <rect x="44" y="420" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="41.0" y="426.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
-<rect x="105.0" y="426.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="41" y="426.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="105" y="426.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
 <rect x="136" y="429.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="151" y="441" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">XY</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="178" y="441" fill="#C8CCD4" font-size="12" font-weight="600">vec2</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="296" y="441" fill="#6A6A6A" font-size="10">2 champs sur une ligne</text>
 <rect x="44" y="462" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="41.0" y="468.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
-<rect x="105.0" y="468.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="41" y="468.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="105" y="468.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
 <rect x="136" y="471.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="151" y="483" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">XYZ</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="178" y="483" fill="#C8CCD4" font-size="12" font-weight="600">vec3</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="296" y="483" fill="#6A6A6A" font-size="10">3 champs — dépliable en X/Y/Z</text>
 <rect x="44" y="504" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="41.0" y="510.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
-<rect x="105.0" y="510.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="41" y="510.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="105" y="510.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
 <rect x="136" y="513.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="151" y="525" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">XYZW</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="178" y="525" fill="#C8CCD4" font-size="12" font-weight="600">vec4</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="296" y="525" fill="#6A6A6A" font-size="10">4 champs</text>
 <rect x="44" y="546" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="41.0" y="552.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
-<rect x="105.0" y="552.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="41" y="552.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="105" y="552.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
 <rect x="136" y="555.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="151" y="567" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">M4</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="178" y="567" fill="#C8CCD4" font-size="12" font-weight="600">matrice</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="296" y="567" fill="#6A6A6A" font-size="10">RIEN — 16 champs sur un nœud, jamais</text>
 <rect x="514" y="252" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="511.0" y="258.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
-<rect x="575.0" y="258.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="511" y="258.0" width="6" height="22" rx="2" fill="#212121" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="575" y="258.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
 <rect x="606" y="261.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="621" y="273" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">TRS</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="648" y="273" fill="#C8CCD4" font-size="12" font-weight="600">transformation</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="766" y="273" fill="#6A6A6A" font-size="10">3 lignes pliées : pos / rot / échelle</text>
 <rect x="514" y="294" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="511.0" y="300.0" width="6" height="22" rx="2" fill="#212121" stroke="#D9B6A3" stroke-width="1.6"/>
-<rect x="575.0" y="300.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="511" y="300.0" width="6" height="22" rx="2" fill="#212121" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="575" y="300.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
 <rect x="606" y="303.5" width="30" height="15" rx="2" fill="#D9B6A3" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="621" y="315" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">RVB</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="648" y="315" fill="#C8CCD4" font-size="12" font-weight="600">couleur</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="766" y="315" fill="#6A6A6A" font-size="10">nuancier + damier si alpha</text>
 <rect x="514" y="336" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="511.0" y="342.0" width="6" height="22" rx="2" fill="#212121" stroke="#D9B6A3" stroke-width="1.6"/>
-<rect x="575.0" y="342.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="511" y="342.0" width="6" height="22" rx="2" fill="#212121" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="575" y="342.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
 <rect x="606" y="345.5" width="30" height="15" rx="2" fill="#D9B6A3" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="621" y="357" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">TEX</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="648" y="357" fill="#C8CCD4" font-size="12" font-weight="600">texture</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="766" y="357" fill="#6A6A6A" font-size="10">aperçu + chemin + espace colorim.</text>
 <rect x="514" y="378" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="511.0" y="384.0" width="6" height="22" rx="2" fill="#212121" stroke="#D9B6A3" stroke-width="1.6"/>
-<rect x="575.0" y="384.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="511" y="384.0" width="6" height="22" rx="2" fill="#212121" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="575" y="384.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
 <rect x="606" y="387.5" width="30" height="15" rx="2" fill="#D9B6A3" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="621" y="399" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">MAT</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="648" y="399" fill="#C8CCD4" font-size="12" font-weight="600">matériau</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="766" y="399" fill="#6A6A6A" font-size="10">aperçu rendu sur damier</text>
 <rect x="514" y="420" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="511.0" y="426.0" width="6" height="22" rx="2" fill="#212121" stroke="#D9B6A3" stroke-width="1.6"/>
-<rect x="575.0" y="426.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="511" y="426.0" width="6" height="22" rx="2" fill="#212121" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="575" y="426.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
 <rect x="606" y="429.5" width="30" height="15" rx="2" fill="#D9B6A3" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="621" y="441" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">SH</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="648" y="441" fill="#C8CCD4" font-size="12" font-weight="600">shader</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="766" y="441" fill="#6A6A6A" font-size="10">RIEN — un shader ne se saisit pas</text>
 <rect x="514" y="462" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="511.0" y="468.0" width="6" height="22" rx="2" fill="#212121" stroke="#81EBEB" stroke-width="1.6"/>
-<rect x="575.0" y="468.0" width="6" height="22" rx="2" fill="#81EBEB" stroke="#81EBEB" stroke-width="1.6"/>
+<rect x="511" y="468.0" width="6" height="22" rx="2" fill="#212121" stroke="#81EBEB" stroke-width="1.6"/>
+<rect x="575" y="468.0" width="6" height="22" rx="2" fill="#81EBEB" stroke="#81EBEB" stroke-width="1.6"/>
 <rect x="606" y="471.5" width="30" height="15" rx="2" fill="#81EBEB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="621" y="483" fill="#81EBEB" font-size="8.5" font-weight="600" text-anchor="middle">OBJ</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="648" y="483" fill="#C8CCD4" font-size="12" font-weight="600">référence</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="766" y="483" fill="#6A6A6A" font-size="10">nom de l’objet, ou — aucun —</text>
 <rect x="514" y="504" width="440" height="34" rx="3" fill="#212121"/>
-<rect x="511.0" y="510.0" width="6" height="22" rx="2" fill="#212121" stroke="#9AA3AD" stroke-width="1.6"/>
-<rect x="575.0" y="510.0" width="6" height="22" rx="2" fill="#9AA3AD" stroke="#9AA3AD" stroke-width="1.6"/>
+<rect x="511" y="510.0" width="6" height="22" rx="2" fill="#212121" stroke="#9AA3AD" stroke-width="1.6"/>
+<rect x="575" y="510.0" width="6" height="22" rx="2" fill="#9AA3AD" stroke="#9AA3AD" stroke-width="1.6"/>
 <rect x="606" y="513.5" width="30" height="15" rx="2" fill="#9AA3AD" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="621" y="525" fill="#9AA3AD" font-size="8.5" font-weight="600" text-anchor="middle">?</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="648" y="525" fill="#C8CCD4" font-size="12" font-weight="600">quelconque</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="766" y="525" fill="#6A6A6A" font-size="10">RIEN tant qu’il n’est pas résolu</text>
 <rect x="514" y="546" width="440" height="34" rx="3" fill="#212121"/>
-<path d="M511.0 552.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="none" stroke="#F79A28" stroke-width="1.6"/>
-<path d="M575.0 552.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<path d="M513.3 554.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="none" stroke="#F79A28" stroke-width="1.6"/>
+<path d="M577.3 554.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <rect x="606" y="555.5" width="30" height="15" rx="2" fill="#F79A28" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="621" y="567" fill="#F79A28" font-size="8.5" font-weight="600" text-anchor="middle">→</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="648" y="567" fill="#C8CCD4" font-size="12" font-weight="600">exécution</text>
@@ -166,57 +166,57 @@
 <rect x="44" y="694" width="300" height="86" rx="3" fill="#212121" stroke="#33333C"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="60" y="714" fill="#C8CCD4" font-size="12" font-weight="600">scalaire</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="60" y="730" fill="#6A6A6A" font-size="10">un seul tenant</text>
-<rect x="81.0" y="751.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="81" y="751.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="100" y="754.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="115" y="766" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
-<rect x="151.0" y="751.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<rect x="151" y="751.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
 <rect x="170" y="754.5" width="30" height="15" rx="2" fill="#D9B6A3" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="185" y="766" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">RVB</text>
-<rect x="221.0" y="751.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
+<rect x="221" y="751.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
 <rect x="240" y="754.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="255" y="766" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">XYZ</text>
 <rect x="360" y="694" width="300" height="86" rx="3" fill="#212121" stroke="#33333C"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="376" y="714" fill="#C8CCD4" font-size="12" font-weight="600">tableau</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="376" y="730" fill="#6A6A6A" font-size="10">trois segments empilés</text>
-<rect x="397.0" y="751.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
-<rect x="397.0" y="759.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
-<rect x="397.0" y="767.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="397" y="751.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="397" y="759.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="397" y="767.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
 <rect x="416" y="754.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="431" y="766" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">[1.0]</text>
-<rect x="467.0" y="751.0" width="6" height="6.0" rx="1.5" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.3"/>
-<rect x="467.0" y="759.0" width="6" height="6.0" rx="1.5" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.3"/>
-<rect x="467.0" y="767.0" width="6" height="6.0" rx="1.5" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.3"/>
+<rect x="467" y="751.0" width="6" height="6.0" rx="1.5" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.3"/>
+<rect x="467" y="759.0" width="6" height="6.0" rx="1.5" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.3"/>
+<rect x="467" y="767.0" width="6" height="6.0" rx="1.5" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.3"/>
 <rect x="486" y="754.5" width="30" height="15" rx="2" fill="#D9B6A3" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="501" y="766" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">[RVB]</text>
-<rect x="537.0" y="751.0" width="6" height="6.0" rx="1.5" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.3"/>
-<rect x="537.0" y="759.0" width="6" height="6.0" rx="1.5" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.3"/>
-<rect x="537.0" y="767.0" width="6" height="6.0" rx="1.5" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.3"/>
+<rect x="537" y="751.0" width="6" height="6.0" rx="1.5" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.3"/>
+<rect x="537" y="759.0" width="6" height="6.0" rx="1.5" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.3"/>
+<rect x="537" y="767.0" width="6" height="6.0" rx="1.5" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.3"/>
 <rect x="556" y="754.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="571" y="766" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">[XYZ]</text>
 <rect x="676" y="694" width="300" height="86" rx="3" fill="#212121" stroke="#33333C"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="692" y="714" fill="#C8CCD4" font-size="12" font-weight="600">dictionnaire</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="692" y="730" fill="#6A6A6A" font-size="10">grille 2×3 : clé | valeur</text>
-<rect x="713.0" y="751.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
+<rect x="713" y="751.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
 <rect x="716.8000000000001" y="751.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
-<rect x="713.0" y="759.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
+<rect x="713" y="759.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
 <rect x="716.8000000000001" y="759.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
-<rect x="713.0" y="767.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
+<rect x="713" y="767.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
 <rect x="716.8000000000001" y="767.0" width="2.2" height="6.0" rx="1" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.2"/>
 <rect x="732" y="754.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="747" y="766" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">{1.0}</text>
-<rect x="783.0" y="751.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
+<rect x="783" y="751.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
 <rect x="786.8000000000001" y="751.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
-<rect x="783.0" y="759.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
+<rect x="783" y="759.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
 <rect x="786.8000000000001" y="759.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
-<rect x="783.0" y="767.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
+<rect x="783" y="767.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
 <rect x="786.8000000000001" y="767.0" width="2.2" height="6.0" rx="1" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.2"/>
 <rect x="802" y="754.5" width="30" height="15" rx="2" fill="#D9B6A3" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="817" y="766" fill="#D9B6A3" font-size="8.5" font-weight="600" text-anchor="middle">{RVB}</text>
-<rect x="853.0" y="751.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
+<rect x="853" y="751.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
 <rect x="856.8000000000001" y="751.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
-<rect x="853.0" y="759.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
+<rect x="853" y="759.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
 <rect x="856.8000000000001" y="759.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
-<rect x="853.0" y="767.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
+<rect x="853" y="767.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
 <rect x="856.8000000000001" y="767.0" width="2.2" height="6.0" rx="1" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.2"/>
 <rect x="872" y="754.5" width="30" height="15" rx="2" fill="#C0EB81" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="887" y="766" fill="#C0EB81" font-size="8.5" font-weight="600" text-anchor="middle">{XYZ}</text>
@@ -242,24 +242,24 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="670" y="886" fill="#EEF2F6" font-size="12.5" font-weight="600">Construire tableau</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="670" y="898" fill="#EEF2F6" font-size="9.5" opacity="0.6">Tableau</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="908" y="886" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
-<rect x="650" y="902" width="268" height="2.5" fill="#0A555F"/>
-<rect x="647.0" y="909.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="650" y="902" width="268" height="3.8" fill="#0A555F"/>
+<rect x="644" y="909.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="662" y="924" fill="#C8CCD4" font-size="11.5">0</text>
 <rect x="814" y="912" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="902" y="924" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.250</text>
-<rect x="647.0" y="933.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="644" y="933.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="662" y="948" fill="#F79A28" font-size="11.5">1</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="908" y="948" fill="#6A6A6A" font-size="10" text-anchor="end">branchée</text>
-<rect x="647.0" y="957.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="644" y="957.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="662" y="972" fill="#C8CCD4" font-size="11.5">2</text>
 <rect x="814" y="960" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="902" y="972" fill="#C8CCD4" font-size="10.5" text-anchor="end">1.000</text>
 <rect x="658" y="983" width="252" height="18" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="784.0" y="996" fill="#6A6A6A" font-size="10.5" text-anchor="middle">+ ajouter un élément</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="660" y="1020" fill="#6A6A6A" font-size="10">… et 492 autres</text>
-<rect x="915.0" y="1029.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
-<rect x="915.0" y="1037.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
-<rect x="915.0" y="1045.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="918" y="1029.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="918" y="1037.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="918" y="1045.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
 <rect x="876" y="1032.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="891" y="1044" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">[1.0]</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="868" y="1044" fill="#F79A28" font-size="11.5" text-anchor="end">tableau</text>
@@ -272,30 +272,30 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="980" y="886" fill="#EEF2F6" font-size="12.5" font-weight="600">Pour chaque</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="980" y="898" fill="#EEF2F6" font-size="9.5" opacity="0.6">Boucle</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1240" y="886" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
-<rect x="960" y="902" width="290" height="2.5" fill="#F79A28"/>
-<rect x="957.0" y="909.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
-<rect x="957.0" y="917.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
-<rect x="957.0" y="925.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="960" y="902" width="290" height="3.8" fill="#F79A28"/>
+<rect x="954" y="909.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="954" y="917.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="954" y="925.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
 <rect x="968" y="912.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="983" y="924" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">[1.0]</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1004" y="924" fill="#F79A28" font-size="11.5">éléments</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1240" y="924" fill="#6A6A6A" font-size="10" text-anchor="end">branchée</text>
-<path d="M1247.0 933.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<path d="M1238.2 935.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1236" y="948" fill="#F79A28" font-size="11.5" text-anchor="end">corps de boucle</text>
-<rect x="1247.0" y="957.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="1250" y="957.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="1208" y="960.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1223" y="972" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1200" y="972" fill="#C8CCD4" font-size="11.5" text-anchor="end">élément</text>
-<rect x="1247.0" y="981.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="1250" y="981.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="1208" y="984.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1223" y="996" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">12</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1200" y="996" fill="#C8CCD4" font-size="11.5" text-anchor="end">indice</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="970" y="1020" fill="#6A6A6A" font-size="10"></text>
-<path d="M1247.0 1029.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="none" stroke="#F79A28" stroke-width="1.6"/>
+<path d="M1238.2 1031.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="none" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1236" y="1044" fill="#C8CCD4" font-size="11.5" text-anchor="end">terminé</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="970" y="1063" fill="#6A6A6A" font-size="10">0 / 495</text>
 </g>
-<path d="M957.0 873.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
+<path d="M956.3 875.0h8.99l6.51 9.0l-6.51 9.0h-8.99z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="650" y="1098" fill="#6A6A6A" font-size="10">chaque élément est une VRAIE prise —</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="650" y="1112" fill="#6A6A6A" font-size="10">branchable seul · repli obligatoire au-delà de 8</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="960" y="1098" fill="#6A6A6A" font-size="10">l’entrée d’exécution est sur l’EN-TÊTE · ⚠ corps de boucle et terminé séparés par une ligne vide</text>
@@ -307,10 +307,10 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="1152" fill="#EEF2F6" font-size="12.5" font-weight="600">Positions</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="64" y="1164" fill="#EEF2F6" font-size="9.5" opacity="0.6">Source</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="264" y="1152" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
-<rect x="44" y="1168" width="230" height="2.5" fill="#0A555F"/>
-<rect x="271.0" y="1175.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
-<rect x="271.0" y="1183.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
-<rect x="271.0" y="1191.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="44" y="1168" width="230" height="3.8" fill="#0A555F"/>
+<rect x="274" y="1175.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="274" y="1183.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
+<rect x="274" y="1191.0" width="6" height="6.0" rx="1.5" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.3"/>
 <rect x="232" y="1178.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="247" y="1190" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">[1.0]</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="224" y="1190" fill="#F79A28" font-size="11.5" text-anchor="end">valeurs</text>
@@ -322,16 +322,16 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="440" y="1152" fill="#EEF2F6" font-size="12.5" font-weight="600">Multiplier</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="440" y="1164" fill="#EEF2F6" font-size="9.5" opacity="0.6">Maths</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="640" y="1152" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
-<rect x="420" y="1168" width="230" height="2.5" fill="#0A555F"/>
-<rect x="417.0" y="1175.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="420" y="1168" width="230" height="3.8" fill="#0A555F"/>
+<rect x="414" y="1175.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="432" y="1190" fill="#C8CCD4" font-size="11.5">Valeur A</text>
 <rect x="546" y="1178" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="634" y="1190" fill="#C8CCD4" font-size="10.5" text-anchor="end">0.500</text>
-<rect x="417.0" y="1199.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="414" y="1199.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="432" y="1214" fill="#C8CCD4" font-size="11.5">Valeur B</text>
 <rect x="546" y="1202" width="92" height="17" rx="2" fill="#2B2B2B"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="634" y="1214" fill="#C8CCD4" font-size="10.5" text-anchor="end">2.000</text>
-<rect x="647.0" y="1223.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
+<rect x="650" y="1223.0" width="6" height="22" rx="2" fill="#212121" stroke="#17B2EB" stroke-width="1.6"/>
 <rect x="608" y="1226.5" width="30" height="15" rx="2" fill="#17B2EB" opacity="0.22"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="623" y="1238" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="1238" fill="#C8CCD4" font-size="11.5" text-anchor="end">Résultat</text>

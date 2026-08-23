@@ -50,8 +50,8 @@ for i,(nom,k,g,expl) in enumerate(types):
     c=FAM[k]
     ex = (k=='exec')
     s+='<rect x="%s" y="%s" width="440" height="34" rx="3" fill="%s"/>\n'%(X,Y,CORPS)
-    s+=prise(X,Y+17,c,False,ex)
-    s+=prise(X+64,Y+17,c,True,ex)
+    s+=prise(X+3,Y+17,c,False,ex)
+    s+=prise(X+67,Y+17,c,True,ex)
     s+=pastille(X+92,Y+17,c,g)
     s+=tt(X+134,Y+21,nom,TXT,12,'600')
     s+=tt(X+252,Y+21,expl,TXT3,10)
@@ -68,7 +68,7 @@ for nom,f,g,expl in base:
     s+=tt(X+16,714,nom,TXT,12,'600')
     s+=tt(X+16,730,expl,TXT3,10)
     for j,c in enumerate([FAM['nombre'],FAM['appar'],FAM['geom']]):
-        s+=prise(X+40+j*70,762,c,True,False,f)
+        s+=prise(X+43+j*70,762,c,True,False,f)
         s+=pastille(X+56+j*70,762,c,{'simple':['1.0','RVB','XYZ'],'tableau':['[1.0]','[RVB]','[XYZ]'],'dico':['{1.0}','{RVB}','{XYZ}']}[f][j])
     X+=316
 
