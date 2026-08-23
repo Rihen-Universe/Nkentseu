@@ -1978,6 +1978,21 @@ namespace nkentseu {
 				struct EdgeAcc {
 						NkVec3f pa{0.f, 0.f, 0.f}, pb{0.f, 0.f, 0.f}, fsum{0.f, 0.f, 0.f};
 						uint32 nface = 0;
+						// ⚠ LA CLE EST RANGEE ICI, ET C'EST LE CORRECTIF.
+						// L'accumulation ci-dessous parcourait `edgeOf` — donc l'ORDRE DES
+						// SEAUX d'une table de hachage — pour sommer `sumMid[v] += mid` en
+						// FLOTTANTS. L'addition flottante n'est pas associative : changer la
+						// fonction de hachage changeait les derniers bits des positions
+						// lissees, et les heuristiques gloutonnes d'aval (decimation QEM,
+						// retopologie) basculaient sur les quasi-egalites. Mesure : decim
+						// 768->168 devenait 768->166, retopo 108 quads devenait 104.
+						//   > Le defaut n'etait pas dans la table : il etait ici, dans du
+						//   > code qui s'appuyait sans le dire sur un ordre que personne
+						//   > n'avait jamais garanti.
+						// En portant (ka,kb) sur l'accumulateur, la boucle parcourt
+						// `edgeAcc` PAR INDICE — l'ordre du balayage des faces, qui, lui,
+						// ne depend que du maillage.
+						uint32 ka = 0, kb = 0;
 				};
 				NkHashMap<uint64, uint32> edgeOf;
 				NkVector<EdgeAcc> edgeAcc;
@@ -2002,6 +2017,8 @@ namespace nkentseu {
 							EdgeAcc e;
 							e.pa = pv[ia].pos;
 							e.pb = pv[ib].pos;
+							e.ka = (uint32)(key >> 32);
+							e.kb = (uint32)(key & 0xFFFFFFFFu);
 							edgeAcc.PushBack(e);
 							edgeOf.InsertOrAssign(key, ei);
 						}
@@ -2042,10 +2059,10 @@ namespace nkentseu {
 						degF[c]++;
 					}
 				}
-				for (auto it = edgeOf.Begin(); it != edgeOf.End(); ++it) {
-					const uint32 ei = it->Second;
+				// PAR INDICE, jamais par l'ordre des seaux : cf. EdgeAcc::ka/kb.
+				for (uint32 ei = 0; ei < (uint32)edgeAcc.Size(); ++ei) {
 					const EdgeAcc &e = edgeAcc[ei];
-					const uint32 a = (uint32)(it->First >> 32), b = (uint32)(it->First & 0xFFFFFFFFu);
+					const uint32 a = e.ka, b = e.kb;
 					const NkVec3f mid = (e.pa + e.pb) * 0.5f;
 					for (int32 side = 0; side < 2; ++side) {
 						const uint32 v = side ? b : a;
@@ -2399,6 +2416,12 @@ namespace nkentseu {
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
 				hedges[h].edge = NK_EM_INVALID;
 			NkHashMap<uint64, uint32> seen;
+			// MESURE (banc --perf, 131 072 entrees) : sans Reserve 27,3 ms, avec 18,9 ms.
+			// Le nombre d'aretes vaut au plus le nombre de demi-aretes ; la moitie en est
+			// une borne serree pour une variete. Ce n'est PAS ce qui rendait la fonction
+			// super-quadratique (c'etait la repartition dans les seaux, cf. NkHashMap),
+			// c'est le reste une fois la classe redressee.
+			seen.Reserve((uint32)hedges.Size() / 2u + 16u);
 			NkVector<NkEmId> loop;
 			// Demi-aretes rattachees a chaque arete, collectees AVANT d'etre aplaties
 			// dans radialPool : on ne connait le nombre d'incidences qu'a la fin du
