@@ -209,6 +209,23 @@ def cartouche(x,y,w,lignes,titre=None):
         s+=tt(x+14,cy,l,TXT2,10.5); cy+=17
     return s,h
 
+POLICE = 'Segoe UI, Inter, sans-serif'
+
+
+def poser_police(contenu):
+    """Pose font-family sur CHAQUE <text> qui n'en a pas.
+
+    p01 ecrit son SVG lui-meme (garde-fou d'empreinte) et ne passe pas par
+    ecrire() : il appelle donc cette fonction directement. Sans ca, la
+    planche 01 -- la seule qui compte 191 <text> ecrits a la main -- etait
+    la SEULE a rester sans police. Mesure : 0 sur 192 apres le premier
+    passage, alors que les sept autres etaient a 100 %.
+    """
+    import re as _re
+    return _re.sub(r'<text (?![^>]*font-family)',
+                   '<text font-family="%s" ' % POLICE, contenu)
+
+
 def ecrire(nom,contenu):
     # ATTENTION : c est ELLE qui ecrit le </svg> final. Un script de planche qui
     # l ajoute aussi produit un SVG mal forme -- arrive le 23/08 sur p07.
@@ -219,6 +236,18 @@ def ecrire(nom,contenu):
     # ne le signale -- le fichier sortait valide, juste amute.
     contenu=contenu.encode('utf-16','surrogatepass').decode('utf-16','replace')
     contenu=u''.join(ch for ch in contenu if not (0xD800<=ord(ch)<=0xDFFF))
+    # LA POLICE EST POSEE SUR CHAQUE <text>, PAS SEULEMENT SUR LA RACINE.
+    # Un navigateur fait HERITER font-family depuis <svg> ; Lunacy, ou Rodolf
+    # importe ces SVG directement, ne le fait pas de facon fiable et retombe
+    # sur sa police par defaut -- ce qui change la largeur de CHAQUE texte et
+    # decale tout ce qui a ete cale au pixel. Le SVG etant le livrable, on ne
+    # peut pas dependre de l'heritage.
+    # Le geste est ici, en UN endroit, plutot que sur les ~450 appels a tt()
+    # et les 191 <text> ecrits a la main dans p01.
+    # PREUVE : les huit PNG doivent rester IDENTIQUES a l'octet apres ce
+    # changement -- le navigateur resolvait deja la meme police par heritage.
+    # Si un PNG bouge, c'est que la police posee n'est pas celle qui servait.
+    contenu=poser_police(contenu)
     with io.open(OUT+'/'+nom,'w',encoding='utf-8') as f:
         f.write(contenu+'</svg>\n')
     print('ecrit', nom)
