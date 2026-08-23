@@ -168,3 +168,61 @@ confirmée serait exactement le travail à refaire qu'on cherche à éviter.
 là-dessus. ✅ **Bonne nouvelle : l'orange ambré des en-têtes d'action de la
 principale est très proche du `#F79A28` de Rihen.** Le pétrole pourrait porter
 les nœuds de calcul, là où la référence met du gris.
+
+---
+
+## 5. ⚠️ MISE À JOUR DU 22/08 — la référence n'est plus une capture d'écran
+
+Ce document raisonnait sur des captures trouvées ailleurs. **Deux choses ont
+changé depuis, et elles pèsent plus que tout le reste du document.**
+
+### 5.1 ✅ Rodolf a dessiné SON nœud — il fait foi, et il n'est pas dans les captures
+
+`references/editeur_nodal.sketch`, groupe `Noeud` (**le second des deux**, celui
+dont la prise d'exécution est un rectangle à pointe). Un `.sketch` est un ZIP de
+JSON : les valeurs sont **lues**, pas estimées à l'œil.
+
+**Trois écarts avec ce que ce document décrit de la principale :**
+
+| | la principale (§ 1) | le nœud de Rodolf |
+|---|---|---|
+| coins | « rectangle à coins arrondis » | **quasi vifs** : rayons `[5,5,0,0]` en haut, `[0,0,3,3]` en bas, sur un dessin de 1168 de large — soit **moins d'un pixel** à l'échelle d'un nœud de 194 px |
+| sous l'en-tête | rien de notable | une **barre orange pleine** `#F79A28`, pleine largeur — pas un filet, **une barre** |
+| prises | petites, posées sur le bord | **hautes et étroites** (ratio 1 : 3,7), **collées contre le bord à l'extérieur** ; **entrée creuse, sortie pleine** |
+
+⚠️ **La condition de la méthode ne change pas, elle change d'objet** : *« exactement
+comme la principale AVANT d'y ajouter »* vaut désormais pour **le nœud de Rodolf**,
+pas pour la capture. Les captures redeviennent ce qu'elles auraient dû rester :
+des **secondaires**, qui apportent des mécanismes.
+
+🔴 **Et une question que je refuse de deviner : l'échelle.** Les nombres du
+fichier ne sont pas des pixels d'écran. `ELEMENTS_A_DESSINER.md` § A0 donne les
+**ratios**, qui sont invariants, et les trois lectures possibles.
+
+### 5.2 ✅ Le cadre et le groupe ont été tranchés — et ils ne sont pas de la même famille
+
+- **Cadre** : validé sur la planche 05. Sa teinte **ne déteint jamais** sur un
+  nœud (option A) ; **son bandeau porte seul le sens**, donc **son titre est
+  obligatoire** ; l'appartenance est un **lien sérialisé**, pas une géométrie
+  recalculée — **c'est le repli du cadre qui l'exige**, on ne replie pas ce qu'on
+  ne sait pas énumérer.
+- **Groupe** : *« empaqueter pour réutiliser à volonté comme des fonctions »*. Ses
+  prises **se calculent** à partir des fils qui traversaient la frontière de la
+  sélection. ✅ **Le modèle le porte déjà en entier** (mesuré).
+
+✅ **Le § 3, case « la sélection multiple », se referme en partie** : déplacer un
+cadre déplace ses **membres**, et « membre » est maintenant une donnée, pas une
+intersection à recalculer à chaque image.
+
+### 5.3 ⚠️ Ce que ce document disait de la suite est **dépassé**
+
+Le § 4 propose « je produis une planche après ta confirmation ». **Cinq planches
+existent** (`planche_01` à `planche_05`), Rodolf en a validé le cadre, et il veut
+**les modifier lui-même**.
+
+🔴 **Règle qui en découle, et elle est absolue** : **avant de régénérer une
+planche, comparer sa date de modification à celle de son script.** Si la planche
+est **plus récente**, elle a été retouchée à la main — **s'arrêter et le signaler**.
+Ne pas régénérer, ne pas fusionner « au mieux ». Une régénération écrase un
+travail humain **sans laisser de trace**, et c'est exactement le genre de perte
+qu'on ne remarque que bien plus tard.
