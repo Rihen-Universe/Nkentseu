@@ -8,7 +8,7 @@ s=head(W,H,u'Planche 03 \u2014 les quatorze formes de n\u0153ud',
        u'La forme suit la CONNECTIVIT\u00c9, jamais le nom \u2014 c\u2019est pourquoi il y en a quatorze et non cinquante-quatre \u00b7 filet ORANGE = le n\u0153ud ex\u00e9cute \u00b7 filet P\u00c9TROLE = il calcule \u00b7 filet GRIS = on ne sait pas')
 
 def lab(x,y,n,titre,note):
-    o=tt(x,y,u'%s \u00b7 %s'%(n,titre),ORANGE,12.5,'600')
+    o=panneau(u'%s_%s'%(n,titre))+tt(x,y,u'%s \u00b7 %s'%(n,titre),ORANGE,12.5,'600')
     o+=tt(x,y+16,note,TXT3,10)
     return o
 

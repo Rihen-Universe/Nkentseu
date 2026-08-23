@@ -3,4 +3,4 @@
 # une retouche faite a la main ». Ecrit par les generateurs ; ne pas
 # editer, et surtout ne pas effacer une ligne pour forcer un
 # passage -- ce serait desarmer le garde-fou au moment ou il sert.
-planche_01_noeuds.svg a56b4a7c06eae75ef840928e0708a0ce
+planche_01_noeuds.svg 585a36d37f0f3ebb937755f30455aec4

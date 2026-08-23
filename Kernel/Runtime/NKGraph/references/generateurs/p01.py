@@ -104,7 +104,7 @@ import io, os, hashlib
 # garde-fou qui ment. On importe donc la fonction, pas sa copie.
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gen import poser_police
+from gen import poser_police, structurer, panneau
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
@@ -684,7 +684,89 @@ PARTIES.append(u'''<text x="1360" y="368" fill="#F79A28" font-size="13" font-wei
 PARTIES.append(u'''</svg>
 ''')
 
-svg = poser_police(u''.join(PARTIES))
+# ---- LE RANGEMENT POUR LUNACY, cote planche 01 ----------------------------
+# p01 ecrit son SVG a la main : elle ne passe pas par gen.ecrire(), donc pas non
+# plus par structurer(). Elle etait la SEULE planche a sortir sans un seul
+# groupe -- exactement le meme piege que la police ce matin, et pour la meme
+# raison : ce fichier court a cote du chemin commun.
+import re as _re
+
+# Le titre de panneau, et LUI SEUL. Les lignes du bloc rouge commencent aussi
+# par « 4 · » mais en #c8ccd4 taille 12 : sans la couleur ET la taille ET la
+# graisse, on ouvrirait cinq panneaux fantomes au milieu d'un cartouche.
+_TITRE = _re.compile(
+    r'<text[^>]*fill="#F79A28"[^>]*font-size="13"[^>]*font-weight="600">'
+    r'(\d+) · ([^<]*)')
+
+_JETON = _re.compile(r'<g[ >]|</g>|<text[^>]*>')
+
+
+def marquer_panneaux(svg):
+    """Pose un marqueur de panneau AVANT chaque titre, a la profondeur ZERO.
+
+    ⚠️ La profondeur est ce qui rend ce passage sur -- pas une precaution de
+    style. Un panneau ouvert au milieu d'un <g> de noeud produirait un SVG mal
+    imbrique : le </g> du panneau fermerait le noeud, et le fichier sortirait
+    VALIDE avec la moitie de la planche dans le mauvais calque. On compte donc
+    les <g> ouverts, et on n'ouvre un panneau que lorsqu'il n'y en a aucun.
+    """
+    out, i, prof, poses = [], 0, 0, 0
+    for j in _JETON.finditer(svg):
+        t = j.group(0)
+        if t == '</g>':
+            prof -= 1
+        elif t.startswith('<g'):
+            prof += 1
+        elif prof == 0:
+            m = _TITRE.match(svg, j.start())
+            if m:
+                out.append(svg[i:j.start()])
+                out.append(panneau(u'%s_%s' % (m.group(1), m.group(2))))
+                i = j.start()
+                poses += 1
+    out.append(svg[i:])
+    print('planche 01 : %d panneaux marques' % poses)
+    return ''.join(out)
+
+
+def nommer_groupes(svg):
+    """Les <g> ecrits a la main n'avaient aucun id : quatorze calques « Group »
+    indistinguables dans Lunacy. On les numerote dans l'ordre du document.
+
+    ⚠️ DEUX EXCLUSIONS, et la premiere a deja casse le fichier une fois :
+      - les <g> qui ont DEJA un id -- ce sont les quatre symboles de prise
+        (pinD, pinS, pinT, pinX) definis dans <defs>. Leur en rajouter un
+        produisait « duplicate attribute » et un SVG mal forme ;
+      - tout ce qui vit dans <defs> : ce ne sont pas des objets de la planche,
+        ce sont des definitions, et Lunacy ne doit pas les montrer en calques.
+    """
+    d0 = svg.find('<defs')
+    d1 = svg.find('</defs>')
+    n = [0]
+
+    def rem(m):
+        if d0 <= m.start() <= d1:
+            return m.group(0)
+        if 'id=' in (m.group(1) or ''):
+            return m.group(0)
+        n[0] += 1
+        return '<g id="objet_p01_%02d"%s>' % (n[0], m.group(1) or '')
+
+    out = _re.sub(r'<g( [^>]*)?>', rem, svg)
+    print('planche 01 : %d groupes nommes' % n[0])
+    return out
+
+
+# ⚠️ Le </svg> final vit DANS la derniere entree de PARTIES (p01 ecrit son
+# fichier entier, gen.ecrire ne l'ajoute pas ici). structurer() aurait donc
+# enferme la balise fermante du document dans le <g> du dernier panneau, et
+# produit <g> ... </svg></g> : mal imbrique. On la DETACHE avant de ranger,
+# et on la remet apres.
+_brut = nommer_groupes(poser_police(u''.join(PARTIES)))
+_fin = '</svg>'
+assert _brut.rstrip().endswith(_fin), 'p01 : le </svg> final a bouge'
+_corps = _brut.rstrip()[:-len(_fin)]
+svg = structurer(marquer_panneaux(_corps)) + _fin + chr(10)
 chemin = os.path.join(OUT, 'planche_01_noeuds.svg')
 
 # ----------------------------------------------------------------------

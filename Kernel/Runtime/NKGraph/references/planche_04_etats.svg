@@ -7,9 +7,11 @@
 <rect width="1780" height="1250" fill="#121212"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 04 — tous les états</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="62" fill="#8A8A8A" font-size="12.5">Erreur · avertissement · désactivé · survolé · sélectionné · ACTIF · inconnu · indisponible · le tirage d’un fil · le graphe invalide · les trois paliers de dézoom</text>
+<g id="panneau_1_normal">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="118" fill="#F79A28" font-size="12.5" font-weight="600">1 · NORMAL</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="134" fill="#6A6A6A" font-size="10">la référence de comparaison</text>
-<g opacity="1.0">
+<g id="noeud_multiplier_01" opacity="1.0">
 <rect x="44" y="146" width="270" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 151a5 5 0 0 1 5 -5 h260 a5 5 0 0 1 5 5 v25 H44 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="52" y="160" fill="#F3E9DA" font-size="8">▼</text>
@@ -33,9 +35,12 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="287" y="246" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="264" y="246" fill="#C8CCD4" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
+</g>
+<g id="panneau_2_survole">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="350" y="118" fill="#F79A28" font-size="12.5" font-weight="600">2 · SURVOLÉ</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="350" y="134" fill="#6A6A6A" font-size="10">seul le FILET s’éclaircit — jamais le corps</text>
-<g opacity="1.0">
+<g id="noeud_multiplier_02" opacity="1.0">
 <rect x="350" y="146" width="270" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M350 151a5 5 0 0 1 5 -5 h260 a5 5 0 0 1 5 5 v25 H350 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="358" y="160" fill="#F3E9DA" font-size="8">▼</text>
@@ -62,9 +67,12 @@
 <rect x="349" y="145" width="272" height="116" fill="none" stroke="#5A5A68" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="350" y="278" fill="#6A6A6A" font-size="10">teinter le corps ferait CLIGNOTER le canevas</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="350" y="291" fill="#6A6A6A" font-size="10">quand la souris le traverse.</text>
+</g>
+<g id="panneau_3_selectionne">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="656" y="118" fill="#F79A28" font-size="12.5" font-weight="600">3 · SÉLECTIONNÉ</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="656" y="134" fill="#6A6A6A" font-size="10">bordure 1,6 px sur TOUT le nœud — VU 3 fois</text>
-<g opacity="1.0">
+<g id="noeud_multiplier_03" opacity="1.0">
 <rect x="656" y="146" width="270" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M656 151a5 5 0 0 1 5 -5 h260 a5 5 0 0 1 5 5 v25 H656 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="664" y="160" fill="#F3E9DA" font-size="8">▼</text>
@@ -91,9 +99,12 @@
 </g>
 <text font-family="Segoe UI, Inter, sans-serif" x="656" y="278" fill="#6A6A6A" font-size="10">trois références, trois COULEURS différentes,</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="656" y="291" fill="#6A6A6A" font-size="10">une seule convention : la BORDURE.</text>
+</g>
+<g id="panneau_4_actif">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="962" y="118" fill="#F79A28" font-size="12.5" font-weight="600">4 · ACTIF</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="962" y="134" fill="#6A6A6A" font-size="10">⚠ sélectionné + EN-TÊTE ÉCLAIRCI de 15 %</text>
-<g opacity="1.0">
+<g id="noeud_multiplier_04" opacity="1.0">
 <rect x="962" y="146" width="270" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M962 151a5 5 0 0 1 5 -5 h260 a5 5 0 0 1 5 5 v25 H962 z" fill="#4a6b8a"/>
 <path d="M962 151a5 5 0 0 1 5 -5 h260 a5 5 0 0 1 5 5 v25 H962 z" fill="#FFFFFF" opacity="0.15"/>
@@ -122,9 +133,12 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="962" y="278" fill="#6A6A6A" font-size="10">VU dans images (3) : douze nœuds ont la bordure,</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="962" y="291" fill="#6A6A6A" font-size="10">UN SEUL a l’en-tête clair. Sans lui, l’éditeur ne sait</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="962" y="304" fill="#F79A28" font-size="10">pas à qui envoyer le clavier.</text>
+</g>
+<g id="panneau_5_desactive">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="118" fill="#F79A28" font-size="12.5" font-weight="600">5 · DÉSACTIVÉ</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="134" fill="#6A6A6A" font-size="10">45 % · les prises restent à pleine opacité</text>
-<g opacity="0.45">
+<g id="noeud_multiplier_05" opacity="0.45">
 <rect x="1268" y="146" width="270" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M1268 151a5 5 0 0 1 5 -5 h260 a5 5 0 0 1 5 5 v25 H1268 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1276" y="160" fill="#F3E9DA" font-size="8">▼</text>
@@ -148,13 +162,20 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1511" y="246" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1488" y="246" fill="#C8CCD4" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
+<g id="fil_01">
 <path d="M1240 191C1280 191 1226 191 1266 191" fill="none" stroke="#17B2EB" stroke-width="2" stroke-dasharray="5 4"/>
+</g>
+<g id="fil_02">
 <path d="M1540 191C1580 191 1560 191 1600 191" fill="none" stroke="#17B2EB" stroke-width="2" stroke-dasharray="5 4"/>
+</g>
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="278" fill="#6A6A6A" font-size="10">⚠ le FIL QUI LE TRAVERSE passe en pointillé de part</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="291" fill="#6A6A6A" font-size="10">en part : un nœud éteint ne coupe pas la chaîne.</text>
+</g>
+<g id="panneau_6_erreur">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="380" fill="#F79A28" font-size="12.5" font-weight="600">6 · ERREUR</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="396" fill="#6A6A6A" font-size="10">la raison est ÉCRITE DANS le nœud, pas en infobulle</text>
-<g opacity="1.0">
+<g id="noeud_texture_image_06" opacity="1.0">
 <rect x="44" y="408" width="300" height="108" fill="#2A1A1A" stroke="#E4443C" stroke-width="1.5"/>
 <path d="M44 413a5 5 0 0 1 5 -5 h290 a5 5 0 0 1 5 5 v25 H44 z" fill="#8a6b2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="52" y="422" fill="#F3E9DA" font-size="8">▼</text>
@@ -175,9 +196,12 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="314" y="423" fill="#E4443C" font-size="13" font-weight="700" text-anchor="end">!</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="536" fill="#6A6A6A" font-size="10">dans un graphe de trente nœuds (images 2), survoler trente nœuds</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="549" fill="#6A6A6A" font-size="10">pour trouver le fautif est une minute perdue à chaque fois.</text>
+</g>
+<g id="panneau_7_avertissement">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="390" y="380" fill="#F79A28" font-size="12.5" font-weight="600">7 · AVERTISSEMENT</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="390" y="396" fill="#6A6A6A" font-size="10">ÉTAT NOUVEAU — filet orange POINTILLÉ</text>
-<g opacity="1.0">
+<g id="noeud_normale_du_mur_07" opacity="1.0">
 <rect x="390" y="408" width="300" height="108" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M390 413a5 5 0 0 1 5 -5 h290 a5 5 0 0 1 5 5 v25 H390 z" fill="#8a6b2a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="398" y="422" fill="#F3E9DA" font-size="8">▼</text>
@@ -200,6 +224,9 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="660" y="423" fill="#F79A28" font-size="12" font-weight="700" text-anchor="end">⚠</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="390" y="536" fill="#6A6A6A" font-size="10">il manquait : une texture sRVB branchée sur une Normale produit</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="390" y="549" fill="#6A6A6A" font-size="10">un graphe VALIDE ET FAUX. L’erreur mentirait, le silence aussi.</text>
+</g>
+<g id="panneau_8_les_trois_gris_a_ne_jamais_confondre">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="736" y="380" fill="#F79A28" font-size="12.5" font-weight="600">8 · ⚠ LES TROIS GRIS — à NE JAMAIS CONFONDRE</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="736" y="396" fill="#6A6A6A" font-size="10">trois causes, trois responsables, trois remèdes</text>
 <rect x="736" y="414" width="480" height="52" rx="3" fill="#212121" stroke="#33333C"/>
@@ -215,6 +242,9 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="752" y="578" fill="#F79A28" font-size="10.5">le MOTEUR ne peut pas</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1200" y="578" fill="#6A6A6A" font-size="10" text-anchor="end">hachures de CORPS + raison écrite</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="736" y="616" fill="#F79A28" font-size="10.5">un seul gris pour les trois rendrait l’éditeur inutilisable exactement au moment où l’utilisateur a besoin d’aide.</text>
+</g>
+<g id="panneau_9_pendant_le_tirage_d_un_fil">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="380" fill="#F79A28" font-size="12.5" font-weight="600">9 · PENDANT LE TIRAGE D’UN FIL</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="396" fill="#6A6A6A" font-size="10">aucune référence ne le montre — c’est pourtant LE retour le plus utile</text>
 <rect x="1268" y="424" width="440" height="38" rx="3" fill="#212121"/>
@@ -239,9 +269,12 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="606" fill="#6A6A6A" font-size="10">une règle SYMÉTRIQUE, qui est fausse.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="626" fill="#F79A28" font-size="10">et les NŒUDS ENTIERS dont aucune prise n’est compatible passent à 50 % : une prise de</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1268" y="640" fill="#F79A28" font-size="10">17 px éteinte ne se voit pas dans un graphe de trente nœuds. Un nœud, si.</text>
+</g>
+<g id="panneau_10_le_graphe_invalide_doit_rester_dessinable">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="690" fill="#F79A28" font-size="12.5" font-weight="600">10 · LE GRAPHE INVALIDE DOIT RESTER DESSINABLE</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="706" fill="#6A6A6A" font-size="10">un éditeur passe son temps dans ces états</text>
-<g opacity="1.0">
+<g id="noeud_a_08" opacity="1.0">
 <rect x="44" y="724" width="260" height="90" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 729a5 5 0 0 1 5 -5 h250 a5 5 0 0 1 5 5 v25 H44 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="52" y="738" fill="#F3E9DA" font-size="8">▼</text>
@@ -260,10 +293,12 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="277" y="800" fill="#17B2EB" font-size="8.5" font-weight="600" text-anchor="middle">1.0</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="254" y="800" fill="#F79A28" font-size="11.5" text-anchor="end">Sortie</text>
 </g>
+<g id="fil_03">
 <path d="M304 769C356.2 769 367.8 804 420 804" fill="none" stroke="#17B2EB" stroke-width="2"/>
+</g>
 <circle cx="420" cy="804" r="5" fill="none" stroke="#17B2EB" stroke-width="2"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="436" y="808" fill="#6A6A6A" font-size="10">lien pendant — terminé par un petit disque CREUX</text>
-<g opacity="1.0">
+<g id="noeud_b_09" opacity="1.0">
 <rect x="44" y="840" width="180" height="81" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M44 845a5 5 0 0 1 5 -5 h170 a5 5 0 0 1 5 5 v16 H44 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="52" y="855" fill="#F3E9DA" font-size="8">▼</text>
@@ -275,7 +310,7 @@
 <rect x="224" y="892.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="210" y="907" fill="#F79A28" font-size="11.5" text-anchor="end">out</text>
 </g>
-<g opacity="1.0">
+<g id="noeud_c_10" opacity="1.0">
 <rect x="330" y="840" width="180" height="81" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M330 845a5 5 0 0 1 5 -5 h170 a5 5 0 0 1 5 5 v16 H330 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="338" y="855" fill="#F3E9DA" font-size="8">▼</text>
@@ -287,15 +322,20 @@
 <rect x="510" y="892.0" width="6" height="22" rx="2" fill="#17B2EB" stroke="#17B2EB" stroke-width="1.6"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="496" y="907" fill="#F79A28" font-size="11.5" text-anchor="end">out</text>
 </g>
+<g id="fil_04">
 <path d="M224 873C270.8 873 281.2 873 328 873" fill="none" stroke="#E4443C" stroke-width="2"/>
+</g>
 <path d="M510 897 C 560 940 560 960 510 897" fill="none" stroke="#E4443C" stroke-width="2"/>
 <path d="M42 897 C -10 940 -10 960 42 873" fill="none" stroke="#E4443C" stroke-width="2"/>
 <path d="M42 960 H510" fill="none" stroke="#E4443C" stroke-width="2"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="979" fill="#6A6A6A" font-size="10">cycle : TOUS les fils du cycle passent en rouge — le cycle se voit comme une BOUCLE,</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="992" fill="#6A6A6A" font-size="10">pas comme un nœud fautif : aucun des deux n’a tort tout seul.</text>
+</g>
+<g id="panneau_11_les_trois_paliers_de_dezoom">
+
 <text font-family="Segoe UI, Inter, sans-serif" x="736" y="690" fill="#F79A28" font-size="12.5" font-weight="600">11 · LES TROIS PALIERS DE DÉZOOM</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="736" y="706" fill="#6A6A6A" font-size="10">les seuils sont MESURÉS sur images (2) et images (5), deux références prises à ces échelles</text>
-<g opacity="1.0">
+<g id="noeud_multiplier_11" opacity="1.0">
 <rect x="736" y="724" width="260" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M736 729a5 5 0 0 1 5 -5 h250 a5 5 0 0 1 5 5 v25 H736 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="744" y="738" fill="#F3E9DA" font-size="8">▼</text>
@@ -320,7 +360,7 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="946" y="824" fill="#C8CCD4" font-size="11.5" text-anchor="end">Résultat</text>
 </g>
 <text font-family="Segoe UI, Inter, sans-serif" x="736" y="856" fill="#8A8A8A" font-size="11">100 % — tout</text>
-<g transform="translate(1050,724) scale(0.55)"><g opacity="1.0">
+<g transform="translate(1050,724) scale(0.55)"><g id="noeud_multiplier_12" opacity="1.0">
 <rect x="0" y="0" width="260" height="114" fill="#212121" stroke="#33333C" stroke-width="1"/>
 <path d="M0 5a5 5 0 0 1 5 -5 h250 a5 5 0 0 1 5 5 v25 H0 z" fill="#4a6b8a"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="8" y="14" fill="#F3E9DA" font-size="8">▼</text>
@@ -347,6 +387,7 @@
 <rect x="1330" y="758" width="120" height="2.5" fill="#0A555F"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1330" y="788" fill="#8A8A8A" font-size="11">25 % — un RECTANGLE de la couleur de la catégorie</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1330" y="804" fill="#8A8A8A" font-size="11">+ le filet exécution / pétrole. Rien d’autre.</text>
+<g id="cartouche_ce_qui_fonde_ces_trois_paliers_01">
 <rect x="1050" y="840" width="660" height="155" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="1064" y="864" fill="#F79A28" font-size="12" font-weight="600">Ce qui fonde ces trois paliers</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1064" y="887" fill="#8A8A8A" font-size="10.5">▸ dans images (2) — un vrai graphe de trente nœuds — les libellés sont DÉJÀ illisibles</text>
@@ -356,6 +397,8 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1064" y="955" fill="#8A8A8A" font-size="10.5">   la couleur de fil sont TOUT ce qu’il reste.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1064" y="972" fill="#8A8A8A" font-size="10.5">▸ ordre de disparition : valeurs → étiquettes → prises → titre. On dézoome pour lire</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="1064" y="989" fill="#8A8A8A" font-size="10.5">   la STRUCTURE, jamais les nombres : ce qui sert à la structure part en dernier.</text>
+</g>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="1200" fill="#6A6A6A" font-size="10">Rouge d’erreur #E4443C · orange d’avertissement #F79A28 · ⚠ le rouge est à 7,1 de CIEDE2000 du rose de TEXTE en tritanopie — sans conséquence tant que l’erreur ne descend pas au niveau de la prise</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="34" y="1224" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
+</g>
 </svg>

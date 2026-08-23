@@ -23,7 +23,7 @@ s = head(W, H, u'Planche 07 — le lasso, le menu, la recherche vide, la source,
 
 
 def lab(x, y, n, titre, note=u''):
-    return tt(x, y, u'%s · %s' % (n, titre), ORANGE, 12.5, '600') + tt(x, y + 16, note, TXT3, 10)
+    return panneau(u'%s_%s'%(n,titre))+tt(x, y, u'%s · %s' % (n, titre), ORANGE, 12.5, '600') + tt(x, y + 16, note, TXT3, 10)
 
 
 def cadre(x, y, w=230, h=130):

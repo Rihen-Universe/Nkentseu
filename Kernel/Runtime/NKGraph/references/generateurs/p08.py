@@ -96,7 +96,7 @@ ROUGE_D = '#E06C6C'
 
 
 def lab(x, y, n, titre, note=u''):
-    o = tt(x, y, u'%s · %s' % (n, titre), ORANGE, 12.5, '600')
+    o = panneau(u'%s_%s'%(n,titre))+tt(x, y, u'%s · %s' % (n, titre), ORANGE, 12.5, '600')
     if note:
         o += tt(x, y + 16, note, TXT3, 10)
     return o
