@@ -23,8 +23,8 @@ REP = os.path.join(ROOT, "nkuidesign_roundtrip_controles.txt")
 
 MUTATIONS = [
     ("V1 la valeur mal formee n'est plus jugee AVANT le schema",
-     "\t\t\t\t\tif (NkGuiArchive::KindOf(ents[p].node) == NkGuiValueKind::Invalid) {",
-     "\t\t\t\t\tif (false) {"),
+     "\t\t\t\tif (NkGuiArchive::KindOf(ents[p].node) == NkGuiValueKind::Invalid) {",
+     "\t\t\t\tif (false) {"),
 
     ("V2 toute section est reputee connue",
      "\t\t\t\tif (nom.Compare(kSections[i]) == 0) {",
@@ -48,8 +48,50 @@ MUTATIONS = [
      "\t\t\t\t\t\t\tNkGValidateNode(*racines->array[k].object, NkString(\"widgets\"), 0, out);"),
 
     ("V6 le diagnostic d une PROPRIETE perd sa ligne",
-     "\t\t\t\t\t\tNkGPushDiag(out, k == NkGuiValueKind::Invalid ? \"E-VALEUR\" : \"E-TYPE\", m,\n\t\t\t\t\t\t\t\t\tents[p].node.SourceLine());",
-     "\t\t\t\t\t\tNkGPushDiag(out, k == NkGuiValueKind::Invalid ? \"E-VALEUR\" : \"E-TYPE\", m, 0);"),
+     "\t\t\t\t\tNkGPushDiag(out, k == NkGuiValueKind::Invalid ? \"E-VALEUR\" : \"E-TYPE\", m,\n\t\t\t\t\t\t\t\tents[p].node.SourceLine());",
+     "\t\t\t\t\tNkGPushDiag(out, k == NkGuiValueKind::Invalid ? \"E-VALEUR\" : \"E-TYPE\", m, 0);"),
+    # -------------------------------------------------------------------------
+    # V7..V12 -- LE VOCABULAIRE D'APPARENCE (doc 9 §3), pose le 2026-08-23.
+    #
+    # ⚠️ ELLES EXISTENT PARCE QUE LE CORRECTIF EST PLUS DANGEREUX QUE LE DEFAUT.
+    #    Les trois faux positifs disparaissaient tout aussi bien si
+    #    `NkGValidateApparence` ne faisait RIEN : le controle 23a serait vert, et
+    #    la validation aurait silencieusement cesse de juger tout un pan du
+    #    format. C'est la forme exacte du 2026-08-22 -- une capacite de refuser
+    #    qui s'en va sans laisser de trace. Ces six mutations demandent au
+    #    harnais de le prouver.
+    ("V7 `appearance` redevient un role de widget",
+     "\t\t\treturn nom.Compare(\"appearance\") == 0;",
+     "\t\t\treturn false;"),
+
+    ("V8 les proprietes d un bloc `appearance` ne sont plus jugees",
+     "\t\t\tNkGValidateProps(bloc, chemin, ap, an, nullptr, 0, NkString(\"appearance\"), out);",
+     "\t\t\t(void)ap; (void)an;"),
+
+    ("V9 les proprietes d un EFFET ne sont plus jugees",
+     "\t\t\t\tNkGValidateProps(eff, cheminEff, def->props, def->count, nullptr, 0, nom, out);",
+     "\t\t\t\t(void)def;"),
+
+    ("V10 un effet hors de la liste fermee n est plus refuse",
+     "\t\t\t\t\tNkGPushDiag(out, \"E-EFFET-INCONNU\", m, corps->array[c].SourceLine());",
+     "\t\t\t\t\t(void)m;"),
+
+    ("V11 un bloc DANS un effet n est plus refuse",
+     "\t\t\t\t\tNkGPushDiag(out, \"E-EFFET-INCONNU\", m, dedans->array[k].SourceLine());",
+     "\t\t\t\t\t(void)m;"),
+
+    # ⚠️ CELLE-CI NE CASSE RIEN DE VISIBLE : elle RELACHE. Les capacites
+    #    transversales du widget (`tooltip`, `enabled`) se mettent a passer dans
+    #    un `fill`. Aucun fichier legal ne cesse d'etre accepte, aucun message ne
+    #    change -- seul le controle 23d peut la voir. Un contournement de schema
+    #    ne produit aucune sortie : c'est la mutation la plus proche de ce qui
+    #    arrive vraiment quand on elargit une table « parce qu'un fichier reel ne
+    #    passait pas ».
+    ("V12 les capacites transversales du widget fuient dans l apparence",
+     "\t\t\t\tNkGValidateProps(eff, cheminEff, def->props, def->count, nullptr, 0, nom, out);",
+     "\t\t\t\tuint32 fuite = 0;\n"
+     "\t\t\t\tconst NkGSchemaProp *fuites = NkGUniversalProps(fuite);\n"
+     "\t\t\t\tNkGValidateProps(eff, cheminEff, def->props, def->count, fuites, fuite, nom, out);"),
 ]
 
 

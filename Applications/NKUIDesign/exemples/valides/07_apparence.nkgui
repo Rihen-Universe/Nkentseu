@@ -1,0 +1,44 @@
+nkgui 0.3
+
+// L'APPARENCE PORTEE PAR LE WIDGET -- document 9 §3.
+//
+// Ce fichier a vecu dans `limites/` : la validation y rendait TROIS FAUX
+// POSITIFS. Elle traversait `appearance`, `fill` et `shadow` comme des roles de
+// widget et rendait `E-ROLE-INCONNU` sur chacun, alors que ce sont des
+// constructions du document 9 §3. L'aller-retour, lui, avait toujours raison :
+// il etait deja octet pour octet. **C'etait la validation qui se trompait.**
+//
+// Depuis le 2026-08-23 l'apparence a son propre vocabulaire, et ce fichier
+// passe les deux gestes : 0 erreur, et l'octet rendu.
+//
+// ⚠️ IL RESTE UNE LIMITE, ET ELLE N'EST PAS FERMEE. `appearance(Hover)` --
+//    l'en-tete de bloc avec parentheses -- reste une TRANCHE VERBATIM. Son
+//    contenu n'est donc pas juge : la meme faute ecrite dans `appearance` est
+//    vue, et tue dans `appearance(Hover)`. La validation est ASYMETRIQUE.
+//
+//    C'est la forme generale du defaut que ce fichier a trouve : **la partie
+//    modelisee crie, la partie non modelisee se tait.** Ici le silence est
+//    connu, nomme, et MESURE -- controle 23e du banc, pas seulement ce
+//    commentaire. Le fermer demande d'abord la liste fermee des etats, que le
+//    document 9 §3.2 marque « a trancher » et que personne n'a ecrite.
+widgets {
+
+  Button "valider" {
+    label = "Valider"
+
+    appearance {
+      radius = 6
+      font = "Inter"
+      fill { color = #2F6F7A }
+      shadow "portee" { offset = (0, 2), blur = 6, color = #0000003A }
+    }
+
+    appearance(Hover) {
+      fill { color = #3A8894 }
+    }
+
+    appearance(Disabled) {
+      fill { color = #6B7B7E }
+    }
+  }
+}

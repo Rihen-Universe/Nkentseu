@@ -30,7 +30,8 @@ pour ça.
 
 ## `valides/` — doivent passer les deux
 
-Relevé du 2026-08-23 : **6 / 6 octet pour octet**, **0 erreur**.
+Relevé du 2026-08-23 (après le correctif d'apparence) : **7 / 7 octet pour
+octet**, **0 erreur**.
 
 | fichier | ce qu'il exerce | attendu |
 |---|---|---|
@@ -40,9 +41,17 @@ Relevé du 2026-08-23 : **6 / 6 octet pour octet**, **0 erreur**.
 | `04_echappements_utf8.nkgui` | les **trois** échappements du document 2 §2 (`\n`, `\"`, `\\`) et de l'UTF-8 réel — grec, cyrillique, japonais, arabe, symboles | 0 erreur |
 | `05_animation_comportement.nkgui` | trois sections sur les huit connues, chemins pointés `n1.value` et `Enum.Haut` | 0 erreur |
 | `06_version_0_2_alias.nkgui` | un fichier d'une **version antérieure** avec un rôle renommé depuis | **1 avertissement voulu** : `W-ROLE-ALIAS` |
+| `07_apparence.nkgui` | l'**apparence** du document 9 §3 : `appearance`, la typographie, `fill`, `shadow` nommé, et trois surcharges d'état | 0 erreur |
 
 Le seul avertissement du dossier est **le comportement correct** : un vieux
 fichier doit rester ouvrable, sinon on ne peut pas le mettre à jour.
+
+⚠️ **`07_apparence.nkgui` arrive de `limites/`, et c'est le dossier qui dit
+quoi.** Il y était parce que la validation rendait trois `E-ROLE-INCONNU`
+dessus. Elle ne les rend plus : le fichier n'a pas changé, l'outil si. Un
+fichier ne reste dans `limites/` que tant que l'outil le traite mal — sinon le
+dossier deviendrait un cimetière de défauts corrigés, et plus personne ne le
+lirait comme une liste de choses à faire.
 
 ---
 
@@ -99,18 +108,26 @@ fautifs serait mentir sur qui a tort ; les ranger avec les valides masquerait
 un défaut connu.
 
 **Les deux ont été trouvés au premier essai d'écriture manuelle**, ce que dix
-fichiers du même moule n'avaient jamais montré.
+fichiers du même moule n'avaient jamais montré. **Il en reste un.**
 
 | fichier | ce qui ne va pas | qui a tort |
 |---|---|---|
-| `01_apparence_faux_positifs.nkgui` | `appearance`, `fill`, `shadow` sont des constructions du document 9 §3, pas des widgets. La validation les traverse comme des rôles et rend **trois `E-ROLE-INCONNU`**. L'aller-retour est pourtant octet pour octet. | **la validation** |
 | `02_indentation_mixte.nkgui` | une tranche brute indentée autrement que le bloc de la section précédente est réémise avec la largeur déduite du document. Premier écart à l'octet 533. | **l'écrivain** |
 
-Sur le premier, l'ironie vaut d'être notée : `appearance(Hover)` — l'en-tête de
-bloc avec parenthèses, la **limite déclarée** — ne produit **aucune** erreur,
-parce qu'il reste une tranche verbatim que la validation ne regarde pas. **La
-partie modélisée crie, la partie non modélisée se tait.** Une limite qui protège
-d'un faux positif est un signe que le faux positif est le vrai problème.
+### Ce qui est parti d'ici, et pourquoi
+
+`01_apparence_faux_positifs.nkgui` est devenu `valides/07_apparence.nkgui` le
+2026-08-23 : les trois `E-ROLE-INCONNU` étaient un **défaut de la validation**,
+pas du fichier, et l'apparence a désormais son propre vocabulaire.
+
+Ce qu'il avait montré en passant mérite d'être gardé, parce que c'est plus
+général que le défaut lui-même : `appearance(Hover)` — l'en-tête de bloc avec
+parenthèses, la **limite déclarée** — ne produisait **aucune** erreur, parce
+qu'il reste une tranche verbatim que la validation ne regarde pas.
+
+> **La partie modélisée crie, la partie non modélisée se tait.** Une limite qui
+> protège d'un faux positif ne protège de rien : elle cache que c'est le faux
+> positif qu'il fallait traiter.
 
 ---
 
@@ -118,8 +135,13 @@ d'un faux positif est un signe que le faux positif est le vrai problème.
 
 - **`appearance(Hover)`** — en-tête de bloc avec parenthèses, conservé verbatim,
   enfants absents de l'archive. **L'usage est réel** : il s'écrit naturellement
-  dès qu'un bouton a un état survolé (`limites/01`). Mais ce qu'il révèle
-  d'abord est le faux positif ci-dessus, pas la limite elle-même.
+  dès qu'un bouton a un état survolé (`valides/07`). La limite **reste
+  ouverte**, et elle a une conséquence désormais nommée : la validation est
+  **asymétrique**, la même faute est vue dans `appearance` et tue dans
+  `appearance(Hover)`. Ce n'est plus seulement écrit — c'est **mesuré** par le
+  contrôle 23e. La fermer demande d'abord la **liste fermée des états**, que le
+  document 9 §3.2 marque explicitement « à trancher » et que personne n'a
+  écrite : c'est une décision de vocabulaire, pas un travail de code.
 - **Commentaire inline** (`a /* c */ = 1`) — non conservé. **Aucun usage
   n'apparaît.** En écrivant six fichiers à la main, le commentaire est allé
   chaque fois sur sa propre ligne, jamais entre deux jetons d'une même

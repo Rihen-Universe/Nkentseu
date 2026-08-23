@@ -238,6 +238,15 @@ namespace nkuidesign {
 		}
 
 		/// L'aller-retour sur tout un dossier.
+		// ⚠️ AUCUN FICHIER LU N'EST UN ECHEC, PAS UN SUCCES. `GetFiles` ne descend
+		//    PAS dans les sous-dossiers, et le corpus `exemples/` vit entierement
+		//    dans les siens : viser le dossier racine -- le geste naturel -- rendait
+		//    « TOTAL : 0 erreur(s) », c'est-a-dire un certificat de bonne sante pour
+		//    quatorze fichiers dont pas un n'avait ete ouvert.
+		//
+		//    C'est la meme famille que le drapeau inconnu qui ouvrait la fenetre :
+		//    **un chemin qui ne fait rien et qui en donne l'apparence.** Un banc qui
+		//    ne mesure rien doit le DIRE, sinon son silence se lit comme un vert.
 		inline int NkGRunRoundTrip(const char *directory) {
 			NkString rep("=== ALLER-RETOUR .nkgui -- le temoin du lecteur/ecrivain ===\n");
 			rep.Append("dossier : ");
@@ -253,6 +262,13 @@ namespace nkuidesign {
 			}
 
 			NkVector<NkString> files = NkDirectory::GetFiles(directory, "*.nkgui");
+			if (files.Empty()) {
+				rep.Append("ECHEC : aucun fichier .nkgui dans ce dossier. Rien n'a ete mesure.\n");
+				rep.Append("       Le balayage ne descend pas dans les sous-dossiers ; le corpus\n");
+				rep.Append("       vit dans exemples/valides, exemples/fautifs/... et exemples/limites.\n");
+				NkGPublish(rep, "nkuidesign_roundtrip.txt");
+				return 2;
+			}
 			uint32 total = 0;
 			uint32 equivalent = 0;
 			uint32 identical = 0;
@@ -341,6 +357,13 @@ namespace nkuidesign {
 				return 2;
 			}
 			NkVector<NkString> files = NkDirectory::GetFiles(directory, "*.nkgui");
+			if (files.Empty()) {
+				rep.Append("ECHEC : aucun fichier .nkgui dans ce dossier. Rien n'a ete mesure.\n");
+				rep.Append("       Le balayage ne descend pas dans les sous-dossiers ; le corpus\n");
+				rep.Append("       vit dans exemples/valides, exemples/fautifs/... et exemples/limites.\n");
+				NkGPublish(rep, "nkuidesign_validation.txt");
+				return 2;
+			}
 			uint32 totalErr = 0;
 			uint32 totalWarn = 0;
 			for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
