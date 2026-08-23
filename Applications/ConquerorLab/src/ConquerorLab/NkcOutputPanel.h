@@ -30,6 +30,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 
 #include "ConquerorLab/NkcModuleLog.h"
+#include "ConquerorLab/NkcTextAudit.h"
 #include "ConquerorLab/NkcLabTheme.h"
 #include "ConquerorLab/NkcDraw.h"
 
@@ -92,6 +93,12 @@ namespace nkentseu {
 						EndCombo(ctx);
 					}
 
+					// ---- controle des libelles hors cadre --------------------
+					// Le seul endroit de l'atelier ou « ca deborde » devient un nombre.
+					// Il se lit sans relire un ecran : 0, ou la liste des coupables avec
+					// la largeur qu'ils demandent et celle qu'on leur donne.
+					DrawTextAudit(ctx);
+
 					// ---- compteurs ------------------------------------------
 					const uint32 total	 = mLog->Total();
 					const uint32 dropped = mLog->Dropped();
@@ -107,7 +114,7 @@ namespace nkentseu {
 						std::snprintf(head, sizeof(head), "%u lignes", static_cast<unsigned>(total));
 					}
 					NkcText(ctx, ctx.layout.cursor.x, ctx.layout.cursor.y, head,
-							dropped > 0 ? NkcPalette::Accent() : NkcPalette::TextDim(), 0.f);
+							dropped > 0 ? NkcPalette::Accent() : NkcPalette::TextDim(), ctx.ContentWidth());
 					ctx.layout.cursor.y += NkcLineH(ctx) + ctx.S(4.f);
 					Separator(ctx);
 
@@ -145,7 +152,48 @@ namespace nkentseu {
 					});
 				}
 
+
 			private:
+				/// Liste les libelles dont la largeur rendue depasse leur cadre.
+				///
+				/// Le libelle du repli est FIXE : NKGui indexe l'etat ouvert/ferme par
+				/// le texte du titre, et y coller le compteur rouvrirait la section a
+				/// chaque fois que le compteur bouge.
+				void DrawTextAudit(NkGuiContext &ctx) noexcept {
+					NkcTextAudit &a		 = NkcTextAudit::Get();
+					const uint32  n		 = a.Count();
+					if (!CollapsingHeader(ctx, "Libelles hors cadre")) return;
+
+					char head[192];
+					if (n == 0) {
+						std::snprintf(head, sizeof(head), "0 libelle hors cadre.");
+					} else if (a.Dropped() > 0) {
+						std::snprintf(head, sizeof(head),
+									  "%u libelles hors cadre  —  %u autres non detailles (registre plein)",
+									  static_cast<unsigned>(n), static_cast<unsigned>(a.Dropped()));
+					} else {
+						std::snprintf(head, sizeof(head), "%u libelles hors cadre", static_cast<unsigned>(n));
+					}
+					NkcText(ctx, ctx.layout.cursor.x, ctx.layout.cursor.y, head,
+							n == 0 ? NkcPalette::TextDim() : NkcPalette::Warn(), ctx.ContentWidth());
+					ctx.layout.cursor.y += NkcLineH(ctx) + ctx.S(4.f);
+
+					if (Button(ctx, "Reinitialiser le controle")) a.Clear();
+
+					const float32 lineH = NkcLineH(ctx) + ctx.S(3.f);
+					for (uint32 i = 0; i < n; ++i) {
+						const NkcTextOverflow &e   = a.Item(i);
+						const NkRect		   row = ctx.NextItemRect(0.f, lineH);
+						char				   line[320];
+						std::snprintf(line, sizeof(line), "%.0f px demandes pour %.0f px  (x%u)  %s",
+									  static_cast<double>(e.wanted), static_cast<double>(e.avail),
+									  static_cast<unsigned>(e.hits), e.text);
+						NkcText(ctx, row.x + ctx.S(10.f), row.y + ctx.S(1.f), line, NkcPalette::TextDim(),
+								row.w - ctx.S(14.f));
+					}
+					Separator(ctx);
+				}
+
 				NkcModuleLog *mLog		= nullptr;
 				int32		  mMinLevel = 0;
 		};
