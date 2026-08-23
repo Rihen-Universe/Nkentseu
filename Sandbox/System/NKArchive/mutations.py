@@ -19,6 +19,9 @@ import io, os, re, subprocess, sys
 
 ROOT = r"D:\Projets\2026\Nkentseu\Nkentseu-noge"
 CPP = os.path.join(ROOT, r"Kernel\System\NKSerialization\src\NKSerialization\NkGui\NkGuiArchive.cpp")
+# Certaines mutations visent le coeur de l archive et non la couche : le champ
+# `sourceLine` y vit, comme `sourceOrder`. Le harnais essaie les deux fichiers.
+ARC = os.path.join(ROOT, r"Kernel\System\NKSerialization\src\NKSerialization\NkArchive.cpp")
 EXE = os.path.join(ROOT, r"Build\Bin\Debug-Windows\SandboxNKArchive\SandboxNKArchive.exe")
 
 MUTATIONS = [
@@ -171,6 +174,27 @@ MUTATIONS = [
     ("M37 Equal ignore la trivia meme quand on la demande",
      "\t\t\tif (tv && (!EqView(a.LeadingTrivia(), b.LeadingTrivia())",
      "\t\t\tif (false && (!EqView(a.LeadingTrivia(), b.LeadingTrivia())"),
+
+    # ---- la ligne du fichier (2026-08-23) -----------------------------------
+    ("M38 le lecteur ne pose pas la ligne sur une PROPRIETE",
+     "\t\t\t\t\tar.SetSourceLine(NkStringView(key), (nk_int32)T[i].line);",
+     ""),
+
+    ("M39 le lecteur ne pose pas la ligne sur un BLOC",
+     "\t\t\t\t\tnode.SetSourceLine((nk_int32)T[head].line);",
+     ""),
+
+    ("M40 le lecteur ne pose pas la ligne sur une TRANCHE BRUTE",
+     "\t\t\t\t\tnode.SetSourceLine((nk_int32)T[i].line);",
+     ""),
+
+    ("M41 SourceLine rend toujours 1 au lieu de la ligne lue",
+     "\t\treturn mTrivia ? mTrivia->sourceLine : -1;",
+     "\t\treturn mTrivia ? 1 : -1;"),
+
+    ("M42 la ligne ne survit pas a AdoptFormatting",
+     "\t\t\tif (st->sourceLine >= 0) {\n\t\t\t\tdst.SetSourceLine(st->sourceLine);\n\t\t\t}",
+     ""),
 ]
 
 
@@ -195,24 +219,30 @@ def failing(out):
 
 
 def main():
-    orig = io.open(CPP, encoding="utf-8").read()
+    src = {CPP: io.open(CPP, encoding="utf-8").read(),
+           ARC: io.open(ARC, encoding="utf-8").read()}
     build()
     base, tot, out = run()
     print("REFERENCE : %s / %s" % (base, tot))
     print("=" * 88)
     survivants = []
     for name, old, new in MUTATIONS:
-        if old not in orig:
+        cible = None
+        for f in (CPP, ARC):
+            if old in src[f]:
+                cible = f
+                break
+        if cible is None:
             print("%-72s  ANCRE INTROUVABLE" % name)
             continue
-        io.open(CPP, "w", encoding="utf-8").write(orig.replace(old, new, 1))
+        io.open(cible, "w", encoding="utf-8").write(src[cible].replace(old, new, 1))
         blog = build()
         if "error C" in blog or "error LNK" in blog:
-            io.open(CPP, "w", encoding="utf-8").write(orig)
+            io.open(cible, "w", encoding="utf-8").write(src[cible])
             print("%-72s  NE COMPILE PAS" % name)
             continue
         p, t, out = run()
-        io.open(CPP, "w", encoding="utf-8").write(orig)
+        io.open(cible, "w", encoding="utf-8").write(src[cible])
         if p is None:
             print("%-72s  PLANTE" % name)
             survivants.append(name)
@@ -223,7 +253,8 @@ def main():
         print("%-72s  %3d/%3d  %s" % (name, p, t, "TUEE" if tue else ">>> SURVIT <<<"))
         for l in failing(out)[:3]:
             print("        %s" % l[:140])
-    io.open(CPP, "w", encoding="utf-8").write(orig)
+    for f in (CPP, ARC):
+        io.open(f, "w", encoding="utf-8").write(src[f])
     build()
     p, t, out = run()
     print("=" * 88)

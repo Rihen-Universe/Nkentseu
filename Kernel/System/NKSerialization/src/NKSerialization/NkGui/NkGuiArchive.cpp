@@ -647,6 +647,10 @@ namespace nkentseu {
 					const NkString lead = TakeLead(i);
 					SetTypedValue(ar, key, T, v0, v1, raw);
 					ar.SetSourceOrder(NkStringView(key), rank++);
+					// LA LIGNE DU FICHIER, portee jusqu'au diagnostic. Elle vient du
+					// jeton qui ouvre le membre, pas de sa valeur : c'est le nom de la
+					// propriete que l'utilisateur cherche des yeux.
+					ar.SetSourceLine(NkStringView(key), (nk_int32)T[i].line);
 					ar.SetLeadingTrivia(NkStringView(key), NkStringView(lead));
 					ar.SetTrailingTrivia(NkStringView(key), NkStringView(T[v1].trail));
 					i = v1 + 1;
@@ -800,6 +804,7 @@ namespace nkentseu {
 					NkArchiveNode node;
 					node.SetObject(child);
 					node.SetSourceOrder(rank++);
+					node.SetSourceLine((nk_int32)T[head].line);
 					node.SetLeadingTrivia(NkStringView(lead));
 					node.SetTrailingTrivia(NkStringView(T[k].trail));
 					body.PushBack(node);
@@ -816,6 +821,7 @@ namespace nkentseu {
 					// trivia de valeur, aucun mecanisme.
 					NkArchiveNode node(NkArchiveValue::FromString(NkStringView(Slice(i, e))));
 					node.SetSourceOrder(rank++);
+					node.SetSourceLine((nk_int32)T[i].line);
 					node.SetLeadingTrivia(NkStringView(lead));
 					node.SetTrailingTrivia(NkStringView(T[e].trail));
 					body.PushBack(node);

@@ -329,6 +329,21 @@ namespace nkentseu {
 		return mTrivia ? mTrivia->sourceOrder : -1;
 	}
 
+	void NkArchiveNode::SetSourceLine(nk_int32 line) noexcept {
+		if (line < 0) {
+			// Effacer une ligne ne doit pas allouer un bloc pour rien.
+			if (mTrivia) {
+				mTrivia->sourceLine = -1;
+			}
+			return;
+		}
+		EnsureTrivia().sourceLine = line;
+	}
+
+	nk_int32 NkArchiveNode::SourceLine() const noexcept {
+		return mTrivia ? mTrivia->sourceLine : -1;
+	}
+
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetLiteral
 	// DESCRIPTION : Pose le lexème d'origine ET le texte canonique qu'il dénotait
@@ -499,6 +514,20 @@ namespace nkentseu {
 		return true;
 	}
 
+	nk_bool NkArchive::SetSourceLine(NkStringView key, nk_int32 line) noexcept {
+		NkArchiveNode *n = FindNode(key);
+		if (!n) {
+			return false;
+		}
+		n->SetSourceLine(line);
+		return true;
+	}
+
+	nk_int32 NkArchive::GetSourceLine(NkStringView key) const noexcept {
+		const NkArchiveNode *n = FindNode(key);
+		return n ? n->SourceLine() : -1;
+	}
+
 	nk_int32 NkArchive::GetSourceOrder(NkStringView key) const noexcept {
 		const NkArchiveNode *n = FindNode(key);
 		return n ? n->SourceOrder() : -1;
@@ -587,6 +616,9 @@ namespace nkentseu {
 			}
 			if (st->sourceOrder >= 0) {
 				dst.SetSourceOrder(st->sourceOrder);
+			}
+			if (st->sourceLine >= 0) {
+				dst.SetSourceLine(st->sourceLine);
 			}
 
 			// La forme littérale, elle, appartient à LA VALEUR. On ne la reprend
