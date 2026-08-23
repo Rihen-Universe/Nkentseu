@@ -192,7 +192,10 @@ s+=lab(44,R4,'13',u'INERTES \u2014 relais nu, relais nomm\u00e9 (la puce), comme
 s+=fil(60,R4+70,150,R4+70,FAM['appar'],2)
 s+=prise(158,R4+70,FAM['appar'],True,False,'relais')
 s+=fil(166,R4+70,260,R4+56,FAM['appar'],2)
-s+=tt(52,R4+104,u'relais NU : un carr\u00e9 17\u00d717, pas la prise \u00e0 cheval \u2014 il n\u2019appartient \u00e0 aucun bord',TXT3,10)
+# Coupees en deux le 23/08 : les trois legendes de cette rangee
+# tenaient sur UNE ligne et deux d'entre elles se recouvraient.
+s+=tt(52,R4+104,u'relais NU : un carr\u00e9 17\u00d717, pas la prise \u00e0 cheval \u2014',TXT3,10)
+s+=tt(52,R4+118,u'il n\u2019appartient \u00e0 aucun bord',TXT3,10)
 # puce
 px,py=330,R4+52
 s+='<rect x="%s" y="%s" width="196" height="34" rx="13" fill="%s"/>\n'%(px,py,CORPS)
@@ -201,7 +204,8 @@ s+=tt(px+22,py+22,u'\u26ad','#C7C0F0',12,None,'middle')
 s+=tt(px+56,py+22,u'position.monde',TXT,11.5)
 s+=prise(px,py+17,ORANGE,True,False)
 s+=prise(px+196,py+17,FAM['geom'],True,False)
-s+=tt(330,R4+104,u'relais NOMM\u00c9 (la puce) : VU sur la principale \u2014 entr\u00e9e ET sortie, bloc-ic\u00f4ne plein \u00e0 gauche',TXT3,10)
+s+=tt(330,R4+104,u'relais NOMM\u00c9 (la puce) : VU sur la principale \u2014 entr\u00e9e ET sortie,',TXT3,10)
+s+=tt(330,R4+118,u'bloc-ic\u00f4ne plein \u00e0 gauche',TXT3,10)
 s+=tt(720,R4+44,u'Le repli du bruit vient d\u2019ici \u2014 ne pas y toucher',TXT2,13)
 s+=tt(720,R4+62,u'sans relire la note du 12/08.',TXT2,13)
 s+=tt(720,R4+104,u'COMMENTAIRE : du texte POS\u00c9 sur le fond \u2014 aucun corps, aucun filet, aucun fond.',TXT3,10)
