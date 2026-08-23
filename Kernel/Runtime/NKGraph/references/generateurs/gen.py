@@ -9,7 +9,31 @@ FAM={'exec':'#F79A28','nombre':'#17B2EB','geom':'#C0EB81','texte':'#F2559B',
      'appar':'#D9B6A3','ref':'#81EBEB','quel':'#9AA3AD'}
 CAT={'surface':'#2a6b6b','texture':'#8a6b2a','outil':'#4a6b8a','entree':'#0A555F',
      'flot':'#8a5a2a','variable':'#6b4a8a','sortie':'#F79A28','erreur':'#8a3a30'}
-PW,PH=6,22
+# == LA CONVENTION DES PRISES ET DU FILET D EXECUTION ================================
+# Toutes ces valeurs viennent d'UNE mesure : le noeud de reference de Rodolf
+# dans editeur_nodal.sketch, ramene a l'echelle d'etude des planches
+# (2,1 x l'echelle 1 de l'editeur, soit 0,3474 x le dessin de Rodolf).
+#
+#   ce que Rodolf dessine        ce qu'on trace ici
+#   en-tete            126,64    21   (echelle 1 -- PAS exagere)
+#   prise de donnee    17,27 x 63,32  ->  6 x 22
+#   prise d'execution  44,43 x 51,83  ->  15,5 x 18
+#   filet d'execution  11,00          ->  3,8
+#
+# ⚠️ CES TROIS-LA ETAIENT FAUSSES ICI, et les six planches qui passent par
+# ce fichier les contredisaient donc toutes. La planche 01 avait ete corrigee
+# seule le 23/08, avec ses propres symboles : la REFERENCE contredisait les
+# six autres. Une etude qui se contredit ne permet pas de decider, et decider
+# est la seule chose pour laquelle ces planches existent.
+PW, PH = 6, 22          # prise de DONNEE : ratio 1:3,67, moitie de l en-tete
+PXW, PXH = 15.5, 18     # prise d'EXECUTION : PAS la moitie -- 0,409
+PXD = 3.7               # ... dont 3,7 DEHORS ; les 11,8 restants sont DEDANS
+FILET_EXEC = 3.8        # filet d'execution sous l en-tete (2,5 avant)
+# ⚠️ FILET (sans suffixe, ligne 6) est une COULEUR -- le bord du noeud.
+# Nommer celui-ci FILET tout court l ecrasait : chaque noeud recevait
+# stroke="3.8", et p02/p05 qui font stroke=FILET aussi. Le SVG serait
+# sorti VALIDE, avec des bords invisibles. Deux sens pour un nom, dans un
+# fichier ou l un est une couleur et l autre une epaisseur.
 
 def head(w,h,titre,sous):
     return ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" '
@@ -50,10 +74,27 @@ def tt(x,y,s,fill=TXT,size=11.5,w=None,anchor=None,op=None):
 def titre_bloc(x,y,s):
     return tt(x,y,s,ORANGE,13,'600')
 
-def prise(x,y,coul,plein=True,exec_=False,forme='simple'):
-    px,py=x-PW/2.0,y-PH/2.0
+def prise(x,y,coul,plein=True,exec_=False,forme='simple',sortie=False):
+    """x est TOUJOURS le bord du noeud, jamais le centre de la prise.
+
+    C'est la seule ancre qui rende un decalage visible a la lecture : on ecrit
+    la coordonnee qu'on connait, pas « le bord moins la moitie de la largeur »,
+    qu on recalcule faux. La v3 de la planche 01 a paye exactement ca.
+
+    ⚠️ LES DEUX FAMILLES NE SE POSENT PAS PAREIL, et c est VOULU (§ 3.1) :
+      - DONNEE    : entierement DEHORS, collee au bord ;
+      - EXECUTION : a CHEVAL -- 3,7 dehors, 11,8 dedans, parce que « les
+        prises d instruction doivent bien se marier au noeud ».
+    Ce fichier posait les DEUX a cheval sur PW/2 : la donnee etait donc fausse
+    partout, et le dehors/dedans de l execution ne voulait rien dire.
+    """
+    px,py=(x if sortie else x-PW),y-PH/2.0
     if exec_:
-        d='M%s %sh%sl%s %sl%s %sh%sz'%(px,py,PW*0.6,PW*0.9,PH/2.0,-PW*0.9,PH/2.0,-PW*0.6)
+        # dehors = a gauche pour une entree, a droite pour une sortie ;
+        # la pointe regarde vers la droite dans les deux cas.
+        xe = x - (PXW - PXD) if sortie else x - PXD
+        ye = y - PXH/2.0
+        d='M%s %sh%sl%s %sl%s %sh%sz'%(xe,ye,PXW*0.58,PXW*0.42,PXH/2.0,-PXW*0.42,PXH/2.0,-PXW*0.58)
         f=coul if plein else 'none'
         return '<path d="%s" fill="%s" stroke="%s" stroke-width="1.6"/>\n'%(d,f,coul)
     f=coul if plein else CORPS
@@ -71,6 +112,7 @@ def prise(x,y,coul,plein=True,exec_=False,forme='simple'):
             s+='<rect x="%s" y="%s" width="%s" height="%s" rx="1" fill="%s" stroke="%s" stroke-width="1.2"/>\n'%(px,yy,hw,seg,f,coul)
             s+='<rect x="%s" y="%s" width="%s" height="%s" rx="1" fill="%s" stroke="%s" stroke-width="1.2"/>\n'%(px+hw+1.6,yy,hw,seg,f,coul)
     elif forme=='relais':
+        # centre sur le bord, expres : un relais n a ni dedans ni dehors
         s='<rect x="%s" y="%s" width="%s" height="%s" rx="2" fill="%s" stroke="%s" stroke-width="1.6"/>\n'%(x-8,y-8,16,16,f,coul)
     elif forme=='tiret':
         s='<rect x="%s" y="%s" width="%s" height="%s" rx="2" fill="none" stroke="%s" stroke-width="1.6" stroke-dasharray="3 2.5"/>\n'%(px,py,PW,PH,coul)
@@ -101,10 +143,10 @@ def noeud(x,y,w,rows,titre,sous=None,cat='#4a6b8a',exec_=False,apercu=0,
     if aide: s+=tt(x+w-10,y+(15 if not sous else 14),'?','#9FB4C8',12,None,'end')
     fil = filet if filet else ('#5A5A64' if inconnu else (ORANGE if exec_ else PETROLE))
     if filet=='pointille':
-        s+='<rect x="%s" y="%s" width="%s" height="2.5" fill="%s" mask="none" opacity="1"/>\n'%(x,y+eh,w,'#2A2A2A')
-        s+='<path d="M%s %sH%s" stroke="%s" stroke-width="2.5" stroke-dasharray="6 4"/>\n'%(x,y+eh+1.25,x+w,ORANGE)
+        s+='<rect x="%s" y="%s" width="%s" height="%s" fill="%s" mask="none" opacity="1"/>\n'%(x,y+eh,w,FILET_EXEC,'#2A2A2A')
+        s+='<path d="M%s %sH%s" stroke="%s" stroke-width="%s" stroke-dasharray="6 4"/>\n'%(x,y+eh+FILET_EXEC/2.0,x+w,ORANGE,FILET_EXEC)
     else:
-        s+='<rect x="%s" y="%s" width="%s" height="2.5" fill="%s"/>\n'%(x,y+eh,w,fil)
+        s+='<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>\n'%(x,y+eh,w,FILET_EXEC,fil)
     if hachure:
         s+='<rect x="%s" y="%s" width="%s" height="%s" fill="url(#hachure)"/>\n'%(x+1,y+eh+3,w-2,hh-eh-4)
     cy=y+eh+6
@@ -129,7 +171,7 @@ def noeud(x,y,w,rows,titre,sous=None,cat='#4a6b8a',exec_=False,apercu=0,
             if r.get('glyphe'): s+=pastille(x+8,yc,r['coul'],r['glyphe']); lx=x+44
         if r.get('sub'): lx+=16
         if r.get('sortie'):
-            s+=prise(x+w,yc,r['coul'],r.get('plein',False),r.get('exec'),r.get('forme','simple'))
+            s+=prise(x+w,yc,r['coul'],r.get('plein',False),r.get('exec'),r.get('forme','simple'),sortie=True)
             gx=x+w-14
             if r.get('glyphe'): s+=pastille(x+w-42,yc,r['coul'],r['glyphe']); gx=x+w-50
             s+=tt(gx,yc+4,r['lab'],ORANGE if r.get('plein') else TXT,11.5,None,'end')

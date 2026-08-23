@@ -307,7 +307,7 @@ s+='<path d="M%s %sa13 13 0 0 0 -13 13 v8 a13 13 0 0 0 13 13 z" fill="#2E2770"/>
 s+=tt(px+17,py+22,u'\u26d3',u'#C8B8FF',13,None,'middle')
 s+=tt(px+46,py+22,u'b\u00e9ton.albedo',TXT,12)
 s+=prise(px,py+ph/2.0,FAM['appar'],True)
-s+=prise(px+pw,py+ph/2.0,FAM['appar'],True)
+s+=prise(px+pw,py+ph/2.0,FAM['appar'],True,sortie=True)
 s+=fil(X10,py+ph/2.0,px,py+ph/2.0,FAM['appar'],2)
 s+=fil(px+pw,py+ph/2.0,px+pw+60,py+ph/2.0,FAM['appar'],2)
 s+=tt(X10,y11+100,u'ce n\u2019est donc PAS un simple point sur un fil : c\u2019est une VALEUR NOMM\u00c9E QUI PASSE.',ORANGE,10)
