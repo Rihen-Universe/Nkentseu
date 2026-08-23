@@ -1,0 +1,64 @@
+=== MESURE : directive inconnue dans .nkgraph ===
+
+temoin : Connect -> ok ; lien_id=1 ; noeuds=2 liens=1
+---- SERIALISE DE REFERENCE ----
+nkgraph 1
+compteurs 3 2
+type 1 float
+type 2 color
+conv 1 2
+noeud 1 10.000000 20.000000 math.add Addition
+sock 1 0 1 A
+sock 1 0 1 B
+sock 1 1 1 R
+noeud 2 300.000000 40.000000 out.color Sortie
+sock 2 0 2 In
+lien 1 1 2 2 0
+----
+  [ok]    temoin : Deserialize rend true
+  [ok]    temoin : aller-retour identique octet pour octet
+
+[CAS A] directive inconnue inseree apres la premiere ligne `noeud`
+  Deserialize -> true
+  [ok]    CAS A : Deserialize rend true (non refusee)
+  [ok]    CAS A : graphe relu IDENTIQUE au temoin (ignoree, non corrompue)
+
+[CAS B] directive inconnue juste apres l'entete `nkgraph`
+  Deserialize -> true
+  [ok]    CAS B : Deserialize rend true
+  [ok]    CAS B : graphe identique
+
+[CAS C] directive inconnue AVANT la ligne `nkgraph`
+  Deserialize -> false
+  [ok]    CAS C : refusee (l entete doit rester la premiere ligne)
+
+[CAS D] mot-cle `noeudcadre` (prefixe du mot-cle connu `noeud`)
+  Deserialize -> true
+  [ok]    CAS D : prefixe non confondu avec `noeud`
+
+[CAS E] ligne vide inseree
+  Deserialize -> true
+  [ok]    CAS E : ligne vide sans effet
+
+[CAS F] survie de la directive inconnue a un annuler/refaire
+  Undo -> true ; directive `cadre` encore presente ? NON
+  [ok]    CAS F : la directive inconnue est PERDUE des le premier annuler
+
+[CAS G] directive inconnue au niveau document
+---- DOC REFERENCE ----
+nkgraphdoc 1
+racine 0
+graphe principal
+nkgraph 1
+compteurs 2 1
+type 1 float
+noeud 1 0.000000 0.000000 math.add Add
+----
+  [niveau doc] Deserialize -> true
+  [ok]    CAS G1 : inconnue au niveau document ignoree
+  [corps]      Deserialize -> true
+  [ok]    CAS G2 : inconnue dans le corps ignoree
+  [prefixe graphe] Deserialize -> true ; graphes=1 (attendu 1)
+  [ok]    CAS G3 : `graphecadre` non confondu avec `graphe`
+
+=== BILAN : 0 echec(s) ===

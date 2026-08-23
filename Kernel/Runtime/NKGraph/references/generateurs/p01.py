@@ -1,4 +1,65 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1270" viewBox="0 0 1680 1270" font-family="Segoe UI, Inter, sans-serif">
+# -*- coding: utf-8 -*-
+"""Generateur de planche_01_noeuds.svg.
+
+ECRIT LE 22/08, et il arrive APRES la planche : celle-ci a ete dessinee
+avant que les generateurs existent, et elle etait donc la seule des cinq
+que PERSONNE ne pouvait modifier -- alors que c'est la reference
+principale. Ce fichier repare ca.
+
+POURQUOI IL NE REDESSINE PAS AVEC gen.py, alors que p02/p03/p05 le font :
+la planche 01 est ANTERIEURE a gen.py et n'a pas les memes defs (sa
+grille est en #2b2b33, elle ignore les motifs damier/hachure/ciel). La
+redessiner avec gen.py produirait une AUTRE planche -- et remplacer en
+silence la reference de Rodolf par une variante serait exactement le
+genre de perte qu'on traque ici.
+
+CE QU'IL FAIT : il porte la planche DECOUPEE EN PANNEAUX, chacun editable
+a part. Modifier le panneau 3 ne peut pas abimer le panneau 7.
+
+CRITERE D'ACCEPTATION, verifie a chaque execution : le SVG produit est
+IDENTIQUE A L'OCTET PRES a celui qui existait. Le script le CONTROLE et
+refuse d'ecrire s'il diverge -- voir la fin du fichier.
+
+CE QUE LA PLANCHE AFFIRME ET QUI EST DESORMAIS FAUX -- a corriger AU MOMENT
+du passage a l echelle mesuree (voir ELEMENTS_A_DESSINER.md section A0), et
+PAS avant : tant que p04.py est perime, corriger ici seul rendrait les cinq
+planches incoherentes entre elles, ce qui est pire qu un ecart uniforme.
+
+  ligne / panneau                      | ce qui est ecrit        | mesure
+  -------------------------------------|-------------------------|--------------
+  sous-titre de planche                | prises A CHEVAL         | prise de DONNEE
+  titre du panneau 3                   | A CHEVAL SUR LE BORD    | entierement
+  panneau 3, legende                   | 10 x 12 px              | DEHORS, collee
+  cartouche point 2                    | 10 x 12, a cheval       | au bord :
+  pied de planche                      | 10 x 12, a cheval       | 2,9 x 10,5 px
+
+  Seule la prise d EXECUTION chevauche vraiment (33,7 px dans le corps) --
+  et c est VOULU : " les prises d instruction doivent bien se marier au noeud ".
+  Le sous-titre " prises d execution mariees au bord " est donc JUSTE ; c est
+  la phrase sur les prises de DONNEE qui ne l est pas.
+
+  Le rapport a retenir, exact : hauteur de prise = MOITIE de la hauteur
+  d en-tete (63,3 / 126,6 = 0,500000).
+"""
+import io, os, hashlib
+
+OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+# Empreinte de la planche APRES la correction des affirmations fausses
+# (22/08 : la prise de donnee passe entierement dehors, textes et DESSIN
+# corriges ensemble -- les corriger separement aurait fait se contredire la
+# planche, ce qui est pire que de la laisser perimee).
+# Elle est ici pour qu'une modification VOULUE se distingue d'une
+# modification ACCIDENTELLE : si tu edites un panneau expres, l'empreinte
+# ne correspond plus et le script te le DIT au lieu d'ecrire en silence.
+EMPREINTE_ORIGINE = '791a238bf7bd279e2188edcfb9bc6054'
+
+PARTIES = []
+
+# --------------------------------------------------------------------------
+# entete, defs, fond et titre de planche
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1270" viewBox="0 0 1680 1270" font-family="Segoe UI, Inter, sans-serif">
 <defs>
   <pattern id="grille" width="22" height="22" patternUnits="userSpaceOnUse">
     <circle cx="1.5" cy="1.5" r="1" fill="#2b2b33"/>
@@ -23,7 +84,12 @@
 <text x="34" y="62" fill="#8a8a96" font-size="12.5">v3 — coins quasi droits (5 en haut, 3 en bas) · prise de DONNÉE collée au bord, ENTIÈREMENT DEHORS · valeur saisie dans la rangée · prise d'EXÉCUTION à cheval, mariée au bord</text>
 
 <!-- ============ 1 · CALCUL, avec + / - ============ -->
-<text x="34" y="106" fill="#F79A28" font-size="13" font-weight="600">1 · NŒUD DE CALCUL — entrées ajoutables</text>
+''')
+
+# --------------------------------------------------------------------------
+# 1 · NŒUD DE CALCUL — entrées ajoutables
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="34" y="106" fill="#F79A28" font-size="13" font-weight="600">1 · NŒUD DE CALCUL — entrées ajoutables</text>
 <g filter="url(#ombre)">
   <rect x="40" y="120" width="252" height="176" rx="3" fill="#232329" stroke="#3a3a44"/>
   <path d="M40 123a3 3 0 0 1 3-3h246a3 3 0 0 1 3 3v21H40z" fill="#4a6b8a"/>
@@ -59,7 +125,12 @@
 <text x="40" y="318" fill="#6f6f7b" font-size="11">une entrée BRANCHÉE perd son champ de saisie · le − la retire, le + en ajoute</text>
 
 <!-- ============ 2 · INSTRUCTION ============ -->
-<text x="368" y="106" fill="#F79A28" font-size="13" font-weight="600">2 · NŒUD D'INSTRUCTION</text>
+''')
+
+# --------------------------------------------------------------------------
+# 2 · NŒUD D'INSTRUCTION
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="368" y="106" fill="#F79A28" font-size="13" font-weight="600">2 · NŒUD D'INSTRUCTION</text>
 <g filter="url(#ombre)">
   <rect x="374" y="120" width="266" height="150" rx="3" fill="#232329" stroke="#3a3a44"/>
   <path d="M374 123a3 3 0 0 1 3-3h260a3 3 0 0 1 3 3v21H374z" fill="#8a5a2a"/>
@@ -84,7 +155,12 @@
 <text x="374" y="308" fill="#6f6f7b" font-size="11">elle CHEVAUCHE le corps — contrairement à la prise de donnée</text>
 
 <!-- ============ 3 · DETAIL DES PRISES ============ -->
-<text x="700" y="106" fill="#F79A28" font-size="13" font-weight="600">3 · LES PRISES — la DONNÉE reste DEHORS</text>
+''')
+
+# --------------------------------------------------------------------------
+# 3 · LES PRISES — la DONNÉE reste DEHORS
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="700" y="106" fill="#F79A28" font-size="13" font-weight="600">3 · LES PRISES — la DONNÉE reste DEHORS</text>
 <g filter="url(#ombre)">
   <rect x="706" y="122" width="150" height="112" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="706" y="122" width="150" height="21" rx="3" fill="#2a6b6b"/>
@@ -99,7 +175,12 @@
 <text x="706" y="272" fill="#6f6f7b" font-size="11">la couleur EST le type · le fil part de son centre</text>
 
 <!-- ============ 4 · PASTILLES ============ -->
-<text x="700" y="310" fill="#F79A28" font-size="13" font-weight="600">4 · PASTILLES DE TYPE — couleur ET glyphe</text>
+''')
+
+# --------------------------------------------------------------------------
+# 4 · PASTILLES DE TYPE — couleur ET glyphe
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="700" y="310" fill="#F79A28" font-size="13" font-weight="600">4 · PASTILLES DE TYPE — couleur ET glyphe</text>
 <g font-size="8.5" text-anchor="middle">
   <rect x="706" y="322" width="19" height="15" rx="2" fill="#2a4a63"/><text x="715" y="333" fill="#8fc7e8">1.0</text>
   <rect x="733" y="322" width="19" height="15" rx="2" fill="#2a4463"/><text x="742" y="333" fill="#9fb0e8">123</text>
@@ -114,7 +195,12 @@
 </g>
 
 <!-- ============ 5 · DONNEE COMPOSEE, PLIEE / DEPLIEE ============ -->
-<text x="1000" y="106" fill="#F79A28" font-size="13" font-weight="600">5 · DONNÉE COMPOSÉE — pliée, puis dépliée</text>
+''')
+
+# --------------------------------------------------------------------------
+# 5 · DONNÉE COMPOSÉE — pliée, puis dépliée
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="1000" y="106" fill="#F79A28" font-size="13" font-weight="600">5 · DONNÉE COMPOSÉE — pliée, puis dépliée</text>
 <g filter="url(#ombre)">
   <rect x="1006" y="120" width="248" height="60" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="1006" y="120" width="248" height="21" rx="3" fill="#0A555F"/>
@@ -147,7 +233,12 @@
 <text x="1006" y="332" fill="#6f6f7b" font-size="11">Séparer en trois PRISES est autre chose (voir CATALOGUE §5ter)</text>
 
 <!-- ============ 6 · COLORRAMP AVEC PRISES PAR ARRET ============ -->
-<text x="34" y="368" fill="#F79A28" font-size="13" font-weight="600">6 · COLORRAMP — les arrêts SONT des prises, ajoutables et retirables</text>
+''')
+
+# --------------------------------------------------------------------------
+# 6 · COLORRAMP — les arrêts SONT des prises, ajoutables et retirables
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="34" y="368" fill="#F79A28" font-size="13" font-weight="600">6 · COLORRAMP — les arrêts SONT des prises, ajoutables et retirables</text>
 <g filter="url(#ombre)">
   <rect x="40" y="382" width="300" height="212" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="40" y="382" width="300" height="21" rx="3" fill="#8a6b2a"/>
@@ -191,7 +282,12 @@
 <text x="40" y="632" fill="#6f6f7b" font-size="11">la barre reste, mais elle devient un APERÇU manipulable, plus la seule interface</text>
 
 <!-- ============ 7 · PRINCIPLED ============ -->
-<text x="380" y="368" fill="#F79A28" font-size="13" font-weight="600">7 · VINGT ENTRÉES — sections repliables</text>
+''')
+
+# --------------------------------------------------------------------------
+# 7 · VINGT ENTRÉES — sections repliables
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="380" y="368" fill="#F79A28" font-size="13" font-weight="600">7 · VINGT ENTRÉES — sections repliables</text>
 <g filter="url(#ombre)">
   <rect x="386" y="382" width="284" height="300" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="386" y="382" width="284" height="21" rx="3" fill="#2a6b6b"/>
@@ -223,7 +319,12 @@
 <text x="386" y="720" fill="#6f6f7b" font-size="11">sinon le fil pointerait vers rien</text>
 
 <!-- ============ 8 · FILS ============ -->
-<text x="706" y="368" fill="#F79A28" font-size="13" font-weight="600">8 · LES FILS</text>
+''')
+
+# --------------------------------------------------------------------------
+# 8 · LES FILS
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="706" y="368" fill="#F79A28" font-size="13" font-weight="600">8 · LES FILS</text>
 <g fill="none" stroke-width="2">
   <path d="M716 398c40 0 40 -20 80 -20" stroke="#5aa9d6"/>
   <text x="812" y="382" fill="#8a8a96" font-size="11">donnée — couleur du TYPE</text>
@@ -246,7 +347,12 @@
 </g>
 
 <!-- ============ 9 · ERREUR ============ -->
-<text x="706" y="646" fill="#F79A28" font-size="13" font-weight="600">9 · NŒUD EN ERREUR</text>
+''')
+
+# --------------------------------------------------------------------------
+# 9 · NŒUD EN ERREUR
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="706" y="646" fill="#F79A28" font-size="13" font-weight="600">9 · NŒUD EN ERREUR</text>
 <g filter="url(#ombre)">
   <rect x="712" y="660" width="252" height="92" rx="3" fill="#2a2024" stroke="#c4483a" stroke-width="1.6"/>
   <rect x="712" y="660" width="252" height="21" rx="3" fill="#8a3a30"/>
@@ -259,7 +365,12 @@
 </g>
 
 <!-- ============ 10 · CADRE ============ -->
-<text x="1000" y="368" fill="#F79A28" font-size="13" font-weight="600">10 · CADRE DE GROUPE ET SÉLECTION</text>
+''')
+
+# --------------------------------------------------------------------------
+# 10 · CADRE DE GROUPE ET SÉLECTION
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="1000" y="368" fill="#F79A28" font-size="13" font-weight="600">10 · CADRE DE GROUPE ET SÉLECTION</text>
 <g>
   <rect x="1006" y="384" width="330" height="168" rx="4" fill="#F79A28" opacity="0.07"/>
   <rect x="1006" y="384" width="330" height="168" rx="4" fill="none" stroke="#F79A28" stroke-opacity="0.45" stroke-width="1.4"/>
@@ -290,7 +401,12 @@
 <text x="1006" y="588" fill="#6f6f7b" font-size="11">avec son contenu</text>
 
 <!-- ============ 11 · DEZOOM ============ -->
-<text x="1000" y="626" fill="#F79A28" font-size="13" font-weight="600">11 · DÉZOOM — trois paliers</text>
+''')
+
+# --------------------------------------------------------------------------
+# 11 · DÉZOOM — trois paliers
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="1000" y="626" fill="#F79A28" font-size="13" font-weight="600">11 · DÉZOOM — trois paliers</text>
 <g filter="url(#ombre)">
   <rect x="1006" y="640" width="116" height="50" rx="3" fill="#232329" stroke="#3a3a44"/>
   <rect x="1006" y="640" width="116" height="17" rx="3" fill="#4a6b8a"/>
@@ -319,7 +435,12 @@
 <text x="1254" y="708" fill="#6f6f7b" font-size="10">CATÉGORIE</text>
 
 <!-- ============ 12 · CATEGORIES ============ -->
-<text x="1360" y="368" fill="#F79A28" font-size="13" font-weight="600">12 · EN-TÊTE = CATÉGORIE</text>
+''')
+
+# --------------------------------------------------------------------------
+# 12 · EN-TÊTE = CATÉGORIE
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="1360" y="368" fill="#F79A28" font-size="13" font-weight="600">12 · EN-TÊTE = CATÉGORIE</text>
 <g font-size="10.5">
   <rect x="1366" y="384" width="150" height="19" rx="2" fill="#2a6b6b"/><text x="1376" y="397" fill="#e2f2f2">surface / BSDF</text>
   <rect x="1366" y="408" width="150" height="19" rx="2" fill="#8a6b2a"/><text x="1376" y="421" fill="#f6eddc">texture · couleur</text>
@@ -358,4 +479,34 @@
 <text x="34" y="1128" fill="#6f6f7b" font-size="11">Fond #17171b · corps #232329 · filet #33333c · texte #c8ccd4, secondaire #7a7a85 · orange Rihen #F79A28 · pétrole Rihen #0A555F</text>
 <text x="34" y="1148" fill="#6f6f7b" font-size="11">Coins 5 px en haut, 3 px en bas · prise de donnée rayon 2, collée au bord et entièrement dehors · pastilles h=15 px · grille de points, pas 22 px</text>
 <text x="34" y="1168" fill="#6f6f7b" font-size="11">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
-</svg>
+''')
+
+# --------------------------------------------------------------------------
+# fermeture
+# --------------------------------------------------------------------------
+PARTIES.append(u'''</svg>
+''')
+
+svg = u''.join(PARTIES)
+
+chemin = os.path.join(OUT, 'planche_01_noeuds.svg')
+empreinte = hashlib.md5(svg.encode('utf-8')).hexdigest()
+if empreinte == EMPREINTE_ORIGINE:
+    print('planche 01 : identique a l origine (aucune modification)')
+else:
+    print('planche 01 : MODIFIEE -- empreinte %s (origine %s)'
+          % (empreinte, EMPREINTE_ORIGINE))
+    print('  -> voulu ? si oui, mets a jour EMPREINTE_ORIGINE ci-dessus.')
+
+# Fins de ligne : les quatre autres planches sont en CRLF sur le disque,
+# parce que gen.ecrire ouvre en mode TEXTE et que Windows y traduit. Ecrire en
+# LF ici aurait change 360 octets sans changer un pixel -- un diff enorme pour
+# rien, et le genre d ecart qui fait perdre du temps a chercher une difference
+# de dessin qui n existe pas. On restitue donc le CRLF explicitement.
+#
+# On encode AVANT d ouvrir : une erreur d encodage doit echouer sans avoir
+# touche au fichier -- open(.., 'w') tronque des l ouverture, et cette
+# troncature-la a deja detruit un fichier sur ce chantier.
+donnees = svg.replace(chr(10), chr(13) + chr(10)).encode('utf-8')
+open(chemin, 'wb').write(donnees)
+print('ecrit %s (%d octets)' % (chemin, len(donnees)))

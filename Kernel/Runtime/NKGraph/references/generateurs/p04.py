@@ -1,13 +1,15 @@
-# ATTENTION -- SCRIPT PERIME. Il produit une planche de 1060 px de haut, alors
-# que la planche 04 COMMITEE fait 1230 px : la version du script qui l a produite
-# n a pas ete sauvegardee avant la coupure. Ne pas relancer tel quel : la sortie
-# ECRASERAIT la bonne planche par une version plus ancienne.
+# REPARE le 22/08 : l ecart etait de 5 lignes sur 363 (hauteur 1060 au lieu de
+# 1230, plus deux marqueurs decales de 4 px). Il reproduit desormais
+# planche_04_etats.svg A L OCTET PRES. L etiquette « PERIME » qui figurait ici
+# laissait croire a une derive structurelle et a immobilise le script des
+# semaines -- voir la famille « une etiquette qui exagere un defaut le rend
+# immortel » dans LISEZMOI.md.
 # -*- coding: utf-8 -*-
 import sys
 sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from gen import *
 
-W,H=1780,1060
+W,H=1780,1250
 s=head(W,H,u'Planche 04 \u2014 tous les \u00e9tats',
        u'Erreur \u00b7 avertissement \u00b7 d\u00e9sactiv\u00e9 \u00b7 survol\u00e9 \u00b7 s\u00e9lectionn\u00e9 \u00b7 ACTIF \u00b7 inconnu \u00b7 indisponible \u00b7 le tirage d\u2019un fil \u00b7 le graphe invalide \u00b7 les trois paliers de d\u00e9zoom')
 
@@ -55,7 +57,7 @@ n,h=noeud(44,R2+28,300,[
 ],u'Texture image',u'Texture',CAT['texture'],False,0,erreur=ROUGE,corps='#2A1A1A',
  etat=(u'fichier introuvable : textures/mur_albedo.png',ROUGE))
 s+=n
-s+=tt(44+300-34,R2+28+15,u'!',ROUGE,13,'700',anchor='end')
+s+=tt(44+300-30,R2+28+15,u'!',ROUGE,13,'700',anchor='end')
 s+=tt(44,R2+28+h+20,u'dans un graphe de trente n\u0153uds (images 2), survoler trente n\u0153uds',TXT3,10)
 s+=tt(44,R2+28+h+33,u'pour trouver le fautif est une minute perdue \u00e0 chaque fois.',TXT3,10)
 # 7 avertissement
@@ -66,7 +68,7 @@ n,h=noeud(390,R2+28,300,[
 ],u'Normale du mur',u'Texture',CAT['texture'],False,0,filet='pointille',
  etat=(u'sRVB sur une entr\u00e9e Normale \u2014 rendu probablement faux',ORANGE))
 s+=n
-s+=tt(390+300-34,R2+28+15,u'\u26a0',ORANGE,12,'700',anchor='end')
+s+=tt(390+300-30,R2+28+15,u'\u26a0',ORANGE,12,'700',anchor='end')
 s+=tt(390,R2+28+h+20,u'il manquait : une texture sRVB branch\u00e9e sur une Normale produit',TXT3,10)
 s+=tt(390,R2+28+h+33,u'un graphe VALIDE ET FAUX. L\u2019erreur mentirait, le silence aussi.',TXT3,10)
 # 8 les trois gris
@@ -153,5 +155,9 @@ c,ch=cartouche(1050,R3+150,660,[
 ],u'Ce qui fonde ces trois paliers')
 s+=c
 
-s+=tt(34,1030,u'Rouge d\u2019erreur #E4443C \u00b7 orange d\u2019avertissement #F79A28 \u00b7 \u26a0 le rouge est \u00e0 7,1 de CIEDE2000 du rose de TEXTE en tritanopie \u2014 sans cons\u00e9quence tant que l\u2019erreur ne descend pas au niveau de la prise',TXT3,10)
+s+=tt(34,H-50,u'Rouge d\u2019erreur #E4443C \u00b7 orange d\u2019avertissement #F79A28 \u00b7 \u26a0 le rouge est \u00e0 7,1 de CIEDE2000 du rose de TEXTE en tritanopie \u2014 sans cons\u00e9quence tant que l\u2019erreur ne descend pas au niveau de la prise',TXT3,10)
+# MENTION D’ÉCHELLE : la planche declare elle-meme qu elle ne doit pas
+# etre mesuree. Sans elle, un pixel releve ici deviendrait une valeur.
+s+=tt(34,H-26,u'⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.',TXT3,10)
+
 ecrire('planche_04_etats.svg',s)

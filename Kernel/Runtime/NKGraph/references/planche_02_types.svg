@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1330" viewBox="0 0 1720 1330" font-family="Segoe UI, Inter, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1350" viewBox="0 0 1720 1350" font-family="Segoe UI, Inter, sans-serif">
 <defs>
 <pattern id="grille" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#1C1C1C"/></pattern>
 <pattern id="hachure" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="8" fill="#3A3A44" opacity="0.55"/></pattern>
@@ -7,7 +7,7 @@
 <linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2b4a7a"/><stop offset="55%" stop-color="#d99a5a"/><stop offset="100%" stop-color="#141414"/></linearGradient>
 <filter id="ombre" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/></filter>
 </defs>
-<rect width="1720" height="1330" fill="#121212"/><rect width="1720" height="1330" fill="url(#grille)"/>
+<rect width="1720" height="1350" fill="#121212"/><rect width="1720" height="1350" fill="url(#grille)"/>
 <text x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 02 — les types de donnée, les tableaux et les dictionnaires</text>
 <text x="34" y="62" fill="#8A8A8A" font-size="12.5">6 familles de couleur (plancher CIEDE2000 = 11,0 en vision normale, protanopie, deutéranopie et tritanopie) · le glyphe porte le type exact · tableau et dictionnaire sont des FORMES, pas des couleurs</text>
 <text x="34" y="104" fill="#F79A28" font-size="13" font-weight="600">1 · LES 7 FAMILLES — la couleur ne dit que la famille</text>
@@ -363,4 +363,5 @@
 <text x="1094" y="1244" fill="#8A8A8A" font-size="10.5">▸ ⚠ au dézoom 55 %, les fentes de la prise de tableau disparaissent — le FIL, lui, tient</text>
 <text x="1094" y="1261" fill="#8A8A8A" font-size="10.5">   un palier de plus. Faiblesse assumée : à 55 % on ne branche plus, on lit la structure.</text>
 <text x="34" y="1300" fill="#6A6A6A" font-size="10">Fond #121212 · corps #212121 · contrôle #2B2B2B (MESURÉS sur la référence principale) · rayon 0 sur le corps, 5 sur l’en-tête · prise au ratio 17:63 · grille de points, pas 22 px</text>
+<text x="34" y="1324" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
 </svg>

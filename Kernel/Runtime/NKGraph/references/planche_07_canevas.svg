@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="1050" viewBox="0 0 1760 1050" font-family="Segoe UI, Inter, sans-serif">
+<defs>
+<pattern id="grille" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#1C1C1C"/></pattern>
+<pattern id="hachure" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="8" fill="#3A3A44" opacity="0.55"/></pattern>
+<pattern id="damier" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#3a3a3a"/><rect width="5" height="5" fill="#565656"/><rect x="5" y="5" width="5" height="5" fill="#565656"/></pattern>
+<linearGradient id="rampe" x1="0" x2="1"><stop offset="0%" stop-color="#0A555F"/><stop offset="45%" stop-color="#3aa0a8"/><stop offset="75%" stop-color="#F79A28"/><stop offset="100%" stop-color="#ffe9c2"/></linearGradient>
+<linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2b4a7a"/><stop offset="55%" stop-color="#d99a5a"/><stop offset="100%" stop-color="#141414"/></linearGradient>
+<filter id="ombre" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/></filter>
+</defs>
+<rect width="1760" height="1050" fill="#121212"/><rect width="1760" height="1050" fill="url(#grille)"/>
+<text x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 07 — le lasso, le menu, la recherche vide, la source, le puits, le commentaire</text>
+<text x="34" y="62" fill="#8A8A8A" font-size="12.5">six éléments tranchés le 23/08 — dont une COLLISION, qui ne se démontre qu’en posant les deux objets côte à côte</text>
+<text x="34" y="104" fill="#F79A28" font-size="12.5" font-weight="600">1 · LE LASSO CONTRE LE CADRE — la collision qui a fait refuser le pointillé</text>
+<text x="34" y="120" fill="#6A6A6A" font-size="10">les deux sont des RECTANGLES posés sur le fond, et tirer un rectangle est justement le geste qui CRÉE un cadre</text>
+<text x="34" y="150" fill="#E06C6C" font-size="11.5" font-weight="600">❌ CE QUI ÉTAIT ÉCRIT — les deux en pointillé</text>
+<rect x="34" y="166" width="230" height="130" rx="6" fill="#4C8C4A" opacity="0.08"/>
+<rect x="34" y="166" width="230" height="130" rx="6" fill="none" stroke="#4C8C4A" stroke-width="1.5"/>
+<rect x="42" y="174" width="214" height="114" rx="4" fill="none" stroke="#4C8C4A" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>
+<rect x="34" y="166" width="230" height="20" rx="6" fill="#4C8C4A"/>
+<text x="42" y="180" fill="#10240F" font-size="12.5" font-weight="600">Éclairage</text>
+<text x="256" y="180" fill="#10240F" font-size="11" text-anchor="end">2 nodes</text>
+<text x="34" y="314" fill="#8A8A8A" font-size="10.5">un CADRE — permanent</text>
+<rect x="300" y="166" width="230" height="130" rx="4" fill="none" stroke="#F79A28" stroke-width="1.5" stroke-dasharray="4 4"/>
+<text x="300" y="314" fill="#8A8A8A" font-size="10.5">un LASSO — transitoire</text>
+<text x="300" y="329" fill="#E06C6C" font-size="10" font-weight="600">⚠ même endroit, même forme, même trait</text>
+<text x="600" y="150" fill="#7FB77E" font-size="11.5" font-weight="600">✅ CE QUI EST DÉCIDÉ — le lasso est PLEIN, et rempli</text>
+<rect x="600" y="166" width="230" height="130" rx="6" fill="#4C8C4A" opacity="0.08"/>
+<rect x="600" y="166" width="230" height="130" rx="6" fill="none" stroke="#4C8C4A" stroke-width="1.5"/>
+<rect x="608" y="174" width="214" height="114" rx="4" fill="none" stroke="#4C8C4A" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>
+<rect x="600" y="166" width="230" height="20" rx="6" fill="#4C8C4A"/>
+<text x="608" y="180" fill="#10240F" font-size="12.5" font-weight="600">Éclairage</text>
+<text x="822" y="180" fill="#10240F" font-size="11" text-anchor="end">2 nodes</text>
+<text x="600" y="314" fill="#8A8A8A" font-size="10.5">le CADRE ne change pas</text>
+<rect x="866" y="166" width="230" height="130" rx="4" fill="#F79A28" opacity="0.08"/>
+<rect x="866" y="166" width="230" height="130" rx="4" fill="none" stroke="#F79A28" stroke-width="1.5"/>
+<text x="866" y="314" fill="#7FB77E" font-size="10.5" font-weight="600">le LASSO n’est plus confondable</text>
+<text x="866" y="329" fill="#6A6A6A" font-size="10">le remplissage dit la ZONE PRISE, pas son bord</text>
+<rect x="34" y="348" width="1062" height="138" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
+<text x="48" y="372" fill="#F79A28" font-size="12" font-weight="600">pourquoi le pointillé a été refusé alors qu’il était déjà écrit dans la spécification</text>
+<text x="48" y="395" fill="#8A8A8A" font-size="10.5">⚠ LE POINTILLÉ EST DÉJÀ EMPLOYÉ SIX FOIS : dictionnaire (sous une PRISE) · fil en cours de tirage (un FIL) · nœud désactivé (le fil</text>
+<text x="48" y="412" fill="#8A8A8A" font-size="10.5">   TRAVERSANT) · prise convertible (un HALO) · cadre (un RECTANGLE) · lasso (un RECTANGLE).</text>
+<text x="48" y="429" fill="#8A8A8A" font-size="10.5">✅ Quatre des six ne se gênent pas — prise, fil, halo : le signal n’est pas le pointillé, c’est L’ENDROIT. C’est la règle des trois gris.</text>
+<text x="48" y="446" fill="#8A8A8A" font-size="10.5">❌ Les deux derniers occupent le MÊME endroit. Et la collision n’est pas seulement visuelle : tirer un rectangle sur le fond EST le</text>
+<text x="48" y="463" fill="#8A8A8A" font-size="10.5">   geste qui crée un cadre — un rectangle pointillé sous le curseur dit littéralement « je suis en train de fabriquer un cadre ».</text>
+<text x="48" y="480" fill="#8A8A8A" font-size="10.5">📌 Et le lasso a droit à un signal SIMPLE pour la raison déjà admise sur le survol : il est transitoire et attaché au curseur.</text>
+<text x="1140" y="104" fill="#F79A28" font-size="12.5" font-weight="600">2 · LA RECHERCHE SANS RÉSULTAT</text>
+<text x="1140" y="120" fill="#6A6A6A" font-size="10">un résultat négatif sans son périmètre est une rumeur</text>
+<text x="1140" y="150" fill="#E06C6C" font-size="11.5" font-weight="600">❌ la liste vide, interdite</text>
+<rect x="1140" y="160" width="330" height="120" rx="5" fill="#1E1E24" stroke="#3A3A44"/>
+<rect x="1148" y="168" width="314" height="22" rx="3" fill="#141418" stroke="#33333C"/>
+<text x="1156" y="183" fill="#6A6A6A" font-size="11">🔍</text>
+<text x="1156" y="228" fill="#6A6A6A" font-size="11">(rien)</text>
+<text x="1156" y="254" fill="#E06C6C" font-size="10" font-weight="600">⚠ se lit « ce nœud n’existe pas »</text>
+<text x="1156" y="272" fill="#6A6A6A" font-size="9.5">alors que le fait est « pas de ce TYPE »</text>
+<text x="1140" y="302" fill="#7FB77E" font-size="11.5" font-weight="600">✅ ce qui est décidé</text>
+<rect x="1140" y="312" width="330" height="120" rx="5" fill="#1E1E24" stroke="#3A3A44"/>
+<rect x="1148" y="320" width="314" height="22" rx="3" fill="#141418" stroke="#33333C"/>
+<text x="1156" y="335" fill="#6A6A6A" font-size="11">🔍</text>
+<rect x="1148" y="348" width="314" height="26" rx="3" fill="#F79A28" opacity="0.10"/>
+<text x="1156" y="365" fill="#6A6A6A" font-size="10">qui acceptent</text>
+<rect x="1226" y="354" width="98" height="15" rx="2" fill="#17B2EB" opacity="0.30"/>
+<text x="1231" y="365" fill="#EEF2F6" font-size="9.5">tableau de réels</text>
+<text x="1446" y="366" fill="#F79A28" font-size="12" font-weight="600">✕</text>
+<text x="1156" y="394" fill="#EEF2F6" font-size="11" font-weight="600">aucun nœud n’accepte</text>
+<text x="1156" y="409" fill="#F79A28" font-size="11" font-weight="600">tableau de réels</text>
+<text x="1156" y="424" fill="#6A6A6A" font-size="9.5">↑ et le ✕ qui le retire est juste au-dessus</text>
+<rect x="1140" y="456" width="330" height="121" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
+<text x="1154" y="480" fill="#F79A28" font-size="12" font-weight="600">la faute que ça évite</text>
+<text x="1154" y="503" fill="#8A8A8A" font-size="10.5">⚠ La vraie phrase n’est pas « ce nœud</text>
+<text x="1154" y="520" fill="#8A8A8A" font-size="10.5">   n’existe pas » mais « ce nœud</text>
+<text x="1154" y="537" fill="#8A8A8A" font-size="10.5">   n’accepte pas CE TYPE ».</text>
+<text x="1154" y="554" fill="#8A8A8A" font-size="10.5">✅ Le filtre s’écrit en toutes lettres,</text>
+<text x="1154" y="571" fill="#8A8A8A" font-size="10.5">   et son ✕ est JUSTE À CÔTÉ du refus.</text>
+<text x="34" y="530" fill="#F79A28" font-size="12.5" font-weight="600">3 · LA SOURCE, LE PUITS, LE COMMENTAIRE — trois fois « ne RIEN ajouter »</text>
+<text x="34" y="546" fill="#6A6A6A" font-size="10">chacun avait déjà sa marque ; la décision a été de ne pas en inventer une seconde par-dessus</text>
+<g filter="url(#ombre)" opacity="1.0">
+<rect x="34" y="574" width="190" height="66" fill="#212121" stroke="#33333C" stroke-width="1"/>
+<path d="M34 579a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v25 H34 z" fill="#D9B6A3"/>
+<text x="42" y="588" fill="#F3E9DA" font-size="8">▼</text>
+<text x="54" y="588" fill="#EEF2F6" font-size="12.5" font-weight="600">RVB</text>
+<text x="54" y="600" fill="#EEF2F6" font-size="9.5" opacity="0.6">Entrée</text>
+<text x="214" y="588" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
+<rect x="34" y="604" width="190" height="2.5" fill="#0A555F"/>
+<rect x="221.0" y="611.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<text x="210" y="626" fill="#F79A28" font-size="11.5" text-anchor="end">Couleur</text>
+</g>
+<text x="34" y="680" fill="#EEF2F6" font-size="11" font-weight="600">SOURCE — le côté GAUCHE est vide</text>
+<text x="34" y="695" fill="#6A6A6A" font-size="10">le seul trait de forme qui survit à 25 %,</text>
+<text x="34" y="709" fill="#6A6A6A" font-size="10">où il ne reste qu’un rectangle coloré</text>
+<g filter="url(#ombre)" opacity="1.0">
+<rect x="280" y="574" width="190" height="90" fill="#212121" stroke="#33333C" stroke-width="1"/>
+<path d="M280 579a5 5 0 0 1 5 -5 h180 a5 5 0 0 1 5 5 v25 H280 z" fill="#D9B6A3"/>
+<text x="288" y="588" fill="#F3E9DA" font-size="8">▼</text>
+<text x="300" y="588" fill="#EEF2F6" font-size="12.5" font-weight="600">Sortie matériau</text>
+<text x="300" y="600" fill="#EEF2F6" font-size="9.5" opacity="0.6">Sortie</text>
+<text x="460" y="588" fill="#9FB4C8" font-size="12" text-anchor="end">?</text>
+<rect x="280" y="604" width="190" height="2.5" fill="#0A555F"/>
+<rect x="277.0" y="611.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<text x="292" y="626" fill="#F79A28" font-size="11.5">Surface</text>
+<rect x="277.0" y="635.0" width="6" height="22" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
+<text x="292" y="650" fill="#F79A28" font-size="11.5">Volume</text>
+</g>
+<text x="280" y="680" fill="#EEF2F6" font-size="11" font-weight="600">PUITS — le côté DROIT est vide</text>
+<text x="280" y="695" fill="#6A6A6A" font-size="10">le catalogue permettait « plus imposant » :</text>
+<text x="280" y="709" fill="#6A6A6A" font-size="10">refusé — une exception à la grille pour un doublon</text>
+<path d="M534 608C637.5 608 660.5 626 764 626" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<text x="534" y="588" fill="#6A6A6A" font-size="13">ce bloc gère le cas où la texture manque</text>
+<text x="530" y="680" fill="#EEF2F6" font-size="11" font-weight="600">COMMENTAIRE — au repos</text>
+<text x="530" y="695" fill="#6A6A6A" font-size="10">ni corps, ni filet, ni fond : ce n’est pas un nœud —</text>
+<text x="530" y="709" fill="#6A6A6A" font-size="10">et il passe DEVANT le fil, qui sinon le barrerait</text>
+<rect x="800" y="574" width="292" height="26" rx="3" fill="#1A1A1A" opacity="0.6"/>
+<text x="806" y="592" fill="#6A6A6A" font-size="13">ce bloc gère le cas où la texture manque</text>
+<text x="800" y="680" fill="#EEF2F6" font-size="11" font-weight="600">COMMENTAIRE — au survol seulement</text>
+<text x="800" y="695" fill="#F79A28" font-size="10">⚠ signal FAIBLE volontairement : plus marqué, il prendrait</text>
+<text x="800" y="709" fill="#6A6A6A" font-size="10">l’allure d’un nœud sans en-tête — ce qu’on vient d’interdire</text>
+<text x="1140" y="619" fill="#F79A28" font-size="12.5" font-weight="600">4 · LE MENU CONTEXTUEL — trois contenus</text>
+<text x="1140" y="635" fill="#6A6A6A" font-size="10">et « ajouter un nœud » rouvre LE MÊME panneau que le 2, sans filtre</text>
+<text x="1140" y="663" fill="#8A8A8A" font-size="10" font-weight="600">sur le FOND</text>
+<rect x="1140" y="671" width="106" height="88" rx="4" fill="#1E1E24" stroke="#3A3A44"/>
+<text x="1148" y="690" fill="#8A8A8A" font-size="9.5">ajouter un nœud</text>
+<text x="1148" y="709" fill="#8A8A8A" font-size="9.5">coller</text>
+<text x="1148" y="728" fill="#8A8A8A" font-size="9.5">cadrer tout</text>
+<text x="1148" y="747" fill="#8A8A8A" font-size="9.5">créer un cadre</text>
+<text x="1256" y="663" fill="#8A8A8A" font-size="10" font-weight="600">sur un NŒUD</text>
+<rect x="1256" y="671" width="106" height="88" rx="4" fill="#1E1E24" stroke="#3A3A44"/>
+<text x="1264" y="690" fill="#8A8A8A" font-size="9.5">dupliquer</text>
+<text x="1264" y="709" fill="#8A8A8A" font-size="9.5">désactiver</text>
+<text x="1264" y="728" fill="#8A8A8A" font-size="9.5">grouper</text>
+<text x="1264" y="747" fill="#8A8A8A" font-size="9.5">supprimer</text>
+<text x="1372" y="663" fill="#8A8A8A" font-size="10" font-weight="600">sur un FIL</text>
+<rect x="1372" y="671" width="106" height="50" rx="4" fill="#1E1E24" stroke="#3A3A44"/>
+<text x="1380" y="690" fill="#F79A28" font-size="9.5" font-weight="600">insérer un nœud ici</text>
+<text x="1380" y="709" fill="#8A8A8A" font-size="9.5">supprimer le fil</text>
+<rect x="1140" y="769" width="330" height="206" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
+<text x="1154" y="793" fill="#F79A28" font-size="12" font-weight="600">les deux points qui ne s’inventent pas</text>
+<text x="1154" y="816" fill="#8A8A8A" font-size="10.5">⚠ « INSÉRER UN NŒUD ICI » est la seule</text>
+<text x="1154" y="833" fill="#8A8A8A" font-size="10.5">   entrée qu’on ne peut pas obtenir</text>
+<text x="1154" y="850" fill="#8A8A8A" font-size="10.5">   autrement : sinon couper, poser,</text>
+<text x="1154" y="867" fill="#8A8A8A" font-size="10.5">   rebrancher deux fois. Quatre gestes</text>
+<text x="1154" y="884" fill="#8A8A8A" font-size="10.5">   pour un.</text>
+<text x="1154" y="901" fill="#8A8A8A" font-size="10.5">✅ Un SEUL panneau de recherche, filtré</text>
+<text x="1154" y="918" fill="#8A8A8A" font-size="10.5">   ou non. Deux panneaux d’apparence</text>
+<text x="1154" y="935" fill="#8A8A8A" font-size="10.5">   différente feraient croire à deux</text>
+<text x="1154" y="952" fill="#8A8A8A" font-size="10.5">   catalogues de nœuds. C’est la règle du</text>
+<text x="1154" y="969" fill="#8A8A8A" font-size="10.5">   fil d’Ariane, appliquée une 2ᵉ fois.</text>
+<text x="34" y="1020" fill="#6A6A6A" font-size="10.5">⚠ PLANCHE D’ÉTUDE — les six éléments sont B6, B7, B9, E1, E2 et E5 d’ELEMENTS_A_DESSINER.md. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
+</svg>
