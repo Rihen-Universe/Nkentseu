@@ -1,0 +1,16 @@
+nkgui 0.3
+
+// UN FICHIER PARFAITEMENT LEGAL QUI NE REVIENT PAS OCTET POUR OCTET.
+//
+// La tranche brute `set r = 1` est indentee de SIX espaces, alors que le bloc
+// de la section precedente l est de DEUX. L ecrivain la reemet avec la largeur
+// deduite du document, pas avec la sienne : premier ecart a l octet 65.
+//
+// Le corpus GENERE ne pouvait pas montrer ca -- il indente partout pareil.
+// Ce fichier a ete ecrit a la main, et la limite est tombee au premier essai.
+widgets {
+  Slider "n1" { min = 0 }
+}
+behavior "seuil" {
+      set r = 1
+}

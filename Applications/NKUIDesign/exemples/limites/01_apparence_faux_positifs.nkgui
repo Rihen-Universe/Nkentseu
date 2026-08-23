@@ -1,0 +1,41 @@
+nkgui 0.3
+
+// UN FICHIER LEGAL QUE LA VALIDATION REFUSE A TORT -- TROIS FAUX POSITIFS.
+//
+// `appearance`, `fill` et `shadow` sont des constructions du document 9 §3,
+// pas des widgets. La validation les traverse comme si c'etaient des roles et
+// rend E-ROLE-INCONNU sur chacun. L'aller-retour, lui, est OCTET POUR OCTET :
+// c'est la validation qui se trompe, pas le lecteur.
+//
+// ⚠️ ET L'IRONIE VAUT D'ETRE NOTEE. `appearance(Hover)` -- l'en-tete de bloc
+//    avec parentheses, la LIMITE DECLAREE -- ne produit AUCUNE erreur, parce
+//    qu'il reste une tranche verbatim que la validation ne regarde pas. La
+//    partie MODELISEE crie, la partie NON MODELISEE se tait. Une limite qui
+//    protege d'un faux positif est un signe que le faux positif est le vrai
+//    probleme.
+//
+// Diagnostics observes le 2026-08-23 :
+//   E-ROLE-INCONNU ligne 21 : ... / appearance
+//   E-ROLE-INCONNU ligne 24 : ... / appearance / fill
+//   E-ROLE-INCONNU ligne 25 : ... / appearance / shadow "portee"
+widgets {
+
+  Button "valider" {
+    label = "Valider"
+
+    appearance {
+      radius = 6
+      font = "Inter"
+      fill { color = #2F6F7A }
+      shadow "portee" { offset = (0, 2), blur = 6, color = #0000003A }
+    }
+
+    appearance(Hover) {
+      fill { color = #3A8894 }
+    }
+
+    appearance(Disabled) {
+      fill { color = #6B7B7E }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+nkgui 0.3
+widgets {
+  Mystere "z" {
+    x = 1
+  }
+}

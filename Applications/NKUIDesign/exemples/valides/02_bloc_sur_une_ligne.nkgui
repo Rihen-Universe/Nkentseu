@@ -1,0 +1,17 @@
+nkgui 0.3
+
+// Trois formes que la bascule a failli perdre, et que les controles L14/L15
+// tiennent maintenant : un bloc PLEIN sur une seule ligne, un membre sur la
+// ligne du `{`, et une accolade fermante sur la ligne du dernier membre.
+widgets {
+  VBox "compact" { gap = 4
+    Button "a" { label = "A" }
+    Button "b" { label = "B" }
+    Text "note" { text = "tout tient sur une ligne" } }
+
+  Group "vide" { }
+
+  HBox "serre" { gap = 2
+    Spacer "s1" { size = 4 }
+    Spacer "s2" { size = 4 } }
+}

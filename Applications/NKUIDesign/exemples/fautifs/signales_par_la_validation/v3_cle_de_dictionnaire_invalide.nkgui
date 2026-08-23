@@ -1,0 +1,4 @@
+nkgui 0.3
+widgets {
+ Table "t" { style = { 1 = 2 } }
+}

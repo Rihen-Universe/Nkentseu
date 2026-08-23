@@ -1,0 +1,7 @@
+nkgui 0.3
+widgets {
+  Text "t" {
+    text = "ok"
+    maxLines = "trois"
+  }
+}
