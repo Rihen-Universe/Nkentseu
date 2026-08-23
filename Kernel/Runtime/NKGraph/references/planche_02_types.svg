@@ -1,13 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1350" viewBox="0 0 1720 1350" font-family="Segoe UI, Inter, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1410" viewBox="0 0 1720 1410" font-family="Segoe UI, Inter, sans-serif">
 <defs>
 <pattern id="grille" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#1C1C1C"/></pattern>
 <pattern id="hachure" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="8" fill="#3A3A44" opacity="0.55"/></pattern>
 <pattern id="damier" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#3a3a3a"/><rect width="5" height="5" fill="#565656"/><rect x="5" y="5" width="5" height="5" fill="#565656"/></pattern>
 <linearGradient id="rampe" x1="0" x2="1"><stop offset="0%" stop-color="#0A555F"/><stop offset="45%" stop-color="#3aa0a8"/><stop offset="75%" stop-color="#F79A28"/><stop offset="100%" stop-color="#ffe9c2"/></linearGradient>
 <linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2b4a7a"/><stop offset="55%" stop-color="#d99a5a"/><stop offset="100%" stop-color="#141414"/></linearGradient>
+<radialGradient id="sphere" cx="0.35" cy="0.30" r="0.75"><stop offset="0%" stop-color="#e8d8c0"/><stop offset="55%" stop-color="#b07a4a"/><stop offset="100%" stop-color="#2a1a12"/></radialGradient>
+<filter id="bruit"><feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="4" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
 <filter id="ombre" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/></filter>
 </defs>
-<rect width="1720" height="1350" fill="#121212"/><rect width="1720" height="1350" fill="url(#grille)"/>
+<rect width="1720" height="1410" fill="#121212"/><rect width="1720" height="1410" fill="url(#grille)"/>
 <text x="34" y="40" fill="#E8E8EE" font-size="21" font-weight="600">Planche 02 — les types de donnée, les tableaux et les dictionnaires</text>
 <text x="34" y="62" fill="#8A8A8A" font-size="12.5">6 familles de couleur (plancher CIEDE2000 = 11,0 en vision normale, protanopie, deutéranopie et tritanopie) · le glyphe porte le type exact · tableau et dictionnaire sont des FORMES, pas des couleurs</text>
 <text x="34" y="104" fill="#F79A28" font-size="13" font-weight="600">1 · LES 7 FAMILLES — la couleur ne dit que la famille</text>
@@ -294,7 +296,8 @@
 <text x="970" y="1063" fill="#6A6A6A" font-size="10">0 / 495</text>
 </g>
 <path d="M957.0 873.0h3.5999999999999996l5.4 11.0l-5.4 11.0h-3.5999999999999996z" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
-<text x="650" y="1098" fill="#6A6A6A" font-size="10">chaque élément est une VRAIE prise — branchable seul · repli obligatoire au-delà de 8</text>
+<text x="650" y="1098" fill="#6A6A6A" font-size="10">chaque élément est une VRAIE prise —</text>
+<text x="650" y="1112" fill="#6A6A6A" font-size="10">branchable seul · repli obligatoire au-delà de 8</text>
 <text x="960" y="1098" fill="#6A6A6A" font-size="10">l’entrée d’exécution est sur l’EN-TÊTE · ⚠ corps de boucle et terminé séparés par une ligne vide</text>
 <text x="34" y="1112" fill="#F79A28" font-size="13" font-weight="600">6 · 🔴 BRANCHER UN TABLEAU SUR UNE ENTRÉE SCALAIRE — refus UTILE, en trois temps</text>
 <g filter="url(#ombre)" opacity="1.0">
@@ -362,6 +365,6 @@
 <text x="1094" y="1227" fill="#8A8A8A" font-size="10.5">   est exactement celui où l’on relâche le bouton. Le gâcher est un luxe.</text>
 <text x="1094" y="1244" fill="#8A8A8A" font-size="10.5">▸ ⚠ au dézoom 55 %, les fentes de la prise de tableau disparaissent — le FIL, lui, tient</text>
 <text x="1094" y="1261" fill="#8A8A8A" font-size="10.5">   un palier de plus. Faiblesse assumée : à 55 % on ne branche plus, on lit la structure.</text>
-<text x="34" y="1300" fill="#6A6A6A" font-size="10">Fond #121212 · corps #212121 · contrôle #2B2B2B (MESURÉS sur la référence principale) · rayon 0 sur le corps, 5 sur l’en-tête · prise au ratio 17:63 · grille de points, pas 22 px</text>
-<text x="34" y="1324" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
+<text x="34" y="1360" fill="#6A6A6A" font-size="10">Fond #121212 · corps #212121 · contrôle #2B2B2B (MESURÉS sur la référence principale) · rayon 0 sur le corps, 5 sur l’en-tête · prise au ratio 17:63 · grille de points, pas 22 px</text>
+<text x="34" y="1384" fill="#6A6A6A" font-size="10">⚠ PLANCHE D’ÉTUDE — les prises y sont dessinées à environ 2,1 × leur échelle relative pour rester lisibles. Les RATIOS de la spécification font foi, jamais les pixels de cette planche.</text>
 </svg>

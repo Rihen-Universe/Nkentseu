@@ -357,14 +357,16 @@
 <path d="M60 1246C100.5 1246 109.5 1246 150 1246" fill="none" stroke="#D9B6A3" stroke-width="2"/>
 <rect x="150" y="1238" width="16" height="16" rx="2" fill="#D9B6A3" stroke="#D9B6A3" stroke-width="1.6"/>
 <path d="M166 1246C208.3 1246 217.7 1232 260 1232" fill="none" stroke="#D9B6A3" stroke-width="2"/>
-<text x="52" y="1280" fill="#6A6A6A" font-size="10">relais NU : un carré 17×17, pas la prise à cheval — il n’appartient à aucun bord</text>
+<text x="52" y="1280" fill="#6A6A6A" font-size="10">relais NU : un carré 17×17, pas la prise à cheval —</text>
+<text x="52" y="1294" fill="#6A6A6A" font-size="10">il n’appartient à aucun bord</text>
 <rect x="330" y="1228" width="196" height="34" rx="13" fill="#212121"/>
 <path d="M330 1241a13 13 0 0 1 13 -13h30v34h-30a13 13 0 0 1 -13 -13z" fill="#2E2770"/>
 <text x="352" y="1250" fill="#C7C0F0" font-size="12" text-anchor="middle">⚭</text>
 <text x="386" y="1250" fill="#C8CCD4" font-size="11.5">position.monde</text>
 <rect x="327.0" y="1234.0" width="6" height="22" rx="2" fill="#F79A28" stroke="#F79A28" stroke-width="1.6"/>
 <rect x="523.0" y="1234.0" width="6" height="22" rx="2" fill="#C0EB81" stroke="#C0EB81" stroke-width="1.6"/>
-<text x="330" y="1280" fill="#6A6A6A" font-size="10">relais NOMMÉ (la puce) : VU sur la principale — entrée ET sortie, bloc-icône plein à gauche</text>
+<text x="330" y="1280" fill="#6A6A6A" font-size="10">relais NOMMÉ (la puce) : VU sur la principale — entrée ET sortie,</text>
+<text x="330" y="1294" fill="#6A6A6A" font-size="10">bloc-icône plein à gauche</text>
 <text x="720" y="1220" fill="#8A8A8A" font-size="13">Le repli du bruit vient d’ici — ne pas y toucher</text>
 <text x="720" y="1238" fill="#8A8A8A" font-size="13">sans relire la note du 12/08.</text>
 <text x="720" y="1280" fill="#6A6A6A" font-size="10">COMMENTAIRE : du texte POSÉ sur le fond — aucun corps, aucun filet, aucun fond.</text>
