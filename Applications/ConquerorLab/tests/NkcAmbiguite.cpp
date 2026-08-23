@@ -152,7 +152,43 @@ int main() {
 		CHECK(n == 0, "une case hors des destinations ne propose rien");
 	}
 
-	// --- 5. une FUSION se joue depuis N'IMPORTE QUELLE case consommee --------
+	// --- 5. CE QUE FAISAIT LE KIT DU STAGIAIRE (avant `MoveTouches`) ---------
+	//
+	// La question du stagiaire etait « il n'y a pas de BOUTON pour jouer la
+	// fusion ». La reponse est ici : avant `MoveTouches`, la selection elle-meme
+	// filtrait sur `m.from == case`. Une fusion laisse `from` a {0,0}. Cliquer
+	// une case a consommer ne la SELECTIONNAIT donc meme pas : pas de contour,
+	// pas d'anneau, rien. Il n'y avait pas de bouton parce qu'il n'y avait
+	// AUCUN retour — le stagiaire a decrit exactement ce qu'il voyait.
+	{
+		const NkcCoord ab[2] = {C(3, 2), C(4, 2)};
+		NkVector<NkcMove> legal;
+		legal.PushBack(Fusion(C(3, 2), ab, 2));
+
+		bool vieux = false;
+		for (usize i = 0; i < legal.Size(); ++i)
+			if (CoordEqual(legal[i].from, C(3, 2))) vieux = true;
+		CHECK(!vieux, "ancienne selection : une case a FUSIONNER n'etait pas cliquable");
+
+		bool neuf = false;
+		for (usize i = 0; i < legal.Size(); ++i)
+			if (NkcMoveTouches(legal[i], C(3, 2))) neuf = true;
+		CHECK(neuf, "maintenant : elle est cliquable, et le resultat s'affiche");
+
+		// ET LE SYMPTOME LE PLUS TROMPEUR DE TOUS.
+		// `from` mis a zero VAUT la coordonnee (0,0). L'ancienne selection
+		// faisait donc de la case (0,0) — un coin du plateau, sans rapport —
+		// la source apparente de TOUTES les fusions. Cliquer ce coin allumait
+		// des destinations ; cliquer la vraie case n'allumait rien. Un
+		// stagiaire qui tombe la-dessus ne cherche pas un bug d'interface, il
+		// se croit fou.
+		bool coinFantome = false;
+		for (usize i = 0; i < legal.Size(); ++i)
+			if (CoordEqual(legal[i].from, C(0, 0))) coinFantome = true;
+		CHECK(coinFantome, "ancienne selection : la case (0,0) passait pour la source de la fusion");
+	}
+
+	// --- 6. une FUSION se joue depuis N'IMPORTE QUELLE case consommee --------
 	{
 		const NkcCoord grp[3] = {C(0, 0), C(1, 0), C(2, 0)};
 		NkVector<NkcMove> legal;
