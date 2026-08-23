@@ -2059,7 +2059,7 @@ alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat néga
 sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
 qui existe.
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS — **15 restants sur 20**
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **16 restants sur 21**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
@@ -2086,6 +2086,7 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 17 | **regroupement** : entrée/sortie dédupliquée, ordre, homonymes | § 7.6 | ✅ les quatre règles sont écrites ; 🔴 **reste à EXÉCUTER le critère grouper→dégrouper** |
 | 19 | **le groupe montre-t-il un aperçu de son contenu ?** | § 7.6 | résidu de la ligne 6, qui était tranchée ET ouverte à la fois |
 | 20 | **qui s'aligne sur qui** : les planches, ou le nœud de référence de Rodolf ? | § 3.1 | résidu de la ligne 18. L'échelle est MESURÉE ; il reste à dire laquelle des deux bouge |
+| 21 | **la PORTÉE du registre de types** : comparer la charge utile, ou remonter le registre au DOCUMENT ? | § 18.5 | 🔴 **décide où VIT le registre** — les quatre types composés en dépendent, et rien ne doit être codé avant |
 
 ---
 
@@ -2620,3 +2621,201 @@ j'ai spécifié un dessin à partir d'un EXEMPLE que je n'avais pas vérifié.**
 état visuel à un champ, vérifier que le champ existe.** Un état sans déclencheur
 (le § 11.2) et une planche sans modèle (la 01) coûtent tous les deux la même
 chose : ils se codent, et ils ne peuvent pas marcher.
+
+
+---
+
+## 18. Les types COMPOSÉS — 🟡 **PROPOSÉ** : ce que chacun exige du système de types
+
+**Demandé par Rodolf : énumérations, unions, structures, classes.** Cette section
+ne dessine rien. Elle répond à une seule question, quatre fois : *qu'est-ce que
+ce type-là exige du modèle qui n'y est pas ?*
+
+### 18.0 Ce que le système de types EST aujourd'hui — mesuré, pas supposé
+
+Sept faits, et ils commandent tout le reste.
+
+| | ce que le code dit | où |
+|---|---|---|
+| un type | `using NkTypeId = uint32;` — la valeur est **l'indice dans un tableau de noms** | `NkNodeGraph.h:49-54`, `NkNodeGraph.inl:56-64` |
+| le registre | `NkVector<NkString> mTypeNames;` — **un type est un NOM, et rien d'autre** | `NkNodeGraph.h:183` |
+| la portée | `mTypeNames` est un membre d'instance **non statique** ; le document tient `NkVector<NkNodeGraph> mGraphs` → **un registre par graphe** | `NkNodeGraph.h:183`, `NkGraphDocument.h:129` |
+| l'accord entre graphes | **par NOM, jamais par identifiant** : *« le numéro 1 peut désigner "flux" ici et "maillage" là »* | `NkGraphDocument.inl:72-80` |
+| un socket | `name` + `type` + `dir` — **trois champs**, aucun sous-champ, aucun chemin | `NkNodeGraph.h:66-70` |
+| la compatibilité | `Accepts()` : **égalité d'identifiant, OU** une arête explicite dans une table de conversions **dirigée** | `NkNodeGraph.inl:87-98` |
+| les valeurs | **il n'y en a aucune.** Ni variant, ni défaut, ni directive de valeur au fichier | `NkNodeGraph.h:66-85`, `NkNodeGraphIO.inl:13-19` |
+
+> 🔴 **Le registre est PLAT, et c'est le mur unique.** Un type est une chaîne
+> indexée ; une chaîne ne peut pas désigner une autre entrée du registre. Aucun
+> des quatre types demandés n'est représentable tant qu'**un type ne peut pas
+> porter de charge utile** — les cas d'une énumération, les champs d'une
+> structure, les membres d'une union, le parent d'une classe. **C'est UN
+> changement, pas quatre.**
+
+### 18.1 L'ÉNUMÉRATION — la moins chère, et elle n'a rien de composé
+
+Une énumération est un type **feuille** : un domaine fini de cas nommés. Elle
+n'a ni champ, ni sous-prise, ni imbrication. Le branchement reste une égalité
+d'identifiant, `Accepts()` fonctionne tel quel, `TopoSort` ignore la question.
+
+**Ce qu'elle exige, et les deux manquent :**
+
+1. **une charge utile de TYPE** — la liste ordonnée des cas. `mTypeNames` tient
+   un nom ; il n'a pas de place pour une liste ;
+2. **une valeur de SOCKET** — le cas choisi. Il n'existe **aucun** stockage de
+   valeur dans NKGraph, pour aucun type. Ce n'est donc pas un manque propre aux
+   énumérations : c'est le manque le plus général du modèle, et l'énumération
+   est simplement le premier type qui le rend visible.
+
+⚠️ **Ne pas confondre avec la liste déroulante.** Le contrôle 3 (§ 1.1, `Equal ▾`)
+est un **widget**, pas un type : aujourd'hui son contenu ne peut venir que du
+consommateur, parce que le graphe ne sait pas ce qu'il contient. Dessiner la
+liste déroulante ne crée pas l'énumération, et l'a déjà laissé croire.
+
+🔴 **Le piège propre à l'énumération, et il est nouveau :** l'accord entre
+graphes se fait **par nom** (`NkGraphDocument.inl:72-80`). Dès qu'un type porte
+une charge utile, **l'égalité des noms cesse d'impliquer l'égalité des types** :
+deux graphes peuvent enregistrer `Mélange` avec des cas différents, et le
+contrôle d'interface acceptera. Ce piège est commun aux quatre types ; il naît
+avec le premier.
+
+### 18.2 La STRUCTURE — la chère, et le document le savait déjà
+
+Une structure est un type qui **en référence d'autres**, sous des noms ordonnés.
+C'est le seul des quatre qui exige de la **composition**, et le seul qui touche
+la **connectivité**.
+
+**Ce qu'elle exige :**
+
+1. **un type qui désigne d'autres types** — impossible avec un tableau de noms ;
+2. **une adresse plus fine que le socket** — séparer une structure en sous-prises
+   *« change la connectivité du graphe, et le fichier doit l'enregistrer »*
+   (`CATALOGUE_NOEUDS.md`, *Séparer / recombiner*). La règle y est déjà écrite :
+   **le nombre de LIENS possibles change → c'est de la structure, pas de
+   l'affichage.**
+
+Deux conceptions, et **elles ne sont pas équivalentes** :
+
+| | ce que ça veut dire | ce que ça coûte |
+|---|---|---|
+| **(a) le nœud gagne des prises** | la liste de sockets s'allonge à la séparation | 🔴 **corrompt les liens existants** — voir ci-dessous |
+| **(b) le lien porte un chemin** | `NkLink` gagne un champ *champ* | une directive de plus au fichier ; `Connect`, `TopoSort`, `Accepts` inchangés |
+
+> 🔴 **La mesure qui tranche entre les deux, et je ne l'avais pas vue venir :**
+> `NkLink` adresse ses extrémités par **INDICE** — `fromSocket`, `toSocket`,
+> deux `int32` (`NkNodeGraph.h:87-94`) — et la sérialisation écrit ces indices
+> tels quels : `lien <id> <deNoeud> <deSock> <versNoeud> <versSock>`
+> (`NkNodeGraphIO.inl:13-19`). Or `NkSocket::name` est documenté *« CLÉ stable,
+> jamais un libellé »*. **L'indice n'est donc pas stable, et c'est le nom qui
+> l'est** : insérer des sous-prises au milieu de la liste repointerait **en
+> silence** tous les liens situés après. L'option (a) exige donc, en préalable,
+> de ré-adresser les liens **par nom** — un changement du format de fichier bien
+> plus large que la séparation elle-même. **L'option (b) est la moins chère, et
+> pour une raison mesurée, pas par goût.**
+
+⚠️ **La question restée ouverte** (`CATALOGUE_NOEUDS.md`) : que devient un lien
+branché sur `Position` quand on sépare ? Unreal le **casse**. Sous l'option (b),
+il n'a pas à être cassé : le lien sans chemin désigne la structure entière, le
+lien avec chemin désigne un champ ; les deux coexistent.
+
+### 18.3 L'UNION — représentable en ENTRÉE sans rien ajouter, pas en SORTIE
+
+Une union est un type dont la valeur est **l'un** de n types, connu tard.
+
+**En ENTRÉE, elle existe déjà et personne ne l'a nommée.** `Accepts()` accepte
+une arête explicite par membre : `AllowConversion(membre, union)` pour chacun
+suffit à faire d'une prise une union. Coût : **n déclarations, zéro code
+nouveau.**
+
+🔴 **En SORTIE, elle n'est pas représentable, et c'est structurel.** Brancher une
+sortie union sur une entrée concrète est un **rétrécissement** qui ne peut être
+tranché qu'à l'évaluation. Or le système n'a qu'**un seul refus de type**,
+`NkLinkError::TypeMismatch`, rendu **au branchement** (`NkNodeGraph.inl:241-242`).
+Il n'existe aucune notion de vérification différée, et les sept valeurs de
+`NkLinkError` sont toutes des refus d'édition.
+
+✅ **Ce qui en découle, et c'est la recommandation la moins coûteuse :** pas de
+sortie union. Un nœud **discriminant** explicite — une entrée union, une sortie
+par membre — rend le rétrécissement **statique**, donc vérifiable au
+branchement, et ramène l'union à un type feuille plus une convention de
+catalogue. **Le système de types n'a alors rien à apprendre.**
+
+### 18.4 La CLASSE — à REFUSER comme famille de type, et voici pourquoi
+
+Une classe, c'est quatre choses à la fois. Prises séparément, **trois sur quatre
+existent déjà**, et la quatrième n'est pas une affaire de types.
+
+| ce qu'une classe apporte | ce qu'il faut vraiment |
+|---|---|
+| des **champs** | c'est le § 18.2, la structure. Rien de plus |
+| l'**héritage** (substituabilité) | `AllowConversion(Chien, Animal)` — et la table est **DIRIGÉE**, ce qui est exactement juste : un `Chien` alimente un `Animal`, jamais l'inverse (`NkNodeGraph.h:120-123`) |
+| l'**identité / le passage par référence** | la famille `ref` existe déjà comme **couleur** (glyphe `obj`). Comme il n'y a aucune valeur dans le modèle, « par référence » n'est pas encore une question que le graphe sait poser |
+| les **méthodes** | **ce n'est pas un problème de système de types.** Une méthode est un **nœud** dont la première entrée est l'objet. C'est une convention de catalogue, et elle ne coûte rien au noyau |
+
+⚠️ **Le seul vrai coût de l'héritage, et il est silencieux :** la table de
+conversions est une **liste plate parcourue linéairement**, sans transitivité
+(`NkNodeGraph.inl:87-98`). `Chien → Mammifère` et `Mammifère → Animal`
+**n'impliquent pas** `Chien → Animal` : il faut déclarer la **fermeture
+transitive** à la main, et en oublier une arête ne produit aucune erreur — juste
+un branchement refusé sans raison compréhensible.
+
+✅ **Conclusion : « classe » ne doit pas devenir une famille de type.** Elle se
+décompose entièrement en trois mécanismes déjà décidés ou déjà présents. En
+ajouter une cinquième famille n'achèterait rien et ajouterait un axe à
+sérialiser, à comparer entre graphes et à dessiner.
+
+### 18.5 Ce que les quatre demandent EN COMMUN — et l'ordre qui s'impose
+
+Ils ne demandent pas quatre choses. Ils en demandent **deux**, et la seconde
+commande la première.
+
+**① UNE CHARGE UTILE PAR TYPE.** Cas d'une énumération, champs d'une structure,
+membres d'une union, parent d'une classe : c'est le même manque, quatre fois.
+Le tableau de noms doit devenir un registre d'**enregistrements**.
+
+**② 🔴 LA PORTÉE DU REGISTRE — et cette décision vient AVANT le reste.** Tant
+qu'un type est un nom nu, comparer les noms suffit, et
+`NkGraphDocument.inl:72-80` explique très bien pourquoi c'est le bon choix
+aujourd'hui. **Dès qu'un type porte une charge utile, ce raisonnement tombe :**
+deux graphes peuvent enregistrer `Transform` avec des champs différents et le
+contrôle d'interface les accordera. Deux issues, exclusives :
+
+- **comparer la charge utile** et non plus le nom — le contrôle d'interface
+  devient structurel, et il faut décider si l'égalité est **nominale** (même nom
+  = même type, à charge égale) ou **structurelle** (mêmes champs = même type) ;
+- **remonter le registre au DOCUMENT** — un seul registre, des identifiants
+  partagés. ⚠️ Ce choix a déjà été écarté une fois, et pour une raison qui tient
+  toujours : *« partager les identifiants rendrait la comparaison moins
+  coûteuse, mais sans vérification il n'y aurait toujours rien pour refuser. »*
+  Le partage ne dispense donc pas du contrôle.
+
+**Rien ne doit être codé avant ② :** il décide où vit le registre, et les quatre
+types en dépendent.
+
+⚠️ **Et une contrainte à ne pas casser en chemin.** Le § 5 a tranché qu'*« un
+tableau n'est pas un type, c'est une FORME »*, orthogonale au type contenu. Un
+tableau de structures se lit donc **(forme = tableau, type = cette structure)**,
+et surtout **pas** comme une structure dont les champs seraient les éléments.
+Les deux axes doivent rester séparés, sinon `[1.0]` et une structure à un champ
+deviennent indiscernables.
+
+⚠️ **La sérialisation est le point de non-retour.** `type <id> <nom>` n'a que
+deux jetons, et le § 16 a **MESURÉ** ce qu'un lecteur fait d'une directive qu'il
+ne connaît pas : elle est **ignorée**, puis **perdue à la réécriture** ; une
+directive *mal formée*, elle, **corrompt en silence**. Une définition de type
+composée écrite par une version et relue par une autre **disparaîtrait sans un
+mot**. Les directives des types composés doivent donc être ajoutées **avant**
+que des fichiers circulent, pas après.
+
+### 18.6 Le critère d'acceptation — mesurable, comme celui du regroupement
+
+**Écrire → relire → réécrire doit rendre le fichier identique, octet pour
+octet**, sur un document qui contient les quatre : une énumération à trois cas,
+une structure à trois champs dont un branché par chemin, une union en entrée à
+deux membres, et une hiérarchie à trois niveaux.
+
+C'est bien mieux qu'un jugement : ça attrape d'un seul coup la charge utile
+perdue (§ 16), les identifiants réattribués à la relecture — que
+`NkNodeGraphIO.inl:226-234` promet pourtant de **respecter** —, les champs
+déordonnés et la fermeture transitive incomplète. **Écrire ce contrôle avant
+d'écrire les types**, pas après.
