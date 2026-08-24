@@ -137,7 +137,7 @@
 <rect x="44" y="646" width="66" height="19" rx="3" fill="#E06C6C" opacity="0.20"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="77" y="660" fill="#E06C6C" font-size="10" font-weight="600" text-anchor="middle">NON</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="122" y="660" fill="#C8CCD4" font-size="11.5" font-weight="600">matériau / texture</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="330" y="660" fill="#8A8A8A" font-size="10.5">MESURÉ : le modèle n’a aucun type d’exécution (§17)</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="330" y="660" fill="#8A8A8A" font-size="10.5">MESURÉ : aucune de ses prises n’est de famille Exec (§17)</text>
 <rect x="44" y="674" width="66" height="19" rx="3" fill="#E06C6C" opacity="0.20"/>
 <text font-family="Segoe UI, Inter, sans-serif" x="77" y="688" fill="#E06C6C" font-size="10" font-weight="600" text-anchor="middle">NON</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="122" y="688" fill="#C8CCD4" font-size="11.5" font-weight="600">modélisation procédurale</text>
@@ -161,10 +161,10 @@
 <text font-family="Segoe UI, Inter, sans-serif" x="1014" y="732" fill="#8A8A8A" font-size="10.5">   Un graphe AVEC exécution ne le peut pas : l’appeler, c’est le LANCER. La frontière du panneau 2 est donc aussi celle du panneau 5.</text>
 </g>
 </g>
-<g id="panneau_3_ce_que_le_modele_ne_permet_pas_aujourd_hui">
+<g id="panneau_3_l_arite_inversee_ce_que_le_modele_ne_perme">
 
-<text font-family="Segoe UI, Inter, sans-serif" x="34" y="900" fill="#F79A28" font-size="12.5" font-weight="600">3 · 🔴 CE QUE LE MODÈLE NE PERMET PAS AUJOURD’HUI — les DEUX moitiés de la règle d’arité</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="34" y="916" fill="#6A6A6A" font-size="10">relevé dans src/NKGraph/NkNodeGraph.h · ce n’est pas un défaut de dessin, c’est un axe qui manque au modèle</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="900" fill="#F79A28" font-size="12.5" font-weight="600">3 · ✅ L’ARITÉ INVERSÉE — ce que le modèle ne permettait pas le 23/08, et qui est CODÉ depuis le 24/08</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="34" y="916" fill="#6A6A6A" font-size="10">ce panneau disait « AUJOURD’HUI » ; un état sans sa date se périme en silence · les deux moitiés tiennent, et chaque refus SE NOMME</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="44" y="946" fill="#C8CCD4" font-size="11.5" font-weight="600">a · PLUSIEURS chemins doivent pouvoir mener au MÊME nœud</text>
 <g id="noeud_si_vrai_05" opacity="1.0">
 <rect x="44" y="960" width="190" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
@@ -196,9 +196,10 @@
 <g id="fil_05">
 <path d="M234 1079C277.2 1079 286.8 1039 330 1039" fill="none" stroke="#F79A28" stroke-width="3.5"/>
 </g>
-<text font-family="Segoe UI, Inter, sans-serif" x="44" y="1110" fill="#E06C6C" font-size="10.5" font-weight="600">❌ Connect() : « une ENTRÉE n’accepte qu’UNE source :</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="44" y="1124" fill="#8A8A8A" font-size="10">brancher une seconde REMPLACE la première ». Le second</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="44" y="1138" fill="#8A8A8A" font-size="10">fil DÉBRANCHERAIT le premier, en silence.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="44" y="1110" fill="#4E9A5A" font-size="10.5" font-weight="600">✅ LES DEUX FILS TIENNENT. Une entrée d’EXÉCUTION accepte</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="44" y="1124" fill="#8A8A8A" font-size="10">plusieurs sources ; une entrée de DONNÉE, une seule — la</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="44" y="1138" fill="#8A8A8A" font-size="10">seconde remplace. ~ Au 23/08, le second fil DÉBRANCHAIT le</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="44" y="1152" fill="#8A8A8A" font-size="10">premier, en silence. Cas exec/arite-croisee.</text>
 <text font-family="Segoe UI, Inter, sans-serif" x="600" y="946" fill="#C8CCD4" font-size="11.5" font-weight="600">b · UNE sortie d’exécution n’a qu’UNE suite</text>
 <g id="noeud_ouvrir_la_porte_08" opacity="1.0">
 <rect x="600" y="1000" width="200" height="57" fill="#212121" stroke="#33333C" stroke-width="1"/>
@@ -230,22 +231,24 @@
 <g id="fil_07">
 <path d="M806 1039C846 1039 840 1079 880 1079" fill="none" stroke="#E06C6C" stroke-width="3.5"/>
 </g>
-<text font-family="Segoe UI, Inter, sans-serif" x="600" y="1110" fill="#E06C6C" font-size="10.5" font-weight="600">❌ Rien ne limite le nombre de liens partant d’une SORTIE.</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="600" y="1124" fill="#8A8A8A" font-size="10">Deux suites, ce sont deux programmes — et rien ne dit lequel</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="600" y="1138" fill="#8A8A8A" font-size="10">passe en premier. Il faut REFUSER le second, en le nommant.</text>
-<g id="cartouche_ce_qui_manque_au_modele_un_axe_pour_l_arite__03">
-<rect x="1120" y="940" width="666" height="206" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="964" fill="#F79A28" font-size="12" font-weight="600">ce qui manque au modèle — un axe pour l’arité ; le cycle, lui, est tranché</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="987" fill="#8A8A8A" font-size="10.5">▸ Le cœur applique UNIFORMÉMENT l’arité de la donnée : une entrée, une source ; une sortie, autant de liens qu’on veut.</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1004" fill="#8A8A8A" font-size="10.5">▸ Pour l’exécution il faut exactement l’INVERSE, et le catalogue l’écrit déjà : « les arités sont INVERSÉES entre les deux familles ».</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1021" fill="#8A8A8A" font-size="10.5">▸ 📌 Ce qui manque n’est pas une exception, c’est un AXE : le socket doit porter sa famille. Une seule valeur, deux lignes dans</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1038" fill="#8A8A8A" font-size="10.5">   Connect() — et le refus doit SE NOMMER, comme les six raisons de NkLinkError le font déjà (ExecOutputAlreadyBound).</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1055" fill="#8A8A8A" font-size="10.5">▸ ✅ LA BOUCLE : TRANCHÉE le 23/08, et c’est la réponse que ce panneau posait en question — c’est VOULU. Mesure : Connect() refuse</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1072" fill="#8A8A8A" font-size="10.5">   le fil lui-même, par NkLinkError::WouldCycle (NkNodeGraph.inl:243) ; on ne peut pas même TRACER le rebouclage.</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1089" fill="#8A8A8A" font-size="10.5">▸ 📌 Et c’est BIEN AINSI : une boucle est un NŒUD (Pour chaque, Tant que) dont le corps ne revient JAMAIS par un fil — comme la</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1106" fill="#8A8A8A" font-size="10.5">   machine à états est un nœud dont les cycles vivent dans son modèle. UN CYCLE VIT À L’INTÉRIEUR D’UN NŒUD, JAMAIS DANS LE GRAPHE.</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1123" fill="#8A8A8A" font-size="10.5">▸ ✅ C’est le seul choix qui n’affaiblit pas une règle générale pour un cas particulier : WouldCycle protège tout le reste du moteur,</text>
-<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1140" fill="#8A8A8A" font-size="10.5">   et on n’y touche pas. Ce qui reste vrai du constat : le socket doit porter sa famille — mais pour l’ARITÉ, plus pour le cycle.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="600" y="1110" fill="#4E9A5A" font-size="10.5" font-weight="600">✅ LE SECOND EST REFUSÉ, ET LE REFUS SE NOMME :</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="600" y="1124" fill="#8A8A8A" font-size="10">NkLinkError::ExecOutputAlreadyBound. Deux suites, ce sont deux</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="600" y="1138" fill="#8A8A8A" font-size="10">programmes, et rien ne dirait lequel passe en premier. ~ Au</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="600" y="1152" fill="#8A8A8A" font-size="10">23/08, rien ne limitait les liens partant d’une SORTIE.</text>
+<g id="cartouche_l_axe_est_code_et_ce_que_le_retrait_de_l_exc_03">
+<rect x="1120" y="940" width="666" height="223" rx="4" fill="#1A1A1A" stroke="#2E2E36"/>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="964" fill="#F79A28" font-size="12" font-weight="600">l’axe est codé — et ce que le retrait de l’exception a rapporté</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="987" fill="#8A8A8A" font-size="10.5">▸ ✅ L’AXE EXISTE : enum class NkSocketFamily { Data = 0, Exec = 1 }, porté par NkSocket. Data = 0 exprès — toute prise existante</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1004" fill="#8A8A8A" font-size="10.5">   garde son sens, et un fichier ancien se relit inchangé. La famille commande TROIS choses : compatibilité, arité d’entrée, arité de sortie.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1021" fill="#8A8A8A" font-size="10.5">▸ 📌 ET PAS QUATRE. Elle en commandait une quatrième pendant une journée — l’acyclicité — retirée le 23/08 au soir. UN CYCLE VIT</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1038" fill="#8A8A8A" font-size="10.5">   À L’INTÉRIEUR D’UN NŒUD, JAMAIS DANS LE GRAPHE : une boucle est un NŒUD dont le corps ne revient jamais par un fil.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1055" fill="#8A8A8A" font-size="10.5">▸ ✅ ET LE RETRAIT S’EST PAYÉ TOUT SEUL, d’une façon que personne n’avait prévue : l’exemption s’écrivait à DEUX endroits — la</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1072" fill="#8A8A8A" font-size="10.5">   condition dans Connect(), le filtre dans le parcours. Deux encodages de la même règle, donc INVISIBLES à une mutation à un seul</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1089" fill="#8A8A8A" font-size="10.5">   défaut : elle survivait. Les deux sont partis ensemble, et chacune des deux mutations rougit désormais SEULE.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1106" fill="#8A8A8A" font-size="10.5">▸ 📌 UNE RÈGLE SANS EXCEPTION N’EST PAS SEULEMENT PLUS SIMPLE À LIRE : ELLE EST PLUS SIMPLE À MESURER. Une exception se</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1123" fill="#8A8A8A" font-size="10.5">   dédouble — il faut la ré-énoncer partout où le cas particulier apparaît — et chaque duplication masque les autres à l’outil.</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1140" fill="#8A8A8A" font-size="10.5">▸ ⚠️ CE QUE CE PANNEAU DISAIT, ET QUI S’EST PÉRIMÉ SANS QUE PERSONNE SE TROMPE : son titre portait « AUJOURD’HUI ». Le relevé</text>
+<text font-family="Segoe UI, Inter, sans-serif" x="1134" y="1157" fill="#8A8A8A" font-size="10.5">   était juste le 23/08 ; le code a bougé sous lui. Un état DATÉ vieillit visiblement, un état daté « aujourd’hui » ment en silence.</text>
 </g>
 </g>
 <g id="panneau_4_le_franchissement_1_par_parametre_expose_o">
