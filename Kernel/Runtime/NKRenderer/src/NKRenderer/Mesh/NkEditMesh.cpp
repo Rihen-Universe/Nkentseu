@@ -1773,6 +1773,24 @@ namespace nkentseu {
 			vsel.Resize(nv0);
 			for (uint32 i = 0; i < nv0; ++i)
 				vsel[i] = 0;
+			// ⚠ CAPACITE RESERVEE AVANT LES AJOUTS, ET C'EST LE MEME PIEGE POUR LA
+			// TROISIEME FOIS DE LA NUIT. `PushBack` sur un tableau plein RELOGE tout :
+			// 66 049 sommets, 262 144 demi-aretes, 131 072 faces. Un seul relogement
+			// coute plus que l'operation entiere, et il est en O(MAILLAGE) alors que
+			// l'extrusion est en O(REGION) — c'est-a-dire qu'il annule exactement ce
+			// que le chantier cherche a obtenir.
+			// MESURE (sonde de phases, unites de temoin) : « capuchon et parois »
+			// pesait 1,496 sur 6,464 — 23 % d'une operation qui, elle, ne touche que
+			// 3 faces.
+			// Les bornes sont SUPERIEURES et exactes : au plus un sommet copie et une
+			// paroi par coin selectionne. Sur-reserver un peu ne coute qu'une fois ;
+			// sous-reserver rendrait la reservation inutile sans le dire.
+			{
+				const uint32 marge = (uint32)selVerts.Size();
+				verts.Reserve(nv0 + marge);
+				hedges.Reserve((uint32)hedges.Size() + 4u * marge);
+				faces.Reserve((uint32)faces.Size() + marge);
+			}
 			for (uint32 k = 0; k < (uint32)selVerts.Size(); ++k) {
 				const uint32 vi = selVerts[k];
 				if (vi >= nv0 || vmap[vi] >= 0)
