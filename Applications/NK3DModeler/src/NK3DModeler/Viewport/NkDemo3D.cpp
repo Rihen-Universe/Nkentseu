@@ -283,6 +283,14 @@ namespace nkentseu {
 		static int32 nkvpUserRing[kNkvpMaxUser];
 		static float32 nkvpUserAux[kNkvpMaxUser]; // ex. rayon interne du tore
 		static float32 nkvpUserCam[kNkvpMaxUser][3]; // camera : fov, clip debut/fin
+		// TOPOLOGIE n-gon d'un slot utilisateur, conservee entre deux entrees en
+		// edition. ⚠ MEME RAISON QUE `objHE` POUR LA DEMO : re-deriver depuis les
+		// triangles avec quadify perd toute face n-gon non reconstituable, et fait
+		// reapparaitre les diagonales de triangulation en fil de fer. Sans ces deux
+		// tableaux, un objet de l'utilisateur perdrait sa topologie a chaque
+		// aller-retour en edition, alors qu'un objet de demo la garde.
+		static renderer::NkEditMesh sUserHE[kNkvpMaxUser];
+		static bool sUserHasHE[kNkvpMaxUser] = {};
 		// SUPPRESSION par drapeau (heritee par la visibilite effective).
 		static bool nkvpDeleted[kNkvpMaxNodes] = {};
 		// PRESSE-PAPIERS de noeud (copier/coller).
@@ -1422,7 +1430,14 @@ namespace nkentseu {
 				// du draw call pour produire l'AABB MONDE attendue par NkRender3D::Submit.
 				NkVec3f editLocalMin = {-1.f, -1.f, -1.f};
 				NkVec3f editLocalMax = {1.f, 1.f, 1.f};
-				int32 editObjIdx = -1;						 // objet en cours d'édition (index gizmo)
+				int32 editObjIdx = -1;						 // objet de DEMO en cours d'édition (index gizmo)
+				// ⚠ UN SECOND INDEX, ET NON UN INDEX ELARGI. Les deux espaces sont
+				// disjoints et indexent des tableaux differents (`objMesh[kNumObj]`
+				// contre `nkvpUserMesh[kNkvpMaxUser]`). Les melanger dans un seul
+				// entier obligerait chacun des 26 sites qui lisent `editObjIdx` a
+				// redecider de quel cote il est — et le premier qui oublierait
+				// ecrirait dans le mauvais tableau, sans erreur.
+				int32 editUserIdx = -1;						 // slot UTILISATEUR en cours d'édition
 				NkVec3f editObjTint = {0.75f, 0.78f, 0.85f}; // matériau capturé de l'objet
 				float32 editObjMetallic = 0.f;
 				float32 editObjRoughness = 0.7f;
@@ -1872,7 +1887,12 @@ namespace nkentseu {
 		// entre/sort d'edition) ; sinon on ne reecrit que les tranches des objets qui ont
 		// REELLEMENT bouge (ici le seul cube central anime).
 		static void Demo3D_SyncWireBatch(Demo3DState *st, renderer::NkRender3D *r3d, renderer::NkMeshSystem *ms) {
+			// ⚠ `editUserIdx` ENTRE DANS L'EMPREINTE. Sans lui, entrer en edition sur
+			// un objet de l'utilisateur ne changerait pas la signature du lot : le fil
+			// de fer garderait l'objet qu'on vient de retirer, et on verrait sa cage
+			// ET son ancien contour.
 			int32 stamp = (st->editMode ? st->editObjIdx : -1) * 131 + 17;
+			stamp += (st->editMode ? st->editUserIdx : -1) * 1181;
 			for (int32 i = 0; i < Demo3DState::kNumObj; i++)
 				if (st->objMesh[i].IsValid())
 					stamp += (i + 1) * 7;
@@ -1924,6 +1944,8 @@ namespace nkentseu {
 					const uint8 uk = nkvpUserKind[u];
 					if (uk < 1 || uk > 3)
 						continue;
+					if (st->editMode && st->editUserIdx == u)
+						continue; // sa cage n-gon est deja dessinee par l'overlay
 					const int32 un = kNkvpFirstUser + u;
 					if (HostHiddenEff(un))
 						continue;
@@ -5516,6 +5538,76 @@ namespace nkentseu {
 		// Elle remplit l'etat d'edition COURANT. L'etape suivante consistera a la
 		// faire ecrire dans un EMPLACEMENT (Demo3DEditSlot) plutot que directement
 		// dans st, puis a garder un emplacement par objet edite.
+		// ── ENTREE EN EDITION SUR UN OBJET DE L'UTILISATEUR ─────────────────────
+		// Jumelle de Demo3D_EnterEditOnObject, pour l'AUTRE espace d'indices.
+		// ⚠ POURQUOI UNE JUMELLE ET NON UN PARAMETRE DE PLUS : les deux fonctions
+		// ne lisent ni n'ecrivent les memes tableaux (`objMesh`/`objHE` indexes par
+		// objet de demo contre `nkvpUserMesh`/`sUserHE` indexes par slot), et leur
+		// ancre ne se calcule pas pareil (gizmo de demo contre gizmo des empties).
+		// Les fondre en une seule aurait donne une fonction dont la moitie du corps
+		// est un `if` sur l'espace d'indices — c'est-a-dire le melange que
+		// `editUserIdx` existe pour eviter.
+		static void Demo3D_EnterEditOnUser(Demo3DState *st, renderer::NkMeshSystem *ms,
+										   renderer::NkRender3D *r3d, int32 u) {
+			(void)r3d;
+			if (!ms || u < 0 || u >= kNkvpMaxUser)
+				return;
+			const NkMeshHandle src = nkvpUserMesh[u];
+			if (!src.IsValid() || !ms->HasCPUData(src)) {
+				// ⚠ MESSAGE DISTINCT de « selectionne un objet ». Un objet EST
+				// selectionne ; ce qui manque est sa copie CPU. Reutiliser l'autre
+				// message enverrait l'utilisateur cliquer alors qu'il a deja clique.
+				logger.Warn("[Demo3D] Objet utilisateur sans copie CPU (keepCPU) — edition impossible.\n");
+				return;
+			}
+			const uint32 vc = ms->GetVertexCount(src);
+			const uint32 ic = ms->GetIndexCount(src);
+			const auto *sv = (const renderer::NkVertex3D *)ms->GetVertices(src);
+			const uint32 *si = ms->GetIndices(src);
+			if (!sv || !si || vc == 0 || ic == 0) {
+				logger.Warn("[Demo3D] Objet utilisateur sans geometrie lisible — edition impossible.\n");
+				return;
+			}
+			// TOPOLOGIE REPRISE TELLE QUELLE si l'objet a deja ete edite : meme
+			// raison que pour la demo — quadify ne sait pas reconstituer un n-gon.
+			if (sUserHasHE[u] && sUserHE[u].VertCount() > 0) {
+				st->editHE = sUserHE[u];
+				logger.Info("[Demo3D] EDIT MODE (utilisateur #{0}) : topologie n-gon reprise ({1} faces)\n", u,
+							(int32)st->editHE.FaceCount());
+			} else {
+				st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/ true);
+				logger.Info("[Demo3D] EDIT MODE (utilisateur #{0}) : {1} sommets, {2} faces\n", u,
+							(int32)st->editHE.VertCount(), (int32)st->editHE.FaceCount());
+			}
+			st->editHistory.Clear();
+			st->editRecorder.Clear();
+			st->editModifiers.Clear();
+			st->editActiveMod = -1;
+			st->editBase = st->editHE;
+			st->editReplayStep = -1;
+			st->vertSel.Clear();
+			st->vertSel.Resize(st->editHE.VertCount());
+			for (uint32 i = 0; i < st->editHE.VertCount(); i++)
+				st->vertSel[i] = 0;
+			st->editMesh = {};
+			Demo3D_SyncFromHE(st, ms);
+			// ANCRE = le MEME transform que celui du draw call de l'objet
+			// (HostEmptyXform du noeud). Le recalculer autrement ferait flotter la
+			// cage a cote de l'objet, et c'est exactement le defaut « cube invisible
+			// qu'on deplace » deja paye sur le sol de la demo.
+			const int32 e = (kNkvpFirstUser + u) - kNkvpEmptyBase;
+			st->editAnchor = HostEmptyXform(e, true);
+			st->editAnchorInv = st->editAnchor.Inverse();
+			st->editObjIdx = -1;
+			st->editUserIdx = u;
+			st->editGizmo.ClearSelection();
+			st->editWasDragging = false;
+			st->editOverlayDirty = true;
+			st->editMode = true;
+			st->wireDirty = true;
+			st->wireStamp = -12345; // la cage sort du lot de fil de fer
+		}
+
 		static void Demo3D_EnterEditOnObject(Demo3DState *st, renderer::NkMeshSystem *ms,
 											 renderer::NkRender3D *r3d, int32 sel) {
 			(void)r3d;
@@ -6250,8 +6342,30 @@ namespace nkentseu {
 						st->wireDirty = true;
 						st->wireStamp = -12345; // force la reconstruction complete du batch
 					}
+					// ── SORTIE SUR UN OBJET DE L'UTILISATEUR ────────────────────
+					// ⚠ SANS CE BLOC, TOUTE L'EDITION SERAIT PERDUE EN SILENCE : le
+					// bloc au-dessus ne s'applique qu'aux objets de demo, et
+					// l'ancien `editObjIdx = -1` suffisait a tout oublier. Le
+					// maillage edite serait pourtant reste correct a l'ecran
+					// jusqu'au prochain rendu — le pire des cas.
+					if (st->editUserIdx >= 0 && st->editUserIdx < kNkvpMaxUser) {
+						const int32 u = st->editUserIdx;
+						if (ms) {
+							if (nkvpUserMesh[u].IsValid())
+								ms->Release(nkvpUserMesh[u]);
+							nkvpUserMesh[u] = st->editMesh; // transfert de propriete
+						}
+						st->editMesh = {};
+						// La TOPOLOGIE n-gon aussi : sinon la re-entree en edition
+						// repartirait d'un quadify sur des triangles.
+						sUserHE[u] = st->editHE;
+						sUserHasHE[u] = true;
+						st->wireDirty = true;
+						st->wireStamp = -12345;
+					}
 					st->editMode = false;
 					st->editObjIdx = -1;
+					st->editUserIdx = -1;
 					r3d->ClearEditOverlay();
 				} else {
 					// LA REGLE EST DANS NkVpEditTarget.h, exercee par NKEditTargetTest.
@@ -6271,6 +6385,8 @@ namespace nkentseu {
 					const NkVpEditTarget cible = NkVpResolveEditTarget(q);
 					if (cible.kind == NkVpEditKind::Demo)
 						Demo3D_EnterEditOnObject(st, ms, r3d, cible.index);
+					else if (cible.kind == NkVpEditKind::Utilisateur)
+						Demo3D_EnterEditOnUser(st, ms, r3d, cible.index);
 					else
 						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
 				}
@@ -7426,6 +7542,12 @@ namespace nkentseu {
 				if (uk < 1 || uk > 3)
 					continue; // seuls les MAILLAGES se rendent (une lumiere kind 5
 							  // tombait dans le cas « plan » -- constate par Rihen)
+				// L'objet en cours d'edition est dessine par l'OVERLAY d'edition.
+				// Le laisser ici en dessinerait DEUX exemplaires superposes, dont un
+				// figé sur son ancienne forme — et le second masquerait les
+				// modifications au lieu de les montrer.
+				if (st->editMode && st->editUserIdx == u)
+					continue;
 				const int32 un = kNkvpFirstUser + u;
 				if (nkvpIsModel[un])
 					continue; // conteneur : sa geometrie vit dans ses maillages
