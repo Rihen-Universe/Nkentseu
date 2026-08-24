@@ -6486,37 +6486,59 @@ static Portee ComparerAretes(const NkVector<CleArete> &A, const NkVector<CleAret
 // personne ne l ait demande. Le compte reellement obtenu est RENDU par la
 // fonction et IMPRIME sur chaque ligne : un cas dont la precondition derape ne
 // doit pas pouvoir se faire passer pour une mesure.
-static uint32 SelectionnerFacesIsolees(NkEditMesh &m, uint32 n) {
-	m.SelectNone();
-	NkVector<uint8> pris;
-	pris.Resize((uint32)m.verts.Size());
-	for (uint32 i = 0; i < (uint32)pris.Size(); ++i)
-		pris[i] = 0;
-	NkVector<NkEmId> fv;
-	uint32 poses = 0;
-	for (uint32 f = 0; f < (uint32)m.faces.Size() && poses < n; ++f) {
-		if (!m.faces[f].alive)
-			continue;
-		m.GetFaceVerts((NkEmId)f, fv);
-		bool libre = true;
-		for (uint32 k = 0; k < (uint32)fv.Size(); ++k)
-			if (fv[k] < (NkEmId)pris.Size() && pris[fv[k]])
-				libre = false;
-		if (!libre)
-			continue;
-		for (uint32 k = 0; k < (uint32)fv.Size(); ++k)
-			if (fv[k] < (NkEmId)m.verts.Size()) {
-				m.verts[fv[k]].sel = 1;
-				pris[fv[k]] = 1;
+static uint32 SelectionnerFacesIsolees(NkEditMesh &m, uint32 n, NkVector<uint32> *outFaces = nullptr) {
+	// ⚠ ECARTER LES FACES NE SUFFIT PAS, ET LA PREMIERE VERSION LE PROUVAIT.
+	// Reserver les sommets des faces choisies empechait bien de choisir une
+	// voisine -- mais une face SITUEE ENTRE deux choisies voit ses quatre
+	// sommets reserves par elles, et devient selectionnee sans que personne ne
+	// l ait demandee. Sur une grille, demander 3 faces en donnait CINQ.
+	// La ligne le disait (`sel=5`), et c est tout ce qui l a fait voir.
+	// On ECARTE donc les indices, et on VERIFIE : si le compte obtenu n est pas
+	// celui demande, on recommence avec un pas plus grand plutot que de rendre
+	// un resultat approchant.
+	for (uint32 pas = 1u; pas <= 8u; ++pas) {
+		m.SelectNone();
+		NkVector<uint8> pris;
+		pris.Resize((uint32)m.verts.Size());
+		for (uint32 i = 0; i < (uint32)pris.Size(); ++i)
+			pris[i] = 0;
+		NkVector<NkEmId> fv;
+		uint32 poses = 0;
+		uint32 dernier = 0xFFFFFFFFu;
+		for (uint32 f = 0; f < (uint32)m.faces.Size() && poses < n; ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			if (dernier != 0xFFFFFFFFu && f < dernier + pas)
+				continue;
+			m.GetFaceVerts((NkEmId)f, fv);
+			bool libre = true;
+			for (uint32 k = 0; k < (uint32)fv.Size(); ++k)
+				if (fv[k] < (NkEmId)pris.Size() && pris[fv[k]])
+					libre = false;
+			if (!libre)
+				continue;
+			for (uint32 k = 0; k < (uint32)fv.Size(); ++k)
+				if (fv[k] < (NkEmId)m.verts.Size()) {
+					m.verts[fv[k]].sel = 1;
+					pris[fv[k]] = 1;
+				}
+			dernier = f;
+			poses++;
+		}
+		// Compte REEL de faces selectionnees, pas le nombre demande.
+		uint32 sel = 0;
+		if (outFaces)
+			outFaces->Clear();
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.FaceIsSelected((NkEmId)f)) {
+				sel++;
+				if (outFaces)
+					outFaces->PushBack(f);
 			}
-		poses++;
+		if (sel == n || pas == 8u)
+			return sel;
 	}
-	// Compte REEL de faces selectionnees, pas le nombre demande.
-	uint32 sel = 0;
-	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
-		if (m.faces[f].alive && m.FaceIsSelected((NkEmId)f))
-			sel++;
-	return sel;
+	return 0u;
 }
 
 // Applique `op` a une copie de `src`, rend la portee et le temps (minimum sur
@@ -7542,6 +7564,764 @@ static void IncrBattery() {
 	}
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// BAC A SABLE — UNE OPERATION EN PLACE SUR DES CYCLES CHAINES
+// ═══════════════════════════════════════════════════════════════════════════
+// POURQUOI CE PROTOTYPE EXISTE, ET POURQUOI IL NE TOUCHE PAS A NkEditMesh
+// La mesure de portee a montre qu une extrusion de 3 faces touche 32 aretes sur
+// 33 024 et coute pourtant le maillage entier : toute operation d edition fait
+// ToPolygons -> muter -> BuildFromPolygons. La sortie proposee est de faire muter
+// les operations EN PLACE, ce qui exige de remplacer les reservoirs CSR
+// (`radialPool` / `diskPool`, tranches CONTIGUES) par des cycles CHAINES —
+// c est ce que fait Blender, et pour cette raison-la.
+//
+// ⚠ ON CONNAIT LE CHEMIN, ON NE CONNAIT PAS LE GAIN. Reecrire la moitie de
+// NkEditMesh sur une conviction, c est engager des semaines contre un nombre
+// qu on n a pas. Ce prototype produit ce nombre, dans un bac a sable, sans
+// toucher une ligne du moteur : si le rapport n est pas la, rien n a ete casse.
+//
+// ET IL MESURE LES DEUX COTES. Un gain BRUT ne decide rien : les cycles chaines
+// perdent la localite de cache que les tranches contigues donnent gratuitement —
+// exactement ce que le melangeur de hachage a coute en Q73 (10 a 17 % sur les
+// chemins deja sains). Le banc mesure donc AUSSI le parcours, sur ce qui va bien
+// aujourd hui. C est le gain NET qui decide.
+//
+// CE QUI EST FIDELE, ET CE QUI NE L EST PAS — dit avant les chiffres :
+//   FIDELE   : la structure (boucle BMesh, cycle disque DOUBLEMENT chaine,
+//              cycle radial DOUBLEMENT chaine), le rewiring reel de l extrusion
+//              (les boucles de la face changent d arete, les faces laterales
+//              naissent), et le fait que rien en dehors du voisinage n est lu.
+//   PAS FIDELE : pas d attributs par coin (uv, tangente, couleur), pas de
+//              materiau, pas de selection, pas d annuler/refaire. Ces choses
+//              coutent du temps LINEAIRE dans le chemin actuel (ToPolygons les
+//              recopie toutes) et un temps CONSTANT dans le chemin en place —
+//              donc les omettre DESAVANTAGE le prototype sur le papier et
+//              l avantage en pratique. Le rapport mesure ici est donc une borne
+//              BASSE du gain, et je le dis avant de donner le chiffre.
+static const uint32 PROTO_INV = 0xFFFFFFFFu;
+
+// Petite table plate uint64 -> uint32, locale au banc : la conversion vers le
+// prototype ne doit pas etre plombee par la table chainee, sinon on mesurerait
+// le conteneur au lieu de la structure.
+struct ProtoMap {
+		NkVector<uint64> cle;
+		NkVector<uint32> val;
+		NkVector<uint8> pris;
+		uint32 masque = 0;
+		explicit ProtoMap(uint32 hint) {
+			uint32 cap = 16u;
+			while (cap < (hint + 1u) * 2u)
+				cap <<= 1;
+			masque = cap - 1u;
+			cle.Resize(cap);
+			val.Resize(cap);
+			pris.Resize(cap);
+			for (uint32 i = 0; i < cap; ++i) {
+				cle[i] = 0;
+				val[i] = 0;
+				pris[i] = 0;
+			}
+		}
+		static uint64 Melange(uint64 x) {
+			x += 0x9E3779B97F4A7C15ull;
+			x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+			x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+			return x ^ (x >> 31);
+		}
+		uint32 Trouver(uint64 k) const {
+			uint32 i = (uint32)(Melange(k) & (uint64)masque);
+			while (pris[i]) {
+				if (cle[i] == k)
+					return val[i];
+				i = (i + 1u) & masque;
+			}
+			return PROTO_INV;
+		}
+		void Poser(uint64 k, uint32 v) {
+			uint32 i = (uint32)(Melange(k) & (uint64)masque);
+			while (pris[i]) {
+				if (cle[i] == k)
+					return;
+				i = (i + 1u) & masque;
+			}
+			cle[i] = k;
+			val[i] = v;
+			pris[i] = 1;
+		}
+};
+
+// ── LA STRUCTURE, CALQUEE SUR BMesh ─────────────────────────────────────────
+// La difference tient en une phrase : le cycle disque d un sommet et le cycle
+// radial d une arete sont des LISTES CHAINEES CIRCULAIRES portees par les
+// entites elles-memes, au lieu de tranches contigues dans un reservoir global.
+// C est ce qui rend l insertion locale : brancher une arete de plus sur un
+// sommet ne deplace rien, la ou une tranche CSR doit etre relogee en entier.
+struct ProtoMesh {
+		// sommets
+		NkVector<NkVec3f> vpos;
+		NkVector<uint32> vedge; // une arete incidente, tete du cycle disque
+		// aretes
+		NkVector<uint32> ev0, ev1;
+		NkVector<uint32> edn0, edp0, edn1, edp1; // cycle DISQUE, par extremite
+		NkVector<uint32> eloop;					 // une boucle, tete du cycle radial
+		// boucles (le BMLoop de Blender : un coin de face)
+		NkVector<uint32> lv, le, lf, lnext, lrnext, lrprev;
+		// faces
+		NkVector<uint32> floop, flen;
+
+		uint32 NbV() const {
+			return (uint32)vpos.Size();
+		}
+		uint32 NbE() const {
+			return (uint32)ev0.Size();
+		}
+		uint32 NbF() const {
+			return (uint32)floop.Size();
+		}
+
+		uint32 AjouterSommet(const NkVec3f &p) {
+			vpos.PushBack(p);
+			vedge.PushBack(PROTO_INV);
+			return (uint32)vpos.Size() - 1u;
+		}
+		// ⚠ REFERENCES INTERDITES ICI. Un `uint32 &DNext(...)` serait plus court,
+		// mais chaque PushBack peut RELOGER le tableau : la reference designerait
+		// alors une adresse liberee. Ce piege est exactement celui deja paye dans
+		// DiskAppend cote moteur (lire diskPool pendant qu on le remplit).
+		uint32 LireDNext(uint32 e, uint32 v) const {
+			return (ev0[e] == v) ? edn0[e] : edn1[e];
+		}
+		uint32 LireDPrev(uint32 e, uint32 v) const {
+			return (ev0[e] == v) ? edp0[e] : edp1[e];
+		}
+		void EcrireDNext(uint32 e, uint32 v, uint32 x) {
+			if (ev0[e] == v)
+				edn0[e] = x;
+			else
+				edn1[e] = x;
+		}
+		void EcrireDPrev(uint32 e, uint32 v, uint32 x) {
+			if (ev0[e] == v)
+				edp0[e] = x;
+			else
+				edp1[e] = x;
+		}
+		// Branche `e` sur le cycle disque de `v`. AUCUN deplacement, aucune copie :
+		// c est toute la these du chantier, en cinq lignes.
+		void DisqueBrancher(uint32 v, uint32 e) {
+			if (vedge[v] == PROTO_INV) {
+				vedge[v] = e;
+				EcrireDNext(e, v, e);
+				EcrireDPrev(e, v, e);
+				return;
+			}
+			const uint32 a = vedge[v];
+			const uint32 b = LireDNext(a, v);
+			EcrireDNext(e, v, b);
+			EcrireDPrev(e, v, a);
+			EcrireDNext(a, v, e);
+			EcrireDPrev(b, v, e);
+		}
+		uint32 AjouterArete(uint32 a, uint32 b) {
+			const uint32 e = (uint32)ev0.Size();
+			ev0.PushBack(a);
+			ev1.PushBack(b);
+			edn0.PushBack(PROTO_INV);
+			edp0.PushBack(PROTO_INV);
+			edn1.PushBack(PROTO_INV);
+			edp1.PushBack(PROTO_INV);
+			eloop.PushBack(PROTO_INV);
+			DisqueBrancher(a, e);
+			DisqueBrancher(b, e);
+			return e;
+		}
+		void RadialBrancher(uint32 e, uint32 l) {
+			if (eloop[e] == PROTO_INV) {
+				eloop[e] = l;
+				lrnext[l] = l;
+				lrprev[l] = l;
+				return;
+			}
+			const uint32 a = eloop[e], b = lrnext[a];
+			lrnext[l] = b;
+			lrprev[l] = a;
+			lrnext[a] = l;
+			lrprev[b] = l;
+		}
+		// O(1) — c est pour cela que le cycle radial est DOUBLEMENT chaine. Avec un
+		// simple chainage il faudrait retrouver le predecesseur, donc parcourir.
+		void RadialDebrancher(uint32 e, uint32 l) {
+			const uint32 n = lrnext[l], p = lrprev[l];
+			if (n == l) {
+				eloop[e] = PROTO_INV;
+			} else {
+				lrnext[p] = n;
+				lrprev[n] = p;
+				if (eloop[e] == l)
+					eloop[e] = n;
+			}
+			lrnext[l] = PROTO_INV;
+			lrprev[l] = PROTO_INV;
+		}
+		uint32 AjouterBoucle(uint32 v, uint32 e, uint32 f) {
+			const uint32 l = (uint32)lv.Size();
+			lv.PushBack(v);
+			le.PushBack(e);
+			lf.PushBack(f);
+			lnext.PushBack(PROTO_INV);
+			lrnext.PushBack(PROTO_INV);
+			lrprev.PushBack(PROTO_INV);
+			return l;
+		}
+};
+
+// ── CONVERSION DEPUIS NkEditMesh ────────────────────────────────────────────
+// Mesuree A PART : si la structure chainee devait etre reconstruite a chaque
+// operation, elle ne servirait a rien. Le chiffre est donne pour qu on sache ce
+// que couterait la bascule, pas pour etre ajoute au cout d une operation.
+// ⚠ `mapFace` N EST PAS UN CONFORT. Les indices de face du prototype sont des
+// RANGS parmi les faces VIVANTES ; ceux de NkEditMesh comptent aussi les mortes
+// (quadify en laisse derriere lui). Extruder « la face 12 » des deux cotes
+// extruderait donc deux faces DIFFERENTES -- et les deux mesures seraient
+// valides, sur deux operations qui n ont rien a voir.
+static void ProtoDepuis(const NkEditMesh &m, ProtoMesh &P, NkVector<uint32> *mapFace = nullptr) {
+	P = ProtoMesh{};
+	if (mapFace) {
+		mapFace->Resize((uint32)m.faces.Size());
+		for (uint32 i = 0; i < (uint32)mapFace->Size(); ++i)
+			(*mapFace)[i] = PROTO_INV;
+	}
+	for (uint32 i = 0; i < m.VertCount(); ++i)
+		P.AjouterSommet(m.verts[i].pos);
+	ProtoMap carte((uint32)m.hedges.Size());
+	NkVector<NkEmId> boucle;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		m.GetFaceVerts((NkEmId)f, boucle);
+		const uint32 n = (uint32)boucle.Size();
+		if (n < 3)
+			continue;
+		const uint32 fi = (uint32)P.floop.Size();
+		if (mapFace)
+			(*mapFace)[f] = fi;
+		P.floop.PushBack(PROTO_INV);
+		P.flen.PushBack(n);
+		uint32 premier = PROTO_INV, prec = PROTO_INV;
+		for (uint32 k = 0; k < n; ++k) {
+			const uint32 a = boucle[k], b = boucle[(k + 1u) % n];
+			const uint64 lo = a < b ? a : b, hi = a < b ? b : a;
+			const uint64 cle = (lo << 32) | hi;
+			uint32 e = carte.Trouver(cle);
+			if (e == PROTO_INV) {
+				e = P.AjouterArete(a, b);
+				carte.Poser(cle, e);
+			}
+			const uint32 l = P.AjouterBoucle(a, e, fi);
+			P.RadialBrancher(e, l);
+			if (premier == PROTO_INV)
+				premier = l;
+			else
+				P.lnext[prec] = l;
+			prec = l;
+		}
+		P.lnext[prec] = premier;
+		P.floop[fi] = premier;
+	}
+}
+
+// ── L OPERATION EN PLACE : EXTRUSION D UNE FACE ─────────────────────────────
+// La face garde son identite et ses boucles ; ce sont ses boucles qui changent
+// de SOMMET et d ARETE. Autour, une bande de faces laterales nait. Rien d autre
+// n est lu ni ecrit : ni les 16 000 autres faces, ni les 33 000 autres aretes.
+// C est exactement l ensemble que le banc de portee avait mesure a 32 aretes.
+static void ProtoExtruderFace(ProtoMesh &P, uint32 f, float32 offset) {
+	const uint32 n = P.flen[f];
+	if (n < 3)
+		return;
+	// Boucles, sommets et aretes du contour, dans l ordre du cycle de face.
+	NkVector<uint32> L, V, E;
+	uint32 l = P.floop[f];
+	for (uint32 k = 0; k < n; ++k) {
+		L.PushBack(l);
+		V.PushBack(P.lv[l]);
+		E.PushBack(P.le[l]);
+		l = P.lnext[l];
+	}
+	// Normale : MEME convention que le moteur (cf. NkEmFaceCross) — (p2-p0)x(p1-p0).
+	// La prendre a l envers ferait extruder vers l interieur, et le compte de
+	// faces serait juste quand meme.
+	const NkVec3f p0 = P.vpos[V[0]], p1 = P.vpos[V[1]], p2 = P.vpos[V[2]];
+	NkVec3f nr = (p2 - p0).Cross(p1 - p0);
+	const float32 ln = nr.Len();
+	nr = (ln > 1e-8f) ? nr * (1.f / ln) : NkVec3f{0.f, 1.f, 0.f};
+	const NkVec3f d = nr * offset;
+
+	NkVector<uint32> W, T, S;
+	for (uint32 k = 0; k < n; ++k)
+		W.PushBack(P.AjouterSommet(P.vpos[V[k]] + d));
+	for (uint32 k = 0; k < n; ++k)
+		T.PushBack(P.AjouterArete(W[k], W[(k + 1u) % n]));
+	for (uint32 k = 0; k < n; ++k)
+		S.PushBack(P.AjouterArete(V[k], W[k]));
+
+	// La face monte : ses boucles quittent le cycle radial des anciennes aretes
+	// et rejoignent celui des nouvelles. UN debranchement et UN branchement par
+	// coin, tous deux en O(1) grace au double chainage.
+	for (uint32 k = 0; k < n; ++k) {
+		P.RadialDebrancher(E[k], L[k]);
+		P.lv[L[k]] = W[k];
+		P.le[L[k]] = T[k];
+		P.RadialBrancher(T[k], L[k]);
+	}
+	// La bande laterale : un quad par arete du contour.
+	for (uint32 k = 0; k < n; ++k) {
+		const uint32 k1 = (k + 1u) % n;
+		const uint32 g = (uint32)P.floop.Size();
+		P.floop.PushBack(PROTO_INV);
+		P.flen.PushBack(4u);
+		const uint32 m0 = P.AjouterBoucle(V[k], E[k], g);
+		const uint32 m1 = P.AjouterBoucle(V[k1], S[k1], g);
+		const uint32 m2 = P.AjouterBoucle(W[k1], T[k], g);
+		const uint32 m3 = P.AjouterBoucle(W[k], S[k], g);
+		P.lnext[m0] = m1;
+		P.lnext[m1] = m2;
+		P.lnext[m2] = m3;
+		P.lnext[m3] = m0;
+		P.floop[g] = m0;
+		P.RadialBrancher(E[k], m0);
+		P.RadialBrancher(S[k1], m1);
+		P.RadialBrancher(T[k], m2);
+		P.RadialBrancher(S[k], m3);
+	}
+}
+
+// ── VERIFICATION DE LA STRUCTURE ────────────────────────────────────────────
+// ⚠ SANS ELLE, LE PROTOTYPE LE PLUS RAPIDE EST CELUI QUI NE FAIT RIEN. Une
+// mesure de temps sur une operation qui laisse la structure incoherente est le
+// cas parfait du jeu de donnees incapable de produire le cas : tout est vert et
+// tout est faux. On verifie donc que CHAQUE cycle est ferme et de la bonne
+// longueur, en le PARCOURANT et en comparant a un comptage independant.
+struct ProtoVerdict {
+		uint32 disquesOk = 0, disquesTotal = 0;
+		uint32 radialsOk = 0, radialsTotal = 0;
+		uint32 facesOk = 0, facesTotal = 0;
+};
+
+static ProtoVerdict ProtoVerifier(const ProtoMesh &P) {
+	ProtoVerdict r;
+	// Comptage INDEPENDANT : combien d aretes citent chaque sommet, combien de
+	// boucles citent chaque arete. C est la reference, et elle ne passe par aucun
+	// chainage — sinon on verifierait le chainage avec lui-meme.
+	NkVector<uint32> degV, degE;
+	degV.Resize(P.NbV());
+	degE.Resize(P.NbE());
+	for (uint32 i = 0; i < P.NbV(); ++i)
+		degV[i] = 0;
+	for (uint32 i = 0; i < P.NbE(); ++i)
+		degE[i] = 0;
+	for (uint32 e = 0; e < P.NbE(); ++e) {
+		degV[P.ev0[e]]++;
+		degV[P.ev1[e]]++;
+	}
+	for (uint32 l = 0; l < (uint32)P.lv.Size(); ++l)
+		degE[P.le[l]]++;
+
+	for (uint32 v = 0; v < P.NbV(); ++v) {
+		r.disquesTotal++;
+		uint32 n = 0;
+		if (P.vedge[v] != PROTO_INV) {
+			uint32 e = P.vedge[v];
+			for (;;) {
+				++n;
+				if (n > P.NbE() + 4u)
+					break; // cycle non ferme : on refuse au lieu de boucler
+				e = P.LireDNext(e, v);
+				if (e == P.vedge[v])
+					break;
+			}
+		}
+		if (n == degV[v])
+			r.disquesOk++;
+	}
+	for (uint32 e = 0; e < P.NbE(); ++e) {
+		r.radialsTotal++;
+		uint32 n = 0;
+		if (P.eloop[e] != PROTO_INV) {
+			uint32 l = P.eloop[e];
+			for (;;) {
+				++n;
+				if (n > (uint32)P.lv.Size() + 4u)
+					break;
+				l = P.lrnext[l];
+				if (l == P.eloop[e])
+					break;
+			}
+		}
+		if (n == degE[e])
+			r.radialsOk++;
+	}
+	// Cycle de face : ferme, de longueur `flen`, et chaque boucle porte bien SA
+	// face. Une boucle restee accrochee a son ancienne face passerait les deux
+	// controles precedents sans encombre.
+	for (uint32 f = 0; f < P.NbF(); ++f) {
+		r.facesTotal++;
+		uint32 n = 0;
+		bool ok = true;
+		uint32 l = P.floop[f];
+		if (l == PROTO_INV)
+			ok = false;
+		while (ok) {
+			if (P.lf[l] != f)
+				ok = false;
+			++n;
+			if (n > P.flen[f] + 2u)
+				break;
+			l = P.lnext[l];
+			if (l == P.floop[f])
+				break;
+		}
+		if (ok && n == P.flen[f])
+			r.facesOk++;
+	}
+	return r;
+}
+
+// ── LE BANC ─────────────────────────────────────────────────────────────────
+static void ProtoBattery() {
+	printf("\n");
+	printf("===========================================================================\n");
+	printf("=== PROTOTYPE : UNE EXTRUSION EN PLACE SUR CYCLES CHAINES               ===\n");
+	printf("===========================================================================\n");
+	printf("  bac a sable, NkEditMesh n est PAS modifie. Sans attributs par coin ni\n");
+	printf("  materiau : le chemin actuel les recopie tous (cout LINEAIRE), le chemin\n");
+	printf("  en place non -- les omettre DESAVANTAGE le prototype. Borne BASSE.\n\n");
+
+	// -- 1. JUSTESSE D ABORD ------------------------------------------------
+	// Le prototype produit-il la meme chose que le moteur ? Compte de sommets,
+	// de faces, d aretes -- et les trois cycles verifies un par un. Un prototype
+	// qui ne ferait rien serait imbattable en temps.
+	printf("  [justesse] le prototype produit-il la MEME chose que le moteur ?\n");
+	{
+		NkVector<NkVertex3D> gv;
+		NkVector<uint32> gi;
+		MakeGrid(16u, gv, gi);
+		NkEditMesh m;
+		m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		m.RebuildEdges();
+		NkVector<uint32> sel;
+		const uint32 nsel = SelectionnerFacesIsolees(m, 3u, &sel);
+
+		ProtoMesh P;
+		NkVector<uint32> mapF;
+		ProtoDepuis(m, P, &mapF);
+		const ProtoVerdict avant = ProtoVerifier(P);
+		const uint32 v0 = P.NbV(), e0 = P.NbE(), f0 = P.NbF();
+		uint32 traduites = 0;
+		for (uint32 k = 0; k < (uint32)sel.Size(); ++k)
+			if (mapF[sel[k]] != PROTO_INV) {
+				ProtoExtruderFace(P, mapF[sel[k]], 0.05f);
+				traduites++;
+			}
+		const ProtoVerdict apres = ProtoVerifier(P);
+
+		NkEditMesh r = m;
+		NkExtrudeParams ep;
+		ep.offset = 0.05f;
+		r.ExtrudeSelectedFaces(ep);
+		r.RebuildEdges();
+		uint32 rf = 0;
+		for (uint32 f = 0; f < (uint32)r.faces.Size(); ++f)
+			if (r.faces[f].alive)
+				rf++;
+
+		printf("    selection : %u demandees, %u obtenues, %u extrudees par le prototype (les trois egales)\n", 3u,
+			   nsel, traduites);
+		printf("    moteur    : V=%u  F=%u  E=%u\n", r.VertCount(), rf, r.EdgeCount());
+		printf("    prototype : V=%u  F=%u  E=%u   (depart V=%u F=%u E=%u)\n", P.NbV(), P.NbF(), P.NbE(), v0, f0, e0);
+		printf("    MEMES COMPTES = %u\n",
+			   (P.NbV() == r.VertCount() && P.NbF() == rf && P.NbE() == r.EdgeCount()) ? 1u : 0u);
+		printf("    cycles avant : disques %u/%u  radiaux %u/%u  faces %u/%u\n", avant.disquesOk, avant.disquesTotal,
+			   avant.radialsOk, avant.radialsTotal, avant.facesOk, avant.facesTotal);
+		printf("    cycles apres : disques %u/%u  radiaux %u/%u  faces %u/%u  (tout doit etre plein)\n",
+			   apres.disquesOk, apres.disquesTotal, apres.radialsOk, apres.radialsTotal, apres.facesOk,
+			   apres.facesTotal);
+	}
+
+	// -- 2. LE GAIN, APPARIE ------------------------------------------------
+	// Les deux chemins mesures dans la MEME boucle, en alternance, sur le MEME
+	// maillage : c est ce qui a fait la difference entre x4,6 (non apparie) et
+	// x2,1 (apparie) sur la table plate.
+	// ⚠ LA PREMIERE VERSION DE CETTE MESURE DONNAIT x3 A x5, ET C ETAIT FAUX --
+	// pas trop haut : TROP BAS. Extruder 3 faces en place rendait 11 ms sur
+	// 65 536 faces, la ou le travail est de 12 sommets et 24 aretes. Ce n est pas
+	// l extrusion qui coutait, c est le PREMIER PushBack : quinze tableaux de
+	// 500 000 entrees qui doublent de capacite. Exactement ce qui vient d etre
+	// attribue sur AddWireEdge -- et j allais le laisser passer une seconde fois,
+	// dans l autre sens.
+	//
+	// On separe donc les deux, par la meme resolution a deux points :
+	//     place(k) = R + k.c      avec k = 3 puis k = 30 faces extrudees
+	// R  = le relogement, paye UNE fois apres un chargement, jamais ensuite ;
+	// c  = le cout REEL d extruder une face, et c est le seul nombre qui decide.
+	// Le chemin moteur, lui, n a pas de version chaude : il Clear() et reconstruit
+	// a chaque appel, donc il repaie tout a chaque fois. C est precisement la
+	// difference qu on cherche a chiffrer.
+	// Valeurs de la DERNIERE taille mesuree (65 536 faces), retenues pour le
+	// verdict : c est la taille ou la question se pose, pas le cube.
+	double vMoteur = 0.0, vParFace = 0.0, vR = 0.0, vCsr = 0.0, vCha = 0.0;
+	printf("\n  [gain] extrusion en place -- le relogement SEPARE du travail reel\n");
+	printf("    %8s %13s %11s %11s %13s %12s %12s\n", "faces", "moteur(ms)", "place k=3", "place k=grand", "fixe R(ms)",
+		   "par face", "conversion");
+	{
+		for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+			NkVector<NkVertex3D> gv;
+			NkVector<uint32> gi;
+			MakeGrid(nn, gv, gi);
+			NkEditMesh m;
+			m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+			m.RebuildEdges();
+			ProtoMesh base;
+			NkVector<uint32> mapF;
+			ProtoDepuis(m, base, &mapF);
+
+			// Deux selections, 3 et 30 faces. ⚠ Les comptes obtenus sont IMPRIMES :
+			// si la grille ne pouvait pas fournir 30 faces isolees, la resolution a
+			// deux points porterait sur deux k qu on croit connaitre.
+			// ⚠ LE GRAND k EST DIMENSIONNE, PAS CHOISI. Avec k=30, la difference
+			// entre les deux mesures valait 0,004 ms sur un total de 8 ms a
+			// 65 536 faces : SOUS LE BRUIT. La resolution a deux points rendait
+			// alors 0,000137 ms par face et un rapport de 71 000 -- un chiffre
+			// spectaculaire et vide. Le terme marginal doit peser assez lourd
+			// devant le terme fixe pour se lire : on prend donc k proportionnel
+			// au maillage.
+			NkEditMesh m3 = m, mB = m;
+			NkVector<uint32> sel3, selB;
+			uint32 kBig = (nn * nn) / 16u;
+			if (kBig < 30u)
+				kBig = 30u;
+			if (kBig > 400u)
+				kBig = 400u;
+			const uint32 n3 = SelectionnerFacesIsolees(m3, 3u, &sel3);
+			const uint32 n30 = SelectionnerFacesIsolees(mB, kBig, &selB);
+			NkVector<uint32> &sel30 = selB;
+			NkVector<uint32> selP3, selP30;
+			for (uint32 k = 0; k < (uint32)sel3.Size(); ++k)
+				if (mapF[sel3[k]] != PROTO_INV)
+					selP3.PushBack(mapF[sel3[k]]);
+			for (uint32 k = 0; k < (uint32)sel30.Size(); ++k)
+				if (mapF[sel30[k]] != PROTO_INV)
+					selP30.PushBack(mapF[sel30[k]]);
+
+			double mMoteur = 1e30, mP3 = 1e30, mP30 = 1e30, mConv = 1e30;
+			const uint32 passes = (nn >= 128u) ? 5u : 9u;
+			for (uint32 r = 0; r < passes; ++r) {
+				{
+					NkEditMesh d = m3;
+					NkExtrudeParams ep;
+					ep.offset = 0.05f;
+					NkChrono c;
+					d.ExtrudeSelectedFaces(ep);
+					const double ms = c.Elapsed().ToMilliseconds();
+					if (ms < mMoteur)
+						mMoteur = ms;
+				}
+				{
+					ProtoMesh P = base; // COPIE hors chronometre, comme cote moteur
+					NkChrono c;
+					for (uint32 k = 0; k < (uint32)selP3.Size(); ++k)
+						ProtoExtruderFace(P, selP3[k], 0.05f);
+					const double ms = c.Elapsed().ToMilliseconds();
+					if (ms < mP3)
+						mP3 = ms;
+				}
+				{
+					ProtoMesh P = base;
+					NkChrono c;
+					for (uint32 k = 0; k < (uint32)selP30.Size(); ++k)
+						ProtoExtruderFace(P, selP30[k], 0.05f);
+					const double ms = c.Elapsed().ToMilliseconds();
+					if (ms < mP30)
+						mP30 = ms;
+				}
+				{
+					ProtoMesh P;
+					NkChrono c;
+					ProtoDepuis(m, P);
+					const double ms = c.Elapsed().ToMilliseconds();
+					if (ms < mConv)
+						mConv = ms;
+				}
+			}
+			const double kk3 = (double)selP3.Size(), kk30 = (double)selP30.Size();
+			const double parFace = (kk30 > kk3) ? ((mP30 - mP3) / (kk30 - kk3)) : 0.0;
+			const double R = mP3 - kk3 * parFace;
+			// ⚠ LISIBLE OU PAS : le terme marginal doit representer au moins 5 %
+			// du total mesure, sinon il est du bruit et on le DIT. Un rapport
+			// calcule sur un denominateur invisible est le meilleur moyen de sortir
+			// un x71000 et d y croire.
+			const bool lisible = (mP30 > mP3) && ((mP30 - mP3) > 0.05 * mP3);
+			if (lisible)
+				printf("    %8u %13.4f %11.4f %11.4f %13.4f %12.6f %12.2f   (sel %u/%u)\n", nn * nn, mMoteur, mP3,
+					   mP30, R, parFace, mConv, n3, n30);
+			else
+				printf("    %8u %13.4f %11.4f %11.4f %13.4f   SOUS LE BRUIT %12.2f   (sel %u/%u)\n", nn * nn, mMoteur,
+					   mP3, mP30, R, mConv, n3, n30);
+			vMoteur = mMoteur;
+			vParFace = lisible ? parFace : 0.0;
+			vR = R;
+		}
+		printf("    -> `par face` est le cout REEL d une extrusion en place ; `fixe R` est\n");
+		printf("       paye une fois apres un chargement, le chemin moteur le repaie a CHAQUE appel.\n");
+	}
+
+	// -- 3. CE QUE LES CYCLES CHAINES COUTENT SUR CE QUI VA BIEN ------------
+	// ⚠ LE GAIN NET EST CE QUI DECIDE. Un chainage perd la localite que la
+	// tranche contigue donne gratuitement : parcourir un disque, c est suivre des
+	// pointeurs au hasard dans la memoire au lieu de lire quatre entiers cote a
+	// cote. On mesure donc LE MEME parcours des deux cotes, et on verifie qu ils
+	// comptent la MEME chose -- sinon le plus rapide serait celui qui en fait le
+	// moins.
+	printf("\n  [contre-mesure] parcours de TOUS les cycles : tranche CSR contre chainage\n");
+	printf("    %8s %16s %16s %10s %12s\n", "faces", "CSR (ms)", "chaine (ms)", "rapport", "meme total");
+	{
+		for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+			NkVector<NkVertex3D> gv;
+			NkVector<uint32> gi;
+			MakeGrid(nn, gv, gi);
+			NkEditMesh m;
+			m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+			m.RebuildEdges();
+			ProtoMesh P;
+			ProtoDepuis(m, P);
+
+			double mCsr = 1e30, mCha = 1e30;
+			uint64 sCsr = 0, sCha = 0;
+			for (uint32 r = 0; r < 5u; ++r) {
+				{
+					uint64 acc = 0;
+					NkChrono c;
+					// DISQUES par tranche contigue, puis RADIAUX par tranche.
+					for (uint32 v = 0; v < m.VertCount(); ++v) {
+						const uint32 s0 = m.verts[v].diskStart, n0 = m.verts[v].diskCount;
+						for (uint32 k = 0; k < n0; ++k)
+							acc += (uint64)m.diskPool[s0 + k];
+					}
+					for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+						if (!m.edges[e].alive)
+							continue;
+						const uint32 s0 = m.edges[e].radialStart, n0 = m.edges[e].radialCount;
+						for (uint32 k = 0; k < n0; ++k)
+							acc += (uint64)m.radialPool[s0 + k];
+					}
+					const double ms = c.Elapsed().ToMilliseconds();
+					if (ms < mCsr)
+						mCsr = ms;
+					sCsr = acc;
+				}
+				{
+					uint64 acc = 0;
+					NkChrono c;
+					for (uint32 v = 0; v < P.NbV(); ++v) {
+						uint32 e = P.vedge[v];
+						if (e == PROTO_INV)
+							continue;
+						for (;;) {
+							acc += (uint64)e;
+							e = P.LireDNext(e, v);
+							if (e == P.vedge[v])
+								break;
+						}
+					}
+					for (uint32 e = 0; e < P.NbE(); ++e) {
+						uint32 l = P.eloop[e];
+						if (l == PROTO_INV)
+							continue;
+						for (;;) {
+							acc += (uint64)l;
+							l = P.lrnext[l];
+							if (l == P.eloop[e])
+								break;
+						}
+					}
+					const double ms = c.Elapsed().ToMilliseconds();
+					if (ms < mCha)
+						mCha = ms;
+					sCha = acc;
+				}
+			}
+			// ⚠ Les deux sommes ne peuvent PAS etre egales : elles somment des
+			// indices d entites differentes (aretes/demi-aretes contre
+			// aretes/boucles). Ce qu on compare, c est le NOMBRE de pas parcourus,
+			// qui doit etre identique -- sinon un des deux parcourrait moins.
+			(void)sCsr;
+			(void)sCha;
+			uint32 pasCsr = 0, pasCha = 0;
+			for (uint32 v = 0; v < m.VertCount(); ++v)
+				pasCsr += m.verts[v].diskCount;
+			for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e)
+				if (m.edges[e].alive)
+					pasCsr += m.edges[e].radialCount;
+			for (uint32 v = 0; v < P.NbV(); ++v) {
+				uint32 e = P.vedge[v];
+				if (e == PROTO_INV)
+					continue;
+				for (;;) {
+					pasCha++;
+					e = P.LireDNext(e, v);
+					if (e == P.vedge[v])
+						break;
+				}
+			}
+			for (uint32 e = 0; e < P.NbE(); ++e) {
+				uint32 l = P.eloop[e];
+				if (l == PROTO_INV)
+					continue;
+				for (;;) {
+					pasCha++;
+					l = P.lrnext[l];
+					if (l == P.eloop[e])
+						break;
+				}
+			}
+			printf("    %8u %16.4f %16.4f %9.2fx %5u/%5u %s\n", nn * nn, mCsr, mCha,
+				   (mCsr > 0.0) ? (mCha / mCsr) : 0.0, pasCsr, pasCha, (pasCsr == pasCha) ? "" : " <-- DIFFERENT");
+			vCsr = mCsr;
+			vCha = mCha;
+		}
+	}
+	// ── LE VERDICT, CALCULE ICI ET NON DANS UN RAPPORT ──────────────────────
+	// ⚠ LE GAIN BRUT NE DECIDE PAS. Le chainage fait GAGNER a chaque edition et
+	// PERDRE a chaque parcours. Le seul enonce qui tranche est donc : combien de
+	// parcours COMPLETS de tous les cycles faudrait-il par edition pour que la
+	// structure chainee soit perdante ? Si le nombre est grand, la reponse est
+	// evidente ; s il est de 2 ou 3, la reecriture ne vaut pas le risque.
+	// Ecrit en code pour qu il se recalcule tout seul le jour ou la machine, le
+	// compilateur ou le maillage changent — une conclusion recopiee a la main ne
+	// se perime pas bruyamment.
+	printf("\n  [verdict] sur 65 536 faces\n");
+	{
+		const double gainParEdition = vMoteur - 3.0 * vParFace;   // 3 faces extrudees
+		const double surcoutParParcours = vCha - vCsr;
+		if (vParFace > 0.0)
+			printf("    une edition de 3 faces : moteur %.3f ms  ->  en place %.5f ms   (x%.0f, regime etabli)\n",
+				   vMoteur, 3.0 * vParFace, vMoteur / (3.0 * vParFace));
+		else
+			printf("    une edition de 3 faces : moteur %.3f ms  ->  en place SOUS LE BRUIT (le cout marginal ne se "
+				   "mesure pas a cette taille)\n",
+				   vMoteur);
+		printf("    la TOUTE PREMIERE apres chargement, relogement compris : %.3f ms   (x%.1f)\n", vR + 3.0 * vParFace,
+			   (vR + 3.0 * vParFace > 0.0) ? (vMoteur / (vR + 3.0 * vParFace)) : 0.0);
+		printf("    un parcours COMPLET de tous les cycles : CSR %.3f ms -> chaine %.3f ms  (surcout %.3f ms)\n", vCsr,
+			   vCha, surcoutParParcours);
+		printf("    -> il faudrait %.0f parcours complets PAR EDITION pour que le chainage soit perdant\n",
+			   (surcoutParParcours > 0.0) ? (gainParEdition / surcoutParParcours) : 0.0);
+		printf("    (et la conversion depuis la structure actuelle coute plus qu une operation :\n");
+		printf("     on ne peut pas convertir a la volee, il faut ADOPTER la structure)\n");
+	}
+	printf("\n");
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -7625,6 +8405,7 @@ int main(int argc, char **argv) {
 	if (perf) {
 		PerfBattery();
 		PorteeBattery();
+		ProtoBattery();
 	}
 
 	// La reference vit A COTE DES SOURCES DU BANC, pas dans le repertoire de
