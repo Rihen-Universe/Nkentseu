@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1460" viewBox="0 0 1500 1460" font-family="Segoe UI, Inter, sans-serif">
+<rect width="1500" height="1460" fill="#17171b"/>
+<text x="30" y="42" fill="#EEF2F6" font-size="19" font-weight="600">C5 — le renfort sert-il quand les poignées sont hors cadre ?</text>
+<text x="30" y="66" fill="#8A8A8A" font-size="12">cinq fils de la MÊME couleur. Un seul est éclairci. Sauras-tu dire lequel, sans les poignées ?</text>
+<text x="30" y="86" fill="#6A6A6A" font-size="11">la comparaison est ici SPATIALE et simultanée — pas temporelle comme dans la première mesure. Le seuil n’est pas le même.</text>
+<text x="30" y="135" fill="#F79A28" font-size="12.5" font-weight="600">a · aucun fil sélectionné</text>
+<rect x="300" y="117" width="1000" height="164" fill="none" stroke="#2B2B33" stroke-dasharray="3 3"/>
+<text x="1310" y="129" fill="#6A6A6A" font-size="10">le cadre visible</text>
+<path d="M300 151C390 151 1210 167 1300 167" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M300 181C390 181 1210 197 1300 197" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M300 211C390 211 1210 227 1300 227" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M300 241C390 241 1210 257 1300 257" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M300 271C390 271 1210 287 1300 287" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<text x="30" y="345" fill="#F79A28" font-size="12.5" font-weight="600">b · le 3ᵉ sélectionné, POIGNÉES VISIBLES</text>
+<rect x="300" y="327" width="1000" height="164" fill="none" stroke="#2B2B33" stroke-dasharray="3 3"/>
+<text x="1310" y="339" fill="#6A6A6A" font-size="10">le cadre visible</text>
+<path d="M300 361C390 361 1210 377 1300 377" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M300 391C390 391 1210 407 1300 407" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M300 421C390 421 1210 437 1300 437" fill="none" stroke="#68CDF2" stroke-width="2"/>
+<rect x="296.5" y="417.5" width="7" height="7" rx="1" fill="#68CDF2"/>
+<rect x="1296.5" y="433.5" width="7" height="7" rx="1" fill="#68CDF2"/>
+<path d="M300 451C390 451 1210 467 1300 467" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M300 481C390 481 1210 497 1300 497" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<text x="30" y="555" fill="#F79A28" font-size="12.5" font-weight="600">c · le 3ᵉ sélectionné, poignées HORS CADRE — +35 %</text>
+<rect x="300" y="537" width="1000" height="164" fill="none" stroke="#2B2B33" stroke-dasharray="3 3"/>
+<text x="1310" y="549" fill="#6A6A6A" font-size="10">le cadre visible</text>
+<path d="M260 571C350 571 1250 587 1340 587" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 601C350 601 1250 617 1340 617" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 631C350 631 1250 647 1340 647" fill="none" stroke="#68CDF2" stroke-width="2"/>
+<path d="M260 661C350 661 1250 677 1340 677" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 691C350 691 1250 707 1340 707" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<text x="30" y="575" fill="#6A6A6A" font-size="10.5">réponse : le 3ᵉ</text>
+<text x="30" y="765" fill="#F79A28" font-size="12.5" font-weight="600">d · le 3ᵉ sélectionné, poignées HORS CADRE — +50 %</text>
+<rect x="300" y="747" width="1000" height="164" fill="none" stroke="#2B2B33" stroke-dasharray="3 3"/>
+<text x="1310" y="759" fill="#6A6A6A" font-size="10">le cadre visible</text>
+<path d="M260 781C350 781 1250 797 1340 797" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 811C350 811 1250 827 1340 827" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 841C350 841 1250 857 1340 857" fill="none" stroke="#8BD8F5" stroke-width="2"/>
+<path d="M260 871C350 871 1250 887 1340 887" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 901C350 901 1250 917 1340 917" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<text x="30" y="785" fill="#6A6A6A" font-size="10.5">réponse : le 3ᵉ</text>
+<text x="30" y="975" fill="#F79A28" font-size="12.5" font-weight="600">e · le 3ᵉ sélectionné, poignées HORS CADRE — +65 %</text>
+<rect x="300" y="957" width="1000" height="164" fill="none" stroke="#2B2B33" stroke-dasharray="3 3"/>
+<text x="1310" y="969" fill="#6A6A6A" font-size="10">le cadre visible</text>
+<path d="M260 991C350 991 1250 1007 1340 1007" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 1021C350 1021 1250 1037 1340 1037" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 1051C350 1051 1250 1067 1340 1067" fill="none" stroke="#AEE4F8" stroke-width="2"/>
+<path d="M260 1081C350 1081 1250 1097 1340 1097" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 1111C350 1111 1250 1127 1340 1127" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<text x="30" y="995" fill="#6A6A6A" font-size="10.5">réponse : le 3ᵉ</text>
+<text x="30" y="1185" fill="#F79A28" font-size="12.5" font-weight="600">f · poignées hors cadre, mais CHEVRON SUR LE BORD — sans aucun éclaircissement</text>
+<rect x="300" y="1167" width="1000" height="164" fill="none" stroke="#2B2B33" stroke-dasharray="3 3"/>
+<text x="1310" y="1179" fill="#6A6A6A" font-size="10">le cadre visible</text>
+<path d="M260 1201C350 1201 1250 1217 1340 1217" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 1231C350 1231 1250 1247 1340 1247" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 1261C350 1261 1250 1277 1340 1277" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M291 1264 l9 -5 l0 10 z" fill="#17B2EB"/>
+<path d="M1309 1274 l-9 -5 l0 10 z" fill="#17B2EB"/>
+<path d="M260 1291C350 1291 1250 1307 1340 1307" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<path d="M260 1321C350 1321 1250 1337 1340 1337" fill="none" stroke="#17B2EB" stroke-width="2"/>
+<text x="30" y="1430" fill="#6A6A6A" font-size="10.5">⚠ PLANCHE D’ESSAI — elle sert à trancher si un renfort imperceptible isolément devient utile en comparaison simultanée.</text>
+</svg>
