@@ -23,6 +23,7 @@
 // propre fichier -- ce fichier-ci en compte deja pres de dix-sept mille.
 #include "NK3DModeler/Viewport/NkMatPreview3D.h"
 #include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
+#include "NK3DModeler/Viewport/NkVpEditTarget.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -178,7 +179,9 @@ namespace nkentseu {
 		static float32 nkvpEmptyScl[70][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
 		// OBJETS UTILISATEUR : nature du slot (0 libre, 1 sphere, 2 cube,
 		// 3 plan, 4 empty).
-		static constexpr int32 kNkvpFirstUser = 96;
+		// kNkvpFirstUser / kNkvpMaxUser / kNkvpEmptyBase vivent desormais dans
+		// NkVpEditTarget.h : la regle qui les utilise doit etre exercable sans
+		// device, donc elle ne peut pas dependre de constantes definies ici.
 		// ── EDITION PROPORTIONNELLE (Blender : « proportional editing ») ────
 		// Deplacer un sommet ENTRAINE ses voisins, d'autant moins qu'ils sont
 		// loin. Le RAYON dit jusqu'ou porte l'influence ; l'ATTENUATION dit
@@ -268,7 +271,7 @@ namespace nkentseu {
 		static bool nkvpShearOpt = false;		   // l'option, pour toute la scene
 		static NkVec3f nkvpEmptySclAx[70][3] = {}; // repere monde de l'echelle
 		static bool nkvpEmptyShear[70] = {};	   // ce noeud en porte-t-il un ?
-		static constexpr int32 kNkvpMaxUser = 64;
+		// kNkvpMaxUser : cf. NkVpEditTarget.h
 		static uint8 nkvpUserKind[kNkvpMaxUser] = {};
 		// Sous-type du noeud utilisateur (style d'empty, variante de courbe/
 		// surface/metaball, primitive demandee) -- porte par le menu Ajouter.
@@ -6251,11 +6254,25 @@ namespace nkentseu {
 					st->editObjIdx = -1;
 					r3d->ClearEditOverlay();
 				} else {
-					const int32 sel = st->gizmo.ActiveIndex();
-					if (sel < 0)
-						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
+					// LA REGLE EST DANS NkVpEditTarget.h, exercee par NKEditTargetTest.
+					// Elle vivait ici, en trois lignes, et aucun banc ne pouvait
+					// l atteindre : ce fichier exige un device graphique.
+					NkVpEditQuery q;
+					q.selDemo = st->gizmo.ActiveIndex();
+					q.selEmpty = st->emptyGizmo.ActiveIndex();
+					{
+						const int32 uSlot = NkVpUserSlotOfEmpty(q.selEmpty);
+						if (uSlot >= 0) {
+							q.userKind = nkvpUserKind[uSlot];
+							q.userDeleted = nkvpDeleted[kNkvpFirstUser + uSlot];
+							q.userMeshValid = nkvpUserMesh[uSlot].IsValid();
+						}
+					}
+					const NkVpEditTarget cible = NkVpResolveEditTarget(q);
+					if (cible.kind == NkVpEditKind::Demo)
+						Demo3D_EnterEditOnObject(st, ms, r3d, cible.index);
 					else
-						Demo3D_EnterEditOnObject(st, ms, r3d, sel);
+						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
 				}
 			}
 
