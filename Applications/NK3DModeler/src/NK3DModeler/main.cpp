@@ -2238,6 +2238,20 @@ int nkmain(const NkEntryState &entry) {
 			static bool sAgentMatDone = false;
 			if (!sAgentMatDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
 				sAgentMatDone = true;
+				// NK_MAT_TYPE=<valeur moteur> : le TYPE de tous les materiaux du
+				// projet, par le MEME setter que le combo du panneau.
+				// ⚠ POSE AVANT NK_MAT_SURFACE, ET CE N'EST PAS UN DETAIL : changer
+				// le type REINITIALISE les parametres (c'est tout l'objet de
+				// NKMatTypeResetTest). L'ordre inverse effacerait le reglage qu'on
+				// vient de demander, et la mesure porterait sur les defauts du type.
+				// Valeurs moteur : 0 PBR, 5 verre, 6 tissu, 7 carrosserie,
+				// 11 emissif, 60 sans eclairage (cf. kNkMatTypeVal).
+				if (const char *v = std::getenv("NK_MAT_TYPE")) {
+					const int32 t = (int32)std::atoi(v);
+					const int32 mx = demo::Demo3DHostProjMatMax();
+					for (int32 m = 0; m < mx; ++m)
+						demo::Demo3DHostProjMatSetType(m, t);
+				}
 				if (const char *v = std::getenv("NK_MAT_SURFACE")) {
 					float32 cc = 0.f, ccR = 0.f, sss = 0.f;
 					std::sscanf(v, "%f,%f,%f", &cc, &ccR, &sss);
