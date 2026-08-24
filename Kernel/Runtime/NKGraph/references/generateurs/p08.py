@@ -92,9 +92,13 @@ W, H = 1820, 1750
 
 # Ce que cette planche presente encore comme ouvert, en forme lisible par
 # verifie_planches.py. Voir p01.py pour le pourquoi.
-OUVERTS_DECLARES = [
-    ('hors', 'arite_exec', u'arite d execution : le modele applique celle de la donnee'),
-]
+# ✅ VIDE depuis le 24/08. Le seul point que cette planche declarait ouvert
+# -- « arite d execution : le modele applique celle de la donnee » -- est CODE :
+# NkSocket::family, NkLinkError::FamilyMismatch, NkLinkError::ExecOutputAlreadyBound.
+# ⚠️ La liste se vide, elle ne se supprime pas : c'est elle qui permet a
+# verifie_planches.py de dire « cette planche ne declare plus rien d'ouvert »
+# plutot que « cette planche est hors controle ».
+OUVERTS_DECLARES = []
 
 s = head(W, H, u'Planche 08 — EXÉCUTION et VALEUR : la cohabitation, et le franchissement',
          u'quels domaines ont besoin de fils d’exécution · comment les deux familles tiennent dans un même nœud · comment un blueprint et un graphe de matière se parlent SANS se toucher')
@@ -180,7 +184,7 @@ s += lab(34, R2, '2', u'QUELS DOMAINES ONT BESOIN DE FILS D’EXÉCUTION — et 
 DOM = [
     (u'gameplay', True, u'« ouvrir la porte » puis « jouer un son » ≠ l’inverse'),
     (u'scripting', True, u'écrire un fichier, appeler un service : effets de bord'),
-    (u'matériau / texture', False, u'MESURÉ : le modèle n’a aucun type d’exécution (§17)'),
+    (u'matériau / texture', False, u'MESURÉ : aucune de ses prises n’est de famille Exec (§17)'),
     (u'modélisation procédurale', False, u'les Geometry Nodes de Blender n’en ont aucun'),
     (u'animation (graphe d’états)', None, u'⚠ ni l’un ni l’autre : ses arcs sont des TRANSITIONS'),
 ]
@@ -211,8 +215,8 @@ s += c2
 
 # ══════════════════════════════════ 3 · CE QUE LE MODELE NE PERMET PAS
 R3 = 900
-s += lab(34, R3, '3', u'🔴 CE QUE LE MODÈLE NE PERMET PAS AUJOURD’HUI — les DEUX moitiés de la règle d’arité',
-         u'relevé dans src/NKGraph/NkNodeGraph.h · ce n’est pas un défaut de dessin, c’est un axe qui manque au modèle')
+s += lab(34, R3, '3', u'✅ L’ARITÉ INVERSÉE — ce que le modèle ne permettait pas le 23/08, et qui est CODÉ depuis le 24/08',
+         u'ce panneau disait « AUJOURD’HUI » ; un état sans sa date se périme en silence · les deux moitiés tiennent, et chaque refus SE NOMME')
 
 # cas a : plusieurs chemins vers une meme entree d execution
 s += tt(44, R3 + 46, u'a · PLUSIEURS chemins doivent pouvoir mener au MÊME nœud', TXT, 11.5, '600')
@@ -230,9 +234,10 @@ nc, hc = noeud(330, R3 + 100, 200, [
 s += nc
 s += fil(234, R3 + 60 + 21 + 6 + 12, 330, R3 + 100 + 21 + 6 + 12, ORANGE, 3.5)
 s += fil(234, R3 + 140 + 21 + 6 + 12, 330, R3 + 100 + 21 + 6 + 12, ORANGE, 3.5)
-s += tt(44, R3 + 210, u'❌ Connect() : « une ENTRÉE n’accepte qu’UNE source :', ROUGE_D, 10.5, '600')
-s += tt(44, R3 + 224, u'brancher une seconde REMPLACE la première ». Le second', TXT2, 10)
-s += tt(44, R3 + 238, u'fil DÉBRANCHERAIT le premier, en silence.', TXT2, 10)
+s += tt(44, R3 + 210, u'✅ LES DEUX FILS TIENNENT. Une entrée d’EXÉCUTION accepte', VERT, 10.5, '600')
+s += tt(44, R3 + 224, u'plusieurs sources ; une entrée de DONNÉE, une seule — la', TXT2, 10)
+s += tt(44, R3 + 238, u'seconde remplace. ~ Au 23/08, le second fil DÉBRANCHAIT le', TXT2, 10)
+s += tt(44, R3 + 252, u'premier, en silence. Cas exec/arite-croisee.', TXT2, 10)
 
 # cas b : une sortie d execution ne doit avoir qu une suite
 s += tt(600, R3 + 46, u'b · UNE sortie d’exécution n’a qu’UNE suite', TXT, 11.5, '600')
@@ -250,22 +255,24 @@ nf, hf = noeud(880, R3 + 140, 190, [
 s += nf
 s += fil(806, R3 + 100 + 21 + 6 + 12, 880, R3 + 60 + 21 + 6 + 12, ORANGE, 3.5)
 s += fil(806, R3 + 100 + 21 + 6 + 12, 880, R3 + 140 + 21 + 6 + 12, ROUGE_D, 3.5)
-s += tt(600, R3 + 210, u'❌ Rien ne limite le nombre de liens partant d’une SORTIE.', ROUGE_D, 10.5, '600')
-s += tt(600, R3 + 224, u'Deux suites, ce sont deux programmes — et rien ne dit lequel', TXT2, 10)
-s += tt(600, R3 + 238, u'passe en premier. Il faut REFUSER le second, en le nommant.', TXT2, 10)
+s += tt(600, R3 + 210, u'✅ LE SECOND EST REFUSÉ, ET LE REFUS SE NOMME :', VERT, 10.5, '600')
+s += tt(600, R3 + 224, u'NkLinkError::ExecOutputAlreadyBound. Deux suites, ce sont deux', TXT2, 10)
+s += tt(600, R3 + 238, u'programmes, et rien ne dirait lequel passe en premier. ~ Au', TXT2, 10)
+s += tt(600, R3 + 252, u'23/08, rien ne limitait les liens partant d’une SORTIE.', TXT2, 10)
 
 c3, hc3 = cartouche(1120, R3 + 40, 666, [
-    u'▸ Le cœur applique UNIFORMÉMENT l’arité de la donnée : une entrée, une source ; une sortie, autant de liens qu’on veut.',
-    u'▸ Pour l’exécution il faut exactement l’INVERSE, et le catalogue l’écrit déjà : « les arités sont INVERSÉES entre les deux familles ».',
-    u'▸ 📌 Ce qui manque n’est pas une exception, c’est un AXE : le socket doit porter sa famille. Une seule valeur, deux lignes dans',
-    u'   Connect() — et le refus doit SE NOMMER, comme les six raisons de NkLinkError le font déjà (ExecOutputAlreadyBound).',
-    u'▸ ✅ LA BOUCLE : TRANCHÉE le 23/08, et c’est la réponse que ce panneau posait en question — c’est VOULU. Mesure : Connect() refuse',
-    u'   le fil lui-même, par NkLinkError::WouldCycle (NkNodeGraph.inl:243) ; on ne peut pas même TRACER le rebouclage.',
-    u'▸ 📌 Et c’est BIEN AINSI : une boucle est un NŒUD (Pour chaque, Tant que) dont le corps ne revient JAMAIS par un fil — comme la',
-    u'   machine à états est un nœud dont les cycles vivent dans son modèle. UN CYCLE VIT À L’INTÉRIEUR D’UN NŒUD, JAMAIS DANS LE GRAPHE.',
-    u'▸ ✅ C’est le seul choix qui n’affaiblit pas une règle générale pour un cas particulier : WouldCycle protège tout le reste du moteur,',
-    u'   et on n’y touche pas. Ce qui reste vrai du constat : le socket doit porter sa famille — mais pour l’ARITÉ, plus pour le cycle.',
-], u'ce qui manque au modèle — un axe pour l’arité ; le cycle, lui, est tranché')
+    u'▸ ✅ L’AXE EXISTE : enum class NkSocketFamily { Data = 0, Exec = 1 }, porté par NkSocket. Data = 0 exprès — toute prise existante',
+    u'   garde son sens, et un fichier ancien se relit inchangé. La famille commande TROIS choses : compatibilité, arité d’entrée, arité de sortie.',
+    u'▸ 📌 ET PAS QUATRE. Elle en commandait une quatrième pendant une journée — l’acyclicité — retirée le 23/08 au soir. UN CYCLE VIT',
+    u'   À L’INTÉRIEUR D’UN NŒUD, JAMAIS DANS LE GRAPHE : une boucle est un NŒUD dont le corps ne revient jamais par un fil.',
+    u'▸ ✅ ET LE RETRAIT S’EST PAYÉ TOUT SEUL, d’une façon que personne n’avait prévue : l’exemption s’écrivait à DEUX endroits — la',
+    u'   condition dans Connect(), le filtre dans le parcours. Deux encodages de la même règle, donc INVISIBLES à une mutation à un seul',
+    u'   défaut : elle survivait. Les deux sont partis ensemble, et chacune des deux mutations rougit désormais SEULE.',
+    u'▸ 📌 UNE RÈGLE SANS EXCEPTION N’EST PAS SEULEMENT PLUS SIMPLE À LIRE : ELLE EST PLUS SIMPLE À MESURER. Une exception se',
+    u'   dédouble — il faut la ré-énoncer partout où le cas particulier apparaît — et chaque duplication masque les autres à l’outil.',
+    u'▸ ⚠️ CE QUE CE PANNEAU DISAIT, ET QUI S’EST PÉRIMÉ SANS QUE PERSONNE SE TROMPE : son titre portait « AUJOURD’HUI ». Le relevé',
+    u'   était juste le 23/08 ; le code a bougé sous lui. Un état DATÉ vieillit visiblement, un état daté « aujourd’hui » ment en silence.',
+], u'l’axe est codé — et ce que le retrait de l’exception a rapporté')
 s += c3
 
 # ══════════════════════════ 4 et 5 · LE FRANCHISSEMENT, DEUX MÉCANISMES
