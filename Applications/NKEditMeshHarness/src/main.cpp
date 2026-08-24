@@ -7023,7 +7023,23 @@ static SigAretes SignerAretes(const NkEditMesh &m) {
 		s.ord = EmpreinteMele(s.ord, h);
 		s.ens += h; // somme : insensible a l ordre, sensible au contenu
 	}
-	s.diskTotal = (uint32)m.diskPool.Size();
+	// ⚠ MESURE NEUTRE VIS-A-VIS DE LA REPRESENTATION, ET C EST DELIBERE.
+	// Ceci valait `m.diskPool.Size()` : la taille d un RESERVOIR. Un temoin qui
+	// mesure le conteneur au lieu de la chose contenue ne peut pas survivre au
+	// changement de conteneur -- et il tomberait alors sans qu on sache si c est
+	// la topologie ou le rangement qui a bouge. On compte donc les PAS
+	// reellement parcourus dans les cycles disque.
+	// Sur les REPRESENTANTS seuls : une copie coincidente ne porte pas son propre
+	// disque, elle voit celui de son representant ; sommer sur toutes les copies
+	// compterait trois fois le disque d un coin de cube.
+	{
+		uint32 pas = 0;
+		NkVector<NkEmId> inc;
+		for (uint32 v = 0; v < m.VertCount(); ++v)
+			if (m.VertOwner(v) == v)
+				pas += m.VertEdges(v, inc);
+		s.diskTotal = pas;
+	}
 	for (uint32 h = 0; h < (uint32)m.hedges.Size(); ++h)
 		if (m.hedges[h].alive && m.hedges[h].edge != NK_EM_INVALID)
 			s.hedgesLiees++;
@@ -7456,9 +7472,18 @@ static void LigneIncr(const char *nom, const NkEditMesh &base, const uint32 *pai
 	// ⚠ `crees` EST SUR LA LIGNE : un cas ou aucune arete n est creee rendrait
 	// idem=1 et plein=1 sans avoir rien exerce. C est la meme faute que le
 	// compteur bloque a zero, appliquee a un controle d egalite.
-	Put("{0:<34} crees={1}/{2} A={3} fil={4} idem={5} plein={6} disques {7}/{8} pool incr={9} plein={10}", nom, crees,
-		n, si.aretes, si.filaires, idem, plein, disquesChanges, disquesAttendus, (uint32)mi.diskPool.Size(),
-		(uint32)mp.diskPool.Size());
+	// ⚠ `pool incr=` / `plein=` DISPARAISSENT ICI, ET IL FAUT DIRE POURQUOI.
+	// Ils imprimaient `diskPool.Size()` des deux cotes, pour rendre visible
+	// l espace MORT que la mise a jour incrementale laissait derriere elle (48
+	// contre 30 sur le cube). C etait une propriete du RESERVOIR CSR, pas de la
+	// topologie : elle n a aucun equivalent dans un cycle chaine, ou brancher une
+	// arete ne deplace ni ne perd rien.
+	// A la place, le nombre de PAS des cycles disque des deux cotes -- et ils
+	// doivent etre EGAUX. Ce n est pas un cout, c est une affirmation de
+	// justesse : la mise a jour incrementale a produit exactement les memes
+	// cycles que la reconstruction complete.
+	Put("{0:<34} crees={1}/{2} A={3} fil={4} idem={5} plein={6} disques {7}/{8} pas incr={9} plein={10}", nom, crees,
+		n, si.aretes, si.filaires, idem, plein, disquesChanges, disquesAttendus, si.diskTotal, sp.diskTotal);
 }
 
 static void IncrBattery() {
