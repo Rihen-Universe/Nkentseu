@@ -80,17 +80,37 @@ namespace nkentseu {
 				bool userMeshValid = false; // nkvpUserMesh[slot].IsValid()
 		};
 
-		// ⚠ ETAT ACTUEL, VERBATIM : la selection des empties n'est jamais
-		// consultee. Un objet cree ou importe par l'utilisateur vit sur ce
-		// gizmo-la ; TAB ne le voit donc pas, et le journal affiche
-		// « Selectionne un objet (clic) avant TAB » alors qu'un objet EST
-		// selectionne. Le message n'est pas faux par accident : la regle ne
-		// connait qu'un seul gizmo.
+		// ⚠ LA PRIORITE EST ECRITE, PAS SUBIE. Les deux gizmos peuvent porter une
+		// selection en meme temps ; l'objet de demonstration l'emporte. Sans cette
+		// phrase, la cible dependrait de l'ordre des `if`, et le jour ou quelqu'un
+		// les reordonne elle changerait sans que rien ne le dise.
+		//
+		// AVANT (et c'etait la brique absente) : la selection des empties n'etait
+		// JAMAIS consultee. Un objet cree ou importe par l'utilisateur vit sur ce
+		// gizmo-la ; TAB ne le voyait donc pas, et le journal affichait
+		// « Selectionne un objet (clic) avant TAB » alors qu'un objet ETAIT
+		// selectionne. Le message n'etait pas faux par accident : la regle ne
+		// connaissait qu'un seul gizmo.
 		inline NkVpEditTarget NkVpResolveEditTarget(const NkVpEditQuery &q) {
 			NkVpEditTarget t;
 			if (q.selDemo >= 0) {
 				t.kind = NkVpEditKind::Demo;
 				t.index = q.selDemo;
+				return t;
+			}
+			// ⚠ QUATRE CONDITIONS, ET AUCUNE N'EST DECORATIVE.
+			//   slot valide      : un empty de PARENTAGE (noeud 90..95) n'est pas un
+			//                      objet, et lire nkvpUserKind hors bornes rendrait
+			//                      une nature au hasard ;
+			//   nature editable  : une lumiere ou un marqueur de courbe ouvrirait une
+			//                      cage VIDE, ce qui ressemble a un bug de rendu ;
+			//   maillage present : un slot dont la geometrie n'est pas encore generee
+			//                      n'a rien a cloner ;
+			//   non supprime     : un objet efface ne se rouvre pas par TAB.
+			const int32 u = NkVpUserSlotOfEmpty(q.selEmpty);
+			if (u >= 0 && NkVpUserKindEditable(q.userKind) && q.userMeshValid && !q.userDeleted) {
+				t.kind = NkVpEditKind::Utilisateur;
+				t.index = u;
 			}
 			return t;
 		}
