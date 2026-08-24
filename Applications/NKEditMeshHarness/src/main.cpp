@@ -8525,10 +8525,31 @@ struct EnPlaceMesure {
 // numerotent leurs demi-aretes autrement, donc comparer des indices ne
 // comparerait rien. Pour chaque paire jumelee on melange les deux cles de
 // position de ses extremites, et on SOMME sur toutes les paires.
+// IDENTITE D UNE FACE, independante de sa numerotation : la somme des cles de
+// POSITION de ses coins. Somme et non suite : elle survit a la rotation du cycle
+// et au sens de parcours, qui different entre les deux chemins sans qu aucun ne
+// soit faux. Deux faces occupant exactement les memes positions restent
+// indiscernables -- limite assumee, et dite.
+static uint64 CleFaceParPositions(const NkEditMesh &m, uint32 f) {
+	uint64 acc = 0;
+	NkVector<NkEmId> boucle;
+	m.GetFaceVerts((NkEmId)f, boucle);
+	for (uint32 k = 0; k < (uint32)boucle.Size(); ++k)
+		if (boucle[k] < (NkEmId)m.verts.Size())
+			acc += EmpreinteMele(1469598103934665603ull, CleSommetPos(m.verts[boucle[k]].pos));
+	return acc;
+}
+
 static uint64 SignerJumelles(const NkEditMesh &m, uint32 &jumelees, uint32 &reciproques) {
 	jumelees = 0;
 	reciproques = 0;
 	uint64 acc = 0;
+	// Precalculee UNE fois : la calculer par demi-arete rendrait le temoin
+	// quadratique sur les grands maillages, pour le meme resultat.
+	NkVector<uint64> cleFace;
+	cleFace.Resize((uint32)m.faces.Size());
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+		cleFace[f] = m.faces[f].alive ? CleFaceParPositions(m, f) : 0ull;
 	for (uint32 h = 0; h < (uint32)m.hedges.Size(); ++h) {
 		if (!m.hedges[h].alive)
 			continue;
@@ -8550,9 +8571,30 @@ static uint64 SignerJumelles(const NkEditMesh &m, uint32 &jumelees, uint32 &reci
 			ka = kb;
 			kb = x;
 		}
+		// ⚠ L IDENTITE DES DEUX FACES ENTRE DANS L EMPREINTE, ET C EST TOUT
+		// L INTERET DE CETTE FONCTION.
+		// PREMIERE VERSION, FAUSSE : elle melangeait `ka` et `kb`, c est-a-dire
+		// les positions des extremites de `h` -- et RIEN DE `t`. Une empreinte des
+		// jumelles qui ne regardait pas la jumelle. Elle ne mesurait donc que
+		// « quelles demi-aretes ont un partenaire », jamais « qui avec qui », et
+		// une mutation qui RE-CROISAIT deux paires (reciprocite conservee, compte
+		// conserve, relation fausse) passait INAPERCUE sur les DIX lignes.
+		// C est le defaut exact qu une reecriture positionnelle de LinkTwins
+		// produirait sur un maillage ou plusieurs demi-aretes occupent la meme
+		// position -- c est-a-dire le cas `offset = 0`, le plus difficile.
+		const NkEmId fh = m.hedges[h].face, ft = m.hedges[t].face;
+		uint64 fa = (fh < (NkEmId)cleFace.Size()) ? cleFace[fh] : 0ull;
+		uint64 fb = (ft < (NkEmId)cleFace.Size()) ? cleFace[ft] : 0ull;
+		if (fa > fb) {
+			const uint64 x = fa;
+			fa = fb;
+			fb = x;
+		}
 		uint64 hh = 1469598103934665603ull;
 		hh = EmpreinteMele(hh, ka);
 		hh = EmpreinteMele(hh, kb);
+		hh = EmpreinteMele(hh, fa);
+		hh = EmpreinteMele(hh, fb);
 		acc += hh; // somme : insensible a l ordre des demi-aretes
 	}
 	return acc;
