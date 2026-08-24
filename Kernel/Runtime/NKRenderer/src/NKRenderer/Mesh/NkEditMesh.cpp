@@ -1590,7 +1590,7 @@ namespace nkentseu {
 		// TABLEAU, pas les vivantes. Une operation en place qui ne compacterait pas
 		// rendrait donc un compte DIFFERENT sans qu'aucune topologie n'ait bouge.
 		// C'est la forme la plus penible : le resultat est juste, le nombre est faux.
-		void NkEditMesh::CompactDead() {
+		void NkEditMesh::CompactDead(NkVector<NkEmId> *aRemapper) {
 			const uint32 nf = (uint32)faces.Size(), nh = (uint32)hedges.Size();
 			NkVector<uint32> fmap, hmap;
 			fmap.Resize(nf);
@@ -1641,8 +1641,150 @@ namespace nkentseu {
 			// variable locale.
 			hedges.Swap(nhv);
 			faces.Swap(nfv);
+			// ⚠ LES INDICES QUE L'APPELANT DETIENT SONT REMAPPES ICI, PAS AILLEURS.
+			// Cette fonction RENUMEROTE ; toute liste de demi-aretes collectee avant
+			// elle designe autre chose apres. La remettre a jour au retour, cote
+			// appelant, obligerait a garder une copie de `hmap` -- c'est-a-dire a
+			// publier un detail interne pour reparer un effet de bord.
+			// Les entrees dont la demi-arete est morte sont RETIREES, pas mises a
+			// INVALID : une liste de « choses a re-apparier » qui contiendrait des
+			// trous ferait travailler l'appelant sur du vide sans qu'il le sache.
+			if (aRemapper) {
+				NkVector<NkEmId> compact;
+				for (uint32 i = 0; i < (uint32)aRemapper->Size(); ++i) {
+					const NkEmId v = (*aRemapper)[i];
+					if (v < nh && hmap[v] != NK_EM_INVALID)
+						compact.PushBack((NkEmId)hmap[v]);
+				}
+				aRemapper->Swap(compact);
+			}
 			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
 				verts[i].hedge = NK_EM_INVALID;
+		}
+
+		// ── RE-APPARIEMENT LOCAL DES JUMELLES ───────────────────────────────────
+		// CE QU'ELLE REMPLACE, ET CE QU'ELLE NE PEUT PAS REMPLACER
+		// `LinkTwins` global fait trois choses en O(MAILLAGE) : l'identite soudee,
+		// la remise a zero de TOUTES les jumelles, puis un appariement par table sur
+		// TOUTES les demi-aretes. La sonde de phases lui attribue 46 % du cout d'une
+		// extrusion en place — de loin le premier poste.
+		//
+		// ⚠ MAIS L'APPARIEMENT GLOBAL EST UN « PREMIER ARRIVE » SUR TOUT LE MAILLAGE,
+		// et cela ne se localise PAS en general. Des que deux demi-aretes portent la
+		// meme cle orientee — ce qui arrive exactement quand des sommets se
+		// superposent — le resultat depend de l'ordre de parcours de la TOTALITE des
+		// demi-aretes. C'est le cas `offset = 0`, ou la nappe extrudee retombe sur
+		// l'originale. Le reproduire localement demanderait de refaire le parcours
+		// global, c'est-a-dire de ne rien localiser.
+		//
+		// On ne triche donc pas : on DETECTE cette ambiguite et on retombe sur le
+		// chemin global. La condition est locale et exacte — un sommet duplique dont
+		// l'identite soudee n'est pas lui-meme s'est pose sur un sommet existant.
+		//
+		// QUAND ELLE S'APPLIQUE, POURQUOI ELLE SUFFIT
+		// L'ensemble a re-apparier se FERME en un pas : les demi-aretes du capuchon
+		// (leur sommet d'origine a change), celles des parois (elles sont neuves), et
+		// les ANCIENNES jumelles des premieres — car une demi-arete restee dehors qui
+		// pointait vers un capuchon pointe maintenant dans le vide. Rien d'autre ne
+		// peut avoir besoin de changer : si une demi-arete hors de cet ensemble
+		// devait s'apparier a une demi-arete de l'ensemble, sa jumelle d'avant etait
+		// deja dans l'ensemble, donc elle y serait aussi.
+		//
+		// Rend false si l'ambiguite est detectee ; l'appelant appelle alors
+		// `LinkTwins()`.
+		bool NkEditMesh::LinkTwinsLocal(const NkVector<NkEmId> &touchees, const NkVector<uint32> &copies,
+										uint32 nv0) {
+			BuildVertexMerge(canonOf);
+			const uint32 nc = (uint32)canonOf.Size();
+			// ── LA CONDITION D'AMBIGUITE, ET CE QU'ELLE NE DOIT PAS CONFONDRE ────
+			// `BuildVertexMerge` donne a chaque cellule le PREMIER sommet qui l'occupe.
+			// Une copie ajoutee en fin de tableau n'est donc son propre representant
+			// que si sa position etait libre.
+			//
+			// ⚠ PREMIERE VERSION, TROP LARGE : elle refusait des qu'une copie n'etait
+			// pas son propre representant. Or deux copies peuvent tres bien se
+			// confondre ENTRE ELLES -- c'est le cas de toute primitive qui duplique
+			// ses sommets par face (un cube en a 24 pour 8 positions, une sphere UV en
+			// a sur ses coutures et ses poles) : les copies heritent naturellement de
+			// la meme superposition. Ce n'est pas une ambiguite, c'est la soudure
+			// ordinaire, et elle ne cree aucune cle orientee en double.
+			// Le drapeau `local` du harnais l'a montre tout de suite : UN SEUL des dix
+			// cas prenait le chemin local. Sans lui, « 295 vertes » aurait voulu dire
+			// « le chemin qu'on vient d'ecrire ne sert jamais ».
+			//
+			// CE QUI EST VRAIMENT AMBIGU : une copie posee sur un sommet qui EXISTAIT
+			// DEJA (indice < nv0). C'est alors -- et alors seulement -- que la cle
+			// orientee d'un capuchon devient identique a celle d'une paroi, et que
+			// l'appariement depend de l'ordre de parcours de tout le maillage.
+			// C'est exactement `offset = 0`.
+			for (uint32 k = 0; k < (uint32)copies.Size(); ++k) {
+				const uint32 c = copies[k];
+				if (c >= nc) {
+					canonOf.Clear();
+					return false;
+				}
+				const uint32 r = canonOf[c];
+				if (r != c && r < nv0) { // pose sur un sommet PREEXISTANT
+					canonOf.Clear();
+					return false;
+				}
+			}
+			auto C = [&](uint32 v) -> uint64 { return (uint64)((v < nc) ? canonOf[v] : v); };
+
+			// Fermeture de l'ensemble, en un pas.
+			NkVector<NkEmId> A;
+			NkEmFlatMap dansA((uint32)touchees.Size() * 4u + 16u);
+			auto ajouter = [&](NkEmId h) {
+				if (h == NK_EM_INVALID || h >= (NkEmId)hedges.Size())
+					return;
+				if (dansA.Find((uint64)h))
+					return;
+				dansA.Insert((uint64)h, 1u);
+				A.PushBack(h);
+			};
+			for (uint32 k = 0; k < (uint32)touchees.Size(); ++k) {
+				ajouter(touchees[k]);
+				if (touchees[k] < (NkEmId)hedges.Size())
+					ajouter(hedges[touchees[k]].twin);
+			}
+			for (uint32 k = 0; k < (uint32)A.Size(); ++k)
+				hedges[A[k]].twin = NK_EM_INVALID;
+
+			// ⚠ ORDRE CROISSANT DES INDICES, comme le parcours global. `A` est
+			// construit dans l'ordre des faces touchees, pas des indices : apparier
+			// dans cet ordre-la donnerait le meme ENSEMBLE de paires sur un maillage
+			// sans ambiguite, mais rien ne le garantit des que deux candidats existent.
+			// Tri par insertion : `A` compte quelques dizaines d'elements pour une
+			// edition locale, et un tri general couterait plus a ecrire qu'a executer.
+			for (uint32 i = 1; i < (uint32)A.Size(); ++i) {
+				const NkEmId x = A[i];
+				uint32 j = i;
+				while (j > 0 && A[j - 1] > x) {
+					A[j] = A[j - 1];
+					--j;
+				}
+				A[j] = x;
+			}
+
+			NkEmFlatMap map((uint32)A.Size() * 2u + 16u);
+			for (uint32 k = 0; k < (uint32)A.Size(); ++k) {
+				const NkEmId h = A[k];
+				if (!hedges[h].alive || hedges[h].next == NK_EM_INVALID)
+					continue;
+				const uint64 o = C(hedges[h].origin);
+				const uint64 d = C(hedges[hedges[h].next].origin);
+				if (o == d)
+					continue; // arete degeneree
+				const uint32 *trouve = map.Find((d << 32) | o);
+				if (trouve && hedges[*trouve].twin == NK_EM_INVALID) {
+					hedges[h].twin = (NkEmId)*trouve;
+					hedges[*trouve].twin = h;
+				} else if (!trouve) {
+					map.Insert((o << 32) | d, (uint32)h);
+				}
+			}
+			canonOf.Clear(); // meme post-condition que le chemin global
+			return true;
 		}
 
 		// ── EXTRUSION DE FACES, EN PLACE ────────────────────────────────────────
@@ -1668,7 +1810,14 @@ namespace nkentseu {
 		// dans l'ordre du cycle de face » — exactement celui du chemin actuel. Un autre
 		// ordre donnerait les memes formes avec d'autres numeros ; rien ne tomberait
 		// aujourd'hui, et le premier temoin qui regarde un indice tomberait demain.
-		bool NkEditMesh::ExtrudeSelectedFacesInPlace(const NkExtrudeParams &p) {
+		bool NkEditMesh::ExtrudeSelectedFacesInPlace(const NkExtrudeParams &p, uint32 *outTwinsLocaux) {
+			// ⚠ `outTwinsLocaux` N'EST PAS UN CONFORT DE DEBOGAGE. Le re-appariement
+			// local retombe SILENCIEUSEMENT sur le chemin global quand il detecte une
+			// ambiguite. Sans ce drapeau, une condition trop prudente ferait retomber
+			// TOUS les cas, le resultat resterait juste, la mesure resterait bonne, et
+			// personne ne saurait que le chemin qu'on vient d'ecrire ne sert jamais.
+			if (outTwinsLocaux)
+				*outTwinsLocaux = 0u;
 			const uint32 nv0 = (uint32)verts.Size();
 			const uint32 nf0 = (uint32)faces.Size();
 
@@ -1765,6 +1914,12 @@ namespace nkentseu {
 			};
 
 			// -- 4. Copies des sommets de la region -------------------------------
+			// Copies creees et demi-aretes touchees : les deux entrees du
+			// re-appariement local. Collectees ICI parce que c'est le seul endroit qui
+			// les voit -- les rededuire ensuite reviendrait a re-parcourir le maillage,
+			// c'est-a-dire a payer ce qu'on cherche a eviter.
+			NkVector<uint32> copies;
+			NkVector<NkEmId> touchees;
 			NkVector<int32> vmap;
 			vmap.Resize(nv0);
 			for (uint32 i = 0; i < nv0; ++i)
@@ -1811,6 +1966,7 @@ namespace nkentseu {
 				nvv.selOrder = 0;
 				verts.PushBack(nvv);
 				vsel.PushBack(1);
+				copies.PushBack((uint32)verts.Size() - 1u);
 			}
 
 			// -- 5. Aretes ORIENTEES de la region ---------------------------------
@@ -1837,6 +1993,7 @@ namespace nkentseu {
 					const uint32 o = hedges[h].origin;
 					if (o < nv0 && vmap[o] >= 0)
 						hedges[h].origin = (NkEmId)vmap[o];
+					touchees.PushBack(h); // son sommet d'origine a change
 					h = hedges[h].next;
 				} while (h != start && h != NK_EM_INVALID && ++garde < 100000u);
 			}
@@ -1865,6 +2022,7 @@ namespace nkentseu {
 						he.face = gf;
 						he.alive = 1;
 						hedges.PushBack(he);
+						touchees.PushBack(h0 + (NkEmId)q); // neuve
 					}
 					Face fa;
 					fa.hedge = h0;
@@ -1882,7 +2040,13 @@ namespace nkentseu {
 			// reconstruction integrale des sommets et des demi-aretes. Les localiser
 			// est la phase suivante — separee, pour qu'une divergence sache dire
 			// laquelle des deux l'a causee.
-			CompactDead();
+			// ⚠ LA COMPACTION D'ABORD, ET ELLE REMAPPE `touchees`.
+			// Premiere version : j'avais deplace `CompactDead` APRES l'appariement,
+			// parce qu'elle renumerote et invalidait mes indices. Mesure : la region
+			// GLOBALE passait de x0,47 a x1,04 -- apparier sur le tableau NON compacte,
+			// c'est traiter autant de demi-aretes mortes que de vivantes. La solution
+			// n'etait pas de deplacer la compaction mais de lui faire remapper la liste.
+			CompactDead(&touchees);
 			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
 				verts[i].hedge = NK_EM_INVALID;
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
@@ -1892,13 +2056,23 @@ namespace nkentseu {
 				if (o < (NkEmId)verts.Size() && verts[o].hedge == NK_EM_INVALID)
 					verts[o].hedge = (NkEmId)h;
 			}
-			// MEME POST-CONDITION QUE L'ANCIEN CHEMIN : `BuildFromPolygons` appelle
-			// Clear(), donc la liste d'aretes et l'identite soudee repartent vides et
-			// le prochain RebuildEdges les repose. Les maintenir ici serait un autre
-			// chantier, et le melanger a celui-ci empecherait de dire lequel a casse.
 			edges.Clear();
 			canonOf.Clear();
-			LinkTwins();
+			// ⚠ SEUIL DE RENTABILITE, ET IL EST MESURE, PAS DEVINE.
+			// Le chemin local construit son voisinage, le trie et le hache : c'est
+			// GAGNANT quand le voisinage est petit devant le maillage, et PERDANT quand
+			// la region le couvre -- il fait alors strictement plus de travail que le
+			// balayage global qu'il remplace. Mesure sur une region couvrant tout :
+			// x1,04 au lieu de x0,47. Un quart des demi-aretes est la limite ou les
+			// deux se valent.
+			// Le drapeau `local` du harnais rend ce choix VISIBLE cas par cas : sans
+			// lui, un seuil trop prudent eteindrait le chemin local partout et rien
+			// ne le dirait.
+			const bool vautLaPeine = ((uint32)touchees.Size() * 4u < (uint32)hedges.Size());
+			if (!vautLaPeine || !LinkTwinsLocal(touchees, copies, nv0))
+				LinkTwins(); // region trop large, ou ambiguite positionnelle
+			else if (outTwinsLocaux)
+				*outTwinsLocaux = 1u;
 			RecomputeNormals();
 			ApplyVertSel(vsel);
 			return true;
