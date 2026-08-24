@@ -6778,6 +6778,79 @@ static void PorteeBattery() {
 		printf("  reste par DIFFERENCE = travail propre de l op %9.3f ms   (pas une mesure directe)\n", reste);
 	}
 	printf("\n");
+
+	// ── LE SEUL ENDROIT OU LA STRUCTURE SURVIT A L OPERATION ────────────
+	// Toutes les operations d edition detruisent et refont le maillage entier
+	// (ToPolygons -> BuildFromPolygons). DEUX fonctions font exception : elles
+	// travaillent sur la structure EN PLACE, et ce sont donc les seules ou une
+	// mise a jour incrementale aurait un sens.
+	//   - `AddWireEdge` : les faces et les demi-aretes ne bougent pas, une arete
+	//     est ajoutee -- et la fonction appelle pourtant `RebuildEdges` en entier.
+	//   - `EdgeBetween` : une simple QUESTION, qui n ecrit rien.
+	// ⚠ Ce qui se mesure ici n est pas le cout d UN appel mais sa CROISSANCE
+	// avec la taille du maillage. Un editeur en emet un par clic : si le cout
+	// d un clic suit le nombre de sommets, tracer k aretes coute k x n, et le
+	// cas ne se voit sur aucun cube.
+	printf("\n=== LES DEUX SEULES OPERATIONS QUI NE REFONT PAS LE MAILLAGE ===\n");
+	printf("  cout de 20 appels, par taille de maillage -- c est la CROISSANCE qui se lit\n\n");
+	{
+		double pw = 0.0, pq = 0.0;
+		for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
+			NkVector<NkVertex3D> qv;
+			NkVector<uint32> qi;
+			MakeGrid(nn, qv, qi);
+			NkEditMesh q;
+			q.BuildFromIndexed(qv.Data(), (uint32)qv.Size(), qi.Data(), (uint32)qi.Size(), true);
+			q.RebuildEdges();
+			const uint32 nv = q.VertCount();
+			const uint32 K = 20u;
+			// DIAGONALES : deux sommets NON deja relies, donc chaque appel cree
+			// vraiment une arete. Sans cela `AddWireEdge` sortirait par son chemin
+			// « deja presente » et la mesure porterait sur le refus. Le compte
+			// CREE est imprime : le jour ou il tombe a 0, la ligne cesse de mesurer
+			// ce qu elle annonce, et rien d autre ne le dirait.
+			double mw = 1e30;
+			uint32 creees = 0;
+			for (uint32 r = 0; r < 3u; ++r) {
+				NkEditMesh d = q;
+				const uint32 avant = d.EdgeCount();
+				NkChrono c;
+				for (uint32 k = 0; k < K; ++k) {
+					const uint32 a = (k * 7u) % nv;
+					const uint32 b = (a + nn + 2u) % nv;
+					d.AddWireEdge(a, b);
+				}
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mw)
+					mw = ms;
+				creees = d.EdgeCount() - avant;
+			}
+			double mq = 1e30;
+			uint32 trouvees = 0;
+			for (uint32 r = 0; r < 3u; ++r) {
+				uint32 t = 0;
+				NkChrono c;
+				for (uint32 k = 0; k < K; ++k) {
+					const uint32 a = (k * 7u) % nv;
+					if (q.EdgeBetween(a, a + 1u) != NK_EM_INVALID)
+						t++;
+				}
+				const double ms = c.Elapsed().ToMilliseconds();
+				if (ms < mq)
+					mq = ms;
+				trouvees = t;
+			}
+			printf("    %6u faces (%6u sommets) : AddWireEdge %9.3f ms (creees=%u)", nn * nn, nv, mw, creees);
+			if (pw > 0.0)
+				printf(" x%.1f", mw / pw);
+			printf("   | EdgeBetween %8.3f ms (trouvees=%u)", mq, trouvees);
+			if (pq > 0.0)
+				printf(" x%.1f", mq / pq);
+			printf("\n");
+			pw = mw;
+			pq = mq;
+		}
+	}
 }
 
 // ── TEMOIN DE JUSTESSE DE RebuildEdges ──────────────────────────────────────
@@ -6950,6 +7023,245 @@ static void AretesBattery() {
 	}
 }
 
+// ── TEMOIN DE LA MISE A JOUR INCREMENTALE ───────────────────────────────────
+// CE QUE CE TEMOIN CONTROLE, ET POURQUOI IL EST LE POINT CENTRAL DU CHANTIER
+// `AddWireEdge` ne reconstruit plus la topologie entiere : il ajoute l arete et
+// corrige LES DEUX CYCLES DISQUE de ses extremites. Une mise a jour partielle
+// FAUSSE est exactement le genre de defaut qui ne se voit pas : le maillage a le
+// bon nombre d aretes, l affichage est correct, et le premier biseau qui suivra
+// ce disque partira de travers -- des heures plus tard, sans lien apparent.
+//
+// ⚠ DEUX CONTROLES, PARCE QU AUCUN DES DEUX NE SUFFIT SEUL.
+//   `idem`  : etat incremental, puis RebuildEdges() complet dessus. Si la mise a
+//             jour partielle a oublie une incidence ou l a rangee au mauvais
+//             endroit, la reconstruction complete ne rendra pas la meme chose.
+//             ⚠ Mais ce controle est AVEUGLE a une arete FAUSSE : RebuildEdges
+//             preserve les filaires, donc il conserverait fidelement une arete
+//             que la mise a jour aurait creee entre les mauvais sommets.
+//   `plein` : les MEMES ajouts, avec un RebuildEdges() complet APRES CHACUN --
+//             c est-a-dire l ancien comportement. Chaque ajout part alors d une
+//             structure FRAICHE, la ou `idem` ne reconstruit qu a la fin : une
+//             mise a jour qui ne serait fausse qu au deuxieme ajout consecutif
+//             s y voit, et pas dans `idem`.
+//
+// ⚠ CE QUE NI L UN NI L AUTRE NE PROUVE, ET JE PREFERE L ECRIRE QUE LE LAISSER
+// CROIRE : les deux chemins passent par le MEME `AddWireEdge`. Si celui-ci
+// creait l arete entre les MAUVAIS sommets, les deux la porteraient et les deux
+// resteraient verts. C est pourquoi la ligne porte en plus `disques` : le nombre
+// de sommets dont le cycle disque a change, compare au nombre ATTENDU deduit des
+// paires demandees. Une arete accrochee au mauvais sommet change un disque que
+// personne n a demande, et ce compte-la le voit sans passer par une comparaison
+// de deux chemins qui partagent le defaut.
+//
+// TROIS EMPREINTES, pas une :
+//   `ord` / `ens` (cf. SigAretes) pour l ensemble des ARETES ;
+//   `disq`        pour le contenu des CYCLES DISQUE -- ce que la mise a jour
+//                 incrementale touche, et que les deux premieres ne voient pas.
+// Sans la troisieme, un disque oublie passerait : le nombre d aretes, lui, serait
+// juste.
+//
+// ⚠ `disque` (taille de `diskPool`) est IMPRIME et n est PAS compare : la mise a
+// jour incrementale laisse derriere elle les anciennes tranches, la reconstruction
+// complete les compacte. C est un cout reel, il est sur la ligne, et le confondre
+// avec une divergence de topologie serait aussi faux que le cacher.
+static uint64 SignerDisques(const NkEditMesh &m) {
+	// Somme sur les sommets (donc insensible a l ordre de parcours), mais chaque
+	// disque est melange DANS SON ORDRE : deux disques qui portent les memes
+	// aretes dans un autre ordre ne sont pas le meme cycle, et c est precisement
+	// ce qu une insertion au mauvais endroit produirait.
+	// L arete est designee par son IDENTITE (v0, v1), jamais par son indice :
+	// un indice ne survivrait pas a une renumerotation et le temoin tomberait
+	// pour une raison qui n est pas un defaut.
+	uint64 acc = 0;
+	NkVector<NkEmId> inc;
+	for (uint32 v = 0; v < m.VertCount(); ++v) {
+		m.VertEdges(v, inc);
+		uint64 h = 1469598103934665603ull;
+		h = EmpreinteMele(h, (uint64)v);
+		for (uint32 k = 0; k < (uint32)inc.Size(); ++k) {
+			const NkEmId e = inc[k];
+			if (e >= (NkEmId)m.edges.Size())
+				continue;
+			h = EmpreinteMele(h, (uint64)m.edges[e].v0);
+			h = EmpreinteMele(h, (uint64)m.edges[e].v1);
+		}
+		acc += h;
+	}
+	return acc;
+}
+
+// Ajoute les `n` paires a une copie de `base`, par les deux chemins, et pose la
+// ligne. `paires` : 2*n indices bruts.
+static void LigneIncr(const char *nom, const NkEditMesh &base, const uint32 *paires, uint32 n) {
+	// (1) chemin INCREMENTAL : ce que fait le moteur aujourd hui.
+	NkEditMesh mi = base;
+	uint32 crees = 0;
+	NkEmId dernier = NK_EM_INVALID;
+	// Sommets REPRESENTANTS que les ajouts demandes doivent toucher, et EUX SEULS.
+	NkVector<uint8> attenduOwner;
+	attenduOwner.Resize(base.VertCount());
+	for (uint32 i = 0; i < (uint32)attenduOwner.Size(); ++i)
+		attenduOwner[i] = 0;
+	for (uint32 k = 0; k < n; ++k) {
+		const uint32 avant = (uint32)mi.edges.Size();
+		dernier = mi.AddWireEdge(paires[2 * k], paires[2 * k + 1]);
+		if ((uint32)mi.edges.Size() > avant) {
+			crees++;
+			const uint32 oa = base.VertOwner(paires[2 * k]), ob = base.VertOwner(paires[2 * k + 1]);
+			if (oa < (uint32)attenduOwner.Size())
+				attenduOwner[oa] = 1;
+			if (ob < (uint32)attenduOwner.Size())
+				attenduOwner[ob] = 1;
+		}
+	}
+	// Sommets dont le DISQUE a change, et sommets dont il DEVAIT changer. Les
+	// copies coincidentes comptent : elles voient le disque de leur representant,
+	// donc elles changent avec lui.
+	uint32 disquesChanges = 0, disquesAttendus = 0;
+	{
+		NkVector<NkEmId> a0, a1;
+		for (uint32 v = 0; v < base.VertCount(); ++v) {
+			base.VertEdges(v, a0);
+			mi.VertEdges(v, a1);
+			bool memes = (a0.Size() == a1.Size());
+			for (uint32 k = 0; memes && k < (uint32)a0.Size(); ++k)
+				memes = (a0[k] == a1[k]);
+			if (!memes)
+				disquesChanges++;
+			const uint32 o = base.VertOwner(v);
+			if (o < (uint32)attenduOwner.Size() && attenduOwner[o])
+				disquesAttendus++;
+		}
+	}
+	// (2) chemin PAS A PAS : les memes ajouts, reconstruction COMPLETE apres
+	// chacun. C est l ancien comportement, et la seule reference qui voie une
+	// arete creee entre les mauvais sommets.
+	NkEditMesh mp = base;
+	for (uint32 k = 0; k < n; ++k) {
+		mp.AddWireEdge(paires[2 * k], paires[2 * k + 1]);
+		mp.RebuildEdges();
+	}
+	// (3) IDEMPOTENCE : la reconstruction complete de l etat incremental.
+	NkEditMesh mr = mi;
+	mr.RebuildEdges();
+
+	const SigAretes si = SignerAretes(mi), sp = SignerAretes(mp), sr = SignerAretes(mr);
+	const uint64 di = SignerDisques(mi), dp = SignerDisques(mp), dr = SignerDisques(mr);
+
+	const uint32 idem = ((si.ord == sr.ord) && (si.ens == sr.ens) && (di == dr)) ? 1u : 0u;
+	const uint32 plein = ((si.ord == sp.ord) && (si.ens == sp.ens) && (di == dp)) ? 1u : 0u;
+
+	// ⚠ `crees` EST SUR LA LIGNE : un cas ou aucune arete n est creee rendrait
+	// idem=1 et plein=1 sans avoir rien exerce. C est la meme faute que le
+	// compteur bloque a zero, appliquee a un controle d egalite.
+	Put("{0:<34} crees={1}/{2} A={3} fil={4} idem={5} plein={6} disques {7}/{8} pool incr={9} plein={10}", nom, crees,
+		n, si.aretes, si.filaires, idem, plein, disquesChanges, disquesAttendus, (uint32)mi.diskPool.Size(),
+		(uint32)mp.diskPool.Size());
+}
+
+static void IncrBattery() {
+	// -- 1. CUBE : sommets DUPLIQUES par face (24 pour 8 positions) ----------
+	// Le cas qui exerce le changement de fond : la tranche de disque n est plus
+	// recopiee sur chaque copie coincidente, elle est resolue a la lecture. Si
+	// cette resolution etait fausse, un ajout vu depuis une copie ne verrait rien.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		// Trois diagonales de faces : aucune n existe apres quadify, donc les
+		// trois sont vraiment CREEES.
+		const uint32 pr[6] = {0u, 2u, 4u, 6u, 8u, 10u};
+		LigneIncr("incr/cube-trois-diagonales", m, pr, 3u);
+	}
+
+	// -- 2. GRILLE : des aretes de BORD, que le cube n a pas -----------------
+	// ⚠ En Q73, une demi-correction laissait `cube-soude` et `idempotence` VERTS
+	// et ne rougissait que sur la grille. Le jeu de donnees doit contenir la
+	// forme qui produit le cas, sinon la mesure est verte pour rien.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const uint32 pr[8] = {0u, 6u, 6u, 12u, 12u, 18u, 18u, 24u};
+		LigneIncr("incr/grille-quatre-diagonales", m, pr, 4u);
+	}
+
+	// -- 3. LE DISQUE VU DEPUIS UNE COPIE ------------------------------------
+	// LE cas du changement : `diskStart` n est plus ecrit que sur le sommet
+	// REPRESENTANT. Un cube porte 24 sommets pour 8 positions ; les copies d un
+	// meme coin doivent voir EXACTEMENT le meme disque, avant comme apres un
+	// ajout. Si la resolution par `canon` etait absente ou fausse, la copie
+	// rendrait un disque VIDE -- et un disque vide ressemble a un sommet isole,
+	// pas a un defaut.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		// Les copies d une MEME position : on les trouve par la position, pas par
+		// une convention d indices que la construction du cube pourrait changer.
+		const NkVec3f p0 = m.verts[0].pos;
+		NkVector<uint32> copies;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const NkVec3f d = m.verts[i].pos - p0;
+			if (d.Len() < 1e-5f)
+				copies.PushBack(i);
+		}
+		NkVector<NkEmId> e0, ek;
+		const uint32 avant = m.VertEdges(copies.Empty() ? 0u : copies[0], e0);
+		m.AddWireEdge(0u, 2u); // diagonale : elle touche le sommet 0
+		m.VertEdges(copies.Empty() ? 0u : copies[0], e0); // disque de REFERENCE, apres ajout
+		const uint32 apres = (uint32)e0.Size();
+		uint32 accord = 0;
+		for (uint32 c = 0; c < (uint32)copies.Size(); ++c) {
+			m.VertEdges(copies[c], ek);
+			// MEME contenu, MEME ORDRE : deux copies d une identite ne sont pas
+			// deux sommets qui se ressemblent, c est le meme sommet. Comparer les
+			// seules TAILLES laisserait passer un disque melange.
+			bool memes = ((uint32)ek.Size() == apres);
+			for (uint32 k = 0; memes && k < apres; ++k)
+				memes = (ek[k] == e0[k]);
+			if (memes)
+				accord++;
+		}
+		Put("{0:<34} copies={1} disque {2} -> {3} (doit croitre de 1) accord={4}/{5}", "incr/disque-vu-depuis-copie",
+			(uint32)copies.Size(), avant, apres, accord, (uint32)copies.Size());
+	}
+
+	// -- 4. ARETE DEJA PRESENTE ----------------------------------------------
+	// La recherche « existe-t-elle deja ? » est passee d un balayage de TOUTES
+	// les aretes a un parcours du DISQUE. Elle doit rendre le MEME indice, et ne
+	// rien creer. Une recherche qui echouerait creerait un DOUBLON : deux aretes
+	// entre les memes sommets, que rien d autre ne signale.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const uint32 aretesAvant = m.EdgeCount();
+		const NkEmId e1 = m.AddWireEdge(0u, 2u);
+		const uint32 apresCreation = m.EdgeCount();
+		const NkEmId e2 = m.AddWireEdge(0u, 2u); // MEME arete
+		const NkEmId e3 = m.AddWireEdge(2u, 0u); // MEME arete, sens INVERSE
+		// Une arete de FACE, elle, existait deja avant tout ajout : la recherche
+		// doit la trouver aussi, sinon on creerait un filaire par-dessus un bord.
+		const NkEmId e4 = m.AddWireEdge(0u, 1u);
+		Put("{0:<34} A {1} -> {2} -> {3} | meme={4} inverse={5} bord-existant-retrouve={6}", "incr/deja-presente",
+			aretesAvant, apresCreation, m.EdgeCount(), (e2 == e1) ? 1u : 0u, (e3 == e1) ? 1u : 0u,
+			(e4 != NK_EM_INVALID && e4 != e1) ? 1u : 0u);
+	}
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -7023,6 +7335,8 @@ int main(int argc, char **argv) {
 	MatModBattery();
 	// AJOUTEE EN FIN, meme raison : les 269 lignes precedentes gardent leur numero.
 	AretesBattery();
+	// AJOUTEE EN FIN, meme raison : les 274 lignes precedentes gardent leur numero.
+	IncrBattery();
 
 	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
 	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.

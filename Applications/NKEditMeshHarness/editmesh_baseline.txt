@@ -272,3 +272,7 @@ aretes/grille-bords                A=40 fil=0 bord=16 int=24 nonmanif=0 part=1 r
 aretes/idempotence                 A 40 -> 40 ord identique=1 ens identique=1 (1/1 : rejouer ne change rien)
 aretes/filaire-survit              ok=1 A 12 -> 13 fil=1 (fil>=1 : le filaire survit au rebuild)
 aretes/jonction-T-radial3          A=10 fil=0 bord=9 int=0 nonmanif=1 part=1 radial=12 disk=20 hl=12 ord=5285430129815656378 ens=-5493720026203631423
+incr/cube-trois-diagonales         crees=3/3 A=15 fil=3 idem=1 plein=1 disques 18/18 pool incr=48 plein=30
+incr/grille-quatre-diagonales      crees=4/4 A=44 fil=4 idem=1 plein=1 disques 5/5 pool incr=119 plein=88
+incr/disque-vu-depuis-copie        copies=3 disque 3 -> 4 (doit croitre de 1) accord=3/3
+incr/deja-presente                 A 12 -> 13 -> 13 | meme=1 inverse=1 bord-existant-retrouve=1
