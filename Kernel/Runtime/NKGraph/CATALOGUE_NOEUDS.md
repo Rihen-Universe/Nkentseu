@@ -117,13 +117,36 @@ cette liste est la cible.
 | famille | nœuds | exéc. |
 |---|---|:---:|
 | **événements** | Au démarrage · À chaque image · À la collision · Sur entrée clavier/souris · Sur message | ✅ **sortie seule** — un événement n'a pas d'entrée d'exécution |
-| **flot** | Si / Sinon · Aiguillage (switch) · Boucle Pour · Boucle Tant que · Séquence · Portail (aller à) | ✅ |
+| **flot** | Si / Sinon · Aiguillage (switch) · Boucle Pour · Boucle Tant que · Séquence · ~~Portail (aller à)~~ ❌ | ✅ |
 | **variables** | Lire · Écrire · Incrémenter | Écrire : ✅ · Lire : ❌ |
 | **fonctions** | Appeler · Retourner · Entrée de fonction · Sortie de fonction | ✅ |
 | **objets** | Trouver · Créer · Détruire · Lire propriété · Écrire propriété | selon |
 | **temps** | Attendre · Chronomètre · Retarder | ✅ |
 | **maths / logique** | les mêmes qu'en matériau — Math, Vector Math, comparaisons, et/ou/non | ❌ **valeur seule** |
 | **débogage** | Afficher · Point d'arrêt · Assertion | ✅ |
+
+❌ **`Portail (aller à)` est RETIRÉ — décidé le 23/08**, et la raison vaut d'être
+lue avant de le réintroduire :
+
+> **un cycle vit à l'intérieur d'un nœud, jamais dans le graphe.**
+
+Un portail qui saute **en arrière** est un cycle, et le cœur les refuse
+(`NkLinkError::WouldCycle`) — pour **toutes** les familles de lien, sans
+exception. Le laisser dans cette liste serait déclarer une capacité que le
+moteur ne saura pas honorer.
+
+⚠️ **Aucun de ses trois usages n'est perdu**, et c'est ce qui rend le retrait
+acceptable :
+
+| ce qu'on voulait en faire | ce qui le fait |
+|---|---|
+| **revenir en arrière** (répéter) | un **nœud de boucle** — `Boucle Pour`, `Boucle Tant que`, qui itère lui-même |
+| **sauter en avant sans tirer un long fil** | le **relais** (`reroute`), § 5 — il range un fil sans rien changer au graphe |
+| **sauter en avant en changeant le flot** | un fil d'exécution ordinaire : un saut avant **est** déjà exprimable |
+
+📌 Le portail n'apportait donc rien qu'un autre nœud ne fasse déjà — **sauf le
+retour en arrière**, et c'est exactement ce que la décision refuse. Détail et
+raisons au § 19.9 de `SPECIFICATION_VISUELLE.md`.
 
 ⚠️ **Deux règles qui sortent de ce tableau et qui comptent pour le dessin :**
 
