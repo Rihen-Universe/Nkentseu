@@ -2178,10 +2178,26 @@ alors que le fait est « ce nœud n'accepte pas ce type ».** Un résultat néga
 sans son périmètre est une rumeur — et ici la rumeur ferait abandonner un nœud
 qui existe.
 
-## 13. Récapitulatif des 🔴 NON TRANCHÉS — **18 restants sur 27**
+## 13. Récapitulatif des 🔴 NON TRANCHÉS — **14 restants sur 27**
 
 **À lire avant tout codage.** Chacun de ces points sera décidé en passant s'il
 n'est pas décidé exprès — et décidé en passant, il sera incohérent.
+
+> ⚠️ **Recompté le 24/08 : 18 → 14.** Quatre lignes étaient **closes depuis le
+> 23/08 sans que cette table le sache** — les n° 9, 10 et 12, qui **renvoient à
+> une autre ligne** (« déjà ⚠️ dans C5 », « dans C6 », « dans E3, E4 ») au lieu
+> de porter leur propre état, et la n° 23, dont la question était barrée mais
+> pas le numéro.
+>
+> 🔴 **C'est une famille, et elle n'est pas celle du § 0.5 :** *une ligne qui
+> renvoie son état à une autre ligne ne se met jamais à jour, parce qu'il n'y a
+> rien à mettre à jour dedans.* Elle reste juste — « déjà dans C5 » est vrai
+> pour toujours — **et elle devient inutile** : elle ne dit plus si c'est
+> tranché. Un état délégué doit être **recopié** au moment où il change, ou la
+> ligne doit être **supprimée** ; il n'y a pas de troisième voie.
+>
+> 📌 Le compte se refait **par lecture de la table**, jamais de mémoire — c'est
+> la seule opération qui trouve ce genre de ligne.
 
 | # | question | où | pourquoi ça coûte |
 |---|---|---|---|
@@ -2193,10 +2209,10 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | ~~6~~ | ~~**groupe** : sur place ou en onglet ?~~ | § 7.6 | ✅ **TRANCHÉ le 23/08 : SUR PLACE, pas d'onglets.** *Deux mécanismes de navigation pour une seule notion, c'est un de trop* — et le fil d'Ariane, devenu obligatoire, rend l'onglet redondant. Le résidu ouvert de cette ligne est désormais la **ligne 19** |
 | ~~7~~ | ~~**cadre** : teinte-t-il ses nœuds ?~~ | § 9.2 | ✅ **TRANCHÉ le 22/08 par Rodolf — option A : JAMAIS, nulle part.** Ni corps, ni en-tête, ni filet, ni pastille ; le bandeau porte le sens. ✅ **Fait disparaître le conflit à trois** |
 | 8 | **cadre replié** : où aboutissent les fils entrants ? | § 9.2 | aucune référence. **Deux candidats chiffrés à 12 fils** au § 9.2 ; ne concerne **que** le cadre, jamais le groupe |
-| 9 | **fil sélectionné** : halo ou éclaircissement ? | § 10 | déjà ⚠️ dans C5 |
-| 10 | **croisement de fils** : dessus, dessous, saut ? | § 10 | déjà ⚠️ dans C6 |
+| ~~9~~ | ~~**fil sélectionné** : halo ou éclaircissement ?~~ | § 10 | ✅ **TRANCHÉ le 23/08 : NI L'UN NI L'AUTRE.** Les **deux poignées carrées de 7 px** sont le seul signal ; l'éclaircissement a été **retiré** — mesuré à 5,23 contre un plancher de 11,0, donc du décor. La poignée ne disparaît jamais : hors cadre, elle se pose en **chevron** là où le fil coupe le bord |
+| ~~10~~ | ~~**croisement de fils** : dessus, dessous, saut ?~~ | § 10 | ✅ **TRANCHÉ le 23/08 : les fils se croisent, et le croisement se dessine tel quel.** Aucune référence du corpus ne fait de saut, et le saut coûte n² paires par image — 19 900 à 200 fils. C'est du rendu pur : **ça n'empêche rien** |
 | 11 | **fils d'exécution en polylignes** à angles, ou en courbes comme la principale ? | § 10 | écart de style assumé ou non |
-| 12 | **minicarte** et **barre d'outils** | § 12.3 | déjà ⚠️ dans E3, E4 |
+| ~~12~~ | ~~**minicarte** et **barre d'outils**~~ | § 12.3 | ✅ **TRANCHÉ le 23/08.** **Minicarte : reportée**, avec le critère qui la déclenchera — *le premier graphe réel de plus de 50 nœuds où Rodolf se perd*. **Barre d'outils : aucune** — ses trois actions utiles vont dans la bande du fil d'Ariane, qui existe de toute façon, donc à **coût de place nul** |
 | 13 | **champ de saisie** : plus clair (mesuré sur la principale) ou plus sombre (A9 actuel) ? | § 1.1 | ⚠️ **contredit un document déjà écrit** |
 | 14 | **`images (1)`** : cohérence avec l'inspecteur, ou autre attente ? | § 0 | je refuse de deviner |
 | ~~18~~ | ~~**l'échelle du nœud de Rodolf**~~ | § 3.1 | ✅ **MESURÉE : 1 unité = 1 px, son dessin est une maquette à 6 ×.** L'en-tête de 21 px est déjà juste. Le résidu ouvert de cette ligne est désormais la **ligne 20** |
@@ -2206,8 +2222,8 @@ n'est pas décidé exprès — et décidé en passant, il sera incohérent.
 | 19 | **le groupe montre-t-il un aperçu de son contenu ?** | § 7.6 | résidu de la ligne 6, qui était tranchée ET ouverte à la fois |
 | 20 | **qui s'aligne sur qui** : les planches, ou le nœud de référence de Rodolf ? | § 3.1 | résidu de la ligne 18. L'échelle est MESURÉE ; il reste à dire laquelle des deux bouge |
 | 21 | **la PORTÉE du registre de types** : comparer la charge utile, ou remonter le registre au DOCUMENT ? | § 18.5 | 🔴 **décide où VIT le registre** — les quatre types composés en dépendent, et rien ne doit être codé avant |
-| ~~22~~ | ~~**le mode ÉTATS est impossible sur le cœur**~~ | § 19.9 | ✅ **TRANCHÉ le 23/08 : la machine à états est un NŒUD**, ses cycles vivent dans son modèle interne. `WouldCycle` n'est pas touché — le seul choix qui n'affaiblit pas une règle générale pour un cas particulier |
-| 23 | ~~**NKScena** : quel domaine ?~~ | § 19.6 | ✅ **TRANCHÉ le 23/08 par Rodolf : la mise en scène cinématographique.** Trois applications distinctes, communiquant par fichiers |
+| ~~22~~ | ~~**le mode ÉTATS est impossible sur le cœur**~~ | § 19.9 | ✅ **TRANCHÉ le 23/08, puis MESURÉ FAUX le 24/08** — le cas `etats/la-machine-a-etats-est-un-noeud` tourne **sans aucune API nouvelle**. **La machine à états est un NŒUD**, ses cycles vivent dans son modèle interne. `WouldCycle` n'est pas touché — le seul choix qui n'affaiblit pas une règle générale pour un cas particulier |
+| ~~23~~ | ~~**NKScena** : quel domaine ?~~ | § 19.6 | ✅ **TRANCHÉ le 23/08 par Rodolf : la mise en scène cinématographique.** Trois applications distinctes, communiquant par fichiers |
 | ~~24~~ | ~~**NKScena : est-elle seulement NODALE ?**~~ | § 19.8 | ✅ **TRANCHÉ le 23/08 : NON.** Une ligne de temps à **pistes**, dont les **marqueurs d'événement** entrent dans un graphe d'**exécution**. *Ce qui ordonne un séquenceur est une COORDONNÉE, pas un arc* |
 | ~~25~~ | ~~**la mise en scène est écrite trois fois**~~ | § 19.7 | ✅ **DISSOUS le 23/08, et sans arbitrage** : un mot désignait deux choses. Le MOTEUR de séquence va à NkAnima, les SÉMANTIQUES de cinéma à NKScena, les outils d'animation à NkAnimaEditor. Personne ne perd |
 | 26 | **`NkSequencer.h` : la SÉPARATION du séquencement pur et de ce qui l'attache à un monde** | § 19.11 | 🔴 **surtout PAS un `git mv`** — le fichier inclut `NkAnimation.h` et `NkRenderComponents.h` de Noge et emploie `NkEntityId` dix fois. Le déplacer ferait dépendre **NkAnima de Noge**, l'inversion exacte qu'on évite |
@@ -3547,9 +3563,14 @@ Ce que ce champ doit changer, et **rien d'autre** :
 | ce qui change | aujourd'hui | ce qu'il faut |
 |---|---|---|
 | **compatibilité** | `Accepts()` compare des `NkTypeId` | comparer **d'abord les familles**, et refuser un croisement par une raison **nommée** — `NkLinkError::FamilyMismatch`. Un fil d'exécution branché sur une prise de donnée doit se refuser **en le disant** |
-| **arité d'une ENTRÉE** | une seule source ; une deuxième **remplace** la première | **Data** : inchangé. **Exec** : **plusieurs sources autorisées** — dix chemins peuvent mener au même nœud |
-| **arité d'une SORTIE** | autant de liens qu'on veut | **Data** : inchangé. **Exec** : **un seul** — une instruction n'a qu'une suite. Le second se refuse par `NkLinkError::ExecOutputAlreadyBound` |
+| **arité d'une ENTRÉE** | une seule source ; une deuxième **remplace** la première | **Data** : une entrée accepte **une seule** source, la seconde remplace la première. **Exec** : **plusieurs sources autorisées** — dix chemins peuvent mener au même nœud |
+| **arité d'une SORTIE** | autant de liens qu'on veut | **Data** : une sortie accepte **autant de liens qu'on veut**. **Exec** : **un seul** — une instruction n'a qu'une suite. Le second se refuse par `NkLinkError::ExecOutputAlreadyBound` |
 | **acyclicité** | ⚠️ **plus vrai** : au 24/08, `WouldCreateCycle` et `Connect` **exemptaient** la famille `Exec`, à **deux endroits** | 🔴 **RETIRER L'EXEMPTION — et la formulation de cette case a changé, lisez la note ci-dessous.** ~~Ce document a d'abord proposé de ne voir que les liens `Data`, pour rendre un rebouclage d'exécution traçable.~~ ❌ Retiré : ça affaiblissait une règle **générale** pour un cas **particulier**. ✅ **L'acyclicité est universelle**, `WouldCycle` est global, et un cycle vit **à l'intérieur d'un nœud** — boucle et machine à états sont des nœuds. Trois raisons au § 19.9. **Fait et mesuré côté cœur le 24/08 : `WouldCreateCycle`, `Connect` et `TopoSort` ne consultent plus la famille** |
+
+📌 **Les deux cases `Data` disaient « inchangé ».** Elles disent maintenant la
+règle en entier, à l'identique de ce qu'elle était — **c'est plus long de six
+mots, et ça se vérifie**. Application immédiate du § 0.5 : la reformulation ne
+change rien au travail demandé, elle change ce qu'un lecteur peut en faire.
 
 #### 🔴 CORRIGÉ le 24/08 — cette case disait « NE RIEN CHANGER », et c'était devenu FAUX
 
