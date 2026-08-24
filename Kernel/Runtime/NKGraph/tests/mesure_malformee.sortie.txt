@@ -1,0 +1,60 @@
+=== MESURE n3 : directive CONNUE mais MAL FORMEE ===
+
+[1. `noeud` avec deux jetons au lieu de cinq]
+  Deserialize -> true ; noeuds vivants=2 bruts=2 liens=1
+    noeud id=1 type='math.add' libelle='Addition' x=10.0 y=20.0 prises=0
+    noeud id=2 type='' libelle='' x=0.0 y=0.0 prises=0
+  reserialise :
+nkgraph 1
+compteurs 3 2
+type 1 float
+noeud 1 10.000000 20.000000 math.add Addition
+noeud 2 0.000000 0.000000  
+lien 1 1 0 2 0
+
+[2. `noeud` avec un identifiant NON NUMERIQUE]
+  Deserialize -> true ; noeuds vivants=1 bruts=1 liens=0
+    noeud id=0 type='math.add' libelle='Addition' x=10.0 y=20.0 prises=0   <-- ID INVALIDE (0)
+  reserialise :
+nkgraph 1
+compteurs 3 2
+noeud 0 10.000000 20.000000 math.add Addition
+
+[3. `lien` vers un noeud qui n'existe pas]
+  Deserialize -> true ; noeuds vivants=1 bruts=1 liens=1
+    noeud id=1 type='math.add' libelle='A' x=0.0 y=0.0 prises=0
+  reserialise :
+nkgraph 1
+compteurs 2 2
+noeud 1 0.000000 0.000000 math.add A
+lien 1 1 0 99 0
+
+[4. `sock` rattache a un noeud absent]
+  Deserialize -> true ; noeuds vivants=1 bruts=1 liens=0
+    noeud id=1 type='math.add' libelle='A' x=0.0 y=0.0 prises=0
+  reserialise :
+nkgraph 1
+compteurs 2 1
+type 1 float
+noeud 1 0.000000 0.000000 math.add A
+
+[5. ligne `compteurs` ABSENTE]
+  Deserialize -> true ; noeuds vivants=1 bruts=1 liens=0
+    noeud id=7 type='math.add' libelle='A' x=0.0 y=0.0 prises=0
+  reserialise :
+nkgraph 1
+compteurs 8 1
+type 1 float
+noeud 7 0.000000 0.000000 math.add A
+
+[6. deux noeuds portant le MEME identifiant]
+  Deserialize -> true ; noeuds vivants=2 bruts=2 liens=0
+    noeud id=1 type='math.add' libelle='Premier' x=0.0 y=0.0 prises=0
+    noeud id=1 type='math.mul' libelle='Second' x=5.0 y=5.0 prises=0
+  reserialise :
+nkgraph 1
+compteurs 3 1
+noeud 1 0.000000 0.000000 math.add Premier
+noeud 1 5.000000 5.000000 math.mul Second
+
+=== fin n3 ===

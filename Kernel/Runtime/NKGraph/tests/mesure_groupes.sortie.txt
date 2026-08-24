@@ -1,0 +1,48 @@
+=== MESURE n2 : types a l'execution et GROUPES ===
+
+[A] enregistrement d'un type APRES coup, sur un graphe deja peuple
+  t1=1 t2=2 ; AddSocket=true ; Connect(t2->t1)=type-incompatible
+  [ok]    A1 : un type enregistre a l'execution obtient un identifiant neuf
+  [ok]    A2 : une prise peut porter ce type
+  [ok]    A3 : le type neuf est bien DISTINCT (refus de connexion attendu)
+  apres AllowConversion : Connect=ok
+  [ok]    A4 : une conversion declaree a l'execution est prise en compte
+  [ok]    A5 : le type cree a l'execution SURVIT a l aller-retour
+  FindType apres rechargement -> 2 (avant : 2)
+  [ok]    A6 : il conserve le MEME identifiant apres rechargement
+
+[B] un GROUPE : definition unique, deux instances
+  interieur : ok / ok
+  [ok]    B1 : l'interface se declare par deux noeuds ORDINAIRES
+  [ok]    B2 : instance 1 branchee
+  [ok]    B3 : instance 2 branchee
+
+[C] la definition est-elle ecrite UNE SEULE FOIS ?
+  `graphe MonGroupe` : 1 fois ; `sousgraphe ` : 2 fois
+  [ok]    C1 : la definition du groupe est ecrite UNE fois
+  [ok]    C2 : chaque instance ne porte qu'une REFERENCE
+  [ok]    C3 : aller-retour du document identique
+
+[D] plan aplati
+  BuildPlan -> ok ; etapes=3
+  [ok]    D1 : le plan se construit
+    etape 0 : graphe=0 type=const.float    profondeur=0 chemin=racine
+    etape 1 : graphe=1 type=math.mul       profondeur=1 chemin=racine/Instance 1
+    etape 2 : graphe=1 type=math.mul       profondeur=1 chemin=racine/Instance 2
+  [ok]    D2 : instances et frontieres ONT DISPARU du plan
+  [ok]    D3 : 3 etapes — le corps du groupe est instancie DEUX fois
+
+[E] on MODIFIE la definition APRES instanciation (ajout d'une entree)
+  BuildPlan -> interface-incompatible ; detail = racine/Instance 1 : socket absent sur l'instance : V2
+  [ok]    E1 : la desynchronisation definition/instance est DETECTEE, pas silencieuse
+  [ok]    E2 : et elle DIT lequel
+
+[F] un groupe qui s'instancie lui-meme
+  BuildPlan -> sousgraphe-recursif
+  [ok]    F1 : la recursion est refusee, pas explosee
+
+[G] instance qui nomme un groupe ABSENT
+  BuildPlan -> sousgraphe-inconnu ; detail = 
+  [ok]    G1 : un groupe absent est nomme, pas ignore
+
+=== BILAN n2 : 0 echec(s) ===

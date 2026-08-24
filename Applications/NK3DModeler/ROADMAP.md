@@ -5,7 +5,22 @@
 > **dans quel ordre**, avec assez de détail pour reprendre sans rien redécouvrir.
 > À mettre à jour **à chaque palier franchi**, pas en fin de session.
 
-L'application est **un seul DCC** (pas de séparation modeleur / animation).
+⚠️ **CORRIGÉ le 23/08 — cette ligne disait le contraire de la décision.** Elle
+annonçait *« l'application est un seul DCC (pas de séparation modeleur /
+animation) »*. C'est **périmé** : Rodolf a depuis tranché **trois applications
+distinctes**, communiquant **par fichiers** —
+
+| application | domaine |
+|---|---|
+| **NK3DModeler** | **modélisation et sculpture** — et rien d'autre |
+| **NkAnima** | animation et VFX |
+| **NKScena** | mise en scène |
+
+📌 Le ROADMAP **précédait** la décision et personne ne l'avait relu. Il était
+déjà contredit par `docs/SPECIFICATION.md` du même dossier, qui range
+*« Animation, rigging »* **hors produit**, chez NkAnima : les deux positions
+vivaient côte à côte dans le même répertoire.
+
 Langue de travail : **français**. Toute décision d'interface vient de Rihen et
 est consignée avec sa raison.
 

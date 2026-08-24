@@ -1,0 +1,879 @@
+# -*- coding: utf-8 -*-
+"""Generateur de planche_01_noeuds.svg.
+
+ECRIT LE 22/08, et il arrive APRES la planche : celle-ci a ete dessinee
+avant que les generateurs existent, et elle etait donc la seule des sept
+que PERSONNE ne pouvait modifier -- alors que c'est la reference
+principale. Ce fichier repare ca.
+
+POURQUOI IL NE REDESSINE PAS AVEC gen.py, alors que p02..p07 le font :
+la planche 01 est ANTERIEURE a gen.py et n'a pas les memes defs (sa
+grille est en #2b2b33, elle ignore les motifs damier/hachure/ciel). La
+redessiner avec gen.py produirait une AUTRE planche -- et remplacer en
+silence la reference de Rodolf par une variante serait exactement le
+genre de perte qu'on traque ici.
+
+CE QU'IL FAIT : il porte la planche DECOUPEE EN PANNEAUX, chacun editable
+a part. Modifier le panneau 3 ne peut pas abimer le panneau 7.
+
+======================================================================
+v4 -- 2026-08-23. RODOLF A DECLARE LA v3 PERIMEE, ET IL AVAIT RAISON.
+======================================================================
+
+Son reproche : « les prises sont dessinees en petits CARRES alors que le
+texte annonce un ratio 1:3,7 ». VERIFIE sur le PNG : le symbole valait
+10 x 12, soit un ratio de 1 : 1,2. Les textes avaient ete corriges dans
+la nuit du 22 au 23, les FORMES ne l'avaient pas ete. Une planche dont
+le texte dit une chose et dont le dessin en montre une autre est pire
+qu'une planche perimee : elle se contredit elle-meme, et on ne sait plus
+lequel des deux croire.
+
+CE QUI A ETE MESURE, ET PAS ESTIME -- lecture du .sketch de Rodolf
+(Nkentseu-merge/.../references/editeur_nodal.sketch, groupe « Noeud »,
+ouvert EN LECTURE SEULE) :
+
+  element                    | ses valeurs      | rapport a l'en-tete
+  ---------------------------|------------------|--------------------
+  entete_noeud               | h = 126,639      | 1,000
+  prise_donnee               | 17,269 x 63,319  | h = 0,500  l = 0,136
+  A5_prise_instruction       | 44,428 x 51,833  | h = 0,409  l = 0,351
+  execution_noeud (le filet) | h = 11,000       | 0,087
+
+  prise de donnee ENTREE : x = 0, le corps commence a x = 17,269
+    -> elle est ENTIEREMENT DEHORS, collee au bord. Le texte de la
+       planche etait donc JUSTE, et c'est « a cheval » qui etait faux.
+  prise d'instruction ENTREE : x = 6,571, largeur 44,428
+    -> 10,7 dehors, 33,7 DEDANS. Elle, elle chevauche vraiment.
+
+  Ratio de la prise de donnee : 17,269 / 63,319 = 1 : 3,667. « 1:3,7 »
+  etait exact. C'est le DESSIN qui ne l'etait pas.
+
+CE QUE LA PLANCHE DESSINE MAINTENANT : l'en-tete y fait 21 px et le pied
+declare une echelle d'etude de 2,1 x. Le facteur est donc
+21 / 126,639 x 2,1 = 0,34823, d'ou :
+
+  prise de donnee    : 17,269 x 0,34823 = 6,01  ->  6 x 22
+  prise d'execution  : 44,428 x 0,34823 = 15,47 -> 15,5 x 18
+                       debord dehors    : 10,7 x 0,34823 = 3,7
+
+⚠️ ET 6 x 22 EST EXACTEMENT gen.PW x gen.PH. Les six autres planches
+dessinaient deja la bonne languette ; seule la planche 01, qui est LA
+reference, portait le carre. Les sept disent enfin la meme chose --
+sans que j'aie eu a CHOISIR une valeur, puisque les deux chemins
+(mesure du fichier de Rodolf / constante de gen.py) tombent au meme
+endroit. Deux sources independantes qui se rejoignent valent mieux
+qu'un arbitrage.
+
+LES QUATRE AUTRES CORRECTIONS DE LA v4, chacune avec sa source :
+
+ 1. Panneau 6 -- « les arrets SONT des prises » etait FAUX. Mesure dans
+    NkMatGraphCheck (§ 17, contradiction C1) : kColorRamp a DEUX prises,
+    fac et color ; les arrets vivent dans une PROPRIETE, NK_MPROP_STOPS,
+    plafonnee a 32. Un arret n'est pas branchable. La planche 03 avait
+    deja ete corrigee ; la 01, non.
+ 2. Panneau 10 -- le cadre est desormais celui que Rodolf a VALIDE le
+    22/08 (double filet, bandeau de 20 px, compteur a droite), et il
+    n'est plus ORANGE : l'orange est reserve au lasso depuis la 07.
+ 3. Panneau 10 -- « cadre de groupe » melangeait deux objets que R8 a
+    separes : le cadre annote, le groupe abstrait.
+ 4. Panneau 12 -- la sortie n'est plus dite « unique » (§ 17, C7 :
+    Named Output existe, N par graphe).
+ 5. Le bloc « Toujours pas tranche » listait cinq points DEPUIS
+    TRANCHES. Il est reecrit depuis le § 13 de la specification, qui en
+    est la source, au lieu d'etre tenu a la main.
+
+⚠️ ET UNE VERIFICATION QUI A INFIRME UN REPROCHE : on m'a signale que le
+panneau 10 teintait ses noeuds d'un filet orange (l'option C, refusee).
+Releve au pixel sur le PNG : le filet des deux noeuds du haut vaut
+#e8e8ee -- c'est la SELECTION, que la legende annonce, pas une teinte
+repliquee. L'option A etait deja respectee. Ce qui se lisait comme un
+filet orange etait l'EN-TETE ocre #8a6b2a de la categorie texture, juste
+au-dessus. Je le note parce que corriger un defaut qui n'existe pas en
+aurait cree un vrai : j'aurais retire la selection.
+
+CE QUI RESTE FAUX ET QUE JE NE CORRIGE PAS ICI : le filet d'execution
+vaut 2,5 px sur les sept planches, alors que la mesure donne
+11 x 0,34823 = 3,8. L'ecart est reel mais il touche gen.py, donc les
+sept planches d'un coup. Il est remonte dans echanges/, pas bricole ici.
+"""
+import io, os, hashlib
+# gen n'etait importe qu'a la toute fin de ce fichier (pour rendre()),
+# parce que p01 ecrit son SVG lui-meme. Mais la REGLE de la police doit
+# vivre a UN seul endroit : la recopier ici serait la deuxieme constante
+# a tenir a la main, et ce fichier explique deja pourquoi c'est un
+# garde-fou qui ment. On importe donc la fonction, pas sa copie.
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gen import panneau, ecrire, OUT as _OUT
+
+OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+# ----------------------------------------------------------------------
+# LES DEUX EMPREINTES, ET ELLES NE GARDENT PAS LA MEME PORTE
+# ----------------------------------------------------------------------
+# EMPREINTE_SORTIE garde le SCRIPT : elle change quand on edite un
+#   panneau ici. Elle distingue une modification voulue d'un accident.
+#
+# EMPREINTE_DISQUE garde la PLANCHE : elle est celle du fichier tel
+#   qu'il a ete ecrit la derniere fois. Rodolf a annonce le 22/08 qu'il
+#   comptait retoucher les planches lui-meme (« en modifiant moi aussi
+#   ces planches ca pourrait permettre d'avoir le resultat voulu ») --
+#   regenerer ECRASERAIT son travail. Si le fichier sur le disque ne
+#   correspond plus, ce script REFUSE d'ecrire et le dit.
+#
+# ⚠️ Pourquoi l'empreinte et pas la date de modification : la date ment
+#   dans les deux sens. Regenerer un fichier IDENTIQUE le rajeunit sans
+#   rien changer (c'est arrive ici le 23/08 a 11h04, et une regle sur
+#   les dates aurait bloque pour rien) ; et une copie d'arbre a arbre
+#   remet toutes les dates a l'heure de la copie. Le contenu, lui, ne
+#   ment pas.
+# ⚠️ CORRIGE UNE HEURE APRES L'AVOIR ECRIT : la premiere version gardait
+#   l'empreinte du disque dans une CONSTANTE, a tenir a la main apres
+#   chaque generation. Elle a bloque quatre fois de suite pendant que je
+#   corrigeais la planche -- et une constante qu'on doit remettre a jour
+#   a chaque passage est une constante qu'on finit par ne plus remettre a
+#   jour, puis par retirer. Le garde-fou se serait supprime lui-meme.
+#   Elle vit donc dans un FICHIER, ecrit par le script quand il reussit.
+#   Personne n'a plus rien a recopier, et le controle reste vrai.
+EMPREINTES = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          'empreintes.txt')
+
+# Les empreintes precedentes, gardees pour que « ce qui a change » soit
+# une phrase verifiable et pas un souvenir.
+JOURNAL = [
+    ('v3  22/08', '791a238bf7bd279e2188edcfb9bc6054',
+     u'prises 10 x 12 (un carre) sous un texte annoncant 1:3,7 ; arrets du '
+     u'ColorRamp dessines en prises ; cadre orange sans bandeau ; bloc '
+     u'« pas tranche » listant cinq points deja tranches'),
+]
+
+# ----------------------------------------------------------------------
+# CE QUE LE BLOC ROUGE DE CETTE PLANCHE PRESENTE ENCORE COMME OUVERT
+# ----------------------------------------------------------------------
+# ⚠️ C'EST LA CORRECTION DE FOND DU 23/08, et elle ne se voit pas sur
+# l'image. Rodolf a signale que le bloc listait cinq points TRANCHES
+# depuis -- le dictionnaire, le noeud de groupe replie, le survol, la
+# minicarte, le sens de lecture. Aucun controle ne l'avait dit, et il
+# n'aurait pas pu : `verifie_coherence.py` compare l'inventaire et la
+# specification, deux DOCUMENTS. La planche est un TROISIEME document
+# qui affirme des choses, et c'est celui que Rodolf regarde.
+#
+# Une affirmation ecrite dans une chaine de caracteres SVG n'est
+# verifiable par personne. Ecrite ici, elle l'est : `verifie_planches.py`
+# lit cette liste et va chercher l'etat de chaque source.
+#
+#   'recap' N -> ligne N du tableau du § 13 de la specification.
+#                Barree = tranchee : la planche ne doit plus la montrer.
+#   'inv'   K -> ligne K de ELEMENTS_A_DESSINER.md.
+#   'hors'    -> point dont l'etat ne vit dans aucune table lisible par
+#                une machine. On le DECLARE au lieu de le taire.
+#
+# Ce n'est pas gratuit : le jour ou Rodolf tranche la largeur du noeud,
+# la ligne 1 du § 13 sera barree et le controle rougira sans que
+# personne ait pense a relire cette planche.
+OUVERTS_DECLARES = [
+    ('recap', '1',  u'la LARGEUR du noeud'),
+    ('recap', '3',  u'le FIL de dictionnaire'),
+    ('recap', '13', u'le CHAMP DE SAISIE, plus clair ou plus sombre'),
+    ('recap', '20', u'qui s aligne : les planches ou le noeud de Rodolf'),
+    ('hors',  '15.3', u'le SENS DE LECTURE -- § 15.3, hors du tableau'),
+    ('hors',  '17.4', u'les COULEURS de categorie -- aucun champ dans le modele'),
+]
+
+PARTIES = []
+
+# --------------------------------------------------------------------------
+# entete, defs, fond et titre de planche
+# --------------------------------------------------------------------------
+# LES SYMBOLES DE PRISE. L'ANCRE EST LE BORD DU NOEUD, jamais le centre
+# de la prise -- c'est la seule convention qui rende un decalage visible
+# a la lecture : on ecrit la coordonnee du bord, qu'on connait, et pas
+# « le bord moins la moitie de la largeur », qu'on recalcule faux. La v3
+# utilisait l'ancre « bord - 5 » avec un rectangle centre : le jour ou la
+# largeur a change, les deux se sont contredits en silence, et le
+# panneau 11 dessinait des prises A CHEVAL sans que personne le voie.
+PARTIES.append(u'''<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1340" viewBox="0 0 1680 1340" font-family="Segoe UI, Inter, sans-serif">
+<defs>
+  <linearGradient id="rampe" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0%" stop-color="#0A555F"/><stop offset="42%" stop-color="#3aa0a8"/>
+    <stop offset="72%" stop-color="#F79A28"/><stop offset="100%" stop-color="#ffe9c2"/>
+  </linearGradient>
+  <!-- PRISE DE DONNEE, ENTREE : 6 x 22, ENTIEREMENT DEHORS, collee au bord -->
+  <g id="pinD"><rect x="-6" y="-11" width="6" height="22" rx="2"/></g>
+  <!-- PRISE DE DONNEE, SORTIE : la meme, de l'autre cote du bord -->
+  <g id="pinS"><rect x="0" y="-11" width="6" height="22" rx="2"/></g>
+  <!-- PRISE DE TABLEAU : la meme, CREUSE -->
+  <g id="pinT"><rect x="-5" y="-10" width="5" height="20" rx="2" fill="none" stroke-width="2"/></g>
+  <!-- PRISE D EXECUTION : rectangle a pointe, 15,5 x 18, 3,7 dehors, 11,8 dedans -->
+  <g id="pinX"><path d="M-3.7 -9h9l6.5 9-6.5 9h-9z"/></g>
+</defs>
+
+<rect width="1680" height="1340" fill="#17171b"/>
+
+<text x="34" y="40" fill="#e8e8ee" font-size="21" font-weight="600">Planche 01 — nos nœuds dans le style de la référence principale</text>
+<text x="34" y="62" fill="#8a8a96" font-size="12.5">v4 — les prises sont enfin DESSINÉES comme le texte les décrit : languette de ratio 1 : 3,7, haute comme la MOITIÉ de l'en-tête, collée au bord et entièrement dehors · seule l'EXÉCUTION chevauche le corps</text>
+
+<!-- ============ 1 · CALCUL, avec + / - ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 1 · NŒUD DE CALCUL — entrées ajoutables
+# --------------------------------------------------------------------------
+# Noeud x = 40..292. Rangees a 192 / 218 / 244, soit 26 d'ecart : une
+# languette de 22 y laisse 4 px de jour. C'est la rangee la plus serree
+# de la planche, et c'est elle qui fixe 22 comme un PLAFOND, pas comme un
+# confort -- si la prise grandissait encore, c'est ici que ca casserait.
+PARTIES.append(u'''<text x="34" y="106" fill="#F79A28" font-size="13" font-weight="600">1 · NŒUD DE CALCUL — entrées ajoutables</text>
+<g>
+  <rect x="40" y="120" width="252" height="176" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <path d="M40 123a3 3 0 0 1 3-3h246a3 3 0 0 1 3 3v21H40z" fill="#4a6b8a"/>
+  <text x="52" y="139" fill="#eef2f6" font-size="12.5" font-weight="600">Math</text>
+  <text x="278" y="139" fill="#9fb4c8" font-size="12" text-anchor="end">?</text>
+  <rect x="40" y="144" width="252" height="2.5" fill="#0A555F"/>
+  <rect x="50" y="154" width="232" height="20" rx="2" fill="#1b1b20" stroke="#33333c"/>
+  <text x="58" y="168" fill="#cfd6de" font-size="11.5">Multiplier</text><text x="274" y="168" fill="#7a7a85" font-size="10" text-anchor="end">▾</text>
+  <use href="#pinD" x="40" y="192" fill="#5aa9d6"/>
+  <text x="54" y="196" fill="#c8ccd4" font-size="11.5">Valeur</text>
+  <rect x="150" y="184" width="96" height="17" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="157" y="196" fill="#cfd6de" font-size="10.5">0.500</text>
+  <rect x="252" y="185" width="17" height="14" rx="2" fill="#2a4a63"/><text x="260" y="196" fill="#8fc7e8" font-size="8.5" text-anchor="middle">1.0</text>
+  <text x="278" y="197" fill="#6f6f7b" font-size="12" text-anchor="middle">−</text>
+  <use href="#pinD" x="40" y="218" fill="#5aa9d6"/>
+  <text x="54" y="222" fill="#c8ccd4" font-size="11.5">Valeur</text>
+  <rect x="150" y="210" width="96" height="17" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="157" y="222" fill="#cfd6de" font-size="10.5">2.000</text>
+  <rect x="252" y="211" width="17" height="14" rx="2" fill="#2a4a63"/><text x="260" y="222" fill="#8fc7e8" font-size="8.5" text-anchor="middle">1.0</text>
+  <text x="278" y="223" fill="#6f6f7b" font-size="12" text-anchor="middle">−</text>
+  <use href="#pinD" x="40" y="244" fill="#5aa9d6"/>
+  <text x="54" y="248" fill="#c8ccd4" font-size="11.5">Valeur</text>
+  <text x="246" y="248" fill="#6f6f7b" font-size="10" text-anchor="end">branchée</text>
+  <rect x="252" y="237" width="17" height="14" rx="2" fill="#2a4a63"/><text x="260" y="248" fill="#8fc7e8" font-size="8.5" text-anchor="middle">1.0</text>
+  <text x="278" y="249" fill="#6f6f7b" font-size="12" text-anchor="middle">−</text>
+  <rect x="50" y="258" width="232" height="17" rx="2" fill="#1e1e24" stroke="#33333c" stroke-dasharray="3 3"/>
+  <text x="166" y="270" fill="#7a7a85" font-size="10.5" text-anchor="middle">+  ajouter une entrée</text>
+  <text x="246" y="292" fill="#c8ccd4" font-size="11.5" text-anchor="end">Résultat</text>
+  <rect x="252" y="281" width="17" height="14" rx="2" fill="#2a4a63"/><text x="260" y="292" fill="#8fc7e8" font-size="8.5" text-anchor="middle">1.0</text>
+  <use href="#pinS" x="292" y="288" fill="#5aa9d6"/>
+</g>
+<text x="40" y="318" fill="#6f6f7b" font-size="11">une entrée BRANCHÉE perd son champ de saisie</text>
+<text x="40" y="334" fill="#6f6f7b" font-size="11">le − la retire, le + en ajoute</text>
+
+<!-- ============ 2 · INSTRUCTION ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 2 · NŒUD D'INSTRUCTION
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="368" y="106" fill="#F79A28" font-size="13" font-weight="600">2 · NŒUD D'INSTRUCTION</text>
+<g>
+  <rect x="374" y="120" width="266" height="150" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <path d="M374 123a3 3 0 0 1 3-3h260a3 3 0 0 1 3 3v21H374z" fill="#8a5a2a"/>
+  <text x="386" y="139" fill="#f6ecdf" font-size="12.5" font-weight="600">Si / Sinon</text>
+  <text x="626" y="139" fill="#d5b183" font-size="12" text-anchor="end">?</text>
+  <rect x="374" y="144" width="266" height="2.5" fill="#F79A28"/>
+  <use href="#pinX" x="374" y="166" fill="#F79A28"/>
+  <text x="392" y="170" fill="#e6d2b4" font-size="11.5">Entrer</text>
+  <text x="616" y="170" fill="#e6d2b4" font-size="11.5" text-anchor="end">Vrai</text>
+  <use href="#pinX" x="640" y="166" fill="#F79A28"/>
+  <text x="616" y="192" fill="#e6d2b4" font-size="11.5" text-anchor="end">Faux</text>
+  <use href="#pinX" x="640" y="188" fill="#F79A28"/>
+  <line x1="382" y1="206" x2="632" y2="206" stroke="#33333c"/>
+  <use href="#pinD" x="374" y="228" fill="#b05a8a"/>
+  <text x="390" y="232" fill="#c8ccd4" font-size="11.5">Condition</text>
+  <rect x="540" y="221" width="60" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="547" y="233" fill="#cfd6de" font-size="10.5">faux ▾</text>
+  <rect x="606" y="222" width="20" height="14" rx="2" fill="#5c2a45"/><text x="616" y="233" fill="#e79ac4" font-size="8.5" text-anchor="middle">V/F</text>
+  <text x="390" y="258" fill="#7a7a85" font-size="10.5">l'exécution est au-dessus du filet</text>
+</g>
+<text x="374" y="292" fill="#6f6f7b" font-size="11">la prise d'exécution est un rectangle À POINTE :</text>
+<text x="374" y="308" fill="#6f6f7b" font-size="11">15,5 × 18, dont 3,7 dehors et 11,8 DEDANS —</text>
+<text x="374" y="324" fill="#6f6f7b" font-size="11">elle seule chevauche le corps</text>
+
+<!-- ============ 3 · DETAIL DES PRISES ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 3 · LES PRISES — la DONNÉE reste DEHORS
+# --------------------------------------------------------------------------
+# RELAYE en v4 : les trois prises etaient a 164 / 190 / 210, soit 26 puis
+# 20 d'ecart. A 12 px de haut elles tenaient ; a 22 les deux dernieres se
+# seraient chevauchees. Ecart porte a 28 partout.
+PARTIES.append(u'''<text x="700" y="106" fill="#F79A28" font-size="13" font-weight="600">3 · LES PRISES — la DONNÉE reste DEHORS</text>
+<g>
+  <rect x="706" y="122" width="164" height="128" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <rect x="706" y="122" width="164" height="21" rx="3" fill="#2a6b6b"/>
+  <text x="716" y="137" fill="#e2f2f2" font-size="11.5" font-weight="600">détail</text>
+  <rect x="706" y="143" width="164" height="2.5" fill="#0A555F"/>
+  <use href="#pinD" x="706" y="172" fill="#5aa9d6"/><text x="722" y="176" fill="#c8ccd4" font-size="11">donnée</text>
+  <use href="#pinX" x="706" y="200" fill="#F79A28"/><text x="732" y="204" fill="#c8ccd4" font-size="11">exécution</text>
+  <use href="#pinT" x="706" y="228" stroke="#5aa9d6"/><text x="722" y="232" fill="#c8ccd4" font-size="11">tableau (creuse)</text>
+</g>
+<text x="706" y="272" fill="#6f6f7b" font-size="11">donnée : 6 × 22 — ratio 1 : 3,7, rayon 2, hauteur =</text>
+<text x="706" y="288" fill="#6f6f7b" font-size="11">MOITIÉ de l'en-tête (mesuré 0,500 sur ton fichier)</text>
+<text x="706" y="304" fill="#6f6f7b" font-size="11">la couleur EST le type · le fil part de son centre</text>
+
+<!-- ============ 4 · PASTILLES ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 4 · PASTILLES DE TYPE — couleur ET glyphe
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="700" y="330" fill="#F79A28" font-size="13" font-weight="600">4 · PASTILLES DE TYPE — couleur ET glyphe</text>
+<g font-size="8.5" text-anchor="middle">
+  <rect x="706" y="340" width="19" height="15" rx="2" fill="#2a4a63"/><text x="715" y="351" fill="#8fc7e8">1.0</text>
+  <rect x="733" y="340" width="19" height="15" rx="2" fill="#2a4463"/><text x="742" y="351" fill="#9fb0e8">123</text>
+  <rect x="760" y="340" width="19" height="15" rx="2" fill="#5c2a45"/><text x="769" y="351" fill="#e79ac4">V/F</text>
+  <rect x="787" y="340" width="19" height="15" rx="2" fill="#2a5c46"/><text x="796" y="351" fill="#8fe0b4">XY</text>
+  <rect x="814" y="340" width="19" height="15" rx="2" fill="#2a6b3f"/><text x="823" y="351" fill="#9fe8a8">XYZ</text>
+  <rect x="841" y="340" width="19" height="15" rx="2" fill="#6b5a2a"/><text x="850" y="351" fill="#e8d08f">RGB</text>
+  <rect x="868" y="340" width="19" height="15" rx="2" fill="#5a3a6b"/><text x="877" y="351" fill="#cfa8e8">txt</text>
+  <rect x="895" y="340" width="19" height="15" rx="2" fill="#2a5c5c"/><text x="904" y="351" fill="#8fd8d8">bsdf</text>
+  <rect x="922" y="340" width="19" height="15" rx="2" fill="#6b3a2a"/><text x="931" y="351" fill="#e8a88f">obj</text>
+  <rect x="949" y="340" width="19" height="15" rx="2" fill="#3a3a44"/><text x="958" y="351" fill="#b8b8c4">?</text>
+</g>
+
+<!-- ============ 5 · DONNEE COMPOSEE, PLIEE / DEPLIEE ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 5 · DONNÉE COMPOSÉE — pliée, puis dépliée
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="1000" y="106" fill="#F79A28" font-size="13" font-weight="600">5 · DONNÉE COMPOSÉE — pliée, puis dépliée</text>
+<g>
+  <rect x="1006" y="120" width="248" height="60" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <rect x="1006" y="120" width="248" height="21" rx="3" fill="#0A555F"/>
+  <text x="1016" y="135" fill="#dff0f2" font-size="11.5" font-weight="600">Mapping</text>
+  <rect x="1006" y="141" width="248" height="2.5" fill="#0A555F"/>
+  <use href="#pinD" x="1006" y="162" fill="#9fe8a8"/>
+  <text x="1022" y="160" fill="#c8ccd4" font-size="11.5">Position</text>
+  <text x="1022" y="172" fill="#6f6f7b" font-size="9.5">▸ déplier</text>
+  <rect x="1104" y="154" width="42" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="1110" y="166" fill="#cfd6de" font-size="10">0.0</text>
+  <rect x="1150" y="154" width="42" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="1156" y="166" fill="#cfd6de" font-size="10">1.0</text>
+  <rect x="1196" y="154" width="42" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="1202" y="166" fill="#cfd6de" font-size="10">0.0</text>
+</g>
+<g>
+  <rect x="1006" y="196" width="248" height="98" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <rect x="1006" y="196" width="248" height="21" rx="3" fill="#0A555F"/>
+  <text x="1016" y="211" fill="#dff0f2" font-size="11.5" font-weight="600">Mapping</text>
+  <rect x="1006" y="217" width="248" height="2.5" fill="#0A555F"/>
+  <use href="#pinD" x="1006" y="240" fill="#9fe8a8"/>
+  <text x="1022" y="244" fill="#c8ccd4" font-size="11.5">Position</text>
+  <text x="1240" y="244" fill="#6f6f7b" font-size="9.5" text-anchor="end">▾ replier</text>
+  <text x="1040" y="264" fill="#a8acb6" font-size="11">X</text>
+  <rect x="1104" y="254" width="134" height="15" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="1110" y="265" fill="#cfd6de" font-size="10">0.0</text>
+  <text x="1040" y="280" fill="#a8acb6" font-size="11">Y</text>
+  <rect x="1104" y="270" width="134" height="15" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="1110" y="281" fill="#cfd6de" font-size="10">1.0</text>
+  <text x="1040" y="296" fill="#a8acb6" font-size="11">Z</text>
+  <rect x="1104" y="286" width="134" height="15" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="1110" y="297" fill="#cfd6de" font-size="10">0.0</text>
+</g>
+<text x="1006" y="318" fill="#6f6f7b" font-size="11">⚠ UNE seule prise dans les deux cas — c'est de l'AFFICHAGE.</text>
+<text x="1006" y="334" fill="#6f6f7b" font-size="11">Séparer en trois PRISES est autre chose (voir CATALOGUE §5ter)</text>
+
+<!-- ============ 6 · RAMPE DE COULEUR ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 6 · RAMPE DE COULEUR — le panneau des arrêts
+# --------------------------------------------------------------------------
+# DEUX defauts corriges d'un coup, et ils n'ont rien a voir l'un avec
+# l'autre -- c'est justement pour ca qu'ils avaient survecu ensemble :
+#
+#   a) LE FOND. La v3 dessinait chaque arret comme DEUX prises. C'est
+#      faux : NkMatGraphCheck donne a kColorRamp deux prises en tout
+#      (fac, color), les arrets etant NK_MPROP_STOPS, une propriete de
+#      4 N reels plafonnee a 32. Un arret n'est pas branchable, et la
+#      planche 03 avait deja ete corrigee sans que celle-ci le soit.
+#
+#   b) LA FORME. Le titre « 6 · COLORRAMP — les arrets SONT des prises,
+#      ajoutables et retirables » faisait 63 caracteres a 13 px, soit
+#      ~440 px, dans une colonne large de 346. Il passait SOUS le titre
+#      du panneau 7. Meme cause pour la legende, mangee par le noeud
+#      voisin. Les deux tiennent maintenant dans la colonne.
+#
+# ⚠️ Le panneau des arrets n'est donc pas un confort d'interface : les
+#    arrets n'ayant AUCUNE prise, c'est le seul endroit d'ou on peut les
+#    regler. C'etait un detail de dessin, c'est devenu une necessite.
+PARTIES.append(u'''<text x="34" y="368" fill="#F79A28" font-size="13" font-weight="600">6 · RAMPE DE COULEUR — le panneau des arrêts</text>
+<g>
+  <rect x="40" y="382" width="300" height="258" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <rect x="40" y="382" width="300" height="21" rx="3" fill="#8a6b2a"/>
+  <text x="52" y="397" fill="#f6eddc" font-size="12.5" font-weight="600">Rampe de couleur</text>
+  <text x="326" y="397" fill="#d8c08a" font-size="12" text-anchor="end">?</text>
+  <rect x="40" y="403" width="300" height="2.5" fill="#0A555F"/>
+  <use href="#pinD" x="40" y="424" fill="#5aa9d6"/>
+  <text x="56" y="428" fill="#c8ccd4" font-size="11.5">Facteur</text>
+  <rect x="216" y="416" width="80" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="222" y="428" fill="#cfd6de" font-size="10">0.500</text>
+  <rect x="302" y="417" width="17" height="14" rx="2" fill="#2a4a63"/><text x="310" y="428" fill="#8fc7e8" font-size="8.5" text-anchor="middle">1.0</text>
+  <rect x="56" y="444" width="264" height="18" rx="2" fill="url(#rampe)" stroke="#33333c"/>
+  <g stroke="#ffffff" stroke-width="1"><path d="M56 471l6-9h-12z" fill="#0A555F"/><path d="M175 471l6-9h-12z" fill="#3aa0a8"/><path d="M320 471l6-9h-12z" fill="#F79A28"/></g>
+  <text x="56" y="486" fill="#6f6f7b" font-size="9">les poignées portent la couleur de leur arrêt</text>
+  <line x1="52" y1="494" x2="328" y2="494" stroke="#33333c"/>
+  <text x="56" y="514" fill="#c8ccd4" font-size="11">arrêt 1</text>
+  <rect x="112" y="503" width="52" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="118" y="515" fill="#cfd6de" font-size="10">0.000</text>
+  <rect x="172" y="503" width="120" height="16" fill="#0A555F" stroke="#5a5a64"/>
+  <text x="310" y="515" fill="#6f6f7b" font-size="12" text-anchor="middle">−</text>
+  <text x="56" y="537" fill="#c8ccd4" font-size="11">arrêt 2</text>
+  <rect x="112" y="526" width="52" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="118" y="538" fill="#cfd6de" font-size="10">0.450</text>
+  <rect x="172" y="526" width="120" height="16" fill="#3aa0a8" stroke="#5a5a64"/>
+  <text x="310" y="538" fill="#6f6f7b" font-size="12" text-anchor="middle">−</text>
+  <text x="56" y="560" fill="#c8ccd4" font-size="11">arrêt 3</text>
+  <rect x="112" y="549" width="52" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="118" y="561" fill="#cfd6de" font-size="10">1.000</text>
+  <rect x="172" y="549" width="120" height="16" fill="#F79A28" stroke="#5a5a64"/>
+  <text x="310" y="561" fill="#6f6f7b" font-size="12" text-anchor="middle">−</text>
+  <rect x="56" y="572" width="236" height="17" rx="2" fill="#1e1e24" stroke="#33333c" stroke-dasharray="3 3"/>
+  <text x="174" y="584" fill="#7a7a85" font-size="10.5" text-anchor="middle">+  ajouter un arrêt</text>
+  <text x="56" y="604" fill="#6f6f7b" font-size="10">3 / 32 arrêts</text>
+  <rect x="56" y="610" width="110" height="17" rx="2" fill="#1b1b20" stroke="#33333c"/>
+  <text x="64" y="622" fill="#cfd6de" font-size="10.5">Linéaire ▾</text>
+  <text x="292" y="622" fill="#c8ccd4" font-size="11.5" text-anchor="end">Couleur</text>
+  <rect x="298" y="611" width="20" height="14" rx="2" fill="#6b5a2a"/><text x="308" y="622" fill="#e8d08f" font-size="8.5" text-anchor="middle">RGB</text>
+  <use href="#pinS" x="340" y="618" fill="#d8c08a"/>
+</g>
+<text x="40" y="662" fill="#e0a96c" font-size="11">⚠ les rangées d'arrêt n'ont AUCUNE prise — un arrêt</text>
+<text x="40" y="678" fill="#6f6f7b" font-size="11">n'est pas branchable. Deux prises en tout : Facteur, Couleur.</text>
+<text x="40" y="694" fill="#6f6f7b" font-size="11">Le panneau est donc le SEUL moyen de les régler (§17 C1).</text>
+<text x="40" y="710" fill="#6f6f7b" font-size="11">À 55 % les poignées et le panneau partent, la BARRE reste.</text>
+
+<!-- ============ 7 · PRINCIPLED ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 7 · VINGT ENTRÉES — sections repliables
+# --------------------------------------------------------------------------
+# Sa legende passait SOUS le noeud en erreur du panneau 9, qui commence a
+# x = 712. Elle est coupee en trois lignes courtes pour tenir dans les
+# 320 px disponibles.
+PARTIES.append(u'''<text x="380" y="368" fill="#F79A28" font-size="13" font-weight="600">7 · VINGT ENTRÉES — sections repliables</text>
+<g>
+  <rect x="386" y="382" width="284" height="300" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <rect x="386" y="382" width="284" height="21" rx="3" fill="#2a6b6b"/>
+  <text x="398" y="397" fill="#e2f2f2" font-size="12.5" font-weight="600">Principled BSDF</text>
+  <text x="656" y="397" fill="#8fbcbc" font-size="12" text-anchor="end">?</text>
+  <rect x="386" y="403" width="284" height="2.5" fill="#0A555F"/>
+  <text x="628" y="428" fill="#c8ccd4" font-size="11.5" text-anchor="end">Surface</text>
+  <rect x="634" y="417" width="22" height="14" rx="2" fill="#2a5c5c"/><text x="645" y="428" fill="#8fd8d8" font-size="8.5" text-anchor="middle">bsdf</text>
+  <use href="#pinS" x="670" y="424" fill="#7fd0d0"/>
+  <use href="#pinD" x="386" y="452" fill="#d8c08a"/><text x="402" y="456" fill="#c8ccd4" font-size="11.5">Couleur de base</text>
+  <rect x="546" y="445" width="110" height="16" rx="2" fill="#c9b28f" stroke="#33333c"/>
+  <use href="#pinD" x="386" y="476" fill="#5aa9d6"/><text x="402" y="480" fill="#c8ccd4" font-size="11.5">Métallique</text>
+  <rect x="546" y="469" width="110" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="552" y="481" fill="#cfd6de" font-size="10">0.000</text>
+  <use href="#pinD" x="386" y="500" fill="#5aa9d6"/><text x="402" y="504" fill="#c8ccd4" font-size="11.5">Rugosité</text>
+  <rect x="546" y="493" width="110" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="552" y="505" fill="#cfd6de" font-size="10">0.500</text>
+  <use href="#pinD" x="386" y="524" fill="#9fe8a8"/><text x="402" y="528" fill="#c8ccd4" font-size="11.5">Normale</text>
+  <text x="656" y="528" fill="#6f6f7b" font-size="10" text-anchor="end">défaut</text>
+  <line x1="396" y1="542" x2="660" y2="542" stroke="#33333c"/>
+  <text x="402" y="562" fill="#a8acb6" font-size="11.5">▸  Diffusion sous-cutanée</text>
+  <text x="402" y="584" fill="#a8acb6" font-size="11.5">▸  Spéculaire</text>
+  <text x="402" y="606" fill="#a8acb6" font-size="11.5">▾  Émission</text>
+  <use href="#pinD" x="386" y="628" fill="#d8c08a"/><text x="412" y="632" fill="#c8ccd4" font-size="11.5">Couleur</text>
+  <rect x="546" y="621" width="110" height="16" rx="2" fill="#1a1a1f" stroke="#33333c"/>
+  <use href="#pinD" x="386" y="652" fill="#5aa9d6"/><text x="412" y="656" fill="#c8ccd4" font-size="11.5">Intensité</text>
+  <rect x="546" y="645" width="110" height="16" rx="2" fill="#1b1b20" stroke="#33333c"/><text x="552" y="657" fill="#cfd6de" font-size="10">1.000</text>
+  <text x="402" y="676" fill="#a8acb6" font-size="11.5">▸  Voile · Vernis · Film mince</text>
+</g>
+<text x="386" y="704" fill="#6f6f7b" font-size="11">⚠ une section repliée qui contient une prise</text>
+<text x="386" y="720" fill="#6f6f7b" font-size="11">BRANCHÉE reste ouverte — sinon le fil</text>
+<text x="386" y="736" fill="#6f6f7b" font-size="11">pointerait vers rien</text>
+
+<!-- ============ 8 · FILS ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 8 · LES FILS
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="706" y="368" fill="#F79A28" font-size="13" font-weight="600">8 · LES FILS</text>
+<g fill="none" stroke-width="2">
+  <path d="M716 398c40 0 40 -20 80 -20" stroke="#5aa9d6"/>
+  <text x="812" y="382" fill="#8a8a96" font-size="11">donnée — couleur du TYPE</text>
+  <path d="M716 428c40 0 40 -20 80 -20" stroke="#F79A28" stroke-width="3.5"/>
+  <text x="812" y="412" fill="#8a8a96" font-size="11">exécution — plus ÉPAIS, toujours orange</text>
+  <path d="M716 456c40 0 40 -20 80 -20" stroke="#5aa9d6" stroke-width="1.4"/>
+  <path d="M716 462c40 0 40 -20 80 -20" stroke="#5aa9d6" stroke-width="1.4"/>
+  <text x="812" y="442" fill="#8a8a96" font-size="11">tableau — DOUBLÉ</text>
+  <path d="M716 492c40 0 40 -20 80 -20" stroke="#7a7a85" stroke-dasharray="5 4"/>
+  <text x="812" y="472" fill="#8a8a96" font-size="11">en cours de tirage — pointillé</text>
+</g>
+<text x="706" y="524" fill="#c8ccd4" font-size="11.5">pendant le tirage :</text>
+<g>
+  <use href="#pinD" x="722" y="550" fill="#5aa9d6"/><rect x="713.5" y="536.5" width="11" height="27" rx="3" fill="none" stroke="#e8e8ee" stroke-width="1.5"/>
+  <text x="742" y="554" fill="#9fe8a8" font-size="11">compatible — halo clair</text>
+  <use href="#pinD" x="722" y="578" fill="#3a3a44"/>
+  <text x="742" y="582" fill="#6f6f7b" font-size="11">incompatible — éteinte</text>
+  <use href="#pinD" x="722" y="606" fill="#5aa9d6" opacity="0.35"/>
+  <text x="742" y="610" fill="#6f6f7b" font-size="11">convertible — demi-teinte</text>
+</g>
+
+<!-- ============ 9 · ERREUR ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 9 · NŒUD EN ERREUR
+# --------------------------------------------------------------------------
+PARTIES.append(u'''<text x="706" y="654" fill="#F79A28" font-size="13" font-weight="600">9 · NŒUD EN ERREUR</text>
+<g>
+  <rect x="712" y="668" width="252" height="92" rx="3" fill="#2a2024" stroke="#c4483a" stroke-width="1.6"/>
+  <rect x="712" y="668" width="252" height="21" rx="3" fill="#8a3a30"/>
+  <text x="724" y="683" fill="#f6dedb" font-size="12.5" font-weight="600">Image Texture</text>
+  <text x="950" y="683" fill="#f0b0a8" font-size="13" text-anchor="end">!</text>
+  <rect x="712" y="689" width="252" height="2.5" fill="#c4483a"/>
+  <text x="724" y="710" fill="#f0b0a8" font-size="10.5">fichier introuvable :</text>
+  <text x="724" y="726" fill="#f0b0a8" font-size="10.5">textures/mur_albedo.png</text>
+  <text x="724" y="748" fill="#8a8a96" font-size="9.5">la raison est LISIBLE sans survol</text>
+</g>
+
+<!-- ============ 10 · CADRE ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 10 · LE CADRE ET LA SÉLECTION
+# --------------------------------------------------------------------------
+# TROIS corrections, et la premiere n'est pas un detail de dessin :
+#
+#  1. « CADRE DE GROUPE » melangeait deux objets que R8 a separes le
+#     22/08. Un CADRE annote et n'a aucun effet sur le graphe ; un
+#     GROUPE abstrait N noeuds en un, avec des prises, et devient un
+#     noeud reutilisable. Ce panneau ne montre QUE le cadre.
+#  2. Le cadre est celui que Rodolf a valide le 22/08 sur la planche 05,
+#     et il etait reste different ici : fond a 8 %, filet exterieur
+#     plein de 1,5, SECOND filet interieur pointille 4 4 a 8 px de
+#     retrait, bandeau plein de 20 px a coins hauts arrondis, titre
+#     sombre sur la teinte, compteur de noeuds aligne a DROITE.
+#  3. Il n'est plus ORANGE. L'orange est reserve au lasso depuis la
+#     planche 07, ou c'est le troisieme axe qui les distingue. Un cadre
+#     orange rendait ce troisieme axe faux dans la planche de reference.
+#
+# ⚠️ CE QUI N'ETAIT PAS UN DEFAUT : le filet clair des deux noeuds du
+#    haut est la SELECTION (#e8e8ee, 1,6 px), annoncee par la legende --
+#    pas la teinte du cadre repliquee. L'option A etait deja respectee
+#    ici. Le troisieme noeud, non selectionne, porte le filet normal :
+#    c'est la comparaison qui le prouve, et c'est pour ca qu'il y est.
+PARTIES.append(u'''<text x="1000" y="368" fill="#F79A28" font-size="13" font-weight="600">10 · LE CADRE ET LA SÉLECTION</text>
+<g>
+  <rect x="1006" y="384" width="330" height="178" rx="6" fill="#4E9A5A" opacity="0.08"/>
+  <rect x="1006" y="384" width="330" height="178" rx="6" fill="none" stroke="#4E9A5A" stroke-width="1.5"/>
+  <path d="M1006 390a6 6 0 0 1 6-6h318a6 6 0 0 1 6 6v14H1006z" fill="#4E9A5A"/>
+  <text x="1016" y="399" fill="#10240F" font-size="12.5" font-weight="600">Habillage du mur</text>
+  <text x="1326" y="399" fill="#10240F" font-size="11" text-anchor="end">3 nœuds</text>
+  <rect x="1014" y="412" width="314" height="142" rx="4" fill="none" stroke="#4E9A5A" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>
+  <g>
+    <rect x="1032" y="428" width="126" height="54" rx="3" fill="#232329" stroke="#e8e8ee" stroke-width="1.6"/>
+    <rect x="1032" y="428" width="126" height="17" rx="3" fill="#8a6b2a"/>
+    <text x="1042" y="441" fill="#f6eddc" font-size="10.5" font-weight="600">Bruit</text>
+    <rect x="1032" y="445" width="126" height="2" fill="#0A555F"/>
+    <use href="#pinD" x="1032" y="464" fill="#9fe8a8"/><use href="#pinS" x="1158" y="464" fill="#5aa9d6"/>
+  </g>
+  <g>
+    <rect x="1192" y="428" width="126" height="54" rx="3" fill="#232329" stroke="#e8e8ee" stroke-width="1.6"/>
+    <rect x="1192" y="428" width="126" height="17" rx="3" fill="#8a6b2a"/>
+    <text x="1202" y="441" fill="#f6eddc" font-size="10.5" font-weight="600">Rampe</text>
+    <rect x="1192" y="445" width="126" height="2" fill="#0A555F"/>
+    <use href="#pinD" x="1192" y="464" fill="#5aa9d6"/><use href="#pinS" x="1318" y="464" fill="#d8c08a"/>
+  </g>
+  <path d="M1164 464h28" fill="none" stroke="#5aa9d6" stroke-width="2"/>
+  <g>
+    <rect x="1032" y="498" width="126" height="44" rx="3" fill="#232329" stroke="#3a3a44"/>
+    <rect x="1032" y="498" width="126" height="17" rx="3" fill="#4a6b8a"/>
+    <text x="1042" y="511" fill="#eef2f6" font-size="10.5" font-weight="600">Math</text>
+    <rect x="1032" y="515" width="126" height="2" fill="#0A555F"/>
+  </g>
+</g>
+<text x="1006" y="582" fill="#7fb77e" font-size="11">✅ AUCUN nœud ne porte la teinte du cadre — option A, tranchée le 22/08.</text>
+<text x="1006" y="598" fill="#6f6f7b" font-size="11">Le filet clair des deux nœuds du haut est la SÉLECTION (1,6 px) ; le Math,</text>
+<text x="1006" y="614" fill="#6f6f7b" font-size="11">non sélectionné, garde le filet normal. Le cadre passe DERRIÈRE, et son</text>
+<text x="1006" y="630" fill="#6f6f7b" font-size="11">BANDEAU porte seul le sens : sans titre, un cadre ne veut plus rien dire.</text>
+
+<!-- ============ 11 · DEZOOM ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 11 · DÉZOOM — trois paliers
+# --------------------------------------------------------------------------
+# La v3 posait ici quatre prises A CHEVAL sur le bord (ancre = le bord,
+# rectangle centre) alors que les memes prises etaient dehors partout
+# ailleurs. Personne ne l'avait vu : a 10 px de large l'ecart valait
+# 5 px. L'ancre au bord rend ce genre d'erreur impossible a ECRIRE.
+PARTIES.append(u'''<text x="1000" y="662" fill="#F79A28" font-size="13" font-weight="600">11 · DÉZOOM — trois paliers</text>
+<g>
+  <rect x="1006" y="676" width="116" height="54" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <rect x="1006" y="676" width="116" height="17" rx="3" fill="#4a6b8a"/>
+  <text x="1015" y="689" fill="#eef2f6" font-size="10" font-weight="600">Math</text>
+  <rect x="1006" y="693" width="116" height="2" fill="#0A555F"/>
+  <use href="#pinD" x="1006" y="712" fill="#5aa9d6"/><text x="1016" y="716" fill="#c8ccd4" font-size="9">Valeur</text>
+  <rect x="1060" y="706" width="44" height="12" rx="2" fill="#1b1b20" stroke="#33333c"/>
+  <use href="#pinS" x="1122" y="712" fill="#5aa9d6"/>
+</g>
+<text x="1006" y="748" fill="#6f6f7b" font-size="10">100 % — tout</text>
+<g>
+  <rect x="1146" y="676" width="84" height="44" rx="3" fill="#232329" stroke="#3a3a44"/>
+  <rect x="1146" y="676" width="84" height="15" rx="3" fill="#4a6b8a"/>
+  <text x="1154" y="687" fill="#eef2f6" font-size="9" font-weight="600">Math</text>
+  <rect x="1146" y="691" width="84" height="2" fill="#0A555F"/>
+  <use href="#pinD" x="1146" y="706" fill="#5aa9d6"/><use href="#pinS" x="1230" y="706" fill="#5aa9d6"/>
+</g>
+<text x="1146" y="738" fill="#6f6f7b" font-size="10">55 % — les valeurs</text>
+<text x="1146" y="752" fill="#6f6f7b" font-size="10">disparaissent</text>
+<g>
+  <rect x="1254" y="676" width="52" height="20" rx="2" fill="#4a6b8a" stroke="#3a3a44"/>
+  <rect x="1254" y="692" width="52" height="4" fill="#0A555F"/>
+</g>
+<text x="1254" y="716" fill="#6f6f7b" font-size="10">25 % — un</text>
+<text x="1254" y="730" fill="#6f6f7b" font-size="10">rectangle de la</text>
+<text x="1254" y="744" fill="#6f6f7b" font-size="10">CATÉGORIE</text>
+
+<!-- ============ 12 · CATEGORIES ============ -->
+''')
+
+# --------------------------------------------------------------------------
+# 12 · EN-TÊTE = CATÉGORIE
+# --------------------------------------------------------------------------
+# « SORTIE (unique) » corrige : § 17 C7 a trouve un SECOND puits,
+# NK_MN_OUTPUT_VALUE (« Named Output »), N par graphe, avec un nom
+# public editable. L'unicite etait une regle que le modele ne porte pas.
+PARTIES.append(u'''<text x="1360" y="368" fill="#F79A28" font-size="13" font-weight="600">12 · EN-TÊTE = CATÉGORIE</text>
+<g font-size="10.5">
+  <rect x="1366" y="384" width="150" height="19" rx="2" fill="#2a6b6b"/><text x="1376" y="397" fill="#e2f2f2">surface / BSDF</text>
+  <rect x="1366" y="408" width="150" height="19" rx="2" fill="#8a6b2a"/><text x="1376" y="421" fill="#f6eddc">texture · couleur</text>
+  <rect x="1366" y="432" width="150" height="19" rx="2" fill="#4a6b8a"/><text x="1376" y="445" fill="#eef2f6">outillage · maths</text>
+  <rect x="1366" y="456" width="150" height="19" rx="2" fill="#0A555F"/><text x="1376" y="469" fill="#dff0f2">entrée / contexte</text>
+  <rect x="1366" y="480" width="150" height="19" rx="2" fill="#8a5a2a"/><text x="1376" y="493" fill="#f6ecdf">flot · instruction</text>
+  <rect x="1366" y="504" width="150" height="19" rx="2" fill="#6b4a8a"/><text x="1376" y="517" fill="#eee2f6">variable · objet</text>
+  <rect x="1366" y="528" width="150" height="19" rx="2" fill="#F79A28"/><text x="1376" y="541" fill="#2a1a08">sortie du graphe</text>
+  <rect x="1366" y="552" width="150" height="19" rx="2" fill="#8a3a30"/><text x="1376" y="565" fill="#f6dedb">erreur</text>
+</g>
+<text x="1366" y="592" fill="#e0a96c" font-size="11">⚠ « unique » retiré : il existe</text>
+<text x="1366" y="608" fill="#6f6f7b" font-size="11">un SECOND puits, Named Output,</text>
+<text x="1366" y="624" fill="#6f6f7b" font-size="11">N par graphe (§17 C7).</text>
+<text x="1366" y="648" fill="#6f6f7b" font-size="11">Et ces couleurs n'ont aujourd'hui</text>
+<text x="1366" y="664" fill="#6f6f7b" font-size="11">AUCUNE source dans le modèle —</text>
+<text x="1366" y="680" fill="#6f6f7b" font-size="11">voir le bloc rouge (§17.4).</text>
+
+<!-- ============ NOTES ============ -->
+<g>
+  <rect x="34" y="790" width="1610" height="150" rx="4" fill="#1d1d22" stroke="#33333c"/>
+  <text x="52" y="814" fill="#F79A28" font-size="13" font-weight="600">⚠ LES PRISES SONT REDESSINÉES — mesurées dans ton editeur_nodal.sketch, pas estimées</text>
+  <text x="52" y="838" fill="#c8ccd4" font-size="12">1 · Ton nœud donne : en-tête 126,64 · prise de donnée 17,27 × 63,32 · prise d'exécution 44,43 × 51,83 · filet d'exécution 11,00.</text>
+  <text x="52" y="860" fill="#c8ccd4" font-size="12">2 · Donc la prise de donnée fait EXACTEMENT la moitié de l'en-tête (63,32 / 126,64 = 0,500) et son ratio vaut 1 : 3,67. Le texte « 1:3,7 » était juste ; c'est le DESSIN qui ne l'était pas.</text>
+  <text x="52" y="882" fill="#c8ccd4" font-size="12">3 · La prise d'exécution vaut 0,41 × l'en-tête : elle est PLUS COURTE que celle de donnée, et c'est elle seule qui entre dans le corps (chez toi : 10,7 dehors, 33,7 dedans).</text>
+  <text x="52" y="904" fill="#c8ccd4" font-size="12">4 · Ici l'en-tête fait 21 px et la planche dessine à 2,1 × : la donnée sort à 6 × 22, l'exécution à 15,5 × 18 — et 6 × 22 est EXACTEMENT ce que les six autres planches dessinaient déjà.</text>
+  <text x="52" y="926" fill="#e06c6c" font-size="12">5 · ❌ Ce que la v3 montrait : 10 × 12, soit un CARRÉ de ratio 1 : 1,2, sous un texte qui annonçait 1 : 3,7. Les textes avaient été corrigés dans la nuit, les formes non.</text>
+</g>
+<g>
+  <rect x="34" y="956" width="1610" height="126" rx="4" fill="#1d1d22" stroke="#3a3a2a"/>
+  <text x="52" y="980" fill="#F79A28" font-size="13" font-weight="600">Les quatre autres corrections du 23/08, et d'où vient chacune</text>
+  <text x="52" y="1002" fill="#c8ccd4" font-size="12">6 · Panneau 6 — « les arrêts SONT des prises » était faux. Mesuré dans NkMatGraphCheck (§17 C1) : deux prises en tout (fac, color) ; les arrêts sont une PROPRIÉTÉ plafonnée à 32, donc non branchables.</text>
+  <text x="52" y="1024" fill="#c8ccd4" font-size="12">7 · Panneau 10 — le cadre est enfin celui que tu as validé le 22/08 (double filet, bandeau de 20 px, compteur à droite), et il n'est plus orange : l'orange est réservé au lasso depuis la planche 07.</text>
+  <text x="52" y="1046" fill="#c8ccd4" font-size="12">8 · Panneau 10 — « cadre de groupe » était un contresens : un CADRE annote et n'a aucun effet ; un GROUPE abstrait N nœuds en un seul, avec des prises. Ce panneau ne montre que le cadre.</text>
+  <text x="52" y="1068" fill="#c8ccd4" font-size="12">9 · Panneau 12 — la sortie n'est plus dite « unique ». ✅ Et une vérification qui a INFIRMÉ un reproche : aucun nœud du panneau 10 ne portait la teinte du cadre — ce filet clair est la sélection.</text>
+</g>
+<g>
+  <rect x="34" y="1098" width="1610" height="172" rx="4" fill="#1d1d22" stroke="#3a2a2a"/>
+  <text x="52" y="1122" fill="#c4483a" font-size="13" font-weight="600">🔴 Toujours pas tranché — repris du § 13 de la spécification, limité à ce que CETTE planche dessine</text>
+  <text x="52" y="1144" fill="#c8ccd4" font-size="12">· la LARGEUR du nœud — fixe, adaptative ou redimensionnable ? (§ 2.3) Une largeur libre doit être SÉRIALISÉE : ce n'est pas un choix de dessin.</text>
+  <text x="52" y="1166" fill="#c8ccd4" font-size="12">· le FIL de dictionnaire — pointillé (mais collision avec le fil qu'on tire) ou triple trait ? (§ 5.3) C'est le seul point du dictionnaire qui reste ouvert : sa prise et son nœud sont écrits.</text>
+  <text x="52" y="1188" fill="#c8ccd4" font-size="12">· le CHAMP DE SAISIE — plus clair (mesuré sur ta référence) ou plus sombre (ce que dessine A9 aujourd'hui) ? (§ 1.1) ⚠ ce point contredit un document déjà écrit.</text>
+  <text x="52" y="1210" fill="#c8ccd4" font-size="12">· le SENS DE LECTURE — tout est écrit pour un graphe horizontal, comme cette planche. Rien ne l'interdit formellement, rien ne le prévoit non plus (§ 15.3).</text>
+  <text x="52" y="1232" fill="#c8ccd4" font-size="12">· QUI S'ALIGNE SUR QUI — les planches, ou ton nœud de référence ? Ton dessin est une maquette à 6 × et l'en-tête de 21 px est déjà juste ; il reste à le dire (§ 13, point 20).</text>
+  <text x="52" y="1254" fill="#c8ccd4" font-size="12">· les COULEURS du panneau 12 — et c'est pire qu'une proposition : NkMatNodeProto n'a AUCUN champ de catégorie (§ 17.4). Cette couleur, seul signal qui survit à 25 %, n'a aucune source.</text>
+</g>
+
+<text x="34" y="1296" fill="#7fb77e" font-size="11">✅ NE SONT PLUS dans ce bloc, et c'est un contrôle qui aurait dû le dire : le nœud de groupe replié (tranché le 22/08, § 7.6) · le survol (D7, § 11.4) · la minicarte (E3, reportée avec son critère de déclenchement).</text>
+<text x="34" y="1316" fill="#6f6f7b" font-size="11">Fond #17171b · corps #232329 · filet #33333c · texte #c8ccd4, secondaire #7a7a85 · orange Rihen #F79A28 · pétrole Rihen #0A555F · teinte de cadre #4E9A5A</text>
+<text x="34" y="1332" fill="#6f6f7b" font-size="11">⚠ PLANCHE D'ÉTUDE — prises dessinées à 2,1 × leur échelle relative (donnée 6 × 22, exécution 15,5 × 18). Les RATIOS font foi, jamais les pixels : 0,500 et 0,409 de la hauteur d'en-tête.</text>
+''')
+
+# --------------------------------------------------------------------------
+# fermeture
+# --------------------------------------------------------------------------
+PARTIES.append(u'''</svg>
+''')
+
+# ---- LE RANGEMENT POUR LUNACY, cote planche 01 ----------------------------
+# p01 ecrit son SVG a la main : elle ne passe pas par gen.ecrire(), donc pas non
+# plus par structurer(). Elle etait la SEULE planche a sortir sans un seul
+# groupe -- exactement le meme piege que la police ce matin, et pour la meme
+# raison : ce fichier court a cote du chemin commun.
+import re as _re
+
+# Le titre de panneau, et LUI SEUL. Les lignes du bloc rouge commencent aussi
+# par « 4 · » mais en #c8ccd4 taille 12 : sans la couleur ET la taille ET la
+# graisse, on ouvrirait cinq panneaux fantomes au milieu d'un cartouche.
+_TITRE = _re.compile(
+    r'<text[^>]*fill="#F79A28"[^>]*font-size="13"[^>]*font-weight="600">'
+    r'(\d+) · ([^<]*)')
+
+_JETON = _re.compile(r'<g[ >]|</g>|<text[^>]*>')
+
+
+def marquer_panneaux(svg):
+    """Pose un marqueur de panneau AVANT chaque titre, a la profondeur ZERO.
+
+    ⚠️ La profondeur est ce qui rend ce passage sur -- pas une precaution de
+    style. Un panneau ouvert au milieu d'un <g> de noeud produirait un SVG mal
+    imbrique : le </g> du panneau fermerait le noeud, et le fichier sortirait
+    VALIDE avec la moitie de la planche dans le mauvais calque. On compte donc
+    les <g> ouverts, et on n'ouvre un panneau que lorsqu'il n'y en a aucun.
+    """
+    out, i, prof, poses = [], 0, 0, 0
+    for j in _JETON.finditer(svg):
+        t = j.group(0)
+        if t == '</g>':
+            prof -= 1
+        elif t.startswith('<g'):
+            prof += 1
+        elif prof == 0:
+            m = _TITRE.match(svg, j.start())
+            if m:
+                out.append(svg[i:j.start()])
+                out.append(panneau(u'%s_%s' % (m.group(1), m.group(2))))
+                i = j.start()
+                poses += 1
+    out.append(svg[i:])
+    print('planche 01 : %d panneaux marques' % poses)
+    return ''.join(out)
+
+
+def nommer_groupes(svg):
+    """Les <g> ecrits a la main n'avaient aucun id : quatorze calques « Group »
+    indistinguables dans Lunacy. On les numerote dans l'ordre du document.
+
+    ⚠️ DEUX EXCLUSIONS, et la premiere a deja casse le fichier une fois :
+      - les <g> qui ont DEJA un id -- ce sont les quatre symboles de prise
+        (pinD, pinS, pinT, pinX) definis dans <defs>. Leur en rajouter un
+        produisait « duplicate attribute » et un SVG mal forme ;
+      - tout ce qui vit dans <defs> : ce ne sont pas des objets de la planche,
+        ce sont des definitions, et Lunacy ne doit pas les montrer en calques.
+    """
+    d0 = svg.find('<defs')
+    d1 = svg.find('</defs>')
+    n = [0]
+
+    def rem(m):
+        if d0 <= m.start() <= d1:
+            return m.group(0)
+        if 'id=' in (m.group(1) or ''):
+            return m.group(0)
+        n[0] += 1
+        return '<g id="objet_p01_%02d"%s>' % (n[0], m.group(1) or '')
+
+    out = _re.sub(r'<g( [^>]*)?>', rem, svg)
+    print('planche 01 : %d groupes nommes' % n[0])
+    return out
+
+
+# ⚠️ Le </svg> final vit DANS la derniere entree de PARTIES (p01 ecrit son
+# fichier entier, gen.ecrire ne l'ajoute pas ici). structurer() aurait donc
+# enferme la balise fermante du document dans le <g> du dernier panneau, et
+# produit <g> ... </svg></g> : mal imbrique. On la DETACHE avant de ranger,
+# et on la remet apres.
+# ⚠️ p01 ECRIT DESORMAIS PAR gen.ecrire(), COMME LES SEPT AUTRES.
+# Elle ecrivait son fichier elle-meme, et l'a paye DEUX FOIS dans la meme
+# journee : elle a rate la pose de la police (0 <text> sur 192 quand les
+# sept autres etaient a 100 %), puis le rangement en groupes (0 groupe).
+# Les deux fois, le defaut n'a ete vu que parce que quelqu'un regardait.
+#
+# Le cout de ne rien faire n'est pas « p01 est en retard d'une
+# amelioration » : c'est « p01 sera en retard de TOUTES les ameliorations
+# a venir », et chacune coutera une decouverte. Le prix de la correction
+# est fixe ; celui de l'inaction s'accumule.
+#
+# CE QUI RESTE ICI est ce qui est PROPRE a cette planche, et rien d'autre :
+#   - nommer_groupes()   : ses 23 <g> ecrits a la main n'ont pas de nom ;
+#   - marquer_panneaux() : ses titres sont du SVG brut, pas des appels lab() ;
+#   - le garde-fou d'empreinte, qui protege les retouches de Rodolf.
+# La PLOMBERIE (police, groupes, </svg>, encodage, fins de ligne) part dans
+# ecrire(), une fois pour les huit.
+#
+# ⚠️ Le </svg> final vit DANS la derniere entree de PARTIES ; ecrire() ajoute
+# le sien. On DETACHE donc celui de PARTIES, sinon le document en porte deux
+# -- le piege paye sur p07 le 23/08.
+_brut = nommer_groupes(u''.join(PARTIES))
+_fin = '</svg>'
+assert _brut.rstrip().endswith(_fin), 'p01 : le </svg> final a bouge'
+_contenu = marquer_panneaux(_brut.rstrip()[:-len(_fin)])
+chemin = os.path.join(OUT, 'planche_01_noeuds.svg')
+assert os.path.abspath(OUT) == os.path.abspath(_OUT), (
+    'p01 et gen ne visent pas le meme dossier de sortie')
+
+# ----------------------------------------------------------------------
+# 1. LA PLANCHE SUR LE DISQUE A-T-ELLE ETE RETOUCHEE A LA MAIN ?
+# ----------------------------------------------------------------------
+# Ce controle vient AVANT l'ecriture, et il REFUSE au lieu d'avertir. Un
+# avertissement suivi d'une ecriture n'est pas un garde-fou : le fichier
+# est deja perdu quand on lit le message.
+def empreintes_connues():
+    d = {}
+    if os.path.isfile(EMPREINTES):
+        for l in io.open(EMPREINTES, encoding='utf-8').read().split(chr(10)):
+            l = l.strip()
+            if l and not l.startswith('#'):
+                k, _, v = l.partition(' ')
+                d[k] = v.strip()
+    return d
+
+
+CONNUES = empreintes_connues()
+attendue = CONNUES.get('planche_01_noeuds.svg')
+if os.path.exists(chemin) and attendue:
+    sur_disque = hashlib.md5(io.open(chemin, 'rb').read()).hexdigest()
+    if sur_disque != attendue:
+        raise SystemExit(
+            'REFUS : planche_01_noeuds.svg a change sur le disque depuis la\n'
+            '  derniere generation (%s au lieu de %s).\n'
+            '  Quelqu un l a retouchee a la main -- Rodolf a annonce qu il le\n'
+            '  ferait. Regenerer ECRASERAIT son travail.\n'
+            '  Que faire : reporter sa retouche DANS ce script. Ne pas\n'
+            '  effacer sa ligne de empreintes.txt pour passer outre : ce\n'
+            '  serait desarmer le garde-fou au moment exact ou il sert.'
+            % (sur_disque, attendue))
+elif not attendue:
+    print('empreintes.txt ne connait pas encore cette planche : premiere')
+    print('  generation, aucune retouche a proteger. Elle y sera apres.')
+
+# ----------------------------------------------------------------------
+# 2. CE QUI A CHANGE, DIT EN EMPREINTES ET PAS DE MEMOIRE
+# ----------------------------------------------------------------------
+# ⚠️ Il y avait ici une SECONDE constante a tenir a la main
+# (EMPREINTE_SORTIE). Retiree pour la meme raison que la premiere : deux
+# constantes a recopier apres chaque passage, c'est deux occasions
+# d'oublier, et un garde-fou qu'on oublie de nourrir ment plus qu'il ne
+# protege. L'empreinte PRECEDENTE est deja dans empreintes.txt ; la
+# comparaison se fait donc toute seule, et elle dit ce qui a change au
+# lieu de demander qu'on s'en souvienne.
+# (l'empreinte du contenu est calculee APRES l'ecriture, sur ce qui est
+#  reellement sur le disque -- voir plus bas.)
+
+# L'ECRITURE, par le chemin commun. Les fins de ligne CRLF, l'encodage et
+# le </svg> final sont son affaire, plus la notre.
+ecrire('planche_01_noeuds.svg', _contenu)
+
+# On relit ce qui est REELLEMENT sur le disque plutot que de calculer
+# l'empreinte de ce qu'on croit avoir ecrit. Un « ok » affiche avant
+# l'ecriture ne prouve pas l'ecriture -- et une empreinte prise sur la
+# variable, pas sur le fichier, ne prouve rien du fichier.
+donnees = io.open(chemin, 'rb').read()
+print('  %d octets sur le disque' % len(donnees))
+print('  empreinte du contenu %s'
+      % hashlib.md5(donnees.replace(chr(13).encode(), b'')).hexdigest())
+
+nouvelle = hashlib.md5(donnees).hexdigest()
+CONNUES['planche_01_noeuds.svg'] = nouvelle
+EOL = chr(10)
+entete = (u'# Empreinte de chaque planche TELLE QUE SON GENERATEUR L A ECRITE.' + EOL
+          + u'# Sert a distinguer « je regenere ma propre sortie » de « j ecrase' + EOL
+          + u'# une retouche faite a la main ». Ecrit par les generateurs ; ne pas' + EOL
+          + u'# editer, et surtout ne pas effacer une ligne pour forcer un' + EOL
+          + u'# passage -- ce serait desarmer le garde-fou au moment ou il sert.' + EOL)
+io.open(EMPREINTES, 'w', encoding='utf-8', newline=EOL).write(
+    entete + u''.join(k + u' ' + v + EOL for k, v in sorted(CONNUES.items())))
+print('  md5 %s -- note dans empreintes.txt' % nouvelle)
+
+# ----------------------------------------------------------------------
+# 3. LE RENDU -- ET IL MANQUAIT
+# ----------------------------------------------------------------------
+# p01.py n'appelait pas rendre(). Consequence MESUREE le 23/08 : le SVG
+# datait de 11h04 et le PNG de la veille 23h48. On regardait une image
+# PERIMEE ET PLAUSIBLE en croyant voir le travail du jour -- exactement
+# l'artefact que le reste du depot a appris a supprimer. Les trois
+# controles de rendre() (XML valide AVANT d'appeler le navigateur, poids
+# minimal, dimensions comparees au viewBox) valent aussi pour celle-ci.
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gen import rendre
+rendre('planche_01_noeuds', 1680, 1340)

@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="884" viewBox="0 0 1180 884" font-family="Segoe UI, Inter, sans-serif">
+<rect width="1180" height="884" fill="#17171b"/>
+<text x="30" y="42" fill="#EEF2F6" font-size="19" font-weight="600">C5 — le fil sélectionné : à partir de quel éclaircissement ?</text>
+<text x="30" y="66" fill="#8A8A8A" font-size="12">même fil, même épaisseur — seule la luminosité change. Écart CIEDE2000 sous chaque colonne.</text>
+<text x="320" y="112" fill="#C8CCD4" font-size="13" font-weight="600" text-anchor="middle">normal</text>
+<text x="540" y="112" fill="#C8CCD4" font-size="13" font-weight="600" text-anchor="middle">+20 %</text>
+<text x="540" y="130" fill="#6A6A6A" font-size="10.5" text-anchor="middle">ΔE min 2.7</text>
+<text x="760" y="112" fill="#C8CCD4" font-size="13" font-weight="600" text-anchor="middle">+35 %</text>
+<text x="760" y="130" fill="#6A6A6A" font-size="10.5" text-anchor="middle">ΔE min 5.2</text>
+<text x="980" y="112" fill="#C8CCD4" font-size="13" font-weight="600" text-anchor="middle">+50 %</text>
+<text x="980" y="130" fill="#6A6A6A" font-size="10.5" text-anchor="middle">ΔE min 8.2</text>
+<text x="30" y="179" fill="#C8CCD4" font-size="12.5">execution</text>
+<text x="30" y="195" fill="#6A6A6A" font-size="10">#F79A28</text>
+<path d="M250 161 C296 161, 344 189, 390 189" stroke="#F79A28" stroke-width="2" fill="none"/>
+<path d="M250 201 C296 201, 344 217, 390 217" stroke="#F79A28" stroke-width="2" fill="none"/>
+<path d="M470 161 C516 161, 564 189, 610 189" stroke="#F9AE53" stroke-width="2" fill="none"/>
+<path d="M470 201 C516 201, 564 217, 610 217" stroke="#F9AE53" stroke-width="2" fill="none"/>
+<rect x="466" y="197" width="7" height="7" rx="1" fill="#F9AE53"/>
+<rect x="606" y="213" width="7" height="7" rx="1" fill="#F9AE53"/>
+<path d="M690 161 C736 161, 784 189, 830 189" stroke="#FABD73" stroke-width="2" fill="none"/>
+<path d="M690 201 C736 201, 784 217, 830 217" stroke="#FABD73" stroke-width="2" fill="none"/>
+<rect x="686" y="197" width="7" height="7" rx="1" fill="#FABD73"/>
+<rect x="826" y="213" width="7" height="7" rx="1" fill="#FABD73"/>
+<path d="M910 161 C956 161, 1004 189, 1050 189" stroke="#FBCC94" stroke-width="2" fill="none"/>
+<path d="M910 201 C956 201, 1004 217, 1050 217" stroke="#FBCC94" stroke-width="2" fill="none"/>
+<rect x="906" y="197" width="7" height="7" rx="1" fill="#FBCC94"/>
+<rect x="1046" y="213" width="7" height="7" rx="1" fill="#FBCC94"/>
+<text x="30" y="271" fill="#C8CCD4" font-size="12.5">nombre</text>
+<text x="30" y="287" fill="#6A6A6A" font-size="10">#17B2EB</text>
+<path d="M250 253 C296 253, 344 281, 390 281" stroke="#17B2EB" stroke-width="2" fill="none"/>
+<path d="M250 293 C296 293, 344 309, 390 309" stroke="#17B2EB" stroke-width="2" fill="none"/>
+<path d="M470 253 C516 253, 564 281, 610 281" stroke="#45C1EF" stroke-width="2" fill="none"/>
+<path d="M470 293 C516 293, 564 309, 610 309" stroke="#45C1EF" stroke-width="2" fill="none"/>
+<rect x="466" y="289" width="7" height="7" rx="1" fill="#45C1EF"/>
+<rect x="606" y="305" width="7" height="7" rx="1" fill="#45C1EF"/>
+<path d="M690 253 C736 253, 784 281, 830 281" stroke="#68CDF2" stroke-width="2" fill="none"/>
+<path d="M690 293 C736 293, 784 309, 830 309" stroke="#68CDF2" stroke-width="2" fill="none"/>
+<rect x="686" y="289" width="7" height="7" rx="1" fill="#68CDF2"/>
+<rect x="826" y="305" width="7" height="7" rx="1" fill="#68CDF2"/>
+<path d="M910 253 C956 253, 1004 281, 1050 281" stroke="#8BD8F5" stroke-width="2" fill="none"/>
+<path d="M910 293 C956 293, 1004 309, 1050 309" stroke="#8BD8F5" stroke-width="2" fill="none"/>
+<rect x="906" y="289" width="7" height="7" rx="1" fill="#8BD8F5"/>
+<rect x="1046" y="305" width="7" height="7" rx="1" fill="#8BD8F5"/>
+<text x="30" y="363" fill="#C8CCD4" font-size="12.5">geometrie</text>
+<text x="30" y="379" fill="#6A6A6A" font-size="10">#C0EB81</text>
+<path d="M250 345 C296 345, 344 373, 390 373" stroke="#C0EB81" stroke-width="2" fill="none"/>
+<path d="M250 385 C296 385, 344 401, 390 401" stroke="#C0EB81" stroke-width="2" fill="none"/>
+<path d="M470 345 C516 345, 564 373, 610 373" stroke="#CDEF9A" stroke-width="2" fill="none"/>
+<path d="M470 385 C516 385, 564 401, 610 401" stroke="#CDEF9A" stroke-width="2" fill="none"/>
+<rect x="466" y="381" width="7" height="7" rx="1" fill="#CDEF9A"/>
+<rect x="606" y="397" width="7" height="7" rx="1" fill="#CDEF9A"/>
+<path d="M690 345 C736 345, 784 373, 830 373" stroke="#D6F2AD" stroke-width="2" fill="none"/>
+<path d="M690 385 C736 385, 784 401, 830 401" stroke="#D6F2AD" stroke-width="2" fill="none"/>
+<rect x="686" y="381" width="7" height="7" rx="1" fill="#D6F2AD"/>
+<rect x="826" y="397" width="7" height="7" rx="1" fill="#D6F2AD"/>
+<path d="M910 345 C956 345, 1004 373, 1050 373" stroke="#E0F5C0" stroke-width="2" fill="none"/>
+<path d="M910 385 C956 385, 1004 401, 1050 401" stroke="#E0F5C0" stroke-width="2" fill="none"/>
+<rect x="906" y="381" width="7" height="7" rx="1" fill="#E0F5C0"/>
+<rect x="1046" y="397" width="7" height="7" rx="1" fill="#E0F5C0"/>
+<text x="30" y="455" fill="#C8CCD4" font-size="12.5">texte</text>
+<text x="30" y="471" fill="#6A6A6A" font-size="10">#F2559B</text>
+<path d="M250 437 C296 437, 344 465, 390 465" stroke="#F2559B" stroke-width="2" fill="none"/>
+<path d="M250 477 C296 477, 344 493, 390 493" stroke="#F2559B" stroke-width="2" fill="none"/>
+<path d="M470 437 C516 437, 564 465, 610 465" stroke="#F577AF" stroke-width="2" fill="none"/>
+<path d="M470 477 C516 477, 564 493, 610 493" stroke="#F577AF" stroke-width="2" fill="none"/>
+<rect x="466" y="473" width="7" height="7" rx="1" fill="#F577AF"/>
+<rect x="606" y="489" width="7" height="7" rx="1" fill="#F577AF"/>
+<path d="M690 437 C736 437, 784 465, 830 465" stroke="#F790BE" stroke-width="2" fill="none"/>
+<path d="M690 477 C736 477, 784 493, 830 493" stroke="#F790BE" stroke-width="2" fill="none"/>
+<rect x="686" y="473" width="7" height="7" rx="1" fill="#F790BE"/>
+<rect x="826" y="489" width="7" height="7" rx="1" fill="#F790BE"/>
+<path d="M910 437 C956 437, 1004 465, 1050 465" stroke="#F8AACD" stroke-width="2" fill="none"/>
+<path d="M910 477 C956 477, 1004 493, 1050 493" stroke="#F8AACD" stroke-width="2" fill="none"/>
+<rect x="906" y="473" width="7" height="7" rx="1" fill="#F8AACD"/>
+<rect x="1046" y="489" width="7" height="7" rx="1" fill="#F8AACD"/>
+<text x="30" y="547" fill="#C8CCD4" font-size="12.5">apparence</text>
+<text x="30" y="563" fill="#6A6A6A" font-size="10">#D9B6A3</text>
+<path d="M250 529 C296 529, 344 557, 390 557" stroke="#D9B6A3" stroke-width="2" fill="none"/>
+<path d="M250 569 C296 569, 344 585, 390 585" stroke="#D9B6A3" stroke-width="2" fill="none"/>
+<path d="M470 529 C516 529, 564 557, 610 557" stroke="#E1C5B5" stroke-width="2" fill="none"/>
+<path d="M470 569 C516 569, 564 585, 610 585" stroke="#E1C5B5" stroke-width="2" fill="none"/>
+<rect x="466" y="565" width="7" height="7" rx="1" fill="#E1C5B5"/>
+<rect x="606" y="581" width="7" height="7" rx="1" fill="#E1C5B5"/>
+<path d="M690 529 C736 529, 784 557, 830 557" stroke="#E6D0C3" stroke-width="2" fill="none"/>
+<path d="M690 569 C736 569, 784 585, 830 585" stroke="#E6D0C3" stroke-width="2" fill="none"/>
+<rect x="686" y="565" width="7" height="7" rx="1" fill="#E6D0C3"/>
+<rect x="826" y="581" width="7" height="7" rx="1" fill="#E6D0C3"/>
+<path d="M910 529 C956 529, 1004 557, 1050 557" stroke="#ECDAD1" stroke-width="2" fill="none"/>
+<path d="M910 569 C956 569, 1004 585, 1050 585" stroke="#ECDAD1" stroke-width="2" fill="none"/>
+<rect x="906" y="565" width="7" height="7" rx="1" fill="#ECDAD1"/>
+<rect x="1046" y="581" width="7" height="7" rx="1" fill="#ECDAD1"/>
+<text x="30" y="639" fill="#C8CCD4" font-size="12.5">reference</text>
+<text x="30" y="655" fill="#6A6A6A" font-size="10">#81EBEB</text>
+<path d="M250 621 C296 621, 344 649, 390 649" stroke="#81EBEB" stroke-width="2" fill="none"/>
+<path d="M250 661 C296 661, 344 677, 390 677" stroke="#81EBEB" stroke-width="2" fill="none"/>
+<path d="M470 621 C516 621, 564 649, 610 649" stroke="#9AEFEF" stroke-width="2" fill="none"/>
+<path d="M470 661 C516 661, 564 677, 610 677" stroke="#9AEFEF" stroke-width="2" fill="none"/>
+<rect x="466" y="657" width="7" height="7" rx="1" fill="#9AEFEF"/>
+<rect x="606" y="673" width="7" height="7" rx="1" fill="#9AEFEF"/>
+<path d="M690 621 C736 621, 784 649, 830 649" stroke="#ADF2F2" stroke-width="2" fill="none"/>
+<path d="M690 661 C736 661, 784 677, 830 677" stroke="#ADF2F2" stroke-width="2" fill="none"/>
+<rect x="686" y="657" width="7" height="7" rx="1" fill="#ADF2F2"/>
+<rect x="826" y="673" width="7" height="7" rx="1" fill="#ADF2F2"/>
+<path d="M910 621 C956 621, 1004 649, 1050 649" stroke="#C0F5F5" stroke-width="2" fill="none"/>
+<path d="M910 661 C956 661, 1004 677, 1050 677" stroke="#C0F5F5" stroke-width="2" fill="none"/>
+<rect x="906" y="657" width="7" height="7" rx="1" fill="#C0F5F5"/>
+<rect x="1046" y="673" width="7" height="7" rx="1" fill="#C0F5F5"/>
+<text x="30" y="731" fill="#C8CCD4" font-size="12.5">quelconque</text>
+<text x="30" y="747" fill="#6A6A6A" font-size="10">#9AA3AD</text>
+<path d="M250 713 C296 713, 344 741, 390 741" stroke="#9AA3AD" stroke-width="2" fill="none"/>
+<path d="M250 753 C296 753, 344 769, 390 769" stroke="#9AA3AD" stroke-width="2" fill="none"/>
+<path d="M470 713 C516 713, 564 741, 610 741" stroke="#AEB5BD" stroke-width="2" fill="none"/>
+<path d="M470 753 C516 753, 564 769, 610 769" stroke="#AEB5BD" stroke-width="2" fill="none"/>
+<rect x="466" y="749" width="7" height="7" rx="1" fill="#AEB5BD"/>
+<rect x="606" y="765" width="7" height="7" rx="1" fill="#AEB5BD"/>
+<path d="M690 713 C736 713, 784 741, 830 741" stroke="#BDC3CA" stroke-width="2" fill="none"/>
+<path d="M690 753 C736 753, 784 769, 830 769" stroke="#BDC3CA" stroke-width="2" fill="none"/>
+<rect x="686" y="749" width="7" height="7" rx="1" fill="#BDC3CA"/>
+<rect x="826" y="765" width="7" height="7" rx="1" fill="#BDC3CA"/>
+<path d="M910 713 C956 713, 1004 741, 1050 741" stroke="#CCD1D6" stroke-width="2" fill="none"/>
+<path d="M910 753 C956 753, 1004 769, 1050 769" stroke="#CCD1D6" stroke-width="2" fill="none"/>
+<rect x="906" y="749" width="7" height="7" rx="1" fill="#CCD1D6"/>
+<rect x="1046" y="765" width="7" height="7" rx="1" fill="#CCD1D6"/>
+<text x="30" y="838" fill="#6A6A6A" font-size="10.5">ligne du haut : sans poignées · ligne du bas : avec les deux poignées de 7 px. Fond réel du canevas #17171b.</text>
+<text x="30" y="858" fill="#6A6A6A" font-size="10.5">⚠ PLANCHE D’ESSAI — elle sert à MESURER un seuil, pas à figer un dessin.</text>
+</svg>
