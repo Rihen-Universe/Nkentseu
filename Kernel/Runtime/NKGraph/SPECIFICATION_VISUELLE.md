@@ -110,6 +110,79 @@ barré ne vaccine pas : il humilie l'auteur sans instruire le lecteur.
 valoir que pour la donnée »* (§ 19.9 et § 20.2), *« le mode états est impossible
 sur le cœur »* (§ 19.3), *« le filet d'exécution vaut 2,5 px »* (§ 2.2).
 
+### 0.5 🔴 LA CONSIGNE DE NON-ACTION — une famille de défaut, nommée le 24/08
+
+> **Une consigne qui dit « ne rien changer » se périme comme une autre — et elle
+> est plus dangereuse, parce qu'elle invite à ne pas regarder.**
+
+C'est un **cas particulier du § 0.4**, et il a fallu se faire prendre pour le
+voir. Le § 20.2 portait `✅ **NE RIEN CHANGER**` en face d'une ligne dont le code
+**avait déjà changé** : entre l'écriture de la consigne et sa lecture, le cœur
+avait acquis l'exception qu'on venait de refuser. Le texte n'a pas bougé ; son
+sens s'est inversé.
+
+#### Pourquoi cette famille est PLUS dangereuse que la consigne d'action ordinaire
+
+Trois propriétés, et ce sont elles qui la définissent — pas le fait qu'elle se
+périme, ça, tout se périme :
+
+| | consigne d'**action** (« ajouter un champ `family` ») | consigne de **NON-ACTION** (« ne rien changer ») |
+|---|---|---|
+| **ce qu'elle décrit** | un **résultat** — l'état visé | une **différence** — l'écart avec un état de départ **implicite** |
+| **son état de référence** | inutile : le résultat se vérifie tout seul | **indispensable, et jamais écrit** — « rien » par rapport à quoi ? |
+| **ce qu'elle demande au lecteur** | ouvrir le fichier, écrire, relire | **rien.** C'est le point : elle est satisfaite par l'inaction |
+| **comment on la vérifie** | on regarde si le résultat est là | **on ne la vérifie pas** — l'absence d'action ne laisse aucune trace à examiner |
+| **quand elle se périme** | elle devient **redondante** (déjà fait) — inoffensif | elle devient **l'ordre inverse** — elle protège ce qu'elle voulait interdire |
+
+🔴 **La propriété centrale, en une phrase :** *une consigne de non-action ne
+porte pas son état de référence, donc elle ne peut pas dire qu'elle a cessé
+d'être vraie.* Une consigne d'action périmée coûte un travail inutile ; une
+consigne de non-action périmée **couvre le défaut qu'elle prétendait empêcher**,
+et elle le couvre avec une coche verte.
+
+⚠️ **Et le lecteur pressé n'a rien à se reprocher.** C'est ce qui rend la famille
+sournoise : la consigne lui dit explicitement que regarder est superflu. On ne
+peut pas compter sur la conscience professionnelle pour rattraper une phrase
+dont le contenu est *« inutile de vérifier »*.
+
+#### La règle, et elle est mécanique
+
+> **Aucune case de ce document ne doit dire « ne rien changer », « inchangé »,
+> « rien à faire » ou « c'est déjà le cas ».** On écrit à la place **l'état
+> attendu, sous une forme qui se mesure** — et si l'état attendu est déjà
+> atteint, on l'écrit quand même, avec **la date de la mesure**.
+
+| ❌ ce qu'on n'écrit plus | ✅ ce qu'on écrit à la place |
+|---|---|
+| « ne rien changer » | « `WouldCreateCycle` ne doit consulter **aucune** famille de lien — vérifié le 24/08 » |
+| « inchangé pour `Data` » | « une entrée `Data` accepte **une seule** source ; la seconde remplace la première » |
+| « c'est déjà le cas » | « c'était le cas au *jj/mm* ; **le contrôle n° N le maintient** » |
+
+📌 **La reformulation ne coûte rien et elle rend trois choses :** elle est
+**datée**, donc son âge se voit ; elle est **positive**, donc elle se mesure ;
+et elle **oblige à ouvrir le fichier**, ce que la version négative dispensait
+justement de faire.
+
+#### La forme qui la neutralise vraiment : un CONTRÔLE, pas une phrase
+
+Une consigne de non-action réécrite en assertion positive reste une phrase, et
+une phrase ne se relit pas toute seule. La seule version qui ne se périme pas
+est **un cas qui rougit** — ici, `exec/acyclicite-universelle-la-boucle-est-un-noeud`.
+
+⚠️ **Et c'est là que la mesure du 24/08 devient un argument de conception, pas
+une anecdote** : l'exemption s'écrivait à **deux endroits**, donc **aucune
+mutation à un seul défaut ne la voyait**. Un état qu'on veut préserver par une
+phrase se disperse ; un état qu'on veut préserver par un contrôle se concentre.
+Voir § 19.9, dernier point.
+
+#### Où cette famille frappe ailleurs, et il faut le chercher
+
+Partout où **ce document demande du travail à quelqu'un d'autre** — c'est le cas
+des § 18, 19 et 20 en entier. Une spécification lue par son auteur le jour où il
+l'écrit ne connaît pas ce défaut : l'écart entre la mesure et l'application y est
+nul. **C'est la délégation qui le crée**, et notre dispositif est fait de
+délégation.
+
 ---
 
 ## 1. Le socle géométrique
@@ -3390,7 +3463,37 @@ Ce que ce champ doit changer, et **rien d'autre** :
 | **compatibilité** | `Accepts()` compare des `NkTypeId` | comparer **d'abord les familles**, et refuser un croisement par une raison **nommée** — `NkLinkError::FamilyMismatch`. Un fil d'exécution branché sur une prise de donnée doit se refuser **en le disant** |
 | **arité d'une ENTRÉE** | une seule source ; une deuxième **remplace** la première | **Data** : inchangé. **Exec** : **plusieurs sources autorisées** — dix chemins peuvent mener au même nœud |
 | **arité d'une SORTIE** | autant de liens qu'on veut | **Data** : inchangé. **Exec** : **un seul** — une instruction n'a qu'une suite. Le second se refuse par `NkLinkError::ExecOutputAlreadyBound` |
-| **acyclicité** | `WouldCreateCycle` et `TopoSort` voient **tous** les liens | ✅ **NE RIEN CHANGER — TRANCHÉ le 23/08.** ~~Ce document a d'abord proposé de ne voir que les liens `Data`, pour rendre un rebouclage d'exécution traçable.~~ ❌ Retiré : ça affaiblissait une règle **générale** pour un cas **particulier**. **L'acyclicité reste universelle**, `WouldCycle` reste global, et un cycle vit **à l'intérieur d'un nœud** — boucle et machine à états sont des nœuds. Trois raisons au § 19.9 |
+| **acyclicité** | ⚠️ **plus vrai** : au 24/08, `WouldCreateCycle` et `Connect` **exemptaient** la famille `Exec`, à **deux endroits** | 🔴 **RETIRER L'EXEMPTION — et la formulation de cette case a changé, lisez la note ci-dessous.** ~~Ce document a d'abord proposé de ne voir que les liens `Data`, pour rendre un rebouclage d'exécution traçable.~~ ❌ Retiré : ça affaiblissait une règle **générale** pour un cas **particulier**. ✅ **L'acyclicité est universelle**, `WouldCycle` est global, et un cycle vit **à l'intérieur d'un nœud** — boucle et machine à états sont des nœuds. Trois raisons au § 19.9. **Fait et mesuré côté cœur le 24/08 : `WouldCreateCycle`, `Connect` et `TopoSort` ne consultent plus la famille** |
+
+#### 🔴 CORRIGÉ le 24/08 — cette case disait « NE RIEN CHANGER », et c'était devenu FAUX
+
+❌ **Ce qui était écrit :** *« ✅ **NE RIEN CHANGER** — TRANCHÉ le 23/08 »*, en
+face d'un état de départ décrivant `WouldCreateCycle` et `TopoSort` comme voyant
+**tous** les liens.
+
+❌ **Pourquoi c'était faux :** entre l'écriture de la ligne et sa lecture, le
+cœur avait **acquis** l'exemption qu'on venait de refuser — la famille `Exec`
+échappait au contrôle de cycle, **à deux endroits** (la condition dans `Connect`,
+le filtre dans le parcours). *La consigne n'avait pas changé de texte ; elle
+avait changé de sens.* « Ne rien changer » ne voulait plus dire « l'acyclicité
+reste universelle », ça voulait dire **« laissez l'exception en place »** —
+l'inverse exact de la décision qu'elle prétendait porter.
+
+✅ **Ce que ça a coûté, et pourquoi il s'en est fallu de peu :** rien, parce que
+le chantier voisin a lu le § 19.9 **et** le § 20.6 avant de coder, et a buté sur
+leur contradiction. Un lecteur qui aurait lu cette case seule aurait coché
+« rien à faire » **sans ouvrir le fichier** — et c'est précisément le
+comportement qu'une consigne de non-action encourage.
+
+⚠️ **Ce qui rendait l'erreur plausible :** j'ai écrit la case le matin, en
+regardant un cœur qui n'avait **pas encore** de familles. Elle était vraie de ce
+cœur-là. Le § 20.2 est une **demande de travail adressée à un autre agent** :
+entre ma mesure et son application, le code bouge — et une case qui décrit un
+état plutôt qu'un résultat attendu se périme à la première ligne écrite par
+quelqu'un d'autre.
+
+📌 **La forme générale de ce défaut est écrite au § 0.5** — elle ne concerne pas
+que ce paragraphe, et c'est pour ça qu'elle y a sa place.
 
 ⚠️ **LE PIÈGE À NE PAS PRENDRE, et il ressemble à une bonne idée.** Le registre
 de types est plat et accepte n'importe quel nom : on peut y enregistrer un type
@@ -3483,9 +3586,33 @@ composés :
 2. **refus croisé nommé.** Brancher une sortie d'exécution sur une entrée de
    donnée rend `FamilyMismatch`, **jamais** `TypeMismatch` — le message est ce
    qui distingue un refus compris d'un refus subi ;
-3. **cycle d'exécution accepté, cycle de donnée refusé.** Un rebouclage
+3. ❌ ~~**cycle d'exécution accepté, cycle de donnée refusé.** Un rebouclage
    d'exécution se **trace** ; le même motif en donnée rend `WouldCycle`. C'est
-   le contrôle qui prouve que `TopoSort` ne regarde plus que la donnée ;
+   le contrôle qui prouve que `TopoSort` ne regarde plus que la donnée~~
+   — 🔴 **CRITÈRE RETIRÉ le 24/08 : c'était le critère de la proposition que le
+   § 19.9 retire.** Ce paragraphe et le § 19.9 se contredisaient, dans le même
+   document ; c'est le chantier du graphe de matériaux qui l'a vu, en codant.
+   ⚠️ **Ce qui rendait l'erreur plausible** : le § 20.2 a été corrigé le 23/08
+   par un barré **dans sa ligne d'acyclicité**, et son critère d'acceptation,
+   écrit deux paragraphes plus bas, n'a pas été relu — *une décision se retire à
+   l'endroit où elle est ÉNONCÉE, mais elle a des enfants ailleurs, et ce sont
+   les enfants qui survivent.* Un critère d'acceptation est précisément le genre
+   d'enfant qu'on oublie : il ne répète pas la décision, il la **mesure**, donc
+   il ne se laisse pas trouver en cherchant les mots de la décision.
+
+   ✅ **Ce que le critère dit maintenant — l'acyclicité est UNIVERSELLE, et le
+   besoin reste exprimable.** Deux moitiés, et la seconde est indispensable :
+
+   - **les deux familles rendent le MÊME refus.** Un rebouclage `Exec` et le
+     même motif en `Data` rendent tous deux `NkLinkError::WouldCycle`. Un
+     contrôle qui ne mesurerait que ça validerait aussi un mur ;
+   - **et le besoin de reboucler s'exprime par un NŒUD.** Une boucle se dit
+     avec un nœud de boucle, une machine à états avec un nœud de machine à
+     états, sans qu'aucun fil ne revienne. **Sans cette moitié, la règle n'est
+     pas une règle : c'est un mur.**
+
+   📌 Mesuré côté cœur le 24/08 par le cas
+   `exec/acyclicite-universelle-la-boucle-est-un-noeud` ;
 4. **aller-retour identique.** Écrire → relire → réécrire rend le fichier
    identique **octet pour octet**, sur un document portant les deux familles,
    une transition qualifiée et une prise insérée **au milieu** d'une liste.
