@@ -106,9 +106,15 @@ réintroduire.
 qui l'a remplacé, et **ce qui rendait l'erreur plausible**. Sans la troisième, le
 barré ne vaccine pas : il humilie l'auteur sans instruire le lecteur.
 
-📌 Exemples vivants dans ce document, tous du 23/08 : *« l'acyclicité ne doit
-valoir que pour la donnée »* (§ 19.9 et § 20.2), *« le mode états est impossible
-sur le cœur »* (§ 19.3), *« le filet d'exécution vaut 2,5 px »* (§ 2.2).
+📌 Exemples vivants dans ce document, du 23/08 : *« l'acyclicité ne doit valoir
+que pour la donnée »* (§ 19.9 et § 20.2), *« le mode états est impossible sur le
+cœur »* (§ 19.3), *« le filet d'exécution vaut 2,5 px »* (§ 2.2). Et du 24/08 :
+*« il n'existe aucune valeur dans NKGraph »* (§ 20.3), *« le lien adresse par
+indice »* (§ 20.4).
+
+⚠️ **Une affirmation peut se périmer sans que personne ne se soit trompé** — le
+code bouge sous un document qui avait raison quand il a été écrit. C'est une
+famille à part, elle a son paragraphe : **§ 0.5, la consigne de non-action**.
 
 ### 0.5 🔴 LA CONSIGNE DE NON-ACTION — une famille de défaut, nommée le 24/08
 
@@ -3001,12 +3007,36 @@ Le raisonnement était : un graphe d'états va et revient (`Marche → Saut`,
 `Saut → Marche`), c'est **un cycle**, et `Connect()` refuse le lien par
 `NkLinkError::WouldCycle` — donc l'AnimGraph ne serait pas saisissable.
 
-🔴 **L'erreur était de supposer que la machine à états devait être un
-`NkNodeGraph`.** ✅ **TRANCHÉ le 23/08 : c'est un NŒUD**, et ses cycles vivent
-**dans son propre modèle**, pas dans le graphe. Le graphe extérieur ne voit
-jamais de cycle, `WouldCycle` n'est pas touché, et l'`any-state`
-(`AddTransition(from = -1, …)`) est une ligne de sa liste de transitions, pas un
-lien impossible. **Voir § 19.9.**
+🔴 **Ce qui rendait l'erreur plausible — et il faut le dire, c'est la règle du
+§ 0.4 : j'avais supposé que la machine à états devait être un `NkNodeGraph`.**
+La supposition n'était pas absurde : un graphe d'états *ressemble* à un graphe —
+des boîtes, des flèches, des cycles — et le seul objet « graphe » du cœur
+s'appelle `NkNodeGraph`. Rien dans le nom ne dit qu'un objet qui ressemble à un
+graphe ne doit pas en être un. **La ressemblance de forme s'est fait passer pour
+une identité de nature**, et c'est de là que sortait le mur.
+
+✅ **TRANCHÉ le 23/08 : c'est un NŒUD**, et ses cycles vivent **dans son propre
+modèle**, pas dans le graphe. Le graphe extérieur ne voit jamais de cycle,
+`WouldCycle` n'est pas touché, et l'`any-state` (`AddTransition(from = -1, …)`)
+est une ligne de sa liste de transitions, pas un lien impossible. **Voir
+§ 19.9.**
+
+✅ **MESURÉ le 24/08 — et la mesure dit plus que la décision.** Le cas
+`etats/la-machine-a-etats-est-un-noeud` tourne dans le cœur et **n'appelle
+AUCUNE API nouvelle**. La conclusion « impossible sur le cœur d'aujourd'hui »
+n'était donc pas seulement retirée par un arbitrage : elle est **fausse par la
+mesure**, sur le cœur tel qu'il était déjà ce jour-là. 📌 *Un « impossible »
+énoncé sans avoir tenté est une hypothèse, pas un constat* — celui-ci a tenu
+vingt-quatre heures.
+
+⚠️ **Un arbitrage a été pris côté cœur, et il concerne ce document.** La machine
+à états est désignée par une **propriété de nœud**, **pas** par le champ
+`NkNode::subgraph`. Ce champ veut dire *« un `NkNodeGraph` de ce document »*, et
+une machine à états n'en est justement pas un — c'est exactement ce que ce
+paragraphe vient d'établir. **Deux sens pour un même champ obligeraient tout
+lecteur du modèle à savoir lequel s'applique**, ce qui est la forme précise du
+défaut que le § 20.2 dénonce pour la famille (*une famille n'est pas un type*).
+Même erreur, autre champ, refusée pour la même raison.
 
 **② 🔴 UN ARC D'ÉTATS PORTE UNE CHARGE UTILE, ET `NkLink` N'EN A AUCUNE.**
 
@@ -3305,6 +3335,39 @@ proposition est retirée.** Elle affaiblissait une règle **générale** pour un
 3. **tous les cas connus sont couverts** — boucle → nœud de boucle ; machine à
    états → nœud de machine à états. **Aucun n'exige un fil qui revienne.**
 
+#### ✅ Une QUATRIÈME raison, trouvée le 24/08 — et personne ne l'avait prévue
+
+Elle vient du **codage**, pas de la conception, et c'est ce qui lui donne son
+poids : elle n'a pas été inventée pour défendre la décision, elle a été
+**rencontrée** en l'appliquant.
+
+> **Une règle sans exception n'est pas seulement plus simple à LIRE pour les
+> outils : elle est plus simple à MESURER.**
+
+L'exemption d'acyclicité s'écrivait à **DEUX endroits** — la condition dans
+`Connect`, et le filtre dans le parcours. **Deux encodages de la même règle**,
+et la conséquence est celle qu'on redoute :
+
+| | |
+|---|---|
+| ce qu'on croyait | une exception = une ligne, donc une mutation la trouve |
+| ce qui était vrai | **une mutation à un seul défaut ne la voyait pas** : retirer le premier encodage laissait le second faire le travail, et le cas restait vert |
+| ce qu'il avait fallu | un **COUPLE** de mutations, pour mesurer ce que chacune des deux lignes achetait |
+| depuis le retrait | les deux sont parties **avec** l'exception. Chacune des deux mutations **rougit désormais seule** |
+
+📌 **La leçon dépasse l'acyclicité : une exception se DÉDOUBLE.** Une règle
+générale s'écrit une fois, dans la fonction qui la porte. Une règle à exception
+doit être ré-énoncée partout où le cas particulier peut apparaître — ici la
+création du lien *et* le parcours — et chaque duplication **masque les autres**
+à toute mesure qui ne change qu'une chose à la fois. C'est le même mécanisme
+qu'un `if` recopié : ce n'est pas la duplication qui coûte, c'est qu'elle rend le
+code **insensible** à l'outil qui devait le surveiller.
+
+⚠️ **Et c'est un argument qu'on n'avait pas quand la décision a été prise.** Les
+trois raisons ci-dessus sont de la conception ; celle-ci est une **mesure**. Elle
+ne rend pas la décision plus juste — elle la rend **vérifiable**, ce qui n'est
+pas la même chose et vaut mieux.
+
 📌 **Unreal donne le même verdict par l'usage** : son `For Loop` a une sortie
 *corps de boucle* et une sortie *terminé*, et **le corps ne revient jamais au
 nœud par un fil** — le nœud itère lui-même. C'est la même règle, appliquée par le
@@ -3434,7 +3497,15 @@ pas comment l'écrire.
 manque**, par trois chemins qui ne se connaissaient pas. C'est ce qui rend ce
 chantier sûr : trois mesures indépendantes désignent la même pièce.
 
-### 20.1 ✅ Ce qui existe aujourd'hui — le point de départ, mesuré
+### 20.1 ⚠️ Le point de départ, mesuré **le 23/08 au matin** — et il n'est plus l'état du code
+
+> 🔴 **Cette en-tête disait « ce qui existe **aujourd'hui** ».** Le mot
+> *aujourd'hui* dans une section qui **délègue du travail** est la même famille
+> de défaut que le § 0.5 : il décrit un état sans porter sa date, donc il ment
+> dès que quelqu'un applique la demande. **Tout état de départ est désormais
+> daté ici.**
+
+**État au 23/08, celui à partir duquel les trois besoins ont été chiffrés :**
 
 ```cpp
 struct NkSocket { NkString name; NkTypeId type; NkSocketDir dir; };
@@ -3442,8 +3513,23 @@ struct NkLink   { NkLinkId id; NkNodeId fromNode; int32 fromSocket;
                   NkNodeId toNode;   int32 toSocket;   bool alive; };
 ```
 
-Trois champs, cinq champs. **Aucun des deux ne sait à quelle famille il
-appartient**, et le mot `exec` n'apparaît nulle part dans `src/NKGraph/`.
+Trois champs, cinq champs. **Aucun des deux ne savait à quelle famille il
+appartenait**, et le mot `exec` n'apparaissait nulle part dans `src/NKGraph/`.
+
+✅ **État au 24/08 — les trois besoins sont CODÉS**, par le chantier du graphe de
+matériaux, qui tient `NkNodeGraph`. Mesuré dans sa branche, pas supposé :
+
+| § | besoin | ce qui existe maintenant |
+|---|---|---|
+| **20.2** | la prise porte sa **famille** | `enum class NkSocketFamily : uint8 { Data = 0, Exec = 1 }`, champ `NkSocket::family`, refus nommés `NkLinkError::FamilyMismatch` et `NkLinkError::ExecOutputAlreadyBound` |
+| **20.3** | le lien peut être **qualifié** | `NkLink` porte `subgraph` (la condition) et `props` (les réglages) — **sans une ligne de stockage neuve**, voir la correction ci-dessous |
+| **20.4** | le lien adresse **par nom** | acquis depuis le 23/08 : le format adresse les prises par nom (v2), et les défauts aussi (v3). Format `.nkgraph` **v5** |
+
+⚠️ **Le champ `int32 fromSocket` existe toujours dans la structure en mémoire**,
+et c'est normal : c'est le **fichier** qui devait cesser d'adresser par indice,
+pas l'objet vivant. Un indice en mémoire est reconstruit à chaque chargement ;
+un indice écrit sur le disque survit à l'insertion d'une prise. **Ne pas lire le
+`int32` comme la preuve que le § 20.4 n'est pas fait.**
 
 ### 20.2 🔴 Besoin 1 — LA PRISE DOIT PORTER SA FAMILLE
 
@@ -3524,11 +3610,34 @@ mini-graphe de condition** par flèche. `NkLink` ne porte que ses deux extrémit
 | | ce que c'est | ce qu'il faut | déjà représentable ? |
 |---|---|---|---|
 | **la condition** | un calcul booléen | une **référence de sous-graphe** portée par le lien | ✅ **oui, presque** : `NkNode` porte déjà un champ `subgraph` pour `NK_NODE_INSTANCE`. Il faut le même sur le lien |
-| **les réglages de l'arc** (`threshold`, `fadeDur`) | des **valeurs** | un stockage de valeur | ❌ **non** — et c'est **le même manque** que le cas choisi d'une énumération (§ 18.1). Il n'existe **aucune** valeur dans NKGraph, pour rien |
+| **les réglages de l'arc** (`threshold`, `fadeDur`) | des **valeurs** | un stockage de valeur | ❌ ~~**non** — il n'existe **aucune** valeur dans NKGraph, pour rien~~ → 🔴 **FAUX, corrigé le 24/08** : `NkGraphProp`, `SetProp` et `SetSocketDefault` existent **depuis le début**. ✅ Le besoin est donc **satisfait sans rien inventer** |
 
 ✅ **Donc : un seul mécanisme de valeur sert les deux**, et il ne faut pas en
 écrire deux. Le § 18.5 le disait déjà pour les types ; le voici confirmé depuis
 le mode états, qui ne connaissait pas le § 18.
+
+#### 🔴 CORRIGÉ le 24/08 — « il n'existe aucune valeur dans NKGraph, pour rien » était FAUX
+
+❌ **Ce qui était affirmé :** que le cœur ne savait stocker **aucune** valeur, ni
+sur un nœud, ni sur une prise, ni nulle part — et que le § 18.1 (le cas choisi
+d'une énumération) et le § 20.3 butaient donc sur le **même manque à créer**.
+
+✅ **Ce qui l'a remplacé :** `NkGraphProp`, `SetProp` et `SetSocketDefault`
+existent **depuis le début** et servent tous les jours — l'opération d'un nœud
+`Math`, les points d'une courbe, le canal d'un `UV Map`. Le lien porte désormais
+sa condition et ses réglages **sans une ligne de stockage neuve**.
+
+⚠️ **Ce qui rendait l'erreur plausible — et c'est le point utile :** j'ai
+cherché dans `NkNodeGraph.h` **ce que le LIEN portait**, et le lien ne portait
+effectivement rien. J'en ai conclu que **le modèle** ne savait pas stocker de
+valeur. *Une absence constatée sur une structure s'est lue comme une absence dans
+le module.* 📌 **La leçon se généralise à tout ce document** : pour affirmer
+qu'une **capacité** manque, il faut chercher la capacité — par son nom, dans tout
+le module — et pas seulement regarder l'endroit où on voudrait la trouver.
+
+📌Et la bonne nouvelle est double : la **conclusion** du § 20.3 (« un seul
+mécanisme de valeur sert les deux ») était juste, et le mécanisme **était déjà
+là**. Le § 18.1 est donc **moins cher** que ce qu'il annonce.
 
 ⚠️ **Ce qu'il ne faut PAS faire : une union typée dans `NkLink`.** Elle
 grossirait à chaque consommateur — l'animation aujourd'hui, le séquenceur
@@ -3541,12 +3650,21 @@ demain — et chaque ajout casserait le format de fichier. Une **indirection**
 évaluer**. Il faut choisir : étendre `NkCondKind`, ou dessiner trois cas et
 l'écrire.
 
-### 20.4 🔴 Besoin 3 — LE LIEN DOIT ADRESSER PAR NOM, ET C'EST UN PRÉALABLE
+### 20.4 ✅ Besoin 3 — LE LIEN DOIT ADRESSER PAR NOM — **ACQUIS le 23/08**
+
+> ✅ **Fait avant même que ce paragraphe soit lu** : le format `.nkgraph`
+> adresse les prises par **nom** depuis la v2, et les valeurs par défaut depuis
+> la v3. Le contrôle n° 4 du § 20.6 (aller-retour octet pour octet avec une
+> prise insérée **au milieu**) **passe**, et il a été écrit quand même — c'est
+> lui qui empêchera d'y revenir. **Le raisonnement ci-dessous est conservé
+> parce qu'il reste la raison pour laquelle il ne faut pas y revenir.**
 
 C'est la mesure du § 18.2, et elle conditionne les deux besoins précédents.
 
-`NkLink` adresse ses extrémités par **INDICE** (`int32 fromSocket / toSocket`),
-et le fichier écrit ces indices tels quels. Or `NkSocket::name` est documenté
+~~`NkLink` adresse ses extrémités par **INDICE**~~ — vrai à l'écriture, **plus
+vrai depuis le 23/08**. `NkLink` porte toujours un `int32 fromSocket / toSocket`
+**en mémoire**, ce qui est sain ; c'est le **fichier** qui écrivait ces indices
+tels quels, et lui seul posait le problème. Or `NkSocket::name` est documenté
 *« CLÉ stable, jamais un libellé »* : **c'est le nom qui est stable, pas
 l'indice.**
 
@@ -3558,11 +3676,15 @@ font tous les trois :
 - ajouter une prise d'exécution à un nœud qui n'en avait pas (§ 20.2) ;
 - une arité variable (`+ ajouter une entrée`, déjà dessinée planche 01).
 
-✅ **À faire en premier, donc** : ré-adresser les liens **par nom de prise**, ou
-interdire explicitement l'insertion ailleurs qu'en fin de liste. La seconde
-option est moins chère et parfaitement acceptable — **mais il faut alors
-l'écrire et la faire respecter**, sinon elle sera violée par le premier
-consommateur qui insère au milieu, et sans aucun message.
+✅ **Ce qui a été fait, et c'est la bonne des deux options** : ré-adresser les
+liens **par nom de prise**. ~~L'autre voie — interdire l'insertion ailleurs
+qu'en fin de liste — était annoncée ici comme « moins chère et parfaitement
+acceptable ».~~ ⚠️ **Elle ne l'était pas**, et il faut l'écrire pour que
+personne ne la reprenne : une interdiction qui ne s'exprime pas dans le code est
+une **convention**, et le § 20.5 comme le commentaire de `NkSocket::defaultValue`
+disent la même chose — *une convention finit toujours par être violée, par un
+consommateur, par un import, par un renommage*, et sans aucun message. Le nom,
+lui, est **structurel** : il ne peut pas se défaire.
 
 ### 20.5 Ce qu'il ne faut **PAS** mettre sur la prise ni sur le lien
 
