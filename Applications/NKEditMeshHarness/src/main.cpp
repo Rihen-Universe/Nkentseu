@@ -6850,6 +6850,100 @@ static void PorteeBattery() {
 			pw = mw;
 			pq = mq;
 		}
+
+	// ── ATTRIBUTION DE LA CROISSANCE RESIDUELLE D AddWireEdge ───────────
+	// J avais laisse la piste ouverte en Q74 : « reallocation amortie de
+	// edges/diskPool ». Une piste n est pas une attribution. Elle se verifie
+	// par DEUX mesures qui ne peuvent pas etre vraies ensemble :
+	//
+	//   (a) COMPTE DIRECT des reallocations. `edges.Data()` et
+	//       `diskPool.Data()` changent d adresse a chaque fois que le tableau
+	//       est reloge. On les releve avant/apres chaque appel. Si la these est
+	//       bonne, il y en a une poignee pour 20 appels, PAS une par appel.
+	//
+	//   (b) COUT PAR APPEL selon le NOMBRE d appels. Une reallocation est un
+	//       evenement en O(n) AMORTI sur les appels suivants : passer de 20 a
+	//       200 appels doit faire CHUTER le cout unitaire. Un vrai O(n) par
+	//       appel, lui, le laisserait PLAT.
+	// ⚠ (a) seule ne suffirait pas : compter des relogements ne dit pas ce
+	// qu ils coutent. (b) seule ne suffirait pas non plus : une chute du cout
+	// unitaire pourrait venir du cache qui se rechauffe. Ensemble, elles
+	// tranchent.
+	printf("\n=== D OU VIENT LA CROISSANCE RESIDUELLE D AddWireEdge ===\n");
+	printf("  la these : relogement de edges/diskPool, en O(n) AMORTI -- pas un cout par appel\n\n");
+	{
+		for (uint32 nn = 64u; nn <= 256u; nn *= 2u) {
+			NkVector<NkVertex3D> qv;
+			NkVector<uint32> qi;
+			MakeGrid(nn, qv, qi);
+			NkEditMesh q;
+			q.BuildFromIndexed(qv.Data(), (uint32)qv.Size(), qi.Data(), (uint32)qi.Size(), true);
+			q.RebuildEdges();
+			const uint32 nv = q.VertCount();
+			double totalK[2] = {0.0, 0.0};
+			for (uint32 ki = 0; ki < 2u; ++ki) {
+				const uint32 K = (ki == 0) ? 20u : 200u;
+				double mn = 1e30;
+				uint32 relogE = 0, relogD = 0, crees = 0;
+				for (uint32 r = 0; r < 3u; ++r) {
+					NkEditMesh d = q;
+					const uint32 avant = d.EdgeCount();
+					const void *pe = (const void *)d.edges.Data();
+					const void *pd = (const void *)d.diskPool.Data();
+					uint32 re = 0, rd = 0;
+					NkChrono c;
+					for (uint32 k = 0; k < K; ++k) {
+						// Paires TOUTES DIFFERENTES : reutiliser les memes ferait sortir
+						// la fonction par son chemin « deja presente », qui ne pousse rien
+						// et ne peut donc rien reloger. Le compte `crees` est sur la ligne.
+						const uint32 a = (k * 7u) % nv;
+						const uint32 b = (a + nn + 2u) % nv;
+						d.AddWireEdge(a, b);
+					}
+					const double ms = c.Elapsed().ToMilliseconds();
+					// Les relogements sont RELEVES hors chronometre, apres coup : les
+					// compter dedans mesurerait la mesure.
+					if ((const void *)d.edges.Data() != pe)
+						re = 1;
+					if ((const void *)d.diskPool.Data() != pd)
+						rd = 1;
+					if (ms < mn) {
+						mn = ms;
+						relogE = re;
+						relogD = rd;
+					}
+					crees = d.EdgeCount() - avant;
+				}
+				printf("    %6u faces  K=%3u : %8.3f ms total  %8.4f ms/appel  crees=%u  edges reloge=%u  disk reloge=%u\n",
+					   nn * nn, K, mn, mn / (double)K, crees, relogE, relogD);
+				totalK[ki] = mn;
+			}
+			// ── LA DECOMPOSITION, RESOLUE ET NON RACONTEE ───────────────────
+			// Le MEME relogement unique apparait dans les deux mesures. Donc
+			//     total(20) = R + 20.c        total(200) = R + 200.c
+			// deux equations, deux inconnues : le cout FIXE (le relogement, en
+			// O(n)) et le cout MARGINAL d un appel. Les separer est la seule
+			// facon de dire si la fonction est devenue incrementale : un cout
+			// marginal qui suivrait la taille du maillage dirait que non, et la
+			// moyenne brute -- qui melange les deux -- ne les distingue pas.
+			{
+				const double c = (totalK[1] - totalK[0]) / 180.0;
+				const double R = totalK[0] - 20.0 * c;
+				// ⚠ UN MARGINAL NEGATIF N EST PAS UN TEMPS NEGATIF. Il veut dire
+				// que 180 appels de plus ne se distinguent pas du bruit entre deux
+				// lancements : le cout marginal est SOUS LA RESOLUTION de la
+				// difference. C est une conclusion, pas une anomalie -- mais un
+				// nombre negatif imprime comme un temps se ferait recopier tel quel
+				// dans un rapport, alors on le DIT au lieu de l afficher.
+				if (c > 0.0)
+					printf("            -> fixe (relogement, O(n)) %8.3f ms | MARGINAL par appel %9.5f ms\n", R, c);
+				else
+					printf("            -> fixe (relogement, O(n)) %8.3f ms | MARGINAL sous la resolution "
+						   "(180 appels de plus ne se distinguent pas du bruit)\n",
+						   totalK[0]);
+			}
+		}
+	}
 	}
 }
 
