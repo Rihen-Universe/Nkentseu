@@ -45,6 +45,28 @@ CE QU'IL VERIFIE -- DEUX CHOSES, ET ELLES N'ONT RIEN A VOIR
      une forme lisible par une machine ne peut etre verifiee par
      personne, et celle-la etait tenue a la main depuis le 21/08.
 
+     AJOUTE LE 24/08 -- DEUX CONTROLES SUR LA TABLE ELLE-MEME, parce
+     que les planches citaient une table que rien ne relisait :
+
+       B1. LE COMPTE ANNONCE PAR LE TITRE DU § 13. Le titre dit
+           « N restants sur M » ; c'est le seul chiffre qu'on lit
+           sans derouler la table, donc le seul qui circule. Il
+           annonçait 18 quand la table en portait 14.
+           Un compte tenu a la main se perime a chaque ligne FERMEE
+           -- c'est-a-dire a chaque bonne nouvelle, le moment ou
+           personne ne pense a verifier un compte.
+
+       B2. UNE LIGNE OUVERTE QUI DELEGUE SON ETAT A UNE AUTRE LIGNE.
+           Les lignes 9, 10 et 12 disaient « deja dans C5 », « dans
+           C6 », « dans E3, E4 » -- tranches le 23/08. Ces lignes ne
+           se mettent JAMAIS a jour, parce qu'il n'y a rien a mettre
+           a jour dedans : « deja dans C5 » reste vrai pour toujours,
+           et cesse simplement de dire si c'est tranche. Une ligne
+           litteralement juste et pratiquement fausse ne peut etre
+           trouvee qu'en RESOLVANT le renvoi.
+           Un etat delegue se recopie au moment ou il change, ou la
+           ligne se supprime. Il n'y a pas de troisieme voie.
+
 CE QU'IL NE VERIFIE PAS, ET IL FAUT LE DIRE
 ===========================================
   - Un dessin FAUX aux bonnes dimensions. Les prises carrees de la v3
@@ -376,8 +398,12 @@ def controle_a(planches, mes):
 RE_RECAP = re.compile(u'^\\| (~~)?(\\d+)(~~)? \\|(.*)\\|$')
 
 
+CORPS_RECAP = {}
+
+
 def etats_recap():
     etats = {}
+    CORPS_RECAP.clear()
     dedans = False
     for ligne in io.open(SPEC, encoding='utf-8').read().split('\n'):
         if ligne.startswith('## 13.'):
@@ -394,7 +420,46 @@ def etats_recap():
         corps = m.group(4)
         etats[m.group(2)] = ('FERME_MIXTE' if (barre and u'🔴' in corps)
                              else 'FERME' if barre else 'OUVERT')
+        CORPS_RECAP[m.group(2)] = corps
     return etats
+
+
+# Le TITRE du 13 annonce un compte : « -- **18 restants sur 27** ». C est le
+# seul chiffre que quelqu un lit sans derouler la table, donc le seul qui
+# compte vraiment -- et rien ne le rattachait a la table.
+#
+# MESURE DU 24/08 : il annoncait 18 alors que la table en portait 14. Quatre
+# lignes s etaient fermees sans que le titre bouge. Un compte ecrit a la main
+# se perime a chaque ligne FERMEE, c est-a-dire a chaque bonne nouvelle --
+# exactement le moment ou personne ne pense a verifier un compte.
+RE_TITRE_13 = re.compile(r'^## 13\..*?\*\*(\d+) restants sur (\d+)\*\*')
+
+
+def compte_annonce_13():
+    """Rend (restants, total) annonces par le titre du 13, ou None."""
+    for ligne in io.open(SPEC, encoding='utf-8').read().splitlines():
+        if ligne.startswith('## 13.'):
+            m = RE_TITRE_13.match(ligne)
+            return (int(m.group(1)), int(m.group(2))) if m else None
+    return None
+
+
+# Une ligne du 13 qui RENVOIE son etat a une autre ligne (« deja dans C5 ») ne
+# se met jamais a jour, parce qu il n y a rien a mettre a jour dedans. Elle
+# reste litteralement vraie -- « deja dans C5 » l est pour toujours -- et elle
+# cesse de dire si c est tranche.
+#
+# MESURE DU 24/08 : les lignes 9, 10 et 12 renvoyaient a C5, C6, E3 et E4,
+# tranches le 23/08. Trois lignes ouvertes qui ne l etaient plus, et aucune des
+# deux tables ne pouvait le voir : chacune etait juste de son cote.
+# ATTENTION, ET C EST MESURE : cette expression a d abord ete ecrite en
+# chaine NON BRUTE, avec des \b. En Python, un \b dans une chaine normale
+# n est pas une frontiere de mot : c est le caractere RETOUR ARRIERE. Le
+# controle tournait, ne trouvait rien, et rendait VERT -- sur zero cas
+# examine. Il n a ete pris qu en REINJECTANT le defaut du 24/08 pour voir
+# le controle rougir. Un controle qui n a jamais rougi n est pas un
+# controle, c est une intention.
+RE_RENVOI = re.compile(r'd[ée]j[àa][^|]{0,40}?\b([A-E]\d+[a-z]?)\b')
 
 
 RE_INV = re.compile(u'^\\| ([A-E]\\d+[a-z]?) \\|.*\\| ([^|]*) \\|$')
@@ -514,6 +579,47 @@ def controle_b():
     print('  § 13 : %d lignes lues · inventaire : %d lignes lues'
           % (len(recap), len(inv)))
     dur, declarants = 0, 0
+
+    # ---- LE COMPTE ANNONCE PAR LE TITRE DOIT EGALER LA TABLE ----------
+    ouverts = sorted((k for k, v in recap.items() if v == 'OUVERT'),
+                     key=lambda k: int(k))
+    annonce = compte_annonce_13()
+    if annonce is None:
+        print(u'  ⚠️ le titre du § 13 n annonce aucun compte lisible '
+              u'(« N restants sur M ») -- ce controle ne peut rien dire.')
+    else:
+        rest, total = annonce
+        if rest != len(ouverts) or total != len(recap):
+            dur += 1
+            print(u'  🔴 COMPTE FAUX : le titre du § 13 annonce '
+                  u'%d restants sur %d ; la table en porte %d sur %d.'
+                  % (rest, total, len(ouverts), len(recap)))
+            print(u'     Le titre est le seul chiffre qu on lit sans derouler '
+                  u'la table. Recompte : %s' % ', '.join(ouverts))
+        else:
+            print(u'  ✅ le titre du § 13 dit vrai : %d restants sur %d.'
+                  % (rest, total))
+
+    # ---- UNE LIGNE OUVERTE QUI RENVOIE SON ETAT A UNE AUTRE LIGNE -----
+    renvois = 0
+    for cle in ouverts:
+        for cible in RE_RENVOI.findall(CORPS_RECAP.get(cle, '')):
+            etat = inv.get(cible)
+            renvois += 1
+            if etat == 'FERME':
+                dur += 1
+                print(u'  🔴 ETAT DELEGUE PERIME : § 13 ligne %s est '
+                      u'OUVERTE et renvoie a %s, qui est TRANCHE.' % (cle, cible))
+                print(u'     Une ligne qui delegue son etat ne se met jamais a '
+                      u'jour : il n y a rien a mettre a jour dedans. Recopie '
+                      u'l etat, ou supprime la ligne.')
+            elif etat is None:
+                dur += 1
+                print(u'  🔴 RENVOI MORT : § 13 ligne %s renvoie a %s, '
+                      u'absent de l inventaire.' % (cle, cible))
+    if renvois:
+        print(u'  ⚠️ %d renvoi(s) d etat dans le § 13. Chacun est une '
+              u'ligne qui ne peut pas se perimer visiblement.' % renvois)
 
     # LA TABLE ELLE-MEME, avant toute planche. Une ligne BARREE qui porte
     # encore un point rouge dit DEUX etats a la fois : elle est fermee ET
