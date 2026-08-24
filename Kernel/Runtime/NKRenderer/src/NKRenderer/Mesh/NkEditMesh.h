@@ -815,7 +815,11 @@ namespace nkentseu {
 				// etat heritees ne sont pas localisees.
 				// Publique parce qu'un chemin que rien n'exerce pourrit : c'est le
 				// harnais qui le tient en vie jusqu'a ce qu'il gagne.
-				bool ExtrudeSelectedFacesInPlace(const NkExtrudeParams &p);
+				// `outTwinsLocaux` : rend 1 si le re-appariement LOCAL des jumelles a
+				// pu s'appliquer, 0 s'il a fallu retomber sur `LinkTwins` global
+				// (ambiguite positionnelle). A lire par le harnais : un repli
+				// systematique laisserait le resultat juste et le chemin mort.
+				bool ExtrudeSelectedFacesInPlace(const NkExtrudeParams &p, uint32 *outTwinsLocaux = nullptr);
 				// Sommet sélectionné -> nouveau sommet + ARÊTE reliante (arête « fil », face
 				// dégénérée à 2 sommets : pas de surface, mais une vraie arête éditable).
 				bool ExtrudeSelectedVertices(const NkExtrudeParams &p = NkExtrudeParams{});
@@ -1140,7 +1144,14 @@ namespace nkentseu {
 				// soupe de polygones les faisait disparaitre sans le dire ; une operation
 				// EN PLACE doit le faire explicitement, sinon `faces.Size()` diverge
 				// alors qu aucune topologie n a bouge.
-				void CompactDead();
+				// `aRemapper` : liste d'indices de demi-aretes que l'appelant detient et
+				// que la renumerotation doit suivre. Les entrees mortes en sont
+				// RETIREES. Cf. le commentaire dans la definition.
+				void CompactDead(NkVector<NkEmId> *aRemapper = nullptr);
+				// Re-apparie les jumelles du SEUL voisinage touche. Rend false si
+				// l'appariement positionnel est ambigu -- l'appelant retombe alors sur
+				// `LinkTwins()`. Cf. le commentaire au-dessus de la definition.
+				bool LinkTwinsLocal(const NkVector<NkEmId> &touchees, const NkVector<uint32> &copies, uint32 nv0);
 
 				// ── ACCES AUX CHAINAGES ─────────────────────────────────────────
 				// ⚠ AUCUNE REFERENCE RENDUE, JAMAIS. Un `NkEmId &` sur un champ de

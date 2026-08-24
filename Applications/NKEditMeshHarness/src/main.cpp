@@ -8625,8 +8625,15 @@ static EnPlaceMesure MesurerEnPlace(const NkEditMesh &m) {
 
 static void LigneEnPlace(const char *nom, const NkEditMesh &base, const NkExtrudeParams &p) {
 	NkEditMesh a = base, b = base;
-	const bool oka = a.ExtrudeSelectedFaces(p);		   // chemin ACTUEL (soupe de polygones)
-	const bool okb = b.ExtrudeSelectedFacesInPlace(p); // chemin EN PLACE
+	const bool oka = a.ExtrudeSelectedFaces(p); // chemin ACTUEL (soupe de polygones)
+	// ⚠ `local` EST SUR LA LIGNE, ET C EST OBLIGATOIRE. Le re-appariement local
+	// des jumelles retombe SILENCIEUSEMENT sur le chemin global quand il detecte
+	// une ambiguite positionnelle. Une condition de repli trop prudente ferait
+	// retomber TOUS les cas : le resultat resterait juste, les 295 resteraient
+	// vertes, la mesure resterait bonne -- et le chemin qu on vient d ecrire ne
+	// servirait jamais, sans que rien ne le dise.
+	uint32 local = 0u;
+	const bool okb = b.ExtrudeSelectedFacesInPlace(p, &local); // chemin EN PLACE
 	const EnPlaceMesure ma = MesurerEnPlace(a), mb = MesurerEnPlace(b);
 
 	auto proche = [](float32 x, float32 y) -> bool {
@@ -8652,9 +8659,9 @@ static void LigneEnPlace(const char *nom, const NkEditMesh &base, const NkExtrud
 	// ⚠ `ok` EST SUR LA LIGNE. Deux refus donneraient topo=1 geo=1 tab=1 att=1 :
 	// quatre egalites parfaites obtenues en ne faisant rien des deux cotes.
 	Put("{0:<34} ok={1}/{2} V={3} F={4} E={5} nonmanif={6} jum={7}/{8} | topo={9} geo={10} tableaux={11} "
-		"attributs={12} jumelles={13}",
+		"attributs={12} jumelles={13} local={14}",
 		nom, oka ? 1u : 0u, okb ? 1u : 0u, mb.sig.verts, mb.sig.faces, mb.sig.edges, mb.sig.nonManifold, mb.jumelees,
-		mb.reciproques, topo, geo, tab, att, jum);
+		mb.reciproques, topo, geo, tab, att, jum, local);
 }
 
 static void EnPlaceBattery() {
@@ -8746,6 +8753,42 @@ static void EnPlaceBattery() {
 		p.offset = 0.1f;
 		LigneEnPlace("enplace/cube-materiau-et-ombrage", m, p);
 	}
+	// -- 5bis. LE CHEMIN LOCAL, SUR D AUTRES FORMES --------------------------
+	// ⚠ UNE SEULE LIGNE PRENAIT `local=1`, ET C EST TROP MINCE.
+	// Le re-appariement local des jumelles ne s applique que si la region est
+	// petite ET si aucune copie ne se pose sur un sommet preexistant. Sur les dix
+	// premieres lignes, une seule remplit les deux conditions : les autres
+	// extrudent TOUT (region globale) ou travaillent a `offset = 0`.
+	// Un chemin delicat exerce par un seul cas est un chemin dont on ne sait
+	// presque rien. Ces lignes le font tourner sur une SPHERE (n-gons, poles,
+	// coutures d UV) et sur UNE SEULE face -- la plus petite region possible.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeSphere(16, 16, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		NkVector<uint32> sel;
+		const uint32 n = SelectionnerFacesIsolees(m, 3u, &sel);
+		Put("{0:<34} faces selectionnees={1} (3 attendues)", "enplace/temoin-selection-sphere", n);
+		NkExtrudeParams pp;
+		pp.offset = 0.05f;
+		LigneEnPlace("enplace/sphere-region-locale", m, pp);
+	}
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(8, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		NkVector<uint32> sel;
+		const uint32 n = SelectionnerFacesIsolees(m, 1u, &sel);
+		Put("{0:<34} faces selectionnees={1} (1 attendue)", "enplace/temoin-selection-une-face", n);
+		NkExtrudeParams pp;
+		pp.offset = 0.05f;
+		LigneEnPlace("enplace/une-seule-face", m, pp);
+	}
+
 	// -- 6. ⭐ LE TEMOIN D UN ARBITRAGE QUE PERSONNE N A ENCORE PRIS ---------
 	// CE QUE CETTE LIGNE MESURE, ET POURQUOI ELLE EXISTE MAINTENANT
 	// Toute operation d edition se termine par un `RecomputeNormals()` GLOBAL :
