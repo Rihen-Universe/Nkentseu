@@ -6911,7 +6911,14 @@ static void PorteeBattery() {
 					NkEditMesh d = q;
 					const uint32 avant = d.EdgeCount();
 					const void *pe = (const void *)d.edges.Data();
-					const void *pd = (const void *)d.diskPool.Data();
+					// ⚠ `diskPool` N'EXISTE PLUS, ET C'EST LA MESURE ELLE-MEME.
+					// Ce banc relevait DEUX relogements : celui de `edges` et celui du
+					// reservoir de disques. Le second a disparu avec le reservoir : un
+					// cycle chaine n'a rien a reloger. La colonne est conservee et
+					// vaudra 0 — non pas parce qu'on a cesse de regarder, mais parce
+					// qu'il n'y a plus rien a voir. La retirer ferait croire qu'elle
+					// n'avait jamais rien mesure.
+					const void *pd = (const void *)d.hedges.Data();
 					uint32 re = 0, rd = 0;
 					NkChrono c;
 					for (uint32 k = 0; k < K; ++k) {
@@ -6927,8 +6934,8 @@ static void PorteeBattery() {
 					// compter dedans mesurerait la mesure.
 					if ((const void *)d.edges.Data() != pe)
 						re = 1;
-					if ((const void *)d.diskPool.Data() != pd)
-						rd = 1;
+					if ((const void *)d.hedges.Data() != pd)
+						rd = 1; // `hedges` ne grossit pas sur un filaire : attendu 0
 					if (ms < mn) {
 						mn = ms;
 						relogE = re;
@@ -6936,7 +6943,7 @@ static void PorteeBattery() {
 					}
 					crees = d.EdgeCount() - avant;
 				}
-				printf("    %6u faces  K=%3u : %8.3f ms total  %8.4f ms/appel  crees=%u  edges reloge=%u  disk reloge=%u\n",
+				printf("    %6u faces  K=%3u : %8.3f ms total  %8.4f ms/appel  crees=%u  edges reloge=%u  hedges reloge=%u\n",
 					   nn * nn, K, mn, mn / (double)K, crees, relogE, relogD);
 				totalK[ki] = mn;
 			}
@@ -7378,10 +7385,11 @@ static void MatModRestantsBattery() {
 // Sans la troisieme, un disque oublie passerait : le nombre d aretes, lui, serait
 // juste.
 //
-// ⚠ `disque` (taille de `diskPool`) est IMPRIME et n est PAS compare : la mise a
-// jour incrementale laisse derriere elle les anciennes tranches, la reconstruction
-// complete les compacte. C est un cout reel, il est sur la ligne, et le confondre
-// avec une divergence de topologie serait aussi faux que le cacher.
+// ⚠ `pas incr=` / `plein=` comptent les PAS des cycles disque des deux cotes, et
+// ils doivent etre EGAUX. Ils imprimaient auparavant la taille du reservoir CSR,
+// pour rendre visible l espace mort laisse par la mise a jour incrementale. Cet
+// espace mort n existe plus : greffer une arete sur un cycle chaine ne deplace
+// rien. Ce qui etait un COUT est devenu une affirmation de JUSTESSE.
 static uint64 SignerDisques(const NkEditMesh &m) {
 	// Somme sur les sommets (donc insensible a l ordre de parcours), mais chaque
 	// disque est melange DANS SON ORDRE : deux disques qui portent les memes
@@ -8208,7 +8216,7 @@ static void ProtoBattery() {
 	// comptent la MEME chose -- sinon le plus rapide serait celui qui en fait le
 	// moins.
 	printf("\n  [contre-mesure] parcours de TOUS les cycles : tranche CSR contre chainage\n");
-	printf("    %8s %16s %16s %10s %12s\n", "faces", "CSR (ms)", "chaine (ms)", "rapport", "meme total");
+	printf("    %8s %16s %16s %10s %12s\n", "faces", "moteur (ms)", "proto (ms)", "rapport", "meme total");
 	{
 		for (uint32 nn = 32u; nn <= 256u; nn *= 2u) {
 			NkVector<NkVertex3D> gv;
@@ -8224,20 +8232,31 @@ static void ProtoBattery() {
 			uint64 sCsr = 0, sCha = 0;
 			for (uint32 r = 0; r < 5u; ++r) {
 				{
+					// ⚠ PAR L API PUBLIQUE, ET NON EN LISANT LES RESERVOIRS.
+					// Ce bloc lisait `diskPool` et `radialPool` directement. C etait
+					// le plus rapide possible -- et c etait INCOMPARABLE avec ce qui
+					// suivra la bascule, ou ces reservoirs n existeront plus. Une
+					// mesure qui ne peut exister que d un cote ne mesure pas un
+					// changement, elle le rend indiscutable par construction.
+					// `VertEdges` / `EdgeHedges` existent des deux cotes et sont ce
+					// que le vrai code appelle. Le tampon est REUTILISE (Clear garde
+					// la capacite) : sinon on mesurerait l allocateur.
 					uint64 acc = 0;
+					NkVector<NkEmId> tampon;
 					NkChrono c;
-					// DISQUES par tranche contigue, puis RADIAUX par tranche.
 					for (uint32 v = 0; v < m.VertCount(); ++v) {
-						const uint32 s0 = m.verts[v].diskStart, n0 = m.verts[v].diskCount;
-						for (uint32 k = 0; k < n0; ++k)
-							acc += (uint64)m.diskPool[s0 + k];
+						if (m.VertOwner(v) != v)
+							continue; // une copie voit le disque de son representant
+						m.VertEdges(v, tampon);
+						for (uint32 k = 0; k < (uint32)tampon.Size(); ++k)
+							acc += (uint64)tampon[k];
 					}
 					for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
 						if (!m.edges[e].alive)
 							continue;
-						const uint32 s0 = m.edges[e].radialStart, n0 = m.edges[e].radialCount;
-						for (uint32 k = 0; k < n0; ++k)
-							acc += (uint64)m.radialPool[s0 + k];
+						m.EdgeHedges((NkEmId)e, tampon);
+						for (uint32 k = 0; k < (uint32)tampon.Size(); ++k)
+							acc += (uint64)tampon[k];
 					}
 					const double ms = c.Elapsed().ToMilliseconds();
 					if (ms < mCsr)
@@ -8282,8 +8301,12 @@ static void ProtoBattery() {
 			(void)sCsr;
 			(void)sCha;
 			uint32 pasCsr = 0, pasCha = 0;
-			for (uint32 v = 0; v < m.VertCount(); ++v)
-				pasCsr += m.verts[v].diskCount;
+			{
+				NkVector<NkEmId> t;
+				for (uint32 v = 0; v < m.VertCount(); ++v)
+					if (m.VertOwner(v) == v)
+						pasCsr += m.VertEdges(v, t);
+			}
 			for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e)
 				if (m.edges[e].alive)
 					pasCsr += m.edges[e].radialCount;

@@ -2536,8 +2536,6 @@ namespace nkentseu {
 			auto cn = [&](uint32 v) { return (v < (uint32)canonOf.Size()) ? canonOf[v] : v; };
 
 			edges.Clear();
-			radialPool.Clear();
-			diskPool.Clear();
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
 				hedges[h].edge = NK_EM_INVALID;
 			// TAILLE ANNONCEE, ET NON DEVINEE. Le nombre d'aretes vaut au plus le
@@ -2551,10 +2549,11 @@ namespace nkentseu {
 			// retiree plutot que laissee decrire un objet disparu.
 			NkEmFlatMap seen((uint32)hedges.Size() / 2u + 16u);
 			NkVector<NkEmId> loop;
-			// Demi-aretes rattachees a chaque arete, collectees AVANT d'etre aplaties
-			// dans radialPool : on ne connait le nombre d'incidences qu'a la fin du
-			// balayage, et une tranche contigue exige de le savoir.
-			NkVector<NkVector<NkEmId>> radial;
+			// ⚠ LE TABLEAU DE TABLEAUX A DISPARU. Il collectait les demi-aretes de
+			// chaque arete AVANT de les aplatir, parce qu'une tranche contigue exige
+			// de connaitre sa taille d'avance. Un cycle chaine ne l'exige pas : on
+			// branche chaque incidence au moment ou on la voit. Le banc mesurait ce
+			// tableau a 18,3 ms pour 131 072 entrees ; il n'est plus alloue du tout.
 			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
 				if (!faces[f].alive)
 					continue;
@@ -2575,26 +2574,30 @@ namespace nkentseu {
 						uint32 ei;
 						if (ex) {
 							ei = *ex;
-							if (edges[ei].faceCount < 255)
-								edges[ei].faceCount++;
 						} else {
 							Edge e{};
 							e.v0 = (NkEmId)lo;
 							e.v1 = (NkEmId)hi;
-							e.hedge = hh;
-							e.faceCount = 1;
+							e.hedge = NK_EM_INVALID; // pose par RadialAppend, cf. ci-dessous
+							e.faceCount = 0;
 							e.alive = 1;
 							ei = (uint32)edges.Size();
 							seen.Insert(key, ei);
 							edges.PushBack(e);
-							radial.PushBack(NkVector<NkEmId>{});
 						}
 						// LIEN DEMI-ARETE -> ARETE et CYCLE RADIAL, poses ici parce que
 						// c'est le seul endroit qui voit chaque incidence exactement une
 						// fois. Les recalculer ailleurs reviendrait a re-deduire ce que ce
 						// balayage vient d'etablir.
+						// ⚠ RadialAppend branche EN FIN de cycle. Parcourir depuis la tete
+						// rend donc les demi-aretes dans leur ORDRE D'APPARITION, celui-la
+						// meme que le reservoir aplati produisait. Brancher en tete
+						// donnerait le meme ENSEMBLE dans l'ordre INVERSE, et toutes les
+						// lignes `bmesh2/` et `acces/` tomberaient sans qu'aucune
+						// topologie n'ait bouge.
 						hedges[hh].edge = (NkEmId)ei;
-						radial[ei].PushBack(hh);
+						RadialAppend((NkEmId)ei, hh);
+						edges[ei].radialCount++;
 					}
 					hh = hedges[hh].next;
 				} while (hh != start && hh != NK_EM_INVALID && ++guard < 100000u);
@@ -2615,21 +2618,16 @@ namespace nkentseu {
 				e.hedge = NK_EM_INVALID;
 				e.faceCount = 0;
 				e.alive = 1;
-				edges.PushBack(e);
-				radial.PushBack(NkVector<NkEmId>{}); // filaire : cycle radial VIDE
+				edges.PushBack(e); // filaire : cycle radial VIDE (hedge INVALID, count 0)
 			}
 
-			// ── APLATISSEMENT DU CYCLE RADIAL ───────────────────────────────────
-			// `radialCount` fait desormais autorite sur le nombre de faces incidentes.
-			// `faceCount` est conserve (l'API et la serialisation l'utilisent) mais
-			// realigne dessus : deux compteurs qui divergent finissent toujours par se
-			// contredire, et c'est alors le mauvais qui est lu.
+			// ── PLUS RIEN A APLATIR ─────────────────────────────────────────────
+			// Le cycle radial est deja pose, incidence par incidence, pendant le
+			// balayage. Il ne reste qu'a realigner `faceCount` sur `radialCount` :
+			// deux compteurs qui divergent finissent toujours par se contredire, et
+			// c'est alors le mauvais qui est lu.
 			for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
-				edges[i].radialStart = (uint32)radialPool.Size();
-				const uint32 k = (i < (uint32)radial.Size()) ? (uint32)radial[i].Size() : 0u;
-				edges[i].radialCount = k;
-				for (uint32 j = 0; j < k; ++j)
-					radialPool.PushBack(radial[i][j]);
+				const uint32 k = edges[i].radialCount;
 				edges[i].faceCount = (uint8)(k > 255u ? 255u : k);
 			}
 
@@ -2640,51 +2638,23 @@ namespace nkentseu {
 			// ses aretes — exactement le piege deja rencontre sur le comptage d'aretes.
 			{
 				const uint32 nv = (uint32)verts.Size();
-				NkVector<uint32> cnt;
-				cnt.Resize(nv);
+				// Toutes les tetes remises a vide : les copies coincidentes restent
+				// vides POUR TOUJOURS et sont resolues a la lecture (VertOwner).
+				// Une seule ecriture par identite, donc une seule verite.
 				for (uint32 i = 0; i < nv; ++i)
-					cnt[i] = 0;
+					verts[i].diskEdge = NK_EM_INVALID;
+				// Branchement dans l'ORDRE DES INDICES d'arete, en FIN de cycle. Le
+				// tri par comptage qu'on remplace produisait exactement cet ordre —
+				// et `acces/`, `bmesh2/` et les empreintes `aretes/` le lisent.
+				// ⚠ `edges[i].v0` et `v1` sont deja des REPRESENTANTS (poses via `cn`),
+				// donc on branche bien sur l'identite soudee et pas sur une copie.
 				for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
 					if (!edges[i].alive)
 						continue;
 					if (edges[i].v0 < nv)
-						cnt[edges[i].v0]++;
+						DiskAppend(edges[i].v0, (NkEmId)i);
 					if (edges[i].v1 < nv)
-						cnt[edges[i].v1]++;
-				}
-				NkVector<uint32> start;
-				start.Resize(nv);
-				uint32 acc = 0;
-				for (uint32 i = 0; i < nv; ++i) {
-					start[i] = acc;
-					acc += cnt[i];
-				}
-				diskPool.Resize(acc);
-				NkVector<uint32> fill;
-				fill.Resize(nv);
-				for (uint32 i = 0; i < nv; ++i)
-					fill[i] = start[i];
-				for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
-					if (!edges[i].alive)
-						continue;
-					if (edges[i].v0 < nv)
-						diskPool[fill[edges[i].v0]++] = (NkEmId)i;
-					if (edges[i].v1 < nv)
-						diskPool[fill[edges[i].v1]++] = (NkEmId)i;
-				}
-				// UNE SEULE ECRITURE PAR IDENTITE. Les copies coincidentes gardent
-				// 0/0 et sont resolues a la lecture (VertOwner) : c'est ce qui rend
-				// le deplacement d'une tranche par AddWireEdge local au lieu d'exiger
-				// la mise a jour de toutes les copies.
-				for (uint32 i = 0; i < nv; ++i) {
-					const uint32 r = (i < (uint32)canonOf.Size()) ? canonOf[i] : i;
-					if (r == i) {
-						verts[i].diskStart = start[i];
-						verts[i].diskCount = cnt[i];
-					} else {
-						verts[i].diskStart = 0;
-						verts[i].diskCount = 0;
-					}
+						DiskAppend(edges[i].v1, (NkEmId)i);
 				}
 			}
 		}
@@ -2705,11 +2675,17 @@ namespace nkentseu {
 			// Balayage du DISQUE du sommet plutot que de toutes les aretes : c'est
 			// precisement ce que le cycle disque apporte.
 			if (lo < (uint32)verts.Size()) {
-				const uint32 s0 = verts[lo].diskStart, n0 = verts[lo].diskCount;
-				for (uint32 k = 0; k < n0; ++k) {
-					const NkEmId e = diskPool[s0 + k];
+				const NkEmId tete = verts[lo].diskEdge;
+				NkEmId e = tete;
+				uint32 garde = 0;
+				while (e != NK_EM_INVALID) {
 					if (e < (NkEmId)edges.Size() && edges[e].alive && edges[e].v0 == lo && edges[e].v1 == hi)
 						return e;
+					e = DiskNext(e, lo);
+					// Garde-fou : un cycle rompu ferait tourner l'editeur sans fin,
+					// ce qui est pire qu'une mauvaise reponse — on sort.
+					if (e == tete || ++garde > (uint32)edges.Size() + 4u)
+						break;
 				}
 			}
 			return NK_EM_INVALID;
@@ -2719,10 +2695,15 @@ namespace nkentseu {
 			out.Clear();
 			if (e >= (NkEmId)edges.Size() || !edges[e].alive)
 				return 0;
-			const uint32 s0 = edges[e].radialStart, n0 = edges[e].radialCount;
-			for (uint32 k = 0; k < n0; ++k)
-				if (s0 + k < (uint32)radialPool.Size())
-					out.PushBack(radialPool[s0 + k]);
+			const NkEmId tete = edges[e].hedge;
+			NkEmId h = tete;
+			uint32 garde = 0;
+			while (h != NK_EM_INVALID && h < (NkEmId)hedges.Size()) {
+				out.PushBack(h);
+				h = hedges[h].rNext;
+				if (h == tete || ++garde > (uint32)hedges.Size() + 4u)
+					break;
+			}
 			return (uint32)out.Size();
 		}
 
@@ -2730,24 +2711,26 @@ namespace nkentseu {
 			out.Clear();
 			if (e >= (NkEmId)edges.Size() || !edges[e].alive)
 				return 0;
-			const uint32 s0 = edges[e].radialStart, n0 = edges[e].radialCount;
-			for (uint32 k = 0; k < n0; ++k) {
-				if (s0 + k >= (uint32)radialPool.Size())
-					break;
-				const NkEmId h = radialPool[s0 + k];
+			const NkEmId tete = edges[e].hedge;
+			NkEmId h = tete;
+			uint32 garde = 0;
+			while (h != NK_EM_INVALID) {
 				if (h >= (NkEmId)hedges.Size())
-					continue;
+					break;
 				const NkEmId f = hedges[h].face;
-				if (f == NK_EM_INVALID)
-					continue;
-				bool dup = false;
-				for (uint32 j = 0; j < (uint32)out.Size(); ++j)
-					if (out[j] == f) {
-						dup = true;
-						break;
-					}
-				if (!dup)
-					out.PushBack(f);
+				if (f != NK_EM_INVALID) {
+					bool dup = false;
+					for (uint32 j = 0; j < (uint32)out.Size(); ++j)
+						if (out[j] == f) {
+							dup = true;
+							break;
+						}
+					if (!dup)
+						out.PushBack(f);
+				}
+				h = hedges[h].rNext;
+				if (h == tete || ++garde > (uint32)hedges.Size() + 4u)
+					break;
 			}
 			return (uint32)out.Size();
 		}
@@ -2759,16 +2742,16 @@ namespace nkentseu {
 			// cycle radial existe pour rendre visible.
 			if (e >= (NkEmId)edges.Size() || !edges[e].alive || edges[e].radialCount != 2)
 				return NK_EM_INVALID;
-			const uint32 s0 = edges[e].radialStart;
-			for (uint32 k = 0; k < 2; ++k) {
-				if (s0 + k >= (uint32)radialPool.Size())
-					break;
-				const NkEmId h = radialPool[s0 + k];
+			// Cycle a deux elements : la tete, puis sa suivante. On garde le meme
+			// ORDRE de consultation que la tranche aplatie rendait.
+			NkEmId h = edges[e].hedge;
+			for (uint32 k = 0; k < 2u && h != NK_EM_INVALID; ++k) {
 				if (h >= (NkEmId)hedges.Size())
-					continue;
+					break;
 				const NkEmId ff = hedges[h].face;
 				if (ff != f)
 					return ff;
+				h = hedges[h].rNext;
 			}
 			return NK_EM_INVALID;
 		}
@@ -2784,10 +2767,15 @@ namespace nkentseu {
 			// coin de cube.
 			const uint32 r = VertOwner(v);
 			const uint32 rr = (r < (uint32)verts.Size()) ? r : v;
-			const uint32 s0 = verts[rr].diskStart, n0 = verts[rr].diskCount;
-			for (uint32 k = 0; k < n0; ++k)
-				if (s0 + k < (uint32)diskPool.Size())
-					out.PushBack(diskPool[s0 + k]);
+			const NkEmId tete = verts[rr].diskEdge;
+			NkEmId e = tete;
+			uint32 garde = 0;
+			while (e != NK_EM_INVALID && e < (NkEmId)edges.Size()) {
+				out.PushBack(e);
+				e = DiskNext(e, rr);
+				if (e == tete || ++garde > (uint32)edges.Size() + 4u)
+					break;
+			}
 			return (uint32)out.Size();
 		}
 
@@ -2807,39 +2795,55 @@ namespace nkentseu {
 			return n;
 		}
 
-		// ── DEPLACEMENT D'UNE TRANCHE DE DISQUE ─────────────────────────────────
-		// `diskPool` est un tableau CSR : la tranche d'un sommet est CONTIGUE, donc
-		// on n'insere pas au milieu. On recopie la tranche a la FIN, augmentee de la
-		// nouvelle arete, et on repointe le representant.
+		// ── GREFFE SUR UN CYCLE, A LA PLACE D'UN RELOGEMENT DE TRANCHE ─────────
+		// AVANT (reservoir CSR) : la tranche d'un sommet etait CONTIGUE, donc on ne
+		// pouvait pas y inserer. Ajouter une arete recopiait toute la tranche a la
+		// fin de `diskPool` et laissait l'ancienne en espace MORT — 30 entrees
+		// devenaient 48 sur un cube apres trois ajouts.
+		// MAINTENANT : deux ecritures de voisinage. Rien n'est deplace, rien n'est
+		// perdu, et le cout ne depend plus du degre du sommet.
 		//
-		// ⚠ CE QUE CA COUTE, DIT FRANCHEMENT : l'ancienne tranche devient de l'espace
-		// MORT. `diskPool` grossit de deg(v)+1 par ajout et n'est compacte qu'au
-		// prochain RebuildEdges. C'est le prix de la contiguite, et il est borne par
-		// le nombre d'aretes filaires ajoutees a la main entre deux reconstructions —
-		// pas par la taille du maillage. Le harnais l'IMPRIME (`disque` sur la ligne
-		// `incr/`) au lieu de le laisser dans l'ombre.
-		//
-		// L'arete est ajoutee EN FIN de tranche, et son indice est le plus grand :
-		// la tranche reste donc triee par indice d'arete, exactement comme le tri par
-		// comptage de RebuildEdges la produit. Sans ca, la mise a jour incrementale
-		// donnerait le bon ENSEMBLE dans un autre ORDRE, et le temoin ne saurait pas
-		// dire laquelle des deux choses vient d'arriver.
+		// ⚠ GREFFE EN FIN DE CYCLE (juste AVANT la tete), pas en tete. Parcourir
+		// depuis la tete rend alors les aretes dans leur ordre d'insertion, donc
+		// dans l'ordre CROISSANT des indices — exactement ce que produisait le tri
+		// par comptage qu'on remplace. Greffer en tete donnerait le meme ENSEMBLE
+		// dans l'ordre inverse : la topologie serait juste et la moitie des lignes
+		// du harnais tomberaient, sans que rien n'ait bouge.
 		void NkEditMesh::DiskAppend(uint32 r, NkEmId e) {
-			if (r >= (uint32)verts.Size())
+			if (r >= (uint32)verts.Size() || e >= (NkEmId)edges.Size())
 				return;
-			const uint32 s0 = verts[r].diskStart, n0 = verts[r].diskCount;
-			// Recopie D'ABORD dans un tampon : ecrire dans `diskPool` pendant qu'on
-			// le lit, c'est lire une adresse que la reallocation vient de liberer.
-			NkVector<NkEmId> tampon;
-			for (uint32 k = 0; k < n0; ++k)
-				if (s0 + k < (uint32)diskPool.Size())
-					tampon.PushBack(diskPool[s0 + k]);
-			tampon.PushBack(e);
-			const uint32 ns = (uint32)diskPool.Size();
-			for (uint32 k = 0; k < (uint32)tampon.Size(); ++k)
-				diskPool.PushBack(tampon[k]);
-			verts[r].diskStart = ns;
-			verts[r].diskCount = (uint32)tampon.Size();
+			const NkEmId tete = verts[r].diskEdge;
+			if (tete == NK_EM_INVALID) {
+				verts[r].diskEdge = e;
+				DiskSetNext(e, r, e);
+				DiskSetPrev(e, r, e);
+				return;
+			}
+			const NkEmId queue = DiskPrev(tete, r);
+			DiskSetNext(e, r, tete);
+			DiskSetPrev(e, r, queue);
+			DiskSetNext(queue, r, e);
+			DiskSetPrev(tete, r, e);
+		}
+
+		// Meme greffe, meme raison d'ordre, pour le cycle radial. La TETE est
+		// `Edge::hedge` : le champ existait deja et designait « une demi-arete
+		// porteuse ». Il n'a pas change de sens, il a gagné un cycle derriere lui.
+		void NkEditMesh::RadialAppend(NkEmId e, NkEmId h) {
+			if (e >= (NkEmId)edges.Size() || h >= (NkEmId)hedges.Size())
+				return;
+			const NkEmId tete = edges[e].hedge;
+			if (tete == NK_EM_INVALID) {
+				edges[e].hedge = h;
+				hedges[h].rNext = h;
+				hedges[h].rPrev = h;
+				return;
+			}
+			const NkEmId queue = hedges[tete].rPrev;
+			hedges[h].rNext = tete;
+			hedges[h].rPrev = queue;
+			hedges[queue].rNext = h;
+			hedges[tete].rPrev = h;
 		}
 
 		NkEmId NkEditMesh::AddWireEdge(uint32 a, uint32 b) {
@@ -2858,13 +2862,15 @@ namespace nkentseu {
 			// les aretes. C'est precisement ce que le cycle disque apporte, et ce
 			// balayage etait le second cout lineaire de la fonction.
 			{
-				const uint32 s0 = verts[lo].diskStart, n0 = verts[lo].diskCount;
-				for (uint32 k = 0; k < n0; ++k) {
-					if (s0 + k >= (uint32)diskPool.Size())
-						break;
-					const NkEmId x = diskPool[s0 + k];
-					if (x < (NkEmId)edges.Size() && edges[x].alive && edges[x].v0 == lo && edges[x].v1 == hi)
+				const NkEmId tete = verts[lo].diskEdge;
+				NkEmId x = tete;
+				uint32 garde = 0;
+				while (x != NK_EM_INVALID && x < (NkEmId)edges.Size()) {
+					if (edges[x].alive && edges[x].v0 == lo && edges[x].v1 == hi)
 						return x; // deja presente (bord de face ou filaire)
+					x = DiskNext(x, lo);
+					if (x == tete || ++garde > (uint32)edges.Size() + 4u)
+						break;
 				}
 			}
 			// ── MISE A JOUR INCREMENTALE, ET RIEN DE PLUS ───────────────────────
@@ -2884,11 +2890,11 @@ namespace nkentseu {
 			e.hedge = NK_EM_INVALID; // FILAIRE : aucune face incidente
 			e.faceCount = 0;
 			e.alive = 1;
-			// Tranche radiale VIDE, posee a la fin du reservoir : c'est exactement ce
-			// que RebuildEdges donne a un filaire. Laisser radialStart a 0 la ferait
-			// pointer sur la tranche d'une AUTRE arete — inoffensif tant que le compte
-			// vaut 0, faux le jour ou quelqu'un lit le depart sans lire le compte.
-			e.radialStart = (uint32)radialPool.Size();
+			// Cycle radial VIDE : c'est exactement ce que RebuildEdges donne a un
+			// filaire. Le piege d'un `radialStart` laisse a 0 — qui pointait sur la
+			// tranche d'une AUTRE arete, inoffensif tant que le compte vaut 0 et faux
+			// le jour ou quelqu'un lit le depart sans lire le compte — n'existe plus :
+			// la tete vaut INVALID, et INVALID ne designe rien.
 			e.radialCount = 0;
 			const NkEmId ei = (NkEmId)edges.Size();
 			edges.PushBack(e);
