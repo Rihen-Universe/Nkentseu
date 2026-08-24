@@ -273,10 +273,18 @@ namespace nkentseu {
 						uint32 selOrder = 0;
 						// ── CYCLE DISQUE (etape 2) ────────────────────────────────
 						// Tranche dans `diskPool` : les aretes incidentes a ce sommet.
-						// Renseignee sur le sommet REPRESENTANT de l'identite soudee (les
-						// copies coincidentes pointent la meme tranche) — sinon, sur une
-						// primitive qui duplique ses sommets par face, chaque copie ne
-						// verrait qu'un tiers de ses aretes.
+						// ⚠ RENSEIGNEE SUR LE SEUL SOMMET REPRESENTANT. Les copies
+						// coincidentes laissent 0/0 et sont resolues a la lecture par
+						// `canonOf` (cf. VertEdges / EdgeBetween).
+						//
+						// AVANT, chaque copie recevait une RECOPIE de la tranche du
+						// representant. Ca marchait tant que la structure n'etait
+						// reconstruite qu'en bloc. Des lors qu'AddWireEdge deplace une
+						// tranche, il faudrait retrouver et corriger les 24 copies d'un
+						// coin de cube a chaque ajout — c'est-a-dire tenir la meme verite
+						// a N endroits. Une seule source, resolue a la lecture : la
+						// divergence devient IRREPRESENTABLE au lieu d'etre seulement
+						// improbable.
 						uint32 diskStart = 0;
 						uint32 diskCount = 0;
 				};
@@ -442,12 +450,42 @@ namespace nkentseu {
 				// que `edges` : ce sont des VUES sur la topologie, jamais une source.
 				NkVector<NkEmId> radialPool; // demi-aretes, groupees par arete
 				NkVector<NkEmId> diskPool;   // aretes, groupees par sommet representant
+				// ── IDENTITE SOUDEE, CONSERVEE AU LIEU D'ETRE RECALCULEE ────────
+				// `canonOf[v]` : le sommet REPRESENTANT de la position de `v`. C'est le
+				// resultat de BuildVertexMerge, que RebuildEdges calcule de toute facon.
+				//
+				// POURQUOI LE GARDER. `EdgeBetween` le recalculait A CHAQUE APPEL —
+				// une table de hachage sur TOUS les sommets pour repondre a une
+				// question que le cycle disque rend locale. MESURE (banc --perf) :
+				// 20 appels sur 66 049 sommets coutaient 41 ms, et ce cout suivait la
+				// taille du maillage. C'est-a-dire que la fonction qui EXISTE pour
+				// montrer l'interet du cycle disque le detruisait en entrant.
+				//
+				// ⚠ CE N'EST PAS UN CACHE SUPPLEMENTAIRE A INVALIDER. Il a exactement
+				// la meme duree de vie que `edges`, `radialPool` et `diskPool` : les
+				// quatre sont poses par RebuildEdges et vides par Clear(). Recalculer
+				// `canonOf` frais tout en lisant un `diskPool` perime rendait la fonction
+				// plus FRAICHE que la donnee qu'elle consultait — une incoherence, pas
+				// une precaution.
+				NkVector<uint32> canonOf;
 
 				void Clear() {
 					verts.Clear();
 					hedges.Clear();
 					faces.Clear();
 					edges.Clear();
+					// LES QUATRE VUES PARTENT ENSEMBLE. Elles etaient trois a rester
+					// derriere : `edges` seule etait videe, et `radialPool`/`diskPool`
+					// gardaient les tranches du maillage PRECEDENT. Personne ne les
+					// lisait (les accesseurs passent par `edges`, vide, ou par
+					// `diskCount`, remis a 0 par le Resize suivant), mais « personne ne
+					// les lit » est un fait sur le code d'aujourd'hui, pas un invariant.
+					// Avec `canonOf` la question cesse d'etre theorique : un tableau de
+					// la BONNE TAILLE mais du MAILLAGE D'AVANT ne se distingue pas d'un
+					// tableau valide.
+					radialPool.Clear();
+					diskPool.Clear();
+					canonOf.Clear();
 					// ⚠ `materialSlots` N'EST PAS VIDE ICI, ET C'EST VOULU.
 					// BuildFromPolygons appelle Clear() a chaque operation d'edition :
 					// vider les slots ferait perdre la liste des materiaux du maillage a
@@ -861,6 +899,13 @@ namespace nkentseu {
 				NkEmId EdgeOtherFace(NkEmId e, NkEmId f) const;
 				// CYCLE DISQUE : aretes incidentes au sommet (identite soudee).
 				uint32 VertEdges(uint32 v, NkVector<NkEmId> &out) const;
+				// Sommet REPRESENTANT de `v` selon l'identite soudee courante. Repli sur
+				// `v` tant que RebuildEdges n'a pas ete appele : un maillage sans aretes
+				// n'a pas encore d'identite soudee, et en inventer une ici la ferait
+				// diverger de celle que RebuildEdges posera.
+				uint32 VertOwner(uint32 v) const {
+					return (v < (uint32)canonOf.Size()) ? canonOf[v] : v;
+				}
 
 				uint32 RadialCount(NkEmId e) const {
 					return (e < (NkEmId)edges.Size() && edges[e].alive) ? edges[e].radialCount : 0u;
@@ -1054,6 +1099,10 @@ namespace nkentseu {
 			private:
 				// Lie les jumeaux (twin) via une table de hachage sur (min,max) des sommets.
 				void LinkTwins();
+				// Ajoute `e` a la tranche de disque du sommet REPRESENTANT `r`, en la
+				// deplacant en fin de `diskPool` (le CSR n'admet pas d'insertion au
+				// milieu). Cf. le commentaire au-dessus de la definition.
+				void DiskAppend(uint32 r, NkEmId e);
 				// Une face polygone (indices [s..e[ dans fv) est sélectionnée si TOUS ses
 				// sommets le sont (Vert::sel).
 				bool PolyFaceSelected(const NkVector<uint32> &fv, uint32 s, uint32 e) const;

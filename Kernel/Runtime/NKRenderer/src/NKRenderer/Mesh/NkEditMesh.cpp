@@ -2529,9 +2529,11 @@ namespace nkentseu {
 			// Identite SOUDEE : deux sommets exactement au meme endroit sont une seule
 			// identite topologique. Sans cela, un cube (24 sommets dupliques par face)
 			// donnerait 24 aretes distinctes la ou il n'y en a que 12.
-			NkVector<uint32> canon;
-			BuildVertexMerge(canon);
-			auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+			// L'identite soudee est CONSERVEE (membre `canonOf`) et non plus jetee en
+			// sortant : EdgeBetween et AddWireEdge la recalculaient chacun de leur
+			// cote, sur tous les sommets, pour repondre a une question locale.
+			BuildVertexMerge(canonOf);
+			auto cn = [&](uint32 v) { return (v < (uint32)canonOf.Size()) ? canonOf[v] : v; };
 
 			edges.Clear();
 			radialPool.Clear();
@@ -2670,20 +2672,33 @@ namespace nkentseu {
 					if (edges[i].v1 < nv)
 						diskPool[fill[edges[i].v1]++] = (NkEmId)i;
 				}
+				// UNE SEULE ECRITURE PAR IDENTITE. Les copies coincidentes gardent
+				// 0/0 et sont resolues a la lecture (VertOwner) : c'est ce qui rend
+				// le deplacement d'une tranche par AddWireEdge local au lieu d'exiger
+				// la mise a jour de toutes les copies.
 				for (uint32 i = 0; i < nv; ++i) {
-					const uint32 r = (i < (uint32)canon.Size()) ? canon[i] : i;
-					verts[i].diskStart = start[r < nv ? r : i];
-					verts[i].diskCount = cnt[r < nv ? r : i];
+					const uint32 r = (i < (uint32)canonOf.Size()) ? canonOf[i] : i;
+					if (r == i) {
+						verts[i].diskStart = start[i];
+						verts[i].diskCount = cnt[i];
+					} else {
+						verts[i].diskStart = 0;
+						verts[i].diskCount = 0;
+					}
 				}
 			}
 		}
 
 		// ── ACCES AUX DEUX CYCLES ───────────────────────────────────────────────
 		NkEmId NkEditMesh::EdgeBetween(uint32 a, uint32 b) const {
-			NkVector<uint32> canon;
-			BuildVertexMerge(canon);
-			const uint32 nc = (uint32)canon.Size();
-			const uint32 ca = (a < nc) ? canon[a] : a, cb = (b < nc) ? canon[b] : b;
+			// ⚠ CETTE FONCTION APPELAIT BuildVertexMerge A CHAQUE APPEL : une table
+			// de hachage sur TOUS les sommets pour repondre a une question que le
+			// cycle disque rend locale. MESURE : 20 appels coutaient 0,2 ms sur 1 089
+			// sommets et 41 ms sur 66 049 — un cout qui suit la taille du MAILLAGE
+			// alors que la reponse ne depend que du VOISINAGE. Un editeur en emet un
+			// par clic ; le cas ne se voit sur aucun cube.
+			// L'identite soudee est desormais celle que RebuildEdges a posee.
+			const uint32 ca = VertOwner(a), cb = VertOwner(b);
 			if (ca == cb)
 				return NK_EM_INVALID;
 			const uint32 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
@@ -2762,7 +2777,14 @@ namespace nkentseu {
 			out.Clear();
 			if (v >= (uint32)verts.Size())
 				return 0;
-			const uint32 s0 = verts[v].diskStart, n0 = verts[v].diskCount;
+			// La tranche est portee par le REPRESENTANT ; une copie coincidente n'a
+			// pas la sienne, elle a la meme. Resoudre a la lecture plutot que de
+			// recopier la tranche sur chaque copie, c'est ce qui permet a
+			// AddWireEdge de la deplacer sans avoir a retrouver les 24 copies d'un
+			// coin de cube.
+			const uint32 r = VertOwner(v);
+			const uint32 rr = (r < (uint32)verts.Size()) ? r : v;
+			const uint32 s0 = verts[rr].diskStart, n0 = verts[rr].diskCount;
 			for (uint32 k = 0; k < n0; ++k)
 				if (s0 + k < (uint32)diskPool.Size())
 					out.PushBack(diskPool[s0 + k]);
@@ -2785,37 +2807,94 @@ namespace nkentseu {
 			return n;
 		}
 
+		// ── DEPLACEMENT D'UNE TRANCHE DE DISQUE ─────────────────────────────────
+		// `diskPool` est un tableau CSR : la tranche d'un sommet est CONTIGUE, donc
+		// on n'insere pas au milieu. On recopie la tranche a la FIN, augmentee de la
+		// nouvelle arete, et on repointe le representant.
+		//
+		// ⚠ CE QUE CA COUTE, DIT FRANCHEMENT : l'ancienne tranche devient de l'espace
+		// MORT. `diskPool` grossit de deg(v)+1 par ajout et n'est compacte qu'au
+		// prochain RebuildEdges. C'est le prix de la contiguite, et il est borne par
+		// le nombre d'aretes filaires ajoutees a la main entre deux reconstructions —
+		// pas par la taille du maillage. Le harnais l'IMPRIME (`disque` sur la ligne
+		// `incr/`) au lieu de le laisser dans l'ombre.
+		//
+		// L'arete est ajoutee EN FIN de tranche, et son indice est le plus grand :
+		// la tranche reste donc triee par indice d'arete, exactement comme le tri par
+		// comptage de RebuildEdges la produit. Sans ca, la mise a jour incrementale
+		// donnerait le bon ENSEMBLE dans un autre ORDRE, et le temoin ne saurait pas
+		// dire laquelle des deux choses vient d'arriver.
+		void NkEditMesh::DiskAppend(uint32 r, NkEmId e) {
+			if (r >= (uint32)verts.Size())
+				return;
+			const uint32 s0 = verts[r].diskStart, n0 = verts[r].diskCount;
+			// Recopie D'ABORD dans un tampon : ecrire dans `diskPool` pendant qu'on
+			// le lit, c'est lire une adresse que la reallocation vient de liberer.
+			NkVector<NkEmId> tampon;
+			for (uint32 k = 0; k < n0; ++k)
+				if (s0 + k < (uint32)diskPool.Size())
+					tampon.PushBack(diskPool[s0 + k]);
+			tampon.PushBack(e);
+			const uint32 ns = (uint32)diskPool.Size();
+			for (uint32 k = 0; k < (uint32)tampon.Size(); ++k)
+				diskPool.PushBack(tampon[k]);
+			verts[r].diskStart = ns;
+			verts[r].diskCount = (uint32)tampon.Size();
+		}
+
 		NkEmId NkEditMesh::AddWireEdge(uint32 a, uint32 b) {
 			if (a >= (uint32)verts.Size() || b >= (uint32)verts.Size())
 				return NK_EM_INVALID;
-			NkVector<uint32> canon;
-			BuildVertexMerge(canon);
-			const uint32 ca = (a < (uint32)canon.Size()) ? canon[a] : a;
-			const uint32 cb = (b < (uint32)canon.Size()) ? canon[b] : b;
+			// La structure doit exister avant qu'on la mette a jour. `canon` de la
+			// bonne taille est la condition : un `canon` du maillage PRECEDENT aurait
+			// la bonne forme et le mauvais contenu.
+			if (edges.Empty() || (uint32)canonOf.Size() != (uint32)verts.Size())
+				RebuildEdges();
+			const uint32 ca = VertOwner(a), cb = VertOwner(b);
 			if (ca == cb)
 				return NK_EM_INVALID; // meme sommet topologique : pas d'arete a creer
-			if (edges.Empty())
-				RebuildEdges();
 			const uint32 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
-			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
-				if (edges[i].alive && edges[i].v0 == lo && edges[i].v1 == hi)
-					return (NkEmId)i; // deja presente (bord de face ou filaire)
+			// DEJA PRESENTE ? Par le DISQUE du sommet, pas par un balayage de toutes
+			// les aretes. C'est precisement ce que le cycle disque apporte, et ce
+			// balayage etait le second cout lineaire de la fonction.
+			{
+				const uint32 s0 = verts[lo].diskStart, n0 = verts[lo].diskCount;
+				for (uint32 k = 0; k < n0; ++k) {
+					if (s0 + k >= (uint32)diskPool.Size())
+						break;
+					const NkEmId x = diskPool[s0 + k];
+					if (x < (NkEmId)edges.Size() && edges[x].alive && edges[x].v0 == lo && edges[x].v1 == hi)
+						return x; // deja presente (bord de face ou filaire)
+				}
+			}
+			// ── MISE A JOUR INCREMENTALE, ET RIEN DE PLUS ───────────────────────
+			// AVANT : la fonction rappelait RebuildEdges() EN ENTIER apres avoir
+			// empile l'arete, parce qu'empiler ne renseignait pas le cycle disque.
+			// MESURE : 20 appels coutaient 11 ms sur 1 024 faces et 959 ms sur
+			// 65 536 — soit ~48 ms par clic, et une croissance en x4,6 par x4 faces.
+			// Tracer k aretes coutait k x n.
+			// Or ni les faces ni les demi-aretes ne bougent quand on ajoute un
+			// filaire : le seul etat a corriger est l'arete elle-meme et les deux
+			// cycles disque de ses extremites. C'est le SEUL endroit de cette classe
+			// ou la structure survit a l'operation ; partout ailleurs elle est
+			// detruite et refaite (ToPolygons -> BuildFromPolygons).
 			Edge e{};
 			e.v0 = (NkEmId)lo;
 			e.v1 = (NkEmId)hi;
 			e.hedge = NK_EM_INVALID; // FILAIRE : aucune face incidente
 			e.faceCount = 0;
 			e.alive = 1;
+			// Tranche radiale VIDE, posee a la fin du reservoir : c'est exactement ce
+			// que RebuildEdges donne a un filaire. Laisser radialStart a 0 la ferait
+			// pointer sur la tranche d'une AUTRE arete — inoffensif tant que le compte
+			// vaut 0, faux le jour ou quelqu'un lit le depart sans lire le compte.
+			e.radialStart = (uint32)radialPool.Size();
+			e.radialCount = 0;
+			const NkEmId ei = (NkEmId)edges.Size();
 			edges.PushBack(e);
-			// RECONSTRUCTION APRES AJOUT. Empiler l'arete suffisait tant qu'`edges`
-			// n'etait qu'une liste ; avec les cycles de l'etape 2 elle ne suffit plus :
-			// le cycle DISQUE du sommet ne verrait pas la nouvelle arete. Defaut
-			// MESURE avant correction : disque(v) restait a 3 au lieu de 4 apres l'ajout
-			// de la diagonale d'un cube. RebuildEdges preserve les filaires — c'est sa
-			// raison d'etre — donc on peut la relancer sans perdre celle qu'on vient de
-			// creer, puis retrouver son index par le disque.
-			RebuildEdges();
-			return EdgeBetween(a, b);
+			DiskAppend(lo, ei);
+			DiskAppend(hi, ei);
+			return ei;
 		}
 
 
