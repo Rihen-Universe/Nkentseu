@@ -7023,6 +7023,192 @@ static void AretesBattery() {
 	}
 }
 
+
+// ── LES MODIFICATEURS QUE `matmod/` N EXERCAIT PAS ──────────────────────────
+// COMMENT LE TROU A ETE TROUVE, ET POURQUOI IL N ETAIT PAS VISIBLE
+// `NkModifierType` compte DIX-SEPT types. La famille `matmod/`, ecrite en Q72
+// pour combler un trou du meme genre, en exerce SEPT : Mirror, Array,
+// Triangulate (ses deux chemins), Solidify, Mask, Build, Screw. Les dix autres
+// n avaient aucune ligne.
+//
+// Q72 avait pourtant tire la lecon exacte : « une famille de cas qui porte le
+// nom d un domaine donne l impression de couvrir ce domaine ; elle ne couvre que
+// ce qu elle exerce ». Elle a ete appliquee au perimetre trouve ce jour-la, pas
+// a l ENUMERATION. Un compte -- 7 sur 17 -- l aurait dit tout de suite ; c est
+// pour ca qu il est ecrit ici, et pas la liste des noms.
+//
+// CINQ des dix restants sont TOPOLOGIQUES (ils creent ou detruisent des faces,
+// donc ils peuvent repeindre) : Subsurf, Weld, Bevel, EdgeSplit, Decimate. Ce
+// sont ceux-la qui gagnent une ligne.
+// QUATRE sont PUREMENT GEOMETRIQUES (Cast, SimpleDeform, Smooth, Wave) : ils
+// deplacent des sommets sans toucher aux faces. Leur poser une ligne materiau
+// produirait un « rien n a change » qui ne peut pas etre autre chose -- le
+// compteur bloque a zero, une fois de plus. Ils ne sont pas oublies, ils sont
+// ECARTES, et pour une raison ecrite.
+// Le dixieme, SmoothByAngle, ne touche pas le materiau mais l AUTRE moitie de
+// `FaceAttrib` : `smooth`. Il a donc sa ligne, sur `smooth` et non sur le slot.
+static void MatModRestantsBattery() {
+	auto vivantes = [](const NkEditMesh &m) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				k++;
+		return k;
+	};
+	auto compte = [](const NkEditMesh &m, uint16 slot) {
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].material == slot)
+				k++;
+		return k;
+	};
+	// Nombre de slots DISTINCTS encore portes par au moins une face vivante.
+	// Une RELATION plutot qu un compte fige : elle ne se perime pas quand le
+	// modificateur change le nombre de faces, ce que la moitie d entre eux font.
+	auto slotsVivants = [](const NkEditMesh &m) -> uint32 {
+		uint8 vus[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+		uint32 k = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive) {
+				const uint16 s = m.faces[f].material;
+				if (s < 8u && !vus[s]) {
+					vus[s] = 1;
+					k++;
+				}
+			}
+		return k;
+	};
+	auto cubePeint = [](NkEditMesh &m) {
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		uint16 s = 1;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive)
+				m.faces[f].material = s++;
+		m.RebuildEdges();
+	};
+	// ⚠ CHAQUE LIGNE PORTE `agit`. `Apply` rend `void` : il ne DIT pas s il a
+	// fait quelque chose. Un modificateur inerte laisserait le cube intact, donc
+	// slot0=0 et six slots vivants -- une ligne parfaitement verte qui n aurait
+	// rien mesure. `agit` est donc CONSTATE sur le maillage (sommets, faces ou
+	// geometrie), pas demande a la fonction.
+	auto empreinteGeo = [](const NkEditMesh &m) -> uint64 {
+		uint64 h = 1469598103934665603ull;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const NkVec3f p = m.verts[i].pos;
+			h = EmpreinteMele(h, (uint64)(int64)(p.x * 100000.f));
+			h = EmpreinteMele(h, (uint64)(int64)(p.y * 100000.f));
+			h = EmpreinteMele(h, (uint64)(int64)(p.z * 100000.f));
+		}
+		return h;
+	};
+	auto ligneSur = [&](const char *nom, void (*base)(NkEditMesh &), NkModifierType t, void (*regle)(NkMeshModifier &)) {
+		NkEditMesh m;
+		base(m);
+		const uint32 avant = vivantes(m);
+		const uint32 vavant = m.VertCount();
+		const uint64 gavant = empreinteGeo(m);
+		NkMeshModifier mo;
+		mo.type = t;
+		regle(mo);
+		mo.Apply(m);
+		m.RebuildEdges();
+		const uint32 agit =
+			((vivantes(m) != avant) || (m.VertCount() != vavant) || (empreinteGeo(m) != gavant)) ? 1u : 0u;
+		Put("{0:<34} agit={1} faces {2} -> {3} sommets {4} -> {5} slots vivants={6} slot0={7}", nom, agit, avant,
+			vivantes(m), vavant, m.VertCount(), slotsVivants(m), compte(m, 0));
+	};
+	auto ligne = [&](const char *nom, NkModifierType t, void (*regle)(NkMeshModifier &)) {
+		ligneSur(nom, +[](NkEditMesh &m) {
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			MakeCube(v, idx);
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			uint16 s = 1;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+				if (m.faces[f].alive)
+					m.faces[f].material = s++;
+			m.RebuildEdges();
+		}, t, regle);
+	};
+
+	ligne("matmod/subsurf", NkModifierType::Subsurf, [](NkMeshModifier &mo) {
+		mo.subsurfLevels = 1;
+		mo.subsurfSimple = false;
+	});
+	// WELD : il FUSIONNE des sommets, donc il peut fusionner des faces -- c est le
+	// seul des cinq ou une couleur a le droit de disparaitre. `slots vivants` le
+	// dira sans qu on ait a fixer d avance lequel gagne.
+	ligne("matmod/weld", NkModifierType::Weld, [](NkMeshModifier &mo) { mo.weldDistance = 0.001f; });
+	ligne("matmod/bevel", NkModifierType::Bevel, [](NkMeshModifier &mo) {
+		mo.bevelWidth = 0.05f;
+		mo.bevelSegments = 1;
+	});
+	ligne("matmod/edgesplit", NkModifierType::EdgeSplit, [](NkMeshModifier &mo) { mo.edgeSplitAngle = 30.f; });
+	// ⚠ DECIMATE NE TOURNE PAS SUR LE CUBE, ET LA LIGNE ETAIT VERTE QUAND MEME.
+	// Ecrite d abord comme les quatre autres, elle rendait `agit=0` : Decimate
+	// dissout les aretes QUASI COPLANAIRES, et un cube n en a aucune. Le
+	// modificateur ne faisait donc rien -- et la ligne affichait « slots
+	// vivants=6 slot0=0 », c est-a-dire un resultat parfait obtenu en ne mesurant
+	// rien. C est `agit` qui l a dit, et personne d autre ne l aurait dit.
+	// Une grille TRIANGULEE (pas de quadify) est entierement plane : chaque paire
+	// de triangles EST le cas.
+	ligneSur("matmod/decimate", +[](NkEditMesh &m) {
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), false);
+		uint16 s = 1;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive) {
+				m.faces[f].material = s;
+				s = (uint16)((s % 6u) + 1u);
+			}
+		m.RebuildEdges();
+	}, NkModifierType::Decimate, [](NkMeshModifier &mo) { mo.decimateAngle = 5.f; });
+
+	// -- SmoothByAngle : l AUTRE moitie de FaceAttrib ------------------------
+	// Il ne touche pas le slot, il pose `smooth`. Deux seuils, expres : un seuil
+	// qui rendrait TOUT lisse ou TOUT franc ne distinguerait pas « il a decide »
+	// de « il a tout mis pareil ». Sur un cube, 30 deg doit tout laisser franc et
+	// 100 deg tout rendre lisse -- et les deux lignes ensemble prouvent qu il lit
+	// bien l angle.
+	{
+		NkEditMesh m;
+		cubePeint(m);
+		NkMeshModifier mo;
+		mo.type = NkModifierType::SmoothByAngle;
+		mo.autoSmoothAngle = 30.f;
+		mo.Apply(m);
+		uint32 lisses30 = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive && m.faces[f].smooth)
+				lisses30++;
+		NkEditMesh m2;
+		cubePeint(m2);
+		NkMeshModifier mo2;
+		mo2.type = NkModifierType::SmoothByAngle;
+		mo2.autoSmoothAngle = 100.f;
+		mo2.Apply(m2);
+		uint32 lisses100 = 0;
+		for (uint32 f = 0; f < (uint32)m2.faces.Size(); ++f)
+			if (m2.faces[f].alive && m2.faces[f].smooth)
+				lisses100++;
+		// Le SLOT est sur la ligne lui aussi : ce modificateur ecrit dans
+		// `FaceAttrib`, et une ecriture qui ecraserait la structure entiere
+		// emporterait le materiau avec elle sans qu aucun compte de `smooth` ne
+		// bouge d un iota.
+		// `depart` : combien de faces etaient lisses AVANT. Sans lui, « 0 et 6 »
+		// ne distingue pas « il a decide selon l angle » de « il n a rien fait et
+		// le cube etait deja comme ca ».
+		Put("{0:<34} depart=0 lisses 30deg={1} 100deg={2} depart-different={3} slots vivants={4} slot0={5}",
+			"matmod/ombrage-par-angle", lisses30, lisses100, (lisses30 != lisses100) ? 1u : 0u, slotsVivants(m2),
+			compte(m2, 0));
+	}
+}
+
 // ── TEMOIN DE LA MISE A JOUR INCREMENTALE ───────────────────────────────────
 // CE QUE CE TEMOIN CONTROLE, ET POURQUOI IL EST LE POINT CENTRAL DU CHANTIER
 // `AddWireEdge` ne reconstruit plus la topologie entiere : il ajoute l arete et
@@ -7337,6 +7523,8 @@ int main(int argc, char **argv) {
 	AretesBattery();
 	// AJOUTEE EN FIN, meme raison : les 274 lignes precedentes gardent leur numero.
 	IncrBattery();
+	// AJOUTEE EN FIN, meme raison : les 278 lignes precedentes gardent leur numero.
+	MatModRestantsBattery();
 
 	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
 	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.
