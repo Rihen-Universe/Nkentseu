@@ -807,6 +807,15 @@ namespace nkentseu {
 				// (0 par défaut = collée sur l'originale) et devient la SÉLECTION. Aucun
 				// déplacement implicite : c'est l'utilisateur qui bouge ensuite.
 				bool ExtrudeSelectedFaces(const NkExtrudeParams &p = NkExtrudeParams{});
+				// ── EXTRUSION EN PLACE (branche REGION) ─────────────────────────────
+				// ⚠ PUBLIQUE, ET PAS ENCORE BRANCHEE. Elle produit exactement le meme
+				// maillage que `ExtrudeSelectedFaces` — la famille `enplace/` du
+				// harnais compare les deux chemins cas par cas — mais elle reste plus
+				// LENTE sur une edition locale tant que les quatre passes de remise en
+				// etat heritees ne sont pas localisees.
+				// Publique parce qu'un chemin que rien n'exerce pourrit : c'est le
+				// harnais qui le tient en vie jusqu'a ce qu'il gagne.
+				bool ExtrudeSelectedFacesInPlace(const NkExtrudeParams &p);
 				// Sommet sélectionné -> nouveau sommet + ARÊTE reliante (arête « fil », face
 				// dégénérée à 2 sommets : pas de surface, mais une vraie arête éditable).
 				bool ExtrudeSelectedVertices(const NkExtrudeParams &p = NkExtrudeParams{});
@@ -1127,6 +1136,12 @@ namespace nkentseu {
 			private:
 				// Lie les jumeaux (twin) via une table de hachage sur (min,max) des sommets.
 				void LinkTwins();
+				// Retire du tableau les faces et demi-aretes mortes. Le chemin par la
+				// soupe de polygones les faisait disparaitre sans le dire ; une operation
+				// EN PLACE doit le faire explicitement, sinon `faces.Size()` diverge
+				// alors qu aucune topologie n a bouge.
+				void CompactDead();
+
 				// ── ACCES AUX CHAINAGES ─────────────────────────────────────────
 				// ⚠ AUCUNE REFERENCE RENDUE, JAMAIS. Un `NkEmId &` sur un champ de
 				// `edges` serait plus court a ecrire — et le premier PushBack qui
