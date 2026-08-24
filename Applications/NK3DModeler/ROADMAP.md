@@ -1128,6 +1128,29 @@ Envoie le journal (`MESURE clic carte`, `MESURE lacher`, `PICK lacher`).
 **Suite** : contrat d'import (d) matériaux/textures et (e) le dialogue.
 
 
+## ⚰️ `NkViewport3D.cpp` EST MORTE — 2 649 lignes, signalée et NON supprimée (2026-08-24)
+
+**Mesuré, pas supposé.** Deux vues 3D coexistent dans l'application :
+
+| | |
+|---|---|
+| `Viewport/NkViewport3D.cpp` (2 649 lignes) | **jamais de device** — `main.cpp:350-351` ne lui en donne aucun |
+| `Viewport/NkDemo3D.cpp` (18 660 lignes) | **la vivante**, celle qui rend |
+
+Conséquence : **tout le dispatch d'édition de `main.cpp:1435-1626` est du code
+mort** — il vise la vue qui ne dessine pas.
+
+⚠️ **NE PAS LA SUPPRIMER — c'est une décision de Rodolf, pas la mienne.** Elle
+est écrite ici pour une raison précise : **une capacité morte non documentée
+recrute.** Quelqu'un finira par l'améliorer, la corriger, l'optimiser, en
+croyant travailler sur la vue vivante — et son travail n'apparaîtra jamais à
+l'écran. C'est arrivé assez de fois cette semaine sur des chaînes bien plus
+courtes.
+
+**Trois options, à trancher** : la supprimer, la réactiver, ou la marquer dans
+le code lui-même (un `#error` sous un drapeau, un préfixe `DEPRECATED_` sur le
+fichier). La troisième est la moins chère et suffit à empêcher le recrutement.
+
 ## 3. Modélisation complète ⬜
 
 - **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,
@@ -1171,15 +1194,34 @@ ce n'est que la **première moitié**. Ce que Rihen attend, et qui reste à fair
    après coup est un champ de plus dans l'`ObjectUBO`, donc une structure qui
    change, donc **les cinq backends à revalider**. Brancher une interface sur un
    shader incomplet fait payer deux fois. Dans l'ordre :
-   - **Exposer `clearcoat` et `subsurface`** — `pbr.frag.nksl` les calcule
-     **déjà** (lignes 429 et 438) et `NkMaterial` les expose (`SetClearcoat`,
-     `SetSubsurface`) : **le panneau du modeleur ne les propose pas**. Deux
-     paramètres corrects, déjà payés, hors de portée de l'utilisateur. Le gain
-     le moins cher du chantier.
-   - **Transmission + IOR** — *rien* dans le shader aujourd'hui. C'est le « S »
-     de BSDF (*scattering*, qui inclut la transmission) : sans elle, **pas de
-     verre, pas d'eau, pas de liquide crédibles**. Le manque le plus visible
-     pour un modeleur.
+   - ~~**Exposer `clearcoat` et `subsurface`**~~ — ✅ **FAIT, et MESURÉ le
+     2026-08-24.** Le panneau les propose (`Demo3DHostProjMatSetSurface`, appelé
+     depuis `NkModelerProperties.h`), le chemin va jusqu'au GPU
+     (`dc.clearcoat` → `uObj.clearcoat`) et `pbr.frag.nksl` les lit bien
+     (lignes 774-776 pour le vernis, 720-722 pour la diffusion).
+     **Preuve par capture, pas par lecture** : deux rendus du même projet à
+     `cc=0` puis `cc=1` donnent des images **différentes**, alors que deux
+     rendus identiques sont identiques **au bit près**.
+     ⚠️ Le texte ci-dessus disait l'inverse et datait du 6 août. Il a survécu
+     dix-huit jours parce qu'**une liste écrite ne se périme pas bruyamment** :
+     elle ne tombe pas comme un banc, elle ne demande jamais rien.
+   - **Transmission + IOR** — 🔴 **MESURÉ LE 2026-08-24 : L'INDICE NE FAIT
+     RIEN.** Deux rendus de verre à `n=1,0` et `n=2,4` sont **identiques au bit
+     près**, alors que le même banc distingue le type PBR du type Verre — donc
+     le shader du verre tourne bel et bien et l'instrument sait voir un écart.
+     **La cause est localisée** : le champ `vernis` porte l'indice pour le type
+     Verre (double emploi assumé, `NkDemo3D.cpp:14708-14713`, et son SIGNE porte
+     la coche d'activation), mais l'application l'écrit dans `dc.clearcoat` →
+     `uObj.clearcoat`, tandis que `Glass/NkSL/glass.frag.nksl:100` lit
+     `uMat.clearcoat` — que rien ne remplit. Personne ne l'avait vu parce que la
+     valeur de repli, 1,5, est du verre à vitre : **le défaut se cache derrière
+     une valeur par défaut plausible.**
+     ⚠️ Et les six variantes de backend ne s'accordent pas :
+     `Glass/GL/glass.frag.gl.glsl:20` code `float ior=1.45;` **en dur**.
+     C'est le « S » de BSDF (*scattering*, qui inclut la transmission) : sans
+     elle, **pas de verre, pas d'eau, pas de liquide crédibles**. Le manque le
+     plus visible pour un modeleur — et il est plus proche qu'on ne croyait,
+     puisque le réglage existe déjà et qu'il ne lui manque qu'un fil.
    - **Anisotropie** — métal brossé, cheveux, vinyle.
    - **Sheen** — tissus, velours.
 
