@@ -276,3 +276,9 @@ incr/cube-trois-diagonales         crees=3/3 A=15 fil=3 idem=1 plein=1 disques 1
 incr/grille-quatre-diagonales      crees=4/4 A=44 fil=4 idem=1 plein=1 disques 5/5 pool incr=119 plein=88
 incr/disque-vu-depuis-copie        copies=3 disque 3 -> 4 (doit croitre de 1) accord=3/3
 incr/deja-presente                 A 12 -> 13 -> 13 | meme=1 inverse=1 bord-existant-retrouve=1
+matmod/subsurf                     agit=1 faces 6 -> 24 sommets 24 -> 54 slots vivants=6 slot0=0
+matmod/weld                        agit=1 faces 6 -> 6 sommets 24 -> 8 slots vivants=6 slot0=0
+matmod/bevel                       agit=1 faces 6 -> 26 sommets 24 -> 24 slots vivants=6 slot0=0
+matmod/edgesplit                   agit=1 faces 6 -> 6 sommets 24 -> 24 slots vivants=6 slot0=0
+matmod/decimate                    agit=1 faces 32 -> 1 sommets 25 -> 16 slots vivants=1 slot0=0
+matmod/ombrage-par-angle           depart=0 lisses 30deg=0 100deg=6 depart-different=1 slots vivants=6 slot0=0
