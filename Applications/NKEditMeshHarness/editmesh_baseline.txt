@@ -282,3 +282,13 @@ matmod/bevel                       agit=1 faces 6 -> 26 sommets 24 -> 24 slots v
 matmod/edgesplit                   agit=1 faces 6 -> 6 sommets 24 -> 24 slots vivants=6 slot0=0
 matmod/decimate                    agit=1 faces 32 -> 1 sommets 25 -> 16 slots vivants=1 slot0=0
 matmod/ombrage-par-angle           depart=0 lisses 30deg=0 100deg=6 depart-different=1 slots vivants=6 slot0=0
+enplace/cube-offset0-degenere      ok=1/1 V=48 F=30 E=20 nonmanif=20 | topo=1 geo=1 tableaux=1 attributs=1
+enplace/grille-offset0             ok=1/1 V=41 F=32 E=56 nonmanif=16 | topo=1 geo=1 tableaux=1 attributs=1
+enplace/sphere-offset0             ok=1/1 V=331 F=300 E=511 nonmanif=47 | topo=1 geo=1 tableaux=1 attributs=1
+enplace/sphere-region              ok=1/1 V=331 F=300 E=541 nonmanif=47 | topo=1 geo=1 tableaux=1 attributs=1
+enplace/sphere-along-normals       ok=1/1 V=331 F=300 E=541 nonmanif=47 | topo=1 geo=1 tableaux=1 attributs=1
+enplace/sphere-to-cursor           ok=1/1 V=331 F=300 E=541 nonmanif=47 | topo=1 geo=1 tableaux=1 attributs=1
+enplace/temoin-selection-locale    faces selectionnees=3 (3 attendues)
+enplace/region-locale-3faces       ok=1/1 V=93 F=76 E=168 nonmanif=0 | topo=1 geo=1 tableaux=1 attributs=1
+enplace/cube-materiau-et-ombrage   ok=1/1 V=48 F=30 E=32 nonmanif=20 | topo=1 geo=1 tableaux=1 attributs=1
+enplace/refus-sans-selection       ok=0/0 V=24 F=6 E=12 nonmanif=0 | topo=1 geo=1 tableaux=1 attributs=1

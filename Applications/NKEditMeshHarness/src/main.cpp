@@ -8370,6 +8370,195 @@ static void ProtoBattery() {
 	printf("\n");
 }
 
+// ── LES DEUX CHEMINS D EXTRUSION DOIVENT DONNER LE MEME MAILLAGE ────────────
+// POURQUOI CETTE FAMILLE EXISTE
+// `ExtrudeSelectedFacesInPlace` est ecrite, juste, et PAS BRANCHEE : elle est
+// aujourd hui plus lente qu elle ne le sera, et la brancher ralentirait
+// l editeur (cf. le commentaire dans NkEditMesh.cpp). Un chemin que rien
+// n exerce pourrit en silence : les 284 lignes passent toutes par l ancien
+// chemin, donc AUCUNE ne dirait qu il vient de se casser.
+// ⚠ C est exactement le cas ou une reference verte ne prouve rien du code qui
+// nous interesse. Cette famille appelle les DEUX chemins sur les MEMES entrees
+// et exige le MEME maillage.
+//
+// CE QUI EST COMPARE, ET POURQUOI PAS PLUS
+//   V, F, E, bord, non-manifold, triangles : la topologie, recalculee par le
+//   harnais depuis la liste de faces et les POSITIONS (soudure positionnelle).
+//   tailles BRUTES des tableaux `verts` et `faces` : parce que `mat/` les
+//   imprime telles quelles, et qu une operation en place qui laisserait des
+//   faces mortes derriere elle donnerait un compte different sans qu aucune
+//   topologie n ait bouge.
+//   slots de materiau et faces lissees : l heritage `FaceAttrib`.
+//
+// ⚠ L AIRE ET LE CENTRE SONT COMPARES A UNE TOLERANCE, ET C EST OBLIGATOIRE.
+// Les deux chemins produisent les memes faces mais PAS DANS LE MEME ORDRE : le
+// tour par la soupe reordonne (non selectionnees, puis capuchons, puis parois),
+// la version en place garde les faces a leur place et ajoute a la fin.
+// L addition flottante n etant pas associative, deux sommes des memes termes
+// dans deux ordres differents ne donnent pas les memes derniers bits. Exiger
+// l egalite strict e ferait rougir la ligne pour une raison qui n est pas un
+// defaut — c est la lecon de Catmull-Clark en Q73, prise a l endroit.
+struct EnPlaceMesure {
+		Sig sig;
+		uint32 arrV = 0, arrF = 0;
+		uint32 slotsVivants = 0, lisses = 0;
+};
+
+static EnPlaceMesure MesurerEnPlace(const NkEditMesh &m) {
+	EnPlaceMesure r;
+	r.sig = Signature(m);
+	r.arrV = (uint32)m.verts.Size();
+	r.arrF = (uint32)m.faces.Size();
+	uint8 vus[16];
+	for (uint32 i = 0; i < 16u; ++i)
+		vus[i] = 0;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		const uint16 s = m.faces[f].material;
+		if (s < 16u && !vus[s]) {
+			vus[s] = 1;
+			r.slotsVivants++;
+		}
+		if (m.faces[f].smooth)
+			r.lisses++;
+	}
+	return r;
+}
+
+static void LigneEnPlace(const char *nom, const NkEditMesh &base, const NkExtrudeParams &p) {
+	NkEditMesh a = base, b = base;
+	const bool oka = a.ExtrudeSelectedFaces(p);		   // chemin ACTUEL (soupe de polygones)
+	const bool okb = b.ExtrudeSelectedFacesInPlace(p); // chemin EN PLACE
+	const EnPlaceMesure ma = MesurerEnPlace(a), mb = MesurerEnPlace(b);
+
+	auto proche = [](float32 x, float32 y) -> bool {
+		const float32 d = (x > y) ? (x - y) : (y - x);
+		const float32 e = (x > 0.f ? x : -x) + (y > 0.f ? y : -y);
+		return d <= 1e-4f + 1e-5f * e;
+	};
+	const uint32 topo = (ma.sig.verts == mb.sig.verts && ma.sig.faces == mb.sig.faces &&
+						 ma.sig.edges == mb.sig.edges && ma.sig.boundary == mb.sig.boundary &&
+						 ma.sig.nonManifold == mb.sig.nonManifold && ma.sig.tris == mb.sig.tris)
+							? 1u
+							: 0u;
+	const uint32 geo = (proche(ma.sig.area, mb.sig.area) && proche(ma.sig.center.x, mb.sig.center.x) &&
+						proche(ma.sig.center.y, mb.sig.center.y) && proche(ma.sig.center.z, mb.sig.center.z))
+						   ? 1u
+						   : 0u;
+	const uint32 tab = (ma.arrV == mb.arrV && ma.arrF == mb.arrF) ? 1u : 0u;
+	const uint32 att = (ma.slotsVivants == mb.slotsVivants && ma.lisses == mb.lisses) ? 1u : 0u;
+	// ⚠ `ok` EST SUR LA LIGNE. Deux refus donneraient topo=1 geo=1 tab=1 att=1 :
+	// quatre egalites parfaites obtenues en ne faisant rien des deux cotes.
+	Put("{0:<34} ok={1}/{2} V={3} F={4} E={5} nonmanif={6} | topo={7} geo={8} tableaux={9} attributs={10}", nom,
+		oka ? 1u : 0u, okb ? 1u : 0u, mb.sig.verts, mb.sig.faces, mb.sig.edges, mb.sig.nonManifold, topo, geo, tab,
+		att);
+}
+
+static void EnPlaceBattery() {
+	// -- 1. CUBE, tout selectionne, offset 0 : LE CAS DEGENERE ---------------
+	// La nappe extrudee retombe EXACTEMENT sur l originale et la soudure fusionne
+	// les deux : `nonmanif=20`. C est le cas ou une implantation « propre »
+	// diverge silencieusement d une implantation qui accepte la degenerescence.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.SelectAll();
+		LigneEnPlace("enplace/cube-offset0-degenere", m, NkExtrudeParams{});
+	}
+	// -- 2. GRILLE OUVERTE : une region a BORD, que le cube n a pas ----------
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(4, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.SelectAll();
+		LigneEnPlace("enplace/grille-offset0", m, NkExtrudeParams{});
+	}
+	// -- 3. SPHERE : des n-gons, des poles, une region FERMEE ----------------
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeSphere(16, 16, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.SelectAll();
+		LigneEnPlace("enplace/sphere-offset0", m, NkExtrudeParams{});
+		// Les TROIS directions : elles empruntent trois calculs de position
+		// differents, et une seule ligne n en exercerait qu un.
+		NkExtrudeParams r;
+		r.offset = 0.1f;
+		r.direction = NkExtrudeParams::Region;
+		LigneEnPlace("enplace/sphere-region", m, r);
+		NkExtrudeParams an;
+		an.offset = 0.1f;
+		an.direction = NkExtrudeParams::AlongNormals;
+		LigneEnPlace("enplace/sphere-along-normals", m, an);
+		NkExtrudeParams tc;
+		tc.offset = 0.5f;
+		tc.direction = NkExtrudeParams::ToCursor;
+		tc.target = {0.f, 1.f, 0.f};
+		LigneEnPlace("enplace/sphere-to-cursor", m, tc);
+	}
+	// -- 4. REGION LOCALE : 3 faces isolees sur une grille dense -------------
+	// ⚠ LE CAS QUI COMPTE POUR L UTILISATEUR, et le seul ou region et
+	// individual coincident. Les trois precedents extrudent TOUT : ils ne
+	// diraient rien d une region dont le CONTOUR est interieur au maillage.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeGrid(8, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		NkVector<uint32> sel;
+		const uint32 n = SelectionnerFacesIsolees(m, 3u, &sel);
+		NkExtrudeParams p;
+		p.offset = 0.05f;
+		// Le compte selectionne est sur la ligne suivante via `ok` ; on le pose
+		// aussi ici pour qu une selection qui deraperait se voie.
+		Put("{0:<34} faces selectionnees={1} (3 attendues)", "enplace/temoin-selection-locale", n);
+		LigneEnPlace("enplace/region-locale-3faces", m, p);
+	}
+	// -- 5. MATERIAU ET OMBRAGE : l heritage doit etre le meme ---------------
+	// Une face neuve herite de sa mere. Si un chemin le faisait et pas l autre,
+	// la topologie serait identique et l attribut perdu — invisible partout
+	// ailleurs.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		uint16 s = 1;
+		for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+			if (m.faces[f].alive) {
+				m.faces[f].material = s++;
+				m.faces[f].smooth = (uint8)(f % 2u);
+			}
+		m.SelectAll();
+		NkExtrudeParams p;
+		p.offset = 0.1f;
+		LigneEnPlace("enplace/cube-materiau-et-ombrage", m, p);
+	}
+	// -- 6. REFUS : aucune selection ------------------------------------------
+	// Les deux chemins doivent refuser, et refuser PAREIL. Sans cette ligne,
+	// « les deux rendent le meme maillage » serait vrai pour la mauvaise raison
+	// le jour ou l un des deux se mettrait a refuser tout le temps.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeCube(v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.SelectNone();
+		LigneEnPlace("enplace/refus-sans-selection", m, NkExtrudeParams{});
+	}
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -8447,6 +8636,8 @@ int main(int argc, char **argv) {
 	IncrBattery();
 	// AJOUTEE EN FIN, meme raison : les 278 lignes precedentes gardent leur numero.
 	MatModRestantsBattery();
+	// AJOUTEE EN FIN, meme raison : les 284 lignes precedentes gardent leur numero.
+	EnPlaceBattery();
 
 	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
 	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.

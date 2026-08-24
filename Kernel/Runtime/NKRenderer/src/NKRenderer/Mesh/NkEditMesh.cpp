@@ -1578,7 +1578,332 @@ namespace nkentseu {
 		// ⚠ COMPORTEMENT BLENDER (défaut p.offset == 0) : le cap naît EXACTEMENT sur la face
 		// d'origine et la SÉLECTION passe dessus. Rien ne bouge : l'utilisateur déplace/
 		// tourne/redimensionne ensuite lui-même (gizmo, axe normal ou contrainte X/Y/Z).
+		// ── COMPACTAGE DES FACES ET DEMI-ARETES MORTES ──────────────────────────
+		// POURQUOI CETTE FONCTION EXISTE, ET CE QU'ELLE REPARE
+		// Le chemin actuel (ToPolygons -> BuildFromPolygons) fait DISPARAITRE les
+		// faces mortes sans que personne ne l'ait demande : `ToPolygons` ne les emet
+		// pas, `BuildFromPolygons` reconstruit a partir de ce qu'il recoit. Une
+		// operation EN PLACE, elle, les laisse ou elles sont.
+		//
+		// ⚠ CE N'EST PAS UN DETAIL D'HYGIENE. `Quadify` marque des faces mortes des
+		// la construction d'une primitive, et le harnais imprime `faces.Size()` — le
+		// TABLEAU, pas les vivantes. Une operation en place qui ne compacterait pas
+		// rendrait donc un compte DIFFERENT sans qu'aucune topologie n'ait bouge.
+		// C'est la forme la plus penible : le resultat est juste, le nombre est faux.
+		void NkEditMesh::CompactDead() {
+			const uint32 nf = (uint32)faces.Size(), nh = (uint32)hedges.Size();
+			NkVector<uint32> fmap, hmap;
+			fmap.Resize(nf);
+			hmap.Resize(nh);
+			uint32 nfAlive = 0, nhAlive = 0;
+			for (uint32 f = 0; f < nf; ++f)
+				fmap[f] = faces[f].alive ? nfAlive++ : NK_EM_INVALID;
+			// Une demi-arete ne survit que si SA FACE survit : une demi-arete vivante
+			// rattachee a une face morte est un residu, pas une entite.
+			for (uint32 h = 0; h < nh; ++h) {
+				const NkEmId hf = hedges[h].face;
+				const bool ok = hedges[h].alive && hf != NK_EM_INVALID && hf < nf && faces[hf].alive;
+				hmap[h] = ok ? nhAlive++ : NK_EM_INVALID;
+			}
+			if (nfAlive == nf && nhAlive == nh)
+				return; // rien de mort : on ne recopie pas pour rien
+			NkVector<Hedge> nhv;
+			nhv.Resize(nhAlive);
+			for (uint32 h = 0; h < nh; ++h) {
+				if (hmap[h] == NK_EM_INVALID)
+					continue;
+				Hedge he = hedges[h];
+				he.next = (he.next < nh && hmap[he.next] != NK_EM_INVALID) ? hmap[he.next] : NK_EM_INVALID;
+				he.twin = (he.twin < nh && hmap[he.twin] != NK_EM_INVALID) ? hmap[he.twin] : NK_EM_INVALID;
+				he.face = (he.face < nf) ? fmap[he.face] : NK_EM_INVALID;
+				// Les cycles radiaux et le lien vers l'arete sont repris a zero par le
+				// prochain RebuildEdges : les remapper ici serait entretenir une vue
+				// que l'on vient d'invalider.
+				he.edge = NK_EM_INVALID;
+				he.rNext = NK_EM_INVALID;
+				he.rPrev = NK_EM_INVALID;
+				nhv[hmap[h]] = he;
+			}
+			NkVector<Face> nfv;
+			nfv.Resize(nfAlive);
+			for (uint32 f = 0; f < nf; ++f) {
+				if (fmap[f] == NK_EM_INVALID)
+					continue;
+				Face fa = faces[f];
+				fa.hedge = (fa.hedge < nh && hmap[fa.hedge] != NK_EM_INVALID) ? hmap[fa.hedge] : NK_EM_INVALID;
+				nfv[fmap[f]] = fa;
+			}
+			// ⚠ Swap ET NON AFFECTATION. `hedges = nhv;` recopie l integralite du
+			// tableau — 262 144 demi-aretes sur une grille 256x256, et une seconde
+			// fois pour les faces. MESURE : la compaction pesait ~20 ms sur les 46 ms
+			// de l operation, plus que tout le reste reuni. Swap est en O(1) : les
+			// deux tableaux echangent leurs pointeurs, et l ancien meurt avec la
+			// variable locale.
+			hedges.Swap(nhv);
+			faces.Swap(nfv);
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
+				verts[i].hedge = NK_EM_INVALID;
+		}
+
+		// ── EXTRUSION DE FACES, EN PLACE ────────────────────────────────────────
+		// ETAPE 2 du chantier « cycles chaines ». La branche REGION (le defaut de
+		// NkExtrudeParams) est reproduite a l'identique, mais SANS l'aller-retour par
+		// la soupe de polygones : le maillage n'est plus detruit puis refait, il est
+		// MUTE.
+		//
+		// ⚠ CE QUI DOIT ETRE REPRODUIT AU SOMMET PRES, ET POURQUOI
+		// Le harnais compare V, F, E, bord, non-manifold, aire et centre. E et le
+		// non-manifold sont recalcules PAR LE HARNAIS depuis la liste de faces et les
+		// POSITIONS (soudure positionnelle), jamais depuis le cablage interne. Il
+		// suffit donc de produire les MEMES faces sur les MEMES positions — mais il le
+		// faut exactement, y compris dans les cas degeneres :
+		//   `offset = 0` fait retomber la nappe extrudee SUR l'originale. La soudure
+		//   fusionne alors les deux, et le cube rend `E=20 nonmanif=20`, la grille
+		//   `nonmanif=16`. Une implantation « propre » qui refuserait la degenerescence
+		//   donnerait un maillage plus sain — et une reference differente, sans qu'aucun
+		//   defaut n'existe. On ACCEPTE la degenerescence, comme le chemin actuel.
+		//
+		// L'ORDRE DE DUPLICATION EST UN CONTRAT. Les sommets dupliques sont ajoutes a
+		// la fin, dans l'ordre « faces selectionnees par indice croissant, puis coins
+		// dans l'ordre du cycle de face » — exactement celui du chemin actuel. Un autre
+		// ordre donnerait les memes formes avec d'autres numeros ; rien ne tomberait
+		// aujourd'hui, et le premier temoin qui regarde un indice tomberait demain.
+		bool NkEditMesh::ExtrudeSelectedFacesInPlace(const NkExtrudeParams &p) {
+			const uint32 nv0 = (uint32)verts.Size();
+			const uint32 nf0 = (uint32)faces.Size();
+
+			// -- 1. Faces selectionnees, dans l'ORDRE DES INDICES ----------------
+			// Le meme ordre que `ToPolygons` : il saute les mortes et les aretes fil
+			// (moins de 3 sommets), et c'est lui qui fixe la numerotation des copies.
+			NkVector<NkEmId> selFaces;
+			NkVector<uint32> selStart, selVerts; // boucles SAUVEGARDEES avant mutation
+			selStart.PushBack(0);
+			NkVec3f avgN{0.f, 0.f, 0.f};
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < nf0; ++f) {
+				if (!faces[f].alive)
+					continue;
+				loop.Clear();
+				GetFaceVerts((NkEmId)f, loop);
+				const uint32 n = (uint32)loop.Size();
+				if (n < 3)
+					continue;
+				bool sel = true;
+				for (uint32 k = 0; k < n && sel; ++k)
+					sel = (loop[k] < (NkEmId)nv0) && verts[loop[k]].sel != 0;
+				if (!sel)
+					continue;
+				selFaces.PushBack((NkEmId)f);
+				for (uint32 k = 0; k < n; ++k)
+					selVerts.PushBack(loop[k]);
+				selStart.PushBack((uint32)selVerts.Size());
+				avgN = avgN + NkEmFaceCross(verts[loop[0]].pos, verts[loop[1]].pos, verts[loop[2]].pos);
+			}
+			if (selFaces.Empty())
+				return false;
+			{
+				const float32 l = avgN.Len();
+				avgN = (l > 1e-6f) ? avgN * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+			}
+
+			// -- 2. Offset AUTO : bbox de TOUS les sommets ------------------------
+			// Tous, y compris ceux qu'aucune face ne touche : c'est ce que fait le
+			// chemin actuel (`pv` contient l'integralite du tableau de sommets), et une
+			// bbox restreinte donnerait un autre offset, donc une autre geometrie.
+			float32 off = p.offset;
+			if (off < 0.f) {
+				NkVec3f bmn{1e30f, 1e30f, 1e30f}, bmx{-1e30f, -1e30f, -1e30f};
+				for (uint32 i = 0; i < nv0; ++i) {
+					const NkVec3f q = verts[i].pos;
+					bmn.x = (q.x < bmn.x ? q.x : bmn.x);
+					bmn.y = (q.y < bmn.y ? q.y : bmn.y);
+					bmn.z = (q.z < bmn.z ? q.z : bmn.z);
+					bmx.x = (q.x > bmx.x ? q.x : bmx.x);
+					bmx.y = (q.y > bmx.y ? q.y : bmx.y);
+					bmx.z = (q.z > bmx.z ? q.z : bmx.z);
+				}
+				off = (bmx - bmn).Len() * 0.08f;
+			}
+
+			// -- 3. Normales par sommet, restreintes a la SELECTION ---------------
+			NkVector<NkVec3f> vertN;
+			if (p.direction == NkExtrudeParams::AlongNormals) {
+				NkVector<uint32> cano;
+				BuildVertexMerge(cano);
+				auto cn = [&](uint32 v) { return (v < (uint32)cano.Size()) ? cano[v] : v; };
+				NkVector<NkVec3f> acc;
+				acc.Resize(nv0);
+				for (uint32 i = 0; i < nv0; ++i)
+					acc[i] = {0.f, 0.f, 0.f};
+				for (uint32 s = 0; s < (uint32)selFaces.Size(); ++s) {
+					const uint32 b = selStart[s], e = selStart[s + 1];
+					const NkVec3f fn =
+						NkEmFaceCross(verts[selVerts[b]].pos, verts[selVerts[b + 1]].pos, verts[selVerts[b + 2]].pos);
+					for (uint32 k = b; k < e; ++k) {
+						const uint32 r = cn(selVerts[k]);
+						if (r < nv0)
+							acc[r] = acc[r] + fn;
+					}
+				}
+				vertN.Resize(nv0);
+				for (uint32 i = 0; i < nv0; ++i) {
+					const uint32 r = cn(i);
+					NkVec3f n = (r < nv0) ? acc[r] : NkVec3f{0.f, 0.f, 0.f};
+					const float32 l = n.Len();
+					vertN[i] = (l > 1e-6f) ? n * (1.f / l) : avgN;
+				}
+			}
+			auto extrudePos = [&](const NkVec3f &base, uint32 srcIdx) -> NkVec3f {
+				if (p.direction == NkExtrudeParams::ToCursor) {
+					const NkVec3f d = p.target - base;
+					const float32 t = (p.offset > 0.f) ? p.offset : 1.f;
+					return base + d * (t > 1.f ? 1.f : t);
+				}
+				if (p.direction == NkExtrudeParams::AlongNormals && srcIdx < (uint32)vertN.Size())
+					return base + vertN[srcIdx] * off;
+				return base + avgN * off;
+			};
+
+			// -- 4. Copies des sommets de la region -------------------------------
+			NkVector<int32> vmap;
+			vmap.Resize(nv0);
+			for (uint32 i = 0; i < nv0; ++i)
+				vmap[i] = -1;
+			NkVector<uint8> vsel;
+			vsel.Resize(nv0);
+			for (uint32 i = 0; i < nv0; ++i)
+				vsel[i] = 0;
+			for (uint32 k = 0; k < (uint32)selVerts.Size(); ++k) {
+				const uint32 vi = selVerts[k];
+				if (vi >= nv0 || vmap[vi] >= 0)
+					continue;
+				vmap[vi] = (int32)verts.Size();
+				Vert nvv = verts[vi];
+				nvv.pos = extrudePos(verts[vi].pos, vi);
+				// MEME REPLI DE TANGENTE QUE ToPolygons : une tangente degeneree y est
+				// remplacee par une orthogonale construite depuis la normale. Ne pas le
+				// faire ici laisserait aux copies une tangente que l'ancien chemin
+				// n'aurait jamais produite — invisible sur la topologie, visible au rendu.
+				nvv.tangent = (verts[vi].tangent.Dot(verts[vi].tangent) > 1e-12f)
+								  ? verts[vi].tangent
+								  : NkEmOrthoTangent(verts[vi].normal);
+				nvv.hedge = NK_EM_INVALID;
+				nvv.diskEdge = NK_EM_INVALID;
+				nvv.sel = 1;
+				nvv.selOrder = 0;
+				verts.PushBack(nvv);
+				vsel.PushBack(1);
+			}
+
+			// -- 5. Aretes ORIENTEES de la region ---------------------------------
+			// Une arete est INTERIEURE a la region si son opposee (b,a) appartient
+			// aussi a une face selectionnee. Seules les autres engendrent une paroi.
+			NkEmFlatMap selDir((uint32)selVerts.Size());
+			for (uint32 s = 0; s < (uint32)selFaces.Size(); ++s) {
+				const uint32 b = selStart[s], e = selStart[s + 1], n = e - b;
+				for (uint32 k = 0; k < n; ++k)
+					selDir.Insert(((uint64)selVerts[b + k] << 32) | (uint64)selVerts[b + (k + 1u) % n], 1u);
+			}
+
+			// -- 6. LE CAPUCHON : la face selectionnee MONTE ----------------------
+			// Elle garde son identite, son materiau et son ombrage ; seules ses
+			// demi-aretes changent de sommet d'origine. C'est tout ce que « en place »
+			// veut dire — et c'est ce que l'aller-retour obtenait en reconstruisant
+			// l'integralite du maillage.
+			for (uint32 s = 0; s < (uint32)selFaces.Size(); ++s) {
+				const NkEmId f = selFaces[s];
+				const NkEmId start = faces[f].hedge;
+				NkEmId h = start;
+				uint32 garde = 0;
+				do {
+					const uint32 o = hedges[h].origin;
+					if (o < nv0 && vmap[o] >= 0)
+						hedges[h].origin = (NkEmId)vmap[o];
+					h = hedges[h].next;
+				} while (h != start && h != NK_EM_INVALID && ++garde < 100000u);
+			}
+
+			// -- 7. LES PAROIS : un quad par arete de BORD de region --------------
+			for (uint32 s = 0; s < (uint32)selFaces.Size(); ++s) {
+				const NkEmId f = selFaces[s];
+				// Lus AVANT tout PushBack sur `faces` : une reference y survivrait mal
+				// a une reallocation, et le piege a deja ete paye ailleurs.
+				const uint16 mat = faces[f].material;
+				const uint8 sm = faces[f].smooth;
+				const uint32 b = selStart[s], e = selStart[s + 1], n = e - b;
+				for (uint32 k = 0; k < n; ++k) {
+					const uint32 a = selVerts[b + k], c = selVerts[b + (k + 1u) % n];
+					if (selDir.Find(((uint64)c << 32) | (uint64)a))
+						continue; // arete interieure : deux faces selectionnees la portent
+					if (a >= nv0 || c >= nv0 || vmap[a] < 0 || vmap[c] < 0)
+						continue;
+					const uint32 quad[4] = {a, c, (uint32)vmap[c], (uint32)vmap[a]};
+					const NkEmId h0 = (NkEmId)hedges.Size();
+					const NkEmId gf = (NkEmId)faces.Size();
+					for (uint32 q = 0; q < 4u; ++q) {
+						Hedge he;
+						he.origin = (NkEmId)quad[q];
+						he.next = h0 + ((q + 1u) % 4u);
+						he.face = gf;
+						he.alive = 1;
+						hedges.PushBack(he);
+					}
+					Face fa;
+					fa.hedge = h0;
+					fa.alive = 1;
+					fa.material = mat; // heritage de la face MERE, comme le chemin actuel
+					fa.smooth = sm;
+					faces.PushBack(fa);
+				}
+			}
+
+			// -- 8. Remise en etat, et rien de plus -------------------------------
+			// ⚠ ETAPE 2, PHASE A : `LinkTwins` et `RecomputeNormals` restent GLOBAUX.
+			// Ils sont en O(maillage), donc l'operation ne l'est pas encore ; ce qui a
+			// disparu, c'est l'aller-retour par la soupe de polygones et la
+			// reconstruction integrale des sommets et des demi-aretes. Les localiser
+			// est la phase suivante — separee, pour qu'une divergence sache dire
+			// laquelle des deux l'a causee.
+			CompactDead();
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
+				verts[i].hedge = NK_EM_INVALID;
+			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
+				if (!hedges[h].alive)
+					continue;
+				const NkEmId o = hedges[h].origin;
+				if (o < (NkEmId)verts.Size() && verts[o].hedge == NK_EM_INVALID)
+					verts[o].hedge = (NkEmId)h;
+			}
+			// MEME POST-CONDITION QUE L'ANCIEN CHEMIN : `BuildFromPolygons` appelle
+			// Clear(), donc la liste d'aretes et l'identite soudee repartent vides et
+			// le prochain RebuildEdges les repose. Les maintenir ici serait un autre
+			// chantier, et le melanger a celui-ci empecherait de dire lequel a casse.
+			edges.Clear();
+			canonOf.Clear();
+			LinkTwins();
+			RecomputeNormals();
+			ApplyVertSel(vsel);
+			return true;
+		}
+
 		bool NkEditMesh::ExtrudeSelectedFaces(const NkExtrudeParams &p) {
+			// ⚠ LE BRANCHEMENT VERS `ExtrudeSelectedFacesInPlace` A ETE RETIRE, ET
+			// C'EST UNE DECISION QUI REPOSE SUR UNE MESURE, PAS SUR UN DOUTE.
+			// La version en place est JUSTE — le harnais l'atteste ligne a ligne
+			// (famille `enplace/`) — mais elle est aujourd'hui PLUS LENTE sur une
+			// edition locale : x1,16 a x1,40, mesure en normalisant par un temoin du
+			// meme lancement. Elle ne gagne (x1,25) que lorsque la region couvre tout
+			// le maillage.
+			// La raison est entierement connue : quatre passes de remise en etat
+			// heritees du chemin par la soupe de polygones restent en O(MAILLAGE) —
+			// reconstruction globale de `Vert::hedge`, `CompactDead`, `LinkTwins`,
+			// `RecomputeNormals`. Sonde a 65 536 faces : les desactiver toutes fait
+			// tomber l'operation de 35,9 a 13,9 ms, et les 13,9 restants sont la
+			// seule reconstruction de `Vert::hedge`.
+			// ⚠ Supprimer l'aller-retour n'etait donc PAS l'endroit du gain. Tant que
+			// ces quatre passes ne sont pas localisees, brancher ce chemin
+			// RALENTIRAIT l'editeur. On garde le code, prouve, et on branche quand il
+			// gagnera.
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			// MATERIAU PAR FACE : les faces non touchees gardent leur index, la face
