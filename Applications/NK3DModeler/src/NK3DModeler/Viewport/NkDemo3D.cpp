@@ -13877,6 +13877,81 @@ namespace nkentseu {
 			if (st && ms)
 				Demo3D_SyncFromHE(st, ms);
 		}
+		// ── TRANSFORMATION DE L'OBJET ACTIF : UNE PORTE, DEUX ESPACES ───────
+		// Le panneau « Transformation » lisait et reecrivait la vue DORMANTE : il
+		// n'affichait donc pas l'objet selectionne et ses champs ne commandaient
+		// rien. C'est le premier panneau de la serie qui MENT au lieu de se taire
+		// -- les trois precedents etaient muets, celui-ci affiche des valeurs
+		// fausses comme si elles etaient justes.
+		//
+		// ⚠️ ET IL Y A DEUX ESPACES D'INDICES : les objets de DEMO
+		// (`Demo3DHostObjectTransform`, i < kNumObj) et les noeuds de
+		// L'UTILISATEUR (`Demo3DHostEmptyTransform`, node >= 90). Le panneau ne
+		// doit pas les connaitre : la resolution vit ICI, comme pour la cible
+		// d'edition. Laisser deux espaces fuir dans le shell, c'est garantir
+		// qu'un jour l'un des deux sera oublie.
+		// PRIORITE au noeud utilisateur : c'est lui que l'utilisateur cree et
+		// selectionne ; les objets de demo ne sont selectionnables que faute de
+		// mieux.
+		bool Demo3DHostActiveTransform(float32 *pos3, float32 *rotDeg3, float32 *scl3) {
+			if (!pos3 || !rotDeg3 || !scl3)
+				return false;
+			const int32 node = Demo3DHostSelectedEmptyNode();
+			if (node >= 0 && Demo3DHostEmptyTransform(node, pos3, rotDeg3, scl3))
+				return true;
+			const int32 i = Demo3DHostActiveObject();
+			return i >= 0 && Demo3DHostObjectTransform(i, pos3, rotDeg3, scl3);
+		}
+		// NK_XFORM_TRACE=1 : imprime UNE FOIS ce que le panneau lira.
+		// Le temoin en PIXELS du panneau « Transformation » exige de commuter la
+		// page des proprietes, ce qu'aucun levier headless ne sait faire
+		// aujourd'hui. Faute de quoi la mesure se fait ICI, a la porte que le
+		// panneau appelle -- et le recoupement est SEMANTIQUE : la position lue
+		// doit EGALER celle ou l'objet a ete pose (NK_CURSOR3D), pas seulement
+		// « avoir change ».
+		void Demo3DHostXformTrace() {
+			static bool fait = false;
+			if (fait || !getenv("NK_XFORM_TRACE"))
+				return;
+			fait = true;
+			float32 p[3] = {0, 0, 0}, r[3] = {0, 0, 0}, c[3] = {0, 0, 0};
+			const bool ok = Demo3DHostActiveTransform(p, r, c);
+			// NK_XFORM_SET="x,y,z" : ECRIT par la MEME porte que le panneau, pour
+			// prouver le second sens -- les champs doivent COMMANDER, pas
+			// seulement afficher. Un panneau qui affiche juste sans commander
+			// reste un panneau mort ; l'inverse est un panneau qui ment.
+			if (const char *xs = getenv("NK_XFORM_SET")) {
+				float32 np[3] = {p[0], p[1], p[2]};
+				int32 k = 0;
+				for (const char *q = xs; k < 3 && *q;) {
+					np[k++] = (float32)atof(q);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				Demo3DHostSetActiveTransform(np, r, c);
+				logger.Info("[Demo3D] TRACE transform ECRITURE : ({0}, {1}, {2})\n", np[0],
+							np[1], np[2]);
+			}
+			logger.Info("[Demo3D] TRACE transform : actif={0} pos=({1}, {2}, {3}) "
+						"rot=({4}, {5}, {6}) ech=({7}, {8}, {9})\n",
+						ok ? 1 : 0, p[0], p[1], p[2], r[0], r[1], r[2], c[0], c[1], c[2]);
+		}
+		void Demo3DHostSetActiveTransform(const float32 *pos3, const float32 *rotDeg3,
+										  const float32 *scl3) {
+			if (!pos3 || !rotDeg3 || !scl3)
+				return;
+			const int32 node = Demo3DHostSelectedEmptyNode();
+			if (node >= 0) {
+				Demo3DHostSetEmptyTransform(node, pos3, rotDeg3, scl3);
+				return;
+			}
+			const int32 i = Demo3DHostActiveObject();
+			if (i >= 0)
+				Demo3DHostSetObjectTransform(i, pos3, rotDeg3, scl3);
+		}
+
 		// ── SELECTION DE MAILLAGE : trois ECRIVAINS, ZERO LECTEUR ───────────
 		// `Viewport3DSelectAll` et `Viewport3DSetSelectMask` ecrivent la selection
 		// de la vue DORMANTE. J'ai cherche qui la LIT hors de cette vue : PERSONNE
