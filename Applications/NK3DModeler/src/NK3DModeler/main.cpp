@@ -1432,6 +1432,43 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_ADD_NODE=<kind>[,sub[,frame]] : CREE UN OBJET dans la scene, par le
+		// meme chemin que le menu « Ajouter » (Demo3DHostAddNode). kind 1..3
+		// generent un vrai maillage ; l'objet nait au curseur 3D.
+		//
+		// POURQUOI CE LEVIER EXISTE (27/08). Le projet de capture ouvert par
+		// NK_OPEN_RECENT=0 est VIDE : la barre d'etat affiche « 0 objet(s), 0
+		// selectionne(s) ». Aucune capture ne pouvait donc montrer un contour de
+		// selection, une carte de relief ni un materiau pose sur une face -- et,
+		// pire, TOUTES les captures sortaient identiques au bit pres. Deux images
+		// identiques « prouvaient » alors qu'un reglage etait mort, alors qu'elles
+		// disaient seulement que rien n'avait jamais ete dessine.
+		// UN INSTRUMENT INERTE CONFIRME LE DEFAUT QU'ON LUI SOUMET, QUEL QU'IL SOIT.
+		// Sans de quoi PEUPLER la scene, les leviers NK_SEL_AT et NK_OUTLINE_THICK
+		// existaient deja mais ne pouvaient rien prouver.
+		{
+			static bool sAddDone = false;
+			if (const char *an = std::getenv("NK_ADD_NODE")) {
+				int32 v[3] = {2, 0, 40};
+				int32 k = 0;
+				for (const char *p = an; k < 3 && *p;) {
+					v[k++] = (int32)std::atoi(p);
+					while (*p && *p != ',')
+						++p;
+					if (*p == ',')
+						++p;
+				}
+				if (!sAddDone && agentFrame >= v[2]) {
+					sAddDone = true;
+					const int32 nd = demo::Demo3DHostAddNode(v[0], v[1]);
+					std::printf("[nk3d] NK_ADD_NODE kind=%d sub=%d frame=%d -> noeud %d\n",
+								(int)v[0], (int)v[1], (int)agentFrame, (int)nd);
+				}
+			} else {
+				sAddDone = true;
+			}
+		}
+
 		// NK_VP_ACTION=<nom>[,frame] : declenche une ACTION DU SHELL (NkVpAction),
 		// par le MEME chemin que le clavier et que les futurs boutons.
 		// ATTENTION, C EST TOUTE LA DIFFERENCE QUE CE TEMOIN MESURE : les crochets

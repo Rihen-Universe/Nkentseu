@@ -10174,6 +10174,16 @@ namespace nkentseu {
 											pickDejaSel ? 1 : 0,
 											(gin.shiftDown || gin.ctrlDown) ? 1 : 0,
 											nSelAvPick, nSelApPick);
+								// POURQUOI le pick n'a rien trouve. « Rien sous le curseur » et
+								// « tout ce qui etait sous le curseur a ete ecarte » donnent le
+								// MEME touche=-1. Les compteurs existaient deja
+								// (nkvpPickDbg, remplis par Demo3D_PickEmptyAt) mais n'etaient
+								// journalises que sur le chemin du LACHER du navigateur --
+								// jamais sur le clic. Un diagnostic qu'aucun chemin courant
+								// n'imprime ne sert qu'a celui qui l'a ecrit.
+								logger.Info("[Demo3D] MESURE pick vue (causes) : occupes={0} ecartes_model={1} caches={2} candidats_mesh={3}\n",
+											nkvpPickDbg[0], nkvpPickDbg[1], nkvpPickDbg[2],
+											nkvpPickDbg[3]);
 							}
 						}
 					if (getenv("NK_SEL_AT")) {
