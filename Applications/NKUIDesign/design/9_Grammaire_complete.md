@@ -148,13 +148,172 @@ Reprises de doc 3 §12.2 (sections **6. Apparence**, **7. Typographie**) et §8t
 | `blur` | `radius`, `backdrop` *(Bool)* |
 | typographie *(dans `appearance` directement)* | `font`, `weight`, `size`, `lineHeight`, `textAlign` |
 
-🔴 **À trancher — les noms des ÉTATS.** `appearance(Hover)` a besoin d'une liste
-fermée. Doc 3 §12.2 les nomme en français : *repos, survol, pressé, désactivé,
-focus*. Le format est en anglais (doc 7 **R1**). La transposition évidente est
-`Idle` · `Hover` · `Pressed` · `Disabled` · `Focus`, **mais personne ne l'a
-écrite**, et un nom d'état est un nom que les utilisateurs apprendront. *Non
-implémenté tant que ce n'est pas dit* : le parseur accepte n'importe quel
-`Identifier` en `state_ref` et ne valide pas la liste.
+### 3.2bis 🔴 Les noms des ÉTATS — proposition, relevé du 2026-08-27
+
+`appearance(Hover)` a besoin d'une liste fermée. Doc 3 §12.2 les nomme en
+français — *repos, survol, pressé, désactivé, focus* — et le format est en
+anglais (doc 7 **R1**). La transposition évidente était
+`Idle · Hover · Pressed · Disabled · Focus`. **Elle a été confrontée à ce qui se
+fait ailleurs avant d'être figée**, parce qu'un nom d'état est un nom que les
+utilisateurs apprendront et qu'ils arriveront ici en connaissant déjà un autre
+outil.
+
+Relevé sur huit outils (CSS/MDN, Figma, Unity uGUI **et** UI Toolkit, Qt QStyle
+**et** feuilles de style, Flutter, SwiftUI, Blender, Godot) et quatre systèmes de
+design (Material 3, Adobe Spectrum, eBay Playbook, SAP Fiori).
+
+*Statut : **proposition**. La liste n'est pas figée tant que Rodolf n'a pas
+tranché. En attendant, le lecteur accepte n'importe quel `Identifier` en
+`state_ref` et ne valide pas la liste.*
+
+#### Ce qui revient partout — le noyau dur
+
+| concept | où, et sous quel nom |
+|---|---|
+| **survol** | `:hover` CSS, Qt, Unity UI Toolkit · `State_MouseOver` Qt · `Highlighted` Unity uGUI · `hovered` Flutter · `hover` Godot, Figma, Material, Spectrum · `MouseOver` WPF |
+| **pressé** | `:active` CSS · `:pressed`/`State_Sunken` Qt · `Pressed` Unity uGUI, Godot, WPF, Figma · `pressed` Flutter, Material · `isPressed` SwiftUI · `UI_SELECT` Blender |
+| **désactivé** | `:disabled` CSS, Qt, Unity UIT · `Disabled` Unity uGUI, Godot, WPF, Figma, Spectrum · `disabled` Flutter, Material |
+| **focus** | `:focus` CSS, Qt, Unity UIT · `focus` Godot, Spectrum · `focused` Flutter, WPF · **absent** de Unity uGUI et du thème Blender |
+| **repos** | `Normal` Unity uGUI, Godot, WPF · `Default` Figma, Spectrum · `Enabled` Material, eBay · **rien du tout** Flutter (`Set` vide) et CSS (sélecteur nu) |
+
+#### La proposition : **quatre noms, et `Idle` disparaît**
+
+> **`Hover` · `Pressed` · `Focus` · `Disabled`**
+
+#### Pourquoi chacun y est
+
+- **`Hover`** — le nom le plus attesté du relevé, et de loin. `Highlighted`
+  (Unity uGUI) est écarté : le même mot sert chez Blender au surlignage
+  **clavier**, il mélange deux choses.
+- **`Pressed`** — attesté chez Unity, Godot, WPF, Figma, Flutter, Material, Qt.
+  Il dit sans ambiguïté ce que CSS appelle `:active`, et **c'est précisément
+  pour éviter ce mot-là** (voir plus bas).
+- **`Focus`** — sans `-ed` : `focus` (CSS, Qt, Unity UIT, Godot, Spectrum, eBay)
+  l'emporte nettement sur `focused` (Flutter, WPF).
+- **`Disabled`** — et il faut dire **pourquoi c'est le membre inconfortable de la
+  liste** : ce n'est pas un état d'interaction. MDN le range avec `:checked` et
+  `:invalid` dans les *« input pseudo-classes »*, pas avec `:hover`/`:active`
+  dans les *« user action pseudo-classes »*. Material ne lui accorde **pas** de
+  *state layer*. Il est ici quand même, parce que Unity, Godot, Qt, Figma,
+  Flutter, WPF et Spectrum le stylent tous, et que **tout le monde cherchera
+  `appearance(Disabled)` en premier**. C'est un choix d'usage assumé contre la
+  taxinomie, pas un oubli.
+
+#### Pourquoi `Idle` n'y est pas — et c'est le changement le plus net
+
+1. **Le mot n'apparaît dans aucun des huit outils.** Pas un. C'est un mot de
+   machine à états ou d'animation, pas de vocabulaire d'interface. Les seuls
+   noms attestés pour le repos sont `Normal` (Unity, Godot, WPF) et `Default`
+   (Figma, Spectrum) — et `Default` est un piège (voir plus bas).
+2. **Le format sait déjà le dire.** `appearance { … }` sans argument **est** le
+   repos. C'est exactement le choix de Flutter (le repos est l'ensemble vide) et
+   de CSS (le sélecteur nu). Ajouter `Idle` créerait **deux façons d'écrire la
+   même chose** — et deux façons d'écrire une chose divergent toujours : un
+   fichier écrirait `appearance`, un autre `appearance(Idle)`, et il faudrait un
+   jour décider laquelle gagne quand les deux sont présentes.
+
+Si un nom explicite est voulu malgré tout, **`Normal`** est le seul défendable :
+trois des outils que les utilisateurs de NkUI connaissent déjà l'emploient.
+
+#### Pourquoi les autres n'y sont pas — les exclusions se justifient
+
+**Écartés parce que le mot est ambigu :**
+
+| mot | pourquoi |
+|---|---|
+| **`Active`** | **le mot le plus toxique du domaine — quatre sens documentés et incompatibles** : CSS `:active` = en cours de pression ; Qt `:active`/`State_Active` = *la fenêtre est active* ; eBay `Active` = la destination courante ; SwiftUI `ControlActiveState.active` = encore l'état de fenêtre. La page de Figma sur les états **se contredit elle-même** : elle dit « Active » dans le texte et sérialise `State=Pressed` dans le tableau. `Pressed` couvre le sens utile sans le piège. |
+| **`Default`** | repos chez Figma/Spectrum/Material, mais **le bouton par défaut d'un dialogue** en CSS (`:default`), en Qt (`:default`) et chez Blender (`UI_BUT_ACTIVE_DEFAULT`). |
+| **`Highlighted`** | survol chez Unity uGUI, surlignage clavier chez Blender. |
+
+**Écartés parce que ce sont des DONNÉES du composant, pas des états d'interaction
+— et c'est la vraie ligne de partage :**
+
+`Checked` · `Selected` · `Indeterminate` · `ReadOnly` · `Error` · `Loading`
+
+> ⚠️ **C'est ce mélange qui rend ces listes ingouvernables ailleurs.** Trois
+> sources le disent, chacune à sa façon :
+>
+> - **CSS**, normativement : deux familles nommées différemment dans le même
+>   standard — *user action* (`:hover`, `:active`, `:focus`) contre *input*
+>   (`:checked`, `:disabled`, `:read-only`, `:indeterminate`, `:invalid`).
+> - **Material 3**, par son mécanisme : la *state layer* n'existe que pour
+>   quatre états — `hover` (0.08), `focus` (0.12), `pressed` (0.12),
+>   `dragged` (0.16). `selected`, `activated`, `error` passent par autre chose.
+> - **Blender**, structurellement : `ThemeWidgetStateColors` désigne
+>   **exclusivement** l'état de la **donnée** (animée, sur une keyframe, pilotée
+>   par un driver, surchargée, modifiée, en erreur). L'interaction n'y figure
+>   pas du tout.
+>
+> **Et Qt montre le prix à payer quand on ne trace pas la ligne : ~45
+> pseudo-états**, dont `:first`, `:middle`, `:only-one`, `:adjoins-item`,
+> `:has-children` — qui ne sont pas des états mais des **positions dans une
+> structure**.
+
+Un état transitoire est **produit par le système d'entrée**, dure de zéro à
+quelques centaines de millisecondes, et ne se sérialise pas. `Checked`,
+`Selected`, `ReadOnly` sont **des propriétés que le programme fixe**, qui
+persistent, et **que le document déclare déjà** (`tristate`, `enabled`, `bind`).
+Les remettre dans `appearance(X)` dupliquerait une information qui vit ailleurs.
+
+**Écartés parce que trop spécifiques à un outil ou à un domaine :**
+
+`Visited` · `Link` · `Target` (CSS seul, propres à l'hypertexte) ·
+`ScrolledUnder` (Flutter seul, c'est une relation de position) ·
+`Inactive` (Unity UI Toolkit seul) · `Pending` (Spectrum seul).
+
+**Le seul écarté qui reviendra frapper : `Dragged`.** Flutter le porte, Material
+lui accorde une *state layer* à part entière (0.16), Spectrum et eBay l'ont
+aussi. Il est absent de CSS, Qt, Unity et Godot. Il n'est pas dans la liste parce
+que **NkUI n'a pas encore de glisser-déposer** — mais c'est **le premier à
+ajouter** le jour où il en aura un, et il est bien un état d'interaction, pas une
+donnée.
+
+#### ⚠️ La question que cette liste NE règle PAS : la combinaison
+
+Une liste fermée sans opérateur de combinaison force à inventer des noms
+composés. **Godot en est la démonstration** : il a dû ajouter `hover_pressed`,
+puis `font_hover_pressed_color`, puis les variantes `_mirrored` — onze StyleBox
+et sept couleurs pour un seul bouton — et documenter une priorité *ad hoc*
+(« disabled, hover et pressed priment sur focus »).
+
+Quatre stratégies existent, et il faudra en choisir une :
+
+| stratégie | qui | ce que ça coûte |
+|---|---|---|
+| chaînage + priorité | CSS (cascade), Qt (**ET logique explicite**, plus une négation `!` : `QPushButton:hover:!pressed`), Unity UI Toolkit | un moteur de priorité |
+| noms composés | Godot (`hover_pressed`) | explosion combinatoire |
+| une seule couche à la fois | Material 3 | simple, **et jamais tranché** — voir ci-dessous |
+| groupes orthogonaux | WPF : `CommonStates` {Normal, MouseOver, Pressed, Disabled} **et** `FocusStates` {Focused, Unfocused}, un état actif dans chaque | il faut décider quelles dimensions sont orthogonales |
+
+> ⚠️ **Material n'a jamais tranché.** Sa spécification dit à un endroit « When
+> multiple states occur at once, such as selection and hover, **both** state
+> indicators should be displayed » et à un autre « **only one** state layer is
+> applied at a time ». Le ticket qui met les deux passages face à face
+> (material-components-android #2003) a été **fermé sans réponse des
+> mainteneurs**. Le système de design le plus documenté du monde laisse la
+> question ouverte : `.nkgui` doit la trancher **explicitement**, pas en hériter.
+
+**Piste** : le relevé penche vers les **groupes orthogonaux**. Godot dessine
+`focus` **par-dessus** l'apparence de base — c'est-à-dire qu'il traite déjà le
+focus comme orthogonal, mais par le rendu au lieu du vocabulaire. WPF le fait par
+le vocabulaire. Les deux arrivent au même endroit.
+
+#### Une seconde limite à nommer tout de suite : le focus clavier
+
+CSS distingue `:focus`, `:focus-visible` (le focus doit être **rendu visible**,
+typiquement au clavier et non à la souris) et `:focus-within`. Qt fait la même
+distinction avec `State_KeyboardFocusChange`, Spectrum avec `focus` **et**
+`keyboard-focus`. Un `Focus` unique fait perdre la distinction souris/clavier —
+qui est aujourd'hui **une exigence d'accessibilité**, pas un raffinement.
+`FocusVisible` est donc le deuxième nom probable, après `Dragged`.
+
+#### Ce que ça débloque
+
+Fermer cette liste est **le seul verrou** qui empêche de fermer
+`appearance(Hover)` — l'en-tête de bloc avec parenthèses, qui reste aujourd'hui
+une **tranche verbatim** dont la validation ne juge pas le contenu. La
+conséquence est mesurée par le contrôle 23e : **la même faute est vue dans
+`appearance` et tue dans `appearance(Hover)`.**
 
 ### 3.3 ⚠️ Le garde-fou, et il fait partie de la décision
 
@@ -666,9 +825,14 @@ resterait « équivalent ».
 1. **La grammaire du thème** (§6.3) — `include "Theme.nkgui"` se lit, sa cible ne
    se résout pas. `NkTheme` (NKEditorKit, 302 lignes) porte déjà des rôles de
    couleur nommés avec héritage : c'est de là qu'il faut partir.
-2. **Les noms des états d'apparence** (§3.2) — le lecteur accepte n'importe quel
-   identifiant en `appearance(X)`. `Idle · Hover · Pressed · Disabled · Focus`
-   est la transposition évidente, mais personne ne l'a écrite.
+2. **Les noms des états d'apparence** (§3.2bis) — le lecteur accepte toujours
+   n'importe quel identifiant en `appearance(X)`, **mais la liste est écrite** :
+   relevé de huit outils le 2026-08-27, et proposition **`Hover · Pressed ·
+   Focus · Disabled`** — `Idle` retiré (il n'existe dans aucun des huit, et
+   `appearance` sans argument le dit déjà). **Reste à trancher par Rodolf**, et
+   avec lui deux questions que la liste ne règle pas : la **combinaison**
+   d'états (Material ne l'a jamais tranchée) et le **focus clavier**
+   (`:focus-visible`), qui est une exigence d'accessibilité.
 3. **La forme du chemin de propriété animée** (§4.3) — `"shadow.blur"` suppose
    qu'on sait désigner la propriété d'un effet empilé. Nommer les blocs d'effet
    (`shadow "portee" { … }`) est **implémenté** et évite l'indice ; rendre ce nom
