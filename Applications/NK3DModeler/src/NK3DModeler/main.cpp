@@ -1432,6 +1432,55 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_VP_ACTION=<nom>[,frame] : declenche une ACTION DU SHELL (NkVpAction),
+		// par le MEME chemin que le clavier et que les futurs boutons.
+		// ATTENTION, C EST TOUTE LA DIFFERENCE QUE CE TEMOIN MESURE : les crochets
+		// NK_EDIT_* parlent DIRECTEMENT a NkDemo3D et fonctionnent ; le chemin du
+		// shell, lui, passe par Viewport3D* et ne fait rien, parce que cette vue
+		// n a pas de device. Un temoin qui emprunterait NK_EDIT_* serait vert des
+		// aujourd hui et ne mesurerait rien.
+		// Le mode EDITION du shell est force ici : c est ce que fait l action
+		// ToggleEdit, et l enchainer demanderait une sequence de crochets pour un
+		// gain nul.
+		{
+			static bool sVpActDone = false;
+			if (const char *vpa = std::getenv("NK_VP_ACTION")) {
+				int32 fr = 140;
+				const char *cm = vpa;
+				while (*cm && *cm != ',')
+					++cm;
+				if (*cm == ',')
+					fr = (int32)std::atoi(cm + 1);
+				if (!sVpActDone && agentFrame >= fr) {
+					sVpActDone = true;
+					auto est = [&](const char *n) -> bool {
+						const char *a = vpa;
+						const char *b = n;
+						while (*b) {
+							char x = *a++, y = *b++;
+							if (x >= 'A' && x <= 'Z')
+								x = (char)(x - 'A' + 'a');
+							if (x != y)
+								return false;
+						}
+						return (*a == 0 || *a == ',');
+					};
+					st.mode = NkMode::Edit;
+					if (est("subdivide"))
+						st.pendingAction = NkVpAction::Subdivide;
+					else if (est("extrude"))
+						st.pendingAction = NkVpAction::Extrude;
+					else if (est("inset"))
+						st.pendingAction = NkVpAction::Inset;
+					else if (est("bevel"))
+						st.pendingAction = NkVpAction::BevelEdge;
+					else if (est("delete"))
+						st.pendingAction = NkVpAction::Delete;
+					else
+						puts("[nk3d] NK_VP_ACTION : nom inconnu, aucune action posee");
+				}
+			}
+		}
 		if (st.pendingAction != NkVpAction::None) {
 			const NkVpAction a = st.pendingAction;
 			st.pendingAction = NkVpAction::None;
@@ -1483,7 +1532,7 @@ int nkmain(const NkEntryState &entry) {
 					if (inModal) {
 						nk3d::Viewport3DModalAxis(0);
 					} else if (edit) {
-						if (nk3d::Viewport3DDeleteSelection())
+						if (demo::Demo3DHostEditDelete())
 							NkMarkDirty(st);
 					} else {
 						const int32 act = nk3d::Viewport3DActiveObject();
@@ -1533,18 +1582,18 @@ int nkmain(const NkEntryState &entry) {
 				// mode objet donnerait des commandes sans effet, donc un journal
 				// d'annulation qui se remplit de riens.
 				case NkVpAction::Extrude:
-					if (edit && nk3d::Viewport3DExtrude(false))
+					if (edit && demo::Demo3DHostEditExtrude(false))
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::ExtrudeIndividual:
-					if (edit && nk3d::Viewport3DExtrude(true))
+					if (edit && demo::Demo3DHostEditExtrude(true))
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::Delete:
 					// Supprime CE QUE le mode designe : les faces selectionnees en
 					// edition, l'objet actif en mode objet.
 					if (edit) {
-						if (nk3d::Viewport3DDeleteSelection())
+						if (demo::Demo3DHostEditDelete())
 							NkMarkDirty(st);
 					} else {
 						const int32 act = nk3d::Viewport3DActiveObject();
@@ -1555,38 +1604,38 @@ int nkmain(const NkEntryState &entry) {
 					}
 					break;
 				case NkVpAction::Dissolve:
-					if (edit && nk3d::Viewport3DDissolve())
+					if (edit && demo::Demo3DHostEditDissolve())
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::Merge:
-					if (edit && nk3d::Viewport3DMerge(0)) // 0 = au centre
+					if (edit && demo::Demo3DHostEditMerge()) // 0 = au centre
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::MakeFace:
-					if (edit && nk3d::Viewport3DMakeFace())
+					if (edit && demo::Demo3DHostEditMakeFace())
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::Subdivide:
-					if (edit && nk3d::Viewport3DSubdivide(1))
+					if (edit && demo::Demo3DHostEditSubdivide())
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::LoopCut:
-					if (edit && nk3d::Viewport3DLoopCut(1))
+					if (edit && demo::Demo3DHostEditLoopCut())
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::Inset:
 					// Epaisseur AUTOMATIQUE, proportionnelle a l'objet : une valeur
 					// fixe donne un inset invisible sur un grand modele et un inset
 					// qui traverse tout sur un petit.
-					if (edit && nk3d::Viewport3DInset(0.1f, 0.f))
+					if (edit && demo::Demo3DHostEditInset())
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::BevelEdge:
-					if (edit && nk3d::Viewport3DBevel(0.1f, 2, false))
+					if (edit && demo::Demo3DHostEditBevel(false))
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::BevelVertex:
-					if (edit && nk3d::Viewport3DBevel(0.1f, 2, true))
+					if (edit && demo::Demo3DHostEditBevel(true))
 						NkMarkDirty(st);
 					break;
 				case NkVpAction::Undo:
