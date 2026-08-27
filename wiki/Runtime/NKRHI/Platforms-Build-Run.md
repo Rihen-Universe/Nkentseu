@@ -255,15 +255,70 @@ l'option passée —
 **Toujours lire cette ligne avant d'interpréter un résultat.** `NkDeviceFactory` en émet une
 équivalente : `[NkDeviceFactory] Device RHI cree: <API>`.
 
-⚠️ Distinguer les deux fabriques — **elles n'ont pas le même contrat** :
+⚠️ **Quatre fonctions, quatre contrats différents — et deux portent le MÊME nom :**
 
-| Fabrique | Honore `init.api` ? | Sites |
+| Fonction | Honore `init.api` ? | Appelants réels |
 |---|---|---|
-| `CreateForApi(api, init)` | **oui** — l'API demandée est celle obtenue | `renderdemo` (`Demo/main.cpp:569`) : `-bvk` **fonctionne** |
-| `CreateWithFallback(init, order)` | 🔴 **non** — `order` gagne toujours | 18 sites dans le dépôt |
+| `NkDeviceFactory::CreateForApi(api, init)` | **oui** | `renderdemo` (`Demo/main.cpp:569`) : `-bvk` **fonctionne** |
+| `NkDeviceFactory::Create(init)` | **oui** — lit `NkDeviceInitApi(init)` (`NkDeviceFactory.cpp:41`), refuse si `NONE` | — |
+| `NkDeviceFactory::CreateWithFallback(init, order)` | 🔴 **non** — `order` gagne toujours | **9** |
+| `NkContextFactory::CreateWithFallback(...)` | *(autre fonction, NKCanvas)* | **5** |
 
 `NkEditorRHIRenderer.h:50-56` documente déjà ce risque et s'en protège en filtrant *avant* l'appel
 (`NkEditorGfxApiSupported`) — c'est le bon patron, il n'est simplement pas généralisé.
+
+#### 🔴 Ce piège a lui-même été « corrigé » à tort — deux fois. Voici la mesure qui tranche.
+
+Cet avertissement a été contesté le 27/08 : *« `NkDeviceFactory::CreateWithFallback` a **zéro
+appelant** ; les occurrences sont celles de `NkContextFactory::CreateWithFallback`, une autre
+fonction ; et `NkDeviceFactory::Create` **lit** bien `init.api` »*. **Les deux dernières affirmations
+sont vraies, la première est fausse**, et l'ensemble mène à une conclusion inverse de la réalité.
+
+Ce qui est mesuré sur `main` :
+
+```
+grep "NkDeviceFactory::CreateWithFallback"  (nom QUALIFIE, hors Build/ Externals/,
+                                             hors sa propre definition, hors commentaires)
+  -> 9 appelants, dont NkRenderer2DDemo.cpp:75 et :79, et NkEditorRHIRenderer.h:98
+
+grep "NkContextFactory::CreateWithFallback"  -> 5 appelants  (fonction DIFFERENTE)
+
+grep "::CreateWithFallback(const" dans Kernel/  -> DEUX fabriques distinctes :
+  NkContextFactory  et  NkDeviceFactory
+```
+
+Et le corps, inchangé :
+
+```cpp
+for (auto api : order) {
+    if (!IsApiSupported(api)) continue;
+    NkDeviceInitInfo effectiveInit = init;
+    effectiveInit.api = api;        // <- init.api ecrase, a chaque tour
+```
+
+**Preuve expérimentale, plus forte que la lecture** : à argument identique (`--backend=vulkan`),
+**en ne changeant que l'ordre de la liste**, le backend obtenu passe de `OpenGL` à `Vulkan`. Si
+`init.api` était honoré, réordonner la liste n'aurait rien pu changer.
+
+> 📌 **La cause de l'erreur est le piège que cette page enseigne ailleurs** : `Create` et
+> `CreateWithFallback` sont deux fonctions du **même** `NkDeviceFactory` aux contrats **opposés**,
+> et `CreateWithFallback` est en plus **homonyme** d'une fonction de `NKCanvas`. Lire l'une et
+> conclure sur l'autre est l'erreur naturelle. **Le nom qualifié n'est pas un luxe :
+> `grep CreateWithFallback` non qualifié mélange deux fabriques.**
+
+#### ✅ Le corollaire qui vaut plus que le piège : **un banc doit LIRE sa configuration, pas l'annoncer**
+
+En allant vérifier cet avertissement, on a découvert que des bancs **annonçaient le backend sans le
+lire** : ils affichaient `NkGraphicsApiName(NK_GFX_API_VULKAN)` — c'est-à-dire ce qu'ils avaient
+**demandé**. Leur affichage était vrai **par accident**, et serait resté vrai en toutes
+circonstances, y compris en mesurant autre chose.
+
+> **Un banc qui annonce sa configuration au lieu de la lire est un banc qui témoigne de son
+> intention.** Il ne peut pas, par construction, révéler l'écart entre ce qu'on a demandé et ce
+> qu'on a obtenu — c'est-à-dire exactement le défaut que cette section décrit.
+
+**Règle** : afficher `dev->GetApi()` (ce que le device **est**), jamais l'API demandée, et **refuser
+de mesurer** si les deux divergent. C'est ce que ces bancs font désormais.
 
 ### 2. Lancer hors de la racine du dépôt fait manquer **tous** les shaders
 
