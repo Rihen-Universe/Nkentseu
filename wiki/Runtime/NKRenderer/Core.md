@@ -9,7 +9,7 @@ texte, 2D, 3D, animation… — qui doivent s'orchestrer dans le bon ordre, chaq
 graphiques différentes. La question n'est jamais « comment dessine-t-on un triangle » (NKRHI s'en
 charge plus bas), mais « **comment assemble-t-on tout ça sans que l'application ait à connaître les
 détails** ». La réponse de NKRenderer tient en un objet : `NkRenderer`, une **façade** qui cache la
-machinerie derrière une poignée de méthodes (`BeginFrame`, `EndFrame`, `Present`) et qui vous donne
+machinerie derrière une poignée de méthodes (`BeginFrame`, `Present`, `EndFrame`) et qui vous donne
 accès aux sous-systèmes quand vous en avez besoin. Cette page décrit ce cœur : la façade, ce qu'on
 lui passe à la création, ce qu'elle renvoie quand ça échoue, et les deux briques de bas niveau —
 le frame graph et le render target — sur lesquelles tout repose.
@@ -50,7 +50,7 @@ les ressources GPU et clampe `framesInFlight` à `[1,3]`), `Shutdown()` pour tou
 pour savoir si l'init a réussi. Ce n'est **pas** un objet RAII silencieux : `Create` ne fait que
 construire, c'est `Initialize` qui peut échouer et qu'il faut vérifier.
 
-Chaque frame suit le rythme **`BeginFrame` → (dessin) → `EndFrame` → `Present`**. `BeginFrame`
+Chaque frame suit le rythme **`BeginFrame` → (dessin) → `Present` → `EndFrame`**. `BeginFrame`
 renvoie un booléen : `false` signifie qu'on doit sauter la frame (swapchain à recréer, par exemple).
 Quand la fenêtre change de taille, on relaie l'événement via `OnResize(width, height)` — typiquement
 depuis le handler de `NkGraphicsContextResizeEvent`. La swapchain elle-même n'est **pas** gérée par
@@ -59,7 +59,7 @@ que lire ses dimensions.
 
 > **En résumé.** `NkRenderer` est la façade abstraite du moteur. On la crée avec
 > `Create(device, cfg)`, on la détruit avec `Destroy(renderer)` (qui annule le pointeur). Cycle :
-> `Initialize` une fois, puis `BeginFrame`/`EndFrame`/`Present` chaque frame, `OnResize` au
+> `Initialize` une fois, puis `BeginFrame`/`Present`/`EndFrame` chaque frame, `OnResize` au
 > redimensionnement. Ce n'est pas du RAII : vérifiez `Initialize()` et `BeginFrame()`.
 
 ### Accéder aux sous-systèmes
@@ -202,7 +202,7 @@ false` si la condition est fausse.
 |-----------|---------|------|
 | Fabrique | `Create(device, cfg)`, `Destroy(renderer&)` | Instancie / détruit (annule le pointeur). |
 | Cycle de vie | `Initialize`, `Shutdown`, `IsValid` | Démarrage / arrêt / état. |
-| Frame | `BeginFrame`, `EndFrame`, `Present` | Rythme d'une frame. |
+| Frame | `BeginFrame`, `Present`, `EndFrame` | Rythme d'une frame. **Dans cet ordre** — `Present` exécute le render graph et soumet, `EndFrame` ne fait que clore la frame device. Cf. [Frame-Contract.md](Frame-Contract.md). |
 | Resize | `OnResize(w, h)` | À relayer depuis l'événement resize. |
 | Sous-systèmes | `GetRender2D/3D`, `GetShadow`, `GetPostProcess`, `GetTextRenderer`, `GetTextures`, `GetShaders`, `GetMaterials`, `GetMeshSystem`, `GetVFX`, `GetAnimation`, `GetOverlay`, `GetSimulation`, `GetRenderGraph`, `GetPlanarReflection`, `GetVoxelAO`, `GetMaterialCollection` | Accès (pointeurs **non possédés**). |
 | Offscreen | `CreateOffscreen(desc)`, `DestroyOffscreen(t&)` | Render-to-texture (annule le pointeur). |
@@ -282,7 +282,7 @@ de l'impl ni des backends. Cela permet d'écrire un même code de jeu qui tourne
 Vulkan en release, simplement en changeant `cfg.api`.
 
 - **Rendu** — la boucle canonique est `BeginFrame` (skip si `false`), on remplit les sous-systèmes
-  (3D via `GetRender3D()->Submit(...)`, 2D via `GetRender2D()`, etc.), puis `EndFrame` et `Present`.
+  (3D via `GetRender3D()->Submit(...)`, 2D via `GetRender2D()`, etc.), puis `Present` et `EndFrame`.
   C'est le renderer qui décide, en interne, dans quel ordre les passes s'enchaînent (via son render
   graph) ; l'application ne fait que **soumettre**.
 - **ECS / scène** — un système de rendu d'ECS parcourt les entités visibles et, pour chacune, appelle
@@ -471,6 +471,37 @@ voulu, mais surprenant pour une passe « à effet de bord » (qui écrit dans un
 elle-même). Dans ce cas, `SetAlwaysExecute(true)`. Autre point : les caches FB/RP sont indexés par
 **nom de passe** (supposé stable d'une frame à l'autre), et libérés par `Reset()`.
 
+#### ⚠️ `Reads(src)` porte **cinq** sens à la fois — n'en retirez jamais un « en trop »
+
+C'est le piège le plus coûteux du graphe, parce que la déclaration a l'air purement descriptive.
+Elle ne l'est pas : `reads` est consommé à **quatre endroits** du code (`NkRenderGraph.cpp:198`,
+`310`, `411`, `765`), et en produit cinq conséquences distinctes.
+
+| # | Sens | Site | Ce qui casse si vous retirez le `Reads` |
+|---|---|---|---|
+| 1 | **Arête d'ordre** — « le dernier écrivain de `src` doit passer avant moi » | `:198` (`TopoSort`/`AddDep`) | La passe peut s'exécuter **avant** son producteur : on lit l'image de la frame précédente |
+| 2 | **Contribution au cycle** — alimente `inDegree` | `:198` | Un `Reads` *ajouté* à tort peut boucler le graphe → `Compile()` renvoie `NK_ERR_VALIDATION_FAILED` |
+| 3 | 🔴 **Semis de vivacité** — marque `src` vivante, donc son producteur vivant | `:310` (`CullDeadPasses`) | **Le producteur est désactivé** (`enabled = false`) et ne s'exécute plus jamais |
+| 4 | **Transition d'état** — bascule `src` en `NK_SHADER_READ` | `:411` (`InsertBarriers`) | Barrière manquante : la ressource est échantillonnée dans le mauvais layout |
+| 5 | **Arête de visualisation** | `:765` (`DumpDOT`) | Le graphe Graphviz ment (le seul sens sans conséquence à l'exécution) |
+
+Le sens **3** est celui qui blesse. `CullDeadPasses` propage la vivacité **à rebours**, et `reads`
+est le **seul** canal de cette propagation : une passe est vivante si elle écrit une ressource
+vivante ; alors seulement ses `reads` deviennent vivants à leur tour, ce qui garde ses producteurs
+en vie. Supprimer un `Reads` qui semblait redondant coupe la chaîne : le producteur passe à
+`enabled = false`, sa callback n'est jamais appelée — et **aucune erreur pilote n'est levée**, parce
+qu'il n'y a plus d'appel GPU du tout. Le symptôme est un écran noir, ou une passe (ombres, IBL,
+bloom) silencieusement absente.
+
+> **Règle de survie.** Un `Reads` ne se retire pas parce qu'il « paraît inutile ». Avant d'y
+> toucher, vérifiez les quatre sites ci-dessus. Si une passe doit survivre sans consommateur
+> déclaré, c'est `SetAlwaysExecute(true)` qu'il faut poser — pas un `Reads` qu'il faut enlever.
+
+⚠️ **Défaut relevé (non corrigé)** : `Compile()` appelle `AllocateTransients()` **avant** `TopoSort()`
+et `CullDeadPasses()` (`NkRenderGraph.cpp:381-385`). Les textures transientes des passes qui seront
+ensuite cullées sont donc **allouées quand même** — mémoire GPU réservée pour des passes qui ne
+s'exécuteront jamais.
+
 - **Rendu** — c'est l'usage premier : Shadow → Geometry → Lighting → Transparent → Post → UI →
   Present, chaque passe déclarant ce qu'elle lit (la shadow map en entrée du lighting) et écrit.
 - **GPU / compute** — `AddComputePass` + `WritesStorage` pour une passe de culling GPU ou de
@@ -551,8 +582,8 @@ while (running) {
     r3d->Submit(drawCall);                          // NkDrawCall3D
     r3d->EndScene();
 
-    renderer->EndFrame();
-    renderer->Present();
+    renderer->Present();    // exécute le render graph, ferme le CB, soumet + présente
+    renderer->EndFrame();   // clôt la frame device (avance l'index de frame)
 }
 
 // 4) Resize relayé depuis l'événement fenêtre.
