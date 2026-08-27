@@ -46,8 +46,8 @@ relevé qui doit être vert, viser `valides/`.
 
 ## `valides/` — doivent passer les deux
 
-Relevé du 2026-08-27 (après le correctif d'indentation) : **9 / 9 octet pour
-octet**, **0 erreur**.
+Relevé du 2026-08-27 (après la fermeture de `appearance(État)`) : **10 / 10
+octet pour octet**, **0 erreur**.
 
 | fichier | ce qu'il exerce | attendu |
 |---|---|---|
@@ -60,6 +60,7 @@ octet**, **0 erreur**.
 | `07_apparence.nkgui` | l'**apparence** du document 9 §3 : `appearance`, la typographie, `fill`, `shadow` nommé, et trois surcharges d'état | 0 erreur |
 | `08_indentation_mixte.nkgui` | une **tranche brute indentée autrement** que le bloc qui la précède | 0 erreur |
 | `09_indentation_a_la_main.nkgui` | **sept largeurs d'indentation différentes** dans un seul document — 3 espaces, un tabulateur, 6, 9, 0, une accolade fermante à 5, une tranche brute à 7 | 0 erreur |
+| `10_etats_apparence.nkgui` | les **cinq états** de la liste fermée, et **les deux graphies du repos** (`appearance` nu sur un widget, `appearance(Normal)` sur l'autre) | 0 erreur |
 
 Le seul avertissement du dossier est **le comportement correct** : un vieux
 fichier doit rester ouvrable, sinon on ne peut pas le mettre à jour.
@@ -160,15 +161,24 @@ qu'il reste une tranche verbatim que la validation ne regarde pas.
 
 ## Les limites déclarées, et ce que ce corpus en dit
 
-- **`appearance(Hover)`** — en-tête de bloc avec parenthèses, conservé verbatim,
-  enfants absents de l'archive. **L'usage est réel** : il s'écrit naturellement
-  dès qu'un bouton a un état survolé (`valides/07`). La limite **reste
-  ouverte**, et elle a une conséquence désormais nommée : la validation est
-  **asymétrique**, la même faute est vue dans `appearance` et tue dans
-  `appearance(Hover)`. Ce n'est plus seulement écrit — c'est **mesuré** par le
-  contrôle 23e. La fermer demande d'abord la **liste fermée des états**, que le
-  document 9 §3.2 marque explicitement « à trancher » et que personne n'a
-  écrite : c'est une décision de vocabulaire, pas un travail de code.
+### Levée le 2026-08-27 : `appearance(État)` est modélisé
+
+L'en-tête de bloc avec parenthèses **n'est plus une tranche verbatim**. Son
+contenu est jugé exactement comme celui d'un `appearance` nu, la liste des états
+est fermée (`Normal · Hover · Pressed · Focus · Disabled`), et le chemin des
+diagnostics porte l'état — sans quoi trois `appearance` sur un widget rendraient
+trois diagnostics au chemin identique.
+
+⚠️ **Deux graphies, un seul état, et l'aller-retour tient parce que le modèle ne
+canonise pas.** `appearance { }` et `appearance(Normal) { }` sont synonymes ;
+l'archive retient *laquelle a été écrite*. Les cumuler est signalé
+(`W-ÉTAT-DOUBLE`). `10_etats_apparence.nkgui` exerce les deux.
+
+### Les limites déclarées encore ouvertes
+
+- ~~**`appearance(Hover)`**~~ — **fermée le 2026-08-27**, voir ci-dessus. Ce
+  qu'elle a appris reste vrai et vaut plus que le défaut :
+  **la partie modélisée crie, la partie non modélisée se tait.**
 - **Commentaire inline** (`a /* c */ = 1`) — non conservé. **Aucun usage
   n'apparaît.** En écrivant six fichiers à la main, le commentaire est allé
   chaque fois sur sa propre ligne, jamais entre deux jetons d'une même

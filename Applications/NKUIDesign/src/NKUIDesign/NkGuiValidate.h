@@ -37,6 +37,9 @@
 //   W-ROLE-ALIAS    ancien nom, encore lu, a remplacer             Avertissement
 //   W-ID-DUPLIQUE   deux widgets partagent le meme id (doc 2 §12)  Avertissement
 //   E-EFFET-INCONNU bloc inconnu dans un `appearance` (doc 9 §3.1) Bloquant
+//   E-ETAT-INCONNU  `appearance(X)` ou X n'est pas de la liste
+//                   fermee des etats (doc 9 §3.2bis)               Bloquant
+//   W-ETAT-DOUBLE   le meme etat declare deux fois sur un widget  Avertissement
 //
 //
 // =============================================================================
@@ -508,6 +511,15 @@ namespace nkuidesign {
 				p.Append(" / ");
 			}
 			p.Append(NkString(NkGuiArchive::TypeOf(bloc)));
+			// L'etat fait partie du chemin : sans lui, trois `appearance` sur un
+			// meme widget rendent trois diagnostics au chemin IDENTIQUE, et il faut
+			// compter les lignes pour savoir lequel est en cause.
+			const NkStringView st = NkGuiArchive::StateOf(bloc);
+			if (st.Size() > 0) {
+				p.Append('(');
+				p.Append(NkString(st));
+				p.Append(')');
+			}
 			const NkStringView id = NkGuiArchive::IdOf(bloc);
 			if (id.Size() > 0) {
 				p.Append(" \"");
@@ -540,13 +552,29 @@ namespace nkuidesign {
 		//      TAIT.** Une limite qui protege d'un faux positif ne protege de rien :
 		//      elle cache que c'est le faux positif qu'il fallait traiter.
 		//
-		//  ⚠️ CETTE LIMITE N'EST PAS FERMEE ICI, ET C'EST VOULU. `appearance(Hover)`
-		//     reste une tranche brute, donc son contenu reste NON JUGE. La validation
-		//     devient donc ASYMETRIQUE : `appearance { fill { ... } }` est jugee,
-		//     `appearance(Hover) { fill { ... } }` ne l'est pas. C'est un manque
-		//     NOMME, pas un manque decouvert -- et le fermer demande d'abord la liste
-		//     fermee des etats, que le document 9 §3.2 marque explicitement « a
-		//     trancher » et que personne n'a ecrite.
+		//  ✅ CETTE LIMITE EST FERMEE DEPUIS LE 2026-08-27, et il a fallu DEUX
+		//     choses, pas une : la liste fermee des etats (tranchee par Rodolf),
+		//     et le fait que le LECTEUR modelise enfin `appearance(Etat)` au lieu
+		//     de le garder en tranche verbatim. La validation n'est plus
+		//     asymetrique : la meme faute est vue des deux cotes, avec le meme
+		//     code, la meme ligne et le meme chemin.
+		//
+		//  ⚠️ ET LE MOT `Normal` A OUVERT UNE QUESTION QUE LA LISTE IMPLICITE
+		//     EVITAIT : `appearance { }` et `appearance(Normal) { }` designent-ils
+		//     la meme chose ? **Oui -- synonymes**, et le releve des huit outils le
+		//     dit sans ambiguite : chez tous ceux qui NOMMENT le repos (Unity,
+		//     Godot, WPF, Figma), **le repos nomme EST le socle** -- aucun n'a a la
+		//     fois un socle et un etat de repos distincts.
+		//
+		//     La graphie, elle, appartient au fichier : `$state` est ABSENTE quand
+		//     le fichier n'ecrit pas de parentheses. Le modele ne canonise pas,
+		//     donc l'aller-retour tient pour LES DEUX graphies -- sans quoi
+		//     l'ecrivain devrait en regenerer une et casserait tous les documents
+		//     qui emploient l'autre.
+		//
+		//     Consequence directe, et elle avait besoin de son diagnostic :
+		//     `appearance { }` ET `appearance(Normal) { }` sur le MEME widget sont
+		//     le meme etat declare deux fois -> `W-ETAT-DOUBLE`.
 		//
 		//  ⚠️ LES TYPES NE SONT POSES QUE LA OU LE DOCUMENT LES POSE. Le document 9
 		//     §3.2 n'annote que `offset` (Vec2), `inner` (Bool) et `backdrop` (Bool).
@@ -607,6 +635,58 @@ namespace nkuidesign {
 		/// decide, parce que l'aiguillage doit se lire d'un coup d'oeil.
 		inline bool NkGEstApparence(const NkString &nom) {
 			return nom.Compare("appearance") == 0;
+		}
+
+		// =====================================================================
+		//  LA LISTE FERMEE DES ETATS -- doc 9 §3.2bis, tranchee le 2026-08-27
+		// =====================================================================
+		//  Relevee sur huit outils avant d'etre figee, parce qu'un nom d'etat est
+		//  un nom que les utilisateurs apprendront, et qu'ils arrivent ici en
+		//  connaissant deja un autre outil. Ce qui est DEHORS compte autant que ce
+		//  qui est dedans :
+		//
+		//   - `Idle` : n'existe dans AUCUN des huit. Ecarte.
+		//   - `Active` : **quatre sens documentes et incompatibles** (CSS = presse,
+		//     Qt = la fenetre est active, eBay = destination courante, SwiftUI =
+		//     la fenetre). `Pressed` dit le sens utile sans le piege.
+		//   - `Default` : repos chez Figma/Spectrum, mais **le bouton par defaut
+		//     d'un dialogue** en CSS et en Qt.
+		//   - `Checked`, `Selected`, `ReadOnly`, `Error` : ce sont des **DONNEES**
+		//     du composant, pas des etats d'interaction. CSS les separe
+		//     normativement (*input* contre *user action*), Material ne leur donne
+		//     pas de *state layer*, et le document les declare DEJA (`tristate`,
+		//     `enabled`, `bind`). Qt, qui ne trace pas cette ligne, en a ~45 --
+		//     dont des POSITIONS dans une structure (`:first`, `:only-one`).
+		//
+		//  ⚠️ `Disabled` EST UNE ENTORSE ASSUMEE A CETTE REGLE, ET ELLE RESTE
+		//     ECRITE. Par la ligne ci-dessus il devrait etre dehors : MDN le range
+		//     avec `:checked`, Material ne lui accorde pas de *state layer*. Il est
+		//     dedans parce qu'Unity, Godot, Qt, Figma, Flutter, WPF et Spectrum le
+		//     stylent tous, et que tout le monde cherchera `appearance(Disabled)`
+		//     en premier. **Le jour ou quelqu'un demandera pourquoi `Checked` n'y
+		//     est pas, la reponse est ici** -- et elle doit rester lisible.
+		//
+		//  ⚠️ CE QUE CETTE LISTE NE REGLE PAS : la COMBINAISON (`Hover` ET
+		//     `Pressed`) et le FOCUS CLAVIER (`:focus-visible`). Material n'a
+		//     jamais tranche la premiere ; Godot a paye `hover_pressed`. Les deux
+		//     attendent une decision, et **rien ici ne les prejuge**.
+		inline bool NkGEtatConnu(const NkString &etat) {
+			static const char *kEtats[] = {"Normal", "Hover", "Pressed", "Focus",
+										   "Disabled"};
+			for (uint32 i = 0; i < 5; ++i) {
+				if (etat.Compare(kEtats[i]) == 0) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/// L'etat d'un bloc d'apparence, **repos compris**. Une apparence sans
+		/// parentheses EST `Normal` : c'est ce qui fait des deux graphies des
+		/// synonymes, et c'est le seul endroit qui le dit.
+		inline NkString NkGEtatDe(const NkArchive &bloc) {
+			const NkStringView e = NkGuiArchive::StateOf(bloc);
+			return e.Size() > 0 ? NkString(e) : NkString("Normal");
 		}
 
 		// =====================================================================
@@ -714,8 +794,19 @@ namespace nkuidesign {
 		///    ne dit nulle part.
 		inline void NkGValidateApparence(const NkArchive &bloc, const NkString &parent,
 										 nk_int32 ligne, NkVector<nkentseu::NkGuiDiag> &out) {
-			(void)ligne;
 			const NkString chemin = NkGCheminEnfant(parent, bloc);
+
+			// L'ETAT, contre la liste fermee. Il est juge AVANT le contenu : un
+			// etat inconnu ne rend pas le bloc illisible, et son contenu reste
+			// verifiable -- on doit pouvoir corriger la faute qu'on signale.
+			const NkStringView brut = NkGuiArchive::StateOf(bloc);
+			if (brut.Size() > 0 && !NkGEtatConnu(NkString(brut))) {
+				NkString m(chemin);
+				m.Append(" : etat inconnu '");
+				m.Append(NkString(brut));
+				m.Append("'. Les etats sont Normal, Hover, Pressed, Focus, Disabled");
+				NkGPushDiag(out, "E-ETAT-INCONNU", m, ligne);
+			}
 
 			uint32 an = 0;
 			const NkGSchemaProp *ap = NkGApparenceProps(an);
@@ -814,6 +905,9 @@ namespace nkuidesign {
 			if (!corps) {
 				return;
 			}
+			// Les etats deja rencontres SUR CE WIDGET. Locale a la boucle : un
+			// widget enfant repart d'une liste vide, ses etats sont les siens.
+			NkVector<NkString> etatsVus;
 			for (uint32 c = 0; c < (uint32)corps->array.Size(); ++c) {
 				if (!corps->array[c].IsObject() || !corps->array[c].object) {
 					continue;
@@ -825,6 +919,38 @@ namespace nkuidesign {
 				//    lui et chacun de ses effets -- trois faux positifs sur un
 				//    fichier parfaitement legal.
 				if (NkGEstApparence(NkString(NkGuiArchive::TypeOf(enfant)))) {
+					// ⚠️ LE MEME ETAT DECLARE DEUX FOIS. Consequence directe du fait
+					//    que `appearance { }` et `appearance(Normal) { }` sont
+					//    SYNONYMES : sans ce controle, les deux graphies cohabitent
+					//    sur un widget sans que rien ne le dise. Mesure du
+					//    2026-08-27 : un fichier qui les cumule passait a 0 erreur.
+					//
+					//    AVERTISSEMENT et non erreur, deliberement : dire laquelle
+					//    des deux gagne serait trancher la question de la
+					//    COMBINAISON des etats, qui ne nous appartient pas. On
+					//    signale la redondance sans prejuger de la precedence.
+					const NkString etat = NkGEtatDe(enfant);
+					bool deja = false;
+					for (uint32 v = 0; v < (uint32)etatsVus.Size(); ++v) {
+						if (etatsVus[v].Compare(etat) == 0) {
+							deja = true;
+							break;
+						}
+					}
+					if (deja) {
+						NkString m(chemin);
+						m.Append(" : l'etat '");
+						m.Append(etat);
+						m.Append("' est declare deux fois");
+						if (NkGuiArchive::StateOf(enfant).Size() == 0
+							|| etat.Compare("Normal") == 0) {
+							m.Append(" (`appearance` et `appearance(Normal)` sont le "
+									 "meme etat)");
+						}
+						NkGPushDiag(out, "W-ETAT-DOUBLE", m, corps->array[c].SourceLine());
+					} else {
+						etatsVus.PushBack(etat);
+					}
 					NkGValidateApparence(enfant, chemin, corps->array[c].SourceLine(), out);
 					continue;
 				}

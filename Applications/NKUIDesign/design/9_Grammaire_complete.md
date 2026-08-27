@@ -148,7 +148,64 @@ Reprises de doc 3 §12.2 (sections **6. Apparence**, **7. Typographie**) et §8t
 | `blur` | `radius`, `backdrop` *(Bool)* |
 | typographie *(dans `appearance` directement)* | `font`, `weight`, `size`, `lineHeight`, `textAlign` |
 
-### 3.2bis 🔴 Les noms des ÉTATS — proposition, relevé du 2026-08-27
+### 3.2bis ✅ Les noms des ÉTATS — **tranché le 2026-08-27**
+
+> # `Normal` · `Hover` · `Pressed` · `Focus` · `Disabled`
+>
+> **Décision de Rodolf**, prise sur le relevé ci-dessous. Elle retient les quatre
+> noms proposés et **ajoute `Normal` explicite** : le repos porte un nom au lieu
+> d'être implicite, pour la lisibilité. `Idle` reste écarté pour la raison
+> mesurée — **aucun des huit outils ne l'emploie**.
+
+**Implémenté et mesuré** : le lecteur modélise `appearance(État)`, la validation
+refuse ce qui n'est pas dans la liste (`E-ÉTAT-INCONNU`), et le contenu des blocs
+à état est jugé comme celui des blocs nus. Contrôles 23e et 26a–26g.
+
+#### ⚠️ `appearance { }` et `appearance(Normal) { }` — **synonymes**
+
+`Normal` explicite a ouvert une question que la liste implicite évitait. La
+réponse tient au relevé, pas au goût :
+
+> **Chez tous les outils qui NOMMENT le repos — Unity (`normalColor`), Godot
+> (`normal`), WPF (`Normal` dans `CommonStates`), Figma (`Default`) — le repos
+> nommé EST le socle.** Aucun n'a *à la fois* un socle et un état de repos
+> distincts. CSS n'a même pas de `:normal` : le sélecteur nu est la base.
+
+Un « socle » séparé de « l'état de repos » serait donc une invention sans
+précédent dans les huit outils — et toute la méthode de cette liste a été de ne
+rien inventer.
+
+**Mais la GRAPHIE appartient au fichier.** `$state` est *absente* de l'archive
+quand le fichier n'écrit pas de parenthèses : le modèle **ne canonise pas**, et
+l'écrivain réémet le lexème tel quel — espaces intérieurs compris
+(`appearance(  Normal  )` revient à l'octet).
+
+> ⚠️ **C'est la promesse centrale qui a décidé seule, exactement comme annoncé :**
+> *un document lu et réécrit sans modification rend les mêmes octets.* Si les deux
+> formes existaient et que l'écrivain n'en régénérait qu'une, l'aller-retour
+> casserait pour **tous** les documents employant l'autre. Même raisonnement que
+> `0.50` contre `0.5` : la valeur est une, la forme écrite appartient au fichier.
+> Mesuré par la mutation N4 — l'écrivain qui régénère l'état au lieu de réémettre
+> son lexème : **72 / 73, et le seul contrôle rouge est 26f.**
+
+**Conséquence, et elle avait besoin de son diagnostic** : les cumuler sur un même
+widget déclare deux fois le même état → **`W-ÉTAT-DOUBLE`**. Avertissement et non
+erreur, délibérément : dire *laquelle des deux gagne* reviendrait à trancher la
+question de la **combinaison**, qui reste ouverte.
+
+#### ⚠️ La restriction que la fermeture a failli coûter
+
+La première version acceptait `Ident ( Ident ) {` **partout**. Le contrôle 20 l'a
+attrapée immédiatement : `futurMembre(x) { }` — le membre inconnu d'un fichier
+0.4 — cessait d'être conservé verbatim. **On aurait inventé une structure pour une
+construction qu'on ne connaît pas**, puis jugé son contenu contre un schéma qu'on
+n'a pas : la règle (d) sacrifiée pour fermer une limite. Le §7 est net —
+`appearance_blk := "appearance" ('(' state_ref ')')? …` — l'en-tête parenthésé
+appartient à `appearance` et à lui seul. Contrôle 26g.
+
+---
+
+#### Le relevé qui a fondé la décision
 
 `appearance(Hover)` a besoin d'une liste fermée. Doc 3 §12.2 les nomme en
 français — *repos, survol, pressé, désactivé, focus* — et le format est en
@@ -162,9 +219,8 @@ Relevé sur huit outils (CSS/MDN, Figma, Unity uGUI **et** UI Toolkit, Qt QStyle
 **et** feuilles de style, Flutter, SwiftUI, Blender, Godot) et quatre systèmes de
 design (Material 3, Adobe Spectrum, eBay Playbook, SAP Fiori).
 
-*Statut : **proposition**. La liste n'est pas figée tant que Rodolf n'a pas
-tranché. En attendant, le lecteur accepte n'importe quel `Identifier` en
-`state_ref` et ne valide pas la liste.*
+*Statut : **tranché et implémenté**. Le lecteur modélise l'état, la validation
+le juge contre la liste fermée.*
 
 #### Ce qui revient partout — le noyau dur
 
@@ -176,9 +232,13 @@ tranché. En attendant, le lecteur accepte n'importe quel `Identifier` en
 | **focus** | `:focus` CSS, Qt, Unity UIT · `focus` Godot, Spectrum · `focused` Flutter, WPF · **absent** de Unity uGUI et du thème Blender |
 | **repos** | `Normal` Unity uGUI, Godot, WPF · `Default` Figma, Spectrum · `Enabled` Material, eBay · **rien du tout** Flutter (`Set` vide) et CSS (sélecteur nu) |
 
-#### La proposition : **quatre noms, et `Idle` disparaît**
+#### La proposition d'alors : **quatre noms, et `Idle` disparaît**
 
 > **`Hover` · `Pressed` · `Focus` · `Disabled`**
+>
+> *Rodolf a retenu les quatre et **ajouté `Normal`** — voir en tête de section.
+> Le relevé lui-même désignait ce mot : « si un nom explicite est voulu malgré
+> tout, `Normal` est le seul défendable ».*
 
 #### Pourquoi chacun y est
 
@@ -307,13 +367,16 @@ distinction avec `State_KeyboardFocusChange`, Spectrum avec `focus` **et**
 qui est aujourd'hui **une exigence d'accessibilité**, pas un raffinement.
 `FocusVisible` est donc le deuxième nom probable, après `Dragged`.
 
-#### Ce que ça débloque
+#### Ce que ça a débloqué — fait le 2026-08-27
 
-Fermer cette liste est **le seul verrou** qui empêche de fermer
-`appearance(Hover)` — l'en-tête de bloc avec parenthèses, qui reste aujourd'hui
-une **tranche verbatim** dont la validation ne juge pas le contenu. La
-conséquence est mesurée par le contrôle 23e : **la même faute est vue dans
-`appearance` et tue dans `appearance(Hover)`.**
+Fermer cette liste était **le seul verrou** devant `appearance(Hover)`. Il est
+levé : l'en-tête parenthésé n'est plus une tranche verbatim, son contenu est jugé,
+et **la validation n'est plus asymétrique**.
+
+Le contrôle 23e, qui *figeait* l'asymétrie (« 1 diagnostic, pas 2 »), a été
+**retourné** : il exige désormais **2** diagnostics, chacun avec sa ligne **et son
+état dans le chemin**. Même fichier, même faute, chiffre inverse — c'est la mesure
+de la fermeture, pas une nouvelle affirmation.
 
 ### 3.3 ⚠️ Le garde-fou, et il fait partie de la décision
 
@@ -825,14 +888,21 @@ resterait « équivalent ».
 1. **La grammaire du thème** (§6.3) — `include "Theme.nkgui"` se lit, sa cible ne
    se résout pas. `NkTheme` (NKEditorKit, 302 lignes) porte déjà des rôles de
    couleur nommés avec héritage : c'est de là qu'il faut partir.
-2. **Les noms des états d'apparence** (§3.2bis) — le lecteur accepte toujours
-   n'importe quel identifiant en `appearance(X)`, **mais la liste est écrite** :
-   relevé de huit outils le 2026-08-27, et proposition **`Hover · Pressed ·
-   Focus · Disabled`** — `Idle` retiré (il n'existe dans aucun des huit, et
-   `appearance` sans argument le dit déjà). **Reste à trancher par Rodolf**, et
-   avec lui deux questions que la liste ne règle pas : la **combinaison**
-   d'états (Material ne l'a jamais tranchée) et le **focus clavier**
-   (`:focus-visible`), qui est une exigence d'accessibilité.
+2. ✅ **Les noms des états d'apparence** (§3.2bis) — **tranché et implémenté le
+   2026-08-27** : `Normal · Hover · Pressed · Focus · Disabled`. La limite
+   `appearance(Hover)` est fermée avec.
+
+   ⚠️ **Deux questions restent ouvertes, et la liste ne les préjuge pas :**
+   - la **combinaison** d'états (`Hover` ET `Pressed`). Quatre stratégies
+     existent ; **Material ne l'a jamais tranchée** (spécification
+     contradictoire, ticket fermé sans réponse) et **Godot a payé
+     `hover_pressed`** — onze StyleBox pour un bouton. Le relevé penche vers les
+     **groupes orthogonaux** (WPF). C'est pour ne pas la préjuger que
+     `W-ÉTAT-DOUBLE` est un *avertissement* et non une erreur ;
+   - le **focus clavier** (`:focus-visible` en CSS, `keyboard-focus` chez
+     Spectrum, `State_KeyboardFocusChange` en Qt). Un `Focus` unique perd la
+     distinction souris/clavier, **qui est une exigence d'accessibilité**.
+     `FocusVisible` est le nom probable, après `Dragged`.
 3. **La forme du chemin de propriété animée** (§4.3) — `"shadow.blur"` suppose
    qu'on sait désigner la propriété d'un effet empilé. Nommer les blocs d'effet
    (`shadow "portee" { … }`) est **implémenté** et évite l'indice ; rendre ce nom

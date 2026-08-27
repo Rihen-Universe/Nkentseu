@@ -626,6 +626,87 @@ balayage qui ne descend pas rend `0`, un balayage qui ne lit rien rend `2` :
 **seul un balayage qui a vraiment atteint le fond rend `1`.**
 
 
+### `appearance(État)` cesse d'être une tranche verbatim — 2026-08-27
+
+**Le manque.** `LooksLikeBlock` n'acceptait que `Ident [Str] {`. `appearance(Hover) {`
+tombait donc dans `Raw` — une tranche de source conservée telle quelle. Le fichier
+revenait à l'octet (**une tranche verbatim revient toujours à l'octet**) et son
+contenu n'était jamais jugé.
+
+> **La partie modélisée crie, la partie non modélisée se tait.** La même faute
+> était vue dans `appearance` et se taisait dans `appearance(Hover)`. Mesuré, pas
+> supposé : même fichier, même faute, `1 erreur` d'un côté et `0` de l'autre.
+
+**Ce qui a débloqué** : la liste fermée des états, tranchée par Rodolf —
+`Normal · Hover · Pressed · Focus · Disabled` — après un relevé de huit outils.
+
+**Ce qui a été ajouté** : une clé réservée `$state`, son littéral portant la
+parenthèse entière telle qu'écrite, et `StateOf()`.
+
+#### ⚠️ La question que `Normal` a ouverte, et que la promesse a tranchée seule
+
+`appearance { }` et `appearance(Normal) { }` désignent-ils la même chose ?
+**Oui — synonymes.** Chez tous les outils qui *nomment* le repos (Unity, Godot,
+WPF, Figma), **le repos nommé EST le socle** ; aucun n'a à la fois un socle et un
+repos distincts, et CSS n'a même pas de `:normal`.
+
+Mais deux graphies pour un sens, dans un format dont la promesse est l'octet, ne
+tiennent qu'à une condition : **le modèle ne canonise pas.** `$state` est
+*absente* quand le fichier n'écrit pas de parenthèses, et l'écrivain réémet le
+lexème — espaces intérieurs compris. Sans ça, il faudrait en régénérer une, et
+tous les documents employant l'autre cesseraient de revenir à l'octet. **Même
+mécanisme que `0.50` contre `0.5`, et c'est bien le même : `literal`.**
+
+Conséquence qui avait besoin de son diagnostic : les cumuler déclare deux fois le
+même état → `W-ÉTAT-DOUBLE`. **Avertissement et non erreur**, délibérément — dire
+laquelle gagne trancherait la question de la *combinaison* d'états, qui reste
+ouverte et ne nous appartient pas.
+
+#### ⚠️ Le contrôle 20 a rattrapé une erreur de conception, pas une régression
+
+La première version acceptait `Ident ( Ident ) {` **partout**. `futurMembre(x) { }`
+— le membre inconnu d'un fichier 0.4 — cessait alors d'être conservé verbatim :
+**on inventait une structure pour une construction qu'on ne connaît pas**, puis on
+jugeait son contenu contre un schéma qu'on n'a pas. **La règle (d) sacrifiée pour
+fermer une limite.** Le document 9 §7 est net : seul `appearance` porte un
+`(État)`. D'où `HeadTakesState()`, un prédicat nommé dont la raison est écrite
+au-dessus.
+
+#### Le relevé
+
+| banc | avant | après |
+|---|---|---|
+| NKUIDesign contrôles | 66 / 66 | **73 / 73** |
+| corpus `valides/` | 9 / 9 à l'octet | **10 / 10 à l'octet** |
+| `SandboxNKArchive` | 352 / 352 | 352 / 352 |
+| `SandboxNKSerialization` | 63 / 63 + 1 dette | 63 / 63 + 1 dette |
+| sonde | 103 / 103 | 103 / 103 |
+| pool | 573 / 573 | 573 / 573 |
+
+Le contrôle **23e a été retourné** : il figeait l'asymétrie (« 1 diagnostic, pas
+2 ») et exige désormais **2** diagnostics, chacun avec sa ligne *et son état dans
+le chemin*. Même fichier, même faute, chiffre inverse.
+
+#### Cinq mutations, cinq tuées — et chacune ne touche qu'un contrôle ou deux
+
+| mutation du code testé | résultat |
+|---|---|
+| **N1** — la liste accepte tout | 71 / 73, rouges **26b et 26c** (26a reste vert : « 0 diagnostic » est une absence) |
+| **N2** — le doublon n'est plus signalé | 71 / 73, rouges 26d et 26e |
+| **N3** — `appearance` nu n'est plus `Normal` | 72 / 73, rouge **26d seul** |
+| **N4** — l'écrivain **régénère** l'état au lieu de réémettre son lexème | 72 / 73, rouge **26f seul** |
+| **N5** — l'en-tête parenthésé redevient générique | 72 / 73, rouge **20 seul** |
+
+⚠️ **N4 est celle qui comptait.** C'est exactement le mode de rupture prévu — « si
+l'écrivain n'en régénère qu'une, l'aller-retour casse pour les documents qui
+emploient l'autre » — et **un seul contrôle du banc le voit**. Sans 26f, la
+promesse d'octet reposait sur un commentaire.
+
+⚠️ **N1 redit la leçon du matin** : 26a (« les cinq passent, 0 diagnostic ») est
+une **absence**, donc satisfaite par une liste qui accepterait tout. Ce sont 26b
+et 26c — deux contrôles de **refus** — qui la tiennent.
+
+
 ### Tests — suite standalone
 [test_smoke.cpp](tests/test_smoke.cpp) — 15 tests sans framework externe :
 1. Archive flat (Set/Get scalars, Remove, Has).

@@ -518,6 +518,41 @@ namespace nkuidesign {
 				}
 			};
 
+			/// L'aller-retour qui exige les MEMES OCTETS et MONTRE ce qu'il a emis
+			/// quand il echoue. Sans la sortie sous les yeux, un ecart de mise en
+			/// forme se diagnostique a l'aveugle.
+			///
+			/// ⚠️ IL VIT ICI, ET NON DANS LA FAMILLE QUI L'A FAIT NAITRE (24), PARCE
+			///    QUE LA FAMILLE 26 EN A EU BESOIN LE JOUR MEME. Le recopier aurait
+			///    refait le piege que V6 a puni : un mecanisme present a deux endroits
+			///    n'est corrige qu'a un seul.
+
+			// L'aller-retour qui MONTRE ce qu'il a emis quand il echoue. Sans
+			// la sortie sous les yeux, un ecart d'indentation se diagnostique
+			// a l'aveugle.
+			auto memeOctets = [&](const char *label, const char *src) {
+				NkArchive d;
+				NkGuiDiag e;
+				if (!parse(src, d, e)) {
+					check(label, false, "refuse a la lecture");
+					rep.Append("      message : ");
+					rep.Append(e.message);
+					rep.Append('\n');
+					return;
+				}
+				const NkString out =
+					NkGuiArchive::Write(d, NkGDetectStyle(src, len(src)));
+				const bool ok = (out.Compare(NkString(src)) == 0);
+				check(label, ok, ok ? "" : "reemis autrement");
+				if (!ok) {
+					rep.Append("      --- attendu (la source, ecrite a la main) ---\n");
+					rep.Append(src);
+					rep.Append("      --- reemis ---\n");
+					rep.Append(out);
+					rep.Append("      ---\n");
+				}
+			};
+
 			// 1. Le temoin de bruit.
 			//
 			// ⚠️ IL A ETE VERT SUR UN ECRIVAIN MORT jusqu'au 2026-08-27, et c'est
@@ -1653,18 +1688,20 @@ namespace nkuidesign {
 			}
 
 			{
-				// ⚠️ LA LIMITE DECLAREE, MESUREE PLUTOT QU'AFFIRMEE -- ET ELLE RESTE
-				//    OUVERTE. `appearance(Hover)` reste une TRANCHE VERBATIM : son
-				//    contenu n'est pas juge. La validation est donc ASYMETRIQUE, et ce
-				//    controle FIGE cette asymetrie au lieu de la laisser se decouvrir :
-				//    la meme faute, ecrite dans `appearance` et dans
-				//    `appearance(Hover)`, sort une fois et une seule.
+				// ⚠️ LA LIMITE EST FERMEE -- ET CE CONTROLE EST L'ANCIEN, RETOURNE.
+				//    Jusqu'au 2026-08-27 il FIGEAIT l'asymetrie : la meme faute,
+				//    ecrite dans `appearance` et dans `appearance(Hover)`, sortait
+				//    **une fois et une seule**, parce que la seconde restait une
+				//    tranche verbatim que la validation ne regardait pas.
 				//
-				//    C'est la forme generale du defaut que ce chantier a trouve :
-				//    **la partie modelisee crie, la partie non modelisee se tait.**
-				//    Ici le silence est CONNU et NOMME, pas subi -- et le fermer
-				//    demande d'abord la liste fermee des etats, que le document 9 §3.2
-				//    marque « a trancher » et que personne n'a ecrite.
+				//    Il exige maintenant **DEUX** diagnostics. Le meme fichier, la
+				//    meme faute, le chiffre inverse : c'est la mesure de la fermeture,
+				//    pas une nouvelle affirmation.
+				//
+				// ⚠️ ET IL VERIFIE QUE LES DEUX PORTENT LEUR LIGNE **ET** LEUR ETAT.
+				//    Deux diagnostics au chemin identique sur un widget qui a trois
+				//    apparences obligeraient a compter les lignes pour savoir lequel
+				//    est en cause -- on aurait ferme la limite en creant une gene.
 				const char *src = "nkgui 0.3\n"
 								  "widgets {\n"
 								  "  Button \"b\" {\n"
@@ -1679,15 +1716,24 @@ namespace nkuidesign {
 				NkGValidate(d, dg);
 
 				uint32 effets = 0;
+				bool surLeNu = false;
+				bool surLEtat = false;
 				for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
-					if (dg[i].code.Compare("E-EFFET-INCONNU") == 0) {
-						++effets;
+					if (dg[i].code.Compare("E-EFFET-INCONNU") != 0) {
+						continue;
+					}
+					++effets;
+					if (dg[i].line == 4 && !dg[i].message.Contains("appearance(")) {
+						surLeNu = true;
+					}
+					if (dg[i].line == 5 && dg[i].message.Contains("appearance(Hover)")) {
+						surLEtat = true;
 					}
 				}
-				check("23e. LIMITE DECLAREE, TOUJOURS OUVERTE : la meme faute est vue dans "
-					  "`appearance` et TUE dans `appearance(Hover)`, qui reste une tranche "
-					  "verbatim -- 1 diagnostic, pas 2",
-					  lu && effets == 1 && dg.Size() == 1, "");
+				check("23e. LIMITE FERMEE (2026-08-27) : la meme faute est vue DES DEUX "
+					  "COTES -- `appearance` (4) et `appearance(Hover)` (5) -- chacune avec "
+					  "sa ligne ET son etat dans le chemin. 2 diagnostics, plus 1",
+					  lu && effets == 2 && surLeNu && surLEtat && dg.Size() == 2, "");
 			}
 
 			{
@@ -1756,31 +1802,6 @@ namespace nkuidesign {
 			//     garde ses octets » ne vaut que collee a « une ligne creee par
 			//     l'editeur recoit une indentation generee ».
 			{
-				// L'aller-retour qui MONTRE ce qu'il a emis quand il echoue. Sans
-				// la sortie sous les yeux, un ecart d'indentation se diagnostique
-				// a l'aveugle.
-				auto memeOctets = [&](const char *label, const char *src) {
-					NkArchive d;
-					NkGuiDiag e;
-					if (!parse(src, d, e)) {
-						check(label, false, "refuse a la lecture");
-						rep.Append("      message : ");
-						rep.Append(e.message);
-						rep.Append('\n');
-						return;
-					}
-					const NkString out =
-						NkGuiArchive::Write(d, NkGDetectStyle(src, len(src)));
-					const bool ok = (out.Compare(NkString(src)) == 0);
-					check(label, ok, ok ? "" : "reemis autrement");
-					if (!ok) {
-						rep.Append("      --- attendu (la source, ecrite a la main) ---\n");
-						rep.Append(src);
-						rep.Append("      --- reemis ---\n");
-						rep.Append(out);
-						rep.Append("      ---\n");
-					}
-				};
 
 				// [A] Une largeur qui n'est pas `profondeur x cran`. Le cran deduit
 				//     vaut 2 (la ligne `  VBox`), la propriete en demande 8.
@@ -2054,6 +2075,184 @@ namespace nkuidesign {
 				NkDirectory::Delete(racine, true);
 				check("25d. le controle 25 ne laisse rien derriere lui",
 					  !NkDirectory::Exists(racine), "");
+			}
+
+			// ================================================================
+			//  26. LA LISTE FERMEE DES ETATS -- tranchee par Rodolf le 2026-08-27
+			// ================================================================
+			//
+			//  `Normal` · `Hover` · `Pressed` · `Focus` · `Disabled`.
+			//
+			//  ⚠️ CE QUE CES CONTROLES TIENNENT N'EST PAS « la liste est bonne » --
+			//     ca, c'est une decision. Ils tiennent qu'elle est **FERMEE** : que
+			//     le format sait dire NON a ce qui n'y est pas. Une liste qu'on
+			//     documente sans la faire respecter est un commentaire.
+			{
+				auto valide = [&](const char *src, NkVector<NkGuiDiag> &dg) {
+					NkArchive d;
+					NkGuiDiag e;
+					if (!parse(src, d, e)) {
+						return false;
+					}
+					NkGValidate(d, dg);
+					return true;
+				};
+
+				// 26a. LES CINQ PASSENT. Un a un, dans un seul fichier.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  Button \"b\" {\n"
+									  "    appearance(Normal) { radius = 1 }\n"
+									  "    appearance(Hover) { radius = 2 }\n"
+									  "    appearance(Pressed) { radius = 3 }\n"
+									  "    appearance(Focus) { radius = 4 }\n"
+									  "    appearance(Disabled) { radius = 5 }\n"
+									  "  }\n"
+									  "}\n";
+					NkVector<NkGuiDiag> dg;
+					const bool lu = valide(src, dg);
+					check("26a. LES CINQ ETATS passent : Normal, Hover, Pressed, Focus, "
+						  "Disabled -- 0 diagnostic",
+						  lu && dg.Size() == 0, "");
+				}
+
+				// ⚠️ 26b. LE TEMOIN DE 26a, ET IL EST INDISPENSABLE. « 0 diagnostic »
+				//     est une ABSENCE : une liste qui accepterait TOUT rendrait 26a
+				//     vert. C'est la lecon du 27/08 au matin appliquee le jour meme.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  Button \"b\" {\n"
+									  "    appearance(Mystere) { radius = 1 }\n"
+									  "  }\n"
+									  "}\n";
+					NkVector<NkGuiDiag> dg;
+					const bool lu = valide(src, dg);
+					bool nomme = false;
+					for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+						if (dg[i].code.Compare("E-ETAT-INCONNU") == 0 && dg[i].line == 4
+							&& dg[i].message.Contains("Mystere")
+							&& dg[i].message.Contains("Normal")) {
+							nomme = true;
+						}
+					}
+					check("26b. TEMOIN -- un etat hors liste est REFUSE, avec sa ligne et "
+						  "la liste dans le message (sinon 26a serait vert sur une liste "
+						  "qui accepte tout)",
+						  lu && dg.Size() == 1 && nomme, "");
+				}
+
+				// ⚠️ 26c. LES ECARTES SONT ECARTES, ET C'EST LA MOITIE DU TRAVAIL.
+				//     Une liste fermee se justifie par ses exclusions autant que par
+				//     ses membres. Ces quatre-la sont les plus tentants -- `Idle`
+				//     (la transposition evidente du doc 3), `Active` (quatre sens
+				//     incompatibles), `Default` (le bouton par defaut en CSS et Qt),
+				//     `Checked` (une DONNEE du composant). Le jour ou l'un d'eux
+				//     entre, ce sera une decision, et ce controle la reclamera.
+				{
+					static const char *kEcartes[] = {"Idle", "Active", "Default", "Checked"};
+					uint32 refuses = 0;
+					for (uint32 i = 0; i < 4; ++i) {
+						NkString src("nkgui 0.3\nwidgets {\n  Button \"b\" {\n    appearance(");
+						src.Append(kEcartes[i]);
+						src.Append(") { radius = 1 }\n  }\n}\n");
+						NkVector<NkGuiDiag> dg;
+						if (valide(src.Data(), dg) && dg.Size() == 1
+							&& dg[0].code.Compare("E-ETAT-INCONNU") == 0) {
+							++refuses;
+						}
+					}
+					check("26c. LES QUATRE ECARTES sont refuses : Idle, Active, Default, "
+						  "Checked -- une liste fermee se justifie par ses exclusions",
+						  refuses == 4, "");
+				}
+
+				// ⚠️ 26d. `appearance { }` ET `appearance(Normal) { }` SONT LE MEME
+				//     ETAT -- la question que le mot `Normal` a ouverte, et la seule
+				//     reponse que le releve autorise : chez TOUS ceux qui nomment le
+				//     repos (Unity, Godot, WPF, Figma), **le repos nomme EST le",
+				//     socle**. Aucun n'a a la fois un socle et un repos distincts.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  Button \"b\" {\n"
+									  "    appearance { radius = 1 }\n"
+									  "    appearance(Normal) { radius = 2 }\n"
+									  "  }\n"
+									  "}\n";
+					NkVector<NkGuiDiag> dg;
+					const bool lu = valide(src, dg);
+					bool dit = false;
+					for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+						if (dg[i].code.Compare("W-ETAT-DOUBLE") == 0 && dg[i].line == 5
+							&& dg[i].message.Contains("Normal")) {
+							dit = true;
+						}
+					}
+					check("26d. `appearance` et `appearance(Normal)` sont LE MEME ETAT : "
+						  "les cumuler est signale (W-ETAT-DOUBLE), pas ignore",
+						  lu && dit, "");
+				}
+
+				// ⚠️ 26e. LE TEMOIN DE 26d -- SANS LUI, UN AVERTISSEMENT POSE SUR
+				//     CHAQUE APPARENCE passerait. Cinq etats DIFFERENTS ne doivent
+				//     produire AUCUN doublon (c'est 26a), et deux `Hover` doivent en
+				//     produire un : le doublon suit l'ETAT, pas le nombre de blocs.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  Button \"b\" {\n"
+									  "    appearance(Hover) { radius = 1 }\n"
+									  "    appearance(Hover) { radius = 2 }\n"
+									  "  }\n"
+									  "  Button \"c\" {\n"
+									  "    appearance(Hover) { radius = 3 }\n"
+									  "  }\n"
+									  "}\n";
+					NkVector<NkGuiDiag> dg;
+					const bool lu = valide(src, dg);
+					check("26e. TEMOIN -- deux `Hover` sur UN widget = 1 doublon ; le `Hover` "
+						  "du widget VOISIN n'en est pas un (la liste est locale au widget)",
+						  lu && dg.Size() == 1
+							  && dg[0].code.Compare("W-ETAT-DOUBLE") == 0 && dg[0].line == 5,
+						  "");
+				}
+
+				// ⚠️ 26f. L'ALLER-RETOUR DES DEUX GRAPHIES, espaces interieurs
+				//     compris. C'est la contrepartie de « le modele ne canonise pas » :
+				//     si l'ecrivain REGENERAIT l'etat au lieu de reemettre son lexeme,
+				//     tous les documents ecrits dans l'autre graphie cesseraient de
+				//     revenir a l'octet. La promesse centrale decide seule.
+				memeOctets("26f. les DEUX graphies reviennent a l'octet, y compris "
+						   "`appearance(  Normal  )` -- l'etat est un lexeme, pas une "
+						   "valeur regeneree",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  Button \"b\" {\n"
+						   "    appearance { radius = 1 }\n"
+						   "    appearance(  Normal  ) { radius = 2 }\n"
+						   "    appearance(Hover) { radius = 3 }\n"
+						   "  }\n"
+						   "}\n");
+
+				// ⚠️ 26g. LA REGLE (d) N'A PAS ETE SACRIFIEE POUR FERMER LA LIMITE.
+				//     La premiere version acceptait `Ident ( Ident ) {` PARTOUT, et le
+				//     controle 20 l'a attrapee : `futurMembre(x) { }` -- le membre
+				//     inconnu d'un fichier 0.4 -- cessait d'etre conserve verbatim.
+				//     **On aurait invente une structure pour une construction qu'on ne
+				//     connait pas.** Le document 9 §7 est net : seul `appearance` porte
+				//     un `(Etat)`. Ce controle tient la restriction a sa place.
+				memeOctets("26g. un en-tete parenthese sur un AUTRE mot que `appearance` "
+						   "reste une tranche verbatim (regle (d)) -- et revient a l'octet",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  Button \"b\" {\n"
+						   "    futurMembre(x) {\n"
+						   "      profondeur = 3\n"
+						   "    }\n"
+						   "  }\n"
+						   "}\n");
 			}
 
 			rep.Append("\n=== CONTROLES : ");

@@ -1,0 +1,74 @@
+nkgui 0.3
+
+// LES CINQ ETATS D APPARENCE -- la liste fermee, tranchee par Rodolf le
+// 2026-08-27 apres un releve de huit outils.
+//
+//     Normal . Hover . Pressed . Focus . Disabled
+//
+// Ce fichier les exerce tous les cinq, et il exerce surtout la question que le
+// mot `Normal` a ouverte :
+//
+// ⚠️ `appearance { }` ET `appearance(Normal) { }` SONT LE MEME ETAT.
+//    Chez tous les outils qui NOMMENT le repos -- Unity, Godot, WPF, Figma --
+//    le repos nomme EST le socle : aucun n a a la fois un socle et un etat de
+//    repos distincts. Les deux graphies sont donc synonymes.
+//
+//    Mais la GRAPHIE appartient au fichier. L archive retient laquelle des deux
+//    a ete ecrite (`$state` est absente quand il n y a pas de parentheses), et
+//    l ecrivain reemet le lexeme tel quel. **Le modele ne canonise pas** --
+//    sinon l aller-retour casserait pour tous les documents ecrits dans
+//    l autre graphie.
+//
+//    Consequence : les CUMULER sur un meme widget est un doublon, et c est
+//    signale (W-ETAT-DOUBLE). Ce fichier ne les cumule donc pas -- `valider`
+//    y voit un widget en graphie nue et un autre en graphie parenthesee.
+//
+// ⚠️ ET CE QUI N EST PAS DANS LA LISTE COMPTE AUTANT : `Idle` (aucun des huit
+//    outils ne l emploie), `Active` (quatre sens incompatibles), `Default`
+//    (le bouton par defaut d un dialogue en CSS et en Qt), `Checked` et
+//    `Selected` (des DONNEES du composant, que le document declare deja).
+//    Voir design/9_Grammaire_complete.md §3.2bis.
+widgets {
+
+  // Le repos en graphie NUE.
+  Button "valider" {
+    label = "Valider"
+
+    appearance {
+      radius = 6
+      font = "Inter"
+      fill { color = #2F6F7A }
+    }
+
+    appearance(Hover) {
+      fill { color = #3A8894 }
+    }
+
+    appearance(Pressed) {
+      fill { color = #24565E }
+    }
+
+    appearance(Focus) {
+      stroke { color = #F79A28, width = 2 }
+    }
+
+    appearance(Disabled) {
+      fill { color = #6B7B7E }
+    }
+  }
+
+  // Le MEME repos, en graphie PARENTHESEE. Les deux fichiers-la doivent revenir
+  // a l octet : c est ce qui prouve que rien n est canonise.
+  Button "annuler" {
+    label = "Annuler"
+
+    appearance(Normal) {
+      radius = 6
+      fill { color = #3A3F44 }
+    }
+
+    appearance(Hover) {
+      fill { color = #4A5056 }
+    }
+  }
+}
