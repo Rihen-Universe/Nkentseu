@@ -5962,14 +5962,53 @@ namespace nkentseu {
 			// Séquence multi-frames : frame0 entrer -> frame1 sélectionner -> frame2 (op).
 			{
 				static int32 gEditDrv = -2;
-				if (gEditDrv == -2)
-					gEditDrv = getenv("NK_EDIT_MODE") ? 0 : -1;
+				// NK_EDIT_MODE=<1>[,frame] : la FRAME D ATTENTE etait indispensable.
+				// Ce bloc se declenchait a la PREMIERE frame -- avant meme que
+				// NK_OPEN_RECENT n ait ouvert le projet (frame 3), et bien avant qu un
+				// NK_ADD_NODE ait pu creer quoi que ce soit. Editer un objet qu on
+				// vient de creer etait donc impossible : l ordre etait fige a l envers.
+				// Sans virgule, comportement d origine (premiere frame).
+				static int32 gEditDrvFrame = 0;
+				++gEditDrvFrame;
+				if (gEditDrv == -2) {
+					const char *em = getenv("NK_EDIT_MODE");
+					if (!em) {
+						gEditDrv = -1;
+					} else {
+						int32 attente = 0;
+						const char *c = em;
+						while (*c && *c != ',')
+							++c;
+						if (*c == ',')
+							attente = atoi(c + 1);
+						if (gEditDrvFrame >= attente)
+							gEditDrv = 0;
+					}
+				}
 				if (gEditDrv == 0) {
 					int32 obj = 16;
 					if (const char *go = getenv("NK_GIZMO_OBJ"))
 						obj = atoi(go);
 					st->gizmo.Select(obj);
 					st->gizmo.SetMode(0);		  // gizmo d'édition en TRANSLATE (flèches pleines)
+					// NK_EDIT_USER=<slot> : entrer en edition sur un objet de
+					// L'UTILISATEUR et non sur un objet de demo.
+					// POURQUOI. NK_EDIT_MODE ne sait viser que `st->gizmo`, l'espace
+					// des objets de DEMO -- or ceux-ci ne sont pas visibles dans le
+					// projet de capture. Trois temoins de suite (contour de selection,
+					// intensite de relief, geometrie annulee) ont bute non pas sur le
+					// code mesure, mais sur l'absence de SUJET VISIBLE. Les objets de
+					// l'utilisateur, eux, se creent (NK_ADD_NODE) et se voient.
+					// L'espace d'indices est l'AUTRE : selEmpty = slot + (96 - 90).
+					// Et `q.selDemo` etant PRIORITAIRE dans la resolution de cible, il
+					// faut VIDER la selection de demo, sinon on editerait le cube 16.
+					if (const char *eu = getenv("NK_EDIT_USER")) {
+						const int32 slot = atoi(eu);
+						if (slot >= 0 && slot < kNkvpMaxUser) {
+							st->gizmo.ClearSelection();
+							st->emptyGizmo.Select(slot + (kNkvpFirstUser - kNkvpEmptyBase));
+						}
+					}
 					st->editTogglePending = true; // consommé juste après -> entre en édition ce frame
 					if (const char *sm = getenv("NK_EDIT_SELMASK")) {
 						int32 m = atoi(sm) & 7;
@@ -6409,6 +6448,13 @@ namespace nkentseu {
 						}
 					}
 					const NkVpEditTarget cible = NkVpResolveEditTarget(q);
+					// TRACE : « la bascule n a pas pris » peut venir de six causes
+					// (mauvaise cible, maillage invalide, nature non editable, noeud
+					// supprime, priorite demo) et elles rendent toutes le meme rien.
+					logger.Info("[Demo3D] TRACE edition : selDemo={0} selEmpty={1} kind={2} meshOk={3} supprime={4} -> cible={5} index={6}\n",
+								q.selDemo, q.selEmpty, (int32)q.userKind,
+								q.userMeshValid ? 1 : 0, q.userDeleted ? 1 : 0,
+								(int32)cible.kind, cible.index);
 					if (cible.kind == NkVpEditKind::Demo)
 						Demo3D_EnterEditOnObject(st, ms, r3d, cible.index);
 					else if (cible.kind == NkVpEditKind::Utilisateur)
