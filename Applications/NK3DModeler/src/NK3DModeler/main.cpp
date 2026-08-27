@@ -1096,7 +1096,10 @@ int nkmain(const NkEntryState &entry) {
 		// l'image N et appliquee a l'image N. L'inverse -- appliquer apres avoir
 		// peint -- ferait toujours voir l'etat precedent, ce qui donne une
 		// interface qui « repond en retard » sans qu'on sache pourquoi.
-		nk3d::Viewport3DSetShading(st.shading, st.solidLight);
+		// L'appel dormant prenait DEUX parametres ; la facade vivante les separe
+		// en deux reglages distincts (mode d'affichage, couleur du mode solide).
+		demo::Demo3DHostSetShading(st.shading);
+		demo::Demo3DHostSetUnlitColor(st.solidLight);
 		nk3d::Viewport3DSetOverlays(st.overlayMask);
 		nk3d::Viewport3DResize((uint32)lay.view.w, (uint32)lay.view.h);
 		// La demo portee recoit la taille de la vue, son origine (traduction
@@ -1333,12 +1336,16 @@ int nkmain(const NkEntryState &entry) {
 				gm = 1;
 			else if (st.tool == NkTool::Scale)
 				gm = 2;
-			nk3d::Viewport3DSetGizmoMode(gm);
+			demo::Demo3DHostSetGizmoOp(gm);
 			// L'outil SELECTION ne transforme rien : afficher ses poignees ferait
 			// croire le contraire, et elles captureraient les clics de selection.
-			nk3d::Viewport3DSetGizmoVisible(st.tool != NkTool::Select && st.tool != NkTool::Cursor);
+			// SENS INVERSE : la facade vivante parle en « cache », la morte en
+		// « visible ». Repointer sans nier aurait montre le gizmo exactement
+		// quand il faut le cacher -- et l'erreur se serait vue comme un gizmo
+		// qui clignote au changement d'outil, pas comme un appel inverse.
+		demo::Demo3DHostSetGizmoHidden(!(st.tool != NkTool::Select && st.tool != NkTool::Cursor));
 		}
-		nk3d::Viewport3DSetGizmoOrientation(st.orientation);
+		demo::Demo3DHostSetOrientation(st.orientation);
 		// AIMANTATION : les pas sont FIXES (0,5 unite, 15 degres, 0,1 -- ceux de
 		// Demo3D) et ce sont les BASCULES qui decident si elle agit. Le gizmo n'a
 		// qu'un interrupteur global : on lui donne celui de la bascule du MODE
@@ -1353,7 +1360,7 @@ int nkmain(const NkEntryState &entry) {
 				snapOn = st.snapAngle;
 			else if (st.tool == NkTool::Scale)
 				snapOn = st.snapScale;
-			nk3d::Viewport3DSetSnap(snapOn, 0.5f, 15.f, 0.1f);
+			demo::Demo3DHostSetSnap(snapOn, 0.5f, 15.f, 0.1f);
 		}
 		// PROJECTION : entierement geree par la SYNC de la demo portee, plus haut.
 		// L'ancien bloc RELISAIT l'etat de la vue DORMANTE (Viewport3DIsOrtho,
@@ -1541,7 +1548,13 @@ int nkmain(const NkEntryState &entry) {
 					// On pose l ACTION, on n appelle pas la facade : le temoin doit
 					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
 					// meme si le bouton restait mort.
-					if (est("selectall"))
+					if (est("viewfront"))
+						st.pendingAction = NkVpAction::ViewFront;
+					else if (est("viewtop"))
+						st.pendingAction = NkVpAction::ViewTop;
+					else if (est("viewright"))
+						st.pendingAction = NkVpAction::ViewRight;
+					else if (est("selectall"))
 						st.pendingAction = NkVpAction::SelectAll;
 					else if (est("selectnone"))
 						st.pendingAction = NkVpAction::SelectNone;
@@ -1602,7 +1615,13 @@ int nkmain(const NkEntryState &entry) {
 					// On pose l ACTION, on n appelle pas la facade : le temoin doit
 					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
 					// meme si le bouton restait mort.
-					if (est("selectall"))
+					if (est("viewfront"))
+						st.pendingAction = NkVpAction::ViewFront;
+					else if (est("viewtop"))
+						st.pendingAction = NkVpAction::ViewTop;
+					else if (est("viewright"))
+						st.pendingAction = NkVpAction::ViewRight;
+					else if (est("selectall"))
 						st.pendingAction = NkVpAction::SelectAll;
 					else if (est("selectnone"))
 						st.pendingAction = NkVpAction::SelectNone;
@@ -1800,22 +1819,22 @@ int nkmain(const NkEntryState &entry) {
 					break;
 				// ── Vues ────────────────────────────────────────────────────
 				case NkVpAction::ViewFront:
-					nk3d::Viewport3DAxisView(0, false);
+					demo::Demo3DHostAxisView(0, false);
 					break;
 				case NkVpAction::ViewBack:
-					nk3d::Viewport3DAxisView(0, true);
+					demo::Demo3DHostAxisView(0, true);
 					break;
 				case NkVpAction::ViewRight:
-					nk3d::Viewport3DAxisView(1, false);
+					demo::Demo3DHostAxisView(1, false);
 					break;
 				case NkVpAction::ViewLeft:
-					nk3d::Viewport3DAxisView(1, true);
+					demo::Demo3DHostAxisView(1, true);
 					break;
 				case NkVpAction::ViewTop:
-					nk3d::Viewport3DAxisView(2, false);
+					demo::Demo3DHostAxisView(2, false);
 					break;
 				case NkVpAction::ViewBottom:
-					nk3d::Viewport3DAxisView(2, true);
+					demo::Demo3DHostAxisView(2, true);
 					break;
 				case NkVpAction::ToggleOrtho:
 					st.projection = (st.projection == 1) ? 0 : 1;
