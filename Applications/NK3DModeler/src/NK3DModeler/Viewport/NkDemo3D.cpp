@@ -14890,6 +14890,23 @@ namespace nkentseu {
 			}
 			m.rough = rough < 0.f ? 0.f : (rough > 1.f ? 1.f : rough);
 			m.metal = metal < 0.f ? 0.f : (metal > 1.f ? 1.f : metal);
+			// ── L INSTANCE MOTEUR RECOIT LA MEME CHOSE ──────────────────────
+			// ETAPE 1 sur deux. Le shader PBR lit aujourd hui uObj (le draw call)
+			// et ignore uMat (l instance) pour albedo/rugosite/metallique. On
+			// alimente donc l instance SANS rien changer au rendu : c est un
+			// no-op verifiable, et c est ce qui rendra l etape 2 -- faire lire
+			// uMat au shader -- invisible a son tour.
+			// ⚠ ICI, PAS DANS LA BOUCLE DE RENDU : cette facade est le point de
+			// CHANGEMENT. Ecrire le tampon d instance a chaque image ajouterait
+			// un cout la ou il n y en avait pas, pour la meme valeur.
+			// ⚠ La copie miroir reste la SOURCE : elle devient source ET
+			// l instance destination. La retirer est la direction, pas ce commit.
+			if (NkvpMatEng(i)) {
+				NkvpMatEng(i)
+					->SetAlbedo({m.albedo[0], m.albedo[1], m.albedo[2]}, m.alpha)
+					->SetRoughness(m.rough)
+					->SetMetallic(m.metal);
+			}
 		}
 		// ── PHYSIQUE DE SURFACE : vernis + diffusion (2026-08-09) ────────────
 		// A part de SetParams : les appelants historiques (collage de groupe,
@@ -14923,6 +14940,22 @@ namespace nkentseu {
 			m.clearcoat = cc < -64.f ? -64.f : (cc > 64.f ? 64.f : cc);
 			m.ccRough = ccRough < 0.f ? 0.f : (ccRough > 1.f ? 1.f : ccRough);
 			m.subsurface = sss < 0.f ? 0.f : (sss > 1.f ? 1.f : sss);
+			// ── L INSTANCE MOTEUR RECOIT LA MEME CHOSE (etape 1) ────────────
+			// ⚠ CONSEQUENCE NOMMEE, PAS GLISSEE : `clearcoat` porte le VERNIS
+			// pour les familles PBR et l INDICE DE REFRACTION pour le type Verre
+			// (double emploi assume, cf. le commentaire de cette fonction). Or
+			// glass.frag.nksl:100 lit `uMat.clearcoat` comme indice -- et rien ne
+			// le remplissait, d ou l indice fige a 1,5 (mesure par capture : deux
+			// rendus a n=1,0 et n=2,4 identiques au bit pres).
+			// L alimenter ici REPARE donc l indice de refraction du verre. Ce
+			// n est pas un no-op pour ce type, et c est mesure separement.
+			// La couleur de diffusion suit l albedo : la matiere transmet sa
+			// propre teinte, comme le fait deja le chemin du draw call.
+			if (NkvpMatEng(i)) {
+				NkvpMatEng(i)
+					->SetClearcoat(m.clearcoat, m.ccRough)
+					->SetSubsurface(m.subsurface, {m.albedo[0], m.albedo[1], m.albedo[2]});
+			}
 		}
 		void Demo3DHostProjMatSetName(int32 i, const char *name) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || !name || !name[0])
