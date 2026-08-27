@@ -41,13 +41,33 @@ namespace nkentseu {
 		// l'utilisateur.
 		enum class NkVpUserKind : uint8 {
 			Libre = 0, Sphere = 1, Cube = 2, Plan = 3, Empty = 4,
-			Lumiere = 5, Texte = 6, Courbe = 7, Surface = 8, Metaball = 9
+			Lumiere = 5, Texte = 6, Courbe = 7, Surface = 8, Metaball = 9,
+			// 10 : CERCLE, un vrai maillage (boucle d'aretes fermee). Il ne suit
+			// PAS la numerotation 1..9 parce qu'il a ete ajoute apres ; c'est
+			// justement ce saut qui l'a fait oublier de la regle ci-dessous.
+			Cercle = 10
 		};
 
 		// Une nature porte-t-elle une geometrie editable ?
+		// REGLE DE RODOLF (27/08) : « TOUT MESH DOIT POUVOIR ETRE EDITABLE ».
+		// On enumere donc les natures qui NE sont PAS des maillages -- marqueurs
+		// et emplacement libre -- et tout le reste est editable. Ecrite dans ce
+		// sens, une nature AJOUTEE devient editable par defaut : c'est l'inverse
+		// de la liste blanche precedente, ou le CERCLE avait ete oublie au seul
+		// motif qu'il portait le numero 10 et non 4.
 		inline bool NkVpUserKindEditable(uint8 k) {
-			return k == (uint8)NkVpUserKind::Sphere || k == (uint8)NkVpUserKind::Cube ||
-				   k == (uint8)NkVpUserKind::Plan;
+			switch ((NkVpUserKind)k) {
+				case NkVpUserKind::Libre:
+				case NkVpUserKind::Empty:
+				case NkVpUserKind::Lumiere:
+				case NkVpUserKind::Texte:
+				case NkVpUserKind::Courbe:
+				case NkVpUserKind::Surface:
+				case NkVpUserKind::Metaball:
+					return false;
+				default:
+					return true;
+			}
 		}
 
 		// Slot utilisateur vise par une selection du gizmo des empties, ou -1.
