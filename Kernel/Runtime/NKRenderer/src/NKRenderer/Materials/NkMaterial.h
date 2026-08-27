@@ -101,6 +101,32 @@ namespace nkentseu {
 				NkMaterial *SetSubsurface(float32 v, NkVec3f color = {1.f, 0.5f, 0.3f});
 				NkMaterial *SetClearcoat(float32 v, float32 roughness = 0.f);
 				NkMaterial *SetAnisotropy(float32 v);
+				// LECTURE DES PARAMETRES DE SURFACE
+				// Dix setters existaient pour ZERO getter. Consequence mesuree : les
+				// applications ne pouvaient pas RELIRE ce qu elles avaient pose, donc
+				// elles doublaient l etat de leur cote -- NK3DModeler tient sa propre
+				// table nkvpProjMats et la repousse par le draw call a chaque image.
+				// Un etat double finit toujours par diverger, et c est alors le mauvais
+				// qui est lu.
+				// Relais purs vers NkMaterialInstance::GetPBR() : aucune copie, aucun
+				// cache. Sans instance, ils rendent le defaut de NkPBRParams -- la meme
+				// valeur que le GPU recevrait.
+				NkVec3f GetAlbedo() const;
+				float32 GetAlbedoAlpha() const;
+				float32 GetMetallic() const;
+				float32 GetRoughness() const;
+				float32 GetAO() const;
+				NkVec3f GetEmissive() const;
+				float32 GetEmissiveStrength() const;
+				float32 GetNormalStrength() const;
+				float32 GetSubsurface() const;
+				NkVec3f GetSubsurfaceColor() const;
+				float32 GetClearcoat() const;
+				float32 GetClearcoatRoughness() const;
+				float32 GetAnisotropy() const;
+				float32 GetSheen() const;
+				float32 GetReflFloorBlend() const;
+
 				NkMaterial *SetSheen(float32 v);
 
 				// ── Raccourcis Toon / NPR ────────────────────────────────────────
@@ -182,6 +208,9 @@ namespace nkentseu {
 				NkMaterial &operator=(const NkMaterial &) = delete;
 
 				NkMaterialSystem *mSystem = nullptr;
+				// Relais de lecture : rend les params de l instance, ou le defaut de
+				// NkPBRParams si ce materiau n en a pas encore.
+				const NkPBRParams &PBRRead() const;
 				NkMaterialInstance *mInstance = nullptr;
 		};
 
