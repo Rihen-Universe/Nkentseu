@@ -283,23 +283,41 @@ namespace nkentseu {
 			NK_VK_LOG("Mode headless (pas de HWND) : Vulkan compute sans surface/swapchain\n");
 		}
 #elif defined(NKENTSEU_WINDOWING_XLIB)
-		VkXlibSurfaceCreateInfoKHR sci{};
-		sci.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-		sci.dpy = static_cast<Display *>(init.surface.display);
-		sci.window = (::Window)init.surface.window;
-		NK_VK_CHECK(vkCreateXlibSurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+		// Headless / compute-only : meme garde que la branche Windows ci-dessus.
+		// Sans elle, vkCreateXlibSurfaceKHR recevait dpy=nullptr et le pilote
+		// dereferencait le Display -> SEGFAULT avant toute lecture de checkpoint.
+		// C'est exactement le chemin qu'emprunte NKIlyana (entrainement sans fenetre).
+		if (init.surface.display && init.surface.window) {
+			VkXlibSurfaceCreateInfoKHR sci{};
+			sci.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+			sci.dpy = static_cast<Display *>(init.surface.display);
+			sci.window = (::Window)init.surface.window;
+			NK_VK_CHECK(vkCreateXlibSurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+		} else {
+			NK_VK_LOG("Mode headless (pas de Display X11) : Vulkan compute sans surface/swapchain\n");
+		}
 #elif defined(NKENTSEU_WINDOWING_XCB)
-		VkXcbSurfaceCreateInfoKHR sci{};
-		sci.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
-		sci.connection = static_cast<xcb_connection_t *>(init.surface.connection);
-		sci.window = (xcb_window_t)init.surface.window;
-		NK_VK_CHECK(vkCreateXcbSurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+		// Headless / compute-only : voir la note de la branche XLIB.
+		if (init.surface.connection && init.surface.window) {
+			VkXcbSurfaceCreateInfoKHR sci{};
+			sci.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+			sci.connection = static_cast<xcb_connection_t *>(init.surface.connection);
+			sci.window = (xcb_window_t)init.surface.window;
+			NK_VK_CHECK(vkCreateXcbSurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+		} else {
+			NK_VK_LOG("Mode headless (pas de connexion XCB) : Vulkan compute sans surface/swapchain\n");
+		}
 #elif defined(NKENTSEU_WINDOWING_WAYLAND)
-		VkWaylandSurfaceCreateInfoKHR sci{};
-		sci.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-		sci.display = static_cast<wl_display *>(init.surface.display);
-		sci.surface = static_cast<wl_surface *>(init.surface.surface);
-		NK_VK_CHECK(vkCreateWaylandSurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+		// Headless / compute-only : voir la note de la branche XLIB.
+		if (init.surface.display && init.surface.surface) {
+			VkWaylandSurfaceCreateInfoKHR sci{};
+			sci.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+			sci.display = static_cast<wl_display *>(init.surface.display);
+			sci.surface = static_cast<wl_surface *>(init.surface.surface);
+			NK_VK_CHECK(vkCreateWaylandSurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+		} else {
+			NK_VK_LOG("Mode headless (pas de wl_display) : Vulkan compute sans surface/swapchain\n");
+		}
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
 		VkAndroidSurfaceCreateInfoKHR sci{};
 		sci.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
