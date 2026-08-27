@@ -78,6 +78,33 @@ namespace nkentseu {
 		// =========================================================================
 		// Paramètres GPU (std140)
 		// =========================================================================
+		// ⚠ CETTE STRUCTURE EST PLEINE : 96 OCTETS, ET LE 96 CASCADE.
+		// Mesure du 2026-08-27. Ce n'est pas une contrainte arbitraire, et le
+		// prochain qui voudra ajouter un parametre de surface la rencontrera :
+		//   - le padding est DEJA consomme : `reflFloorFaceMode` occupe l'ancien
+		//     `_pad[0]`, precisement pour ne pas casser le layout std140 ;
+		//   - la taille est REPRISE ailleurs : NkLayeredParams vaut 2 x 96 + 16
+		//     = 208, et NkLayeredV1Params 336. Passer a 112 les change tous les
+		//     deux, donc change aussi les shaders Layered ;
+		//   - six shaders NkSL declarent ce bloc (PBR, Glass, CarPaint, Cloth,
+		//     Emissive, Foliage) et doivent bouger EN MEME TEMPS, sous peine de
+		//     lire des champs decales -- une erreur qui ne se voit pas a la
+		//     compilation, seulement a l'ecran, et pas toujours.
+		//
+		// CE QUE CA A DEJA COUTE : il n'y avait pas de place pour un drapeau
+		// disant « ce champ vient du materiau, pas de l'objet ». C'est pour cela
+		// que le passage de uObj a uMat se fait en DEUX etapes invisibles
+		// (l'application alimente l'instance, puis le shader la lit) au lieu d'un
+		// arbitrage explicite.
+		//
+		// ⚠ ET LA TENTATION A EVITER : reutiliser un champ existant pour un
+		// second sens. `clearcoat` le fait deja -- vernis en PBR, INDICE DE
+		// REFRACTION en Verre, et son SIGNE porte une coche d'activation. Ce
+		// detournement a cache pendant des mois un indice fige a 1,5, parce que
+		// personne ne remplissait le champ et que 1,5 est du verre a vitre.
+		// Un champ qui porte deux sens ne se voit jamais dans un test : il se voit
+		// dans un rendu, des mois plus tard, chez quelqu'un qui ne saura pas quoi
+		// en dire.
 		struct alignas(16) NkPBRParams {
 				NkVec4f albedo = {1, 1, 1, 1};
 				NkVec4f emissive = {0, 0, 0, 0};
