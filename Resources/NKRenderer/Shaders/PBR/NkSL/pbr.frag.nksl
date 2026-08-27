@@ -113,17 +113,54 @@ uniform ShadowSlotsUBO {
 // maintenant l'INSTANCE aux memes points de changement.
 //
 // ⚠ CE QUI N'A PAS BASCULE, ET POURQUOI — albedo (via uObj.tint), metallic et
-// roughness RESTENT sur `uObj`. Ces trois-la sont ecrits par HUIT sites de draw
-// call qui ne posent AUCUN materiau (objets de demo, dont la grille 4x4 qui
-// balaie justement metallic et roughness). Les basculer les ferait retomber sur
-// les defauts de l'instance de repli — grille aplatie a metallic 0 / roughness
-// 0.5. Et la scene de reference ne le montrerait PAS : ces objets n'y sont pas
-// visibles, donc le temoin serait VERT et la regression REELLE. Ils demandent un
-// echange ATOMIQUE (retirer l'ecriture du draw call dans le meme commit), et
-// `uObj.tint` porte en plus la surbrillance de selection et le gris du mode
+// roughness RESTENT sur `uObj`.
+//
+// SEPT sites de draw call n'attachent AUCUNE instance de materiau : le sol, le
+// mur GI, la grille 4x4 (qui balaie justement metallic et roughness), le cube
+// central, les colonnes, l'objet edite persiste, et l'objet du MODE EDITION.
+// Tous appellent bien `HostMatHook`, mais celui-ci ne pose JAMAIS `dc.material`
+// et `HostMatSlotToDC` sort tot quand le noeud n'a pas de materiau de projet --
+// or seuls les noeuds UTILISATEUR en recoivent un a la creation
+// (`HostEnsureDefaultMat`). Leurs valeurs codees survivent donc, et ce sont
+// elles que `uObj` porte. Les basculer les ferait retomber sur l'instance de
+// REPLI, partagee par tous : grille aplatie a metallic 0 / roughness 0.5.
+//
+// ⚠ ET LA SCENE DE REFERENCE NE LE MONTRERAIT PAS : ces objets n'y sont pas
+// visibles. Le temoin serait VERT et la regression REELLE.
+//
+// ⚠ CORRECTION D'UN COMPTE FAUX (le commit 5b44131a dit HUIT). Le huitieme site
+// -- le dessin des MAILLAGES UTILISATEUR -- attache bien une instance, et
+// `HostMatHook` y ecrase les valeurs codees par celles du materiau. Pour lui,
+// `uObj` et `uMat` portent donc DEJA la meme chose : il serait sur. C'etait le
+// seul site du PRODUIT dans ma liste, et je l'avais range du mauvais cote.
+//
+// CE QUE CA VEUT DIRE POUR LA SUITE : ces trois champs ne sont pas en attente
+// d'un echange atomique, ils sont en attente d'une DECISION. `uObj` est le
+// canal d'a-cote assume pour les draws sans materiau -- la structure du draw
+// call le dit elle-meme (« PBR override per-drawcall »). Les migrer exigerait
+// de donner une instance PROPRE a ces sept draws (la grille en demanderait
+// SEIZE pour garder son balayage), ce qui change ce qui est a l'ecran. Aucun
+// drapeau d'arbitrage n'est possible : NkPBRParams est PLEIN a 96 octets.
+// Et `uObj.tint` porte en plus la surbrillance de selection et le gris du mode
 // edition : trois usages dans un champ.
 //
 // Les six ci-dessus n'ont, eux, qu'un seul ecrivain (`HostMatSlotToDC`) ou aucun.
+//
+// ⚠ DIVERGENCE LATENTE — LA FAMILLE ECRITE A LA MAIN N'A PAS SUIVI.
+// Les shaders PBR ecrits a la main (VK/GL/DX11/MSL) lisent TOUJOURS ces six
+// champs dans l'UBO OBJET. Aujourd'hui ca ne se voit pas : l'application
+// alimente les DEUX sources avec les memes valeurs. Mais NkSL est PREFERE
+// quand il compile, et le repli ne sert que s'il ECHOUE --
+//   UNE DIVERGENCE QUI NE SE MANIFESTE QU'EN MODE DEGRADE EST INVISIBLE TANT
+//   QUE RIEN NE DEGRADE, ET ELLE FRAPPE EXACTEMENT LE JOUR OU L'ON A LE MOINS
+//   DE MOYENS DE LA DIAGNOSTIQUER.
+// Le premier cas qui la rendra visible est deja identifie : `subsurfaceColor`
+// n'a PAS le meme defaut des deux cotes -- {1,1,1} sur le draw call,
+// {1,0.5,0.3} dans NkPBRParams. Inoffensif tant que `subsurface` vaut 0 ; le
+// jour ou quelqu'un l'ouvre ET tombe sur un repli, la teinte de diffusion
+// changera sans que rien dans la scene ne l'explique.
+// Qui touche a ces six champs ici doit toucher l'autre famille, ou ecrire
+// pourquoi il ne le fait pas.
 @binding(set=2, binding=8)
 uniform MaterialUBO {
     vec4  albedo;
