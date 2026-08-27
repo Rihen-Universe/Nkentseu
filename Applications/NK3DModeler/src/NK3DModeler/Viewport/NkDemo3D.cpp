@@ -4710,10 +4710,30 @@ namespace nkentseu {
 				}
 				// TAB : bascule OBJET <-> EDIT MODE. Traité côté frame (accès meshSys pour
 				// cloner le mesh de l'objet sélectionné). Façon Blender.
-				if (k == NkKey::NK_TAB) {
-					st->editTogglePending = true;
+				// ⚠️ TAB N'EST PLUS TRAITE ICI, ET C'EST LE CORRECTIF.
+				// Ce rappel armait `editTogglePending` DIRECTEMENT : l'edition
+				// basculait sans que `st.mode` du shell change, donc sans que
+				// l'onglet suive. C'etait un SECOND CHEMIN vers le meme etat --
+				// le motif de doublon qu'on retire dans toute l'application.
+				//
+				// Le shell tient deja TAB (`main.cpp`, rappel de touche global
+				// garde seulement par la saisie de texte et l'ecran d'accueil) :
+				// il pose `st.mode`, qui redescend par `Demo3DHostSetMode`. La
+				// decision de Rodolf -- « TAB bascule depuis n'importe ou » --
+				// est donc DEJA tenue par ce chemin-la, sans second rappel.
+				//
+				// ⚠️ ET C'EST POURQUOI ON NE POUVAIT PAS SE CONTENTER DE FAIRE
+				// DEMANDER LE MODE ICI : le shell aurait pose le mode en debut
+				// d'image, puis son propre `ToggleEdit` l'aurait REPRIS depuis la
+				// nouvelle valeur en fin d'image -- deux bascules, donc AUCUNE.
+				// TAB serait devenu muet, et le correctif aurait ressemble a une
+				// regression sans rapport.
+				//
+				// TAB ne fait qu'Objet <-> Edition. Le menu radial de TOUS les
+				// modes sera `Ctrl+TAB` ; l'affichage garde `Z`. Pas de raccourci
+				// par mode : le sixieme en demanderait un sixieme.
+				if (k == NkKey::NK_TAB)
 					return;
-				}
 				const bool shiftG = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
 				// ── OMBRAGE FLAT / SMOOTH (Blender : menu Object > Shade Flat/Smooth, ou
 				//    Mesh > Shading en Edit Mode). Blender n'a PAS de raccourci direct : on
