@@ -1323,7 +1323,7 @@ int nkmain(const NkEntryState &entry) {
 		// Le sous-mode de la vue devient le masque de selection. Un seul bit ici :
 		// les trois boutons sont exclusifs. Les combiner (Maj+1/2/3 chez Blender)
 		// viendra avec les raccourcis clavier.
-		nk3d::Viewport3DSetSelectMask(1u << (uint32)st.subMode);
+		demo::Demo3DHostSetSelectMask(1u << (uint32)st.subMode);
 		// Outil -> mode du gizmo. « Selection » et « Curseur » n'en ont pas : on
 		// laisse alors le gizmo sur le deplacement, mais il ne prendra pas le clic
 		// puisque l'arbitrage donne la priorite au maillage.
@@ -1541,7 +1541,15 @@ int nkmain(const NkEntryState &entry) {
 					// On pose l ACTION, on n appelle pas la facade : le temoin doit
 					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
 					// meme si le bouton restait mort.
-					if (est("undo"))
+					if (est("selectall"))
+						st.pendingAction = NkVpAction::SelectAll;
+					else if (est("selectnone"))
+						st.pendingAction = NkVpAction::SelectNone;
+					else if (est("submodeedge"))
+						st.pendingAction = NkVpAction::SubModeEdge;
+					else if (est("submodeface"))
+						st.pendingAction = NkVpAction::SubModeFace;
+					else if (est("undo"))
 						st.pendingAction = NkVpAction::Undo;
 					else if (est("redo"))
 						st.pendingAction = NkVpAction::Redo;
@@ -1594,7 +1602,15 @@ int nkmain(const NkEntryState &entry) {
 					// On pose l ACTION, on n appelle pas la facade : le temoin doit
 					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
 					// meme si le bouton restait mort.
-					if (est("undo"))
+					if (est("selectall"))
+						st.pendingAction = NkVpAction::SelectAll;
+					else if (est("selectnone"))
+						st.pendingAction = NkVpAction::SelectNone;
+					else if (est("submodeedge"))
+						st.pendingAction = NkVpAction::SubModeEdge;
+					else if (est("submodeface"))
+						st.pendingAction = NkVpAction::SubModeFace;
+					else if (est("undo"))
 						st.pendingAction = NkVpAction::Undo;
 					else if (est("redo"))
 						st.pendingAction = NkVpAction::Redo;
@@ -1634,10 +1650,10 @@ int nkmain(const NkEntryState &entry) {
 					st.subMode = NkSubMode::Face;
 					break;
 				case NkVpAction::SelectAll:
-					nk3d::Viewport3DSelectAll(true);
+					demo::Demo3DHostSelectAll(true);
 					break;
 				case NkVpAction::SelectNone:
-					nk3d::Viewport3DSelectAll(false);
+					demo::Demo3DHostSelectAll(false);
 					break;
 				case NkVpAction::ToolMove:
 					st.tool = NkTool::Move;

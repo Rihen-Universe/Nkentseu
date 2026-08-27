@@ -13877,6 +13877,47 @@ namespace nkentseu {
 			if (st && ms)
 				Demo3D_SyncFromHE(st, ms);
 		}
+		// ── SELECTION DE MAILLAGE : trois ECRIVAINS, ZERO LECTEUR ───────────
+		// `Viewport3DSelectAll` et `Viewport3DSetSelectMask` ecrivent la selection
+		// de la vue DORMANTE. J'ai cherche qui la LIT hors de cette vue : PERSONNE
+		// (`Viewport3DSelectedCount`, `Viewport3DSelectMask()`,
+		// `Viewport3DObjectSelected` n'ont aucun appelant dans le shell). Trois
+		// ecrivains, zero lecteur.
+		//
+		// ⚠️ LE COMPTE DES MENTIONS NE DIT PAS QUEL COTE EST VIVANT. `vertSel`
+		// affiche 81 mentions vivantes contre 35 dormantes, ce qui ressemble a un
+		// doublon dont les DEUX cotes vivent -- et un tel doublon ne se reglerait
+		// pas en cessant d'interroger le mort, puisqu'il n'y en aurait pas.
+		// Mais 35 mentions INTERNES sans aucun lecteur exterieur, c'est un cote
+		// MORT qui s'agite. Compter les mentions mesure l'activite, pas la vie :
+		// seul « qui LIT le resultat » separe les deux.
+		//
+		// MESURE DES BOUTONS, avant de porter quoi que ce soit : « tout
+		// selectionner » et « tout deselectionner » ne changent RIEN a l'image --
+		// identiques au bit pres a une action de nom INCONNU. ⚠️ Le controle etait
+		// indispensable : sans lui les deux boutons SEMBLAIENT agir, parce que le
+		// crochet de capture force aussi le mode EDITION, et c'est le MODE qui
+		// changeait l'image.
+		void Demo3DHostSelectAll(bool on) {
+			auto *st = HostModSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms)
+				return;
+			if (on)
+				st->editHE.SelectAll();
+			else
+				st->editHE.SelectNone();
+			Demo3D_PullSel(st);
+			Demo3D_SyncFromHE(st, ms);
+		}
+		// Le masque de sous-mode (1=sommet 2=arete 4=face) est repose A CHAQUE
+		// FRAME par le shell depuis son onglet : on ne resynchronise donc PAS ici,
+		// et on ignore un masque nul -- au moins un mode doit rester actif.
+		void Demo3DHostSetSelectMask(uint32 mask) {
+			auto *st = HostModSt();
+			if (st && (mask & 7u))
+				st->editSelMask = (int32)(mask & 7u);
+		}
 		uint32 Demo3DHostModTypeCount() {
 			return 17u; // cf. renderer::NkModifierType, en ajout seul
 		}

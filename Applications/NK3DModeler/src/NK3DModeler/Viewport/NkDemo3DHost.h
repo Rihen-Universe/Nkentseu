@@ -195,6 +195,10 @@ namespace nkentseu {
 		// ── Pile de modificateurs (panneau « Modificateurs » + menu Ajouter) ──
 		// L'etat vit dans `Demo3DState::editModifiers` ; la vue dormante avait sa
 		// propre pile, que rien n'alimentait.
+		// Selection de maillage : la vue dormante avait la sienne, sans lecteur.
+		void Demo3DHostSelectAll(bool on);
+		void Demo3DHostSetSelectMask(uint32 mask);
+
 		uint32 Demo3DHostModTypeCount();
 		const char *Demo3DHostModTypeName(int32 type);
 		uint32 Demo3DHostModCount();
