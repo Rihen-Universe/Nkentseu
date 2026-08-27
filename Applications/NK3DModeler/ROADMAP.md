@@ -1196,6 +1196,21 @@ Envoie le journal (`MESURE clic carte`, `MESURE lacher`, `PICK lacher`).
 
 ## ⚰️ `NkViewport3D.cpp` EST MORTE — 2 649 lignes, signalée et NON supprimée (2026-08-24)
 
+> 🔴 **ÉTAT AU 2026-08-27 — ELLE NE PEUT TOUJOURS PAS ÊTRE SUPPRIMÉE, et voici
+> exactement ce qui reste.** 21 symboles sur 25 ont été portés dans la journée
+> (annuler/refaire, les 14 modificateurs, la sélection de maillage, les six vues,
+> le panneau Transformation, cadrer tout). **Ce qui bloque encore :**
+>
+> | ce qui reste | pourquoi ça bloque |
+> |---|---|
+> | **les 6 modales** (`BeginModal`, `ModalAxis`, `ModalUpdate`, `ModalConfirm`, `ModalCancel`, `ModalKind`) | 🔴 **décision produit NON TRANCHÉE.** Rodolf a dit **ni les implémenter, ni les retirer** pour l'instant. La transformation modale façon Blender n'existe **que** dans cette vue ; côté vivant, G/R/S **choisissent l'outil** du gizmo. Les porter = implémenter une fonctionnalité **et** décider ce que devient G/R/S. |
+> | `Stats`, `DeleteObject`, `SetOverlays`, `SetXray`, `SetEditMode`, `SetGizmoInput` | portages ordinaires, pas encore faits |
+> | `Resize`, `Shutdown` | ⚠️ **à SUPPRIMER AVEC ELLE, jamais à porter** — c'est son cycle de vie propre. Noté ici pour que personne ne cherche pourquoi ils n'ont pas de façade. |
+>
+> ⚠️ **Ne pas croire le chemin libre parce que la liste a beaucoup maigri :** tant
+> que les modales ne sont pas tranchées, supprimer ce fichier retire une
+> fonctionnalité que personne n'a décidé de retirer.
+
 **Mesuré, pas supposé.** Deux vues 3D coexistent dans l'application :
 
 | | |
