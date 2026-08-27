@@ -17808,6 +17808,43 @@ namespace nkentseu {
 					dv = 64;
 				nkvpUserMesh[u] = ms->CreatePlaneMesh((uint32)dv, (uint32)dv);
 			}
+			// ── REGLE DE RODOLF : « TOUT MESH DOIT POUVOIR ETRE EDITABLE » ──────
+			// Ce qui precede a une branche PAR NATURE. Une nature sans generateur
+			// ne recevait AUCUN maillage propre : elle s'affichait avec le
+			// maillage PARTAGE de la scene, et le mode edition la refusait, parce
+			// qu'il exige `nkvpUserMesh[u]` valide.
+			// C'est ce qui rendait le CUBE (nature 2, sous-type 0) et le CERCLE
+			// (nature 10) ineditables -- deux entrees du menu « Ajouter > Maillage »
+			// sur dix, dont la primitive la plus utilisee d'un modeleur.
+			//
+			// ⚠️ DEUX BRANCHES DE PLUS N'AURAIENT PAS TENU LA REGLE. Elles auraient
+			// regle DEUX CAS ; la prochaine nature ajoutee serait retombee dans le
+			// meme trou, en silence. Le repli ci-dessous est GENERIQUE : toute
+			// nature qui n'a pas produit de maillage recoit une COPIE PRIVEE de
+			// celui qu'elle affiche. Copie, et non le partage : deux cubes doivent
+			// s'editer separement, or `GetCube()` rend un handle MIS EN CACHE --
+			// le donner directement ferait editer tous les cubes a la fois. C'est
+			// tres probablement pour cela que la branche manquait.
+			if (!nkvpUserMesh[u].IsValid()) {
+				auto *stR = HostSt();
+				if (stR) {
+					// MEME choix que l'affichage, sinon on editerait autre chose que
+					// ce qui est montre.
+					NkMeshHandle src = stR->meshPlane;
+					if (uk == 1)
+						src = (sub == 1) ? stR->meshIco : stR->meshSphere;
+					else if (uk == 2)
+						src = (sub == 1) ? stR->meshCylinder
+										 : ((sub == 2) ? stR->meshCone : stR->meshCube);
+					if (src.IsValid() && ms->HasCPUData(src)) {
+						renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+							renderer::NkVertexLayout::Default3D(),
+							(const renderer::NkVertex3D *)ms->GetVertices(src),
+							ms->GetVertexCount(src), ms->GetIndices(src), ms->GetIndexCount(src));
+						nkvpUserMesh[u] = ms->Create(d);
+					}
+				}
+			}
 		}
 		// Descripteur d'une lumiere par NOEUD (demo 86..89 ou utilisateur).
 		static renderer::NkLightDesc *HostLightDescOf(int32 node) {
@@ -19069,7 +19106,17 @@ namespace nkentseu {
 										   : (kind == 1 && (sub & 0xFF) == 1 ? 3 : 32);
 				nkvpUserRing[u] = 16;
 				nkvpUserAux[u] = 0.15f;
-				if (kind >= 1 && kind <= 3) {
+				// QUELLES NATURES SONT DES MAILLAGES. 1 sphere, 2 cube/cylindre/
+				// cone, 3 plan, 10 cercle. Les natures 4..9 (empty, lumiere, texte,
+				// courbe, surface, metaball) naissent en MARQUEURS : elles n'ont pas
+				// de geometrie a editer, et la regle « tout mesh doit etre editable »
+				// ne les vise pas.
+				// ⚠️ LE CERCLE (10) ETAIT EXCLU DE CETTE GARDE et ne passait donc
+				// JAMAIS par la generation -- c'est la seconde moitie de la cause,
+				// et le repli generique de HostRegenUserMesh seul ne l'aurait pas
+				// rattrape : on ne replie que ce qu'on appelle.
+				const bool estMaillage = (kind >= 1 && kind <= 3) || kind == 10;
+				if (estMaillage) {
 					HostRegenUserMesh(u);
 					// TOUT MAILLAGE NAIT AVEC UN MATERIAU (regle de Rihen,
 					// comme Blender) : le premier du registre -- cree au
