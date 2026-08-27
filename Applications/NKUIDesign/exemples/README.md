@@ -60,10 +60,17 @@ octet pour octet**, **0 erreur**.
 | `07_apparence.nkgui` | l'**apparence** du document 9 §3 : `appearance`, la typographie, `fill`, `shadow` nommé, et trois surcharges d'état | 0 erreur |
 | `08_indentation_mixte.nkgui` | une **tranche brute indentée autrement** que le bloc qui la précède | 0 erreur |
 | `09_indentation_a_la_main.nkgui` | **sept largeurs d'indentation différentes** dans un seul document — 3 espaces, un tabulateur, 6, 9, 0, une accolade fermante à 5, une tranche brute à 7 | 0 erreur |
-| `10_etats_apparence.nkgui` | les **cinq états** de la liste fermée, et **les deux graphies du repos** (`appearance` nu sur un widget, `appearance(Normal)` sur l'autre) | 0 erreur |
+| `10_etats_apparence.nkgui` | les **six états**, **les deux graphies du repos** (`appearance` nu / `appearance(Normal)`) et **les deux focus** — anneau sur `FocusVisible` pour le bouton, sur `Focus` pour le champ de saisie | **1 avertissement voulu** : `W-FOCUS-ANNEAU` |
 
-Le seul avertissement du dossier est **le comportement correct** : un vieux
-fichier doit rester ouvrable, sinon on ne peut pas le mettre à jour.
+Les deux avertissements du dossier sont **le comportement correct** :
+
+- `06` — un vieux fichier doit rester ouvrable, sinon on ne peut pas le mettre à
+  jour ;
+- `10` — un **champ de saisie** doit se voir focalisé quelle que soit l'origine,
+  contrairement à un bouton. `W-FOCUS-ANNEAU` **pose la question, il ne tranche
+  pas** : le fichier l'assume en connaissance de cause, et le dit dans son
+  en-tête. Un avertissement qu'on ne peut pas assumer serait un refus déguisé —
+  c'est ce que mesure le contrôle 26l.
 
 ⚠️ **Les trois derniers arrivent de `limites/`, et c'est le dossier qui dit
 quoi.** `07` y était parce que la validation rendait trois `E-ROLE-INCONNU`
@@ -161,7 +168,13 @@ qu'il reste une tranche verbatim que la validation ne regarde pas.
 
 ## Les limites déclarées, et ce que ce corpus en dit
 
-### Levée le 2026-08-27 : `appearance(État)` est modélisé
+### Levée le 2026-08-27 : `appearance(État)` est modélisé, et la liste est close
+
+**Six états, et l'ordre EST la priorité** :
+`Disabled > Pressed > Hover > FocusVisible > Focus > Normal`. Quand plusieurs
+sont vrais, **un seul s'applique** — parce que *le cumul permet de produire un
+rendu que personne n'a dessiné*. Deux noms de focus, parce que *CSS a essayé un
+seul nom et n'a pas pu s'y tenir*.
 
 L'en-tête de bloc avec parenthèses **n'est plus une tranche verbatim**. Son
 contenu est jugé exactement comme celui d'un `appearance` nu, la liste des états

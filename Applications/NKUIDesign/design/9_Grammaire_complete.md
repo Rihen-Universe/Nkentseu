@@ -150,16 +150,69 @@ Reprises de doc 3 §12.2 (sections **6. Apparence**, **7. Typographie**) et §8t
 
 ### 3.2bis ✅ Les noms des ÉTATS — **tranché le 2026-08-27**
 
-> # `Normal` · `Hover` · `Pressed` · `Focus` · `Disabled`
+> # `Disabled` > `Pressed` > `Hover` > `FocusVisible` > `Focus` > `Normal`
+>
+> **Six noms, et l'ordre EST la priorité.** Quand plusieurs états sont vrais en
+> même temps, celui de gauche gagne et **lui seul s'applique**.
 >
 > **Décision de Rodolf**, prise sur le relevé ci-dessous. Elle retient les quatre
-> noms proposés et **ajoute `Normal` explicite** : le repos porte un nom au lieu
-> d'être implicite, pour la lisibilité. `Idle` reste écarté pour la raison
-> mesurée — **aucun des huit outils ne l'emploie**.
+> noms proposés, **ajoute `Normal` explicite** (le repos porte un nom au lieu
+> d'être implicite, pour la lisibilité) et **ajoute `FocusVisible`**. `Idle` reste
+> écarté pour la raison mesurée — **aucun des huit outils ne l'emploie**.
+
+#### ⚠️ Pourquoi une PRIORITÉ et non un cumul
+
+> **Le cumul permet de produire un rendu que PERSONNE n'a dessiné** — la somme
+> accidentelle de deux règles, que l'utilisateur final voit sans qu'aucun
+> concepteur ne l'ait validée. **Avec la priorité fixe, ce qui s'affiche est
+> toujours quelque chose que quelqu'un a choisi.**
+
+Et le choix reste ouvert **dans un seul sens**, ce qui est le point : la priorité
+fixe est un **sous-ensemble strict** du cumul. Passer au cumul plus tard, avec
+l'ordre de cascade égal à cet ordre-ci, laisse les documents existants rendre
+**à l'identique**. L'inverse — restreindre un cumul en priorité — casserait des
+documents. **On peut élargir plus tard ; on ne pourra pas restreindre.**
+
+⚠️ **L'ordre est tenu par un contrôle, pas par ce paragraphe** (26h). Une table
+qu'on réordonnerait « pour ranger » changerait ce qui s'affiche à l'écran, en
+silence et sans qu'aucun fichier ne bouge — mesuré par la mutation F1 : **77 / 78,
+et 26h est le seul contrôle rouge.**
+
+#### ⚠️ Pourquoi DEUX noms de focus, alors qu'un seul serait plus simple
+
+> **CSS a vécu des années avec un seul `:focus` et a dû ajouter
+> `:focus-visible`.** Un écosystème mature a essayé un seul nom et n'a pas pu s'y
+> tenir.
+
+Les deux besoins sont réels et distincts : un **champ de texte** doit se voir
+focalisé **quelle que soit l'origine** ; un **bouton** ne doit montrer son anneau
+**qu'au clavier**. « Clavier uniquement » rendrait le champ inhabillable ;
+« toutes origines » sacrifierait l'accessibilité.
+
+Le coût de la subtilité est réel — six noms dont deux voisins — et il est payé par
+**`W-FOCUS-ANNEAU`** : un `stroke` posé sur `Focus` déclenche un avertissement qui
+suggère `FocusVisible`. **La distinction cesse d'être un piège de documentation
+pour devenir une question posée au bon moment.**
+
+> 📌 **Le premier document que cet avertissement a attrapé était le nôtre** :
+> `valides/10_etats_apparence.nkgui`, écrit deux heures plus tôt, posait l'anneau
+> de son *bouton* sur `Focus`. Le fichier a été corrigé, et un champ de saisie y a
+> été ajouté pour porter le cas légitime de `Focus`.
+
+Seul `stroke` déclenche l'avertissement. Un anneau peut aussi se faire au `shadow`
+(la technique du `box-shadow`), mais un `shadow` sur le focus est tout aussi
+plausible comme simple mise en avant : **élargir ici fabriquerait un faux
+positif**, exactement ce que le correctif d'apparence du 23/08 a dû défaire.
 
 **Implémenté et mesuré** : le lecteur modélise `appearance(État)`, la validation
 refuse ce qui n'est pas dans la liste (`E-ÉTAT-INCONNU`), et le contenu des blocs
-à état est jugé comme celui des blocs nus. Contrôles 23e et 26a–26g.
+à état est jugé comme celui des blocs nus. Contrôles 23e et 26a–26l.
+
+⚠️ **Passer de cinq à six noms est un ÉLARGISSEMENT, donc la direction sûre** :
+la liste accepte plus, jamais moins, et aucun document existant ne peut cesser
+d'être lu. Mesuré plutôt que supposé — la famille 20, qui défend la compatibilité
+ascendante et qui avait déjà rattrapé une erreur de conception ce jour-là, repasse
+intacte.
 
 #### ⚠️ `appearance { }` et `appearance(Normal) { }` — **synonymes**
 
@@ -888,21 +941,22 @@ resterait « équivalent ».
 1. **La grammaire du thème** (§6.3) — `include "Theme.nkgui"` se lit, sa cible ne
    se résout pas. `NkTheme` (NKEditorKit, 302 lignes) porte déjà des rôles de
    couleur nommés avec héritage : c'est de là qu'il faut partir.
-2. ✅ **Les noms des états d'apparence** (§3.2bis) — **tranché et implémenté le
-   2026-08-27** : `Normal · Hover · Pressed · Focus · Disabled`. La limite
-   `appearance(Hover)` est fermée avec.
+2. ✅ **Les noms des états d'apparence** (§3.2bis) — **clos le 2026-08-27**, les
+   trois décisions comprises :
+   - la liste : `Disabled > Pressed > Hover > FocusVisible > Focus > Normal` ;
+   - la **combinaison** : **priorité fixe**, pas cumul — *le cumul permet un
+     rendu que personne n'a dessiné*. Élargissable au cumul plus tard sans
+     casser un document ; l'inverse ne l'aurait pas été ;
+   - le **focus clavier** : `Focus` **et** `FocusVisible`, parce que *CSS a
+     essayé un seul nom et n'a pas pu s'y tenir*. Le coût est payé par
+     `W-FOCUS-ANNEAU`.
 
-   ⚠️ **Deux questions restent ouvertes, et la liste ne les préjuge pas :**
-   - la **combinaison** d'états (`Hover` ET `Pressed`). Quatre stratégies
-     existent ; **Material ne l'a jamais tranchée** (spécification
-     contradictoire, ticket fermé sans réponse) et **Godot a payé
-     `hover_pressed`** — onze StyleBox pour un bouton. Le relevé penche vers les
-     **groupes orthogonaux** (WPF). C'est pour ne pas la préjuger que
-     `W-ÉTAT-DOUBLE` est un *avertissement* et non une erreur ;
-   - le **focus clavier** (`:focus-visible` en CSS, `keyboard-focus` chez
-     Spectrum, `State_KeyboardFocusChange` en Qt). Un `Focus` unique perd la
-     distinction souris/clavier, **qui est une exigence d'accessibilité**.
-     `FocusVisible` est le nom probable, après `Dragged`.
+   La limite `appearance(Hover)` est fermée avec.
+
+   ⚠️ **Ce qui reste ouvert ici** : `Dragged` (Flutter, Material *state layer*
+   0.16, Spectrum, eBay le portent ; NkUI n'a pas encore de glisser-déposer).
+   C'est **le premier à ajouter** le jour où il en aura un — et l'ajouter sera
+   un élargissement, donc sans risque pour les documents existants.
 3. **La forme du chemin de propriété animée** (§4.3) — `"shadow.blur"` suppose
    qu'on sait désigner la propriété d'un effet empilé. Nommer les blocs d'effet
    (`shadow "portee" { … }`) est **implémenté** et évite l'indice ; rendre ce nom

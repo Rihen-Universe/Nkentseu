@@ -23,6 +23,28 @@ nkgui 0.3
 //    signale (W-ETAT-DOUBLE). Ce fichier ne les cumule donc pas -- `valider`
 //    y voit un widget en graphie nue et un autre en graphie parenthesee.
 //
+// ⚠️ DEUX NOMS DE FOCUS, ET CE FICHIER MONTRE LES DEUX CAS REELS.
+//    `FocusVisible` ne s affiche qu au clavier ; `Focus` s affiche quelle que
+//    soit l origine. Le BOUTON ci-dessous porte son anneau sur `FocusVisible`
+//    -- un anneau qui apparaitrait au clic de souris est precisement ce que
+//    `:focus-visible` a ete invente pour eviter. Le CHAMP DE SAISIE, lui,
+//    porte son contour sur `Focus` : il doit se voir focalise dans tous les
+//    cas, et c est legitime.
+//
+//    Un `stroke` pose sur `Focus` declenche `W-FOCUS-ANNEAU` -- un
+//    AVERTISSEMENT, pas une erreur : il pose la question, il ne tranche pas a
+//    la place du concepteur. Le champ ci-dessous l assume donc en connaissance
+//    de cause, et c est pour ca qu il est dans ce fichier.
+//
+// ⚠️ QUAND PLUSIEURS ETATS SONT VRAIS EN MEME TEMPS, UN SEUL S APPLIQUE, et
+//    l ordre est fixe :
+//
+//        Disabled > Pressed > Hover > FocusVisible > Focus > Normal
+//
+//    Le cumul permettrait de produire un rendu que PERSONNE n a dessine -- la
+//    somme accidentelle de deux regles. Avec la priorite, ce qui s affiche est
+//    toujours quelque chose que quelqu un a choisi.
+//
 // ⚠️ ET CE QUI N EST PAS DANS LA LISTE COMPTE AUTANT : `Idle` (aucun des huit
 //    outils ne l emploie), `Active` (quatre sens incompatibles), `Default`
 //    (le bouton par defaut d un dialogue en CSS et en Qt), `Checked` et
@@ -48,7 +70,7 @@ widgets {
       fill { color = #24565E }
     }
 
-    appearance(Focus) {
+    appearance(FocusVisible) {
       stroke { color = #F79A28, width = 2 }
     }
 
@@ -69,6 +91,18 @@ widgets {
 
     appearance(Hover) {
       fill { color = #4A5056 }
+    }
+  }
+
+  // LE CAS LEGITIME DE `Focus` : un champ de saisie doit se voir focalise
+  // quelle que soit l origine -- souris comprise. Il assume donc
+  // W-FOCUS-ANNEAU, qui est un avertissement et non une faute.
+  TextField "recherche" {
+    bind = ui.filtre
+    placeholder = "Filtrer..."
+
+    appearance(Focus) {
+      stroke { color = #F79A28, width = 2 }
     }
   }
 }

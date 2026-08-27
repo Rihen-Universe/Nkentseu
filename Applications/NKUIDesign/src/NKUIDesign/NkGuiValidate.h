@@ -40,6 +40,8 @@
 //   E-ETAT-INCONNU  `appearance(X)` ou X n'est pas de la liste
 //                   fermee des etats (doc 9 §3.2bis)               Bloquant
 //   W-ETAT-DOUBLE   le meme etat declare deux fois sur un widget  Avertissement
+//   W-FOCUS-ANNEAU  un anneau (`stroke`) pose sur `Focus` plutot
+//                   que sur `FocusVisible`                       Avertissement
 //
 //
 // =============================================================================
@@ -670,11 +672,56 @@ namespace nkuidesign {
 		//     `Pressed`) et le FOCUS CLAVIER (`:focus-visible`). Material n'a
 		//     jamais tranche la premiere ; Godot a paye `hover_pressed`. Les deux
 		//     attendent une decision, et **rien ici ne les prejuge**.
+		// -----------------------------------------------------------------
+		//  ⚠️ L'ORDRE DE CETTE TABLE **EST** LA PRIORITE. Ce n'est pas un rangement
+		//     esthetique : quand plusieurs etats sont vrais en meme temps, celui
+		//     qui vient le premier gagne, et **lui seul s'applique**.
+		//
+		//         Disabled > Pressed > Hover > FocusVisible > Focus > Normal
+		//
+		//  ⚠️ POURQUOI UNE PRIORITE ET NON UN CUMUL -- la raison tient en une
+		//     phrase, et elle est du cote de l'utilisateur final :
+		//
+		//     **Le cumul permet de produire un rendu que PERSONNE n'a dessine** --
+		//     la somme accidentelle de deux regles, que l'utilisateur voit sans
+		//     qu'aucun concepteur ne l'ait validee. Avec la priorite fixe, ce qui
+		//     s'affiche est toujours quelque chose que quelqu'un a choisi.
+		//
+		//     Et le choix reste ouvert DANS UN SEUL SENS, ce qui est le point :
+		//     la priorite fixe est un **sous-ensemble strict** du cumul. Passer au
+		//     cumul plus tard, avec l'ordre de cascade egal a cet ordre-ci, laisse
+		//     les documents existants rendre **a l'identique**. L'inverse --
+		//     restreindre un cumul en priorite -- casserait des documents.
+		//     **On peut elargir plus tard ; on ne pourra pas restreindre.**
+		//
+		//  ⚠️ POURQUOI DEUX NOMS DE FOCUS, alors qu'un seul serait plus simple :
+		//
+		//     **CSS a vecu des annees avec un seul `:focus` et a du ajouter
+		//     `:focus-visible`.** Un ecosysteme mature a essaye un seul nom et
+		//     n'a pas pu s'y tenir. Les deux besoins sont reels et distincts : un
+		//     CHAMP DE TEXTE doit se voir focalise quelle que soit l'origine ; un
+		//     BOUTON ne doit montrer son anneau qu'au clavier. « Clavier
+		//     uniquement » rendrait le champ inhabillable ; « toutes origines »
+		//     sacrifierait l'accessibilite.
+		//
+		//     Le cout de la subtilite est reel -- six noms dont deux voisins -- et
+		//     il est paye par `W-FOCUS-ANNEAU` : poser un anneau sur `Focus` pose
+		//     la question au bon moment, au lieu de la laisser dans une doc.
+		// -----------------------------------------------------------------
+		inline const char *const *NkGEtats(uint32 &count) {
+			static const char *kEtats[] = {"Disabled", "Pressed",	 "Hover",
+										   "FocusVisible", "Focus", "Normal"};
+			count = 6;
+			return kEtats;
+		}
+
+		/// La table, exposee pour que sa composition ET son ordre soient tenus
+		/// par un controle plutot que par ce commentaire (26h).
 		inline bool NkGEtatConnu(const NkString &etat) {
-			static const char *kEtats[] = {"Normal", "Hover", "Pressed", "Focus",
-										   "Disabled"};
-			for (uint32 i = 0; i < 5; ++i) {
-				if (etat.Compare(kEtats[i]) == 0) {
+			uint32 n = 0;
+			const char *const *t = NkGEtats(n);
+			for (uint32 i = 0; i < n; ++i) {
+				if (etat.Compare(t[i]) == 0) {
 					return true;
 				}
 			}
@@ -800,11 +847,14 @@ namespace nkuidesign {
 			// etat inconnu ne rend pas le bloc illisible, et son contenu reste
 			// verifiable -- on doit pouvoir corriger la faute qu'on signale.
 			const NkStringView brut = NkGuiArchive::StateOf(bloc);
+			// L'etat effectif, repos compris : une apparence nue EST `Normal`.
+			const NkString etat = NkGEtatDe(bloc);
 			if (brut.Size() > 0 && !NkGEtatConnu(NkString(brut))) {
 				NkString m(chemin);
 				m.Append(" : etat inconnu '");
 				m.Append(NkString(brut));
-				m.Append("'. Les etats sont Normal, Hover, Pressed, Focus, Disabled");
+				m.Append("'. Les etats sont Disabled, Pressed, Hover, FocusVisible, "
+						 "Focus, Normal (du plus prioritaire au moins prioritaire)");
 				NkGPushDiag(out, "E-ETAT-INCONNU", m, ligne);
 			}
 
@@ -838,6 +888,37 @@ namespace nkuidesign {
 					continue;
 				}
 				NkGValidateProps(eff, cheminEff, def->props, def->count, nullptr, 0, nom, out);
+
+				// ⚠️ L'AVERTISSEMENT QUI GUIDE, ET IL EST LA CONTREPARTIE DE LA
+				//    DECISION D'AVOIR **DEUX** NOMS DE FOCUS. Sans lui, six etats
+				//    dont deux voisins EST un piege : on ecrit `Focus` parce que
+				//    c'est le mot court, et l'anneau apparait aussi a la souris.
+				//
+				//    `stroke` est **l'anneau** dans ce vocabulaire (document 9
+				//    §3.2) : un contour pose sur `Focus` se voit quelle que soit
+				//    l'origine du focus, alors que l'anneau de focus est
+				//    precisement ce que `:focus-visible` a ete invente pour ne
+				//    montrer QU'au clavier.
+				//
+				// ⚠️ ET SEULEMENT `stroke`. Un anneau peut aussi se faire au
+				//    `shadow` (c'est la technique du `box-shadow` en CSS), mais un
+				//    `shadow` sur le focus est tout aussi plausible comme simple
+				//    mise en avant. **Elargir ici fabriquerait un faux positif** --
+				//    exactement ce que le correctif d'apparence du 23/08 a du
+				//    defaire. On signale ce dont on est sur, et rien de plus.
+				//
+				//    AVERTISSEMENT : `Focus` avec un contour reste parfaitement
+				//    legal -- un champ de texte le veut vraiment. On pose la
+				//    question, on ne tranche pas a la place du concepteur.
+				if (nom.Compare("stroke") == 0 && etat.Compare("Focus") == 0) {
+					NkString m(cheminEff);
+					m.Append(" : un anneau pose sur 'Focus' s'affichera AUSSI a la "
+							 "souris. 'FocusVisible' ne s'affiche qu'au clavier -- c'est "
+							 "celui que l'accessibilite demande. Si le contour est voulu "
+							 "dans les deux cas (un champ de saisie, typiquement), c'est "
+							 "correct tel quel");
+					NkGPushDiag(out, "W-FOCUS-ANNEAU", m, corps->array[c].SourceLine());
+				}
 
 				// Un effet ne contient QUE des proprietes. Un bloc a l'interieur est
 				// une faute, et la taire rendrait `fill { shadow { } }` legal.
@@ -925,10 +1006,23 @@ namespace nkuidesign {
 					//    sur un widget sans que rien ne le dise. Mesure du
 					//    2026-08-27 : un fichier qui les cumule passait a 0 erreur.
 					//
-					//    AVERTISSEMENT et non erreur, deliberement : dire laquelle
-					//    des deux gagne serait trancher la question de la
-					//    COMBINAISON des etats, qui ne nous appartient pas. On
-					//    signale la redondance sans prejuger de la precedence.
+					//    ⚠️ IL A ETE REEXAMINE LE 2026-08-27, QUAND LA COMBINAISON A
+					//       ETE TRANCHEE -- il n'existait que parce qu'elle ne
+					//       l'etait pas. **Il reste, et il dit desormais quelque
+					//       chose de plus fort.**
+					//
+					//       Avant : on pouvait defendre que deux blocs du meme etat
+					//       fusionnaient, et l'avertissement se gardait de prejuger.
+					//       Maintenant que la priorite est fixe -- UN etat vrai, UNE
+					//       apparence appliquee -- la seconde declaration ne peut
+					//       plus rien produire : **c'est du code mort dans le
+					//       document**, et le concepteur croit avoir ecrit quelque
+					//       chose qui ne s'affichera jamais.
+					//
+					//       AVERTISSEMENT et non erreur, toujours : le document
+					//       reste lisible, reenregistrable a l'octet, et rien n'est
+					//       perdu a la lecture. On ne refuse pas d'ouvrir ce qu'on
+					//       signale -- sinon la faute devient incorrigible.
 					const NkString etat = NkGEtatDe(enfant);
 					bool deja = false;
 					for (uint32 v = 0; v < (uint32)etatsVus.Size(); ++v) {
@@ -941,7 +1035,8 @@ namespace nkuidesign {
 						NkString m(chemin);
 						m.Append(" : l'etat '");
 						m.Append(etat);
-						m.Append("' est declare deux fois");
+						m.Append("' est declare deux fois -- un seul s'applique, la "
+								 "seconde declaration ne s'affichera jamais");
 						if (NkGuiArchive::StateOf(enfant).Size() == 0
 							|| etat.Compare("Normal") == 0) {
 							m.Append(" (`appearance` et `appearance(Normal)` sont le "

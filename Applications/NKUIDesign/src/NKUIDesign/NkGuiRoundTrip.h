@@ -2253,6 +2253,150 @@ namespace nkuidesign {
 						   "    }\n"
 						   "  }\n"
 						   "}\n");
+
+				// ⚠️ 26h. L'ORDRE DE LA TABLE **EST** LA PRIORITE, donc il se tient
+				//     par un controle et non par un commentaire. Une table qu'on
+				//     reordonne « pour ranger » changerait ce qui s'affiche a
+				//     l'ecran, en silence et sans qu'aucun fichier ne bouge.
+				//
+				//     Disabled > Pressed > Hover > FocusVisible > Focus > Normal
+				//
+				//     Le compte figé est ici LEGITIME, au sens de la note du 23/08 :
+				//     la liste est FERMEE, donc sa taille EST la regle. Le jour ou
+				//     elle grandit, c'est une decision -- et ce controle la reclame.
+				{
+					static const char *kAttendu[] = {"Disabled", "Pressed",	 "Hover",
+													 "FocusVisible", "Focus", "Normal"};
+					uint32 n = 0;
+					const char *const *t = nkuidesign::guifmt::NkGEtats(n);
+					bool memeOrdre = (n == 6);
+					for (uint32 i = 0; memeOrdre && i < n; ++i) {
+						if (NkString(t[i]).Compare(kAttendu[i]) != 0) {
+							memeOrdre = false;
+						}
+					}
+					check("26h. LA PRIORITE EST L'ORDRE DE LA TABLE : Disabled > Pressed "
+						  "> Hover > FocusVisible > Focus > Normal -- six noms, cet ordre",
+						  memeOrdre, "");
+					if (!memeOrdre) {
+						rep.Append("      table lue : ");
+						for (uint32 i = 0; i < n; ++i) {
+							rep.Append(t[i]);
+							rep.Append(" ");
+						}
+						rep.Append("\n");
+					}
+				}
+
+				// ⚠️ 26i. `Focus` ET `FocusVisible` SONT DEUX ETATS, PAS UN PREFIXE.
+				//     Deux noms dont l'un commence par l'autre : si une comparaison
+				//     quelque part devenait un `StartsWith`, `FocusVisible` serait lu
+				//     comme `Focus` et les deux blocs deviendraient un DOUBLON. Ce
+				//     controle tient qu'ils restent distincts partout.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  Button \"b\" {\n"
+									  "    appearance(Focus) { fill { color = #111111 } }\n"
+									  "    appearance(FocusVisible) { radius = 2 }\n"
+									  "  }\n"
+									  "}\n";
+					NkVector<NkGuiDiag> dg;
+					const bool lu = valide(src, dg);
+					check("26i. `Focus` et `FocusVisible` sont DEUX etats distincts : les "
+						  "poser tous les deux n'est pas un doublon (pas de collision de "
+						  "prefixe)",
+						  lu && dg.Size() == 0, "");
+				}
+
+				// ⚠️ 26j. L'AVERTISSEMENT QUI GUIDE -- et c'est lui qui rend tenable
+				//     le choix d'avoir SIX noms dont deux voisins. Sans lui, on ecrit
+				//     `Focus` parce que c'est le mot court, et l'anneau apparait aussi
+				//     a la souris -- exactement ce que `:focus-visible` evite.
+				//
+				//     ⚠️ LE PREMIER DOCUMENT QU'IL A ATTRAPE ETAIT LE NOTRE :
+				//     `valides/10_etats_apparence.nkgui`, ecrit deux heures plus tot,
+				//     posait l'anneau de son BOUTON sur `Focus`. Le fichier a ete
+				//     corrige ; l'avertissement n'est pas decoratif.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  Button \"b\" {\n"
+									  "    appearance(Focus) {\n"
+									  "      stroke { color = #F79A28, width = 2 }\n"
+									  "    }\n"
+									  "  }\n"
+									  "}\n";
+					NkVector<NkGuiDiag> dg;
+					const bool lu = valide(src, dg);
+					bool guide = false;
+					for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+						if (dg[i].code.Compare("W-FOCUS-ANNEAU") == 0 && dg[i].line == 5
+							&& dg[i].message.Contains("FocusVisible")) {
+							guide = true;
+						}
+					}
+					check("26j. un ANNEAU (`stroke`) pose sur `Focus` est signale, avec "
+						  "`FocusVisible` suggere dans le message -- la distinction est "
+						  "posee au bon moment, pas laissee dans une doc",
+						  lu && dg.Size() == 1 && guide, "");
+				}
+
+				// ⚠️ 26k. LES DEUX TEMOINS DE 26j, ET ILS SONT INDISPENSABLES : un
+				//     avertissement pose sur CHAQUE apparence, ou sur CHAQUE effet,
+				//     rendrait 26j vert. Deux cas doivent rester SILENCIEUX :
+				//       - un `fill` dans `Focus` : ce n'est pas un anneau ;
+				//       - un `stroke` dans `FocusVisible` : c'est justement le bon
+				//         endroit, il ne faut surtout pas s'en plaindre.
+				//
+				//     Le second est le plus important : un avertissement qui se
+				//     declencherait AUSSI sur la forme qu'il recommande enverrait
+				//     l'utilisateur en rond, et c'est le genre de parade qu'on prend
+				//     l'habitude d'ignorer -- desarmee pour de bon.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  Button \"b\" {\n"
+									  "    appearance(Focus) { fill { color = #111111 } }\n"
+									  "    appearance(FocusVisible) {\n"
+									  "      stroke { color = #F79A28, width = 2 }\n"
+									  "    }\n"
+									  "  }\n"
+									  "}\n";
+					NkVector<NkGuiDiag> dg;
+					const bool lu = valide(src, dg);
+					check("26k. TEMOIN -- un `fill` dans `Focus` et un `stroke` dans "
+						  "`FocusVisible` ne disent RIEN : l'avertissement vise l'anneau "
+						  "mal place, pas l'etat ni l'effet",
+						  lu && dg.Size() == 0, "");
+				}
+
+				// 26l. Le corpus du depot exerce les deux focus -- et son
+				//      avertissement est DELIBERE : un champ de saisie doit se voir
+				//      focalise quelle que soit l'origine. On verifie ici que ce cas
+				//      reste LEGAL, sans quoi l'avertissement serait un refus deguise.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  TextField \"f\" {\n"
+									  "    appearance(Focus) {\n"
+									  "      stroke { color = #F79A28, width = 2 }\n"
+									  "    }\n"
+									  "  }\n"
+									  "}\n";
+					NkVector<NkGuiDiag> dg;
+					const bool lu = valide(src, dg);
+					uint32 erreurs = 0;
+					for (uint32 i = 0; i < (uint32)dg.Size(); ++i) {
+						if (dg[i].code.StartsWith("E-")) {
+							++erreurs;
+						}
+					}
+					check("26l. le cas LEGITIME de `Focus` (un champ de saisie) reste "
+						  "legal : un avertissement, ZERO erreur -- on pose la question, "
+						  "on ne tranche pas a la place du concepteur",
+						  lu && erreurs == 0 && dg.Size() == 1, "");
+				}
 			}
 
 			rep.Append("\n=== CONTROLES : ");

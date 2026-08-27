@@ -707,6 +707,72 @@ une **absence**, donc satisfaite par une liste qui accepterait tout. Ce sont 26b
 et 26c — deux contrôles de **refus** — qui la tiennent.
 
 
+### La priorité et le double focus — 2026-08-27 (soir)
+
+Les deux questions que la liste fermée laissait ouvertes sont tranchées.
+
+**Combinaison → priorité fixe** :
+`Disabled > Pressed > Hover > FocusVisible > Focus > Normal`.
+
+> **Le cumul permet de produire un rendu que PERSONNE n'a dessiné** — la somme
+> accidentelle de deux règles, vue par l'utilisateur final sans qu'aucun
+> concepteur ne l'ait validée.
+
+Et la décision reste réversible **dans un seul sens** : la priorité fixe est un
+**sous-ensemble strict** du cumul. Passer au cumul plus tard (cascade = cet ordre)
+laisse les documents existants rendre à l'identique ; l'inverse casserait des
+documents. **On peut élargir, on ne pourra pas restreindre.**
+
+⚠️ **L'ordre est porté par la table elle-même** (`NkGEtats`), pas par un
+commentaire — et **un contrôle le fige** (26h). Sans lui, réordonner la table
+« pour ranger » changerait ce qui s'affiche à l'écran sans qu'aucun fichier ne
+bouge. Mutation F1 : **77 / 78, 26h seul rouge** — les 77 autres, corpus compris,
+ne voient rien.
+
+**Focus → deux noms**, `Focus` et `FocusVisible` :
+
+> **CSS a vécu des années avec un seul `:focus` et a dû ajouter
+> `:focus-visible`.** Un écosystème mature a essayé un seul nom et n'a pas pu s'y
+> tenir.
+
+Un **champ de texte** doit se voir focalisé quelle que soit l'origine ; un
+**bouton** ne doit montrer son anneau qu'au clavier. Le coût — six noms dont deux
+voisins — est payé par **`W-FOCUS-ANNEAU`** : un `stroke` sur `Focus` déclenche un
+avertissement qui suggère `FocusVisible`.
+
+> 📌 **Le premier document qu'il a attrapé était le nôtre** — le corpus écrit deux
+> heures plus tôt posait l'anneau de son *bouton* sur `Focus`.
+
+Seul `stroke` le déclenche : un anneau au `shadow` existe (`box-shadow`), mais un
+`shadow` sur le focus est tout aussi plausible comme mise en avant — **élargir
+fabriquerait un faux positif**.
+
+**`W-ÉTAT-DOUBLE` réexaminé, et il reste.** Il n'existait que parce que la
+combinaison n'était pas tranchée ; maintenant qu'elle l'est, il dit quelque chose
+de *plus fort* : la seconde déclaration d'un même état ne peut plus rien produire,
+c'est **du code mort dans le document**. Avertissement et non erreur : le document
+reste lisible et réenregistrable à l'octet.
+
+#### Le relevé
+
+| banc | avant | après |
+|---|---|---|
+| NKUIDesign contrôles | 73 / 73 | **78 / 78** |
+| corpus `valides/` | 10 / 10 à l'octet | 10 / 10 à l'octet |
+| famille 20 (compatibilité ascendante) | verte | **verte** — mesurée, pas supposée |
+
+| mutation | résultat |
+|---|---|
+| **F1** — la table réordonnée « pour ranger » | 77 / 78, **26h seul** |
+| **F2** — `FocusVisible` retiré | 75 / 78, 26h, 26i, 26k |
+| **F3** — l'avertissement qui guide s'en va | 76 / 78, 26j, 26l |
+| **F4** — l'avertissement trop large : il se déclenche **aussi** sur `FocusVisible` | 77 / 78, **26k seul** |
+
+⚠️ **F4 est celle qui justifie le témoin.** Un avertissement qui se déclencherait
+*aussi* sur la forme qu'il recommande enverrait l'utilisateur en rond — et c'est
+le genre de parade qu'on prend l'habitude d'ignorer, donc désarmée pour de bon
+(la leçon de la parade `grep` auto-contradictoire du 21/08). **Seul 26k la voit.**
+
 ### Tests — suite standalone
 [test_smoke.cpp](tests/test_smoke.cpp) — 15 tests sans framework externe :
 1. Archive flat (Set/Get scalars, Remove, Has).
