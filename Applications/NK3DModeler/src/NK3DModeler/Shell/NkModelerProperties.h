@@ -7721,7 +7721,7 @@ namespace nkentseu {
 			// parametres (libelle, type, bornes) et on la parcourt. Recopier a la
 			// main dix-sept jeux de reglages aurait diverge au premier ajout moteur.
 			if (DetailHeader(p, hit, r, y, st, NkDetailModifiers, "Modificateurs")) {
-				const uint32 nMods = nk3d::Viewport3DModifierCount();
+				const uint32 nMods = demo::Demo3DHostModCount();
 				if (nMods == 0u) {
 					p.TextV(r.x + kPad, y, kRowH, "Aucun -- barre d'outils > Modificateur",
 							NkRole::TextMuted);
@@ -7729,8 +7729,8 @@ namespace nkentseu {
 				}
 				char mkey[48];
 				for (uint32 m = 0; m < nMods; ++m) {
-					const int32 type = nk3d::Viewport3DModifierTypeAt(m);
-					const bool on = nk3d::Viewport3DModifierEnabled(m);
+					const int32 type = demo::Demo3DHostModTypeAt(m);
+					const bool on = demo::Demo3DHostModEnabled(m);
 					const NkRect hr{r.x, y, r.w, kRowH};
 					p.Fill(hr, NkRole::PanelHeader);
 
@@ -7742,9 +7742,9 @@ namespace nkentseu {
 					p.IconV(r.x + 6.f, y, kRowH, on ? NkIcon::Eye : NkIcon::EyeClosed,
 							on ? NkRole::Text : NkRole::TextMuted, 12.f);
 					if (hit.Clicked(mkey))
-						nk3d::Viewport3DSetModifierEnabled(m, !on);
+						demo::Demo3DHostModSetEnabled(m, !on);
 
-					p.TextV(r.x + 26.f, y, kRowH, nk3d::Viewport3DModifierTypeName(type),
+					p.TextV(r.x + 26.f, y, kRowH, demo::Demo3DHostModTypeName(type),
 							on ? NkRole::Text : NkRole::TextMuted);
 
 					// Monter / descendre / appliquer / retirer, cales a droite.
@@ -7765,19 +7765,19 @@ namespace nkentseu {
 						if (hit.Clicked(mkey)) {
 							switch (kMB[b].act) {
 								case 0:
-									nk3d::Viewport3DRemoveModifier(m);
+									demo::Demo3DHostModRemove(m);
 									break;
 								case 1:
 									// DESTRUCTIF : cuit le modificateur dans le maillage
 									// et le retire de la pile. C'est tout son objet, et
 									// Ctrl+Z le defait (un instantane est pris).
-									nk3d::Viewport3DApplyModifier(m);
+									demo::Demo3DHostModApply(m);
 									break;
 								case 2:
-									nk3d::Viewport3DMoveModifier(m, false);
+									demo::Demo3DHostModMove(m, false);
 									break;
 								default:
-									nk3d::Viewport3DMoveModifier(m, true);
+									demo::Demo3DHostModMove(m, true);
 									break;
 							}
 							NkMarkDirty(st);
@@ -7787,16 +7787,16 @@ namespace nkentseu {
 					y += kRowH;
 
 					// â”€â”€ Parametres, decrits par le modificateur lui-meme â”€â”€â”€â”€â”€
-					const uint32 nP = nk3d::Viewport3DModifierParamCount(m);
+					const uint32 nP = demo::Demo3DHostModParamCount(m);
 					for (uint32 pi = 0; pi < nP; ++pi) {
 						const char *plabel = "";
 						int32 ptype = 2;
 						float32 pmin = 0.f, pmax = 0.f;
-						if (!nk3d::Viewport3DModifierParamInfo(m, pi, &plabel, &ptype, &pmin, &pmax))
+						if (!demo::Demo3DHostModParamInfo(m, pi, &plabel, &ptype, &pmin, &pmax))
 							continue;
 						p.Fill({r.x, y, kLabelW, kRowH}, NkRole::LabelCol);
 						p.TextV(r.x + kPad + 8.f, y, kRowH, plabel);
-						float32 v = nk3d::Viewport3DGetModifierParam(m, pi);
+						float32 v = demo::Demo3DHostModGetParam(m, pi);
 						snprintf(mkey, sizeof(mkey), "det.mod.p%u.%u", m, pi);
 						const NkRect fr{r.x + kLabelW + 4.f, y + 2.f, r.w - kLabelW - 12.f,
 										kRowH - 4.f};
@@ -7813,7 +7813,7 @@ namespace nkentseu {
 										  NkRole::InputBg, 2.f);
 							}
 							if (hit.Clicked(mkey))
-								nk3d::Viewport3DSetModifierParam(m, pi, v != 0.f ? 0.f : 1.f);
+								demo::Demo3DHostModSetParam(m, pi, v != 0.f ? 0.f : 1.f);
 						} else {
 								// Les ENTIERS se tirent par pas de 1, les flottants par
 							// centiemes : un pas unique rendrait les uns inatteignables
@@ -7829,7 +7829,7 @@ namespace nkentseu {
 									if (nv > pmax)
 										nv = pmax;
 								}
-								nk3d::Viewport3DSetModifierParam(m, pi, nv);
+								demo::Demo3DHostModSetParam(m, pi, nv);
 							}
 						}
 						p.HLine(r.x, y + kRowH - 1.f, r.w);

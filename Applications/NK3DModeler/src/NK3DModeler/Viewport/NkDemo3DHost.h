@@ -191,6 +191,25 @@ namespace nkentseu {
 		bool Demo3DHostEditRedo();
 		bool Demo3DHostEditCanUndo();
 		bool Demo3DHostEditCanRedo();
+
+		// ── Pile de modificateurs (panneau « Modificateurs » + menu Ajouter) ──
+		// L'etat vit dans `Demo3DState::editModifiers` ; la vue dormante avait sa
+		// propre pile, que rien n'alimentait.
+		uint32 Demo3DHostModTypeCount();
+		const char *Demo3DHostModTypeName(int32 type);
+		uint32 Demo3DHostModCount();
+		int32 Demo3DHostModAdd(int32 type);
+		int32 Demo3DHostModTypeAt(uint32 index);
+		bool Demo3DHostModEnabled(uint32 index);
+		void Demo3DHostModSetEnabled(uint32 index, bool on);
+		bool Demo3DHostModRemove(uint32 index);
+		bool Demo3DHostModMove(uint32 index, bool up);
+		bool Demo3DHostModApply(uint32 index);
+		uint32 Demo3DHostModParamCount(uint32 index);
+		bool Demo3DHostModParamInfo(uint32 index, uint32 p, const char **label, int32 *type,
+									float32 *minV, float32 *maxV);
+		float32 Demo3DHostModGetParam(uint32 index, uint32 p);
+		void Demo3DHostModSetParam(uint32 index, uint32 p, float32 v);
 		bool Demo3DHostInEditMode();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();

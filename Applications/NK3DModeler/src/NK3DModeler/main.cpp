@@ -1469,6 +1469,41 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_MOD_STACK="<t1>+<t2>+...[,frame]" : EMPILE des modificateurs par la
+		// facade, c'est-a-dire par le MEME chemin que le panneau.
+		// ⚠️ IL EN FAUT DEUX, PAS UN. Un modificateur seul prouverait qu'il
+		// s'applique, pas que la PILE est respectee : l'ordre compte, et deux
+		// modificateurs inverses ne donnent pas le meme maillage. Le temoin compare
+		// donc « Mirror puis Array » a « Array puis Mirror ».
+		{
+			static bool sModDone = false;
+			if (const char *ms = std::getenv("NK_MOD_STACK")) {
+				int32 fr = 120;
+				const char *v = ms;
+				while (*v && *v != ',')
+					++v;
+				if (*v == ',')
+					fr = (int32)std::atoi(v + 1);
+				if (!sModDone && agentFrame >= fr) {
+					sModDone = true;
+					for (const char *p = ms; *p && *p != ',';) {
+						const int32 t = (int32)std::atoi(p);
+						const int32 i = demo::Demo3DHostModAdd(t);
+						std::printf("[nk3d] NK_MOD_STACK ajoute type=%d -> index=%d (pile=%u)\n",
+									(int)t, (int)i, (unsigned)demo::Demo3DHostModCount());
+						while (*p && *p != '+' && *p != ',')
+							++p;
+						if (*p == '+')
+							++p;
+						else
+							break;
+					}
+				}
+			} else {
+				sModDone = true;
+			}
+		}
+
 		// NK_VP_ACTION=<nom>[,frame] : declenche une ACTION DU SHELL (NkVpAction),
 		// par le MEME chemin que le clavier et que les futurs boutons.
 		// ATTENTION, C EST TOUTE LA DIFFERENCE QUE CE TEMOIN MESURE : les crochets
