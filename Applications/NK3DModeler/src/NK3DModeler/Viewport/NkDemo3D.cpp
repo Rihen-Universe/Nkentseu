@@ -13848,6 +13848,184 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st && st->editMode && st->editHistory.CanRedo();
 		}
+
+		// ── PILE DE MODIFICATEURS : LE PANNEAU ENTIER PARLAIT A LA VUE MORTE ──
+		// Les 14 fonctions `Viewport3D*Modifier*` operent sur `A->mods`, la pile
+		// de la vue DORMANTE, que rien n'alimente. Le panneau « Modificateurs »
+		// et l'entree de menu « Ajouter un modificateur » etaient donc INERTES en
+		// entier -- meme cause que le bouton Annuler, meme forme.
+		// L'etat vit du BON cote (`Demo3DState::editModifiers`, 33 mentions cote
+		// vivant contre 0 cote dormant) : vrai portage, pas deplacement de donnee.
+		//
+		// ⚠️ IL FAUT RESYNCHRONISER APRES CHAQUE MUTATION, et je l'ai d'abord
+		// ECRIT L'INVERSE. J'avais lu `editModifiers.Evaluate` a la ligne 2042 et
+		// conclu que la vue vivante re-evaluait la pile A CHAQUE FRAME, donc que
+		// muter suffisait. Le temoin a REFUTE ce commentaire : la pile passait a
+		// deux modificateurs et l'image ne bougeait pas d'un bit.
+		// La ligne 2042 est DANS `Demo3D_SyncFromHE` -- l'evaluation n'a lieu que
+		// lorsqu'on resynchronise, pas a chaque frame. C'est bien l'equivalent
+		// exact du `SyncMesh` de la vue morte, et j'avais affirme qu'il n'existait
+		// pas apres avoir lu la bonne ligne dans la mauvaise portee.
+		static Demo3DState *HostModSt() {
+			auto *st = HostSt();
+			return (st && st->editMode) ? st : nullptr;
+		}
+		// Toute mutation de la pile passe par ici : une seule porte, donc aucun
+		// point d'ecriture ne peut oublier la resynchronisation.
+		static void HostModTouch(Demo3DState *st) {
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (st && ms)
+				Demo3D_SyncFromHE(st, ms);
+		}
+		uint32 Demo3DHostModTypeCount() {
+			return 17u; // cf. renderer::NkModifierType, en ajout seul
+		}
+		const char *Demo3DHostModTypeName(int32 type) {
+			return renderer::NkModifierTypeName((renderer::NkModifierType)type);
+		}
+		uint32 Demo3DHostModCount() {
+			auto *st = HostModSt();
+			return st ? st->editModifiers.Count() : 0u;
+		}
+		int32 Demo3DHostModAdd(int32 type) {
+			auto *st = HostModSt();
+			if (!st || type < 0 || type >= 17)
+				return -1;
+			renderer::NkMeshModifier m;
+			m.type = (renderer::NkModifierType)type;
+			m.enabled = true;
+			st->editModifiers.Add(m);
+			HostModTouch(st);
+			return (int32)st->editModifiers.Count() - 1;
+		}
+		int32 Demo3DHostModTypeAt(uint32 index) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return -1;
+			return (int32)st->editModifiers.modifiers[index].type;
+		}
+		bool Demo3DHostModEnabled(uint32 index) {
+			auto *st = HostModSt();
+			return st && index < st->editModifiers.Count() &&
+				   st->editModifiers.modifiers[index].enabled;
+		}
+		void Demo3DHostModSetEnabled(uint32 index, bool on) {
+			auto *st = HostModSt();
+			if (st && index < st->editModifiers.Count()) {
+				st->editModifiers.SetEnabled(index, on);
+				HostModTouch(st);
+			}
+		}
+		bool Demo3DHostModRemove(uint32 index) {
+			auto *st = HostModSt();
+			if (!st || !st->editModifiers.Remove(index))
+				return false;
+			HostModTouch(st);
+			return true;
+		}
+		bool Demo3DHostModMove(uint32 index, bool up) {
+			auto *st = HostModSt();
+			if (!st)
+				return false;
+			const bool ok = up ? st->editModifiers.MoveUp(index) : st->editModifiers.MoveDown(index);
+			if (ok)
+				HostModTouch(st);
+			return ok;
+		}
+		// DESTRUCTIF : cuit le modificateur dans le maillage. Commit d'historique
+		// AVANT, comme le faisait la vue morte -- sans lui l'operation ne serait
+		// pas annulable, et c'est la seule de la famille qui touche la geometrie.
+		bool Demo3DHostModApply(uint32 index) {
+			auto *st = HostModSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || index >= st->editModifiers.Count())
+				return false;
+			renderer::NkEditMesh snapshot = st->editHE;
+			bool pasPremier = false;
+			if (!st->editModifiers.ApplyToBase(index, st->editHE, &pasPremier))
+				return false;
+			st->editHistory.Commit(snapshot);
+			Demo3D_PullSel(st);
+			Demo3D_SyncFromHE(st, ms);
+			return true;
+		}
+		uint32 Demo3DHostModParamCount(uint32 index) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return 0u;
+			uint32 n = 0;
+			renderer::NkModifierParams(st->editModifiers.modifiers[index].type, n);
+			return n;
+		}
+		bool Demo3DHostModParamInfo(uint32 index, uint32 p, const char **label, int32 *type,
+									float32 *minV, float32 *maxV) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return false;
+			uint32 n = 0;
+			const renderer::NkModParam *ps =
+				renderer::NkModifierParams(st->editModifiers.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return false;
+			if (label)
+				*label = ps[p].label;
+			if (type)
+				*type = (int32)ps[p].type;
+			if (minV)
+				*minV = ps[p].minV;
+			if (maxV)
+				*maxV = ps[p].maxV;
+			return true;
+		}
+		float32 Demo3DHostModGetParam(uint32 index, uint32 p) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return 0.f;
+			uint32 n = 0;
+			const renderer::NkModParam *ps =
+				renderer::NkModifierParams(st->editModifiers.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return 0.f;
+			const uint8 *base = (const uint8 *)&st->editModifiers.modifiers[index];
+			const void *field = base + ps[p].offset;
+			switch (ps[p].type) {
+				case renderer::NkModParamType::Bool:
+					return *(const bool *)field ? 1.f : 0.f;
+				case renderer::NkModParamType::Int:
+					return (float32)(*(const int32 *)field);
+				case renderer::NkModParamType::Vec3:
+					return ((const NkVec3f *)field)->x;
+				default:
+					return *(const float32 *)field;
+			}
+		}
+		void Demo3DHostModSetParam(uint32 index, uint32 p, float32 v) {
+			auto *st = HostModSt();
+			if (!st || index >= st->editModifiers.Count())
+				return;
+			uint32 n = 0;
+			const renderer::NkModParam *ps =
+				renderer::NkModifierParams(st->editModifiers.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return;
+			uint8 *base = (uint8 *)&st->editModifiers.modifiers[index];
+			void *field = base + ps[p].offset;
+			switch (ps[p].type) {
+				case renderer::NkModParamType::Bool:
+					*(bool *)field = (v != 0.f);
+					break;
+				case renderer::NkModParamType::Int:
+					*(int32 *)field = (int32)(v + (v < 0.f ? -0.5f : 0.5f));
+					break;
+				case renderer::NkModParamType::Vec3:
+					((NkVec3f *)field)->x = v;
+					break;
+				default:
+					*(float32 *)field = v;
+					break;
+			}
+			HostModTouch(st);
+		}
 		bool Demo3DHostEditMerge() {
 			return HostEditRun(&Demo3D_MergeHE);
 		}

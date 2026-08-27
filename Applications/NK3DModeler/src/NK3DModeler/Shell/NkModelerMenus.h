@@ -244,7 +244,7 @@ namespace nkentseu {
 							// Chaque entree porte SON type moteur : le menu ne calcule
 							// aucun indice, donc rien ne diverge quand une categorie
 							// gagne une entree.
-							nk3d::Viewport3DAddModifier(cats[c].items[i].type);
+							demo::Demo3DHostModAdd(cats[c].items[i].type);
 							NkMarkDirty(st);
 							ws.CloseCombo();
 						}
