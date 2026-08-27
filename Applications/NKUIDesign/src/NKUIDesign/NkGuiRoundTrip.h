@@ -519,14 +519,32 @@ namespace nkuidesign {
 			};
 
 			// 1. Le temoin de bruit.
+			//
+			// ⚠️ IL A ETE VERT SUR UN ECRIVAIN MORT jusqu'au 2026-08-27, et c'est
+			//    la relecture d'audit qui l'a trouve, pas un echec. `a` et `b`
+			//    sortent de **la meme fonction** : si `Write` rendait du vide,
+			//    `a.Compare(b) == 0` compare deux chaines vides et **passe**.
+			//    Mesure : `NkGuiArchive::Write` neutralisee -> **37 / 65, et le
+			//    controle 1 reste VERT**.
+			//
+			//    C'est **mot pour mot le defaut de T5** (`SandboxNKArchive`,
+			//    corrige le 2026-08-22) : la lecon avait ete appliquee au banc ou
+			//    elle avait ete trouvee, **pas au banc voisin**. Regle :
+			//    **au moins un cote de chaque egalite doit venir d'ailleurs que du
+			//    code teste.**
 			{
 				NkArchive d;
 				NkGuiDiag e;
 				parse("nkgui 0.2\nwidgets {\n  Button \"a\" { label = \"x\" }\n}\n", d, e);
 				const NkString a = NkGuiArchive::Write(d, NkGuiStyle());
 				const NkString b = NkGuiArchive::Write(d, NkGuiStyle());
-				check("1. temoin de bruit : deux ecritures donnent le meme texte",
-					  a.Compare(b) == 0, "");
+				// L'ancrage : du texte ECRIT A LA MAIN, qui ne peut pas sortir du
+				// code teste. Sans lui, le determinisme se prouve sur du vide.
+				const bool ancre = a.Size() > 0 && a.Contains("nkgui 0.2")
+								   && a.Contains("Button") && a.Contains("label");
+				check("1. temoin de bruit : deux ecritures donnent le meme texte -- ET "
+					  "ce texte existe (sinon on prouve le determinisme du vide)",
+					  ancre && a.Compare(b) == 0, "");
 			}
 
 			// 2. Les controles positifs. Chaque paire ne differe QUE par ce que son
@@ -1006,6 +1024,32 @@ namespace nkuidesign {
 				const NkGValidateResult vr = NkGValidate(d, diags);
 				check("14. le VOCABULAIRE DU DOCUMENT 7 passe la validation sans une faute",
 					  ok && vr.errors == 0 && vr.warnings == 0, ok ? "" : e.message.Data());
+
+				// ⚠️ 14 SEUL NE PEUT PAS ECHOUER POUR UNE RAISON QUI LUI APPARTIENNE.
+				//    « 0 erreur » veut dire « ce vocabulaire est accepte » OU « rien
+				//    n'a ete examine », et rien dans sa ligne ne separe les deux.
+				//    Mesure : `NkGValidate` qui rend `r` sans rien traverser ->
+				//    **51 / 65, et 14 reste VERT**.
+				//
+				//    Meme forme que 25b, meme forme que T5 : **exiger une absence,
+				//    c'est etre satisfait par le vide.** D'ou le temoin ci-dessous --
+				//    la construction que 20c/20d et 23a/23b emploient deja, et qui
+				//    manquait ici : **un positif et un negatif sur le MEME fichier.**
+				const char *casse = "nkgui 0.3\n"
+									 "widgets {\n"
+									 "    VBox \"v\" {\n"
+									 "        Mystere \"t\" { text = \"bonjour\" }\n"
+									 "    }\n"
+									 "}\n";
+				NkArchive dk;
+				NkGuiDiag ek;
+				const bool okk = parse(casse, dk, ek);
+				NkVector<NkGuiDiag> diagsk;
+				const NkGValidateResult vrk = NkGValidate(dk, diagsk);
+				check("14b. TEMOIN -- le MEME document, un seul role remplace par un nom "
+					  "qui n'existe pas : la validation le VOIT. Sans lui, le vert de 14 "
+					  "dirait aussi bien \"rien n'a ete examine\"",
+					  okk && vrk.errors == 1, "");
 			}
 			{
 				// UN ROLE INCONNU : ERREUR NOMMEE, ET LE FICHIER RESTE LISIBLE. C'est
