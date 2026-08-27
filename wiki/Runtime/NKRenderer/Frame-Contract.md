@@ -308,7 +308,32 @@ GPU et aurait fabriqué un faux positif).
 > rempli par une exécution OpenGL antérieure de la même session. Je laisse la rétractation visible :
 > c'est le même principe que partout ailleurs sur cette page, et il vaut d'abord pour moi.
 
-**Ce qui se mesure réellement**, banc `r2d01`, Vulkan forcé, lancé depuis la racine du dépôt :
+> ✅ **CONTRE-VERIFICATION (27/08, 10h) — les mesures Vulkan sont CONFIRMÉES, avec un protocole
+> explicite.** Elles ont été contestées : un autre chantier a lancé `r2d01` **construit depuis `main`
+> non modifié**, obtenu `OpenGL` (0 occurrence de `vkCreate`), et conclu que mon « Vulkan » n'avait
+> jamais été Vulkan. **Les deux journaux disent vrai — les binaires différaient.** Sans le patron
+> sûr (API demandée en tête de la liste de repli), `r2d01` **ne peut pas** atteindre Vulkan sur
+> Windows (§ [Platforms-Build-Run.md § 0 et § 2](../NKRHI/Platforms-Build-Run.md)).
+>
+> Refait proprement, **un journal séparé par lancement**, le device lu à chaque fois :
+>
+> | Lancement | Backend **obtenu** | `NkRHI_VK` | `NkRHI_GL` | `CreateShader fail` | `Initialize()` |
+> |---|---|---|---|---|---|
+> | 1 (cache froid) | **Vulkan** | 12 | **0** | **0** | ✅ |
+> | 2 | **Vulkan** | 26 | **0** | **16** | ❌ |
+> | 3 | **Vulkan** | 27 | **0** | **18** | ❌ |
+>
+> Les trois tournent sur un vrai device Vulkan (`NkVulkanDevice.cpp` initialise et crée ses
+> pipelines ; **zéro** ligne OpenGL). La dégradation 0 → 16 → 18 est **reproductible**, et le 18 de
+> mon relevé initial s'y retrouve exactement.
+>
+> ⚠️ **Ce qui était fautif dans mon relevé initial, c'était la tenue du registre, pas la mesure** :
+> j'avais réutilisé un seul chemin de journal pour deux backends successifs, ce qui rendait ma
+> chaîne invérifiable par un tiers. **Un relevé qu'on ne peut pas rejouer n'est pas une mesure, même
+> quand il est juste.**
+
+**Ce qui se mesure réellement**, banc `r2d01`, **avec le patron sûr appliqué** (sinon le banc part
+sur OpenGL), lancé depuis la racine du dépôt :
 
 | Essai | Cache | `CreateShader fail` | `Initialize()` | Écran |
 |---|---|---|---|---|
@@ -320,12 +345,24 @@ GPU et aurait fabriqué un faux positif).
 > écrit dans le cache, la suivante ne sait pas le relire. Ce n'est pas une pollution GL→VK, c'est
 > **VK→VK**.
 
-Contenu du cache après une exécution Vulkan (42 entrées) :
+Contenu du cache, **entrées séparées par exécution** (une exécution Vulkan écrit 38 entrées) :
 
 ```
-42/42  commencent par "#ver"  (TEXTE GLSL)      0/42  au mot magique SPIR-V
- 0/42  mentionnent push_constant (dialecte VK)  29/42 contiennent un uniform NU
+38/38  ecrites par le device VULKAN : du TEXTE      0/38  au mot magique SPIR-V
+ 0/42  mentionnent push_constant (dialecte VK)     29/42 contiennent un uniform NU
 ```
+
+⚠️ **Et c'est bien une anomalie, pas le contrat** : `IsTextTarget()`
+(`NkShaderLibrary.cpp:226-230`) énumère GL, GLES, WebGL, DX11, DX12, Metal — **Vulkan n'y est
+pas**. Pour Vulkan, `SaveToShaderCache` doit donc prendre la branche `toCache.binary = res.bytecode`,
+c'est-à-dire du SPIR-V. Il en sort du texte.
+
+📌 **Ce que la contestation a néanmoins corrigé chez moi** : la clé de cache **porte déjà la cible**
+(`ApiCacheTag`, 8 tags distincts, + version du générateur), donc **un run GL et un run VK ne peuvent
+pas se relire**. J'avais vérifié ce point moi-même et noté qu'il affaiblissait l'hypothèse d'une
+pollution GL→VK — mais il faut le dire nettement : **la pollution croisée est exclue.** Ce qui reste
+mesuré est plus étroit et plus étrange : **VK→VK**, une exécution Vulkan qui écrit ce que la
+suivante ne sait pas relire.
 
 Extrait d'une entrée écrite **par un device Vulkan** — `#version 430 core` et
 `uniform vec4 _PushConstants[6]` : c'est la sortie du générateur **de bureau**

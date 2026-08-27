@@ -192,9 +192,9 @@ Le build passe par la toolchain Xcode ; signature/déploiement device gérés c�
 - **macOS / iOS** : **Metal** (défaut) ; OpenGL inutilisable sur macOS (cap 4.1) ; Vulkan seulement
   si MoltenVK (SDK LunarG).
 
-## ⚠️ Quatre pièges d'instrument — à lire AVANT de mesurer un backend
+## ⚠️ Cinq pièges d'instrument — à lire AVANT de mesurer un backend
 
-Ces quatre pièges ont été rencontrés le **27/08/2026** en tentant d'observer un défaut sous Vulkan.
+Ces cinq pièges ont été rencontrés le **27/08/2026** en tentant d'observer un défaut sous Vulkan.
 Chacun produit une mesure **fausse mais crédible** — c'est ce qui les rend coûteux. Ils ne
 concernent pas un module en particulier : ils concernent **quiconque lance un binaire du dépôt pour
 en tirer une conclusion**.
@@ -202,7 +202,35 @@ en tirer une conclusion**.
 > 📌 Les quatre ont réellement produit une conclusion fausse ce jour-là, dont une qui a failli faire
 > réécrire dix-huit shaders sains. Aucun n'est théorique.
 
-### 0. 🔴 Le **cache de shaders** rend la 1re exécution différente de toutes les suivantes
+### 0. 🔴 « J'ai lancé `r2d01` » ne dit pas **quel exécutable** — et deux personnes peuvent en parler sans parler du même
+
+Le 27/08, deux mesures de `r2d01` sous Vulkan se sont contredites frontalement :
+
+| | Backend obtenu | Conclusion tirée |
+|---|---|---|
+| Chantier A | `Vulkan`, 12–27 lignes `NkRHI_VK`, 0 `NkRHI_GL` | « Vulkan démarre puis échoue au 2ᵉ lancement » |
+| Chantier B | `OpenGL`, **0** occurrence de `Vulkan` / `vkCreate` | « `r2d01` ne PEUT PAS tourner en Vulkan ; ton Vulkan n'a jamais été Vulkan » |
+
+**Les deux journaux disent vrai.** L'un des binaires portait un **correctif local d'une ligne** — le
+patron sûr, l'API demandée mise en tête de la liste de repli — l'autre non. Sans ce correctif,
+`r2d01` sur Windows part sur la liste en dur qui commence par OpenGL (§ 2) et **ne peut pas**
+atteindre Vulkan. Avec, il l'atteint.
+
+> **Le nom d'une cible identifie une source, pas un exécutable.** Un binaire porte l'état de
+> l'arbre à l'instant du `build` : correctifs locaux, branche, patch d'expérience réverté depuis.
+> Deux personnes qui disent « j'ai lancé `r2d01` » peuvent lancer deux programmes différents.
+
+**Règle** : quand deux mesures se contredisent, la première question n'est pas « qui a raison » mais
+**« as-tu un correctif local dans l'arbre au moment du build ? »**. Le second réflexe est de
+comparer les **journaux du device**, pas les conclusions. Ici, `NkRHI_VK` **contre** `NkRHI_GL` a
+tranché en une ligne — les deux camps avaient la preuve dans leur propre journal, sans la comparer.
+
+⚠️ **Et une leçon plus dure** : le chantier A avait **écrit lui-même** l'avertissement du § 2 — que
+`--backend=` est ignoré — et l'appliquait correctement. Ça ne l'a pas empêché d'être contredit sur
+la base d'un binaire différent du sien. **Connaître un piège ne protège pas de lui ; seul un
+instrument qui lit ce qu'il a obtenu le fait**, et il faut que *les deux* camps le lisent.
+
+### 1. 🔴 Le **cache de shaders** rend la 1re exécution différente de toutes les suivantes
 
 **Le piège le plus coûteux des quatre**, et celui qui m'a fait accuser dix-huit shaders innocents.
 
@@ -235,7 +263,7 @@ head -c 20 <exe_dir>/cache/shaders/*.nksc | xxd
 Sous un device Vulkan, une entrée qui commence par `#ver` est **une anomalie** : le backend attend
 du SPIR-V. (Sous OpenGL, du texte est normal.)
 
-### 1. 🔴 `--backend=` peut être **sans effet, en silence**
+### 2. 🔴 `--backend=` peut être **sans effet, en silence**
 
 `NkDeviceFactory::CreateWithFallback(init, order)` (`Core/NkDeviceFactory.cpp:136-146`) **ignore
 complètement `init.api`** : il parcourt `order` et écrase `effectiveInit.api = api` à chaque tour.
@@ -320,7 +348,7 @@ circonstances, y compris en mesurant autre chose.
 **Règle** : afficher `dev->GetApi()` (ce que le device **est**), jamais l'API demandée, et **refuser
 de mesurer** si les deux divergent. C'est ce que ces bancs font désormais.
 
-### 2. Lancer hors de la racine du dépôt fait manquer **tous** les shaders
+### 3. Lancer hors de la racine du dépôt fait manquer **tous** les shaders
 
 Les shaders sont cherchés en **(1)** `Resources/NKRenderer/Shaders/…` *relatif au répertoire
 courant*, puis **(2)** `<dossier de l'exécutable>/Resources/NKRenderer/Shaders/…`. Lancer un binaire
@@ -340,7 +368,7 @@ shader cassé. **Lancez depuis la racine du dépôt** (`-WorkingDirectory`), ou 
 que l'avertissement « repli sur la source EMBARQUEE » **ne soit pas émis**, alors qu'un des deux
 étages vient bien d'une source embarquée écrite pour un autre backend.
 
-### 3. `PrintWindow` rend **noir** sur une fenêtre composée par le GPU
+### 4. `PrintWindow` rend **noir** sur une fenêtre composée par le GPU
 
 Pour photographier une fenêtre GL/Vulkan/DX sous Windows, `PrintWindow` (et tout ce qui bâtit sur
 un DC de fenêtre) rend une image **noire ou vide** : le contenu vit dans une chaîne d'échange que
