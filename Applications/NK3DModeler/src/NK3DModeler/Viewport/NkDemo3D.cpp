@@ -13757,6 +13757,51 @@ namespace nkentseu {
 		bool Demo3DHostEditDelete() {
 			return HostEditRun(&Demo3D_DeleteHE);
 		}
+		// ── ANNULER / REFAIRE : LE BOUTON PARLAIT A LA MAUVAISE PILE ────────
+		// Il y a DEUX historiques dans ce binaire, et c'est la cause exacte du
+		// « bouton Annuler qui ne fait rien » :
+		//   - `Demo3DState::editHistory` (ICI) -- alimente par les operations,
+		//     commite en trois points, pilote au clavier. Il MARCHE.
+		//   - `g.history` dans NkViewport3D.cpp -- la vue DORMANTE, sans device.
+		//     C'est celui que `Viewport3DUndo()` manipule, et RIEN ne l'alimente.
+		// Le raccourci clavier passait par le premier, le bouton par le second :
+		// d'ou un Annuler qui marche au clavier et reste mort a la souris.
+		//
+		// ⚠️ CE N'EST PAS UN DEPLACEMENT DE DONNEE. L'etat complet (profondeur,
+		// curseur, invalidation) vit DEJA du bon cote ; il n'y avait qu'a exposer
+		// les fonctions. La pile de la vue dormante n'a jamais rien contenu --
+		// il n'y a donc rien a migrer, seulement a cesser de l'interroger.
+		// MESURE D ETAT, et non de pixels : annuler porte une PROFONDEUR et un
+		// CURSEUR, pas une action. Un temoin en image exige que l objet edite soit
+		// VISIBLE ; la profondeur, elle, se mesure toujours -- et c est elle qui
+		// dit si la pile a recule.
+		static bool HostEditHistRun(const char *nom,
+									void (*op)(Demo3DState *, renderer::NkMeshSystem *)) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			const uint32 u0 = st->editHistory.UndoCount(), r0 = st->editHistory.RedoCount();
+			const bool ok = HostEditRun(op);
+			logger.Info("[Demo3D] MESURE historique {0} : annuler {1}->{2} refaire {3}->{4} edition={5} agi={6}\n",
+						nom, u0, st->editHistory.UndoCount(), r0, st->editHistory.RedoCount(),
+						st->editMode ? 1 : 0, ok ? 1 : 0);
+			return ok;
+		}
+		bool Demo3DHostEditUndo() {
+			return HostEditHistRun("annuler", &Demo3D_UndoEdit);
+		}
+		bool Demo3DHostEditRedo() {
+			return HostEditHistRun("refaire", &Demo3D_RedoEdit);
+		}
+		// Etat des piles : ce que les boutons doivent lire pour se griser.
+		bool Demo3DHostEditCanUndo() {
+			auto *st = HostSt();
+			return st && st->editMode && st->editHistory.CanUndo();
+		}
+		bool Demo3DHostEditCanRedo() {
+			auto *st = HostSt();
+			return st && st->editMode && st->editHistory.CanRedo();
+		}
 		bool Demo3DHostEditMerge() {
 			return HostEditRun(&Demo3D_MergeHE);
 		}

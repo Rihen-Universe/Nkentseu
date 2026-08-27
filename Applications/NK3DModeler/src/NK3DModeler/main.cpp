@@ -1503,7 +1503,14 @@ int nkmain(const NkEntryState &entry) {
 						return (*a == 0 || *a == ',');
 					};
 					st.mode = NkMode::Edit;
-					if (est("subdivide"))
+					// On pose l ACTION, on n appelle pas la facade : le temoin doit
+					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
+					// meme si le bouton restait mort.
+					if (est("undo"))
+						st.pendingAction = NkVpAction::Undo;
+					else if (est("redo"))
+						st.pendingAction = NkVpAction::Redo;
+					else if (est("subdivide"))
 						st.pendingAction = NkVpAction::Subdivide;
 					else if (est("extrude"))
 						st.pendingAction = NkVpAction::Extrude;
@@ -1515,6 +1522,59 @@ int nkmain(const NkEntryState &entry) {
 						st.pendingAction = NkVpAction::Delete;
 					else
 						puts("[nk3d] NK_VP_ACTION : nom inconnu, aucune action posee");
+				}
+			}
+		}
+
+		// NK_VP_ACTION2=<nom>[,frame] : une SECONDE action du shell, plus tard.
+		// Necessaire pour le temoin d ANNULER, qui demande TROIS etats : avant,
+		// apres l operation, apres l annulation. Un seul crochet ne pouvait pas
+		// enchainer deux gestes, et un temoin d annulation sans operation prealable
+		// ne mesure rien -- la pile serait vide et Annuler aurait raison de ne rien
+		// faire. Meme chemin que le premier : on pose l ACTION, pas la facade.
+		{
+			static bool sVpAct2Done = false;
+			if (const char *vpa = std::getenv("NK_VP_ACTION2")) {
+				int32 fr = 160;
+				const char *cm = vpa;
+				while (*cm && *cm != ',')
+					++cm;
+				if (*cm == ',')
+					fr = (int32)std::atoi(cm + 1);
+				if (!sVpAct2Done && agentFrame >= fr) {
+					sVpAct2Done = true;
+					auto est = [&](const char *n) -> bool {
+						const char *a = vpa;
+						const char *b = n;
+						while (*b) {
+							char x = *a++, y = *b++;
+							if (x >= 'A' && x <= 'Z')
+								x = (char)(x - 'A' + 'a');
+							if (x != y)
+								return false;
+						}
+						return (*a == 0 || *a == ',');
+					};
+					st.mode = NkMode::Edit;
+					// On pose l ACTION, on n appelle pas la facade : le temoin doit
+					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
+					// meme si le bouton restait mort.
+					if (est("undo"))
+						st.pendingAction = NkVpAction::Undo;
+					else if (est("redo"))
+						st.pendingAction = NkVpAction::Redo;
+					else if (est("subdivide"))
+						st.pendingAction = NkVpAction::Subdivide;
+					else if (est("extrude"))
+						st.pendingAction = NkVpAction::Extrude;
+					else if (est("inset"))
+						st.pendingAction = NkVpAction::Inset;
+					else if (est("bevel"))
+						st.pendingAction = NkVpAction::BevelEdge;
+					else if (est("delete"))
+						st.pendingAction = NkVpAction::Delete;
+					else
+						puts("[nk3d] NK_VP_ACTION2 : nom inconnu, aucune action posee");
 				}
 			}
 		}
@@ -1675,11 +1735,17 @@ int nkmain(const NkEntryState &entry) {
 					if (edit && demo::Demo3DHostEditBevel(true))
 						NkMarkDirty(st);
 					break;
+				// LE BOUTON PARLAIT A LA MAUVAISE PILE. `Viewport3DUndo` manipule
+				// l historique de la vue DORMANTE (g.history), que rien n alimente ;
+				// les operations commitent dans celui de la vue VIVANTE. D ou un
+				// Annuler qui marchait au clavier et restait mort a la souris.
 				case NkVpAction::Undo:
-					nk3d::Viewport3DUndo();
+					if (edit && demo::Demo3DHostEditUndo())
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::Redo:
-					nk3d::Viewport3DRedo();
+					if (edit && demo::Demo3DHostEditRedo())
+						NkMarkDirty(st);
 					break;
 				// ── Vues ────────────────────────────────────────────────────
 				case NkVpAction::ViewFront:

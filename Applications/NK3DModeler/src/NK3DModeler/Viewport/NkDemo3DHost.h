@@ -185,6 +185,12 @@ namespace nkentseu {
 		bool Demo3DHostEditBevel(bool vertexMode);
 		bool Demo3DHostEditInset();
 		bool Demo3DHostEditDissolve();
+		// Annuler / refaire : la pile VIVANTE (Demo3DState::editHistory). La vue
+		// dormante a la sienne, que rien n'alimente -- cf. NkDemo3D.cpp.
+		bool Demo3DHostEditUndo();
+		bool Demo3DHostEditRedo();
+		bool Demo3DHostEditCanUndo();
+		bool Demo3DHostEditCanRedo();
 		bool Demo3DHostInEditMode();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();
