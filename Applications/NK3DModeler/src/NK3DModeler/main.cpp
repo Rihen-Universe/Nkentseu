@@ -1559,7 +1559,9 @@ int nkmain(const NkEntryState &entry) {
 					// On pose l ACTION, on n appelle pas la facade : le temoin doit
 					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
 					// meme si le bouton restait mort.
-					if (est("viewfront"))
+					if (est("frameall"))
+						st.pendingAction = NkVpAction::FrameAll;
+					else if (est("viewfront"))
 						st.pendingAction = NkVpAction::ViewFront;
 					else if (est("viewtop"))
 						st.pendingAction = NkVpAction::ViewTop;
@@ -1626,7 +1628,9 @@ int nkmain(const NkEntryState &entry) {
 					// On pose l ACTION, on n appelle pas la facade : le temoin doit
 					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
 					// meme si le bouton restait mort.
-					if (est("viewfront"))
+					if (est("frameall"))
+						st.pendingAction = NkVpAction::FrameAll;
+					else if (est("viewfront"))
 						st.pendingAction = NkVpAction::ViewFront;
 					else if (est("viewtop"))
 						st.pendingAction = NkVpAction::ViewTop;
@@ -1851,7 +1855,7 @@ int nkmain(const NkEntryState &entry) {
 					st.projection = (st.projection == 1) ? 0 : 1;
 					break;
 				case NkVpAction::FrameAll:
-					nk3d::Viewport3DFrameAll();
+					demo::Demo3DHostFrameAll();
 					break;
 				default:
 					break;

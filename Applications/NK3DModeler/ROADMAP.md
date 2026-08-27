@@ -182,6 +182,72 @@ bibliothèque, le banc peut couvrir les deux.**
 *Écrite ici parce qu'elle n'existait que dans un fichier d'échange non versionné.
 C'est la première fois que le comportement objet/édition est fixé noir sur blanc.*
 
+### ⚠️ COMPLÉMENT DU 2026-08-27 (Rodolf) — LA RÈGLE DES MODES, qui dépasse l'édition
+
+> **« Concernant le mode édition, ça doit se faire dans l'onglet Édition
+> uniquement, pour l'objet sélectionné. Pareil pour la sculpture, la sculpture
+> 2.5D, le texturing, etc. »**
+
+**Deux principes :**
+1. **Un mode vit dans SON onglet** — ce n'est pas un état global de l'application.
+2. **Un mode s'applique à l'OBJET SÉLECTIONNÉ**, pas à un index parallèle ni à une
+   cible implicite.
+
+**Et la forme, corrigée par Rodolf lui-même** — *« Comment ça, copier ? C'est pas
+plus lourd ? »* :
+
+```
+UNE machinerie     entrer / sortir · ce qui est permis · ce que la vue affiche
+                   · LA CIBLE = L'OBJET SÉLECTIONNÉ
+N descripteurs     Objet · Édition · Sculpture 2.5D · Sculpture · Texturing · …
+                   chacun déclare SES outils et SES panneaux
+```
+
+⚠️ **Ce n'est PAS un gabarit à instancier.** Un gabarit invite à copier, et copier
+est le défaut qu'on retire : trois doublons trouvés dans cette application le
+27/08, chacun avec un côté mort et l'entrée publique branchée dessus. **Blender
+n'a pas cinq implémentations de « mode », il en a une et une énumération.**
+
+**État mesuré au 27/08 — la machinerie existe déjà, il lui manque UN maillon :**
+
+| pièce | état |
+|---|---|
+| l'énumération `NkMode` (Object, Edit, Sculpt25D, Sculpt, Texturing, Patron, TexturePaint) | ✅ existe |
+| l'onglet écrit le mode (`NkModelerViewport.h:675`) | ✅ existe |
+| la cible suit la sélection (`editUserIdx` posé depuis la cible résolue) | ✅ vérifié |
+| **le mode atteint le viseur vivant** | ❌ **manquant** |
+
+**Le maillon manquant, précisément** : `main.cpp:1325` fait
+`Viewport3DSetEditMode(st.mode != NkMode::Object)` — il **replie sept modes en un
+booléen** *et* l'envoie à la vue **dormante**. C'est là, et seulement là, que la
+machinerie générique se perd. La réparer, c'est un `Demo3DHostSetMode(int32)` qui
+prend le MODE et non un booléen. **Ne pas déclarer de mode qui n'existe pas** :
+seuls Objet et Édition sont réels aujourd'hui ; les autres sont déjà dans
+l'énumération et n'ont pas besoin d'être annoncés ailleurs.
+
+### ⚠️ SCULPTURE ET SCULPTURE 2.5D SONT DEUX MODES, PAS UN MODE ET SON OPTION
+
+*Rodolf, 27/08 : « N'oublie pas la distinction entre sculpture et sculpture 2.5D. »*
+
+| | ce qui change | ce que ça exige |
+|---|---|---|
+| **Sculpture 2.5D** | un déplacement le long de la normale, sur la surface existante | **aucun changement de topologie** — pas de contre-dépouille, pas de surplomb |
+| **Sculpture réelle** | le volume lui-même | **topologie dynamique** : remaillage, ajout/retrait de géométrie, multi-résolution |
+
+📌 **Pourquoi c'est écrit ici et pas ailleurs** : deux noms proches sur deux
+exigences **opposées**, c'est exactement ce qui se fait fusionner par quelqu'un de
+bien intentionné qui croit simplifier.
+
+📌 **Et ça relie la réécriture demi-arête de la semaine** (cycles chaînés,
+`LinkTwins` localisé, opérations en place) : **c'est l'infrastructure de la
+sculpture RÉELLE.** La 2.5D n'en a pas besoin ; la réelle ne peut pas exister
+sans.
+
+⚠️ **Conséquence sur le descripteur de mode** : il devra pouvoir porter *« ce mode
+change-t-il la topologie, ou seulement les positions ? »*. **Contrainte de
+NON-FERMETURE, pas fonctionnalité à écrire aujourd'hui** — tant qu'un seul mode
+en a besoin, ce n'est pas encore une abstraction.
+
 ### Les deux modes
 
 | | mode **OBJET** | mode **ÉDITION** |
