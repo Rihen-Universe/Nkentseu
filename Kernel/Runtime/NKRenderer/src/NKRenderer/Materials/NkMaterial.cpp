@@ -230,6 +230,66 @@ namespace nkentseu {
 			return this;
 		}
 
+		// LECTURE DES PARAMETRES DE SURFACE
+		// Relais purs. Le defaut rendu sans instance est CELUI DE NkPBRParams, pas
+		// zero : rendre zero ferait croire a un materiau noir et parfaitement
+		// rugueux la ou le GPU recevrait blanc et 0,5.
+		static const NkPBRParams &NkMatDefaults() {
+			static const NkPBRParams d;
+			return d;
+		}
+		const NkPBRParams &NkMaterial::PBRRead() const {
+			return mInstance ? mInstance->GetPBR() : NkMatDefaults();
+		}
+		NkVec3f NkMaterial::GetAlbedo() const {
+			const NkVec4f a = PBRRead().albedo;
+			return {a.x, a.y, a.z};
+		}
+		float32 NkMaterial::GetAlbedoAlpha() const {
+			return PBRRead().albedo.w;
+		}
+		float32 NkMaterial::GetMetallic() const {
+			return PBRRead().metallic;
+		}
+		float32 NkMaterial::GetRoughness() const {
+			return PBRRead().roughness;
+		}
+		float32 NkMaterial::GetAO() const {
+			return PBRRead().ao;
+		}
+		NkVec3f NkMaterial::GetEmissive() const {
+			const NkVec4f e = PBRRead().emissive;
+			return {e.x, e.y, e.z};
+		}
+		float32 NkMaterial::GetEmissiveStrength() const {
+			return PBRRead().emissiveStrength;
+		}
+		float32 NkMaterial::GetNormalStrength() const {
+			return PBRRead().normalStrength;
+		}
+		float32 NkMaterial::GetSubsurface() const {
+			return PBRRead().subsurface;
+		}
+		NkVec3f NkMaterial::GetSubsurfaceColor() const {
+			const NkVec4f c = PBRRead().subsurfaceColor;
+			return {c.x, c.y, c.z};
+		}
+		float32 NkMaterial::GetClearcoat() const {
+			return PBRRead().clearcoat;
+		}
+		float32 NkMaterial::GetClearcoatRoughness() const {
+			return PBRRead().clearcoatRough;
+		}
+		float32 NkMaterial::GetAnisotropy() const {
+			return PBRRead().anisotropy;
+		}
+		float32 NkMaterial::GetSheen() const {
+			return PBRRead().sheen;
+		}
+		float32 NkMaterial::GetReflFloorBlend() const {
+			return PBRRead().reflBlend;
+		}
+
 		NkMaterial *NkMaterial::SetMetallic(float32 v) {
 			if (mInstance)
 				mInstance->SetMetallic(v);
