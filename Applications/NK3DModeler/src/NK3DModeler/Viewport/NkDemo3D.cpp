@@ -5292,6 +5292,15 @@ namespace nkentseu {
 
 			// ── Caméras réutilisables du moteur ──────────────────────────────────
 			// Éditeur (Blender) : orbit autour de (0,0.5,0). Simulation (fly) : recul sur -Z.
+			// ⚠️ MESURE 2026-08-27 : SANS EFFET QUAND `NK_FIX_CAM` EST POSE.
+			// `NK_CAM_DIST=3` et `NK_CAM_DIST=6` donnent des captures IDENTIQUES AU
+			// BIT PRES sous `NK_FIX_CAM=1` -- la pose figée est appliquée plus tard
+			// (`st->editorCam.Apply(cam)`) et écrase le rayon posé ici.
+			// Ce n'est pas anodin pour qui s'en sert à mesurer : un levier qui ne
+			// bouge pas rend DEUX captures identiques, ce qui « prouve » aussi bien
+			// que le réglage observé est mort. UN INSTRUMENT INERTE CONFIRME LE
+			// DEFAUT QU'ON LUI SOUMET, QUEL QU'IL SOIT. Vérifier que le levier agit
+			// AVANT de conclure quoi que ce soit de son immobilité.
 			// NK_CAM_DIST : recule la caméra orbit (rayon) pour les captures de test. Défaut 6.5.
 			float32 camRadius = 6.5f;
 			if (const char *cd = getenv("NK_CAM_DIST")) {
@@ -9443,6 +9452,14 @@ namespace nkentseu {
 						} else if (const char *ot = getenv("NK_OUTLINE_THICK")) {
 							r3d->SetSelectionOutline(true, {1.f, 0.45f, 0.05f, 1.f}, (float32)atof(ot));
 						}
+						// ⚠️ MESURE 2026-08-27 : INERTE quand un projet est ouvert par
+						// `NK_OPEN_RECENT`. `NK_SHADING=1` (SOLID non éclairé) rend une
+						// capture IDENTIQUE AU BIT PRES à la même invocation sans lui,
+						// cube visible à l'écran compris. Cause probable, NON vérifiée :
+						// le levier est lu une fois, puis le projet restaure son propre
+						// mode d'affichage en le recouvrant. Ne pas s'en servir comme
+						// témoin tant que ce n'est pas tranché (cf. NK_CAM_DIST, même
+						// famille) -- un levier muet fabrique des confirmations.
 						// NK_SHADING=<0..5> : force le mode d'affichage (0=RENDERED, 1=SOLID
 						// unlit, 2=WIREFRAME, 3=NORMAL, 4=UV, 5=AO) pour une capture headless.
 						if (const char *sh = getenv("NK_SHADING")) {
