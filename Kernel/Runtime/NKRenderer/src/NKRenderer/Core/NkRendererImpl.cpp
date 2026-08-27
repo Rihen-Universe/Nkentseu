@@ -1490,10 +1490,20 @@ namespace nkentseu {
 			// Phase M.2 : upload du UBO de la collection si dirty.
 			if (mMaterialCollection)
 				mMaterialCollection->Upload();
+			mFrameState = NkFrameState::Recording;
 			return true;
 		}
 
 		void NkRendererImpl::EndFrame() {
+			// ── GARDE G1 : EndFrame() attend une frame DEJA SOUMISE par Present().
+			// C'est CE test qui attrape l'inversion EndFrame()/Present().
+			if (mFrameState == NkFrameState::Recording) {
+				logger.Errorf("[NkRendererImpl] ORDRE DE FRAME INVERSE : EndFrame() appele AVANT Present(). "
+							  "La frame device va etre close alors qu'elle n'a jamais ete soumise -- sous "
+							  "Vulkan plus rien ne sera soumis ni presente, SANS erreur pilote (ecran noir). "
+							  "Corriger l'appelant : Present() PUIS EndFrame(). "
+							  "Cf. wiki/Runtime/NKRenderer/Frame-Contract.md\n");
+			}
 			mDevice->EndFrame(mFrameCtx);
 			// ── LA FRAME EST COMPLETE : on fige ses statistiques ────────────
 			// Ces compteurs etaient AFFICHES depuis toujours (overlay
@@ -1515,11 +1525,22 @@ namespace nkentseu {
 			// sont pas cablees, plutot que d'afficher un chiffre invente.
 			mStats.cpuTimeMs =
 				(float32)((::nkentseu::NkChrono::Now().nanoseconds - mCpuFrameStartNs) / 1.0e6);
+			mFrameState = NkFrameState::Idle;
 		}
 
 		void NkRendererImpl::Present() {
 			if (!mCmd)
 				return;
+
+			// ── GARDE G1 : Present() attend une frame OUVERTE par BeginFrame().
+			if (mFrameState != NkFrameState::Recording) {
+				logger.Errorf("[NkRendererImpl] ORDRE DE FRAME INVALIDE : Present() appele hors d'une frame "
+							  "ouverte (etat=%s). Sequence attendue : BeginFrame() -> (soumission) -> "
+							  "Present() -> EndFrame(). Present() execute le render graph et SOUMET ; "
+							  "EndFrame() ne fait que clore la frame device. "
+							  "Cf. wiki/Runtime/NKRenderer/Frame-Contract.md\n",
+							  mFrameState == NkFrameState::Idle ? "Idle" : "Submitted");
+			}
 
 			// Auto-rendering des planar reflections : execute AVANT les passes
 			// du RenderGraph. Le RenderGraph ouvrira/fermera ses propres
@@ -1567,6 +1588,7 @@ namespace nkentseu {
 			} else {
 				mPaceNs = 0.0;
 			}
+			mFrameState = NkFrameState::Submitted;
 		}
 
 		void NkRendererImpl::OnResize(uint32 w, uint32 h) {

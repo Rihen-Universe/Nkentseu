@@ -202,6 +202,23 @@ namespace nkentseu {
 				bool mInitialized = false;
 				NkRendererStats mStats;
 
+				// ── ETAT DE FRAME — garde G1 (2026-08-27) ────────────────────────
+				// Present() et EndFrame() portent des noms qui disent l'INVERSE de ce
+				// qu'ils font : Present() execute le graphe, ferme le command buffer
+				// et SOUMET ; EndFrame() ne fait que clore la frame device. Appeles
+				// dans l'ordre inverse, la frame device est close alors qu'elle n'a
+				// jamais ete soumise -- sous Vulkan plus rien n'est soumis ni
+				// presente, et AUCUNE erreur pilote n'est levee
+				// (NkVulkanDevice.cpp:2273/2397/2420). GL et DX11 n'ont pas cette
+				// garde : l'inversion y est invisible, ce qui a laisse le defaut
+				// vivre dans 3 fichiers, dont NkApplication.
+				// Cette garde ne CHANGE RIEN au comportement : elle journalise, et
+				// nomme le fautif. Le mode PARTAGE (l'hote possede la frame, cf.
+				// wiki/Runtime/NKRenderer/Frame-Contract.md flux C) n'appelle aucune
+				// de ces trois methodes : l'etat y reste Idle, sans faux positif.
+				enum class NkFrameState : uint8 { Idle, Recording, Submitted };
+				NkFrameState mFrameState = NkFrameState::Idle;
+
 				// Sous-systèmes (ordre d'initialisation = ordre de déclaration)
 				memory::NkUniquePtr<NkResources> mResources;   // toujours actif (default tex/samplers/layouts)
 				memory::NkUniquePtr<NkShaderLibrary> mShaders; // toujours actif (compile/cache des shaders)
