@@ -1,0 +1,27 @@
+nkgui 0.3
+
+// UNE TRANCHE BRUTE INDENTEE AUTREMENT QUE LE BLOC QUI LA PRECEDE.
+//
+// Ce fichier a vecu dans `limites/`. Il y etait pour une raison exacte :
+// l'ecrivain reemettait la tranche `set r = 1` avec la largeur DEDUITE du
+// document (deux espaces) au lieu de ses six, premier ecart a l'octet 65.
+// Ce n'etait pas un accident, c'etait une NORMALISATION assumee dans le code.
+//
+// Il en est sorti le 2026-08-27 sans changer d'un octet : c'est l'outil qui a
+// change. La trivia de tete porte desormais l'indentation d'origine ET son
+// terminateur de ligne, et l'ecrivain ne genere une indentation que pour un
+// noeud NEUF -- celui dont la trivia est vide parce qu'il ne vient d'aucun
+// fichier.
+//
+// ⚠️ CE QUE CE FICHIER A COUTE A TROUVER MERITE D'ETRE GARDE : le corpus
+//    GENERE ne pouvait pas le montrer, il indente partout pareil. Un corpus de
+//    dix fichiers du meme moule mesure le moule, pas le format. Il a fallu
+//    l'ecrire a la main pour que la limite tombe, et elle est tombee au premier
+//    essai.
+widgets {
+  Slider "n1" { min = 0 }
+}
+
+behavior "seuil" {
+      set r = 1
+}

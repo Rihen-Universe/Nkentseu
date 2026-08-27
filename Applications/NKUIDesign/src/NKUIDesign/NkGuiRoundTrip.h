@@ -237,16 +237,33 @@ namespace nkuidesign {
 			return r;
 		}
 
-		/// L'aller-retour sur tout un dossier.
-		// ⚠️ AUCUN FICHIER LU N'EST UN ECHEC, PAS UN SUCCES. `GetFiles` ne descend
-		//    PAS dans les sous-dossiers, et le corpus `exemples/` vit entierement
-		//    dans les siens : viser le dossier racine -- le geste naturel -- rendait
-		//    « TOTAL : 0 erreur(s) », c'est-a-dire un certificat de bonne sante pour
-		//    quatorze fichiers dont pas un n'avait ete ouvert.
+		// ====================================================================
+		//  LA COLLECTE DES FICHIERS -- UN SEUL POINT, POUR LES DEUX GESTES
+		// ====================================================================
 		//
-		//    C'est la meme famille que le drapeau inconnu qui ouvrait la fenetre :
-		//    **un chemin qui ne fait rien et qui en donne l'apparence.** Un banc qui
-		//    ne mesure rien doit le DIRE, sinon son silence se lit comme un vert.
+		// ⚠️ LE BALAYAGE DESCEND DANS LES SOUS-DOSSIERS. Jusqu'au 2026-08-27 il
+		//    ne descendait pas, et le corpus `exemples/` vit entierement dans les
+		//    siens : viser le dossier racine -- LE GESTE NATUREL, celui que le
+		//    README invite a faire -- rendait « TOTAL : 0 erreur(s) », un
+		//    certificat de bonne sante pour quatorze fichiers dont pas un n'avait
+		//    ete ouvert. Meme famille que le drapeau inconnu qui ouvrait la
+		//    fenetre : **un chemin qui ne fait rien et qui en donne l'apparence.**
+		//
+		// ⚠️ ET LE MESSAGE D'ECHEC NE SUFFISAIT PAS -- il expliquait a
+		//    l'utilisateur comment contourner l'outil, dossier par dossier. Un
+		//    diagnostic qui remplace une capacite est une dette, pas une parade.
+		//
+		// ⚠️ UNE SEULE FONCTION POUR LES DEUX GESTES, et ce n'est pas de
+		//    l'economie : `--roundtrip` et `--valider` portaient DEJA le meme
+		//    message d'echec, recopie mot pour mot. Deux copies d'un mecanisme
+		//    derivent, et la mesure du 23/08 (V6) a montre qu'on n'en corrige
+		//    qu'une. Le controle 25b tient qu'elles ne se separent plus.
+		inline NkVector<NkString> NkGCollecter(const char *directory) {
+			return NkDirectory::GetFiles(directory, "*.nkgui",
+										 nkentseu::NkSearchOption::NK_ALL_DIRECTORIES);
+		}
+
+		/// L'aller-retour sur tout un dossier, sous-dossiers compris.
 		inline int NkGRunRoundTrip(const char *directory) {
 			NkString rep("=== ALLER-RETOUR .nkgui -- le temoin du lecteur/ecrivain ===\n");
 			rep.Append("dossier : ");
@@ -261,11 +278,12 @@ namespace nkuidesign {
 				return 2;
 			}
 
-			NkVector<NkString> files = NkDirectory::GetFiles(directory, "*.nkgui");
+			NkVector<NkString> files = NkGCollecter(directory);
 			if (files.Empty()) {
 				rep.Append("ECHEC : aucun fichier .nkgui dans ce dossier. Rien n'a ete mesure.\n");
-				rep.Append("       Le balayage ne descend pas dans les sous-dossiers ; le corpus\n");
-				rep.Append("       vit dans exemples/valides, exemples/fautifs/... et exemples/limites.\n");
+				rep.Append("       Le balayage DESCEND dans les sous-dossiers : il n'y a\n");
+				rep.Append("       vraiment aucun .nkgui sous ce chemin. Le corpus du depot\n");
+				rep.Append("       vit dans Applications/NKUIDesign/exemples.\n");
 				NkGPublish(rep, "nkuidesign_roundtrip.txt");
 				return 2;
 			}
@@ -356,11 +374,12 @@ namespace nkuidesign {
 				NkGPublish(rep, "nkuidesign_validation.txt");
 				return 2;
 			}
-			NkVector<NkString> files = NkDirectory::GetFiles(directory, "*.nkgui");
+			NkVector<NkString> files = NkGCollecter(directory);
 			if (files.Empty()) {
 				rep.Append("ECHEC : aucun fichier .nkgui dans ce dossier. Rien n'a ete mesure.\n");
-				rep.Append("       Le balayage ne descend pas dans les sous-dossiers ; le corpus\n");
-				rep.Append("       vit dans exemples/valides, exemples/fautifs/... et exemples/limites.\n");
+				rep.Append("       Le balayage DESCEND dans les sous-dossiers : il n'y a\n");
+				rep.Append("       vraiment aucun .nkgui sous ce chemin. Le corpus du depot\n");
+				rep.Append("       vit dans Applications/NKUIDesign/exemples.\n");
 				NkGPublish(rep, "nkuidesign_validation.txt");
 				return 2;
 			}
@@ -1669,6 +1688,328 @@ namespace nkuidesign {
 					  "fichier qui les cumule -- le jour ou ce nombre baisse, c'est une "
 					  "decision",
 					  lu && bloquants == 6, "");
+			}
+
+			// ================================================================
+			//  24. L'INDENTATION -- ce que le fichier disait, et que le modele
+			//      n'a pas a savoir. La derniere face des trois manques.
+			// ================================================================
+			//
+			//  ⚠️ AUCUN DES 50 CONTROLES PRECEDENTS NE POUVAIT VOIR CE DEFAUT,
+			//     ET LE CORPUS NON PLUS : ils indentent tous partout pareil.
+			//     Un corpus de dix fichiers du meme moule mesure le moule, pas
+			//     le format. Chaque source ci-dessous est donc ecrite A LA MAIN
+			//     et VOLONTAIREMENT irreguliere -- c'est elle qui fait foi, et
+			//     elle ne peut pas venir du code teste.
+			//
+			//  Sept chemins DIFFERENTS, un par controle, parce que le meme
+			//  mecanisme vit a plusieurs endroits (`OpenMember` et `CloseLine`)
+			//  et qu'un seul controle en aurait laisse la moitie dans le noir.
+			//
+			//  ⚠️ ET DEUX TEMOINS QUI TIENNENT L'AUTRE MOITIE DE LA REGLE
+			//     (24h, 24i). Sans eux, un ecrivain qui n'indenterait PLUS RIEN
+			//     serait vert de 24a a 24g. « une ligne qui vient du fichier
+			//     garde ses octets » ne vaut que collee a « une ligne creee par
+			//     l'editeur recoit une indentation generee ».
+			{
+				// L'aller-retour qui MONTRE ce qu'il a emis quand il echoue. Sans
+				// la sortie sous les yeux, un ecart d'indentation se diagnostique
+				// a l'aveugle.
+				auto memeOctets = [&](const char *label, const char *src) {
+					NkArchive d;
+					NkGuiDiag e;
+					if (!parse(src, d, e)) {
+						check(label, false, "refuse a la lecture");
+						rep.Append("      message : ");
+						rep.Append(e.message);
+						rep.Append('\n');
+						return;
+					}
+					const NkString out =
+						NkGuiArchive::Write(d, NkGDetectStyle(src, len(src)));
+					const bool ok = (out.Compare(NkString(src)) == 0);
+					check(label, ok, ok ? "" : "reemis autrement");
+					if (!ok) {
+						rep.Append("      --- attendu (la source, ecrite a la main) ---\n");
+						rep.Append(src);
+						rep.Append("      --- reemis ---\n");
+						rep.Append(out);
+						rep.Append("      ---\n");
+					}
+				};
+
+				// [A] Une largeur qui n'est pas `profondeur x cran`. Le cran deduit
+				//     vaut 2 (la ligne `  VBox`), la propriete en demande 8.
+				memeOctets("24a. [A] une propriete indentee AUTREMENT que "
+						   "`profondeur x cran` garde ses octets",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  VBox \"v\" {\n"
+						   "        gap = 4\n"
+						   "  }\n"
+						   "}\n");
+
+				// [B] Une indentation qui n'est meme pas faite d'espaces.
+				memeOctets("24b. [B] une indentation au TABULATEUR garde ses octets",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  VBox \"v\" {\n"
+						   "\tgap = 4\n"
+						   "  }\n"
+						   "}\n");
+
+				// [E] La trivia de tete porte DEJA des lignes completes (une ligne
+				//     vide, un commentaire). Ce n'est pas le meme chemin que [A] :
+				//     la trivia finit par un saut de ligne dans un cas, par de
+				//     l'espace dans l'autre.
+				memeOctets("24c. [E] une indentation qui SUIT une ligne vide et un "
+						   "commentaire garde ses octets",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  VBox \"v\" {\n"
+						   "\n"
+						   "      // une note\n"
+						   "      gap = 4\n"
+						   "  }\n"
+						   "}\n");
+
+				// [F] L'ACCOLADE FERMANTE. Elle ne passe pas par `OpenMember` mais
+				//     par `CloseLine` -- le meme mecanisme, un second domicile.
+				//     C'est la lecon de V6 : n'en corriger qu'un donne un vert a
+				//     moitie merite.
+				memeOctets("24d. [F] l'ACCOLADE FERMANTE indentee autrement garde "
+						   "ses octets (`CloseLine`, pas `OpenMember`)",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  VBox \"v\" {\n"
+						   "    gap = 4\n"
+						   "     }\n"
+						   "}\n");
+
+				// [G] Une TRANCHE BRUTE : elle ne passe pas par le modele, mais
+				//     elle passe bien par `OpenMember`.
+				memeOctets("24e. [G] une TRANCHE BRUTE indentee autrement que le "
+						   "reste du document garde ses octets",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  Slider \"n1\" { min = 0 }\n"
+						   "}\n"
+						   "\n"
+						   "behavior \"seuil\" {\n"
+						   "      set r = 1\n"
+						   "}\n");
+
+				// [D] ZERO indentation dans un bloc imbrique. ⚠️ Sa trivia de tete
+				//     est VIDE -- exactement celle d'un noeud que l'editeur vient
+				//     de creer. Les deux cas sont indiscernables dans la trivia,
+				//     et 24i exige justement que le second soit indente.
+				memeOctets("24f. [D] une ligne COLLEE A LA MARGE dans un bloc "
+						   "imbrique garde ses octets",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  VBox \"v\" {\n"
+						   "gap = 4\n"
+						   "  }\n"
+						   "}\n");
+
+				// Le meme cas pour la fermante : `}` colle a la marge.
+				memeOctets("24g. [D+F] une ACCOLADE FERMANTE collee a la marge "
+						   "garde ses octets",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  VBox \"v\" {\n"
+						   "    gap = 4\n"
+						   "}\n"
+						   "}\n");
+
+				// ⚠️ TEMOIN 1 : L'ACQUIS. Un document indente uniformement doit
+				//    rester octet pour octet. C'est ce que les 50 controles
+				//    precedents mesuraient deja, mais il faut le redire ICI :
+				//    c'est le seul acquis que le correctif d'indentation peut
+				//    casser, et il doit pouvoir rougir dans la meme page.
+				memeOctets("24h. TEMOIN -- un document indente UNIFORMEMENT reste "
+						   "octet pour octet (l'acquis que ce correctif peut casser)",
+						   "nkgui 0.3\n"
+						   "widgets {\n"
+						   "  VBox \"v\" {\n"
+						   "    gap = 4\n"
+						   "    align = Start\n"
+						   "  }\n"
+						   "}\n");
+
+				// ⚠️ TEMOIN 2 : L'AUTRE MOITIE DE LA REGLE, et le seul controle de
+				//    la famille dont l'attendu N'EST PAS la source.
+				//
+				//    `{gap = 4` : la trivia de tete de `gap` est VIDE. C'est le cas
+				//    du noeud NEUF -- celui que l'editeur pose et qui n'a jamais
+				//    connu de fichier. Il DOIT recevoir une indentation generee.
+				//
+				//    Sans ce controle, « ne plus jamais indenter » passerait la
+				//    famille entiere. C'est la forme exacte du piege de V6 et du
+				//    22/08 : une capacite qui s'en va sans laisser de trace.
+				{
+					const char *src = "nkgui 0.3\n"
+									  "widgets {\n"
+									  "  VBox \"v\" {gap = 4\n"
+									  "  }\n"
+									  "}\n";
+					// Attendu ECRIT A LA MAIN. Il ne sort pas du code teste.
+					const char *attendu = "nkgui 0.3\n"
+										  "widgets {\n"
+										  "  VBox \"v\" {\n"
+										  "    gap = 4\n"
+										  "  }\n"
+										  "}\n";
+					NkArchive d;
+					NkGuiDiag e;
+					const bool lu = parse(src, d, e);
+					NkString out;
+					if (lu) {
+						out = NkGuiArchive::Write(d, NkGDetectStyle(src, len(src)));
+					}
+					const bool ok = lu && (out.Compare(NkString(attendu)) == 0);
+					check("24i. TEMOIN -- une trivia de tete VIDE (le noeud NEUF) "
+						  "recoit bien une indentation GENEREE",
+						  ok, "");
+					if (!ok) {
+						rep.Append("      --- attendu (ecrit a la main) ---\n");
+						rep.Append(attendu);
+						rep.Append("      --- reemis ---\n");
+						rep.Append(out);
+						rep.Append("      ---\n");
+					}
+				}
+
+				// ⚠️ LE TERMINATEUR DE LIGNE N'EST PLUS DEDUIT, IL EST TRANSPORTE.
+				//    Avant le 2026-08-27 le `\\r` etait REGENERE depuis
+				//    `style.crlf` -- une deduction GLOBALE (la premiere ligne du fichier)
+				//    appliquee a un fait LOCAL. Le `lead` porte desormais les octets
+				//    exacts du terminateur, donc la deduction ne sert plus qu'aux lignes
+				//    NEUVES. Ces deux controles sont la contrepartie de cette promesse ;
+				//    sans eux, elle n'existerait que dans un commentaire.
+				memeOctets("24j. le TERMINATEUR : un document en CRLF, indente a la main, "
+						   "revient a l'octet",
+						   "nkgui 0.3\r\n"
+						   "widgets {\r\n"
+						   "  VBox \"v\" {\r\n"
+						   "        gap = 4\r\n"
+						   "     }\r\n"
+						   "}\r\n");
+
+				// ⚠️ MIXTE. Aucun fichier sain ne devrait l'etre -- mais une fusion mal
+				//    reglee en fabrique, et c'est PRECISEMENT le cas qu'une deduction
+				//    globale ne peut pas rendre : elle en choisit UN pour tout le
+				//    document. Un outil qui « repare » les fins de ligne d'un fichier
+				//    qu'on lui demandait juste d'ouvrir rend tout diagnostic impossible,
+				//    et fait exploser un diff qui n'aurait du porter qu'une ligne.
+				memeOctets("24k. le TERMINATEUR : un document aux fins de ligne MIXTES "
+						   "n'est pas \"repare\" en douce",
+						   "nkgui 0.3\n"
+						   "widgets {\r\n"
+						   "  VBox \"v\" {\n"
+						   "    gap = 4\r\n"
+						   "    align = Start\n"
+						   "  }\r\n"
+						   "}\n");
+			}
+
+			// ================================================================
+			//  25. LE BALAYAGE DESCEND DANS LES SOUS-DOSSIERS
+			// ================================================================
+			//
+			//  ⚠️ CELUI-LA TOUCHE LE DISQUE, ET C'EST LE SEUL DU BANC. Il ne
+			//     peut pas faire autrement : ce qu'il mesure EST un parcours de
+			//     systeme de fichiers. Le mesurer en memoire reviendrait a
+			//     tester une imitation de `NkDirectory` -- exactement la forme
+			//     « la meme fonction produit l'attendu et l'observe » qui avait
+			//     rendu T5 vert sur un ecrivain mort.
+			//
+			//     Il fabrique donc son propre arbre dans le dossier courant, le
+			//     mesure, et le retire. **Il ne lit pas le corpus du depot** :
+			//     un banc qui depend d'un chemin relatif ne tourne plus des
+			//     qu'on le lance d'ailleurs.
+			{
+				const char *racine = "nkuidesign_ctl25";
+				const char *sous = "nkuidesign_ctl25/a/b";
+				NkDirectory::Delete(racine, true);
+				const bool arbre = NkDirectory::CreateRecursive(sous);
+				const char *doc = "nkgui 0.3\nwidgets {\n  Group \"g\" { }\n}\n";
+				// ⚠️ LE FICHIER DU FOND EST DELIBEREMENT ILLISIBLE (pas d'en-tete
+				//    `nkgui`). C'est LUI qui ancre 25b, et la raison est au §25b.
+				const char *casse = "widgets { }\n";
+				const bool ecrit =
+					NkFile::WriteAllText("nkuidesign_ctl25/racine.nkgui", doc)
+					&& NkFile::WriteAllText("nkuidesign_ctl25/a/milieu.nkgui", doc)
+					&& NkFile::WriteAllText("nkuidesign_ctl25/a/b/fond.nkgui", casse)
+					// ⚠️ UN INTRUS QUI N'EST PAS UN `.nkgui`. Sans lui, un
+					//    balayage qui rendrait TOUS les fichiers serait vert :
+					//    « il en a trouve 3 » ne dit pas « il a filtre ».
+					&& NkFile::WriteAllText("nkuidesign_ctl25/a/b/intrus.txt", doc);
+
+				const NkVector<NkString> trouves = NkGCollecter(racine);
+				check("25. le balayage DESCEND : 3 fichiers sur 3 niveaux, trouves "
+					  "depuis la racine",
+					  arbre && ecrit && trouves.Size() == 3, "");
+				if (arbre && ecrit && trouves.Size() != 3) {
+					rep.Append("      trouves : ");
+					rep.Append(NkGU32((uint32)trouves.Size()));
+					rep.Append(" au lieu de 3\n");
+					for (uint32 i = 0; i < (uint32)trouves.Size(); ++i) {
+						rep.Append("        ");
+						rep.Append(trouves[i]);
+						rep.Append('\n');
+					}
+				}
+
+				// ⚠️ 25b : LES DEUX GESTES BALAIENT PAREIL. `--roundtrip` et
+				//    `--valider` portaient DEUX copies du meme appel et DEUX
+				//    copies du meme message d'echec. C'est le motif que V6 a
+				//    puni : un mecanisme a deux domiciles n'est corrige qu'a un
+				//    seul.
+				//
+				// ⚠️ ET CE CONTROLE ETAIT MORT A SA PREMIERE ECRITURE. Il exigeait
+				//    `rt == 0 && vd == 0` -- LE SUCCES DES DEUX GESTES. La mutation
+				//    M7 (la validation reprend son appel non recursif) lui est passee
+				//    sous le nez, 65 / 65 : un balayage qui lit MOINS reussit tout
+				//    autant. **Exiger un succes, c'est etre satisfait par le vide** --
+				//    la meme famille que les deux `Find(...) == npos` qui rendaient T5
+				//    vert sur un ecrivain JSON mort.
+				//
+				//    D'ou l'ancrage : le fichier du FOND (`a/b/`) est illisible. Les
+				//    deux gestes doivent donc REFUSER (1), chacun de son cote. Un
+				//    balayage qui ne descend pas rend 0 (il ne voit que la racine,
+				//    saine) ; un balayage qui ne lit rien rend 2. **Seul un balayage
+				//    qui a vraiment atteint le fond rend 1.**
+				const int rt = NkGRunRoundTrip(racine);
+				const int vd = NkGRunValidate(racine);
+				check("25b. LES DEUX GESTES atteignent le FOND : chacun refuse le "
+					  "fichier casse enterre a trois niveaux, pas seulement celui "
+					  "qu'on a corrige",
+					  rt == 1 && vd == 1, "");
+				if (rt != 1 || vd != 1) {
+					rep.Append("      aller-retour -> ");
+					rep.Append(NkGU32((uint32)rt));
+					rep.Append(", validation -> ");
+					rep.Append(NkGU32((uint32)vd));
+					rep.Append(" (1 attendu des deux cotes ; 0 = le fond n'a pas ete lu, "
+							   "2 = rien du tout)\n");
+				}
+
+				// ⚠️ 25c : ET IL SAIT ENCORE DIRE NON. Un balayage qui rendrait
+				//    tout, partout, serait vert de 25 a 25b. Le sous-dossier
+				//    `a/b` ne contient qu'un seul `.nkgui` : le compte y tombe a
+				//    1, et un arbre sans aucun `.nkgui` reste un ECHEC (code 2),
+				//    pas un « 0 erreur » flatteur.
+				const NkVector<NkString> feuille = NkGCollecter(sous);
+				NkDirectory::CreateRecursive("nkuidesign_ctl25/vide/rien");
+				const int nul = NkGRunRoundTrip("nkuidesign_ctl25/vide");
+				check("25c. LE BALAYAGE SAIT ENCORE DIRE NON : 1 seul fichier sous la "
+					  "feuille, et un arbre sans .nkgui reste un ECHEC (2)",
+					  feuille.Size() == 1 && nul == 2, "");
+
+				NkDirectory::Delete(racine, true);
+				check("25d. le controle 25 ne laisse rien derriere lui",
+					  !NkDirectory::Exists(racine), "");
 			}
 
 			rep.Append("\n=== CONTROLES : ");

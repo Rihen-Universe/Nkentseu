@@ -17,20 +17,36 @@ a réellement cassé pendant la bascule vers `NkArchive`.
 ## Comment les passer
 
 ```sh
+# le corpus entier, sous-dossiers compris — depuis le 2026-08-27
+NKUIDesign.exe --roundtrip=Applications/NKUIDesign/exemples
+NKUIDesign.exe --valider=Applications/NKUIDesign/exemples
+
+# ou un dossier précis, si on veut un relevé qui ne mélange pas les intentions
 NKUIDesign.exe --roundtrip=Applications/NKUIDesign/exemples/valides
-NKUIDesign.exe --valider=Applications/NKUIDesign/exemples/valides
 ```
 
 `--roundtrip` mesure *analyser → réémettre → réanalyser*. `--valider` juge les
 rôles et les types. **Ce sont deux gestes différents**, et un fichier peut
-réussir l'un en échouant l'autre — le dossier `limites/` existe entièrement
-pour ça.
+réussir l'un en échouant l'autre.
+
+⚠️ **Le balayage descend dans les sous-dossiers.** Jusqu'au 2026-08-27 il ne
+descendait pas : viser la racine — *le geste que ce README invitait à faire* —
+rendait « TOTAL : 0 erreur(s) » pour quatorze fichiers dont **pas un n'avait été
+ouvert**. Un message d'échec avait été ajouté le 23/08 ; il expliquait comment
+contourner l'outil, dossier par dossier. **Un diagnostic qui remplace une
+capacité est une dette, pas une parade.**
+
+⚠️ **Et viser la racine rend `1`, pas `0` — c'est correct.** Le corpus
+*contient* cinq fichiers faits pour être refusés. Relevé du 2026-08-27 sur la
+racine : **20 fichiers lus, 15 / 20 à l'octet** (les 5 manquants sont
+`refuses_a_la_lecture/`), **11 erreurs** et 1 avertissement voulu. Pour un
+relevé qui doit être vert, viser `valides/`.
 
 ---
 
 ## `valides/` — doivent passer les deux
 
-Relevé du 2026-08-23 (après le correctif d'apparence) : **7 / 7 octet pour
+Relevé du 2026-08-27 (après le correctif d'indentation) : **9 / 9 octet pour
 octet**, **0 erreur**.
 
 | fichier | ce qu'il exerce | attendu |
@@ -42,16 +58,27 @@ octet**, **0 erreur**.
 | `05_animation_comportement.nkgui` | trois sections sur les huit connues, chemins pointés `n1.value` et `Enum.Haut` | 0 erreur |
 | `06_version_0_2_alias.nkgui` | un fichier d'une **version antérieure** avec un rôle renommé depuis | **1 avertissement voulu** : `W-ROLE-ALIAS` |
 | `07_apparence.nkgui` | l'**apparence** du document 9 §3 : `appearance`, la typographie, `fill`, `shadow` nommé, et trois surcharges d'état | 0 erreur |
+| `08_indentation_mixte.nkgui` | une **tranche brute indentée autrement** que le bloc qui la précède | 0 erreur |
+| `09_indentation_a_la_main.nkgui` | **sept largeurs d'indentation différentes** dans un seul document — 3 espaces, un tabulateur, 6, 9, 0, une accolade fermante à 5, une tranche brute à 7 | 0 erreur |
 
 Le seul avertissement du dossier est **le comportement correct** : un vieux
 fichier doit rester ouvrable, sinon on ne peut pas le mettre à jour.
 
-⚠️ **`07_apparence.nkgui` arrive de `limites/`, et c'est le dossier qui dit
-quoi.** Il y était parce que la validation rendait trois `E-ROLE-INCONNU`
-dessus. Elle ne les rend plus : le fichier n'a pas changé, l'outil si. Un
-fichier ne reste dans `limites/` que tant que l'outil le traite mal — sinon le
-dossier deviendrait un cimetière de défauts corrigés, et plus personne ne le
-lirait comme une liste de choses à faire.
+⚠️ **Les trois derniers arrivent de `limites/`, et c'est le dossier qui dit
+quoi.** `07` y était parce que la validation rendait trois `E-ROLE-INCONNU`
+dessus ; `08` et `09` parce que l'écrivain **normalisait leur indentation**.
+Aucun des trois n'a changé d'un octet : c'est l'outil qui a changé. Un fichier
+ne reste dans `limites/` que tant que l'outil le traite mal — sinon le dossier
+deviendrait un cimetière de défauts corrigés, et plus personne ne le lirait
+comme une liste de choses à faire.
+
+⚠️ **`09` mérite d'être lu avant d'être copié : il est laid exprès.** Sept
+largeurs d'indentation dans un document de quinze lignes, ça ne ressemble à
+rien de ce qu'on écrit. C'est le point. Il a été écrit le 2026-08-27 **avant**
+le correctif, et il était **rouge** — premier écart à l'octet 1903. Sans lui, le
+témoin aurait été vert des deux côtés et n'aurait rien prouvé :
+
+> **Un corpus de dix fichiers du même moule mesure le moule, pas le format.**
 
 ---
 
@@ -100,27 +127,27 @@ parce qu'un seul des deux était mesuré.
 
 ---
 
-## `limites/` — **légaux**, et pourtant l'outil ne les traite pas correctement
+## `limites/` — **le dossier n'existe plus, et c'est le relevé qui l'a vidé**
 
-Ce troisième dossier existe parce que ces fichiers ne sont **ni valides ni
-fautifs** : la faute est du côté de l'outil, pas du fichier. Les ranger avec les
-fautifs serait mentir sur qui a tort ; les ranger avec les valides masquerait
-un défaut connu.
+Ce troisième dossier a existé du 2026-08-23 au 2026-08-27. Il portait les
+fichiers **ni valides ni fautifs** : légaux, et pourtant mal traités — la faute
+du côté de l'outil, pas du fichier. Les ranger avec les fautifs aurait menti sur
+qui a tort ; les ranger avec les valides aurait masqué un défaut connu.
 
-**Les deux ont été trouvés au premier essai d'écriture manuelle**, ce que dix
-fichiers du même moule n'avaient jamais montré. **Il en reste un.**
+Il est vide parce que ses trois occupants sont partis, chacun le jour où l'outil
+a cessé de les maltraiter :
 
-| fichier | ce qui ne va pas | qui a tort |
-|---|---|---|
-| `02_indentation_mixte.nkgui` | une tranche brute indentée autrement que le bloc de la section précédente est réémise avec la largeur déduite du document. Premier écart à l'octet 533. | **l'écrivain** |
+| fichier | ce qui n'allait pas | parti le | devenu |
+|---|---|---|---|
+| `01_apparence_faux_positifs` | trois `E-ROLE-INCONNU` sur des constructions du document 9 §3 | 2026-08-23 | `valides/07_apparence` |
+| `02_indentation_mixte` | tranche brute réémise avec la largeur déduite du document, écart à l'octet 65 | 2026-08-27 | `valides/08_indentation_mixte` |
+| `03_indentation_a_la_main` | sept largeurs d'indentation normalisées, écart à l'octet 1903 | 2026-08-27 | `valides/09_indentation_a_la_main` |
 
-### Ce qui est parti d'ici, et pourquoi
+**Le recréer est un geste normal**, pas un aveu : dès qu'un fichier légal est mal
+traité et qu'on ne corrige pas tout de suite, il va là. Ce qui serait anormal,
+c'est qu'un fichier y **reste** après correction.
 
-`01_apparence_faux_positifs.nkgui` est devenu `valides/07_apparence.nkgui` le
-2026-08-23 : les trois `E-ROLE-INCONNU` étaient un **défaut de la validation**,
-pas du fichier, et l'apparence a désormais son propre vocabulaire.
-
-Ce qu'il avait montré en passant mérite d'être gardé, parce que c'est plus
+Ce que `01` avait montré en passant mérite d'être gardé, parce que c'est plus
 général que le défaut lui-même : `appearance(Hover)` — l'en-tête de bloc avec
 parenthèses, la **limite déclarée** — ne produisait **aucune** erreur, parce
 qu'il reste une tranche verbatim que la validation ne regarde pas.
@@ -149,3 +176,22 @@ qu'il reste une tranche verbatim que la validation ne regarde pas.
 - **`items = [a, b]` reste un jeton nu** — `KindOf` dit que c'est une liste,
   personne ne peut itérer ses éléments. `03` et `v2` l'exercent ; rien n'en a
   eu besoin.
+
+### Levée le 2026-08-27 : la normalisation de l'indentation
+
+L'écrivain régénérait l'indentation à `profondeur × largeur déduite`. Il
+conserve désormais le verbatim, et **ne génère que pour le neuf** :
+
+> **Une ligne qui vient du fichier garde ses octets ; une ligne créée par
+> l'éditeur reçoit une indentation générée.**
+
+⚠️ **Les deux moitiés sont indissociables.** Un écrivain qui n'indenterait
+*plus jamais rien* rend le corpus 9 / 9 à l'octet et passe **60 des 61**
+contrôles — mesuré, mutation M1. Seul le contrôle 24i tient la seconde moitié.
+
+⚠️ **Ce que ce corpus, lui, ne peut pas mesurer : le terminateur de ligne.** Il
+est figé en LF (`.gitattributes`), pour une bonne raison — ses positions en
+octets font foi. Le prix est qu'il est aveugle : une mutation qui perd le `\r`
+d'un fichier CRLF laisse les 20 fichiers **exactement au même relevé**. Seuls
+les contrôles 24j et 24k du banc le voient. **Un corpus figé mesure ce qu'on a
+figé.**
