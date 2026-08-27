@@ -10,6 +10,20 @@
 `NkIEditorRenderer` abstrait **deux piles graphiques disjointes** ; `NkRenderer` n'en couvre qu'une,
 et ne peut pas couvrir l'autre sans casser la règle de couches du dépôt.
 
+> 🔴 **Mais la vraie conclusion de cette page est ailleurs, et elle vaut d'être lue en premier :**
+> **la frontière à durcir n'est pas la fusion — c'est la collision de vocabulaire.**
+>
+> Les deux interfaces ont un `BeginFrame`/`EndFrame` **aux sémantiques opposées** : celui de
+> l'éditeur **soumet et présente** dans `EndFrame()`, celui de la façade **non**
+> ([Frame-Contract.md](Frame-Contract.md)). Personne ne risque de fondre les deux classes par
+> accident ; en revanche **tout le monde risque de lire l'une pour l'autre** — c'est déjà arrivé :
+> `NK3DModeler` a été lu comme « un troisième motif de `NkRenderer` » alors que c'est une autre
+> classe, et la conclusion qu'on en tirait aurait fait « corriger » du code correct.
+>
+> Le coût du remède est connu et petit — renommer les points d'entrée de l'un des deux
+> (§ 5.1) : **2 implémentations, 2 sites d'injection, 1 usage direct.** Le coût de ne rien faire est
+> une relecture erronée de plus, à chaque fois qu'un nouvel arrivant ouvre `NK3DModeler/main.cpp`.
+
 ---
 
 ## 1. La raison décisive : deux implémentations, deux piles sans intersection

@@ -138,11 +138,10 @@ et il le fera le jour où le MSAA sera activé, c'est-à-dire au pire moment.
 Demande explicite : *existe-t-il une garde mécanique ?* Aujourd'hui l'inversion donne — quand Vulkan
 fonctionnera — un écran noir **sans une seule erreur pilote**. Quatre candidats, chiffrés.
 
-> ⚠️ **Aucune de ces gardes n'a été « faite rougir ».** Je ne les ai pas construites (hors périmètre :
-> `NkRendererImpl` appartient à un autre chantier) et je n'en ai donc vu aucune passer au rouge.
-> Ce qui suit est un **devis**, pas un résultat. La colonne « comment la faire rougir » dit
-> exactement quelle expérience validerait chacune — c'est ce travail-là qui reste à faire, et il
-> doit précéder l'adoption.
+> ✅ **G1 est CONSTRUITE et a été faite rougir** (27/08/2026) — détail au § ci-dessous.
+> **G2 et G4 restent des devis**, non construits, jamais vus au rouge. **G3 n'est pas une garde** et
+> ne peut pas rougir. La colonne « comment la faire rougir » dit, pour G2 et G4, l'expérience qui
+> les validerait — travail qui doit précéder leur adoption.
 
 | # | Garde | Coût | Ce qu'elle attrape | Comment la faire rougir |
 |---|---|---|---|---|
@@ -151,17 +150,61 @@ fonctionnera — un écran noir **sans une seule erreur pilote**. Quatre candida
 | **G3** | **Renommer** `Present()` → `SubmitAndPresent()` | mécanique, 47 sites | Rien à l'exécution — **aide la lecture, ne protège pas** | Sans objet : ne peut pas rougir. À ne pas compter comme une garde |
 | **G4** | **Garde côté RHI** : `NkVulkanDevice::EndFrame` journalise quand il prend le chemin « frame abandonnée » (`:2402`) au lieu de recréer la swapchain en silence | ~3 lignes, 1 fichier — **mais `NKRHI` appartient au chantier backends** | Toute frame non soumise, **quelle qu'en soit la cause** — donc aussi les vrais abandons | Provoquer un abandon de frame (fenêtre réduite) et **voir la ligne**. Attention : si les vrais abandons sont fréquents, la garde devient du bruit — à mesurer avant |
 
-**Recommandation : G1 d'abord.** C'est la seule qui soit à la fois bon marché, locale à un fichier,
-et qui transforme un écran noir silencieux en une ligne nommant le fautif. G4 la complète utilement
-mais appartient à un autre chantier. G2 est la vraie solution structurelle — l'ordre ne peut plus
-être faux s'il n'y a plus d'ordre à choisir — mais elle demande d'abord l'audit des 44 sites
-corrects, qui n'est pas fait.
+### ✅ G1 — construite, et **faite rougir** le 27/08/2026
 
-⚠️ **Et une remarque qui vaut pour les quatre** : la garde n'aurait **rien changé cette semaine**. Sur
+`NkRendererImpl.h` porte désormais `enum class NkFrameState { Idle, Recording, Submitted }` et le
+membre `mFrameState`. `BeginFrame()` pose `Recording` à son succès ; `Present()` pose `Submitted` ;
+`EndFrame()` remet `Idle`. Deux contrôles journalisent — **et rien d'autre : aucun changement de
+comportement, la garde ne bloque pas, elle nomme.**
+
+| | `EndFrame()` | `Present()` |
+|---|---|---|
+| Attend | `Submitted` | `Recording` |
+| Sinon | `ORDRE DE FRAME INVERSE : EndFrame() appele AVANT Present()…` | `ORDRE DE FRAME INVALIDE : Present() appele hors d'une frame ouverte (etat=…)` |
+
+**Protocole de validation** — banc `r2d01` (`NkRenderer2DDemo`), Debug, OpenGL, lancé depuis la
+racine du dépôt :
+
+| Essai | Ordre dans l'appelant | Occurrences de `ORDRE DE FRAME` | Rendu |
+|---|---|---|---|
+| 🔴 **Rouge** | `EndFrame()` → `Present()` *(inversion réintroduite exprès)* | **594** | 97,9 % de pixels non-noirs |
+| ✅ **Vert** | `Present()` → `EndFrame()` *(ordre correct)* | **0** | 97,9 % de pixels non-noirs |
+
+Les deux messages nomment la correction à faire et renvoient à cette documentation. Extrait réel :
+
+```
+[ERR] [NkRendererImpl.cpp:1501 in EndFrame] ORDRE DE FRAME INVERSE : EndFrame() appele AVANT
+Present(). La frame device va etre close alors qu'elle n'a jamais ete soumise -- sous Vulkan plus
+rien ne sera soumis ni presente, SANS erreur pilote (ecran noir). Corriger l'appelant : Present()
+PUIS EndFrame().
+```
+
+> **Les deux moitiés comptent.** Une garde qui rougit prouve qu'elle détecte ; **une garde qui se
+> tait sur le cas correct prouve qu'elle est utilisable.** Sans le second essai (0 occurrence),
+> G1 serait un générateur de bruit et serait désactivée par le premier qui la croiserait.
+
+⚠️ **Pas de faux positif en mode partagé** (flux C, 5 sites) : ces hôtes n'appellent **aucune** des
+trois méthodes, l'état y reste `Idle` et aucun contrôle ne s'exécute. Vérifié par construction —
+les contrôles vivent *dans* les méthodes non appelées.
+
+**G4 complète utilement G1** mais appartient au chantier backends. **G2** est la vraie solution
+structurelle — l'ordre ne peut plus être faux s'il n'y a plus d'ordre à choisir — mais elle demande
+d'abord l'audit des 44 sites corrects, **qui n'est pas fait**.
+
+⚠️ **La réserve tient, et elle est importante** : G1 n'aurait **rien changé cette semaine**. Sur
 `main`, Vulkan et DX12 ne démarrent pas (§ [Frame-Contract.md 4bis](Frame-Contract.md)), et sous
-OpenGL l'inversion est inoffensive. Une garde d'exécution ne parle que sur un chemin qui s'exécute :
-**c'est la relecture qui a trouvé ces 3 sites, pas un symptôme.** G1 protège l'avenir, elle n'aurait
-pas révélé le passé.
+OpenGL l'inversion est inoffensive — **le rendu est identique dans l'essai rouge et dans l'essai
+vert** (97,9 % dans les deux). **C'est la relecture qui a trouvé ces 3 sites, pas un symptôme.**
+
+Mais c'est précisément pourquoi elle valait la peine : le défaut est **latent, donc il frappera** —
+le jour où le chemin Vulkan rendra une image, et ce jour-là il se présentera comme un écran noir
+sans erreur pilote. **G1 protège l'avenir ; elle n'aurait pas révélé le passé.**
+
+⚠️ **Correction datée (27/08, 09h)** : cette page a écrit « le jour où les 18 shaders Vulkan seront
+réparés ». **Il n'y a pas 18 shaders cassés** — c'était un artefact de mon cache de shaders, chaud
+d'une exécution OpenGL antérieure (§ [Frame-Contract.md 4bis](Frame-Contract.md)). Ce qui bloque
+réellement l'observation, c'est que **Vulkan rend noir même quand tout compile**, pour une cause
+distincte et non diagnostiquée. La conclusion sur G1 ne change pas ; sa justification, si.
 
 ---
 

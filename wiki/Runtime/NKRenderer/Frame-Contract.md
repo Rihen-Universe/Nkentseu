@@ -183,6 +183,14 @@ Les sites écrits *après* le 09/08 (D le 10/08, B le 16/08) ont copié la bonne
 n'est pas une négligence, c'est **une recette qui se recopie et qu'un correctif n'a rattrapée qu'à
 un seul endroit**.
 
+> 📌 **Famille de défaut — « une note qui reconnaît un jumeau non corrigé est une dette qui se croit
+> documentée ».** Le commentaire de `b08027c85` *nomme* le site jumeau (« Meme contrainte et meme
+> modele que NkViewport3D.cpp ») et le laisse intact. Le lecteur suivant y lit que le cas est
+> **traité** ; le texte dit seulement qu'il est **connu**. Une note de ce genre est pire que le
+> silence : elle immunise la dette contre la relecture, parce qu'elle ressemble à sa résolution.
+> **Repère** : tout commentaire qui désigne un autre fichier comme « même cas » sans que ce fichier
+> ait été modifié dans le même commit. Ici, `git show --stat b08027c85` suffisait à le voir.
+
 #### ⚠️ La suppression annoncée de `NkViewport3D.cpp` ne règle pas le problème
 
 `NkViewport3D.cpp` doit être supprimé et `NkDemo3D` renommé en `NkViewport3D`. Mesuré :
@@ -293,22 +301,63 @@ compilée en Debug, lancée depuis la racine du dépôt (indispensable : sinon
 réels de l'écran (`CopyFromScreen`, pas `PrintWindow` — qui rend noir sur une fenêtre composée par le
 GPU et aurait fabriqué un faux positif).
 
-### Résultat 1 — 🔴 Le banc ne peut pas tourner sous Vulkan **ni** sous DX12 sur `main`
+### Résultat 1 — 🔴 **RETRACTATION (27/08, 09h) : ma mesure était fausse, et voici la vraie**
 
-| Backend | `NkRenderer::Initialize()` | Cause |
-|---|---|---|
-| **OpenGL** | ✅ réussit, 0 shader en échec | — |
-| **Vulkan** | ❌ **échoue** | **18 programmes** ne compilent pas : `'non-opaque uniforms outside a block' : not allowed when using GLSL for Vulkan`. Pas seulement le post-process : `Render2D`, `Shadow`, `Skybox`, `Instanced`, `Blit`, `Glow2D`, `InfiniteGrid`… Les fichiers sont **trouvés** (0 « INTROUVABLE ») : ce sont de vraies erreurs de compilation |
-| **DX12** | ❌ **échoue** | **11 programmes** en échec, même famille |
+> ⚠️ **Ce que cette page a affirmé pendant quelques heures — « 18 programmes ne compilent pas sous
+> Vulkan sur `main` » — était un artefact de MON instrument.** Mon **cache de shaders était chaud**,
+> rempli par une exécution OpenGL antérieure de la même session. Je laisse la rétractation visible :
+> c'est le même principe que partout ailleurs sur cette page, et il vaut d'abord pour moi.
 
-Cause **préexistante sur `main`**, sans rapport avec l'ordre de frame : la seule chose que j'avais
-modifiée pour ce test était l'ordre de préférence d'API, réverté depuis.
+**Ce qui se mesure réellement**, banc `r2d01`, Vulkan forcé, lancé depuis la racine du dépôt :
 
-> 🔴 **Conséquence sur la lecture du §4 : le défaut d'ordre est LATENT, pas actif.** Écrire que les
-> trois sites « donnent un écran noir sous Vulkan aujourd'hui » serait faux : **personne ne peut
-> lancer NKRenderer sous Vulkan sur `main`**, l'initialisation échoue avant. Le mécanisme du §4
-> reste exact — il se déclenchera **le jour où les shaders Vulkan seront réparés**, et ce jour-là il
-> se manifestera par un écran noir sans erreur pilote, c'est-à-dire au pire moment.
+| Essai | Cache | `CreateShader fail` | `Initialize()` | Écran |
+|---|---|---|---|---|
+| 1 | **froid** | **0** | ✅ | **noir** |
+| 2 | chaud *(écrit par l'essai 1)* | **16** | ❌ | — |
+| 3 | **froid**, attente 38 s | **0** | ✅ | **noir** |
+
+> 🔴 **Le premier lancement passe ; tous les suivants échouent.** Ce que l'exécution **Vulkan**
+> écrit dans le cache, la suivante ne sait pas le relire. Ce n'est pas une pollution GL→VK, c'est
+> **VK→VK**.
+
+Contenu du cache après une exécution Vulkan (42 entrées) :
+
+```
+42/42  commencent par "#ver"  (TEXTE GLSL)      0/42  au mot magique SPIR-V
+ 0/42  mentionnent push_constant (dialecte VK)  29/42 contiennent un uniform NU
+```
+
+Extrait d'une entrée écrite **par un device Vulkan** — `#version 430 core` et
+`uniform vec4 _PushConstants[6]` : c'est la sortie du générateur **de bureau**
+(`NkSLCodeGenGLSL.cpp`), là où le générateur Vulkan aurait émis un bloc `layout(push_constant)`.
+L'erreur `'non-opaque uniforms outside a block'` est exactement ce que glslang répond quand on lui
+redonne ce texte pour une cible Vulkan.
+
+**Trois conséquences :**
+
+1. **Les shaders ne sont pas en cause.** 65 des 73 sources `*.vk.glsl` passent `glslangValidator`
+   en direct ; les sources et les générateurs sont **identiques entre les branches**. Seuls **8**
+   `.frag.vk.glsl` échouent vraiment (`Anime`, `CarPaint`, `Glow2D`, `Layered`, `LayeredV1`,
+   `M5Demo`, `PBR`, `Toon`) — problème séparé et plus petit.
+2. **Un protocole « purger le cache puis lancer » rend le défaut invisible par construction** —
+   c'est pourquoi le chantier backends n'a jamais vu son banc rougir. Il faut lancer **deux fois**.
+3. 🔴 **Le défaut d'ordre de frame reste néanmoins LATENT et non observé** — mais pour une raison
+   différente de celle que j'avais écrite : ce n'est pas que Vulkan refuse de démarrer, c'est que
+   **Vulkan rend noir de toute façon** (voir ci-dessous).
+
+### Résultat 1bis — un troisième défaut, indépendant, non diagnostiqué
+
+Essais 1 et 3 : Vulkan, cache froid, **0 échec shader, 0 erreur de quelque nature que ce soit,
+`Initialize()` réussit, le render graph exécute ses passes** — et la fenêtre est **entièrement
+noire** (0 pixel non-noir sur 18 483 échantillonnés), même après 38 s.
+
+⚠️ **Ce n'est pas le défaut d'ordre de frame** : la garde G1 est **silencieuse** dans ces exécutions
+(0 déclenchement), l'ordre est correct. C'est un **troisième défaut**, que je n'ai pas diagnostiqué
+et que je ne m'attribue pas. Transmis au chantier backends (`echanges/rendu.questions.md`, Q45).
+
+> 📌 **Le symptôme que je prédisais pour l'inversion — « écran noir sans une seule erreur pilote » —
+> existe déjà sur Vulkan, pour une autre cause.** C'est précisément ce qui rend ce symptôme si
+> coûteux : il ne désigne pas son défaut.
 
 ### Résultat 2 — le correctif ne régresse pas le seul backend qui tourne
 
