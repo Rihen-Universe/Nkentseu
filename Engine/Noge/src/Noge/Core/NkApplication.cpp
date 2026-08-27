@@ -119,8 +119,17 @@ namespace nkentseu {
 			}
 			OnUIRender();
 
-			mRenderer->EndFrame(); // soumet le render graph (géométrie/ombres/PP)
-			mRenderer->Present();  // présente la swapchain
+			// ORDRE CRITIQUE — Present() AVANT EndFrame(). Les noms disent l'inverse
+			// de ce que fait le code : c'est Present() qui exécute le render graph,
+			// ferme le command buffer et soumet ; EndFrame() ne fait que clore la
+			// frame device. Inversés, la frame device est close avant d'avoir été
+			// soumise : sous Vulkan, EndFrame prend alors le chemin « frame
+			// abandonnée » (NkVulkanDevice.cpp:2397), pose mFrameAcquired=false et
+			// recrée la swapchain, puis SubmitAndPresent sort à sa première ligne
+			// (NkVulkanDevice.cpp:2273) — plus rien n'est soumis ni présenté, et
+			// AUCUNE erreur pilote n'est levée. Cf. wiki/Runtime/NKRenderer/Frame-Contract.md
+			mRenderer->Present();  // exécute le render graph, ferme le CB, soumet + présente
+			mRenderer->EndFrame(); // clôt la frame device (fige les stats, avance l'index)
 		}
 
 		// ── Arrêt propre (idempotent ; le destructeur l'appelle aussi) ────────

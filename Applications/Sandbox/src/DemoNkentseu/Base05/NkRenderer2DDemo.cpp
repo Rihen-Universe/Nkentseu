@@ -220,8 +220,10 @@ int nkmain(const NkEntryState &state) {
 			r2d->End();
 		}
 
-		renderer->EndFrame();
+		// Present() AVANT EndFrame() : Present exécute le render graph, ferme le
+		// command buffer et soumet ; EndFrame ne fait que clore la frame device.
 		renderer->Present();
+		renderer->EndFrame();
 	}
 
 	// ── Nettoyage ─────────────────────────────────────────────────────────────

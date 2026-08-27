@@ -196,8 +196,10 @@ int nkmain(const NkEntryState& state) {
 
         //  main_2D.cpp / main_3D.cpp / main_2D_3D_mixte.cpp)
 
-        renderer->EndFrame();
+        // Present() AVANT EndFrame() : Present exécute le render graph, ferme le
+        // command buffer et soumet ; EndFrame ne fait que clore la frame device.
         renderer->Present();
+        renderer->EndFrame();
     }
 
     // 5) Fermeture propre, dans l'ordre inverse de la création -----------------
