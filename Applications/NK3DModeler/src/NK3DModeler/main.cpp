@@ -1564,6 +1564,8 @@ int nkmain(const NkEntryState &entry) {
 
 		if (agentFrame > 60)
 			demo::Demo3DHostXformTrace();
+		if (agentFrame > 60)
+			demo::Demo3DHostNodesTrace();
 
 		// NK_VP_ACTION=<nom>[,frame] : declenche une ACTION DU SHELL (NkVpAction),
 		// par le MEME chemin que le clavier et que les futurs boutons.

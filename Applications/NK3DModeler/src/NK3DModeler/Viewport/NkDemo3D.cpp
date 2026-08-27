@@ -14011,6 +14011,41 @@ namespace nkentseu {
 		// panneau appelle -- et le recoupement est SEMANTIQUE : la position lue
 		// doit EGALER celle ou l'objet a ete pose (NK_CURSOR3D), pas seulement
 		// « avoir change ».
+		// NK_NODES_TRACE=1 : inventaire des emplacements utilisateur. Sert a
+		// MESURER ce qu'un import produit reellement, plutot qu'a le supposer.
+		void Demo3DHostNodesTrace() {
+			static bool fait = false;
+			if (fait || !getenv("NK_NODES_TRACE"))
+				return;
+			fait = true;
+			int32 occupes = 0, vivants = 0, avecMesh = 0, models = 0, editables = 0;
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (nkvpUserKind[u] == 0)
+					continue;
+				++occupes;
+				const int32 n = kNkvpFirstUser + u;
+				if (nkvpDeleted[n])
+					continue;
+				++vivants;
+				if (nkvpIsModel[n])
+					++models;
+				if (nkvpUserMesh[u].IsValid())
+					++avecMesh;
+				if (NkVpUserKindEditable(nkvpUserKind[u]) && nkvpUserMesh[u].IsValid())
+					++editables;
+			}
+			logger.Info("[Demo3D] INVENTAIRE noeuds : occupes={0} vivants={1} models={2} "
+						"avec_maillage={3} editables={4}\n",
+						occupes, vivants, models, avecMesh, editables);
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				const int32 n = kNkvpFirstUser + u;
+				if (nkvpUserKind[u] == 0 || nkvpDeleted[n])
+					continue;
+				logger.Info("[Demo3D]   slot={0} noeud={1} kind={2} model={3} mesh={4} parent={5}\n",
+							u, n, (int32)nkvpUserKind[u], nkvpIsModel[n] ? 1 : 0,
+							nkvpUserMesh[u].IsValid() ? 1 : 0, nkvpParentOf[n]);
+			}
+		}
 		void Demo3DHostXformTrace() {
 			static bool fait = false;
 			if (fait || !getenv("NK_XFORM_TRACE"))
