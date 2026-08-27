@@ -208,6 +208,51 @@ distincte et non diagnostiquée. La conclusion sur G1 ne change pas ; sa justifi
 
 ---
 
+## 1ter. Laquelle pourrait rougir AUJOURD'HUI ? — le critère avant la construction
+
+> **Une garde qu'aucun défaut vivant n'exerce est un contrôle jamais rouge de plus.** Le dépôt en
+> compte déjà quatorze et tient un cliquet dessus. Avant d'en construire une quinzième, la question
+> n'est pas « est-elle utile ? » mais **« quel défaut vivant la fait rougir aujourd'hui ? »**.
+
+Réponse mesurée le 27/08, garde par garde :
+
+| Garde | Rougirait aujourd'hui ? | Mesure |
+|---|---|---|
+| **G1** — état de frame | **Non, et c'est correct** | Construite, rougie (594), puis **silencieuse** (0) une fois les 3 sites corrigés. Une garde de non-régression *doit* se taire quand le défaut est réparé |
+| **G2** — fusionner `Present` dans `EndFrame` | **Sans objet** | Ce n'est pas une garde, c'est un remaniement. Rien à faire rougir |
+| **G3** — renommer `Present` | **Sans objet** | Ce n'est pas une garde. Aide la lecture, ne protège de rien |
+| **G4** — journaliser le chemin « frame abandonnée » côté Vulkan | 🔴 **Non mesuré → à ne pas construire** | Ne se déclenche que sur un abandon réel (fenêtre réduite). **Je n'ai pas mesuré s'il se produit aujourd'hui**, ni à quelle fréquence. Une garde qui parle sur les cas légitimes devient du bruit, et le bruit se désactive |
+
+> **Conclusion pour ce périmètre : ne rien construire de plus.** G1 est la seule des quatre qu'un
+> défaut vivant exerçait, et il est corrigé.
+
+### Les trois gardes qui rougiraient aujourd'hui — et aucune n'est ici
+
+Elles appartiennent au chantier backends, et deux lui sont déjà transmises. Je les nomme pour
+qu'elles ne soient pas réinventées :
+
+| Garde | Ce qui la fait rougir **aujourd'hui** | Où |
+|---|---|---|
+| **Verdict d'écriture du cache** — sous une cible non-texte, refuser de stocker autre chose que du SPIR-V | **42/42** entrées écrites par un device Vulkan commencent par `#ver` au lieu du mot magique SPIR-V. Rouge dès la 1re exécution, déterministe | `NkShaderLibrary` / NkSL — `echanges/rendu.questions.md` Q45 |
+| **Cohérence des capacités** — si `GetCaps().X` vaut `true`, la fonction sous-jacente doit rendre un résultat | `timestampQueries` déclaré `true` par **4** backends alors qu'**aucun des 6** ne sait produire un timestamp | NKRHI — [Backend-Divergence.md](../NKRHI/Backend-Divergence.md) § 6 |
+| **Demandé ≠ obtenu** — journaliser (ou refuser) quand l'API obtenue diffère de l'API demandée | `NkDeviceFactory::CreateWithFallback` ignore `init.api`. Sur les **cibles réellement bâties**, **`r2d01`** demande Vulkan et obtient OpenGL **en silence** | [Platforms-Build-Run.md](../NKRHI/Platforms-Build-Run.md) § 1 |
+
+⚠️ **Portée réelle de la troisième, mesurée** — le défaut est réel mais **peu répandu**, et il faut le
+dire pour ne pas déclencher une correction de masse :
+
+| Appelant | Comportement | Bâti ? |
+|---|---|---|
+| `NkEditorRHIRenderer.h:98` | ✅ **sûr** — met `di.api` **en tête** de la liste, et filtre avant par `NkEditorGfxApiSupported` | oui (éditeurs) |
+| `NkRendererDemo.cpp` (3 sites) | ✅ **sûr** — tente `CreateForApi(requestedApi)` d'abord, et **journalise un Warn** avant de se rabattre | **non** (`RendererSandbox.jenga:357`, commenté) |
+| `NkRendererDemo copy.cpp` (3 sites) | — | non |
+| 🔴 **`NkRenderer2DDemo.cpp:75` et `:79`** | **silencieux** — liste figée, aucune tentative préalable, aucun avertissement | **oui** (`r2d01`) |
+
+**Deux patrons corrects existent déjà dans le dépôt** (mettre l'API demandée en tête ; ou tenter
+`CreateForApi` puis avertir). Le défaut n'est pas l'absence de solution — c'est qu'**un appelant sur
+les deux bâtis ne l'applique pas**, et c'est précisément celui sur lequel j'ai mesuré.
+
+---
+
 ## Le fil commun
 
 Les quatre points sont le même défaut vu sous quatre angles : **le code ne dit pas ce qu'il ne fait
