@@ -167,6 +167,24 @@ namespace nkentseu {
 		void Demo3DHostSetSnap(bool on, float32 t, float32 rotDeg, float32 scl);
 		bool Demo3DHostSnapEnabled();
 		void Demo3DHostSetGizmoHidden(bool hidden);
+		// OPERATIONS D EDITION, EXPOSEES AU SHELL -- PORTAGE DE LA FORME (etape 1)
+		// NkViewport3D exposait ces operations, NkDemo3D savait les faire mais ne les
+		// offrait a PERSONNE : la facade comptait 421 entrees et ZERO operation
+		// d edition. Les 42 actions de NkVpAction etaient donc cablees sur une vue
+		// sans device -- elles tournaient a chaque image et ne faisaient rien.
+		// LES CORPS VIENNENT DES FONCTIONS VIVANTES DE NkDemo3D, jamais de la vue
+		// dormante : trois y sont plus anciennes -- Merge sans le curseur 3D, Inset
+		// sans individual, Dissolve sans mode.
+		// Rendent true si la commande a REELLEMENT modifie le maillage.
+		bool Demo3DHostEditExtrude(bool individual);
+		bool Demo3DHostEditDelete();
+		bool Demo3DHostEditMerge();
+		bool Demo3DHostEditMakeFace();
+		bool Demo3DHostEditSubdivide();
+		bool Demo3DHostEditLoopCut();
+		bool Demo3DHostEditBevel(bool vertexMode);
+		bool Demo3DHostEditInset();
+		bool Demo3DHostEditDissolve();
 		bool Demo3DHostInEditMode();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();

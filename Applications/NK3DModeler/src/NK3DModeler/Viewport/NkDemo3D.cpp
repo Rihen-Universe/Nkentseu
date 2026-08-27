@@ -13677,6 +13677,70 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st && st->editMode;
 		}
+		// OPERATIONS D EDITION : LA FORME PORTEE DEPUIS NkViewport3D
+		// Chaque entree appelle la fonction VIVANTE de ce fichier. Verifie
+		// nommement : Merge passe par Demo3D_MergeHE (qui pose merge.point, le
+		// curseur 3D), Inset par Demo3D_InsetHE (qui pose inset.individual),
+		// Dissolve par Demo3D_DissolveHE (qui pose dissolve.mode). Ce sont les
+		// trois que la vue dormante portait dans une version plus ancienne.
+		//
+		// SUCCES : Demo3D_ApplyCmd ne commite dans l historique QUE si la commande
+		// a modifie le maillage. La profondeur d annulation est donc le seul temoin
+		// fiable du succes, et il ne coute rien. Compter les sommets ne suffirait
+		// pas : une operation peut deplacer sans ajouter.
+		static bool HostEditRun(void (*op)(Demo3DState *, renderer::NkMeshSystem *)) {
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || !st->editMode || !op)
+				return false;
+			const uint32 avant = st->editHistory.UndoCount();
+			op(st, ms);
+			return st->editHistory.UndoCount() != avant;
+		}
+		bool Demo3DHostEditExtrude(bool individual) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			// L etat porte le mode region/individuel ; on le pose le temps de l appel
+			// et on le REND, sinon un bouton changerait un reglage que l utilisateur
+			// n a pas touche.
+			const bool sauve = st->extrudeIndividual;
+			st->extrudeIndividual = individual;
+			const bool ok = HostEditRun(&Demo3D_ExtrudeHE);
+			st->extrudeIndividual = sauve;
+			return ok;
+		}
+		bool Demo3DHostEditDelete() {
+			return HostEditRun(&Demo3D_DeleteHE);
+		}
+		bool Demo3DHostEditMerge() {
+			return HostEditRun(&Demo3D_MergeHE);
+		}
+		bool Demo3DHostEditMakeFace() {
+			return HostEditRun(&Demo3D_MakeFaceHE);
+		}
+		bool Demo3DHostEditSubdivide() {
+			return HostEditRun(&Demo3D_SubdivideHE);
+		}
+		bool Demo3DHostEditLoopCut() {
+			return HostEditRun(&Demo3D_LoopCutHE);
+		}
+		bool Demo3DHostEditInset() {
+			return HostEditRun(&Demo3D_InsetHE);
+		}
+		bool Demo3DHostEditDissolve() {
+			return HostEditRun(&Demo3D_DissolveHE);
+		}
+		bool Demo3DHostEditBevel(bool vertexMode) {
+			// Demo3D_BevelHE prend un troisieme parametre : pas de pointeur uniforme.
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || !st->editMode)
+				return false;
+			const uint32 avant = st->editHistory.UndoCount();
+			Demo3D_BevelHE(st, ms, vertexMode);
+			return st->editHistory.UndoCount() != avant;
+		}
 		void Demo3DHostSetEditSelMask(int32 mask) {
 			auto *st = HostSt();
 			if (!st)
