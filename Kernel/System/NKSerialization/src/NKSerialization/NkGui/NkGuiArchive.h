@@ -253,6 +253,27 @@ namespace nkentseu {
 			static const char *KeyVersion() noexcept {
 				return "$version";
 			}
+			/**
+			 * @brief L'ETAT d'un bloc d'apparence : le `Hover` de `appearance(Hover)`
+			 *
+			 * ⚠️ ABSENTE quand le fichier n'ecrit pas de parentheses, et c'est LE
+			 *    point. `appearance { }` et `appearance(Normal) { }` designent le
+			 *    MEME etat -- le repos, tranche par Rodolf le 2026-08-27 -- mais le
+			 *    fichier a choisi une graphie, et l'archive retient LAQUELLE.
+			 *    **Le modele ne canonise pas.**
+			 *
+			 *    C'est ce qui rend l'aller-retour sur pour les DEUX graphies : sans
+			 *    ca, l'ecrivain devrait en REGENERER une, et tous les documents qui
+			 *    emploient l'autre cesseraient de revenir a l'octet. Meme
+			 *    raisonnement que `0.50` contre `0.5` : la valeur est une, la forme
+			 *    ecrite appartient au fichier.
+			 *
+			 * Son LITTERAL porte la parenthese entiere telle qu'ecrite -- espaces
+			 * interieurs compris (`appearance(  Normal  )` revient a l'octet).
+			 */
+			static const char *KeyState() noexcept {
+				return "$state";
+			}
 
 			/**
 			 * @brief Vrai si la cle porte de la SYNTAXE et non une propriete du modele
@@ -423,6 +444,8 @@ namespace nkentseu {
 
 			/// @brief Le type d'un bloc, vue vide si absent
 			static NkStringView TypeOf(const NkArchive &block) noexcept;
+			/// L'etat d'un bloc d'apparence, ou une vue vide s'il n'en porte pas.
+			static NkStringView StateOf(const NkArchive &block) noexcept;
 
 			/// @brief L'identifiant d'un bloc, vue vide si absent
 			static NkStringView IdOf(const NkArchive &block) noexcept;

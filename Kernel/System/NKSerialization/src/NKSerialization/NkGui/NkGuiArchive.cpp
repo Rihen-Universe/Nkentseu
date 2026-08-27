@@ -538,12 +538,50 @@ namespace nkentseu {
 		}
 
 		/// Vrai si le jeton `i` ouvre un bloc : `Ident {` ou `Ident "id" {`.
-		bool LooksLikeBlock(const NkVector<Tok> &toks, nk_size i, bool &hasId) {
+		/// Les en-tetes de bloc qui admettent un `(Etat)`. **Un seul aujourd'hui**,
+		/// et le document 9 §7 ne laisse aucune latitude :
+		///
+		///     appearance_blk := "appearance" ( '(' state_ref ')' )? '{' ... '}'
+		///     node_decl      := Kind String? '{' ... '}'
+		///
+		/// ⚠️ CE N'EST PAS UNE OPTIMISATION, C'EST LA REGLE (d). La premiere
+		///    version acceptait `Ident ( Ident )` PARTOUT, et le controle 20 l'a
+		///    attrapee tout de suite : `futurMembre(x) { }` -- le membre inconnu
+		///    d'un fichier 0.4 -- cessait d'etre conserve comme tranche verbatim et
+		///    devenait un bloc avec un `$state`. **On aurait invente une structure
+		///    pour une construction qu'on ne connait pas**, puis juge son contenu
+		///    contre un schema qu'on n'a pas. La regle du depot vaut ici mot pour
+		///    mot : on ne devine pas une construction inconnue, on la conserve.
+		///
+		/// Ajouter un second en-tete a etats est une ligne -- et une DECISION.
+		inline bool HeadTakesState(const NkString &head) {
+			return head.Compare("appearance") == 0;
+		}
+
+		/// ⚠️ `hasState` FERME LA LIMITE DECLAREE DEPUIS LE 2026-08-22.
+		///    `appearance(Hover) {` tombait dans `Raw` -- une tranche verbatim --
+		///    parce que ce predicat n'attendait que `Ident [Str] {`. Le fichier
+		///    revenait a l'octet (une tranche verbatim revient TOUJOURS a
+		///    l'octet) et son contenu n'etait jamais juge : la meme faute etait
+		///    vue dans `appearance` et se taisait dans `appearance(Hover)`.
+		///    **La partie modelisee criait, la partie non modelisee se taisait.**
+		bool LooksLikeBlock(const NkVector<Tok> &toks, nk_size i, bool &hasId,
+							bool &hasState) {
 			hasId = false;
+			hasState = false;
 			if (i >= toks.Size() || toks[i].kind != Tk::Ident) {
 				return false;
 			}
 			nk_size j = i + 1;
+			// `( Ident )` -- et RIEN d'autre. Une parenthese qui porterait autre
+			// chose (un nombre, deux jetons, rien) reste une tranche verbatim :
+			// on ne devine pas une construction inconnue, on la conserve.
+			if (HeadTakesState(toks[i].text) && j + 2 < toks.Size()
+				&& IsPunct(toks[j], '(')
+				&& toks[j + 1].kind == Tk::Ident && IsPunct(toks[j + 2], ')')) {
+				hasState = true;
+				j += 3;
+			}
 			if (j < toks.Size() && toks[j].kind == Tk::Str) {
 				hasId = true;
 				++j;
@@ -590,12 +628,13 @@ namespace nkentseu {
 							continue;
 						}
 						bool hasId = false;
+						bool hasState = false;
 						if (T[i].kind == Tk::Ident && i + 1 < T.Size() && IsPunct(T[i + 1], '=')
 							&& !ar.Has(NkStringView(T[i].text))) {
 							if (!Property(i, ar, rank, err)) {
 								return false;
 							}
-						} else if (LooksLikeBlock(T, i, hasId)) {
+						} else if (LooksLikeBlock(T, i, hasId, hasState)) {
 							if (!Block(i, body, rank, err)) {
 								return false;
 							}
@@ -753,6 +792,16 @@ namespace nkentseu {
 					const NkString lead = TakeLead(head);
 					nk_size j = i + 1;
 					bool hasId = false;
+					// `(Etat)`, s'il y en a un -- MEME decoupage que `LooksLikeBlock`,
+					// qui vient de dire oui.
+					const bool hasState = (HeadTakesState(T[head].text) && j + 2 < T.Size()
+										   && IsPunct(T[j], '(')
+										   && T[j + 1].kind == Tk::Ident
+										   && IsPunct(T[j + 2], ')'));
+					const nk_size sOpen = j;
+					if (hasState) {
+						j += 3;
+					}
 					if (T[j].kind == Tk::Str) {
 						hasId = true;
 					}
@@ -761,12 +810,24 @@ namespace nkentseu {
 					NkGuiArchive::SetToken(child, NkStringView(NkGuiArchive::KeyType()),
 										   NkStringView(T[head].text));
 					child.SetSourceOrder(NkStringView(NkGuiArchive::KeyType()), 0);
+					if (hasState) {
+						// La VALEUR est le nom de l'etat ; le LITTERAL est la parenthese
+						// entiere telle qu'ecrite. La validation lit la valeur,
+						// l'ecrivain reemet le litteral : `appearance(  Normal  )`
+						// revient a l'octet sans que personne ait a normaliser.
+						NkGuiArchive::SetToken(child, NkStringView(NkGuiArchive::KeyState()),
+											   NkStringView(T[sOpen + 1].text));
+						child.SetLiteral(NkStringView(NkGuiArchive::KeyState()),
+										 NkStringView(Slice(sOpen, sOpen + 2)));
+						child.SetSourceOrder(NkStringView(NkGuiArchive::KeyState()), 1);
+					}
 					if (hasId) {
 						child.SetString(NkStringView(NkGuiArchive::KeyId()),
 										NkStringView(T[j].text));
 						child.SetLiteral(NkStringView(NkGuiArchive::KeyId()),
 										 NkStringView(T[j].raw));
-						child.SetSourceOrder(NkStringView(NkGuiArchive::KeyId()), 1);
+						child.SetSourceOrder(NkStringView(NkGuiArchive::KeyId()),
+											 hasState ? 2 : 1);
 						++j;
 					}
 					const nk_size open = j;	 // le `{`
@@ -1216,6 +1277,13 @@ namespace nkentseu {
 				void BlockHead(const NkArchiveNode &node) {
 					const NkArchive &blk = *node.object;
 					AppendView(mOut, NkGuiArchive::TypeOf(blk));
+					// L'etat colle au type, sans espace : `appearance(Hover)`. Son
+					// lexeme porte deja les parentheses -- voir `KeyState()`.
+					const NkArchiveNode *st =
+						blk.FindNode(NkStringView(NkGuiArchive::KeyState()));
+					if (st && st->IsScalar()) {
+						AppendView(mOut, st->Lexeme());
+					}
 					const NkArchiveNode *id = blk.FindNode(NkStringView(NkGuiArchive::KeyId()));
 					if (id && id->IsScalar()) {
 						mOut.Append(' ');
@@ -1779,6 +1847,14 @@ namespace nkentseu {
 			return NkStringView();
 		}
 		return n->value.text.View();
+	}
+
+	NkStringView NkGuiArchive::StateOf(const NkArchive &block) noexcept {
+		const NkArchiveNode *n = block.FindNode(NkStringView(KeyState()));
+		if (!n || !n->IsScalar()) {
+			return NkStringView();
+		}
+		return NkStringView(n->value.text);
 	}
 
 	NkStringView NkGuiArchive::IdOf(const NkArchive &block) noexcept {
