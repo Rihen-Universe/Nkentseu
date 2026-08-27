@@ -359,12 +359,37 @@ namespace nkentseu {
 		// =====================================================================
 		//  LA PASSE DE TRIVIA
 		// =====================================================================
-		// Elle decoupe chaque INTERVALLE entre deux jetons en deux morceaux :
-		//   - ce qui reste sur la ligne du jeton PRECEDENT  -> son `trail` ;
-		//   - les lignes COMPLETES qui suivent               -> le `lead` du suivant.
-		// Le reste de ligne juste avant le jeton (son indentation) est jete :
-		// l'ecrivain la regenere -- SAUF s'il y porte autre chose que de l'espace,
-		// auquel cas il est garde et l'indentation ne sera pas regeneree.
+		// Elle decoupe chaque INTERVALLE entre deux jetons en DEUX MORCEAUX
+		// VERBATIM, et n'en jette AUCUN :
+		//   - ce qui reste sur la ligne du jeton PRECEDENT, terminateur EXCLU
+		//     -> son `trail` ;
+		//   - TOUT LE RESTE, terminateur de ligne COMPRIS -> le `lead` du suivant.
+		//
+		// ⚠️ LE `lead` PORTE SON PROPRE SAUT DE LIGNE, et ce n'est pas un detail de
+		//    decoupage : c'est ce qui rend « ce jeton OUVRE une ligne » lisible dans
+		//    la trivia elle-meme.
+		//
+		//    Jusqu'au 2026-08-27 l'indentation d'espace pur etait JETEE ici et
+		//    l'ecrivain la regenerait a `profondeur x style.indent`. Ce n'etait pas
+		//    une perte accidentelle, c'etait une NORMALISATION -- et elle frappait
+		//    exactement les fichiers qui comptent : ceux qu'un humain a indentes a
+		//    la main. Un corpus genere ne pouvait pas la montrer, il indente partout
+		//    pareil.
+		//
+		// ⚠️ ET LA GARDER NE SUFFISAIT PAS. La mesure l'a dit avant le raisonnement.
+		//    L'ecrivain decidait « ce membre POURSUIT la ligne precedente » sur le
+		//    critere « sa trivia ne contient pas de saut de ligne ». Tant que
+		//    l'espace pur etait jete, ce critere COINCIDAIT avec la verite. Des
+		//    qu'on le garde, les deux cas deviennent LES MEMES OCTETS :
+		//
+		//        `Slider "n" { min = 0 }`   -> l'espace entre `{` et `min` SEPARE ;
+		//        `  gap = 4`                -> l'espace devant `gap` INDENTE.
+		//
+		//    Les deux seuls edits « evidents » (garder l'espace + la meme garde dans
+		//    `CloseLine`) donnent **35 / 59**, tout le document reemis sur UNE ligne.
+		//
+		//    Le fait « nouvelle ligne » etait CONNU du lecteur et RECONSTRUIT par
+		//    l'ecrivain. On cesse de le reconstruire : on le transporte.
 
 		void AttachTrivia(const char *src, NkVector<Tok> &toks, nk_uint32 first) {
 			for (nk_size i = 0; i < toks.Size(); ++i) {
@@ -392,6 +417,9 @@ namespace nkentseu {
 					}
 				}
 				const bool premier = (i == 0);
+				// Devant le TOUT PREMIER jeton il n'y a pas de ligne precedente a
+				// fermer : tout le gap est deja un lead.
+				nk_uint32 leadBegin = 0;
 				if (!premier) {
 					if (firstNL == n) {
 						// AUCUN SAUT DE LIGNE : les deux jetons sont sur la MEME ligne.
@@ -412,36 +440,19 @@ namespace nkentseu {
 						--te;
 					}
 					toks[i - 1].trail = NkString(g, te);
+					leadBegin = te;
 				}
 
-				// 2. Les lignes completes, verbatim, terminateurs compris.
-				nk_uint32 lastNL = n;
-				bool haveNL = false;
-				for (nk_uint32 k = 0; k < n; ++k) {
-					if (g[k] == '\n') {
-						lastNL = k;
-						haveNL = true;
-					}
-				}
-				const nk_uint32 leadBegin = premier ? 0u : (firstNL + 1);
-				nk_uint32 leadEnd = leadBegin;
-				if (haveNL && lastNL + 1 > leadBegin) {
-					leadEnd = lastNL + 1;
-				}
-
-				// 3. Le reste de ligne devant le jeton. Espace pur -> jete (l'ecrivain
-				//    l'indente). Sinon (commentaire de bloc referme sur la ligne) ->
-				//    garde, et l'ecrivain n'indentera pas.
-				bool keepPartial = false;
-				for (nk_uint32 k = leadEnd; k < n; ++k) {
-					if (!IsSpace(g[k])) {
-						keepPartial = true;
-						break;
-					}
-				}
-				const nk_uint32 stop = keepPartial ? n : leadEnd;
-				if (stop > leadBegin) {
-					toks[i].lead = NkString(g + leadBegin, stop - leadBegin);
+				// 2. TOUT LE RESTE, verbatim : le terminateur de la ligne precedente,
+				//    les lignes completes qui suivent (vides ou commentees), et
+				//    l'indentation du jeton. Rien n'est jete, rien n'est reconstruit.
+				//
+				// ⚠️ `leadBegin` vaut `te`, PAS `firstNL + 1` : le `\r` d'un fichier
+				//    CRLF appartient au terminateur, pas au `trail`. En partant apres
+				//    le saut, on le perdait et l'ecrivain le regenerait depuis
+				//    `style.crlf` -- une deduction globale la ou la source est locale.
+				if (n > leadBegin) {
+					toks[i].lead = NkString(g + leadBegin, n - leadBegin);
 				}
 			}
 		}
@@ -900,47 +911,65 @@ namespace nkentseu {
 					return false;
 				}
 
-				/// Ouvre le membre : ferme la ligne precedente s'il en faut une, reemet
-				/// la trivia de tete verbatim, et indente si le membre commence bien une
-				/// ligne.
+				/// LA REGLE DE LA MISE EN FORME D'UNE OUVERTURE DE LIGNE, ET ELLE VIT A
+				/// DEUX ENDROITS : ici pour un membre, dans `CloseLine` pour une accolade
+				/// fermante. **Deux domiciles, deux edits** -- c'est la lecon de V6, et
+				/// c'est pour ca que les deux fonctions se lisent l'une sous l'autre.
 				///
-				/// Trois cas, et un seul endroit qui les distingue :
-				///  - trivia VIDE                  -> nouvelle ligne + indentation ;
-				///  - trivia SANS saut de ligne    -> le membre POURSUIT la ligne du
-				///    precedent : la trivia EST le separateur (`, `), ni saut ni
-				///    indentation ;
-				///  - trivia AVEC saut de ligne    -> nouvelle ligne, trivia verbatim,
-				///    puis indentation seulement si elle finit par un saut (sinon sa
-				///    derniere ligne est partielle et porte deja son indentation).
-				/// LA MEME REGLE, POUR FERMER. `foot` est ce que le fichier avait avant
-				/// l'accolade fermante (ou avant la fin du fichier) :
-				///  - sans saut de ligne et non vide -> la fermeture POURSUIT la ligne
-				///    du dernier membre (`b = 2 }`) ;
-				///  - sinon -> on ferme la ligne, on reemet `foot` verbatim, et on
-				///    indente si on nous le demande.
-				void CloseLine(NkStringView foot, bool indent, nk_uint32 depth) {
-					const bool suite = (foot.Size() > 0) && !HasNewLine(foot);
-					if (!suite) {
-						FlushLine();
-					}
-					AppendView(mOut, foot);
-					if (!suite && indent) {
-						Indent(depth);
-					}
-				}
-
+				/// TROIS CAS, et le seul discriminant est la trivia elle-meme :
+				///
+				///  - trivia VIDE -> LE NOEUD EST NEUF. Il ne vient d'aucun fichier :
+				///    l'editeur vient de le poser, ou il etait colle au jeton precedent.
+				///    On ferme la ligne et on GENERE l'indentation. C'est la seule
+				///    branche qui appelle `Indent`.
+				///
+				///  - trivia SANS saut de ligne -> le membre POURSUIT la ligne du
+				///    precedent, et la trivia EST le separateur (`, ` du document 9 §4.2,
+				///    ou l'espace de `{ min = 0 }`). Ni saut, ni indentation.
+				///
+				///  - trivia AVEC saut de ligne -> ELLE PORTE ELLE-MEME LA FIN DE LA LIGNE
+				///    PRECEDENTE et l'indentation d'origine. On ANNULE le saut en attente
+				///    au lieu de l'emettre (sinon on doublerait le terminateur), on reemet
+				///    la trivia verbatim, et on n'indente PAS.
+				///
+				/// ⚠️ « une ligne qui vient du fichier garde ses octets ; une ligne creee
+				///    par l'editeur recoit une indentation generee. » Les deux moities
+				///    sont indissociables : un ecrivain qui n'indenterait PLUS RIEN rendrait
+				///    verts tous les controles de fidelite. C'est ce que 24i tient.
 				void OpenMember(NkStringView lead, nk_uint32 depth) {
-					const bool suite = (lead.Size() > 0) && !HasNewLine(lead);
-					if (!suite) {
+					if (lead.Size() == 0) {
 						FlushLine();
-					}
-					AppendView(mOut, lead);
-					if (suite) {
+						Indent(depth);
 						return;
 					}
-					if (lead.Size() == 0 || lead.Data()[lead.Size() - 1] == '\n') {
-						Indent(depth);
+					if (!HasNewLine(lead)) {
+						AppendView(mOut, lead);
+						return;
 					}
+					mPending = false;
+					AppendView(mOut, lead);
+				}
+
+				/// LA MEME REGLE, POUR FERMER -- le second domicile du mecanisme. `foot`
+				/// est ce que le fichier avait avant l'accolade fermante (ou avant la fin
+				/// du fichier).
+				///
+				/// ⚠️ `indent` reste un PARAMETRE parce que le pied de DOCUMENT ne
+				///    s'indente pas (`Run` passe `false`) : il n'y a rien apres lui.
+				void CloseLine(NkStringView foot, bool indent, nk_uint32 depth) {
+					if (foot.Size() == 0) {
+						FlushLine();
+						if (indent) {
+							Indent(depth);
+						}
+						return;
+					}
+					if (!HasNewLine(foot)) {
+						AppendView(mOut, foot);
+						return;
+					}
+					mPending = false;
+					AppendView(mOut, foot);
 				}
 
 				void StripFinalNewline() {

@@ -493,6 +493,139 @@ remplissait lui-même la condition qu'il testait).
 couvre donc pas ce qui n'est ni l'un ni l'autre — typiquement un commentaire
 posé entre le nom d'une clé et son `=`. Aucun besoin connu à ce jour.
 
+### L'indentation était la **quatrième** face du même manque — 2026-08-27
+
+**Le manque.** La passe de trivia **jetait délibérément** l'indentation d'espace
+pur devant chaque jeton, et l'écrivain la **régénérait** à
+`profondeur × style.indent`, où `style.indent` est **une seule largeur déduite
+pour tout le document**. Ce n'était pas une perte accidentelle : c'était une
+**normalisation**, écrite en toutes lettres dans le code. Un fichier qui indente
+partout pareil revenait à l'octet ; un fichier écrit à la main, non.
+
+C'est la même phrase que les trois autres manques : **ce que le fichier disait,
+et que le modèle n'a pas à savoir.**
+
+> ⚠️ **Le corpus ne pouvait pas la montrer : il indentait partout pareil.** Un
+> corpus de dix fichiers du même moule mesure le moule, pas le format. Le
+> premier geste du correctif n'a donc pas été de coder — ç'a été d'écrire un
+> fichier **volontairement irrégulier** (deux espaces ici, un tabulateur là, une
+> ligne collée à la marge) et de le **voir rouge**. Sans lui, le témoin aurait
+> été vert des deux côtés et n'aurait rien prouvé.
+
+**La règle retenue** (arbitrage de Rodolf, option (b)) :
+
+> **Une ligne qui vient du fichier garde ses octets ; une ligne créée par
+> l'éditeur reçoit une indentation générée.**
+
+#### ⚠️ Ce n'était pas deux edits. Et la mesure l'a dit avant le raisonnement.
+
+Les deux edits « évidents » — garder l'espace dans la trivia, et donner à
+`CloseLine` la même garde qu'à `OpenMember` — ont été appliqués, construits et
+mesurés : **35 / 59**, et **aucun** des sept contrôles d'indentation ne passait
+au vert. La sortie réémise tenait sur une ligne :
+
+```
+nkgui 0.3
+widgets {  VBox "v" {        gap = 4  }
+}
+```
+
+**Cause.** L'écrivain décidait « ce membre POURSUIT la ligne précédente » sur le
+critère **« sa trivia ne contient pas de saut de ligne »**. C'est une
+**reconstruction** d'un fait que le lecteur, lui, connaissait avec certitude.
+Tant que l'espace pur était jeté, la reconstruction coïncidait avec la vérité.
+Dès qu'on le garde, les deux cas deviennent **les mêmes octets** :
+
+| bytes | ce que ça veut dire |
+|---|---|
+| l'espace entre `{` et `min` dans `Slider "n" { min = 0 }` | **sépare** deux jetons d'une même ligne |
+| l'espace devant `gap` dans `  gap = 4` | **indente** une ligne nouvelle |
+
+**Le correctif réel.** Le `lead` porte désormais **son propre terminateur de
+ligne** : la passe de trivia coupe l'intervalle entre deux jetons en exactement
+deux morceaux verbatim — `trail` (le reste de la ligne précédente, terminateur
+exclu) et `lead` (**tout le reste**, terminateur compris) — et **n'en jette
+aucun**. L'écrivain lit alors trois cas non ambigus :
+
+| trivia de tête | signification | ce que fait l'écrivain |
+|---|---|---|
+| **vide** | le nœud est **neuf** — il ne vient d'aucun fichier | ferme la ligne et **génère** l'indentation |
+| **sans saut de ligne** | séparateur sur la même ligne (`, `, l'espace d'un bloc en ligne) | réémet verbatim, n'indente pas |
+| **avec saut de ligne** | elle porte elle-même la fin de la ligne précédente **et** l'indentation d'origine | **annule** le saut en attente au lieu de l'émettre, réémet verbatim, n'indente pas |
+
+Le mécanisme vit à **deux endroits** — `OpenMember` pour un membre, `CloseLine`
+pour une accolade fermante. Les deux ont été corrigés, et la mutation M2 mesure
+ce que coûte de n'en corriger qu'un.
+
+**Effet de bord acquis, et il vaut mieux que le correctif.** Le terminateur
+n'est plus **déduit** de `style.crlf` (une déduction *globale*, prise sur la
+première ligne du fichier) : il est **transporté**. Un document aux fins de
+ligne mixtes n'est donc plus « réparé » en douce.
+
+#### Le relevé
+
+| banc | avant | après |
+|---|---|---|
+| NKUIDesign contrôles | 50 / 50 | **65 / 65** |
+| corpus `valides/` | 7 / 7 à l'octet | **9 / 9 à l'octet** |
+| corpus `limites/` | 0 / 1 à l'octet | **le dossier n'existe plus** |
+| `SandboxNKArchive` | 352 / 352 | 352 / 352 |
+| `SandboxNKSerialization` | 63 / 63 + 1 dette | 63 / 63 + 1 dette |
+| sonde | 103 / 103 | 103 / 103 |
+| pool | 573 / 573 | 573 / 573 |
+
+Les acquis ont été **mesurés, pas supposés** : les corpus indentent uniformément,
+donc ils *devaient* être intacts — la mesure le dit maintenant.
+
+#### Les mutations — sept appliquées, sept tuées, et deux qui tranchent
+
+| mutation du code testé | résultat |
+|---|---|
+| **M1** — `Indent()` n'émet plus rien | **60 / 61, et la seule ligne rouge est 24i** |
+| **M2** — `CloseLine` reste sur l'ancienne règle (un seul des deux domiciles corrigé) | 34 / 61, corpus **0 / 7** |
+| **M3** — l'ancienne normalisation rendue au `lead` (queue d'espaces coupée) | 37 / 61, corpus 0 / 7 |
+| **M4** — le saut en attente **émis** au lieu d'être annulé (terminateur doublé) | 34 / 61, corpus 0 / 7 |
+| **M5** — le `lead` démarre après le `\r` (terminateur CRLF perdu) | **59 / 61, et les seules lignes rouges sont 24j et 24k** |
+| **M6** — la récursion du balayage retirée | 63 / 65, rouges 25 et 25b |
+| **M7** — la validation reprend son appel non récursif (un seul geste corrigé) | 64 / 65, rouge 25b |
+
+⚠️ **M1 est la plus instructive du lot.** Un écrivain qui **n'indenterait plus
+jamais rien** passe **60 des 61 contrôles**, avec tout le corpus à 9 / 9 octet
+pour octet. « Une ligne qui vient du fichier garde ses octets » est une moitié de
+règle ; sans « une ligne créée par l'éditeur reçoit une indentation générée »,
+elle est satisfaite par un écrivain mort. C'est **24i**, et lui seul, qui tient
+l'autre moitié.
+
+⚠️ **M5 dit ce que le corpus ne peut pas voir.** Le corpus est figé en LF
+(`.gitattributes`, et pour une bonne raison : ses positions en octets font foi).
+Le prix est qu'il est **entièrement aveugle au terminateur** : avec M5 appliquée,
+les 20 fichiers restent 15 / 20 et 9 / 9, inchangés. Seuls les contrôles 24j
+(CRLF) et 24k (fins de ligne mixtes) le voient. **Un corpus figé mesure ce qu'on
+a figé.**
+
+#### La récursion du balayage — et un contrôle mort trouvé par sa propre mutation
+
+`--roundtrip` et `--valider` ne descendaient pas dans les sous-dossiers. Le geste
+naturel — viser la racine du corpus — rendait « 0 erreur » pour quatorze fichiers
+dont **pas un n'avait été ouvert**. Le message d'échec ajouté le 23/08 expliquait
+comment contourner l'outil, dossier par dossier : **un diagnostic qui remplace
+une capacité est une dette, pas une parade.** La collecte descend désormais, et
+elle vit à **un seul endroit** (`NkGCollecter`) parce que les deux gestes en
+portaient deux copies, message d'échec compris.
+
+Mesure : la racine du corpus passe de **0** fichier lu à **20**.
+
+⚠️ **Le contrôle 25b était mort à sa première écriture, et c'est M7 qui l'a dit.**
+Il exigeait `rt == 0 && vd == 0` — **le succès des deux gestes**. Or un balayage
+qui lit **moins** réussit tout autant : M7 est passée à **65 / 65**. C'est la
+famille exacte des deux `Find(...) == npos` qui rendaient T5 vert sur un écrivain
+JSON mort — **exiger un succès, c'est être satisfait par le vide**. Le contrôle
+est désormais ancré sur un **refus** : un fichier délibérément illisible est
+enterré à trois niveaux, et les deux gestes doivent chacun rendre `1`. Un
+balayage qui ne descend pas rend `0`, un balayage qui ne lit rien rend `2` :
+**seul un balayage qui a vraiment atteint le fond rend `1`.**
+
+
 ### Tests — suite standalone
 [test_smoke.cpp](tests/test_smoke.cpp) — 15 tests sans framework externe :
 1. Archive flat (Set/Get scalars, Remove, Has).
