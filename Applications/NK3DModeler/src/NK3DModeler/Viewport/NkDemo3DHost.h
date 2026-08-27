@@ -195,6 +195,9 @@ namespace nkentseu {
 		// ── Pile de modificateurs (panneau « Modificateurs » + menu Ajouter) ──
 		// L'etat vit dans `Demo3DState::editModifiers` ; la vue dormante avait sa
 		// propre pile, que rien n'alimentait.
+		// Cadrer la vue sur toute la scene (centre + distance ; l'angle est garde).
+		void Demo3DHostFrameAll();
+
 		// Transformation de l'objet ACTIF, quel que soit son espace d'indices
 		// (objet de demo ou noeud utilisateur). Le shell n'a pas a choisir.
 		bool Demo3DHostActiveTransform(float32 *pos3, float32 *rotDeg3, float32 *scl3);

@@ -13877,6 +13877,66 @@ namespace nkentseu {
 			if (st && ms)
 				Demo3D_SyncFromHE(st, ms);
 		}
+		// ── CADRER TOUT : la fonctionnalite n'existait QUE du cote mort ─────
+		// Mesuree par ce qu'elle FAIT et non par son nom : calculer les bornes de
+		// la scene, puis poser centre et distance de camera. Cote vivant, il n'y
+		// avait AUCUN calcul de bornes ni cadrage -- ni `SceneBounds`, ni
+		// `ZoomToFit`, ni `FitView`, ni `ViewAll` : une ABSENCE, pas un arbitrage.
+		// C'est ce qui a permis a Rodolf de la trancher separement des modales,
+		// qui, elles, entrent en conflit avec le role actuel de G/R/S.
+		//
+		// L'ANGLE EST CONSERVE : on ne change que le centre et la distance. Un
+		// « cadrer tout » qui replacerait aussi la camera ferait perdre le point
+		// de vue choisi, et l'utilisateur devrait le retrouver a chaque fois.
+		void Demo3DHostFrameAll() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+			bool trouve = false;
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (nkvpUserKind[u] == 0)
+					continue;
+				const int32 un = kNkvpFirstUser + u;
+				if (nkvpDeleted[un] || HostHiddenEff(un))
+					continue; // cadrer sur du CACHE reviendrait a viser du vide
+				const int32 e = un - kNkvpFirstEmpty;
+				const NkVec3f c = HostEmptyXform(e, true) * NkVec3f{0.f, 0.f, 0.f};
+				// Demi-etendue approchee par l'echelle du noeud : sans elle, un seul
+				// objet donnerait un rayon NUL et une distance plancher, donc un
+				// cadrage colle au nez.
+				float32 r = fabsf(nkvpEmptyScl[e][0]);
+				if (fabsf(nkvpEmptyScl[e][1]) > r)
+					r = fabsf(nkvpEmptyScl[e][1]);
+				if (fabsf(nkvpEmptyScl[e][2]) > r)
+					r = fabsf(nkvpEmptyScl[e][2]);
+				if (r < 0.5f)
+					r = 0.5f;
+				if (c.x - r < mn.x) mn.x = c.x - r;
+				if (c.y - r < mn.y) mn.y = c.y - r;
+				if (c.z - r < mn.z) mn.z = c.z - r;
+				if (c.x + r > mx.x) mx.x = c.x + r;
+				if (c.y + r > mx.y) mx.y = c.y + r;
+				if (c.z + r > mx.z) mx.z = c.z + r;
+				trouve = true;
+			}
+			if (!trouve)
+				return; // SCENE VIDE : ne rien faire vaut mieux que viser l'origine
+			const NkVec3f centre{(mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f,
+								 (mn.z + mx.z) * 0.5f};
+			const float32 ex = mx.x - centre.x, ey = mx.y - centre.y, ez = mx.z - centre.z;
+			float32 rayon = sqrtf(ex * ex + ey * ey + ez * ez);
+			if (rayon < 0.25f)
+				rayon = 0.25f;
+			const float32 fovY = 45.f * 3.14159265f / 180.f;
+			float32 d = (rayon * 1.25f) / tanf(fovY * 0.5f);
+			if (d < 0.5f)
+				d = 0.5f;
+			st->editorCam.SetCenter(centre, d, st->editorCam.GetYaw(), st->editorCam.GetPitch());
+			logger.Info("[Demo3D] CADRER TOUT : centre=({0}, {1}, {2}) rayon={3} distance={4}\n",
+						centre.x, centre.y, centre.z, rayon, d);
+		}
+
 		// ── TRANSFORMATION DE L'OBJET ACTIF : UNE PORTE, DEUX ESPACES ───────
 		// Le panneau « Transformation » lisait et reecrivait la vue DORMANTE : il
 		// n'affichait donc pas l'objet selectionne et ses champs ne commandaient
