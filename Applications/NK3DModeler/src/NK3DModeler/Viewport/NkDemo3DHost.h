@@ -195,6 +195,11 @@ namespace nkentseu {
 		// ── Pile de modificateurs (panneau « Modificateurs » + menu Ajouter) ──
 		// L'etat vit dans `Demo3DState::editModifiers` ; la vue dormante avait sa
 		// propre pile, que rien n'alimentait.
+		// MODE de l'interface (valeur de NkMode), et non un booleen : la
+		// distinction Sculpture / Sculpture 2.5D doit survivre au passage.
+		void Demo3DHostSetMode(int32 mode);
+		int32 Demo3DHostMode();
+
 		// Cadrer la vue sur toute la scene (centre + distance ; l'angle est garde).
 		void Demo3DHostFrameAll();
 

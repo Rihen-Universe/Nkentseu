@@ -1457,6 +1457,16 @@ namespace nkentseu {
 				int32 editActiveFace = -1; // identifiant de face n-gon (demi-arêtes)
 				bool editXray = false;			  // Alt+Z : voir/sélectionner à travers (façon Blender)
 				bool editMode = false;			  // TAB : bascule objet <-> édition
+				// LE MODE DE L'INTERFACE, valeur de `NkMode` (0 Objet, 1 Edition,
+				// 2 Sculpture 2.5D, 3 Sculpture, 4 Texturing, 5 Patron, 6 Texture
+				// painting). `editMode` ci-dessus en DERIVE : il vaut vrai quand
+				// `uiMode` est Edition, et les 52 lectures existantes ne changent pas.
+				// ⚠️ AVANT, LE SHELL ENVOYAIT `st.mode != Objet` -- UN BOOLEEN. Sept
+				// modes se repliaient en deux etats, et la distinction Sculpture /
+				// Sculpture 2.5D (qui n'ont PAS les memes exigences de topologie)
+				// etait perdue AVANT d'arriver ici. Ranger le mode ne coute rien et
+				// cesse de detruire l'information a la frontiere.
+				int32 uiMode = 0;
 				bool editTogglePending = false;	  // TAB traité côté frame (accès meshSys)
 				bool editWasDragging = false;	  // pour baker le delta en fin de drag
 				bool editOverlayDirty = true;	  // reconstruire les buffers overlay (cage/points/faces)
@@ -13877,6 +13887,38 @@ namespace nkentseu {
 			if (st && ms)
 				Demo3D_SyncFromHE(st, ms);
 		}
+		// ── LE MODE DE L'INTERFACE ATTEINT ENFIN LE VISEUR VIVANT ──────────
+		// Regle de Rodolf : « le mode edition dans l'onglet Edition uniquement,
+		// pour l'objet selectionne. Pareil pour la sculpture, la 2.5D, le
+		// texturing. » La machinerie existait DEJA -- `NkMode` porte les sept
+		// modes, l'onglet les ecrit, la cible suit la selection. Il manquait UN
+		// maillon : `main.cpp:1325` faisait `SetEditMode(st.mode != Objet)`, ce
+		// qui commettait DEUX fautes dans une seule ligne :
+		//   1. repliait SEPT modes en UN booleen (perte d'information) ;
+		//   2. l'envoyait a la vue DORMANTE (mauvaise destination).
+		// Corriger la seule destination aurait laisse la genericite perdue, et le
+		// prochain aurait cru le sujet regle.
+		//
+		// ⚠️ ON N'ECRIT PAS `editMode` DIRECTEMENT. Entrer et sortir d'edition a
+		// deja une porte -- `editTogglePending`, qui resout la cible, clone le
+		// maillage, prepare l'historique. Poser le booleen a la main court-
+		// circuiterait tout cela et fabriquerait un second chemin vers le meme
+		// etat : exactement le motif de doublon qu'on retire depuis ce matin.
+		// On ARME donc la porte existante, et `editMode` reste DERIVE.
+		void Demo3DHostSetMode(int32 mode) {
+			auto *st = HostSt();
+			if (!st || mode < 0)
+				return;
+			st->uiMode = mode;
+			const bool veutEdition = (mode == 1); // NkMode::Edit
+			if (veutEdition != st->editMode)
+				st->editTogglePending = true;
+		}
+		int32 Demo3DHostMode() {
+			auto *st = HostSt();
+			return st ? st->uiMode : 0;
+		}
+
 		// ── CADRER TOUT : la fonctionnalite n'existait QUE du cote mort ─────
 		// Mesuree par ce qu'elle FAIT et non par son nom : calculer les bornes de
 		// la scene, puis poser centre et distance de camera. Cote vivant, il n'y
@@ -17901,6 +17943,18 @@ namespace nkentseu {
 							renderer::NkVertexLayout::Default3D(),
 							(const renderer::NkVertex3D *)ms->GetVertices(src),
 							ms->GetVertexCount(src), ms->GetIndices(src), ms->GetIndexCount(src));
+						// ⚠️ NE PAS « OPTIMISER » CETTE COPIE EN PARTAGE.
+						// Elle ressemble a une inefficacite : les autres natures
+						// prennent un handle deja construit, celle-ci en fabrique
+						// un. C'est VOULU. Les `GetXxx()` du systeme de maillage
+						// rendent un handle MIS EN CACHE, partage par toute la
+						// scene ; l'edition modifie le maillage EN PLACE. Partager
+						// ferait donc editer TOUS les cubes a la fois des qu'on en
+						// edite un.
+						// Et c'est tres probablement la raison pour laquelle le
+						// moteur n'a AUCUN `CreateCubeMesh` la ou il a
+						// Sphere/Cylindre/Cone/Tore/Capsule/Plan : le probleme
+						// n'etait pas oublie, il n'etait pas resolu.
 						nkvpUserMesh[u] = ms->Create(d);
 					}
 				}

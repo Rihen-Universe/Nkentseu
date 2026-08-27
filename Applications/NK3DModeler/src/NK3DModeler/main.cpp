@@ -1322,7 +1322,12 @@ int nkmain(const NkEntryState &entry) {
 				sy.overlay = 0xFFFFFFFFu; // re-tirer au prochain tour
 			}
 		}
-		nk3d::Viewport3DSetEditMode(st.mode != NkMode::Object);
+		// LE MODE, ET NON UN BOOLEEN. Cette ligne faisait `st.mode != Object` :
+		// elle repliait SEPT modes en DEUX etats *et* les envoyait a la vue
+		// DORMANTE. Deux fautes distinctes -- corriger la seule destination
+		// aurait laisse Sculpture et Sculpture 2.5D indiscernables a l'arrivee,
+		// alors qu'elles n'ont pas les memes exigences de topologie.
+		demo::Demo3DHostSetMode((int32)st.mode);
 		// Le sous-mode de la vue devient le masque de selection. Un seul bit ici :
 		// les trois boutons sont exclusifs. Les combiner (Maj+1/2/3 chez Blender)
 		// viendra avec les raccourcis clavier.
@@ -1436,6 +1441,44 @@ int nkmain(const NkEntryState &entry) {
 					nk3d::Viewport3DModalConfirm();
 				else if (ui.input.mouseClicked[1])
 					nk3d::Viewport3DModalCancel();
+			}
+		}
+
+		// NK_UI_MODE=<n>[,frame] : pose le MODE DE L'INTERFACE (valeur de NkMode),
+		// par le meme chemin que l'onglet -- on ecrit `st.mode`, et la ligne qui
+		// transmet au viseur fait le reste.
+		// ⚠️ CE QUE CE TEMOIN DOIT MONTRER : que l'information n'est plus PERDUE.
+		// Deux modes non-Objet DIFFERENTS (Sculpture=3, Texturing=4) doivent donner
+		// deux etats distincts a l'arrivee. Avec l'ancien `st.mode != Object`, ils
+		// rendaient tous deux `true` : un temoin qui n'aurait compare qu'Objet a
+		// Edition serait passe au vert AVANT comme APRES, sans rien prouver.
+		{
+			static bool sUiModeDone = false;
+			if (const char *um = std::getenv("NK_UI_MODE")) {
+				int32 fr = 60;
+				const char *c = um;
+				while (*c && *c != ',')
+					++c;
+				if (*c == ',')
+					fr = (int32)std::atoi(c + 1);
+				if (!sUiModeDone && agentFrame >= fr) {
+					sUiModeDone = true;
+					st.mode = (NkMode)std::atoi(um);
+				}
+				// ⚠️ LIRE PLUS TARD, ET NON DANS LA MEME IMAGE. La ligne qui transmet
+				// le mode au viseur tourne PLUS TOT dans la frame : relire aussitot
+				// apres avoir pose `st.mode` rendait toujours la valeur PRECEDENTE, et
+				// les six modes semblaient tous arriver a zero. L instrument lisait
+				// AVANT que la chose n arrive : le defaut etait dans la MESURE, pas
+				// dans le chemin mesure.
+				static bool sUiModeLu = false;
+				if (sUiModeDone && !sUiModeLu && agentFrame >= fr + 5) {
+					sUiModeLu = true;
+					std::printf("[nk3d] NK_UI_MODE shell=%d -> viseur=%d\n", (int)st.mode,
+								(int)demo::Demo3DHostMode());
+				}
+			} else {
+				sUiModeDone = true;
 			}
 		}
 
