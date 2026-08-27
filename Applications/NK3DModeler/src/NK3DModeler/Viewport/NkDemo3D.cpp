@@ -2506,6 +2506,9 @@ namespace nkentseu {
 		// MESURE (temporaire) : ce que le dernier pick a eu le droit de tenir
 		// compte -- occupes, ecartes parce que MODEL, caches/verrouilles, mesh.
 		static int32 nkvpPickDbg[4] = {0, 0, 0, 0};
+		// NK_PICK_TRACE=1 : imprime, pour chaque maillage candidat, ou le moteur
+		// PROJETTE son origine, face au pixel clique. Diagnostic de repere.
+		static const bool nkvpPickTrace = getenv("NK_PICK_TRACE") != nullptr;
 		static int32 Demo3D_PickEmptyAt(Demo3DState *st, DemoCtx &ctx, NkVec3f camPos,
 										NkVec3f camTgt, float32 mx, float32 my,
 										float32 *worldOut3) {
@@ -2577,7 +2580,21 @@ namespace nkentseu {
 						W = W * NkMat4f::Scale({nkvpDimFactor[un2][0], nkvpDimFactor[un2][1],
 												nkvpDimFactor[un2][2]});
 					float32 tHit = bestMeshT;
-					if (Demo3D_RayMeshT(msPick, pm, W, camPos, rdW, tHit)) {
+					const bool touche = Demo3D_RayMeshT(msPick, pm, W, camPos, rdW, tHit);
+					// TRACE DU TRANSFORM : « le rayon manque la cible » et « le rayon
+					// est calcule dans le mauvais repere » donnent tous deux
+					// touche=-1. On imprime donc OU LE MOTEUR PROJETTE l'origine du
+					// noeud : si ce point tombe la ou l'objet est DESSINE, le repere
+					// est bon et c'est le test rayon-triangle qui est en cause ;
+					// s'il tombe ailleurs, c'est le repere.
+					if (nkvpPickTrace) {
+						float32 px = 0.f, py = 0.f;
+						const bool devant = uproj(W * NkVec3f{0.f, 0.f, 0.f}, px, py);
+						logger.Info("[Demo3D] TRACE pick maillage : noeud={0} projete=({1}, {2}) devant={3} clic=({4}, {5}) vue={6}x{7} touche={8}\n",
+									kNkvpFirstUser + u2, px, py, devant ? 1 : 0, mx, my,
+									uproj.vw, uproj.vh, touche ? 1 : 0);
+					}
+					if (touche) {
 						bestMeshT = tHit;
 						bestMeshU = e2;
 					}
