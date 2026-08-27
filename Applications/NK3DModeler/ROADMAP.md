@@ -179,6 +179,58 @@ bibliothèque, le banc peut couvrir les deux.**
 
 ## 📐 Modes objet / édition, et ce qu'est un sous-mesh — SPÉCIFICATION (Rihen, 2026-08-17)
 
+### 🧭 RÈGLE DE CONCEPTION PERMANENTE (Rodolf, 2026-08-27)
+
+> **« On doit partir du même principe que Blender, et avec le temps le définir à
+> notre sauce et notre manière. »**
+
+⚠️ **Ce n'est pas « copier Blender », c'est « PARTIR de Blender ».** La différence
+est opérationnelle :
+
+> **Quand une question de conception se pose et qu'on n'a pas de raison MESURÉE
+> de faire autrement, la réponse par défaut est ce que fait Blender.
+> Diverger demande une raison ; suivre n'en demande pas.**
+
+📌 Elle s'applique rétroactivement à ce qui est déjà écrit ici : la distinction
+sculpture / sculpture 2.5D, la règle des modes, le prisme du maillage.
+
+### ⌨️ LES TROIS AXES ET LEURS TOUCHES — mesuré le 2026-08-27
+
+| axe | où il vit | touche |
+|---|---|---|
+| **interaction** (Objet, Édition, Sculpture, 2.5D, Peinture) | `st.mode` (`NkMode`) | `TAB`, et `Ctrl+TAB` pour la liste complète |
+| **affichage** (rendu, solide, fil de fer, normales, UV, AO) | `st.shading` / `shadingMode` — **jamais** dans `NkMode` | **`Z`** |
+| **espace de travail** (l'onglet) | `st.mode` aussi, *par la règle de Rihen ci-dessous* | le clic sur l'onglet |
+
+**Le modèle de raccourcis retenu :**
+
+```
+TAB        Objet <-> Edition             le trajet frequent
+Ctrl+TAB   menu radial de TOUS les modes  sculpture, 2.5D, peinture
+Z          menu radial de l AFFICHAGE     fil de fer, solide, materiau, rendu
+```
+
+> **Un raccourci pour le trajet fréquent, un modificateur pour la liste complète,
+> et l'affichage garde le sien.**
+
+⚠️ **Pas de raccourci par mode** — sinon le sixième mode en demandera un sixième.
+*Un menu radial se lit ; cinq raccourcis se mémorisent.* Et **`TAB` ne cycle pas
+sur les sept modes** : il ne fait qu'Objet ↔ Édition. Cycler serait plus simple à
+écrire et insupportable à l'usage.
+
+**Ce qui est MESURÉ aujourd'hui, et ce qui ne l'est pas :**
+- ✅ `Z` fait déjà défiler l'affichage (`NkDemo3D.cpp:4628`, six états, journalise
+  « Affichage = … »). **L'axe affichage a déjà sa touche et sa variable.**
+- ❌ `Ctrl+TAB` **n'existe pas**.
+- ❌ `Z` ouvre un **cycle**, pas un menu radial — divergence avec Blender, donc à
+  reprendre le jour où le menu radial existera.
+- 🔴 **COLLISION MESURÉE À NOMMER** : le shell lie `Z` **nu** à `ModalAxisZ`
+  (contrainte d'axe pendant une modale, `main.cpp:804`) pendant que le viseur
+  l'utilise pour l'affichage. **Inoffensif aujourd'hui — les modales sont mortes
+  — mais le jour où elles seront implémentées, `Z` voudra dire deux choses.**
+  À trancher AVEC les modales, pas après.
+
+
 *Écrite ici parce qu'elle n'existait que dans un fichier d'échange non versionné.
 C'est la première fois que le comportement objet/édition est fixé noir sur blanc.*
 
