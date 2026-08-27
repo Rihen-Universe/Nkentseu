@@ -207,6 +207,7 @@ namespace nkentseu {
 		// (objet de demo ou noeud utilisateur). Le shell n'a pas a choisir.
 		bool Demo3DHostActiveTransform(float32 *pos3, float32 *rotDeg3, float32 *scl3);
 		void Demo3DHostXformTrace(); // NK_XFORM_TRACE=1
+		void Demo3DHostNodesTrace(); // NK_NODES_TRACE=1
 		void Demo3DHostSetActiveTransform(const float32 *pos3, const float32 *rotDeg3,
 										  const float32 *scl3);
 
