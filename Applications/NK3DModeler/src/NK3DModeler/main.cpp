@@ -1468,6 +1468,14 @@ int nkmain(const NkEntryState &entry) {
 				if (!sAddDone && agentFrame >= v[2]) {
 					sAddDone = true;
 					const int32 nd = demo::Demo3DHostAddNode(v[0], v[1]);
+					// LE MENU SELECTIONNE IMMEDIATEMENT ce qu'il cree (« noeud
+					// utilisateur nomme d'apres l'entree, selectionne
+					// immediatement »). Ce crochet ne le faisait pas, et
+					// l'objet naissait donc dans un etat que le produit ne
+					// produit jamais -- de quoi rendre muette toute mesure qui
+					// suppose une selection.
+					if (nd >= 0)
+						demo::Demo3DHostSelectEmptyNode(nd);
 					std::printf("[nk3d] NK_ADD_NODE kind=%d sub=%d frame=%d -> noeud %d\n",
 								(int)v[0], (int)v[1], (int)agentFrame, (int)nd);
 				}
@@ -1510,6 +1518,9 @@ int nkmain(const NkEntryState &entry) {
 				sModDone = true;
 			}
 		}
+
+		if (agentFrame > 60)
+			demo::Demo3DHostXformTrace();
 
 		// NK_VP_ACTION=<nom>[,frame] : declenche une ACTION DU SHELL (NkVpAction),
 		// par le MEME chemin que le clavier et que les futurs boutons.

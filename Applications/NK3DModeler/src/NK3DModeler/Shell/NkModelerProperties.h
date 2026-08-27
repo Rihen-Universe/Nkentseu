@@ -7556,9 +7556,12 @@ namespace nkentseu {
 				// reecrit apres (les champs ont pu etre edites). Sans objet, la
 				// section le dit au lieu d'afficher des zeros editables qui ne
 				// commandent rien.
-				const int32 act = nk3d::Viewport3DActiveObject();
-				if (act >= 0 && nk3d::Viewport3DObjectAlive(act)) {
-					nk3d::Viewport3DGetObjectTransform(act, st.pos, st.rot, st.scl);
+				// Une SEULE porte : la facade resout elle-meme l'espace d'indices
+				// (objet de demo ou noeud utilisateur) et repond faux s'il n'y a
+				// pas d'objet actif. Les trois appels dormants -- actif, vivant,
+				// lire -- se replient donc en un seul, et le panneau cesse de
+				// connaitre deux espaces qu'il n'a aucune raison de distinguer.
+				if (demo::Demo3DHostActiveTransform(st.pos, st.rot, st.scl)) {
 					PaintTransformRow(p, hit, ws, in, r, y, "Position", st.pos, 0.01f, "prop.pos",
 									  NkIcon::Refresh, NkIcon::Lock);
 					y += Vec3RowH();
@@ -7568,7 +7571,7 @@ namespace nkentseu {
 					PaintTransformRow(p, hit, ws, in, r, y, "Echelle", st.scl, 0.01f, "prop.scl",
 									  NkIcon::Refresh, NkIcon::Lock, "%.3f");
 					y += Vec3RowH();
-					nk3d::Viewport3DSetObjectTransform(act, st.pos, st.rot, st.scl);
+					demo::Demo3DHostSetActiveTransform(st.pos, st.rot, st.scl);
 					// â”€â”€ EDITION PROPORTIONNELLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 					// Les sommets voisins suivent en s'attenuant, dans un rayon
 					// donne. C'est l'outil qui distingue une deformation organique
