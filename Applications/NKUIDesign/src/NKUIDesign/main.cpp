@@ -216,11 +216,29 @@ int nkmain(const NkEntryState &state) {
 		//    essai a la souris vise alors un rectangle publie, et cesse de dependre
 		//    de la hauteur du texte au-dessus. Sans ce drapeau, le registre
 		//    n'ecrit rien.
-		if (NkComponentDecl::StrEq(a, "--dump-ui"))
+		// ⚠️ LE `continue` N'EST PAS DECORATIF, ET SON ABSENCE A COUTE QUATRE
+		//    JOURS DE SILENCE. Ces deux drapeaux posaient leur variable puis
+		//    TOMBAIENT dans le refus ci-dessous : le programme repondait
+		//    « drapeau inconnu : --dump-ui » **en imprimant `--dump-ui` dans la
+		//    liste des drapeaux reconnus, trois lignes plus bas**.
+		//
+		//    C'est la meme famille que la parade `grep` de Q4, qui contenait
+		//    elle-meme le motif qu'elle faisait compter : **un garde-fou qui
+		//    refuse une entree valide et se contredit dans la meme sortie.**
+		//    Le cout reel n'est pas la gene : `--dump-ui` est le SEUL moyen
+		//    d'observer ce que l'interface dessine, donc la seule voie d'essai
+		//    automatisable de l'UI est restee fermee sans que rien ne le dise.
+		//
+		//    Mesure du 2026-08-27 : `--small` et `--dump-ui` rendaient tous deux
+		//    le code de sortie **2**.
+		if (NkComponentDecl::StrEq(a, "--dump-ui")) {
 			nkuidesign::designkit::UiRects::Enabled() = true;
+			continue;
+		}
 		if (NkComponentDecl::StrEq(a, "--small")) {
 			width = 1024;
 			height = 640;
+			continue;
 		}
 		// ⚠️ UN DRAPEAU INCONNU EST REFUSE, IL NE TOMBE PAS DANS LE CHEMIN PAR
 		//    DEFAUT. Mesure du 2026-08-23, et elle m'a coute dix minutes : j'ai
