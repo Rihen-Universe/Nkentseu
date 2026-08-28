@@ -1613,8 +1613,17 @@ int nkmain(const NkEntryState &entry) {
 
 		if (agentFrame > 60)
 			demo::Demo3DHostXformTrace();
-		if (agentFrame > 60)
-			demo::Demo3DHostNodesTrace();
+		// NK_NODES_TRACE=<frame> : l'inventaire se lit A LA FRAME DEMANDEE.
+		// Il etait fige a 61 : toute mesure d'un geste declenche plus tard lisait
+		// donc l'etat D'AVANT, et rendait des compteurs inchanges indiscernables
+		// d'un geste sans effet. C'est la meme faute que sur les modes, au meme
+		// endroit : l'instrument lisait avant que la chose n'arrive.
+		{
+			const char *nt = std::getenv("NK_NODES_TRACE");
+			const int32 frNt = (nt && std::atoi(nt) > 1) ? (int32)std::atoi(nt) : 61;
+			if (agentFrame >= frNt)
+				demo::Demo3DHostNodesTrace();
+		}
 
 		// NK_VP_ACTION=<nom>[,frame] : declenche une ACTION DU SHELL (NkVpAction),
 		// par le MEME chemin que le clavier et que les futurs boutons.
@@ -1649,11 +1658,19 @@ int nkmain(const NkEntryState &entry) {
 						}
 						return (*a == 0 || *a == ',');
 					};
-					st.mode = NkMode::Edit;
+					// ⚠️ CE CROCHET NE FORCE PLUS LE MODE. Il posait `st.mode = Edit`
+					// avant toute action : tout temoin mesurait donc l'action ET le
+					// changement de mode, d'ou l'obligation d'un controle a nom inconnu
+					// pour les separer. Pire, il rendait INTESTABLE toute action de mode
+					// OBJET -- la suppression d'objet partait toujours dans la branche
+					// edition. Le mode se pose desormais explicitement (NK_EDIT_MODE ou
+					// NK_UI_MODE), par la porte unique.
 					// On pose l ACTION, on n appelle pas la facade : le temoin doit
 					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
 					// meme si le bouton restait mort.
-					if (est("frameall"))
+					if (est("togglexray"))
+						st.pendingAction = NkVpAction::ToggleXray;
+					else if (est("frameall"))
 						st.pendingAction = NkVpAction::FrameAll;
 					else if (est("viewfront"))
 						st.pendingAction = NkVpAction::ViewFront;
@@ -1718,11 +1735,19 @@ int nkmain(const NkEntryState &entry) {
 						}
 						return (*a == 0 || *a == ',');
 					};
-					st.mode = NkMode::Edit;
+					// ⚠️ CE CROCHET NE FORCE PLUS LE MODE. Il posait `st.mode = Edit`
+					// avant toute action : tout temoin mesurait donc l'action ET le
+					// changement de mode, d'ou l'obligation d'un controle a nom inconnu
+					// pour les separer. Pire, il rendait INTESTABLE toute action de mode
+					// OBJET -- la suppression d'objet partait toujours dans la branche
+					// edition. Le mode se pose desormais explicitement (NK_EDIT_MODE ou
+					// NK_UI_MODE), par la porte unique.
 					// On pose l ACTION, on n appelle pas la facade : le temoin doit
 					// emprunter le chemin du BOUTON, pas un raccourci qui serait vert
 					// meme si le bouton restait mort.
-					if (est("frameall"))
+					if (est("togglexray"))
+						st.pendingAction = NkVpAction::ToggleXray;
+					else if (est("frameall"))
 						st.pendingAction = NkVpAction::FrameAll;
 					else if (est("viewfront"))
 						st.pendingAction = NkVpAction::ViewFront;
@@ -1811,9 +1836,15 @@ int nkmain(const NkEntryState &entry) {
 						if (demo::Demo3DHostEditDelete())
 							NkMarkDirty(st);
 					} else {
-						const int32 act = nk3d::Viewport3DActiveObject();
-						if (act >= 0) {
-							nk3d::Viewport3DDeleteObject(act);
+						// SUPPRESSION EN MODE OBJET. Elle visait l'objet actif de la vue
+						// MORTE : la touche Suppr ne supprimait donc rien hors edition.
+						// `withChildren = true` parce que la specification des modes le
+						// dit : en mode objet, un clic prend le model ENTIER, tous ses
+						// sous-mesh avec -- le supprimer sans eux laisserait des orphelins
+						// invisibles occupant des emplacements.
+						const int32 noeud = demo::Demo3DHostSelectedEmptyNode();
+						if (noeud >= 0) {
+							demo::Demo3DHostDeleteNode(noeud, true);
 							NkMarkDirty(st);
 						}
 					}
@@ -1851,8 +1882,11 @@ int nkmain(const NkEntryState &entry) {
 					st.zoneActive = false;
 					break;
 				case NkVpAction::ToggleXray:
-					st.xray = !st.xray;
-					nk3d::Viewport3DSetXray(st.xray);
+					// ON BASCULE DEPUIS LA VALEUR REELLE, pas depuis l'ombre : si les
+					// deux divergeaient, partir de l'ombre demanderait DEUX appuis pour
+					// repartir -- le defaut classique de l'etat duplique.
+					st.xray = !demo::Demo3DHostXray();
+					demo::Demo3DHostSetXray(st.xray);
 					break;
 				// Les operations n'ont de sens QU'EN EDITION. Les laisser passer en
 				// mode objet donnerait des commandes sans effet, donc un journal
@@ -1872,9 +1906,15 @@ int nkmain(const NkEntryState &entry) {
 						if (demo::Demo3DHostEditDelete())
 							NkMarkDirty(st);
 					} else {
-						const int32 act = nk3d::Viewport3DActiveObject();
-						if (act >= 0) {
-							nk3d::Viewport3DDeleteObject(act);
+						// SUPPRESSION EN MODE OBJET. Elle visait l'objet actif de la vue
+						// MORTE : la touche Suppr ne supprimait donc rien hors edition.
+						// `withChildren = true` parce que la specification des modes le
+						// dit : en mode objet, un clic prend le model ENTIER, tous ses
+						// sous-mesh avec -- le supprimer sans eux laisserait des orphelins
+						// invisibles occupant des emplacements.
+						const int32 noeud = demo::Demo3DHostSelectedEmptyNode();
+						if (noeud >= 0) {
+							demo::Demo3DHostDeleteNode(noeud, true);
 							NkMarkDirty(st);
 						}
 					}

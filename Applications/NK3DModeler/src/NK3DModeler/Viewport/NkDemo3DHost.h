@@ -200,6 +200,10 @@ namespace nkentseu {
 		void Demo3DHostSetMode(int32 mode);
 		int32 Demo3DHostMode();
 
+		// X-ray : l'etat VIVANT est la source ; le shell n'en garde qu'un reflet.
+		void Demo3DHostSetXray(bool on);
+		bool Demo3DHostXray();
+
 		// Compteurs de geometrie du panneau Statistiques. EXACTS en edition ;
 		// en mode objet, aretes APPROCHEES (Euler) et faces inconnues.
 		bool Demo3DHostStats(uint32 *verts, uint32 *edges, uint32 *faces, uint32 *tris);

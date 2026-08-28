@@ -4900,13 +4900,15 @@ namespace nkentseu {
 						logger.Info("[Demo3D] Outil de selection : annule\n");
 						return;
 					}
-					// Alt+Z : toggle X-RAY (voir/sélectionner à travers le mesh), façon Blender.
-					if (k == NkKey::NK_Z && alt) {
-						st->editXray = !st->editXray;
-						st->editOverlayDirty = true;
-						logger.Info("[Demo3D] X-ray = {0}\n", st->editXray);
+					// ⚠️ Alt+Z N'EST PLUS TRAITE ICI : SECONDE VOIE RETIREE.
+					// Le shell lie DEJA Alt+Z (`main.cpp:806` -> ToggleXray) et
+					// appelait `Viewport3DSetXray`, c'est-a-dire la vue MORTE.
+					// Mesure : Alt+Z marchait par CE rappel pendant que `st.xray` du
+					// shell derivait dans son coin -- l'ombre d'un etat qu'il ne
+					// pilotait pas. Meme forme que TAB, et le meme piege nomme plus bas
+					// dans ce fichier : « la touche arrive par DEUX voies ».
+					if (k == NkKey::NK_Z && alt)
 						return;
-					}
 					// Ctrl+Z = ANNULER · Ctrl+Shift+Z / Ctrl+Y = RÉTABLIR (historique d'édition).
 					// Traité côté frame (accès meshSys pour resync). Façon Blender.
 					{
@@ -14006,6 +14008,23 @@ namespace nkentseu {
 			st->editorCam.SetCenter(centre, d, st->editorCam.GetYaw(), st->editorCam.GetPitch());
 			logger.Info("[Demo3D] CADRER TOUT : centre=({0}, {1}, {2}) rayon={3} distance={4}\n",
 						centre.x, centre.y, centre.z, rayon, d);
+		}
+
+		// ── X-RAY : voir et selectionner a travers le maillage ─────────────
+		// L'etat vit ici (`editXray`) et il MARCHAIT deja : c'est le shell qui
+		// ecrivait a cote, dans la vue morte. On expose l'etat vivant, et le
+		// shell cesse d'en tenir une copie qu'il ne pilotait pas.
+		void Demo3DHostSetXray(bool on) {
+			auto *st = HostSt();
+			if (!st || st->editXray == on)
+				return;
+			st->editXray = on;
+			st->editOverlayDirty = true;
+			logger.Info("[Demo3D] X-ray = {0}\n", st->editXray);
+		}
+		bool Demo3DHostXray() {
+			auto *st = HostSt();
+			return st && st->editXray;
 		}
 
 		// ── STATISTIQUES : le panneau comptait la geometrie de la vue MORTE ─
