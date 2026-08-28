@@ -1953,6 +1953,32 @@ namespace nkentseu {
 			} else if (st.meshMenu.open) {
 				st.meshMenu.open = false; // sortie du mode edition : le menu ne survit pas
 			}
+
+			// ── SELECTEUR D'OUTIL (Espace / Maj+Espace) ─────────────────────
+			// Ce que G/R/S/C ont quitte atterrit ICI. Chez Blender la selection
+			// d'outil n'est jamais une lettre nue : c'est un selecteur qui
+			// s'ouvre sur une touche a base d'espace. MEME composant du kit que
+			// le menu du maillage -- on n'en ecrit pas un second.
+			if (guiCtx) {
+				if (demo::Demo3DHostToolPickerTake()) {
+					st.toolMenu.open = true;
+					st.toolMenu.pos = in.mousePos;
+				}
+				if (st.toolMenu.open) {
+					static const char *const kOutils[4] = {"Deplacer", "Tourner", "Redimensionner",
+														  "Combine (T+R+S)"};
+					// Aucune de ces entrees n'a de raccourci : G/R/S sont desormais
+					// les MODALES, pas la selection d'outil. Afficher « G » ici
+					// mentirait -- G ne selectionne plus cet outil, il lance un geste.
+					static const char *const kRacc[4] = {"", "", "", ""};
+					const bool actifs[4] = {true, true, true, true};
+					const int32 ch = editorkit::NkCtxMenuDraw(*guiCtx, st.toolMenu, kOutils, actifs, 4,
+															  nullptr, nullptr, nullptr, nullptr, 0,
+															  nullptr, kRacc);
+					if (ch >= 0 && ch < 4)
+						demo::Demo3DHostSetGizmoOp(ch); // 0 depl. 1 rot. 2 ech. 3 combine
+				}
+			}
 		}
 
 		// â”€â”€ LIGNE DE TRANSFORMATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

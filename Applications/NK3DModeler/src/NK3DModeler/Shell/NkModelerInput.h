@@ -1065,6 +1065,9 @@ namespace nkentseu {
 				// comme les trois « Context Menu » distincts de Blender.
 				editorkit::NkCtxMenu meshMenu;
 				bool meshMenuTrace = false; ///< journalise le contenu a la PROCHAINE ouverture
+				// SELECTEUR D'OUTIL (Espace) -- le MEME composant du kit que le menu du
+				// maillage. C'est la ou G/R/S/C ont depose la selection d'outil.
+				editorkit::NkCtxMenu toolMenu;
 
 				// ── PROPORTIONS AJUSTABLES ──────────────────────────────────────
 				// Les separateurs modifient ces FRACTIONS et non des pixels : a la
