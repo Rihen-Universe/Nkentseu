@@ -28,6 +28,7 @@ PascalCase (convention Rihen). Zero dependance pip (stdlib uniquement).
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 import urllib.request
 import zipfile
@@ -62,6 +63,68 @@ KEEP_FONTS = {"NotoSans-Regular.ttf", "NotoSansSC-Regular.ttf",
 COMPILER_EXCLUDE_DIRS = {"i686-w64-mingw32", "armv7-w64-mingw32",
                          "aarch64-w64-mingw32", "arm64ec-w64-mingw32"}
 COMPILER_EXCLUDE_PREFIXES = ("i686-", "armv7-", "aarch64-", "arm64ec-")
+
+
+# DLL fournies par Windows lui-meme (ou par le pilote GPU pour vulkan-1) : on
+# ne les livre pas, et leur absence n'est pas une erreur de distribution.
+DLLS_SYSTEME = {
+    "kernel32.dll", "user32.dll", "gdi32.dll", "advapi32.dll", "shell32.dll",
+    "ole32.dll", "oleaut32.dll", "ws2_32.dll", "winmm.dll", "comdlg32.dll",
+    "shlwapi.dll", "version.dll", "dbghelp.dll", "imm32.dll", "setupapi.dll",
+    "cfgmgr32.dll", "crypt32.dll", "iphlpapi.dll", "secur32.dll", "userenv.dll",
+    "psapi.dll", "ucrtbase.dll", "msvcrt.dll", "opengl32.dll", "dwmapi.dll",
+    "uxtheme.dll", "bcrypt.dll", "ntdll.dll", "rpcrt4.dll", "mswsock.dll",
+    "winhttp.dll", "urlmon.dll", "wininet.dll", "dxgi.dll", "d3d11.dll",
+    "d3d12.dll", "d3dcompiler_47.dll", "dinput8.dll", "dxguid.dll", "avrt.dll",
+    "mf.dll", "mfplat.dll", "mfreadwrite.dll", "mfuuid.dll", "xinput1_3.dll",
+    "comctl32.dll", "gdiplus.dll", "oleacc.dll", "propsys.dll", "powrprof.dll",
+    "hid.dll", "vulkan-1.dll",
+}
+
+
+def VerifierImports(exe, out):
+    """Refuse de livrer un exe dont une DLL importee n'est pas a cote de lui.
+
+    Ecrit apres l'issue beta #15 : NKCode.exe importait libstdc++-6.dll,
+    libgcc_s_seh-1.dll et libwinpthread-1.dll, qu'aucune ligne de ce script ne
+    copiait. Le chargeur allait donc les prendre DANS LE PATH DU TESTEUR — chez
+    l'un d'eux, le msys64 installe pour la toolchain portait une autre version,
+    d'ou « NKCode.exe - Point d'entree introuvable : clock_gettime64 ».
+    La liste des DLL a livrer etait tenue A LA MAIN ; elle est desormais
+    CONFRONTEE a la table d'imports reelle du binaire.
+    """
+    objdump = shutil.which("objdump") or shutil.which("llvm-objdump")
+    if not objdump:
+        Log("ATTENTION : objdump introuvable — table d'imports NON verifiee.")
+        return
+    try:
+        res = subprocess.run([objdump, "-p", str(exe)], capture_output=True,
+                             text=True, timeout=180)
+    except Exception as err:  # outil present mais inutilisable : on previent, on ne bloque pas
+        Log(f"ATTENTION : verification des imports impossible ({err}).")
+        return
+
+    manquantes = []
+    for ligne in res.stdout.splitlines():
+        ligne = ligne.strip()
+        if not ligne.startswith("DLL Name:"):
+            continue
+        dll = ligne.split(":", 1)[1].strip()
+        bas = dll.lower()
+        if bas.startswith("api-ms-") or bas.startswith("ext-ms-") or bas in DLLS_SYSTEME:
+            continue
+        if (out / dll).exists():
+            continue
+        manquantes.append(dll)
+
+    if manquantes:
+        Log("ERREUR : DLL importees par NKCode.exe mais ABSENTES de la distribution :")
+        for d in manquantes:
+            Log(f"    - {d}")
+        Log("  L'IDE chargerait celles du PATH de l'utilisateur, ou refuserait de")
+        Log("  demarrer (issue beta #15). Livrer ces DLL, ou lier en statique.")
+        sys.exit(1)
+    Log("table d'imports verifiee : aucune DLL non-systeme manquante")
 
 
 def Log(msg):
@@ -329,6 +392,9 @@ def Main() -> int:
     # DLLs exigees au DEMARRAGE (import table de NKCode.exe) -> a cote de l'exe.
     for dll in ("python312.dll", "python3.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
         shutil.copy2(pyembed / dll, out / dll)
+
+    # Garde-fou : la liste ci-dessus est tenue a la main, la table d'imports non.
+    VerifierImports(exe, out)
 
     Log("copie des sources Jenga (tools/jenga-src/Jenga)")
     CopyTree(jenga_repo / "Jenga", tools / "jenga-src" / "Jenga",
