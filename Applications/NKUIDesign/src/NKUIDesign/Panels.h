@@ -428,6 +428,8 @@ namespace nkuidesign {
 			}
 			int32 paletteChoice = 0; ///< 0 = cadre, puis 1+ = index dans le registre
 			NkString status;
+			/// Vrai si le DERNIER chargement a echoue sur un fichier PRESENT.
+			bool loadFailed = false;
 			/// Ce que l'audit des roles a trouve au demarrage, en une ligne. Lu par
 			/// `main` pour le journal : le journal du lancement doit porter l'etat
 			/// des roles, sinon il faut ouvrir la fenetre pour l'apprendre -- et
@@ -518,72 +520,24 @@ namespace nkuidesign {
 			/// Un document de depart qui montre les deux choses a montrer : une
 			/// imbrication, et deux modes de taille cote a cote.
 			void BuildStarterDocument() {
-				doc.NewDocument("Interface de demonstration", NkAuthor::Humain);
-				doc.nodes[0].layout.kind = NkLayoutKind::Column;
-
-				const int32 header = doc.AddChild(0, "", NkAuthor::Humain);
-				if (doc.IsValidIndex(header)) {
-					doc.nodes[(uint32)header].label = NkString("Entete");
-					doc.nodes[(uint32)header].height.mode = NkSizeMode::Fixed;
-					doc.nodes[(uint32)header].height.value = 56.f;
-					doc.nodes[(uint32)header].layout.kind = NkLayoutKind::Row;
+				// ⚠️ LE DOCUMENT EST BATI PAR UNE FONCTION LIBRE (`Renderers.h`), et
+				//    ce qui reste ici est l ETAT DE L APPLICATION. Le banc peut donc
+				//    mesurer LE document de Ctrl+N, pas une copie ecrite dans le banc
+				//    -- la lecon de T5 : un cote de la mesure doit venir d ailleurs
+				//    que du code teste.
+				NkBuildDemoDocument(doc);
+				SelectSingle(0);
+				// ⚠️ NE PAS EFFACER LE DIAGNOSTIC DE L ECHEC. C est ce qui a rendu le
+				//    defaut du 28/08 indechiffrable : le chargement echouait, posait
+				//    son message, et la ligne suivante le remplacait par « Document de
+				//    demonstration cree. » -- un message rassurant sur un incident.
+				//    L utilisateur voyait un autre document que le sien SANS SAVOIR
+				//    POURQUOI, et un Ctrl+S l aurait ecrase.
+				if (loadFailed) {
+					status.Append("  |  document de demonstration affiche A LA PLACE.");
+				} else {
+					status = NkString("Document de demonstration cree.");
 				}
-				// ⚠️ UNE PAGE DE TOILE, ET C EST LA REPONSE A « JE NE VOIS AUCUNE
-				//    TOILE ». Mesure du 2026-08-28 : le document de demonstration
-				//    ne portait QUE des agencements `column` et `row` -- donc
-				//    AUCUN noeud pose a des coordonnees, donc rien a montrer. La
-				//    machinerie etait branchee (le dessin et les rectangles
-				//    publies passent par la projection ecran) et elle n avait
-				//    simplement aucun contenu a projeter.
-				//
-				//    **Aucune de mes trois etapes ne s etait verifiee A L ECRAN.**
-				//    Elles etaient mesurees a 126 controles sans fenetre ; il a
-				//    fallu que quelqu un lance le binaire pour voir qu il n y
-				//    avait rien a voir.
-				const int32 page = doc.AddChild(0, "", NkAuthor::Humain);
-				{
-					doc.nodes[(uint32)page].label = NkString("Toile");
-					doc.nodes[(uint32)page].layout.kind = NkLayoutKind::Free;
-					doc.nodes[(uint32)page].height.mode = NkSizeMode::Fixed;
-					doc.nodes[(uint32)page].height.value = 200.f;
-					const int32 f1 = doc.AddChild(page, "", NkAuthor::Humain);
-					doc.nodes[(uint32)f1].label = NkString("Forme A (95, 30)");
-					doc.nodes[(uint32)f1].posX = 95.f;
-					doc.nodes[(uint32)f1].posY = 30.f;
-					doc.nodes[(uint32)f1].width.mode = NkSizeMode::Fixed;
-					doc.nodes[(uint32)f1].width.value = 220.f;
-					doc.nodes[(uint32)f1].height.mode = NkSizeMode::Fixed;
-					doc.nodes[(uint32)f1].height.value = 90.f;
-					const int32 f2 = doc.AddChild(page, "", NkAuthor::Humain);
-					doc.nodes[(uint32)f2].label = NkString("Forme B (420, 80)");
-					doc.nodes[(uint32)f2].posX = 420.f;
-					doc.nodes[(uint32)f2].posY = 80.f;
-					doc.nodes[(uint32)f2].width.mode = NkSizeMode::Fixed;
-					doc.nodes[(uint32)f2].width.value = 160.f;
-					doc.nodes[(uint32)f2].height.mode = NkSizeMode::Fixed;
-					doc.nodes[(uint32)f2].height.value = 60.f;
-				}
-
-				const int32 body = doc.AddChild(0, "", NkAuthor::Humain);
-				if (doc.IsValidIndex(body)) {
-					doc.nodes[(uint32)body].label = NkString("Corps");
-					doc.nodes[(uint32)body].layout.kind = NkLayoutKind::Row;
-					// ⚠️ DEUX COMPOSANTS DE NATURES DIFFERENTES, COTE A COTE, ET
-					//    C'EST LE POINT. Un document de demonstration a un seul
-					//    composant montre une application qui marche ; deux
-					//    montrent qu'elle ne connait aucun nom -- l'arbre a ete
-					//    ajoute au registre sans qu'une ligne de la palette, de
-					//    l'arbre de composition, des proprietes ou de la
-					//    sauvegarde ne bouge.
-					const int32 arbre = doc.AddChild(body, "tree_view", NkAuthor::Humain);
-					if (doc.IsValidIndex(arbre)) {
-						doc.nodes[(uint32)arbre].width.mode = NkSizeMode::Fixed;
-						doc.nodes[(uint32)arbre].width.value = 260.f;
-					}
-					doc.AddChild(body, "content_browser", NkAuthor::Humain);
-				}
-				selected = 0;
-				status = NkString("Document de demonstration cree.");
 				host.demoModels.Clear();
 				host.SyncTo(doc);
 			}
@@ -621,9 +575,23 @@ namespace nkuidesign {
 			}
 
 			bool LoadDoc() {
+				loadFailed = false;
 				if (!nkentseu::NkFile::Exists(kDocumentPath))
-					return false;
+					return false; // absent : normal au premier lancement, rien a dire
 				const NkString text = nkentseu::NkFile::ReadAllText(kDocumentPath);
+				// ⚠️ UN FICHIER PRESENT MAIS LU VIDE N EST PAS UN FICHIER ABSENT.
+				//    Mesure du 2026-08-28 : sur trois lancements identiques -- meme
+				//    binaire, meme fichier, meme commande -- le document a ete charge
+				//    DEUX fois et remplace par celui de demonstration UNE fois. Le
+				//    demarrage n est pas deterministe, et la cause n est pas encore
+				//    etablie (poignee encore ouverte par le processus precedent ?).
+				//    **Ce qui est etabli, c est qu il faut le DIRE.**
+				if (text.Empty()) {
+					loadFailed = true;
+					status = NkString("!! Le fichier existe mais s est lu VIDE : rien n a ete "
+									  "charge. Votre document n est PAS perdu -- ne pas enregistrer.");
+					return false;
+				}
 				uint32 unknown = 0;
 				NkUIDocument loaded;
 				if (!loaded.Load(text.Data(), &unknown)) {
@@ -631,7 +599,9 @@ namespace nkuidesign {
 					//    incoherente laisse l'ancien en place et le DIT : recuperer un
 					//    arbre a demi reconstruit serait pire que ne rien recuperer,
 					//    parce que l'utilisateur croirait avoir retrouve son travail.
-					status = NkString("Document illisible : rien n'a ete change.");
+					loadFailed = true;
+					status = NkString("!! Document ILLISIBLE : rien n a ete change. Votre "
+									  "document n est PAS perdu -- ne pas enregistrer par-dessus.");
 					return false;
 				}
 				doc = loaded;

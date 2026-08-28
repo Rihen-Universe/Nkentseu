@@ -2356,6 +2356,118 @@ namespace nkuidesign {
 				  t1.Compare(t2) == 0 && t1.Size() > 0, "");
 		}
 
+		// ════════════════════════════════════════════════════════════════
+		//  41. UNE FORME POSEE SE DESSINE -- le controle qui manquait
+		// ════════════════════════════════════════════════════════════════
+		//
+		//  ⚠️ C EST LE CONTROLE QUI AURAIT DU EXISTER AUX ETAPES 1, 2 ET 3.
+		//     Elles ont mesure la POSITION (le solveur), la PROJECTION (la vue) et
+		//     la SELECTION -- et aucune n a mesure que quelque chose ETAIT DESSINE.
+		//     Resultat : trois etapes vertes a 126 controles, et un ecran noir.
+		//
+		//     Le defaut etait ecrit depuis le debut : `DrawFrame` est `{}`, trois
+		//     parametres sans nom, et `Document.h` dit « Vide = un CADRE : le noeud
+		//     n affiche rien ». Les formes de la toile etaient des cadres.
+		//
+		//  ⚠️ ET ON NE MESURE PAS DES PIXELS : on compte les COMMANDES DE DESSIN
+		//     emises. C est ce que `NkRecordingPaint` sait faire sans GPU. « Le
+		//     dump n est pas l ecran » reste vrai -- mais une fonction vide
+		//     n emet rien, et ca, ca se compte.
+		{
+			rep.Append("\n-- 41. UNE FORME POSEE SE DESSINE --\n");
+			NkUIDocument d;
+			d.NewDocument("Toile", NkAuthor::Humain);
+			d.nodes[0].layout.kind = NkLayoutKind::Free;
+			d.SetMetric("espacement", 0.f);
+			d.SetMetric("marge", 0.f);
+			const int32 forme = d.AddChild(0, "", NkAuthor::Humain);
+			d.nodes[(uint32)forme].label = NkString("Forme");
+			d.nodes[(uint32)forme].posX = 95.f;
+			d.nodes[(uint32)forme].posY = 30.f;
+			d.nodes[(uint32)forme].width.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)forme].width.value = 220.f;
+			d.nodes[(uint32)forme].height.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)forme].height.value = 90.f;
+
+			NkPaintRect surface;
+			surface.x = 0.f;
+			surface.y = 0.f;
+			surface.w = 800.f;
+			surface.h = 600.f;
+			NkRecordingPaint rec;
+			RenderDocument(rec, d, surface);
+			const uint32 posee = (uint32)rec.cmds.Size();
+
+			snprintf(buf, sizeof(buf), "%u commande(s) de dessin", posee);
+			check("41. une forme POSEE emet des commandes de dessin -- une fonction "
+				  "vide n emet rien, et c est ce qui se comptait",
+				  posee > 0, buf);
+
+			// La geometrie emise doit tomber SUR la forme, pas ailleurs. Sans ca,
+			// « ca dessine » pourrait vouloir dire « ca dessine n importe ou ».
+			bool surLaForme = false;
+			for (uint32 i = 0; i < posee; ++i) {
+				const NkPaintCmd &c = rec.cmds[i];
+				if (c.x >= 94.f && c.x <= 96.f && c.y >= 29.f && c.y <= 31.f && c.w >= 219.f
+					&& c.w <= 221.f)
+					surLaForme = true;
+			}
+			check("41b. et la geometrie emise tombe SUR la forme -- (95,30) 220x90, "
+				  "pas ailleurs",
+				  surLaForme, "");
+
+			// ⚠️ 41c. LE CONTROLE NEGATIF, ET IL PROTEGE L EXISTANT : le MEME
+			//     document, son parent remis en `Column`, ne doit RIEN emettre
+			//     pour ce noeud. Un cadre d agencement reste invisible -- sinon le
+			//     document du 18 aout se mettrait a montrer des boites partout.
+			d.nodes[0].layout.kind = NkLayoutKind::Column;
+			NkRecordingPaint rec2;
+			RenderDocument(rec2, d, surface);
+			snprintf(buf, sizeof(buf), "pose %u commande(s), en Column %u", posee,
+					 (uint32)rec2.cmds.Size());
+			check("41c. CONTROLE NEGATIF : le MEME noeud sous un parent `Column` "
+				  "n emet RIEN -- un cadre d agencement reste invisible",
+				  rec2.cmds.Empty(), buf);
+
+			// 41d. Le document de DEMONSTRATION complet dessine ses formes ET
+			//      garde ses composants. C est la forme que Rodolf voit.
+			NkUIDocument demo;
+			NkBuildDemoDocument(demo);
+			NkRecordingPaint rec3;
+			RenderDocument(rec3, demo, surface);
+			uint32 formes = 0;
+			for (uint32 i = 0; i < (uint32)rec3.cmds.Size(); ++i)
+				if (rec3.cmds[i].op == NkPaintOp::Text
+					&& (rec3.cmds[i].text.Find("Forme A") != NkString::npos
+						|| rec3.cmds[i].text.Find("Forme B") != NkString::npos))
+					++formes;
+			snprintf(buf, sizeof(buf), "%u commande(s), dont %u libelle(s) de forme",
+					 (uint32)rec3.cmds.Size(), formes);
+			check("41d. le document de DEMONSTRATION dessine ses DEUX formes posees "
+				  "(leurs libelles sortent dans le flux)",
+				  formes == 2, buf);
+
+			// ⚠️ 41e. L APPLICATION SAIT-ELLE RELIRE CE QU ELLE ENREGISTRE ?
+			//     Ce controle manquait, et son absence a coute une heure ce matin :
+			//     le document de demonstration s affichait la ou le fichier
+			//     enregistre aurait du. Save -> Load -> Save : les deux textes
+			//     doivent etre identiques. Un format qui ne se relit pas perd le
+			//     travail SANS RIEN DIRE -- c est la pire des pertes.
+			NkString e1, e2;
+			demo.Save(e1);
+			NkUIDocument relu;
+			uint32 inconnus = 0;
+			const bool lu = relu.Load(e1.Data(), &inconnus);
+			if (lu)
+				relu.Save(e2);
+			snprintf(buf, sizeof(buf), "relu=%d, %u noeud(s), %u inconnu(s), textes %s",
+					 lu ? 1 : 0, lu ? relu.NodeCount() : 0u, inconnus,
+					 (lu && e1.Compare(e2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
+			check("41e. le document de demonstration se RELIT et se reenregistre a "
+				  "l identique -- une page `free` et deux positions comprises",
+				  lu && e1.Compare(e2) == 0 && relu.NodeCount() == demo.NodeCount(), buf);
+		}
+
 		char tail[128];
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

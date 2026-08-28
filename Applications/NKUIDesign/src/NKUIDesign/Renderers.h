@@ -273,7 +273,41 @@ namespace nkuidesign {
 		/// Le cadre : il n'affiche rien. Un liseré serait du mobilier d'editeur,
 		/// et le mobilier d'editeur n'a rien a faire dans le rendu du document —
 		/// sinon la sonde mesurerait le decor en croyant mesurer l'interface.
+		/// UN CADRE D AGENCEMENT NE DESSINE RIEN, et c est voulu : il sert a
+		/// repartir ses enfants, il n a pas de matiere propre.
 		inline void DrawFrame(NkComponentPaint &, const NkPaintRect &, const NkDocumentHost &) {}
+
+		/// UNE FORME POSEE SUR LA TOILE, ELLE, SE DESSINE.
+		///
+		/// ⚠️ C EST LE DEFAUT DU 2026-08-28, ET IL ETAIT ECRIT DEPUIS LE DEBUT.
+		///    `Document.h` dit : « Vide = un CADRE : le noeud n affiche rien et
+		///    sert a agencer. » Les formes de la toile ont ete creees avec un
+		///    composant VIDE -- donc des cadres -- donc **invisibles par
+		///    construction**. Rodolf a lance, vu du noir, et il avait raison.
+		///
+		///    Ni une machinerie debranchee, ni un probleme de region : les formes
+		///    etaient calculees, projetees, publiees -- et dessinees par une
+		///    fonction VIDE, `{}`, trois parametres sans nom.
+		///
+		/// ⚠️ LA MEME DISTINCTION QUI GOUVERNE LA POSITION GOUVERNE LA VISIBILITE,
+		///    et c est ce qui evite de casser l existant : un noeud sous un parent
+		///    `Free` est une FORME, un noeud sous `Column`/`Row`/`Grid`/`Anchor`
+		///    est un CADRE. Le document du 18 aout n a aucun parent `Free` : son
+		///    rendu ne bouge donc pas d un pixel.
+		inline void DrawShape(NkComponentPaint &p, const NkPaintRect &r, const char *name,
+							  const NkDocumentHost &host) {
+			if (r.w <= 0.f || r.h <= 0.f)
+				return;
+			p.Outline(r, host.Role("border"), host.Role("card_bg"), 1.f);
+			if (!name || !*name)
+				return;
+			NkPaintRect label = r;
+			label.x += 6.f;
+			label.w -= 12.f;
+			label.h = p.LineHeight();
+			label.y += 4.f;
+			p.Text(label, name, host.Role("text"), NkTextAlign::Left);
+		}
 
 		inline NkContentBrowserStyle BrowserStyle(const NkDocumentHost &host, const NkUINode &n) {
 			NkContentBrowserStyle s;
@@ -328,6 +362,80 @@ namespace nkuidesign {
 	// Parcours en profondeur : un parent se peint avant ses enfants, donc les
 	// enfants se posent par-dessus. C'est l'ordre attendu de toute composition,
 	// et il rend l'imbrication visible sans aucune notion de plan.
+	/// LE DOCUMENT DE DEMONSTRATION -- une fonction LIBRE, et c est le point.
+	///
+	/// ⚠️ IL VIVAIT DANS `DesignState`, DONC HORS DE PORTEE DU BANC. Ecrire
+	///    dans le banc une copie de ce document aurait mesure la copie : la
+	///    lecon de T5, « au moins un cote doit venir d ailleurs que du code
+	///    teste ». Le controle 41d mesure donc CE document-ci, celui que
+	///    Ctrl+N pose reellement.
+	inline void NkBuildDemoDocument(NkUIDocument &doc) {
+			doc.NewDocument("Interface de demonstration", NkAuthor::Humain);
+			doc.nodes[0].layout.kind = NkLayoutKind::Column;
+
+			const int32 header = doc.AddChild(0, "", NkAuthor::Humain);
+			if (doc.IsValidIndex(header)) {
+				doc.nodes[(uint32)header].label = NkString("Entete");
+				doc.nodes[(uint32)header].height.mode = NkSizeMode::Fixed;
+				doc.nodes[(uint32)header].height.value = 56.f;
+				doc.nodes[(uint32)header].layout.kind = NkLayoutKind::Row;
+			}
+			// ⚠️ UNE PAGE DE TOILE, ET C EST LA REPONSE A « JE NE VOIS AUCUNE
+			//    TOILE ». Mesure du 2026-08-28 : le document de demonstration
+			//    ne portait QUE des agencements `column` et `row` -- donc
+			//    AUCUN noeud pose a des coordonnees, donc rien a montrer. La
+			//    machinerie etait branchee (le dessin et les rectangles
+			//    publies passent par la projection ecran) et elle n avait
+			//    simplement aucun contenu a projeter.
+			//
+			//    **Aucune de mes trois etapes ne s etait verifiee A L ECRAN.**
+			//    Elles etaient mesurees a 126 controles sans fenetre ; il a
+			//    fallu que quelqu un lance le binaire pour voir qu il n y
+			//    avait rien a voir.
+			const int32 page = doc.AddChild(0, "", NkAuthor::Humain);
+			{
+				doc.nodes[(uint32)page].label = NkString("Toile");
+				doc.nodes[(uint32)page].layout.kind = NkLayoutKind::Free;
+				doc.nodes[(uint32)page].height.mode = NkSizeMode::Fixed;
+				doc.nodes[(uint32)page].height.value = 200.f;
+				const int32 f1 = doc.AddChild(page, "", NkAuthor::Humain);
+				doc.nodes[(uint32)f1].label = NkString("Forme A (95, 30)");
+				doc.nodes[(uint32)f1].posX = 95.f;
+				doc.nodes[(uint32)f1].posY = 30.f;
+				doc.nodes[(uint32)f1].width.mode = NkSizeMode::Fixed;
+				doc.nodes[(uint32)f1].width.value = 220.f;
+				doc.nodes[(uint32)f1].height.mode = NkSizeMode::Fixed;
+				doc.nodes[(uint32)f1].height.value = 90.f;
+				const int32 f2 = doc.AddChild(page, "", NkAuthor::Humain);
+				doc.nodes[(uint32)f2].label = NkString("Forme B (420, 80)");
+				doc.nodes[(uint32)f2].posX = 420.f;
+				doc.nodes[(uint32)f2].posY = 80.f;
+				doc.nodes[(uint32)f2].width.mode = NkSizeMode::Fixed;
+				doc.nodes[(uint32)f2].width.value = 160.f;
+				doc.nodes[(uint32)f2].height.mode = NkSizeMode::Fixed;
+				doc.nodes[(uint32)f2].height.value = 60.f;
+			}
+
+			const int32 body = doc.AddChild(0, "", NkAuthor::Humain);
+			if (doc.IsValidIndex(body)) {
+				doc.nodes[(uint32)body].label = NkString("Corps");
+				doc.nodes[(uint32)body].layout.kind = NkLayoutKind::Row;
+				// ⚠️ DEUX COMPOSANTS DE NATURES DIFFERENTES, COTE A COTE, ET
+				//    C'EST LE POINT. Un document de demonstration a un seul
+				//    composant montre une application qui marche ; deux
+				//    montrent qu'elle ne connait aucun nom -- l'arbre a ete
+				//    ajoute au registre sans qu'une ligne de la palette, de
+				//    l'arbre de composition, des proprietes ou de la
+				//    sauvegarde ne bouge.
+				const int32 arbre = doc.AddChild(body, "tree_view", NkAuthor::Humain);
+				if (doc.IsValidIndex(arbre)) {
+					doc.nodes[(uint32)arbre].width.mode = NkSizeMode::Fixed;
+					doc.nodes[(uint32)arbre].width.value = 260.f;
+				}
+				doc.AddChild(body, "content_browser", NkAuthor::Humain);
+			}
+	}
+
 	inline void NkDrawDocument(NkComponentPaint &p, const NkComponentInput &in, const NkUIDocument &doc,
 							   const NkLayoutResult &lay, NkDocumentHost &host, int32 node = 0) {
 		if (!doc.IsValidIndex(node) || !lay.Has(node))
@@ -336,7 +444,14 @@ namespace nkuidesign {
 		const NkPaintRect r = lay.At(node);
 
 		if (n.IsFrame()) {
-			renderdetail::DrawFrame(p, r, host);
+			// FORME ou CADRE ? Le PARENT le dit -- exactement comme pour la
+			// position. Une forme posee se voit ; un cadre d agencement, non.
+			const bool posee = n.parent >= 0
+							   && doc.nodes[(uint32)n.parent].layout.kind == NkLayoutKind::Free;
+			if (posee)
+				renderdetail::DrawShape(p, r, n.label.Data(), host);
+			else
+				renderdetail::DrawFrame(p, r, host);
 		} else if (StrEq(n.component.Data(), "content_browser")) {
 			if ((uint32)node < (uint32)host.demoModels.Size() && r.w > 0.f && r.h > 0.f) {
 				NkContentBrowserHooks hooks;
