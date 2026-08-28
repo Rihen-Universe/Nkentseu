@@ -528,6 +528,42 @@ namespace nkuidesign {
 					doc.nodes[(uint32)header].height.value = 56.f;
 					doc.nodes[(uint32)header].layout.kind = NkLayoutKind::Row;
 				}
+				// ⚠️ UNE PAGE DE TOILE, ET C EST LA REPONSE A « JE NE VOIS AUCUNE
+				//    TOILE ». Mesure du 2026-08-28 : le document de demonstration
+				//    ne portait QUE des agencements `column` et `row` -- donc
+				//    AUCUN noeud pose a des coordonnees, donc rien a montrer. La
+				//    machinerie etait branchee (le dessin et les rectangles
+				//    publies passent par la projection ecran) et elle n avait
+				//    simplement aucun contenu a projeter.
+				//
+				//    **Aucune de mes trois etapes ne s etait verifiee A L ECRAN.**
+				//    Elles etaient mesurees a 126 controles sans fenetre ; il a
+				//    fallu que quelqu un lance le binaire pour voir qu il n y
+				//    avait rien a voir.
+				const int32 page = doc.AddChild(0, "", NkAuthor::Humain);
+				{
+					doc.nodes[(uint32)page].label = NkString("Toile");
+					doc.nodes[(uint32)page].layout.kind = NkLayoutKind::Free;
+					doc.nodes[(uint32)page].height.mode = NkSizeMode::Fixed;
+					doc.nodes[(uint32)page].height.value = 200.f;
+					const int32 f1 = doc.AddChild(page, "", NkAuthor::Humain);
+					doc.nodes[(uint32)f1].label = NkString("Forme A (95, 30)");
+					doc.nodes[(uint32)f1].posX = 95.f;
+					doc.nodes[(uint32)f1].posY = 30.f;
+					doc.nodes[(uint32)f1].width.mode = NkSizeMode::Fixed;
+					doc.nodes[(uint32)f1].width.value = 220.f;
+					doc.nodes[(uint32)f1].height.mode = NkSizeMode::Fixed;
+					doc.nodes[(uint32)f1].height.value = 90.f;
+					const int32 f2 = doc.AddChild(page, "", NkAuthor::Humain);
+					doc.nodes[(uint32)f2].label = NkString("Forme B (420, 80)");
+					doc.nodes[(uint32)f2].posX = 420.f;
+					doc.nodes[(uint32)f2].posY = 80.f;
+					doc.nodes[(uint32)f2].width.mode = NkSizeMode::Fixed;
+					doc.nodes[(uint32)f2].width.value = 160.f;
+					doc.nodes[(uint32)f2].height.mode = NkSizeMode::Fixed;
+					doc.nodes[(uint32)f2].height.value = 60.f;
+				}
+
 				const int32 body = doc.AddChild(0, "", NkAuthor::Humain);
 				if (doc.IsValidIndex(body)) {
 					doc.nodes[(uint32)body].label = NkString("Corps");
@@ -951,8 +987,26 @@ namespace nkuidesign {
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				designkit::UiRects::NoteRegion(ctx, "apercu");
-				ec.Text("Le document, dessine par le kit. Cliquez pour selectionner ;");
+				ec.Text("Le document, dessine par le kit. Molette = ZOOM au curseur ;");
+				ec.Text("bouton du MILIEU = deplacer ; clic = selectionner, Ctrl+clic = ajouter ;");
+				ec.Text("glisser depuis le VIDE = rectangle de selection ; clic dans le vide = tout desel. ;");
 				ec.Text("tirez le bord droit ou bas d'un noeud pour changer sa TAILLE.");
+
+				// ⚠️ DIRE QUAND IL N Y A RIEN A VOIR. Le 2026-08-28 au matin, Rodolf a
+				//    lance le binaire et n a vu AUCUNE toile -- parce que son document
+				//    enregistre (18 aout) ne porte que des agencements `column` et
+				//    `row`, donc aucun noeud pose a des coordonnees. La machinerie
+				//    etait branchee et n avait rien a projeter.
+				//
+				//    Un outil qui ne montre rien doit DIRE pourquoi. Sans cette ligne,
+				//    « je ne vois pas la toile » et « la toile est cassee » se
+				//    ressemblent -- et on cherche le defaut du mauvais cote.
+				bool aUneToile = false;
+				for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i)
+					if (mSt->doc.nodes[i].layout.kind == NkLayoutKind::Free)
+						aUneToile = true;
+				if (!aUneToile)
+					ec.Text("(ce document n a AUCUNE page de toile -- Ctrl+N en ouvre un qui en a une)");
 
 				// ── LE REPLI FRANC, A L'ENDROIT OU LE MAGENTA APPARAIT ───────
 				// ⚠️ C'EST LA MOITIE (b) DU CORRECTIF DU 18/08. Le magenta de
@@ -1022,6 +1076,16 @@ namespace nkuidesign {
 				// saisie, rectangles publies -- travaille en ESPACE ECRAN.
 				NkLayoutResult screen;
 				mSt->ProjectToScreen(screen);
+
+				// ⚠️ LA VUE SE PUBLIE, PARCE QUE PERSONNE NE POUVAIT LA MESURER.
+				//    Le zoom et le deplacement vivent dans `OnUI` -- un endroit
+				//    qu AUCUN banc ne peut atteindre : ils sont donc restes trois
+				//    etapes sans preuve, et j ai annonce qu ils marchaient sans
+				//    l avoir vu. En les publiant dans le registre, `--dump-ui`
+				//    devient la mesure : si `canvas.vue` ne bouge pas quand on
+				//    tourne la molette, la molette n arrive pas.
+				designkit::UiRects::NoteRect("canvas.vue", mSt->view.zoom, mSt->view.panX,
+											  mSt->view.panY, (float32)mSt->sel.Count());
 
 				HandleMouse(in, screen);
 

@@ -134,10 +134,35 @@ namespace nkuidesign {
 					NkString canon; ///< la forme qui a resolu, vide si aucune
 			};
 
-			/// Un nom qui n'a resolu sous AUCUNE forme. C'est le magenta.
+			// ⚠️ CE REGISTRE EST VIDE EN PRATIQUE, ET IL A MENTI PENDANT DES
+			//    JOURS. Mesure du 2026-08-28, sur le journal de Rodolf :
+			//
+			//      9 lignes  « role PanelBg rattrape par canonisation »
+			//      resume    « 0 role(s) NON RESOLU(S), 0 rattrape(s) »
+			//
+			//    **Un compteur qui ne compte pas ce que le programme vient
+			//    d imprimer est un faux vert a l etat pur.** La cause n est pas
+			//    un compte faux : ce sont DEUX REGISTRES HOMONYMES. Les lignes
+			//    sortent de `NkTheme.inl:266` -- le resolveur du KIT -- qui
+			//    alimente `nkentseu::editorkit::NkRoleAudit`. Le resume, lui,
+			//    lisait `nkuidesign::NkRoleAudit`, celui-ci, que le resolveur du
+			//    kit n'a jamais touche.
+			//
+			//    Deux classes du meme nom dans deux espaces, l'une nourrie et
+			//    l autre lue : le compilateur choisit la plus proche et
+			//    personne ne voit rien. On DELEGUE donc au registre du kit,
+			//    plutot que d'en tenir un second qui ne peut que diverger.
 			static NkVector<Entry> &Faults() {
 				static NkVector<Entry> v;
 				return v;
+			}
+
+			/// Les comptes qui FONT FOI : ceux du kit, qui est seul a resoudre.
+			static uint32 KitFaultCount() {
+				return nkentseu::editorkit::NkRoleAudit::FaultCount();
+			}
+			static uint32 KitRescuedCount() {
+				return nkentseu::editorkit::NkRoleAudit::RescuedCount();
 			}
 			/// Un nom qui n'a resolu qu'APRES canonisation : la declaration est a
 			/// corriger a la source, mais l'ecran est juste.
@@ -163,8 +188,10 @@ namespace nkuidesign {
 			static void Summary(NkString &out, uint32 maxNames = 5) {
 				out = NkString("");
 				char b[128];
+				// Les comptes du KIT : c est lui qui resout et qui imprime.
 				snprintf(b, sizeof(b), "%u role(s) NON RESOLU(S), %u rattrape(s) par canonisation",
-						 FaultCount(), RescuedCount());
+						 KitFaultCount() + FaultCount(),
+						 KitRescuedCount() + RescuedCount());
 				out.Append(b);
 				AppendList(out, Faults(), "  |  non resolus : ", maxNames, false);
 				AppendList(out, Rescued(), "  |  a corriger a la source : ", maxNames, true);
