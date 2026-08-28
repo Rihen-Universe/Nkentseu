@@ -3,6 +3,7 @@
 //   events -> BeginFrame -> menubar -> DockSpace -> panneaux -> palette -> rendu.
 // =============================================================================
 #include "NKEditorKit/NkEditorShell.h"
+#include "NKEditorKit/NkThemeToGui.h" // LA conversion NkTheme -> NkGuiTheme (une seule)
 #include "NKEditorKit/NkEditorCanvasRenderer.h" // backend de rendu par defaut (IDE)
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
 #include <cstdio>								// snprintf (indicateur de zoom barre d'etat)
@@ -157,6 +158,43 @@ namespace nkentseu {
 
 			// Theme GitHub Dark (palette fournie). #0D1117 fond, #191D23 surfaces,
 			// #010409 chrome sombre, #1F6FEB accent, #DFDFDF texte, #519ABA secondaire.
+			//
+			// ⚠️ POURQUOI CES SEIZE COULEURS NE PASSENT PAS PAR `NkThemeVersGui`,
+			//    ET LA MESURE QUI L A DECIDE (2026-08-29). L intention etait de les
+			//    remplacer par une conversion -- « une recopie manuelle est une
+			//    conversion ecrite sans etre nommee, elle divergera au premier role
+			//    ajoute ». Le raisonnement est juste. **La mesure dit que la
+			//    divergence a DEJA eu lieu, et qu elle porte sur le MAPPAGE, pas sur
+			//    la palette** : ces seize valeurs ne sont pas exprimables dans le
+			//    vocabulaire des roles. Sept champs le prouvent :
+			//
+			//      champ         ici               ce que la conversion donnerait
+			//      button        #191D23           InputBg  -> #0D1117
+			//      track         #0D1117           InputBg  -> #0D1117
+			//                    ^ `button` et `track` DIFFERENT ici, et un seul
+			//                      role `InputBg` ne peut pas rendre deux couleurs.
+			//      tabBar        #191D23           WindowBg -> #0D1117
+			//      tabActive     #0D1117           PanelBg  -> #010409
+			//      buttonHover   #212730           Mix(button, accent, 0.20)
+			//      tabHover      #212730           Mix(tab, accent, 0.20)
+			//      selection     #1F6FEB **a=200** accent, a=255
+			//      rounding      0.f               non touche -> reste a 5.f
+			//
+			//    Convertir changerait donc l APPARENCE, pas seulement la forme du
+			//    code. ⚠️ Et ca ne toucherait pas que cette coquille : **seul
+			//    NkUIDesign appelle `ApplyTheme`** -- verifie par recherche sur
+			//    l arbre. Pour toutes les autres applications (NKCode en tete, en
+			//    pause depuis des semaines et qui fonctionne), cette palette EST le
+			//    theme livre. Un nettoyage de code n a pas a restyler quatre
+			//    editeurs en passant.
+			//
+			// NOTE : CE QUE CA DIT VRAIMENT, et c est plus utile que le refactor --
+			//    `NkTheme` n a pas les roles qu il faudrait pour decrire cette
+			//    palette : il lui manque de quoi distinguer le fond d un BOUTON du
+			//    fond d un CHAMP, et de quoi dire la barre d onglets. C est un
+			//    manque du VOCABULAIRE DES ROLES, nomme ici et non resolu :
+			//    l ajouter est une decision de conception du kit, pas un effet de
+			//    bord d une extraction faite a cote.
 			NkGuiTheme &t = mUI.theme;
 			t.bgPrimary = {13, 17, 23, 255}; // editeur #0D1117
 			t.panel = {1, 4, 9, 255};		 // sidebar #010409 (plus sombre)
@@ -1227,60 +1265,22 @@ namespace nkentseu {
 		//    BAS. Ma premiere version a raisonne en repere mathematique et a
 		//    produit deux arcs qui se recouvraient. C est ecrit ici parce que
 		//    l erreur ne se voit pas a la relecture du code, seulement a l ecran.
-		// ── LE POINT DE SYNCHRONISATION (cf. le bandeau de `NkEditorShell.h`) ──
-		namespace {
-			inline nkgui::NkColor NkThemeUnpack(NkThemeColor c) noexcept {
-				return {(uint8)((c >> 24) & 0xFFu), (uint8)((c >> 16) & 0xFFu),
-						(uint8)((c >> 8) & 0xFFu), (uint8)(c & 0xFFu)};
-			}
-			/// La regle NOMMEE qui derive les etats : un melange lineaire vers
-			/// l accent. ⚠️ Ce n est pas une couleur inventee, c est une fonction
-			/// des roles — elle suit donc n importe quel theme, y compris ceux que
-			/// l utilisateur ecrira.
-			inline nkgui::NkColor NkThemeMix(nkgui::NkColor a, nkgui::NkColor b, float32 t) noexcept {
-				const float32 u = 1.f - t;
-				return {(uint8)(a.r * u + b.r * t), (uint8)(a.g * u + b.g * t),
-						(uint8)(a.b * u + b.b * t), a.a};
-			}
-		} // namespace
-
+		// ⚠️ CE N ETAIT PAS UN « POINT DE SYNCHRONISATION », C ETAIT UNE
+		//    CONVERSION -- et elle vivait ICI, dans un `namespace {}` anonyme,
+		//    donc **inaccessible a l editeur de liens** pour toute application
+		//    sans coquille. NK3DModeler n utilise deliberement pas
+		//    `NkEditorShell` (`NkModelerUI.h:5`) : sa seule sortie etait d en
+		//    ecrire une seconde. C est le mecanisme des deux registres de roles
+		//    homonymes et des deux objets theme payes cette semaine -- **la
+		//    deuxieme copie n est presque jamais un caprice, c est la seule porte
+		//    restee ouverte.**
+		//
+		//    La conversion vit desormais dans `NKEditorKit/NkThemeToGui.h`, et
+		//    `NkThemeUnpack` / `NkThemeMix` avec elle. Cette methode n est plus
+		//    qu un APPELANT parmi d autres. **Deux appelants d une conversion ne
+		//    font pas deux autorites.**
 		void NkEditorShell::ApplyTheme(const NkTheme &t) noexcept {
-			auto R = [&t](NkRole r) { return NkThemeUnpack(t.Get(r)); };
-			nkgui::NkGuiTheme &g = mUI.theme;
-
-			const nkgui::NkColor accent = R(NkRole::AccentUi);
-
-			g.bgPrimary = R(NkRole::WindowBg);
-			g.panel = R(NkRole::PanelBg);
-			g.header = R(NkRole::PanelHeader);
-			g.card = R(NkRole::PanelHeader);
-			g.border = R(NkRole::Border);
-			g.separator = R(NkRole::Border);
-			g.text = R(NkRole::Text);
-			g.textMuted = R(NkRole::TextMuted);
-			g.textDisabled = R(NkRole::TextMuted);
-			g.onAccent = R(NkRole::TextOnAccent);
-			g.accent = accent;
-			g.selection = accent;
-			g.track = R(NkRole::InputBg);
-
-			g.button = R(NkRole::InputBg);
-			g.buttonHover = NkThemeMix(g.button, accent, 0.20f);
-			g.buttonActive = accent;
-
-			// Les onglets : la barre recule, l inactif se pose dessus, l ACTIF prend
-			// la couleur du panneau qu il ouvre — c est ce que le document 3 §6
-			// demande (« --bg-canvas pour l actif, --bg-subtle pour les inactifs »).
-			g.tabBar = R(NkRole::WindowBg);
-			g.tab = R(NkRole::PanelHeader);
-			g.tabHover = NkThemeMix(g.tab, accent, 0.20f);
-			g.tabActive = R(NkRole::PanelBg);
-
-			g.rowHover = NkThemeMix(g.panel, accent, 0.14f);
-			g.scrollbar = NkThemeMix(g.panel, g.text, 0.30f);
-			g.scrollbarHover = NkThemeMix(g.panel, g.text, 0.50f);
-			// success / warning / danger / info : AUCUN role equivalent cote
-			// editeur. Laisses tels quels, et c est ecrit dans l en-tete.
+			NkThemeVersGui(mUI, t);
 		}
 
 		void NkEditorShell::DrawHeaderLogo(NkEditorFrameContext &, const NkRect &r) noexcept {
