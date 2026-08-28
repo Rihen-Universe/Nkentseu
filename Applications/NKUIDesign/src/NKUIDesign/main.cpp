@@ -886,6 +886,14 @@ int nkmain(const NkEntryState &state) {
 	static nkuidesign::AIPanel ai(&gDesign);
 	static nkuidesign::HierarchyPanel hierarchie(&gDesign);
 	static nkuidesign::InspectorPanel inspecteur(&gDesign);
+	// ⚠️ LA PALETTE REVIENT, MAIS PAR LE RAIL — ET CE N EST PAS UN RETOUR EN
+	//    ARRIERE. Le §13.1 la place explicitement sur le rail GAUCHE, comme
+	//    panneau SECONDAIRE : c est sa place, pas le dock. Elle est enregistree
+	//    (le tiroir la retrouve par son titre) mais FERMEE : `DrawPanels` la
+	//    saute, seul le tiroir la dessine. C est la difference entre debrancher
+	//    un panneau et le ranger.
+	static nkuidesign::PalettePanel palette(&gDesign);
+	palette.SetOpen(false);
 	// ⚠️ L ORDRE D AJOUT DECIDE DE L ORDRE DES ONGLETS dans une meme feuille de
 	//    dock : Hierarchie d abord (elle est seule a gauche), puis le centre,
 	//    puis l Inspecteur, puis le bas.
@@ -893,13 +901,12 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&preview);
 	shell->AddPanel(&inspecteur);
 	shell->AddPanel(&ai);
+	shell->AddPanel(&palette);
 
 #if NKUIDESIGN_ANCIENS_PANNEAUX
-	static nkuidesign::PalettePanel palette(&gDesign);
 	static nkuidesign::CompositionPanel composition(&gDesign);
 	static nkuidesign::PropertiesPanel properties(&gDesign);
 	static nkuidesign::PreferencesPanel prefs(&gDesign);
-	shell->AddPanel(&palette);
 	shell->AddPanel(&composition);
 	shell->AddPanel(&properties);
 	shell->AddPanel(&prefs);
@@ -949,6 +956,37 @@ int nkmain(const NkEntryState &state) {
 	//    instant. Le plan n en prevoit qu un, dans le cluster, qui appartient au
 	//    canvas.
 	shell->SetFooterZoomIndicator(false);
+
+	// ── LES TROIS RAILS DE PASTILLES (document 3 §13.1) ──────────────────
+	// ⚠️ CE SONT DES PANNEAUX SECONDAIRES, et le rail existe pour qu ils
+	//    cessent de saturer l ecran en permanence tout en restant a un clic.
+	//    Les pastilles portent une LETTRE faute d atlas d icones -- les icones
+	//    se dessineront dans NkUIDesign lui-meme (regle du 18/08), et c est
+	//    justement une des choses que cette application doit rendre possible.
+	// ⚠️ LE TITRE EST UNE CLE : il doit s ecrire a l identique ici et dans le
+	//    constructeur du panneau. Le meme piege a deja coute un `Ctrl+J` muet
+	//    aujourd hui (« Hierarchie » contre « Hiérarchie »).
+	// ⚠️ CE QUI N EXISTE PAS ENCORE LE DIT PLUTOT QUE DE MANQUER : quatre des
+	//    six panneaux ne sont pas ecrits (Bibliothèque, Callbacks, Console,
+	//    Aperçu/Test). Leur pastille est POSEE quand meme -- le tiroir affiche
+	//    alors « aucun panneau enregistre sous ce titre », en rouge. Une
+	//    pastille absente ferait croire que le plan a change ; une pastille qui
+	//    s ouvre sur un message dit exactement ou on en est.
+	static const NkEditorShell::NkEditorRailItem kRailGauche[] = {
+		{"Palette", "Palette de composants — poser", "P"},
+		{"Bibliothèque", "Bibliothèque de composants — acquérir", "B"},
+	};
+	static const NkEditorShell::NkEditorRailItem kRailDroite[] = {
+		{"Callbacks", "Gestionnaire de callbacks", "C"},
+		{"IA", "Chat IA", "IA"},
+	};
+	static const NkEditorShell::NkEditorRailItem kRailBas[] = {
+		{"Console", "Console / Validation", "C"},
+		{"Test", "Aperçu / Test — exécuter l'interface dessinée", "T"},
+	};
+	shell->SetRail(NkEditorDockSide::NK_LEFT, kRailGauche, 2);
+	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite, 2);
+	shell->SetRail(NkEditorDockSide::NK_BOTTOM, kRailBas, 2);
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
 	shell->SetTitleInfo("Dashboard_Admin.nkgui");

@@ -254,6 +254,56 @@ namespace nkentseu {
 					mFooterZoom = visible;
 				}
 
+				// ═══════════════════════════════════════════════════════════════
+				//  RAILS DE PASTILLES (document 3 §13) — ETATS 1 ET 2
+				// ═══════════════════════════════════════════════════════════════
+				//  Trois rails FINS (28 px) aux bords du corps, EN DEHORS des
+				//  panneaux fixes. Chacun porte des pastilles de 28x28, une par
+				//  panneau SECONDAIRE.
+				//
+				//  ETAT 1 — repliee : l icone seule, infobulle au survol.
+				//  ETAT 2 — depliee : le panneau glisse EN OVERLAY par-dessus le
+				//           canvas, voile semi-transparent dessous, ferme par un
+				//           clic ailleurs ou un second clic sur la pastille.
+				//
+				//  ⚠️ L ETAT 2 NE REDIMENSIONNE PAS LE CANVAS, et c est EXACTEMENT
+				//     ce qui le distingue de l etat 3 (ancre). Le rectangle du dock
+				//     ne retranche que les 28 px des RAILS, jamais la largeur du
+				//     tiroir. Si un jour le dock se met a bouger quand on deplie,
+				//     l etat 2 est devenu l etat 3 sans que personne l ait decide.
+				//
+				//  ⚠️ UNE SEULE PASTILLE DEPLIEE PAR RAIL (§13.3) : deplier la
+				//     seconde referme la premiere. La regle vit dans `mRailOuvert`,
+				//     UN entier par rail — un ensemble d ouverts aurait rendu la
+				//     regle facultative.
+				//
+				//  ⚠️ CE N EST PAS LA BARRE D ACTIVITE, ET LA MESURE LE DIT. Avant
+				//     d ecrire ceci, la question « qui porte deja un rail lateral ? »
+				//     a ete posee (porte du 28/08). Reponse : `DrawActivityBar` en
+				//     porte un — mais ses huit icones sont un `switch (idx)` code en
+				//     dur (Explorateur, Recherche, Controle de source...), sans
+				//     libelle, sans infobulle, et sans tiroir. Elle bascule des vues
+				//     ANCREES, c est-a-dire l etat 3. Ce qui a ete REPRIS, en
+				//     revanche : `NkTooltip` (l infobulle des voyants du pied),
+				//     `NkEditorPanel` (le tiroir dessine un panneau existant, il
+				//     n en invente pas un second) et le voile de `theme.scrim`.
+				struct NkEditorRailItem {
+						/// Titre du panneau a deplier. ⚠️ C est une CLE : elle doit
+						/// s ecrire a l identique ici et dans `NkEditorPanel(...)`.
+						const char *panel = "";
+						const char *tooltip = ""; ///< infobulle de l etat 1
+						const char *glyphe = "";  ///< 1 a 2 lettres, faute d atlas
+				};
+				static const int32 kRailMax = 8;
+
+				/// Pose les pastilles d un rail. `side` : NK_LEFT, NK_RIGHT ou
+				/// NK_BOTTOM. Un rail sans pastille n est pas dessine du tout — une
+				/// bande vide de 28 px serait du chrome, exactement ce qu on vient
+				/// de retirer.
+				/// ⚠️ AU-DELA DE `kRailMax`, LE RAIL CRIE ET REFUSE le surplus : il
+				///    ne le laisse pas tomber en silence.
+				void SetRail(NkEditorDockSide side, const NkEditorRailItem *items, int32 count) noexcept;
+
 				void SetActivityBars(bool left, bool right) noexcept {
 					mActivityBarLeft = left;
 					mActivityBarRight = right;
@@ -627,6 +677,16 @@ namespace nkentseu {
 				char mFooterRight[128] = {};
 				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
 				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
+				// Rails de pastilles : 0 = gauche, 1 = droite, 2 = bas.
+				NkEditorRailItem mRailItems[3][kRailMax] = {};
+				int32 mRailCount[3] = {0, 0, 0};
+				/// Index de la pastille DEPLIEE, -1 si aucune. Un entier, pas un
+				/// ensemble : c est ce qui rend « une seule par rail » structurel.
+				int32 mRailOuvert[3] = {-1, -1, -1};
+				void DrawRail(int32 slot, const nkgui::NkRect &bar, bool vertical) noexcept;
+				void DrawRailDrawers(NkEditorFrameContext &ec, const nkgui::NkRect &corps) noexcept;
+				NkEditorPanel *TrouverPanneau(const char *titre) noexcept;
+
 				bool mFooterZoom = true;					  // cf. SetFooterZoomIndicator
 				bool mActivityBarLeft = true;				  // cf. SetActivityBars
 				bool mActivityBarRight = true;

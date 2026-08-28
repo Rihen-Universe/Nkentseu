@@ -664,6 +664,15 @@ namespace nkentseu {
 			const float32 activityW = mUI.S(48.f);
 			const float32 actWL = mActivityBarLeft ? activityW : 0.f;
 			const float32 actWR = mActivityBarRight ? activityW : 0.f;
+			// ── LES RAILS DE PASTILLES (§13) ────────────────────────────────
+			// ⚠️ 28 PIXELS, SANS `S()` -- le document le dit, la capture doit le
+			//    rendre. Et un rail SANS pastille ne prend AUCUNE place : une
+			//    bande vide de 28 px serait du chrome, exactement ce qu on vient
+			//    de retirer avec les barres d activite.
+			const float32 railW = 28.f;
+			const float32 railL = mRailCount[0] > 0 ? railW : 0.f;
+			const float32 railR = mRailCount[1] > 0 ? railW : 0.f;
+			const float32 railB = mRailCount[2] > 0 ? railW : 0.f;
 
 			// Barre de titre custom UNE ligne : logo + menus | infos | min/max/close.
 			DrawTitleBar(ec, {logoW, 0.f, W - logoW, titleH});
@@ -730,7 +739,20 @@ namespace nkentseu {
 					DrawActivityBar({0.f, bodyTop, actWL, bodyH});
 				if (mActivityBarRight)
 					DrawActivityBarRight({W - actWR, bodyTop, actWR, bodyH}); // IA (panneau droit)
-				DockSpace(mUI, "##EditorDock", {actWL, bodyTop, W - actWL - actWR, bodyH});
+				// ⚠️ LE DOCK NE RETRANCHE QUE LES RAILS, JAMAIS LE TIROIR. C est la
+				//    ligne qui distingue l etat 2 de l etat 3 : si la largeur du
+				//    tiroir apparaissait ici, deplier une pastille REDIMENSIONNERAIT
+				//    le canvas, et l etat 2 serait devenu l etat 3 sans decision.
+				const NkRect corps = {actWL + railL, bodyTop,
+									  W - actWL - actWR - railL - railR, bodyH - railB};
+				if (railL > 0.f)
+					DrawRail(0, {actWL, bodyTop, railW, bodyH - railB}, true);
+				if (railR > 0.f)
+					DrawRail(1, {W - actWR - railW, bodyTop, railW, bodyH - railB}, true);
+				if (railB > 0.f)
+					DrawRail(2, {actWL, bodyTop + bodyH - railW, W - actWL - actWR, railW},
+							 false);
+				DockSpace(mUI, "##EditorDock", corps);
 				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
 				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
 				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
@@ -740,6 +762,10 @@ namespace nkentseu {
 												mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
 				BootstrapDocking();
 				DrawPanels(ec);
+				// ⚠️ APRES LES PANNEAUX : le tiroir passe PAR-DESSUS le dock. Pose
+				//    avant, il finirait derriere, et on croirait qu il ne s ouvre
+				//    pas.
+				DrawRailDrawers(ec, corps);
 				if (mStatusBarFn) {
 					// Barre d'etat « a sa maniere » (SetStatusBarFn, patron SetMenuBar) :
 					// l'app dessine TOUTE la bande — fond, voyants, textes, zoom compris.
@@ -785,6 +811,188 @@ namespace nkentseu {
 		}
 
 		// ── Activity bar (bande verticale d'icones a gauche, facon VSCode) ────────
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LES RAILS DE PASTILLES (document 3 §13) — etats 1 et 2
+		// ═══════════════════════════════════════════════════════════════════════
+		void NkEditorShell::SetRail(NkEditorDockSide side, const NkEditorRailItem *items,
+									int32 count) noexcept {
+			int32 slot = -1;
+			if (side == NkEditorDockSide::NK_LEFT)
+				slot = 0;
+			else if (side == NkEditorDockSide::NK_RIGHT)
+				slot = 1;
+			else if (side == NkEditorDockSide::NK_BOTTOM)
+				slot = 2;
+			if (slot < 0) {
+				// ⚠️ NK_TOP et NK_CENTER N ONT PAS DE RAIL, et le dire vaut mieux
+				//    que d ignorer : une application qui pose un rail en haut
+				//    verrait simplement rien apparaitre, et chercherait le defaut
+				//    dans son dessin.
+				logger.Error("[NkEditorShell] SetRail : seuls NK_LEFT, NK_RIGHT et "
+							 "NK_BOTTOM portent un rail. Rien n'a ete pose.");
+				return;
+			}
+			if (count > kRailMax) {
+				// ⚠️ LE PLAFOND CRIE. Un rail qui garderait les huit premieres et
+				//    laisserait tomber le reste donnerait une pastille absente sans
+				//    aucune trace -- et on chercherait pourquoi le panneau
+				//    « n existe pas ».
+				logger.Error("[NkEditorShell] SetRail : {0} pastilles demandees, plafond "
+							 "kRailMax={1}. Les suivantes sont REFUSEES, pas ignorees.",
+							 count, (int32)kRailMax);
+				count = kRailMax;
+			}
+			mRailCount[slot] = count < 0 ? 0 : count;
+			for (int32 i = 0; i < mRailCount[slot]; ++i)
+				mRailItems[slot][i] = items[i];
+			mRailOuvert[slot] = -1;
+		}
+
+		NkEditorPanel *NkEditorShell::TrouverPanneau(const char *titre) noexcept {
+			if (!titre || !*titre)
+				return nullptr;
+			for (int32 i = 0; i < mNumPanels; ++i) {
+				if (!mPanels[i])
+					continue;
+				const char *t = mPanels[i]->Title();
+				int32 k = 0;
+				while (t[k] && titre[k] && t[k] == titre[k])
+					++k;
+				if (t[k] == '\0' && titre[k] == '\0')
+					return mPanels[i];
+			}
+			return nullptr;
+		}
+
+		// ETAT 1 : la pastille repliee, avec son infobulle.
+		void NkEditorShell::DrawRail(int32 slot, const NkRect &bar, bool vertical) noexcept {
+			auto &dl = mUI.dl;
+			dl.AddRectFilled(bar, mUI.theme.header);
+			// ⚠️ 28 PIXELS, ET ILS NE PASSENT PAS PAR `S()`. Le document dit 28 px
+			//    et la mesure sur la capture doit rendre 28 -- meme regle que les
+			//    deux bandes de l en-tete. Un facteur DPI donnerait 30 a 107 %.
+			const float32 cell = 28.f;
+			const NkVec2 m = mUI.input.mousePos;
+			const bool ptrOk = (mUI.hoveredWindowId == NKGUI_ID_NONE);
+
+			for (int32 i = 0; i < mRailCount[slot]; ++i) {
+				const NkEditorRailItem &it = mRailItems[slot][i];
+				const NkRect r = vertical
+									 ? NkRect{bar.x, bar.y + 4.f + cell * (float32)i, cell, cell}
+									 : NkRect{bar.x + 4.f + cell * (float32)i, bar.y, cell, cell};
+				const bool hov = ptrOk && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y
+								 && m.y < r.y + r.h;
+				const bool ouvert = (mRailOuvert[slot] == i);
+
+				if (ouvert)
+					dl.AddRectFilled(r, mUI.theme.accent, 4.f);
+				else if (hov)
+					dl.AddRectFilled(r, mUI.theme.buttonHover, 4.f);
+
+				if (mUI.font && mUI.font->Valid() && it.glyphe && *it.glyphe) {
+					const float32 w = mUI.font->MeasureWidth(it.glyphe);
+					const float32 by = r.y + (r.h - mUI.font->LineHeight()) * 0.5f
+									   + mUI.font->Ascent();
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(),
+							   {r.x + (r.w - w) * 0.5f, by}, it.glyphe,
+							   ouvert ? mUI.theme.onAccent
+									  : (hov ? mUI.theme.text : mUI.theme.textDisabled));
+				}
+
+				// L infobulle de l etat 1. ⚠️ REPRISE, PAS REECRITE : `NkTooltip`
+				//    sert deja aux voyants du pied de fenetre.
+				NkTooltip(mUI, hov, it.tooltip && *it.tooltip ? it.tooltip : it.panel);
+
+				if (hov && mUI.input.mouseClicked[0]) {
+					// §13.3 : deplier la seconde referme la premiere. La regle est
+					// structurelle -- `mRailOuvert` est UN entier.
+					mRailOuvert[slot] = ouvert ? -1 : i;
+					// ⚠️ LE CLIC EST CONSOMME. Sans ca, le meme clic servait a
+					//    ouvrir la pastille PUIS a la refermer par la regle du
+					//    « clic ailleurs » quelques lignes plus bas : la pastille
+					//    clignotait sans jamais rester ouverte.
+					mUI.input.mouseClicked[0] = false;
+				}
+			}
+		}
+
+		// ETAT 2 : le tiroir, EN OVERLAY par-dessus le canvas.
+		void NkEditorShell::DrawRailDrawers(NkEditorFrameContext &ec, const NkRect &corps) noexcept {
+			const float32 cell = 28.f;
+			const float32 taille = 320.f; // §13.2 : « largeur/hauteur par defaut ~320px »
+			bool clicDansUnTiroir = false;
+
+			for (int32 slot = 0; slot < 3; ++slot) {
+				const int32 i = mRailOuvert[slot];
+				if (i < 0 || i >= mRailCount[slot])
+					continue;
+				NkEditorPanel *p = TrouverPanneau(mRailItems[slot][i].panel);
+
+				NkRect d;
+				if (slot == 0)
+					d = {corps.x + cell, corps.y, taille, corps.h};
+				else if (slot == 1)
+					d = {corps.x + corps.w - cell - taille, corps.y, taille, corps.h};
+				else
+					d = {corps.x, corps.y + corps.h - cell - 240.f, corps.w, 240.f};
+
+				// ⚠️ TOUT CECI VA DANS LA COUCHE OVERLAY. Le tiroir doit passer
+				//    PAR-DESSUS les panneaux ancres ; dessine dans la couche
+				//    normale, il finirait derriere le dock et on croirait qu il ne
+				//    s ouvre pas.
+				PushOverlay(mUI);
+				// Le voile : il dit « ce qui est dessous attend ». Sans lui, le
+				// tiroir se lit comme un panneau de plus, pas comme un tiroir.
+				mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
+				mUI.dlOverlay.AddRectFilled(d, mUI.theme.panel, 6.f);
+				mUI.dlOverlay.AddRect(d, mUI.theme.border, 1.f, 6.f);
+
+				const float32 titreH = mUI.ItemHeight() + 6.f;
+				if (mUI.font && mUI.font->Valid()) {
+					const char *t = p ? p->Title() : mRailItems[slot][i].panel;
+					mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+										  {d.x + 10.f, d.y + (titreH - mUI.font->LineHeight()) * 0.5f
+														   + mUI.font->Ascent()},
+										  t, mUI.theme.text);
+				}
+				mUI.dlOverlay.AddLine({d.x, d.y + titreH}, {d.x + d.w, d.y + titreH},
+									  mUI.theme.border, 1.f);
+
+				const NkRect dedans = {d.x, d.y + titreH, d.w, d.h - titreH};
+				if (p) {
+					// ⚠️ LE TIROIR DESSINE UN PANNEAU EXISTANT, il n en invente pas
+					//    un second. C est ce qui rendra l etat 3 (l ancrer) presque
+					//    gratuit : le meme objet, ancre au lieu d etre pose ici.
+					if (BeginChild(mUI, "##tiroir", dedans, false, true)) {
+						p->OnUI(ec);
+						EndChild(mUI);
+					}
+				} else if (mUI.font && mUI.font->Valid()) {
+					// ⚠️ UNE PASTILLE QUI NE TROUVE PAS SON PANNEAU LE DIT. Un
+					//    tiroir vide ressemble a un panneau casse ; cette ligne
+					//    nomme la cle qui n a rien trouve, et la cle est la seule
+					//    chose qui puisse etre fausse.
+					mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+										  {dedans.x + 10.f, dedans.y + 24.f},
+										  "Aucun panneau enregistre sous ce titre.",
+										  mUI.theme.danger);
+				}
+				PopOverlay(mUI);
+
+				const NkVec2 m = mUI.input.mousePos;
+				if (m.x >= d.x && m.x < d.x + d.w && m.y >= d.y && m.y < d.y + d.h)
+					clicDansUnTiroir = true;
+			}
+
+			// §13.2 : « un clic ailleurs sur le canvas la referme ». ⚠️ Le clic sur
+			// la PASTILLE a deja ete consomme plus haut : sans cette consommation,
+			// ouvrir et refermer se produisaient dans la meme image.
+			if (mUI.input.mouseClicked[0] && !clicDansUnTiroir) {
+				for (int32 slot = 0; slot < 3; ++slot)
+					mRailOuvert[slot] = -1;
+			}
+		}
+
 		void NkEditorShell::DrawActivityBar(const NkRect &bar) noexcept {
 			auto &dl = mUI.dl;
 			const NkColor barBg = mUI.theme.header; // theme-aware (suit Dark/Light)
