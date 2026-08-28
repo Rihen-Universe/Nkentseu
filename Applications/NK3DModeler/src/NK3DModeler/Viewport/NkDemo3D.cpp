@@ -14067,6 +14067,33 @@ namespace nkentseu {
 						++vivantes;
 				*faces = vivantes;
 				static const bool trace = getenv("NK_STATS_TRACE") != nullptr;
+				if (trace) {
+					// LA TABLE EST-ELLE VIDE, OU LE COMPTE EST-IL FAUX ?
+					// `EdgeCount()` est le SUSPECT : on ne le croit pas, on compte par
+					// TROIS voies independantes -- taille du conteneur, drapeau vivant,
+					// et paires de demi-aretes. Trois reponses qui se recoupent disent
+					// la verite ; trois qui divergent designent le menteur.
+					const uint32 nEdges = (uint32)st->editHE.edges.Size();
+					uint32 vivantesE = 0u, avecHedge = 0u;
+					for (uint32 i = 0; i < nEdges; ++i) {
+						if (st->editHE.edges[i].alive)
+							++vivantesE;
+						if (st->editHE.edges[i].hedge != NK_EM_INVALID)
+							++avecHedge;
+					}
+					const uint32 nH = (uint32)st->editHE.hedges.Size();
+					uint32 hAvecEdge = 0u, paires = 0u;
+					for (uint32 i = 0; i < nH; ++i) {
+						const auto &h = st->editHE.hedges[i];
+						if (h.edge != NK_EM_INVALID)
+							++hAvecEdge;
+						if (h.twin == NK_EM_INVALID || i < h.twin)
+							++paires;
+					}
+					logger.Info("[Demo3D] ARETES : table={0} vivantes={1} avec_hedge={2} "
+								"| hedges={3} h_avec_edge={4} paires_uniques={5}\n",
+								nEdges, vivantesE, avecHedge, nH, hAvecEdge, paires);
+				}
 				if (trace)
 					logger.Info("[Demo3D] STATS detail : FaceCount={0} vivantes={1} "
 								"triFace={2} editIdx={3} editRest={4}\n",
