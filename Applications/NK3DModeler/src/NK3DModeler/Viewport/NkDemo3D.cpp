@@ -15,6 +15,7 @@
 //                            -> RenderGraph -> Flush.
 // =============================================================================
 #include "NkDemoCommon.h"
+#include <chrono>
 #include "NKRHI/Commands/NkICommandBuffer.h" // portage : le graphe s'execute dans le cmd de l'editeur
 #include "NKRenderer/Core/NkRenderGraph.h"
 #include "NKRenderer/Materials/NkMaterialCollection.h" // Upload() du BeginFrame rejoue
@@ -13825,7 +13826,20 @@ namespace nkentseu {
 			if (!st || !ms || !st->editMode || !op)
 				return false;
 			const uint32 avant = st->editHistory.UndoCount();
+			// NK_OP_BENCH=1 : cout d'UNE operation complete, pour donner son
+			// DENOMINATEUR au cout de RebuildEdges. Sans lui, « 0,25 ms » ne dit
+			// pas si c'est negligeable ou dominant.
+			static const bool bench = getenv("NK_OP_BENCH") != nullptr;
+			const auto tOp0 = std::chrono::high_resolution_clock::now();
 			op(st, ms);
+			if (bench) {
+				const auto tOp1 = std::chrono::high_resolution_clock::now();
+				logger.Info("[Demo3D] BANC operation : {0} ms | verts={1} faces={2} "
+							"hedges={3} aretes={4}\n",
+							std::chrono::duration<double, std::milli>(tOp1 - tOp0).count(),
+							st->editHE.VertCount(), st->editHE.FaceCount(),
+							(uint32)st->editHE.hedges.Size(), st->editHE.EdgeCount());
+			}
 			return st->editHistory.UndoCount() != avant;
 		}
 		bool Demo3DHostEditExtrude(bool individual) {
@@ -14066,6 +14080,31 @@ namespace nkentseu {
 					if (st->editHE.faces[i].alive)
 						++vivantes;
 				*faces = vivantes;
+				// NK_EDGE_BENCH=<n> : COUT REEL de RebuildEdges sur le maillage QUE
+				// L'UTILISATEUR EDITE -- pas sur les 65 536 faces du banc. C'est ce
+				// chiffre qui decide entre « reconstruire dans la meme passe » et
+				// « maintenir au fil des operations ».
+				// ⚠️ MUTE l'etat (la table est reconstruite) : sous variable
+				// d'environnement UNIQUEMENT, et jamais dans le chemin normal.
+				if (const char *eb = getenv("NK_EDGE_BENCH")) {
+					static bool faitB = false;
+					if (!faitB) {
+						faitB = true;
+						int32 iters = atoi(eb);
+						if (iters < 1)
+							iters = 20;
+						const auto t0 = std::chrono::high_resolution_clock::now();
+						for (int32 k = 0; k < iters; ++k)
+							st->editHE.RebuildEdges();
+						const auto t1 = std::chrono::high_resolution_clock::now();
+						const double ms =
+							std::chrono::duration<double, std::milli>(t1 - t0).count() / (double)iters;
+						logger.Info("[Demo3D] BANC RebuildEdges : {0} iterations, {1} ms/appel "
+									"| verts={2} faces={3} hedges={4} aretes={5}\n",
+									iters, ms, st->editHE.VertCount(), st->editHE.FaceCount(),
+									(uint32)st->editHE.hedges.Size(), st->editHE.EdgeCount());
+					}
+				}
 				static const bool trace = getenv("NK_STATS_TRACE") != nullptr;
 				if (trace) {
 					// LA TABLE EST-ELLE VIDE, OU LE COMPTE EST-IL FAUX ?
@@ -14091,8 +14130,9 @@ namespace nkentseu {
 							++paires;
 					}
 					logger.Info("[Demo3D] ARETES : table={0} vivantes={1} avec_hedge={2} "
-								"| hedges={3} h_avec_edge={4} paires_uniques={5}\n",
-								nEdges, vivantesE, avecHedge, nH, hAvecEdge, paires);
+								"| hedges={3} h_avec_edge={4} paires={5} canonOf={6}\n",
+								nEdges, vivantesE, avecHedge, nH, hAvecEdge, paires,
+								(uint32)st->editHE.canonOf.Size());
 				}
 				if (trace)
 					logger.Info("[Demo3D] STATS detail : FaceCount={0} vivantes={1} "
