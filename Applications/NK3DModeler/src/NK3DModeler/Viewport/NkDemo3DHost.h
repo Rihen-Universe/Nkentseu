@@ -185,6 +185,32 @@ namespace nkentseu {
 		bool Demo3DHostEditBevel(bool vertexMode);
 		bool Demo3DHostEditInset();
 		bool Demo3DHostEditDissolve();
+		// ── LES CINQ QUI N'AVAIENT AUCUNE FACADE (2026-08-28) ────────────────
+		// Elles EXISTENT et FONCTIONNENT depuis toujours -- seul le viseur savait
+		// les declencher, au clavier. Sans facade, aucun MENU ne pouvait les
+		// atteindre : c'est ce qui les rendait introuvables, pas leur absence.
+		// UNE COMMANDE, PLUSIEURS ENTREES : barre de menu, menu contextuel et
+		// clavier aboutissent TOUS ici ; la logique n'est rejouee nulle part.
+		bool Demo3DHostEditSpin();
+		bool Demo3DHostEditEdgeSplit();
+		// Operation MODALE (apercu, puis confirmation) : 1 biseau arete, 2 biseau
+		// sommet, 3 inserer, 4 loop cut, 5 spin, 6 extruder, 7 to sphere,
+		// 8 shrink/fatten. Le cadre modal vit dans NkDemo3D et s'occupe seul de
+		// l'apercu, de la confirmation et de l'annulation.
+		bool Demo3DHostEditModal(int32 op);
+		// BISECT : arme le COUTEAU (les deux clics suivants tracent la coupe).
+		// Chez Blender aussi c'est un OUTIL qu'on arme, pas une op immediate.
+		bool Demo3DHostArmKnife();
+		bool Demo3DHostKnifeArmed();
+		// Nombre d'elements SELECTIONNES en mode edition. C'est ce qui permet de
+		// GRISER une entree de menu au lieu de la faire disparaitre : sans ce
+		// chiffre, l'interface ne peut pas savoir si une commande produirait
+		// quelque chose, et devrait donc toutes les proposer.
+		int32 Demo3DHostEditSelCount();
+		// Une operation MODALE tourne-t-elle ? Le clic droit lui appartient alors
+		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
+		// par-dessus, sinon un seul clic ferait les deux.
+		bool Demo3DHostModalActive();
 		// Annuler / refaire : la pile VIVANTE (Demo3DState::editHistory). La vue
 		// dormante a la sienne, que rien n'alimente -- cf. NkDemo3D.cpp.
 		bool Demo3DHostEditUndo();
