@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+GemCrush.jenga — Jeu de plateau style Candy Crush construit sur Nkentseu.
+==========================================================================
+Plateformes couvertes :
+  PC     : Windows (Win32), Linux (XLib), macOS (Cocoa)
+  Mobile : Android (NDK/NativeActivity), iOS (UIKit), HarmonyOS (ArkUI Native)
+
+Emplacement attendu : Applications/GemCrush/GemCrush.jenga
+À inclure depuis le workspace racine (Nkentseu.jenga) :
+
+    with include("Applications/GemCrush/GemCrush.jenga"):
+        pass
+
+Usage (identique au reste du framework) :
+    jenga build --platform windows
+    jenga build --platform linux
+    jenga build --platform macos
+    jenga build --platform android
+    jenga build --platform ios
+    jenga build --platform harmonyos
+    jenga build --config Release
+"""
+
+from Jenga import *
+from jengaconfig import *
+from Jenga.Core.Api import androidallowrotation
+import os
+import shutil
+import subprocess
+
+
+def _pkg_exists(pkg_name):
+    if not shutil.which("pkg-config"):
+        return False
+    try:
+        return subprocess.call(
+            ["pkg-config", "--exists", pkg_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+
+def _norm(path):
+    return path.replace("\\", "/") if path else path
+
+
+_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_VULKAN_OPT = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
+
+# Le backend Vulkan ne doit etre defini QUE sur les plateformes ou il est cable
+# (Windows / Android / HarmonyOS). Ailleurs (Web/Linux-GL/macOS), il reste a 0 :
+# sinon le code de Mou reference NkVulkanContext absent de ces libs -> link casse.
+_VK_ON  = f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"
+_VK_OFF = "NKENTSEU_ENABLE_VULKAN_BACKEND=0"
+
+_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
+_WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
+if _pkg_exists("libdecor-0"):
+    _WAYLAND_LINKS.append("decor-0")
+    _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
+
+
+with project("GemCrush"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    # AUCUN dossier assets : GemCrush ne charge aucun fichier a l'execution.
+    # Les gemmes sont dessinees par geometrie (Ui/NkGemArt) et la police est
+    # EMBARQUEE (NkFontEmbedded). C'est ce qui lui permet de demarrer a
+    # l'identique sur les six plateformes sans chaine de copie d'assets.
+    # Le jour ou des sons ou des niveaux arrivent : creer Applications/Gemcrush/assets,
+    # remettre dependfiles(["assets"]) ici ET androidassets(["assets"]) plus bas.
+
+    nkentseudependson(
+        ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
+         "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio", "NKMedia"],
+        extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
+                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+        # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme ci-dessous
+        # (uniquement la ou Vulkan est cable), pas globalement.
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+    licensefile("../../LICENSE")
+
+    # PAS d'appicon : Applications/Gemcrush/Resources/ n'existe pas encore.
+    # Declarer une icone absente fait echouer la generation de l'APK Android
+    # (res/mipmap-*) alors que le build desktop, lui, ne dit rien.
+    # A remettre des que l'icone du jeu est dessinee :
+    #     appicon("Resources/gemcrush_icon.png")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE", _VK_ON])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "avrt", "winmm",   # NKAudio (WASAPI / MMCSS)
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        # Suffixe -headless : binaire distinct des autres backends Linux
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY", _VK_OFF])
+        links(["pthread"])
+
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xlib/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xlib/%{prj.name}")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY", _VK_ON])
+        # Xrandr : moniteurs/DPI (NkXLibWindow/EventSystem) ; asound : NKAudio (ALSA)
+        links(["pthread", "X11", "Xext", "Xrandr", "GL", "asound"] + (["vulkan"] if _WANT_VULKAN else []))
+
+    with filter("system:Linux && options:linux-backend=xcb"):
+        windowedapp()
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY", _VK_ON])
+        links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL", "asound"] + (["vulkan"] if _WANT_VULKAN else []))
+        ldflags(["-fuse-ld=lld"])
+
+    with filter("system:Linux && options:linux-backend=wayland"):
+        windowedapp()
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        defines(_WAYLAND_DEFINES + [_VK_ON])
+        links(_WAYLAND_LINKS + ["asound"] + (["vulkan"] if _WANT_VULKAN else []))
+
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines([_VK_OFF])
+        # Metal + AudioUnit : MESURES sur l edition de liens de la CI macOS du
+        # 2026-08-27, pas devines. NKCanvas embarque son backend Metal
+        # (MTLCreateSystemDefaultDevice, MTLRenderPassDescriptor,
+        # MTLTextureDescriptor) et NKAudio son backend CoreAudio
+        # (AudioComponent*, AudioOutputUnit*, AudioUnit*). Les 23 projets
+        # COMPILENT sans ces frameworks : seul le lien final tombe.
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal",
+                    "AudioToolbox", "CoreAudio", "AudioUnit"])
+
+    with filter("system:Android"):
+        windowedapp()
+        usetoolchain("android-ndk")
+        androidapplicationid("com.nkentseu.gemcrush")
+        androidisgame(True)
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidnativeactivity(True)
+        # PORTRAIT : c'est l'orientation du jeu (plateau carre + HUD au-dessus,
+        # cf. NkGemLayout::Compute). La valeur precedente, "landscape", venait
+        # du descripteur de Mou dont ce fichier est une copie.
+        # NOTE : la mise en page SAIT faire les deux (colonne a gauche en
+        # paysage) ; c'est un choix de produit, pas une limite technique.
+        androidscreenorientation("portrait")
+        androidallowrotation(False)
+        androidstl("c++_shared")
+        defines([_VK_ON])
+        # androidassets : rien a embarquer (voir le commentaire sur dependfiles).
+        # OpenSLES + dl requis par NKAudio sur Android
+        _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3", "dl", "OpenSLES"]
+        if _WANT_VULKAN:
+            _ANDROID_LINKS.append("vulkan")
+        links(_ANDROID_LINKS)
+
+    # iOS. ABSENT jusqu'au 2026-08-27 : l'en-tete du fichier annoncait
+    # "Mobile : Android, iOS, HarmonyOS" et AUCUN filtre iOS n'existait. La
+    # construction desktop ne dit rien d'un filtre manquant — c'est une
+    # plateforme qu'on croit couverte parce qu'un COMMENTAIRE la nomme.
+    #
+    # ⚠️ Non verifie sur machine : la construction iOS exige macOS + Xcode.
+    # Ces lignes suivent le modele de Applications/NKPA/NKPA.jenga, qui est
+    # dans le meme cas. Elles rendent la cible DECLAREE, pas EPROUVEE.
+    with filter("system:iOS"):
+        windowedapp()
+        # Memes symboles manquants que sur macOS (voir ce filtre), mais PAS la
+        # meme liste de frameworks :
+        #   ⚠️ "AudioUnit" N EXISTE PAS sur iOS. C est un framework separe sur
+        #   macOS seulement ; sur iOS ses symboles (AudioComponent*,
+        #   AudioOutputUnit*, AudioUnit*) vivent dans AudioToolbox. Recopier la
+        #   liste macOS a rendu "ld: framework AudioUnit not found" — mesure de
+        #   la CI iOS du 2026-08-27. Un precedent se verifie sur SA plateforme.
+        frameworks(["UIKit", "QuartzCore", "OpenGLES", "AVFoundation", "Metal",
+                    "AudioToolbox", "CoreAudio"])
+        iosbundleid("com.nkentseu.gemcrush")
+        iosversion("1.0")
+        iosminsdk("14.0")
+        iosbuildnumber(1)
+        # Vulkan n'existe pas sur iOS (Metal via MoltenVK seulement) : le
+        # drapeau reste a 0, sinon le code reference NkVulkanContext qui n'est
+        # pas dans la lib -> edition de liens cassee.
+        defines([_VK_OFF])
+
+    with filter("system:HarmonyOS"):
+        windowedapp()
+        usetoolchain("ohos-ndk")
+        harmonybundlename("com.nkentseu.gemcrush")
+        harmonyminsdk(12)
+        harmonytargetapi(12)
+        # PORTRAIT, exactement comme sur Android (androidscreenorientation
+        # ci-dessus). Sans orientation DECLAREE, le systeme impose la sienne et
+        # l'image sort tournee d'un quart de tour.
+        harmonyorientation("portrait")
+        defines([_VK_ON])
+        links(["hilog_ndk.z", "EGL", "GLESv3", "vulkan"])
+
+    with filter("system:Web"):
+        consoleapp()
+        usetoolchain("emscripten")
+        defines(["NKENTSEU_ENABLE_EMSCRIPTEN", _VK_OFF])
+        # Pas de coquille HTML propre au jeu : Applications/Gemcrush/web/ n'existe
+        # pas (le chemin venait de Mou). Jenga utilise sa coquille par defaut.
+        emscriptencanvasid("canvas")
+        emscripteninitialmemory(32)
+        emscriptenextraflags([
+            "-s", "ASYNCIFY",
+            "-s", "ALLOW_MEMORY_GROWTH=1",
+            "-s", "FULL_ES3=1",
+            "-s", "USE_WEBGL2=1",
+            "-s", "NO_EXIT_RUNTIME=1",
+        ])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
