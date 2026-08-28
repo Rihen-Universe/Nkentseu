@@ -464,8 +464,14 @@ namespace nkentseu {
 		NKENTSEU_NKGUI_API void EndMenu(NkGuiContext &ctx) noexcept;
 		// Élément de menu cliquable (+ raccourci affiché à droite, optionnel).
 		// Retourne true au clic (et ferme la chaîne de menus).
+		// `checked` : l'entrée porte une COCHE à droite (état booléen). ⚠️ Une entrée
+		// qui bascule un état DOIT porter une coche plutôt qu'un libellé qui
+		// s'inverse — « Afficher la grille » devenant « Masquer la grille » oblige à
+		// déduire l'état courant du libellé proposé, et on se trompe une fois sur
+		// deux. Ajouté en DERNIER avec une valeur par défaut : aucun appelant
+		// existant ne bouge, et le dessin est inchangé tant que `checked` est faux.
 		NKENTSEU_NKGUI_API bool MenuItem(NkGuiContext &ctx, const char *label, const char *shortcut = nullptr,
-										 bool enabled = true) noexcept;
+										 bool enabled = true, bool checked = false) noexcept;
 		// Menu CONTEXTUEL (clic droit) : l'app appelle
 		// ctx.OpenPopupAt(ctx.GetId(idStr), mousePos) au clic droit, puis dessine
 		// le contenu entre BeginPopupMenu/EndPopupMenu (mêmes MenuItem/BeginMenu).
