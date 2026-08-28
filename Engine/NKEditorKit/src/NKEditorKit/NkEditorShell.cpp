@@ -1416,7 +1416,9 @@ namespace nkentseu {
 				rightX -= rw + pad * 2.f;
 			}
 			// Indicateur de ZOOM (police du code) : "Zoom NNN%" cliquable -> reinitialise (Ctrl+0).
-			{
+			// ⚠️ C'est le zoom de la POLICE DE CODE, pas un zoom de vue : une
+			//    application sans editeur de code le masque (SetFooterZoomIndicator).
+			if (mFooterZoom) {
 				const int32 pct = static_cast<int32>(ActiveCodeSize() / kDefaultCodeFontSize * 100.f + 0.5f);
 				char z[24];
 				std::snprintf(z, sizeof(z), "Zoom %d%%", pct);

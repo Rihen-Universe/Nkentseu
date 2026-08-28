@@ -120,12 +120,14 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 //     pastilles a quatre etats) n a toujours aucun code. Croire la case cochee
 //     parce que le bord est propre serait l erreur symetrique.
 //
-//  ⚠️ ET LA BARRE DE DROITE EST DE LA MEME NATURE (meme appel, meme largeur
-//     mesuree : l Inspecteur finit a x = 1408 dans une fenetre de 1456). Rodolf
-//     n a parle que de la gauche : elle seule est retiree, l autre attend son
-//     arbitrage. Les deux sont sur la meme ligne, un seul caractere a changer.
+//  ⚠️ LA BARRE DE DROITE EST DE LA MEME NATURE, ET ELLE PART AUSSI. Meme appel,
+//     meme largeur mesuree (l Inspecteur finissait a x = 1408 dans une fenetre de
+//     1456, soit 48 px), meme absence de branchement : `SetActivityHandler` n est
+//     jamais appele, donc ses trois pictogrammes ne repondent a rien. Garder a
+//     droite une bande inerte apres avoir retire celle de gauche laisserait une
+//     asymetrie que rien ne justifie -- ni le plan, ni le code.
 #define NKUIDESIGN_BARRES_ACTIVITE_GAUCHE 0
-#define NKUIDESIGN_BARRES_ACTIVITE_DROITE 1
+#define NKUIDESIGN_BARRES_ACTIVITE_DROITE 0
 
 static nkuidesign::DesignState gDesign;
 static NkEditorShell *gShell = nullptr;
@@ -940,6 +942,13 @@ int nkmain(const NkEntryState &state) {
 	//    reprend la largeur liberee -- c est ecrit dans `NkEditorShell.h`.
 	shell->SetActivityBars(NKUIDESIGN_BARRES_ACTIVITE_GAUCHE != 0,
 						   NKUIDESIGN_BARRES_ACTIVITE_DROITE != 0);
+	// ⚠️ UN SEUL INDICATEUR DE ZOOM, ET C EST CELUI DE LA TOILE. Celui du pied
+	//    mesure la police de code (une notion de NKCode) : NkUIDesign n a pas
+	//    d editeur de code, et affichait donc « Zoom 107 % » a cote du « 100 % »
+	//    du cluster -- deux grandeurs differentes sous le meme mot, au meme
+	//    instant. Le plan n en prevoit qu un, dans le cluster, qui appartient au
+	//    canvas.
+	shell->SetFooterZoomIndicator(false);
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
 	shell->SetTitleInfo("Dashboard_Admin.nkgui");

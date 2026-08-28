@@ -739,3 +739,14 @@ nkwebmwriter_selftest.webm
 *.nkla
 *.nkgp
 *.gguf
+
+# Sorties de la SONDE et des bancs de NkUIDesign. Ce sont des RESULTATS, ecrits
+# dans le repertoire COURANT a chaque execution : les versionner ferait un diff
+# a chaque lancement, et surtout un rapport perime ressemble exactement a un
+# rapport frais (piege deja paye le 19/08 -- d ou l horodatage de compilation
+# qu ils portent desormais).
+nkuidesign_probe.txt
+nkuidesign_roundtrip.txt
+nkuidesign_roundtrip_controles.txt
+nkuidesign_validation.txt
+nkuidesign_ui_rects.txt

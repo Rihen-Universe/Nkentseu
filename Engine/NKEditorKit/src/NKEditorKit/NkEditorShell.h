@@ -240,6 +240,20 @@ namespace nkentseu {
 				//         dependent pas du theme.
 				void ApplyTheme(const NkTheme &t) noexcept;
 
+				// ⚠️ L INDICATEUR « Zoom NNN% » DU PIED N EST PAS UN ZOOM DE VUE :
+				//    il rend `ActiveCodeSize() / kDefaultCodeFontSize`, c est-a-dire
+				//    le zoom de la POLICE DE CODE (Ctrl+= / Ctrl+0), une notion de
+				//    NKCode. Une application sans editeur de code l affiche sans
+				//    rien derriere -- et si elle a par ailleurs un zoom de TOILE,
+				//    l ecran porte deux nombres sous le meme mot, qui ne disent pas
+				//    la meme chose. Mesure NkUIDesign : « 100 % » dans le cluster de
+				//    toile et « Zoom 107 % » au pied, au meme instant.
+				//    ⚠️ ADDITIF : `true` = comportement historique, NKCode ne bouge
+				//       pas.
+				void SetFooterZoomIndicator(bool visible) noexcept {
+					mFooterZoom = visible;
+				}
+
 				void SetActivityBars(bool left, bool right) noexcept {
 					mActivityBarLeft = left;
 					mActivityBarRight = right;
@@ -613,6 +627,7 @@ namespace nkentseu {
 				char mFooterRight[128] = {};
 				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
 				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
+				bool mFooterZoom = true;					  // cf. SetFooterZoomIndicator
 				bool mActivityBarLeft = true;				  // cf. SetActivityBars
 				bool mActivityBarRight = true;
 				bool mMaskBodyOnPopup = true;				  // cf. SetMaskBodyOnPopup

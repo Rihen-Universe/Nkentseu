@@ -1047,7 +1047,17 @@ namespace nkuidesign {
 					if (mSt->doc.nodes[i].layout.kind == NkLayoutKind::Free)
 						aUneToile = true;
 				if (!aUneToile)
-					ec.Text("(ce document n'a AUCUNE page de toile — Ctrl+N en ouvre un qui en a une)");
+					// ⚠️ LA PHRASE DISAIT VRAI ET SE LISAIT FAUX. « Aucune page de
+					//    toile » parlait des pages a agencement `Free` -- celles ou
+					//    l'on POSE des formes. Mais le document EST dessine juste
+					//    en dessous (cadres `Column`/`Row` et deux composants), et
+					//    l'ecran contredisait donc la phrase. Mesure : 5 nœuds, 0 en
+					//    `Free`, et 5 rectangles publies par `--dump-ui`.
+					//    Un diagnostic vrai qui se lit comme « rien n'est dessine »
+					//    envoie chercher le defaut du mauvais cote -- exactement ce
+					//    qu'il devait eviter.
+					ec.Text("(ce document est agence en colonnes et rangees : il n'a aucune page "
+							"« libre » où poser des formes à la souris — Ctrl+N en ouvre une)");
 
 				// ── LE REPLI FRANC, A L'ENDROIT OU LE MAGENTA APPARAIT ───────
 				// ⚠️ C'EST LA MOITIE (b) DU CORRECTIF DU 18/08. Le magenta de
@@ -1073,6 +1083,25 @@ namespace nkuidesign {
 				const NkRect area = ctx.NextItemRect(-1.f, hToile > 120.f ? hToile : 120.f);
 				if (area.w <= 0.f || area.h <= 0.f)
 					return;
+
+				// ── LA VUE NE NAIT PAS SOUS LA BARRE D'OUTILS ────────────────
+				// ⚠️ MESURE, ET ELLE DEPLACE LE DEFAUT. La barre verticale
+				//    recouvrait les lignes Sol / Rocher / Caisse de l'arbre.
+				//    Releve : barre a x = 266..314, nœud « Arbre » a x = 270..530.
+				//    La barre est POURTANT a sa place -- 12 px du bord gauche de la
+				//    toile (zone.x = 254), et §7 la veut la, « elle flotte au-dessus
+				//    du canvas, le canvas passe dessous ». Ce n'est donc pas la
+				//    barre qui est mal posee : c'est **la vue qui naissait collee a
+				//    l'origine** (canvas.vue = zoom 1, pan 0, 0), donc le document
+				//    naissait sous la barre.
+				//    La correction va a la VUE, une seule fois, et elle se calcule
+				//    depuis la geometrie de la barre -- pas depuis un nombre choisi
+				//    a l'oeil qui se decalerait au premier changement de largeur.
+				if (!mVuePosee) {
+					mVuePosee = true;
+					mSt->view.panX = kOutilsMarge * 2.f + kOutilsLargeur;
+					mSt->view.panY = 12.f;
+				}
 
 				// ⚠️ DEUX SURFACES, ET ELLES N ONT PAS LE MEME ESPACE.
 				//    `area` est le rectangle ECRAN du panneau ; il devient le
@@ -1189,13 +1218,27 @@ namespace nkuidesign {
 				// Le liseré de selection se peint APRES le document et n'en fait pas
 				// partie : c'est du mobilier d'editeur. La sonde ne le voit pas, et
 				// c'est voulu — elle mesure l'interface, pas le decor.
-				if (mSt->layout.Has(mSt->selected))
-					// ⚠️ « AccentUi » ETAIT ECRIT ICI, et ce liseré etait donc MAGENTA
-					//    lui aussi -- dans mon propre fichier, pas dans celui d'un
-					//    autre agent. La resolution canonise desormais, mais le nom
-					//    canonique s'ecrit quand meme : la canonisation est un filet,
-					//    pas une dispense.
-					paint.OutlineSharp(mSt->layout.At(mSt->selected),
+				// ⚠️ `screen`, PAS `mSt->layout` -- ET C'ETAIT LE DEFAUT LE PLUS
+				//    VISIBLE DE LA FENETRE. `mSt->layout` est en espace DOCUMENT ;
+				//    le liseré etait donc peint a l'origine de l'ECRAN. Mesure sur
+				//    capture : un trait d'accent (31,111,235) de 1 px, vertical a
+				//    x = 818 de y = 60 a 823, et horizontal a y = 824. Ce sont les
+				//    bords DROIT et BAS d'un rectangle de 819 x 825 pose en (0,0) --
+				//    exactement la taille document de « Racine » (819,1 x 825). Ses
+				//    bords gauche et haut, eux, etaient hors champ : on ne voyait
+				//    que deux traits qui ne correspondaient a rien.
+				// ⚠️ ET L'AVERTISSEMENT ETAIT DEJA ECRIT DANS CE FICHIER, quinze
+				//    lignes plus bas, pour la SOURIS : « la designer contre
+				//    mSt->layout, qui est en espace DOCUMENT, donnait un pointage
+				//    juste au zoom 1 et faux partout ailleurs ». Le meme piege, une
+				//    fonction plus loin, du cote du DESSIN. Une lecon ecrite pour un
+				//    chemin ne protege pas l'autre.
+				// ⚠️ « AccentUi » ETAIT ECRIT ICI, et ce liseré etait donc MAGENTA
+				//    lui aussi. La resolution canonise desormais, mais le nom
+				//    canonique s'ecrit quand meme : la canonisation est un filet,
+				//    pas une dispense.
+				if (screen.Has(mSt->selected))
+					paint.OutlineSharp(screen.At(mSt->selected),
 									   NkDesignResolveRole("accent_ui"));
 			}
 
@@ -1333,6 +1376,10 @@ namespace nkuidesign {
 				}
 
 				// ── 2. LA BARRE D'OUTILS VERTICALE, 48 px (§7) ───────────────
+				//    ⚠️ SES DEUX COTES SONT DES CONSTANTES NOMMEES parce que la VUE
+				//       s'en sert pour ne pas naitre dessous. Deux litteraux, et le
+				//       jour ou la barre s'elargit, le document repasse dessous sans
+				//       que rien ne le dise.
 				//    « panneau flottant vertical, posé entre la Hiérarchie et le
 				//    canvas, largeur 48 px, centré verticalement ». Elle flotte
 				//    AU-DESSUS : la toile passe dessous.
@@ -1340,9 +1387,9 @@ namespace nkuidesign {
 				//       chevron et l'éventail viendront ; la place est prise.
 				{
 					static const char *const kOutils[7] = {"S", "F", "R", "P", "T", "M", "="};
-					const float32 w = 48.f, hb = 40.f;
+					const float32 w = kOutilsLargeur, hb = 40.f;
 					const float32 h = hb * 7.f + 12.f;
-					const NkRect r = {zone.x + 12.f, zone.y + (zone.h - h) * 0.5f, w, h};
+					const NkRect r = {zone.x + kOutilsMarge, zone.y + (zone.h - h) * 0.5f, w, h};
 					dl.AddRectFilled(r, fond, 8.f);
 					dl.AddRect(r, bord, 1.f, 8.f);
 					for (uint32 i = 0; i < 7; ++i) {
@@ -1404,8 +1451,15 @@ namespace nkuidesign {
 				mSt->status.Append(c);
 			}
 
+			/// La geometrie de la barre d'outils flottante (§7 : « largeur 48px »).
+			/// ⚠️ LUE PAR DEUX ENDROITS -- la barre elle-meme, et la pose initiale de
+			///    la vue, qui doit garantir qu'aucun contenu ne naisse dessous.
+			static constexpr float32 kOutilsLargeur = 48.f;
+			static constexpr float32 kOutilsMarge = 12.f;
+
 			uint32 mMode = 0;  ///< Design / Behavior / Animation / Split
 			uint32 mOutil = 0; ///< famille d'outils active
+			bool mVuePosee = false; ///< la vue a-t-elle recu sa position de depart ?
 			bool mPanning = false;
 			bool mMarquee = false;
 			float32 mMarqX = 0.f, mMarqY = 0.f;
