@@ -112,6 +112,9 @@ def _jenga_depuis_wheel():
 
 _JENGA_STAGE, _JENGA_WHL = _jenga_depuis_wheel()
 _HAS_JENGA_SRC = bool(_JENGA_STAGE)
+
+# Chaine MinGW/ucrt64 ? (meme test que NKIlyana, Model, NkAnimPhysTest...)
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
 if _HAS_JENGA_SRC:
     print("[NKCode] Jenga embarque depuis le wheel : " + _JENGA_WHL)
 else:
@@ -212,6 +215,31 @@ with project("NKCode"):
         # PATH — hypothese raisonnable sous Linux, ou Python est presque
         # toujours present.
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE", "NKCODE_EMBED_PYTHON=1"])
+
+        # ── Runtime MinGW EN STATIQUE — corrige l'issue beta #15 ──────────────
+        # Sans cela, NKCode.exe importe libstdc++-6.dll, libgcc_s_seh-1.dll et
+        # (une fois les deux premieres figees) libwinpthread-1.dll, que le
+        # chargeur resout PAR LE PATH — donc chez l'UTILISATEUR. Un testeur a
+        # ainsi recu « NKCode.exe - Point d'entree introuvable : clock_gettime64
+        # est introuvable dans C:\msys64\ucrt64\bin\libstdc++-6.dll » : son
+        # msys64, installe pour la toolchain, portait une autre version.
+        # Symptome visible a l'ouverture d'une NOUVELLE FENETRE, car le
+        # processus fils herite du PATH de l'IDE — d'ou un bug « qui varie selon
+        # la machine ». MakeNkCodeDist.py ne livrait aucune de ces trois DLL.
+        #
+        # `-static` et pas seulement `-static-libstdc++ -static-libgcc` : ces
+        # deux drapeaux laissent libwinpthread-1.dll en import DIRECT (elle
+        # etait masquee derriere libstdc++), et le pilote clang ajoute son
+        # `-lwinpthread` APRES nos ldflags — un `-Wl,-Bstatic ... -Bdynamic`
+        # encadrant ne l'attrape donc pas (essaye, sans effet).
+        # NKIlyana.jenga deconseille `-static` seul (« casse la selection lld »)
+        # : VERIFIE ici le 2026-08-28, ce n'est pas le cas pour NKCode —
+        # build 23/23, table d'imports sans aucune DLL MinGW, et l'IDE demarre.
+        # Si un jour le lien casse, le repli est NKIlyana : les deux drapeaux
+        # `-static-libstdc++ -static-libgcc` PLUS la livraison de
+        # libwinpthread-1.dll a cote de l'exe.
+        if _IS_MINGW:
+            ldflags(["-static"])
         includedirs([_PYEMBED_INCLUDE])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
