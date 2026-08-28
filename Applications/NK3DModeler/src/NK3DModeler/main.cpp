@@ -1509,6 +1509,19 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		{
+			static bool sMarkDone = false;
+			if (const char *em2 = std::getenv("NK_EDGE_MARK")) {
+				const int32 fr = std::atoi(em2) > 1 ? (int32)std::atoi(em2) : 100;
+				if (!sMarkDone && agentFrame >= fr) {
+					sMarkDone = true;
+					(void)demo::Demo3DHostMarkAllEdges();
+				}
+			} else {
+				sMarkDone = true;
+			}
+		}
+
 		// NK_UI_MODE=<n>[,frame] : pose le MODE DE L'INTERFACE (valeur de NkMode),
 		// par le meme chemin que l'onglet -- on ecrit `st.mode`, et la ligne qui
 		// transmet au viseur fait le reste.

@@ -14024,6 +14024,28 @@ namespace nkentseu {
 						centre.x, centre.y, centre.z, rayon, d);
 		}
 
+		// NK_EDGE_MARK=1 : pose `sel=1` sur TOUTES les aretes vivantes.
+		// Sert a PRODUIRE LE CAS : rien dans l'application n'ecrit `Edge::sel`
+		// (la selection vit dans `vertSel`), donc mesurer sa survie sans le poser
+		// d'abord aurait rendu SEL=0 avant ET apres -- un jeu de donnees incapable
+		// de produire le cas rend n'importe quelle mesure verte.
+		// La question qu'il tranche : un drapeau porte par une ARETE survit-il a
+		// une operation d'edition ? C'est la question qui decide du chiffrage des
+		// COUTURES UV, qui seraient exactement un tel drapeau.
+		int32 Demo3DHostMarkAllEdges() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return -1;
+			int32 n = 0;
+			for (uint32 i = 0; i < (uint32)st->editHE.edges.Size(); ++i)
+				if (st->editHE.edges[i].alive) {
+					st->editHE.edges[i].sel = 1;
+					++n;
+				}
+			logger.Info("[Demo3D] MARQUAGE aretes : {0} posees a sel=1\n", n);
+			return n;
+		}
+
 		// ── X-RAY : voir et selectionner a travers le maillage ─────────────
 		// L'etat vit ici (`editXray`) et il MARCHAIT deja : c'est le shell qui
 		// ecrivait a cote, dans la vue morte. On expose l'etat vivant, et le
@@ -14113,12 +14135,16 @@ namespace nkentseu {
 					// et paires de demi-aretes. Trois reponses qui se recoupent disent
 					// la verite ; trois qui divergent designent le menteur.
 					const uint32 nEdges = (uint32)st->editHE.edges.Size();
-					uint32 vivantesE = 0u, avecHedge = 0u;
+					uint32 vivantesE = 0u, avecHedge = 0u, selE = 0u, filaires = 0u;
 					for (uint32 i = 0; i < nEdges; ++i) {
 						if (st->editHE.edges[i].alive)
 							++vivantesE;
 						if (st->editHE.edges[i].hedge != NK_EM_INVALID)
 							++avecHedge;
+						if (st->editHE.edges[i].sel)
+							++selE;
+						if (st->editHE.edges[i].alive && st->editHE.edges[i].faceCount == 0)
+							++filaires;
 					}
 					const uint32 nH = (uint32)st->editHE.hedges.Size();
 					uint32 hAvecEdge = 0u, paires = 0u;
@@ -14130,9 +14156,9 @@ namespace nkentseu {
 							++paires;
 					}
 					logger.Info("[Demo3D] ARETES : table={0} vivantes={1} avec_hedge={2} "
-								"| hedges={3} h_avec_edge={4} paires={5} canonOf={6}\n",
-								nEdges, vivantesE, avecHedge, nH, hAvecEdge, paires,
-								(uint32)st->editHE.canonOf.Size());
+								"| hedges={3} h_avec_edge={4} canonOf={5} SEL={6} filaires={7}\n",
+								nEdges, vivantesE, avecHedge, nH, hAvecEdge,
+								(uint32)st->editHE.canonOf.Size(), selE, filaires);
 				}
 				if (trace)
 					logger.Info("[Demo3D] STATS detail : FaceCount={0} vivantes={1} "

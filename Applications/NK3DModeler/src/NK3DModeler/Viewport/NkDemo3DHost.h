@@ -200,6 +200,9 @@ namespace nkentseu {
 		void Demo3DHostSetMode(int32 mode);
 		int32 Demo3DHostMode();
 
+		// Pose sel=1 sur toutes les aretes vivantes (mesure de survie de drapeau).
+		int32 Demo3DHostMarkAllEdges();
+
 		// X-ray : l'etat VIVANT est la source ; le shell n'en garde qu'un reflet.
 		void Demo3DHostSetXray(bool on);
 		bool Demo3DHostXray();
