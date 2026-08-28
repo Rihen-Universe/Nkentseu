@@ -359,7 +359,10 @@ de dispersion sur une execution unique ailleurs. Ici l'absence de fenetre et de
 GPU y est pour beaucoup — il n'y a ni pilote, ni vsync, ni ordonnancement a
 subir.
 
-### 4.5 Ce qui n'est PAS fait, et qu'il ne faut pas croire fait
+### 4.5 Ce qui n'etait PAS fait au soir du 2026-08-28
+
+*(Trois de ces cinq points ont ete traites le 29 — voir le §5. La liste reste
+ici telle qu'ecrite : biffer ce qu'on a promis fait mal l'histoire.)*
 
 - ❌ **`UiRects` n'est pas retire de NkUIDesign.** Les deux coexistent. C'est le
   piege deja nomme pour la capture d'ecran : *remonter la capacite ne supprime
@@ -384,3 +387,152 @@ subir.
   critere C4 les nomme, mais **aucune ligne ne les emet aujourd'hui** — c'est
   une promesse au lecteur du fichier, pas une capacite. A poser par le chantier
   qui en aura l'usage, ou a retirer.
+
+---
+
+## 5. 2026-08-29 — `UiRects` est mort, et le chemin fenetre est branche
+
+### 5.1 Pourquoi ca ne pouvait pas attendre
+
+> « Les deux coexistent, donc ils divergeront. »
+
+C'etait ecrit au §4.5 le soir meme, et c'est exactement comme ca qu'un doublon
+s'installe pour un an. **Le but n'a jamais ete que les deux rendent la meme
+chose : c'est qu'il n'y en ait plus qu'un.** Un doublon qui s'accorde
+aujourd'hui est un doublon qui divergera demain — ce depot l'a paye cette
+semaine avec deux registres de roles homonymes et deux objets theme.
+
+### 5.2 Ce qui a ete mesure AVANT de renommer le fichier de sortie
+
+Le format du releve change entierement (nature, niveau, etats, cle, libelle au
+lieu de `identifiant = x y w h`). **Garder le nom `nkuidesign_ui_rects.txt`
+aurait laisse un script lire un format qu'il ne comprend plus, sans rien casser
+de visible.** Mesure sur tout l'arbre avant de trancher :
+
+```
+nkuidesign_ui_rects.txt  ->  .gitignore, le carnet, et le site d'ecriture.
+                             AUCUN lecteur.
+```
+
+Le renommage etait donc **gratuit** — mais il ne l'aurait pas ete, et c'est la
+verification qui le dit, pas l'intuition. Nouveau nom :
+`nkuidesign_releve_ui.txt`.
+
+### 5.3 Ce que NKGui a du apprendre pour absorber `UiRects`
+
+`UiRects` faisait trois choses que le releve ne savait pas faire. Elles sont
+entrees dans le socle, additivement :
+
+| besoin de l'application | ce qui a ete ajoute |
+|---|---|
+| publier une **zone calculee** (region d'un panneau hote, aire de dessin) qui n'est le rectangle d'aucun widget | `NkGuiNature::Region` |
+| publier **quatre nombres qui ne sont pas une geometrie** (`canvas.vue` portait zoom / panX / panY / selection dans un `NkRect`) | `NkGuiNature::Mesure` + `NkGuiNoterMesure` |
+| donner au widget une **cle stable** qui ne bouge pas quand le libelle change | champ `cle` + `NkGuiIntrospectCler` |
+
+🔴 **`Mesure` n'est pas un confort, c'est une garde.** Sans elle, le releve
+aurait juge ces quatre nombres comme une geometrie : un zoom de 1 et un
+deplacement nul seraient sortis `vide,hors-vue`. **Une fausse alerte dans un
+instrument coute plus cher que pas d'alerte du tout — elle apprend a ne plus le
+lire.**
+
+🔴 **`NkGuiIntrospectCler` NE CREE PAS DE NOTE**, et c'est ce qui distingue une
+promotion d'une recopie. L'ancien `UiRects::Note` ajoutait *sa* ligne a cote du
+widget ; ici il n'y a **qu'une note, avec deux noms** — le libelle affiche et la
+cle stable. Deux lignes pour un bouton, c'etaient deux verites a maintenir.
+
+### 5.4 Ce qui reste dans l'application, et pourquoi ce n'est pas un doublon
+
+Trois adaptateurs **sans etat** dans `Panels.h` : `releve::Zone`,
+`releve::Rect`, `releve::Cle`. Ils ne stockent rien, ne filtrent rien,
+n'ecrivent rien. **Ils nomment** — et le nommage appartient bien a
+l'application : NKGui ne peut pas savoir que ce panneau s'appelle
+« hierarchie ». Le registre (stockage, filtre, ecriture) a entierement quitte
+l'application.
+
+⚠️ **Le filtre, lui, n'a pas ete deplace : il a ete SUPPRIME.** `UiRects::Note`
+refusait de publier quand `region.w < 4`. La garde avait raison contre ce
+qu'elle visait — une cible inatteignable ne doit pas passer pour prete — mais
+elle confondait **absent** et **invisible**. NKGui note toujours et marque : un
+panneau replie sort `vide`, un panneau hors champ sort `hors-vue`, un panneau
+jamais dessine ne sort pas. **Les trois cas se distinguent enfin.**
+
+### 5.5 Le chemin FENETRE, branche
+
+`--dump-ui` ne leve plus un booleen global : il memorise l'intention, et
+l'instrument s'allume **a la creation de la coquille**, pas dans l'overlay.
+Active depuis l'overlay, il aurait rate la **premiere image entiere** — sans
+importance pour un editeur qui tourne, decisif pour une capture prise au
+demarrage, qui est l'usage vise.
+
+Mesure, application fenetree, `--dump-ui --small` :
+
+```
+# NKGui introspection : 47 controle(s), 0 hors-vue, 0 degenere(s), 0 perdue(s)
+# vue 1040x679
+
+  17 bouton      10 region     9 menu      5 texte
+   3 panneau      1 separateur 1 mesure    1 barre-menus
+```
+
+**`UiRects` en publiait 0 sur les 17 boutons et les 5 libelles** : il ne voyait
+que ce que quelqu'un avait pense a instrumenter a la main.
+
+⚠️ **Un defaut vu en passant, et qui n'est pas de ce chantier** : les trois
+panneaux sortent avec une hauteur de **1 000 000**. `ctx.layout.region.h` n'est
+pas borne pour un panneau ancre. Ce n'est pas faux au sens du releve — c'est ce
+que l'hote pose reellement — mais aucun banc ne pourra viser le bas d'un
+panneau tant que ca dure. **Porte au canal, ce n'est pas un fichier de NKGui.**
+
+### 5.6 La contre-epreuve de la migration
+
+Une suppression se prouve autrement qu'un ajout : il faut montrer que ce qui
+sort vient bien du **nouveau** chemin, et pas d'un reste de l'ancien.
+
+| mutation C | mesure |
+|---|---|
+| `releve::Zone(ctx, "hierarchie")` retire | `panneau.hierarchie` **disparait**, et **lui seul** — `apercu` et `inspecteur` restent |
+
+Mutation retiree, residu verifie a 0, vert revenu, recette `--releve-menus`
+toujours a 0.
+
+**Et l'inventaire des cles d'avant** (relu dans le source d'avant la migration,
+pas de memoire) : `apercu`, `canvas.vue`, `compo.section_document`,
+`composition`, `hierarchie`, `inspecteur`, `palette`, `preferences`, plus les
+cles dynamiques `apercu.nœud.*`, l'arbre (`pages`, `composants`) et les cellules
+`NoteCell`. Toutes celles qui sont **atteignables dans cette configuration** se
+retrouvent dans le nouveau releve. Les autres —  `composition`, `preferences`,
+`compo.section_document`, `prefs.gfx.*` — sont derriere
+`#define NKUIDESIGN_ANCIENS_PANNEAUX 0`, et `palette` est enregistree fermee
+(`palette.SetOpen(false)`) : **elles etaient deja inatteignables avant la
+migration**. Aucune perte.
+
+### 5.7 Les deux etats fantomes : RETIRES
+
+`NK_GUI_ETAT_ATTENTE` et `NK_GUI_ETAT_FOCALISE` etaient dans l'enumeration et
+**aucune ligne ne les emettait**. Ils sont supprimes.
+
+> Un etat qui existe dans le type et jamais dans les faits est **pire qu'un
+> manque** : le lecteur voit l'absence du mot et conclut « ce controle n'attend
+> rien », alors que la verite est « personne n'a jamais mesure ca ». C'est la
+> famille du zero d'un champ mort, qu'on ne distingue pas du zero d'un champ
+> vivant.
+
+**Le critere C4 reste tenu** — par `NK_GUI_ETAT_OUVERT`, qui, lui, est pose par
+`BeginMenu` et prouve par la recette. Les remettre demandera un producteur
+reel : `ctx.inputId` pour le focus d'un champ texte, et une notion d'apercu que
+NKGui n'a pas.
+
+### 5.8 Ce qui reste ouvert
+
+- **Les 104 widgets non instrumentes restent non instrumentes**, volontairement.
+  Trois lignes chacun le jour ou un chantier en a besoin ; une note posee sans
+  usage est du code non exerce.
+- **Aucun banc ne lance `--releve-menus`.** Ou ca vit est mesure : le
+  verificateur du depot est dans l'arbre **`Nkentseu-verif`** (branche
+  `feat/verificateur`) — `verif_bancs.sh` + `config/bancs.list`. **NKUIDesign y
+  a deja sa ligne** (ligne 72), classee `banc`, mode `rapide`, arguments
+  `--roundtrip-controles`, verdict `code`. ⚠️ **Le format est UN PROJET PAR
+  LIGNE** : `--releve-menus` ne s'ajoute donc pas a cote, il faudrait soit
+  remplacer les arguments, soit apprendre au verificateur a lancer plusieurs
+  invocations pour un meme projet. **Ce n'est ni mon arbre ni mon fichier** —
+  la question est posee, pas tranchee.
