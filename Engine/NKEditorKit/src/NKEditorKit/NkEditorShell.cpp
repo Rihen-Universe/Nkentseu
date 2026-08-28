@@ -837,8 +837,8 @@ namespace nkentseu {
 				//    laisserait tomber le reste donnerait une pastille absente sans
 				//    aucune trace -- et on chercherait pourquoi le panneau
 				//    « n existe pas ».
-				logger.Error("[NkEditorShell] SetRail : {0} pastilles demandees, plafond "
-							 "kRailMax={1}. Les suivantes sont REFUSEES, pas ignorees.",
+				logger.Error("[NkEditorShell] SetRail : {0} pastilles demandées, plafond "
+							 "kRailMax={1}. Les suivantes sont REFUSÉES, pas ignorées.",
 							 count, (int32)kRailMax);
 				count = kRailMax;
 			}
