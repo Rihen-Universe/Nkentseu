@@ -1551,6 +1551,7 @@ namespace nkentseu {
 				int32 modalOp = 0;
 				int32 modalStartPending = 0;      // demande de lancement (callback clavier -> frame)
 				bool modalCancelPending = false;  // Echap / clic droit
+				bool modalConfirmPending = false; // Entree / Espace (CONFIRM du keymap Blender)
 				renderer::NkEditMesh modalSnap;   // etat AVANT l'operation (source de tout apercu)
 				NkVector<uint8> modalSelSnap;     // selection AVANT l'operation
 				float32 modalVal = 0.f;           // parametre CONTINU pilote a la SOURIS
@@ -1595,6 +1596,28 @@ namespace nkentseu {
 				// (NkGizmoInput::lockAxis) -- on ne le reecrit pas, on adopte sa
 				// convention 0=X 1=Y 2=Z pour que les deux ne puissent pas diverger.
 				int32 modalAxis = -1;
+				// AXE LOCAL a la SECONDE pression de la meme touche (X puis X). ⚠ Ceci
+				// n'est PAS dans blender_default.py : le keymap n'envoie qu'AXIS_X, et
+				// c'est le code de transformation qui fait tourner global -> local ->
+				// aucun. Verifie par ABSENCE AVEC CONTROLE POSITIF : la « Transform Modal
+				// Map » existe bien dans le fichier (l. 6193) et y declare AXIS_X et
+				// PRECISION -- le vide sur « local » est donc un vrai vide, pas un corpus
+				// tronque ni un mauvais mot-cle.
+				bool modalAxisLocal = false;
+				// CONTRAINTE DE PLAN (Maj+X/Y/Z) : on EXCLUT l'axe au lieu de s'y
+				// restreindre. Keymap : PLANE_X/Y/Z sur shift+X/Y/Z.
+				bool modalPlane = false;
+				// SAISIE NUMERIQUE. Pas davantage dans le keymap (meme controle positif) :
+				// Blender lit les chiffres dans son code de transformation. Tant qu'elle
+				// est active, LA SOURIS NE PILOTE PLUS -- sinon le nombre tape serait
+				// ecrase au premier tremblement du curseur.
+				bool modalNumActive = false;
+				// NK_MODAL_PRECIS=1 : force le modificateur de precision. Maj se TIENT,
+				// et rien n'injecte une touche TENUE en headless -- sans ce drapeau, la
+				// precision ne serait verifiable qu'a la main.
+				bool modalPrecisForce = false;
+				char modalNumBuf[24] = {0};
+				int32 modalNumLen = 0;
 				// LE MODE DANS LEQUEL LA MODALE A ETE LANCEE. Une modale appartient a son
 				// mode : si le mode change pendant qu'elle tourne, elle n'a plus de sens
 				// (son instantane photographie un gizmo qui n'est plus celui qu'on edite).
@@ -3609,6 +3632,50 @@ namespace nkentseu {
 		// ══════════════════════════════════════════════════════════════════════════════
 		// CADRE MODAL GENERIQUE (façon Blender) — un seul mecanisme pour toutes les ops
 		// ══════════════════════════════════════════════════════════════════════════════
+		// ── POSER LA CONTRAINTE D'AXE ───────────────────────────────────────────
+		// UNE seule implantation, appelee par la touche ET par le levier headless :
+		// un levier qui reimplemente la regle prouverait le levier, pas la regle.
+		//   sh = false : X puis X -> global, LOCAL, puis plus de contrainte
+		//   sh = true  : PLANE_* -- on exclut l'axe au lieu de s'y tenir
+		static void Demo3D_ModalPoseAxe(Demo3DState *st, int32 ax, bool sh) {
+			if (sh) {
+				st->modalPlane = true;
+				st->modalAxisLocal = false;
+				st->modalAxis = ax;
+			} else if (st->modalAxis == ax && !st->modalPlane) {
+				if (!st->modalAxisLocal)
+					st->modalAxisLocal = true;
+				else {
+					st->modalAxis = -1;
+					st->modalAxisLocal = false;
+				}
+			} else {
+				st->modalAxis = ax;
+				st->modalAxisLocal = false;
+				st->modalPlane = false;
+			}
+			st->modalDirty = true;
+			logger.Info("[Demo3D] MODAL contrainte : axe={0} repere={1}{2}\n",
+						st->modalAxis < 0 ? "aucun"
+										  : (st->modalAxis == 0 ? "X" : (st->modalAxis == 1 ? "Y" : "Z")),
+						st->modalAxisLocal ? "LOCAL" : "global", st->modalPlane ? " (PLAN)" : "");
+		}
+
+		// Etat de la contrainte, en UNE chaine, pour le bandeau [MODAL] : axe,
+		// repere, plan, saisie en cours. C'est le seul endroit ou l'utilisateur voit
+		// ce que la modale a COMPRIS de ses touches. Tampon statique : il n'y a
+		// qu'une operation modale a la fois, par construction.
+		static const char *Demo3D_ModalEtatTxt(const Demo3DState *st) {
+			static char b[96];
+			const char *axe = st->modalAxis < 0
+								  ? "libre"
+								  : (st->modalAxis == 0 ? "X" : (st->modalAxis == 1 ? "Y" : "Z"));
+			snprintf(b, sizeof(b), "  [%s%s%s]%s", st->modalPlane ? "plan " : "", axe,
+					 st->modalAxisLocal ? " LOCAL" : "",
+					 st->modalNumActive ? "  saisie" : "");
+			return b;
+		}
+
 		static const char *Demo3D_ModalName(int32 op) {
 			switch (op) {
 				case 1:
@@ -3804,6 +3871,26 @@ namespace nkentseu {
 			const int32 ax = (st->modalAxis >= 0 && st->modalAxis < 3) ? st->modalAxis : 1;
 			NkVec3f dir{0.f, 0.f, 0.f};
 			(&dir.x)[ax] = 1.f;
+			// ── AXE LOCAL : direction prise dans la rotation PHOTOGRAPHIEE ──────
+			// Le repere local est celui d'AVANT l'operation ; le lire sur l'etat
+			// courant le ferait deriver a chaque apercu -- exactement la raison pour
+			// laquelle le centre du To Sphere est fige au lancement.
+			if (st->modalAxisLocal) {
+				const float32 *m = (const float32 *)&st->modalGzRot[0];
+				const NkVec3f col{m[ax * 4 + 0], m[ax * 4 + 1], m[ax * 4 + 2]};
+				const float32 l = col.Len();
+				if (l > 1e-6f)
+					dir = col * (1.f / l);
+			}
+			// ── PLAN : on EXCLUT l'axe au lieu de s'y restreindre ───────────────
+			// Maj+X veut dire « dans le plan perpendiculaire a X » : le geste porte
+			// donc sur les DEUX autres axes.
+			if (st->modalPlane) {
+				NkVec3f pl{1.f, 1.f, 1.f};
+				(&pl.x)[ax] = 0.f;
+				const float32 l = pl.Len();
+				dir = (l > 1e-6f) ? pl * (1.f / l) : pl;
+			}
 			NkVec3f tr{0.f, 0.f, 0.f}, scl{0.f, 0.f, 0.f};
 			NkMat4f rot = NkMat4f::Identity();
 			if (st->modalOp == 9) {
@@ -3875,10 +3962,9 @@ namespace nkentseu {
 					const int32 ci = st->editMode ? 0 : (G.ActiveIndex() >= 0 ? G.ActiveIndex() : 0);
 					const NkVec3f t = G.TranslateOf(ci);
 					const NkVec3f sc = G.ScaleOf(ci);
-					logger.Info("[Demo3D] MODAL-OBS {0} EN COURS (non confirme) : axe={1} valeur={2} "
+					logger.Info("[Demo3D] MODAL-OBS {0} EN COURS (non confirme) : contrainte={1} valeur={2} "
 								"-> translation=({3}, {4}, {5}) echelle=({6}, {7}, {8})\n",
-								Demo3D_ModalName(st->modalOp),
-								st->modalAxis < 0 ? "libre" : (st->modalAxis == 0 ? "X" : (st->modalAxis == 1 ? "Y" : "Z")),
+								Demo3D_ModalName(st->modalOp), Demo3D_ModalEtatTxt(st),
 								st->modalVal, t.x, t.y, t.z, sc.x, sc.y, sc.z);
 				}
 				st->modalHasApplied = true;
@@ -4064,8 +4150,26 @@ namespace nkentseu {
 				if (st->modalSeg != before)
 					st->modalDirty = true;
 			}
+			// ── SAISIE NUMERIQUE : elle PREND LA MAIN sur la souris ─────────────
+			// Tant qu'un nombre est en cours de frappe, la souris ne pilote plus --
+			// sinon le nombre tape serait ecrase au premier tremblement du curseur.
+			if (st->modalNumActive) {
+				const float32 tape = (float32)atof(st->modalNumBuf);
+				if (fabsf(tape - st->modalVal) > 1e-9f) {
+					st->modalVal = tape;
+					st->modalDirty = true;
+				}
+				return;
+			}
 			if (st->modalScale != 0.f) {
-				float32 nvv = st->modalBase + (st->modalCurX - st->modalStartX) * st->modalScale;
+				// ── PRECISION : Maj TENU ralentit le geste d'un facteur 10 ──────
+				// Keymap Blender : PRECISION sur LEFT_SHIFT/RIGHT_SHIFT en value
+				// 'ANY' -- c'est donc un modificateur TENU, lu en continu, et non
+				// un appui a memoriser. D'ou la lecture ici, a chaque tour.
+				const bool precis = st->modalPrecisForce || NkInput.IsKeyDown(NkKey::NK_LSHIFT) ||
+									NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+				const float32 ech = st->modalScale * (precis ? 0.1f : 1.f);
+				float32 nvv = st->modalBase + (st->modalCurX - st->modalStartX) * ech;
 				if (st->modalOp == 5)
 					nvv = NkMax(1.f, NkMin(360.f, nvv));
 				else if (st->modalOp == 7)
@@ -4102,8 +4206,10 @@ namespace nkentseu {
 			}
 			if (st->modalCancelPending) {
 				st->modalCancelPending = false;
+				st->modalConfirmPending = false;
 				Demo3D_ModalCancel(st, ms);
-			} else if (clickNow || autoConfirm) {
+			} else if (clickNow || autoConfirm || st->modalConfirmPending) {
+				st->modalConfirmPending = false;
 				Demo3D_ModalConfirm(st, ms);
 			}
 			return true;
@@ -4120,6 +4226,12 @@ namespace nkentseu {
 			st->modalPhoto = (op >= 9 && op <= 11) ? Demo3DState::kPhotoGizmo
 												   : Demo3DState::kPhotoMaillage;
 			st->modalAxis = -1;
+			st->modalAxisLocal = false;
+			st->modalPlane = false;
+			st->modalNumActive = false;
+			st->modalNumLen = 0;
+			st->modalNumBuf[0] = 0;
+			st->modalConfirmPending = false;
 			st->modalEditAuLancement = st->editMode;
 			Demo3D_ModalPhotoPrendre(st);
 			st->modalFrames = 0;
@@ -4206,6 +4318,39 @@ namespace nkentseu {
 					st->modalSeg = 1;
 					st->modalScale = 1.f / 300.f;
 					break;
+			}
+			// NK_MODAL_AXIS="x|y|z|xx|sx|..." : pose la contrainte au lancement, par
+			// la MEME fonction que la touche (Demo3D_ModalPoseAxe). Un levier qui
+			// reimplementerait la regle prouverait le levier, pas la regle.
+			//   "x"  = axe X global · "xx" = X presse deux fois -> LOCAL
+			//   "sx" = Maj+X -> contrainte de PLAN · "c" = retire la contrainte
+			if (const char *maxs = getenv("NK_MODAL_AXIS")) {
+				for (const char *q = maxs; *q; ++q) {
+					const char c0 = (*q >= 'A' && *q <= 'Z') ? (char)(*q - 'A' + 'a') : *q;
+					if (c0 == 's')
+						continue; // prefixe : traite avec la lettre qui suit
+					const bool sh = (q != maxs && (q[-1] == 's' || q[-1] == 'S'));
+					if (c0 == 'x')
+						Demo3D_ModalPoseAxe(st, 0, sh);
+					else if (c0 == 'y')
+						Demo3D_ModalPoseAxe(st, 1, sh);
+					else if (c0 == 'z')
+						Demo3D_ModalPoseAxe(st, 2, sh);
+					else if (c0 == 'c') {
+						st->modalAxis = -1;
+						st->modalAxisLocal = false;
+						st->modalPlane = false;
+					}
+				}
+			}
+			// NK_MODAL_NUM="<nombre>" : saisie numerique, meme chemin que la frappe.
+			if (const char *mnum = getenv("NK_MODAL_NUM")) {
+				int32 n = 0;
+				for (const char *q = mnum; *q && n < (int32)sizeof(st->modalNumBuf) - 1; ++q)
+					st->modalNumBuf[n++] = *q;
+				st->modalNumBuf[n] = 0;
+				st->modalNumLen = n;
+				st->modalNumActive = (n > 0);
 			}
 			if (st->modalEnvHasVal)
 				st->modalVal = st->modalEnvVal; // pilote headless (pas de souris en capture)
@@ -4748,6 +4893,17 @@ namespace nkentseu {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
+				// ⚠ LA SOURIS AUSSI APPARTIENT A LA MODALE -- mais son ANNULATION au
+				// clic droit se traite ICI, AVANT le retrait. Poser le retrait en
+				// premier rendait `modalCancelPending` inatteignable et SUPPRIMAIT
+				// l'annulation au clic droit : un garde-fou pose au mauvais endroit
+				// emporte ce qu'il devait proteger. Rien ne l'aurait signale.
+				if (st->modalOp != 0) {
+					if (e->GetButton() == NkMouseButton::NK_MB_RIGHT &&
+						!(NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT)))
+						st->modalCancelPending = true;
+					return; // ni pick, ni curseur 3D, ni outil : l'op possede la souris
+				}
 				// PORTAGE NK3DModeler : l'outil CURSEUR de la barre fait du clic
 				// gauche un placement de curseur 3D (comme l'outil de Blender). Le
 				// Shift+clic droit de la demo reste valable en parallele.
@@ -4778,9 +4934,81 @@ namespace nkentseu {
 			});
 			// F : bascule caméra ÉDITEUR (orbit) <-> SIMULATION (fly). En EDIT MODE, F crée
 			// une face (n-gon) depuis la sélection -> ne pas basculer la caméra.
+			// ══ TRANSFORM MODAL MAP : LE CLAVIER APPARTIENT A LA MODALE ═══════════
+			// Blender a un keymap SEPARE pendant une operation modale (« Transform
+			// Modal Map », blender_default.py:6193) qui REMPLACE le keymap normal.
+			// Sans lui, X ne peut pas contraindre sur l'axe X -- il supprime.
+			// Enregistre EN PREMIER ; tous les autres rappels se retirent tant que
+			// `modalOp != 0`.
+			// Liaisons LUES A LA SOURCE :
+			//   CONFIRM  LEFTMOUSE · RET · NUMPAD_ENTER · ESPACE
+			//   CANCEL   RIGHTMOUSE · ECHAP
+			//   AXIS_X/Y/Z   X · Y · Z      (2e pression de la MEME touche = LOCAL)
+			//   PLANE_X/Y/Z  Maj+X/Y/Z      (exclut l'axe au lieu de s'y tenir)
+			//   CONS_OFF     C              (retire la contrainte)
+			//   PRECISION    Maj TENU       (lu en continu dans Demo3D_ModalParams)
+			// ⚠ ESPACE CONFIRME UNE MODALE chez Blender, et notre selecteur d'outil est
+			// aussi sur Espace : il CEDE tant qu'une modale tourne, sinon la meme touche
+			// ferait deux choses. C'est ce retrait qui l'assure.
+			// ⚠ Et C, qu'on venait de liberer en deplacant le gizmo COMBINE, retrouve
+			// ici son emploi Blender : retirer la contrainte pendant une modale.
+			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
+				if (!nkvpInputOn || !nkvpHover)
+					return;
+				if (st->modalOp == 0)
+					return;
+				const NkKey k = e->GetKey();
+				const bool sh = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+				auto poseAxe = [&](int32 ax) { Demo3D_ModalPoseAxe(st, ax, sh); };
+				if (k == NkKey::NK_X) { poseAxe(0); return; }
+				if (k == NkKey::NK_Y) { poseAxe(1); return; }
+				if (k == NkKey::NK_Z) { poseAxe(2); return; }
+				if (k == NkKey::NK_C) {
+					st->modalAxis = -1;
+					st->modalAxisLocal = false;
+					st->modalPlane = false;
+					st->modalDirty = true;
+					logger.Info("[Demo3D] MODAL contrainte RETIREE\n");
+					return;
+				}
+				if (k == NkKey::NK_ESCAPE) { st->modalCancelPending = true; return; }
+				if (k == NkKey::NK_ENTER || k == NkKey::NK_NUMPAD_ENTER || k == NkKey::NK_SPACE) {
+					st->modalConfirmPending = true;
+					return;
+				}
+				// ⚠ L'enumeration va NK_NUM1..NK_NUM9 PUIS NK_NUM0 : le zero est APRES le
+				// neuf. Une soustraction de plage donnerait 10 pour la touche 0.
+				int32 chiffre = -1;
+				if (k >= NkKey::NK_NUM1 && k <= NkKey::NK_NUM9)
+					chiffre = (int32)k - (int32)NkKey::NK_NUM1 + 1;
+				else if (k == NkKey::NK_NUM0)
+					chiffre = 0;
+				if (chiffre >= 0 || k == NkKey::NK_PERIOD || k == NkKey::NK_MINUS) {
+					if (st->modalNumLen < (int32)sizeof(st->modalNumBuf) - 1) {
+						st->modalNumBuf[st->modalNumLen++] =
+							(chiffre >= 0) ? (char)('0' + chiffre) : (k == NkKey::NK_PERIOD ? '.' : '-');
+						st->modalNumBuf[st->modalNumLen] = 0;
+						st->modalNumActive = true;
+						st->modalDirty = true;
+					}
+					return;
+				}
+				if (k == NkKey::NK_BACK && st->modalNumActive) {
+					if (st->modalNumLen > 0)
+						st->modalNumBuf[--st->modalNumLen] = 0;
+					if (st->modalNumLen == 0)
+						st->modalNumActive = false;
+					st->modalDirty = true;
+					return;
+				}
+			});
 			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
+					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
 					return;
 				if (e->GetKey() == NkKey::NK_F && !st->editMode) {
 					st->useSimCam = !st->useSimCam;
@@ -4794,6 +5022,10 @@ namespace nkentseu {
 			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
+					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
 					return;
 				auto &c = st->editorCam;
 				const NkVec3f t = c.GetTarget();
@@ -4928,6 +5160,10 @@ namespace nkentseu {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
+					return;
 				const NkKey k = e->GetKey();
 				if (k == NkKey::NK_V) {
 					static bool vsync = true;
@@ -5012,6 +5248,10 @@ namespace nkentseu {
 			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
+					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
 					return;
 				const NkKey k = e->GetKey();
 				const bool alt = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
@@ -5598,6 +5838,10 @@ namespace nkentseu {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
+					return;
 					auto &cfg = shadowSys->GetConfig();
 					// Debug ombres sur F-keys (libère [ ] P N M R pour le keymap Blender) :
 					//   F5/F6 = bias -/+ (maintenu = continu) · F7 = cycle PCF ·
@@ -5637,6 +5881,10 @@ namespace nkentseu {
 				NkEvents().AddEventCallback<NkKeyReleaseEvent>([st](NkKeyReleaseEvent *e) {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
+					return;
+				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
+				// separe, comme la « Transform Modal Map » de Blender).
+				if (st->modalOp != 0)
 					return;
 					if (e->GetKey() == NkKey::NK_F5)
 						st->biasDownHeld = false;
@@ -6300,6 +6548,8 @@ namespace nkentseu {
 					// Spin : un compteur de maillage ne bouge JAMAIS pendant une
 					// transformation, donc sans ceci « la modale marche » et « la
 					// modale ne fait rien » rendent exactement la meme trace.
+					if (getenv("NK_MODAL_PRECIS"))
+						st->modalPrecisForce = true;
 					if (getenv("NK_MODAL_OBS")) {
 						st->modalObs = true;
 						logger.Info("[Demo3D] NK_MODAL_OBS actif : etat intermediaire des modales journalise\n");
@@ -11480,11 +11730,7 @@ namespace nkentseu {
 											Demo3D_ModalName(st->modalOp),
 											// L'AXE n'a de sens que pour une transformation : l'afficher
 											// partout ferait croire qu'un biseau a une direction.
-											(st->modalOp >= 9 && st->modalOp <= 11)
-												? (st->modalAxis == 0 ? "  axe X"
-																	  : (st->modalAxis == 1 ? "  axe Y"
-																						   : (st->modalAxis == 2 ? "  axe Z" : "  axe libre")))
-												: "",
+											(st->modalOp >= 9 && st->modalOp <= 11) ? Demo3D_ModalEtatTxt(st) : "",
 											(st->modalOp == 4) ? "slide" : "valeur", st->modalVal,
 											(st->modalOp == 4) ? "coupes" : "segments", st->modalSeg,
 											(st->modalOp == 4) ? "  |  anneau: survol souris (occlusion testee)" : "");
