@@ -1344,6 +1344,39 @@ namespace nkentseu {
 				faces.PushBack(fc);
 			}
 			LinkTwins();
+			// ⚠️ LA COUCHE D'ARETES DE PREMIERE CLASSE, RECONSTRUITE ICI.
+			// Sans cette ligne, TOUTE operation d'edition sortait avec une table
+			// d'aretes VIDE -- et, bien plus grave, avec `canonOf` VIDE :
+			//     au repos            table=960  canonOf=561
+			//     apres subdivision   table=0    canonOf=0
+			// Or `VertOwner()` retombe sur l'INDICE BRUT tant que `canonOf` est
+			// vide (cf. la note de VertOwner, plus haut dans l'en-tete), et aucun
+			// indice brut ne repond a une question topologique. Toute adjacence
+			// calculee apres une operation travaillait donc sur une identite NON
+			// SOUDEE, en silence. Le « 0 arete » du panneau n'etait que le symptome
+			// visible d'une couche topologique absente.
+			//
+			// POURQUOI ICI, ET NULLE PART AILLEURS : 18 operations reconstruisent le
+			// maillage et TOUTES entonnent dans cette fonction. Un appel ici en
+			// couvre dix-huit ; un appel par operation serait dix-huit occasions
+			// d'en oublier une. C'est deja ce que fait sa soeur `BuildFromIndexed`,
+			// et l'ecart entre les deux ETAIT le defaut.
+			//
+			// COUT MESURE EN APPARIE (meme binaire, 7 runs, dispersion d'un run
+			// isole : 93 %) : mediane 2,651 -> 3,603 ms sur une subdivision de
+			// sphere, soit +36 %. Ce n'est PAS gratuit : `RebuildEdges` est un
+			// parcours SEPARE, pas une fusion dans la boucle ci-dessus.
+			// ⚠️ ET C'EST ASSUME : une identite topologique absente est un defaut de
+			// CORRECTION, pas de performance -- 0,95 ms sur un geste manuel ne se
+			// sent pas, une adjacence fausse se sent plus tard et sans rien lever.
+			//
+			// ⚠️ CET APPEL EST FAIT POUR MOURIR D'INANITION. Le modele vise est celui
+			// de Blender : en edition le maillage est VIVANT et les operateurs le
+			// MUTENT -- ils creent leurs aretes au passage, comme le font deja
+			// `AddWireEdge` et `ExtrudeSelectedFacesInPlace`. Chaque operation
+			// migree cesse de passer par ici ; le jour ou la derniere aura migre,
+			// cette ligne n'aura plus d'appelant. On ne la supprime pas d'un coup.
+			RebuildEdges();
 			RecomputeNormals();
 		}
 
