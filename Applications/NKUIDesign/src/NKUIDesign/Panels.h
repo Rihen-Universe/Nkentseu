@@ -404,7 +404,7 @@ namespace nkuidesign {
 			static bool criAdresse = false;
 			if (!criAdresse) {
 				criAdresse = true;
-				logger.Error("[NKUIDesign] {0} : aucun cadre de defilement (childDepth=0). La "
+				logger.Error("[NKUIDesign] {0} : aucun cadre de défilement (childDepth=0). La "
 							 "hauteur visible est INCONNUE ; on retombe sur un repli de 600 px, "
 							 "qui n'est PAS une mesure.",
 							 quiDemande ? quiDemande : "?");
@@ -440,7 +440,7 @@ namespace nkuidesign {
 			NkFileBackend fileBackend;
 
 			/// ⚠️ UNE SEULE SELECTION POUR LES TROIS PANNEAUX. Document 3 §11.5 :
-			///    « deux notions de "ce qui est selectionne" finiraient par
+			///    « deux notions de "ce qui est sélectionné" finiraient par
 			///    diverger, et personne ne saurait laquelle fait foi. » Elle vit
 			///    donc ici, dans l'etat partage, et JAMAIS dans un panneau.
 			///
@@ -697,7 +697,7 @@ namespace nkuidesign {
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				designkit::UiRects::NoteRegion(ctx, "palette");
-				ec.Text("Ce que la bibliotheque declare");
+				ec.Text("Ce que la bibliothèque déclare");
 				ec.Separator();
 				(void)ctx;
 
@@ -755,7 +755,7 @@ namespace nkuidesign {
 									mSt->doc.IsValidIndex(mSt->selected)
 										? mSt->doc.nodes[(uint32)mSt->selected].label.Data()
 										: "(aucune)");
-				if (designkit::Button(ctx, "Poser dans la selection", "palette.poser"))
+				if (designkit::Button(ctx, "Poser dans la sélection", "palette.poser"))
 					Place();
 
 				const NkComponentDecl *d = Chosen();
@@ -765,7 +765,7 @@ namespace nkuidesign {
 					//    lisait comme une phrase — donc se coupait comme une
 					//    phrase. Un chiffre par ligne, la cle a gauche : rien a
 					//    tronquer, et on compare deux composants d'un coup d'oeil.
-					if (designkit::Section(ctx, "Ce que ce composant declare")) {
+					if (designkit::Section(ctx, "Ce que ce composant déclare")) {
 						snprintf(b, sizeof(b), "%u", d->paramCount);
 						designkit::KeyValue(ctx, "parametres", b);
 						snprintf(b, sizeof(b), "%u", d->variantCount);
@@ -783,7 +783,7 @@ namespace nkuidesign {
 					//    fait pour revenir a la ligne, pas pour etre coupe.
 					nkgui::TextWrapped(ctx, d->summary ? d->summary : "");
 				} else {
-					nkgui::TextWrapped(ctx, "Un cadre ne declare rien : il agence ses enfants.");
+					nkgui::TextWrapped(ctx, "Un cadre ne déclare rien : il agence ses enfants.");
 				}
 
 				// ── CE QUE LA CANONISATION A RATTRAPE ────────────────────────
@@ -797,7 +797,7 @@ namespace nkuidesign {
 					snprintf(b, sizeof(b), "%u", NkRoleAudit::RescuedCount());
 					designkit::KeyValue(ctx, "roles PascalCase", b);
 					nkgui::TextWrapped(ctx, "Rattrapes par la canonisation ; a corriger a la source "
-											"(NKEditorKit). L'ecran est juste, la declaration ne "
+											"(NKEditorKit). L'écran est juste, la déclaration ne "
 											"l'est pas.");
 				}
 			}
@@ -812,7 +812,7 @@ namespace nkuidesign {
 				const NkComponentDecl *d = Chosen();
 				const int32 created = mSt->doc.AddChild(mSt->selected, d ? d->name : "", NkAuthor::Humain);
 				if (created < 0) {
-					mSt->status = NkString("Pose refusee : cible invalide ou composant inconnu.");
+					mSt->status = NkString("Pose refusée : cible invalide ou composant inconnu.");
 					return;
 				}
 				mSt->SelectSingle(created);
@@ -878,7 +878,7 @@ namespace nkuidesign {
 				// Une valeur, tous les noeuds qui la nomment. C'est le benefice
 				// direct de la regle « un espacement se nomme » : l'aeration de
 				// l'interface entiere se regle ici, pas noeud par noeud.
-				if (designkit::Section(ctx, "Metriques du document")) {
+				if (designkit::Section(ctx, "Métriques du document")) {
 					for (uint32 i = 0; i < (uint32)mSt->doc.metrics.Size(); ++i) {
 						float32 v = mSt->doc.metrics[i].value;
 						if (nkgui::DragFloat(ctx, mSt->doc.metrics[i].name.Data(), v, 0.25f, 0.f, 64.f))
@@ -900,7 +900,7 @@ namespace nkuidesign {
 					snprintf(b, sizeof(b), "%u", mSt->doc.NodeCount());
 					designkit::KeyValue(ctx, "noeuds", b);
 					snprintf(b, sizeof(b), "%u", mSt->doc.CountByAuthor(NkAuthor::IA));
-					designkit::KeyValue(ctx, "poses par l'IA", b);
+					designkit::KeyValue(ctx, "posés par l'IA", b);
 					snprintf(b, sizeof(b), "%u", mSt->doc.CountCorrected());
 					designkit::KeyValue(ctx, "corriges", b);
 					{
@@ -1018,7 +1018,7 @@ namespace nkuidesign {
 	class PreviewPanel : public NkEditorPanel {
 		public:
 			explicit PreviewPanel(DesignState *st)
-				: NkEditorPanel("Apercu", NkEditorDockSide::NK_CENTER), mSt(st) {}
+				: NkEditorPanel("Aperçu", NkEditorDockSide::NK_CENTER), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -1056,7 +1056,7 @@ namespace nkuidesign {
 					//    Un diagnostic vrai qui se lit comme « rien n'est dessine »
 					//    envoie chercher le defaut du mauvais cote -- exactement ce
 					//    qu'il devait eviter.
-					ec.Text("(ce document est agence en colonnes et rangees : il n'a aucune page "
+					ec.Text("(ce document est agencé en colonnes et rangées : il n'a aucune page "
 							"« libre » où poser des formes à la souris — Ctrl+N en ouvre une)");
 
 				// ── LE REPLI FRANC, A L'ENDROIT OU LE MAGENTA APPARAIT ───────
@@ -1069,7 +1069,7 @@ namespace nkuidesign {
 				if (NkRoleAudit::FaultCount() > 0) {
 					NkString resume;
 					NkRoleAudit::Summary(resume, 6);
-					ec.Text("!! ROLE(S) DE THEME NON RESOLU(S) -- ce qui suit est peint en magenta :");
+					ec.Text("!! ROLE(S) DE THÈME NON RÉSOLU(S) -- ce qui suit est peint en magenta :");
 					ec.Text(resume.Data());
 				}
 				// ⚠️ « CANVAS — PREND TOUT L'ESPACE RESTANT » (plan de la fenêtre).
@@ -1210,7 +1210,7 @@ namespace nkuidesign {
 					//    Un essai a la souris aurait vise le coin de la fenetre.
 					const NkPaintRect r = screen.At((int32)i);
 					char clef[128];
-					snprintf(clef, sizeof(clef), "apercu.noeud.%s",
+					snprintf(clef, sizeof(clef), "apercu.nœud.%s",
 							 mSt->doc.nodes[i].label.Data());
 					designkit::UiRects::NoteRect(clef, r.x, r.y, r.w, r.h);
 				}
@@ -1478,12 +1478,12 @@ namespace nkuidesign {
 	class PropertiesPanel : public NkEditorPanel {
 		public:
 			explicit PropertiesPanel(DesignState *st)
-				: NkEditorPanel("Proprietes", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+				: NkEditorPanel("Propriétés", NkEditorDockSide::NK_RIGHT), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				if (!mSt->doc.IsValidIndex(mSt->selected)) {
-					ec.Text("Aucun noeud selectionne.");
+					ec.Text("Aucun nœud sélectionné.");
 					return;
 				}
 				NkUINode &n = mSt->doc.nodes[(uint32)mSt->selected];
@@ -1498,7 +1498,7 @@ namespace nkuidesign {
 					DrawSizing(ec, ctx, n.height);
 				if (designkit::Section(ctx, "Agencement de ses enfants"))
 					DrawLayout(ec, ctx, n);
-				if (designkit::Section(ctx, "Reglages du composant"))
+				if (designkit::Section(ctx, "Réglages du composant"))
 					DrawComponentSettings(ec, ctx, n);
 			}
 
@@ -1511,7 +1511,7 @@ namespace nkuidesign {
 				(void)ec;
 				char b[192];
 				snprintf(b, sizeof(b), "%s%s%s", NkAuthorName(n.prov.author),
-						 n.prov.verified ? " · rejouee" : "", n.prov.corrected ? " · corrigee" : "");
+						 n.prov.verified ? " · rejouée" : "", n.prov.corrected ? " · corrigée" : "");
 				designkit::KeyValue(ctx, "auteur", b);
 				if (n.prov.origin.Length() > 0)
 					designkit::KeyValue(ctx, "origine", n.prov.origin.Data());
@@ -1604,7 +1604,7 @@ namespace nkuidesign {
 			void DrawComponentSettings(NkEditorFrameContext &ec, NkGuiContext &ctx, NkUINode &n) {
 				const NkComponentDecl *d = n.IsFrame() ? nullptr : n.instance.Decl();
 				if (!d) {
-					ec.Text("Un cadre n'a pas de reglages : il agence.");
+					ec.Text("Un cadre n'a pas de réglages : il agence.");
 					return;
 				}
 				ec.Text("Representation");
@@ -1642,7 +1642,7 @@ namespace nkuidesign {
 				}
 
 				ec.Separator();
-				ec.Text("Metriques (px logiques)");
+				ec.Text("Métriques (px logiques)");
 				for (uint16 i = 0; i < d->metricCount; ++i) {
 					const NkMetricDecl &md = d->metrics[i];
 					float32 v = n.instance.Metric(md.name);
@@ -1656,7 +1656,7 @@ namespace nkuidesign {
 				}
 
 				ec.Separator();
-				ec.Text("Jetons de theme");
+				ec.Text("Jetons de thème");
 				for (uint16 i = 0; i < d->tokenCount; ++i) {
 					const NkTokenDecl &td = d->tokens[i];
 					char line[192];
@@ -1671,7 +1671,7 @@ namespace nkuidesign {
 				//    en place et teste.
 
 				ec.Separator();
-				ec.Text("Evenements exposes (declares, non branches)");
+				ec.Text("Événements exposés (déclarés, non branchés)");
 				for (uint16 i = 0; i < d->eventCount; ++i) {
 					const NkEventDecl &e = d->events[i];
 					char line[256];
@@ -1684,12 +1684,12 @@ namespace nkuidesign {
 					ec.Text(line);
 				}
 				ec.Separator();
-				if (ec.Button("Reglages : tout reinitialiser")) {
+				if (ec.Button("Réglages : tout réinitialiser")) {
 					n.instance.ResetAll();
 					Edited();
 				}
 				char b[128];
-				snprintf(b, sizeof(b), "%u ecart(s) par rapport a la declaration",
+				snprintf(b, sizeof(b), "%u écart(s) par rapport a la déclaration",
 						 n.instance.OverrideCount());
 				ec.Text(b);
 			}
@@ -1722,14 +1722,14 @@ namespace nkuidesign {
 	class PreferencesPanel : public NkEditorPanel {
 		public:
 			explicit PreferencesPanel(DesignState *st)
-				: NkEditorPanel("Preferences", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+				: NkEditorPanel("Préférences", NkEditorDockSide::NK_RIGHT), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				designkit::UiRects::NoteRegion(ctx, "preferences");
 				ec.Text("Backend graphique");
-				nkgui::TextWrapped(ctx, "Le reglage est ecrit dans nkuidesign.cfg, a cote de "
-										"l'executable. Il vaut pour tous les lancements suivants.");
+				nkgui::TextWrapped(ctx, "Le réglage est écrit dans nkuidesign.cfg, à côté de "
+										"l'exécutable. Il vaut pour tous les lancements suivants.");
 				ec.Separator();
 
 				// ── CE QUI TOURNE MAINTENANT, ET QUI L'A DECIDE ──────────────
@@ -1742,7 +1742,7 @@ namespace nkuidesign {
 				//    nkuidesign.cfg (cle gfx) » ne tient dans aucune colonne, et
 				//    s'affichait « fichier de configura… ». Une valeur longue n'est
 				//    pas une valeur de tableau : elle se met a la ligne.
-				ec.Text("decide par");
+				ec.Text("décidé par");
 				nkgui::TextWrapped(ctx, mSt->gfxSource.Data());
 				ec.Separator();
 
@@ -1772,8 +1772,8 @@ namespace nkuidesign {
 				if (mSt->prefsNeedsRestart) {
 					ec.Separator();
 					nkgui::TextWrapped(ctx, "!! Enregistre. Le backend graphique ne change qu'au "
-											"PROCHAIN lancement : le contexte est cree une fois, au "
-											"demarrage. Fermez et relancez pour l'appliquer.");
+											"PROCHAIN lancement : le contexte est créé une fois, au "
+											"démarrage. Fermez et relancez pour l'appliquer.");
 				}
 				if (!mSt->prefsStatus.Empty()) {
 					ec.Separator();
@@ -1846,11 +1846,11 @@ namespace nkuidesign {
 				const NkAIResult r = mSt->ai.Ask(mSt->promptBuf, mSt->doc, mSt->selected);
 				char b[320];
 				if (r.Accepted()) {
-					snprintf(b, sizeof(b), "Acceptee : %u noeud(s) poses, rejeu conforme.", r.nodesAdded);
+					snprintf(b, sizeof(b), "Acceptée : %u nœud(s) posés, rejeu conforme.", r.nodesAdded);
 					mSt->host.SyncTo(mSt->doc);
 					mSt->selected = r.graftedRoot;
 				} else {
-					snprintf(b, sizeof(b), "REFUSEE — %s. Le document n'a pas bouge.",
+					snprintf(b, sizeof(b), "REFUSÉE — %s. Le document n'a pas bougé.",
 							 NkAIVerdictName(r.verdict));
 				}
 				mLast = NkString(b);
@@ -1863,7 +1863,7 @@ namespace nkuidesign {
 				const uint32 diffs = NkDesignAI::ReplayDiffs(mSt->doc, mSt->ai.replaySurface);
 				char b[192];
 				snprintf(b, sizeof(b), "Rejeu du document : %u divergence(s)%s", diffs,
-						 diffs == 0 ? " — fidele." : " — NON fidele.");
+						 diffs == 0 ? " — fidèle." : " — NON fidèle.");
 				mLast = NkString(b);
 				if (diffs == 0)
 					mSt->doc.MarkVerified(0);
@@ -1949,7 +1949,7 @@ namespace nkuidesign {
 				//    La zone VISIBLE est celle du cadre de défilement posé par
 				//    `Begin` (`BeginScrollFrame(..., content, ...)`) : c'est
 				//    `childStack[childDepth-1].area`. On la lit là, ou nulle part.
-				const float32 basY = designkit::HauteurVisibleBas(ctx, "Hierarchie");
+				const float32 basY = designkit::HauteurVisibleBas(ctx, "Hiérarchie");
 				float32 restant = basY - ctx.layout.cursor.y;
 				if (restant < 80.f)
 					restant = 80.f;
@@ -2093,9 +2093,9 @@ namespace nkuidesign {
 				//    ressemble à un défaut de l'arbre et non du document.
 				if (!mModelePages.nodes.Empty() && !mModelePages.IsWellFormed() && !mCriPages) {
 					mCriPages = true;
-					logger.Error("[NKUIDesign] Hierarchie : le document n'est PAS en ordre prefixe "
-								 "ou depasse kMaxDepth={0}. L'arbre s'affichera dans un ordre "
-								 "surprenant -- ce n'est pas un defaut du composant.",
+					logger.Error("[NKUIDesign] Hiérarchie : le document n'est PAS en ordre préfixe "
+								 "ou dépasse kMaxDepth={0}. L'arbre s'affichera dans un ordre "
+								 "surprenant -- ce n'est pas un défaut du composant.",
 								 (int32)NkTreeViewModel::kMaxDepth);
 				}
 				// La sélection est UNE (§11.5) : elle vit dans `DesignState`.
@@ -2136,10 +2136,10 @@ namespace nkuidesign {
 				}
 				if (n >= 64 && !mCriRegistre) {
 					mCriRegistre = true;
-					logger.Error("[NKUIDesign] le registre de composants est PLEIN ({0} entrees, "
+					logger.Error("[NKUIDesign] le registre de composants est PLEIN ({0} entrées, "
 								 "plafond kMaxComponents). Les composants suivants ne sont ni "
-								 "enregistres ni affiches -- ce n'est pas un filtre de la "
-								 "Hierarchie.",
+								 "enregistrés ni affichés -- ce n'est pas un filtre de la "
+								 "Hiérarchie.",
 								 (int32)n);
 				}
 			}

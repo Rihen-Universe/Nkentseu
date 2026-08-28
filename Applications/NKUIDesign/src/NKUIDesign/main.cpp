@@ -152,7 +152,7 @@ static void AppliquerTheme(uint32 i) {
 	gDesign.theme = gThemes.Current();
 	if (gShell) {
 		gShell->ApplyTheme(gThemes.Current());
-		gShell->SetFooter("Theme : ", gThemes.Current().Name().CStr());
+		gShell->SetFooter("Thème : ", gThemes.Current().Name().CStr());
 	}
 }
 
@@ -196,7 +196,7 @@ static void DumpUiRects(NkEditorFrameContext &, void *) {
 //    n'aurait de toute facon pas ouvert un panneau ferme.
 static void FocusPanel(const char *titre) {
 	if (!gShell) {
-		logger.Warn("[NKUIDesign] vue '{0}' demandee sans coquille", titre);
+		logger.Warn("[NKUIDesign] vue '{0}' demandée sans coquille", titre);
 		return;
 	}
 	// ⚠️ ON JOURNALISE LE RESULTAT, PAS L'APPEL. « la commande est partie » et
@@ -206,7 +206,7 @@ static void FocusPanel(const char *titre) {
 	logger.Info("[NKUIDesign] vue '{0}' : FocusPanel -> {1}", titre, ok ? "vrai" : "FAUX");
 }
 static void CmdVueHierarchie(void *) {
-	FocusPanel("Hierarchie");
+	FocusPanel("Hiérarchie");
 }
 static void CmdVueInspecteur(void *) {
 	FocusPanel("Inspecteur");
@@ -219,10 +219,10 @@ static void CmdVueComposition(void *) {
 	FocusPanel("Composition");
 }
 static void CmdVueProprietes(void *) {
-	FocusPanel("Proprietes");
+	FocusPanel("Propriétés");
 }
 static void CmdVuePreferences(void *) {
-	FocusPanel("Preferences");
+	FocusPanel("Préférences");
 }
 #endif
 
@@ -626,7 +626,7 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 		//    bouton casse, et on cherche le defaut la ou il n y en a pas.
 		if (gShell)
 			gShell->SetFooter("Nouveau projet : le Launcher modal (Vierge / Gabarit / IA) "
-							  "n'est pas encore branche.");
+							  "n'est pas encore branché.");
 	}
 }
 
@@ -757,11 +757,11 @@ int nkmain(const NkEntryState &state) {
 			puts("  --probe                 la sonde headless");
 			puts("  --roundtrip[=<dossier>] l'aller-retour du format .nkgui");
 			puts("  --roundtrip-controles   les temoins du lecteur/ecrivain");
-			puts("  --pool-controles        les temoins du pool de chaines");
+			puts("  --pool-controles        les témoins du pool de chaînes");
 			puts("  --valider[=<dossier>]   la validation par role et par type");
-			puts("  --dump-ui               publier les rectangles dessines");
-			puts("  --small                 fenetre reduite (1024x640)");
-			puts("  --theme=<nom>           theme au lancement (nom de NkThemeLibrary)");
+			puts("  --dump-ui               publier les rectangles dessinés");
+			puts("  --small                 fenêtre réduite (1024x640)");
+			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
 			return 2;
 		}
 	}
@@ -801,7 +801,7 @@ int nkmain(const NkEntryState &state) {
 		cfgGfx[0] ? cfgGfx : nullptr, nkentseu::env::GetEnvVar("NK_GFX_API"), argv, argCount);
 
 	if (rawCount > kMaxArgs)
-		logger.Warnf("[NKUIDesign] %u arguments recus, seuls les %u premiers ont ete lus.", rawCount,
+		logger.Warnf("[NKUIDesign] %u arguments reçus, seuls les %u premiers ont été lus.", rawCount,
 					 kMaxArgs);
 
 	// ⚠️ `Info` (accolades INDEXEES `{0}`), PAS `Infof` (famille printf `%s`). La
@@ -844,11 +844,11 @@ int nkmain(const NkEntryState &state) {
 	//    pas etait d'ouvrir la fenetre et de voir du magenta -- une couleur qui
 	//    dit qu'il y a un probleme sans dire lequel. Cette ligne le dit avec des
 	//    noms, sur une machine sans ecran, et avant meme la coquille.
-	logger.Info("[NKUIDesign] roles de theme -- {0}", gDesign.roleAudit.Data());
+	logger.Info("[NKUIDesign] rôles de thème — {0}", gDesign.roleAudit.Data());
 
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
 	NkEditorShellConfig cfg;
-	cfg.title = "NkUIDesign - composer des interfaces a partir de composants declares";
+	cfg.title = "NkUIDesign — composer des interfaces à partir de composants déclarés";
 	cfg.width = width;
 	cfg.height = height;
 	cfg.graphicsApi = gfx.api;
@@ -864,8 +864,8 @@ int nkmain(const NkEntryState &state) {
 	//    restaure l'etat de fenetre de la session precedente. Un essai a demande
 	//    1024x640 et a mesure une fenetre de 1936x1048 -- ecrire « fenetre WxH »
 	//    sans le mot « demandee » ferait lire un chiffre faux comme une mesure.
-	logger.Info("[NKUIDesign] coquille initialisee -- backend demande '{0}', retenu '{1}', "
-				"fenetre demandee {2}x{3} (l'etat restaure peut la changer).",
+	logger.Info("[NKUIDesign] coquille initialisée — backend demandé '{0}', retenu '{1}', "
+				"fenêtre demandée {2}x{3} (l'état restauré peut la changer).",
 				gfx.requested, gfx.effective, width, height);
 
 	// ── LES PANNEAUX DES PLANCHES, ET LES ANCIENS QUI PARTENT ────────────
@@ -922,15 +922,15 @@ int nkmain(const NkEntryState &state) {
 		//    ailleurs. Ici on garde le défaut, en le NOMMANT.
 		const int32 i = gThemes.Find(gThemeDemande.Data());
 		if (i < 0)
-			logger.Error("[NKUIDesign] theme '{0}' INCONNU : le defaut est garde. "
-						 "Voir Affichage > Theme pour la liste.",
+			logger.Error("[NKUIDesign] thème '{0}' INCONNU : le défaut est gardé. "
+						 "Voir Affichage > Thème pour la liste.",
 						 gThemeDemande.Data());
 		else
 			gThemes.SetCurrentIndex((uint32)i);
 	}
 	gDesign.theme = gThemes.Current();
 	shell->ApplyTheme(gThemes.Current());
-	logger.Info("[NKUIDesign] theme applique : '{0}' ({1} disponibles).",
+	logger.Info("[NKUIDesign] thème appliqué : '{0}' ({1} disponibles).",
 				gThemes.Current().Name().CStr(), gThemes.Count());
 
 	// ── L EN-TETE AUX COTES DE LA MAQUETTE ───────────────────────────────
@@ -967,13 +967,13 @@ int nkmain(const NkEntryState &state) {
 	//    « Preferences » debranche journaliserait `FocusPanel -> FAUX` a chaque
 	//    appui : un raccourci annonce qui ne fait rien, c est-a-dire exactement
 	//    le « parametre qui n est pas honore » que ce chantier a deja paye.
-	shell->RegisterCommand("Vue: Hierarchie", &CmdVueHierarchie, nullptr, "Ctrl+J");
+	shell->RegisterCommand("Vue: Hiérarchie", &CmdVueHierarchie, nullptr, "Ctrl+J");
 	shell->RegisterCommand("Vue: Inspecteur", &CmdVueInspecteur, nullptr, "Ctrl+L");
 #if NKUIDESIGN_ANCIENS_PANNEAUX
 	shell->RegisterCommand("Vue: Palette", &CmdVuePalette, nullptr, "Ctrl+B");
 	shell->RegisterCommand("Vue: Composition", &CmdVueComposition, nullptr, "Ctrl+K");
-	shell->RegisterCommand("Vue: Proprietes", &CmdVueProprietes, nullptr, "Ctrl+P");
-	shell->RegisterCommand("Vue: Preferences", &CmdVuePreferences, nullptr, "Ctrl+M");
+	shell->RegisterCommand("Vue: Propriétés", &CmdVueProprietes, nullptr, "Ctrl+P");
+	shell->RegisterCommand("Vue: Préférences", &CmdVuePreferences, nullptr, "Ctrl+M");
 #endif
 
 	return shell->Run();
