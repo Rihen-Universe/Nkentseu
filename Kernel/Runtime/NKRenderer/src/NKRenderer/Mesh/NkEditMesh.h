@@ -132,6 +132,19 @@ namespace nkentseu {
 		//   donc immédiatement re-soudés — la déchirure ne survivrait pas au rebuild.
 		//   L'écart par défaut est minuscule (1 %) : la topologie est réellement séparée
 		//   sans déformation visible, et l'utilisateur écarte ensuite au gizmo (G).
+		// ── SONDE DE PHASES DE `BuildFromPolygons` ──────────────────────────────
+		// L'entonnoir traverse par TOUTE operation d'edition. `appels` est le
+		// controle positif : zero = le chemin n'est pas parcouru, et alors aucune
+		// mesure prise dessus ne veut rien dire.
+		struct NkEmBfpPhases {
+				float64 msLinkTwins = 0.0;
+				float64 msRebuildEdges = 0.0;
+				float64 msRecomputeNormals = 0.0;
+				uint64 appels = 0;
+		};
+		NkEmBfpPhases &NkEmBfpPhasesGet();
+		bool NkEmBfpPhasesActives();
+
 		struct NkEdgeSplitParams {
 				float32 gap = 0.f;
 		};

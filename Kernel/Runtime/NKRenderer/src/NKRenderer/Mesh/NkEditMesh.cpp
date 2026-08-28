@@ -3,6 +3,8 @@
 // =============================================================================
 #include "NkEditMesh.h"
 #include "NKContainers/Associative/NkHashMap.h"
+#include "NKTime/NkChrono.h" // sonde de phases de l'entonnoir (NK_BFP_PHASES)
+#include <cstdlib>			  // getenv
 
 #include <stddef.h> // offsetof : parametres adressables par nom
 #include <cmath> // cosf / sinf / atan2f — profils d'arc du bevel, rotations du spin
@@ -1294,6 +1296,22 @@ namespace nkentseu {
 			}
 		}
 
+		// ── SONDE DE PHASES DE L'ENTONNOIR ──────────────────────────────────────
+		// `BuildFromPolygons` est traverse par TOUTE operation d'edition. Ces trois
+		// compteurs disent ou partent ses millisecondes, et surtout `appels` sert de
+		// CONTROLE POSITIF : un chemin qu'on optimise sans verifier qu'il est
+		// parcouru est un chemin qu'on optimise pour rien -- nous venons de le payer
+		// sur `ExtrudeSelectedFacesInPlace`, dont un commentaire de 18 lignes
+		// chiffrait le cout alors qu'il n'a aucun appelant de production.
+		NkEmBfpPhases &NkEmBfpPhasesGet() {
+			static NkEmBfpPhases p;
+			return p;
+		}
+		bool NkEmBfpPhasesActives() {
+			static const bool on = (getenv("NK_BFP_PHASES") != nullptr);
+			return on;
+		}
+
 		void NkEditMesh::BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
 										   const uint32 *faceVerts, const FaceAttrib *faceAttrib) {
 			Clear();
@@ -1343,7 +1361,23 @@ namespace nkentseu {
 				}
 				faces.PushBack(fc);
 			}
+			// ── SONDE DE PHASES DE L'ENTONNOIR (NK_BFP_PHASES=1) ────────────────
+			// CE CHEMIN-CI est celui que TOUTE operation d'edition traverse (16
+			// operateurs, 26 appels). Il ne faut pas le confondre avec celui que
+			// chiffre le commentaire d'ExtrudeSelectedFaces : celui-la porte sur
+			// `ExtrudeSelectedFacesInPlace`, qui n'a AUCUN appelant de production.
+			// Un commentaire mesure sur un chemin mort reste un commentaire sur un
+			// chemin mort -- d'ou cette sonde-ci, sur le chemin vivant.
+			// Elle sert AUSSI de controle positif : si le compteur reste a zero
+			// pendant qu'on edite, c'est que ce n'est pas par ici qu'on passe.
+			NkEmBfpPhases &ph = NkEmBfpPhasesGet();
+			const bool phOn = NkEmBfpPhasesActives();
+			NkChrono chT;
 			LinkTwins();
+			if (phOn) {
+				ph.msLinkTwins += chT.Elapsed().ToMilliseconds();
+				chT = NkChrono();
+			}
 			// ⚠️ LA COUCHE D'ARETES DE PREMIERE CLASSE, RECONSTRUITE ICI.
 			// Sans cette ligne, TOUTE operation d'edition sortait avec une table
 			// d'aretes VIDE -- et, bien plus grave, avec `canonOf` VIDE :
@@ -1377,7 +1411,15 @@ namespace nkentseu {
 			// migree cesse de passer par ici ; le jour ou la derniere aura migre,
 			// cette ligne n'aura plus d'appelant. On ne la supprime pas d'un coup.
 			RebuildEdges();
+			if (phOn) {
+				ph.msRebuildEdges += chT.Elapsed().ToMilliseconds();
+				chT = NkChrono();
+			}
 			RecomputeNormals();
+			if (phOn) {
+				ph.msRecomputeNormals += chT.Elapsed().ToMilliseconds();
+				ph.appels++;
+			}
 		}
 
 		// =====================================================================
