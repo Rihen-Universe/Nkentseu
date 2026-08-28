@@ -14444,8 +14444,22 @@ namespace nkentseu {
 			// DENOMINATEUR au cout de RebuildEdges. Sans lui, « 0,25 ms » ne dit
 			// pas si c'est negligeable ou dominant.
 			static const bool bench = getenv("NK_OP_BENCH") != nullptr;
+			// CONTROLE POSITIF DU CHEMIN : combien de fois l'entonnoir
+			// `BuildFromPolygons` est-il traverse par UNE operation reelle de
+			// l'application ? Si ce compteur reste a zero, ce n'est pas par la
+			// qu'on passe, et toute mesure prise dessus ne veut rien dire.
+			const renderer::NkEmBfpPhases avantPh = renderer::NkEmBfpPhasesGet();
 			const auto tOp0 = std::chrono::high_resolution_clock::now();
 			op(st, ms);
+			if (renderer::NkEmBfpPhasesActives()) {
+				const renderer::NkEmBfpPhases &q = renderer::NkEmBfpPhasesGet();
+				logger.Info("[Demo3D] PHASES entonnoir sur CETTE operation : {0} traversee(s) | "
+							"LinkTwins {1} ms | RebuildEdges {2} ms | RecomputeNormals {3} ms\n",
+							(uint32)(q.appels - avantPh.appels),
+							(float32)(q.msLinkTwins - avantPh.msLinkTwins),
+							(float32)(q.msRebuildEdges - avantPh.msRebuildEdges),
+							(float32)(q.msRecomputeNormals - avantPh.msRecomputeNormals));
+			}
 			if (bench) {
 				const auto tOp1 = std::chrono::high_resolution_clock::now();
 				logger.Info("[Demo3D] BANC operation : {0} ms | verts={1} faces={2} "
