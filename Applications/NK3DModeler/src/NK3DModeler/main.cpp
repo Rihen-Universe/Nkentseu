@@ -226,9 +226,20 @@ namespace {
 	// Une liste ecrite deux fois finit toujours par diverger, et c'est
 	// l'utilisateur qui le decouvre.
 	void FillShortcuts(NkShortcutTable &t) {
+		// G/R/S sont les MODALES depuis le 2026-08-28, dans les DEUX modes -- plus
+		// la selection d'outil. La table le disait deja pour l'objet ("Deplacer") ;
+		// elle ne le disait pas du tout pour l'edition, ou les memes touches
+		// faisaient la meme chose. Un contexte manquant, c'est un menu qui n'affiche
+		// pas un raccourci qui existe.
 		t.Bind("objet.deplacer", "Deplacer", NkKey::NK_G, 0, NK_SCTX_OBJECT);
 		t.Bind("objet.tourner", "Tourner", NkKey::NK_R, 0, NK_SCTX_OBJECT);
 		t.Bind("objet.echelle", "Redimensionner", NkKey::NK_S, 0, NK_SCTX_OBJECT);
+		t.Bind("edit.deplacer", "Deplacer", NkKey::NK_G, 0, NK_SCTX_EDIT);
+		t.Bind("edit.tourner", "Tourner", NkKey::NK_R, 0, NK_SCTX_EDIT);
+		t.Bind("edit.echelle", "Redimensionner", NkKey::NK_S, 0, NK_SCTX_EDIT);
+		// Le SELECTEUR D'OUTIL, la ou Blender le met : une touche a base d'espace,
+		// jamais une lettre nue.
+		t.Bind("app.selecteur_outil", "Selecteur d'outil", NkKey::NK_SPACE, 0, NK_SCTX_GLOBAL);
 		t.Bind("objet.dupliquer", "Dupliquer", NkKey::NK_D, NK_SC_SHIFT, NK_SCTX_OBJECT);
 		// LE CHOIX DU PARTAGE (decision de Rodolf, 16 aout). Shift+D partage la
 		// geometrie -- c'est le DEFAUT, et le geste courant. Ctrl+Shift+D en fait
@@ -301,6 +312,18 @@ int nkmain(const NkEntryState &entry) {
 	}
 	const uint32 fromDisk = LoadThemes(themes, roles, "data/themes", userThemes.CStr());
 	themes.SetCurrent("Sombre");
+	// NK_THEME="<nom>" : choisir le theme au lancement. Sert aux captures de
+	// controle -- un grisage ou un contraste ne se verifie QUE a l'oeil, et le
+	// verifier dans un seul theme ne dit rien de l'autre.
+	if (const char *thEnv = std::getenv("NK_THEME"))
+		if (*thEnv) {
+			// On DIT si le nom a ete accepte : un theme demande et silencieusement
+			// ignore produirait deux captures identiques qu'on prendrait pour la
+			// preuve de deux themes.
+			const bool ok = themes.SetCurrent(thEnv);
+			std::printf("[theme] NK_THEME=%s -> %s (courant : %s)\n", thEnv,
+						ok ? "accepte" : "INCONNU, ignore", themes.Current().Name().CStr());
+		}
 
 	NkThemeIssue issue{};
 	if (const uint32 bad = themes.Current().Validate(&issue)) {

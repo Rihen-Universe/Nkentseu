@@ -211,6 +211,10 @@ namespace nkentseu {
 		// (il ANNULE l'operation) : le menu contextuel ne doit surtout pas s'ouvrir
 		// par-dessus, sinon un seul clic ferait les deux.
 		bool Demo3DHostModalActive();
+		// SELECTEUR D'OUTIL demande au clavier (Espace / Maj+Espace) : rend true UNE
+		// fois puis se rearme. Le viseur possede le clavier, le shell possede le
+		// composant de menu -- ce drapeau est le seul point de contact.
+		bool Demo3DHostToolPickerTake();
 		// Annuler / refaire : la pile VIVANTE (Demo3DState::editHistory). La vue
 		// dormante a la sienne, que rien n'alimente -- cf. NkDemo3D.cpp.
 		bool Demo3DHostEditUndo();
