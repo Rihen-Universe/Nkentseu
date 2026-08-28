@@ -7697,7 +7697,9 @@ namespace nkentseu {
 				// panneau qui affiche Â« 8 sommets Â» quoi qu'il arrive est pire qu'un
 				// panneau vide, parce qu'on le croit.
 				uint32 nv = 0, ne = 0, nf = 0, nt = 0;
-				nk3d::Viewport3DStats(nv, ne, nf, nt);
+				// La vue morte rendait QUATRE ZEROS quoi qu'il arrive (mesure du
+				// 28/08) -- exactement ce que le commentaire ci-dessus interdit.
+				demo::Demo3DHostStats(&nv, &ne, &nf, &nt);
 				char vbuf[4][24];
 				snprintf(vbuf[0], sizeof(vbuf[0]), "%u", nv);
 				snprintf(vbuf[1], sizeof(vbuf[1]), "%u", ne);

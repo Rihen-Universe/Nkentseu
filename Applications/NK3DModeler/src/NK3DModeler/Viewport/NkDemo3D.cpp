@@ -6039,7 +6039,16 @@ namespace nkentseu {
 							st->emptyGizmo.Select(slot + (kNkvpFirstUser - kNkvpEmptyBase));
 						}
 					}
-					st->editTogglePending = true; // consommé juste après -> entre en édition ce frame
+					// ⚠️ ON N'ARME PLUS LA BASCULE ICI. Depuis que le shell est la source
+					// unique du mode, il repose `st.mode` A CHAQUE IMAGE : entrer en
+					// edition par ce cote faisait entrer le viseur, puis le shell --
+					// toujours en mode Objet -- le faisait RESSORTIR l'image suivante.
+					// Mesure du 28/08 : `cible=2` etait bien journalise, et pourtant
+					// `editMode` valait faux cent images plus tard. Deux entrees qui se
+					// battent, et la derniere gagne.
+					// Ce crochet ne fait donc plus que CHOISIR LA CIBLE ; le mode vient
+					// du shell (`main.cpp` pose `st.mode = Edit` quand NK_EDIT_MODE est
+					// present), par la meme porte que l'onglet et que TAB.
 					if (const char *sm = getenv("NK_EDIT_SELMASK")) {
 						int32 m = atoi(sm) & 7;
 						if (m)
@@ -13997,6 +14006,76 @@ namespace nkentseu {
 			st->editorCam.SetCenter(centre, d, st->editorCam.GetYaw(), st->editorCam.GetPitch());
 			logger.Info("[Demo3D] CADRER TOUT : centre=({0}, {1}, {2}) rayon={3} distance={4}\n",
 						centre.x, centre.y, centre.z, rayon, d);
+		}
+
+		// ── STATISTIQUES : le panneau comptait la geometrie de la vue MORTE ─
+		// Meme famille que le panneau Transformation : il n'etait pas muet, il
+		// AFFICHAIT DES NOMBRES FAUX. Et son propre commentaire dit pourquoi c'est
+		// grave : « un panneau qui affiche 8 sommets quoi qu'il arrive est pire
+		// qu'un panneau vide, parce qu'on le croit ».
+		//
+		// DEUX SOURCES, selon le mode, et elles n'ont PAS la meme exactitude :
+		//  - EN EDITION : compte EXACT, lu dans `editHE`. Les faces vivantes se
+		//    comptent comme le faisait la vue morte -- en changements
+		//    d'identifiant dans la table triangle -> face, parce que `FaceCount()`
+		//    rend la TAILLE DE LA TABLE, faces mortes comprises.
+		//  - EN MODE OBJET : compte du maillage de RENDU du noeud actif. Sommets
+		//    et triangles exacts ; ⚠️ ARETES APPROCHEES par la relation d'Euler
+		//    (E = V + F - 2), exacte seulement sur un maillage FERME, et faces
+		//    inconnues -> 0. C'est la limite deja documentee de
+		//    `Demo3DHostMeshCounts` ; je la reprends telle quelle plutot que
+		//    d'inventer un second compteur qui divergerait du premier.
+		bool Demo3DHostStats(uint32 *verts, uint32 *edges, uint32 *faces, uint32 *tris) {
+			if (!verts || !edges || !faces || !tris)
+				return false;
+			*verts = *edges = *faces = *tris = 0u;
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			if (st->editMode) {
+				*verts = st->editHE.VertCount();
+				*edges = st->editHE.EdgeCount();
+				// FACES VIVANTES, comptees DANS LA TABLE et non dans la
+				// triangulation. La vue morte comptait les changements
+				// d'identifiant dans la table triangle -> face ; mesure du 28/08 :
+				// cette table est VIDE au repos et ne se remplit qu'apres une
+				// operation, ce qui affichait « 0 face » sur un maillage intact.
+				// La table des faces, elle, porte son propre drapeau `alive` --
+				// c'est la source, pas un sous-produit du rendu.
+				uint32 vivantes = 0u;
+				for (uint32 i = 0; i < st->editHE.FaceCount(); ++i)
+					if (st->editHE.faces[i].alive)
+						++vivantes;
+				*faces = vivantes;
+				static const bool trace = getenv("NK_STATS_TRACE") != nullptr;
+				if (trace)
+					logger.Info("[Demo3D] STATS detail : FaceCount={0} vivantes={1} "
+								"triFace={2} editIdx={3} editRest={4}\n",
+								st->editHE.FaceCount(), vivantes,
+								(uint32)st->editTriFace.Size(), (uint32)st->editIdx.Size(),
+								(uint32)st->editRest.Size());
+				*tris = (uint32)(st->editIdx.Size() / 3u);
+				// 🔴 DEFAUT MESURE LE 28/08, NOMME ICI PARCE QUE C'EST ICI QU'IL SE LIT :
+				// `EdgeCount()` rend 960 sur la sphere au repos et ZERO apres une
+				// subdivision (v=2047 f=1920 t=3840, e=0). La table d'aretes de premiere
+				// classe n'est donc PAS reconstruite par les operations d'edition.
+				// Consequence visible : le panneau affichera « 0 arete » des la premiere
+				// operation. Ce n'est PAS un defaut du panneau -- il rapporte fidelement
+				// ce que le maillage lui dit -- et je ne le corrige pas ici : la cause
+				// est dans le maillage (RebuildEdges sans appelant applicatif, mesure
+				// le 27/08), et la corriger touche le noyau d'edition.
+				return true;
+			}
+			const int32 node = Demo3DHostSelectedEmptyNode();
+			if (node < 0)
+				return false;
+			int32 v = 0, e = 0, t3 = 0;
+			if (!Demo3DHostMeshCounts(node, &v, &e, &t3))
+				return false;
+			*verts = (uint32)v;
+			*edges = (uint32)e;
+			*tris = (uint32)t3;
+			return true;
 		}
 
 		// ── TRANSFORMATION DE L'OBJET ACTIF : UNE PORTE, DEUX ESPACES ───────
