@@ -44,6 +44,7 @@
 #include "NKFileSystem/NkFile.h"
 
 #include "Canvas.h"
+#include "Selection.h"
 #include "DesignAI.h"
 #include "Renderers.h"
 
@@ -397,7 +398,34 @@ namespace nkuidesign {
 			NkDesignAI ai;
 			NkFileBackend fileBackend;
 
-			int32 selected = 0;		 ///< index de noeud ; 0 = la racine
+			/// ⚠️ UNE SEULE SELECTION POUR LES TROIS PANNEAUX. Document 3 §11.5 :
+			///    « deux notions de "ce qui est selectionne" finiraient par
+			///    diverger, et personne ne saurait laquelle fait foi. » Elle vit
+			///    donc ici, dans l'etat partage, et JAMAIS dans un panneau.
+			///
+			/// Elle vit aussi dans la VUE et non dans le document : `Save` ne
+			/// l'ecrit pas, et le controle 40h le mesure -- selectionner ne change
+			/// pas un octet du fichier.
+			NkSelection sel;
+			/// Le noeud PRINCIPAL, derive de `sel`. Garde parce que tout le code
+			/// existant s'en sert ; il ne se pose plus a la main.
+			int32 selected = 0;		 ///< index de noeud ; -1 = aucun
+
+			/// Les trois seuls gestes qui changent la selection. Passer par eux
+			/// garantit que `sel` et `selected` ne peuvent pas diverger -- c'est
+			/// exactement la divergence que le document 3 §11.5 interdit.
+			void SelectSingle(int32 i) {
+				sel.Set(i);
+				selected = sel.Primary();
+			}
+			void SelectToggle(int32 i) {
+				sel.Toggle(i);
+				selected = sel.Primary();
+			}
+			void SelectClear() {
+				sel.Clear();
+				selected = -1;
+			}
 			int32 paletteChoice = 0; ///< 0 = cadre, puis 1+ = index dans le registre
 			NkString status;
 			/// Ce que l'audit des roles a trouve au demarrage, en une ligne. Lu par
@@ -571,7 +599,7 @@ namespace nkuidesign {
 					return false;
 				}
 				doc = loaded;
-				selected = 0;
+				SelectSingle(0);
 				host.demoModels.Clear();
 				host.SyncTo(doc);
 				char b[192];
@@ -715,7 +743,7 @@ namespace nkuidesign {
 					mSt->status = NkString("Pose refusee : cible invalide ou composant inconnu.");
 					return;
 				}
-				mSt->selected = created;
+				mSt->SelectSingle(created);
 				mSt->host.SyncTo(mSt->doc);
 				mSt->status = NkString("Pose : ");
 				mSt->status.Append(mSt->doc.nodes[(uint32)created].label);
@@ -837,8 +865,9 @@ namespace nkuidesign {
 																	 : "";
 				snprintf(line, sizeof(line), "%s%s%s%s", indent, n.label.Data(),
 						 n.IsFrame() ? " (cadre)" : "", mark);
-				if (Selectable(ctx, line, node == mSt->selected))
-					mSt->selected = node;
+				// La selection de l arbre EST celle du canvas (doc 3 §11.5).
+				if (Selectable(ctx, line, mSt->sel.Contains(node)))
+					mSt->SelectSingle(node);
 				for (uint32 i = 0; i < (uint32)n.children.Size(); ++i)
 					DrawNode(ctx, n.children[i], depth + 1);
 			}
@@ -1061,9 +1090,24 @@ namespace nkuidesign {
 			void HandleMouse(const NkComponentInput &in, const NkLayoutResult &screen) {
 				const float32 kHandle = 6.f;
 				if (in.mousePressed) {
-					const int32 hit = NkPickNode(mSt->doc, screen, in.mouseX, in.mouseY);
+					// ⚠️ `NkPickSelectable`, PAS `NkPickNode` : la racine couvre toute
+					//    la surface et repondrait a tous les clics. Cliquer le fond
+					//    DESELECTIONNE, comme dans tout outil de dessin.
+					const int32 hit = NkPickSelectable(mSt->doc, screen, in.mouseX, in.mouseY);
+					if (hit < 0) {
+						// Le vide : on vide, et on arme le rectangle de selection.
+						if (!in.ctrl)
+							mSt->SelectClear();
+						mMarquee = true;
+						mMarqX = in.mouseX;
+						mMarqY = in.mouseY;
+					}
 					if (hit >= 0) {
-						mSt->selected = hit;
+						// `Ctrl`+clic ajoute ou retire (doc 3 §11.5).
+						if (in.ctrl)
+							mSt->SelectToggle(hit);
+						else if (!mSt->sel.Contains(hit))
+							mSt->SelectSingle(hit);
 						const NkPaintRect r = screen.At(hit);
 						const bool nearRight = in.mouseX >= r.x + r.w - kHandle;
 						const bool nearBottom = in.mouseY >= r.y + r.h - kHandle;
@@ -1087,8 +1131,26 @@ namespace nkuidesign {
 					if (delta != 0.f)
 						NkResizeByDrag(mSt->doc, mSt->layout, mDragNode, mDragHorizontal, delta);
 				}
-				if (!in.mouseDown)
+				// ── LE RECTANGLE DE SELECTION ────────────────────────────────
+				// ⚠️ IL SE TRACE A L ECRAN ET TESTE EN DOCUMENT. Les deux coins
+				//    sont traduits UNE fois ; `NkPickInRect` travaille ensuite dans
+				//    l'espace de la disposition. Traduire N formes vers l'ecran
+				//    aurait donne le meme resultat pour N conversions au lieu de
+				//    deux -- autant d occasions de se tromper d espace.
+				if (mMarquee && !in.mouseDown) {
+					const NkPaintRect zone = NkRectFromPoints(
+						mSt->view.ToDocX(mMarqX), mSt->view.ToDocY(mMarqY),
+						mSt->view.ToDocX(in.mouseX), mSt->view.ToDocY(in.mouseY));
+					if (zone.w > 2.f || zone.h > 2.f) {
+						NkPickInRect(mSt->doc, mSt->layout, zone, mSt->sel);
+						mSt->selected = mSt->sel.Primary();
+					}
+					mMarquee = false;
+				}
+				if (!in.mouseDown) {
 					mDragging = false;
+					mMarquee = false;
+				}
 				mLastX = in.mouseX;
 				mLastY = in.mouseY;
 			}
@@ -1099,6 +1161,8 @@ namespace nkuidesign {
 			int32 mDragNode = -1;
 			float32 mLastX = 0.f, mLastY = 0.f;
 			bool mPanning = false;
+			bool mMarquee = false;
+			float32 mMarqX = 0.f, mMarqY = 0.f;
 			float32 mPanX = 0.f, mPanY = 0.f;
 	};
 

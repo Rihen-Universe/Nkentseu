@@ -54,6 +54,7 @@
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKFileSystem/NkFile.h"
 
+#include "Selection.h"
 #include "Canvas.h"
 #include "Backend.h"
 #include "DesignAI.h"
@@ -2206,6 +2207,153 @@ namespace nkuidesign {
 			check("39i. le DEPLACEMENT est en pixels ecran, quel que soit le zoom "
 				  "-- la main suit le curseur, pas le document",
 				  (p.ToScreenX(10.f) - avant) == 33.f, buf);
+		}
+
+		// ════════════════════════════════════════════════════════════════
+		//  40. LA SELECTION -- un etat, donc TROIS captures
+		// ════════════════════════════════════════════════════════════════
+		//
+		//  ⚠️ UN ETAT NE SE MESURE PAS EN DEUX POINTS. Selectionner puis
+		//     verifier qu'on a bien selectionne ne dit rien du retour : une
+		//     structure qui ne se vide JAMAIS passe tous les controles d'ajout.
+		//     D'ou trois captures a chaque fois -- avant, pendant, **et le
+		//     retour au bit pres**.
+		{
+			rep.Append("\n-- 40. LA SELECTION : un etat, trois captures --\n");
+			NkUIDocument d;
+			d.NewDocument("Selection", NkAuthor::Humain);
+			d.nodes[0].layout.kind = NkLayoutKind::Free;
+			d.SetMetric("espacement", 0.f);
+			d.SetMetric("marge", 0.f);
+			const int32 a = d.AddChild(0, "", NkAuthor::Humain);
+			const int32 b = d.AddChild(0, "", NkAuthor::Humain);
+			const int32 c = d.AddChild(0, "", NkAuthor::Humain);
+			const float32 xs[3] = {10.f, 200.f, 400.f};
+			const int32 ids[3] = {a, b, c};
+			for (uint32 i = 0; i < 3; ++i) {
+				NkUINode &n = d.nodes[(uint32)ids[i]];
+				n.posX = xs[i];
+				n.posY = 50.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 100.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 80.f;
+			}
+			NkPaintRect surface;
+			surface.x = 0.f;
+			surface.y = 0.f;
+			surface.w = 1000.f;
+			surface.h = 600.f;
+			NkLayoutResult lay;
+			NkComputeLayout(d, surface, lay);
+
+			// ── LES TROIS CAPTURES DU CLIC SIMPLE ────────────────────────
+			NkSelection sel;
+			const uint32 avant = sel.Count();
+			sel.Set(a);
+			const uint32 pendant = sel.Count();
+			sel.Clear();
+			const uint32 apres = sel.Count();
+			snprintf(buf, sizeof(buf), "avant %u, pendant %u, apres %u", avant, pendant, apres);
+			check("40. TROIS CAPTURES : vide -> un noeud -> vide. Le RETOUR est la "
+				  "troisieme, et c'est celle qu'on oublie",
+				  avant == 0 && pendant == 1 && apres == 0 && sel.Primary() == -1, buf);
+
+			// ── CTRL+CLIC : AJOUTE, PUIS RETIRE (doc 3 §11.5) ────────────
+			sel.Clear();
+			sel.Toggle(a);
+			sel.Toggle(b);
+			const uint32 deux = sel.Count();
+			const int32 principal = sel.Primary();
+			sel.Toggle(a);
+			snprintf(buf, sizeof(buf), "apres deux bascules : %u, principal %d ; retire a : %u",
+					 deux, principal, sel.Count());
+			check("40b. `Ctrl`+clic AJOUTE puis RETIRE -- et le retrait rend "
+				  "exactement l'etat d'avant (1 element, et c'est `b`)",
+				  deux == 2 && principal == a && sel.Count() == 1 && sel.Contains(b)
+					  && !sel.Contains(a),
+				  buf);
+
+			// ⚠️ 40c. LE CONTROLE NEGATIF QU'ON OUBLIE : cliquer dans le VIDE
+			//     deselectionne tout. Sans lui, une selection qui ne se vide
+			//     jamais passe 40, 40b, 40d et 40e sans broncher.
+			//
+			//     ⚠️ IL A ECHOUE DES SA PREMIERE EXECUTION, POUR LA BONNE RAISON :
+			//     `NkPickNode` rendait la RACINE, qui couvre toute la surface et
+			//     repond donc a tous les clics. « Cliquer dans le vide » ne
+			//     pouvait pas arriver. D ou `NkPickSelectable`.
+			sel.Clear();
+			sel.Set(a);
+			sel.Add(b);
+			const int32 rien = NkPickSelectable(d, lay, 900.f, 550.f);
+			if (rien < 0)
+				sel.Set(rien);
+			snprintf(buf, sizeof(buf), "pointage dans le vide -> %d ; selection %u", rien,
+					 sel.Count());
+			check("40c. CONTROLE NEGATIF : cliquer dans le VIDE ne designe aucun "
+				  "noeud ET vide la selection",
+				  rien < 0 && sel.Count() == 0 && sel.Primary() == -1, buf);
+
+			// ── LE RECTANGLE, EN ESPACE DOCUMENT ─────────────────────────
+			// Il couvre les deux premieres formes (x 10..110 et 200..300) et pas
+			// la troisieme (400..500).
+			sel.Clear();
+			NkPickInRect(d, lay, NkRectFromPoints(5.f, 40.f, 320.f, 140.f), sel);
+			snprintf(buf, sizeof(buf), "%u prises (attendu 2 : a et b, pas c)", sel.Count());
+			check("40d. LE RECTANGLE prend ce qu'il chevauche -- deux formes sur "
+				  "trois, en espace DOCUMENT",
+				  sel.Count() == 2 && sel.Contains(a) && sel.Contains(b) && !sel.Contains(c),
+				  buf);
+
+			// ⚠️ 40e. LE CONTROLE NEGATIF DU RECTANGLE : un rectangle pose la ou
+			//     il n'y a rien ne prend RIEN. Sans lui, un `NkPickInRect` qui
+			//     prendrait tout passerait 40d (qui ne compte que 2 sur 3... non :
+			//     il le verrait). Mais un `NkPickInRect` qui prendrait tout ce qui
+			//     est A GAUCHE du bord droit le passerait aussi. Celui-ci ferme la
+			//     porte.
+			sel.Clear();
+			NkPickInRect(d, lay, NkRectFromPoints(600.f, 300.f, 900.f, 500.f), sel);
+			check("40e. CONTROLE NEGATIF : un rectangle pose dans le vide ne prend "
+				  "RIEN -- et la RACINE n'est jamais prise, sinon tout le serait",
+				  sel.Count() == 0, "");
+
+			// 40f. Tracer a l'envers (de la droite vers la gauche) prend autant.
+			NkSelection s1, s2;
+			NkPickInRect(d, lay, NkRectFromPoints(5.f, 40.f, 320.f, 140.f), s1);
+			NkPickInRect(d, lay, NkRectFromPoints(320.f, 140.f, 5.f, 40.f), s2);
+			snprintf(buf, sizeof(buf), "endroit %u, envers %u", s1.Count(), s2.Count());
+			check("40f. tracer le rectangle A L'ENVERS prend exactement autant -- "
+				  "un rectangle se normalise avant de servir",
+				  s1.Count() == s2.Count() && s2.Contains(a) && s2.Contains(b), buf);
+
+			// 40g. Un index perime ne survit pas. `RemoveSubtree` renumerote.
+			NkSelection per;
+			per.Set(a);
+			per.Add(b);
+			per.Add(999);
+			const uint32 avecFaux = per.Count();
+			per.DropInvalid(d);
+			snprintf(buf, sizeof(buf), "%u -> %u apres nettoyage", avecFaux, per.Count());
+			check("40g. un index qui n'existe plus est RETIRE -- une selection "
+				  "perimee designerait un autre noeud apres renumerotation",
+				  avecFaux == 3 && per.Count() == 2, buf);
+
+			// ⚠️ 40h. LA SELECTION N'EST PAS DANS LE DOCUMENT, ET C'EST MESURE
+			//     MECANIQUEMENT : on enregistre, on selectionne, on reenregistre.
+			//     Les deux textes doivent etre IDENTIQUES. Si la selection etait
+			//     serialisee, un simple clic salirait le fichier -- et deux
+			//     personnes ouvrant le meme document heriteraient de la selection
+			//     de l'autre.
+			NkString t1, t2;
+			d.Save(t1);
+			NkSelection ailleurs;
+			ailleurs.Set(a);
+			ailleurs.Add(b);
+			ailleurs.Toggle(c);
+			d.Save(t2);
+			check("40h. SELECTIONNER NE TOUCHE PAS LE DOCUMENT : le texte enregistre "
+				  "est identique avant et apres (elle vit dans la VUE)",
+				  t1.Compare(t2) == 0 && t1.Size() > 0, "");
 		}
 
 		char tail[128];
