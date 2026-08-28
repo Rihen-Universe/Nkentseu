@@ -18,6 +18,7 @@
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NK3DModeler/Viewport/NkOutCompose.h"
 #include "NK3DModeler/Shell/NkModelerMeshMenu.h" // commandes de maillage : une decl., N chemins
+#include <cstdio> // instrument du menu contextuel (printf/fflush)
 
 namespace nkentseu {
 	namespace nk3d {
@@ -1894,6 +1895,7 @@ namespace nkentseu {
 					!st.meshMenu.open) {
 					st.meshMenu.open = true;
 					st.meshMenu.pos = in.mousePos;
+					st.meshMenuTrace = true;
 				}
 				if (st.meshMenu.open) {
 					const char *labels[kMeshMenuCap];
@@ -1910,8 +1912,43 @@ namespace nkentseu {
 					// UNE COMMANDE, PLUSIEURS ENTREES : on ne fait ici que NOMMER
 					// la commande. Ce qu'elle fait vit dans le repartiteur, partage
 					// avec la barre de menu et le clavier.
-					if (choisi >= 0 && choisi < n)
-						(void)NkMeshMenuRun(ids[choisi]);
+					// INSTRUMENT : sans lui, on ne peut pas distinguer « le menu ne
+					// s'ouvre pas » de « il s'ouvre et le clic le rate ». Une seule
+					// ligne par ouverture, pas par image.
+					// NK_MENU_TRACE=1 : instrument, muet par defaut. Sans lui on ne peut
+					// pas distinguer « le menu ne s'ouvre pas » de « il s'ouvre et le clic
+					// le rate » -- les deux se ressemblent exactement de l'exterieur.
+					static const bool trMenu = (std::getenv("NK_MENU_TRACE") != nullptr);
+					if (trMenu && st.meshMenuTrace) {
+						st.meshMenuTrace = false;
+						std::printf("[nk3d-menu] OUVERT mode=%s entrees=%d selection=%d\n",
+									(demo::Demo3DHostEditSelMask() & 4)
+										? "FACE"
+										: ((demo::Demo3DHostEditSelMask() & 2) ? "ARETE" : "SOMMET"),
+									(int)n, (int)demo::Demo3DHostEditSelCount());
+						for (int32 q = 0; q < n; ++q)
+							std::printf("[nk3d-menu]   %2d %-24s %-12s %s\n", (int)q, labels[q],
+										shorts[q][0] ? shorts[q] : "-", enabled[q] ? "actif" : "GRISE");
+						std::fflush(stdout);
+					}
+					if (choisi >= 0 && choisi < n) {
+						// PREUVE DE BOUT EN BOUT (sous NK_MENU_TRACE) : on encadre l'appel
+						// par les compteurs du maillage. « L'entree a ete cliquee » ne
+						// prouve rien ; ce qui prouve, c'est que la GEOMETRIE a change
+						// derriere. ⚠ Une entree MODALE laisse les compteurs INCHANGES et
+						// c'est NORMAL : elle ouvre un apercu qui attend confirmation.
+						uint32 v0 = 0, e0 = 0, f0 = 0, t0 = 0, v1 = 0, e1 = 0, f1 = 0, t1 = 0;
+						if (trMenu)
+							(void)demo::Demo3DHostStats(&v0, &e0, &f0, &t0);
+						const bool fait = NkMeshMenuRun(ids[choisi]);
+						if (trMenu) {
+							(void)demo::Demo3DHostStats(&v1, &e1, &f1, &t1);
+							std::printf("[nk3d-menu] CHOISI %d = %s -> rendu=%d  maillage %u/%u/%u -> %u/%u/%u%s\n",
+										(int)choisi, labels[choisi], fait ? 1 : 0, v0, e0, f0, v1, e1, f1,
+										(v0 == v1 && e0 == e1 && f0 == f1) ? "  (INCHANGE)" : "  (MODIFIE)");
+							std::fflush(stdout);
+						}
+					}
 				}
 			} else if (st.meshMenu.open) {
 				st.meshMenu.open = false; // sortie du mode edition : le menu ne survit pas

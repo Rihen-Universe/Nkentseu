@@ -1020,6 +1020,56 @@ int nkmain(const NkEntryState &entry) {
 				}
 			}
 		}
+		// ── NK_AGENT_CLICK / NK_AGENT_RCLICK : injecter un CLIC ponctuel ───
+		// `NK_AGENT_DRAG` ne pilote que le bouton GAUCHE et decrit un GLISSEMENT :
+		// il ne pouvait donc NI ouvrir un menu contextuel (clic droit) NI choisir
+		// une entree dedans. Un menu ne se prouvait pas tout seul -- il fallait
+		// deranger quelqu'un pour qu'il clique a notre place.
+		// UN INSTRUMENT QUI MANQUE COUTE A CHAQUE FOIS QU'IL MANQUE.
+		//   NK_AGENT_CLICK="f,x,y"  : clic GAUCHE a la frame f, aux pixels (x,y)
+		//   NK_AGENT_RCLICK="f,x,y" : clic DROIT, meme forme
+		// Les deux se combinent : ouvrir le menu au clic droit, puis choisir une
+		// entree au clic gauche quelques frames plus tard.
+		// Chronologie sur TROIS images, comme une vraie main : f = survol seul (le
+		// survol precede le clic d'au moins une image, cf. hotIdPrev), f+1 = appui,
+		// f+2 = relachement. C'est BeginFrame qui en tire "vient d'etre clique".
+		{
+			static float32 sClk[2][3] = {{-1.f, 0.f, 0.f}, {-1.f, 0.f, 0.f}};
+			static bool sClkInit = false;
+			if (!sClkInit) {
+				sClkInit = true;
+				for (int32 b = 0; b < 2; ++b) {
+					const char *v = std::getenv(b == 0 ? "NK_AGENT_CLICK" : "NK_AGENT_RCLICK");
+					if (!v)
+						continue;
+					float32 f[3] = {-1.f, 0.f, 0.f};
+					const char *q = v;
+					for (int32 k = 0; k < 3 && *q; ++k) {
+						f[k] = (float32)atof(q);
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+					sClk[b][0] = f[0];
+					sClk[b][1] = f[1];
+					sClk[b][2] = f[2];
+				}
+			}
+			for (int32 b = 0; b < 2; ++b) {
+				if (sClk[b][0] < 0.f)
+					continue;
+				const int32 k = agentFrame + 1 - (int32)sClk[b][0];
+				if (k < 0 || k > 2)
+					continue;
+				ui.input.mousePos = {sClk[b][1], sClk[b][2]};
+				ui.input.mouseDown[b] = (k == 1);
+				std::printf("[nk3d-clic] bouton=%s k=%d pos=(%.0f,%.0f) enfonce=%d\n",
+							b == 0 ? "GAUCHE" : "DROIT", k, ui.input.mousePos.x, ui.input.mousePos.y,
+							ui.input.mouseDown[b] ? 1 : 0);
+				std::fflush(stdout);
+			}
+		}
 		ui.BeginFrame(dt);
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.

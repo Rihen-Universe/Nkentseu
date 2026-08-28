@@ -1064,6 +1064,7 @@ namespace nkentseu {
 				// recherche. Son CONTENU depend du sous-mode sommet/arete/face,
 				// comme les trois « Context Menu » distincts de Blender.
 				editorkit::NkCtxMenu meshMenu;
+				bool meshMenuTrace = false; ///< journalise le contenu a la PROCHAINE ouverture
 
 				// ── PROPORTIONS AJUSTABLES ──────────────────────────────────────
 				// Les separateurs modifient ces FRACTIONS et non des pixels : a la
