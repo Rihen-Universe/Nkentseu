@@ -126,13 +126,19 @@ namespace nkentseu {
 			g.accent = accent;
 			g.selection = accent;
 			g.track = R(NkRole::InputBg);
-			g.button = R(NkRole::InputBg);
+			// ⚠️ `ButtonBg` AVEC REPLI SUR `InputBg`, jamais `InputBg` seul. La
+			//    mesure du 2026-08-29 : la palette de `NkEditorShell::Init` donne
+			//    `button` #191D23 et `track` #0D1117 -- deux couleurs, un seul role.
+			//    Le role manquait ; il existe maintenant, et tant qu'un theme ne le
+			//    pose pas, le repli rend exactement ce que rendait la version d'avant.
+			g.button = NkThemeUnpack(t.GetOuRepli(NkRole::ButtonBg, NkRole::InputBg));
 			g.buttonActive = accent;
 
 			// Les onglets : la barre recule, l inactif se pose dessus, l ACTIF
 			// prend la couleur du panneau qu il ouvre -- ce que le document 3 §6
 			// demande (« --bg-canvas pour l actif, --bg-subtle pour les inactifs »).
-			g.tabBar = R(NkRole::WindowBg);
+			// Meme raison : la barre d'onglets n'est pas le fond de fenetre.
+			g.tabBar = NkThemeUnpack(t.GetOuRepli(NkRole::TabBarBg, NkRole::WindowBg));
 			g.tab = R(NkRole::PanelHeader);
 			g.tabActive = R(NkRole::PanelBg);
 

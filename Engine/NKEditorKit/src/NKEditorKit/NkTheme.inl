@@ -28,6 +28,8 @@ namespace nkentseu {
 					"node_body",	 "node_wire",		 "viewport_top",  "viewport_bottom",
 					"grid_line",
 					"type_folder",
+					"button_bg",
+					"tab_bar_bg",
 				};
 				return kNames;
 			}
@@ -551,6 +553,14 @@ namespace nkentseu {
 			// se fondre en noir sur un fond sombre.
 			for (uint16 i = 0; i < (uint16)NkRole::Count; ++i)
 				mColors[i] = 0xFF00FFFFu;
+			// ⚠️ LES ROLES A REPLI NE PRENNENT PAS LE MAGENTA. Le magenta dit
+			//    « quelqu'un a oublie de me poser » ; ces deux-la ne sont pas
+			//    oublies, ils sont FACULTATIFS et se replient sur leur role source
+			//    (cf. `GetOuRepli`). Les laisser en magenta rendrait tous les
+			//    boutons de toutes les applications magenta a la seconde ou la
+			//    conversion les lirait -- un role neuf doit etre gratuit.
+			mColors[(uint16)NkRole::ButtonBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::TabBarBg] = NkThemeNonDefini;
 			mName = NkString("Sombre");
 		}
 

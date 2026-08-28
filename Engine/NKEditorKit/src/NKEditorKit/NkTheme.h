@@ -107,6 +107,33 @@ namespace nkentseu {
 			// navigateur de projet -- les deux doivent parler la meme couleur.
 			TypeFolder,
 
+			// ⚠️ DEUX ROLES AJOUTES LE 2026-08-29, SUR UNE INSUFFISANCE DEMONTREE
+			//    DU VOCABULAIRE -- pas sur une preference de conception.
+			//
+			//    La mesure : dans `NkEditorShell::Init`, `button` vaut #191D23 et
+			//    `track` vaut #0D1117. **Ils different.** Or la conversion tire les
+			//    deux du meme role `InputBg` : un seul role ne peut pas rendre deux
+			//    couleurs. Meme histoire pour la barre d'onglets, #191D23 ici et
+			//    `WindowBg` (#0D1117) dans la conversion. Tant que ces roles
+			//    manquaient, la palette de la coquille etait **inexprimable** dans
+			//    le vocabulaire des themes -- et c'est pour ca qu'elle etait restee
+			//    recopiee a la main.
+			//
+			//    AJOUTES EN FIN, comme l'exige la regle append-only ci-dessus.
+			//    (La serialisation, elle, se fait par NOM -- `button_bg = RRGGBBAA`
+			//    -- donc un theme deja enregistre ne connait simplement pas ces deux
+			//    lignes, et c'est exactement le cas que le repli ci-dessous traite.)
+
+			/// Fond d'un BOUTON. Distinct du fond d'un CHAMP (`InputBg`) : un bouton
+			/// se pose SUR une surface, un champ se creuse DEDANS.
+			/// ⚠️ `NkThemeNonDefini` par defaut -> repli sur `InputBg`.
+			ButtonBg,
+
+			/// Fond de la BARRE d'onglets, distinct du fond de fenetre (`WindowBg`)
+			/// et de l'onglet lui-meme (`PanelHeader`).
+			/// ⚠️ `NkThemeNonDefini` par defaut -> repli sur `WindowBg`.
+			TabBarBg,
+
 			Count
 		};
 
@@ -264,6 +291,17 @@ namespace nkentseu {
 				bool isText = false;
 		};
 
+		/// ⚠️ « CE ROLE N'A JAMAIS ETE POSE » -- et le zero est choisi contre le
+		///    magenta a dessein. Le constructeur peint tous les roles en magenta
+		///    criard pour qu'un oubli SAUTE AUX YEUX ; c'est une bonne regle, et
+		///    elle interdit d'utiliser le magenta comme sentinelle : on ne
+		///    distinguerait plus « oublie » de « pas encore invente ». Un alpha
+		///    NUL, lui, n'est la valeur legitime d'aucun fond -- une surface
+		///    entierement transparente ne se peint pas. La sentinelle est donc
+		///    lisible sans ambiguite, et un role neuf qui la porte se replie au
+		///    lieu de crier.
+		static constexpr NkThemeColor NkThemeNonDefini = 0x00000000u;
+
 		class NkTheme {
 			public:
 				NkTheme(); ///< construit le theme SOMBRE par defaut
@@ -273,6 +311,23 @@ namespace nkentseu {
 
 				NkThemeColor Get(NkRole r) const {
 					return (uint16)r < (uint16)NkRole::Count ? mColors[(uint16)r] : 0xFF00FFFFu;
+				}
+
+				/// Lit `r`, et retombe sur `repli` si `r` n'a jamais ete defini.
+				///
+				/// ⚠️ C'EST LE MECANISME QUI REND UN ROLE NEUF GRATUIT. Ajouter un
+				///    role a une enumeration ne coute rien ; lui donner une valeur
+				///    par defaut, si. Une constante fixe serait fausse pour tout
+				///    theme qui a change la couleur d'a cote -- `GitHubDarkPro`
+				///    part de `Dark()` puis remplace `InputBg`, donc un `ButtonBg`
+				///    fige a la valeur de `Dark()` aurait diverge dans CE theme-la
+				///    seulement, c'est-a-dire de la pire facon : une fois sur deux.
+				///    Ici le role neuf **suit** son role source tant que personne ne
+				///    l'a pose. Aucun theme existant ne change d'apparence, et un
+				///    theme qui veut la distinction l'ecrit.
+				NkThemeColor GetOuRepli(NkRole r, NkRole repli) const {
+					const NkThemeColor c = Get(r);
+					return c == NkThemeNonDefini ? Get(repli) : c;
 				}
 				void Set(NkRole r, NkThemeColor c) {
 					if ((uint16)r < (uint16)NkRole::Count)

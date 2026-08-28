@@ -195,6 +195,41 @@ namespace nkentseu {
 			//    manque du VOCABULAIRE DES ROLES, nomme ici et non resolu :
 			//    l ajouter est une decision de conception du kit, pas un effet de
 			//    bord d une extraction faite a cote.
+			//
+			// == CE QUI RESTE A FAIRE, ET IL NE MANQUE PLUS QUE LE JOUR ==========
+			//    ⚠️ LES DEUX ROLES MANQUANTS EXISTENT DEPUIS LE 2026-08-29 :
+			//    `NkRole::ButtonBg` et `NkRole::TabBarBg` (decision de Rodolf via le
+			//    canal, sur la mesure ci-dessus). Ils se replient sur `InputBg` et
+			//    `WindowBg` tant qu'un theme ne les pose pas -- mesure appariee : les
+			//    4 themes integres x 35 champs sortent OCTET POUR OCTET identiques
+			//    avant et apres leur ajout. **La palette ci-dessous est donc
+			//    desormais EXPRIMABLE.**
+			//
+			//    Ce qui reste, quand quelqu un le fera de jour et avec Rodolf :
+			//      1. ecrire cette palette comme un `NkTheme` nomme -- appelons-le
+			//         `NkThemeCoquilleDefaut()` -- avec `ButtonBg = #191D23`,
+			//         `TabBarBg = #191D23`, et les autres roles tels que la table
+			//         ci-dessus les donne ;
+			//      2. remplacer les seize lignes qui suivent par un seul
+			//         `NkThemeVersGui(mUI.theme, NkThemeCoquilleDefaut())` ;
+			//      3. reposer A LA MAIN, APRES l'appel, les trois valeurs que la
+			//         conversion ne porte pas et ne doit pas porter :
+			//             mUI.theme.rounding = 0.f;        // geometrie, pas couleur
+			//             mUI.theme.selection.a = 200;     // alpha, aucun role
+			//             mUI.theme.tabActive = ...;       // cf. la table ci-dessus
+			//         ⚠️ Ces trois-la sont le RESTE IRREDUCTIBLE. Les faire entrer
+			//            dans les roles serait inventer du vocabulaire pour cacher
+			//            une exception -- ce qui est exactement le defaut qu'on
+			//            vient de corriger, a l'envers.
+			//      4. relancer une mesure appariee de la meme forme que celle du
+			//         29/08 (4 themes x 35 champs, diff attendu VIDE) AVANT de
+			//         croire que le rendu n'a pas bouge. Une sonde de trente lignes
+			//         suffit ; elle a ete ecrite, utilisee, puis retiree ce jour-la.
+			//
+			//    ⚠️ POURQUOI CE N'EST PAS FAIT ICI. Seul NkUIDesign appelle
+			//       `ApplyTheme` : pour NKCode et les autres, cette palette EST le
+			//       theme livre. La migration se VOIT a l'ecran, donc elle se valide
+			//       a l'oeil -- et ce n'est pas un travail de nuit.
 			NkGuiTheme &t = mUI.theme;
 			t.bgPrimary = {13, 17, 23, 255}; // editeur #0D1117
 			t.panel = {1, 4, 9, 255};		 // sidebar #010409 (plus sombre)
