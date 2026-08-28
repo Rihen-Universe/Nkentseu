@@ -303,7 +303,7 @@ namespace nkentseu {
 				// Le champ lui-meme est un composant a part (`NkEditorTextField.h`) :
 				// on peint sa place et son contenu, on ne le reecrit pas ici.
 				p.Text({bar.x + pad, bar.y, bar.w - pad * 2.f, bar.h},
-					   m.filter[0] ? m.filter : "Rechercher...", m.filter[0] ? s.text : s.textMuted);
+					   m.filter[0] ? m.filter : "Rechercher…", m.filter[0] ? s.text : s.textMuted);
 				p.HLine(rect.x, top + h, rect.w, s.border);
 				top += h;
 			}
@@ -736,9 +736,9 @@ namespace nkentseu {
 				p.HLine(foot.x, foot.y, foot.w, s.border);
 				char line[96];
 				uint32 n = AppendU32(line, (uint32)sizeof(line), 0, (uint32)res.visibleCount);
-				n = AppendStr(line, (uint32)sizeof(line), n, " noeud(s), ");
+				n = AppendStr(line, (uint32)sizeof(line), n, " nœud(s), ");
 				n = AppendU32(line, (uint32)sizeof(line), n, (uint32)m.chosen.Size());
-				AppendStr(line, (uint32)sizeof(line), n, " selectionne(s)");
+				AppendStr(line, (uint32)sizeof(line), n, " sélectionné(s)");
 				p.Text({foot.x + pad, foot.y, foot.w - pad * 2.f, foot.h}, line, s.textMuted);
 			}
 

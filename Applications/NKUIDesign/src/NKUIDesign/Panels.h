@@ -42,6 +42,14 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkTheme.h"
 #include "NKFileSystem/NkFile.h"
+// ⚠️ LES PLAFONDS DU KIT DOIVENT CRIER (kMaxComponents = 64, kMaxDepth = 64) :
+//    un panneau qui les franchit JOURNALISE. Sans NKLogger ici, il ne pourrait
+//    que se taire ou refuser — et se taire est exactement ce qui est interdit.
+#include "NKLogger/NkLog.h"
+// ⚠️ LES PLAFONDS DU KIT DOIVENT CRIER (kMaxComponents = 64, kMaxDepth = 64) :
+//    un panneau qui les franchit JOURNALISE. Sans NKLogger ici, il ne pourrait
+//    que se taire ou refuser — et se taire est exactement ce qui est interdit.
+#include "NKLogger/NkLog.h"
 
 #include "Canvas.h"
 #include "Selection.h"
@@ -371,6 +379,39 @@ namespace nkuidesign {
 
 		/// Une ligne « cle : valeur » en DEUX COLONNES alignees, au lieu d'une
 		/// phrase qui se fait couper. La cle est bornee, la valeur prend le reste.
+		/// L'ORDONNÉE DU BAS **VISIBLE** d'un panneau ancré.
+		///
+		/// ⚠️ ELLE NE SE DÉDUIT PAS DE `ctx.layout.region`. Mesure `--dump-ui` :
+		///        panneau.hierarchie = 48.0 84.0 219.8 **1000000.0**
+		///     `region.h` porte la hauteur du CONTENU défilable, volontairement
+		///     sans borne. Un panneau qui s'en sert pour partager sa hauteur
+		///     envoie sa seconde moitié à y = 999 874 — hors écran, et le
+		///     diagnostic devient « il n'y a qu'une section ».
+		///
+		/// La zone VISIBLE est celle du cadre de défilement empilé par
+		/// `nkgui::Begin` (`BeginScrollFrame(..., content, ...)`) :
+		/// `childStack[childDepth-1].area`. On la lit là, ou nulle part.
+		///
+		/// ⚠️ ET LE CAS « PAS DE CADRE » CRIE, une fois, plutôt que de rendre un
+		///    chiffre plausible : un panneau dessiné hors fenêtre est un montage
+		///    que personne n'a prévu, et une valeur inventée le rendrait
+		///    indétectable.
+		inline float32 HauteurVisibleBas(NkGuiContext &ctx, const char *quiDemande) {
+			if (ctx.childDepth > 0) {
+				const NkRect &a = ctx.childStack[ctx.childDepth - 1].area;
+				return a.y + a.h;
+			}
+			static bool criAdresse = false;
+			if (!criAdresse) {
+				criAdresse = true;
+				logger.Error("[NKUIDesign] {0} : aucun cadre de defilement (childDepth=0). La "
+							 "hauteur visible est INCONNUE ; on retombe sur un repli de 600 px, "
+							 "qui n'est PAS une mesure.",
+							 quiDemande ? quiDemande : "?");
+			}
+			return ctx.layout.cursor.y + 600.f;
+		}
+
 		inline void KeyValue(NkGuiContext &ctx, const char *key, const char *value) {
 			static const float32 kPoids[2] = {-2.f, -3.f};
 			nkgui::BeginRow(ctx, 0.f, kPoids, 2);
@@ -449,25 +490,50 @@ namespace nkuidesign {
 			bool prefsNeedsRestart = false; ///< un enregistrement attend un relancement
 			NkString prefsStatus;
 
+			/// ⚠️ CE QUE LE FICHIER NOMME, ET C'EST UN AUTRE FAIT QUE `gfxEffective`.
+			///    `gfxEffective` dit ce qui TOURNE ; celui-ci dit ce que
+			///    `nkuidesign.cfg` demandera au PROCHAIN lancement. Les deux
+			///    diffèrent dès qu'on passe `--gfx=` en ligne de commande ou qu'on
+			///    vient de changer le réglage : cocher le menu avec le mauvais des
+			///    deux ferait croire à un réglage qui n'a pas pris.
+			///    Vide = le fichier ne porte AUCUNE clé `gfx` ; ce n'est pas
+			///    « auto », et aucune entrée du menu n'est alors cochée.
+			NkString cfgChoice;
+
 			char promptBuf[512] = {0};
 
-			/// Ecrit le backend choisi dans **notre** fichier, et nulle part
-			/// ailleurs. Relit avant d'ecrire, remplace la seule ligne `gfx`,
-			/// ecrit de facon atomique — voir `Backend.h`.
-			void SavePrefs(const char *api) {
+			// ── LE SEUL CHEMIN D'ÉCRITURE DU BACKEND ────────────────────────
+			// ⚠️ LE MENU ET LE PANNEAU L'APPELLENT TOUS LES DEUX, et c'est la
+			//    raison d'être de cette fonction. Pendant la transition, le menu
+			//    écrivait de son côté et le panneau du sien : la première ligne de
+			//    message changée les aurait fait diverger, et surtout un choix fait
+			//    au menu ne se voyait pas dans le panneau. Une seule écriture, un
+			//    seul état.
+			//
+			// Relit avant d'écrire, remplace la seule ligne `gfx`, écrit de façon
+			// atomique — voir `Backend.h`.
+			bool SetGfxConfig(const char *api) {
 				if (NkGfxConfigSetKey(NkGfxConfigPath(), "gfx", api)) {
+					cfgChoice = NkString(api);
 					prefsNeedsRestart = true;
-					prefsStatus = NkString("Ecrit : gfx = ");
+					prefsStatus = NkString("Écrit : gfx = ");
 					prefsStatus.Append(api);
 					prefsStatus.Append("  (nkuidesign.cfg)");
-				} else {
-					// ⚠️ UN ECHEC D'ECRITURE SE DIT AUSSI. Un bouton qui ne fait
-					//    rien et ne dit rien est pire qu'un bouton absent : on
-					//    croit avoir regle, et on mesure sur autre chose.
-					prefsNeedsRestart = false;
-					prefsStatus = NkString("ECHEC d'ecriture : le fichier n'a PAS ete modifie "
-										   "(rien n'est perdu).");
+					return true;
 				}
+				// ⚠️ UN ÉCHEC D'ÉCRITURE SE DIT AUSSI. Un bouton qui ne fait rien et
+				//    ne dit rien est pire qu'un bouton absent : on croit avoir
+				//    réglé, et on mesure sur autre chose.
+				// ⚠️ ET `cfgChoice` N'EST PAS TOUCHÉ : cocher l'entrée après un échec
+				//    afficherait un réglage que le fichier ne porte pas.
+				prefsNeedsRestart = false;
+				prefsStatus = NkString("ÉCHEC d'écriture : le fichier n'a PAS été modifié "
+									   "(rien n'est perdu).");
+				return false;
+			}
+			/// L'ancien nom, gardé tant que le panneau Préférences existe encore.
+			void SavePrefs(const char *api) {
+				(void)SetGfxConfig(api);
 			}
 
 			void Init() {
@@ -534,9 +600,9 @@ namespace nkuidesign {
 				//    L utilisateur voyait un autre document que le sien SANS SAVOIR
 				//    POURQUOI, et un Ctrl+S l aurait ecrase.
 				if (loadFailed) {
-					status.Append("  |  document de demonstration affiche A LA PLACE.");
+					status.Append("  |  document de démonstration affiché À LA PLACE.");
 				} else {
-					status = NkString("Document de demonstration cree.");
+					status = NkString("Document de démonstration créé.");
 				}
 				host.demoModels.Clear();
 				host.SyncTo(doc);
@@ -569,8 +635,8 @@ namespace nkuidesign {
 				NkString out;
 				doc.Save(out);
 				status = nkentseu::NkFile::WriteAllText(kDocumentPath, out.Data())
-							 ? NkString("Document enregistre : ")
-							 : NkString("ECHEC d'ecriture : ");
+							 ? NkString("Document enregistré : ")
+							 : NkString("ÉCHEC d'écriture : ");
 				status.Append(kDocumentPath);
 			}
 
@@ -609,7 +675,7 @@ namespace nkuidesign {
 				host.demoModels.Clear();
 				host.SyncTo(doc);
 				char b[192];
-				snprintf(b, sizeof(b), "Document charge : %u noeud(s), %u composant(s) inconnu(s)",
+				snprintf(b, sizeof(b), "Document chargé : %u nœud(s), %u composant(s) inconnu(s)",
 						 doc.NodeCount(), unknown);
 				status = NkString(b);
 				return true;
@@ -957,10 +1023,15 @@ namespace nkuidesign {
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				designkit::UiRects::NoteRegion(ctx, "apercu");
-				ec.Text("Le document, dessine par le kit. Molette = ZOOM au curseur ;");
-				ec.Text("bouton du MILIEU = deplacer ; clic = selectionner, Ctrl+clic = ajouter ;");
-				ec.Text("glisser depuis le VIDE = rectangle de selection ; clic dans le vide = tout desel. ;");
-				ec.Text("tirez le bord droit ou bas d'un noeud pour changer sa TAILLE.");
+				// ⚠️ LES QUATRE LIGNES D'AIDE ONT ÉTÉ RETIRÉES, ET C'EST LE POINT.
+				//    Elles énuméraient les gestes de la souris EN HAUT DE LA TOILE :
+				//    un affichage de MISE AU POINT, utile pendant qu'on branchait le
+				//    zoom et le glisser, et qui n'est nulle part dans le plan de la
+				//    fenêtre. Ce qu'on montre à Rodolf ne doit pas porter les traces
+				//    de la séance qui l'a construit.
+				//    📌 Le geste juste, quand il existera : l'infobulle (§14quinquies)
+				//       et le cluster de toile (§4), pas un paragraphe posé sur le
+				//       dessin. Signalé plutôt que tu.
 
 				// ⚠️ DIRE QUAND IL N Y A RIEN A VOIR. Le 2026-08-28 au matin, Rodolf a
 				//    lance le binaire et n a vu AUCUNE toile -- parce que son document
@@ -976,7 +1047,7 @@ namespace nkuidesign {
 					if (mSt->doc.nodes[i].layout.kind == NkLayoutKind::Free)
 						aUneToile = true;
 				if (!aUneToile)
-					ec.Text("(ce document n a AUCUNE page de toile -- Ctrl+N en ouvre un qui en a une)");
+					ec.Text("(ce document n'a AUCUNE page de toile — Ctrl+N en ouvre un qui en a une)");
 
 				// ── LE REPLI FRANC, A L'ENDROIT OU LE MAGENTA APPARAIT ───────
 				// ⚠️ C'EST LA MOITIE (b) DU CORRECTIF DU 18/08. Le magenta de
@@ -991,7 +1062,15 @@ namespace nkuidesign {
 					ec.Text("!! ROLE(S) DE THEME NON RESOLU(S) -- ce qui suit est peint en magenta :");
 					ec.Text(resume.Data());
 				}
-				const NkRect area = ctx.NextItemRect(-1.f, 520.f);
+				// ⚠️ « CANVAS — PREND TOUT L'ESPACE RESTANT » (plan de la fenêtre).
+				//    C'était `NextItemRect(-1.f, 520.f)` : une hauteur ÉCRITE EN
+				//    DUR, donc une toile qui laissait un tiers de fenêtre vide en
+				//    bas et qui débordait dès qu'on rapetissait la fenêtre. La
+				//    hauteur se MESURE — même mesure que la Hiérarchie, même
+				//    fonction.
+				const float32 hToile =
+					designkit::HauteurVisibleBas(ctx, "Apercu") - ctx.layout.cursor.y - 4.f;
+				const NkRect area = ctx.NextItemRect(-1.f, hToile > 120.f ? hToile : 120.f);
 				if (area.w <= 0.f || area.h <= 0.f)
 					return;
 
@@ -1067,6 +1146,16 @@ namespace nkuidesign {
 				//    « ferme ». Il surcharge `Icon` et RIEN d'autre.
 				NkDesignPaint paint(ctx, mSt->theme);
 				NkDrawDocument(paint, in, mSt->doc, screen, mSt->host);
+
+				// ⚠️ LES TROIS FLOTTANTS SONT DESSINÉS **APRÈS** LE DOCUMENT, et
+				//    c'est tout leur sens : le plan les note en orange avec la
+				//    mention « zones en orange = flottantes au-dessus du canvas,
+				//    elles ne le redimensionnent pas ». Les poser avant, ou leur
+				//    réserver de la place dans le flux, en referait des bandes —
+				//    et §7 est explicite : « il n'existe pas de troisième bande
+				//    d'outils, les outils flottent au-dessus du canvas, ils ne
+				//    bordent pas la fenêtre ».
+				DessinerFlottants(ctx, area);
 
 				// ⚠️ L'APERCU PUBLIE LE RECTANGLE DE CHAQUE NOEUD. Meme principe
 				//    que pour les widgets : un essai a la souris doit viser ce que
@@ -1194,6 +1283,129 @@ namespace nkuidesign {
 			bool mDragHorizontal = true;
 			int32 mDragNode = -1;
 			float32 mLastX = 0.f, mLastY = 0.f;
+
+			// ═══════════════════════════════════════════════════════════════════
+			//  LES TROIS FLOTTANTS DU PLAN — ils SURPLOMBENT la toile
+			// ═══════════════════════════════════════════════════════════════════
+			//  Le plan les dessine en orange, avec la note : « zones en orange =
+			//  flottantes au-dessus du canvas, elles ne le redimensionnent pas ».
+			//  Et §7 le redit contre la tentation évidente : « il n'existe pas de
+			//  troisième bande d'outils — les outils flottent au-dessus du canvas,
+			//  ils ne bordent pas la fenêtre. »
+			//
+			//  ⚠️ CE QUE ÇA IMPOSE AU CODE, et c'est la seule chose qui compte ici :
+			//     ils sont posés à des RECTANGLES calculés depuis `zone`, après le
+			//     dessin du document, et ils n'avancent **jamais** le curseur de
+			//     mise en page. Un `NextItemRect` leur réserverait de la place —
+			//     et ils redeviendraient des bandes sans que personne ne le décide.
+			//
+			//  ⚠️ INERTES POUR CE MORCEAU, ET ILS LE DISENT. Chacun pose son
+			//     message dans le pied de fenêtre au clic. Un bouton muet se lit
+			//     comme un bouton cassé ; on cherche alors le défaut là où il n'y
+			//     en a pas. Ce qui se juge aujourd'hui est la PLACE.
+			void DessinerFlottants(NkGuiContext &ctx, const NkRect &zone) {
+				auto &dl = ctx.DL();
+				const NkColor fond = ctx.theme.panel;
+				const NkColor bord = ctx.theme.border;
+
+				// ── 1. LA BASCULE DE MODE, centrée en HAUT de la toile (§7) ──
+				//    ⚠️ Elle n'est PAS dans la barre d'outils, et c'est délibéré :
+				//       elle choisit QUELLE barre s'affiche, elle ne peut donc pas
+				//       vivre dedans.
+				{
+					static const char *const kModes[4] = {"Design", "Behavior", "Animation",
+														  "Split"};
+					const float32 lw = 92.f, h = 26.f;
+					const float32 w = lw * 4.f + 8.f;
+					const NkRect r = {zone.x + (zone.w - w) * 0.5f, zone.y + 10.f, w, h};
+					dl.AddRectFilled(r, fond, 6.f);
+					dl.AddRect(r, bord, 1.f, 6.f);
+					for (uint32 i = 0; i < 4; ++i) {
+						const NkRect c = {r.x + 4.f + lw * (float32)i, r.y + 3.f, lw, h - 6.f};
+						if (i == mMode)
+							dl.AddRectFilled(c, ctx.theme.accent, 4.f);
+						ctx.SetNextItemRect(c);
+						if (Button(ctx, kModes[i])) {
+							mMode = i;
+							Dire("Mode ", kModes[i], " : seul Design est branché.");
+						}
+					}
+				}
+
+				// ── 2. LA BARRE D'OUTILS VERTICALE, 48 px (§7) ───────────────
+				//    « panneau flottant vertical, posé entre la Hiérarchie et le
+				//    canvas, largeur 48 px, centré verticalement ». Elle flotte
+				//    AU-DESSUS : la toile passe dessous.
+				//    ⚠️ Un bouton porte une FAMILLE, pas un outil (§7.1) — le
+				//       chevron et l'éventail viendront ; la place est prise.
+				{
+					static const char *const kOutils[7] = {"S", "F", "R", "P", "T", "M", "="};
+					const float32 w = 48.f, hb = 40.f;
+					const float32 h = hb * 7.f + 12.f;
+					const NkRect r = {zone.x + 12.f, zone.y + (zone.h - h) * 0.5f, w, h};
+					dl.AddRectFilled(r, fond, 8.f);
+					dl.AddRect(r, bord, 1.f, 8.f);
+					for (uint32 i = 0; i < 7; ++i) {
+						const NkRect c = {r.x + 5.f, r.y + 6.f + hb * (float32)i, w - 10.f,
+										  hb - 4.f};
+						if (i == mOutil)
+							dl.AddRectFilled(c, ctx.theme.accent, 4.f);
+						ctx.SetNextItemRect(c);
+						if (Button(ctx, kOutils[i])) {
+							mOutil = i;
+							Dire("Famille d'outils ", kOutils[i], " : à brancher (§7.2).");
+						}
+					}
+				}
+
+				// ── 3. LE CLUSTER DE TOILE, en BAS À DROITE **DE LA TOILE** ──
+				//    ⚠️ DE LA TOILE, PAS DE LA FENÊTRE. Le « Zoom 107 % » du pied
+				//       de fenêtre est autre chose : il appartient à la coquille.
+				//       Ce cluster-ci appartient au canvas et le suit — ce sont
+				//       des réglages de VUE, pas des outils (§7).
+				{
+					char zoom[32];
+					// ⚠️ PAS DE « \u25be » ICI. Mesure sur capture : le champ affichait
+					//    « 100 % ? ». Le point de code U+25BE (petit triangle bas)
+					//    n'est PAS dans l'atlas de la police chargee -- 1381 glyphes
+					//    pour Inter, et celui-la n'y est pas. Un caractere absent ne
+					//    se voit pas comme absent, il se voit comme une faute.
+					//    Le chevron est donc DESSINE, quelques lignes plus bas.
+					snprintf(zoom, sizeof(zoom), "%d %%",
+							 (int32)(mSt->view.zoom * 100.f + 0.5f));
+					const float32 h = 28.f, w = 168.f;
+					const NkRect r = {zone.x + zone.w - w - 14.f, zone.y + zone.h - h - 14.f, w,
+									  h};
+					dl.AddRectFilled(r, fond, 6.f);
+					dl.AddRect(r, bord, 1.f, 6.f);
+					const NkRect rz = {r.x + 4.f, r.y + 3.f, 92.f, h - 6.f};
+					ctx.SetNextItemRect(rz);
+					if (Button(ctx, zoom))
+						Dire("Zoom : la saisie directe n'est pas encore branchée.", "", "");
+					// Le chevron « déroulant », tracé : deux segments, aucune police.
+					{
+						const float32 cxz = rz.x + rz.w - 12.f, cyz = rz.y + rz.h * 0.5f;
+						const float32 s2 = 3.5f;
+						dl.AddLine({cxz - s2, cyz - 1.5f}, {cxz, cyz + 2.f}, ctx.theme.text, 1.4f);
+						dl.AddLine({cxz, cyz + 2.f}, {cxz + s2, cyz - 1.5f}, ctx.theme.text, 1.4f);
+					}
+					ctx.SetNextItemRect({r.x + 100.f, r.y + 3.f, 30.f, h - 6.f});
+					if (Button(ctx, "#"))
+						Dire("Grille : à brancher.", "", "");
+					ctx.SetNextItemRect({r.x + 132.f, r.y + 3.f, 30.f, h - 6.f});
+					if (Button(ctx, "|-|"))
+						Dire("Magnétisme : à brancher.", "", "");
+				}
+			}
+
+			void Dire(const char *a, const char *b, const char *c) {
+				mSt->status = NkString(a);
+				mSt->status.Append(b);
+				mSt->status.Append(c);
+			}
+
+			uint32 mMode = 0;  ///< Design / Behavior / Animation / Split
+			uint32 mOutil = 0; ///< famille d'outils active
 			bool mPanning = false;
 			bool mMarquee = false;
 			float32 mMarqX = 0.f, mMarqY = 0.f;
@@ -1484,14 +1696,17 @@ namespace nkuidesign {
 				// Les memes noms que la ligne de commande et le fichier : un seul
 				// vocabulaire pour les quatre sources, sinon l'interface enseigne
 				// un mot que le fichier ne comprend pas.
-				static const char *kApis[] = {"auto", "opengl", "vulkan", "dx11", "dx12", "software"};
+				// La table vit dans `Backend.h` : le menu et ce panneau lisent la
+				// même, tant que les deux coexistent.
+				uint32 nApis = 0;
+				const char *const *kApis = NkGfxApiNames(nApis);
 				const int32 pick =
-					designkit::Segmented(ctx, kApis, 6, mSt->prefsChoice, "prefs.gfx");
+					designkit::Segmented(ctx, kApis, nApis, mSt->prefsChoice, "prefs.gfx");
 				if (pick >= 0)
 					mSt->prefsChoice = pick;
 
 				if (designkit::Button(ctx, "Enregistrer dans nkuidesign.cfg", "prefs.enregistrer"))
-					mSt->SavePrefs(kApis[mSt->prefsChoice < 6 ? mSt->prefsChoice : 0]);
+					mSt->SavePrefs(kApis[mSt->prefsChoice < nApis ? mSt->prefsChoice : 0]);
 
 				// ── LE REDEMARRAGE, ANNONCE ──────────────────────────────────
 				// ⚠️ REGLE DE RODOLF : ce qui implique un redemarrage le DIT ; ce
@@ -1525,7 +1740,25 @@ namespace nkuidesign {
 	class AIPanel : public NkEditorPanel {
 		public:
 			explicit AIPanel(DesignState *st)
-				: NkEditorPanel("IA", NkEditorDockSide::NK_BOTTOM), mSt(st) {}
+				: NkEditorPanel("IA", NkEditorDockSide::NK_BOTTOM), mSt(st) {
+				// ⚠️ REPLIÉ PAR DÉFAUT, ET LA MESURE DIT POURQUOI CE N'EST QU'UN
+				//    DEMI-CORRECTIF. Le plan (§4) veut en bas un « rail de pastilles,
+				//    ancré discret » ; §13 décrit le mécanisme complet (rails de
+				//    28 px, pastilles à quatre états). Mesure faite dans
+				//    `NkEditorShell.h` : **ce mécanisme n'existe pas** — la coquille
+				//    ne porte ni rail ni pastille, seulement des « voyants » de pied
+				//    de fenêtre. La réponse à « pastille laissée ouverte, ou panneau
+				//    pas encore converti ? » est donc la SECONDE : rien n'a été
+				//    converti, parce qu'il n'y a pas encore de rail où le poser.
+				//    ⚠️ Et ce panneau n'irait de toute façon pas là : §13.1 place
+				//       « Chat IA » sur le rail DROIT, le rail bas portant
+				//       Console/Validation et Preview/Test.
+				//    En attendant, il est FERMÉ au démarrage : la toile récupère le
+				//    cinquième de fenêtre qu'il occupait, et il reste atteignable par
+				//    `Affichage > Panneaux` et par `IA > Ouvrir le chat IA`. Une
+				//    capacité qui se replie n'est pas une capacité perdue.
+				SetOpen(false);
+			}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -1534,13 +1767,13 @@ namespace nkuidesign {
 						 mSt->ai.Backend() ? mSt->ai.Backend()->Name() : "-",
 						 (mSt->ai.Backend() && mSt->ai.Backend()->IsAvailable()) ? "" : " (indisponible)");
 				ec.Text(b);
-				ec.Text("Decrivez l'interface voulue. Elle produit une DECLARATION,");
-				ec.Text("posee dans l'arbre comme si vous l'aviez posee vous-meme.");
+				ec.Text("Décrivez l'interface voulue. Elle produit une DÉCLARATION,");
+				ec.Text("posée dans l'arbre comme si vous l'aviez posée vous-même.");
 				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
 
-				if (ec.Button("Demander a l'IA"))
+				if (ec.Button("Demander à l'IA"))
 					Ask();
-				if (ec.Button("Verifier le document par rejeu"))
+				if (ec.Button("Vérifier le document par rejeu"))
 					Replay();
 
 				ec.Separator();
@@ -1549,9 +1782,9 @@ namespace nkuidesign {
 				// ⚠️ CE QUI N'EST PAS LA, DIT DANS L'INTERFACE ELLE-MEME. Un editeur
 				//    muet sur ce qu'il ne fait pas se fait reprocher des absences qu'il
 				//    n'a jamais promises.
-				ec.Text("Aucun modele specialise n'existe encore : il s'entrainera sur");
-				ec.Text("les documents produits ici. Backend reseau : absent (le client");
-				ec.Text("HTTP doit monter dans un module partage, pas etre recopie ici).");
+				ec.Text("Aucun modèle spécialisé n'existe encore : il s'entraînera sur");
+				ec.Text("les documents produits ici. Backend réseau : absent (le client");
+				ec.Text("HTTP doit monter dans un module partagé, pas être recopié ici).");
 			}
 
 		private:
@@ -1583,6 +1816,429 @@ namespace nkuidesign {
 			}
 			DesignState *mSt;
 			NkString mLast;
+	};
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  PANNEAU 7 — LA HIÉRARCHIE (document 3 §11, planches §22.5 et 091913)
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  ⚠️ CE N'EST PAS « Composition » RENOMMÉ. Le panneau Composition empilait
+	//     des `Selectable` et six boutons d'action ; celui-ci passe par
+	//     **`NkTreeViewModel` / `NkDrawTreeView` du kit**, c'est-à-dire par le
+	//     composant que quatre applications partagent. Faire évoluer l'ancien
+	//     aurait conservé sa structure — donc conservé les ~460 lignes qui
+	//     réimplémentent ce que le kit porte déjà.
+	//
+	//  DEUX SECTIONS EMPILÉES (§11.6, proposition de Rodolf du 20/08) :
+	//     en haut  l'arbre de la page courante  — ce que cette page CONTIENT ;
+	//     en bas   les composants du projet     — ce que ce projet POSSÈDE.
+	//  Deux modèles distincts, un seul composant : c'est la démonstration que le
+	//  composant du kit sert deux usages sans variante nouvelle.
+	//
+	//  ⚠️ LA LOUPE EST UNE SEULE, EN HAUT DU PANNEAU, et elle filtre les deux
+	//     sections. Le composant sait dessiner sa propre barre de recherche
+	//     (`show_search`) ; l'activer deux fois donnerait deux champs pour une
+	//     seule intention. Le paramètre est donc mis à 0 sur les deux instances,
+	//     et l'hôte écrit dans `modele.filter` — le champ prévu pour ça.
+	//
+	//  ⚠️ CE QUI N'EST PAS ENCORE LÀ, ET QUI EST DIT PLUTÔT QUE SUGGÉRÉ : le
+	//     badge d'avertissement (§11.2), le reparentage par glisser (§11.3), le
+	//     losange d'instance (§11.4) et le compte d'instances de la section
+	//     basse. Le composant porte les trois premiers ; il leur manque
+	//     seulement d'être alimentés. Le CONTENU s'affine ensuite — ce qui se
+	//     juge aujourd'hui est la place, le titre et les proportions.
+	class HierarchyPanel : public NkEditorPanel {
+		public:
+			explicit HierarchyPanel(DesignState *st)
+				: NkEditorPanel("Hiérarchie", NkEditorDockSide::NK_LEFT), mSt(st) {
+				// ⚠️ LES DEUX INSTANCES SONT LIÉES À LA MÊME DÉCLARATION. Les
+				//    nombres (hauteur de ligne, indentation, largeur du chevron)
+				//    viennent donc de `NkTreeViewDecl()`, pas d'un littéral écrit
+				//    ici : un éditeur pourra les changer, et ils ne seront jamais
+				//    à deux valeurs dans le même programme.
+				mInstPages.Bind(NkTreeViewDecl());
+				mInstComposants.Bind(NkTreeViewDecl());
+				// Une seule loupe, en haut : voir le bandeau ci-dessus.
+				mInstPages.SetParam("show_search", 0.f);
+				mInstComposants.SetParam("show_search", 0.f);
+				// Les bandes de titre « PAGES » / « COMPOSANTS » sont dessinées par
+				// l'hôte (le composant remplit sa bande mais n'y écrit aucun titre).
+				mInstPages.SetParam("show_header", 0.f);
+				mInstComposants.SetParam("show_header", 0.f);
+				mInstComposants.SetParam("show_footer", 0.f);
+				// La planche montre les filets d'indentation ; ils sont à 0 par
+				// défaut dans la déclaration.
+				mInstPages.SetParam("indent_guides", 1.f);
+			}
+
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				designkit::UiRects::NoteRegion(ctx, "hierarchie");
+
+				SyncPages();
+				SyncComposants();
+
+				// ── LA LOUPE, UNE SEULE POUR LES DEUX SECTIONS ───────────────
+				InputText(ctx, "Filtrer", mFiltre, (int32)sizeof(mFiltre));
+				CopyFiltre(mModelePages.filter, sizeof(mModelePages.filter));
+				CopyFiltre(mModeleComposants.filter, sizeof(mModeleComposants.filter));
+
+				// ── LE PARTAGE DE LA HAUTEUR ─────────────────────────────────
+				// ⚠️ MESURE QUI M'A CONTREDIT, ET C'EST POUR ÇA QU'ELLE EST ÉCRITE
+				//    ICI. Ma première version prenait `ctx.layout.region` pour la
+				//    zone visible du panneau. `--dump-ui` a rendu :
+				//        panneau.hierarchie = 48.0 84.0 219.8 1000000.0
+				//    `region.h` vaut **un million** : c'est la région de CONTENU
+				//    d'une zone défilable, volontairement sans fond. La section
+				//    basse est donc partie à y = 999 874 — hors de l'écran, et
+				//    « la Hiérarchie n'a qu'une section » aurait été le diagnostic.
+				//
+				//    La zone VISIBLE est celle du cadre de défilement posé par
+				//    `Begin` (`BeginScrollFrame(..., content, ...)`) : c'est
+				//    `childStack[childDepth-1].area`. On la lit là, ou nulle part.
+				const float32 basY = designkit::HauteurVisibleBas(ctx, "Hierarchie");
+				float32 restant = basY - ctx.layout.cursor.y;
+				if (restant < 80.f)
+					restant = 80.f;
+				// §11.6 : la section basse est SECONDAIRE ; elle prend le tiers,
+				// borné, pour qu'un arbre profond garde de la place.
+				float32 hBas = restant * 0.32f;
+				if (hBas > 220.f)
+					hBas = 220.f;
+				if (hBas < 90.f)
+					hBas = 90.f;
+				const float32 hHaut = restant - hBas - 2.f * kBandeH - 8.f;
+
+				BandeDeSection(ctx, "PAGES", "hier.pages.plus");
+				DessinerArbre(ctx, mModelePages, mInstPages, hHaut > 60.f ? hHaut : 60.f, "pages");
+
+				BandeDeSection(ctx, "COMPOSANTS", "hier.composants.plus");
+				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
+			}
+
+		private:
+			static constexpr float32 kBandeH = 22.f;
+
+			/// La bande de titre d'une section, avec son `[+]` (planche 091913).
+			/// ⚠️ Assemblage de primitives NKGui, pas un widget de plus : un titre
+			///    et un bouton posés à des rectangles explicites.
+			void BandeDeSection(NkGuiContext &ctx, const char *titre, const char *id) {
+				const NkRect r = ctx.NextItemRect(-1.f, kBandeH);
+				ctx.SetNextItemRect({r.x, r.y, r.w - kBandeH - 4.f, r.h});
+				Text(ctx, titre);
+				ctx.SetNextItemRect({r.x + r.w - kBandeH, r.y, kBandeH, r.h});
+				if (Button(ctx, "+"))
+					mSt->status = NkString("[+] de la section : à brancher (le geste "
+										   "de création n'existe pas encore).");
+				(void)id;
+			}
+
+			void DessinerArbre(NkGuiContext &ctx, NkTreeViewModel &modele,
+							   NkComponentInstance &inst, float32 hauteur, const char *cle) {
+				const NkRect zone = ctx.NextItemRect(-1.f, hauteur);
+				if (zone.w <= 0.f || zone.h <= 0.f)
+					return;
+				designkit::UiRects::NoteRect(cle, zone.x, zone.y, zone.w, zone.h);
+
+				NkComponentInput in;
+				in.surfaceScale = 1.f;
+				in.mouseX = ctx.input.mousePos.x;
+				in.mouseY = ctx.input.mousePos.y;
+				in.wheel = ctx.input.wheel;
+				in.mouseDown = ctx.input.mouseDown[0];
+				in.mousePressed = ctx.input.mouseClicked[0];
+				in.mouseReleased = ctx.input.mouseReleased[0];
+				in.doubleClick = ctx.input.mouseDoubleClicked[0];
+				in.rightPressed = ctx.input.mouseClicked[1];
+				in.ctrl = ctx.input.ctrlDown;
+				in.shift = ctx.input.shiftDown;
+
+				NkDesignPaint paint(ctx, mSt->theme);
+				const NkPaintRect r = {zone.x, zone.y, zone.w, zone.h};
+				const NkTreeViewResult res = nkentseu::editorkit::NkDrawTreeView(
+					paint, in, r, modele, Style(inst), NkTreeViewHooks{});
+
+				// ⚠️ LA BOUCLE SE REFERME ICI, ET SON ABSENCE ETAIT UN DEFAUT REEL.
+				//    `SyncPages` recopie `DesignState::selected` dans le modele a
+				//    CHAQUE image. Sans la relecture ci-dessous, une selection faite
+				//    dans l'arbre etait ECRASEE a l'image suivante : le clic avait
+				//    l'air de ne rien faire, et l'Inspecteur affichait « Aucune
+				//    selection » sur un arbre ou une ligne etait surlignee.
+				//    Mesure : capture 08 -- « 5 nœud(s), 0 sélectionné(s) » cote
+				//    PAGES pendant que l'Inspecteur disait « Aucune sélection ».
+				// ⚠️ Et elle ne vaut QUE pour l'arbre des pages : les composants du
+				//    projet ne sont pas des nœuds du document, leur index ne veut
+				//    rien dire pour `DesignState::selected`.
+				if (res.selectionChanged && &modele == &mModelePages) {
+					const int32 i = modele.IndexOf(modele.active);
+					if (i >= 0)
+						mSt->SelectSingle(i);
+					else
+						mSt->SelectClear();
+				}
+			}
+
+			/// Le style, LU DANS LA DÉCLARATION. Aucun nom de rôle n'est écrit ici :
+			/// `TokenRole` rend celui que la déclaration nomme, et
+			/// `NkDesignResolveRole` est la résolution UNIQUE du programme — celle
+			/// que la sonde emprunte aussi.
+			NkTreeViewStyle Style(const NkComponentInstance &inst) const {
+				NkTreeViewStyle s;
+				s.panelBg = NkDesignResolveRole(inst.TokenRole("panel_bg"));
+				s.headerBg = NkDesignResolveRole(inst.TokenRole("header_bg"));
+				s.border = NkDesignResolveRole(inst.TokenRole("border"));
+				s.text = NkDesignResolveRole(inst.TokenRole("text"));
+				s.textMuted = NkDesignResolveRole(inst.TokenRole("text_muted"));
+				s.rowHover = NkDesignResolveRole(inst.TokenRole("row_hover"));
+				s.activeMark = NkDesignResolveRole(inst.TokenRole("active_mark"));
+				s.activeText = NkDesignResolveRole(inst.TokenRole("active_text"));
+				s.chosenMark = NkDesignResolveRole(inst.TokenRole("chosen_mark"));
+				s.guide = NkDesignResolveRole(inst.TokenRole("guide"));
+				s.dropMark = NkDesignResolveRole(inst.TokenRole("drop_mark"));
+				s.iconTint = NkDesignResolveRole(inst.TokenRole("icon_tint"));
+				s.dimTint = NkDesignResolveRole(inst.TokenRole("dim_tint"));
+				s.icons = NkDesignTreeIcons();
+				s.values = &inst;
+				return s;
+			}
+
+			void CopyFiltre(char *dst, nkentseu::usize n) const {
+				nkentseu::usize i = 0;
+				while (i + 1 < n && mFiltre[i]) {
+					dst[i] = mFiltre[i];
+					++i;
+				}
+				dst[i] = '\0';
+			}
+
+			// ── LE DOCUMENT VERS LE MODÈLE DE L'ARBRE ────────────────────────
+			// ⚠️ ORDRE PRÉFIXE OBLIGATOIRE (`NkTreeViewModel::IsWellFormed`). Les
+			//    nœuds du document sont déjà en ordre préfixe (un parent précède
+			//    ses enfants) : la copie est donc directe, et la précondition est
+			//    VÉRIFIÉE plutôt que supposée.
+			void SyncPages() {
+				mModelePages.nodes.Clear();
+				const uint32 n = (uint32)mSt->doc.nodes.Size();
+				for (uint32 i = 0; i < n; ++i) {
+					const NkUINode &d = mSt->doc.nodes[i];
+					NkTreeNode t;
+					t.id = (nkentseu::nk_uint64)(i + 1);
+					t.parent = d.parent;
+					t.label = d.label.Empty() ? NkString(d.component.Empty() ? "(cadre)"
+																			: d.component.Data())
+											  : d.label;
+					t.path = t.label;
+					t.kindLabel = d.component.Empty() ? "cadre" : d.component.Data();
+					// La pastille de rôle de la planche : la NATURE du nœud.
+					t.kindRole = NkDesignResolveRole(d.component.Empty() ? "text_muted" : "accent_ui");
+					mModelePages.nodes.PushBack(t);
+				}
+				// ⚠️ LES PLAFONDS CRIENT, ILS NE DÉBORDENT PAS EN SILENCE.
+				//    `IsWellFormed` refuse au-delà de `kMaxDepth` (64) et sur un
+				//    ordre non préfixe. Un modèle mal formé ne PLANTE pas le
+				//    dessin — il s'affiche dans un ordre surprenant, ce qui
+				//    ressemble à un défaut de l'arbre et non du document.
+				if (!mModelePages.nodes.Empty() && !mModelePages.IsWellFormed() && !mCriPages) {
+					mCriPages = true;
+					logger.Error("[NKUIDesign] Hierarchie : le document n'est PAS en ordre prefixe "
+								 "ou depasse kMaxDepth={0}. L'arbre s'affichera dans un ordre "
+								 "surprenant -- ce n'est pas un defaut du composant.",
+								 (int32)NkTreeViewModel::kMaxDepth);
+				}
+				// La sélection est UNE (§11.5) : elle vit dans `DesignState`.
+				mModelePages.active =
+					mSt->selected >= 0 ? (nkentseu::nk_uint64)(mSt->selected + 1) : 0;
+				mModelePages.chosen.Clear();
+				if (mModelePages.active)
+					mModelePages.chosen.PushBack(mModelePages.active);
+			}
+
+			/// ⚠️ AUCUN CATALOGUE ÉCRIT EN DUR, ET C'EST UNE CONTRAINTE DE RODOLF :
+			///    « des millions d'utilisateurs peuvent créer des composants, les
+			///    commercialiser ou les partager. » La section basse boucle donc sur
+			///    le REGISTRE et ne nomme rien.
+			///    ⚠️ `NkComponentRegistry` est borné à `kMaxComponents` = 64. Le
+			///       registre dynamique est un chantier à part, non commencé ici ;
+			///       ce qui est fait aujourd'hui, c'est que la borne se DISE.
+			void SyncComposants() {
+				mModeleComposants.nodes.Clear();
+				const uint16 n = NkComponentRegistry::Count();
+				for (uint16 c = 0; c < n; ++c) {
+					const NkComponentDecl *d = NkComponentRegistry::At(c);
+					if (!d)
+						continue;
+					NkTreeNode t;
+					t.id = (nkentseu::nk_uint64)(c + 1);
+					t.parent = -1;
+					// ⚠️ `name` ET NON `title` : `title` est une CLÉ DE TRADUCTION
+					//    (« content_browser.title »), pas un libellé. L'afficher
+					//    telle quelle mettrait une clé sous les yeux de
+					//    l'utilisateur. Le multilingue vit dans NKGui (règle du
+					//    18/08) et n'est pas branché ici.
+					t.label = NkString(d->name ? d->name : "");
+					t.path = NkString(d->name ? d->name : "");
+					t.kindLabel = "composant";
+					t.kindRole = NkDesignResolveRole("accent_sel");
+					mModeleComposants.nodes.PushBack(t);
+				}
+				if (n >= 64 && !mCriRegistre) {
+					mCriRegistre = true;
+					logger.Error("[NKUIDesign] le registre de composants est PLEIN ({0} entrees, "
+								 "plafond kMaxComponents). Les composants suivants ne sont ni "
+								 "enregistres ni affiches -- ce n'est pas un filtre de la "
+								 "Hierarchie.",
+								 (int32)n);
+				}
+			}
+
+			DesignState *mSt;
+			NkTreeViewModel mModelePages;
+			NkTreeViewModel mModeleComposants;
+			NkComponentInstance mInstPages;
+			NkComponentInstance mInstComposants;
+			char mFiltre[128] = {0};
+			bool mCriPages = false;
+			bool mCriRegistre = false;
+	};
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  PANNEAU 8 — L'INSPECTEUR (document 3 §12, planche 091913)
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  ⚠️ CONTRE-ÉPREUVE, ET ELLE CONTREDIT LA CONSIGNE — MESURÉE, PAS SUPPOSÉE.
+	//     La consigne disait « via `NkEditorInspector` du kit ». Lecture faite du
+	//     fichier (`Engine/NKEditorKit/src/NKEditorKit/NkEditorInspector.h`,
+	//     141 lignes) : il expose UNE fonction, `DrawInspector(ctx, obj, cls)`,
+	//     qui énumère les propriétés d'une classe **enregistrée dans
+	//     NKReflection** (`EnumerateEditableProperties`, `SetPropertyByName`).
+	//     Il ne porte ni en-tête, ni onglets, ni sections nommées.
+	//
+	//     Or un nœud de NkUIDesign (`NkUINode`, `Document.h`) n'est PAS une
+	//     classe réfléchie — il n'y a ni `NK_CLASS`, ni enregistrement. L'appeler
+	//     ici demanderait d'abord de réfléchir le document, ce que le CLAUDE.md
+	//     parent range explicitement de l'autre côté de la frontière tracée le
+	//     18/08 (NKReflection = objets de DONNÉES à l'exécution ; la déclaration
+	//     de composant = constante de compilation).
+	//
+	//     Donc : **`NkEditorInspector` n'est pas contourné, il ne s'applique pas
+	//     encore.** Ce panneau assemble les primitives NKGui — `TabBar`,
+	//     `CollapsingHeader`, `BeginRow` — exactement celles que `DrawInspector`
+	//     utilise lui-même à l'intérieur. Le jour où le document porte de la
+	//     réflexion, le CORPS d'une section devient un appel à `DrawInspector`
+	//     sans que la charpente bouge.
+	//     📌 Signalé au canal : il manque au kit une CHARPENTE d'inspecteur
+	//        (en-tête + onglets + sections nommées) indépendante de NKReflection.
+	//        C'est elle que les quatre éditeurs partageront ; elle n'existe pas.
+	//
+	//  L'ORDRE DES SECTIONS EST NORMATIF (§12.2) : « un ordre laissé au hasard se
+	//  met à varier d'un écran à l'autre ». Il est donc écrit UNE fois, dans une
+	//  table, et la boucle le suit.
+	class InspectorPanel : public NkEditorPanel {
+		public:
+			explicit InspectorPanel(DesignState *st)
+				: NkEditorPanel("Inspecteur", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				designkit::UiRects::NoteRegion(ctx, "inspecteur");
+
+				// ── L'EN-TÊTE : LE NOM DE L'ÉLÉMENT, TOUJOURS VISIBLE (§12.2) ─
+				const bool aUnNoeud = mSt->doc.IsValidIndex(mSt->selected);
+				const NkUINode *n = aUnNoeud ? &mSt->doc.nodes[(uint32)mSt->selected] : nullptr;
+				Text(ctx, n ? (n->label.Empty() ? "(sans nom)" : n->label.Data())
+							: "Aucune sélection");
+				Separator(ctx);
+
+				// ── LES TROIS ONGLETS (§12.2) ────────────────────────────────
+				// ⚠️ `nkgui::TabBar` GARDE LUI-MÊME l'onglet courant (persistant par
+				//    `id`) et le REND. Tenir une seconde copie ici donnerait deux
+				//    vérités sur « quel onglet est ouvert ».
+				static const char *const kOnglets[3] = {"Design", "Widget", "Behavior"};
+				mOnglet = TabBar(ctx, "insp.onglets", kOnglets, 3);
+
+				if (mOnglet != 0) {
+					// ⚠️ UNE SECTION QUI NE S'APPLIQUE PAS NE S'AFFICHE PAS VIDE
+					//    (§12.2). Ces deux onglets n'ont pas encore de contenu :
+					//    ils le DISENT, plutôt que de montrer sept sections vides
+					//    qui feraient croire à des propriétés disparues.
+					Text(ctx, mOnglet == 1 ? "Onglet Widget : le rôle et ses paramètres."
+										   : "Onglet Behavior : événements et callbacks.");
+					Text(ctx, "Pas encore branché — la charpente d'abord, le contenu ensuite.");
+					return;
+				}
+
+				// ── LES SECTIONS DE L'ONGLET DESIGN, DANS L'ORDRE NORMATIF ───
+				// ⚠️ UNE SEULE TABLE. Un ordre recopié à deux endroits diverge, et
+				//    §12.2 dit exactement pourquoi ça coûte cher.
+				struct Section {
+						const char *titre;
+						void (InspectorPanel::*corps)(NkGuiContext &, const NkUINode *);
+				};
+				static const Section kSections[] = {
+					{"POSITION", &InspectorPanel::CorpsPosition},
+					{"TAILLE", &InspectorPanel::CorpsTaille},
+					{"ANCRAGE", &InspectorPanel::CorpsAVenir},
+					{"ALIGNEMENT", &InspectorPanel::CorpsAVenir},
+					{"APPARENCE", &InspectorPanel::CorpsAVenir},
+					{"BORDS", &InspectorPanel::CorpsAVenir},
+					{"TYPOGRAPHIE", &InspectorPanel::CorpsAVenir},
+				};
+				for (uint32 i = 0; i < sizeof(kSections) / sizeof(kSections[0]); ++i) {
+					if (CollapsingHeader(ctx, kSections[i].titre))
+						(this->*kSections[i].corps)(ctx, n);
+				}
+			}
+
+		private:
+			// ⚠️ LA POSITION EST UN RÉSULTAT, PAS UNE DONNÉE (règle de Rodolf du
+			//    18/08). Elle est donc LUE dans la disposition calculée et affichée
+			//    en lecture seule ; l'outil n'écrira jamais une coordonnée dans le
+			//    document.
+			void CorpsPosition(NkGuiContext &ctx, const NkUINode *n) {
+				if (!n) {
+					designkit::KeyValue(ctx, "X", "-");
+					designkit::KeyValue(ctx, "Y", "-");
+					return;
+				}
+				char b[64];
+				const bool a = mSt->layout.Has(mSt->selected);
+				const NkPaintRect r = a ? mSt->layout.At(mSt->selected) : NkPaintRect{0.f, 0.f, 0.f, 0.f};
+				snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)r.x);
+				designkit::KeyValue(ctx, "X", b);
+				snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)r.y);
+				designkit::KeyValue(ctx, "Y", b);
+				designkit::KeyValue(ctx, "", "calculée — jamais écrite dans le document");
+			}
+
+			void CorpsTaille(NkGuiContext &ctx, const NkUINode *n) {
+				if (!n) {
+					designkit::KeyValue(ctx, "Largeur", "-");
+					designkit::KeyValue(ctx, "Hauteur", "-");
+					return;
+				}
+				char b[64];
+				Decrire(n->width, b, sizeof(b));
+				designkit::KeyValue(ctx, "Largeur", b);
+				Decrire(n->height, b, sizeof(b));
+				designkit::KeyValue(ctx, "Hauteur", b);
+			}
+
+			/// ⚠️ CE QUI MANQUE LE DIT. Une section repliée vide ferait croire à une
+			///    propriété disparue ; une phrase dit que la question se pose et que
+			///    la réponse vient.
+			void CorpsAVenir(NkGuiContext &ctx, const NkUINode *) {
+				Text(ctx, "À brancher — la place est prise, le contenu suit.");
+			}
+
+			static void Decrire(const NkSizeDecl &s, char *out, nkentseu::usize n) {
+				const char *mode = NkSizeModeName(s.mode);
+				if (s.mode == NkSizeMode::Fixed || s.mode == NkSizeMode::Fraction
+					|| s.mode == NkSizeMode::Weight)
+					snprintf(out, n, "%s %.0f", mode, (double)s.value);
+				else
+					snprintf(out, n, "%s", mode);
+			}
+
+			DesignState *mSt;
+			int32 mOnglet = 0;
 	};
 
 } // namespace nkuidesign

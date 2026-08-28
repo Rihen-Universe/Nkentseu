@@ -732,9 +732,72 @@ namespace nkentseu {
 		}
 
 		// ── BIBLIOTHEQUE ────────────────────────────────────────────────────────
+		// ── LES THEMES GITHUB, ET ILS SONT ICI ─────────────────────────────────
+		// ⚠️ DANS LE KIT, PAS DANS L APPLICATION, et c est la regle pour TOUTES les
+		//    applications : « Dark Pro / Light Pro pour toutes les applications ».
+		//    Definis dans une application, chaque application les redefinirait
+		//    differemment -- six « GitHub Dark Pro » qui ne se ressemblent pas, et
+		//    aucun moyen de dire lequel fait foi.
+		//
+		// ⚠️ ILS HERITENT DE LA BASE, ILS NE LA REECRIVENT PAS. Seuls les roles que
+		//    GitHub DEFINIT reellement sont poses ; les autres (axes X/Y/Z, en-tetes
+		//    de noeuds, degrade de vue 3D) n ont aucun equivalent chez GitHub et
+		//    gardent ceux de `Dark()` / `Light()`. C est exactement le mecanisme que
+		//    `AddFromText` exploite deja -- « un theme de trois lignes doit heriter
+		//    des 26 autres ». Inventer une valeur GitHub pour un role que GitHub
+		//    n a pas, ce serait publier un chiffre sans provenance.
+		//
+		// PROVENANCE DES VALEURS : jetons Primer de GitHub. `#0969da` (accent clair)
+		// et `#ffffff` sont en outre LISIBLES SUR LA PLANCHE 091913 de NkUIDesign,
+		// qui montre « Fond #0969da / Texte #ffffff » dans l Inspecteur -- deux des
+		// valeurs sont donc confirmees par une source interne, pas seulement par ma
+		// memoire. Les autres viennent des jetons Primer publies.
+		inline NkTheme NkThemeGitHubDarkPro() {
+			NkTheme t = NkTheme::Dark();
+			t.SetName("GitHub Dark Pro");
+			t.Set(NkRole::WindowBg, NkTheme::FromHex("#0d1117"));	// canvas.default
+			t.Set(NkRole::PanelBg, NkTheme::FromHex("#161b22"));	// canvas.subtle
+			t.Set(NkRole::PanelHeader, NkTheme::FromHex("#21262d")); // canvas.inset+
+			t.Set(NkRole::Border, NkTheme::FromHex("#30363d"));		// border.default
+			t.Set(NkRole::InputBg, NkTheme::FromHex("#0d1117"));
+			t.Set(NkRole::LabelCol, NkTheme::FromHex("#161b22"));
+			t.Set(NkRole::Text, NkTheme::FromHex("#c9d1d9"));		// fg.default
+			t.Set(NkRole::TextMuted, NkTheme::FromHex("#8b949e"));	// fg.muted
+			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::AccentUi, NkTheme::FromHex("#58a6ff"));	// accent.fg
+			// ⚠️ `AccentSel` RESTE L ORANGE DU PRODUIT. C est une regle du depot --
+			//    « le BLEU dit l etat de l INTERFACE, l AMBRE dit la selection » --
+			//    et elle ne depend pas du theme choisi. La remplacer par un jeton
+			//    GitHub ferait disparaitre la distinction dans ce theme-la seulement,
+			//    ce qui est pire qu une couleur inhabituelle : c est une regle qui
+			//    tient une fois sur deux.
+			return t;
+		}
+
+		inline NkTheme NkThemeGitHubLightPro() {
+			NkTheme t = NkTheme::Light();
+			t.SetName("GitHub Light Pro");
+			t.Set(NkRole::WindowBg, NkTheme::FromHex("#ffffff"));	// canvas.default
+			t.Set(NkRole::PanelBg, NkTheme::FromHex("#f6f8fa"));	// canvas.subtle
+			t.Set(NkRole::PanelHeader, NkTheme::FromHex("#eaeef2"));
+			t.Set(NkRole::Border, NkTheme::FromHex("#d0d7de"));		// border.default
+			t.Set(NkRole::InputBg, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::LabelCol, NkTheme::FromHex("#f6f8fa"));
+			t.Set(NkRole::Text, NkTheme::FromHex("#1f2328"));		// fg.default
+			t.Set(NkRole::TextMuted, NkTheme::FromHex("#656d76"));	// fg.muted
+			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::AccentUi, NkTheme::FromHex("#0969da"));	// accent.fg
+			return t;
+		}
+
 		inline void NkThemeLibrary::AddBuiltins() {
 			mThemes.PushBack(NkTheme::Dark());
 			mThemes.PushBack(NkTheme::Light());
+			// ⚠️ AJOUTES APRES, jamais AVANT : `mCurrent = 0` designe le premier, et
+			//    inserer devant changerait silencieusement le theme par defaut de
+			//    toutes les applications qui appellent `AddBuiltins`.
+			mThemes.PushBack(NkThemeGitHubDarkPro());
+			mThemes.PushBack(NkThemeGitHubLightPro());
 			mCurrent = 0;
 		}
 

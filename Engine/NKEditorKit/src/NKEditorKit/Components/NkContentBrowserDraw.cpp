@@ -148,7 +148,7 @@ namespace nkentseu {
 			NkPaintRect toolbar{rect.x, rect.y + headerH, rect.w, toolbarH};
 			p.Fill(toolbar, s.headerBg);
 			const float32 pad = M("card_pad");
-			p.Text({toolbar.x + pad, toolbar.y, toolbar.w * 0.5f, toolbar.h}, "Creer", s.text);
+			p.Text({toolbar.x + pad, toolbar.y, toolbar.w * 0.5f, toolbar.h}, "Créer", s.text);
 			p.HLine(rect.x, toolbar.y + toolbarH, rect.w, s.border);
 
 			// ── FIL D'ARIANE ────────────────────────────────────────────────────

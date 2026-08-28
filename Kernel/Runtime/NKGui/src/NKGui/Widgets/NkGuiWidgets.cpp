@@ -5091,7 +5091,8 @@ namespace nkentseu {
 			EndPopup(ctx);
 		}
 
-		bool MenuItem(NkGuiContext &ctx, const char *label, const char *shortcut, bool enabled) noexcept {
+		bool MenuItem(NkGuiContext &ctx, const char *label, const char *shortcut, bool enabled,
+					  bool checked) noexcept {
 			const float32 h = ctx.ItemHeight();
 			const NkRect r = ctx.NextItemRect(0.f, h);
 			const NkGuiId id = ctx.GetId(label);
@@ -5126,6 +5127,20 @@ namespace nkentseu {
 									 {r.x + r.w - sw - 10.f, CenteredBaseline(ctx, r)}, shortcut,
 									 ctx.theme.textDisabled);
 				}
+			}
+			// ⚠️ LA COCHE EST DESSINEE, PAS ECRITE. Un caractère « ✓ » dépendrait de
+			//    la présence du glyphe U+2713 dans l'atlas de la police chargée —
+			//    absent, il ne rendrait RIEN et l'état serait muet. Deux segments de
+			//    la liste de dessin ne dépendent d'aucune police.
+			// ⚠️ ET ELLE EST A DROITE, PAS A GAUCHE : une gouttière de coche à gauche
+			//    décalerait le libellé de TOUTES les entrées de TOUTES les
+			//    applications, y compris celles qui n'ont aucun état à montrer.
+			if (checked) {
+				const NkColor cc = enabled ? lc : ctx.theme.textDisabled;
+				const float32 s2 = h * 0.22f;
+				const float32 cx = r.x + r.w - 14.f, cy = r.y + r.h * 0.5f;
+				ctx.DL().AddLine({cx - s2, cy}, {cx - s2 * 0.3f, cy + s2 * 0.7f}, cc, 1.6f);
+				ctx.DL().AddLine({cx - s2 * 0.3f, cy + s2 * 0.7f}, {cx + s2, cy - s2 * 0.8f}, cc, 1.6f);
 			}
 			if (clicked)
 				ctx.ClosePopup(); // valider ferme toute la chaîne

@@ -15,6 +15,9 @@
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (emplacements du sélecteur)
+#include "NKMath/NkFunctions.h" // NkSin/NkCos/NkSqrt/NkAtan2 — la marque Rihen
+                               // est TRACEE, pas chargee. ⚠️ `nkentseu::math`,
+                               // pas `std::` (règle de Rodolf du 18/08).
 #if defined(_WIN32)
 #include <windows.h> // GetLogicalDrives (barre latérale disques)
 #endif
@@ -980,8 +983,98 @@ namespace nkentseu {
 
 		// ── Barre de titre custom (UNE ligne : logo + menus | infos | controles) ──
 		// Layout facon VSCode : [logo][Fichier Affichage ...]   <infos centre>   [─ ☐ ✕]
-		// LE BLOC LOGO CARRE, colle au coin haut-gauche, a cheval sur les deux
-		// bandes. Le glyphe est une grille de 2x2 carres (planche 091913).
+		//
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LE BLOC LOGO : LA MARQUE RIHEN, LE « O »
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Un disque COUPE AU-DESSUS DE SON CENTRE : petite face haute, grande
+		//  face basse, et un VIDE entre les deux. Ce n'est pas un demi-disque —
+		//  une coupe au centre donnerait deux moities egales, c'est-a-dire une
+		//  autre marque.
+		//
+		// ⚠️ CE QU IL Y AVAIT AVANT, ET POURQUOI CA NE POUVAIT PAS RESTER : une
+		//    grille de 2x2 carres, posee pour que le bloc existe des la premiere
+		//    image. Un bouche-trou. Or ce bloc est l ANCRE VISUELLE de la fenetre,
+		//    le premier element que l oeil rencontre — un bouche-trou y est plus
+		//    visible que partout ailleurs, et il se lit comme la marque.
+		//
+		// ⚠️ ET IL EST DANS LE KIT, PAS DANS L APPLICATION. Toutes les
+		//    applications Rihen (NKCode, NK3DModeler, Nogee, NkAnimaEditor,
+		//    NkUIDesign, PV3DE) portent la MEME marque. La definir dans chaque
+		//    application, ce serait six dessins qui divergent des la premiere
+		//    retouche — exactement le raisonnement qui met les themes ici.
+		//
+		// ⚠️ TRACEE, PAS CHARGEE. Une texture exigerait un decodeur, un chemin de
+		//    ressource et un cas « fichier absent » — alors que ce bloc doit
+		//    exister DES LA PREMIERE IMAGE, meme sans aucune ressource. Deux
+		//    polygones convexes n exigent rien. Une application qui veut son
+		//    propre logo pose `SetTitleLogo`, teste en premier ci-dessous.
+		//
+		//  Couleurs : charte Rihen — petrole #0A555F (face haute), orange #F79A28
+		//  (face basse). Ce sont des couleurs de MARQUE, pas des roles de theme :
+		//  une marque qui change avec le theme n est plus une marque.
+		//
+		// ⚠️ REPERE ECRAN : **y croit vers le BAS**. Un point d angle `a` est donc
+		//    (cx + R cos a, cy + R sin a) avec a = -pi/2 EN HAUT et a = +pi/2 EN
+		//    BAS. Ma premiere version a raisonne en repere mathematique et a
+		//    produit deux arcs qui se recouvraient. C est ecrit ici parce que
+		//    l erreur ne se voit pas a la relecture du code, seulement a l ecran.
+		// ── LE POINT DE SYNCHRONISATION (cf. le bandeau de `NkEditorShell.h`) ──
+		namespace {
+			inline nkgui::NkColor NkThemeUnpack(NkThemeColor c) noexcept {
+				return {(uint8)((c >> 24) & 0xFFu), (uint8)((c >> 16) & 0xFFu),
+						(uint8)((c >> 8) & 0xFFu), (uint8)(c & 0xFFu)};
+			}
+			/// La regle NOMMEE qui derive les etats : un melange lineaire vers
+			/// l accent. ⚠️ Ce n est pas une couleur inventee, c est une fonction
+			/// des roles — elle suit donc n importe quel theme, y compris ceux que
+			/// l utilisateur ecrira.
+			inline nkgui::NkColor NkThemeMix(nkgui::NkColor a, nkgui::NkColor b, float32 t) noexcept {
+				const float32 u = 1.f - t;
+				return {(uint8)(a.r * u + b.r * t), (uint8)(a.g * u + b.g * t),
+						(uint8)(a.b * u + b.b * t), a.a};
+			}
+		} // namespace
+
+		void NkEditorShell::ApplyTheme(const NkTheme &t) noexcept {
+			auto R = [&t](NkRole r) { return NkThemeUnpack(t.Get(r)); };
+			nkgui::NkGuiTheme &g = mUI.theme;
+
+			const nkgui::NkColor accent = R(NkRole::AccentUi);
+
+			g.bgPrimary = R(NkRole::WindowBg);
+			g.panel = R(NkRole::PanelBg);
+			g.header = R(NkRole::PanelHeader);
+			g.card = R(NkRole::PanelHeader);
+			g.border = R(NkRole::Border);
+			g.separator = R(NkRole::Border);
+			g.text = R(NkRole::Text);
+			g.textMuted = R(NkRole::TextMuted);
+			g.textDisabled = R(NkRole::TextMuted);
+			g.onAccent = R(NkRole::TextOnAccent);
+			g.accent = accent;
+			g.selection = accent;
+			g.track = R(NkRole::InputBg);
+
+			g.button = R(NkRole::InputBg);
+			g.buttonHover = NkThemeMix(g.button, accent, 0.20f);
+			g.buttonActive = accent;
+
+			// Les onglets : la barre recule, l inactif se pose dessus, l ACTIF prend
+			// la couleur du panneau qu il ouvre — c est ce que le document 3 §6
+			// demande (« --bg-canvas pour l actif, --bg-subtle pour les inactifs »).
+			g.tabBar = R(NkRole::WindowBg);
+			g.tab = R(NkRole::PanelHeader);
+			g.tabHover = NkThemeMix(g.tab, accent, 0.20f);
+			g.tabActive = R(NkRole::PanelBg);
+
+			g.rowHover = NkThemeMix(g.panel, accent, 0.14f);
+			g.scrollbar = NkThemeMix(g.panel, g.text, 0.30f);
+			g.scrollbarHover = NkThemeMix(g.panel, g.text, 0.50f);
+			// success / warning / danger / info : AUCUN role equivalent cote
+			// editeur. Laisses tels quels, et c est ecrit dans l en-tete.
+		}
+
 		void NkEditorShell::DrawHeaderLogo(NkEditorFrameContext &, const NkRect &r) noexcept {
 			auto &dl = mUI.dl;
 			dl.AddRectFilled(r, mUI.theme.header);
@@ -991,18 +1084,56 @@ namespace nkentseu {
 							{0.f, 0.f}, {1.f, 1.f}, {255, 255, 255, 255});
 				return;
 			}
-			// Grille de 2x2 carres, centree. Pas de texture requise : le bloc doit
-			// exister des la premiere image, meme sans ressource chargee.
-			const float32 c = r.w * 0.18f;		  // cote d un carre
-			const float32 gap = r.w * 0.06f;	  // ecart entre les deux
-			const float32 tot = c * 2.f + gap;
-			const float32 x0 = r.x + (r.w - tot) * 0.5f;
-			const float32 y0 = r.y + (r.h - tot) * 0.5f;
-			const NkColor a = mUI.theme.accent;
-			dl.AddRectFilled({x0, y0, c, c}, a);
-			dl.AddRectFilled({x0 + c + gap, y0, c, c}, a);
-			dl.AddRectFilled({x0, y0 + c + gap, c, c}, a);
-			dl.AddRectFilled({x0 + c + gap, y0 + c + gap, c, c}, a);
+
+			const float32 kPi = 3.14159265f;
+			const float32 rad = (r.w < r.h ? r.w : r.h) * 0.34f;
+			const float32 cx = r.x + r.w * 0.5f;
+			const float32 cy = r.y + r.h * 0.5f;
+			const float32 coupe = cy - rad * 0.30f;	 // AU-DESSUS du centre
+			const float32 vide = rad * 0.05f;		 // le VIDE entre les deux faces
+
+			const NkColor kPetrole = {10, 85, 95, 255};	 // #0A555F
+			const NkColor kOrange = {247, 154, 40, 255}; // #F79A28
+
+			// ⚠️ 32 POINTS D ARC, PAS 8. A 56 px de bloc, un arc a 8 segments se
+			//    lit comme un polygone : la marque devient anguleuse, et c est le
+			//    genre de detail qu on ne voit qu une fois imprime.
+			static const int32 kN = 32;
+			NkVec2 poly[kN];
+
+			// Un segment de disque coupe a l ordonnee `y` : la demi-corde vaut
+			// R*sqrt(1 - (dy/R)^2), et les deux bouts de l arc sont aux angles
+			// atan2(dy, +demiCorde) et atan2(dy, -demiCorde).
+			// La FACE HAUTE va du bout GAUCHE au bout DROIT **par le haut** ;
+			// la FACE BASSE va du bout DROIT au bout GAUCHE **par le bas**.
+			// Les deux arcs suffisent : la corde ferme le polygone toute seule.
+			const float32 dyH = (coupe - vide) - cy;
+			const float32 kH = 1.f - (dyH / rad) * (dyH / rad);
+			if (kH > 0.f) {
+				const float32 demi = rad * nkentseu::math::NkSqrt(kH);
+				const float32 aD = nkentseu::math::NkAtan2(dyH, demi);	// bout droit
+				const float32 aG = -kPi - aD;							// bout gauche
+				for (int32 i = 0; i < kN; ++i) {
+					const float32 a = aG + (aD - aG) * ((float32)i / (float32)(kN - 1));
+					poly[i] = {cx + rad * nkentseu::math::NkCos(a),
+							   cy + rad * nkentseu::math::NkSin(a)};
+				}
+				dl.AddConvexPolyFilled(poly, kN, kPetrole);
+			}
+
+			const float32 dyB = (coupe + vide) - cy;
+			const float32 kB = 1.f - (dyB / rad) * (dyB / rad);
+			if (kB > 0.f) {
+				const float32 demi = rad * nkentseu::math::NkSqrt(kB);
+				const float32 aD = nkentseu::math::NkAtan2(dyB, demi);
+				const float32 aG = -kPi - aD + 2.f * kPi; // le meme, un tour plus loin
+				for (int32 i = 0; i < kN; ++i) {
+					const float32 a = aD + (aG - aD) * ((float32)i / (float32)(kN - 1));
+					poly[i] = {cx + rad * nkentseu::math::NkCos(a),
+							   cy + rad * nkentseu::math::NkSin(a)};
+				}
+				dl.AddConvexPolyFilled(poly, kN, kOrange);
+			}
 		}
 
 		void NkEditorShell::DrawTitleBar(NkEditorFrameContext &ec, const NkRect &bar) noexcept {
@@ -1020,7 +1151,19 @@ namespace nkentseu {
 			// deja dans l'image, on NE re-ecrit PAS "nkcode". Sinon icone carree (+ texte).
 			float32 cursorX = bar.x + pad;
 			bool wordmark = false;
-			if (mTitleLogoTex) {
+			// ⚠️ QUAND LE BLOC LOGO CARRE EXISTE, LA BARRE N EN REDESSINE PAS UN.
+			//    Mesure sur capture : un carre bleu de 12 px s intercalait entre le
+			//    « O » Rihen et « Fichier » — le repli « pas de texture chargee » de
+			//    cette barre, qui ignorait que le bloc a cheval sur les deux bandes
+			//    porte deja la marque. **Deux logos a 40 px l un de l autre**, et le
+			//    second etait un carre de remplissage.
+			// ⚠️ ET LES MENUS PARTENT ALORS DU BORD DU BLOC, sans marge : le
+			//    document 3 §5 l exige — « colle au bord droit du bloc logo, pas
+			//    d espace mort entre le logo et le menu, ils forment un seul groupe
+			//    visuel ».
+			if (mHeaderLogo > 0.f) {
+				cursorX = bar.x;
+			} else if (mTitleLogoTex) {
 				const float32 lg = bar.h * 0.62f;
 				if (mTitleLogoAspect > 0.f) { // logo complet (ratio preserve)
 					const float32 lw = lg * mTitleLogoAspect;

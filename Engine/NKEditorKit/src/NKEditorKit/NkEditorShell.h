@@ -21,6 +21,10 @@
 #include "NKEditorKit/NkEditorContext.h"
 #include "NKEditorKit/NkEditorPanel.h"
 #include "NKEditorKit/NkEditorCommand.h"
+// ⚠️ La coquille porte LE point de synchronisation des deux objets theme
+//    (`ApplyTheme`) : elle a donc besoin des ROLES de l editeur, en plus du
+//    `NkGuiTheme` que `NKGui/NKGui.h` lui apporte plus bas.
+#include "NKEditorKit/NkTheme.h"
 
 #include "NKWindow/NKWindow.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -197,6 +201,44 @@ namespace nkentseu {
 					mHeaderBandH = bandH;
 					mHeaderLogo = logo;
 				}
+
+				// ═══════════════════════════════════════════════════════════════
+				//  LE POINT DE SYNCHRONISATION DES DEUX OBJETS THEME
+				// ═══════════════════════════════════════════════════════════════
+				//  ⚠️ IL Y A **DEUX** OBJETS THEME DANS CE DEPOT, ET RIEN NE LES
+				//     SYNCHRONISAIT :
+				//       - `editorkit::NkTheme` / `NkThemeLibrary` : les ROLES, les
+				//         jetons nommes, l audit de contraste, les fichiers de
+				//         theme. C est **l autorite** ;
+				//       - `nkgui::NkGuiTheme` (porte par `NkGuiContext`) : ce que le
+				//         DESSIN lit, a chaque primitive.
+				//
+				//  DEFAUT MESURE (agent NKCraft, chantier voisin) : bascule de
+				//  l editeur en Clair, le levier repond « accepte (courant : Clair) »,
+				//  les vignettes du navigateur changent — et le menu contextuel ne
+				//  bouge pas d un pixel, parce que `NkCtxMenuDraw` lit `ctx.theme`.
+				//  **Deux objets, chacun cru par une partie du dessin.** C est le
+				//  motif des deux registres homonymes de roles, applique aux themes.
+				//
+				//  ⚠️ DEUX OBJETS N EST PAS LE PROBLEME — ils sont dans deux couches,
+				//     NKGui dessous, NKEditorKit dessus, ce que la regle « UN SEUL
+				//     SOCLE D INTERFACE DANS NKGui, SPECIALISE PAR EDITEUR » (Rodolf,
+				//     2026-08-17) prescrit. **Deux AUTORITES, si.** D ou : une seule
+				//     direction, la bibliotheque POUSSE vers le theme du dessin, et
+				//     elle le fait ICI, en un seul endroit qu on peut citer.
+				//
+				//  ⚠️ CE QUE LA CONVERSION NE PEUT PAS FAIRE, et il faut le savoir
+				//     pour ne pas s y fier a tort :
+				//       - `NkGuiTheme` porte des ETATS (survol, actif) que `NkTheme`
+				//         ne porte pas en roles. Ils sont **derives par une regle
+				//         nommee** — melange vers l accent — pas inventes couleur par
+				//         couleur ;
+				//       - `success` / `warning` / `danger` / `info` n ont AUCUN role
+				//         equivalent cote editeur : ils sont **laisses tels quels**,
+				//         et c est dit plutot que tu ;
+				//       - `scrim` et `shadow` sont des voiles noirs a alpha : ils ne
+				//         dependent pas du theme.
+				void ApplyTheme(const NkTheme &t) noexcept;
 
 				void SetActivityBars(bool left, bool right) noexcept {
 					mActivityBarLeft = left;

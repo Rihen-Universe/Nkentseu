@@ -75,8 +75,84 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 	return d;
 })());
 
+// ═════════════════════════════════════════════════════════════════════════════
+//  L INTERRUPTEUR DES ANCIENS PANNEAUX -- reversible en un caractere
+// ═════════════════════════════════════════════════════════════════════════════
+//  0 = les panneaux des PLANCHES (Hierarchie a gauche, Inspecteur a droite).
+//  1 = les quatre anciens (Palette, Composition, Proprietes, Preferences).
+//
+//  ⚠️ DEBRANCHER N EST PAS SUPPRIMER (Rodolf : « meme si tu laisses le code »).
+//     Les quatre classes restent ecrites dans `Panels.h`, et elles restent
+//     COMPILEES a 1 : ce drapeau ne les met pas au rebut, il decide seulement de
+//     leur enregistrement aupres de la coquille.
+//
+//  ⚠️ ET CE N EST PAS UNE MIGRATION. Hierarchie n est pas Composition renomme,
+//     Inspecteur n est pas Proprietes renomme : les anciens SORTENT, les
+//     nouveaux sont batis sur les composants du kit. Confondre les deux aurait
+//     conserve la structure qu on veut precisement quitter.
+#define NKUIDESIGN_ANCIENS_PANNEAUX 0
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  LES BARRES D ACTIVITE (les bandes verticales d icones aux deux bords)
+// ═════════════════════════════════════════════════════════════════════════════
+//  1 = presentes (defaut de la coquille) · 0 = retirees, le dock reprend la place.
+//
+//  ⚠️ MESURE FAITE AVANT DE RETIRER, parce que deux lectures etaient possibles et
+//     qu elles ne se corrigent pas au meme endroit :
+//       (A) un reste de chrome facon VS Code, herite de NKCode ;
+//       (B) le RAIL DE PASTILLES gauche du plan (« rail — palette · bibliotheque »,
+//           bande fine de 28 px, document 3 §13).
+//     **C est (A), et trois mesures le disent :**
+//       1. `--dump-ui` rend `panneau.hierarchie = 48.0 ...` : la bande fait
+//          **48 px**, pas les 28 px que le plan exige d un rail ;
+//       2. `NkEditorShell.h:173` la nomme lui-meme — « BARRES D ACTIVITE (bandes
+//          verticales d icones, facon VSCode) : presentes par defaut, parce que
+//          l IDE en vit. Une application qui n a PAS de vues a basculer doit
+//          pouvoir les retirer : sinon elle herite du chrome de NKCode et lui
+//          ressemble, alors qu elle ne fait pas le meme metier. » NkUIDesign est
+//          exactement ce cas ;
+//       3. son contenu (document, loupe, branche, lecture, personnages, grille,
+//          histogramme, engrenage) ne correspond a aucune pastille du plan, qui
+//          ne prevoit a gauche que « palette · bibliotheque ».
+//
+//  ⚠️ CONSEQUENCE A NE PAS PERDRE : **le rail de pastilles du plan reste a
+//     construire.** Retirer cette bande ne le fabrique pas ; §13 (rails de 28 px,
+//     pastilles a quatre etats) n a toujours aucun code. Croire la case cochee
+//     parce que le bord est propre serait l erreur symetrique.
+//
+//  ⚠️ ET LA BARRE DE DROITE EST DE LA MEME NATURE (meme appel, meme largeur
+//     mesuree : l Inspecteur finit a x = 1408 dans une fenetre de 1456). Rodolf
+//     n a parle que de la gauche : elle seule est retiree, l autre attend son
+//     arbitrage. Les deux sont sur la meme ligne, un seul caractere a changer.
+#define NKUIDESIGN_BARRES_ACTIVITE_GAUCHE 0
+#define NKUIDESIGN_BARRES_ACTIVITE_DROITE 1
+
 static nkuidesign::DesignState gDesign;
 static NkEditorShell *gShell = nullptr;
+/// L onglet de projet actif. ⚠️ UN SEUL ETAT, ici : le dessin de la bande et le
+///    clic le lisent tous les deux. Deux copies auraient diverge des le premier
+///    onglet ferme.
+static uint32 gOngletActif = 0;
+/// ⚠️ L AUTORITE DES THEMES, ET ELLE EST UNIQUE. `gDesign.theme` (lu par les
+///    composants du kit) et `mUI.theme` de la coquille (lu par les primitives)
+///    en sont deux CONSOMMATEURS ; ils ne decident rien.
+static nkentseu::editorkit::NkThemeLibrary gThemes;
+/// Theme demande en ligne de commande, vide si aucun.
+static NkString gThemeDemande;
+
+/// Bascule de theme : la bibliotheque decide, puis POUSSE vers les deux
+/// consommateurs. Un seul chemin -- c'est ce qui interdit qu'une moitie de la
+/// fenetre reste dans l'ancien theme.
+static void AppliquerTheme(uint32 i) {
+	if (i >= gThemes.Count())
+		return;
+	gThemes.SetCurrentIndex(i);
+	gDesign.theme = gThemes.Current();
+	if (gShell) {
+		gShell->ApplyTheme(gThemes.Current());
+		gShell->SetFooter("Theme : ", gThemes.Current().Name().CStr());
+	}
+}
 
 static void CmdSave(void *) {
 	gDesign.SaveDoc();
@@ -127,6 +203,13 @@ static void FocusPanel(const char *titre) {
 	const bool ok = gShell->FocusPanel(titre);
 	logger.Info("[NKUIDesign] vue '{0}' : FocusPanel -> {1}", titre, ok ? "vrai" : "FAUX");
 }
+static void CmdVueHierarchie(void *) {
+	FocusPanel("Hierarchie");
+}
+static void CmdVueInspecteur(void *) {
+	FocusPanel("Inspecteur");
+}
+#if NKUIDESIGN_ANCIENS_PANNEAUX
 static void CmdVuePalette(void *) {
 	FocusPanel("Palette");
 }
@@ -139,6 +222,7 @@ static void CmdVueProprietes(void *) {
 static void CmdVuePreferences(void *) {
 	FocusPanel("Preferences");
 }
+#endif
 
 static void CmdQuit(void *user) {
 	if (user)
@@ -156,65 +240,359 @@ static void CmdQuit(void *user) {
 //  commencent a x = 56.
 //
 //  ⚠️ OU ATTERRIT LE CHOIX DU BACKEND GRAPHIQUE. Il vivait dans le panneau de
-//     droite, qui va disparaitre. La regle du depot est que TOUTE application
-//     doit laisser choisir son backend DEPUIS L INTERFACE, la configuration
-//     n etant que le defaut lu au lancement. Il est donc pose ICI, dans
-//     `Fichier > Preferences graphiques`, AVANT que le panneau parte -- une
-//     capacite ne se debranche pas avant que son remplacant existe.
+//     droite, qui vient d etre debranche. La regle du depot est que TOUTE
+//     application doit laisser choisir son backend DEPUIS L INTERFACE, la
+//     configuration n etant que le defaut lu au lancement. Il est donc pose ICI,
+//     dans `Fichier > Backend graphique >`, et il y a ete pose **avant** le
+//     debranchement -- une capacite ne se retire pas avant que son remplacant
+//     existe.
 static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
 
+	// ⚠️ NEUF ENTREES, PAS HUIT — et ce n'est pas une preference : c'est une
+	//    decision de Rodolf du 2026-08-20 (document 3 §5bis), prise apres
+	//    validation de la planche du menu deroulant. Le mot « Fenetre »
+	//    designait DEUX choses : les fenetres de l'EDITEUR, et la fenetre de
+	//    l'application qu'on dessine. « Cible » recueille la seconde.
+	//    ⚠️ LES PLANCHES A HUIT ENTREES SONT PERIMEES SUR CE POINT, et la
+	//       specification le dit elle-meme (§22.5 a §22.7 du document Banani et
+	//       `plan_fenetre_principale.svg`). Quand une planche et §5bis se
+	//       contredisent, §5bis gagne : il porte les decisions datees et signees.
+	//
+	// ⚠️ UNE ENTREE QUI NE PEUT RIEN PRODUIRE SE GRISE, ELLE NE DISPARAIT PAS
+	//    (§5bis.1). Une barre dont le contenu varie avec ce qui est branche
+	//    apprend a l'utilisateur une carte qui se deforme sous ses pieds ; une
+	//    entree grisee dit « ca existe, pas encore ici ».
+	// ⚠️ UN ETAT PORTE UNE COCHE, jamais un libelle qui s'inverse (meme §).
+	//    C'est ce qui a fait grossir `nkgui::MenuItem` d'un parametre `checked` :
+	//    le manque etait dans le socle, il a ete comble dans le socle.
+	// ⚠️ LES ACCENTS SONT LA, ET LA CAUSE DE LEUR ABSENCE A ETE MESUREE.
+	//    Trois hypotheses etaient ouvertes : sources sans accents, atlas sans
+	//    glyphes, encodage perdu en route. Mesure : `NkGuiDrawList::AddText`
+	//    decode l'UTF-8 (`NkFontDecodeUTF8`) et cherche le glyphe PAR POINT DE
+	//    CODE ; le pipeline sait donc les rendre. Et `grep` d'une chaine
+	//    d'interface accentuee dans NKGui + NKEditorKit rend **zero**. La cause
+	//    est la SOURCE, pas la police -- ce fichier est en UTF-8.
+	//    ⚠️ La tolerance « francais sans accents » du CLAUDE.md parent ne couvre
+	//       QUE les fichiers de `echanges/` et les messages de commit. Elle avait
+	//       deborde sur l'interface : c'est exactement une tolerance qui s'etend
+	//       au-dela de son domaine. L'interface d'un produit francophone porte
+	//       ses accents.
+
 	if (BeginMenu(ctx, "Fichier")) {
-		if (MenuItem(ctx, "Nouveau", "Ctrl+N"))
+		if (MenuItem(ctx, "Nouveau projet…", "Ctrl+N"))
 			CmdNew(nullptr);
-		if (MenuItem(ctx, "Recharger", "Ctrl+R"))
-			CmdLoad(nullptr);
+		MenuItem(ctx, "Ouvrir…", "Ctrl+O", false);
+		if (BeginMenu(ctx, "Ouvrir récent")) {
+			MenuItem(ctx, "(aucun projet récent)", nullptr, false);
+			EndMenu(ctx);
+		}
+		MenuItem(ctx, "Fermer le projet", "Ctrl+W", false);
+		Separator(ctx);
 		if (MenuItem(ctx, "Enregistrer", "Ctrl+S"))
 			CmdSave(nullptr);
+		MenuItem(ctx, "Enregistrer sous…", "Ctrl+Maj+S", false);
+		MenuItem(ctx, "Enregistrer tout", "Ctrl+Alt+S", false);
+		if (MenuItem(ctx, "Revenir à la version enregistrée"))
+			CmdLoad(nullptr);
 		Separator(ctx);
-		if (MenuItem(ctx, "Preferences graphiques", "Ctrl+M"))
-			CmdVuePreferences(nullptr);
+		if (BeginMenu(ctx, "Importer")) {
+			MenuItem(ctx, "Composant…", nullptr, false);
+			MenuItem(ctx, "Document…", nullptr, false);
+			MenuItem(ctx, "Ressources…", nullptr, false);
+			EndMenu(ctx);
+		}
+		if (BeginMenu(ctx, "Exporter")) {
+			MenuItem(ctx, "Document .nkgui", "Ctrl+E", false);
+			MenuItem(ctx, "Ressources", nullptr, false);
+			MenuItem(ctx, "Code", nullptr, false);
+			EndMenu(ctx);
+		}
+		MenuItem(ctx, "Valider le document", "Ctrl+Maj+V", false);
+		Separator(ctx);
+		// ⚠️ LE CHOIX DU BACKEND, ET IL NE DEPEND PLUS D AUCUN PANNEAU.
+		//    C'est la seule chose qui devait etre finie AVANT de debrancher le
+		//    panneau de droite : le selecteur y vivait, et le retirer sans
+		//    remplacant aurait fait perdre la capacite exigee par la regle du
+		//    depot (« toute application doit laisser choisir son backend, et un
+		//    reglage se change DEPUIS L INTERFACE »).
+		//    ⚠️ Il passe par `DesignState::SetGfxConfig` -- la MEME fonction que
+		//       le panneau appelait. Deux ecritures auraient diverge, et un choix
+		//       fait ici ne se serait pas vu la-bas.
+		if (BeginMenu(ctx, "Backend graphique")) {
+			uint32 nApis = 0;
+			const char *const *apis = nkuidesign::NkGfxApiNames(nApis);
+			for (uint32 i = 0; i < nApis; ++i) {
+				// ⚠️ LA COCHE MARQUE CE QUE LE FICHIER PORTE, pas ce qui tourne.
+				//    Sur un lancement `--gfx=vulkan` avec un fichier qui dit
+				//    `dx11`, cocher `vulkan` ferait croire que le fichier a
+				//    change. Le pied de fenetre, lui, annonce le redemarrage.
+				const bool courant = !gDesign.cfgChoice.Empty()
+									 && NkComponentDecl::StrEq(gDesign.cfgChoice.Data(), apis[i]);
+				if (MenuItem(ctx, apis[i], nullptr, true, courant)) {
+					const bool ok = gDesign.SetGfxConfig(apis[i]);
+					// ⚠️ LE RESULTAT SE DIT, PAS L APPEL, et le REDEMARRAGE est
+					//    annonce (regle du 18/08 : « ce qui implique un
+					//    redemarrage le DIT »). Sans cette phrase, l'utilisateur
+					//    regle, ne voit rien changer, et croit que rien n'a ete
+					//    ecrit.
+					if (gShell)
+						gShell->SetFooter(ok ? "gfx écrit dans nkuidesign.cfg, actif au "
+											   "PROCHAIN lancement — "
+											 : "ÉCHEC d'écriture : rien n'a "
+											   "été modifié — ",
+										  apis[i]);
+				}
+			}
+			EndMenu(ctx);
+		}
+		MenuItem(ctx, "Préférences…", "Ctrl+,", false);
 		Separator(ctx);
 		if (MenuItem(ctx, "Quitter", "Ctrl+Q"))
 			CmdQuit(gShell);
 		EndMenu(ctx);
 	}
-	if (BeginMenu(ctx, "Edition")) {
+
+	if (BeginMenu(ctx, "Édition")) {
 		MenuItem(ctx, "Annuler", "Ctrl+Z", false);
-		MenuItem(ctx, "Retablir", "Ctrl+Y", false);
+		MenuItem(ctx, "Rétablir", "Ctrl+Y", false);
+		Separator(ctx);
+		MenuItem(ctx, "Couper", "Ctrl+X", false);
+		MenuItem(ctx, "Copier", "Ctrl+C", false);
+		MenuItem(ctx, "Coller", "Ctrl+V", false);
+		MenuItem(ctx, "Coller à la même place", "Ctrl+Maj+V", false);
+		MenuItem(ctx, "Coller le style seul", "Ctrl+Alt+V", false);
+		MenuItem(ctx, "Dupliquer", "Ctrl+D", false);
+		MenuItem(ctx, "Supprimer", "Suppr", false);
+		Separator(ctx);
+		MenuItem(ctx, "Tout sélectionner", "Ctrl+A", false);
+		MenuItem(ctx, "Sélectionner tous les éléments du même rôle", nullptr, false);
+		if (MenuItem(ctx, "Désélectionner", "Échap"))
+			gDesign.SelectClear();
+		Separator(ctx);
+		MenuItem(ctx, "Rechercher…", "Ctrl+F", false);
+		MenuItem(ctx, "Remplacer une propriété…", "Ctrl+H", false);
+		MenuItem(ctx, "Renommer", "F2", false);
 		EndMenu(ctx);
 	}
+
 	if (BeginMenu(ctx, "Affichage")) {
-		if (gShell)
-			gShell->DrawPanelsMenuItems();
+		MenuItem(ctx, "Zoom avant", "Ctrl++", false);
+		MenuItem(ctx, "Zoom arrière", "Ctrl+-", false);
+		MenuItem(ctx, "Zoom 100 %", "Ctrl+0", false);
+		MenuItem(ctx, "Ajuster à la sélection", "Maj+2", false);
+		MenuItem(ctx, "Ajuster à la page", "Maj+1", false);
+		Separator(ctx);
+		MenuItem(ctx, "Grille", "Ctrl+'", false, true);
+		MenuItem(ctx, "Magnétisme", "Ctrl+;", false, true);
+		MenuItem(ctx, "Règles", nullptr, false, false);
+		MenuItem(ctx, "Repères intelligents", nullptr, false, true);
+		Separator(ctx);
+		MenuItem(ctx, "Marges et remplissage", nullptr, false, true);
+		MenuItem(ctx, "Régions de fenêtre", nullptr, false, false);
+		MenuItem(ctx, "Éléments désactivés par héritage", nullptr, false, false);
+		Separator(ctx);
+		if (BeginMenu(ctx, "Mode")) {
+			MenuItem(ctx, "Design", "Ctrl+1", false, true);
+			MenuItem(ctx, "Behavior", "Ctrl+2", false);
+			MenuItem(ctx, "Animation", "Ctrl+3", false);
+			MenuItem(ctx, "Split", "Ctrl+4", false);
+			EndMenu(ctx);
+		}
+		// ⚠️ LA LISTE VIENT DE LA BIBLIOTHEQUE, PAS D UNE TABLE ECRITE ICI.
+		//    Une liste en dur afficherait aujourd'hui les bons noms sans lire
+		//    quoi que ce soit -- et n'afficherait pas le theme que l'utilisateur
+		//    deposera demain dans son dossier personnel.
+		if (BeginMenu(ctx, "Thème")) {
+			for (uint32 i = 0; i < gThemes.Count(); ++i) {
+				const bool courant = (i == gThemes.CurrentIndex());
+				if (MenuItem(ctx, gThemes.At(i).Name().CStr(), nullptr, true, courant))
+					AppliquerTheme(i);
+			}
+			Separator(ctx);
+			MenuItem(ctx, "Système", nullptr, false);
+			EndMenu(ctx);
+		}
+		// LES PANNEAUX REELLEMENT ENREGISTRES -- la coquille les liste elle-meme.
+		// ⚠️ Une liste ecrite a la main ici mentirait des le premier panneau
+		//    debranche : c'est exactement ce qui vient d'arriver aux quatre
+		//    anciens.
+		if (BeginMenu(ctx, "Panneaux")) {
+			if (gShell)
+				gShell->DrawPanelsMenuItems();
+			EndMenu(ctx);
+		}
+		MenuItem(ctx, "Plein écran", "F11", false);
 		EndMenu(ctx);
 	}
+
 	if (BeginMenu(ctx, "Objet")) {
-		MenuItem(ctx, "Attribuer un role...", "", false);
+		MenuItem(ctx, "Attribuer un rôle…", nullptr, false);
+		MenuItem(ctx, "Retirer le rôle", nullptr, false);
+		Separator(ctx);
 		MenuItem(ctx, "Grouper", "Ctrl+G", false);
+		MenuItem(ctx, "Dégrouper", "Ctrl+Maj+G", false);
+		MenuItem(ctx, "Convertir en composant", "Ctrl+K", false);
+		MenuItem(ctx, "Détacher l'instance", nullptr, false);
+		MenuItem(ctx, "Promouvoir en composant partagé", nullptr, false);
+		Separator(ctx);
+		if (BeginMenu(ctx, "Aligner")) {
+			MenuItem(ctx, "(à brancher)", nullptr, false);
+			EndMenu(ctx);
+		}
+		if (BeginMenu(ctx, "Répartir")) {
+			MenuItem(ctx, "(à brancher)", nullptr, false);
+			EndMenu(ctx);
+		}
+		if (BeginMenu(ctx, "Ordre")) {
+			MenuItem(ctx, "Premier plan", nullptr, false);
+			MenuItem(ctx, "Avancer", nullptr, false);
+			MenuItem(ctx, "Reculer", nullptr, false);
+			MenuItem(ctx, "Arrière-plan", nullptr, false);
+			EndMenu(ctx);
+		}
+		Separator(ctx);
+		MenuItem(ctx, "Verrouiller", "Ctrl+L", false, false);
+		// ⚠️ TROIS MOTS, PAS UN (§5bis.5 et §11.1) : masquer pour TRAVAILLER n'est
+		//    pas rendre invisible a l'utilisateur final. « Masquer » tout court
+		//    confondrait les deux au moment ou l'on choisit.
+		MenuItem(ctx, "Masquer dans l'éditeur", "Ctrl+Maj+H", false, false);
+		if (BeginMenu(ctx, "Disponibilité")) {
+			MenuItem(ctx, "Actif", nullptr, false, true);
+			MenuItem(ctx, "Désactivé", nullptr, false);
+			MenuItem(ctx, "Lecture seule", nullptr, false);
+			MenuItem(ctx, "Occupé", nullptr, false);
+			EndMenu(ctx);
+		}
 		EndMenu(ctx);
 	}
+
+	// ⚠️ « CIBLE » SE PLACE ENTRE « OBJET » ET « COMPORTEMENT » (§5bis.6), et sa
+	//    place n'est pas decorative : c'est le neuvieme menu, adopte le 20/08
+	//    pour lever la collision du mot « Fenetre ». Tout ce qui releve de
+	//    l'application VISEE est ici ; « Fenetre » reste a l'editeur.
+	if (BeginMenu(ctx, "Cible")) {
+		if (BeginMenu(ctx, "Classe")) {
+			MenuItem(ctx, "Bureau", nullptr, false, true);
+			MenuItem(ctx, "Mobile", nullptr, false);
+			MenuItem(ctx, "Web", nullptr, false);
+			EndMenu(ctx);
+		}
+		MenuItem(ctx, "Appareil…", nullptr, false);
+		if (BeginMenu(ctx, "Orientation")) {
+			MenuItem(ctx, "Portrait", nullptr, false);
+			MenuItem(ctx, "Paysage", nullptr, false, true);
+			EndMenu(ctx);
+		}
+		Separator(ctx);
+		MenuItem(ctx, "Afficher la zone sûre", nullptr, false, true);
+		if (BeginMenu(ctx, "Décoration")) {
+			MenuItem(ctx, "Native", nullptr, false, true);
+			MenuItem(ctx, "Client", nullptr, false);
+			EndMenu(ctx);
+		}
+		MenuItem(ctx, "Curseur…", nullptr, false);
+		Separator(ctx);
+		MenuItem(ctx, "Points de rupture…", nullptr, false);
+		MenuItem(ctx, "Aperçu multi-cibles", nullptr, false);
+		MenuItem(ctx, "Rapport de transposition…", nullptr, false);
+		EndMenu(ctx);
+	}
+
 	if (BeginMenu(ctx, "Comportement")) {
-		MenuItem(ctx, "Gestionnaire de callbacks...", "", false);
+		MenuItem(ctx, "Ouvrir le graphe", nullptr, false);
+		MenuItem(ctx, "Vue Code", "Ctrl+²", false);
+		Separator(ctx);
+		MenuItem(ctx, "Ajouter un événement…", nullptr, false);
+		MenuItem(ctx, "Lier à un callback…", nullptr, false);
+		MenuItem(ctx, "Délier", nullptr, false);
+		MenuItem(ctx, "Gestionnaire de callbacks…", nullptr, false);
+		Separator(ctx);
+		MenuItem(ctx, "Simuler", "F5", false);
+		MenuItem(ctx, "Geler la simulation", "F6", false);
+		MenuItem(ctx, "Recharger la simulation", "Maj+F5", false);
+		MenuItem(ctx, "Système simulé…", nullptr, false);
+		MenuItem(ctx, "Rapport de couverture…", nullptr, false);
 		EndMenu(ctx);
 	}
+
 	if (BeginMenu(ctx, "IA")) {
-		MenuItem(ctx, "Chat IA", "", false);
+		if (BeginMenu(ctx, "Générer")) {
+			MenuItem(ctx, "un composant…", nullptr, false);
+			MenuItem(ctx, "un comportement…", nullptr, false);
+			MenuItem(ctx, "une animation…", nullptr, false);
+			EndMenu(ctx);
+		}
+		MenuItem(ctx, "Proposer un rôle pour la sélection", nullptr, false);
+		Separator(ctx);
+		// ⚠️ COCHEE ET VISIBLE (§5bis.8) : l'exposer dit a l'utilisateur que
+		//    l'outil REUTILISE avant de dupliquer. C'est une garantie qu'un
+		//    comportement silencieux ne peut pas donner.
+		MenuItem(ctx, "Chercher dans la bibliothèque avant de générer", nullptr, false, true);
+		Separator(ctx);
+		if (MenuItem(ctx, "Ouvrir le chat IA"))
+			FocusPanel("IA");
+		MenuItem(ctx, "Réglages du modèle…", nullptr, false);
 		EndMenu(ctx);
 	}
-	if (BeginMenu(ctx, "Fenetre")) {
-		MenuItem(ctx, "Reinitialiser la disposition", "", false);
+
+	if (BeginMenu(ctx, "Fenêtre")) {
+		MenuItem(ctx, "Nouvelle fenêtre", nullptr, false);
+		MenuItem(ctx, "Détacher l'onglet dans une fenêtre", nullptr, false);
+		Separator(ctx);
+		if (BeginMenu(ctx, "Disposition")) {
+			MenuItem(ctx, "Par défaut", nullptr, false);
+			MenuItem(ctx, "Design", nullptr, false);
+			MenuItem(ctx, "Comportement", nullptr, false);
+			MenuItem(ctx, "Enregistrer la disposition…", nullptr, false);
+			MenuItem(ctx, "Réinitialiser", nullptr, false);
+			EndMenu(ctx);
+		}
+		Separator(ctx);
+		MenuItem(ctx, "Onglet suivant", "Ctrl+Tab", false);
+		MenuItem(ctx, "Onglet précédent", "Ctrl+Maj+Tab", false);
 		EndMenu(ctx);
 	}
+
 	if (BeginMenu(ctx, "Aide")) {
-		MenuItem(ctx, "A propos de NkUIDesign", "", false);
+		MenuItem(ctx, "Documentation", "F1", false);
+		MenuItem(ctx, "Raccourcis clavier…", nullptr, false);
+		MenuItem(ctx, "Glossaire des composants", nullptr, false);
+		Separator(ctx);
+		MenuItem(ctx, "Gestionnaire de greffons…", nullptr, false);
+		Separator(ctx);
+		MenuItem(ctx, "Console…", nullptr, false);
+		MenuItem(ctx, "Informations système — copier", nullptr, false);
+		Separator(ctx);
+		MenuItem(ctx, "Rechercher les mises à jour", nullptr, false);
+		MenuItem(ctx, "À propos de NkUIDesign", nullptr, false);
 		EndMenu(ctx);
 	}
 }
 
-// LA BANDE 2 : les onglets de projets (document 3 §6). Libelles INERTES pour
-// ce morceau -- ce qui se juge ici est la GEOMETRIE, pas le comportement.
+// LA BANDE 2 : les onglets de projets (document 3 §6).
+//
+// ⚠️ L ONGLET ACTIF SE DIT DE **DEUX** FACONS, ET C EST §6 QUI L EXIGE :
+//    « fond legerement different (--bg-canvas vs --bg-subtle pour les
+//    inactifs), petit lisere accent EN BAS de l onglet actif ». Deux signaux
+//    plutot qu un : un fond seul se perd sur un ecran mal calibre, un lisere
+//    seul disparait sous une barre de defilement. Rodolf le demande d ailleurs
+//    par le second — « une barre bleue de hauteur fine ».
+//
+// ⚠️ EN BAS, PAS EN HAUT. Un lisere pose en haut se lit comme la separation
+//    d avec la barre de menu, pas comme l etat de l onglet.
+//
+// ⚠️ DES JETONS, PAS UNE COULEUR. `theme.tabActive` / `theme.tab` / `theme.accent`
+//    existent deja dans `NkGuiTheme` -- ecrire un bleu litteral ici, c est une
+//    couleur de plus parmi les 426 en dur que le depot a mesurees chez les
+//    consommateurs de NKGui, et un onglet qui resterait bleu en theme clair.
+//
+// ⚠️ CE QUI N EST PAS ENCORE LA, et §6 le decrit : miniature du projet, point
+//    de non-enregistrement, croix de fermeture au survol, `+` ouvrant le
+//    Launcher en modal, glisser pour reordonner/detacher, molette = defilement
+//    horizontal avec chevron de depassement. Les libelles restent INERTES : ce
+//    qui se juge ici est la geometrie et l etat, pas le comportement.
 static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
@@ -222,16 +600,32 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 	// ⚠️ DES RECTANGLES EXPLICITES, pas le flux : la bande fait 28 px et les
 	//    onglets doivent la remplir exactement. `SetNextItemRect` est le moyen
 	//    prevu par NKGui pour poser un widget (mesure NKGuiDrawTest, 9/9).
+	// ⚠️ J AI FAILLI REECRIRE CE QUE LE SOCLE PORTE — ET LA MESURE M A ARRETE.
+	//    Ma premiere version dessinait a la main le fond de chaque onglet et son
+	//    lisere. Capture : **aucun lisere**, parce que `Button` repeint son propre
+	//    fond PAR-DESSUS. En allant lire pourquoi, j ai trouve que
+	//    `nkgui::TabBarEx` fait deja exactement ce que le document 3 §6 demande :
+	//        bg  = selected ? theme.panel : theme.button        (fond distinct)
+	//        AddRectFilled({r.x, r.y + r.h - 3, r.w, 3}, theme.accent)  (lisere)
+	//    Fond different pour l actif, contour pour les autres, lisere d accent de
+	//    3 px EN BAS. Ecrire ma version, c etait `Splitter` une seconde fois :
+	//    reecrire chez soi ce que la bibliotheque porte, faute d avoir cherche.
+	//    ⚠️ Et le lisere prend le JETON `theme.accent` : il suit le theme, il ne
+	//       reste pas bleu quand on passe en clair.
 	const NkRect z = ctx.layout.region;
-	float32 x = z.x;
-	for (uint32 i = 0; i < 3; ++i) {
-		const float32 w = 132.f;
-		ctx.SetNextItemRect({x, z.y, w, z.h});
-		Button(ctx, kOnglets[i]);
-		x += w;
+	ctx.DL().AddRectFilled(z, ctx.theme.tabBar);
+	gOngletActif = (uint32)TabBar(ctx, "projets.onglets", kOnglets, 3);
+
+	// ⚠️ `TabBar` a AVANCE le curseur ; le `+` se pose a sa suite, dans le flux.
+	ctx.SameLine(6.f); // membre du contexte, pas fonction libre
+	if (Button(ctx, "+")) {
+		// §6 : le `+` ouvre le Launcher en modal rapide (Vierge / Gabarit / IA).
+		// ⚠️ IL LE DIT AU LIEU DE NE RIEN FAIRE. Un bouton muet se lit comme un
+		//    bouton casse, et on cherche le defaut la ou il n y en a pas.
+		if (gShell)
+			gShell->SetFooter("Nouveau projet : le Launcher modal (Vierge / Gabarit / IA) "
+							  "n'est pas encore branche.");
 	}
-	ctx.SetNextItemRect({x, z.y, 28.f, z.h});
-	Button(ctx, "+");
 }
 
 int nkmain(const NkEntryState &state) {
@@ -329,6 +723,20 @@ int nkmain(const NkEntryState &state) {
 			height = 640;
 			continue;
 		}
+		// ⚠️ `--theme=` EXISTE POUR QUE LA BASCULE SOIT PROUVABLE. Un thème ne
+		//    se change qu'à la souris, dans un menu — donc sa preuve dépend
+		//    d'un clic, c'est-à-dire de l'instrument le plus fragile de ce
+		//    chantier. Avec ce drapeau, deux lancements donnent deux captures
+		//    comparables, et « toute la fenêtre a-t-elle suivi ? » devient une
+		//    question qu'on tranche sur des images, pas sur une intuition.
+		//    Même patron que `--gfx=` : l'option force, l'interface décide.
+		{
+			const NkString arg(a);
+			if (arg.StartsWith("--theme=")) {
+				gThemeDemande = arg.SubStr(8);
+				continue;
+			}
+		}
 		// ⚠️ UN DRAPEAU INCONNU EST REFUSE, IL NE TOMBE PAS DANS LE CHEMIN PAR
 		//    DEFAUT. Mesure du 2026-08-23, et elle m'a coute dix minutes : j'ai
 		//    tape `--validate=` au lieu de `--valider=`. Le programme n'a pas
@@ -351,6 +759,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --valider[=<dossier>]   la validation par role et par type");
 			puts("  --dump-ui               publier les rectangles dessines");
 			puts("  --small                 fenetre reduite (1024x640)");
+			puts("  --theme=<nom>           theme au lancement (nom de NkThemeLibrary)");
 			return 2;
 		}
 	}
@@ -414,10 +823,18 @@ int nkmain(const NkEntryState &state) {
 	//    argument oublie.
 	gDesign.gfxEffective = NkString(gfx.effective);
 	gDesign.gfxSource = NkString(nkuidesign::NkGfxSourceName(gfx.source));
-	for (int32 i = 0; i < 6; ++i) {
-		static const char *kApis[] = {"auto", "opengl", "vulkan", "dx11", "dx12", "software"};
-		if (NkComponentDecl::StrEq(kApis[i], gfx.requested))
-			gDesign.prefsChoice = i;
+	// ⚠️ CE QUE LE FICHIER NOMME, ET C EST L AUTRE FAIT. Le menu marque l entree
+	//    que `nkuidesign.cfg` porte, PAS celle qui tourne : sur un lancement
+	//    `--gfx=vulkan` avec un fichier qui dit `dx11`, marquer `vulkan`
+	//    laisserait croire que le fichier a change. `cfgGfx` est vide quand la
+	//    cle est absente -- aucune entree n est alors marquee, et c est exact.
+	gDesign.cfgChoice = NkString(cfgGfx);
+	{
+		uint32 nApis = 0;
+		const char *const *apis = nkuidesign::NkGfxApiNames(nApis);
+		for (uint32 i = 0; i < nApis; ++i)
+			if (NkComponentDecl::StrEq(apis[i], gfx.requested))
+				gDesign.prefsChoice = (int32)i;
 	}
 
 	// ⚠️ L'ETAT DES ROLES EST JOURNALISE AVANT L'OUVERTURE DE LA FENETRE. Le
@@ -449,24 +866,80 @@ int nkmain(const NkEntryState &state) {
 				"fenetre demandee {2}x{3} (l'etat restaure peut la changer).",
 				gfx.requested, gfx.effective, width, height);
 
+	// ── LES PANNEAUX DES PLANCHES, ET LES ANCIENS QUI PARTENT ────────────
+	// ⚠️ DEBRANCHER N EST PAS SUPPRIMER (Rodolf : « meme si tu laisses le
+	//    code »). Les quatre classes restent ecrites dans `Panels.h`, compilees
+	//    et compilables ; seul leur ENREGISTREMENT disparait. Remettre
+	//    `NKUIDESIGN_ANCIENS_PANNEAUX` a 1 les rebranche a l identique, sans
+	//    toucher a une seule autre ligne : c est l interrupteur, et il est
+	//    reversible en un caractere.
+	//
+	// ⚠️ CE NE SONT PAS LES MEMES PANNEAUX QUI REVIENNENT SOUS UN AUTRE NOM.
+	//    Palette/Composition a gauche et Proprietes/Preferences a droite
+	//    SORTENT ; Hierarchie et Inspecteur (planches §22.5 et 091913) sont des
+	//    panneaux NEUFS, batis sur les composants du kit. Faire evoluer les
+	//    premiers vers les seconds aurait conserve leur structure -- c est
+	//    exactement ce qu il ne faut pas.
+	static nkuidesign::PreviewPanel preview(&gDesign);
+	static nkuidesign::AIPanel ai(&gDesign);
+	static nkuidesign::HierarchyPanel hierarchie(&gDesign);
+	static nkuidesign::InspectorPanel inspecteur(&gDesign);
+	// ⚠️ L ORDRE D AJOUT DECIDE DE L ORDRE DES ONGLETS dans une meme feuille de
+	//    dock : Hierarchie d abord (elle est seule a gauche), puis le centre,
+	//    puis l Inspecteur, puis le bas.
+	shell->AddPanel(&hierarchie);
+	shell->AddPanel(&preview);
+	shell->AddPanel(&inspecteur);
+	shell->AddPanel(&ai);
+
+#if NKUIDESIGN_ANCIENS_PANNEAUX
 	static nkuidesign::PalettePanel palette(&gDesign);
 	static nkuidesign::CompositionPanel composition(&gDesign);
-	static nkuidesign::PreviewPanel preview(&gDesign);
 	static nkuidesign::PropertiesPanel properties(&gDesign);
 	static nkuidesign::PreferencesPanel prefs(&gDesign);
-	static nkuidesign::AIPanel ai(&gDesign);
 	shell->AddPanel(&palette);
 	shell->AddPanel(&composition);
-	shell->AddPanel(&preview);
 	shell->AddPanel(&properties);
 	shell->AddPanel(&prefs);
-	shell->AddPanel(&ai);
+#endif
 	shell->SetOverlay(&DumpUiRects, nullptr);
+
+	// ── LE THEME : UNE SEULE AUTORITE, POUSSEE VERS LE DESSIN ────────────
+	// ⚠️ SANS CET APPEL, LA MOITIE DE LA FENETRE NE SUIVRAIT PAS. La
+	//    bibliotheque de l editeur porte les roles ; `NkGuiContext::theme` est ce
+	//    que chaque primitive LIT. Poser les themes sans les pousser donne une
+	//    bascule qui n emporte que ce qui passe par les roles -- et une bascule
+	//    a moitie est pire qu une bascule absente, parce qu elle a l air de
+	//    marcher. Le point unique est `NkEditorShell::ApplyTheme`.
+	gThemes.AddBuiltins(); // Sombre, Clair, GitHub Dark Pro, GitHub Light Pro
+	gShell = shell.Get(); // ⚠️ AVANT `AppliquerTheme`, qui s'en sert.
+	if (!gThemeDemande.Empty()) {
+		// ⚠️ UN NOM INCONNU SE DIT, IL NE SE REMPLACE PAS EN SILENCE. Même
+		//    famille que le backend refusé : un repli muet ferait mesurer sur un
+		//    thème qu'on n'a pas demandé, et on chercherait la différence
+		//    ailleurs. Ici on garde le défaut, en le NOMMANT.
+		const int32 i = gThemes.Find(gThemeDemande.Data());
+		if (i < 0)
+			logger.Error("[NKUIDesign] theme '{0}' INCONNU : le defaut est garde. "
+						 "Voir Affichage > Theme pour la liste.",
+						 gThemeDemande.Data());
+		else
+			gThemes.SetCurrentIndex((uint32)i);
+	}
+	gDesign.theme = gThemes.Current();
+	shell->ApplyTheme(gThemes.Current());
+	logger.Info("[NKUIDesign] theme applique : '{0}' ({1} disponibles).",
+				gThemes.Current().Name().CStr(), gThemes.Count());
 
 	// ── L EN-TETE AUX COTES DE LA MAQUETTE ───────────────────────────────
 	// 28 + 28, bloc logo carre de 56 a cheval sur les deux. Ces nombres sont
 	// des PIXELS : la mesure sur la capture doit les rendre tels quels.
 	shell->SetHeaderLayout(28.f, 28.f, 56.f);
+	// ⚠️ DEBRANCHER, PAS DETRUIRE : la coquille garde son code de barre
+	//    d activite intact, on lui dit seulement de ne pas la poser. Le dock
+	//    reprend la largeur liberee -- c est ecrit dans `NkEditorShell.h`.
+	shell->SetActivityBars(NKUIDESIGN_BARRES_ACTIVITE_GAUCHE != 0,
+						   NKUIDESIGN_BARRES_ACTIVITE_DROITE != 0);
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
 	shell->SetTitleInfo("Dashboard_Admin.nkgui");
@@ -481,10 +954,18 @@ int nkmain(const NkEntryState &state) {
 	//    de la commande et **ne se declenche jamais** — un raccourci cosmetique,
 	//    c'est-a-dire un parametre qui n'est pas honore. Il m'a fait croire
 	//    pendant une heure que le panneau ne passait pas devant.
-	shell->RegisterCommand("Vue: Palette", &CmdVuePalette, nullptr, "Ctrl+J");
+	// ⚠️ LES RACCOURCIS SUIVENT LES PANNEAUX. Un `Ctrl+M` qui cherche un panneau
+	//    « Preferences » debranche journaliserait `FocusPanel -> FAUX` a chaque
+	//    appui : un raccourci annonce qui ne fait rien, c est-a-dire exactement
+	//    le « parametre qui n est pas honore » que ce chantier a deja paye.
+	shell->RegisterCommand("Vue: Hierarchie", &CmdVueHierarchie, nullptr, "Ctrl+J");
+	shell->RegisterCommand("Vue: Inspecteur", &CmdVueInspecteur, nullptr, "Ctrl+L");
+#if NKUIDESIGN_ANCIENS_PANNEAUX
+	shell->RegisterCommand("Vue: Palette", &CmdVuePalette, nullptr, "Ctrl+B");
 	shell->RegisterCommand("Vue: Composition", &CmdVueComposition, nullptr, "Ctrl+K");
-	shell->RegisterCommand("Vue: Proprietes", &CmdVueProprietes, nullptr, "Ctrl+L");
+	shell->RegisterCommand("Vue: Proprietes", &CmdVueProprietes, nullptr, "Ctrl+P");
 	shell->RegisterCommand("Vue: Preferences", &CmdVuePreferences, nullptr, "Ctrl+M");
+#endif
 
 	return shell->Run();
 }
