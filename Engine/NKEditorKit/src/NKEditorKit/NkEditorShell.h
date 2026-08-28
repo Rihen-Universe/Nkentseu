@@ -176,6 +176,28 @@ namespace nkentseu {
 				// retirer : sinon elle herite du chrome de NKCode et lui ressemble, alors
 				// qu'elle ne fait pas le meme metier. Le dock reprend alors la largeur
 				// liberee.
+				// ── GEOMETRIE DE L EN-TETE (optionnelle) ────────────────────────
+				// Par defaut la coquille calcule sa barre de titre (`ItemHeight()+10`)
+				// et sa barre d outils (46). Une application dont la maquette impose
+				// des cotes exactes les pose ici.
+				//
+				// ⚠️ ADDITIF : 0 = comportement historique, inchange. Aucune
+				//    application existante ne bouge.
+				//
+				// ⚠️ ET CES VALEURS NE PASSENT PAS PAR `S()`. Ce sont des PIXELS,
+				//    pas des unites a mettre a l echelle : quand une maquette dit 28,
+				//    la mesure sur la capture doit rendre 28. Les faire passer par le
+				//    facteur DPI donnerait 30 sur un ecran a 107 % -- « la valeur est
+				//    ecrite » sans etre « la valeur est honoree ».
+				//
+				// `logo` : bloc CARRE colle au coin haut-gauche, qui CHEVAUCHE les
+				// deux bandes. Les deux bandes commencent alors a x = logo.
+				void SetHeaderLayout(float32 titleH, float32 bandH, float32 logo) noexcept {
+					mHeaderTitleH = titleH;
+					mHeaderBandH = bandH;
+					mHeaderLogo = logo;
+				}
+
 				void SetActivityBars(bool left, bool right) noexcept {
 					mActivityBarLeft = left;
 					mActivityBarRight = right;
@@ -433,6 +455,7 @@ namespace nkentseu {
 				void LoadTermFont() noexcept;		   ///< (re)charge la police du TERMINAL (taille globale fixe)
 				void DrawPreferences(NkEditorFrameContext &ec) noexcept; ///< fenetre Preferences (categories)
 				void BuildMenuBar(NkEditorFrameContext &ec, const nkgui::NkRect &rect) noexcept;
+				void DrawHeaderLogo(NkEditorFrameContext &ec, const nkgui::NkRect &r) noexcept;
 				void DrawTitleBar(NkEditorFrameContext &ec, const nkgui::NkRect &bar) noexcept;
 				void DrawToolbar(NkEditorFrameContext &ec, const nkgui::NkRect &rect) noexcept;
 				void HandleEdgeResize(float32 W, float32 H) noexcept;
@@ -517,6 +540,9 @@ namespace nkentseu {
 				int32 mNumCommands = 0;
 				NkEditorAppMenuFn mAppMenuFn = nullptr;
 				void *mAppMenuUser = nullptr;
+				float32 mHeaderTitleH = 0.f; // 0 = calcul historique
+				float32 mHeaderBandH = 0.f;  // 0 = 46 historique
+				float32 mHeaderLogo = 0.f;   // 0 = logo dans la barre, pas de bloc carre
 				NkEditorAppMenuFn mMenuBarFn = nullptr; // barre COMPLETE fournie par l'app (SetMenuBar)
 				void *mMenuBarUser = nullptr;
 				NkEditorAppMenuFn mFileMenuFn = nullptr;

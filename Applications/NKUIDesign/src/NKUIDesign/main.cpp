@@ -145,6 +145,95 @@ static void CmdQuit(void *user) {
 		static_cast<NkEditorShell *>(user)->RequestClose();
 }
 
+// =============================================================================
+//  L EN-TETE A DEUX BANDES -- document 3 §4/§5, planche 091913
+// =============================================================================
+//
+//  Bande 1 (28 px) : huit menus colles au logo, le nom du design au centre de
+//  la FENETRE ENTIERE, les boutons de fenetre a droite.
+//  Bande 2 (28 px) : les onglets de projets.
+//  Bloc logo : 56 x 56, carre, a cheval sur les deux bandes ; les bandes
+//  commencent a x = 56.
+//
+//  ⚠️ OU ATTERRIT LE CHOIX DU BACKEND GRAPHIQUE. Il vivait dans le panneau de
+//     droite, qui va disparaitre. La regle du depot est que TOUTE application
+//     doit laisser choisir son backend DEPUIS L INTERFACE, la configuration
+//     n etant que le defaut lu au lancement. Il est donc pose ICI, dans
+//     `Fichier > Preferences graphiques`, AVANT que le panneau parte -- une
+//     capacite ne se debranche pas avant que son remplacant existe.
+static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
+	auto &ctx = ec.Ui();
+	using namespace nkentseu::nkgui;
+
+	if (BeginMenu(ctx, "Fichier")) {
+		if (MenuItem(ctx, "Nouveau", "Ctrl+N"))
+			CmdNew(nullptr);
+		if (MenuItem(ctx, "Recharger", "Ctrl+R"))
+			CmdLoad(nullptr);
+		if (MenuItem(ctx, "Enregistrer", "Ctrl+S"))
+			CmdSave(nullptr);
+		Separator(ctx);
+		if (MenuItem(ctx, "Preferences graphiques", "Ctrl+M"))
+			CmdVuePreferences(nullptr);
+		Separator(ctx);
+		if (MenuItem(ctx, "Quitter", "Ctrl+Q"))
+			CmdQuit(gShell);
+		EndMenu(ctx);
+	}
+	if (BeginMenu(ctx, "Edition")) {
+		MenuItem(ctx, "Annuler", "Ctrl+Z", false);
+		MenuItem(ctx, "Retablir", "Ctrl+Y", false);
+		EndMenu(ctx);
+	}
+	if (BeginMenu(ctx, "Affichage")) {
+		if (gShell)
+			gShell->DrawPanelsMenuItems();
+		EndMenu(ctx);
+	}
+	if (BeginMenu(ctx, "Objet")) {
+		MenuItem(ctx, "Attribuer un role...", "", false);
+		MenuItem(ctx, "Grouper", "Ctrl+G", false);
+		EndMenu(ctx);
+	}
+	if (BeginMenu(ctx, "Comportement")) {
+		MenuItem(ctx, "Gestionnaire de callbacks...", "", false);
+		EndMenu(ctx);
+	}
+	if (BeginMenu(ctx, "IA")) {
+		MenuItem(ctx, "Chat IA", "", false);
+		EndMenu(ctx);
+	}
+	if (BeginMenu(ctx, "Fenetre")) {
+		MenuItem(ctx, "Reinitialiser la disposition", "", false);
+		EndMenu(ctx);
+	}
+	if (BeginMenu(ctx, "Aide")) {
+		MenuItem(ctx, "A propos de NkUIDesign", "", false);
+		EndMenu(ctx);
+	}
+}
+
+// LA BANDE 2 : les onglets de projets (document 3 §6). Libelles INERTES pour
+// ce morceau -- ce qui se juge ici est la GEOMETRIE, pas le comportement.
+static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
+	auto &ctx = ec.Ui();
+	using namespace nkentseu::nkgui;
+	static const char *const kOnglets[3] = {"Dashboard_Admin", "Landing_Page", "HUD_Jeu"};
+	// ⚠️ DES RECTANGLES EXPLICITES, pas le flux : la bande fait 28 px et les
+	//    onglets doivent la remplir exactement. `SetNextItemRect` est le moyen
+	//    prevu par NKGui pour poser un widget (mesure NKGuiDrawTest, 9/9).
+	const NkRect z = ctx.layout.region;
+	float32 x = z.x;
+	for (uint32 i = 0; i < 3; ++i) {
+		const float32 w = 132.f;
+		ctx.SetNextItemRect({x, z.y, w, z.h});
+		Button(ctx, kOnglets[i]);
+		x += w;
+	}
+	ctx.SetNextItemRect({x, z.y, 28.f, z.h});
+	Button(ctx, "+");
+}
+
 int nkmain(const NkEntryState &state) {
 	// ⚠️ `NkEntryState` porte `args` (un `NkVector<NkString>`), PAS `argc/argv` :
 	//    le conteneur est le meme sur les huit plateformes, la ou `argv` n'existe
@@ -374,6 +463,13 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&ai);
 	shell->SetOverlay(&DumpUiRects, nullptr);
 
+	// ── L EN-TETE AUX COTES DE LA MAQUETTE ───────────────────────────────
+	// 28 + 28, bloc logo carre de 56 a cheval sur les deux. Ces nombres sont
+	// des PIXELS : la mesure sur la capture doit les rendre tels quels.
+	shell->SetHeaderLayout(28.f, 28.f, 56.f);
+	shell->SetMenuBar(&DrawMenuBar, nullptr);
+	shell->SetToolbar(&DrawProjectTabs, nullptr);
+	shell->SetTitleInfo("Dashboard_Admin.nkgui");
 	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");
 	shell->RegisterCommand("Document: Recharger", &CmdLoad, nullptr, "Ctrl+R");
 	shell->RegisterCommand("Document: Nouveau", &CmdNew, nullptr, "Ctrl+N");

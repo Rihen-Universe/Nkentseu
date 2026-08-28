@@ -644,10 +644,17 @@ namespace nkentseu {
 			// d'outils / panneaux / barre d'etat (façon « page de demarrage » VS).
 			const bool fullScreen = mUI.appFullScreen && mStartScreenFn;
 
-			const float32 titleH = mUI.ItemHeight() + mUI.S(10.f); // barre de titre legerement plus grande
+			// ⚠️ COTES IMPOSEES PAR L APPLICATION quand elle en pose (SetHeaderLayout),
+			//    sinon le calcul historique. Elles ne passent PAS par `S()` : une
+			//    maquette qui dit 28 doit se mesurer 28 sur la capture.
+			const float32 titleH =
+				(mHeaderTitleH > 0.f) ? mHeaderTitleH : (mUI.ItemHeight() + mUI.S(10.f));
 			mUI.titleBarH = titleH;								   // l'ecran de demarrage doit commencer en dessous
-			const float32 toolbarH =
-				(mToolbarFn && !fullScreen) ? mUI.S(46.f) : 0.f; // combos labellises (vue principale IDE)
+			const float32 bandH = (mHeaderBandH > 0.f) ? mHeaderBandH : mUI.S(46.f);
+			const float32 toolbarH = (mToolbarFn && !fullScreen) ? bandH : 0.f;
+			// Le bloc logo CHEVAUCHE les deux bandes : les bandes commencent a sa
+			// droite, jamais au bord de la fenetre.
+			const float32 logoW = (mHeaderLogo > 0.f && !fullScreen) ? mHeaderLogo : 0.f;
 			const float32 footerH = fullScreen ? 0.f : mUI.S(22.f);
 			// Largeur des bandes d'icones, PAR COTE : une app sans « vues » a
 			// basculer les desactive (SetActivityBars) et le dock recupere la place.
@@ -656,10 +663,15 @@ namespace nkentseu {
 			const float32 actWR = mActivityBarRight ? activityW : 0.f;
 
 			// Barre de titre custom UNE ligne : logo + menus | infos | min/max/close.
-			DrawTitleBar(ec, {0.f, 0.f, W, titleH});
+			DrawTitleBar(ec, {logoW, 0.f, W - logoW, titleH});
 			// Barre d'outils Visual Studio (config/plateforme cible + Build/Run + emulateur).
 			if (mToolbarFn && !fullScreen)
-				DrawToolbar(ec, {0.f, titleH, W, toolbarH});
+				DrawToolbar(ec, {logoW, titleH, W - logoW, toolbarH});
+			// ⚠️ LE BLOC LOGO EST DESSINE APRES LES DEUX BANDES, et c est la seule
+			//    facon de le faire CHEVAUCHER : il est plus haut que la premiere
+			//    bande, donc il ne peut pas vivre dedans.
+			if (logoW > 0.f)
+				DrawHeaderLogo(ec, {0.f, 0.f, logoW, logoW});
 
 			const float32 bodyTop = titleH + toolbarH;
 			const float32 bodyH = H - bodyTop - footerH;
@@ -968,6 +980,31 @@ namespace nkentseu {
 
 		// ── Barre de titre custom (UNE ligne : logo + menus | infos | controles) ──
 		// Layout facon VSCode : [logo][Fichier Affichage ...]   <infos centre>   [─ ☐ ✕]
+		// LE BLOC LOGO CARRE, colle au coin haut-gauche, a cheval sur les deux
+		// bandes. Le glyphe est une grille de 2x2 carres (planche 091913).
+		void NkEditorShell::DrawHeaderLogo(NkEditorFrameContext &, const NkRect &r) noexcept {
+			auto &dl = mUI.dl;
+			dl.AddRectFilled(r, mUI.theme.header);
+			if (mTitleLogoTex) {
+				const float32 g = r.w * 0.5f;
+				dl.AddImage(mTitleLogoTex, {r.x + (r.w - g) * 0.5f, r.y + (r.h - g) * 0.5f, g, g},
+							{0.f, 0.f}, {1.f, 1.f}, {255, 255, 255, 255});
+				return;
+			}
+			// Grille de 2x2 carres, centree. Pas de texture requise : le bloc doit
+			// exister des la premiere image, meme sans ressource chargee.
+			const float32 c = r.w * 0.18f;		  // cote d un carre
+			const float32 gap = r.w * 0.06f;	  // ecart entre les deux
+			const float32 tot = c * 2.f + gap;
+			const float32 x0 = r.x + (r.w - tot) * 0.5f;
+			const float32 y0 = r.y + (r.h - tot) * 0.5f;
+			const NkColor a = mUI.theme.accent;
+			dl.AddRectFilled({x0, y0, c, c}, a);
+			dl.AddRectFilled({x0 + c + gap, y0, c, c}, a);
+			dl.AddRectFilled({x0, y0 + c + gap, c, c}, a);
+			dl.AddRectFilled({x0 + c + gap, y0 + c + gap, c, c}, a);
+		}
+
 		void NkEditorShell::DrawTitleBar(NkEditorFrameContext &ec, const NkRect &bar) noexcept {
 			auto &dl = mUI.dl;
 			const NkColor bg = mUI.theme.header; // barre de titre (suit Dark/Light)
