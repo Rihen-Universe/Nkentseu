@@ -148,6 +148,35 @@ namespace nkuidesign {
 			if (inner.h < 0.f)
 				inner.h = 0.f;
 
+			// ── TOILE ───────────────────────────────────────────────────────
+			// Chaque enfant est pose a SES coordonnees, dans le repere interieur du
+			// parent. C'est le seul agencement qui LIT la position au lieu de la
+			// calculer -- et c'est tout ce qui separe la toile du modele declaratif.
+			//
+			// ⚠️ LA TAILLE, ELLE, SE RESOUT COMME PARTOUT AILLEURS (`solvedetail::
+			//    Axis`). Une forme posee garde donc `fixed`, `expand` et `weight` :
+			//    on n'a pas fabrique un second systeme de tailles pour la toile,
+			//    sinon un noeud change de comportement en changeant de parent.
+			if (p.layout.kind == NkLayoutKind::Free) {
+				for (uint32 i = 0; i < n; ++i) {
+					const NkUINode &c = doc.nodes[(uint32)kids[i]];
+					NkPaintRect cr;
+					cr.w = solvedetail::Axis(c.width, m, inner.w, c.width.minVal);
+					cr.h = solvedetail::Axis(c.height, m, inner.h, c.height.minVal);
+					// ⚠️ `r`, PAS `inner` : la toile se repere sur le CADRE du parent,
+					//    marge NON comprise. Mesure du premier essai : une forme posee
+					//    a (95,228) se dessinait a (103,236) -- decalee de la marge de 8.
+					//    Un concepteur qui tape 95 attend 95 ; la marge est une notion de
+					//    FLUX (elle ecarte des enfants qui se suivent), et une toile n a
+					//    pas de flux. La garder ici aurait fait mentir chaque coordonnee
+					//    du document sans que rien ne le dise.
+					cr.x = r.x + c.posX;
+					cr.y = r.y + c.posY;
+					PlaceSubtree(doc, m, kids[i], cr, out);
+				}
+				return;
+			}
+
 			// ── ANCRAGE ─────────────────────────────────────────────────────
 			// Chaque enfant est pose independamment contre les bords qu'il declare.
 			// Deux bords opposes = il s'etire entre eux ; un seul = il s'y colle a

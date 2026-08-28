@@ -149,6 +149,16 @@ namespace nkentseu {
 			Column,	  ///< colonne : les enfants se suivent en Y
 			Grid,	  ///< grille : `gridColumns` colonnes, ou auto-remplissage
 			Anchor,	  ///< ancrage : chaque enfant se colle aux bords qu'il declare
+			/// TOILE : chaque enfant est pose a SES coordonnees, dans le repere du
+			/// parent. Le seul agencement qui ne CALCULE pas la position -- il la
+			/// LIT (`posX`/`posY` du noeud).
+			///
+			/// ⚠️ AJOUTE EN DERNIER, AVANT `Count`, ET C'EST DELIBERE : la
+			///    serialisation passe par `NkLayoutKindName` / `NkParseLayoutKind`,
+			///    donc par des NOMS et jamais par la valeur numerique. Ajouter au
+			///    bout ne deplace aucun nom existant et ne peut pas relire un
+			///    ancien document de travers.
+			Free,
 			Count
 		};
 
@@ -351,6 +361,8 @@ namespace nkentseu {
 					return "grid";
 				case NkLayoutKind::Anchor:
 					return "anchor";
+				case NkLayoutKind::Free:
+					return "free";
 				default:
 					return "none";
 			}

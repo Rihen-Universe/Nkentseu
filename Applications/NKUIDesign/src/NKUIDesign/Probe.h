@@ -1955,6 +1955,125 @@ namespace nkuidesign {
 		rep.Append("\n--- le fichier d'ecarts produit, tel quel ---\n");
 		rep.Append(text);
 
+		// ════════════════════════════════════════════════════════════════
+		//  38. LA TOILE -- un noeud POSE se dessine ou on l'a pose
+		// ════════════════════════════════════════════════════════════════
+		//
+		//  Etape 1 du chemin vers la specification (document 3). Le modele
+		//  porte desormais les DEUX natures :
+		//    - sous un parent `Column`/`Row`/`Grid`/`Anchor`, la position se
+		//      CALCULE -- c'est le modele declaratif du 18 aout, intact ;
+		//    - sous un parent `Free`, la position se LIT.
+		//
+		//  ⚠️ CE N'EST PAS « AJOUTER X/Y A TOUT ». Le champ ne vaut que sous
+		//     un parent `Free`, exactement comme `anchorEdges` ne vaut que
+		//     sous un parent `Anchor`. Donner des coordonnees a tous les
+		//     noeuds aurait debloque la toile en une heure et detruit ce que
+		//     l'apercu sait rendre depuis dix jours.
+		{
+			rep.Append("\n-- 38. LA TOILE : un noeud pose se dessine ou on l'a pose --\n");
+			// ⚠️ `NewDocument` D ABORD : `AddChild(-1, ...)` rend -1 -- il EXIGE un
+			//    parent valide, il ne cree pas de racine. Mon premier essai indexait
+			//    `nodes[(uint32)-1]` et le banc est mort sur une assertion de
+			//    `NkVector`. Le garde a fait exactement son travail.
+			NkUIDocument d;
+			d.NewDocument("Toile", NkAuthor::Humain);
+			const int32 page = 0;
+			d.nodes[(uint32)page].label = NkString("Page");
+			d.nodes[(uint32)page].layout.kind = NkLayoutKind::Free;
+			d.nodes[(uint32)page].width.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)page].width.value = 1280.f;
+			d.nodes[(uint32)page].height.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)page].height.value = 720.f;
+
+			const int32 forme = d.AddChild(page, "", NkAuthor::Humain);
+			d.nodes[(uint32)forme].label = NkString("Carte");
+			d.nodes[(uint32)forme].posX = 95.f;
+			d.nodes[(uint32)forme].posY = 228.f;
+			d.nodes[(uint32)forme].width.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)forme].width.value = 320.f;
+			d.nodes[(uint32)forme].height.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)forme].height.value = 180.f;
+
+			NkPaintRect surface;
+			surface.x = 0.f;
+			surface.y = 0.f;
+			surface.w = 1280.f;
+			surface.h = 720.f;
+			NkLayoutResult lay;
+			NkComputeLayout(d, surface, lay);
+			const NkPaintRect &rp = lay.rects[(uint32)page];
+			const NkPaintRect &rf = lay.rects[(uint32)forme];
+
+			snprintf(buf, sizeof(buf), "page (%.1f,%.1f) forme (%.1f,%.1f %.0fx%.0f)",
+					 rp.x, rp.y, rf.x, rf.y, rf.w, rf.h);
+			check("38. une forme posee a (95,228) se dessine a (95,228)",
+				  rf.x == rp.x + 95.f && rf.y == rp.y + 228.f, buf);
+			check("38b. et elle garde la taille qu'elle declare (320x180) -- la toile "
+				  "ne fabrique pas un second systeme de tailles",
+				  rf.w == 320.f && rf.h == 180.f, buf);
+
+			// ⚠️ 38c. LE CONTROLE NEGATIF, REPRIS DE `NKGuiDrawTest` : sans lui,
+			//     un solveur qui poserait TOUT a (95,228) -- ou qui ignorerait la
+			//     position et laisserait le premier enfant en haut a gauche --
+			//     passerait 38. On change UNE coordonnee et le rectangle doit
+			//     bouger d'autant, exactement.
+			d.nodes[(uint32)forme].posX = 495.f;
+			NkLayoutResult lay2;
+			NkComputeLayout(d, surface, lay2);
+			const NkPaintRect &rf2 = lay2.rects[(uint32)forme];
+			snprintf(buf, sizeof(buf), "x passe de %.1f a %.1f (attendu +400)", rf.x, rf2.x);
+			check("38c. CONTROLE NEGATIF : deplacer la forme de +400 en X deplace son "
+				  "rectangle de +400 -- le solveur LIT la position, il ne la devine pas",
+				  rf2.x == rf.x + 400.f && rf2.y == rf.y, buf);
+			d.nodes[(uint32)forme].posX = 95.f;
+
+			// ⚠️ 38d. LA NON-REGRESSION QUI COMPTE : le meme document, son parent
+			//     remis en `Column`, doit IGNORER la position et replacer la forme
+			//     par le calcul. C'est ce qui prouve que les deux natures
+			//     cohabitent au lieu de se remplacer -- et que le modele
+			//     declaratif du 18 aout est intact.
+			d.nodes[(uint32)page].layout.kind = NkLayoutKind::Column;
+			NkLayoutResult lay3;
+			NkComputeLayout(d, surface, lay3);
+			const NkPaintRect &rf3 = lay3.rects[(uint32)forme];
+			snprintf(buf, sizeof(buf), "en Column : (%.1f,%.1f) -- la position posee est ignoree",
+					 rf3.x, rf3.y);
+			check("38d. NON-REGRESSION : sous un parent `Column`, la position posee est "
+				  "IGNOREE et le calcul reprend la main (les deux natures cohabitent)",
+				  rf3.x != rp.x + 95.f || rf3.y != rp.y + 228.f, buf);
+
+			// 38e. Aller-retour du champ : ecrit seulement s'il existe, relu juste.
+			d.nodes[(uint32)page].layout.kind = NkLayoutKind::Free;
+			NkString texte;
+			d.Save(texte);
+			NkUIDocument relu;
+			const bool ok = relu.Load(texte.Data(), nullptr);
+			check("38e. la position fait l'aller-retour par le fichier",
+				  ok && relu.NodeCount() == d.NodeCount()
+					  && relu.nodes[(uint32)forme].posX == 95.f
+					  && relu.nodes[(uint32)forme].posY == 228.f,
+				  "");
+
+			// ⚠️ 38f. UN DOCUMENT DECLARATIF N'ECRIT AUCUNE LIGNE `position`.
+			//     C'est ce qui garantit que le document du 18 aout se
+			//     reenregistre a l'identique : le champ neuf ne s'invite pas
+			//     dans les fichiers qui ne s'en servent pas.
+			NkUIDocument decl;
+			decl.NewDocument("Declaratif", NkAuthor::Humain);
+			const int32 rac = 0;
+			decl.nodes[(uint32)rac].layout.kind = NkLayoutKind::Column;
+			decl.AddChild(rac, "", NkAuthor::Humain);
+			NkString td;
+			decl.Save(td);
+			check("38f. un document DECLARATIF n'ecrit aucune ligne `position`",
+				  td.Find("  position = ") == NkString::npos, "");
+			// ⚠️ ON CHERCHE LA CLE, PAS LE MOT. Premier essai : `Find("position")`
+			//    -- rouge, parce que l en-tete du fichier CONTIENT le mot dans sa
+			//    prose (« La position se CALCULE »). Un controle qui cherche un mot
+			//    dans un fichier qui parle de lui-meme trouve toujours quelque chose.
+		}
+
 		char tail[128];
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

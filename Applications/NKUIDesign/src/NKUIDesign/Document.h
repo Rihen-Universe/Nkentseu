@@ -313,6 +313,30 @@ namespace nkuidesign {
 			NkSizeDecl height;
 			NkLayoutDecl layout;   ///< s'applique a SES ENFANTS, jamais a lui-meme
 			uint8 anchorEdges = 0; ///< bits `nkanchor::*`, quand le PARENT est en `Anchor`
+
+			/// ⚠️ LA POSITION SUR LA TOILE -- et elle ne vaut QUE quand le PARENT est
+			///    en `Free`, exactement comme `anchorEdges` au-dessus ne vaut que sous
+			///    un parent `Anchor`. **Ce n'est pas un champ que tout noeud utilise.**
+			///
+			/// ⚠️ C'EST LE POINT DE CONCEPTION DE L'ETAPE 1, ET IL SE JOUE ICI :
+			///    donner des coordonnees a TOUS les noeuds aurait debloque la toile en
+			///    une heure **et detruit le modele declaratif** -- celui qui rend
+			///    l'apercu depuis le 18 aout, ou la position se calcule et ou une
+			///    fenetre redimensionnee replace tout sans qu'on y touche.
+			///
+			///    Les deux natures cohabitent donc **par le parent** : un noeud sous
+			///    `Column` est calcule, un noeud sous `Free` est pose. Le document 3
+			///    §14ter.5 dit que les quatre cases du tableau role x composant
+			///    existent et servent ; celle de « un bouton dessine sur une page »
+			///    est un noeud POSE qui porte un composant. **Une forme qui recoit un
+			///    role garde ses coordonnees** : le role est un contrat pose sur elle,
+			///    pas un remplacement.
+			///
+			/// N'est ECRITE dans le fichier que si elle n'est pas nulle -- un document
+			/// purement declaratif ne porte donc aucune ligne `position`, et celui du
+			/// 18 aout se reenregistre a l'identique.
+			float32 posX = 0.f;
+			float32 posY = 0.f;
 			NkProvenance prov;
 
 			/// Les noms de metrique que ce noeud designe. Ils ne portent aucun nombre :
@@ -799,6 +823,15 @@ namespace nkuidesign {
 					char edges[5];
 					NkAnchorName(n.anchorEdges, edges);
 					Field(out, "ancrage", edges);
+					// La position n'est ecrite que si elle existe : un document
+					// declaratif reste octet pour octet ce qu'il etait.
+					if (n.posX != 0.f || n.posY != 0.f) {
+						out.Append("  position = ");
+						WriteNum(out, n.posX);
+						out.Append(' ');
+						WriteNum(out, n.posY);
+						out.Append('\n');
+					}
 					Field(out, "auteur", NkAuthorName(n.prov.author));
 					Field(out, "verifiee", n.prov.verified ? "1" : "0");
 					Field(out, "corrigee", n.prov.corrected ? "1" : "0");
@@ -915,6 +948,21 @@ namespace nkuidesign {
 							n.padName = NkString(val);
 						else if (StrEq(key, "ancrage"))
 							n.anchorEdges = NkParseAnchor(val);
+						else if (StrEq(key, "position")) {
+							// ⚠️ `Tokenize`, PAS un second lecteur de nombres. `ParseNum`
+							//    prend son pointeur PAR VALEUR et n'avance pas : lire deux
+							//    nombres a la main relisait le premier deux fois. Le
+							//    decoupage en jetons est deja le mecanisme du fichier
+							//    (`ParseAxis` en lit quatre ainsi) ; en ajouter un autre,
+							//    c'etait un second endroit ou le format des nombres peut
+							//    diverger -- ce que l'en-tete de ce fichier interdit.
+							char tok[2][32];
+							const uint32 t = Tokenize(val, tok, 2);
+							if (t > 0)
+								n.posX = ParseNum(tok[0]);
+							if (t > 1)
+								n.posY = ParseNum(tok[1]);
+						}
 						else if (StrEq(key, "auteur"))
 							n.prov.author = NkParseAuthor(val);
 						else if (StrEq(key, "verifiee"))
