@@ -54,6 +54,7 @@
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKFileSystem/NkFile.h"
 
+#include "Canvas.h"
 #include "Backend.h"
 #include "DesignAI.h"
 #include "Icons.h"
@@ -2072,6 +2073,139 @@ namespace nkuidesign {
 			//    -- rouge, parce que l en-tete du fichier CONTIENT le mot dans sa
 			//    prose (« La position se CALCULE »). Un controle qui cherche un mot
 			//    dans un fichier qui parle de lui-meme trouve toujours quelque chose.
+		}
+
+		// ════════════════════════════════════════════════════════════════
+		//  39. LA VUE DE TOILE -- deux espaces, une seule traduction
+		// ════════════════════════════════════════════════════════════════
+		//
+		//  ⚠️ LE PIEGE DE CETTE FAMILLE, ET IL EST INVISIBLE : un aller-retour
+		//     `ToDoc(ToScreen(p)) == p` est **satisfait par l'IDENTITE**. Une vue
+		//     qui ignorerait completement le zoom et le deplacement le passerait
+		//     sans broncher -- meme forme que le temoin de bruit qui comparait
+		//     deux sorties de la meme fonction, et que les deux `== npos` qui
+		//     rendaient T5 vert sur un ecrivain mort.
+		//
+		//     D'ou : les attendus sont **calcules a la main**, et 39c verifie
+		//     explicitement que la vue N'EST PAS l'identite.
+		{
+			rep.Append("\n-- 39. LA VUE DE TOILE : document <-> ecran --\n");
+			NkCanvasView v;
+			v.viewport.x = 300.f;
+			v.viewport.y = 50.f;
+			v.viewport.w = 800.f;
+			v.viewport.h = 600.f;
+			v.zoom = 2.5f;
+			v.panX = 137.f;
+			v.panY = -42.f;
+
+			// A LA MAIN : 300 + 137 + 95*2.5 = 674.5 ; 50 - 42 + 228*2.5 = 578.0
+			const float32 sx = v.ToScreenX(95.f);
+			const float32 sy = v.ToScreenY(228.f);
+			snprintf(buf, sizeof(buf), "(95,228) -> (%.2f,%.2f) attendu (674.50,578.00)", sx, sy);
+			check("39. DOCUMENT -> ECRAN, sur des nombres ecrits a la main "
+				  "(viewport 300/50, zoom 2.5, pan 137/-42)",
+				  sx == 674.5f && sy == 578.f, buf);
+
+			// La TAILLE subit l'echelle et PAS le deplacement : c'est une
+			// longueur, pas une position. 320*2.5 = 800 ; 180*2.5 = 450.
+			NkPaintRect d;
+			d.x = 95.f;
+			d.y = 228.f;
+			d.w = 320.f;
+			d.h = 180.f;
+			const NkPaintRect s = v.ToScreen(d);
+			snprintf(buf, sizeof(buf), "taille %.1fx%.1f attendu 800.0x450.0", s.w, s.h);
+			check("39b. la TAILLE subit l'echelle et PAS le deplacement -- une "
+				  "longueur n'est pas une position",
+				  s.w == 800.f && s.h == 450.f, buf);
+
+			// ⚠️ 39c. LE CONTROLE NEGATIF : sans lui, l'identite passe 39d.
+			//     Deux points distants de 100 en document doivent etre distants
+			//     de 250 a l'ecran au zoom 2.5. Une vue identite les laisserait
+			//     a 100.
+			const float32 ecart = v.ToScreenX(200.f) - v.ToScreenX(100.f);
+			snprintf(buf, sizeof(buf), "ecart ecran %.1f pour 100 en document (attendu 250)", ecart);
+			check("39c. CONTROLE NEGATIF : la vue n'est PAS l'identite -- 100 en "
+				  "document font 250 a l'ecran au zoom 2.5",
+				  ecart == 250.f && v.ToScreenX(0.f) != 0.f, buf);
+
+			// 39d. L'aller-retour. ⚠️ Il est le PLUS FAIBLE de la famille et il
+			//      ne vaut que colle a 39 et 39c : seul, l'identite le passe.
+			const float32 back = v.ToDocX(v.ToScreenX(95.f));
+			const float32 backY = v.ToDocY(v.ToScreenY(228.f));
+			check("39d. l'aller-retour ecran -> document rend le point de depart "
+				  "(faible seul : ancre par 39 et 39c)",
+				  back == 95.f && backY == 228.f, "");
+
+			// 39e. Une LONGUEUR ecran rendue en longueur document : l'echelle
+			//      seule. 20 px d'ecran font 8 unites de document au zoom 2.5.
+			snprintf(buf, sizeof(buf), "20 px ecran -> %.2f document (attendu 8.00)",
+					 v.ToDocLength(20.f));
+			check("39e. une LONGUEUR ecran se rend en document par l'echelle seule",
+				  v.ToDocLength(20.f) == 8.f, buf);
+		}
+
+		// ── LE ZOOM AUTOUR DU CURSEUR ────────────────────────────────────
+		//  Le defaut le plus courant de toute toile : le contenu « fuit » sous
+		//  la souris parce qu'on a change l'echelle sans recaler le deplacement.
+		//  Il ne se voit pas sur une capture fixe.
+		{
+			NkCanvasView v;
+			v.viewport.x = 300.f;
+			v.viewport.y = 50.f;
+			v.zoom = 1.f;
+			v.panX = 0.f;
+			v.panY = 0.f;
+
+			const float32 curseurX = 500.f, curseurY = 400.f;
+			const float32 docAvantX = v.ToDocX(curseurX);
+			const float32 docAvantY = v.ToDocY(curseurY);
+			v.ZoomAt(2.f, curseurX, curseurY);
+			const float32 apresX = v.ToScreenX(docAvantX);
+			const float32 apresY = v.ToScreenY(docAvantY);
+
+			snprintf(buf, sizeof(buf), "le point sous le curseur : (%.2f,%.2f) -> (%.2f,%.2f)",
+					 curseurX, curseurY, apresX, apresY);
+			check("39f. ZOOM AU CURSEUR : le point du document sous le curseur ne "
+				  "bouge PAS d'un pixel",
+				  apresX == curseurX && apresY == curseurY, buf);
+
+			// ⚠️ 39g. LE CONTROLE NEGATIF DE 39f, ET IL EST INDISPENSABLE : une
+			//     vue qui n'aurait PAS zoome laisserait AUSSI le point immobile.
+			//     Il faut donc qu'un AUTRE point, lui, ait bien bouge -- et que
+			//     l'echelle ait change.
+			const float32 autre = v.ToScreenX(docAvantX + 100.f);
+			snprintf(buf, sizeof(buf), "zoom %.2f ; un point a +100 est a %.1f (curseur %.1f)",
+					 v.zoom, autre, curseurX);
+			check("39g. CONTROLE NEGATIF : l'echelle a VRAIMENT change -- un point "
+				  "voisin s'est ecarte de 200 px, pas de 100",
+				  v.zoom == 2.f && (autre - curseurX) == 200.f, buf);
+
+			// 39h. Les bornes : un zoom ne descend pas a zero (ToDoc deviendrait
+			//      infini) et ne monte pas sans fin.
+			NkCanvasView b;
+			for (uint32 i = 0; i < 40; ++i)
+				b.ZoomAt(0.5f, 100.f, 100.f);
+			const float32 bas = b.zoom;
+			for (uint32 i = 0; i < 60; ++i)
+				b.ZoomAt(2.f, 100.f, 100.f);
+			snprintf(buf, sizeof(buf), "plancher %.4f, plafond %.2f", bas, b.zoom);
+			check("39h. le zoom est BORNE des deux cotes -- un zoom nul rendrait "
+				  "`ToDoc` infini",
+				  bas == NkCanvasView::MinZoom() && b.zoom == NkCanvasView::MaxZoom(), buf);
+
+			// 39i. Le deplacement : N pixels ecran deplacent la vue de N pixels
+			//      ecran, quel que soit le zoom. La main suit le curseur.
+			NkCanvasView p;
+			p.zoom = 4.f;
+			const float32 avant = p.ToScreenX(10.f);
+			p.PanBy(33.f, 0.f);
+			snprintf(buf, sizeof(buf), "au zoom 4, un glissement de 33 px deplace de %.1f px",
+					 p.ToScreenX(10.f) - avant);
+			check("39i. le DEPLACEMENT est en pixels ecran, quel que soit le zoom "
+				  "-- la main suit le curseur, pas le document",
+				  (p.ToScreenX(10.f) - avant) == 33.f, buf);
 		}
 
 		char tail[128];
