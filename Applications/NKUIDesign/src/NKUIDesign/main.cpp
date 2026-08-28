@@ -170,8 +170,23 @@ static void CmdNew(void *) {
 //    enregistres. Le poser dans un panneau publierait un registre a moitie
 //    rempli — celui des panneaux dessines avant lui — et l'essai viserait une
 //    cible qui existe une image sur deux.
-static void DumpUiRects(NkEditorFrameContext &, void *) {
-	nkuidesign::designkit::UiRects::DumpIfChanged("nkuidesign_ui_rects.txt");
+// ⚠️ LE FICHIER CHANGE DE NOM EN MEME TEMPS QUE DE FORMAT, et ce n'est pas
+//    de la coquetterie. L'ancien `nkuidesign_ui_rects.txt` portait
+//    « identifiant = x y w h » ; celui-ci porte nature, niveau, etats, cle et
+//    libelle. **Garder le nom aurait laisse un script lire un format qu'il ne
+//    comprend plus, sans rien casser de visible** — la panne serait sortie
+//    ailleurs, plus tard, comme toutes celles que ce depot a payees cher.
+//    Mesure du 2026-08-29 avant de trancher : personne ne lit ce fichier
+//    aujourd'hui (`grep` sur tout l'arbre -> le .gitignore, le carnet, et le
+//    site d'ecriture ; aucun lecteur). Le renommage est donc gratuit — mais
+//    il ne l'aurait pas ete, et il fallait le verifier avant, pas apres.
+static const char *const kCheminReleveUI = "nkuidesign_releve_ui.txt";
+
+/// `--dump-ui` a-t-il ete passe ? Lu a la creation de la coquille.
+static bool gReleveDemande = false;
+
+static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
+	nkgui::NkGuiIntrospectEcrire(ec.Ui(), kCheminReleveUI);
 }
 
 // ── AMENER UN PANNEAU AU PREMIER PLAN, AU CLAVIER ───────────────────────────
@@ -914,7 +929,14 @@ int nkmain(const NkEntryState &state) {
 		//    Mesure du 2026-08-27 : `--small` et `--dump-ui` rendaient tous deux
 		//    le code de sortie **2**.
 		if (NkComponentDecl::StrEq(a, "--dump-ui")) {
-			nkuidesign::designkit::UiRects::Enabled() = true;
+			// ⚠️ LE DRAPEAU NE PEUT PLUS ALLUMER L'INSTRUMENT ICI, et il faut le
+			//    dire : le releve vit dans le `NkGuiContext`, qui n'existe pas
+			//    encore a l'analyse des arguments. On memorise l'intention, et
+			//    l'activation se fait a la creation de la coquille. Une variable
+			//    de plus, mais aucune ambiguite : l'ancien `UiRects::Enabled()`
+			//    etait un booleen global precisement parce qu'il n'avait pas de
+			//    contexte ou vivre — c'etait le symptome du mauvais etage.
+			gReleveDemande = true;
 			continue;
 		}
 		// ⚠️ `--releve-menus` REND UN VERDICT, IL NE SE CONTENTE PAS D'ECRIRE.
@@ -968,7 +990,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --roundtrip-controles   les temoins du lecteur/ecrivain");
 			puts("  --pool-controles        les témoins du pool de chaînes");
 			puts("  --valider[=<dossier>]   la validation par role et par type");
-			puts("  --dump-ui               publier les rectangles dessinés");
+			puts("  --dump-ui               publier le relevé de l'interface dessinée");
 			puts("  --releve-menus[=<fichier>] relever la barre de menus SANS fenêtre");
 			puts("  --small                 fenêtre réduite (1024x640)");
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
@@ -1121,7 +1143,18 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&properties);
 	shell->AddPanel(&prefs);
 #endif
-	shell->SetOverlay(&DumpUiRects, nullptr);
+	// ⚠️ L'INSTRUMENT S'ALLUME ICI, PAS DANS L'OVERLAY. Active depuis
+	//    l'overlay, il aurait rate la PREMIERE image entiere : l'overlay passe
+	//    apres les panneaux, donc le releve n'aurait commence a se remplir qu'a
+	//    l'image suivante. Une image perdue n'est rien pour un editeur qui
+	//    tourne — mais tout pour une capture prise au demarrage, et c'est
+	//    exactement l'usage qu'on veut servir.
+	// ⚠️ `NK_GUI_INTROSPECT=1` marche AUSSI, et sans ce drapeau : NKGui le lit
+	//    a `Init`. Les deux voies mènent au meme booleen ; `--dump-ui` ne fait
+	//    que l'allumer une seconde fois, ce qui est sans effet.
+	if (gReleveDemande)
+		nkgui::NkGuiIntrospectActiver(shell->Ui(), true);
+	shell->SetOverlay(&EcrireReleveUI, nullptr);
 
 	// ── LE THEME : UNE SEULE AUTORITE, POUSSEE VERS LE DESSIN ────────────
 	// ⚠️ SANS CET APPEL, LA MOITIE DE LA FENETRE NE SUIVRAIT PAS. La

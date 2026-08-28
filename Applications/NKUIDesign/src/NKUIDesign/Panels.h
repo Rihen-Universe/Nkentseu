@@ -108,166 +108,79 @@ namespace nkuidesign {
 		};
 
 		// ── CE QUE L'INTERFACE A REELLEMENT DESSINE ─────────────────────────
-		// ⚠️ POURQUOI CE REGISTRE EXISTE, ET POURQUOI IL N'EST PAS DANS NKGUI.
-		//    Pour montrer qu'un clic sur une ligne du controle segmente fait ce
-		//    qu'il annonce, il faut savoir OU cliquer. Trois methodes ont ete
-		//    essayees dans la nuit du 18/08 :
-		//      1. calculer les coordonnees depuis la mise en page -> FAUX trois
-		//         fois, parce que la hauteur du texte AU-DESSUS du controle change
-		//         selon la source du backend. **L'instrument dependait d'un etat
-		//         que la mesure faisait varier.**
-		//      2. balayer les pixels de la capture -> ca marche, mais ca mesure une
-		//         image : le jour ou le theme change, l'instrument est aveugle.
-		//      3. **elargir NKGui pour exposer un identifiant de test** -> refuse.
-		//         Elargir un module partage pour un besoin d'essai est une dette
-		//         qu'on rembourse pendant des mois.
+		// ⚠️ `UiRects` A VECU ICI, ET IL EST MORT LE 2026-08-29. Il portait son
+		//    propre stockage, son propre filtre et sa propre ecriture — un
+		//    REGISTRE COMPLET, dans une seule application. Tout cela vit desormais
+		//    dans **NKGui** (`NkGui/Core/NkGuiIntrospect.h`), c'est-a-dire dans la
+		//    couche qui dessine, donc la seule qui sache ce qu'elle a dessine.
 		//
-		//    La sortie est celle que ce depot connait deja : **brancher
-		//    l'instrument sur une source qui ne varie pas avec ce qu'on mesure.**
-		//    C'est exactement ce que fait la famille 34 pour les composants — elle
-		//    ne lit pas des pixels, elle lit **les rectangles emis**. Ici, meme
-		//    principe : l'interface PUBLIE les rectangles qu'elle vient de
-		//    dessiner, et l'essai clique dedans.
+		// ⚠️ ON NE LES A PAS FAIT COEXISTER, ET C'ETAIT LE POINT. Un doublon qui
+		//    s'accorde aujourd'hui est un doublon qui divergera demain : ce depot
+		//    l'a paye cette semaine avec deux registres de roles homonymes et deux
+		//    objets theme. Le but n'etait jamais que les deux rendent la meme
+		//    chose — c'etait qu'il n'y en ait plus qu'un.
 		//
-		//    `ctx.lastItemRect` existe deja (NKGui s'en sert pour les cibles de
-		//    depot) : il n'y a rien a ajouter en amont, juste a le lire.
+		// ⚠️ CE QUI RESTE ICI N'EST PAS UN SECOND REGISTRE : ce sont trois
+		//    adaptateurs SANS ETAT, qui ne stockent rien, ne filtrent rien,
+		//    n'ecrivent rien. Ils NOMMENT. Le nommage, lui, appartient bien a
+		//    l'application : NKGui ne peut pas savoir que ce panneau s'appelle
+		//    « hierarchie ».
 		//
-		// ⚠️ CE N'EST PAS DU CODE DE TEST GREFFE DANS LA PRODUCTION : le registre
-		//    ne coute qu'une poignee de rectangles par image, et il n'ecrit sur le
-		//    disque que si `--dump-ui` est passe. Sans le drapeau, il ne fait rien
-		//    d'observable.
-		class UiRects {
-			public:
-				struct Entry {
-						NkString id;
-						nkgui::NkRect r;
-				};
+		// ⚠️ ET LE REFUS DE 2026-08-18 EST LEVE, PAS OUBLIE. On avait ecarte ici
+		//    « elargir NKGui pour exposer un identifiant de test », au motif qu'on
+		//    rembourse pendant des mois une dette posee dans un module partage pour
+		//    un besoin d'essai. Le refus etait juste POUR CE QU'IL REFUSAIT — un
+		//    crochet d'essai. Ce qui l'a remplace n'en est pas un : c'est une
+		//    capacite du socle, justifiee par trois pertes mesurees hors de tout
+		//    essai, et dont les consommateurs sont les quatre editeurs.
+		namespace releve {
 
-				static NkVector<Entry> &All() {
-					static NkVector<Entry> v;
-					return v;
-				}
-				static bool &Enabled() {
-					static bool on = false;
-					return on;
-				}
+			/// La REGION d'un panneau hote, publiee sous « panneau.<nom> ».
+			/// A appeler en TETE de chaque `OnUI`. C'est la seule chose que l'hote
+			/// connaisse et qui distingue un panneau dessine d'un panneau cache
+			/// derriere un onglet.
+			///
+			/// ⚠️ LE FILTRE A DISPARU, ET C'EST LA CORRECTION. L'ancien
+			///    `UiRects::Note` REFUSAIT de publier quand `region.w < 4` — un
+			///    panneau cache derriere un onglet recevait quand meme son `OnUI`,
+			///    avec une region de largeur 0, et ses widgets se taisaient. La garde
+			///    avait raison contre ce qu'elle visait (une cible inatteignable ne
+			///    doit pas passer pour prete) mais elle confondait **absent** et
+			///    **invisible**. NKGui, lui, note TOUJOURS et **marque** : un panneau
+			///    replie sort `vide`, un panneau hors champ sort `hors-vue`, et un
+			///    panneau qui n'a jamais ete dessine ne sort pas du tout. Les trois
+			///    cas se distinguent enfin.
+			inline void Zone(NkGuiContext &ctx, const char *nom) {
+				if (!nkgui::NkGuiIntrospectActif(ctx) || !nom || !*nom)
+					return;
+				char clef[96];
+				snprintf(clef, sizeof(clef), "panneau.%s", nom);
+				nkgui::NkGuiNoter(ctx, nkgui::NkGuiNature::Panneau, ctx.GetId(clef), nom,
+								  ctx.layout.region, nkgui::NK_GUI_ETAT_AUCUN);
+				nkgui::NkGuiIntrospectCler(ctx, clef);
+			}
 
-				/// ⚠️ LA REGION DU PANNEAU, publiee sous « panneau.<nom> ». C'est ce
-				///    qui manquait, et le manque etait de la meme famille que le
-				///    magenta : **le registre disait OU sont les rectangles, jamais
-				///    SI le panneau qui les a produits est celui qu'on voit.** Un
-				///    registre qui publie toujours ne dit pas si sa cible est
-				///    atteignable — il ne ment pas, il repond a une question plus
-				///    etroite que celle qu'on croit poser.
-				///
-				///    A appeler en TETE de chaque `OnUI`. La region est la seule
-				///    chose que l'hote connaisse et qui distingue un panneau
-				///    dessine d'un panneau cache derriere un onglet ; ce qu'elle
-				///    vaut exactement dans les deux cas est MESURE, pas suppose —
-				///    voir le carnet.
-				static void NoteRegion(NkGuiContext &ctx, const char *nom) {
-					if (!Enabled() || !nom || !*nom)
-						return;
-					char clef[96];
-					snprintf(clef, sizeof(clef), "panneau.%s", nom);
-					const nkgui::NkRect r = ctx.layout.region;
-					for (uint32 i = 0; i < (uint32)All().Size(); ++i)
-						if (StrEq(All()[i].id.Data(), clef)) {
-							All()[i].r = r;
-							return;
-						}
-					Entry e;
-					e.id = NkString(clef);
-					e.r = r;
-					All().PushBack(e);
-				}
+			/// Un rectangle DEJA CALCULE (une disposition, une aire de dessin), qui
+			/// n'est le rectangle d'aucun widget.
+			inline void Rect(NkGuiContext &ctx, const char *cle, const nkgui::NkRect &r) {
+				if (!nkgui::NkGuiIntrospectActif(ctx) || !cle || !*cle)
+					return;
+				nkgui::NkGuiNoter(ctx, nkgui::NkGuiNature::Region, ctx.GetId(cle), cle, r,
+								  nkgui::NK_GUI_ETAT_AUCUN);
+				nkgui::NkGuiIntrospectCler(ctx, cle);
+			}
 
-				/// Publier un rectangle DEJA CONNU (une disposition calculee, pas un
-				/// widget). Pas de garde de region ici : l'appelant sait ce qu'il
-				/// publie, et un rectangle de disposition n'a pas d'onglet derriere
-				/// lequel se cacher.
-				static void NoteRect(const char *id, float32 x, float32 y, float32 w, float32 h) {
-					if (!Enabled() || !id || !*id)
-						return;
-					for (uint32 i = 0; i < (uint32)All().Size(); ++i)
-						if (StrEq(All()[i].id.Data(), id)) {
-							All()[i].r = {x, y, w, h};
-							return;
-						}
-					Entry e;
-					e.id = NkString(id);
-					e.r = {x, y, w, h};
-					All().PushBack(e);
-				}
+			/// Donne une CLE STABLE au widget qui vient d'etre dessine.
+			/// ⚠️ IL NE CREE AUCUNE NOTE — c'est toute la difference avec l'ancien
+			///    `UiRects::Note`, qui ajoutait SA ligne a cote de rien du tout (NKGui
+			///    ne notait pas encore). Aujourd'hui le widget se note lui-meme, avec
+			///    son libelle ET son etat ; l'application ne fait qu'ajouter le nom
+			///    qui ne bougera pas quand le libelle changera.
+			inline void Cle(NkGuiContext &ctx, const char *cle) {
+				nkgui::NkGuiIntrospectCler(ctx, cle);
+			}
 
-				/// A appeler JUSTE APRES le widget : `ctx.lastItemRect` porte alors
-				/// son rectangle. Remplace l'entree de meme nom (une image chasse
-				/// l'autre) plutot que d'empiler.
-				static void Note(NkGuiContext &ctx, const char *id) {
-					if (!Enabled() || !id || !*id)
-						return;
-					// ⚠️ ON NE PUBLIE PAS LE RECTANGLE D'UN WIDGET DONT LE PANNEAU
-					//    N'EST PAS DESSINE. **Mesure du 19/08** : un panneau cache
-					//    derriere un onglet recoit quand meme son `OnUI`, avec une
-					//    region de **largeur 0** — mais ses widgets continuaient a
-					//    publier des rectangles d'apparence normale (`palette.poser`
-					//    = 167,7x28). Un essai les visait, cliquait **a travers**
-					//    sur le panneau qui occupait la place, et se croyait reussi.
-					//
-					//    C'est le defaut que j'avais nomme sans le corriger : *le
-					//    registre disait OU sont les rectangles, jamais SI le
-					//    panneau qui les a produits est celui qu'on voit.* Il ne
-					//    mentait pas — il repondait a une question plus etroite que
-					//    celle qu'on croyait poser. La correction est ici, a la
-					//    source : **une cible inatteignable ne se publie pas**, et
-					//    l'essai la trouve « absente » au lieu de la croire prete.
-					if (ctx.layout.region.w < 4.f)
-						return;
-					for (uint32 i = 0; i < (uint32)All().Size(); ++i)
-						if (StrEq(All()[i].id.Data(), id)) {
-							All()[i].r = ctx.lastItemRect;
-							return;
-						}
-					Entry e;
-					e.id = NkString(id);
-					e.r = ctx.lastItemRect;
-					All().PushBack(e);
-				}
-
-				/// Ecrit le registre — mais SEULEMENT s'il a change. Une ecriture
-				/// par image saturerait le disque pour rien, et un fichier reecrit
-				/// en permanence est illisible par un script qui le lit au meme
-				/// moment.
-				static void DumpIfChanged(const char *path) {
-					if (!Enabled())
-						return;
-					NkString out;
-					char b[192];
-					for (uint32 i = 0; i < (uint32)All().Size(); ++i) {
-						snprintf(b, sizeof(b), "%s = %.1f %.1f %.1f %.1f\n", All()[i].id.Data(),
-								 All()[i].r.x, All()[i].r.y, All()[i].r.w, All()[i].r.h);
-						out.Append(b);
-					}
-					static NkString dernier;
-					if (SameTextS(out, dernier))
-						return;
-					dernier = out;
-					nkentseu::NkFile::WriteAllText(path, out.Data());
-				}
-
-			private:
-				static bool StrEq(const char *a, const char *b) {
-					if (!a || !b)
-						return a == b;
-					for (; *a && *b; ++a, ++b)
-						if (*a != *b)
-							return false;
-					return *a == *b;
-				}
-				static bool SameTextS(const NkString &a, const NkString &b) {
-					return StrEq(a.Data(), b.Data());
-				}
-		};
+		} // namespace releve
 
 		/// Enregistre le rectangle de la case qui vient d'etre dessinee, sous
 		/// « id.libelle ». Le libelle plutot qu'un indice : un essai qui clique
@@ -278,7 +191,7 @@ namespace nkuidesign {
 				return;
 			char clef[96];
 			snprintf(clef, sizeof(clef), "%s.%s", id, label ? label : "");
-			UiRects::Note(ctx, clef);
+			releve::Cle(ctx, clef);
 		}
 
 		/// Un bouton qui publie son rectangle. Meme forme que `nkgui::Button`,
@@ -286,7 +199,7 @@ namespace nkuidesign {
 		/// position — c'est lui que les essais visent.
 		inline bool Button(NkGuiContext &ctx, const char *label, const char *id) {
 			const bool clique = nkgui::Button(ctx, label);
-			UiRects::Note(ctx, id);
+			releve::Cle(ctx, id);
 			return clique;
 		}
 
@@ -696,7 +609,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				designkit::UiRects::NoteRegion(ctx, "palette");
+				designkit::releve::Zone(ctx, "palette");
 				ec.Text("Ce que la bibliothèque déclare");
 				ec.Separator();
 				(void)ctx;
@@ -835,7 +748,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				designkit::UiRects::NoteRegion(ctx, "composition");
+				designkit::releve::Zone(ctx, "composition");
 				ec.Text(mSt->doc.title.Data());
 
 				// ── L'ARBRE, DANS UNE ZONE DEFILABLE ─────────────────────────
@@ -890,7 +803,7 @@ namespace nkuidesign {
 				//    boutons, et un essai qui les viserait trouverait un rectangle
 				//    perime. Publier l'en-tete permet de l'OUVRIR d'abord.
 				const bool docOuvert = designkit::Section(ctx, "Document");
-				designkit::UiRects::Note(ctx, "compo.section_document");
+				designkit::releve::Cle(ctx, "compo.section_document");
 				if (docOuvert) {
 					// ⚠️ TROIS CHIFFRES, TROIS LIGNES « cle : valeur » — au lieu de
 					//    la phrase « 5 noeud(s) — 0 pose(s) par l'IA, 0 corrige(s) »
@@ -1022,7 +935,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				designkit::UiRects::NoteRegion(ctx, "apercu");
+				designkit::releve::Zone(ctx, "apercu");
 				// ⚠️ LES QUATRE LIGNES D'AIDE ONT ÉTÉ RETIRÉES, ET C'EST LE POINT.
 				//    Elles énuméraient les gestes de la souris EN HAUT DE LA TOILE :
 				//    un affichage de MISE AU POINT, utile pendant qu'on branchait le
@@ -1162,8 +1075,16 @@ namespace nkuidesign {
 				//    l avoir vu. En les publiant dans le registre, `--dump-ui`
 				//    devient la mesure : si `canvas.vue` ne bouge pas quand on
 				//    tourne la molette, la molette n arrive pas.
-				designkit::UiRects::NoteRect("canvas.vue", mSt->view.zoom, mSt->view.panX,
-											  mSt->view.panY, (float32)mSt->sel.Count());
+				// ⚠️ `NoterMesure`, PAS un rectangle. Ces quatre nombres — zoom,
+				//    deplacement X, deplacement Y, taille de selection — n'ont
+				//    jamais ete une geometrie ; l'ancien registre les faisait
+				//    passer par un `NkRect` faute d'autre moyen. Le releve de
+				//    NKGui, lui, JUGE les rectangles : un zoom de 1 et un
+				//    deplacement nul seraient sortis « vide,hors-vue ». Une
+				//    fausse alerte dans un instrument coute plus cher que pas
+				//    d'alerte : elle apprend a ne plus le lire.
+				nkgui::NkGuiNoterMesure(ctx, "canvas.vue", mSt->view.zoom, mSt->view.panX,
+										mSt->view.panY, (float32)mSt->sel.Count());
 
 				HandleMouse(in, screen);
 
@@ -1212,7 +1133,7 @@ namespace nkuidesign {
 					char clef[128];
 					snprintf(clef, sizeof(clef), "apercu.nœud.%s",
 							 mSt->doc.nodes[i].label.Data());
-					designkit::UiRects::NoteRect(clef, r.x, r.y, r.w, r.h);
+					designkit::releve::Rect(ctx, clef, {r.x, r.y, r.w, r.h});
 				}
 
 				// Le liseré de selection se peint APRES le document et n'en fait pas
@@ -1726,7 +1647,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				designkit::UiRects::NoteRegion(ctx, "preferences");
+				designkit::releve::Zone(ctx, "preferences");
 				ec.Text("Backend graphique");
 				nkgui::TextWrapped(ctx, "Le réglage est écrit dans nkuidesign.cfg, à côté de "
 										"l'exécutable. Il vaut pour tous les lancements suivants.");
@@ -1926,7 +1847,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				designkit::UiRects::NoteRegion(ctx, "hierarchie");
+				designkit::releve::Zone(ctx, "hierarchie");
 
 				SyncPages();
 				SyncComposants();
@@ -1991,7 +1912,7 @@ namespace nkuidesign {
 				const NkRect zone = ctx.NextItemRect(-1.f, hauteur);
 				if (zone.w <= 0.f || zone.h <= 0.f)
 					return;
-				designkit::UiRects::NoteRect(cle, zone.x, zone.y, zone.w, zone.h);
+				designkit::releve::Rect(ctx, cle, zone);
 
 				NkComponentInput in;
 				in.surfaceScale = 1.f;
@@ -2192,7 +2113,7 @@ namespace nkuidesign {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				designkit::UiRects::NoteRegion(ctx, "inspecteur");
+				designkit::releve::Zone(ctx, "inspecteur");
 
 				// ── L'EN-TÊTE : LE NOM DE L'ÉLÉMENT, TOUJOURS VISIBLE (§12.2) ─
 				const bool aUnNoeud = mSt->doc.IsValidIndex(mSt->selected);

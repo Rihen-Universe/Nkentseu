@@ -36,14 +36,14 @@ namespace nkentseu {
 			}
 
 			const char *const kNomsEtats[NK_GUI_ETAT_COUNT] = {
-				"grise", "coche", "selectionne", "survole", "enfonce", "ouvert",
-				"replie", "focalise", "mixte", "attente", "hors-vue", "vide",
+				"grise", "coche", "selectionne", "survole", "enfonce",
+				"ouvert", "replie", "mixte", "hors-vue", "vide",
 			};
 
 			const char *const kNomsNatures[static_cast<int32>(NkGuiNature::Count)] = {
-				"inconnu", "fenetre", "panneau", "barre-menus", "menu",	  "entree",
+				"inconnu", "fenetre", "panneau", "barre-menus", "menu", "entree",
 				"separateur", "bouton", "case", "texte", "element", "onglet",
-				"champ", "reglage",
+				"champ", "reglage", "region", "mesure",
 			};
 
 		} // namespace
@@ -77,13 +77,20 @@ namespace nkentseu {
 			//    Le hors-vue se juge sur la vue, pas sur un panneau : un panneau
 			//    peut legitimement deborder et se faire rogner, alors qu'un
 			//    rectangle entierement dehors n'a aucune chance d'etre vu.
+			// ⚠️ SAUF POUR `Mesure` : quatre nombres qui ne sont pas une
+			//    geometrie ne se jugent pas comme une geometrie. Un zoom de 1 et un
+			//    deplacement nul sortiraient « vide,hors-vue » — une fausse alerte,
+			//    et une fausse alerte apprend a ne plus lire l'instrument.
 			uint16 e = etats;
-			if (rect.w <= 0.f || rect.h <= 0.f)
-				e |= NK_GUI_ETAT_VIDE;
-			const float32 vw = static_cast<float32>(ctx.viewW);
-			const float32 vh = static_cast<float32>(ctx.viewH);
-			if (vw > 0.f && vh > 0.f && (rect.x + rect.w <= 0.f || rect.y + rect.h <= 0.f || rect.x >= vw || rect.y >= vh))
-				e |= NK_GUI_ETAT_HORS_VUE;
+			if (nature != NkGuiNature::Mesure) {
+				if (rect.w <= 0.f || rect.h <= 0.f)
+					e |= NK_GUI_ETAT_VIDE;
+				const float32 vw = static_cast<float32>(ctx.viewW);
+				const float32 vh = static_cast<float32>(ctx.viewH);
+				if (vw > 0.f && vh > 0.f &&
+					(rect.x + rect.w <= 0.f || rect.y + rect.h <= 0.f || rect.x >= vw || rect.y >= vh))
+					e |= NK_GUI_ETAT_HORS_VUE;
+			}
 
 			NkGuiNote n;
 			n.id = id;
@@ -97,6 +104,34 @@ namespace nkentseu {
 			CopieBornee(n.libelle, NkGuiNote::LibelleMax, libelle);
 			CopieBornee(n.annexe, NkGuiNote::AnnexeMax, annexe);
 			ctx.introspect.notes.PushBack(n);
+		}
+
+		void NkGuiNoterMesure(NkGuiContext &ctx, const char *cle, float32 a, float32 b, float32 c,
+							  float32 d) noexcept {
+			if (!ctx.introspect.actif)
+				return;
+			NkGuiNoter(ctx, NkGuiNature::Mesure, NkGuiHashStr(cle ? cle : ""), cle, {a, b, c, d},
+					   NK_GUI_ETAT_AUCUN);
+			NkGuiIntrospectCler(ctx, cle);
+		}
+
+		void NkGuiIntrospectCler(NkGuiContext &ctx, const char *cle) noexcept {
+			if (!ctx.introspect.actif || ctx.introspect.notes.Empty())
+				return;
+			NkGuiNote &n = ctx.introspect.notes[ctx.introspect.notes.Size() - 1];
+			CopieBornee(n.cle, NkGuiNote::CleMax, cle);
+		}
+
+		const NkGuiNote *NkGuiIntrospectTrouverCle(const NkGuiContext &ctx, const char *cle) noexcept {
+			if (!cle)
+				return nullptr;
+			const int32 n = static_cast<int32>(ctx.introspect.notes.Size());
+			for (int32 i = 0; i < n; ++i) {
+				const NkGuiNote &no = ctx.introspect.notes[static_cast<uint32>(i)];
+				if (std::strcmp(no.cle, cle) == 0)
+					return &no;
+			}
+			return nullptr;
 		}
 
 		const NkGuiNote *NkGuiIntrospectNotes(const NkGuiContext &ctx, int32 &nombre) noexcept {
@@ -180,7 +215,7 @@ namespace nkentseu {
 			snprintf(tampon, sizeof(tampon),
 					 "# NKGui introspection : %d controle(s), %d hors-vue, %d degenere(s), %d perdue(s)\n"
 					 "# vue %dx%d\n"
-					 "# nature niveau rect=[x y w h] etats id \"libelle\" [annexe]\n",
+					 "# nature niveau rect=[x y w h] etats id \"libelle\" [annexe] {cle}\n",
 					 n, nHorsVue, nVides, ctx.introspect.perdues, ctx.viewW, ctx.viewH);
 			sortie.Append(tampon);
 
@@ -197,6 +232,11 @@ namespace nkentseu {
 					sortie.Append(" [");
 					sortie.Append(no.annexe);
 					sortie.Append("]");
+				}
+				if (no.cle[0]) {
+					sortie.Append(" {");
+					sortie.Append(no.cle);
+					sortie.Append("}");
 				}
 				sortie.Append("\n");
 			}

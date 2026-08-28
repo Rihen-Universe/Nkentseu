@@ -82,8 +82,20 @@ namespace nkentseu {
 			Texte,	 ///< Text (libelle non interactif)
 			Element, ///< Selectable (ligne de liste, item d'arbre)
 			Onglet,
-			Champ, ///< saisie texte
+			Champ,   ///< saisie texte
 			Reglage,
+			Region,  ///< zone CALCULEE par l'application (region d'un panneau hote,
+					 ///< aire de dessin) : un vrai rectangle, mais pas un widget
+			Mesure,  ///< ⚠️ QUATRE NOMBRES QUI NE SONT PAS UNE GEOMETRIE (zoom,
+					 ///< deplacement, compte...). Une application publie parfois un
+					 ///< etat interne dans le releve parce qu'aucun banc ne peut
+					 ///< l'atteindre autrement — le cas mesure est `canvas.vue`, qui
+					 ///< portait zoom/panX/panY/selection dans un `NkRect`. Sans cette
+					 ///< nature, `NkGuiNoter` jugerait ces nombres comme une
+					 ///< geometrie et crierait « vide » sur un zoom de 1 et un
+					 ///< deplacement nul. **Une fausse alerte dans un instrument coute
+					 ///< plus cher que pas d'alerte du tout** : elle apprend a ne plus
+					 ///< le lire.
 			Count
 		};
 
@@ -100,13 +112,25 @@ namespace nkentseu {
 			NK_GUI_ETAT_ENFONCE = 1u << 4,	  ///< maintenu
 			NK_GUI_ETAT_OUVERT = 1u << 5,	  ///< menu deroule, noeud deplie — etat INTERMEDIAIRE (C4)
 			NK_GUI_ETAT_REPLIE = 1u << 6,	  ///< a du contenu, ferme
-			NK_GUI_ETAT_FOCALISE = 1u << 7,	  ///< a le focus clavier
-			NK_GUI_ETAT_MIXTE = 1u << 8,	  ///< tri-etat indetermine
-			NK_GUI_ETAT_ATTENTE = 1u << 9,	  ///< un apercu attend confirmation (C4)
-			NK_GUI_ETAT_HORS_VUE = 1u << 10,  ///< pose hors de la vue -> invisible (C2)
-			NK_GUI_ETAT_VIDE = 1u << 11,	  ///< rectangle degenere (w<=0 ou h<=0) (C2)
-			NK_GUI_ETAT_COUNT = 12
+			NK_GUI_ETAT_MIXTE = 1u << 7,	 ///< tri-etat indetermine
+			NK_GUI_ETAT_HORS_VUE = 1u << 8,	 ///< pose hors de la vue -> invisible (C2)
+			NK_GUI_ETAT_VIDE = 1u << 9,		 ///< rectangle degenere (w<=0 ou h<=0) (C2)
+			NK_GUI_ETAT_COUNT = 10
 		};
+
+		// ⚠️ DEUX ETATS ONT ETE DECLARES PUIS RETIRES, LE 2026-08-29 :
+		//    `NK_GUI_ETAT_ATTENTE` (« un apercu attend confirmation ») et
+		//    `NK_GUI_ETAT_FOCALISE`. Ils etaient dans l'enumeration et **aucune
+		//    ligne ne les emettait** — ni le jour ou ils ont ete ecrits, ni
+		//    depuis. Un etat qui existe dans le type et jamais dans les faits est
+		//    pire qu'un manque : le lecteur du releve voit l'absence du mot et
+		//    conclut « ce controle n'attend rien », alors que la verite est
+		//    « personne n'a jamais mesure ca ». C'est la meme famille que le zero
+		//    d'un champ mort, qu'on ne distingue pas du zero d'un champ vivant.
+		//    Le critere C4 (l'etat INTERMEDIAIRE) reste tenu — par
+		//    `NK_GUI_ETAT_OUVERT`, qui, lui, est pose par `BeginMenu` et prouve.
+		//    Les remettre demandera un producteur reel : `ctx.inputId` pour le
+		//    focus d'un champ texte, une notion d'apercu que NKGui n'a pas.
 
 		// Une note = un controle soumis pendant la trame.
 		// ⚠️ TAILLES FIXES, PAS DE NkString : une note se copie, se compare et
@@ -116,6 +140,8 @@ namespace nkentseu {
 				static constexpr int32 LibelleMax = 64;
 				static constexpr int32 AnnexeMax = 32;
 
+				static constexpr int32 CleMax = 48;
+
 				NkGuiId id = NKGUI_ID_NONE;
 				NkGuiNature nature = NkGuiNature::Inconnu;
 				uint16 etats = NK_GUI_ETAT_AUCUN;
@@ -123,6 +149,15 @@ namespace nkentseu {
 				NkRect rect = {0.f, 0.f, 0.f, 0.f};
 				char libelle[LibelleMax] = {};
 				char annexe[AnnexeMax] = {}; ///< raccourci, valeur affichee — vide si sans objet
+				/// ⚠️ LA CLE STABLE DE L'APPLICATION, et elle a une raison
+				///    precise : le libelle CHANGE. « Poser » devient « Ajouter »,
+				///    « auto » devient « automatique », et tout banc qui visait le
+				///    libelle casse — en silence, parce qu'un controle introuvable
+				///    ressemble a un controle absent. L'application pose donc une
+				///    cle qui ne bouge pas (`prefs.gfx.vulkan`) A COTE du libelle,
+				///    sans creer une seconde note. Vide par defaut : la plupart des
+				///    controles n'en ont pas besoin.
+				char cle[CleMax] = {};
 		};
 
 		// Le releve d'UNE trame. Vit dans NkGuiContext.
@@ -148,6 +183,30 @@ namespace nkentseu {
 		// marque, jamais filtre (critere C2).
 		NKENTSEU_NKGUI_API void NkGuiNoter(NkGuiContext &ctx, NkGuiNature nature, NkGuiId id, const char *libelle,
 										   const NkRect &rect, uint16 etats, const char *annexe = nullptr) noexcept;
+
+		/// Publie QUATRE NOMBRES qui ne sont pas une geometrie (nature `Mesure`).
+		/// Aucun jugement geometrique n'est porte sur eux : ni « vide », ni
+		/// « hors-vue ». Sert a ce qu'une application expose un etat interne
+		/// qu'aucun banc ne peut atteindre autrement — le zoom et le deplacement
+		/// d'une toile, par exemple, qui vivent dans `OnUI`.
+		NKENTSEU_NKGUI_API void NkGuiNoterMesure(NkGuiContext &ctx, const char *cle, float32 a, float32 b,
+												 float32 c, float32 d) noexcept;
+
+		/// Donne une CLE STABLE a la DERNIERE note enregistree.
+		/// ⚠️ A APPELER JUSTE APRES LE WIDGET, et le contrat est exactement
+		///    celui que `ctx.lastItemRect` impose deja : c'est la derniere note
+		///    posee qui est nommee. Un widget composite qui en pose plusieurs
+		///    verrait sa DERNIERE nommee, pas la premiere.
+		/// ⚠️ ELLE NE CREE PAS DE NOTE. C'est tout l'interet : l'ancien
+		///    `UiRects::Note` ajoutait une entree a lui, en parallele de celle du
+		///    widget — deux lignes pour un seul bouton, qui divergent des que
+		///    l'une des deux se corrige. Ici il n'y a qu'une note, avec deux noms.
+		NKENTSEU_NKGUI_API void NkGuiIntrospectCler(NkGuiContext &ctx, const char *cle) noexcept;
+
+		/// Premiere note portant cette CLE stable (≠ `NkGuiIntrospectTrouver`,
+		/// qui cherche par libelle affiche).
+		NKENTSEU_NKGUI_API const NkGuiNote *NkGuiIntrospectTrouverCle(const NkGuiContext &ctx,
+																	  const char *cle) noexcept;
 
 		// ── Lecture (apres EndFrame) ──────────────────────────────────────────
 		NKENTSEU_NKGUI_API const NkGuiNote *NkGuiIntrospectNotes(const NkGuiContext &ctx, int32 &nombre) noexcept;
