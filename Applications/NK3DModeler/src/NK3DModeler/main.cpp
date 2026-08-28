@@ -1100,7 +1100,16 @@ int nkmain(const NkEntryState &entry) {
 		// en deux reglages distincts (mode d'affichage, couleur du mode solide).
 		demo::Demo3DHostSetShading(st.shading);
 		demo::Demo3DHostSetUnlitColor(st.solidLight);
-		nk3d::Viewport3DSetOverlays(st.overlayMask);
+		// ⚠️ APPEL RETIRE, ET IL N'Y A RIEN A PORTER : `st.overlayMask` est DEJA
+		// route vers la vue vivante plus bas (SetGridFlags / SetOutline / SetHud /
+		// SetCursorShown). Cette ligne l'envoyait EN PLUS a la vue morte.
+		// 🔴 ET LES DEUX COTES NE LISENT PAS LES MEMES BITS. Vivant : 1 grille,
+		// 2 mineures, 4 majeures, 8 axes, 16 contour, 32 HUD, 64 curseur. Mort
+		// (NkViewport3D.cpp:264) : 1 grille, 2 axes, 4 contour, 8 gizmos,
+		// 16 normales, 32 stats, 64 fil de fer. Le bit 4 veut dire « majeures »
+		// d'un cote et « contour » de l'autre, le bit 16 « contour » puis
+		// « normales ». DEUX VOCABULAIRES POUR LE MEME ENTIER : tant que le second
+		// lecteur etait mort, personne ne pouvait le voir.
 		nk3d::Viewport3DResize((uint32)lay.view.w, (uint32)lay.view.h);
 		// La demo portee recoit la taille de la vue, son origine (traduction
 		// souris fenetre -> vue), le survol (ses raccourcis n'ecoutent que la
@@ -1398,9 +1407,16 @@ int nkmain(const NkEntryState &entry) {
 				st.gizGestureInView = false;
 			st.gizWasMouseDown = ui.input.mouseDown[0];
 			const bool down = ui.input.mouseDown[0] && st.gizGestureInView;
-			nk3d::Viewport3DSetGizmoInput(mxv, myv, mxv - st.gizLastX, myv - st.gizLastY,
-										  down && !st.gizWasDown, down, ui.input.shiftDown,
-										  ui.input.ctrlDown);
+			// ⚠️ APPEL RETIRE, ET IL N'Y A RIEN A PORTER : DEUX CANAUX DISJOINTS.
+			// Il remplissait `g.gin`, l'entree du gizmo de la vue MORTE, depuis
+			// `ui.input` (l'etat souris de NKGui). Le viseur VIVANT ne lit pas ce
+			// canal : il construit son propre `gin` depuis `NkInput`, le singleton
+			// plateforme (`NkDemo3D.cpp:8222` et `:9582`). Ce fait est deja ecrit
+			// dans le viseur a propos de NK_AGENT_DRAG : « deux canaux disjoints ».
+			// Les suivis ci-dessous (gizLastX/Y, gizWasDown) restent : ils servent
+			// au shell lui-meme pour savoir si un geste a commence DANS le viseur.
+			(void)mxv;
+			(void)myv;
 			st.gizLastX = mxv;
 			st.gizLastY = myv;
 			st.gizWasDown = down;
