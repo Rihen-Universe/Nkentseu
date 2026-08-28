@@ -55,10 +55,16 @@ namespace nkentseu {
 		// `filter` (optionnel, non nul) : active une BARRE DE RECHERCHE ancree en
 		// haut, hors de la zone defilante. L'index retourne reste celui de la liste
 		// D'ORIGINE : le filtrage est invisible pour l'appelant.
+		// `shortcuts` (optionnel) : le RACCOURCI de chaque item, en colonne alignee a
+		// DROITE et grisee. C'est ainsi qu'un utilisateur APPREND un raccourci — en
+		// cliquant le bouton et en voyant la touche a cote, comme dans Blender. Une
+		// entree sans raccourci passe nullptr ou "" a son index. Le raccourci entre
+		// dans le calcul de LARGEUR (sinon il chevaucherait le libelle) mais PAS dans
+		// le filtre de recherche : on cherche une commande par son NOM.
 		inline int32 NkCtxMenuDraw(NkGuiContext &ctx, NkCtxMenu &mn, const char *const *items, const bool *enabled,
 								   int32 count, int32 *hoveredOut = nullptr, const bool *hasSub = nullptr,
 								   const uint32 *icons = nullptr, char *filter = nullptr, int32 filterCap = 0,
-								   bool *filterFocus = nullptr) {
+								   bool *filterFocus = nullptr, const char *const *shortcuts = nullptr) {
 			if (!mn.open)
 				return -1;
 
@@ -67,6 +73,7 @@ namespace nkentseu {
 			// fonction travaille ensuite normalement, sans savoir qu'un filtre existe.
 			enum { kMaxItems = 256 };
 			const char *fItems[kMaxItems];
+			const char *fShort[kMaxItems];
 			bool fEnabled[kMaxItems], fSub[kMaxItems];
 			uint32 fIcons[kMaxItems];
 			int32 fMap[kMaxItems];
@@ -80,12 +87,15 @@ namespace nkentseu {
 						continue;
 					fMap[n] = i;
 					fItems[n] = items[i];
+					fShort[n] = shortcuts ? shortcuts[i] : nullptr;
 					fEnabled[n] = enabled ? enabled[i] : true;
 					fSub[n] = hasSub ? hasSub[i] : false;
 					fIcons[n] = icons ? icons[i] : 0u;
 					++n;
 				}
 				items = fItems;
+				if (shortcuts)
+					shortcuts = fShort; // sinon la colonne suivrait l'ordre NON filtre
 				enabled = fEnabled;
 				hasSub = fSub;
 				icons = fIcons;
@@ -106,11 +116,18 @@ namespace nkentseu {
 						break;
 					}
 			const float32 searchH = avecFiltre ? (lh + 12.f) : 0.f;
+			// Ecart MINIMAL entre la fin du libelle et le debut du raccourci. Sans lui,
+			// « Separer les aretes » et « Ctrl+Alt+S » se touchent et la ligne devient
+			// illisible — le raccourci doit se lire comme une COLONNE, pas comme la
+			// suite du libelle.
+			const float32 raccEcart = 28.f;
 			float32 wIdeal = 168.f;
 			if (ctx.font && ctx.font->Valid())
 				for (int32 i = 0; i < count; ++i) {
+					const bool aRacc = (shortcuts && shortcuts[i] && shortcuts[i][0]);
 					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 10.f + iconW +
-									   ((hasSub && hasSub[i]) ? 16.f : 0.f); // place de la flèche ▸
+									   ((hasSub && hasSub[i]) ? 16.f : 0.f) + // place de la flèche ▸
+									   (aRacc ? raccEcart + ctx.font->MeasureWidth(shortcuts[i]) : 0.f);
 					if (tw > wIdeal)
 						wIdeal = tw;
 				}
@@ -209,6 +226,19 @@ namespace nkentseu {
 								   {r.x + pad + (iconW > 0.f ? iconW + 6.f : 0.f) - mn.sx,
 									y + (rowH - lh) * 0.5f + ctx.font->Ascent()},
 								   items[i], enabled[i] ? ctx.theme.text : ctx.theme.textDisabled);
+					// ── RACCOURCI, colonne alignee a DROITE ────────────────────────
+					// Toujours en teinte SECONDAIRE, meme sur un item actif : c'est une
+					// information, pas une action. On l'aligne sur le bord du CONTENU
+					// (et non du rect visible) pour qu'il defile comme le libelle quand
+					// une barre horizontale existe.
+					if (shortcuts && shortcuts[i] && shortcuts[i][0] && ctx.font && ctx.font->Valid()) {
+						const float32 contenuDroite = r.x + (hasH ? (wIdeal - 6.f) : r.w) - mn.sx;
+						const float32 sw = ctx.font->MeasureWidth(shortcuts[i]);
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+								   {contenuDroite - pad - ((hasSub && hasSub[i]) ? 16.f : 0.f) - sw,
+									y + (rowH - lh) * 0.5f + ctx.font->Ascent()},
+								   shortcuts[i], ctx.theme.textDisabled);
+					}
 					if (hasSub && hasSub[i]) { // indicateur de SOUS-MENU : petite flèche ▸ à droite
 						const float32 ax = r.x + r.w - 11.f, ay = y + rowH * 0.5f;
 						dl.AddTriangleFilled({ax - 3.f, ay - 4.f}, {ax - 3.f, ay + 4.f}, {ax + 3.f, ay},

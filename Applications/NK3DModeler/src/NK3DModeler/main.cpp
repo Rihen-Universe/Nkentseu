@@ -246,6 +246,28 @@ namespace {
 		t.Bind("edit.fusionner", "Fusionner", NkKey::NK_M, 0, NK_SCTX_EDIT);
 		t.Bind("edit.subdiviser", "Subdiviser", NkKey::NK_W, 0, NK_SCTX_EDIT);
 		t.Bind("edit.mode_objet", "Mode objet", NkKey::NK_TAB, 0, NK_SCTX_EDIT);
+		// ── LIAISONS QUI EXISTAIENT DANS LE VISEUR SANS ETRE DECLAREES ICI ──
+		// Elles fonctionnaient toutes ; la table ne les connaissait pas, donc
+		// AUCUN menu ne pouvait afficher leur raccourci. Verifiees une par une
+		// dans NkDemo3D.cpp avant d'etre ecrites : une table qui ment est pire
+		// qu'une table vide, puisqu'on la croit.
+		t.Bind("edit.loop_cut", "Loop cut", NkKey::NK_R, NK_SC_CTRL, NK_SCTX_EDIT);
+		t.Bind("edit.supprimer", "Supprimer", NkKey::NK_X, 0, NK_SCTX_EDIT);
+		t.Bind("edit.dissoudre", "Dissoudre", NkKey::NK_X, NK_SC_CTRL, NK_SCTX_EDIT);
+		t.Bind("edit.creer_face", "Creer une face", NkKey::NK_F, 0, NK_SCTX_EDIT);
+		t.Bind("edit.spheriser", "Spheriser (to sphere)", NkKey::NK_S,
+			   (uint8)(NK_SC_SHIFT | NK_SC_ALT), NK_SCTX_EDIT);
+		// ECART DOCUMENTE, deja motive dans NkDemo3D.cpp : Blender met Alt+S, mais
+		// Alt+S efface deja l'echelle du gizmo chez nous. On ne « corrige » donc
+		// PAS cette divergence -- elle a sa raison ecrite, ce qui est la regle.
+		t.Bind("edit.gonfler", "Gonfler / retrecir (shrink-fatten)", NkKey::NK_S,
+			   (uint8)(NK_SC_CTRL | NK_SC_ALT), NK_SCTX_EDIT);
+		// ⚠ SPIN, SEPARER LES ARETES et BISECT n'apparaissent PAS ici, et c'est
+		// VOULU : depuis le 2026-08-28 ils n'ont plus de raccourci, exactement
+		// comme chez Blender (mesh.spin, mesh.edge_split et mesh.bisect n'en ont
+		// aucun dans le keymap par defaut -- verifie a la source). La table dit
+		// donc la verite : pas d'entree = pas de touche, et le menu n'affiche
+		// aucun raccourci a cote d'eux.
 
 		t.Bind("app.palette", "Rechercher une commande", NkKey::NK_F3, 0, NK_SCTX_GLOBAL);
 		t.Bind("app.panneau_outils", "Panneau d'outils", NkKey::NK_T, 0, NK_SCTX_GLOBAL);
@@ -2066,7 +2088,10 @@ int nkmain(const NkEntryState &entry) {
 		// ligne de la liste.
 		if (st.showLeft)
 			PaintHierarchy(p, lay.left, st, hit, ws, ui.input, &ui);
-		PaintViewport(p, lay.view, st, hit, ws, ui.input, combo, checks, shortcuts);
+		// Le contexte GUI est passe pour le MENU CONTEXTUEL du maillage : le
+		// composant du kit dessine sur la couche overlay et gere lui-meme
+		// l'occlusion, ce qu'un peintre seul ne sait pas faire.
+		PaintViewport(p, lay.view, st, hit, ws, ui.input, combo, checks, shortcuts, &ui);
 		if (st.showRight) {
 			// PANNEAU DROIT UNIQUE (demande de Rihen) : Objet / Scene / Outil.
 			// Proprietes et Details disaient deux fois la meme chose ; leurs

@@ -29,6 +29,7 @@
 // creation) : la classe derivee et le catalogue des types vivent a part.
 #include "NK3DModeler/Shell/NkModelerMatTypes.h"
 #include "NKEditorKit/NkEditorModal.h"
+#include "NKEditorKit/NkEditorContextMenu.h" // menu contextuel du kit (grisage natif)
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
@@ -1056,6 +1057,13 @@ namespace nkentseu {
 				int32 openMenu = -1;
 				int32 hoverMenuItem = -1;
 				int32 openSubMenu = -1; ///< sous-menu deploye dans le menu courant
+
+				// ── MENU CONTEXTUEL DE LA VUE (clic droit) ──────────────────────
+				// Composant du KIT (editorkit::NkCtxMenu), pas une reecriture : il
+				// porte deja le grisage (tableau `enabled`), le defilement et la
+				// recherche. Son CONTENU depend du sous-mode sommet/arete/face,
+				// comme les trois « Context Menu » distincts de Blender.
+				editorkit::NkCtxMenu meshMenu;
 
 				// ── PROPORTIONS AJUSTABLES ──────────────────────────────────────
 				// Les separateurs modifient ces FRACTIONS et non des pixels : a la

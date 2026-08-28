@@ -5068,47 +5068,32 @@ namespace nkentseu {
 							st->editMakeFacePending = true;
 							return;
 						}
-						// J = SPIN / RÉVOLUTION. Blender n'a PAS de raccourci par défaut pour
-						// Spin (menu Mesh > Spin) : on prend J, libre chez nous. Shift+J = pas,
-						// Alt+J = angle. Le centre est le CURSEUR 3D, comme dans Blender.
-						if (k == NkKey::NK_J) {
-							if (shiftK) {
-								const int32 cyc[4] = {6, 12, 24, 32};
-								int32 i = 0;
-								for (int32 j = 0; j < 4; j++)
-									if (st->spinSteps == cyc[j])
-										i = j;
-								st->spinSteps = cyc[(i + 1) % 4];
-								logger.Info("[Demo3D] Spin pas = {0}\n", st->spinSteps);
-							} else if (alt) {
-								const float32 cyc[3] = {360.f, 180.f, 90.f};
-								int32 i = 0;
-								for (int32 j = 0; j < 3; j++)
-									if (st->spinAngleDeg == cyc[j])
-										i = j;
-								st->spinAngleDeg = cyc[(i + 1) % 3];
-								logger.Info("[Demo3D] Spin angle = {0} deg\n", st->spinAngleDeg);
-							} else
-								st->modalStartPending = 5; // MODAL : souris = angle, molette = nb de pas
-							return;
-						}
-						// V = EDGE SPLIT (Blender met « rip » sur V ; V était libre chez nous,
-						// on y place la dé-soudure d'arêtes, qui en est la variante topologique).
-						// Shift+V = cycle l'écartement de la déchirure.
-						if (k == NkKey::NK_V) {
-							if (shiftK) {
-								const float32 cyc[3] = {0.f, 0.15f, 0.35f};
-								int32 i = 0;
-								for (int32 j = 0; j < 3; j++)
-									if (st->splitGap == cyc[j])
-										i = j;
-								st->splitGap = cyc[(i + 1) % 3];
-								logger.Info("[Demo3D] Edge split ecart = {0}\n",
-											st->splitGap <= 0.f ? "AUTO (1% bbox)" : "large");
-							} else
-								st->editSplitPending = true;
-							return;
-						}
+						// ── J, V ET Y : TROIS TOUCHES QUI NE NOUS APPARTIENNENT PAS ──────
+						// (2026-08-28, apres lecture du keymap Blender A LA SOURCE --
+						//  scripts/presets/keyconfig/keymap_data/blender_default.py)
+						//
+						// SPIN N'EST PLUS SUR J. Le commentaire precedent disait « Blender
+						// n'a pas de raccourci pour Spin, on prend J, libre chez nous ».
+						// La premiere moitie est vraie (mesh.spin n'a de touche que dans le
+						// keymap LEGACY 2.7x, sous `if params.legacy:` — pas dans le defaut) ;
+						// la seconde est FAUSSE : J est deja pris chez Blender par
+						// `mesh.vert_connect_path`. On squattait donc la touche d'une
+						// operation que nous voudrons un jour. Spin est desormais une ENTREE
+						// DE MENU sans raccourci, comme chez lui, et le cadre modal regle
+						// deja l'angle (souris) et le nombre de pas (molette) : les cycles
+						// Shift+J / Alt+J ne manquent a personne, ils faisaient moins bien.
+						//
+						// ⚠ V ET Y SONT RESERVEES, PAS LIBRES. « Separer les aretes » quitte
+						// V et passe au menu, parce que ce qu'elle fait est `mesh.edge_split`
+						// — qui n'a AUCUN raccourci chez Blender. Mais V ne redevient pas
+						// disponible pour autant :
+						//     V = mesh.rip_move   (arracher : separe en ECARTANT sous le curseur)
+						//     Y = mesh.split      (detacher la selection SUR PLACE)
+						// Ces deux operations nous MANQUENT encore. Le jour ou on les ecrit,
+						// elles reprennent leurs touches. Les donner a autre chose d'ici la
+						// obligerait a les reprendre — c'est exactement l'erreur que J vient
+						// de nous couter, dans l'autre sens.
+						// ⛔ NE PAS ATTRIBUER V NI Y. Elles ont un proprietaire.
 						// I = INSET FACES (Blender à l'identique — I était libre chez nous).
 						// Shift+I = bascule INDIVIDUEL / RÉGION · Alt+I = cycle la profondeur.
 						if (k == NkKey::NK_I) {
@@ -6323,7 +6308,16 @@ namespace nkentseu {
 						} else if (isOp(op, "inset")) {
 							st->editInsetPending = true; // Inset faces
 						} else if (isOp(op, "edgesplit") || isOp(op, "split")) {
-							st->editSplitPending = true; // Edge split / rip
+							// « SEPARER LES ARETES » = mesh.edge_split : delie les faces
+							// voisines LE LONG des aretes selectionnees.
+							// ⚠ CE N'EST NI le rip (mesh.rip_move, V : ecarte sous le
+							// curseur) NI le split (mesh.split, Y : detache la selection
+							// sur place). L'ancien commentaire disait « Edge split / rip »
+							// et confondait ainsi TROIS operations en deux mots. Un
+							// mauvais raccourci se corrige en une ligne ; un nom qui
+							// recouvre deux operations voyage dans la documentation, les
+							// menus et la tete des gens.
+							st->editSplitPending = true;
 						} else if (isOp(op, "spin")) {
 							st->editSpinPending = true; // Spin / révolution
 						} else if (isOp(op, "dissolve")) {
@@ -11101,11 +11095,14 @@ namespace nkentseu {
 									  "Alt+Shift+B=largeur %s)  |  I=inset %s (Shift=mode, Alt=prof %.2f)",
 									  st->bevelSegments, st->bevelOffset <= 0.f ? "AUTO" : "manuelle",
 									  st->insetIndividual ? "indiv" : "region", st->insetDepth);
+					// Separer les aretes, Spin et Bisect ne sont plus annonces avec une
+					// touche : ils N'EN ONT PLUS (conformite Blender, 2026-08-28). Les
+					// annoncer encore serait pire que de les taire — un raccourci affiche
+					// qui ne marche pas fait douter du clavier, pas de la ligne d'aide.
+					// On indique donc le chemin qui MARCHE : le clic droit.
 					overlay->DrawText({20.f, 190.f},
-									  "V=edge split (Shift=ecart %s)  |  J=spin %d pas / %.0f deg "
-									  "(Shift=pas, Alt=angle, centre=curseur 3D)  |  Ctrl+X=dissolve %s  |  "
-									  "Shift+Alt+S=TO SPHERE  Ctrl+Alt+S=SHRINK/FATTEN",
-									  st->splitGap <= 0.f ? "AUTO" : "large", st->spinSteps, st->spinAngleDeg,
+									  "CLIC DROIT = menu du maillage (Separer les aretes, Spin, Bisect...)  |  "
+									  "Ctrl+X=dissolve %s  |  Shift+Alt+S=TO SPHERE  Ctrl+Alt+S=SHRINK/FATTEN",
 									  (st->editSelMask & 4) ? "FACES" : ((st->editSelMask & 2) ? "ARETES" : "SOMMETS"));
 					// Ombrage courant (Shift+S / Shift+F) + point de pivot (.) + curseur 3D.
 					const bool anySm = st->editHE.AnyFaceSmooth();
@@ -14517,6 +14514,54 @@ namespace nkentseu {
 			const uint32 avant = st->editHistory.UndoCount();
 			Demo3D_BevelHE(st, ms, vertexMode);
 			return st->editHistory.UndoCount() != avant;
+		}
+		// ── LES CINQ SANS FACADE, PORTEES (2026-08-28) ───────────────────────
+		// Chacune coute UNE ligne parce que l'operateur existait deja : c'est le
+		// signe que la structure est la bonne. Si un quatrieme chemin avait
+		// demande un nouvel operateur, c'est la STRUCTURE qu'il aurait fallu
+		// corriger, pas ajouter le chemin.
+		bool Demo3DHostEditSpin() {
+			return HostEditRun(&Demo3D_SpinHE);
+		}
+		bool Demo3DHostEditEdgeSplit() {
+			return HostEditRun(&Demo3D_EdgeSplitHE);
+		}
+		bool Demo3DHostEditModal(int32 op) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || op < 1 || op > 8)
+				return false;
+			// On POSE la demande, on ne lance pas : le cadre modal a besoin de la
+			// souris et du systeme de maillage, dont ce rappel d'interface ne
+			// dispose pas. C'est EXACTEMENT le chemin de la touche clavier
+			// (modalStartPending), donc un seul lancement possible.
+			st->modalStartPending = op;
+			return true;
+		}
+		bool Demo3DHostArmKnife() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return false;
+			st->knifeArmed = true;
+			st->knifeHasP0 = false;
+			return true;
+		}
+		bool Demo3DHostKnifeArmed() {
+			auto *st = HostSt();
+			return st && st->editMode && st->knifeArmed;
+		}
+		bool Demo3DHostModalActive() {
+			auto *st = HostSt();
+			return st && st->modalOp != 0;
+		}
+		int32 Demo3DHostEditSelCount() {
+			auto *st = HostSt();
+			if (!st || !st->editMode)
+				return 0;
+			int32 n = 0;
+			for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+				if (st->vertSel[i])
+					++n;
+			return n;
 		}
 		void Demo3DHostSetEditSelMask(int32 mask) {
 			auto *st = HostSt();
