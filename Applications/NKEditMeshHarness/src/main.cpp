@@ -6127,6 +6127,93 @@ template <typename F> static void PerfLigne(const char *nom, uint32 passes, F fn
 	printf("  %-40s min %8.3f  max %8.3f  moy %8.3f ms   (%u passes)\n", nom, mn, mx, tot / (double)passes, passes);
 }
 
+// ── OU PARTENT LES MILLISECONDES DU CHEMIN VIVANT ───────────────────────────
+// `ToPolygons` -> `BuildFromPolygons` est traverse par TOUTE operation d edition
+// (16 operateurs, 26 appels). C est un AUTRE chemin que celui que chiffre le
+// commentaire d ExtrudeSelectedFaces : celui-la porte sur
+// `ExtrudeSelectedFacesInPlace`, qui n a AUCUN appelant de production.
+// ⚠ CONTROLE POSITIF D ABORD : on imprime le nombre de traversees. Zero
+// traversee = la mesure ne porte sur rien, et il faut le voir tout de suite.
+static void PerfEntonnoir() {
+	const uint32 N = 128u;
+	NkVector<NkVertex3D> gv;
+	NkVector<uint32> gi;
+	MakeGrid(N, gv, gi);
+	NkEditMesh src;
+	src.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+	printf("\n[perf] ENTONNOIR ToPolygons -> BuildFromPolygons (chemin VIVANT)\n");
+	printf("  maillage : grille %ux%u soudee -- %u sommets, %u faces\n", N, N, src.VertCount(),
+		   (uint32)src.faces.Size());
+	if (!renderer::NkEmBfpPhasesActives()) {
+		printf("  ⚠ NK_BFP_PHASES absent : les phases ne sont pas mesurees.\n");
+		return;
+	}
+	// SEPT executions, comme partout ici : la dispersion d une execution unique a
+	// ete mesuree a 93 % sur ce code.
+	const uint32 P = 7u;
+	struct Ligne {
+			const char *nom;
+			void (*fn)(NkEditMesh &);
+	};
+	auto selTout = [](NkEditMesh &m) {
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			m.verts[i].sel = 1;
+	};
+	// ⚠ SELECTION LOCALE : c est LE cas ou la localisation pourrait payer. Mesurer
+	// la selection globale seule aurait ete un jeu de donnees incapable de produire
+	// le cas -- sur une region qui couvre tout, aucune localisation ne peut gagner,
+	// par definition. On mesure donc LES DEUX.
+	auto selLocale = [](NkEditMesh &m) {
+		uint32 pose = 0;
+		for (uint32 f = 0; f < (uint32)m.faces.Size() && pose < 3u; ++f) {
+			if (!m.faces[f].alive)
+				continue;
+			const NkEmId h0 = m.faces[f].hedge;
+			NkEmId h = h0;
+			do {
+				m.verts[m.hedges[h].origin].sel = 1;
+				h = m.hedges[h].next;
+			} while (h != h0 && h != NK_EM_INVALID);
+			++pose;
+		}
+	};
+	const Ligne lignes[] = {
+		{"subdivide (1 passe)", [](NkEditMesh &m) { NkSubdivideParams sp; m.SubdivideSelectedFaces(sp); }},
+		{"inset faces", [](NkEditMesh &m) { NkInsetParams ip; ip.thickness = 0.1f; m.InsetSelectedFaces(ip); }},
+		{"extrude faces", [](NkEditMesh &m) { NkExtrudeParams ep; ep.offset = 0.1f; m.ExtrudeSelectedFaces(ep); }},
+	};
+	for (uint32 mode = 0; mode < 2u; ++mode) {
+	printf("  -- selection %s --\n", mode == 0 ? "GLOBALE (tout le maillage)" : "LOCALE (3 faces)");
+	for (uint32 L = 0; L < (uint32)(sizeof(lignes) / sizeof(lignes[0])); ++L) {
+		float64 tot = 0.0, lt = 0.0, re = 0.0, rn = 0.0;
+		uint64 trav = 0;
+		for (uint32 r = 0; r < P; ++r) {
+			NkEditMesh m = src;
+			if (mode == 0)
+				selTout(m);
+			else
+				selLocale(m);
+			renderer::NkEmBfpPhases &ph = renderer::NkEmBfpPhasesGet();
+			const renderer::NkEmBfpPhases av = ph;
+			NkChrono c;
+			lignes[L].fn(m);
+			tot += c.Elapsed().ToMilliseconds();
+			lt += ph.msLinkTwins - av.msLinkTwins;
+			re += ph.msRebuildEdges - av.msRebuildEdges;
+			rn += ph.msRecomputeNormals - av.msRecomputeNormals;
+			trav += ph.appels - av.appels;
+		}
+		const float64 n = (float64)P;
+		const float64 phTot = (lt + re + rn) / n;
+		printf("  %-22s %2llu traversee(s)/op | total %7.2f ms | LinkTwins %6.2f (%4.1f%%) | "
+			   "RebuildEdges %6.2f (%4.1f%%) | Normals %6.2f (%4.1f%%) | reste %6.2f\n",
+			   lignes[L].nom, (unsigned long long)(trav / P), tot / n, lt / n,
+			   100.0 * (lt / n) / (tot / n), re / n, 100.0 * (re / n) / (tot / n), rn / n,
+			   100.0 * (rn / n) / (tot / n), tot / n - phTot);
+	}
+	}
+}
+
 static void PerfBattery() {
 	// MAILLAGE DE TAILLE REELLE, pas un cube : 128 x 128 = 16 384 quads, 16 641
 	// sommets, SOUDES. Un cube a six faces rendrait toute mesure verte — c est le
@@ -8953,6 +9040,7 @@ int main(int argc, char **argv) {
 	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.
 	if (perf) {
 		PerfBattery();
+		PerfEntonnoir();
 		PorteeBattery();
 		ProtoBattery();
 	}
