@@ -1444,6 +1444,55 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_STATS_TRACE=<frame> : imprime les DEUX sources de compteurs, dans la
+		// MEME execution -- la vue morte que le panneau interrogeait, et la vue
+		// vivante qu'il interrogera. Rouge et vert cote a cote, sans deux binaires.
+		// ⚠️ LU TARD DANS L'IMAGE, et c'est deliberé : un COMPTEUR change PENDANT la
+		// frame. Le lire avant la synchronisation du maillage rendrait des zeros
+		// indiscernables d'un chemin mort -- je l'ai deja paye sur les modes.
+		{
+			static bool sStatsDone = false;
+			if (const char *sv = std::getenv("NK_STATS_TRACE")) {
+				const int32 fr = (int32)std::atoi(sv);
+				if (!sStatsDone && agentFrame >= (fr > 0 ? fr : 150)) {
+					sStatsDone = true;
+					uint32 mv = 0, me = 0, mf = 0, mt = 0;
+					nk3d::Viewport3DStats(mv, me, mf, mt);
+					uint32 vv = 0, ve = 0, vf = 0, vt = 0;
+					const bool ok = demo::Demo3DHostStats(&vv, &ve, &vf, &vt);
+					std::printf("[nk3d] STATS vue MORTE   : v=%u e=%u f=%u t=%u\n",
+								mv, me, mf, mt);
+					std::printf("[nk3d] STATS vue VIVANTE : v=%u e=%u f=%u t=%u (ok=%d)\n",
+								vv, ve, vf, vt, ok ? 1 : 0);
+				}
+			} else {
+				sStatsDone = true;
+			}
+		}
+
+		// NK_EDIT_MODE=<1>[,frame] : le MODE vient du shell, la CIBLE du viseur.
+		// Le crochet cote viseur choisit l'objet a editer ; c'est ici que le mode
+		// est POSE, par la meme porte que l'onglet et que TAB. Sans cela, le
+		// viseur entrait en edition et le shell -- toujours en Objet -- l'en
+		// faisait ressortir a l'image suivante.
+		{
+			static bool sEditModeDone = false;
+			if (const char *em = std::getenv("NK_EDIT_MODE")) {
+				int32 fr = 0;
+				const char *c = em;
+				while (*c && *c != ',')
+					++c;
+				if (*c == ',')
+					fr = (int32)std::atoi(c + 1);
+				if (!sEditModeDone && agentFrame >= fr && em[0] && em[0] != '0') {
+					sEditModeDone = true;
+					st.mode = NkMode::Edit;
+				}
+			} else {
+				sEditModeDone = true;
+			}
+		}
+
 		// NK_UI_MODE=<n>[,frame] : pose le MODE DE L'INTERFACE (valeur de NkMode),
 		// par le meme chemin que l'onglet -- on ecrit `st.mode`, et la ligne qui
 		// transmet au viseur fait le reste.

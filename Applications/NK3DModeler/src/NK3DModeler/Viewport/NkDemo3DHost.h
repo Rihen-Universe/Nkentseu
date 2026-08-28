@@ -200,6 +200,10 @@ namespace nkentseu {
 		void Demo3DHostSetMode(int32 mode);
 		int32 Demo3DHostMode();
 
+		// Compteurs de geometrie du panneau Statistiques. EXACTS en edition ;
+		// en mode objet, aretes APPROCHEES (Euler) et faces inconnues.
+		bool Demo3DHostStats(uint32 *verts, uint32 *edges, uint32 *faces, uint32 *tris);
+
 		// Cadrer la vue sur toute la scene (centre + distance ; l'angle est garde).
 		void Demo3DHostFrameAll();
 
