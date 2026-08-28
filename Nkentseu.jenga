@@ -1690,3 +1690,8 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+
+
+    # GemCrush — jeu de type match-3 (PC, Android, iOS, HarmonyOS, Web).
+    with include("Applications/Gemcrush/GemCrush.jenga"):
+        pass

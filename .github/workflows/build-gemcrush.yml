@@ -1,0 +1,196 @@
+# =============================================================================
+# build-gemcrush.yml — Compilation de GemCrush sur les plateformes qu'AUCUNE
+# machine de Rihen ne peut construire : macOS, iOS, et Linux.
+#
+# POURQUOI CETTE CI EXISTE, PLATEFORME PAR PLATEFORME :
+#   macOS / iOS : aucun Mac sous la main. Ce runner EST notre machine Apple.
+#   Linux       : mesuré le 2026-08-27 sur le poste Windows —
+#                 `jenga build --platform linux` echoue des NKGlad sur
+#                 « 'X11/X.h' file not found », avant meme d'atteindre le code
+#                 du jeu. Ce n'est pas un defaut de GemCrush : l'hote Windows
+#                 n'a pas les en-tetes X11. Un vrai Linux les a.
+#
+# CE QUI SE CONSTRUIT DEJA EN LOCAL, et n'a donc rien a faire ici :
+#   Windows (DX11/DX12/VK/GL/SW), Android (APK universel 4 ABI),
+#   HarmonyOS (.hap), Web (Emscripten). Tous verifies le 2026-08-27.
+#
+# ⚠️ CE QUE CETTE CI PROUVE ET CE QU'ELLE NE PROUVE PAS : elle prouve que le
+# code COMPILE et que le banc du geste passe. Elle ne prouve PAS que le jeu
+# s'affiche correctement sur un iPhone — un runner n'a ni ecran ni doigt.
+# Les premieres executions SERVENT a reveler les erreurs : un echec macOS ou
+# iOS est une information, pas une surprise.
+#
+# Calque sur build-macos.yml (meme depot), qui a deja etabli le montage :
+# Jenga est clone en source et invoque par PYTHONPATH.
+# =============================================================================
+name: build-gemcrush
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "feat/**", "refonte-**"]
+    paths:
+      - "Applications/Gemcrush/**"
+      - "Kernel/**"
+      - "Nkentseu.jenga"
+      - ".github/workflows/build-gemcrush.yml"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # macOS — Cocoa + OpenGL
+  # ---------------------------------------------------------------------------
+  gemcrush-macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          # Meme branche que build-macos.yml : la vivante de Rihen. main public
+          # est en retard (fix frameworks() absent).
+          ref: feat/evenement-avertissement
+          path: jenga-src
+
+      - name: Builder GemCrush (Release)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 --version
+          python3 -m Jenga build --target GemCrush --config Release
+
+      - name: Banc du geste (--selftest, sans fenetre ni GPU)
+        # Le VERDICT est le code de sortie. Ce banc porte son cas NEGATIF (un
+        # glisse sous le seuil ne doit rien echanger) : il sait dire non.
+        run: |
+          set -e
+          BIN=$(find Build/Bin -type f -name GemCrush -path "*Release*" | head -1)
+          echo "binaire : $BIN"
+          "$BIN" --selftest
+          echo "--- journal ---"
+          cat logs/app.log 2>/dev/null | grep selftest || true
+
+      - name: Empaqueter
+        run: |
+          set -e
+          BIN=$(find Build/Bin -type f -name GemCrush -path "*Release*" | head -1)
+          mkdir -p paquet/GemCrush-macOS
+          cp "$BIN" paquet/GemCrush-macOS/
+          tar -czf GemCrush-macOS.tar.gz -C paquet GemCrush-macOS
+          ls -l GemCrush-macOS.tar.gz
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GemCrush-macOS
+          path: GemCrush-macOS.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # iOS — UIKit + OpenGLES. Filtre `system:iOS` AJOUTE le 2026-08-27 : il
+  # n'existait pas, alors que l'en-tete du descripteur annoncait iOS.
+  # ---------------------------------------------------------------------------
+  gemcrush-ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: feat/evenement-avertissement
+          path: jenga-src
+
+      - name: Xcode disponible (on le DIT, on ne le suppose pas)
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path || echo "SDK iphoneos ABSENT"
+
+      - name: Builder GemCrush pour iOS (Release)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 -m Jenga build --target GemCrush --platform ios --config Release
+
+      - name: Empaqueter ce qui a ete produit
+        # `find` plutot qu'un chemin devine : on empaquete ce qui EXISTE. Un
+        # chemin code en dur qui ne trouve rien rend un paquet vide sans le dire.
+        run: |
+          set -e
+          mkdir -p paquet
+          find Build/Bin -path "*iOS*" -type f | head -50
+          tar -czf GemCrush-iOS.tar.gz Build/Bin
+          ls -l GemCrush-iOS.tar.gz
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GemCrush-iOS
+          path: GemCrush-iOS.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Linux — XLib + GLX. Impossible depuis l'hote Windows (X11/X.h absent).
+  # ---------------------------------------------------------------------------
+  gemcrush-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: feat/evenement-avertissement
+          path: jenga-src
+
+      - name: Dependances systeme
+        # libasound2-dev EN PLUS de ce que demande build-macos.yml : GemCrush
+        # depend de NKAudio, dont le filtre Linux lie `asound`. Sans ce paquet,
+        # l'edition de liens echoue — et l'erreur ne nommerait pas l'audio.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev libasound2-dev
+
+      - name: Builder GemCrush (Release)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 --version
+          python3 -m Jenga build --target GemCrush --config Release
+
+      - name: Banc du geste (--selftest)
+        run: |
+          set -e
+          BIN=$(find Build/Bin -type f -name GemCrush -path "*Release*" | head -1)
+          echo "binaire : $BIN"
+          "$BIN" --selftest
+          echo "--- journal ---"
+          cat logs/app.log 2>/dev/null | grep selftest || true
+
+      - name: Empaqueter
+        run: |
+          set -e
+          BIN=$(find Build/Bin -type f -name GemCrush -path "*Release*" | head -1)
+          mkdir -p paquet/GemCrush-Linux
+          cp "$BIN" paquet/GemCrush-Linux/
+          tar -czf GemCrush-Linux-x86_64.tar.gz -C paquet GemCrush-Linux
+          ls -l GemCrush-Linux-x86_64.tar.gz
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GemCrush-Linux-x86_64
+          path: GemCrush-Linux-x86_64.tar.gz
