@@ -43,6 +43,7 @@
 #include "NKEditorKit/NkTheme.h"
 #include "NKFileSystem/NkFile.h"
 
+#include "Canvas.h"
 #include "DesignAI.h"
 #include "Renderers.h"
 
@@ -523,9 +524,27 @@ namespace nkuidesign {
 				host.SyncTo(doc);
 			}
 
+			/// La vue de toile : la SEULE traduction document <-> ecran.
+			NkCanvasView view;
+
+			/// ⚠️ LA DISPOSITION SE CALCULE EN ESPACE DOCUMENT, TOUJOURS.
+			///    `surface` est ici un rectangle DOCUMENT, pas un rectangle ecran.
+			///    C'est ce qui fait que zoomer ne change AUCUNE valeur du modele :
+			///    le zoom vit dans la vue, jamais dans le document.
 			void Recompute(const NkPaintRect &surface) {
 				host.SyncTo(doc);
 				NkComputeLayout(doc, surface, layout);
+			}
+
+			/// La meme disposition, traduite en pixels ECRAN. Le dessin et la
+			/// saisie travaillent sur celle-ci ; le modele ne la voit jamais.
+			void ProjectToScreen(NkLayoutResult &out) const {
+				out.valid = layout.valid;
+				out.rects.Clear();
+				out.rects.Reserve(layout.rects.Size());
+				for (uint32 i = 0; i < (uint32)layout.rects.Size(); ++i) {
+					out.rects.PushBack(view.ToScreen(layout.rects[i]));
+				}
 			}
 
 			void SaveDoc() {
@@ -923,8 +942,16 @@ namespace nkuidesign {
 				if (area.w <= 0.f || area.h <= 0.f)
 					return;
 
-				const NkPaintRect surface = {area.x, area.y, area.w, area.h};
-				mSt->Recompute(surface);
+				// ⚠️ DEUX SURFACES, ET ELLES N ONT PAS LE MEME ESPACE.
+				//    `area` est le rectangle ECRAN du panneau ; il devient le
+				//    `viewport` de la vue. La disposition, elle, se calcule dans un
+				//    rectangle DOCUMENT ancre a l'origine : c'est ce qui rend les
+				//    coordonnees du modele independantes du zoom et de la taille de
+				//    la fenetre.
+				mSt->view.viewport = {area.x, area.y, area.w, area.h};
+				const NkPaintRect docSurface = {0.f, 0.f, mSt->view.ToDocLength(area.w),
+												mSt->view.ToDocLength(area.h)};
+				mSt->Recompute(docSurface);
 
 				NkComponentInput in;
 				in.surfaceScale = 1.f; ///< ⚠️ A BRANCHER sur le DPI reel de la surface
@@ -939,7 +966,35 @@ namespace nkuidesign {
 				in.ctrl = ctx.input.ctrlDown;
 				in.shift = ctx.input.shiftDown;
 
-				HandleMouse(in);
+				// ── LA TOILE : molette = zoom, bouton du milieu = deplacement ──
+				// Le curseur doit etre DANS le panneau, sinon la molette de
+				// n'importe quel autre panneau zoomerait la toile.
+				const bool dedans = in.mouseX >= area.x && in.mouseX < area.x + area.w
+									&& in.mouseY >= area.y && in.mouseY < area.y + area.h;
+				if (dedans && ctx.input.wheel != 0.f) {
+					// ⚠️ ZOOM AUTOUR DU CURSEUR, jamais autour du coin : sinon le
+					//    contenu fuit sous la souris. `ZoomAt` est le seul endroit
+					//    qui melange les deux espaces, et il est mesure (39f/39g).
+					mSt->view.ZoomAt(ctx.input.wheel > 0.f ? 1.1f : (1.f / 1.1f), in.mouseX,
+									 in.mouseY);
+				}
+				if (ctx.input.mouseDown[2]) {
+					if (mPanning) {
+						mSt->view.PanBy(in.mouseX - mPanX, in.mouseY - mPanY);
+					}
+					mPanning = true;
+					mPanX = in.mouseX;
+					mPanY = in.mouseY;
+				} else {
+					mPanning = false;
+				}
+
+				// La disposition traduite en pixels : tout ce qui suit -- dessin,
+				// saisie, rectangles publies -- travaille en ESPACE ECRAN.
+				NkLayoutResult screen;
+				mSt->ProjectToScreen(screen);
+
+				HandleMouse(in, screen);
 
 				// ⚠️ `NkDesignPaint`, PAS `NkGuiComponentPaint` : c'est lui qui
 				//    traduit les poignees de CETTE application en dessins. Le
@@ -948,7 +1003,7 @@ namespace nkuidesign {
 				//    insuffisant pour un chevron, qui doit dire « ouvert » ou
 				//    « ferme ». Il surcharge `Icon` et RIEN d'autre.
 				NkDesignPaint paint(ctx, mSt->theme);
-				NkDrawDocument(paint, in, mSt->doc, mSt->layout, mSt->host);
+				NkDrawDocument(paint, in, mSt->doc, screen, mSt->host);
 
 				// ⚠️ L'APERCU PUBLIE LE RECTANGLE DE CHAQUE NOEUD. Meme principe
 				//    que pour les widgets : un essai a la souris doit viser ce que
@@ -966,7 +1021,13 @@ namespace nkuidesign {
 				for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i) {
 					if (!mSt->layout.Has((int32)i))
 						continue;
-					const NkPaintRect r = mSt->layout.At((int32)i);
+					// ⚠️ `screen`, PAS `mSt->layout`. Le registre publie ce que
+					//    l'utilisateur VOIT, donc des pixels ecran. Mesure du
+					//    2026-08-28 : publier la disposition document rendait
+					//    `Racine = 0.0 0.0` au lieu de `293.8 92.0` -- les tailles
+					//    justes, les positions amputees du decalage du panneau.
+					//    Un essai a la souris aurait vise le coin de la fenetre.
+					const NkPaintRect r = screen.At((int32)i);
 					char clef[128];
 					snprintf(clef, sizeof(clef), "apercu.noeud.%s",
 							 mSt->doc.nodes[i].label.Data());
@@ -992,13 +1053,18 @@ namespace nkuidesign {
 			//    glisser de bord ecrit une TAILLE ou un POIDS (`NkResizeByDrag`).
 			//    C'est la difference entre un outil de design et un constructeur
 			//    d'interfaces, et elle se joue exactement dans cette fonction.
-			void HandleMouse(const NkComponentInput &in) {
+			/// ⚠️ `screen` EST LA DISPOSITION EN PIXELS, ET LE PARAMETRE EST LA
+			///    POUR QU ON NE PUISSE PAS SE TROMPER. La souris arrive en pixels ;
+			///    la designer contre `mSt->layout`, qui est en espace DOCUMENT,
+			///    donnait un pointage juste au zoom 1 et faux partout ailleurs --
+			///    le genre de defaut qui ne se voit pas tant que personne ne zoome.
+			void HandleMouse(const NkComponentInput &in, const NkLayoutResult &screen) {
 				const float32 kHandle = 6.f;
 				if (in.mousePressed) {
-					const int32 hit = NkPickNode(mSt->doc, mSt->layout, in.mouseX, in.mouseY);
+					const int32 hit = NkPickNode(mSt->doc, screen, in.mouseX, in.mouseY);
 					if (hit >= 0) {
 						mSt->selected = hit;
-						const NkPaintRect r = mSt->layout.At(hit);
+						const NkPaintRect r = screen.At(hit);
 						const bool nearRight = in.mouseX >= r.x + r.w - kHandle;
 						const bool nearBottom = in.mouseY >= r.y + r.h - kHandle;
 						if (nearRight || nearBottom) {
@@ -1009,7 +1075,15 @@ namespace nkuidesign {
 					}
 				}
 				if (mDragging && in.mouseDown) {
-					const float32 delta = mDragHorizontal ? in.mouseX - mLastX : in.mouseY - mLastY;
+					// ⚠️ ICI, ET NULLE PART AILLEURS : le glissement arrive en pixels
+					//    ECRAN et va ecrire une TAILLE, qui est une longueur
+					//    DOCUMENT. Sans `ToDocLength`, tirer un bord de 100 px
+					//    ajouterait 100 unites au zoom 1 et 100 unites au zoom 4 --
+					//    soit quatre fois trop. Le bord fuirait sous le curseur, et
+					//    le fichier enregistrerait une taille que personne n a voulue.
+					const float32 deltaEcran =
+						mDragHorizontal ? in.mouseX - mLastX : in.mouseY - mLastY;
+					const float32 delta = mSt->view.ToDocLength(deltaEcran);
 					if (delta != 0.f)
 						NkResizeByDrag(mSt->doc, mSt->layout, mDragNode, mDragHorizontal, delta);
 				}
@@ -1024,6 +1098,8 @@ namespace nkuidesign {
 			bool mDragHorizontal = true;
 			int32 mDragNode = -1;
 			float32 mLastX = 0.f, mLastY = 0.f;
+			bool mPanning = false;
+			float32 mPanX = 0.f, mPanY = 0.f;
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
