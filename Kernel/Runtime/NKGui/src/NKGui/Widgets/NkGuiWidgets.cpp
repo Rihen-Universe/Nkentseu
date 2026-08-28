@@ -5,6 +5,7 @@
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKFont/NkFont.h"				  // NkFontEncodeUTF8 / CalcTextSizeX
 #include "NKContainers/String/NkString.h" // NkString : parse (ToFloat) + format (Format)
+#include "NKGui/Core/NkGuiIntrospect.h"   // le releve : ce que cette trame dessine
 #include "NKMath/NkFunctions.h"			  // math::NkClamp / NkRound (zéro stdlib)
 #include <cstdio>
 #include <cstring>
@@ -268,6 +269,15 @@ namespace nkentseu {
 			bool hovered = false, held = false;
 			const bool pressed = ctx.ButtonBehavior(id, r, flags, repeatDelay, repeatRate, &hovered, &held);
 
+			// ⚠️ LE RELEVE SE POSE AVANT LE HOOK DE STYLE, ET C'EST LA SEULE
+			//    PLACE JUSTE. `StyleDraw` sort par un `return` : note en dessous,
+			//    tout bouton re-skinne par l'application deviendrait invisible au
+			//    releve — c'est-a-dire exactement les boutons d'un editeur qui
+			//    soigne son apparence, donc ceux qu'on cherche le plus souvent.
+			NkGuiNoter(ctx, NkGuiNature::Bouton, id, label, r,
+					   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+										   (hovered ? NK_GUI_ETAT_SURVOLE : 0) | (held ? NK_GUI_ETAT_ENFONCE : 0)));
+
 			// Hook de style : l'app peut re-skinner totalement le bouton.
 			if (StyleDraw(ctx, NkGuiStyleKind::Button, r, id, label, hovered, held, false, ctx.IsDisabled()))
 				return pressed;
@@ -298,6 +308,11 @@ namespace nkentseu {
 			const float32 w = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(s) : 0.f;
 			const NkRect r = ctx.NextItemRect(w, lh);
 			TextAt(ctx, {r.x, r.y}, s, ctx.IsDisabled() ? ctx.theme.textDisabled : ctx.theme.text);
+			// Un libelle n'a pas d'identite : il n'appelle jamais GetId. On en
+			// derive une pour le releve seulement — elle sert a comparer deux
+			// releves, jamais a piloter une interaction.
+			NkGuiNoter(ctx, NkGuiNature::Texte, ctx.GetId(s), s, r,
+					   static_cast<uint16>(ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0));
 		}
 
 		// Découpe `text` en lignes tenant dans `ww` : coupe aux ESPACES (mots), avec
@@ -400,6 +415,12 @@ namespace nkentseu {
 
 			bool hov = false, held = false;
 			const bool pressed = ctx.ButtonBehavior(id, r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
+
+			NkGuiNoter(ctx, NkGuiNature::Case, id, label, r,
+					   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+										   (state == NkGuiCheck::On ? NK_GUI_ETAT_COCHE : 0) |
+										   (state == NkGuiCheck::Mixed ? NK_GUI_ETAT_MIXTE : 0) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0) | (held ? NK_GUI_ETAT_ENFONCE : 0)));
 
 			const NkRect boxR = {r.x, r.y + (r.h - box) * 0.5f, box, box};
 			// Hook de style : l'app peut redessiner la case (boîte + coche).
@@ -1439,6 +1460,9 @@ namespace nkentseu {
 		void Separator(NkGuiContext &ctx) noexcept {
 			const NkRect r = ctx.NextItemRect(0.f, 1.f);
 			ctx.DL().AddRectFilled({r.x, r.y, r.w, 1.f}, ctx.theme.border);
+			// Sans lui, deux groupes d'un menu se lisent comme une liste plate :
+			// le releve perdrait le decoupage que l'oeil voit a l'ecran.
+			NkGuiNoter(ctx, NkGuiNature::Separateur, NKGUI_ID_NONE, "", r, NK_GUI_ETAT_AUCUN);
 			// Dans un menu deroulant auto-dimensionne : contribue a la hauteur
 			// mesuree — sinon chaque separateur « vole » sa hauteur consommee et
 			// le DERNIER item du menu sort du popup (partiellement invisible).
@@ -1934,6 +1958,12 @@ namespace nkentseu {
 			bool hov = false, held = false;
 			const bool clicked = ctx.ButtonBehavior(id, r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
 
+			// Avant le hook, meme raison que pour ButtonEx : `StyleDraw` sort.
+			NkGuiNoter(ctx, NkGuiNature::Element, id, label, r,
+					   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+										   (selected ? NK_GUI_ETAT_SELECTION : 0) | (hov ? NK_GUI_ETAT_SURVOLE : 0) |
+										   (held ? NK_GUI_ETAT_ENFONCE : 0)));
+
 			// Hook de style (re-skin total de la ligne).
 			if (StyleDraw(ctx, NkGuiStyleKind::Selectable, r, id, label, hov, held, selected, ctx.IsDisabled()))
 				return clicked;
@@ -2289,6 +2319,12 @@ namespace nkentseu {
 			// à avant). Id dérivé du titre (titres de panneaux supposés distincts).
 			const NkRect content = {r.x, top, r.w, r.y + r.h - top};
 			const NkGuiId id = ctx.GetId((title && *title) ? title : "##panel");
+			// ⚠️ ON NOTE LE RECTANGLE DU PANNEAU, PAS CELUI DE SON CONTENU.
+			//    C'est lui qui repond a « ce panneau est-il a l'ecran, et ou ».
+			//    Un panneau cache derriere un onglet arrive ici avec un rectangle
+			//    degenere : il est note quand meme, et marque `vide` — la
+			//    difference avec « absent du releve » est tout l'interet (C2).
+			NkGuiNoter(ctx, NkGuiNature::Panneau, id, (title && *title) ? title : "", r, NK_GUI_ETAT_AUCUN);
 			return BeginScrollFrame(ctx, id, content, false);
 		}
 
@@ -4980,6 +5016,7 @@ namespace nkentseu {
 			ctx.DL().AddRectFilled({rect.x, rect.y + rect.h - 1.f, rect.w, 1.f}, ctx.theme.border);
 			ctx.menuBarRect = rect;
 			ctx.menuBarX = rect.x + 4.f;
+			NkGuiNoter(ctx, NkGuiNature::BarreMenus, ctx.GetId("##barre-menus"), "", rect, NK_GUI_ETAT_AUCUN);
 			return true;
 		}
 
@@ -5043,6 +5080,19 @@ namespace nkentseu {
 					ctx.OpenPopupLevel(id, level); // sous-menu : survol ouvre
 			}
 			const bool open = (ctx.popupDepth > level && ctx.popupStack[level] == id);
+
+			// ⚠️ LE MENU SE NOTE AVEC LE NIVEAU DE SON TITRE, PAS DE SON CONTENU.
+			//    `BeginPopupLevel` fait ensuite monter `curPopupLevel` : noter
+			//    apres rangerait « Backend graphique » au meme etage que ses six
+			//    entrees, et la hierarchie qu'on veut lire disparaitrait.
+			// ⚠️ `ouvert` EST UN ETAT INTERMEDIAIRE, et c'est le critere C4 : un
+			//    menu deroule n'a rien valide. Sans lui, on ne distingue pas
+			//    « rien ne s'est passe » d'« un menu attend un choix » — c'est
+			//    exactement ce qui a laisse le sous-menu des backends non prouve
+			//    deux tours de suite.
+			NkGuiNoter(ctx, NkGuiNature::Menu, id, label, titleR,
+					   static_cast<uint16>((open ? NK_GUI_ETAT_OUVERT : NK_GUI_ETAT_REPLIE) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0)));
 
 			// Titre / entrée.
 			if (hov || open)
@@ -5118,6 +5168,16 @@ namespace nkentseu {
 						ctx.popupDepth = L + 1;
 				}
 			}
+			// ⚠️ `enabled` ET `checked` SONT DES PARAMETRES DE L'APPELANT : ils ne
+			//    se deduisent d'aucun etat du contexte, et c'est pour ca qu'ils
+			//    devaient etre releves ICI et nulle part ailleurs. C'est le
+			//    critere C3 — sans eux, le grisage exige par Rodolf sur les menus
+			//    des deux applications reste improuvable.
+			NkGuiNoter(ctx, NkGuiNature::EntreeMenu, id, label, r,
+					   static_cast<uint16>((enabled ? 0 : NK_GUI_ETAT_GRISE) | (checked ? NK_GUI_ETAT_COCHE : 0) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0)),
+					   shortcut);
+
 			const NkColor lc = !enabled ? ctx.theme.textDisabled : hov ? NkColor{255, 255, 255, 255} : ctx.theme.text;
 			if (ctx.font && ctx.font->Valid()) {
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));

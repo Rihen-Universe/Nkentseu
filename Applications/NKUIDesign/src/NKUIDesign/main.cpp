@@ -630,6 +630,203 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 	}
 }
 
+// =============================================================================
+//  `--releve-menus` — LE RELEVE DE LA BARRE DE MENUS, SANS FENETRE ET SANS GPU
+// =============================================================================
+// ⚠️ CE QU'IL CORRIGE, ET LE COUT DEJA PAYE. Le sous-menu « Fichier > Backend
+//    graphique » n'a JAMAIS ete photographie ouvert : deux tours de suite, un
+//    agent a livre le cablage sans pouvoir montrer le resultat, faute d'un
+//    levier pour derouler un menu. Le meme manque a laisse partir trois etapes
+//    livrees sans que personne ne voie la fenetre, et un menu contextuel de
+//    NK3DModeler invisible un tour entier. Ce n'est pas une panne de
+//    l'application : c'est l'instrument qui manquait.
+//
+// ⚠️ UNE AFFIRMATION A CORRIGER, ET ELLE VENAIT DE MOI : « --dump-ui fonctionne
+//    deja sans GPU » est FAUX. `--dump-ui` ne fait que lever un drapeau ; le
+//    releve est ecrit par `DumpUiRects`, pose en OVERLAY de la coquille, donc
+//    apres la fenetre, le contexte graphique et la boucle de rendu. Le seul
+//    chemin reellement sans fenetre etait `--probe`, et `Probe.h` ne construit
+//    aucun `NkGuiContext` : il n'a jamais vu un widget. La propriete etait donc
+//    a CREER, pas a garder.
+//
+// ⚠️ ET ELLE EST CREABLE PARCE QUE NKGUI EST ENTIEREMENT CALCULABLE SANS CARTE :
+//    `NkGuiContext::Init` se reduit a `viewW = w; viewH = h;`, les widgets
+//    produisent une liste de dessin et rien d'autre, et `LoadEmbedded` construit
+//    son atlas EN MEMOIRE VIVE — l'envoi a la carte est le travail du backend,
+//    et on ne le fait pas ici. La police est donc la VRAIE, donc les largeurs
+//    mesurees sont les vraies : le releve n'est pas une maquette.
+//
+// ⚠️ AUCUNE API D'INJECTION D'ENTREE N'A ETE AJOUTEE A NKGUI POUR CA, et c'est
+//    la frontiere du chantier. Ce harnais ecrit dans `ctx.input` — le meme champ
+//    public que la coquille remplit depuis les evenements de la fenetre. LIRE
+//    est dans le socle ; AGIR reste chez l'appelant, tant qu'un chantier
+//    « agir » n'aura pas ete ouvert pour de bon.
+//
+// ⚠️ LA SOURIS EST PILOTEE PAR LE RELEVE LUI-MEME, pas par des coordonnees
+//    ecrites a la main. Un harnais qui clique en (42, 17) casse a la premiere
+//    entree de menu ajoutee, en silence, et personne ne sait pourquoi. Ici,
+//    chaque trame lit le rectangle publie a la trame precedente et vise son
+//    centre : la geometrie peut bouger, le harnais suit.
+static int32 ReleveMenus(const char *chemin) {
+	// ── 1. La configuration, lue COMME AU LANCEMENT ──────────────────────
+	// ⚠️ LE MEME CHEMIN ET LE MEME CLASSIFICATEUR. La preuve de recette porte
+	//    sur « la coche est sur ce que le FICHIER porte » : si le harnais lisait
+	//    le fichier autrement que l'application, il pourrait prouver une coche
+	//    que personne ne verra jamais a l'ecran.
+	const NkString cfgText = nkentseu::NkFile::Exists(nkuidesign::NkGfxConfigPath())
+								 ? nkentseu::NkFile::ReadAllText(nkuidesign::NkGfxConfigPath())
+								 : NkString("");
+	char cfgGfx[32] = {0};
+	nkuidesign::NkGfxConfigClassify(nkentseu::NkFile::Exists(nkuidesign::NkGfxConfigPath()),
+									cfgText.Data(), cfgGfx, sizeof(cfgGfx));
+	gDesign.Init();
+	gDesign.cfgChoice = NkString(cfgGfx);
+	logger.Info("[NKUIDesign/relevé] nkuidesign.cfg porte gfx='{0}' (vide = clé absente)",
+				cfgGfx[0] ? cfgGfx : "(aucune)");
+
+	// ── 2. Le contexte et la police, en memoire vive ─────────────────────
+	static nkgui::NkGuiContext ctx;
+	if (!ctx.Init(1456, 939)) {
+		logger.Error("[NKUIDesign/relevé] NkGuiContext::Init a refusé.");
+		return 3;
+	}
+	static nkgui::NkGuiFont police;
+	// ⚠️ SI LA POLICE MANQUE, ON LE DIT ET ON CONTINUE. Sans elle, NKGui replie
+	//    sur des largeurs forfaitaires (40 px par titre) : la structure, les
+	//    libelles et les etats restent JUSTES, seule la geometrie devient
+	//    approximative. Un releve muet vaudrait moins qu'un releve annonce
+	//    comme approximatif.
+	if (!police.LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter, 14.f))
+		logger.Warn("[NKUIDesign/relevé] police embarquée indisponible : les largeurs "
+					"seront forfaitaires, les libellés et les états restent exacts.");
+	else
+		ctx.font = &police;
+
+	nkgui::NkGuiIntrospectActiver(ctx, true);
+	nkentseu::editorkit::NkEditorFrameContext ec;
+	ec.ui = &ctx;
+	ec.dt = 1.f / 60.f;
+
+	// La barre de menus telle que la coquille la pose : bande haute de 28 px,
+	// origine a x=56 (le logo carre de 56 est a cheval sur les deux bandes).
+	const nkgui::NkRect barre = {56.f, 0.f, 1456.f - 56.f - 126.f, 28.f};
+
+	// ── 3. Les trames, et la souris pilotee par le releve ────────────────
+	// ⚠️ POURQUOI PLUSIEURS TRAMES POUR UN SEUL GESTE. Trois mecanismes de NKGui
+	//    imposent chacun un tour de retard, et ils s'additionnent :
+	//      - le survol se resout sur `hotIdPrev`, donc la trame SUIVANTE ;
+	//      - un popup de menu se MESURE une trame et s'applique a la suivante
+	//        (`menuMeasure*` -> `MenuSizeSet`) ;
+	//      - l'occultation lue est celle ecrite a la trame precedente.
+	//    Un harnais a une seule trame ne verrait donc jamais un menu ouvert. Ce
+	//    n'est pas un defaut : c'est le prix de la stabilite du z-ordre.
+	const char *kTitre = "Fichier";
+	const char *kSousMenu = "Backend graphique";
+	nkgui::NkVec2 souris = {-100.f, -100.f};
+	bool bouton = false;
+	int32 trameOuvertureBarre = -1;
+	int32 trameOuvertureSousMenu = -1;
+
+	static constexpr int32 kTrames = 24;
+	for (int32 t = 0; t < kTrames; ++t) {
+		// L'entree se pose AVANT BeginFrame : c'est lui qui calcule les
+		// transitions (clic/relache) a partir de l'etat brut.
+		ctx.input.mousePos = souris;
+		ctx.input.mouseDown[0] = bouton;
+		ctx.BeginFrame(ec.dt);
+		if (nkgui::BeginMenuBar(ctx, barre)) {
+			DrawMenuBar(ec, nullptr);
+			nkgui::EndMenuBar(ctx);
+		}
+		ctx.EndFrame();
+
+		// ── Le pilotage, decide sur le releve QUI VIENT D'ETRE ECRIT ──────
+		const nkgui::NkGuiNote *sousMenu =
+			nkgui::NkGuiIntrospectTrouver(ctx, kSousMenu, nkgui::NkGuiNature::Menu);
+		const bool sousMenuOuvert = sousMenu && (sousMenu->etats & nkgui::NK_GUI_ETAT_OUVERT);
+		if (sousMenuOuvert && trameOuvertureSousMenu < 0)
+			trameOuvertureSousMenu = t;
+		if (sousMenuOuvert && t >= trameOuvertureSousMenu + 2)
+			break; // deux tours de plus : les six entrees ont leur place definitive
+
+		const nkgui::NkGuiNote *titre =
+			nkgui::NkGuiIntrospectTrouver(ctx, kTitre, nkgui::NkGuiNature::Menu);
+		const bool barreOuverte = titre && (titre->etats & nkgui::NK_GUI_ETAT_OUVERT);
+		if (barreOuverte && trameOuvertureBarre < 0)
+			trameOuvertureBarre = t;
+
+		bouton = false;
+		if (!barreOuverte) {
+			// Viser le titre « Fichier » et PRESSER. `BeginMenu` ouvre au PRESS
+			// (pas au relachement) : un clic complet ouvrirait puis refermerait.
+			if (titre) {
+				souris = {titre->rect.x + titre->rect.w * 0.5f, titre->rect.y + titre->rect.h * 0.5f};
+				bouton = true;
+			}
+		} else if (sousMenu) {
+			// Le menu est deroule : survoler la ligne du sous-menu. Un sous-menu
+			// s'ouvre au SURVOL, sans clic — et le survol demande un tour.
+			souris = {sousMenu->rect.x + sousMenu->rect.w * 0.5f,
+					  sousMenu->rect.y + sousMenu->rect.h * 0.5f};
+		}
+	}
+
+	// ── 4. Le verdict, PUIS le fichier ───────────────────────────────────
+	const char *sortie = (chemin && *chemin) ? chemin : "nkuidesign_releve_menus.txt";
+	// `toujours` : un banc ecrit son releve une fois, meme identique au
+	// precedent. La garde « n'ecrire que si ca change » sert la boucle de
+	// l'editeur, pas un tir unique.
+	if (!nkgui::NkGuiIntrospectEcrire(ctx, sortie, /*toujours=*/true)) {
+		logger.Error("[NKUIDesign/relevé] écriture impossible : {0}", sortie);
+		return 3;
+	}
+
+	// ⚠️ LE HARNAIS SE JUGE LUI-MEME, ET SON CODE DE SORTIE LE DIT. Un releve
+	//    ecrit n'est pas une preuve : le fichier existerait aussi si le
+	//    sous-menu etait reste ferme. Le critere est nomme ici, en toutes
+	//    lettres, et un banc peut s'y fier sans lire le fichier.
+	const nkgui::NkGuiNote *sm = nkgui::NkGuiIntrospectTrouver(ctx, kSousMenu, nkgui::NkGuiNature::Menu);
+	uint32 nApis = 0;
+	const char *const *apis = nkuidesign::NkGfxApiNames(nApis);
+	int32 trouvees = 0, cochees = 0;
+	bool cocheJuste = true;
+	for (uint32 i = 0; i < nApis; ++i) {
+		const nkgui::NkGuiNote *e =
+			nkgui::NkGuiIntrospectTrouver(ctx, apis[i], nkgui::NkGuiNature::EntreeMenu);
+		if (!e)
+			continue;
+		++trouvees;
+		const bool coche = (e->etats & nkgui::NK_GUI_ETAT_COCHE) != 0;
+		const bool attendu =
+			!gDesign.cfgChoice.Empty() && NkComponentDecl::StrEq(gDesign.cfgChoice.Data(), apis[i]);
+		if (coche)
+			++cochees;
+		if (coche != attendu)
+			cocheJuste = false;
+	}
+
+	int32 total = 0;
+	nkgui::NkGuiIntrospectNotes(ctx, total);
+	logger.Info("[NKUIDesign/relevé] {0} contrôle(s) relevé(s), écrit dans '{1}'.", total, sortie);
+	logger.Info("[NKUIDesign/relevé] sous-menu '{0}' : {1} — {2}/{3} entrées, {4} cochée(s).", kSousMenu,
+				(sm && (sm->etats & nkgui::NK_GUI_ETAT_OUVERT)) ? "OUVERT" : "FERME", trouvees, nApis,
+				cochees);
+
+	const bool ok = sm && (sm->etats & nkgui::NK_GUI_ETAT_OUVERT) && trouvees == (int32)nApis && cocheJuste;
+	if (!ok) {
+		// ⚠️ LA COCHE ATTENDUE PEUT ETRE ZERO, ET C'EST CORRECT. Quand
+		//    `nkuidesign.cfg` ne porte pas de cle `gfx`, AUCUNE entree ne doit
+		//    etre cochee : le menu marque ce que le FICHIER porte, pas ce qui
+		//    tourne. Le harnais compare a cette regle, il n'exige pas une coche.
+		logger.Error("[NKUIDesign/relevé] RECETTE NON PROUVÉE. Attendu : sous-menu ouvert, "
+					 "{0} entrées, coche exactement sur '{1}'.",
+					 nApis, gDesign.cfgChoice.Empty() ? "(aucune : clé gfx absente)" : gDesign.cfgChoice.Data());
+		return 1;
+	}
+	logger.Info("[NKUIDesign/relevé] RECETTE PROUVÉE.");
+	return 0;
+}
+
 int nkmain(const NkEntryState &state) {
 	// ⚠️ `NkEntryState` porte `args` (un `NkVector<NkString>`), PAS `argc/argv` :
 	//    le conteneur est le meme sur les huit plateformes, la ou `argv` n'existe
@@ -720,6 +917,18 @@ int nkmain(const NkEntryState &state) {
 			nkuidesign::designkit::UiRects::Enabled() = true;
 			continue;
 		}
+		// ⚠️ `--releve-menus` REND UN VERDICT, IL NE SE CONTENTE PAS D'ECRIRE.
+		//    Il sort AVANT toute creation de fenetre — meme raison que `--probe`
+		//    plus haut : un `Init()` place avant lui rendrait ce mode inutilisable
+		//    exactement sur la machine ou l'on en a besoin (un agent, une session
+		//    sans ecran, une carte deja prise par autre chose).
+		if (NkComponentDecl::StrEq(a, "--releve-menus"))
+			return ReleveMenus(nullptr);
+		{
+			const NkString arg(a);
+			if (arg.StartsWith("--releve-menus="))
+				return ReleveMenus(arg.SubStr(15).Data());
+		}
 		if (NkComponentDecl::StrEq(a, "--small")) {
 			width = 1024;
 			height = 640;
@@ -760,6 +969,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --pool-controles        les témoins du pool de chaînes");
 			puts("  --valider[=<dossier>]   la validation par role et par type");
 			puts("  --dump-ui               publier les rectangles dessinés");
+			puts("  --releve-menus[=<fichier>] relever la barre de menus SANS fenêtre");
 			puts("  --small                 fenêtre réduite (1024x640)");
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
 			return 2;
