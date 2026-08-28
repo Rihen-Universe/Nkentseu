@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKPlatform/NkEnv.h" // NK_GUI_INTROSPECT : activation sans recompiler
 #include <cstddef> // offsetof — table de description des jetons
 
 namespace nkentseu {
@@ -28,6 +29,15 @@ namespace nkentseu {
 		bool NkGuiContext::Init(int32 width, int32 height) noexcept {
 			viewW = width;
 			viewH = height;
+			// ⚠️ L'INTROSPECTION S'ALLUME SANS RECOMPILER, et elle reste MUETTE
+			//    tant que personne ne le demande. Même modèle que NK_MENU_TRACE
+			//    sur le chantier NK3DModeler : un instrument qui parle tout le
+			//    temps finit désactivé, donc débranché le jour où il servirait.
+			//    ⚠️ « 0 » ÉTEINT EXPLICITEMENT. Sans ce cas, `NK_GUI_INTROSPECT=0`
+			//       — la façon dont tout le monde écrit « non » — allumerait
+			//       l'instrument, parce que la variable est *définie*.
+			if (const char *v = nkentseu::env::GetEnvVar("NK_GUI_INTROSPECT"))
+				introspect.actif = (*v != 0 && !(v[0] == '0' && v[1] == 0));
 			return true;
 		}
 
@@ -96,6 +106,13 @@ namespace nkentseu {
 			dl.Reset();
 			dlOverlay.Reset();
 			modalDepth = 0; // la pile de modales se recompte a chaque frame
+			// Le relevé d'introspection est un enregistrement DE CETTE TRAME :
+			// il se vide avec les listes de dessin, jamais après coup. `Clear`
+			// garde la capacité — pas de réallocation par trame.
+			if (introspect.actif) {
+				introspect.notes.Clear();
+				introspect.perdues = 0;
+			}
 		}
 
 		void NkGuiContext::EndFrame() noexcept {

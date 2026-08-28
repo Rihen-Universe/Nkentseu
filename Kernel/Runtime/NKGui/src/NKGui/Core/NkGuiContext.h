@@ -10,6 +10,7 @@
 #include "NKGui/Core/NkGuiTypes.h"
 #include "NKGui/Core/NkGuiInput.h"
 #include "NKGui/Core/NkGuiDrawList.h"
+#include "NKGui/Core/NkGuiIntrospect.h"
 
 namespace nkentseu {
 	namespace nkgui {
@@ -514,6 +515,15 @@ namespace nkentseu {
 				using NkGuiStyleFn = bool (*)(NkGuiContext &, const NkGuiStyleItem &, void *);
 				NkGuiStyleFn styleFn = nullptr;
 				void *styleUser = nullptr;
+
+				// ── INTROSPECTION : ce que cette trame a dessiné ──────────────────
+				// Silencieuse par défaut (`actif = false`) : sans activation, les
+				// widgets se contentent d'un test de booléen et rien n'est écrit.
+				// Le relevé est un ENREGISTREMENT de trame, pas un état persistant —
+				// NKGui ne retient aucun arbre de contrôles (mesure du 2026-08-28).
+				// Vidé au BeginFrame, lisible après EndFrame.
+				// Critère d'acceptation : Kernel/Runtime/NKGui/INTROSPECTION.md
+				NkGuiIntrospect introspect;
 
 				// Rafale (repeat) — défauts globaux, surchargeables par bouton.
 				float32 repeatDelay = 0.25f; ///< délai initial avant rafale (s)
