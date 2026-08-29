@@ -6238,17 +6238,32 @@ static void PerfComplexite() {
 		NkVector<uint32> fs, fv;
 		src.ToPolygons(pv, fs, fv, nullptr);
 		const uint32 P = 7u;
+		// ⚠ MIN ET MAX, PAS SEULEMENT LA MOYENNE. Sans la dispersion, un ecart ne se
+		// lit pas contre le bruit -- c'est la regle du banc, et une moyenne seule
+		// m'aurait fait trancher LinkTwins contre RebuildEdges sur un ecart que rien
+		// ne separe du bruit.
 		float64 lt = 0.0, re = 0.0, rn = 0.0;
+		float64 ltn = 1e30, ltx = 0.0, ren = 1e30, rex = 0.0, rnn = 1e30, rnx = 0.0;
 		for (uint32 r = 0; r < P; ++r) {
 			NkEditMesh d;
 			renderer::NkEmBfpPhases &ph = renderer::NkEmBfpPhasesGet();
 			const renderer::NkEmBfpPhases av = ph;
 			d.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1u, fv.Data());
-			lt += ph.msLinkTwins - av.msLinkTwins;
-			re += ph.msRebuildEdges - av.msRebuildEdges;
-			rn += ph.msRecomputeNormals - av.msRecomputeNormals;
+			const float64 dl = ph.msLinkTwins - av.msLinkTwins;
+			const float64 dr = ph.msRebuildEdges - av.msRebuildEdges;
+			const float64 dn = ph.msRecomputeNormals - av.msRecomputeNormals;
+			lt += dl; re += dr; rn += dn;
+			if (dl < ltn) ltn = dl;
+			if (dl > ltx) ltx = dl;
+			if (dr < ren) ren = dr;
+			if (dr > rex) rex = dr;
+			if (dn < rnn) rnn = dn;
+			if (dn > rnx) rnx = dn;
 		}
 		const float64 n = (float64)P, a = lt / n, b = re / n, c = rn / n;
+		printf("  %6u faces | LinkTwins moy %7.3f [%7.3f .. %7.3f] | RebuildEdges moy %7.3f "
+			   "[%7.3f .. %7.3f] | Normals moy %7.3f [%7.3f .. %7.3f]\n",
+			   (uint32)(nn * nn), a, ltn, ltx, b, ren, rex, c, rnn, rnx);
 		printf("  %6u faces | LinkTwins %7.3f", (uint32)(nn * nn), a);
 		if (prev[0] > 0.0) printf(" (x%.2f)", a / prev[0]); else printf("        ");
 		printf(" | RebuildEdges %7.3f", b);
@@ -6257,6 +6272,77 @@ static void PerfComplexite() {
 		if (prev[2] > 0.0) printf(" (x%.2f)", c / prev[2]);
 		printf("\n");
 		prev[0] = a; prev[1] = b; prev[2] = c;
+	}
+}
+
+// ── LES QUATRE PASSES DU CHEMIN EN PLACE ────────────────────────────────────
+// C est le chemin DEBRANCHE, donc zero cout utilisateur aujourd hui. C est aussi
+// le SEUL ou la region (`touchees`) existe encore quand les passes tournent :
+// l autre est ferme par le `Clear()` de `BuildFromPolygons`. Le rebrancher
+// demande qu il devienne plus rapide ; ces quatre passes sont ce qui l en
+// empeche.
+// ⚠ MIN ET MAX partout : sans dispersion, aucun ecart ne se lit contre le bruit.
+static void PerfEnPlace() {
+	printf("%c[perf] LES QUATRE PASSES DU CHEMIN EN PLACE (ExtrudeSelectedFacesInPlace)%c", 10, 10);
+	if (!renderer::NkEmBfpPhasesActives()) {
+		printf("  NK_BFP_PHASES absent.%c", 10);
+		return;
+	}
+	const uint32 N = 128u;
+	NkVector<NkVertex3D> gv;
+	NkVector<uint32> gi;
+	MakeGrid(N, gv, gi);
+	NkEditMesh src;
+	src.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+	src.RebuildEdges();
+	const uint32 P = 7u;
+	for (uint32 mode = 0; mode < 2u; ++mode) {
+		float64 tt[5] = {0, 0, 0, 0, 0};
+		float64 mn[5] = {1e30, 1e30, 1e30, 1e30, 1e30}, mx[5] = {0, 0, 0, 0, 0};
+		uint64 loc = 0, app = 0, rien = 0, fait = 0;
+		for (uint32 r = 0; r < P; ++r) {
+			NkEditMesh m = src;
+			if (mode == 0) {
+				for (uint32 i = 0; i < m.VertCount(); ++i)
+					m.verts[i].sel = 1;
+			} else {
+				uint32 pose = 0;
+				for (uint32 f = 0; f < (uint32)m.faces.Size() && pose < 3u; ++f) {
+					if (!m.faces[f].alive) continue;
+					const NkEmId h0 = m.faces[f].hedge;
+					NkEmId h = h0;
+					do { m.verts[m.hedges[h].origin].sel = 1; h = m.hedges[h].next; } while (h != h0 && h != NK_EM_INVALID);
+					++pose;
+				}
+			}
+			renderer::NkEmIpPhases &ip = renderer::NkEmIpPhasesGet();
+			const renderer::NkEmIpPhases av = ip;
+			NkExtrudeParams ep;
+			ep.offset = 0.1f;
+			NkChrono c;
+			m.ExtrudeSelectedFacesInPlace(ep);
+			const float64 d[5] = {c.Elapsed().ToMilliseconds(), ip.msCompactDead - av.msCompactDead,
+								  ip.msVertHedge - av.msVertHedge, ip.msLinkTwins - av.msLinkTwins,
+								  ip.msRecomputeNormals - av.msRecomputeNormals};
+			for (int32 k = 0; k < 5; ++k) {
+				tt[k] += d[k];
+				if (d[k] < mn[k]) mn[k] = d[k];
+				if (d[k] > mx[k]) mx[k] = d[k];
+			}
+			loc += ip.twinsLocaux - av.twinsLocaux;
+			app += ip.appels - av.appels;
+			rien += ip.compactRien - av.compactRien;
+			fait += ip.compactFait - av.compactFait;
+		}
+		const float64 n = (float64)P;
+		printf("  -- selection %s | %llu traversee(s), %llu fois LinkTwinsLocal, "
+			   "CompactDead : %llu a vide / %llu reels --%c",
+			   mode == 0 ? "GLOBALE" : "LOCALE (3 faces)", (unsigned long long)app,
+			   (unsigned long long)loc, (unsigned long long)rien, (unsigned long long)fait, 10);
+		static const char *nm[5] = {"TOTAL", "CompactDead", "Vert::hedge", "LinkTwins", "Normals"};
+		for (int32 k = 0; k < 5; ++k)
+			printf("     %-14s moy %7.3f  [%7.3f .. %7.3f]  %5.1f %%%c", nm[k], tt[k] / n, mn[k], mx[k],
+				   (tt[0] > 0.0) ? 100.0 * (tt[k] / tt[0]) : 0.0, 10);
 	}
 }
 
@@ -9088,6 +9174,7 @@ int main(int argc, char **argv) {
 		PerfBattery();
 		PerfEntonnoir();
 		PerfComplexite();
+		PerfEnPlace();
 		PorteeBattery();
 		ProtoBattery();
 	}
