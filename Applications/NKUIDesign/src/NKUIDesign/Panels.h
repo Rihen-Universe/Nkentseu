@@ -40,6 +40,7 @@
 
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkEditorInspectorFrame.h" // LA charpente d inspecteur (kit)
 #include "NKEditorKit/NkTheme.h"
 #include "NKFileSystem/NkFile.h"
 // ⚠️ LES PLAFONDS DU KIT DOIVENT CRIER (kMaxComponents = 64, kMaxDepth = 64) :
@@ -2099,9 +2100,17 @@ namespace nkuidesign {
 	//     utilise lui-même à l'intérieur. Le jour où le document porte de la
 	//     réflexion, le CORPS d'une section devient un appel à `DrawInspector`
 	//     sans que la charpente bouge.
-	//     📌 Signalé au canal : il manque au kit une CHARPENTE d'inspecteur
-	//        (en-tête + onglets + sections nommées) indépendante de NKReflection.
-	//        C'est elle que les quatre éditeurs partageront ; elle n'existe pas.
+	//     📌 ELLE EXISTE DEPUIS LE 2026-08-29 :
+	//        `NKEditorKit/NkEditorInspectorFrame.h`. Ce panneau ne dessine plus
+	//        sa charpente, il la DÉCRIT et la laisse dessiner.
+	//        ⚠️ LE SIGNALEMENT AVAIT ÉTÉ ÉCRIT ICI, ET IL N'A RIEN DÉCLENCHÉ.
+	//           Il disait déjà, mot pour mot, « il manque au kit une charpente
+	//           d'inspecteur […] elle n'existe pas » — pendant que la charpente
+	//           était écrite ici, et deux fois de plus chez Nogee. **Un
+	//           signalement n'est pas un remède** : celui-là a tenu des semaines
+	//           pendant que trois applications payaient. C'est une cause
+	//           DIFFÉRENTE de celle de la conversion de thème (qui, elle,
+	//           existait mais exigeait une coquille pour être appelée).
 	//
 	//  L'ORDRE DES SECTIONS EST NORMATIF (§12.2) : « un ordre laissé au hasard se
 	//  met à varier d'un écran à l'autre ». Il est donc écrit UNE fois, dans une
@@ -2115,51 +2124,93 @@ namespace nkuidesign {
 				auto &ctx = ec.Ui();
 				designkit::releve::Zone(ctx, "inspecteur");
 
-				// ── L'EN-TÊTE : LE NOM DE L'ÉLÉMENT, TOUJOURS VISIBLE (§12.2) ─
-				const bool aUnNoeud = mSt->doc.IsValidIndex(mSt->selected);
-				const NkUINode *n = aUnNoeud ? &mSt->doc.nodes[(uint32)mSt->selected] : nullptr;
-				Text(ctx, n ? (n->label.Empty() ? "(sans nom)" : n->label.Data())
-							: "Aucune sélection");
-				Separator(ctx);
+				// {A} CE PANNEAU NE DESSINE PLUS SA CHARPENTE, IL LA DÉCRIT.
+				//    En-tête, onglets et boucle de sections vivent dans
+				//    `NKEditorKit/NkEditorInspectorFrame.h` ; il ne reste ici que
+				//    ce qui est PROPRE à NkUIDesign — quelles sections, dans quel
+				//    ordre, et ce que chacune affiche.
+				//
+				// {A} ET L'ONGLET COURANT N'EST PLUS GARDÉ ICI. `TabBarEx` le
+				//    tient, persistant par son id ; `mOnglet` ne sert plus qu'à
+				//    RECEVOIR ce que la charpente a décidé, pour le lire ailleurs.
+				//    Une seconde copie aurait donné deux vérités sur « quel onglet
+				//    est ouvert » — c'est le doublon d'état que la charpente
+				//    refuse par construction.
+				editorkit::NkInspectorCharpente ch;
+				ch.user = this;
+				ch.entete = Nom();
+				ch.enteteVide = "Aucune sélection";
+				ch.onglets = Onglets();
+				ch.ongletCount = 3;
+				ch.idOnglets = "insp.onglets";
+				ch.sectionsDe = &SectionsDe;
+				ch.messageOngletVide = &MessageOngletVide;
+				mOnglet = editorkit::NkInspectorDessiner(ctx, ch);
+			}
 
-				// ── LES TROIS ONGLETS (§12.2) ────────────────────────────────
-				// ⚠️ `nkgui::TabBar` GARDE LUI-MÊME l'onglet courant (persistant par
-				//    `id`) et le REND. Tenir une seconde copie ici donnerait deux
-				//    vérités sur « quel onglet est ouvert ».
+		private:
+			// ── CE QUE LA CHARPENTE VIENT CHERCHER ICI ──────────────────────
+			static const char *const *Onglets() noexcept {
 				static const char *const kOnglets[3] = {"Design", "Widget", "Behavior"};
-				mOnglet = TabBar(ctx, "insp.onglets", kOnglets, 3);
+				return kOnglets;
+			}
 
-				if (mOnglet != 0) {
-					// ⚠️ UNE SECTION QUI NE S'APPLIQUE PAS NE S'AFFICHE PAS VIDE
-					//    (§12.2). Ces deux onglets n'ont pas encore de contenu :
-					//    ils le DISENT, plutôt que de montrer sept sections vides
-					//    qui feraient croire à des propriétés disparues.
-					Text(ctx, mOnglet == 1 ? "Onglet Widget : le rôle et ses paramètres."
-										   : "Onglet Behavior : événements et callbacks.");
-					Text(ctx, "Pas encore branché — la charpente d'abord, le contenu ensuite.");
-					return;
-				}
+			const char *Nom() const noexcept {
+				if (!mSt->doc.IsValidIndex(mSt->selected))
+					return nullptr; // -> `enteteVide`
+				const NkUINode &n = mSt->doc.nodes[(uint32)mSt->selected];
+				return n.label.Empty() ? "(sans nom)" : n.label.Data();
+			}
 
-				// ── LES SECTIONS DE L'ONGLET DESIGN, DANS L'ORDRE NORMATIF ───
-				// ⚠️ UNE SEULE TABLE. Un ordre recopié à deux endroits diverge, et
-				//    §12.2 dit exactement pourquoi ça coûte cher.
-				struct Section {
-						const char *titre;
-						void (InspectorPanel::*corps)(NkGuiContext &, const NkUINode *);
-				};
-				static const Section kSections[] = {
-					{"POSITION", &InspectorPanel::CorpsPosition},
-					{"TAILLE", &InspectorPanel::CorpsTaille},
-					{"ANCRAGE", &InspectorPanel::CorpsAVenir},
-					{"ALIGNEMENT", &InspectorPanel::CorpsAVenir},
-					{"APPARENCE", &InspectorPanel::CorpsAVenir},
-					{"BORDS", &InspectorPanel::CorpsAVenir},
-					{"TYPOGRAPHIE", &InspectorPanel::CorpsAVenir},
-				};
-				for (uint32 i = 0; i < sizeof(kSections) / sizeof(kSections[0]); ++i) {
-					if (CollapsingHeader(ctx, kSections[i].titre))
-						(this->*kSections[i].corps)(ctx, n);
+			/// L'ORDRE DES SECTIONS EST NORMATIF (§12.2) : « un ordre laissé au
+			/// hasard se met à varier d'un écran à l'autre ». Il est écrit UNE
+			/// fois, ici, et la charpente le suit.
+			static const editorkit::NkInspectorSection *SectionsDe(void *user, int32 onglet,
+																   int32 &count) noexcept {
+				(void)user;
+				// {A} UN ONGLET SANS CONTENU REND ZÉRO SECTION, il ne rend pas
+				//    sept sections vides. C'est la charpente qui dira quoi
+				//    afficher à la place (§12.2) — voir `MessageOngletVide`.
+				if (onglet != 0) {
+					count = 0;
+					return nullptr;
 				}
+				static const editorkit::NkInspectorSection kSections[] = {
+					{"POSITION", &CorpsPositionC, true},
+					{"TAILLE", &CorpsTailleC, true},
+					{"ANCRAGE", &CorpsAVenirC, true},
+					{"ALIGNEMENT", &CorpsAVenirC, true},
+					{"APPARENCE", &CorpsAVenirC, true},
+					{"BORDS", &CorpsAVenirC, true},
+					{"TYPOGRAPHIE", &CorpsAVenirC, true},
+				};
+				count = (int32)(sizeof(kSections) / sizeof(kSections[0]));
+				return kSections;
+			}
+
+			static const char *MessageOngletVide(void *, int32 onglet) noexcept {
+				return onglet == 1 ? "Onglet Widget : le rôle et ses paramètres — pas encore branché."
+								   : "Onglet Behavior : événements et callbacks — pas encore branché.";
+			}
+
+			// {A} TROIS TREMPLINS, ET C'EST LE PRIX ASSUMÉ DU JOINT. La charpente
+			//    prend `void(*)(void*, NkGuiContext&)` — l'idiome du kit
+			//    (`NkTreeViewHooks`, `dockHeaderFn`, `clipboardGetFn`) — et non un
+			//    pointeur de méthode, qui l'aurait liée à UNE classe et l'aurait
+			//    rendue inutilisable par Nogee. Trois lignes chacun, une fois.
+			static void CorpsPositionC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsPosition(ctx);
+			}
+			static void CorpsTailleC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsTaille(ctx);
+			}
+			static void CorpsAVenirC(void *, NkGuiContext &ctx) {
+				Text(ctx, "À brancher — la place est prise, le contenu suit.");
+			}
+
+			const NkUINode *NoeudCourant() const noexcept {
+				return mSt->doc.IsValidIndex(mSt->selected) ? &mSt->doc.nodes[(uint32)mSt->selected]
+														    : nullptr;
 			}
 
 		private:
@@ -2167,7 +2218,8 @@ namespace nkuidesign {
 			//    18/08). Elle est donc LUE dans la disposition calculée et affichée
 			//    en lecture seule ; l'outil n'écrira jamais une coordonnée dans le
 			//    document.
-			void CorpsPosition(NkGuiContext &ctx, const NkUINode *n) {
+			void CorpsPosition(NkGuiContext &ctx) {
+				const NkUINode *n = NoeudCourant();
 				if (!n) {
 					designkit::KeyValue(ctx, "X", "-");
 					designkit::KeyValue(ctx, "Y", "-");
@@ -2183,7 +2235,8 @@ namespace nkuidesign {
 				designkit::KeyValue(ctx, "", "calculée — jamais écrite dans le document");
 			}
 
-			void CorpsTaille(NkGuiContext &ctx, const NkUINode *n) {
+			void CorpsTaille(NkGuiContext &ctx) {
+				const NkUINode *n = NoeudCourant();
 				if (!n) {
 					designkit::KeyValue(ctx, "Largeur", "-");
 					designkit::KeyValue(ctx, "Hauteur", "-");
@@ -2194,13 +2247,6 @@ namespace nkuidesign {
 				designkit::KeyValue(ctx, "Largeur", b);
 				Decrire(n->height, b, sizeof(b));
 				designkit::KeyValue(ctx, "Hauteur", b);
-			}
-
-			/// ⚠️ CE QUI MANQUE LE DIT. Une section repliée vide ferait croire à une
-			///    propriété disparue ; une phrase dit que la question se pose et que
-			///    la réponse vient.
-			void CorpsAVenir(NkGuiContext &ctx, const NkUINode *) {
-				Text(ctx, "À brancher — la place est prise, le contenu suit.");
 			}
 
 			static void Decrire(const NkSizeDecl &s, char *out, nkentseu::usize n) {
