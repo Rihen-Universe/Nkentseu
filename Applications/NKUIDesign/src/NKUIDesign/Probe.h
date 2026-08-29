@@ -1240,7 +1240,11 @@ namespace nkuidesign {
 			for (uint32 i = 0; i < sizeof(kCas) / sizeof(kCas[0]); ++i) {
 				char got[96];
 				++casVus;
-				if (!NkCanonicalRoleName(kCas[i].ecrit, got, sizeof(got)) ||
+				// ⚠️ REPOINTEE, PAS SUPPRIMEE. Cette famille a ete ecrite pour
+				//    mordre, et elle mord encore -- sur l'exemplaire du kit, qui est
+				//    desormais le seul. Supprimer l'essai avec le doublon aurait
+				//    retire la garde en meme temps que la redondance.
+				if (!nkentseu::editorkit::NkCanonicalRoleName(kCas[i].ecrit, got, sizeof(got)) ||
 					!SameText(got, kCas[i].attendu)) {
 					canonOk = false;
 					if (!canonEcarts.Empty())

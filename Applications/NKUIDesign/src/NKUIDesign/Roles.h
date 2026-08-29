@@ -71,50 +71,23 @@ namespace nkuidesign {
 	using nkentseu::editorkit::NkResolveRole;
 
 	// ── (a) LA CANONISATION ─────────────────────────────────────────────────
-	// PascalCase / camelCase -> snake_case. PURE : aucune allocation, aucun
-	// etat, aucune dependance au theme. C'est ce qui la rend deplacable telle
-	// quelle dans `NkTheme.inl`.
+	// ⚠️ ELLE N'EST PLUS ICI, ET ELLE N'A PAS ETE DEPLACEE PAR MOI : elle
+	//    etait DEJA dans le kit, et cablee. `NkRoleRegistry::Find`
+	//    (`NkTheme.inl`) essaie le nom brut, puis la forme canonisee, puis
+	//    NOMME le rattrapage via `NkRoleAudit`. C'est ce que font les neuf
+	//    lignes « rattrape par canonisation -> ... ; A CORRIGER A LA SOURCE »
+	//    qu'on lit au demarrage : ce n'est pas un manque, c'est le kit qui
+	//    reclame la correction a la source.
 	//
-	// REGLE, en une phrase : on insere un « _ » devant toute MAJUSCULE qui suit
-	// une minuscule ou un chiffre, puis on met tout en minuscules.
+	// ⚠️ CE QUI RESTAIT ICI ETAIT UN DOUBLON, mesure le 2026-08-29 :
+	//    les deux exemplaires etaient FONCTIONNELLEMENT IDENTIQUES, a un
+	//    commentaire pres, et la documentation du kit porte deja la meme
+	//    limite (« un ACRONYME colle ne se coupe pas »). Rien n'a ete perdu en
+	//    le retirant -- ce qui est precisement la condition pour retirer un
+	//    doublon plutot que de le laisser diverger.
 	//
-	//   PanelBg      -> panel_bg          TextOnAccent -> text_on_accent
-	//   PanelHeader  -> panel_header      AccentUi     -> accent_ui
-	//   TypeFolder   -> type_folder       panel_bg     -> panel_bg   (inchange)
-	//   nk3d.AnneauBrosse -> nk3d.anneau_brosse
-	//
-	// ⚠️ SA LIMITE, ECRITE AVEC ELLE PLUTOT QUE DECOUVERTE PLUS TARD : un
-	//    ACRONYME colle ne se coupe pas. « NKThing » donne « nkthing », pas
-	//    « nk_thing » -- la regle ne peut pas savoir ou finit l'acronyme. Aucun
-	//    des 30 roles du coeur n'est dans ce cas ; le jour ou l'un le sera, le
-	//    repli franc (b) le dira au lieu de le peindre en magenta.
-	//
-	// Rend `false` si l'entree est nulle, vide, ou si le resultat ne tient pas
-	// dans `cap` -- une troncature silencieuse fabriquerait un nom qui ne resout
-	// pas et deplacerait le defaut au lieu de le signaler.
-	inline bool NkCanonicalRoleName(const char *in, char *out, uint32 cap) {
-		if (!in || !*in || !out || cap == 0)
-			return false;
-		uint32 n = 0;
-		char prev = 0;
-		for (const char *p = in; *p; ++p) {
-			const char c = *p;
-			const bool upper = (c >= 'A' && c <= 'Z');
-			const bool prevLowerOrDigit =
-				(prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9');
-			if (upper && prevLowerOrDigit) {
-				if (n + 1 >= cap)
-					return false;
-				out[n++] = '_';
-			}
-			if (n + 1 >= cap)
-				return false;
-			out[n++] = upper ? (char)(c - 'A' + 'a') : c;
-			prev = c;
-		}
-		out[n] = 0;
-		return n > 0;
-	}
+	//    Voir `NKEditorKit/NkTheme.h` (declaration) et `NkTheme.inl`
+	//    (definition, pure et sans etat).
 
 	// ── (b) LE REPLI FRANC ──────────────────────────────────────────────────
 	// Ce que le magenta ne disait pas : QUEL role. Une couleur criarde dit qu'il
@@ -259,7 +232,7 @@ namespace nkuidesign {
 		if (direct != NK_ROLE_INVALID)
 			return direct;
 		char canon[96];
-		if (NkCanonicalRoleName(roleName, canon, sizeof(canon))) {
+		if (nkentseu::editorkit::NkCanonicalRoleName(roleName, canon, sizeof(canon))) {
 			const uint16 id = NkResolveRole(canon);
 			if (id != NK_ROLE_INVALID) {
 				NkRoleAudit::Note(NkRoleAudit::Rescued(), roleName, canon);
