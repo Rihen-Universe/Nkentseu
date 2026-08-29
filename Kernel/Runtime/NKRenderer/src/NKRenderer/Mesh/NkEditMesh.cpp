@@ -1303,6 +1303,10 @@ namespace nkentseu {
 		// parcouru est un chemin qu'on optimise pour rien -- nous venons de le payer
 		// sur `ExtrudeSelectedFacesInPlace`, dont un commentaire de 18 lignes
 		// chiffrait le cout alors qu'il n'a aucun appelant de production.
+		NkEmIpPhases &NkEmIpPhasesGet() {
+			static NkEmIpPhases p;
+			return p;
+		}
 		NkEmBfpPhases &NkEmBfpPhasesGet() {
 			static NkEmBfpPhases p;
 			return p;
@@ -1680,8 +1684,13 @@ namespace nkentseu {
 				const bool ok = hedges[h].alive && hf != NK_EM_INVALID && hf < nf && faces[hf].alive;
 				hmap[h] = ok ? nhAlive++ : NK_EM_INVALID;
 			}
-			if (nfAlive == nf && nhAlive == nh)
+			if (nfAlive == nf && nhAlive == nh) {
+				// INSTRUMENT : combien de fois paie-t-on les DEUX boucles de
+				// cartographie pour decouvrir qu'il n'y a rien a compacter ?
+				NkEmIpPhasesGet().compactRien++;
 				return; // rien de mort : on ne recopie pas pour rien
+			}
+			NkEmIpPhasesGet().compactFait++;
 			NkVector<Hedge> nhv;
 			nhv.Resize(nhAlive);
 			for (uint32 h = 0; h < nh; ++h) {
@@ -2121,7 +2130,15 @@ namespace nkentseu {
 			// GLOBALE passait de x0,47 a x1,04 -- apparier sur le tableau NON compacte,
 			// c'est traiter autant de demi-aretes mortes que de vivantes. La solution
 			// n'etait pas de deplacer la compaction mais de lui faire remapper la liste.
+			// ── SONDE DE PHASES DU CHEMIN EN PLACE (NK_BFP_PHASES=1) ────────────
+			NkEmIpPhases &ip = NkEmIpPhasesGet();
+			const bool ipOn = NkEmBfpPhasesActives();
+			NkChrono chI;
 			CompactDead(&touchees);
+			if (ipOn) {
+				ip.msCompactDead += chI.Elapsed().ToMilliseconds();
+				chI = NkChrono();
+			}
 			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
 				verts[i].hedge = NK_EM_INVALID;
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
@@ -2130,6 +2147,10 @@ namespace nkentseu {
 				const NkEmId o = hedges[h].origin;
 				if (o < (NkEmId)verts.Size() && verts[o].hedge == NK_EM_INVALID)
 					verts[o].hedge = (NkEmId)h;
+			}
+			if (ipOn) {
+				ip.msVertHedge += chI.Elapsed().ToMilliseconds();
+				chI = NkChrono();
 			}
 			edges.Clear();
 			canonOf.Clear();
@@ -2146,9 +2167,21 @@ namespace nkentseu {
 			const bool vautLaPeine = ((uint32)touchees.Size() * 4u < (uint32)hedges.Size());
 			if (!vautLaPeine || !LinkTwinsLocal(touchees, copies, nv0))
 				LinkTwins(); // region trop large, ou ambiguite positionnelle
-			else if (outTwinsLocaux)
-				*outTwinsLocaux = 1u;
+			else {
+				if (outTwinsLocaux)
+					*outTwinsLocaux = 1u;
+				if (ipOn)
+					ip.twinsLocaux++;
+			}
+			if (ipOn) {
+				ip.msLinkTwins += chI.Elapsed().ToMilliseconds();
+				chI = NkChrono();
+			}
 			RecomputeNormals();
+			if (ipOn) {
+				ip.msRecomputeNormals += chI.Elapsed().ToMilliseconds();
+				ip.appels++;
+			}
 			ApplyVertSel(vsel);
 			return true;
 		}

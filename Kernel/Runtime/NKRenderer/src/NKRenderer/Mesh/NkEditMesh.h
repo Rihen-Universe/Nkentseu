@@ -142,6 +142,24 @@ namespace nkentseu {
 				float64 msRecomputeNormals = 0.0;
 				uint64 appels = 0;
 		};
+		// ── SONDE DE PHASES DU CHEMIN EN PLACE ──────────────────────────────────
+		// Les quatre passes de remise en etat d'`ExtrudeSelectedFacesInPlace`. C'est
+		// le chemin DEBRANCHE -- il ne coute rien a l'utilisateur aujourd'hui -- mais
+		// c'est le seul ou la region (`touchees`) existe encore au moment ou les
+		// passes tournent. L'autre chemin est ferme par le `Clear()` de
+		// `BuildFromPolygons`.
+		struct NkEmIpPhases {
+				float64 msCompactDead = 0.0;
+				float64 msVertHedge = 0.0;
+				float64 msLinkTwins = 0.0;
+				float64 msRecomputeNormals = 0.0;
+				uint64 appels = 0;
+				uint64 twinsLocaux = 0; ///< combien de fois le chemin LOCAL a ete pris
+				uint64 compactRien = 0; ///< CompactDead sorti sans rien compacter
+				uint64 compactFait = 0; ///< CompactDead a reellement recopie
+		};
+		NkEmIpPhases &NkEmIpPhasesGet();
+
 		NkEmBfpPhases &NkEmBfpPhasesGet();
 		bool NkEmBfpPhasesActives();
 
