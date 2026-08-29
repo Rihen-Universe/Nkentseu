@@ -6214,6 +6214,52 @@ static void PerfEntonnoir() {
 	}
 }
 
+// ── LES TROIS PASSES DE L ENTONNOIR SONT-ELLES LINEAIRES ? ──────────────────
+// La localisation est HORS DE PORTEE pour elles : `BuildFromPolygons` commence
+// par `Clear()` et rebatit TOUT depuis la soupe de polygones -- au moment ou ces
+// passes tournent, aucune entite n a survecu, donc il n y a aucune region
+// << inchangee >> a sauter. Reste l autre levier : leur COMPLEXITE.
+// x4 faces doit donner x4 si c est lineaire. Davantage = il y a a gagner sur le
+// chemin vivant, sans rien localiser.
+static void PerfComplexite() {
+	printf("\n[perf] COMPLEXITE DES TROIS PASSES (x4 faces par palier)\n");
+	if (!renderer::NkEmBfpPhasesActives()) {
+		printf("  ⚠ NK_BFP_PHASES absent.\n");
+		return;
+	}
+	float64 prev[3] = {0.0, 0.0, 0.0};
+	for (uint32 nn = 64u; nn <= 256u; nn *= 2u) {
+		NkVector<NkVertex3D> gv;
+		NkVector<uint32> gi;
+		MakeGrid(nn, gv, gi);
+		NkEditMesh src;
+		src.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		NkVector<NkVertex3D> pv;
+		NkVector<uint32> fs, fv;
+		src.ToPolygons(pv, fs, fv, nullptr);
+		const uint32 P = 7u;
+		float64 lt = 0.0, re = 0.0, rn = 0.0;
+		for (uint32 r = 0; r < P; ++r) {
+			NkEditMesh d;
+			renderer::NkEmBfpPhases &ph = renderer::NkEmBfpPhasesGet();
+			const renderer::NkEmBfpPhases av = ph;
+			d.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1u, fv.Data());
+			lt += ph.msLinkTwins - av.msLinkTwins;
+			re += ph.msRebuildEdges - av.msRebuildEdges;
+			rn += ph.msRecomputeNormals - av.msRecomputeNormals;
+		}
+		const float64 n = (float64)P, a = lt / n, b = re / n, c = rn / n;
+		printf("  %6u faces | LinkTwins %7.3f", (uint32)(nn * nn), a);
+		if (prev[0] > 0.0) printf(" (x%.2f)", a / prev[0]); else printf("        ");
+		printf(" | RebuildEdges %7.3f", b);
+		if (prev[1] > 0.0) printf(" (x%.2f)", b / prev[1]); else printf("        ");
+		printf(" | Normals %7.3f", c);
+		if (prev[2] > 0.0) printf(" (x%.2f)", c / prev[2]);
+		printf("\n");
+		prev[0] = a; prev[1] = b; prev[2] = c;
+	}
+}
+
 static void PerfBattery() {
 	// MAILLAGE DE TAILLE REELLE, pas un cube : 128 x 128 = 16 384 quads, 16 641
 	// sommets, SOUDES. Un cube a six faces rendrait toute mesure verte — c est le
@@ -9041,6 +9087,7 @@ int main(int argc, char **argv) {
 	if (perf) {
 		PerfBattery();
 		PerfEntonnoir();
+		PerfComplexite();
 		PorteeBattery();
 		ProtoBattery();
 	}
