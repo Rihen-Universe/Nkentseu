@@ -1752,6 +1752,17 @@ namespace nkentseu {
 		// la remise a zero de TOUTES les jumelles, puis un appariement par table sur
 		// TOUTES les demi-aretes. La sonde de phases lui attribue 46 % du cout d'une
 		// extrusion en place — de loin le premier poste.
+		// 🔴 RE-MESURE DU 2026-08-29 : CE 46 % NE TIENT PLUS, ET IL A VOYAGE.
+		// Sonde `NkEmIpPhases`, grille 128x128, 7 executions : sur l'extrusion EN
+		// PLACE, `LinkTwins` fait 25,7 % en selection globale et 11,2 % en locale --
+		// et en locale `LinkTwinsLocal` est DEJA pris 7 fois sur 7, donc ces 11,2 %
+		// sont ce qui reste APRES localisation. Le premier poste est `CompactDead`
+		// (31,3 % en local), pas celui-ci.
+		// ⚠ ET SURTOUT : ce chiffre decrit l'extrusion EN PLACE, qui n'a AUCUN
+		// appelant de production (seul le harnais l'appelle). Il a ete cite comme
+		// s'il decrivait le chemin par la soupe, ou la mesure donne 18-25 %. Une
+		// mesure juste sur un chemin mort reste une mesure sur un chemin mort, y
+		// compris quand on la recopie de bonne foi. Dater et dire le chemin.
 		//
 		// ⚠ MAIS L'APPARIEMENT GLOBAL EST UN « PREMIER ARRIVE » SUR TOUT LE MAILLAGE,
 		// et cela ne se localise PAS en general. Des que deux demi-aretes portent la
@@ -2204,6 +2215,43 @@ namespace nkentseu {
 			// ces quatre passes ne sont pas localisees, brancher ce chemin
 			// RALENTIRAIT l'editeur. On garde le code, prouve, et on branche quand il
 			// gagnera.
+			//
+			// ══ RE-MESURE DU 2026-08-29 : DEUX CHIFFRES CI-DESSUS NE TIENNENT PLUS ══
+			// Le bloc qui precede est CONSERVE : il explique le debranchement, et sa
+			// conclusion (« les quatre passes empechent de brancher ») reste vraie.
+			// Mais deux de ses chiffres ont ete re-mesures et sont FAUX aujourd'hui.
+			// Sonde `NkEmIpPhases` (NK_BFP_PHASES=1), grille 128x128, 7 executions,
+			// min/max donnes parce qu'un ecart ne se lit pas contre le bruit :
+			//
+			//   selection LOCALE (3 faces)   moyenne      [min .. max]      part
+			//     TOTAL                       5.113   [ 4.478 ..  5.901]   100.0 %
+			//     CompactDead                 1.601   [ 1.420 ..  1.919]    31.3 %
+			//     Vert::hedge                 0.173   [ 0.135 ..  0.280]     3.4 %
+			//     LinkTwins                   0.574   [ 0.532 ..  0.689]    11.2 %
+			//     RecomputeNormals            0.763   [ 0.550 ..  1.231]    14.9 %
+			//   selection GLOBALE : CompactDead 17,7 % · Vert::hedge 1,9 %
+			//                       LinkTwins 25,7 % · Normals 6,4 %
+			//
+			// 🔴 « les 13,9 restants sont la SEULE reconstruction de `Vert::hedge` » :
+			//    FAUX AUJOURD'HUI. Cette passe mesure 0,173 ms en local et 0,270 ms en
+			//    global. Elle est la PLUS PETITE des quatre, pas la plus grosse. Les
+			//    intervalles ne se chevauchent pas avec `CompactDead` -- un ordre de
+			//    grandeur separe les deux. La plus grosse est `CompactDead` (31 %).
+			// 🔴 « `LinkTwins` global fait 46 % du cout » (commentaire de
+			//    `LinkTwinsLocal`, plus bas) : ce 46 % decrit CE chemin-ci, qui n'a
+			//    AUCUN appelant de production -- seul le harnais l'appelle. Il ne se
+			//    transporte pas au chemin par la soupe, ou la mesure donne 18-25 %.
+			//    Et ici `LinkTwinsLocal` est DEJA pris 7 fois sur 7 en selection
+			//    locale : le levier est deja tire, il reste 11,2 %.
+			//
+			// CE QUI A COUTE UNE SEMAINE, ET QU'IL FAUT LIRE COMME UNE REGLE :
+			// ces chiffres etaient JUSTES quand ils ont ete pris. Ils n'etaient pas
+			// dates, et leur precision les a rendus credibles longtemps apres que le
+			// code eut bouge. On en a tire « commencer par `Vert::hedge` » -- soit
+			// 3,4 % de la cible -- et on l'a repete deux fois sans le re-mesurer.
+			// ⚠ UN COMMENTAIRE MESURE QUI N'EST PAS DATE VIEILLIT SANS LE DIRE, ET IL
+			// EST CRU D'AUTANT PLUS QU'IL EST PRECIS. Dater, dire la sonde, dire les
+			// conditions -- ou ne pas chiffrer.
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			// MATERIAU PAR FACE : les faces non touchees gardent leur index, la face
