@@ -166,8 +166,23 @@ namespace nkuidesign {
 						 KitFaultCount() + FaultCount(),
 						 KitRescuedCount() + RescuedCount());
 				out.Append(b);
-				AppendList(out, Faults(), "  |  non resolus : ", maxNames, false);
-				AppendList(out, Rescued(), "  |  a corriger a la source : ", maxNames, true);
+				// ⚠️ LE COMPTE ADDITIONNAIT KIT + APPLICATION, LA LISTE NE NOMMAIT
+				//    QUE L'APPLICATION. Mesure du 2026-08-29 : le bandeau annoncait
+				//    « 2 role(s) NON RESOLU(S) » et n'en citait qu'UN. Un compteur
+				//    qui dit deux et n'en nomme qu'un envoie chercher le second a
+				//    la main -- c'est-a-dire exactement le travail que ce bandeau
+				//    existe pour supprimer. On liste les DEUX registres, dans le
+				//    meme ordre que le compte les additionne.
+				// ⚠️ UN SEUL REGISTRE EST NOMME PARCE QU'IL N'Y EN A PLUS QU'UN
+				//    D'ALIMENTE. `NkDesignResolveRole` delegue desormais au kit ;
+				//    les listes locales restent declarees mais ne recoivent plus
+				//    rien. Les lister aurait affiche une section vide en
+				//    permanence -- et le jour ou quelqu'un y ecrirait a nouveau,
+				//    le compte les prend deja en charge.
+				AppendList(out, nkentseu::editorkit::NkRoleAudit::Faults(),
+						   "  |  non resolus : ", maxNames, false);
+				AppendList(out, nkentseu::editorkit::NkRoleAudit::Rescued(),
+						   "  |  a corriger a la source : ", maxNames, true);
 			}
 
 			// ⚠️ AJOUT DEDUPLIQUE. Le dessin passe par ici a CHAQUE image : sans
@@ -193,7 +208,14 @@ namespace nkuidesign {
 						return false;
 				return *a == *b;
 			}
-			static void AppendList(NkString &out, const NkVector<Entry> &v, const char *lead,
+			/// ⚠️ GENERIQUE SUR LE TYPE D'ENTREE, et ce n'est pas de l'elegance :
+			///    le kit et l'application ont chacun leur `Entry`, deux types
+			///    DISTINCTS qui portent les deux memes champs. Rendre la fonction
+			///    generique coute un mot-cle ; recopier son corps aurait coute un
+			///    second endroit ou corriger le jour ou le format du bandeau
+			///    change.
+			template <typename E>
+			static void AppendList(NkString &out, const NkVector<E> &v, const char *lead,
 								   uint32 maxNames, bool withCanon) {
 				if (v.Size() == 0)
 					return;
@@ -228,19 +250,22 @@ namespace nkuidesign {
 	inline uint16 NkDesignResolveRole(const char *roleName) {
 		if (!roleName || !*roleName)
 			return NK_ROLE_INVALID;
-		const uint16 direct = NkResolveRole(roleName);
-		if (direct != NK_ROLE_INVALID)
-			return direct;
-		char canon[96];
-		if (nkentseu::editorkit::NkCanonicalRoleName(roleName, canon, sizeof(canon))) {
-			const uint16 id = NkResolveRole(canon);
-			if (id != NK_ROLE_INVALID) {
-				NkRoleAudit::Note(NkRoleAudit::Rescued(), roleName, canon);
-				return id;
-			}
-		}
-		NkRoleAudit::Note(NkRoleAudit::Faults(), roleName, "");
-		return NK_ROLE_INVALID;
+		// ⚠️ ELLE DELEGUE, ET TOUT CE QU'ELLE FAISAIT EN PLUS ETAIT UN DOUBLON.
+		//    `NkResolveRole` -> `NkRoleRegistry::Find` fait DEJA les trois etapes :
+		//    nom brut, forme canonisee, puis echec franc NOTE dans l'audit du kit.
+		//    Cette fonction les refaisait par-dessus, avec son PROPRE audit.
+		//
+		//    Mesure du 2026-08-29, et c'est elle qui a tout explique : le bandeau
+		//    annoncait « 2 role(s) NON RESOLU(S) » pour UN SEUL nom. Les deux
+		//    registres contenaient le meme `card_bg` -- une faute unique, comptee
+		//    deux fois, parce que deux resolveurs identiques la notaient chacun
+		//    chez soi. Le « second role » que personne ne trouvait n'existait pas.
+		//
+		//    Et sa branche de canonisation etait DEJA MORTE : le kit canonise en
+		//    amont, donc `NkResolveRole` rendait deja un role valide pour les
+		//    graphies PascalCase, et on n'entrait jamais dans le `if`. Ecrite
+		//    quand le kit ne canonisait pas, jamais retiree quand Q64 l'a fait.
+		return NkResolveRole(roleName);
 	}
 
 } // namespace nkuidesign

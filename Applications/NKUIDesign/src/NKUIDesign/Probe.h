@@ -1216,6 +1216,7 @@ namespace nkuidesign {
 		//    (b) le repli est FRANC -> ce que (a) ne couvre pas se DIT.
 		{
 			NkRoleAudit::Reset();
+			nkentseu::editorkit::NkRoleAudit::Reset();
 
 			// 33a. LA CANONISATION EST JUSTE SUR DES CAS ECRITS D'AVANCE. La
 			//      table est posee AVANT de mesurer quoi que ce soit : une
@@ -1272,12 +1273,21 @@ namespace nkuidesign {
 			//      disait « il y a un probleme » ; il ne disait ni lequel, ni
 			//      combien, ni ou. L'audit doit NOMMER le role fautif -- et ne
 			//      rien nommer quand tout va bien.
-			const bool nomme = NkRoleAudit::FaultCount() == 1 &&
-							   SameText(NkRoleAudit::Faults()[0].name.Data(),
+			// ⚠️ REPOINTE SUR L'AUDIT DU KIT, PAS SUPPRIME. Depuis le
+			//    2026-08-29, `NkDesignResolveRole` DELEGUE a
+			//    `NkRoleRegistry::Find` : c'est donc le kit qui note la faute, et
+			//    le registre local ne recoit plus rien. Cet essai a MORDU sur ce
+			//    changement -- il est passe de 131/131 a 130/131 en disant
+			//    « L'AUDIT N'A PAS NOMME LE FAUTIF », ce qui etait exact. On le
+			//    fait donc regarder au bon endroit ; le supprimer aurait retire la
+			//    garde en meme temps que le doublon qu'elle venait de detecter.
+			const bool nomme = nkentseu::editorkit::NkRoleAudit::FaultCount() == 1 &&
+							   SameText(nkentseu::editorkit::NkRoleAudit::Faults()[0].name.Data(),
 										"RoleQuiNExistePasDuTout");
 			NkRoleAudit::Reset();
+			nkentseu::editorkit::NkRoleAudit::Reset();
 			NkDesignResolveRole("panel_bg");
-			const bool muetQuandTouVaBien = NkRoleAudit::FaultCount() == 0;
+			const bool muetQuandTouVaBien = nkentseu::editorkit::NkRoleAudit::FaultCount() == 0;
 			check("33c. le repli est FRANC : il NOMME le role fautif, et se tait quand il n'y en a pas",
 				  nomme && muetQuandTouVaBien,
 				  nomme ? "role fautif nomme, silence sinon" : "L'AUDIT N'A PAS NOMME LE FAUTIF");
@@ -1292,6 +1302,7 @@ namespace nkuidesign {
 			//      ou un troisieme s'inscrit, il est couvert sans qu'une ligne
 			//      bouge ici. C'est la difference entre un essai et un audit.
 			NkRoleAudit::Reset();
+			nkentseu::editorkit::NkRoleAudit::Reset();
 			uint32 jetonsVus = 0, jetonsCasses = 0;
 			NkString casses;
 			const uint16 nbComp = NkComponentRegistry::Count();

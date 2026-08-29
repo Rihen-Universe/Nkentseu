@@ -298,7 +298,20 @@ namespace nkuidesign {
 							  const NkDocumentHost &host) {
 			if (r.w <= 0.f || r.h <= 0.f)
 				return;
-			p.Outline(r, host.Role("border"), host.Role("card_bg"), 1.f);
+			// ⚠️ `card_bg` EST UN JETON, PAS UN ROLE -- et c'est la cause du
+			//    magenta que Rodolf voyait au milieu de la toile. Tous les autres
+			//    sites passent par `instance.TokenRole("card_bg")`, qui traduit le
+			//    jeton en role ; celui-ci passait le nom du JETON directement a
+			//    `Role()`, qui ne connait que des roles. Resultat : NON RESOLU,
+			//    donc magenta -- exactement ce que le repli franc doit faire.
+			//
+			//    Une forme posee n'a PAS d'instance de composant, donc pas de
+			//    table de jetons : elle ne peut pas traduire. Il lui faut un vrai
+			//    role, et on prend celui que `card_bg` DECLARE lui-meme comme
+			//    defaut -- `InputBg`, dans `NkContentBrowserModel.h:300`, « fond
+			//    de la vignette ». Ce n'est donc pas mon gout : c'est la reponse
+			//    que la declaration donnait deja.
+			p.Outline(r, host.Role("border"), host.Role("input_bg"), 1.f);
 			if (!name || !*name)
 				return;
 			NkPaintRect label = r;

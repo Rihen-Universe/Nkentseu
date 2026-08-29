@@ -980,7 +980,12 @@ namespace nkuidesign {
 				//    lire trois fichiers pour le savoir. Ce bandeau le DIT, juste
 				//    au-dessus du dessin fautif -- et il ne s'affiche pas quand
 				//    tout va bien, sinon on cesserait de le lire.
-				if (NkRoleAudit::FaultCount() > 0) {
+				// ⚠️ LA CONDITION LIT LES DEUX REGISTRES, comme le resume les
+				//    compte. Sur le seul compte de l'application, le bandeau se
+				//    serait TU des qu'on corrigeait le defaut applicatif -- en
+				//    laissant vivre celui du kit, magenta a l'ecran et plus rien
+				//    pour le dire.
+				if (NkRoleAudit::FaultCount() + nkentseu::editorkit::NkRoleAudit::FaultCount() > 0) {
 					NkString resume;
 					NkRoleAudit::Summary(resume, 6);
 					ec.Text("!! ROLE(S) DE THÈME NON RÉSOLU(S) -- ce qui suit est peint en magenta :");
