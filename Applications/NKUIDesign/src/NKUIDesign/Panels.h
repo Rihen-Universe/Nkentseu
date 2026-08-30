@@ -3045,6 +3045,7 @@ namespace nkuidesign {
 					ctx.BeginDisabled();
 					designkit::KeyValue(ctx, "  valeur", "(le mode n'en porte pas)");
 					ctx.EndDisabled();
+					LignesBornes(ctx, titre, d);
 					return;
 				}
 				// La vitesse suit l'unite : 1 px par cran en Fixed, 0.01 pour une
@@ -3056,6 +3057,22 @@ namespace nkuidesign {
 				char id[32];
 				snprintf(id, sizeof(id), "%s##insp.taille", titre);
 				if (nkgui::DragFloat(ctx, id, d.value, vitesse, vmin, vmax))
+					mSt->doc.MarkHumanEdit(mSt->selected);
+				LignesBornes(ctx, titre, d);
+			}
+
+			/// Les BORNES d'un axe (InspecteurV2, Banani doc 11 §1.6) : « min /
+			/// max en retrait » sous la ligne de taille — pour TOUS les modes
+			/// (la maquette borne une largeur `expand` a 120/320). 0 = sans
+			/// borne, et la maquette l'ecrit « — » : le DragFloat a 0 se lit
+			/// pareil.
+			void LignesBornes(NkGuiContext &ctx, const char *titre, NkSizeDecl &d) {
+				char id[40];
+				snprintf(id, sizeof(id), "  min##insp.%s", titre);
+				if (nkgui::DragFloat(ctx, id, d.minVal, 1.f, 0.f, 4096.f))
+					mSt->doc.MarkHumanEdit(mSt->selected);
+				snprintf(id, sizeof(id), "  max##insp.%s", titre);
+				if (nkgui::DragFloat(ctx, id, d.maxVal, 1.f, 0.f, 4096.f))
 					mSt->doc.MarkHumanEdit(mSt->selected);
 			}
 
