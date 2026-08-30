@@ -1210,9 +1210,32 @@ namespace nkuidesign {
 				//    lui aussi. La resolution canonise desormais, mais le nom
 				//    canonique s'ecrit quand meme : la canonisation est un filet,
 				//    pas une dispense.
-				if (screen.Has(mSt->selected))
-					paint.OutlineSharp(screen.At(mSt->selected),
-									   NkDesignResolveRole("accent_ui"));
+				if (screen.Has(mSt->selected)) {
+					const NkPaintRect rs = screen.At(mSt->selected);
+					const uint16 accent = NkDesignResolveRole("accent_ui");
+					paint.OutlineSharp(rs, accent);
+					// LES POIGNEES DE LA PLANCHE 22.0 : huit carres — coins et
+					// milieux de bords — sur l'element selectionne (le bouton
+					// « Se connecter » de la planche les montre). Petits carres
+					// clairs a contour accent, le vocabulaire du §8bis. Decor
+					// d'editeur : jamais dans le document, jamais dans les essais
+					// 41. Le glisser des bords droit/bas redimensionne deja ; les
+					// poignees RENDENT VISIBLE ou tirer.
+					const float32 hp = 7.f;
+					const uint16 fondP = NkDesignResolveRole("window_bg");
+					const float32 xs[3] = {rs.x - hp * 0.5f, rs.x + rs.w * 0.5f - hp * 0.5f,
+										   rs.x + rs.w - hp * 0.5f};
+					const float32 ys[3] = {rs.y - hp * 0.5f, rs.y + rs.h * 0.5f - hp * 0.5f,
+										   rs.y + rs.h - hp * 0.5f};
+					for (uint32 gy = 0; gy < 3; ++gy)
+						for (uint32 gx = 0; gx < 3; ++gx) {
+							if (gx == 1 && gy == 1)
+								continue; // pas de poignee au centre
+							const NkPaintRect ph{xs[gx], ys[gy], hp, hp};
+							paint.Fill(ph, fondP, 0.f);
+							paint.OutlineSharp(ph, accent);
+						}
+				}
 			}
 
 		private:
