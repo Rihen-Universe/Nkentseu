@@ -1436,10 +1436,30 @@ namespace nkuidesign {
 						const NkPaintRect r = screen.At(hit);
 						const bool nearRight = in.mouseX >= r.x + r.w - kHandle;
 						const bool nearBottom = in.mouseY >= r.y + r.h - kHandle;
-						if (nearRight || nearBottom) {
+						const bool nearLeft = in.mouseX <= r.x + kHandle;
+						const bool nearTop = in.mouseY <= r.y + kHandle;
+						NkUINode &hn = mSt->doc.nodes[(uint32)hit];
+						const bool pose =
+							hn.parent >= 0
+							&& mSt->doc.nodes[(uint32)hn.parent].layout.kind == NkLayoutKind::Free;
+						// ⚠️ LES HUIT POIGNEES REDIMENSIONNENT TOUTES (Lunacy) — pour
+						//    un noeud POSE en taille Fixed. Tirer GAUCHE ou HAUT
+						//    deplace l'origine EN COMPENSANT la taille : le bord
+						//    oppose ne bouge pas, comme dans tout outil de dessin.
+						//    Un noeud AGENCE garde l'ancien geste (droite/bas via
+						//    NkResizeByDrag) : sa position est un resultat.
+						if (pose && (nearRight || nearBottom || nearLeft || nearTop)
+							&& hn.width.mode == NkSizeMode::Fixed
+							&& hn.height.mode == NkSizeMode::Fixed) {
+							mDragging = true;
+							mDragNode = hit;
+							mResizeEdges = (uint8)((nearLeft ? 1u : 0u) | (nearRight ? 2u : 0u)
+												   | (nearTop ? 4u : 0u) | (nearBottom ? 8u : 0u));
+						} else if (nearRight || nearBottom) {
 							mDragging = true;
 							mDragHorizontal = nearRight;
 							mDragNode = hit;
+							mResizeEdges = 0;
 						} else if (mSt->doc.nodes[(uint32)hit].parent >= 0
 								   && mSt->doc.nodes[(uint32)mSt->doc.nodes[(uint32)hit].parent]
 											  .layout.kind
@@ -1464,7 +1484,28 @@ namespace nkuidesign {
 						mSt->doc.MarkHumanEdit(mMoveNode);
 					}
 				}
-				if (mDragging && in.mouseDown) {
+				if (mDragging && in.mouseDown && mResizeEdges != 0
+					&& mSt->doc.IsValidIndex(mDragNode)) {
+					// Les huit poignees d'un noeud POSE : taille ET origine, en
+					// espace document. Plancher 8 px — une forme de 0 px se perd.
+					const float32 dx = mSt->view.ToDocLength(in.mouseX - mLastX);
+					const float32 dy = mSt->view.ToDocLength(in.mouseY - mLastY);
+					NkUINode &n = mSt->doc.nodes[(uint32)mDragNode];
+					if ((mResizeEdges & 2u) && n.width.value + dx >= 8.f)
+						n.width.value += dx;
+					if ((mResizeEdges & 8u) && n.height.value + dy >= 8.f)
+						n.height.value += dy;
+					if ((mResizeEdges & 1u) && n.width.value - dx >= 8.f) {
+						n.posX += dx;
+						n.width.value -= dx;
+					}
+					if ((mResizeEdges & 4u) && n.height.value - dy >= 8.f) {
+						n.posY += dy;
+						n.height.value -= dy;
+					}
+					if (dx != 0.f || dy != 0.f)
+						mSt->doc.MarkHumanEdit(mDragNode);
+				} else if (mDragging && in.mouseDown) {
 					// ⚠️ ICI, ET NULLE PART AILLEURS : le glissement arrive en pixels
 					//    ECRAN et va ecrire une TAILLE, qui est une longueur
 					//    DOCUMENT. Sans `ToDocLength`, tirer un bord de 100 px
@@ -1571,6 +1612,7 @@ namespace nkuidesign {
 			bool mDragging = false;
 			bool mDragHorizontal = true;
 			int32 mDragNode = -1;
+			uint8 mResizeEdges = 0; ///< bits 1=G 2=D 4=H 8=B (noeud pose, huit poignees)
 			bool mMoving = false;
 			int32 mMoveNode = -1;
 			bool mCreating = false;
