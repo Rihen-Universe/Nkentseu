@@ -2926,20 +2926,32 @@ namespace nkuidesign {
 				designkit::KeyValue(ctx, "X", b);
 				snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)r.y);
 				designkit::KeyValue(ctx, "Y", b);
-				// ⚠️ SOUS UN PARENT `Free`, LA POSITION EST AUSSI UNE DONNEE --
-				//    `posX`/`posY` du noeud, celle que le fichier porte. On montre
-				//    LES DEUX : l'ecran (resultat) et le document (donnee), parce
-				//    que c'est exactement la difference qu'un banc doit pouvoir
-				//    lire. Elle reste en LECTURE SEULE ici : la toile est l'outil
-				//    d'ecriture de la position, pas l'inspecteur.
+				// ⚠️ SOUS UN PARENT `Free`, LA POSITION EST UNE DONNEE POSEE — et
+				//    depuis le 30/08 (référence Lunacy de Rodolf : X/Y sont des
+				//    champs), elle S'ÉDITE ICI. Ce n'est pas contre la règle « la
+				//    position est un résultat » : la règle vaut pour les nœuds
+				//    PILOTÉS PAR UN AGENCEMENT — eux restent en lecture seule avec
+				//    leur explication. `posX`/`posY` sous Free est ce que le
+				//    fichier porte déjà (étape 38) : l'éditer au champ est le même
+				//    geste que le glisser de la toile, au clavier.
 				if (ParentKind() == editorkit::NkLayoutKind::Free) {
-					snprintf(b, sizeof(b), "%.0f, %.0f", (double)n->posX, (double)n->posY);
-					designkit::KeyValue(ctx, "Posée (doc)", b);
+					NkUINode *m = NoeudMutable();
+					if (m) {
+						bool bouge = false;
+						bouge |= nkgui::DragFloat(ctx, "X posée", m->posX, 1.f, -100000.f,
+												  100000.f);
+						bouge |= nkgui::DragFloat(ctx, "Y posée", m->posY, 1.f, -100000.f,
+												  100000.f);
+						if (bouge)
+							mSt->doc.MarkHumanEdit(mSt->selected);
+					}
+				} else {
+					// ⚠️ PHRASE PLEINE LARGEUR, PAS UNE CELLULE : en colonne
+					//    « valeur » elle sortait « calculée — jamais écrite da... »
+					//    sur la capture du 29/08. Un texte d explication coupé
+					//    n explique plus.
+					nkgui::TextWrapped(ctx, "calculée — jamais écrite dans le document");
 				}
-				// ⚠️ PHRASE PLEINE LARGEUR, PAS UNE CELLULE : en colonne « valeur »
-				//    elle sortait « calculée — jamais écrite da... » sur la capture
-				//    du 29/08. Un texte d explication coupé n explique plus.
-				nkgui::TextWrapped(ctx, "calculée — jamais écrite dans le document");
 			}
 
 			void CorpsTaille(NkGuiContext &ctx) {
