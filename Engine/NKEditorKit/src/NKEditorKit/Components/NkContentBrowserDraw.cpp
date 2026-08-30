@@ -218,8 +218,22 @@ namespace nkentseu {
 			const float32 rowH = M("row_h");
 
 			const bool asGrid = (variant == NkBrowserVariant::Grid);
-			const float32 cellW = asGrid ? (thumb + gap) : area.w;
-			const float32 cellH = asGrid ? (thumb + footerH + gap) : rowH;
+			// ⚠️ EN BANDE COURTE, LA VIGNETTE CEDE, LE PIED RESTE. Mesure par le
+			//    premier consommateur externe (NK3DModeler, capture du 30/08) : la
+			//    taille de vignette par defaut poussait le PIED DE CARTE hors du
+			//    clip -- il disparaissait en silence, et ca ressemblait a un
+			//    alignement casse de l'adaptateur. Le pied porte le nom et le
+			//    type : c'est LUI l'information, la vignette n'est que l'illustration.
+			//    On borne donc la vignette a la place disponible (plancher 16 px --
+			//    en dessous, une vignette ne montre plus rien), et le pied tient.
+			float32 thumbFit = thumb;
+			if (asGrid && showFooter) {
+				const float32 place = area.h - footerH - gap;
+				if (thumbFit > place)
+					thumbFit = place > 16.f ? place : 16.f;
+			}
+			const float32 cellW = asGrid ? (thumbFit + gap) : area.w;
+			const float32 cellH = asGrid ? (thumbFit + footerH + gap) : rowH;
 			int32 perRow = asGrid ? (int32)(area.w / (cellW > 0.f ? cellW : 1.f)) : 1;
 			if (perRow < 1)
 				perRow = 1;
@@ -236,7 +250,7 @@ namespace nkentseu {
 				const int32 col = asGrid ? (visible % perRow) : 0;
 				const int32 row = asGrid ? (visible / perRow) : visible;
 				NkPaintRect cell{area.x + (float32)col * cellW, area.y + (float32)row * cellH - m.scroll,
-								 asGrid ? thumb : area.w, asGrid ? (thumb + footerH) : rowH};
+								 asGrid ? thumbFit : area.w, asGrid ? (thumbFit + footerH) : rowH};
 				++visible;
 
 				// Hors champ : on saute le DESSIN, pas le comptage. Compter apres

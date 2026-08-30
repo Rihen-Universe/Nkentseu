@@ -595,7 +595,13 @@ namespace nkentseu {
 				{"show_visibility", "Colonne oeil", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
 				{"show_lock", "Colonne cadenas", NkParamKind::Bool, 0.f, 0.f, 0.f, nullptr, 0},
 				{"show_type", "Colonne type", NkParamKind::Bool, 0.f, 0.f, 0.f, nullptr, 0},
-				{"indent_guides", "Filets d'indentation", NkParamKind::Bool, 0.f, 0.f, 0.f, nullptr, 0},
+				// ⚠️ DEFAUT PASSE DE 0 A 1 LE 2026-08-30, SUR UNE MESURE A DEUX
+				//    CONSOMMATEURS : NkUIDesign le posait explicitement a 1, et le
+				//    premier consommateur externe (NK3DModeler) a failli accuser son
+				//    adaptateur pour un parametre... a son defaut. Quand les deux
+				//    seuls consommateurs veulent 1, le defaut 0 n'est pas un choix,
+				//    c'est un piege -- chacun le paie a son premier arbre.
+				{"indent_guides", "Filets d'indentation", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
 				// La divergence mesuree entre les deux copies, devenue un reglage.
 				{"default_open", "Noeuds deplies par defaut", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr,
 				 0},

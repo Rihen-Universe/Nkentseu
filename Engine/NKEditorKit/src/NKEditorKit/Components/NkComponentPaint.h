@@ -18,14 +18,24 @@
 //  contre cette interface ne changera pas d'une ligne le jour ou l'implementation
 //  arrivera — seule la classe passee en argument changera.
 //
-//  ⚠️ CE QUE J'AI ECRIT ICI EN ATTENDANT, ET QUI DISPARAIT A SON ARRIVEE :
-//     `NkGuiComponentPaint` — un adaptateur MINCE sur la liste d'affichage de
-//     NKGui (aucune geometrie nouvelle, aucune decision de rendu). Il existe
-//     parce qu'une interface sans implementation ne se compile pas contre un
-//     appelant reel, et qu'une declaration sans consommateur est exactement le
-//     defaut que cette tranche existe pour eviter. Le jour ou le peintre de
-//     NK3DModeler arrive, il devient la seconde implementation — et si elle est
-//     meilleure, l'adaptateur s'efface. **Il ne doit surtout pas grossir.**
+//  ⚠️ LE DECLENCHEUR EST ADVENU — 2026-08-30, ET VOICI CE QU'IL A DONNE.
+//     Le peintre de NK3DModeler est ARRIVE : `NkModelerComponentPaint.h`
+//     (147 l., commit `6f62e114`, branche `refonte-interface-nk3dmodeler`),
+//     les 13 virtuelles couvertes, et `tree_view` + `content_browser` rendent
+//     deja chez lui derriere `NK_KIT_TREE=1` / `NK_KIT_BROWSER=1`, nourris par
+//     sa hierarchie vivante.
+//
+//     ⚠️ MAIS LA PHRASE D'ORIGINE — « si elle est meilleure, l'adaptateur
+//     s'efface » — ETAIT FAUSSE, et la mesure du 30/08 dit pourquoi : le
+//     peintre de NK3DModeler exige un `NkModelerPainter`, que NkUIDesign n'a
+//     pas et n'aura jamais. Il ne peut donc pas remplacer
+//     `NkGuiComponentPaint` : il s'y AJOUTE. La realite advenue est TROIS
+//     implementations perennes, une par monde :
+//        NkGuiComponentPaint      le monde NkGuiDrawList (NkUIDesign)
+//        NkModelerComponentPaint  le monde NkModelerPainter (NK3DModeler)
+//        NkRecordingPaint         les essais (lit ce qui est emis)
+//     Et « il ne doit pas grossir » reste vrai pour chacune : une decision de
+//     rendu se prend dans le COMPOSANT, jamais dans un peintre.
 //
 // =============================================================================
 //  LES DEUX EXIGENCES DE RECEPTION (Q60 §5), ECRITES DANS LA SIGNATURE

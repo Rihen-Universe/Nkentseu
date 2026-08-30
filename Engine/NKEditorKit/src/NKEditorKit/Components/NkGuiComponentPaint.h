@@ -7,24 +7,27 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
-//  ⚠️ CE FICHIER EST PROVISOIRE, ET IL FAUT QU'IL LE RESTE.
+//  ⚠️ CE FICHIER N'EST PLUS PROVISOIRE — IL EST L'IMPLEMENTATION DU MONDE NKGUI.
 // =============================================================================
-//  Le peintre partage arrive de NK3DModeler (`NkModelerPainter`, 571 l.,
-//  `NkModelerUI.h`), extrait par son agent — je le RECOIS, je ne le prends pas.
-//  Ce fichier n'est PAS ce peintre et ne cherche pas a le devenir.
+//  Ecrit comme depannage « en attendant le peintre de NK3DModeler », il a
+//  change de statut le 2026-08-30, quand ce peintre est arrive
+//  (`NkModelerComponentPaint.h`, 147 l., commit `6f62e114`) : la mesure a
+//  montre qu'il ne pouvait PAS remplacer ce fichier — il exige un
+//  `NkModelerPainter`, que NkUIDesign n'a pas. Deux mondes de rendu, deux
+//  implementations perennes (plus `NkRecordingPaint` pour les essais).
 //
-//  IL EXISTE POUR UNE SEULE RAISON : une interface sans implementation ne se
-//  compile contre aucun appelant reel, et une declaration sans consommateur
-//  serait exactement le quatrieme systeme dormant que cette tranche existe pour
-//  ne pas creer. Il faut un peintre — n'importe lequel — pour que la chaine
-//  « declaration -> dessin -> ecran » soit fermee aujourd'hui.
+//  ⚠️ ET RIEN N'A MAIGRI, PARCE QUE LA MESURE L'A REFUSE. Ce qu'il porte est
+//     soit le RESPECT DU CONTRAT (l'ellipse, le centrage — les retirer ferait
+//     mentir la signature), soit une DEPENDANCE NOMMEE vers NKGui (l'atlas
+//     d'icones, le contour arrondi — elles disparaitront quand NKGui saura).
+//     Un doublon dont une moitie porte une connaissance que l'autre n'a pas ne
+//     se retire pas ; ici il n'y a meme pas doublon, il y a deux mondes.
 //
 //  🚧 REGLE POUR CELUI QUI PASSERA APRES MOI : **il ne doit pas grossir.**
 //     Chaque methode se contente de traduire un appel vers `NkGuiDrawList`.
 //     Aucune geometrie nouvelle, aucune decision de rendu, aucun cas
-//     particulier. Le jour ou l'on est tente d'ajouter un effet ici, c'est le
-//     signe que le peintre de NK3DModeler doit arriver — pas que ce fichier
-//     doit s'etoffer.
+//     particulier. Une decision de rendu se prend dans le COMPOSANT — c'est ce
+//     qui garantit que les trois peintres rendent la MEME chose.
 //
 // CE QU'IL FAIT QUAND MEME, ET POURQUOI IL LE FAUT :
 //   - **l'ellipse** (« mon_tres_long_fichier... ») : le contrat de
