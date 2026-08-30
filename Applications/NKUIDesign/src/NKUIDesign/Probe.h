@@ -484,6 +484,20 @@ namespace nkuidesign {
 		check("4. une VARIANTE change la mise en page (un modele, N rendus)", a1.DiffCount(d) > 0,
 			  buf);
 
+		// ── 4b. LA VARIANTE `minimal` EST L'ANCIEN RENDU, ET ELLE DESSINE ───
+		// Ajoutee avec le mixte du 30/08 : `grid` est devenu le mixte, l'ancien
+		// dessin survit sous `minimal`. Un chemin declare que rien n'exerce est
+		// un chemin qui casse en silence — condition d'existence d'abord (des
+		// commandes sortent), puis discrimination (il differe du mixte).
+		NkComponentInstance vmin(NkContentBrowserDecl());
+		vmin.SetVariantByName("minimal");
+		NkRecordingPaint dmin;
+		Render(dmin, &vmin, idle);
+		snprintf(buf, sizeof(buf), "%u commandes, %u differences avec le mixte",
+				 (uint32)dmin.cmds.Size(), a1.DiffCount(dmin));
+		check("4b. la variante `minimal` (l'ancien rendu) dessine, et differe du mixte",
+			  dmin.cmds.Size() > 20 && a1.DiffCount(dmin) > 0, buf);
+
 		// ── 5. UNE INSTANCE VIERGE N'IMPOSE RIEN ────────────────────────────
 		// Le defaut evite : `Variant()` rendait 0 quand rien n'etait pose, ce qui
 		// forcait `grid` a toute application branchant une instance. Un defaut
