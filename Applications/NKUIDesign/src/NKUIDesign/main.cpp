@@ -1257,6 +1257,19 @@ int nkmain(const NkEntryState &state) {
 		static_cast<NkEditorShell *>(u)->SetRailFooterText(t);
 	};
 	gDesign.piedUser = shell.Get();
+	// La pastille « ● » du nom de fichier (Banani TopHeader : non-enregistre).
+	// L'etat arrive MESURE (Panels) ; ici on ne repeint qu'au changement.
+	gDesign.titre = [](void *u, bool modifie) {
+		static bool dernier = false;
+		static bool init = false;
+		if (init && modifie == dernier)
+			return;
+		init = true;
+		dernier = modifie;
+		static_cast<NkEditorShell *>(u)->SetTitleInfo(
+			modifie ? "● Dashboard_Admin.nkgui" : "Dashboard_Admin.nkgui");
+	};
+	gDesign.titreUser = shell.Get();
 
 	// ── LES TROIS RAILS DE PASTILLES (document 3 §13.1) ──────────────────
 	// ⚠️ CE SONT DES PANNEAUX SECONDAIRES, et le rail existe pour qu ils

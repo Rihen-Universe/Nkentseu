@@ -510,6 +510,7 @@ namespace nkuidesign {
 				//    que du code teste.
 				NkBuildBlankDocument(doc);
 				SelectSingle(0);
+				PrendreEtatEnregistre();
 				// ⚠️ NE PAS EFFACER LE DIAGNOSTIC DE L ECHEC. C est ce qui a rendu le
 				//    defaut du 28/08 indechiffrable : le chargement echouait, posait
 				//    son message, et la ligne suivante le remplacait par « Document de
@@ -531,6 +532,29 @@ namespace nkuidesign {
 			/// geste « dire au pied », jamais la coquille.
 			void (*pied)(void *user, const char *texte) = nullptr;
 			void *piedUser = nullptr;
+			/// LE TITRE : « ● nom.nkgui » quand le document est MODIFIE (Banani
+			/// TopHeader, pastille non-enregistre). L'etat se MESURE — la
+			/// serialisation comparee a celle du dernier enregistrement — il ne
+			/// se declare pas par drapeau : un drapeau oublie a un site de
+			/// mutation ment pour toujours.
+			void (*titre)(void *user, bool modifie) = nullptr;
+			void *titreUser = nullptr;
+			NkString etatEnregistre;
+			void PrendreEtatEnregistre() {
+				etatEnregistre = NkString();
+				doc.Save(etatEnregistre);
+			}
+			bool DocumentModifie() {
+				NkString now;
+				doc.Save(now);
+				const char *a = now.Data() ? now.Data() : "";
+				const char *b = etatEnregistre.Data() ? etatEnregistre.Data() : "";
+				while (*a && *a == *b) {
+					++a;
+					++b;
+				}
+				return *a != *b;
+			}
 			void DireAuPied(const char *t) {
 				status = NkString(t ? t : "");
 				if (pied)
@@ -567,6 +591,7 @@ namespace nkuidesign {
 							 ? NkString("Document enregistré : ")
 							 : NkString("ÉCHEC d'écriture : ");
 				status.Append(kDocumentPath);
+				PrendreEtatEnregistre();
 			}
 
 			bool LoadDoc() {
@@ -607,6 +632,7 @@ namespace nkuidesign {
 				snprintf(b, sizeof(b), "Document chargé : %u nœud(s), %u composant(s) inconnu(s)",
 						 doc.NodeCount(), unknown);
 				status = NkString(b);
+				PrendreEtatEnregistre();
 				return true;
 			}
 	};
@@ -1055,6 +1081,13 @@ namespace nkuidesign {
 				const NkPaintRect docSurface = {0.f, 0.f, mSt->view.ToDocLength(area.w),
 												mSt->view.ToDocLength(area.h)};
 				mSt->Recompute(docSurface);
+
+				// La pastille « modifie » du titre : une MESURE toutes les 30
+				// images (serialiser quelques Ko 2x/s ne se voit pas), jamais un
+				// drapeau. Le branchement (main) ne repeint le titre qu'au
+				// changement.
+				if (mSt->titre && (mFramePastille++ % 30u) == 0u)
+					mSt->titre(mSt->titreUser, mSt->DocumentModifie());
 
 				if (!mAideInitiale) {
 					// L'outil arme se DIT des la premiere image — une application
@@ -1627,6 +1660,7 @@ namespace nkuidesign {
 			uint32 mVariante = 0;
 			bool mEventailOuvert = false;
 			bool mAideInitiale = false;
+			uint32 mFramePastille = 0;
 			NkRect mZoneEventail = {0.f, 0.f, 0.f, 0.f};
 			/// Les zones flottantes de l'image PRECEDENTE (bascule, outils,
 			/// cluster) — posees par `DessinerFlottants`, lues par `HandleMouse`
