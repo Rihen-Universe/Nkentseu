@@ -940,6 +940,16 @@ namespace nkentseu {
 				ctx.inputScroll = 0.f;
 			}
 			const bool focused = (ctx.inputId == id);
+			// ⚠️ RELEVÉ (2026-08-30) : la nature `Champ` existait dans le vocabulaire
+			//    sans qu'aucun widget ne la pose. La chaîne du designer a eu besoin
+			//    de VISER un champ de saisie depuis un pilote (le champ « Contenu »
+			//    de l'inspecteur NkUIDesign). Règle du 29/08 appliquée : trois
+			//    lignes, le jour où un chantier en a besoin. `SELECTION` marque le
+			//    champ qui a le focus clavier — un pilote sait alors si sa frappe
+			//    arrivera, avant de taper.
+			NkGuiNoter(ctx, NkGuiNature::Champ, id, label, field,
+					   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+										   (focused ? NK_GUI_ETAT_SELECTION : 0)));
 			const bool submitted = TextEditField(ctx, field, buf, bufSize, focused, flags, maxChars);
 
 			if (ctx.font && ctx.font->Valid() && label && LabelEnd(label) != label) {
