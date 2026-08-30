@@ -86,6 +86,10 @@ namespace nkentseu {
 			Reglage,
 			Region,  ///< zone CALCULEE par l'application (region d'un panneau hote,
 					 ///< aire de dessin) : un vrai rectangle, mais pas un widget
+			Section, ///< CollapsingHeader (en-tete repliable) -- ajoute le 29/08,
+					 ///< le jour ou l'inspecteur a eu besoin de prouver ses
+					 ///< sections ouvertes : la regle « trois lignes le jour ou un
+					 ///< chantier en a besoin », appliquee
 			Mesure,  ///< ⚠️ QUATRE NOMBRES QUI NE SONT PAS UNE GEOMETRIE (zoom,
 					 ///< deplacement, compte...). Une application publie parfois un
 					 ///< etat interne dans le releve parce qu'aucun banc ne peut
