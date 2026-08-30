@@ -50,7 +50,7 @@ import sys
 from pathlib import Path
 
 MODELE_OLLAMA_DEFAUT = "llama3.2"
-DELAI_S = 300
+DELAI_S = 300  # defaut ; --delai pour un modele qui doit d'abord se charger
 
 
 def lire_prompt(chemin: Path) -> str:
@@ -65,13 +65,14 @@ def lire_prompt(chemin: Path) -> str:
     return texte
 
 
-def appeler(cmd, prompt: str) -> str:
+def appeler(cmd, prompt: str, delai: int) -> str:
     """Lance la commande, prompt sur l'entree standard, rend la sortie brute."""
     try:
         res = subprocess.run(cmd, input=prompt, capture_output=True,
-                             text=True, encoding="utf-8", timeout=DELAI_S)
+                             text=True, encoding="utf-8", timeout=delai)
     except subprocess.TimeoutExpired:
-        print(f"[ia_pont] {cmd[0]} n'a pas repondu en {DELAI_S} s.")
+        print(f"[ia_pont] {cmd[0]} n'a pas repondu en {delai} s "
+              "(un modele qui se charge peut demander plus : --delai 600).")
         sys.exit(1)
     if res.returncode != 0:
         err = (res.stderr or "").strip()
@@ -86,6 +87,8 @@ def main() -> int:
     ap.add_argument("--backend", choices=["auto", "ollama", "claude"], default="auto")
     ap.add_argument("--modele", default=None,
                     help="nom du modele (ollama seulement ; defaut : %s)" % MODELE_OLLAMA_DEFAUT)
+    ap.add_argument("--delai", type=int, default=DELAI_S,
+                    help="delai maximal en secondes (defaut : %d)" % DELAI_S)
     ap.add_argument("--prompt", default="nkuidesign_prompt.txt")
     ap.add_argument("--reponse", default="nkuidesign_reponse.txt")
     args = ap.parse_args()
@@ -117,7 +120,7 @@ def main() -> int:
         cmd = ["claude", "-p"]
 
     print(f"[ia_pont] backend {backend}, prompt de {len(prompt)} caracteres...")
-    sortie = appeler(cmd, prompt)
+    sortie = appeler(cmd, prompt, args.delai)
 
     if not sortie.strip():
         print("[ia_pont] le modele n'a RIEN rendu — aucun fichier ecrit "
