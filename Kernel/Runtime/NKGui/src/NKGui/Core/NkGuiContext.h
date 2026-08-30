@@ -69,6 +69,15 @@ namespace nkentseu {
 				float32 borderThickness = 1.f; ///< epaisseur par defaut d'un contour
 				float32 framePadX = 10.f; ///< padding horizontal interne d'un widget
 				float32 framePadY = 6.f;  ///< padding vertical interne d'un widget
+
+				// ── Convention d'onglet ACTIF (ajout 2026-08-31, OPT-IN) ─────────
+				// Faux (defaut) : actif = `panel` sur barre `tabBar` — l'historique,
+				// et NKCode ne bouge pas d'un octet. Vrai : actif = `bgPrimary` sur
+				// barre `panel` (convention V2 des maquettes Banani de NkUIDesign :
+				// l'onglet actif rejoint le FOND de la zone document). En FIN de
+				// struct, apres les champs enumeres par NkGuiThemeTokens — les
+				// offsets de la table ne bougent pas.
+				bool tabActiveIsWindowBg = false;
 		};
 
 		// ── DESCRIPTION DES JETONS (pour un futur NKUIEditor) ──────────────────

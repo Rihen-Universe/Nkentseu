@@ -2207,7 +2207,10 @@ namespace nkentseu {
 					}
 				}
 				const bool selected = (i == sel);
-				const NkColor bg = selected ? ctx.theme.panel : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
+				const NkColor bg = selected
+									   ? (ctx.theme.tabActiveIsWindowBg ? ctx.theme.bgPrimary
+																		: ctx.theme.panel)
+									   : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
 				ctx.DL().AddRectFilled(r, bg, 4.f);
 				if (selected)
 					ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
@@ -2300,7 +2303,10 @@ namespace nkentseu {
 				}
 
 				const bool selected = (i == sel);
-				const NkColor bg = selected ? ctx.theme.panel : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
+				const NkColor bg = selected
+									   ? (ctx.theme.tabActiveIsWindowBg ? ctx.theme.bgPrimary
+																		: ctx.theme.panel)
+									   : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
 				ctx.DL().AddRectFilled(r, bg, 4.f);
 				if (selected)
 					ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
