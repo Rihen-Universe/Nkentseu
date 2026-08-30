@@ -43,6 +43,11 @@
 #include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
 #include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de contenu
 #include "NK3DModeler/Shell/NkModelerImport.h"  // import de fichiers 3D (bouton Importer)
+// La dette du 18/08 : le peintre de NK3DModeler vu comme un NkComponentPaint,
+// et le premier composant du kit rendu par lui (NK_KIT_TREE=1).
+#include "NK3DModeler/Shell/NkModelerComponentPaint.h"
+#include "NKEditorKit/Components/NkTreeViewModel.h"
+#include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
@@ -291,6 +296,193 @@ namespace {
 		t.Bind("app.enregistrer", "Enregistrer", NkKey::NK_S, NK_SC_CTRL, NK_SCTX_GLOBAL);
 		t.Bind("app.enregistrer_tout", "Enregistrer tout", NkKey::NK_S,
 			   NK_SC_CTRL | NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	}
+
+	// ── LE TREE_VIEW DU KIT DANS LE PANNEAU DE GAUCHE (NK_KIT_TREE=1) ───────
+	// Premiere consommation reelle de l'adaptateur `NkModelerComponentPaint` —
+	// la dette du 18/08. Le modele est PERSISTANT (l'ouverture, la selection et
+	// le defilement sont ecrits dedans par le composant, cles par identite
+	// nk_uint64) ; ses NOEUDS sont rebatis a chaque image depuis la hierarchie
+	// vivante, en ordre PREFIXE (la seule precondition du composant — l'ordre
+	// des indices hote ne la garantit pas, un empty parent peut avoir un indice
+	// superieur a ses enfants, d'ou le parcours en profondeur explicite).
+	void PaintKitTree(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
+					  const nkgui::NkGuiInput &in) {
+		static NkTreeViewModel m; // etat durable : toggled / active / chosen / scroll
+		m.nodes.Clear();
+		// ⚠ LE PLAFOND SE LIT SUR LA FONCTION, PAS SUR SON COMMENTAIRE. L'en-tete
+		// de l'hote annonce « 96 (plafond, empties compris) » ; la constante vaut
+		// 160 (kNkvpMaxNodes, NkDemo3D.cpp:150). Des tableaux dimensionnes sur le
+		// commentaire ont ECRASE LA PILE — plantage a une adresse folle, quelques
+		// images plus tard, sans lien visible avec la cause. Un nombre dans un
+		// commentaire est une mesure non datee : ici il a menti, et le crash
+		// n'accusait pas le menteur. Dimensionnement DYNAMIQUE, borne verifiee.
+		const int32 total = demo::Demo3DHostNodeCount();
+		static NkVector<int32> pos, pile;
+		pos.Resize((uint32)total);
+		pile.Resize((uint32)total);
+		for (int32 i = 0; i < total; ++i)
+			pos[i] = -1;
+		int32 sp = 0;
+		for (int32 n = total - 1; n >= 0; --n) {
+			if (NkHierNodeSkip(n) || demo::Demo3DHostNodeDeleted(n))
+				continue;
+			if (demo::Demo3DHostNodeParent(n) < 0)
+				pile[sp++] = n;
+		}
+		char nom[48];
+		while (sp > 0) {
+			const int32 n = pile[--sp];
+			NkTreeNode t;
+			t.id = (nk_uint64)(n + 1); // 0 est reserve par le contrat du composant
+			const int32 par = demo::Demo3DHostNodeParent(n);
+			t.parent = (par >= 0 && par < total) ? pos[par] : -1;
+			NkHierNodeName(st, n, nom, sizeof(nom));
+			t.label = NkString(nom);
+			t.icon = NkIconHandle(n >= 90 ? NkIcon::Globe : NkIcon::Mesh);
+			t.kindRole = (uint16)NkRole::TextMuted;
+			t.userTag = (uint32)n;
+			pos[n] = (int32)m.nodes.Size();
+			m.nodes.PushBack(t);
+			for (int32 c = total - 1; c >= 0; --c) {
+				if (NkHierNodeSkip(c) || demo::Demo3DHostNodeDeleted(c))
+					continue;
+				if (demo::Demo3DHostNodeParent(c) == n && sp < total)
+					pile[sp++] = c;
+			}
+		}
+
+		NkTreeViewStyle s;
+		// L'INSTANCE : la ou un reglage differe du defaut de la declaration. Les
+		// filets d'indentation sont ETEINTS par defaut (`indent_guides` = 0 dans
+		// la declaration) — c'est un reglage, pas une constante, et c'est ici que
+		// l'application le pose. Sans instance, pas de guide, et la preuve n.2 de
+		// NK3D-120 n'aurait rien a montrer.
+		static NkComponentInstance inst;
+		static bool instInit = false;
+		if (!instInit) {
+			instInit = true;
+			inst.Bind(NkTreeViewDecl());
+			inst.SetParam("indent_guides", 1.f);
+		}
+		s.values = &inst;
+		s.panelBg = (uint16)NkRole::PanelBg;
+		s.headerBg = (uint16)NkRole::PanelHeader;
+		s.border = (uint16)NkRole::Border;
+		s.text = (uint16)NkRole::Text;
+		s.textMuted = (uint16)NkRole::TextMuted;
+		s.rowHover = (uint16)NkRole::InputBg;
+		s.activeMark = (uint16)NkRole::AccentUi;
+		s.activeText = (uint16)NkRole::TextOnAccent;
+		s.chosenMark = (uint16)NkRole::PanelHeader;
+		// ⚠ GUIDE DELIBEREMENT DISTINCT DE Border POUR LA CAPTURE DE PREUVE : un
+		// guide ambre a cote d'une bordure grise tranche a l'oeil — c'est la
+		// verification n.2 de NK3D-120 (l'adaptateur route le ROLE, il ne code
+		// rien en dur). Le role definitif est un reglage produit, pas le mien.
+		s.guide = (uint16)NkRole::AccentSel;
+		s.dropMark = (uint16)NkRole::AccentUi;
+		s.iconTint = (uint16)NkRole::TextMuted;
+		s.dimTint = (uint16)NkRole::TextMuted;
+		s.icons.chevronClosed = NkIconHandle(NkIcon::ChevronRight);
+		s.icons.chevronOpen = NkIconHandle(NkIcon::ChevronDown);
+		s.icons.eyeOpen = NkIconHandle(NkIcon::Eye);
+		s.icons.eyeClosed = NkIconHandle(NkIcon::EyeClosed);
+		s.icons.lockOpen = NkIconHandle(NkIcon::Unlock);
+		s.icons.lockClosed = NkIconHandle(NkIcon::Lock);
+
+		NkComponentInput ci;
+		ci.surfaceScale = gUiScale; // les composants multiplient leurs metriques par elle
+		ci.mouseX = in.mousePos.x;
+		ci.mouseY = in.mousePos.y;
+		ci.wheel = in.wheel;
+		ci.mouseDown = in.mouseDown[0];
+		ci.mousePressed = in.mouseClicked[0];
+		ci.mouseReleased = in.mouseReleased[0];
+		ci.doubleClick = in.mouseDoubleClicked[0];
+		ci.rightPressed = in.mouseClicked[1];
+		ci.ctrl = in.ctrlDown;
+		ci.shift = in.shiftDown;
+
+		NkModelerComponentPaint paint(p);
+		const NkPaintRect rect{r.x, r.y, r.w, r.h};
+		NkTreeViewHooks hooks; // aucun crochet pour la preuve : le composant gere
+		(void)NkDrawTreeView(paint, ci, rect, m, s, hooks);
+		if (std::getenv("NK_KIT_TRACE") != nullptr) {
+			static uint32 sTick = 0;
+			if (++sTick % 60u == 1u) {
+				std::printf("[kit-tree] modele : %u noeud(s)\n", (uint32)m.nodes.Size());
+				for (uint32 i = 0; i < (uint32)m.nodes.Size(); ++i)
+					std::printf("[kit-tree]   %2u id=%u parent=%d %s\n", i,
+								(uint32)m.nodes[i].id, (int)m.nodes[i].parent, m.nodes[i].label.CStr());
+				std::fflush(stdout);
+			}
+		}
+	}
+
+	// ── LE CONTENT_BROWSER DU KIT (NK_KIT_BROWSER=1) ────────────────────────
+	// Second composant sur le MEME adaptateur. Il exerce ce que l'arbre ne peut
+	// pas : le pied de carte appelle `Text(..., NkTextAlign::Center)` deux fois
+	// — c'est la preuve n.1 de NK3D-120, l'alignement etant le seul vrai
+	// travail de l'adaptateur. Donnees : les cartes reelles du projet ouvert.
+	void PaintKitBrowser(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
+						 const nkgui::NkGuiInput &in) {
+		static NkContentBrowserModel m;
+		// VIGNETTE ADAPTEE AU PANNEAU : le defaut de la declaration vise un
+		// navigateur plein ecran ; dans le bandeau bas de NK3DModeler, une carte au
+		// defaut depasse le clip et son PIED (les deux libelles) disparait — on
+		// croirait l'alignement casse alors que c'est la carte qui deborde.
+		m.thumbSize = 56.f;
+		m.entries.Clear();
+		for (int32 i = 0; i < st.browserCount && i < 32; ++i) {
+			if (st.browserKind[i] == 255)
+				continue; // carte supprimee
+			NkAssetEntry e;
+			e.name = NkString(st.browserNames[i]);
+			e.isFolder = (st.browserKind[i] == 1);
+			// Legende du CONSOMMATEUR (NkModelerUI.h) : 0 graphe · 1 dossier ·
+			// 2 materiau · 3 texture · 4 dataset IA · 5 scene · 6 model.
+			static const char *const kKind[7] = {"Graphe", "Dossier", "Materiau",
+												 "Texture", "Dataset", "Scene", "Model"};
+			e.kindLabel = (st.browserKind[i] < 7) ? kKind[st.browserKind[i]] : "";
+			static const NkRole kKindRole[7] = {NkRole::AccentUi, NkRole::TextMuted,
+												NkRole::TypeMat, NkRole::TypeTex,
+												NkRole::AccentUi, NkRole::TypeAnim,
+												NkRole::TypeMesh};
+			e.kindRole = (uint16)((st.browserKind[i] < 7) ? kKindRole[st.browserKind[i]]
+														  : NkRole::TextMuted);
+			e.userTag = (uint32)i;
+			m.entries.PushBack(e);
+		}
+
+		NkContentBrowserStyle s;
+		s.panelBg = (uint16)NkRole::PanelBg;
+		s.headerBg = (uint16)NkRole::PanelHeader;
+		s.border = (uint16)NkRole::Border;
+		s.text = (uint16)NkRole::Text;
+		s.textMuted = (uint16)NkRole::TextMuted;
+		s.cardBg = (uint16)NkRole::InputBg;
+		s.cardFooterBg = (uint16)NkRole::PanelHeader;
+		s.activeMark = (uint16)NkRole::AccentUi;
+		s.chosenMark = (uint16)NkRole::PanelHeader;
+		s.folderTint = (uint16)NkRole::AccentSel;
+
+		NkComponentInput ci;
+		ci.surfaceScale = gUiScale;
+		ci.mouseX = in.mousePos.x;
+		ci.mouseY = in.mousePos.y;
+		ci.wheel = in.wheel;
+		ci.mouseDown = in.mouseDown[0];
+		ci.mousePressed = in.mouseClicked[0];
+		ci.mouseReleased = in.mouseReleased[0];
+		ci.doubleClick = in.mouseDoubleClicked[0];
+		ci.rightPressed = in.mouseClicked[1];
+		ci.ctrl = in.ctrlDown;
+		ci.shift = in.shiftDown;
+
+		NkModelerComponentPaint paint(p);
+		const NkPaintRect rect{r.x, r.y, r.w, r.h};
+		NkContentBrowserHooks hooks;
+		(void)NkDrawContentBrowser(paint, ci, rect, m, s, hooks);
 	}
 
 } // namespace
@@ -1700,6 +1892,39 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_SET_PARENT="enfant,parent[,frame]" : PARENTE deux noeuds par la
+		// facade (Demo3DHostSetNodeParent, le meme chemin que Ctrl+P et le depot).
+		// Sans lui, une hierarchie IMBRIQUEE ne se produit qu'a la souris — donc
+		// les guides d'indentation d'un arbre ne se prouvaient pas en headless.
+		// Un jeu de donnees incapable de produire le cas rend toute mesure verte.
+		{
+			static int32 sParFrame = -2, sParChild = -1, sParParent = -1;
+			if (sParFrame == -2) {
+				sParFrame = -1;
+				if (const char *v = std::getenv("NK_SET_PARENT")) {
+					int32 f[3] = {-1, -1, 70};
+					const char *q = v;
+					for (int32 k = 0; k < 3 && *q; ++k) {
+						f[k] = (int32)std::atoi(q);
+						while (*q && *q != ',')
+							++q;
+						if (*q == ',')
+							++q;
+					}
+					sParChild = f[0];
+					sParParent = f[1];
+					sParFrame = f[2];
+				}
+			}
+			if (sParFrame > 0 && agentFrame == sParFrame && sParChild >= 0) {
+				const bool ok = demo::Demo3DHostSetNodeParent(sParChild, sParParent);
+				std::printf("[nk3d] NK_SET_PARENT %d -> parent %d : %s\n", (int)sParChild,
+							(int)sParParent, ok ? "fait" : "REFUSE");
+				std::fflush(stdout);
+				sParFrame = -1;
+			}
+		}
+
 		// NK_MOD_STACK="<t1>+<t2>+...[,frame]" : EMPILE des modificateurs par la
 		// facade, c'est-a-dire par le MEME chemin que le panneau.
 		// ⚠️ IL EN FAUT DEUX, PAS UN. Un modificateur seul prouverait qu'il
@@ -2159,8 +2384,20 @@ int nkmain(const NkEntryState &entry) {
 		// tout. Le peindre dans un rectangle de 14 px declarerait ses zones cliquables
 		// les unes sur les autres et un clic sur la poignee tomberait sur la premiere
 		// ligne de la liste.
-		if (st.showLeft)
-			PaintHierarchy(p, lay.left, st, hit, ws, ui.input, &ui);
+		if (st.showLeft) {
+			// ── NK_KIT_TREE=1 : LE TREE_VIEW DU KIT, RENDU PAR L'ADAPTATEUR ─────
+			// Premiere consommation reelle de `NkModelerComponentPaint` (la dette du
+			// 18/08). DERRIERE UN LEVIER, pas en remplacement : le panneau historique
+			// reste le defaut tant que Rodolf n'a pas tranche l'adoption. Le levier
+			// sert la PREUVE — trois verifications pre-enregistrees (NK3D-120) :
+			// guide d'indentation couleur `guide` (pas border), curseur de renommage
+			// couleur `text`, et le centrage se prouve sur le navigateur.
+			static const bool kitTree = (std::getenv("NK_KIT_TREE") != nullptr);
+			if (kitTree)
+				PaintKitTree(p, lay.left, st, ui.input);
+			else
+				PaintHierarchy(p, lay.left, st, hit, ws, ui.input, &ui);
+		}
 		// Le contexte GUI est passe pour le MENU CONTEXTUEL du maillage : le
 		// composant du kit dessine sur la couche overlay et gere lui-meme
 		// l'occlusion, ce qu'un peintre seul ne sait pas faire.
@@ -2178,8 +2415,16 @@ int nkmain(const NkEntryState &entry) {
 				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input, combo, &ui);
 			}
 		}
-		if (st.showBrowser)
-			PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui, &combo);
+		if (st.showBrowser) {
+			// NK_KIT_BROWSER=1 : le content_browser du kit via l'adaptateur — la
+			// preuve du CENTRAGE (pied de carte). Le panneau historique reste le
+			// defaut.
+			static const bool kitBrowser = (std::getenv("NK_KIT_BROWSER") != nullptr);
+			if (kitBrowser)
+				PaintKitBrowser(p, lay.browser, st, ui.input);
+			else
+				PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui, &combo);
+		}
 		PaintStatus(p, hit, lay.status, st);
 		// LE JOURNAL S'ANCRE SUR LA FENETRE ENTIERE, pas sur une zone de la mise
 		// en page : il recouvre ce qui se trouve dessous, comme un tiroir. Peint
