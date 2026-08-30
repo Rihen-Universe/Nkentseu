@@ -392,6 +392,11 @@ namespace nkentseu {
 
 			const NkRect r = ctx.NextItemRect(ww, (n > 0 ? n : 1) * lineH);
 			const NkColor col = ctx.IsDisabled() ? ctx.theme.textDisabled : ctx.theme.text;
+			// Meme raison que Text : un libelle n'a pas d'identite propre, on en
+			// derive une pour comparer deux releves. Le releve porte le texte
+			// ENTIER, pas les lignes coupees -- c'est lui qu'un banc compare.
+			NkGuiNoter(ctx, NkGuiNature::Texte, ctx.GetId(text), text, r,
+					   static_cast<uint16>(ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0));
 			for (int32 i = 0; i < n; ++i) {
 				const float32 baseY = r.y + i * lineH + ctx.font->Ascent();
 				ctx.DL().AddTextRange(face, ctx.font->TexId(), {r.x, baseY}, lb[i], le[i], col);
