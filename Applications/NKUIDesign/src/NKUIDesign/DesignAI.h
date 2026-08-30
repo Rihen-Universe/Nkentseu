@@ -26,7 +26,12 @@
 //       humaine ensuite aussi (`MarkHumanEdit`) — c'est la que le corpus se
 //       fabrique, sans effort supplementaire ;
 //    5. **le rejeu comme verificateur** : une proposition qui ne se rejoue pas a
-//       l'identique est ECARTEE. Le moteur est le juge, pas l'oeil.
+//       l'identique est ECARTEE. Le moteur est le juge, pas l'oeil ;
+//    6. depuis le 30/08, **l'apercu et le retrait** (spec §6.2, garantie 1) :
+//       `Propose` garde la proposition validee DE COTE sans toucher au document,
+//       `CommitProposal` la pose par la meme porte, `DiscardProposal` la jette,
+//       et `Retract` retire ENTIEREMENT une greffe posee — l'annulation d'un
+//       geste, en attendant un historique de document qui n'existe pas encore.
 //
 //  CE QUI N'EST PAS LIVRE, ET QUI EST NOMME :
 //    - **aucun backend reseau.** PV3DE parle a Claude et a Ollama par des
@@ -350,53 +355,134 @@ namespace nkuidesign {
 					res.verdict = NkAIVerdict::GreffeRefusee;
 					return res;
 				}
-
-				// 1. Extraire le document de la reponse. Un modele encadre volontiers
-				//    sa sortie de commentaires ou de balises : on part de la premiere
-				//    ligne `nkuidoc`. Si elle n'y est pas, c'est non — on ne devine
-				//    pas ce qu'il a voulu dire.
-				const char *body = FindHeader(replyText);
-				if (!body) {
-					res.verdict = NkAIVerdict::TexteNonConforme;
-					res.detail = NkString("pas de ligne `nkuidoc` dans la reponse");
-					return res;
-				}
-
-				// 2. Charger de cote.
 				NkUIDocument scratch;
-				uint32 unknown = 0;
-				if (!scratch.Load(body, &unknown) || scratch.NodeCount() == 0) {
-					res.verdict = NkAIVerdict::TexteNonConforme;
-					res.detail = NkString("document illisible ou structure incoherente");
+				if (!ValidateReply(replyText, scratch, res))
 					return res;
-				}
-				res.unknownComponents = unknown;
-				if (unknown > 0 || !NkUIDocument::CanGraft(scratch, 0)) {
-					res.verdict = NkAIVerdict::ComposantInconnu;
-					return res;
-				}
+				Graft(scratch, doc, targetParent, origin, res);
+				return res;
+			}
 
-				// 3. LE REJEU. C'est le verificateur, et il est mecanique.
-				res.replayDiffs = ReplayDiffs(scratch, replaySurface);
-				if (res.replayDiffs > 0) {
-					res.verdict = NkAIVerdict::RejeuDivergent;
+			// ═══════════════════════════════════════════════════════════════════
+			//  L'APERCU — proposer, LAISSER REGARDER, puis poser ou jeter
+			// ═══════════════════════════════════════════════════════════════════
+			// La garantie 1 de la spec §6.2 : « rien n'est ecrit dans le document
+			// tant que l'utilisateur n'a pas valide ». `Ask` ne la tient pas : il
+			// pose des l'acceptation. Ces trois fonctions la tiennent PAR ETAT :
+			// la proposition validee et rejouee vit DE COTE dans `mPending`, le
+			// document de travail n'est touche que par `CommitProposal` — et par
+			// la meme porte que la main, comme toujours.
+			//
+			// ⚠️ `Ask` RESTE : les essais 29/30 de la sonde en dependent, et un
+			//    appelant qui veut l'ancien geste « demander = poser » l'a encore.
+			//    L'apercu est un chemin EN PLUS, pas un remplacement en douce.
+
+			/// Demander au backend, valider, rejouer — et GARDER DE COTE.
+			/// Le document n'est pas touche ; `graftedRoot` reste -1 et
+			/// `nodesAdded` 0 tant que rien n'est pose.
+			NkAIResult Propose(const char *userAsk, NkUIDocument &doc) {
+				NkAIResult res;
+				DiscardProposal(); // une proposition chasse l'autre : jamais deux en attente
+				if (!mBackend) {
+					res.detail = NkString("aucun backend branche");
 					return res;
 				}
+				NkDesignRequest req;
+				BuildPrompt(userAsk, req.prompt);
+				BuildCatalog(req.catalog);
+				doc.Save(req.currentDoc);
 
-				// 4. La porte — la MEME que la main.
-				const uint32 before = doc.NodeCount();
-				const int32 root = doc.GraftFrom(scratch, 0, targetParent, true, NkAuthor::IA, origin);
-				if (root < 0) {
+				NkDesignReply reply;
+				if (!mBackend->Complete(req, reply) || reply.text.Length() == 0) {
+					res.verdict = NkAIVerdict::BackendMuet;
+					res.detail = reply.error;
+					return res;
+				}
+				mLastReply = reply.text;
+				if (!ValidateReply(reply.text.Data(), mPending, res))
+					return res;
+				mHasPending = true;
+				mPendingOrigin = NkString(mBackend->Name());
+				res.verdict = NkAIVerdict::Acceptee;
+				return res;
+			}
+
+			/// Poser la proposition en attente. C'est ICI que le document change,
+			/// et nulle part avant. Sur refus de greffe (cible invalide), la
+			/// proposition RESTE en attente : l'utilisateur choisit une autre
+			/// cible au lieu de tout redemander.
+			NkAIResult CommitProposal(NkUIDocument &doc, int32 targetParent) {
+				NkAIResult res;
+				if (!mHasPending) {
+					res.verdict = NkAIVerdict::GreffeRefusee;
+					res.detail = NkString("aucune proposition en attente");
+					return res;
+				}
+				if (!doc.IsValidIndex(targetParent)) {
 					res.verdict = NkAIVerdict::GreffeRefusee;
 					return res;
 				}
-				// 5. Le tampon « rejouee » : il est pose parce que le rejeu a EU LIEU
-				//    juste au-dessus, pas parce que ca vient de l'IA.
-				doc.MarkVerified(root);
-				res.verdict = NkAIVerdict::Acceptee;
-				res.graftedRoot = root;
-				res.nodesAdded = doc.NodeCount() - before;
+				Graft(mPending, doc, targetParent, mPendingOrigin.Data(), res);
+				if (res.Accepted())
+					DiscardProposal();
 				return res;
+			}
+
+			/// Jeter la proposition en attente. Ne touche a rien d'autre.
+			void DiscardProposal() {
+				mHasPending = false;
+				mPendingOrigin = NkString("");
+			}
+
+			bool HasProposal() const {
+				return mHasPending;
+			}
+			/// La proposition en attente, pour que l'apercu puisse la METTRE EN
+			/// PAGE et la dessiner (`NkComputeLayout` la prend comme n'importe
+			/// quel document). Ne vaut que si `HasProposal()`.
+			const NkUIDocument &Proposal() const {
+				return mPending;
+			}
+
+			// ═══════════════════════════════════════════════════════════════════
+			//  L'ANNULATION D'UN SEUL GESTE
+			// ═══════════════════════════════════════════════════════════════════
+			// Il n'existe aujourd'hui AUCUN historique de document dans cette
+			// application (mesure du 30/08 : zero occurrence d'Undo/Historique
+			// dans Document.h, Panels.h, Canvas.h, main.cpp). En attendant qu'un
+			// historique general existe, le retrait d'une greffe IA est possible
+			// SANS lui : `RemoveSubtree` retire le sous-arbre entier, et les deux
+			// gardes ci-dessous refusent de retirer autre chose que ce qui a ete
+			// pose.
+			//
+			// ⚠️ LES DEUX GARDES NE SONT PAS DU ZELE :
+			//   1. l'index peut etre PERIME (`RemoveSubtree` renumerote ; d'autres
+			//      suppressions aussi) — on verifie donc que le noeud vise est
+			//      bien d'origine IA avant d'y toucher ;
+			//   2. si le sous-arbre n'a plus LA MEME TAILLE que ce qui a ete pose,
+			//      quelqu'un a greffe ou supprime dedans depuis : retirer « a peu
+			//      pres ce qu'on a pose » n'est pas une annulation, c'est une
+			//      suppression qui porte le mauvais nom. On refuse, et l'appelant
+			//      passe par la suppression normale s'il le veut vraiment.
+			static bool Retract(NkUIDocument &doc, const NkAIResult &r) {
+				if (!r.Accepted() || !doc.IsValidIndex(r.graftedRoot))
+					return false;
+				if (doc.nodes[(uint32)r.graftedRoot].prov.author != NkAuthor::IA)
+					return false;
+				if (SubtreeCount(doc, r.graftedRoot) != r.nodesAdded)
+					return false;
+				return doc.RemoveSubtree(r.graftedRoot);
+			}
+
+			/// Le nombre de noeuds d'un sous-arbre, racine comprise. Sert de garde
+			/// a `Retract` ; publique parce qu'une sonde veut la meme mesure.
+			static uint32 SubtreeCount(const NkUIDocument &doc, int32 node) {
+				if (!doc.IsValidIndex(node))
+					return 0;
+				uint32 n = 1;
+				const NkVector<int32> &kids = doc.nodes[(uint32)node].children;
+				for (uint32 i = 0; i < (uint32)kids.Size(); ++i)
+					n += SubtreeCount(doc, kids[i]);
+				return n;
 			}
 
 			/// LE REJEU, isole pour etre reutilisable : un document produit A LA
@@ -448,6 +534,66 @@ namespace nkuidesign {
 			}
 
 		private:
+			// ── LA VALIDATION, UNE SEULE FOIS ───────────────────────────────
+			// `Apply` (demander = poser) et `Propose` (demander = garder de cote)
+			// jugent une reponse EXACTEMENT pareil. Deux copies de ce jugement
+			// auraient diverge au premier verdict ajoute — et une reponse
+			// acceptee en apercu puis refusee a la pose serait exactement le
+			// genre de defaut qu'on ne relie pas a sa cause.
+			//
+			// Rend vrai si `scratch` porte un document charge, connu du registre
+			// et fidele au rejeu ; sinon remplit `res` avec la raison du refus.
+			bool ValidateReply(const char *replyText, NkUIDocument &scratch, NkAIResult &res) {
+				// 1. Extraire le document de la reponse. Un modele encadre
+				//    volontiers sa sortie de commentaires ou de balises : on part
+				//    de la premiere ligne `nkuidoc`. Si elle n'y est pas, c'est
+				//    non — on ne devine pas ce qu'il a voulu dire.
+				const char *body = FindHeader(replyText);
+				if (!body) {
+					res.verdict = NkAIVerdict::TexteNonConforme;
+					res.detail = NkString("pas de ligne `nkuidoc` dans la reponse");
+					return false;
+				}
+
+				// 2. Charger de cote.
+				uint32 unknown = 0;
+				if (!scratch.Load(body, &unknown) || scratch.NodeCount() == 0) {
+					res.verdict = NkAIVerdict::TexteNonConforme;
+					res.detail = NkString("document illisible ou structure incoherente");
+					return false;
+				}
+				res.unknownComponents = unknown;
+				if (unknown > 0 || !NkUIDocument::CanGraft(scratch, 0)) {
+					res.verdict = NkAIVerdict::ComposantInconnu;
+					return false;
+				}
+
+				// 3. LE REJEU. C'est le verificateur, et il est mecanique.
+				res.replayDiffs = ReplayDiffs(scratch, replaySurface);
+				if (res.replayDiffs > 0) {
+					res.verdict = NkAIVerdict::RejeuDivergent;
+					return false;
+				}
+				return true;
+			}
+
+			// La porte — la MEME que la main — puis le tampon « rejouee » : il
+			// est pose parce que le rejeu a EU LIEU dans `ValidateReply`, pas
+			// parce que ca vient de l'IA.
+			void Graft(const NkUIDocument &scratch, NkUIDocument &doc, int32 targetParent,
+					   const char *origin, NkAIResult &res) {
+				const uint32 before = doc.NodeCount();
+				const int32 root = doc.GraftFrom(scratch, 0, targetParent, true, NkAuthor::IA, origin);
+				if (root < 0) {
+					res.verdict = NkAIVerdict::GreffeRefusee;
+					return;
+				}
+				doc.MarkVerified(root);
+				res.verdict = NkAIVerdict::Acceptee;
+				res.graftedRoot = root;
+				res.nodesAdded = doc.NodeCount() - before;
+			}
+
 			static bool Near(float32 a, float32 b) {
 				const float32 d = a - b;
 				return d < 0.01f && d > -0.01f;
@@ -500,6 +646,13 @@ namespace nkuidesign {
 
 			NkIDesignBackend *mBackend = nullptr;
 			NkString mLastReply;
+
+			// La proposition en attente d'un `CommitProposal`. Un document
+			// entier, pas un texte : ce qui a ete valide est ce qui sera pose,
+			// sans repasser par une analyse qui pourrait juger autrement.
+			NkUIDocument mPending;
+			NkString mPendingOrigin;
+			bool mHasPending = false;
 	};
 
 } // namespace nkuidesign
