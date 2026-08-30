@@ -1247,6 +1247,16 @@ int nkmain(const NkEntryState &state) {
 	//    instant. Le plan n en prevoit qu un, dans le cluster, qui appartient au
 	//    canvas.
 	shell->SetFooterZoomIndicator(false);
+	// ⚠️ UN SEUL BANDEAU BAS (§4/§13 ; Rodolf, 30/08 : « pourquoi il y a deux
+	//    footers ? ») : la barre d'etat VSCode se debranche, le RAIL de
+	//    pastilles est le survivant — l'aide contextuelle et les messages
+	//    d'etat vivent dedans, a droite des pastilles. `SetFooter` (gfx...)
+	//    y est route par la coquille : aucun message ne se perd.
+	shell->SetStatusBarVisible(false);
+	gDesign.pied = [](void *u, const char *t) {
+		static_cast<NkEditorShell *>(u)->SetRailFooterText(t);
+	};
+	gDesign.piedUser = shell.Get();
 
 	// ── LES TROIS RAILS DE PASTILLES (document 3 §13.1) ──────────────────
 	// ⚠️ CE SONT DES PANNEAUX SECONDAIRES, et le rail existe pour qu ils

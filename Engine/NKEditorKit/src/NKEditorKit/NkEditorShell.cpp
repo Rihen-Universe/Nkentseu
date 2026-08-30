@@ -727,7 +727,10 @@ namespace nkentseu {
 			// Le bloc logo CHEVAUCHE les deux bandes : les bandes commencent a sa
 			// droite, jamais au bord de la fenetre.
 			const float32 logoW = (mHeaderLogo > 0.f && !fullScreen) ? mHeaderLogo : 0.f;
-			const float32 footerH = fullScreen ? 0.f : mUI.S(22.f);
+			// La bande basse n'est reservee que si quelqu'un l'affiche : la barre
+			// d'etat du shell (visible) ou le hook de l'application.
+			const float32 footerH =
+				(fullScreen || (!mStatusBarVisible && !mStatusBarFn)) ? 0.f : mUI.S(22.f);
 			// Largeur des bandes d'icones, PAR COTE : une app sans « vues » a
 			// basculer les desactive (SetActivityBars) et le dock recupere la place.
 			const float32 activityW = mUI.S(48.f);
@@ -982,6 +985,19 @@ namespace nkentseu {
 					//    clignotait sans jamais rester ouverte.
 					mUI.input.mouseClicked[0] = false;
 				}
+			}
+
+			// LE TEXTE DU RAIL BAS (2026-08-30, fusion des bandeaux §4/§13) :
+			// l'aide contextuelle vit dans l'espace restant, a droite des
+			// pastilles — un bandeau, deux contenus, zero second etage.
+			if (!vertical && mRailFooterText[0] && mUI.font && mUI.font->Valid()) {
+				const float32 tx = bar.x + 4.f + cell * (float32)mRailCount[slot] + 12.f;
+				const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f
+								   + mUI.font->Ascent();
+				dl.PushClipRect({tx, bar.y, bar.x + bar.w - tx - 8.f, bar.h}, true);
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {tx, by}, mRailFooterText,
+						   mUI.theme.textDisabled);
+				dl.PopClipRect();
 			}
 		}
 
@@ -1916,6 +1932,16 @@ namespace nkentseu {
 		void NkEditorShell::SetFooter(const char *left, const char *right) noexcept {
 			CopyStr(mFooterLeft, left ? left : "", sizeof(mFooterLeft));
 			CopyStr(mFooterRight, right ? right : "", sizeof(mFooterRight));
+			// Barre d'etat debranchee : le message va au RAIL BAS — sans ce
+			// routage, « gfx ecrit, actif au prochain lancement » deviendrait
+			// invisible le jour ou une app fusionne ses bandeaux.
+			if (!mStatusBarVisible && !mStatusBarFn) {
+				char joint[256];
+				const bool deux = right && *right;
+				snprintf(joint, sizeof(joint), deux ? "%s%s" : "%s", left ? left : "",
+						 deux ? right : "");
+				CopyStr(mRailFooterText, joint, sizeof(mRailFooterText));
+			}
 		}
 
 		void NkEditorShell::SetTitleInfo(const char *center) noexcept {

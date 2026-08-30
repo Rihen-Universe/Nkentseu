@@ -250,6 +250,27 @@ namespace nkentseu {
 				//    toile et « Zoom 107 % » au pied, au meme instant.
 				//    ⚠️ ADDITIF : `true` = comportement historique, NKCode ne bouge
 				//       pas.
+				/// DEBRANCHER LA BARRE D'ETAT ENTIERE, PAS LA DETRUIRE (meme regle
+				/// que SetActivityBars) — ajoute le 2026-08-30 : le plan de
+				/// NkUIDesign (§4/§13) ne prevoit qu'UN bandeau bas, le rail de
+				/// pastilles ; la barre d'etat VSCode en faisait un second. A
+				/// faux, la bande basse n'est plus ni reservee ni dessinee (sauf
+				/// si un SetStatusBarFn est pose : le hook garde sa bande), et
+				/// SetFooter route son texte vers le RAIL BAS — une seule verite
+				/// d'affichage, aucun message perdu.
+				void SetStatusBarVisible(bool v) noexcept {
+					mStatusBarVisible = v;
+				}
+				/// Le TEXTE du rail bas, a droite des pastilles (l'aide
+				/// contextuelle de l'outil arme, l'etat de l'application).
+				void SetRailFooterText(const char *t) noexcept {
+					// copie bornee inline : `CopyStr` vit dans le .cpp
+					uint32 i = 0;
+					for (; t && t[i] && i + 1 < (uint32)sizeof(mRailFooterText); ++i)
+						mRailFooterText[i] = t[i];
+					mRailFooterText[i] = 0;
+				}
+
 				void SetFooterZoomIndicator(bool visible) noexcept {
 					mFooterZoom = visible;
 				}
@@ -669,6 +690,8 @@ namespace nkentseu {
 				// === Barre de titre custom + footer + activity bar ===
 				char mTitle[160] = {};
 				char mTitleCenter[200] = {};
+				bool mStatusBarVisible = true;
+				char mRailFooterText[256] = {};
 				char mFooterLeft[256] = {};
 				// Voyants du footer (cf. SetFooterLights)
 				nkgui::NkColor mFooterLights[8] = {};

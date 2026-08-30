@@ -525,6 +525,18 @@ namespace nkuidesign {
 				host.SyncTo(doc);
 			}
 
+			/// LE PIED DE FENETRE (le rail bas fusionne, §4/§13) : l'application
+			/// y pousse l'aide contextuelle et les messages d'etat. Pointeur de
+			/// fonction, pas d'include du shell — le panneau ne connait que le
+			/// geste « dire au pied », jamais la coquille.
+			void (*pied)(void *user, const char *texte) = nullptr;
+			void *piedUser = nullptr;
+			void DireAuPied(const char *t) {
+				status = NkString(t ? t : "");
+				if (pied)
+					pied(piedUser, status.Data());
+			}
+
 			/// La vue de toile : la SEULE traduction document <-> ecran.
 			NkCanvasView view;
 
@@ -1000,8 +1012,16 @@ namespace nkuidesign {
 				//    bas et qui débordait dès qu'on rapetissait la fenêtre. La
 				//    hauteur se MESURE — même mesure que la Hiérarchie, même
 				//    fonction.
-				const float32 hToile =
-					designkit::HauteurVisibleBas(ctx, "Apercu") - ctx.layout.cursor.y - 4.f;
+				// ⚠️ LA MARGE SOUSTRAITE EST L'ESPACEMENT D'ITEM, PAS 4 px — mesure
+				//    du 30/08 (Rodolf : « je ne vois pas l'utilité du scrollbar dans
+				//    la page principale ») : `NextItemRect` avance le curseur de
+				//    `itemSpacingY` (6) APRÈS la toile ; avec 4 px de marge, le
+				//    contenu dépassait de 2 px — un ascenseur au pouce quasi plein,
+				//    inutile et faux sur une toile INFINIE qui se navigue à la
+				//    molette et au bouton du milieu. Le débordement à zéro, le
+				//    cadre de défilement de la fenêtre n'a plus rien à dessiner.
+				const float32 hToile = designkit::HauteurVisibleBas(ctx, "Apercu")
+									   - ctx.layout.cursor.y - ctx.layout.itemSpacingY - 1.f;
 				const NkRect area = ctx.NextItemRect(-1.f, hToile > 120.f ? hToile : 120.f);
 				if (area.w <= 0.f || area.h <= 0.f)
 					return;
@@ -1035,6 +1055,14 @@ namespace nkuidesign {
 				const NkPaintRect docSurface = {0.f, 0.f, mSt->view.ToDocLength(area.w),
 												mSt->view.ToDocLength(area.h)};
 				mSt->Recompute(docSurface);
+
+				if (!mAideInitiale) {
+					// L'outil arme se DIT des la premiere image — une application
+					// qui ne dit pas quel outil est actif fait deviner (mesure du
+					// 30/08).
+					mAideInitiale = true;
+					Dire("", AideOutil(mOutil), "");
+				}
 
 				NkComponentInput in;
 				in.surfaceScale = 1.f; ///< ⚠️ A BRANCHER sur le DPI reel de la surface
@@ -1553,6 +1581,7 @@ namespace nkuidesign {
 			/// 2 ligne (Lunacy : R, O, L). Elle est aussi la FACE du bouton.
 			uint32 mVariante = 0;
 			bool mEventailOuvert = false;
+			bool mAideInitiale = false;
 			NkRect mZoneEventail = {0.f, 0.f, 0.f, 0.f};
 			/// Les zones flottantes de l'image PRECEDENTE (bascule, outils,
 			/// cluster) — posees par `DessinerFlottants`, lues par `HandleMouse`
@@ -1955,9 +1984,14 @@ namespace nkuidesign {
 			}
 
 			void Dire(const char *a, const char *b, const char *c) {
-				mSt->status = NkString(a);
-				mSt->status.Append(b);
-				mSt->status.Append(c);
+				NkString t(a);
+				t.Append(b);
+				t.Append(c);
+				// Le message va AU PIED DE FENETRE (le rail bas fusionne) — c'est
+				// la ligne d'aide que Rodolf ne trouvait pas (« F puis glisser
+				// n'etait pas comprehensible ») : elle vit desormais dans le seul
+				// bandeau bas, a droite des pastilles.
+				mSt->DireAuPied(t.Data());
 			}
 
 			/// La geometrie de la barre d'outils flottante (§7 : « largeur 48px »).
