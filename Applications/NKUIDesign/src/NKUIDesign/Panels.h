@@ -1238,6 +1238,33 @@ namespace nkuidesign {
 			void HandleMouse(const NkComponentInput &in, const NkLayoutResult &screen) {
 				const float32 kHandle = 6.f;
 
+				// ── UN CLIC HORS DE LA TOILE N'APPARTIENT PAS A LA TOILE ─────────
+				// ⚠️ MESURE PAR LE PILOTE DU 30/08, et le defaut etait a l'ECRAN
+				//    depuis le debut : cliquer le champ « Contenu » de l'INSPECTEUR
+				//    passait aussi par ici, tombait « dans le vide » du pointage,
+				//    et VIDAIT LA SELECTION — le champ disparaissait sous le clic
+				//    venu l'editer. Un clic n'est un geste de toile que s'il NAIT
+				//    dans la toile (un glisser en cours, lui, continue : sortir du
+				//    cadre en tirant un bord ne doit pas lacher le bord).
+				const NkPaintRect &vp = mSt->view.viewport;
+				if (in.mousePressed
+					&& !(in.mouseX >= vp.x && in.mouseX < vp.x + vp.w && in.mouseY >= vp.y
+						 && in.mouseY < vp.y + vp.h))
+					return;
+
+				// ── LES FLOTTANTS MANGENT LEURS CLICS ────────────────────────────
+				// ⚠️ MESURE PAR LE PILOTE DU 30/08 : cliquer un bouton de la barre
+				//    d'outils atteignait AUSSI la toile en dessous — le clic
+				//    choisissait l'outil ET deselectionnait (ou creait) derriere.
+				//    Les trois zones flottantes (bascule de mode, barre d'outils,
+				//    cluster) sont posees par `DessinerFlottants` a l'image
+				//    precedente : un clic dedans appartient a leurs boutons, jamais
+				//    a la toile.
+				if (in.mousePressed
+					&& (DansZone(mZoneModes, in) || DansZone(mZoneOutils, in)
+						|| DansZone(mZoneCluster, in)))
+					return;
+
 				// ── LES OUTILS QUI CREENT : F (cadre), R (rectangle), T (texte) ──
 				const bool outilTrace = (mOutil == 1 || mOutil == 2);
 				const bool outilTexte = (mOutil == 4);
@@ -1419,6 +1446,11 @@ namespace nkuidesign {
 				Dire("", mSt->doc.nodes[(uint32)idx].label.Data(), " créé — outil Sélection.");
 			}
 
+			static bool DansZone(const NkRect &z, const NkComponentInput &in) {
+				return z.w > 0.f && in.mouseX >= z.x && in.mouseX < z.x + z.w && in.mouseY >= z.y
+					   && in.mouseY < z.y + z.h;
+			}
+
 			DesignState *mSt;
 			bool mDragging = false;
 			bool mDragHorizontal = true;
@@ -1429,6 +1461,12 @@ namespace nkuidesign {
 			int32 mCreateParent = -1;
 			float32 mCreateX = 0.f, mCreateY = 0.f;
 			float32 mLastX = 0.f, mLastY = 0.f;
+			/// Les zones flottantes de l'image PRECEDENTE (bascule, outils,
+			/// cluster) — posees par `DessinerFlottants`, lues par `HandleMouse`
+			/// pour que la toile ne recoive pas leurs clics.
+			NkRect mZoneModes = {0.f, 0.f, 0.f, 0.f};
+			NkRect mZoneOutils = {0.f, 0.f, 0.f, 0.f};
+			NkRect mZoneCluster = {0.f, 0.f, 0.f, 0.f};
 
 			// ═══════════════════════════════════════════════════════════════════
 			//  LES TROIS FLOTTANTS DU PLAN — ils SURPLOMBENT la toile
@@ -1464,6 +1502,7 @@ namespace nkuidesign {
 					const float32 lw = 92.f, h = 26.f;
 					const float32 w = lw * 4.f + 8.f;
 					const NkRect r = {zone.x + (zone.w - w) * 0.5f, zone.y + 10.f, w, h};
+					mZoneModes = r; // HandleMouse ne doit pas voir ses clics
 					dl.AddRectFilled(r, fond, 6.f);
 					dl.AddRect(r, bord, 1.f, 6.f);
 					for (uint32 i = 0; i < 4; ++i) {
@@ -1505,6 +1544,7 @@ namespace nkuidesign {
 					const float32 w = kOutilsLargeur, hb = 40.f;
 					const float32 h = hb * 7.f + 12.f;
 					const NkRect r = {zone.x + kOutilsMarge, zone.y + (zone.h - h) * 0.5f, w, h};
+					mZoneOutils = r; // idem
 					dl.AddRectFilled(r, fond, 8.f);
 					dl.AddRect(r, bord, 1.f, 8.f);
 					for (uint32 i = 0; i < 7; ++i) {
@@ -1538,6 +1578,7 @@ namespace nkuidesign {
 					const float32 h = 28.f, w = 168.f;
 					const NkRect r = {zone.x + zone.w - w - 14.f, zone.y + zone.h - h - 14.f, w,
 									  h};
+					mZoneCluster = r; // idem
 					dl.AddRectFilled(r, fond, 6.f);
 					dl.AddRect(r, bord, 1.f, 6.f);
 					const NkRect rz = {r.x + 4.f, r.y + 3.f, 92.f, h - 6.f};
@@ -2442,13 +2483,36 @@ namespace nkuidesign {
 				nkgui::TextWrapped(ctx, "(rayon, épaisseur : à venir avec le vocabulaire)");
 				ctx.EndDisabled();
 			}
-			static void CorpsTypographieC(void *, NkGuiContext &ctx) {
-				// ⚠️ MEME MESURE : aucun champ de texte par noeud. Le plan (§12.2)
-				//    dit d'ailleurs « presente seulement si l'element porte du
-				//    texte » -- aucun element n'en porte encore.
-				ctx.BeginDisabled();
-				nkgui::TextWrapped(ctx, "Aucun élément ne porte encore de texte.");
-				ctx.EndDisabled();
+			static void CorpsTypographieC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsTypographie(ctx);
+			}
+			// ⚠️ LE MODELE PORTE DU TEXTE DEPUIS LE 2026-08-30 (chaine du
+			//    designer, cle `texte`). Le plan (§12.2) : « presente seulement si
+			//    l'element porte du texte » — un noeud `forme = text` en porte, et
+			//    son contenu s'edite ICI. Police, graisse, taille : a venir avec
+			//    le vocabulaire d'apparence.
+			void CorpsTypographie(NkGuiContext &ctx) {
+				const NkUINode *n = NoeudCourant();
+				if (!n || !StrEq(n->shape.Data(), "text")) {
+					ctx.BeginDisabled();
+					nkgui::TextWrapped(ctx, "L'élément sélectionné ne porte pas de texte.");
+					ctx.EndDisabled();
+					return;
+				}
+				// Le tampon SUIT LA SELECTION : en changer recharge le contenu —
+				// sans ce garde, editer un texte ecrirait dans celui d'avant.
+				if (mTexteNode != mSt->selected) {
+					mTexteNode = mSt->selected;
+					const char *t = n->text.Data();
+					uint32 i = 0;
+					for (; t && t[i] && i + 1 < sizeof(mTexteBuf); ++i)
+						mTexteBuf[i] = t[i];
+					mTexteBuf[i] = 0;
+				}
+				if (nkgui::InputText(ctx, "Contenu", mTexteBuf, (int32)sizeof(mTexteBuf))) {
+					mSt->doc.nodes[(uint32)mSt->selected].text = NkString(mTexteBuf);
+					mSt->doc.MarkHumanEdit(mSt->selected);
+				}
 			}
 
 			const NkUINode *NoeudCourant() const noexcept {
@@ -2674,6 +2738,10 @@ namespace nkuidesign {
 			DesignState *mSt;
 			int32 mOnglet = 0;
 			bool mDeplierUneFois = true; ///< dépliage initial des sections (une fois)
+			/// Le tampon d'édition du contenu texte (section Typographie) et le
+			/// nœud qu'il reflète — recopié à chaque changement de sélection.
+			int32 mTexteNode = -1;
+			char mTexteBuf[128] = {};
 	};
 
 } // namespace nkuidesign
