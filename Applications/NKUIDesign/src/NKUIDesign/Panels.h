@@ -1171,11 +1171,14 @@ namespace nkuidesign {
 				// le contenu, comme sur la planche. En dessous de 6 px projetes,
 				// elle se tait — des points serres deviennent du bruit.
 				{
+					// Banani V2 : la toile est CLAIRE (canvas_bg #f5f7fb) meme en
+					// editeur sombre — le theme du DOCUMENT n'est pas celui de
+					// l'EDITEUR — et les points sont canvas_dot (#d4dce8, pas 20).
 					paint.Fill({area.x, area.y, area.w, area.h},
-							   NkDesignResolveRole("panel_bg"), 0.f);
+							   NkDesignResolveRole("canvas_bg"), 0.f);
 					const float32 pasEcran = kGrillePas * mSt->view.zoom;
 					if (pasEcran >= 6.f) {
-						const uint16 rPoint = NkDesignResolveRole("border");
+						const uint16 rPoint = NkDesignResolveRole("canvas_dot");
 						const float32 d0x = mSt->view.ToDocX(area.x);
 						const float32 d0y = mSt->view.ToDocY(area.y);
 						const int32 kx0 = (int32)(d0x / kGrillePas) - 1;
@@ -2041,9 +2044,9 @@ namespace nkuidesign {
 			///    la vue, qui doit garantir qu'aucun contenu ne naisse dessous.
 			static constexpr float32 kOutilsLargeur = 48.f;
 			static constexpr float32 kOutilsMarge = 12.f;
-			/// Le pas de la grille pointillee, en espace DOCUMENT (planche 22.0 :
-			/// des points reguliers qui zooment avec le contenu).
-			static constexpr float32 kGrillePas = 24.f;
+			/// Le pas de la grille a points, en espace DOCUMENT — 20, la valeur
+			/// exacte de la maquette Banani (radial-gradient, pas 20 px).
+			static constexpr float32 kGrillePas = 20.f;
 
 			uint32 mMode = 0;  ///< Design / Behavior / Animation / Split
 			uint32 mOutil = 0; ///< famille d'outils active

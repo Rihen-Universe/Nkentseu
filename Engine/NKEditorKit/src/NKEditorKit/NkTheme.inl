@@ -30,6 +30,15 @@ namespace nkentseu {
 					"type_folder",
 					"button_bg",
 					"tab_bar_bg",
+					"canvas_bg",
+					"canvas_dot",
+					"status_ok",
+					"status_err",
+					"accent_ai",
+					"snap_line",
+					"artboard_bg",
+					"doc_text",
+					"doc_field_bg",
 				};
 				return kNames;
 			}
@@ -431,6 +440,24 @@ namespace nkentseu {
 			return (float32)((hi + 0.05) / (lo + 0.05));
 		}
 
+		// ── LES SIX ROLES BANANI (doc 11 §3), UNE SEULE TABLE ───────────────────
+		// Poses par CHAQUE fabrique livree : les valeurs sont celles de la
+		// maquette (reference exacte, Rodolf 30/08) et ne dependent pas du theme
+		// de l'EDITEUR — la toile V2 est claire meme en editeur sombre, le vert
+		// « Pret » est LE vert, le violet IA est LE violet. Un theme FICHIER qui
+		// ne les porte pas garde le repli (GetOuRepli), rien ne casse.
+		inline void NkThemePoserRolesBanani(NkTheme &t) {
+			t.Set(NkRole::CanvasBg, NkTheme::FromHex("#f5f7fb"));
+			t.Set(NkRole::CanvasDot, NkTheme::FromHex("#d4dce8"));
+			t.Set(NkRole::StatusOk, NkTheme::FromHex("#3fb950"));
+			t.Set(NkRole::StatusErr, NkTheme::FromHex("#f85149"));
+			t.Set(NkRole::AccentAI, NkTheme::FromHex("#a371f7"));
+			t.Set(NkRole::SnapLine, NkTheme::FromHex("#ff4fd8"));
+			t.Set(NkRole::ArtboardBg, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::DocText, NkTheme::FromHex("#1f2328"));
+			t.Set(NkRole::DocFieldBg, NkTheme::FromHex("#f2f4f8"));
+		}
+
 		// ── THEMES LIVRES ───────────────────────────────────────────────────────
 		inline NkTheme NkTheme::Dark() {
 			NkTheme t;
@@ -493,6 +520,7 @@ namespace nkentseu {
 			S(NkRole::GridLine, "#FFFFFF14");
 
 			S(NkRole::TypeFolder, "#E3B341"); // ambre de dossier, version GitHub
+			NkThemePoserRolesBanani(t);
 			return t;
 		}
 
@@ -545,6 +573,7 @@ namespace nkentseu {
 			S(NkRole::GridLine, "#00000014");
 			// Assombri : #F0B429 sur fond blanc passe inapercu.
 			S(NkRole::TypeFolder, "#A87400");
+			NkThemePoserRolesBanani(t);
 			return t;
 		}
 
@@ -561,6 +590,16 @@ namespace nkentseu {
 			//    conversion les lirait -- un role neuf doit etre gratuit.
 			mColors[(uint16)NkRole::ButtonBg] = NkThemeNonDefini;
 			mColors[(uint16)NkRole::TabBarBg] = NkThemeNonDefini;
+			// Les six roles Banani du 31/08 : meme regime facultatif-avec-repli.
+			mColors[(uint16)NkRole::CanvasBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::CanvasDot] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::StatusOk] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::StatusErr] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::AccentAI] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::SnapLine] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::ArtboardBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::DocText] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::DocFieldBg] = NkThemeNonDefini;
 			mName = NkString("Sombre");
 		}
 

@@ -340,24 +340,28 @@ namespace nkuidesign {
 			// nœud. Une forme SANS nature garde l'ancien dessin (contour + nom) :
 			// les documents d'avant cette clé ne changent pas d'un pixel.
 			if (shape && StrEq(shape, "frame")) {
-				// L'ARTBOARD : carte opaque sur la toile, étiquette AU-DESSUS du
-				// cadre (planche : « Connexion — Mobile 390 x 844 » en gris).
-				// `window_bg` est blanc en thème clair, sombre en thème sombre —
-				// exactement le contraste artboard/toile de la planche.
-				p.Fill(r, host.Role("window_bg"));
+				// L'ARTBOARD (Banani V2) : carte BLANCHE (`artboard_bg`) sur la
+				// toile claire, étiquette AU-DESSUS avec les DIMENSIONS — la
+				// maquette écrit « Connexion — Mobile 390 × 844 » : le nom vient
+				// du nœud, les dimensions du document.
+				p.Fill(r, host.Role("artboard_bg"));
 				p.OutlineSharp(r, host.Role("border"));
 				if (name && *name) {
 					const float32 lh = p.LineHeight();
-					p.Text({r.x, r.y - lh - 2.f, r.w, lh}, name, host.Role("text_muted"),
-						   NkTextAlign::Left);
+					char etiquette[96];
+					snprintf(etiquette, sizeof(etiquette), "%s — %d × %d", name,
+							 (int)(n.width.value + 0.5f), (int)(n.height.value + 0.5f));
+					p.Text({r.x, r.y - lh - 2.f, r.w + 200.f, lh}, etiquette,
+						   host.Role("text_muted"), NkTextAlign::Left);
 				}
 				return;
 			}
 			if (shape && StrEq(shape, "rect")) {
 				// Le RECTANGLE : fond discret + bord — la forme des champs de la
-				// planche. L'apparence par élément (§8ter) viendra du vocabulaire
-				// du document ; d'ici là, les rôles du thème.
-				p.Fill(r, host.Role("input_bg"), 4.f);
+				// maquette (gris clair sur artboard blanc : `doc_field_bg`).
+				// L'apparence PAR ELEMENT (§8ter) viendra du vocabulaire du
+				// document ; d'ici là, les rôles de CONTENU du thème.
+				p.Fill(r, host.Role("doc_field_bg"), 4.f);
 				p.OutlineSharp(r, host.Role("border"));
 				return;
 			}
@@ -365,7 +369,7 @@ namespace nkuidesign {
 				// L'ELLIPSE (Lunacy : outil O). Le peintre peut ne pas savoir la
 				// dessiner (défaut inerte de l'interface) : le repli est VISIBLE —
 				// le contour de sa boîte + le nom, jamais un vide silencieux.
-				if (!p.Ellipse(r, host.Role("input_bg")))
+				if (!p.Ellipse(r, host.Role("doc_field_bg")))
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), r.h * 0.5f);
 				return;
 			}
@@ -377,7 +381,7 @@ namespace nkuidesign {
 				const bool monte = StrEq(shape, "line_up");
 				const float32 y1 = monte ? r.y + r.h : r.y;
 				const float32 y2 = monte ? r.y : r.y + r.h;
-				if (!p.Line(r.x, y1, r.x + r.w, y2, host.Role("text"), 2.f))
+				if (!p.Line(r.x, y1, r.x + r.w, y2, host.Role("doc_text"), 2.f))
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), 1.f);
 				return;
 			}
@@ -388,7 +392,7 @@ namespace nkuidesign {
 				const char *t = n.text.Data();
 				const bool vide = !t || !*t;
 				p.Text(r, vide ? (name ? name : "Texte") : t,
-					   host.Role(vide ? "text_muted" : "text"), NkTextAlign::Left);
+					   host.Role(vide ? "text_muted" : "doc_text"), NkTextAlign::Left);
 				return;
 			}
 

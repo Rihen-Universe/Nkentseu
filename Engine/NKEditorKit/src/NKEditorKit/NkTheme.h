@@ -134,6 +134,42 @@ namespace nkentseu {
 			/// ⚠️ `NkThemeNonDefini` par defaut -> repli sur `WindowBg`.
 			TabBarBg,
 
+			// ⚠️ SIX ROLES AJOUTES LE 2026-08-31 (reference Banani, doc 11 §3) --
+			//    APPEND-ONLY, discipline ButtonBg/TabBarBg : NkThemeNonDefini par
+			//    defaut, repli sur un role source (GetOuRepli). Un theme
+			//    enregistre avant eux reste valide, rien ne devient magenta, et
+			//    AUCUNE conversion existante ne les lit : le rendu d'avant ne
+			//    peut pas bouger.
+
+			/// Fond de la TOILE de design. Banani V2 : la toile est CLAIRE
+			/// (#f5f7fb) meme quand l'editeur est sombre -- le theme du DOCUMENT
+			/// n'est pas le theme de l'EDITEUR. Repli : PanelBg.
+			CanvasBg,
+			/// Les points de la grille de toile (Banani : #d4dce8, pas 20).
+			/// Repli : Border.
+			CanvasDot,
+			/// Vert d'etat : « Pret », simulation, modele LOCAL. Repli : AccentUi.
+			StatusOk,
+			/// Rouge d'etat : erreurs console, rejets, fermer. Repli : AccentSel.
+			StatusErr,
+			/// Violet de TOUT ce qui est IA (etoile, badges, bande modele) --
+			/// la maquette est systematique la-dessus. Repli : AccentUi.
+			AccentAI,
+			/// Lignes de magnetisme de la toile (#ff4fd8). Repli : AccentSel.
+			SnapLine,
+			/// Fond d'un ARTBOARD pose sur la toile (Banani V2 : cadre blanc sur
+			/// toile #f5f7fb — le document se concoit clair). Repli : CanvasBg.
+			ArtboardBg,
+			/// Texte d'un element DU DOCUMENT (dessine sur ArtboardBg) — sombre,
+			/// parce que le document se concoit clair, quel que soit le theme de
+			/// l'editeur. PROVISOIRE jusqu'au vocabulaire d'apparence (§8ter) :
+			/// le jour ou un element porte sa couleur, elle prime. Repli : Text.
+			DocText,
+			/// Fond d'un rectangle/champ DU DOCUMENT (les champs du formulaire de
+			/// la maquette : gris clair sur cadre blanc). Meme statut provisoire.
+			/// Repli : InputBg.
+			DocFieldBg,
+
 			Count
 		};
 
