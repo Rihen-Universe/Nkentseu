@@ -3165,19 +3165,87 @@ namespace nkuidesign {
 				}
 				designkit::KeyValue(ctx, "Agencement", NkLayoutKindName(n->layout.kind));
 				designkit::KeyValue(ctx, "  (s'applique aux enfants)", "");
-				static const char *const kAligns[4] = {"début", "centre", "fin", "étirer"};
-				const int32 m = designkit::Segmented(ctx, kAligns, 4, (int32)n->layout.mainAlign,
-													 "insp.align.main");
+				// InspecteurV2 (Banani §1.6) : l'alignement se choisit en ICONES
+				// 22x22, actif = fond accent a 13 % + bord accent. La maquette en
+				// montre 6 (3 par axe) ; notre modele a QUATRE valeurs par axe
+				// (etirer en plus) -- huit icones, meme langage visuel, et le
+				// modele ne ment pas.
+				const int32 m = RangeeAlignement(ctx, (int32)n->layout.mainAlign, false,
+												 "insp.align.main");
 				if (m >= 0 && m != (int32)n->layout.mainAlign) {
 					n->layout.mainAlign = (editorkit::NkAlign)m;
 					mSt->doc.MarkHumanEdit(mSt->selected);
 				}
-				const int32 c = designkit::Segmented(ctx, kAligns, 4, (int32)n->layout.crossAlign,
-													 "insp.align.cross");
+				const int32 c = RangeeAlignement(ctx, (int32)n->layout.crossAlign, true,
+												 "insp.align.cross");
 				if (c >= 0 && c != (int32)n->layout.crossAlign) {
 					n->layout.crossAlign = (editorkit::NkAlign)c;
 					mSt->doc.MarkHumanEdit(mSt->selected);
 				}
+			}
+
+			/// Une rangee de quatre icones d'alignement 22x22 (debut / centre /
+			/// fin / etirer), horizontales ou verticales. Rend l'indice clique,
+			/// -1 sinon. Le glyphe : une BARRE d'ancre + deux traits qui se
+			/// rangent contre elle -- le dessin des inspecteurs Figma/Lunacy.
+			int32 RangeeAlignement(NkGuiContext &ctx, int32 actif, bool vertical, const char *id) {
+				const float32 cote = 22.f, pas = 26.f;
+				const NkRect bande = ctx.NextItemRect(-1.f, cote + 2.f);
+				auto &dl = ctx.DL();
+				int32 choisi = -1;
+				for (int32 i = 0; i < 4; ++i) {
+					const NkRect cb = {bande.x + 4.f + pas * (float32)i, bande.y, cote, cote};
+					char bid[40];
+					snprintf(bid, sizeof(bid), "##%s.%d", id, i);
+					ctx.SetNextItemRect(cb);
+					if (designkit::Button(ctx, bid, nullptr))
+						choisi = i;
+					if (i == actif) {
+						NkColor voile = ctx.theme.accent;
+						voile.a = 33; // ~13 %
+						dl.AddRectFilled(cb, voile, 4.f);
+						dl.AddRect(cb, ctx.theme.accent, 1.f, 4.f);
+					}
+					// Le glyphe, en espace 14x14 centre.
+					const float32 gx = cb.x + 4.f, gy = cb.y + 4.f, g = 14.f;
+					const NkColor enc = (i == actif) ? ctx.theme.accent : ctx.theme.textMuted;
+					auto barre = [&](float32 t) {
+						if (vertical)
+							dl.AddLine({gx, gy + t}, {gx + g, gy + t}, enc, 1.5f);
+						else
+							dl.AddLine({gx + t, gy}, {gx + t, gy + g}, enc, 1.5f);
+					};
+					auto trait = [&](float32 a, float32 b, float32 pos) {
+						if (vertical)
+							dl.AddLine({gx + pos, gy + a}, {gx + pos, gy + b}, enc, 2.f);
+						else
+							dl.AddLine({gx + a, gy + pos}, {gx + b, gy + pos}, enc, 2.f);
+					};
+					switch (i) {
+						case 0: // debut : barre au bord, traits colles a elle
+							barre(0.f);
+							trait(2.f, 10.f, 4.5f);
+							trait(2.f, 7.f, 9.5f);
+							break;
+						case 1: // centre
+							barre(g * 0.5f);
+							trait(3.f, 11.f, 4.5f);
+							trait(4.5f, 9.5f, 9.5f);
+							break;
+						case 2: // fin
+							barre(g);
+							trait(4.f, 12.f, 4.5f);
+							trait(7.f, 12.f, 9.5f);
+							break;
+						default: // etirer : deux barres, traits pleine longueur
+							barre(0.f);
+							barre(g);
+							trait(1.5f, 12.5f, 4.5f);
+							trait(1.5f, 12.5f, 9.5f);
+							break;
+					}
+				}
+				return choisi;
 			}
 
 			// ── APPARENCE : les jetons du composant, et leur role effectif ──
