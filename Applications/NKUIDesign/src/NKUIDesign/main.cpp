@@ -51,6 +51,7 @@
 #include <cstdio>
 
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkEditorModal.h" // le cadre modal du kit (choix Nouveau projet)
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKPlatform/NkEnv.h"
@@ -610,6 +611,14 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 //    Launcher en modal, glisser pour reordonner/detacher, molette = defilement
 //    horizontal avec chevron de depassement. Les libelles restent INERTES : ce
 //    qui se juge ici est la geometrie et l etat, pas le comportement.
+// {A} L ETAT DU CHOIX « NOUVEAU PROJET » (§3 du plan, l.84). Le kit porte
+//    deja tout le cadre (`NkModalFrameDraw` : voile, titre deplacable, croix,
+//    Echap, clic dehors) -- la porte a ete appliquee AVANT d ecrire, et il n y
+//    avait qu a le consommer. Ce n est PAS le Launcher complet du §3 (sidebar
+//    + grille de projets) : c est son raccourci a trois branches, celui que le
+//    §3 decrit pour le bouton « + Nouveau projet ».
+static nkentseu::editorkit::NkModal gLauncherModal;
+
 static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
@@ -635,13 +644,52 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 
 	// ⚠️ `TabBar` a AVANCE le curseur ; le `+` se pose a sa suite, dans le flux.
 	ctx.SameLine(6.f); // membre du contexte, pas fonction libre
-	if (Button(ctx, "+")) {
-		// §6 : le `+` ouvre le Launcher en modal rapide (Vierge / Gabarit / IA).
-		// ⚠️ IL LE DIT AU LIEU DE NE RIEN FAIRE. Un bouton muet se lit comme un
-		//    bouton casse, et on cherche le defaut la ou il n y en a pas.
-		if (gShell)
-			gShell->SetFooter("Nouveau projet : le Launcher modal (Vierge / Gabarit / IA) "
-							  "n'est pas encore branché.");
+	if (Button(ctx, "+"))
+		gLauncherModal.open = true;
+
+	// ── LE CHOIX A TROIS BRANCHES (§3) ──────────────────────────────────────
+	if (gLauncherModal.open) {
+		using namespace nkentseu::editorkit;
+		const float32 cw = 380.f, chh = 210.f;
+		NkModalFrame fr = NkModalFrameDraw(ctx, gLauncherModal, "Nouveau projet", cw, chh);
+		if (!fr.visible || fr.closeAsked) {
+			gLauncherModal.open = false;
+			gLauncherModal.posInit = false; // se recentre a la prochaine ouverture
+			return;
+		}
+		// ⚠️ LES WIDGETS DU CONTENU PASSENT EN COUCHE OVERLAY. Le cadre est
+		//    peint dans `dlOverlay` ; un Button ordinaire ecrirait dans `dl`,
+		//    soumise AVANT -- il serait DERRIERE la boite, cliquable mais
+		//    invisible. C est le meme piege que le contenu de modale de
+		//    NK3DModeler, resolu ici par la couche prevue (`PushOverlay`).
+		PushOverlay(ctx);
+		ctx.BeginLayout({fr.content.x, fr.content.y, fr.content.w, fr.content.h});
+
+		// -- Vierge : la seule branche qui EXISTE, et elle agit ----------
+		if (Button(ctx, "Vierge — un canvas vide, une « Page 1 »")) {
+			CmdNew(nullptr);
+			gLauncherModal.open = false;
+			gLauncherModal.posInit = false;
+			if (gShell)
+				gShell->SetFooter("Nouveau projet vierge : ", "document de départ créé.");
+		}
+		nkgui::TextWrapped(ctx, "Repart du document de départ. Le document courant "
+								"n'est pas enregistré automatiquement.");
+		ctx.Spacing(8.f);
+
+		// -- Gabarit / Via IA : grisees, et elles DISENT pourquoi --------
+		// ⚠️ GRISEES, PAS MUETTES, PAS ABSENTES -- la regle des menus : un
+		//    bouton actif qui ne fait rien se lit comme un bouton casse ; un
+		//    bouton absent fait croire que la branche n existe pas.
+		ctx.BeginDisabled();
+		(void)Button(ctx, "Gabarit — Formulaire, Dashboard, HUD…");
+		nkgui::TextWrapped(ctx, "La galerie de gabarits n'est pas encore branchée.");
+		ctx.Spacing(8.f);
+		(void)Button(ctx, "Via IA — décrire l'écran, valider l'aperçu");
+		nkgui::TextWrapped(ctx, "La génération n'est pas encore branchée (doc 1 §6.1).");
+		ctx.EndDisabled();
+
+		PopOverlay(ctx);
 	}
 }
 
