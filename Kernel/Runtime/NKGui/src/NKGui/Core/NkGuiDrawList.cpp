@@ -471,6 +471,32 @@ namespace nkentseu {
 			}
 		}
 
+		void NkGuiDrawList::AddEllipseFilled(const NkVec2 &center, float32 rx, float32 ry, const NkColor &col,
+											  int32 segs) noexcept {
+			if (rx <= 0.f || ry <= 0.f)
+				return;
+			if (segs <= 0) {
+				const float32 rmax = rx > ry ? rx : ry;
+				segs = static_cast<int32>(8.f * rmax / 4.f) + 8;
+				if (segs < 12)
+					segs = 12;
+				else if (segs > 128)
+					segs = 128;
+			}
+			const uint32 cc = NkGuiPackColor(col);
+			const NkVec2 uv{0.f, 0.f};
+			const uint32 ic = Vtx(center, uv, cc);
+			const float32 kTau = 6.28318530718f;
+			uint32 prev = Vtx({center.x + rx, center.y}, uv, cc);
+			for (int32 s = 1; s <= segs; ++s) {
+				const float32 ang = kTau * static_cast<float32>(s) / static_cast<float32>(segs);
+				const uint32 cur =
+					Vtx({center.x + std::cos(ang) * rx, center.y + std::sin(ang) * ry}, uv, cc);
+				Tri(ic, prev, cur, 0u);
+				prev = cur;
+			}
+		}
+
 		void NkGuiDrawList::AddCircleFilled(const NkVec2 &center, float32 r, const NkColor &col, int32 segs) noexcept {
 			if (r <= 0.f)
 				return;

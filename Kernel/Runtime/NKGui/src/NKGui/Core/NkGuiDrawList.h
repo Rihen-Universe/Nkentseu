@@ -86,6 +86,11 @@ namespace nkentseu {
 				void AddTriangleMultiColor(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &ca,
 										   const NkColor &cb, const NkColor &cc) noexcept;
 				void AddCircleFilled(const NkVec2 &center, float32 r, const NkColor &col, int32 segs = 0) noexcept;
+				// Ellipse pleine (rx/ry) — même éventail qu'AddCircleFilled, deux rayons.
+				// Ajoutée le 2026-08-30 : l'outil Formes de NkUIDesign trace des
+				// ellipses (Lunacy §7.2) et le cercle seul l'aurait fait mentir.
+				void AddEllipseFilled(const NkVec2 &center, float32 rx, float32 ry, const NkColor &col,
+									  int32 segs = 0) noexcept;
 				// Contour de cercle (anneau). `r` est le rayon de la LIGNE MEDIANE : le
 				// trait occupe [r - th/2, r + th/2] — meme convention que les emulations
 				// qu'il remplace (Mou/Nkoung `CircleOutline`, ConquerorLab `NkcRing`),
