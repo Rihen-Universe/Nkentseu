@@ -2247,8 +2247,8 @@ namespace nkuidesign {
 				//    absente ferait croire que la question ne se pose pas, alors
 				//    qu'elle attend son modele.
 				ctx.BeginDisabled();
-				Text(ctx, "Le modèle du nœud ne porte pas encore de bords.");
-				Text(ctx, "(rayon, épaisseur : à venir avec le vocabulaire)");
+				nkgui::TextWrapped(ctx, "Le modèle du nœud ne porte pas encore de bords.");
+				nkgui::TextWrapped(ctx, "(rayon, épaisseur : à venir avec le vocabulaire)");
 				ctx.EndDisabled();
 			}
 			static void CorpsTypographieC(void *, NkGuiContext &ctx) {
@@ -2256,7 +2256,7 @@ namespace nkuidesign {
 				//    dit d'ailleurs « presente seulement si l'element porte du
 				//    texte » -- aucun element n'en porte encore.
 				ctx.BeginDisabled();
-				Text(ctx, "Aucun élément ne porte encore de texte.");
+				nkgui::TextWrapped(ctx, "Aucun élément ne porte encore de texte.");
 				ctx.EndDisabled();
 			}
 
@@ -2294,7 +2294,10 @@ namespace nkuidesign {
 					snprintf(b, sizeof(b), "%.0f, %.0f", (double)n->posX, (double)n->posY);
 					designkit::KeyValue(ctx, "Posée (doc)", b);
 				}
-				designkit::KeyValue(ctx, "", "calculée — jamais écrite dans le document");
+				// ⚠️ PHRASE PLEINE LARGEUR, PAS UNE CELLULE : en colonne « valeur »
+				//    elle sortait « calculée — jamais écrite da... » sur la capture
+				//    du 29/08. Un texte d explication coupé n explique plus.
+				nkgui::TextWrapped(ctx, "calculée — jamais écrite dans le document");
 			}
 
 			void CorpsTaille(NkGuiContext &ctx) {
@@ -2365,7 +2368,7 @@ namespace nkuidesign {
 					//    absent -- on le cherche a l'ecran.
 					ctx.BeginDisabled();
 					designkit::KeyValue(ctx, "Parent", NkLayoutKindName(ParentKind()));
-					Text(ctx, "Le parent n'est pas en « anchor » — l'ancrage ne s'applique pas.");
+					nkgui::TextWrapped(ctx, "Le parent n'est pas en « anchor » — l'ancrage ne s'applique pas.");
 					ctx.EndDisabled();
 					return;
 				}
@@ -2398,7 +2401,7 @@ namespace nkuidesign {
 				}
 				if (n->layout.kind == editorkit::NkLayoutKind::None) {
 					ctx.BeginDisabled();
-					Text(ctx, "Feuille : ce nœud n'agence pas d'enfants.");
+					nkgui::TextWrapped(ctx, "Feuille : ce nœud n'agence pas d'enfants.");
 					ctx.EndDisabled();
 					return;
 				}
@@ -2428,14 +2431,14 @@ namespace nkuidesign {
 				}
 				if (n->IsFrame()) {
 					ctx.BeginDisabled();
-					Text(ctx, "Un cadre n'a pas d'apparence propre — elle vient du thème.");
+					nkgui::TextWrapped(ctx, "Un cadre n'a pas d'apparence propre — elle vient du thème.");
 					ctx.EndDisabled();
 					return;
 				}
 				const NkComponentDecl *d = NkComponentRegistry::Find(n->component.Data());
 				if (!d || d->tokenCount == 0) {
 					ctx.BeginDisabled();
-					Text(ctx, "Ce composant ne déclare aucun jeton d'apparence.");
+					nkgui::TextWrapped(ctx, "Ce composant ne déclare aucun jeton d'apparence.");
 					ctx.EndDisabled();
 					return;
 				}
