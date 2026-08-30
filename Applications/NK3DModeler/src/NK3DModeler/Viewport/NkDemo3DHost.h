@@ -355,7 +355,13 @@ namespace nkentseu {
 		// objets vides). La transformation d'un parent est repercutee a son
 		// sous-arbre par l'hote (semantique orbite) ; selectionner un parent
 		// ne selectionne PAS ses enfants.
-		int32 Demo3DHostNodeCount();		 // 96 (plafond, empties compris)
+		// ⚠ NE PAS DIMENSIONNER UN TABLEAU SUR CE COMMENTAIRE. Il disait « 96 »
+		// alors que la fonction rend kNkvpMaxNodes = 160 (NkDemo3D.cpp:150). Des
+		// tableaux de 96 cales sur l'ancien chiffre ont ECRASE LA PILE le
+		// 2026-08-30 — plantage a une adresse folle, plusieurs images APRES la
+		// cause, sans rien qui accuse le menteur. Le plafond se lit sur la
+		// CONSTANTE, jamais sur un nombre recopie ici.
+		int32 Demo3DHostNodeCount();		 // = kNkvpMaxNodes (empties compris)
 		int32 Demo3DHostNodeParent(int32 node); // -1 = racine
 		bool Demo3DHostSetNodeParent(int32 child, int32 parent); // refuse les cycles
 		bool Demo3DHostNodeHasChildren(int32 node);
