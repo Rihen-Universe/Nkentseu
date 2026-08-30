@@ -3130,20 +3130,61 @@ namespace nkuidesign {
 					ctx.EndDisabled();
 					return;
 				}
-				CaseAncrage(ctx, n, "Gauche", editorkit::nkanchor::Left);
-				CaseAncrage(ctx, n, "Haut", editorkit::nkanchor::Top);
-				CaseAncrage(ctx, n, "Droite", editorkit::nkanchor::Right);
-				CaseAncrage(ctx, n, "Bas", editorkit::nkanchor::Bottom);
+				// InspecteurV2 (Banani §1.6) : le WIDGET D'ANCRAGE graphique --
+				// cadre du parent, rectangle central, quatre poignees de bord ;
+				// une poignee ACTIVE est accent et RELIEE au bord par un trait,
+				// une inactive est grise et detachee. Cliquer bascule le bit --
+				// les memes `anchorEdges` que les anciennes cases, MarkHumanEdit
+				// pareil : seul le costume change.
+				WidgetAncrage(ctx, n);
 			}
 
-			void CaseAncrage(NkGuiContext &ctx, NkUINode *n, const char *titre, uint8 bit) {
-				bool v = (n->anchorEdges & bit) != 0;
-				if (nkgui::Checkbox(ctx, titre, v)) {
-					if (v)
-						n->anchorEdges |= bit;
-					else
-						n->anchorEdges = (uint8)(n->anchorEdges & ~bit);
-					mSt->doc.MarkHumanEdit(mSt->selected);
+			void WidgetAncrage(NkGuiContext &ctx, NkUINode *n) {
+				const float32 hz = 96.f;
+				const NkRect bande = ctx.NextItemRect(-1.f, hz);
+				auto &dl = ctx.DL();
+				const float32 cote = 80.f;
+				const NkRect ext = {bande.x + (bande.w - cote) * 0.5f, bande.y + 8.f, cote, cote};
+				const float32 ci = 28.f;
+				const NkRect ctr = {ext.x + (cote - ci) * 0.5f, ext.y + (cote - ci) * 0.5f, ci, ci};
+				dl.AddRect(ext, ctx.theme.border, 1.f, 4.f);
+				dl.AddRectFilled(ctr, ctx.theme.buttonHover, 3.f);
+				dl.AddRect(ctr, ctx.theme.textMuted, 1.f, 3.f);
+				// le point central
+				dl.AddCircleFilled({ctr.x + ci * 0.5f, ctr.y + ci * 0.5f}, 1.6f, ctx.theme.textMuted);
+				struct Poignee {
+						uint8 bit;
+						const char *id;
+						NkRect r;		 // la poignee cliquable
+						NkVec2 a, b;	 // le trait de liaison (centre -> bord)
+				};
+				const float32 cx = ctr.x + ci * 0.5f, cy = ctr.y + ci * 0.5f;
+				const Poignee ps[4] = {
+					{editorkit::nkanchor::Left, "##insp.anc.g",
+					 {ext.x + 2.f, cy - 5.f, 12.f, 10.f}, {ctr.x, cy}, {ext.x, cy}},
+					{editorkit::nkanchor::Right, "##insp.anc.d",
+					 {ext.x + cote - 14.f, cy - 5.f, 12.f, 10.f}, {ctr.x + ci, cy},
+					 {ext.x + cote, cy}},
+					{editorkit::nkanchor::Top, "##insp.anc.h",
+					 {cx - 5.f, ext.y + 2.f, 10.f, 12.f}, {cx, ctr.y}, {cx, ext.y}},
+					{editorkit::nkanchor::Bottom, "##insp.anc.b",
+					 {cx - 5.f, ext.y + cote - 14.f, 10.f, 12.f}, {cx, ctr.y + ci},
+					 {cx, ext.y + cote}},
+				};
+				for (uint32 i = 0; i < 4; ++i) {
+					const bool actif = (n->anchorEdges & ps[i].bit) != 0;
+					ctx.SetNextItemRect(ps[i].r);
+					if (designkit::Button(ctx, ps[i].id, nullptr)) {
+						if (actif)
+							n->anchorEdges = (uint8)(n->anchorEdges & ~ps[i].bit);
+						else
+							n->anchorEdges |= ps[i].bit;
+						mSt->doc.MarkHumanEdit(mSt->selected);
+					}
+					const NkColor c = actif ? ctx.theme.accent : ctx.theme.textMuted;
+					if (actif)
+						dl.AddLine(ps[i].a, ps[i].b, ctx.theme.accent, 2.f);
+					dl.AddRectFilled(ps[i].r, c, 2.f);
 				}
 			}
 
