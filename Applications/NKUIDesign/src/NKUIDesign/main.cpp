@@ -64,6 +64,7 @@
 #include "NkDocPoolControls.h"
 #include "Panels.h"
 #include "Probe.h"
+#include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 
 
 using namespace nkentseu;
@@ -918,6 +919,11 @@ int nkmain(const NkEntryState &state) {
 			continue;
 		if (NkComponentDecl::StrEq(a, "--probe"))
 			return nkuidesign::RunProbe();
+		// La preuve de recette du pipeline IA (Q31 [IA], branchement n.1) : sans
+		// fenetre ni GPU, comme la sonde -- elle tourne sur la machine
+		// d'integration.
+		if (NkComponentDecl::StrEq(a, "--recette-ia"))
+			return nkuidesign::RunRecetteIA();
 		// ⚠️ AVANT TOUTE FENETRE, pour la meme raison que la sonde : l'aller-retour
 		//    ne touche ni au GPU ni a l'ecran, et il doit pouvoir tourner sur la
 		//    machine d'integration qui n'en a pas. C'est aussi ce qui le rend
@@ -1034,6 +1040,7 @@ int nkmain(const NkEntryState &state) {
 			puts(a);
 			puts("drapeaux reconnus :");
 			puts("  --probe                 la sonde headless");
+			puts("  --recette-ia            la preuve de recette du pipeline IA");
 			puts("  --roundtrip[=<dossier>] l'aller-retour du format .nkgui");
 			puts("  --roundtrip-controles   les temoins du lecteur/ecrivain");
 			puts("  --pool-controles        les témoins du pool de chaînes");

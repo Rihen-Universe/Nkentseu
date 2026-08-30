@@ -2458,8 +2458,27 @@ namespace nkuidesign {
 				ec.Text("posée dans l'arbre comme si vous l'aviez posée vous-même.");
 				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
 
-				if (ec.Button("Demander à l'IA"))
-					Ask();
+				// Ecran 28 Banani / spec §6.2 : l'IA PROPOSE, l'humain APPLIQUE ou
+				// REJETTE -- « s'appliquera en une seule operation annulable ».
+				// `Ask` (demander = poser) reste dans l'API pour la sonde ; le
+				// panneau, lui, passe par l'apercu.
+				if (ec.Button("Proposer (aperçu)"))
+					Proposer();
+				if (mSt->ai.HasProposal()) {
+					char pb[128];
+					snprintf(pb, sizeof(pb),
+							 "Proposition en attente : %u nœud(s) — le document n'a pas bougé.",
+							 mSt->ai.Proposal().NodeCount());
+					ec.Text(pb);
+					if (ec.Button("Appliquer sur la sélection"))
+						Appliquer();
+					if (ec.Button("Rejeter")) {
+						mSt->ai.DiscardProposal();
+						mLast = NkString("Proposition rejetée — rien n'a changé.");
+					}
+				}
+				if (mDernierCommit.Accepted() && ec.Button("Retirer la greffe posée"))
+					Retirer();
 				if (ec.Button("Vérifier le document par rejeu"))
 					Replay();
 
@@ -2475,6 +2494,49 @@ namespace nkuidesign {
 			}
 
 		private:
+			void Proposer() {
+				const NkAIResult r = mSt->ai.Propose(mSt->promptBuf, mSt->doc);
+				if (r.Accepted()) {
+					mLast = NkString("Proposition validée et rejouée — en attente. "
+									 "Appliquer la pose ; Rejeter la jette.");
+				} else {
+					char b[320];
+					snprintf(b, sizeof(b), "REFUSÉE — %s. Le document n'a pas bougé.",
+							 NkAIVerdictName(r.verdict));
+					mLast = NkString(b);
+					if (r.detail.Length() > 0) {
+						mLast.Append("  ");
+						mLast.Append(r.detail);
+					}
+				}
+			}
+			void Appliquer() {
+				const NkAIResult r = mSt->ai.CommitProposal(mSt->doc, mSt->selected);
+				char b[320];
+				if (r.Accepted()) {
+					snprintf(b, sizeof(b),
+							 "Appliquée : %u nœud(s) posés. « Retirer la greffe posée » "
+							 "l'annule en une opération.",
+							 r.nodesAdded);
+					mSt->host.SyncTo(mSt->doc);
+					mSt->selected = r.graftedRoot;
+					mDernierCommit = r;
+				} else {
+					snprintf(b, sizeof(b), "GREFFE REFUSÉE — %s. La proposition reste en attente.",
+							 NkAIVerdictName(r.verdict));
+				}
+				mLast = NkString(b);
+			}
+			void Retirer() {
+				if (NkDesignAI::Retract(mSt->doc, mDernierCommit)) {
+					mSt->host.SyncTo(mSt->doc);
+					mSt->SelectSingle(0);
+					mLast = NkString("Greffe retirée — le document est revenu à l'état d'avant.");
+				} else {
+					mLast = NkString("RETRAIT REFUSÉ — le document a changé depuis la pose.");
+				}
+				mDernierCommit = NkAIResult();
+			}
 			void Ask() {
 				const NkAIResult r = mSt->ai.Ask(mSt->promptBuf, mSt->doc, mSt->selected);
 				char b[320];
@@ -2503,6 +2565,7 @@ namespace nkuidesign {
 			}
 			DesignState *mSt;
 			NkString mLast;
+			NkAIResult mDernierCommit;
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
