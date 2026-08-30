@@ -2618,6 +2618,12 @@ namespace nkuidesign {
 				// La planche montre les filets d'indentation ; ils sont à 0 par
 				// défaut dans la déclaration.
 				mInstPages.SetParam("indent_guides", 1.f);
+				// HierarchyPanel V2 (Banani §1.4) : rangee de 22 px, indentation
+				// 14 par niveau (le defaut de la declaration est deja 14). Une
+				// METRIQUE D'INSTANCE : la declaration partagee (NK3DModeler)
+				// garde son 24 -- personne d'autre ne bouge.
+				mInstPages.SetMetric("row_h", 22.f);
+				mInstComposants.SetMetric("row_h", 22.f);
 			}
 
 			void OnUI(NkEditorFrameContext &ec) override {

@@ -1254,6 +1254,10 @@ int nkmain(const NkEntryState &state) {
 	//    instant. Le plan n en prevoit qu un, dans le cluster, qui appartient au
 	//    canvas.
 	shell->SetFooterZoomIndicator(false);
+	// Convention V2 (Banani, decision coordinateur 31/08) : l'onglet ACTIF
+	// rejoint le fond de la zone document. OPT-IN du socle -- NKCode et les
+	// autres consommateurs gardent l'historique tant qu'ils n'optent pas.
+	shell->Ui().theme.tabActiveIsWindowBg = true;
 	// ⚠️ UN SEUL BANDEAU BAS (§4/§13 ; Rodolf, 30/08 : « pourquoi il y a deux
 	//    footers ? ») : la barre d'etat VSCode se debranche, le RAIL de
 	//    pastilles est le survivant — l'aide contextuelle et les messages

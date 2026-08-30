@@ -184,14 +184,21 @@ namespace nkentseu {
 		//    une CONVOCATION : « quelqu un a touche au theme, viens dire dans
 		//    quelle des trois categories tombe le nouveau champ ».
 		//
-		//    29 NkColor (4 octets) + 6 float32 (4 octets) = 140 octets, sans
-		//    remplissage possible puisque tout est aligne sur 4.
+		//    29 NkColor (4 octets) + 6 float32 (4 octets) = 140 octets, plus le
+		//    drapeau d'onglet et son remplissage (4) = 144.
 		//
 		//    ⚠️ SI ELLE TOMBE, NE CHANGE PAS LE CHIFFRE SANS CLASSER LE CHAMP.
 		//       Corriger le nombre pour faire taire l assertion la transforme en
 		//       decoration, et le champ neuf restera au hasard -- exactement ce
 		//       que ce fichier existe pour empecher.
-		static_assert(sizeof(nkgui::NkGuiTheme) == 29 * 4 + 6 * 4,
+		//
+		//    CLASSEMENT DU 2026-08-31 -- `tabActiveIsWindowBg` (bool, opt-in) :
+		//    INCHANGE-AVEC-RAISON. Ce n'est pas une couleur et il ne derive d'aucun
+		//    role : c'est une CONVENTION D'APPLICATION (Banani V2 : l'onglet actif
+		//    rejoint le fond de la zone document), posee par l'app qui opte
+		//    (NkUIDesign). La conversion NE LE TOUCHE PAS -- si elle le remettait a
+		//    sa valeur par defaut, chaque changement de theme ecraserait l'opt-in.
+		static_assert(sizeof(nkgui::NkGuiTheme) == 29 * 4 + 6 * 4 + 4,
 					  "NkGuiTheme a change de forme : classe le champ neuf dans NkThemeVersGui "
 					  "(mappe / derive / inchange-avec-raison), PUIS ajuste ce chiffre.");
 
