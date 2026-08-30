@@ -1717,15 +1717,22 @@ namespace nkuidesign {
 					static const char *const kOutilsBulles[7] = {
 						"Sélection (V)", "Cadre (F)", "Formes (R · O · L)", "Vectoriel (P)",
 						"Texte (T)",	 "Média",	  "Mesure"};
-					const float32 w = kOutilsLargeur, hb = 40.f;
-					const float32 h = hb * 7.f + 12.f;
+					// Geometrie BANANI (FloatingToolRail) : rail 36 px, rayon 5,
+					// boutons 36x28, FILET entre la plume et le texte.
+					const float32 w = kOutilsLargeur, hb = 30.f;
+					const float32 filet = 8.f;
+					const float32 h = hb * 7.f + filet + 6.f;
 					const NkRect r = {zone.x + kOutilsMarge, zone.y + (zone.h - h) * 0.5f, w, h};
 					mZoneOutils = r; // idem
-					dl.AddRectFilled(r, fond, 8.f);
-					dl.AddRect(r, bord, 1.f, 8.f);
+					dl.AddRectFilled(r, fond, 5.f);
+					dl.AddRect(r, bord, 1.f, 5.f);
 					for (uint32 i = 0; i < 7; ++i) {
-						const NkRect c = {r.x + 5.f, r.y + 6.f + hb * (float32)i, w - 10.f,
-										  hb - 4.f};
+						const float32 yOff = (i >= 4) ? filet : 0.f;
+						if (i == 4)
+							dl.AddLine({r.x + 6.f, r.y + 4.f + hb * 4.f + filet * 0.5f},
+									   {r.x + w - 6.f, r.y + 4.f + hb * 4.f + filet * 0.5f}, bord,
+									   1.f);
+						const NkRect c = {r.x, r.y + 4.f + hb * (float32)i + yOff, w, hb - 2.f};
 						ctx.SetNextItemRect(c);
 						if (Button(ctx, kOutilsIds[i]))
 							ArmerOutil(i);
@@ -1755,8 +1762,7 @@ namespace nkuidesign {
 					// rectangle, ellipse, ligne. Choisir rend la variante active
 					// ET en fait la face du bouton (GlypheOutil la dessine).
 					if (mEventailOuvert) {
-						const NkRect bFormes = {r.x + 5.f, r.y + 6.f + hb * 2.f, w - 10.f,
-												hb - 4.f};
+						const NkRect bFormes = {r.x, r.y + 4.f + hb * 2.f, w, hb - 2.f};
 						const float32 vb = 36.f;
 						const NkRect ev = {r.x + w + 6.f, bFormes.y, vb * 3.f + 16.f, vb + 8.f};
 						mZoneEventail = ev;
@@ -2042,7 +2048,9 @@ namespace nkuidesign {
 			/// La geometrie de la barre d'outils flottante (§7 : « largeur 48px »).
 			/// ⚠️ LUE PAR DEUX ENDROITS -- la barre elle-meme, et la pose initiale de
 			///    la vue, qui doit garantir qu'aucun contenu ne naisse dessous.
-			static constexpr float32 kOutilsLargeur = 48.f;
+			/// Banani (FloatingToolRail) : 36 px — plus la barre de 48 du plan
+			/// initial ; la maquette est la reference exacte (Rodolf, 30/08).
+			static constexpr float32 kOutilsLargeur = 36.f;
 			static constexpr float32 kOutilsMarge = 12.f;
 			/// Le pas de la grille a points, en espace DOCUMENT — 20, la valeur
 			/// exacte de la maquette Banani (radial-gradient, pas 20 px).
