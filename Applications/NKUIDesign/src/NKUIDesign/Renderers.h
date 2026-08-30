@@ -184,6 +184,40 @@ namespace nkuidesign {
 				m.breadcrumb.PushBack(NkString("projet"));
 				m.breadcrumb.PushBack(NkString("assets"));
 				m.breadcrumb.PushBack(NkString("niveau1"));
+
+				// Les NATURES du mixte — les puces de filtre. Le role vient de la
+				// nature, par la MEME fonction que les entrees : une puce d'une
+				// autre couleur que ses cartes rendrait la capture illisible.
+				m.kinds.Clear();
+				static const char *kKinds[] = {"maillage", "materiau", "texture"};
+				for (uint32 k = 0; k < sizeof(kKinds) / sizeof(kKinds[0]); ++k) {
+					nkentseu::editorkit::NkBrowserKind kind;
+					kind.label = NkString(kKinds[k]);
+					kind.role = RoleOfKind(kKinds[k]);
+					m.kinds.PushBack(kind);
+				}
+
+				// L'arbre de dossiers embarque (tree_view du kit) — ordre prefixe,
+				// avec une racine « Favoris » : la lecon d'Unreal portee par la
+				// DONNEE, pas par du code (cf. NkContentBrowserModel.h).
+				m.folders.nodes.Clear();
+				static const struct {
+						int32 parent;
+						const char *label;
+				} kFolders[] = {{-1, "projet"},	  {0, "Materiaux"}, {0, "Maillages"},
+								{0, "Textures"},  {-1, "Favoris"},	{4, "sol.nkmat"}};
+				for (uint32 k = 0; k < sizeof(kFolders) / sizeof(kFolders[0]); ++k) {
+					nkentseu::editorkit::NkTreeNode nd;
+					nd.id = (nkentseu::nk_uint64)(k + 1);
+					nd.parent = kFolders[k].parent;
+					nd.label = NkString(kFolders[k].label);
+					nd.path = NkString("/dossiers/");
+					nd.path.Append(kFolders[k].label);
+					nd.kindRole = NkDesignResolveRole("type_folder");
+					m.folders.nodes.PushBack(nd);
+				}
+
+				m.statusRight = NkString("Sauvegardé");
 			}
 
 			/// ⚠️ ORDRE PREFIXE OBLIGATOIRE (`NkTreeViewModel::IsWellFormed`) : un
@@ -334,6 +368,15 @@ namespace nkuidesign {
 			s.activeMark = host.Role(n.instance.TokenRole("active_mark"));
 			s.chosenMark = host.Role(n.instance.TokenRole("chosen_mark"));
 			s.folderTint = host.Role(n.instance.TokenRole("folder_tint"));
+			// Les jetons du mixte (2026-08-30).
+			s.chipBg = host.Role(n.instance.TokenRole("chip_bg"));
+			s.badgeText = host.Role(n.instance.TokenRole("badge_text"));
+			s.statusBg = host.Role(n.instance.TokenRole("status_bg"));
+			// Les chevrons de l'arbre de dossiers embarque — MEMES poignees que
+			// l'arbre autonome : c'est la ligne qui manquait au tree_view le 29/08
+			// (« il demandait ses icones, personne ne lui en donnait »), on ne la
+			// re-paie pas ici.
+			s.treeIcons = NkDesignTreeIcons();
 			// C'EST L'INSTANCE DU NOEUD QUI FOURNIT LES NOMBRES : deux navigateurs
 			// poses dans le meme document peuvent donc avoir des reglages
 			// differents, ce qui est exactement le sens de « une instance par

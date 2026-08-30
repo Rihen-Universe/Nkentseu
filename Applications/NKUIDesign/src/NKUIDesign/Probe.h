@@ -137,6 +137,37 @@ namespace nkuidesign {
 		m.breadcrumb.PushBack(NkString("projet"));
 		m.breadcrumb.PushBack(NkString("assets"));
 		m.breadcrumb.PushBack(NkString("niveau1"));
+
+		// Les NATURES du mixte (puces de filtre) — roles arbitraires mais
+		// DISTINCTS, meme regle que DemoStyle : le peintre enregistreur est
+		// injectif par role, une erreur de role se verrait.
+		m.kinds.Clear();
+		static const char *kKinds[] = {"Maillage", "Materiau", "Texture"};
+		for (uint32 k = 0; k < sizeof(kKinds) / sizeof(kKinds[0]); ++k) {
+			nkentseu::editorkit::NkBrowserKind kind;
+			kind.label = NkString(kKinds[k]);
+			kind.role = (uint16)(4 + k);
+			m.kinds.PushBack(kind);
+		}
+
+		// L'arbre de dossiers embarque (tree_view) — trois noeuds en ordre
+		// prefixe, assez pour que la colonne emette des lignes.
+		m.folders.nodes.Clear();
+		static const struct {
+				int32 parent;
+				const char *label;
+		} kFolders[] = {{-1, "projet"}, {0, "assets"}, {1, "niveau1"}};
+		for (uint32 k = 0; k < sizeof(kFolders) / sizeof(kFolders[0]); ++k) {
+			nkentseu::editorkit::NkTreeNode n;
+			n.id = (nkentseu::nk_uint64)(k + 1);
+			n.parent = kFolders[k].parent;
+			n.label = NkString(kFolders[k].label);
+			n.path = NkString("/");
+			n.path.Append(kFolders[k].label);
+			m.folders.nodes.PushBack(n);
+		}
+
+		m.statusRight = NkString("Sauvegarde");
 	}
 
 	inline NkContentBrowserStyle DemoStyle(const NkComponentInstance *inst) {
@@ -154,6 +185,9 @@ namespace nkuidesign {
 		s.activeMark = 8;
 		s.chosenMark = 9;
 		s.folderTint = 10;
+		s.chipBg = 11;
+		s.badgeText = 12;
+		s.statusBg = 13;
 		s.variant = NkBrowserVariant::Grid;
 		s.values = inst;
 		return s;
@@ -532,7 +566,13 @@ namespace nkuidesign {
 		const NkComponentDecl &dcl = NkContentBrowserDecl();
 		const float32 treeW = 900.f * dcl.Param("tree_width");
 		const float32 thumb0 = dcl.Param("thumb_size");
-		const float32 top0 = dcl.Metric("header_h") + dcl.Metric("toolbar_h") + dcl.Metric("row_h");
+		// ⚠️ MIS A JOUR AVEC LE MIXTE (2026-08-30) : le fil d'Ariane a rejoint la
+		//    barre d'outils, et deux rangees se sont inserees au-dessus de la
+		//    grille — les puces de filtre (`filter_h`) et la rangee d'information
+		//    (`info_h`). Le point de clic se calcule toujours DEPUIS LA
+		//    DECLARATION, jamais en dur — la lecon d'origine de cette famille.
+		const float32 top0 = dcl.Metric("header_h") + dcl.Metric("toolbar_h") +
+							 dcl.Metric("filter_h") + dcl.Metric("info_h");
 		NkComponentInput click;
 		click.mouseX = treeW + 1.f + thumb0 * 0.5f;
 		click.mouseY = top0 + thumb0 * 0.5f;
@@ -582,8 +622,10 @@ namespace nkuidesign {
 		char ctrl[2048];
 		const uint32 n = NkWriteControllerBlock(decl, ctrl, sizeof(ctrl));
 		snprintf(buf, sizeof(buf), "%u evenements declares, bloc de %u octets", decl.eventCount, n);
+		// 8 depuis le mixte du 30/08 : les 5 d'origine + onCreate / onImport /
+		// onSaveAll (les boutons de tete, a charge vide — le fait suffit).
 		check("14. le bloc `controller` de la spec .nkgui v0.2 s'emet depuis la declaration",
-			  n > 0 && decl.eventCount == 5, buf);
+			  n > 0 && decl.eventCount == 8, buf);
 
 		// Toutes les charges sont-elles dans le vocabulaire de la spec ?
 		bool typesOk = true;
@@ -1462,15 +1504,20 @@ namespace nkuidesign {
 			//    l'ai vu que parce que le chiffre publie a cote (`x=0.0`) etait
 			//    absurde. **Publier la valeur intermediaire a sauve le banc.**
 			//
-			//    La regle juste est STRUCTURELLE, pas devinatoire : dans un flux
-			//    correctement imbrique, le dernier `PushClip` avant le premier
-			//    `PopClip` est le clip LE PLUS INTERNE -- ici, la grille.
+			//    La regle juste est STRUCTURELLE, pas devinatoire — et elle a du
+			//    CHANGER avec le mixte du 30/08, en le disant : la version
+			//    precedente prenait « le dernier `PushClip` avant le premier
+			//    `PopClip` ». Depuis le mixte, deux decoupes s'ouvrent ET se
+			//    ferment AVANT la grille (le fil d'Ariane clippe a sa zone de
+			//    barre d'outils, puis les decoupes internes du tree_view embarque)
+			//    -- l'ancien repere aurait retenu le clip du fil d'Ariane, un vert
+			//    pour la mauvaise raison. Le repere qui tient : **la grille est la
+			//    DERNIERE decoupe ouverte du flux** -- tout ce qui vient apres elle
+			//    est son contenu, puis les barres basses pleine largeur.
 			float32 gridX = -1.f;
 			uint32 iClip = 0, nbClips = 0;
 			NkString clips;
 			for (uint32 i = 0; i < (uint32)g.cmds.Size(); ++i) {
-				if (g.cmds[i].op == NkPaintOp::PopClip)
-					break;
 				if (g.cmds[i].op == NkPaintOp::PushClip) {
 					++nbClips;
 					gridX = g.cmds[i].x;
@@ -1542,10 +1589,18 @@ namespace nkuidesign {
 						}
 					}
 				}
+				// ⚠️ LE COTE « GRILLE » S'ARRETE A LA FERMETURE DE SA DECOUPE.
+				//    Depuis le mixte, la BARRE D'ETAT s'emet APRES le PopClip de la
+				//    grille (son compteur doit refleter le tour courant) : son
+				//    texte de gauche commence a x=pad, DANS l'ancienne zone jugee
+				//    « colonne ». Sans cette borne, l'instrument accuserait la
+				//    barre d'etat d'un chevauchement qui n'existe pas — la meme
+				//    erreur que les deux bandes de la seconde correction.
 				for (uint32 i = fin + 1; i < (uint32)flux.cmds.Size(); ++i) {
 					const NkPaintCmd &c = flux.cmds[i];
-					if (c.op == NkPaintOp::PushClip || c.op == NkPaintOp::PopClip ||
-						bandePleineLargeur(c))
+					if (c.op == NkPaintOp::PopClip)
+						break;
+					if (c.op == NkPaintOp::PushClip || bandePleineLargeur(c))
 						continue;
 					if (c.x < gridX - 0.01f && c.y >= bandeTop - 0.01f)
 						++grilleCol;
@@ -1573,21 +1628,33 @@ namespace nkuidesign {
 			//      commande volontairement fautive -- posee dans la colonne, a la
 			//      bonne hauteur, traversant la frontiere -- et le MEME detecteur
 			//      doit la compter, avec le bon debordement.
+			// ⚠️ L'INTRUS S'INSERE A LA FRONTIERE, IL NE S'AJOUTE PLUS A LA FIN —
+			//    et la premiere version de cette correction a ete PRISE PAR SON
+			//    PROPRE CONTROLE : etendre `fin` a la taille du flux (l'ancienne
+			//    methode) faisait entrer la BARRE D'ETAT du mixte dans le cote
+			//    « colonne » — 2 detections, debord 377 px, mesure du 30/08. Le
+			//    detecteur reel juge [0, iClip) ; l'intrus doit donc etre juge
+			//    DANS cette fenetre, pas dans une fenetre elargie qui n'existe
+			//    nulle part ailleurs.
 			NkRecordingPaint faute;
-			for (uint32 i = 0; i < (uint32)g.cmds.Size(); ++i)
+			for (uint32 i = 0; i < (uint32)g.cmds.Size(); ++i) {
+				if (i == iClip) {
+					NkPaintCmd intrus;
+					intrus.op = NkPaintOp::Fill;
+					intrus.x = gridX - 40.f; // commence DANS la colonne
+					intrus.y = bandeTop + 10.f;
+					intrus.w = 90.f;		 // et finit 50 px DANS la grille
+					intrus.h = 20.f;
+					faute.cmds.PushBack(intrus);
+				}
 				faute.cmds.PushBack(g.cmds[i]);
-			NkPaintCmd intrus;
-			intrus.op = NkPaintOp::Fill;
-			intrus.x = gridX - 40.f; // commence DANS la colonne
-			intrus.y = bandeTop + 10.f;
-			intrus.w = 90.f;		 // et finit 50 px DANS la grille
-			intrus.h = 20.f;
-			faute.cmds.PushBack(intrus);
+			}
 			uint32 fCol = 0, fGrille = 0;
 			float32 fPire = 0.f;
-			// L'intrus est pose AVANT la frontiere de parcours : on etend `fin`
-			// jusqu'a lui pour qu'il soit juge du cote « colonne ».
-			compter(faute, (uint32)faute.cmds.Size(), fCol, fGrille, fPire, nullptr);
+			// La fenetre jugee est la MEME que pour le flux reel, decalee du seul
+			// intrus insere : c'est la condition pour que 34e prouve le detecteur
+			// employe, pas un detecteur elargi pour l'occasion.
+			compter(faute, iClip + 1, fCol, fGrille, fPire, nullptr);
 			snprintf(buf, sizeof(buf), "intrus injecte -> %u detecte(s), debord mesure %.1f px (attendu 50.0)",
 					 fCol, fPire);
 			check("34e. CONTROLE POSITIF : le MEME detecteur voit un chevauchement injecte", fCol == 1 && fPire > 49.9f && fPire < 50.1f, buf);
