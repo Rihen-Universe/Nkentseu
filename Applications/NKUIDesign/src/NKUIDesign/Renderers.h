@@ -361,6 +361,26 @@ namespace nkuidesign {
 				p.OutlineSharp(r, host.Role("border"));
 				return;
 			}
+			if (shape && StrEq(shape, "ellipse")) {
+				// L'ELLIPSE (Lunacy : outil O). Le peintre peut ne pas savoir la
+				// dessiner (défaut inerte de l'interface) : le repli est VISIBLE —
+				// le contour de sa boîte + le nom, jamais un vide silencieux.
+				if (!p.Ellipse(r, host.Role("input_bg")))
+					p.Outline(r, host.Role("border"), host.Role("input_bg"), r.h * 0.5f);
+				return;
+			}
+			if (shape && (StrEq(shape, "line") || StrEq(shape, "line_up"))) {
+				// LA LIGNE (Lunacy : outil L). Sa boîte est le rect ; la diagonale
+				// tracée est descendante (`line`) ou montante (`line_up`) — les
+				// deux valeurs étendent le vocabulaire §4.2 (qui n'a que `path`
+				// pour l'oblique) : dit ici et dans le rapport, pas glissé.
+				const bool monte = StrEq(shape, "line_up");
+				const float32 y1 = monte ? r.y + r.h : r.y;
+				const float32 y2 = monte ? r.y : r.y + r.h;
+				if (!p.Line(r.x, y1, r.x + r.w, y2, host.Role("text"), 2.f))
+					p.Outline(r, host.Role("border"), host.Role("input_bg"), 1.f);
+				return;
+			}
 			if (shape && StrEq(shape, "text")) {
 				// Le TEXTE : son contenu, rien d'autre — ni fond ni cadre. Un
 				// texte vide dessine son libellé de nœud en atténué, sinon une

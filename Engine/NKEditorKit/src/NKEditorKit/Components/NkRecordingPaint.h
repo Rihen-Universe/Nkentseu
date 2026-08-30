@@ -63,6 +63,10 @@ namespace nkentseu {
 			Icon,
 			PushClip,
 			PopClip,
+			// Ajoutees le 2026-08-30 (chaine du designer) — EN FIN, avant Count :
+			// l'enumeration est append-only comme toutes celles de la forme.
+			Ellipse,
+			Line,
 			Count
 		};
 
@@ -88,6 +92,10 @@ namespace nkentseu {
 					return "PushClip";
 				case NkPaintOp::PopClip:
 					return "PopClip";
+				case NkPaintOp::Ellipse:
+					return "Ellipse";
+				case NkPaintOp::Line:
+					return "Line";
 				default:
 					return "?";
 			}
@@ -189,6 +197,18 @@ namespace nkentseu {
 				}
 				void Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) override {
 					Push(NkPaintOp::Icon, r, role, 0, 0, 0.f, iconHandle, 0, nullptr);
+				}
+				bool Ellipse(const NkPaintRect &r, uint16 role) override {
+					Push(NkPaintOp::Ellipse, r, role, 0, 0, 0.f, 0, 0, nullptr);
+					return true;
+				}
+				bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
+						  float32 thickness) override {
+					// Le rect porte les DEUX EXTREMITES (x,y)-(w,h relatifs) : la
+					// geometrie complete du segment, pas seulement sa boite.
+					Push(NkPaintOp::Line, {x1, y1, x2 - x1, y2 - y1}, role, 0, 0, thickness, 0, 0,
+						 nullptr);
+					return true;
 				}
 				void PushClip(const NkPaintRect &r) override {
 					++mClipDepth;

@@ -110,6 +110,20 @@ namespace nkentseu {
 				void Text(const NkPaintRect &r, const char *s, uint16 role, NkTextAlign align) override;
 				void Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) override;
 
+				// Traductions pures (2026-08-30) — la regle « il ne doit pas
+				// grossir » tient : l'ellipse parametrique vit dans NKGui
+				// (`AddEllipseFilled`), la ligne dans `AddLine`.
+				bool Ellipse(const NkPaintRect &r, uint16 role) override {
+					mCtx.DL().AddEllipseFilled({r.x + r.w * 0.5f, r.y + r.h * 0.5f}, r.w * 0.5f,
+											   r.h * 0.5f, C(role));
+					return true;
+				}
+				bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
+						  float32 thickness) override {
+					mCtx.DL().AddLine({x1, y1}, {x2, y2}, C(role), thickness);
+					return true;
+				}
+
 				void PushClip(const NkPaintRect &r) override {
 					mCtx.DL().PushClipRect(R(r), true);
 				}

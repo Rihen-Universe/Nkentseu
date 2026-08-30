@@ -1095,6 +1095,37 @@ namespace nkuidesign {
 				nkgui::NkGuiNoterMesure(ctx, "canvas.vue", mSt->view.zoom, mSt->view.panX,
 										mSt->view.panY, (float32)mSt->sel.Count());
 
+				// ── RACCOURCIS D'OUTILS AU VRAI CLAVIER (Lunacy : V F R O L T) ──
+				// ⚠️ MESURE DU 30/08 (Rodolf : « les F glisser et autres ne
+				//    fonctionnent donc pas ») : la touche n'avait JAMAIS été
+				//    branchée — l'infobulle la promettait, le clavier n'arrivait
+				//    nulle part. Règle Lunacy : les lettres n'arment un outil que
+				//    si AUCUN champ texte n'a le clavier (sinon elles sont une
+				//    saisie) ; l'effet est VISIBLE (l'icône s'allume, la ligne
+				//    d'aide change) — jamais de no-op muet. On lit `chars[]`
+				//    (traduits par l'OS : un AZERTY donne les mêmes lettres),
+				//    pas des codes de touche.
+				if (ctx.inputId == NKGUI_ID_NONE) {
+					for (int32 k = 0; k < ctx.input.charCount; ++k) {
+						switch (ctx.input.chars[k]) {
+							case 'v': case 'V': ArmerOutil(0); break;
+							case 'f': case 'F': ArmerOutil(1); break;
+							case 'r': case 'R': mVariante = 0; ArmerOutil(2); break;
+							case 'o': case 'O': mVariante = 1; ArmerOutil(2); break;
+							case 'l': case 'L': mVariante = 2; ArmerOutil(2); break;
+							case 'p': case 'P': ArmerOutil(3); break;
+							case 't': case 'T': ArmerOutil(4); break;
+							default: break;
+						}
+					}
+				}
+				// ÉCHAP annule le tracé en cours (Lunacy), et le DIT.
+				if (mCreating && ctx.input.KeyPressed(NkGuiKey::Escape)) {
+					mCreating = false;
+					Dire("Tracé annulé.", "", "");
+				}
+				TraceEntree(ctx);
+
 				HandleMouse(in, screen);
 
 				// ⚠️ `NkDesignPaint`, PAS `NkGuiComponentPaint` : c'est lui qui
@@ -1144,10 +1175,14 @@ namespace nkuidesign {
 
 				// ── LE TRACE ELASTIQUE d'un outil F/R en cours ────────────────
 				// Peint APRES le document (il flotte au-dessus), jamais enregistre.
-				if (mCreating)
-					paint.OutlineSharp(
-						NkRectFromPoints(mCreateX, mCreateY, in.mouseX, in.mouseY),
-						NkDesignResolveRole("accent_ui"));
+				if (mCreating) {
+					const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift);
+					paint.OutlineSharp(t, NkDesignResolveRole("accent_ui"));
+					// La même puce que la sélection : le tracé se lit pendant
+					// qu'on dessine (Lunacy).
+					PuceTaille(paint, t, mSt->view.ToDocLength(t.w),
+							   mSt->view.ToDocLength(t.h));
+				}
 
 				// ⚠️ LES TROIS FLOTTANTS SONT DESSINÉS **APRÈS** LE DOCUMENT, et
 				//    c'est tout leur sens : le plan les note en orange avec la
@@ -1210,7 +1245,14 @@ namespace nkuidesign {
 				//    lui aussi. La resolution canonise desormais, mais le nom
 				//    canonique s'ecrit quand meme : la canonisation est un filet,
 				//    pas une dispense.
-				if (screen.Has(mSt->selected)) {
+				// ⚠️ PAS DE MARQUEUR POUR LA RACINE (mesure de Rodolf, 30/08 : « il
+				//    part jusqu'à l'infini vers la droite ») : la racine couvre la
+				//    surface RESOLUE, plus large que la fenêtre dès que la vue est
+				//    décalée — son liseré filait hors champ. Lunacy ne dessine
+				//    aucun marqueur de canvas pour la page : la Hiérarchie
+				//    surligne, et c'est le bon endroit.
+				if (screen.Has(mSt->selected) && mSt->doc.IsValidIndex(mSt->selected)
+					&& mSt->doc.nodes[(uint32)mSt->selected].parent >= 0) {
 					const NkPaintRect rs = screen.At(mSt->selected);
 					const uint16 accent = NkDesignResolveRole("accent_ui");
 					paint.OutlineSharp(rs, accent);
@@ -1235,6 +1277,13 @@ namespace nkuidesign {
 							paint.Fill(ph, fondP, 0.f);
 							paint.OutlineSharp(ph, accent);
 						}
+					// LA PUCE DE TAILLE (Lunacy : « 932 × 552 » sous l'élément,
+					// fond accent) — les dimensions DOCUMENT, celles que le
+					// fichier écrira, jamais des pixels d'écran.
+					if (mSt->layout.Has(mSt->selected)) {
+						const NkPaintRect rd = mSt->layout.At(mSt->selected);
+						PuceTaille(paint, rs, rd.w, rd.h);
+					}
 				}
 			}
 
@@ -1285,7 +1334,7 @@ namespace nkuidesign {
 				//    a la toile.
 				if (in.mousePressed
 					&& (DansZone(mZoneModes, in) || DansZone(mZoneOutils, in)
-						|| DansZone(mZoneCluster, in)))
+						|| DansZone(mZoneCluster, in) || DansZone(mZoneEventail, in)))
 					return;
 
 				// ── LES OUTILS QUI CREENT : F (cadre), R (rectangle), T (texte) ──
@@ -1308,20 +1357,33 @@ namespace nkuidesign {
 					return; // un outil de trace ne selectionne pas en meme temps
 				}
 				if (mCreating && !in.mouseDown) {
-					// Relachement : le rectangle trace devient un noeud. Un trace
-					// minuscule (clic sans glisser) prend une taille de depart —
-					// une forme de 0 px serait invisible et paraitrait perdue.
-					const float32 mx = in.mouseX, my = in.mouseY;
-					const float32 x0 = mCreateX < mx ? mCreateX : mx;
-					const float32 y0 = mCreateY < my ? mCreateY : my;
-					float32 w = mCreateX < mx ? mx - mCreateX : mCreateX - mx;
-					float32 h = mCreateY < my ? my - mCreateY : mCreateY - my;
-					if (w < 8.f)
+					// Relachement : le trace devient un noeud — de la nature de la
+					// VARIANTE armee (Lunacy : R rectangle, O ellipse, L ligne).
+					// Un trace minuscule (clic sans glisser) prend une taille de
+					// depart : une forme de 0 px paraitrait perdue.
+					const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift);
+					float32 w = t.w, h = t.h;
+					const bool ligne = (mOutil == 2 && mVariante == 2);
+					if (!ligne && w < 8.f)
 						w = mOutil == 1 ? 200.f : 120.f;
-					if (h < 8.f)
+					if (!ligne && h < 8.f)
 						h = mOutil == 1 ? 160.f : 80.f;
-					CreerForme(mCreateParent, screen, x0, y0, mSt->view.ToDocLength(w),
-							   mSt->view.ToDocLength(h), mOutil == 1 ? "frame" : "rect");
+					if (ligne && w < 8.f && h < 8.f)
+						w = 120.f;
+					const char *forme = "frame";
+					if (mOutil == 2) {
+						if (mVariante == 1)
+							forme = "ellipse";
+						else if (mVariante == 2)
+							// La diagonale MONTE si les axes du geste divergent.
+							forme = ((mCreateX <= in.mouseX) != (mCreateY <= in.mouseY))
+										? "line_up"
+										: "line";
+						else
+							forme = "rect";
+					}
+					CreerForme(mCreateParent, screen, t.x, t.y, mSt->view.ToDocLength(w),
+							   mSt->view.ToDocLength(h), forme);
 					mCreating = false;
 				}
 				if (in.mousePressed) {
@@ -1430,9 +1492,12 @@ namespace nkuidesign {
 				for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i)
 					if (StrEq(mSt->doc.nodes[i].shape.Data(), shape))
 						++memes;
-				const char *base = StrEq(shape, "frame")  ? "Cadre"
-								   : StrEq(shape, "rect") ? "Rectangle"
-														  : "Texte";
+				const char *base = StrEq(shape, "frame")	 ? "Cadre"
+								   : StrEq(shape, "rect")	 ? "Rectangle"
+								   : StrEq(shape, "ellipse") ? "Ellipse"
+								   : StrEq(shape, "line")	 ? "Ligne"
+								   : StrEq(shape, "line_up") ? "Ligne"
+															 : "Texte";
 				char nom[48];
 				snprintf(nom, sizeof(nom), "%s %u", base, memes + 1u);
 				NkUINode &n = mSt->doc.nodes[(uint32)idx];
@@ -1484,6 +1549,11 @@ namespace nkuidesign {
 			int32 mCreateParent = -1;
 			float32 mCreateX = 0.f, mCreateY = 0.f;
 			float32 mLastX = 0.f, mLastY = 0.f;
+			/// La variante armée de la famille Formes : 0 rectangle, 1 ellipse,
+			/// 2 ligne (Lunacy : R, O, L). Elle est aussi la FACE du bouton.
+			uint32 mVariante = 0;
+			bool mEventailOuvert = false;
+			NkRect mZoneEventail = {0.f, 0.f, 0.f, 0.f};
 			/// Les zones flottantes de l'image PRECEDENTE (bascule, outils,
 			/// cluster) — posees par `DessinerFlottants`, lues par `HandleMouse`
 			/// pour que la toile ne recoive pas leurs clics.
@@ -1571,16 +1641,8 @@ namespace nkuidesign {
 						"##outil_vectoriel", "##outil_texte", "##outil_media",
 						"##outil_mesure"};
 					static const char *const kOutilsBulles[7] = {
-						"Sélection (V)", "Cadre (F)", "Formes (R)", "Vectoriel (P)",
+						"Sélection (V)", "Cadre (F)", "Formes (R · O · L)", "Vectoriel (P)",
 						"Texte (T)",	 "Média",	  "Mesure"};
-					static const char *const kOutilsDits[7] = {
-						"Sélection — cliquer, glisser pour déplacer, bords pour redimensionner",
-						"Cadre — tracer un artboard sur la toile",
-						"Rectangle — tracer dans un cadre ou sur la toile",
-						"Vectoriel : à brancher (§7.2)",
-						"Texte — cliquer pour poser un texte",
-						"Média : à brancher (§7.2)",
-						"Mesure : à brancher (§7.2)"};
 					const float32 w = kOutilsLargeur, hb = 40.f;
 					const float32 h = hb * 7.f + 12.f;
 					const NkRect r = {zone.x + kOutilsMarge, zone.y + (zone.h - h) * 0.5f, w, h};
@@ -1591,9 +1653,15 @@ namespace nkuidesign {
 						const NkRect c = {r.x + 5.f, r.y + 6.f + hb * (float32)i, w - 10.f,
 										  hb - 4.f};
 						ctx.SetNextItemRect(c);
-						if (Button(ctx, kOutilsIds[i])) {
-							mOutil = i;
-							Dire("", kOutilsDits[i], "");
+						if (Button(ctx, kOutilsIds[i]))
+							ArmerOutil(i);
+						// Le CHEVRON de la famille Formes est VIVANT (Lunacy) : le
+						// cliquer ouvre l'éventail des variantes (§7.1) — le clic
+						// arme aussi la famille, comme chez Lunacy.
+						if (i == 2 && ctx.input.mouseClicked[0]) {
+							const NkRect zc = {c.x + c.w - 14.f, c.y + c.h - 14.f, 14.f, 14.f};
+							if (NkGuiRectContains(zc, ctx.input.mousePos))
+								mEventailOuvert = !mEventailOuvert;
 						}
 						if (ctx.IsItemHovered())
 							SetTooltip(ctx, kOutilsBulles[i]);
@@ -1606,6 +1674,47 @@ namespace nkuidesign {
 						if (i == mOutil)
 							dl.AddRectFilled(c, ctx.theme.accent, 4.f);
 						GlypheOutil(dl, c, i, ctx.theme.text, ctx.theme.textMuted);
+					}
+
+					// ── L'ÉVENTAIL DES VARIANTES DE FORMES (§7.1, Lunacy) ────
+					// Déplié « vers le canvas », À DROITE du bouton Formes :
+					// rectangle, ellipse, ligne. Choisir rend la variante active
+					// ET en fait la face du bouton (GlypheOutil la dessine).
+					if (mEventailOuvert) {
+						const NkRect bFormes = {r.x + 5.f, r.y + 6.f + hb * 2.f, w - 10.f,
+												hb - 4.f};
+						const float32 vb = 36.f;
+						const NkRect ev = {r.x + w + 6.f, bFormes.y, vb * 3.f + 16.f, vb + 8.f};
+						mZoneEventail = ev;
+						dl.AddRectFilled(ev, fond, 6.f);
+						dl.AddRect(ev, bord, 1.f, 6.f);
+						static const char *const kVarIds[3] = {"##var_rect", "##var_ellipse",
+															   "##var_ligne"};
+						static const char *const kVarBulles[3] = {"Rectangle (R)", "Ellipse (O)",
+																  "Ligne (L)"};
+						for (uint32 v = 0; v < 3; ++v) {
+							const NkRect cv = {ev.x + 4.f + (vb + 4.f) * (float32)v, ev.y + 4.f,
+											   vb, vb};
+							ctx.SetNextItemRect(cv);
+							if (Button(ctx, kVarIds[v])) {
+								mVariante = v;
+								ArmerOutil(2);
+								mEventailOuvert = false;
+							}
+							if (ctx.IsItemHovered())
+								SetTooltip(ctx, kVarBulles[v]);
+							if (v == mVariante)
+								dl.AddRectFilled(cv, ctx.theme.accent, 4.f);
+							GlypheForme(dl, cv, v, ctx.theme.text);
+						}
+						// Un clic hors de l'éventail et hors du bouton Formes le
+						// referme — le comportement de tout menu volant.
+						if (ctx.input.mouseClicked[0]
+							&& !NkGuiRectContains(ev, ctx.input.mousePos)
+							&& !NkGuiRectContains(bFormes, ctx.input.mousePos))
+							mEventailOuvert = false;
+					} else {
+						mZoneEventail = {0.f, 0.f, 0.f, 0.f};
 					}
 				}
 
@@ -1664,8 +1773,22 @@ namespace nkuidesign {
 				dl.AddTriangleFilled({bx - 3.f, by - 2.f}, {bx + 3.f, by - 2.f}, {bx, by + 2.f},
 									 mut);
 			}
-			static void GlypheOutil(nkgui::NkGuiDrawList &dl, const NkRect &c, uint32 outil,
-									const nkgui::NkColor &enc, const nkgui::NkColor &mut) {
+			/// Le glyphe d'UNE VARIANTE de la famille Formes (face du bouton ET
+			/// éventail) : 0 rectangle, 1 ellipse, 2 ligne.
+			static void GlypheForme(nkgui::NkGuiDrawList &dl, const NkRect &c, uint32 v,
+									const nkgui::NkColor &enc) {
+				const float32 cx = c.x + c.w * 0.5f, cy = c.y + c.h * 0.5f;
+				const float32 s = 7.f;
+				if (v == 1)
+					dl.AddCircle({cx, cy}, s * 0.85f, enc, 1.6f);
+				else if (v == 2)
+					dl.AddLine({cx - s, cy + s * 0.7f}, {cx + s, cy - s * 0.7f}, enc, 2.f);
+				else
+					dl.AddRect({cx - s, cy - s * 0.72f, s * 2.f, s * 1.44f}, enc, 1.6f, 3.f);
+			}
+
+			void GlypheOutil(nkgui::NkGuiDrawList &dl, const NkRect &c, uint32 outil,
+							 const nkgui::NkColor &enc, const nkgui::NkColor &mut) {
 				const float32 cx = c.x + c.w * 0.5f, cy = c.y + c.h * 0.5f;
 				const float32 s = 7.f; // demi-côté du glyphe
 				switch (outil) {
@@ -1680,9 +1803,11 @@ namespace nkuidesign {
 					case 1: // CADRE : le carré
 						dl.AddRect({cx - s, cy - s, s * 2.f, s * 2.f}, enc, 1.6f);
 						break;
-					case 2: // FORMES : le rectangle arrondi, et ses variantes
-						dl.AddRect({cx - s, cy - s * 0.72f, s * 2.f, s * 1.44f}, enc, 1.6f, 3.f);
-						ChevronVariante(dl, c, mut);
+					case 2: // FORMES : la face = la DERNIÈRE variante choisie (§7.1)
+						GlypheForme(dl, c, mVariante, enc);
+						// Le chevron est VIVANT (il ouvre l'éventail) : couleur
+						// pleine, plus le gris du provisoire.
+						ChevronVariante(dl, c, enc);
 						break;
 					case 3: { // VECTORIEL : la plume (pointe en bas), et ses variantes
 						dl.AddTriangleFilled({cx - s * 0.7f, cy - s * 0.35f},
@@ -1715,6 +1840,118 @@ namespace nkuidesign {
 					default:
 						break;
 				}
+			}
+
+			/// L'aide contextuelle de l'outil — LE texte qui dit quoi faire
+			/// (mesure du 30/08 : « F puis glisser » n'était pas compréhensible ;
+			/// l'application ne disait nulle part quel outil est armé ni quoi
+			/// faire). Elle part au pied de fenêtre à chaque armement.
+			const char *AideOutil(uint32 i) const {
+				switch (i) {
+					case 0:
+						return "Sélection — cliquer ; glisser = déplacer ; bords = "
+							   "redimensionner";
+					case 1:
+						return "Cadre — cliquez-glissez pour tracer ; Maj = carré ; "
+							   "Échap = annuler";
+					case 2:
+						return mVariante == 1
+								   ? "Ellipse — cliquez-glissez ; Maj = cercle ; Échap = annuler"
+							   : mVariante == 2
+								   ? "Ligne — cliquez-glissez ; Maj = contraint ; Échap = annuler"
+								   : "Rectangle — cliquez-glissez ; Maj = carré ; Échap = annuler";
+					case 3:
+						return "Vectoriel : à brancher (§7.2)";
+					case 4:
+						return "Texte — cliquez pour poser ; contenu dans l'Inspecteur "
+							   "(Typographie)";
+					case 5:
+						return "Média : à brancher (§7.2)";
+					default:
+						return "Mesure : à brancher (§7.2)";
+				}
+			}
+
+			/// Armer un outil : l'icône s'allume, la ligne d'aide change — jamais
+			/// de no-op muet. Un tracé en cours est abandonné (changer d'outil au
+			/// milieu d'un geste est un renoncement, pas une erreur).
+			void ArmerOutil(uint32 i) {
+				mOutil = i;
+				mCreating = false;
+				Dire("", AideOutil(i), "");
+			}
+
+			/// Le rectangle du tracé en cours, CONTRAINT par Maj (Lunacy : carré /
+			/// cercle ; pour la ligne : horizontale, verticale ou 45°). Une seule
+			/// source pour l'aperçu ET le relâchement — deux calculs auraient
+			/// divergé à la première retouche.
+			NkPaintRect RectTrace(float32 mx, float32 my, bool shift) const {
+				NkPaintRect t = NkRectFromPoints(mCreateX, mCreateY, mx, my);
+				if (!shift)
+					return t;
+				const bool ligne = (mOutil == 2 && mVariante == 2);
+				if (ligne) {
+					if (t.w > t.h * 2.f)
+						t.h = 1.f;
+					else if (t.h > t.w * 2.f)
+						t.w = 1.f;
+					else
+						t.w = t.h = (t.w > t.h ? t.w : t.h);
+					return t;
+				}
+				const float32 m = t.w > t.h ? t.w : t.h;
+				// Le carré s'ancre au point de DÉPART du geste, pas au coin
+				// normalisé — sinon contraindre déplace la forme sous la main.
+				t.x = (mx >= mCreateX) ? mCreateX : mCreateX - m;
+				t.y = (my >= mCreateY) ? mCreateY : mCreateY - m;
+				t.w = t.h = m;
+				return t;
+			}
+
+			/// NK_ENTREE_TRACE=1 : journal du VRAI chemin clavier (append dans
+			/// nkuidesign_trace_entree.txt). Silencieux par défaut — c'est
+			/// l'instrument du diagnostic collaboratif : Rodolf appuie, on lit.
+			void TraceEntree(NkGuiContext &ctx) {
+				static int32 actif = -1;
+				if (actif < 0) {
+					const char *e = getenv("NK_ENTREE_TRACE");
+					actif = (e && *e == '1') ? 1 : 0;
+				}
+				if (!actif)
+					return;
+				const bool echap = ctx.input.KeyPressed(NkGuiKey::Escape);
+				if (ctx.input.charCount == 0 && !echap)
+					return;
+				FILE *f = fopen("nkuidesign_trace_entree.txt", "ab");
+				if (!f)
+					return;
+				char b[256];
+				int32 n = snprintf(b, sizeof(b), "chars=");
+				for (int32 k = 0; k < ctx.input.charCount && n < 200; ++k) {
+					const uint32 cp = ctx.input.chars[k];
+					n += snprintf(b + n, sizeof(b) - (size_t)n, "%c",
+								  (cp >= 32 && cp < 127) ? (char)cp : '?');
+				}
+				n += snprintf(b + n, sizeof(b) - (size_t)n,
+							  " focusChamp=%s outil=%u variante=%u trace=%d echap=%d\n",
+							  ctx.inputId == NKGUI_ID_NONE ? "aucun" : "OUI", mOutil, mVariante,
+							  (int32)mCreating, (int32)echap);
+				fwrite(b, 1, (size_t)n, f);
+				fclose(f);
+			}
+
+			/// La puce « L × H » sous un rectangle d'écran (Lunacy). `w`/`h` sont
+			/// des longueurs DOCUMENT, arrondies à l'entier — le fichier n'écrira
+			/// rien d'autre.
+			void PuceTaille(NkDesignPaint &paint, const NkPaintRect &rs, float32 w, float32 h) {
+				char t[48];
+				snprintf(t, sizeof(t), "%d × %d", (int32)(w + 0.5f), (int32)(h + 0.5f));
+				const float32 tw = paint.TextWidth(t) + 12.f;
+				const float32 th = 18.f;
+				const NkPaintRect pr{rs.x + (rs.w - tw) * 0.5f, rs.y + rs.h + 6.f, tw, th};
+				paint.Fill(pr, NkDesignResolveRole("accent_ui"), 4.f);
+				paint.Text(pr, t, NkDesignResolveRole("text_on_accent"),
+						   nkentseu::editorkit::NkTextAlign::Center);
 			}
 
 			void Dire(const char *a, const char *b, const char *c) {

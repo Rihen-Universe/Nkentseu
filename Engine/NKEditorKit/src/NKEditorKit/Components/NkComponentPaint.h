@@ -212,6 +212,31 @@ namespace nkentseu {
 				/// Icone par POIGNEE OPAQUE (exigence B ci-dessus). `0` = aucune.
 				virtual void Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) = 0;
 
+				// ── AJOUTS ADDITIFS DU 2026-08-30 (chaine du designer) ──────────
+				// ⚠️ DEFAUT INERTE QUI LE DIT : ces deux primitives rendent FAUX
+				//    quand l'implementation ne sait pas les dessiner — l'appelant
+				//    peint alors un REPLI VISIBLE au lieu d'un vide silencieux.
+				//    Additives avec defaut : AUCUNE des trois implementations (les
+				//    deux de cet arbre, l'adaptateur de NK3DModeler) ne casse a la
+				//    compilation ; chacune les comble quand son monde le permet.
+				/// Ellipse PLEINE inscrite dans `r`. Vrai si dessinee.
+				virtual bool Ellipse(const NkPaintRect &r, uint16 role) {
+					(void)r;
+					(void)role;
+					return false;
+				}
+				/// Segment de `(x1,y1)` a `(x2,y2)`. Vrai si dessine.
+				virtual bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
+								  float32 thickness) {
+					(void)x1;
+					(void)y1;
+					(void)x2;
+					(void)y2;
+					(void)role;
+					(void)thickness;
+					return false;
+				}
+
 				// ── Decoupe ─────────────────────────────────────────────────────
 				// Indispensable des qu'un composant defile : sans elle, une carte a
 				// demi sortie du panneau deborde sur son voisin.
