@@ -149,6 +149,38 @@ namespace nkuidesign {
 		return doc.nodes[(nkentseu::uint32)hit].parent < 0 ? -1 : hit;
 	}
 
+	/// LE RECEPTACLE D'UNE CREATION (2026-08-30, chaine du designer). Un outil
+	/// qui pose une forme doit savoir DANS QUOI il la pose : le conteneur a
+	/// agencement `Free` le plus PROFOND sous le point -- l'artboard si on
+	/// dessine dedans, la toile sinon. Contrairement a `NkPickSelectable`, la
+	/// RACINE est un receptacle legitime : dessiner sur le fond de la toile est
+	/// exactement le geste « poser un artboard ». Rend -1 si aucun conteneur
+	/// `Free` ne contient le point -- l'outil ne cree alors rien, plutot que de
+	/// poser une forme dans un agencement calcule qui l'ignorerait.
+	inline nkentseu::int32 NkPickFreeContainer(const NkUIDocument &doc, const NkLayoutResult &lay,
+											   nkentseu::float32 x, nkentseu::float32 y) {
+		nkentseu::int32 best = -1;
+		nkentseu::int32 bestDepth = -1;
+		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)doc.nodes.Size(); ++i) {
+			if (doc.nodes[i].layout.kind != nkentseu::editorkit::NkLayoutKind::Free)
+				continue;
+			if (!lay.Has((nkentseu::int32)i))
+				continue;
+			const NkPaintRect &r = lay.At((nkentseu::int32)i);
+			if (!(x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h))
+				continue;
+			nkentseu::int32 depth = 0;
+			for (nkentseu::int32 p = doc.nodes[i].parent; p >= 0 && depth < 64;
+				 p = doc.nodes[(nkentseu::uint32)p].parent)
+				++depth;
+			if (depth > bestDepth) {
+				bestDepth = depth;
+				best = (nkentseu::int32)i;
+			}
+		}
+		return best;
+	}
+
 	/// Deux points quelconques rendent un rectangle normalise. Tracer de la
 	/// droite vers la gauche doit selectionner autant que l'inverse.
 	inline NkPaintRect NkRectFromPoints(nkentseu::float32 ax, nkentseu::float32 ay,

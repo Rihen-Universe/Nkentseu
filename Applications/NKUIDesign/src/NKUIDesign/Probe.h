@@ -2562,6 +2562,64 @@ namespace nkuidesign {
 			check("41e. le document de demonstration se RELIT et se reenregistre a "
 				  "l identique -- une page `free` et deux positions comprises",
 				  lu && e1.Compare(e2) == 0 && relu.NodeCount() == demo.NodeCount(), buf);
+
+			// ⚠️ 41f. LA CHAINE DU DESIGNER (2026-08-30) : ce que les outils posent
+			//     — un artboard (`forme = frame`), un rectangle, un texte avec son
+			//     contenu — fait l'aller-retour par le fichier. C'est l'etape 5 du
+			//     mandat : « sauvegarder, rouvrir, retrouver EXACTEMENT ». Le
+			//     document de depart est CELUI de Ctrl+N (NkBuildBlankDocument),
+			//     pas une copie ecrite ici.
+			NkUIDocument dessin;
+			NkBuildBlankDocument(dessin);
+			const int32 pageIdx = dessin.nodes[0].children.Empty() ? -1 : dessin.nodes[0].children[0];
+			int32 rectIdx = -1, texteIdx = -1;
+			if (dessin.IsValidIndex(pageIdx)) {
+				rectIdx = dessin.AddChild(pageIdx, "", NkAuthor::Humain);
+				if (dessin.IsValidIndex(rectIdx)) {
+					NkUINode &nr = dessin.nodes[(uint32)rectIdx];
+					nr.label = NkString("Rectangle 1");
+					nr.shape = NkString("rect");
+					nr.posX = 24.f;
+					nr.posY = 300.f;
+					nr.width.mode = NkSizeMode::Fixed;
+					nr.width.value = 342.f;
+					nr.height.mode = NkSizeMode::Fixed;
+					nr.height.value = 44.f;
+				}
+				texteIdx = dessin.AddChild(pageIdx, "", NkAuthor::Humain);
+				if (dessin.IsValidIndex(texteIdx)) {
+					NkUINode &nt = dessin.nodes[(uint32)texteIdx];
+					nt.label = NkString("Texte 1");
+					nt.shape = NkString("text");
+					nt.text = NkString("Connexion");
+					nt.posX = 24.f;
+					nt.posY = 200.f;
+					nt.width.mode = NkSizeMode::Fixed;
+					nt.width.value = 200.f;
+					nt.height.mode = NkSizeMode::Fixed;
+					nt.height.value = 28.f;
+				}
+			}
+			NkString f1, f2;
+			dessin.Save(f1);
+			NkUIDocument redessine;
+			uint32 inconnus2 = 0;
+			const bool lu2 = redessine.Load(f1.Data(), &inconnus2);
+			if (lu2)
+				redessine.Save(f2);
+			const bool formesRetrouvees =
+				lu2 && redessine.IsValidIndex(rectIdx) && redessine.IsValidIndex(texteIdx)
+				&& StrEq(redessine.nodes[(uint32)rectIdx].shape.Data(), "rect")
+				&& StrEq(redessine.nodes[(uint32)texteIdx].shape.Data(), "text")
+				&& StrEq(redessine.nodes[(uint32)texteIdx].text.Data(), "Connexion")
+				&& dessin.IsValidIndex(pageIdx)
+				&& StrEq(redessine.nodes[(uint32)pageIdx].shape.Data(), "frame");
+			snprintf(buf, sizeof(buf), "relu=%d, formes+texte %s, textes %s", lu2 ? 1 : 0,
+					 formesRetrouvees ? "RETROUVES" : "PERDUS",
+					 (lu2 && f1.Compare(f2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
+			check("41f. un dessin (artboard + rectangle + texte) se sauve, se relit et se "
+				  "reenregistre a l identique — la chaine du designer, etape 5",
+				  formesRetrouvees && f1.Compare(f2) == 0, buf);
 		}
 
 		char tail[128];

@@ -328,10 +328,50 @@ namespace nkuidesign {
 		///    `Free` est une FORME, un noeud sous `Column`/`Row`/`Grid`/`Anchor`
 		///    est un CADRE. Le document du 18 aout n a aucun parent `Free` : son
 		///    rendu ne bouge donc pas d un pixel.
-		inline void DrawShape(NkComponentPaint &p, const NkPaintRect &r, const char *name,
+		inline void DrawShape(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
 							  const NkDocumentHost &host) {
 			if (r.w <= 0.f || r.h <= 0.f)
 				return;
+			const char *name = n.label.Data();
+			const char *shape = n.shape.Data();
+
+			// ── LA NATURE DESSINÉE (2026-08-30, planche 22.0) ────────────────
+			// Le vocabulaire vient de la spécification §4.2, la clé `forme` du
+			// nœud. Une forme SANS nature garde l'ancien dessin (contour + nom) :
+			// les documents d'avant cette clé ne changent pas d'un pixel.
+			if (shape && StrEq(shape, "frame")) {
+				// L'ARTBOARD : carte opaque sur la toile, étiquette AU-DESSUS du
+				// cadre (planche : « Connexion — Mobile 390 x 844 » en gris).
+				// `window_bg` est blanc en thème clair, sombre en thème sombre —
+				// exactement le contraste artboard/toile de la planche.
+				p.Fill(r, host.Role("window_bg"));
+				p.OutlineSharp(r, host.Role("border"));
+				if (name && *name) {
+					const float32 lh = p.LineHeight();
+					p.Text({r.x, r.y - lh - 2.f, r.w, lh}, name, host.Role("text_muted"),
+						   NkTextAlign::Left);
+				}
+				return;
+			}
+			if (shape && StrEq(shape, "rect")) {
+				// Le RECTANGLE : fond discret + bord — la forme des champs de la
+				// planche. L'apparence par élément (§8ter) viendra du vocabulaire
+				// du document ; d'ici là, les rôles du thème.
+				p.Fill(r, host.Role("input_bg"), 4.f);
+				p.OutlineSharp(r, host.Role("border"));
+				return;
+			}
+			if (shape && StrEq(shape, "text")) {
+				// Le TEXTE : son contenu, rien d'autre — ni fond ni cadre. Un
+				// texte vide dessine son libellé de nœud en atténué, sinon une
+				// forme fraîchement posée serait invisible.
+				const char *t = n.text.Data();
+				const bool vide = !t || !*t;
+				p.Text(r, vide ? (name ? name : "Texte") : t,
+					   host.Role(vide ? "text_muted" : "text"), NkTextAlign::Left);
+				return;
+			}
+
 			// ⚠️ `card_bg` EST UN JETON, PAS UN ROLE -- et c'est la cause du
 			//    magenta que Rodolf voyait au milieu de la toile. Tous les autres
 			//    sites passent par `instance.TokenRole("card_bg")`, qui traduit le
@@ -342,7 +382,7 @@ namespace nkuidesign {
 			//    Une forme posee n'a PAS d'instance de composant, donc pas de
 			//    table de jetons : elle ne peut pas traduire. Il lui faut un vrai
 			//    role, et on prend celui que `card_bg` DECLARE lui-meme comme
-			//    defaut -- `InputBg`, dans `NkContentBrowserModel.h:300`, « fond
+			//    defaut -- `InputBg`, dans `NkContentBrowserModel.h`, « fond
 			//    de la vignette ». Ce n'est donc pas mon gout : c'est la reponse
 			//    que la declaration donnait deja.
 			p.Outline(r, host.Role("border"), host.Role("input_bg"), 1.f);
@@ -492,6 +532,31 @@ namespace nkuidesign {
 			}
 	}
 
+	/// LE DOCUMENT VIERGE — ce que « Nouveau projet > Vierge » crée (§3 :
+	/// « canvas infini vide, une page "Page 1" créée par défaut »). La racine est
+	/// la TOILE (agencement `Free` : on y POSE) ; « Page 1 » est un ARTBOARD
+	/// (`forme = frame`, planche 22.0), lui-même `Free` pour recevoir des formes.
+	/// Fonction LIBRE pour la même raison que le document de démonstration : un
+	/// banc mesure LE document que le geste pose, pas une copie écrite dans le banc.
+	inline void NkBuildBlankDocument(NkUIDocument &doc) {
+			doc.NewDocument("Sans titre", NkAuthor::Humain);
+			doc.nodes[0].label = NkString("Toile");
+			doc.nodes[0].layout.kind = NkLayoutKind::Free;
+			const int32 page = doc.AddChild(0, "", NkAuthor::Humain);
+			if (doc.IsValidIndex(page)) {
+				NkUINode &n = doc.nodes[(uint32)page];
+				n.label = NkString("Page 1");
+				n.shape = NkString("frame");
+				n.layout.kind = NkLayoutKind::Free;
+				n.posX = 80.f;
+				n.posY = 48.f;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 390.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 844.f;
+			}
+	}
+
 	inline void NkDrawDocument(NkComponentPaint &p, const NkComponentInput &in, const NkUIDocument &doc,
 							   const NkLayoutResult &lay, NkDocumentHost &host, int32 node = 0) {
 		if (!doc.IsValidIndex(node) || !lay.Has(node))
@@ -505,7 +570,7 @@ namespace nkuidesign {
 			const bool posee = n.parent >= 0
 							   && doc.nodes[(uint32)n.parent].layout.kind == NkLayoutKind::Free;
 			if (posee)
-				renderdetail::DrawShape(p, r, n.label.Data(), host);
+				renderdetail::DrawShape(p, r, n, host);
 			else
 				renderdetail::DrawFrame(p, r, host);
 		} else if (StrEq(n.component.Data(), "content_browser")) {

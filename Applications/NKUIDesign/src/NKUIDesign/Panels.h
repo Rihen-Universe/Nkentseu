@@ -497,15 +497,18 @@ namespace nkuidesign {
 				NkRoleAudit::Summary(roleAudit, 8);
 			}
 
-			/// Un document de depart qui montre les deux choses a montrer : une
-			/// imbrication, et deux modes de taille cote a cote.
+			/// ⚠️ « NOUVEAU PROJET » CRÉE LA TOILE, PLUS LE DOCUMENT DE DÉMONSTRATION
+			///    (mandat du 2026-08-30 : « designer nos premiers composants »).
+			///    §3 « Vierge » : canvas infini vide, une page « Page 1 » — c'est
+			///    `NkBuildBlankDocument`. Le document de démonstration reste bâti
+			///    par sa fonction libre, mesuré tel quel par les essais 41d/41e.
 			void BuildStarterDocument() {
 				// ⚠️ LE DOCUMENT EST BATI PAR UNE FONCTION LIBRE (`Renderers.h`), et
 				//    ce qui reste ici est l ETAT DE L APPLICATION. Le banc peut donc
 				//    mesurer LE document de Ctrl+N, pas une copie ecrite dans le banc
 				//    -- la lecon de T5 : un cote de la mesure doit venir d ailleurs
 				//    que du code teste.
-				NkBuildDemoDocument(doc);
+				NkBuildBlankDocument(doc);
 				SelectSingle(0);
 				// ⚠️ NE PAS EFFACER LE DIAGNOSTIC DE L ECHEC. C est ce qui a rendu le
 				//    defaut du 28/08 indechiffrable : le chargement echouait, posait
@@ -1101,7 +1104,50 @@ namespace nkuidesign {
 				//    insuffisant pour un chevron, qui doit dire « ouvert » ou
 				//    « ferme ». Il surcharge `Icon` et RIEN d'autre.
 				NkDesignPaint paint(ctx, mSt->theme);
+
+				// ── LA TOILE DE LA PLANCHE 22.0 : fond + grille POINTILLEE ────
+				// Decor d'EDITEUR, pas de document : `RenderDocument` (les essais
+				// 41) n'emet aucune de ces commandes, et le fichier enregistre n'en
+				// sait rien. Le pas est en espace DOCUMENT : la grille zoome avec
+				// le contenu, comme sur la planche. En dessous de 6 px projetes,
+				// elle se tait — des points serres deviennent du bruit.
+				{
+					paint.Fill({area.x, area.y, area.w, area.h},
+							   NkDesignResolveRole("panel_bg"), 0.f);
+					const float32 pasEcran = kGrillePas * mSt->view.zoom;
+					if (pasEcran >= 6.f) {
+						const uint16 rPoint = NkDesignResolveRole("border");
+						const float32 d0x = mSt->view.ToDocX(area.x);
+						const float32 d0y = mSt->view.ToDocY(area.y);
+						const int32 kx0 = (int32)(d0x / kGrillePas) - 1;
+						const int32 ky0 = (int32)(d0y / kGrillePas) - 1;
+						for (int32 gy = ky0;; ++gy) {
+							const float32 sy = mSt->view.ToScreenY((float32)gy * kGrillePas);
+							if (sy > area.y + area.h)
+								break;
+							if (sy < area.y)
+								continue;
+							for (int32 gx = kx0;; ++gx) {
+								const float32 sx =
+									mSt->view.ToScreenX((float32)gx * kGrillePas);
+								if (sx > area.x + area.w)
+									break;
+								if (sx < area.x)
+									continue;
+								paint.Fill({sx, sy, 2.f, 2.f}, rPoint, 0.f);
+							}
+						}
+					}
+				}
+
 				NkDrawDocument(paint, in, mSt->doc, screen, mSt->host);
+
+				// ── LE TRACE ELASTIQUE d'un outil F/R en cours ────────────────
+				// Peint APRES le document (il flotte au-dessus), jamais enregistre.
+				if (mCreating)
+					paint.OutlineSharp(
+						NkRectFromPoints(mCreateX, mCreateY, in.mouseX, in.mouseY),
+						NkDesignResolveRole("accent_ui"));
 
 				// ⚠️ LES TROIS FLOTTANTS SONT DESSINÉS **APRÈS** LE DOCUMENT, et
 				//    c'est tout leur sens : le plan les note en orange avec la
@@ -1171,10 +1217,19 @@ namespace nkuidesign {
 
 		private:
 			// ── LA SOURIS, TRADUITE ──────────────────────────────────────────
-			// ⚠️ RIEN ICI N'ECRIT UNE POSITION. Un clic ecrit une SELECTION ; un
-			//    glisser de bord ecrit une TAILLE ou un POIDS (`NkResizeByDrag`).
-			//    C'est la difference entre un outil de design et un constructeur
-			//    d'interfaces, et elle se joue exactement dans cette fonction.
+			// ⚠️ CE QUE CETTE FONCTION ECRIT, ET DANS QUEL ESPACE (mise a jour du
+			//    2026-08-30 — l'ancienne regle « rien ici n'ecrit une position »
+			//    datait d'avant la toile posee, et le mandat du jour est
+			//    exactement l'inverse) :
+			//    - un clic ecrit une SELECTION ;
+			//    - un glisser de bord ecrit une TAILLE (`NkResizeByDrag`) ;
+			//    - un glisser du CORPS d'un noeud POSE (parent `Free`) ecrit sa
+			//      POSITION (`posX`/`posY`) — c'est une propriete legitime du
+			//      document depuis l'etape 38, jamais une coordonnee calculee ;
+			//    - un trace a l'outil F/R/T CREE un noeud (forme = frame/rect/
+			//      text), pose dans le conteneur `Free` sous le curseur.
+			//    Les noeuds AGENCES (Column/Row/Grid/Anchor) restent intouchables
+			//    a la souris : leur position est un RESULTAT.
 			/// ⚠️ `screen` EST LA DISPOSITION EN PIXELS, ET LE PARAMETRE EST LA
 			///    POUR QU ON NE PUISSE PAS SE TROMPER. La souris arrive en pixels ;
 			///    la designer contre `mSt->layout`, qui est en espace DOCUMENT,
@@ -1182,6 +1237,43 @@ namespace nkuidesign {
 			///    le genre de defaut qui ne se voit pas tant que personne ne zoome.
 			void HandleMouse(const NkComponentInput &in, const NkLayoutResult &screen) {
 				const float32 kHandle = 6.f;
+
+				// ── LES OUTILS QUI CREENT : F (cadre), R (rectangle), T (texte) ──
+				const bool outilTrace = (mOutil == 1 || mOutil == 2);
+				const bool outilTexte = (mOutil == 4);
+				if (in.mousePressed && (outilTrace || outilTexte)) {
+					const int32 parent = NkPickFreeContainer(mSt->doc, screen, in.mouseX, in.mouseY);
+					if (parent < 0) {
+						Dire("Aucun conteneur libre sous le curseur — rien n'est créé.", "", "");
+					} else if (outilTexte) {
+						// Le texte se pose d'un CLIC, a taille de depart fixe ; son
+						// contenu s'edite dans l'Inspecteur (Typographie).
+						CreerForme(parent, screen, in.mouseX, in.mouseY, 160.f, 28.f, "text");
+					} else {
+						mCreating = true;
+						mCreateParent = parent;
+						mCreateX = in.mouseX;
+						mCreateY = in.mouseY;
+					}
+					return; // un outil de trace ne selectionne pas en meme temps
+				}
+				if (mCreating && !in.mouseDown) {
+					// Relachement : le rectangle trace devient un noeud. Un trace
+					// minuscule (clic sans glisser) prend une taille de depart —
+					// une forme de 0 px serait invisible et paraitrait perdue.
+					const float32 mx = in.mouseX, my = in.mouseY;
+					const float32 x0 = mCreateX < mx ? mCreateX : mx;
+					const float32 y0 = mCreateY < my ? mCreateY : my;
+					float32 w = mCreateX < mx ? mx - mCreateX : mCreateX - mx;
+					float32 h = mCreateY < my ? my - mCreateY : mCreateY - my;
+					if (w < 8.f)
+						w = mOutil == 1 ? 200.f : 120.f;
+					if (h < 8.f)
+						h = mOutil == 1 ? 160.f : 80.f;
+					CreerForme(mCreateParent, screen, x0, y0, mSt->view.ToDocLength(w),
+							   mSt->view.ToDocLength(h), mOutil == 1 ? "frame" : "rect");
+					mCreating = false;
+				}
 				if (in.mousePressed) {
 					// ⚠️ `NkPickSelectable`, PAS `NkPickNode` : la racine couvre toute
 					//    la surface et repondrait a tous les clics. Cliquer le fond
@@ -1208,7 +1300,28 @@ namespace nkuidesign {
 							mDragging = true;
 							mDragHorizontal = nearRight;
 							mDragNode = hit;
+						} else if (mSt->doc.nodes[(uint32)hit].parent >= 0
+								   && mSt->doc.nodes[(uint32)mSt->doc.nodes[(uint32)hit].parent]
+											  .layout.kind
+										  == NkLayoutKind::Free) {
+							// Le CORPS d'un noeud POSE : le glisser DEPLACE —
+							// `posX`/`posY` sont la propriete du document, pas un
+							// calcul (cf. le bloc de tete de cette fonction). Un
+							// noeud AGENCE, lui, ne s'arme pas : sa position est
+							// un resultat, et la souris n'a rien a y ecrire.
+							mMoving = true;
+							mMoveNode = hit;
 						}
+					}
+				}
+				if (mMoving && in.mouseDown) {
+					const float32 dx = mSt->view.ToDocLength(in.mouseX - mLastX);
+					const float32 dy = mSt->view.ToDocLength(in.mouseY - mLastY);
+					if ((dx != 0.f || dy != 0.f) && mSt->doc.IsValidIndex(mMoveNode)) {
+						NkUINode &n = mSt->doc.nodes[(uint32)mMoveNode];
+						n.posX += dx;
+						n.posY += dy;
+						mSt->doc.MarkHumanEdit(mMoveNode);
 					}
 				}
 				if (mDragging && in.mouseDown) {
@@ -1243,15 +1356,78 @@ namespace nkuidesign {
 				if (!in.mouseDown) {
 					mDragging = false;
 					mMarquee = false;
+					mMoving = false;
 				}
 				mLastX = in.mouseX;
 				mLastY = in.mouseY;
+			}
+
+			/// LA CREATION D'UN NOEUD PAR UN OUTIL. `x`/`y` sont en pixels ECRAN
+			/// (le point de depart du trace), `w`/`h` deja en espace DOCUMENT. La
+			/// position ecrite est RELATIVE AU PARENT — `posX` d'une forme dans un
+			/// artboard est mesuree depuis l'artboard, pas depuis la toile, sinon
+			/// deplacer l'artboard laisserait ses formes derriere.
+			void CreerForme(int32 parent, const NkLayoutResult &screen, float32 x, float32 y,
+							float32 w, float32 h, const char *shape) {
+				if (!mSt->doc.IsValidIndex(parent))
+					return;
+				const int32 idx = mSt->doc.AddChild(parent, "", NkAuthor::Humain);
+				if (!mSt->doc.IsValidIndex(idx))
+					return;
+				// Le nom : nature + numero d'ordre parmi les memes natures. « Cadre
+				// 2 » se cherche dans la Hierarchie ; « noeud 17 » non.
+				uint32 memes = 0;
+				for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i)
+					if (StrEq(mSt->doc.nodes[i].shape.Data(), shape))
+						++memes;
+				const char *base = StrEq(shape, "frame")  ? "Cadre"
+								   : StrEq(shape, "rect") ? "Rectangle"
+														  : "Texte";
+				char nom[48];
+				snprintf(nom, sizeof(nom), "%s %u", base, memes + 1u);
+				NkUINode &n = mSt->doc.nodes[(uint32)idx];
+				n.label = NkString(nom);
+				n.shape = NkString(shape);
+				if (StrEq(shape, "frame"))
+					n.layout.kind = NkLayoutKind::Free; // un cadre RECOIT des formes
+				if (StrEq(shape, "text"))
+					n.text = NkString("Texte");
+				// ⚠️ L'ORIGINE DU PARENT SE LIT DANS LA DISPOSITION DOCUMENT
+				//    (`mSt->layout`), pas dans `screen` : `posX` est une longueur
+				//    DOCUMENT depuis le parent. Passer par l'ecran aurait remis le
+				//    zoom dans une propriete qui n'en depend pas.
+				float32 px = mSt->view.ToDocX(x);
+				float32 py = mSt->view.ToDocY(y);
+				if (mSt->layout.Has(parent)) {
+					px -= mSt->layout.At(parent).x;
+					py -= mSt->layout.At(parent).y;
+				}
+				n.posX = px;
+				n.posY = py;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = w;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = h;
+				mSt->doc.MarkHumanEdit(idx);
+				mSt->SelectSingle(idx);
+				mSt->host.SyncTo(mSt->doc);
+				// L'outil revient a la Selection : on trace UNE forme, puis on la
+				// place — le geste des outils de dessin, et celui de la planche
+				// (le bouton « Se connecter » y est selectionne, pas en cours de
+				// trace).
+				mOutil = 0;
+				Dire("", mSt->doc.nodes[(uint32)idx].label.Data(), " créé — outil Sélection.");
 			}
 
 			DesignState *mSt;
 			bool mDragging = false;
 			bool mDragHorizontal = true;
 			int32 mDragNode = -1;
+			bool mMoving = false;
+			int32 mMoveNode = -1;
+			bool mCreating = false;
+			int32 mCreateParent = -1;
+			float32 mCreateX = 0.f, mCreateY = 0.f;
 			float32 mLastX = 0.f, mLastY = 0.f;
 
 			// ═══════════════════════════════════════════════════════════════════
@@ -1313,7 +1489,19 @@ namespace nkuidesign {
 				//    ⚠️ Un bouton porte une FAMILLE, pas un outil (§7.1) — le
 				//       chevron et l'éventail viendront ; la place est prise.
 				{
+					// ⚠️ QUATRE FAMILLES AGISSENT (2026-08-30, chaîne du designer) :
+					//    S sélectionne/déplace, F pose un cadre, R un rectangle,
+					//    T un texte. P (vectoriel), M (média) et = (mesure)
+					//    restent à brancher et le DISENT.
 					static const char *const kOutils[7] = {"S", "F", "R", "P", "T", "M", "="};
+					static const char *const kOutilsDits[7] = {
+						"Sélection — cliquer, glisser pour déplacer, bords pour redimensionner",
+						"Cadre — tracer un artboard sur la toile",
+						"Rectangle — tracer dans un cadre ou sur la toile",
+						"Vectoriel : à brancher (§7.2)",
+						"Texte — cliquer pour poser un texte",
+						"Média : à brancher (§7.2)",
+						"Mesure : à brancher (§7.2)"};
 					const float32 w = kOutilsLargeur, hb = 40.f;
 					const float32 h = hb * 7.f + 12.f;
 					const NkRect r = {zone.x + kOutilsMarge, zone.y + (zone.h - h) * 0.5f, w, h};
@@ -1327,7 +1515,7 @@ namespace nkuidesign {
 						ctx.SetNextItemRect(c);
 						if (Button(ctx, kOutils[i])) {
 							mOutil = i;
-							Dire("Famille d'outils ", kOutils[i], " : à brancher (§7.2).");
+							Dire("", kOutilsDits[i], "");
 						}
 					}
 				}
@@ -1383,6 +1571,9 @@ namespace nkuidesign {
 			///    la vue, qui doit garantir qu'aucun contenu ne naisse dessous.
 			static constexpr float32 kOutilsLargeur = 48.f;
 			static constexpr float32 kOutilsMarge = 12.f;
+			/// Le pas de la grille pointillee, en espace DOCUMENT (planche 22.0 :
+			/// des points reguliers qui zooment avec le contenu).
+			static constexpr float32 kGrillePas = 24.f;
 
 			uint32 mMode = 0;  ///< Design / Behavior / Animation / Split
 			uint32 mOutil = 0; ///< famille d'outils active

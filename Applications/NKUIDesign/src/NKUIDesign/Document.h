@@ -339,6 +339,20 @@ namespace nkuidesign {
 			float32 posY = 0.f;
 			NkProvenance prov;
 
+			/// ── LA NATURE DESSINÉE (2026-08-30, chaîne du designer) ─────────────
+			/// Le vocabulaire est celui de la spécification §4.2 (`ShapeNode.kind`) :
+			/// `rect` | `ellipse` | `text` | `image` | `path` | `frame` — rien
+			/// d'inventé. **Vide = ce que le nœud était déjà** (cadre d'agencement
+			/// ou composant) : un document d'avant cette clé se réenregistre à
+			/// l'identique, la clé n'étant écrite que si elle existe — même règle
+			/// que `position`. `frame` est l'ARTBOARD de la toile (planche 22.0) ;
+			/// les autres natures sont les formes que les outils posent.
+			NkString shape;
+			/// Le contenu d'un nœud `shape == "text"`. UNE ligne (le format écrit
+			/// une clé par ligne, sans échappement — un retour à la ligne dans ce
+			/// champ casserait la relecture, et l'éditeur n'en produit pas).
+			NkString text;
+
 			/// Les noms de metrique que ce noeud designe. Ils ne portent aucun nombre :
 			/// ils se resolvent dans la table du DOCUMENT (`NkUIDocument::MetricSource`).
 			NkString spacingName;
@@ -832,6 +846,13 @@ namespace nkuidesign {
 						WriteNum(out, n.posY);
 						out.Append('\n');
 					}
+					// La nature dessinée et le texte : mêmes règles que la position —
+					// écrits seulement s'ils existent, pour qu'un document d'avant
+					// ces clés se réenregistre octet pour octet.
+					if (!n.shape.Empty())
+						Field(out, "forme", n.shape.Data());
+					if (!n.text.Empty())
+						Field(out, "texte", n.text.Data());
 					Field(out, "auteur", NkAuthorName(n.prov.author));
 					Field(out, "verifiee", n.prov.verified ? "1" : "0");
 					Field(out, "corrigee", n.prov.corrected ? "1" : "0");
@@ -963,6 +984,10 @@ namespace nkuidesign {
 							if (t > 1)
 								n.posY = ParseNum(tok[1]);
 						}
+						else if (StrEq(key, "forme"))
+							n.shape = NkString(val);
+						else if (StrEq(key, "texte"))
+							n.text = NkString(val);
 						else if (StrEq(key, "auteur"))
 							n.prov.author = NkParseAuthor(val);
 						else if (StrEq(key, "verifiee"))
