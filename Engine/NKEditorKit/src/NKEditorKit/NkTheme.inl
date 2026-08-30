@@ -800,6 +800,37 @@ namespace nkentseu {
 			return t;
 		}
 
+		// ⚠️ LE THEME PAR DEFAUT DE LA COQUILLE (migration du 2026-08-30).
+		//    C est la palette « GitHub Dark » que `NkEditorShell::Init` recopiait
+		//    a la main depuis des semaines, ENFIN exprimee dans le vocabulaire
+		//    des roles -- ce qui n est devenu possible que quand `ButtonBg` et
+		//    `TabBarBg` ont ete ajoutes (le fond d un bouton et la barre
+		//    d onglets n avaient pas de mot).
+		//
+		//    ⚠️ PAS DANS `AddBuiltins`, ET C EST VOULU : ce n est pas un choix
+		//       offert a l utilisateur, c est le defaut de la coquille. L ajouter
+		//       a la liste en ferait un cinquieme theme du menu Affichage, et il
+		//       y ferait doublon avec « GitHub Dark Pro » sans lui etre identique
+		//       -- deux entrees qui se ressemblent et different est exactement ce
+		//       qu un menu ne doit pas offrir.
+		inline NkTheme NkThemeCoquilleDefaut() {
+			NkTheme t = NkTheme::Dark();
+			t.SetName("Coquille (GitHub Dark)");
+			t.Set(NkRole::WindowBg, NkTheme::FromHex("#0d1117"));	 // editeur
+			t.Set(NkRole::PanelBg, NkTheme::FromHex("#010409"));	 // sidebar, plus sombre
+			t.Set(NkRole::PanelHeader, NkTheme::FromHex("#191d23")); // titres/menus
+			t.Set(NkRole::Border, NkTheme::FromHex("#212730"));
+			t.Set(NkRole::InputBg, NkTheme::FromHex("#0d1117"));
+			t.Set(NkRole::Text, NkTheme::FromHex("#dfdfdf"));
+			t.Set(NkRole::TextMuted, NkTheme::FromHex("#7d8590"));
+			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
+			t.Set(NkRole::AccentUi, NkTheme::FromHex("#1f6feb"));
+			// Les deux roles qui ont rendu cette palette exprimable :
+			t.Set(NkRole::ButtonBg, NkTheme::FromHex("#191d23")); // != InputBg, c etait le point
+			t.Set(NkRole::TabBarBg, NkTheme::FromHex("#191d23"));
+			return t;
+		}
+
 		inline void NkThemeLibrary::AddBuiltins() {
 			mThemes.PushBack(NkTheme::Dark());
 			mThemes.PushBack(NkTheme::Light());

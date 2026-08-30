@@ -415,6 +415,11 @@ namespace nkentseu {
 		// rien lier. L'APPLICATION lit le texte -- elle sait ou sont ses dossiers,
 		// livre puis surcharge utilisateur, exactement comme pour les icones -- et
 		// le passe ici.
+		/// Le theme par defaut de la COQUILLE (palette GitHub Dark d origine,
+		/// exprimee en roles). N est PAS dans `AddBuiltins` : c est un defaut,
+		/// pas un choix du menu. Voir sa definition pour la raison complete.
+		NkTheme NkThemeCoquilleDefaut();
+
 		class NkThemeLibrary {
 			public:
 				void AddBuiltins(); ///< Sombre et Clair

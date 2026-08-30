@@ -230,22 +230,18 @@ namespace nkentseu {
 			//       `ApplyTheme` : pour NKCode et les autres, cette palette EST le
 			//       theme livre. La migration se VOIT a l'ecran, donc elle se valide
 			//       a l'oeil -- et ce n'est pas un travail de nuit.
+			// == ETAPES 2 ET 3 DE LA MIGRATION (2026-08-30) =====================
+			// Les seize recopies manuelles sont devenues UN appel a LA conversion,
+			// sur le theme nomme `NkThemeCoquilleDefaut()`. Les quatre etapes
+			// ecrites ci-dessus ont ete suivies dans l ordre ; la mesure du champ
+			// par champ est dans le message du commit de migration.
+			NkThemeVersGui(mUI.theme, NkThemeCoquilleDefaut());
+			// -- LE RESTE IRREDUCTIBLE, repose A LA MAIN, comme documente --------
+			// Ces trois valeurs n ont pas de role et ne doivent pas en avoir un
+			// (cf. la note ci-dessus : inventer du vocabulaire pour cacher une
+			// exception serait le defaut corrige, a l envers).
 			NkGuiTheme &t = mUI.theme;
-			t.bgPrimary = {13, 17, 23, 255}; // editeur #0D1117
-			t.panel = {1, 4, 9, 255};		 // sidebar #010409 (plus sombre)
-			t.header = {25, 29, 35, 255};	 // titres/menus #191D23
-			t.button = {25, 29, 35, 255};
-			t.buttonHover = {33, 39, 48, 255};	   // hover liste (#191D23 + un poil)
-			t.buttonActive = {31, 111, 235, 255};  // selection active #1F6FEB
-			t.border = {33, 39, 48, 255};		   // bord subtil
-			t.text = {223, 223, 223, 255};		   // #DFDFDF
-			t.textDisabled = {125, 133, 144, 255}; // muted
-			t.selection = {31, 111, 235, 200};	   // #1F6FEB (semi)
-			t.accent = {31, 111, 235, 255};		   // #1F6FEB
-			t.track = {13, 17, 23, 255};
-			t.tabBar = {25, 29, 35, 255}; // barre d'onglets #191D23
-			t.tab = {25, 29, 35, 255};	  // onglet inactif #191D23
-			t.tabHover = {33, 39, 48, 255};
+			t.selection.a = 200;			 // le voile de selection reste un VOILE
 			t.tabActive = {13, 17, 23, 255}; // onglet actif = fond editeur #0D1117
 			t.rounding = 0.f;				 // coins droits
 
