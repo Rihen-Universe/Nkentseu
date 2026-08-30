@@ -1552,10 +1552,27 @@ namespace nkuidesign {
 				//       chevron et l'éventail viendront ; la place est prise.
 				{
 					// ⚠️ QUATRE FAMILLES AGISSENT (2026-08-30, chaîne du designer) :
-					//    S sélectionne/déplace, F pose un cadre, R un rectangle,
-					//    T un texte. P (vectoriel), M (média) et = (mesure)
+					//    Sélection déplace, Cadre pose un artboard, Formes un
+					//    rectangle, Texte un texte. Vectoriel, Média et Mesure
 					//    restent à brancher et le DISENT.
-					static const char *const kOutils[7] = {"S", "F", "R", "P", "T", "M", "="};
+					// ⚠️ DES ICÔNES, PLUS DES LETTRES (question de Rodolf, 30/08 :
+					//    « est-ce que tu utilises les bonnes icônes ? » — mesuré
+					//    sur la capture : non). Les glyphes sont VECTORIELS,
+					//    dessinés dans le vocabulaire de la liste de dessin — même
+					//    choix que le chevron de `NkDesignPaint` (Icons.h) : pas de
+					//    bitmap, pas de caractère absent de l'atlas de police. Le
+					//    raccourci s'apprend en INFOBULLE (l'icône montre, la
+					//    lettre s'apprend — le principe des menus) ; la TOUCHE
+					//    elle-même reste à brancher, comme les raccourcis grisés
+					//    des menus. Les libellés `##…` ne rendent aucun texte : le
+					//    glyphe est peint par-dessus le bouton.
+					static const char *const kOutilsIds[7] = {
+						"##outil_selection", "##outil_cadre", "##outil_formes",
+						"##outil_vectoriel", "##outil_texte", "##outil_media",
+						"##outil_mesure"};
+					static const char *const kOutilsBulles[7] = {
+						"Sélection (V)", "Cadre (F)", "Formes (R)", "Vectoriel (P)",
+						"Texte (T)",	 "Média",	  "Mesure"};
 					static const char *const kOutilsDits[7] = {
 						"Sélection — cliquer, glisser pour déplacer, bords pour redimensionner",
 						"Cadre — tracer un artboard sur la toile",
@@ -1573,13 +1590,22 @@ namespace nkuidesign {
 					for (uint32 i = 0; i < 7; ++i) {
 						const NkRect c = {r.x + 5.f, r.y + 6.f + hb * (float32)i, w - 10.f,
 										  hb - 4.f};
-						if (i == mOutil)
-							dl.AddRectFilled(c, ctx.theme.accent, 4.f);
 						ctx.SetNextItemRect(c);
-						if (Button(ctx, kOutils[i])) {
+						if (Button(ctx, kOutilsIds[i])) {
 							mOutil = i;
 							Dire("", kOutilsDits[i], "");
 						}
+						if (ctx.IsItemHovered())
+							SetTooltip(ctx, kOutilsBulles[i]);
+						// ⚠️ L'ACCENT DE L'OUTIL ACTIF SE PEINT APRES LE BOUTON :
+						//    `Button` pose TOUJOURS un fond opaque (mesure :
+						//    NkGuiWidgets.cpp, `theme.button` au repos) — peint
+						//    avant, l'accent disparaissait dessous. Le glyphe vient
+						//    encore au-dessus : blanc sur accent, comme le curseur
+						//    bleu de la planche.
+						if (i == mOutil)
+							dl.AddRectFilled(c, ctx.theme.accent, 4.f);
+						GlypheOutil(dl, c, i, ctx.theme.text, ctx.theme.textMuted);
 					}
 				}
 
@@ -1621,6 +1647,73 @@ namespace nkuidesign {
 					ctx.SetNextItemRect({r.x + 132.f, r.y + 3.f, 30.f, h - 6.f});
 					if (Button(ctx, "|-|"))
 						Dire("Magnétisme : à brancher.", "", "");
+				}
+			}
+
+			// ── LES GLYPHES DE LA BARRE D'OUTILS (planche 22.0) ──────────────
+			// Vectoriels, dans le vocabulaire de la liste de dessin (triangle,
+			// ligne, rectangle, cercle) — le choix d'Icons.h, jamais un bitmap ni
+			// un caractère qui peut manquer à l'atlas. Ils disparaîtront au profit
+			// de l'atlas NKGui le jour où il arrive, comme le chevron.
+			/// Le chevron de VARIANTES en bas-droite d'une famille (planche :
+			/// formes et plume en portent un). GRISÉ tant que la famille n'a
+			/// qu'un outil — le signe est posé, le menu fantôme non.
+			static void ChevronVariante(nkgui::NkGuiDrawList &dl, const NkRect &c,
+										const nkgui::NkColor &mut) {
+				const float32 bx = c.x + c.w - 7.f, by = c.y + c.h - 7.f;
+				dl.AddTriangleFilled({bx - 3.f, by - 2.f}, {bx + 3.f, by - 2.f}, {bx, by + 2.f},
+									 mut);
+			}
+			static void GlypheOutil(nkgui::NkGuiDrawList &dl, const NkRect &c, uint32 outil,
+									const nkgui::NkColor &enc, const nkgui::NkColor &mut) {
+				const float32 cx = c.x + c.w * 0.5f, cy = c.y + c.h * 0.5f;
+				const float32 s = 7.f; // demi-côté du glyphe
+				switch (outil) {
+					case 0: { // SÉLECTION : la flèche de curseur, pointe haut-gauche
+						const float32 ax = cx - s * 0.55f, ay = cy - s;
+						dl.AddTriangleFilled({ax, ay}, {ax, ay + s * 1.7f},
+											 {ax + s * 1.2f, ay + s * 1.15f}, enc);
+						dl.AddLine({cx + s * 0.05f, cy + s * 0.15f},
+								   {cx + s * 0.65f, cy + s}, enc, 2.2f);
+						break;
+					}
+					case 1: // CADRE : le carré
+						dl.AddRect({cx - s, cy - s, s * 2.f, s * 2.f}, enc, 1.6f);
+						break;
+					case 2: // FORMES : le rectangle arrondi, et ses variantes
+						dl.AddRect({cx - s, cy - s * 0.72f, s * 2.f, s * 1.44f}, enc, 1.6f, 3.f);
+						ChevronVariante(dl, c, mut);
+						break;
+					case 3: { // VECTORIEL : la plume (pointe en bas), et ses variantes
+						dl.AddTriangleFilled({cx - s * 0.7f, cy - s * 0.35f},
+											 {cx + s * 0.7f, cy - s * 0.35f}, {cx, cy + s}, enc);
+						dl.AddLine({cx - s * 0.7f, cy - s * 0.35f}, {cx, cy - s}, enc, 1.6f);
+						dl.AddLine({cx + s * 0.7f, cy - s * 0.35f}, {cx, cy - s}, enc, 1.6f);
+						ChevronVariante(dl, c, mut);
+						break;
+					}
+					case 4: // TEXTE : le T, en deux traits — aucun glyphe de police
+						dl.AddLine({cx - s * 0.9f, cy - s + 1.f}, {cx + s * 0.9f, cy - s + 1.f},
+								   enc, 2.f);
+						dl.AddLine({cx, cy - s + 1.f}, {cx, cy + s}, enc, 2.f);
+						break;
+					case 5: // MÉDIA : le cadre d'image, son soleil, sa montagne
+						dl.AddRect({cx - s, cy - s * 0.8f, s * 2.f, s * 1.6f}, enc, 1.4f);
+						dl.AddCircleFilled({cx - s * 0.35f, cy - s * 0.3f}, 1.6f, enc);
+						dl.AddLine({cx - s + 1.5f, cy + s * 0.65f}, {cx + s * 0.05f, cy - s * 0.05f},
+								   enc, 1.4f);
+						dl.AddLine({cx + s * 0.05f, cy - s * 0.05f},
+								   {cx + s - 1.5f, cy + s * 0.65f}, enc, 1.4f);
+						break;
+					case 6: // MESURE : la règle et ses graduations
+						dl.AddRect({cx - s, cy - s * 0.45f, s * 2.f, s * 0.9f}, enc, 1.4f);
+						for (uint32 g = 0; g < 3; ++g) {
+							const float32 gx = cx - s * 0.5f + s * 0.5f * (float32)g;
+							dl.AddLine({gx, cy - s * 0.45f}, {gx, cy}, enc, 1.2f);
+						}
+						break;
+					default:
+						break;
 				}
 			}
 
