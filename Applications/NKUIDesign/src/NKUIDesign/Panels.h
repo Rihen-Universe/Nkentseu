@@ -2129,18 +2129,33 @@ namespace nkuidesign {
 				auto &ctx = ec.Ui();
 				designkit::releve::Zone(ctx, "inspecteur");
 
-				// {A} CE PANNEAU NE DESSINE PLUS SA CHARPENTE, IL LA DÉCRIT.
+				// ⚠️ CE PANNEAU NE DESSINE PLUS SA CHARPENTE, IL LA DÉCRIT.
 				//    En-tête, onglets et boucle de sections vivent dans
 				//    `NKEditorKit/NkEditorInspectorFrame.h` ; il ne reste ici que
 				//    ce qui est PROPRE à NkUIDesign — quelles sections, dans quel
 				//    ordre, et ce que chacune affiche.
 				//
-				// {A} ET L'ONGLET COURANT N'EST PLUS GARDÉ ICI. `TabBarEx` le
+				// ⚠️ ET L'ONGLET COURANT N'EST PLUS GARDÉ ICI. `TabBarEx` le
 				//    tient, persistant par son id ; `mOnglet` ne sert plus qu'à
 				//    RECEVOIR ce que la charpente a décidé, pour le lire ailleurs.
 				//    Une seconde copie aurait donné deux vérités sur « quel onglet
 				//    est ouvert » — c'est le doublon d'état que la charpente
 				//    refuse par construction.
+				// ⚠️ LES SECTIONS DEMARRENT DEPLIEES, UNE FOIS. Le plan (§12.2)
+				//    les veut ouvertes par defaut ; `CollapsingHeader` demarre
+				//    ferme, et son etat appartient au contexte. On le POSE donc au
+				//    premier affichage -- une seule fois : l'utilisateur qui
+				//    replie ensuite garde sa main, on ne rouvre pas derriere lui.
+				//    (Meme pile d'id que l'appel de la charpente juste en dessous,
+				//    donc memes identifiants -- c'est ce qui rend le geste sur.)
+				if (mDeplierUneFois) {
+					mDeplierUneFois = false;
+					static const char *const kTitres[7] = {"POSITION", "TAILLE", "ANCRAGE",
+														   "ALIGNEMENT", "APPARENCE", "BORDS",
+														   "TYPOGRAPHIE"};
+					for (int32 i = 0; i < 7; ++i)
+						ctx.SetNodeOpen(ctx.GetId(kTitres[i]), true);
+				}
 				editorkit::NkInspectorCharpente ch;
 				ch.user = this;
 				ch.entete = Nom();
@@ -2173,21 +2188,27 @@ namespace nkuidesign {
 			static const editorkit::NkInspectorSection *SectionsDe(void *user, int32 onglet,
 																   int32 &count) noexcept {
 				(void)user;
-				// {A} UN ONGLET SANS CONTENU REND ZÉRO SECTION, il ne rend pas
+				// ⚠️ UN ONGLET SANS CONTENU REND ZÉRO SECTION, il ne rend pas
 				//    sept sections vides. C'est la charpente qui dira quoi
 				//    afficher à la place (§12.2) — voir `MessageOngletVide`.
 				if (onglet != 0) {
 					count = 0;
 					return nullptr;
 				}
+				// ⚠️ L'ECART AVEC LE PLAN EST CONNU ET NOMME. Le §12.2 du
+				//    document 3 (l. 1682) enumere DIX sections aux noms voisins
+				//    (Cible, Disposition, Espacement, Effets, Points de rupture,
+				//    Layout parent...). Cette table de SEPT est celle que la
+				//    consigne du 2026-08-29 fixe ; la convergence vers le plan est
+				//    un chantier a part, pas un detail a glisser ici en douce.
 				static const editorkit::NkInspectorSection kSections[] = {
 					{"POSITION", &CorpsPositionC, true},
 					{"TAILLE", &CorpsTailleC, true},
-					{"ANCRAGE", &CorpsAVenirC, true},
-					{"ALIGNEMENT", &CorpsAVenirC, true},
-					{"APPARENCE", &CorpsAVenirC, true},
-					{"BORDS", &CorpsAVenirC, true},
-					{"TYPOGRAPHIE", &CorpsAVenirC, true},
+					{"ANCRAGE", &CorpsAncrageC, true},
+					{"ALIGNEMENT", &CorpsAlignementC, true},
+					{"APPARENCE", &CorpsApparenceC, true},
+					{"BORDS", &CorpsBordsC, true},
+					{"TYPOGRAPHIE", &CorpsTypographieC, true},
 				};
 				count = (int32)(sizeof(kSections) / sizeof(kSections[0]));
 				return kSections;
@@ -2198,7 +2219,7 @@ namespace nkuidesign {
 								   : "Onglet Behavior : événements et callbacks — pas encore branché.";
 			}
 
-			// {A} TROIS TREMPLINS, ET C'EST LE PRIX ASSUMÉ DU JOINT. La charpente
+			// ⚠️ TROIS TREMPLINS, ET C'EST LE PRIX ASSUMÉ DU JOINT. La charpente
 			//    prend `void(*)(void*, NkGuiContext&)` — l'idiome du kit
 			//    (`NkTreeViewHooks`, `dockHeaderFn`, `clipboardGetFn`) — et non un
 			//    pointeur de méthode, qui l'aurait liée à UNE classe et l'aurait
@@ -2209,8 +2230,34 @@ namespace nkuidesign {
 			static void CorpsTailleC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsTaille(ctx);
 			}
-			static void CorpsAVenirC(void *, NkGuiContext &ctx) {
-				Text(ctx, "À brancher — la place est prise, le contenu suit.");
+			static void CorpsAncrageC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsAncrage(ctx);
+			}
+			static void CorpsAlignementC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsAlignement(ctx);
+			}
+			static void CorpsApparenceC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsApparence(ctx);
+			}
+			static void CorpsBordsC(void *, NkGuiContext &ctx) {
+				// ⚠️ LE MODELE NE PORTE AUCUNE PROPRIETE DE BORD PAR NOEUD --
+				//    mesure : `NkUINode` n'a ni rayon, ni epaisseur, ni couleur de
+				//    bord. La section le DIT au lieu de disparaitre (consigne du
+				//    29/08 : meme regle que les menus grises) : une section
+				//    absente ferait croire que la question ne se pose pas, alors
+				//    qu'elle attend son modele.
+				ctx.BeginDisabled();
+				Text(ctx, "Le modèle du nœud ne porte pas encore de bords.");
+				Text(ctx, "(rayon, épaisseur : à venir avec le vocabulaire)");
+				ctx.EndDisabled();
+			}
+			static void CorpsTypographieC(void *, NkGuiContext &ctx) {
+				// ⚠️ MEME MESURE : aucun champ de texte par noeud. Le plan (§12.2)
+				//    dit d'ailleurs « presente seulement si l'element porte du
+				//    texte » -- aucun element n'en porte encore.
+				ctx.BeginDisabled();
+				Text(ctx, "Aucun élément ne porte encore de texte.");
+				ctx.EndDisabled();
 			}
 
 			const NkUINode *NoeudCourant() const noexcept {
@@ -2237,21 +2284,188 @@ namespace nkuidesign {
 				designkit::KeyValue(ctx, "X", b);
 				snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)r.y);
 				designkit::KeyValue(ctx, "Y", b);
+				// ⚠️ SOUS UN PARENT `Free`, LA POSITION EST AUSSI UNE DONNEE --
+				//    `posX`/`posY` du noeud, celle que le fichier porte. On montre
+				//    LES DEUX : l'ecran (resultat) et le document (donnee), parce
+				//    que c'est exactement la difference qu'un banc doit pouvoir
+				//    lire. Elle reste en LECTURE SEULE ici : la toile est l'outil
+				//    d'ecriture de la position, pas l'inspecteur.
+				if (ParentKind() == editorkit::NkLayoutKind::Free) {
+					snprintf(b, sizeof(b), "%.0f, %.0f", (double)n->posX, (double)n->posY);
+					designkit::KeyValue(ctx, "Posée (doc)", b);
+				}
 				designkit::KeyValue(ctx, "", "calculée — jamais écrite dans le document");
 			}
 
 			void CorpsTaille(NkGuiContext &ctx) {
-				const NkUINode *n = NoeudCourant();
+				NkUINode *n = NoeudMutable();
 				if (!n) {
 					designkit::KeyValue(ctx, "Largeur", "-");
 					designkit::KeyValue(ctx, "Hauteur", "-");
 					return;
 				}
-				char b[64];
-				Decrire(n->width, b, sizeof(b));
-				designkit::KeyValue(ctx, "Largeur", b);
-				Decrire(n->height, b, sizeof(b));
-				designkit::KeyValue(ctx, "Hauteur", b);
+				LigneTaille(ctx, "Largeur", n->width);
+				LigneTaille(ctx, "Hauteur", n->height);
+			}
+
+			/// Une ligne de taille : le MODE se lit, la VALEUR s'edite -- mais
+			/// seulement quand le mode en porte une.
+			/// ⚠️ TROIS CAS, ET CHACUN A SA RAISON :
+			///    - `Fixed`/`Fraction`/`Weight` portent un nombre -> DragFloat ;
+			///    - `Content`/`Expand` n'en portent pas -> la ligne se GRISE au
+			///      lieu de disparaitre (§12.2 : l'oeil garde sa place) ;
+			///    - une METRIQUE nommee PRIME sur la valeur (`valueMetric`) -> on
+			///      grise aussi, et on NOMME la metrique : editer le nombre alors
+			///      qu'un nom le remplace ecrirait une valeur que le resolveur
+			///      ignore -- un reglage qui ment.
+			void LigneTaille(NkGuiContext &ctx, const char *titre, NkSizeDecl &d) {
+				const bool porteValeur = d.mode == NkSizeMode::Fixed ||
+										 d.mode == NkSizeMode::Fraction || d.mode == NkSizeMode::Weight;
+				const bool metrique = d.valueMetric && *d.valueMetric;
+				designkit::KeyValue(ctx, titre, NkSizeModeName(d.mode));
+				if (metrique) {
+					ctx.BeginDisabled();
+					char b[96];
+					snprintf(b, sizeof(b), "métrique « %s » — prime sur le nombre", d.valueMetric);
+					designkit::KeyValue(ctx, "  valeur", b);
+					ctx.EndDisabled();
+					return;
+				}
+				if (!porteValeur) {
+					ctx.BeginDisabled();
+					designkit::KeyValue(ctx, "  valeur", "(le mode n'en porte pas)");
+					ctx.EndDisabled();
+					return;
+				}
+				// La vitesse suit l'unite : 1 px par cran en Fixed, 0.01 pour une
+				// fraction 0..1, 0.05 pour un poids.
+				const float32 vitesse = d.mode == NkSizeMode::Fixed ? 1.f
+										: d.mode == NkSizeMode::Fraction ? 0.01f : 0.05f;
+				const float32 vmin = 0.f;
+				const float32 vmax = d.mode == NkSizeMode::Fraction ? 1.f : 4096.f;
+				char id[32];
+				snprintf(id, sizeof(id), "%s##insp.taille", titre);
+				if (nkgui::DragFloat(ctx, id, d.value, vitesse, vmin, vmax))
+					mSt->doc.MarkHumanEdit(mSt->selected);
+			}
+
+			// ── ANCRAGE : les quatre bords, quand le PARENT est en `Anchor` ──
+			void CorpsAncrage(NkGuiContext &ctx) {
+				NkUINode *n = NoeudMutable();
+				if (!n) {
+					designkit::KeyValue(ctx, "Ancrage", "-");
+					return;
+				}
+				if (ParentKind() != editorkit::NkLayoutKind::Anchor) {
+					// ⚠️ LA SECTION DIT POURQUOI ELLE NE S'APPLIQUE PAS, elle ne
+					//    disparait pas. `anchorEdges` ne vaut que sous un parent
+					//    `Anchor` (c'est ecrit sur le champ) : afficher quatre
+					//    cases actives ici laisserait editer un reglage sans
+					//    effet, et un reglage sans effet est pire qu'un reglage
+					//    absent -- on le cherche a l'ecran.
+					ctx.BeginDisabled();
+					designkit::KeyValue(ctx, "Parent", NkLayoutKindName(ParentKind()));
+					Text(ctx, "Le parent n'est pas en « anchor » — l'ancrage ne s'applique pas.");
+					ctx.EndDisabled();
+					return;
+				}
+				CaseAncrage(ctx, n, "Gauche", editorkit::nkanchor::Left);
+				CaseAncrage(ctx, n, "Haut", editorkit::nkanchor::Top);
+				CaseAncrage(ctx, n, "Droite", editorkit::nkanchor::Right);
+				CaseAncrage(ctx, n, "Bas", editorkit::nkanchor::Bottom);
+			}
+
+			void CaseAncrage(NkGuiContext &ctx, NkUINode *n, const char *titre, uint8 bit) {
+				bool v = (n->anchorEdges & bit) != 0;
+				if (nkgui::Checkbox(ctx, titre, v)) {
+					if (v)
+						n->anchorEdges |= bit;
+					else
+						n->anchorEdges = (uint8)(n->anchorEdges & ~bit);
+					mSt->doc.MarkHumanEdit(mSt->selected);
+				}
+			}
+
+			// ── ALIGNEMENT : l'agencement que ce noeud impose a SES ENFANTS ──
+			// ⚠️ C'EST LE SENS DU CHAMP, ET IL SE DIT : `layout` s'applique aux
+			//    ENFANTS, jamais au noeud lui-meme (c'est ecrit sur le champ, et
+			//    l'oublier ferait chercher l'effet au mauvais etage).
+			void CorpsAlignement(NkGuiContext &ctx) {
+				NkUINode *n = NoeudMutable();
+				if (!n) {
+					designkit::KeyValue(ctx, "Agencement", "-");
+					return;
+				}
+				if (n->layout.kind == editorkit::NkLayoutKind::None) {
+					ctx.BeginDisabled();
+					Text(ctx, "Feuille : ce nœud n'agence pas d'enfants.");
+					ctx.EndDisabled();
+					return;
+				}
+				designkit::KeyValue(ctx, "Agencement", NkLayoutKindName(n->layout.kind));
+				designkit::KeyValue(ctx, "  (s'applique aux enfants)", "");
+				static const char *const kAligns[4] = {"début", "centre", "fin", "étirer"};
+				const int32 m = designkit::Segmented(ctx, kAligns, 4, (int32)n->layout.mainAlign,
+													 "insp.align.main");
+				if (m >= 0 && m != (int32)n->layout.mainAlign) {
+					n->layout.mainAlign = (editorkit::NkAlign)m;
+					mSt->doc.MarkHumanEdit(mSt->selected);
+				}
+				const int32 c = designkit::Segmented(ctx, kAligns, 4, (int32)n->layout.crossAlign,
+													 "insp.align.cross");
+				if (c >= 0 && c != (int32)n->layout.crossAlign) {
+					n->layout.crossAlign = (editorkit::NkAlign)c;
+					mSt->doc.MarkHumanEdit(mSt->selected);
+				}
+			}
+
+			// ── APPARENCE : les jetons du composant, et leur role effectif ──
+			void CorpsApparence(NkGuiContext &ctx) {
+				const NkUINode *n = NoeudCourant();
+				if (!n) {
+					designkit::KeyValue(ctx, "Apparence", "-");
+					return;
+				}
+				if (n->IsFrame()) {
+					ctx.BeginDisabled();
+					Text(ctx, "Un cadre n'a pas d'apparence propre — elle vient du thème.");
+					ctx.EndDisabled();
+					return;
+				}
+				const NkComponentDecl *d = NkComponentRegistry::Find(n->component.Data());
+				if (!d || d->tokenCount == 0) {
+					ctx.BeginDisabled();
+					Text(ctx, "Ce composant ne déclare aucun jeton d'apparence.");
+					ctx.EndDisabled();
+					return;
+				}
+				// ⚠️ LECTURE SEULE, ET CE N'EST PAS UNE PARESSE : editer un jeton,
+				//    c'est le geste « donner un role » du §14ter -- « le moment
+				//    decisif de tout l'outil », qui a sa ligne dediee dans
+				//    l'en-tete du panneau, pas une cellule d'inspecteur. On montre
+				//    ici la VERITE EFFECTIVE (jeton -> role, surcharge ou herite),
+				//    celle que le peintre lit.
+				char b[96];
+				for (uint16 t = 0; t < d->tokenCount; ++t) {
+					const char *nom = d->tokens[t].name;
+					const char *role = n->instance.TokenRole(nom);
+					snprintf(b, sizeof(b), "%s%s", role ? role : "?",
+							 n->instance.IsTokenOverridden(nom) ? "  (surchargé)" : "");
+					designkit::KeyValue(ctx, nom, b);
+				}
+			}
+
+			// ── OUTILS PARTAGES DES CORPS ─────────────────────────────────────
+			editorkit::NkLayoutKind ParentKind() const {
+				const NkUINode *n = NoeudCourant();
+				if (!n || !mSt->doc.IsValidIndex(n->parent))
+					return editorkit::NkLayoutKind::None;
+				return mSt->doc.nodes[(uint32)n->parent].layout.kind;
+			}
+
+			NkUINode *NoeudMutable() {
+				return mSt->doc.IsValidIndex(mSt->selected) ? &mSt->doc.nodes[(uint32)mSt->selected]
+															: nullptr;
 			}
 
 			static void Decrire(const NkSizeDecl &s, char *out, nkentseu::usize n) {
@@ -2265,6 +2479,7 @@ namespace nkuidesign {
 
 			DesignState *mSt;
 			int32 mOnglet = 0;
+			bool mDeplierUneFois = true; ///< dépliage initial des sections (une fois)
 	};
 
 } // namespace nkuidesign

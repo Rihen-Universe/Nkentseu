@@ -43,7 +43,7 @@ namespace nkentseu {
 			const char *const kNomsNatures[static_cast<int32>(NkGuiNature::Count)] = {
 				"inconnu", "fenetre", "panneau", "barre-menus", "menu", "entree",
 				"separateur", "bouton", "case", "texte", "element", "onglet",
-				"champ", "reglage", "region", "mesure",
+				"champ", "reglage", "region", "section", "mesure",
 			};
 
 		} // namespace

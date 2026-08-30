@@ -1810,6 +1810,12 @@ namespace nkentseu {
 				open = !open;
 				ctx.SetNodeOpen(id, open);
 			}
+			// ⚠️ `ouvert` est l'etat INTERMEDIAIRE d'une section, comme pour
+			//    un menu : c'est lui qui prouve qu'un corps de section est
+			//    reellement dessine -- l'inspecteur en a eu besoin le 29/08.
+			NkGuiNoter(ctx, NkGuiNature::Section, id, label, r,
+					   static_cast<uint16>((open ? NK_GUI_ETAT_OUVERT : NK_GUI_ETAT_REPLIE) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0)));
 			ctx.DL().AddRectFilled(r, hov ? ctx.theme.buttonHover : ctx.theme.header, ctx.theme.rounding);
 			const float32 a = h * 0.22f;
 			const NkVec2 cc = {r.x + 12.f, r.y + h * 0.5f};
