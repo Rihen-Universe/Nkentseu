@@ -141,12 +141,16 @@ namespace nkentseu {
 			//    AUCUNE conversion existante ne les lit : le rendu d'avant ne
 			//    peut pas bouger.
 
-			/// Fond de la TOILE de design. Banani V2 : la toile est CLAIRE
-			/// (#f5f7fb) meme quand l'editeur est sombre -- le theme du DOCUMENT
-			/// n'est pas le theme de l'EDITEUR. Repli : PanelBg.
+			/// Fond de la TOILE de design. ⚠️ IL SUIT LE THEME (test de Rodolf,
+			/// 31/08 : « cette couleur blanche c'est pour le theme light ; en
+			/// Design il faut la meme couleur de fond que pour Behavior et les
+			/// autres ») : sombre en theme sombre (#0d1117, le fond de la vue
+			/// Behavior), clair en theme clair (#f5f7fb, la valeur Banani V2).
+			/// L'ancienne doctrine « toile claire meme en editeur sombre » etait
+			/// la generalisation abusive d'UN ecran de la maquette. Repli : PanelBg.
 			CanvasBg,
-			/// Les points de la grille de toile (Banani : #d4dce8, pas 20).
-			/// Repli : Border.
+			/// Les points de la grille de toile — suivent le theme comme le fond
+			/// (clair : #d4dce8, pas 20 ; sombre : la bordure #30363d). Repli : Border.
 			CanvasDot,
 			/// Vert d'etat : « Pret », simulation, modele LOCAL. Repli : AccentUi.
 			StatusOk,
@@ -157,8 +161,9 @@ namespace nkentseu {
 			AccentAI,
 			/// Lignes de magnetisme de la toile (#ff4fd8). Repli : AccentSel.
 			SnapLine,
-			/// Fond d'un ARTBOARD pose sur la toile (Banani V2 : cadre blanc sur
-			/// toile #f5f7fb — le document se concoit clair). Repli : CanvasBg.
+			/// Fond d'un ARTBOARD pose sur la toile (Banani V2 : cadre BLANC —
+			/// le document se concoit clair, quel que soit le fond de toile, qui
+			/// lui suit le theme depuis le 31/08). Repli : CanvasBg.
 			ArtboardBg,
 			/// Texte d'un element DU DOCUMENT (dessine sur ArtboardBg) — sombre,
 			/// parce que le document se concoit clair, quel que soit le theme de

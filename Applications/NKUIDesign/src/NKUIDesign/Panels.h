@@ -1352,9 +1352,13 @@ namespace nkuidesign {
 									   area.y + area.h * 0.62f, ph, {101, 109, 118, 255});
 					}
 				} else {
-					// Banani V2 : la toile est CLAIRE (canvas_bg #f5f7fb) meme en
-					// editeur sombre — le theme du DOCUMENT n'est pas celui de
-					// l'EDITEUR — et les points sont canvas_dot (#d4dce8, pas 20).
+					// La toile SUIT LE THEME (test de Rodolf, 31/08 : « cette
+					// couleur blanche c'est pour le theme light ; en Design il
+					// faut la meme couleur de fond que pour Behavior et les
+					// autres ») : `canvas_bg` vaut #0d1117 en sombre (le fond de
+					// la vue Behavior) et #f5f7fb en clair (la valeur Banani V2),
+					// pose par les fabriques de themes du kit. Les points
+					// `canvas_dot` suivent pareil.
 					paint.Fill({area.x, area.y, area.w, area.h},
 							   NkDesignResolveRole("canvas_bg"), 0.f);
 					const float32 pasEcran = kGrillePas * mSt->view.zoom;

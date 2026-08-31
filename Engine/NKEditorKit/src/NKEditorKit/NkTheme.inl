@@ -441,15 +441,20 @@ namespace nkentseu {
 			return (float32)((hi + 0.05) / (lo + 0.05));
 		}
 
-		// ── LES SIX ROLES BANANI (doc 11 §3), UNE SEULE TABLE ───────────────────
+		// ── LES ROLES BANANI (doc 11 §3), UNE SEULE TABLE ───────────────────────
 		// Poses par CHAQUE fabrique livree : les valeurs sont celles de la
 		// maquette (reference exacte, Rodolf 30/08) et ne dependent pas du theme
-		// de l'EDITEUR — la toile V2 est claire meme en editeur sombre, le vert
-		// « Pret » est LE vert, le violet IA est LE violet. Un theme FICHIER qui
-		// ne les porte pas garde le repli (GetOuRepli), rien ne casse.
+		// de l'EDITEUR — le vert « Pret » est LE vert, le violet IA est LE
+		// violet. Un theme FICHIER qui ne les porte pas garde le repli
+		// (GetOuRepli), rien ne casse.
+		// ⚠️ `CanvasBg`/`CanvasDot` NE SONT PLUS ICI (test de Rodolf, 31/08 :
+		//    « cette couleur blanche c'est pour le theme light ; en Design il
+		//    faut la meme couleur de fond que pour Behavior et les autres »).
+		//    Le fond de toile SUIT LE THEME : chaque fabrique (Dark/Light) pose
+		//    le sien, plus bas. La lecture « la toile V2 est claire meme en
+		//    editeur sombre » etait la generalisation abusive d'UN ecran de la
+		//    maquette — sa main prime sur l'export.
 		inline void NkThemePoserRolesBanani(NkTheme &t) {
-			t.Set(NkRole::CanvasBg, NkTheme::FromHex("#f5f7fb"));
-			t.Set(NkRole::CanvasDot, NkTheme::FromHex("#d4dce8"));
 			t.Set(NkRole::StatusOk, NkTheme::FromHex("#3fb950"));
 			t.Set(NkRole::StatusErr, NkTheme::FromHex("#f85149"));
 			t.Set(NkRole::AccentAI, NkTheme::FromHex("#a371f7"));
@@ -523,6 +528,11 @@ namespace nkentseu {
 
 			S(NkRole::TypeFolder, "#E3B341"); // ambre de dossier, version GitHub
 			NkThemePoserRolesBanani(t);
+			// La toile SUIT LE THEME (Rodolf, 31/08) : en sombre, le meme fond
+			// que la vue Behavior (#0d1117) — pas la toile claire de l'ecran V2.
+			// Les points de grille prennent la bordure GitHub, subtile dessus.
+			S(NkRole::CanvasBg, "#0d1117");
+			S(NkRole::CanvasDot, "#30363d");
 			return t;
 		}
 
@@ -576,6 +586,10 @@ namespace nkentseu {
 			// Assombri : #F0B429 sur fond blanc passe inapercu.
 			S(NkRole::TypeFolder, "#A87400");
 			NkThemePoserRolesBanani(t);
+			// La toile claire de la maquette V2 appartient au THEME CLAIR
+			// (Rodolf, 31/08) : #f5f7fb, points #d4dce8 — les valeurs Banani.
+			S(NkRole::CanvasBg, "#f5f7fb");
+			S(NkRole::CanvasDot, "#d4dce8");
 			return t;
 		}
 
