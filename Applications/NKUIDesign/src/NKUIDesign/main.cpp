@@ -335,7 +335,39 @@ static void CmdQuit(void *user) {
 //     dans `Fichier > Backend graphique >`, et il y a ete pose **avant** le
 //     debranchement -- une capacite ne se retire pas avant que son remplacant
 //     existe.
+// ── INJECTION DE CLICS (mise en scene : --clic=x:y:frame, jusqu'a 4) ─────────
+// Le meme principe que le harnais releve-menus : un clic SYNTHETIQUE pose dans
+// l'input du contexte, jamais la souris reelle (regle du creneau). Sert a
+// ouvrir un menu pour une capture (ecran 26).
+static struct {
+	float32 x = 0.f, y = 0.f;
+	int32 frame = -1;
+} gClics[4];
+static void InjecterClics(nkgui::NkGuiContext &ctx) {
+	static int32 compteur = 0;
+	++compteur;
+	for (int32 i = 0; i < 4; ++i) {
+		if (gClics[i].frame < 0)
+			continue;
+		// La souris TIENT la position a partir du clic (le harnais releve-menus
+		// pilote pareil : plusieurs trames, pas une) — le popup survit au survol.
+		// le survol se resout sur hotIdPrev (la trame d'AVANT) : la position
+		// se tient CINQ trames avant le clic, sinon le clic vise un survol
+		// pas encore etabli et manque.
+		if (compteur >= gClics[i].frame - 5)
+			ctx.input.mousePos = {gClics[i].x, gClics[i].y};
+		if (compteur == gClics[i].frame) {
+			ctx.input.mouseDown[0] = true;
+			ctx.input.mouseClicked[0] = true;
+		} else if (compteur == gClics[i].frame + 1) {
+			ctx.input.mouseDown[0] = false;
+			ctx.input.mouseReleased[0] = true;
+		}
+	}
+}
+
 static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
+	InjecterClics(ec.Ui());
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
 
@@ -575,7 +607,10 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 			EndMenu(ctx);
 		}
 		Separator(ctx);
-		MenuItem(ctx, "Afficher la zone sûre", nullptr, false, true);
+		// L'ecran 26 le montre COCHE et il PILOTE vraiment l'affichage
+		// (ecrans 11/12) : la coche suit l'etat, cliquer bascule.
+		if (MenuItem(ctx, "Afficher la zone sûre", nullptr, true, gDesign.zoneSure))
+			gDesign.zoneSure = !gDesign.zoneSure;
 		if (BeginMenu(ctx, "Décoration")) {
 			MenuItem(ctx, "Native", nullptr, false, true);
 			MenuItem(ctx, "Client", nullptr, false);
@@ -1079,6 +1114,22 @@ int nkmain(const NkEntryState &state) {
 			// maquette ne montre que la toile) : panneaux fermes, rails
 			// retires — l'en-tete de la coquille reste, la paire se cadre sur
 			// la toile et le DIT.
+			if (arg.StartsWith("--clic=")) {
+				for (int32 ci = 0; ci < 4; ++ci)
+					if (gClics[ci].frame < 0) {
+						const char *q = a + 7;
+						gClics[ci].x = (float32)atof(q);
+						while (*q && *q != ':')
+							++q;
+						if (*q == ':')
+							gClics[ci].y = (float32)atof(++q);
+						while (*q && *q != ':')
+							++q;
+						gClics[ci].frame = (*q == ':') ? (int32)atof(++q) : 30;
+						break;
+					}
+				continue;
+			}
 			if (NkComponentDecl::StrEq(a, "--proposer")) {
 				gDesign.proposerInitial = true;
 				continue;
