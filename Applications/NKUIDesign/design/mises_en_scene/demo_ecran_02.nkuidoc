@@ -27,7 +27,7 @@ noeud 1
   largeur = fixed 280 0 0
   hauteur = fixed 600 0 0
   agencement = free start start 0
-  position = 162 152
+  position = 144 158
   forme = frame
   cible = Mobile 390 x 844
   auteur = humain
@@ -208,7 +208,7 @@ noeud 12
   largeur = fixed 660 0 0
   hauteur = fixed 415 0 0
   agencement = free start start 0
-  position = 522 244
+  position = 504 250
   forme = frame
   cible = Bureau 1440 x 900
   auteur = humain
