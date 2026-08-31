@@ -115,13 +115,17 @@ namespace nkuidesign {
 					return;
 				demoModels.Clear();
 				demoTrees.Clear();
+				// La demo vient des RESSOURCES (voir les chargeurs ci-dessous) ;
+				// si elles manquent, les modeles restent vides et ca se VOIT.
+				NkContentBrowserModel m0;
+				NkChargerContenuDemo(
+					m0, "Applications/NKUIDesign/design/mises_en_scene/demo_contenu.txt");
+				NkTreeViewModel t0;
+				NkChargerArbreDemo(
+					t0, "Applications/NKUIDesign/design/mises_en_scene/demo_arbre.txt");
 				for (uint32 i = 0; i < n; ++i) {
-					NkContentBrowserModel m;
-					FillDemo(m);
-					demoModels.PushBack(m);
-					NkTreeViewModel t;
-					FillDemoTree(t);
-					demoTrees.PushBack(t);
+					demoModels.PushBack(m0);
+					demoTrees.PushBack(t0);
 				}
 			}
 
@@ -142,119 +146,158 @@ namespace nkuidesign {
 				return NkDesignResolveRole("text_muted");
 			}
 
-			static void FillDemo(NkContentBrowserModel &m) {
-				struct Row {
-						const char *name;
-						const char *kind;
-						bool folder;
-				};
-				static const Row kRows[] = {
-					{"Materiaux", "dossier", true},		  {"Maillages", "dossier", true},
-					{"Textures", "dossier", true},		  {"caisse.nkmesh", "maillage", false},
-					{"sol.nkmat", "materiau", false},	  {"bois_albedo.nktex", "texture", false},
-					{"metal.nkmat", "materiau", false},	  {"perso.nkmesh", "maillage", false},
-					{"ciel.nktex", "texture", false},	  {"herbe.nkmat", "materiau", false},
-					{"rocher.nkmesh", "maillage", false}, {"eau.nkmat", "materiau", false},
-				};
+			/// LES CHARGEURS DU CONTENU DE DÉMONSTRATION (cadrage Rodolf 31/08 :
+			/// « ce qui est dans la zone infinie, c'est une démo » — la démo est une
+			/// RESSOURCE chargée par un chemin normal, pas une table du code, même
+			/// principe que les demo_ecran_NN.nkuidoc). Format ligne à ligne,
+			/// sections `[...]`, `#` = commentaire, champs séparés par `|`.
+			/// Rendent FAUX si la ressource manque : le modèle reste VIDE et le
+			/// composant montre son état vide — jamais un décor repeint en silence.
+			/// ⚠️ La sonde garde SA copie de la table (Probe.h, FillDemoModel) : un
+			/// côté de la mesure doit venir d'ailleurs que du code testé.
+			/// La nature INTERNEE : `kindLabel` est un `const char *` qui doit
+			/// survivre au chargeur — le vocabulaire des natures est ferme, la
+			/// ressource ne peut qu'en choisir une. Une nature inconnue devient
+			/// « autre » (et se voit en couleur de texte neutre).
+			static const char *NkNatureInternee(const char *n) {
+				static const char *const kNatures[] = {"dossier", "maillage", "materiau",
+													   "texture", "animation", "racine",
+													   "groupe",  "lumiere",	"os"};
+				for (uint32 i = 0; i < sizeof(kNatures) / sizeof(kNatures[0]); ++i)
+					if (StrEq(n, kNatures[i]))
+						return kNatures[i];
+				return "autre";
+			}
+			static void NkLigneChamps(const char *q, const char *fin, NkString out[3],
+									  int32 &nb) {
+				nb = 0;
+				const char *deb = q;
+				for (const char *c = q; c <= fin && nb < 3; ++c) {
+					if (c == fin || *c == '|') {
+						out[nb++] = NkString(deb, (uint32)(c - deb));
+						deb = c + 1;
+					}
+				}
+			}
+			static bool NkChargerContenuDemo(NkContentBrowserModel &m, const char *chemin) {
 				m.entries.Clear();
-				for (uint32 i = 0; i < sizeof(kRows) / sizeof(kRows[0]); ++i) {
-					NkAssetEntry e;
-					e.name = NkString(kRows[i].name);
-					// ⚠️ CHEMIN NON VIDE, VOLONTAIREMENT : `path` est la charge que les
-					//    evenements portent vers un blueprint. Un contenu de
-					//    demonstration au chemin vide validerait une charge inutilisable
-					//    sans que personne s'en apercoive.
-					e.path = NkString("/projet/");
-					e.path.Append(kRows[i].name);
-					e.isFolder = kRows[i].folder;
-					e.kindLabel = kRows[i].kind;
-					// ⚠️ LE ROLE VIENT DE LA NATURE, PAS D'UN MODULO. La premiere
-					//    ecriture posait `4 + (i % 5)` -- des identifiants pris au
-					//    hasard dans l'enumeration du coeur. Ca « marchait » : le
-					//    dessin recevait bien un role par entree. Mais un temoin
-					//    visuel pris dessus montrait des textures peintes en
-					//    couleur de texte, et personne n'aurait su si le defaut
-					//    venait du composant ou de la donnee de demonstration.
-					//    Une donnee de demonstration fausse rend une capture
-					//    ininterpretable -- c'est le cout, et il est reel.
-					e.kindRole = RoleOfKind(kRows[i].kind);
-					m.entries.PushBack(e);
-				}
 				m.breadcrumb.Clear();
-				m.breadcrumb.PushBack(NkString("projet"));
-				m.breadcrumb.PushBack(NkString("assets"));
-				m.breadcrumb.PushBack(NkString("niveau1"));
-
-				// Les NATURES du mixte — les puces de filtre. Le role vient de la
-				// nature, par la MEME fonction que les entrees : une puce d'une
-				// autre couleur que ses cartes rendrait la capture illisible.
 				m.kinds.Clear();
-				static const char *kKinds[] = {"maillage", "materiau", "texture"};
-				for (uint32 k = 0; k < sizeof(kKinds) / sizeof(kKinds[0]); ++k) {
-					nkentseu::editorkit::NkBrowserKind kind;
-					kind.label = NkString(kKinds[k]);
-					kind.role = RoleOfKind(kKinds[k]);
-					m.kinds.PushBack(kind);
-				}
-
-				// L'arbre de dossiers embarque (tree_view du kit) — ordre prefixe,
-				// avec une racine « Favoris » : la lecon d'Unreal portee par la
-				// DONNEE, pas par du code (cf. NkContentBrowserModel.h).
 				m.folders.nodes.Clear();
-				static const struct {
-						int32 parent;
-						const char *label;
-				} kFolders[] = {{-1, "projet"},	  {0, "Materiaux"}, {0, "Maillages"},
-								{0, "Textures"},  {-1, "Favoris"},	{4, "sol.nkmat"}};
-				for (uint32 k = 0; k < sizeof(kFolders) / sizeof(kFolders[0]); ++k) {
-					nkentseu::editorkit::NkTreeNode nd;
-					nd.id = (nkentseu::nk_uint64)(k + 1);
-					nd.parent = kFolders[k].parent;
-					nd.label = NkString(kFolders[k].label);
-					nd.path = NkString("/dossiers/");
-					nd.path.Append(kFolders[k].label);
-					nd.kindRole = NkDesignResolveRole("type_folder");
-					m.folders.nodes.PushBack(nd);
+				if (!nkentseu::NkFile::Exists(chemin))
+					return false;
+				NkString tout = nkentseu::NkFile::ReadAllText(chemin);
+				const char *q = tout.Data();
+				int32 section = 0; // 1 entrees, 2 chemin, 3 natures, 4 dossiers
+				while (q && *q) {
+					const char *fin = q;
+					while (*fin && *fin != '\n')
+						++fin;
+					const char *utile = fin; // couper le commentaire de fin de ligne
+					for (const char *c = q; c < fin; ++c)
+						if (*c == '#') {
+							utile = c;
+							break;
+						}
+					while (utile > q && (utile[-1] == ' ' || utile[-1] == '\t' || utile[-1] == '\r'))
+						--utile;
+					if (utile > q && *q == '[') {
+						section = (q[1] == 'e') ? 1 : (q[1] == 'c') ? 2 : (q[1] == 'n') ? 3
+								  : (q[1] == 'd')		 ? 4
+														 : 0;
+					} else if (utile > q && *q != '#') {
+						NkString ch[3];
+						int32 nb = 0;
+						NkLigneChamps(q, utile, ch, nb);
+						if (section == 1 && nb >= 2) {
+							NkAssetEntry e;
+							e.name = ch[0];
+							e.kindLabel = NkNatureInternee(ch[1].Data());
+							e.isFolder = StrEq(e.kindLabel, "dossier");
+							// ⚠️ CHEMIN NON VIDE, VOLONTAIREMENT : `path` est la charge
+							//    que les evenements portent vers un blueprint.
+							e.path = NkString("/projet/");
+							e.path.Append(e.name);
+							// ⚠️ LE ROLE VIENT DE LA NATURE, PAS D'UN MODULO — une
+							//    donnee de demonstration fausse rend une capture
+							//    ininterpretable (lecon de la premiere ecriture).
+							e.kindRole = RoleOfKind(e.kindLabel);
+							m.entries.PushBack(e);
+						} else if (section == 2 && nb >= 1) {
+							m.breadcrumb.PushBack(ch[0]);
+						} else if (section == 3 && nb >= 1) {
+							nkentseu::editorkit::NkBrowserKind kind;
+							kind.label = ch[0];
+							kind.role = RoleOfKind(ch[0].Data());
+							m.kinds.PushBack(kind);
+						} else if (section == 4 && nb >= 2) {
+							nkentseu::editorkit::NkTreeNode nd;
+							nd.id = (nkentseu::nk_uint64)(m.folders.nodes.Size() + 1);
+							nd.parent = (int32)atoi(ch[0].Data());
+							nd.label = ch[1];
+							nd.path = NkString("/dossiers/");
+							nd.path.Append(nd.label);
+							nd.kindRole = NkDesignResolveRole("type_folder");
+							m.folders.nodes.PushBack(nd);
+						}
+					}
+					q = (*fin) ? fin + 1 : fin;
 				}
-
 				m.statusRight = NkString("Sauvegardé");
+				return m.entries.Size() > 0;
 			}
 
-			/// ⚠️ ORDRE PREFIXE OBLIGATOIRE (`NkTreeViewModel::IsWellFormed`) : un
-			///    parent precede toujours ses enfants, et le premier enfant est le
-			///    noeud SUIVANT. Ecrit a plat ci-dessous plutot que construit par
-			///    une fonction recursive, precisement pour que l'ordre se LISE.
-			static void FillDemoTree(NkTreeViewModel &t) {
-				struct Row {
-						int32 parent;
-						const char *label;
-						const char *kind;
-				};
-				static const Row kRows[] = {
-					{-1, "Scene", "racine"},	  {0, "Environnement", "groupe"},
-					{1, "Soleil", "lumiere"},	  {1, "Ciel", "lumiere"},
-					{0, "Decor", "groupe"},		  {4, "Sol", "maillage"},
-					{4, "Rocher", "maillage"},	  {4, "Caisse", "maillage"},
-					{0, "Personnages", "groupe"}, {8, "Heros", "maillage"},
-					{9, "Squelette", "os"},		  {8, "Garde", "maillage"},
-				};
+			/// ⚠️ ORDRE PREFIXE OBLIGATOIRE (`NkTreeViewModel::IsWellFormed`) : dans
+			///    la ressource, un parent precede toujours ses enfants — le chargeur
+			///    ne trie pas, il fait confiance au fichier et le composant VERIFIE.
+			static bool NkChargerArbreDemo(NkTreeViewModel &t, const char *chemin) {
 				t.nodes.Clear();
-				for (uint32 i = 0; i < sizeof(kRows) / sizeof(kRows[0]); ++i) {
-					NkTreeNode n;
-					n.id = (nkentseu::nk_uint64)(i + 1);
-					n.parent = kRows[i].parent;
-					n.label = NkString(kRows[i].label);
-					// Meme raison que chez le navigateur : le chemin est la CHARGE
-					// qu'un evenement porte vers un blueprint. Vide, il validerait
-					// une charge inutilisable sans que personne le remarque.
-					n.path = NkString("/scene/");
-					n.path.Append(kRows[i].label);
-					n.kindLabel = kRows[i].kind;
-					n.kindRole = RoleOfKind(kRows[i].kind);
-					t.nodes.PushBack(n);
+				t.chosen.Clear();
+				t.active = 0;
+				if (!nkentseu::NkFile::Exists(chemin))
+					return false;
+				NkString tout = nkentseu::NkFile::ReadAllText(chemin);
+				const char *q = tout.Data();
+				int32 section = 0; // 1 noeuds, 2 actif
+				while (q && *q) {
+					const char *fin = q;
+					while (*fin && *fin != '\n')
+						++fin;
+					const char *utile = fin;
+					for (const char *c = q; c < fin; ++c)
+						if (*c == '#') {
+							utile = c;
+							break;
+						}
+					while (utile > q && (utile[-1] == ' ' || utile[-1] == '\t' || utile[-1] == '\r'))
+						--utile;
+					if (utile > q && *q == '[') {
+						section = (q[1] == 'n') ? 1 : (q[1] == 'a') ? 2 : 0;
+					} else if (utile > q && *q != '#') {
+						NkString ch[3];
+						int32 nb = 0;
+						NkLigneChamps(q, utile, ch, nb);
+						if (section == 1 && nb >= 3) {
+							NkTreeNode n;
+							n.id = (nkentseu::nk_uint64)(t.nodes.Size() + 1);
+							n.parent = (int32)atoi(ch[0].Data());
+							n.label = ch[1];
+							// Meme raison que chez le navigateur : le chemin est la
+							// CHARGE qu'un evenement porte vers un blueprint.
+							n.path = NkString("/scene/");
+							n.path.Append(n.label);
+							n.kindLabel = NkNatureInternee(ch[2].Data());
+							n.kindRole = RoleOfKind(n.kindLabel);
+							t.nodes.PushBack(n);
+						} else if (section == 2 && nb >= 1) {
+							t.active = (nkentseu::nk_uint64)atoi(ch[0].Data());
+							t.chosen.Clear();
+							t.chosen.PushBack(t.active);
+						}
+					}
+					q = (*fin) ? fin + 1 : fin;
 				}
-				t.active = 6; // « Rocher »
-				t.chosen.PushBack(6);
+				return t.nodes.Size() > 0;
 			}
 
 			uint16 Role(const char *name) const {

@@ -1,0 +1,16 @@
+# Arbre de demonstration du tree_view pose sur la toile.
+[noeuds]         # parent|nom|nature (ordre prefixe, -1 = racine)
+-1|Scene|racine
+0|Environnement|groupe
+1|Soleil|lumiere
+1|Ciel|lumiere
+0|Decor|groupe
+4|Sol|maillage
+4|Rocher|maillage
+4|Caisse|maillage
+0|Personnages|groupe
+8|Heros|maillage
+9|Squelette|os
+8|Garde|maillage
+[actif]          # l'index actif au premier affichage
+6
