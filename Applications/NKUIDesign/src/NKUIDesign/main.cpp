@@ -198,7 +198,46 @@ static const char *const kCheminReleveUI = "nkuidesign_releve_ui.txt";
 /// `--dump-ui` a-t-il ete passe ? Lu a la creation de la coquille.
 static bool gReleveDemande = false;
 
+// ── LES LARGEURS DE DOCK DE LA MAQUETTE, POSEES UNE FOIS ────────────────────
+// Banani ecran 1 : Hierarchie 220 px, Inspecteur 236 px. Le dock ne persiste
+// pas ses ratios (stubs Save/LoadLayout) et ses defauts donnent des largeurs
+// approchees des la premiere image — exactement ce que le remandat interdit.
+// UNE fois, au premier passage ou les rects sont resolus ; l'utilisateur
+// garde ensuite la main sur les splitters.
+static void CalerLargeursDock(nkgui::NkGuiContext &ctx) {
+	static bool fait = false;
+	if (fait || gToileSeule)
+		return;
+	const nkgui::NkGuiId idHier = ctx.GetId("Hiérarchie");
+	const nkgui::NkGuiId idInsp = ctx.GetId("Inspecteur");
+	bool touche = false;
+	for (nkentseu::usize ni = 0; ni < ctx.dockNodes.Size(); ++ni) {
+		nkgui::NkGuiDockNode &nd = ctx.dockNodes[ni];
+		if (nd.kind != 2)
+			continue;
+		for (int32 w = 0; w < nd.winCount; ++w) {
+			const bool hier = (nd.windows[w] == idHier);
+			const bool insp = (nd.windows[w] == idInsp);
+			if (!hier && !insp)
+				continue;
+			const int32 pi = nd.parent;
+			if (pi < 0)
+				continue;
+			nkgui::NkGuiDockNode &pa = ctx.dockNodes[(nkentseu::usize)pi];
+			if (pa.kind != 1 || !pa.vertical || pa.rect.w <= 1.f)
+				continue;
+			const float32 vise = hier ? 220.f : 236.f;
+			const bool premier = (pa.child0 == (int32)ni);
+			pa.ratio = premier ? (vise / pa.rect.w) : (1.f - vise / pa.rect.w);
+			touche = true;
+		}
+	}
+	if (touche)
+		fait = true;
+}
+
 static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
+	CalerLargeursDock(ec.Ui());
 	nkgui::NkGuiIntrospectEcrire(ec.Ui(), kCheminReleveUI);
 }
 
