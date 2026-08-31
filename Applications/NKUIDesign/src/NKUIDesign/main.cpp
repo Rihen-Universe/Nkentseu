@@ -360,6 +360,10 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			ctx.input.mouseDown[0] = true;
 			ctx.input.mouseClicked[0] = true;
 		} else if (compteur == gClics[i].frame + 1) {
+			// ⚠️ EFFACER le clic : si ce rappel tourne deux fois par trame, un
+			//    clic qui persiste au second passage REFERME le menu qu'il vient
+			//    d'ouvrir (double bascule) — mesure au releve : « survole,replie ».
+			ctx.input.mouseClicked[0] = false;
 			ctx.input.mouseDown[0] = false;
 			ctx.input.mouseReleased[0] = true;
 		}
