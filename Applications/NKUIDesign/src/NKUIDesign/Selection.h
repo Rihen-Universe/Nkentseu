@@ -149,6 +149,37 @@ namespace nkuidesign {
 		return doc.nodes[(nkentseu::uint32)hit].parent < 0 ? -1 : hit;
 	}
 
+	/// LE NIVEAU DE SELECTION D'UN CLIC SIMPLE (regle Lunacy/Figma — mesure du
+	/// bogue « effet bizarre au deplacement », Rodolf 31/08). Le pointage
+	/// profond attrape la FEUILLE : sur un bouton, son LIBELLE — et le glisser
+	/// SEPARAIT le libelle de son bouton, dans les quatre directions (l'element
+	/// visible restait, son texte partait ; l'ancien document du matin posait
+	/// meme le texte en FRERE par-dessus le bouton — meme piege des le premier
+	/// clic). Un clic simple selectionne donc l'element de PREMIER NIVEAU :
+	/// l'ancetre du pointage dont le parent est un artboard (`forme = frame`)
+	/// ou la racine. Le DOUBLE-CLIC descend dans le composite (le geste
+	/// « entrer » de tous les outils de dessin). `NkPickSelectable` ne bouge
+	/// pas : les controles 40x le mesurent tel quel, et le double-clic le
+	/// consomme.
+	inline nkentseu::int32 NkPickTopLevel(const NkUIDocument &doc, const NkLayoutResult &lay,
+										  nkentseu::float32 x, nkentseu::float32 y) {
+		nkentseu::int32 hit = NkPickSelectable(doc, lay, x, y);
+		nkentseu::int32 garde = 0;
+		while (hit >= 0 && doc.IsValidIndex(hit) && ++garde < 64) {
+			const nkentseu::int32 pa = doc.nodes[(nkentseu::uint32)hit].parent;
+			if (pa < 0)
+				break; // deja au premier niveau
+			const NkUINode &pn = doc.nodes[(nkentseu::uint32)pa];
+			const char *ps = pn.shape.Data();
+			const bool artboard = ps && ps[0] == 'f' && ps[1] == 'r' && ps[2] == 'a'
+								  && ps[3] == 'm' && ps[4] == 'e' && ps[5] == 0;
+			if (pn.parent < 0 || artboard)
+				break; // le parent est la racine ou un artboard : c'est le niveau
+			hit = pa;
+		}
+		return hit;
+	}
+
 	/// LE RECEPTACLE D'UNE CREATION (2026-08-30, chaine du designer). Un outil
 	/// qui pose une forme doit savoir DANS QUOI il la pose : le conteneur a
 	/// agencement `Free` le plus PROFOND sous le point -- l'artboard si on
