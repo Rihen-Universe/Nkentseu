@@ -3900,7 +3900,7 @@ namespace nkuidesign {
 				//    donc memes identifiants -- c'est ce qui rend le geste sur.)
 				// (Le dépliage initial par CollapsingHeader est PARTI avec le
 				// costume : les sections sont non repliables — la maquette ne
-				// replie qu'ESPACEMENT, dont l'état vit dans `mEspacementOuvert`.)
+				// replie que certaines sections — l'état par section vit dans `mSections`.)
 				(void)mDeplierUneFois;
 				editorkit::NkInspectorCharpente ch;
 				ch.user = this;
@@ -3987,47 +3987,63 @@ namespace nkuidesign {
 				// contredit pas l'InspecteurV2 de l'écran 1) : PREMIÈRE, et
 				// seulement quand la sélection est un ARTBOARD à cible — les
 				// autres nœuds gardent la table de l'écran 1 telle quelle.
+				// ⚠️ LA TABLE SUIT reference_4_185519.png A LA LETTRE (2e passe de
+				//    Rodolf, 31/08 : « regarde comment les proprietes de position,
+				//    taille, ancrage, alignement, espacement, apparence,
+				//    typographie etc. sont definies »). CIBLE montre la cible du
+				//    CADRE ENGLOBANT (la reference l'affiche sur un bouton) ;
+				//    DISPOSITION reunit Position + Largeur/Hauteur ; BORDS a
+				//    fusionne dans APPARENCE (Bordure/Arrondi) ; EFFETS et POINTS
+				//    DE RUPTURE existent, replies, et DISENT que leur modele
+				//    arrive. Toutes les sections se replient au chevron
+				//    (etat dans mSections) — la maquette replie ESPACEMENT,
+				//    EFFETS et POINTS DE RUPTURE par defaut.
 				{
 					auto *self = static_cast<InspectorPanel *>(user);
-					const NkUINode *n = self->NoeudCourant();
-					if (n && StrEq(n->shape.Data(), "frame") && !n->target.Empty()) {
+					if (self->CadreCible()) {
 						static const editorkit::NkInspectorSection kAvecCible[] = {
 							{"CIBLE", &CorpsCibleC, false},
-							{"POSITION", &CorpsPositionC, false},
-							{"TAILLE", &CorpsTailleC, false},
-							{"ESPACEMENT", &CorpsEspacementC, false},
+							{"DISPOSITION", &CorpsDispositionC, false},
 							{"ANCRAGE", &CorpsAncrageC, false},
 							{"ALIGNEMENT", &CorpsAlignementC, false},
+							{"ESPACEMENT", &CorpsEspacementC, false},
 							{"APPARENCE", &CorpsApparenceC, false},
-							{"BORDS", &CorpsBordsC, false},
 							{"TYPOGRAPHIE", &CorpsTypographieC, false},
+							{"EFFETS", &CorpsEffetsC, false},
+							{"POINTS DE RUPTURE", &CorpsRuptureC, false},
 						};
 						count = (int32)(sizeof(kAvecCible) / sizeof(kAvecCible[0]));
 						return kAvecCible;
 					}
 				}
-				// ⚠️ L'ECART AVEC LE PLAN EST CONNU ET NOMME. Le §12.2 du
-				//    document 3 (l. 1682) enumere DIX sections aux noms voisins
-				//    (Cible, Disposition, Espacement, Effets, Points de rupture,
-				//    Layout parent...). Cette table de SEPT est celle que la
-				//    consigne du 2026-08-29 fixe ; la convergence vers le plan est
-				//    un chantier a part, pas un detail a glisser ici en douce.
-				// COSTUME BANANI : les titres sont dessines par `TitreSection`
-				// (repliable = false -> la charpente delegue) ; « ESPACEMENT »
-				// (replie dans la maquette) tient son etat dans le panneau, son
-				// titre porte le chevron, son corps ne dessine qu'ouvert.
 				static const editorkit::NkInspectorSection kSections[] = {
-					{"POSITION", &CorpsPositionC, false},
-					{"TAILLE", &CorpsTailleC, false},
-					{"ESPACEMENT", &CorpsEspacementC, false},
+					{"DISPOSITION", &CorpsDispositionC, false},
 					{"ANCRAGE", &CorpsAncrageC, false},
 					{"ALIGNEMENT", &CorpsAlignementC, false},
+					{"ESPACEMENT", &CorpsEspacementC, false},
 					{"APPARENCE", &CorpsApparenceC, false},
-					{"BORDS", &CorpsBordsC, false},
 					{"TYPOGRAPHIE", &CorpsTypographieC, false},
+					{"EFFETS", &CorpsEffetsC, false},
+					{"POINTS DE RUPTURE", &CorpsRuptureC, false},
 				};
 				count = (int32)(sizeof(kSections) / sizeof(kSections[0]));
 				return kSections;
+			}
+
+			/// Le CADRE A CIBLE qui contient la selection (ou la selection
+			/// elle-meme) : la reference affiche « Cible du cadre » meme sur un
+			/// bouton — c'est la cible de l'artboard englobant qu'elle montre.
+			const NkUINode *CadreCible() const {
+				const NkUINode *n = NoeudCourant();
+				int32 garde = 0;
+				int32 idx = mSt->selected;
+				while (n && ++garde < 64) {
+					if (StrEq(n->shape.Data(), "frame") && !n->target.Empty())
+						return n;
+					idx = n->parent;
+					n = mSt->doc.IsValidIndex(idx) ? &mSt->doc.nodes[(uint32)idx] : nullptr;
+				}
+				return nullptr;
 			}
 
 			static const char *MessageOngletVide(void *, int32 onglet) noexcept {
@@ -4038,84 +4054,131 @@ namespace nkuidesign {
 			// ═══════════════════════════════════════════════════════════════════
 			//  LE COSTUME BANANI DE LA CHARPENTE (InspectorPanelV2, JSX)
 			// ═══════════════════════════════════════════════════════════════════
-			/// L'en-tête 34 px : icône bouton 12×12 accent + nom 12 px, filet bas.
+			/// L'en-tête de la référence (reference_4_185519) : TUILE 28×28
+			/// arrondie (voile accent 13 %) portant l'icône de nature, nom 13 px
+			/// gras, sous-titre « Rôle : <rôle> » 10 px atténué quand un rôle est
+			/// porté. Filet bas.
 			void EnteteCostume(NkGuiContext &ctx, const char *nom) {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
-				const NkRect r = ctx.NextItemRect(-1.f, 34.f);
-				// L'icône suit la NATURE de la sélection (même mapping que
-				// l'arbre) : bouton pour un rôle, page pour un artboard, « T »
-				// pour un texte, panneau sinon.
+				const NkUINode *n = NoeudCourant();
+				const bool sousTitre = n && !n->role.Empty();
+				const float32 h = 48.f;
+				const NkRect r = ctx.NextItemRect(-1.f, h);
+				// La tuile
+				const NkRect tuile = {r.x + 12.f, r.y + (h - 28.f) * 0.5f, 28.f, 28.f};
 				{
-					const NkUINode *n = NoeudCourant();
-					const float32 iy = r.y + (34.f - 11.f) * 0.5f;
-					if (n && !n->role.Empty())
-						costume::IcBouton(dl, r.x + 12.f, iy, ctx.theme.accent);
+					NkColor voile = ctx.theme.accent;
+					voile.a = 34;
+					dl.AddRectFilled(tuile, voile, 6.f);
+					const float32 ix = tuile.x + (28.f - 11.f) * 0.5f;
+					const float32 iy = tuile.y + (28.f - 11.f) * 0.5f;
+					if (sousTitre)
+						costume::IcBouton(dl, ix, iy, ctx.theme.accent);
 					else if (n && StrEq(n->shape.Data(), "frame"))
-						costume::IcPage(dl, r.x + 12.f, iy, ctx.theme.accent);
+						costume::IcPage(dl, ix, iy, ctx.theme.accent);
 					else if (n && StrEq(n->shape.Data(), "text"))
-						costume::IcTexte(dl, r.x + 12.f, iy, ctx.theme.accent);
+						costume::IcTexte(dl, ix, iy, ctx.theme.accent);
 					else
-						costume::IcPanneau(dl, r.x + 12.f, iy, ctx.theme.accent);
+						costume::IcPanneau(dl, ix, iy, ctx.theme.accent);
 				}
-				costume::TexteGras(dl, F.px12, r.x + 32.f, costume::CentrerY(F.px12, r.y, 34.f),
-								   nom, ctx.theme.text, 0.35f);
-				dl.AddLine({r.x, r.y + 33.5f}, {r.x + r.w, r.y + 33.5f}, ctx.theme.border, 1.f);
+				const float32 tx = tuile.x + 28.f + 10.f;
+				if (sousTitre) {
+					costume::TexteGras(dl, F.px13, tx, r.y + 7.f, nom, ctx.theme.text, 0.4f);
+					char st[80];
+					snprintf(st, sizeof(st), "Rôle : %s", n->role.Data());
+					costume::Texte(dl, F.px10, tx, r.y + 26.f, st, ctx.theme.textMuted);
+				} else
+					costume::TexteGras(dl, F.px13, tx, costume::CentrerY(F.px13, r.y, h), nom,
+									   ctx.theme.text, 0.4f);
+				dl.AddLine({r.x, r.y + h - 0.5f}, {r.x + r.w, r.y + h - 0.5f}, ctx.theme.border,
+						   1.f);
 			}
 
 			/// Les onglets 28 px : libellé 11 px, actif = texte plein + liseré 2 px
 			/// accent SOUS SON PROPRE onglet ; le panneau porte l'état (il a
 			/// remplacé le widget qui le tenait — la vérité reste unique).
+			/// Les onglets de la référence (reference_4_185519) : TROIS CELLULES
+			/// ÉGALES sur toute la largeur, libellés CENTRÉS, l'actif en texte
+			/// plein avec un liseré accent de 2 px sous SON libellé (largeur du
+			/// texte + 16), les inactifs atténués ; filet bas pleine largeur.
 			int32 OngletsCostume(NkGuiContext &ctx) {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
-				const NkRect r = ctx.NextItemRect(-1.f, 28.f);
+				const NkRect r = ctx.NextItemRect(-1.f, 30.f);
 				static const char *const kO[3] = {"Design", "Widget", "Behavior"};
-				dl.AddLine({r.x, r.y + 27.5f}, {r.x + r.w, r.y + 27.5f}, ctx.theme.border, 1.f);
-				float32 x = r.x;
+				dl.AddLine({r.x, r.y + 29.5f}, {r.x + r.w, r.y + 29.5f}, ctx.theme.border, 1.f);
+				const float32 colW = r.w / 3.f;
 				for (int32 i = 0; i < 3; ++i) {
+					const NkRect c = {r.x + colW * (float32)i, r.y, colW, 30.f};
 					const float32 tw = costume::Largeur(F.px11, kO[i]);
-					const NkRect c = {x, r.y, 12.f + tw + 12.f, 28.f};
-					const float32 ty = costume::CentrerY(F.px11, r.y, 28.f);
+					const float32 tx = c.x + (colW - tw) * 0.5f;
+					const float32 ty = costume::CentrerY(F.px11, r.y, 30.f);
 					if (i == mOnglet) {
-						costume::TexteGras(dl, F.px11, c.x + 12.f, ty, kO[i], ctx.theme.text,
-										   0.5f);
-						dl.AddRectFilled({c.x, c.y + 26.f, c.w, 2.f}, ctx.theme.accent);
+						costume::TexteGras(dl, F.px11, tx, ty, kO[i], ctx.theme.text, 0.5f);
+						const float32 lw = tw + 16.f;
+						dl.AddRectFilled({c.x + (colW - lw) * 0.5f, c.y + 28.f, lw, 2.f},
+										 ctx.theme.accent);
 					} else
-						costume::Texte(dl, F.px11, c.x + 12.f, ty, kO[i], ctx.theme.textMuted);
+						costume::Texte(dl, F.px11, tx, ty, kO[i], ctx.theme.textMuted);
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
 						&& NkGuiRectContains(c, ctx.input.mousePos))
 						mOnglet = i;
-					x += c.w;
 				}
 				return mOnglet;
 			}
 
-			/// Un titre de section : MAJUSCULES 9 px 600 `text_muted` + filet vers
-			/// la droite. « ESPACEMENT » porte le chevron de repli de la maquette
-			/// et se replie/déplie au clic (état du panneau).
+			/// L'état de repli PAR SECTION (reference_4_185519 : TOUTES les
+			/// sections portent un chevron ; ESPACEMENT, EFFETS et POINTS DE
+			/// RUPTURE démarrent repliées). Un titre inconnu de la table (RÔLE,
+			/// ÉVÉNEMENTS…) garde l'ancien costume à filet, sans repli.
+			struct EtatSection {
+					const char *titre;
+					bool ouvert;
+			};
+			EtatSection mSections[9] = {
+				{"CIBLE", true},	  {"DISPOSITION", true},  {"ANCRAGE", true},
+				{"ALIGNEMENT", true}, {"ESPACEMENT", false},  {"APPARENCE", true},
+				{"TYPOGRAPHIE", true}, {"EFFETS", false},	  {"POINTS DE RUPTURE", false},
+			};
+			EtatSection *TrouverSection(const char *titre) {
+				for (uint32 i = 0; i < 9; ++i)
+					if (StrEq(mSections[i].titre, titre))
+						return &mSections[i];
+				return nullptr;
+			}
+			bool SectionOuverte(const char *titre) {
+				const EtatSection *s = TrouverSection(titre);
+				return s ? s->ouvert : true;
+			}
+
+			/// Un titre de section : chevron d'état + MAJUSCULES 9 px 600
+			/// `text_muted` (le costume de la référence). Cliquer la rangée
+			/// replie/déplie ; les corps se taisent quand leur section est pliée.
 			void TitreSection(NkGuiContext &ctx, const char *titre) {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
 				const NkRect r = ctx.NextItemRect(-1.f, 22.f);
-				const bool esp = StrEq(titre, "ESPACEMENT");
+				EtatSection *s = TrouverSection(titre);
 				float32 x = r.x + 12.f;
 				const float32 ty = r.y + 8.f;
-				if (esp) {
-					if (mEspacementOuvert)
+				if (s) {
+					if (s->ouvert)
 						costume::ChevronBas9(dl, x - 1.f, ty, ctx.theme.textMuted);
 					else
 						costume::ChevronReplie8(dl, x, ty + 1.f, ctx.theme.textMuted);
 					x += 12.f;
 				}
 				costume::TexteGras(dl, F.px9, x, ty, titre, ctx.theme.textMuted, 0.4f);
-				if (!esp) {
+				if (s) {
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(r, ctx.input.mousePos))
+						s->ouvert = !s->ouvert;
+				} else {
 					const float32 lx = x + costume::Largeur(F.px9, titre) + 8.f;
 					dl.AddLine({lx, ty + 5.f}, {r.x + r.w - 12.f, ty + 5.f}, ctx.theme.border,
 							   1.f);
-				} else if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
-						   && NkGuiRectContains(r, ctx.input.mousePos))
-					mEspacementOuvert = !mEspacementOuvert;
+				}
 			}
 
 			// ── LES CHAMPS DU COSTUME (boîte 20 px, fond `InputBg` #010409) ──
@@ -4234,6 +4297,203 @@ namespace nkuidesign {
 			static void CorpsEspacementC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsEspacement(ctx);
 			}
+			static void CorpsDispositionC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsDisposition(ctx);
+			}
+			static void CorpsEffetsC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsEffets(ctx);
+			}
+			static void CorpsRuptureC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsRupture(ctx);
+			}
+
+			/// DISPOSITION (reference_4_185519) : la rangée « Position » — deux
+			/// champs à BARRE D'AXE (rouge = X, vert = Y, les rôles AxisX/AxisY)
+			/// et deux petits boutons carrés (« + », « • », inertes et ils le
+			/// disent) — puis « Largeur » et « Hauteur » : boîte-combo du mode
+			/// (« expand », « fixed 44 »…) éditable au glisser, bornes min–max en
+			/// texte atténué à droite quand elles existent (la référence les
+			/// montre ainsi, pas en champs — l'édition des bornes passe par le
+			/// document, écart nommé au rapport).
+			void CorpsDisposition(NkGuiContext &ctx) {
+				if (!SectionOuverte("DISPOSITION"))
+					return;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				NkUINode *n = NoeudMutable();
+				// ── Position ────────────────────────────────────────────────
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   "Position", ctx.theme.textMuted);
+					const float32 champs0 = x0 + 52.f;
+					const float32 wBtns = 2.f * 20.f + 4.f;
+					const float32 colW = (x1 - champs0 - wBtns - 12.f) * 0.5f;
+					const NkRect rx = {champs0, r.y + 3.f, colW - 3.f, 20.f};
+					const NkRect ry = {champs0 + colW + 3.f, r.y + 3.f, colW - 3.f, 20.f};
+					const NkColor rouge = nkentseu::editorkit::NkThemeUnpack(
+						mSt->theme.Get(nkentseu::editorkit::NkRole::AxisX));
+					const NkColor vert = nkentseu::editorkit::NkThemeUnpack(
+						mSt->theme.Get(nkentseu::editorkit::NkRole::AxisY));
+					const bool libre = n && ParentKind() == editorkit::NkLayoutKind::Free;
+					bool bouge = false;
+					if (libre) {
+						bouge |= ChampNombreAxe(ctx, "insp.dispo.x", rx, n->posX, rouge);
+						bouge |= ChampNombreAxe(ctx, "insp.dispo.y", ry, n->posY, vert);
+					} else {
+						// la position CALCULÉE (jamais écrite) — boîtes statiques
+						char b[32];
+						const bool a = n && mSt->layout.Has(mSt->selected);
+						const NkPaintRect rc = a ? mSt->layout.At(mSt->selected)
+												 : NkPaintRect{0.f, 0.f, 0.f, 0.f};
+						snprintf(b, sizeof(b), a ? "%.0f" : "\xE2\x80\x94", (double)rc.x);
+						BoiteChampAxe(ctx, rx, b, rouge);
+						snprintf(b, sizeof(b), a ? "%.0f" : "\xE2\x80\x94", (double)rc.y);
+						BoiteChampAxe(ctx, ry, b, vert);
+					}
+					if (bouge)
+						mSt->doc.MarkHumanEdit(mSt->selected);
+					// les deux boutons carrés de la référence — inertes, et ils
+					// le DISENT au clic (règle des menus : jamais un no-op muet).
+					for (int32 i = 0; i < 2; ++i) {
+						const NkRect rb = {x1 - wBtns + (float32)i * 24.f, r.y + 3.f, 20.f, 20.f};
+						dl.AddRectFilled(rb, CouleurInput(), 4.f);
+						dl.AddRect(rb, ctx.theme.border, 1.f, 4.f);
+						if (i == 0) {
+							dl.AddLine({rb.x + 10.f, rb.y + 6.f}, {rb.x + 10.f, rb.y + 14.f},
+									   ctx.theme.textMuted, 1.2f);
+							dl.AddLine({rb.x + 6.f, rb.y + 10.f}, {rb.x + 14.f, rb.y + 10.f},
+									   ctx.theme.textMuted, 1.2f);
+						} else
+							dl.AddCircleFilled({rb.x + 10.f, rb.y + 10.f}, 2.f,
+											   ctx.theme.textMuted);
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+							&& NkGuiRectContains(rb, ctx.input.mousePos))
+							mSt->status = NkString(
+								"Contraintes de position : à brancher (référence Banani).");
+					}
+					if (n && !libre)
+						nkgui::TextWrapped(ctx, "calculée — jamais écrite dans le document");
+				}
+				if (!n)
+					return;
+				LigneDimension(ctx, "Largeur", n->width);
+				LigneDimension(ctx, "Hauteur", n->height);
+			}
+
+			/// La boîte à BARRE D'AXE : champ du costume + barre 3 px de la
+			/// couleur d'axe au bord gauche (la référence identifie X/Y par la
+			/// couleur, pas par une lettre).
+			void BoiteChampAxe(NkGuiContext &ctx, const NkRect &r, const char *texte,
+							   const NkColor &axe) {
+				auto &dl = ctx.DL();
+				dl.AddRectFilled(r, CouleurInput(), 4.f);
+				dl.AddRect(r, ctx.theme.border, 1.f, 4.f);
+				dl.AddRectFilled({r.x + 1.f, r.y + 3.f, 3.f, r.h - 6.f}, axe, 1.5f);
+				auto &F = costume::Fontes();
+				dl.PushClipRect(r, true);
+				costume::Texte(dl, F.px11, r.x + 9.f, costume::CentrerY(F.px11, r.y, r.h), texte,
+							   ctx.theme.text);
+				dl.PopClipRect();
+			}
+			bool ChampNombreAxe(NkGuiContext &ctx, const char *id, const NkRect &r, float32 &v,
+								const NkColor &axe) {
+				char b[32];
+				if (v == (float32)(int32)v)
+					snprintf(b, sizeof(b), "%d", (int32)v);
+				else
+					snprintf(b, sizeof(b), "%.2f", (double)v);
+				BoiteChampAxe(ctx, r, b, axe);
+				return ChampDrag(ctx, id, r, v, 1.f, -100000.f, 100000.f);
+			}
+
+			/// « Largeur : [expand v]  120–320 » — la rangée de dimension de la
+			/// référence : boîte-combo du mode (glisser = éditer la valeur quand
+			/// le mode en porte une), bornes en texte atténué à droite.
+			void LigneDimension(NkGuiContext &ctx, const char *titre, NkSizeDecl &d) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const bool porteValeur = d.mode == NkSizeMode::Fixed
+										 || d.mode == NkSizeMode::Fraction
+										 || d.mode == NkSizeMode::Weight;
+				const bool metrique = d.valueMetric && *d.valueMetric;
+				const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+				const float32 x0 = r.x + 12.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f), titre,
+							   ctx.theme.textMuted);
+				const NkRect rb = {x0 + 52.f, r.y + 3.f, 96.f, 20.f};
+				char b[96];
+				if (metrique)
+					snprintf(b, sizeof(b), "« %s »", d.valueMetric);
+				else if (porteValeur)
+					snprintf(b, sizeof(b), "%s %d", NkSizeModeName(d.mode), (int32)d.value);
+				else
+					snprintf(b, sizeof(b), "%s", NkSizeModeName(d.mode));
+				BoiteChamp(ctx, rb, b);
+				costume::ChevronCombo7(dl, rb.x + rb.w - 12.f, rb.y + 8.f, ctx.theme.textMuted);
+				// LE MODE SE CHANGE (recadrage « chaque contrôle agit ») : cliquer
+				// le CHEVRON cycle fixed → content → fraction → weight → expand.
+				// Le glisser sur le reste de la boîte édite la VALEUR.
+				const NkRect rChevron = {rb.x + rb.w - 20.f, rb.y, 20.f, rb.h};
+				if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+					&& NkGuiRectContains(rChevron, ctx.input.mousePos)) {
+					d.mode = (NkSizeMode)(((int32)d.mode + 1) % (int32)NkSizeMode::Count);
+					if (d.mode == NkSizeMode::Fixed && d.value <= 0.f)
+						d.value = 100.f; // un fixed sans valeur serait invisible
+					mSt->doc.MarkHumanEdit(mSt->selected);
+				} else if (porteValeur && !metrique) {
+					const float32 vitesse = d.mode == NkSizeMode::Fixed ? 1.f
+											: d.mode == NkSizeMode::Fraction ? 0.01f : 0.05f;
+					const float32 vmax = d.mode == NkSizeMode::Fraction ? 1.f : 4096.f;
+					char id[40];
+					snprintf(id, sizeof(id), "insp.dim.%s", titre);
+					float32 avant = d.value;
+					if (ChampDrag(ctx, id, rb, d.value, vitesse, 0.f, vmax) && d.value != avant)
+						mSt->doc.MarkHumanEdit(mSt->selected);
+				}
+				// les bornes min / max — ÉDITABLES (fonction d'abord ; la
+				// référence les résume en texte, l'édition prime — écart nommé).
+				{
+					const NkRect r2 = ctx.NextItemRect(-1.f, 22.f);
+					const float32 mx0 = r2.x + 12.f + 52.f;
+					const float32 moitie = (r2.x + r2.w - 12.f - mx0 - 8.f) * 0.5f;
+					costume::Texte(dl, F.px9, mx0, costume::CentrerY(F.px9, r2.y + 2.f, 18.f),
+								   "min", ctx.theme.textMuted);
+					const NkRect rmin = {mx0 + 26.f, r2.y + 2.f, moitie - 26.f, 18.f};
+					const float32 mx1 = mx0 + moitie + 8.f;
+					costume::Texte(dl, F.px9, mx1, costume::CentrerY(F.px9, r2.y + 2.f, 18.f),
+								   "max", ctx.theme.textMuted);
+					const NkRect rmax = {mx1 + 26.f, r2.y + 2.f, moitie - 26.f, 18.f};
+					char id[48];
+					snprintf(id, sizeof(id), "insp.dmin.%s", titre);
+					bool bouge = ChampNombre(ctx, id, rmin, d.minVal, 1.f, 0.f, 4096.f, true, true);
+					snprintf(id, sizeof(id), "insp.dmax.%s", titre);
+					bouge |= ChampNombre(ctx, id, rmax, d.maxVal, 1.f, 0.f, 4096.f, true, true);
+					if (bouge)
+						mSt->doc.MarkHumanEdit(mSt->selected);
+				}
+			}
+
+			/// EFFETS — la section existe (référence), son modèle n'existe pas :
+			/// elle le DIT, elle ne met pas en scène des ombres inventées.
+			void CorpsEffets(NkGuiContext &ctx) {
+				if (!SectionOuverte("EFFETS"))
+					return;
+				ctx.BeginDisabled();
+				nkgui::TextWrapped(ctx, "Le modèle d'effets (ombres, flous) arrive — rien n'est "
+										"mis en scène.");
+				ctx.EndDisabled();
+			}
+			/// POINTS DE RUPTURE — même règle d'honnêteté que EFFETS.
+			void CorpsRupture(NkGuiContext &ctx) {
+				if (!SectionOuverte("POINTS DE RUPTURE"))
+					return;
+				ctx.BeginDisabled();
+				nkgui::TextWrapped(ctx, "Les points de rupture arrivent avec la transposition "
+										"entre cibles (écran 27).");
+				ctx.EndDisabled();
+			}
 			static void CorpsCibleC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsCible(ctx);
 			}
@@ -4243,7 +4503,11 @@ namespace nkuidesign {
 			/// × 844 »). Boîte-combo STATIQUE : le menu Cible (écran 26) est un
 			/// chantier à part, la place et le costume sont pris.
 			void CorpsCible(NkGuiContext &ctx) {
-				const NkUINode *n = NoeudCourant();
+				if (!SectionOuverte("CIBLE"))
+					return;
+				// La cible du CADRE ENGLOBANT (reference_4_185519 : elle s'affiche
+				// aussi quand la selection est un bouton DANS le cadre).
+				const NkUINode *n = CadreCible();
 				if (!n)
 					return;
 				auto &F = costume::Fontes();
@@ -4408,6 +4672,8 @@ namespace nkuidesign {
 			//    son contenu s'edite ICI. Police, graisse, taille : a venir avec
 			//    le vocabulaire d'apparence.
 			void CorpsTypographie(NkGuiContext &ctx) {
+				if (!SectionOuverte("TYPOGRAPHIE"))
+					return;
 				NkUINode *n = NoeudMutable();
 				if (!n || !StrEq(n->shape.Data(), "text")) {
 					ctx.BeginDisabled();
@@ -4415,42 +4681,178 @@ namespace nkuidesign {
 					ctx.EndDisabled();
 					return;
 				}
-				// COSTUME BANANI : la famille (« Inter » + chevron — une seule
-				// famille aujourd'hui, la boîte le montre), puis « px / fw / lh »
-				// en grille de 3. px et fw sont les clés additives `police_px` /
-				// `graisse` (0 = défaut, affiché « — ») ; lh n'existe pas encore
-				// dans le modèle — la boîte l'affiche « — », grisée, plutôt que
-				// d'inventer une valeur.
+				// LA RÉFÉRENCE (reference_4_185519), rangée par rangée — et chaque
+				// contrôle AGIT ou dit pourquoi pas : Police (une seule famille
+				// embarquée — le clic le dit), Poids (CYCLE les graisses réelles
+				// 400/500/600/700, clé `graisse`), Taille (clé `police_px`),
+				// Hauteur ligne / Interlettrage (le modèle ne les porte pas —
+				// grisés avec raison), Aligner (clé `texte_aligne`, 3 valeurs
+				// réelles + « justifié » qui dit son absence), Décor (grisé),
+				// Contenu (clé `texte`).
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const float32 wLib = 60.f;
+				// ── Police ──
 				{
-					auto &F = costume::Fontes();
-					auto &dl = ctx.DL();
-					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
-					const NkRect rb = {x0, r.y + 2.f, x1 - x0, 20.f};
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   "Police", ctx.theme.textMuted);
+					const NkRect rb = {x0 + wLib, r.y + 3.f, x1 - x0 - wLib, 20.f};
 					BoiteChamp(ctx, rb, "Inter");
-					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 8.f,
+					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 9.f,
 										   ctx.theme.textMuted);
-					const NkRect r2 = ctx.NextItemRect(-1.f, 24.f);
-					const float32 colW = (x1 - x0 - 8.f) / 3.f;
-					static const char *const kLib[3] = {"px", "fw", "lh"};
-					bool bouge = false;
-					for (uint32 i = 0; i < 3; ++i) {
-						const float32 cx = x0 + (colW + 4.f) * (float32)i;
-						costume::Texte(dl, F.px10, cx,
-									   costume::CentrerY(F.px10, r2.y + 2.f, 20.f), kLib[i],
-									   ctx.theme.textMuted);
-						const NkRect rc = {cx + 24.f, r2.y + 2.f, colW - 24.f, 20.f};
-						if (i == 0)
-							bouge |= ChampNombre(ctx, "insp.typo.px", rc, n->fontPx, 0.5f, 0.f,
-												 256.f, false, true);
-						else if (i == 1)
-							bouge |= ChampNombre(ctx, "insp.typo.fw", rc, n->fontWeight, 4.f,
-												 0.f, 900.f, false, true);
-						else
-							BoiteChamp(ctx, rc, "\xE2\x80\x94");
-					}
-					if (bouge)
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(rb, ctx.input.mousePos))
+						mSt->status = NkString("Police : une seule famille embarquée "
+											   "aujourd'hui (Inter, OFL).");
+				}
+				// ── Poids : le clic CYCLE les graisses réelles ──
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   "Poids", ctx.theme.textMuted);
+					const NkRect rb = {x0 + wLib, r.y + 3.f, x1 - x0 - wLib, 20.f};
+					const int32 fw = (int32)n->fontWeight;
+					const char *nomFw = fw >= 700	? "Bold"
+										: fw >= 600 ? "Semi-Bold"
+										: fw >= 500 ? "Medium"
+										: fw >= 400 ? "Regular"
+													: "\xE2\x80\x94 (défaut)";
+					BoiteChamp(ctx, rb, nomFw);
+					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 9.f,
+										   ctx.theme.textMuted);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(rb, ctx.input.mousePos)) {
+						n->fontWeight = fw >= 700 ? 0.f
+										: fw >= 600 ? 700.f
+										: fw >= 500 ? 600.f
+										: fw >= 400 ? 500.f
+													: 400.f;
 						mSt->doc.MarkHumanEdit(mSt->selected);
+					}
+				}
+				// ── Taille ──
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   "Taille", ctx.theme.textMuted);
+					const NkRect rt = {x0 + wLib, r.y + 3.f, 48.f, 20.f};
+					if (ChampNombre(ctx, "insp.typo.px", rt, n->fontPx, 0.5f, 0.f, 256.f, false,
+									true))
+						mSt->doc.MarkHumanEdit(mSt->selected);
+					costume::Texte(dl, F.px9, rt.x + rt.w + 4.f,
+								   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "px",
+								   ctx.theme.textMuted);
+				}
+				// ── Hauteur ligne / Interlettrage : le modèle ne les porte pas ──
+				for (int32 li = 0; li < 2; ++li) {
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					ctx.BeginDisabled();
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   li == 0 ? "Hauteur ligne" : "Interlettrage",
+								   ctx.theme.textMuted);
+					const NkRect rv = {x0 + 76.f, r.y + 3.f, 40.f, 20.f};
+					dl.AddRectFilled(rv, CouleurInput(), 4.f);
+					dl.AddRect(rv, ctx.theme.border, 1.f, 4.f);
+					costume::Texte(dl, F.px11, rv.x + 6.f, costume::CentrerY(F.px11, rv.y, 20.f),
+								   "\xE2\x80\x94", ctx.theme.textMuted);
+					ctx.EndDisabled();
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(rv, ctx.input.mousePos))
+						mSt->status = NkString("Le modèle de texte ne porte pas encore cette "
+											   "clé — chantier nommé (vocabulaire Lunacy).");
+				}
+				// ── Aligner : la clé `texte_aligne` (3 réelles + justifié absent) ──
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   "Aligner", ctx.theme.textMuted);
+					const float32 champs0 = x0 + wLib;
+					const float32 btnW = (x1 - champs0 - 3.f * 4.f) / 4.f;
+					const int32 courant = StrEq(n->alignText.Data(), "centre") ? 1
+										  : StrEq(n->alignText.Data(), "droite") ? 2
+																				 : 0;
+					static const char *const kCles[3] = {"gauche", "centre", "droite"};
+					for (int32 i = 0; i < 4; ++i) {
+						const NkRect cb = {champs0 + (btnW + 4.f) * (float32)i, r.y + 3.f, btnW,
+										   20.f};
+						const bool actif = (i == courant);
+						if (actif) {
+							NkColor voile = ctx.theme.accent;
+							voile.a = 44;
+							dl.AddRectFilled(cb, voile, 4.f);
+							dl.AddRect(cb, ctx.theme.accent, 1.f, 4.f);
+						} else {
+							dl.AddRectFilled(cb, CouleurInput(), 4.f);
+							dl.AddRect(cb, ctx.theme.border, 1.f, 4.f);
+						}
+						// le glyphe « lignes de texte » : 3 traits, ancrés selon i
+						const NkColor gc = actif ? ctx.theme.accent : ctx.theme.textMuted;
+						const float32 gw = 12.f, gx0 = cb.x + (cb.w - gw) * 0.5f;
+						const float32 gy = cb.y + 5.f;
+						for (int32 l = 0; l < 3; ++l) {
+							const float32 lw = (l == 1) ? gw : gw * 0.66f;
+							float32 lx = gx0; // gauche / justifié
+							if (i == 1)
+								lx = gx0 + (gw - lw) * 0.5f;
+							else if (i == 2)
+								lx = gx0 + gw - lw;
+							const float32 lw2 = (i == 3) ? gw : lw;
+							dl.AddLine({lx, gy + (float32)l * 5.f},
+									   {(i == 3 ? gx0 : lx) + lw2, gy + (float32)l * 5.f}, gc,
+									   1.4f);
+						}
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+							&& NkGuiRectContains(cb, ctx.input.mousePos)) {
+							if (i < 3) {
+								n->alignText = NkString(kCles[i]);
+								mSt->doc.MarkHumanEdit(mSt->selected);
+							} else
+								mSt->status = NkString("Justifié : le modèle de texte ne le "
+													   "porte pas encore.");
+						}
+					}
+				}
+				// ── Décor : le modèle ne le porte pas — grisé, raison au clic ──
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					ctx.BeginDisabled();
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   "Décor", ctx.theme.textMuted);
+					const float32 champs0 = x0 + wLib;
+					const float32 btnW = (x1 - champs0 - 2.f * 4.f) / 3.f;
+					for (int32 i = 0; i < 3; ++i) {
+						const NkRect cb = {champs0 + (btnW + 4.f) * (float32)i, r.y + 3.f, btnW,
+										   20.f};
+						dl.AddRectFilled(cb, CouleurInput(), 4.f);
+						dl.AddRect(cb, ctx.theme.border, 1.f, 4.f);
+						const float32 cxg = cb.x + cb.w * 0.5f;
+						if (i == 0)
+							dl.AddLine({cxg - 5.f, cb.y + 10.f}, {cxg + 5.f, cb.y + 10.f},
+									   ctx.theme.textMuted, 1.4f);
+						else if (i == 1) {
+							dl.AddLine({cxg - 4.f, cb.y + 6.f}, {cxg - 4.f, cb.y + 12.f},
+									   ctx.theme.textMuted, 1.2f);
+							dl.AddLine({cxg + 4.f, cb.y + 6.f}, {cxg + 4.f, cb.y + 12.f},
+									   ctx.theme.textMuted, 1.2f);
+							dl.AddLine({cxg - 5.f, cb.y + 15.f}, {cxg + 5.f, cb.y + 15.f},
+									   ctx.theme.textMuted, 1.2f);
+						} else
+							for (int32 d = -1; d <= 1; ++d)
+								dl.AddCircleFilled({cxg + (float32)d * 4.f, cb.y + 10.f}, 1.2f,
+												   ctx.theme.textMuted);
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+							&& NkGuiRectContains(cb, ctx.input.mousePos))
+							mSt->status = NkString("Décorations de texte : le modèle ne les "
+												   "porte pas encore — chantier nommé.");
+					}
+					ctx.EndDisabled();
 				}
 				// Le tampon SUIT LA SELECTION : en changer recharge le contenu —
 				// sans ce garde, editer un texte ecrirait dans celui d'avant.
@@ -4650,18 +5052,56 @@ namespace nkuidesign {
 				return change;
 			}
 
-			/// ESPACEMENT : replié par défaut (la maquette) — le titre porte le
-			/// chevron, le corps ne dessine qu'ouvert : les métriques NOMMÉES du
-			/// nœud (elles priment sur les nombres, doc §8).
+			/// ESPACEMENT (replié par défaut, la maquette) — FONCTIONNEL : la
+			/// gouttière et la marge sont des MÉTRIQUES NOMMÉES du document ;
+			/// la rangée montre le nom et ÉDITE LA VALEUR (doc.SetMetric) — la
+			/// toile suit à l'image même. Un conteneur qui ne nomme rien le dit.
 			void CorpsEspacement(NkGuiContext &ctx) {
-				if (!mEspacementOuvert)
+				if (!SectionOuverte("ESPACEMENT"))
 					return;
 				const NkUINode *n = NoeudCourant();
 				if (!n)
 					return;
-				designkit::KeyValue(ctx, "espacement",
-									n->spacingName.Empty() ? "—" : n->spacingName.Data());
-				designkit::KeyValue(ctx, "marge", n->padName.Empty() ? "—" : n->padName.Data());
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				struct L {
+						const char *libelle;
+						const NkString *nom;
+				};
+				const L lignes[2] = {{"Gouttière", &n->spacingName}, {"Marge", &n->padName}};
+				for (int32 li = 0; li < 2; ++li) {
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					if (lignes[li].nom->Empty()) {
+						ctx.BeginDisabled();
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+									   lignes[li].libelle, ctx.theme.textMuted);
+						costume::Texte(dl, F.px10, x0 + 64.f,
+									   costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+									   "\xE2\x80\x94 (ce conteneur ne nomme rien)",
+									   ctx.theme.textMuted);
+						ctx.EndDisabled();
+						continue;
+					}
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   lignes[li].libelle, ctx.theme.textMuted);
+					// le NOM de la métrique (la valeur est UNE pour tout le
+					// document — c'est le principe), puis sa valeur, éditable.
+					char nm[64];
+					snprintf(nm, sizeof(nm), "« %s »", lignes[li].nom->Data());
+					costume::Texte(dl, F.px9, x0 + 64.f,
+								   costume::CentrerY(F.px9, r.y + 3.f, 20.f), nm,
+								   ctx.theme.textMuted);
+					const NkRect rv = {x1 - 48.f, r.y + 3.f, 48.f, 20.f};
+					float32 v = mSt->doc.Metric(lignes[li].nom->Data(), 0.f);
+					char id[48];
+					snprintf(id, sizeof(id), "insp.esp.%d", li);
+					if (ChampNombre(ctx, id, rv, v, 0.5f, 0.f, 512.f)) {
+						mSt->doc.SetMetric(lignes[li].nom->Data(), v);
+						mSt->doc.MarkHumanEdit(mSt->selected);
+					}
+				}
 			}
 
 			/// BORDS : « R / Brd » (le modèle porte rayon et bordure depuis le
@@ -4695,6 +5135,8 @@ namespace nkuidesign {
 
 			// ── ANCRAGE : les quatre bords, quand le PARENT est en `Anchor` ──
 			void CorpsAncrage(NkGuiContext &ctx) {
+				if (!SectionOuverte("ANCRAGE"))
+					return;
 				NkUINode *n = NoeudMutable();
 				if (!n) {
 					designkit::KeyValue(ctx, "Ancrage", "-");
@@ -4722,64 +5164,68 @@ namespace nkuidesign {
 				WidgetAncrage(ctx, n);
 			}
 
-			// COSTUME BANANI EXACT (JSX InspectorPanelV2, bloc 80×48) : rectangle
-			// central 30×24 (bord 2, fond sombre), poignées de bord — une ACTIVE
-			// est une barre ACCENT reliée au rectangle par un petit trait, une
-			// inactive est grise et DÉTACHÉE —, point central. Cliquer une
-			// poignée bascule le bit (mêmes `anchorEdges`, même MarkHumanEdit).
+			// LE WIDGET D'ANCRAGE DE LA RÉFÉRENCE (reference_4_185519) : grand
+			// cadre arrondi, CROIX POINTILLÉE au centre, carré central plein, et
+			// un SEGMENT ACCENT de chaque bord ancré vers le centre (gauche+droite
+			// ancrés = la ligne horizontale traverse, comme la référence).
+			// Cliquer une moitié (gauche/droite/haut/bas) bascule le bit —
+			// mêmes `anchorEdges`, même MarkHumanEdit : seul le costume grandit.
 			void WidgetAncrage(NkGuiContext &ctx, NkUINode *n) {
-				const NkRect bande = ctx.NextItemRect(-1.f, 52.f);
+				const NkRect bande = ctx.NextItemRect(-1.f, 152.f);
 				auto &dl = ctx.DL();
-				const float32 W = 80.f, H = 48.f;
+				const float32 W = (bande.w - 24.f) < 200.f ? (bande.w - 24.f) : 200.f;
+				const float32 H = 140.f;
 				const float32 ox = bande.x + (bande.w - W) * 0.5f;
-				const float32 oy = bande.y + 2.f;
-				// le rectangle central (25,12 30×24)
-				const NkRect ctr = {ox + 25.f, oy + 12.f, 30.f, 24.f};
-				dl.AddRectFilled(ctr, ctx.theme.button, 2.f);
-				dl.AddRect(ctr, ctx.theme.textMuted, 2.f, 2.f);
-				dl.AddRectFilled({ox + 38.f, oy + 21.f, 4.f, 4.f}, ctx.theme.textMuted, 2.f);
-				struct P {
+				const float32 oy = bande.y + 4.f;
+				const float32 cx = ox + W * 0.5f, cy = oy + H * 0.5f;
+				dl.AddRect({ox, oy, W, H}, ctx.theme.border, 1.f, 6.f);
+				// la croix pointillée (tirets 3/5)
+				{
+					NkColor pt = ctx.theme.textMuted;
+					pt.a = 90;
+					for (float32 t = oy + 8.f; t < oy + H - 8.f; t += 8.f)
+						dl.AddLine({cx, t}, {cx, t + 3.f}, pt, 1.f);
+					for (float32 t = ox + 8.f; t < ox + W - 8.f; t += 8.f)
+						dl.AddLine({t, cy}, {t + 3.f, cy}, pt, 1.f);
+				}
+				// les segments accent des bords ancrés — AVANT le carré, pour que
+				// la ligne passe « derrière » lui comme sur la référence.
+				const uint8 e = n->anchorEdges;
+				if (e & editorkit::nkanchor::Left)
+					dl.AddLine({ox + 3.f, cy}, {cx, cy}, ctx.theme.accent, 2.f);
+				if (e & editorkit::nkanchor::Right)
+					dl.AddLine({cx, cy}, {ox + W - 3.f, cy}, ctx.theme.accent, 2.f);
+				if (e & editorkit::nkanchor::Top)
+					dl.AddLine({cx, oy + 3.f}, {cx, cy}, ctx.theme.accent, 2.f);
+				if (e & editorkit::nkanchor::Bottom)
+					dl.AddLine({cx, cy}, {cx, oy + H - 3.f}, ctx.theme.accent, 2.f);
+				// le carré central
+				const NkRect ctr = {cx - 28.f, cy - 22.f, 56.f, 44.f};
+				dl.AddRectFilled(ctr, ctx.theme.button, 3.f);
+				dl.AddRect(ctr, ctx.theme.textMuted, 1.f, 3.f);
+				// les quatre zones de bascule (les moitiés hors carré central)
+				struct Z {
 						uint8 bit;
-						const char *id;
-						NkRect actif;	 // la barre en état ACTIF (accent)
-						NkRect inactif;	 // la barre en état INACTIF (grise, détachée)
-						NkRect lien;	 // le trait de liaison (actif seulement)
-						NkRect clic;	 // la zone cliquable
+						NkRect clic;
 				};
-				const P ps[4] = {
-					{editorkit::nkanchor::Left, "anc.g",
-					 {ox + 6.f, oy + 20.f, 14.f, 2.f},
-					 {ox + 6.f, oy + 20.f, 14.f, 2.f},
-					 {ox + 13.f, oy + 12.f, 1.f, 8.f},
-					 {ox + 2.f, oy + 14.f, 20.f, 14.f}},
-					{editorkit::nkanchor::Right, "anc.d",
-					 {ox + W - 20.f, oy + 20.f, 14.f, 2.f},
-					 {ox + W - 20.f, oy + 20.f, 14.f, 2.f},
-					 {ox + W - 14.f, oy + 12.f, 1.f, 8.f},
-					 {ox + W - 22.f, oy + 14.f, 20.f, 14.f}},
-					{editorkit::nkanchor::Top, "anc.h",
-					 {ox + 40.f, oy, 2.f, 8.f},
-					 {ox + 40.f, oy, 2.f, 8.f},
-					 {ox + 40.f, oy + 8.f, 1.f, 4.f},
-					 {ox + 33.f, oy - 2.f, 16.f, 14.f}},
-					{editorkit::nkanchor::Bottom, "anc.b",
-					 {ox + 40.f, oy + H - 8.f, 2.f, 8.f},
-					 {ox + 40.f, oy + H - 8.f, 2.f, 8.f},
-					 {ox + 40.f, oy + H - 12.f, 1.f, 4.f},
-					 {ox + 33.f, oy + H - 12.f, 16.f, 14.f}},
+				const Z zs[4] = {
+					{editorkit::nkanchor::Left, {ox, cy - 20.f, ctr.x - ox, 40.f}},
+					{editorkit::nkanchor::Right,
+					 {ctr.x + ctr.w, cy - 20.f, ox + W - (ctr.x + ctr.w), 40.f}},
+					{editorkit::nkanchor::Top, {cx - 20.f, oy, 40.f, ctr.y - oy}},
+					{editorkit::nkanchor::Bottom,
+					 {cx - 20.f, ctr.y + ctr.h, 40.f, oy + H - (ctr.y + ctr.h)}},
 				};
 				for (uint32 i = 0; i < 4; ++i) {
-					const bool actif = (n->anchorEdges & ps[i].bit) != 0;
-					dl.AddRectFilled(actif ? ps[i].actif : ps[i].inactif,
-									 actif ? ctx.theme.accent : ctx.theme.textMuted, 1.f);
-					if (actif)
-						dl.AddRectFilled(ps[i].lien, ctx.theme.accent);
-					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
-						&& NkGuiRectContains(ps[i].clic, ctx.input.mousePos)) {
-						if (actif)
-							n->anchorEdges = (uint8)(n->anchorEdges & ~ps[i].bit);
+					const bool survole = ctx.popupDepth == 0
+										 && NkGuiRectContains(zs[i].clic, ctx.input.mousePos);
+					if (survole)
+						ctx.wantCursor = nkgui::NkGuiCursor::Hand;
+					if (survole && ctx.input.mouseClicked[0]) {
+						if (e & zs[i].bit)
+							n->anchorEdges = (uint8)(n->anchorEdges & ~zs[i].bit);
 						else
-							n->anchorEdges |= ps[i].bit;
+							n->anchorEdges |= zs[i].bit;
 						mSt->doc.MarkHumanEdit(mSt->selected);
 					}
 				}
@@ -4789,7 +5235,15 @@ namespace nkuidesign {
 			// ⚠️ C'EST LE SENS DU CHAMP, ET IL SE DIT : `layout` s'applique aux
 			//    ENFANTS, jamais au noeud lui-meme (c'est ecrit sur le champ, et
 			//    l'oublier ferait chercher l'effet au mauvais etage).
+			// LA RÉFÉRENCE (reference_4_185519) : deux rangées « H » et « V » de
+			// QUATRE boutons chacune (début / centre / fin / étirer) — et les
+			// quatre AGISSENT : ce sont les quatre valeurs réelles de `NkAlign`
+			// (Étirer comprise — l'ancienne table de 6 icônes ne savait pas la
+			// montrer). H/V se traduisent en axes principal/transverse selon
+			// l'agencement : Column = V principal, Row = H principal.
 			void CorpsAlignement(NkGuiContext &ctx) {
+				if (!SectionOuverte("ALIGNEMENT"))
+					return;
 				NkUINode *n = NoeudMutable();
 				if (!n) {
 					designkit::KeyValue(ctx, "Agencement", "-");
@@ -4801,72 +5255,54 @@ namespace nkuidesign {
 					ctx.EndDisabled();
 					return;
 				}
-				// COSTUME BANANI EXACT (JSX) : UNE rangée de 6 icônes 22×22 —
-				// 3 pour l'axe principal | filet vertical | 3 pour l'axe croisé —
-				// active = fond accent 13 % + bord accent. ⚠️ « Étirer » (la 4e
-				// valeur du modèle) n'a PAS d'icône dans la maquette : si un axe
-				// est en Stretch, aucune icône ne s'allume (l'état ne ment pas) et
-				// la valeur reste accessible par le document — écart nommé.
-				auto &dl = ctx.DL();
-				const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-				float32 x = r.x + 12.f;
-				const float32 y = r.y + 2.f;
-				for (uint32 i = 0; i < 6; ++i) {
-					if (i == 3) { // le filet entre les deux groupes (h16, mx-0.5)
-						dl.AddLine({x + 2.f, y + 3.f}, {x + 2.f, y + 19.f}, ctx.theme.border,
-								   1.f);
-						x += 6.f;
-					}
-					const bool groupeCross = (i >= 3);
-					const int32 valeur = (int32)(i % 3); // Start / Center / End
-					const int32 courant = groupeCross ? (int32)n->layout.crossAlign
-													  : (int32)n->layout.mainAlign;
-					const bool actif = (courant == valeur);
-					const NkRect c = {x, y, 22.f, 22.f};
-					if (actif) {
-						NkColor voile = ctx.theme.accent;
-						voile.a = 34; // ≈ 13 %
-						dl.AddRectFilled(c, voile, 4.f);
-						dl.AddRect(c, ctx.theme.accent, 1.f, 4.f);
-					}
-					costume::IcAlign(dl, c.x + 5.f, c.y + 5.f, i,
-									 actif ? ctx.theme.accent : ctx.theme.textMuted);
-					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
-						&& NkGuiRectContains(c, ctx.input.mousePos)) {
-						if (groupeCross)
-							n->layout.crossAlign = (editorkit::NkAlign)valeur;
-						else
-							n->layout.mainAlign = (editorkit::NkAlign)valeur;
-						mSt->doc.MarkHumanEdit(mSt->selected);
-					}
-					x += 22.f + 4.f;
+				const bool colonne = n->layout.kind == editorkit::NkLayoutKind::Column;
+				// H : l'axe horizontal = principal d'un Row, transverse d'un Column.
+				editorkit::NkAlign &alignH = colonne ? n->layout.crossAlign : n->layout.mainAlign;
+				editorkit::NkAlign &alignV = colonne ? n->layout.mainAlign : n->layout.crossAlign;
+				int32 c = RangeeAlignement(ctx, "H", (int32)alignH, false, "insp.align.h");
+				if (c >= 0) {
+					alignH = (editorkit::NkAlign)c;
+					mSt->doc.MarkHumanEdit(mSt->selected);
+				}
+				c = RangeeAlignement(ctx, "V", (int32)alignV, true, "insp.align.v");
+				if (c >= 0) {
+					alignV = (editorkit::NkAlign)c;
+					mSt->doc.MarkHumanEdit(mSt->selected);
 				}
 			}
 
-			/// Une rangee de quatre icones d'alignement 22x22 (debut / centre /
-			/// fin / etirer), horizontales ou verticales. Rend l'indice clique,
-			/// -1 sinon. Le glyphe : une BARRE d'ancre + deux traits qui se
-			/// rangent contre elle -- le dessin des inspecteurs Figma/Lunacy.
-			int32 RangeeAlignement(NkGuiContext &ctx, int32 actif, bool vertical, const char *id) {
-				const float32 cote = 22.f, pas = 26.f;
-				const NkRect bande = ctx.NextItemRect(-1.f, cote + 2.f);
+			/// La rangée d'alignement de la RÉFÉRENCE : libellé (« H »/« V ») à
+			/// gauche, QUATRE boutons larges qui remplissent la largeur (début /
+			/// centre / fin / étirer), l'actif en voile accent. Rend l'indice
+			/// cliqué, -1 sinon. Le glyphe : une BARRE d'ancre + deux traits qui
+			/// se rangent contre elle — le dessin des inspecteurs Figma/Lunacy.
+			int32 RangeeAlignement(NkGuiContext &ctx, const char *label, int32 actif,
+								   bool vertical, const char *id) {
+				const NkRect bande = ctx.NextItemRect(-1.f, 24.f);
 				auto &dl = ctx.DL();
+				auto &F = costume::Fontes();
+				const float32 x0 = bande.x + 12.f, x1 = bande.x + bande.w - 12.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, bande.y, 22.f), label,
+							   ctx.theme.textMuted);
+				const float32 champs0 = x0 + 24.f;
+				const float32 btnW = (x1 - champs0 - 3.f * 4.f) / 4.f;
 				int32 choisi = -1;
 				for (int32 i = 0; i < 4; ++i) {
-					const NkRect cb = {bande.x + 4.f + pas * (float32)i, bande.y, cote, cote};
-					char bid[40];
-					snprintf(bid, sizeof(bid), "##%s.%d", id, i);
-					ctx.SetNextItemRect(cb);
-					if (designkit::Button(ctx, bid, nullptr))
+					const NkRect cb = {champs0 + (btnW + 4.f) * (float32)i, bande.y, btnW, 22.f};
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(cb, ctx.input.mousePos))
 						choisi = i;
 					if (i == actif) {
 						NkColor voile = ctx.theme.accent;
-						voile.a = 33; // ~13 %
+						voile.a = 44;
 						dl.AddRectFilled(cb, voile, 4.f);
 						dl.AddRect(cb, ctx.theme.accent, 1.f, 4.f);
+					} else {
+						dl.AddRectFilled(cb, CouleurInput(), 4.f);
+						dl.AddRect(cb, ctx.theme.border, 1.f, 4.f);
 					}
 					// Le glyphe, en espace 14x14 centre.
-					const float32 gx = cb.x + 4.f, gy = cb.y + 4.f, g = 14.f;
+					const float32 gx = cb.x + (cb.w - 14.f) * 0.5f, gy = cb.y + 4.f, g = 14.f;
 					const NkColor enc = (i == actif) ? ctx.theme.accent : ctx.theme.textMuted;
 					auto barre = [&](float32 t) {
 						if (vertical)
@@ -4935,19 +5371,132 @@ namespace nkuidesign {
 							   ctx.theme.text);
 			}
 
-			// ── APPARENCE : le fond et la couleur de texte POSÉS du nœud
-			//    (vocabulaire §8ter du 31/08) ; pour un composant, ses jetons. ──
+			/// La pastille + le champ hexa ÉDITABLE d'une couleur posée (chaque
+			/// contrôle AGIT — recadrage de Rodolf) : vider = revenir au thème.
+			/// Rend true si la clé a été écrite.
+			bool RangeeCouleurEdit(NkGuiContext &ctx, const char *label, const char *id,
+								   char *buf, NkString &cle) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f), label,
+							   ctx.theme.textMuted);
+				const NkRect sw = {x0 + 52.f, r.y + 5.f, 16.f, 16.f};
+				if (buf[0]) {
+					dl.AddRectFilled(sw, CouleurHex(buf, ctx.theme.textMuted), 3.f);
+					dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+				} else {
+					// aucune couleur posée : la case « thème » (barrée)
+					dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+					dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
+							   ctx.theme.textMuted, 1.f);
+				}
+				ctx.SetNextItemRect({sw.x + 24.f, r.y + 3.f, x1 - (sw.x + 24.f), 20.f});
+				if (nkgui::InputText(ctx, id, buf, 10)) {
+					cle = NkString(buf);
+					mSt->doc.MarkHumanEdit(mSt->selected);
+					return true;
+				}
+				return false;
+			}
+
+			// ── APPARENCE (reference_4_185519, FONCTIONNELLE) : Fond, [Texte],
+			//    Bordure (couleur + épaisseur), Arrondi, Opacité. Chaque contrôle
+			//    écrit sa clé du document (fond / couleur_texte / couleur_bord /
+			//    bordure / rayon) — la toile suit à l'image même. Opacité : le
+			//    modèle ne la porte pas encore, la rangée est GRISE et le dit. ──
 			void CorpsApparence(NkGuiContext &ctx) {
-				const NkUINode *n = NoeudCourant();
+				if (!SectionOuverte("APPARENCE"))
+					return;
+				NkUINode *n = NoeudMutable();
 				if (!n) {
 					designkit::KeyValue(ctx, "Apparence", "-");
 					return;
 				}
-				// Un nœud DESSINÉ (forme) porte l'apparence posée — la maquette :
-				// « Fond #0969da / Texte #ffffff ».
+				// Un nœud DESSINÉ (forme) porte l'apparence posée.
 				if (!n->shape.Empty() || !n->fill.Empty() || !n->textColor.Empty()) {
-					RangeeCouleur(ctx, "Fond", n->fill);
-					RangeeCouleur(ctx, "Texte", n->textColor);
+					auto &F = costume::Fontes();
+					auto &dl = ctx.DL();
+					// tampons synchronisés sur la sélection (le patron mTexteBuf)
+					if (mApparNode != mSt->selected) {
+						mApparNode = mSt->selected;
+						snprintf(mFondBuf, sizeof(mFondBuf), "%s", n->fill.Data());
+						snprintf(mTexteColBuf, sizeof(mTexteColBuf), "%s", n->textColor.Data());
+						snprintf(mBordColBuf, sizeof(mBordColBuf), "%s", n->borderColor.Data());
+					}
+					RangeeCouleurEdit(ctx, "Fond", "##insp.app.fond", mFondBuf, n->fill);
+					if (StrEq(n->shape.Data(), "text"))
+						RangeeCouleurEdit(ctx, "Texte", "##insp.app.texte", mTexteColBuf,
+										  n->textColor);
+					// Bordure : pastille + hexa + épaisseur px — trois écritures.
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Bordure",
+									   ctx.theme.textMuted);
+						const NkRect sw = {x0 + 52.f, r.y + 5.f, 16.f, 16.f};
+						if (mBordColBuf[0]) {
+							dl.AddRectFilled(sw, CouleurHex(mBordColBuf, ctx.theme.textMuted),
+											 3.f);
+							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+						} else {
+							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+							dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
+									   ctx.theme.textMuted, 1.f);
+						}
+						const float32 hexW = x1 - (sw.x + 24.f) - 64.f;
+						ctx.SetNextItemRect({sw.x + 24.f, r.y + 3.f, hexW, 20.f});
+						if (nkgui::InputText(ctx, "##insp.app.bordc", mBordColBuf, 10)) {
+							n->borderColor = NkString(mBordColBuf);
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						}
+						const NkRect rw = {sw.x + 24.f + hexW + 6.f, r.y + 3.f, 36.f, 20.f};
+						if (ChampNombre(ctx, "insp.app.bordw", rw, n->borderW, 0.25f, 0.f, 32.f))
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						costume::Texte(dl, F.px9, rw.x + rw.w + 4.f,
+									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "px",
+									   ctx.theme.textMuted);
+					}
+					// Arrondi (la clé `rayon` — les rayons PAR COIN viendront avec
+					// le vocabulaire Lunacy, nommés au rapport).
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Arrondi",
+									   ctx.theme.textMuted);
+						const NkRect rr = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
+						if (ChampNombre(ctx, "insp.app.rayon", rr, n->radius, 0.5f, 0.f, 128.f))
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
+									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "px",
+									   ctx.theme.textMuted);
+					}
+					// Opacité : LE MODÈLE NE LA PORTE PAS — grisée, avec la raison.
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						ctx.BeginDisabled();
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Opacité",
+									   ctx.theme.textMuted);
+						const NkRect ro = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
+						dl.AddRectFilled(ro, CouleurInput(), 4.f);
+						dl.AddRect(ro, ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px11, ro.x + 6.f,
+									   costume::CentrerY(F.px11, ro.y, 20.f), "100",
+									   ctx.theme.textMuted);
+						costume::Texte(dl, F.px9, ro.x + ro.w + 4.f,
+									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "%",
+									   ctx.theme.textMuted);
+						ctx.EndDisabled();
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+							&& NkGuiRectContains(ro, ctx.input.mousePos))
+							mSt->status = NkString("Opacité : le modèle ne la porte pas encore "
+												   "(vocabulaire d'apparence, chantier nommé).");
+					}
 					return;
 				}
 				if (n->IsFrame()) {
@@ -5004,13 +5553,19 @@ namespace nkuidesign {
 			DesignState *mSt;
 			int32 mOnglet = 0;
 			bool mDeplierUneFois = true; ///< (hérité — plus de CollapsingHeader au costume)
-			bool mEspacementOuvert = false;	   ///< ESPACEMENT replié par défaut (maquette)
 			nkgui::NkGuiId mDragChamp = 0;	   ///< champ numérique en cours de glisser
 			float32 mDragDernierX = 0.f;	   ///< dernière abscisse du glisser
 			/// Le tampon d'édition du contenu texte (section Typographie) et le
 			/// nœud qu'il reflète — recopié à chaque changement de sélection.
 			int32 mTexteNode = -1;
 			char mTexteBuf[128] = {};
+			/// Les tampons hexa de la section APPARENCE (fond / couleur de
+			/// texte / couleur de bord), synchronisés sur la sélection — même
+			/// patron que mTexteBuf.
+			int32 mApparNode = -1;
+			char mFondBuf[12] = {};
+			char mTexteColBuf[12] = {};
+			char mBordColBuf[12] = {};
 	};
 
 } // namespace nkuidesign
