@@ -237,6 +237,24 @@ namespace nkentseu {
 					return false;
 				}
 
+				// ── AJOUT ADDITIF DU 2026-08-31 (vocabulaire d'apparence §8ter) ──
+				/// Texte en COULEUR POSEE (l'apparence par element du document),
+				/// avec un corps de police demande en px (0 = celui du peintre) et
+				/// une graisse indicative (0 = normale). ⚠️ DEFAUT QUI REPLIE SUR
+				/// LE ROLE : une implementation qui ne sait ni la couleur ni le
+				/// corps (le peintre ENREGISTREUR, l'adaptateur NK3DModeler) rend
+				/// le meme texte par `Text(role)` — la geometrie et le contenu
+				/// restent justes, seul le costume manque, et il manque pareil a
+				/// chaque passe (le banc de neutralite ne bouge pas).
+				virtual void TextHex(const NkPaintRect &r, const char *s, uint32 rgba,
+									 uint16 roleRepli, NkTextAlign align = NkTextAlign::Left,
+									 float32 px = 0.f, float32 graisse = 0.f) {
+					(void)rgba;
+					(void)px;
+					(void)graisse;
+					Text(r, s, roleRepli, align);
+				}
+
 				// ── Decoupe ─────────────────────────────────────────────────────
 				// Indispensable des qu'un composant defile : sans elle, une carte a
 				// demi sortie du panneau deborde sur son voisin.
