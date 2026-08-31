@@ -778,8 +778,14 @@ namespace nkuidesign {
 		if (n.IsFrame()) {
 			// FORME ou CADRE ? Le PARENT le dit -- exactement comme pour la
 			// position. Une forme posee se voit ; un cadre d agencement, non.
-			const bool posee = n.parent >= 0
-							   && doc.nodes[(uint32)n.parent].layout.kind == NkLayoutKind::Free;
+			// ⚠️ ANCHOR COMPTE COMME FREE ICI (mesure du 31/08, demo_ancrage :
+			//    la barre `fond = #4c6fff` sous un parent anchor se dessinait
+			//    en cadre invisible). Un enfant ANCRE est une forme posee dont
+			//    seul le calcul de position differe -- son apparence se peint.
+			const bool posee =
+				n.parent >= 0
+				&& (doc.nodes[(uint32)n.parent].layout.kind == NkLayoutKind::Free
+					|| doc.nodes[(uint32)n.parent].layout.kind == NkLayoutKind::Anchor);
 			// ⚠️ Le noeud en cours d'EDITION EN PLACE ne dessine pas son texte :
 			//    le champ superpose TRANSPARENT le dessine a sa place — les deux
 			//    ensemble donneraient un double trait (regle du 31/08).

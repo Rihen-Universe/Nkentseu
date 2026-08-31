@@ -1,0 +1,80 @@
+nkuidoc 1
+# Document de MISE EN SCENE du WIDGET D'ANCRAGE (31/08) : un cadre a
+# agencement ANCHOR et trois enfants aux ancrages differents — la verite
+# visuelle du widget de l Inspecteur (section ANCRAGE) se prouve ici :
+# cliquer un bord du widget bascule le bit, et l element BOUGE a l ecran.
+#   - Barre haute : ancree gauche+haut+droite (elle s etire en largeur)
+#   - Pied : ancre gauche+bas+droite
+#   - Panneau : ancre gauche+haut+bas (il s etire en hauteur)
+titre = Demo_Ancrage
+auteur = humain
+verifiee = 0
+corrigee = 0
+origine = main
+
+noeud 0
+  libelle = Toile
+  enfants = 1
+  largeur = expand 0 0 0
+  hauteur = expand 0 0 0
+  agencement = free start start 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 1
+  libelle = Fenetre
+  enfants = 2 3 4
+  largeur = fixed 560 0 0
+  hauteur = fixed 360 0 0
+  agencement = anchor start start 0
+  position = 60 80
+  forme = frame
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 2
+  libelle = Barre haute
+  enfants =
+  largeur = fixed 560 0 0
+  hauteur = fixed 40 0 0
+  agencement = none start start 0
+  ancrage = ltr
+  forme = rect
+  fond = #4c6fff
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 3
+  libelle = Pied
+  enfants =
+  largeur = fixed 560 0 0
+  hauteur = fixed 28 0 0
+  agencement = none start start 0
+  ancrage = lrb
+  forme = rect
+  fond = #30363d
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 4
+  libelle = Panneau
+  enfants =
+  largeur = fixed 160 0 0
+  hauteur = fixed 280 0 0
+  agencement = none start start 0
+  ancrage = ltb
+  forme = rect
+  fond = #f79a28
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
