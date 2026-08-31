@@ -284,6 +284,29 @@ namespace nkuidesign {
 		/// bloc en tete de fichier. Il occupe EXACTEMENT le rectangle du noeud :
 		/// c'est ce qui permet de travailler l'agencement avant que le composant
 		/// sache se peindre.
+		/// « #rrggbb » -> 0xRRGGBBAA (alpha plein). Une graphie invalide rend un
+		/// GRIS MOYEN visible (0x808080FF) — jamais un noir silencieux : la faute
+		/// se voit sur la toile au lieu de se confondre avec un choix.
+		inline nkentseu::uint32 NkGHexRGBA(const char *hex) {
+			if (!hex || hex[0] != '#')
+				return 0x808080FFu;
+			nkentseu::uint32 v = 0;
+			for (int i = 1; i <= 6; ++i) {
+				const char c = hex[i];
+				int d;
+				if (c >= '0' && c <= '9')
+					d = c - '0';
+				else if (c >= 'a' && c <= 'f')
+					d = c - 'a' + 10;
+				else if (c >= 'A' && c <= 'F')
+					d = c - 'A' + 10;
+				else
+					return 0x808080FFu;
+				v = (v << 4) | (nkentseu::uint32)d;
+			}
+			return (v << 8) | 0xFFu;
+		}
+
 		inline void DrawPlaceholder(NkComponentPaint &p, const NkPaintRect &r, const char *name,
 									const NkDocumentHost &host) {
 			if (r.w <= 0.f || r.h <= 0.f)
@@ -341,28 +364,52 @@ namespace nkuidesign {
 			// les documents d'avant cette clé ne changent pas d'un pixel.
 			if (shape && StrEq(shape, "frame")) {
 				// L'ARTBOARD (Banani V2) : carte BLANCHE (`artboard_bg`) sur la
-				// toile claire, étiquette AU-DESSUS avec les DIMENSIONS — la
-				// maquette écrit « Connexion — Mobile 390 × 844 » : le nom vient
-				// du nœud, les dimensions du document.
+				// toile claire, étiquette AU-DESSUS. Avec une CIBLE d'appareil
+				// (clé `cible`, écran 26), l'étiquette est EXACTEMENT celle de la
+				// maquette : « Connexion — Mobile 390 x 844 » — le nom du nœud,
+				// un tiret, la cible. Sans cible : l'étiquette historique
+				// « nom — L × H » (les documents d'avant ne bougent pas).
+				// Couleur : `doc_muted` (#656d76, le gris de la toile CLAIRE —
+				// pas le TextMuted de l'éditeur), corps 11 px.
 				p.Fill(r, host.Role("artboard_bg"));
 				p.OutlineSharp(r, host.Role("border"));
 				if (name && *name) {
-					const float32 lh = p.LineHeight();
-					char etiquette[96];
-					snprintf(etiquette, sizeof(etiquette), "%s — %d × %d", name,
-							 (int)(n.width.value + 0.5f), (int)(n.height.value + 0.5f));
-					p.Text({r.x, r.y - lh - 2.f, r.w + 200.f, lh}, etiquette,
-						   host.Role("text_muted"), NkTextAlign::Left);
+					const float32 lh = 14.f; // interligne d'un corps 11
+					char etiquette[128];
+					if (!n.target.Empty())
+						snprintf(etiquette, sizeof(etiquette), "%s — %s", name,
+								 n.target.Data());
+					else
+						snprintf(etiquette, sizeof(etiquette), "%s — %d × %d", name,
+								 (int)(n.width.value + 0.5f), (int)(n.height.value + 0.5f));
+					p.TextHex({r.x, r.y - lh - 10.f, r.w + 200.f, lh}, etiquette,
+							  p.ColorOf(host.Role("doc_muted")), host.Role("doc_muted"),
+							  NkTextAlign::Left, 11.f, 0.f);
 				}
 				return;
 			}
 			if (shape && StrEq(shape, "rect")) {
-				// Le RECTANGLE : fond discret + bord — la forme des champs de la
-				// maquette (gris clair sur artboard blanc : `doc_field_bg`).
-				// L'apparence PAR ELEMENT (§8ter) viendra du vocabulaire du
-				// document ; d'ici là, les rôles de CONTENU du thème.
-				p.Fill(r, host.Role("doc_field_bg"), 4.f);
-				p.OutlineSharp(r, host.Role("border"));
+				// Le RECTANGLE : l'apparence POSÉE prime (fond `fond`, rayon
+				// `rayon`, bord `couleur_bord`/`bordure`) ; sans elle, les rôles
+				// de contenu du thème — les documents d'avant ne bougent pas.
+				const float32 rd = n.radius > 0.f ? n.radius : 4.f;
+				if (!n.fill.Empty())
+					p.FillColor(r, NkGHexRGBA(n.fill.Data()), rd);
+				else
+					p.Fill(r, host.Role("doc_field_bg"), rd);
+				if (!n.borderColor.Empty())
+					p.FillColor({r.x, r.y, r.w, n.borderW > 0.f ? n.borderW : 1.f},
+								NkGHexRGBA(n.borderColor.Data()), 0.f),
+						p.FillColor({r.x, r.y + r.h - (n.borderW > 0.f ? n.borderW : 1.f), r.w,
+									 n.borderW > 0.f ? n.borderW : 1.f},
+									NkGHexRGBA(n.borderColor.Data()), 0.f),
+						p.FillColor({r.x, r.y, n.borderW > 0.f ? n.borderW : 1.f, r.h},
+									NkGHexRGBA(n.borderColor.Data()), 0.f),
+						p.FillColor({r.x + r.w - (n.borderW > 0.f ? n.borderW : 1.f), r.y,
+									 n.borderW > 0.f ? n.borderW : 1.f, r.h},
+									NkGHexRGBA(n.borderColor.Data()), 0.f);
+				else if (n.fill.Empty())
+					p.OutlineSharp(r, host.Role("border"));
 				return;
 			}
 			if (shape && StrEq(shape, "ellipse")) {
@@ -388,11 +435,25 @@ namespace nkuidesign {
 			if (shape && StrEq(shape, "text")) {
 				// Le TEXTE : son contenu, rien d'autre — ni fond ni cadre. Un
 				// texte vide dessine son libellé de nœud en atténué, sinon une
-				// forme fraîchement posée serait invisible.
+				// forme fraîchement posée serait invisible. L'apparence POSÉE
+				// prime : `couleur_texte`, `police_px`, `graisse`,
+				// `texte_aligne` (§8ter, 31/08).
 				const char *t = n.text.Data();
 				const bool vide = !t || !*t;
-				p.Text(r, vide ? (name ? name : "Texte") : t,
-					   host.Role(vide ? "text_muted" : "doc_text"), NkTextAlign::Left);
+				const uint16 roleTexte = host.Role(vide ? "text_muted" : "doc_text");
+				NkTextAlign al = NkTextAlign::Left;
+				if (StrEq(n.alignText.Data(), "centre"))
+					al = NkTextAlign::Center;
+				else if (StrEq(n.alignText.Data(), "droite"))
+					al = NkTextAlign::Right;
+				if (!vide
+					&& (!n.textColor.Empty() || n.fontPx > 0.f || n.fontWeight > 0.f
+						|| al != NkTextAlign::Left)) {
+					const uint32 rgba = n.textColor.Empty() ? p.ColorOf(roleTexte)
+															: NkGHexRGBA(n.textColor.Data());
+					p.TextHex(r, t, rgba, roleTexte, al, n.fontPx, n.fontWeight);
+				} else
+					p.Text(r, vide ? (name ? name : "Texte") : t, roleTexte, al);
 				return;
 			}
 

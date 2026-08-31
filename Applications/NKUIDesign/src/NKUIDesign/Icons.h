@@ -64,6 +64,7 @@
 namespace nkuidesign {
 
 	using nkentseu::float32;
+	using nkentseu::int32;
 	using nkentseu::uint16;
 	using nkentseu::uint32;
 	using nkentseu::uint8;
@@ -147,6 +148,57 @@ namespace nkuidesign {
 				//    glyphe manque — et il manque VISIBLEMENT, ce qui vaut mieux
 				//    qu'un vide qui ferait croire la mise en page correcte.
 				NkGuiComponentPaint::Icon(r, iconHandle, role);
+			}
+
+			/// Le texte a COULEUR ET CORPS POSES (vocabulaire d'apparence §8ter).
+			/// Le corps demande choisit le plus proche des sept atlas du costume
+			/// (9..16 px) ; la graisse >= 500 s'approche par double trait — meme
+			/// approximation que partout (les graisses d'Inter ne sont pas encore
+			/// embarquees, dit dans Costume.h). Sans atlas valide : le repli du
+			/// kit (texte au role, corps du peintre).
+			void TextHex(const NkPaintRect &r, const char *s, uint32 rgba, uint16 roleRepli,
+						 nkentseu::editorkit::NkTextAlign align, float32 px,
+						 float32 graisse) override {
+				auto &F = costume::Fontes();
+				const nkentseu::nkgui::NkGuiFont *f = nullptr;
+				if (px > 0.f) {
+					struct C {
+							const nkentseu::nkgui::NkGuiFont *f;
+							float32 px;
+					};
+					const C c[7] = {{&F.px9, 9.f},	 {&F.px10, 10.f}, {&F.px11, 11.f},
+									{&F.px12, 12.f}, {&F.px13, 13.f}, {&F.px15, 15.f},
+									{&F.px16, 16.f}};
+					float32 best = 1.0e9f;
+					for (int32 i = 0; i < 7; ++i) {
+						const float32 d = c[i].px > px ? c[i].px - px : px - c[i].px;
+						if (c[i].f->Valid() && d < best) {
+							best = d;
+							f = c[i].f;
+						}
+					}
+				}
+				if (!f || !f->Valid()) {
+					NkGuiComponentPaint::TextHex(r, s, rgba, roleRepli, align, px, graisse);
+					return;
+				}
+				const nkentseu::nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
+													  (uint8)((rgba >> 16) & 0xFFu),
+													  (uint8)((rgba >> 8) & 0xFFu),
+													  (uint8)(rgba & 0xFFu)};
+				float32 tx = r.x;
+				if (align == nkentseu::editorkit::NkTextAlign::Center)
+					tx = r.x + (r.w - f->MeasureWidth(s)) * 0.5f;
+				else if (align == nkentseu::editorkit::NkTextAlign::Right)
+					tx = r.x + r.w - f->MeasureWidth(s);
+				const float32 ty = costume::CentrerY(*f, r.y, r.h);
+				costume::Texte(mCtx.DL(), *f, tx, ty, s, col);
+				if (graisse >= 500.f)
+					costume::Texte(mCtx.DL(), *f,
+								   tx + (graisse >= 700.f ? 0.8f
+										 : graisse >= 600.f ? 0.5f
+															: 0.3f),
+								   ty, s, col);
 			}
 
 		private:
