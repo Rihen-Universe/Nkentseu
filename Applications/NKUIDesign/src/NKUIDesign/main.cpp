@@ -1063,6 +1063,26 @@ int nkmain(const NkEntryState &state) {
 				gToileSeule = true;
 				continue;
 			}
+			// LA VUE POSEE : --vue=x<px>,y<px>[,z<zoom>] — pan (et zoom) au
+			// lancement, pour MESURER l'effet d'un deplacement de vue par
+			// paires de captures (protocole du bogue « effet bizarre au
+			// deplacement », 31/08). Meme famille que --selection=.
+			if (arg.StartsWith("--vue=")) {
+				for (const char *q = a + 6; *q;) {
+					if (*q == 'x')
+						gDesign.vueX = (float32)atof(q + 1);
+					else if (*q == 'y')
+						gDesign.vueY = (float32)atof(q + 1);
+					else if (*q == 'z')
+						gDesign.vueZ = (float32)atof(q + 1);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				gDesign.vuePosee = true;
+				continue;
+			}
 			// Lignes de magnetisme FIGEES : --lignes=v0.44,h460 (v = fraction
 			// de la toile, h = pixels depuis son haut ; chacune optionnelle).
 			// Meme famille que --selection= : un levier de capture, pas un
@@ -1210,6 +1230,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --document=<chemin>     charger ce document au lancement (mise en scène)");
 			puts("  --lignes=v<f>,h<px>     lignes de magnétisme figées (mise en scène)");
 			puts("  --toile-seule           panneaux fermés, rails retirés (mise en scène)");
+			puts("  --vue=x<px>,y<px>,z<f>  poser pan/zoom de la vue au lancement (mesure)");
 			return 2;
 		}
 	}

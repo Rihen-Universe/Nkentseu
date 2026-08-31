@@ -552,6 +552,12 @@ namespace nkuidesign {
 			/// la toile (0..1), horizontale en PIXELS depuis son haut. -1 = rien.
 			float32 ligneV = -1.f;
 			float32 ligneH = -1.f;
+			/// La vue POSEE en ligne de commande (--vue=, protocole de mesure du
+			/// pan) : appliquee au premier affichage a la place du defaut.
+			bool vuePosee = false;
+			float32 vueX = 0.f;
+			float32 vueY = 0.f;
+			float32 vueZ = 1.f;
 			void PrendreEtatEnregistre() {
 				etatEnregistre = NkString();
 				doc.Save(etatEnregistre);
@@ -1079,8 +1085,16 @@ namespace nkuidesign {
 				//    a l'oeil qui se decalerait au premier changement de largeur.
 				if (!mVuePosee) {
 					mVuePosee = true;
-					mSt->view.panX = kOutilsMarge * 2.f + kOutilsLargeur;
-					mSt->view.panY = 12.f;
+					if (mSt->vuePosee) {
+						// La vue demandee en ligne de commande (protocole de
+						// mesure) prime sur le defaut « pas sous la barre ».
+						mSt->view.panX = mSt->vueX;
+						mSt->view.panY = mSt->vueY;
+						mSt->view.zoom = mSt->vueZ > 0.01f ? mSt->vueZ : 1.f;
+					} else {
+						mSt->view.panX = kOutilsMarge * 2.f + kOutilsLargeur;
+						mSt->view.panY = 12.f;
+					}
 				}
 
 				// ⚠️ DEUX SURFACES, ET ELLES N ONT PAS LE MEME ESPACE.
@@ -1506,7 +1520,13 @@ namespace nkuidesign {
 					// ⚠️ `NkPickSelectable`, PAS `NkPickNode` : la racine couvre toute
 					//    la surface et repondrait a tous les clics. Cliquer le fond
 					//    DESELECTIONNE, comme dans tout outil de dessin.
-					const int32 hit = NkPickSelectable(mSt->doc, screen, in.mouseX, in.mouseY);
+					// ⚠️ ET LE CLIC SIMPLE VISE LE PREMIER NIVEAU (bogue du 31/08 :
+					//    le pointage profond attrapait le LIBELLE d'un bouton, et le
+					//    glisser separait le libelle de son bouton — « effet bizarre »
+					//    dans les quatre directions). Le DOUBLE-CLIC descend.
+					const int32 hit = in.doubleClick
+										  ? NkPickSelectable(mSt->doc, screen, in.mouseX, in.mouseY)
+										  : NkPickTopLevel(mSt->doc, screen, in.mouseX, in.mouseY);
 					if (hit < 0) {
 						// Le vide : on vide, et on arme le rectangle de selection.
 						if (!in.ctrl)
@@ -3237,6 +3257,21 @@ namespace nkuidesign {
 				// ⚠️ UN ONGLET SANS CONTENU REND ZÉRO SECTION, il ne rend pas
 				//    sept sections vides. C'est la charpente qui dira quoi
 				//    afficher à la place (§12.2) — voir `MessageOngletVide`.
+				// L'ONGLET BEHAVIOR (écran 4 Banani) : deux sections quand la
+				// sélection porte un RÔLE — le vocabulaire d'événements du rôle,
+				// et les événements ajoutés. Sans rôle : le message historique.
+				if (onglet == 2) {
+					auto *self = static_cast<InspectorPanel *>(user);
+					const NkUINode *n = self->NoeudCourant();
+					if (n && !n->role.Empty()) {
+						static const editorkit::NkInspectorSection kBehavior[] = {
+							{"ÉVÉNEMENTS DU RÔLE", &CorpsEvenementsRoleC, false},
+							{"ÉVÉNEMENTS AJOUTÉS", &CorpsEvenementsAjoutesC, false},
+						};
+						count = (int32)(sizeof(kBehavior) / sizeof(kBehavior[0]));
+						return kBehavior;
+					}
+				}
 				if (onglet != 0) {
 					count = 0;
 					return nullptr;
@@ -3535,6 +3570,82 @@ namespace nkuidesign {
 				}
 				BoiteChamp(ctx, rb, aff);
 				costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 8.f, ctx.theme.textMuted);
+			}
+
+			static void CorpsEvenementsRoleC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsEvenementsRole(ctx);
+			}
+			static void CorpsEvenementsAjoutesC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsEvenementsAjoutes(ctx);
+			}
+
+			/// Une rangée d'événement (écran 4) : pastille 8 px, nom 11 px 500,
+			/// liaison 10 px `text_muted` à droite. ⚠️ AUCUNE LIAISON DE DÉMO :
+			/// le modèle de comportement n'existe pas encore — toutes les
+			/// pastilles sont grises et la colonne liaison reste vide, plutôt
+			/// que de mettre en scène des `OnSubmitForm` que rien ne porte.
+			void RangeeEvenement(NkGuiContext &ctx, const char *nom) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 28.f);
+				const float32 x0 = r.x + 16.f;
+				dl.AddCircleFilled({x0 + 4.f, r.y + 14.f}, 4.f, ctx.theme.textMuted);
+				costume::TexteGras(dl, F.px11, x0 + 16.f, costume::CentrerY(F.px11, r.y, 28.f),
+								   nom, ctx.theme.text, 0.3f);
+			}
+
+			/// ÉVÉNEMENTS DU RÔLE : le vocabulaire §4.6 du rôle porté. La table
+			/// vit ici en attendant la taxonomie des rôles (écran 6, chantier
+			/// « promouvoir ») — dit dans le rapport, pas glissé.
+			void CorpsEvenementsRole(NkGuiContext &ctx) {
+				static const char *const kEvtsBouton[5] = {"pressé", "relâché", "cliqué",
+														   "survol entré", "survol sorti"};
+				for (uint32 i = 0; i < 5; ++i)
+					RangeeEvenement(ctx, kEvtsBouton[i]);
+			}
+
+			/// ÉVÉNEMENTS AJOUTÉS + « Nouvel événement » (bord TIRETÉ, écran 4).
+			void CorpsEvenementsAjoutes(NkGuiContext &ctx) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+					ctx.BeginDisabled();
+					costume::Texte(dl, F.px11, r.x + 16.f, costume::CentrerY(F.px11, r.y, 24.f),
+								   "(aucun — le comportement n'est pas encore branché)",
+								   ctx.theme.textMuted);
+					ctx.EndDisabled();
+				}
+				const NkRect r = ctx.NextItemRect(-1.f, 46.f);
+				const NkRect b = {r.x + 12.f, r.y + 16.f, r.w - 24.f, 30.f};
+				// le bord TIRETÉ, segment par segment (la liste de dessin n'a pas
+				// de trait pointillé) : 6 px de trait, 4 d'écart.
+				auto tirets = [&](NkVec2 a, NkVec2 c, bool horiz) {
+					const float32 lg = horiz ? (c.x - a.x) : (c.y - a.y);
+					for (float32 t = 0.f; t < lg; t += 10.f) {
+						const float32 fin = (t + 6.f < lg) ? t + 6.f : lg;
+						if (horiz)
+							dl.AddLine({a.x + t, a.y}, {a.x + fin, a.y}, ctx.theme.border, 1.5f);
+						else
+							dl.AddLine({a.x, a.y + t}, {a.x, a.y + fin}, ctx.theme.border, 1.5f);
+					}
+				};
+				tirets({b.x, b.y}, {b.x + b.w, b.y}, true);
+				tirets({b.x, b.y + b.h}, {b.x + b.w, b.y + b.h}, true);
+				tirets({b.x, b.y}, {b.x, b.y + b.h}, false);
+				tirets({b.x + b.w, b.y}, {b.x + b.w, b.y + b.h}, false);
+				const char *lib = "Nouvel événement";
+				const float32 wl = costume::Largeur(F.px11, lib);
+				const float32 cx = b.x + (b.w - (10.f + 5.f + wl)) * 0.5f;
+				const float32 cy = b.y + b.h * 0.5f;
+				dl.AddLine({cx + 5.f, cy - 4.f}, {cx + 5.f, cy + 4.f}, ctx.theme.textMuted, 1.3f);
+				dl.AddLine({cx + 1.f, cy}, {cx + 9.f, cy}, ctx.theme.textMuted, 1.3f);
+				costume::TexteGras(dl, F.px11, cx + 15.f, costume::CentrerY(F.px11, b.y, b.h),
+								   lib, ctx.theme.textMuted, 0.3f);
+				if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+					&& NkGuiRectContains(b, ctx.input.mousePos))
+					mSt->status = NkString(
+						"Nouvel événement : à brancher (le modèle de comportement arrive).");
 			}
 			static void CorpsTypographieC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsTypographie(ctx);
