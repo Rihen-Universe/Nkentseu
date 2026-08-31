@@ -1678,7 +1678,9 @@ int nkmain(const NkEntryState &state) {
 	if (!nkuidesign::costume::Fontes().ok)
 		logger.Error("[NKUIDesign] polices du costume : au moins un corps n'a pas chargé — "
 					 "les zones concernées retomberont sur la police d'interface.");
-	shell->ForceUiFontSize(12.f);
+	// `CorpsMaquette` : LE réglage unique de taille (Costume.h) — la coquille
+	// suit le même +2 que les sept corps du costume (test de Rodolf, 31/08).
+	shell->ForceUiFontSize(nkuidesign::costume::CorpsMaquette(12.f));
 	shell->SetTitleBarFont(&nkuidesign::costume::Fontes().px11);
 	// 2. Le bloc logo 56x56 de la maquette (degrade + 4 carreaux + diagonale).
 	//    Le « O » Rihen reste le defaut du kit pour toutes les autres

@@ -41,6 +41,21 @@ namespace nkuidesign {
 		// ═════════════════════════════════════════════════════════════════════
 		//  1. LES POLICES — un atlas par corps de la maquette
 		// ═════════════════════════════════════════════════════════════════════
+
+		/// LE RÉGLAGE UNIQUE DE TAILLE DU TEXTE D'INTERFACE (test de Rodolf,
+		/// 31/08 : « le header donc les menus, le titre, les boutons, le texte
+		/// des onglets… le texte dans toute l'interface est trop petit,
+		/// agrandis encore un peu »). UN seul bouton, pas des retouches par
+		/// widget : chaque corps de la maquette (9..16) est rendu à +2 px, et
+		/// la police d'interface de la coquille (menus, palette) passe par la
+		/// même fonction (main.cpp). Les largeurs se MESURENT sur les vraies
+		/// polices au moment du dessin, donc tout suit ; les hauteurs de
+		/// rangées et de bandes sont validées sur capture. Les noms px9..px16
+		/// continuent de nommer le corps DE LA MAQUETTE, pas le corps rendu.
+		inline float32 CorpsMaquette(float32 px) {
+			return px + 2.f;
+		}
+
 		struct Polices {
 				NkGuiFont px9;	///< badges de rôle, min/max, sections 9-10
 				NkGuiFont px10; ///< libellés de champs, sections MAJUSCULES
@@ -63,8 +78,10 @@ namespace nkuidesign {
 								  {&px13, 13.f}, {&px15, 15.f}, {&px16, 16.f}};
 					ok = true;
 					for (uint32 i = 0; i < 7; ++i) {
+						// `CorpsMaquette` : le SEUL endroit qui agrandit — voir
+						// le bloc au-dessus de la structure.
 						if (!lignes[i].f->LoadEmbedded(nkentseu::NkEmbeddedFontId::Inter,
-													   lignes[i].px * dpi)
+													   CorpsMaquette(lignes[i].px) * dpi)
 							|| !sh.UploadAppFont(*lignes[i].f, i))
 							ok = false;
 					}
