@@ -240,6 +240,8 @@ static void CalerLargeursDock(nkgui::NkGuiContext &ctx) {
 		fait = true;
 }
 
+static void FocusPanel(const char *titre); // defini plus bas (il tient gShell)
+
 static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 	CalerLargeursDock(ec.Ui());
 	// LE MENU DES ROLES (ecrans 5-6-7) : dessine en OVERLAY, par-dessus les
@@ -316,6 +318,13 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 		if ((ctx.input.mouseClicked[0] && nkgui::NkGuiRectContains(rf, ctx.input.mousePos))
 			|| ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
 			gDesign.rapportTransposition = false;
+	}
+	// Le déclencheur de simulation (en-tête de l'Inspecteur) demande le
+	// panneau Simulation — seul ce rappel tient la coquille (FocusPanel,
+	// qui ouvre + ancre + met devant : la leçon du 28/08).
+	if (gDesign.ouvrirSimulation) {
+		gDesign.ouvrirSimulation = false;
+		FocusPanel("Simulation");
 	}
 	// ── GARDE DE DÉCOUPE (classe du 31/08 : « tu ne définis pas bien le
 	//    clipping ») ────────────────────────────────────────────────────────

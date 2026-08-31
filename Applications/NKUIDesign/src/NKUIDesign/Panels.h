@@ -569,6 +569,10 @@ namespace nkuidesign {
 			/// le menu Cible ou --rapport-transposition. Le mécanisme de
 			/// transposition n'existe pas : le rapport le DIT (0 constat).
 			bool rapportTransposition = false;
+			/// Le declencheur de simulation (en-tete du panneau droit) demande
+			/// l'ouverture du panneau Simulation — servi par l'overlay (main),
+			/// qui seul tient la coquille (FocusPanel).
+			bool ouvrirSimulation = false;
 			/// La vue POSEE en ligne de commande (--vue=, protocole de mesure du
 			/// pan) : appliquee au premier affichage a la place du defaut.
 			bool vuePosee = false;
@@ -4303,6 +4307,29 @@ namespace nkuidesign {
 				} else
 					costume::TexteGras(dl, F.px13, tx, costume::CentrerY(F.px13, r.y, h), nom,
 									   ctx.theme.text, 0.4f);
+				// ── LE DÉCLENCHEUR DE SIMULATION (Rodolf, 31/08 : « lancer la
+				//    simulation depuis la page sélectionnée, si simulation
+				//    définie ») — en haut du panneau droit. AUCUN modèle de
+				//    simulation n'existe encore : le triangle est GRIS, jamais
+				//    absent, jamais muet — le clic DIT la raison exacte et ouvre
+				//    le panneau Simulation (écran 16, l'état vide honnête). Le
+				//    chantier « exécution » (§4.9 : callbacks factices
+				//    journalisés) est nommé au rapport.
+				{
+					const NkRect rp = {r.x + r.w - 34.f, r.y + (h - 22.f) * 0.5f, 22.f, 22.f};
+					dl.AddRectFilled(rp, ctx.theme.button, 4.f);
+					dl.AddRect(rp, ctx.theme.border, 1.f, 4.f);
+					const float32 cxp = rp.x + rp.w * 0.5f - 1.f, cyp = rp.y + rp.h * 0.5f;
+					dl.AddTriangleFilled({cxp - 3.f, cyp - 5.f}, {cxp - 3.f, cyp + 5.f},
+										 {cxp + 5.f, cyp}, ctx.theme.textDisabled);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(rp, ctx.input.mousePos)) {
+						mSt->status = NkString(
+							"Aucune simulation définie pour cette page — le panneau "
+							"Simulation dit ce que le mode comptera (exécution : §4.9).");
+						mSt->ouvrirSimulation = true;
+					}
+				}
 				dl.AddLine({r.x, r.y + h - 0.5f}, {r.x + r.w, r.y + h - 0.5f}, ctx.theme.border,
 						   1.f);
 			}
