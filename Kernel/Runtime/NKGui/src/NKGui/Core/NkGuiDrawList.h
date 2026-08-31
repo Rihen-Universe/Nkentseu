@@ -117,6 +117,13 @@ namespace nkentseu {
 				void AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
 							 const NkColor &col, float32 maxWidth = -1.f, float32 skew = 0.f,
 							 const char *textEnd = nullptr) noexcept;
+				// Texte à l'ÉCHELLE : quads et avances multipliés par `scale`
+				// (géométrie `NkFontScaleRenderer`, NKFont — la couche du dessous
+				// la portait déjà). Sert au texte d'un DOCUMENT zoomé : palier
+				// d'atlas le plus proche + échelle résiduelle, jamais un atlas par
+				// cran de zoom. À ~1, retombe sur AddText (pixel-snap).
+				void AddTextScaled(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
+								   const NkColor &col, float32 scale, float32 maxWidth = -1.f) noexcept;
 				// Dessine la sous-chaîne [begin, end) (sans troncature) — brique du
 				// retour à la ligne (TextWrapped) qui passe des plages de ligne.
 				void AddTextRange(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *begin,
