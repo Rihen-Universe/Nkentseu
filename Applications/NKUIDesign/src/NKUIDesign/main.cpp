@@ -148,6 +148,9 @@ static bool gDocumentModifie = false;
 // Mise en scene « toile seule » (ecrans gros plan de la maquette) :
 // panneaux fermes, rails retires — pose par --toile-seule.
 static bool gToileSeule = false;
+// Tiroir de rail a ouvrir au lancement (--tiroir=d:0) : 0 = aucun.
+static char gTiroirCote = 0;
+static int32 gTiroirIndex = -1;
 /// ⚠️ L AUTORITE DES THEMES, ET ELLE EST UNIQUE. `gDesign.theme` (lu par les
 ///    composants du kit) et `mUI.theme` de la coquille (lu par les primitives)
 ///    en sont deux CONSOMMATEURS ; ils ne decident rien.
@@ -1082,6 +1085,13 @@ int nkmain(const NkEntryState &state) {
 			}
 			// L'ONGLET D'INSPECTEUR au lancement (mise en scene, ecrans 4-6) :
 			// --inspecteur-onglet=2 ouvre Behavior.
+			// Ouvrir un TIROIR de rail au lancement (mise en scene, ecran 9) :
+			// --tiroir=droit:0 (cote:index).
+			if (arg.StartsWith("--tiroir=")) {
+				gTiroirCote = a[9];
+				gTiroirIndex = (int32)atof(a + 11);
+				continue;
+			}
 			if (NkComponentDecl::StrEq(a, "--filtre-hierarchie")) {
 				gDesign.filtreHierarchieInitial = true;
 				continue;
@@ -1262,6 +1272,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --lignes=v<f>,h<px>     lignes de magnétisme figées (mise en scène)");
 			puts("  --toile-seule           panneaux fermés, rails retirés (mise en scène)");
 			puts("  --vue=x<px>,y<px>,z<f>  poser pan/zoom de la vue au lancement (mesure)");
+			puts("  --tiroir=<c>:<n>        ouvrir un tiroir de rail (d/g/b, mise en scène)");
 			puts("  --inspecteur-onglet=<n> ouvrir cet onglet d'Inspecteur (mise en scène)");
 			return 2;
 		}
@@ -1393,6 +1404,8 @@ int nkmain(const NkEntryState &state) {
 	//    (le tiroir la retrouve par son titre) mais FERMEE : `DrawPanels` la
 	//    saute, seul le tiroir la dessine. C est la difference entre debrancher
 	//    un panneau et le ranger.
+	static nkuidesign::BibliothequePanel bibliotheque(&gDesign);
+	bibliotheque.SetOpen(false); // vit dans le TIROIR du rail droit (ecran 9)
 	static nkuidesign::PalettePanel palette(&gDesign);
 	palette.SetOpen(false);
 	if (gToileSeule) {
@@ -1410,6 +1423,7 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&inspecteur);
 	shell->AddPanel(&ai);
 	shell->AddPanel(&palette);
+	shell->AddPanel(&bibliotheque);
 
 #if NKUIDESIGN_ANCIENS_PANNEAUX
 	static nkuidesign::CompositionPanel composition(&gDesign);
@@ -1616,6 +1630,12 @@ int nkmain(const NkEntryState &state) {
 	shell->SetRail(NkEditorDockSide::NK_LEFT, nullptr, 0);
 	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite, gToileSeule ? 0 : 3);
 	shell->SetRail(NkEditorDockSide::NK_BOTTOM, kRailBas, gToileSeule ? 0 : 2);
+	if (gTiroirCote == 'd')
+		shell->OuvrirTiroir(NkEditorDockSide::NK_RIGHT, gTiroirIndex);
+	else if (gTiroirCote == 'g')
+		shell->OuvrirTiroir(NkEditorDockSide::NK_LEFT, gTiroirIndex);
+	else if (gTiroirCote == 'b')
+		shell->OuvrirTiroir(NkEditorDockSide::NK_BOTTOM, gTiroirIndex);
 	if (gToileSeule)
 		shell->SetRailFooterStatus("", {0, 0, 0, 0}); // pas de bandeau bas du tout
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
