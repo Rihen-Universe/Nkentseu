@@ -561,6 +561,10 @@ namespace nkuidesign {
 			bool proposerInitial = false;
 			/// Mise en scene (--mode=N) : la bascule de mode posee au lancement.
 			int32 modeInitial = -1;
+			/// Le RAPPORT DE TRANSPOSITION (écran 27) : modal d'overlay, ouvert par
+			/// le menu Cible ou --rapport-transposition. Le mécanisme de
+			/// transposition n'existe pas : le rapport le DIT (0 constat).
+			bool rapportTransposition = false;
 			/// La vue POSEE en ligne de commande (--vue=, protocole de mesure du
 			/// pan) : appliquee au premier affichage a la place du defaut.
 			bool vuePosee = false;
@@ -2729,6 +2733,135 @@ namespace nkuidesign {
 	// La place, pas le modele. Ce panneau ne sait rien de ce qu'il y a derriere le
 	// backend, et c'est exactement ce qui permettra de le remplacer par Ilyana
 	// sans toucher a une ligne d'ici.
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  TROIS PANNEAUX DES ÉCRANS 16 / 20 / 21 — le CHROME se pose, l'état vide
+	//  se DIT. Aucune donnée de démonstration peinte (cadrage du 31/08) : les
+	//  compteurs de simulation, les ambiances et la liste de greffons naîtront
+	//  de leurs mécanismes ; en attendant, chaque panneau nomme ce qui manque.
+	// ═══════════════════════════════════════════════════════════════════════════
+	class SimulationPanel : public NkEditorPanel {
+		public:
+			explicit SimulationPanel(DesignState *st)
+				: NkEditorPanel("Simulation", NkEditorDockSide::NK_BOTTOM), mSt(st) {
+				SetOpen(false);
+			}
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 30.f);
+					// la pastille d'etat (verte quand une simulation TOURNERA)
+					dl.AddCircleFilled({r.x + 16.f, r.y + 15.f}, 4.f, ctx.theme.textMuted);
+					costume::TexteGras(dl, F.px11, r.x + 28.f,
+									   costume::CentrerY(F.px11, r.y, 30.f),
+									   "Aucune simulation en cours", ctx.theme.text, 0.3f);
+				}
+				ec.Text("Le mode Simulation viendra avec le modèle de comportement (§6.4) :");
+				ec.Text("il comptera les chemins ATTEINTS, JAMAIS ATTEINTS, et marquera les");
+				ec.Text("DOUBLURES — les compteurs « 7 atteints · 3 jamais atteints » de la");
+				ec.Text("maquette sont l'état qu'il produira, pas un décor à peindre.");
+			}
+
+		private:
+			DesignState *mSt;
+	};
+
+	class AmbiancesPanel : public NkEditorPanel {
+		public:
+			explicit AmbiancesPanel(DesignState *st)
+				: NkEditorPanel("Ambiances", NkEditorDockSide::NK_RIGHT), mSt(st) {
+				SetOpen(false);
+			}
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				// La sélection RÉELLE et son rôle (l'en-tête de l'écran 20).
+				const NkUINode *n = mSt->doc.IsValidIndex(mSt->selected)
+										? &mSt->doc.nodes[(uint32)mSt->selected]
+										: nullptr;
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 30.f);
+					costume::TexteGras(dl, F.px11, r.x + 12.f,
+									   costume::CentrerY(F.px11, r.y, 30.f),
+									   n ? n->label.Data() : "(aucune sélection)",
+									   ctx.theme.text, 0.4f);
+				}
+				if (n && !n->role.Empty()) {
+					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
+					char b[96];
+					snprintf(b, sizeof(b), "Rôle : %s", n->role.Data());
+					costume::Texte(dl, F.px10, r.x + 12.f,
+								   costume::CentrerY(F.px10, r.y, 20.f), b,
+								   ctx.theme.textMuted);
+				}
+				ec.Separator();
+				ec.Text("Les AMBIANCES — états animés d'un rôle, lissage, valeur de");
+				ec.Text("repos, instances en phase — viendront avec le modèle");
+				ec.Text("d'animation. Le mode Animation de la toile est posé (Entry) ;");
+				ec.Text("ce panneau en sera la table de réglage.");
+			}
+
+		private:
+			DesignState *mSt;
+	};
+
+	class GreffonsPanel : public NkEditorPanel {
+		public:
+			explicit GreffonsPanel(DesignState *st)
+				: NkEditorPanel("Greffons", NkEditorDockSide::NK_RIGHT), mSt(st) {
+				SetOpen(false);
+			}
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 32.f);
+					const NkRect rf = {r.x + 10.f, r.y + 4.f, (r.w > 304.f ? 304.f : r.w) - 20.f,
+									   24.f};
+					nkentseu::editorkit::NkOverlayTextField(ctx, dl, ctx.font, rf, mRecherche,
+																(int32)sizeof(mRecherche), false);
+					if (!mRecherche[0])
+						costume::Texte(dl, F.px11, rf.x + 8.f,
+									   costume::CentrerY(F.px11, rf.y, rf.h), "Rechercher…",
+									   ctx.theme.textMuted);
+				}
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+					ctx.BeginDisabled();
+					costume::Texte(dl, F.px11, r.x + 12.f,
+								   costume::CentrerY(F.px11, r.y, 24.f),
+								   "(aucun greffon installé)", ctx.theme.textMuted);
+					ctx.EndDisabled();
+				}
+				// « + Installer… » et « Ouvrir le dossier… » : inertes, et ils le disent.
+				const char *const kActes[2] = {"+ Installer un greffon…",
+											   "Ouvrir le dossier des greffons"};
+				for (uint32 i = 0; i < 2; ++i) {
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const bool sv = ctx.popupDepth == 0
+									&& NkGuiRectContains({r.x + 8.f, r.y, 220.f, 26.f},
+														 ctx.input.mousePos);
+					costume::Texte(dl, F.px11, r.x + 12.f,
+								   costume::CentrerY(F.px11, r.y, 26.f), kActes[i],
+								   sv ? ctx.theme.text : ctx.theme.textMuted);
+					if (sv && ctx.input.mouseClicked[0])
+						mSt->status = NkString("Greffons : à brancher (chargement, signature, "
+											   "dossier — le mécanisme §9 arrive).");
+				}
+				ec.Separator();
+				ec.Text("L'installation (écrans 22-23, signature NON SIGNÉ), la");
+				ec.Text("désinstallation (24) et le voile « greffon manquant » de la");
+				ec.Text("toile (25) viendront avec le mécanisme de greffons.");
+			}
+
+		private:
+			DesignState *mSt;
+			char mRecherche[64] = {0};
+	};
+
 	class AIPanel : public NkEditorPanel {
 		public:
 			explicit AIPanel(DesignState *st)
