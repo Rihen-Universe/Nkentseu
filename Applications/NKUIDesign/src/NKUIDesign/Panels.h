@@ -558,6 +558,9 @@ namespace nkuidesign {
 			float32 vueX = 0.f;
 			float32 vueY = 0.f;
 			float32 vueZ = 1.f;
+			/// L'onglet d'Inspecteur demande au lancement (--inspecteur-onglet=,
+			/// mise en scene des ecrans 4/5/6) : -1 = defaut (Design).
+			int32 ongletInitial = -1;
 			void PrendreEtatEnregistre() {
 				etatEnregistre = NkString();
 				doc.Save(etatEnregistre);
@@ -3232,6 +3235,10 @@ namespace nkuidesign {
 				ch.dessineTitreSection = [](void *u, NkGuiContext &c, const char *t) {
 					static_cast<InspectorPanel *>(u)->TitreSection(c, t);
 				};
+				if (mSt->ongletInitial >= 0 && mSt->ongletInitial <= 2) {
+					mOnglet = mSt->ongletInitial; // mise en scene : l'onglet demande
+					mSt->ongletInitial = -1;
+				}
 				mOnglet = editorkit::NkInspectorDessiner(ctx, ch);
 			}
 
@@ -3612,7 +3619,7 @@ namespace nkuidesign {
 					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
 					ctx.BeginDisabled();
 					costume::Texte(dl, F.px11, r.x + 16.f, costume::CentrerY(F.px11, r.y, 24.f),
-								   "(aucun — le comportement n'est pas encore branché)",
+								   "(aucun — le modèle arrive)",
 								   ctx.theme.textMuted);
 					ctx.EndDisabled();
 				}

@@ -1063,6 +1063,12 @@ int nkmain(const NkEntryState &state) {
 				gToileSeule = true;
 				continue;
 			}
+			// L'ONGLET D'INSPECTEUR au lancement (mise en scene, ecrans 4-6) :
+			// --inspecteur-onglet=2 ouvre Behavior.
+			if (arg.StartsWith("--inspecteur-onglet=")) {
+				gDesign.ongletInitial = (int32)atof(a + 20);
+				continue;
+			}
 			// LA VUE POSEE : --vue=x<px>,y<px>[,z<zoom>] — pan (et zoom) au
 			// lancement, pour MESURER l'effet d'un deplacement de vue par
 			// paires de captures (protocole du bogue « effet bizarre au
@@ -1231,6 +1237,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --lignes=v<f>,h<px>     lignes de magnétisme figées (mise en scène)");
 			puts("  --toile-seule           panneaux fermés, rails retirés (mise en scène)");
 			puts("  --vue=x<px>,y<px>,z<f>  poser pan/zoom de la vue au lancement (mesure)");
+			puts("  --inspecteur-onglet=<n> ouvrir cet onglet d'Inspecteur (mise en scène)");
 			return 2;
 		}
 	}
