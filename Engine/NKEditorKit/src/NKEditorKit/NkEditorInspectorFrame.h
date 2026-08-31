@@ -196,6 +196,23 @@ namespace nkentseu {
 				///    et elle vaut pour tout le monde. nullptr -> une phrase par
 				///    defaut, jamais le silence.
 				const char *(*messageOngletVide)(void *user, int32 onglet) = nullptr;
+
+				// ── COSTUME (opt-in, remandat Banani 2026-08-31) ─────────────────
+				// Trois rappels de DESSIN, nuls par defaut = rendu historique
+				// (Text/Separator, TabBarEx, CollapsingHeader). La STRUCTURE reste
+				// celle de la charpente ; seul le TRAIT change — c'est le meme
+				// joint que les lignes : le costume est chez l'appelant.
+				/// Remplace « nom + filet » (l'en-tete 34 px a icone de la maquette).
+				void (*dessineEntete)(void *user, nkgui::NkGuiContext &ctx, const char *entete) = nullptr;
+				/// Remplace la barre TabBarEx. REND l'onglet courant — l'appelant
+				/// porte alors lui-meme cet etat (il a remplace le widget qui le
+				/// tenait, la verite reste unique).
+				int32 (*dessineOnglets)(void *user, nkgui::NkGuiContext &ctx) = nullptr;
+				/// Remplace le titre d'une section NON repliable (les MAJUSCULES
+				/// 9 px + filet de la maquette). Les sections repliables gardent
+				/// CollapsingHeader.
+				void (*dessineTitreSection)(void *user, nkgui::NkGuiContext &ctx,
+											const char *titre) = nullptr;
 		};
 
 		/// Dessine la charpente. Rend l'index de l'onglet courant (0 sans onglets).
@@ -203,8 +220,13 @@ namespace nkentseu {
 														const NkInspectorCharpente &c) noexcept {
 			// ── LE NOM, toujours visible ─────────────────────────────────────
 			const bool aUnNom = c.entete && *c.entete;
-			nkgui::Text(ctx, aUnNom ? c.entete : (c.enteteVide ? c.enteteVide : "Aucune sélection"));
-			nkgui::Separator(ctx);
+			const char *nom = aUnNom ? c.entete : (c.enteteVide ? c.enteteVide : "Aucune sélection");
+			if (c.dessineEntete)
+				c.dessineEntete(c.user, ctx, nom); // costume : l'appelant dessine
+			else {
+				nkgui::Text(ctx, nom);
+				nkgui::Separator(ctx);
+			}
 
 			// ── LE SUPPLEMENT D'EN-TETE (filtre, actions...) ─────────────────
 			if (c.enteteSupplement)
@@ -212,7 +234,9 @@ namespace nkentseu {
 
 			// ── LES ONGLETS, s'il y en a ─────────────────────────────────────
 			int32 onglet = 0;
-			if (c.onglets && c.ongletCount > 0)
+			if (c.dessineOnglets)
+				onglet = c.dessineOnglets(c.user, ctx); // costume : idem
+			else if (c.onglets && c.ongletCount > 0)
 				onglet = nkgui::TabBarEx(ctx, c.idOnglets, c.onglets, c.ongletCount, c.ongletsActifs);
 
 			// ── LES SECTIONS ─────────────────────────────────────────────────
@@ -234,8 +258,12 @@ namespace nkentseu {
 					// Non repliable : le titre est un simple intitule, sans chevron
 					// -- promettre un chevron qui ne replie rien serait pire que
 					// pas de chevron du tout.
-					if (s.titre && *s.titre)
-						nkgui::Text(ctx, s.titre);
+					if (s.titre && *s.titre) {
+						if (c.dessineTitreSection)
+							c.dessineTitreSection(c.user, ctx, s.titre); // costume
+						else
+							nkgui::Text(ctx, s.titre);
+					}
 					s.corps(c.user, ctx);
 					continue;
 				}
