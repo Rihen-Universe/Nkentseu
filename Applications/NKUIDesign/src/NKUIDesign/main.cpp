@@ -1190,6 +1190,17 @@ int nkmain(const NkEntryState &state) {
 				gDesign.selectionInitiale = v;
 				continue;
 			}
+			// Mise en scene (correction 5, 31/08) : ouvrir l'edition en place
+			// sur le noeud N au premier affichage — l'etat que le double-clic
+			// pose, atteignable sans souris (le harnais --clic ne sait pas
+			// produire un double-clic).
+			if (arg.StartsWith("--editer-texte=")) {
+				int32 v = 0;
+				for (const char *q = a + 15; *q >= '0' && *q <= '9'; ++q)
+					v = v * 10 + (*q - '0');
+				gDesign.editTexteInitial = v;
+				continue;
+			}
 			// MISE EN SCENE (remandat Banani : un document par ecran) : charger
 			// un document donne au lancement. ⚠️ Ctrl+S ecrira LA ou on a
 			// charge — le fichier de travail par defaut ne bouge pas.
@@ -1429,6 +1440,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --small                 fenêtre réduite (1024x640)");
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
 			puts("  --selection=<n>         sélectionner le nœud n au premier affichage");
+			puts("  --editer-texte=<n>      ouvrir l'édition en place sur le nœud texte n (mise en scène)");
 			puts("  --document=<chemin>     charger ce document au lancement (mise en scène)");
 			puts("  --lignes=v<f>,h<px>     lignes de magnétisme figées (mise en scène)");
 			puts("  --toile-seule           panneaux fermés, rails retirés (mise en scène)");

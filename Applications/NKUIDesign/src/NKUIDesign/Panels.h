@@ -548,6 +548,10 @@ namespace nkuidesign {
 			/// premier OnUI de la toile l'applique apres le chargement, puis
 			/// l'eteint. -1 = aucun.
 			int32 selectionInitiale = -1;
+			/// Edition en place demandee en ligne de commande (--editer-texte=N) :
+			/// meme famille que --selection= — ouvre le champ superpose sur le
+			/// noeud N (s'il est un texte) au premier affichage. -1 = aucune.
+			int32 editTexteInitial = -1;
 			/// Lignes de magnétisme FIGÉES (mise en scène, levier `--lignes=`) :
 			/// la maquette fige un instantané de geste — verticale en FRACTION de
 			/// la toile (0..1), horizontale en PIXELS depuis son haut. -1 = rien.
@@ -1150,6 +1154,22 @@ namespace nkuidesign {
 					mSt->SelectSingle(mSt->selectionInitiale);
 					mSt->selectionInitiale = -1;
 				}
+				if (mSt->editTexteInitial >= 0
+					&& mSt->doc.IsValidIndex(mSt->editTexteInitial)) {
+					// Mise en scene --editer-texte=N : le meme etat que le
+					// double-clic pose (champ superpose + selection). Consomme
+					// seulement quand le document est la (regle --selection=).
+					const int32 ne = mSt->editTexteInitial;
+					if (StrEq(mSt->doc.nodes[(uint32)ne].shape.Data(), "text")) {
+						mEditNode = ne;
+						const char *t0 = mSt->doc.nodes[(uint32)ne].text.Data();
+						snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+						mSt->SelectSingle(ne);
+						Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
+					} else
+						Dire("--editer-texte : ce nœud n'est pas un texte.", "", "");
+					mSt->editTexteInitial = -1;
+				}
 
 				if (!mAideInitiale) {
 					// L'outil arme se DIT des la premiere image — une application
@@ -1228,7 +1248,9 @@ namespace nkuidesign {
 				//    d'aide change) — jamais de no-op muet. On lit `chars[]`
 				//    (traduits par l'OS : un AZERTY donne les mêmes lettres),
 				//    pas des codes de touche.
-				if (ctx.inputId == NKGUI_ID_NONE) {
+				// ⚠️ PAS pendant une edition de texte en place : les lettres sont
+				//    alors une SAISIE (meme regle que les champs NKGui).
+				if (ctx.inputId == NKGUI_ID_NONE && !mSt->doc.IsValidIndex(mEditNode)) {
 					for (int32 k = 0; k < ctx.input.charCount; ++k) {
 						switch (ctx.input.chars[k]) {
 							case 'v': case 'V': ArmerOutil(0); break;
@@ -1597,6 +1619,29 @@ namespace nkuidesign {
 					}
 				}
 
+				// ── L'EDITION EN PLACE D'UN TEXTE (31/08) ────────────────────
+				// Le champ du kit, SUPERPOSE a la position ecran du noeud —
+				// Entree valide (ecrit `text` + MarkHumanEdit), Echap annule,
+				// cliquer ailleurs valide (HandleMouse). Dessine SOUS le clip de
+				// la toile : un texte au bord se coupe comme le reste.
+				if (!modeGraphe && mSt->doc.IsValidIndex(mEditNode)) {
+					if (!screen.Has(mEditNode)) {
+						FermerEditionTexte(false); // le noeud a quitte la disposition
+					} else {
+						const NkPaintRect re = screen.At(mEditNode);
+						const nkgui::NkRect rf = {re.x - 2.f, re.y - 2.f,
+												  (re.w > 120.f ? re.w : 120.f) + 4.f,
+												  (re.h > 22.f ? re.h : 22.f) + 4.f};
+						nkentseu::editorkit::NkOverlayTextField(ctx, ctx.DL(), ctx.font, rf,
+																mEditBuf,
+																(int32)sizeof(mEditBuf), true);
+						if (ctx.input.KeyPressed(nkgui::NkGuiKey::Enter))
+							FermerEditionTexte(true);
+						else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
+							FermerEditionTexte(false);
+					}
+				}
+
 				// La découpe de la toile se referme ici — le pendant du Push posé
 				// avant le fond. Tout ce qui suit (rien aujourd'hui) reverrait le
 				// clip du dock.
@@ -1703,6 +1748,11 @@ namespace nkuidesign {
 					mCreating = false;
 				}
 				if (in.mousePressed) {
+					// Un clic pendant une edition en place la VALIDE d'abord
+					// (le geste de tous les outils de dessin : cliquer ailleurs
+					// commet), puis le clic suit son cours normal.
+					if (mSt->doc.IsValidIndex(mEditNode))
+						FermerEditionTexte(true);
 					// ⚠️ `NkPickSelectable`, PAS `NkPickNode` : la racine couvre toute
 					//    la surface et repondrait a tous les clics. Cliquer le fond
 					//    DESELECTIONNE, comme dans tout outil de dessin.
@@ -1713,6 +1763,21 @@ namespace nkuidesign {
 					const int32 hit = in.doubleClick
 										  ? NkPickSelectable(mSt->doc, screen, in.mouseX, in.mouseY)
 										  : NkPickTopLevel(mSt->doc, screen, in.mouseX, in.mouseY);
+					// ── DOUBLE-CLIC SUR UN TEXTE = EDITION EN PLACE (31/08) ────
+					// Le double-clic descend deja dans les groupes ; s'il atteint
+					// un noeud TEXTE, il l'edite la ou il est (champ superpose,
+					// Entree valide, Echap annule) au lieu de seulement le
+					// selectionner. Le champ est `NkOverlayTextField` du kit —
+					// la couche du dessous portait deja la saisie superposee.
+					if (in.doubleClick && hit >= 0
+						&& StrEq(mSt->doc.nodes[(uint32)hit].shape.Data(), "text")) {
+						mEditNode = hit;
+						const char *t0 = mSt->doc.nodes[(uint32)hit].text.Data();
+						snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+						mSt->SelectSingle(hit);
+						Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
+						return; // ce double-clic n'arme ni glisser ni rectangle
+					}
 					if (hit < 0) {
 						// Le vide : on vide, et on arme le rectangle de selection.
 						if (!in.ctrl)
@@ -1926,6 +1991,23 @@ namespace nkuidesign {
 			NkRect mZoneModes = {0.f, 0.f, 0.f, 0.f};
 			NkRect mZoneOutils = {0.f, 0.f, 0.f, 0.f};
 			NkRect mZoneCluster = {0.f, 0.f, 0.f, 0.f};
+			/// L'EDITION EN PLACE D'UN TEXTE (test de Rodolf, 31/08 : double-clic
+			/// sur un noeud texte = champ superpose a sa position). -1 = aucune.
+			int32 mEditNode = -1;
+			char mEditBuf[600] = {0};
+
+			/// Ferme l'edition en place : valide (ecrit `text` + MarkHumanEdit)
+			/// ou annule. Les deux sorties se DISENT dans la ligne d'aide.
+			void FermerEditionTexte(bool valider) {
+				if (valider && mSt->doc.IsValidIndex(mEditNode)) {
+					NkUINode &n = mSt->doc.nodes[(uint32)mEditNode];
+					n.text = NkString(mEditBuf);
+					mSt->doc.MarkHumanEdit(mEditNode);
+					Dire("Texte modifié.", "", "");
+				} else if (mEditNode >= 0)
+					Dire("Édition annulée — le texte n'a pas bougé.", "", "");
+				mEditNode = -1;
+			}
 
 			// ═══════════════════════════════════════════════════════════════════
 			//  LES TROIS FLOTTANTS DU PLAN — ils SURPLOMBENT la toile
