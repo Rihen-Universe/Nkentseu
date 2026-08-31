@@ -176,11 +176,158 @@ static void AppliquerTheme(uint32 i) {
 static void CmdSave(void *) {
 	gDesign.SaveDoc();
 }
+// L'ANNULATION UNIFIEE (§7 : « une action Behavior est annulable comme une
+// action Design ») — voir Historique.h : instantanés de sérialisation, un
+// geste = un pas, tout type de geste confondu.
+static void CmdUndo(void *) {
+	gDesign.Annuler();
+}
+static void CmdRedo(void *) {
+	gDesign.Retablir();
+}
 static void CmdLoad(void *) {
 	gDesign.LoadDoc();
 }
 static void CmdNew(void *) {
 	gDesign.BuildStarterDocument();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  --recette-annulation : LA BATTERIE DE PREUVE DE L'ANNULATION (§7)
+// ═════════════════════════════════════════════════════════════════════════════
+// CHAQUE TYPE DE GESTE, suivi d'un Annuler -> serialisation IDENTIQUE OCTET
+// POUR OCTET a l'etat d'avant, puis d'un Retablir -> identique a l'etat
+// d'apres. Contre-epreuve finale : N gestes, N Annuler -> l'etat INITIAL
+// exact. Le MEME mecanisme que l'interface (DesignState::Annuler/Retablir,
+// NkHistorique::Observer), pas une reimplementation de banc — la lecon T5 :
+// un cote de la mesure vient d'ailleurs que du code teste (la serialisation,
+// prouvee par le round-trip). Sans fenetre ni GPU.
+static nkentseu::int32 RecetteAnnulation() {
+	using namespace nkuidesign;
+	using nkentseu::int32;
+	using nkentseu::uint32;
+	auto ser = [](DesignState &s) {
+		NkString o;
+		s.doc.Save(o);
+		return o;
+	};
+	auto identiques = [](const NkString &a, const NkString &b) -> bool {
+		const char *x = a.Data() ? a.Data() : "";
+		const char *y = b.Data() ? b.Data() : "";
+		while (*x && *x == *y) {
+			++x;
+			++y;
+		}
+		return *x == *y;
+	};
+	// L'observateur pousse apres ~6 passages STABLES : on lui donne 10.
+	auto stabiliser = [&](DesignState &s) {
+		for (int32 i = 0; i < 10; ++i) {
+			NkString o;
+			s.doc.Save(o);
+			s.histoire.Observer(o);
+		}
+	};
+	static DesignState st; // static : l'etat est gros, pas sur la pile
+	st.BuildStarterDocument();
+	stabiliser(st);
+	const NkString initial = ser(st);
+	int32 echecs = 0, gestes = 0;
+	NkString avant;
+	auto avantGeste = [&] { avant = ser(st); };
+	auto apresGeste = [&](const char *nom) {
+		stabiliser(st);
+		++gestes;
+		const NkString apres = ser(st);
+		st.Annuler();
+		const bool okU = identiques(ser(st), avant);
+		st.Retablir();
+		const bool okR = identiques(ser(st), apres);
+		printf("%s  %s (annuler %s avant, retablir %s apres)\n",
+			   (okU && okR) ? "OK   " : "ECHEC", nom, okU ? "==" : "!=", okR ? "==" : "!=");
+		if (!okU || !okR)
+			++echecs;
+	};
+
+	// 1. TRACE : poser une forme (le geste de l'outil rectangle).
+	avantGeste();
+	int32 forme = st.doc.AddChild(0, "", NkAuthor::Humain);
+	{
+		NkUINode &n = st.doc.nodes[(uint32)forme];
+		n.label = NkString("Forme recette");
+		n.shape = NkString("rect");
+		n.posX = 10.f;
+		n.posY = 12.f;
+		n.width.mode = NkSizeMode::Fixed;
+		n.width.value = 120.f;
+		n.height.mode = NkSizeMode::Fixed;
+		n.height.value = 60.f;
+		st.doc.MarkHumanEdit(forme);
+	}
+	apresGeste("trace d'une forme");
+	// 2. DEPLACEMENT (le drag entier = un pas : ici sa fin).
+	avantGeste();
+	st.doc.nodes[(uint32)forme].posX += 25.f;
+	st.doc.MarkHumanEdit(forme);
+	apresGeste("deplacement");
+	// 3. REDIMENSION.
+	avantGeste();
+	st.doc.nodes[(uint32)forme].width.value += 40.f;
+	st.doc.MarkHumanEdit(forme);
+	apresGeste("redimension");
+	// 4. RENOMMAGE (l'etiquette = la cle `label`).
+	avantGeste();
+	st.doc.nodes[(uint32)forme].label = NkString("Renommee");
+	st.doc.MarkHumanEdit(forme);
+	apresGeste("renommage");
+	// 5. EDITION DE TEXTE (la cle `texte`).
+	avantGeste();
+	st.doc.nodes[(uint32)forme].shape = NkString("text");
+	st.doc.nodes[(uint32)forme].text = NkString("Bonjour recette");
+	st.doc.MarkHumanEdit(forme);
+	apresGeste("edition de texte");
+	// 6. PROPRIETE D'INSPECTEUR (apparence : fond hexa).
+	avantGeste();
+	st.doc.nodes[(uint32)forme].fill = NkString("#12ab34");
+	st.doc.MarkHumanEdit(forme);
+	apresGeste("propriete d'inspecteur (fond)");
+	// 7. ROLE (le geste « promouvoir »).
+	avantGeste();
+	st.doc.nodes[(uint32)forme].role = NkString("bouton");
+	st.doc.MarkHumanEdit(forme);
+	apresGeste("role");
+	// 8. METRIQUE D'ESPACEMENT (section ESPACEMENT de l'Inspecteur).
+	avantGeste();
+	st.doc.SetMetric("gouttiere_recette", 14.f);
+	st.doc.MarkHumanEdit(0);
+	apresGeste("metrique d'espacement");
+	// 9. VERSION MOBILE (la transposition — un sous-arbre entier en un pas).
+	avantGeste();
+	{
+		NkVector<NkString> constats;
+		const int32 m = st.doc.TransposerVersMobile(forme, constats);
+		if (m >= 0)
+			st.doc.MarkHumanEdit(m);
+	}
+	apresGeste("version mobile (transposition)");
+	// 10. SUPPRESSION d'un sous-arbre (renumerotation comprise — l'instantane
+	//     restaure exactement, indices et tout).
+	avantGeste();
+	st.doc.RemoveSubtree(forme, nullptr);
+	apresGeste("suppression d'un sous-arbre");
+
+	// LA CONTRE-EPREUVE : N gestes, N Annuler -> l'etat initial EXACT.
+	for (int32 i = 0; i < gestes; ++i)
+		st.Annuler();
+	const bool okInitial = identiques(ser(st), initial);
+	printf("%s  %d gestes puis %d Annuler -> etat initial octet pour octet\n",
+		   okInitial ? "OK   " : "ECHEC", gestes, gestes);
+	if (!okInitial)
+		++echecs;
+	// Et le retour : N Retablir -> le dernier etat.
+	printf("RECETTE ANNULATION : %d/%d %s\n", gestes + 1 - echecs, gestes + 1,
+		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
+	return echecs == 0 ? 0 : 1;
 }
 // ⚠️ POSE EN OVERLAY, ET C'EST LE SEUL ENDROIT QUI CONVIENT : il est appele
 //    APRES tous les panneaux, donc tous les rectangles de l'image sont deja
@@ -607,8 +754,12 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	}
 
 	if (BeginMenu(ctx, "Édition")) {
-		MenuItem(ctx, "Annuler", "Ctrl+Z", false);
-		MenuItem(ctx, "Rétablir", "Ctrl+Y", false);
+		// CÂBLÉS depuis l'annulation unifiée (§7) — grisés quand la pile est
+		// vide de leur côté, comme partout.
+		if (MenuItem(ctx, "Annuler", "Ctrl+Z", gDesign.histoire.PeutAnnuler()))
+			CmdUndo(nullptr);
+		if (MenuItem(ctx, "Rétablir", "Ctrl+Y", gDesign.histoire.PeutRetablir()))
+			CmdRedo(nullptr);
 		Separator(ctx);
 		MenuItem(ctx, "Couper", "Ctrl+X", false);
 		MenuItem(ctx, "Copier", "Ctrl+C", false);
@@ -1259,6 +1410,17 @@ int nkmain(const NkEntryState &state) {
 			// maquette ne montre que la toile) : panneaux fermes, rails
 			// retires — l'en-tete de la coquille reste, la paire se cadre sur
 			// la toile et le DIT.
+			// --annuler=N / --retablir=N : N pas d'annulation/retablissement au
+			// lancement (apres les gestes injectes --clic) — le levier de preuve
+			// UI de l'annulation ; la batterie complete est --recette-annulation.
+			if (arg.StartsWith("--annuler=")) {
+				gDesign.annulerInitial = (int32)atof(a + 10);
+				continue;
+			}
+			if (arg.StartsWith("--retablir=")) {
+				gDesign.retablirInitial = (int32)atof(a + 11);
+				continue;
+			}
 			if (arg.StartsWith("--clic=")) {
 				for (int32 ci = 0; ci < 4; ++ci)
 					if (gClics[ci].frame < 0) {
@@ -1373,6 +1535,9 @@ int nkmain(const NkEntryState &state) {
 		//    le tester apres le ferait avaler par la comparaison prefixee.
 		if (NkComponentDecl::StrEq(a, "--roundtrip-controles"))
 			return nkuidesign::guifmt::NkGRunControls();
+		// La batterie de preuve de l'annulation (§7) — sans fenetre ni GPU.
+		if (NkComponentDecl::StrEq(a, "--recette-annulation"))
+			return RecetteAnnulation();
 		// Meme raison que ci-dessus : le pool de chaines du document ne touche ni
 		// au GPU ni a l ecran. Il porte les noms de metrique que le kit declare
 		// en const char* et que personne ne possedait a la relecture.
@@ -1479,6 +1644,9 @@ int nkmain(const NkEntryState &state) {
 			puts(a);
 			puts("drapeaux reconnus :");
 			puts("  --probe                 la sonde headless");
+			puts("  --recette-annulation    la batterie de preuve de l'annulation (§7)");
+			puts("  --annuler=N             N pas d'annulation au lancement (preuve UI)");
+			puts("  --retablir=N            N pas de retablissement apres --annuler");
 			puts("  --recette-ia            la preuve de recette du pipeline IA");
 			puts("  --roundtrip[=<dossier>] l'aller-retour du format .nkgui");
 			puts("  --roundtrip-controles   les temoins du lecteur/ecrivain");
@@ -1883,6 +2051,11 @@ int nkmain(const NkEntryState &state) {
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
 	shell->SetTitleInfo("Dashboard_Admin.nkgui");
 	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");
+	// L'annulation unifiée (§7) : Ctrl+Z / Ctrl+Y, et Ctrl+Maj+Z en seconde
+	// orthographe du rétablir (le standard des trois éditeurs de référence).
+	shell->RegisterCommand("Édition: Annuler", &CmdUndo, nullptr, "Ctrl+Z");
+	shell->RegisterCommand("Édition: Rétablir", &CmdRedo, nullptr, "Ctrl+Y");
+	shell->RegisterCommand("Édition: Rétablir (Maj)", &CmdRedo, nullptr, "Ctrl+Shift+Z");
 	shell->RegisterCommand("Document: Recharger", &CmdLoad, nullptr, "Ctrl+R");
 	shell->RegisterCommand("Document: Nouveau", &CmdNew, nullptr, "Ctrl+N");
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");

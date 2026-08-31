@@ -55,6 +55,7 @@
 
 #include "Canvas.h"
 #include "Costume.h" // le costume exact Banani (polices + icônes, remandat 31/08)
+#include "Historique.h" // l'annulation unifiée (§7) — instantanés de sérialisation
 #include "MenuRole.h" // le menu des rôles (écrans 5-6-7) — le geste « promouvoir »
 #include "Selection.h"
 #include "DesignAI.h"
@@ -514,6 +515,9 @@ namespace nkuidesign {
 				NkBuildBlankDocument(doc);
 				SelectSingle(0);
 				PrendreEtatEnregistre();
+				// L'historique repart du document neuf (on n'annule pas a
+				// travers un Ctrl+N).
+				histoire.Reinitialiser(etatEnregistre);
 				// ⚠️ NE PAS EFFACER LE DIAGNOSTIC DE L ECHEC. C est ce qui a rendu le
 				//    defaut du 28/08 indechiffrable : le chargement echouait, posait
 				//    son message, et la ligne suivante le remplacait par « Document de
@@ -688,8 +692,60 @@ namespace nkuidesign {
 						 doc.NodeCount(), unknown);
 				status = NkString(b);
 				PrendreEtatEnregistre();
+				// L'HISTORIQUE REPART D'ICI : on n'annule pas a travers un
+				// rechargement (etat 0 = ce qui vient d'etre lu).
+				histoire.Reinitialiser(etatEnregistre);
 				return true;
 			}
+
+			// ── L'ANNULATION UNIFIEE (§7 ; cf. Historique.h) ────────────────
+			/// Recharge le document depuis un instantane d'historique. La
+			/// disposition, l'arbre et l'hote resuivent a l'image meme
+			/// (Recompute -> SyncTo) ; la pastille « ● » suit par la mesure de
+			/// DocumentModifie (annuler jusqu'a l'etat sauve la re-eteint) ;
+			/// les tampons d'edition (Inspecteur) se resynchronisent par
+			/// `editionGeneration`.
+			void RechargerDepuis(const NkString &s) {
+				NkUIDocument d2;
+				if (!d2.Load(s.Data() ? s.Data() : ""))
+					return; // un instantane illisible ne detruit rien (jamais vu :
+							// il vient de Save — mais on ne charge pas a moitie)
+				doc = d2;
+				if (!doc.IsValidIndex(selected))
+					SelectClear();
+				host.demoModels.Clear();
+				host.SyncTo(doc);
+				++editionGeneration;
+			}
+			void Annuler() {
+				const NkString *s = histoire.Annuler();
+				if (!s) {
+					DireAuPied("Rien à annuler.");
+					return;
+				}
+				RechargerDepuis(*s);
+				DireAuPied(histoire.PeutAnnuler() ? "Annulé." : "Annulé — début de l'historique.");
+			}
+			void Retablir() {
+				const NkString *s = histoire.Retablir();
+				if (!s) {
+					DireAuPied("Rien à rétablir.");
+					return;
+				}
+				RechargerDepuis(*s);
+				DireAuPied("Rétabli.");
+			}
+
+			/// L'historique d'annulation du document (instantanés de
+			/// sérialisation — voir Historique.h pour la règle un geste = un pas).
+			NkHistorique histoire;
+			/// Incrementee a chaque restauration d'historique : les tampons
+			/// locaux (Inspecteur) se resynchronisent quand elle change.
+			uint32 editionGeneration = 0;
+			/// Mise en scene (--annuler=N / --retablir=N) : N pas au lancement,
+			/// consommes par la toile quand le document est la.
+			int32 annulerInitial = 0;
+			int32 retablirInitial = 0;
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -1171,6 +1227,36 @@ namespace nkuidesign {
 				// changement.
 				if (mSt->titre && (mFramePastille++ % 30u) == 0u)
 					mSt->titre(mSt->titreUser, mSt->DocumentModifie());
+
+				// ── L'OBSERVATEUR D'HISTORIQUE (annulation unifiee, §7) ──────
+				// La serialisation courante, observee a chaque image ;
+				// l'instantane n'est pousse que STABLE (drag lache, frappe en
+				// pause) — un geste = UN pas (Historique.h). Ctrl+Z / Ctrl+Y
+				// passent par les commandes de la coquille (main) ; ici,
+				// seulement l'observation et les leviers de mise en scene.
+				{
+					NkString ser;
+					mSt->doc.Save(ser);
+					mSt->histoire.Observer(ser);
+				}
+				nkgui::NkGuiNoterMesure(ctx, "canvas.histoire",
+										(float32)(mSt->histoire.PeutAnnuler() ? 1 : 0),
+										(float32)(mSt->histoire.PeutRetablir() ? 1 : 0),
+										(float32)mSt->doc.NodeCount(), 0.f);
+				// Leviers --annuler=N / --retablir=N : espaces de 10 images pour
+				// que chaque restauration se voie au releve, apres que les
+				// gestes injectes (--clic, jusqu'a ~la trame 60) ont ete
+				// POUSSES par l'observateur (stabilite ~6 images).
+				++mFrameHistorique;
+				if (mSt->annulerInitial > 0 && mFrameHistorique >= 130
+					&& (mFrameHistorique % 10u) == 0u) {
+					mSt->Annuler();
+					--mSt->annulerInitial;
+				} else if (mSt->annulerInitial == 0 && mSt->retablirInitial > 0
+						   && mFrameHistorique >= 170 && (mFrameHistorique % 10u) == 0u) {
+					mSt->Retablir();
+					--mSt->retablirInitial;
+				}
 
 				if (mSt->selectionInitiale >= 0
 					&& mSt->doc.IsValidIndex(mSt->selectionInitiale)) {
@@ -2295,6 +2381,8 @@ namespace nkuidesign {
 			/// et sa zone de l'image precedente (HandleMouse n'y clique pas).
 			bool mMenuAppareil = false;
 			NkRect mZoneAppareil = {0.f, 0.f, 0.f, 0.f};
+			/// Compteur d'images pour les leviers --annuler/--retablir.
+			uint32 mFrameHistorique = 0;
 
 			/// Ferme l'edition en place : valide (ecrit `text` — ou `label` pour
 			/// une etiquette d'artboard — + MarkHumanEdit) ou annule. Les deux
@@ -5209,8 +5297,11 @@ namespace nkuidesign {
 				}
 				// Le tampon SUIT LA SELECTION : en changer recharge le contenu —
 				// sans ce garde, editer un texte ecrirait dans celui d'avant.
-				if (mTexteNode != mSt->selected) {
+				// (et il suit l'HISTORIQUE : une annulation change le contenu
+				// sans changer la selection — editionGeneration le dit.)
+				if (mTexteNode != mSt->selected || mTexteGen != mSt->editionGeneration) {
 					mTexteNode = mSt->selected;
+					mTexteGen = mSt->editionGeneration;
 					const char *t = n->text.Data();
 					uint32 i = 0;
 					for (; t && t[i] && i + 1 < sizeof(mTexteBuf); ++i)
@@ -5771,9 +5862,11 @@ namespace nkuidesign {
 				if (!n->shape.Empty() || !n->fill.Empty() || !n->textColor.Empty()) {
 					auto &F = costume::Fontes();
 					auto &dl = ctx.DL();
-					// tampons synchronisés sur la sélection (le patron mTexteBuf)
-					if (mApparNode != mSt->selected) {
+					// tampons synchronisés sur la sélection ET l'historique (le
+					// patron mTexteBuf — une annulation les recharge)
+					if (mApparNode != mSt->selected || mApparGen != mSt->editionGeneration) {
 						mApparNode = mSt->selected;
+						mApparGen = mSt->editionGeneration;
 						snprintf(mFondBuf, sizeof(mFondBuf), "%s", n->fill.Data());
 						snprintf(mTexteColBuf, sizeof(mTexteColBuf), "%s", n->textColor.Data());
 						snprintf(mBordColBuf, sizeof(mBordColBuf), "%s", n->borderColor.Data());
@@ -5919,6 +6012,10 @@ namespace nkuidesign {
 			char mFondBuf[12] = {};
 			char mTexteColBuf[12] = {};
 			char mBordColBuf[12] = {};
+			/// Les generations d'historique vues par les tampons (une
+			/// annulation recharge sans changer la selection).
+			uint32 mTexteGen = 0;
+			uint32 mApparGen = 0;
 	};
 
 } // namespace nkuidesign
