@@ -55,6 +55,7 @@
 
 #include "Canvas.h"
 #include "Costume.h" // le costume exact Banani (polices + icônes, remandat 31/08)
+#include "MenuRole.h" // le menu des rôles (écrans 5-6-7) — le geste « promouvoir »
 #include "Selection.h"
 #include "DesignAI.h"
 #include "Renderers.h"
@@ -558,6 +559,12 @@ namespace nkuidesign {
 			float32 vueX = 0.f;
 			float32 vueY = 0.f;
 			float32 vueZ = 1.f;
+			/// Le MENU DES ROLES (écrans 5-6-7) : ouvert par l'onglet Widget,
+			/// dessiné en overlay (main.cpp), il écrit la clé `role` du nœud.
+			menurole::Etat menuRole;
+			/// Mise en scene (--menu-role) : ouvrir le menu au premier passage
+			/// dans la rangee Role (l'ancre vraie, pas une devinee).
+			bool menuRoleInitial = false;
 			/// L'onglet d'Inspecteur demande au lancement (--inspecteur-onglet=,
 			/// mise en scene des ecrans 4/5/6) : -1 = defaut (Design).
 			int32 ongletInitial = -1;
@@ -3264,6 +3271,18 @@ namespace nkuidesign {
 				// ⚠️ UN ONGLET SANS CONTENU REND ZÉRO SECTION, il ne rend pas
 				//    sept sections vides. C'est la charpente qui dira quoi
 				//    afficher à la place (§12.2) — voir `MessageOngletVide`.
+				// L'ONGLET WIDGET : la section RÔLE (écrans 5-6-7 — le geste
+				// « promouvoir ») dès qu'un nœud est sélectionné.
+				if (onglet == 1) {
+					auto *self = static_cast<InspectorPanel *>(user);
+					if (self->NoeudCourant()) {
+						static const editorkit::NkInspectorSection kWidget[] = {
+							{"RÔLE", &CorpsRoleC, false},
+						};
+						count = 1;
+						return kWidget;
+					}
+				}
 				// L'ONGLET BEHAVIOR (écran 4 Banani) : deux sections quand la
 				// sélection porte un RÔLE — le vocabulaire d'événements du rôle,
 				// et les événements ajoutés. Sans rôle : le message historique.
@@ -3653,6 +3672,51 @@ namespace nkuidesign {
 					&& NkGuiRectContains(b, ctx.input.mousePos))
 					mSt->status = NkString(
 						"Nouvel événement : à brancher (le modèle de comportement arrive).");
+			}
+
+			static void CorpsRoleC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsRole(ctx);
+			}
+			/// LA RANGÉE « Rôle » (onglet Widget) : la boîte-combo qui OUVRE le
+			/// menu des rôles (écrans 5-6-7). La valeur est la clé `role` du
+			/// document ; « aucun » sinon.
+			void CorpsRole(NkGuiContext &ctx) {
+				const NkUINode *n = NoeudCourant();
+				if (!n)
+					return;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
+							   "Rôle", ctx.theme.textMuted);
+				const NkRect rb = {x0 + 40.f, r.y + 2.f, x1 - x0 - 40.f, 20.f};
+				BoiteChamp(ctx, rb, n->role.Empty() ? "aucun — choisir…" : n->role.Data());
+				costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 8.f, ctx.theme.textMuted);
+				// (mise en scene) attendre que la mise en page soit posee : au
+				// premier passage, l'ancre serait celle d'un dock pas encore cale.
+				if (mSt->menuRoleInitial && rb.x > (float32)ctx.viewW * 0.5f) {
+					mSt->menuRoleInitial = false;
+					mSt->menuRole.ouvert = true;
+					mSt->menuRole.ancre = rb;
+					mSt->menuRole.vientDOuvrir = true;
+				}
+				if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+					&& NkGuiRectContains(rb, ctx.input.mousePos)) {
+					mSt->menuRole.ouvert = true;
+					mSt->menuRole.ancre = rb;
+					mSt->menuRole.vientDOuvrir = true;
+					mSt->menuRole.filtreFocus = true;
+				}
+				if (!n->role.Empty()) {
+					const NkRect r2 = ctx.NextItemRect(-1.f, 22.f);
+					ctx.BeginDisabled();
+					costume::Texte(dl, F.px10, r2.x + 12.f,
+								   costume::CentrerY(F.px10, r2.y, 22.f),
+								   "Les paramètres du rôle arrivent avec la taxonomie.",
+								   ctx.theme.textMuted);
+					ctx.EndDisabled();
+				}
 			}
 			static void CorpsTypographieC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsTypographie(ctx);
