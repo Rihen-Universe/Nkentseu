@@ -317,6 +317,30 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 			|| ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
 			gDesign.rapportTransposition = false;
 	}
+	// ── GARDE DE DÉCOUPE (classe du 31/08 : « tu ne définis pas bien le
+	//    clipping ») ────────────────────────────────────────────────────────
+	// À cet endroit — après tous les panneaux, avant EndFrame — chaque pile de
+	// découpe doit être revenue à ZÉRO : un panneau qui ouvre un PushClip sans
+	// le refermer laisse SON rectangle en vigueur pour tout ce qui se dessine
+	// après lui, et la panne sort ailleurs (un panneau voisin amputé, un fond
+	// qui « manque »). La mesure est publiée (`garde.decoupe`) pour que
+	// `--dump-ui` la montre, et un déséquilibre se JOURNALISE avec le compte —
+	// jamais réparé en silence (Reset() remet à zéro à l'image suivante, c'est
+	// précisément ce qui rendait la classe invisible).
+	{
+		auto &ui = ec.Ui();
+		nkentseu::int32 fuites = ui.dl.clipDepth + ui.dlOverlay.clipDepth;
+		for (nkentseu::int32 wi = 0; wi < ui.winCount; ++wi)
+			fuites += ui.winDL[wi].clipDepth;
+		nkgui::NkGuiNoterMesure(ui, "garde.decoupe", (float32)fuites, 0.f, 0.f, 0.f);
+		static bool dejaDit = false;
+		if (fuites != 0 && !dejaDit) {
+			dejaDit = true; // une fois par session : un log par image serait du bruit
+			logger.Warn("[NKUIDesign] GARDE DE DECOUPE : {0} PushClip sans PopClip a la fin de "
+						"l'image — un panneau ne referme pas sa decoupe.",
+						fuites);
+		}
+	}
 	nkgui::NkGuiIntrospectEcrire(ec.Ui(), kCheminReleveUI);
 }
 
