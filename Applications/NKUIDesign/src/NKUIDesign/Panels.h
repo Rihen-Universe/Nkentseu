@@ -56,6 +56,7 @@
 #include "Canvas.h"
 #include "Costume.h" // le costume exact Banani (polices + icônes, remandat 31/08)
 #include "Historique.h" // l'annulation unifiée (§7) — instantanés de sérialisation
+#include "MenuFormat.h" // le catalogue des formats de page (chantier Cible, 31/08)
 #include "MenuRole.h" // le menu des rôles (écrans 5-6-7) — le geste « promouvoir »
 #include "Selection.h"
 #include "DesignAI.h"
@@ -591,6 +592,63 @@ namespace nkuidesign {
 			/// Le MENU DES ROLES (écrans 5-6-7) : ouvert par l'onglet Widget,
 			/// dessiné en overlay (main.cpp), il écrit la clé `role` du nœud.
 			menurole::Etat menuRole;
+			/// Le MENU DES FORMATS (catalogue Formats.h) : ouvert par la
+			/// section CIBLE, dessiné en overlay (main.cpp) ; le choix passe
+			/// par AppliquerFormat — une seule main sur le modèle.
+			menuformat::Etat menuFormat;
+
+			/// APPLIQUER UN FORMAT à une page : la cible s'écrit (« <nom> <L> x
+			/// <H> [note] » — la note dpi du papier fait partie de la cible),
+			/// le cadre se REDIMENSIONNE aux pixels RÉELS du format, le contenu
+			/// reste où il est, et les DÉPASSEMENTS sont CONSTATÉS au rapport
+			/// de transposition (écran 27) — le même contrat que la version
+			/// mobile. Annulable en un pas (l'observateur fait le sien).
+			void AppliquerFormat(int32 page, const char *nom, float32 w, float32 h,
+								 const char *note) {
+				if (!doc.IsValidIndex(page) || !nom)
+					return;
+				NkUINode &n = doc.nodes[(uint32)page];
+				char t[96];
+				if (note && *note)
+					snprintf(t, sizeof(t), "%s %d x %d %s", nom, (int32)w, (int32)h, note);
+				else
+					snprintf(t, sizeof(t), "%s %d x %d", nom, (int32)w, (int32)h);
+				n.target = NkString(t);
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = w;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = h;
+				doc.MarkHumanEdit(page);
+				// les dépassements, constatés — enfants directs contre la
+				// nouvelle boîte (le contenu ne bouge pas, c'est le contrat).
+				constatsTransposition.Clear();
+				const NkVector<int32> kids = n.children;
+				for (uint32 i = 0; i < (uint32)kids.Size(); ++i) {
+					if (!doc.IsValidIndex(kids[i]))
+						continue;
+					const NkUINode &c = doc.nodes[(uint32)kids[i]];
+					char b[160];
+					if (c.width.mode == NkSizeMode::Fixed && c.width.value > w) {
+						snprintf(b, sizeof(b),
+								 "\xC2\xAB %s \xC2\xBB : largeur fixe %d > cible %d",
+								 c.label.Data(), (int32)c.width.value, (int32)w);
+						constatsTransposition.PushBack(NkString(b));
+					}
+					if (c.posX < 0.f
+						|| (c.width.mode == NkSizeMode::Fixed && c.posX + c.width.value > w)
+						|| (c.height.mode == NkSizeMode::Fixed && c.posY + c.height.value > h)) {
+						snprintf(b, sizeof(b),
+								 "\xC2\xAB %s \xC2\xBB : position posée hors bornes de la cible",
+								 c.label.Data());
+						constatsTransposition.PushBack(NkString(b));
+					}
+				}
+				char msg[160];
+				snprintf(msg, sizeof(msg),
+						 "Format « %s » appliqué — %d constat(s) au rapport de transposition.",
+						 nom, (int32)constatsTransposition.Size());
+				DireAuPied(msg);
+			}
 			/// Mise en scene (--menu-role) : ouvrir le menu au premier passage
 			/// dans la rangee Role (l'ancre vraie, pas une devinee).
 			bool menuRoleInitial = false;
@@ -4446,20 +4504,32 @@ namespace nkuidesign {
 				return kSections;
 			}
 
-			/// Le CADRE A CIBLE qui contient la selection (ou la selection
+			/// L'INDEX du cadre-page qui contient la selection (ou la selection
 			/// elle-meme) : la reference affiche « Cible du cadre » meme sur un
 			/// bouton — c'est la cible de l'artboard englobant qu'elle montre.
-			const NkUINode *CadreCible() const {
-				const NkUINode *n = NoeudCourant();
-				int32 garde = 0;
+			/// Un cadre de PREMIER NIVEAU compte MEME SANS cible posee (31/08,
+			/// catalogue de formats : une page fraichement tracee doit pouvoir
+			/// en choisir un). -1 si la selection n'est dans aucune page.
+			int32 CadreCibleIndex() const {
 				int32 idx = mSt->selected;
-				while (n && ++garde < 64) {
-					if (StrEq(n->shape.Data(), "frame") && !n->target.Empty())
-						return n;
-					idx = n->parent;
-					n = mSt->doc.IsValidIndex(idx) ? &mSt->doc.nodes[(uint32)idx] : nullptr;
+				int32 garde = 0;
+				while (mSt->doc.IsValidIndex(idx) && ++garde < 64) {
+					const NkUINode &n = mSt->doc.nodes[(uint32)idx];
+					if (StrEq(n.shape.Data(), "frame")) {
+						if (!n.target.Empty())
+							return idx;
+						// premier niveau (enfant de la racine) : page sans format
+						if (mSt->doc.IsValidIndex(n.parent)
+							&& mSt->doc.nodes[(uint32)n.parent].parent < 0)
+							return idx;
+					}
+					idx = n.parent;
 				}
-				return nullptr;
+				return -1;
+			}
+			const NkUINode *CadreCible() const {
+				const int32 i = CadreCibleIndex();
+				return i >= 0 ? &mSt->doc.nodes[(uint32)i] : nullptr;
 			}
 
 			static const char *MessageOngletVide(void *, int32 onglet) noexcept {
@@ -4958,15 +5028,21 @@ namespace nkuidesign {
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
 							   "Cible", ctx.theme.textMuted);
 				const NkRect rb = {x0 + 44.f, r.y + 2.f, x1 - x0 - 44.f, 20.f};
-				// « Mobile 390 x 844 » -> « Mobile — 390 × 844 »
-				char aff[96];
-				{
+				if (n->target.Empty()) {
+					// une page fraichement tracee : le catalogue attend son choix
+					BoiteChamp(ctx, rb, "\xE2\x80\x94 choisir un format\xE2\x80\xA6");
+				} else {
+					// « Full HD 1920 x 1080 » -> « Full HD — 1920 × 1080 » : le
+					// tiret se place AVANT LE PREMIER NOMBRE (les noms a
+					// plusieurs mots du catalogue cassaient l'ancienne regle
+					// « apres le premier espace »).
+					char aff[96];
 					const char *t = n->target.Data();
 					uint32 k = 0;
-					bool premier = true;
-					for (const char *q = t; *q && k + 4 < sizeof(aff); ++q) {
-						if (premier && *q == ' ') {
-							premier = false;
+					bool tiret = false;
+					for (const char *q = t; *q && k + 5 < sizeof(aff); ++q) {
+						if (!tiret && *q == ' ' && q[1] >= '0' && q[1] <= '9') {
+							tiret = true;
 							aff[k++] = ' ';
 							aff[k++] = '\xE2'; // « — »
 							aff[k++] = '\x80';
@@ -4979,9 +5055,19 @@ namespace nkuidesign {
 							aff[k++] = *q;
 					}
 					aff[k] = 0;
+					BoiteChamp(ctx, rb, aff);
 				}
-				BoiteChamp(ctx, rb, aff);
 				costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 8.f, ctx.theme.textMuted);
+				// LE CATALOGUE S'OUVRE ICI (31/08) : cliquer la boîte ouvre le
+				// menu des formats sur la PAGE englobante — il se choisit à la
+				// création (page sans cible) ET se change après, même geste.
+				if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+					&& NkGuiRectContains(rb, ctx.input.mousePos)) {
+					mSt->menuFormat.ouvert = true;
+					mSt->menuFormat.ancre = rb;
+					mSt->menuFormat.vientDOuvrir = true;
+					mSt->menuFormat.page = CadreCibleIndex();
+				}
 			}
 
 			static void CorpsEvenementsRoleC(void *u, NkGuiContext &ctx) {

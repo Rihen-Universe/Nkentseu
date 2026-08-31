@@ -408,6 +408,18 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 		}
 	} else if (gDesign.menuRole.ouvert)
 		gDesign.menuRole.ouvert = false; // plus de selection : le menu se ferme
+	// LE MENU DES FORMATS (catalogue Formats.h, 31/08) — meme couche, meme
+	// patron que le menu des roles ; le choix passe par AppliquerFormat
+	// (cible + redimension + constats au rapport), annulable en un pas.
+	if (gDesign.menuFormat.ouvert && gDesign.doc.IsValidIndex(gDesign.menuFormat.page)) {
+		const nkuidesign::NkUINode &pf =
+			gDesign.doc.nodes[(nkentseu::uint32)gDesign.menuFormat.page];
+		const nkuidesign::menuformat::Choix ch =
+			nkuidesign::menuformat::Dessiner(ec.Ui(), gDesign.menuFormat, pf.target.Data());
+		if (ch.fait)
+			gDesign.AppliquerFormat(gDesign.menuFormat.page, ch.nom, ch.w, ch.h, ch.note);
+	} else if (gDesign.menuFormat.ouvert)
+		gDesign.menuFormat.ouvert = false; // la page a disparu : le menu se ferme
 	// LE RAPPORT DE TRANSPOSITION (ecran 27) : modal honnete — les cibles
 	// REELLES du document, 0 constat tant que la transposition n'existe pas.
 	if (gDesign.rapportTransposition) {
