@@ -3234,13 +3234,35 @@ namespace nkuidesign {
 			/// fois, ici, et la charpente le suit.
 			static const editorkit::NkInspectorSection *SectionsDe(void *user, int32 onglet,
 																   int32 &count) noexcept {
-				(void)user;
 				// ⚠️ UN ONGLET SANS CONTENU REND ZÉRO SECTION, il ne rend pas
 				//    sept sections vides. C'est la charpente qui dira quoi
 				//    afficher à la place (§12.2) — voir `MessageOngletVide`.
 				if (onglet != 0) {
 					count = 0;
 					return nullptr;
+				}
+				// LA SECTION « CIBLE » (écran 3 Banani, sa seule nouveauté qui ne
+				// contredit pas l'InspecteurV2 de l'écran 1) : PREMIÈRE, et
+				// seulement quand la sélection est un ARTBOARD à cible — les
+				// autres nœuds gardent la table de l'écran 1 telle quelle.
+				{
+					auto *self = static_cast<InspectorPanel *>(user);
+					const NkUINode *n = self->NoeudCourant();
+					if (n && StrEq(n->shape.Data(), "frame") && !n->target.Empty()) {
+						static const editorkit::NkInspectorSection kAvecCible[] = {
+							{"CIBLE", &CorpsCibleC, false},
+							{"POSITION", &CorpsPositionC, false},
+							{"TAILLE", &CorpsTailleC, false},
+							{"ESPACEMENT", &CorpsEspacementC, false},
+							{"ANCRAGE", &CorpsAncrageC, false},
+							{"ALIGNEMENT", &CorpsAlignementC, false},
+							{"APPARENCE", &CorpsApparenceC, false},
+							{"BORDS", &CorpsBordsC, false},
+							{"TYPOGRAPHIE", &CorpsTypographieC, false},
+						};
+						count = (int32)(sizeof(kAvecCible) / sizeof(kAvecCible[0]));
+						return kAvecCible;
+					}
 				}
 				// ⚠️ L'ECART AVEC LE PLAN EST CONNU ET NOMME. Le §12.2 du
 				//    document 3 (l. 1682) enumere DIX sections aux noms voisins
@@ -3455,6 +3477,50 @@ namespace nkuidesign {
 			}
 			static void CorpsEspacementC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsEspacement(ctx);
+			}
+			static void CorpsCibleC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsCible(ctx);
+			}
+			/// CIBLE (écran 3) : « Cible du cadre : [Mobile — 390 × 844 v] » —
+			/// la valeur vient de la clé `cible` du document, reformatée à la
+			/// graphie de la maquette (« Mobile 390 x 844 » -> « Mobile — 390
+			/// × 844 »). Boîte-combo STATIQUE : le menu Cible (écran 26) est un
+			/// chantier à part, la place et le costume sont pris.
+			void CorpsCible(NkGuiContext &ctx) {
+				const NkUINode *n = NoeudCourant();
+				if (!n)
+					return;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
+							   "Cible du cadre", ctx.theme.textMuted);
+				const NkRect rb = {x0 + 76.f, r.y + 2.f, x1 - x0 - 76.f, 20.f};
+				// « Mobile 390 x 844 » -> « Mobile — 390 × 844 »
+				char aff[96];
+				{
+					const char *t = n->target.Data();
+					uint32 k = 0;
+					bool premier = true;
+					for (const char *q = t; *q && k + 4 < sizeof(aff); ++q) {
+						if (premier && *q == ' ') {
+							premier = false;
+							aff[k++] = ' ';
+							aff[k++] = '\xE2'; // « — »
+							aff[k++] = '\x80';
+							aff[k++] = '\x94';
+							aff[k++] = ' ';
+						} else if (*q == 'x' && q > t && q[-1] == ' ' && q[1] == ' ') {
+							aff[k++] = '\xC3'; // « × »
+							aff[k++] = '\x97';
+						} else
+							aff[k++] = *q;
+					}
+					aff[k] = 0;
+				}
+				BoiteChamp(ctx, rb, aff);
+				costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 8.f, ctx.theme.textMuted);
 			}
 			static void CorpsTypographieC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsTypographie(ctx);
