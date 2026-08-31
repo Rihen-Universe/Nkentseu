@@ -359,6 +359,12 @@ namespace nkuidesign {
 			/// Vide/0 = « pas posé » : le thème du document (rôles doc_*) prime.
 			NkString fill;		 ///< fond, hexa « #rrggbb » (clé `fond`)
 			NkString textColor;	 ///< couleur du texte, hexa (clé `couleur_texte`)
+			NkString borderColor; ///< couleur du bord, hexa (clé `couleur_bord`)
+			NkString alignText;	 ///< `centre` | `droite` (clé `texte_aligne`) — vide = gauche
+			/// La CIBLE D'APPAREIL d'un artboard (écran 26 « Menu Cible ») :
+			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient
+			/// « <nom> — <cible> ». Vide = l'étiquette historique (nom — L × H).
+			NkString target; ///< clé `cible`
 			float32 radius = 0.f;	 ///< rayon des coins, px (clé `rayon`)
 			float32 borderW = 0.f;	 ///< épaisseur de bord, px (clé `bordure`)
 			float32 fontPx = 0.f;	 ///< corps du texte, px (clé `police_px`) — 0 = défaut
@@ -878,6 +884,12 @@ namespace nkuidesign {
 						Field(out, "fond", n.fill.Data());
 					if (!n.textColor.Empty())
 						Field(out, "couleur_texte", n.textColor.Data());
+					if (!n.borderColor.Empty())
+						Field(out, "couleur_bord", n.borderColor.Data());
+					if (!n.alignText.Empty())
+						Field(out, "texte_aligne", n.alignText.Data());
+					if (!n.target.Empty())
+						Field(out, "cible", n.target.Data());
 					if (n.radius != 0.f) {
 						out.Append("  rayon = ");
 						WriteNum(out, n.radius);
@@ -1039,6 +1051,12 @@ namespace nkuidesign {
 							n.fill = NkString(val);
 						else if (StrEq(key, "couleur_texte"))
 							n.textColor = NkString(val);
+						else if (StrEq(key, "couleur_bord"))
+							n.borderColor = NkString(val);
+						else if (StrEq(key, "texte_aligne"))
+							n.alignText = NkString(val);
+						else if (StrEq(key, "cible"))
+							n.target = NkString(val);
 						else if (StrEq(key, "rayon"))
 							n.radius = ParseNum(val);
 						else if (StrEq(key, "bordure"))
