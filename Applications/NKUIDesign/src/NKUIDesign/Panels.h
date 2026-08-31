@@ -2765,6 +2765,97 @@ namespace nkuidesign {
 	//     basse. Le composant porte les trois premiers ; il leur manque
 	//     seulement d'être alimentés. Le CONTENU s'affine ensuite — ce qui se
 	//     juge aujourd'hui est la place, le titre et les proportions.
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LA BIBLIOTHÈQUE DE COMPOSANTS (écran 9 Banani) — la palette par PROVENANCE
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  Trois groupes : Projet / Importé / Système. Ce qui s'affiche est le
+	//  REGISTRE RÉEL (cadrage Rodolf : les entrées de la maquette sont des
+	//  données de démonstration — on ne les peint pas dans le code). Projet et
+	//  Importé sont vides aujourd'hui et le DISENT ; « Importer un composant… »
+	//  est inerte et le dit. S'ouvre par la pastille du rail droit (tiroir).
+	class BibliothequePanel : public NkEditorPanel {
+		public:
+			explicit BibliothequePanel(DesignState *st)
+				: NkEditorPanel("Bibliothèque", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				designkit::releve::Zone(ctx, "bibliotheque");
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				// ── La recherche (costume : boîte 24 px) ─────────────────────
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 32.f);
+					const NkRect rf = {r.x + 10.f, r.y + 4.f, r.w - 20.f, 24.f};
+					nkentseu::editorkit::NkOverlayTextField(ctx, dl, ctx.font, rf, mRecherche,
+																(int32)sizeof(mRecherche), false);
+					if (!mRecherche[0])
+						costume::Texte(dl, F.px11, rf.x + 8.f,
+									   costume::CentrerY(F.px11, rf.y, rf.h), "Rechercher…",
+									   ctx.theme.textMuted);
+				}
+				Section(ctx, "Projet");
+				Phrase(ctx, "(aucun composant de projet — promouvoir en crée)");
+				Section(ctx, "Importé");
+				Phrase(ctx, "(aucun composant importé)");
+				Section(ctx, "Système");
+				const uint16 n = NkComponentRegistry::Count();
+				for (uint16 c = 0; c < n; ++c) {
+					const NkComponentDecl *d = NkComponentRegistry::At(c);
+					if (!d || !d->name)
+						continue;
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					costume::IcPanneau(dl, r.x + 12.f, r.y + 7.f, ctx.theme.textMuted);
+					costume::Texte(dl, F.px11, r.x + 30.f, costume::CentrerY(F.px11, r.y, 26.f),
+								   d->name, ctx.theme.text);
+					// le compte d'instances RÉEL dans le document (badge « ×N »)
+					int32 compte = 0;
+					for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i)
+						if (StrEq(mSt->doc.nodes[i].component.Data(), d->name))
+							++compte;
+					if (compte > 0) {
+						char b[16];
+						snprintf(b, sizeof(b), "\xC3\x97%d", compte);
+						costume::BadgePilule(dl, F.px9,
+											 r.x + 34.f + costume::Largeur(F.px11, d->name),
+											 r.y + 6.f, 14.f, b, ctx.theme.accent);
+					}
+				}
+				// ── « Importer un composant… » (pied, inerte et il le dit) ───
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 40.f);
+					dl.AddLine({r.x, r.y + 8.f}, {r.x + r.w, r.y + 8.f}, ctx.theme.border, 1.f);
+					costume::Texte(dl, F.px11, r.x + 12.f, r.y + 16.f, "Importer un composant…",
+								   ctx.theme.textMuted);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(r, ctx.input.mousePos))
+						mSt->status = NkString("Importer un composant : à brancher.");
+				}
+			}
+
+		private:
+			void Section(NkGuiContext &ctx, const char *titre) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+				costume::TexteGras(dl, F.px9, r.x + 12.f, r.y + 10.f, titre, ctx.theme.textMuted,
+								   0.4f);
+				const float32 lx = r.x + 12.f + costume::Largeur(F.px9, titre) + 8.f;
+				dl.AddLine({lx, r.y + 15.f}, {r.x + r.w - 12.f, r.y + 15.f}, ctx.theme.border,
+						   1.f);
+			}
+			void Phrase(NkGuiContext &ctx, const char *t) {
+				auto &F = costume::Fontes();
+				const NkRect r = ctx.NextItemRect(-1.f, 22.f);
+				ctx.BeginDisabled();
+				costume::Texte(ctx.DL(), F.px10, r.x + 12.f, costume::CentrerY(F.px10, r.y, 22.f),
+							   t, ctx.theme.textMuted);
+				ctx.EndDisabled();
+			}
+			DesignState *mSt;
+			char mRecherche[64] = {0};
+	};
+
 	class HierarchyPanel : public NkEditorPanel {
 		public:
 			explicit HierarchyPanel(DesignState *st)
