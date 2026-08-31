@@ -2057,6 +2057,14 @@ namespace nkuidesign {
 							forme = ((mCreateX <= in.mouseX) != (mCreateY <= in.mouseY))
 										? "line_up"
 										: "line";
+						else if (mVariante == 3)
+							forme = "triangle"; // vague Lunacy (b), 31/08 :
+						else if (mVariante == 4)
+							forme = "pentagone"; // natures ADDITIVES du §4.2
+						else if (mVariante == 5)
+							forme = "etoile";
+						else if (mVariante == 6)
+							forme = "fleche";
 						else
 							forme = "rect";
 					}
@@ -2408,7 +2416,9 @@ namespace nkuidesign {
 			float32 mCreateX = 0.f, mCreateY = 0.f;
 			float32 mLastX = 0.f, mLastY = 0.f;
 			/// La variante armée de la famille Formes : 0 rectangle, 1 ellipse,
-			/// 2 ligne (Lunacy : R, O, L). Elle est aussi la FACE du bouton.
+			/// 2 ligne (Lunacy : R, O, L), puis la vague (b) du 31/08 —
+			/// 3 triangle, 4 pentagone, 5 étoile, 6 flèche. Elle est aussi la
+			/// FACE du bouton (GlypheForme la dessine).
 			uint32 mVariante = 0;
 			bool mEventailOuvert = false;
 			bool mAideInitiale = false;
@@ -2629,6 +2639,8 @@ namespace nkuidesign {
 									costume::OutilEllipse(dl, ix, iy, g);
 								else if (mVariante == 2)
 									costume::OutilLigne(dl, ix, iy, g);
+								else if (mVariante >= 3) // triangle/pentagone/étoile/flèche
+									GlypheForme(dl, c, mVariante, g);
 								else
 									costume::OutilRect(dl, ix, iy, g);
 								break;
@@ -2657,15 +2669,21 @@ namespace nkuidesign {
 					if (mEventailOuvert) {
 						const NkRect bFormes = {r.x, r.y + 4.f + hb * 2.f, w, hb - 2.f};
 						const float32 vb = 36.f;
-						const NkRect ev = {r.x + w + 6.f, bFormes.y, vb * 3.f + 16.f, vb + 8.f};
+						// SEPT variantes (vague Lunacy (b), 31/08 — l'eventail des
+						// captures 7/8 : formes + fleche) : rectangle, ellipse,
+						// ligne, triangle, pentagone, etoile, fleche.
+						const NkRect ev = {r.x + w + 6.f, bFormes.y, (vb + 4.f) * 7.f + 12.f,
+										   vb + 8.f};
 						mZoneEventail = ev;
 						dl.AddRectFilled(ev, fond, 6.f);
 						dl.AddRect(ev, bord, 1.f, 6.f);
-						static const char *const kVarIds[3] = {"##var_rect", "##var_ellipse",
-															   "##var_ligne"};
-						static const char *const kVarBulles[3] = {"Rectangle (R)", "Ellipse (O)",
-																  "Ligne (L)"};
-						for (uint32 v = 0; v < 3; ++v) {
+						static const char *const kVarIds[7] = {
+							"##var_rect",	  "##var_ellipse", "##var_ligne", "##var_triangle",
+							"##var_pentagone", "##var_etoile",	"##var_fleche"};
+						static const char *const kVarBulles[7] = {
+							"Rectangle (R)", "Ellipse (O)", "Ligne (L)", "Triangle",
+							"Pentagone",	 "Étoile",		"Flèche"};
+						for (uint32 v = 0; v < 7; ++v) {
 							const NkRect cv = {ev.x + 4.f + (vb + 4.f) * (float32)v, ev.y + 4.f,
 											   vb, vb};
 							ctx.SetNextItemRect(cv);
@@ -2777,7 +2795,39 @@ namespace nkuidesign {
 					dl.AddCircle({cx, cy}, s * 0.85f, enc, 1.6f);
 				else if (v == 2)
 					dl.AddLine({cx - s, cy + s * 0.7f}, {cx + s, cy - s * 0.7f}, enc, 2.f);
-				else
+				else if (v == 3) { // triangle (vague Lunacy (b), 31/08)
+					const nkgui::NkVec2 p[4] = {{cx, cy - s},
+												{cx + s, cy + s * 0.8f},
+												{cx - s, cy + s * 0.8f},
+												{cx, cy - s}};
+					dl.AddPolyline(p, 4, enc, 1.6f);
+				} else if (v == 4) { // pentagone
+					const nkgui::NkVec2 p[6] = {{cx, cy - s},
+												{cx + s * 0.95f, cy - s * 0.31f},
+												{cx + s * 0.59f, cy + s * 0.81f},
+												{cx - s * 0.59f, cy + s * 0.81f},
+												{cx - s * 0.95f, cy - s * 0.31f},
+												{cx, cy - s}};
+					dl.AddPolyline(p, 6, enc, 1.6f);
+				} else if (v == 5) { // étoile (5 branches)
+					const nkgui::NkVec2 p[11] = {
+						{cx, cy - s},
+						{cx + s * 0.22f, cy - s * 0.31f},
+						{cx + s * 0.95f, cy - s * 0.31f},
+						{cx + s * 0.36f, cy + s * 0.12f},
+						{cx + s * 0.59f, cy + s * 0.81f},
+						{cx, cy + s * 0.38f},
+						{cx - s * 0.59f, cy + s * 0.81f},
+						{cx - s * 0.36f, cy + s * 0.12f},
+						{cx - s * 0.95f, cy - s * 0.31f},
+						{cx - s * 0.22f, cy - s * 0.31f},
+						{cx, cy - s}};
+					dl.AddPolyline(p, 11, enc, 1.4f);
+				} else if (v == 6) { // flèche
+					dl.AddLine({cx - s, cy}, {cx + s * 0.4f, cy}, enc, 2.f);
+					dl.AddTriangleFilled({cx + s, cy}, {cx + s * 0.2f, cy - s * 0.55f},
+										 {cx + s * 0.2f, cy + s * 0.55f}, enc);
+				} else
 					dl.AddRect({cx - s, cy - s * 0.72f, s * 2.f, s * 1.44f}, enc, 1.6f, 3.f);
 			}
 

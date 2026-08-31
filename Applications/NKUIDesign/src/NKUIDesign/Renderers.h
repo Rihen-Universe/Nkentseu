@@ -499,6 +499,60 @@ namespace nkuidesign {
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), 1.f);
 				return;
 			}
+			// ── LES FORMES DE LA VAGUE LUNACY (b) (31/08 : l'eventail du rail,
+			//    captures 7/8) : triangle / pentagone / etoile / fleche —
+			//    natures ADDITIVES du vocabulaire §4.2 (dites au rapport).
+			//    L'apparence posee prime (`fond`), sinon le role de champ ; un
+			//    peintre sans polygone replie sur le contour VISIBLE (le
+			//    contrat d'Ellipse).
+			if (shape
+				&& (StrEq(shape, "triangle") || StrEq(shape, "pentagone")
+					|| StrEq(shape, "etoile"))) {
+				const uint32 rgba = !n.fill.Empty() ? NkGHexRGBA(n.fill.Data())
+													: p.ColorOf(host.Role("doc_field_bg"));
+				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+				const float32 dx = r.w * 0.5f, dy = r.h * 0.5f;
+				// les sommets UNITAIRES (cercle inscrit, pointe en haut) —
+				// precomputes : pas de trigonometrie a l'execution.
+				static const float32 kTri[6] = {0.f, -1.f, 1.f, 1.f, -1.f, 1.f};
+				static const float32 kPenta[10] = {0.f,		-1.f,	  .9511f, -.3090f, .5878f,
+												   .8090f,	-.5878f, .8090f, -.9511f, -.3090f};
+				static const float32 kEtoile[20] = {
+					0.f,	 -1.f,	  .2246f,  -.3090f, .9511f,	 -.3090f, .3633f,  .1180f,
+					.5878f,	 .8090f,  0.f,	   .3820f,	-.5878f, .8090f,  -.3633f, .1180f,
+					-.9511f, -.3090f, -.2246f, -.3090f};
+				const float32 *unit = StrEq(shape, "triangle") ? kTri
+									  : StrEq(shape, "pentagone") ? kPenta
+																  : kEtoile;
+				const int32 nb = StrEq(shape, "triangle") ? 3
+								 : StrEq(shape, "pentagone") ? 5
+															 : 10;
+				float32 xy[20];
+				for (int32 i = 0; i < nb; ++i) {
+					xy[i * 2] = cx + unit[i * 2] * dx;
+					xy[i * 2 + 1] = cy + unit[i * 2 + 1] * dy;
+				}
+				if (!p.PolygonHex(xy, nb, rgba))
+					p.Outline(r, host.Role("border"), host.Role("input_bg"), 4.f);
+				return;
+			}
+			if (shape && StrEq(shape, "fleche")) {
+				// LA FLECHE : le fut horizontal a mi-hauteur + la pointe pleine
+				// a droite (l'eventail Lunacy « Line ▸ arrow »).
+				const float32 ym = r.y + r.h * 0.5f;
+				const uint32 rgba = !n.fill.Empty() ? NkGHexRGBA(n.fill.Data())
+													: p.ColorOf(host.Role("doc_text"));
+				const float32 tete = r.w * 0.25f < 16.f ? (r.w * 0.25f) : 16.f;
+				bool ok = p.Line(r.x, ym, r.x + r.w - tete * 0.6f, ym, host.Role("doc_text"),
+								 2.f);
+				const float32 xyT[6] = {r.x + r.w,		  ym,
+										r.x + r.w - tete, ym - tete * 0.55f,
+										r.x + r.w - tete, ym + tete * 0.55f};
+				ok = p.PolygonHex(xyT, 3, rgba) && ok;
+				if (!ok)
+					p.Outline(r, host.Role("border"), host.Role("input_bg"), 1.f);
+				return;
+			}
 			if (shape && StrEq(shape, "text")) {
 				// Le TEXTE : son contenu, rien d'autre — ni fond ni cadre. Un
 				// texte vide dessine son libellé de nœud en atténué, sinon une

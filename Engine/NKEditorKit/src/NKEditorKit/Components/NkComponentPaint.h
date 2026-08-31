@@ -237,6 +237,19 @@ namespace nkentseu {
 					return false;
 				}
 
+				// ── AJOUT ADDITIF DU 2026-08-31 (formes Lunacy : triangle,
+				//    pentagone, etoile, fleche — vague (b) du rail) ─────────────
+				/// Polygone PLEIN en couleur rgba (0xRRGGBBAA), points ecran en
+				/// PAIRES (x,y) dans `xy` (2*count valeurs). Vrai si dessine —
+				/// faux : l'appelant peint un repli VISIBLE (le contrat
+				/// d'Ellipse/Line, inchange).
+				virtual bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) {
+					(void)xy;
+					(void)count;
+					(void)rgba;
+					return false;
+				}
+
 				// ── AJOUT ADDITIF DU 2026-08-31 (vocabulaire d'apparence §8ter) ──
 				/// Texte en COULEUR POSEE (l'apparence par element du document),
 				/// avec un corps de police demande en px (0 = celui du peintre) et

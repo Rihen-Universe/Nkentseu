@@ -123,6 +123,30 @@ namespace nkentseu {
 					mCtx.DL().AddLine({x1, y1}, {x2, y2}, C(role), thickness);
 					return true;
 				}
+				/// Polygone plein : EVENTAIL depuis le centroide — couvre les
+				/// convexes ET l'etoile (etoilee par rapport a son centre) ;
+				/// `AddConvexPolyFilled` ne tiendrait pas l'etoile.
+				bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
+					if (!xy || count < 3)
+						return false;
+					float32 cx = 0.f, cy = 0.f;
+					for (int32 i = 0; i < count; ++i) {
+						cx += xy[i * 2];
+						cy += xy[i * 2 + 1];
+					}
+					cx /= (float32)count;
+					cy /= (float32)count;
+					const nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
+												(uint8)((rgba >> 16) & 0xFFu),
+												(uint8)((rgba >> 8) & 0xFFu),
+												(uint8)(rgba & 0xFFu)};
+					for (int32 i = 0; i < count; ++i) {
+						const int32 j = (i + 1) % count;
+						mCtx.DL().AddTriangleFilled({xy[i * 2], xy[i * 2 + 1]},
+													{xy[j * 2], xy[j * 2 + 1]}, {cx, cy}, col);
+					}
+					return true;
+				}
 
 				void PushClip(const NkPaintRect &r) override {
 					mCtx.DL().PushClipRect(R(r), true);
