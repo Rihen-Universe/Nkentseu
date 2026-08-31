@@ -39,6 +39,7 @@ namespace nkentseu {
 					"artboard_bg",
 					"doc_text",
 					"doc_field_bg",
+					"doc_muted",
 				};
 				return kNames;
 			}
@@ -456,6 +457,7 @@ namespace nkentseu {
 			t.Set(NkRole::ArtboardBg, NkTheme::FromHex("#ffffff"));
 			t.Set(NkRole::DocText, NkTheme::FromHex("#1f2328"));
 			t.Set(NkRole::DocFieldBg, NkTheme::FromHex("#f2f4f8"));
+			t.Set(NkRole::DocMuted, NkTheme::FromHex("#656d76"));
 		}
 
 		// ── THEMES LIVRES ───────────────────────────────────────────────────────
@@ -600,6 +602,7 @@ namespace nkentseu {
 			mColors[(uint16)NkRole::ArtboardBg] = NkThemeNonDefini;
 			mColors[(uint16)NkRole::DocText] = NkThemeNonDefini;
 			mColors[(uint16)NkRole::DocFieldBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::DocMuted] = NkThemeNonDefini;
 			mName = NkString("Sombre");
 		}
 

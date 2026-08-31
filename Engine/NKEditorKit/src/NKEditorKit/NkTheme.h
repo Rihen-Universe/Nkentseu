@@ -169,6 +169,11 @@ namespace nkentseu {
 			/// la maquette : gris clair sur cadre blanc). Meme statut provisoire.
 			/// Repli : InputBg.
 			DocFieldBg,
+			/// Texte SECONDAIRE du document (etiquette d'artboard « Connexion —
+			/// Mobile 390 x 844 », libelles de champs : #656d76 dans la maquette,
+			/// un gris de TOILE CLAIRE distinct du TextMuted de l'editeur).
+			/// Repli : DocText. Ajout 31/08, meme regime facultatif-avec-repli.
+			DocMuted,
 
 			Count
 		};
