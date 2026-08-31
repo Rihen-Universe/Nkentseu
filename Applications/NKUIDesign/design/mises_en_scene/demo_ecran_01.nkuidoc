@@ -13,7 +13,7 @@ origine = main
 
 noeud 0
   libelle = Toile
-  enfants = 1 12 41
+  enfants = 1 12 43
   largeur = expand 0 0 0
   hauteur = expand 0 0 0
   agencement = free start start 0
@@ -205,7 +205,7 @@ noeud 11
 
 noeud 12
   libelle = Dashboard
-  enfants = 13 19 22 25 28
+  enfants = 13 21 24 27 30
   largeur = fixed 560 0 0
   hauteur = fixed 340 0 0
   agencement = free start start 0
@@ -219,13 +219,13 @@ noeud 12
 
 noeud 13
   libelle = Panel_Nav
-  enfants = 14 15 16 17 18
+  enfants = 14 15 16 17 18 19 20
   largeur = fixed 56 0 0
   hauteur = fixed 308 0 0
   agencement = free start start 0
   position = 16 16
   forme = rect
-  fond = #d8dce4
+  fond = #e4e8ef
   rayon = 3
   auteur = humain
   verifiee = 0
@@ -238,7 +238,7 @@ noeud 14
   largeur = fixed 40 0 0
   hauteur = fixed 10 0 0
   agencement = none start start 0
-  position = 8 8
+  position = 8 12
   forme = text
   texte = NAV
   couleur_texte = #656d76
@@ -250,47 +250,47 @@ noeud 14
   origine = main
 
 noeud 15
-  libelle = Nav Home
+  libelle = Nav Home actif
   enfants =
-  largeur = fixed 40 0 0
-  hauteur = fixed 12 0 0
+  largeur = fixed 48 0 0
+  hauteur = fixed 18 0 0
   agencement = none start start 0
-  position = 8 22
-  forme = text
-  texte = Home
-  couleur_texte = #1f2328
-  police_px = 9
+  position = 4 33
+  forme = rect
+  fond = #dbeafe
+  rayon = 4
   auteur = humain
   verifiee = 0
   corrigee = 0
   origine = main
 
 noeud 16
-  libelle = Nav Users
+  libelle = Nav Home
   enfants =
   largeur = fixed 40 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
-  position = 8 39
+  position = 8 36
   forme = text
-  texte = Users
-  couleur_texte = #1f2328
+  texte = Home
+  couleur_texte = #0969da
   police_px = 9
+  graisse = 600
   auteur = humain
   verifiee = 0
   corrigee = 0
   origine = main
 
 noeud 17
-  libelle = Nav Prod
+  libelle = Nav Users
   enfants =
   largeur = fixed 40 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
-  position = 8 56
+  position = 8 63
   forme = text
-  texte = Prod
-  couleur_texte = #1f2328
+  texte = Users
+  couleur_texte = #656d76
   police_px = 9
   auteur = humain
   verifiee = 0
@@ -298,15 +298,15 @@ noeud 17
   origine = main
 
 noeud 18
-  libelle = Nav Logs
+  libelle = Nav Products
   enfants =
-  largeur = fixed 40 0 0
+  largeur = fixed 44 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
-  position = 8 73
+  position = 8 90
   forme = text
-  texte = Logs
-  couleur_texte = #1f2328
+  texte = Products
+  couleur_texte = #656d76
   police_px = 9
   auteur = humain
   verifiee = 0
@@ -314,8 +314,40 @@ noeud 18
   origine = main
 
 noeud 19
+  libelle = Nav Logs
+  enfants =
+  largeur = fixed 40 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 8 117
+  forme = text
+  texte = Logs
+  couleur_texte = #656d76
+  police_px = 9
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 20
+  libelle = Nav Settings
+  enfants =
+  largeur = fixed 44 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 8 144
+  forme = text
+  texte = Settings
+  couleur_texte = #656d76
+  police_px = 9
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 21
   libelle = Carte_Actifs
-  enfants = 20 21
+  enfants = 22 23
   largeur = fixed 148 0 0
   hauteur = fixed 44 0 0
   agencement = free start start 0
@@ -329,7 +361,7 @@ noeud 19
   corrigee = 0
   origine = main
 
-noeud 20
+noeud 22
   libelle = Libellé actifs
   enfants =
   largeur = fixed 130 0 0
@@ -346,7 +378,7 @@ noeud 20
   corrigee = 0
   origine = main
 
-noeud 21
+noeud 23
   libelle = Valeur actifs
   enfants =
   largeur = fixed 130 0 0
@@ -363,9 +395,9 @@ noeud 21
   corrigee = 0
   origine = main
 
-noeud 22
+noeud 24
   libelle = Carte_Revenu
-  enfants = 23 24
+  enfants = 25 26
   largeur = fixed 148 0 0
   hauteur = fixed 44 0 0
   agencement = free start start 0
@@ -379,7 +411,7 @@ noeud 22
   corrigee = 0
   origine = main
 
-noeud 23
+noeud 25
   libelle = Libellé revenu
   enfants =
   largeur = fixed 130 0 0
@@ -396,7 +428,7 @@ noeud 23
   corrigee = 0
   origine = main
 
-noeud 24
+noeud 26
   libelle = Valeur revenu
   enfants =
   largeur = fixed 130 0 0
@@ -413,9 +445,9 @@ noeud 24
   corrigee = 0
   origine = main
 
-noeud 25
+noeud 27
   libelle = Carte_Attrition
-  enfants = 26 27
+  enfants = 28 29
   largeur = fixed 148 0 0
   hauteur = fixed 44 0 0
   agencement = free start start 0
@@ -429,7 +461,7 @@ noeud 25
   corrigee = 0
   origine = main
 
-noeud 26
+noeud 28
   libelle = Libellé attrition
   enfants =
   largeur = fixed 130 0 0
@@ -446,7 +478,7 @@ noeud 26
   corrigee = 0
   origine = main
 
-noeud 27
+noeud 29
   libelle = Valeur attrition
   enfants =
   largeur = fixed 130 0 0
@@ -463,9 +495,9 @@ noeud 27
   corrigee = 0
   origine = main
 
-noeud 28
+noeud 30
   libelle = Graphique
-  enfants = 29 30 31 32 33 34 35 36 37 38 39 40
+  enfants = 31 32 33 34 35 36 37 38 39 40 41 42
   largeur = fixed 460 0 0
   hauteur = fixed 256 0 0
   agencement = free start start 0
@@ -479,7 +511,7 @@ noeud 28
   corrigee = 0
   origine = main
 
-noeud 29
+noeud 31
   libelle = Barre 1
   enfants =
   largeur = fixed 34 0 0
@@ -494,7 +526,7 @@ noeud 29
   corrigee = 0
   origine = main
 
-noeud 30
+noeud 32
   libelle = Barre 2
   enfants =
   largeur = fixed 34 0 0
@@ -509,7 +541,7 @@ noeud 30
   corrigee = 0
   origine = main
 
-noeud 31
+noeud 33
   libelle = Barre 3
   enfants =
   largeur = fixed 34 0 0
@@ -524,7 +556,7 @@ noeud 31
   corrigee = 0
   origine = main
 
-noeud 32
+noeud 34
   libelle = Barre 4
   enfants =
   largeur = fixed 34 0 0
@@ -539,7 +571,7 @@ noeud 32
   corrigee = 0
   origine = main
 
-noeud 33
+noeud 35
   libelle = Barre 5
   enfants =
   largeur = fixed 34 0 0
@@ -554,7 +586,7 @@ noeud 33
   corrigee = 0
   origine = main
 
-noeud 34
+noeud 36
   libelle = Barre 6
   enfants =
   largeur = fixed 34 0 0
@@ -569,7 +601,7 @@ noeud 34
   corrigee = 0
   origine = main
 
-noeud 35
+noeud 37
   libelle = Barre 7
   enfants =
   largeur = fixed 34 0 0
@@ -584,7 +616,7 @@ noeud 35
   corrigee = 0
   origine = main
 
-noeud 36
+noeud 38
   libelle = Barre 8
   enfants =
   largeur = fixed 34 0 0
@@ -599,7 +631,7 @@ noeud 36
   corrigee = 0
   origine = main
 
-noeud 37
+noeud 39
   libelle = Barre 9
   enfants =
   largeur = fixed 34 0 0
@@ -614,7 +646,7 @@ noeud 37
   corrigee = 0
   origine = main
 
-noeud 38
+noeud 40
   libelle = Barre 10
   enfants =
   largeur = fixed 34 0 0
@@ -629,7 +661,7 @@ noeud 38
   corrigee = 0
   origine = main
 
-noeud 39
+noeud 41
   libelle = Barre 11
   enfants =
   largeur = fixed 34 0 0
@@ -644,7 +676,7 @@ noeud 39
   corrigee = 0
   origine = main
 
-noeud 40
+noeud 42
   libelle = Barre 12
   enfants =
   largeur = fixed 34 0 0
@@ -659,7 +691,7 @@ noeud 40
   corrigee = 0
   origine = main
 
-noeud 41
+noeud 43
   libelle = Paramètres
   enfants =
   largeur = fixed 240 0 0
