@@ -1340,8 +1340,10 @@ namespace nkuidesign {
 					// d'editeur : jamais dans le document, jamais dans les essais
 					// 41. Le glisser des bords droit/bas redimensionne deja ; les
 					// poignees RENDENT VISIBLE ou tirer.
-					const float32 hp = 7.f;
-					const uint16 fondP = NkDesignResolveRole("window_bg");
+					// COSTUME BANANI EXACT (JSX ResizeHandle) : poignees 6x6 BLANCHES
+					// au bord accent — le blanc est celui de la maquette, pas un
+					// role d'editeur (la selection vit sur l'artboard clair).
+					const float32 hp = 6.f;
 					const float32 xs[3] = {rs.x - hp * 0.5f, rs.x + rs.w * 0.5f - hp * 0.5f,
 										   rs.x + rs.w - hp * 0.5f};
 					const float32 ys[3] = {rs.y - hp * 0.5f, rs.y + rs.h * 0.5f - hp * 0.5f,
@@ -1351,13 +1353,34 @@ namespace nkuidesign {
 							if (gx == 1 && gy == 1)
 								continue; // pas de poignee au centre
 							const NkPaintRect ph{xs[gx], ys[gy], hp, hp};
-							paint.Fill(ph, fondP, 0.f);
+							paint.FillColor(ph, 0xFFFFFFFFu, 0.f);
 							paint.OutlineSharp(ph, accent);
 						}
-					// LA PUCE DE TAILLE (Lunacy : « 932 × 552 » sous l'élément,
-					// fond accent) — les dimensions DOCUMENT, celles que le
-					// fichier écrira, jamais des pixels d'écran.
-					if (mSt->layout.Has(mSt->selected)) {
+					// LE BADGE DE ROLE (Banani RoleBadge) : pilule 9 px au-dessus a
+					// gauche de la selection, en FRANCAIS sur la toile (la maquette
+					// ecrit « Bouton » sur la toile et « Button » dans l'arbre).
+					{
+						const NkUINode &sel = mSt->doc.nodes[(uint32)mSt->selected];
+						if (!sel.role.Empty()) {
+							const char *affiche = sel.role.Data();
+							if (StrEq(affiche, "Button"))
+								affiche = "Bouton";
+							const uint32 teinte = paint.ColorOf(accent);
+							char btxt[48];
+							snprintf(btxt, sizeof(btxt), "%s", affiche);
+							// largeur mesurée sur la vraie police 9 px du costume
+							const float32 bw = 12.f + costume::Largeur(costume::Fontes().px9, btxt);
+							const NkPaintRect pb{rs.x, rs.y - 19.f, bw, 16.f};
+							paint.FillColor(pb, (teinte & 0xFFFFFF00u) | 0x22u, 8.f);
+							paint.TextHex({pb.x + 6.f, pb.y, pb.w, pb.h}, btxt, teinte, accent,
+										  editorkit::NkTextAlign::Left, 9.f, 600.f);
+						}
+					}
+					// LA PUCE DE TAILLE (Lunacy) : pendant un GESTE seulement — au
+					// repos, la maquette Banani ne la montre pas (le badge de role
+					// occupe la scene) ; en glisser/redimensionnement elle reste
+					// l'instrument demande par Rodolf (ref_lunacy_toile).
+					if ((mDragging || mResizeEdges != 0) && mSt->layout.Has(mSt->selected)) {
 						const NkPaintRect rd = mSt->layout.At(mSt->selected);
 						PuceTaille(paint, rs, rd.w, rd.h);
 					}
@@ -2898,9 +2921,12 @@ namespace nkuidesign {
 				//    projet ne sont pas des nœuds du document, leur index ne veut
 				//    rien dire pour `DesignState::selected`.
 				if (res.selectionChanged && &modele == &mModelePages) {
-					const int32 i = modele.IndexOf(modele.active);
-					if (i >= 0)
-						mSt->SelectSingle(i);
+					// ⚠️ L'ID du modèle EST « index document + 1 » (posé par
+					//    SyncPages) : c'est LUI qui traduit, plus l'index du
+					//    modèle — la racine sautée a décalé les indices.
+					if (modele.active > 0
+						&& mSt->doc.IsValidIndex((int32)modele.active - 1))
+						mSt->SelectSingle((int32)modele.active - 1);
 					else
 						mSt->SelectClear();
 				}
@@ -2947,11 +2973,21 @@ namespace nkuidesign {
 			void SyncPages() {
 				mModelePages.nodes.Clear();
 				const uint32 n = (uint32)mSt->doc.nodes.Size();
+				// COSTUME BANANI : la RACINE ne s'affiche pas (Lunacy et la maquette
+				// commencent aux PAGES ; la racine se surligne ailleurs). Les ids
+				// restent i+1 — seule la parenté du modèle saute l'étage racine.
 				for (uint32 i = 0; i < n; ++i) {
 					const NkUINode &d = mSt->doc.nodes[i];
+					if (d.parent < 0)
+						continue; // la racine
 					NkTreeNode t;
 					t.id = (nkentseu::nk_uint64)(i + 1);
-					t.parent = d.parent;
+					// ⚠️ `parent` du modèle = INDEX DE MODÈLE : la racine sautée
+					//    décale tout d'un cran (doc i -> modèle i-1).
+					t.parent = (mSt->doc.IsValidIndex(d.parent)
+								&& mSt->doc.nodes[(uint32)d.parent].parent < 0)
+								   ? -1
+								   : d.parent - 1;
 					t.label = d.label.Empty() ? NkString(d.component.Empty() ? "(cadre)"
 																			: d.component.Data())
 											  : d.label;
@@ -2989,6 +3025,22 @@ namespace nkuidesign {
 								 "ou dépasse kMaxDepth={0}. L'arbre s'affichera dans un ordre "
 								 "surprenant -- ce n'est pas un défaut du composant.",
 								 (int32)NkTreeViewModel::kMaxDepth);
+				}
+				// COSTUME BANANI (31/08) : les SOUS-CONTENEURS d'un artboard
+				// démarrent repliés — la maquette montre des pages dépliées à
+				// leurs enfants directs, pas l'arborescence entière (les douze
+				// barres du graphique noieraient l'arbre). UNE fois : l'état
+				// d'ouverture appartient ensuite à l'utilisateur.
+				if (mPlierUneFois && !mModelePages.nodes.Empty()) {
+					mPlierUneFois = false;
+					const uint32 nd = (uint32)mSt->doc.nodes.Size();
+					for (uint32 i = 0; i < nd; ++i) {
+						const NkUINode &d = mSt->doc.nodes[i];
+						if (d.children.Empty() || d.parent < 0)
+							continue;
+						if (mSt->doc.nodes[(uint32)d.parent].parent >= 0)
+							mModelePages.SetOpen((nkentseu::nk_uint64)(i + 1), false, true);
+					}
 				}
 				// La sélection est UNE (§11.5) : elle vit dans `DesignState`.
 				mModelePages.active =
@@ -3047,6 +3099,7 @@ namespace nkuidesign {
 			NkComponentInstance mInstComposants;
 			char mFiltre[128] = {0};
 			bool mFiltreVisible = false; // la loupe déplie le filtre (costume Banani)
+			bool mPlierUneFois = true;	 // repli initial des sous-conteneurs (une fois)
 			bool mCriPages = false;
 			bool mCriRegistre = false;
 	};
