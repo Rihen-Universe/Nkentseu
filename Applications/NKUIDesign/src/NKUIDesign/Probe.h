@@ -105,6 +105,40 @@ namespace nkuidesign {
 			}
 	};
 
+	/// L'ARBRE de demonstration DE LA SONDE — sa propre copie, comme
+	/// `FillDemoModel` : l'application charge desormais le sien depuis une
+	/// RESSOURCE (cadrage 31/08), et un cote de la mesure doit venir
+	/// d'ailleurs que du code teste.
+	inline void ProbeFillDemoTree(nkentseu::editorkit::NkTreeViewModel &t) {
+		struct Row {
+				nkentseu::int32 parent;
+				const char *label;
+				const char *kind;
+		};
+		static const Row kRows[] = {
+			{-1, "Scene", "racine"},	  {0, "Environnement", "groupe"},
+			{1, "Soleil", "lumiere"},	  {1, "Ciel", "lumiere"},
+			{0, "Decor", "groupe"},		  {4, "Sol", "maillage"},
+			{4, "Rocher", "maillage"},	  {4, "Caisse", "maillage"},
+			{0, "Personnages", "groupe"}, {8, "Heros", "maillage"},
+			{9, "Squelette", "os"},		  {8, "Garde", "maillage"},
+		};
+		t.nodes.Clear();
+		for (nkentseu::uint32 i = 0; i < sizeof(kRows) / sizeof(kRows[0]); ++i) {
+			nkentseu::editorkit::NkTreeNode n;
+			n.id = (nkentseu::nk_uint64)(i + 1);
+			n.parent = kRows[i].parent;
+			n.label = NkString(kRows[i].label);
+			n.path = NkString("/scene/");
+			n.path.Append(kRows[i].label);
+			n.kindLabel = kRows[i].kind;
+			n.kindRole = NkDocumentHost::RoleOfKind(kRows[i].kind);
+			t.nodes.PushBack(n);
+		}
+		t.active = 6;
+		t.chosen.PushBack(6);
+	}
+
 	inline void FillDemoModel(NkContentBrowserModel &m) {
 		struct Row {
 				const char *name;
@@ -1798,7 +1832,7 @@ namespace nkuidesign {
 		//    une mesure : on exerce le clic.
 		{
 			NkTreeViewModel t;
-			NkDocumentHost::FillDemoTree(t);
+			ProbeFillDemoTree(t);
 			NkTreeViewStyle st;
 			st.values = nullptr; // les defauts declares suffisent
 
@@ -1890,7 +1924,7 @@ namespace nkuidesign {
 			NkTreeViewStyle avecIcones = st;
 			avecIcones.icons = mien;
 			NkTreeViewModel t2;
-			NkDocumentHost::FillDemoTree(t2);
+			ProbeFillDemoTree(t2);
 			const NkComponentInput repos;
 			NkRecordingPaint ouvert;
 			nkentseu::editorkit::NkDrawTreeView(ouvert, repos, {0.f, 0.f, 320.f, 400.f}, t2,
