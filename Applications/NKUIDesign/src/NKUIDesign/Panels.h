@@ -2707,15 +2707,27 @@ namespace nkuidesign {
 				mInstPages.SetParam("show_header", 0.f);
 				mInstComposants.SetParam("show_header", 0.f);
 				mInstComposants.SetParam("show_footer", 0.f);
-				// La planche montre les filets d'indentation ; ils sont à 0 par
-				// défaut dans la déclaration.
-				mInstPages.SetParam("indent_guides", 1.f);
-				// HierarchyPanel V2 (Banani §1.4) : rangee de 22 px, indentation
-				// 14 par niveau (le defaut de la declaration est deja 14). Une
-				// METRIQUE D'INSTANCE : la declaration partagee (NK3DModeler)
-				// garde son 24 -- personne d'autre ne bouge.
+				mInstPages.SetParam("show_footer", 0.f); // Banani : pas de pied compteur
+				// COSTUME BANANI (31/08) : pas de filets d'indentation dans la
+				// maquette — et ses mesures de rangée : hauteur 22, marge 8,
+				// chevron 9 (+4 d'écart -> case 13), icône 11 (+4 -> case 15).
+				// METRIQUES D'INSTANCE : la déclaration partagée (NK3DModeler)
+				// garde les siennes — personne d'autre ne bouge.
+				mInstPages.SetParam("indent_guides", 0.f);
+				// L'œil de visibilité : la maquette ne le montre qu'AU SURVOL, à
+				// DROITE (opacity-0 group-hover) — le composant ne porte que la
+				// colonne permanente à gauche. Elle est donc retirée (écart nommé :
+				// « œil/cadenas au survol » = chantier du composant tree_view).
+				mInstPages.SetParam("show_visibility", 0.f);
+				mInstComposants.SetParam("show_visibility", 0.f);
 				mInstPages.SetMetric("row_h", 22.f);
 				mInstComposants.SetMetric("row_h", 22.f);
+				mInstPages.SetMetric("row_pad", 8.f);
+				mInstComposants.SetMetric("row_pad", 8.f);
+				mInstPages.SetMetric("chevron_w", 13.f);
+				mInstComposants.SetMetric("chevron_w", 13.f);
+				mInstPages.SetMetric("icon_w", 15.f);
+				mInstComposants.SetMetric("icon_w", 15.f);
 			}
 
 			void OnUI(NkEditorFrameContext &ec) override {
@@ -2725,8 +2737,30 @@ namespace nkuidesign {
 				SyncPages();
 				SyncComposants();
 
-				// ── LA LOUPE, UNE SEULE POUR LES DEUX SECTIONS ───────────────
-				InputText(ctx, "Filtrer", mFiltre, (int32)sizeof(mFiltre));
+				// ── L'EN-TÊTE BANANI : « Hiérarchie » 12 px 600 + LOUPE (34 px) ──
+				// La maquette ne montre PAS de champ de filtre : la loupe le
+				// DÉPLIE (le geste reste à un clic, le costume reste exact).
+				{
+					auto &F = costume::Fontes();
+					auto &dl = ctx.DL();
+					const NkRect e = ctx.NextItemRect(-1.f, 34.f);
+					costume::TexteGras(dl, F.px12, e.x + 12.f,
+									   costume::CentrerY(F.px12, e.y, 34.f), "Hiérarchie",
+									   ctx.theme.text, 0.5f);
+					const NkRect rl = {e.x + e.w - 12.f - 13.f, e.y + (34.f - 13.f) * 0.5f, 13.f,
+									   13.f};
+					costume::IcLoupe(dl, rl.x, rl.y, ctx.theme.textMuted);
+					dl.AddLine({e.x, e.y + 34.f - 0.5f}, {e.x + e.w, e.y + 34.f - 0.5f},
+							   ctx.theme.border, 1.f);
+					const NkRect zl = {rl.x - 4.f, e.y, 21.f, 34.f};
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(zl, ctx.input.mousePos))
+						mFiltreVisible = !mFiltreVisible;
+				}
+				if (mFiltreVisible)
+					InputText(ctx, "Filtrer", mFiltre, (int32)sizeof(mFiltre));
+				else
+					mFiltre[0] = 0; // replié = plus de filtre actif (état visible)
 				CopyFiltre(mModelePages.filter, sizeof(mModelePages.filter));
 				CopyFiltre(mModeleComposants.filter, sizeof(mModeleComposants.filter));
 
@@ -2754,11 +2788,24 @@ namespace nkuidesign {
 					hBas = 220.f;
 				if (hBas < 90.f)
 					hBas = 90.f;
-				const float32 hHaut = restant - hBas - 2.f * kBandeH - 8.f;
+				float32 hHaut = restant - hBas - 2.f * kBandeH - 8.f;
+				// COSTUME BANANI : les sections SE SUIVENT — quand l'arbre tient,
+				// « COMPOSANTS » vient juste dessous (la maquette), pas au tiers
+				// bas. L'arbre profond garde l'ancien partage.
+				const float32 hPages =
+					(float32)mModelePages.nodes.Size() * 22.f + 6.f; // tout déplié
+				if (hPages < hHaut)
+					hHaut = hPages;
 
 				BandeDeSection(ctx, "PAGES", "hier.pages.plus");
 				DessinerArbre(ctx, mModelePages, mInstPages, hHaut > 60.f ? hHaut : 60.f, "pages");
 
+				// le filet de séparation de la maquette (mt-2, border-t)
+				{
+					const NkRect fs = ctx.NextItemRect(-1.f, 9.f);
+					ctx.DL().AddLine({fs.x, fs.y + 8.f}, {fs.x + fs.w, fs.y + 8.f},
+									 ctx.theme.border, 1.f);
+				}
 				BandeDeSection(ctx, "COMPOSANTS", "hier.composants.plus");
 				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
 			}
@@ -2770,11 +2817,20 @@ namespace nkuidesign {
 			/// ⚠️ Assemblage de primitives NKGui, pas un widget de plus : un titre
 			///    et un bouton posés à des rectangles explicites.
 			void BandeDeSection(NkGuiContext &ctx, const char *titre, const char *id) {
+				// COSTUME BANANI : libellé MAJUSCULES 10 px 600 `text_muted` à
+				// gauche (marge 8), « + » 14 px à droite (marge 8) — dessinés au
+				// trait, le clic pris à la main (un Button repeindrait son fond).
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
 				const NkRect r = ctx.NextItemRect(-1.f, kBandeH);
-				ctx.SetNextItemRect({r.x, r.y, r.w - kBandeH - 4.f, r.h});
-				Text(ctx, titre);
-				ctx.SetNextItemRect({r.x + r.w - kBandeH, r.y, kBandeH, r.h});
-				if (Button(ctx, "+"))
+				costume::TexteGras(dl, F.px10, r.x + 8.f, costume::CentrerY(F.px10, r.y, r.h),
+								   titre, ctx.theme.textMuted, 0.4f);
+				const float32 wp = costume::Largeur(F.px15, "+");
+				const NkRect rp = {r.x + r.w - 8.f - wp - 6.f, r.y, wp + 6.f, r.h};
+				costume::Texte(dl, F.px15, rp.x + 3.f, costume::CentrerY(F.px15, r.y, r.h), "+",
+							   ctx.theme.textMuted);
+				if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+					&& NkGuiRectContains(rp, ctx.input.mousePos))
 					mSt->status = NkString("[+] de la section : à brancher (le geste "
 										   "de création n'existe pas encore).");
 				(void)id;
@@ -2802,8 +2858,33 @@ namespace nkuidesign {
 
 				NkDesignPaint paint(ctx, mSt->theme);
 				const NkPaintRect r = {zone.x, zone.y, zone.w, zone.h};
+				// ── LE BADGE DE RÔLE EN PILULE (Banani §1.4) — par le point de
+				//    greffe `rowOverlay` que le composant porte DÉJÀ (porte du
+				//    28/08 : la couche du dessous d'abord — aucun kit à changer).
+				//    `kindLabel` porte le NOM DU RÔLE (vide = pas de pilule).
+				struct Sur {
+						NkGuiContext *ctx;
+						NkTreeViewModel *modele;
+				} sur{&ctx, &modele};
+				NkTreeViewHooks hooks;
+				hooks.user = &sur;
+				hooks.rowOverlay = [](void *u, nkentseu::editorkit::NkComponentPaint &p,
+									  int32 index, float32 x, float32 y, float32, float32 h) {
+					auto *s = static_cast<Sur *>(u);
+					const NkTreeNode &n = s->modele->nodes[index];
+					if (!n.kindLabel || !n.kindLabel[0])
+						return;
+					int32 depth = 0;
+					for (int32 pa = n.parent; pa >= 0; pa = s->modele->nodes[pa].parent)
+						++depth;
+					const float32 lw = p.TextWidth(n.label.CStr());
+					const float32 bx = x + 8.f + (float32)depth * 14.f + 13.f + 15.f + lw + 5.f;
+					auto &F = costume::Fontes();
+					costume::BadgePilule(s->ctx->DL(), F.px9, bx, y + (h - 14.f) * 0.5f, 14.f,
+										 n.kindLabel, s->ctx->theme.accent);
+				};
 				const NkTreeViewResult res = nkentseu::editorkit::NkDrawTreeView(
-					paint, in, r, modele, Style(inst), NkTreeViewHooks{});
+					paint, in, r, modele, Style(inst), hooks);
 
 				// ⚠️ LA BOUCLE SE REFERME ICI, ET SON ABSENCE ETAIT UN DEFAUT REEL.
 				//    `SyncPages` recopie `DesignState::selected` dans le modele a
@@ -2875,9 +2956,26 @@ namespace nkuidesign {
 																			: d.component.Data())
 											  : d.label;
 					t.path = t.label;
-					t.kindLabel = d.component.Empty() ? "cadre" : d.component.Data();
-					// La pastille de rôle de la planche : la NATURE du nœud.
-					t.kindRole = NkDesignResolveRole(d.component.Empty() ? "text_muted" : "accent_ui");
+					// COSTUME BANANI : `kindLabel` porte le NOM DU RÔLE du nœud —
+					// c'est lui que la pilule affiche (vide = pas de pilule).
+					t.kindLabel = d.role.Empty() ? "" : d.role.Data();
+					// L'icône de NATURE (tracés du JSX) : page pour un artboard,
+					// « T » pour un texte, pilule-bouton pour un élément à rôle,
+					// panneau pour le reste. Teinte : accent quand le nœud porte
+					// un rôle ou est un artboard ouvert — la maquette teinte les
+					// deux —, `text_muted` sinon.
+					const bool artboard = NkComponentDecl::StrEq(d.shape.Data(), "frame");
+					const bool texte = NkComponentDecl::StrEq(d.shape.Data(), "text");
+					if (!d.role.Empty())
+						t.icon = NK_ICON_NATURE_BOUTON;
+					else if (artboard)
+						t.icon = NK_ICON_NATURE_PAGE;
+					else if (texte)
+						t.icon = NK_ICON_NATURE_TEXTE;
+					else
+						t.icon = NK_ICON_NATURE_PANNEAU;
+					t.kindRole = NkDesignResolveRole(
+						(!d.role.Empty() || artboard) ? "accent_ui" : "text_muted");
 					mModelePages.nodes.PushBack(t);
 				}
 				// ⚠️ LES PLAFONDS CRIENT, ILS NE DÉBORDENT PAS EN SILENCE.
@@ -2924,8 +3022,12 @@ namespace nkuidesign {
 					//    18/08) et n'est pas branché ici.
 					t.label = NkString(d->name ? d->name : "");
 					t.path = NkString(d->name ? d->name : "");
-					t.kindLabel = "composant";
-					t.kindRole = NkDesignResolveRole("accent_sel");
+					// COSTUME BANANI : pas de pilule pour un composant sans rôle
+					// (`kindLabel` = le rôle, désormais) ; icône panneau, teinte
+					// `text_muted` — la maquette réserve l'accent aux rôles.
+					t.kindLabel = "";
+					t.icon = NK_ICON_NATURE_PANNEAU;
+					t.kindRole = NkDesignResolveRole("text_muted");
 					mModeleComposants.nodes.PushBack(t);
 				}
 				if (n >= 64 && !mCriRegistre) {
@@ -2944,6 +3046,7 @@ namespace nkuidesign {
 			NkComponentInstance mInstPages;
 			NkComponentInstance mInstComposants;
 			char mFiltre[128] = {0};
+			bool mFiltreVisible = false; // la loupe déplie le filtre (costume Banani)
 			bool mCriPages = false;
 			bool mCriRegistre = false;
 	};

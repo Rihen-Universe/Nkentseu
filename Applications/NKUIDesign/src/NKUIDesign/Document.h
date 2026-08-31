@@ -348,6 +348,11 @@ namespace nkuidesign {
 			/// que `position`. `frame` est l'ARTBOARD de la toile (planche 22.0) ;
 			/// les autres natures sont les formes que les outils posent.
 			NkString shape;
+			/// Le RÔLE de l'élément (Banani §4.3 : « Button », « TextField »… —
+			/// la taxonomie de l'écran 6). Vide = pas de rôle. Même règle d'écriture
+			/// que `shape` : la clé n'existe dans le fichier que si elle est posée,
+			/// un document d'avant se réenregistre à l'identique.
+			NkString role;
 			/// Le contenu d'un nœud `shape == "text"`. UNE ligne (le format écrit
 			/// une clé par ligne, sans échappement — un retour à la ligne dans ce
 			/// champ casserait la relecture, et l'éditeur n'en produit pas).
@@ -853,6 +858,11 @@ namespace nkuidesign {
 						Field(out, "forme", n.shape.Data());
 					if (!n.text.Empty())
 						Field(out, "texte", n.text.Data());
+					// Le RÔLE (Banani §4.3, écran 5/6) : même règle que la nature —
+					// écrit seulement s'il existe, un document d'avant se
+					// réenregistre octet pour octet.
+					if (!n.role.Empty())
+						Field(out, "role", n.role.Data());
 					Field(out, "auteur", NkAuthorName(n.prov.author));
 					Field(out, "verifiee", n.prov.verified ? "1" : "0");
 					Field(out, "corrigee", n.prov.corrected ? "1" : "0");
@@ -988,6 +998,8 @@ namespace nkuidesign {
 							n.shape = NkString(val);
 						else if (StrEq(key, "texte"))
 							n.text = NkString(val);
+						else if (StrEq(key, "role"))
+							n.role = NkString(val);
 						else if (StrEq(key, "auteur"))
 							n.prov.author = NkParseAuthor(val);
 						else if (StrEq(key, "verifiee"))

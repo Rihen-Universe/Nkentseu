@@ -59,6 +59,7 @@
 
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
+#include "Costume.h" // les tracés exacts des icônes Banani (remandat 31/08)
 
 namespace nkuidesign {
 
@@ -83,6 +84,12 @@ namespace nkuidesign {
 		NK_ICON_OEIL_FERME,
 		NK_ICON_CADENAS_OUVERT,
 		NK_ICON_CADENAS_FERME,
+		// ── Icônes de NATURE des rangées (costume Banani, 31/08) — chacune
+		//    recopie les primitives du JSX (Costume.h), 11×11 dans sa case. ──
+		NK_ICON_NATURE_PAGE,	///< un artboard/page (rect + 2 lignes)
+		NK_ICON_NATURE_PANNEAU, ///< un conteneur (rect + ligne médiane)
+		NK_ICON_NATURE_BOUTON,	///< un élément à rôle bouton (pilule + trait)
+		NK_ICON_NATURE_TEXTE,	///< un texte (le « T »)
 	};
 
 	/// Le jeu que l'hote donne a l'arbre. Un seul endroit, pour que la question
@@ -118,6 +125,23 @@ namespace nkuidesign {
 					Chevron(r, role, true);
 					return;
 				}
+				// Les icônes de NATURE (costume Banani) : 11×11 centrées dans la
+				// case, tracés du JSX recopiés dans Costume.h.
+				if (iconHandle >= NK_ICON_NATURE_PAGE && iconHandle <= NK_ICON_NATURE_TEXTE) {
+					const float32 ix = r.x + (r.w - 11.f) * 0.5f;
+					const float32 iy = r.y + (r.h - 11.f) * 0.5f;
+					const nkentseu::nkgui::NkColor col = Couleur(role);
+					auto &dl = mCtx.DL();
+					if (iconHandle == NK_ICON_NATURE_PAGE)
+						costume::IcPage(dl, ix, iy, col);
+					else if (iconHandle == NK_ICON_NATURE_PANNEAU)
+						costume::IcPanneau(dl, ix, iy, col);
+					else if (iconHandle == NK_ICON_NATURE_BOUTON)
+						costume::IcBouton(dl, ix, iy, col);
+					else
+						costume::IcTexte(dl, ix, iy, col);
+					return;
+				}
 				// ⚠️ TOUT LE RESTE RETOMBE SUR LE KIT, deliberement : un carre plein
 				//    du bon role. La place est prise, la couleur est juste, le
 				//    glyphe manque — et il manque VISIBLEMENT, ce qui vaut mieux
@@ -134,21 +158,16 @@ namespace nkuidesign {
 			//    quand il pointe en bas. Un triangle equilateral se lit comme un
 			//    bouton « lecture », pas comme un pli.
 			void Chevron(const NkPaintRect &r, uint16 role, bool ouvert) {
-				const float32 side = (r.w < r.h ? r.w : r.h) * 0.42f;
-				const float32 cx = r.x + r.w * 0.5f;
-				const float32 cy = r.y + r.h * 0.5f;
+				// COSTUME BANANI (31/08) : le chevron de la maquette est un TRAIT
+				// (polyligne 2 segments, bouts ronds, 9×9), plus le triangle plein
+				// d'avant — même vocabulaire que toutes les icônes de l'export.
+				const float32 ix = r.x + (r.w - 9.f) * 0.5f;
+				const float32 iy = r.y + (r.h - 9.f) * 0.5f;
 				const nkentseu::nkgui::NkColor col = Couleur(role);
-				if (ouvert) {
-					// Pointe EN BAS : le noeud est deplie, ses enfants sont dessous.
-					mCtx.DL().AddTriangleFilled({cx - side, cy - side * 0.55f},
-												{cx + side, cy - side * 0.55f},
-												{cx, cy + side * 0.65f}, col);
-				} else {
-					// Pointe A DROITE : replie, le contenu est « plus loin ».
-					mCtx.DL().AddTriangleFilled({cx - side * 0.55f, cy - side},
-												{cx - side * 0.55f, cy + side},
-												{cx + side * 0.65f, cy}, col);
-				}
+				if (ouvert)
+					costume::ChevronBas9(mCtx.DL(), ix, iy, col);
+				else
+					costume::ChevronDroit9(mCtx.DL(), ix, iy, col);
 			}
 
 			nkentseu::nkgui::NkColor Couleur(uint16 role) const {
