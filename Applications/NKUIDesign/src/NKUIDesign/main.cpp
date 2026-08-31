@@ -150,6 +150,7 @@ static bool gDocumentModifie = false;
 static bool gToileSeule = false;
 // Tiroir de rail a ouvrir au lancement (--tiroir=d:0) : 0 = aucun.
 static char gTiroirCote = 0;
+static char gPanneauInitial[48] = {0};
 static int32 gTiroirIndex = -1;
 /// ⚠️ L AUTORITE DES THEMES, ET ELLE EST UNIQUE. `gDesign.theme` (lu par les
 ///    composants du kit) et `mUI.theme` de la coquille (lu par les primitives)
@@ -258,6 +259,64 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 		}
 	} else if (gDesign.menuRole.ouvert)
 		gDesign.menuRole.ouvert = false; // plus de selection : le menu se ferme
+	// LE RAPPORT DE TRANSPOSITION (ecran 27) : modal honnete — les cibles
+	// REELLES du document, 0 constat tant que la transposition n'existe pas.
+	if (gDesign.rapportTransposition) {
+		auto &ctx = ec.Ui();
+		auto &dl = ctx.dlOverlay;
+		auto &F = nkuidesign::costume::Fontes();
+		ctx.appModal = true;
+		const nkgui::NkRect m = {((float32)ctx.viewW - 440.f) * 0.5f,
+								 ((float32)ctx.viewH - 240.f) * 0.5f, 440.f, 240.f};
+		dl.AddRectFilled({0.f, 0.f, (float32)ctx.viewW, (float32)ctx.viewH},
+						 {0, 0, 0, 89});
+		dl.AddRectFilled({m.x - 1.f, m.y + 4.f, m.w + 2.f, m.h + 6.f}, {0, 0, 0, 80},
+						 12.f);
+		dl.AddRectFilled(m, ctx.theme.panel, 8.f);
+		dl.AddRect(m, ctx.theme.border, 1.f, 8.f);
+		nkuidesign::costume::TexteGras(dl, F.px13, m.x + 18.f, m.y + 16.f,
+									   "Rapport de transposition", ctx.theme.text, 0.4f);
+		// les cibles REELLES : les cadres a cle `cible` du document
+		float32 cy = m.y + 48.f;
+		int32 nCibles = 0;
+		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)gDesign.doc.nodes.Size(); ++i) {
+			const auto &nd = gDesign.doc.nodes[i];
+			if (nd.target.Empty())
+				continue;
+			char b[128];
+			snprintf(b, sizeof(b), "%s — %s", nd.label.Data(), nd.target.Data());
+			const float32 wb = nkuidesign::costume::Largeur(F.px11, b) + 20.f;
+			dl.AddRectFilled({m.x + 18.f, cy, wb, 24.f}, ctx.theme.button, 12.f);
+			nkuidesign::costume::Texte(dl, F.px11, m.x + 28.f,
+									   nkuidesign::costume::CentrerY(F.px11, cy, 24.f), b,
+									   ctx.theme.text);
+			cy += 30.f;
+			++nCibles;
+		}
+		if (nCibles == 0) {
+			nkuidesign::costume::Texte(dl, F.px11, m.x + 18.f, cy,
+									   "(aucun cadre a cible dans ce document)",
+									   ctx.theme.textMuted);
+			cy += 24.f;
+		}
+		nkuidesign::costume::Texte(dl, F.px11, m.x + 18.f, m.y + m.h - 74.f,
+								   "0 constat — la transposition entre cibles n'est pas "
+								   "encore branchée.",
+								   ctx.theme.textMuted);
+		nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f, m.y + m.h - 56.f,
+								   "Elle comparera les agencements d'une cible à l'autre "
+								   "et nommera chaque écart.",
+								   ctx.theme.textMuted);
+		const float32 wf = nkuidesign::costume::Largeur(F.px11, "Fermer") + 24.f;
+		const nkgui::NkRect rf = {m.x + m.w - wf - 16.f, m.y + m.h - 34.f, wf, 24.f};
+		dl.AddRectFilled(rf, ctx.theme.accent, 4.f);
+		nkuidesign::costume::TexteGras(dl, F.px11, rf.x + 12.f,
+									   nkuidesign::costume::CentrerY(F.px11, rf.y, 24.f),
+									   "Fermer", ctx.theme.onAccent, 0.3f);
+		if ((ctx.input.mouseClicked[0] && nkgui::NkGuiRectContains(rf, ctx.input.mousePos))
+			|| ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
+			gDesign.rapportTransposition = false;
+	}
 	nkgui::NkGuiIntrospectEcrire(ec.Ui(), kCheminReleveUI);
 }
 
@@ -624,7 +683,10 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 		Separator(ctx);
 		MenuItem(ctx, "Points de rupture…", nullptr, false);
 		MenuItem(ctx, "Aperçu multi-cibles", nullptr, false);
-		MenuItem(ctx, "Rapport de transposition…", nullptr, false);
+		// L'écran 27 : l'entrée OUVRE le rapport (mécanisme absent, et le
+		// rapport le dit : 0 constat).
+		if (MenuItem(ctx, "Rapport de transposition…"))
+			gDesign.rapportTransposition = true;
 		EndMenu(ctx);
 	}
 
@@ -1154,6 +1216,14 @@ int nkmain(const NkEntryState &state) {
 			// --inspecteur-onglet=2 ouvre Behavior.
 			// Ouvrir un TIROIR de rail au lancement (mise en scene, ecran 9) :
 			// --tiroir=droit:0 (cote:index).
+			if (arg.StartsWith("--panneau=")) {
+				snprintf(gPanneauInitial, sizeof(gPanneauInitial), "%s", a + 10);
+				continue;
+			}
+			if (NkComponentDecl::StrEq(a, "--rapport-transposition")) {
+				gDesign.rapportTransposition = true;
+				continue;
+			}
 			if (arg.StartsWith("--tiroir=")) {
 				gTiroirCote = a[9];
 				gTiroirIndex = (int32)atof(a + 11);
@@ -1472,6 +1542,9 @@ int nkmain(const NkEntryState &state) {
 	//    (le tiroir la retrouve par son titre) mais FERMEE : `DrawPanels` la
 	//    saute, seul le tiroir la dessine. C est la difference entre debrancher
 	//    un panneau et le ranger.
+	static nkuidesign::SimulationPanel simulation(&gDesign);
+	static nkuidesign::AmbiancesPanel ambiances(&gDesign);
+	static nkuidesign::GreffonsPanel greffons(&gDesign);
 	static nkuidesign::BibliothequePanel bibliotheque(&gDesign);
 	bibliotheque.SetOpen(false); // vit dans le TIROIR du rail droit (ecran 9)
 	static nkuidesign::PalettePanel palette(&gDesign);
@@ -1492,6 +1565,16 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&ai);
 	shell->AddPanel(&palette);
 	shell->AddPanel(&bibliotheque);
+	shell->AddPanel(&simulation);
+	shell->AddPanel(&ambiances);
+	shell->AddPanel(&greffons);
+	// Mise en scene : --panneau=<titre> ouvre un panneau ferme par defaut.
+	if (gPanneauInitial[0]) {
+		nkentseu::editorkit::NkEditorPanel *tous[3] = {&simulation, &ambiances, &greffons};
+		for (int32 pi = 0; pi < 3; ++pi)
+			if (NkComponentDecl::StrEq(tous[pi]->Title(), gPanneauInitial))
+				tous[pi]->SetOpen(true);
+	}
 
 #if NKUIDESIGN_ANCIENS_PANNEAUX
 	static nkuidesign::CompositionPanel composition(&gDesign);
