@@ -365,6 +365,14 @@ namespace nkuidesign {
 			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient
 			/// « <nom> — <cible> ». Vide = l'étiquette historique (nom — L × H).
 			NkString target; ///< clé `cible`
+			/// LA PARENTÉ DE TRANSPOSITION (tranche 1 du chantier Cible, 31/08) :
+			/// le LIBELLÉ de la page dont cette page est la version transposée
+			/// (« Generate Mobile » de Banani). Additive : absente du fichier
+			/// tant qu'elle n'est pas posée. ⚠️ Le lien est PAR NOM (les nœuds
+			/// n'ont pas d'identifiant stable) : renommer la source le casse —
+			/// le rapport de transposition le dira (« source introuvable »)
+			/// plutôt que de le cacher. Clé `transpose_de`.
+			NkString transposeDe;
 			float32 radius = 0.f;	 ///< rayon des coins, px (clé `rayon`)
 			float32 borderW = 0.f;	 ///< épaisseur de bord, px (clé `bordure`)
 			float32 fontPx = 0.f;	 ///< corps du texte, px (clé `police_px`) — 0 = défaut
@@ -603,6 +611,48 @@ namespace nkuidesign {
 				nodes.PushBack(n);
 				const int32 idx = (int32)nodes.Size() - 1;
 				nodes[(uint32)parentIndex].children.PushBack(idx);
+				return idx;
+			}
+
+			// ── LA TRANSPOSITION VERS MOBILE (tranche 1 du chantier Cible) ─────
+			/// « Generate Mobile » (Banani, 31/08) : cree un artboard Mobile
+			/// portant une COPIE du contenu de `pageSource`, lie par la cle
+			/// additive `transpose_de` (le libelle de la source — pas d'id stable
+			/// de noeud, le rapport dira « source introuvable » si on renomme).
+			/// Ce que la re-disposition NE SAIT PAS traiter est CONSTATE dans
+			/// `constats` — ils nourrissent le rapport de transposition (ecran
+			/// 27), qui cesse d'etre vide. La synchronisation continue entre les
+			/// deux versions n'est PAS cette tranche (points de rupture §8quater).
+			/// Rend l'index du nouvel artboard, -1 si refus.
+			int32 TransposerVersMobile(int32 pageSource, NkVector<NkString> &constats) {
+				if (!IsValidIndex(pageSource) || pageSource == 0)
+					return -1;
+				// La convention d'AFFICHAGE des artboards Mobile de ce document :
+				// 240 x 520 dessines pour une cible reelle 390 x 844 (le ratio de
+				// la maquette — demo_ecran_01 fait pareil).
+				const float32 wMobile = 240.f, hMobile = 520.f;
+				const int32 idx = AddChild(0, "", NkAuthor::Humain);
+				if (!IsValidIndex(idx))
+					return -1;
+				{
+					const NkUINode &src = nodes[(uint32)pageSource];
+					NkUINode &m = nodes[(uint32)idx];
+					m.label = src.label;
+					m.label.Append(" Mobile");
+					m.shape = NkString("frame");
+					m.layout = src.layout;
+					m.width.mode = NkSizeMode::Fixed;
+					m.width.value = wMobile;
+					m.height.mode = NkSizeMode::Fixed;
+					m.height.value = hMobile;
+					const float32 wSrc =
+						src.width.mode == NkSizeMode::Fixed ? src.width.value : wMobile;
+					m.posX = src.posX + wSrc + 80.f;
+					m.posY = src.posY;
+					m.target = NkString("Mobile 390 x 844");
+					m.transposeDe = src.label;
+				}
+				CopierEnfantsTransposes(pageSource, idx, wMobile, constats);
 				return idx;
 			}
 
@@ -890,6 +940,8 @@ namespace nkuidesign {
 						Field(out, "texte_aligne", n.alignText.Data());
 					if (!n.target.Empty())
 						Field(out, "cible", n.target.Data());
+					if (!n.transposeDe.Empty())
+						Field(out, "transpose_de", n.transposeDe.Data());
 					if (n.radius != 0.f) {
 						out.Append("  rayon = ");
 						WriteNum(out, n.radius);
@@ -1057,6 +1109,8 @@ namespace nkuidesign {
 							n.alignText = NkString(val);
 						else if (StrEq(key, "cible"))
 							n.target = NkString(val);
+						else if (StrEq(key, "transpose_de"))
+							n.transposeDe = NkString(val);
 						else if (StrEq(key, "rayon"))
 							n.radius = ParseNum(val);
 						else if (StrEq(key, "bordure"))
@@ -1104,6 +1158,103 @@ namespace nkuidesign {
 			}
 
 		private:
+
+			/// La copie recursive de la transposition (TransposerVersMobile).
+			/// ⚠️ AUCUNE reference de noeud ne survit a un AddChild (relogement
+			/// du NkVector) : tout se relit par INDEX apres chaque ajout.
+			/// `wParent` : la largeur du parent COPIE, pour les constats de
+			/// depassement (les positions posees sont relatives au parent).
+			void CopierEnfantsTransposes(int32 src, int32 dst, float32 wParent,
+										 NkVector<NkString> &constats) {
+				const NkVector<int32> enfants = nodes[(uint32)src].children; // copie
+				for (uint32 i = 0; i < (uint32)enfants.Size(); ++i) {
+					const int32 e = enfants[i];
+					if (!IsValidIndex(e))
+						continue;
+					const int32 ne = AddChild(dst, nodes[(uint32)e].component.Data(),
+											  nodes[(uint32)e].prov.author);
+					if (!IsValidIndex(ne))
+						continue;
+					{
+						const NkUINode &s = nodes[(uint32)e];
+						NkUINode &d = nodes[(uint32)ne];
+						d.label = s.label;
+						d.shape = s.shape;
+						d.text = s.text;
+						d.role = s.role;
+						d.fill = s.fill;
+						d.textColor = s.textColor;
+						d.borderColor = s.borderColor;
+						d.alignText = s.alignText;
+						d.radius = s.radius;
+						d.borderW = s.borderW;
+						d.fontPx = s.fontPx;
+						d.fontWeight = s.fontWeight;
+						d.layout = s.layout;
+						d.anchorEdges = s.anchorEdges;
+						d.posX = s.posX;
+						d.posY = s.posY;
+						// meme document, meme pool : la copie membre a membre des
+						// axes est sure ici (cf. CopyAxe pour le cas inter-doc)
+						d.width = s.width;
+						d.height = s.height;
+						d.spacingName = s.spacingName;
+						d.padName = s.padName;
+						d.instance = s.instance;
+					}
+					// LES CONSTATS : ce que la cible etroite ne sait pas absorber
+					// — ils nourrissent le rapport de transposition (ecran 27).
+					{
+						const NkUINode &s = nodes[(uint32)e];
+						NkString c;
+						if (s.width.mode == NkSizeMode::Fixed && s.width.value > wParent) {
+							c = NkString("\xC2\xAB ");
+							c.Append(s.label);
+							c.Append(" \xC2\xBB : largeur fixe ");
+							char num[16];
+							WriteNumTo(num, sizeof(num), s.width.value);
+							c.Append(num);
+							c.Append(" > cible ");
+							WriteNumTo(num, sizeof(num), wParent);
+							c.Append(num);
+							c.Append(" \xE2\x80\x94 a redimensionner");
+							constats.PushBack(c);
+						}
+						if (s.posX < 0.f
+							|| (s.width.mode == NkSizeMode::Fixed
+								&& s.posX + s.width.value > wParent)) {
+							c = NkString("\xC2\xAB ");
+							c.Append(s.label);
+							c.Append(" \xC2\xBB : position posee hors bornes de la cible");
+							constats.PushBack(c);
+						}
+					}
+					const float32 wEnfant =
+						nodes[(uint32)e].width.mode == NkSizeMode::Fixed
+							? nodes[(uint32)e].width.value
+							: wParent;
+					CopierEnfantsTransposes(e, ne, wEnfant, constats);
+				}
+			}
+
+			/// Un nombre entier court dans un tampon (les constats ci-dessus —
+			/// pas de NkFormat ici : la porte des accolades).
+			static void WriteNumTo(char *out, nkentseu::usize cap, float32 v) {
+				const int32 n = (int32)v;
+				nkentseu::usize k = 0;
+				int32 x = n < 0 ? -n : n;
+				char tmp[12];
+				nkentseu::usize t = 0;
+				do {
+					tmp[t++] = (char)('0' + (x % 10));
+					x /= 10;
+				} while (x > 0 && t < 11);
+				if (n < 0 && k + 1 < cap)
+					out[k++] = '-';
+				while (t > 0 && k + 1 < cap)
+					out[k++] = tmp[--t];
+				out[k] = 0;
+			}
 
 			// ── LE POOL, VU DE L'INTERIEUR ──────────────────────────────────
 			// Les deux seuls gestes qui font entrer une chaine etrangere dans le pool

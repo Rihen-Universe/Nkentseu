@@ -573,6 +573,11 @@ namespace nkuidesign {
 			/// l'ouverture du panneau Simulation — servi par l'overlay (main),
 			/// qui seul tient la coquille (FocusPanel).
 			bool ouvrirSimulation = false;
+			/// LES CONSTATS DE LA DERNIERE TRANSPOSITION (« Generate Mobile ») :
+			/// ce que la re-disposition n'a pas su absorber. Le rapport de
+			/// transposition (ecran 27) les liste — il cesse d'etre vide. Etat de
+			/// SESSION (le document ne porte que le lien `transpose_de`).
+			NkVector<NkString> constatsTransposition;
 			/// La vue POSEE en ligne de commande (--vue=, protocole de mesure du
 			/// pan) : appliquee au premier affichage a la place du defaut.
 			bool vuePosee = false;
@@ -1609,6 +1614,108 @@ namespace nkuidesign {
 						const NkPaintRect rd = mSt->layout.At(mSt->selected);
 						PuceTaille(paint, rs, rd.w, rd.h);
 					}
+					// ── LA BARRE D'APPAREIL FLOTTANTE (Banani « Generate
+					//    Mobile », 31/08) : au-dessus d'une PAGE sélectionnée —
+					//    le geste exact des captures banani_mobile_1..3 : pilule
+					//    appareil + menu « <cible> ✓ / Générer la version
+					//    mobile ». La transposition copie le contenu, lie par
+					//    `transpose_de`, et CONSTATE ce qu'elle ne sait pas
+					//    absorber — le rapport (écran 27) cesse d'être vide.
+					{
+						const NkUINode &selN = mSt->doc.nodes[(uint32)mSt->selected];
+						const bool page = StrEq(selN.shape.Data(), "frame")
+										  && selN.parent >= 0
+										  && mSt->doc.nodes[(uint32)selN.parent].parent < 0;
+						if (!page)
+							mZoneAppareil = {0.f, 0.f, 0.f, 0.f};
+						else {
+							auto &dlp = ctx.DL();
+							auto &F = costume::Fontes();
+							const NkRect pille = {rs.x + rs.w * 0.5f - 22.f, rs.y - 58.f,
+												  44.f, 24.f};
+							dlp.AddRectFilled(pille, {22, 27, 34, 255}, 12.f);
+							dlp.AddRect(pille, ctx.theme.border, 1.f, 12.f);
+							dlp.AddRect({pille.x + 8.f, pille.y + 7.f, 12.f, 9.f},
+										ctx.theme.textMuted, 1.2f, 2.f);
+							costume::ChevronCombo7(dlp, pille.x + 26.f, pille.y + 9.f,
+												   ctx.theme.textMuted);
+							mZoneAppareil = pille;
+							if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+								&& NkGuiRectContains(pille, ctx.input.mousePos))
+								mMenuAppareil = !mMenuAppareil;
+							if (mMenuAppareil) {
+								const NkRect mnu = {pille.x - 80.f, pille.y + 28.f, 230.f,
+													60.f};
+								// la zone consommée couvre pilule + menu
+								mZoneAppareil = {mnu.x, pille.y, mnu.w + 80.f,
+												 28.f + mnu.h};
+								dlp.AddRectFilled({mnu.x - 1.f, mnu.y + 3.f, mnu.w + 2.f,
+												   mnu.h + 4.f},
+												  {0, 0, 0, 60}, 10.f);
+								dlp.AddRectFilled(mnu, {22, 27, 34, 255}, 8.f);
+								dlp.AddRect(mnu, ctx.theme.border, 1.f, 8.f);
+								// rangée 1 : la cible ACTUELLE, cochée
+								const NkRect r1 = {mnu.x + 4.f, mnu.y + 4.f, mnu.w - 8.f,
+												   24.f};
+								const char *cible =
+									selN.target.Empty() ? "Bureau" : selN.target.Data();
+								costume::Texte(dlp, F.px11, r1.x + 10.f,
+											   costume::CentrerY(F.px11, r1.y, r1.h), cible,
+											   ctx.theme.text);
+								costume::Texte(dlp, F.px11,
+											   r1.x + r1.w - 10.f
+												   - costume::Largeur(F.px11, "\xE2\x9C\x93"),
+											   costume::CentrerY(F.px11, r1.y, r1.h),
+											   "\xE2\x9C\x93", ctx.theme.textMuted);
+								// rangée 2 : « Générer la version mobile » — grisée
+								// avec raison si la page est DÉJÀ une cible Mobile.
+								const NkRect r2 = {mnu.x + 4.f, mnu.y + 30.f, mnu.w - 8.f,
+												   24.f};
+								const bool dejaMobile = !selN.target.Empty()
+														&& selN.target.Data()[0] == 'M';
+								const bool svr2 =
+									ctx.popupDepth == 0
+									&& NkGuiRectContains(r2, ctx.input.mousePos);
+								if (svr2 && !dejaMobile) {
+									NkColor voile = ctx.theme.accent;
+									voile.a = 40;
+									dlp.AddRectFilled(r2, voile, 5.f);
+								}
+								costume::TexteGras(dlp, F.px11, r2.x + 10.f,
+												   costume::CentrerY(F.px11, r2.y, r2.h),
+												   "Générer la version mobile",
+												   dejaMobile ? ctx.theme.textMuted
+															  : ctx.theme.text,
+												   0.3f);
+								if (svr2 && ctx.input.mouseClicked[0]) {
+									if (dejaMobile) {
+										Dire("Cette page est déjà une cible Mobile — "
+											 "générer depuis la version Bureau.",
+											 "", "");
+									} else {
+										mSt->constatsTransposition.Clear();
+										const int32 ni = mSt->doc.TransposerVersMobile(
+											mSt->selected, mSt->constatsTransposition);
+										mMenuAppareil = false;
+										if (ni >= 0) {
+											mSt->doc.MarkHumanEdit(ni);
+											mSt->SelectSingle(ni);
+											char bb[120];
+											snprintf(bb, sizeof(bb),
+													 "Version mobile créée — %d constat(s) "
+													 "au rapport de transposition (menu "
+													 "Cible).",
+													 (int32)mSt->constatsTransposition
+														 .Size());
+											Dire(bb, "", "");
+										} else
+											Dire("Transposition refusée (page invalide).",
+												 "", "");
+									}
+								}
+							}
+						}
+					}
 				}
 
 				// ── L'EDITION EN PLACE D'UN TEXTE (31/08, 2e passe) ──────────
@@ -1760,7 +1867,8 @@ namespace nkuidesign {
 				//    a la toile.
 				if (in.mousePressed
 					&& (DansZone(mZoneModes, in) || DansZone(mZoneOutils, in)
-						|| DansZone(mZoneCluster, in) || DansZone(mZoneEventail, in)))
+						|| DansZone(mZoneCluster, in) || DansZone(mZoneEventail, in)
+						|| DansZone(mZoneAppareil, in)))
 					return;
 
 				// ── LES OUTILS QUI CREENT : F (cadre), R (rectangle), T (texte) ──
@@ -2183,6 +2291,10 @@ namespace nkuidesign {
 			/// glisser du separateur en cours.
 			float32 mSplitRatio = 0.5f;
 			bool mSplitDrag = false;
+			/// LA BARRE D'APPAREIL flottante (« Generate Mobile ») : menu ouvert,
+			/// et sa zone de l'image precedente (HandleMouse n'y clique pas).
+			bool mMenuAppareil = false;
+			NkRect mZoneAppareil = {0.f, 0.f, 0.f, 0.f};
 
 			/// Ferme l'edition en place : valide (ecrit `text` — ou `label` pour
 			/// une etiquette d'artboard — + MarkHumanEdit) ou annule. Les deux

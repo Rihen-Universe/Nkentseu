@@ -301,14 +301,42 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 									   ctx.theme.textMuted);
 			cy += 24.f;
 		}
-		nkuidesign::costume::Texte(dl, F.px11, m.x + 18.f, m.y + m.h - 74.f,
-								   "0 constat — la transposition entre cibles n'est pas "
-								   "encore branchée.",
-								   ctx.theme.textMuted);
-		nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f, m.y + m.h - 56.f,
-								   "Elle comparera les agencements d'une cible à l'autre "
-								   "et nommera chaque écart.",
-								   ctx.theme.textMuted);
+		// LES CONSTATS RÉELS de la dernière transposition (« Générer la
+		// version mobile ») : le rapport a cessé d'être vide le jour où la
+		// tranche 1 a existé — il liste ce que la re-disposition n'a pas su
+		// absorber. Aucune transposition lancée = il le dit.
+		if (gDesign.constatsTransposition.Empty()) {
+			nkuidesign::costume::Texte(dl, F.px11, m.x + 18.f, m.y + m.h - 74.f,
+									   "0 constat — aucune transposition lancée dans cette "
+									   "session.",
+									   ctx.theme.textMuted);
+			nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f, m.y + m.h - 56.f,
+									   "Sélectionnez une page, barre d'appareil → « Générer "
+									   "la version mobile ».",
+									   ctx.theme.textMuted);
+		} else {
+			char t[96];
+			snprintf(t, sizeof(t), "%d constat(s) de la dernière transposition :",
+					 (int32)gDesign.constatsTransposition.Size());
+			nkuidesign::costume::TexteGras(dl, F.px11, m.x + 18.f, m.y + m.h - 92.f, t,
+										   ctx.theme.text, 0.3f);
+			const int32 nAff =
+				(int32)gDesign.constatsTransposition.Size() < 3
+					? (int32)gDesign.constatsTransposition.Size()
+					: 3;
+			for (int32 ci = 0; ci < nAff; ++ci)
+				nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f,
+										   m.y + m.h - 74.f + (float32)ci * 16.f,
+										   gDesign.constatsTransposition[(uint32)ci].Data(),
+										   ctx.theme.textMuted);
+			if ((int32)gDesign.constatsTransposition.Size() > nAff) {
+				snprintf(t, sizeof(t), "… et %d autre(s).",
+						 (int32)gDesign.constatsTransposition.Size() - nAff);
+				nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f,
+										   m.y + m.h - 74.f + (float32)nAff * 16.f, t,
+										   ctx.theme.textMuted);
+			}
+		}
 		const float32 wf = nkuidesign::costume::Largeur(F.px11, "Fermer") + 24.f;
 		const nkgui::NkRect rf = {m.x + m.w - wf - 16.f, m.y + m.h - 34.f, wf, 24.f};
 		dl.AddRectFilled(rf, ctx.theme.accent, 4.f);
