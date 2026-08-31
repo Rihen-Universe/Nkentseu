@@ -67,6 +67,7 @@
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 
 
+
 using namespace nkentseu;
 using namespace nkentseu::editorkit;
 
@@ -924,6 +925,19 @@ int nkmain(const NkEntryState &state) {
 		// d'integration.
 		if (NkComponentDecl::StrEq(a, "--recette-ia"))
 			return nkuidesign::RunRecetteIA();
+		// Levier de MISE EN SCENE (captures, bancs) — pas un reglage :
+		// --selection=N selectionne le noeud N au premier affichage. Meme
+		// patron que --theme= : l'option force, l'interface decide ensuite.
+		{
+			const NkString arg(a);
+			if (arg.StartsWith("--selection=")) {
+				int32 v = 0;
+				for (const char *q = a + 12; *q >= '0' && *q <= '9'; ++q)
+					v = v * 10 + (*q - '0');
+				gDesign.selectionInitiale = v;
+				continue;
+			}
+		}
 		// ⚠️ AVANT TOUTE FENETRE, pour la meme raison que la sonde : l'aller-retour
 		//    ne touche ni au GPU ni a l'ecran, et il doit pouvoir tourner sur la
 		//    machine d'integration qui n'en a pas. C'est aussi ce qui le rend
@@ -1049,6 +1063,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --releve-menus[=<fichier>] relever la barre de menus SANS fenêtre");
 			puts("  --small                 fenêtre réduite (1024x640)");
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
+			puts("  --selection=<n>         sélectionner le nœud n au premier affichage");
 			return 2;
 		}
 	}

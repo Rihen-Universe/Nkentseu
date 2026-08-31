@@ -540,6 +540,11 @@ namespace nkuidesign {
 			void (*titre)(void *user, bool modifie) = nullptr;
 			void *titreUser = nullptr;
 			NkString etatEnregistre;
+			/// Selection initiale demandee en ligne de commande (--selection=N) :
+			/// un levier de MISE EN SCENE pour les captures et les bancs — le
+			/// premier OnUI de la toile l'applique apres le chargement, puis
+			/// l'eteint. -1 = aucun.
+			int32 selectionInitiale = -1;
 			void PrendreEtatEnregistre() {
 				etatEnregistre = NkString();
 				doc.Save(etatEnregistre);
@@ -1088,6 +1093,12 @@ namespace nkuidesign {
 				// changement.
 				if (mSt->titre && (mFramePastille++ % 30u) == 0u)
 					mSt->titre(mSt->titreUser, mSt->DocumentModifie());
+
+				if (mSt->selectionInitiale >= 0) {
+					if (mSt->doc.IsValidIndex(mSt->selectionInitiale))
+						mSt->SelectSingle(mSt->selectionInitiale);
+					mSt->selectionInitiale = -1;
+				}
 
 				if (!mAideInitiale) {
 					// L'outil arme se DIT des la premiere image — une application
