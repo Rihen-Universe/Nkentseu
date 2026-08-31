@@ -3301,7 +3301,21 @@ namespace nkuidesign {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
 				const NkRect r = ctx.NextItemRect(-1.f, 34.f);
-				costume::IcBouton(dl, r.x + 12.f, r.y + (34.f - 11.f) * 0.5f, ctx.theme.accent);
+				// L'icône suit la NATURE de la sélection (même mapping que
+				// l'arbre) : bouton pour un rôle, page pour un artboard, « T »
+				// pour un texte, panneau sinon.
+				{
+					const NkUINode *n = NoeudCourant();
+					const float32 iy = r.y + (34.f - 11.f) * 0.5f;
+					if (n && !n->role.Empty())
+						costume::IcBouton(dl, r.x + 12.f, iy, ctx.theme.accent);
+					else if (n && StrEq(n->shape.Data(), "frame"))
+						costume::IcPage(dl, r.x + 12.f, iy, ctx.theme.accent);
+					else if (n && StrEq(n->shape.Data(), "text"))
+						costume::IcTexte(dl, r.x + 12.f, iy, ctx.theme.accent);
+					else
+						costume::IcPanneau(dl, r.x + 12.f, iy, ctx.theme.accent);
+				}
 				costume::TexteGras(dl, F.px12, r.x + 32.f, costume::CentrerY(F.px12, r.y, 34.f),
 								   nom, ctx.theme.text, 0.35f);
 				dl.AddLine({r.x, r.y + 33.5f}, {r.x + r.w, r.y + 33.5f}, ctx.theme.border, 1.f);
