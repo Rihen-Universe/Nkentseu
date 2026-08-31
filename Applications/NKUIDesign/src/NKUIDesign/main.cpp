@@ -1138,6 +1138,10 @@ int nkmain(const NkEntryState &state) {
 				gDesign.proposerInitial = true;
 				continue;
 			}
+			if (arg.StartsWith("--mode=")) {
+				gDesign.modeInitial = (int32)atof(a + 7);
+				continue;
+			}
 			if (NkComponentDecl::StrEq(a, "--zone-sure")) {
 				gDesign.zoneSure = true;
 				continue;

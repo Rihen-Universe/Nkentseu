@@ -559,6 +559,8 @@ namespace nkuidesign {
 			/// Mise en scene (--proposer) : lancer une proposition IA au premier
 			/// affichage du panneau (le fichier de reponse doit etre pret).
 			bool proposerInitial = false;
+			/// Mise en scene (--mode=N) : la bascule de mode posee au lancement.
+			int32 modeInitial = -1;
 			/// La vue POSEE en ligne de commande (--vue=, protocole de mesure du
 			/// pan) : appliquee au premier affichage a la place du defaut.
 			bool vuePosee = false;
@@ -1243,7 +1245,19 @@ namespace nkuidesign {
 				}
 				TraceEntree(ctx);
 
-				HandleMouse(in, screen);
+				// ── LES MODES GRAPHE (écrans 13 Behavior / 18 Animation) : la toile
+				//    devient une vue blueprint. Le CHROME se dessine (fond, grille
+				//    20/100, bande de portée sur la sélection RÉELLE, Entry canonique
+				//    en Animation) ; le CONTENU du graphe — nœuds, câbles, console —
+				//    naîtra du modèle de comportement §4.6, il ne se peint pas en
+				//    démo (cadrage du 31/08). Split reste Design en attendant.
+				if (mSt->modeInitial >= 0 && mSt->modeInitial <= 3) {
+					mMode = (uint32)mSt->modeInitial;
+					mSt->modeInitial = -1;
+				}
+				const bool modeGraphe = (mMode == 1 || mMode == 2);
+				if (!modeGraphe)
+					HandleMouse(in, screen);
 
 				// ⚠️ `NkDesignPaint`, PAS `NkGuiComponentPaint` : c'est lui qui
 				//    traduit les poignees de CETTE application en dessins. Le
@@ -1259,7 +1273,66 @@ namespace nkuidesign {
 				// sait rien. Le pas est en espace DOCUMENT : la grille zoome avec
 				// le contenu, comme sur la planche. En dessous de 6 px projetes,
 				// elle se tait — des points serres deviennent du bruit.
-				{
+				if (modeGraphe) {
+					// ── LA VUE BLUEPRINT (écran 13) : fond #0d1117, grille 20 px
+					//    fine + 100 px appuyée (rgba(60,80,120, .25/.45)).
+					auto &dlg = ctx.DL();
+					dlg.AddRectFilled({area.x, area.y, area.w, area.h}, {13, 17, 23, 255});
+					const NkColor fine = {60, 80, 120, 64};
+					const NkColor forte = {60, 80, 120, 115};
+					for (float32 gx = area.x; gx < area.x + area.w; gx += 20.f)
+						dlg.AddLine({gx, area.y}, {gx, area.y + area.h},
+									(((int32)((gx - area.x) / 20.f)) % 5 == 0) ? forte : fine,
+									(((int32)((gx - area.x) / 20.f)) % 5 == 0) ? 1.f : 0.5f);
+					for (float32 gy = area.y; gy < area.y + area.h; gy += 20.f)
+						dlg.AddLine({area.x, gy}, {area.x + area.w, gy},
+									(((int32)((gy - area.y) / 20.f)) % 5 == 0) ? forte : fine,
+									(((int32)((gy - area.y) / 20.f)) % 5 == 0) ? 1.f : 0.5f);
+					auto &F = costume::Fontes();
+					// ── LA BANDE DE PORTÉE : « Portée : » + la sélection RÉELLE ──
+					{
+						const char *nomSel = "(aucune sélection)";
+						if (mSt->doc.IsValidIndex(mSt->selected))
+							nomSel = mSt->doc.nodes[(uint32)mSt->selected].label.Data();
+						const float32 wl = costume::Largeur(F.px10, "Portée :");
+						const float32 wn = costume::Largeur(F.px11, nomSel);
+						const NkRect bp = {area.x + 14.f, area.y + 12.f,
+										   wl + wn + 34.f, 26.f};
+						dlg.AddRectFilled(bp, {26, 32, 48, 255}, 5.f);
+						dlg.AddRect(bp, {42, 53, 72, 255}, 1.f, 5.f);
+						costume::Texte(dlg, F.px10, bp.x + 10.f,
+									   costume::CentrerY(F.px10, bp.y, bp.h), "Portée :",
+									   {139, 148, 158, 255});
+						costume::TexteGras(dlg, F.px11, bp.x + wl + 16.f,
+										   costume::CentrerY(F.px11, bp.y, bp.h), nomSel,
+										   {79, 142, 247, 255}, 0.3f);
+					}
+					if (mMode == 2) {
+						// ── L'ENTRY canonique (écran 18 : tout graphe d'états en a
+						//    UN — ce n'est pas de la démo, c'est l'état de départ).
+						const NkRect en = {area.x + 80.f, area.y + area.h * 0.4f, 92.f,
+										   34.f};
+						dlg.AddRectFilled(en, {30, 42, 64, 255}, 17.f);
+						dlg.AddRect(en, {79, 142, 247, 255}, 1.5f, 17.f);
+						costume::TexteGras(dlg, F.px11,
+										   en.x + (en.w - costume::Largeur(F.px11, "Entry"))
+														* 0.5f,
+										   costume::CentrerY(F.px11, en.y, en.h), "Entry",
+										   {230, 237, 243, 255}, 0.3f);
+					}
+					// ── L'ÉTAT VIDE, DIT : le graphe attend son modèle ──────────
+					{
+						const char *ph = (mMode == 1)
+											 ? "Le graphe de comportement naîtra du modèle "
+											   "(§4.6) — ses nœuds, des événements de "
+											   "l'onglet Behavior."
+											 : "Les états s'ajouteront ici — Entry est posé, "
+											   "le graphe attend son modèle.";
+						costume::Texte(dlg, F.px11,
+									   area.x + (area.w - costume::Largeur(F.px11, ph)) * 0.5f,
+									   area.y + area.h * 0.62f, ph, {101, 109, 118, 255});
+					}
+				} else {
 					// Banani V2 : la toile est CLAIRE (canvas_bg #f5f7fb) meme en
 					// editeur sombre — le theme du DOCUMENT n'est pas celui de
 					// l'EDITEUR — et les points sont canvas_dot (#d4dce8, pas 20).
@@ -1291,11 +1364,12 @@ namespace nkuidesign {
 					}
 				}
 
-				NkDrawDocument(paint, in, mSt->doc, screen, mSt->host);
+				if (!modeGraphe)
+					NkDrawDocument(paint, in, mSt->doc, screen, mSt->host);
 
 				// ── LE TRACE ELASTIQUE d'un outil F/R en cours ────────────────
 				// Peint APRES le document (il flotte au-dessus), jamais enregistre.
-				if (mCreating) {
+				if (mCreating && !modeGraphe) {
 					const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift);
 					paint.OutlineSharp(t, NkDesignResolveRole("accent_ui"));
 					// La même puce que la sélection : le tracé se lit pendant
@@ -1317,7 +1391,7 @@ namespace nkuidesign {
 				//    indicateur home, pointillés + « zone sûre ». Proportions du
 				//    JSX (52/476 haut, 34/476 bas, encoche 80/220 × 24/476).
 				//    Jamais dans le document ni dans les essais 41.
-				if (mSt->zoneSure) {
+				if (mSt->zoneSure && !modeGraphe) {
 					NkDesignPaint pz(ctx, mSt->theme);
 					auto &dlz = ctx.DL();
 					for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i) {
@@ -1432,7 +1506,8 @@ namespace nkuidesign {
 				//    décalée — son liseré filait hors champ. Lunacy ne dessine
 				//    aucun marqueur de canvas pour la page : la Hiérarchie
 				//    surligne, et c'est le bon endroit.
-				if (screen.Has(mSt->selected) && mSt->doc.IsValidIndex(mSt->selected)
+				if (!modeGraphe && screen.Has(mSt->selected)
+					&& mSt->doc.IsValidIndex(mSt->selected)
 					&& mSt->doc.nodes[(uint32)mSt->selected].parent >= 0) {
 					const NkPaintRect rs = screen.At(mSt->selected);
 					const uint16 accent = NkDesignResolveRole("accent_ui");
@@ -1890,11 +1965,16 @@ namespace nkuidesign {
 						if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0
 							&& NkGuiRectContains(c, ctx.input.mousePos)) {
 							mMode = i;
-							Dire("Mode ", kModes[i], " : seul Design est branché.");
+							Dire("Mode ", kModes[i],
+								 (i == 0)	  ? " : la toile de design."
+								 : (i == 3) ? " : à brancher (Design en attendant)."
+											: " : la vue se dessine ; le graphe naîtra du modèle.");
 						}
 					}
 				}
 
+				if (mMode == 1 || mMode == 2)
+					return; // les modes graphe n'ont ni rail d'outils ni cluster (écran 13)
 				// ── 2. LA BARRE D'OUTILS VERTICALE, 48 px (§7) ───────────────
 				//    ⚠️ SES DEUX COTES SONT DES CONSTANTES NOMMEES parce que la VUE
 				//       s'en sert pour ne pas naitre dessous. Deux litteraux, et le
