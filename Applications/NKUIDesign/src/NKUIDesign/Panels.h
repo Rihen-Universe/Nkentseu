@@ -41,6 +41,7 @@
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorInspectorFrame.h" // LA charpente d inspecteur (kit)
+#include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip(ctx, survol, texte) — infobulle sans widget
 #include "NKEditorKit/NkTheme.h"
 #include "NKFileSystem/NkFile.h"
 // ⚠️ LES PLAFONDS DU KIT DOIVENT CRIER (kMaxComponents = 64, kMaxDepth = 64) :
@@ -53,6 +54,7 @@
 #include "NKLogger/NkLog.h"
 
 #include "Canvas.h"
+#include "Costume.h" // le costume exact Banani (polices + icônes, remandat 31/08)
 #include "Selection.h"
 #include "DesignAI.h"
 #include "Renderers.h"
@@ -1709,20 +1711,51 @@ namespace nkuidesign {
 				//       elle choisit QUELLE barre s'affiche, elle ne peut donc pas
 				//       vivre dedans.
 				{
+					// COSTUME BANANI (31/08) : bascule aux mesures du JSX — haut 14,
+					// boutons h 26 « icône 11 + écart 4 + libellé 11 px fw500 »,
+					// padding 12, fond `panel`, bord `border`, rayon 4, ombre. Les
+					// clics sont pris à la main (le Button du socle repeindrait son
+					// fond par-dessus le costume — mesuré le 28/08 sur les onglets).
 					static const char *const kModes[4] = {"Design", "Behavior", "Animation",
 														  "Split"};
-					const float32 lw = 92.f, h = 26.f;
-					const float32 w = lw * 4.f + 8.f;
-					const NkRect r = {zone.x + (zone.w - w) * 0.5f, zone.y + 10.f, w, h};
-					mZoneModes = r; // HandleMouse ne doit pas voir ses clics
-					dl.AddRectFilled(r, fond, 6.f);
-					dl.AddRect(r, bord, 1.f, 6.f);
+					auto &F = costume::Fontes();
+					const float32 h = 26.f;
+					float32 lw[4], w = 0.f;
 					for (uint32 i = 0; i < 4; ++i) {
-						const NkRect c = {r.x + 4.f + lw * (float32)i, r.y + 3.f, lw, h - 6.f};
+						lw[i] = 12.f + 11.f + 4.f + costume::Largeur(F.px11, kModes[i]) + 12.f;
+						w += lw[i];
+					}
+					const NkRect r = {zone.x + (zone.w - w) * 0.5f, zone.y + 14.f, w, h};
+					mZoneModes = r; // HandleMouse ne doit pas voir ses clics
+					dl.AddRectFilled({r.x - 1.f, r.y + 2.f, r.w + 2.f, r.h + 4.f},
+									 {0, 0, 0, 50}, 8.f); // l'ombre portée, approchée
+					dl.AddRectFilled(r, fond, 4.f);
+					dl.AddRect(r, bord, 1.f, 4.f);
+					float32 bx = r.x;
+					for (uint32 i = 0; i < 4; ++i) {
+						const NkRect c = {bx, r.y, lw[i], h};
+						bx += lw[i];
 						if (i == mMode)
-							dl.AddRectFilled(c, ctx.theme.accent, 4.f);
-						ctx.SetNextItemRect(c);
-						if (Button(ctx, kModes[i])) {
+							dl.AddRectFilled(c, ctx.theme.accent, i == 0 ? 4.f : 0.f);
+						const NkColor ic = (i == mMode) ? ctx.theme.accent : ctx.theme.textMuted;
+						const float32 iy = c.y + (h - 11.f) * 0.5f;
+						if (i == 0)
+							costume::ModeDesign(dl, c.x + 12.f, iy, ic);
+						else if (i == 1)
+							costume::ModeBehavior(dl, c.x + 12.f, iy, ic);
+						else if (i == 2)
+							costume::ModeAnimation(dl, c.x + 12.f, iy, ic);
+						else
+							costume::ModeSplit(dl, c.x + 12.f, iy, ic);
+						const float32 ty = costume::CentrerY(F.px11, c.y, h);
+						if (i == mMode)
+							costume::TexteGras(dl, F.px11, c.x + 27.f, ty, kModes[i],
+											   ctx.theme.onAccent, 0.3f);
+						else
+							costume::TexteGras(dl, F.px11, c.x + 27.f, ty, kModes[i],
+											   ctx.theme.textMuted, 0.3f);
+						if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0
+							&& NkGuiRectContains(c, ctx.input.mousePos)) {
 							mMode = i;
 							Dire("Mode ", kModes[i], " : seul Design est branché.");
 						}
@@ -1755,51 +1788,78 @@ namespace nkuidesign {
 					//    elle-même reste à brancher, comme les raccourcis grisés
 					//    des menus. Les libellés `##…` ne rendent aucun texte : le
 					//    glyphe est peint par-dessus le bouton.
-					static const char *const kOutilsIds[7] = {
-						"##outil_selection", "##outil_cadre", "##outil_formes",
-						"##outil_vectoriel", "##outil_texte", "##outil_media",
-						"##outil_mesure"};
 					static const char *const kOutilsBulles[7] = {
 						"Sélection (V)", "Cadre (F)", "Formes (R · O · L)", "Vectoriel (P)",
 						"Texte (T)",	 "Média",	  "Mesure"};
-					// Geometrie BANANI (FloatingToolRail) : rail 36 px, rayon 5,
-					// boutons 36x28, FILET entre la plume et le texte.
-					const float32 w = kOutilsLargeur, hb = 30.f;
-					const float32 filet = 8.f;
-					const float32 h = hb * 7.f + filet + 6.f;
+					// Geometrie BANANI EXACTE (FloatingToolRail, JSX) : rail 36 px,
+					// rayon 5, ombre, marge verticale 6, boutons 36x28 SANS ecart,
+					// FILET de 20 px (marges 2) entre la plume et le texte, icones
+					// 13x13 aux traces du JSX (Costume.h), actif = fond accent
+					// rayon 3, glyphe blanc. Les clics sont pris a la main : le
+					// Button du socle repeindrait son fond opaque par-dessus.
+					const float32 w = kOutilsLargeur, hb = 28.f;
+					const float32 filet = 5.f; // 2 + 1 + 2 (my-0.5 + border-t)
+					const float32 h = 6.f + hb * 7.f + filet + 6.f;
 					const NkRect r = {zone.x + kOutilsMarge, zone.y + (zone.h - h) * 0.5f, w, h};
 					mZoneOutils = r; // idem
+					dl.AddRectFilled({r.x - 1.f, r.y + 3.f, r.w + 2.f, r.h + 4.f},
+									 {0, 0, 0, 55}, 10.f); // ombre 0 4 16 approchée
 					dl.AddRectFilled(r, fond, 5.f);
 					dl.AddRect(r, bord, 1.f, 5.f);
 					for (uint32 i = 0; i < 7; ++i) {
 						const float32 yOff = (i >= 4) ? filet : 0.f;
 						if (i == 4)
-							dl.AddLine({r.x + 6.f, r.y + 4.f + hb * 4.f + filet * 0.5f},
-									   {r.x + w - 6.f, r.y + 4.f + hb * 4.f + filet * 0.5f}, bord,
-									   1.f);
-						const NkRect c = {r.x, r.y + 4.f + hb * (float32)i + yOff, w, hb - 2.f};
-						ctx.SetNextItemRect(c);
-						if (Button(ctx, kOutilsIds[i]))
-							ArmerOutil(i);
-						// Le CHEVRON de la famille Formes est VIVANT (Lunacy) : le
-						// cliquer ouvre l'éventail des variantes (§7.1) — le clic
-						// arme aussi la famille, comme chez Lunacy.
-						if (i == 2 && ctx.input.mouseClicked[0]) {
-							const NkRect zc = {c.x + c.w - 14.f, c.y + c.h - 14.f, 14.f, 14.f};
-							if (NkGuiRectContains(zc, ctx.input.mousePos))
+							dl.AddLine({r.x + 8.f, r.y + 6.f + hb * 4.f + 2.5f},
+									   {r.x + w - 8.f, r.y + 6.f + hb * 4.f + 2.5f}, bord, 1.f);
+						const NkRect c = {r.x, r.y + 6.f + hb * (float32)i + yOff, w, hb};
+						const bool survol =
+							ctx.popupDepth == 0 && NkGuiRectContains(c, ctx.input.mousePos);
+						if (survol && ctx.input.mouseClicked[0]) {
+							// Le CHEVRON de la famille Formes est VIVANT (Lunacy) :
+							// le coin bas-droit ouvre l'éventail, le reste arme.
+							const NkRect zc = {c.x + c.w - 12.f, c.y + c.h - 12.f, 12.f, 12.f};
+							if (i == 2 && NkGuiRectContains(zc, ctx.input.mousePos))
 								mEventailOuvert = !mEventailOuvert;
+							else
+								ArmerOutil(i);
 						}
-						if (ctx.IsItemHovered())
-							SetTooltip(ctx, kOutilsBulles[i]);
-						// ⚠️ L'ACCENT DE L'OUTIL ACTIF SE PEINT APRES LE BOUTON :
-						//    `Button` pose TOUJOURS un fond opaque (mesure :
-						//    NkGuiWidgets.cpp, `theme.button` au repos) — peint
-						//    avant, l'accent disparaissait dessous. Le glyphe vient
-						//    encore au-dessus : blanc sur accent, comme le curseur
-						//    bleu de la planche.
+						nkentseu::editorkit::NkTooltip(ctx, survol, kOutilsBulles[i]);
 						if (i == mOutil)
-							dl.AddRectFilled(c, ctx.theme.accent, 4.f);
-						GlypheOutil(dl, c, i, ctx.theme.text, ctx.theme.textMuted);
+							dl.AddRectFilled(c, ctx.theme.accent, 3.f);
+						const NkColor g = (i == mOutil) ? ctx.theme.onAccent : ctx.theme.textMuted;
+						const float32 ix = c.x + (c.w - 13.f) * 0.5f;
+						const float32 iy = c.y + (c.h - 13.f) * 0.5f;
+						switch (i) {
+							case 0:
+								costume::OutilFleche(dl, ix, iy, g);
+								break;
+							case 1:
+								costume::OutilCadre(dl, ix, iy, g);
+								break;
+							case 2: // la face du bouton = la variante choisie
+								if (mVariante == 1)
+									costume::OutilEllipse(dl, ix, iy, g);
+								else if (mVariante == 2)
+									costume::OutilLigne(dl, ix, iy, g);
+								else
+									costume::OutilRect(dl, ix, iy, g);
+								break;
+							case 3:
+								costume::OutilPlume(dl, ix, iy, g);
+								break;
+							case 4:
+								costume::OutilTexte(dl, ix, iy, g);
+								break;
+							case 5:
+								costume::OutilImage(dl, ix, iy, g);
+								break;
+							default:
+								costume::OutilRegle(dl, ix, iy, g);
+								break;
+						}
+						// chevrons de variantes (formes et plume, JSX)
+						if (i == 2 || i == 3)
+							costume::ChevronVariante4(dl, c.x + c.w - 6.f, c.y + c.h - 6.f, g);
 					}
 
 					// ── L'ÉVENTAIL DES VARIANTES DE FORMES (§7.1, Lunacy) ────
@@ -1856,30 +1916,51 @@ namespace nkuidesign {
 					//    pour Inter, et celui-la n'y est pas. Un caractere absent ne
 					//    se voit pas comme absent, il se voit comme une faute.
 					//    Le chevron est donc DESSINE, quelques lignes plus bas.
-					snprintf(zoom, sizeof(zoom), "%d %%",
+					// COSTUME BANANI EXACT (JSX DesignCanvasV2) : bas 12 / droite
+					// 12, padding 3-5, « 100% » 11 px + chevron TRACÉ 7x5, filet
+					// vertical, grille 22x22 au bord ACCENT (la grille de points
+					// EST affichée : l'état est vrai), aimant 22x22 au bord
+					// `border`. Clics pris à la main — le Button du socle
+					// repeindrait son fond opaque sur le costume.
+					auto &F = costume::Fontes();
+					snprintf(zoom, sizeof(zoom), "%d%%",
 							 (int32)(mSt->view.zoom * 100.f + 0.5f));
-					const float32 h = 28.f, w = 168.f;
-					const NkRect r = {zone.x + zone.w - w - 14.f, zone.y + zone.h - h - 14.f, w,
+					const float32 wz = costume::Largeur(F.px11, zoom);
+					// [5][zoom][4][chevron 7][8][filet 1][4][22][4][22][5]
+					const float32 w =
+						5.f + wz + 4.f + 7.f + 8.f + 1.f + 4.f + 22.f + 4.f + 22.f + 5.f;
+					const float32 h = 28.f;
+					const NkRect r = {zone.x + zone.w - w - 12.f, zone.y + zone.h - h - 12.f, w,
 									  h};
 					mZoneCluster = r; // idem
-					dl.AddRectFilled(r, fond, 6.f);
-					dl.AddRect(r, bord, 1.f, 6.f);
-					const NkRect rz = {r.x + 4.f, r.y + 3.f, 92.f, h - 6.f};
-					ctx.SetNextItemRect(rz);
-					if (Button(ctx, zoom))
+					dl.AddRectFilled({r.x - 1.f, r.y + 2.f, r.w + 2.f, r.h + 4.f}, {0, 0, 0, 50},
+									 8.f); // ombre 0 2 8 approchée
+					dl.AddRectFilled(r, fond, 4.f);
+					dl.AddRect(r, bord, 1.f, 4.f);
+					float32 x = r.x + 5.f;
+					costume::Texte(dl, F.px11, x, costume::CentrerY(F.px11, r.y, h), zoom,
+								   ctx.theme.text);
+					costume::ChevronCombo7(dl, x + wz + 4.f, r.y + (h - 5.f) * 0.5f,
+										   ctx.theme.textMuted);
+					const NkRect rz = {r.x, r.y, 5.f + wz + 4.f + 7.f + 8.f, h};
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(rz, ctx.input.mousePos))
 						Dire("Zoom : la saisie directe n'est pas encore branchée.", "", "");
-					// Le chevron « déroulant », tracé : deux segments, aucune police.
-					{
-						const float32 cxz = rz.x + rz.w - 12.f, cyz = rz.y + rz.h * 0.5f;
-						const float32 s2 = 3.5f;
-						dl.AddLine({cxz - s2, cyz - 1.5f}, {cxz, cyz + 2.f}, ctx.theme.text, 1.4f);
-						dl.AddLine({cxz, cyz + 2.f}, {cxz + s2, cyz - 1.5f}, ctx.theme.text, 1.4f);
-					}
-					ctx.SetNextItemRect({r.x + 100.f, r.y + 3.f, 30.f, h - 6.f});
-					if (Button(ctx, "#"))
+					x += wz + 4.f + 7.f + 8.f;
+					dl.AddLine({x, r.y + 5.f}, {x, r.y + h - 5.f}, bord, 1.f);
+					x += 1.f + 4.f;
+					const NkRect rg = {x, r.y + 3.f, 22.f, 22.f};
+					dl.AddRect(rg, ctx.theme.accent, 1.f, 3.f);
+					costume::IcGrille(dl, rg.x + 5.f, rg.y + 5.f, ctx.theme.accent);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(rg, ctx.input.mousePos))
 						Dire("Grille : à brancher.", "", "");
-					ctx.SetNextItemRect({r.x + 132.f, r.y + 3.f, 30.f, h - 6.f});
-					if (Button(ctx, "|-|"))
+					x += 22.f + 4.f;
+					const NkRect rm = {x, r.y + 3.f, 22.f, 22.f};
+					dl.AddRect(rm, bord, 1.f, 3.f);
+					costume::IcAimant(dl, rm.x + 5.f, rm.y + 5.f, ctx.theme.textMuted);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(rm, ctx.input.mousePos))
 						Dire("Magnétisme : à brancher.", "", "");
 				}
 			}
@@ -2096,7 +2177,7 @@ namespace nkuidesign {
 			/// Banani (FloatingToolRail) : 36 px — plus la barre de 48 du plan
 			/// initial ; la maquette est la reference exacte (Rodolf, 30/08).
 			static constexpr float32 kOutilsLargeur = 36.f;
-			static constexpr float32 kOutilsMarge = 12.f;
+			static constexpr float32 kOutilsMarge = 10.f; // Banani : left 10 px
 			/// Le pas de la grille a points, en espace DOCUMENT — 20, la valeur
 			/// exacte de la maquette Banani (radial-gradient, pas 20 px).
 			static constexpr float32 kGrillePas = 20.f;
