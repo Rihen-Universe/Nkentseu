@@ -3638,6 +3638,12 @@ namespace nkuidesign {
 				if (zone.w <= 0.f || zone.h <= 0.f)
 					return;
 				designkit::releve::Rect(ctx, cle, zone);
+				// L'ASCENSEUR PAR SECTION (2e passe de Rodolf : « un pour la
+				// Hiérarchie, un pour COMPOSANTS ») : la barre STANDARD du kit
+				// (NkEditorScrollbar) — le composant arbre ne dessine pas de
+				// barre par conception, il défile ; la barre du kit pilote LE
+				// MÊME `modele.scroll`, donc chaque section défile seule.
+				const float32 sbw = nkentseu::editorkit::NkScrollbarWidth();
 
 				NkComponentInput in;
 				in.surfaceScale = 1.f;
@@ -3653,7 +3659,8 @@ namespace nkuidesign {
 				in.shift = ctx.input.shiftDown;
 
 				NkDesignPaint paint(ctx, mSt->theme);
-				const NkPaintRect r = {zone.x, zone.y, zone.w, zone.h};
+				// la colonne de droite est reservee a l'ascenseur de la section
+				const NkPaintRect r = {zone.x, zone.y, zone.w - sbw, zone.h};
 				// ── LE BADGE DE RÔLE EN PILULE (Banani §1.4) — par le point de
 				//    greffe `rowOverlay` que le composant porte DÉJÀ (porte du
 				//    28/08 : la couche du dessous d'abord — aucun kit à changer).
@@ -3709,6 +3716,17 @@ namespace nkuidesign {
 				};
 				const NkTreeViewResult res = nkentseu::editorkit::NkDrawTreeView(
 					paint, in, r, modele, Style(inst), hooks);
+
+				// L'ascenseur de CETTE section : il pilote le même `scroll` que la
+				// molette du composant (une seule vérité de défilement), avec la
+				// même arithmétique que le composant (visibleCount × row_h).
+				{
+					const float32 rowH = inst.Metric("row_h", 22.f);
+					const float32 contentH = (float32)res.visibleCount * rowH;
+					nkentseu::editorkit::NkVScrollbar(
+						ctx, ctx.DL(), {zone.x + zone.w - sbw, zone.y, sbw, zone.h},
+						modele.scroll, contentH, zone.h, ctx.GetId(cle) ^ 0x5C011Bu, rowH);
+				}
 
 				// ⚠️ LA BOUCLE SE REFERME ICI, ET SON ABSENCE ETAIT UN DEFAUT REEL.
 				//    `SyncPages` recopie `DesignState::selected` dans le modele a
@@ -4592,9 +4610,11 @@ namespace nkuidesign {
 				auto &dl = ctx.DL();
 				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				// « Cible » court : au corps +4, « Cible du cadre » mangeait la
+				// boîte et tronquait la valeur (mesuré sur capture).
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
-							   "Cible du cadre", ctx.theme.textMuted);
-				const NkRect rb = {x0 + 76.f, r.y + 2.f, x1 - x0 - 76.f, 20.f};
+							   "Cible", ctx.theme.textMuted);
+				const NkRect rb = {x0 + 44.f, r.y + 2.f, x1 - x0 - 44.f, 20.f};
 				// « Mobile 390 x 844 » -> « Mobile — 390 × 844 »
 				char aff[96];
 				{

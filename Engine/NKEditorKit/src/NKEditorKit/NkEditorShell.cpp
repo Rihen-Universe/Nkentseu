@@ -1512,7 +1512,9 @@ namespace nkentseu {
 			const float32 bw = mUI.S(42.f);
 			NkRect cClose, cMax, cMin;
 			if (mWinControlsCompact) {
-				const float32 cs = 13.f, gap = 4.f, right = 12.f;
+				// `mWinControlsSize` : l'application choisit le côté (Rodolf,
+				// 31/08 : les 13 px de la maquette étaient trop petits à l'usage).
+				const float32 cs = mWinControlsSize, gap = 4.f, right = 12.f;
 				const float32 cyBtn = bar.y + (bar.h - cs) * 0.5f;
 				cClose = {bar.x + bar.w - right - cs, cyBtn, cs, cs};
 				cMax = {cClose.x - gap - cs, cyBtn, cs, cs};
@@ -1566,12 +1568,20 @@ namespace nkentseu {
 			//    PERMANENT #f85149 avec × blanc. Les trois se dessinent ici et les
 			//    blocs historiques sont sautés. ──
 			if (mWinControlsCompact) {
+				// Les GLYPHES SUIVENT LE CÔTÉ choisi (proportions de la maquette
+				// à 13 px, mises à l'échelle) — agrandir la zone cliquable sans
+				// agrandir le dessin aurait fait des boutons vides.
+				const float32 cs2 = mWinControlsSize;
+				const float32 demiTrait = cs2 * 0.27f; // 3.5/13
+				const float32 carre = cs2 * 0.46f;	   // 6/13
+				const float32 demiX = cs2 * 0.19f;
 				// Réduire.
 				{
 					const bool h = inR(cMin);
 					dl.AddRectFilled(cMin, h ? mUI.theme.buttonHover : mUI.theme.button, 3.f);
 					const float32 gx = cMin.x + cMin.w * 0.5f, gy = cMin.y + cMin.h * 0.5f;
-					dl.AddLine({gx - 3.5f, gy}, {gx + 3.5f, gy}, mUI.theme.textDisabled, 1.f);
+					dl.AddLine({gx - demiTrait, gy}, {gx + demiTrait, gy}, mUI.theme.textDisabled,
+							   1.2f);
 					if (h && mUI.input.mouseClicked[0]) {
 						mWindow.Minimize();
 						consumed = true;
@@ -1582,7 +1592,8 @@ namespace nkentseu {
 					const bool h = inR(cMax);
 					dl.AddRectFilled(cMax, h ? mUI.theme.buttonHover : mUI.theme.button, 3.f);
 					const float32 gx = cMax.x + cMax.w * 0.5f, gy = cMax.y + cMax.h * 0.5f;
-					dl.AddRect({gx - 3.f, gy - 3.f, 6.f, 6.f}, mUI.theme.textDisabled, 1.f);
+					dl.AddRect({gx - carre * 0.5f, gy - carre * 0.5f, carre, carre},
+							   mUI.theme.textDisabled, 1.2f);
 					if (h && mUI.input.mouseClicked[0]) {
 						mWindow.Maximize();
 						consumed = true;
@@ -1595,8 +1606,8 @@ namespace nkentseu {
 					dl.AddRectFilled(cClose, h ? NkColor{255, 110, 102, 255} : rouge, 3.f);
 					const float32 gx = cClose.x + cClose.w * 0.5f, gy = cClose.y + cClose.h * 0.5f;
 					const NkColor blanc = {255, 255, 255, 255};
-					dl.AddLine({gx - 2.f, gy - 2.f}, {gx + 2.f, gy + 2.f}, blanc, 1.2f);
-					dl.AddLine({gx - 2.f, gy + 2.f}, {gx + 2.f, gy - 2.f}, blanc, 1.2f);
+					dl.AddLine({gx - demiX, gy - demiX}, {gx + demiX, gy + demiX}, blanc, 1.4f);
+					dl.AddLine({gx - demiX, gy + demiX}, {gx + demiX, gy - demiX}, blanc, 1.4f);
 					if (h && mUI.input.mouseClicked[0]) {
 						mRunning = false;
 						consumed = true;

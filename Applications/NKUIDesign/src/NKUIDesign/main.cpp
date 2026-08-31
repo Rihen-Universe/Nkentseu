@@ -1714,8 +1714,11 @@ int nkmain(const NkEntryState &state) {
 			nkuidesign::costume::LogoBanani(ui.dl, r);
 		},
 		nullptr);
-	// 3. Controles de fenetre 13x13, fermer sur fond rouge permanent.
-	shell->SetWindowControlsCompact(true);
+	// 3. Controles de fenetre compacts, fermer sur fond rouge permanent.
+	//    20 px, pas les 13 de la maquette : Rodolf (31/08, 2e passe) —
+	//    « les boutons reduire/agrandir/fermer sont trop petits » ;
+	//    proportionnes a la bande de titre de 28.
+	shell->SetWindowControlsCompact(true, 20.f);
 	// 4. Les panneaux lateraux dessinent leur propre en-tete de 34 px : la
 	//    barre d'onglets du dock disparait quand ils sont seuls.
 	shell->SetSideTabsVisible(false);

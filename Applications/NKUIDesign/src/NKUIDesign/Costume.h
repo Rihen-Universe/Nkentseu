@@ -52,8 +52,10 @@ namespace nkuidesign {
 		/// polices au moment du dessin, donc tout suit ; les hauteurs de
 		/// rangées et de bandes sont validées sur capture. Les noms px9..px16
 		/// continuent de nommer le corps DE LA MAQUETTE, pas le corps rendu.
+		/// 2e passe de Rodolf (31/08) : « le texte est ENCORE trop petit,
+		/// partout » — +2 est devenu +4. Un seul chiffre à changer ici.
 		inline float32 CorpsMaquette(float32 px) {
-			return px + 2.f;
+			return px + 4.f;
 		}
 
 		struct Polices {

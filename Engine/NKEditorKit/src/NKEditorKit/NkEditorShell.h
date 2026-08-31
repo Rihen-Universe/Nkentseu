@@ -540,11 +540,14 @@ namespace nkentseu {
 					mTitleBarFont = f;
 				}
 
-				/// Contrôles de fenêtre COMPACTS 13×13 (Banani TopHeader) : réduire /
+				/// Contrôles de fenêtre COMPACTS (Banani TopHeader) : réduire /
 				/// agrandir sur fond `theme.button`, fermer sur FOND ROUGE permanent.
-				/// faux = les trois zones larges historiques.
-				void SetWindowControlsCompact(bool v) noexcept {
+				/// faux = les trois zones larges historiques. `sizePx` : le côté du
+				/// bouton (13 = la maquette ; Rodolf 31/08 : « trop petits » —
+				/// l'application choisit, glyphes et zone cliquable suivent).
+				void SetWindowControlsCompact(bool v, float32 sizePx = 13.f) noexcept {
 					mWinControlsCompact = v;
+					mWinControlsSize = (sizePx >= 8.f && sizePx <= 28.f) ? sizePx : 13.f;
 				}
 
 				/// Rail bas, à DROITE : pastille d'état colorée + texte (« Prêt »).
@@ -810,7 +813,8 @@ namespace nkentseu {
 				void (*mHeaderLogoFn)(nkgui::NkGuiContext &, const nkgui::NkRect &, void *) = nullptr;
 				void *mHeaderLogoUser = nullptr;
 				nkgui::NkGuiFont *mTitleBarFont = nullptr; // police dédiée barre de titre (menus 11 px)
-				bool mWinControlsCompact = false;		   // contrôles 13×13, fermer rouge permanent
+				bool mWinControlsCompact = false;		   // contrôles compacts, fermer rouge permanent
+				float32 mWinControlsSize = 13.f;		   // côté du bouton compact (l'app choisit)
 				bool mSideTabsVisible = true;			   // barres d'onglets des panneaux latéraux
 				char mRailStatusText[64] = {};			   // « Prêt » à droite du rail bas
 				nkgui::NkColor mRailStatusColor = {63, 185, 80, 255};
