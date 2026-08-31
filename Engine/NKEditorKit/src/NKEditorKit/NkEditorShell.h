@@ -338,6 +338,18 @@ namespace nkentseu {
 				///    ne le laisse pas tomber en silence.
 				void SetRail(NkEditorDockSide side, const NkEditorRailItem *items, int32 count) noexcept;
 
+				/// Ouvre (ou ferme, index -1) le TIROIR d'une pastille de rail par
+				/// programme — mise en scène et raccourcis. Additif (2026-08-31) :
+				/// même règle qu'un clic sur la pastille, une seule par rail.
+				void OuvrirTiroir(NkEditorDockSide side, int32 index) noexcept {
+					const int32 slot = side == NkEditorDockSide::NK_LEFT	? 0
+									   : side == NkEditorDockSide::NK_RIGHT ? 1
+									   : side == NkEditorDockSide::NK_BOTTOM ? 2
+																			 : -1;
+					if (slot >= 0 && index < mRailCount[slot])
+						mRailOuvert[slot] = index;
+				}
+
 				void SetActivityBars(bool left, bool right) noexcept {
 					mActivityBarLeft = left;
 					mActivityBarRight = right;
