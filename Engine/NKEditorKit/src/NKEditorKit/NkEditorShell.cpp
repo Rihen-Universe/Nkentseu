@@ -1539,7 +1539,19 @@ namespace nkentseu {
 				titleLx = ix - mUI.S(10.f);
 				titleRx = ix + iw + mUI.S(10.f); // + petite marge
 				const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
-				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix, by}, info, {150, 150, 150, 255});
+				// Costume (police de barre posée) : la pastille « ● » d'un fichier
+				// non enregistré se peint en `theme.warning` et le NOM en
+				// `theme.text` — Banani TopHeader. Historique sinon : gris moyen.
+				if (mTitleBarFont && info[0] == '\xE2' && info[1] == '\x97' && info[2] == '\x8F') {
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix, by}, "\xE2\x97\x8F",
+							   mUI.theme.warning);
+					const float32 dw = mUI.font->MeasureWidth("\xE2\x97\x8F");
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix + dw, by}, info + 3,
+							   mUI.theme.text);
+				} else if (mTitleBarFont)
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix, by}, info, mUI.theme.text);
+				else
+					dl.AddText(mUI.font->Face(), mUI.font->TexId(), {ix, by}, info, {150, 150, 150, 255});
 			}
 
 			bool consumed = false;

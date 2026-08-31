@@ -52,6 +52,7 @@
 
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorModal.h" // le cadre modal du kit (choix Nouveau projet)
+#include "NKEditorKit/NkThemeToGui.h"  // NkThemeUnpack : role de theme -> couleur de dessin
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKPlatform/NkEnv.h"
@@ -60,6 +61,7 @@
 #include "NKWindow/NKWindow.h"
 
 #include "Backend.h"
+#include "Costume.h" // le costume exact Banani : polices 9-16 px + icônes (remandat 31/08)
 #include "NkGuiRoundTrip.h"
 #include "NkDocPoolControls.h"
 #include "Panels.h"
@@ -138,6 +140,9 @@ static NkEditorShell *gShell = nullptr;
 ///    clic le lisent tous les deux. Deux copies auraient diverge des le premier
 ///    onglet ferme.
 static uint32 gOngletActif = 0;
+// L'etat « non enregistre » MESURE (pousse par le canal gDesign.titre) : la
+// barre de titre ET l'onglet actif portent la meme pastille « ● ».
+static bool gDocumentModifie = false;
 /// ⚠️ L AUTORITE DES THEMES, ET ELLE EST UNIQUE. `gDesign.theme` (lu par les
 ///    composants du kit) et `mUI.theme` de la coquille (lu par les primitives)
 ///    en sont deux CONSOMMATEURS ; ils ne decident rien.
@@ -641,13 +646,72 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 	//    ⚠️ Et le lisere prend le JETON `theme.accent` : il suit le theme, il ne
 	//       reste pas bleu quand on passe en clair.
 	const NkRect z = ctx.layout.region;
-	ctx.DL().AddRectFilled(z, ctx.theme.tabBar);
-	gOngletActif = (uint32)TabBar(ctx, "projets.onglets", kOnglets, 3);
-
-	// ⚠️ `TabBar` a AVANCE le curseur ; le `+` se pose a sa suite, dans le flux.
-	ctx.SameLine(6.f); // membre du contexte, pas fonction libre
-	if (Button(ctx, "+"))
-		gLauncherModal.open = true;
+	// ⚠️ COSTUME BANANI (remandat 31/08) : les onglets V2 du TopHeader portent
+	//    une ICONE de document, la pastille « ● » du non-enregistre, une croix
+	//    de fermeture et le « + » — le widget TabBar du socle n'en dessine
+	//    aucun. Le dessin est donc posé ICI, à la main, aux mesures du JSX
+	//    (onglet 27 px aligné en bas de la bande de 28, padding 12, écarts 4,
+	//    libellé 11 px, liseré actif 2 px, filet vertical `border` entre
+	//    onglets). Ce n'est pas TabBar réécrit « faute d'avoir cherché » : le
+	//    socle est LU, il ne porte pas ce costume ; un opt-in de kit viendra si
+	//    NKCode veut le même.
+	auto &dl = ctx.DL();
+	auto &F = nkuidesign::costume::Fontes();
+	namespace cos = nkuidesign::costume;
+	dl.AddRectFilled(z, ctx.theme.panel);
+	const float32 hT = 27.f;
+	const float32 yT = z.y + z.h - hT;
+	float32 x = z.x;
+	for (uint32 i = 0; i < 3; ++i) {
+		const bool actif = (i == gOngletActif);
+		// libellé : l'actif porte « ● » quand le document est modifié (état
+		// MESURÉ, poussé par le même canal que la barre de titre).
+		char libelle[64];
+		snprintf(libelle, sizeof(libelle), "%s%s", kOnglets[i],
+				 (actif && gDocumentModifie) ? " \xE2\x97\x8F" : "");
+		const float32 wTxt = cos::Largeur(F.px11, libelle);
+		const float32 wX = cos::Largeur(F.px11, "\xC3\x97"); // « × »
+		// 12 (pad) + 10 (icône) + 4 + texte + 4 + croix + 12 (pad)
+		const float32 wT = 12.f + 10.f + 4.f + wTxt + 4.f + wX + 12.f;
+		const NkRect r = {x, yT, wT, hT};
+		if (actif) {
+			dl.AddRectFilled(r, ctx.theme.bgPrimary); // l'actif rejoint le fond document (V2)
+			dl.AddRectFilled({r.x, r.y + r.h - 2.f, r.w, 2.f}, ctx.theme.accent);
+		}
+		cos::IcDocOnglet(dl, r.x + 12.f, r.y + (hT - 10.f) * 0.5f,
+						 actif ? ctx.theme.accent : ctx.theme.textMuted);
+		const float32 yTxt = cos::CentrerY(F.px11, r.y, hT);
+		if (actif)
+			cos::TexteGras(dl, F.px11, r.x + 26.f, yTxt, libelle, ctx.theme.text, 0.3f);
+		else
+			cos::Texte(dl, F.px11, r.x + 26.f, yTxt, libelle, ctx.theme.textMuted);
+		// la croix de fermeture (10 px, muted) — inerte, et elle le DIT au clic.
+		const NkRect rx = {r.x + 26.f + wTxt + 4.f, r.y, wX + 6.f, hT};
+		cos::Texte(dl, F.px11, rx.x, yTxt, "\xC3\x97", ctx.theme.textMuted);
+		dl.AddLine({r.x + r.w, r.y, }, {r.x + r.w, r.y + r.h}, ctx.theme.border, 1.f);
+		// clics : croix d'abord (elle est DANS l'onglet), l'onglet ensuite.
+		if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
+			const NkVec2 m = ctx.input.mousePos;
+			const bool dansX = m.x >= rx.x && m.x < rx.x + rx.w && m.y >= rx.y && m.y < rx.y + rx.h;
+			const bool dansT = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+			if (dansX)
+				gDesign.status = NkString("Fermer un onglet de projet : à brancher.");
+			else if (dansT)
+				gOngletActif = i;
+		}
+		x += wT;
+	}
+	// Le « + » (15 px, muted) — il ouvre le choix « Nouveau projet ».
+	{
+		const NkRect rp = {x, yT, 12.f + cos::Largeur(F.px15, "+") + 12.f, hT};
+		cos::Texte(dl, F.px15, rp.x + 12.f, cos::CentrerY(F.px15, rp.y, hT), "+",
+				   ctx.theme.textMuted);
+		if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
+			const NkVec2 m = ctx.input.mousePos;
+			if (m.x >= rp.x && m.x < rp.x + rp.w && m.y >= rp.y && m.y < rp.y + rp.h)
+				gLauncherModal.open = true;
+		}
+	}
 
 	// ── LE CHOIX A TROIS BRANCHES (§3) ──────────────────────────────────────
 	if (gLauncherModal.open) {
@@ -1273,6 +1337,39 @@ int nkmain(const NkEntryState &state) {
 	// rejoint le fond de la zone document. OPT-IN du socle -- NKCode et les
 	// autres consommateurs gardent l'historique tant qu'ils n'optent pas.
 	shell->Ui().theme.tabActiveIsWindowBg = true;
+
+	// ── LE COSTUME EXACT (remandat Rodolf 31/08 : « THEME, DESIGN, POLICE,
+	//    TOUT ») — chaque ligne consomme un crochet OPT-IN du kit. ──────────
+	// 1. Les polices de la maquette : corps 9..16, Inter embarquee. La police
+	//    d'INTERFACE passe a 12 px (le --text-base des jetons), celle de la
+	//    BARRE DE TITRE a 11 px (menus + nom de fichier du TopHeader).
+	nkuidesign::costume::Fontes().Charger(*shell, shell->DpiScale());
+	if (!nkuidesign::costume::Fontes().ok)
+		logger.Error("[NKUIDesign] polices du costume : au moins un corps n'a pas charge — "
+					 "les zones concernees retomberont sur la police d'interface.");
+	shell->ForceUiFontSize(12.f);
+	shell->SetTitleBarFont(&nkuidesign::costume::Fontes().px11);
+	// 2. Le bloc logo 56x56 de la maquette (degrade + 4 carreaux + diagonale).
+	//    Le « O » Rihen reste le defaut du kit pour toutes les autres
+	//    applications — ici la planche prime, decision a l'oeil pour Rodolf.
+	shell->SetHeaderLogoFn(
+		[](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, void *) {
+			nkuidesign::costume::LogoBanani(ui.dl, r);
+		},
+		nullptr);
+	// 3. Controles de fenetre 13x13, fermer sur fond rouge permanent.
+	shell->SetWindowControlsCompact(true);
+	// 4. Les panneaux lateraux dessinent leur propre en-tete de 34 px : la
+	//    barre d'onglets du dock disparait quand ils sont seuls.
+	shell->SetSideTabsVisible(false);
+	// 5. Les etats colores prennent les valeurs EXACTES des jetons Banani
+	//    (success #3fb950, warning #d29922, error #f85149) — la pastille « ● »
+	//    et le badge d'erreurs les lisent.
+	shell->Ui().theme.success = {63, 185, 80, 255};
+	shell->Ui().theme.warning = {210, 153, 34, 255};
+	shell->Ui().theme.danger = {248, 81, 73, 255};
+	// 6. « ● Pret » a droite du rail bas.
+	shell->SetRailFooterStatus("Prêt", {63, 185, 80, 255});
 	// ⚠️ UN SEUL BANDEAU BAS (§4/§13 ; Rodolf, 30/08 : « pourquoi il y a deux
 	//    footers ? ») : la barre d'etat VSCode se debranche, le RAIL de
 	//    pastilles est le survivant — l'aide contextuelle et les messages
@@ -1292,6 +1389,7 @@ int nkmain(const NkEntryState &state) {
 			return;
 		init = true;
 		dernier = modifie;
+		gDocumentModifie = modifie; // l'onglet actif porte la meme pastille
 		static_cast<NkEditorShell *>(u)->SetTitleInfo(
 			modifie ? "● Dashboard_Admin.nkgui" : "Dashboard_Admin.nkgui");
 	};
@@ -1312,20 +1410,69 @@ int nkmain(const NkEntryState &state) {
 	//    alors « aucun panneau enregistre sous ce titre », en rouge. Une
 	//    pastille absente ferait croire que le plan a change ; une pastille qui
 	//    s ouvre sur un message dit exactement ou on en est.
-	static const NkEditorShell::NkEditorRailItem kRailGauche[] = {
-		{"Palette", "Palette de composants — poser", "P"},
-		{"Bibliothèque", "Bibliothèque de composants — acquérir", "B"},
+	// ⚠️ COSTUME BANANI (31/08) : l'ecran 1 ne montre AUCUN rail gauche — il est
+	//    retire (la Palette reste accessible par le menu Affichage). Le rail
+	//    DROIT porte les trois pastilles de la maquette (bibliotheque en
+	//    carreaux, etoile IA violette, oeil-vague d'apercu) et le rail BAS ses
+	//    deux PILULES (Console, Apercu) — chaque icone est dessinee par
+	//    l'application via le crochet `icone` du kit, aux traces exacts du JSX.
+	//    Les CLES de panneau ne changent pas (« Bibliothèque », « IA »,
+	//    « Test », « Console ») : seul le costume bouge.
+	using nkuidesign::costume::Fontes;
+	static NkEditorShell::NkEditorRailItem kRailDroite[] = {
+		{"Bibliothèque", "Bibliothèque de composants — acquérir", "B",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool, bool, void *) {
+			 nkuidesign::costume::IcCarreaux(ui.dl, r.x + (r.w - 14.f) * 0.5f,
+											 r.y + (r.h - 14.f) * 0.5f, ui.theme.textMuted);
+		 }},
+		{"IA", "Chat IA", "IA",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool ouvert, bool, void *) {
+			 // L'etoile IA est VIOLETTE au repos, sur un voile accent a 13 % —
+			 // c'est l'etat que la maquette fige (SideRail, etoile active).
+			 const nkgui::NkColor violet = nkentseu::editorkit::NkThemeUnpack(
+				 gDesign.theme.Get(nkentseu::editorkit::NkRole::AccentAI));
+			 if (!ouvert) {
+				 nkgui::NkColor voile = ui.theme.accent;
+				 voile.a = 34;
+				 ui.dl.AddRectFilled(r, voile, 4.f);
+			 }
+			 nkuidesign::costume::IcEtoile(ui.dl, r.x + (r.w - 14.f) * 0.5f,
+										   r.y + (r.h - 14.f) * 0.5f, violet);
+		 }},
+		{"Test", "Aperçu / Test — exécuter l'interface dessinée", "T",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool, bool, void *) {
+			 nkuidesign::costume::IcOeilVague(ui.dl, r.x + (r.w - 14.f) * 0.5f,
+											  r.y + (r.h - 14.f) * 0.5f, ui.theme.textMuted);
+		 }},
 	};
-	static const NkEditorShell::NkEditorRailItem kRailDroite[] = {
-		{"Callbacks", "Gestionnaire de callbacks", "C"},
-		{"IA", "Chat IA", "IA"},
+	static NkEditorShell::NkEditorRailItem kRailBas[] = {
+		{"Console", "Console / Validation", "C",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool ouvert, bool, void *) {
+			 // La pilule Console de la maquette : fond `button` (#21262d), icone
+			 // `>_`, libelle 11 px. Le badge rouge n'apparait qu'avec de VRAIES
+			 // erreurs — la maquette en fige deux, nous n'inventons pas l'etat.
+			 if (!ouvert)
+				 ui.dl.AddRectFilled(r, ui.theme.button, 4.f);
+			 nkuidesign::costume::IcConsole(ui.dl, r.x + 8.f, r.y + (r.h - 12.f) * 0.5f,
+											ui.theme.textMuted);
+			 nkuidesign::costume::Texte(ui.dl, Fontes().px11, r.x + 8.f + 12.f + 6.f,
+										nkuidesign::costume::CentrerY(Fontes().px11, r.y, r.h),
+										"Console", ui.theme.textMuted);
+		 }},
+		{"Test", "Aperçu / Test — exécuter l'interface dessinée", "T",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool, bool, void *) {
+			 nkuidesign::costume::IcOeil(ui.dl, r.x + 8.f, r.y + (r.h - 12.f) * 0.5f,
+										 ui.theme.textMuted);
+			 nkuidesign::costume::Texte(ui.dl, Fontes().px11, r.x + 8.f + 12.f + 6.f,
+										nkuidesign::costume::CentrerY(Fontes().px11, r.y, r.h),
+										"Aperçu", ui.theme.textMuted);
+		 }},
 	};
-	static const NkEditorShell::NkEditorRailItem kRailBas[] = {
-		{"Console", "Console / Validation", "C"},
-		{"Test", "Aperçu / Test — exécuter l'interface dessinée", "T"},
-	};
-	shell->SetRail(NkEditorDockSide::NK_LEFT, kRailGauche, 2);
-	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite, 2);
+	// Largeur des pilules : 8 (marge) + 12 (icone) + 6 (ecart) + texte + 8.
+	kRailBas[0].largeur = 34.f + nkuidesign::costume::Largeur(Fontes().px11, "Console");
+	kRailBas[1].largeur = 34.f + nkuidesign::costume::Largeur(Fontes().px11, "Aperçu");
+	shell->SetRail(NkEditorDockSide::NK_LEFT, nullptr, 0);
+	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite, 3);
 	shell->SetRail(NkEditorDockSide::NK_BOTTOM, kRailBas, 2);
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
