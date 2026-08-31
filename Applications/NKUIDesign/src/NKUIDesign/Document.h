@@ -353,6 +353,16 @@ namespace nkuidesign {
 			/// que `shape` : la clé n'existe dans le fichier que si elle est posée,
 			/// un document d'avant se réenregistre à l'identique.
 			NkString role;
+			/// ── L'APPARENCE POSÉE (vocabulaire §8ter, entamé au remandat 31/08) ──
+			/// Chaque champ suit la règle de `shape` : ABSENT du fichier tant qu'il
+			/// n'est pas posé, un document d'avant se réenregistre à l'identique.
+			/// Vide/0 = « pas posé » : le thème du document (rôles doc_*) prime.
+			NkString fill;		 ///< fond, hexa « #rrggbb » (clé `fond`)
+			NkString textColor;	 ///< couleur du texte, hexa (clé `couleur_texte`)
+			float32 radius = 0.f;	 ///< rayon des coins, px (clé `rayon`)
+			float32 borderW = 0.f;	 ///< épaisseur de bord, px (clé `bordure`)
+			float32 fontPx = 0.f;	 ///< corps du texte, px (clé `police_px`) — 0 = défaut
+			float32 fontWeight = 0.f; ///< graisse 100..900 (clé `graisse`) — 0 = défaut
 			/// Le contenu d'un nœud `shape == "text"`. UNE ligne (le format écrit
 			/// une clé par ligne, sans échappement — un retour à la ligne dans ce
 			/// champ casserait la relecture, et l'éditeur n'en produit pas).
@@ -863,6 +873,31 @@ namespace nkuidesign {
 					// réenregistre octet pour octet.
 					if (!n.role.Empty())
 						Field(out, "role", n.role.Data());
+					// L'APPARENCE POSÉE (§8ter) : chaque clé n'existe que posée.
+					if (!n.fill.Empty())
+						Field(out, "fond", n.fill.Data());
+					if (!n.textColor.Empty())
+						Field(out, "couleur_texte", n.textColor.Data());
+					if (n.radius != 0.f) {
+						out.Append("  rayon = ");
+						WriteNum(out, n.radius);
+						out.Append('\n');
+					}
+					if (n.borderW != 0.f) {
+						out.Append("  bordure = ");
+						WriteNum(out, n.borderW);
+						out.Append('\n');
+					}
+					if (n.fontPx != 0.f) {
+						out.Append("  police_px = ");
+						WriteNum(out, n.fontPx);
+						out.Append('\n');
+					}
+					if (n.fontWeight != 0.f) {
+						out.Append("  graisse = ");
+						WriteNum(out, n.fontWeight);
+						out.Append('\n');
+					}
 					Field(out, "auteur", NkAuthorName(n.prov.author));
 					Field(out, "verifiee", n.prov.verified ? "1" : "0");
 					Field(out, "corrigee", n.prov.corrected ? "1" : "0");
@@ -1000,6 +1035,18 @@ namespace nkuidesign {
 							n.text = NkString(val);
 						else if (StrEq(key, "role"))
 							n.role = NkString(val);
+						else if (StrEq(key, "fond"))
+							n.fill = NkString(val);
+						else if (StrEq(key, "couleur_texte"))
+							n.textColor = NkString(val);
+						else if (StrEq(key, "rayon"))
+							n.radius = ParseNum(val);
+						else if (StrEq(key, "bordure"))
+							n.borderW = ParseNum(val);
+						else if (StrEq(key, "police_px"))
+							n.fontPx = ParseNum(val);
+						else if (StrEq(key, "graisse"))
+							n.fontWeight = ParseNum(val);
 						else if (StrEq(key, "auteur"))
 							n.prov.author = NkParseAuthor(val);
 						else if (StrEq(key, "verifiee"))
