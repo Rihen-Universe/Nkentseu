@@ -238,6 +238,23 @@ static void CalerLargeursDock(nkgui::NkGuiContext &ctx) {
 
 static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 	CalerLargeursDock(ec.Ui());
+	// LE MENU DES ROLES (ecrans 5-6-7) : dessine en OVERLAY, par-dessus les
+	// panneaux ; choisir ECRIT la cle `role` du noeud (le geste
+	// « promouvoir » du §4.3). Le code 0x01 = retirer le role.
+	if (gDesign.menuRole.ouvert && gDesign.doc.IsValidIndex(gDesign.selected)) {
+		nkuidesign::NkUINode &n = gDesign.doc.nodes[(nkentseu::uint32)gDesign.selected];
+		const char *choisi =
+			nkuidesign::menurole::Dessiner(ec.Ui(), gDesign.menuRole, n.role.Data());
+		if (choisi) {
+			n.role = (choisi[0] == '\x01') ? NkString() : NkString(choisi);
+			gDesign.doc.MarkHumanEdit(gDesign.selected);
+			gDesign.status =
+				n.role.Empty()
+					? NkString("Rôle retiré.")
+					: NkString("Rôle posé — l'arbre, la toile et Behavior le montrent.");
+		}
+	} else if (gDesign.menuRole.ouvert)
+		gDesign.menuRole.ouvert = false; // plus de selection : le menu se ferme
 	nkgui::NkGuiIntrospectEcrire(ec.Ui(), kCheminReleveUI);
 }
 
@@ -1065,6 +1082,10 @@ int nkmain(const NkEntryState &state) {
 			}
 			// L'ONGLET D'INSPECTEUR au lancement (mise en scene, ecrans 4-6) :
 			// --inspecteur-onglet=2 ouvre Behavior.
+			if (NkComponentDecl::StrEq(a, "--menu-role")) {
+				gDesign.menuRoleInitial = true;
+				continue;
+			}
 			if (arg.StartsWith("--inspecteur-onglet=")) {
 				gDesign.ongletInitial = (int32)atof(a + 20);
 				continue;
