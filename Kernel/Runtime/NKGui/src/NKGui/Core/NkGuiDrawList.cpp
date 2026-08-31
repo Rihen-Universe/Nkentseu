@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NKGui/Core/NkGuiDrawList.h"
 #include "NKFont/NkFont.h"
+#include "NKFont/Core/NkFontSizeCache.h" // NkFontScaleRenderer : quads de glyphe a l'echelle
 #include <cmath>
 
 namespace nkentseu {
@@ -436,6 +437,60 @@ namespace nkentseu {
 					Tri(i0, i2, i3, texId);
 				}
 				x += g->advanceX;
+			}
+		}
+
+		void NkGuiDrawList::AddTextScaled(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+										  const char *text, const NkColor &col, float32 scale,
+										  float32 maxWidth) noexcept {
+			// Texte à l'ÉCHELLE (2026-08-31, « le texte doit suivre le zoom ») :
+			// la GÉOMÉTRIE du glyphe scalé vivait déjà dans la couche du dessous
+			// (`NkFontScaleRenderer::GetScaledGlyphQuad`, NKFont) — ici on ne fait
+			// que l'émettre en quads. Les UV ne bougent pas : c'est l'atlas
+			// existant, agrandi/réduit par le filtre GPU. Net en réduction, doux
+			// en agrandissement — le SDF (NkFontSdf, futur) est nommé dans NKFont.
+			if (scale <= 0.f)
+				return;
+			// À l'échelle ~1, le chemin historique reste le bon : il a le
+			// pixel-snap qui évite le flou. On ne duplique pas sa qualité ici.
+			if (scale > 0.999f && scale < 1.001f) {
+				AddText(face, texId, baseline, text, col, maxWidth);
+				return;
+			}
+			if (!face || !text || !*text || texId == 0u)
+				return;
+			const uint32 c = NkGuiPackColor(col);
+			const char *p = text;
+			const char *end = text;
+			while (*end)
+				++end;
+			const float32 xEnd = (maxWidth >= 0.f) ? baseline.x + maxWidth : 1.0e30f;
+			float32 x = baseline.x;
+			const float32 y = baseline.y;
+			while (p < end) {
+				const NkFontCodepoint cp = NkFontDecodeUTF8(&p, end);
+				if (cp == 0u)
+					break;
+				const NkFontGlyph *g = face->FindGlyph(cp);
+				if (!g)
+					continue;
+				if (g->visible) {
+					// ⚠️ PAS de pixel-snap ici : arrondir des positions scalées
+					// ferait « respirer » l'interlettrage à chaque cran de zoom.
+					float32 x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f;
+					NkFontScaleRenderer::GetScaledGlyphQuad(g, x, y, scale, &x0, &y0, &x1, &y1,
+															nullptr);
+					if (x1 > xEnd)
+						break; // troncature simple, comme AddText
+					const uint32 i0 = Vtx({x0, y0}, {g->u0, g->v0}, c);
+					const uint32 i1 = Vtx({x1, y0}, {g->u1, g->v0}, c);
+					const uint32 i2 = Vtx({x1, y1}, {g->u1, g->v1}, c);
+					const uint32 i3 = Vtx({x0, y1}, {g->u0, g->v1}, c);
+					Tri(i0, i1, i2, texId);
+					Tri(i0, i2, i3, texId);
+				}
+				// L'avance se scale AUSSI pour les glyphes invisibles (espaces).
+				x += g->advanceX * scale;
 			}
 		}
 

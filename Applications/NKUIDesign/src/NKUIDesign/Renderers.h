@@ -91,6 +91,17 @@ namespace nkuidesign {
 			//    68 essais verts sur un ecran magenta. Un defaut par defaut vaut
 			//    mieux qu'un champ vide quand le champ vide autorise deux verites.
 			NkRoleResolver resolve = &NkDesignResolveRole;
+			/// L'ECHELLE DU DOCUMENT (le zoom de la vue), posee par la toile a
+			/// chaque image (correction du 31/08 : « quand on zoome ou dezoome
+			/// le texte garde sa taille... ca devrait evoluer comme les elements
+			/// graphiques »). Le texte d'une FORME du document se dessine a
+			/// corps pose x cette echelle — les rectangles, eux, arrivent deja
+			/// projetes. 1 par defaut : la sonde et le temoin headless mesurent
+			/// a l'identique. ⚠️ Le texte INTERNE des composants poses
+			/// (tree_view, content_browser) ne suit pas encore : leurs rangees
+			/// et leurs corps sont des constantes du kit — chantier nomme,
+			/// pas glisse.
+			float32 docScale = 1.f;
 			/// Un modele de demonstration par noeud, aligne sur `doc.nodes`.
 			NkVector<NkContentBrowserModel> demoModels;
 			/// ⚠️ UN SECOND JEU, ET IL FAUT LES DEUX. Un composant garde son etat
@@ -425,9 +436,14 @@ namespace nkuidesign {
 					else
 						snprintf(etiquette, sizeof(etiquette), "%s — %d × %d", name,
 								 (int)(n.width.value + 0.5f), (int)(n.height.value + 0.5f));
+					// MOBILIER d'éditeur (Lunacy/Figma : l'étiquette garde sa
+					// taille écran quel que soit le zoom) — d'où PAS de
+					// `docScale`, et `CorpsMaquette` pour suivre le réglage
+					// unique de taille d'interface (TextHex rend désormais le
+					// corps demandé EXACTEMENT).
 					p.TextHex({r.x, r.y - lh - 10.f, r.w + 200.f, lh}, etiquette,
 							  p.ColorOf(host.Role("doc_muted")), host.Role("doc_muted"),
-							  NkTextAlign::Left, 11.f, 0.f);
+							  NkTextAlign::Left, costume::CorpsMaquette(11.f), 0.f);
 				}
 				return;
 			}
@@ -481,6 +497,12 @@ namespace nkuidesign {
 				// forme fraîchement posée serait invisible. L'apparence POSÉE
 				// prime : `couleur_texte`, `police_px`, `graisse`,
 				// `texte_aligne` (§8ter, 31/08).
+				// ⚠️ LE TEXTE SUIT LE ZOOM (correction du 31/08) : le corps
+				//    dessiné = corps posé × `host.docScale` — comme les
+				//    rectangles, qui arrivent déjà projetés. Sans corps posé, le
+				//    corps de base de la maquette (12, le --text-base) — c'est
+				//    aussi ce qui garde la couleur posée d'un texte sans taille
+				//    (l'ancien chemin la perdait en repliant sur le rôle).
 				const char *t = n.text.Data();
 				const bool vide = !t || !*t;
 				const uint16 roleTexte = host.Role(vide ? "text_muted" : "doc_text");
@@ -489,14 +511,13 @@ namespace nkuidesign {
 					al = NkTextAlign::Center;
 				else if (StrEq(n.alignText.Data(), "droite"))
 					al = NkTextAlign::Right;
-				if (!vide
-					&& (!n.textColor.Empty() || n.fontPx > 0.f || n.fontWeight > 0.f
-						|| al != NkTextAlign::Left)) {
+				if (!vide) {
 					const uint32 rgba = n.textColor.Empty() ? p.ColorOf(roleTexte)
 															: NkGHexRGBA(n.textColor.Data());
-					p.TextHex(r, t, rgba, roleTexte, al, n.fontPx, n.fontWeight);
+					const float32 corps = (n.fontPx > 0.f ? n.fontPx : 12.f) * host.docScale;
+					p.TextHex(r, t, rgba, roleTexte, al, corps, n.fontWeight);
 				} else
-					p.Text(r, vide ? (name ? name : "Texte") : t, roleTexte, al);
+					p.Text(r, name ? name : "Texte", roleTexte, al);
 				return;
 			}
 

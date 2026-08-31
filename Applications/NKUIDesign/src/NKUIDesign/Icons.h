@@ -151,54 +151,68 @@ namespace nkuidesign {
 			}
 
 			/// Le texte a COULEUR ET CORPS POSES (vocabulaire d'apparence §8ter).
-			/// Le corps demande choisit le plus proche des sept atlas du costume
-			/// (9..16 px) ; la graisse >= 500 s'approche par double trait — meme
-			/// approximation que partout (les graisses d'Inter ne sont pas encore
-			/// embarquees, dit dans Costume.h). Sans atlas valide : le repli du
-			/// kit (texte au role, corps du peintre).
+			/// ⚠️ LE CORPS DEMANDE EST RENDU **EXACTEMENT** (correction du 31/08,
+			///    « le texte doit suivre le zoom ») : palier = l'atlas du costume
+			///    dont la taille RENDUE est la plus proche, puis ECHELLE
+			///    RESIDUELLE (`AddTextScaled`, geometrie NkFontScaleRenderer de
+			///    NKFont) — jamais un atlas par cran de zoom. Avant, le corps
+			///    demande choisissait un atlas et s'arretait la : un texte pose a
+			///    15 px zoome x2 se dessinait a ~16 px au lieu de 30.
+			///    La graisse >= 500 s'approche par double trait (les graisses
+			///    d'Inter ne sont pas embarquees, dit dans Costume.h), l'ecart du
+			///    double trait suit l'echelle. Sans atlas valide : le repli du
+			///    kit (texte au role, corps du peintre).
 			void TextHex(const NkPaintRect &r, const char *s, uint32 rgba, uint16 roleRepli,
 						 nkentseu::editorkit::NkTextAlign align, float32 px,
 						 float32 graisse) override {
 				auto &F = costume::Fontes();
 				const nkentseu::nkgui::NkGuiFont *f = nullptr;
+				float32 rendu = 0.f; // taille physique de l'atlas retenu
+				// Le corps demande est LOGIQUE (meme regle que Charger) : la cible
+				// physique porte le DPI, qui se simplifie avec celui des atlas.
+				const float32 dpi = mCtx.S(1.f) > 0.5f ? mCtx.S(1.f) : 1.f;
+				const float32 vise = px * dpi;
 				if (px > 0.f) {
-					struct C {
-							const nkentseu::nkgui::NkGuiFont *f;
-							float32 px;
-					};
-					const C c[7] = {{&F.px9, 9.f},	 {&F.px10, 10.f}, {&F.px11, 11.f},
-									{&F.px12, 12.f}, {&F.px13, 13.f}, {&F.px15, 15.f},
-									{&F.px16, 16.f}};
+					const nkentseu::nkgui::NkGuiFont *cand[7] = {&F.px9,  &F.px10, &F.px11,
+																 &F.px12, &F.px13, &F.px15,
+																 &F.px16};
 					float32 best = 1.0e9f;
 					for (int32 i = 0; i < 7; ++i) {
-						const float32 d = c[i].px > px ? c[i].px - px : px - c[i].px;
-						if (c[i].f->Valid() && d < best) {
+						if (!cand[i]->Valid() || !cand[i]->Face())
+							continue;
+						const float32 taille = cand[i]->Face()->fontSize;
+						const float32 d = taille > vise ? taille - vise : vise - taille;
+						if (d < best) {
 							best = d;
-							f = c[i].f;
+							f = cand[i];
+							rendu = taille;
 						}
 					}
 				}
-				if (!f || !f->Valid()) {
+				if (!f || !f->Valid() || rendu <= 0.f) {
 					NkGuiComponentPaint::TextHex(r, s, rgba, roleRepli, align, px, graisse);
 					return;
 				}
+				const float32 echelle = vise / rendu;
 				const nkentseu::nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
 													  (uint8)((rgba >> 16) & 0xFFu),
 													  (uint8)((rgba >> 8) & 0xFFu),
 													  (uint8)(rgba & 0xFFu)};
+				const float32 largeur = f->MeasureWidth(s) * echelle;
 				float32 tx = r.x;
 				if (align == nkentseu::editorkit::NkTextAlign::Center)
-					tx = r.x + (r.w - f->MeasureWidth(s)) * 0.5f;
+					tx = r.x + (r.w - largeur) * 0.5f;
 				else if (align == nkentseu::editorkit::NkTextAlign::Right)
-					tx = r.x + r.w - f->MeasureWidth(s);
-				const float32 ty = costume::CentrerY(*f, r.y, r.h);
-				costume::Texte(mCtx.DL(), *f, tx, ty, s, col);
-				if (graisse >= 500.f)
-					costume::Texte(mCtx.DL(), *f,
-								   tx + (graisse >= 700.f ? 0.8f
-										 : graisse >= 600.f ? 0.5f
-															: 0.3f),
-								   ty, s, col);
+					tx = r.x + r.w - largeur;
+				const float32 hLigne = f->LineHeight() * echelle;
+				const float32 yBase = r.y + (r.h - hLigne) * 0.5f + f->Ascent() * echelle;
+				mCtx.DL().AddTextScaled(f->Face(), f->TexId(), {tx, yBase}, s, col, echelle);
+				if (graisse >= 500.f) {
+					const float32 e = (graisse >= 700.f ? 0.8f : graisse >= 600.f ? 0.5f : 0.3f)
+									  * (echelle > 1.f ? echelle : 1.f);
+					mCtx.DL().AddTextScaled(f->Face(), f->TexId(), {tx + e, yBase}, s, col,
+											echelle);
+				}
 			}
 
 		private:

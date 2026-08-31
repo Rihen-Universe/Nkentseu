@@ -1387,8 +1387,13 @@ namespace nkuidesign {
 					}
 				}
 
-				if (!modeGraphe)
+				if (!modeGraphe) {
+					// L'echelle du document = le zoom de la vue : le texte des
+					// formes suit (corps pose x zoom), comme les rectangles qui
+					// arrivent deja projetes (correction du 31/08).
+					mSt->host.docScale = mSt->view.zoom;
 					NkDrawDocument(paint, in, mSt->doc, screen, mSt->host);
+				}
 
 				// ── LE TRACE ELASTIQUE d'un outil F/R en cours ────────────────
 				// Peint APRES le document (il flotte au-dessus), jamais enregistre.
@@ -1574,8 +1579,12 @@ namespace nkuidesign {
 							const float32 bw = 12.f + costume::Largeur(costume::Fontes().px9, btxt);
 							const NkPaintRect pb{rs.x, rs.y - 19.f, bw, 16.f};
 							paint.FillColor(pb, (teinte & 0xFFFFFF00u) | 0x22u, 8.f);
+							// MOBILIER d'editeur : corps de la maquette via
+							// CorpsMaquette (TextHex rend le corps demande
+							// EXACTEMENT depuis la correction zoom du 31/08).
 							paint.TextHex({pb.x + 6.f, pb.y, pb.w, pb.h}, btxt, teinte, accent,
-										  editorkit::NkTextAlign::Left, 9.f, 600.f);
+										  editorkit::NkTextAlign::Left,
+										  costume::CorpsMaquette(9.f), 600.f);
 						}
 					}
 					// LA PUCE DE TAILLE (Lunacy) : pendant un GESTE seulement — au
