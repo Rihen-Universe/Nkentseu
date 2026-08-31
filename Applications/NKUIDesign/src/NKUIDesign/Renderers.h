@@ -106,6 +106,10 @@ namespace nkuidesign {
 			/// dessine par le champ superpose TRANSPARENT — le dessiner aussi ici
 			/// donnerait un double trait. Pose par la toile a chaque image.
 			int32 editionNode = -1;
+			/// Vrai quand l'edition en place porte sur L'ETIQUETTE de l'artboard
+			/// `editionNode` : son CORPS se dessine encore, seule l'etiquette se
+			/// tait (le champ superpose la remplace).
+			bool editionEtiquette = false;
 			/// Un modele de demonstration par noeud, aligne sur `doc.nodes`.
 			NkVector<NkContentBrowserModel> demoModels;
 			/// ⚠️ UN SECOND JEU, ET IL FAUT LES DEUX. Un composant garde son etat
@@ -727,7 +731,12 @@ namespace nkuidesign {
 			//    ensemble donneraient un double trait (regle du 31/08).
 			if (posee && node != host.editionNode)
 				renderdetail::DrawShape(p, r, n, host);
-			else if (!posee)
+			else if (posee && host.editionEtiquette) {
+				// RENOMMAGE d'etiquette : le CORPS de l'artboard se dessine,
+				// seule l'etiquette se tait (le champ superpose la remplace).
+				p.Fill(r, host.Role("artboard_bg"));
+				p.OutlineSharp(r, host.Role("border"));
+			} else if (!posee)
 				renderdetail::DrawFrame(p, r, host);
 		} else if (StrEq(n.component.Data(), "content_browser")) {
 			if ((uint32)node < (uint32)host.demoModels.Size() && r.w > 0.f && r.h > 0.f) {

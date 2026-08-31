@@ -1440,6 +1440,7 @@ namespace nkuidesign {
 					// le champ transparent le dessine a sa place.
 					mSt->host.editionNode =
 						mSt->doc.IsValidIndex(mEditNode) ? mEditNode : -1;
+					mSt->host.editionEtiquette = mEditEtiquette;
 					NkDrawDocument(paint, in, mSt->doc, screen, mSt->host);
 				}
 
@@ -1655,6 +1656,32 @@ namespace nkuidesign {
 				if (!modeGraphe && mSt->doc.IsValidIndex(mEditNode)) {
 					if (!screen.Has(mEditNode)) {
 						FermerEditionTexte(false); // le noeud a quitte la disposition
+					} else if (mEditEtiquette) {
+						// LE RENOMMAGE D'ETIQUETTE : champ transparent sur la
+						// bande de l'etiquette, taille MOBILIER (l'etiquette ne
+						// zoome pas), couleur `doc_muted` — le nom seul, le
+						// suffixe de cible se re-suffixe tout seul au valider.
+						const NkPaintRect re = screen.At(mEditNode);
+						const float32 dpi = ctx.S(1.f) > 0.5f ? ctx.S(1.f) : 1.f;
+						float32 ech = 1.f;
+						const nkgui::NkGuiFont *fed =
+							costume::AtlasProche(costume::CorpsMaquette(11.f) * dpi, ech);
+						editorkit::NkOverlayFieldStyle sty;
+						sty.fond = false;
+						sty.bord = true;
+						sty.align = 0;
+						sty.echelle = ech;
+						sty.texte = nkentseu::editorkit::NkThemeUnpack(
+							mSt->theme.Get(nkentseu::editorkit::NkRole::DocMuted));
+						const nkgui::NkRect rf = {re.x - 2.f, re.y - 26.f,
+												  (re.w > 160.f ? re.w : 160.f), 22.f};
+						nkentseu::editorkit::NkOverlayTextField(
+							ctx, ctx.DL(), fed ? fed : ctx.font, rf, mEditBuf,
+							(int32)sizeof(mEditBuf), true, &sty);
+						if (ctx.input.KeyPressed(nkgui::NkGuiKey::Enter))
+							FermerEditionTexte(true);
+						else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
+							FermerEditionTexte(false);
 					} else {
 						const NkPaintRect re = screen.At(mEditNode);
 						const NkUINode &ne = mSt->doc.nodes[(uint32)mEditNode];
@@ -1809,6 +1836,28 @@ namespace nkuidesign {
 					//    selectionne et le DIT ; Echap remonte d'un niveau ; le
 					//    clic simple reste au niveau courant ; le vide ressort.
 					if (in.doubleClick) {
+						// ── double-clic sur L'ÉTIQUETTE d'un artboard = RENOMMER
+						//    la page (Rodolf, 31/08 : « le nom présent dans cette
+						//    vue doit être le même que dans la hiérarchie » — le
+						//    nom édité EST `label`, la clé que SyncPages lit).
+						for (uint32 fi = 0; fi < (uint32)mSt->doc.nodes.Size(); ++fi) {
+							const NkUINode &fn = mSt->doc.nodes[fi];
+							if (!StrEq(fn.shape.Data(), "frame") || !screen.Has((int32)fi))
+								continue;
+							const NkPaintRect fr2 = screen.At((int32)fi);
+							const NkPaintRect bande = {fr2.x, fr2.y - 26.f,
+													   fr2.w > 160.f ? fr2.w : 160.f, 22.f};
+							if (in.mouseX >= bande.x && in.mouseX < bande.x + bande.w
+								&& in.mouseY >= bande.y && in.mouseY < bande.y + bande.h) {
+								mEditNode = (int32)fi;
+								mEditEtiquette = true;
+								snprintf(mEditBuf, sizeof(mEditBuf), "%s", fn.label.Data());
+								mSt->SelectSingle((int32)fi);
+								Dire("Renommage de la page — Entrée valide, Échap annule.",
+									 "", "");
+								return;
+							}
+						}
 						int32 cand = NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY,
 														mForage);
 						if (cand == -2) { // hors du contexte : ressort au 1er niveau
@@ -2069,22 +2118,34 @@ namespace nkuidesign {
 			/// sur un noeud texte = champ superpose a sa position). -1 = aucune.
 			int32 mEditNode = -1;
 			char mEditBuf[600] = {0};
+			/// Vrai quand l'edition porte sur L'ETIQUETTE d'un artboard (le NOM
+			/// de la page — LA cle que la Hierarchie lit aussi), pas sur `text`.
+			bool mEditEtiquette = false;
 			/// LE CONTEXTE DE FORAGE (regle du 31/08) : le groupe dans lequel les
 			/// doubles-clics sont descendus. -1 = premier niveau. Echap remonte,
 			/// le clic dans le vide ressort.
 			int32 mForage = -1;
 
-			/// Ferme l'edition en place : valide (ecrit `text` + MarkHumanEdit)
-			/// ou annule. Les deux sorties se DISENT dans la ligne d'aide.
+			/// Ferme l'edition en place : valide (ecrit `text` — ou `label` pour
+			/// une etiquette d'artboard — + MarkHumanEdit) ou annule. Les deux
+			/// sorties se DISENT dans la ligne d'aide.
 			void FermerEditionTexte(bool valider) {
 				if (valider && mSt->doc.IsValidIndex(mEditNode)) {
 					NkUINode &n = mSt->doc.nodes[(uint32)mEditNode];
-					n.text = NkString(mEditBuf);
+					if (mEditEtiquette) {
+						// le NOM seul — le suffixe « — Mobile 390 x 844 » est un
+						// AFFICHAGE derive de la cible, jamais dans la cle.
+						n.label = NkString(mEditBuf);
+						Dire("Page renommée — la Hiérarchie lit la même clé.", "", "");
+					} else {
+						n.text = NkString(mEditBuf);
+						Dire("Texte modifié.", "", "");
+					}
 					mSt->doc.MarkHumanEdit(mEditNode);
-					Dire("Texte modifié.", "", "");
 				} else if (mEditNode >= 0)
-					Dire("Édition annulée — le texte n'a pas bougé.", "", "");
+					Dire("Édition annulée — rien n'a bougé.", "", "");
 				mEditNode = -1;
+				mEditEtiquette = false;
 			}
 
 			// ═══════════════════════════════════════════════════════════════════
