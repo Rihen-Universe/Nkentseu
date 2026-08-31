@@ -1082,6 +1082,10 @@ int nkmain(const NkEntryState &state) {
 			}
 			// L'ONGLET D'INSPECTEUR au lancement (mise en scene, ecrans 4-6) :
 			// --inspecteur-onglet=2 ouvre Behavior.
+			if (NkComponentDecl::StrEq(a, "--filtre-hierarchie")) {
+				gDesign.filtreHierarchieInitial = true;
+				continue;
+			}
 			if (NkComponentDecl::StrEq(a, "--menu-role")) {
 				gDesign.menuRoleInitial = true;
 				continue;

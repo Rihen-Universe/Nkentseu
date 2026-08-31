@@ -565,6 +565,8 @@ namespace nkuidesign {
 			/// Mise en scene (--menu-role) : ouvrir le menu au premier passage
 			/// dans la rangee Role (l'ancre vraie, pas une devinee).
 			bool menuRoleInitial = false;
+			/// Mise en scene (--filtre-hierarchie) : la loupe deja depliee.
+			bool filtreHierarchieInitial = false;
 			/// L'onglet d'Inspecteur demande au lancement (--inspecteur-onglet=,
 			/// mise en scene des ecrans 4/5/6) : -1 = defaut (Design).
 			int32 ongletInitial = -1;
@@ -1125,9 +1127,15 @@ namespace nkuidesign {
 				if (mSt->titre && (mFramePastille++ % 30u) == 0u)
 					mSt->titre(mSt->titreUser, mSt->DocumentModifie());
 
-				if (mSt->selectionInitiale >= 0) {
-					if (mSt->doc.IsValidIndex(mSt->selectionInitiale))
-						mSt->SelectSingle(mSt->selectionInitiale);
+				if (mSt->selectionInitiale >= 0
+					&& mSt->doc.IsValidIndex(mSt->selectionInitiale)) {
+					// ⚠️ CONSOMMÉE SEULEMENT QUAND ELLE PEUT S'APPLIQUER. Le
+					//    démarrage n'est pas déterministe (LoadDoc : le fichier se
+					//    lit parfois VIDE au premier passage — poignée encore tenue
+					//    par le processus précédent) : consommer le levier sur un
+					//    document pas encore là rendait des captures SANS sélection,
+					//    une fois sur quelques-unes. Mesuré le 31/08 (écran 8).
+					mSt->SelectSingle(mSt->selectionInitiale);
 					mSt->selectionInitiale = -1;
 				}
 
@@ -2819,12 +2827,34 @@ namespace nkuidesign {
 					const NkRect rl = {e.x + e.w - 12.f - 13.f, e.y + (34.f - 13.f) * 0.5f, 13.f,
 									   13.f};
 					costume::IcLoupe(dl, rl.x, rl.y, ctx.theme.textMuted);
+					// L'ŒIL-BARRÉ (écran 8) : « Afficher seulement les éléments à
+					// rôle » — un FILTRE vrai, pas un décor : l'arbre ne montre
+					// alors que les sous-arbres qui portent un rôle.
+					const NkRect rf2 = {rl.x - 20.f, rl.y + 0.5f, 12.f, 12.f};
+					{
+						const NkColor cf = mFiltreRoles ? ctx.theme.accent : ctx.theme.textMuted;
+						costume::IcOeil(dl, rf2.x, rf2.y, cf);
+						dl.AddLine({rf2.x + 1.f, rf2.y + 11.f}, {rf2.x + 11.f, rf2.y + 1.f}, cf,
+								   1.2f);
+					}
+					nkentseu::editorkit::NkTooltip(
+						ctx,
+						ctx.popupDepth == 0
+							&& NkGuiRectContains({rf2.x - 3.f, e.y, 18.f, 34.f}, ctx.input.mousePos),
+						"Afficher seulement les éléments à rôle");
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains({rf2.x - 3.f, e.y, 18.f, 34.f}, ctx.input.mousePos))
+						mFiltreRoles = !mFiltreRoles;
 					dl.AddLine({e.x, e.y + 34.f - 0.5f}, {e.x + e.w, e.y + 34.f - 0.5f},
 							   ctx.theme.border, 1.f);
 					const NkRect zl = {rl.x - 4.f, e.y, 21.f, 34.f};
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
 						&& NkGuiRectContains(zl, ctx.input.mousePos))
 						mFiltreVisible = !mFiltreVisible;
+				}
+				if (mSt->filtreHierarchieInitial) {
+					mSt->filtreHierarchieInitial = false;
+					mFiltreVisible = true;
 				}
 				if (mFiltreVisible)
 					InputText(ctx, "Filtrer", mFiltre, (int32)sizeof(mFiltre));
@@ -2937,6 +2967,34 @@ namespace nkuidesign {
 				} sur{&ctx, &modele};
 				NkTreeViewHooks hooks;
 				hooks.user = &sur;
+				// L'ŒIL-BARRÉ (écran 8) : ne garder que les sous-arbres à rôle.
+				struct SurFiltre {
+						NkUIDocument *doc;
+				};
+				static SurFiltre surF;
+				surF.doc = &mSt->doc;
+				if (mFiltreRoles && &modele == &mModelePages) {
+					hooks.user = &surF;
+					hooks.acceptNode = [](void *u, const NkTreeNode &n) -> bool {
+						auto *sf = static_cast<SurFiltre *>(u);
+						const int32 di = (int32)n.id - 1;
+						if (!sf->doc->IsValidIndex(di))
+							return true;
+						// le nœud, ou l'un de ses descendants, porte un rôle
+						struct P {
+								static bool Porte(const NkUIDocument &d, int32 i) {
+									const NkUINode &nd = d.nodes[(nkentseu::uint32)i];
+									if (!nd.role.Empty())
+										return true;
+									for (nkentseu::usize c = 0; c < nd.children.Size(); ++c)
+										if (Porte(d, nd.children[(nkentseu::uint32)c]))
+											return true;
+									return false;
+								}
+						};
+						return P::Porte(*sf->doc, di);
+					};
+				}
 				hooks.rowOverlay = [](void *u, nkentseu::editorkit::NkComponentPaint &p,
 									  int32 index, float32 x, float32 y, float32, float32 h) {
 					auto *s = static_cast<Sur *>(u);
@@ -3145,6 +3203,7 @@ namespace nkuidesign {
 			NkComponentInstance mInstComposants;
 			char mFiltre[128] = {0};
 			bool mFiltreVisible = false; // la loupe déplie le filtre (costume Banani)
+			bool mFiltreRoles = false;	 // œil-barré : seulement les éléments à rôle (écran 8)
 			bool mPlierUneFois = true;	 // repli initial des sous-conteneurs (une fois)
 			bool mCriPages = false;
 			bool mCriRegistre = false;
