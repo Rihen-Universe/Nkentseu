@@ -1079,6 +1079,10 @@ int nkmain(const NkEntryState &state) {
 			// maquette ne montre que la toile) : panneaux fermes, rails
 			// retires — l'en-tete de la coquille reste, la paire se cadre sur
 			// la toile et le DIT.
+			if (NkComponentDecl::StrEq(a, "--proposer")) {
+				gDesign.proposerInitial = true;
+				continue;
+			}
 			if (NkComponentDecl::StrEq(a, "--zone-sure")) {
 				gDesign.zoneSure = true;
 				continue;

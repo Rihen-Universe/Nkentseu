@@ -556,6 +556,9 @@ namespace nkuidesign {
 			/// Afficher la ZONE SURE des cadres a cible Mobile (ecrans 11/12,
 			/// pilote par le menu Cible a terme ; levier --zone-sure).
 			bool zoneSure = false;
+			/// Mise en scene (--proposer) : lancer une proposition IA au premier
+			/// affichage du panneau (le fichier de reponse doit etre pret).
+			bool proposerInitial = false;
 			/// La vue POSEE en ligne de commande (--vue=, protocole de mesure du
 			/// pan) : appliquee au premier affichage a la place du defaut.
 			bool vuePosee = false;
@@ -2669,50 +2672,159 @@ namespace nkuidesign {
 				SetOpen(false);
 			}
 
+			// ── LE COSTUME DE L'ÉCRAN 28, SUR LA PLOMBERIE Q31 ──────────────
+			// Bande modèle (nom RÉEL du backend + pilule LOCAL + « Rien ne
+			// quitte cette machine. »), actions rapides, carte « RELEVÉ DE
+			// CHANGEMENTS » quand une proposition attend (compte réel, cases,
+			// « S'appliquera en une seule opération annulable. », Rejeter /
+			// Appliquer — les VRAIS gestes DiscardProposal / CommitProposal),
+			// invite + envoi. Retirer/Rejeu restent en liens dessous.
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				char b[256];
-				snprintf(b, sizeof(b), "Backend : %s%s",
-						 mSt->ai.Backend() ? mSt->ai.Backend()->Name() : "-",
-						 (mSt->ai.Backend() && mSt->ai.Backend()->IsAvailable()) ? "" : " (indisponible)");
-				ec.Text(b);
-				ec.Text("Décrivez l'interface voulue. Elle produit une DÉCLARATION,");
-				ec.Text("posée dans l'arbre comme si vous l'aviez posée vous-même.");
-				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
-
-				// Ecran 28 Banani / spec §6.2 : l'IA PROPOSE, l'humain APPLIQUE ou
-				// REJETTE -- « s'appliquera en une seule operation annulable ».
-				// `Ask` (demander = poser) reste dans l'API pour la sonde ; le
-				// panneau, lui, passe par l'apercu.
-				if (ec.Button("Proposer (aperçu)"))
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				if (mSt->proposerInitial) { // mise en scene : une proposition prete
+					mSt->proposerInitial = false;
+					snprintf(mSt->promptBuf, sizeof(mSt->promptBuf),
+							 "un écran de connexion : un titre, deux champs, un bouton");
 					Proposer();
-				if (mSt->ai.HasProposal()) {
-					char pb[128];
-					snprintf(pb, sizeof(pb),
-							 "Proposition en attente : %u nœud(s) — le document n'a pas bougé.",
-							 mSt->ai.Proposal().NodeCount());
-					ec.Text(pb);
-					if (ec.Button("Appliquer sur la sélection"))
-						Appliquer();
-					if (ec.Button("Rejeter")) {
-						mSt->ai.DiscardProposal();
-						mLast = NkString("Proposition rejetée — rien n'a changé.");
+				}
+				// ── LA BANDE MODÈLE ──────────────────────────────────────────
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 34.f);
+					costume::IcCarreaux(dl, r.x + 10.f, r.y + 10.f, ctx.theme.textMuted);
+					const bool dispo = mSt->ai.Backend() && mSt->ai.Backend()->IsAvailable();
+					char b[96];
+					snprintf(b, sizeof(b), "%s",
+							 mSt->ai.Backend() ? mSt->ai.Backend()->Name() : "(aucun backend)");
+					costume::TexteGras(dl, F.px11, r.x + 30.f,
+									   costume::CentrerY(F.px11, r.y, 34.f), b, ctx.theme.text,
+									   0.3f);
+					float32 px = r.x + 30.f + costume::Largeur(F.px11, b) + 8.f;
+					if (dispo) {
+						// la pilule LOCAL, verte — vraie : le pont est local.
+						const float32 wl = costume::Largeur(F.px9, "LOCAL") + 10.f;
+						NkColor vert = ctx.theme.success;
+						NkColor fondV = vert;
+						fondV.a = 40;
+						dl.AddRectFilled({px, r.y + 9.f, wl, 16.f}, fondV, 8.f);
+						costume::TexteGras(dl, F.px9, px + 5.f,
+										   costume::CentrerY(F.px9, r.y + 9.f, 16.f), "LOCAL",
+										   vert, 0.4f);
+					} else
+						costume::Texte(dl, F.px10, px, costume::CentrerY(F.px10, r.y, 34.f),
+									   "(indisponible)", ctx.theme.textMuted);
+				}
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 18.f);
+					costume::Texte(dl, F.px10, r.x + 10.f, costume::CentrerY(F.px10, r.y, 18.f),
+								   "Rien ne quitte cette machine.", ctx.theme.textMuted);
+					dl.AddLine({r.x, r.y + 17.5f}, {r.x + r.w, r.y + 17.5f}, ctx.theme.border,
+							   1.f);
+				}
+				// ── LES ACTIONS RAPIDES (chips) ──────────────────────────────
+				{
+					static const char *const kChips[3] = {"Générer un écran",
+														  "Modifier la sélection",
+														  "Générer un comportement"};
+					const NkRect r = ctx.NextItemRect(-1.f, 30.f);
+					const float32 wVisC = r.w > 304.f ? 304.f : r.w;
+					float32 x = r.x + 10.f;
+					for (uint32 i = 0; i < 3; ++i) {
+						const float32 w = costume::Largeur(F.px10, kChips[i]) + 16.f;
+						if (x + w > r.x + wVisC - 4.f)
+							break; // le panneau étroit coupe la 3e — elle vit au menu IA
+						const NkRect c = {x, r.y + 4.f, w, 22.f};
+						const bool sv = ctx.popupDepth == 0
+										&& NkGuiRectContains(c, ctx.input.mousePos);
+						dl.AddRectFilled(c, sv ? ctx.theme.buttonHover : ctx.theme.button, 11.f);
+						costume::Texte(dl, F.px10, c.x + 8.f,
+									   costume::CentrerY(F.px10, c.y, c.h), kChips[i],
+									   ctx.theme.text);
+						if (sv && ctx.input.mouseClicked[0])
+							mSt->status = NkString("Action rapide : à brancher (elle remplira "
+												   "l'invite).");
+						x += w + 6.f;
 					}
 				}
+				// ── LA CARTE « RELEVÉ DE CHANGEMENTS » ───────────────────────
+				if (mSt->ai.HasProposal()) {
+					const uint32 nprop = mSt->ai.Proposal().NodeCount();
+					const float32 hCarte = 96.f + (float32)(nprop > 6 ? 6 : nprop) * 22.f;
+					const NkRect r = ctx.NextItemRect(-1.f, hCarte + 8.f);
+					// ⚠️ LARGEUR VISIBLE, PAS LARGEUR DE REGION : dans le tiroir la
+					//    region de defilement est plus large que la fenetre — la
+					//    carte deborderait a droite et ses boutons partiraient hors
+					//    champ (mesure sur capture, 31/08).
+					const float32 wVis = r.w > 304.f ? 304.f : r.w;
+					const NkRect c = {r.x + 8.f, r.y + 4.f, wVis - 16.f, hCarte};
+					dl.AddRectFilled(c, ctx.theme.panel, 6.f);
+					dl.AddRect(c, ctx.theme.border, 1.f, 6.f);
+					costume::TexteGras(dl, F.px11, c.x + 10.f, c.y + 8.f,
+									   "Relevé de changements", ctx.theme.text, 0.5f);
+					char b[64];
+					snprintf(b, sizeof(b), "%u ajout(s)", nprop);
+					costume::Texte(dl, F.px10, c.x + 10.f, c.y + 24.f, b, ctx.theme.textMuted);
+					float32 y = c.y + 42.f;
+					const uint32 max = nprop > 6 ? 6 : nprop;
+					for (uint32 i = 0; i < max; ++i) {
+						// la case cochée (l'application PARTIELLE viendra : cases
+						// figées cochées, dit dans le rapport)
+						dl.AddRectFilled({c.x + 10.f, y + 3.f, 12.f, 12.f}, ctx.theme.accent,
+										 3.f);
+						const nkgui::NkVec2 pc[3] = {{c.x + 12.5f, y + 9.f},
+													 {c.x + 15.f, y + 12.f},
+													 {c.x + 19.5f, y + 5.5f}};
+						dl.AddPolyline(pc, 3, ctx.theme.onAccent, 1.4f);
+						const char *nomN = mSt->ai.Proposal().nodes[i].label.Data();
+						costume::Texte(dl, F.px11, c.x + 30.f, y + 2.f,
+									   nomN && *nomN ? nomN : "(nœud)", ctx.theme.text);
+						y += 22.f;
+					}
+					costume::Texte(dl, F.px9, c.x + 10.f, c.y + hCarte - 44.f,
+								   "S'appliquera en une seule opération annulable.",
+								   ctx.theme.textMuted);
+					// Rejeter (bord) / Appliquer (accent)
+					const float32 by = c.y + hCarte - 30.f;
+					const float32 wA = costume::Largeur(F.px11, "Appliquer") + 20.f;
+					const float32 wR = costume::Largeur(F.px11, "Rejeter") + 20.f;
+					const NkRect ra = {c.x + c.w - wA - 10.f, by, wA, 22.f};
+					const NkRect rr = {ra.x - wR - 8.f, by, wR, 22.f};
+					dl.AddRect(rr, ctx.theme.border, 1.f, 4.f);
+					costume::Texte(dl, F.px11, rr.x + 10.f, costume::CentrerY(F.px11, by, 22.f),
+								   "Rejeter", ctx.theme.text);
+					dl.AddRectFilled(ra, ctx.theme.accent, 4.f);
+					costume::TexteGras(dl, F.px11, ra.x + 10.f,
+									   costume::CentrerY(F.px11, by, 22.f), "Appliquer",
+									   ctx.theme.onAccent, 0.3f);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]) {
+						if (NkGuiRectContains(ra, ctx.input.mousePos))
+							Appliquer();
+						else if (NkGuiRectContains(rr, ctx.input.mousePos)) {
+							mSt->ai.DiscardProposal();
+							mLast = NkString("Proposition rejetée — rien n'a changé.");
+						}
+					}
+				}
+				// ── L'INVITE + LA PORTÉE + L'ENVOI ───────────────────────────
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					// la portée : « Sélection » (vraie : la greffe vise la sélection)
+					const float32 wp = costume::Largeur(F.px10, "Sélection") + 14.f;
+					const NkRect rp = {r.x + 10.f, r.y + 2.f, wp, 20.f};
+					dl.AddRect(rp, ctx.theme.border, 1.f, 10.f);
+					costume::Texte(dl, F.px10, rp.x + 7.f, costume::CentrerY(F.px10, rp.y, 20.f),
+								   "Sélection", ctx.theme.textMuted);
+				}
+				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
+				if (ec.Button("Proposer (aperçu)"))
+					Proposer();
 				if (mDernierCommit.Accepted() && ec.Button("Retirer la greffe posée"))
 					Retirer();
 				if (ec.Button("Vérifier le document par rejeu"))
 					Replay();
-
 				ec.Separator();
 				ec.Text(mLast.Data() ? mLast.Data() : "");
-				ec.Separator();
-				// ⚠️ CE QUI N'EST PAS LA, DIT DANS L'INTERFACE ELLE-MEME. Un editeur
-				//    muet sur ce qu'il ne fait pas se fait reprocher des absences qu'il
-				//    n'a jamais promises.
-				ec.Text("Aucun modèle spécialisé n'existe encore : il s'entraînera sur");
-				ec.Text("les documents produits ici. Backend réseau : absent (le client");
-				ec.Text("HTTP doit monter dans un module partagé, pas être recopié ici).");
 			}
 
 		private:
