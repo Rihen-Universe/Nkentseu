@@ -1094,9 +1094,29 @@ namespace nkuidesign {
 				//    cadre de défilement de la fenêtre n'a plus rien à dessiner.
 				const float32 hToile = designkit::HauteurVisibleBas(ctx, "Apercu")
 									   - ctx.layout.cursor.y - ctx.layout.itemSpacingY - 1.f;
-				const NkRect area = ctx.NextItemRect(-1.f, hToile > 120.f ? hToile : 120.f);
+				NkRect area = ctx.NextItemRect(-1.f, hToile > 120.f ? hToile : 120.f);
 				if (area.w <= 0.f || area.h <= 0.f)
 					return;
+				// Le mode demande en ligne de commande se consomme AVANT le
+				// partage Split (il decide de la geometrie de cette image).
+				if (mSt->modeInitial >= 0 && mSt->modeInitial <= 3) {
+					mMode = (uint32)mSt->modeInitial;
+					mSt->modeInitial = -1;
+				}
+				// ── LE MODE SPLIT (§10, tranche minimale) : Design a GAUCHE,
+				//    Behavior a DROITE — meme document, meme selection (« un seul
+				//    modele de verite », doc 1 §3) ; separateur deplacable borne
+				//    25–75 %. La toile Design devient simplement la moitie
+				//    gauche : tout ce qui suit (viewport, clip, flottants,
+				//    selection) la suit sans changer. La moitie droite et le
+				//    separateur se dessinent en fin d'OnUI. ECARTS NOMMES : la
+				//    paire est fixee Design|Behavior (le menu des trois paires
+				//    du §10 viendra avec le modele Animation) ; les sous-barres
+				//    d'outils reduites restent celles de la moitie gauche.
+				const NkRect areaTotale = area;
+				const bool splitActif = (mMode == 3);
+				if (splitActif)
+					area.w = areaTotale.w * mSplitRatio - 3.f;
 
 				// ── LA VUE NE NAIT PAS SOUS LA BARRE D'OUTILS ────────────────
 				// ⚠️ MESURE, ET ELLE DEPLACE LE DEFAUT. La barre verticale
@@ -1298,11 +1318,9 @@ namespace nkuidesign {
 				//    20/100, bande de portée sur la sélection RÉELLE, Entry canonique
 				//    en Animation) ; le CONTENU du graphe — nœuds, câbles, console —
 				//    naîtra du modèle de comportement §4.6, il ne se peint pas en
-				//    démo (cadrage du 31/08). Split reste Design en attendant.
-				if (mSt->modeInitial >= 0 && mSt->modeInitial <= 3) {
-					mMode = (uint32)mSt->modeInitial;
-					mSt->modeInitial = -1;
-				}
+				//    démo (cadrage du 31/08). Split = Design|Behavior composés (§10).
+				//    (le mode initial en ligne de commande est consommé plus haut,
+				//    avant le partage Split)
 				const bool modeGraphe = (mMode == 1 || mMode == 2);
 				if (!modeGraphe)
 					HandleMouse(in, screen);
@@ -1337,64 +1355,7 @@ namespace nkuidesign {
 				// le contenu, comme sur la planche. En dessous de 6 px projetes,
 				// elle se tait — des points serres deviennent du bruit.
 				if (modeGraphe) {
-					// ── LA VUE BLUEPRINT (écran 13) : fond #0d1117, grille 20 px
-					//    fine + 100 px appuyée (rgba(60,80,120, .25/.45)).
-					auto &dlg = ctx.DL();
-					dlg.AddRectFilled({area.x, area.y, area.w, area.h}, {13, 17, 23, 255});
-					const NkColor fine = {60, 80, 120, 64};
-					const NkColor forte = {60, 80, 120, 115};
-					for (float32 gx = area.x; gx < area.x + area.w; gx += 20.f)
-						dlg.AddLine({gx, area.y}, {gx, area.y + area.h},
-									(((int32)((gx - area.x) / 20.f)) % 5 == 0) ? forte : fine,
-									(((int32)((gx - area.x) / 20.f)) % 5 == 0) ? 1.f : 0.5f);
-					for (float32 gy = area.y; gy < area.y + area.h; gy += 20.f)
-						dlg.AddLine({area.x, gy}, {area.x + area.w, gy},
-									(((int32)((gy - area.y) / 20.f)) % 5 == 0) ? forte : fine,
-									(((int32)((gy - area.y) / 20.f)) % 5 == 0) ? 1.f : 0.5f);
-					auto &F = costume::Fontes();
-					// ── LA BANDE DE PORTÉE : « Portée : » + la sélection RÉELLE ──
-					{
-						const char *nomSel = "(aucune sélection)";
-						if (mSt->doc.IsValidIndex(mSt->selected))
-							nomSel = mSt->doc.nodes[(uint32)mSt->selected].label.Data();
-						const float32 wl = costume::Largeur(F.px10, "Portée :");
-						const float32 wn = costume::Largeur(F.px11, nomSel);
-						const NkRect bp = {area.x + 14.f, area.y + 12.f,
-										   wl + wn + 34.f, 26.f};
-						dlg.AddRectFilled(bp, {26, 32, 48, 255}, 5.f);
-						dlg.AddRect(bp, {42, 53, 72, 255}, 1.f, 5.f);
-						costume::Texte(dlg, F.px10, bp.x + 10.f,
-									   costume::CentrerY(F.px10, bp.y, bp.h), "Portée :",
-									   {139, 148, 158, 255});
-						costume::TexteGras(dlg, F.px11, bp.x + wl + 16.f,
-										   costume::CentrerY(F.px11, bp.y, bp.h), nomSel,
-										   {79, 142, 247, 255}, 0.3f);
-					}
-					if (mMode == 2) {
-						// ── L'ENTRY canonique (écran 18 : tout graphe d'états en a
-						//    UN — ce n'est pas de la démo, c'est l'état de départ).
-						const NkRect en = {area.x + 80.f, area.y + area.h * 0.4f, 92.f,
-										   34.f};
-						dlg.AddRectFilled(en, {30, 42, 64, 255}, 17.f);
-						dlg.AddRect(en, {79, 142, 247, 255}, 1.5f, 17.f);
-						costume::TexteGras(dlg, F.px11,
-										   en.x + (en.w - costume::Largeur(F.px11, "Entry"))
-														* 0.5f,
-										   costume::CentrerY(F.px11, en.y, en.h), "Entry",
-										   {230, 237, 243, 255}, 0.3f);
-					}
-					// ── L'ÉTAT VIDE, DIT : le graphe attend son modèle ──────────
-					{
-						const char *ph = (mMode == 1)
-											 ? "Le graphe de comportement naîtra du modèle "
-											   "(§4.6) — ses nœuds, des événements de "
-											   "l'onglet Behavior."
-											 : "Les états s'ajouteront ici — Entry est posé, "
-											   "le graphe attend son modèle.";
-						costume::Texte(dlg, F.px11,
-									   area.x + (area.w - costume::Largeur(F.px11, ph)) * 0.5f,
-									   area.y + area.h * 0.62f, ph, {101, 109, 118, 255});
-					}
+					DessinerBlueprint(ctx, area, mMode);
 				} else {
 					// La toile SUIT LE THEME (test de Rodolf, 31/08 : « cette
 					// couleur blanche c'est pour le theme light ; en Design il
@@ -1716,9 +1677,36 @@ namespace nkuidesign {
 				}
 
 				// La découpe de la toile se referme ici — le pendant du Push posé
-				// avant le fond. Tout ce qui suit (rien aujourd'hui) reverrait le
-				// clip du dock.
+				// avant le fond. Tout ce qui suit reverrait le clip du dock.
 				ctx.DL().PopClipRect();
+
+				// ── LA MOITIÉ DROITE DU SPLIT + LE SÉPARATEUR (§10) ──────────
+				if (splitActif) {
+					const float32 xSep = areaTotale.x + areaTotale.w * mSplitRatio;
+					const NkRect droite = {xSep + 3.f, areaTotale.y,
+										   areaTotale.x + areaTotale.w - (xSep + 3.f),
+										   areaTotale.h};
+					ctx.DL().PushClipRect(droite, true);
+					DessinerBlueprint(ctx, droite, 1); // Behavior, même sélection
+					ctx.DL().PopClipRect();
+					// le séparateur : poignée fine, curseur ↔, ratio borné 25–75 %
+					const NkRect sep = {xSep - 3.f, areaTotale.y, 6.f, areaTotale.h};
+					const bool sv = ctx.popupDepth == 0
+									&& NkGuiRectContains(sep, ctx.input.mousePos);
+					ctx.DL().AddRectFilled(sep, ctx.theme.border);
+					if (sv || mSplitDrag)
+						ctx.wantCursor = nkgui::NkGuiCursor::ResizeEW;
+					if (sv && ctx.input.mouseClicked[0])
+						mSplitDrag = true;
+					if (mSplitDrag) {
+						if (!ctx.input.mouseDown[0])
+							mSplitDrag = false;
+						else if (areaTotale.w > 1.f) {
+							float32 rr = (ctx.input.mousePos.x - areaTotale.x) / areaTotale.w;
+							mSplitRatio = rr < 0.25f ? 0.25f : rr > 0.75f ? 0.75f : rr;
+						}
+					}
+				}
 			}
 
 		private:
@@ -2090,6 +2078,68 @@ namespace nkuidesign {
 					   && in.mouseY < z.y + z.h;
 			}
 
+			/// LA VUE BLUEPRINT (écrans 13/18), extraite pour servir AUSSI la
+			/// moitié droite du mode Split (§10) : fond #0d1117, grille 20/100,
+			/// bande « Portée : » sur la sélection RÉELLE, Entry canonique en
+			/// Animation, état vide dit. `mode` : 1 Behavior, 2 Animation.
+			void DessinerBlueprint(NkGuiContext &ctx, const NkRect &zone, uint32 mode) {
+				auto &dlg = ctx.DL();
+				dlg.AddRectFilled({zone.x, zone.y, zone.w, zone.h}, {13, 17, 23, 255});
+				const NkColor fine = {60, 80, 120, 64};
+				const NkColor forte = {60, 80, 120, 115};
+				for (float32 gx = zone.x; gx < zone.x + zone.w; gx += 20.f)
+					dlg.AddLine({gx, zone.y}, {gx, zone.y + zone.h},
+								(((int32)((gx - zone.x) / 20.f)) % 5 == 0) ? forte : fine,
+								(((int32)((gx - zone.x) / 20.f)) % 5 == 0) ? 1.f : 0.5f);
+				for (float32 gy = zone.y; gy < zone.y + zone.h; gy += 20.f)
+					dlg.AddLine({zone.x, gy}, {zone.x + zone.w, gy},
+								(((int32)((gy - zone.y) / 20.f)) % 5 == 0) ? forte : fine,
+								(((int32)((gy - zone.y) / 20.f)) % 5 == 0) ? 1.f : 0.5f);
+				auto &F = costume::Fontes();
+				// ── LA BANDE DE PORTÉE : « Portée : » + la sélection RÉELLE ──
+				{
+					const char *nomSel = "(aucune sélection)";
+					if (mSt->doc.IsValidIndex(mSt->selected))
+						nomSel = mSt->doc.nodes[(uint32)mSt->selected].label.Data();
+					const float32 wl = costume::Largeur(F.px10, "Portée :");
+					const float32 wn = costume::Largeur(F.px11, nomSel);
+					const NkRect bp = {zone.x + 14.f, zone.y + 12.f, wl + wn + 34.f, 26.f};
+					dlg.AddRectFilled(bp, {26, 32, 48, 255}, 5.f);
+					dlg.AddRect(bp, {42, 53, 72, 255}, 1.f, 5.f);
+					costume::Texte(dlg, F.px10, bp.x + 10.f,
+								   costume::CentrerY(F.px10, bp.y, bp.h), "Portée :",
+								   {139, 148, 158, 255});
+					costume::TexteGras(dlg, F.px11, bp.x + wl + 16.f,
+									   costume::CentrerY(F.px11, bp.y, bp.h), nomSel,
+									   {79, 142, 247, 255}, 0.3f);
+				}
+				if (mode == 2) {
+					// ── L'ENTRY canonique (écran 18 : tout graphe d'états en a
+					//    UN — ce n'est pas de la démo, c'est l'état de départ).
+					const NkRect en = {zone.x + 80.f, zone.y + zone.h * 0.4f, 92.f, 34.f};
+					dlg.AddRectFilled(en, {30, 42, 64, 255}, 17.f);
+					dlg.AddRect(en, {79, 142, 247, 255}, 1.5f, 17.f);
+					costume::TexteGras(dlg, F.px11,
+									   en.x + (en.w - costume::Largeur(F.px11, "Entry")) * 0.5f,
+									   costume::CentrerY(F.px11, en.y, en.h), "Entry",
+									   {230, 237, 243, 255}, 0.3f);
+				}
+				// ── L'ÉTAT VIDE, DIT : le graphe attend son modèle ──────────
+				{
+					const char *ph = (mode == 1)
+										 ? "Le graphe de comportement naîtra du modèle "
+										   "(§4.6) — ses nœuds, des événements de "
+										   "l'onglet Behavior."
+										 : "Les états s'ajouteront ici — Entry est posé, "
+										   "le graphe attend son modèle.";
+					float32 tx = zone.x + (zone.w - costume::Largeur(F.px11, ph)) * 0.5f;
+					if (tx < zone.x + 8.f)
+						tx = zone.x + 8.f; // une moitié étroite garde le début lisible
+					costume::Texte(dlg, F.px11, tx, zone.y + zone.h * 0.62f, ph,
+								   {101, 109, 118, 255});
+				}
+			}
+
 			DesignState *mSt;
 			bool mDragging = false;
 			bool mDragHorizontal = true;
@@ -2125,6 +2175,10 @@ namespace nkuidesign {
 			/// doubles-clics sont descendus. -1 = premier niveau. Echap remonte,
 			/// le clic dans le vide ressort.
 			int32 mForage = -1;
+			/// LE MODE SPLIT (§10) : part de la moitie Design (bornee 25–75 %) et
+			/// glisser du separateur en cours.
+			float32 mSplitRatio = 0.5f;
+			bool mSplitDrag = false;
 
 			/// Ferme l'edition en place : valide (ecrit `text` — ou `label` pour
 			/// une etiquette d'artboard — + MarkHumanEdit) ou annule. Les deux
@@ -2225,7 +2279,8 @@ namespace nkuidesign {
 							mMode = i;
 							Dire("Mode ", kModes[i],
 								 (i == 0)	  ? " : la toile de design."
-								 : (i == 3) ? " : à brancher (Design en attendant)."
+								 : (i == 3) ? " : Design | Behavior côte à côte — le "
+											  "séparateur se tire (25–75 %)."
 											: " : la vue se dessine ; le graphe naîtra du modèle.");
 						}
 					}
