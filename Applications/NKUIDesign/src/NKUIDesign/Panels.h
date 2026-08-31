@@ -547,6 +547,11 @@ namespace nkuidesign {
 			/// premier OnUI de la toile l'applique apres le chargement, puis
 			/// l'eteint. -1 = aucun.
 			int32 selectionInitiale = -1;
+			/// Lignes de magnétisme FIGÉES (mise en scène, levier `--lignes=`) :
+			/// la maquette fige un instantané de geste — verticale en FRACTION de
+			/// la toile (0..1), horizontale en PIXELS depuis son haut. -1 = rien.
+			float32 ligneV = -1.f;
+			float32 ligneH = -1.f;
 			void PrendreEtatEnregistre() {
 				etatEnregistre = NkString();
 				doc.Save(etatEnregistre);
@@ -1269,6 +1274,17 @@ namespace nkuidesign {
 				//    et §7 est explicite : « il n'existe pas de troisième bande
 				//    d'outils, les outils flottent au-dessus du canvas, ils ne
 				//    bordent pas la fenêtre ».
+				// Les LIGNES DE MAGNÉTISME FIGÉES (levier --lignes=, mise en
+				// scène) : rose `snap_line` #ff4fd8, 1 px — SOUS les flottants,
+				// comme dans la maquette (zIndex des lignes < bascule).
+				{
+					const uint16 rose = NkDesignResolveRole("snap_line");
+					NkDesignPaint p2(ctx, mSt->theme);
+					if (mSt->ligneV >= 0.f && mSt->ligneV <= 1.f)
+						p2.Fill({area.x + area.w * mSt->ligneV, area.y, 1.f, area.h}, rose, 0.f);
+					if (mSt->ligneH >= 0.f)
+						p2.Fill({area.x, area.y + mSt->ligneH, area.w, 1.f}, rose, 0.f);
+				}
 				DessinerFlottants(ctx, area);
 
 				// ⚠️ L'APERCU PUBLIE LE RECTANGLE DE CHAQUE NOEUD. Meme principe

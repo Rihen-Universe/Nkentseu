@@ -60,6 +60,8 @@
 #include "NKWindow/NKMain.h"
 #include "NKWindow/NKWindow.h"
 
+#include <cstdlib> // atof (levier --lignes=)
+
 #include "Backend.h"
 #include "Costume.h" // le costume exact Banani : polices 9-16 px + icônes (remandat 31/08)
 #include "NkGuiRoundTrip.h"
@@ -143,6 +145,9 @@ static uint32 gOngletActif = 0;
 // L'etat « non enregistre » MESURE (pousse par le canal gDesign.titre) : la
 // barre de titre ET l'onglet actif portent la meme pastille « ● ».
 static bool gDocumentModifie = false;
+// Mise en scene « toile seule » (ecrans gros plan de la maquette) :
+// panneaux fermes, rails retires — pose par --toile-seule.
+static bool gToileSeule = false;
 /// ⚠️ L AUTORITE DES THEMES, ET ELLE EST UNIQUE. `gDesign.theme` (lu par les
 ///    composants du kit) et `mUI.theme` de la coquille (lu par les primitives)
 ///    en sont deux CONSOMMATEURS ; ils ne decident rien.
@@ -1001,6 +1006,41 @@ int nkmain(const NkEntryState &state) {
 				gDesign.selectionInitiale = v;
 				continue;
 			}
+			// MISE EN SCENE (remandat Banani : un document par ecran) : charger
+			// un document donne au lancement. ⚠️ Ctrl+S ecrira LA ou on a
+			// charge — le fichier de travail par defaut ne bouge pas.
+			if (arg.StartsWith("--document=")) {
+				static NkString cheminDoc; // survit a l'analyse (le chargement vient apres)
+				cheminDoc = arg.SubStr(11);
+				if (!cheminDoc.Empty())
+					nkuidesign::kDocumentPath = cheminDoc.Data();
+				continue;
+			}
+			// TOILE SEULE (mise en scene des ecrans « gros plan » : la
+			// maquette ne montre que la toile) : panneaux fermes, rails
+			// retires — l'en-tete de la coquille reste, la paire se cadre sur
+			// la toile et le DIT.
+			if (arg.StartsWith("--toile-seule")) {
+				gToileSeule = true;
+				continue;
+			}
+			// Lignes de magnetisme FIGEES : --lignes=v0.44,h460 (v = fraction
+			// de la toile, h = pixels depuis son haut ; chacune optionnelle).
+			// Meme famille que --selection= : un levier de capture, pas un
+			// reglage.
+			if (arg.StartsWith("--lignes=")) {
+				for (const char *q = a + 9; *q;) {
+					if (*q == 'v')
+						gDesign.ligneV = (float32)atof(q + 1);
+					else if (*q == 'h')
+						gDesign.ligneH = (float32)atof(q + 1);
+					while (*q && *q != ',')
+						++q;
+					if (*q == ',')
+						++q;
+				}
+				continue;
+			}
 		}
 		// ⚠️ AVANT TOUTE FENETRE, pour la meme raison que la sonde : l'aller-retour
 		//    ne touche ni au GPU ni a l'ecran, et il doit pouvoir tourner sur la
@@ -1128,6 +1168,9 @@ int nkmain(const NkEntryState &state) {
 			puts("  --small                 fenêtre réduite (1024x640)");
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
 			puts("  --selection=<n>         sélectionner le nœud n au premier affichage");
+			puts("  --document=<chemin>     charger ce document au lancement (mise en scène)");
+			puts("  --lignes=v<f>,h<px>     lignes de magnétisme figées (mise en scène)");
+			puts("  --toile-seule           panneaux fermés, rails retirés (mise en scène)");
 			return 2;
 		}
 	}
@@ -1260,6 +1303,13 @@ int nkmain(const NkEntryState &state) {
 	//    un panneau et le ranger.
 	static nkuidesign::PalettePanel palette(&gDesign);
 	palette.SetOpen(false);
+	if (gToileSeule) {
+		// La toile seule : les deux panneaux fixes se FERMENT (ils restent
+		// enregistres — Affichage les rouvre), les rails ne seront pas poses.
+		hierarchie.SetOpen(false);
+		inspecteur.SetOpen(false);
+		ai.SetOpen(false);
+	}
 	// ⚠️ L ORDRE D AJOUT DECIDE DE L ORDRE DES ONGLETS dans une meme feuille de
 	//    dock : Hierarchie d abord (elle est seule a gauche), puis le centre,
 	//    puis l Inspecteur, puis le bas.
@@ -1472,8 +1522,10 @@ int nkmain(const NkEntryState &state) {
 	kRailBas[0].largeur = 34.f + nkuidesign::costume::Largeur(Fontes().px11, "Console");
 	kRailBas[1].largeur = 34.f + nkuidesign::costume::Largeur(Fontes().px11, "Aperçu");
 	shell->SetRail(NkEditorDockSide::NK_LEFT, nullptr, 0);
-	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite, 3);
-	shell->SetRail(NkEditorDockSide::NK_BOTTOM, kRailBas, 2);
+	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite, gToileSeule ? 0 : 3);
+	shell->SetRail(NkEditorDockSide::NK_BOTTOM, kRailBas, gToileSeule ? 0 : 2);
+	if (gToileSeule)
+		shell->SetRailFooterStatus("", {0, 0, 0, 0}); // pas de bandeau bas du tout
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
 	shell->SetTitleInfo("Dashboard_Admin.nkgui");
