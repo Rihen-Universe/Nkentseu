@@ -180,6 +180,34 @@ namespace nkuidesign {
 		return hit;
 	}
 
+	/// LE FORAGE SOUS CURSEUR (regle de Rodolf, 31/08 : « quand je double-clique
+	/// sur un groupe, s'il a un enfant j'attaque son enfant... ceci par rapport
+	/// a ou la souris atterrit »). Rend l'ENFANT DIRECT de `contexte` qui
+	/// contient le point — c'est le point d'impact qui choisit la branche,
+	/// jamais l'ordre des enfants ni la selection precedente. `contexte < 0` =
+	/// premier niveau (NkPickTopLevel). Rend -1 si rien sous le point, -2 si le
+	/// point est HORS du contexte (l'appelant ressort alors au premier niveau).
+	inline nkentseu::int32 NkPickDansContexte(const NkUIDocument &doc, const NkLayoutResult &lay,
+											  nkentseu::float32 x, nkentseu::float32 y,
+											  nkentseu::int32 contexte) {
+		if (contexte < 0 || !doc.IsValidIndex(contexte))
+			return NkPickTopLevel(doc, lay, x, y);
+		const nkentseu::int32 deep = NkPickSelectable(doc, lay, x, y);
+		if (deep < 0)
+			return -1;
+		nkentseu::int32 cur = deep;
+		nkentseu::int32 garde = 0;
+		while (doc.IsValidIndex(cur) && ++garde < 64) {
+			const nkentseu::int32 pa = doc.nodes[(nkentseu::uint32)cur].parent;
+			if (pa == contexte)
+				return cur; // l'enfant direct du contexte, sous le curseur
+			if (pa < 0)
+				break;
+			cur = pa;
+		}
+		return -2; // le point n'atterrit pas dans le contexte
+	}
+
 	/// LE RECEPTACLE D'UNE CREATION (2026-08-30, chaine du designer). Un outil
 	/// qui pose une forme doit savoir DANS QUOI il la pose : le conteneur a
 	/// agencement `Free` le plus PROFOND sous le point -- l'artboard si on

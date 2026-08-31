@@ -425,6 +425,7 @@ static void CmdQuit(void *user) {
 static struct {
 	float32 x = 0.f, y = 0.f;
 	int32 frame = -1;
+	bool dbl = false; ///< --clic=x:y:frame:d — injecte AUSSI un double-clic
 } gClics[4];
 static void InjecterClics(nkgui::NkGuiContext &ctx) {
 	static int32 compteur = 0;
@@ -442,6 +443,11 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 		if (compteur == gClics[i].frame) {
 			ctx.input.mouseDown[0] = true;
 			ctx.input.mouseClicked[0] = true;
+			// le DOUBLE-CLIC s'injecte tel quel (la detection temporelle de la
+			// fenetre ne verra jamais deux vrais clics) — c'est le levier de
+			// preuve du FORAGE sous curseur.
+			if (gClics[i].dbl)
+				ctx.input.mouseDoubleClicked[0] = true;
 		} else if (compteur == gClics[i].frame + 1) {
 			// ⚠️ EFFACER le clic : si ce rappel tourne deux fois par trame, un
 			//    clic qui persiste au second passage REFERME le menu qu'il vient
@@ -449,6 +455,7 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			ctx.input.mouseClicked[0] = false;
 			ctx.input.mouseDown[0] = false;
 			ctx.input.mouseReleased[0] = true;
+			ctx.input.mouseDoubleClicked[0] = false;
 		}
 	}
 }
@@ -1227,6 +1234,11 @@ int nkmain(const NkEntryState &state) {
 						while (*q && *q != ':')
 							++q;
 						gClics[ci].frame = (*q == ':') ? (int32)atof(++q) : 30;
+						// 4e champ optionnel « d » : ce clic est un DOUBLE-clic
+						// (--clic=x:y:frame:d — levier de preuve du forage).
+						while (*q && *q != ':')
+							++q;
+						gClics[ci].dbl = (*q == ':' && q[1] == 'd');
 						break;
 					}
 				continue;

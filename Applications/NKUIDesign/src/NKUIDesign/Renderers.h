@@ -102,6 +102,10 @@ namespace nkuidesign {
 			/// et leurs corps sont des constantes du kit — chantier nomme,
 			/// pas glisse.
 			float32 docScale = 1.f;
+			/// Le noeud en cours d'EDITION EN PLACE (-1 = aucun) : son texte est
+			/// dessine par le champ superpose TRANSPARENT — le dessiner aussi ici
+			/// donnerait un double trait. Pose par la toile a chaque image.
+			int32 editionNode = -1;
 			/// Un modele de demonstration par noeud, aligne sur `doc.nodes`.
 			NkVector<NkContentBrowserModel> demoModels;
 			/// ⚠️ UN SECOND JEU, ET IL FAUT LES DEUX. Un composant garde son etat
@@ -718,9 +722,12 @@ namespace nkuidesign {
 			// position. Une forme posee se voit ; un cadre d agencement, non.
 			const bool posee = n.parent >= 0
 							   && doc.nodes[(uint32)n.parent].layout.kind == NkLayoutKind::Free;
-			if (posee)
+			// ⚠️ Le noeud en cours d'EDITION EN PLACE ne dessine pas son texte :
+			//    le champ superpose TRANSPARENT le dessine a sa place — les deux
+			//    ensemble donneraient un double trait (regle du 31/08).
+			if (posee && node != host.editionNode)
 				renderdetail::DrawShape(p, r, n, host);
-			else
+			else if (!posee)
 				renderdetail::DrawFrame(p, r, host);
 		} else if (StrEq(n.component.Data(), "content_browser")) {
 			if ((uint32)node < (uint32)host.demoModels.Size() && r.w > 0.f && r.h > 0.f) {

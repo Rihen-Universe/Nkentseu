@@ -165,35 +165,19 @@ namespace nkuidesign {
 			void TextHex(const NkPaintRect &r, const char *s, uint32 rgba, uint16 roleRepli,
 						 nkentseu::editorkit::NkTextAlign align, float32 px,
 						 float32 graisse) override {
-				auto &F = costume::Fontes();
-				const nkentseu::nkgui::NkGuiFont *f = nullptr;
-				float32 rendu = 0.f; // taille physique de l'atlas retenu
 				// Le corps demande est LOGIQUE (meme regle que Charger) : la cible
 				// physique porte le DPI, qui se simplifie avec celui des atlas.
+				// Le CHOIX d'atlas + echelle residuelle est PARTAGE avec le champ
+				// d'edition en place : costume::AtlasProche, un seul endroit.
 				const float32 dpi = mCtx.S(1.f) > 0.5f ? mCtx.S(1.f) : 1.f;
 				const float32 vise = px * dpi;
-				if (px > 0.f) {
-					const nkentseu::nkgui::NkGuiFont *cand[7] = {&F.px9,  &F.px10, &F.px11,
-																 &F.px12, &F.px13, &F.px15,
-																 &F.px16};
-					float32 best = 1.0e9f;
-					for (int32 i = 0; i < 7; ++i) {
-						if (!cand[i]->Valid() || !cand[i]->Face())
-							continue;
-						const float32 taille = cand[i]->Face()->fontSize;
-						const float32 d = taille > vise ? taille - vise : vise - taille;
-						if (d < best) {
-							best = d;
-							f = cand[i];
-							rendu = taille;
-						}
-					}
-				}
-				if (!f || !f->Valid() || rendu <= 0.f) {
+				float32 echelle = 1.f;
+				const nkentseu::nkgui::NkGuiFont *f =
+					px > 0.f ? costume::AtlasProche(vise, echelle) : nullptr;
+				if (!f || !f->Valid()) {
 					NkGuiComponentPaint::TextHex(r, s, rgba, roleRepli, align, px, graisse);
 					return;
 				}
-				const float32 echelle = vise / rendu;
 				const nkentseu::nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
 													  (uint8)((rgba >> 16) & 0xFFu),
 													  (uint8)((rgba >> 8) & 0xFFu),

@@ -1237,6 +1237,12 @@ namespace nkuidesign {
 				//    d'alerte : elle apprend a ne plus le lire.
 				nkgui::NkGuiNoterMesure(ctx, "canvas.vue", mSt->view.zoom, mSt->view.panX,
 										mSt->view.panY, (float32)mSt->sel.Count());
+				// LA SÉLECTION ET LE FORAGE SE PUBLIENT (preuve du forage sous
+				// curseur : deux doubles-clics injectés à deux positions doivent
+				// montrer DEUX sélections différentes au relevé).
+				nkgui::NkGuiNoterMesure(
+					ctx, "canvas.selection", (float32)mSt->selected, (float32)mForage,
+					(float32)(mSt->doc.IsValidIndex(mEditNode) ? mEditNode : -1), 0.f);
 
 				// ── RACCOURCIS D'OUTILS AU VRAI CLAVIER (Lunacy : V F R O L T) ──
 				// ⚠️ MESURE DU 30/08 (Rodolf : « les F glisser et autres ne
@@ -1268,6 +1274,22 @@ namespace nkuidesign {
 				if (mCreating && ctx.input.KeyPressed(NkGuiKey::Escape)) {
 					mCreating = false;
 					Dire("Tracé annulé.", "", "");
+				} else if (mForage >= 0 && !mSt->doc.IsValidIndex(mEditNode)
+						   && ctx.input.KeyPressed(NkGuiKey::Escape)) {
+					// ÉCHAP REMONTE d'un niveau de forage (Figma/Lunacy) : on
+					// sélectionne le groupe qu'on quitte, le contexte remonte —
+					// jusqu'au premier niveau. (L'Échap d'une édition en place,
+					// lui, ANNULE l'édition — il est consommé par le champ.)
+					if (mSt->doc.IsValidIndex(mForage)) {
+						mSt->SelectSingle(mForage);
+						const int32 pa = mSt->doc.nodes[(uint32)mForage].parent;
+						const bool paPremier =
+							pa < 0 || !mSt->doc.IsValidIndex(pa)
+							|| mSt->doc.nodes[(uint32)pa].parent < 0
+							|| StrEq(mSt->doc.nodes[(uint32)pa].shape.Data(), "frame");
+						mForage = paPremier ? -1 : pa;
+					} else
+						mForage = -1;
 				}
 				TraceEntree(ctx);
 
@@ -1414,6 +1436,10 @@ namespace nkuidesign {
 					// formes suit (corps pose x zoom), comme les rectangles qui
 					// arrivent deja projetes (correction du 31/08).
 					mSt->host.docScale = mSt->view.zoom;
+					// Le noeud en edition en place ne dessine pas son texte —
+					// le champ transparent le dessine a sa place.
+					mSt->host.editionNode =
+						mSt->doc.IsValidIndex(mEditNode) ? mEditNode : -1;
 					NkDrawDocument(paint, in, mSt->doc, screen, mSt->host);
 				}
 
@@ -1619,22 +1645,42 @@ namespace nkuidesign {
 					}
 				}
 
-				// ── L'EDITION EN PLACE D'UN TEXTE (31/08) ────────────────────
-				// Le champ du kit, SUPERPOSE a la position ecran du noeud —
-				// Entree valide (ecrit `text` + MarkHumanEdit), Echap annule,
-				// cliquer ailleurs valide (HandleMouse). Dessine SOUS le clip de
-				// la toile : un texte au bord se coupe comme le reste.
+				// ── L'EDITION EN PLACE D'UN TEXTE (31/08, 2e passe) ──────────
+				// Le champ du kit, SUPERPOSE a la position ecran du noeud, FOND
+				// TRANSPARENT (« on doit voir qu'on edite DANS la toile »), a
+				// L'ALIGNEMENT du noeud et au CORPS pose x zoom (le meme choix
+				// d'atlas que le peintre : costume::AtlasProche). Entree valide
+				// (ecrit `text` + MarkHumanEdit), Echap annule, cliquer ailleurs
+				// valide (HandleMouse). Dessine SOUS le clip de la toile.
 				if (!modeGraphe && mSt->doc.IsValidIndex(mEditNode)) {
 					if (!screen.Has(mEditNode)) {
 						FermerEditionTexte(false); // le noeud a quitte la disposition
 					} else {
 						const NkPaintRect re = screen.At(mEditNode);
+						const NkUINode &ne = mSt->doc.nodes[(uint32)mEditNode];
+						const float32 dpi = ctx.S(1.f) > 0.5f ? ctx.S(1.f) : 1.f;
+						const float32 vise = (ne.fontPx > 0.f ? ne.fontPx : 12.f)
+											 * mSt->view.zoom * dpi;
+						float32 ech = 1.f;
+						const nkgui::NkGuiFont *fed = costume::AtlasProche(vise, ech);
+						editorkit::NkOverlayFieldStyle sty;
+						sty.fond = false; // transparent : on edite DANS la toile
+						sty.bord = true;  // le lisere dit ou l'on edite
+						sty.align = StrEq(ne.alignText.Data(), "centre")   ? 1
+									: StrEq(ne.alignText.Data(), "droite") ? 2
+																		   : 0;
+						sty.echelle = ech;
+						sty.texte = ne.textColor.Empty()
+										? nkentseu::editorkit::NkThemeUnpack(mSt->theme.Get(
+											  nkentseu::editorkit::NkRole::DocText))
+										: nkentseu::editorkit::NkThemeUnpack(
+											  renderdetail::NkGHexRGBA(ne.textColor.Data()));
 						const nkgui::NkRect rf = {re.x - 2.f, re.y - 2.f,
-												  (re.w > 120.f ? re.w : 120.f) + 4.f,
-												  (re.h > 22.f ? re.h : 22.f) + 4.f};
-						nkentseu::editorkit::NkOverlayTextField(ctx, ctx.DL(), ctx.font, rf,
-																mEditBuf,
-																(int32)sizeof(mEditBuf), true);
+												  (re.w > 40.f ? re.w : 40.f) + 4.f,
+												  (re.h > 18.f ? re.h : 18.f) + 4.f};
+						nkentseu::editorkit::NkOverlayTextField(
+							ctx, ctx.DL(), fed ? fed : ctx.font, rf, mEditBuf,
+							(int32)sizeof(mEditBuf), true, &sty);
 						if (ctx.input.KeyPressed(nkgui::NkGuiKey::Enter))
 							FermerEditionTexte(true);
 						else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
@@ -1748,38 +1794,66 @@ namespace nkuidesign {
 					mCreating = false;
 				}
 				if (in.mousePressed) {
-					// Un clic pendant une edition en place la VALIDE d'abord
-					// (le geste de tous les outils de dessin : cliquer ailleurs
-					// commet), puis le clic suit son cours normal.
+					// CONTRAT UNIVERSEL D'EDITION (Rodolf, 31/08) : un clic
+					// pendant une edition en place la VALIDE d'abord, puis le
+					// clic fait son effet normal — jamais un clic « mange ».
 					if (mSt->doc.IsValidIndex(mEditNode))
 						FermerEditionTexte(true);
-					// ⚠️ `NkPickSelectable`, PAS `NkPickNode` : la racine couvre toute
-					//    la surface et repondrait a tous les clics. Cliquer le fond
-					//    DESELECTIONNE, comme dans tout outil de dessin.
-					// ⚠️ ET LE CLIC SIMPLE VISE LE PREMIER NIVEAU (bogue du 31/08 :
-					//    le pointage profond attrapait le LIBELLE d'un bouton, et le
-					//    glisser separait le libelle de son bouton — « effet bizarre »
-					//    dans les quatre directions). Le DOUBLE-CLIC descend.
-					const int32 hit = in.doubleClick
-										  ? NkPickSelectable(mSt->doc, screen, in.mouseX, in.mouseY)
-										  : NkPickTopLevel(mSt->doc, screen, in.mouseX, in.mouseY);
-					// ── DOUBLE-CLIC SUR UN TEXTE = EDITION EN PLACE (31/08) ────
-					// Le double-clic descend deja dans les groupes ; s'il atteint
-					// un noeud TEXTE, il l'edite la ou il est (champ superpose,
-					// Entree valide, Echap annule) au lieu de seulement le
-					// selectionner. Le champ est `NkOverlayTextField` du kit —
-					// la couche du dessous portait deja la saisie superposee.
-					if (in.doubleClick && hit >= 0
-						&& StrEq(mSt->doc.nodes[(uint32)hit].shape.Data(), "text")) {
-						mEditNode = hit;
-						const char *t0 = mSt->doc.nodes[(uint32)hit].text.Data();
-						snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
-						mSt->SelectSingle(hit);
-						Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
-						return; // ce double-clic n'arme ni glisser ni rectangle
+					// le contexte de forage se perime avec le document
+					if (mForage >= 0 && !mSt->doc.IsValidIndex(mForage))
+						mForage = -1;
+					// ── LE FORAGE (regle de Rodolf, 31/08) : chaque double-clic
+					//    descend D'UN NIVEAU vers l'enfant SOUS LE CURSEUR (« ceci
+					//    par rapport a ou la souris atterrit ») ; une feuille
+					//    EDITABLE entre en edition, une feuille non editable se
+					//    selectionne et le DIT ; Echap remonte d'un niveau ; le
+					//    clic simple reste au niveau courant ; le vide ressort.
+					if (in.doubleClick) {
+						int32 cand = NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY,
+														mForage);
+						if (cand == -2) { // hors du contexte : ressort au 1er niveau
+							mForage = -1;
+							cand = NkPickTopLevel(mSt->doc, screen, in.mouseX, in.mouseY);
+						}
+						if (cand >= 0) {
+							const NkUINode &cn = mSt->doc.nodes[(uint32)cand];
+							if (cn.children.Size() > 0) {
+								// un GROUPE : on fore vers l'enfant sous le point
+								const int32 enfant = NkPickDansContexte(
+									mSt->doc, screen, in.mouseX, in.mouseY, cand);
+								if (enfant >= 0) {
+									mForage = cand;
+									mSt->SelectSingle(enfant);
+									Dire("", mSt->doc.nodes[(uint32)enfant].label.Data(),
+										 " — double-clic : descendre/éditer ; Échap : "
+										 "remonter.");
+								} else
+									mSt->SelectSingle(cand); // rien sous le point
+							} else if (StrEq(cn.shape.Data(), "text")) {
+								mEditNode = cand;
+								const char *t0 = cn.text.Data();
+								snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+								mSt->SelectSingle(cand);
+								Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
+							} else {
+								mSt->SelectSingle(cand);
+								Dire("Élément non éditable.", "", "");
+							}
+						}
+						return; // un double-clic ne demarre ni glisser ni rectangle
+					}
+					// clic simple : au NIVEAU COURANT du forage (les freres du
+					// niveau ou l'on est) ; ailleurs = ressortie au 1er niveau.
+					int32 hit = NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY,
+												   mForage);
+					if (hit == -2) {
+						mForage = -1;
+						hit = NkPickTopLevel(mSt->doc, screen, in.mouseX, in.mouseY);
 					}
 					if (hit < 0) {
-						// Le vide : on vide, et on arme le rectangle de selection.
+						// Le vide : ressort au premier niveau, vide la selection,
+						// arme le rectangle.
+						mForage = -1;
 						if (!in.ctrl)
 							mSt->SelectClear();
 						mMarquee = true;
@@ -1995,6 +2069,10 @@ namespace nkuidesign {
 			/// sur un noeud texte = champ superpose a sa position). -1 = aucune.
 			int32 mEditNode = -1;
 			char mEditBuf[600] = {0};
+			/// LE CONTEXTE DE FORAGE (regle du 31/08) : le groupe dans lequel les
+			/// doubles-clics sont descendus. -1 = premier niveau. Echap remonte,
+			/// le clic dans le vide ressort.
+			int32 mForage = -1;
 
 			/// Ferme l'edition en place : valide (ecrit `text` + MarkHumanEdit)
 			/// ou annule. Les deux sorties se DISENT dans la ligne d'aide.

@@ -94,6 +94,32 @@ namespace nkuidesign {
 			return p;
 		}
 
+		/// L'ATLAS DU COSTUME LE PLUS PROCHE d'une taille PHYSIQUE visée, et
+		/// l'échelle résiduelle pour l'atteindre exactement (le palier de la
+		/// correction « le texte suit le zoom »). UN seul endroit : le peintre
+		/// (NkDesignPaint::TextHex) et le champ d'édition en place partagent ce
+		/// choix — deux copies auraient divergé au premier corps ajouté.
+		inline const NkGuiFont *AtlasProche(float32 visePhys, float32 &echelle) {
+			auto &F = Fontes();
+			const NkGuiFont *cand[7] = {&F.px9,	 &F.px10, &F.px11, &F.px12,
+										&F.px13, &F.px15, &F.px16};
+			const NkGuiFont *best = nullptr;
+			float32 bd = 1.0e9f, rendu = 0.f;
+			for (int32 i = 0; i < 7; ++i) {
+				if (!cand[i]->Valid() || !cand[i]->Face())
+					continue;
+				const float32 t = cand[i]->Face()->fontSize;
+				const float32 d = t > visePhys ? t - visePhys : visePhys - t;
+				if (d < bd) {
+					bd = d;
+					best = cand[i];
+					rendu = t;
+				}
+			}
+			echelle = (best && rendu > 0.f) ? visePhys / rendu : 1.f;
+			return best;
+		}
+
 		// ── Texte : normal, et « gras » approximé (graisses non embarquées) ──
 		inline void Texte(NkGuiDrawList &dl, const NkGuiFont &f, float32 x, float32 yHaut,
 						  const char *t, const NkColor &c) {
