@@ -830,8 +830,12 @@ namespace nkentseu {
 				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
 				for (int32 i = 0; i < mNumPanels; ++i)
 					if (mPanels[i])
+						// Costume Banani (SetSideTabsVisible(false)) : les panneaux
+						// LATÉRAUX aussi masquent leur barre d'onglets quand ils sont
+						// seuls — ils dessinent alors leur propre en-tête de 34 px.
 						DockWindowHideSingleTab(mUI, mPanels[i]->Title(),
-												mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
+												!mSideTabsVisible
+													|| mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
 				BootstrapDocking();
 				DrawPanels(ec);
 				// ⚠️ APRES LES PANNEAUX : le tiroir passe PAR-DESSUS le dock. Pose
@@ -947,28 +951,56 @@ namespace nkentseu {
 			const NkVec2 m = mUI.input.mousePos;
 			const bool ptrOk = (mUI.hoveredWindowId == NKGUI_ID_NONE);
 
+			// Costume Banani (2026-08-31) : dès qu'une pastille du rail porte son
+			// propre dessin (`icone`), le rail prend la géométrie de la maquette —
+			// marge 8, écart 4, hauteur de pilule 20 au rail bas — et le CONTENU
+			// est dessiné par l'application. Sans `icone`, rien ne bouge.
+			bool costume = false;
+			for (int32 i = 0; i < mRailCount[slot]; ++i)
+				if (mRailItems[slot][i].icone)
+					costume = true;
+			float32 curseur = costume ? 8.f : 4.f;
+
 			for (int32 i = 0; i < mRailCount[slot]; ++i) {
 				const NkEditorRailItem &it = mRailItems[slot][i];
-				const NkRect r = vertical
-									 ? NkRect{bar.x, bar.y + 4.f + cell * (float32)i, cell, cell}
-									 : NkRect{bar.x + 4.f + cell * (float32)i, bar.y, cell, cell};
+				const float32 lg = (it.largeur > 0.f) ? it.largeur : cell;
+				NkRect r;
+				if (vertical)
+					r = {bar.x, bar.y + curseur, cell, cell};
+				else if (costume)
+					r = {bar.x + curseur, bar.y + (bar.h - 20.f) * 0.5f, lg, 20.f};
+				else
+					r = {bar.x + curseur, bar.y, lg, cell};
+				curseur += (vertical ? cell : lg) + (costume ? 4.f : 0.f);
 				const bool hov = ptrOk && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y
 								 && m.y < r.y + r.h;
 				const bool ouvert = (mRailOuvert[slot] == i);
 
-				if (ouvert)
-					dl.AddRectFilled(r, mUI.theme.accent, 4.f);
-				else if (hov)
-					dl.AddRectFilled(r, mUI.theme.buttonHover, 4.f);
+				if (it.icone) {
+					// Fond d'état seulement (accent à 13 % quand déplié — Banani
+					// SideRail —, survol discret sinon) ; le contenu vient de l'app.
+					if (ouvert) {
+						NkColor voile = mUI.theme.accent;
+						voile.a = 34; // ≈ 13 % (la pilule #2f81f722 de la maquette)
+						dl.AddRectFilled(r, voile, 4.f);
+					} else if (hov)
+						dl.AddRectFilled(r, mUI.theme.buttonHover, 4.f);
+					it.icone(mUI, r, ouvert, hov, it.iconeUser);
+				} else {
+					if (ouvert)
+						dl.AddRectFilled(r, mUI.theme.accent, 4.f);
+					else if (hov)
+						dl.AddRectFilled(r, mUI.theme.buttonHover, 4.f);
 
-				if (mUI.font && mUI.font->Valid() && it.glyphe && *it.glyphe) {
-					const float32 w = mUI.font->MeasureWidth(it.glyphe);
-					const float32 by = r.y + (r.h - mUI.font->LineHeight()) * 0.5f
-									   + mUI.font->Ascent();
-					dl.AddText(mUI.font->Face(), mUI.font->TexId(),
-							   {r.x + (r.w - w) * 0.5f, by}, it.glyphe,
-							   ouvert ? mUI.theme.onAccent
-									  : (hov ? mUI.theme.text : mUI.theme.textDisabled));
+					if (mUI.font && mUI.font->Valid() && it.glyphe && *it.glyphe) {
+						const float32 w = mUI.font->MeasureWidth(it.glyphe);
+						const float32 by = r.y + (r.h - mUI.font->LineHeight()) * 0.5f
+										   + mUI.font->Ascent();
+						dl.AddText(mUI.font->Face(), mUI.font->TexId(),
+								   {r.x + (r.w - w) * 0.5f, by}, it.glyphe,
+								   ouvert ? mUI.theme.onAccent
+										  : (hov ? mUI.theme.text : mUI.theme.textDisabled));
+					}
 				}
 
 				// L infobulle de l etat 1. ⚠️ REPRISE, PAS REECRITE : `NkTooltip`
@@ -990,11 +1022,26 @@ namespace nkentseu {
 			// LE TEXTE DU RAIL BAS (2026-08-30, fusion des bandeaux §4/§13) :
 			// l'aide contextuelle vit dans l'espace restant, a droite des
 			// pastilles — un bandeau, deux contenus, zero second etage.
-			if (!vertical && mRailFooterText[0] && mUI.font && mUI.font->Valid()) {
-				const float32 tx = bar.x + 4.f + cell * (float32)mRailCount[slot] + 12.f;
+			// La pastille d'état à DROITE (« ● Prêt », Banani BottomRail) : point
+			// de 6 px + texte, alignés au bord droit. Le texte d'aide s'arrête
+			// avant elle.
+			float32 statusLx = bar.x + bar.w;
+			if (!vertical && mRailStatusText[0] && mUI.font && mUI.font->Valid()) {
+				const float32 tw = mUI.font->MeasureWidth(mRailStatusText);
+				const float32 tx = bar.x + bar.w - 8.f - tw;
 				const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f
 								   + mUI.font->Ascent();
-				dl.PushClipRect({tx, bar.y, bar.x + bar.w - tx - 8.f, bar.h}, true);
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {tx, by}, mRailStatusText,
+						   mUI.theme.textDisabled);
+				const float32 dy = bar.y + bar.h * 0.5f;
+				dl.AddCircleFilled({tx - 4.f - 3.f, dy}, 3.f, mRailStatusColor);
+				statusLx = tx - 4.f - 6.f - 8.f;
+			}
+			if (!vertical && mRailFooterText[0] && mUI.font && mUI.font->Valid()) {
+				const float32 tx = bar.x + curseur + 12.f;
+				const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f
+								   + mUI.font->Ascent();
+				dl.PushClipRect({tx, bar.y, statusLx - tx - 8.f, bar.h}, true);
 				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {tx, by}, mRailFooterText,
 						   mUI.theme.textDisabled);
 				dl.PopClipRect();
@@ -1333,6 +1380,12 @@ namespace nkentseu {
 		void NkEditorShell::DrawHeaderLogo(NkEditorFrameContext &, const NkRect &r) noexcept {
 			auto &dl = mUI.dl;
 			dl.AddRectFilled(r, mUI.theme.header);
+			// Costume exact (2026-08-31) : l'application dessine son propre bloc
+			// logo (patron SetMenuBar). Le « O » Rihen reste le défaut du kit.
+			if (mHeaderLogoFn) {
+				mHeaderLogoFn(mUI, r, mHeaderLogoUser);
+				return;
+			}
 			if (mTitleLogoTex) {
 				const float32 g = r.w * 0.5f;
 				dl.AddImage(mTitleLogoTex, {r.x + (r.w - g) * 0.5f, r.y + (r.h - g) * 0.5f, g, g},
@@ -1393,6 +1446,13 @@ namespace nkentseu {
 
 		void NkEditorShell::DrawTitleBar(NkEditorFrameContext &ec, const NkRect &bar) noexcept {
 			auto &dl = mUI.dl;
+			// Costume exact (2026-08-31) : police dédiée de la barre de titre —
+			// menus et nom de fichier d'une maquette à 11 px cessent d'hériter de
+			// la police d'interface. Échangée pour TOUTE la barre (menus déroulants
+			// compris, dessinés pendant BuildMenuBar), restaurée à la sortie.
+			nkgui::NkGuiFont *fontInterface = mUI.font;
+			if (mTitleBarFont && mTitleBarFont->Valid())
+				mUI.font = mTitleBarFont;
 			const NkColor bg = mUI.theme.header; // barre de titre (suit Dark/Light)
 			const NkColor fg = mUI.theme.text;
 			const NkColor accent = mUI.theme.accent;
@@ -1446,10 +1506,22 @@ namespace nkentseu {
 
 			auto inR = [&](const NkRect &r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
 			const NkColor hovBg = lightBar ? NkColor{0, 0, 0, 24} : NkColor{255, 255, 255, 26};
+			// Compact (Banani) : trois boutons 13×13, écart 4, marge droite 12 —
+			// des PIXELS de maquette, pas des unités à passer par S() (même règle
+			// que SetHeaderLayout). Historique : trois zones larges de 42.
 			const float32 bw = mUI.S(42.f);
-			const NkRect cClose = {bar.x + bar.w - bw, bar.y, bw, bar.h};
-			const NkRect cMax = {bar.x + bar.w - bw * 2.f, bar.y, bw, bar.h};
-			const NkRect cMin = {bar.x + bar.w - bw * 3.f, bar.y, bw, bar.h};
+			NkRect cClose, cMax, cMin;
+			if (mWinControlsCompact) {
+				const float32 cs = 13.f, gap = 4.f, right = 12.f;
+				const float32 cyBtn = bar.y + (bar.h - cs) * 0.5f;
+				cClose = {bar.x + bar.w - right - cs, cyBtn, cs, cs};
+				cMax = {cClose.x - gap - cs, cyBtn, cs, cs};
+				cMin = {cMax.x - gap - cs, cyBtn, cs, cs};
+			} else {
+				cClose = {bar.x + bar.w - bw, bar.y, bw, bar.h};
+				cMax = {bar.x + bar.w - bw * 2.f, bar.y, bw, bar.h};
+				cMin = {bar.x + bar.w - bw * 3.f, bar.y, bw, bar.h};
+			}
 
 			// Menus DANS la barre de titre (uniquement dans l'editeur, pas le launcher).
 			if (!mUI.appFullScreen)
@@ -1477,8 +1549,50 @@ namespace nkentseu {
 				return {r.x + hx, r.y + vy, r.w - 2.f * hx, r.h - 2.f * vy};
 			};
 			const float32 cround = mUI.S(4.f);
+			// ── Compact 13×13 (Banani TopHeader) : réduire/agrandir sur fond
+			//    `theme.button`, glyphes 7 px `textDisabled`, fermer FOND ROUGE
+			//    PERMANENT #f85149 avec × blanc. Les trois se dessinent ici et les
+			//    blocs historiques sont sautés. ──
+			if (mWinControlsCompact) {
+				// Réduire.
+				{
+					const bool h = inR(cMin);
+					dl.AddRectFilled(cMin, h ? mUI.theme.buttonHover : mUI.theme.button, 3.f);
+					const float32 gx = cMin.x + cMin.w * 0.5f, gy = cMin.y + cMin.h * 0.5f;
+					dl.AddLine({gx - 3.5f, gy}, {gx + 3.5f, gy}, mUI.theme.textDisabled, 1.f);
+					if (h && mUI.input.mouseClicked[0]) {
+						mWindow.Minimize();
+						consumed = true;
+					}
+				}
+				// Agrandir / restaurer.
+				{
+					const bool h = inR(cMax);
+					dl.AddRectFilled(cMax, h ? mUI.theme.buttonHover : mUI.theme.button, 3.f);
+					const float32 gx = cMax.x + cMax.w * 0.5f, gy = cMax.y + cMax.h * 0.5f;
+					dl.AddRect({gx - 3.f, gy - 3.f, 6.f, 6.f}, mUI.theme.textDisabled, 1.f);
+					if (h && mUI.input.mouseClicked[0]) {
+						mWindow.Maximize();
+						consumed = true;
+					}
+				}
+				// Fermer — rouge permanent (la maquette le montre ainsi au repos).
+				{
+					const bool h = inR(cClose);
+					const NkColor rouge = {248, 81, 73, 255}; // #f85149 (Banani --color-error)
+					dl.AddRectFilled(cClose, h ? NkColor{255, 110, 102, 255} : rouge, 3.f);
+					const float32 gx = cClose.x + cClose.w * 0.5f, gy = cClose.y + cClose.h * 0.5f;
+					const NkColor blanc = {255, 255, 255, 255};
+					dl.AddLine({gx - 2.f, gy - 2.f}, {gx + 2.f, gy + 2.f}, blanc, 1.2f);
+					dl.AddLine({gx - 2.f, gy + 2.f}, {gx + 2.f, gy - 2.f}, blanc, 1.2f);
+					if (h && mUI.input.mouseClicked[0]) {
+						mRunning = false;
+						consumed = true;
+					}
+				}
+			}
 			// Minimiser (trait).
-			{
+			if (!mWinControlsCompact) {
 				const bool h = inR(cMin);
 				if (h)
 					dl.AddRectFilled(chip(cMin), hovBg, cround);
@@ -1490,7 +1604,7 @@ namespace nkentseu {
 				}
 			}
 			// Maximiser / restaurer (carre, ou double carre si maximise).
-			{
+			if (!mWinControlsCompact) {
 				const bool h = inR(cMax);
 				if (h)
 					dl.AddRectFilled(chip(cMax), hovBg, cround);
@@ -1508,7 +1622,7 @@ namespace nkentseu {
 				}
 			}
 			// Fermer (X, survol rouge #f85149 arrondi).
-			{
+			if (!mWinControlsCompact) {
 				const bool h = inR(cClose);
 				if (h)
 					dl.AddRectFilled(chip(cClose), {248, 81, 73, 255}, cround);
@@ -1555,6 +1669,7 @@ namespace nkentseu {
 					}
 				}
 			}
+			mUI.font = fontInterface; // fin de barre : la police d'interface reprend
 		}
 
 		// ── Barre d'outils horizontale (sous la barre de titre, facon Visual Studio) ─

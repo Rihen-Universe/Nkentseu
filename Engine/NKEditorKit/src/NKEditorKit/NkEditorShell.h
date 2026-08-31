@@ -314,6 +314,19 @@ namespace nkentseu {
 						const char *panel = "";
 						const char *tooltip = ""; ///< infobulle de l etat 1
 						const char *glyphe = "";  ///< 1 a 2 lettres, faute d atlas
+						// ── ADDITIF (costume Banani, 2026-08-31) — les défauts rendent
+						//    le comportement historique, aucun consommateur ne bouge. ──
+						/// Dessin de la pastille PAR L'APPLICATION (à la place du
+						/// glyphe) : icône vectorielle, libellé, badge — l'app dessine
+						/// tout le CONTENU dans `r` avec ses propres polices ; la
+						/// coquille garde le fond d'état, l'infobulle et le clic.
+						/// `actif` = tiroir déplié, `survol` = souris dessus.
+						void (*icone)(nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool actif,
+									  bool survol, void *user) = nullptr;
+						void *iconeUser = nullptr;
+						/// Largeur de la pastille (rail bas : une PILULE « icône +
+						/// libellé » est plus large que 28). 0 = les 28 historiques.
+						float32 largeur = 0.f;
 				};
 				static const int32 kRailMax = 8;
 
@@ -489,6 +502,77 @@ namespace nkentseu {
 				void SetTitleLogo(uint32 texId, float32 aspect = 0.f) noexcept {
 					mTitleLogoTex = texId;
 					mTitleLogoAspect = aspect;
+				}
+
+				// ═══════════════════════════════════════════════════════════════
+				//  COSTUME EXACT (remandat Banani, 2026-08-31) — TOUT EST ADDITIF
+				// ═══════════════════════════════════════════════════════════════
+				//  Chaque crochet a un défaut = comportement historique : NKCode et
+				//  les autres consommateurs ne bougent pas d'un pixel tant qu'ils
+				//  n'optent pas.
+
+				/// Le bloc logo carré (SetHeaderLayout) dessiné PAR L'APPLICATION.
+				/// Prime sur SetTitleLogo et sur le « O » Rihen par défaut — c'est le
+				/// même patron que SetMenuBar : l'app fournit le dessin, la coquille
+				/// fournit la place.
+				void SetHeaderLogoFn(void (*fn)(nkgui::NkGuiContext &, const nkgui::NkRect &, void *),
+									 void *user = nullptr) noexcept {
+					mHeaderLogoFn = fn;
+					mHeaderLogoUser = user;
+				}
+
+				/// Police dédiée à la BARRE DE TITRE (menus + nom de fichier). Posée,
+				/// elle remplace ctx.font le temps de DrawTitleBar — les menus d'une
+				/// maquette à 11 px cessent d'hériter du 12-16 px de l'interface.
+				void SetTitleBarFont(nkgui::NkGuiFont *f) noexcept {
+					mTitleBarFont = f;
+				}
+
+				/// Contrôles de fenêtre COMPACTS 13×13 (Banani TopHeader) : réduire /
+				/// agrandir sur fond `theme.button`, fermer sur FOND ROUGE permanent.
+				/// faux = les trois zones larges historiques.
+				void SetWindowControlsCompact(bool v) noexcept {
+					mWinControlsCompact = v;
+				}
+
+				/// Rail bas, à DROITE : pastille d'état colorée + texte (« Prêt »).
+				/// Dessinés seulement si le texte est non vide.
+				void SetRailFooterStatus(const char *texte, nkgui::NkColor pastille) noexcept {
+					uint32 i = 0;
+					for (; texte && texte[i] && i + 1 < (uint32)sizeof(mRailStatusText); ++i)
+						mRailStatusText[i] = texte[i];
+					mRailStatusText[i] = 0;
+					mRailStatusColor = pastille;
+				}
+
+				/// Masque la barre d'onglets des panneaux LATÉRAUX même à plusieurs
+				/// (les panneaux dessinent alors leur propre en-tête, patron Banani
+				/// « Hiérarchie » / « Bouton_Connexion »). Le panneau central garde sa
+				/// règle historique.
+				void SetSideTabsVisible(bool v) noexcept {
+					mSideTabsVisible = v;
+				}
+
+				/// Charge et téléverse une police D'APPLICATION (taille fixe d'une
+				/// maquette). Les texIds mFont+16..+23 sont réservés à ces huit
+				/// emplacements — distincts du code (+1/+8..+15) et du terminal (+2).
+				/// La police doit déjà être chargée (LoadEmbedded/LoadFromFile) ;
+				/// ce point d'entrée pose le texId et téléverse l'atlas.
+				bool UploadAppFont(nkgui::NkGuiFont &font, uint32 slot) noexcept {
+					if (slot >= 8u || !mRenderer || !font.Valid())
+						return false;
+					font.texId = mFont.TexId() + 16u + slot;
+					return mRenderer->UploadFontGray8(font.TexId(), font.pixels, font.atlasW, font.atlasH);
+				}
+
+				/// Force la taille de la police d'interface (px logiques) SANS la
+				/// persister : les réglages utilisateur sur disque ne bougent pas,
+				/// et le choix ne survit pas à l'application qui ne le redemande pas.
+				void ForceUiFontSize(float32 px) noexcept {
+					if (px < 8.f || px > 40.f)
+						return;
+					mFontPrefs.uiSize = px;
+					LoadUiFont();
 				}
 
 				// ── Layout ──────────────────────────────────────────────────────────
@@ -709,6 +793,15 @@ namespace nkentseu {
 				void DrawRail(int32 slot, const nkgui::NkRect &bar, bool vertical) noexcept;
 				void DrawRailDrawers(NkEditorFrameContext &ec, const nkgui::NkRect &corps) noexcept;
 				NkEditorPanel *TrouverPanneau(const char *titre) noexcept;
+
+				// ── Costume exact (Banani 2026-08-31), cf. bloc public « COSTUME EXACT » ──
+				void (*mHeaderLogoFn)(nkgui::NkGuiContext &, const nkgui::NkRect &, void *) = nullptr;
+				void *mHeaderLogoUser = nullptr;
+				nkgui::NkGuiFont *mTitleBarFont = nullptr; // police dédiée barre de titre (menus 11 px)
+				bool mWinControlsCompact = false;		   // contrôles 13×13, fermer rouge permanent
+				bool mSideTabsVisible = true;			   // barres d'onglets des panneaux latéraux
+				char mRailStatusText[64] = {};			   // « Prêt » à droite du rail bas
+				nkgui::NkColor mRailStatusColor = {63, 185, 80, 255};
 
 				bool mFooterZoom = true;					  // cf. SetFooterZoomIndicator
 				bool mActivityBarLeft = true;				  // cf. SetActivityBars
