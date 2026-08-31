@@ -1,0 +1,691 @@
+nkuidoc 1
+# Mise en scene de l'ECRAN 2 (« Canvas — gros plan Design Mode ») : le meme
+# document que la maquette du gros plan — cadres plus grands, nav a cinq
+# entrees (Home actif), cartes teintees, graphique a barre bleu clair.
+# Se charge par : --toile-seule --document=<ce fichier> --selection=9
+#                 --lignes=v0.44,h460
+titre = Dashboard_Admin
+auteur = humain
+verifiee = 0
+corrigee = 0
+origine = main
+
+noeud 0
+  libelle = Toile
+  enfants = 1 12
+  largeur = expand 0 0 0
+  hauteur = expand 0 0 0
+  agencement = free start start 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 1
+  libelle = Connexion
+  enfants = 2 3 4 5 6 7 8 9 11
+  largeur = fixed 280 0 0
+  hauteur = fixed 600 0 0
+  agencement = free start start 0
+  position = 162 152
+  forme = frame
+  cible = Mobile 390 x 844
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 2
+  libelle = Titre
+  enfants =
+  largeur = fixed 230 0 0
+  hauteur = fixed 24 0 0
+  agencement = none start start 0
+  position = 25 164
+  forme = text
+  texte = Connexion
+  couleur_texte = #1f2328
+  police_px = 20
+  graisse = 700
+  texte_aligne = centre
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 3
+  libelle = Libellé e-mail
+  enfants =
+  largeur = fixed 230 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 25 208
+  forme = text
+  texte = Adresse e-mail
+  couleur_texte = #656d76
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 4
+  libelle = Champ e-mail
+  enfants =
+  largeur = fixed 230 0 0
+  hauteur = fixed 36 0 0
+  agencement = none start start 0
+  position = 25 227
+  forme = rect
+  fond = #f3f4f6
+  couleur_bord = #d0d7de
+  rayon = 4
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 5
+  libelle = Aide e-mail
+  enfants =
+  largeur = fixed 214 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 35 238
+  forme = text
+  texte = admin@example.com
+  couleur_texte = #c0c8d2
+  police_px = 12
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 6
+  libelle = Libellé mot de passe
+  enfants =
+  largeur = fixed 230 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 25 279
+  forme = text
+  texte = Mot de passe
+  couleur_texte = #656d76
+  police_px = 12
+  graisse = 500
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 7
+  libelle = Champ mot de passe
+  enfants =
+  largeur = fixed 230 0 0
+  hauteur = fixed 36 0 0
+  agencement = none start start 0
+  position = 25 298
+  forme = rect
+  fond = #f3f4f6
+  couleur_bord = #d0d7de
+  rayon = 4
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 8
+  libelle = Aide mot de passe
+  enfants =
+  largeur = fixed 214 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 35 309
+  forme = text
+  texte = ••••••••
+  couleur_texte = #c0c8d2
+  police_px = 12
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 9
+  libelle = Bouton_Connexion
+  enfants = 10
+  largeur = fixed 230 120 320
+  hauteur = fixed 42 36 0
+  agencement = free start start 0
+  position = 25 362
+  forme = rect
+  role = Button
+  fond = #0969da
+  rayon = 5
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 10
+  libelle = Texte du bouton
+  enfants =
+  largeur = fixed 230 0 0
+  hauteur = fixed 16 0 0
+  agencement = none start start 0
+  position = 0 13
+  forme = text
+  texte = Se connecter
+  couleur_texte = #ffffff
+  police_px = 13
+  graisse = 600
+  texte_aligne = centre
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 11
+  libelle = Lien mot de passe
+  enfants =
+  largeur = fixed 230 0 0
+  hauteur = fixed 15 0 0
+  agencement = none start start 0
+  position = 25 420
+  forme = text
+  texte = Mot de passe oublié ?
+  couleur_texte = #0969da
+  police_px = 12
+  texte_aligne = centre
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 12
+  libelle = Dashboard
+  enfants = 13 21 24 27 30
+  largeur = fixed 660 0 0
+  hauteur = fixed 415 0 0
+  agencement = free start start 0
+  position = 522 244
+  forme = frame
+  cible = Bureau 1440 x 900
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 13
+  libelle = Panel_Nav
+  enfants = 14 15 17 18 19 20
+  largeur = fixed 70 0 0
+  hauteur = fixed 375 0 0
+  agencement = free start start 0
+  position = 20 20
+  forme = rect
+  fond = #e4e8ef
+  rayon = 4
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 14
+  libelle = Nav titre
+  enfants =
+  largeur = fixed 54 0 0
+  hauteur = fixed 11 0 0
+  agencement = none start start 0
+  position = 8 12
+  forme = text
+  texte = NAV
+  couleur_texte = #656d76
+  police_px = 9
+  graisse = 700
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 15
+  libelle = Nav Home
+  enfants = 16
+  largeur = fixed 54 0 0
+  hauteur = fixed 20 0 0
+  agencement = free start start 0
+  position = 8 27
+  forme = rect
+  fond = #dbeafe
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 16
+  libelle = Texte Home
+  enfants =
+  largeur = fixed 42 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 6 4
+  forme = text
+  texte = Home
+  couleur_texte = #0969da
+  police_px = 10
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 17
+  libelle = Nav Users
+  enfants =
+  largeur = fixed 40 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 14 60
+  forme = text
+  texte = Users
+  couleur_texte = #374151
+  police_px = 10
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 18
+  libelle = Nav Products
+  enfants =
+  largeur = fixed 48 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 14 88
+  forme = text
+  texte = Products
+  couleur_texte = #374151
+  police_px = 10
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 19
+  libelle = Nav Logs
+  enfants =
+  largeur = fixed 40 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 14 116
+  forme = text
+  texte = Logs
+  couleur_texte = #374151
+  police_px = 10
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 20
+  libelle = Nav Settings
+  enfants =
+  largeur = fixed 48 0 0
+  hauteur = fixed 12 0 0
+  agencement = none start start 0
+  position = 14 144
+  forme = text
+  texte = Settings
+  couleur_texte = #374151
+  police_px = 10
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 21
+  libelle = Carte_Actifs
+  enfants = 22 23
+  largeur = fixed 172 0 0
+  hauteur = fixed 61 0 0
+  agencement = free start start 0
+  position = 104 20
+  forme = rect
+  fond = #eff6ff
+  couleur_bord = #e5e7eb
+  rayon = 5
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 22
+  libelle = Libellé
+  enfants =
+  largeur = fixed 148 0 0
+  hauteur = fixed 11 0 0
+  agencement = none start start 0
+  position = 12 12
+  forme = text
+  texte = ACTIVE USERS
+  couleur_texte = #6b7280
+  police_px = 9
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 23
+  libelle = Valeur
+  enfants =
+  largeur = fixed 148 0 0
+  hauteur = fixed 22 0 0
+  agencement = none start start 0
+  position = 12 27
+  forme = text
+  texte = 2,847
+  couleur_texte = #0969da
+  police_px = 18
+  graisse = 700
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 24
+  libelle = Carte_Revenu
+  enfants = 25 26
+  largeur = fixed 172 0 0
+  hauteur = fixed 61 0 0
+  agencement = free start start 0
+  position = 286 20
+  forme = rect
+  fond = #f0fdf4
+  couleur_bord = #e5e7eb
+  rayon = 5
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 25
+  libelle = Libellé
+  enfants =
+  largeur = fixed 148 0 0
+  hauteur = fixed 11 0 0
+  agencement = none start start 0
+  position = 12 12
+  forme = text
+  texte = REVENUE
+  couleur_texte = #6b7280
+  police_px = 9
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 26
+  libelle = Valeur
+  enfants =
+  largeur = fixed 148 0 0
+  hauteur = fixed 22 0 0
+  agencement = none start start 0
+  position = 12 27
+  forme = text
+  texte = $54.2k
+  couleur_texte = #1a7f37
+  police_px = 18
+  graisse = 700
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 27
+  libelle = Carte_Attrition
+  enfants = 28 29
+  largeur = fixed 172 0 0
+  hauteur = fixed 61 0 0
+  agencement = free start start 0
+  position = 468 20
+  forme = rect
+  fond = #fff5f5
+  couleur_bord = #e5e7eb
+  rayon = 5
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 28
+  libelle = Libellé
+  enfants =
+  largeur = fixed 148 0 0
+  hauteur = fixed 11 0 0
+  agencement = none start start 0
+  position = 12 12
+  forme = text
+  texte = CHURN RATE
+  couleur_texte = #6b7280
+  police_px = 9
+  graisse = 600
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 29
+  libelle = Valeur
+  enfants =
+  largeur = fixed 148 0 0
+  hauteur = fixed 22 0 0
+  agencement = none start start 0
+  position = 12 27
+  forme = text
+  texte = 3.2%
+  couleur_texte = #d1242f
+  police_px = 18
+  graisse = 700
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 30
+  libelle = Graphique
+  enfants = 31 32 33 34 35 36 37 38 39 40 41 42
+  largeur = fixed 536 0 0
+  hauteur = fixed 302 0 0
+  agencement = free start start 0
+  position = 104 93
+  forme = rect
+  fond = #f8f9fa
+  couleur_bord = #e5e7eb
+  rayon = 5
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 31
+  libelle = Barre 1
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 104 0 0
+  agencement = none start start 0
+  position = 14 184
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 32
+  libelle = Barre 2
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 148 0 0
+  agencement = none start start 0
+  position = 56 140
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 33
+  libelle = Barre 3
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 126 0 0
+  agencement = none start start 0
+  position = 98 162
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 34
+  libelle = Barre 4
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 192 0 0
+  agencement = none start start 0
+  position = 140 96
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 35
+  libelle = Barre 5
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 159 0 0
+  agencement = none start start 0
+  position = 182 129
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 36
+  libelle = Barre 6
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 225 0 0
+  agencement = none start start 0
+  position = 224 63
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 37
+  libelle = Barre 7
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 137 0 0
+  agencement = none start start 0
+  position = 266 151
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 38
+  libelle = Barre 8
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 186 0 0
+  agencement = none start start 0
+  position = 308 102
+  forme = rect
+  fond = #93c5fd
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 39
+  libelle = Barre 9
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 170 0 0
+  agencement = none start start 0
+  position = 350 118
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 40
+  libelle = Barre 10
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 233 0 0
+  agencement = none start start 0
+  position = 392 55
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 41
+  libelle = Barre 11
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 151 0 0
+  agencement = none start start 0
+  position = 434 137
+  forme = rect
+  fond = #d1d5db
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 42
+  libelle = Barre 12
+  enfants =
+  largeur = fixed 39 0 0
+  hauteur = fixed 214 0 0
+  agencement = none start start 0
+  position = 476 74
+  forme = rect
+  fond = #0969da
+  rayon = 3
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
