@@ -1345,8 +1345,8 @@ int nkmain(const NkEntryState &state) {
 	//    BARRE DE TITRE a 11 px (menus + nom de fichier du TopHeader).
 	nkuidesign::costume::Fontes().Charger(*shell, shell->DpiScale());
 	if (!nkuidesign::costume::Fontes().ok)
-		logger.Error("[NKUIDesign] polices du costume : au moins un corps n'a pas charge — "
-					 "les zones concernees retomberont sur la police d'interface.");
+		logger.Error("[NKUIDesign] polices du costume : au moins un corps n'a pas chargé — "
+					 "les zones concernées retomberont sur la police d'interface.");
 	shell->ForceUiFontSize(12.f);
 	shell->SetTitleBarFont(&nkuidesign::costume::Fontes().px11);
 	// 2. Le bloc logo 56x56 de la maquette (degrade + 4 carreaux + diagonale).

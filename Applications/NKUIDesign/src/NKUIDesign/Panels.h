@@ -3118,14 +3118,10 @@ namespace nkuidesign {
 				//    replie ensuite garde sa main, on ne rouvre pas derriere lui.
 				//    (Meme pile d'id que l'appel de la charpente juste en dessous,
 				//    donc memes identifiants -- c'est ce qui rend le geste sur.)
-				if (mDeplierUneFois) {
-					mDeplierUneFois = false;
-					static const char *const kTitres[7] = {"POSITION", "TAILLE", "ANCRAGE",
-														   "ALIGNEMENT", "APPARENCE", "BORDS",
-														   "TYPOGRAPHIE"};
-					for (int32 i = 0; i < 7; ++i)
-						ctx.SetNodeOpen(ctx.GetId(kTitres[i]), true);
-				}
+				// (Le dépliage initial par CollapsingHeader est PARTI avec le
+				// costume : les sections sont non repliables — la maquette ne
+				// replie qu'ESPACEMENT, dont l'état vit dans `mEspacementOuvert`.)
+				(void)mDeplierUneFois;
 				editorkit::NkInspectorCharpente ch;
 				ch.user = this;
 				ch.entete = Nom();
@@ -3135,6 +3131,18 @@ namespace nkuidesign {
 				ch.idOnglets = "insp.onglets";
 				ch.sectionsDe = &SectionsDe;
 				ch.messageOngletVide = &MessageOngletVide;
+				// COSTUME BANANI (remandat 31/08) : les trois crochets de dessin
+				// opt-in de la charpente — en-tete 34 px a icone, onglets 11 px au
+				// lisere de 2 px, titres de section en MAJUSCULES 9 px + filet.
+				ch.dessineEntete = [](void *u, NkGuiContext &c, const char *nom) {
+					static_cast<InspectorPanel *>(u)->EnteteCostume(c, nom);
+				};
+				ch.dessineOnglets = [](void *u, NkGuiContext &c) -> int32 {
+					return static_cast<InspectorPanel *>(u)->OngletsCostume(c);
+				};
+				ch.dessineTitreSection = [](void *u, NkGuiContext &c, const char *t) {
+					static_cast<InspectorPanel *>(u)->TitreSection(c, t);
+				};
 				mOnglet = editorkit::NkInspectorDessiner(ctx, ch);
 			}
 
@@ -3171,14 +3179,19 @@ namespace nkuidesign {
 				//    Layout parent...). Cette table de SEPT est celle que la
 				//    consigne du 2026-08-29 fixe ; la convergence vers le plan est
 				//    un chantier a part, pas un detail a glisser ici en douce.
+				// COSTUME BANANI : les titres sont dessines par `TitreSection`
+				// (repliable = false -> la charpente delegue) ; « ESPACEMENT »
+				// (replie dans la maquette) tient son etat dans le panneau, son
+				// titre porte le chevron, son corps ne dessine qu'ouvert.
 				static const editorkit::NkInspectorSection kSections[] = {
-					{"POSITION", &CorpsPositionC, true},
-					{"TAILLE", &CorpsTailleC, true},
-					{"ANCRAGE", &CorpsAncrageC, true},
-					{"ALIGNEMENT", &CorpsAlignementC, true},
-					{"APPARENCE", &CorpsApparenceC, true},
-					{"BORDS", &CorpsBordsC, true},
-					{"TYPOGRAPHIE", &CorpsTypographieC, true},
+					{"POSITION", &CorpsPositionC, false},
+					{"TAILLE", &CorpsTailleC, false},
+					{"ESPACEMENT", &CorpsEspacementC, false},
+					{"ANCRAGE", &CorpsAncrageC, false},
+					{"ALIGNEMENT", &CorpsAlignementC, false},
+					{"APPARENCE", &CorpsApparenceC, false},
+					{"BORDS", &CorpsBordsC, false},
+					{"TYPOGRAPHIE", &CorpsTypographieC, false},
 				};
 				count = (int32)(sizeof(kSections) / sizeof(kSections[0]));
 				return kSections;
@@ -3187,6 +3200,163 @@ namespace nkuidesign {
 			static const char *MessageOngletVide(void *, int32 onglet) noexcept {
 				return onglet == 1 ? "Onglet Widget : le rôle et ses paramètres — pas encore branché."
 								   : "Onglet Behavior : événements et callbacks — pas encore branché.";
+			}
+
+			// ═══════════════════════════════════════════════════════════════════
+			//  LE COSTUME BANANI DE LA CHARPENTE (InspectorPanelV2, JSX)
+			// ═══════════════════════════════════════════════════════════════════
+			/// L'en-tête 34 px : icône bouton 12×12 accent + nom 12 px, filet bas.
+			void EnteteCostume(NkGuiContext &ctx, const char *nom) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 34.f);
+				costume::IcBouton(dl, r.x + 12.f, r.y + (34.f - 11.f) * 0.5f, ctx.theme.accent);
+				costume::TexteGras(dl, F.px12, r.x + 32.f, costume::CentrerY(F.px12, r.y, 34.f),
+								   nom, ctx.theme.text, 0.35f);
+				dl.AddLine({r.x, r.y + 33.5f}, {r.x + r.w, r.y + 33.5f}, ctx.theme.border, 1.f);
+			}
+
+			/// Les onglets 28 px : libellé 11 px, actif = texte plein + liseré 2 px
+			/// accent SOUS SON PROPRE onglet ; le panneau porte l'état (il a
+			/// remplacé le widget qui le tenait — la vérité reste unique).
+			int32 OngletsCostume(NkGuiContext &ctx) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 28.f);
+				static const char *const kO[3] = {"Design", "Widget", "Behavior"};
+				dl.AddLine({r.x, r.y + 27.5f}, {r.x + r.w, r.y + 27.5f}, ctx.theme.border, 1.f);
+				float32 x = r.x;
+				for (int32 i = 0; i < 3; ++i) {
+					const float32 tw = costume::Largeur(F.px11, kO[i]);
+					const NkRect c = {x, r.y, 12.f + tw + 12.f, 28.f};
+					const float32 ty = costume::CentrerY(F.px11, r.y, 28.f);
+					if (i == mOnglet) {
+						costume::TexteGras(dl, F.px11, c.x + 12.f, ty, kO[i], ctx.theme.text,
+										   0.5f);
+						dl.AddRectFilled({c.x, c.y + 26.f, c.w, 2.f}, ctx.theme.accent);
+					} else
+						costume::Texte(dl, F.px11, c.x + 12.f, ty, kO[i], ctx.theme.textMuted);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(c, ctx.input.mousePos))
+						mOnglet = i;
+					x += c.w;
+				}
+				return mOnglet;
+			}
+
+			/// Un titre de section : MAJUSCULES 9 px 600 `text_muted` + filet vers
+			/// la droite. « ESPACEMENT » porte le chevron de repli de la maquette
+			/// et se replie/déplie au clic (état du panneau).
+			void TitreSection(NkGuiContext &ctx, const char *titre) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 22.f);
+				const bool esp = StrEq(titre, "ESPACEMENT");
+				float32 x = r.x + 12.f;
+				const float32 ty = r.y + 8.f;
+				if (esp) {
+					if (mEspacementOuvert)
+						costume::ChevronBas9(dl, x - 1.f, ty, ctx.theme.textMuted);
+					else
+						costume::ChevronReplie8(dl, x, ty + 1.f, ctx.theme.textMuted);
+					x += 12.f;
+				}
+				costume::TexteGras(dl, F.px9, x, ty, titre, ctx.theme.textMuted, 0.4f);
+				if (!esp) {
+					const float32 lx = x + costume::Largeur(F.px9, titre) + 8.f;
+					dl.AddLine({lx, ty + 5.f}, {r.x + r.w - 12.f, ty + 5.f}, ctx.theme.border,
+							   1.f);
+				} else if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						   && NkGuiRectContains(r, ctx.input.mousePos))
+					mEspacementOuvert = !mEspacementOuvert;
+			}
+
+			// ── LES CHAMPS DU COSTUME (boîte 20 px, fond `InputBg` #010409) ──
+			nkgui::NkColor CouleurInput() const {
+				return nkentseu::editorkit::NkThemeUnpack(
+					mSt->theme.Get(nkentseu::editorkit::NkRole::InputBg));
+			}
+			static nkgui::NkColor CouleurHex(const char *hex, nkgui::NkColor repli) {
+				if (!hex || hex[0] != '#')
+					return repli;
+				auto nyb = [](char c) -> int32 {
+					if (c >= '0' && c <= '9')
+						return c - '0';
+					if (c >= 'a' && c <= 'f')
+						return c - 'a' + 10;
+					if (c >= 'A' && c <= 'F')
+						return c - 'A' + 10;
+					return -1;
+				};
+				uint32 v = 0;
+				for (int32 i = 1; i <= 6; ++i) {
+					const int32 d = nyb(hex[i]);
+					if (d < 0)
+						return repli;
+					v = (v << 4) | (uint32)d;
+				}
+				return {(uint8)((v >> 16) & 0xFF), (uint8)((v >> 8) & 0xFF), (uint8)(v & 0xFF),
+						255};
+			}
+
+			/// La boîte statique : fond, bord, texte 11 px (10 px si `petit`).
+			void BoiteChamp(NkGuiContext &ctx, const NkRect &r, const char *texte,
+							bool petit = false) {
+				auto &dl = ctx.DL();
+				dl.AddRectFilled(r, CouleurInput(), 4.f);
+				dl.AddRect(r, ctx.theme.border, 1.f, 4.f);
+				auto &F = costume::Fontes();
+				const nkgui::NkGuiFont &f = petit ? F.px10 : F.px11;
+				dl.PushClipRect(r, true);
+				costume::Texte(dl, f, r.x + 6.f, costume::CentrerY(f, r.y, r.h), texte,
+							   ctx.theme.text);
+				dl.PopClipRect();
+			}
+
+			/// Un champ NUMÉRIQUE au costume : boîte + glisser horizontal (la
+			/// saisie clavier viendra — le DragFloat d'avant n'en avait pas non
+			/// plus). Rend true si la valeur a changé.
+			bool ChampNombre(NkGuiContext &ctx, const char *id, const NkRect &r, float32 &v,
+							 float32 vitesse, float32 vmin, float32 vmax, bool petit = false,
+							 bool tiretSiZero = false) {
+				char b[32];
+				if (tiretSiZero && v == 0.f)
+					snprintf(b, sizeof(b), "\xE2\x80\x94"); // « — »
+				else if (v == (float32)(int32)v)
+					snprintf(b, sizeof(b), "%d", (int32)v);
+				else
+					snprintf(b, sizeof(b), "%.2f", (double)v);
+				BoiteChamp(ctx, r, b, petit);
+				const nkgui::NkGuiId gid = ctx.GetId(id);
+				bool change = false;
+				const bool dans = ctx.popupDepth == 0
+								  && NkGuiRectContains(r, ctx.input.mousePos);
+				if (dans)
+					ctx.wantCursor = nkgui::NkGuiCursor::ResizeEW;
+				if (dans && ctx.input.mouseClicked[0]) {
+					mDragChamp = gid;
+					mDragDernierX = ctx.input.mousePos.x;
+				}
+				if (mDragChamp == gid) {
+					if (!ctx.input.mouseDown[0])
+						mDragChamp = 0;
+					else {
+						const float32 dx = ctx.input.mousePos.x - mDragDernierX;
+						if (dx != 0.f) {
+							mDragDernierX = ctx.input.mousePos.x;
+							float32 nv = v + dx * vitesse;
+							if (nv < vmin)
+								nv = vmin;
+							if (nv > vmax)
+								nv = vmax;
+							if (nv != v) {
+								v = nv;
+								change = true;
+							}
+						}
+					}
+				}
+				return change;
 			}
 
 			// ⚠️ TROIS TREMPLINS, ET C'EST LE PRIX ASSUMÉ DU JOINT. La charpente
@@ -3209,17 +3379,13 @@ namespace nkuidesign {
 			static void CorpsApparenceC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsApparence(ctx);
 			}
-			static void CorpsBordsC(void *, NkGuiContext &ctx) {
-				// ⚠️ LE MODELE NE PORTE AUCUNE PROPRIETE DE BORD PAR NOEUD --
-				//    mesure : `NkUINode` n'a ni rayon, ni epaisseur, ni couleur de
-				//    bord. La section le DIT au lieu de disparaitre (consigne du
-				//    29/08 : meme regle que les menus grises) : une section
-				//    absente ferait croire que la question ne se pose pas, alors
-				//    qu'elle attend son modele.
-				ctx.BeginDisabled();
-				nkgui::TextWrapped(ctx, "Le modèle du nœud ne porte pas encore de bords.");
-				nkgui::TextWrapped(ctx, "(rayon, épaisseur : à venir avec le vocabulaire)");
-				ctx.EndDisabled();
+			static void CorpsBordsC(void *u, NkGuiContext &ctx) {
+				// Le modele porte rayon/bordure depuis le 31/08 (vocabulaire
+				// d'apparence §8ter, cle `rayon`/`bordure`) : la section edite.
+				static_cast<InspectorPanel *>(u)->CorpsBords(ctx);
+			}
+			static void CorpsEspacementC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsEspacement(ctx);
 			}
 			static void CorpsTypographieC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsTypographie(ctx);
@@ -3230,12 +3396,49 @@ namespace nkuidesign {
 			//    son contenu s'edite ICI. Police, graisse, taille : a venir avec
 			//    le vocabulaire d'apparence.
 			void CorpsTypographie(NkGuiContext &ctx) {
-				const NkUINode *n = NoeudCourant();
+				NkUINode *n = NoeudMutable();
 				if (!n || !StrEq(n->shape.Data(), "text")) {
 					ctx.BeginDisabled();
 					nkgui::TextWrapped(ctx, "L'élément sélectionné ne porte pas de texte.");
 					ctx.EndDisabled();
 					return;
+				}
+				// COSTUME BANANI : la famille (« Inter » + chevron — une seule
+				// famille aujourd'hui, la boîte le montre), puis « px / fw / lh »
+				// en grille de 3. px et fw sont les clés additives `police_px` /
+				// `graisse` (0 = défaut, affiché « — ») ; lh n'existe pas encore
+				// dans le modèle — la boîte l'affiche « — », grisée, plutôt que
+				// d'inventer une valeur.
+				{
+					auto &F = costume::Fontes();
+					auto &dl = ctx.DL();
+					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					const NkRect rb = {x0, r.y + 2.f, x1 - x0, 20.f};
+					BoiteChamp(ctx, rb, "Inter");
+					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 8.f,
+										   ctx.theme.textMuted);
+					const NkRect r2 = ctx.NextItemRect(-1.f, 24.f);
+					const float32 colW = (x1 - x0 - 8.f) / 3.f;
+					static const char *const kLib[3] = {"px", "fw", "lh"};
+					bool bouge = false;
+					for (uint32 i = 0; i < 3; ++i) {
+						const float32 cx = x0 + (colW + 4.f) * (float32)i;
+						costume::Texte(dl, F.px10, cx,
+									   costume::CentrerY(F.px10, r2.y + 2.f, 20.f), kLib[i],
+									   ctx.theme.textMuted);
+						const NkRect rc = {cx + 24.f, r2.y + 2.f, colW - 24.f, 20.f};
+						if (i == 0)
+							bouge |= ChampNombre(ctx, "insp.typo.px", rc, n->fontPx, 0.5f, 0.f,
+												 256.f, false, true);
+						else if (i == 1)
+							bouge |= ChampNombre(ctx, "insp.typo.fw", rc, n->fontWeight, 4.f,
+												 0.f, 900.f, false, true);
+						else
+							BoiteChamp(ctx, rc, "\xE2\x80\x94");
+					}
+					if (bouge)
+						mSt->doc.MarkHumanEdit(mSt->selected);
 				}
 				// Le tampon SUIT LA SELECTION : en changer recharge le contenu —
 				// sans ce garde, editer un texte ecrirait dans celui d'avant.
@@ -3263,44 +3466,51 @@ namespace nkuidesign {
 			//    18/08). Elle est donc LUE dans la disposition calculée et affichée
 			//    en lecture seule ; l'outil n'écrira jamais une coordonnée dans le
 			//    document.
+			// COSTUME BANANI : UNE rangée « X [95] Y [228] » (grille 2, libellés
+			// 10 px de 24, champs 20 px). Sous un parent `Free`, les champs
+			// éditent posX/posY (la règle du 30/08 : X/Y posés = des champs) ;
+			// sous un agencement ils MONTRENT la valeur calculée, boîtes
+			// statiques, avec la phrase d'explication dessous — la règle « la
+			// position est un résultat » ne bouge pas.
 			void CorpsPosition(NkGuiContext &ctx) {
-				const NkUINode *n = NoeudCourant();
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				const float32 colW = (x1 - x0 - 6.f) * 0.5f;
+				const float32 fy = r.y + 2.f, fh = 20.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, fy, fh), "X",
+							   ctx.theme.textMuted);
+				const NkRect rx = {x0 + 28.f, fy, colW - 28.f, fh};
+				const float32 xc = x0 + colW + 6.f;
+				costume::Texte(dl, F.px10, xc, costume::CentrerY(F.px10, fy, fh), "Y",
+							   ctx.theme.textMuted);
+				const NkRect ry = {xc + 28.f, fy, colW - 28.f, fh};
+				NkUINode *n = NoeudMutable();
 				if (!n) {
-					designkit::KeyValue(ctx, "X", "-");
-					designkit::KeyValue(ctx, "Y", "-");
+					BoiteChamp(ctx, rx, "-");
+					BoiteChamp(ctx, ry, "-");
 					return;
 				}
-				char b[64];
-				const bool a = mSt->layout.Has(mSt->selected);
-				const NkPaintRect r = a ? mSt->layout.At(mSt->selected) : NkPaintRect{0.f, 0.f, 0.f, 0.f};
-				snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)r.x);
-				designkit::KeyValue(ctx, "X", b);
-				snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)r.y);
-				designkit::KeyValue(ctx, "Y", b);
-				// ⚠️ SOUS UN PARENT `Free`, LA POSITION EST UNE DONNEE POSEE — et
-				//    depuis le 30/08 (référence Lunacy de Rodolf : X/Y sont des
-				//    champs), elle S'ÉDITE ICI. Ce n'est pas contre la règle « la
-				//    position est un résultat » : la règle vaut pour les nœuds
-				//    PILOTÉS PAR UN AGENCEMENT — eux restent en lecture seule avec
-				//    leur explication. `posX`/`posY` sous Free est ce que le
-				//    fichier porte déjà (étape 38) : l'éditer au champ est le même
-				//    geste que le glisser de la toile, au clavier.
 				if (ParentKind() == editorkit::NkLayoutKind::Free) {
-					NkUINode *m = NoeudMutable();
-					if (m) {
-						bool bouge = false;
-						bouge |= nkgui::DragFloat(ctx, "X posée", m->posX, 1.f, -100000.f,
-												  100000.f);
-						bouge |= nkgui::DragFloat(ctx, "Y posée", m->posY, 1.f, -100000.f,
-												  100000.f);
-						if (bouge)
-							mSt->doc.MarkHumanEdit(mSt->selected);
-					}
+					bool bouge = false;
+					bouge |= ChampNombre(ctx, "insp.pos.x", rx, n->posX, 1.f, -100000.f,
+										 100000.f);
+					bouge |= ChampNombre(ctx, "insp.pos.y", ry, n->posY, 1.f, -100000.f,
+										 100000.f);
+					if (bouge)
+						mSt->doc.MarkHumanEdit(mSt->selected);
 				} else {
-					// ⚠️ PHRASE PLEINE LARGEUR, PAS UNE CELLULE : en colonne
-					//    « valeur » elle sortait « calculée — jamais écrite da... »
-					//    sur la capture du 29/08. Un texte d explication coupé
-					//    n explique plus.
+					char b[32];
+					const bool a = mSt->layout.Has(mSt->selected);
+					const NkPaintRect rc =
+						a ? mSt->layout.At(mSt->selected) : NkPaintRect{0.f, 0.f, 0.f, 0.f};
+					snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)rc.x);
+					BoiteChamp(ctx, rx, b);
+					snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)rc.y);
+					BoiteChamp(ctx, ry, b);
+					// ⚠️ PHRASE PLEINE LARGEUR, PAS UNE CELLULE (capture du 29/08 :
+					//    coupée en colonne, elle n'expliquait plus).
 					nkgui::TextWrapped(ctx, "calculée — jamais écrite dans le document");
 				}
 			}
@@ -3308,69 +3518,166 @@ namespace nkuidesign {
 			void CorpsTaille(NkGuiContext &ctx) {
 				NkUINode *n = NoeudMutable();
 				if (!n) {
-					designkit::KeyValue(ctx, "Largeur", "-");
-					designkit::KeyValue(ctx, "Hauteur", "-");
+					auto &F = costume::Fontes();
+					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+					costume::Texte(ctx.DL(), F.px10, r.x + 12.f,
+								   costume::CentrerY(F.px10, r.y, 24.f), "Largeur",
+								   ctx.theme.textMuted);
+					BoiteChamp(ctx, {r.x + 12.f + 56.f, r.y + 2.f, r.w - 80.f, 20.f}, "-");
+					const NkRect r2 = ctx.NextItemRect(-1.f, 24.f);
+					costume::Texte(ctx.DL(), F.px10, r2.x + 12.f,
+								   costume::CentrerY(F.px10, r2.y, 24.f), "Hauteur",
+								   ctx.theme.textMuted);
+					BoiteChamp(ctx, {r2.x + 12.f + 56.f, r2.y + 2.f, r2.w - 80.f, 20.f}, "-");
 					return;
 				}
 				LigneTaille(ctx, "Largeur", n->width);
 				LigneTaille(ctx, "Hauteur", n->height);
 			}
 
-			/// Une ligne de taille : le MODE se lit, la VALEUR s'edite -- mais
-			/// seulement quand le mode en porte une.
-			/// ⚠️ TROIS CAS, ET CHACUN A SA RAISON :
-			///    - `Fixed`/`Fraction`/`Weight` portent un nombre -> DragFloat ;
-			///    - `Content`/`Expand` n'en portent pas -> la ligne se GRISE au
-			///      lieu de disparaitre (§12.2 : l'oeil garde sa place) ;
-			///    - une METRIQUE nommee PRIME sur la valeur (`valueMetric`) -> on
-			///      grise aussi, et on NOMME la metrique : editer le nombre alors
-			///      qu'un nom le remplace ecrirait une valeur que le resolveur
-			///      ignore -- un reglage qui ment.
+			/// COSTUME BANANI (InspecteurV2) : la rangée « Largeur : [expand →] »
+			/// — libellé 10 px de 52, boîte de 20 avec LE VOCABULAIRE DU FORMAT
+			/// (« expand », « fixed 44 »...) et l'icône du mode à droite (flèche
+			/// accent pour expand, taquets pour fixed). Puis « min / max » EN
+			/// RETRAIT (52), champs de 18, « — » quand la borne n'existe pas.
+			/// La VALEUR d'un mode qui en porte une s'édite au GLISSER sur la
+			/// boîte (même fonction que le DragFloat d'avant, costume exact) ;
+			/// une MÉTRIQUE nommée prime et se nomme dans la boîte, grisée.
 			void LigneTaille(NkGuiContext &ctx, const char *titre, NkSizeDecl &d) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
 				const bool porteValeur = d.mode == NkSizeMode::Fixed ||
 										 d.mode == NkSizeMode::Fraction || d.mode == NkSizeMode::Weight;
 				const bool metrique = d.valueMetric && *d.valueMetric;
-				designkit::KeyValue(ctx, titre, NkSizeModeName(d.mode));
-				if (metrique) {
-					ctx.BeginDisabled();
-					char b[96];
-					snprintf(b, sizeof(b), "métrique « %s » — prime sur le nombre", d.valueMetric);
-					designkit::KeyValue(ctx, "  valeur", b);
-					ctx.EndDisabled();
-					return;
+				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f), titre,
+							   ctx.theme.textMuted);
+				const NkRect rb = {x0 + 56.f, r.y + 2.f, x1 - x0 - 56.f, 20.f};
+				char b[96];
+				if (metrique)
+					snprintf(b, sizeof(b), "métrique « %s »", d.valueMetric);
+				else if (porteValeur)
+					snprintf(b, sizeof(b), "%s %d", NkSizeModeName(d.mode), (int32)d.value);
+				else
+					snprintf(b, sizeof(b), "%s", NkSizeModeName(d.mode));
+				BoiteChamp(ctx, rb, b);
+				// l'icône du mode, à droite dans la boîte
+				if (d.mode == NkSizeMode::Expand)
+					costume::IcExpand(dl, rb.x + rb.w - 14.f, rb.y + 6.f, ctx.theme.accent);
+				else if (d.mode == NkSizeMode::Fixed)
+					costume::IcFixed(dl, rb.x + rb.w - 14.f, rb.y + 6.f, ctx.theme.textMuted);
+				// la valeur s'édite au glisser (quand elle existe et qu'aucune
+				// métrique ne prime)
+				if (porteValeur && !metrique) {
+					const float32 vitesse = d.mode == NkSizeMode::Fixed ? 1.f
+											: d.mode == NkSizeMode::Fraction ? 0.01f : 0.05f;
+					const float32 vmax = d.mode == NkSizeMode::Fraction ? 1.f : 4096.f;
+					char id[40];
+					snprintf(id, sizeof(id), "insp.taille.%s", titre);
+					// le glisser passe par le même champ : on repose la boîte en
+					// zone de drag sans la redessiner
+					float32 avant = d.value;
+					if (ChampDrag(ctx, id, rb, d.value, vitesse, 0.f, vmax) && d.value != avant)
+						mSt->doc.MarkHumanEdit(mSt->selected);
 				}
-				if (!porteValeur) {
-					ctx.BeginDisabled();
-					designkit::KeyValue(ctx, "  valeur", "(le mode n'en porte pas)");
-					ctx.EndDisabled();
-					LignesBornes(ctx, titre, d);
-					return;
-				}
-				// La vitesse suit l'unite : 1 px par cran en Fixed, 0.01 pour une
-				// fraction 0..1, 0.05 pour un poids.
-				const float32 vitesse = d.mode == NkSizeMode::Fixed ? 1.f
-										: d.mode == NkSizeMode::Fraction ? 0.01f : 0.05f;
-				const float32 vmin = 0.f;
-				const float32 vmax = d.mode == NkSizeMode::Fraction ? 1.f : 4096.f;
-				char id[32];
-				snprintf(id, sizeof(id), "%s##insp.taille", titre);
-				if (nkgui::DragFloat(ctx, id, d.value, vitesse, vmin, vmax))
+				// min / max en retrait
+				const NkRect r2 = ctx.NextItemRect(-1.f, 22.f);
+				const float32 mx0 = r2.x + 12.f + 52.f;
+				const float32 moitie = (r2.x + r2.w - 12.f - mx0 - 8.f) * 0.5f;
+				costume::Texte(dl, F.px9, mx0, costume::CentrerY(F.px9, r2.y + 2.f, 18.f), "min",
+							   ctx.theme.textMuted);
+				const NkRect rmin = {mx0 + 26.f, r2.y + 2.f, moitie - 26.f, 18.f};
+				const float32 mx1 = mx0 + moitie + 8.f;
+				costume::Texte(dl, F.px9, mx1, costume::CentrerY(F.px9, r2.y + 2.f, 18.f), "max",
+							   ctx.theme.textMuted);
+				const NkRect rmax = {mx1 + 26.f, r2.y + 2.f, moitie - 26.f, 18.f};
+				char id[48];
+				snprintf(id, sizeof(id), "insp.min.%s", titre);
+				bool bouge = false;
+				bouge |= ChampNombre(ctx, id, rmin, d.minVal, 1.f, 0.f, 4096.f, true, true);
+				snprintf(id, sizeof(id), "insp.max.%s", titre);
+				bouge |= ChampNombre(ctx, id, rmax, d.maxVal, 1.f, 0.f, 4096.f, true, true);
+				if (bouge)
 					mSt->doc.MarkHumanEdit(mSt->selected);
-				LignesBornes(ctx, titre, d);
 			}
 
-			/// Les BORNES d'un axe (InspecteurV2, Banani doc 11 §1.6) : « min /
-			/// max en retrait » sous la ligne de taille — pour TOUS les modes
-			/// (la maquette borne une largeur `expand` a 120/320). 0 = sans
-			/// borne, et la maquette l'ecrit « — » : le DragFloat a 0 se lit
-			/// pareil.
-			void LignesBornes(NkGuiContext &ctx, const char *titre, NkSizeDecl &d) {
-				char id[40];
-				snprintf(id, sizeof(id), "  min##insp.%s", titre);
-				if (nkgui::DragFloat(ctx, id, d.minVal, 1.f, 0.f, 4096.f))
-					mSt->doc.MarkHumanEdit(mSt->selected);
-				snprintf(id, sizeof(id), "  max##insp.%s", titre);
-				if (nkgui::DragFloat(ctx, id, d.maxVal, 1.f, 0.f, 4096.f))
+			/// Le glisser SEUL (sans redessiner la boîte) — pour un champ déjà
+			/// peint par BoiteChamp dont le texte n'est pas le nombre nu.
+			bool ChampDrag(NkGuiContext &ctx, const char *id, const NkRect &r, float32 &v,
+						   float32 vitesse, float32 vmin, float32 vmax) {
+				const nkgui::NkGuiId gid = ctx.GetId(id);
+				bool change = false;
+				const bool dans = ctx.popupDepth == 0
+								  && NkGuiRectContains(r, ctx.input.mousePos);
+				if (dans)
+					ctx.wantCursor = nkgui::NkGuiCursor::ResizeEW;
+				if (dans && ctx.input.mouseClicked[0]) {
+					mDragChamp = gid;
+					mDragDernierX = ctx.input.mousePos.x;
+				}
+				if (mDragChamp == gid) {
+					if (!ctx.input.mouseDown[0])
+						mDragChamp = 0;
+					else {
+						const float32 dx = ctx.input.mousePos.x - mDragDernierX;
+						if (dx != 0.f) {
+							mDragDernierX = ctx.input.mousePos.x;
+							float32 nv = v + dx * vitesse;
+							if (nv < vmin)
+								nv = vmin;
+							if (nv > vmax)
+								nv = vmax;
+							if (nv != v) {
+								v = nv;
+								change = true;
+							}
+						}
+					}
+				}
+				return change;
+			}
+
+			/// ESPACEMENT : replié par défaut (la maquette) — le titre porte le
+			/// chevron, le corps ne dessine qu'ouvert : les métriques NOMMÉES du
+			/// nœud (elles priment sur les nombres, doc §8).
+			void CorpsEspacement(NkGuiContext &ctx) {
+				if (!mEspacementOuvert)
+					return;
+				const NkUINode *n = NoeudCourant();
+				if (!n)
+					return;
+				designkit::KeyValue(ctx, "espacement",
+									n->spacingName.Empty() ? "—" : n->spacingName.Data());
+				designkit::KeyValue(ctx, "marge", n->padName.Empty() ? "—" : n->padName.Data());
+			}
+
+			/// BORDS : « R / Brd » (le modèle porte rayon et bordure depuis le
+			/// 31/08 — clés additives `rayon` / `bordure`).
+			void CorpsBords(NkGuiContext &ctx) {
+				NkUINode *n = NoeudMutable();
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				const float32 colW = (x1 - x0 - 6.f) * 0.5f;
+				const float32 fy = r.y + 2.f, fh = 20.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, fy, fh), "R",
+							   ctx.theme.textMuted);
+				const NkRect rr = {x0 + 28.f, fy, colW - 28.f, fh};
+				const float32 xc = x0 + colW + 6.f;
+				costume::Texte(dl, F.px10, xc, costume::CentrerY(F.px10, fy, fh), "Brd",
+							   ctx.theme.textMuted);
+				const NkRect rb = {xc + 28.f, fy, colW - 28.f, fh};
+				if (!n) {
+					BoiteChamp(ctx, rr, "-");
+					BoiteChamp(ctx, rb, "-");
+					return;
+				}
+				bool bouge = false;
+				bouge |= ChampNombre(ctx, "insp.bords.r", rr, n->radius, 0.5f, 0.f, 128.f);
+				bouge |= ChampNombre(ctx, "insp.bords.b", rb, n->borderW, 0.5f, 0.f, 32.f);
+				if (bouge)
 					mSt->doc.MarkHumanEdit(mSt->selected);
 			}
 
@@ -3403,52 +3710,66 @@ namespace nkuidesign {
 				WidgetAncrage(ctx, n);
 			}
 
+			// COSTUME BANANI EXACT (JSX InspectorPanelV2, bloc 80×48) : rectangle
+			// central 30×24 (bord 2, fond sombre), poignées de bord — une ACTIVE
+			// est une barre ACCENT reliée au rectangle par un petit trait, une
+			// inactive est grise et DÉTACHÉE —, point central. Cliquer une
+			// poignée bascule le bit (mêmes `anchorEdges`, même MarkHumanEdit).
 			void WidgetAncrage(NkGuiContext &ctx, NkUINode *n) {
-				const float32 hz = 96.f;
-				const NkRect bande = ctx.NextItemRect(-1.f, hz);
+				const NkRect bande = ctx.NextItemRect(-1.f, 52.f);
 				auto &dl = ctx.DL();
-				const float32 cote = 80.f;
-				const NkRect ext = {bande.x + (bande.w - cote) * 0.5f, bande.y + 8.f, cote, cote};
-				const float32 ci = 28.f;
-				const NkRect ctr = {ext.x + (cote - ci) * 0.5f, ext.y + (cote - ci) * 0.5f, ci, ci};
-				dl.AddRect(ext, ctx.theme.border, 1.f, 4.f);
-				dl.AddRectFilled(ctr, ctx.theme.buttonHover, 3.f);
-				dl.AddRect(ctr, ctx.theme.textMuted, 1.f, 3.f);
-				// le point central
-				dl.AddCircleFilled({ctr.x + ci * 0.5f, ctr.y + ci * 0.5f}, 1.6f, ctx.theme.textMuted);
-				struct Poignee {
+				const float32 W = 80.f, H = 48.f;
+				const float32 ox = bande.x + (bande.w - W) * 0.5f;
+				const float32 oy = bande.y + 2.f;
+				// le rectangle central (25,12 30×24)
+				const NkRect ctr = {ox + 25.f, oy + 12.f, 30.f, 24.f};
+				dl.AddRectFilled(ctr, ctx.theme.button, 2.f);
+				dl.AddRect(ctr, ctx.theme.textMuted, 2.f, 2.f);
+				dl.AddRectFilled({ox + 38.f, oy + 21.f, 4.f, 4.f}, ctx.theme.textMuted, 2.f);
+				struct P {
 						uint8 bit;
 						const char *id;
-						NkRect r;		 // la poignee cliquable
-						NkVec2 a, b;	 // le trait de liaison (centre -> bord)
+						NkRect actif;	 // la barre en état ACTIF (accent)
+						NkRect inactif;	 // la barre en état INACTIF (grise, détachée)
+						NkRect lien;	 // le trait de liaison (actif seulement)
+						NkRect clic;	 // la zone cliquable
 				};
-				const float32 cx = ctr.x + ci * 0.5f, cy = ctr.y + ci * 0.5f;
-				const Poignee ps[4] = {
-					{editorkit::nkanchor::Left, "##insp.anc.g",
-					 {ext.x + 2.f, cy - 5.f, 12.f, 10.f}, {ctr.x, cy}, {ext.x, cy}},
-					{editorkit::nkanchor::Right, "##insp.anc.d",
-					 {ext.x + cote - 14.f, cy - 5.f, 12.f, 10.f}, {ctr.x + ci, cy},
-					 {ext.x + cote, cy}},
-					{editorkit::nkanchor::Top, "##insp.anc.h",
-					 {cx - 5.f, ext.y + 2.f, 10.f, 12.f}, {cx, ctr.y}, {cx, ext.y}},
-					{editorkit::nkanchor::Bottom, "##insp.anc.b",
-					 {cx - 5.f, ext.y + cote - 14.f, 10.f, 12.f}, {cx, ctr.y + ci},
-					 {cx, ext.y + cote}},
+				const P ps[4] = {
+					{editorkit::nkanchor::Left, "anc.g",
+					 {ox + 6.f, oy + 20.f, 14.f, 2.f},
+					 {ox + 6.f, oy + 20.f, 14.f, 2.f},
+					 {ox + 13.f, oy + 12.f, 1.f, 8.f},
+					 {ox + 2.f, oy + 14.f, 20.f, 14.f}},
+					{editorkit::nkanchor::Right, "anc.d",
+					 {ox + W - 20.f, oy + 20.f, 14.f, 2.f},
+					 {ox + W - 20.f, oy + 20.f, 14.f, 2.f},
+					 {ox + W - 14.f, oy + 12.f, 1.f, 8.f},
+					 {ox + W - 22.f, oy + 14.f, 20.f, 14.f}},
+					{editorkit::nkanchor::Top, "anc.h",
+					 {ox + 40.f, oy, 2.f, 8.f},
+					 {ox + 40.f, oy, 2.f, 8.f},
+					 {ox + 40.f, oy + 8.f, 1.f, 4.f},
+					 {ox + 33.f, oy - 2.f, 16.f, 14.f}},
+					{editorkit::nkanchor::Bottom, "anc.b",
+					 {ox + 40.f, oy + H - 8.f, 2.f, 8.f},
+					 {ox + 40.f, oy + H - 8.f, 2.f, 8.f},
+					 {ox + 40.f, oy + H - 12.f, 1.f, 4.f},
+					 {ox + 33.f, oy + H - 12.f, 16.f, 14.f}},
 				};
 				for (uint32 i = 0; i < 4; ++i) {
 					const bool actif = (n->anchorEdges & ps[i].bit) != 0;
-					ctx.SetNextItemRect(ps[i].r);
-					if (designkit::Button(ctx, ps[i].id, nullptr)) {
+					dl.AddRectFilled(actif ? ps[i].actif : ps[i].inactif,
+									 actif ? ctx.theme.accent : ctx.theme.textMuted, 1.f);
+					if (actif)
+						dl.AddRectFilled(ps[i].lien, ctx.theme.accent);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(ps[i].clic, ctx.input.mousePos)) {
 						if (actif)
 							n->anchorEdges = (uint8)(n->anchorEdges & ~ps[i].bit);
 						else
 							n->anchorEdges |= ps[i].bit;
 						mSt->doc.MarkHumanEdit(mSt->selected);
 					}
-					const NkColor c = actif ? ctx.theme.accent : ctx.theme.textMuted;
-					if (actif)
-						dl.AddLine(ps[i].a, ps[i].b, ctx.theme.accent, 2.f);
-					dl.AddRectFilled(ps[i].r, c, 2.f);
 				}
 			}
 
@@ -3468,24 +3789,45 @@ namespace nkuidesign {
 					ctx.EndDisabled();
 					return;
 				}
-				designkit::KeyValue(ctx, "Agencement", NkLayoutKindName(n->layout.kind));
-				designkit::KeyValue(ctx, "  (s'applique aux enfants)", "");
-				// InspecteurV2 (Banani §1.6) : l'alignement se choisit en ICONES
-				// 22x22, actif = fond accent a 13 % + bord accent. La maquette en
-				// montre 6 (3 par axe) ; notre modele a QUATRE valeurs par axe
-				// (etirer en plus) -- huit icones, meme langage visuel, et le
-				// modele ne ment pas.
-				const int32 m = RangeeAlignement(ctx, (int32)n->layout.mainAlign, false,
-												 "insp.align.main");
-				if (m >= 0 && m != (int32)n->layout.mainAlign) {
-					n->layout.mainAlign = (editorkit::NkAlign)m;
-					mSt->doc.MarkHumanEdit(mSt->selected);
-				}
-				const int32 c = RangeeAlignement(ctx, (int32)n->layout.crossAlign, true,
-												 "insp.align.cross");
-				if (c >= 0 && c != (int32)n->layout.crossAlign) {
-					n->layout.crossAlign = (editorkit::NkAlign)c;
-					mSt->doc.MarkHumanEdit(mSt->selected);
+				// COSTUME BANANI EXACT (JSX) : UNE rangée de 6 icônes 22×22 —
+				// 3 pour l'axe principal | filet vertical | 3 pour l'axe croisé —
+				// active = fond accent 13 % + bord accent. ⚠️ « Étirer » (la 4e
+				// valeur du modèle) n'a PAS d'icône dans la maquette : si un axe
+				// est en Stretch, aucune icône ne s'allume (l'état ne ment pas) et
+				// la valeur reste accessible par le document — écart nommé.
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+				float32 x = r.x + 12.f;
+				const float32 y = r.y + 2.f;
+				for (uint32 i = 0; i < 6; ++i) {
+					if (i == 3) { // le filet entre les deux groupes (h16, mx-0.5)
+						dl.AddLine({x + 2.f, y + 3.f}, {x + 2.f, y + 19.f}, ctx.theme.border,
+								   1.f);
+						x += 6.f;
+					}
+					const bool groupeCross = (i >= 3);
+					const int32 valeur = (int32)(i % 3); // Start / Center / End
+					const int32 courant = groupeCross ? (int32)n->layout.crossAlign
+													  : (int32)n->layout.mainAlign;
+					const bool actif = (courant == valeur);
+					const NkRect c = {x, y, 22.f, 22.f};
+					if (actif) {
+						NkColor voile = ctx.theme.accent;
+						voile.a = 34; // ≈ 13 %
+						dl.AddRectFilled(c, voile, 4.f);
+						dl.AddRect(c, ctx.theme.accent, 1.f, 4.f);
+					}
+					costume::IcAlign(dl, c.x + 5.f, c.y + 5.f, i,
+									 actif ? ctx.theme.accent : ctx.theme.textMuted);
+					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+						&& NkGuiRectContains(c, ctx.input.mousePos)) {
+						if (groupeCross)
+							n->layout.crossAlign = (editorkit::NkAlign)valeur;
+						else
+							n->layout.mainAlign = (editorkit::NkAlign)valeur;
+						mSt->doc.MarkHumanEdit(mSt->selected);
+					}
+					x += 22.f + 4.f;
 				}
 			}
 
@@ -3553,11 +3895,47 @@ namespace nkuidesign {
 				return choisi;
 			}
 
-			// ── APPARENCE : les jetons du composant, et leur role effectif ──
+			/// Une rangée « Fond / Texte » du costume : libellé 10 px de 52, boîte
+			/// de 20 avec PASTILLE de couleur 12×12 + hexa 11 px. Statique pour
+			/// l'instant (poser une couleur au champ : la suite — le glisser d'un
+			/// nombre n'a pas de sens ici, il faudra la saisie).
+			void RangeeCouleur(NkGuiContext &ctx, const char *libelle, const NkString &hex) {
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
+							   libelle, ctx.theme.textMuted);
+				const NkRect rb = {x0 + 56.f, r.y + 2.f, x1 - x0 - 56.f, 20.f};
+				dl.AddRectFilled(rb, CouleurInput(), 4.f);
+				dl.AddRect(rb, ctx.theme.border, 1.f, 4.f);
+				if (hex.Empty()) {
+					costume::Texte(dl, F.px11, rb.x + 6.f,
+								   costume::CentrerY(F.px11, rb.y, rb.h), "\xE2\x80\x94 (thème)",
+								   ctx.theme.textMuted);
+					return;
+				}
+				const NkColor c = CouleurHex(hex.Data(), ctx.theme.textMuted);
+				dl.AddRectFilled({rb.x + 6.f, rb.y + 4.f, 12.f, 12.f}, c, 2.f);
+				dl.AddRect({rb.x + 6.f, rb.y + 4.f, 12.f, 12.f}, ctx.theme.border, 1.f, 2.f);
+				costume::Texte(dl, F.px11, rb.x + 6.f + 12.f + 6.f,
+							   costume::CentrerY(F.px11, rb.y, rb.h), hex.Data(),
+							   ctx.theme.text);
+			}
+
+			// ── APPARENCE : le fond et la couleur de texte POSÉS du nœud
+			//    (vocabulaire §8ter du 31/08) ; pour un composant, ses jetons. ──
 			void CorpsApparence(NkGuiContext &ctx) {
 				const NkUINode *n = NoeudCourant();
 				if (!n) {
 					designkit::KeyValue(ctx, "Apparence", "-");
+					return;
+				}
+				// Un nœud DESSINÉ (forme) porte l'apparence posée — la maquette :
+				// « Fond #0969da / Texte #ffffff ».
+				if (!n->shape.Empty() || !n->fill.Empty() || !n->textColor.Empty()) {
+					RangeeCouleur(ctx, "Fond", n->fill);
+					RangeeCouleur(ctx, "Texte", n->textColor);
 					return;
 				}
 				if (n->IsFrame()) {
@@ -3613,7 +3991,10 @@ namespace nkuidesign {
 
 			DesignState *mSt;
 			int32 mOnglet = 0;
-			bool mDeplierUneFois = true; ///< dépliage initial des sections (une fois)
+			bool mDeplierUneFois = true; ///< (hérité — plus de CollapsingHeader au costume)
+			bool mEspacementOuvert = false;	   ///< ESPACEMENT replié par défaut (maquette)
+			nkgui::NkGuiId mDragChamp = 0;	   ///< champ numérique en cours de glisser
+			float32 mDragDernierX = 0.f;	   ///< dernière abscisse du glisser
 			/// Le tampon d'édition du contenu texte (section Typographie) et le
 			/// nœud qu'il reflète — recopié à chaque changement de sélection.
 			int32 mTexteNode = -1;
