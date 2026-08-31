@@ -1079,6 +1079,10 @@ int nkmain(const NkEntryState &state) {
 			// maquette ne montre que la toile) : panneaux fermes, rails
 			// retires — l'en-tete de la coquille reste, la paire se cadre sur
 			// la toile et le DIT.
+			if (NkComponentDecl::StrEq(a, "--zone-sure")) {
+				gDesign.zoneSure = true;
+				continue;
+			}
 			if (arg.StartsWith("--toile-seule")) {
 				gToileSeule = true;
 				continue;
@@ -1273,6 +1277,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --toile-seule           panneaux fermés, rails retirés (mise en scène)");
 			puts("  --vue=x<px>,y<px>,z<f>  poser pan/zoom de la vue au lancement (mesure)");
 			puts("  --tiroir=<c>:<n>        ouvrir un tiroir de rail (d/g/b, mise en scène)");
+			puts("  --zone-sure             afficher la zone sûre des cadres Mobile");
 			puts("  --inspecteur-onglet=<n> ouvrir cet onglet d'Inspecteur (mise en scène)");
 			return 2;
 		}

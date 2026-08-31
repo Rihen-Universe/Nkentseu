@@ -553,6 +553,9 @@ namespace nkuidesign {
 			/// la toile (0..1), horizontale en PIXELS depuis son haut. -1 = rien.
 			float32 ligneV = -1.f;
 			float32 ligneH = -1.f;
+			/// Afficher la ZONE SURE des cadres a cible Mobile (ecrans 11/12,
+			/// pilote par le menu Cible a terme ; levier --zone-sure).
+			bool zoneSure = false;
 			/// La vue POSEE en ligne de commande (--vue=, protocole de mesure du
 			/// pan) : appliquee au premier affichage a la place du defaut.
 			bool vuePosee = false;
@@ -1306,6 +1309,56 @@ namespace nkuidesign {
 				//    et §7 est explicite : « il n'existe pas de troisième bande
 				//    d'outils, les outils flottent au-dessus du canvas, ils ne
 				//    bordent pas la fenêtre ».
+				// ── LA ZONE SÛRE (écrans 11/12) : décor d'ÉDITEUR sur les cadres
+				//    à cible Mobile — hachures des bandes non sûres, encoche et
+				//    indicateur home, pointillés + « zone sûre ». Proportions du
+				//    JSX (52/476 haut, 34/476 bas, encoche 80/220 × 24/476).
+				//    Jamais dans le document ni dans les essais 41.
+				if (mSt->zoneSure) {
+					NkDesignPaint pz(ctx, mSt->theme);
+					auto &dlz = ctx.DL();
+					for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i) {
+						const NkUINode &nz = mSt->doc.nodes[i];
+						if (!StrEq(nz.shape.Data(), "frame") || nz.target.Empty()
+							|| nz.target.Data()[0] != 'M' || !screen.Has((int32)i))
+							continue;
+						const NkPaintRect r = screen.At((int32)i);
+						const float32 hTop = r.h * (52.f / 476.f);
+						const float32 hBas2 = r.h * (34.f / 476.f);
+						const NkColor hachure = {90, 120, 210, 71}; // rgba .28
+						// hachures 45°, pas 6 : segments obliques bornés à la bande
+						auto hachurer = [&](float32 by, float32 bh) {
+							dlz.PushClipRect({r.x, by, r.w, bh}, true);
+							for (float32 t = -bh; t < r.w; t += 6.f)
+								dlz.AddLine({r.x + t, by + bh}, {r.x + t + bh, by}, hachure,
+											1.5f);
+							dlz.PopClipRect();
+						};
+						hachurer(r.y, hTop);
+						hachurer(r.y + r.h - hBas2, hBas2);
+						// l'encoche (noire, arrondie) et l'indicateur home
+						const float32 nw = r.w * (80.f / 220.f);
+						const float32 nh = r.h * (24.f / 476.f);
+						dlz.AddRectFilled({r.x + (r.w - nw) * 0.5f, r.y, nw, nh},
+										  {0, 0, 0, 255}, nh * 0.5f);
+						dlz.AddRectFilled({r.x + (r.w - 60.f) * 0.5f, r.y + r.h - 10.f, 60.f,
+										   4.f},
+										  {255, 255, 255, 178}, 2.f);
+						// les pointillés de la zone sûre (#4f8ef7, tirets 3/3)
+						const NkColor pointille = {79, 142, 247, 178};
+						auto tirets = [&](float32 yy) {
+							for (float32 t = 0.f; t < r.w; t += 6.f) {
+								const float32 fin = (t + 3.f < r.w) ? t + 3.f : r.w;
+								dlz.AddLine({r.x + t, yy}, {r.x + fin, yy}, pointille, 0.8f);
+							}
+						};
+						tirets(r.y + hTop);
+						tirets(r.y + r.h - hBas2);
+						costume::Texte(dlz, costume::Fontes().px9, r.x + 6.f, r.y + hTop - 13.f,
+									   "zone sûre", pointille);
+					}
+					(void)pz;
+				}
 				// Les LIGNES DE MAGNÉTISME FIGÉES (levier --lignes=, mise en
 				// scène) : rose `snap_line` #ff4fd8, 1 px — SOUS les flottants,
 				// comme dans la maquette (zIndex des lignes < bascule).
