@@ -2978,6 +2978,14 @@ namespace nkuidesign {
 					hBas = 220.f;
 				if (hBas < 90.f)
 					hBas = 90.f;
+				// La POIGNÉE (écran 10) : la part choisie a la main prime.
+				if (mHBasVoulu > 0.f) {
+					hBas = mHBasVoulu;
+					if (hBas > restant - 80.f)
+						hBas = restant - 80.f;
+					if (hBas < 60.f)
+						hBas = 60.f;
+				}
 				float32 hHaut = restant - hBas - 2.f * kBandeH - 8.f;
 				// COSTUME BANANI : les sections SE SUIVENT — quand l'arbre tient,
 				// « COMPOSANTS » vient juste dessous (la maquette), pas au tiers
@@ -2990,11 +2998,38 @@ namespace nkuidesign {
 				BandeDeSection(ctx, "PAGES", "hier.pages.plus");
 				DessinerArbre(ctx, mModelePages, mInstPages, hHaut > 60.f ? hHaut : 60.f, "pages");
 
-				// le filet de séparation de la maquette (mt-2, border-t)
+				// La POIGNÉE DE REDIMENSIONNEMENT à trois points (écran 10) —
+				// épaisse, entre les deux sections, et elle REDIMENSIONNE : tirer
+				// change la part de « COMPOSANTS » (l'état vit dans le panneau).
 				{
 					const NkRect fs = ctx.NextItemRect(-1.f, 9.f);
-					ctx.DL().AddLine({fs.x, fs.y + 8.f}, {fs.x + fs.w, fs.y + 8.f},
-									 ctx.theme.border, 1.f);
+					auto &dlp = ctx.DL();
+					const bool sv = ctx.popupDepth == 0
+									&& NkGuiRectContains(fs, ctx.input.mousePos);
+					dlp.AddLine({fs.x, fs.y + 4.f}, {fs.x + fs.w, fs.y + 4.f},
+								sv ? ctx.theme.accent : ctx.theme.border, sv ? 2.f : 1.f);
+					const float32 cxp = fs.x + fs.w * 0.5f;
+					const NkColor cp = sv ? ctx.theme.accent : ctx.theme.textMuted;
+					for (int32 i = -1; i <= 1; ++i)
+						dlp.AddCircleFilled({cxp + (float32)i * 7.f, fs.y + 4.f}, 1.5f, cp);
+					if (sv)
+						ctx.wantCursor = nkgui::NkGuiCursor::ResizeNS;
+					if (sv && ctx.input.mouseClicked[0]) {
+						mPoigneeActive = true;
+						mPoigneeY = ctx.input.mousePos.y;
+					}
+					if (mPoigneeActive) {
+						if (!ctx.input.mouseDown[0])
+							mPoigneeActive = false;
+						else {
+							const float32 dy = ctx.input.mousePos.y - mPoigneeY;
+							if (dy != 0.f) {
+								mPoigneeY = ctx.input.mousePos.y;
+								mHBasVoulu = (mHBasVoulu > 0.f ? mHBasVoulu : hBas) - dy;
+							}
+							ctx.wantCursor = nkgui::NkGuiCursor::ResizeNS;
+						}
+					}
 				}
 				BandeDeSection(ctx, "COMPOSANTS", "hier.composants.plus");
 				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
@@ -3294,7 +3329,10 @@ namespace nkuidesign {
 			NkComponentInstance mInstComposants;
 			char mFiltre[128] = {0};
 			bool mFiltreVisible = false; // la loupe déplie le filtre (costume Banani)
-			bool mFiltreRoles = false;	 // œil-barré : seulement les éléments à rôle (écran 8)
+			bool mFiltreRoles = false;
+			float32 mHBasVoulu = -1.f;	 // la part de COMPOSANTS choisie a la poignee (ecran 10)
+			bool mPoigneeActive = false;
+			float32 mPoigneeY = 0.f;	 // œil-barré : seulement les éléments à rôle (écran 8)
 			bool mPlierUneFois = true;	 // repli initial des sous-conteneurs (une fois)
 			bool mCriPages = false;
 			bool mCriRegistre = false;
