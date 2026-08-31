@@ -1271,6 +1271,21 @@ namespace nkuidesign {
 				//    « ferme ». Il surcharge `Icon` et RIEN d'autre.
 				NkDesignPaint paint(ctx, mSt->theme);
 
+				// ── LA DÉCOUPE AUX BORNES DE LA TOILE (mesuré le 31/08, test de
+				//    Rodolf : « tu ne définis pas bien le clipping ») ─────────────
+				// ⚠️ LE CLIP EN VIGUEUR ICI ÉTAIT CELUI DU DOCK, PAS CELUI DE LA
+				//    TOILE. Le contenu du panneau est découpé par `BeginScrollFrame`
+				//    aux bornes de la feuille de dock — 11 px PLUS LARGE que `area`
+				//    (le viewport de la vue) : un artboard poussé au-delà du bord
+				//    gauche se peignait sur la gouttière du panneau, jusqu'au
+				//    splitter. Mesure sur capture : toile x=249, artboard peint dès
+				//    x=238. Tout ce que la toile dessine (fond, document, trace,
+				//    zone sûre, lignes, flottants, sélection) passe sous CE clip,
+				//    ouvert ici et refermé en fin d'OnUI — aucun return entre les
+				//    deux (vérifié), et les clips internes (zone sûre, composants)
+				//    s'y intersectent.
+				ctx.DL().PushClipRect({area.x, area.y, area.w, area.h}, true);
+
 				// ── LA TOILE DE LA PLANCHE 22.0 : fond + grille POINTILLEE ────
 				// Decor d'EDITEUR, pas de document : `RenderDocument` (les essais
 				// 41) n'emet aucune de ces commandes, et le fichier enregistre n'en
@@ -1568,6 +1583,11 @@ namespace nkuidesign {
 						PuceTaille(paint, rs, rd.w, rd.h);
 					}
 				}
+
+				// La découpe de la toile se referme ici — le pendant du Push posé
+				// avant le fond. Tout ce qui suit (rien aujourd'hui) reverrait le
+				// clip du dock.
+				ctx.DL().PopClipRect();
 			}
 
 		private:
