@@ -1,0 +1,155 @@
+nkuidoc 1
+# Un document NkUIDesign : un ARBRE de composants declares.
+# Document de depart « Connexion » (31/08) : l'artboard de la maquette
+# Banani, pose pour montrer les formes de la nuit (frame, text, rect,
+# ellipse, line). Remplacez-le librement — Ctrl+N repart a vide.
+titre = Connexion
+auteur = humain
+verifiee = 0
+corrigee = 0
+origine = main
+
+noeud 0
+  libelle = Toile
+  enfants = 1
+  largeur = expand 0 0 0
+  hauteur = expand 0 0 0
+  agencement = free start start 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 1
+  libelle = Connexion — Mobile
+  enfants = 2 3 4 5 6 7 8 9 10
+  largeur = fixed 390 0 0
+  hauteur = fixed 700 0 0
+  agencement = free start start 0
+  position = 90 60
+  forme = frame
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 2
+  libelle = Logo
+  enfants =
+  largeur = fixed 56 0 0
+  hauteur = fixed 56 0 0
+  agencement = none start start 0
+  position = 167 48
+  forme = ellipse
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 3
+  libelle = Titre
+  enfants =
+  largeur = fixed 310 0 0
+  hauteur = fixed 32 0 0
+  agencement = none start start 0
+  position = 40 128
+  forme = text
+  texte = Connexion
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 4
+  libelle = Libellé e-mail
+  enfants =
+  largeur = fixed 310 0 0
+  hauteur = fixed 20 0 0
+  agencement = none start start 0
+  position = 40 196
+  forme = text
+  texte = Adresse e-mail
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 5
+  libelle = Champ e-mail
+  enfants =
+  largeur = fixed 310 0 0
+  hauteur = fixed 44 0 0
+  agencement = none start start 0
+  position = 40 220
+  forme = rect
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 6
+  libelle = Libellé mot de passe
+  enfants =
+  largeur = fixed 310 0 0
+  hauteur = fixed 20 0 0
+  agencement = none start start 0
+  position = 40 288
+  forme = text
+  texte = Mot de passe
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 7
+  libelle = Champ mot de passe
+  enfants =
+  largeur = fixed 310 0 0
+  hauteur = fixed 44 0 0
+  agencement = none start start 0
+  position = 40 312
+  forme = rect
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 8
+  libelle = Bouton Se connecter
+  enfants =
+  largeur = fixed 310 0 0
+  hauteur = fixed 46 0 0
+  agencement = none start start 0
+  position = 40 392
+  forme = rect
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 9
+  libelle = Texte du bouton
+  enfants =
+  largeur = fixed 140 0 0
+  hauteur = fixed 22 0 0
+  agencement = none start start 0
+  position = 138 404
+  forme = text
+  texte = Se connecter
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 10
+  libelle = Filet
+  enfants =
+  largeur = fixed 310 0 0
+  hauteur = fixed 1 0 0
+  agencement = none start start 0
+  position = 40 470
+  forme = line
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
