@@ -1,63 +1,115 @@
 // =============================================================================
-// NkEditeurPanneaux.h — hierarchie, inspecteur, barre d'outils, pied de page
+// NkEditeurPanneaux.h — les panneaux de l'editeur, en NkEditorPanel
 //
-// ⚠️ CHAQUE PANNEAU A DEUX FONCTIONS : UNE QUI DESSINE, UNE QUI TESTE
-//   `NkDessinerBarre` et `NkBarreClic` calculent la MEME geometrie. C'est le
-//   defaut classique — deux geometries qui doivent s'accorder sans que l'une
-//   soit la reference de l'autre — et ce depot le documente sous « deux chemins
-//   qui doivent s'accorder se valident l'un l'autre ».
-//   La parade tenue ici : les deux appellent `NkRectOutil` / `NkRectBouton`, une
-//   SEULE fonction de placement. Le jour ou la barre change, les deux suivent.
+// ⚠️ CE FICHIER A ETE REECRIT LE 2026-09-01, ET LA RAISON VAUT D'ETRE LUE
+//   Sa premiere version dessinait a la main une barre d'outils, une liste de
+//   hierarchie, un inspecteur et une barre d'etat, dans des rectangles calcules
+//   par un `NkDispoEditeur` maison. NKEditorKit porte tout cela -- coquille
+//   ancrable, panneaux, palette de commandes, barres d'activite -- et la regle
+//   du depot est explicite : on cherche dans le kit AVANT d'ecrire un element
+//   d'interface. Je ne l'avais pas fait.
+//
+//   Ce que la reecriture rend, en plus de supprimer le doublon :
+//     - l'ANCRAGE : on deplace, on ferme, on rouvre, la disposition se sauve ;
+//     - la PALETTE DE COMMANDES (Ctrl+Maj+P) et le menu « Affichage » ;
+//     - le HIT-TEST OCCULTE (`ctx.InputHits`) -- ma version testait un simple
+//       « le point est-il dans le rectangle », donc un clic tombe sur un panneau
+//       flottant AU-DESSUS du viseur atteignait quand meme la scene.
+//
+// COMMENT UN PANNEAU MARCHE ICI
+//   Il derive de `NkEditorPanel`, il implemente `OnUI(ec)`, et le shell l'appelle
+//   quand il est ouvert. Il ne connait AUCUN autre panneau : tout ce qui est
+//   partage passe par `NkEditeurModele` (cf. NkEditeurModele.h).
+//
+// OU AJOUTER LA PROCHAINE CHOSE
+//   - un nouveau panneau -> une classe ici + un enregistrement dans NkEditeurApp
+//   - un reglage partage -> NkEditeurModele, jamais un membre de panneau
 // =============================================================================
 #pragma once
 
-#include "Editeur/NkEditeurAppareils.h"
-#include "NKGui/Core/NkGuiContext.h"
-#include "NKGui/Core/NkGuiFont.h"
-#include "Unkeny/Unkeny.h"
+#include "Editeur/NkEditeurModele.h"
+
+#include "NKEditorKit/NkEditorContext.h"
+#include "NKEditorKit/NkEditorPanel.h"
 
 namespace nkentseu {
 	namespace editeur {
 
-		using namespace nkentseu::unkeny;
-		struct NkDispoEditeur;
-		enum class NkOutil : uint8;
+		using editorkit::NkEditorDockSide;
+		using editorkit::NkEditorFrameContext;
+		using editorkit::NkEditorPanel;
 
-		/// Ce qu'un clic sur la barre a declenche. L'appelant agit ; la barre ne
-		/// touche pas a la scene — c'est ce qui la garde testable.
-		enum class NkActionBarre : uint8 {
-			NK_RIEN = 0,
-			NK_OUTIL_CHANGE,
-			NK_PROFIL_CHANGE,
-			NK_SIMULATION_CHANGE,
-			NK_AFFICHAGE_CHANGE,
-			NK_CADRER,
-			NK_SUPPRIMER
+		// =====================================================================
+		// Le viseur — la scene, et le seul panneau qui prend la souris
+		// =====================================================================
+		class NkPanneauViseur : public NkEditorPanel {
+			public:
+				explicit NkPanneauViseur(NkEditeurModele &m) noexcept
+					: NkEditorPanel("Viseur", NkEditorDockSide::NK_CENTER), mM(m) {
+				}
+
+				void OnUI(NkEditorFrameContext &ec) override;
+
+				/// Recadre la vue sur l'ensemble de la scene.
+				void CadrerSurTout() noexcept;
+
+			private:
+				void PoserEntite(const NkVec2f &monde);
+				void Souris(NkEditorFrameContext &ec, const nkgui::NkRect &aire);
+
+				NkEditeurModele &mM;
 		};
 
-		void NkDessinerBarre(nkgui::NkGuiDrawList &dl, const NkDispoEditeur &dispo, nkgui::NkGuiFont *police,
-							 const NkTheme &th, NkOutil outil, const NkProfilAppareil &profil, bool paysage,
-							 bool simule, bool collisionneurs, bool grille);
+		// =====================================================================
+		// La hierarchie — la liste des entites, et la selection
+		// =====================================================================
+		class NkPanneauHierarchie : public NkEditorPanel {
+			public:
+				explicit NkPanneauHierarchie(NkEditeurModele &m) noexcept
+					: NkEditorPanel("Hierarchie", NkEditorDockSide::NK_LEFT), mM(m) {
+				}
 
-		/// Teste un clic sur la barre et MODIFIE les reglages passes par
-		/// reference. Rend ce qui a change, pour que l'appelant reagisse.
-		NkActionBarre NkBarreClic(const NkDispoEditeur &dispo, const NkTheme &th, const math::NkVec2f &point,
-								  NkOutil &outil, int32 &profil, bool &paysage, bool &simule, bool &collisionneurs,
-								  bool &grille);
+				void OnUI(NkEditorFrameContext &ec) override;
 
-		void NkDessinerHierarchie(nkgui::NkGuiDrawList &dl, const nkgui::NkRect &zone, nkgui::NkGuiFont *police,
-								  NkScene &scene, const NkTheme &th, const ecs::NkEntityId *selection);
+			private:
+				NkEditeurModele &mM;
+		};
 
-		bool NkHierarchieClic(const nkgui::NkRect &zone, NkScene &scene, const math::NkVec2f &point,
-							  ecs::NkEntityId &choisi);
+		// =====================================================================
+		// L'inspecteur — les proprietes de la selection
+		// =====================================================================
+		class NkPanneauInspecteur : public NkEditorPanel {
+			public:
+				explicit NkPanneauInspecteur(NkEditeurModele &m) noexcept
+					: NkEditorPanel("Inspecteur", NkEditorDockSide::NK_RIGHT), mM(m) {
+				}
 
-		void NkDessinerInspecteur(nkgui::NkGuiDrawList &dl, const nkgui::NkRect &zone, nkgui::NkGuiFont *petite,
-								  nkgui::NkGuiFont *corps, NkScene &scene, const NkTheme &th,
-								  const ecs::NkEntityId *selection);
+				void OnUI(NkEditorFrameContext &ec) override;
 
-		void NkDessinerEtat(nkgui::NkGuiDrawList &dl, const nkgui::NkRect &zone, nkgui::NkGuiFont *police,
-							const NkTheme &th, NkScene &scene, const NkStatsRendu &stats,
-							const NkProfilAppareil &profil);
+			private:
+				NkEditeurModele &mM;
+		};
+
+		// =====================================================================
+		// Outils & appareil — ce qui pilote le viseur sans etre dedans
+		//
+		// ⚠️ L'APPAREIL SIMULE N'EST PAS UN GADGET : c'est ce qui permet de voir
+		//    un debordement mobile AVANT de deployer. La regle du depot le dit --
+		//    « un bouton qui deborde sous l'indicateur de geste est
+		//    INATTEIGNABLE » -- et le defaut se decouvre sinon sur le telephone,
+		//    quand il coute le plus cher.
+		// =====================================================================
+		class NkPanneauOutils : public NkEditorPanel {
+			public:
+				explicit NkPanneauOutils(NkEditeurModele &m) noexcept
+					: NkEditorPanel("Outils & appareil", NkEditorDockSide::NK_LEFT), mM(m) {
+				}
+
+				void OnUI(NkEditorFrameContext &ec) override;
+
+			private:
+				NkEditeurModele &mM;
+		};
 
 	} // namespace editeur
 } // namespace nkentseu
