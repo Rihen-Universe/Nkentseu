@@ -1,0 +1,442 @@
+// -----------------------------------------------------------------------------
+// FICHIER: Dames/NkDamesEcran.cpp
+// DESCRIPTION: Geometrie et dessin. Ne decide rien, ne modifie rien.
+//
+// LA REGLE DE CE FICHIER : il ne prend AUCUNE decision de jeu. S'il a besoin de
+// savoir quelque chose, ce quelque chose arrive par NkDamesVue. Le jour ou une
+// fonction d'ici veut appeler CoupsLegaux, c'est qu'elle est au mauvais endroit.
+//
+// AUTEUR: Rihen
+// LICENCE: Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
+#include "Dames/NkDamesEcran.h"
+#include "Dames/NkDamesTheme.h"
+#include "NKContainers/String/NkString.h"
+
+namespace nkentseu {
+	namespace jeux {
+		namespace dames {
+
+			namespace {
+				// --- Aides de texte -------------------------------------------
+				// Elles delegent aux memes conventions que NkCanvasGuiApp : `topY`
+				// est le HAUT du texte, pas sa ligne de base.
+				float32 MesurerW(NkGuiFont *f, const char *s) noexcept {
+					return (f != nullptr && s != nullptr) ? f->MeasureWidth(s) : 0.f;
+				}
+				void Texte(NkGuiDrawList &dl, NkGuiFont *f, float32 x, float32 topY, const char *s, const NkColor &c,
+						   float32 maxWidth = -1.f) {
+					if (f != nullptr && f->Face() != nullptr && s != nullptr) {
+						dl.AddText(f->Face(), f->TexId(), NkVec2f(x, topY + f->Ascent()), s, c, maxWidth);
+					}
+				}
+				void TexteDansBoite(NkGuiDrawList &dl, NkGuiFont *f, const NkRect &box, const char *s,
+									const NkColor &c) {
+					if (f == nullptr || f->Face() == nullptr) {
+						return;
+					}
+					const float32 topY = box.y + (box.h - f->LineHeight()) * 0.5f;
+					Texte(dl, f, box.x + (box.w - MesurerW(f, s)) * 0.5f, topY, s, c);
+				}
+				void TexteADroite(NkGuiDrawList &dl, NkGuiFont *f, float32 droite, float32 topY, const char *s,
+								  const NkColor &c) {
+					Texte(dl, f, droite - MesurerW(f, s), topY, s, c);
+				}
+			} // namespace
+
+			// =====================================================================
+			// NkDamesAnim
+			// =====================================================================
+			void NkDamesAnim::CaseFinale(int32 &r, int32 &c) const noexcept {
+				if (nbEtapes == 0) {
+					r = depR;
+					c = depC;
+					return;
+				}
+				r = etapeR[nbEtapes - 1];
+				c = etapeC[nbEtapes - 1];
+			}
+
+			void NkDamesAnim::Position(float32 &r, float32 &c) const noexcept {
+				if (nbEtapes == 0) {
+					r = static_cast<float32>(depR);
+					c = static_cast<float32>(depC);
+					return;
+				}
+				// On repartit le temps EGALEMENT entre les segments. Le repartir
+				// selon la longueur donnerait une vitesse constante — plus juste
+				// physiquement, mais une rafle de huit prises deviendrait alors
+				// interminable sur ses grands sauts.
+				const float32 tt = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+				const float32 pos = tt * static_cast<float32>(nbEtapes);
+				int32 seg = static_cast<int32>(pos);
+				if (seg >= nbEtapes) {
+					seg = nbEtapes - 1;
+				}
+				const float32 u = pos - static_cast<float32>(seg);
+
+				const float32 r0 = (seg == 0) ? static_cast<float32>(depR) : static_cast<float32>(etapeR[seg - 1]);
+				const float32 c0 = (seg == 0) ? static_cast<float32>(depC) : static_cast<float32>(etapeC[seg - 1]);
+				const float32 r1 = static_cast<float32>(etapeR[seg]);
+				const float32 c1 = static_cast<float32>(etapeC[seg]);
+
+				// Adoucissement aux deux bouts : un deplacement lineaire demarre
+				// et s'arrete sec, ce qui se lit comme un saut.
+				const float32 e = u * u * (3.f - 2.f * u);
+				r = r0 + (r1 - r0) * e;
+				c = c0 + (c1 - c0) * e;
+			}
+
+			// =====================================================================
+			bool NkDansRect(const NkRect &r, const NkVec2f &p) noexcept {
+				return p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
+			}
+
+			bool NkDamesGeometrie::CaseSous(const NkVec2f &p, int32 &r, int32 &c) const noexcept {
+				if (cellule <= 0.f || p.x < plateau.x || p.y < plateau.y || p.x >= plateau.x + plateau.w ||
+					p.y >= plateau.y + plateau.h) {
+					return false;
+				}
+				c = static_cast<int32>((p.x - plateau.x) / cellule);
+				r = static_cast<int32>((p.y - plateau.y) / cellule);
+				return NkDamesPartie::DansDamier(r, c);
+			}
+
+			// =====================================================================
+			void NkDamesGeometrie::Calculer(const renderer::NkLayoutInfo &info) noexcept {
+				const float32 W = static_cast<float32>(info.width);
+				const float32 H = static_cast<float32>(info.height);
+
+				// ⚠️ La zone sure n'est PAS une marge decorative : sous l'encoche
+				// ou l'indicateur de geste, un bouton devient INATTEIGNABLE. On
+				// s'y ancre pour tout ce qui se touche ou se lit.
+				const float32 hautSur = info.safeArea.top;
+				const float32 basSur = info.safeArea.bottom;
+				const float32 gaucheSur = info.safeArea.left;
+				const float32 droiteSur = info.safeArea.right;
+
+				const float32 marge = W * 0.03f;
+				const float32 hBandeau = (H - hautSur - basSur) * (info.IsPortrait() ? 0.11f : 0.14f);
+
+				bandeau = NkRect{gaucheSur + marge, hautSur + marge, W - gaucheSur - droiteSur - marge * 2.f, hBandeau};
+
+				// Le damier est CARRE : il prend la plus petite des deux places
+				// disponibles. C'est ce qui le fait tenir en portrait comme en
+				// paysage sans deux mises en page separees.
+				const float32 dispoW = W - gaucheSur - droiteSur - marge * 2.f;
+				const float32 dispoH = H - hautSur - basSur - hBandeau - marge * 3.f - hBandeau * 0.75f;
+				const float32 cote = dispoW < dispoH ? dispoW : dispoH;
+
+				plateau = NkRect{gaucheSur + (W - gaucheSur - droiteSur - cote) * 0.5f, bandeau.y + bandeau.h + marge,
+								 cote, cote};
+				cellule = cote / static_cast<float32>(NkDamesPartie::NK_TAILLE);
+
+				// Le pied de page porte TROIS boutons : les deux sieges, puis
+				// "nouvelle partie". Ils partagent la largeur du damier, donc ils
+				// le suivent dans les deux orientations.
+				const float32 hBas = hBandeau * 0.72f;
+				const float32 yBas = plateau.y + cote + marge;
+				const float32 ecart = cote * 0.02f;
+				const float32 lSiege = (cote - ecart * 2.f) * 0.27f;
+				siege[0] = NkRect{plateau.x, yBas, lSiege, hBas};
+				siege[1] = NkRect{plateau.x + lSiege + ecart, yBas, lSiege, hBas};
+				rejouer = NkRect{plateau.x + (lSiege + ecart) * 2.f, yBas, cote - (lSiege + ecart) * 2.f, hBas};
+
+				// Le retour au menu vit dans le bandeau, a droite : c'est la
+				// seule place qui ne bouge pas d'un ecran a l'autre.
+				const float32 cRetour = bandeau.h * 0.56f;
+				retour = NkRect{bandeau.x + bandeau.w - cRetour - bandeau.h * 0.22f,
+								bandeau.y + (bandeau.h - cRetour) * 0.5f, cRetour, cRetour};
+
+				// Les trois choix du menu : empiles, larges. Une cible de menu se
+				// touche au pouce, elle n'a aucune raison d'etre etroite.
+				//
+				// ⚠️ MESURE DU 2026-09-01 : la premiere version faisait demarrer les
+				// boutons a 0,42 de la hauteur MOINS un pas — ils RECOUVRAIENT le
+				// titre, et le sous-titre disparaissait entierement. Le defaut ne se
+				// voyait pas au calcul, il s'est vu sur la CAPTURE.
+				// On ancre desormais le bloc de boutons SOUS le titre au lieu de le
+				// centrer a l'aveugle : titreH + sousTitreH est une hauteur connue.
+				menuTitre = NkRect{plateau.x, plateau.y + plateau.h * 0.06f, cote, hBandeau * 1.1f};
+				menuSousTitre = NkRect{plateau.x, menuTitre.y + menuTitre.h, cote, hBandeau * 0.66f};
+
+				const float32 lChoix = cote * 0.86f;
+				const float32 hChoix = hBandeau * 0.92f;
+				const float32 pas = hChoix * 1.3f;
+				const float32 y0 = menuSousTitre.y + menuSousTitre.h + hBandeau * 0.5f;
+				for (int32 i = 0; i < 3; ++i) {
+					choix[i] = NkRect{plateau.x + (cote - lChoix) * 0.5f, y0 + static_cast<float32>(i) * pas, lChoix,
+									  hChoix};
+				}
+			}
+
+			// =====================================================================
+			void DessinerFond(NkGuiDrawList &dl, const renderer::NkLayoutInfo &info) {
+				dl.AddRectFilled(NkRect{0.f, 0.f, static_cast<float32>(info.width), static_cast<float32>(info.height)},
+								 kFond);
+			}
+
+			// =====================================================================
+			// LE MENU — on choisit le mode avant de jouer
+			// =====================================================================
+			void DessinerMenu(NkGuiDrawList &dl, const renderer::NkLayoutInfo &info, const NkDamesGeometrie &geo,
+							  const NkDamesPolices &f) {
+				(void)info;
+
+				TexteDansBoite(dl, f.titre, geo.menuTitre, "Dames", kTexte);
+				TexteDansBoite(dl, f.petite, geo.menuSousTitre, "Regles internationales, 10x10", kTexteFaible);
+
+				const char *libelles[3] = {"Contre l'ordinateur", "A deux, meme ecran", "IA contre IA"};
+				const NkColor teintes[3] = {kDestination, kSelection, kOr};
+				for (int32 i = 0; i < 3; ++i) {
+					dl.AddRectFilled(geo.choix[i], kPanneauActif, geo.choix[i].h * 0.26f);
+					dl.AddRect(geo.choix[i], teintes[i], 2.f, geo.choix[i].h * 0.26f);
+					// Une pastille de couleur a gauche : elle distingue les trois
+					// entrees sans dependre de la lecture du libelle.
+					dl.AddCircleFilled(
+						NkVec2f(geo.choix[i].x + geo.choix[i].h * 0.5f, geo.choix[i].y + geo.choix[i].h * 0.5f),
+						geo.choix[i].h * 0.16f, teintes[i]);
+					TexteDansBoite(dl, f.corps,
+								   NkRect{geo.choix[i].x + geo.choix[i].h * 0.9f, geo.choix[i].y,
+										  geo.choix[i].w - geo.choix[i].h * 1.2f, geo.choix[i].h},
+								   libelles[i], kTexte);
+				}
+			}
+
+			// =====================================================================
+			void DessinerBandeau(NkGuiDrawList &dl, const NkDamesGeometrie &geo, const NkDamesPolices &f,
+								 const NkDamesVue &vue) {
+				dl.AddRectFilled(geo.bandeau, kPanneau, geo.bandeau.h * 0.22f);
+				const float32 pad = geo.bandeau.h * 0.22f;
+
+				TexteDansBoite(dl, f.titre,
+							   NkRect{geo.bandeau.x + pad, geo.bandeau.y, geo.bandeau.w * 0.5f, geo.bandeau.h * 0.55f},
+							   "Dames", kTexte);
+
+				const int32 trait = (vue.partie->Trait() == NkDamesCamp::NK_BLANC) ? 0 : 1;
+				const bool humainAuTrait = vue.controleur[trait] == NkControleur::NK_HUMAIN;
+				const bool deuxHumains =
+					vue.controleur[0] == NkControleur::NK_HUMAIN && vue.controleur[1] == NkControleur::NK_HUMAIN;
+
+				const char *ligne = "A vous de jouer";
+				if (vue.finie) {
+					ligne = "Partie terminee";
+				} else if (!humainAuTrait) {
+					ligne = "L'ordinateur reflechit";
+				} else if (deuxHumains) {
+					// A deux sur le meme ecran, "a vous" ne veut rien dire : il
+					// faut nommer le camp.
+					ligne = (trait == 0) ? "Aux blancs de jouer" : "Aux noirs de jouer";
+				}
+				Texte(dl, f.petite, geo.bandeau.x + pad, geo.bandeau.y + geo.bandeau.h * 0.56f, ligne, kTexteFaible,
+					  geo.bandeau.w * 0.55f);
+
+				const NkString compte =
+					NkString::Format("%d  -  %d", vue.partie->CompterPieces(NkDamesCamp::NK_BLANC),
+									 vue.partie->CompterPieces(NkDamesCamp::NK_NOIR));
+				TexteADroite(dl, f.corps, geo.retour.x - pad * 0.6f,
+							 geo.bandeau.y + (geo.bandeau.h - (f.corps ? f.corps->LineHeight() : 16.f)) * 0.5f,
+							 compte.Data(), kTexte);
+
+				// Retour au menu : trois barres, dessinees plutot qu'ecrites —
+				// un glyphe demanderait un atlas d'icones que ce jeu n'a pas.
+				dl.AddRectFilled(geo.retour, kPanneauActif, geo.retour.h * 0.26f);
+				dl.AddRect(geo.retour, kBord, 1.5f, geo.retour.h * 0.26f);
+				for (int32 i = 0; i < 3; ++i) {
+					const float32 y = geo.retour.y + geo.retour.h * (0.32f + static_cast<float32>(i) * 0.18f);
+					dl.AddRectFilled(NkRect{geo.retour.x + geo.retour.w * 0.26f, y, geo.retour.w * 0.48f,
+											geo.retour.h * 0.07f},
+									 kTexte, geo.retour.h * 0.035f);
+				}
+			}
+
+			// =====================================================================
+			void DessinerDamier(NkGuiDrawList &dl, const NkDamesGeometrie &geo, const NkDamesVue &vue) {
+				const float32 bord = geo.cellule * 0.16f;
+				dl.AddRectFilled(NkRect{geo.plateau.x - bord, geo.plateau.y - bord, geo.plateau.w + bord * 2.f,
+										geo.plateau.h + bord * 2.f},
+								 kCadre, bord);
+
+				for (int32 r = 0; r < NkDamesPartie::NK_TAILLE; ++r) {
+					for (int32 c = 0; c < NkDamesPartie::NK_TAILLE; ++c) {
+						dl.AddRectFilled(geo.CaseRect(r, c),
+										 NkDamesPartie::CaseJouable(r, c) ? kCaseSombre : kCaseClaire);
+					}
+				}
+
+				// Les destinations AVANT les pieces : une pastille ne doit jamais
+				// recouvrir un pion qu'on s'apprete a prendre.
+				if (vue.coupsProposes != nullptr) {
+					for (uint32 i = 0; i < vue.coupsProposes->Size(); ++i) {
+						const NkDamesCoup &coup = (*vue.coupsProposes)[i];
+						const NkVec2f centre = geo.CentreCase(coup.arrR, coup.arrC);
+						dl.AddCircleFilled(centre, geo.cellule * (coup.EstPrise() ? 0.30f : 0.18f),
+										   NkColor(kDestination.r, kDestination.g, kDestination.b, 190));
+						// Une PRISE se distingue d'un simple deplacement : sans
+						// cela on ne voit pas qu'on est en train de rafler.
+						if (coup.EstPrise()) {
+							dl.AddCircle(centre, geo.cellule * 0.38f, kDestination, geo.cellule * kTraitFin);
+						}
+					}
+				}
+
+				if (vue.selR >= 0) {
+					dl.AddRect(geo.CaseRect(vue.selR, vue.selC), kSelection, geo.cellule * kTraitEpais);
+				}
+			}
+
+			// =====================================================================
+			namespace {
+				/// Un pion, dessine a un centre quelconque. Extraite pour que la
+				/// piece EN MOUVEMENT et les pieces posees empruntent exactement
+				/// le meme dessin — deux dessins qui doivent se ressembler
+				/// finissent toujours par diverger.
+				void DessinerUnPion(NkGuiDrawList &dl, const NkVec2f &centre, float32 rayon, NkDamesPiece piece,
+									float32 elevation) {
+					const bool blanc = NkDamesEstBlanc(piece);
+					// Une piece en mouvement porte une ombre plus basse et plus
+					// large : c'est ce qui la fait lire comme SOULEVEE plutot que
+					// glissee, et ca vaut mieux qu'une trainee.
+					dl.AddCircleFilled(NkVec2f(centre.x, centre.y + rayon * (0.16f + elevation * 0.5f)),
+									   rayon * (1.f + elevation * 0.25f), NkColor(0, 0, 0, 90));
+					dl.AddCircleFilled(NkVec2f(centre.x, centre.y + rayon * 0.10f), rayon,
+									   blanc ? kPionBlancOmbre : kPionNoirOmbre);
+					dl.AddCircleFilled(centre, rayon * 0.94f, blanc ? kPionBlanc : kPionNoir);
+					dl.AddCircle(centre, rayon * 0.68f, blanc ? kPionBlancTrait : kPionNoirTrait, rayon * 0.10f);
+					if (NkDamesEstDame(piece)) {
+						dl.AddCircle(centre, rayon * 0.44f, kOr, rayon * 0.20f);
+						dl.AddCircleFilled(centre, rayon * 0.16f, kOr);
+					}
+				}
+			} // namespace
+
+			void DessinerPieces(NkGuiDrawList &dl, const NkDamesGeometrie &geo, const NkDamesVue &vue) {
+				const float32 rayon = geo.cellule * kRayonPion;
+
+				// La case ou la piece animee est DEJA arrivee (dans les regles) :
+				// on ne l'y dessine pas, sinon elle apparait a deux endroits.
+				int32 sauterR = -1, sauterC = -1;
+				const bool anime = (vue.anim != nullptr && vue.anim->actif);
+				if (anime) {
+					vue.anim->CaseFinale(sauterR, sauterC);
+				}
+
+				for (int32 r = 0; r < NkDamesPartie::NK_TAILLE; ++r) {
+					for (int32 c = 0; c < NkDamesPartie::NK_TAILLE; ++c) {
+						if (anime && r == sauterR && c == sauterC) {
+							continue;
+						}
+						const NkDamesPiece piece = vue.partie->Case(r, c);
+						if (piece == NkDamesPiece::NK_VIDE) {
+							continue;
+						}
+						const NkVec2f centre = geo.CentreCase(r, c);
+						DessinerUnPion(dl, centre, rayon, piece, 0.f);
+					}
+				}
+
+				// Les pieces PRISES, tant que l'attaquant ne les a pas franchies.
+				// Elles palissent en s'effacant : une disparition sèche se lit
+				// comme un defaut d'affichage, un fondu se lit comme une capture.
+				if (anime) {
+					for (uint8 i = 0; i < vue.anim->nbPrises; ++i) {
+						if (!vue.anim->PriseVisible(i)) {
+							continue;
+						}
+						const float32 avance = vue.anim->t * static_cast<float32>(vue.anim->nbEtapes);
+						const float32 reste = static_cast<float32>(i) + 0.55f - avance;
+						const float32 opacite = reste > 0.30f ? 1.f : (reste / 0.30f);
+						const NkVec2f centre = geo.CentreCase(vue.anim->prisR[i], vue.anim->prisC[i]);
+						const NkDamesPiece pp = vue.anim->prisPiece[i];
+						const bool b = NkDamesEstBlanc(pp);
+						const uint8 a = static_cast<uint8>(opacite * 255.f);
+						dl.AddCircleFilled(NkVec2f(centre.x, centre.y + rayon * 0.10f), rayon * (0.6f + 0.4f * opacite),
+										   NkColor(b ? kPionBlancOmbre.r : kPionNoirOmbre.r,
+												   b ? kPionBlancOmbre.g : kPionNoirOmbre.g,
+												   b ? kPionBlancOmbre.b : kPionNoirOmbre.b, a));
+						dl.AddCircleFilled(centre, rayon * 0.94f * (0.6f + 0.4f * opacite),
+										   NkColor(b ? kPionBlanc.r : kPionNoir.r, b ? kPionBlanc.g : kPionNoir.g,
+												   b ? kPionBlanc.b : kPionNoir.b, a));
+					}
+				}
+
+				// La piece en mouvement passe EN DERNIER : elle doit survoler les
+				// autres, jamais passer dessous.
+				if (anime) {
+					float32 fr = 0.f, fc = 0.f;
+					vue.anim->Position(fr, fc);
+					const NkVec2f centre(geo.plateau.x + (fc + 0.5f) * geo.cellule,
+										 geo.plateau.y + (fr + 0.5f) * geo.cellule);
+					// Elle se souleve puis se repose : une cloche sur la duree.
+					const float32 t = vue.anim->t;
+					const float32 cloche = 4.f * t * (1.f - t);
+					DessinerUnPion(dl, NkVec2f(centre.x, centre.y - geo.cellule * 0.10f * cloche), rayon * (1.f + 0.06f * cloche),
+								   vue.anim->piece, cloche);
+				}
+			}
+
+			// =====================================================================
+			namespace {
+				/// Un bouton de siege dit DEUX choses d'un coup d'oeil : de quel
+				/// camp il s'agit, et qui le tient. Un bouton qui n'afficherait
+				/// que "IA" obligerait a se souvenir de quel camp il parle.
+				void DessinerSiege(NkGuiDrawList &dl, const NkRect &box, NkGuiFont *petite, const char *nom,
+								   NkControleur qui, bool auTrait, const NkColor &teinte) {
+					const bool ia = (qui == NkControleur::NK_IA);
+					dl.AddRectFilled(box, ia ? kPanneau : kPanneauActif, box.h * 0.28f);
+					// Le siege AU TRAIT se souligne : c'est l'information qu'on
+					// cherche en permanence quand deux humains jouent.
+					dl.AddRect(box, auTrait ? kSelection : kBord, auTrait ? 2.5f : 1.5f, box.h * 0.28f);
+					dl.AddCircleFilled(NkVec2f(box.x + box.h * 0.40f, box.y + box.h * 0.5f), box.h * 0.19f, teinte);
+
+					const NkString libelle = NkString::Format("%s %s", nom, ia ? "IA" : "vous");
+					TexteDansBoite(dl, petite, NkRect{box.x + box.h * 0.66f, box.y, box.w - box.h * 0.72f, box.h},
+								   libelle.Data(), ia ? kTexteFaible : kTexte);
+				}
+			} // namespace
+
+			void DessinerPiedDePage(NkGuiDrawList &dl, const NkDamesGeometrie &geo, const NkDamesPolices &f,
+									const NkDamesVue &vue) {
+				const int32 trait = (vue.partie->Trait() == NkDamesCamp::NK_BLANC) ? 0 : 1;
+				DessinerSiege(dl, geo.siege[0], f.petite, "Blancs", vue.controleur[0], !vue.finie && trait == 0,
+							  kPionBlanc);
+				DessinerSiege(dl, geo.siege[1], f.petite, "Noirs", vue.controleur[1], !vue.finie && trait == 1,
+							  NkColor(120, 124, 140));
+
+				dl.AddRectFilled(geo.rejouer, kPanneau, geo.rejouer.h * 0.28f);
+				dl.AddRect(geo.rejouer, kBord, 1.5f, geo.rejouer.h * 0.28f);
+				TexteDansBoite(dl, f.corps, geo.rejouer, "Nouvelle partie", kTexte);
+			}
+
+			// =====================================================================
+			void DessinerFin(NkGuiDrawList &dl, const renderer::NkLayoutInfo &info, const NkDamesPolices &f,
+							 const NkDamesVue &vue) {
+				const float32 W = static_cast<float32>(info.width);
+				const float32 H = static_cast<float32>(info.height);
+				dl.AddRectFilled(NkRect{0.f, 0.f, W, H}, kVoile);
+
+				const NkRect panneau{W * 0.10f, H * 0.36f, W * 0.80f, H * 0.24f};
+				dl.AddRectFilled(panneau, kPanneau, panneau.h * 0.14f);
+				dl.AddRect(panneau, kOr, 2.f, panneau.h * 0.14f);
+
+				// Le libelle depend de QUI tenait le camp gagnant : "vous avez
+				// gagne" n'a aucun sens dans une simulation IA contre IA.
+				const int32 idxGagnant = (vue.gagnant == NkDamesCamp::NK_BLANC) ? 0 : 1;
+				const char *nom = (idxGagnant == 0) ? "Les blancs gagnent" : "Les noirs gagnent";
+				if (vue.controleur[idxGagnant] == NkControleur::NK_HUMAIN &&
+					vue.controleur[1 - idxGagnant] == NkControleur::NK_IA) {
+					nom = "Vous avez gagne";
+				} else if (vue.controleur[idxGagnant] == NkControleur::NK_IA &&
+						   vue.controleur[1 - idxGagnant] == NkControleur::NK_HUMAIN) {
+					nom = "L'ordinateur gagne";
+				}
+
+				TexteDansBoite(dl, f.titre, NkRect{panneau.x, panneau.y, panneau.w, panneau.h * 0.62f}, nom, kTexte);
+				TexteDansBoite(dl, f.petite,
+							   NkRect{panneau.x, panneau.y + panneau.h * 0.58f, panneau.w, panneau.h * 0.4f},
+							   "Touchez pour rejouer", kTexteFaible);
+			}
+
+		} // namespace dames
+	} // namespace jeux
+} // namespace nkentseu
