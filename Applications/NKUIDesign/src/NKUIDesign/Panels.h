@@ -6210,6 +6210,7 @@ namespace nkuidesign {
 							{"ALIGNEMENT", &CorpsAlignementC, false},
 							{"ESPACEMENT", &CorpsEspacementC, false},
 							{"REMPLISSAGES", &CorpsRemplissagesC, false},
+							{"BORDURES", &CorpsBorduresC, false},
 							{"APPARENCE", &CorpsApparenceC, false},
 							{"TYPOGRAPHIE", &CorpsTypographieC, false},
 							{"EFFETS", &CorpsEffetsC, false},
@@ -6225,6 +6226,7 @@ namespace nkuidesign {
 					{"ALIGNEMENT", &CorpsAlignementC, false},
 					{"ESPACEMENT", &CorpsEspacementC, false},
 					{"REMPLISSAGES", &CorpsRemplissagesC, false},
+					{"BORDURES", &CorpsBorduresC, false},
 					{"APPARENCE", &CorpsApparenceC, false},
 					{"TYPOGRAPHIE", &CorpsTypographieC, false},
 					{"EFFETS", &CorpsEffetsC, false},
@@ -6375,12 +6377,12 @@ namespace nkuidesign {
 					const char *titre;
 					bool ouvert;
 			};
-			static constexpr uint32 kNbSections = 10;
+			static constexpr uint32 kNbSections = 11;
 			EtatSection mSections[kNbSections] = {
 				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
 				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"REMPLISSAGES", true},
-				{"APPARENCE", true},	{"TYPOGRAPHIE", true},	{"EFFETS", false},
-				{"POINTS DE RUPTURE", false},
+				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
+				{"EFFETS", false},	{"POINTS DE RUPTURE", false},
 			};
 			EtatSection *TrouverSection(const char *titre) {
 				for (uint32 i = 0; i < kNbSections; ++i)
@@ -6437,7 +6439,10 @@ namespace nkuidesign {
 				//    besoin ; le jour où une deuxième section en veut une, elle
 				//    descendra — c'est la règle du corollaire, pas son inverse.
 				bool plusPris = false;
-				if (s && StrEq(titre, "REMPLISSAGES") && NoeudMutable()) {
+				const bool sectionAListe =
+					s && NoeudMutable()
+					&& (StrEq(titre, "REMPLISSAGES") || StrEq(titre, "BORDURES"));
+				if (sectionAListe) {
 					const NkRect rp = {r.x + r.w - 28.f, r.y + 4.f, 16.f, 16.f};
 					const bool sv =
 						ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
@@ -6445,7 +6450,10 @@ namespace nkuidesign {
 									sv ? ctx.theme.accent : ctx.theme.textMuted);
 					if (sv && ctx.input.mouseClicked[0]) {
 						plusPris = true; // le clic du « + » n'est PAS un clic de repli
-						AjouterRemplissage();
+						if (StrEq(titre, "BORDURES"))
+							AjouterBordure();
+						else
+							AjouterRemplissage();
 					}
 				}
 				if (s) {
@@ -6569,6 +6577,9 @@ namespace nkuidesign {
 			}
 			static void CorpsRemplissagesC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsRemplissages(ctx);
+			}
+			static void CorpsBorduresC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsBordures(ctx);
 			}
 			static void CorpsBordsC(void *u, NkGuiContext &ctx) {
 				// Le modele porte rayon/bordure depuis le 31/08 (vocabulaire
@@ -7781,11 +7792,17 @@ namespace nkuidesign {
 					// 2. l'HEXA — la seule écriture qui NE matérialise PAS : tant
 					//    qu'on ne change qu'une couleur, un document d'avant garde
 					//    sa clé simple et son octet près.
-					const float32 oeilX = x1 - 16.f, poubX = x1 - 36.f, opacX = x1 - 92.f;
-					const float32 hexW = opacX - (sw.x + 22.f) - 6.f;
+					// ⚠️ MÊME CORRECTION QUE DANS BORDURES, ET POUR LA MÊME RAISON :
+					//    92 px d'opacité ne laissaient que ~57 px à l'hexa, et la
+					//    capture montrait « #00000 » — six caractères sur sept.
+					//    L'opacité tient en trois chiffres ; elle rend 12 px, et son
+					//    « % » garde 5 px de garde avant la poubelle — la première
+					//    reprise les avait mis à se toucher.
+					const float32 oeilX = x1 - 16.f, poubX = x1 - 36.f, opacX = x1 - 80.f;
+					const float32 hexW = opacX - (sw.x + 20.f) - 2.f;
 					char idHex[32];
 					snprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
-					ctx.SetNextItemRect({sw.x + 22.f, r.y + 3.f, hexW > 24.f ? hexW : 24.f, 20.f});
+					ctx.SetNextItemRect({sw.x + 20.f, r.y + 3.f, hexW > 24.f ? hexW : 24.f, 20.f});
 					if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10)) {
 						if (simple)
 							n->fill = NkString(mFillsBuf[i]);
@@ -7797,7 +7814,7 @@ namespace nkuidesign {
 					//    pas la dire).
 					char idOp[32];
 					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
-					const NkRect ro = {opacX, r.y + 3.f, 40.f, 20.f};
+					const NkRect ro = {opacX, r.y + 3.f, 30.f, 20.f};
 					float32 op = simple ? 100.f : n->fills[i].opacite;
 					if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
 						n->MaterialiserFills();
@@ -7889,6 +7906,221 @@ namespace nkuidesign {
 				mSt->status = NkString("Remplissage ajouté — Ctrl+Z le retire.");
 			}
 
+			// ═══════════════════════════════════════════════════════════════════
+			//  BORDURES (Lunacy « BORDERS ») — étage 2 du mandat listes
+			// ═══════════════════════════════════════════════════════════════════
+			// Les DEUX lignes de `lunacy_props_12` : la ligne de couleur (pastille,
+			// hexa, opacité, œil, poubelle) et la ligne de trait (épaisseur +
+			// POSITION). Même grammaire que REMPLISSAGES, volontairement : deux
+			// sections qui font la même chose doivent se ressembler, sinon
+			// l'utilisateur apprend deux gestes pour une seule idée.
+			void CorpsBordures(NkGuiContext &ctx) {
+				if (!SectionOuverte("BORDURES"))
+					return;
+				NkUINode *n = NoeudMutable();
+				if (!n) {
+					designkit::KeyValue(ctx, "Bordures", "-");
+					return;
+				}
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				if (mBordsNode != mSt->selected || mBordsGen != mSt->editionGeneration) {
+					mBordsNode = mSt->selected;
+					mBordsGen = mSt->editionGeneration;
+					for (uint32 i = 0; i < kMaxFillsUI; ++i)
+						mBordsBuf[i][0] = '\0';
+					if (n->borders.Empty())
+						snprintf(mBordsBuf[0], sizeof(mBordsBuf[0]), "%s", n->borderColor.Data());
+					else
+						for (uint32 i = 0; i < (uint32)n->borders.Size() && i < kMaxFillsUI; ++i)
+							snprintf(mBordsBuf[i], sizeof(mBordsBuf[i]), "%s",
+									 n->borders[i].couleur.Data());
+				}
+				const bool rienDePose = n->borders.Empty() && n->borderColor.Empty();
+				const uint32 nb =
+					rienDePose ? 0u : (n->borders.Empty() ? 1u : (uint32)n->borders.Size());
+				// Du DERNIER au premier, comme les remplissages : le dernier se
+				// peint par-dessus, il se montre donc en haut.
+				for (uint32 vi = 0; vi < nb; ++vi) {
+					const uint32 i = nb - 1u - vi;
+					if (i >= kMaxFillsUI)
+						continue;
+					const bool simple = n->borders.Empty();
+					// ── LIGNE 1 : couleur, opacité, œil, poubelle
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+						const bool visible = simple ? true : n->borders[i].visible;
+						const NkRect sw = {x0, r.y + 5.f, 16.f, 16.f};
+						if (mBordsBuf[i][0]) {
+							dl.AddRectFilled(sw, CouleurHex(mBordsBuf[i], ctx.theme.textMuted),
+											 3.f);
+							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+						} else {
+							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+							dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
+									   ctx.theme.textMuted, 1.f);
+						}
+						// ⚠️ LARGEURS MESUREES DANS LEUR COLONNE, pas devinees. La
+						//    premiere version donnait 92 px a l'opacite et laissait
+						//    ~57 px a l'hexa : la capture du 01/09 montrait
+						//    « #00000 » -- SIX caracteres sur sept. Un panneau de
+						//    235 px ne pardonne pas une largeur choisie au juge.
+						//    L'opacite tient en 3 chiffres, elle rend donc 12 px, et son
+						//    « % » garde 5 px avant la poubelle — la premiere reprise
+						//    les avait mis a se toucher.
+						const float32 oeilX = x1 - 16.f, poubX = x1 - 36.f, opacX = x1 - 80.f;
+						const float32 hexW = opacX - (sw.x + 20.f) - 2.f;
+						char idHex[32];
+						snprintf(idHex, sizeof(idHex), "##insp.bord.hex%u", i);
+						ctx.SetNextItemRect(
+							{sw.x + 20.f, r.y + 3.f, hexW > 24.f ? hexW : 24.f, 20.f});
+						if (nkgui::InputText(ctx, idHex, mBordsBuf[i], 10)) {
+							if (simple)
+								n->borderColor = NkString(mBordsBuf[i]);
+							else
+								n->borders[i].couleur = NkString(mBordsBuf[i]);
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						}
+						char idOp[32];
+						snprintf(idOp, sizeof(idOp), "insp.bord.op%u", i);
+						const NkRect ro = {opacX, r.y + 3.f, 30.f, 20.f};
+						float32 op = simple ? 100.f : n->borders[i].opacite;
+						if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
+							n->MaterialiserBorders();
+							const uint32 k = simple ? 0u : i;
+							if (k < (uint32)n->borders.Size())
+								n->borders[k].opacite = op;
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						}
+						costume::Texte(dl, F.px9, ro.x + ro.w + 3.f,
+									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "%",
+									   ctx.theme.textMuted);
+						{
+							const NkRect rp = {poubX, r.y + 6.f, 14.f, 14.f};
+							const bool sv =
+								ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
+							costume::IcPoubelle(dl, rp.x + 1.f, rp.y + 1.f,
+												sv ? ctx.theme.accent : ctx.theme.textMuted);
+							if (sv && ctx.input.mouseClicked[0]) {
+								if (simple) {
+									n->borderColor = NkString();
+									n->borderW = 0.f;
+								} else if (i < (uint32)n->borders.Size())
+									n->borders.RemoveAt(i);
+								mBordsGen = -1;
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								mSt->status = NkString("Bordure retirée — Ctrl+Z la ramène.");
+							}
+						}
+						{
+							const NkRect re = {oeilX, r.y + 6.f, 14.f, 14.f};
+							const bool sv =
+								ctx.popupDepth == 0 && NkGuiRectContains(re, ctx.input.mousePos);
+							const NkColor c = sv ? ctx.theme.accent
+												 : (visible ? ctx.theme.textMuted
+															: ctx.theme.textDisabled);
+							if (visible)
+								costume::IcOeil(dl, re.x + 1.f, re.y + 1.f, c);
+							else
+								costume::IcOeilBarre(dl, re.x + 1.f, re.y + 1.f, c);
+							if (sv && ctx.input.mouseClicked[0]) {
+								n->MaterialiserBorders();
+								const uint32 k = simple ? 0u : i;
+								if (k < (uint32)n->borders.Size())
+									n->borders[k].visible = !n->borders[k].visible;
+								mSt->doc.MarkHumanEdit(mSt->selected);
+							}
+						}
+					}
+					// ── LIGNE 2 : épaisseur + POSITION (la ligne « 1  Outside ⌄ »)
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+						const float32 x0 = r.x + 34.f, x1 = r.x + r.w - 12.f;
+						char idEp[32];
+						snprintf(idEp, sizeof(idEp), "insp.bord.ep%u", i);
+						const NkRect re = {x0, r.y + 2.f, 40.f, 20.f};
+						float32 ep = simple ? (n->borderW > 0.f ? n->borderW : 1.f)
+											: n->borders[i].epaisseur;
+						if (ChampNombre(ctx, idEp, re, ep, 0.25f, 0.f, 64.f)) {
+							if (simple)
+								n->borderW = ep;
+							else
+								n->borders[i].epaisseur = ep;
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						}
+						costume::Texte(dl, F.px9, re.x + re.w + 4.f,
+									   costume::CentrerY(F.px9, r.y + 2.f, 20.f), "px",
+									   ctx.theme.textMuted);
+						// LA POSITION — un bouton qui CYCLE, et qui DIT sa valeur.
+						// ⚠️ Lunacy ouvre un menu déroulant ; on cycle, faute d'un
+						//    combo assez étroit pour 235 px. Ce qui compte est que
+						//    les trois valeurs soient atteignables ET honorées au
+						//    dessin (elles le sont : cf. NkGCadre). Le déroulant
+						//    est un habillage, pas une capacité — il est nommé.
+						const NkBordurePos pos =
+							simple ? NkBordurePos::Interieur : n->borders[i].position;
+						const char *nomPos = (pos == NkBordurePos::Interieur) ? "intérieur"
+											 : (pos == NkBordurePos::Centre)  ? "centré"
+																			  : "extérieur";
+						const float32 pw = costume::Largeur(F.px10, nomPos) + 18.f;
+						const NkRect rp = {x1 - pw, r.y + 2.f, pw, 20.f};
+						const bool sv =
+							ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
+						dl.AddRectFilled(rp, CouleurInput(), 4.f);
+						dl.AddRect(rp, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px10, rp.x + 6.f,
+									   costume::CentrerY(F.px10, rp.y, 20.f), nomPos,
+									   ctx.theme.text);
+						costume::ChevronCombo7(dl, rp.x + rp.w - 11.f, rp.y + 7.5f,
+											   ctx.theme.textMuted);
+						if (sv && ctx.input.mouseClicked[0]) {
+							n->MaterialiserBorders();
+							const uint32 k = simple ? 0u : i;
+							if (k < (uint32)n->borders.Size()) {
+								const NkBordurePos suivant =
+									(n->borders[k].position == NkBordurePos::Interieur)
+										? NkBordurePos::Centre
+									: (n->borders[k].position == NkBordurePos::Centre)
+										? NkBordurePos::Exterieur
+										: NkBordurePos::Interieur;
+								n->borders[k].position = suivant;
+								mSt->status = NkString(
+									suivant == NkBordurePos::Interieur   ? "Bordure : intérieure."
+									: suivant == NkBordurePos::Centre    ? "Bordure : centrée."
+																		 : "Bordure : extérieure.");
+							}
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						}
+					}
+				}
+				if (rienDePose) {
+					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
+					costume::Texte(dl, F.px9, r.x + 12.f, costume::CentrerY(F.px9, r.y, 18.f),
+								   "Aucune — « + » en ajoute.", ctx.theme.textDisabled);
+				}
+			}
+			/// Le « + » de BORDURES. Même règle que pour les remplissages : on ne
+			/// matérialise que s'il y a une clé simple À PRÉSERVER.
+			void AjouterBordure() {
+				NkUINode *n = NoeudMutable();
+				if (!n)
+					return;
+				if ((uint32)n->borders.Size() >= kMaxFillsUI) {
+					mSt->status = NkString("Bordures : la pile de l'inspecteur en montre huit "
+										   "au plus (le modèle, lui, n'a pas de borne).");
+					return;
+				}
+				if (!n->borderColor.Empty())
+					n->MaterialiserBorders();
+				NkBordure b;
+				b.couleur = NkString("#000000");
+				n->borders.PushBack(b);
+				mBordsGen = -1;
+				mSt->doc.MarkHumanEdit(mSt->selected);
+				mSt->status = NkString("Bordure ajoutée — Ctrl+Z la retire.");
+			}
+
 			// ── APPARENCE (reference_4_185519, FONCTIONNELLE) : [Texte],
 			//    Bordure (couleur + épaisseur), Arrondi, Opacité. Chaque contrôle
 			//    écrit sa clé du document (couleur_texte / couleur_bord /
@@ -7921,36 +8153,9 @@ namespace nkuidesign {
 					if (StrEq(n->shape.Data(), "text"))
 						RangeeCouleurEdit(ctx, "Texte", "##insp.app.texte", mTexteColBuf,
 										  n->textColor);
-					// Bordure : pastille + hexa + épaisseur px — trois écritures.
-					{
-						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-						const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
-						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Bordure",
-									   ctx.theme.textMuted);
-						const NkRect sw = {x0 + 52.f, r.y + 5.f, 16.f, 16.f};
-						if (mBordColBuf[0]) {
-							dl.AddRectFilled(sw, CouleurHex(mBordColBuf, ctx.theme.textMuted),
-											 3.f);
-							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-						} else {
-							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-							dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
-									   ctx.theme.textMuted, 1.f);
-						}
-						const float32 hexW = x1 - (sw.x + 24.f) - 64.f;
-						ctx.SetNextItemRect({sw.x + 24.f, r.y + 3.f, hexW, 20.f});
-						if (nkgui::InputText(ctx, "##insp.app.bordc", mBordColBuf, 10)) {
-							n->borderColor = NkString(mBordColBuf);
-							mSt->doc.MarkHumanEdit(mSt->selected);
-						}
-						const NkRect rw = {sw.x + 24.f + hexW + 6.f, r.y + 3.f, 36.f, 20.f};
-						if (ChampNombre(ctx, "insp.app.bordw", rw, n->borderW, 0.25f, 0.f, 32.f))
-							mSt->doc.MarkHumanEdit(mSt->selected);
-						costume::Texte(dl, F.px9, rw.x + rw.w + 4.f,
-									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "px",
-									   ctx.theme.textMuted);
-					}
+					// (« Bordure » vit desormais dans BORDURES — meme raison que
+					//  « Fond » : deux endroits pour ecrire une meme cle, et le
+					//  second aurait ignore la liste.)
 					// Arrondi (la clé `rayon` — les rayons PAR COIN viendront avec
 					// le vocabulaire Lunacy, nommés au rapport).
 					{
@@ -8065,6 +8270,9 @@ namespace nkuidesign {
 			char mFillsBuf[kMaxFillsUI][12] = {};
 			int32 mFillsNode = -1;
 			uint32 mFillsGen = 0;
+			char mBordsBuf[kMaxFillsUI][12] = {};
+			int32 mBordsNode = -1;
+			uint32 mBordsGen = 0;
 			char mTexteColBuf[12] = {};
 			char mBordColBuf[12] = {};
 			/// Les generations d'historique vues par les tampons (une
