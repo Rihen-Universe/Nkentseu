@@ -894,6 +894,38 @@ namespace nkuidesign {
 		// simplement la demi-largeur et la demi-hauteur qu'on lui a données).
 		const float32 hx = r.w * 0.5f, hy = r.h * 0.5f;
 		const uint32 nbS = (uint32)n.sommets.Size();
+		// 🔴 LE BUDGET D'ECHANTILLONS, ET IL VIENT D'UN PLANTAGE MESURE.
+		//    `pousser` refuse silencieusement ce qui depasse `cap` : un contour
+		//    trop long n'etait donc pas ecrete proprement, il etait TRONQUE --
+		//    la fin du trace manquait, le polygone ne se refermait plus sur
+		//    lui-meme, et il se croisait.
+		//
+		//    Tant que le peintre remplissait par un EVENTAIL, ca ne se voyait
+		//    pas : un eventail sur un contour casse dessine un eventail casse.
+		//    Le jour ou le remplissage est passe a une TRIANGULATION par
+		//    ear-clipping (2026-09-01), le meme contour a fait planter
+		//    l'application -- code `0xC0000374`, corruption de tas, reproductible
+		//    en trois secondes avec `--courber` et absent sans.
+		//
+		//    L'arithmetique le disait avant le debogueur : un rect dont les
+		//    quatre cotes sont courbes demande 4 ancres + 4 x 39 echantillons =
+		//    **160 points**, pour un `cap` de **128**. *Le defaut etait deja la
+		//    hier ; c'est le consommateur suivant qui l'a rendu mortel.*
+		//
+		//    On repartit donc la place DISPONIBLE entre les segments courbes, au
+		//    lieu d'esperer qu'elle suffise.
+		uint32 nbCourbes = 0;
+		for (uint32 i = 0; i < nb; ++i)
+			if (i < nbS && NkSegmentCourbe(n, i, (i + 1) % nbS))
+				++nbCourbes;
+		// la place restante une fois les ancres et les arcs d'arrondi poses (on
+		// reserve 7 points par coin arrondi, la valeur de `kSeg + 1`).
+		uint32 reserve = nb;
+		for (uint32 i = 0; i < nb; ++i)
+			if (NkRayonPeint(n, i, nb))
+				reserve += 7;
+		const uint32 budget = (cap > reserve) ? (cap - reserve) : 0u;
+		const uint32 parCourbe = (nbCourbes > 0) ? (budget / nbCourbes) : 0u;
 		for (uint32 i = 0; i < nb; ++i) {
 			const uint32 in = (i + 1) % nb;
 			const float32 cxp = anc[i * 2], cyp = anc[i * 2 + 1];
@@ -958,7 +990,13 @@ namespace nkuidesign {
 			const float32 x3 = anc[in * 2], y3 = anc[in * 2 + 1];
 			const float32 x1 = x0 + a.sx * hx, y1 = y0 + a.sy * hy;
 			const float32 x2 = x3 + b.ex * hx, y2 = y3 + b.ey * hy;
-			const uint32 ns = NkEchantillonsCourbe(NkLongueur2D(x3 - x0, y3 - y0));
+			uint32 ns = NkEchantillonsCourbe(NkLongueur2D(x3 - x0, y3 - y0));
+			// ⚠️ LA FINESSE CEDE DEVANT LA PLACE. Une courbe un peu anguleuse
+			//    reste une forme ; une courbe tronquee n'en est plus une.
+			if (ns > parCourbe + 1u)
+				ns = parCourbe + 1u;
+			if (ns < 2u)
+				ns = 2u;
 			for (uint32 sgm = 1; sgm < ns; ++sgm) {
 				const float32 t = (float32)sgm / (float32)ns;
 				const float32 u = 1.f - t;

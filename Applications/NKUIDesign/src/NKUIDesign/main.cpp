@@ -62,6 +62,7 @@
 
 #include <cstdlib> // atof (levier --lignes=)
 
+#include "NKMath/NkEarcut.h" // cas 42 : le triangulateur du remplissage concave
 #include "Backend.h"
 #include "Costume.h" // le costume exact Banani : polices 9-16 px + icônes (remandat 31/08)
 #include "NkGuiRoundTrip.h"
@@ -2828,6 +2829,138 @@ static nkentseu::int32 RecettePoints() {
 		verdict("41. le pas du clavier vaut 1 unite de DOCUMENT (10 avec Maj), et il ne suit "
 				"PAS le zoom -- contrairement a la tolerance d'aimantation, qui, elle, le suit",
 				nu && avecMaj && independant, d);
+	}
+
+	// ── 42. LE REMPLISSAGE COUVRE UN CONTOUR CONCAVE ──────────────────────
+	// 🔴 ON AVAIT LIVRE UN DEFAUT, ET C'EST LA CAPTURE QUI L'A DIT. Le peintre
+	//    remplissait par un EVENTAIL DEPUIS LE CENTROIDE : juste pour un convexe,
+	//    juste pour une etoile, FAUX des que le contour est concave -- les
+	//    triangles traversent le creux. Tant que l'application ne posait que des
+	//    rectangles et des ellipses, personne ne pouvait le voir. Les poignees de
+	//    Bezier livrees ce soir permettent de tirer une courbe VERS L'INTERIEUR
+	//    d'un bouton : `preuve_courbe_bezier_n9.png` montre le debordement.
+	//    *Une limite qu'aucun geste n'atteignait est devenue un defaut le jour ou
+	//    un geste l'a atteinte.*
+	//
+	// ⚠️ CE CAS NE MESURE PAS LE PEINTRE (il a besoin d'un contexte NKGui), IL
+	//    MESURE LE TRIANGULATEUR -- c'est-a-dire la piece dont le peintre depend,
+	//    et la seule dont un banc sans fenetre puisse juger. Ce qu'il tient : sur
+	//    un contour EN L, la triangulation ne doit produire AUCUN triangle qui
+	//    empiete sur le creux. C'est exactement ce que l'eventail faisait.
+	{
+		// un « L » : concave par construction, le creux est en haut a droite
+		NkVector<NkVector<nkentseu::math::NkVec2f>> contours;
+		NkVector<nkentseu::math::NkVec2f> L;
+		L.PushBack(nkentseu::math::NkVec2f(0.f, 0.f));
+		L.PushBack(nkentseu::math::NkVec2f(40.f, 0.f));
+		L.PushBack(nkentseu::math::NkVec2f(40.f, 40.f));
+		L.PushBack(nkentseu::math::NkVec2f(100.f, 40.f));
+		L.PushBack(nkentseu::math::NkVec2f(100.f, 100.f));
+		L.PushBack(nkentseu::math::NkVec2f(0.f, 100.f));
+		contours.PushBack(L);
+		const NkVector<std::size_t> tri = nkentseu::NkEarcut<float32>(contours);
+		const bool aTriangule = tri.Size() >= 3 && (tri.Size() % 3) == 0;
+		// (a) LE CREUX RESTE VIDE. On prend un point franchement dans l'encoche
+		//     (70, 20) et on verifie qu'AUCUN triangle ne le contient.
+		auto dansTriangle = [&](float32 px, float32 py, std::size_t t) {
+			const nkentseu::math::NkVec2f &a = L[(uint32)tri[t]];
+			const nkentseu::math::NkVec2f &b = L[(uint32)tri[t + 1]];
+			const nkentseu::math::NkVec2f &c = L[(uint32)tri[t + 2]];
+			const float32 d1 = (px - b.x) * (a.y - b.y) - (a.x - b.x) * (py - b.y);
+			const float32 d2 = (px - c.x) * (b.y - c.y) - (b.x - c.x) * (py - c.y);
+			const float32 d3 = (px - a.x) * (c.y - a.y) - (c.x - a.x) * (py - a.y);
+			const bool neg = (d1 < 0.f) || (d2 < 0.f) || (d3 < 0.f);
+			const bool pos = (d1 > 0.f) || (d2 > 0.f) || (d3 > 0.f);
+			return !(neg && pos);
+		};
+		bool creuxVide = true;
+		for (std::size_t t = 0; t + 2 < tri.Size(); t += 3)
+			if (dansTriangle(70.f, 20.f, t))
+				creuxVide = false;
+		// (b) ET LE PLEIN EST BIEN COUVERT : un point du corps du L doit etre
+		//     DANS un triangle. Sans ce volet, une triangulation qui ne rend rien
+		//     du tout passerait le sous-cas (a) haut la main.
+		bool pleinCouvert = false;
+		for (std::size_t t = 0; t + 2 < tri.Size(); t += 3)
+			if (dansTriangle(20.f, 50.f, t))
+				pleinCouvert = true;
+		// (c) L'AIRE TRIANGULEE VAUT L'AIRE DU POLYGONE (5600 pour ce L) : c'est
+		//     la mesure qui attrape a la fois le debordement et le manque.
+		float32 aireTri = 0.f;
+		for (std::size_t t = 0; t + 2 < tri.Size(); t += 3) {
+			const nkentseu::math::NkVec2f &a = L[(uint32)tri[t]];
+			const nkentseu::math::NkVec2f &b = L[(uint32)tri[t + 1]];
+			const nkentseu::math::NkVec2f &c = L[(uint32)tri[t + 2]];
+			float32 s = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+			aireTri += (s < 0.f ? -s : s) * 0.5f;
+		}
+		// ⚠️ 7600 ET NON 5600 : le carre 100x100 MOINS l'encoche 60x40 (2400).
+		//    Ma premiere valeur attendue etait fausse, et le cas est tombe
+		//    dessus -- sur MON arithmetique, pas sur le code. C'est exactement ce
+		//    qu'on demande a un chiffre attendu calcule a la main : qu'il se
+		//    fasse contredire quand il a tort. *Le banc a eu raison contre moi.*
+		const bool aireJuste = aireTri > 7599.f && aireTri < 7601.f;
+		char d[224];
+		snprintf(d, sizeof(d), "%u triangle(s) ; creux vide=%d plein couvert=%d ; aire %.0f "
+							   "(attendue 7600)",
+				 (uint32)(tri.Size() / 3), creuxVide ? 1 : 0, pleinCouvert ? 1 : 0,
+				 (double)aireTri);
+		verdict("42. le triangulateur remplit un contour CONCAVE sans deborder dans le creux, "
+				"couvre le plein, et son aire vaut EXACTEMENT celle du polygone",
+				aTriangule && creuxVide && pleinCouvert && aireJuste, d);
+	}
+
+	// ── 43. LE TRIANGULATEUR SUR UN CONTOUR REEL DE COURBE ────────────────
+	// 🔴 CE CAS EXISTE PARCE QUE LE CAS 42 NE SUFFISAIT PAS, ET LA DIFFERENCE
+	//    EST INSTRUCTIVE. Le cas 42 donne au triangulateur un « L » propre de
+	//    six points : il passe. Branche sur le PEINTRE, le meme triangulateur a
+	//    fait planter l'application -- corruption de tas, code 0xC0000374,
+	//    reproductible en trois secondes avec `--courber`, absent sans.
+	//
+	//    La difference entre les deux n'est pas le triangulateur : c'est SON
+	//    ENTREE. Un contour de courbe reel fait cent-vingt-huit points, dont
+	//    beaucoup tres proches les uns des autres (les echantillons de cubique),
+	//    et certains potentiellement CONFONDUS. *Un banc qui ne nourrit son
+	//    mecanisme que de donnees propres mesure le mecanisme, pas l'usage.*
+	//
+	// ⚠️ CE CAS NE PROUVE PAS QUE LE PLANTAGE EST REPARE -- il n'est PAS repare,
+	//    et le peintre est revenu a son eventail. Il pose le TEMOIN qui dira
+	//    quand il l'est : le jour ou ce cas passe avec un contour reel, le
+	//    branchement pourra etre retente.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iC = poser("rect", nullptr);
+		NkUINode &nc = st.doc.nodes[(uint32)iC];
+		NkMaterialiserSommets(nc);
+		for (uint32 k = 0; k < (uint32)nc.sommets.Size(); ++k) {
+			nc.sommets[k].liaison = NkPoint2::LiaisonMiroir;
+			NkPoserTangente(nc.sommets[k], 1, 0.55f, 0.35f);
+		}
+		float32 ct[256];
+		const NkPaintRect rc = {100.f, 100.f, 180.f, 36.f};
+		const uint32 nbc = NkContourDe(nc, rc, ct, 128);
+		// (a) LE BUDGET EST TENU : le contour ne DEPASSE PLUS le cap qu'on lui
+		//     donne. C'etait le premier defaut trouve -- un contour tronque ne se
+		//     referme plus sur lui-meme, et il se croise.
+		const bool tientDansLeCap = nbc > 0 && nbc <= 128u;
+		// (b) AUCUN POINT CONFONDU AVEC SON VOISIN : c'est le suspect qui reste,
+		//     et le seul que ce banc puisse nommer sans debogueur.
+		uint32 confondus = 0;
+		for (uint32 i = 0; i < nbc; ++i) {
+			const uint32 j = (i + 1) % nbc;
+			const float32 dx = ct[i * 2] - ct[j * 2];
+			const float32 dy = ct[i * 2 + 1] - ct[j * 2 + 1];
+			if (NkLongueur2D(dx, dy) < 0.0001f)
+				++confondus;
+		}
+		char d[192];
+		snprintf(d, sizeof(d), "contour reel = %u points (cap 128), %u point(s) confondu(s) "
+							   "avec leur voisin",
+				 nbc, confondus);
+		verdict("43. le contour d'une forme ENTIEREMENT courbe tient dans le cap qu'on lui "
+				"donne et ne contient AUCUN point confondu avec son voisin (temoin du "
+				"branchement du triangulateur)",
+				tientDansLeCap && confondus == 0, d);
 	}
 
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
