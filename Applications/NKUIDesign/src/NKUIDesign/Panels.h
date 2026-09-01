@@ -8497,13 +8497,21 @@ namespace nkuidesign {
 						designkit::Segmented(ctx, kTypes, 4, courant, "insp.forme.types");
 					if (!unSelectionne)
 						ctx.EndDisabled();
+					// 🔴 `NkPoserLiaisonSommet`, PAS `NkPoserLiaison` — et c'est LA
+					//    correction du 01/09 (capture `probleme_pas_de_poignees`).
+					//    L'ancienne ligne posait le type et laissait les quatre
+					//    nombres à zéro : le sommet devenait « Libre » sans aucune
+					//    poignée, donc rien à peindre et rien à saisir. La porte du
+					//    tracé amorce les tangentes sur la corde des voisins, ce
+					//    que la mise en scène `--courber` faisait déjà à la main —
+					//    *le harnais nommait le geste qui manquait à l'interface.*
 					if (unSelectionne && choisi >= 0) {
 						NkMaterialiserSommets(n);
 						uint32 touches = 0;
 						for (uint32 k = 0; k < (uint32)n.sommets.Size(); ++k) {
 							if (!mSt->modeForme.Marque((int32)k))
 								continue;
-							NkPoserLiaison(n.sommets[k], (nkentseu::uint8)choisi);
+							NkPoserLiaisonSommet(n, k, (nkentseu::uint8)choisi);
 							++touches;
 						}
 						if (touches > 0) {
@@ -8513,7 +8521,9 @@ namespace nkuidesign {
 							snprintf(b, sizeof(b),
 									 "%u sommet(s) passé(s) en « %s »%s", touches,
 									 kTypes[choisi],
-									 choisi == 0 ? " — les tangentes sont effacées." : ".");
+									 choisi == 0
+										 ? " — les tangentes sont effacées."
+										 : " — poignées amorcées, tirez-les pour courber.");
 							mSt->status = NkString(b);
 						}
 					}

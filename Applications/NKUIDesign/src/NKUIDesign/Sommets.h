@@ -796,6 +796,104 @@ namespace nkuidesign {
 		}
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  AMORCER LES TANGENTES — LA MOITIÉ QUI MANQUAIT, ET LE HARNAIS LE DISAIT
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// Retour de Rodolf, 01/09 (nuit) : *« aucune poignée de dessinée dans
+	/// l'interface »*, capture `probleme_pas_de_poignees_222121.png` — un sommet
+	/// passé en « Libre » dans le panneau, et rien à l'écran.
+	///
+	/// 🔴 LA CAUSE N'ÉTAIT PAS LE DESSIN, C'ÉTAIT UN ÉTAT SANS ISSUE, et les deux
+	///    boucles qui le subissaient portaient la MÊME garde, écrite deux fois :
+	///    `if (tx == 0.f && ty == 0.f) continue;` — au peintre des poignées, et au
+	///    ramasseur qui décide laquelle on saisit. Elle est juste toutes les deux
+	///    fois (une tangente nulle n'a pas de position à l'écran, et une poignée
+	///    qu'on ne voit pas ne doit pas voler de clic). Mais `NkPoserLiaison`
+	///    laisse les quatre nombres à zéro quand on quitte `LiaisonDroit` : le
+	///    sommet devient courbe **sans aucune poignée**, la seule main qui
+	///    pourrait lui en donner une est celle qui devrait en saisir une, et
+	///    **le cycle se referme sur lui-même.**
+	///
+	/// ⚠️ ET C'EST LE HARNAIS QUI L'A DIT, PAS LA RELECTURE. La mise en scène
+	///    `--courber` écrit, depuis toujours, `NkPoserLiaison` **puis**
+	///    `NkPoserTangente(…, 0.55f, 0.35f)` — deux lignes là où l'interface n'en
+	///    a qu'une. Le levier de capture avait dû semer la tangente à la main
+	///    parce que sans elle il n'aurait rien photographié. *Une mise en scène
+	///    qui doit ajouter un geste pour voir quelque chose nomme exactement le
+	///    geste qui manque à l'utilisateur* — et la recette, elle, passait au vert
+	///    (cas 35 et 40) parce qu'elle pose ses tangentes elle-même. **Un vert
+	///    posé au-dessus d'un état que la main ne peut pas atteindre.**
+	///
+	/// **LA DIRECTION EST CELLE DE LA CORDE DES VOISINS, LA LONGUEUR UN TIERS.**
+	/// C'est la construction lisse classique (Illustrator, Figma, Inkscape) : la
+	/// tangente sortante suit `P(i+1) − P(i−1)` normalisée, sur un tiers de la
+	/// distance au voisin de son côté ; l'entrante prend l'opposé. Un sommet qui
+	/// bascule en courbe s'arrondit donc **visiblement**, ce qui est le retour que
+	/// la main attend — un type qui ne changerait rien à l'écran serait la « case
+	/// cochée à côté d'un aimant qui ne fait rien » que ce chantier chasse.
+	///
+	/// ⚠️ LA CORDE NULLE EST UN CAS RÉEL, PAS THÉORIQUE : sur un sommet dont les
+	///    deux voisins sont confondus, `P(i+1) − P(i−1)` vaut zéro et la
+	///    normalisation rendrait des NaN qui se propagent en silence jusqu'au
+	///    dessin. On retombe alors sur une direction ARBITRAIRE MAIS DITE
+	///    (l'horizontale) : la seule autre réponse — ne rien poser — rendrait le
+	///    sommet inéditable, c'est-à-dire le défaut qu'on est en train de réparer.
+	///
+	/// @return vrai si des tangentes ont été posées (donc si l'écran change).
+	inline bool NkAmorcerTangentes(NkUINode &n, uint32 i) {
+		const uint32 nb = (uint32)n.sommets.Size();
+		if (i >= nb || nb < 2u)
+			return false;
+		NkPoint2 &p = n.sommets[i];
+		if (p.liaison == NkPoint2::LiaisonDroit)
+			return false;
+		// on n'écrase JAMAIS une courbe existante : amorcer, ce n'est pas remettre
+		// à zéro. Une seule poignée déjà tirée suffit à laisser le sommet tranquille.
+		if (p.ex != 0.f || p.ey != 0.f || p.sx != 0.f || p.sy != 0.f)
+			return false;
+		const NkPoint2 &pp = n.sommets[(i + nb - 1u) % nb];
+		const NkPoint2 &pn = n.sommets[(i + 1u) % nb];
+		float32 dx = pn.x - pp.x, dy = pn.y - pp.y;
+		const float32 lon = NkLongueur2D(dx, dy);
+		if (lon < 0.0001f) {
+			dx = 1.f;
+			dy = 0.f;
+		} else {
+			dx /= lon;
+			dy /= lon;
+		}
+		// un tiers de la distance au voisin de CE côté-là : sur un tracé aux côtés
+		// inégaux, deux poignées de même longueur creuseraient le petit côté.
+		const float32 lp = NkLongueur2D(p.x - pp.x, p.y - pp.y) / 3.f;
+		const float32 ln = NkLongueur2D(pn.x - p.x, pn.y - p.y) / 3.f;
+		// ⚠️ UN PLANCHER, SINON LE REMÈDE REPRODUIT LA MALADIE : deux sommets
+		//    confondus donnent une longueur nulle, donc une tangente nulle, donc
+		//    de nouveau aucune poignée à saisir. 0,04 en unitaire vaut ~2 px sur
+		//    une boîte de 100 — assez pour être visé à la souris.
+		const float32 kMin = 0.04f;
+		p.sx = dx * (ln > kMin ? ln : kMin);
+		p.sy = dy * (ln > kMin ? ln : kMin);
+		p.ex = -dx * (lp > kMin ? lp : kMin);
+		p.ey = -dy * (lp > kMin ? lp : kMin);
+		return true;
+	}
+
+	/// CHANGER LE TYPE D'UN SOMMET **DANS SON TRACÉ** — c'est cette porte-là que
+	/// l'interface appelle, jamais `NkPoserLiaison` toute seule.
+	/// ⚠️ ELLE EXISTE PARCE QUE LA RÈGLE A BESOIN DES VOISINS, et que le sommet ne
+	///    les connaît pas. `NkPoserLiaison` reste la règle du POINT (ranger les
+	///    deux poignées l'une par rapport à l'autre) ; l'amorce est une règle du
+	///    TRACÉ (d'où partir). Les séparer garde la première testable seule et
+	///    évite qu'un site d'appel oublie la seconde — ce qui est exactement ce
+	///    qui venait d'arriver au panneau.
+	inline bool NkPoserLiaisonSommet(NkUINode &n, uint32 i, nkentseu::uint8 liaison) {
+		if (i >= (uint32)n.sommets.Size())
+			return false;
+		NkPoserLiaison(n.sommets[i], liaison);
+		NkAmorcerTangentes(n, i);
+		return true;
+	}
+
 	/// Le segment `i → j` porte-t-il une courbe ? Vrai dès qu'un des deux bouts
 	/// pose une tangente de ce côté-là.
 	inline bool NkSegmentCourbe(const NkUINode &n, uint32 i, uint32 j) {

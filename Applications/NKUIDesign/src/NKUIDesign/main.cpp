@@ -3099,6 +3099,78 @@ static nkentseu::int32 RecettePoints() {
 				borneExacte && aireJuste && sensIndifferent && refusFranc && refusNoeuds, d);
 	}
 
+	// ── 46. CHANGER DE TYPE DONNE DES POIGNEES QU'ON PEUT VOIR ET SAISIR ──────
+	// 🔴 LE CAS QUI MANQUAIT, ET C'EST UNE CAPTURE DE RODOLF QUI L'A NOMME
+	//    (`probleme_pas_de_poignees_222121.png`, 01/09) : le panneau annoncait
+	//    « Sommet 3 sur 4 », type « Libre » en surbrillance -- et AUCUNE poignee a
+	//    l'ecran. Le sommet devenait courbe avec quatre tangentes a zero ; le
+	//    peintre et le ramasseur les sautaient tous les deux (`tx == 0 && ty == 0`),
+	//    donc rien a voir, rien a saisir, et aucune main ne pouvait sortir de la.
+	//
+	// ⚠️ ET LES CAS 35 ET 40 ETAIENT VERTS PENDANT CE TEMPS-LA, parce qu'ils
+	//    POSENT LEURS TANGENTES EUX-MEMES avant de mesurer. Ils prouvaient une
+	//    regle vraie sur un etat que l'interface ne savait pas atteindre. Ce cas
+	//    part donc de l'ETAT QUE LA MAIN PRODUIT -- un sommet droit, un clic sur
+	//    un type -- et il n'a le droit de rien poser lui-meme.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iA = poser("rect", nullptr);
+		NkUINode &n = st.doc.nodes[(uint32)iA];
+		NkMaterialiserSommets(n);
+		const uint32 nbA = (uint32)n.sommets.Size();
+		// (a) AVANT : un sommet droit n'a aucune tangente, et c'est correct.
+		const bool vifAvant = !n.sommets[1].Courbe();
+		// (b) LE GESTE DE L'INTERFACE, ET RIEN D'AUTRE : on appelle exactement la
+		//     porte que le panneau appelle, sans poser un seul nombre a la main.
+		NkPoserLiaisonSommet(n, 1u, NkPoint2::LiaisonDeconnecte);
+		const NkPoint2 &p1 = n.sommets[1];
+		const bool deuxPoignees = (p1.ex != 0.f || p1.ey != 0.f) && (p1.sx != 0.f || p1.sy != 0.f);
+		// (c) ELLES SONT VISIBLES : la garde du peintre est `tx == 0 && ty == 0`,
+		//     donc « non nul » suffit a etre peint -- mais une poignee a 0,001 du
+		//     sommet serait invisible ET invisable. On exige le plancher.
+		const float32 le = NkLongueur2D(p1.ex, p1.ey), ls = NkLongueur2D(p1.sx, p1.sy);
+		const bool visables = le >= 0.04f && ls >= 0.04f;
+		// (d) AUCUN NaN : la corde des voisins peut etre nulle, et la division
+		//     silencieuse est exactement ce qui se propage jusqu'au dessin.
+		const bool sain = (p1.ex == p1.ex) && (p1.ey == p1.ey) && (p1.sx == p1.sx)
+						  && (p1.sy == p1.sy);
+		// (e) LE CONTOUR PEINT LE MONTRE : sans ce volet, « des nombres non nuls »
+		//     resterait une affirmation sur le modele. Le trace doit gagner des
+		//     points, c'est-a-dire que l'ecran doit CHANGER.
+		float32 cA[512], cB[512];
+		const NkPaintRect bo = {0.f, 0.f, 100.f, 80.f};
+		const uint32 nAp = NkContourDe(n, bo, cB, 256);
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iB = poser("rect", nullptr);
+		NkUINode &n2 = st.doc.nodes[(uint32)iB];
+		NkMaterialiserSommets(n2);
+		const uint32 nAv = NkContourDe(n2, bo, cA, 256);
+		const bool ecranChange = nAp > nAv;
+		// (f) ⚠️ CONSERVATION : amorcer n'ECRASE PAS une courbe deja tiree. Sans ce
+		//     volet, passer de « Miroir » a « Libre » sur un sommet qu'on vient de
+		//     courber remettrait la poignee a sa longueur par defaut -- une main
+		//     qui perd son travail en changeant un type.
+		NkPoserLiaisonSommet(n2, 2u, NkPoint2::LiaisonMiroir);
+		NkPoserTangente(n2.sommets[2], 1, 0.77f, 0.11f);
+		NkPoserLiaisonSommet(n2, 2u, NkPoint2::LiaisonDeconnecte);
+		const bool garde = n2.sommets[2].sx > 0.769f && n2.sommets[2].sx < 0.771f;
+		// (g) ET LE RETOUR A « DROIT » EFFACE ENCORE : l'amorce ne doit pas
+		//     ressusciter des tangentes que le type promet d'avoir enlevees.
+		NkPoserLiaisonSommet(n2, 2u, NkPoint2::LiaisonDroit);
+		const bool efface = !n2.sommets[2].Courbe() && n2.sommets[2].sx == 0.f;
+		char dd[240];
+		snprintf(dd, sizeof(dd), "%u sommets ; vif avant=%d ; deux poignees=%d (long %.3f / %.3f, "
+							   "visables=%d) ; sain=%d ; contour %u -> %u pts=%d ; courbe gardee=%d "
+							   "; retour droit efface=%d",
+				 nbA, vifAvant ? 1 : 0, deuxPoignees ? 1 : 0, (double)le, (double)ls,
+				 visables ? 1 : 0, sain ? 1 : 0, nAv, nAp, ecranChange ? 1 : 0, garde ? 1 : 0,
+				 efface ? 1 : 0);
+		verdict("46. CHANGER LE TYPE D'UN SOMMET LUI DONNE DES POIGNEES VISIBLES ET SAISISSABLES "
+				"(sans que la recette en pose une seule elle-meme), le contour peint le montre, "
+				"et une courbe deja tiree n'est PAS ecrasee",
+				vifAvant && deuxPoignees && visables && sain && ecranChange && garde && efface, dd);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
