@@ -134,6 +134,17 @@ namespace nkentseu {
 			Num5,
 			Num6,
 			Comma,
+			// ── LE MEME MANQUE, RELEVE UNE SECONDE FOIS (NkUIDesign, 2026-09-01) ──
+			// 📌 A ET R MANQUENT ENCORE, et le symptome est exactement celui
+			//    raconte juste au-dessus : NkUIDesign a branche six raccourcis
+			//    (Ctrl+C/X/V/D/G, Ctrl+Maj+G) mais NE PEUT PAS brancher Ctrl+A
+			//    (tout selectionner) ni R (outil rectangle) -- ses menus les
+			//    annoncent, aucun code ne peut les recevoir.
+			//    *Un manque qui se represente est un manque qui coute plus que sa
+			//    correction.* A grouper avec les autres lettres le jour ou on
+			//    ouvrira l enum : ce n est pas un chantier, c est une ligne par
+			//    touche, mais il vaut mieux les poser toutes d un coup que d y
+			//    revenir a chaque application.
 			Count
 		};
 
