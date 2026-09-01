@@ -2143,6 +2143,71 @@ static nkentseu::int32 RecettePoints() {
 				"aller-retour",
 				aDesSommets && ancree0 && stable && relu == 12.f, dd);
 	}
+	// ── 28. LIRE UN SOMMET N'ECRIT RIEN ────────────────────────────────────
+	//     🔴 CE CAS EXISTE PARCE QUE LE DEFAUT A FAILLI PARTIR. La premiere
+	//     version de la section « EDITION DE FORME » de l'Inspecteur appelait
+	//     `NkMaterialiserSommets` POUR LIRE : ouvrir un panneau ajoutait la liste
+	//     `sommets` au noeud, changeait les octets du fichier et marquait le
+	//     document modifie -- alors que l'utilisateur n'avait rien fait.
+	//
+	// ⚠️ ET LE VOLET CONSERVATION DU CAS 22 NE L'AURAIT PAS VU : il entre en mode
+	//    points et en sort, mais il n'execute pas l'Inspecteur. *Une garde ne
+	//    couvre que la porte qu'elle regarde.* Celle-ci porte donc sur le
+	//    MECANISME de lecture, la ou les deux panneaux passent.
+	//
+	// ⚠️ ET IL EXIGE AUSSI L'ACCORD DES DEUX LECTURES. Une lecture qui n'ecrit
+	//    rien mais rend d'autres nombres que la table materialisee serait pire
+	//    que le defaut d'origine : le panneau montrerait le polygone regulier
+	//    pendant que l'ecran montre la forme deja deformee.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iR = poser("rect", nullptr);
+		const int32 iE = poser("etoile", nullptr);
+		NkString avant;
+		st.doc.Save(avant);
+		// (a) LIRE les sommets des deux formes -- rien ne doit bouger
+		uint32 nbR = NkNbSommetsDe(st.doc.nodes[(uint32)iR]);
+		uint32 nbE = NkNbSommetsDe(st.doc.nodes[(uint32)iE]);
+		float32 lus[20][3];
+		bool tousLus = nbR == 4 && nbE == 10;
+		for (uint32 i = 0; i < nbE && i < 20; ++i)
+			if (!NkLireSommet(st.doc.nodes[(uint32)iE], i, lus[i][0], lus[i][1], lus[i][2]))
+				tousLus = false;
+		NkString apres;
+		st.doc.Save(apres);
+		const bool stable = avant.Size() == apres.Size()
+							&& NkComponentDecl::StrEq(avant.Data(), apres.Data());
+		// (b) LES MEMES NOMBRES qu'apres materialisation : une lecture qui
+		//     diverge de l'ecriture serait pire que le defaut d'origine
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
+		bool memes = (uint32)st.doc.nodes[(uint32)iE].sommets.Size() == nbE;
+		for (uint32 i = 0; memes && i < nbE; ++i)
+			memes = st.doc.nodes[(uint32)iE].sommets[i].x == lus[i][0]
+					&& st.doc.nodes[(uint32)iE].sommets[i].y == lus[i][1]
+					&& st.doc.nodes[(uint32)iE].sommets[i].rayon == lus[i][2];
+		// (c) 🔴 LE VOLET QU'UNE MUTATION A DESIGNE. Sans lui, ce cas ne
+		//     couvrait que le REPLI sur la table reguliere : une mutation qui
+		//     faisait ignorer la LISTE STOCKEE a `NkLireSommet` lui survivait
+		//     28/28. Or c'est le pire des deux defauts -- le panneau montrerait
+		//     le polygone regulier pendant que l'ecran montre la forme deformee.
+		//     *Une garde qui ne teste que la branche facile rend un vert qui ment.*
+		st.doc.nodes[(uint32)iE].sommets[3].x = -0.75f;
+		st.doc.nodes[(uint32)iE].sommets[3].rayon = 12.f;
+		float32 dx = 0.f, dy = 0.f, dr = 0.f;
+		const bool litLeDeplace = NkLireSommet(st.doc.nodes[(uint32)iE], 3, dx, dy, dr)
+								  && dx == -0.75f && dr == 12.f;
+		char d[224];
+		snprintf(d, sizeof(d),
+				 "rect=%u sommets, etoile=%u ; %u octets %s ; memes nombres=%d ; sommet deplace "
+				 "relu x=%.2f r=%.0f",
+				 nbR, nbE, (uint32)avant.Size(), stable ? "octet pour octet" : "ONT BOUGE",
+				 memes ? 1 : 0, (double)dx, (double)dr);
+		verdict("28. LIRE un sommet (NkLireSommet / NkNbSommetsDe) n'ecrit RIEN dans le "
+				"document, rend les MEMES nombres que la table materialisee, ET rend la LISTE "
+				"STOCKEE des qu'elle existe (pas la table reguliere)",
+				tousLus && stable && memes && litLeDeplace && avant.Size() > 0, d);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

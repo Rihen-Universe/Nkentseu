@@ -7831,13 +7831,17 @@ namespace nkuidesign {
 				if (!mSt->doc.IsValidIndex(noeud))
 					return;
 				NkUINode &n = mSt->doc.nodes[(uint32)noeud];
-				// ⚠️ LES SOMMETS SE MATÉRIALISENT POUR ÊTRE LUS, ET C'EST LE MÊME
-				//    APPEL QUE LA TOILE (`NkMaterialiserSommets`). Lire la table
-				//    unitaire ici et la liste stockée là-bas aurait donné deux
-				//    vérités : le panneau montrerait le polygone régulier pendant
-				//    que l'écran montre la forme déjà déformée.
-				NkMaterialiserSommets(n);
-				const uint32 nbS = (uint32)n.sommets.Size();
+				// 🔴 REGARDER N'ÉCRIT PAS. Ma première version appelait ici
+				//    `NkMaterialiserSommets` pour lire — ce qui ajoute la liste
+				//    `sommets` au nœud, change les octets du fichier et marque le
+				//    document modifié ALORS QUE L'UTILISATEUR N'A FAIT QU'OUVRIR
+				//    UN PANNEAU. Et le volet CONSERVATION du mode points (cas 22)
+				//    ne l'aurait pas vu : il n'exécute pas l'Inspecteur. La
+				//    lecture passe donc par `NkLireSommet` / `NkNbSommetsDe`, qui
+				//    retombent sur la table régulière sans rien écrire ; la
+				//    matérialisation reste au moment de l'ÉCRITURE, comme sur la
+				//    toile.
+				const uint32 nbS = NkNbSommetsDe(n);
 				const int32 iSel = mSt->modeForme.sommet;
 				const bool unSelectionne = iSel >= 0 && (uint32)iSel < nbS;
 
@@ -7866,21 +7870,34 @@ namespace nkuidesign {
 								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "\xE2\x8C\x92",
 								   ctx.theme.textMuted);
 					const NkRect rr = {ry.x + ry.w + 24.f, r.y + 3.f, 44.f, 20.f};
-					if (unSelectionne && rb.w > 0.f && rb.h > 0.f) {
-						float32 px = (n.sommets[(uint32)iSel].x + 1.f) * 0.5f * rb.w;
-						float32 py = (n.sommets[(uint32)iSel].y + 1.f) * 0.5f * rb.h;
-						float32 ra = n.sommets[(uint32)iSel].rayon;
+					float32 sx = 0.f, sy = 0.f, ra = 0.f;
+					if (unSelectionne && rb.w > 0.f && rb.h > 0.f
+						&& NkLireSommet(n, (uint32)iSel, sx, sy, ra)) {
+						float32 px = (sx + 1.f) * 0.5f * rb.w;
+						float32 py = (sy + 1.f) * 0.5f * rb.h;
+						// ⚠️ LA MATÉRIALISATION EST ICI, DANS LA BRANCHE QUI ÉCRIT,
+						//    et pas une ligne plus haut : c'est la seule place où
+						//    elle ne transforme pas un regard en modification.
 						if (ChampNombre(ctx, "insp.forme.x", rx, px, 0.5f, -4096.f, 4096.f)) {
-							n.sommets[(uint32)iSel].x = px / (rb.w * 0.5f) - 1.f;
-							mSt->doc.MarkHumanEdit(noeud);
+							NkMaterialiserSommets(n);
+							if ((uint32)iSel < (uint32)n.sommets.Size()) {
+								n.sommets[(uint32)iSel].x = px / (rb.w * 0.5f) - 1.f;
+								mSt->doc.MarkHumanEdit(noeud);
+							}
 						}
 						if (ChampNombre(ctx, "insp.forme.y", ry, py, 0.5f, -4096.f, 4096.f)) {
-							n.sommets[(uint32)iSel].y = py / (rb.h * 0.5f) - 1.f;
-							mSt->doc.MarkHumanEdit(noeud);
+							NkMaterialiserSommets(n);
+							if ((uint32)iSel < (uint32)n.sommets.Size()) {
+								n.sommets[(uint32)iSel].y = py / (rb.h * 0.5f) - 1.f;
+								mSt->doc.MarkHumanEdit(noeud);
+							}
 						}
 						if (ChampNombre(ctx, "insp.forme.rayon", rr, ra, 0.5f, 0.f, 256.f)) {
-							n.sommets[(uint32)iSel].rayon = ra;
-							mSt->doc.MarkHumanEdit(noeud);
+							NkMaterialiserSommets(n);
+							if ((uint32)iSel < (uint32)n.sommets.Size()) {
+								n.sommets[(uint32)iSel].rayon = ra;
+								mSt->doc.MarkHumanEdit(noeud);
+							}
 						}
 					} else {
 						BoiteChamp(ctx, rx, "\xE2\x80\x94");

@@ -253,6 +253,51 @@ namespace nkuidesign {
 		return 0;
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LIRE UN SOMMET SANS RIEN ÉCRIRE — ET C'EST UNE RÈGLE, PAS UN CONFORT
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ CES DEUX FONCTIONS EXISTENT PARCE QUE LA SECTION « ÉDITION DE FORME »
+	///    DE L'INSPECTEUR A FAILLI ÉCRIRE DANS LE DOCUMENT RIEN QU'EN S'AFFICHANT.
+	///    Sa première version appelait `NkMaterialiserSommets` pour lire — ce qui
+	///    ajoute la liste `sommets` au nœud, change les octets du fichier et
+	///    marque le document modifié **alors que l'utilisateur n'a fait
+	///    qu'ouvrir un panneau**. Et le volet CONSERVATION du mode points
+	///    (cas 22) ne l'aurait pas vu : il n'exécute pas l'Inspecteur.
+	///
+	///    *Regarder n'écrit pas.* La matérialisation reste au moment de
+	///    l'ÉCRITURE — le glisser d'un sommet, l'ajout, l'arrondi — exactement
+	///    comme la toile le fait déjà.
+	/// @return le nombre de sommets, liste stockée ou table régulière.
+	inline uint32 NkNbSommetsDe(const NkUINode &n) {
+		if (!n.sommets.Empty())
+			return (uint32)n.sommets.Size();
+		if (!NkSommetsStockes(NkNatureDe(n.shape.Data())))
+			return 0;
+		const float32 *unit = nullptr;
+		return NkSommetsUnitaires(n.shape.Data(), unit);
+	}
+
+	/// Le sommet `i` en coordonnées UNITAIRES (-1..1) et son rayon, sans écrire.
+	inline bool NkLireSommet(const NkUINode &n, uint32 i, float32 &x, float32 &y,
+							 float32 &rayon) {
+		if (!n.sommets.Empty()) {
+			if (i >= (uint32)n.sommets.Size())
+				return false;
+			x = n.sommets[i].x;
+			y = n.sommets[i].y;
+			rayon = n.sommets[i].rayon;
+			return true;
+		}
+		const float32 *unit = nullptr;
+		const uint32 nb = NkSommetsUnitaires(n.shape.Data(), unit);
+		if (!unit || i >= nb)
+			return false;
+		x = unit[i * 2];
+		y = unit[i * 2 + 1];
+		rayon = 0.f; // la table régulière est VIVE par définition
+		return true;
+	}
+
 	/// MATÉRIALISER les sommets d'un polygone : la table régulière devient une
 	/// liste que la main peut modifier. Idempotent, et sans effet sur une forme
 	/// qui n'est pas un polygone.
