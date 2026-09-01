@@ -1372,6 +1372,58 @@ static nkentseu::int32 RecettePoints() {
 				"celui-la",
 				bouge && autresFixes, d);
 	}
+	// ── 12. LA PRIORITE DE POIGNEE EST DITE, PAS SUBIE ─────────────────────
+	//     ⚠️ Sur une LIGNE, les deux bouts tombent EXACTEMENT sur deux coins de
+	//     la boite : poignee de redimensionnement et poignee de sommet au MEME
+	//     pixel. La premiere correction les rendait exclusives par deux gardes
+	//     situees a six cents lignes l'une de l'autre -- une priorite SUBIE, que
+	//     le premier qui deplace un des deux `if` casse sans s'en apercevoir.
+	//     La regle se cite maintenant, et ce cas la tient.
+	{
+		const bool ok = NkAQuiLaPoignee(7, 7) == NkProprioPoignee::Sommet
+						&& NkAQuiLaPoignee(-1, 7) == NkProprioPoignee::Redimension
+						&& NkAQuiLaPoignee(7, 9) == NkProprioPoignee::Redimension
+						&& NkAQuiLaPoignee(7, -1) == NkProprioPoignee::Aucune
+						&& NkAQuiLaPoignee(-1, -1) == NkProprioPoignee::Aucune;
+		verdict("12. en mode points le SOMMET gagne ; ailleurs, la poignee de "
+				"redimensionnement -- et la regle se cite au lieu de dependre de l'ordre du "
+				"code",
+				ok, "");
+	}
+	// ── 13. LE CAS FRERE : rect et ellipse ont DEJA des poignees de coin ────
+	//     ⚠️ Le conflit y serait le meme -- sauf que le mode points ne s'ouvre
+	//     JAMAIS sur ces formes. Ce cas verifie que l'invariant est STRUCTUREL
+	//     (la table le refuse) et pas une coincidence de l'implementation.
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iR = poser("rect", nullptr);
+		const int32 iEl = poser("ellipse", nullptr);
+		const int32 iIm = poser("image", nullptr);
+		const int32 iL = poser("line", nullptr);
+		const int32 iE = poser("etoile", nullptr);
+		const int32 iT = poser("text", "x");
+		auto peut = [&](int32 i) { return NkPeutEntrerEnPoints(st.doc.nodes[(uint32)i]); };
+		// et la table du double-clic dit la MEME chose : les deux voies d'entree
+		// ne peuvent pas diverger sans que ce cas le voie.
+		auto issue = [&](int32 i) { return NkIssueDeDblClic(st.doc.nodes[(uint32)i]); };
+		const bool coherent =
+			(peut(iR) == (issue(iR) == NkIssueDblClic::ModePoints))
+			&& (peut(iEl) == (issue(iEl) == NkIssueDblClic::ModePoints))
+			&& (peut(iIm) == (issue(iIm) == NkIssueDblClic::ModePoints))
+			&& (peut(iL) == (issue(iL) == NkIssueDblClic::ModePoints))
+			&& (peut(iE) == (issue(iE) == NkIssueDblClic::ModePoints))
+			&& (peut(iT) == (issue(iT) == NkIssueDblClic::ModePoints));
+		char d[128];
+		snprintf(d, sizeof(d), "rect=%d, ellipse=%d, image=%d | ligne=%d, etoile=%d, texte=%d",
+				 peut(iR) ? 1 : 0, peut(iEl) ? 1 : 0, peut(iIm) ? 1 : 0, peut(iL) ? 1 : 0,
+				 peut(iE) ? 1 : 0, peut(iT) ? 1 : 0);
+		verdict("13. le mode points ne s'ouvre JAMAIS sur une forme a coins (rect, ellipse, "
+				"image) : le conflit de poignees y est STRUCTURELLEMENT impossible, et les "
+				"deux voies d'entree disent la meme chose",
+				!peut(iR) && !peut(iEl) && !peut(iIm) && peut(iL) && peut(iE) && !peut(iT)
+					&& coherent,
+				d);
+	}
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

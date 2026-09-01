@@ -63,6 +63,16 @@ namespace nkuidesign {
 	/// `Profond` n'y existe pas : une rangée d'arbre DÉSIGNE DÉJÀ son nœud,
 	/// il n'y a aucune profondeur à traverser. `Ctrl` y prend donc le rôle
 	/// d'ajout, comme dans tout explorateur — et comme dans Lunacy.
+	///
+	/// ⚠️ OÙ VIT SON IMPLÉMENTATION, ET POURQUOI CE N'EST PAS ICI. Le composant
+	///    d'arbre du kit fait DÉJÀ Ctrl+ajout et Maj+plage (paramètres
+	///    `multi_select` / `range_select`, actifs par défaut, avec son `anchor`).
+	///    L'application le SUIT — elle recopie `chosen` — au lieu de redécider :
+	///    redécider par-dessus une couche qui a déjà tranché, c'est se donner une
+	///    seconde chance de diverger, et ça avait déjà écrasé la plage.
+	///    Cette fonction reste donc **l'énoncé du contrat** (ce que la liste doit
+	///    faire, tenu par la recette) et le **repli** quand rien n'a été choisi ;
+	///    elle n'est pas la seconde implémentation.
 	inline NkGesteSel NkGesteListe(bool ctrl, bool maj) {
 		if (ctrl || maj)
 			return NkGesteSel::Basculer;
@@ -106,6 +116,52 @@ namespace nkuidesign {
 			case NkNatureSommets::Coins: return NkIssueDblClic::CoinsSeuls;
 			default: return NkIssueDblClic::RienADire;
 		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  À QUI APPARTIENT UNE POIGNÉE — LA PRIORITÉ EST DITE, PAS SUBIE
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ CETTE FONCTION EXISTE PARCE QUE DEUX POIGNÉES SE SUPERPOSENT AU PIXEL.
+	///    Sur une LIGNE, les deux bouts tombent **exactement** sur deux coins de
+	///    la boîte : la poignée de redimensionnement et celle de sommet occupent
+	///    le même point de l'écran (mesuré sur capture, 01/09).
+	///
+	///    La première correction les rendait exclusives par une garde dans le
+	///    code du dessin et une autre dans le code du geste. Ça marchait — et
+	///    c'était **une priorité subie, pas dite** : elle vivait dans l'ordre de
+	///    deux `if` situés à six cents lignes l'un de l'autre, et le premier qui
+	///    déplace l'un des deux la casse sans s'en apercevoir. Une règle qu'on ne
+	///    peut pas citer est une règle qu'on ne peut pas défendre.
+	///
+	///    LA RÈGLE, DONC : **en mode points, le sommet gagne** — c'est le mode où
+	///    l'on est, et un mode qui n'a pas la priorité sur ses propres poignées
+	///    n'est pas un mode. Elle se lit ici, elle se mesure, et les deux sites
+	///    l'appellent au lieu de la redécider.
+	enum class NkProprioPoignee {
+		Sommet,		  ///< le mode points a la main sur ce nœud
+		Redimension,  ///< les poignées de sélection habituelles
+		Aucune		  ///< ce nœud n'est ni en mode points ni sélectionné
+	};
+	/// @param pointsNode le nœud en mode points (-1 = aucun)
+	/// @param selection  le nœud dont on s'apprête à dessiner/armer les poignées
+	inline NkProprioPoignee NkAQuiLaPoignee(int32 pointsNode, int32 selection) {
+		if (selection < 0)
+			return NkProprioPoignee::Aucune;
+		if (pointsNode >= 0 && pointsNode == selection)
+			return NkProprioPoignee::Sommet;
+		return NkProprioPoignee::Redimension;
+	}
+
+	/// ⚠️ LE CAS FRÈRE, VÉRIFIÉ ET NON SUPPOSÉ : un rect / une ellipse ont DÉJÀ
+	///    des poignées de coin qui redimensionnent. Le conflit y serait le même
+	///    — sauf que le mode points **ne s'ouvre jamais** sur ces formes
+	///    (`NkIssueDeDblClic` rend `CoinsSeuls`). L'invariant n'est donc pas une
+	///    coïncidence de l'implémentation : il est *structurel*, et une recette
+	///    le tient pour qu'il le reste.
+	inline bool NkPeutEntrerEnPoints(const NkUINode &n) {
+		const NkNatureSommets nat = NkNatureDe(n.shape.Data());
+		return n.children.Size() == 0
+			   && (nat == NkNatureSommets::Bouts || nat == NkNatureSommets::Polygone);
 	}
 
 	/// APPLIQUER un geste à la sélection partagée.

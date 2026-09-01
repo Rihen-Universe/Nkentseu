@@ -2923,8 +2923,11 @@ namespace nkuidesign {
 				//    laquelle gagne n'aurait dependu que de l'ordre du code.
 				//    Lunacy masque les poignees de selection en edition de points ;
 				//    on fait pareil, et le geste redevient sans ambiguite.
-				if (!modeGraphe && mPointsNode != mSt->selected && nSel <= 1
-					&& screen.Has(mSt->selected) && mSt->doc.IsValidIndex(mSt->selected)
+				if (!modeGraphe
+					&& NkAQuiLaPoignee(mPointsNode, mSt->selected)
+						   == NkProprioPoignee::Redimension
+					&& nSel <= 1 && screen.Has(mSt->selected)
+					&& mSt->doc.IsValidIndex(mSt->selected)
 					&& mSt->doc.nodes[(uint32)mSt->selected].parent >= 0) {
 					const NkPaintRect rs = screen.At(mSt->selected);
 					const uint16 accent = NkDesignResolveRole("accent_ui");
@@ -3546,8 +3549,9 @@ namespace nkuidesign {
 					//    un bout aurait arme un redimensionnement (la poignee de
 					//    selection est au meme endroit) et le sommet n'aurait jamais
 					//    bouge — un mode qui s'affiche et ne repond pas.
-					if (hit >= 0 && hit == mPointsNode)
-						return;
+					if (hit >= 0
+						&& NkAQuiLaPoignee(mPointsNode, hit) == NkProprioPoignee::Sommet)
+						return; // la regle, citee -- pas l'ordre des `if`
 					if (hit >= 0) {
 						// ⚠️ L'APPLICATION PASSE PAR LE MECANISME : c'est lui qui porte la
 						//    regle « la racine n'est jamais un element », une fois pour
@@ -6094,20 +6098,33 @@ namespace nkuidesign {
 					// ⚠️ L'ID du modèle EST « index document + 1 » (posé par
 					//    SyncPages) : c'est LUI qui traduit, plus l'index du
 					//    modèle — la racine sautée a décalé les indices.
-					// ⚠️ ET ELLE HONORE ENFIN LES MODIFICATEURS. Jusqu'au 01/09
-					//    cette ligne faisait un `SelectSingle` INCONDITIONNEL : la
-					//    Hierarchie ne savait pas multi-selectionner, et elle
-					//    ECRASAIT la multi-selection faite sur la toile au premier
-					//    clic -- le va-et-vient n'existait que dans un sens. La
-					//    table de la LISTE vit dans SelectionGeste.h, a cote de
-					//    celle de la toile, pour qu'elles ne derivent plus.
-					if (modele.active > 0
-						&& mSt->doc.IsValidIndex((int32)modele.active - 1))
-						NkAppliquerGeste(mSt->doc, mSt->sel, mSt->selected,
-										 (int32)modele.active - 1,
-										 NkGesteListe(in.ctrl, in.shift));
-					else
-						mSt->SelectClear();
+					//
+					// ⚠️ ET C'EST LE COMPOSANT QUI FAIT FOI, PAS L'APPLICATION.
+					//    Première version : je relisais `active` et je REDÉCIDAIS
+					//    le geste avec `NkGesteListe`. Ça marchait pour Ctrl —
+					//    et ça écrasait la PLAGE. Le composant du kit implémente
+					//    déjà Maj+plage (`range_select`, actif par défaut, avec
+					//    son `anchor`) : il avait calculé la plage entière dans
+					//    `chosen`, et je n'en gardais qu'un nœud.
+					//    **La règle : quand la couche du dessous a déjà décidé,
+					//    on la SUIT, on ne re-décide pas.** Redécider, c'est se
+					//    donner une seconde chance de diverger.
+					mSt->sel.Clear();
+					for (uint32 k = 0; k < (uint32)modele.chosen.Size(); ++k) {
+						const int32 di = (int32)modele.chosen[k] - 1;
+						if (di > 0 && mSt->doc.IsValidIndex(di))
+							mSt->sel.Add(di);
+					}
+					if (modele.active > 0 && mSt->doc.IsValidIndex((int32)modele.active - 1)
+						&& mSt->sel.Empty())
+						mSt->sel.Add((int32)modele.active - 1);
+					mSt->selected = mSt->sel.Empty() ? -1 : mSt->sel.Primary();
+					// ⚠️ `mSt->selected` doit rester le nœud ACTIF du composant
+					//    quand il est dans la sélection : c'est lui que
+					//    l'Inspecteur nomme, et le composant sait lequel la main
+					//    vient de toucher.
+					if (modele.active > 0 && mSt->sel.Contains((int32)modele.active - 1))
+						mSt->selected = (int32)modele.active - 1;
 				}
 			}
 
@@ -6857,6 +6874,35 @@ namespace nkuidesign {
 			/// Un champ NUMÉRIQUE au costume : boîte + glisser horizontal (la
 			/// saisie clavier viendra — le DragFloat d'avant n'en avait pas non
 			/// plus). Rend true si la valeur a changé.
+			/// LE PENDANT NON-AXE DE `ChampAxeMulti` : « — » si mixte, écriture
+			/// sur TOUS les sélectionnés. ⚠️ IL EXISTE POUR LA MÊME RAISON, et la
+			/// raison vaut d'être répétée ici plutôt que renvoyée ailleurs : sans
+			/// lui, chaque rangée numérique de l'Inspecteur devrait se souvenir
+			/// toute seule de tester le mixte, et celle qu'on ajoutera dans trois
+			/// semaines montrera la valeur du PRINCIPAL comme si c'était celle du
+			/// groupe — un chiffre faux qui a l'air juste.
+			template <typename Lire, typename Ecrire>
+			bool ChampNombreMulti(NkGuiContext &ctx, const char *id, const NkRect &r,
+								  float32 vitesse, float32 vmin, float32 vmax, Lire lire,
+								  Ecrire ecrire, bool petit = false) {
+				float32 commune = 0.f;
+				const bool uniforme = NkValeurCommune(mSt->doc, mSt->sel, lire, commune);
+				char b[32];
+				if (!uniforme)
+					snprintf(b, sizeof(b), "\xE2\x80\x94"); // « — » : valeurs mixtes
+				else if (commune == (float32)(int32)commune)
+					snprintf(b, sizeof(b), "%d", (int32)commune);
+				else
+					snprintf(b, sizeof(b), "%.2f", (double)commune);
+				BoiteChamp(ctx, r, b, petit);
+				float32 v = uniforme ? commune : 0.f;
+				if (ChampDrag(ctx, id, r, v, vitesse, vmin, vmax)) {
+					AppliquerATous(ecrire, v);
+					return true;
+				}
+				return false;
+			}
+
 			bool ChampNombre(NkGuiContext &ctx, const char *id, const NkRect &r, float32 &v,
 							 float32 vitesse, float32 vmin, float32 vmax, bool petit = false,
 							 bool tiretSiZero = false) {
@@ -8729,8 +8775,11 @@ namespace nkuidesign {
 									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Arrondi",
 									   ctx.theme.textMuted);
 						const NkRect rr = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
-						if (ChampNombre(ctx, "insp.app.rayon", rr, n->radius, 0.5f, 0.f, 128.f))
-							mSt->doc.MarkHumanEdit(mSt->selected);
+						// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
+						ChampNombreMulti(
+							ctx, "insp.app.rayon", rr, 0.5f, 0.f, 128.f,
+							[](const NkUINode &q) { return q.radius; },
+							[](NkUINode &q, float32 v) { q.radius = v; });
 						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
 									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "px",
 									   ctx.theme.textMuted);
