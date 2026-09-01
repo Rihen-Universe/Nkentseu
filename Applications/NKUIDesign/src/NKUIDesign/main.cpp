@@ -5151,6 +5151,26 @@ int nkmain(const NkEntryState &state) {
 				gDesign.modeFormeInitial = v;
 				continue;
 			}
+			// Mise en scene : quels SOMMETS sont marques au premier affichage
+			// (--sommets=0,2,3). Meme famille que --mode-forme=, meme raison :
+			// le Maj+clic vise une ancre dont on ignore la coordonnee d'ecran.
+			if (arg.StartsWith("--sommets=")) {
+				nkentseu::uint64 m = 0;
+				int32 v = -1;
+				for (const char *q = a + 10;; ++q) {
+					if (*q >= '0' && *q <= '9')
+						v = (v < 0 ? 0 : v) * 10 + (*q - '0');
+					else {
+						if (v >= 0 && v < 64)
+							m |= (1ull << (nkentseu::uint32)v);
+						v = -1;
+						if (!*q)
+							break;
+					}
+				}
+				gDesign.sommetsInitiaux = m;
+				continue;
+			}
 			// MISE EN SCENE (remandat Banani : un document par ecran) : charger
 			// un document donne au lancement. ⚠️ Ctrl+S ecrira LA ou on a
 			// charge — le fichier de travail par defaut ne bouge pas.
@@ -5571,6 +5591,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --selection=<n>         sélectionner le nœud n au premier affichage");
 			puts("  --editer-texte=<n>      ouvrir l'édition en place sur le nœud texte n (mise en scène)");
 			puts("  --mode-forme=<n>        ouvrir l'édition de forme sur le nœud n (mise en scène)");
+			puts("  --sommets=<a,b,c>       marquer ces sommets en édition de forme (mise en scène)");
 			puts("  --clic=x:y:frame[:d|r|c|s|o]  injecter un clic (d double, r droit, c Ctrl, "
 				 "s Maj, o double-clic OS SANS appui)");
 			puts("  --frappe=texte:frame    injecter des codepoints ASCII à cette trame (preuve de saisie)");

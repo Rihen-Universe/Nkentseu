@@ -1066,6 +1066,14 @@ namespace nkuidesign {
 			///    DEVINER un pixel -- et une capture qui vise a cote ne prouve
 			///    rien, elle rend une image de plus a interpreter.
 			int32 modeFormeInitial = -1;
+			/// Les sommets a MARQUER au premier affichage (--sommets=0,2,3), en
+			/// masque. 0 = aucun, et le mode marque alors le sommet 0 seul.
+			/// ⚠️ MEME FAMILLE QUE `--mode-forme=`, ET LA MEME RAISON : la
+			///    multi-selection de sommets se fait au Maj+CLIC, et le harnais
+			///    `--clic` ne sait pas viser une ancre dont on ignore la coordonnee
+			///    d'ecran. Sans ce levier, « les trois sommets sont bien marques »
+			///    resterait une affirmation que seule la main de Rodolf peut juger.
+			nkentseu::uint64 sommetsInitiaux = 0;
 			/// Edition en place demandee en ligne de commande (--editer-texte=N) :
 			/// meme famille que --selection= — ouvre le champ superpose sur le
 			/// noeud N (s'il est un texte) au premier affichage. -1 = aucune.
@@ -2425,7 +2433,15 @@ namespace nkuidesign {
 						//    section « ÉDITION DE FORME » avec ses trois champs a
 						//    « — » : on photographierait le panneau vide, c'est-a-dire
 						//    precisement ce qu'on veut prouver qui ne l'est pas.
-						mSt->modeForme.sommet = 0;
+						if (mSt->sommetsInitiaux != 0) {
+							mSt->modeForme.marques = mSt->sommetsInitiaux;
+							for (uint32 b = 0; b < 64; ++b)
+								if ((mSt->sommetsInitiaux & (1ull << b)) != 0ull) {
+									mSt->modeForme.sommet = (int32)b;
+									break;
+								}
+						} else
+							mSt->modeForme.MarquerSeul(0);
 						mSt->SelectSingle(nf);
 						Dire(NkRaisonDeDblClic(NkSuiteDblClic::ModePoints), "", "");
 					} else
