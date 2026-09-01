@@ -959,6 +959,12 @@ namespace nkuidesign {
 			/// l'état de Lunacy au démarrage, et un aimant qu'il faut allumer
 			/// n'est jamais allumé.
 			bool aimantActif = true;
+			/// ── LA GRILLE DE POINTS DE LA TOILE ──────────────────────────────
+			/// Le menu du clic droit dans le vide la bascule (Lunacy « Pixel
+			/// Grid »). Vraie par défaut : c'est ce que la toile a toujours
+			/// peint, et ce chantier ne change pas ce que Rodolf voit au
+			/// démarrage — il lui donne l'interrupteur qui manquait.
+			bool grilleVisible = true;
 			/// Le résultat VIVANT du geste en cours — les guides à peindre.
 			/// Remis à zéro au relâcher : un guide qui survit à son geste est un
 			/// trait qui ment.
@@ -1615,6 +1621,40 @@ namespace nkuidesign {
 		if (act >= 0 && (nkentseu::uint32)act < menu.n)
 			return menu.items[(nkentseu::uint32)act].action;
 		return NkActionCtx::NB;
+	}
+
+	/// LE MENU DU CLIC DROIT **DANS LE VIDE** — le menu de VUE.
+	/// ⚠️ IL PASSE PAR LE MÊME `NkCtxMenuDraw` QUE L'AUTRE, et c'est tout
+	///    l'intérêt d'avoir fait grossir le kit plutôt que d'écrire ici : le
+	///    champ de recherche, le défilement, les traits de groupe, l'occlusion et
+	///    maintenant les COCHES sont un seul code. Un second peintre de menu
+	///    aurait divergé au premier ajustement — le dépôt a déjà mesuré ce prix.
+	inline NkActionVide NkDessinerMenuVide(NkGuiContext &ctx, editorkit::NkCtxMenu &mn,
+										   const DesignState &st, char *filtre,
+										   nkentseu::int32 filtreCap, bool *filtreFocus) {
+		NkContexteVide c;
+		c.pressePapiersPlein = st.pressePapiersPlein;
+		c.grilleVisible = st.grilleVisible;
+		c.aimantCalques = st.aimantActif;
+		NkMenuVide menu;
+		NkConstruireMenuVide(c, menu);
+		const char *items[kMaxEntreesVide];
+		const char *raccourcis[kMaxEntreesVide];
+		bool en[kMaxEntreesVide], sep[kMaxEntreesVide], chk[kMaxEntreesVide];
+		for (nkentseu::uint32 i = 0; i < menu.n; ++i) {
+			items[i] = menu.items[i].libelle;
+			raccourcis[i] = menu.items[i].raccourci;
+			en[i] = menu.items[i].agit;
+			sep[i] = menu.items[i].sepApres;
+			chk[i] = menu.items[i].coche;
+		}
+		const nkentseu::int32 act =
+			editorkit::NkCtxMenuDraw(ctx, mn, items, en, (nkentseu::int32)menu.n, nullptr, nullptr,
+									 nullptr, filtre, filtreCap, filtreFocus, raccourcis, sep,
+									 nullptr, chk);
+		if (act >= 0 && (nkentseu::uint32)act < menu.n)
+			return menu.items[(nkentseu::uint32)act].action;
+		return NkActionVide::NB;
 	}
 
 	/// L'EXÉCUTION DE CE QUI EST COMMUN AUX DEUX SURFACES.
@@ -2536,7 +2576,11 @@ namespace nkuidesign {
 					paint.Fill({area.x, area.y, area.w, area.h},
 							   NkDesignResolveRole("canvas_bg"), 0.f);
 					const float32 pasEcran = kGrillePas * mSt->view.zoom;
-					if (pasEcran >= 6.f) {
+					// ⚠️ `grilleVisible` EST HONORÉE ICI, au seul endroit qui peint
+					//    la grille. Le menu qui la bascule serait sinon une case
+					//    cochée à côté d'un dessin qui ne l'écoute pas — exactement
+					//    le défaut que Q42 a trouvé sur l'aimant du menu Affichage.
+					if (mSt->grilleVisible && pasEcran >= 6.f) {
 						const uint16 rPoint = NkDesignResolveRole("canvas_dot");
 						const float32 d0x = mSt->view.ToDocX(area.x);
 						const float32 d0y = mSt->view.ToDocY(area.y);
@@ -2763,6 +2807,52 @@ namespace nkuidesign {
 						mMenuNode = vise;
 						mMenuCtx.open = true;
 						mMenuCtx.pos = {in.mouseX, in.mouseY};
+					} else {
+						// ── LE CLIC DROIT DANS LE VIDE (Rodolf, 01/09) ───────
+						// Signale en Q43 comme un petit chantier a part : il ne
+						// faisait RIEN et ne disait RIEN (mesure : `vise < 0`).
+						// Il ouvre desormais le MENU DE VUE de Lunacy.
+						// ⚠️ ET IL RETIENT LE POINT CLIQUE : « Coller ici » veut
+						//    dire ici, pas « au centre de la page ». Sans ce
+						//    couple, l'entree aurait porte un nom qui ment.
+						mMenuVide.open = true;
+						mMenuVide.pos = {in.mouseX, in.mouseY};
+						mMenuVidePt = {in.mouseX, in.mouseY};
+					}
+				}
+				// ── LE MENU DE VUE, PEINT ET EXECUTE ────────────────────────
+				if (mMenuVide.open) {
+					const NkActionVide av = NkDessinerMenuVide(ctx, mMenuVide, *mSt, mMenuVideFiltre,
+															   (int32)sizeof(mMenuVideFiltre),
+															   &mMenuVideFiltreFocus);
+					switch (av) {
+						case NkActionVide::GrillePixels:
+							mSt->grilleVisible = !mSt->grilleVisible;
+							Dire(mSt->grilleVisible ? "Grille de points affichée."
+													: "Grille de points masquée.",
+								 "", "");
+							break;
+						case NkActionVide::AimanterCalques:
+							mSt->aimantActif = !mSt->aimantActif;
+							// ⚠️ ON EFFACE LES GUIDES EN ETEIGNANT, comme le fait
+							//    le bouton du cluster : un guide qui survit a
+							//    l'aimant qu'on vient d'eteindre est un trait qui
+							//    ment. Les deux portes du meme reglage doivent
+							//    faire le meme geste, sinon l'une des deux laisse
+							//    l'ecran dans un etat que l'autre ne produit pas.
+							if (!mSt->aimantActif)
+								mSt->snapVif = NkSnapResultat();
+							Dire(mSt->aimantActif
+									 ? "Aimantation aux calques activée — bords, centres, "
+									   "espacements égaux et répétés."
+									 : "Aimantation aux calques désactivée.",
+								 "", "");
+							break;
+						case NkActionVide::CollerIci:
+							mSt->CollerPressePapiers();
+							Dire("Collé.", "", "");
+							break;
+						default: break;
 					}
 				}
 				if (mMenuCtx.open && mSt->doc.IsValidIndex(mMenuNode)) {
@@ -4236,6 +4326,17 @@ namespace nkuidesign {
 			///    des commandes disparue.
 			char mMenuFiltre[48] = {};
 			bool mMenuFiltreFocus = true;
+			/// LE MENU DU CLIC DROIT DANS LE VIDE — le menu de VUE.
+			/// ⚠️ UN SECOND `NkCtxMenu`, ET C'EST VOULU : ce sont deux menus qui
+			///    peuvent être ouverts par deux gestes différents, avec chacun son
+			///    filtre de recherche. Un seul état partagé aurait fait que taper
+			///    dans l'un filtrerait l'autre au prochain clic droit — le défaut
+			///    exact que le commentaire ci-dessus décrit, un cran plus haut.
+			nkentseu::editorkit::NkCtxMenu mMenuVide;
+			char mMenuVideFiltre[48] = {};
+			bool mMenuVideFiltreFocus = true;
+			/// LE POINT CLIQUÉ, retenu pour « Coller ici » — qui veut dire ICI.
+			NkVec2 mMenuVidePt = {0.f, 0.f};
 			/// Vrai quand l'edition porte sur L'ETIQUETTE d'un artboard (le NOM
 			/// de la page — LA cle que la Hierarchie lit aussi), pas sur `text`.
 			bool mEditEtiquette = false;

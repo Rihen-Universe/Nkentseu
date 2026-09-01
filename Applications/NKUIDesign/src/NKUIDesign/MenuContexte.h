@@ -189,6 +189,132 @@ namespace nkuidesign {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE MENU DU CLIC DROIT **DANS LE VIDE** — un menu de VUE, pas d'objet
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// Retour de Rodolf, 01/09, avec sa référence `lunacy_clicdroit_vide_104843`.
+	/// Signalé en Q43 comme « un petit chantier à part » : le clic droit dans le
+	/// vide **ne faisait rien et ne disait rien** (mesuré : `vise < 0` → aucun
+	/// menu, aucun message). Même famille que le double-clic muet du matin.
+	///
+	/// ⚠️ CE N'EST PAS LE MÊME MENU AVEC DES ENTRÉES GRISÉES, ET C'EST LA
+	///    DÉCISION DE CONCEPTION. On aurait pu réutiliser `NkConstruireMenuCtx`
+	///    avec un contexte vide : *« Copier (pas la racine) »*, *« Grouper (pas la
+	///    racine) »*, quatorze entrées dont zéro n'agit. Ce serait un menu qui
+	///    parle de l'objet qu'on n'a pas cliqué. **Le vide de la toile n'est pas
+	///    un objet sans propriétés : c'est LA VUE**, et ses commandes sont d'une
+	///    autre nature — ce qu'on affiche, ce qui aimante. La capture de Lunacy
+	///    le dit sans ambiguïté : pas une seule de ses entrées ne parle d'un
+	///    calque.
+	///
+	/// ⚠️ CE QUI RESTE COMMUN EST LA **RÈGLE**, pas le contenu : qui n'agit pas
+	///    porte sa raison, qui agit n'en porte pas. Elle est tenue par le même
+	///    genre de cas, sur les deux menus — c'est ça, traiter les chemins frères
+	///    comme un groupe : partager l'invariant sans forcer le contenu.
+	enum class NkActionVide {
+		CollerIci,
+		ModePresentation,
+		GrillePixels,
+		ReperesLayout,
+		Regles,
+		Tranches,
+		Prototypage,
+		PixelsAuZoom,
+		AimanterGrille,
+		AimanterCalques,
+		NB ///< le compte, lu par la recette
+	};
+
+	/// Une entrée du menu de vue. `bascule` = elle porte une COCHE.
+	struct NkEntreeVide {
+			char libelle[112] = {};
+			const char *raccourci = nullptr;
+			const char *raison = nullptr; ///< non vide **si et seulement si** `!agit`
+			bool agit = false;
+			bool bascule = false; ///< affiche une coche
+			bool coche = false;	  ///< l'état RÉEL, jamais une décoration
+			bool sepApres = false;
+			NkActionVide action = NkActionVide::CollerIci;
+	};
+
+	/// L'état de la VUE qui décide. Rien d'autre : ni souris, ni sélection.
+	struct NkContexteVide {
+			bool pressePapiersPlein = false;
+			bool grilleVisible = true;	///< la grille de points de la toile
+			bool aimantCalques = true;	///< `aimantActif` — bords, centres, espacements
+	};
+
+	enum { kMaxEntreesVide = 16 };
+	struct NkMenuVide {
+			NkEntreeVide items[kMaxEntreesVide];
+			uint32 n = 0;
+	};
+
+	/// L'ordre et les groupes suivent `lunacy_clicdroit_vide_104843.png`, relu au
+	/// pixel : Paste Here / Presentation Mode — trait — Pixel Grid / Layout /
+	/// Rulers / Slices / Prototyping / Pixels on Zoom — trait — Snap to Pixel
+	/// Grid / Snap to Layers.
+	///
+	/// ⚠️ **DEUX ENTRÉES SUR DIX AGISSENT, ET C'EST DIT PLUTÔT QUE MAQUILLÉ.** La
+	///    grille de points existe (elle est peinte depuis août) et l'aimantation
+	///    aux calques existe (livrée en Q42) : ces deux-là basculent pour de bon,
+	///    et leur coche lit l'état RÉEL. Les huit autres portent leur raison.
+	///    Poser dix coches décoratives aurait été plus joli et faux — c'est
+	///    exactement le défaut « une case toujours cochée à côté d'un aimant qui
+	///    ne fait rien » que Q42 a trouvé et corrigé sur le menu Affichage.
+	inline void NkConstruireMenuVide(const NkContexteVide &c, NkMenuVide &out) {
+		out.n = 0;
+		auto ajouter = [&](const char *libelle, const char *raccourci, bool agit,
+						   const char *raison, bool bascule, bool coche, bool sepApres,
+						   NkActionVide action) {
+			if (out.n >= (uint32)kMaxEntreesVide)
+				return;
+			NkEntreeVide &e = out.items[out.n++];
+			detail::NkCopierCtx(e.libelle, sizeof(e.libelle), libelle, agit ? nullptr : raison);
+			e.raccourci = raccourci;
+			e.raison = agit ? nullptr : raison;
+			e.agit = agit;
+			e.bascule = bascule;
+			// ⚠️ UNE COCHE SUR UNE ENTRÉE QUI N'AGIT PAS EST TOUJOURS FAUSSE, quel
+			//    qu'ait été l'argument passé : elle affirmerait un état que rien
+			//    ne porte. La règle est appliquée ICI, une fois, plutôt qu'à
+			//    chaque appel — sinon le premier appelant distrait la casserait.
+			e.coche = agit && coche;
+			e.sepApres = sepApres;
+			e.action = action;
+		};
+
+		// ── 1. Coller ici, et le mode présentation ───────────────────────────
+		ajouter("Coller ici", nullptr, c.pressePapiersPlein, " (presse-papiers vide)", false,
+				false, false, NkActionVide::CollerIci);
+		ajouter("Mode présentation", "Ctrl+.", false, " (à construire)", false, false, true,
+				NkActionVide::ModePresentation);
+
+		// ── 2. Ce qu'on AFFICHE ──────────────────────────────────────────────
+		ajouter("Grille de points", nullptr, true, nullptr, true, c.grilleVisible, false,
+				NkActionVide::GrillePixels);
+		ajouter("Repères de mise en page", "Maj+G", false, " (à construire)", true, false, false,
+				NkActionVide::ReperesLayout);
+		ajouter("Règles", "Ctrl+R", false, " (à construire)", true, false, false,
+				NkActionVide::Regles);
+		ajouter("Tranches d'export", nullptr, false, " (à construire — l'export n'existe pas)",
+				true, false, false, NkActionVide::Tranches);
+		// ⚠️ LA RAISON DIT OÙ, pas seulement « non » — notre prototypage existe,
+		//    il est ailleurs. Une raison qui indique la porte vaut mieux qu'une
+		//    raison qui la ferme (la même règle que « Ajouter un agencement »).
+		ajouter("Prototypage", nullptr, false, " (par l'onglet Behavior)", true, false, false,
+				NkActionVide::Prototypage);
+		ajouter("Pixels au zoom", nullptr, false, " (à construire)", true, false, true,
+				NkActionVide::PixelsAuZoom);
+
+		// ── 3. Ce qui AIMANTE ────────────────────────────────────────────────
+		ajouter("Aimanter à la grille", nullptr, false,
+				" (à construire — la grille est un décor, pas un repère)", true, false, false,
+				NkActionVide::AimanterGrille);
+		ajouter("Aimanter aux calques", nullptr, true, nullptr, true, c.aimantCalques, false,
+				NkActionVide::AimanterCalques);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  LA RANGÉE D'ICÔNES — les gestes fréquents en accès direct (Lunacy)
 	// ═══════════════════════════════════════════════════════════════════════════
 	/// ⚠️ SEPT ICÔNES, RELUES SUR LA RÉFÉRENCE ZOOMÉE : coller, dupliquer,

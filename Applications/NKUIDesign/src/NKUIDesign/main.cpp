@@ -1703,6 +1703,62 @@ static nkentseu::int32 RecettePoints() {
 				"meme contexte que le menu",
 				toutesParlent && aucuneNAgit, d);
 	}
+	// ── 23. LE MENU DU CLIC DROIT DANS LE VIDE ─────────────────────────────
+	//     Retour de Rodolf, 01/09, signale en Q43 : le clic droit dans le vide
+	//     ne faisait RIEN et ne disait RIEN.
+	//
+	//     ⚠️ CE CAS TIENT LE MEME INVARIANT QUE LE 17, SUR UN AUTRE MENU, ET
+	//     C'EST DELIBERE. C'est ca, traiter les chemins freres comme un groupe :
+	//     on ne partage pas le CONTENU (le vide de la toile est LA VUE, pas un
+	//     objet sans proprietes -- pas une seule entree de la reference Lunacy ne
+	//     parle d'un calque), on partage la REGLE : qui n'agit pas dit pourquoi,
+	//     qui agit ne dit rien d'inutile.
+	//
+	//     ⚠️ ET IL AJOUTE UNE REGLE QUE L'AUTRE N'A PAS : UNE COCHE SUR UNE
+	//     ENTREE QUI N'AGIT PAS EST TOUJOURS FAUSSE. C'est exactement le defaut
+	//     que Q42 a trouve sur le menu Affichage -- « une case toujours cochee a
+	//     cote d'un aimant qui ne faisait rien ». On ne le refait pas dix fois
+	//     dans un menu neuf.
+	{
+		NkContexteVide c;
+		c.pressePapiersPlein = true;
+		c.grilleVisible = true;
+		c.aimantCalques = false;
+		NkMenuVide m;
+		NkConstruireMenuVide(c, m);
+		bool coherent = (m.n > 0);
+		bool aucuneCocheFantome = true;
+		uint32 nAgit = 0;
+		for (uint32 i = 0; i < m.n; ++i) {
+			const NkEntreeVide &e = m.items[i];
+			if (!e.libelle[0])
+				coherent = false;
+			if (!e.agit && (!e.raison || !*e.raison))
+				coherent = false; // muette
+			if (e.agit && e.raison)
+				coherent = false; // raison decorative
+			if (!e.agit && e.coche)
+				aucuneCocheFantome = false;
+			if (e.agit)
+				++nAgit;
+		}
+		// LES COCHES LISENT L'ETAT REEL, elles ne sont pas decoratives : ici
+		// la grille est VRAIE et l'aimant est FAUX, et le menu doit le dire.
+		bool grilleCochee = false, aimantCoche = true;
+		for (uint32 i = 0; i < m.n; ++i) {
+			if (m.items[i].action == NkActionVide::GrillePixels)
+				grilleCochee = m.items[i].coche;
+			if (m.items[i].action == NkActionVide::AimanterCalques)
+				aimantCoche = m.items[i].coche;
+		}
+		char d[160];
+		snprintf(d, sizeof(d), "%u entrees, %u agissent ; grille cochee=%d, aimant coche=%d ; %s",
+				 (uint32)m.n, nAgit, grilleCochee ? 1 : 0, aimantCoche ? 1 : 0,
+				 aucuneCocheFantome ? "aucune coche fantome" : "UNE COCHE SUR UNE ENTREE INERTE");
+		verdict("23. menu du VIDE : chaque entree agit ou dit pourquoi, les coches lisent "
+				"l'etat REEL, et AUCUNE entree inerte n'est cochee",
+				coherent && aucuneCocheFantome && grilleCochee && !aimantCoche && nAgit >= 3u, d);
+	}
 	// ── 20. AJOUTER UN SOMMET NE DEFORME PAS LA FORME ──────────────────────
 	//     ⚠️ C'EST LA PROMESSE ENTIERE DE L'AJOUT, et elle n'est pas evidente :
 	//     poser le sommet neuf a la position de la SOURIS l'aurait mis a cote du
