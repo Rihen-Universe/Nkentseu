@@ -2198,6 +2198,11 @@ namespace nkuidesign {
 				//    Édition tournent hors de tout panneau et n'ont aucun autre
 				//    moyen de savoir qu'une saisie est ouverte. UN SEUL sens
 				//    d'écriture — la toile décide, l'état partagé rapporte.
+				// LE SURVOL ET LE COMPTE DE SELECTION SE PUBLIENT : sans eux, la
+				// pre-selection et la multi-selection ne se jugeraient qu'a l'oeil.
+				nkgui::NkGuiNoterMesure(ctx, "canvas.survol", (float32)mSurvol,
+										(float32)NkCompteSelection(mSt->doc, mSt->sel), 0.f,
+										0.f);
 				mSt->editionToile = mSt->doc.IsValidIndex(mEditNode) ? mEditNode : -1;
 				mSt->forageToile = mForage;
 				// L'AIMANT SE PUBLIE : sans ca il serait invisible a la mesure —
@@ -2708,7 +2713,85 @@ namespace nkuidesign {
 				//    décalée — son liseré filait hors champ. Lunacy ne dessine
 				//    aucun marqueur de canvas pour la page : la Hiérarchie
 				//    surligne, et c'est le bon endroit.
-				if (!modeGraphe && screen.Has(mSt->selected)
+				// ── LE CONTOUR DE SURVOL (pré-sélection, Lunacy) ─────────────
+				// ⚠️ IL DIT CE QUE LE CLIC PRENDRAIT, pas ce qui est pris. C'est sa
+				//    seule raison d'être : sans lui, sur une maquette dense, on
+				//    clique pour découvrir ce qu'on aurait sélectionné — et on
+				//    perd la sélection en cours pour le savoir.
+				// ⚠️ IL SUIT LA MÊME TABLE QUE LE CLIC. Dessiner le survol avec un
+				//    pointage et sélectionner avec un autre donnerait un contour
+				//    qui MENT dès que Ctrl est tenu (il montrerait le groupe, le
+				//    clic prendrait le nœud profond). C'est exactement la classe de
+				//    divergence que SelectionGeste.h vient de fermer : on ne la
+				//    rouvre pas ici.
+				if (!modeGraphe && !mCreating && !mMoving && !mDragging && !mMarquee
+					&& ctx.popupDepth == 0 && !mSt->doc.IsValidIndex(mEditNode)
+					&& NkGuiRectContains(area, ctx.input.mousePos)) {
+					const float32 hx = ctx.input.mousePos.x, hy = ctx.input.mousePos.y;
+					const NkGesteSel gs = NkGesteToile(ctx.input.ctrlDown, ctx.input.shiftDown);
+					int32 sv = (gs == NkGesteSel::Profond)
+								   ? NkPickSelectable(mSt->doc, screen, hx, hy)
+								   : NkPickDansContexte(mSt->doc, screen, hx, hy, mForage);
+					if (sv == -2)
+						sv = NkPickTopLevel(mSt->doc, screen, hx, hy);
+					// Ni la racine, ni ce qui est DÉJÀ sélectionné : un contour de
+					// survol par-dessus le liseré de sélection ferait un double
+					// trait que personne ne sait lire.
+					if (sv > 0 && screen.Has(sv) && !mSt->sel.Contains(sv)) {
+						const NkPaintRect rv = screen.At(sv);
+						NkDesignPaint pv(ctx, mSt->theme);
+						pv.OutlineSharp(rv, NkDesignResolveRole("accent_ui"));
+					}
+					mSurvol = sv; // publié au relevé : le survol se mesure
+				} else {
+					mSurvol = -1;
+				}
+
+				// ── LA MULTI-SÉLECTION : POIGNÉES ET PUCE SUR L'ENGLOBANT ────
+				// ⚠️ CHAQUE MEMBRE GARDE SON LISERÉ, MAIS LES POIGNÉES SONT SUR LA
+				//    BOÎTE COMMUNE (Lunacy). Poser huit poignées par membre en
+				//    donnerait vingt-quatre pour trois éléments, et aucune ne
+				//    dirait ce que le geste va faire — il agit sur le GROUPE.
+				// ⚠️ L'ENGLOBANT VIENT DU MÉCANISME (`NkRectSelection`), pas d'un
+				//    calcul local : c'est le même que la recette mesure, et le même
+				//    que la puce affichera. Trois calculs auraient donné trois
+				//    boîtes.
+				const uint32 nSel = NkCompteSelection(mSt->doc, mSt->sel);
+				if (!modeGraphe && nSel > 1) {
+					const uint16 accentM = NkDesignResolveRole("accent_ui");
+					// le liseré de chaque membre
+					for (uint32 k = 0; k < (uint32)mSt->sel.items.Size(); ++k) {
+						const int32 mi = mSt->sel.items[k];
+						if (mi > 0 && screen.Has(mi))
+							paint.OutlineSharp(screen.At(mi), accentM);
+					}
+					NkPaintRect engDoc;
+					if (NkRectSelection(mSt->doc, mSt->layout, mSt->sel, engDoc)) {
+						const NkPaintRect eng = mSt->view.ToScreen(engDoc);
+						paint.OutlineSharp(eng, accentM);
+						const float32 hp = 6.f;
+						const float32 xs[3] = {eng.x - hp * 0.5f,
+											   eng.x + eng.w * 0.5f - hp * 0.5f,
+											   eng.x + eng.w - hp * 0.5f};
+						const float32 ys[3] = {eng.y - hp * 0.5f,
+											   eng.y + eng.h * 0.5f - hp * 0.5f,
+											   eng.y + eng.h - hp * 0.5f};
+						for (uint32 gy = 0; gy < 3; ++gy)
+							for (uint32 gx = 0; gx < 3; ++gx) {
+								if (gx == 1 && gy == 1)
+									continue;
+								const NkPaintRect ph{xs[gx], ys[gy], hp, hp};
+								paint.FillColor(ph, 0xFFFFFFFFu, 0.f);
+								paint.OutlineSharp(ph, accentM);
+							}
+						// LA PUCE dit la taille de l'ENGLOBANT et le NOMBRE — sur
+						// une multi-sélection, « 240 x 170 » seul laisserait croire
+						// qu'un seul objet fait cette taille.
+						PuceTailleN(paint, eng, engDoc.w, engDoc.h, nSel);
+					}
+				}
+
+				if (!modeGraphe && nSel <= 1 && screen.Has(mSt->selected)
 					&& mSt->doc.IsValidIndex(mSt->selected)
 					&& mSt->doc.nodes[(uint32)mSt->selected].parent >= 0) {
 					const NkPaintRect rs = screen.At(mSt->selected);
@@ -3594,6 +3677,9 @@ namespace nkuidesign {
 			uint8 mResizeEdges = 0; ///< bits 1=G 2=D 4=H 8=B (noeud pose, huit poignees)
 			bool mMoving = false;
 			int32 mMoveNode = -1;
+			/// Le noeud SOUS LE CURSEUR (pre-selection), -1 si aucun. Pose a
+			/// chaque image par le dessin du survol, publie au releve.
+			int32 mSurvol = -1;
 			/// La position que la MAIN demande, sans aimant (cf. le commentaire
 			/// au site du geste). Posee a l'armement du deplacement.
 			float32 mMoveLibreX = 0.f, mMoveLibreY = 0.f;
@@ -4387,6 +4473,20 @@ namespace nkuidesign {
 			/// La puce « L × H » sous un rectangle d'écran (Lunacy). `w`/`h` sont
 			/// des longueurs DOCUMENT, arrondies à l'entier — le fichier n'écrira
 			/// rien d'autre.
+			/// La puce de taille d'une MULTI-selection : elle dit aussi COMBIEN.
+			/// ⚠️ Sans le compte, « 240 x 170 » ferait croire qu'un seul objet fait
+			///    cette taille — alors que c'est la boite qui les contient tous.
+			void PuceTailleN(NkDesignPaint &paint, const NkPaintRect &rs, float32 w, float32 h,
+							 nkentseu::uint32 n) {
+				char t[64];
+				snprintf(t, sizeof(t), "%d x %d  (%u)", (int32)(w + 0.5f), (int32)(h + 0.5f), n);
+				const float32 lw = 16.f + costume::Largeur(costume::Fontes().px9, t);
+				const NkPaintRect pb{rs.x + rs.w * 0.5f - lw * 0.5f, rs.y + rs.h + 6.f, lw, 18.f};
+				const uint16 accent = NkDesignResolveRole("accent_ui");
+				paint.Fill(pb, accent, 4.f);
+				paint.TextHex(pb, t, 0xFFFFFFFFu, accent, editorkit::NkTextAlign::Center,
+							  costume::CorpsMaquette(9.f), 600.f);
+			}
 			void PuceTaille(NkDesignPaint &paint, const NkPaintRect &rs, float32 w, float32 h) {
 				char t[48];
 				snprintf(t, sizeof(t), "%d × %d", (int32)(w + 0.5f), (int32)(h + 0.5f));
@@ -5956,10 +6056,25 @@ namespace nkuidesign {
 					}
 				}
 				// La sélection est UNE (§11.5) : elle vit dans `DesignState`.
+				// ⚠️ ET LA HIÉRARCHIE REFLÈTE DÉSORMAIS LA MULTI-SÉLECTION. Cette
+				//    ligne ne poussait que le PRINCIPAL dans `chosen` : sélectionner
+				//    trois éléments sur la toile n'en surlignait qu'UN dans l'arbre,
+				//    et le va-et-vient restait borgne dans ce sens-là aussi.
+				// ⚠️ ET `chosen` EXISTAIT DÉJÀ DANS LE MODÈLE DU KIT, avec son
+				//    `anchor` de plage Maj+clic. Rien à faire grossir en dessous :
+				//    la capacité était là, l'application ne s'en servait pas —
+				//    troisième cas de la semaine pour la porte du 28/08 (chercher
+				//    qui porte déjà la chose, en commençant par la couche du
+				//    dessous).
 				mModelePages.active =
 					mSt->selected >= 0 ? (nkentseu::nk_uint64)(mSt->selected + 1) : 0;
 				mModelePages.chosen.Clear();
-				if (mModelePages.active)
+				for (uint32 k = 0; k < (uint32)mSt->sel.items.Size(); ++k) {
+					const int32 si = mSt->sel.items[k];
+					if (si > 0 && mSt->doc.IsValidIndex(si))
+						mModelePages.chosen.PushBack((nkentseu::nk_uint64)(si + 1));
+				}
+				if (mModelePages.chosen.Empty() && mModelePages.active)
 					mModelePages.chosen.PushBack(mModelePages.active);
 			}
 
@@ -6686,8 +6801,18 @@ namespace nkuidesign {
 					const bool libre = n && ParentKind() == editorkit::NkLayoutKind::Free;
 					bool bouge = false;
 					if (libre) {
-						bouge |= ChampNombreAxe(ctx, "insp.dispo.x", rx, n->posX, rouge);
-						bouge |= ChampNombreAxe(ctx, "insp.dispo.y", ry, n->posY, vert);
+						// ⚠️ MULTI-SÉLECTION COMPRISE : « — » si les X diffèrent, et
+						//    l'édition part sur TOUS. Avant, cette rangée montrait
+						//    la position du PRINCIPAL comme si c'était celle du
+						//    groupe.
+						bouge |= ChampAxeMulti(
+							ctx, "insp.dispo.x", rx, rouge,
+							[](const NkUINode &q) { return q.posX; },
+							[](NkUINode &q, float32 v) { q.posX = v; });
+						bouge |= ChampAxeMulti(
+							ctx, "insp.dispo.y", ry, vert,
+							[](const NkUINode &q) { return q.posY; },
+							[](NkUINode &q, float32 v) { q.posY = v; });
 					} else {
 						// la position CALCULÉE (jamais écrite) — boîtes statiques
 						char b[32];
@@ -6744,6 +6869,59 @@ namespace nkuidesign {
 							   ctx.theme.text);
 				dl.PopClipRect();
 			}
+			/// LA RANGÉE D'AXE EN MULTI-SÉLECTION : « — » quand c'est MIXTE, et
+			/// l'édition s'applique à TOUS les sélectionnés (Lunacy).
+			/// ⚠️ CE HELPER EXISTE POUR QUE LA RÈGLE NE SE RÉÉCRIVE PAS RANGÉE PAR
+			///    RANGÉE. X, Y, largeur, hauteur, opacité, rayon… chacune aurait
+			///    dû se souvenir de tester le mixte ; la première ajoutée après
+			///    coup l'aurait oublié, et elle aurait affiché la valeur du
+			///    PRINCIPAL comme si c'était celle de tout le monde — un chiffre
+			///    faux qui a l'air juste. Le mécanisme (`NkValeurCommune`) tranche,
+			///    et cette rangée ne sait plus se tromper.
+			/// `lire` donne la valeur d'un nœud ; `ecrire` la pose sur un nœud.
+			template <typename Lire, typename Ecrire>
+			bool ChampAxeMulti(NkGuiContext &ctx, const char *id, const NkRect &r,
+							   const NkColor &axe, Lire lire, Ecrire ecrire) {
+				float32 commune = 0.f;
+				const bool uniforme = NkValeurCommune(mSt->doc, mSt->sel, lire, commune);
+				if (!uniforme) {
+					// MIXTE : le tiret cadratin, et un glisser qui part de zéro
+					// poserait la MÊME valeur partout — c'est ce que fait Lunacy.
+					BoiteChampAxe(ctx, r, "\xE2\x80\x94", axe);
+					float32 v = 0.f;
+					if (ChampDrag(ctx, id, r, v, 1.f, -100000.f, 100000.f)) {
+						AppliquerATous(ecrire, v);
+						return true;
+					}
+					return false;
+				}
+				char b[32];
+				if (commune == (float32)(int32)commune)
+					snprintf(b, sizeof(b), "%d", (int32)commune);
+				else
+					snprintf(b, sizeof(b), "%.2f", (double)commune);
+				BoiteChampAxe(ctx, r, b, axe);
+				float32 v = commune;
+				if (ChampDrag(ctx, id, r, v, 1.f, -100000.f, 100000.f)) {
+					AppliquerATous(ecrire, v);
+					return true;
+				}
+				return false;
+			}
+			/// Poser une valeur sur TOUS les sélectionnés (la racine exceptée), en
+			/// marquant chacun — un seul `MarkHumanEdit` sur le principal aurait
+			/// laissé les autres sans provenance.
+			template <typename Ecrire>
+			void AppliquerATous(Ecrire ecrire, float32 v) {
+				for (uint32 k = 0; k < (uint32)mSt->sel.items.Size(); ++k) {
+					const int32 i = mSt->sel.items[k];
+					if (i <= 0 || !mSt->doc.IsValidIndex(i))
+						continue;
+					ecrire(mSt->doc.nodes[(uint32)i], v);
+					mSt->doc.MarkHumanEdit(i);
+				}
+			}
+
 			bool ChampNombreAxe(NkGuiContext &ctx, const char *id, const NkRect &r, float32 &v,
 								const NkColor &axe) {
 				char b[32];
