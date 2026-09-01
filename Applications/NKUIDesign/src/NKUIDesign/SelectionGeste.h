@@ -110,9 +110,20 @@ namespace nkuidesign {
 		//    Cette règle vivait dans le corps du geste ; elle vit ici désormais.
 		if (NkComponentDecl::StrEq(n.shape.Data(), "text") || !n.text.Empty())
 			return NkIssueDblClic::EditerTexte;
+		// ⚠️ `rect` ET `ellipse` SONT PASSÉS DE `CoinsSeuls` À `ModePoints` LE
+		//    01/09, ET C'EST LA CORRECTION DU PREMIER RETOUR DE RODOLF : *« double-
+		//    cliquer sur une shape ne permet pas encore de faire l'édition de la
+		//    shape. »* Mesuré avant de toucher : sur les cinq formes qu'il cite,
+		//    ligne / polygone / étoile ouvraient bien le mode, **rect et ellipse
+		//    répondaient « cette forme n'a pas de sommets »** — c'est-à-dire les
+		//    deux formes qu'on pose le plus, et exactement celles de sa référence
+		//    (`lunacy_shape_edit_1`, un **Rectangle** en `EDIT SHAPE` à quatre
+		//    ancres). Le fond de l'affaire est dans `Sommets.h` : leurs coins ne
+		//    sont pas « la boîte », ce sont des sommets réels dès qu'on y touche.
 		switch (NkNatureDe(n.shape.Data())) {
 			case NkNatureSommets::Bouts:
-			case NkNatureSommets::Polygone: return NkIssueDblClic::ModePoints;
+			case NkNatureSommets::Polygone:
+			case NkNatureSommets::CoinsEditables: return NkIssueDblClic::ModePoints;
 			case NkNatureSommets::Coins: return NkIssueDblClic::CoinsSeuls;
 			default: return NkIssueDblClic::RienADire;
 		}
@@ -210,10 +221,28 @@ namespace nkuidesign {
 			case NkSuiteDblClic::EditerTexte:
 				return "Édition du texte — Entrée valide, Échap annule.";
 			case NkSuiteDblClic::ModePoints:
-				return "Mode points — glisser un sommet le déplace ; Échap ressort.";
+				// ⚠️ LA PHRASE ÉNUMÈRE LES TROIS GESTES, ET CE N'EST PAS DU
+				//    BAVARDAGE : le mode en a gagné deux le 01/09 (ajouter un
+				//    sommet, l'arrondir) et **rien à l'écran ne les annonce**. Un
+				//    sommet qui s'ajoute au clic sur un côté ne se devine pas, et
+				//    personne ne double-clique une poignée pour voir ce qui
+				//    arrive. *Une capacité qu'aucune phrase ne nomme est une
+				//    capacité que l'utilisateur n'a pas* — c'est la même règle
+				//    que « chaque issue produit un effet visible ou une raison
+				//    dite », prise par l'autre bout.
+				return "Mode édition de forme — glisser un sommet le déplace, cliquer un "
+					   "côté en ajoute un, double-cliquer un sommet l'arrondit ; Échap "
+					   "ressort.";
 			case NkSuiteDblClic::CoinsSeuls:
-				return "Cette forme n'a pas de sommets : ses coins redimensionnent "
-					   "(poignées de sélection).";
+				// ⚠️ CETTE PHRASE NE VAUT PLUS QUE POUR image / avatar / cadre —
+				//    rect et ellipse sont passés au mode d'édition. Elle DIT
+				//    désormais quelles formes s'éditent, au lieu de laisser
+				//    croire qu'aucune ne le fait : sans ça, un utilisateur qui
+				//    double-clique un cadre d'image conclurait que l'édition de
+				//    forme n'existe pas dans l'outil.
+				return "Cette forme n'a pas de sommets à éditer : ses coins "
+					   "redimensionnent. Un rectangle, une ellipse, une ligne ou un "
+					   "polygone, eux, s'ouvrent en édition de forme.";
 			default: return "Élément non éditable — rien à ouvrir ici.";
 		}
 	}
@@ -258,16 +287,25 @@ namespace nkuidesign {
 		return NkProprioPoignee::Redimension;
 	}
 
-	/// ⚠️ LE CAS FRÈRE, VÉRIFIÉ ET NON SUPPOSÉ : un rect / une ellipse ont DÉJÀ
-	///    des poignées de coin qui redimensionnent. Le conflit y serait le même
-	///    — sauf que le mode points **ne s'ouvre jamais** sur ces formes
-	///    (`NkIssueDeDblClic` rend `CoinsSeuls`). L'invariant n'est donc pas une
-	///    coïncidence de l'implémentation : il est *structurel*, et une recette
-	///    le tient pour qu'il le reste.
+	/// ⚠️ LE CAS FRÈRE — ET IL A CHANGÉ DE NATURE LE 01/09, IL FAUT LE DIRE.
+	///    Jusqu'ici, le conflit « poignée de coin contre poignée de sommet » était
+	///    écarté sur rect / ellipse par un fait *structurel* : le mode points ne
+	///    s'y ouvrait jamais. **Ce fait n'existe plus** — rect et ellipse entrent
+	///    désormais en mode points, donc leurs quatre coins portent DEUX poignées
+	///    au même pixel, exactement comme les deux bouts d'une ligne.
+	///
+	///    ⚠️ ET LE MÉCANISME N'A PAS BOUGÉ D'UNE LIGNE, PARCE QU'IL DISAIT DÉJÀ LA
+	///       RÈGLE AU LIEU DE LA SUBIR : `NkAQuiLaPoignee` répond « en mode
+	///       points, le sommet gagne » sans rien savoir de la forme. C'est le
+	///       bénéfice qu'on avait acheté en §14a de Q42 en remplaçant deux gardes
+	///       distantes par une fonction citable — il se paie aujourd'hui, sur un
+	///       cas qui n'existait pas quand on l'a écrite. *Une règle dite couvre
+	///       des chemins qu'on n'avait pas prévus ; une règle subie n'en couvre
+	///       jamais qu'un.*
 	inline bool NkPeutEntrerEnPoints(const NkUINode &n) {
 		const NkNatureSommets nat = NkNatureDe(n.shape.Data());
 		return n.children.Size() == 0
-			   && (nat == NkNatureSommets::Bouts || nat == NkNatureSommets::Polygone);
+			   && (nat == NkNatureSommets::Bouts || NkSommetsStockes(nat));
 	}
 
 	/// APPLIQUER un geste à la sélection partagée.
