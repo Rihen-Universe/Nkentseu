@@ -404,6 +404,16 @@ namespace nkuidesign {
 				///    et seraient inutilisables.
 				int32 sommet = -1; ///< le sommet PRINCIPAL (survit au relâchement)
 				int32 tire = -1;   ///< le sommet en cours de GLISSEMENT
+				/// La POIGNÉE DE TANGENTE tenue : sommet, et côté (0 = entrante,
+				/// 1 = sortante). -1 = aucune.
+				/// ⚠️ SÉPARÉ DE `tire`, ET CE N'EST PAS DU CONFORT : les deux
+				///    gestes écrivent des choses différentes (l'un déplace le
+				///    sommet et ses jumeaux marqués, l'autre pose un vecteur et
+				///    laisse le sommet tranquille). Un seul champ aurait forcé un
+				///    drapeau « c'est une tangente » à côté — et un drapeau oublié
+				///    à un site de mutation ment pour toujours.
+				int32 tangenteSommet = -1;
+				uint32 tangenteCote = 0;
 				/// ── LA SÉLECTION MULTIPLE DE SOMMETS ─────────────────────────
 				/// Retour de Rodolf, 01/09 (soir) : *« on doit pouvoir
 				/// sélectionner plusieurs vertices pour déplacement ou
@@ -479,6 +489,7 @@ namespace nkuidesign {
 					sommet = -1;
 					tire = -1;
 					marques = 0;
+					tangenteSommet = -1;
 				}
 			};
 			NkModeForme modeForme;
@@ -3238,6 +3249,44 @@ namespace nkuidesign {
 							paint.OutlineColor({ph.x - 2.f, ph.y - 2.f, ph.w + 4.f, ph.h + 4.f},
 											   accentRGBA, 0x00000000u, rd + 2.f);
 					}
+					// ── LES POIGNÉES DE COURBE (retour de Rodolf, 01/09 nuit) ──
+					// *« pour l'arrondi on doit avoir le manipulateur de courbe. »*
+					// ⚠️ ELLES NE SE PEIGNENT QUE SUR LES SOMMETS SÉLECTIONNÉS, et
+					//    c'est une décision : une forme à douze sommets courbes
+					//    afficherait VINGT-QUATRE poignées reliées par autant de
+					//    tiges, et on ne saurait plus laquelle appartient à quoi.
+					//    C'est ce que font Lunacy et Figma, et c'est aussi ce qui
+					//    rend la règle de priorité tenable — une poignée qu'on ne
+					//    voit pas ne vole pas de clic.
+					// ⚠️ LA TIGE EST DESSINÉE AVANT LA POIGNÉE : sans le trait qui
+					//    relie la poignée à son sommet, deux ronds voisins ne
+					//    disent pas lequel commande lequel.
+					{
+						const NkUINode &pt = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+						const float32 hxT = rp.w * 0.5f, hyT = rp.h * 0.5f;
+						for (uint32 i = 0; i < nbS && i < (uint32)pt.sommets.Size(); ++i) {
+							if (!mSt->modeForme.Marque((int32)i))
+								continue;
+							const NkPoint2 &sp = pt.sommets[i];
+							if (sp.liaison == NkPoint2::LiaisonDroit)
+								continue;
+							const float32 ax = xy[i * 2], ay = xy[i * 2 + 1];
+							for (uint32 cote = 0; cote < 2; ++cote) {
+								const float32 tx = (cote == 0) ? sp.ex : sp.sx;
+								const float32 ty = (cote == 0) ? sp.ey : sp.sy;
+								if (tx == 0.f && ty == 0.f)
+									continue;
+								const float32 px = ax + tx * hxT, py = ay + ty * hyT;
+								paint.Line(ax, ay, px, py, accentP, 1.f);
+								const float32 hp = 7.f;
+								const NkPaintRect ph{px - hp * 0.5f, py - hp * 0.5f, hp, hp};
+								// creuse, pour ne pas se confondre avec l'ancre
+								// pleine du sommet sélectionné qui la commande
+								paint.OutlineColor(ph, mSt->theme.Get(accentP), 0xFFFFFFFFu,
+												   hp * 0.5f);
+							}
+						}
+					}
 					// LE GESTE : prendre un sommet, le traîner, le lâcher.
 					const NkVec2 ms = ctx.input.mousePos;
 					const bool dansToile = ctx.popupDepth == 0 && NkGuiRectContains(area, ms);
@@ -3280,7 +3329,53 @@ namespace nkuidesign {
 						//    Sans cette priorité, prendre un coin pour le déplacer
 						//    en aurait ajouté un second par-dessus, et la forme
 						//    aurait gagné un sommet à chaque tentative de la bouger.
-						mSt->modeForme.tire = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
+						// ⚠️ LA TANGENTE EST INTERROGÉE AVANT L'ANCRE, et la règle
+						//    vit dans `SelectionGeste.h` (`NkAQuiLAncre`) : une
+						//    poignée ramenée près de son sommet — le geste normal
+						//    pour aplatir une courbe — deviendrait inatteignable si
+						//    l'ancre gagnait. *Le geste le plus spécifique se lit en
+						//    premier*, troisième étage de la même règle.
+						mSt->modeForme.tangenteSommet = -1;
+						{
+							const NkUINode &pt = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+							const float32 hxT = rp.w * 0.5f, hyT = rp.h * 0.5f;
+							float32 meilleure = -1.f;
+							for (uint32 i = 0; i < nbS && i < (uint32)pt.sommets.Size(); ++i) {
+								if (!mSt->modeForme.Marque((int32)i))
+									continue;
+								const NkPoint2 &sp = pt.sommets[i];
+								if (sp.liaison == NkPoint2::LiaisonDroit)
+									continue;
+								for (uint32 cote = 0; cote < 2; ++cote) {
+									const float32 tx = (cote == 0) ? sp.ex : sp.sx;
+									const float32 ty = (cote == 0) ? sp.ey : sp.sy;
+									if (tx == 0.f && ty == 0.f)
+										continue;
+									const float32 px = xy[i * 2] + tx * hxT;
+									const float32 py = xy[i * 2 + 1] + ty * hyT;
+									const float32 d = NkLongueur2D(ms.x - px, ms.y - py);
+									if (meilleure < 0.f || d < meilleure) {
+										meilleure = d;
+										mSt->modeForme.tangenteSommet = (int32)i;
+										mSt->modeForme.tangenteCote = cote;
+									}
+								}
+							}
+							const float32 dAncre = [&]() -> float32 {
+								const int32 a = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
+								if (a < 0)
+									return -1.f;
+								return NkLongueur2D(ms.x - xy[a * 2], ms.y - xy[a * 2 + 1]);
+							}();
+							if (NkAQuiLAncre(meilleure, dAncre, hs + 3.f)
+								!= NkProprioAncre::Tangente)
+								mSt->modeForme.tangenteSommet = -1;
+						}
+						if (mSt->modeForme.tangenteSommet >= 0)
+							mSt->modeForme.tire = -1;
+						else
+							mSt->modeForme.tire =
+								NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
 						// ⚠️ LE SOMMET SÉLECTIONNÉ SUIT L'ANCRE SAISIE, ET IL LUI
 						//    SURVIT. C'est lui que la section « ÉDITION DE FORME »
 						//    de l'Inspecteur affiche : le lier à `tire` viderait les
@@ -3335,6 +3430,31 @@ namespace nkuidesign {
 									Dire(msg, "", "");
 								}
 							}
+						}
+					}
+					// ── LE GLISSER D'UNE TANGENTE ──────────────────────────
+					// ⚠️ LES MODIFICATEURS VIENNENT DE LA SOURCE : les notes de
+					//    version Lunacy disent « Alt = disconnected, Ctrl =
+					//    asymmetric ». La table vit dans `SelectionGeste.h`
+					//    (`NkLiaisonDuModificateur`), pas dans ce `if`.
+					// ⚠️ ET LA LIAISON EST POSÉE AVANT LA TANGENTE, pas après : c'est
+					//    elle qui décide de ce que fait la jumelle, donc l'appliquer
+					//    ensuite propagerait selon l'ANCIEN type et rangerait les
+					//    poignées d'après une règle que l'utilisateur vient de
+					//    quitter.
+					if (mSt->modeForme.tangenteSommet >= 0 && ctx.input.mouseDown[0]) {
+						NkUINode &pm = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+						const uint32 iT = (uint32)mSt->modeForme.tangenteSommet;
+						if (iT < (uint32)pm.sommets.Size() && rp.w > 0.f && rp.h > 0.f) {
+							const nkentseu::uint8 li = NkLiaisonDuModificateur(
+								ctx.input.ctrlDown, ctx.input.altDown);
+							if (li != 255u && pm.sommets[iT].liaison != li)
+								NkPoserLiaison(pm.sommets[iT], li);
+							const float32 ax = xy[iT * 2], ay = xy[iT * 2 + 1];
+							NkPoserTangente(pm.sommets[iT], mSt->modeForme.tangenteCote,
+											(ms.x - ax) / (rp.w * 0.5f),
+											(ms.y - ay) / (rp.h * 0.5f));
+							mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
 						}
 					}
 					if (mSt->modeForme.tire >= 0 && ctx.input.mouseDown[0]) {
@@ -3420,6 +3540,16 @@ namespace nkuidesign {
 					//    geste, l'erreur ne s'accumule pas. *Ce qu'on recalcule à
 					//    chaque image, on le fait dériver.*
 					if (!ctx.input.mouseDown[0]) {
+						// une tangente relâchée recadre elle aussi : elle peut
+						// sortir la courbe de la boîte (cf. l'englobant, qui
+						// compte les points de contrôle).
+						if (mSt->modeForme.tangenteSommet >= 0
+							&& mSt->doc.IsValidIndex(mSt->modeForme.noeud)) {
+							NkUINode &pr2 = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+							if (NkRecadrerNoeud(pr2, ParentLibre(mSt->modeForme.noeud)))
+								mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
+							mSt->modeForme.tangenteSommet = -1;
+						}
 						if (mSt->modeForme.tire >= 0
 							&& mSt->doc.IsValidIndex(mSt->modeForme.noeud)) {
 							NkUINode &pr = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
@@ -8224,24 +8354,70 @@ namespace nkuidesign {
 					//    n'agit pas : c'est le défaut même que le commentaire ci-dessus
 					//    dit éviter, et je l'avais écrit deux lignes plus bas.
 					//    *Les nommer suffit ; les mimer trompe.*
-					// ⚠️ `TextWrapped` ET NON UN TEXTE ROGNÉ : ma première version
-					//    dessinait cette ligne au clip, et la capture l'a rendue
-					//    « … / miroir / asy ». Nommer six types en n'en montrant que
-					//    quatre, c'est le contraire de ce que la ligne existe pour
-					//    faire.
-					nkgui::TextWrapped(ctx,
-									   "Type de point : vif / rond / miroir / asymétrique / "
-									   "libre / auto.");
 					(void)designkit::Button(ctx, "Ouvrir le tracé", "insp.forme.ouvrir");
 					ctx.EndDisabled();
-					// ⚠️ COURT, ET C'EST UNE CORRECTION : la première version faisait
-					//    NEUF lignes dans la colonne — plus haute que tout le reste
-					//    de la section réunie. Une explication qui écrase ce qu'elle
-					//    explique n'est plus une explication.
+					nkgui::TextWrapped(ctx,
+									   "« Ouvrir le tracé » : nos tracés sont fermés — le "
+									   "modèle ne sait pas encore exprimer un tracé ouvert.");
+				}
+
+				// ── LES TYPES DE POINT : LA RANGÉE CESSE D'ÊTRE GRISE ─────────
+				// Retour de Rodolf, 01/09 (nuit) : *« le manipulateur de chaque
+				// côté indépendant ou dépendant en fonction de l'utilisateur. »*
+				//
+				// ⚠️ LES QUATRE NOMS SONT CEUX DE LA DOCUMENTATION LUNACY
+				//    (`tools/#types-of-points`), pas de mon invention — et
+				//    « asymétrique » y veut dire MÊME ANGLE, longueurs
+				//    différentes. Le libellé le dit sous la rangée, parce que
+				//    c'est contre-intuitif et qu'un bouton dont on devine mal le
+				//    sens est un bouton qu'on n'ose pas presser.
+				//
+				// ⚠️ ET LE CHANGEMENT S'APPLIQUE À TOUS LES SOMMETS MARQUÉS, pas
+				//    au seul principal : la multi-sélection existe depuis ce
+				//    soir, et un réglage qui n'obéirait qu'à un sommet sur cinq
+				//    serait un réglage qu'on croit avoir appliqué.
+				{
+					static const char *const kTypes[4] = {"Droit", "Miroir", "Asym.",
+														  "Libre"};
+					int32 courant = -1;
+					if (unSelectionne) {
+						float32 tx = 0.f, ty = 0.f, tr = 0.f;
+						(void)NkLireSommet(n, (uint32)iSel, tx, ty, tr);
+						if ((uint32)iSel < (uint32)n.sommets.Size())
+							courant = (int32)n.sommets[(uint32)iSel].liaison;
+					}
+					if (!unSelectionne)
+						ctx.BeginDisabled();
+					const int32 choisi =
+						designkit::Segmented(ctx, kTypes, 4, courant, "insp.forme.types");
+					if (!unSelectionne)
+						ctx.EndDisabled();
+					if (unSelectionne && choisi >= 0) {
+						NkMaterialiserSommets(n);
+						uint32 touches = 0;
+						for (uint32 k = 0; k < (uint32)n.sommets.Size(); ++k) {
+							if (!mSt->modeForme.Marque((int32)k))
+								continue;
+							NkPoserLiaison(n.sommets[k], (nkentseu::uint8)choisi);
+							++touches;
+						}
+						if (touches > 0) {
+							mSt->doc.MarkHumanEdit(noeud);
+							mARecadrer = true;
+							char b[160];
+							snprintf(b, sizeof(b),
+									 "%u sommet(s) passé(s) en « %s »%s", touches,
+									 kTypes[choisi],
+									 choisi == 0 ? " — les tangentes sont effacées." : ".");
+							mSt->status = NkString(b);
+						}
+					}
 					nkgui::TextWrapped(
-						ctx, "Grisés : les poignées de Bézier ne sont pas dans le modèle "
-							 "(notre arrondi est un RAYON — le champ « R »), les types de "
-							 "point n'ont de sens qu'avec elles, et nos tracés sont fermés.");
+						ctx, "Miroir : les deux poignées liées en direction ET longueur. "
+							 "Asym. : même angle, longueurs libres. Libre : indépendantes. "
+							 "Pendant le glisser, Alt = libre, Ctrl = asym.");
+				}
+				{
 				}
 
 				// ── TERMINER ──────────────────────────────────────────────────

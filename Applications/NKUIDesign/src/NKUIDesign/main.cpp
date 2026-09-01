@@ -2744,6 +2744,64 @@ static nkentseu::int32 RecettePoints() {
 				rayonSeul && rayonEteint && peintAvant && !peintApres && gardee, dd);
 	}
 
+	// ── 40. LA POIGNEE DE TANGENTE GAGNE, ET LES MODIFICATEURS VIENNENT DE
+	//        LA SOURCE ─────────────────────────────────────────────────────
+	// ⚠️ TROISIEME ETAGE DE LA MEME REGLE, ET IL FALLAIT L'ECRIRE AVANT DE LA
+	//    SUBIR. `NkAQuiLaPoignee` a deja tranche « en mode points, le sommet
+	//    gagne sur la poignee de boite ». Une poignee de TANGENTE peut a son tour
+	//    recouvrir son sommet -- il suffit d'avoir ramene la tangente pres de
+	//    zero, ce qui est le geste normal pour aplatir une courbe. Sans priorite
+	//    dite, ce geste deviendrait impossible : on reprendrait le sommet, et la
+	//    courbe qu'on essaie d'aplatir se DEPLACERAIT.
+	{
+		// (a) a distance egale, la tangente gagne
+		const bool gagne =
+			NkAQuiLAncre(4.f, 4.f, 12.f) == NkProprioAncre::Tangente;
+		// (b) mais pas quand il n'y en a aucune de visible : le sommet reprend
+		const bool sommet = NkAQuiLAncre(-1.f, 4.f, 12.f) == NkProprioAncre::Sommet;
+		// (c) ni l'une ni l'autre au-dela de la tolerance
+		const bool aucune = NkAQuiLAncre(40.f, 40.f, 12.f) == NkProprioAncre::Aucune;
+		// (d) une tangente HORS tolerance ne vole pas un sommet qui, lui, est dedans
+		const bool pasDeVol = NkAQuiLAncre(40.f, 4.f, 12.f) == NkProprioAncre::Sommet;
+		// ── LES MODIFICATEURS, CITES : « Hold down Alt to create a disconnected
+		//    point. Hold down Ctrl to create an asymmetric point. »
+		//    (`lunacy.docs.icons8.com/rn_before_v10/`)
+		const bool mods = NkLiaisonDuModificateur(false, true) == NkPoint2::LiaisonDeconnecte
+						  && NkLiaisonDuModificateur(true, false) == NkPoint2::LiaisonAsymetrique
+						  // aucun modificateur : le sommet GARDE sa liaison. Rendre
+						  // `Droit` ici effacerait les tangentes au premier glisser nu.
+						  && NkLiaisonDuModificateur(false, false) == 255u
+						  // ⚠️ ALT PRIME SUR CTRL quand les deux sont tenus : il faut
+						  //    UNE reponse, et la laisser a l'ordre des `if` serait
+						  //    une priorite subie.
+						  && NkLiaisonDuModificateur(true, true) == NkPoint2::LiaisonDeconnecte;
+		// ── CHANGER DE TYPE RANGE LE MODELE, sinon ce n'est qu'une etiquette
+		NkPoint2 p;
+		p.liaison = NkPoint2::LiaisonAsymetrique;
+		p.sx = 0.4f;
+		p.sy = 0.f;
+		p.ex = -0.1f;
+		p.ey = 0.2f; // visiblement dissymetrique
+		NkPoserLiaison(p, NkPoint2::LiaisonMiroir);
+		const bool range = p.ex == -0.4f && p.ey == 0.f;
+		// ⚠️ ET REVENIR A `Droit` EFFACE les tangentes plutot que de les garder
+		//    « au cas ou » : gardees, elles ressusciteraient a la prochaine
+		//    bascule et l'utilisateur retrouverait une courbe qu'il croyait avoir
+		//    supprimee. Le pas d'annulation, lui, les rend parfaitement.
+		NkPoserLiaison(p, NkPoint2::LiaisonDroit);
+		const bool efface = p.ex == 0.f && p.ey == 0.f && p.sx == 0.f && p.sy == 0.f
+							&& !p.Courbe();
+		char dd[224];
+		snprintf(dd, sizeof(dd), "tangente gagne=%d sommet seul=%d aucune=%d pas de vol=%d ; "
+							   "modificateurs=%d ; miroir range=%d ; retour droit efface=%d",
+				 gagne ? 1 : 0, sommet ? 1 : 0, aucune ? 1 : 0, pasDeVol ? 1 : 0, mods ? 1 : 0,
+				 range ? 1 : 0, efface ? 1 : 0);
+		verdict("40. la POIGNEE DE TANGENTE gagne sur son sommet (sans le voler quand elle est "
+				"hors tolerance), Alt/Ctrl donnent les liaisons que la doc Lunacy cite, et "
+				"changer de type RANGE les tangentes au lieu de poser une etiquette",
+				gagne && sommet && aucune && pasDeVol && mods && range && efface, dd);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

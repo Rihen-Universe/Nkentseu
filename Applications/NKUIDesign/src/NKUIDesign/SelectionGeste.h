@@ -477,6 +477,71 @@ namespace nkuidesign {
 		return NkModePointsArme(pointsNode, selection) && candidat == pointsNode;
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LA POIGNÉE DE TANGENTE GAGNE SUR LE SOMMET — TROISIÈME ÉTAGE DE LA RÈGLE
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ C'EST LA MÊME COLLISION QUE `NkAQuiLaPoignee` A TRANCHÉE DEUX FOIS, à un
+	///    étage de plus. Sur une ligne, la poignée de redimensionnement et celle
+	///    de sommet tombaient au même pixel ; en mode points, le sommet gagne.
+	///    Maintenant une **poignée de tangente** peut, elle aussi, recouvrir son
+	///    sommet — il suffit que la main ait ramené la tangente près de zéro, ce
+	///    qui est le geste normal pour « aplatir cette courbe ». Sans priorité
+	///    dite, ce geste deviendrait impossible : on reprendrait le SOMMET à la
+	///    place de la poignée, et la courbe qu'on essaie d'aplatir se
+	///    déplacerait.
+	///
+	/// **LA RÈGLE, ET ELLE SE CITE : la tangente gagne sur son sommet.** C'est le
+	/// plus petit des deux objets et le plus spécifique du geste — le même
+	/// arbitrage que « le sommet gagne sur la poignée de boîte », pris du même
+	/// côté pour la même raison. *Le geste le plus spécifique se lit en premier.*
+	///
+	/// ⚠️ ET ELLE NE VAUT QUE SUR UN SOMMET SÉLECTIONNÉ. Les tangentes ne se
+	///    peignent que là (sinon une forme à douze sommets courbes afficherait
+	///    vingt-quatre poignées, et on ne saurait plus laquelle appartient à
+	///    quoi) : une poignée qu'on ne voit pas ne doit pas voler un clic.
+	enum class NkProprioAncre {
+		Tangente, ///< une poignée de tangente est sous le point : elle gagne
+		Sommet,	  ///< sinon, l'ancre
+		Aucune	  ///< ni l'une ni l'autre
+	};
+	/// @param distTangente distance à la poignée de tangente la plus proche, ou
+	///        un nombre négatif s'il n'y en a aucune de visible sous le point.
+	/// @param distSommet   distance à l'ancre la plus proche, ou négatif.
+	inline NkProprioAncre NkAQuiLAncre(float32 distTangente, float32 distSommet, float32 tol) {
+		if (distTangente >= 0.f && distTangente <= tol)
+			return NkProprioAncre::Tangente;
+		if (distSommet >= 0.f && distSommet <= tol)
+			return NkProprioAncre::Sommet;
+		return NkProprioAncre::Aucune;
+	}
+
+	/// LE MODIFICATEUR QUI CASSE LA LIAISON PENDANT LE GESTE.
+	///
+	/// ⚠️ VÉRIFIÉ À LA SOURCE, PAS DEVINÉ. Les notes de version Lunacy
+	///    (`rn_before_v10`, « Other updates to Pen tool and vector edit mode »)
+	///    disent : *« Hold down `Alt` to create a disconnected point. Hold down
+	///    `Ctrl`/`⌘` to create an asymmetric point. »* On suit exactement ces deux
+	///    touches — et on note que la source dit « create », pas explicitement
+	///    « pendant qu'on glisse la poignée d'un point existant » : c'est
+	///    l'extension la plus proche de ce qu'elle décrit, et elle est dite ici
+	///    plutôt que supposée au site du geste.
+	///
+	/// ⚠️ ET ALT EST DÉJÀ PRIS AILLEURS DANS CETTE APPLICATION — « tracer depuis
+	///    le centre », livré ce matin, source Lunacy également. Il n'y a pas de
+	///    conflit : l'un vit pendant un tracé d'outil (R/O/L), l'autre pendant un
+	///    glisser de tangente en mode édition de forme. **Deux modes disjoints, et
+	///    c'est noté ici pour que le prochain qui touche à Alt le sache** au lieu
+	///    de le redécouvrir en cassant l'un des deux.
+	/// @return la liaison à appliquer, ou 255 si les modificateurs n'en imposent
+	///         aucune (le sommet garde la sienne).
+	inline nkentseu::uint8 NkLiaisonDuModificateur(bool ctrl, bool alt) {
+		if (alt)
+			return NkPoint2::LiaisonDeconnecte;
+		if (ctrl)
+			return NkPoint2::LiaisonAsymetrique;
+		return 255u;
+	}
+
 	/// APPLIQUER un geste à la sélection partagée.
 	/// ⚠️ LA RACINE N'EST JAMAIS UN ÉLÉMENT, et la règle vit ICI plutôt que
 	///    dans chaque appelant : elle avait déjà été oubliée par le premier
