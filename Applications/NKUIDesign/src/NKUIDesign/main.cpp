@@ -1386,6 +1386,13 @@ static struct {
 	int32 frame = -1;
 	bool dbl = false;	///< --clic=x:y:frame:d — injecte AUSSI un double-clic
 	bool droit = false; ///< --clic=x:y:frame:r — clic DROIT (menu contextuel)
+	/// --clic=x:y:frame:c (CTRL) ou :s (MAJ). ⚠️ SANS EUX, LE CONTRAT DE
+	/// SELECTION DE LUNACY N'EST PAS MESURABLE : ses trois clics ne different
+	/// QUE par le modificateur (nu = groupe de 1er niveau, Ctrl = profond, Maj
+	/// = multi). Un injecteur qui ne sait poser qu'un clic nu ne peut prouver
+	/// qu'un tiers du contrat -- et c'est le tiers qui marchait deja.
+	bool ctrl = false;
+	bool maj = false;
 } gClics[4];
 // ── FRAPPE ET TOUCHES INJECTEES (mise en scene, 01/09) ──────────────────────
 // Le meme principe que gClics : on ecrit dans ctx.input, jamais le clavier
@@ -1444,6 +1451,12 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			ctx.input.mousePos = {gClics[i].x, gClics[i].y};
 		if (compteur == gClics[i].frame) {
 			const int32 b = gClics[i].droit ? 1 : 0; // :r = clic DROIT
+			// Les modificateurs se posent AVEC le clic et se retirent avec lui :
+			// laisses colles, ils changeraient le sens de tous les clics suivants.
+			if (gClics[i].ctrl)
+				ctx.input.ctrlDown = true;
+			if (gClics[i].maj)
+				ctx.input.shiftDown = true;
 			ctx.input.mouseDown[b] = true;
 			ctx.input.mouseClicked[b] = true;
 			// le DOUBLE-CLIC s'injecte tel quel (la detection temporelle de la
@@ -1460,6 +1473,10 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			ctx.input.mouseDown[b] = false;
 			ctx.input.mouseReleased[b] = true;
 			ctx.input.mouseDoubleClicked[0] = false;
+			if (gClics[i].ctrl)
+				ctx.input.ctrlDown = false;
+			if (gClics[i].maj)
+				ctx.input.shiftDown = false;
 		}
 	}
 	// ── LA FRAPPE (--frappe=) : les codepoints poses UNE trame ──────────────
@@ -2439,6 +2456,8 @@ int nkmain(const NkEntryState &state) {
 							++q;
 						gClics[ci].dbl = (*q == ':' && q[1] == 'd');
 						gClics[ci].droit = (*q == ':' && q[1] == 'r');
+						gClics[ci].ctrl = (*q == ':' && q[1] == 'c');
+						gClics[ci].maj = (*q == ':' && q[1] == 's');
 						break;
 					}
 				continue;
@@ -2741,6 +2760,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
 			puts("  --selection=<n>         sélectionner le nœud n au premier affichage");
 			puts("  --editer-texte=<n>      ouvrir l'édition en place sur le nœud texte n (mise en scène)");
+			puts("  --clic=x:y:frame[:d|r|c|s]  injecter un clic (d double, r droit, c Ctrl, s Maj)");
 			puts("  --frappe=texte:frame    injecter des codepoints ASCII à cette trame (preuve de saisie)");
 			puts("  --touche=nom:frame      injecter entree|echap|retour à cette trame");
 			puts("  --glisser=x1:y1:x2:y2:frame[:duree[:t]]  injecter un drag (`t` = ne pas relâcher)");

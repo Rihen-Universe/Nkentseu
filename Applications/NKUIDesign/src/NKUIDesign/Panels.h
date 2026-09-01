@@ -2268,6 +2268,25 @@ namespace nkuidesign {
 					} else if (ctx.input.KeyPressed(NkGuiKey::Delete)) {
 						if (mSt->SupprimerSelection())
 							Dire(mSt->status.Data(), "", "");
+					} else if (ctx.input.KeyPressed(NkGuiKey::Enter)) {
+						// ENTRÉE DESCEND D'UN NIVEAU (Lunacy) — le geste symétrique
+						// d'ÉCHAP, qui remonte (juste en dessous). Entrer dans un
+						// groupe sélectionne son PREMIER enfant et pose le forage :
+						// exactement ce que fait le double-clic, sans la souris.
+						// ⚠️ ET IL DIT QUAND IL NE PEUT PAS. Un nœud sans enfant
+						//    n'est pas un groupe ; un no-op muet ferait croire que
+						//    la touche n'arrive pas — le défaut mesuré le 30/08 sur
+						//    les lettres d'outils, où l'infobulle promettait une
+						//    touche que le clavier n'atteignait jamais.
+						const int32 g = mSt->selected;
+						if (mSt->doc.IsValidIndex(g)
+							&& !mSt->doc.nodes[(uint32)g].children.Empty()) {
+							mForage = g;
+							mSt->SelectSingle(mSt->doc.nodes[(uint32)g].children[0]);
+							Dire("Entré dans le groupe — Échap ressort.", "", "");
+						} else if (mSt->doc.IsValidIndex(g)) {
+							Dire("Entrer : cet élément n'a pas d'enfants.", "", "");
+						}
 					}
 				}
 				// ÉCHAP annule le tracé en cours (Lunacy), et le DIT.
@@ -3127,7 +3146,22 @@ namespace nkuidesign {
 					//    EDITABLE entre en edition, une feuille non editable se
 					//    selectionne et le DIT ; Echap remonte d'un niveau ; le
 					//    clic simple reste au niveau courant ; le vide ressort.
-					if (in.doubleClick) {
+					// ⚠️ PAS DE FORAGE NI D'EDITION QUAND CTRL EST TENU, et c'est
+					//    MESURE, pas prudentiel. Ctrl+clic est la SELECTION PROFONDE
+					//    (Lunacy) : il ne descend pas, il ne renomme pas, il n'ouvre
+					//    aucun champ. Releve du 01/09 : un Ctrl+clic injecte sur un
+					//    noeud TEXTE ressortait avec `mEditNode = 15` -- l'editeur
+					//    s'ouvrait sous la main. La cause est dans NKGui, qui DECLARE
+					//    un double-clic des que deux clics tombent a moins de 0,40 s
+					//    au meme endroit (NkGuiInput.h) -- le meme piege que Rodolf
+					//    avait rapporte le 18/08 sur NK3DModeler, ou « en selection
+					//    multiple (Ctrl+clic de carte en carte) il ouvrait un editeur
+					//    sous les doigts de l'utilisateur ». Le rayon avait ete ajoute
+					//    la-bas ; il ne suffit pas quand les deux clics sont AU MEME
+					//    POINT, ce qui est le cas normal d'un Ctrl+clic repete.
+					//    La garde est donc ici, au sens du geste : un clic modifie
+					//    n'est jamais un double-clic.
+					if (in.doubleClick && !in.ctrl && !in.shift) {
 						// ── double-clic sur L'ÉTIQUETTE d'un artboard = RENOMMER
 						//    la page (Rodolf, 31/08 : « le nom présent dans cette
 						//    vue doit être le même que dans la hiérarchie » — le
@@ -3229,8 +3263,20 @@ namespace nkuidesign {
 					}
 					// clic simple : au NIVEAU COURANT du forage (les freres du
 					// niveau ou l'on est) ; ailleurs = ressortie au 1er niveau.
-					int32 hit = NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY,
-												   mForage);
+					// ⚠️ CTRL ET MAJ ETAIENT INVERSES PAR RAPPORT A LUNACY, et ce
+					//    n'etait pas un choix : `Ctrl`+clic basculait la multi-
+					//    selection (doc 3 §11.5, ecrit AVANT qu'on prenne Lunacy
+					//    pour reference d'interaction de la toile). Chez Lunacy --
+					//    et chez Figma, et chez Sketch -- c'est l'inverse :
+					//      • CTRL+clic = SELECTION PROFONDE (le noeud le plus
+					//        profond sous le curseur, sans passer par le forage) ;
+					//      • MAJ+clic  = MULTI-SELECTION (ajoute / retire).
+					//    La regle de la maison dit que diverger demande une raison
+					//    ecrite et que suivre n'en demande aucune : on suit.
+					int32 hit = in.ctrl
+									? NkPickSelectable(mSt->doc, screen, in.mouseX, in.mouseY)
+									: NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY,
+														 mForage);
 					if (hit == -2) {
 						mForage = -1;
 						hit = NkPickTopLevel(mSt->doc, screen, in.mouseX, in.mouseY);
@@ -3238,19 +3284,36 @@ namespace nkuidesign {
 					if (hit < 0) {
 						// Le vide : ressort au premier niveau, vide la selection,
 						// arme le rectangle.
+						// ⚠️ MAJ conserve la selection : le rectangle AJOUTE au lieu
+						//    de remplacer (Lunacy). C'etait `Ctrl` ici aussi.
 						mForage = -1;
-						if (!in.ctrl)
+						if (!in.shift)
 							mSt->SelectClear();
 						mMarquee = true;
 						mMarqX = in.mouseX;
 						mMarqY = in.mouseY;
 					}
 					if (hit >= 0) {
-						// `Ctrl`+clic ajoute ou retire (doc 3 §11.5).
-						if (in.ctrl)
-							mSt->SelectToggle(hit);
+						if (in.shift) {
+							// ⚠️ LA RACINE N'EST PAS UN ELEMENT, ET ELLE EST SELECTIONNEE
+							//    AU DEMARRAGE (`selected = 0`). Sans ce retrait, le premier
+							//    Maj+clic rendait une selection de DEUX (la racine + le noeud
+							//    vise) dont le principal etait la racine -- releve du 01/09 :
+							//    selection = [0, 15], compte = 2. L'Inspecteur aurait affiche
+							//    le document, et Grouper aurait refuse sans dire pourquoi.
+							//    La regle existe deja ailleurs (RacinesSelection, la
+							//    suppression) : on l'applique ici aussi.
+							if (mSt->sel.Contains(0))
+								mSt->sel.Clear();
+							mSt->SelectToggle(hit); // MAJ+clic : multi-selection
+						}
 						else if (!mSt->sel.Contains(hit))
 							mSt->SelectSingle(hit);
+						// CTRL+clic a designe un noeud PROFOND : le contexte de forage
+						// SUIT. Sans ca le clic suivant repartirait du premier niveau,
+						// et la selection profonde n'aurait tenu qu'une image.
+						if (in.ctrl && mSt->doc.IsValidIndex(hit))
+							mForage = mSt->doc.nodes[(uint32)hit].parent;
 						const NkPaintRect r = screen.At(hit);
 						const bool nearRight = in.mouseX >= r.x + r.w - kHandle;
 						const bool nearBottom = in.mouseY >= r.y + r.h - kHandle;
