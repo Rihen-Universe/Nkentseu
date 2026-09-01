@@ -2503,6 +2503,247 @@ static nkentseu::int32 RecettePoints() {
 				aMoi && pasAilleurs && pasSiDesarme && pasSansMode && cycle, d);
 	}
 
+	// ── 35. LES TROIS LIAISONS FONT TROIS CHOSES DIFFERENTES ───────────────
+	//     Retour de Rodolf, 01/09 (nuit) : « le manipulateur de chaque cote
+	//     independant ou dependant en fonction de l'utilisateur ».
+	//
+	// ⚠️ LE VOCABULAIRE VIENT DE LA SOURCE, ET IL PIEGE. Chez Lunacy
+	//    (`tools/#types-of-points`, cite mot pour mot dans `Document.h`),
+	//    « Asymmetric » = MEME ANGLE, longueurs differentes -- pas « les deux font
+	//    ce qu'elles veulent ». Prendre le mot dans son sens courant aurait donne
+	//    a `Asymetrique` le comportement de `Deconnecte`, et deux boutons sur
+	//    quatre auraient fait la meme chose. Ce cas tient les trois comportements
+	//    COTE A COTE, ce qui est la seule facon de voir qu'ils different.
+	{
+		// (a) MIROIR : la jumelle est l'oppose EXACT (direction et longueur)
+		NkPoint2 m;
+		m.liaison = NkPoint2::LiaisonMiroir;
+		m.ex = -0.2f;
+		m.ey = 0.f;
+		NkPoserTangente(m, 1, 0.3f, 0.4f); // on pose la SORTANTE
+		const bool miroir = m.ex == -0.3f && m.ey == -0.4f;
+		// (b) ASYMETRIQUE : meme angle, la jumelle GARDE SA LONGUEUR
+		NkPoint2 a;
+		a.liaison = NkPoint2::LiaisonAsymetrique;
+		a.ex = -0.1f; // longueur 0,1
+		a.ey = 0.f;
+		NkPoserTangente(a, 1, 0.3f, 0.4f); // sortante de longueur 0,5
+		// la jumelle doit pointer a l'oppose (-0,6 ; -0,8 normalise) x 0,1
+		const float32 lg = NkLongueur2D(a.ex, a.ey);
+		const bool memeLongueur = lg > 0.099f && lg < 0.101f;
+		// et l'angle est bien l'oppose : produit vectoriel nul, produit scalaire negatif
+		const float32 croix = a.ex * 0.4f - a.ey * 0.3f;
+		const float32 scal = a.ex * 0.3f + a.ey * 0.4f;
+		const bool memeAngle = (croix < 0.0001f && croix > -0.0001f) && scal < 0.f;
+		// (c) DECONNECTE : la jumelle ne bouge PAS
+		NkPoint2 d0;
+		d0.liaison = NkPoint2::LiaisonDeconnecte;
+		d0.ex = -0.1f;
+		d0.ey = 0.05f;
+		NkPoserTangente(d0, 1, 0.3f, 0.4f);
+		const bool immobile = d0.ex == -0.1f && d0.ey == 0.05f;
+		// (d) LONGUEUR NULLE : atteignable a la souris (relacher pile sur le
+		//     sommet). Sans garde, on divise par zero et on propage des NaN.
+		NkPoint2 z;
+		z.liaison = NkPoint2::LiaisonAsymetrique;
+		z.ex = -0.1f;
+		z.ey = 0.f;
+		NkPoserTangente(z, 1, 0.f, 0.f);
+		const bool sain = (z.ex == z.ex) && (z.ey == z.ey) && z.ex == -0.1f;
+		char dd[224];
+		snprintf(dd, sizeof(dd), "miroir=%d ; asym long=%.4f (garde=%d) angle oppose=%d ; "
+							   "deconnecte immobile=%d ; longueur nulle saine=%d",
+				 miroir ? 1 : 0, (double)lg, memeLongueur ? 1 : 0, memeAngle ? 1 : 0,
+				 immobile ? 1 : 0, sain ? 1 : 0);
+		verdict("35. MIROIR (direction ET longueur), ASYMETRIQUE (meme angle, longueur de la "
+				"jumelle CONSERVEE -- le sens Lunacy, pas le sens courant) et DECONNECTE (la "
+				"jumelle ne bouge pas) font trois choses differentes",
+				miroir && memeLongueur && memeAngle && immobile && sain, dd);
+	}
+
+	// ── 36. LE CONTOUR PEINT DEVIENT UNE COURBE, ET LE ZOOM LA SUIT ────────
+	// ⚠️ C'EST LE POINT DUR DE CE LOT, ET IL A DEUX MOITIES QUI TOMBENT
+	//    SEPAREMENT. (a) le modele porte des tangentes -> le contour DOIT gagner
+	//    des points entre les deux ancres, sinon le champ est enregistre et
+	//    n'agit pas (la famille de defauts qu'on chasse depuis Q44) ; (b) le
+	//    nombre d'echantillons doit suivre la TAILLE A L'ECRAN, sinon les courbes
+	//    redeviennent des polygones des qu'on zoome -- un defaut qui ne se voit
+	//    qu'a fort grossissement, donc tard.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iR = poser("rect", nullptr);
+		NkUINode &n = st.doc.nodes[(uint32)iR];
+		NkMaterialiserSommets(n);
+		const NkPaintRect petit = {0.f, 0.f, 100.f, 80.f};
+		float32 c0[512];
+		const uint32 avant = NkContourDe(n, petit, c0, 256);
+		// on courbe le segment 0 -> 1
+		n.sommets[0].liaison = NkPoint2::LiaisonMiroir;
+		NkPoserTangente(n.sommets[0], 1, 0.6f, -0.6f);
+		float32 c1[512];
+		const uint32 apres = NkContourDe(n, petit, c1, 256);
+		// (a) LE CONTOUR A GAGNE DES POINTS -- le champ AGIT
+		const bool agit = apres > avant;
+		// (b) LES DEUX BOUTS RESTENT LES ANCRES : une cubique qui ne part pas de
+		//     son sommet ferait un trou dans le trace.
+		float32 an[64];
+		const uint32 nbAn = NkSommetsDe(n, petit, an, 32);
+		const bool depart = c1[0] == an[0] && c1[1] == an[1];
+		// (c) LE ZOOM : la MEME forme, quatre fois plus grande a l'ecran, doit
+		//     etre echantillonnee plus finement -- sinon on peint un polygone.
+		const NkPaintRect grand = {0.f, 0.f, 400.f, 320.f};
+		float32 c2[512];
+		const uint32 zoome = NkContourDe(n, grand, c2, 256);
+		const bool suitLeZoom = zoome > apres;
+		// (d) ET LE NOMBRE EST BORNE DES DEUX COTES : une forme immense ne doit
+		//     pas faire exploser la liste de points.
+		const NkPaintRect enorme = {0.f, 0.f, 40000.f, 32000.f};
+		float32 c3[512];
+		const uint32 borne = NkContourDe(n, enorme, c3, 256);
+		const bool bornee = borne <= 256u && borne < zoome * 8u;
+		char dd[224];
+		snprintf(dd, sizeof(dd), "contour %u -> %u pts ; depart sur l'ancre=%d ; x4 -> %u pts ; "
+							   "x400 -> %u pts (borne=%d)",
+				 avant, apres, depart ? 1 : 0, zoome, borne, bornee ? 1 : 0);
+		verdict("36. les tangentes PEIGNENT une courbe (le contour gagne des points), la courbe "
+				"part de son ancre, et l'echantillonnage SUIT LE ZOOM en restant borne",
+				agit && depart && suitLeZoom && bornee, dd);
+	}
+
+	// ── 37. L'ENGLOBANT TIENT COMPTE DES COURBES ──────────────────────────
+	// ⚠️ SANS LES POINTS DE CONTROLE, LA BOITE COUPE LE VENTRE DE LA COURBE. Une
+	//    cubique reste dans l'enveloppe convexe de ses quatre points, donc
+	//    prendre les points de controle donne une boite qui contient a coup sur
+	//    le trace ; prendre les seuls sommets donne une boite TROP PETITE, et on
+	//    retombe sur le defaut que Rodolf a decrit ce soir -- cliquer sur la
+	//    forme sans la selectionner.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iR = poser("rect", nullptr);
+		NkUINode &n = st.doc.nodes[(uint32)iR];
+		n.posX = 0.f;
+		n.posY = 0.f;
+		NkMaterialiserSommets(n);
+		// une tangente qui sort LARGEMENT de la boite, vers la gauche
+		n.sommets[0].liaison = NkPoint2::LiaisonDeconnecte;
+		n.sommets[0].sx = -1.f; // une demi-largeur vers la gauche
+		n.sommets[0].sy = 0.f;
+		const float32 avantX = n.posX;
+		NkRecadrerNoeud(n, true);
+		// la boite doit s'etre elargie A GAUCHE pour contenir le point de controle
+		const bool elargie = n.posX < avantX - 1.f;
+		// (b) ET LA COURBE PEINTE TIENT DEDANS -- c'est la promesse de
+		//     l'enveloppe convexe, verifiee au lieu d'etre supposee
+		const NkPaintRect r = {n.posX, n.posY, n.width.value, n.height.value};
+		float32 ct[512];
+		const uint32 nbC = NkContourDe(n, r, ct, 256);
+		bool dedans = nbC > 0;
+		for (uint32 i = 0; i < nbC; ++i) {
+			if (ct[i * 2] < r.x - 0.5f || ct[i * 2] > r.x + r.w + 0.5f
+				|| ct[i * 2 + 1] < r.y - 0.5f || ct[i * 2 + 1] > r.y + r.h + 0.5f)
+				dedans = false;
+		}
+		char dd[224];
+		snprintf(dd, sizeof(dd), "boite (%.1f,%.1f) %.1fx%.1f ; elargie=%d ; %u pts de contour "
+							   "tous dedans=%d",
+				 (double)n.posX, (double)n.posY, (double)n.width.value,
+				 (double)n.height.value, elargie ? 1 : 0, nbC, dedans ? 1 : 0);
+		verdict("37. l'englobant compte les POINTS DE CONTROLE (sinon il coupe le ventre de la "
+				"courbe), et la courbe peinte tient entierement dedans",
+				elargie && dedans, dd);
+	}
+
+	// ── 38. CONSERVATION : LES TANGENTES SURVIVENT, ET LES DOCUMENTS D'AVANT
+	//        NE BOUGENT PAS D'UN OCTET ──────────────────────────────────────
+	// ⚠️ LE SECOND VOLET EST LE PLUS IMPORTANT DES DEUX, et c'est celui qu'on
+	//    oublie : ajouter cinq champs a un format POSITIONNEL est exactement le
+	//    genre de changement qui reecrit tous les fichiers existants. Un tracé
+	//    sans tangente ni rayon doit rendre les DEUX MEMES nombres qu'hier.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iVif = poser("rect", nullptr);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iVif]);
+		NkString sansT;
+		st.doc.Save(sansT);
+		const bool deuxNombres = !sansT.Contains("sommet_1 = -1 -1 0");
+		// aller-retour d'un document SANS tangente : octet pour octet
+		NkUIDocument relu0;
+		const bool ok0 = relu0.Load(sansT.Data());
+		NkString sansT2;
+		relu0.Save(sansT2);
+		const bool stable0 = ok0 && sansT.Size() == sansT2.Size()
+							 && NkComponentDecl::StrEq(sansT.Data(), sansT2.Data());
+		// puis AVEC tangentes et liaison
+		{
+			NkUINode &n = st.doc.nodes[(uint32)iVif];
+			n.sommets[1].liaison = NkPoint2::LiaisonAsymetrique;
+			n.sommets[1].ex = -0.25f;
+			n.sommets[1].ey = 0.125f;
+			n.sommets[1].sx = 0.5f;
+			n.sommets[1].sy = -0.25f;
+		}
+		NkString avecT;
+		st.doc.Save(avecT);
+		NkUIDocument relu;
+		const bool ok = relu.Load(avecT.Data());
+		bool relues = false;
+		if (ok && relu.IsValidIndex(iVif) && (uint32)relu.nodes[(uint32)iVif].sommets.Size() > 1) {
+			const NkPoint2 &q = relu.nodes[(uint32)iVif].sommets[1];
+			relues = q.ex == -0.25f && q.ey == 0.125f && q.sx == 0.5f && q.sy == -0.25f
+					 && q.liaison == NkPoint2::LiaisonAsymetrique;
+		}
+		NkString avecT2;
+		relu.Save(avecT2);
+		const bool stable = avecT.Size() == avecT2.Size()
+							&& NkComponentDecl::StrEq(avecT.Data(), avecT2.Data());
+		char dd[256];
+		snprintf(dd, sizeof(dd), "sans tangente : %u o, 2 nombres=%d, aller-retour stable=%d ; "
+							   "avec : %u o, relues=%d, stable=%d",
+				 (uint32)sansT.Size(), deuxNombres ? 1 : 0, stable0 ? 1 : 0,
+				 (uint32)avecT.Size(), relues ? 1 : 0, stable ? 1 : 0);
+		verdict("38. CONSERVATION : un trace SANS tangente s'ecrit avec ses deux nombres d'hier "
+				"(octet pour octet), et un trace AVEC tangentes se relit a l'identique, liaison "
+				"comprise",
+				deuxNombres && stable0 && relues && stable, dd);
+	}
+
+	// ── 39. `rayon` ET LES TANGENTES NE SONT PAS DEUX VERITES ──────────────
+	// ⚠️ LA REGLE EST ECRITE DANS LE MODELE (`RayonActif`) ET AU DESSIN
+	//    (`NkRayonPeint`), et ce cas existe pour qu'elle ne se defasse pas. Sans
+	//    elle, un sommet portant un rayon ET des tangentes aurait DEUX
+	//    interpretations, et laquelle gagne ne dependrait que de l'ordre du code
+	//    -- la classe de defaut que ce chantier tranche depuis Q42.
+	{
+		NkPoint2 p;
+		p.rayon = 12.f;
+		const bool rayonSeul = p.RayonActif();
+		p.liaison = NkPoint2::LiaisonMiroir;
+		p.sx = 0.3f;
+		const bool rayonEteint = !p.RayonActif() && p.Courbe();
+		// et le VOISINAGE compte : un sommet vif COLLE a un segment courbe ne
+		// s'arrondit pas non plus -- on ne saurait pas ou la cubique commence.
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iR = poser("rect", nullptr);
+		NkUINode &n = st.doc.nodes[(uint32)iR];
+		NkMaterialiserSommets(n);
+		n.sommets[1].rayon = 10.f; // vif + rayon
+		const bool peintAvant = NkRayonPeint(n, 1, 4);
+		n.sommets[0].liaison = NkPoint2::LiaisonMiroir; // le segment 0->1 devient courbe
+		n.sommets[0].sx = 0.5f;
+		const bool peintApres = NkRayonPeint(n, 1, 4);
+		// ET LE MODELE GARDE LA VALEUR : on ignore au DESSIN, on n'efface pas.
+		const bool gardee = n.sommets[1].rayon == 10.f;
+		char dd[224];
+		snprintf(dd, sizeof(dd), "rayon seul actif=%d ; eteint par les tangentes=%d ; voisin "
+							   "courbe : peint %d -> %d ; valeur gardee=%d",
+				 rayonSeul ? 1 : 0, rayonEteint ? 1 : 0, peintAvant ? 1 : 0, peintApres ? 1 : 0,
+				 gardee ? 1 : 0);
+		verdict("39. `rayon` et les tangentes ne cohabitent PAS sur un sommet : le rayon ne vaut "
+				"que sur un sommet droit dont AUCUN cote n'est courbe, et sa valeur est ignoree "
+				"au dessin sans etre effacee",
+				rayonSeul && rayonEteint && peintAvant && !peintApres && gardee, dd);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

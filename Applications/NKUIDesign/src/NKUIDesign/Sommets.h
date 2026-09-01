@@ -402,24 +402,58 @@ namespace nkuidesign {
 		if (w <= 0.f || h <= 0.f)
 			return false;
 		const uint32 nb = (uint32)n.sommets.Size();
-		// L'ENGLOBANT DU TRACÉ, en coordonnées du parent.
+		// ── L'ENGLOBANT DU TRACÉ, COURBES COMPRISES ──────────────────────────
+		// ⚠️ DEUX FAÇONS DE LE CALCULER, ET LE CHOIX SE DIT PLUTÔT QU'IL NE SE
+		//    SUBIT. (a) l'enveloppe des POINTS DE CONTRÔLE : une cubique reste
+		//    toujours DANS l'enveloppe convexe de ses quatre points, donc la
+		//    boîte contient à coup sûr la courbe — simple, exact au sens « rien
+		//    ne dépasse », mais légèrement LARGE. (b) la courbe ÉCHANTILLONNÉE :
+		//    serrée au pixel, et il faut la rééchantillonner à chaque
+		//    recadrage.
+		//
+		//    **On prend (a), et voici pourquoi ce n'est pas la paresse.** Un
+		//    englobant *un peu large* ne casse rien : on attrape la forme un
+		//    peu avant de la toucher, ce que tout éditeur vectoriel fait. Un
+		//    englobant *calculé sur un échantillonnage* change avec le nombre
+		//    d'échantillons — or ce nombre suit désormais le ZOOM
+		//    (`NkEchantillonsCourbe`). La boîte du document dépendrait donc du
+		//    facteur d'agrandissement au moment du geste : **deux recadrages au
+		//    même endroit, à deux zooms différents, donneraient deux tailles
+		//    différentes.** Une géométrie de document qui dépend de l'état de la
+		//    vue est exactement ce que ce chantier refuse depuis la règle
+		//    « les décors ne sont pas la mesure ».
+		//
+		//    ⚠️ ET SANS LES POINTS DE CONTRÔLE, LA BOÎTE SERAIT TROP PETITE :
+		//    l'englobant des seuls sommets coupe le ventre de chaque courbe. Le
+		//    cas de recette le tient dans ce sens-là.
 		float32 x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f;
-		for (uint32 i = 0; i < nb; ++i) {
-			const float32 X = px + (n.sommets[i].x + 1.f) * 0.5f * w;
-			const float32 Y = py + (n.sommets[i].y + 1.f) * 0.5f * h;
-			if (i == 0) {
+		bool premier = true;
+		auto avaler = [&](float32 X, float32 Y) {
+			if (premier) {
 				x0 = x1 = X;
 				y0 = y1 = Y;
-			} else {
-				if (X < x0)
-					x0 = X;
-				if (X > x1)
-					x1 = X;
-				if (Y < y0)
-					y0 = Y;
-				if (Y > y1)
-					y1 = Y;
+				premier = false;
+				return;
 			}
+			if (X < x0)
+				x0 = X;
+			if (X > x1)
+				x1 = X;
+			if (Y < y0)
+				y0 = Y;
+			if (Y > y1)
+				y1 = Y;
+		};
+		for (uint32 i = 0; i < nb; ++i) {
+			const NkPoint2 &sp = n.sommets[i];
+			const float32 X = px + (sp.x + 1.f) * 0.5f * w;
+			const float32 Y = py + (sp.y + 1.f) * 0.5f * h;
+			avaler(X, Y);
+			if (sp.liaison == NkPoint2::LiaisonDroit)
+				continue;
+			// les deux points de contrôle, dans la même unité que le sommet
+			avaler(X + sp.ex * w * 0.5f, Y + sp.ey * h * 0.5f);
+			avaler(X + sp.sx * w * 0.5f, Y + sp.sy * h * 0.5f);
 		}
 		float32 nw = x1 - x0, nh = y1 - y0;
 		const bool platX = nw < 1.f;
@@ -441,11 +475,27 @@ namespace nkuidesign {
 		if (dx0 < eps && dy0 < eps && dw < eps && dh < eps)
 			return false;
 		// RENORMALISER : les mêmes points, dans la nouvelle unité.
+		// ⚠️ LES TANGENTES AUSSI, ET C'EST LE PIÈGE DANS LE PIÈGE. Elles sont
+		//    unitaires comme les sommets, mais ce ne sont pas des POSITIONS : ce
+		//    sont des VECTEURS. Une position se renormalise en la ramenant dans
+		//    la nouvelle boîte ; un vecteur se renormalise en le mettant à
+		//    l'échelle du RAPPORT des deux largeurs. Leur appliquer la formule
+		//    des positions (`(X - x0) / nw * 2 - 1`) aurait ajouté un décalage à
+		//    un vecteur qui n'en a pas — les poignées seraient parties dans le
+		//    coin haut-gauche au premier recadrage. *Deux grandeurs qui portent
+		//    la même unité ne se transforment pas de la même façon.*
+		const float32 kx = platX ? 1.f : w / nw;
+		const float32 ky = platY ? 1.f : h / nh;
 		for (uint32 i = 0; i < nb; ++i) {
-			const float32 X = px + (n.sommets[i].x + 1.f) * 0.5f * w;
-			const float32 Y = py + (n.sommets[i].y + 1.f) * 0.5f * h;
-			n.sommets[i].x = platX ? 0.f : ((X - x0) / nw) * 2.f - 1.f;
-			n.sommets[i].y = platY ? 0.f : ((Y - y0) / nh) * 2.f - 1.f;
+			NkPoint2 &sp = n.sommets[i];
+			const float32 X = px + (sp.x + 1.f) * 0.5f * w;
+			const float32 Y = py + (sp.y + 1.f) * 0.5f * h;
+			sp.x = platX ? 0.f : ((X - x0) / nw) * 2.f - 1.f;
+			sp.y = platY ? 0.f : ((Y - y0) / nh) * 2.f - 1.f;
+			sp.ex *= kx;
+			sp.ey *= ky;
+			sp.sx *= kx;
+			sp.sy *= ky;
 		}
 		px = x0;
 		py = y0;
@@ -653,6 +703,143 @@ namespace nkuidesign {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  POSER UNE TANGENTE — ET C'EST LA LIAISON QUI DÉCIDE DE LA JUMELLE
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// Retour de Rodolf, 01/09 (nuit) : *« la possibilité d'avoir le manipulateur
+	/// de chaque côté indépendant ou dépendant en fonction de l'utilisateur. »*
+	///
+	/// ⚠️ ÉCRIT ICI, PAS DANS LE GESTE, ET C'EST LA CINQUIÈME FOIS QUE CE CHANTIER
+	///    PREND CETTE DÉCISION (le zoom en Q41, l'aimantation en Q42, le tracé,
+	///    la liste des sections, le déplacement groupé). Une règle « si miroir, la
+	///    jumelle suit » écrite dans la boucle de rendu vivrait là où aucun banc
+	///    ne va — et « asymétrique garde bien sa longueur » resterait une opinion.
+	///
+	/// ⚠️ ET LA DIFFICULTÉ N'EST PAS LE `switch`, C'EST LA LONGUEUR NULLE. En
+	///    `Miroir` la jumelle est l'opposé exact ; en `Asym` elle doit garder SA
+	///    longueur et prendre la direction opposée — or diviser par la longueur de
+	///    la nouvelle tangente pour l'orienter **explose quand on ramène une
+	///    poignée exactement sur son sommet**. Le cas est atteignable à la souris
+	///    (il suffit de relâcher pile dessus), et sans garde il rendrait des NaN
+	///    qui se propagent en silence jusqu'au dessin. Longueur nulle : la jumelle
+	///    ne bouge pas — c'est la seule réponse qui ne fabrique pas une direction
+	///    que personne n'a demandée.
+	///
+	/// @param cote 0 = on pose la tangente ENTRANTE, 1 = la SORTANTE.
+	inline void NkPoserTangente(NkPoint2 &p, uint32 cote, float32 tx, float32 ty) {
+		if (cote == 0) {
+			p.ex = tx;
+			p.ey = ty;
+		} else {
+			p.sx = tx;
+			p.sy = ty;
+		}
+		if (p.liaison == NkPoint2::LiaisonDroit || p.liaison == NkPoint2::LiaisonDeconnecte)
+			return; // rien à propager : pas de tangente, ou deux poignées libres
+		const float32 lon = NkLongueur2D(tx, ty);
+		if (lon < 0.0001f)
+			return; // voir ci-dessus : pas de direction, donc pas de propagation
+		if (p.liaison == NkPoint2::LiaisonMiroir) {
+			// direction ET longueur : l'opposé exact
+			if (cote == 0) {
+				p.sx = -tx;
+				p.sy = -ty;
+			} else {
+				p.ex = -tx;
+				p.ey = -ty;
+			}
+			return;
+		}
+		// LiaisonAsymetrique : direction opposée, LONGUEUR DE LA JUMELLE CONSERVÉE.
+		const float32 jx = (cote == 0) ? p.sx : p.ex;
+		const float32 jy = (cote == 0) ? p.sy : p.ey;
+		const float32 lj = NkLongueur2D(jx, jy);
+		if (lj < 0.0001f)
+			return; // la jumelle n'existe pas encore : on ne lui invente pas une longueur
+		const float32 nxv = -tx / lon * lj, nyv = -ty / lon * lj;
+		if (cote == 0) {
+			p.sx = nxv;
+			p.sy = nyv;
+		} else {
+			p.ex = nxv;
+			p.ey = nyv;
+		}
+	}
+
+	/// CHANGER LE TYPE DE LIAISON d'un sommet, et rendre le modèle COHÉRENT avec
+	/// ce que le type promet.
+	/// ⚠️ UN TYPE QUI NE RANGE PAS LES TANGENTES N'EST QU'UNE ÉTIQUETTE. Passer
+	///    « asymétrique » à « miroir » sans réaligner laisserait deux poignées
+	///    visiblement dissymétriques sous un bouton qui annonce la symétrie —
+	///    exactement la « case cochée à côté d'un aimant qui ne fait rien » que ce
+	///    chantier chasse depuis Q42.
+	/// ⚠️ ET REVENIR À `Angle` EFFACE LES TANGENTES plutôt que de les garder « au
+	///    cas où » : gardées, elles ressusciteraient à la prochaine bascule, et
+	///    l'utilisateur retrouverait une courbe qu'il croyait avoir supprimée.
+	///    Le pas d'annulation, lui, les rend parfaitement.
+	inline void NkPoserLiaison(NkPoint2 &p, nkentseu::uint8 liaison) {
+		p.liaison = liaison;
+		if (liaison == NkPoint2::LiaisonDroit) {
+			p.ex = p.ey = p.sx = p.sy = 0.f;
+			return;
+		}
+		if (liaison == NkPoint2::LiaisonMiroir) {
+			// on aligne sur la tangente SORTANTE quand elle existe, sinon sur
+			// l'entrante : il faut une référence, et prendre toujours la même
+			// évite qu'un aller-retour entre deux types fasse tourner la courbe.
+			if (p.sx != 0.f || p.sy != 0.f) {
+				p.ex = -p.sx;
+				p.ey = -p.sy;
+			} else if (p.ex != 0.f || p.ey != 0.f) {
+				p.sx = -p.ex;
+				p.sy = -p.ey;
+			}
+		}
+	}
+
+	/// Le segment `i → j` porte-t-il une courbe ? Vrai dès qu'un des deux bouts
+	/// pose une tangente de ce côté-là.
+	inline bool NkSegmentCourbe(const NkUINode &n, uint32 i, uint32 j) {
+		const uint32 nb = (uint32)n.sommets.Size();
+		if (i >= nb || j >= nb)
+			return false;
+		const NkPoint2 &a = n.sommets[i];
+		const NkPoint2 &b = n.sommets[j];
+		const bool sortA = a.liaison != NkPoint2::LiaisonDroit && (a.sx != 0.f || a.sy != 0.f);
+		const bool entB = b.liaison != NkPoint2::LiaisonDroit && (b.ex != 0.f || b.ey != 0.f);
+		return sortA || entB;
+	}
+
+	/// ⚠️ UN RAYON N'A PAS DE SENS SUR UN SOMMET DONT UN CÔTÉ EST COURBE, et cette
+	///    règle enlève la dernière ambiguïté entre les deux mécanismes. Arrondir
+	///    un coin, c'est ROGNER les deux segments qui s'y rejoignent ; si l'un des
+	///    deux est déjà une cubique, on ne sait plus où la cubique commence. Le
+	///    modèle dit déjà « `rayon` ne vaut que sur `LiaisonDroit` » ; ici on
+	///    ajoute le voisinage, et le dessin n'a plus jamais à choisir.
+	inline bool NkRayonPeint(const NkUINode &n, uint32 i, uint32 nb) {
+		if (i >= (uint32)n.sommets.Size() || !n.sommets[i].RayonActif())
+			return false;
+		const uint32 ip = (i + nb - 1) % nb, in = (i + 1) % nb;
+		return !NkSegmentCourbe(n, ip, i) && !NkSegmentCourbe(n, i, in);
+	}
+
+	/// LE NOMBRE D'ÉCHANTILLONS D'UNE COURBE, D'APRÈS SA TAILLE À L'ÉCRAN.
+	/// ⚠️ UN NOMBRE FIXE AURAIT ÉTÉ FAUX DANS LES DEUX SENS, et c'est le piège
+	///    classique de ce genre de code : à fort zoom, six segments font d'une
+	///    courbe un polygone bien visible ; à faible zoom, quarante segments sur
+	///    une courbe de dix pixels coûtent trente-quatre points pour rien. On
+	///    prend donc la longueur de la corde **à l'écran** — `NkContourDe` reçoit
+	///    déjà un rectangle d'écran, l'information est là — et on la borne des
+	///    deux côtés.
+	inline uint32 NkEchantillonsCourbe(float32 corde) {
+		uint32 n = (uint32)(corde / 6.f);
+		if (n < 6u)
+			n = 6u;
+		if (n > 40u)
+			n = 40u;
+		return n;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  LE CONTOUR PEINT — LÀ OÙ L'ARRONDI PAR SOMMET DEVIENT VISIBLE
 	// ═══════════════════════════════════════════════════════════════════════════
 	/// ⚠️ DEUX FONCTIONS, ET LA DIFFÉRENCE EST LE POINT DE CONCEPTION.
@@ -676,19 +863,24 @@ namespace nkuidesign {
 		const uint32 nb = NkSommetsDe(n, r, anc, 32);
 		if (nb == 0)
 			return 0;
-		// Aucun arrondi posé : le contour EST les ancres, à l'octet près.
-		bool aucunArrondi = true;
-		for (uint32 i = 0; i < nb && i < (uint32)n.sommets.Size(); ++i)
-			if (n.sommets[i].rayon > 0.f)
-				aucunArrondi = false;
-		if (aucunArrondi || nb < 3) {
+		// ── RIEN À COURBER NI À ARRONDIR : le contour EST les ancres ─────────
+		// ⚠️ CE CHEMIN EXISTE POUR QUE LA GRANDE MAJORITÉ DES FORMES NE PAIE RIEN.
+		//    Il rend les mêmes octets qu'avant les tangentes, et c'est lui qui
+		//    tient la promesse « un document d'hier se dessine exactement pareil ».
+		bool aucuneCourbe = true;
+		for (uint32 i = 0; i < nb && i < (uint32)n.sommets.Size(); ++i) {
+			if (n.sommets[i].rayon > 0.f || n.sommets[i].liaison != NkPoint2::LiaisonDroit) {
+				aucuneCourbe = false;
+				break;
+			}
+		}
+		if (aucuneCourbe || nb < 3) {
 			if (nb > cap)
 				return 0;
 			for (uint32 i = 0; i < nb * 2; ++i)
 				xy[i] = anc[i];
 			return nb;
 		}
-		const uint32 kSeg = 6; // points d'arc par coin arrondi
 		uint32 k = 0;
 		auto pousser = [&](float32 px, float32 py) {
 			if (k < cap) {
@@ -697,49 +889,82 @@ namespace nkuidesign {
 				++k;
 			}
 		};
+		// Les tangentes sont UNITAIRES : on les amène dans l'espace du rectangle
+		// reçu (écran ou document — la fonction ne s'en mêle pas, elle applique
+		// simplement la demi-largeur et la demi-hauteur qu'on lui a données).
+		const float32 hx = r.w * 0.5f, hy = r.h * 0.5f;
+		const uint32 nbS = (uint32)n.sommets.Size();
 		for (uint32 i = 0; i < nb; ++i) {
-			const float32 rr = (i < (uint32)n.sommets.Size()) ? n.sommets[i].rayon : 0.f;
+			const uint32 in = (i + 1) % nb;
 			const float32 cxp = anc[i * 2], cyp = anc[i * 2 + 1];
-			if (rr <= 0.f) {
+			// ── 1. LE COIN : le sommet, ou son arc de rayon ──────────────────
+			if (!NkRayonPeint(n, i, nb)) {
 				pousser(cxp, cyp);
-				continue;
+			} else {
+				const uint32 ip = (i + nb - 1) % nb;
+				const float32 axp = anc[ip * 2], ayp = anc[ip * 2 + 1];
+				const float32 bxp = anc[in * 2], byp = anc[in * 2 + 1];
+				// ⚠️ LE RAYON EST BORNÉ PAR LA MOITIÉ DU PLUS COURT DES DEUX CÔTÉS.
+				//    Sans cette borne, un rayon de 32 px sur un rect de 20 px de
+				//    large aurait fait **se croiser** les deux arcs voisins : la
+				//    forme se serait retournée sur elle-même au lieu de s'arrondir.
+				//    Le modèle garde la valeur saisie, c'est le DESSIN qui la
+				//    borne — sinon agrandir la forme ne rendrait pas l'arrondi
+				//    demandé.
+				float32 d1x = axp - cxp, d1y = ayp - cyp;
+				float32 d2x = bxp - cxp, d2y = byp - cyp;
+				const float32 l1 = NkLongueur2D(d1x, d1y);
+				const float32 l2 = NkLongueur2D(d2x, d2y);
+				if (l1 < 0.001f || l2 < 0.001f) {
+					pousser(cxp, cyp);
+				} else {
+					d1x /= l1;
+					d1y /= l1;
+					d2x /= l2;
+					d2y /= l2;
+					float32 rl = n.sommets[i].rayon;
+					if (rl > l1 * 0.5f)
+						rl = l1 * 0.5f;
+					if (rl > l2 * 0.5f)
+						rl = l2 * 0.5f;
+					const float32 p0x = cxp + d1x * rl, p0y = cyp + d1y * rl;
+					const float32 p2x = cxp + d2x * rl, p2y = cyp + d2y * rl;
+					// Un arc approché par interpolation quadratique entre les deux
+					// points de tangence, le sommet servant de point de contrôle :
+					// la même courbe qu'un quart de rond, sans trigonométrie.
+					const uint32 kSeg = 6;
+					for (uint32 sgm = 0; sgm <= kSeg; ++sgm) {
+						const float32 t = (float32)sgm / (float32)kSeg;
+						const float32 u = 1.f - t;
+						pousser(u * u * p0x + 2.f * u * t * cxp + t * t * p2x,
+								u * u * p0y + 2.f * u * t * cyp + t * t * p2y);
+					}
+				}
 			}
-			const uint32 ip = (i + nb - 1) % nb, in = (i + 1) % nb;
-			const float32 axp = anc[ip * 2], ayp = anc[ip * 2 + 1];
-			const float32 bxp = anc[in * 2], byp = anc[in * 2 + 1];
-			// ⚠️ LE RAYON EST BORNÉ PAR LA MOITIÉ DU PLUS COURT DES DEUX CÔTÉS.
-			//    Sans cette borne, un rayon de 32 px sur un rect de 20 px de large
-			//    aurait fait **se croiser** les deux arcs voisins : la forme se
-			//    serait retournée sur elle-même au lieu de s'arrondir. Le modèle
-			//    garde la valeur saisie, c'est le DESSIN qui la borne — sinon
-			//    agrandir la forme ne rendrait pas l'arrondi demandé.
-			float32 d1x = axp - cxp, d1y = ayp - cyp;
-			float32 d2x = bxp - cxp, d2y = byp - cyp;
-			const float32 l1 = NkLongueur2D(d1x, d1y);
-			const float32 l2 = NkLongueur2D(d2x, d2y);
-			if (l1 < 0.001f || l2 < 0.001f) {
-				pousser(cxp, cyp);
+			// ── 2. LE SEGMENT i → i+1 : droit, ou cubique ────────────────────
+			// ⚠️ ON N'ÉMET QUE L'INTÉRIEUR DE LA CUBIQUE (t strictement entre 0 et
+			//    1) : ses deux extrémités SONT les ancres, déjà poussées — celle
+			//    de `i` juste au-dessus, celle de `i+1` au tour suivant. Les
+			//    pousser aussi doublerait chaque sommet, ce qui ne se voit pas à
+			//    l'œil sur un trait plein mais fabrique des points de largeur
+			//    nulle dans la triangulation du remplissage.
+			if (i < nbS && !NkSegmentCourbe(n, i, in % nbS))
 				continue;
-			}
-			d1x /= l1;
-			d1y /= l1;
-			d2x /= l2;
-			d2y /= l2;
-			float32 rl = rr;
-			if (rl > l1 * 0.5f)
-				rl = l1 * 0.5f;
-			if (rl > l2 * 0.5f)
-				rl = l2 * 0.5f;
-			// Un arc approché par interpolation quadratique entre les deux points
-			// de tangence, le sommet servant de point de contrôle : c'est la même
-			// courbe qu'un quart de rond aux extrémités, sans trigonométrie.
-			const float32 p0x = cxp + d1x * rl, p0y = cyp + d1y * rl;
-			const float32 p2x = cxp + d2x * rl, p2y = cyp + d2y * rl;
-			for (uint32 s = 0; s <= kSeg; ++s) {
-				const float32 t = (float32)s / (float32)kSeg;
+			if (in >= nbS)
+				continue;
+			const NkPoint2 &a = n.sommets[i];
+			const NkPoint2 &b = n.sommets[in];
+			const float32 x0 = cxp, y0 = cyp;
+			const float32 x3 = anc[in * 2], y3 = anc[in * 2 + 1];
+			const float32 x1 = x0 + a.sx * hx, y1 = y0 + a.sy * hy;
+			const float32 x2 = x3 + b.ex * hx, y2 = y3 + b.ey * hy;
+			const uint32 ns = NkEchantillonsCourbe(NkLongueur2D(x3 - x0, y3 - y0));
+			for (uint32 sgm = 1; sgm < ns; ++sgm) {
+				const float32 t = (float32)sgm / (float32)ns;
 				const float32 u = 1.f - t;
-				pousser(u * u * p0x + 2.f * u * t * cxp + t * t * p2x,
-						u * u * p0y + 2.f * u * t * cyp + t * t * p2y);
+				const float32 uu = u * u, tt = t * t;
+				pousser(uu * u * x0 + 3.f * uu * t * x1 + 3.f * u * tt * x2 + tt * t * x3,
+						uu * u * y0 + 3.f * uu * t * y1 + 3.f * u * tt * y2 + tt * t * y3);
 			}
 		}
 		return k;

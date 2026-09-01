@@ -411,6 +411,85 @@ namespace nkuidesign {
 			/// même discipline additive que `position`, `shape` et les trois
 			/// listes : un document d'avant se réenregistre OCTET POUR OCTET.
 			float32 rayon = 0.f;
+
+			// ── LES DEUX POIGNÉES DE COURBE (retour de Rodolf, 01/09 nuit) ───
+			/// *« pour l'arrondi on doit avoir le manipulateur de courbe, avec la
+			/// possibilité d'avoir le manipulateur de chaque côté indépendant ou
+			/// dépendant en fonction de l'utilisateur. »*
+			///
+			/// Deux vecteurs de contrôle, **relatifs au sommet** et dans la MÊME
+			/// unité que `x`/`y` (fraction de la boîte, −1..1). L'unité n'est pas
+			/// un détail : en unitaire, redimensionner la forme **emmène ses
+			/// courbes** ; en pixels, une forme étirée verrait ses tangentes
+			/// rester courtes et ses courbes s'aplatir toutes seules.
+			///
+			/// `entrant` est la tangente du côté du sommet PRÉCÉDENT, `sortant`
+			/// celle du côté du SUIVANT — le segment `i → i+1` est donc la
+			/// cubique `(P_i, P_i + sortant_i, P_{i+1} + entrant_{i+1}, P_{i+1})`.
+			float32 ex = 0.f, ey = 0.f; ///< tangente ENTRANTE (vers le précédent)
+			float32 sx = 0.f, sy = 0.f; ///< tangente SORTANTE (vers le suivant)
+
+			/// Comment les deux poignées sont LIÉES. C'est le choix que Rodolf
+			/// demande (« indépendant ou dépendant en fonction de l'utilisateur »).
+			///
+			/// ⚠️ QUATRE VALEURS, ET CE SONT LES QUATRE QUE LA DOCUMENTATION LUNACY
+			///    NOMME — pas six, et pas des noms de mon invention. La page
+			///    `lunacy.docs.icons8.com/tools/#types-of-points` dit, mot pour
+			///    mot : *« Points can be either straight or curved. Curved points
+			///    […] have three subtypes: **Mirrored** points come with identical
+			///    handles that mirror each other […]. **Disconnected** points have
+			///    totally independent handles. **Asymmetric** points come with
+			///    handles that share the same angle but can have different
+			///    lengths. »* Les captures officielles du panneau `Edit shape` de
+			///    cette page montrent **quatre** icônes.
+			///
+			/// ⚠️ ET LE PIÈGE DE VOCABULAIRE EST RÉEL : chez Lunacy,
+			///    **« Asymmetric » = MÊME ANGLE, longueurs différentes** — ce que
+			///    Sketch appelle aujourd'hui « Mirror angle ». Prendre le mot dans
+			///    son sens courant (« les deux font ce qu'elles veulent ») aurait
+			///    donné à `Asymetrique` le comportement de `Deconnecte`, et deux
+			///    boutons sur quatre auraient fait la même chose.
+			///
+			/// 📌 CE QUI EXISTE AILLEURS ET N'EST PAS LIVRÉ, NOMMÉ PLUTÔT QUE TU LE
+			///    DÉCOUVRES : la spécification du FORMAT de fichier Lunacy
+			///    (`free-format`, enum `CurveMode`) liste deux modes de plus,
+			///    `OnlyFrom` et `OnlyTo` — des points à UNE SEULE poignée, ce qui
+			///    explique probablement la rangée de six icônes. **Aucune page de
+			///    documentation d'interface ne les décrit.** On ne les ébauche donc
+			///    pas : implémenter un comportement dont on n'a que le nom, c'est
+			///    inventer la moitié qui compte.
+			enum : nkentseu::uint8 {
+				LiaisonDroit = 0,	   ///< « Straight » : aucune poignée, coin vif (défaut)
+				LiaisonMiroir = 1,	   ///< « Mirrored » : liées en DIRECTION **et** LONGUEUR
+				LiaisonAsymetrique = 2, ///< « Asymmetric » : MÊME ANGLE, longueurs libres
+				LiaisonDeconnecte = 3  ///< « Disconnected » : totalement indépendantes
+			};
+			nkentseu::uint8 liaison = LiaisonDroit;
+
+			/// Ce sommet porte-t-il une courbe ?
+			bool Courbe() const {
+				return liaison != LiaisonDroit && (ex != 0.f || ey != 0.f || sx != 0.f || sy != 0.f);
+			}
+
+			/// ⚠️ `rayon` ET LES TANGENTES NE SONT PAS DEUX VÉRITÉS POUR LA MÊME
+			///    CHOSE, ET LA RÈGLE EST ÉCRITE ICI PLUTÔT QUE SUBIE AU DESSIN :
+			///    **`rayon` n'a de sens que sur un sommet `LiaisonDroit`.** Dès
+			///    qu'un sommet porte des tangentes, son `rayon` est ignoré — par
+			///    le peintre comme par le geste — et l'arrondi au double-clic le
+			///    REFUSE au lieu d'écraser en silence la courbe que la main vient
+			///    de tirer.
+			///
+			///    L'autre voie était tentante : faire de `rayon` une simple paire
+			///    de tangentes symétriques, donc une seule représentation. Elle est
+			///    **écartée pour une raison mesurable** : elle réécrirait les
+			///    documents existants (un `rayon = 12` deviendrait quatre nombres
+			///    de tangente), et le round-trip octet pour octet des fichiers
+			///    d'avant tomberait. *On ne paie pas la conservation d'hier pour
+			///    l'élégance d'aujourd'hui.* Une seule vérité PAR SOMMET, choisie
+			///    par sa liaison : c'est ce que la règle ci-dessus garantit.
+			bool RayonActif() const {
+				return liaison == LiaisonDroit && rayon > 0.f;
+			}
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -1388,9 +1467,36 @@ namespace nkuidesign {
 						WriteNum(out, n.sommets[si].x);
 						out.Append(' ');
 						WriteNum(out, n.sommets[si].y);
-						if (n.sommets[si].rayon != 0.f) {
+						// ⚠️ LES CHAMPS SONT POSITIONNELS, DONC UN CHAMP TARDIF FORCE
+						//    CEUX D'AVANT. Un sommet qui porte des tangentes mais pas
+						//    de rayon doit quand même écrire son rayon (0) pour tenir
+						//    la place -- sinon le lecteur prendrait la tangente pour
+						//    un rayon. C'est le prix d'un format positionnel, et il
+						//    se paie ICI plutôt que par un lecteur qui devine.
+						// ⚠️ ET RIEN NE CHANGE POUR LES DOCUMENTS D'AVANT : un tracé
+						//    sans tangente ni rayon rend exactement les DEUX MEMES
+						//    nombres qu'hier, octet pour octet. Même discipline
+						//    additive que `position`, `shape` et les trois listes --
+						//    reprise sans être aménagée, pour la deuxième fois.
+						const NkPoint2 &sp = n.sommets[si];
+						const bool aTangente = sp.liaison != NkPoint2::LiaisonDroit
+											   || sp.ex != 0.f || sp.ey != 0.f || sp.sx != 0.f
+											   || sp.sy != 0.f;
+						if (sp.rayon != 0.f || aTangente) {
 							out.Append(' ');
-							WriteNum(out, n.sommets[si].rayon);
+							WriteNum(out, sp.rayon);
+						}
+						if (aTangente) {
+							out.Append(' ');
+							WriteNum(out, sp.ex);
+							out.Append(' ');
+							WriteNum(out, sp.ey);
+							out.Append(' ');
+							WriteNum(out, sp.sx);
+							out.Append(' ');
+							WriteNum(out, sp.sy);
+							out.Append(' ');
+							WriteNum(out, (float32)sp.liaison);
 						}
 						out.Append('\n');
 					}
@@ -1701,8 +1807,32 @@ namespace nkuidesign {
 							if (*q) {
 								pt.y = ParseNum(q);
 								motSuiv();
-								if (*q)
+								if (*q) {
 									pt.rayon = ParseNum(q);
+									motSuiv();
+									// ⚠️ LES CINQ CHAMPS DE TANGENTE SE LISENT ENSEMBLE OU
+									//    PAS DU TOUT. Les lire un par un laisserait un
+									//    sommet à moitié courbe si la ligne est tronquée --
+									//    une forme dont une tangente sur deux existe est
+									//    pire qu'une forme sans tangente : elle a l'air
+									//    d'une courbe et se comporte comme un angle.
+									if (*q) {
+										pt.ex = ParseNum(q);
+										motSuiv();
+										pt.ey = ParseNum(q);
+										motSuiv();
+										pt.sx = ParseNum(q);
+										motSuiv();
+										pt.sy = ParseNum(q);
+										motSuiv();
+										const float32 li = ParseNum(q);
+										// une liaison hors des trois connues retombe sur
+										// l'angle : ce qui n'est pas compris ne s'invente pas.
+										pt.liaison = (li >= 1.f && li <= 3.f)
+														 ? (nkentseu::uint8)li
+														 : (nkentseu::uint8)NkPoint2::LiaisonDroit;
+									}
+								}
 							}
 							n.sommets.PushBack(pt);
 						}
