@@ -11,6 +11,7 @@
 // -----------------------------------------------------------------------------
 #include "Dames/NkDamesEcran.h"
 #include "Dames/NkDamesTheme.h"
+#include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
@@ -21,26 +22,25 @@ namespace nkentseu {
 				// --- Aides de texte -------------------------------------------
 				// Elles delegent aux memes conventions que NkCanvasGuiApp : `topY`
 				// est le HAUT du texte, pas sa ligne de base.
+				// ⚠️ RELAIS, plus des implementations : le corps vit dans
+				// NKCanvas/App/NkCanvasTexte.h, en fonctions LIBRES. Ces trois
+				// copies existaient parce que les aides avaient d'abord ete
+				// rangees en methodes protegees de NkCanvasGuiApp — invisibles
+				// depuis un fichier de dessin. Corrige le 2026-09-01.
 				float32 MesurerW(NkGuiFont *f, const char *s) noexcept {
-					return (f != nullptr && s != nullptr) ? f->MeasureWidth(s) : 0.f;
+					return renderer::NkTexteLargeur(f, s);
 				}
 				void Texte(NkGuiDrawList &dl, NkGuiFont *f, float32 x, float32 topY, const char *s, const NkColor &c,
 						   float32 maxWidth = -1.f) {
-					if (f != nullptr && f->Face() != nullptr && s != nullptr) {
-						dl.AddText(f->Face(), f->TexId(), NkVec2f(x, topY + f->Ascent()), s, c, maxWidth);
-					}
+					renderer::NkTexte(dl, f, x, topY, s, c, maxWidth);
 				}
 				void TexteDansBoite(NkGuiDrawList &dl, NkGuiFont *f, const NkRect &box, const char *s,
 									const NkColor &c) {
-					if (f == nullptr || f->Face() == nullptr) {
-						return;
-					}
-					const float32 topY = box.y + (box.h - f->LineHeight()) * 0.5f;
-					Texte(dl, f, box.x + (box.w - MesurerW(f, s)) * 0.5f, topY, s, c);
+					renderer::NkTexteDansBoite(dl, f, box, s, c);
 				}
 				void TexteADroite(NkGuiDrawList &dl, NkGuiFont *f, float32 droite, float32 topY, const char *s,
 								  const NkColor &c) {
-					Texte(dl, f, droite - MesurerW(f, s), topY, s, c);
+					renderer::NkTexteADroite(dl, f, droite, topY, s, c);
 				}
 			} // namespace
 

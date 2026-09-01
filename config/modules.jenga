@@ -137,6 +137,16 @@ _REGISTRY: dict = {
     "NKAudio"        : _m("NKENTSEU_AUDIO",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem", "NKThreading", "NKStream"]),
 
     # ---- Engine --------------------------------------------------------------
+    # Unkeny — moteur de jeu 2D sur NKCanvas.
+    # ⚠️ SANS NKRenderer ni NKRHI, et c'est le point : NKCanvas et NKRenderer
+    # sont EXCLUSIFS (NKCanvas possede ses propres backends, il n'est pas un
+    # client de NKRHI). Noge est le moteur 3D, Unkeny le 2D. Ajouter NKRenderer
+    # ici casserait la presentation de toute application Unkeny.
+    "Unkeny"         : _m("NKENTSEU_UNKENY",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
+                                                    "NKMath", "NKThreading", "NKLogger", "NKTime",
+                                                    "NKStream", "NKFileSystem", "NKEvent", "NKWindow",
+                                                    "NKCanvas", "NKFont", "NKImage", "NKGui",
+                                                    "NKECS", "NKCollision", "NKPhysics"]),
     "Noge"           : _m("NKENTSEU_NOGE",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
                                                     "NKMath", "NKThreading", "NKLogger", "NKTime",
                                                     "NKEvent", "NKWindow", "NKCanvas", "NKRHI", "NKRenderer", "NKSL",
