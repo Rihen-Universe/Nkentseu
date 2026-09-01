@@ -1009,6 +1009,64 @@ namespace nkuidesign {
 					titre(titreUser, DocumentModifie());
 			}
 
+			/// LE [+] DE LA SECTION PAGES (6e retour) : cree une page VIDE sur la
+			/// toile, A DROITE de la page de premier niveau la plus a droite
+			/// (marge 80 — le placement des artboards neufs de Lunacy), nom
+			/// « Page N » incremente jusqu'a etre unique. PAS de cible posee :
+			/// la section CIBLE affiche « choisir un format… » — creation
+			/// directe puis on change, le flux Lunacy (meme contrat qu'une page
+			/// tracee a l'outil F : les DEUX gestes creent le meme objet).
+			/// Annulable par l'observateur (gratuit). Rend l'index, -1 si refus.
+			int32 CreerPage() {
+				float32 x = 80.f, y = 48.f;
+				bool premier = true;
+				uint32 nPages = 0;
+				for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i) {
+					const NkUINode &n = doc.nodes[i];
+					if (n.parent < 0 || !doc.IsValidIndex(n.parent)
+						|| doc.nodes[(uint32)n.parent].parent >= 0)
+						continue; // seuls les enfants directs de la racine comptent
+					if (!NkComponentDecl::StrEq(n.shape.Data(), "frame"))
+						continue;
+					++nPages;
+					const float32 dr =
+						n.posX
+						+ (n.width.mode == NkSizeMode::Fixed ? n.width.value : 240.f);
+					if (premier || dr + 80.f > x)
+						x = dr + 80.f;
+					if (premier || n.posY < y)
+						y = n.posY;
+					premier = false;
+				}
+				// « Page N » unique (N part du compte des pages + 1).
+				char nom[32];
+				for (uint32 essai = nPages + 1; essai < nPages + 100; ++essai) {
+					snprintf(nom, sizeof(nom), "Page %u", essai);
+					bool pris = false;
+					for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i)
+						if (NkComponentDecl::StrEq(doc.nodes[i].label.Data(), nom))
+							pris = true;
+					if (!pris)
+						break;
+				}
+				const int32 idx = doc.AddChild(0, "", NkAuthor::Humain);
+				if (!doc.IsValidIndex(idx))
+					return -1;
+				NkUINode &n = doc.nodes[(uint32)idx];
+				n.label = NkString(nom);
+				n.shape = NkString("frame");
+				n.layout.kind = NkLayoutKind::Free; // une page RECOIT des formes
+				n.posX = x;
+				n.posY = y;
+				n.width.mode = NkSizeMode::Fixed;
+				n.width.value = 390.f;
+				n.height.mode = NkSizeMode::Fixed;
+				n.height.value = 844.f;
+				doc.MarkHumanEdit(idx);
+				SelectSingle(idx);
+				return idx;
+			}
+
 			/// Un document d'ardoise est-il modifie ? (serialisation comparee —
 			/// la meme MESURE que la pastille, jamais un drapeau).
 			bool SlotModifie(const NkDocOuvert &s) const {
@@ -4355,10 +4413,31 @@ namespace nkuidesign {
 				costume::Texte(dl, F.px15, rp.x + 3.f, costume::CentrerY(F.px15, r.y, r.h), "+",
 							   ctx.theme.textMuted);
 				if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
-					&& NkGuiRectContains(rp, ctx.input.mousePos))
-					mSt->status = NkString("[+] de la section : à brancher (le geste "
-										   "de création n'existe pas encore).");
-				(void)id;
+					&& NkGuiRectContains(rp, ctx.input.mousePos)) {
+					if (NkComponentDecl::StrEq(id, "hier.pages.plus")) {
+						// LE [+] DE PAGES CREE (6e retour — il disait « à
+						// brancher »). Le nom NAIT EN EDITION (Lunacy) : la
+						// saisie du kit s'ouvre sur la rangee neuve, le pilote
+						// ClavierRenommage la tient.
+						const int32 p = mSt->CreerPage();
+						if (p >= 0) {
+							SyncPages(); // la rangee doit exister pour la saisie
+							mModelePages.renaming = (nkentseu::nk_uint64)(p + 1);
+							mRenommageVientDeNaitre = true; // mange le clic du [+]
+							snprintf(mModelePages.renameBuf, sizeof(mModelePages.renameBuf),
+									 "%s", mSt->doc.nodes[(uint32)p].label.Data());
+							mSt->DireAuPied("Page créée — son nom est en édition (Entrée "
+											"valide) ; le format se choisit par la section "
+											"CIBLE.");
+						}
+					} else {
+						// COMPOSANTS : le registre dynamique est un chantier a
+						// part (borne kMaxComponents) — le clic le DIT.
+						mSt->DireAuPied("[+] COMPOSANTS : le registre dynamique de "
+										"composants est un chantier à part — rien n'est "
+										"créé.");
+					}
+				}
 			}
 
 			/// L'HOTE TIENT LE CLAVIER DU RENOMMAGE (contrat du kit — bloc
@@ -4416,9 +4495,20 @@ namespace nkuidesign {
 					m.renameCommit = true;
 				else if (in.KeyPressed(nkgui::NkGuiKey::Escape))
 					m.renameCancel = true;
-				else if (in.mouseClicked[0] && !NkGuiRectContains(zone, in.mousePos))
-					m.renameCommit = true; // valide PUIS le clic agit (un seul clic)
+				else if (in.mouseClicked[0] && !NkGuiRectContains(zone, in.mousePos)) {
+					// ⚠️ LE CLIC D'OUVERTURE SE MANGE (le patron vientDOuvrir des
+					//    menus) : le clic du [+] qui vient de creer la page est
+					//    HORS de la zone de l'arbre — sans cette garde il
+					//    validait la saisie a l'image meme de sa naissance.
+					if (mRenommageVientDeNaitre)
+						mRenommageVientDeNaitre = false;
+					else
+						m.renameCommit = true; // valide PUIS le clic agit (un seul clic)
+				}
 			}
+			/// Vrai l'image ou le [+] vient d'ouvrir la saisie de nom — mange le
+			/// clic d'ouverture (cf. ClavierRenommage).
+			bool mRenommageVientDeNaitre = false;
 
 			void DessinerArbre(NkGuiContext &ctx, NkTreeViewModel &modele,
 							   NkComponentInstance &inst, float32 hauteur, const char *cle) {
@@ -4533,8 +4623,13 @@ namespace nkuidesign {
 					const float32 lw = p.TextWidth(n.label.CStr());
 					const float32 bx = x + 8.f + (float32)depth * 14.f + 13.f + 15.f + lw + 5.f;
 					auto &F = costume::Fontes();
+					// « hors page » n'est pas un role : pilule GRISE (l'accent
+					// reste aux roles — 6e retour, volet B).
+					const bool horsPage = NkComponentDecl::StrEq(n.kindLabel, "hors page");
 					costume::BadgePilule(s->ctx->DL(), F.px9, bx, y + (h - 14.f) * 0.5f, 14.f,
-										 n.kindLabel, s->ctx->theme.accent);
+										 n.kindLabel,
+										 horsPage ? s->ctx->theme.textMuted
+												  : s->ctx->theme.accent);
 				};
 				// L'hote tient le clavier de la saisie de renommage (contrat du
 				// kit) — AVANT le dessin, pour que la frappe de cette image se
@@ -4649,6 +4744,15 @@ namespace nkuidesign {
 					// COSTUME BANANI : `kindLabel` porte le NOM DU RÔLE du nœud —
 					// c'est lui que la pilule affiche (vide = pas de pilule).
 					t.kindLabel = d.role.Empty() ? "" : d.role.Data();
+					// ── « HORS PAGE » (6e retour, volet B) : un element POSE A LA
+					//    RACINE de la toile (permis — modele Figma/Lunacy) n'est
+					//    couvert ni par la transposition ni par l'export par page.
+					//    CA DOIT SE VOIR : pilule discrete « hors page » (grise,
+					//    pas accent — rowOverlay la distingue d'un role).
+					if (d.role.Empty() && mSt->doc.IsValidIndex(d.parent)
+						&& mSt->doc.nodes[(uint32)d.parent].parent < 0
+						&& !NkComponentDecl::StrEq(d.shape.Data(), "frame"))
+						t.kindLabel = "hors page";
 					// L'icône de NATURE (tracés du JSX) : page pour un artboard,
 					// « T » pour un texte, pilule-bouton pour un élément à rôle,
 					// panneau pour le reste. Teinte : accent quand le nœud porte

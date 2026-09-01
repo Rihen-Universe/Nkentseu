@@ -497,6 +497,27 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 									   ctx.theme.textMuted);
 			cy += 24.f;
 		}
+		// LES ELEMENTS HORS PAGE (6e retour, volet B) : poses a la racine de la
+		// toile — PERMIS, mais la transposition ne les couvre pas. Le rapport
+		// le DIT au lieu de les ignorer en silence.
+		{
+			nkentseu::int32 horsPage = 0;
+			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)gDesign.doc.nodes.Size(); ++i) {
+				const auto &nd = gDesign.doc.nodes[i];
+				if (nd.parent >= 0 && gDesign.doc.IsValidIndex(nd.parent)
+					&& gDesign.doc.nodes[(nkentseu::uint32)nd.parent].parent < 0
+					&& !nkuidesign::NkComponentDecl::StrEq(nd.shape.Data(), "frame"))
+					++horsPage;
+			}
+			if (horsPage > 0) {
+				char hb[96];
+				snprintf(hb, sizeof(hb),
+						 "%d élément(s) hors page — non couverts par la transposition.",
+						 horsPage);
+				nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f, cy, hb, ctx.theme.textMuted);
+				cy += 20.f;
+			}
+		}
 		// LES CONSTATS RÉELS de la dernière transposition (« Générer la
 		// version mobile ») : le rapport a cessé d'être vide le jour où la
 		// tranche 1 a existé — il liste ce que la re-disposition n'a pas su
