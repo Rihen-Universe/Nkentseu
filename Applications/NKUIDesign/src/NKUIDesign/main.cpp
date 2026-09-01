@@ -3171,6 +3171,68 @@ static nkentseu::int32 RecettePoints() {
 				vifAvant && deuxPoignees && visables && sain && ecranChange && garde && efface, dd);
 	}
 
+	// ── 47. LE PANNEAU DIT LEQUEL DES DEUX MECANISMES TIENT LE SOMMET ─────────
+	// 🔴 SUR LA CAPTURE `probleme_pas_de_poignees_222121.png`, LE PANNEAU DONNAIT
+	//    TROIS AVIS SUR UN SEUL SOMMET : type « Libre » en surbrillance (donc
+	//    courbe), « R 16 » dans un champ editable (donc arrondi), et X1/Y1/X2/Y2
+	//    bloques sur « — » (donc rien). Les deux mecanismes s'excluent
+	//    (`RayonActif`, cas 39) et le PEINTRE le sait ; c'est le panneau qui ne le
+	//    redisait pas. *Une regle ecrite au modele et non redite au panneau produit
+	//    un controle qui ment.*
+	//
+	// ⚠️ ET CE N'EST PAS UNE DIVERGENCE AVEC LUNACY : sa documentation dit aussi
+	//    que le champ de rayon n'est actif que sur un point droit (§1.2 du document
+	//    de reference). L'exclusion etait juste, elle etait MUETTE. Rien a refondre
+	//    dans le format, rien a convertir a la lecture.
+	//
+	// ⚠️ CE CAS TIENT L'ACCORD DES TROIS CONTROLES, PAS LA VALEUR D'UN SEUL. Un cas
+	//    qui verifierait « R est grise sur un sommet courbe » laisserait les champs
+	//    de tangente diverger sans rien dire -- et c'est precisement par la
+	//    divergence de deux avis que ce defaut est arrive.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iC = poser("rect", nullptr);
+		NkUINode &n = st.doc.nodes[(uint32)iC];
+		NkMaterialiserSommets(n);
+		const uint32 nbC = (uint32)n.sommets.Size();
+		const char *r0 = nullptr, *r1 = nullptr, *r2 = nullptr, *r3 = nullptr;
+		// (a) AUCUN SOMMET : les deux rangees sont muettes, et la phrase le dit.
+		const bool aucun = NkQuiTientLeSommet(n, -1, nbC, r0) == NkTenuePar::Aucun;
+		// (b) SOMMET DROIT AVEC UN RAYON : c'est le rayon qui tient.
+		n.sommets[0].rayon = 16.f;
+		const bool parRayon = NkQuiTientLeSommet(n, 0, nbC, r1) == NkTenuePar::Rayon;
+		// (c) LE MEME SOMMET, PASSE EN COURBE, GARDE SON RAYON DE 16 -- et ce sont
+		//     desormais LES POIGNEES qui tiennent. C'est EXACTEMENT l'etat de la
+		//     capture : R=16 sur un sommet « Libre ».
+		NkPoserLiaisonSommet(n, 0u, NkPoint2::LiaisonDeconnecte);
+		const bool parPoignees = NkQuiTientLeSommet(n, 0, nbC, r2) == NkTenuePar::Poignees;
+		const bool rayonGarde = n.sommets[0].rayon == 16.f;
+		const bool rayonInerte = !n.sommets[0].RayonActif();
+		// (d) ET LA PHRASE SUIT LE VERDICT : trois etats, trois phrases distinctes.
+		//     Sans ce volet, un panneau pourrait griser « R » tout en expliquant
+		//     qu'il agit -- l'etat et son explication sont la meme information, donc
+		//     ils sortent de la MEME porte.
+		const bool phrasesDistinctes = r0 && r1 && r2 && r0 != r1 && r1 != r2 && r0 != r2;
+		// (e) RETOUR A « DROIT » : le rayon de 16 REDEVIENT actif. C'est le contrat
+		//     que la phrase promet (« sa valeur est gardee pour le retour »), et une
+		//     promesse d'interface non tenue vaut un champ qui ment.
+		NkPoserLiaisonSommet(n, 0u, NkPoint2::LiaisonDroit);
+		const bool revient = NkQuiTientLeSommet(n, 0, nbC, r3) == NkTenuePar::Rayon
+							 && n.sommets[0].RayonActif() && n.sommets[0].rayon == 16.f;
+		char dd[240];
+		snprintf(dd, sizeof(dd), "aucun=%d ; droit -> rayon=%d ; courbe -> poignees=%d (rayon "
+							   "garde=%d, inerte=%d) ; 3 phrases distinctes=%d ; retour droit "
+							   "reactive le rayon=%d",
+				 aucun ? 1 : 0, parRayon ? 1 : 0, parPoignees ? 1 : 0, rayonGarde ? 1 : 0,
+				 rayonInerte ? 1 : 0, phrasesDistinctes ? 1 : 0, revient ? 1 : 0);
+		verdict("47. LE PANNEAU DIT LEQUEL DES DEUX MECANISMES TIENT LE SOMMET : « R » et les "
+				"quatre champs de tangente lisent LE MEME verdict, la phrase qui les explique en "
+				"sort aussi, et un rayon eteint par une courbe est GARDE puis reactive",
+				aucun && parRayon && parPoignees && rayonGarde && rayonInerte && phrasesDistinctes
+					&& revient,
+				dd);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

@@ -7517,6 +7517,54 @@ namespace nkuidesign {
 	//  met à varier d'un écran à l'autre ». Il est donc écrit UNE fois, dans une
 	//  table, et la boucle le suit.
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  QUI TIENT CE SOMMET — LE RAYON, OU LES DEUX POIGNÉES
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// 🔴 EXTRAITE DU CORPS DU PANNEAU POUR LA MÊME RAISON QUE `NkSectionsInspecteur`
+	///    JUSTE EN DESSOUS, et le défaut qu'elle répare est celui qu'a photographié
+	///    Rodolf le 01/09 (`probleme_pas_de_poignees_222121.png`) : un sommet de
+	///    type « Libre » qui affiche **R = 16** dans un champ éditable dont plus
+	///    rien ne lit la valeur, à côté de quatre champs de tangente bloqués sur
+	///    « — ». **Trois contrôles, trois avis, un seul sommet.**
+	///
+	/// ⚠️ CE N'EST PAS LE MODÈLE QU'IL FAUT CORRIGER, ET C'EST LE POINT. La règle
+	///    « `rayon` n'a de sens que sur un sommet droit » est écrite dans
+	///    `NkPoint2::RayonActif` depuis le premier jour, le peintre l'honore, et le
+	///    cas 39 la tient. **La documentation Lunacy dit la même chose** — son
+	///    champ de rayon n'est actif que sur un point droit (§1.2 du document de
+	///    référence, où l'on note que nous l'avions trouvé indépendamment). Il n'y
+	///    a donc **ni divergence à écrire, ni format à refondre** : l'exclusion est
+	///    juste, elle était seulement **muette**. *Une règle écrite au modèle et non
+	///    redite au panneau produit un contrôle qui ment.*
+	///
+	/// ⚠️ ET ELLE REND LA PHRASE AVEC LE VERDICT, pas à côté. Si la phrase vivait
+	///    dans le dessin et l'état ici, les deux dériveraient — c'est exactement la
+	///    divergence `sel`/`selected` que le document 3 §11.5 interdit, et elle
+	///    coûterait un panneau qui grise « R » tout en expliquant qu'il agit.
+	enum class NkTenuePar : nkentseu::uint8 {
+		Aucun = 0, ///< aucun sommet sélectionné : les deux rangées sont muettes
+		Rayon = 1, ///< sommet DROIT : « R » agit, aucune poignée
+		Poignees = 2 ///< sommet COURBE : les tangentes agissent, « R » est inerte
+	};
+
+	inline NkTenuePar NkQuiTientLeSommet(const NkUINode &n, int32 iSel, uint32 nbS,
+										 const char *&raison) {
+		if (iSel < 0 || (uint32)iSel >= nbS) {
+			raison = "Sélectionnez un sommet sur la toile.";
+			return NkTenuePar::Aucun;
+		}
+		const bool courbe = (uint32)iSel < (uint32)n.sommets.Size()
+							&& n.sommets[(uint32)iSel].liaison != NkPoint2::LiaisonDroit;
+		if (courbe) {
+			raison = "Sommet COURBE : ses deux poignées commandent, et « R » est sans effet "
+					 "— sa valeur est gardée pour le retour à « Droit ».";
+			return NkTenuePar::Poignees;
+		}
+		raison = "Sommet DROIT : « R » l'arrondit, et il n'a pas de poignée — donnez-lui un "
+				 "type ci-dessous pour le courber.";
+		return NkTenuePar::Rayon;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  L'ORDRE DES SECTIONS DE L'INSPECTEUR — UN MÉCANISME, PAS UN DESSIN
 	// ═══════════════════════════════════════════════════════════════════════════
 	/// ⚠️ CETTE LISTE VIVAIT DANS `InspectorPanel::Sections`, DONC HORS DE PORTÉE
@@ -8295,6 +8343,27 @@ namespace nkuidesign {
 				const uint32 nbS = NkNbSommetsDe(n);
 				const int32 iSel = mSt->modeForme.sommet;
 				const bool unSelectionne = iSel >= 0 && (uint32)iSel < nbS;
+				// 🔴 LEQUEL DES DEUX MÉCANISMES TIENT CE SOMMET — et il fallait le
+				//    calculer UNE FOIS, ici, parce que TROIS contrôles en dépendent
+				//    (le champ R, les quatre champs de tangente, la rangée des
+				//    types). La règle vit dans le modèle depuis le premier jour
+				//    (`RayonActif` : *« `rayon` n'a de sens que sur un sommet
+				//    `LiaisonDroit` »*, cas 39) et le PEINTRE l'honore — mais le
+				//    panneau, lui, ne la connaissait pas. Sur la capture de Rodolf
+				//    (`probleme_pas_de_poignees_222121.png`) ça donne un sommet de
+				//    type « Libre » qui affiche **R = 16** dans un champ éditable
+				//    dont plus rien ne lit la valeur. *Une règle écrite au modèle
+				//    et non redite au panneau produit un contrôle qui ment* — la
+				//    même famille que le liseré repeint et le rôle pris pour une
+				//    couleur, et c'est la neuvième fois cette semaine.
+				// ⚠️ UN SEUL APPEL, TROIS CONTRÔLES — c'est la propriété qui compte.
+				//    Le champ « R », les quatre champs de tangente et la phrase qui
+				//    les explique lisent TOUS ce verdict-ci. Recalculer la condition
+				//    à chaque site les ferait dériver au premier oubli, et on
+				//    obtiendrait un panneau qui grise « R » en expliquant qu'il agit.
+				const char *raisonSommet = nullptr;
+				const NkTenuePar tenue = NkQuiTientLeSommet(n, iSel, nbS, raisonSommet);
+				const bool sommetCourbe = tenue == NkTenuePar::Poignees;
 
 				// ── LA RANGÉE X / Y / RAYON DU SOMMET SÉLECTIONNÉ ─────────────
 				// ⚠️ EN PIXELS DEPUIS LE COIN HAUT-GAUCHE DE LA FORME, PAS EN
@@ -8360,13 +8429,28 @@ namespace nkuidesign {
 								mARecadrer = true;
 							}
 						}
-						if (ChampNombre(ctx, "insp.forme.rayon", rr, ra, 0.5f, 0.f, 256.f)) {
+						// ⚠️ LE CHAMP R SE GRISE DÈS QUE LE SOMMET EST COURBE, et il ne
+						//    se cache pas : un champ absent laisserait croire que
+						//    l'outil ne connaît pas l'arrondi, un champ actif qui
+						//    n'agit pas est pire encore. La raison est écrite sous
+						//    la rangée, jamais devinée.
+						// ⚠️ ET LA VALEUR EST CONSERVÉE, PAS EFFACÉE : repasser le
+						//    sommet en « Droit » doit rendre l'arrondi qu'il avait.
+						//    C'est déjà ce que tient le cas 39 (*« sa valeur est
+						//    ignorée au dessin sans être effacée »*) ; griser le
+						//    champ ne doit pas trahir ce contrat.
+						if (sommetCourbe)
+							ctx.BeginDisabled();
+						if (ChampNombre(ctx, "insp.forme.rayon", rr, ra, 0.5f, 0.f, 256.f)
+							&& !sommetCourbe) {
 							NkMaterialiserSommets(n);
 							if ((uint32)iSel < (uint32)n.sommets.Size()) {
 								n.sommets[(uint32)iSel].rayon = ra;
 								mSt->doc.MarkHumanEdit(noeud);
 							}
 						}
+						if (sommetCourbe)
+							ctx.EndDisabled();
 						// ── LA BOÎTE SUIT LES CHAMPS AUSSI, AU RELÂCHEMENT ────
 						// ⚠️ MÊME RAISON QU'AU GLISSER D'UN SOMMET SUR LA TOILE, et
 						//    c'est le chemin frère : recadrer à chaque cran du champ
@@ -8412,13 +8496,40 @@ namespace nkuidesign {
 					dl.PopClipRect();
 				}
 
-				// ── LES POIGNÉES DE BÉZIER : NOMMÉES, PAS ÉBAUCHÉES ───────────
-				// ⚠️ SA CAPTURE 2 MONTRE UN COIN COURBÉ AVEC SES DEUX TANGENTES.
-				//    Chez nous l'arrondi est un RAYON, donc un arc SYMÉTRIQUE : il
-				//    couvre « on peut l'arrondir », pas la courbe libre. La
-				//    différence est réelle, et on l'écrit plutôt que de la masquer.
+				// ── LES QUATRE CHAMPS DE TANGENTE — ILS AFFICHENT ENFIN QUELQUE CHOSE
+				// 🔴 CE BLOC AFFICHAIT QUATRE « — » EN DUR, DANS UN `BeginDisabled`,
+				//    ET IL LES AURAIT AFFICHÉS POUR TOUJOURS. Ce n'était pas un
+				//    calcul qui échouait : `BoiteChamp(ctx, a1, "—")` ne lit rien,
+				//    donc aucune valeur, quelle qu'elle soit, n'aurait pu y
+				//    apparaître. C'était l'échafaudage écrit AVANT que le modèle
+				//    porte des tangentes — et le commentaire qui était ici disait
+				//    encore *« chez nous l'arrondi est un RAYON […] il couvre "on
+				//    peut l'arrondir", pas la courbe libre »*, ce qui a cessé
+				//    d'être vrai le soir même, au commit qui a livré `ex/ey/sx/sy`.
+				//    *Un échafaudage qu'on laisse en place après avoir construit
+				//    derrière devient un mensonge, et il se lit comme une panne :*
+				//    sur la capture de Rodolf, ces quatre « — » à côté d'un R = 16
+				//    donnaient à croire que les tangentes ne se calculaient pas.
+				//
+				// ⚠️ ET LA CONVERSION EST CELLE D'UN VECTEUR, PAS D'UNE POSITION —
+				//    la rangée X/Y juste au-dessus fait `(v + 1) * 0,5 * largeur`
+				//    parce qu'elle place un POINT dans la boîte ; une tangente est
+				//    un DÉPLACEMENT relatif au sommet, donc `v * 0,5 * largeur`
+				//    sans le décalage. Reprendre la formule d'à côté aurait décalé
+				//    chaque poignée d'une demi-boîte. Même unité, transformation
+				//    différente : c'est déjà ce que Q47 avait dû écrire pour le
+				//    recadrage, et c'est le même piège au même endroit.
+				//
+				// ⚠️ ON ÉCRIT PAR `NkPoserTangente`, JAMAIS EN AFFECTANT `ex`/`sx` :
+				//    c'est elle qui fait suivre la jumelle selon la liaison. Une
+				//    affectation directe rendrait « Miroir » visiblement
+				//    dissymétrique dès qu'on tape un nombre — l'étiquette sans la
+				//    règle, exactement ce que `NkPoserLiaison` refuse par ailleurs.
 				{
-					ctx.BeginDisabled();
+					const bool tangentesLisibles =
+						sommetCourbe && rb.w > 0.f && rb.h > 0.f
+						&& (uint32)iSel < (uint32)n.sommets.Size();
+					const float32 demiL = rb.w * 0.5f, demiH = rb.h * 0.5f;
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f;
 					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
@@ -8428,37 +8539,82 @@ namespace nkuidesign {
 					const float32 dispoB = (r.x + r.w - 12.f) - (x0 + 22.f);
 					const float32 lb = (dispoB - 26.f) * 0.5f;
 					const NkRect a1 = {x0 + 22.f, r.y + 3.f, lb, 20.f};
-					BoiteChamp(ctx, a1, "\xE2\x80\x94");
 					costume::Texte(dl, F.px10, a1.x + a1.w + 6.f,
 								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Y1",
 								   ctx.theme.textMuted);
 					const NkRect a2 = {a1.x + a1.w + 26.f, r.y + 3.f, lb, 20.f};
-					BoiteChamp(ctx, a2, "\xE2\x80\x94");
 					const NkRect r2 = ctx.NextItemRect(-1.f, 26.f);
 					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r2.y + 3.f, 20.f),
 								   "X2", ctx.theme.textMuted);
 					const NkRect b1 = {x0 + 22.f, r2.y + 3.f, lb, 20.f};
-					BoiteChamp(ctx, b1, "\xE2\x80\x94");
 					costume::Texte(dl, F.px10, b1.x + b1.w + 6.f,
 								   costume::CentrerY(F.px10, r2.y + 3.f, 20.f), "Y2",
 								   ctx.theme.textMuted);
 					const NkRect b2 = {b1.x + b1.w + 26.f, r2.y + 3.f, lb, 20.f};
-					BoiteChamp(ctx, b2, "\xE2\x80\x94");
-					// ── LES SIX TYPES DE POINT — ET POURQUOI ILS ATTENDENT ────
-					// ⚠️ ILS N'ONT DE SENS QU'AVEC LES POIGNÉES DE BÉZIER. Les
-					//    poser avant, ce serait six boutons dont quatre ne
-					//    changeraient rien — exactement la « case toujours cochée à
-					//    côté d'un aimant qui ne fait rien » que Q42 a trouvée dans
-					//    le menu Affichage.
-					// 🔴 ET MA PREMIÈRE VERSION LES A POSÉS QUAND MÊME, EN `Segmented`.
-					//    La capture `preuve_edit_shape_n9.png` montre le résultat : six
-					//    mots ne tiennent pas dans une colonne d'Inspecteur, le contrôle
-					//    bascule en FLOT (à raison — c'est sa règle anti-troncature), et
-					//    on obtient **six lignes empilées dont la première est en
-					//    surbrillance**. Un choix qui a l'air fait, sur un contrôle qui
-					//    n'agit pas : c'est le défaut même que le commentaire ci-dessus
-					//    dit éviter, et je l'avais écrit deux lignes plus bas.
-					//    *Les nommer suffit ; les mimer trompe.*
+					if (tangentesLisibles) {
+						NkPoint2 &pt = n.sommets[(uint32)iSel];
+						// X1/Y1 = la tangente ENTRANTE (vers le sommet précédent),
+						// X2/Y2 = la SORTANTE. L'ordre suit celui du modèle, et les
+						// deux lignes du panneau suivent l'ordre des étiquettes.
+						float32 e1 = pt.ex * demiL, e2 = pt.ey * demiH;
+						float32 s1 = pt.sx * demiL, s2 = pt.sy * demiH;
+						const bool cE1 = ChampNombre(ctx, "insp.forme.x1", a1, e1, 0.5f,
+													 -4096.f, 4096.f);
+						const bool cE2 = ChampNombre(ctx, "insp.forme.y1", a2, e2, 0.5f,
+													 -4096.f, 4096.f);
+						const bool cS1 = ChampNombre(ctx, "insp.forme.x2", b1, s1, 0.5f,
+													 -4096.f, 4096.f);
+						const bool cS2 = ChampNombre(ctx, "insp.forme.y2", b2, s2, 0.5f,
+													 -4096.f, 4096.f);
+						if (cE1 || cE2) {
+							NkPoserTangente(pt, 0, e1 / demiL, e2 / demiH);
+							mSt->doc.MarkHumanEdit(noeud);
+							mARecadrer = true;
+						}
+						if (cS1 || cS2) {
+							NkPoserTangente(pt, 1, s1 / demiL, s2 / demiH);
+							mSt->doc.MarkHumanEdit(noeud);
+							mARecadrer = true;
+						}
+					} else {
+						// ⚠️ ET LE « — » RESTE — mais il est VRAI maintenant : un
+						//    sommet droit n'a pas de tangente à montrer. Le tiret
+						//    ne dit plus « je ne sais pas calculer », il dit « il
+						//    n'y en a pas », et la ligne sous la rangée le nomme.
+						ctx.BeginDisabled();
+						BoiteChamp(ctx, a1, "\xE2\x80\x94");
+						BoiteChamp(ctx, a2, "\xE2\x80\x94");
+						BoiteChamp(ctx, b1, "\xE2\x80\x94");
+						BoiteChamp(ctx, b2, "\xE2\x80\x94");
+						ctx.EndDisabled();
+					}
+				}
+				// ── CE QUI TIENT CE SOMMET, DIT EN UNE LIGNE ──────────────────
+				// ⚠️ C'EST LA MOITIÉ QUI MANQUAIT LE PLUS : les deux mécanismes
+				//    s'excluent (`RayonActif`), et Lunacy fait pareil — sa doc dit
+				//    que le rayon n'est actif que sur un point droit, et le §1.2 du
+				//    document de référence note que nous l'avions trouvé
+				//    indépendamment. L'exclusion n'est donc pas à corriger : elle
+				//    est à DIRE. Un panneau qui montre les deux sans dire lequel
+				//    agit laisse la main croire qu'elle règle quelque chose.
+				nkgui::TextWrapped(ctx, raisonSommet);
+				{
+					// ── « OUVRIR LE TRACÉ » : GRISÉ, ET IL LE RESTE ───────────
+					// ⚠️ IL EST SEUL DANS SON `BeginDisabled` DEPUIS QUE LES CHAMPS
+					//    DE TANGENTE SONT VIVANTS, et c'est la correction qui
+					//    comptait : il partageait le grisé avec X1..Y2, si bien
+					//    qu'une seule raison — la vraie, celle du tracé ouvert —
+					//    éteignait cinq contrôles dont quatre n'avaient rien à voir
+					//    avec elle. *Un grisé porte UNE raison ; deux contrôles
+					//    éteints pour des motifs différents ne se partagent pas le
+					//    même interrupteur.*
+					// 📌 Son motif à lui n'a pas bougé : nos tracés sont fermés par
+					//    construction (`NkContourDe` relie le dernier au premier),
+					//    et l'ouvrir demanderait un booléen par nœud, honoré au
+					//    peintre ET au round-trip. Le libellé vient de la capture de
+					//    Rodolf ; la documentation Lunacy, elle, ne décrit que
+					//    « Close path » (§1.4 du document de référence).
+					ctx.BeginDisabled();
 					(void)designkit::Button(ctx, "Ouvrir le tracé", "insp.forme.ouvrir");
 					ctx.EndDisabled();
 					nkgui::TextWrapped(ctx,
