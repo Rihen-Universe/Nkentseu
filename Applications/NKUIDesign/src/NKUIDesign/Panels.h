@@ -3218,6 +3218,24 @@ namespace nkuidesign {
 			void HandleMouse(const NkComponentInput &in, const NkLayoutResult &screen) {
 				const float32 kHandle = 6.f;
 
+				// ── UN DOUBLE-CLIC EST UN APPUI (regle citee, pas subie) ─────────
+				// ⚠️ MESURE DU 01/09, EN QUATRE MAILLONS, ET C'EST LE DEFAUT QUE
+				//    RODOLF RAPPORTAIT (« double-cliquer ne me donne pas acces a la
+				//    modification fine ») : la classe de fenetre porte CS_DBLCLKS,
+				//    donc Windows REMPLACE le second WM_LBUTTONDOWN par
+				//    WM_LBUTTONDBLCLK ; le Win32 n'en tirait aucun appui ; la
+				//    coquille ne leve `mouseDown` que sur un appui ; et cette
+				//    fonction enfermait sa branche double-clic dans
+				//    `if (in.mousePressed)`. Le geste reel n'y entrait JAMAIS.
+				//    L'injecteur, lui, posait `mouseDown` PUIS `SetDoubleClick` :
+				//    toutes les mesures passaient par une autre porte que la souris.
+				//    La cause racine est corrigee dans NKWindow (l'appui est emis) ;
+				//    CETTE ligne est la ceinture : un double-clic ne doit pas
+				//    dependre d'un detail de plomberie pour exister.
+				//    `NkAppuiDeToile` porte la regle (SelectionGeste.h) parce que le
+				//    meme croisement se retrouve a CINQ endroits ci-dessous.
+				const bool appui = NkAppuiDeToile(in.mousePressed, in.doubleClick);
+
 				// ── CONTRAT UNIVERSEL D'EDITION : LE CLIC AILLEURS VALIDE ────────
 				// ⚠️ MESURE DU 01/09 (meme classe que la Hierarchie) : la sortie au
 				//    clic se jugeait APRES le retour anticipe « hors de la toile »
@@ -3228,7 +3246,7 @@ namespace nkuidesign {
 				//    (`mEditRect`, pose par le dessin de l'overlay) : hors de lui =
 				//    valider PUIS laisser le clic agir ; dedans = le clic appartient
 				//    au champ, rien ne se ferme.
-				if (in.mousePressed && mSt->doc.IsValidIndex(mEditNode)) {
+				if (appui && mSt->doc.IsValidIndex(mEditNode)) {
 					if (DansZone(mEditRect, in))
 						return; // le clic appartient au champ d'edition
 					FermerEditionTexte(true); // valide — puis le clic agit normalement
@@ -3243,7 +3261,7 @@ namespace nkuidesign {
 				//    dans la toile (un glisser en cours, lui, continue : sortir du
 				//    cadre en tirant un bord ne doit pas lacher le bord).
 				const NkPaintRect &vp = mSt->view.viewport;
-				if (in.mousePressed
+				if (appui
 					&& !(in.mouseX >= vp.x && in.mouseX < vp.x + vp.w && in.mouseY >= vp.y
 						 && in.mouseY < vp.y + vp.h))
 					return;
@@ -3256,7 +3274,7 @@ namespace nkuidesign {
 				//    cluster) sont posees par `DessinerFlottants` a l'image
 				//    precedente : un clic dedans appartient a leurs boutons, jamais
 				//    a la toile.
-				if (in.mousePressed
+				if (appui
 					&& (DansZone(mZoneModes, in) || DansZone(mZoneOutils, in)
 						|| DansZone(mZoneCluster, in) || DansZone(mZoneEventail, in)
 						|| DansZone(mZoneAppareil, in)))
@@ -3265,7 +3283,7 @@ namespace nkuidesign {
 				// ── LA MAIN (famille Déplacer, variante Main — Lunacy H) : le
 				//    glisser DÉPLACE LA VUE, il ne touche à rien du document.
 				if (mOutil == 0 && mVarMove == 1) {
-					if (in.mousePressed) {
+					if (appui) {
 						mMainPan = true;
 						mMainX = in.mouseX;
 						mMainY = in.mouseY;
@@ -3284,7 +3302,7 @@ namespace nkuidesign {
 				//    M (image/avatar), T (texte) ──
 				const bool outilTrace = (mOutil == 1 || mOutil == 2 || mOutil == 3 || mOutil == 7);
 				const bool outilTexte = (mOutil == 5);
-				if (in.mousePressed && (outilTrace || outilTexte)) {
+				if (appui && (outilTrace || outilTexte)) {
 					const int32 parent = NkPickFreeContainer(mSt->doc, screen, in.mouseX, in.mouseY);
 					if (parent < 0) {
 						Dire("Aucun conteneur libre sous le curseur — rien n'est créé.", "", "");
@@ -3351,7 +3369,7 @@ namespace nkuidesign {
 					}
 					mCreating = false;
 				}
-				if (in.mousePressed) {
+				if (appui) {
 					// (la validation « clic ailleurs » de l'edition en place est
 					// jugee EN TETE de HandleMouse, contre le rectangle du champ —
 					// avant les retours anticipes, sinon un clic hors toile ne
@@ -3417,39 +3435,55 @@ namespace nkuidesign {
 							//    geste : les décider ici, chacune à côté de
 							//    l'autre, aurait rouvert la divergence que les
 							//    tables de clic viennent de fermer.
-							switch (NkIssueDeDblClic(cn)) {
-								case NkIssueDblClic::Forer: {
-									const int32 enfant = NkPickDansContexte(
-										mSt->doc, screen, in.mouseX, in.mouseY, cand);
-									if (enfant >= 0) {
-										mForage = cand;
-										mSt->SelectSingle(enfant);
-										Dire("", mSt->doc.nodes[(uint32)enfant].label.Data(),
-											 " — double-clic : descendre/éditer ; Échap : "
-											 "remonter.");
-									} else
-										mSt->SelectSingle(cand); // rien sous le point
+							// ⚠️ ET LA SUITE AUSSI VIENT D'UN MÉCANISME, parce que
+							//    `Forer` en a DEUX et que la seconde était muette.
+							//    Mesure du 01/09 sur le document Dashboard : sur le
+							//    CORPS d'une carte, d'un panneau ou d'un artboard —
+							//    c'est-à-dire partout où aucun enfant direct n'est
+							//    sous le point — `NkPickDansContexte` rendait −2, la
+							//    branche faisait un `SelectSingle` SANS RIEN DIRE, et
+							//    n'armait même pas le forage : le double-clic suivant
+							//    refaisait la même chose. Rien ne se passait, rien ne
+							//    le disait, et ça ne progressait jamais.
+							const NkIssueDblClic issue = NkIssueDeDblClic(cn);
+							const int32 enfant =
+								(issue == NkIssueDblClic::Forer)
+									? NkPickDansContexte(mSt->doc, screen, in.mouseX,
+														 in.mouseY, cand)
+									: -1;
+							const NkSuiteDblClic suite = NkSuiteDeDblClic(issue, enfant >= 0);
+							switch (suite) {
+								case NkSuiteDblClic::ForerVersEnfant:
+									mForage = cand;
+									mSt->SelectSingle(enfant);
+									Dire("", mSt->doc.nodes[(uint32)enfant].label.Data(),
+										 NkRaisonDeDblClic(suite));
 									break;
-								}
-								case NkIssueDblClic::EditerTexte: {
+								case NkSuiteDblClic::ForerSansEnfant:
+									// ⚠️ ON ENTRE QUAND MÊME, et c'est ce que fait
+									//    Lunacy : double-cliquer le fond d'un groupe y
+									//    entre. Sans l'armement du forage, le geste ne
+									//    progressait pas d'un cran, quel que soit le
+									//    nombre de double-clics.
+									mForage = cand;
+									mSt->SelectSingle(cand);
+									Dire("", cn.label.Data(), NkRaisonDeDblClic(suite));
+									break;
+								case NkSuiteDblClic::EditerTexte: {
 									mEditNode = cand;
 									const char *t0 = cn.TexteEn(mSt->langueActive.Data());
 									snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
 									mSt->SelectSingle(cand);
-									Dire("Édition du texte — Entrée valide, Échap annule.", "",
-										 "");
+									Dire(NkRaisonDeDblClic(suite), "", "");
 									break;
 								}
-								case NkIssueDblClic::ModePoints: {
+								case NkSuiteDblClic::ModePoints:
 									mPointsNode = cand;
 									mPointDrag = -1;
 									mSt->SelectSingle(cand);
-									Dire("Mode points — glisser un sommet le déplace ; Échap "
-										 "ressort.",
-										 "", "");
+									Dire(NkRaisonDeDblClic(suite), "", "");
 									break;
-								}
-								case NkIssueDblClic::CoinsSeuls:
+								case NkSuiteDblClic::CoinsSeuls:
 									// ⚠️ ON LE DIT PLUTÔT QUE DE FAIRE SEMBLANT : un
 									//    rectangle n'a pas de sommets à éditer, ses
 									//    coins REDIMENSIONNENT. Ouvrir un « mode
@@ -3457,18 +3491,32 @@ namespace nkuidesign {
 									//    laisserait croire à une édition vectorielle
 									//    qui n'existe pas.
 									mSt->SelectSingle(cand);
-									Dire("Cette forme n'a pas de sommets : ses coins "
-										 "redimensionnent (poignées de sélection).",
-										 "", "");
+									Dire(NkRaisonDeDblClic(suite), "", "");
 									break;
 								default:
 									mSt->SelectSingle(cand);
-									Dire("Élément non éditable.", "", "");
+									Dire(NkRaisonDeDblClic(suite), "", "");
 									break;
 							}
+						} else {
+							// ⚠️ LE VIDE AUSSI SE DIT. Un double-clic qui ne trouve
+							//    rien ressort au premier niveau et vide la sélection :
+							//    sans un mot, il est indistinguable d'un geste ignoré.
+							mForage = -1;
+							mSt->SelectClear();
+							Dire("Double-clic dans le vide — sortie au premier niveau.", "",
+								 "");
 						}
 						return; // un double-clic ne demarre ni glisser ni rectangle
 					}
+					// ⚠️ ET SI ON EST ICI SANS APPUI REEL, ON S'ARRETE. `appui` vaut
+					//    vrai pour un double-clic ; un double-clic MODIFIE (Ctrl/Maj)
+					//    ne passe pas par la branche ci-dessus — le laisser tomber
+					//    dans le corps du geste armerait un glisser ou un rectangle
+					//    alors que `mouseDown` dit le bouton relache. Le clic modifie
+					//    reel, lui, arrive avec son propre `mousePressed`.
+					if (!in.mousePressed)
+						return;
 					// ── L'ÉTIQUETTE D'ARTBOARD EST LA POIGNÉE DE LA PAGE (Rodolf,
 					//    01/09, comportement Figma/Lunacy) : un CLIC la SÉLECTIONNE
 					//    (pas de forage — l'étiquette désigne le cadre entier), un
