@@ -1534,18 +1534,20 @@ namespace nkuidesign {
 		const float32 x = cell.x + (cell.w - 16.f) * 0.5f;
 		const float32 y = cell.y + (cell.h - 16.f) * 0.5f;
 		switch ((NkIconeCtx)i) {
+			// ⚠️ TROIS PICTOGRAMMES ONT ÉTÉ DESSINÉS POUR DE BON APRÈS LA
+			//    PREMIÈRE CAPTURE. La version d'avant reprenait « le plus proche
+			//    voisin » : une FLÈCHE pour couper, une CROIX pour verrouiller.
+			//    À l'écran la flèche se lit « aller à », pas « ciseaux ». Je
+			//    m'étais moi-même écrit qu'un pictogramme faux est pire qu'un
+			//    pictogramme approximatif — le mien était faux, pas approximatif.
+			//    C'est la capture qui l'a dit, pas la relecture.
 			case NkIconeCtx::Coller: costume::IcDocOnglet(dl, x, y, c); break;
 			case NkIconeCtx::Dupliquer: costume::IcCarreaux(dl, x, y, c); break;
-			case NkIconeCtx::Couper: costume::IcExpand(dl, x, y, c); break;
-			// ⚠️ CADENAS ET COMPOSANT N'ONT PAS DE PICTOGRAMME chez nous, et on
-			//    ne va pas en inventer deux pour l'occasion : ils reprennent le
-			//    plus proche, restent GRISÉS, et leur infobulle dit exactement ce
-			//    qui manque. Un pictogramme faux est pire qu'un pictogramme
-			//    approximatif dont on lit le nom.
-			case NkIconeCtx::Verrouiller: costume::IcFixed(dl, x, y, c); break;
+			case NkIconeCtx::Couper: costume::IcCiseaux(dl, x + 2.f, y + 2.f, c); break;
+			case NkIconeCtx::Verrouiller: costume::IcCadenas(dl, x + 2.f, y + 2.f, c); break;
 			case NkIconeCtx::Masquer: costume::IcOeil(dl, x, y, c); break;
 			case NkIconeCtx::Supprimer: costume::IcPoubelle(dl, x, y, c); break;
-			default: costume::IcPanneau(dl, x, y, c); break;
+			default: costume::IcComposant(dl, x + 2.f, y + 2.f, c); break;
 		}
 	}
 
