@@ -4561,8 +4561,11 @@ namespace nkuidesign {
 				// « œil/cadenas au survol » = chantier du composant tree_view).
 				mInstPages.SetParam("show_visibility", 0.f);
 				mInstComposants.SetParam("show_visibility", 0.f);
-				mInstPages.SetMetric("row_h", 22.f);
-				mInstComposants.SetMetric("row_h", 22.f);
+				// 24, pas 22 : « dans les tree, ajoute encore un peu d'espace
+				// verticalement » (Rodolf, 01/09) — la valeur de la declaration
+				// partagee du kit, qui est celle des references aerees.
+				mInstPages.SetMetric("row_h", 24.f);
+				mInstComposants.SetMetric("row_h", 24.f);
 				mInstPages.SetMetric("row_pad", 8.f);
 				mInstComposants.SetMetric("row_pad", 8.f);
 				mInstPages.SetMetric("chevron_w", 13.f);
@@ -4677,9 +4680,27 @@ namespace nkuidesign {
 				//    `Begin` (`BeginScrollFrame(..., content, ...)`) : c'est
 				//    `childStack[childDepth-1].area`. On la lit là, ou nulle part.
 				const float32 basY = designkit::HauteurVisibleBas(ctx, "Hiérarchie");
-				float32 restant = basY - ctx.layout.cursor.y;
+				// ⚠️ LA BORNE OUBLIÉE, MESURÉE (précision de Rodolf, 01/09 : « on
+				//    ne voit pas le bas du scrollbar des Composants ») : la pile
+				//    compte CINQ items (bande, arbre, poignée, bande, arbre) et la
+				//    disposition avance de `itemSpacingY` après CHACUN — 5 × 6 =
+				//    30 px que l'ancien partage ne retranchait pas (hier.bornes
+				//    rendait dépassement = +30.0). Conséquence double : le rail
+				//    des Composants sortait du panneau par le bas, ET le panneau
+				//    devenait défilable de 30 px — la molette lui volait les
+				//    crans destinés aux sections.
+				float32 restant = basY - ctx.layout.cursor.y - 5.f * ctx.layout.itemSpacingY;
 				if (restant < 80.f)
 					restant = 80.f;
+				// La hauteur MEMORISEE (3e retour du 01/09) : lue UNE fois dans
+				// nkuidesign.cfg (cle hier_bas), ecrite au relacher de la poignee.
+				if (!mHBasLu) {
+					mHBasLu = true;
+					char v[32];
+					const NkString cfg = NkFile::ReadAllText(NkPath(NkGfxConfigPath()));
+					if (!cfg.Empty() && NkGfxConfigValue(cfg.Data(), "hier_bas", v, sizeof(v)))
+						mHBasVoulu = (float32)atof(v);
+				}
 				// §11.6 : la section basse est SECONDAIRE ; elle prend le tiers,
 				// borné, pour qu'un arbre profond garde de la place.
 				float32 hBas = restant * 0.32f;
@@ -4687,21 +4708,30 @@ namespace nkuidesign {
 					hBas = 220.f;
 				if (hBas < 90.f)
 					hBas = 90.f;
-				// La POIGNÉE (écran 10) : la part choisie a la main prime.
+				// La POIGNÉE (écran 10) : la part choisie a la main PRIME — sur le
+				// tiers par defaut ET sur le clamp « les sections se suivent »
+				// ci-dessous. Bornes : aucune des deux sections ne disparait
+				// (60 px chacune).
+				const float32 hBasMax = restant - 60.f - 2.f * kBandeH - kPoigneeH;
 				if (mHBasVoulu > 0.f) {
 					hBas = mHBasVoulu;
-					if (hBas > restant - 80.f)
-						hBas = restant - 80.f;
+					if (hBas > hBasMax)
+						hBas = hBasMax;
 					if (hBas < 60.f)
 						hBas = 60.f;
 				}
-				float32 hHaut = restant - hBas - 2.f * kBandeH - 8.f;
+				float32 hHaut = restant - hBas - 2.f * kBandeH - kPoigneeH;
 				// COSTUME BANANI : les sections SE SUIVENT — quand l'arbre tient,
 				// « COMPOSANTS » vient juste dessous (la maquette), pas au tiers
-				// bas. L'arbre profond garde l'ancien partage.
-				const float32 hPages =
-					(float32)mModelePages.nodes.Size() * 22.f + 6.f; // tout déplié
-				if (hPages < hHaut)
+				// bas. ⚠️ C'est un DEFAUT, pas une loi : ce clamp ne s'applique
+				// QUE tant qu'aucune hauteur n'a ete choisie a la poignee —
+				// mesure du 2e retour du 01/09 : applique apres le choix manuel,
+				// il re-ecrasait hHaut et la poignee tiree vers le bas ne bougeait
+				// pas (« pas possible de correctement modifier la hauteur »).
+				const float32 hPages = (float32)mModelePages.nodes.Size()
+										   * mInstPages.Metric("row_h", 24.f)
+									   + 6.f; // tout déplié
+				if (mHBasVoulu <= 0.f && hPages < hHaut)
 					hHaut = hPages;
 
 				BandeDeSection(ctx, "PAGES", "hier.pages.plus");
@@ -4709,9 +4739,11 @@ namespace nkuidesign {
 
 				// La POIGNÉE DE REDIMENSIONNEMENT à trois points (écran 10) —
 				// épaisse, entre les deux sections, et elle REDIMENSIONNE : tirer
-				// change la part de « COMPOSANTS » (l'état vit dans le panneau).
+				// déplace la FRONTIÈRE (les deux sections suivent, bornées à
+				// 60 px chacune) ; la hauteur choisie est MÉMORISÉE dans
+				// nkuidesign.cfg au relâcher (clé hier_bas).
 				{
-					const NkRect fs = ctx.NextItemRect(-1.f, 9.f);
+					const NkRect fs = ctx.NextItemRect(-1.f, kPoigneeH);
 					auto &dlp = ctx.DL();
 					const bool sv = ctx.popupDepth == 0
 									&& NkGuiRectContains(fs, ctx.input.mousePos);
@@ -4728,13 +4760,29 @@ namespace nkuidesign {
 						mPoigneeY = ctx.input.mousePos.y;
 					}
 					if (mPoigneeActive) {
-						if (!ctx.input.mouseDown[0])
+						if (!ctx.input.mouseDown[0]) {
 							mPoigneeActive = false;
-						else {
+							// Le relâcher MÉMORISE (l'écriture ne tourne jamais
+							// pendant le geste — un fichier par image serait le
+							// suspect n.1 de fluidité déjà payé).
+							if (mHBasVoulu > 0.f) {
+								char v[32];
+								snprintf(v, sizeof(v), "%d", (int32)(mHBasVoulu + 0.5f));
+								(void)NkGfxConfigSetKey(NkGfxConfigPath(), "hier_bas", v);
+							}
+						} else {
 							const float32 dy = ctx.input.mousePos.y - mPoigneeY;
 							if (dy != 0.f) {
 								mPoigneeY = ctx.input.mousePos.y;
-								mHBasVoulu = (mHBasVoulu > 0.f ? mHBasVoulu : hBas) - dy;
+								float32 voulu = (mHBasVoulu > 0.f ? mHBasVoulu : hBas) - dy;
+								// bornage AU GESTE : la souris au-delà de la
+								// butée n'accumule pas un « dette » invisible
+								// qu'il faudrait re-tirer dans l'autre sens.
+								if (voulu > hBasMax)
+									voulu = hBasMax;
+								if (voulu < 60.f)
+									voulu = 60.f;
+								mHBasVoulu = voulu;
 							}
 							ctx.wantCursor = nkgui::NkGuiCursor::ResizeNS;
 						}
@@ -4742,10 +4790,23 @@ namespace nkuidesign {
 				}
 				BandeDeSection(ctx, "COMPOSANTS", "hier.composants.plus");
 				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
+				// LA GARDE DE BORNES (précision de Rodolf, 01/09 : « on ne voit
+				// pas le bas du scrollbar des Composants ») : la pile des
+				// sections doit finir AU-DESSUS du bas visible du panneau —
+				// sinon le rail de la dernière section sort de l'écran ET le
+				// panneau devient défilable, la molette lui vole les crans des
+				// sections. hier.bornes = [basY, fin de pile, dépassement, 0] ;
+				// dépassement DOIT rester <= 0.
+				nkgui::NkGuiNoterMesure(ctx, "hier.bornes", basY, ctx.layout.cursor.y,
+										ctx.layout.cursor.y - basY, 0.f);
 			}
 
 		private:
 			static constexpr float32 kBandeH = 22.f;
+			/// L'épaisseur de la poignée entre les deux sections. ⚠️ Elle DOIT
+			/// entrer dans le partage de hauteur : l'ancien « - 8.f » pour une
+			/// poignée de 9 px faisait déborder la pile d'un pixel par image.
+			static constexpr float32 kPoigneeH = 9.f;
 
 			/// La bande de titre d'une section, avec son `[+]` (planche 091913).
 			/// ⚠️ Assemblage de primitives NKGui, pas un widget de plus : un titre
@@ -5001,11 +5062,20 @@ namespace nkuidesign {
 				// molette du composant (une seule vérité de défilement), avec la
 				// même arithmétique que le composant (visibleCount × row_h).
 				{
-					const float32 rowH = inst.Metric("row_h", 22.f);
+					const float32 rowH = inst.Metric("row_h", 24.f);
 					const float32 contentH = (float32)res.visibleCount * rowH;
 					nkentseu::editorkit::NkVScrollbar(
 						ctx, ctx.DL(), {zone.x + zone.w - sbw, zone.y, sbw, zone.h},
 						modele.scroll, contentH, zone.h, ctx.GetId(cle) ^ 0x5C011Bu, rowH);
+					// LA GEOMETRIE SE MESURE (2e retour du 01/09 : « le scrollbar
+					// ne suit pas ») : hier.defile.<section> = [scroll, etendue,
+					// fenetre, rangees emises]. scroll=0 doit montrer la premiere
+					// rangee a zone.y ; scroll=max (etendue-fenetre) la derniere
+					// entiere a zone.y+zone.h.
+					char cleD[48];
+					snprintf(cleD, sizeof(cleD), "hier.defile.%s", cle);
+					nkgui::NkGuiNoterMesure(ctx, cleD, modele.scroll, contentH, zone.h,
+											(float32)res.visibleCount);
 				}
 
 				// ⚠️ LA BOUCLE SE REFERME ICI, ET SON ABSENCE ETAIT UN DEFAUT REEL.
@@ -5209,6 +5279,7 @@ namespace nkuidesign {
 			bool mFiltreVisible = false; // la loupe déplie le filtre (costume Banani)
 			bool mFiltreRoles = false;
 			float32 mHBasVoulu = -1.f;	 // la part de COMPOSANTS choisie a la poignee (ecran 10)
+			bool mHBasLu = false;		 // hier_bas deja lu dans nkuidesign.cfg ?
 			bool mPoigneeActive = false;
 			float32 mPoigneeY = 0.f;	 // œil-barré : seulement les éléments à rôle (écran 8)
 			bool mPlierUneFois = true;	 // repli initial des sous-conteneurs (une fois)

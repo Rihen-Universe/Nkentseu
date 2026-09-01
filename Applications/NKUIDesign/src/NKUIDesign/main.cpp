@@ -735,6 +735,24 @@ static struct {
 	int32 frame = -1;
 	nkgui::NkGuiKey touche = nkgui::NkGuiKey::Enter;
 } gTouches[4];
+// ── GLISSER INJECTE (mesure, 01/09) : --glisser=x1:y1:x2:y2:frame[:duree] ────
+// Un VRAI drag : presse a (x1,y1), la souris interpole vers (x2,y2) sur
+// `duree` trames (12 par defaut — un drag d'une trame raterait les seuils
+// anti-tremblement), relache a l'arrivee. Necessaire pour PROUVER la poignee
+// de sections, le pouce d'ascenseur et le deplacement d'une page par son
+// etiquette — un clic ne tient pas la souris. Meme regle que gClics : on
+// ecrit dans ctx.input, JAMAIS la souris reelle.
+static struct {
+	float32 x1 = 0.f, y1 = 0.f, x2 = 0.f, y2 = 0.f;
+	int32 frame = -1, duree = 12;
+} gGlissers[2];
+// ── MOLETTE INJECTEE (mesure, 01/09) : --molette=x:y:delta:frame ─────────────
+// Le defilement a la molette, pose a une position donnee (le survol decide
+// qui defile). delta > 0 = vers le haut, comme l'OS.
+static struct {
+	float32 x = 0.f, y = 0.f, delta = 0.f;
+	int32 frame = -1;
+} gMolettes[2];
 static void InjecterClics(nkgui::NkGuiContext &ctx) {
 	static int32 compteur = 0;
 	++compteur;
@@ -785,6 +803,39 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			ctx.input.keyInit[(int32)gTouches[i].touche] = true;
 		else if (compteur == gTouches[i].frame + 1)
 			ctx.input.keyInit[(int32)gTouches[i].touche] = false;
+	}
+	// ── LE GLISSER (--glisser=) : presse, interpole, relache ────────────────
+	for (int32 i = 0; i < 2; ++i) {
+		if (gGlissers[i].frame < 0)
+			continue;
+		const int32 f0 = gGlissers[i].frame;
+		const int32 fn = f0 + (gGlissers[i].duree > 0 ? gGlissers[i].duree : 12);
+		if (compteur >= f0 - 5 && compteur < f0)
+			ctx.input.mousePos = {gGlissers[i].x1, gGlissers[i].y1}; // survol etabli
+		else if (compteur == f0) {
+			ctx.input.mousePos = {gGlissers[i].x1, gGlissers[i].y1};
+			ctx.input.mouseDown[0] = true;
+			ctx.input.mouseClicked[0] = true;
+		} else if (compteur > f0 && compteur <= fn) {
+			const float32 t = (float32)(compteur - f0) / (float32)(fn - f0);
+			ctx.input.mousePos = {gGlissers[i].x1 + (gGlissers[i].x2 - gGlissers[i].x1) * t,
+								  gGlissers[i].y1 + (gGlissers[i].y2 - gGlissers[i].y1) * t};
+			ctx.input.mouseDown[0] = true;
+			ctx.input.mouseClicked[0] = false;
+		} else if (compteur == fn + 1) {
+			ctx.input.mousePos = {gGlissers[i].x2, gGlissers[i].y2};
+			ctx.input.mouseDown[0] = false;
+			ctx.input.mouseReleased[0] = true;
+		}
+	}
+	// ── LA MOLETTE (--molette=) : un cran a la position donnee ──────────────
+	for (int32 i = 0; i < 2; ++i) {
+		if (gMolettes[i].frame < 0)
+			continue;
+		if (compteur >= gMolettes[i].frame - 5 && compteur <= gMolettes[i].frame)
+			ctx.input.mousePos = {gMolettes[i].x, gMolettes[i].y};
+		if (compteur == gMolettes[i].frame)
+			ctx.input.wheel += gMolettes[i].delta;
 	}
 }
 
@@ -1684,6 +1735,58 @@ int nkmain(const NkEntryState &state) {
 					}
 				continue;
 			}
+			// --glisser=x1:y1:x2:y2:frame[:duree] — un drag injecte (poignee,
+			// pouce d'ascenseur, deplacement d'une page par son etiquette).
+			if (arg.StartsWith("--glisser=")) {
+				for (int32 gi = 0; gi < 2; ++gi)
+					if (gGlissers[gi].frame < 0) {
+						const char *q = a + 10;
+						float32 v[4] = {0.f, 0.f, 0.f, 0.f};
+						int32 nv = 0;
+						v[nv++] = (float32)atof(q);
+						while (nv < 4) {
+							while (*q && *q != ':')
+								++q;
+							if (*q != ':')
+								break;
+							v[nv++] = (float32)atof(++q);
+						}
+						gGlissers[gi].x1 = v[0];
+						gGlissers[gi].y1 = v[1];
+						gGlissers[gi].x2 = v[2];
+						gGlissers[gi].y2 = v[3];
+						while (*q && *q != ':')
+							++q;
+						gGlissers[gi].frame = (*q == ':') ? (int32)atof(++q) : 30;
+						while (*q && *q != ':')
+							++q;
+						if (*q == ':')
+							gGlissers[gi].duree = (int32)atof(++q);
+						break;
+					}
+				continue;
+			}
+			// --molette=x:y:delta:frame — un cran de molette a cette position.
+			if (arg.StartsWith("--molette=")) {
+				for (int32 mi = 0; mi < 2; ++mi)
+					if (gMolettes[mi].frame < 0) {
+						const char *q = a + 10;
+						gMolettes[mi].x = (float32)atof(q);
+						while (*q && *q != ':')
+							++q;
+						if (*q == ':')
+							gMolettes[mi].y = (float32)atof(++q);
+						while (*q && *q != ':')
+							++q;
+						if (*q == ':')
+							gMolettes[mi].delta = (float32)atof(++q);
+						while (*q && *q != ':')
+							++q;
+						gMolettes[mi].frame = (*q == ':') ? (int32)atof(++q) : 30;
+						break;
+					}
+				continue;
+			}
 			if (NkComponentDecl::StrEq(a, "--proposer")) {
 				gDesign.proposerInitial = true;
 				continue;
@@ -1907,6 +2010,8 @@ int nkmain(const NkEntryState &state) {
 			puts("  --editer-texte=<n>      ouvrir l'édition en place sur le nœud texte n (mise en scène)");
 			puts("  --frappe=texte:frame    injecter des codepoints ASCII à cette trame (preuve de saisie)");
 			puts("  --touche=nom:frame      injecter entree|echap|retour à cette trame");
+			puts("  --glisser=x1:y1:x2:y2:frame[:duree]  injecter un drag (preuve de geste)");
+			puts("  --molette=x:y:delta:frame  injecter un cran de molette à cette position");
 			puts("  --document=<chemin>     charger ce document au lancement (mise en scène)");
 			puts("  --lignes=v<f>,h<px>     lignes de magnétisme figées (mise en scène)");
 			puts("  --toile-seule           panneaux fermés, rails retirés (mise en scène)");
