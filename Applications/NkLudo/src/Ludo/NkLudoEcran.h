@@ -60,7 +60,29 @@ namespace nkentseu {
 															NkColor(150, 110, 12), NkColor(28, 110, 56)};
 			const char *const kNomJoueur[NK_LUDO_JOUEURS] = {"Rouge", "Bleu", "Jaune", "Vert"};
 
-			enum class NkControleur : uint8 { NK_HUMAIN = 0, NK_IA };
+			// ⚠️ `NK_DESACTIVE` EST AJOUTE EN DERNIER, PAS EN PREMIER.
+			// Une enumeration initialisee par defaut vaut 0 ; mettre
+			// `NK_DESACTIVE` a cette place aurait rendu desactive tout siege
+			// qu'on avait oublie de regler — un changement de comportement
+			// silencieux dans du code qui compilait toujours.
+			enum class NkControleur : uint8 { NK_HUMAIN = 0, NK_IA, NK_DESACTIVE };
+
+			/// Le libelle d'un etat de siege, pour l'affichage et les journaux.
+			inline const char *NkNomControleur(NkControleur c) noexcept {
+				return (c == NkControleur::NK_HUMAIN) ? "Humain"
+													  : ((c == NkControleur::NK_IA) ? "IA" : "Desactive");
+			}
+
+			/// L'etat suivant dans le cycle : Humain -> IA -> Desactive -> Humain.
+			inline NkControleur NkControleurSuivant(NkControleur c) noexcept {
+				if (c == NkControleur::NK_HUMAIN) {
+					return NkControleur::NK_IA;
+				}
+				if (c == NkControleur::NK_IA) {
+					return NkControleur::NK_DESACTIVE;
+				}
+				return NkControleur::NK_HUMAIN;
+			}
 			enum class NkEcran : uint8 { NK_MENU = 0, NK_PARTIE };
 
 			/// Cinq configurations proposees au menu : de un a quatre humains,
@@ -75,6 +97,14 @@ namespace nkentseu {
 				NK_SIMULATION
 			};
 			static const int32 NK_LUDO_NB_MODES = 5;
+
+			/// Les lignes de l'ecran de configuration : QUATRE SIEGES, puis le
+			/// bouton « Commencer ». Le compte vaut 5 comme l'ancien nombre de
+			/// prereglages -- coincidence, et c'est pour cela qu'il a son propre
+			/// nom : deux quantites egales aujourd'hui qui partagent un nom
+			/// divergent au premier changement, sans que rien ne l'annonce.
+			static const int32 NK_LUDO_NB_LIGNES_MENU = NK_LUDO_JOUEURS + 1;
+			static const int32 NK_LUDO_LIGNE_COMMENCER = NK_LUDO_JOUEURS;
 
 			/// Nombre maximal de cases parcourues en une animation : six pas de
 			/// de, plus la case de depart.
@@ -156,7 +186,12 @@ namespace nkentseu {
 			};
 
 			void DessinerFond(NkGuiDrawList &dl, const renderer::NkLayoutInfo &info);
-			void DessinerMenu(NkGuiDrawList &dl, const NkLudoGeometrie &geo, const NkLudoPolices &f);
+			/// L'ecran de configuration : une ligne par siege, puis « Commencer ».
+			///
+			/// `controleur` est le tableau de quatre etats ; `peutCommencer` dit si
+			/// le bouton agit -- il n'agit pas sous deux sieges utilisables.
+			void DessinerMenu(NkGuiDrawList &dl, const NkLudoGeometrie &geo, const NkLudoPolices &f,
+							  const NkControleur *controleur, bool peutCommencer);
 			void DessinerBandeau(NkGuiDrawList &dl, const NkLudoGeometrie &geo, const NkLudoPolices &f,
 								 const NkLudoVue &vue);
 			void DessinerPlateau(NkGuiDrawList &dl, const NkLudoGeometrie &geo);

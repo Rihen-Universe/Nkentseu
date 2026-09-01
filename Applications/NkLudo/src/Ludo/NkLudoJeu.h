@@ -28,6 +28,7 @@
 #include "Ludo/NkLudoEcran.h"
 #include "Ludo/NkLudoRegles.h"
 #include "NKCanvas/App/NkCanvasGuiApp.h"
+#include "NKCanvas/App/NkCanvasSplash.h"
 
 namespace nkentseu {
 	namespace jeux {
@@ -56,6 +57,22 @@ namespace nkentseu {
 					void ArmerAnimation(int32 joueur, const NkLudoCoup &coup, int32 avancementAvant);
 					NkLudoVue Vue() const;
 
+					/// Peut-on lancer la partie avec la configuration courante ?
+					///
+					/// ⚠️ DEUX SIEGES UTILISABLES AU MINIMUM. Un ludo a un seul
+					/// joueur ne se termine pas : il tourne indefiniment, et le
+					/// symptome serait « le jeu se fige » alors que la regle est
+					/// simplement absurde.
+					bool PeutCommencer() const noexcept {
+						int32 n = 0;
+						for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+							if (mControleur[i] != NkControleur::NK_DESACTIVE) {
+								++n;
+							}
+						}
+						return n >= 2;
+					}
+
 					bool EstHumain(int32 siege) const noexcept {
 						return mControleur[siege] == NkControleur::NK_HUMAIN;
 					}
@@ -63,6 +80,17 @@ namespace nkentseu {
 					NkLudoPartie mPartie;
 					NkVector<NkLudoCoup> mCoups;
 					NkLudoGeometrie mGeo;
+					// ── L'OUVERTURE ──────────────────────────────────────────────
+					// Marque RIHEN, puis le nom du jeu. Dessinee par primitives,
+					// sans aucune texture : c'est ce qui la rend identique sur les
+					// sept plateformes, y compris le Web ou chaque asset est un
+					// telechargement de plus avant la premiere image.
+					//
+					// ⚠️ TOUJOURS SAUTABLE : un ecran d'ouverture qu'on ne peut pas
+					// passer est une taxe payee a chaque lancement, y compris par
+					// celui qui teste vingt fois par heure.
+					renderer::NkCanvasSplash mSplash;
+
 					NkEcran mEcran = NkEcran::NK_MENU; ///< on commence par CHOISIR
 					NkLudoAnim mAnim;
 					NkLudoDeAnim mDeAnim;
