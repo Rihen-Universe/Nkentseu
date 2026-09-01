@@ -244,36 +244,55 @@ justes ; c'est le peintre qui ne suit pas.
 
 **La vague 4 est donc passée en priorité 1** (décision de Rodolf, 01/09 nuit).
 
-### 🔴 ÉTAT AU 2026-09-01, 22 h — le déménagement est fait, le branchement NON
+### ✅ LIVRÉ LE 2026-09-01 (23 h) — et la cause n'était pas celle que je croyais
 
 | pièce | état |
 |---|---|
-| `NkEarcut` descendu de `NKFont` vers **`NKMath`** | ✅ **fait** — c'était bien un déménagement : le fichier ne parle ni de police ni de glyphe. NKFont recompile 8/8, NKCode 23/23 |
-| le triangulateur est **juste** sur un concave propre | ✅ **prouvé** (cas 42 : aire exacte, creux vide, plein couvert) |
-| `NkContourDe` **dépassait** le `cap` de son appelant | ✅ **corrigé** — défaut latent : un rect entièrement courbé demandait 160 points pour un cap de 128, donc un contour **tronqué** qui se croisait. L'éventail le tolérait ; le triangulateur non |
-| le contour réel est propre | ✅ **prouvé** (cas 43 : 72 points, **zéro** point confondu) |
-| **le brancher au peintre** | ❌ **NON LIVRÉ — ça plante** |
+| `NkEarcut` descendu de `NKFont` vers **`NKMath`** | ✅ il ne parle ni de police ni de glyphe |
+| le triangulateur est **juste** sur un concave | ✅ cas 42 (aire exacte, creux vide, plein couvert), mutation qui tombe |
+| `NkContourDe` **dépassait** le `cap` de son appelant | ✅ corrigé — défaut latent, 160 points demandés pour un cap de 128 |
+| **le peintre remplit les concaves** | ✅ **livré** — `PolygonHex` passe par `NkEarcutVers` |
+| la porte sans allocation tient son contrat | ✅ cas 45, **deux** mutations qui tombent |
 
-**Le branchement provoque une corruption de tas** (`0xC0000374`), reproductible
-en trois secondes : `--mode-forme=9 --sommets=0,2 --courber` sort avec ce code,
-`--mode-forme=9` seul survit, et le plantage **disparaît** dès qu'on remet
-l'éventail. Le peintre est donc revenu à son éventail, **et le débordement que
-Rodolf peut voir reste**. *Un plantage est pire qu'un remplissage faux.*
+**MON HYPOTHÈSE ÉTAIT FAUSSE, et la vérifier a coûté une commande.** J'avais
+supposé une frontière de module (allouer dans une DLL, libérer dans une autre).
+`ls Build/Bin/.../NKUIDesign/` ne montre **aucune DLL** — tout est lié
+statiquement. Pas de frontière, donc pas de cause.
 
-**Écarté par la mesure**, pour que le prochain ne le recommence pas : ce n'est ni
-la troncature (corrigée, ça plante toujours), ni le triangulateur sur une entrée
-propre (les cas 42 et 43 l'appellent depuis l'application et passent), ni un
-point confondu (zéro). **Hypothèse qui reste, donnée comme telle** : `NkEarcut`
-alloue ses nœuds par `NkAllocator` à l'intérieur du peintre, appelé depuis la
-boucle de dessin de NKGui — qui est une DLL ; une allocation faite dans un module
-et libérée dans un autre est la cause classique de ce code. **Ça demande un
-débogueur, pas une nuit de plus de suppositions.**
+**LA VRAIE CAUSE, et elle était dans `NkEarcut` depuis le début : une DOUBLE
+LIBÉRATION.** `NkEarcutLinked` libérait chaque oreille découpée ; puis `NkEarcut`
+libérait la liste une seconde fois depuis sa tête — laquelle a presque toujours
+été découpée. Un appel **unique** (un glyphe au chargement, un cas de recette)
+corrompt le tas en silence et survit ; une **boucle de dessin** appelle des
+milliers de fois par seconde, et ça tombe en trois secondes sur un `0xC0000374`
+qui ne dit rien de sa cause. *Le défaut était là depuis le début ; il a fallu un
+appelant assez répétitif pour le rendre visible.*
 
-📌 **Et la pièce existe déjà dans le dépôt, un module plus loin** :
-`NKFont/NkEarcut.h` et `NkFontMesh.cpp` triangulent des contours quelconques
-**et** classent les trous par profondeur d'imbrication — écrits pour les
-maillages de texte 3D. Le travail n'est donc pas « écrire un triangulateur »,
-c'est **le faire descendre sous le peintre**.
+**LA RÉPARATION N'EST PAS « CORRIGER LA LIBÉRATION » MAIS « NE PLUS ALLOUER ».**
+`NkEarcutVers` : l'appelant fournit ses tampons, le triangulateur n'a ni état ni
+tas. Sans tas, plus de libération à équilibrer, donc plus de double libération
+**possible** — la classe entière de défauts disparaît au lieu d'être corrigée
+exemplaire par exemplaire. La borne est **exacte** (N−2 triangles pour N
+sommets), donc les tampons sont sur la pile, sans marge, et **aucune allocation
+n'a plus lieu dans la boucle de dessin**. La porte qui alloue a été réparée
+séparément (inventaire des nœuds), parce que `NkFontMesh` s'en sert encore.
+
+⚠️ **Ce que la capture prouve et ce qu'elle ne prouve pas** :
+`preuve_remplissage_concave_n9.png` montre qu'il n'y a **plus de plantage** et
+**aucune régression** — mais **pas** le remplissage concave, car la forme du banc
+est étoilée par rapport à son centroïde, donc l'éventail la remplissait déjà
+correctement. Ce qui prouve le remplissage, c'est le **cas 42 avec sa mutation**.
+*Une capture qui ne discrimine pas les deux états ne prouve rien, même quand elle
+est belle.*
+
+📌 **Ce paragraphe disait, avant la livraison : « la pièce existe déjà dans le
+dépôt, un module plus loin ».** Elle y était en effet — `NKFont/NkEarcut.h`,
+écrite pour les maillages de texte 3D — et le travail n'a effectivement pas été
+d'écrire un triangulateur mais de **le faire descendre sous le peintre**. C'est
+exactement ce qui a eu lieu. *La règle du dépôt (chercher qui porte déjà le
+mécanisme, en commençant par la couche du dessous) a donné la bonne réponse ;
+ce qu'elle ne pouvait pas dire, c'est que la pièce trouvée était elle-même
+défectueuse.*
 
 📌 **Et les contours de glyphes sont déjà atteignables** :
 `NkFont::GetGlyphOutlinePoints` rend les vrais tracés de la police, et le chemin
