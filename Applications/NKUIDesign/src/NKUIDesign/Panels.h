@@ -2456,18 +2456,32 @@ namespace nkuidesign {
 								}
 						} else
 							mSt->modeForme.MarquerSeul(0);
-						// Mise en scene : --courber pose une tangente MIROIR sur
-						// chaque sommet marque. Meme famille que --sommets= : une
-						// courbe se tire a la souris, et le harnais ne sait pas
-						// viser une poignee dont on ignore la coordonnee d ecran.
+						// Mise en scene : --courber passe chaque sommet marque en
+						// MIROIR. Meme famille que --sommets= : une courbe se tire a
+						// la souris, et le harnais ne sait pas viser une poignee dont
+						// on ignore la coordonnee d ecran.
+						//
+						// 🔴 IL POSAIT AUSSI LA TANGENTE LUI-MEME
+						//    (`NkPoserTangente(..., 0.55f, 0.35f)`), ET C EST CETTE
+						//    LIGNE-LA QUI A CACHE LE DEFAUT DU 01/09 PENDANT UNE
+						//    SOIREE. Elle etait necessaire a l epoque -- sans elle le
+						//    levier n aurait rien photographie -- mais elle donnait au
+						//    harnais UN GESTE DE PLUS QUE L INTERFACE, si bien que la
+						//    capture montrait des poignees que Rodolf, lui, ne pouvait
+						//    pas faire apparaitre. *Un harnais qui doit ajouter un
+						//    geste pour voir quelque chose nomme le geste qui manque a
+						//    l utilisateur -- a condition qu on lise l ajout comme un
+						//    symptome et non comme une commodite.*
+						//    Il appelle desormais LA MEME PORTE que le panneau, et
+						//    rien d autre : ce que la capture montre est exactement ce
+						//    que la main obtient.
 						if (mSt->courberInitial) {
 							NkUINode &cn2 = mSt->doc.nodes[(uint32)nf];
 							NkMaterialiserSommets(cn2);
 							for (uint32 k = 0; k < (uint32)cn2.sommets.Size(); ++k) {
 								if (!mSt->modeForme.Marque((int32)k))
 									continue;
-								NkPoserLiaison(cn2.sommets[k], NkPoint2::LiaisonMiroir);
-								NkPoserTangente(cn2.sommets[k], 1, 0.55f, 0.35f);
+								NkPoserLiaisonSommet(cn2, k, NkPoint2::LiaisonMiroir);
 							}
 							mSt->courberInitial = false;
 						}
