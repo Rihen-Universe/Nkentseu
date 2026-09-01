@@ -2354,6 +2354,16 @@ namespace nkuidesign {
 					mSt->snapVif.guideH.actif ? mSt->snapVif.guideH.coord : -99999.f,
 					mSt->snapVif.guideV.actif ? mSt->snapVif.guideV.ecart
 											  : mSt->snapVif.guideH.ecart);
+				// ⚠️ LE NOMBRE DE DISTANCES ECRITES SE PUBLIE, ET PAS SEULEMENT SE
+				//    PEINT. Un badge se juge a la capture ; son EXISTENCE se
+				//    mesure sans fenetre. C'est la lecon de Q42 sur les titres de
+				//    section (« rendre l'Inspecteur mesurable au releve est un
+				//    travail identifie »), appliquee CETTE FOIS D'ENTREE au lieu
+				//    d'apres coup.
+				nkgui::NkGuiNoterMesure(
+					ctx, "canvas.snap.mesures", (float32)mSt->snapVif.nbMesures,
+					mSt->snapVif.nbMesures > 0 ? mSt->snapVif.mesures[0].valeur : -1.f,
+					mSt->snapVif.nbMesures > 1 ? mSt->snapVif.mesures[1].valeur : -1.f, 0.f);
 
 				// ── RACCOURCIS D'OUTILS AU VRAI CLAVIER (Lunacy : V F R O L T) ──
 				// ⚠️ MESURE DU 30/08 (Rodolf : « les F glisser et autres ne
@@ -2682,6 +2692,33 @@ namespace nkuidesign {
 						p3.Fill({x0, y, (x1 - x0) > 1.f ? (x1 - x0) : 1.f, 1.f}, rose, 0.f);
 						if (gh.badge)
 							badge((x0 + x1) * 0.5f, y, gh.ecart);
+					}
+					// ── LES DISTANCES ECRITES (Rodolf : « avec écriture des
+					//    distances ») — PLUSIEURS a la fois.
+					// ⚠️ CHAQUE MESURE EST UN SEGMENT **PLUS** UN NOMBRE, jamais
+					//    un nombre seul. Un « 60 » flottant au milieu de la toile
+					//    n'apprend rien : on ne sait pas ce qui est mesuré. Le
+					//    segment relie les deux bords, les embouts le bornent, et
+					//    c'est ce qui rend le nombre VERIFIABLE d'un coup d'œil
+					//    au lieu de demander qu'on croie l'aimant sur parole.
+					for (uint32 mi = 0; mi < mSt->snapVif.nbMesures; ++mi) {
+						const NkSnapMesure &m = mSt->snapVif.mesures[mi];
+						const float32 sx0 = mSt->view.ToScreenX(m.x0);
+						const float32 sy0 = mSt->view.ToScreenY(m.y0);
+						const float32 sx1 = mSt->view.ToScreenX(m.x1);
+						const float32 sy1 = mSt->view.ToScreenY(m.y1);
+						if (m.horizontal) {
+							p3.Fill({sx0, sy0, (sx1 - sx0) > 1.f ? (sx1 - sx0) : 1.f, 1.f}, rose,
+									0.f);
+							p3.Fill({sx0, sy0 - 3.f, 1.f, 7.f}, rose, 0.f);
+							p3.Fill({sx1 - 1.f, sy0 - 3.f, 1.f, 7.f}, rose, 0.f);
+						} else {
+							p3.Fill({sx0, sy0, 1.f, (sy1 - sy0) > 1.f ? (sy1 - sy0) : 1.f}, rose,
+									0.f);
+							p3.Fill({sx0 - 3.f, sy0, 7.f, 1.f}, rose, 0.f);
+							p3.Fill({sx0 - 3.f, sy1 - 1.f, 7.f, 1.f}, rose, 0.f);
+						}
+						badge((sx0 + sx1) * 0.5f, (sy0 + sy1) * 0.5f, m.valeur);
 					}
 				}
 				DessinerFlottants(ctx, area);

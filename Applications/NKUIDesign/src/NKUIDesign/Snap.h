@@ -76,6 +76,26 @@ namespace nkuidesign {
 			bool badge = false;	///< vrai pour un espacement egal : la distance se DIT
 	};
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LES DISTANCES ECRITES — CE QUE RODOLF APPELLE « L'ECRITURE DES DISTANCES »
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// UNE MESURE A PEINDRE : un segment entre deux bords, et le NOMBRE qui va
+	/// avec. En espace DOCUMENT, comme les guides.
+	///
+	/// ⚠️ POURQUOI UNE LISTE ET PAS UN CHAMP DE PLUS SUR LE GUIDE. Retour de
+	///    Rodolf : *« avec ecriture des distances »*, au PLURIEL, et sa reference
+	///    Lunacy en affiche PLUSIEURS a la fois — c'est ce qui rend l'aimant
+	///    lisible : on voit « 24 » entre A et B **et** « 24 » entre B et le bloc
+	///    qu'on tire, donc on comprend POURQUOI ca colle ici. Une seule distance
+	///    affirmerait un ecart sans montrer ce qu'il repete, et l'utilisateur
+	///    devrait deviner l'intention de l'aimant.
+	struct NkSnapMesure {
+			float32 x0 = 0.f, y0 = 0.f; ///< le segment mesure, en DOCUMENT
+			float32 x1 = 0.f, y1 = 0.f;
+			float32 valeur = 0.f; ///< la distance ECRITE (unites document)
+			bool horizontal = true; ///< l'axe du segment (oriente le libelle)
+	};
+
 	/// LE RESULTAT : un decalage a AJOUTER au rectangle, et les guides.
 	/// dx/dy valent 0 quand rien n'aimante — jamais une valeur « presque nulle »
 	/// qu'un appelant prendrait pour un snap.
@@ -83,6 +103,13 @@ namespace nkuidesign {
 			float32 dx = 0.f, dy = 0.f;
 			NkSnapGuide guideV; ///< ligne VERTICALE (alignement en X)
 			NkSnapGuide guideH; ///< ligne HORIZONTALE (alignement en Y)
+			/// ⚠️ QUATRE, PARCE QUE DEUX AXES x DEUX MESURES. Un espacement
+			///    repete en X en produit deux (le modele et sa copie) ; si Y
+			///    aimante aussi, deux de plus. Au-dela, on n'ecrit pas : cinq
+			///    nombres sur une toile sont illisibles, et un aimant qui
+			///    barbouille l'ecran est un aimant qu'on eteint.
+			NkSnapMesure mesures[4];
+			uint32 nbMesures = 0;
 			bool Aimante() const { return guideV.actif || guideH.actif; }
 	};
 
@@ -97,6 +124,16 @@ namespace nkuidesign {
 				int32 rang = 2; ///< 0 = centre/centre (prioritaire), 1 = page, 2 = bord
 				bool badge = false;
 				float32 ecart = 0.f;
+				/// ── L'ESPACEMENT REPETE (Rodolf, 01/09) ─────────────────────
+				/// La PAIRE qui a servi de modele : `voisin` porte le bloc contre
+				/// lequel on se pose, `modeleA`/`modeleB` les deux blocs dont on
+				/// recopie l'ecart.
+				/// ⚠️ ILS SONT GARDES JUSQU'AU BOUT PARCE QUE LE BADGE EN A
+				///    BESOIN : sans eux, on saurait dire « ca colle a 24 » mais
+				///    pas MONTRER OU LE 24 A ETE PRIS. C'est toute la difference
+				///    entre un aimant qu'on croit et un aimant qu'on verifie.
+				int32 modeleA = -1, modeleB = -1;
+				bool repete = false;
 		};
 
 		/// `a` descend-il de `b` ? Un descendant du noeud deplace BOUGE AVEC LUI :
@@ -243,6 +280,102 @@ namespace nkuidesign {
 			}
 		}
 
+		// ── L'ESPACEMENT REPETE (retour de Rodolf, 01/09) ───────────────────
+		// « pas de snap proportionnel, par exemple snapper par rapport a l'espace
+		//   entre deux blocs deja poses, comme sur Lunacy, avec ecriture des
+		//   distances. »
+		//
+		// ⚠️ CE N'EST PAS L'ESPACEMENT EGAL D'AU-DESSUS, ET LA DIFFERENCE EST TOUT
+		//    LE RETOUR. L'espacement EGAL centre le bloc ENTRE deux voisins : il
+		//    faut donc etre deja coince entre les deux, et l'ecart obtenu est
+		//    celui qui reste. L'espacement REPETE prend l'ecart qui existe DEJA
+		//    entre deux blocs poses et le REPRODUIT plus loin — c'est ce qui
+		//    permet de poser une serie reguliere, et c'est ce que Rodolf decrit.
+		//    Le premier ne peut pas produire le second : entre A et B il n'y a
+		//    qu'une position centree, alors qu'ici on cherche une position
+		//    APRES B (ou AVANT A) que rien ne borne.
+		//
+		// ⚠️ ET LES DEUX SENS SONT POSES ENSEMBLE. N'ecrire que « apres B » aurait
+		//    donne un aimant qui marche quand on construit vers la droite et pas
+		//    vers la gauche — une asymetrie que personne ne devine et que tout le
+		//    monde prend pour une panne.
+		for (uint32 ka = 0; ka < (uint32)fratrie.Size(); ++ka) {
+			const int32 va = fratrie[ka];
+			if (va == noeud || !lay.Has(va) || snapdetail::Descend(doc, va, noeud))
+				continue;
+			for (uint32 kb = 0; kb < (uint32)fratrie.Size(); ++kb) {
+				const int32 vb = fratrie[kb];
+				if (vb == noeud || vb == va || !lay.Has(vb)
+					|| snapdetail::Descend(doc, vb, noeud))
+					continue;
+				const NkPaintRect A = lay.At(va), B = lay.At(vb);
+				// ── X : A puis B, ecart N ; on propose N apres B, et N avant A
+				if (A.x + A.w <= B.x) {
+					const float32 N = B.x - (A.x + A.w);
+					// ⚠️ UN ECART NUL N'EST PAS UN MOTIF. Deux blocs colles se
+					//    touchent ; en faire une « regularite a reproduire »
+					//    collerait le troisieme aux deux autres a la moindre
+					//    approche, et l'aimant deviendrait de la glu.
+					if (N > 0.5f) {
+						if (nx < kMaxCand) {
+							snapdetail::Cand &c = cx[nx++];
+							c.valeur = B.x + B.w + N; // le bord GAUCHE du mobile
+							c.sonde = rect.x;
+							c.voisin = vb;
+							c.rang = 1;
+							c.badge = true;
+							c.ecart = N;
+							c.modeleA = va;
+							c.modeleB = vb;
+							c.repete = true;
+						}
+						if (nx < kMaxCand) {
+							snapdetail::Cand &c = cx[nx++];
+							c.valeur = A.x - N; // le bord DROIT du mobile
+							c.sonde = rect.x + rect.w;
+							c.voisin = va;
+							c.rang = 1;
+							c.badge = true;
+							c.ecart = N;
+							c.modeleA = va;
+							c.modeleB = vb;
+							c.repete = true;
+						}
+					}
+				}
+				// ── Y : le chemin frere, ecrit au meme endroit et au meme moment
+				if (A.y + A.h <= B.y) {
+					const float32 N = B.y - (A.y + A.h);
+					if (N > 0.5f) {
+						if (ny < kMaxCand) {
+							snapdetail::Cand &c = cy[ny++];
+							c.valeur = B.y + B.h + N;
+							c.sonde = rect.y;
+							c.voisin = vb;
+							c.rang = 1;
+							c.badge = true;
+							c.ecart = N;
+							c.modeleA = va;
+							c.modeleB = vb;
+							c.repete = true;
+						}
+						if (ny < kMaxCand) {
+							snapdetail::Cand &c = cy[ny++];
+							c.valeur = A.y - N;
+							c.sonde = rect.y + rect.h;
+							c.voisin = va;
+							c.rang = 1;
+							c.badge = true;
+							c.ecart = N;
+							c.modeleA = va;
+							c.modeleB = vb;
+							c.repete = true;
+						}
+					}
+				}
+			}
+		}
+
 		snapdetail::Cand gagnantX, gagnantY;
 		float32 dx = 0.f, dy = 0.f;
 		if (snapdetail::Meilleur(cx, nx, tolDoc, gagnantX, dx)) {
@@ -276,6 +409,57 @@ namespace nkuidesign {
 																	 : (ref.x + ref.w);
 			r.guideH.de = x0;
 			r.guideH.a = x1;
+		}
+
+		// ── LES DISTANCES ECRITES ────────────────────────────────────────────
+		// ⚠️ ELLES SE CALCULENT APRES LE DEPLACEMENT, PAS AVANT. Le rectangle
+		//    qu'on mesure est celui APRES aimantation (`rect` + dx/dy) : mesurer
+		//    avant afficherait « 23,6 » a l'instant ou l'aimant vient de poser
+		//    l'objet a 24. Un nombre faux au moment precis ou l'utilisateur le
+		//    lit pour se rassurer est pire que pas de nombre du tout.
+		auto poserMesure = [&r](float32 x0, float32 y0, float32 x1, float32 y1, float32 v,
+								bool horiz) {
+			if (r.nbMesures >= 4u)
+				return;
+			NkSnapMesure &m = r.mesures[r.nbMesures++];
+			m.x0 = x0;
+			m.y0 = y0;
+			m.x1 = x1;
+			m.y1 = y1;
+			m.valeur = v;
+			m.horizontal = horiz;
+		};
+		// L'axe X : le modele (entre les deux blocs poses) PUIS la copie (entre
+		// le bloc de reference et le mobile).
+		// ⚠️ LES DEUX, TOUJOURS ENSEMBLE — c'est ce qui fait comprendre POURQUOI
+		//    ca colle ici. Le seul ecart du mobile dirait « 24 » sans montrer
+		//    d'ou vient le 24 ; l'utilisateur devrait faire confiance a l'aimant
+		//    au lieu de le verifier d'un coup d'oeil.
+		if (r.guideV.actif && gagnantX.repete && lay.Has(gagnantX.modeleA)
+			&& lay.Has(gagnantX.modeleB)) {
+			const NkPaintRect A = lay.At(gagnantX.modeleA), B = lay.At(gagnantX.modeleB);
+			const float32 yA = A.y + A.h * 0.5f;
+			poserMesure(A.x + A.w, yA, B.x, yA, gagnantX.ecart, true);
+			const NkPaintRect m = {rect.x + r.dx, rect.y + r.dy, rect.w, rect.h};
+			const NkPaintRect ref = lay.At(gagnantX.voisin);
+			const float32 yM = m.y + m.h * 0.5f;
+			if (m.x >= ref.x + ref.w)
+				poserMesure(ref.x + ref.w, yM, m.x, yM, gagnantX.ecart, true);
+			else
+				poserMesure(m.x + m.w, yM, ref.x, yM, gagnantX.ecart, true);
+		}
+		if (r.guideH.actif && gagnantY.repete && lay.Has(gagnantY.modeleA)
+			&& lay.Has(gagnantY.modeleB)) {
+			const NkPaintRect A = lay.At(gagnantY.modeleA), B = lay.At(gagnantY.modeleB);
+			const float32 xA = A.x + A.w * 0.5f;
+			poserMesure(xA, A.y + A.h, xA, B.y, gagnantY.ecart, false);
+			const NkPaintRect m = {rect.x + r.dx, rect.y + r.dy, rect.w, rect.h};
+			const NkPaintRect ref = lay.At(gagnantY.voisin);
+			const float32 xM = m.x + m.w * 0.5f;
+			if (m.y >= ref.y + ref.h)
+				poserMesure(xM, ref.y + ref.h, xM, m.y, gagnantY.ecart, false);
+			else
+				poserMesure(xM, m.y + m.h, xM, ref.y, gagnantY.ecart, false);
 		}
 		return r;
 	}
