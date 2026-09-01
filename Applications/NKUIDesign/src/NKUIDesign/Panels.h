@@ -2317,6 +2317,7 @@ namespace nkuidesign {
 				in.rightPressed = ctx.input.mouseClicked[1];
 				in.ctrl = ctx.input.ctrlDown;
 				in.shift = ctx.input.shiftDown;
+				in.alt = ctx.input.altDown;
 
 				// ── LA TOILE : molette = zoom, bouton du milieu = deplacement ──
 				// Le curseur doit etre DANS le panneau, sinon la molette de
@@ -2631,7 +2632,15 @@ namespace nkuidesign {
 				// ── LE TRACE ELASTIQUE d'un outil F/R en cours ────────────────
 				// Peint APRES le document (il flotte au-dessus), jamais enregistre.
 				if (mCreating && !modeGraphe) {
-					const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift);
+					// ⚠️ ALT — PAS CTRL, ET C'EST LA DOCUMENTATION QUI LE DIT. Rodolf
+					//    écrivait « le Ctrl ou Shift » : la source Lunacy
+					//    (`shortcuts/`, `tips/`) tranche pour **Maj = proportions**
+					//    et **Alt = depuis le centre**. La règle de la maison sur les
+					//    keymaps est de lire, pas de deviner — et accepter Ctrl « au
+					//    cas où » aurait fabriqué un raccourci que Lunacy n'a pas,
+					//    donc une divergence à découvrir le jour où Ctrl servira à
+					//    autre chose.
+					const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift, in.alt);
 					paint.OutlineSharp(t, NkDesignResolveRole("accent_ui"));
 					// La même puce que la sélection : le tracé se lit pendant
 					// qu'on dessine (Lunacy).
@@ -3729,8 +3738,12 @@ namespace nkuidesign {
 					// FAMILLE et de sa VARIANTE (Lunacy). Un trace minuscule (clic
 					// sans glisser) prend une taille de depart : une forme de 0 px
 					// paraitrait perdue.
-					const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift);
-					float32 w = t.w, h = t.h;
+						// ⚠️ LE MÊME APPEL QUE L'APERÇU, MODIFICATEURS COMPRIS. Aperçu et
+						//    relâchement qui ne liraient pas les mêmes touches donneraient
+						//    une forme différente de celle qu'on a vue pendant le geste —
+						//    la raison d'être de `RectTrace` comme source unique.
+						const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift, in.alt);
+						float32 w = t.w, h = t.h;
 					const bool ligne = (mOutil == 3);
 					if (!ligne && w < 8.f)
 						w = mOutil == 1 ? 200.f : (mOutil == 7 && mVarImage == 1 ? 64.f : 120.f);
@@ -5009,29 +5022,43 @@ namespace nkuidesign {
 								   ? "Main — glisser déplace la vue (pan) ; V = retour Sélection"
 								   : "Sélection — cliquer ; glisser = déplacer ; bords = "
 									 "redimensionner";
+					// ⚠️ CHAQUE OUTIL DE TRACÉ NOMME SES DEUX MODIFICATEURS. « Alt =
+					//    depuis le centre » a été ajouté le 01/09, et **rien à
+					//    l'écran ne l'annoncerait** : personne ne maintient une
+					//    touche au hasard pour voir. C'est la même règle que le
+					//    mode édition de forme, qui énumère ses trois gestes —
+					//    *une capacité qu'aucune phrase ne nomme est une capacité
+					//    que l'utilisateur n'a pas.*
 					case 1:
 						return "Cadre — cliquez-glissez pour tracer ; Maj = carré ; "
-							   "Échap = annuler";
+							   "Alt = depuis le centre ; Échap = annuler";
 					case 2:
 						switch (mVariante) {
 							case 1:
 								return "Rectangle arrondi — cliquez-glissez ; Maj = carré ; "
-									   "Échap = annuler";
+									   "Alt = depuis le centre ; Échap = annuler";
 							case 2:
-								return "Ellipse — cliquez-glissez ; Maj = cercle ; Échap = annuler";
+								return "Ellipse — cliquez-glissez ; Maj = cercle ; "
+									   "Alt = depuis le centre ; Échap = annuler";
 							case 3:
-								return "Triangle — cliquez-glissez ; Échap = annuler";
+								return "Triangle — cliquez-glissez ; Maj = contraint ; "
+									   "Alt = depuis le centre ; Échap = annuler";
 							case 4:
-								return "Pentagone — cliquez-glissez ; Échap = annuler";
+								return "Pentagone — cliquez-glissez ; Maj = contraint ; "
+									   "Alt = depuis le centre ; Échap = annuler";
 							case 5:
-								return "Étoile — cliquez-glissez ; Échap = annuler";
+								return "Étoile — cliquez-glissez ; Maj = contraint ; "
+									   "Alt = depuis le centre ; Échap = annuler";
 							default:
-								return "Rectangle — cliquez-glissez ; Maj = carré ; Échap = annuler";
+								return "Rectangle — cliquez-glissez ; Maj = carré ; "
+									   "Alt = depuis le centre ; Échap = annuler";
 						}
 					case 3:
 						return mVarLigne == 1
-								   ? "Flèche — cliquez-glissez ; Maj = contraint ; Échap = annuler"
-								   : "Ligne — cliquez-glissez ; Maj = contraint ; Échap = annuler";
+								   ? "Flèche — cliquez-glissez ; Maj = 0°/45°/90° ; "
+									 "Alt = depuis le centre ; Échap = annuler"
+								   : "Ligne — cliquez-glissez ; Maj = 0°/45°/90° ; "
+									 "Alt = depuis le centre ; Échap = annuler";
 					case 5:
 						return "Texte — cliquez pour poser ; contenu dans l'Inspecteur "
 							   "(Typographie)";
@@ -5075,27 +5102,14 @@ namespace nkuidesign {
 			/// cercle ; pour la ligne : horizontale, verticale ou 45°). Une seule
 			/// source pour l'aperçu ET le relâchement — deux calculs auraient
 			/// divergé à la première retouche.
-			NkPaintRect RectTrace(float32 mx, float32 my, bool shift) const {
-				NkPaintRect t = NkRectFromPoints(mCreateX, mCreateY, mx, my);
-				if (!shift)
-					return t;
-				const bool ligne = (mOutil == 3);
-				if (ligne) {
-					if (t.w > t.h * 2.f)
-						t.h = 1.f;
-					else if (t.h > t.w * 2.f)
-						t.w = 1.f;
-					else
-						t.w = t.h = (t.w > t.h ? t.w : t.h);
-					return t;
-				}
-				const float32 m = t.w > t.h ? t.w : t.h;
-				// Le carré s'ancre au point de DÉPART du geste, pas au coin
-				// normalisé — sinon contraindre déplace la forme sous la main.
-				t.x = (mx >= mCreateX) ? mCreateX : mCreateX - m;
-				t.y = (my >= mCreateY) ? mCreateY : mCreateY - m;
-				t.w = t.h = m;
-				return t;
+			/// ⚠️ LE CALCUL A DÉMÉNAGÉ DANS `SelectionGeste.h` (`NkRectDeTrace`) : il
+			///    vivait ici, donc hors de portée d'un banc — la facture que ce
+			///    chantier a déjà payée sur le zoom (Q41) et sur l'aimantation
+			///    (Q42). Cette méthode n'est plus qu'un raccord vers l'état du
+			///    panneau, et c'est tout ce qu'elle doit être.
+			NkPaintRect RectTrace(float32 mx, float32 my, bool shift, bool depuisCentre) const {
+				return NkRectDeTrace(mCreateX, mCreateY, mx, my, shift, depuisCentre,
+									 mOutil == 3);
 			}
 
 			/// NK_ENTREE_TRACE=1 : journal du VRAI chemin clavier (append dans

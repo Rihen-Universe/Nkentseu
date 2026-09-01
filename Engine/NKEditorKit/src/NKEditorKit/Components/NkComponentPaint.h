@@ -156,7 +156,17 @@ namespace nkentseu {
 				bool mouseReleased = false; ///< front montant, CETTE image
 				bool doubleClick = false;
 				bool rightPressed = false;
-				bool ctrl = false, shift = false;
+				/// ⚠️ `alt` A REJOINT SES DEUX FRERES LE 2026-09-01, ET LE MANQUE
+				///    ETAIT BIEN DANS LE SOCLE : `NkGuiInput` porte `altDown`
+				///    depuis toujours, mais l'entree des COMPOSANTS s'arretait a
+				///    ctrl/shift. Un composant qui voulait « tracer depuis le
+				///    centre » (Alt, la convention de Figma/Sketch/Illustrator)
+				///    devait donc remonter au contexte NKGui — c'est-a-dire
+				///    court-circuiter la structure meme qui existe pour l'en
+				///    dispenser, et le faire dans un endroit ou le contexte n'est
+				///    pas toujours a portee.
+				///    Additif, defaut faux : aucun consommateur ne change.
+				bool ctrl = false, shift = false, alt = false;
 
 				/// Une charge de glisser-deposer survole-t-elle le composant ?
 				/// Le TYPE est une chaine libre — meme convention que le

@@ -442,6 +442,84 @@ namespace nkuidesign {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE RECTANGLE D'UN TRACÉ — ET SES DEUX MODIFICATEURS
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// Retour (4) de Rodolf, 01/09 : *« pour créer des formes je veux le
+	/// cliquer+glisser pour modifier la taille des éléments comme sur Lunacy,
+	/// avec le Ctrl ou Shift enfoncé pour gérer la proportionnalité. »*
+	///
+	/// ⚠️ « CTRL OU SHIFT » ÉTAIT UNE HÉSITATION, ET LA DOCUMENTATION LUNACY LA
+	///    TRANCHE — c'est la règle de la maison sur les keymaps : on lit la
+	///    source, on ne devine pas. `lunacy.docs.icons8.com/shortcuts/` et
+	///    `/tips/` disent, mot pour mot : *« Hold down `Shift` and drag to
+	///    preserve aspect ratio »*, *« Hold down `Alt` and drag to draw shapes
+	///    from their center point »*, et les deux ensemble font les deux.
+	///    **Ctrl n'est pas un modificateur de tracé dans Lunacy.** On prend donc
+	///    Maj + **Alt**, et le pied de fenêtre NOMME Alt sur chaque outil de
+	///    tracé — un modificateur qu'aucune phrase n'annonce est un
+	///    modificateur que personne ne presse.
+	///
+	/// ⚠️ MESURE AVANT D'ÉCRIRE, et elle a évité un doublon : **le cliquer-glisser
+	///    existait déjà**, **Maj contraignait déjà** au carré / au cercle / aux
+	///    45° d'une ligne, et **la puce de dimensions s'affichait déjà** pendant
+	///    le geste. Ce qui manquait est *une seule* chose : **tracer depuis le
+	///    CENTRE**. Écrire les quatre aurait réécrit trois comportements corrects.
+	///
+	/// ⚠️ CE CALCUL VIVAIT DANS `PreviewPanel::RectTrace`, DONC HORS DE PORTÉE
+	///    D'UN BANC — la facture que ce chantier a déjà payée deux fois (le zoom
+	///    en Q41, l'aimantation en Q42). Il descend ici, et l'appelant devient
+	///    une ligne.
+	///
+	/// @param x0,y0 le point où le geste a commencé (l'ancre).
+	/// @param mx,my la souris maintenant.
+	/// @param contraindre  Maj : carré / cercle, ou ligne à 0°/45°/90°.
+	/// @param depuisCentre Alt : `(x0,y0)` est le CENTRE, pas un coin.
+	/// @param ligne        l'outil ligne, dont la contrainte n'est pas la même.
+	inline NkPaintRect NkRectDeTrace(float32 x0, float32 y0, float32 mx, float32 my,
+									 bool contraindre, bool depuisCentre, bool ligne) {
+		float32 dx = mx - x0, dy = my - y0;
+		const float32 adx = dx < 0.f ? -dx : dx;
+		const float32 ady = dy < 0.f ? -dy : dy;
+		if (contraindre) {
+			if (ligne) {
+				// ⚠️ UNE LIGNE NE SE CONTRAINT PAS COMME UNE BOÎTE : ses trois
+				//    directions utiles sont l'horizontale, la verticale et les
+				//    45°. La forcer au carré lui interdirait l'horizontale, qui
+				//    est de loin la plus demandée.
+				if (adx > ady * 2.f)
+					dy = 0.f;
+				else if (ady > adx * 2.f)
+					dx = 0.f;
+				else {
+					const float32 m = adx > ady ? adx : ady;
+					dx = dx < 0.f ? -m : m;
+					dy = dy < 0.f ? -m : m;
+				}
+			} else {
+				const float32 m = adx > ady ? adx : ady;
+				dx = dx < 0.f ? -m : m;
+				dy = dy < 0.f ? -m : m;
+			}
+		}
+		if (depuisCentre) {
+			// ⚠️ DEPUIS LE CENTRE, LA SOURIS DONNE LE **DEMI**-CÔTÉ. Prendre `d`
+			//    comme côté entier ferait grandir la forme **deux fois plus vite**
+			//    que la main — le geste paraîtrait « emballé », et c'est le défaut
+			//    classique de cette option quand elle est ajoutée après coup.
+			const float32 demiL = (dx < 0.f ? -dx : dx);
+			const float32 demiH = (dy < 0.f ? -dy : dy);
+			return {x0 - demiL, y0 - demiH, demiL * 2.f, demiH * 2.f};
+		}
+		// ⚠️ L'ANCRE RESTE LE POINT DE DÉPART, même contraint : normaliser d'abord
+		//    puis carrer ferait GLISSER la forme sous la main quand on tire vers
+		//    la gauche ou vers le haut. (Règle déjà écrite dans l'ancien
+		//    `RectTrace` ; elle est conservée mot pour mot en déménageant.)
+		const float32 rx = dx < 0.f ? x0 + dx : x0;
+		const float32 ry = dy < 0.f ? y0 + dy : y0;
+		return {rx, ry, dx < 0.f ? -dx : dx, dy < 0.f ? -dy : dy};
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  LE PLUS PROCHE ANCÊTRE COMMUN — OÙ UN GROUPE DOIT NAÎTRE
 	// ═══════════════════════════════════════════════════════════════════════════
 	/// ⚠️ POURQUOI CE CALCUL EXISTE : `GrouperSelection` REFUSAIT dès que deux

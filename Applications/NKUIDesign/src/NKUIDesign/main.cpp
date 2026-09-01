@@ -1752,6 +1752,50 @@ static nkentseu::int32 RecettePoints() {
 				"meme contexte que le menu",
 				toutesParlent && aucuneNAgit, d);
 	}
+	// ── 27. LE TRACE A LA SOURIS, ET SES DEUX MODIFICATEURS ────────────────
+	//     Retour (4) de Rodolf : « je veux le cliquer+glisser pour modifier la
+	//     taille des elements comme sur Lunacy, avec le Ctrl ou Shift enfonce
+	//     pour gerer la proportionnalite ».
+	//
+	//     ⚠️ MESURE AVANT D'ECRIRE, ET ELLE A EVITE TROIS REECRITURES : le
+	//     cliquer-glisser EXISTAIT, Maj CONTRAIGNAIT deja, et la puce de
+	//     dimensions s'affichait deja pendant le geste. Il manquait UNE chose --
+	//     tracer depuis le CENTRE. Les quatre cas ci-dessous tiennent donc trois
+	//     comportements ANCIENS (pour qu'ils ne se cassent pas en ajoutant le
+	//     quatrieme) et un NEUF.
+	{
+		// (a) le glisser nu : le rectangle va du depart a la souris
+		const NkPaintRect a = NkRectDeTrace(100.f, 100.f, 180.f, 150.f, false, false, false);
+		const bool nu = a.x == 100.f && a.y == 100.f && a.w == 80.f && a.h == 50.f;
+		// (b) VERS LA GAUCHE ET VERS LE HAUT : l'ancre reste le point de depart
+		const NkPaintRect b = NkRectDeTrace(100.f, 100.f, 60.f, 70.f, false, false, false);
+		const bool arriere = b.x == 60.f && b.y == 70.f && b.w == 40.f && b.h == 30.f;
+		// (c) MAJ : carre, ET il ne GLISSE PAS sous la main quand on tire vers
+		//     le haut-gauche (la regle ecrite dans l'ancien RectTrace, conservee)
+		const NkPaintRect c = NkRectDeTrace(100.f, 100.f, 60.f, 70.f, true, false, false);
+		const bool carre = c.w == c.h && c.w == 40.f && c.x == 60.f && c.y == 60.f;
+		// (d) ALT : depuis le CENTRE -- la souris donne le DEMI-cote
+		//     ⚠️ Prendre `d` comme cote entier ferait grandir la forme DEUX FOIS
+		//     plus vite que la main : le defaut classique de cette option quand
+		//     on l'ajoute apres coup.
+		const NkPaintRect e = NkRectDeTrace(100.f, 100.f, 140.f, 130.f, false, true, false);
+		const bool centre = e.x == 60.f && e.y == 70.f && e.w == 80.f && e.h == 60.f;
+		// (e) LES DEUX ENSEMBLE : un carre centre sur le point de depart
+		const NkPaintRect f = NkRectDeTrace(100.f, 100.f, 140.f, 130.f, true, true, false);
+		const bool lesDeux = f.w == f.h && f.w == 80.f && f.x == 60.f && f.y == 60.f;
+		// (f) LA LIGNE ne se contraint PAS comme une boite : l'horizontale doit
+		//     rester atteignable, c'est de loin la plus demandee
+		const NkPaintRect g = NkRectDeTrace(100.f, 100.f, 200.f, 108.f, true, false, true);
+		const bool ligneH = g.h == 0.f && g.w == 100.f;
+		char d[176];
+		snprintf(d, sizeof(d), "nu=%d arriere=%d carre=%d centre=%d les2=%d ligneH=%d",
+				 nu ? 1 : 0, arriere ? 1 : 0, carre ? 1 : 0, centre ? 1 : 0, lesDeux ? 1 : 0,
+				 ligneH ? 1 : 0);
+		verdict("27. le trace : glisser nu, vers l'arriere sans glisser sous la main, Maj = "
+				"carre, Alt = depuis le CENTRE (demi-cote), les deux ensemble, et la ligne "
+				"garde son horizontale",
+				nu && arriere && carre && centre && lesDeux && ligneH, d);
+	}
 	// ── 26. LES SOMMETS EPOUSENT LA FORME, ET LES BOUGER NE TOUCHE PAS LA BOITE ─
 	//     Retour (1) de Rodolf, 01/09 : « en plus colle sur la forme, donc
 	//     epouser la forme, de telle sorte que cliquer sur un point et le
