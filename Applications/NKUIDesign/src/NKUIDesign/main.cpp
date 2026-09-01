@@ -3301,6 +3301,138 @@ static nkentseu::int32 RecetteDocument() {
 				premiere && remplace && restent && temoin, d);
 	}
 
+	// ── 7. SUR SON DOCUMENT : LA BOITE SUIT LE TRACE, ET LE POINTAGE SUIT ──
+	//     Retour de Rodolf, 01/09 (soir) : « on doit redefinir sa bounding box
+	//     pour la selection ». Le mot qui compte est « pour la selection » : ce
+	//     n'est pas le lisere qui le gene, c'est que le clic rate.
+	//
+	// ⚠️ CE CAS MESURE LE POINTAGE, PAS LA BOITE. Verifier que `width` a la bonne
+	//    valeur serait verifier que j'ai su ecrire une soustraction. Ce qu'il
+	//    faut prouver, c'est qu'apres avoir tire un sommet HORS de la boite
+	//    d'origine, un clic la ou la forme se VOIT maintenant l'attrape -- et
+	//    qu'un clic la ou elle n'est PLUS ne l'attrape plus. Les deux sens, sur
+	//    son document, avec le vrai `NkComputeLayout` et le vrai `NkPickNode`.
+	{
+		uint32 nbEssais = 0, pointageOk = 0;
+		char premierRate[224];
+		premierRate[0] = 0;
+		for (uint32 i = 1; i < (uint32)doc.nodes.Size() && nbEssais < 6; ++i) {
+			NkUINode &n = doc.nodes[i];
+			if (!NkComponentDecl::StrEq(n.shape.Data(), "rect") || n.children.Size() > 0
+				|| !n.text.Empty())
+				continue;
+			const int32 pa = n.parent;
+			if (!doc.IsValidIndex(pa) || doc.nodes[(uint32)pa].layout.kind != NkLayoutKind::Free)
+				continue;
+			++nbEssais;
+			// on TIRE le coin haut-gauche loin en dehors, comme la main le ferait
+			NkMaterialiserSommets(n);
+			n.sommets[0].x = -3.f;
+			n.sommets[0].y = -3.f;
+			NkRecadrerNoeud(n, true);
+			NkLayoutResult l3;
+			NkComputeLayout(doc, NkPaintRect{0.f, 0.f, 1600.f, 1000.f}, l3);
+			if (!l3.Has((int32)i))
+				continue;
+			const NkPaintRect r = l3.At((int32)i);
+			// 🔴 LE POINT D'ESSAI VIENT DU TRACE, PAS DE LA BOITE, ET LA MUTATION
+			//    A DU ME LE DIRE. Ma premiere version visait `r.x + 3` : un point
+			//    a trois pixels du bord de la boite est DANS la boite par
+			//    construction, quelle qu'elle soit. Le cas mesurait donc la boite
+			//    contre elle-meme -- et sous la mutation « le recadrage ne fait
+			//    rien », il restait VERT. *Un banc qui prend ses deux mesures du
+			//    meme cote ne mesure rien.*
+			//    On vise donc le SOMMET TIRE, la ou la forme SE VOIT maintenant :
+			//    sans recadrage il tombe loin hors de la boite perimee, et le
+			//    pointage le rate -- ce que Rodolf decrit.
+			float32 anc[64];
+			const uint32 nbA = NkSommetsDe(n, r, anc, 32);
+			if (nbA == 0)
+				continue;
+			// le sommet 0 est celui qu'on a tire ; on vise un peu EN DEDANS de
+			// lui, vers le centre, pour ne pas jouer sur le pixel du bord.
+			const float32 cxT = r.x + r.w * 0.5f, cyT = r.y + r.h * 0.5f;
+			const float32 vx = anc[0] + (cxT - anc[0]) * 0.06f;
+			const float32 vy = anc[1] + (cyT - anc[1]) * 0.06f;
+			const bool dedans = NkPickSelectable(doc, l3, vx, vy) == (int32)i;
+			// (b) ET LA BOITE N'EST PAS DEVENUE LA TOILE ENTIERE : un clic bien
+			//     au-dela du trace ne l'attrape pas (sinon « recadrer » pourrait
+			//     se contenter d'agrandir sans borne, et le cas (a) passerait
+			//     pour une mauvaise raison).
+			const bool dehors =
+				NkPickSelectable(doc, l3, anc[0] - 40.f, anc[1] - 40.f) != (int32)i;
+			if (dedans && dehors)
+				++pointageOk;
+			else if (!premierRate[0])
+				snprintf(premierRate, sizeof(premierRate),
+						 " ; 1er rate = \"%s\" (n%u) dedans=%d dehors=%d", n.label.Data(), i,
+						 dedans ? 1 : 0, dehors ? 1 : 0);
+		}
+		char d[320];
+		snprintf(d, sizeof(d), "%u forme(s) deformee(s), %u attrapables la ou elles se voient%s",
+				 nbEssais, pointageOk, premierRate);
+		verdict("7. SUR SON DOCUMENT : apres avoir tire un sommet HORS de la boite, le POINTAGE "
+				"suit la forme (on l'attrape ou elle est, pas ou elle etait)",
+				nbEssais > 0 && pointageOk == nbEssais, d);
+	}
+
+	// ── 8. LES SIX FORMES QUI REFUSAIENT HIER : L'ARRONDI MARCHE ENCORE ────
+	//     Retour (3) de Rodolf : il redemande le double-clic qui arrondit. Il
+	//     avait ete livre AVANT le correctif du blocage et celui du forage a deux
+	//     temps -- donc avant deux changements qui touchent le meme geste.
+	//
+	// ⚠️ ON RE-MESURE SUR LES FORMES QUI REFUSAIENT, PAS SUR UNE FORME NEUVE.
+	//    C'est la lecon de ce matin : les six rectangles a enfants (« Se
+	//    connecter », `Panel_Nav`, les quatre cartes) sont exactement ceux qu'un
+	//    banc a noeuds fabriques n'exerce jamais. Si le double-clic sur sommet
+	//    devait casser quelque part, c'est la.
+	{
+		uint32 nbC = 0, arrondissent = 0, contourSuit = 0;
+		char premierRate[224];
+		premierRate[0] = 0;
+		for (uint32 i = 1; i < (uint32)doc.nodes.Size(); ++i) {
+			NkUINode &n = doc.nodes[i];
+			if (!NkComponentDecl::StrEq(n.shape.Data(), "rect") || n.children.Size() == 0)
+				continue;
+			++nbC;
+			// le mode est arme sur CE noeud : le double-clic lui appartient
+			const bool aMoi = NkDblClicAuModeForme((int32)i, (int32)i, (int32)i);
+			const float32 r1 = NkArrondirSommet(n, 0);
+			const float32 r2 = NkArrondirSommet(n, 0);
+			const float32 r3 = NkArrondirSommet(n, 0);
+			const float32 r4 = NkArrondirSommet(n, 0);
+			const bool cycle = r1 == 8.f && r2 == 16.f && r3 == 32.f && r4 == 0.f;
+			if (aMoi && cycle)
+				++arrondissent;
+			else if (!premierRate[0])
+				snprintf(premierRate, sizeof(premierRate),
+						 " ; 1er rate = \"%s\" (n%u) au mode=%d cycle %.0f/%.0f/%.0f/%.0f",
+						 n.label.Data(), i, aMoi ? 1 : 0, (double)r1, (double)r2, (double)r3,
+						 (double)r4);
+			// ⚠️ ET LE CONTOUR PEINT DOIT SUIVRE, pas seulement le modele : un
+			//    rayon enregistre que le dessin n'honore pas est « un champ qui
+			//    n'agit pas », la famille de defauts qu'on chasse. C'est la
+			//    mutation qui avait mordu en Q44.
+			(void)NkArrondirSommet(n, 0); // -> 8 px
+			const NkPaintRect rr = lay.Has((int32)i) ? lay.At((int32)i) : NkPaintRect{};
+			float32 ct[256], an[64];
+			const uint32 nbAn = NkSommetsDe(n, rr, an, 32);
+			const uint32 nbCt = NkContourDe(n, rr, ct, 128);
+			if (nbCt > nbAn)
+				++contourSuit;
+			(void)NkArrondirSommet(n, 0); // on repart du cycle, sans laisser de trace
+			(void)NkArrondirSommet(n, 0);
+			(void)NkArrondirSommet(n, 0);
+		}
+		char d[320];
+		snprintf(d, sizeof(d), "%u rect(s) a enfants : %u arrondissent (cycle 0/8/16/32), %u "
+							   "dont le CONTOUR PEINT suit%s",
+				 nbC, arrondissent, contourSuit, premierRate);
+		verdict("8. LES FORMES QUI REFUSAIENT HIER : le double-clic appartient au mode, "
+				"l'arrondi cycle encore, et le contour PEINT le montre (retour 3 de Rodolf)",
+				nbC > 0 && arrondissent == nbC && contourSuit == nbC, d);
+	}
+
 	printf("\nRECETTE DOCUMENT : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
