@@ -42,6 +42,7 @@ namespace nkuidesign {
 	/// alors le geste voisin. C'est l'action qui voyage, pas la position.
 	enum class NkActionCtx {
 		EditerTexte,
+		Vectoriser,
 		IA,
 		CollerParDessus,
 		CopierComme,
@@ -74,6 +75,10 @@ namespace nkuidesign {
 	/// pointeur d'interface, ni position de souris.
 	struct NkContexteCtx {
 			bool aTexte = false;			 ///< le nœud porte une clé `texte`
+			/// `forme = text` — un nœud dont la NATURE est le texte. Distinct de
+			/// `aTexte` : un rectangle peut porter une clé `texte` sans être un
+			/// texte, et c'est lui qu'on ne vectorise pas.
+			bool estTexte = false;
 			bool estCadre = false;			 ///< `forme = frame` (une page)
 			bool aEnfants = false;
 			bool pasRacine = false;
@@ -151,6 +156,44 @@ namespace nkuidesign {
 				NkActionCtx::CopierComme);
 		ajouter("Dupliquer", "Ctrl+D", c.pasRacine, " (pas la racine)", false, true,
 				NkActionCtx::Dupliquer);
+
+		// ── 2bis. VECTORISER (retour de Rodolf, 01/09 nuit) ──────────────────
+		// *« pour le texte on doit pouvoir le vectoriser en fonction du choix de
+		// l'utilisateur, donc clic droit → Vectoriser. »* C'est le « Convert to
+		// Outlines » de Figma, le « Convert to path » de Lunacy.
+		//
+		// 🔴 ELLE EST GRISÉE, ET LA RAISON N'EST PAS CELLE QU'ON ATTENDAIT.
+		//    Mesuré à la source avant d'écrire une ligne de conversion :
+		//
+		//    • les CONTOURS DE GLYPHES EXISTENT et sont atteignables —
+		//      `NkFont::GetGlyphOutlinePoints` rend les vrais tracés de la police
+		//      (le parseur lit `glyf`, quadratiques et cubiques comprises), et le
+		//      chemin depuis l'application est complet :
+		//      `costume::Fontes().px13` → `NkGuiFont::Face()` → `NkFont`. Ce
+		//      n'est donc PAS « on n'a que des bitmaps » ;
+		//    • ce qui manque est **le REMPLISSAGE**. Notre peintre remplit par
+		//      `AddConvexPolyFilled`, dont l'en-tête dit lui-même : *« Polygone
+		//      CONVEXE plein (éventail depuis le 1er sommet). Non convexe : le
+		//      résultat est faux, ce n'est pas vérifié. »* Or presque **toutes**
+		//      les lettres sont concaves (L, S, C, E, T…), et beaucoup ont un
+		//      TROU (o, a, e, p, b, d, g, R…). Vectoriser aujourd'hui rendrait
+		//      des taches à la place des lettres.
+		//
+		// ⚠️ *Une capacité annoncée qui rend faux est pire que son absence.* On ne
+		//    livre donc pas la conversion — mais on pose l'entrée, parce qu'une
+		//    entrée grisée qui NOMME le maillon manquant vaut mieux qu'un menu
+		//    silencieux : Rodolf a demandé ce geste, il doit voir qu'il est vu.
+		//
+		// 📌 ET LE MAILLON EXISTE DÉJÀ DANS LE DÉPÔT, UN MODULE PLUS LOIN :
+		//    `NKFont/NkEarcut.h` + `NkFontMesh.cpp` triangulent des contours
+		//    quelconques ET classent les trous par profondeur d'imbrication —
+		//    exactement ce qu'il faut. Ils servent aujourd'hui aux maillages de
+		//    texte 3D. Le travail n'est donc pas « écrire un triangulateur »,
+		//    c'est **le faire descendre sous le peintre** — un ajout additif au
+		//    socle, à décider comme tel.
+		ajouter("Vectoriser", nullptr, false,
+				" (le peintre ne remplit que des polygones convexes — voir le rapport)", false,
+				true, NkActionCtx::Vectoriser);
 
 		// ── 3. L'ordre de profondeur — un groupe à lui seul chez Lunacy ──────
 		ajouter("Envoyer derrière", "Ctrl+Maj+[", false, " (l'ordre de profondeur à construire)",

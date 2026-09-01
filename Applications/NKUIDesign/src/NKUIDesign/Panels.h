@@ -1711,6 +1711,7 @@ namespace nkuidesign {
 		const NkUINode &n = st.doc.nodes[(nkentseu::uint32)noeud];
 		c.aTexte = NkComponentDecl::StrEq(n.shape.Data(), "text") || !n.text.Empty();
 		c.estCadre = NkComponentDecl::StrEq(n.shape.Data(), "frame");
+		c.estTexte = NkComponentDecl::StrEq(n.shape.Data(), "text");
 		c.aEnfants = !n.children.Empty();
 		c.pasRacine = (noeud != 0);
 		c.pressePapiersPlein = st.pressePapiersPlein;
