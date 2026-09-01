@@ -1,118 +1,96 @@
 // =============================================================================
-// NkEditeurApp.h — l'editeur d'Unkeny
+// NkEditeurApp.h — l'assemblage de l'editeur d'Unkeny
 //
-// A QUOI SERT CETTE APPLICATION
-//   Voir et modifier une scene Unkeny : poser des entites, les deplacer, lire
-//   et changer leurs composants, lancer la physique, et VERIFIER la mise en
-//   page sur les zones sures des appareils qu'on n'a pas sous la main.
+// ⚠️ REECRIT LE 2026-09-01 : DE `NkCanvasApp` VERS `NkEditorShell`
+//   La premiere version batissait l'editeur sur `NkCanvasApp` -- la coquille
+//   d'APPLICATION de NKCanvas -- et redessinait a la main une barre d'outils,
+//   des colonnes, un inspecteur et une barre d'etat. NKEditorKit porte tout
+//   cela, et la regle du depot est explicite : on cherche dans le kit AVANT
+//   d'ecrire un element d'interface. Je ne l'avais pas fait.
 //
-// ⚠️ POURQUOI ELLE VIT DANS Applications/ ET NON DANS Engine/
-//   Un moteur ne contient pas son outil. L'editeur CONSOMME Unkeny ; l'inverse
-//   ferait qu'un jeu embarquerait l'editeur, et que le moteur ne puisse plus
-//   etre construit sans lui.
+// ⚠️ POURQUOI IL FALLAIT CHOISIR, ET NON COMBINER
+//   `NkCanvasApp` et `NkEditorShell` possedent TOUTES DEUX la fenetre et la
+//   boucle. Deux coquilles ne coexistent pas dans une fenetre -- c'est la meme
+//   exclusivite que NKCanvas/NKRenderer. Mesure du 2026-09-01, sur sept axes :
 //
-// ⚠️ ET POURQUOI ELLE EXISTE DES MAINTENANT
-//   Elle est le PREMIER consommateur d'Unkeny. Un moteur sans consommateur ne
-//   se prouve pas : ce depot a deja quatre systemes ecrits sans usage
-//   (NKReflection longtemps, l'interpreteur blueprint, NkEditorInspector,
-//   NKGraph), et chacun a dormi jusqu'a ce qu'un consommateur le reveille.
-//   L'editeur exerce la scene, les composants, la vue, le rendu, les tuiles et
-//   la physique — donc un defaut d'Unkeny se voit ICI, tout de suite.
+//     NkEditorShell : ancrage, palette de commandes, barres d'activite ;
+//                     ZERO cycle de vie mobile, zone sure, pointeur tactile
+//     NkCanvasApp   : exactement l'inverse
 //
-// L'ORGANISATION
-//   NkEditeurAppareils.h   profils d'appareils, zones sures simulees
-//   NkEditeurViseur.{h,cpp} le viseur : grille, scene, selection, deplacement
-//   NkEditeurPanneaux.{h,cpp} hierarchie, inspecteur, barre d'outils
-//   NkEditeurApp.{h,cpp}   l'assemblage et les entrees
+//   Pour un EDITEUR DE BUREAU, c'est le shell qui gagne : l'ancrage et la
+//   palette servent tous les jours, le cycle de vie mobile ne sert jamais. Ce
+//   qu'on garde de l'autre monde -- la simulation de ZONE SURE -- est un DESSIN
+//   dans le viseur, pas un service de la coquille : il traverse intact.
+//
+// CE QUE L'EDITEUR EST, ET POURQUOI IL EXISTE
+//   Le premier consommateur d'Unkeny. Un moteur sans consommateur ne se prouve
+//   pas : chaque panneau ici EXERCE quelque chose du moteur -- la scene, l'ECS,
+//   la physique, le rendu, le hors-champ.
 //
 // OU AJOUTER LA PROCHAINE CHOSE
-//   - un panneau        -> NkEditeurPanneaux
-//   - un outil de viseur-> NkEditeurViseur, plus un mode dans NkOutil
-//   - une capacite du MOTEUR -> Unkeny, jamais ici
+//   - un panneau        -> NkEditeurPanneaux.h, puis `AddPanel` dans Init()
+//   - une commande      -> `RegisterCommand` dans Init() (palette Ctrl+Maj+P)
+//   - un etat partage   -> NkEditeurModele.h
 // =============================================================================
 #pragma once
 
-#include "Editeur/NkEditeurAppareils.h"
-#include "NKCanvas/App/NkCanvasGuiApp.h"
-#include "Unkeny/Unkeny.h"
+#include "Editeur/NkEditeurModele.h"
+#include "Editeur/NkEditeurPanneaux.h"
+
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
+#include "NKCore/NkOptional.h"
+#include "NKEditorKit/NkEditorShell.h"
+#include "NKMemory/NKMemory.h"
 
 namespace nkentseu {
 	namespace editeur {
 
-		using namespace nkentseu::unkeny;
-
-		/// Ce que fait un clic dans le viseur. Un seul outil actif a la fois :
-		/// deux outils qui repondent au meme clic se disputent l'evenement, et
-		/// celui qui gagne depend de l'ordre du code.
-		enum class NkOutil : uint8 {
-			NK_SELECTION = 0, ///< choisir et deplacer une entite
-			NK_POSER,		  ///< poser une entite neuve
-			NK_PEINDRE,		  ///< peindre des tuiles
-			NK_EFFACER		  ///< retirer une tuile ou une entite
-		};
-
-		/// La disposition de l'editeur. Recalculee a chaque changement de taille.
-		struct NkDispoEditeur {
-				nkgui::NkRect barre{0.f, 0.f, 0.f, 0.f};	  ///< outils, en haut
-				nkgui::NkRect hierarchie{0.f, 0.f, 0.f, 0.f}; ///< liste, a gauche
-				nkgui::NkRect viseur{0.f, 0.f, 0.f, 0.f};	  ///< la scene, au centre
-				nkgui::NkRect inspecteur{0.f, 0.f, 0.f, 0.f}; ///< proprietes, a droite
-				nkgui::NkRect etat{0.f, 0.f, 0.f, 0.f};		  ///< pied de page, mesures
-
-				/// L'aire d'APPAREIL SIMULE, a l'interieur du viseur. Elle a le
-				/// rapport largeur/hauteur du profil choisi : c'est elle qu'on
-				/// regarde pour juger une mise en page mobile.
-				nkgui::NkRect appareil{0.f, 0.f, 0.f, 0.f};
-
-				void Calculer(const renderer::NkLayoutInfo &info, const NkProfilAppareil &profil) noexcept;
-		};
-
-		class NkEditeurApp : public renderer::NkCanvasGuiApp {
+		class NkEditeurApp {
 			public:
-				NkEditeurApp();
+				NkEditeurApp() noexcept;
 
-			protected:
-				NkOptional<int> OnCommandLine(const NkVector<NkString> &args) override;
-				bool OnGuiInit() override;
-				void OnLayout(const renderer::NkLayoutInfo &info) override;
-				bool OnPointer(const NkPointer &p) override;
-				bool OnKeyPress(const NkKeyPressEvent &event) override;
-				void OnTick(float32 deltaTime) override;
-				void OnDraw(nkgui::NkGuiDrawList &dl) override;
+				/// Lit les arguments de la ligne de commande.
+				///
+				/// Rend un code de sortie quand l'application ne doit PAS
+				/// demarrer (`--selftest`), et rien sinon.
+				///
+				/// ⚠️ `--profil=` et `--paysage` existent pour qu'une capture
+				/// d'ecran soit REPRODUCTIBLE, donc comparable d'une version a
+				/// l'autre : un reglage qu'on ne peut atteindre qu'a la souris ne
+				/// se verifie jamais en automatique.
+				NkOptional<int> LireArguments(const NkVector<NkString> &args);
+
+				/// Cree la fenetre, la scene et les panneaux.
+				bool Init();
+
+				/// La boucle du shell. Bloquante ; rend le code de sortie.
+				int Run();
 
 			private:
 				void ConstruireSceneExemple();
-				void PoserEntite(const NkVec2f &monde);
-				void SupprimerSelection();
-				void CadrerSurTout();
 
-				NkScene mScene;
-				NkCarteTuiles mCarte;
-				NkDispoEditeur mDispo;
-				NkTheme mTheme;
+				// ⚠️ L ORDRE DE DECLARATION EST L ORDRE DE CONSTRUCTION, ET SON
+				// INVERSE EST L ORDRE DE DESTRUCTION. Il est donc porteur de
+				// sens ici, et pas seulement de style :
+				//
+				//   construction : modele -> panneaux -> shell
+				//   destruction  : shell  -> panneaux -> modele
+				//
+				// Les panneaux tiennent une REFERENCE au modele, et le shell
+				// tient des POINTEURS vers les panneaux. Chacun meurt donc avant
+				// ce dont il depend. Declarer le shell en premier inverserait la
+				// destruction et le laisserait pointer vers des panneaux morts --
+				// erreur que j ai faite en ecrivant ce fichier, et que le
+				// compilateur n aurait jamais signalee.
+				NkEditeurModele mModele;
 
-				NkOutil mOutil = NkOutil::NK_SELECTION;
-				int32 mProfil = 0;
-				bool mPaysage = false;
-				bool mSimuler = false; ///< la physique tourne-t-elle ?
-				bool mVoirCollisionneurs = true;
-				bool mVoirGrille = true;
+				NkPanneauViseur mViseur;
+				NkPanneauHierarchie mHierarchie;
+				NkPanneauInspecteur mInspecteur;
+				NkPanneauOutils mOutils;
 
-				ecs::NkEntityId mSelection;
-				bool mADesSelection = false;
-
-				/// Deplacement en cours : on retient le decalage entre le point
-				/// saisi et le centre de l'entite. Sans lui, l'entite saute pour
-				/// se centrer sous le curseur des le premier pixel de glissement.
-				bool mDeplace = false;
-				NkVec2f mDecalageSaisie{0.f, 0.f};
-
-				/// Panoramique du viseur au bouton droit ou a deux doigts.
-				bool mPanoramique = false;
-				NkVec2f mDernierPointeur{0.f, 0.f};
-
-				NkStatsRendu mStats;
-				uint32 mGraine = 20260901u;
+				memory::NkUniquePtr<editorkit::NkEditorShell> mShell;
 		};
 
 	} // namespace editeur

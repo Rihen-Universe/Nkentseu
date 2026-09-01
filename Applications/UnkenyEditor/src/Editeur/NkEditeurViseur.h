@@ -22,9 +22,22 @@ namespace nkentseu {
 		/// Dessine le viseur en entier. Rend les mesures du rendu, pour que le
 		/// pied de page les affiche : sans compteur, « est-ce que le hors-champ
 		/// fonctionne » n'a pas de reponse.
-		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkScene &scene, const struct NkDispoEditeur &dispo,
-									  const NkTheme &th, const NkProfilAppareil &profil, bool grille,
-									  bool collisionneurs, const ecs::NkEntityId *selection);
+		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkScene &scene, const nkgui::NkRect &viseur,
+									  const nkgui::NkRect &appareil, const NkTheme &th,
+									  const NkProfilAppareil &profil, bool grille, bool collisionneurs,
+									  const ecs::NkEntityId *selection);
+
+		/// L'aire d'APPAREIL SIMULE, a l'interieur du viseur.
+		///
+		/// Elle garde le RAPPORT largeur/hauteur du profil, centree, avec une
+		/// marge. C'est ce rapport qui permet de juger une mise en page mobile
+		/// depuis un ecran de bureau -- l'etirer la rendrait mensongere.
+		///
+		/// ⚠️ Fonction LIBRE, et non plus une methode d'un objet de disposition :
+		/// avec NKEditorKit, le viseur est un panneau ancre qui apprend son
+		/// rectangle au moment ou il se dessine. Il n'y a plus de disposition
+		/// calculee d'avance a qui poser la question.
+		nkgui::NkRect NkAireAppareil(const nkgui::NkRect &viseur, const NkProfilAppareil &profil) noexcept;
 
 		/// L'entite dont la boite contient ce point du MONDE. Rend aussi son
 		/// centre, pour que l'appelant calcule le decalage de saisie.

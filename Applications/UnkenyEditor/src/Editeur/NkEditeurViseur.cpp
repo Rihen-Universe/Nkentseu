@@ -14,22 +14,45 @@ namespace nkentseu {
 		using nkgui::NkColor;
 		using nkgui::NkRect;
 
-		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkScene &scene, const NkDispoEditeur &dispo,
-									  const NkTheme &th, const NkProfilAppareil &profil, bool grille,
-									  bool collisionneurs, const ecs::NkEntityId *selection) {
+		nkgui::NkRect NkAireAppareil(const nkgui::NkRect &viseur, const NkProfilAppareil &profil) noexcept {
+			const float32 rapport = static_cast<float32>(profil.largeur) / static_cast<float32>(profil.hauteur);
+			const float32 marge = 24.f;
+			float32 aw = viseur.w - marge * 2.f;
+			float32 ah = aw / rapport;
+			if (ah > viseur.h - marge * 2.f) {
+				ah = viseur.h - marge * 2.f;
+				aw = ah * rapport;
+			}
+			// ⚠️ Un panneau peut etre reduit a presque rien par l'ancrage. Sans
+			// ce plancher, l'aire devient negative, la camera recoit un viseur
+			// vide, et la division par sa largeur rend des coordonnees infinies
+			// -- une panne qui sort loin d'ici, dans la conversion ecran/monde.
+			if (aw < 1.f) {
+				aw = 1.f;
+			}
+			if (ah < 1.f) {
+				ah = 1.f;
+			}
+			return nkgui::NkRect{viseur.x + (viseur.w - aw) * 0.5f, viseur.y + (viseur.h - ah) * 0.5f, aw, ah};
+		}
+
+		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkScene &scene, const nkgui::NkRect &viseur,
+									  const nkgui::NkRect &appareil, const NkTheme &th,
+									  const NkProfilAppareil &profil, bool grille, bool collisionneurs,
+									  const ecs::NkEntityId *selection) {
 			NkStatsRendu stats;
 
 			// Le fond du viseur, puis l'aire d'appareil : deux tons distincts,
 			// pour qu'on voie du premier coup d'oeil ce qui est DANS l'ecran
 			// simule et ce qui est autour.
-			dl.AddRectFilled(dispo.viseur, NkColor(10, 12, 17));
-			dl.AddRectFilled(dispo.appareil, NkColor(20, 23, 31));
+			dl.AddRectFilled(viseur, NkColor(10, 12, 17));
+			dl.AddRectFilled(appareil, NkColor(20, 23, 31));
 
 			// ⚠️ DECOUPE OBLIGATOIRE sur l'aire d'appareil. Sans elle, une scene
 			// plus grande que l'ecran simule deborde sur les panneaux — et on
 			// juge une mise en page mobile sur une image qui montre plus que ce
 			// que le telephone montrerait.
-			dl.PushClipRect(dispo.appareil, true);
+			dl.PushClipRect(appareil, true);
 
 			if (grille) {
 				NkDessinerGrille(dl, scene.Camera(), 1.f);
@@ -70,8 +93,8 @@ namespace nkentseu {
 			// bandes hachurees est INATTEIGNABLE sur l'appareil — pas mal place :
 			// inatteignable. Et cela ne se voit JAMAIS depuis une machine de
 			// bureau.
-			const float32 ex = dispo.appareil.w / static_cast<float32>(profil.largeur);
-			const float32 ey = dispo.appareil.h / static_cast<float32>(profil.hauteur);
+			const float32 ex = appareil.w / static_cast<float32>(profil.largeur);
+			const float32 ey = appareil.h / static_cast<float32>(profil.hauteur);
 			const NkColor voile(220, 90, 90, 46);
 			const NkColor trait(235, 120, 120, 190);
 
@@ -85,20 +108,20 @@ namespace nkentseu {
 			const float32 hBas = profil.zoneSure.bottom * ey;
 			const float32 lG = profil.zoneSure.left * ex;
 			const float32 lD = profil.zoneSure.right * ex;
-			bande(NkRect{dispo.appareil.x, dispo.appareil.y, dispo.appareil.w, hHaut});
-			bande(NkRect{dispo.appareil.x, dispo.appareil.y + dispo.appareil.h - hBas, dispo.appareil.w, hBas});
-			bande(NkRect{dispo.appareil.x, dispo.appareil.y, lG, dispo.appareil.h});
-			bande(NkRect{dispo.appareil.x + dispo.appareil.w - lD, dispo.appareil.y, lD, dispo.appareil.h});
+			bande(NkRect{appareil.x, appareil.y, appareil.w, hHaut});
+			bande(NkRect{appareil.x, appareil.y + appareil.h - hBas, appareil.w, hBas});
+			bande(NkRect{appareil.x, appareil.y, lG, appareil.h});
+			bande(NkRect{appareil.x + appareil.w - lD, appareil.y, lD, appareil.h});
 
 			// Le cadre de la zone SURE elle-meme : c'est dedans qu'un bouton doit
 			// tenir.
 			if (hHaut > 0.f || hBas > 0.f || lG > 0.f || lD > 0.f) {
-				dl.AddRect(NkRect{dispo.appareil.x + lG, dispo.appareil.y + hHaut, dispo.appareil.w - lG - lD,
-								  dispo.appareil.h - hHaut - hBas},
+				dl.AddRect(NkRect{appareil.x + lG, appareil.y + hHaut, appareil.w - lG - lD,
+								  appareil.h - hHaut - hBas},
 						   trait, 1.f);
 			}
 			// Le bord de l'appareil, toujours visible.
-			dl.AddRect(dispo.appareil, th.bord, 2.f, 6.f);
+			dl.AddRect(appareil, th.bord, 2.f, 6.f);
 			return stats;
 		}
 

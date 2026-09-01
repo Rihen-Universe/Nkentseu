@@ -92,7 +92,15 @@ with project("UnkenyEditor"):
     # remettre dependfiles(["assets"]) ici ET androidassets(["assets"]) plus bas.
 
     nkentseudependson(
-        ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
+        # NKEditorKit AJOUTE le 2026-09-01 : l editeur est bati sur la coquille
+        # du kit (ancrage, palette de commandes, panneaux) au lieu de redessiner
+        # a la main une barre d outils, des colonnes et un inspecteur.
+        #
+        # ⚠️ NKCanvas reste declare ICI, et c est desormais NECESSAIRE : depuis
+        # que le kit n instancie plus de renderer par defaut, c est
+        # l application qui inclut NkEditorCanvasRenderer.h et l injecte. Le kit
+        # ne tire donc plus NKCanvas tout seul.
+        ["NKEditorKit", "NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio",
          "NKECS", "NKCollision", "NKPhysics", "Unkeny"],
