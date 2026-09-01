@@ -2668,6 +2668,61 @@ namespace nkuidesign {
 						}
 					}
 				}
+				// ── LE DÉPLACEMENT AU CLAVIER (vague 1 du document de référence) ─
+				// ⚠️ IL EST TESTÉ AVANT LES AUTRES TOUCHES, et la garde compte
+				//    autant que le geste : on ne déplace RIEN tant qu'une saisie
+				//    est ouverte. Sans elle, taper une flèche pour corriger une
+				//    lettre dans un libellé déplacerait l'objet derrière le champ
+				//    — un geste, deux effets, dont un invisible. C'est le défaut
+				//    exact que le mode points a payé le 01/09.
+				// ⚠️ ET PAS EN MODE ÉDITION DE FORME : là, les flèches devront
+				//    déplacer les SOMMETS marqués, pas le nœud. Tant que ce n'est
+				//    pas écrit, on ne fait rien plutôt que la mauvaise chose.
+				if (!mSt->doc.IsValidIndex(mEditNode) && !mEditEtiquette
+					&& !mSt->modeForme.Actif() && ctx.popupDepth == 0
+					&& mSt->sel.Count() > 0) {
+					const bool maj = ctx.input.shiftDown;
+					float32 dx = 0.f, dy = 0.f;
+					if (ctx.input.KeyPressedRepeat(NkGuiKey::Left))
+						dx = -NkPasClavier(maj);
+					else if (ctx.input.KeyPressedRepeat(NkGuiKey::Right))
+						dx = NkPasClavier(maj);
+					else if (ctx.input.KeyPressedRepeat(NkGuiKey::Up))
+						dy = -NkPasClavier(maj);
+					else if (ctx.input.KeyPressedRepeat(NkGuiKey::Down))
+						dy = NkPasClavier(maj);
+					if (dx != 0.f || dy != 0.f) {
+						// ⚠️ TOUTE LA SÉLECTION BOUGE, pas seulement le principal :
+						//    sinon le geste au clavier ferait autre chose que le
+						//    même geste à la souris, et c'est la divergence que ce
+						//    chantier ferme depuis un mois.
+						uint32 bouges = 0;
+						for (uint32 k = 0; k < (uint32)mSt->sel.Count(); ++k) {
+							const int32 i = mSt->sel.items[k];
+							if (!mSt->doc.IsValidIndex(i) || i == 0)
+								continue;
+							// seul un enfant placé LIBREMENT se déplace : sous un
+							// agencement calculé, posX/posY sont ignorés (même
+							// règle que le recadrage sur le tracé).
+							if (!ParentLibre(i))
+								continue;
+							NkUINode &n = mSt->doc.nodes[(uint32)i];
+							n.posX += dx;
+							n.posY += dy;
+							mSt->doc.MarkHumanEdit(i);
+							++bouges;
+						}
+						char msg[160];
+						if (bouges > 0)
+							snprintf(msg, sizeof(msg), "Déplacé de %g px — Maj+flèche pour 10 px.",
+									 (double)(dx != 0.f ? (dx < 0 ? -dx : dx)
+													   : (dy < 0 ? -dy : dy)));
+						else
+							snprintf(msg, sizeof(msg),
+									 "Rien à déplacer : le parent place ses enfants lui-même.");
+						Dire(msg, "", "");
+					}
+				}
 				// ÉCHAP annule le tracé en cours (Lunacy), et le DIT.
 				if (mCreating && ctx.input.KeyPressed(NkGuiKey::Escape)) {
 					mCreating = false;

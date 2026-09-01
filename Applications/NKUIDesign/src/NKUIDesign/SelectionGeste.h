@@ -555,6 +555,30 @@ namespace nkuidesign {
 		return 255u;
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE PAS DU CLAVIER — 1 px, ou 10 px avec Maj
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// Première vague du document de référence (`design/13_…`, §12) : brancher
+	/// les touches. Le déplacement aux flèches y est nommé **le manque le plus
+	/// courant** — c'est le geste d'ajustement fin, celui qu'on fait cent fois par
+	/// heure et qu'aucune souris ne remplace.
+	///
+	/// ⚠️ SOURCE COHÉRENTE, DONC ON ADOPTE SANS DISCUTER. La règle du document est
+	///    *« on adopte le raccourci de Lunacy quand le geste existe chez nous ET
+	///    que la source est cohérente »* : ici `/layers` et `/shortcuts` disent la
+	///    même chose (flèches = 1 px, `Maj`+flèches = 10 px). C'est aussi la
+	///    convention de Figma, Sketch et Illustrator — un réflexe acquis ailleurs
+	///    ne doit pas se réapprendre ici.
+	///
+	/// ⚠️ ET LE PAS N'EST PAS EN PIXELS D'ÉCRAN, MAIS EN UNITÉS DE DOCUMENT. Au
+	///    zoom 4, un pas d'un pixel d'écran vaudrait un quart d'unité : l'objet
+	///    avancerait de moins en moins vite à mesure qu'on zoome pour être
+	///    précis — exactement l'inverse de ce qu'on cherche. *Un pas se compte
+	///    dans l'unité de ce qu'on déplace, pas dans celle de ce qu'on voit.*
+	inline float32 NkPasClavier(bool maj) {
+		return maj ? 10.f : 1.f;
+	}
+
 	/// APPLIQUER un geste à la sélection partagée.
 	/// ⚠️ LA RACINE N'EST JAMAIS UN ÉLÉMENT, et la règle vit ICI plutôt que
 	///    dans chaque appelant : elle avait déjà été oubliée par le premier

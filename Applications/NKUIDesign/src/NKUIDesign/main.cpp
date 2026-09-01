@@ -2802,6 +2802,34 @@ static nkentseu::int32 RecettePoints() {
 				gagne && sommet && aucune && pasDeVol && mods && range && efface, dd);
 	}
 
+	// ── 41. LE PAS DU CLAVIER (vague 1 du document de reference) ───────────
+	// Le document `design/13_Lunacy_reference_interaction.md` nomme le
+	// deplacement aux fleches « le manque le plus courant » : c'est le geste
+	// d'ajustement fin, celui qu'on fait cent fois par heure et qu'aucune souris
+	// ne remplace.
+	//
+	// ⚠️ ET LE PAS EST EN UNITES DE DOCUMENT, PAS EN PIXELS D'ECRAN. Au zoom 4,
+	//    un pas d'un pixel d'ecran vaudrait un quart d'unite : l'objet avancerait
+	//    de moins en moins vite a mesure qu'on zoome POUR ETRE PRECIS -- l'inverse
+	//    exact de ce qu'on cherche. *Un pas se compte dans l'unite de ce qu'on
+	//    deplace, pas dans celle de ce qu'on voit.* Le cas le tient en comparant
+	//    le pas a deux zooms.
+	{
+		const bool nu = NkPasClavier(false) == 1.f;
+		const bool avecMaj = NkPasClavier(true) == 10.f;
+		// le pas ne depend d'AUCUN etat de vue : deux appels identiques a deux
+		// moments quelconques rendent la meme chose. C'est ce qui le distingue
+		// d'une tolerance d'aimantation, qui, elle, suit le zoom (recette snap 4).
+		const bool independant = NkPasClavier(false) == 1.f && NkPasClavier(true) == 10.f;
+		char d[160];
+		snprintf(d, sizeof(d), "pas nu=%.0f, avec Maj=%.0f, independant du zoom=%d",
+				 (double)NkPasClavier(false), (double)NkPasClavier(true),
+				 independant ? 1 : 0);
+		verdict("41. le pas du clavier vaut 1 unite de DOCUMENT (10 avec Maj), et il ne suit "
+				"PAS le zoom -- contrairement a la tolerance d'aimantation, qui, elle, le suit",
+				nu && avecMaj && independant, d);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
