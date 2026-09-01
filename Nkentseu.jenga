@@ -1685,14 +1685,27 @@ with workspace("Nkentseu", location="."):
     # desktop, souris = tete). Voir XR_MISSION_IA.md.
 
     with include("Applications/NKXRDemo/NKXRDemo.jenga"):
-
         pass
 
 
 
     # Etage 3 XR : realite augmentee a marqueurs (camera + NkArSession).
-
     with include("Applications/NKARDemo/NKARDemo.jenga"):
-
         pass
 
+
+    # GemCrush
+    with include("Applications/Gemcrush/GemCrush.jenga"):
+        pass
+
+    # Les trois jeux de plateau, batis sur la coquille moderne NkCanvasApp.
+    # Ils servent aussi de PREUVE a cette coquille : une base qui n a qu un
+    # seul consommateur ne prouve rien sur sa reutilisabilite.
+    with include("Applications/NkDames/NkDames.jenga"):
+        pass
+
+    with include("Applications/NkEchecs/NkEchecs.jenga"):
+        pass
+
+    with include("Applications/NkLudo/NkLudo.jenga"):
+        pass

@@ -77,4 +77,14 @@ USE_NKGLAD = os.getenv("NK_RENDERER_USE_NKGLAD", "on").strip().lower() not in ("
 
 # NKUI integre a NKCanvas (backend immediate-mode NkUICanvasBackend). Optionnel :
 # NK_CANVAS_NKUI=off -> NKCanvas ne lie pas NKUI (utilisateurs libres de l'utiliser).
-USE_CANVAS_NKUI = os.getenv("NK_CANVAS_NKUI", "on").strip().lower() not in ("0", "false", "off", "no")
+# NKUI est DEPRECIEE (Rodolf, 2026-08-16 : "retire NKUI de tout systeme de
+# Nkentseu"). Le pont NkUICanvasBackend reste disponible, mais il n est PLUS
+# construit par defaut : sinon les 14 dependants de NKCanvas lient un module
+# deprecie sans le savoir, et chaque application neuve en herite.
+#
+# ⚠️ Le defaut etait "on" : c est le levier que la campagne de retrait designait
+# elle-meme comme "le meilleur rendement" (il construisait NKUI pour des
+# applications qui ne l utilisent pas).
+#
+# Pour le rallumer le temps d une migration : NK_CANVAS_NKUI=1
+USE_CANVAS_NKUI = os.getenv("NK_CANVAS_NKUI", "off").strip().lower() not in ("0", "false", "off", "no")
