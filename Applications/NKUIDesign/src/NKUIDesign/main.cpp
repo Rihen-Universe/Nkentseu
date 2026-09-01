@@ -69,6 +69,7 @@
 #include "Panels.h"
 #include "Probe.h"
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
+#include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
 
 
 
@@ -1779,6 +1780,10 @@ int nkmain(const NkEntryState &state) {
 		// La batterie de preuve de l'annulation (§7) — sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-annulation"))
 			return RecetteAnnulation();
+		// Le contrat universel d'edition, prouve PAR SITE (Hierarchie,
+		// etiquette d'artboard, texte de toile) — sans fenetre ni GPU.
+		if (NkComponentDecl::StrEq(a, "--recette-edition"))
+			return nkuidesign::RecetteEdition();
 		// Meme raison que ci-dessus : le pool de chaines du document ne touche ni
 		// au GPU ni a l ecran. Il porte les noms de metrique que le kit declare
 		// en const char* et que personne ne possedait a la relecture.
@@ -1886,6 +1891,7 @@ int nkmain(const NkEntryState &state) {
 			puts("drapeaux reconnus :");
 			puts("  --probe                 la sonde headless");
 			puts("  --recette-annulation    la batterie de preuve de l'annulation (§7)");
+			puts("  --recette-edition       le contrat universel d'edition, par site");
 			puts("  --annuler=N             N pas d'annulation au lancement (preuve UI)");
 			puts("  --retablir=N            N pas de retablissement apres --annuler");
 			puts("  --recette-ia            la preuve de recette du pipeline IA");
