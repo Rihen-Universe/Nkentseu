@@ -1424,10 +1424,124 @@ static nkentseu::int32 RecettePoints() {
 					&& coherent,
 				d);
 	}
+	// ── 14. UN DOUBLE-CLIC VAUT APPUI ──────────────────────────────────────
+	//     ⚠️ CE CAS EXISTE PARCE QUE LE BANC ET LE GESTE REEL NE PASSAIENT PAS
+	//     PAR LA MEME PORTE, et c'est ce qui a rendu le defaut invisible.
+	//     Mesure du 01/09 : la classe de fenetre porte CS_DBLCLKS, donc Windows
+	//     REMPLACE le second WM_LBUTTONDOWN par WM_LBUTTONDBLCLK ; le Win32
+	//     n'en tirait aucun appui ; `mouseClicked[0]` restait faux ; et la toile
+	//     enfermait sa branche double-clic dans `if (in.mousePressed)`. Le geste
+	//     de Rodolf n'y entrait JAMAIS -- « double-cliquer ne me permet pas
+	//     d'acceder a sa modification fine ». L'injecteur, lui, posait
+	//     `mouseDown` PUIS `SetDoubleClick` : il prenait l'autre porte.
+	{
+		const bool ok = NkAppuiDeToile(false, true) // LE cas qui manquait
+						&& NkAppuiDeToile(true, false) && NkAppuiDeToile(true, true)
+						&& !NkAppuiDeToile(false, false);
+		verdict("14. un double-clic vaut APPUI -- meme quand l'OS n'envoie pas d'appui avec "
+				"(CS_DBLCLKS remplace le second WM_LBUTTONDOWN)",
+				ok, ok ? "sans appui + double-clic = appui" : "LE DOUBLE-CLIC NE VAUT PLUS APPUI");
+	}
+	// ── 15. CHAQUE SUITE DU DOUBLE-CLIC DIT QUELQUE CHOSE ──────────────────
+	//     ⚠️ LA REGLE DE LA MAISON, TENUE PAR UN BANC PLUTOT QUE PAR UNE
+	//     INTENTION : un controle qui ne fait rien sans rien dire est le defaut
+	//     qu'on chasse. Le cas parcourt les suites PAR LEUR NOMBRE, pas par une
+	//     liste ecrite a la main -- une septieme suite ajoutee sans sa phrase
+	//     fait tomber ce cas au lieu de passer inapercue.
+	//     Et il exige aussi que deux suites ne disent pas LA MEME phrase : « ca
+	//     dit quelque chose » ne suffit pas si ca ne distingue rien.
+	{
+		bool toutesParlent = true, toutesDistinctes = true;
+		const uint32 n = NkNbSuitesDblClic();
+		const char *phrases[8] = {nullptr};
+		for (uint32 i = 0; i < n && i < 8; ++i) {
+			const char *p = NkRaisonDeDblClic((NkSuiteDblClic)i);
+			phrases[i] = p;
+			if (!p || !*p)
+				toutesParlent = false;
+		}
+		for (uint32 i = 0; i < n && i < 8; ++i)
+			for (uint32 j = i + 1; j < n && j < 8; ++j)
+				if (phrases[i] && phrases[j] && NkComponentDecl::StrEq(phrases[i], phrases[j]))
+					toutesDistinctes = false;
+		char d[96];
+		snprintf(d, sizeof(d), "%u suites, toutes %s et %s", n,
+				 toutesParlent ? "parlantes" : "PAS TOUTES PARLANTES",
+				 toutesDistinctes ? "distinctes" : "PAS TOUTES DISTINCTES");
+		verdict("15. CHAQUE suite du double-clic produit une raison DITE, et deux suites ne "
+				"disent pas la meme chose",
+				toutesParlent && toutesDistinctes, d);
+	}
+	// ── 16. LE CORPS D'UN GROUPE N'EST PAS UN TROU ─────────────────────────
+	//     ⚠️ LE DEFAUT MESURE LE 01/09 SUR LE DOCUMENT DASHBOARD, ET C'EST LA
+	//     PLUS GRANDE PARTIE DE LA SURFACE D'UNE CARTE : un double-clic sur le
+	//     corps de `Carte_Actifs` (ou de `Panel_Nav`, ou d'un artboard) rendait
+	//     l'issue `Forer` -- correcte -- puis `NkPickDansContexte` rendait -2
+	//     (« hors du contexte »), et la branche faisait un `SelectSingle` MUET
+	//     sans armer le forage. Rien ne se passait, rien ne le disait, et le
+	//     double-clic suivant refaisait exactement la meme chose.
+	//     Le cas tient les DEUX suites de `Forer` cote a cote : sur un enfant
+	//     (descendre) et a cote (entrer quand meme, et le dire).
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iG = st.doc.AddChild(0, "", NkAuthor::Humain);
+		{
+			NkUINode &g = st.doc.nodes[(uint32)iG];
+			g.label = NkString("Carte");
+			g.shape = NkString("rect");
+			g.width.mode = NkSizeMode::Fixed;
+			g.width.value = 200.f;
+			g.height.mode = NkSizeMode::Fixed;
+			g.height.value = 100.f;
+		}
+		const int32 iT = st.doc.AddChild(iG, "", NkAuthor::Humain);
+		{
+			NkUINode &t = st.doc.nodes[(uint32)iT];
+			t.label = NkString("Valeur");
+			t.shape = NkString("text");
+			t.text = NkString("42");
+			t.width.mode = NkSizeMode::Fixed;
+			t.width.value = 40.f;
+			t.height.mode = NkSizeMode::Fixed;
+			t.height.value = 20.f;
+		}
+		st.Recompute(surface);
+		const NkPaintRect rg = st.layout.At(iG), rt = st.layout.At(iT);
+		// (a) SUR l'enfant : on descend.
+		const float32 ax = rt.x + rt.w * 0.5f, ay = rt.y + rt.h * 0.5f;
+		const int32 candA = NkPickDansContexte(st.doc, st.layout, ax, ay, -1);
+		const int32 enfA = st.doc.IsValidIndex(candA)
+							   ? NkPickDansContexte(st.doc, st.layout, ax, ay, candA)
+							   : -1;
+		const NkSuiteDblClic sA =
+			NkSuiteDeDblClic(NkIssueDeDblClic(st.doc.nodes[(uint32)(candA > 0 ? candA : 0)]),
+							 enfA >= 0);
+		// (b) A COTE de l'enfant, DANS le groupe : le cas qui etait muet.
+		const float32 bx = rg.x + rg.w - 6.f, by = rg.y + rg.h - 6.f;
+		const int32 candB = NkPickDansContexte(st.doc, st.layout, bx, by, -1);
+		const int32 enfB = st.doc.IsValidIndex(candB)
+							   ? NkPickDansContexte(st.doc, st.layout, bx, by, candB)
+							   : -1;
+		const NkSuiteDblClic sB =
+			NkSuiteDeDblClic(NkIssueDeDblClic(st.doc.nodes[(uint32)(candB > 0 ? candB : 0)]),
+							 enfB >= 0);
+		const char *raison = NkRaisonDeDblClic(sB);
+		const bool ok = candA == iG && enfA == iT && sA == NkSuiteDblClic::ForerVersEnfant
+						&& candB == iG && enfB < 0 && sB == NkSuiteDblClic::ForerSansEnfant
+						&& raison && *raison;
+		char d[160];
+		snprintf(d, sizeof(d), "sur l'enfant : cand=%d enfant=%d ; au corps : cand=%d enfant=%d, "
+							   "raison %s",
+				 candA, enfA, candB, enfB, (raison && *raison) ? "DITE" : "MUETTE");
+		verdict("16. le CORPS d'un groupe n'est pas un trou : le double-clic y entre quand meme "
+				"et le DIT (les deux suites de Forer, cote a cote)",
+				ok, d);
+	}
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
 }
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Le VRAI `NkCalculerSnap`, celui que le glisser appelle. Sans fenetre ni GPU.
@@ -2003,6 +2117,15 @@ static struct {
 	int32 frame = -1;
 	bool dbl = false;	///< --clic=x:y:frame:d — injecte AUSSI un double-clic
 	bool droit = false; ///< --clic=x:y:frame:r — clic DROIT (menu contextuel)
+	/// --clic=x:y:frame:o — LE DOUBLE-CLIC TEL QUE L'OS L'ENVOIE : le drapeau de
+	/// double-clic SEUL, SANS appui.
+	/// ⚠️ CET INSTRUMENT EXISTE PARCE QUE LE BANC PRENAIT UNE AUTRE PORTE QUE LA
+	///    SOURIS DE RODOLF, et c'est ce qui a cache le defaut du 01/09. Avec
+	///    `CS_DBLCLKS`, Windows REMPLACE le second WM_LBUTTONDOWN par
+	///    WM_LBUTTONDBLCLK : sur le second clic, `mouseDown` reste FAUX. Le `:d`
+	///    ci-dessus, lui, posait l'appui ET le double-clic — donc il prouvait un
+	///    chemin que le geste reel n'empruntait jamais. `:o` reproduit le vrai.
+	bool dblOS = false;
 	/// --clic=x:y:frame:c (CTRL) ou :s (MAJ). ⚠️ SANS EUX, LE CONTRAT DE
 	/// SELECTION DE LUNACY N'EST PAS MESURABLE : ses trois clics ne different
 	/// QUE par le modificateur (nu = groupe de 1er niveau, Ctrl = profond, Maj
@@ -2075,12 +2198,17 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 				ctx.input.ctrlDown = true;
 			if (gClics[i].maj)
 				ctx.input.shiftDown = true;
-			ctx.input.mouseDown[b] = true;
-			ctx.input.mouseClicked[b] = true;
+			// ⚠️ `:o` NE POSE PAS D'APPUI, et c'est tout son objet : sur le
+			//    second clic d'un vrai double-clic Windows, `mouseDown` reste
+			//    faux (CS_DBLCLKS remplace WM_LBUTTONDOWN par WM_LBUTTONDBLCLK).
+			if (!gClics[i].dblOS) {
+				ctx.input.mouseDown[b] = true;
+				ctx.input.mouseClicked[b] = true;
+			}
 			// le DOUBLE-CLIC s'injecte tel quel (la detection temporelle de la
 			// fenetre ne verra jamais deux vrais clics) — c'est le levier de
 			// preuve du FORAGE sous curseur.
-			if (gClics[i].dbl)
+			if (gClics[i].dbl || gClics[i].dblOS)
 				ctx.input.mouseDoubleClicked[0] = true;
 		} else if (compteur == gClics[i].frame + 1) {
 			// ⚠️ EFFACER le clic : si ce rappel tourne deux fois par trame, un
@@ -3057,7 +3185,14 @@ int nkmain(const NkEntryState &state) {
 				continue;
 			}
 			if (arg.StartsWith("--clic=")) {
-				for (int32 ci = 0; ci < 4; ++ci)
+				// ⚠️ LA BORNE SE LIT DU TABLEAU, PAS D'UN LITTERAL — et elle a
+				//    deja menti : le tableau est passe a 10 le 01/09, ce
+				//    remplisseur etait reste a 4, et les clics 5 a 10 etaient
+				//    SILENCIEUSEMENT ignores. Le meme defaut que la borne de
+				//    `gTouches`, dans l'autre sens : la ou l'un depassait, celui-ci
+				//    tronquait. C'est le second cas en deux jours : une borne
+				//    ecrite en chiffre ne suit pas ce qu'elle borne.
+				for (int32 ci = 0; ci < (int32)(sizeof(gClics) / sizeof(gClics[0])); ++ci)
 					if (gClics[ci].frame < 0) {
 						const char *q = a + 7;
 						gClics[ci].x = (float32)atof(q);
@@ -3069,13 +3204,15 @@ int nkmain(const NkEntryState &state) {
 							++q;
 						gClics[ci].frame = (*q == ':') ? (int32)atof(++q) : 30;
 						// 4e champ optionnel : « d » = DOUBLE-clic (preuve du
-						// forage) ; « r » = clic DROIT (menu contextuel).
+						// forage) ; « r » = clic DROIT (menu contextuel) ;
+						// « o » = double-clic TEL QUE L'OS L'ENVOIE (sans appui).
 						while (*q && *q != ':')
 							++q;
 						gClics[ci].dbl = (*q == ':' && q[1] == 'd');
 						gClics[ci].droit = (*q == ':' && q[1] == 'r');
 						gClics[ci].ctrl = (*q == ':' && q[1] == 'c');
 						gClics[ci].maj = (*q == ':' && q[1] == 's');
+						gClics[ci].dblOS = (*q == ':' && q[1] == 'o');
 						break;
 					}
 				continue;
@@ -3388,7 +3525,8 @@ int nkmain(const NkEntryState &state) {
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
 			puts("  --selection=<n>         sélectionner le nœud n au premier affichage");
 			puts("  --editer-texte=<n>      ouvrir l'édition en place sur le nœud texte n (mise en scène)");
-			puts("  --clic=x:y:frame[:d|r|c|s]  injecter un clic (d double, r droit, c Ctrl, s Maj)");
+			puts("  --clic=x:y:frame[:d|r|c|s|o]  injecter un clic (d double, r droit, c Ctrl, "
+				 "s Maj, o double-clic OS SANS appui)");
 			puts("  --frappe=texte:frame    injecter des codepoints ASCII à cette trame (preuve de saisie)");
 			puts("  --touche=nom:frame      injecter entree|echap|retour à cette trame");
 			puts("  --glisser=x1:y1:x2:y2:frame[:duree[:t]]  injecter un drag (`t` = ne pas relâcher)");
