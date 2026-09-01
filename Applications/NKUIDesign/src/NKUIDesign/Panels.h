@@ -1456,6 +1456,38 @@ namespace nkuidesign {
 			/// lettres de la toile se taisent (les lettres sont une saisie).
 			/// Pose par HierarchyPanel a chaque image.
 			bool renommageArbre = false;
+			/// ⚠️ LE MEME CANAL, POUR LA TOILE (01/09). `mEditNode` et `mForage`
+			///    vivent dans PreviewPanel — ils sont a lui. Mais les COMMANDES de
+			///    la coquille (Ctrl+D, Ctrl+G, Ctrl+Maj+G) tournent HORS de tout
+			///    panneau, et le menu Edition aussi : ils doivent savoir « une
+			///    saisie est-elle ouverte ? » et « a quel niveau de forage
+			///    est-on ? ». Un DEUXIEME etat d'edition aurait diverge des le
+			///    premier Echap — on PUBLIE donc l'unique, une ecriture par image,
+			///    exactement comme `renommageArbre` au-dessus. (Le decalage d'une
+			///    image ne se voit pas : l'etat d'edition ne change jamais sans
+			///    qu'une image passe.)
+			int32 editionToile = -1; ///< noeud en edition en place, -1 = aucune
+			int32 forageToile = -1;	 ///< groupe fore courant, -1 = premier niveau
+			/// Vrai des qu'une SAISIE est ouverte, ou que ce soit. Les gestes
+			/// d'edition s'y taisent : un Ctrl+D pendant qu'on tape un nom
+			/// dupliquerait un noeud a l'insu de la main qui ecrivait.
+			bool SaisieOuverte() const { return renommageArbre || editionToile >= 0; }
+			/// Ctrl+A : TOUT au niveau courant du forage (Lunacy) — les enfants du
+			/// groupe fore, sinon le premier niveau. ⚠️ ICI et pas dans la toile :
+			/// le menu Edition le declenche aussi, et deux ecritures auraient
+			/// donne deux definitions de « le niveau courant ».
+			uint32 ToutSelectionner() {
+				const int32 ctxA = doc.IsValidIndex(forageToile) ? forageToile : 0;
+				sel.Clear();
+				const NkVector<int32> &kids = doc.nodes[(uint32)ctxA].children;
+				for (uint32 k = 0; k < (uint32)kids.Size(); ++k)
+					sel.Add(kids[k]);
+				selected = sel.Primary();
+				char msg[48];
+				snprintf(msg, sizeof(msg), "Sélection : %u élément(s).", sel.Count());
+				status = NkString(msg);
+				return sel.Count();
+			}
 			/// Mise en scene (--annuler=N / --retablir=N) : N pas au lancement,
 			/// consommes par la toile quand le document est la.
 			int32 annulerInitial = 0;
@@ -2143,6 +2175,13 @@ namespace nkuidesign {
 				nkgui::NkGuiNoterMesure(
 					ctx, "canvas.selection", (float32)mSt->selected, (float32)mForage,
 					(float32)(mSt->doc.IsValidIndex(mEditNode) ? mEditNode : -1), 0.f);
+				// ⚠️ ET ILS SE PUBLIENT AUSSI DANS L'ÉTAT PARTAGÉ, une écriture par
+				//    image : les commandes de la coquille (Ctrl+D/G) et le menu
+				//    Édition tournent hors de tout panneau et n'ont aucun autre
+				//    moyen de savoir qu'une saisie est ouverte. UN SEUL sens
+				//    d'écriture — la toile décide, l'état partagé rapporte.
+				mSt->editionToile = mSt->doc.IsValidIndex(mEditNode) ? mEditNode : -1;
+				mSt->forageToile = mForage;
 
 				// ── RACCOURCIS D'OUTILS AU VRAI CLAVIER (Lunacy : V F R O L T) ──
 				// ⚠️ MESURE DU 30/08 (Rodolf : « les F glisser et autres ne
@@ -2194,20 +2233,11 @@ namespace nkuidesign {
 						else
 							Dire("Le presse-papiers est vide.", "", "");
 					} else if (ctx.input.wantSelectAll) {
-						// Ctrl+A : TOUT au niveau courant du forage (Lunacy) —
-						// les enfants du groupe foré, sinon le premier niveau.
-						const int32 ctxA = (mForage >= 0 && mSt->doc.IsValidIndex(mForage))
-											   ? mForage
-											   : 0;
-						mSt->sel.Clear();
-						const NkVector<int32> &kids = mSt->doc.nodes[(uint32)ctxA].children;
-						for (uint32 k = 0; k < (uint32)kids.Size(); ++k)
-							mSt->sel.Add(kids[k]);
-						mSt->selected = mSt->sel.Primary();
-						char msg[48];
-						snprintf(msg, sizeof(msg), "Sélection : %u élément(s).",
-								 mSt->sel.Count());
-						Dire(msg, "", "");
+						// Ctrl+A : le geste vit dans l'état partagé (le menu
+						// Édition l'appelle aussi) — la toile ne fait que le
+						// déclencher et le DIRE.
+						mSt->ToutSelectionner();
+						Dire(mSt->status.Data(), "", "");
 					} else if (ctx.input.KeyPressed(NkGuiKey::Delete)) {
 						if (mSt->SupprimerSelection())
 							Dire(mSt->status.Data(), "", "");
@@ -2463,13 +2493,39 @@ namespace nkuidesign {
 					const NkUINode &nm = mSt->doc.nodes[(uint32)mMenuNode];
 					const bool editable = StrEq(nm.shape.Data(), "text") || !nm.text.Empty();
 					const bool cadre = StrEq(nm.shape.Data(), "frame");
+					const bool pasRacine = (mMenuNode != 0);
+					const bool aEnfants = !nm.children.Empty();
+					// ── LES GESTES D'ÉDITION ARRIVENT ICI AUSSI (Lunacy, 01/09).
+					//    Règle de la maison : « visible dans le menu Édition avec
+					//    son raccourci ET dans le menu contextuel ». Le raccourci
+					//    est passé au menu du kit — la colonne de droite lui a été
+					//    ajoutée pour ça (additive, cf. NkEditorContextMenu.h).
 					// grisé-QUI-LE-DIT : l'entrée inapplicable porte sa raison.
-					const char *items[3];
+					const char *items[9];
 					items[0] = editable ? "Éditer le texte" : "Éditer (pas de texte ici)";
 					items[1] = cadre ? "Renommer la page" : "Renommer (par la Hiérarchie)";
-					items[2] = (mMenuNode != 0) ? "Supprimer" : "Supprimer (pas la racine)";
-					const bool en[3] = {editable, cadre, mMenuNode != 0};
-					const int32 act = editorkit::NkCtxMenuDraw(ctx, mMenuCtx, items, en, 3);
+					items[2] = "Copier";
+					items[3] = "Couper";
+					items[4] = mSt->pressePapiersPlein ? "Coller" : "Coller (presse-papiers vide)";
+					items[5] = "Dupliquer";
+					items[6] = "Grouper";
+					items[7] = aEnfants ? "Dégrouper" : "Dégrouper (pas un groupe)";
+					items[8] = pasRacine ? "Supprimer" : "Supprimer (pas la racine)";
+					const char *raccourcis[9] = {nullptr,   nullptr,	  "Ctrl+C",
+												 "Ctrl+X",	"Ctrl+V",	  "Ctrl+D",
+												 "Ctrl+G",	"Ctrl+Maj+G", "Suppr"};
+					const bool en[9] = {editable,
+										cadre,
+										pasRacine,
+										pasRacine,
+										mSt->pressePapiersPlein,
+										pasRacine,
+										pasRacine,
+										pasRacine && aEnfants && !cadre,
+										pasRacine};
+					const int32 act =
+						editorkit::NkCtxMenuDraw(ctx, mMenuCtx, items, en, 9, nullptr, nullptr,
+												 nullptr, nullptr, 0, nullptr, raccourcis);
 					if (act == 0) {
 						mEditNode = mMenuNode;
 						mEditEtiquette = false;
@@ -2483,11 +2539,27 @@ namespace nkuidesign {
 						snprintf(mEditBuf, sizeof(mEditBuf), "%s", nm.label.Data());
 						mSt->SelectSingle(mMenuNode);
 						Dire("Renommage de la page — Entrée valide, Échap annule.", "", "");
-					} else if (act == 2) {
-						mSt->SelectSingle(mMenuNode);
-						if (mSt->SupprimerSelection())
-							Dire("Supprimé — Ctrl+Z le ramène.", "", "");
-						mMenuNode = -1;
+					} else if (act >= 2) {
+						// ⚠️ AUCUN GESTE N'EST RÉÉCRIT ICI : le menu contextuel
+						//    appelle les MÊMES méthodes que le clavier et que le
+						//    menu Édition. Trois entrées, un seul geste — c'est la
+						//    condition pour qu'une correction les atteigne tous.
+						switch (act) {
+							case 2: mSt->CopierSelection(); break;
+							case 3: mSt->CouperSelection(); break;
+							case 4: mSt->CollerPressePapiers(); break;
+							case 5: mSt->DupliquerSelection(); break;
+							case 6: mSt->GrouperSelection(); break;
+							case 7:
+								mSt->SelectSingle(mMenuNode);
+								mSt->DegrouperSelection();
+								break;
+							case 8: mSt->SupprimerSelection(); break;
+							default: break;
+						}
+						Dire(mSt->status.Data(), "", "");
+						if (act == 3 || act == 8)
+							mMenuNode = -1; // le noeud visé vient de partir
 					}
 				} else if (mMenuCtx.open) {
 					mMenuCtx.open = false; // le noeud vise a disparu : rien a montrer

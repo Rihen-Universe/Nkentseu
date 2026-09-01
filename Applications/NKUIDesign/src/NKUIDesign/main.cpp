@@ -194,6 +194,34 @@ static void CmdNew(void *) {
 	// plus le document courant (5e retour de Rodolf).
 	gDesign.NouvelOngletVierge();
 }
+// ── LES GESTES D'EDITION (Lunacy) BRANCHES SUR LA COQUILLE ──────────────────
+// ⚠️ CTRL+D ET CTRL+G PASSENT PAR `RegisterCommand`, PAS PAR LES DRAPEAUX
+//    `want*`. La raison est dans NKGui : `wantCopy/Cut/Paste/SelectAll` sont
+//    les QUATRE drapeaux que la coquille leve et que les CHAMPS TEXTE
+//    consomment — il n'y a pas de `wantDuplicate`. Ctrl+D et Ctrl+G n'ont
+//    donc qu'un chemin : la table de commandes, la meme que Ctrl+S et Ctrl+Z.
+//
+// ⚠️ ET C'EST POUR CA QUE CHACUNE COMMENCE PAR `SaisieOuverte()`.
+//    `NkEditorShell` execute ses raccourcis « meme pendant la frappe »
+//    (NkEditorShell.cpp, callback de touche) — c'est voulu pour Ctrl+S, c'est
+//    un piege pour Ctrl+D : sans cette garde, dupliquer partirait au milieu
+//    d'un renommage. Les quatre `want*`, eux, sont deja gardes dans la toile
+//    (meme condition que les lettres d'outil).
+static void CmdDupliquer(void *) {
+	if (gDesign.SaisieOuverte())
+		return;
+	gDesign.DupliquerSelection();
+}
+static void CmdGrouper(void *) {
+	if (gDesign.SaisieOuverte())
+		return;
+	gDesign.GrouperSelection();
+}
+static void CmdDegrouper(void *) {
+	if (gDesign.SaisieOuverte())
+		return;
+	gDesign.DegrouperSelection();
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 //  --recette-annulation : LA BATTERIE DE PREUVE DE L'ANNULATION (§7)
@@ -383,6 +411,401 @@ static nkentseu::int32 RecetteAnnulation() {
 		++echecs;
 	// Et le retour : N Retablir -> le dernier etat.
 	printf("RECETTE ANNULATION : %d/%d %s\n", gestes + 1 - echecs, gestes + 1,
+		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
+	return echecs == 0 ? 0 : 1;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  --recette-gestes : LES RACCOURCIS D'EDITION (Lunacy) PROUVES PAR LEUR EFFET
+// ═════════════════════════════════════════════════════════════════════════════
+// Copier/Couper/Coller/Dupliquer/Grouper/Degrouper/Supprimer-multi/Tout
+// selectionner. Sans fenetre ni GPU : le VRAI code de DesignState, celui que
+// le clavier, le menu Edition et le menu contextuel appellent tous les trois.
+//
+// ⚠️ CE QUE CETTE RECETTE N'EXERCE PAS, ET ELLE LE DIT : la traduction
+//    touche -> geste (les drapeaux `want*` de NkEditorShell, la table de
+//    commandes pour Ctrl+D/G). C'est une ligne par geste, et elle se prouve au
+//    releve par injection, pas ici. Ce qu'elle exerce, c'est TOUT le reste —
+//    et c'est la ou vivent les defauts qui se voient (un enfant colle en
+//    double, un groupe qui deplace ce qu'il groupe).
+//
+// ⚠️ ET ELLE MESURE L'ANNULATION AUTREMENT QUE --recette-annulation : celle-ci
+//    prouve qu'un Annuler restaure ; celle-la prouve qu'il en faut UN SEUL —
+//    la difference exacte entre « annulable » et « un geste = un pas ». Un
+//    Couper qui coute deux Annuler passerait la premiere et echouerait ici.
+static nkentseu::int32 RecetteGestes() {
+	using namespace nkuidesign;
+	using nkentseu::int32;
+	using nkentseu::uint32;
+	auto ser = [](DesignState &s) {
+		NkString o;
+		s.doc.Save(o);
+		return o;
+	};
+	auto identiques = [](const NkString &a, const NkString &b) -> bool {
+		const char *x = a.Data() ? a.Data() : "";
+		const char *y = b.Data() ? b.Data() : "";
+		while (*x && *x == *y) {
+			++x;
+			++y;
+		}
+		return *x == *y;
+	};
+	auto stabiliser = [&](DesignState &s) {
+		for (int32 i = 0; i < 10; ++i) {
+			NkString o;
+			s.doc.Save(o);
+			s.histoire.Observer(o);
+		}
+	};
+	int32 cas = 0, echecs = 0;
+	auto verdict = [&](const char *nom, bool ok, const char *detail) {
+		++cas;
+		printf("%s  %s%s%s\n", ok ? "OK   " : "ECHEC", nom, (detail && *detail) ? "  -- " : "",
+			   (detail && *detail) ? detail : "");
+		if (!ok)
+			++echecs;
+	};
+	static DesignState st; // static : l'etat est gros, pas sur la pile
+	// La surface de disposition : la MEME que la toile appelle (espace
+	// document). Grouper lit `layout` — sans elle il refuse, et il le dit.
+	const NkPaintRect surface = {0.f, 0.f, 1200.f, 800.f};
+	auto poser = [&](int32 parent, const char *nom, float32 x, float32 y, float32 w,
+					 float32 h) -> int32 {
+		const int32 i = st.doc.AddChild(parent, "", NkAuthor::Humain);
+		NkUINode &n = st.doc.nodes[(uint32)i];
+		n.label = NkString(nom);
+		n.shape = NkString("rect");
+		n.posX = x;
+		n.posY = y;
+		n.width.mode = NkSizeMode::Fixed;
+		n.width.value = w;
+		n.height.mode = NkSizeMode::Fixed;
+		n.height.value = h;
+		st.doc.MarkHumanEdit(i);
+		return i;
+	};
+	auto compteLabel = [&](const char *nom) -> int32 {
+		int32 n = 0;
+		for (uint32 i = 0; i < (uint32)st.doc.nodes.Size(); ++i)
+			if (st.doc.nodes[i].label.Data() && NkComponentDecl::StrEq(st.doc.nodes[i].label.Data(), nom))
+				++n;
+		return n;
+	};
+
+	// ── 1. COPIER + COLLER : le sous-arbre revient ENTIER, et une seule fois
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		const int32 pere = poser(0, "Pere", 10.f, 10.f, 200.f, 200.f);
+		st.doc.nodes[(uint32)pere].layout.kind = NkLayoutKind::Free;
+		poser(pere, "Fils", 5.f, 5.f, 40.f, 40.f);
+		st.Recompute(surface);
+		st.SelectSingle(pere);
+		const uint32 nCopies = st.CopierSelection();
+		st.CollerPressePapiers();
+		st.Recompute(surface);
+		char d[128];
+		snprintf(d, sizeof(d), "copies=%u, Pere x%d, Fils x%d", nCopies, compteLabel("Pere"),
+				 compteLabel("Fils"));
+		verdict("copier/coller : le sous-arbre revient ENTIER (pere + fils)",
+				nCopies == 1 && compteLabel("Pere") == 2 && compteLabel("Fils") == 2, d);
+	}
+	// ── 2. LE PIEGE DU DOUBLON : pere ET fils selectionnes -> le fils ne se
+	//    colle PAS deux fois (RacinesSelection). Sans ce filtre : Fils x4.
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		const int32 pere = poser(0, "Pere", 10.f, 10.f, 200.f, 200.f);
+		st.doc.nodes[(uint32)pere].layout.kind = NkLayoutKind::Free;
+		const int32 fils = poser(pere, "Fils", 5.f, 5.f, 40.f, 40.f);
+		st.Recompute(surface);
+		st.sel.Set(pere);
+		st.sel.Add(fils); // la selection COUVRANTE, celle qui piege
+		st.selected = st.sel.Primary();
+		st.CopierSelection();
+		st.CollerPressePapiers();
+		char d[96];
+		snprintf(d, sizeof(d), "Pere x%d, Fils x%d (x4 = le doublon)", compteLabel("Pere"),
+				 compteLabel("Fils"));
+		verdict("copier pere+fils : le fils n'arrive PAS en double",
+				compteLabel("Pere") == 2 && compteLabel("Fils") == 2, d);
+	}
+	// ── 2bis. LA COPIE NE PERD AUCUN CHAMP, et c'est mesure PAR LE FORMAT.
+	//    ⚠️ C'EST LE DEFAUT QUE LES AUTRES CAS NE PEUVENT PAS VOIR. Compter des
+	//    noeuds prouve qu'il y en a deux ; ca ne dit RIEN d'un `fontWeight` que
+	//    `CopierSousArbre` aurait oublie de recopier — le collage aurait l'air
+	//    juste et perdrait une propriete en silence, exactement le « collage qui
+	//    perd » que l'avertissement de la methode annonce. On ecrit donc un
+	//    noeud RICHE, on le colle, et on compare les deux SERIALISATIONS ligne a
+	//    ligne : le juge vient du round-trip, pas du code teste (lecon T5).
+	//    Ce cas echouera le jour ou un champ neuf de NkUINode oubliera la copie —
+	//    c'est le rappel qu'on veut, et il est automatique.
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		const int32 a = poser(0, "Riche", 12.f, 34.f, 111.f, 22.f);
+		{
+			NkUINode &n = st.doc.nodes[(uint32)a];
+			n.shape = NkString("text");
+			n.text = NkString("Bonjour");
+			n.fontPx = 19.f;
+			n.fontWeight = 700;
+			n.radius = 7.f;
+			n.borderW = 3.f;
+			n.role = NkString("titre");
+			n.alignText = 2;
+			st.doc.MarkHumanEdit(a);
+		}
+		st.Recompute(surface);
+		st.SelectSingle(a);
+		st.CopierSelection();
+		st.CollerPressePapiers();
+		const int32 b = st.selected;
+		// ⚠️ LE JUGE N'EMPLOIE PAS `CopierSousArbre`, ET C'EST TOUTE LA QUESTION.
+		//    Isoler les deux noeuds AVEC la copie aurait ete un controle de
+		//    SYMETRIE : un champ oublie par la copie serait oublie des DEUX
+		//    cotes, les deux serialisations resteraient identiques, et le cas
+		//    passerait au vert en couvrant precisement le defaut qu'il cherche.
+		//    (Le depot a deja paye cette lecon — Q14, « un controle de symetrie
+		//    ne peut pas voir une erreur symetrique ».) On isole donc par
+		//    Save/Load/RemoveSubtree : trois mecanismes prouves ailleurs, et
+		//    aucun d'eux n'est le code teste.
+		bool ok = st.doc.IsValidIndex(b) && b != a;
+		NkString sa, sb;
+		if (ok) {
+			st.doc.nodes[(uint32)b].posX = st.doc.nodes[(uint32)a].posX;
+			st.doc.nodes[(uint32)b].posY = st.doc.nodes[(uint32)a].posY;
+			NkString tout;
+			st.doc.Save(tout);
+			NkUIDocument da, db;
+			ok = da.Load(tout.Data()) && db.Load(tout.Data());
+			if (ok) {
+				// `a` et `b` sont les deux seuls enfants de la racine : on garde
+				// le premier d'un cote, le second de l'autre.
+				ok = da.nodes[0].children.Size() == 2 && db.nodes[0].children.Size() == 2;
+				if (ok) {
+					ok = da.RemoveSubtree(da.nodes[0].children[1])
+						 && db.RemoveSubtree(db.nodes[0].children[0]);
+				}
+			}
+			if (ok) {
+				da.Save(sa);
+				db.Save(sb);
+				ok = identiques(sa, sb);
+			}
+		}
+		char d[96];
+		snprintf(d, sizeof(d), "%u vs %u octets, %s", (unsigned)(sa.Data() ? strlen(sa.Data()) : 0),
+				 (unsigned)(sb.Data() ? strlen(sb.Data()) : 0),
+				 ok ? "serialisations IDENTIQUES" : "UN CHAMP MANQUE");
+		verdict("la copie ne perd AUCUN champ (comparaison par le format)", ok, d);
+	}
+	// ── 3. COLLER DECALE de 10 px (sinon le collage disparait SOUS l'original)
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		const int32 a = poser(0, "Boite", 40.f, 60.f, 80.f, 30.f);
+		st.Recompute(surface);
+		st.SelectSingle(a);
+		st.CopierSelection();
+		st.CollerPressePapiers();
+		const int32 b = st.selected;
+		const bool ok = st.doc.IsValidIndex(b) && b != a
+						&& st.doc.nodes[(uint32)b].posX == st.doc.nodes[(uint32)a].posX + 10.f
+						&& st.doc.nodes[(uint32)b].posY == st.doc.nodes[(uint32)a].posY + 10.f;
+		char d[96];
+		snprintf(d, sizeof(d), "original (%.0f,%.0f) -> colle (%.0f,%.0f)",
+				 st.doc.nodes[(uint32)a].posX, st.doc.nodes[(uint32)a].posY,
+				 st.doc.IsValidIndex(b) ? st.doc.nodes[(uint32)b].posX : -1.f,
+				 st.doc.IsValidIndex(b) ? st.doc.nodes[(uint32)b].posY : -1.f);
+		verdict("coller : decale de 10 px, et le colle devient la selection", ok, d);
+	}
+	// ── 4. COUPER : le presse-papiers est plein ET l'original est parti
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		poser(0, "Reste", 0.f, 0.f, 10.f, 10.f);
+		const int32 a = poser(0, "Coupe", 40.f, 60.f, 80.f, 30.f);
+		st.Recompute(surface);
+		st.SelectSingle(a);
+		st.CouperSelection();
+		const bool parti = compteLabel("Coupe") == 0;
+		st.CollerPressePapiers();
+		char d[96];
+		snprintf(d, sizeof(d), "apres couper : x%d ; apres coller : x%d", parti ? 0 : 1,
+				 compteLabel("Coupe"));
+		verdict("couper puis coller : l'original part, le contenu revient",
+				parti && compteLabel("Coupe") == 1, d);
+	}
+	// ── 5. DUPLIQUER SUR PLACE (Ctrl+D) : meme parent, decale
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		const int32 cadre = poser(0, "Cadre", 0.f, 0.f, 400.f, 400.f);
+		st.doc.nodes[(uint32)cadre].layout.kind = NkLayoutKind::Free;
+		const int32 a = poser(cadre, "Bouton", 20.f, 30.f, 100.f, 40.f);
+		st.Recompute(surface);
+		st.SelectSingle(a);
+		st.DupliquerSelection();
+		const int32 b = st.selected;
+		const bool ok = st.doc.IsValidIndex(b) && b != a
+						&& st.doc.nodes[(uint32)b].parent == cadre && compteLabel("Bouton") == 2;
+		char d[96];
+		snprintf(d, sizeof(d), "Bouton x%d, meme parent=%s", compteLabel("Bouton"),
+				 (st.doc.IsValidIndex(b) && st.doc.nodes[(uint32)b].parent == cadre) ? "oui" : "non");
+		verdict("dupliquer : la copie nait dans le MEME parent", ok, d);
+	}
+	// ── 6. GROUPER PRESERVE LES POSITIONS A L'ECRAN, AU PIXEL
+	//    (c'est LA propriete qui distingue un vrai Grouper d'un re-parentage)
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		const int32 cadre = poser(0, "Cadre", 0.f, 0.f, 400.f, 400.f);
+		st.doc.nodes[(uint32)cadre].layout.kind = NkLayoutKind::Free;
+		const int32 a = poser(cadre, "A", 20.f, 30.f, 60.f, 40.f);
+		const int32 b = poser(cadre, "B", 150.f, 90.f, 60.f, 40.f);
+		st.Recompute(surface);
+		const NkPaintRect ra0 = st.layout.At(a), rb0 = st.layout.At(b);
+		st.sel.Set(a);
+		st.sel.Add(b);
+		st.selected = st.sel.Primary();
+		const bool fait = st.GrouperSelection();
+		st.Recompute(surface);
+		// apres groupement les index ne bougent pas (AddChild + Reparent), mais
+		// on les RETROUVE par le libelle : ne jamais supposer une numerotation.
+		int32 ia = -1, ib = -1, ig = -1;
+		for (uint32 i = 0; i < (uint32)st.doc.nodes.Size(); ++i) {
+			const char *l = st.doc.nodes[i].label.Data();
+			if (!l)
+				continue;
+			if (NkComponentDecl::StrEq(l, "A"))
+				ia = (int32)i;
+			else if (NkComponentDecl::StrEq(l, "B"))
+				ib = (int32)i;
+			else if (NkComponentDecl::StrEq(l, "Groupe 1"))
+				ig = (int32)i;
+		}
+		const bool dedans = ia >= 0 && ib >= 0 && ig >= 0 && st.doc.nodes[(uint32)ia].parent == ig
+							&& st.doc.nodes[(uint32)ib].parent == ig;
+		const NkPaintRect ra1 = (ia >= 0 && st.layout.Has(ia)) ? st.layout.At(ia) : NkPaintRect{-1.f, -1.f, 0.f, 0.f};
+		const NkPaintRect rb1 = (ib >= 0 && st.layout.Has(ib)) ? st.layout.At(ib) : NkPaintRect{-1.f, -1.f, 0.f, 0.f};
+		const bool memePlace = ra1.x == ra0.x && ra1.y == ra0.y && rb1.x == rb0.x && rb1.y == rb0.y;
+		char d[160];
+		snprintf(d, sizeof(d), "A (%.0f,%.0f)->(%.0f,%.0f), B (%.0f,%.0f)->(%.0f,%.0f)", ra0.x,
+				 ra0.y, ra1.x, ra1.y, rb0.x, rb0.y, rb1.x, rb1.y);
+		verdict("grouper : les positions A L'ECRAN ne bougent pas d'un pixel",
+				fait && dedans && memePlace, d);
+		// ── 7. DEGROUPER remet tout en place, au pixel aussi
+		st.SelectSingle(ig);
+		const bool fait2 = st.DegrouperSelection();
+		st.Recompute(surface);
+		int32 ja = -1, jb = -1;
+		bool groupeParti = true;
+		for (uint32 i = 0; i < (uint32)st.doc.nodes.Size(); ++i) {
+			const char *l = st.doc.nodes[i].label.Data();
+			if (!l)
+				continue;
+			if (NkComponentDecl::StrEq(l, "A"))
+				ja = (int32)i;
+			else if (NkComponentDecl::StrEq(l, "B"))
+				jb = (int32)i;
+			else if (NkComponentDecl::StrEq(l, "Groupe 1"))
+				groupeParti = false;
+		}
+		const NkPaintRect ra2 = (ja >= 0 && st.layout.Has(ja)) ? st.layout.At(ja) : NkPaintRect{-1.f, -1.f, 0.f, 0.f};
+		const NkPaintRect rb2 = (jb >= 0 && st.layout.Has(jb)) ? st.layout.At(jb) : NkPaintRect{-1.f, -1.f, 0.f, 0.f};
+		char d2[160];
+		snprintf(d2, sizeof(d2), "groupe parti=%s, A (%.0f,%.0f), B (%.0f,%.0f)",
+				 groupeParti ? "oui" : "non", ra2.x, ra2.y, rb2.x, rb2.y);
+		verdict("degrouper : le groupe part, les positions ecran tiennent",
+				fait2 && groupeParti && ra2.x == ra0.x && ra2.y == ra0.y && rb2.x == rb0.x
+					&& rb2.y == rb0.y,
+				d2);
+	}
+	// ── 8. SUPPRIMER UNE MULTI-SELECTION : les DEUX partent (le piege est la
+	//    renumerotation — supprimer le premier perime l'index du second)
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		const int32 a = poser(0, "A", 0.f, 0.f, 10.f, 10.f);
+		poser(0, "Garde", 20.f, 0.f, 10.f, 10.f);
+		const int32 c = poser(0, "C", 40.f, 0.f, 10.f, 10.f);
+		st.Recompute(surface);
+		st.sel.Set(a);
+		st.sel.Add(c);
+		st.selected = st.sel.Primary();
+		st.SupprimerSelection();
+		char d[96];
+		snprintf(d, sizeof(d), "A x%d, C x%d, Garde x%d", compteLabel("A"), compteLabel("C"),
+				 compteLabel("Garde"));
+		verdict("supprimer une multi-selection : les deux partent, le voisin reste",
+				compteLabel("A") == 0 && compteLabel("C") == 0 && compteLabel("Garde") == 1, d);
+	}
+	// ── 9. TOUT SELECTIONNER au niveau du FORAGE (Lunacy), pas tout le document
+	st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+	{
+		const int32 cadre = poser(0, "Cadre", 0.f, 0.f, 400.f, 400.f);
+		st.doc.nodes[(uint32)cadre].layout.kind = NkLayoutKind::Free;
+		poser(cadre, "E1", 0.f, 0.f, 10.f, 10.f);
+		poser(cadre, "E2", 20.f, 0.f, 10.f, 10.f);
+		poser(cadre, "E3", 40.f, 0.f, 10.f, 10.f);
+		st.Recompute(surface);
+		st.forageToile = -1;
+		const uint32 n0 = st.ToutSelectionner(); // premier niveau : le cadre seul
+		st.forageToile = cadre;
+		const uint32 n1 = st.ToutSelectionner(); // dans le cadre : les trois
+		char d[96];
+		snprintf(d, sizeof(d), "premier niveau=%u, dans le cadre=%u", n0, n1);
+		verdict("tout selectionner : au NIVEAU du forage, pas tout le document",
+				n0 == 1 && n1 == 3, d);
+	}
+	// ── 10 a 13. UN GESTE = UN PAS D'ANNULATION (la mesure qui manquait)
+	//    Un seul Annuler doit suffire a chaque geste : c'est ce que
+	//    --recette-annulation ne pouvait pas dire.
+	{
+		struct Cas {
+				const char *nom;
+				int32 quoi; // 0 coller, 1 couper, 2 dupliquer, 3 grouper
+		};
+		const Cas cas4[4] = {{"coller", 0}, {"couper", 1}, {"dupliquer", 2}, {"grouper", 3}};
+		for (int32 k = 0; k < 4; ++k) {
+			st.doc.NewDocument("recette gestes", NkAuthor::Humain);
+			const int32 cadre = poser(0, "Cadre", 0.f, 0.f, 400.f, 400.f);
+			st.doc.nodes[(uint32)cadre].layout.kind = NkLayoutKind::Free;
+			const int32 a = poser(cadre, "A", 20.f, 30.f, 60.f, 40.f);
+			const int32 b = poser(cadre, "B", 150.f, 90.f, 60.f, 40.f);
+			st.Recompute(surface);
+			st.histoire = NkHistorique();
+			stabiliser(st);
+			const NkString avant = ser(st);
+			switch (cas4[k].quoi) {
+				case 0:
+					st.SelectSingle(a);
+					st.CopierSelection();
+					st.CollerPressePapiers();
+					break;
+				case 1:
+					st.SelectSingle(a);
+					st.CouperSelection();
+					break;
+				case 2:
+					st.SelectSingle(a);
+					st.DupliquerSelection();
+					break;
+				default:
+					st.sel.Set(a);
+					st.sel.Add(b);
+					st.selected = st.sel.Primary();
+					st.GrouperSelection();
+					break;
+			}
+			st.Recompute(surface);
+			stabiliser(st);
+			const bool aChange = !identiques(ser(st), avant);
+			st.Annuler(); // UN SEUL
+			const bool revenu = identiques(ser(st), avant);
+			char d[96];
+			snprintf(d, sizeof(d), "le geste ecrit=%s, UN Annuler suffit=%s",
+					 aChange ? "oui" : "non", revenu ? "oui" : "non");
+			char nom[96];
+			snprintf(nom, sizeof(nom), "%s : UN SEUL pas d'annulation", cas4[k].nom);
+			verdict(nom, aChange && revenu, d);
+		}
+	}
+	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
 }
@@ -959,15 +1382,26 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 		if (MenuItem(ctx, "Rétablir", "Ctrl+Y", gDesign.histoire.PeutRetablir()))
 			CmdRedo(nullptr);
 		Separator(ctx);
-		MenuItem(ctx, "Couper", "Ctrl+X", false);
-		MenuItem(ctx, "Copier", "Ctrl+C", false);
-		MenuItem(ctx, "Coller", "Ctrl+V", false);
+		// ── CÂBLÉS (01/09) — le geste vit dans DesignState, le menu et le
+		//    clavier l'appellent tous deux. ⚠️ GRISÉS SUR L'ÉTAT RÉEL, pas
+		//    « toujours actifs » : un « Coller » cliquable avec un
+		//    presse-papiers vide est un paramètre déclaré qui n'est pas honoré.
+		const bool aSel = !gDesign.sel.Empty() && !gDesign.sel.Contains(0);
+		if (MenuItem(ctx, "Couper", "Ctrl+X", aSel))
+			gDesign.CouperSelection();
+		if (MenuItem(ctx, "Copier", "Ctrl+C", aSel))
+			gDesign.CopierSelection();
+		if (MenuItem(ctx, "Coller", "Ctrl+V", gDesign.pressePapiersPlein))
+			gDesign.CollerPressePapiers();
 		MenuItem(ctx, "Coller à la même place", "Ctrl+Maj+V", false);
 		MenuItem(ctx, "Coller le style seul", "Ctrl+Alt+V", false);
-		MenuItem(ctx, "Dupliquer", "Ctrl+D", false);
-		MenuItem(ctx, "Supprimer", "Suppr", false);
+		if (MenuItem(ctx, "Dupliquer", "Ctrl+D", aSel))
+			gDesign.DupliquerSelection();
+		if (MenuItem(ctx, "Supprimer", "Suppr", aSel))
+			gDesign.SupprimerSelection();
 		Separator(ctx);
-		MenuItem(ctx, "Tout sélectionner", "Ctrl+A", false);
+		if (MenuItem(ctx, "Tout sélectionner", "Ctrl+A"))
+			gDesign.ToutSelectionner();
 		MenuItem(ctx, "Sélectionner tous les éléments du même rôle", nullptr, false);
 		if (MenuItem(ctx, "Désélectionner", "Échap"))
 			gDesign.SelectClear();
@@ -1032,8 +1466,14 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 		MenuItem(ctx, "Attribuer un rôle…", nullptr, false);
 		MenuItem(ctx, "Retirer le rôle", nullptr, false);
 		Separator(ctx);
-		MenuItem(ctx, "Grouper", "Ctrl+G", false);
-		MenuItem(ctx, "Dégrouper", "Ctrl+Maj+G", false);
+		// CÂBLÉS (01/09) : grouper demande au moins un élément, dégrouper
+		// demande un conteneur qui a des enfants — le grisé DIT la condition.
+		if (MenuItem(ctx, "Grouper", "Ctrl+G", !gDesign.sel.Empty() && !gDesign.sel.Contains(0)))
+			gDesign.GrouperSelection();
+		if (MenuItem(ctx, "Dégrouper", "Ctrl+Maj+G",
+					 gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.selected != 0
+						 && !gDesign.doc.nodes[(uint32)gDesign.selected].children.Empty()))
+			gDesign.DegrouperSelection();
 		MenuItem(ctx, "Convertir en composant", "Ctrl+K", false);
 		MenuItem(ctx, "Détacher l'instance", nullptr, false);
 		MenuItem(ctx, "Promouvoir en composant partagé", nullptr, false);
@@ -1891,6 +2331,10 @@ int nkmain(const NkEntryState &state) {
 		// etiquette d'artboard, texte de toile) — sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-edition"))
 			return nkuidesign::RecetteEdition();
+		// Les gestes d'edition Lunacy (copier/coller/dupliquer/grouper/...)
+		// prouves par leur EFFET, et « un geste = un pas » — sans fenetre ni GPU.
+		if (NkComponentDecl::StrEq(a, "--recette-gestes"))
+			return RecetteGestes();
 		// Meme raison que ci-dessus : le pool de chaines du document ne touche ni
 		// au GPU ni a l ecran. Il porte les noms de metrique que le kit declare
 		// en const char* et que personne ne possedait a la relecture.
@@ -1999,6 +2443,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --probe                 la sonde headless");
 			puts("  --recette-annulation    la batterie de preuve de l'annulation (§7)");
 			puts("  --recette-edition       le contrat universel d'edition, par site");
+			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
 			puts("  --annuler=N             N pas d'annulation au lancement (preuve UI)");
 			puts("  --retablir=N            N pas de retablissement apres --annuler");
 			puts("  --recette-ia            la preuve de recette du pipeline IA");
@@ -2441,6 +2886,11 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Édition: Rétablir (Maj)", &CmdRedo, nullptr, "Ctrl+Shift+Z");
 	shell->RegisterCommand("Document: Recharger", &CmdLoad, nullptr, "Ctrl+R");
 	shell->RegisterCommand("Document: Nouveau", &CmdNew, nullptr, "Ctrl+N");
+	// Les gestes d'édition Lunacy qui n'ont PAS de drapeau `want*` dans NKGui
+	// (Ctrl+C/X/V/A en ont un, eux — cf. le commentaire de CmdDupliquer).
+	shell->RegisterCommand("Édition: Dupliquer", &CmdDupliquer, nullptr, "Ctrl+D");
+	shell->RegisterCommand("Objet: Grouper", &CmdGrouper, nullptr, "Ctrl+G");
+	shell->RegisterCommand("Objet: Dégrouper", &CmdDegrouper, nullptr, "Ctrl+Shift+G");
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 	gShell = shell.Get();
 	// ⚠️ DES LETTRES, PAS DES CHIFFRES, ET C'EST UNE CONTRAINTE MESUREE :
