@@ -230,6 +230,17 @@ namespace nkentseu {
 				char renameBuf[128] = {};
 				bool renameCommit = false; ///< leve par l'hote : valider
 				bool renameCancel = false; ///< leve par l'hote : abandonner
+				/// CONTRAT UNIVERSEL D'EDITION (Rodolf, 31/08) : un clic HORS de la
+				/// rangee editee VALIDE la saisie, puis le clic fait son effet normal
+				/// (selection). C'est le COMPOSANT qui le tient — il est le seul a
+				/// connaitre le rectangle de la rangee editee ; un hote qui testait
+				/// « hors de la zone de l'arbre » laissait un clic sur une AUTRE
+				/// rangee sans effet (mesure du 01/09 : l'edition ne se quittait
+				/// plus). `renameEatClick` : l'hote qui OUVRE un renommage par
+				/// programme (le [+] de Pages) le leve pour que le clic d'ouverture
+				/// — hors de la rangee par construction — ne valide pas la saisie a
+				/// l'image meme de sa naissance.
+				bool renameEatClick = false;
 
 				char filter[128] = {};
 				float32 scroll = 0.f;

@@ -362,6 +362,13 @@ namespace nkentseu {
 			int32 ordinal = 0;
 			NkTreeDropPos hitDropPos = NkTreeDropPos::Into;
 			const bool dragging = (in.dragType != nullptr);
+			// La rangee EN COURS DE RENOMMAGE, relevee par la boucle : c'est le
+			// rectangle contre lequel le contrat universel d'edition juge un clic
+			// (hors d'elle = valider, puis le clic agit). Relevee AVANT le saut
+			// hors champ : une rangee defilee hors de vue garde un rectangle —
+			// hors ecran — donc tout clic visible est hors d'elle, et valide.
+			NkPaintRect renamedRow{0.f, 0.f, 0.f, 0.f};
+			bool renamedRowSeen = false;
 
 			ForEachVisibleNode(
 				m, flat, defaultOpen, hooks,
@@ -372,6 +379,10 @@ namespace nkentseu {
 					++ordinal;
 					if (n.id == m.anchor)
 						anchorOrdinal = myOrdinal;
+					if (m.renaming != 0 && n.id == m.renaming) {
+						renamedRow = {area.x, y, area.w, rowH};
+						renamedRowSeen = true;
+					}
 
 					// Hors champ : on saute le DESSIN, pas le comptage — compter apres
 					// rendrait le defilement dependant de ce qui est visible.
@@ -534,6 +545,26 @@ namespace nkentseu {
 				});
 
 			res.visibleCount = ordinal;
+
+			// ── CONTRAT UNIVERSEL D'EDITION (Rodolf, 31/08) : LE CLIC AILLEURS ──
+			// Un clic HORS de la rangee editee VALIDE la saisie, puis le clic fait
+			// son effet normal (selection, pli, autre panneau — il n'est pas
+			// mange). C'est le composant qui juge, car lui seul connait le
+			// rectangle de la rangee : l'hote qui comparait le clic a la ZONE
+			// ENTIERE de l'arbre laissait un clic sur une AUTRE rangee sans effet
+			// — mesure du 01/09 : « plus possible de desactiver l'edition ».
+			// Le commit leve ici est traite au debut de l'image SUIVANTE (le bloc
+			// « la part de l'hote » ci-dessus) : la selection de ce clic part a
+			// cette image, l'ecriture du label a la prochaine — les deux partent.
+			// ⚠️ `renameEatClick` mange UN clic : celui qui vient d'ouvrir la
+			//    saisie par programme (le [+] de Pages) — hors de la rangee par
+			//    construction, il validerait la saisie a l'image de sa naissance.
+			if (m.renaming != 0 && in.mousePressed) {
+				if (m.renameEatClick)
+					m.renameEatClick = false;
+				else if (!renamedRowSeen || !renamedRow.Contains(in.mouseX, in.mouseY))
+					m.renameCommit = true;
+			}
 
 			// ── LES DECISIONS, TOUTES ICI ───────────────────────────────────────
 			// Un seul bloc, apres le parcours. C'est aussi ce qui fait tenir la

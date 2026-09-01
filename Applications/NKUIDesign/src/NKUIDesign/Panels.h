@@ -2302,6 +2302,7 @@ namespace nkuidesign {
 							mSt->theme.Get(nkentseu::editorkit::NkRole::DocMuted));
 						const nkgui::NkRect rf = {re.x - 2.f, re.y - 26.f,
 												  (re.w > 160.f ? re.w : 160.f), 22.f};
+						mEditRect = rf; // le contrat compare le clic a CE rectangle
 						nkentseu::editorkit::NkOverlayTextField(
 							ctx, ctx.DL(), fed ? fed : ctx.font, rf, mEditBuf,
 							(int32)sizeof(mEditBuf), true, &sty);
@@ -2332,6 +2333,7 @@ namespace nkuidesign {
 						const nkgui::NkRect rf = {re.x - 2.f, re.y - 2.f,
 												  (re.w > 40.f ? re.w : 40.f) + 4.f,
 												  (re.h > 18.f ? re.h : 18.f) + 4.f};
+						mEditRect = rf; // le contrat compare le clic a CE rectangle
 						nkentseu::editorkit::NkOverlayTextField(
 							ctx, ctx.DL(), fed ? fed : ctx.font, rf, mEditBuf,
 							(int32)sizeof(mEditBuf), true, &sty);
@@ -2397,6 +2399,22 @@ namespace nkuidesign {
 			///    le genre de defaut qui ne se voit pas tant que personne ne zoome.
 			void HandleMouse(const NkComponentInput &in, const NkLayoutResult &screen) {
 				const float32 kHandle = 6.f;
+
+				// ── CONTRAT UNIVERSEL D'EDITION : LE CLIC AILLEURS VALIDE ────────
+				// ⚠️ MESURE DU 01/09 (meme classe que la Hierarchie) : la sortie au
+				//    clic se jugeait APRES le retour anticipe « hors de la toile »
+				//    — un clic sur un AUTRE PANNEAU pendant une edition en place ne
+				//    validait donc jamais. Et elle se jugeait contre la TOILE
+				//    entiere : un clic DANS le champ superpose validait aussi, ce
+				//    que le contrat ne dit pas. Le bon rectangle est celui du CHAMP
+				//    (`mEditRect`, pose par le dessin de l'overlay) : hors de lui =
+				//    valider PUIS laisser le clic agir ; dedans = le clic appartient
+				//    au champ, rien ne se ferme.
+				if (in.mousePressed && mSt->doc.IsValidIndex(mEditNode)) {
+					if (DansZone(mEditRect, in))
+						return; // le clic appartient au champ d'edition
+					FermerEditionTexte(true); // valide — puis le clic agit normalement
+				}
 
 				// ── UN CLIC HORS DE LA TOILE N'APPARTIENT PAS A LA TOILE ─────────
 				// ⚠️ MESURE PAR LE PILOTE DU 30/08, et le defaut etait a l'ECRAN
@@ -2516,11 +2534,10 @@ namespace nkuidesign {
 					mCreating = false;
 				}
 				if (in.mousePressed) {
-					// CONTRAT UNIVERSEL D'EDITION (Rodolf, 31/08) : un clic
-					// pendant une edition en place la VALIDE d'abord, puis le
-					// clic fait son effet normal — jamais un clic « mange ».
-					if (mSt->doc.IsValidIndex(mEditNode))
-						FermerEditionTexte(true);
+					// (la validation « clic ailleurs » de l'edition en place est
+					// jugee EN TETE de HandleMouse, contre le rectangle du champ —
+					// avant les retours anticipes, sinon un clic hors toile ne
+					// validait jamais ; mesure du 01/09)
 					// le contexte de forage se perime avec le document
 					if (mForage >= 0 && !mSt->doc.IsValidIndex(mForage))
 						mForage = -1;
@@ -2914,6 +2931,10 @@ namespace nkuidesign {
 			/// sur un noeud texte = champ superpose a sa position). -1 = aucune.
 			int32 mEditNode = -1;
 			char mEditBuf[600] = {0};
+			/// Le rectangle du CHAMP superpose, pose par le dessin de l'overlay
+			/// (image precedente, meme patron que mZoneOutils) : c'est LUI que le
+			/// contrat universel d'edition compare au clic — pas la toile entiere.
+			NkRect mEditRect = {0.f, 0.f, 0.f, 0.f};
 			/// Vrai quand l'edition porte sur L'ETIQUETTE d'un artboard (le NOM
 			/// de la page — LA cle que la Hierarchie lit aussi), pas sur `text`.
 			bool mEditEtiquette = false;
@@ -2954,6 +2975,7 @@ namespace nkuidesign {
 					Dire("Édition annulée — rien n'a bougé.", "", "");
 				mEditNode = -1;
 				mEditEtiquette = false;
+				mEditRect = {0.f, 0.f, 0.f, 0.f}; // un rect perime mangerait un clic
 			}
 
 			// ═══════════════════════════════════════════════════════════════════
@@ -4747,7 +4769,9 @@ namespace nkuidesign {
 						if (p >= 0) {
 							SyncPages(); // la rangee doit exister pour la saisie
 							mModelePages.renaming = (nkentseu::nk_uint64)(p + 1);
-							mRenommageVientDeNaitre = true; // mange le clic du [+]
+							// le clic du [+] se mange dans le COMPOSANT (il tient
+							// desormais le volet « clic ailleurs » du contrat)
+							mModelePages.renameEatClick = true;
 							snprintf(mModelePages.renameBuf, sizeof(mModelePages.renameBuf),
 									 "%s", mSt->doc.nodes[(uint32)p].label.Data());
 							mSt->DireAuPied("Page créée — son nom est en édition (Entrée "
@@ -4768,12 +4792,13 @@ namespace nkuidesign {
 			/// « CONTOURNEMENT » de NkTreeViewModel.h : « l'hote, qui a le
 			/// clavier, ecrit dans renameBuf et leve renameCommit/Cancel »).
 			/// Contrat universel d'edition (Rodolf, 31/08) : ENTREE valide,
-			/// ECHAP annule, un clic HORS de la section valide puis laisse le
-			/// clic agir. Sans ce pilote, le double-clic du kit ouvrait une
-			/// saisie que RIEN ne fermait : la rangee restait figee sur son
-			/// tampon pendant que la toile vivait — les « titres desaccordes »
-			/// du 1er retour.
-			void ClavierRenommage(NkGuiContext &ctx, NkTreeViewModel &m, const NkRect &zone) {
+			/// ECHAP annule ; le CLIC AILLEURS, lui, est juge par le COMPOSANT
+			/// (hors de la rangee editee = valider, puis le clic agit) — voir la
+			/// mesure du 01/09 dans `NkTreeViewDraw.cpp`. Sans ce pilote, le
+			/// double-clic du kit ouvrait une saisie que RIEN ne fermait : la
+			/// rangee restait figee sur son tampon pendant que la toile vivait —
+			/// les « titres desaccordes » du 1er retour.
+			void ClavierRenommage(NkGuiContext &ctx, NkTreeViewModel &m) {
 				if (m.renaming == 0)
 					return;
 				auto &in = ctx.input;
@@ -4819,20 +4844,16 @@ namespace nkuidesign {
 					m.renameCommit = true;
 				else if (in.KeyPressed(nkgui::NkGuiKey::Escape))
 					m.renameCancel = true;
-				else if (in.mouseClicked[0] && !NkGuiRectContains(zone, in.mousePos)) {
-					// ⚠️ LE CLIC D'OUVERTURE SE MANGE (le patron vientDOuvrir des
-					//    menus) : le clic du [+] qui vient de creer la page est
-					//    HORS de la zone de l'arbre — sans cette garde il
-					//    validait la saisie a l'image meme de sa naissance.
-					if (mRenommageVientDeNaitre)
-						mRenommageVientDeNaitre = false;
-					else
-						m.renameCommit = true; // valide PUIS le clic agit (un seul clic)
-				}
+				// ⚠️ LE CLIC AILLEURS N'EST PLUS JUGE ICI — mesure du 01/09
+				//    (Rodolf : « plus possible de desactiver l'edition ») : ce
+				//    pilote comparait le clic a la ZONE ENTIERE de l'arbre, donc
+				//    un clic sur une AUTRE rangee — le geste naturel — ne sortait
+				//    jamais de la saisie. Le rectangle juste est celui de la
+				//    RANGEE editee, et seul le composant le connait :
+				//    `NkDrawTreeView` tient desormais ce volet du contrat (hors de
+				//    la rangee = valider, puis le clic agit), pour TOUS ses hotes.
+				//    Un seul mecanisme — pas un doublon qui diverge.
 			}
-			/// Vrai l'image ou le [+] vient d'ouvrir la saisie de nom — mange le
-			/// clic d'ouverture (cf. ClavierRenommage).
-			bool mRenommageVientDeNaitre = false;
 
 			void DessinerArbre(NkGuiContext &ctx, NkTreeViewModel &modele,
 							   NkComponentInstance &inst, float32 hauteur, const char *cle) {
@@ -4958,7 +4979,7 @@ namespace nkuidesign {
 				// L'hote tient le clavier de la saisie de renommage (contrat du
 				// kit) — AVANT le dessin, pour que la frappe de cette image se
 				// voie a cette image.
-				ClavierRenommage(ctx, modele, zone);
+				ClavierRenommage(ctx, modele);
 
 				const NkTreeViewResult res = nkentseu::editorkit::NkDrawTreeView(
 					paint, in, r, modele, Style(inst), hooks);
