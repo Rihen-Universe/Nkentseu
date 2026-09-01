@@ -205,6 +205,31 @@ namespace nkentseu {
 				/// creuser suppose de savoir quoi remettre a l'interieur.
 				virtual void Outline(const NkPaintRect &r, uint16 border, uint16 inner,
 									 float32 rounding = 0.f) = 0;
+				/// Contour a COULEURS EXPLICITES — le pendant de `FillColor` pour
+				/// `Outline`, et il vient d'un DEFAUT MESURE le 2026-09-01.
+				///
+				/// ⚠️ `Outline` prend deux ROLES (`uint16`). Deux sites de NkUIDesign
+				///    lui passaient `0x00000000u` en croyant ecrire « interieur
+				///    transparent » : c'est le ROLE 0, donc une couleur PLEINE. Les
+				///    poignees de sommet et de rotation etaient donc peintes en
+				///    DISQUES NOIRS -- et Rodolf, sur `probleme_nepouse_pas_181556.png`,
+				///    a lu ces quatre pastilles noires posees hors des coins comme
+				///    « les vertices qui n'epousent pas la forme ». Un parametre mal
+				///    lu au site d'appel a produit un rapport de bogue sur une tout
+				///    autre fonctionnalite.
+				///
+				/// ⚠️ ELLE N'EST PAS PURE, ET C'EST DELIBERE : elle s'exprime avec
+				///    `FillColor`, la primitive que toute implementation porte deja.
+				///    Aucun implementeur ne change, et `NkRecordingPaint` l'enregistre
+				///    sans une ligne. Additive au sens strict.
+				///
+				/// Un `inner` a alpha nul laisse voir le fond : c'est l'anneau creux.
+				virtual void OutlineColor(const NkPaintRect &r, uint32 border, uint32 inner,
+										  float32 rounding = 0.f) {
+					FillColor(r, border, rounding);
+					FillColor({r.x + 1.f, r.y + 1.f, r.w - 2.f, r.h - 2.f}, inner,
+							  rounding > 1.f ? rounding - 1.f : 0.f);
+				}
 				/// Contour a angles vifs, sans repeindre le fond.
 				virtual void OutlineSharp(const NkPaintRect &r, uint16 role) = 0;
 				virtual void HLine(float32 x, float32 y, float32 w, uint16 role) = 0;

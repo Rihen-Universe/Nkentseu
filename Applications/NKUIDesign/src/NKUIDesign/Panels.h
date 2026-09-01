@@ -3081,11 +3081,6 @@ namespace nkuidesign {
 						//    capture montre. Un rond de 9 px ne se confond avec
 						//    rien, et le mode se lit d'un coup d'œil.
 						const float32 rd = hs * 0.5f;
-						// le sommet TIRÉ se remplit d'accent, les autres sont blancs
-						if ((int32)i == mSt->modeForme.tire)
-							paint.Fill(ph, accentP, rd);
-						else
-							paint.FillColor(ph, 0xFFFFFFFFu, rd);
 						// ⚠️ UN SOMMET ARRONDI SE VOIT SUR SA POIGNÉE, pas seulement
 						//    sur la forme. Sans ça, deux sommets de rayons différents
 						//    auraient exactement la même poignée, et le double-clic
@@ -3096,11 +3091,31 @@ namespace nkuidesign {
 						const float32 rr = (i < (uint32)pn.sommets.Size())
 											   ? pn.sommets[i].rayon
 											   : 0.f;
-						paint.Outline(ph, accentP, 0x00000000u, rd);
+						// 🔴 DÉFAUT MESURÉ LE 01/09 SUR SA CAPTURE, ET IL A COÛTÉ UN
+						//    RAPPORT DE BOGUE SUR UNE AUTRE FONCTIONNALITÉ. Ces
+						//    lignes appelaient `Outline(ph, accentP, 0x00000000u, rd)`
+						//    en croyant écrire « intérieur transparent ». Le second
+						//    paramètre d'`Outline` est un **RÔLE** (`uint16`), pas une
+						//    couleur : `0x00000000u` est le rôle 0, donc une couleur
+						//    PLEINE — et le `FillColor` blanc juste au-dessus était
+						//    repeint en NOIR. Agrandie ×5, sa capture montre des
+						//    pastilles noires pleines là où le commentaire promettait
+						//    des ronds blancs cerclés d'accent.
+						//    *Un paramètre déclaré qui n'est pas honoré — le même
+						//    défaut, pour la neuvième fois de la semaine, et cette
+						//    fois c'est le TYPE qui a menti au site d'appel.*
+						const uint32 accentRGBA = mSt->theme.Get(accentP);
+						// le sommet TIRÉ ET le sommet SÉLECTIONNÉ se remplissent
+						// d'accent, les autres sont blancs cerclés — sans ça, la
+						// section « ÉDITION DE FORME » afficherait les coordonnées
+						// d'un sommet que rien ne désigne à l'écran.
+						const bool vif = (int32)i == mSt->modeForme.tire
+										 || (int32)i == mSt->modeForme.sommet;
+						paint.OutlineColor(ph, accentRGBA, vif ? accentRGBA : 0xFFFFFFFFu, rd);
 						// un sommet ARRONDI porte un second anneau, plus large
 						if (rr > 0.f)
-							paint.Outline({ph.x - 2.f, ph.y - 2.f, ph.w + 4.f, ph.h + 4.f},
-										  accentP, 0x00000000u, rd + 2.f);
+							paint.OutlineColor({ph.x - 2.f, ph.y - 2.f, ph.w + 4.f, ph.h + 4.f},
+											   accentRGBA, 0x00000000u, rd + 2.f);
 					}
 					// LE GESTE : prendre un sommet, le traîner, le lâcher.
 					const NkVec2 ms = ctx.input.mousePos;
@@ -3381,12 +3396,39 @@ namespace nkuidesign {
 								const bool sv = ctx.popupDepth == 0
 												&& NkGuiRectContains(
 													{pr.x, pr.y, pr.w, pr.h}, ctx.input.mousePos);
-								// une poignee de rotation est RONDE et CREUSE : elle
-								// ne doit pas se confondre avec les carres pleins du
-								// redimensionnement, qui sont a quelques pixels.
-								paint.Outline(pr, accent, 0x00000000u, tr * 0.5f);
-								if (sv || mRotDrag == (int32)k)
+								// 🔴 ELLES NE SE PEIGNENT PLUS AU REPOS, ET C'EST LE
+								//    RETOUR DE RODOLF DU 01/09 AU SOIR : « ça
+								//    n'épouse pas, regarde bien ». Agrandie ×5, sa
+								//    capture `probleme_nepouse_pas_181556.png` montre
+								//    quatre PASTILLES NOIRES PLEINES posées en
+								//    diagonale HORS des coins — il les a lues comme
+								//    les sommets du rectangle, et conclu qu'ils
+								//    flottaient à côté de la forme. Deux fautes,
+								//    empilées :
+								//    1. le disque était noir parce que `Outline`
+								//       prend un RÔLE et qu'on lui passait
+								//       `0x00000000u` comme une couleur (rôle 0) ;
+								//    2. et même corrigé, quatre ronds permanents
+								//       autour d'une sélection ne sont PAS ce que
+								//       montre Lunacy : sa capture du temps 1
+								//       (`lunacy_2temps_selection_181741.png`)
+								//       n'affiche QUE les carrés de la boîte. La
+								//       zone de rotation s'y révèle au survol.
+								//    On fait pareil : rien au repos, un rond d'accent
+								//    au survol et pendant le geste. *Une poignée qu'on
+								//    prend pour une autre est pire qu'une poignée
+								//    invisible : elle fait douter du reste de l'outil.*
+								if (sv || mRotDrag == (int32)k) {
 									paint.Fill(pr, accent, tr * 0.5f);
+									// ⚠️ ET ELLE SE DIT, puisqu'elle ne se voit plus :
+									//    une capacité qu'aucune phrase ne nomme est
+									//    une capacité que l'utilisateur n'a pas.
+									if (sv && mRotDrag < 0)
+										mSt->status = NkString(
+											"Rotation — glissez pour tourner ; Maj aimante "
+											"à 15°. Le coin redimensionne, son extérieur "
+											"tourne.");
+								}
 								if (sv && ctx.input.mouseClicked[0]) {
 									mRotDrag = (int32)k;
 									mRotBase = selN.rotation;
