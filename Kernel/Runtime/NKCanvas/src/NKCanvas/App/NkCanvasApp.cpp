@@ -144,7 +144,9 @@ namespace nkentseu {
 
 			// -- Boucle ---------------------------------------------------
 			NkClock clock;
+			NkChrono chronoTrame;
 			while (mRunning && mWindow.IsOpen()) {
+				(void)chronoTrame.Reset(); // depart de la trame, pour la cadence
 
 				float32 deltaTime = clock.Tick().delta;
 				if (deltaTime > mConfig.maxDeltaTime) {
@@ -171,6 +173,8 @@ namespace nkentseu {
 				mTarget->Clear(mConfig.clearColor);
 				OnRender(*mTarget);
 				mTarget->Display();
+
+				CadencerTrame(chronoTrame);
 
 				// La capture se prend APRES Display() : avant, le tampon n'a pas
 				// encore ete presente et l'image serait celle de la trame
@@ -292,6 +296,36 @@ namespace nkentseu {
 #endif
 			logger.Info("[nkcanvasapp] backend par defaut de la plateforme = {0}", NkGraphicsApiName(defaut));
 			return defaut;
+		}
+
+		// =====================================================================
+		// CadencerTrame — plafonner la cadence ET CEDER LA MAIN
+		//
+		// ⚠️ LES DEUX BRANCHES CEDENT, ET C'EST LE POINT.
+		//   en avance -> Sleep(reste)   -> emscripten_sleep(ms) sur le Web
+		//   en retard  -> YieldThread() -> emscripten_sleep(0)  sur le Web
+		// Une version « ne dormir que si on est en avance » gele l'onglet des la
+		// premiere trame lente — c'est-a-dire tout le temps sur le Web, ou une
+		// trame depasse presque toujours le budget. Le `else` n'est pas une
+		// optimisation : c'est lui qui rend la main.
+		//
+		// Hors du Web, l'effet est celui qu'on attend d'un plafond : on rend le
+		// processeur au systeme au lieu de bruler une trame a vide.
+		// =====================================================================
+		void NkCanvasApp::CadencerTrame(NkChrono &chrono) {
+			if (mConfig.imagesParSeconde <= 0) {
+				// Sans plafond : on cede quand meme. Sur le Web c'est
+				// obligatoire ; ailleurs c'est gratuit et poli.
+				NkChrono::YieldThread();
+				return;
+			}
+			const float64 budgetMs = 1000.0 / static_cast<float64>(mConfig.imagesParSeconde);
+			const float64 ecouleMs = chrono.Elapsed().milliseconds;
+			if (ecouleMs < budgetMs) {
+				NkChrono::Sleep(budgetMs - ecouleMs);
+			} else {
+				NkChrono::YieldThread();
+			}
 		}
 
 		// =====================================================================
