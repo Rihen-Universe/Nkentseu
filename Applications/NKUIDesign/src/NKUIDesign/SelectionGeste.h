@@ -941,6 +941,64 @@ namespace nkuidesign {
 		}
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  VAGUE 2 — L'ORDRE DE PROFONDEUR, QUATRE GESTES SUR UN MÉCANISME EXISTANT
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// 📌 LE MÉCANISME ÉTAIT DÉJÀ PORTÉ, UNE COUCHE PLUS BAS, ET JE L'AI CHERCHÉ
+	///    AVANT D'ÉCRIRE : `NkUIDocument::MoveChild` écrit un RANG dans la
+	///    fratrie — *« réordonner, c'est écrire un rang ; ce n'est pas déplacer un
+	///    rectangle »* — et la Hiérarchie s'en sert déjà pour le glisser dans la
+	///    liste. Le travail n'était donc pas d'écrire un réordonnancement, c'était
+	///    de lui donner ses quatre portes. *La porte du dépôt (« demander qui le
+	///    porte déjà, en commençant par la couche du dessous ») a répondu « ça
+	///    existe » pour la deuxième fois cette semaine.*
+	///
+	/// ⚠️ LE RANG LE PLUS GRAND EST DEVANT, ET CE N'EST PAS UNE CONVENTION
+	///    CHOISIE : `NkDrawDocument` parcourt `children` en ordre CROISSANT, donc
+	///    le dernier peint recouvre. Mesuré avant d'écrire, parce que l'inverser
+	///    aurait donné quatre commandes qui font exactement le contraire de leur
+	///    nom — sans qu'aucun code ne proteste, et sans qu'aucune recette de
+	///    structure ne s'en aperçoive.
+	///
+	/// ⚠️ ET « D'UN CRAN » N'EST PAS « TOUT AU FOND ». Les confondre — la
+	///    tentation, puisque `MoveChild` borne déjà — ferait sauter quatre rangs
+	///    d'un coup sur une pile de six. Les quatre gestes de Lunacy sont quatre
+	///    gestes.
+	enum class NkProfondeur : nkentseu::uint8 { Avancer, Reculer, PremierPlan, ArrierePlan };
+
+	/// @return vrai si le rang a CHANGÉ (donc si l'écran change). Un nœud déjà
+	///         devant qu'on avance encore rend faux : *une commande qui ne fait
+	///         rien doit le dire, pas simuler un succès.*
+	inline bool NkOrdreProfondeur(NkUIDocument &doc, int32 node, NkProfondeur quoi) {
+		if (!doc.IsValidIndex(node) || node == 0)
+			return false; // la racine n'a pas de fratrie
+		const int32 p = doc.nodes[(uint32)node].parent;
+		if (!doc.IsValidIndex(p))
+			return false;
+		const NkVector<int32> &kids = doc.nodes[(uint32)p].children;
+		const int32 last = (int32)kids.Size() - 1;
+		int32 cur = -1;
+		for (uint32 i = 0; i < (uint32)kids.Size(); ++i)
+			if (kids[i] == node)
+				cur = (int32)i;
+		if (cur < 0)
+			return false;
+		int32 to = cur;
+		switch (quoi) {
+			case NkProfondeur::Avancer: to = cur + 1; break;
+			case NkProfondeur::Reculer: to = cur - 1; break;
+			case NkProfondeur::PremierPlan: to = last; break;
+			case NkProfondeur::ArrierePlan: to = 0; break;
+		}
+		if (to < 0)
+			to = 0;
+		if (to > last)
+			to = last;
+		if (to == cur)
+			return false; // déjà au bout : rien n'a bougé, et on le dit
+		return doc.MoveChild(node, to);
+	}
+
 	/// Le nombre d'éléments RÉELS de la sélection (la racine ne compte pas).
 	inline uint32 NkCompteSelection(const NkUIDocument &doc, const NkSelection &sel) {
 		uint32 n = 0;

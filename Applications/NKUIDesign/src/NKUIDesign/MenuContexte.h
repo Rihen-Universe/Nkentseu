@@ -47,7 +47,16 @@ namespace nkuidesign {
 		CollerParDessus,
 		CopierComme,
 		Dupliquer,
-		EnvoyerDerriere,
+		// ── L'ORDRE DE PROFONDEUR — QUATRE GESTES, PAS UN ────────────────────
+		// ⚠️ L'ENTRÉE UNIQUE « Envoyer derrière » ÉTAIT UN QUART DU SUJET. Lunacy
+		//    en fait un groupe de quatre (`Ctrl+]`, `Ctrl+Maj+]`, `Ctrl+[`,
+		//    `Ctrl+Maj+[`), et « d'un cran » n'est pas « tout au fond » : sur une
+		//    pile de six calques, les confondre fait sauter quatre rangs d'un
+		//    coup. On pose les quatre, distingués comme la source les distingue.
+		Avancer,	 ///< d'un rang vers l'avant (`Ctrl+]`)
+		Reculer,	 ///< d'un rang vers l'arrière (`Ctrl+[`)
+		PremierPlan, ///< tout devant (`Ctrl+Maj+]`)
+		ArrierePlan, ///< tout derrière (`Ctrl+Maj+[`)
 		Grouper,
 		Degrouper,
 		CadrerSelection,
@@ -246,8 +255,29 @@ namespace nkuidesign {
 				true, NkActionCtx::Vectoriser);
 
 		// ── 3. L'ordre de profondeur — un groupe à lui seul chez Lunacy ──────
-		ajouter("Envoyer derrière", "Ctrl+Maj+[", false, " (l'ordre de profondeur à construire)",
-				false, true, NkActionCtx::EnvoyerDerriere);
+		// ✅ LIVRÉ (vague 2). L'entrée unique « Envoyer derrière » était grisée et
+		//    disait « à construire » — elle était surtout un QUART du sujet : chez
+		//    Lunacy ce sont quatre gestes, et « d'un cran » n'est pas « tout au
+		//    fond ».
+		// 📌 ET LE MÉCANISME ÉTAIT DÉJÀ PORTÉ, UNE COUCHE PLUS BAS :
+		//    `NkUIDocument::MoveChild` écrit un RANG dans la fratrie, exactement
+		//    ce qu'il faut, et la Hiérarchie s'en sert depuis le glisser dans la
+		//    liste. *La porte du dépôt a répondu « ça existe » pour la deuxième
+		//    fois cette semaine* — le travail n'était pas d'écrire un
+		//    réordonnancement, c'était de lui donner ses quatre portes.
+		// ⚠️ LE RANG LE PLUS GRAND EST DEVANT, et ce n'est pas une convention
+		//    choisie : `NkDrawDocument` parcourt `children` en ordre CROISSANT,
+		//    donc le dernier peint recouvre. La table ci-dessous suit le dessin ;
+		//    l'inverser aurait donné quatre entrées qui font le contraire de leur
+		//    nom, sans qu'aucun code ne proteste.
+		ajouter("Mettre au premier plan", "Ctrl+Maj+]", c.pasRacine, " (pas la racine)", false,
+				false, NkActionCtx::PremierPlan);
+		ajouter("Avancer d'un rang", "Ctrl+]", c.pasRacine, " (pas la racine)", false, false,
+				NkActionCtx::Avancer);
+		ajouter("Reculer d'un rang", "Ctrl+[", c.pasRacine, " (pas la racine)", false, false,
+				NkActionCtx::Reculer);
+		ajouter("Envoyer à l'arrière-plan", "Ctrl+Maj+[", c.pasRacine, " (pas la racine)", false,
+				true, NkActionCtx::ArrierePlan);
 
 		// ── 4. Grouper / dégrouper / cadrer ──────────────────────────────────
 		ajouter("Grouper la sélection", "Ctrl+G", c.pasRacine, " (pas la racine)", false, false,

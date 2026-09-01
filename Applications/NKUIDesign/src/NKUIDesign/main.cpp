@@ -871,6 +871,72 @@ static nkentseu::int32 RecetteGestes() {
 				"au lieu de se mettre dans lui-meme",
 				lca1 == page && lca2 == page && lca3 == cA && lca4 == page && lca4 != cA, det);
 	}
+	// ── VAGUE 2 : L'ORDRE DE PROFONDEUR, QUATRE GESTES ───────────────────────
+	// Source `/layers` : `Ctrl+]`, `Ctrl+Maj+]`, `Ctrl+[`, `Ctrl+Maj+[`.
+	// CONTEXTE : la toile et la Hierarchie (le meme geste des deux surfaces).
+	//
+	// ⚠️ LE SENS EST MESURE, PAS SUPPOSE. `NkDrawDocument` parcourt `children` en
+	//    ordre CROISSANT : le dernier peint recouvre, donc LE RANG LE PLUS GRAND
+	//    EST DEVANT. Ecrire les quatre commandes sur l'intuition inverse aurait
+	//    donne quatre entrees qui font le contraire de leur nom -- sans qu'aucun
+	//    code ne proteste, parce que le document resterait parfaitement valide.
+	{
+		NkUIDocument d;
+		d.NewDocument("profondeur", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		const int32 a = d.AddChild(pg, "", NkAuthor::Humain);
+		const int32 b = d.AddChild(pg, "", NkAuthor::Humain);
+		const int32 c = d.AddChild(pg, "", NkAuthor::Humain);
+		const int32 e = d.AddChild(pg, "", NkAuthor::Humain);
+		auto rang = [&](int32 n) -> int32 {
+			const NkVector<int32> &k = d.nodes[(uint32)pg].children;
+			for (uint32 i = 0; i < (uint32)k.Size(); ++i)
+				if (k[i] == n)
+					return (int32)i;
+			return -1;
+		};
+		const bool depart = rang(a) == 0 && rang(b) == 1 && rang(c) == 2 && rang(e) == 3;
+		// (a) AVANCER D'UN RANG : un cran, pas quatre.
+		const bool av = NkOrdreProfondeur(d, a, NkProfondeur::Avancer) && rang(a) == 1;
+		// (b) RECULER D'UN RANG : le retour exact.
+		const bool re = NkOrdreProfondeur(d, a, NkProfondeur::Reculer) && rang(a) == 0;
+		// (c) LES DEUX EXTREMES
+		const bool pp = NkOrdreProfondeur(d, a, NkProfondeur::PremierPlan) && rang(a) == 3;
+		const bool ap = NkOrdreProfondeur(d, a, NkProfondeur::ArrierePlan) && rang(a) == 0;
+		// (d) ⚠️ « D'UN CRAN » N'EST PAS « TOUT AU FOND », et c'est le volet qui
+		//     distingue reellement les quatre commandes. Sur une pile de quatre,
+		//     avancer `a` depuis le fond doit le mettre au rang 1 -- pas au rang 3.
+		//     Sans ce volet, quatre commandes qui feraient toutes « aux extremes »
+		//     passeraient (a), (b) et (c).
+		const bool unCran = rang(a) == 0 && NkOrdreProfondeur(d, a, NkProfondeur::Avancer)
+							&& rang(a) == 1 && rang(b) == 0;
+		// (e) UNE COMMANDE QUI NE FAIT RIEN LE DIT. Deja tout devant et on avance :
+		//     `false`. Un `true` complaisant ferait pousser un pas d'annulation
+		//     vide et afficherait « modifie » sur un ecran identique.
+		(void)NkOrdreProfondeur(d, a, NkProfondeur::PremierPlan);
+		const bool franc = !NkOrdreProfondeur(d, a, NkProfondeur::Avancer)
+						   && !NkOrdreProfondeur(d, a, NkProfondeur::PremierPlan);
+		// (f) LA RACINE N'A PAS DE FRATRIE : refus franc, sans rien toucher.
+		const bool racine = !NkOrdreProfondeur(d, 0, NkProfondeur::Avancer);
+		// (g) CONSERVATION : aucun noeud n'a disparu ni change de parent -- on a
+		//     reordonne, pas reparente. Quatre enfants au depart, quatre a la fin,
+		//     tous encore sous la page.
+		const NkVector<int32> &fin = d.nodes[(uint32)pg].children;
+		bool memeFratrie = fin.Size() == 4u;
+		for (uint32 i = 0; i < (uint32)fin.Size() && memeFratrie; ++i)
+			memeFratrie = d.IsValidIndex(fin[i]) && d.nodes[(uint32)fin[i]].parent == pg;
+		char det[224];
+		snprintf(det, sizeof(det), "depart=%d ; avancer=%d reculer=%d 1er plan=%d arriere=%d ; "
+							   "un cran != tout au fond=%d ; refus franc=%d racine=%d ; "
+							   "fratrie conservee=%d (%u enfants)",
+				 depart ? 1 : 0, av ? 1 : 0, re ? 1 : 0, pp ? 1 : 0, ap ? 1 : 0, unCran ? 1 : 0,
+				 franc ? 1 : 0, racine ? 1 : 0, memeFratrie ? 1 : 0, (uint32)fin.Size());
+		verdict("L'ORDRE DE PROFONDEUR rend les QUATRE gestes de Lunacy (le rang le plus grand est "
+				"DEVANT -- mesure sur l'ordre de peinture), « d'un cran » n'est pas « tout au "
+				"fond », une commande sans effet le DIT, et rien n'est reparente",
+				depart && av && re && pp && ap && unCran && franc && racine && memeFratrie, det);
+	}
+
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

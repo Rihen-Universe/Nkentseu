@@ -1821,6 +1821,30 @@ namespace nkuidesign {
 				st.SelectSingle(noeud);
 				st.DegrouperSelection();
 				return true;
+			// ── L'ORDRE DE PROFONDEUR (vague 2) ─────────────────────────────
+			// ⚠️ AUCUN GESTE RÉÉCRIT ICI NON PLUS : la règle vit dans
+			//    `NkOrdreProfondeur`, qui s'appuie sur `MoveChild`. Le menu, le
+			//    clavier et le menu Édition passent donc par une seule écriture,
+			//    et ils DISENT quand rien n'a bougé — un nœud déjà tout devant
+			//    qu'on avance encore n'est pas un succès silencieux.
+			case NkActionCtx::Avancer:
+			case NkActionCtx::Reculer:
+			case NkActionCtx::PremierPlan:
+			case NkActionCtx::ArrierePlan: {
+				const NkProfondeur quoi = a == NkActionCtx::Avancer	  ? NkProfondeur::Avancer
+										  : a == NkActionCtx::Reculer ? NkProfondeur::Reculer
+										  : a == NkActionCtx::PremierPlan
+											  ? NkProfondeur::PremierPlan
+											  : NkProfondeur::ArrierePlan;
+				const int32 cible = st.doc.IsValidIndex(noeud) ? noeud : st.selected;
+				if (NkOrdreProfondeur(st.doc, cible, quoi)) {
+					st.doc.MarkHumanEdit(cible);
+					st.status = NkString("Ordre de profondeur modifié.");
+				} else
+					st.status = NkString("Ordre de profondeur : rien à faire — le nœud est "
+										 "déjà à ce bout de la pile (ou c'est la racine).");
+				return true;
+			}
 			case NkActionCtx::Supprimer: st.SupprimerSelection(); return true;
 			default: return false;
 		}
