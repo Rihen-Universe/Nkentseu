@@ -2740,6 +2740,38 @@ namespace nkuidesign {
 						Dire(msg, "", "");
 					}
 				}
+				// ── LE CLAVIER : LA TROISIÈME PORTE (vague 1, §10.1 du doc 13) ──
+				// 🔴 NOS MENUS AFFICHAIENT `Ctrl+G` SANS QUE RIEN NE LISE LA TOUCHE.
+				//    L'inventaire l'a mesuré : quatre touches lues en tout. Un
+				//    libellé qui annonce une capacité absente est un libellé qui
+				//    ment — et il jette le doute sur tous les autres raccourcis du
+				//    même menu. La table vit dans `MenuContexte.h`, à côté des
+				//    actions qu'elle nomme, et l'exécution passe par le MÊME
+				//    `NkAppliquerActionCtx` que les deux menus. Trois portes, une
+				//    écriture.
+				if (!mSt->doc.IsValidIndex(mEditNode) && !mEditEtiquette
+					&& ctx.popupDepth == 0) {
+					static const struct {
+							NkGuiKey k;
+							char c;
+					} kTouches[] = {{NkGuiKey::C, 'C'}, {NkGuiKey::X, 'X'}, {NkGuiKey::V, 'V'},
+									{NkGuiKey::D, 'D'}, {NkGuiKey::G, 'G'}};
+					for (uint32 t = 0; t < sizeof(kTouches) / sizeof(kTouches[0]); ++t) {
+						if (!ctx.input.KeyPressed(kTouches[t].k))
+							continue;
+						const NkActionCtx a = NkActionDuRaccourci(
+							ctx.input.ctrlDown, ctx.input.shiftDown, kTouches[t].c);
+						if (a == NkActionCtx::NB)
+							continue;
+						// ⚠️ LE MÊME PAS D'ANNULATION QUE LE MENU : on passe par le
+						//    dispatcher, pas par la méthode. Appeler `GrouperSelection`
+						//    directement aurait marché aujourd'hui et divergé au
+						//    premier geste qui gagne une étape.
+						if (NkAppliquerActionCtx(*mSt, mSt->selected, a))
+							Dire(mSt->status.Data(), "", "");
+						break;
+					}
+				}
 				// ÉCHAP annule le tracé en cours (Lunacy), et le DIT.
 				if (mCreating && ctx.input.KeyPressed(NkGuiKey::Escape)) {
 					mCreating = false;

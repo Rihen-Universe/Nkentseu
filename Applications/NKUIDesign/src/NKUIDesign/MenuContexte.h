@@ -90,6 +90,56 @@ namespace nkuidesign {
 			bool surfaceListe = false;
 	};
 
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE CLAVIER — LA TROISIÈME PORTE VERS LES MÊMES GESTES
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// 🔴 CETTE TABLE EXISTE PARCE QUE NOS MENUS MENTAIENT. L'inventaire du
+	///    2026-09-01 (document de référence, §10.1) a trouvé que l'application ne
+	///    lisait **aucune touche de lettre** — quatre touches en tout : `Échap`,
+	///    `Entrée`, `Suppr`, `Retour arrière`. Or nos menus affichent `Ctrl+G`,
+	///    `Ctrl+D`, `Ctrl+Maj+G` à côté d'entrées qui, elles, fonctionnent.
+	///    *Un libellé qui annonce une capacité absente est un libellé qui ment*,
+	///    et il jette le doute sur tous les autres raccourcis du même menu.
+	///
+	/// ⚠️ AUCUN GESTE N'EST RÉÉCRIT ICI, ET C'EST TOUT L'INTÉRÊT. La table rend
+	///    une `NkActionCtx` — la même que le menu contextuel — que
+	///    `NkAppliquerActionCtx` exécute. Trois portes (menu de la toile, menu de
+	///    la hiérarchie, clavier), **une seule écriture** : c'est la condition
+	///    pour qu'une correction les atteigne toutes, et c'était déjà la règle
+	///    posée au-dessus du dispatcher.
+	///
+	/// ⚠️ ET ELLE SE MESURE SANS FENÊTRE. Écrite dans la boucle de touches, elle
+	///    aurait vécu là où aucun banc ne va — pour la sixième fois sur ce
+	///    chantier. Ici, un cas peut vérifier que `Ctrl+G` groupe et que `G` seul
+	///    ne fait rien.
+	///
+	/// @return l'action, ou `NkActionCtx::NB` quand la combinaison n'est liée à
+	///         rien (la valeur sentinelle, jamais une action par défaut : rendre
+	///         « Copier » pour une touche inconnue serait pire que ne rien faire).
+	inline NkActionCtx NkActionDuRaccourci(bool ctrl, bool maj, char touche) {
+		if (!ctrl)
+			return NkActionCtx::NB; // toutes nos combinaisons passent par Ctrl
+		switch (touche) {
+			case 'C': return NkActionCtx::Copier;
+			case 'X': return NkActionCtx::Couper;
+			case 'V': return NkActionCtx::Coller;
+			case 'D': return NkActionCtx::Dupliquer;
+			// ⚠️ LE MAJ DISTINGUE DEUX GESTES INVERSES sur la même lettre, et
+			//    c'est la convention de Lunacy, de Figma et de Sketch. Les poser
+			//    sur deux lettres différentes aurait été plus simple à écrire et
+			//    plus dur à retenir.
+			case 'G': return maj ? NkActionCtx::Degrouper : NkActionCtx::Grouper;
+			default: return NkActionCtx::NB;
+		}
+	}
+
+	/// Le nombre de combinaisons liées, pour que la recette les parcoure toutes
+	/// au lieu d'en citer une liste qui se périme à la première qu'on ajoute.
+	inline nkentseu::uint32 NkNbRaccourcisCtx() {
+		return 6u;
+	}
+
 	enum { kMaxEntreesCtx = 24 };
 	struct NkMenuCtx {
 			NkEntreeCtx items[kMaxEntreesCtx];

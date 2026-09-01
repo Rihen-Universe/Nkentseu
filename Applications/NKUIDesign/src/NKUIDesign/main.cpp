@@ -2963,6 +2963,62 @@ static nkentseu::int32 RecettePoints() {
 				tientDansLeCap && confondus == 0, d);
 	}
 
+	// ── 44. LE CLAVIER OUVRE LES MEMES GESTES QUE LES MENUS ────────────────
+	// 🔴 CE CAS EXISTE PARCE QUE NOS MENUS MENTAIENT. L'inventaire du 01/09 a
+	//    mesure que l'application ne lisait AUCUNE touche de lettre -- quatre
+	//    touches en tout -- alors que les menus affichent `Ctrl+G`, `Ctrl+D`,
+	//    `Ctrl+Maj+G` a cote d'entrees qui, elles, fonctionnent. *Un libelle qui
+	//    annonce une capacite absente est un libelle qui ment*, et il jette le
+	//    doute sur tous les autres raccourcis du meme menu.
+	//
+	// ⚠️ CE QUE LE CAS TIENT, ET C'EST LES DEUX SENS : que la combinaison ATTENDUE
+	//    rende l'action attendue, ET que la touche NUE ne rende rien. Sans le
+	//    second volet, une table qui rendrait « Copier » pour n'importe quelle
+	//    touche passerait le premier -- et taper une lettre dans la toile
+	//    declencherait un geste.
+	{
+		const bool lies = NkActionDuRaccourci(true, false, 'C') == NkActionCtx::Copier
+						  && NkActionDuRaccourci(true, false, 'X') == NkActionCtx::Couper
+						  && NkActionDuRaccourci(true, false, 'V') == NkActionCtx::Coller
+						  && NkActionDuRaccourci(true, false, 'D') == NkActionCtx::Dupliquer
+						  && NkActionDuRaccourci(true, false, 'G') == NkActionCtx::Grouper
+						  // le MAJ distingue deux gestes INVERSES sur la meme lettre
+						  && NkActionDuRaccourci(true, true, 'G') == NkActionCtx::Degrouper;
+		// (b) LA TOUCHE NUE NE FAIT RIEN : toutes nos combinaisons passent par Ctrl
+		const bool nuInerte = NkActionDuRaccourci(false, false, 'G') == NkActionCtx::NB
+							  && NkActionDuRaccourci(false, true, 'D') == NkActionCtx::NB;
+		// (c) UNE TOUCHE NON LIEE REND LA SENTINELLE, jamais une action par
+		//     defaut : rendre « Copier » pour une touche inconnue serait pire que
+		//     ne rien faire.
+		const bool inconnue = NkActionDuRaccourci(true, false, 'Q') == NkActionCtx::NB
+							  && NkActionDuRaccourci(true, false, 'Z') == NkActionCtx::NB;
+		// (d) ET CHAQUE ACTION LIEE EST EXECUTABLE PAR LE DISPATCHER COMMUN --
+		//     c'est ce qui garantit « trois portes, une ecriture ». Une action
+		//     que le clavier nommerait et que le dispatcher ignorerait serait un
+		//     raccourci mort, exactement le defaut qu'on repare.
+		static const char kT[6] = {'C', 'X', 'V', 'D', 'G', 'G'};
+		static const bool kM[6] = {false, false, false, false, false, true};
+		uint32 executables = 0;
+		for (uint32 i = 0; i < 6; ++i) {
+			st.doc.NewDocument("recette points", NkAuthor::Humain);
+			const int32 a1 = poser("rect", nullptr);
+			const int32 a2 = poser("rect", nullptr);
+			(void)a2;
+			st.SelectSingle(a1);
+			const NkActionCtx act = NkActionDuRaccourci(true, kM[i], kT[i]);
+			if (act != NkActionCtx::NB && NkAppliquerActionCtx(st, a1, act))
+				++executables;
+		}
+		char d[192];
+		snprintf(d, sizeof(d), "6 combinaisons liees=%d ; touche nue inerte=%d ; inconnue "
+							   "sentinelle=%d ; %u/6 executables par le dispatcher commun",
+				 lies ? 1 : 0, nuInerte ? 1 : 0, inconnue ? 1 : 0, executables);
+		verdict("44. le CLAVIER rend les memes actions que les menus (et les execute par le "
+				"MEME dispatcher), la touche nue ne fait rien, et une touche non liee rend la "
+				"sentinelle",
+				lies && nuInerte && inconnue && executables == 6u, d);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
