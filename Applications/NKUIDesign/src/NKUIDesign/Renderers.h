@@ -53,6 +53,7 @@
 // -----------------------------------------------------------------------------
 
 #include "Sommets.h" // la table UNIQUE des sommets (peintre + mode points)
+#include "Transfo.h" // rotation et miroirs : LE MEME calcul pour le dessin et le clic
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
