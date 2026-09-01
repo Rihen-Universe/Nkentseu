@@ -183,6 +183,105 @@ namespace nkuidesign {
 						  mange && m.renaming == 0 && temoin.fois == 3);
 				}
 
+				// ═══ SITE 4 — VAGUE 2 : `Alt`+GLISSER DUPLIQUE ═══════════════
+				// Source `/layers`. CONTEXTE : la toile, corps d'un noeud POSE.
+				//
+				// ⚠️ CE CAS PASSE PAR `HandleMouse`, PAS PAR UNE REGLE EXTRAITE, et
+				//    c'est voulu : ce qu'il faut prouver n'est pas « copier marche »
+				//    (`CopierSousArbre` est deja tenu ailleurs) mais QUE LA COPIE SE
+				//    FAIT UNE FOIS, A L'ARMEMENT. La boucle de glisser passe des
+				//    dizaines de fois par seconde ; une copie posee dedans laisserait
+				//    une trainee d'objets derriere le curseur, et aucune recette de
+				//    modele ne le verrait. *Un geste qui cree se declenche une fois,
+				//    au moment ou la main s'engage.*
+				{
+					static DesignState st4;
+					st4.BuildStarterDocument();
+					const int32 pere = st4.doc.AddChild(0, "", NkAuthor::Humain);
+					st4.doc.nodes[(uint32)pere].shape = NkString("frame");
+					st4.doc.nodes[(uint32)pere].layout.kind = NkLayoutKind::Free;
+					// ⚠️ LE SECOND ARGUMENT EST UN COMPOSANT DU REGISTRE, PAS UNE
+					//    FORME. Ma premiere version passait `"rect"` : `AddChild`
+					//    rend **-1** (aucun composant de ce nom), et la ligne
+					//    suivante indexait `nodes[(uint32)-1]`. La forme se pose
+					//    apres, par `shape`, exactement comme les sites 2 et 3.
+					const int32 obj = st4.doc.AddChild(pere, "", NkAuthor::Humain);
+					st4.doc.nodes[(uint32)obj].shape = NkString("rect");
+					st4.doc.nodes[(uint32)obj].posX = 40.f;
+					st4.doc.nodes[(uint32)obj].posY = 30.f;
+					st4.doc.nodes[(uint32)obj].width.mode = NkSizeMode::Fixed;
+					st4.doc.nodes[(uint32)obj].width.value = 120.f;
+					st4.doc.nodes[(uint32)obj].height.mode = NkSizeMode::Fixed;
+					st4.doc.nodes[(uint32)obj].height.value = 80.f;
+					st4.view.viewport = {0.f, 0.f, 800.f, 600.f};
+					st4.SelectSingle(obj);
+					static PreviewPanel pv4(&st4);
+					// un ecran a la main : le corps de `obj` occupe 40,30 -> 160,110.
+					NkLayoutResult ecran;
+					for (uint32 i = 0; i < (uint32)st4.doc.nodes.Size(); ++i) {
+						ecran.rects.PushBack(NkPaintRect{0.f, 0.f, 0.f, 0.f});
+						ecran.valid.PushBack(0);
+					}
+					ecran.rects[(uint32)pere] = {0.f, 0.f, 400.f, 300.f};
+					ecran.valid[(uint32)pere] = 1;
+					ecran.rects[(uint32)obj] = {40.f, 30.f, 120.f, 80.f};
+					ecran.valid[(uint32)obj] = 1;
+					st4.layout = ecran;
+					const uint32 avant = (uint32)st4.doc.nodes.Size();
+					const float32 origX = st4.doc.nodes[(uint32)obj].posX;
+					// l'appui AVEC Alt, au CENTRE du corps (loin des huit poignees)
+					NkComponentInput in;
+					in.surfaceScale = 1.f;
+					in.mouseX = 100.f;
+					in.mouseY = 70.f;
+					in.mouseDown = true;
+					in.mousePressed = true;
+					in.alt = true;
+					pv4.HandleMouse(in, ecran);
+					const uint32 apresAppui = (uint32)st4.doc.nodes.Size();
+					const int32 tire = pv4.mMoveNode;
+					// (a) UN noeud de plus, et UN SEUL
+					const bool uneCopie = apresAppui == avant + 1u;
+					// (b) C'EST LA COPIE QU'ON TRAINE, PAS L'ORIGINAL. L'inverse rend
+					//     le meme document et une experience differente : la forme sous
+					//     le doigt ne serait pas celle qu'on croit tenir, et
+					//     l'annulation retirerait celle qui n'a pas bouge.
+					const bool traineLaCopie = tire != obj && st4.doc.IsValidIndex(tire);
+					// (c) ⚠️ LE VOLET QUI COMPTE : DIX images de glisser ensuite, `Alt`
+					//     toujours enfonce -> AUCUN noeud de plus. Une copie posee dans
+					//     la boucle en ferait dix.
+					for (uint32 k = 0; k < 10u; ++k) {
+						in.mousePressed = false;
+						in.mouseX += 4.f;
+						in.mouseY += 2.f;
+						pv4.HandleMouse(in, ecran);
+					}
+					const bool uneSeuleFois = (uint32)st4.doc.nodes.Size() == apresAppui;
+					// (d) CONSERVATION : l'original n'a pas bouge d'un iota.
+					const bool originalIntact = st4.doc.nodes[(uint32)obj].posX == origX;
+					// (e) ET LE CONTROLE NEGATIF : SANS `Alt`, aucune copie. Sans ce
+					//     volet, un code qui dupliquerait a CHAQUE appui passerait
+					//     (a), (b), (c) et (d).
+					in.mouseDown = false;
+					pv4.HandleMouse(in, ecran);
+					const uint32 avantNu = (uint32)st4.doc.nodes.Size();
+					in.alt = false;
+					in.mouseDown = true;
+					in.mousePressed = true;
+					in.mouseX = 100.f;
+					in.mouseY = 70.f;
+					pv4.HandleMouse(in, ecran);
+					const bool sansAltRien = (uint32)st4.doc.nodes.Size() == avantNu;
+					in.mouseDown = false;
+					in.mousePressed = false;
+					pv4.HandleMouse(in, ecran);
+					check("toile : `Alt`+glisser DUPLIQUE -- une seule copie, faite A L'ARMEMENT "
+						  "(dix images de glisser n'en font pas dix), c'est la COPIE qu'on traine, "
+						  "l'original est intact, et sans `Alt` rien n'est cree",
+						  uneCopie && traineLaCopie && uneSeuleFois && originalIntact
+							  && sansAltRien);
+				}
+
 				// ═══ SITES 2 et 3 — LA TOILE (etiquette d'artboard, texte) ════
 				// Les fonctions de sortie REELLES de PreviewPanel, sur un
 				// document minimal ; l'ECHAP se juge au round-trip octet pour

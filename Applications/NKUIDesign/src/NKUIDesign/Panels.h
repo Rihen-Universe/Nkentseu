@@ -4666,6 +4666,39 @@ namespace nkuidesign {
 							// un resultat, et la souris n'a rien a y ecrire.
 							mMoving = true;
 							mMoveNode = hit;
+							// ── VAGUE 2 : `Alt`+GLISSER DUPLIQUE ──────────────
+							// Source `/layers`. On copie A L'ARMEMENT du geste,
+							// et c'est la SEULE fenetre ou ce soit juste : la
+							// boucle de glisser passe des dizaines de fois par
+							// seconde, et y poser la copie sememerait une trainee
+							// d'objets derriere le curseur. *Un geste qui cree se
+							// declenche une fois, au moment ou la main s'engage.*
+							//
+							// ⚠️ ET C'EST LA COPIE QU'ON DEPLACE, PAS L'ORIGINAL.
+							//    L'inverse -- laisser la copie sur place et
+							//    trainer l'original -- rend le meme document et
+							//    une experience differente : la forme sous le
+							//    doigt ne serait pas celle qu'on croit tenir, et
+							//    l'annulation retirerait celle qui n'a pas bouge.
+							if (in.alt) {
+								const int32 pere = mSt->doc.nodes[(uint32)hit].parent;
+								const int32 copie = mSt->doc.CopierSousArbre(
+									mSt->doc, hit, mSt->doc.IsValidIndex(pere) ? pere : 0);
+								if (mSt->doc.IsValidIndex(copie)) {
+									// aucun decalage de 10 px ici, contrairement a
+									// Ctrl+D : la souris EST le decalage, et en
+									// ajouter un ferait sauter la copie au premier
+									// pixel de glissement.
+									mSt->doc.MarkHumanEdit(copie);
+									mMoveNode = copie;
+									mSt->SelectSingle(copie);
+									mSt->host.demoModels.Clear();
+									mSt->host.SyncTo(mSt->doc);
+									mSt->status = NkString(
+										"Copie en cours de glissement (Alt) — l'original "
+										"reste en place.");
+								}
+							}
 							// ⚠️ LA POSITION LIBRE — CELLE DE LA SOURIS, SANS
 							//    AIMANT. Sans elle, l'aimant se relirait
 							//    lui-meme : le noeud collerait, la souris
@@ -4673,8 +4706,16 @@ namespace nkuidesign {
 							//    pixels a chaque accrochage. On garde donc les
 							//    deux positions — celle que la main demande, et
 							//    celle que l'aimant accorde.
-							mMoveLibreX = mSt->doc.nodes[(uint32)hit].posX;
-							mMoveLibreY = mSt->doc.nodes[(uint32)hit].posY;
+							// ⚠️ ON LIT `mMoveNode`, PAS `hit` : sous `Alt` ce
+							//    n'est plus le meme noeud. La copie porte
+							//    aujourd'hui les memes `posX/posY` que son
+							//    original, donc les deux donneraient le meme
+							//    nombre -- mais lire la source du geste plutot
+							//    que ce qu'on a clique est ce qui rend la ligne
+							//    vraie meme quand la copie cessera d'etre posee
+							//    exactement dessus.
+							mMoveLibreX = mSt->doc.nodes[(uint32)mMoveNode].posX;
+							mMoveLibreY = mSt->doc.nodes[(uint32)mMoveNode].posY;
 							// idem : `Maj` contraint le deplacement TOTAL depuis
 							// l'appui, pas l'ecart de l'image en cours.
 							mGesteOrigX = in.mouseX;
