@@ -55,6 +55,7 @@
 #include "NKEditorKit/Components/NkComponentPaint.h"
 #include "NKEditorKit/NkTheme.h"
 #include "NKGui/NKGui.h"
+#include "NKMath/NkEarcut.h" // le triangulateur, descendu de NKFont le 2026-09-01
 
 namespace nkentseu {
 	namespace editorkit {
@@ -123,12 +124,73 @@ namespace nkentseu {
 					mCtx.DL().AddLine({x1, y1}, {x2, y2}, C(role), thickness);
 					return true;
 				}
-				/// Polygone plein : EVENTAIL depuis le centroide — couvre les
-				/// convexes ET l'etoile (etoilee par rapport a son centre) ;
-				/// `AddConvexPolyFilled` ne tiendrait pas l'etoile.
+				/// Polygone plein, CONCAVE COMPRIS — triangulation par
+				/// ear-clipping SANS ALLOCATION (`NKMath/NkEarcut.h`).
+				///
+				/// 🔴 CE QU'IL FAISAIT AVANT, ET POURQUOI C'ÉTAIT UN DÉFAUT LIVRÉ :
+				///    un ÉVENTAIL DEPUIS LE CENTROÏDE. Juste pour un convexe, juste
+				///    pour une étoile, FAUX dès que le contour est concave — les
+				///    triangles de l'éventail traversent le creux et le
+				///    remplissage déborde. Tant que l'application ne posait que des
+				///    rectangles et des ellipses, personne ne pouvait le voir ; les
+				///    poignées de Bézier ont rendu le défaut atteignable, donc réel.
+				///
+				/// 🔴 ET LA PREMIÈRE TENTATIVE DE RÉPARATION A FAIT PLANTER
+				///    L'APPLICATION — corruption de tas, `0xC0000374`, en trois
+				///    secondes. La cause n'était pas ici : `NkEarcut` (la porte qui
+				///    ALLOUE) libère chaque oreille découpée, puis libère la liste
+				///    une seconde fois depuis sa tête, laquelle a presque toujours
+				///    été découpée. Une DOUBLE LIBÉRATION, présente depuis le
+				///    début, que seuls des milliers d'appels par seconde rendaient
+				///    visible. On passe donc par `NkEarcutVers`, la porte SANS
+				///    ALLOCATION : pas de tas, donc pas de libération à équilibrer,
+				///    donc pas de double libération possible.
+				///
+				/// ⚠️ LES TAMPONS SONT SUR LA PILE, ET LEUR TAILLE EST EXACTE : un
+				///    polygone simple à N sommets donne toujours N-2 triangles.
+				///    `NkContourDe` plafonne à 128 points, d'où 128 nœuds et
+				///    3*(128-2) indices. Aucune allocation dans la boucle de
+				///    dessin — c'était l'autre moitié du problème.
+				///
+				/// ⚠️ REPLI EXPLICITE PLUTÔT QUE RIEN : si la triangulation ne rend
+				///    aucun triangle (contour dégénéré, points alignés, contour qui
+				///    se croise), on repeint l'éventail d'avant. Il est faux sur un
+				///    concave, mais il montre QUELQUE CHOSE — et une forme qui
+				///    disparaît est pire qu'une forme mal remplie : elle fait croire
+				///    à une suppression.
 				bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
 					if (!xy || count < 3)
 						return false;
+					const nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
+												(uint8)((rgba >> 16) & 0xFFu),
+												(uint8)((rgba >> 8) & 0xFFu),
+												(uint8)(rgba & 0xFFu)};
+					enum { kMaxPts = 128 };
+					if (count <= (int32)kMaxPts) {
+						math::NkVec2f pts[kMaxPts];
+						::nkentseu::detail::NkEarcutNode<float32> noeuds[kMaxPts];
+						uint32 idx[(kMaxPts - 2) * 3];
+						for (int32 i = 0; i < count; ++i)
+							pts[i] = math::NkVec2f(xy[i * 2], xy[i * 2 + 1]);
+						// ⚠️ LE SENS N'EST PAS NOTRE AFFAIRE : `NkEarcutVers` mesure
+						//    l'aire signée et se retourne tout seul. Le peintre reçoit
+						//    des contours dans un sens quelconque (une forme dont on a
+						//    tiré les sommets peut s'être retournée) et n'a pas à le
+						//    savoir.
+						const uint32 nbTri = ::nkentseu::NkEarcutVers<float32>(
+							pts, (uint32)count, noeuds, kMaxPts, idx, (kMaxPts - 2) * 3);
+						if (nbTri > 0) {
+							for (uint32 t = 0; t < nbTri; ++t) {
+								const math::NkVec2f &a = pts[idx[t * 3 + 0]];
+								const math::NkVec2f &b = pts[idx[t * 3 + 1]];
+								const math::NkVec2f &c = pts[idx[t * 3 + 2]];
+								mCtx.DL().AddTriangleFilled({a.x, a.y}, {b.x, b.y}, {c.x, c.y},
+															col);
+							}
+							return true;
+						}
+					}
+					// repli : l'éventail d'avant (voir l'avertissement ci-dessus)
 					float32 cx = 0.f, cy = 0.f;
 					for (int32 i = 0; i < count; ++i) {
 						cx += xy[i * 2];
@@ -136,10 +198,6 @@ namespace nkentseu {
 					}
 					cx /= (float32)count;
 					cy /= (float32)count;
-					const nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
-												(uint8)((rgba >> 16) & 0xFFu),
-												(uint8)((rgba >> 8) & 0xFFu),
-												(uint8)(rgba & 0xFFu)};
 					for (int32 i = 0; i < count; ++i) {
 						const int32 j = (i + 1) % count;
 						mCtx.DL().AddTriangleFilled({xy[i * 2], xy[i * 2 + 1]},

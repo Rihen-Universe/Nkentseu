@@ -62,6 +62,13 @@ namespace nkentseu {
 
 				NkEarcutNode(T x_, T y_, std::size_t i_) : x(x_), y(y_), i(i_), prev(nullptr), next(nullptr) {
 				}
+				// ⚠️ AJOUT ADDITIF DU 2026-09-01 : sans constructeur par défaut, ce
+				//    nœud ne peut pas vivre dans un TAMPON FOURNI PAR L'APPELANT —
+				//    et c'est tout le motif de `NkEarcutVers`, la porte sans
+				//    allocation. Le constructeur à trois arguments reste, la porte
+				//    qui alloue s'en sert toujours.
+				NkEarcutNode() : x(T(0)), y(T(0)), i(0), prev(nullptr), next(nullptr) {
+				}
 		};
 
 		template <typename T>
@@ -272,6 +279,135 @@ namespace nkentseu {
 		}
 
 	} // namespace detail
+
+	// =========================================================================
+	// API PUBLIQUE SANS ALLOCATION : NkEarcutVers
+	// =========================================================================
+
+	/**
+	 * @brief Triangule un contour SIMPLE (sans trou) SANS ALLOUER : l'appelant
+	 *        fournit ses tampons, le triangulateur n'a ni état ni tas.
+	 *
+	 * 🔴 CETTE PORTE EXISTE PARCE QUE LA PORTE QUI ALLOUE AVAIT UNE DOUBLE
+	 *    LIBÉRATION, ET QU'ELLE A FAIT PLANTER L'APPLICATION.
+	 *    `NkEarcutLinked` libère CHAQUE oreille qu'elle découpe
+	 *    (`Delete(ear)`) ; puis `NkEarcut` libère la liste une seconde fois
+	 *    depuis sa tête (`NkEarcutDeleteList(outerList)`) — or cette tête a
+	 *    presque toujours été découpée, donc déjà libérée. La liste est parcourue
+	 *    après libération, et refermée une seconde fois.
+	 *
+	 *    Pourquoi personne ne l'avait vue : un appel UNIQUE (le maillage d'un
+	 *    glyphe au chargement, un cas de recette) corrompt le tas en silence et
+	 *    survit le plus souvent. Une boucle de dessin appelle des milliers de
+	 *    fois par seconde — et là ça tombe en trois secondes, avec un
+	 *    `0xC0000374` qui ne dit rien de sa cause.
+	 *    *Le défaut était dans le triangulateur depuis le début ; il a fallu un
+	 *    appelant assez répétitif pour le rendre visible.*
+	 *
+	 * ⚠️ ET C'EST POURQUOI LA RÉPARATION N'EST PAS « CORRIGER LA LIBÉRATION »
+	 *    MAIS « NE PLUS ALLOUER ». Sans tas, il n'y a plus de libération à
+	 *    équilibrer, donc plus de double libération possible — la classe entière
+	 *    de défauts disparaît au lieu d'être corrigée exemplaire par exemplaire.
+	 *    C'est aussi le motif zéro-STL de la maison : l'appelant fournit ses
+	 *    tampons.
+	 *
+	 * ⚠️ LE SENS DE PARCOURS EST MESURÉ ICI, PAS DEMANDÉ À L'APPELANT. La porte
+	 *    qui alloue exige un contour CCW et rend zéro triangle si on se trompe —
+	 *    un contrat qu'un appelant sur deux casse sans le savoir, et dont
+	 *    l'échec est SILENCIEUX (une forme qui disparaît). L'aire signée le dit
+	 *    en N opérations : on la mesure, on parcourt à l'envers si besoin.
+	 *    *Ce qui est mesurable ne se demande pas.*
+	 *
+	 * @param points   le contour, `nb` points.
+	 * @param nb       le nombre de points (< 3 → aucun triangle).
+	 * @param noeuds   tampon de travail de l'appelant, au moins `nb` nœuds.
+	 * @param capN     sa capacité.
+	 * @param sortie   où écrire les indices, au moins `3 * (nb - 2)`.
+	 * @param capS     sa capacité.
+	 *
+	 * @return le nombre de TRIANGLES écrits (donc `3 x` ce nombre d'indices), et
+	 *         **0 si un tampon est trop petit** : on refuse franchement plutôt
+	 *         que d'allouer dans le dos de l'appelant ou d'écrire à côté.
+	 *
+	 * @note LA BORNE EST EXACTE, PAS UNE ESTIMATION : la triangulation d'un
+	 *       polygone simple à N sommets donne toujours **N - 2** triangles.
+	 *       L'appelant peut donc dimensionner sans marge et sans crainte.
+	 */
+	template <typename T = float>
+	inline nkentseu::uint32 NkEarcutVers(const math::NkVec2T<T> *points, nkentseu::uint32 nb,
+										 detail::NkEarcutNode<T> *noeuds, nkentseu::uint32 capN,
+										 nkentseu::uint32 *sortie, nkentseu::uint32 capS) {
+		if (!points || !noeuds || !sortie || nb < 3u)
+			return 0u;
+		if (capN < nb || capS < (nb - 2u) * 3u)
+			return 0u; // refus franc — voir @return
+
+		// ── LE SENS, MESURÉ ────────────────────────────────────────────────
+		// L'aire signée (formule du lacet) dit le sens de parcours. Le découpage
+		// d'oreilles ci-dessous teste la convexité par `NkEarcutArea(...) < 0`,
+		// donc il attend le sens que produit une aire signée POSITIVE ici.
+		T deux = T(0);
+		for (nkentseu::uint32 i = 0; i < nb; ++i) {
+			const nkentseu::uint32 j = (i + 1u) % nb;
+			deux += points[i].x * points[j].y - points[j].x * points[i].y;
+		}
+		const bool inverser = (deux < T(0));
+
+		// ── L'ANNEAU, DANS LE TAMPON DE L'APPELANT ─────────────────────────
+		// ⚠️ Les indices écrits restent ceux du tableau `points` D'ORIGINE, même
+		//    quand on le parcourt à l'envers : l'appelant indexe ses propres
+		//    points, il n'a pas à savoir qu'on a retourné quoi que ce soit.
+		for (nkentseu::uint32 k = 0; k < nb; ++k) {
+			const nkentseu::uint32 src = inverser ? (nb - 1u - k) : k;
+			noeuds[k].x = points[src].x;
+			noeuds[k].y = points[src].y;
+			noeuds[k].i = (std::size_t)src;
+			noeuds[k].prev = &noeuds[(k + nb - 1u) % nb];
+			noeuds[k].next = &noeuds[(k + 1u) % nb];
+		}
+
+		// ── LE DÉCOUPAGE — LE MÊME QUE L'AUTRE PORTE, MAIS SANS `Delete` ────
+		// On DÉCHAÎNE l'oreille au lieu de la libérer : le tampon appartient à
+		// l'appelant, il se videra tout seul quand sa portée se ferme.
+		detail::NkEarcutNode<T> *ear = &noeuds[0];
+		detail::NkEarcutNode<T> *stop = ear;
+		nkentseu::uint32 nbTri = 0u;
+		nkentseu::uint32 tours = 0u;
+		// ⚠️ LA BORNE D'ITÉRATIONS EST UN GARDE-FOU, PAS UNE LIMITE DE TRAVAIL :
+		//    un contour qui se croise (deux arêtes qui se traversent) n'a pas de
+		//    triangulation, et la boucle tournerait sans fin. `nb * nb` la
+		//    laisse finir tout contour sain et arrête net les autres.
+		const nkentseu::uint32 maxTours = nb * nb + 16u;
+
+		while (ear->prev != ear->next && tours++ < maxTours) {
+			if (detail::NkEarcutIsEar(ear)) {
+				if (nbTri * 3u + 3u > capS)
+					break; // ceinture : jamais écrire hors du tampon
+				sortie[nbTri * 3u + 0u] = (nkentseu::uint32)ear->prev->i;
+				sortie[nbTri * 3u + 1u] = (nkentseu::uint32)ear->i;
+				sortie[nbTri * 3u + 2u] = (nkentseu::uint32)ear->next->i;
+				++nbTri;
+				detail::NkEarcutNode<T> *nxt = ear->next;
+				detail::NkEarcutRemoveNode(ear); // déchaîné, PAS libéré
+				ear = nxt;
+				stop = nxt;
+			} else {
+				ear = ear->next;
+				if (ear == stop)
+					break;
+			}
+		}
+
+		// Le triangle final restant.
+		if (ear->prev != ear && ear->next != ear && ear->prev->next == ear
+			&& nbTri * 3u + 3u <= capS) {
+			sortie[nbTri * 3u + 0u] = (nkentseu::uint32)ear->prev->i;
+			sortie[nbTri * 3u + 1u] = (nkentseu::uint32)ear->i;
+			sortie[nbTri * 3u + 2u] = (nkentseu::uint32)ear->next->i;
+			++nbTri;
+		}
+		return nbTri;
+	}
 
 	// =========================================================================
 	// API PUBLIQUE : NkEarcut

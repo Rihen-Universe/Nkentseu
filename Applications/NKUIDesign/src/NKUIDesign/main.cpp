@@ -3019,6 +3019,86 @@ static nkentseu::int32 RecettePoints() {
 				lies && nuInerte && inconnue && executables == 6u, d);
 	}
 
+	// ── 45. LA PORTE SANS ALLOCATION TIENT SON CONTRAT ────────────────────
+	// 🔴 C'EST LA PORTE QUI A REPARE LE PLANTAGE, ET ELLE MERITE SON CAS. La
+	//    porte qui ALLOUE (`NkEarcut`) a une DOUBLE LIBERATION : elle libere
+	//    chaque oreille decoupee, puis relibere la liste depuis sa tete -- tete
+	//    qui a presque toujours ete decoupee. Un appel unique corrompt le tas en
+	//    silence et survit ; une boucle de dessin appelle des milliers de fois
+	//    par seconde, et ca tombe en trois secondes.
+	//
+	//    La reparation n'est PAS « corriger la liberation », c'est « ne plus
+	//    allouer » : sans tas, plus de liberation a equilibrer, donc plus de
+	//    double liberation POSSIBLE. *La classe entiere de defauts disparait au
+	//    lieu d'etre corrigee exemplaire par exemplaire.*
+	//
+	// ⚠️ CE CAS TIENT LES QUATRE PROMESSES DE LA SIGNATURE, et les trois
+	//    dernieres comptent plus que la premiere : c'est un tampon fourni par
+	//    l'appelant, et une fonction qui ecrit a cote ou qui accepte un tampon
+	//    trop petit est plus dangereuse que celle qu'elle remplace.
+	{
+		// un « L » concave, le meme que le cas 42 : aire connue = 7600
+		nkentseu::math::NkVec2f L[6] = {
+			nkentseu::math::NkVec2f(0.f, 0.f),     nkentseu::math::NkVec2f(40.f, 0.f),
+			nkentseu::math::NkVec2f(40.f, 40.f),   nkentseu::math::NkVec2f(100.f, 40.f),
+			nkentseu::math::NkVec2f(100.f, 100.f), nkentseu::math::NkVec2f(0.f, 100.f)};
+		nkentseu::detail::NkEarcutNode<float32> nd[6];
+		uint32 out[12];
+		// (a) LA BORNE EST EXACTE : un polygone simple a N sommets donne N-2
+		//     triangles. Pas « au plus », pas « environ » -- exactement.
+		const uint32 nbT = nkentseu::NkEarcutVers<float32>(L, 6u, nd, 6u, out, 12u);
+		const bool borneExacte = (nbT == 4u);
+		// (b) L'AIRE VAUT CELLE DU POLYGONE : la triangulation couvre le plein
+		//     sans deborder dans le creux.
+		float32 aire = 0.f;
+		for (uint32 t = 0; t < nbT; ++t) {
+			const nkentseu::math::NkVec2f &a = L[out[t * 3 + 0]];
+			const nkentseu::math::NkVec2f &b = L[out[t * 3 + 1]];
+			const nkentseu::math::NkVec2f &c = L[out[t * 3 + 2]];
+			const float32 s = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+			aire += (s < 0.f ? -s : s) * 0.5f;
+		}
+		const bool aireJuste = aire > 7599.f && aire < 7601.f;
+		// (c) LE SENS EST MESURE, PAS DEMANDE. Le MEME contour parcouru A
+		//     L'ENVERS doit rendre la MEME aire. La porte qui alloue, elle, exige
+		//     un contour CCW et rend zero triangle si on se trompe -- un echec
+		//     SILENCIEUX (la forme disparait). Ce volet est la garantie que le
+		//     peintre peut lui donner un contour dans un sens quelconque.
+		nkentseu::math::NkVec2f Lr[6];
+		for (uint32 i = 0; i < 6u; ++i)
+			Lr[i] = L[5u - i];
+		uint32 out2[12];
+		const uint32 nbT2 = nkentseu::NkEarcutVers<float32>(Lr, 6u, nd, 6u, out2, 12u);
+		float32 aire2 = 0.f;
+		for (uint32 t = 0; t < nbT2; ++t) {
+			const nkentseu::math::NkVec2f &a = Lr[out2[t * 3 + 0]];
+			const nkentseu::math::NkVec2f &b = Lr[out2[t * 3 + 1]];
+			const nkentseu::math::NkVec2f &c = Lr[out2[t * 3 + 2]];
+			const float32 s = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+			aire2 += (s < 0.f ? -s : s) * 0.5f;
+		}
+		const bool sensIndifferent = nbT2 == 4u && aire2 > 7599.f && aire2 < 7601.f;
+		// (d) UN TAMPON TROP PETIT EST REFUSE FRANCHEMENT -- zero triangle, et
+		//     surtout AUCUNE ecriture. On place un temoin apres la zone permise :
+		//     s'il bouge, la fonction a ecrit hors du tampon qu'on lui a donne.
+		uint32 petit[10];
+		petit[9] = 0xABCDu;
+		const uint32 nbT3 = nkentseu::NkEarcutVers<float32>(L, 6u, nd, 6u, petit, 9u);
+		const bool refusFranc = (nbT3 == 0u) && (petit[9] == 0xABCDu);
+		// (e) ET UN TAMPON DE NOEUDS TROP PETIT AUSSI : les deux tampons sont
+		//     verifies, pas seulement celui de sortie.
+		const bool refusNoeuds = nkentseu::NkEarcutVers<float32>(L, 6u, nd, 5u, out, 12u) == 0u;
+		char d[208];
+		snprintf(d, sizeof(d), "%u triangles (attendu 4) ; aire %.0f ; sens inverse -> %u tri "
+							   "aire %.0f ; refus sortie=%d refus noeuds=%d",
+				 nbT, (double)aire, nbT2, (double)aire2, refusFranc ? 1 : 0,
+				 refusNoeuds ? 1 : 0);
+		verdict("45. la porte SANS ALLOCATION rend la borne exacte N-2, couvre l'aire du "
+				"polygone, se moque du SENS de parcours, et REFUSE franchement un tampon trop "
+				"petit sans rien ecrire dehors",
+				borneExacte && aireJuste && sensIndifferent && refusFranc && refusNoeuds, d);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
