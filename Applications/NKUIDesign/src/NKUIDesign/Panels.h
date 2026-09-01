@@ -2611,6 +2611,38 @@ namespace nkuidesign {
 						}
 						return; // un double-clic ne demarre ni glisser ni rectangle
 					}
+					// ── L'ÉTIQUETTE D'ARTBOARD EST LA POIGNÉE DE LA PAGE (Rodolf,
+					//    01/09, comportement Figma/Lunacy) : un CLIC la SÉLECTIONNE
+					//    (pas de forage — l'étiquette désigne le cadre entier), un
+					//    GLISSER depuis elle DÉPLACE la page entière dans la toile
+					//    infinie (posX/posY ; les enfants sont RELATIFS, ils
+					//    suivent sans une écriture). Le DOUBLE-clic (renommage) est
+					//    traité AVANT et sort — pas de conflit de gestes ; et
+					//    pendant un renommage, le clic dans le champ appartient au
+					//    champ (tête de fonction), donc pas de drag.
+					//    Un déplacement = un pas d'annulation : le même MarkHumanEdit
+					//    que le déplacement au corps, coalescé par l'observateur.
+					for (uint32 fi = 0; fi < (uint32)mSt->doc.nodes.Size(); ++fi) {
+						const NkUINode &fn = mSt->doc.nodes[fi];
+						if (!StrEq(fn.shape.Data(), "frame") || !screen.Has((int32)fi))
+							continue;
+						const NkPaintRect fr2 = screen.At((int32)fi);
+						const NkPaintRect bande = {fr2.x, fr2.y - 26.f,
+												   fr2.w > 160.f ? fr2.w : 160.f, 22.f};
+						if (in.mouseX >= bande.x && in.mouseX < bande.x + bande.w
+							&& in.mouseY >= bande.y && in.mouseY < bande.y + bande.h) {
+							mSt->SelectSingle((int32)fi);
+							mForage = -1;
+							mMoving = true;
+							mMoveNode = (int32)fi;
+							// le pas de déplacement se mesure depuis CE point — sans
+							// cette pose, le premier delta sauterait depuis le
+							// dernier point connu d'un autre geste.
+							mLastX = in.mouseX;
+							mLastY = in.mouseY;
+							return;
+						}
+					}
 					// clic simple : au NIVEAU COURANT du forage (les freres du
 					// niveau ou l'on est) ; ailleurs = ressortie au 1er niveau.
 					int32 hit = NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY,
