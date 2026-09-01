@@ -102,6 +102,11 @@ namespace nkuidesign {
 			/// et leurs corps sont des constantes du kit — chantier nomme,
 			/// pas glisse.
 			float32 docScale = 1.f;
+			/// LA LANGUE ACTIVE d'apercu/edition (multilingue 01/09) : vide = la
+			/// langue principale (`texte`). Posee par la vue a chaque image — le
+			/// changement est A CHAUD, rien ne se recharge (les largeurs de
+			/// texte se mesurent au dessin, aucun cache a invalider ici).
+			nkentseu::NkString langueDoc;
 			/// Le noeud en cours d'EDITION EN PLACE (-1 = aucun) : son texte est
 			/// dessine par le champ superpose TRANSPARENT — le dessiner aussi ici
 			/// donnerait un double trait. Pose par la toile a chaque image.
@@ -608,17 +613,24 @@ namespace nkuidesign {
 				//    corps de base de la maquette (12, le --text-base) — c'est
 				//    aussi ce qui garde la couleur posée d'un texte sans taille
 				//    (l'ancien chemin la perdait en repliant sur le rôle).
-				const char *t = n.text.Data();
+				// LA LANGUE ACTIVE (multilingue 01/09) : le texte de la langue
+				// demandee ; MANQUANTE = repli VISIBLE — le texte principal en
+				// attenue (jamais un vide silencieux), et le Rapport compte.
+				bool traduit = true;
+				const char *t = n.TexteEn(host.langueDoc.Data(), &traduit);
 				const bool vide = !t || !*t;
-				const uint16 roleTexte = host.Role(vide ? "text_muted" : "doc_text");
+				const uint16 roleTexte = host.Role(vide || !traduit ? "text_muted" : "doc_text");
 				NkTextAlign al = NkTextAlign::Left;
 				if (StrEq(n.alignText.Data(), "centre"))
 					al = NkTextAlign::Center;
 				else if (StrEq(n.alignText.Data(), "droite"))
 					al = NkTextAlign::Right;
 				if (!vide) {
-					const uint32 rgba = n.textColor.Empty() ? p.ColorOf(roleTexte)
-															: NkGHexRGBA(n.textColor.Data());
+					// non traduit = attenue MEME si une couleur est posee : le
+					// repli doit se voir.
+					const uint32 rgba = (n.textColor.Empty() || !traduit)
+											? p.ColorOf(roleTexte)
+											: NkGHexRGBA(n.textColor.Data());
 					const float32 corps = (n.fontPx > 0.f ? n.fontPx : 12.f) * host.docScale;
 					p.TextHex(r, t, rgba, roleTexte, al, corps, n.fontWeight);
 				} else

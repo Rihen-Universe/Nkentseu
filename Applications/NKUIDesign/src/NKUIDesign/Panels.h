@@ -651,6 +651,10 @@ namespace nkuidesign {
 			/// section CIBLE, dessiné en overlay (main.cpp) ; le choix passe
 			/// par AppliquerFormat — une seule main sur le modèle.
 			menuformat::Etat menuFormat;
+			/// LA LANGUE ACTIVE d'apercu/edition (multilingue 01/09) : etat de
+			/// VUE (Save ne l'ecrit pas), vide = la langue principale. La
+			/// bascule est A CHAUD : l'hote la relit a chaque image.
+			NkString langueActive;
 
 			/// APPLIQUER UN FORMAT à une page : la cible s'écrit (« <nom> <L> x
 			/// <H> [note] » — la note dpi du papier fait partie de la cible),
@@ -1732,7 +1736,8 @@ namespace nkuidesign {
 					const int32 ne = mSt->editTexteInitial;
 					if (StrEq(mSt->doc.nodes[(uint32)ne].shape.Data(), "text")) {
 						mEditNode = ne;
-						const char *t0 = mSt->doc.nodes[(uint32)ne].text.Data();
+						const char *t0 =
+							mSt->doc.nodes[(uint32)ne].TexteEn(mSt->langueActive.Data());
 						snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
 						mSt->SelectSingle(ne);
 						Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
@@ -1955,6 +1960,7 @@ namespace nkuidesign {
 					// formes suit (corps pose x zoom), comme les rectangles qui
 					// arrivent deja projetes (correction du 31/08).
 					mSt->host.docScale = mSt->view.zoom;
+					mSt->host.langueDoc = mSt->langueActive; // bascule a chaud
 					// Le noeud en edition en place ne dessine pas son texte —
 					// le champ transparent le dessine a sa place.
 					mSt->host.editionNode =
@@ -2572,7 +2578,7 @@ namespace nkuidesign {
 								// (4e retour) — pas seulement la nature `text` :
 								// un rect a texte par defaut s'edite pareil.
 								mEditNode = cand;
-								const char *t0 = cn.text.Data();
+								const char *t0 = cn.TexteEn(mSt->langueActive.Data());
 								snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
 								mSt->SelectSingle(cand);
 								Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
@@ -2938,7 +2944,9 @@ namespace nkuidesign {
 						n.label = NkString(mEditBuf);
 						Dire("Page renommée — la Hiérarchie lit la même clé.", "", "");
 					} else {
-						n.text = NkString(mEditBuf);
+						// multilingue (01/09) : la frappe ecrit LA LANGUE ACTIVE
+						// (vide = la principale `texte`) — bascule a chaud.
+						n.PoserTexte(mSt->langueActive.Data(), mEditBuf);
 						Dire("Texte modifié.", "", "");
 					}
 					mSt->doc.MarkHumanEdit(mEditNode);

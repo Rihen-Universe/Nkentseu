@@ -365,6 +365,43 @@ namespace nkuidesign {
 			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient
 			/// « <nom> — <cible> ». Vide = l'étiquette historique (nom — L × H).
 			NkString target; ///< clé `cible`
+			/// ── LE MULTILINGUE DU DOCUMENT (mandat 01/09) ────────────────────
+			/// `texte` reste LA LANGUE PRINCIPALE (les anciens documents ne
+			/// bougent pas d'un octet) ; chaque autre langue est une clé
+			/// ADDITIVE `texte_<langue>` (« texte_en = Login »). Deux vecteurs
+			/// appariés : la langue (« en ») et son texte.
+			NkVector<NkString> texteLangues;
+			NkVector<NkString> texteTraduits;
+			/// Le texte pour `langue` (« » ou langue inconnue = principal).
+			/// `trouve` : faux quand la langue est demandée mais non traduite —
+			/// le repli doit se VOIR, pas se déduire.
+			const char *TexteEn(const char *langue, bool *trouve = nullptr) const {
+				if (trouve)
+					*trouve = true;
+				if (!langue || !*langue)
+					return text.Data();
+				for (uint32 i = 0; i < (uint32)texteLangues.Size(); ++i)
+					if (StrEq(texteLangues[i].Data(), langue))
+						return texteTraduits[i].Data();
+				if (trouve)
+					*trouve = false;
+				return text.Data();
+			}
+			/// Écrit (ou remplace) la traduction de `langue` ; langue vide =
+			/// le texte principal.
+			void PoserTexte(const char *langue, const char *t) {
+				if (!langue || !*langue) {
+					text = NkString(t ? t : "");
+					return;
+				}
+				for (uint32 i = 0; i < (uint32)texteLangues.Size(); ++i)
+					if (StrEq(texteLangues[i].Data(), langue)) {
+						texteTraduits[i] = NkString(t ? t : "");
+						return;
+					}
+				texteLangues.PushBack(NkString(langue));
+				texteTraduits.PushBack(NkString(t ? t : ""));
+			}
 			/// LA PARENTÉ DE TRANSPOSITION (tranche 1 du chantier Cible, 31/08) :
 			/// le LIBELLÉ de la page dont cette page est la version transposée
 			/// (« Generate Mobile » de Banani). Additive : absente du fichier
@@ -413,6 +450,10 @@ namespace nkuidesign {
 			NkString title = NkString("Interface sans titre");
 			NkProvenance prov; ///< la provenance du DOCUMENT (qui l'a cree)
 			NkVector<NkUINode> nodes;
+			/// LES LANGUES SUPPLEMENTAIRES declarees par le document (mandat
+			/// multilingue 01/09) : la principale n'a pas de code (c'est `texte`).
+			/// Vide = document monolingue — il se reenregistre octet pour octet.
+			NkVector<NkString> langues;
 
 			// ── LE PROPRIETAIRE DES NOMS PORTES PAR LES TYPES DU KIT ───────────
 			// `NkSizeDecl::valueMetric` est un `const char*` (cf. NkDocStringPool.h).
@@ -531,6 +572,7 @@ namespace nkuidesign {
 				pool.Clear();
 				title = NkString(docTitle && *docTitle ? docTitle : "Interface sans titre");
 				prov = NkProvenance();
+				langues.Clear();
 				prov.author = by;
 				// Les deux metriques que tout document possede. Elles existent des la
 				// creation parce qu'un agencement les DESIGNE par leur nom : un document
@@ -861,6 +903,17 @@ namespace nkuidesign {
 				out.Append("origine = ");
 				out.Append(prov.origin);
 				out.Append('\n');
+				// Les langues SUPPLEMENTAIRES du document (multilingue 01/09) --
+				// la ligne n'existe que si le document en declare : un document
+				// monolingue se reenregistre octet pour octet.
+				if (langues.Size() > 0) {
+					out.Append("langues =");
+					for (uint32 i = 0; i < (uint32)langues.Size(); ++i) {
+						out.Append(' ');
+						out.Append(langues[i].Data());
+					}
+					out.Append('\n');
+				}
 				// Les metriques DU DOCUMENT. Elles precedent les noeuds parce que les
 				// noeuds les designent par leur nom : un fichier se lit alors de haut
 				// en bas sans jamais avoir a revenir en arriere.
@@ -924,6 +977,16 @@ namespace nkuidesign {
 						Field(out, "forme", n.shape.Data());
 					if (!n.text.Empty())
 						Field(out, "texte", n.text.Data());
+					// Les traductions ADDITIVES (multilingue 01/09) : une cle
+					// `texte_<langue>` par langue posee — absentes d'un document
+					// monolingue, qui se reenregistre octet pour octet.
+					for (uint32 tl = 0; tl < (uint32)n.texteLangues.Size(); ++tl) {
+						out.Append("  texte_");
+						out.Append(n.texteLangues[tl].Data());
+						out.Append(" = ");
+						out.Append(n.texteTraduits[tl].Data());
+						out.Append('\n');
+					}
 					// Le RÔLE (Banani §4.3, écran 5/6) : même règle que la nature —
 					// écrit seulement s'il existe, un document d'avant se
 					// réenregistre octet pour octet.
@@ -991,6 +1054,7 @@ namespace nkuidesign {
 				metrics.Clear();
 				title = NkString("");
 				prov = NkProvenance();
+				langues.Clear();
 
 				bool sawHeader = false;
 				bool inNode = false;
@@ -1042,7 +1106,21 @@ namespace nkuidesign {
 							prov.corrected = val[0] == '1';
 						else if (StrEq(key, "origine"))
 							prov.origin = NkString(val);
-						else if (StrEq(key, "metrique")) {
+						else if (StrEq(key, "langues")) {
+							// la liste des codes de langue, separes par des espaces
+							const char *q = val;
+							while (*q) {
+								while (*q == ' ')
+									++q;
+								char code[16];
+								uint32 ci = 0;
+								while (*q && *q != ' ' && ci + 1 < sizeof(code))
+									code[ci++] = *q++;
+								code[ci] = 0;
+								if (ci)
+									langues.PushBack(NkString(code));
+							}
+						} else if (StrEq(key, "metrique")) {
 							// `metrique <nom> = <valeur>` : le nom est colle a la cle, il
 							// faut donc le detacher ici plutot que dans l'analyseur general,
 							// qui ne connait qu'un couple cle/valeur.
@@ -1055,6 +1133,11 @@ namespace nkuidesign {
 						NkUINode &n = nodes[(uint32)nodes.Size() - 1];
 						if (StrEq(key, "libelle"))
 							n.label = NkString(val);
+						else if (key[0] == 't' && key[1] == 'e' && key[2] == 'x' && key[3] == 't'
+								 && key[4] == 'e' && key[5] == '_' && key[6]
+								 && !StrEq(key + 6, "aligne")) // texte_aligne = alignement, pas une langue
+							// une traduction ADDITIVE `texte_<langue>` (multilingue 01/09)
+							n.PoserTexte(key + 6, val);
 						else if (StrEq(key, "composant")) {
 							n.component = NkString(val);
 							if (val[0]) {
@@ -1297,6 +1380,11 @@ namespace nkuidesign {
 				title = o.title;
 				prov = o.prov;
 				metrics = o.metrics;
+				// ⚠️ CHAQUE CHAMP NOUVEAU DU DOCUMENT DOIT PASSER ICI — defaut
+				//    paye le 01/09 : `langues` oublie, l'annulation d'une langue
+				//    declaree laissait la ligne dans le document restaure (la
+				//    copie est ECRITE A LA MAIN a cause du pool).
+				langues = o.langues;
 				nodes = o.nodes;
 				pool.Clear();
 				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)

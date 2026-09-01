@@ -353,6 +353,25 @@ static nkentseu::int32 RecetteAnnulation() {
 			++echecs;
 	}
 
+	// 12. LE MULTILINGUE (01/09) : declarer une langue + poser une traduction
+	//     est UN geste annulable, et l'aller-retour par la serialisation prouve
+	//     que les cles additives (`langues`, `texte_<langue>`) SURVIVENT a
+	//     Save -> Load -> Save octet pour octet (l'annulation restaure par Load).
+	avantGeste();
+	{
+		st.doc.langues.PushBack(NkString("en"));
+		const int32 tx = st.doc.AddChild(0, "", NkAuthor::Humain);
+		if (st.doc.IsValidIndex(tx)) {
+			NkUINode &n = st.doc.nodes[(uint32)tx];
+			n.label = NkString("Texte multilingue");
+			n.shape = NkString("text");
+			n.text = NkString("Bonjour");
+			n.PoserTexte("en", "Hello");
+			st.doc.MarkHumanEdit(tx);
+		}
+	}
+	apresGeste("multilingue (langue declaree + traduction)");
+
 	// LA CONTRE-EPREUVE : N gestes, N Annuler -> l'etat initial EXACT.
 	for (int32 i = 0; i < gestes; ++i)
 		st.Annuler();
@@ -517,6 +536,26 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 				nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f, cy, hb, ctx.theme.textMuted);
 				cy += 20.f;
 			}
+		}
+		// LES TEXTES SANS TRADUCTION dans la langue active (multilingue 01/09) :
+		// le repli est visible sur la toile (attenue), et il se COMPTE ici.
+		if (!gDesign.langueActive.Empty()) {
+			nkentseu::int32 manquants = 0;
+			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)gDesign.doc.nodes.Size(); ++i) {
+				const auto &nd = gDesign.doc.nodes[i];
+				if (nd.text.Empty())
+					continue;
+				bool traduit = true;
+				(void)nd.TexteEn(gDesign.langueActive.Data(), &traduit);
+				if (!traduit)
+					++manquants;
+			}
+			char lb[96];
+			snprintf(lb, sizeof(lb), "%d texte(s) sans traduction en « %s ».", manquants,
+					 gDesign.langueActive.Data());
+			nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f, cy, lb,
+									   manquants > 0 ? ctx.theme.text : ctx.theme.textMuted);
+			cy += 20.f;
 		}
 		// LES CONSTATS RÉELS de la dernière transposition (« Générer la
 		// version mobile ») : le rapport a cessé d'être vide le jour où la
@@ -1003,6 +1042,47 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 			EndMenu(ctx);
 		}
 		MenuItem(ctx, "Curseur…", nullptr, false);
+		Separator(ctx);
+		// ── LA LANGUE DU DOCUMENT (multilingue, 01/09) ─────────────────────
+		// Le selecteur vit ICI : ni Banani ni Lunacy n'en montrent un (leurs
+		// captures n'ont pas d'i18n) — la langue est une CIBLE de l'interface
+		// concue, comme l'appareil. Bascule A CHAUD : la coche suit, l'apercu
+		// et l'edition en place suivent a l'image meme. « Ajouter » declare la
+		// langue au DOCUMENT (cle additive `langues`, annulable).
+		if (BeginMenu(ctx, "Langue du document")) {
+			const bool principale = gDesign.langueActive.Empty();
+			if (MenuItem(ctx, "Principale (texte)", nullptr, true, principale))
+				gDesign.langueActive = NkString();
+			for (nkentseu::uint32 li = 0; li < (nkentseu::uint32)gDesign.doc.langues.Size();
+				 ++li) {
+				const char *code = gDesign.doc.langues[li].Data();
+				const bool active =
+					!principale && NkComponentDecl::StrEq(gDesign.langueActive.Data(), code);
+				if (MenuItem(ctx, code, nullptr, true, active))
+					gDesign.langueActive = nkentseu::NkString(code);
+			}
+			Separator(ctx);
+			static const char *const kLangues[3] = {"en", "es", "de"};
+			for (int32 la = 0; la < 3; ++la) {
+				bool deja = false;
+				for (nkentseu::uint32 li = 0;
+					 li < (nkentseu::uint32)gDesign.doc.langues.Size(); ++li)
+					if (NkComponentDecl::StrEq(gDesign.doc.langues[li].Data(), kLangues[la]))
+						deja = true;
+				if (deja)
+					continue;
+				char lib[32];
+				snprintf(lib, sizeof(lib), "Ajouter « %s »", kLangues[la]);
+				if (MenuItem(ctx, lib)) {
+					gDesign.doc.langues.PushBack(nkentseu::NkString(kLangues[la]));
+					gDesign.doc.MarkHumanEdit(0);
+					gDesign.langueActive = nkentseu::NkString(kLangues[la]);
+					gDesign.status = NkString("Langue ajoutée au document — les textes non "
+											  "traduits s'affichent atténués (voir le Rapport).");
+				}
+			}
+			EndMenu(ctx);
+		}
 		Separator(ctx);
 		MenuItem(ctx, "Points de rupture…", nullptr, false);
 		MenuItem(ctx, "Aperçu multi-cibles", nullptr, false);
@@ -1531,6 +1611,13 @@ int nkmain(const NkEntryState &state) {
 			// --annuler=N / --retablir=N : N pas d'annulation/retablissement au
 			// lancement (apres les gestes injectes --clic) — le levier de preuve
 			// UI de l'annulation ; la batterie complete est --recette-annulation.
+			// --langue=xx : la langue active d'apercu posee au lancement (mise
+			// en scene du multilingue — la bascule reelle passe par le menu
+			// Cible > Langue du document).
+			if (arg.StartsWith("--langue=")) {
+				gDesign.langueActive = arg.SubStr(9);
+				continue;
+			}
 			// --frappe=texte:frame — les codepoints ASCII poses dans l'input a
 			// cette trame (preuve des saisies en place ; ':' separe, donc
 			// interdit dans le texte).
