@@ -809,6 +809,248 @@ static nkentseu::int32 RecetteGestes() {
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  --recette-snap : L'AIMANTATION (Lunacy) PROUVEE PAR SES NOMBRES
+// ═════════════════════════════════════════════════════════════════════════════
+// Le VRAI `NkCalculerSnap`, celui que le glisser appelle. Sans fenetre ni GPU.
+//
+// ⚠️ C'EST POUR CETTE RECETTE QUE LE CALCUL A ETE SORTI DE `OnUI`. Ecrit dans
+//    le panneau, il aurait vecu la ou aucun banc ne va — la faute que Q41 a
+//    relevee sur le zoom et le deplacement (« restes trois etapes sans preuve,
+//    et j'ai annonce qu'ils marchaient sans l'avoir vu »). Ce qui reste hors de
+//    portee ici, et la recette le dit : le DESSIN du guide et la bascule de
+//    l'aimant, qui se jugent a la capture et au releve `canvas.snap`.
+static nkentseu::int32 RecetteSnap() {
+	using namespace nkuidesign;
+	using nkentseu::int32;
+	using nkentseu::uint32;
+	int32 cas = 0, echecs = 0;
+	auto verdict = [&](const char *nom, bool ok, const char *detail) {
+		++cas;
+		printf("%s  %s%s%s\n", ok ? "OK   " : "ECHEC", nom, (detail && *detail) ? "  -- " : "",
+			   (detail && *detail) ? detail : "");
+		if (!ok)
+			++echecs;
+	};
+	static DesignState st;
+	const NkPaintRect surface = {0.f, 0.f, 1200.f, 800.f};
+	int32 cadre = -1;
+	auto poser = [&](const char *nom, float32 x, float32 y, float32 w, float32 h) -> int32 {
+		const int32 i = st.doc.AddChild(cadre, "", NkAuthor::Humain);
+		NkUINode &n = st.doc.nodes[(uint32)i];
+		n.label = NkString(nom);
+		n.shape = NkString("rect");
+		n.posX = x;
+		n.posY = y;
+		n.width.mode = NkSizeMode::Fixed;
+		n.width.value = w;
+		n.height.mode = NkSizeMode::Fixed;
+		n.height.value = h;
+		return i;
+	};
+	// La scene : une page 0..600 x 0..400, un voisin fixe, un mobile.
+	auto scene = [&](int32 &voisin, int32 &mobile) {
+		st.doc.NewDocument("recette snap", NkAuthor::Humain);
+		cadre = st.doc.AddChild(0, "", NkAuthor::Humain);
+		{
+			NkUINode &c = st.doc.nodes[(uint32)cadre];
+			c.label = NkString("Page");
+			c.shape = NkString("frame");
+			c.layout.kind = NkLayoutKind::Free;
+			c.posX = 0.f;
+			c.posY = 0.f;
+			c.width.mode = NkSizeMode::Fixed;
+			c.width.value = 600.f;
+			c.height.mode = NkSizeMode::Fixed;
+			c.height.value = 400.f;
+		}
+		voisin = poser("Voisin", 100.f, 100.f, 80.f, 60.f);
+		mobile = poser("Mobile", 300.f, 250.f, 40.f, 30.f);
+		st.Recompute(surface);
+	};
+	// Le rectangle du mobile, DEPLACE de (dx,dy) : exactement ce que le geste
+	// donne au calcul.
+	auto rectDe = [&](int32 n, float32 dx, float32 dy) {
+		NkPaintRect r = st.layout.At(n);
+		r.x += dx;
+		r.y += dy;
+		return r;
+	};
+	const float32 tol6 = 6.f; // 6 px ecran au zoom 1
+
+	int32 voisin = -1, mobile = -1;
+	// ── 1. BORD GAUCHE contre BORD GAUCHE, a 3 px : ca colle EXACTEMENT
+	scene(voisin, mobile);
+	{
+		const NkPaintRect rv = st.layout.At(voisin);
+		const NkPaintRect rm = st.layout.At(mobile);
+		// on amene le mobile a 3 px a droite du bord gauche du voisin
+		const float32 dx = (rv.x + 3.f) - rm.x;
+		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), tol6);
+		const bool ok = s.guideV.actif && s.dx == -3.f && s.guideV.coord == rv.x
+						&& s.guideV.voisin == voisin;
+		char d[128];
+		snprintf(d, sizeof(d), "dx=%.1f (attendu -3), guide x=%.1f (bord voisin %.1f), voisin=%d",
+				 s.dx, s.guideV.coord, rv.x, s.guideV.voisin);
+		verdict("bord a 3 px du bord voisin : snap EXACT, guide sur le bord", ok, d);
+	}
+	// ── 2. HORS TOLERANCE : rien ne bouge, et AUCUN guide (le controle negatif
+	//    sans lequel le cas 1 ne prouve rien : un aimant qui colle toujours
+	//    passerait le cas 1 les yeux fermes)
+	// ⚠️ 33 px, ET LE CHIFFRE EST CHOISI. La premiere version disait 20 px et
+	//    ECHOUAIT -- non par un defaut du calcul, mais parce qu a 20 px de son
+	//    bord gauche le mobile avait son CENTRE exactement sur le centre du
+	//    voisin : un vrai alignement, correctement detecte. La lecon vaut d etre
+	//    ecrite : dans un banc d aimantation, une scene mal choisie fabrique des
+	//    alignements par accident, et on accuse le code. A 33 px, le candidat le
+	//    plus proche tombe a 7 px -- JUSTE au-dela des 6 de tolerance, ce qui
+	//    fait de ce cas une borne et plus seulement un contre-exemple.
+	{
+		const NkPaintRect rv = st.layout.At(voisin);
+		const NkPaintRect rm = st.layout.At(mobile);
+		const float32 dx = (rv.x + 33.f) - rm.x;
+		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), tol6);
+		char d[96];
+		snprintf(d, sizeof(d), "dx=%.1f, guideV=%s", s.dx, s.guideV.actif ? "oui" : "non");
+		verdict("a 33 px (candidat le plus proche a 7) : RIEN ne colle, aucun guide",
+				s.dx == 0.f && !s.guideV.actif, d);
+	}
+	// ── 3. AIMANT ETEINT : la tolerance tombe a zero, plus rien ne colle
+	{
+		const NkPaintRect rv = st.layout.At(voisin);
+		const NkPaintRect rm = st.layout.At(mobile);
+		const float32 dx = (rv.x + 3.f) - rm.x;
+		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), 0.f);
+		char d[96];
+		snprintf(d, sizeof(d), "dx=%.1f, aimante=%s", s.dx, s.Aimante() ? "oui" : "non");
+		verdict("aimant eteint (tolerance nulle) : le meme geste ne colle plus",
+				s.dx == 0.f && !s.Aimante(), d);
+	}
+	// ── 4. LA TOLERANCE SE DIVISE PAR LE ZOOM. 6 px ecran au zoom 4 = 1,5 unite
+	//    document : un ecart de 3 unites, qui collait au zoom 1, ne colle plus.
+	{
+		const NkPaintRect rv = st.layout.At(voisin);
+		const NkPaintRect rm = st.layout.At(mobile);
+		const float32 dx = (rv.x + 3.f) - rm.x;
+		st.view.zoom = 4.f;
+		const float32 tolZoom4 = st.view.ToDocLength(DesignState::kSnapTolEcran);
+		const NkSnapResultat s =
+			NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), tolZoom4);
+		st.view.zoom = 1.f;
+		char d[112];
+		snprintf(d, sizeof(d), "tolerance zoom 4 = %.2f unites, dx=%.1f", tolZoom4, s.dx);
+		verdict("la tolerance suit le ZOOM : 3 unites ne collent plus au zoom 4",
+				tolZoom4 == 1.5f && s.dx == 0.f, d);
+	}
+	// ── 5. CENTRE contre CENTRE
+	scene(voisin, mobile);
+	{
+		const NkPaintRect rv = st.layout.At(voisin);
+		const NkPaintRect rm = st.layout.At(mobile);
+		const float32 cv = rv.y + rv.h * 0.5f;
+		const float32 cm = rm.y + rm.h * 0.5f;
+		const float32 dy = (cv + 2.f) - cm; // centre du mobile a 2 px sous celui du voisin
+		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, 0.f, dy), tol6);
+		char d[112];
+		snprintf(d, sizeof(d), "dy=%.1f (attendu -2), guide y=%.1f (centre voisin %.1f)", s.dy,
+				 s.guideH.coord, cv);
+		verdict("centre contre centre : le guide se pose sur le CENTRE du voisin",
+				s.guideH.actif && s.dy == -2.f && s.guideH.coord == cv, d);
+	}
+	// ── 6. LA PAGE aimante aussi (bord gauche du cadre)
+	scene(voisin, mobile);
+	{
+		const NkPaintRect rp = st.layout.At(cadre);
+		const NkPaintRect rm = st.layout.At(mobile);
+		const float32 dx = (rp.x + 4.f) - rm.x;
+		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), tol6);
+		char d[112];
+		snprintf(d, sizeof(d), "dx=%.1f (attendu -4), voisin=%d (-1 = la page)", s.dx,
+				 s.guideV.voisin);
+		verdict("la PAGE aimante comme un voisin, et le guide le dit (voisin = -1)",
+				s.guideV.actif && s.dx == -4.f && s.guideV.voisin == -1, d);
+	}
+	// ── 7. L'ESPACEMENT EGAL, avec son BADGE de distance
+	{
+		st.doc.NewDocument("recette snap", NkAuthor::Humain);
+		cadre = st.doc.AddChild(0, "", NkAuthor::Humain);
+		{
+			NkUINode &c = st.doc.nodes[(uint32)cadre];
+			c.label = NkString("Page");
+			c.shape = NkString("frame");
+			c.layout.kind = NkLayoutKind::Free;
+			c.width.mode = NkSizeMode::Fixed;
+			c.width.value = 600.f;
+			c.height.mode = NkSizeMode::Fixed;
+			c.height.value = 400.f;
+		}
+		// A finit a 100, B commence a 300 : 200 px libres, le mobile fait 40 ->
+		// 160 de libre, donc 80 de chaque cote. La position egale est x = 180.
+		poser("A", 40.f, 50.f, 60.f, 30.f);
+		poser("B", 300.f, 50.f, 60.f, 30.f);
+		const int32 m = poser("Mobile", 176.f, 50.f, 40.f, 30.f); // a 4 px de la place egale
+		st.Recompute(surface);
+		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, m, st.layout.At(m), tol6);
+		const NkPaintRect rp = st.layout.At(cadre);
+		char d[144];
+		snprintf(d, sizeof(d), "dx=%.1f (attendu 4), badge=%s, ecart=%.1f (attendu 80)", s.dx,
+				 s.guideV.badge ? "oui" : "non", s.guideV.ecart);
+		verdict("espacement EGAL : la place du milieu aimante, et l'ecart se DIT",
+				s.guideV.actif && s.dx == 4.f && s.guideV.badge && s.guideV.ecart == 80.f
+					&& s.guideV.coord == rp.x + 180.f,
+				d);
+	}
+	// ── 8. ON NE S'AIMANTE PAS SUR SOI-MEME NI SUR SON DESCENDANT
+	//    (un descendant BOUGE AVEC le noeud : il collerait toujours, et
+	//    n'alignerait rien — le snap qui ne sert a rien mais qui bloque tout)
+	{
+		st.doc.NewDocument("recette snap", NkAuthor::Humain);
+		cadre = st.doc.AddChild(0, "", NkAuthor::Humain);
+		{
+			NkUINode &c = st.doc.nodes[(uint32)cadre];
+			c.label = NkString("Page");
+			c.shape = NkString("frame");
+			c.layout.kind = NkLayoutKind::Free;
+			c.width.mode = NkSizeMode::Fixed;
+			c.width.value = 600.f;
+			c.height.mode = NkSizeMode::Fixed;
+			c.height.value = 400.f;
+		}
+		// ⚠️ (233, 155) N EST PAS UN CHIFFRE AU HASARD. A (200, 200) ce cas
+		//    ECHOUAIT : le bord haut du mobile tombait pile sur le CENTRE
+		//    vertical de la page (400 / 2). Le calcul avait raison, la scene
+		//    avait tort. Ici le mobile est loin des trois reperes de chaque axe
+		//    de la page -- donc le SEUL candidat a portee est son propre enfant,
+		//    a 2 px. S il collait, ce cas le dirait.
+		const int32 m = poser("Mobile", 233.f, 155.f, 40.f, 30.f);
+		st.doc.nodes[(uint32)m].layout.kind = NkLayoutKind::Free;
+		const int32 enf = st.doc.AddChild(m, "", NkAuthor::Humain);
+		{
+			NkUINode &e = st.doc.nodes[(uint32)enf];
+			e.label = NkString("Enfant");
+			e.shape = NkString("rect");
+			e.posX = 2.f;
+			e.posY = 2.f;
+			e.width.mode = NkSizeMode::Fixed;
+			e.width.value = 10.f;
+			e.height.mode = NkSizeMode::Fixed;
+			e.height.value = 10.f;
+		}
+		st.Recompute(surface);
+		// seul le mobile et son enfant existent : aucun voisin, et la page est
+		// loin (bords a 0 et 600). Rien ne doit coller.
+		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, m, st.layout.At(m), tol6);
+		char d[96];
+		snprintf(d, sizeof(d), "dx=%.1f dy=%.1f, aimante=%s", s.dx, s.dy,
+				 s.Aimante() ? "oui" : "non");
+		verdict("ni soi-meme ni son enfant : au milieu de la page, rien ne colle",
+				!s.Aimante(), d);
+	}
+	printf("\nRECETTE SNAP : %d/%d %s\n", cas - echecs, cas,
+		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
+	return echecs == 0 ? 0 : 1;
+}
 // ⚠️ POSE EN OVERLAY, ET C'EST LE SEUL ENDROIT QUI CONVIENT : il est appele
 //    APRES tous les panneaux, donc tous les rectangles de l'image sont deja
 //    enregistres. Le poser dans un panneau publierait un registre a moitie
@@ -1169,6 +1411,16 @@ static struct {
 static struct {
 	float32 x1 = 0.f, y1 = 0.f, x2 = 0.f, y2 = 0.f;
 	int32 frame = -1, duree = 12;
+	// ⚠️ NE PAS RELACHER (suffixe `:t`) -- L'INSTRUMENT QUI MANQUAIT POUR
+	//    MESURER UN ETAT *PENDANT* UN GESTE. Le releve s'ecrit a chaque image,
+	//    mais certains etats ne vivent QUE pendant le geste et meurent au
+	//    relacher : les guides d'aimantation en sont. Mesure du 01/09 : un
+	//    glisser qui amenait une page pile sur le bord de sa voisine laissait
+	//    `canvas.snap` a « aucun guide » -- non parce que l'aimant avait rate,
+	//    mais parce qu'il avait FINI. Sans ce drapeau, la seule facon de voir
+	//    le guide au releve aurait ete de le faire SURVIVRE a son geste,
+	//    c'est-a-dire de casser le comportement pour pouvoir le mesurer.
+	bool tenir = false;
 } gGlissers[2];
 // ── MOLETTE INJECTEE (mesure, 01/09) : --molette=x:y:delta:frame ─────────────
 // Le defilement a la molette, pose a une position donnee (le survol decide
@@ -1246,6 +1498,13 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			const float32 t = (float32)(compteur - f0) / (float32)(fn - f0);
 			ctx.input.mousePos = {gGlissers[i].x1 + (gGlissers[i].x2 - gGlissers[i].x1) * t,
 								  gGlissers[i].y1 + (gGlissers[i].y2 - gGlissers[i].y1) * t};
+			ctx.input.mouseDown[0] = true;
+			ctx.input.mouseClicked[0] = false;
+		} else if (compteur > fn && gGlissers[i].tenir) {
+			// `:t` : on TIENT -- la souris reste a l'arrivee, bouton enfonce. Le
+			// geste ne se termine jamais, donc son etat vif reste lisible au
+			// releve aussi longtemps que l'application tourne.
+			ctx.input.mousePos = {gGlissers[i].x2, gGlissers[i].y2};
 			ctx.input.mouseDown[0] = true;
 			ctx.input.mouseClicked[0] = false;
 		} else if (compteur == fn + 1) {
@@ -1420,7 +1679,12 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 		MenuItem(ctx, "Ajuster à la page", "Maj+1", false);
 		Separator(ctx);
 		MenuItem(ctx, "Grille", "Ctrl+'", false, true);
-		MenuItem(ctx, "Magnétisme", "Ctrl+;", false, true);
+		// CÂBLÉ (01/09) : la coche LIT l'état réel. ⚠️ Elle était posée à `true`
+		// en dur — une case toujours cochée à côté d'un aimant qui ne faisait
+		// rien : exactement le « paramètre déclaré qui n'est pas honoré » que ce
+		// dépôt a mesuré huit fois cette semaine.
+		if (MenuItem(ctx, "Magnétisme", "Ctrl+;", true, gDesign.aimantActif))
+			gDesign.aimantActif = !gDesign.aimantActif;
 		MenuItem(ctx, "Règles", nullptr, false, false);
 		MenuItem(ctx, "Repères intelligents", nullptr, false, true);
 		Separator(ctx);
@@ -2206,6 +2470,11 @@ int nkmain(const NkEntryState &state) {
 							++q;
 						if (*q == ':')
 							gGlissers[gi].duree = (int32)atof(++q);
+						// suffixe `:t` -- la souris reste ENFONCEE a l'arrivee
+						while (*q && *q != ':')
+							++q;
+						if (*q == ':' && (q[1] == 't' || q[1] == 'T'))
+							gGlissers[gi].tenir = true;
 						break;
 					}
 				continue;
@@ -2241,6 +2510,16 @@ int nkmain(const NkEntryState &state) {
 			}
 			if (NkComponentDecl::StrEq(a, "--zone-sure")) {
 				gDesign.zoneSure = true;
+				continue;
+			}
+			// --aimant=0|1 : poser le magnétisme au lancement. ⚠️ CE LEVIER
+			// EXISTE POUR LE CONTRÔLE NÉGATIF, et c'est sa seule raison : « le
+			// même glisser, aimant éteint, ne colle plus » ne se mesure pas si
+			// l'état ne s'atteint qu'en cliquant un bouton dont il faut d'abord
+			// deviner les coordonnées. Un cas vert n'apprend rien sans son cas
+			// rouge tiré du MÊME banc.
+			if (arg.StartsWith("--aimant=")) {
+				gDesign.aimantActif = (atof(a + 9) != 0.0);
 				continue;
 			}
 			if (arg.StartsWith("--toile-seule")) {
@@ -2335,6 +2614,10 @@ int nkmain(const NkEntryState &state) {
 		// prouves par leur EFFET, et « un geste = un pas » — sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-gestes"))
 			return RecetteGestes();
+		// L'aimantation Lunacy (bords, centres, page, espacements egaux) prouvee
+		// par ses nombres -- sans fenetre ni GPU.
+		if (NkComponentDecl::StrEq(a, "--recette-snap"))
+			return RecetteSnap();
 		// Meme raison que ci-dessus : le pool de chaines du document ne touche ni
 		// au GPU ni a l ecran. Il porte les noms de metrique que le kit declare
 		// en const char* et que personne ne possedait a la relecture.
@@ -2444,6 +2727,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --recette-annulation    la batterie de preuve de l'annulation (§7)");
 			puts("  --recette-edition       le contrat universel d'edition, par site");
 			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
+			puts("  --recette-snap          l'aimantation (bords, centres, espacements égaux)");
 			puts("  --annuler=N             N pas d'annulation au lancement (preuve UI)");
 			puts("  --retablir=N            N pas de retablissement apres --annuler");
 			puts("  --recette-ia            la preuve de recette du pipeline IA");
@@ -2459,7 +2743,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --editer-texte=<n>      ouvrir l'édition en place sur le nœud texte n (mise en scène)");
 			puts("  --frappe=texte:frame    injecter des codepoints ASCII à cette trame (preuve de saisie)");
 			puts("  --touche=nom:frame      injecter entree|echap|retour à cette trame");
-			puts("  --glisser=x1:y1:x2:y2:frame[:duree]  injecter un drag (preuve de geste)");
+			puts("  --glisser=x1:y1:x2:y2:frame[:duree[:t]]  injecter un drag (`t` = ne pas relâcher)");
 			puts("  --molette=x:y:delta:frame  injecter un cran de molette à cette position");
 			puts("  --document=<chemin>     charger ce document au lancement (mise en scène)");
 			puts("  --lignes=v<f>,h<px>     lignes de magnétisme figées (mise en scène)");
@@ -2467,6 +2751,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --vue=x<px>,y<px>,z<f>  poser pan/zoom de la vue au lancement (mesure)");
 			puts("  --tiroir=<c>:<n>        ouvrir un tiroir de rail (d/g/b, mise en scène)");
 			puts("  --zone-sure             afficher la zone sûre des cadres Mobile");
+			puts("  --aimant=0|1            poser le magnétisme au lancement (contrôle négatif)");
 			puts("  --inspecteur-onglet=<n> ouvrir cet onglet d'Inspecteur (mise en scène)");
 			return 2;
 		}

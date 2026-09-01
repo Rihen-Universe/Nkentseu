@@ -61,6 +61,7 @@
 #include "MenuFormat.h" // le catalogue des formats de page (chantier Cible, 31/08)
 #include "MenuRole.h" // le menu des rôles (écrans 5-6-7) — le geste « promouvoir »
 #include "Selection.h"
+#include "Snap.h" // l'aimantation Lunacy — un MECANISME, pas un dessin
 #include "DesignAI.h"
 #include "Renderers.h"
 
@@ -944,8 +945,24 @@ namespace nkuidesign {
 			/// Lignes de magnétisme FIGÉES (mise en scène, levier `--lignes=`) :
 			/// la maquette fige un instantané de geste — verticale en FRACTION de
 			/// la toile (0..1), horizontale en PIXELS depuis son haut. -1 = rien.
+			/// ⚠️ CE SONT DES DÉCORS, PAS LE MAGNÉTISME. Ils existaient avant lui
+			///    et servaient aux captures ; le vrai aimant vit dans `snapVif`,
+			///    ci-dessous, et il est CALCULÉ. Les confondre ferait passer une
+			///    mise en scène pour une mesure.
 			float32 ligneV = -1.f;
 			float32 ligneH = -1.f;
+			/// ── LE MAGNÉTISME (Lunacy) ───────────────────────────────────────
+			/// L'aimant du cluster de zoom le bascule. Vrai par défaut : c'est
+			/// l'état de Lunacy au démarrage, et un aimant qu'il faut allumer
+			/// n'est jamais allumé.
+			bool aimantActif = true;
+			/// Le résultat VIVANT du geste en cours — les guides à peindre.
+			/// Remis à zéro au relâcher : un guide qui survit à son geste est un
+			/// trait qui ment.
+			NkSnapResultat snapVif;
+			/// Tolérance d'aimantation, en pixels ÉCRAN (÷ zoom avant l'appel).
+			/// 6 px : la valeur de Lunacy à la mesure de ses captures.
+			static constexpr float32 kSnapTolEcran = 6.f;
 			/// Afficher la ZONE SURE des cadres a cible Mobile (ecrans 11/12,
 			/// pilote par le menu Cible a terme ; levier --zone-sure).
 			bool zoneSure = false;
@@ -2182,6 +2199,16 @@ namespace nkuidesign {
 				//    d'écriture — la toile décide, l'état partagé rapporte.
 				mSt->editionToile = mSt->doc.IsValidIndex(mEditNode) ? mEditNode : -1;
 				mSt->forageToile = mForage;
+				// L'AIMANT SE PUBLIE : sans ca il serait invisible a la mesure —
+				// un guide qui se peint et disparait en une image ne se prouve
+				// pas a la capture. Quatre nombres : aimant on/off, guide
+				// vertical (coord ou -99999 si aucun), guide horizontal, ecart.
+				nkgui::NkGuiNoterMesure(
+					ctx, "canvas.snap", mSt->aimantActif ? 1.f : 0.f,
+					mSt->snapVif.guideV.actif ? mSt->snapVif.guideV.coord : -99999.f,
+					mSt->snapVif.guideH.actif ? mSt->snapVif.guideH.coord : -99999.f,
+					mSt->snapVif.guideV.actif ? mSt->snapVif.guideV.ecart
+											  : mSt->snapVif.guideH.ecart);
 
 				// ── RACCOURCIS D'OUTILS AU VRAI CLAVIER (Lunacy : V F R O L T) ──
 				// ⚠️ MESURE DU 30/08 (Rodolf : « les F glisser et autres ne
@@ -2444,6 +2471,45 @@ namespace nkuidesign {
 						p2.Fill({area.x + area.w * mSt->ligneV, area.y, 1.f, area.h}, rose, 0.f);
 					if (mSt->ligneH >= 0.f)
 						p2.Fill({area.x, area.y + mSt->ligneH, area.w, 1.f}, rose, 0.f);
+				}
+				// ── LES GUIDES VIVANTS DE L'AIMANT (Lunacy) ──────────────────
+				// ⚠️ LE CALCUL N'EST PAS ICI : `snapVif` a ete rempli par le
+				//    geste, avec le mecanisme de Snap.h. Ce bloc PEINT, et rien
+				//    d'autre — c'est ce qui rend l'aimantation mesurable sans
+				//    ecran (la recette exerce le calcul, la capture juge le
+				//    trait).
+				// 1 px, couleur `snap_line` : la ligne de Lunacy, fine et unie.
+				// Les coordonnees sont en espace DOCUMENT et passent par LA vue,
+				// jamais par une conversion locale.
+				if (mSt->snapVif.Aimante()) {
+					const uint16 rose = NkDesignResolveRole("snap_line");
+					NkDesignPaint p3(ctx, mSt->theme);
+					auto badge = [&](float32 cx, float32 cy, float32 val) {
+						char t[16];
+						snprintf(t, sizeof(t), "%d", (int32)(val + 0.5f));
+						const float32 w = costume::Largeur(costume::Fontes().px9, t) + 8.f;
+						p3.Fill({cx - w * 0.5f, cy - 8.f, w, 15.f}, rose, 3.f);
+						costume::Texte(ctx.dl, costume::Fontes().px9, cx - w * 0.5f + 4.f,
+									   cy - 4.f, t, ctx.theme.panel);
+					};
+					const NkSnapGuide &gv = mSt->snapVif.guideV;
+					if (gv.actif) {
+						const float32 x = mSt->view.ToScreenX(gv.coord);
+						const float32 y0 = mSt->view.ToScreenY(gv.de);
+						const float32 y1 = mSt->view.ToScreenY(gv.a);
+						p3.Fill({x, y0, 1.f, (y1 - y0) > 1.f ? (y1 - y0) : 1.f}, rose, 0.f);
+						if (gv.badge)
+							badge(x, (y0 + y1) * 0.5f, gv.ecart);
+					}
+					const NkSnapGuide &gh = mSt->snapVif.guideH;
+					if (gh.actif) {
+						const float32 y = mSt->view.ToScreenY(gh.coord);
+						const float32 x0 = mSt->view.ToScreenX(gh.de);
+						const float32 x1 = mSt->view.ToScreenX(gh.a);
+						p3.Fill({x0, y, (x1 - x0) > 1.f ? (x1 - x0) : 1.f, 1.f}, rose, 0.f);
+						if (gh.badge)
+							badge((x0 + x1) * 0.5f, y, gh.ecart);
+					}
 				}
 				DessinerFlottants(ctx, area);
 
@@ -3144,6 +3210,15 @@ namespace nkuidesign {
 							mForage = -1;
 							mMoving = true;
 							mMoveNode = (int32)fi;
+							// ⚠️ LE SECOND SITE QUI ARME `mMoving`, ET IL DOIT POSER
+							//    LA POSITION LIBRE COMME L'AUTRE. Oubliée ici, elle
+							//    aurait gardé la valeur du geste PRÉCÉDENT : la page
+							//    aurait sauté à la première image du glisser. C'est
+							//    la rançon d'un état armé à deux endroits — la même
+							//    classe de défaut que `mLastX` juste en dessous, qu'il
+							//    avait déjà fallu poser ici pour la même raison.
+							mMoveLibreX = mSt->doc.nodes[fi].posX;
+							mMoveLibreY = mSt->doc.nodes[fi].posY;
 							// le pas de déplacement se mesure depuis CE point — sans
 							// cette pose, le premier delta sauterait depuis le
 							// dernier point connu d'un autre geste.
@@ -3214,6 +3289,15 @@ namespace nkuidesign {
 							// un resultat, et la souris n'a rien a y ecrire.
 							mMoving = true;
 							mMoveNode = hit;
+							// ⚠️ LA POSITION LIBRE — CELLE DE LA SOURIS, SANS
+							//    AIMANT. Sans elle, l'aimant se relirait
+							//    lui-meme : le noeud collerait, la souris
+							//    continuerait, et le noeud DERIVERAIT de quelques
+							//    pixels a chaque accrochage. On garde donc les
+							//    deux positions — celle que la main demande, et
+							//    celle que l'aimant accorde.
+							mMoveLibreX = mSt->doc.nodes[(uint32)hit].posX;
+							mMoveLibreY = mSt->doc.nodes[(uint32)hit].posY;
 						}
 					}
 				}
@@ -3222,8 +3306,29 @@ namespace nkuidesign {
 					const float32 dy = mSt->view.ToDocLength(in.mouseY - mLastY);
 					if ((dx != 0.f || dy != 0.f) && mSt->doc.IsValidIndex(mMoveNode)) {
 						NkUINode &n = mSt->doc.nodes[(uint32)mMoveNode];
-						n.posX += dx;
-						n.posY += dy;
+						mMoveLibreX += dx;
+						mMoveLibreY += dy;
+						NkSnapResultat snap;
+						if (mSt->aimantActif && mSt->layout.Has(mMoveNode)) {
+							// Le rectangle QUE LA MAIN DEMANDE : celui de la
+							// disposition resolue, translate de l'ecart entre la
+							// position libre et celle qui est ecrite. Aucun
+							// re-solveur ici — les voisins n'ont pas bouge.
+							NkPaintRect rc = mSt->layout.At(mMoveNode);
+							rc.x += mMoveLibreX - n.posX;
+							rc.y += mMoveLibreY - n.posY;
+							// ⚠️ LA TOLERANCE SE DIVISE PAR LE ZOOM. 6 px ECRAN,
+							//    pas 6 unites document : sans ca l'aimant
+							//    collerait quatre fois plus fort au zoom 4,
+							//    c'est-a-dire quand on cherche justement a placer
+							//    finement.
+							snap = NkCalculerSnap(mSt->doc, mSt->layout, mMoveNode, rc,
+												  mSt->view.ToDocLength(
+													  DesignState::kSnapTolEcran));
+						}
+						n.posX = mMoveLibreX + snap.dx;
+						n.posY = mMoveLibreY + snap.dy;
+						mSt->snapVif = snap;
 						mSt->doc.MarkHumanEdit(mMoveNode);
 					}
 				}
@@ -3281,6 +3386,9 @@ namespace nkuidesign {
 					mDragging = false;
 					mMarquee = false;
 					mMoving = false;
+					// Le guide meurt AVEC son geste : un trait qui survit au
+					// relacher est un trait qui ment sur ce qui est aligne.
+					mSt->snapVif = NkSnapResultat();
 				}
 				mLastX = in.mouseX;
 				mLastY = in.mouseY;
@@ -3429,6 +3537,9 @@ namespace nkuidesign {
 			uint8 mResizeEdges = 0; ///< bits 1=G 2=D 4=H 8=B (noeud pose, huit poignees)
 			bool mMoving = false;
 			int32 mMoveNode = -1;
+			/// La position que la MAIN demande, sans aimant (cf. le commentaire
+			/// au site du geste). Posee a l'armement du deplacement.
+			float32 mMoveLibreX = 0.f, mMoveLibreY = 0.f;
 			bool mCreating = false;
 			int32 mCreateParent = -1;
 			float32 mCreateX = 0.f, mCreateY = 0.f;
@@ -3936,12 +4047,25 @@ namespace nkuidesign {
 						&& NkGuiRectContains(rg, ctx.input.mousePos))
 						Dire("Grille : à brancher.", "", "");
 					x += 22.f + 4.f;
+					// L'AIMANT EST BRANCHÉ (01/09) — et il DIT son état. Le bord
+					// et l'encre suivent `aimantActif` : accent quand il agit,
+					// atténué quand il dort, comme la grille juste à gauche.
+					// Un bouton dont l'apparence ne bouge pas est un bouton dont
+					// on ne sait jamais s'il a pris le clic.
 					const NkRect rm = {x, r.y + 3.f, 22.f, 22.f};
-					dl.AddRect(rm, bord, 1.f, 3.f);
-					costume::IcAimant(dl, rm.x + 5.f, rm.y + 5.f, ctx.theme.textMuted);
+					dl.AddRect(rm, mSt->aimantActif ? ctx.theme.accent : bord, 1.f, 3.f);
+					costume::IcAimant(dl, rm.x + 5.f, rm.y + 5.f,
+									  mSt->aimantActif ? ctx.theme.accent : ctx.theme.textMuted);
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
-						&& NkGuiRectContains(rm, ctx.input.mousePos))
-						Dire("Magnétisme : à brancher.", "", "");
+						&& NkGuiRectContains(rm, ctx.input.mousePos)) {
+						mSt->aimantActif = !mSt->aimantActif;
+						if (!mSt->aimantActif)
+							mSt->snapVif = NkSnapResultat();
+						Dire(mSt->aimantActif ? "Magnétisme activé — bords, centres et "
+												"espacements égaux."
+											  : "Magnétisme désactivé.",
+							 "", "");
+					}
 				}
 			}
 
