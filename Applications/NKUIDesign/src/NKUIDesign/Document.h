@@ -338,6 +338,45 @@ namespace nkuidesign {
 			default: return "centre";
 		}
 	}
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  UN EFFET (Lunacy « EFFECTS »)
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// Le gabarit EXACT de `lunacy_props_11`, relu à la source : un type
+	/// (« Shadow ⌄ »), puis **X, Y, flou, étendue**, puis **couleur + opacité**,
+	/// avec l'œil et la poubelle sur la ligne du type.
+	///
+	/// ⚠️ QUATRE NOMBRES, PAS DEUX. Une ombre n'est pas « un décalage » : elle a
+	///    un déport (X, Y), un FLOU (l'adoucissement du bord) et une ÉTENDUE
+	///    (le grossissement avant flou). Les confondre donnerait un contrôle qui
+	///    répond à deux gestes sur quatre — et l'utilisateur croirait que le
+	///    modèle est cassé alors qu'il serait seulement incomplet.
+	///
+	/// ⚠️ LE TYPE EST UN ENUM, ET IL N'EN PORTE QUE DEUX. Lunacy en a plus
+	///    (flou de calque, flou d'arrière-plan…). Deux sont posés parce que deux
+	///    sont PEINTS ; les autres seront ajoutés avec leur peintre, pas avant.
+	enum class NkEffetType : uint8 {
+		OmbrePortee = 0, ///< « Drop shadow » : l'ombre TOMBE hors de la forme
+		OmbreInterne = 1 ///< « Inner shadow » : elle se creuse à l'intérieur
+	};
+	struct NkEffet {
+			NkEffetType type = NkEffetType::OmbrePortee;
+			float32 x = 0.f;		 ///< déport horizontal, px
+			float32 y = 4.f;		 ///< déport vertical, px (le « Y 4 » de la référence)
+			float32 flou = 4.f;		 ///< rayon d'adoucissement, px
+			float32 etendue = 0.f;	 ///< grossissement avant flou, px
+			NkString couleur;		 ///< hexa « #rrggbb »
+			float32 opacite = 25.f;	 ///< 0..100 (le « 25% » de la référence)
+			bool visible = true;	 ///< l'œil
+	};
+	inline const char *NkEffetTypeNom(NkEffetType t) {
+		return t == NkEffetType::OmbreInterne ? "ombre_interne" : "ombre_portee";
+	}
+	inline NkEffetType NkParseEffetType(const char *s) {
+		// « ombre_interne » et « ombre_portee » partagent leurs six premiers
+		// caractères : on discrimine sur le SEPTIEME, pas sur le premier.
+		return (s && s[6] == 'i') ? NkEffetType::OmbreInterne : NkEffetType::OmbrePortee;
+	}
+
 	inline NkBordurePos NkParseBordurePos(const char *s) {
 		if (s && s[0] == 'i')
 			return NkBordurePos::Interieur;
@@ -441,6 +480,16 @@ namespace nkuidesign {
 			/// element » ; la forme ecrite est decidee par la PRESENCE de la
 			/// liste, jamais par son contenu.
 			NkVector<NkBordure> borders;
+			/// ── LA LISTE D'EFFETS (Lunacy « EFFECTS ») ───────────────────────
+			/// Troisième et dernier étage du mandat listes, MÊME discipline.
+			/// ⚠️ ET ELLE N'A PAS DE CLÉ SIMPLE DONT ELLE SERAIT « la liste à un
+			///    élément » : le modèle n'a JAMAIS porté d'ombre. La règle
+			///    d'additivité tient quand même, et plus simplement : la clé
+			///    `effet_<i>` n'existe que si la liste existe, donc tout document
+			///    d'avant se réenregistre octet pour octet — il n'a rien à
+			///    convertir. Pas de `MaterialiserEffets` : il n'y a rien à
+			///    préserver.
+			NkVector<NkEffet> effets;
 			NkString alignText;	 ///< `centre` | `droite` (clé `texte_aligne`) — vide = gauche
 			/// La CIBLE D'APPAREIL d'un artboard (écran 26 « Menu Cible ») :
 			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient
@@ -987,6 +1036,7 @@ namespace nkuidesign {
 					d.fill = s.fill;
 					d.fills = s.fills; // la LISTE suit la copie, comme tout le reste
 					d.borders = s.borders;
+					d.effets = s.effets;
 					d.textColor = s.textColor;
 					d.borderColor = s.borderColor;
 					d.alignText = s.alignText;
@@ -1250,6 +1300,29 @@ namespace nkuidesign {
 						}
 					} else if (!n.borderColor.Empty())
 						Field(out, "couleur_bord", n.borderColor.Data());
+					// LES EFFETS : `effet_<i> = type x y flou etendue couleur opacite visible`.
+					for (uint32 ei = 0; ei < (uint32)n.effets.Size(); ++ei) {
+						const NkEffet &e = n.effets[ei];
+						out.Append("  effet_");
+						WriteNum(out, (float32)(ei + 1));
+						out.Append(" = ");
+						out.Append(NkEffetTypeNom(e.type));
+						out.Append(' ');
+						WriteNum(out, e.x);
+						out.Append(' ');
+						WriteNum(out, e.y);
+						out.Append(' ');
+						WriteNum(out, e.flou);
+						out.Append(' ');
+						WriteNum(out, e.etendue);
+						out.Append(' ');
+						out.Append(e.couleur.Empty() ? "-" : e.couleur.Data());
+						out.Append(' ');
+						WriteNum(out, e.opacite);
+						out.Append(' ');
+						out.Append(e.visible ? "1" : "0");
+						out.Append('\n');
+					}
 					if (!n.alignText.Empty())
 						Field(out, "texte_aligne", n.alignText.Data());
 					if (!n.target.Empty())
@@ -1499,6 +1572,40 @@ namespace nkuidesign {
 							if (motSuivant(mot, (uint32)sizeof(mot)) > 0)
 								b.position = NkParseBordurePos(mot);
 							n.borders.PushBack(b);
+						}
+						else if (key[0] == 'e' && key[1] == 'f' && key[2] == 'f' && key[3] == 'e'
+								 && key[4] == 't' && key[5] == '_') {
+							// Meme patron que `fond_` et `bord_` : on empile dans
+							// l'ordre du fichier, l'indice du nom ne range rien.
+							NkEffet e;
+							const char *q = val;
+							auto mot = [&q](char *dst, uint32 cap) {
+								uint32 k = 0;
+								while (*q && *q != ' ' && k + 1 < cap)
+									dst[k++] = *q++;
+								dst[k] = '\0';
+								while (*q == ' ')
+									++q;
+								return k;
+							};
+							char m[64];
+							if (mot(m, (uint32)sizeof(m)) > 0)
+								e.type = NkParseEffetType(m);
+							if (mot(m, (uint32)sizeof(m)) > 0)
+								e.x = ParseNum(m);
+							if (mot(m, (uint32)sizeof(m)) > 0)
+								e.y = ParseNum(m);
+							if (mot(m, (uint32)sizeof(m)) > 0)
+								e.flou = ParseNum(m);
+							if (mot(m, (uint32)sizeof(m)) > 0)
+								e.etendue = ParseNum(m);
+							if (mot(m, (uint32)sizeof(m)) > 0 && !(m[0] == '-' && m[1] == '\0'))
+								e.couleur = NkString(m);
+							if (mot(m, (uint32)sizeof(m)) > 0)
+								e.opacite = ParseNum(m);
+							if (mot(m, (uint32)sizeof(m)) > 0)
+								e.visible = (m[0] == '1');
+							n.effets.PushBack(e);
 						}
 						else if (StrEq(key, "texte_aligne"))
 							n.alignText = NkString(val);

@@ -422,6 +422,44 @@ namespace nkuidesign {
 			p.FillColor({q.x + q.w - e, q.y, e, q.h}, rgba, 0.f);		 // droite
 		}
 
+		/// LES OMBRES PORTÉES D'UN NŒUD, peintes AVANT sa forme.
+		/// ⚠️ L'OMBRE INTERNE N'EST PAS PEINTE, ET LE CODE LE DIT PLUTÔT QUE DE
+		///    FAIRE SEMBLANT. Elle demande de découper l'intérieur de la forme
+		///    (un masque), ce que ce peintre ne sait pas faire ; la rendre comme
+		///    une ombre portée donnerait un dessin FAUX qui a l'air juste — la
+		///    pire des sorties. Elle se règle dans l'Inspecteur, se sauve, se
+		///    relit, et attend son peintre. C'est écrit ici et au rapport.
+		inline void NkGOmbres(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
+							  nkentseu::float32 rayon) {
+			for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)n.effets.Size(); ++i) {
+				const NkEffet &e = n.effets[i];
+				if (!e.visible || e.couleur.Empty() || e.type != NkEffetType::OmbrePortee)
+					continue;
+				const nkentseu::uint32 base = NkGHexRGBA(e.couleur.Data());
+				const nkentseu::float32 op =
+					(e.opacite < 0.f ? 0.f : (e.opacite > 100.f ? 100.f : e.opacite)) * 0.01f;
+				if (op <= 0.f)
+					continue;
+				// Le flou : `kAnneaux` couches concentriques, chacune plus large et
+				// plus transparente. Une seule couche quand le flou est nul.
+				const int32 kAnneaux = e.flou > 0.5f ? 4 : 1;
+				for (int32 k = kAnneaux; k >= 1; --k) {
+					const nkentseu::float32 t = (nkentseu::float32)k / (nkentseu::float32)kAnneaux;
+					const nkentseu::float32 grossi = e.etendue + e.flou * t;
+					// L'alpha décroît vers l'extérieur : la couche la plus large est
+					// la plus pâle, sinon on peindrait une auréole nette.
+					const nkentseu::float32 a01 = op / (nkentseu::float32)kAnneaux;
+					const nkentseu::uint32 a =
+						(nkentseu::uint32)((base & 0xFFu) * a01 + 0.5f);
+					if (a == 0u)
+						continue;
+					const NkPaintRect q = {r.x + e.x - grossi, r.y + e.y - grossi,
+										   r.w + grossi * 2.f, r.h + grossi * 2.f};
+					p.FillColor(q, (base & 0xFFFFFF00u) | (a & 0xFFu), rayon + grossi);
+				}
+			}
+		}
+
 		inline void DrawPlaceholder(NkComponentPaint &p, const NkPaintRect &r, const char *name,
 									const NkDocumentHost &host) {
 			if (r.w <= 0.f || r.h <= 0.f)
@@ -513,6 +551,15 @@ namespace nkuidesign {
 				// `rayon`, bord `couleur_bord`/`bordure`) ; sans elle, les rôles
 				// de contenu du thème — les documents d'avant ne bougent pas.
 				const float32 rd = n.radius > 0.f ? n.radius : 4.f;
+				// ── LES OMBRES PORTÉES, AVANT LA FORME ───────────────────────
+				// ⚠️ AVANT, ET C'EST TOUTE LA DIFFÉRENCE ENTRE UNE OMBRE ET UNE
+				//    TACHE. Peinte après, elle recouvrirait ce qu'elle est censée
+				//    faire flotter. L'ordre du peintre EST la sémantique.
+				// ⚠️ ET LE FLOU EST APPROCHÉ, PAS SIMULÉ : le peintre n'a pas de
+				//    primitive floue, donc on empile quelques anneaux de plus en
+				//    plus transparents. Ça DIT le flou sans le mentir — et le jour
+				//    où une primitive existera, ce site est le seul à changer.
+				NkGOmbres(p, r, n, rd);
 				// ⚠️ LE RECTANGLE EMPILE SES REMPLISSAGES, DANS L'ORDRE DE LA
 				//    LISTE — le DERNIER par-dessus, comme chez Lunacy. C'est le
 				//    seul peintre de forme qui le fasse, parce que c'est le seul

@@ -6373,6 +6373,55 @@ namespace nkuidesign {
 			/// sections portent un chevron ; ESPACEMENT, EFFETS et POINTS DE
 			/// RUPTURE démarrent repliées). Un titre inconnu de la table (RÔLE,
 			/// ÉVÉNEMENTS…) garde l'ancien costume à filet, sans repli.
+			// ═══════════════════════════════════════════════════════════════════
+			//  LES COLONNES D'UNE RANGÉE DE LISTE — ÉCRITES UNE FOIS POUR LES TROIS
+			// ═══════════════════════════════════════════════════════════════════
+			// ⚠️ CE TYPE EXISTE PARCE QUE LA LEÇON A ÉTÉ ÉCRITE À CÔTÉ D'UN SEUL
+			//    CHEMIN, ET QUE LE CHEMIN VOISIN L'A REFAITE. Porte du dépôt du
+			//    28/08 : « une leçon écrite à côté d'un chemin ne couvre pas le
+			//    chemin voisin — demander quels chemins FRÈRES partagent le même
+			//    danger, et l'écrire une fois pour tous ».
+			//
+			//    Le danger, mesuré trois fois le 01/09 dans un panneau de 235 px :
+			//    l'hexa affichait « #00000 » (six caractères sur sept), puis le
+			//    « % » touchait la poubelle, puis il restait 2 px. J'avais nommé
+			//    la règle — « un texte tronqué est un texte qu'on n'a pas mesuré
+			//    dans sa colonne » — la veille, à côté d'un AUTRE contrôle. Elle
+			//    n'a pas voyagé toute seule jusqu'à la ligne d'à côté.
+			//
+			//    REMPLISSAGES, BORDURES et EFFETS ont la MÊME rangée : pastille,
+			//    hexa, opacité, %, poubelle, œil. Les largeurs vivent donc ICI,
+			//    au-dessus du groupe, et pas dans celle des trois qui vient de
+			//    mordre. Une quatrième section à liste les héritera sans les
+			//    redécouvrir.
+			struct ColonnesRangee {
+					float32 pastille = 0.f; ///< x de la pastille de couleur (16 px)
+					float32 hexX = 0.f;		///< x du champ hexa
+					float32 hexW = 0.f;		///< sa largeur, ce qui RESTE une fois le reste posé
+					float32 opacX = 0.f;	///< x du champ d'opacité (30 px)
+					float32 poubX = 0.f;	///< x de la poubelle (14 px)
+					float32 oeilX = 0.f;	///< x de l'œil (14 px)
+			};
+			/// Les colonnes d'une rangée de liste, pour une bande `r` déjà obtenue.
+			/// ⚠️ L'HEXA PREND CE QUI RESTE, ET C'EST DÉLIBÉRÉ : les quatre autres
+			///    colonnes ont une largeur DICTÉE (une icône, trois chiffres) ;
+			///    seule la couleur peut s'étirer. Lui donner une largeur fixe et
+			///    laisser le reste flotter, c'est reproduire la troncature à la
+			///    première police un peu large.
+			static ColonnesRangee ColonnesDe(const NkRect &r) {
+				ColonnesRangee c;
+				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+				c.oeilX = x1 - 16.f;
+				c.poubX = x1 - 36.f;
+				c.opacX = x1 - 80.f; // 30 px de champ + « % » + 5 px de garde
+				c.pastille = x0;
+				c.hexX = x0 + 20.f;
+				c.hexW = c.opacX - c.hexX - 2.f;
+				if (c.hexW < 24.f)
+					c.hexW = 24.f;
+				return c;
+			}
+
 			struct EtatSection {
 					const char *titre;
 					bool ouvert;
@@ -7776,11 +7825,12 @@ namespace nkuidesign {
 						continue;
 					const bool simple = n->fills.Empty();
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					// LES COLONNES VIENNENT DU GROUPE, pas de cette section.
+					const ColonnesRangee col = ColonnesDe(r);
 					const bool visible = simple ? true : n->fills[i].visible;
 					const NkColor encre = visible ? ctx.theme.text : ctx.theme.textDisabled;
 					// 1. la PASTILLE de couleur
-					const NkRect sw = {x0, r.y + 5.f, 16.f, 16.f};
+					const NkRect sw = {col.pastille, r.y + 5.f, 16.f, 16.f};
 					if (mFillsBuf[i][0]) {
 						dl.AddRectFilled(sw, CouleurHex(mFillsBuf[i], ctx.theme.textMuted), 3.f);
 						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
@@ -7792,17 +7842,9 @@ namespace nkuidesign {
 					// 2. l'HEXA — la seule écriture qui NE matérialise PAS : tant
 					//    qu'on ne change qu'une couleur, un document d'avant garde
 					//    sa clé simple et son octet près.
-					// ⚠️ MÊME CORRECTION QUE DANS BORDURES, ET POUR LA MÊME RAISON :
-					//    92 px d'opacité ne laissaient que ~57 px à l'hexa, et la
-					//    capture montrait « #00000 » — six caractères sur sept.
-					//    L'opacité tient en trois chiffres ; elle rend 12 px, et son
-					//    « % » garde 5 px de garde avant la poubelle — la première
-					//    reprise les avait mis à se toucher.
-					const float32 oeilX = x1 - 16.f, poubX = x1 - 36.f, opacX = x1 - 80.f;
-					const float32 hexW = opacX - (sw.x + 20.f) - 2.f;
 					char idHex[32];
 					snprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
-					ctx.SetNextItemRect({sw.x + 20.f, r.y + 3.f, hexW > 24.f ? hexW : 24.f, 20.f});
+					ctx.SetNextItemRect({col.hexX, r.y + 3.f, col.hexW, 20.f});
 					if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10)) {
 						if (simple)
 							n->fill = NkString(mFillsBuf[i]);
@@ -7814,7 +7856,7 @@ namespace nkuidesign {
 					//    pas la dire).
 					char idOp[32];
 					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
-					const NkRect ro = {opacX, r.y + 3.f, 30.f, 20.f};
+					const NkRect ro = {col.opacX, r.y + 3.f, 30.f, 20.f};
 					float32 op = simple ? 100.f : n->fills[i].opacite;
 					if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
 						n->MaterialiserFills();
@@ -7830,7 +7872,7 @@ namespace nkuidesign {
 					//    elle vide la clé `fond` : c'est le même geste, « il n'y a
 					//    plus de remplissage ».
 					{
-						const NkRect rp = {poubX, r.y + 6.f, 14.f, 14.f};
+						const NkRect rp = {col.poubX, r.y + 6.f, 14.f, 14.f};
 						const bool sv =
 							ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
 						costume::IcPoubelle(dl, rp.x + 1.f, rp.y + 1.f,
@@ -7847,7 +7889,7 @@ namespace nkuidesign {
 					}
 					// 5. l'ŒIL — masque sans perdre la couleur. Matérialise aussi.
 					{
-						const NkRect re = {oeilX, r.y + 6.f, 14.f, 14.f};
+						const NkRect re = {col.oeilX, r.y + 6.f, 14.f, 14.f};
 						const bool sv =
 							ctx.popupDepth == 0 && NkGuiRectContains(re, ctx.input.mousePos);
 						const NkColor c = sv ? ctx.theme.accent
@@ -7949,9 +7991,10 @@ namespace nkuidesign {
 					// ── LIGNE 1 : couleur, opacité, œil, poubelle
 					{
 						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-						const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+						// LES MEMES COLONNES QUE REMPLISSAGES, par construction.
+						const ColonnesRangee col = ColonnesDe(r);
 						const bool visible = simple ? true : n->borders[i].visible;
-						const NkRect sw = {x0, r.y + 5.f, 16.f, 16.f};
+						const NkRect sw = {col.pastille, r.y + 5.f, 16.f, 16.f};
 						if (mBordsBuf[i][0]) {
 							dl.AddRectFilled(sw, CouleurHex(mBordsBuf[i], ctx.theme.textMuted),
 											 3.f);
@@ -7961,20 +8004,9 @@ namespace nkuidesign {
 							dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
 									   ctx.theme.textMuted, 1.f);
 						}
-						// ⚠️ LARGEURS MESUREES DANS LEUR COLONNE, pas devinees. La
-						//    premiere version donnait 92 px a l'opacite et laissait
-						//    ~57 px a l'hexa : la capture du 01/09 montrait
-						//    « #00000 » -- SIX caracteres sur sept. Un panneau de
-						//    235 px ne pardonne pas une largeur choisie au juge.
-						//    L'opacite tient en 3 chiffres, elle rend donc 12 px, et son
-						//    « % » garde 5 px avant la poubelle — la premiere reprise
-						//    les avait mis a se toucher.
-						const float32 oeilX = x1 - 16.f, poubX = x1 - 36.f, opacX = x1 - 80.f;
-						const float32 hexW = opacX - (sw.x + 20.f) - 2.f;
 						char idHex[32];
 						snprintf(idHex, sizeof(idHex), "##insp.bord.hex%u", i);
-						ctx.SetNextItemRect(
-							{sw.x + 20.f, r.y + 3.f, hexW > 24.f ? hexW : 24.f, 20.f});
+						ctx.SetNextItemRect({col.hexX, r.y + 3.f, col.hexW, 20.f});
 						if (nkgui::InputText(ctx, idHex, mBordsBuf[i], 10)) {
 							if (simple)
 								n->borderColor = NkString(mBordsBuf[i]);
@@ -7984,7 +8016,7 @@ namespace nkuidesign {
 						}
 						char idOp[32];
 						snprintf(idOp, sizeof(idOp), "insp.bord.op%u", i);
-						const NkRect ro = {opacX, r.y + 3.f, 30.f, 20.f};
+						const NkRect ro = {col.opacX, r.y + 3.f, 30.f, 20.f};
 						float32 op = simple ? 100.f : n->borders[i].opacite;
 						if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
 							n->MaterialiserBorders();
@@ -7997,7 +8029,7 @@ namespace nkuidesign {
 									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "%",
 									   ctx.theme.textMuted);
 						{
-							const NkRect rp = {poubX, r.y + 6.f, 14.f, 14.f};
+							const NkRect rp = {col.poubX, r.y + 6.f, 14.f, 14.f};
 							const bool sv =
 								ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
 							costume::IcPoubelle(dl, rp.x + 1.f, rp.y + 1.f,
@@ -8014,7 +8046,7 @@ namespace nkuidesign {
 							}
 						}
 						{
-							const NkRect re = {oeilX, r.y + 6.f, 14.f, 14.f};
+							const NkRect re = {col.oeilX, r.y + 6.f, 14.f, 14.f};
 							const bool sv =
 								ctx.popupDepth == 0 && NkGuiRectContains(re, ctx.input.mousePos);
 							const NkColor c = sv ? ctx.theme.accent

@@ -3079,6 +3079,175 @@ namespace nkuidesign {
 			}
 		}
 
+		// ═══════════════════════════════════════════════════════════════════════
+		//  44. LA LISTE D'EFFETS (Lunacy « EFFECTS », 01/09)
+		// ═══════════════════════════════════════════════════════════════════════
+		// ⚠️ LE VOLET CONSERVATION EST ECRIT D'ENTREE, pas ajoute apres coup, et
+		//    le cas « deux verites » est la des le depart : ce sont les deux
+		//    defauts que les familles 42 et 43 ont payes en apprenant. La lecon
+		//    d'un banc ne couvre pas le banc voisin toute seule -- on la porte.
+		{
+			// 44a. Un document SANS effet ne gagne aucune cle. C'est la preuve
+			//      d'entree, et elle est plus facile ici qu'ailleurs : les effets
+			//      n'ont AUCUNE cle simple a preserver, le modele n'a jamais porte
+			//      d'ombre. La regle tient quand meme, et il faut le VERIFIER --
+			//      « plus facile » n'est pas « acquis ».
+			{
+				NkUIDocument d;
+				d.NewDocument("sans effet", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				d.nodes[(uint32)i].label = NkString("Boite");
+				d.nodes[(uint32)i].shape = NkString("rect");
+				d.nodes[(uint32)i].fill = NkString("#101010");
+				NkString a1, a2;
+				d.Save(a1);
+				NkUIDocument r;
+				const bool lu = r.Load(a1.Data());
+				if (lu)
+					r.Save(a2);
+				bool sansCle = true;
+				for (const char *q = a1.Data() ? a1.Data() : ""; *q; ++q)
+					if (q[0] == 'e' && q[1] == 'f' && q[2] == 'f' && q[3] == 'e' && q[4] == 't'
+						&& q[5] == '_') {
+						sansCle = false;
+						break;
+					}
+				// conservation : le reste du noeud est encore la
+				const bool garde = lu && r.IsValidIndex(i)
+								   && StrEq(r.nodes[(uint32)i].fill.Data(), "#101010")
+								   && r.nodes[(uint32)i].effets.Empty();
+				snprintf(buf, sizeof(buf), "octets %s, cle `effet_` %s, le reste %s",
+						 (lu && a1.Compare(a2) == 0) ? "IDENTIQUES" : "DIFFERENTS",
+						 sansCle ? "absente" : "APPARUE", garde ? "garde" : "PERDU");
+				check("44a. un document sans effet ne gagne aucune cle, se reenregistre OCTET "
+					  "POUR OCTET et garde le reste de son apparence",
+					  lu && a1.Compare(a2) == 0 && sansCle && garde, buf);
+			}
+			// 44b. LES HUIT CHAMPS font l'aller-retour, un par un. ⚠️ QUATRE
+			//      NOMBRES, PAS DEUX : X, Y, flou ET etendue. Un banc qui n'en
+			//      verifie que deux laisse passer la moitie du gabarit.
+			{
+				NkUIDocument d;
+				d.NewDocument("effets", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				{
+					NkUINode &n = d.nodes[(uint32)i];
+					n.label = NkString("Boite");
+					n.shape = NkString("rect");
+					NkEffet ea; // le gabarit EXACT de lunacy_props_11
+					ea.type = NkEffetType::OmbrePortee;
+					ea.x = 0.f;
+					ea.y = 4.f;
+					ea.flou = 4.f;
+					ea.etendue = 0.f;
+					ea.couleur = NkString("#000000");
+					ea.opacite = 25.f;
+					NkEffet eb;
+					eb.type = NkEffetType::OmbreInterne;
+					eb.x = -3.5f;
+					eb.y = 7.f;
+					eb.flou = 12.f;
+					eb.etendue = 2.5f;
+					eb.couleur = NkString("#ff00ff");
+					eb.opacite = 60.f;
+					eb.visible = false;
+					n.effets.PushBack(ea);
+					n.effets.PushBack(eb);
+				}
+				NkString b1, b2;
+				d.Save(b1);
+				NkUIDocument r;
+				const bool lu = r.Load(b1.Data());
+				if (lu)
+					r.Save(b2);
+				const NkUINode *rn = (lu && r.IsValidIndex(i)) ? &r.nodes[(uint32)i] : nullptr;
+				const bool champs = rn && rn->effets.Size() == 2
+									&& rn->effets[0].type == NkEffetType::OmbrePortee
+									&& rn->effets[0].y == 4.f && rn->effets[0].flou == 4.f
+									&& rn->effets[0].opacite == 25.f
+									&& StrEq(rn->effets[0].couleur.Data(), "#000000")
+									&& rn->effets[1].type == NkEffetType::OmbreInterne
+									&& rn->effets[1].x == -3.5f && rn->effets[1].flou == 12.f
+									&& rn->effets[1].etendue == 2.5f
+									&& rn->effets[1].visible == false;
+				snprintf(buf, sizeof(buf), "%u effet(s), champs %s, octets %s",
+						 rn ? (uint32)rn->effets.Size() : 0u, champs ? "RETROUVES" : "PERDUS",
+						 (lu && b1.Compare(b2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
+				check("44b. deux effets (type, X, Y, flou, etendue, couleur, opacite, oeil) "
+					  "font l aller-retour et se reenregistrent a l identique",
+					  champs && lu && b1.Compare(b2) == 0, buf);
+			}
+			// 44c. LES DEUX TYPES NE SE CONFONDENT PAS. ⚠️ « ombre_portee » et
+			//      « ombre_interne » partagent leurs SIX premiers caracteres : un
+			//      lecteur qui discrimine sur le premier rendrait toujours le
+			//      meme type, et 44b ne le verrait pas si les deux effets avaient
+			//      le meme. Ce cas existe pour ce piege precis.
+			{
+				const bool ok = NkParseEffetType("ombre_portee") == NkEffetType::OmbrePortee
+								&& NkParseEffetType("ombre_interne") == NkEffetType::OmbreInterne
+								&& StrEq(NkEffetTypeNom(NkEffetType::OmbrePortee), "ombre_portee")
+								&& StrEq(NkEffetTypeNom(NkEffetType::OmbreInterne),
+										 "ombre_interne");
+				snprintf(buf, sizeof(buf), "portee->%s, interne->%s",
+						 NkEffetTypeNom(NkParseEffetType("ombre_portee")),
+						 NkEffetTypeNom(NkParseEffetType("ombre_interne")));
+				check("44c. les deux types d effet se relisent distinctement (ils partagent "
+					  "six caracteres sur douze)",
+					  ok, buf);
+			}
+			// 44d. L OMBRE EST PEINTE, ET AVANT LA FORME. Mesure sur la
+			//      GEOMETRIE : une ombre visible ajoute des commandes, une ombre
+			//      a l oeil ferme n en ajoute AUCUNE.
+			{
+				NkRecordingPaint rec;
+				NkUINode n;
+				n.shape = NkString("rect");
+				NkEffet e;
+				e.couleur = NkString("#000000");
+				e.y = 4.f;
+				e.flou = 4.f;
+				e.opacite = 50.f;
+				n.effets.PushBack(e);
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, 4.f);
+				const uint32 avecOmbre = (uint32)rec.cmds.Size();
+				rec.cmds.Clear();
+				n.effets[0].visible = false;
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, 4.f);
+				const uint32 oeilFerme = (uint32)rec.cmds.Size();
+				rec.cmds.Clear();
+				n.effets[0].visible = true;
+				n.effets[0].type = NkEffetType::OmbreInterne;
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, 4.f);
+				const uint32 interne = (uint32)rec.cmds.Size();
+				snprintf(buf, sizeof(buf),
+						 "portee=%u commande(s), oeil ferme=%u, interne=%u (non peinte, dit "
+						 "au code)",
+						 avecOmbre, oeilFerme, interne);
+				check("44d. l ombre portee PEINT (plusieurs anneaux pour le flou), l oeil "
+					  "ferme ne peint RIEN, et l ombre interne non plus (son peintre manque)",
+					  avecOmbre > 1u && oeilFerme == 0u && interne == 0u, buf);
+			}
+			// 44e. La copie emporte la liste d effets.
+			{
+				NkUIDocument d;
+				d.NewDocument("copie", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				d.nodes[(uint32)i].label = NkString("Source");
+				NkEffet e;
+				e.couleur = NkString("#123456");
+				e.etendue = 6.f;
+				d.nodes[(uint32)i].effets.PushBack(e);
+				const int32 j = d.CopierSousArbre(d, i, 0);
+				const bool ok = d.IsValidIndex(j) && d.nodes[(uint32)j].effets.Size() == 1
+								&& StrEq(d.nodes[(uint32)j].effets[0].couleur.Data(), "#123456")
+								&& d.nodes[(uint32)j].effets[0].etendue == 6.f;
+				snprintf(buf, sizeof(buf), "%u effet(s) copie(s)",
+						 d.IsValidIndex(j) ? (uint32)d.nodes[(uint32)j].effets.Size() : 0u);
+				check("44e. copier un sous-arbre emporte la LISTE d effets, etendue comprise",
+					  ok, buf);
+			}
+		}
+
 		char tail[128];
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
