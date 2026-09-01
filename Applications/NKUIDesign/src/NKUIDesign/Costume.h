@@ -402,6 +402,35 @@ namespace nkuidesign {
 			dl.AddCircle({x + 6.f, y + 6.f}, 2.f, c, 1.2f);
 		}
 
+		// ── LE VOCABULAIRE DE LA LIGNE DE REMPLISSAGE (Lunacy FILLS, 01/09) ──
+		// œil BARRÉ : le même œil, plus la barre oblique. ⚠️ C'EST LE MÊME
+		// TRACÉ, VOLONTAIREMENT — un second dessin d'œil aurait dérivé du
+		// premier au premier ajustement, et l'état « masqué » doit se lire comme
+		// « ce même œil, fermé », pas comme une autre icône.
+		inline void IcOeilBarre(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			IcOeil(dl, x, y, c);
+			dl.AddLine({x + 1.5f, y + 10.5f}, {x + 10.5f, y + 1.5f}, c, 1.4f);
+		}
+		// poubelle 12×12 : couvercle + cuve + deux stries
+		inline void IcPoubelle(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddLine({x + 1.5f, y + 3.f}, {x + 10.5f, y + 3.f}, c, 1.2f);
+			dl.AddLine({x + 4.5f, y + 3.f}, {x + 4.5f, y + 1.5f}, c, 1.2f);
+			dl.AddLine({x + 7.5f, y + 3.f}, {x + 7.5f, y + 1.5f}, c, 1.2f);
+			dl.AddLine({x + 4.5f, y + 1.5f}, {x + 7.5f, y + 1.5f}, c, 1.2f);
+			const NkVec2 cuve[4] = {{x + 2.5f, y + 3.f},
+									{x + 3.2f, y + 10.5f},
+									{x + 8.8f, y + 10.5f},
+									{x + 9.5f, y + 3.f}};
+			dl.AddPolyline(cuve, 4, c, 1.2f);
+			dl.AddLine({x + 5.f, y + 5.f}, {x + 5.2f, y + 8.8f}, c, 1.f);
+			dl.AddLine({x + 7.f, y + 5.f}, {x + 6.8f, y + 8.8f}, c, 1.f);
+		}
+		// plus 10×10 : deux traits — l'« ajouter » des en-têtes de section
+		inline void IcPlus(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddLine({x + 5.f, y + 1.f}, {x + 5.f, y + 9.f}, c, 1.3f);
+			dl.AddLine({x + 1.f, y + 5.f}, {x + 9.f, y + 5.f}, c, 1.3f);
+		}
+
 		// ── L'inspecteur V2 (petites icônes de champ) ──
 		// flèche « expand » 8×8 : « M1 4 H7 M5 2 L7 4 L5 6 » (accent)
 		inline void IcExpand(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {

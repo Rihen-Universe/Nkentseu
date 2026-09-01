@@ -6209,6 +6209,7 @@ namespace nkuidesign {
 							{"ANCRAGE", &CorpsAncrageC, false},
 							{"ALIGNEMENT", &CorpsAlignementC, false},
 							{"ESPACEMENT", &CorpsEspacementC, false},
+							{"REMPLISSAGES", &CorpsRemplissagesC, false},
 							{"APPARENCE", &CorpsApparenceC, false},
 							{"TYPOGRAPHIE", &CorpsTypographieC, false},
 							{"EFFETS", &CorpsEffetsC, false},
@@ -6223,6 +6224,7 @@ namespace nkuidesign {
 					{"ANCRAGE", &CorpsAncrageC, false},
 					{"ALIGNEMENT", &CorpsAlignementC, false},
 					{"ESPACEMENT", &CorpsEspacementC, false},
+					{"REMPLISSAGES", &CorpsRemplissagesC, false},
 					{"APPARENCE", &CorpsApparenceC, false},
 					{"TYPOGRAPHIE", &CorpsTypographieC, false},
 					{"EFFETS", &CorpsEffetsC, false},
@@ -6373,13 +6375,15 @@ namespace nkuidesign {
 					const char *titre;
 					bool ouvert;
 			};
-			EtatSection mSections[9] = {
-				{"CIBLE", true},	  {"DISPOSITION", true},  {"ANCRAGE", true},
-				{"ALIGNEMENT", true}, {"ESPACEMENT", false},  {"APPARENCE", true},
-				{"TYPOGRAPHIE", true}, {"EFFETS", false},	  {"POINTS DE RUPTURE", false},
+			static constexpr uint32 kNbSections = 10;
+			EtatSection mSections[kNbSections] = {
+				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
+				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"REMPLISSAGES", true},
+				{"APPARENCE", true},	{"TYPOGRAPHIE", true},	{"EFFETS", false},
+				{"POINTS DE RUPTURE", false},
 			};
 			EtatSection *TrouverSection(const char *titre) {
-				for (uint32 i = 0; i < 9; ++i)
+				for (uint32 i = 0; i < kNbSections; ++i)
 					if (StrEq(mSections[i].titre, titre))
 						return &mSections[i];
 				return nullptr;
@@ -6407,8 +6411,27 @@ namespace nkuidesign {
 					x += 12.f;
 				}
 				costume::TexteGras(dl, F.px9, x, ty, titre, ctx.theme.textMuted, 0.4f);
+				// ── LE « + » DE REMPLISSAGES, DANS L'EN-TÊTE (Lunacy) ────────
+				// ⚠️ IL EST ICI PARCE QUE C'EST LÀ QU'IL EST CHEZ EUX, et parce
+				//    que l'application dessine déjà ses propres en-têtes. Ajouter
+				//    une fente d'action à la charpente du kit pour UN SEUL
+				//    consommateur aurait fait grossir le socle sans preuve de
+				//    besoin ; le jour où une deuxième section en veut une, elle
+				//    descendra — c'est la règle du corollaire, pas son inverse.
+				bool plusPris = false;
+				if (s && StrEq(titre, "REMPLISSAGES") && NoeudMutable()) {
+					const NkRect rp = {r.x + r.w - 28.f, r.y + 4.f, 16.f, 16.f};
+					const bool sv =
+						ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
+					costume::IcPlus(dl, rp.x + 3.f, rp.y + 3.f,
+									sv ? ctx.theme.accent : ctx.theme.textMuted);
+					if (sv && ctx.input.mouseClicked[0]) {
+						plusPris = true; // le clic du « + » n'est PAS un clic de repli
+						AjouterRemplissage();
+					}
+				}
 				if (s) {
-					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+					if (!plusPris && ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
 						&& NkGuiRectContains(r, ctx.input.mousePos))
 						s->ouvert = !s->ouvert;
 				} else {
@@ -6525,6 +6548,9 @@ namespace nkuidesign {
 			}
 			static void CorpsApparenceC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsApparence(ctx);
+			}
+			static void CorpsRemplissagesC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsRemplissages(ctx);
 			}
 			static void CorpsBordsC(void *u, NkGuiContext &ctx) {
 				// Le modele porte rayon/bordure depuis le 31/08 (vocabulaire
@@ -7659,11 +7685,199 @@ namespace nkuidesign {
 				return false;
 			}
 
-			// ── APPARENCE (reference_4_185519, FONCTIONNELLE) : Fond, [Texte],
+			// ═══════════════════════════════════════════════════════════════════
+			//  REMPLISSAGES (Lunacy « FILLS ») — étage 1 du mandat listes
+			// ═══════════════════════════════════════════════════════════════════
+			// La ligne exacte de `lunacy_props_12` : pastille · hexa · opacité ·
+			// œil · poubelle. Et le « + » dans l'en-tête (voir TitreSection).
+			//
+			// ⚠️ UNE SEULE GRAMMAIRE VISUELLE, LISTE OU PAS. Quand le nœud n'a
+			//    que la clé simple `fond`, la section montre UNE ligne — la même
+			//    ligne, avec son opacité à 100 et son œil ouvert. On ne montre
+			//    pas « l'ancienne rangée Fond » d'un côté et « la liste » de
+			//    l'autre : deux présentations pour une seule notion, c'est ce qui
+			//    apprend à l'utilisateur qu'il y a deux notions.
+			//
+			// ⚠️ ET LE PREMIER GESTE QUI A BESOIN DE PLUS QUE `fond` MATÉRIALISE.
+			//    Toucher l'opacité, l'œil, ou ajouter une seconde ligne : le nœud
+			//    bascule dans la forme liste, et le fichier gagne ses clés
+			//    `fond_i`. Tant qu'on ne touche qu'à la couleur, RIEN NE BOUGE
+			//    dans le format — c'est ce qui tient la promesse d'additivité.
+			void CorpsRemplissages(NkGuiContext &ctx) {
+				if (!SectionOuverte("REMPLISSAGES"))
+					return;
+				NkUINode *n = NoeudMutable();
+				if (!n) {
+					designkit::KeyValue(ctx, "Remplissages", "-");
+					return;
+				}
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				// Les tampons de saisie, resynchronisés comme ceux d'APPARENCE :
+				// la sélection ET l'historique les rechargent (une annulation doit
+				// se voir dans le champ, pas seulement dans le document).
+				if (mFillsNode != mSt->selected || mFillsGen != mSt->editionGeneration) {
+					mFillsNode = mSt->selected;
+					mFillsGen = mSt->editionGeneration;
+					for (uint32 i = 0; i < kMaxFillsUI; ++i)
+						mFillsBuf[i][0] = '\0';
+					if (n->fills.Empty())
+						snprintf(mFillsBuf[0], sizeof(mFillsBuf[0]), "%s", n->fill.Data());
+					else
+						for (uint32 i = 0; i < (uint32)n->fills.Size() && i < kMaxFillsUI; ++i)
+							snprintf(mFillsBuf[i], sizeof(mFillsBuf[i]), "%s",
+									 n->fills[i].couleur.Data());
+				}
+				// ⚠️ RIEN DE POSE = AUCUNE LIGNE, ET C'EST CE QUE MONTRE LA
+				//    CAPTURE QUI M'A CORRIGE. Ma premiere version dessinait
+				//    toujours une ligne : sur un noeud sans fond, elle affichait
+				//    une pastille barree, un champ vide et « 100 % » -- une
+				//    opacite pour un remplissage qui n'existe pas. Lunacy, lui,
+				//    ne montre que le « + ». Une ligne vide n'est pas neutre :
+				//    elle affirme qu'il y a un remplissage.
+				const bool rienDePose = n->fills.Empty() && n->fill.Empty();
+				const uint32 nb = rienDePose ? 0u : (n->fills.Empty() ? 1u : (uint32)n->fills.Size());
+				// ⚠️ ON DESSINE DU DERNIER AU PREMIER. Le dernier remplissage se
+				//    peint PAR-DESSUS ; Lunacy le montre donc EN HAUT de la liste.
+				//    Afficher dans l'ordre du modèle aurait mis « celui du dessus »
+				//    tout en bas — l'écran dirait l'inverse de la toile.
+				for (uint32 vi = 0; vi < nb; ++vi) {
+					const uint32 i = nb - 1u - vi; // l'index MODÈLE
+					if (i >= kMaxFillsUI)
+						continue;
+					const bool simple = n->fills.Empty();
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					const bool visible = simple ? true : n->fills[i].visible;
+					const NkColor encre = visible ? ctx.theme.text : ctx.theme.textDisabled;
+					// 1. la PASTILLE de couleur
+					const NkRect sw = {x0, r.y + 5.f, 16.f, 16.f};
+					if (mFillsBuf[i][0]) {
+						dl.AddRectFilled(sw, CouleurHex(mFillsBuf[i], ctx.theme.textMuted), 3.f);
+						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+					} else {
+						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+						dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
+								   ctx.theme.textMuted, 1.f);
+					}
+					// 2. l'HEXA — la seule écriture qui NE matérialise PAS : tant
+					//    qu'on ne change qu'une couleur, un document d'avant garde
+					//    sa clé simple et son octet près.
+					const float32 oeilX = x1 - 16.f, poubX = x1 - 36.f, opacX = x1 - 92.f;
+					const float32 hexW = opacX - (sw.x + 22.f) - 6.f;
+					char idHex[32];
+					snprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
+					ctx.SetNextItemRect({sw.x + 22.f, r.y + 3.f, hexW > 24.f ? hexW : 24.f, 20.f});
+					if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10)) {
+						if (simple)
+							n->fill = NkString(mFillsBuf[i]);
+						else
+							n->fills[i].couleur = NkString(mFillsBuf[i]);
+						mSt->doc.MarkHumanEdit(mSt->selected);
+					}
+					// 3. l'OPACITÉ — la toucher MATÉRIALISE (la clé simple ne sait
+					//    pas la dire).
+					char idOp[32];
+					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
+					const NkRect ro = {opacX, r.y + 3.f, 40.f, 20.f};
+					float32 op = simple ? 100.f : n->fills[i].opacite;
+					if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
+						n->MaterialiserFills();
+						const uint32 k = simple ? 0u : i;
+						if (k < (uint32)n->fills.Size())
+							n->fills[k].opacite = op;
+						mSt->doc.MarkHumanEdit(mSt->selected);
+					}
+					costume::Texte(dl, F.px9, ro.x + ro.w + 3.f,
+								   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "%",
+								   ctx.theme.textMuted);
+					// 4. la POUBELLE — retire CE remplissage. Sur la forme simple
+					//    elle vide la clé `fond` : c'est le même geste, « il n'y a
+					//    plus de remplissage ».
+					{
+						const NkRect rp = {poubX, r.y + 6.f, 14.f, 14.f};
+						const bool sv =
+							ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
+						costume::IcPoubelle(dl, rp.x + 1.f, rp.y + 1.f,
+											sv ? ctx.theme.accent : ctx.theme.textMuted);
+						if (sv && ctx.input.mouseClicked[0]) {
+							if (simple)
+								n->fill = NkString();
+							else if (i < (uint32)n->fills.Size())
+								n->fills.RemoveAt(i);
+							mFillsGen = -1; // les tampons se rechargent : la liste a glissé
+							mSt->doc.MarkHumanEdit(mSt->selected);
+							mSt->status = NkString("Remplissage retiré — Ctrl+Z le ramène.");
+						}
+					}
+					// 5. l'ŒIL — masque sans perdre la couleur. Matérialise aussi.
+					{
+						const NkRect re = {oeilX, r.y + 6.f, 14.f, 14.f};
+						const bool sv =
+							ctx.popupDepth == 0 && NkGuiRectContains(re, ctx.input.mousePos);
+						const NkColor c = sv ? ctx.theme.accent
+											 : (visible ? ctx.theme.textMuted
+														: ctx.theme.textDisabled);
+						if (visible)
+							costume::IcOeil(dl, re.x + 1.f, re.y + 1.f, c);
+						else
+							costume::IcOeilBarre(dl, re.x + 1.f, re.y + 1.f, c);
+						if (sv && ctx.input.mouseClicked[0]) {
+							n->MaterialiserFills();
+							const uint32 k = simple ? 0u : i;
+							if (k < (uint32)n->fills.Size())
+								n->fills[k].visible = !n->fills[k].visible;
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						}
+					}
+					(void)encre;
+				}
+				if (rienDePose) {
+					// On le DIT, plutôt qu'une ligne vide muette. Message COURT :
+					// le panneau fait 235 px, et la capture du 01/09 montrait la
+					// version longue coupée en plein milieu -- un texte tronqué
+					// est un texte qui n'a pas été mesuré dans sa colonne.
+					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
+					costume::Texte(dl, F.px9, r.x + 12.f,
+								   costume::CentrerY(F.px9, r.y, 18.f),
+								   "Aucun — « + » en ajoute.", ctx.theme.textDisabled);
+				}
+			}
+			/// Le geste du « + » de l'en-tête : matérialise puis empile un
+			/// remplissage NEUF au-dessus. Un pas d'annulation, comme tout geste.
+			void AjouterRemplissage() {
+				NkUINode *n = NoeudMutable();
+				if (!n)
+					return;
+				if ((uint32)n->fills.Size() >= kMaxFillsUI) {
+					mSt->status = NkString("Remplissages : la pile de l'inspecteur en montre "
+										   "huit au plus (le modèle, lui, n'a pas de borne).");
+					return;
+				}
+				// ⚠️ DEUX CLICS DONNAIENT TROIS REMPLISSAGES, ET C'EST LA CAPTURE
+				//    QUI L'A MONTRÉ. Sur un nœud SANS fond, matérialiser inventait
+				//    un premier remplissage (`#ffffff`, que personne n'avait
+				//    demandé) et le « + » en empilait un second : le premier clic
+				//    en posait DEUX. Matérialiser n'a de sens que s'il y a quelque
+				//    chose À PRÉSERVER — la clé simple. Sans elle, le « + » pose
+				//    simplement le premier.
+				if (!n->fill.Empty())
+					n->MaterialiserFills();
+				NkRemplissage f;
+				f.couleur = NkString("#ffffff");
+				n->fills.PushBack(f);
+				mFillsGen = -1; // recharger les tampons
+				mSt->doc.MarkHumanEdit(mSt->selected);
+				mSt->status = NkString("Remplissage ajouté — Ctrl+Z le retire.");
+			}
+
+			// ── APPARENCE (reference_4_185519, FONCTIONNELLE) : [Texte],
 			//    Bordure (couleur + épaisseur), Arrondi, Opacité. Chaque contrôle
-			//    écrit sa clé du document (fond / couleur_texte / couleur_bord /
-			//    bordure / rayon) — la toile suit à l'image même. Opacité : le
-			//    modèle ne la porte pas encore, la rangée est GRISE et le dit. ──
+			//    écrit sa clé du document (couleur_texte / couleur_bord /
+			//    bordure / rayon) — la toile suit à l'image même.
+			// ⚠️ « Fond » A QUITTÉ CETTE SECTION pour REMPLISSAGES : le laisser
+			//    ici en plus aurait donné deux endroits pour écrire la même clé,
+			//    et le second aurait ignoré la liste.
 			void CorpsApparence(NkGuiContext &ctx) {
 				if (!SectionOuverte("APPARENCE"))
 					return;
@@ -7685,7 +7899,7 @@ namespace nkuidesign {
 						snprintf(mTexteColBuf, sizeof(mTexteColBuf), "%s", n->textColor.Data());
 						snprintf(mBordColBuf, sizeof(mBordColBuf), "%s", n->borderColor.Data());
 					}
-					RangeeCouleurEdit(ctx, "Fond", "##insp.app.fond", mFondBuf, n->fill);
+					// (« Fond » vit desormais dans REMPLISSAGES — cf. son commentaire.)
 					if (StrEq(n->shape.Data(), "text"))
 						RangeeCouleurEdit(ctx, "Texte", "##insp.app.texte", mTexteColBuf,
 										  n->textColor);
@@ -7824,6 +8038,15 @@ namespace nkuidesign {
 			/// patron que mTexteBuf.
 			int32 mApparNode = -1;
 			char mFondBuf[12] = {};
+			/// ── LES TAMPONS DE LA SECTION REMPLISSAGES ───────────────────────
+			/// ⚠️ HUIT LIGNES AU PLUS, ET C'EST UNE BORNE DE L'INSPECTEUR, PAS DU
+			///    MODELE. `NkUINode::fills` n'a aucune limite ; c'est ce tableau
+			///    de tampons de saisie qui en a une. Le « + » le DIT quand il
+			///    refuse -- il ne se contente pas de ne rien faire.
+			static constexpr uint32 kMaxFillsUI = 8;
+			char mFillsBuf[kMaxFillsUI][12] = {};
+			int32 mFillsNode = -1;
+			uint32 mFillsGen = 0;
 			char mTexteColBuf[12] = {};
 			char mBordColBuf[12] = {};
 			/// Les generations d'historique vues par les tampons (une
