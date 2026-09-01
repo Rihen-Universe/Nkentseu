@@ -644,6 +644,32 @@ namespace nkuidesign {
 			/// plutôt que de le cacher. Clé `transpose_de`.
 			NkString transposeDe;
 			float32 radius = 0.f;	 ///< rayon des coins, px (clé `rayon`)
+			/// ── LA ROTATION ET LES DEUX MIROIRS (Lunacy, bandeau du haut) ────
+			/// Retour de Rodolf, 01/09 : *« dans propriétés il n'y a pas miroir,
+			/// rotation etc., ni autour de l'objet sélectionné. »* Les trois
+			/// champs qui manquaient à l'inventaire des 9 manques de Q42.
+			///
+			/// ⚠️ POURQUOI LES TROIS ENSEMBLE, ET PAS LA ROTATION SEULE. Ce sont
+			///    les trois faces d'une même chose : une **transformation autour
+			///    du centre de la boîte**. Elles se composent (`NkTransfoDe`),
+			///    elles se propagent aux enfants ensemble, et le picking les
+			///    inverse ensemble. Livrées séparément, chacune aurait eu son
+			///    propre inverseur de picking — trois occasions de diverger sur
+			///    la question la plus délicate du lot.
+			///
+			/// ⚠️ ET LE MIROIR N'EST PAS « UN SIGNE SUR LA TAILLE ». Passer par
+			///    une largeur négative aurait contamine la disposition, les
+			///    contraintes min/max et l'englobant de sélection, qui supposent
+			///    tous des tailles positives. Le miroir est une propriété du
+			///    DESSIN et du POINTAGE, pas de la boîte.
+			///
+			/// `rotation` en DEGRÉS, sens horaire (celui de l'écran, où l'axe Y
+			/// descend — c'est la convention de Lunacy et celle du champ « ° »).
+			/// Tous trois additifs : absents du fichier tant qu'ils valent leur
+			/// défaut, donc un document d'avant se réenregistre octet pour octet.
+			float32 rotation = 0.f;	 ///< degrés horaires (clé `rotation`)
+			bool miroirH = false;	 ///< retourné gauche/droite (clé `miroir_h`)
+			bool miroirV = false;	 ///< retourné haut/bas (clé `miroir_v`)
 			float32 borderW = 0.f;	 ///< épaisseur de bord, px (clé `bordure`)
 			float32 fontPx = 0.f;	 ///< corps du texte, px (clé `police_px`) — 0 = défaut
 			float32 fontWeight = 0.f; ///< graisse 100..900 (clé `graisse`) — 0 = défaut
@@ -1084,6 +1110,15 @@ namespace nkuidesign {
 					d.texteTraduits = s.texteTraduits;
 					d.transposeDe = s.transposeDe;
 					d.radius = s.radius;
+					// ⚠️ LES TROIS CHAMPS DE TRANSFORMATION VOYAGENT AVEC LE NOEUD.
+					//    Oubliés ici, un copier-coller aurait « redressé » l'objet
+					//    en silence : la copie aurait eu la même forme et pas la
+					//    même orientation, et le cas « la copie ne perd aucun
+					//    champ » (recette gestes) l'aurait vu — c'est lui qui
+					//    protège cette ligne, pas ma vigilance.
+					d.rotation = s.rotation;
+					d.miroirH = s.miroirH;
+					d.miroirV = s.miroirV;
 					d.borderW = s.borderW;
 					d.fontPx = s.fontPx;
 					d.fontWeight = s.fontWeight;
@@ -1393,6 +1428,18 @@ namespace nkuidesign {
 						WriteNum(out, n.radius);
 						out.Append('\n');
 					}
+					// LA ROTATION ET LES DEUX MIROIRS : ecrits SEULEMENT s'ils ne
+					// valent pas leur defaut -- meme discipline additive que
+					// `position`, `shape` et les trois listes.
+					if (n.rotation != 0.f) {
+						out.Append("  rotation = ");
+						WriteNum(out, n.rotation);
+						out.Append('\n');
+					}
+					if (n.miroirH)
+						out.Append("  miroir_h = 1\n");
+					if (n.miroirV)
+						out.Append("  miroir_v = 1\n");
 					if (n.borderW != 0.f && n.borders.Empty()) {
 						out.Append("  bordure = ");
 						WriteNum(out, n.borderW);
@@ -1701,6 +1748,12 @@ namespace nkuidesign {
 							n.transposeDe = NkString(val);
 						else if (StrEq(key, "rayon"))
 							n.radius = ParseNum(val);
+						else if (StrEq(key, "rotation"))
+							n.rotation = ParseNum(val);
+						else if (StrEq(key, "miroir_h"))
+							n.miroirH = (val[0] == '1');
+						else if (StrEq(key, "miroir_v"))
+							n.miroirV = (val[0] == '1');
 						else if (StrEq(key, "bordure"))
 							n.borderW = ParseNum(val);
 						else if (StrEq(key, "police_px"))
@@ -1775,6 +1828,22 @@ namespace nkuidesign {
 						d.borderColor = s.borderColor;
 						d.alignText = s.alignText;
 						d.radius = s.radius;
+						// ⚠️ LE CHEMIN FRERE DE `CopierSousArbre`, traité au même
+						//    moment : une page transposée en mobile garde
+						//    l'orientation de ses éléments. Écrit là-bas
+						//    seulement, une flèche retournée serait revenue à
+						//    l'endroit dans la version mobile — sans un mot.
+						d.rotation = s.rotation;
+						d.miroirH = s.miroirH;
+						d.miroirV = s.miroirV;
+						// 📌 CONSTAT, NON CORRIGÉ ET NON ÉLARGI (2026-09-01) :
+						//    cette copie-ci ne transporte NI `fills`, NI `borders`,
+						//    NI `effets`, NI `sommets` — quatre listes que
+						//    `CopierSousArbre`, lui, transporte. C'est antérieur à
+						//    ce chantier et ça se voit en comparant les deux blocs.
+						//    Je le NOTE plutôt que de le prendre au vol : le
+						//    corriger change ce que produit « Generate Mobile », ça
+						//    demande sa propre mesure et son propre cas de recette.
 						d.borderW = s.borderW;
 						d.fontPx = s.fontPx;
 						d.fontWeight = s.fontWeight;
