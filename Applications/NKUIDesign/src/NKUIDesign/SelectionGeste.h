@@ -88,11 +88,25 @@ namespace nkuidesign {
 	///    exactement la divergence que les deux premières viennent de fermer —
 	///    trois surfaces, trois avis, aucun au même endroit.
 	///
-	/// **LA DÉCISION, ET ELLE EST PRISE EXPLICITEMENT : les sommets suivent la
-	/// table de la LISTE, pas celle de la toile.** Ce n'est pas de la paresse,
-	/// c'est la même raison qui a séparé les deux premières : `Profond` n'a de
-	/// sens que là où il y a une PROFONDEUR à traverser. Un sommet n'en a pas —
-	/// il n'y a rien sous un sommet. `Ctrl` n'a donc rien à y désigner.
+	/// 🔴 **CE N'EST PAS « UN ÉCART », C'EST UN CONTEXTE — et la formulation compte.**
+	///    Règle de lecture donnée par Rodolf le 01/09 : *« est-ce que la
+	///    contradiction dont tu parles ne provient-elle pas soit de versions
+	///    différentes, soit du panneau dans lequel elle est exécutée, comme sur
+	///    Blender ? »* Elle vaut mieux que ce que j'avais écrit au-dessus des deux
+	///    premières tables (*« différentes par nature… le danger est qu'elles
+	///    dérivent »*) : ça décrivait le symptôme.
+	///
+	///    **La cause est plus simple : Lunacy, comme Blender, a un keymap PAR
+	///    CONTEXTE.** La toile, la liste des calques et le mode d'édition de forme
+	///    sont trois panneaux, donc trois tables, et la même touche y signifie
+	///    autre chose **légitimement**. `NkGesteSommet` n'est donc pas la
+	///    troisième exception : c'est la troisième **table**, et il n'y a rien à
+	///    surveiller de plus que pour les deux autres.
+	///
+	/// **CE QUE CE CONTEXTE DÉCIDE : les sommets se comportent comme la LISTE.**
+	/// `Profond` n'a de sens que là où il y a une PROFONDEUR à traverser. Un
+	/// sommet n'en a pas — il n'y a rien sous un sommet. `Ctrl` n'a donc rien à y
+	/// désigner.
 	///
 	/// ⚠️ ET LA SOURCE LE CONFIRME, on ne l'a pas déduit :
 	///    `lunacy.docs.icons8.com/editing_shapes/` dit, mot pour mot :
@@ -101,11 +115,10 @@ namespace nkuidesign {
 	///    This works with multiple points selected as well. »* Maj bascule,
 	///    l'élastique prend, et le glisser emmène toute la sélection.
 	///
-	/// ⚠️ ELLE DIFFÈRE DONC DE `NkGesteToile` SUR UN POINT, ET IL FAUT LE DIRE :
-	///    en mode forme, **Ctrl ne fait rien** au lieu de désigner le plus
-	///    profond. C'est voulu, c'est écrit, et le cas de recette le tient — sans
-	///    quoi le premier lecteur « corrigerait » l'écart en croyant réparer un
-	///    oubli.
+	/// ⚠️ EN MODE FORME, **`Ctrl` NE FAIT RIEN** au lieu de désigner le plus
+	///    profond. Le cas de recette le tient — sans quoi le premier lecteur
+	///    « corrigerait » la différence en croyant réparer un oubli. Mais on la
+	///    lit désormais pour ce qu'elle est : **pas une exception, un contexte.**
 	inline NkGesteSel NkGesteSommet(bool ctrl, bool maj) {
 		(void)ctrl;
 		if (maj)
