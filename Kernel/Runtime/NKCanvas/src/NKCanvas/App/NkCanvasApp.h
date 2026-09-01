@@ -72,6 +72,7 @@
 #include "NKEvent/NkSafeArea.h"
 #include "NKMath/NKMath.h"
 #include "NKWindow/Core/NkEntry.h"
+#include "NKTime/NkChrono.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/NKWindow.h"
 
@@ -112,6 +113,21 @@ namespace nkentseu {
 				/// plusieurs secondes d'un coup : sans plafond, tout ce qui
 				/// s'integre traverse les murs en une trame.
 				float32 maxDeltaTime = 0.1f;
+
+				/// Cadence visee, en images par seconde. 0 = sans plafond.
+				///
+				/// ⚠️ SUR LE WEB, LA BOUCLE CEDE LA MAIN A CHAQUE TRAME, QUE LE
+				/// PLAFOND SOIT ACTIF OU NON. Une boucle `while` qui ne rend
+				/// jamais la main au navigateur GELE L'ONGLET : le wasm demarre,
+				/// la boucle part, et plus rien ne se peint. C'est le defaut
+				/// signale par Rodolf le 2026-09-01 sur le .bat Web.
+				///
+				/// Le mecanisme existait et etait juste — NkChrono::Sleep appelle
+				/// emscripten_sleep(ms) et YieldThread appelle emscripten_sleep(0),
+				/// tous deux avec ASYNCIFY deja actif. Ce qui manquait, c'etait
+				/// l'APPEL. Mesure du jour : Pong etait la SEULE application du
+				/// depot a plafonner sa cadence, et la seule a tourner sur le Web.
+				int32 imagesParSeconde = 60;
 		};
 
 		/// Ce que la coquille a deja lu pour l'application a chaque changement
@@ -285,6 +301,9 @@ namespace nkentseu {
 				bool HandleLifecycle(const NkEvent &event);
 				void DispatchTyped(const NkEvent &event);
 				void RefreshLayout(bool force);
+				/// Plafonne la cadence ET rend la main. Voir le .cpp : les deux
+				/// branches cedent, et c'est ce qui evite le gel de l'onglet Web.
+				void CadencerTrame(NkChrono &chrono);
 
 				NkCanvasAppConfig mConfig;
 				NkWindow mWindow;
