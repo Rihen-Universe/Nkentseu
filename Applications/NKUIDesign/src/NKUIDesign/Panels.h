@@ -402,8 +402,69 @@ namespace nkuidesign {
 				///    SÉLECTIONNÉ, celui dont l'Inspecteur montre les coordonnées —
 				///    il survit au relâchement, sinon les champs X/Y clignoteraient
 				///    et seraient inutilisables.
-				int32 sommet = -1; ///< le sommet SÉLECTIONNÉ (survit au relâchement)
+				int32 sommet = -1; ///< le sommet PRINCIPAL (survit au relâchement)
 				int32 tire = -1;   ///< le sommet en cours de GLISSEMENT
+				/// ── LA SÉLECTION MULTIPLE DE SOMMETS ─────────────────────────
+				/// Retour de Rodolf, 01/09 (soir) : *« on doit pouvoir
+				/// sélectionner plusieurs vertices pour déplacement ou
+				/// transformation simultanés. »*
+				///
+				/// ⚠️ MÊME DISCIPLINE QUE `sel` / `selected` VINGT LIGNES PLUS
+				///    HAUT, et ce n'est pas une coïncidence de style : c'est la
+				///    règle du document 3 §11.5, *« deux notions de ce qui est
+				///    sélectionné finiraient par diverger »*. `marques` porte
+				///    l'ensemble, `sommet` en est le PRINCIPAL (celui dont
+				///    l'Inspecteur montre les coordonnées) — et il se DÉRIVE, il
+				///    ne se pose pas à la main.
+				///
+				/// ⚠️ UN MASQUE DE 64 BITS, ET LE PLAFOND EST DIT PLUTÔT QUE SUBI.
+				///    `NkSommetsDe` écrit au plus 32 ancres, donc 64 est déjà le
+				///    double de ce que la couche du dessous produit. Au-delà, un
+				///    sommet ne se marque pas — il ne se marque pas *en silence
+				///    faux*, il ne se marque pas du tout, et `Marque()` rend faux.
+				///    Le jour où un tracé dépasse, c'est un `NkVector` qu'il
+				///    faudra, pas un second masque.
+				nkentseu::uint64 marques = 0;
+
+				bool Marque(int32 i) const {
+					return i >= 0 && i < 64 && (marques & (1ull << (nkentseu::uint32)i)) != 0ull;
+				}
+				uint32 NbMarques() const {
+					uint32 n = 0;
+					for (uint32 b = 0; b < 64; ++b)
+						if ((marques & (1ull << b)) != 0ull)
+							++n;
+					return n;
+				}
+				/// La sélection devient CE seul sommet (le clic nu).
+				void MarquerSeul(int32 i) {
+					marques = (i >= 0 && i < 64) ? (1ull << (nkentseu::uint32)i) : 0ull;
+					sommet = (i >= 0 && i < 64) ? i : -1;
+				}
+				/// Ajoute / retire (Maj+clic).
+				/// ⚠️ ET LE PRINCIPAL SUIT, DANS LES DEUX SENS. Retirer le sommet
+				///    principal sans en réélire un autre laisserait l'Inspecteur
+				///    afficher les coordonnées d'un point qui n'est plus
+				///    sélectionné — la même faute que `sel`/`selected` évite.
+				void BasculerMarque(int32 i) {
+					if (i < 0 || i >= 64)
+						return;
+					const nkentseu::uint64 bit = 1ull << (nkentseu::uint32)i;
+					if ((marques & bit) != 0ull) {
+						marques &= ~bit;
+						if (sommet == i) {
+							sommet = -1;
+							for (uint32 b = 0; b < 64; ++b)
+								if ((marques & (1ull << b)) != 0ull) {
+									sommet = (int32)b;
+									break;
+								}
+						}
+					} else {
+						marques |= bit;
+						sommet = i;
+					}
+				}
 				bool Actif() const {
 					return noeud >= 0;
 				}
@@ -417,6 +478,7 @@ namespace nkuidesign {
 					noeud = -1;
 					sommet = -1;
 					tire = -1;
+					marques = 0;
 				}
 			};
 			NkModeForme modeForme;
@@ -3149,8 +3211,11 @@ namespace nkuidesign {
 						// d'accent, les autres sont blancs cerclés — sans ça, la
 						// section « ÉDITION DE FORME » afficherait les coordonnées
 						// d'un sommet que rien ne désigne à l'écran.
+						// TOUT SOMMET MARQUE est plein, pas seulement le principal :
+						// une multi-selection qui ne se VOIT pas est une
+						// multi-selection que personne ne sait qu il a faite.
 						const bool vif = (int32)i == mSt->modeForme.tire
-										 || (int32)i == mSt->modeForme.sommet;
+										 || mSt->modeForme.Marque((int32)i);
 						paint.OutlineColor(ph, accentRGBA, vif ? accentRGBA : 0xFFFFFFFFu, rd);
 						// un sommet ARRONDI porte un second anneau, plus large
 						if (rr > 0.f)
@@ -3206,8 +3271,29 @@ namespace nkuidesign {
 						//    champs X/Y au relâchement, c'est-à-dire à l'instant
 						//    précis où l'on veut lire le nombre qu'on vient
 						//    d'obtenir.
-						if (mSt->modeForme.tire >= 0)
-							mSt->modeForme.sommet = mSt->modeForme.tire;
+						// ── LA MULTI-SÉLECTION DE SOMMETS (retour 2, 01/09 soir) ──
+						// ⚠️ LA TABLE DÉCIDE, PAS UN `if` LOCAL. `NkGesteSommet` vit
+						//    dans `SelectionGeste.h`, **à côté** de celles de la toile
+						//    et de la liste — c'est la troisième surface de sélection
+						//    de cette application, et l'écrire ici aurait rouvert la
+						//    divergence que les deux premières viennent de fermer.
+						// ⚠️ ET UN SOMMET DÉJÀ MARQUÉ NE SE RE-SÉLECTIONNE PAS SEUL AU
+						//    CLIC NU : sinon prendre l'un des cinq sommets marqués pour
+						//    les déplacer ensemble en désélectionnerait quatre au
+						//    moment même de la prise. C'est la règle de tous les outils
+						//    de dessin, et elle est nécessaire ICI : sans elle, le
+						//    « déplacement simultané » qu'il demande serait
+						//    inatteignable à la souris.
+						if (mSt->modeForme.tire >= 0) {
+							const NkGesteSel g =
+								NkGesteSommet(ctx.input.ctrlDown, ctx.input.shiftDown);
+							if (g == NkGesteSel::Basculer)
+								mSt->modeForme.BasculerMarque(mSt->modeForme.tire);
+							else if (!mSt->modeForme.Marque(mSt->modeForme.tire))
+								mSt->modeForme.MarquerSeul(mSt->modeForme.tire);
+							else
+								mSt->modeForme.sommet = mSt->modeForme.tire;
+						}
 						if (mSt->modeForme.tire < 0 && nbS >= 2) {
 							// ── AJOUTER UN SOMMET SUR LE CÔTÉ ────────────────
 							// Rodolf : *« on peut ajouter des informations, entre
@@ -3221,7 +3307,9 @@ namespace nkuidesign {
 								if (neuf >= 0) {
 									mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
 									mSt->modeForme.tire = neuf;
-									mSt->modeForme.sommet = neuf;
+									// un sommet neuf est SEUL sélectionné : il vient de
+									// naître, rien ne le groupe avec les autres.
+									mSt->modeForme.MarquerSeul(neuf);
 									char msg[192];
 									snprintf(msg, sizeof(msg),
 											 "Sommet ajouté sur le côté %d — la forme n'a pas "
@@ -3247,8 +3335,17 @@ namespace nkuidesign {
 								// retour en UNITAIRE : la boîte est l'unité.
 								const float32 cx = rp.x + rp.w * 0.5f;
 								const float32 cy = rp.y + rp.h * 0.5f;
-								pm.sommets[(uint32)mSt->modeForme.tire].x = (ms.x - cx) / (rp.w * 0.5f);
-								pm.sommets[(uint32)mSt->modeForme.tire].y = (ms.y - cy) / (rp.h * 0.5f);
+								const float32 nx = (ms.x - cx) / (rp.w * 0.5f);
+								const float32 ny = (ms.y - cy) / (rp.h * 0.5f);
+								// ── TOUS LES SOMMETS MARQUÉS SUIVENT ───────────────
+								// *« pour déplacement ou transformation simultanés »*.
+								// ⚠️ LE CALCUL EST DANS `Sommets.h`, PAS ICI : écrit dans
+								//    la boucle de rendu, il aurait vécu là où aucun banc
+								//    ne va — la facture que ce chantier a déjà payée
+								//    quatre fois. Ce qu'il tient, et qu'un cas mesure :
+								//    on applique un ÉCART, jamais une position absolue.
+								(void)NkDeplacerSommetsMarques(pm, mSt->modeForme.tire,
+															   mSt->modeForme.marques, nx, ny);
 								mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
 							}
 						} else if (nat == NkNatureSommets::Bouts) {
@@ -3291,8 +3388,38 @@ namespace nkuidesign {
 							mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
 						}
 					}
-					if (!ctx.input.mouseDown[0])
+					// ── LA BOÎTE SE RECADRE SUR LE TRACÉ, AU RELÂCHEMENT ─────
+					// Retour de Rodolf, 01/09 (soir) : « lorsqu'on modifie un objet
+					// par ses vertices, on doit redéfinir sa bounding box pour la
+					// sélection. » Mesuré avant de toucher : le glisser n'écrivait
+					// QUE `sommets[i].x/y` — `posX/posY/width/height` ne bougeaient
+					// pas, donc les poignées, la puce, l'Inspecteur, l'aimant et le
+					// POINTAGE lisaient tous une boîte périmée.
+					//
+					// ⚠️ AU RELÂCHEMENT, PAS À CHAQUE IMAGE, et c'est une décision.
+					//    Recadrer pendant le glisser change le RÉFÉRENTIEL des
+					//    sommets sous la main qui les tire : le geste se battrait
+					//    contre sa propre unité, et l'erreur d'arrondi
+					//    s'accumulerait sur des centaines d'images. Une fois par
+					//    geste, l'erreur ne s'accumule pas. *Ce qu'on recalcule à
+					//    chaque image, on le fait dériver.*
+					if (!ctx.input.mouseDown[0]) {
+						if (mSt->modeForme.tire >= 0
+							&& mSt->doc.IsValidIndex(mSt->modeForme.noeud)) {
+							NkUINode &pr = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+							if (NkRecadrerNoeud(pr, ParentLibre(mSt->modeForme.noeud)))
+								mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
+							else if (!ParentLibre(mSt->modeForme.noeud))
+								// ⚠️ ON LE DIT PLUTÔT QUE DE FAIRE SEMBLANT : sous un
+								//    agencement calculé, `posX/posY` sont ignorés — y
+								//    écrire un décalage donnerait une valeur sans effet
+								//    pendant que le tracé, lui, aurait bougé.
+								Dire("Sommet déplacé — la boîte n'a pas été recadrée : le "
+									 "parent place ses enfants lui-même.",
+									 "", "");
+						}
 						mSt->modeForme.tire = -1;
+					}
 				}
 
 				// ── LE CONTOUR DE SURVOL (pré-sélection, Lunacy) ─────────────
@@ -3988,6 +4115,16 @@ namespace nkuidesign {
 							mForage = -1;
 							cand = NkPickTopLevel(mSt->doc, screen, in.mouseX, in.mouseY);
 						}
+						// 🔴 LE MODE ÉDITION DE FORME GARDE SES PROPRES GESTES.
+						//    Le double-clic sur un sommet (l'arrondi) est lu par le bloc
+						//    de mode points, plus haut dans la même image. Si cette
+						//    branche le relit, elle ré-entre dans le mode par-dessus
+						//    lui-même : `sommet` retombe à −1, la section « ÉDITION DE
+						//    FORME » se vide, et le message « Sommet 3 arrondi » est
+						//    remplacé par celui du forage. *Un geste, deux lecteurs, et
+						//    lequel gagne ne dépendait que de l'ordre du code.*
+						if (NkDblClicAuModeForme(mSt->modeForme.noeud, mSt->selected, cand))
+							return;
 						if (cand >= 0) {
 							const NkUINode &cn = mSt->doc.nodes[(uint32)cand];
 							// ⚠️ L'ISSUE VIENT DE LA TABLE (SelectionGeste.h), pas
@@ -5264,6 +5401,21 @@ namespace nkuidesign {
 			///    chantier a déjà payée sur le zoom (Q41) et sur l'aimantation
 			///    (Q42). Cette méthode n'est plus qu'un raccord vers l'état du
 			///    panneau, et c'est tout ce qu'elle doit être.
+			/// Le parent place-t-il ses enfants LIBREMENT ? C est la condition pour
+			/// que `posX`/`posY` aient un effet -- et donc pour qu on puisse recadrer
+			/// la boite d une forme sur son trace.
+			/// (`Anchor` compte comme `Free` : un enfant ancre est une forme posee
+			///  dont seul le calcul de position differe -- meme regle que le peintre.)
+			bool ParentLibre(int32 i) const {
+				if (!mSt->doc.IsValidIndex(i))
+					return false;
+				const int32 pa = mSt->doc.nodes[(uint32)i].parent;
+				if (!mSt->doc.IsValidIndex(pa))
+					return false;
+				const NkLayoutKind k = mSt->doc.nodes[(uint32)pa].layout.kind;
+				return k == NkLayoutKind::Free || k == NkLayoutKind::Anchor;
+			}
+
 			NkPaintRect RectTrace(float32 mx, float32 my, bool shift, bool depuisCentre) const {
 				return NkRectDeTrace(mCreateX, mCreateY, mx, my, shift, depuisCentre,
 									 mOutil == 3);
@@ -7572,6 +7724,14 @@ namespace nkuidesign {
 					bool ouvert;
 			};
 			static constexpr uint32 kNbSections = 12;
+			/// Un champ de sommet a change et la boite attend son recadrage.
+			/// ⚠️ UN DRAPEAU, ET IL EST JUSTIFIE : on ne peut pas recadrer dans la
+			///    branche qui ecrit (le champ est un GLISSER, il ecrit a chaque
+			///    image), et on ne peut pas non plus recadrer sans savoir si
+			///    quelque chose a bouge (le recadrage est idempotent, mais
+			///    l'appeler a vide ferait un `MarkHumanEdit` de trop a chaque
+			///    image ou la souris est relachee).
+			bool mARecadrer = false;
 			EtatSection mSections[kNbSections] = {
 				// ⚠️ OUVERTE PAR DEFAUT, et c'est la seule qui le merite : on n'entre
 				//    en edition de forme que par un geste explicite. Une section qu'il
@@ -7938,6 +8098,7 @@ namespace nkuidesign {
 							if ((uint32)iSel < (uint32)n.sommets.Size()) {
 								n.sommets[(uint32)iSel].x = px / (rb.w * 0.5f) - 1.f;
 								mSt->doc.MarkHumanEdit(noeud);
+								mARecadrer = true;
 							}
 						}
 						if (ChampNombre(ctx, "insp.forme.y", ry, py, 0.5f, -4096.f, 4096.f)) {
@@ -7945,6 +8106,7 @@ namespace nkuidesign {
 							if ((uint32)iSel < (uint32)n.sommets.Size()) {
 								n.sommets[(uint32)iSel].y = py / (rb.h * 0.5f) - 1.f;
 								mSt->doc.MarkHumanEdit(noeud);
+								mARecadrer = true;
 							}
 						}
 						if (ChampNombre(ctx, "insp.forme.rayon", rr, ra, 0.5f, 0.f, 256.f)) {
@@ -7953,6 +8115,25 @@ namespace nkuidesign {
 								n.sommets[(uint32)iSel].rayon = ra;
 								mSt->doc.MarkHumanEdit(noeud);
 							}
+						}
+						// ── LA BOÎTE SUIT LES CHAMPS AUSSI, AU RELÂCHEMENT ────
+						// ⚠️ MÊME RAISON QU'AU GLISSER D'UN SOMMET SUR LA TOILE, et
+						//    c'est le chemin frère : recadrer à chaque cran du champ
+						//    changerait le RÉFÉRENTIEL des sommets sous le doigt qui
+						//    tire — la valeur affichée sauterait à chaque pixel de
+						//    glissement, et le champ deviendrait inutilisable.
+						//    *Le chemin frère traité comme un groupe dès l'écriture,
+						//    pas après l'avoir vu mordre.*
+						if (mARecadrer && !ctx.input.mouseDown[0]) {
+							mARecadrer = false;
+							const int32 pa = n.parent;
+							const bool libre =
+								mSt->doc.IsValidIndex(pa)
+								&& (mSt->doc.nodes[(uint32)pa].layout.kind == NkLayoutKind::Free
+									|| mSt->doc.nodes[(uint32)pa].layout.kind
+										   == NkLayoutKind::Anchor);
+							if (NkRecadrerNoeud(n, libre))
+								mSt->doc.MarkHumanEdit(noeud);
 						}
 					} else {
 						BoiteChamp(ctx, rx, "\xE2\x80\x94");

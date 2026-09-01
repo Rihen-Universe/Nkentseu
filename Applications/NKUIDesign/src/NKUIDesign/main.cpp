@@ -2208,6 +2208,301 @@ static nkentseu::int32 RecettePoints() {
 				tousLus && stable && memes && litLeDeplace && avant.Size() > 0, d);
 	}
 
+	// ── 29. LA BOITE SE RECADRE SUR LE TRACE, ET LA FORME NE BOUGE PAS ─────
+	//     Retour de Rodolf, 01/09 (soir) : « lorsqu'on modifie un objet par ses
+	//     vertices, on doit redefinir sa bounding box pour la selection. »
+	//
+	// ⚠️ MESURE AVANT D'ECRIRE : le glisser d'un sommet n'ecrivait QUE
+	//    `sommets[i].x/y`. `posX`, `posY`, `width` et `height` ne bougeaient pas.
+	//    Tout ce qui lit la boite -- poignees, puce, Inspecteur, aimant, et
+	//    surtout le POINTAGE -- lisait donc une boite perimee : on cliquait sur
+	//    la forme sans la selectionner, et on la selectionnait en cliquant dans
+	//    le vide.
+	//
+	// ⚠️ ET LE VRAI DANGER N'EST PAS L'ENGLOBANT, C'EST LE REFERENTIEL. Nos
+	//    sommets sont UNITAIRES (-1..1 en fraction de la boite) : recadrer change
+	//    leur unite. Recalculer sans renormaliser ferait SAUTER la forme a
+	//    l'ecran au moment meme du relachement. Le cas exige donc les DEUX : la
+	//    boite epouse le trace, ET chaque sommet retombe au meme point ABSOLU.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iR = poser("rect", nullptr); // 100 x 80, pose a l'origine
+		{
+			NkUINode &n = st.doc.nodes[(uint32)iR];
+			n.posX = 20.f;
+			n.posY = 10.f;
+			NkMaterialiserSommets(n);
+			// on TIRE le coin haut-gauche VERS L'EXTERIEUR : le trace deborde
+			n.sommets[0].x = -2.f; // soit 100 px a gauche du bord gauche
+			n.sommets[0].y = -1.5f;
+		}
+		// les points ABSOLUS avant recadrage -- c'est eux qui ne doivent pas bouger
+		float32 avantX[16], avantY[16];
+		uint32 nbAv = 0;
+		{
+			const NkUINode &n = st.doc.nodes[(uint32)iR];
+			nbAv = (uint32)n.sommets.Size();
+			for (uint32 i = 0; i < nbAv && i < 16; ++i) {
+				avantX[i] = n.posX + (n.sommets[i].x + 1.f) * 0.5f * n.width.value;
+				avantY[i] = n.posY + (n.sommets[i].y + 1.f) * 0.5f * n.height.value;
+			}
+		}
+		const bool aRecadre = NkRecadrerNoeud(st.doc.nodes[(uint32)iR], true);
+		const NkUINode &n = st.doc.nodes[(uint32)iR];
+		// (a) LA BOITE A CHANGE, et elle vaut l'englobant du trace
+		//     depart : x 20..120, y 10..90 ; sommet 0 tire a x=-2 -> 20-50=-30,
+		//     y=-1.5 -> 10-20=-10. Englobant attendu : (-30,-10) 150 x 100.
+		const bool boite = aRecadre && n.posX == -30.f && n.posY == -10.f
+						   && n.width.value == 150.f && n.height.value == 100.f;
+		// (b) LA FORME N'A PAS BOUGE D'UN PIXEL : chaque sommet retombe au meme
+		//     point absolu. C'est la moitie que la renormalisation paie.
+		float32 pireEcart = 0.f;
+		for (uint32 i = 0; i < nbAv && i < 16; ++i) {
+			const float32 X = n.posX + (n.sommets[i].x + 1.f) * 0.5f * n.width.value;
+			const float32 Y = n.posY + (n.sommets[i].y + 1.f) * 0.5f * n.height.value;
+			const float32 ex = X > avantX[i] ? X - avantX[i] : avantX[i] - X;
+			const float32 ey = Y > avantY[i] ? Y - avantY[i] : avantY[i] - Y;
+			if (ex > pireEcart)
+				pireEcart = ex;
+			if (ey > pireEcart)
+				pireEcart = ey;
+		}
+		const bool immobile = pireEcart < 0.001f;
+		// (c) LES MODES PASSENT A `Fixed` : ecrire une valeur dans un axe
+		//     `expand` la laisserait sans effet, et la boite resterait fausse en
+		//     silence.
+		const bool fixes = n.width.mode == NkSizeMode::Fixed
+						   && n.height.mode == NkSizeMode::Fixed;
+		// (d) IDEMPOTENT : recadrer une forme deja recadree ne fait RIEN.
+		const bool idem = !NkRecadrerNoeud(st.doc.nodes[(uint32)iR], true);
+		char d[224];
+		snprintf(d, sizeof(d), "boite=(%.0f,%.0f) %.0fx%.0f ; pire ecart %.5f px ; fixes=%d ; "
+							   "2e appel change=%d",
+				 (double)n.posX, (double)n.posY, (double)n.width.value,
+				 (double)n.height.value, (double)pireEcart, fixes ? 1 : 0, idem ? 0 : 1);
+		verdict("29. la boite se RECADRE sur le trace (englobant exact), la forme ne bouge pas "
+				"d'un pixel (renormalisation), les modes passent a Fixed, et l'operation est "
+				"IDEMPOTENTE",
+				boite && immobile && fixes && idem, d);
+	}
+
+	// ── 30. DIX DEPLACEMENTS SUCCESSIFS NE FONT PAS DERIVER LA FORME ───────
+	// ⚠️ C'EST LE VRAI RISQUE DE CE MECANISME, ET IL NE SE VOIT PAS SUR UN
+	//    ALLER-RETOUR. Chaque recadrage divise puis multiplie par des largeurs
+	//    differentes ; l'erreur d'arrondi du flottant s'ajoute a chaque tour. Une
+	//    forme qui se decale d'un centieme de pixel par geste a bouge d'un pixel
+	//    au centieme geste -- et personne ne saura d'ou ca vient.
+	//
+	// ⚠️ ET LE CAS MESURE UN POINT QUI N'EST PAS TOUCHE : on tire le sommet 2 dix
+	//    fois, et on surveille le sommet 0. Mesurer le sommet TIRE ne dirait
+	//    rien -- il est cense bouger.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iE = poser("etoile", nullptr);
+		st.doc.nodes[(uint32)iE].posX = 40.f;
+		st.doc.nodes[(uint32)iE].posY = 40.f;
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
+		auto absolu = [&](uint32 i, float32 &X, float32 &Y) {
+			const NkUINode &n = st.doc.nodes[(uint32)iE];
+			X = n.posX + (n.sommets[i].x + 1.f) * 0.5f * n.width.value;
+			Y = n.posY + (n.sommets[i].y + 1.f) * 0.5f * n.height.value;
+		};
+		float32 x0 = 0.f, y0 = 0.f;
+		absolu(0, x0, y0);
+		for (uint32 tour = 0; tour < 10; ++tour) {
+			NkUINode &n = st.doc.nodes[(uint32)iE];
+			// on pousse le sommet 2 d'un cran vers l'exterieur, puis on recadre
+			n.sommets[2].x += 0.3f;
+			n.sommets[2].y += 0.2f;
+			NkRecadrerNoeud(n, true);
+		}
+		float32 x1 = 0.f, y1 = 0.f;
+		absolu(0, x1, y1);
+		const float32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
+		const float32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
+		const bool stable = dx < 0.01f && dy < 0.01f;
+		char d[192];
+		snprintf(d, sizeof(d),
+				 "sommet 0 (jamais touche) : (%.4f,%.4f) -> (%.4f,%.4f), derive %.5f px",
+				 (double)x0, (double)y0, (double)x1, (double)y1,
+				 (double)(dx > dy ? dx : dy));
+		verdict("30. DIX deplacements + recadrages successifs ne font pas deriver un sommet "
+				"qu'on n'a pas touche (l'erreur cumulee est le vrai risque)",
+				stable, d);
+	}
+
+	// ── 31. UN COTE PLAT NE DIVISE PAS, ET UN PARENT CALCULE REFUSE ────────
+	// ⚠️ DEUX REFUS, ET ILS SE MESURENT PLUTOT QUE DE SE SUPPOSER.
+	//    (a) trois sommets alignes donnent une largeur nulle : sans plancher, la
+	//        renormalisation divise par zero et rend des NaN -- qui se propagent
+	//        en SILENCE jusqu'au dessin, ou ils n'affichent plus rien du tout ;
+	//    (b) sous un agencement calcule, `posX`/`posY` sont IGNORES : y ecrire un
+	//        decalage donnerait une valeur sans effet pendant que le trace, lui,
+	//        aurait bouge. On rend faux, et l'appelant a une raison a dire.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iT = poser("triangle", nullptr);
+		{
+			NkUINode &n = st.doc.nodes[(uint32)iT];
+			NkMaterialiserSommets(n);
+			for (uint32 i = 0; i < (uint32)n.sommets.Size(); ++i)
+				n.sommets[i].x = 0.f; // tous alignes : largeur du trace = 0
+		}
+		const bool aPlat = NkRecadrerNoeud(st.doc.nodes[(uint32)iT], true);
+		const NkUINode &t = st.doc.nodes[(uint32)iT];
+		bool sain = t.width.value >= 1.f && t.height.value > 0.f;
+		for (uint32 i = 0; i < (uint32)t.sommets.Size(); ++i) {
+			// un NaN n'est egal a rien, pas meme a lui-meme : c'est comme ca
+			// qu'on l'attrape sans <math.h>.
+			const float32 v = t.sommets[i].x;
+			if (!(v == v) || !(t.sommets[i].y == t.sommets[i].y))
+				sain = false;
+		}
+		// (b) le meme geste, parent NON libre
+		const int32 iR2 = poser("rect", nullptr);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iR2]);
+		st.doc.nodes[(uint32)iR2].sommets[0].x = -3.f;
+		const bool refuse = !NkRecadrerNoeud(st.doc.nodes[(uint32)iR2], false);
+		char d[192];
+		snprintf(d, sizeof(d), "plat : %.0fx%.0f, aucun NaN=%d, a recadre=%d ; parent calcule "
+							   "refuse=%d",
+				 (double)t.width.value, (double)t.height.value, sain ? 1 : 0, aPlat ? 1 : 0,
+				 refuse ? 1 : 0);
+		verdict("31. un cote PLAT garde un plancher et ne produit AUCUN NaN, et un parent qui "
+				"place ses enfants lui-meme REFUSE le recadrage",
+				sain && refuse, d);
+	}
+
+	// ── 32. LA TROISIEME TABLE DE SELECTION, ET LA MULTI-SELECTION DE SOMMETS ─
+	//     Retour de Rodolf, 01/09 (soir) : « on doit pouvoir selectionner
+	//     plusieurs vertices pour deplacement ou transformation simultanes. »
+	//
+	// ⚠️ LA DECISION EST PRISE ET TENUE : les sommets suivent la table de la
+	//    LISTE, pas celle de la toile -- `Profond` n'a de sens que la ou il y a
+	//    une profondeur a traverser, et il n'y a rien sous un sommet. La source
+	//    le confirme (`lunacy.docs.icons8.com/editing_shapes/` : « drag over them
+	//    or hold down Shift when clicking several points »). Le cas tient l'ECART
+	//    avec la table de la toile, sans quoi le premier lecteur le
+	//    « corrigerait » en croyant reparer un oubli.
+	{
+		const bool table = NkGesteSommet(false, false) == NkGesteSel::Remplacer
+						   && NkGesteSommet(false, true) == NkGesteSel::Basculer
+						   // ⚠️ L'ECART AVEC LA TOILE, TENU EXPRES :
+						   && NkGesteSommet(true, false) == NkGesteSel::Remplacer
+						   && NkGesteToile(true, false) == NkGesteSel::Profond;
+		// l'etat de multi-selection lui-meme
+		DesignState::NkModeForme m;
+		m.MarquerSeul(3);
+		const bool seul = m.Marque(3) && m.NbMarques() == 1 && m.sommet == 3;
+		m.BasculerMarque(5);
+		m.BasculerMarque(7);
+		const bool trois = m.NbMarques() == 3 && m.sommet == 7 && m.Marque(5);
+		// ⚠️ RETIRER LE PRINCIPAL LUI FAIT ELIRE UN SUCCESSEUR : sans ca,
+		//    l'Inspecteur afficherait les coordonnees d'un point qui n'est plus
+		//    selectionne -- la faute exacte que `sel`/`selected` evite.
+		m.BasculerMarque(7);
+		const bool successeur = m.NbMarques() == 2 && m.sommet >= 0 && m.Marque(m.sommet);
+		// ⚠️ ON RETIENT LA VALEUR AVANT `Quitter`, sinon le message imprimerait
+		//    « sommet=-1 » a cote d'un verdict qui a mesure autre chose. *Un
+		//    chiffre porte sa provenance.*
+		const int32 successeurLu = m.sommet;
+		// et sortir efface TOUT (le quatrieme champ que `Quitter` doit porter)
+		m.Quitter();
+		const bool vide = m.NbMarques() == 0 && m.sommet == -1 && m.noeud == -1;
+		char d[224];
+		snprintf(d, sizeof(d), "table=%d seul=%d trois=%d successeur(sommet=%d)=%d vide=%d",
+				 table ? 1 : 0, seul ? 1 : 0, trois ? 1 : 0, successeurLu, successeur ? 1 : 0,
+				 vide ? 1 : 0);
+		verdict("32. la table des SOMMETS (Maj bascule, Ctrl ne fait rien -- l'ecart avec la "
+				"toile est voulu), et le principal se DERIVE de l'ensemble",
+				table && seul && trois && successeur && vide, d);
+	}
+
+	// ── 32bis. LES SOMMETS MARQUES BOUGENT ENSEMBLE, ET D'UN ECART ─────────
+	// ⚠️ LE MECANISME EST DESCENDU DANS `Sommets.h` POUR CE CAS. Ecrit dans la
+	//    boucle de rendu, il aurait vecu la ou aucun banc ne va -- la facture que
+	//    ce chantier a deja payee quatre fois -- et « les sommets bougent
+	//    ensemble » serait reste une opinion.
+	//
+	// ⚠️ ET LE CAS VISE LA FAUTE PRECISE, PAS « ca bouge ». Poser chaque sommet
+	//    marque SOUS la souris les ferait tous se SUPERPOSER au premier pixel du
+	//    geste : la forme s'effondrerait en un point. Le sous-cas (b) mesure donc
+	//    que les sommets restent DISTINCTS et gardent leur ecart mutuel -- ce
+	//    qu'un simple « ils ont bouge » ne verrait pas.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iE = poser("etoile", nullptr);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
+		NkUINode &e = st.doc.nodes[(uint32)iE];
+		// marques : 0 (tire), 2 et 5
+		const nkentseu::uint64 marq = (1ull << 0) | (1ull << 2) | (1ull << 5);
+		const float32 ax0 = e.sommets[0].x, ay0 = e.sommets[0].y;
+		const float32 ax2 = e.sommets[2].x, ay2 = e.sommets[2].y;
+		const float32 ax3 = e.sommets[3].x, ay3 = e.sommets[3].y; // NON marque
+		const float32 ax5 = e.sommets[5].x;
+		const uint32 bouges = NkDeplacerSommetsMarques(e, 0, marq, ax0 + 0.4f, ay0 - 0.25f);
+		// (a) le sommet TIRE est exactement ou on l'a demande
+		const bool tireExact = e.sommets[0].x == ax0 + 0.4f && e.sommets[0].y == ay0 - 0.25f;
+		// (b) les autres MARQUES ont pris le MEME ECART -- ils ne se sont pas
+		//     poses sur la souris (l'ecart 2<->5 est conserve)
+		const bool memeEcart = e.sommets[2].x == ax2 + 0.4f && e.sommets[2].y == ay2 - 0.25f
+							   && e.sommets[5].x == ax5 + 0.4f;
+		const bool distincts = e.sommets[2].x != e.sommets[0].x
+							   || e.sommets[2].y != e.sommets[0].y;
+		// (c) le NON marque n'a pas bouge d'un iota
+		const bool intact = e.sommets[3].x == ax3 && e.sommets[3].y == ay3;
+		char d[192];
+		snprintf(d, sizeof(d), "%u sommet(s) deplace(s) sur 10 ; tire exact=%d meme ecart=%d "
+							   "distincts=%d ; le non marque intact=%d",
+				 bouges, tireExact ? 1 : 0, memeEcart ? 1 : 0, distincts ? 1 : 0,
+				 intact ? 1 : 0);
+		verdict("32bis. les sommets MARQUES bougent ensemble d'un ECART (ils ne se superposent "
+				"pas sous la souris), et ceux qui ne le sont pas ne bougent pas",
+				bouges == 3 && tireExact && memeEcart && distincts && intact, d);
+	}
+
+	// ── 33. LE DOUBLE-CLIC SUR UN SOMMET APPARTIENT AU MODE ────────────────
+	//     Retour (3) de Rodolf : il redemande l'arrondi au double-clic.
+	//
+	// 🔴 ET LA RE-MESURE LUI DONNE RAISON : le double-clic avait DEUX lecteurs.
+	//    La toile arrondit le sommet ; `HandleMouse` relisait le meme evenement
+	//    et -- depuis le correctif du forage a deux temps de ce matin --
+	//    RE-ENTRAIT dans le mode (`Quitter()` puis `noeud = cand`). L'arrondi
+	//    passait, mais `sommet` retombait a -1, la section « EDITION DE FORME »
+	//    se vidait, et le message « Sommet 3 arrondi » etait remplace par celui
+	//    du forage. *Un geste, deux lecteurs, et lequel gagne ne dependait que de
+	//    l'ordre du code* -- la meme classe de defaut que la collision de
+	//    poignees, tranchee du meme cote.
+	{
+		// (a) le mode garde son double-clic sur SON noeud
+		const bool aMoi = NkDblClicAuModeForme(7, 7, 7);
+		// (b) mais pas sur un AUTRE noeud : double-cliquer ailleurs doit
+		//     continuer de forer/selectionner normalement
+		const bool pasAilleurs = !NkDblClicAuModeForme(7, 7, 9);
+		// (c) ni quand le mode n'est pas arme (selection differente)
+		const bool pasSiDesarme = !NkDblClicAuModeForme(7, 9, 7);
+		// (d) ni quand il n'y a pas de mode du tout
+		const bool pasSansMode = !NkDblClicAuModeForme(-1, 7, 7);
+		// (e) ET L'ARRONDI LUI-MEME MARCHE ENCORE -- le cycle 0/8/16/32, sur un
+		//     rect a enfants comme ceux de son document
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iC = poser("rect", nullptr);
+		st.doc.AddChild(iC, "", NkAuthor::Humain); // un rect QUI PORTE un enfant
+		const float32 r1 = NkArrondirSommet(st.doc.nodes[(uint32)iC], 0);
+		const float32 r2 = NkArrondirSommet(st.doc.nodes[(uint32)iC], 0);
+		const float32 r3 = NkArrondirSommet(st.doc.nodes[(uint32)iC], 0);
+		const float32 r4 = NkArrondirSommet(st.doc.nodes[(uint32)iC], 0);
+		const bool cycle = r1 == 8.f && r2 == 16.f && r3 == 32.f && r4 == 0.f;
+		char d[192];
+		snprintf(d, sizeof(d), "a moi=%d ailleurs=%d desarme=%d sans mode=%d ; cycle %.0f %.0f "
+							   "%.0f %.0f",
+				 aMoi ? 1 : 0, pasAilleurs ? 1 : 0, pasSiDesarme ? 1 : 0, pasSansMode ? 1 : 0,
+				 (double)r1, (double)r2, (double)r3, (double)r4);
+		verdict("33. le double-clic sur un sommet appartient au MODE (et a lui seul), et "
+				"l'arrondi cycle encore 0/8/16/32 sur un rect QUI PORTE DES ENFANTS",
+				aMoi && pasAilleurs && pasSiDesarme && pasSansMode && cycle, d);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

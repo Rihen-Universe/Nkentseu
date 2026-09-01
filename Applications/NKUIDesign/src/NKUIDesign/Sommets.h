@@ -315,6 +315,174 @@ namespace nkuidesign {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  DÉPLACER LES SOMMETS MARQUÉS — UN ÉCART, JAMAIS UNE POSITION
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// Retour de Rodolf, 01/09 (soir) : *« on doit pouvoir sélectionner plusieurs
+	/// vertices pour déplacement ou transformation simultanés. »*
+	///
+	/// ⚠️ ÉCRIT ICI, PAS DANS LA BOUCLE DE RENDU, et c'est la quatrième fois que
+	///    ce chantier paie la même facture (le zoom en Q41, l'aimantation en Q42,
+	///    le tracé et la liste des sections aujourd'hui). Un calcul écrit dans
+	///    `OnUI` vit là où aucun banc ne va, et « les sommets bougent ensemble »
+	///    redevient une opinion.
+	///
+	/// ⚠️ ET LA VRAIE DIFFICULTÉ N'EST PAS LA BOUCLE, C'EST L'ÉCART. Poser chaque
+	///    sommet marqué SOUS la souris les ferait tous **se superposer au premier
+	///    pixel du geste** — la forme s'effondrerait en un point. On applique donc
+	///    le déplacement du sommet TIRÉ à tous les autres. *Une grandeur juste,
+	///    réutilisée là où sa définition ne vaut plus* — exactement la faute que
+	///    la rotation avait déjà payée avec son angle cumulé (Q44, C).
+	///
+	/// @param tire    le sommet sous la main (il reçoit `nx, ny` exactement)
+	/// @param marques masque des sommets sélectionnés (bit i = sommet i)
+	/// @param nx,ny   la position UNITAIRE demandée pour le sommet tiré
+	/// @return le nombre de sommets déplacés.
+	inline uint32 NkDeplacerSommetsMarques(NkUINode &n, int32 tire, nkentseu::uint64 marques,
+										   float32 nx, float32 ny) {
+		if (tire < 0 || tire >= (int32)n.sommets.Size())
+			return 0;
+		const float32 dx = nx - n.sommets[(uint32)tire].x;
+		const float32 dy = ny - n.sommets[(uint32)tire].y;
+		const uint32 nb = (uint32)n.sommets.Size();
+		uint32 bouges = 0;
+		for (uint32 k = 0; k < nb; ++k) {
+			const bool marque = k < 64u && (marques & (1ull << k)) != 0ull;
+			if ((int32)k != tire && !marque)
+				continue;
+			n.sommets[k].x += dx;
+			n.sommets[k].y += dy;
+			++bouges;
+		}
+		return bouges;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  RECADRER LA BOÎTE SUR LE TRACÉ — ET RENORMALISER, SINON LA FORME SAUTE
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// Retour de Rodolf, 01/09 (soir) : *« lorsqu'on modifie un objet par ses
+	/// vertices, on doit redéfinir sa bounding box pour la sélection. »*
+	///
+	/// ⚠️ MESURE AVANT D'ÉCRIRE. Déplacer un sommet n'écrivait QUE
+	///    `sommets[i].x/y` : `posX`, `posY`, `width` et `height` ne bougeaient
+	///    pas d'un pixel. Conséquence, et elle est plus large qu'un liseré mal
+	///    placé : **tout ce qui lit la boîte lisait une boîte périmée** — les
+	///    poignées de sélection, la puce de dimensions, les champs L/H de
+	///    l'Inspecteur, l'aimantation, l'englobant d'une multi-sélection, et
+	///    surtout le POINTAGE. On pouvait cliquer sur la forme sans la
+	///    sélectionner, et la sélectionner en cliquant dans le vide. *Un objet
+	///    qu'on voit à un endroit et qu'on attrape à un autre fait douter de tout
+	///    le reste de l'outil* — c'est l'arbitrage déjà écrit pour la rotation
+	///    des groupes, appliqué ici.
+	///
+	/// ⚠️ ET LE PIÈGE EST LE RÉFÉRENTIEL, PAS LE CALCUL DE L'ENGLOBANT. Nos
+	///    sommets sont **UNITAIRES** : `-1..1` en fraction de la boîte. Recadrer
+	///    la boîte **change donc leur unité** — les mêmes nombres désignent
+	///    d'autres points. Recalculer la boîte sans renormaliser ferait
+	///    **sauter la forme à l'écran au moment même où on relâche le sommet**,
+	///    et de plus en plus fort à mesure qu'on s'éloigne. Les deux opérations
+	///    ne sont pas « le calcul et une finition » : c'est **une seule
+	///    transformation**, et elle est écrite ici pour qu'aucun site d'appel
+	///    n'en fasse la moitié.
+	///
+	/// ⚠️ UN CÔTÉ PLAT NE DIVISE PAS. Trois sommets alignés verticalement donnent
+	///    une largeur nulle : la renormalisation diviserait par zéro et rendrait
+	///    des NaN — qui se propagent en silence jusqu'au dessin, où ils
+	///    n'affichent rien du tout. L'axe dégénéré garde donc un plancher, et ses
+	///    sommets y sont ramenés à 0 (le centre), ce qui est exactement leur
+	///    place.
+	///
+	/// @param px,py position du nœud (in/out) — l'appelant décide s'il peut
+	///        l'écrire (elle n'a de sens que sous un parent `Free`/`Anchor`).
+	/// @param w,h  taille du nœud (in/out).
+	/// @return vrai si la boîte a changé.
+	inline bool NkRecadrerSurLeTrace(NkUINode &n, float32 &px, float32 &py, float32 &w,
+									 float32 &h) {
+		if (n.sommets.Empty() || !NkSommetsStockes(NkNatureDe(n.shape.Data())))
+			return false;
+		if (w <= 0.f || h <= 0.f)
+			return false;
+		const uint32 nb = (uint32)n.sommets.Size();
+		// L'ENGLOBANT DU TRACÉ, en coordonnées du parent.
+		float32 x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f;
+		for (uint32 i = 0; i < nb; ++i) {
+			const float32 X = px + (n.sommets[i].x + 1.f) * 0.5f * w;
+			const float32 Y = py + (n.sommets[i].y + 1.f) * 0.5f * h;
+			if (i == 0) {
+				x0 = x1 = X;
+				y0 = y1 = Y;
+			} else {
+				if (X < x0)
+					x0 = X;
+				if (X > x1)
+					x1 = X;
+				if (Y < y0)
+					y0 = Y;
+				if (Y > y1)
+					y1 = Y;
+			}
+		}
+		float32 nw = x1 - x0, nh = y1 - y0;
+		const bool platX = nw < 1.f;
+		const bool platY = nh < 1.f;
+		if (platX)
+			nw = 1.f;
+		if (platY)
+			nh = 1.f;
+		// ⚠️ RIEN À FAIRE SI RIEN N'A BOUGÉ, ET CE N'EST PAS UNE OPTIMISATION :
+		//    c'est ce qui rend l'opération IDEMPOTENTE. Sans ce test, dix appels
+		//    successifs sur une forme immobile enchaîneraient dix
+		//    renormalisations, et l'erreur d'arrondi du flottant ferait DÉRIVER
+		//    la forme sans qu'aucun geste ne l'ait touchée.
+		const float32 eps = 0.01f;
+		const float32 dx0 = x0 - px < 0.f ? px - x0 : x0 - px;
+		const float32 dy0 = y0 - py < 0.f ? py - y0 : y0 - py;
+		const float32 dw = nw - w < 0.f ? w - nw : nw - w;
+		const float32 dh = nh - h < 0.f ? h - nh : nh - h;
+		if (dx0 < eps && dy0 < eps && dw < eps && dh < eps)
+			return false;
+		// RENORMALISER : les mêmes points, dans la nouvelle unité.
+		for (uint32 i = 0; i < nb; ++i) {
+			const float32 X = px + (n.sommets[i].x + 1.f) * 0.5f * w;
+			const float32 Y = py + (n.sommets[i].y + 1.f) * 0.5f * h;
+			n.sommets[i].x = platX ? 0.f : ((X - x0) / nw) * 2.f - 1.f;
+			n.sommets[i].y = platY ? 0.f : ((Y - y0) / nh) * 2.f - 1.f;
+		}
+		px = x0;
+		py = y0;
+		w = nw;
+		h = nh;
+		return true;
+	}
+
+	/// LE MÊME GESTE, APPLIQUÉ AU NŒUD — position comprise quand elle a un sens.
+	///
+	/// ⚠️ LA POSITION NE S'ÉCRIT PAS TOUJOURS, ET LE TAIRE SERAIT UN DÉFAUT. Sous
+	///    un parent en agencement calculé (colonne, rangée), `posX`/`posY` sont
+	///    IGNORÉS : la disposition place l'enfant. Y écrire un décalage donnerait
+	///    une valeur qui n'a aucun effet — et le tracé, lui, aurait bougé. On ne
+	///    recadre donc QUE quand le parent est libre ; sinon on rend faux, et
+	///    l'appelant a une raison à dire.
+	/// @param parentLibre le parent place-t-il ses enfants librement ?
+	inline bool NkRecadrerNoeud(NkUINode &n, bool parentLibre) {
+		if (!parentLibre)
+			return false;
+		float32 px = n.posX, py = n.posY;
+		float32 w = n.width.value, h = n.height.value;
+		if (!NkRecadrerSurLeTrace(n, px, py, w, h))
+			return false;
+		n.posX = px;
+		n.posY = py;
+		n.width.value = w;
+		n.height.value = h;
+		// ⚠️ ET LES MODES PASSENT À `Fixed`, comme le fait déjà le glisser d'un
+		//    bout de ligne : écrire une valeur dans un axe `expand` la laisserait
+		//    sans effet, et la boîte resterait fausse en silence.
+		n.width.mode = NkSizeMode::Fixed;
+		n.height.mode = NkSizeMode::Fixed;
+		return true;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  AJOUTER UN SOMMET — ET LA POSITION EST UN RÉSULTAT, PAS UNE SAISIE
 	// ═══════════════════════════════════════════════════════════════════════════
 	/// Insère un sommet SUR le segment `seg` (entre le sommet `seg` et le

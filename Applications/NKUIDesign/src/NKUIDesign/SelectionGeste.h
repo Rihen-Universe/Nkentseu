@@ -79,6 +79,40 @@ namespace nkuidesign {
 		return NkGesteSel::Remplacer;
 	}
 
+	/// LA TROISIÈME TABLE — LES SOMMETS, EN MODE ÉDITION DE FORME.
+	///
+	/// ⚠️ ELLE EST ÉCRITE **ICI, À CÔTÉ DES DEUX AUTRES**, et c'est tout l'objet
+	///    de ce fichier depuis son en-tête : *le danger n'est pas que les tables
+	///    diffèrent, c'est qu'elles dérivent sans qu'on le voie.* Une troisième
+	///    surface de sélection écrite dans le corps du geste aurait rouvert
+	///    exactement la divergence que les deux premières viennent de fermer —
+	///    trois surfaces, trois avis, aucun au même endroit.
+	///
+	/// **LA DÉCISION, ET ELLE EST PRISE EXPLICITEMENT : les sommets suivent la
+	/// table de la LISTE, pas celle de la toile.** Ce n'est pas de la paresse,
+	/// c'est la même raison qui a séparé les deux premières : `Profond` n'a de
+	/// sens que là où il y a une PROFONDEUR à traverser. Un sommet n'en a pas —
+	/// il n'y a rien sous un sommet. `Ctrl` n'a donc rien à y désigner.
+	///
+	/// ⚠️ ET LA SOURCE LE CONFIRME, on ne l'a pas déduit :
+	///    `lunacy.docs.icons8.com/editing_shapes/` dit, mot pour mot :
+	///    *« To select multiple points, drag over them or hold down `Shift` when
+	///    clicking several points »* et *« To move a point, select and drag it.
+	///    This works with multiple points selected as well. »* Maj bascule,
+	///    l'élastique prend, et le glisser emmène toute la sélection.
+	///
+	/// ⚠️ ELLE DIFFÈRE DONC DE `NkGesteToile` SUR UN POINT, ET IL FAUT LE DIRE :
+	///    en mode forme, **Ctrl ne fait rien** au lieu de désigner le plus
+	///    profond. C'est voulu, c'est écrit, et le cas de recette le tient — sans
+	///    quoi le premier lecteur « corrigerait » l'écart en croyant réparer un
+	///    oubli.
+	inline NkGesteSel NkGesteSommet(bool ctrl, bool maj) {
+		(void)ctrl;
+		if (maj)
+			return NkGesteSel::Basculer;
+		return NkGesteSel::Remplacer;
+	}
+
 	// ═══════════════════════════════════════════════════════════════════════════
 	//  CE QU'UN DOUBLE-CLIC OUVRE — LA TROISIÈME TABLE, AU MÊME ENDROIT
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -289,9 +323,9 @@ namespace nkuidesign {
 				//    capacité que l'utilisateur n'a pas* — c'est la même règle
 				//    que « chaque issue produit un effet visible ou une raison
 				//    dite », prise par l'autre bout.
-				return "Mode édition de forme — glisser un sommet le déplace, cliquer un "
-					   "côté en ajoute un, double-cliquer un sommet l'arrondit ; Échap "
-					   "ressort.";
+				return "Mode édition de forme — glisser un sommet le déplace, Maj+clic en "
+					   "sélectionne plusieurs (ils bougent ensemble), cliquer un côté en "
+					   "ajoute un, double-cliquer un sommet l'arrondit ; Échap ressort.";
 			case NkSuiteDblClic::CoinsSeuls:
 				// ⚠️ CETTE PHRASE NE VAUT PLUS QUE POUR image / avatar / cadre —
 				//    rect et ellipse sont passés au mode d'édition. Elle DIT
@@ -409,6 +443,38 @@ namespace nkuidesign {
 	///    deux lectures.**
 	inline bool NkModePointsArme(int32 pointsNode, int32 selection) {
 		return NkAQuiLaPoignee(pointsNode, selection) == NkProprioPoignee::Sommet;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  À QUI APPARTIENT LE DOUBLE-CLIC — LA MÊME RÈGLE, ÉTENDUE AU GESTE
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// 🔴 CETTE FONCTION EXISTE PARCE QUE LE DOUBLE-CLIC AVAIT **DEUX** LECTEURS,
+	///    et que le second est arrivé ce soir. Mesuré à la source :
+	///
+	///    • la toile, dans son bloc de mode points, lit
+	///      `mouseDoubleClicked[0]` et **arrondit le sommet** sous le curseur ;
+	///    • `HandleMouse`, dans sa branche double-clic, lit le MÊME évènement,
+	///      re-décide l'issue et — depuis le correctif du forage à deux temps —
+	///      **ré-entre dans le mode** (`Quitter()` puis `noeud = cand`).
+	///
+	///    Conséquence : double-cliquer un sommet arrondissait bien, **puis**
+	///    remettait `sommet` à −1 (la section « ÉDITION DE FORME » se vidait) et
+	///    remplaçait le message « Sommet 3 arrondi à 8 px » par celui du forage.
+	///    Sur un rect à enfants, le second double-clic tombait carrément dans la
+	///    branche `dejaDedans` et rouvrait le mode par-dessus lui-même.
+	///
+	/// ⚠️ ET C'EST LA MÊME CLASSE DE DÉFAUT QUE LA COLLISION DE POIGNÉES QUE
+	///    `NkAQuiLaPoignee` a tranchée : **un point de l'écran, deux lecteurs, et
+	///    lequel gagne ne dépend que de l'ordre du code.** On la tranche du même
+	///    côté et avec la même phrase : *en mode points, le mode gagne sur ses
+	///    propres gestes.* Une règle dite couvre les chemins qu'on n'avait pas
+	///    prévus ; une règle subie n'en couvre jamais qu'un.
+	///
+	/// @param pointsNode le nœud en édition de forme (-1 = aucun)
+	/// @param selection  le nœud sélectionné
+	/// @param candidat   ce que le pointage a trouvé sous le double-clic
+	inline bool NkDblClicAuModeForme(int32 pointsNode, int32 selection, int32 candidat) {
+		return NkModePointsArme(pointsNode, selection) && candidat == pointsNode;
 	}
 
 	/// APPLIQUER un geste à la sélection partagée.
