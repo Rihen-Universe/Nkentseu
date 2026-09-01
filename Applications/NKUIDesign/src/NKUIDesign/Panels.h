@@ -994,6 +994,16 @@ namespace nkuidesign {
 			/// premier OnUI de la toile l'applique apres le chargement, puis
 			/// l'eteint. -1 = aucun.
 			int32 selectionInitiale = -1;
+			/// Mode EDITION DE FORME demande en ligne de commande
+			/// (--mode-forme=N) : le meme etat que le double-clic pose sur une
+			/// forme a sommets. -1 = aucun.
+			/// ⚠️ MEME FAMILLE QUE `--editer-texte=`, ET POUR LA MEME RAISON : le
+			///    harnais `--clic` ne sait pas produire un double-clic sur une
+			///    coordonnee de toile qu'on ne connait pas d'avance. Sans ce
+			///    levier, la seule facon de photographier le mode serait de
+			///    DEVINER un pixel -- et une capture qui vise a cote ne prouve
+			///    rien, elle rend une image de plus a interpreter.
+			int32 modeFormeInitial = -1;
 			/// Edition en place demandee en ligne de commande (--editer-texte=N) :
 			/// meme famille que --selection= — ouvre le champ superpose sur le
 			/// noeud N (s'il est un texte) au premier affichage. -1 = aucune.
@@ -2340,13 +2350,43 @@ namespace nkuidesign {
 						Dire("--editer-texte : ce nœud n'est pas un texte.", "", "");
 					mSt->editTexteInitial = -1;
 				}
+				if (mSt->modeFormeInitial >= 0
+					&& mSt->doc.IsValidIndex(mSt->modeFormeInitial)) {
+					// Mise en scene --mode-forme=N : l'etat exact que le
+					// double-clic pose sur une forme a sommets. Consomme
+					// seulement quand le document est la (regle --selection=).
+					const int32 nf = mSt->modeFormeInitial;
+					if (NkFormeEditable(mSt->doc.nodes[(uint32)nf])) {
+						mSt->modeForme.Quitter();
+						mSt->modeForme.noeud = nf;
+						// ⚠️ ET UN SOMMET EST DESIGNE, sinon la capture montrerait la
+						//    section « ÉDITION DE FORME » avec ses trois champs a
+						//    « — » : on photographierait le panneau vide, c'est-a-dire
+						//    precisement ce qu'on veut prouver qui ne l'est pas.
+						mSt->modeForme.sommet = 0;
+						mSt->SelectSingle(nf);
+						Dire(NkRaisonDeDblClic(NkSuiteDblClic::ModePoints), "", "");
+					} else
+						Dire("--mode-forme : ce nœud n'a pas de sommets à éditer.", "", "");
+					mSt->modeFormeInitial = -1;
+				}
 
 				if (!mAideInitiale) {
 					// L'outil arme se DIT des la premiere image — une application
 					// qui ne dit pas quel outil est actif fait deviner (mesure du
 					// 30/08).
+					// ⚠️ MAIS ELLE NE COUVRE PAS UN MODE DEJA OUVERT. Mesure du
+					//    01/09, sur la capture `preuve_edit_shape_n9` : le levier
+					//    `--mode-forme=` posait sa phrase, cette ligne la
+					//    remplacait aussitot par « Selection — cliquer... », et le
+					//    pied de fenetre annoncait un outil pendant que l'ecran
+					//    montrait un mode. C'est le meme defaut que le 24f48773 a
+					//    corrige dans l'autre sens : *une phrase qui contredit
+					//    l'etat est un mensonge d'interface*, qu'elle survive a
+					//    son etat ou qu'elle le devance.
 					mAideInitiale = true;
-					Dire("", AideOutil(mOutil), "");
+					if (!mSt->modeForme.Actif())
+						Dire("", AideOutil(mOutil), "");
 				}
 
 				NkComponentInput in;
@@ -7861,15 +7901,30 @@ namespace nkuidesign {
 						ctx.BeginDisabled();
 					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
 								   "X", ctx.theme.textMuted);
-					const NkRect rx = {x0 + 14.f, r.y + 3.f, 50.f, 20.f};
-					costume::Texte(dl, F.px10, rx.x + rx.w + 10.f,
+					// 🔴 LES TROIS CHAMPS SE PARTAGENT LA LARGEUR DISPONIBLE, ILS NE
+					//    LA SUPPOSENT PLUS. Ma première version posait trois boîtes
+					//    de 50 px à des offsets fixes : la capture
+					//    `preuve_edit_shape_n9.png` montre le troisième champ COUPÉ
+					//    par le bord du panneau. Une largeur décidée sans regarder
+					//    la place disponible — le même défaut, dans le même
+					//    fichier, que celui que `Segmented` documente vingt lignes
+					//    plus haut.
+					const float32 dispo = (r.x + r.w - 12.f) - (x0 + 14.f);
+					const float32 lc = (dispo - 2.f * 22.f) / 3.f;
+					const NkRect rx = {x0 + 14.f, r.y + 3.f, lc, 20.f};
+					costume::Texte(dl, F.px10, rx.x + rx.w + 8.f,
 								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Y",
 								   ctx.theme.textMuted);
-					const NkRect ry = {rx.x + rx.w + 24.f, r.y + 3.f, 50.f, 20.f};
-					costume::Texte(dl, F.px10, ry.x + ry.w + 10.f,
-								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "\xE2\x8C\x92",
+					const NkRect ry = {rx.x + rx.w + 22.f, r.y + 3.f, lc, 20.f};
+					// 🔴 « ⌒ » (U+2312) SORTAIT « ? » — LA FONTE NE PORTE PAS LE
+					//    GLYPHE. Trouvé sur la capture, pas à la relecture : le code
+					//    était juste, l'atlas n'avait pas le caractère. Lunacy peut
+					//    se permettre l'icône, nous non — et un « ? » à côté d'un
+					//    nombre est pire qu'une lettre. On écrit « R ».
+					costume::Texte(dl, F.px10, ry.x + ry.w + 8.f,
+								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "R",
 								   ctx.theme.textMuted);
-					const NkRect rr = {ry.x + ry.w + 24.f, r.y + 3.f, 44.f, 20.f};
+					const NkRect rr = {ry.x + ry.w + 22.f, r.y + 3.f, lc, 20.f};
 					float32 sx = 0.f, sy = 0.f, ra = 0.f;
 					if (unSelectionne && rb.w > 0.f && rb.h > 0.f
 						&& NkLireSommet(n, (uint32)iSel, sx, sy, ra)) {
@@ -7936,22 +7991,26 @@ namespace nkuidesign {
 					const float32 x0 = r.x + 12.f;
 					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
 								   "X1", ctx.theme.textMuted);
-					const NkRect a1 = {x0 + 20.f, r.y + 3.f, 50.f, 20.f};
+					// Même partage de largeur que la rangée X/Y/R : deux champs et
+					// deux étiquettes, jamais des offsets fixes.
+					const float32 dispoB = (r.x + r.w - 12.f) - (x0 + 22.f);
+					const float32 lb = (dispoB - 26.f) * 0.5f;
+					const NkRect a1 = {x0 + 22.f, r.y + 3.f, lb, 20.f};
 					BoiteChamp(ctx, a1, "\xE2\x80\x94");
-					costume::Texte(dl, F.px10, a1.x + a1.w + 10.f,
+					costume::Texte(dl, F.px10, a1.x + a1.w + 6.f,
 								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Y1",
 								   ctx.theme.textMuted);
-					const NkRect a2 = {a1.x + a1.w + 30.f, r.y + 3.f, 50.f, 20.f};
+					const NkRect a2 = {a1.x + a1.w + 26.f, r.y + 3.f, lb, 20.f};
 					BoiteChamp(ctx, a2, "\xE2\x80\x94");
 					const NkRect r2 = ctx.NextItemRect(-1.f, 26.f);
 					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r2.y + 3.f, 20.f),
 								   "X2", ctx.theme.textMuted);
-					const NkRect b1 = {x0 + 20.f, r2.y + 3.f, 50.f, 20.f};
+					const NkRect b1 = {x0 + 22.f, r2.y + 3.f, lb, 20.f};
 					BoiteChamp(ctx, b1, "\xE2\x80\x94");
-					costume::Texte(dl, F.px10, b1.x + b1.w + 10.f,
+					costume::Texte(dl, F.px10, b1.x + b1.w + 6.f,
 								   costume::CentrerY(F.px10, r2.y + 3.f, 20.f), "Y2",
 								   ctx.theme.textMuted);
-					const NkRect b2 = {b1.x + b1.w + 30.f, r2.y + 3.f, 50.f, 20.f};
+					const NkRect b2 = {b1.x + b1.w + 26.f, r2.y + 3.f, lb, 20.f};
 					BoiteChamp(ctx, b2, "\xE2\x80\x94");
 					// ── LES SIX TYPES DE POINT — ET POURQUOI ILS ATTENDENT ────
 					// ⚠️ ILS N'ONT DE SENS QU'AVEC LES POIGNÉES DE BÉZIER. Les
@@ -7959,17 +8018,33 @@ namespace nkuidesign {
 					//    changeraient rien — exactement la « case toujours cochée à
 					//    côté d'un aimant qui ne fait rien » que Q42 a trouvée dans
 					//    le menu Affichage.
-					static const char *const kTypes[6] = {"Vif",   "Rond",  "Miroir",
-														  "Asym.", "Libre", "Auto"};
-					(void)designkit::Segmented(ctx, kTypes, 6, 0, "insp.forme.types");
+					// 🔴 ET MA PREMIÈRE VERSION LES A POSÉS QUAND MÊME, EN `Segmented`.
+					//    La capture `preuve_edit_shape_n9.png` montre le résultat : six
+					//    mots ne tiennent pas dans une colonne d'Inspecteur, le contrôle
+					//    bascule en FLOT (à raison — c'est sa règle anti-troncature), et
+					//    on obtient **six lignes empilées dont la première est en
+					//    surbrillance**. Un choix qui a l'air fait, sur un contrôle qui
+					//    n'agit pas : c'est le défaut même que le commentaire ci-dessus
+					//    dit éviter, et je l'avais écrit deux lignes plus bas.
+					//    *Les nommer suffit ; les mimer trompe.*
+					// ⚠️ `TextWrapped` ET NON UN TEXTE ROGNÉ : ma première version
+					//    dessinait cette ligne au clip, et la capture l'a rendue
+					//    « … / miroir / asy ». Nommer six types en n'en montrant que
+					//    quatre, c'est le contraire de ce que la ligne existe pour
+					//    faire.
+					nkgui::TextWrapped(ctx,
+									   "Type de point : vif / rond / miroir / asymétrique / "
+									   "libre / auto.");
 					(void)designkit::Button(ctx, "Ouvrir le tracé", "insp.forme.ouvrir");
 					ctx.EndDisabled();
+					// ⚠️ COURT, ET C'EST UNE CORRECTION : la première version faisait
+					//    NEUF lignes dans la colonne — plus haute que tout le reste
+					//    de la section réunie. Une explication qui écrase ce qu'elle
+					//    explique n'est plus une explication.
 					nkgui::TextWrapped(
-						ctx, "Grisés, et voici pourquoi : les poignées de Bézier ne sont pas "
-							 "dans le modèle — notre arrondi est un RAYON, donc un arc "
-							 "symétrique (le champ ⌒ ci-dessus). Les six types de point n'ont "
-							 "de sens qu'avec elles. Et « Ouvrir le tracé » suppose un tracé "
-							 "ouvert : les nôtres sont fermés.");
+						ctx, "Grisés : les poignées de Bézier ne sont pas dans le modèle "
+							 "(notre arrondi est un RAYON — le champ « R »), les types de "
+							 "point n'ont de sens qu'avec elles, et nos tracés sont fermés.");
 				}
 
 				// ── TERMINER ──────────────────────────────────────────────────

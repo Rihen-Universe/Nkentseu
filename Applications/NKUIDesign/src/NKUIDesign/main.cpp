@@ -4711,6 +4711,19 @@ int nkmain(const NkEntryState &state) {
 				gDesign.editTexteInitial = v;
 				continue;
 			}
+			// Mise en scene (01/09) : ouvrir le MODE EDITION DE FORME sur le
+			// noeud N au premier affichage — l'etat que le double-clic pose sur
+			// une forme a sommets. Meme raison que --editer-texte= : le harnais
+			// --clic ne sait pas produire un double-clic sur une coordonnee de
+			// toile qu'on ne connait pas d'avance, et une capture qui vise a
+			// cote ne prouve rien -- elle rend une image de plus a interpreter.
+			if (arg.StartsWith("--mode-forme=")) {
+				int32 v = 0;
+				for (const char *q = a + 13; *q >= '0' && *q <= '9'; ++q)
+					v = v * 10 + (*q - '0');
+				gDesign.modeFormeInitial = v;
+				continue;
+			}
 			// MISE EN SCENE (remandat Banani : un document par ecran) : charger
 			// un document donne au lancement. ⚠️ Ctrl+S ecrira LA ou on a
 			// charge — le fichier de travail par defaut ne bouge pas.
@@ -5130,6 +5143,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
 			puts("  --selection=<n>         sélectionner le nœud n au premier affichage");
 			puts("  --editer-texte=<n>      ouvrir l'édition en place sur le nœud texte n (mise en scène)");
+			puts("  --mode-forme=<n>        ouvrir l'édition de forme sur le nœud n (mise en scène)");
 			puts("  --clic=x:y:frame[:d|r|c|s|o]  injecter un clic (d double, r droit, c Ctrl, "
 				 "s Maj, o double-clic OS SANS appui)");
 			puts("  --frappe=texte:frame    injecter des codepoints ASCII à cette trame (preuve de saisie)");
