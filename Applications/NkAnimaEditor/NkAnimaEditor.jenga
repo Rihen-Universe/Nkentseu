@@ -51,7 +51,11 @@ with project("NkAnimaEditor"):
     files(["src/**.cpp"])
 
     nkentseudependson(
-        ["NKEditorKit", "NKCanvas", "NKGui", "NKReflection", "NKWindow", "NKEvent", "NKGlad",
+        # NKCanvas RETIRE le 2026-09-01 : cette application injecte un renderer
+        # NKRHI (NkEditorRHIRenderer) et n'inclut AUCUN en-tete NKCanvas. Elle le
+        # liait uniquement parce que NKEditorKit l'imposait -- ce qui n'est plus
+        # le cas. Contre-epreuve : le lien ci-dessous.
+        ["NKEditorKit", "NKGui", "NKReflection", "NKWindow", "NKEvent", "NKGlad",
          "NKFont", "NKImage", "NKLogger", "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
          "NKRHI", "NKRenderer", "NKSL", "NKSerialization", "NKCollision", "NKPhysics"],

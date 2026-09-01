@@ -46,6 +46,11 @@
 //       porte au canal** — c'est un fichier de NKEditorKit, pas d'ici.
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
+// ⚠️ L'umbrella ne tire PAS l'implementation NKCanvas, deliberement : le kit
+// serait alors lie a NKCanvas chez TOUS ses consommateurs, y compris ceux qui
+// rendent en NKRHI. C'est a l'application de choisir son backend et de
+// l'inclure. Voir NkEditorShell::Init (2026-09-01).
+#include "NKEditorKit/NkEditorCanvasRenderer.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKPlatform/NkEnv.h"
@@ -281,6 +286,12 @@ int nkmain(const NkEntryState &state) {
 	cfg.width = width;
 	cfg.height = height;
 	cfg.graphicsApi = gfx.api;
+	// ── BACKEND DE RENDU, INJECTE ────────────────────────────────────────
+	// Le kit n'en cree plus par defaut depuis le 2026-09-01 : un defaut dans
+	// son .cpp etait une dependance de LIEN pour tout le monde. `static` parce
+	// que le shell NE POSSEDE PAS ce pointeur -- l'objet doit lui survivre.
+	static NkEditorCanvasRenderer canvasRenderer;
+	cfg.renderer = &canvasRenderer;
 	if (!shell || !shell->Init(cfg)) {
 		logger.Error("[NKUIDesign] la coquille a refuse le backend '{0}' (retenu : {1}). Rien n'a "
 					 "ete remplace : c'est un refus, pas un repli.",
