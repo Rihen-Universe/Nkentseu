@@ -251,6 +251,22 @@ static nkentseu::int32 RecetteAnnulation() {
 		}
 		return *x == *y;
 	};
+	// ⚠️ L'ANCRE — LE VOLET *CONSERVATION*, SANS LEQUEL CETTE RECETTE ETAIT
+	//    VERTE SUR UN ECRIVAIN MORT. Mesure du 01/09 : `NkUIDocument::Save`
+	//    neutralisee (elle rend du vide) -> **RECETTE ANNULATION : 13/13
+	//    PROUVEE**. Les treize cas ne comparaient que DEUX SORTIES DU MEME
+	//    PRODUCTEUR : deux chaines vides sont egales, donc tout passait, et la
+	//    recette declarait l'annulation prouvee sur un format qui n'ecrivait
+	//    plus rien.
+	//    C'est la porte du depot : « stable » ne veut pas dire « juste ». Un
+	//    aller-retour porte DEUX exigences — la stabilite ET la conservation.
+	//    Ici la conservation tient en une ligne : la serialisation doit DIRE
+	//    quelque chose (son en-tete, et au moins un noeud).
+	auto ancree = [](const NkString &s) -> bool {
+		if (s.Size() == 0 || !s.Data())
+			return false;
+		return s.Contains("nkuidoc") && s.Contains("noeud");
+	};
 	// L'observateur pousse apres ~6 passages STABLES : on lui donne 10.
 	auto stabiliser = [&](DesignState &s) {
 		for (int32 i = 0; i < 10; ++i) {
@@ -270,12 +286,17 @@ static nkentseu::int32 RecetteAnnulation() {
 		stabiliser(st);
 		++gestes;
 		const NkString apres = ser(st);
+		// LA CONSERVATION D'ABORD : si les deux etats compares ne DISENT rien,
+		// leur egalite ne prouve rien. On l'exige AVANT de la lire.
+		const bool dit = ancree(avant) && ancree(apres);
+		const uint32 nAvant = st.doc.NodeCount();
 		st.Annuler();
-		const bool okU = identiques(ser(st), avant);
+		const bool okU = dit && identiques(ser(st), avant);
 		st.Retablir();
-		const bool okR = identiques(ser(st), apres);
-		printf("%s  %s (annuler %s avant, retablir %s apres)\n",
-			   (okU && okR) ? "OK   " : "ECHEC", nom, okU ? "==" : "!=", okR ? "==" : "!=");
+		const bool okR = dit && identiques(ser(st), apres) && st.doc.NodeCount() == nAvant;
+		printf("%s  %s (annuler %s avant, retablir %s apres%s)\n",
+			   (okU && okR) ? "OK   " : "ECHEC", nom, okU ? "==" : "!=", okR ? "==" : "!=",
+			   dit ? "" : ", SERIALISATION MUETTE");
 		if (!okU || !okR)
 			++echecs;
 	};
@@ -404,8 +425,9 @@ static nkentseu::int32 RecetteAnnulation() {
 	// LA CONTRE-EPREUVE : N gestes, N Annuler -> l'etat initial EXACT.
 	for (int32 i = 0; i < gestes; ++i)
 		st.Annuler();
-	const bool okInitial = identiques(ser(st), initial);
-	printf("%s  %d gestes puis %d Annuler -> etat initial octet pour octet\n",
+	const bool okInitial = ancree(initial) && identiques(ser(st), initial);
+	printf("%s  %d gestes puis %d Annuler -> etat initial octet pour octet (et cet etat "
+		   "DIT quelque chose)\n",
 		   okInitial ? "OK   " : "ECHEC", gestes, gestes);
 	if (!okInitial)
 		++echecs;

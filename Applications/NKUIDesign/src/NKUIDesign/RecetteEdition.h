@@ -205,6 +205,18 @@ namespace nkuidesign {
 						st.doc.Save(o);
 						return o;
 					};
+					// ⚠️ L'ANCRE — LE VOLET *CONSERVATION*. Les deux cas « ECHAP ->
+					//    document identique octet pour octet » ne comparaient que
+					//    DEUX SORTIES DU MEME PRODUCTEUR : mesure du 01/09, avec
+					//    `NkUIDocument::Save` neutralisee, cette recette rendait
+					//    **13/13 PROUVEE** sur un ecrivain mort — deux chaines
+					//    vides sont egales. « Stable » ne veut pas dire « juste » :
+					//    on exige donc AUSSI que la serialisation DISE quelque
+					//    chose, et que le texte d'origine soit ENCORE LA.
+					auto ancree = [](const NkString &s) -> bool {
+						return s.Size() > 0 && s.Data() && s.Contains("nkuidoc")
+							   && s.Contains("noeud");
+					};
 
 					// ── SITE 2 : LE TEXTE DE TOILE ────────────────────────────
 					auto ouvrirTexte = [&](const char *frappe) {
@@ -226,8 +238,14 @@ namespace nkuidesign {
 					const NkString avantTexte = ser();
 					ouvrirTexte("NeDoitJamaisSortir");
 					pv.FermerEditionTexte(false);
-					check("toile/texte : ECHAP -> document identique octet pour octet",
-						  pv.mEditNode == -1 && Identiques(ser(), avantTexte));
+					// conservation : le document DIT quelque chose, ET le texte
+					// d'origine est encore la (pas seulement « stable »).
+					check("toile/texte : ECHAP -> document identique octet pour octet, ET le "
+						  "texte d'origine est encore la",
+						  pv.mEditNode == -1 && ancree(avantTexte)
+							  && Identiques(ser(), avantTexte)
+							  && Identiques(st.doc.nodes[(uint32)t].text,
+											NkString("Origine modifiee")));
 
 					// 2c. CLIC AILLEURS — le cas casse du 01/09 : un clic HORS
 					// de la toile (un autre panneau) doit VALIDER. Il se juge en
@@ -283,8 +301,12 @@ namespace nkuidesign {
 					const NkString avantEtiquette = ser();
 					ouvrirEtiquette("JamaisEcrit");
 					pv.FermerEditionTexte(false);
-					check("etiquette : ECHAP -> document identique octet pour octet",
-						  pv.mEditNode == -1 && Identiques(ser(), avantEtiquette));
+					check("etiquette : ECHAP -> document identique octet pour octet, ET le "
+						  "libelle d'origine est encore la",
+						  pv.mEditNode == -1 && ancree(avantEtiquette)
+							  && Identiques(ser(), avantEtiquette)
+							  && Identiques(st.doc.nodes[(uint32)f].label,
+											NkString("PageRenommee")));
 
 					// 3c. CLIC AILLEURS.
 					ouvrirEtiquette("EcritParLeClic");

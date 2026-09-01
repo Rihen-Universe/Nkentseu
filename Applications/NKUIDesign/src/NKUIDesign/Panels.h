@@ -6411,6 +6411,24 @@ namespace nkuidesign {
 					x += 12.f;
 				}
 				costume::TexteGras(dl, F.px9, x, ty, titre, ctx.theme.textMuted, 0.4f);
+				// ⚠️ L'EN-TÊTE SE PUBLIE AU RELEVÉ — ET C'EST LA LIMITE QUE
+				//    J'AVAIS SIGNALÉE LE 01/09 QUI TOMBE ICI. Les titres de
+				//    section sont PEINTS (`costume::TexteGras`), pas enregistrés
+				//    comme widgets : ils étaient donc invisibles à `--dump-ui`, et
+				//    chaque section neuve ne pouvait se juger qu'À L'ŒIL, sur une
+				//    capture. Trois lignes lèvent ça : `insp.section.<TITRE>`
+				//    porte le rectangle, et une mesure porte l'état d'ouverture
+				//    (1 = déplié). « La section est-elle dessinée ? » devient une
+				//    question à laquelle un banc répond.
+				{
+					char cle[64];
+					snprintf(cle, sizeof(cle), "insp.section.%s", titre ? titre : "?");
+					designkit::releve::Rect(ctx, cle, r);
+					char cleM[80];
+					snprintf(cleM, sizeof(cleM), "%s.ouvert", cle);
+					nkgui::NkGuiNoterMesure(ctx, cleM, (s && s->ouvert) ? 1.f : 0.f,
+											s ? 1.f : 0.f, 0.f, 0.f);
+				}
 				// ── LE « + » DE REMPLISSAGES, DANS L'EN-TÊTE (Lunacy) ────────
 				// ⚠️ IL EST ICI PARCE QUE C'EST LÀ QU'IL EST CHEZ EUX, et parce
 				//    que l'application dessine déjà ses propres en-têtes. Ajouter
