@@ -290,6 +290,23 @@ namespace nkuidesign {
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  UN REMPLISSAGE (Lunacy « FILLS »)
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ TROIS CHAMPS, ET PAS UN DE PLUS POUR L'INSTANT. La capture de
+	///    reference (`lunacy_props_12`) montre exactement ceci sur une ligne :
+	///    une pastille de couleur, l'hexa, un pourcentage, un oeil, une
+	///    poubelle. Le TYPE de remplissage (degrade, image, bruit) et le mode
+	///    de fusion PAR remplissage existent chez Lunacy et **ne sont pas ici**
+	///    : ils sont nommes, pas ebauches. Un champ `type` pose maintenant, que
+	///    ni le peintre ni l'inspecteur n'honorent, serait le « parametre
+	///    declare non honore » que ce depot compte depuis huit fois.
+	struct NkRemplissage {
+			NkString couleur;		///< hexa « #rrggbb », vide = rien a peindre
+			float32 opacite = 100.f; ///< 0..100 (le « 100% » de la reference)
+			bool visible = true;	///< l'oeil de la reference
+	};
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  LE NOEUD
 	// ═══════════════════════════════════════════════════════════════════════════
 
@@ -360,6 +377,23 @@ namespace nkuidesign {
 			NkString fill;		 ///< fond, hexa « #rrggbb » (clé `fond`)
 			NkString textColor;	 ///< couleur du texte, hexa (clé `couleur_texte`)
 			NkString borderColor; ///< couleur du bord, hexa (clé `couleur_bord`)
+			/// ── LA LISTE DE REMPLISSAGES (Lunacy « FILLS », 01/09) ───────────
+			/// ⚠️ ADDITIVE, ET LA CLÉ SIMPLE RESTE L'AUTORITÉ QUAND LA LISTE EST
+			///    VIDE. `fond` n'est pas déprécié : il EST « la liste à un
+			///    élément », opaque et visible. Tant que personne n'ouvre la
+			///    liste, un document d'avant ne gagne pas une clé — il se
+			///    réenregistre OCTET POUR OCTET, et c'est la PREUVE D'ENTRÉE de
+			///    ce chantier, pas sa vérification de sortie.
+			///
+			/// ⚠️ ET LA FORME ÉCRITE EST DÉCIDÉE PAR LA PRÉSENCE DE LA LISTE,
+			///    JAMAIS PAR SON CONTENU. Un document qui porte `fond_1` se
+			///    réécrit en `fond_1`, même si son unique remplissage est opaque
+			///    et visible. On pourrait le « rétrograder » en `fond` pour faire
+			///    plus court : ce serait un aller-retour qui CHANGE LES OCTETS.
+			///    Le round-trip passe avant la concision.
+			///
+			/// L'ORDRE EST CELUI DE LUNACY : le DERNIER se peint PAR-DESSUS.
+			NkVector<NkRemplissage> fills;
 			NkString alignText;	 ///< `centre` | `droite` (clé `texte_aligne`) — vide = gauche
 			/// La CIBLE D'APPAREIL d'un artboard (écran 26 « Menu Cible ») :
 			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient
@@ -375,6 +409,48 @@ namespace nkuidesign {
 			/// Le texte pour `langue` (« » ou langue inconnue = principal).
 			/// `trouve` : faux quand la langue est demandée mais non traduite —
 			/// le repli doit se VOIR, pas se déduire.
+			/// ── LE FOND QUI SE PEINT — LE SEUL POINT DE VÉRITÉ DES PEINTRES ──
+			/// ⚠️ SIX SITES DE `Renderers.h` LISAIENT `fill` DIRECTEMENT. S'ils
+			///    avaient continué, la liste serait un champ que le fichier porte
+			///    et que l'écran ignore : le paramètre déclaré non honoré, encore.
+			/// Rend nullptr quand rien n'est posé — le thème du document prime
+			/// alors, exactement comme avant la liste.
+			/// ⚠️ UNE LISTE DONT TOUT EST MASQUÉ REND nullptr, ELLE NE RETOMBE PAS
+			///    SUR `fond` : masquer le dernier œil doit se VOIR. Retomber sur
+			///    la clé simple rendrait l'œil sans effet sur un nœud matérialisé.
+			const char *FondEffectif() const {
+				for (uint32 i = (uint32)fills.Size(); i > 0; --i) {
+					const NkRemplissage &f = fills[i - 1];
+					if (f.visible && !f.couleur.Empty())
+						return f.couleur.Data();
+				}
+				if (!fills.Empty())
+					return nullptr;
+				return fill.Empty() ? nullptr : fill.Data();
+			}
+			/// L'opacité (0..100) du remplissage que rend `FondEffectif`.
+			float32 FondOpacite() const {
+				for (uint32 i = (uint32)fills.Size(); i > 0; --i) {
+					const NkRemplissage &f = fills[i - 1];
+					if (f.visible && !f.couleur.Empty())
+						return f.opacite;
+				}
+				return 100.f;
+			}
+			/// MATÉRIALISER la liste depuis la clé simple — le geste qui fait
+			/// basculer le nœud dans la forme « liste ». Appelé par le premier
+			/// geste de l'Inspecteur qui a besoin de ce que `fond` ne sait pas
+			/// dire : une opacité, un œil, un second remplissage. Idempotent.
+			/// ⚠️ IL NE VIDE PAS `fill` : le champ reste ce qu'il était, il cesse
+			///    seulement d'être lu. Le vider ferait perdre la valeur d'origine
+			///    si l'on revenait en arrière, et n'apporterait rien.
+			void MaterialiserFills() {
+				if (!fills.Empty())
+					return;
+				NkRemplissage f;
+				f.couleur = fill.Empty() ? NkString("#ffffff") : fill;
+				fills.PushBack(f);
+			}
 			const char *TexteEn(const char *langue, bool *trouve = nullptr) const {
 				if (trouve)
 					*trouve = true;
@@ -839,6 +915,7 @@ namespace nkuidesign {
 					d.shape = s.shape;
 					d.role = s.role;
 					d.fill = s.fill;
+					d.fills = s.fills; // la LISTE suit la copie, comme tout le reste
 					d.textColor = s.textColor;
 					d.borderColor = s.borderColor;
 					d.alignText = s.alignText;
@@ -1054,7 +1131,27 @@ namespace nkuidesign {
 					if (!n.role.Empty())
 						Field(out, "role", n.role.Data());
 					// L'APPARENCE POSÉE (§8ter) : chaque clé n'existe que posée.
-					if (!n.fill.Empty())
+					// ⚠️ L'UNE OU L'AUTRE, JAMAIS LES DEUX. Ecrire `fond` EN PLUS
+					//    de la liste donnerait un fichier a deux verites, et le
+					//    lecteur devrait choisir -- c'est-a-dire deviner.
+					if (!n.fills.Empty()) {
+						// La LISTE (Lunacy FILLS) : une ligne par remplissage,
+						// `fond_<i>` a partir de 1, « couleur opacite visible ».
+						// Meme patron additif que `texte_<langue>` : la cle
+						// n'existe que si la liste existe.
+						for (uint32 fi = 0; fi < (uint32)n.fills.Size(); ++fi) {
+							const NkRemplissage &f = n.fills[fi];
+							out.Append("  fond_");
+							WriteNum(out, (float32)(fi + 1));
+							out.Append(" = ");
+							out.Append(f.couleur.Empty() ? "-" : f.couleur.Data());
+							out.Append(' ');
+							WriteNum(out, f.opacite);
+							out.Append(' ');
+							out.Append(f.visible ? "1" : "0");
+							out.Append('\n');
+						}
+					} else if (!n.fill.Empty())
 						Field(out, "fond", n.fill.Data());
 					if (!n.textColor.Empty())
 						Field(out, "couleur_texte", n.textColor.Data());
@@ -1245,6 +1342,37 @@ namespace nkuidesign {
 							n.role = NkString(val);
 						else if (StrEq(key, "fond"))
 							n.fill = NkString(val);
+						else if (key[0] == 'f' && key[1] == 'o' && key[2] == 'n'
+								 && key[3] == 'd' && key[4] == '_') {
+							// `fond_<i> = couleur opacite visible`. ⚠️ L'INDICE DU
+							//    NOM NE SERT PAS A RANGER : les lignes arrivent
+							//    dans l'ordre du fichier, et on empile dans cet
+							//    ordre. Se fier a l'indice obligerait a gerer les
+							//    trous (`fond_1` puis `fond_3`) — un fichier ecrit
+							//    a la main pourrait en avoir, et l'ordre du
+							//    fichier reste la seule chose qu'on sache vraie.
+							NkRemplissage f;
+							const char *q = val;
+							char coul[64];
+							uint32 k = 0;
+							while (*q && *q != ' ' && k + 1 < (uint32)sizeof(coul))
+								coul[k++] = *q++;
+							coul[k] = '\0';
+							if (k > 0 && !(k == 1 && coul[0] == '-'))
+								f.couleur = NkString(coul);
+							while (*q == ' ')
+								++q;
+							if (*q) {
+								f.opacite = ParseNum(q);
+								while (*q && *q != ' ')
+									++q;
+								while (*q == ' ')
+									++q;
+								if (*q)
+									f.visible = (*q == '1');
+							}
+							n.fills.PushBack(f);
+						}
 						else if (StrEq(key, "couleur_texte"))
 							n.textColor = NkString(val);
 						else if (StrEq(key, "couleur_bord"))

@@ -2656,6 +2656,165 @@ namespace nkuidesign {
 				  formesRetrouvees && f1.Compare(f2) == 0, buf);
 		}
 
+		// ═══════════════════════════════════════════════════════════════════════
+		//  42. LA LISTE DE REMPLISSAGES (Lunacy « FILLS », 01/09)
+		// ═══════════════════════════════════════════════════════════════════════
+		// ⚠️ LE PREMIER CAS EST LA PREUVE D'ENTREE, PAS UNE VERIFICATION DE
+		//    SORTIE. Le mandat impose l'additivite : « les documents d'avant se
+		//    reenregistrent OCTET POUR OCTET ». Si 42a tombe, le reste de la
+		//    famille ne vaut rien -- on aurait ajoute une capacite en changeant
+		//    les fichiers de tout le monde.
+		{
+			// 42a. UN DOCUMENT D'AVANT (cle simple `fond`) ne gagne aucune cle.
+			{
+				NkUIDocument d;
+				d.NewDocument("avant", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				d.nodes[(uint32)i].label = NkString("Boite");
+				d.nodes[(uint32)i].shape = NkString("rect");
+				d.nodes[(uint32)i].fill = NkString("#12ab34");
+				NkString a1, a2;
+				d.Save(a1);
+				NkUIDocument r;
+				const bool lu = r.Load(a1.Data());
+				if (lu)
+					r.Save(a2);
+				bool sansListe = true, avecSimple = false;
+				for (const char *q = a1.Data() ? a1.Data() : ""; *q; ++q)
+					if (q[0] == 'f' && q[1] == 'o' && q[2] == 'n' && q[3] == 'd') {
+						if (q[4] == '_')
+							sansListe = false;
+						else if (q[4] == ' ')
+							avecSimple = true;
+					}
+				// ⚠️ « OCTET POUR OCTET » NE SUFFIT PAS, ET UNE MUTATION L'A
+				//    PROUVE. En forcant l'ecriture de la liste meme vide, la cle
+				//    `fond` DISPARAISSAIT du fichier : le document perdait sa
+				//    couleur, et se reenregistrait ensuite parfaitement identique
+				//    a sa version amputee. Ce cas passait au vert sur une PERTE
+				//    DE DONNEE. On exige donc les trois choses a la fois : la cle
+				//    simple PRESENTE, la cle de liste ABSENTE, et la valeur
+				//    RETROUVEE apres relecture -- la stabilite ne prouve rien
+				//    toute seule, elle prouve seulement qu'on est stable.
+				const bool valeurGardee =
+					lu && r.IsValidIndex(i) && StrEq(r.nodes[(uint32)i].fill.Data(), "#12ab34");
+				snprintf(buf, sizeof(buf), "relu=%d, octets %s, `fond` %s, `fond_` %s, valeur %s",
+						 lu ? 1 : 0, (lu && a1.Compare(a2) == 0) ? "IDENTIQUES" : "DIFFERENTS",
+						 avecSimple ? "presente" : "DISPARUE", sansListe ? "absente" : "APPARUE",
+						 valeurGardee ? "gardee" : "PERDUE");
+				check("42a. un document a cle simple `fond` se reenregistre OCTET POUR "
+					  "OCTET, garde sa cle et sa valeur, et ne gagne aucune cle de liste "
+					  "— la preuve d entree",
+					  lu && a1.Compare(a2) == 0 && sansListe && avecSimple && valeurGardee, buf);
+			}
+			// 42b. LA LISTE fait l'aller-retour : couleurs, opacites, yeux.
+			{
+				NkUIDocument d;
+				d.NewDocument("liste", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				{
+					NkUINode &n = d.nodes[(uint32)i];
+					n.label = NkString("Boite");
+					n.shape = NkString("rect");
+					NkRemplissage fa;
+					fa.couleur = NkString("#ff0000");
+					NkRemplissage fb;
+					fb.couleur = NkString("#00ff00");
+					fb.opacite = 50.f;
+					NkRemplissage fc;
+					fc.couleur = NkString("#0000ff");
+					fc.visible = false;
+					n.fills.PushBack(fa);
+					n.fills.PushBack(fb);
+					n.fills.PushBack(fc);
+				}
+				NkString b1, b2;
+				d.Save(b1);
+				NkUIDocument r;
+				const bool lu = r.Load(b1.Data());
+				if (lu)
+					r.Save(b2);
+				const NkUINode *rn = (lu && r.IsValidIndex(i)) ? &r.nodes[(uint32)i] : nullptr;
+				const bool champs = rn && rn->fills.Size() == 3
+									&& StrEq(rn->fills[0].couleur.Data(), "#ff0000")
+									&& rn->fills[1].opacite == 50.f
+									&& rn->fills[2].visible == false
+									&& StrEq(rn->fills[2].couleur.Data(), "#0000ff");
+				snprintf(buf, sizeof(buf), "relu=%d, %u remplissage(s), champs %s, octets %s",
+						 lu ? 1 : 0, rn ? (uint32)rn->fills.Size() : 0u,
+						 champs ? "RETROUVES" : "PERDUS",
+						 (lu && b1.Compare(b2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
+				check("42b. trois remplissages (couleur, opacite, oeil) font l aller-retour "
+					  "et se reenregistrent a l identique",
+					  champs && lu && b1.Compare(b2) == 0, buf);
+			}
+			// 42c. LE FOND EFFECTIF : le DERNIER visible gagne (ordre Lunacy), et
+			//      une liste entierement masquee ne peint RIEN.
+			{
+				NkUINode n;
+				n.fill = NkString("#111111");
+				const char *avant = n.FondEffectif();
+				n.MaterialiserFills();
+				NkRemplissage f2c;
+				f2c.couleur = NkString("#222222");
+				n.fills.PushBack(f2c);
+				const char *dessus = n.FondEffectif();
+				n.fills[1].visible = false;
+				const char *sous = n.FondEffectif();
+				n.fills[0].visible = false;
+				const char *rien = n.FondEffectif();
+				snprintf(buf, sizeof(buf), "simple=%s, dessus=%s, sous=%s, tout masque=%s",
+						 avant ? avant : "(rien)", dessus ? dessus : "(rien)",
+						 sous ? sous : "(rien)", rien ? rien : "(rien)");
+				check("42c. le fond effectif : le DERNIER visible gagne, et une liste "
+					  "entierement masquee ne peint RIEN (elle ne retombe pas sur `fond`)",
+					  avant && StrEq(avant, "#111111") && dessus && StrEq(dessus, "#222222")
+						  && sous && StrEq(sous, "#111111") && rien == nullptr,
+					  buf);
+			}
+			// 42d. MATERIALISER part de la cle simple et n'est pas cumulatif.
+			{
+				NkUINode n;
+				n.fill = NkString("#abcdef");
+				n.MaterialiserFills();
+				const uint32 un = (uint32)n.fills.Size();
+				n.MaterialiserFills();
+				const uint32 deux = (uint32)n.fills.Size();
+				const bool ok = un == 1 && deux == 1
+								&& StrEq(n.fills[0].couleur.Data(), "#abcdef")
+								&& n.fills[0].opacite == 100.f && n.fills[0].visible;
+				snprintf(buf, sizeof(buf), "1er appel=%u, 2e appel=%u, couleur=%s", un, deux,
+						 n.fills.Empty() ? "(vide)" : n.fills[0].couleur.Data());
+				check("42d. materialiser part de la cle simple, opaque et visible, et le "
+					  "second appel ne duplique rien",
+					  ok, buf);
+			}
+			// 42e. LA COPIE emporte la liste — meme classe de piege que le champ
+			//      oublie qu'a trouve la recette gestes.
+			{
+				NkUIDocument d;
+				d.NewDocument("copie", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				d.nodes[(uint32)i].label = NkString("Source");
+				d.nodes[(uint32)i].shape = NkString("rect");
+				d.nodes[(uint32)i].MaterialiserFills();
+				d.nodes[(uint32)i].fills[0].couleur = NkString("#c0ffee");
+				d.nodes[(uint32)i].fills[0].opacite = 42.f;
+				const int32 j = d.CopierSousArbre(d, i, 0);
+				const bool ok = d.IsValidIndex(j) && d.nodes[(uint32)j].fills.Size() == 1
+								&& StrEq(d.nodes[(uint32)j].fills[0].couleur.Data(), "#c0ffee")
+								&& d.nodes[(uint32)j].fills[0].opacite == 42.f;
+				snprintf(buf, sizeof(buf), "copie=%d, %u remplissage(s), opacite=%.0f", j,
+						 d.IsValidIndex(j) ? (uint32)d.nodes[(uint32)j].fills.Size() : 0u,
+						 (d.IsValidIndex(j) && !d.nodes[(uint32)j].fills.Empty())
+							 ? d.nodes[(uint32)j].fills[0].opacite
+							 : -1.f);
+				check("42e. copier un sous-arbre emporte la LISTE de remplissages, opacite "
+					  "comprise",
+					  ok, buf);
+			}
+		}
+
 		char tail[128];
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);

@@ -374,6 +374,29 @@ namespace nkuidesign {
 			return (v << 8) | 0xFFu;
 		}
 
+		/// LE FOND D'UN NŒUD, OPACITÉ COMPRISE — le seul endroit qui traduit la
+		/// liste de remplissages en une couleur pour les peintres de FORME.
+		/// ⚠️ LES FORMES NE COMPOSITENT PAS ENCORE, ET C'EST DIT ICI PLUTÔT QUE
+		///    TU. Le rectangle, lui, peint TOUS ses remplissages empilés (voir
+		///    son site) ; l'ellipse, le triangle, l'étoile, la flèche, l'image et
+		///    l'avatar passent par une couleur unique — leurs primitives ne
+		///    prennent qu'un `rgba`. Ils rendent donc le remplissage VISIBLE LE
+		///    PLUS HAUT, ce que Lunacy montrerait aussi si les autres étaient
+		///    couverts. Empiler chez eux demande de rappeler la primitive N fois
+		///    avec le même polygone : faisable, non fait, nommé.
+		inline nkentseu::uint32 NkGFondRGBA(const NkUINode &n) {
+			const char *c = n.FondEffectif();
+			if (!c)
+				return 0x808080FFu;
+			const nkentseu::uint32 rgba = NkGHexRGBA(c);
+			const nkentseu::float32 o = n.FondOpacite();
+			if (o >= 100.f)
+				return rgba;
+			const nkentseu::float32 k = o < 0.f ? 0.f : o * 0.01f;
+			const nkentseu::uint32 a = (nkentseu::uint32)((rgba & 0xFFu) * k + 0.5f);
+			return (rgba & 0xFFFFFF00u) | (a & 0xFFu);
+		}
+
 		inline void DrawPlaceholder(NkComponentPaint &p, const NkPaintRect &r, const char *name,
 									const NkDocumentHost &host) {
 			if (r.w <= 0.f || r.h <= 0.f)
@@ -465,7 +488,34 @@ namespace nkuidesign {
 				// `rayon`, bord `couleur_bord`/`bordure`) ; sans elle, les rôles
 				// de contenu du thème — les documents d'avant ne bougent pas.
 				const float32 rd = n.radius > 0.f ? n.radius : 4.f;
-				if (!n.fill.Empty())
+				// ⚠️ LE RECTANGLE EMPILE SES REMPLISSAGES, DANS L'ORDRE DE LA
+				//    LISTE — le DERNIER par-dessus, comme chez Lunacy. C'est le
+				//    seul peintre de forme qui le fasse, parce que c'est le seul
+				//    dont la primitive se rappelle sans coût : `FillColor` sur le
+				//    même rectangle. Peindre uniquement le remplissage du dessus
+				//    aurait rendu une liste de deux INDISTINGUABLE d'une liste
+				//    d'un, dès que le premier est translucide.
+				if (!n.fills.Empty()) {
+					bool peint = false;
+					for (uint32 fi = 0; fi < (uint32)n.fills.Size(); ++fi) {
+						const NkRemplissage &f = n.fills[fi];
+						if (!f.visible || f.couleur.Empty())
+							continue;
+						const uint32 base = NkGHexRGBA(f.couleur.Data());
+						const float32 k = (f.opacite < 0.f ? 0.f
+										   : f.opacite > 100.f ? 100.f
+															   : f.opacite)
+										  * 0.01f;
+						const uint32 a = (uint32)((base & 0xFFu) * k + 0.5f);
+						p.FillColor(r, (base & 0xFFFFFF00u) | (a & 0xFFu), rd);
+						peint = true;
+					}
+					// TOUT masqué : on ne retombe PAS sur le rôle du thème — un
+					// nœud dont l'utilisateur a fermé tous les yeux doit paraître
+					// vide, pas « par défaut ».
+					if (!peint)
+						p.OutlineSharp(r, host.Role("border"));
+				} else if (!n.fill.Empty())
 					p.FillColor(r, NkGHexRGBA(n.fill.Data()), rd);
 				else
 					p.Fill(r, host.Role("doc_field_bg"), rd);
@@ -480,7 +530,7 @@ namespace nkuidesign {
 						p.FillColor({r.x + r.w - (n.borderW > 0.f ? n.borderW : 1.f), r.y,
 									 n.borderW > 0.f ? n.borderW : 1.f, r.h},
 									NkGHexRGBA(n.borderColor.Data()), 0.f);
-				else if (n.fill.Empty())
+				else if (!n.FondEffectif())
 					p.OutlineSharp(r, host.Role("border"));
 				return;
 			}
@@ -513,7 +563,7 @@ namespace nkuidesign {
 			if (shape
 				&& (StrEq(shape, "triangle") || StrEq(shape, "pentagone")
 					|| StrEq(shape, "etoile"))) {
-				const uint32 rgba = !n.fill.Empty() ? NkGHexRGBA(n.fill.Data())
+				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
 				const float32 dx = r.w * 0.5f, dy = r.h * 0.5f;
@@ -545,7 +595,7 @@ namespace nkuidesign {
 				// LA FLECHE : le fut horizontal a mi-hauteur + la pointe pleine
 				// a droite (l'eventail Lunacy « Line ▸ arrow »).
 				const float32 ym = r.y + r.h * 0.5f;
-				const uint32 rgba = !n.fill.Empty() ? NkGHexRGBA(n.fill.Data())
+				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
 													: p.ColorOf(host.Role("doc_text"));
 				const float32 tete = r.w * 0.25f < 16.f ? (r.w * 0.25f) : 16.f;
 				bool ok = p.Line(r.x, ym, r.x + r.w - tete * 0.6f, ym, host.Role("doc_text"),
@@ -565,7 +615,7 @@ namespace nkuidesign {
 				// chantier nomme : ce cadre est l'objet reel du maquettage
 				// (wireframe), pas une mise en scene — il se pose, se deplace,
 				// se sauve, et dira son fichier le jour ou la cle existera.
-				const uint32 rgba = !n.fill.Empty() ? NkGHexRGBA(n.fill.Data())
+				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				p.FillColor(r, rgba, n.radius > 0.f ? n.radius : 2.f);
 				p.OutlineSharp(r, host.Role("border"));
@@ -585,7 +635,7 @@ namespace nkuidesign {
 				// L'AVATAR (la variante de la famille Image) : pastille de profil
 				// — cercle plein + tete/epaules en creux (le vocabulaire des
 				// listes d'utilisateurs). Meme contrat de repli que l'Ellipse.
-				const uint32 rgba = !n.fill.Empty() ? NkGHexRGBA(n.fill.Data())
+				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
 													: p.ColorOf(host.Role("doc_field_bg"));
 				const float32 d = r.w < r.h ? r.w : r.h;
 				const NkPaintRect rc = {r.x + (r.w - d) * 0.5f, r.y + (r.h - d) * 0.5f, d, d};
