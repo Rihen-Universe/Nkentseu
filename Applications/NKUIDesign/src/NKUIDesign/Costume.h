@@ -471,6 +471,45 @@ namespace nkuidesign {
 			dl.AddRectFilled({x, y + h - 1.f, w, 1.f}, filet, 0.f);
 		}
 
+		// ── LES TROIS PICTOGRAMMES DE LA RANGÉE DU CLIC DROIT ────────────────
+		// ⚠️ ILS EXISTENT PARCE QUE LA CAPTURE A MONTRÉ MIEUX QUE LA RELECTURE.
+		//    La première version réutilisait le plus proche voisin : une FLÈCHE
+		//    pour « couper » et une CROIX pour « verrouiller ». À l'écran, la
+		//    flèche se lit « aller à », pas « ciseaux » — et j'avais moi-même
+		//    écrit dix lignes plus haut qu'un pictogramme faux est pire qu'un
+		//    pictogramme approximatif. Le mien était faux, pas approximatif.
+		//    Trois formes de plus coûtent quinze lignes ; les laisser coûtait un
+		//    utilisateur qui clique une commande pour une autre.
+
+		// ciseaux 12×12 : deux lames croisées + deux anneaux
+		inline void IcCiseaux(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddLine({x + 2.5f, y + 1.5f}, {x + 9.f, y + 8.5f}, c, 1.2f);
+			dl.AddLine({x + 9.5f, y + 1.5f}, {x + 3.f, y + 8.5f}, c, 1.2f);
+			dl.AddCircle({x + 3.f, y + 10.f}, 1.8f, c, 1.1f, 10);
+			dl.AddCircle({x + 9.f, y + 10.f}, 1.8f, c, 1.1f, 10);
+		}
+		// cadenas OUVERT 12×12 : corps plein bas + anse relevée à droite —
+		// l'anse ouverte dit « verrouiller », l'anse fermée dirait « verrouillé ».
+		inline void IcCadenas(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddRect({x + 2.f, y + 6.f, 8.f, 6.f}, c, 1.1f, 1.f);
+			const NkVec2 anse[4] = {
+				{x + 4.f, y + 6.f}, {x + 4.f, y + 3.f}, {x + 7.f, y + 1.5f}, {x + 9.5f, y + 3.5f}};
+			dl.AddPolyline(anse, 4, c, 1.1f);
+		}
+		// composant 12×12 : quatre losanges en diamant — le pictogramme que la
+		// référence emploie pour « créer un composant ».
+		inline void IcComposant(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			auto losange = [&](float32 cx, float32 cy, float32 r) {
+				const NkVec2 p[5] = {{cx, cy - r}, {cx + r, cy}, {cx, cy + r}, {cx - r, cy},
+									 {cx, cy - r}};
+				dl.AddPolyline(p, 5, c, 1.f);
+			};
+			losange(x + 6.f, y + 2.2f, 2.f);
+			losange(x + 6.f, y + 9.8f, 2.f);
+			losange(x + 2.2f, y + 6.f, 2.f);
+			losange(x + 9.8f, y + 6.f, 2.f);
+		}
+
 		// plus 10×10 : deux traits — l'« ajouter » des en-têtes de section
 		inline void IcPlus(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
 			dl.AddLine({x + 5.f, y + 1.f}, {x + 5.f, y + 9.f}, c, 1.3f);
