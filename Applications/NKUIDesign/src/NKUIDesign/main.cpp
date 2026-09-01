@@ -2594,6 +2594,303 @@ static nkentseu::int32 RecetteTransfo() {
 	return echecs == 0 ? 0 : 1;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+//  --recette-document : LE DOUBLE-CLIC MESURE SUR LE DOCUMENT REEL DE RODOLF
+// ═════════════════════════════════════════════════════════════════════════════
+// ⚠️ CETTE RECETTE EXISTE PARCE QUE DEUX FOIS CETTE SEMAINE UN BANC EST PASSE AU
+//    VERT LA OU SA MAIN ECHOUAIT. La cause etait la meme les deux fois : le banc
+//    fabriquait ses noeuds (un rect seul, pose a la racine) et sa main, elle,
+//    double-cliquait dans un DOCUMENT -- avec des artboards, des groupes, et des
+//    freres empiles. *Un banc qui emprunte une autre porte que le geste ne
+//    prouve rien du geste.*
+//
+//    Ici, le document N'EST PAS FABRIQUE : il est LU sur le disque, par le vrai
+//    `NkUIDocument::Load`, dispose par le vrai `NkComputeLayout`, pointe par le
+//    vrai `NkPickTopLevel`. Et la recette IMPRIME LE CHEMIN QU'ELLE A LU : un
+//    rapport qui ne dit pas sur quel fichier il porte n'est pas un rapport.
+//
+// ⚠️ ET ELLE NE « SAUTE » PAS SI LE FICHIER MANQUE. Un cas qui s'absente quand
+//    sa donnee manque rend un vert qui ne veut rien dire -- exactement le defaut
+//    du 18/08 (« la sonde a pu repasser verte sur un magenta plein ecran »).
+//    Fichier introuvable = ECHEC, et le message nomme les chemins essayes.
+static nkentseu::int32 RecetteDocument() {
+	using namespace nkuidesign;
+	using nkentseu::float32;
+	using nkentseu::int32;
+	using nkentseu::uint32;
+	int32 cas = 0, echecs = 0;
+	auto verdict = [&](const char *nom, bool ok, const char *detail) {
+		++cas;
+		printf("%s  %s%s%s\n", ok ? "OK   " : "ECHEC", nom, (detail && *detail) ? "  -- " : "",
+			   (detail && *detail) ? detail : "");
+		if (!ok)
+			++echecs;
+	};
+
+	// ── LE DOCUMENT DE RODOLF D'ABORD, SON JUMEAU VERSIONNE ENSUITE ────────
+	// Lance depuis la racine de l'arbre, le premier chemin EST le fichier que
+	// son application ouvre. Lance ailleurs, le second garde la recette
+	// reproductible -- c'est le meme document a quelques valeurs pres (il en
+	// derive).
+	static const char *const kCandidats[2] = {
+		"nkuidesign_document.nkuidoc",
+		"Applications/NKUIDesign/design/mises_en_scene/demo_ecran_01.nkuidoc"};
+	const char *chemin = nullptr;
+	for (uint32 i = 0; i < 2 && !chemin; ++i)
+		if (nkentseu::NkFile::Exists(kCandidats[i]))
+			chemin = kCandidats[i];
+	if (!chemin) {
+		printf("ECHEC  0. le document a mesurer est INTROUVABLE  -- essaye : \"%s\" puis "
+			   "\"%s\" (lancer depuis la racine de l'arbre)\n",
+			   kCandidats[0], kCandidats[1]);
+		printf("\nRECETTE DOCUMENT : 0/1 EN ECHEC\n");
+		return 1;
+	}
+	NkUIDocument doc;
+	{
+		const NkString texte = nkentseu::NkFile::ReadAllText(chemin);
+		const bool lu = !texte.Empty() && doc.Load(texte.Data());
+		char d[320];
+		snprintf(d, sizeof(d), "fichier=%s  titre=%s  noeuds=%u", chemin, doc.title.Data(),
+				 (uint32)doc.nodes.Size());
+		verdict("1. LE DOCUMENT REEL SE LIT (et la recette DIT lequel elle a lu)",
+				lu && doc.nodes.Size() > 1, d);
+		if (!lu) {
+			printf("\nRECETTE DOCUMENT : %d/%d EN ECHEC\n", cas - echecs, cas);
+			return 1;
+		}
+	}
+	NkLayoutResult lay;
+	NkComputeLayout(doc, NkPaintRect{0.f, 0.f, 1600.f, 1000.f}, lay);
+
+	// LE DOUBLE-CLIC, TEL QUE LA TOILE L'EXECUTE — mForage compris.
+	// ⚠️ LA BOUCLE EST LA MOITIE DE LA MESURE. Un double-clic sur une forme
+	//    posee DANS un artboard ne l'atteint pas du premier coup : il FORE.
+	//    Compter les coups est donc la seule facon de repondre a « double-
+	//    cliquer sur un rectangle ne permet pas d'avoir ca » autrement que par
+	//    oui/non -- la reponse peut etre « si, mais au troisieme coup ».
+	// LE POINT OU L'ON PEUT VRAIMENT VISER CE NOEUD -- son CORPS LIBRE.
+	// ⚠️ MESURER AU CENTRE ETAIT UNE ERREUR, ET ELLE A RENDU UN CHIFFRE FAUX.
+	//    Le centre d'un bouton est occupe par son libelle, le centre d'une carte
+	//    par sa valeur, le centre d'un champ par son texte d'aide : viser le
+	//    centre, c'est viser l'ENFANT ou le FRERE du dessus, jamais le
+	//    rectangle. Et le pointage a raison de rendre celui du dessus -- c'est le
+	//    contrat de Lunacy, et c'est la regle qu'on a POSEE au 4e retour de
+	//    Rodolf. *La question n'est donc pas « le centre ouvre-t-il le mode »
+	//    mais « existe-t-il un endroit ou l'utilisateur peut atteindre cette
+	//    forme », et c'est un balayage, pas un point.*
+	// Rend faux si AUCUN point du rectangle ne designe ce noeud (entierement
+	// recouvert) -- un cas qui doit se DIRE, pas se confondre avec un refus.
+	auto corpsLibre = [&](int32 noeud, float32 &ox, float32 &oy) -> bool {
+		if (!lay.Has(noeud))
+			return false;
+		const NkPaintRect r = lay.At(noeud);
+		for (uint32 gy = 0; gy < 7; ++gy)
+			for (uint32 gx = 0; gx < 7; ++gx) {
+				const float32 px = r.x + r.w * ((float32)gx + 0.5f) / 7.f;
+				const float32 py = r.y + r.h * ((float32)gy + 0.5f) / 7.f;
+				if (NkPickSelectable(doc, lay, px, py) == noeud) {
+					ox = px;
+					oy = py;
+					return true;
+				}
+			}
+		return false;
+	};
+
+	// Rend le nombre de double-clics jusqu'a la suite `cible`, ou -1.
+	auto coupsJusquA = [&](int32 noeud, NkSuiteDblClic cible, int32 &atteint) -> int32 {
+		atteint = -1;
+		float32 cx = 0.f, cy = 0.f;
+		if (!corpsLibre(noeud, cx, cy))
+			return -2; // entierement recouvert : ce n'est pas un refus du mecanisme
+		int32 forage = -1;
+		for (int32 coup = 1; coup <= 6; ++coup) {
+			// ⚠️ LE MEME ORDRE QUE LA TOILE, `forageAvant` COMPRIS. C'est tout
+			//    l'objet de cette recette : emprunter la porte du geste, pas une
+			//    porte voisine qui lui ressemble.
+			const int32 forageAvant = forage;
+			int32 cand = NkPickDansContexte(doc, lay, cx, cy, forage);
+			if (cand == -2) {
+				forage = -1;
+				cand = NkPickTopLevel(doc, lay, cx, cy);
+			}
+			if (cand < 0)
+				return -1;
+			const NkUINode &cn = doc.nodes[(uint32)cand];
+			const NkIssueDblClic issue = NkIssueDeDblClic(cn);
+			const int32 enfant = (issue == NkIssueDblClic::Forer)
+									 ? NkPickDansContexte(doc, lay, cx, cy, cand)
+									 : -1;
+			const NkSuiteDblClic suite = NkSuiteDeDblClic(issue, enfant >= 0,
+														  NkFormeEditable(cn),
+														  forageAvant == cand);
+			atteint = (suite == NkSuiteDblClic::ForerVersEnfant) ? enfant : cand;
+			if (suite == cible)
+				return coup;
+			if (suite == NkSuiteDblClic::ForerVersEnfant
+				|| suite == NkSuiteDblClic::ForerSansEnfant)
+				forage = cand;
+			else
+				return -1; // une suite terminale qui n'est pas la cible : ca n'ira pas plus loin
+		}
+		return -1;
+	};
+
+	// ── 2. LES RECTANGLES DU DOCUMENT OUVRENT-ILS LEURS SOMMETS ? ─────────
+	//     Retour (1) de Rodolf, 01/09 : « les rectangles presents, quand je
+	//     double-clique dessus, ne font pas apparaitre ces elements de
+	//     modification de vertices ; mais quand j'en cree un nouveau ca
+	//     apparait. » L'ecart est ICI, et nulle part dans une forme fabriquee.
+	//
+	// ⚠️ LE CAS PORTE SUR **TOUS** LES RECTANGLES, PAS SUR LES « SIMPLES ». La
+	//    premiere version de ce cas ecartait les rects a enfants (« un rect a
+	//    enfants FORE, c'est un autre cas ») : elle rendait 12/14 et **passait a
+	//    cote du defaut**, parce que les rectangles que Rodolf VOIT sont
+	//    justement ceux qui portent des enfants -- le bouton « Se connecter »,
+	//    `Panel_Nav`, les cartes. Les 12 qui ouvraient etaient les BARRES DU
+	//    GRAPHIQUE, celles qu'on ne double-clique jamais. *Un banc qui ecarte le
+	//    cas difficile mesure la partie facile et rend un vert qui ment.*
+	{
+		uint32 nbRect = 0, ouvrent = 0, recouverts = 0;
+		char premierRate[256];
+		char premierRecouvert[224];
+		premierRate[0] = 0;
+		premierRecouvert[0] = 0;
+		for (uint32 i = 1; i < (uint32)doc.nodes.Size(); ++i) {
+			const NkUINode &n = doc.nodes[i];
+			if (!NkComponentDecl::StrEq(n.shape.Data(), "rect") || !n.text.Empty())
+				continue; // un rect QUI PORTE du texte s'edite : c'est le cas 3
+			++nbRect;
+			int32 atteint = -1;
+			const int32 coups = coupsJusquA((int32)i, NkSuiteDblClic::ModePoints, atteint);
+			if (coups > 0)
+				++ouvrent;
+			else if (coups == -2) {
+				// ENTIEREMENT RECOUVERT : aucun point de ce rectangle ne le
+				// designe. Ce n'est pas un refus du mecanisme, c'est une
+				// consequence du contrat « le plus haut gagne » -- et ca se DIT.
+				++recouverts;
+				if (!premierRecouvert[0])
+					snprintf(premierRecouvert, sizeof(premierRecouvert),
+							 " ; recouvert : \"%s\" (n%u) n'a aucun pixel a lui", n.label.Data(),
+							 i);
+			} else if (!premierRate[0])
+				snprintf(premierRate, sizeof(premierRate),
+						 " ; 1er RATE = \"%s\" (n%u) -> on reste sur \"%s\" (n%d)",
+						 n.label.Data(), i,
+						 (atteint >= 0) ? doc.nodes[(uint32)atteint].label.Data() : "rien",
+						 atteint);
+		}
+		char d[512];
+		snprintf(d, sizeof(d), "%u rect(s), %u ouvrent le mode, %u entierement recouvert(s)%s%s",
+				 nbRect, ouvrent, recouverts, premierRecouvert, premierRate);
+		verdict("2. CHAQUE RECTANGLE DU DOCUMENT REEL ouvre le mode edition de forme depuis son "
+				"CORPS LIBRE (retour 1 de Rodolf)",
+				nbRect > 0 && ouvrent + recouverts == nbRect, d);
+	}
+
+	// ── 5. LE RECTANGLE QUI PORTE DES ENFANTS -- L'IMPASSE, NOMMEE ────────
+	//     C'est le cas que la mesure a trouve, et il merite son propre verdict :
+	//     un rect a enfants rendait `Forer` a chaque coup, le forage etait arme,
+	//     le double-clic suivant ressortait au premier niveau (le contexte rend
+	//     -2) et refaisait exactement la meme chose. Le geste tournait en rond,
+	//     indefiniment, sur le rectangle le plus visible de son ecran.
+	// ⚠️ ET LE CAS EXIGE **DEUX** CHOSES, PAS UNE : que le mode s'ouvre, et qu'il
+	//    ne s'ouvre PAS du premier coup. Le premier double-clic doit rester
+	//    « j'entre dans le groupe » -- c'est le geste de Lunacy et il sert (une
+	//    fois dedans, les clics simples designent le contenu). Un cas qui
+	//    n'exigerait que « ca finit par s'ouvrir » laisserait passer la version
+	//    qui ouvre du premier coup et supprime le forage.
+	{
+		uint32 nbConteneurs = 0, ouvrent = 0, auPremierCoup = 0;
+		char premier[224];
+		premier[0] = 0;
+		for (uint32 i = 1; i < (uint32)doc.nodes.Size(); ++i) {
+			const NkUINode &n = doc.nodes[i];
+			if (!NkComponentDecl::StrEq(n.shape.Data(), "rect") || n.children.Size() == 0)
+				continue;
+			++nbConteneurs;
+			int32 atteint = -1;
+			const int32 coups = coupsJusquA((int32)i, NkSuiteDblClic::ModePoints, atteint);
+			if (coups == 1)
+				++auPremierCoup;
+			if (coups > 0) {
+				++ouvrent;
+				if (!premier[0])
+					snprintf(premier, sizeof(premier), " ; ex. \"%s\" (n%u) en %d coup(s)",
+							 n.label.Data(), i, coups);
+			}
+		}
+		char d[320];
+		snprintf(d, sizeof(d),
+				 "%u rect(s) a enfants, %u ouvrent le mode, %u des le 1er coup (doit rester 0)%s",
+				 nbConteneurs, ouvrent, auPremierCoup, premier);
+		verdict("5. UN RECTANGLE QUI PORTE DES ENFANTS finit par ouvrir SA forme -- et jamais "
+				"au premier coup (le 1er double-clic ENTRE, comme dans Lunacy)",
+				nbConteneurs > 0 && ouvrent == nbConteneurs && auPremierCoup == 0, d);
+	}
+
+	// ── 3. UN TEXTE N'A PAS DE SOMMETS, ET IL N'EN A NULLE PART ───────────
+	//     Retour (2) de Rodolf, 01/09 : « ca doit etre sur les formes dessinees
+	//     autres que le texte ». Un texte s'edite par sa saisie, jamais par son
+	//     contour.
+	// ⚠️ DEUX CHOSES SE MESURENT ICI, PAS UNE : que le double-clic ouvre bien la
+	//    SAISIE, et que la table des sommets refuse le texte a la source
+	//    (`NkNatureDe` -> `Aucun`, `NkSommetsDe` -> 0). La premiere sans la
+	//    seconde laisserait un chemin lateral (le raccourci, un futur bouton)
+	//    poser des poignees sur un mot.
+	{
+		uint32 nbTexte = 0, editent = 0, sansSommets = 0;
+		for (uint32 i = 1; i < (uint32)doc.nodes.Size(); ++i) {
+			const NkUINode &n = doc.nodes[i];
+			if (!NkComponentDecl::StrEq(n.shape.Data(), "text"))
+				continue;
+			++nbTexte;
+			int32 atteint = -1;
+			if (coupsJusquA((int32)i, NkSuiteDblClic::EditerTexte, atteint) > 0)
+				++editent;
+			float32 xy[64];
+			const NkPaintRect r = lay.Has((int32)i) ? lay.At((int32)i) : NkPaintRect{};
+			if (NkNatureDe(n.shape.Data()) == NkNatureSommets::Aucun
+				&& NkSommetsDe(n, r, xy, 32) == 0)
+				++sansSommets;
+		}
+		char d[192];
+		snprintf(d, sizeof(d), "%u texte(s) : %u ouvrent la saisie, %u sans aucun sommet",
+				 nbTexte, editent, sansSommets);
+		verdict("3. UN TEXTE OUVRE SA SAISIE ET N'A AUCUN SOMMET, dans le document reel "
+				"(retour 2 de Rodolf)",
+				nbTexte > 0 && editent == nbTexte && sansSommets == nbTexte, d);
+	}
+
+	// ── 4. CONSERVATION : MESURER N'ECRIT RIEN ───────────────────────────
+	//     Volet obligatoire de toute garde de ce chantier : lire un document,
+	//     le disposer et simuler des double-clics dessus ne doit pas modifier
+	//     un octet. Sans ce volet, la recette pourrait « reussir » en
+	//     materialisant les sommets de chaque rect au passage.
+	{
+		NkString avant, apres;
+		doc.Save(avant);
+		NkLayoutResult l2;
+		NkComputeLayout(doc, NkPaintRect{0.f, 0.f, 900.f, 700.f}, l2);
+		for (uint32 i = 1; i < (uint32)doc.nodes.Size(); ++i)
+			(void)NkIssueDeDblClic(doc.nodes[i]);
+		doc.Save(apres);
+		const bool stable = avant.Size() == apres.Size()
+							&& NkComponentDecl::StrEq(avant.Data(), apres.Data());
+		char d[128];
+		snprintf(d, sizeof(d), "%u octets %s", (uint32)avant.Size(),
+				 stable ? "octet pour octet" : "ONT BOUGE");
+		verdict("4. CONSERVATION : lire, disposer et interroger le document n'ecrit RIEN",
+				stable && avant.Size() > 0, d);
+	}
+
+	printf("\nRECETTE DOCUMENT : %d/%d %s\n", cas - echecs, cas,
+		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
+	return echecs == 0 ? 0 : 1;
+}
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Le VRAI `NkCalculerSnap`, celui que le glisser appelle. Sans fenetre ni GPU.
@@ -4582,6 +4879,10 @@ int nkmain(const NkEntryState &state) {
 		// poignees, conservation -- sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-transfo"))
 			return RecetteTransfo();
+		// Le double-clic mesure sur le document REEL lu sur le disque, pas sur des
+		// noeuds fabriques par le banc. Sans fenetre ni GPU.
+		if (NkComponentDecl::StrEq(a, "--recette-document"))
+			return RecetteDocument();
 		// Meme raison que ci-dessus : le pool de chaines du document ne touche ni
 		// au GPU ni a l ecran. Il porte les noms de metrique que le kit declare
 		// en const char* et que personne ne possedait a la relecture.
@@ -4695,6 +4996,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --recette-selection     le contrat de sélection (Ctrl/Maj, englobant, mixtes)");
 			puts("  --recette-points        le mode points (table du double-clic, sommets)");
 			puts("  --recette-transfo       rotation et miroirs (picking, propagation, poignées)");
+			puts("  --recette-document      le double-clic mesuré sur le document RÉEL du disque");
 			puts("  --annuler=N             N pas d'annulation au lancement (preuve UI)");
 			puts("  --retablir=N            N pas de retablissement apres --annuler");
 			puts("  --recette-ia            la preuve de recette du pipeline IA");

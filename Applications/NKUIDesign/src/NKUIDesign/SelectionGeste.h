@@ -194,14 +194,60 @@ namespace nkuidesign {
 		RienADire		  ///< aucune issue — et le refus s'annonce
 	};
 
+	/// UNE FORME EST-ELLE ÉDITABLE PAR SES SOMMETS ? Le prédicat est écrit ici
+	/// pour que la table ci-dessous n'ait pas à connaître `Sommets.h` de deux
+	/// façons différentes.
+	inline bool NkFormeEditable(const NkUINode &n) {
+		return NkSommetsStockes(NkNatureDe(n.shape.Data()))
+			   || NkNatureDe(n.shape.Data()) == NkNatureSommets::Bouts;
+	}
+
 	/// La suite, à partir de l'issue et de ce que le pointage a trouvé.
+	///
+	/// ⚠️ LE TROISIÈME ET LE QUATRIÈME PARAMÈTRE SONT NÉS D'UNE MESURE SUR LE
+	///    DOCUMENT RÉEL DE RODOLF (`--recette-document`, 01/09), et ils réparent
+	///    une IMPASSE, pas une gêne. Sur `nkuidesign_document.nkuidoc` (42
+	///    nœuds), **14 rectangles simples** ; les 12 qui ouvraient le mode sont
+	///    les **barres du graphique**, celles qu'on ne double-clique jamais.
+	///    Les rectangles qu'il voit — le bouton « Se connecter », les cartes,
+	///    `Panel_Nav` — sont des rectangles **qui portent des enfants**, donc
+	///    `Forer`. Et `Forer` sans enfant sous le point donnait `ForerSansEnfant`
+	///    **à chaque coup** : le forage était armé, le double-clic suivant
+	///    ressortait au premier niveau (le contexte rend −2), retrouvait le même
+	///    nœud, et refaisait exactement la même chose. **Le geste tournait en
+	///    rond, et le rectangle le plus visible de son écran n'avait AUCUNE
+	///    route vers ses sommets.**
+	///
+	/// ⚠️ POURQUOI `dejaDedans` PLUTÔT QU'OUVRIR LA FORME DU PREMIER COUP : parce
+	///    qu'entrer dans un groupe est le geste attendu, et qu'il sert (une fois
+	///    dedans, les clics simples désignent le contenu). On ne le remplace
+	///    donc pas — **on lui donne une suite**. Premier double-clic : on entre,
+	///    et on le dit. Deuxième au même endroit : la forme du conteneur
+	///    lui-même s'ouvre. *Un geste répété qui ne progresse pas est un geste
+	///    cassé ; c'est ce que la mesure a trouvé, et c'est ce qui est réparé.*
+	///
+	/// ⚠️ ET UN ARTBOARD N'EN PROFITE PAS, DÉLIBÉRÉMENT : `frame` n'est pas une
+	///    forme éditable, donc `formeEditable` est faux et la page reste une
+	///    page. Un artboard déformé en quadrilatère ne veut rien dire — il porte
+	///    une cible et une zone sûre.
+	///
 	/// @param enfantSousLePoint vrai si un ENFANT DIRECT du nœud foré contient
 	///        le point (le résultat de `NkPickDansContexte(..., cand)`).
-	inline NkSuiteDblClic NkSuiteDeDblClic(NkIssueDblClic issue, bool enfantSousLePoint) {
+	/// @param formeEditable vrai si le nœud foré est LUI-MÊME une forme dont les
+	///        sommets s'éditent (`NkFormeEditable`) — un rect, une ellipse, un
+	///        polygone… qui se trouve aussi porter des enfants.
+	/// @param dejaDedans vrai si le forage courant désignait DÉJÀ ce nœud avant
+	///        ce double-clic — c'est-à-dire « on y est entré au coup d'avant ».
+	inline NkSuiteDblClic NkSuiteDeDblClic(NkIssueDblClic issue, bool enfantSousLePoint,
+										   bool formeEditable = false,
+										   bool dejaDedans = false) {
 		switch (issue) {
 			case NkIssueDblClic::Forer:
-				return enfantSousLePoint ? NkSuiteDblClic::ForerVersEnfant
-										 : NkSuiteDblClic::ForerSansEnfant;
+				if (enfantSousLePoint)
+					return NkSuiteDblClic::ForerVersEnfant;
+				if (dejaDedans && formeEditable)
+					return NkSuiteDblClic::ModePoints;
+				return NkSuiteDblClic::ForerSansEnfant;
 			case NkIssueDblClic::EditerTexte: return NkSuiteDblClic::EditerTexte;
 			case NkIssueDblClic::ModePoints: return NkSuiteDblClic::ModePoints;
 			case NkIssueDblClic::CoinsSeuls: return NkSuiteDblClic::CoinsSeuls;
@@ -211,13 +257,26 @@ namespace nkuidesign {
 
 	/// LA RAISON DITE. **Jamais vide** — c'est tout l'objet de cette fonction.
 	/// Le nom du nœud, quand il y en a un, est ajouté par l'appelant.
-	inline const char *NkRaisonDeDblClic(NkSuiteDblClic suite) {
+	///
+	/// ⚠️ `formeEditable` NE CHANGE QUE LA PHRASE DE `ForerSansEnfant`, ET C'EST
+	///    LA MOITIÉ UTILE DE LA CORRECTION DU 01/09. Le mécanisme donne
+	///    désormais une SUITE au second double-clic sur le corps d'un rectangle
+	///    à enfants ; **rien à l'écran ne l'annoncerait**, et personne ne
+	///    re-double-clique au même endroit pour voir si l'outil a changé d'avis.
+	///    On ne l'annonce que là où c'est VRAI : un artboard reçoit la phrase
+	///    d'origine, parce que re-double-cliquer dessus ne fera rien de plus.
+	///    *Une phrase qui promet ce que le mécanisme ne fera pas est pire que
+	///    pas de phrase.*
+	inline const char *NkRaisonDeDblClic(NkSuiteDblClic suite, bool formeEditable = false) {
 		switch (suite) {
 			case NkSuiteDblClic::ForerVersEnfant:
 				return " — double-clic : descendre/éditer ; Échap : remonter.";
 			case NkSuiteDblClic::ForerSansEnfant:
-				return " — entré dans le groupe (rien sous le point) : les clics "
-					   "désignent son contenu ; Échap remonte.";
+				return formeEditable
+						   ? " — entré dans le groupe : les clics désignent son contenu. "
+							 "Re-double-cliquez ici pour éditer SA forme ; Échap remonte."
+						   : " — entré dans le groupe (rien sous le point) : les clics "
+							 "désignent son contenu ; Échap remonte.";
 			case NkSuiteDblClic::EditerTexte:
 				return "Édition du texte — Entrée valide, Échap annule.";
 			case NkSuiteDblClic::ModePoints:

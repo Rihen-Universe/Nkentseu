@@ -3840,6 +3840,15 @@ namespace nkuidesign {
 								return;
 							}
 						}
+						// ⚠️ LE FORAGE **D'AVANT** SE GARDE, ET C'EST LUI QUI PORTE LA
+						//    PROGRESSION DU GESTE. Deux lignes plus bas il est remis à
+						//    −1 (le contexte rend −2 dès que le point ne tombe sur
+						//    aucun enfant) : lire `mForage` après cette remise
+						//    répondrait « on n'était nulle part » alors qu'on venait
+						//    justement d'entrer dans ce nœud au coup précédent. C'est
+						//    exactement ce qui faisait tourner le geste en rond sur le
+						//    corps d'un rectangle à enfants.
+						const int32 forageAvant = mForage;
 						int32 cand = NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY,
 														mForage);
 						if (cand == -2) { // hors du contexte : ressort au 1er niveau
@@ -3870,7 +3879,18 @@ namespace nkuidesign {
 									? NkPickDansContexte(mSt->doc, screen, in.mouseX,
 														 in.mouseY, cand)
 									: -1;
-							const NkSuiteDblClic suite = NkSuiteDeDblClic(issue, enfant >= 0);
+							// ⚠️ MESURE DU 01/09 SUR SON DOCUMENT (`--recette-document`) :
+							//    sur les 14 rectangles simples de
+							//    `nkuidesign_document.nkuidoc`, les 12 qui ouvraient le
+							//    mode étaient les BARRES DU GRAPHIQUE. Les rectangles
+							//    qu'il voit — le bouton « Se connecter », les cartes,
+							//    `Panel_Nav` — portent des enfants, donc `Forer`, et
+							//    n'avaient AUCUNE route vers leurs sommets. La suite
+							//    reçoit donc deux faits de plus : ce nœud est-il
+							//    lui-même une forme éditable, et y étions-nous DÉJÀ ?
+							const bool formeEd = NkFormeEditable(cn);
+							const NkSuiteDblClic suite = NkSuiteDeDblClic(
+								issue, enfant >= 0, formeEd, forageAvant == cand);
 							switch (suite) {
 								case NkSuiteDblClic::ForerVersEnfant:
 									mForage = cand;
@@ -3884,9 +3904,14 @@ namespace nkuidesign {
 									//    entre. Sans l'armement du forage, le geste ne
 									//    progressait pas d'un cran, quel que soit le
 									//    nombre de double-clics.
+									// ⚠️ ET LA PHRASE ANNONCE LA SUITE **quand il y en
+									//    a une** : sur une forme éditable, le prochain
+									//    double-clic au même endroit ouvre ses sommets.
+									//    Sur un artboard, non — et la phrase ne le
+									//    promet pas.
 									mForage = cand;
 									mSt->SelectSingle(cand);
-									Dire("", cn.label.Data(), NkRaisonDeDblClic(suite));
+									Dire("", cn.label.Data(), NkRaisonDeDblClic(suite, formeEd));
 									break;
 								case NkSuiteDblClic::EditerTexte: {
 									mEditNode = cand;
