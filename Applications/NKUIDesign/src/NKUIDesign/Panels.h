@@ -5962,6 +5962,11 @@ namespace nkuidesign {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
 				const NkRect r = ctx.NextItemRect(-1.f, kBandeH);
+				// ── LA MÊME BANDE QUE L'INSPECTEUR — chemin frère, un seul
+				//    peintre. Cette fonction s'appelait DÉJÀ « BandeDeSection »
+				//    et ne dessinait aucune bande : le nom promettait ce que le
+				//    code ne faisait pas.
+				costume::BandeEnTete(dl, r.x, r.y, r.w, r.h, ctx.theme.header, ctx.theme.border);
 				costume::TexteGras(dl, F.px10, r.x + 8.f, costume::CentrerY(F.px10, r.y, r.h),
 								   titre, ctx.theme.textMuted, 0.4f);
 				const float32 wp = costume::Largeur(F.px15, "+");
@@ -6988,6 +6993,12 @@ namespace nkuidesign {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
 				const NkRect r = ctx.NextItemRect(-1.f, 22.f);
+				// ── LA BANDE PLEINE LARGEUR (Rodolf, 01/09 ; Lunacy) ─────────
+				// Le titre ne flotte plus sur le fond : il est POSÉ. Le dessin
+				// vient de `costume::BandeEnTete`, partagé avec les en-têtes de
+				// la HIÉRARCHIE — le même motif, une seule écriture.
+				costume::BandeEnTete(ctx.DL(), r.x, r.y, r.w, r.h, ctx.theme.header,
+									 ctx.theme.border);
 				EtatSection *s = TrouverSection(titre);
 				float32 x = r.x + 12.f;
 				const float32 ty = r.y + 8.f;
