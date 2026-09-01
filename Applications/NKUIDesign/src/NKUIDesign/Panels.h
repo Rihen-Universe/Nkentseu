@@ -6431,7 +6431,7 @@ namespace nkuidesign {
 				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
 				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"REMPLISSAGES", true},
 				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
-				{"EFFETS", false},	{"POINTS DE RUPTURE", false},
+				{"EFFETS", true},	{"POINTS DE RUPTURE", false},
 			};
 			EtatSection *TrouverSection(const char *titre) {
 				for (uint32 i = 0; i < kNbSections; ++i)
@@ -6490,7 +6490,8 @@ namespace nkuidesign {
 				bool plusPris = false;
 				const bool sectionAListe =
 					s && NoeudMutable()
-					&& (StrEq(titre, "REMPLISSAGES") || StrEq(titre, "BORDURES"));
+					&& (StrEq(titre, "REMPLISSAGES") || StrEq(titre, "BORDURES")
+						|| StrEq(titre, "EFFETS"));
 				if (sectionAListe) {
 					const NkRect rp = {r.x + r.w - 28.f, r.y + 4.f, 16.f, 16.f};
 					const bool sv =
@@ -6501,6 +6502,8 @@ namespace nkuidesign {
 						plusPris = true; // le clic du « + » n'est PAS un clic de repli
 						if (StrEq(titre, "BORDURES"))
 							AjouterBordure();
+						else if (StrEq(titre, "EFFETS"))
+							AjouterEffet();
 						else
 							AjouterRemplissage();
 					}
@@ -6818,13 +6821,186 @@ namespace nkuidesign {
 
 			/// EFFETS — la section existe (référence), son modèle n'existe pas :
 			/// elle le DIT, elle ne met pas en scène des ombres inventées.
+			// ═══════════════════════════════════════════════════════════════════
+			//  EFFETS (Lunacy « EFFECTS ») — étage 3 du mandat listes
+			// ═══════════════════════════════════════════════════════════════════
+			// Le gabarit de `lunacy_props_11`, sur TROIS lignes par effet :
+			//   1. le TYPE (« Ombre portée ⌄ ») + œil + poubelle
+			//   2. X, Y, flou, étendue
+			//   3. couleur + opacité
+			//
+			// ⚠️ LES COLONNES VIENNENT DU GROUPE (`ColonnesDe`), pas d'ici. C'est
+			//    la troisième section à liste ; les deux premières ont payé trois
+			//    troncatures avant que la géométrie descende au-dessus du groupe.
+			//    Celle-ci n'a rien redécouvert — c'était l'objet du geste.
 			void CorpsEffets(NkGuiContext &ctx) {
 				if (!SectionOuverte("EFFETS"))
 					return;
-				ctx.BeginDisabled();
-				nkgui::TextWrapped(ctx, "Le modèle d'effets (ombres, flous) arrive — rien n'est "
-										"mis en scène.");
-				ctx.EndDisabled();
+				NkUINode *n = NoeudMutable();
+				if (!n) {
+					designkit::KeyValue(ctx, "Effets", "-");
+					return;
+				}
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				if (mEffetsNode != mSt->selected || mEffetsGen != mSt->editionGeneration) {
+					mEffetsNode = mSt->selected;
+					mEffetsGen = mSt->editionGeneration;
+					for (uint32 i = 0; i < kMaxFillsUI; ++i)
+						mEffetsBuf[i][0] = '\0';
+					for (uint32 i = 0; i < (uint32)n->effets.Size() && i < kMaxFillsUI; ++i)
+						snprintf(mEffetsBuf[i], sizeof(mEffetsBuf[i]), "%s",
+								 n->effets[i].couleur.Data());
+				}
+				const uint32 nb = (uint32)n->effets.Size();
+				// Du DERNIER au premier, comme les deux autres listes.
+				for (uint32 vi = 0; vi < nb; ++vi) {
+					const uint32 i = nb - 1u - vi;
+					if (i >= kMaxFillsUI)
+						continue;
+					NkEffet &e = n->effets[i];
+					// ── LIGNE 1 : le TYPE, l'œil, la poubelle
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const ColonnesRangee col = ColonnesDe(r);
+						const char *nomType = (e.type == NkEffetType::OmbreInterne)
+												  ? "Ombre interne"
+												  : "Ombre portée";
+						const float32 tw = col.poubX - r.x - 16.f;
+						const NkRect rt = {r.x + 12.f, r.y + 3.f, tw > 40.f ? tw : 40.f, 20.f};
+						const bool svT =
+							ctx.popupDepth == 0 && NkGuiRectContains(rt, ctx.input.mousePos);
+						dl.AddRectFilled(rt, CouleurInput(), 4.f);
+						dl.AddRect(rt, svT ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px10, rt.x + 6.f,
+									   costume::CentrerY(F.px10, rt.y, 20.f), nomType,
+									   e.visible ? ctx.theme.text : ctx.theme.textDisabled);
+						costume::ChevronCombo7(dl, rt.x + rt.w - 11.f, rt.y + 7.5f,
+											   ctx.theme.textMuted);
+						if (svT && ctx.input.mouseClicked[0]) {
+							e.type = (e.type == NkEffetType::OmbrePortee)
+										 ? NkEffetType::OmbreInterne
+										 : NkEffetType::OmbrePortee;
+							mSt->doc.MarkHumanEdit(mSt->selected);
+							// ⚠️ ON LE DIT : l'ombre interne se règle et se sauve,
+							//    mais son PEINTRE n'existe pas. Un réglage qui ne
+							//    change rien à l'écran sans le dire ferait croire
+							//    à une panne.
+							mSt->status = NkString(
+								e.type == NkEffetType::OmbreInterne
+									? "Ombre interne : réglée et enregistrée — son peintre "
+									  "arrive (elle ne se voit pas encore sur la toile)."
+									: "Ombre portée.");
+						}
+						{
+							const NkRect rp = {col.poubX, r.y + 6.f, 14.f, 14.f};
+							const bool sv =
+								ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
+							costume::IcPoubelle(dl, rp.x + 1.f, rp.y + 1.f,
+												sv ? ctx.theme.accent : ctx.theme.textMuted);
+							if (sv && ctx.input.mouseClicked[0]) {
+								n->effets.RemoveAt(i);
+								mEffetsGen = -1;
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								mSt->status = NkString("Effet retiré — Ctrl+Z le ramène.");
+								return; // la liste a glissé : on ne lit plus `e`
+							}
+						}
+						{
+							const NkRect re = {col.oeilX, r.y + 6.f, 14.f, 14.f};
+							const bool sv =
+								ctx.popupDepth == 0 && NkGuiRectContains(re, ctx.input.mousePos);
+							const NkColor c = sv ? ctx.theme.accent
+												 : (e.visible ? ctx.theme.textMuted
+															  : ctx.theme.textDisabled);
+							if (e.visible)
+								costume::IcOeil(dl, re.x + 1.f, re.y + 1.f, c);
+							else
+								costume::IcOeilBarre(dl, re.x + 1.f, re.y + 1.f, c);
+							if (sv && ctx.input.mouseClicked[0]) {
+								e.visible = !e.visible;
+								mSt->doc.MarkHumanEdit(mSt->selected);
+							}
+						}
+					}
+					// ── LIGNE 2 : X, Y, flou, étendue — les QUATRE nombres
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 24.f);
+						const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+						const float32 large = (x1 - x0 - 3.f * 6.f) * 0.25f;
+						const char *etiq[4] = {"X", "Y", "flou", "étendue"};
+						float32 *val[4] = {&e.x, &e.y, &e.flou, &e.etendue};
+						for (int32 k = 0; k < 4; ++k) {
+							const NkRect rc = {x0 + (large + 6.f) * (float32)k, r.y + 2.f,
+											   large, 20.f};
+							char id[32];
+							snprintf(id, sizeof(id), "insp.effet.%d.%u", k, i);
+							// ⚠️ X ET Y ACCEPTENT LE NEGATIF (une ombre peut porter
+							//    vers la gauche ou vers le haut) ; le flou et
+							//    l'etendue non — un rayon negatif n'a pas de sens.
+							const float32 mini = (k < 2) ? -256.f : 0.f;
+							if (ChampNombre(ctx, id, rc, *val[k], 0.5f, mini, 256.f))
+								mSt->doc.MarkHumanEdit(mSt->selected);
+							costume::Texte(dl, F.px9, rc.x + 2.f, rc.y + 21.f, etiq[k],
+										   ctx.theme.textDisabled);
+						}
+					}
+					// ── LIGNE 3 : couleur + opacité (les colonnes du GROUPE)
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 30.f);
+						const ColonnesRangee col = ColonnesDe(r);
+						const NkRect sw = {col.pastille, r.y + 9.f, 16.f, 16.f};
+						if (mEffetsBuf[i][0]) {
+							dl.AddRectFilled(sw, CouleurHex(mEffetsBuf[i], ctx.theme.textMuted),
+											 3.f);
+							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+						} else {
+							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+							dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
+									   ctx.theme.textMuted, 1.f);
+						}
+						char idHex[32];
+						snprintf(idHex, sizeof(idHex), "##insp.effet.hex%u", i);
+						ctx.SetNextItemRect({col.hexX, r.y + 7.f, col.hexW, 20.f});
+						if (nkgui::InputText(ctx, idHex, mEffetsBuf[i], 10)) {
+							e.couleur = NkString(mEffetsBuf[i]);
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						}
+						char idOp[32];
+						snprintf(idOp, sizeof(idOp), "insp.effet.op%u", i);
+						const NkRect ro = {col.opacX, r.y + 7.f, 30.f, 20.f};
+						if (ChampNombre(ctx, idOp, ro, e.opacite, 1.f, 0.f, 100.f))
+							mSt->doc.MarkHumanEdit(mSt->selected);
+						costume::Texte(dl, F.px9, ro.x + ro.w + 3.f,
+									   costume::CentrerY(F.px9, r.y + 7.f, 20.f), "%",
+									   ctx.theme.textMuted);
+					}
+				}
+				if (nb == 0) {
+					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
+					costume::Texte(dl, F.px9, r.x + 12.f, costume::CentrerY(F.px9, r.y, 18.f),
+								   "Aucun — « + » en ajoute.", ctx.theme.textDisabled);
+				}
+			}
+			/// Le « + » d'EFFETS. Les valeurs de départ sont celles de la
+			/// référence (`lunacy_props_11`) : Y 4, flou 4, noir à 25 % — une ombre
+			/// qui se VOIT tout de suite, plutôt qu'un effet nul qu'il faudrait
+			/// régler avant de comprendre qu'il est là.
+			void AjouterEffet() {
+				NkUINode *n = NoeudMutable();
+				if (!n)
+					return;
+				if ((uint32)n->effets.Size() >= kMaxFillsUI) {
+					mSt->status = NkString("Effets : la pile de l'inspecteur en montre huit au "
+										   "plus (le modèle, lui, n'a pas de borne).");
+					return;
+				}
+				NkEffet e;
+				e.couleur = NkString("#000000");
+				n->effets.PushBack(e);
+				mEffetsGen = -1;
+				mSt->doc.MarkHumanEdit(mSt->selected);
+				mSt->status = NkString("Ombre portée ajoutée — Ctrl+Z la retire.");
 			}
 			/// POINTS DE RUPTURE — même règle d'honnêteté que EFFETS.
 			void CorpsRupture(NkGuiContext &ctx) {
@@ -8305,6 +8481,9 @@ namespace nkuidesign {
 			char mBordsBuf[kMaxFillsUI][12] = {};
 			int32 mBordsNode = -1;
 			uint32 mBordsGen = 0;
+			char mEffetsBuf[kMaxFillsUI][12] = {};
+			int32 mEffetsNode = -1;
+			uint32 mEffetsGen = 0;
 			char mTexteColBuf[12] = {};
 			char mBordColBuf[12] = {};
 			/// Les generations d'historique vues par les tampons (une
