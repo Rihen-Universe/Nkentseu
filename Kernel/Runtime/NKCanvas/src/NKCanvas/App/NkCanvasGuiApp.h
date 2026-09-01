@@ -51,6 +51,8 @@
 #include "NKCanvas/App/NkCanvasApp.h"
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKCanvas/UI/NkGuiCanvasBackend.h"
+#include "NKCanvas/App/NkRihenMarque.h"
+#include "NKImage/Codecs/SVG/NkSVGCodec.h"
 #include "NKGui/Core/NkGuiContext.h"
 
 namespace nkentseu {
@@ -88,6 +90,17 @@ namespace nkentseu {
 				}
 				nkgui::NkGuiFont *FontSmall() noexcept {
 					return &mFontSmall;
+				}
+
+				/// L'identifiant de texture du symbole Rihen, ou 0 s'il n'a pas pu
+				/// etre rasterise.
+				///
+				/// ⚠️ ZERO EST UNE REPONSE, PAS UNE PANNE. L'appelant doit pouvoir
+				/// dessiner sans logo — un splash qui refuserait de s'afficher parce
+				/// qu'un decodage SVG a echoue transformerait un defaut cosmetique en
+				/// application morte.
+				uint32 LogoRihenTexId() const noexcept {
+					return mLogoPret ? NkRihenMarqueTexId() : 0u;
 				}
 
 				// =============================================================
@@ -189,6 +202,32 @@ namespace nkentseu {
 					return px < 11.f ? 11.f : (px > 34.f ? 34.f : px);
 				}
 
+				/// Rasterise le symbole embarque et le televerse. Une seule fois.
+				void ChargerLogoRihen() {
+					if (mLogoPret) {
+						return;
+					}
+					const char *svg = NkRihenMarqueSVG();
+					usize n = 0;
+					while (svg[n] != '\0') {
+						++n;
+					}
+					const int32 t = NkRihenMarqueTaille();
+					NkImage img = NkSVGCodec::Decode(reinterpret_cast<const uint8 *>(svg), n, t, t);
+					if (!img.IsValid() || img.Pixels() == nullptr) {
+						// On le DIT plutot que d'echouer en silence : sans cette ligne,
+						// un logo absent se chercherait dans le splash, c'est-a-dire
+						// loin de sa cause.
+						logger.Warn("[nkcanvasgui] symbole Rihen non rasterise — l'ouverture s'affichera sans lui");
+						return;
+					}
+					mLogoPret = mGuiBackend.UploadImageRGBA(NkRihenMarqueTexId(), img.Pixels(), img.Width(),
+															   img.Height());
+					if (!mLogoPret) {
+						logger.Warn("[nkcanvasgui] televersement du symbole Rihen refuse");
+					}
+				}
+
 				void LoadFonts(float32 bodyPx) {
 					// ⚠️ texId DISTINCT par police — voir l'en-tete de fichier.
 					mFontBody.texId = 0x4E4B4654u;
@@ -211,6 +250,11 @@ namespace nkentseu {
 						logger.Warn("[nkcanvasgui] aucune police chargee — les textes seront absents");
 					}
 					mLoadedPx = bodyPx;
+
+					// Le logo suit les polices : meme backend, meme instant de
+					// disponibilite. Il ne depend PAS de la taille demandee, donc il
+					// ne se recharge pas a chaque rotation d'ecran.
+					ChargerLogoRihen();
 				}
 
 				nkgui::NkGuiContext mGuiContext;
@@ -219,6 +263,7 @@ namespace nkentseu {
 				float32 mLoadedPx = 0.f;
 				float32 mLastDelta = 1.f / 60.f;
 				bool mGuiReady = false;
+				bool mLogoPret = false;
 		};
 
 	} // namespace renderer

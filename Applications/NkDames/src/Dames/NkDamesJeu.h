@@ -29,6 +29,7 @@
 #include "Dames/NkDamesEcran.h"
 #include "Dames/NkDamesRegles.h"
 #include "NKCanvas/App/NkCanvasGuiApp.h"
+#include "NKCanvas/App/NkCanvasSplash.h"
 
 namespace nkentseu {
 	namespace jeux {
@@ -71,6 +72,17 @@ namespace nkentseu {
 					NkDamesPartie mPartie;
 					NkVector<NkDamesCoup> mCoupsProposes;
 					NkDamesGeometrie mGeo;
+					// ── L'OUVERTURE ──────────────────────────────────────────────
+					// Marque RIHEN, puis le nom du jeu. Dessinee par primitives,
+					// sans aucune texture : c'est ce qui la rend identique sur les
+					// sept plateformes, y compris le Web ou chaque asset est un
+					// telechargement de plus avant la premiere image.
+					//
+					// ⚠️ TOUJOURS SAUTABLE : un ecran d'ouverture qu'on ne peut pas
+					// passer est une taxe payee a chaque lancement, y compris par
+					// celui qui teste vingt fois par heure.
+					renderer::NkCanvasSplash mSplash;
+
 					NkEcran mEcran = NkEcran::NK_MENU; ///< on commence par CHOISIR
 					NkDamesAnim mAnim;
 

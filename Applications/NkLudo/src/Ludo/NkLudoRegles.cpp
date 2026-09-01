@@ -225,7 +225,11 @@ namespace nkentseu {
 				}
 			}
 			mSixDaffilee = 0;
-			mJoueur = (mJoueur + 1) % NK_LUDO_JOUEURS;
+			// ⚠️ ON SAUTE LES SIEGES DESACTIVES. Un `% NK_LUDO_JOUEURS` seul
+			// donnerait la main a un siege sans pions : la partie attendrait un
+			// coup qui ne peut pas venir, et le symptome serait « le jeu se
+			// fige » — a des lieues de sa cause.
+			mJoueur = ProchainSiegeActif((mJoueur + 1) % NK_LUDO_JOUEURS);
 		}
 
 		int32 NkLudoPartie::PionsRentres(int32 joueur) const noexcept {
@@ -243,6 +247,15 @@ namespace nkentseu {
 
 		bool NkLudoPartie::EstTerminee(int32 &gagnant) const noexcept {
 			for (int32 j = 0; j < NK_LUDO_JOUEURS; ++j) {
+				// ⚠️ Le test `SiegeActif` est EXPLICITE meme s'il est
+				// aujourd'hui redondant : un siege desactive ne joue pas, donc
+				// il ne rentre aucun pion, donc il ne pouvait deja pas gagner.
+				// Mais cette justesse est un ACCIDENT du chemin des donnees, pas
+				// une intention ecrite -- et le jour ou une reprise de partie
+				// chargera des avancements depuis un fichier, l'accident tombe.
+				if (!SiegeActif(j)) {
+					continue;
+				}
 				if (PionsRentres(j) == NK_LUDO_PIONS) {
 					gagnant = j;
 					return true;

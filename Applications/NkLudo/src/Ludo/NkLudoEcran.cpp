@@ -153,22 +153,43 @@ namespace nkentseu {
 				retour = NkRect{bandeau.x + bandeau.w - cRetour - bandeau.h * 0.22f,
 								bandeau.y + (bandeau.h - cRetour) * 0.5f, cRetour, cRetour};
 
-				// ⚠️ Les boutons du menu s'ancrent SOUS le titre. La version
-				// centree employee d'abord sur NkDames les faisait RECOUVRIR le
-				// titre — defaut invisible au calcul, vu sur la capture.
-				menuTitre = NkRect{plateau.x, plateau.y + plateau.h * 0.04f, cote, hBandeau * 1.1f};
-				menuSousTitre = NkRect{plateau.x, menuTitre.y + menuTitre.h, cote, hBandeau * 0.66f};
-
-				// Cinq entrees au lieu de quatre : elles doivent tenir sous le
-				// sous-titre sans deborder du plateau. On resserre le pas plutot
-				// que de rapetisser les cibles — une cible de menu se touche.
+				// ── LE BLOC DE CONFIGURATION SE CENTRE SUR L'ECRAN ──────────
+				// ⚠️ ET NON SUR LE PLATEAU, qui est un CARRE centre : sur une
+				// fenetre en portrait, il laisse au-dessus de lui une bande vide
+				// que rien n'occupe. Defaut invisible au calcul — chaque
+				// rectangle etait juste — et vu sur une capture.
+				//
+				// On mesure donc la hauteur TOTALE du bloc, puis on la centre
+				// dans la zone sure. Ainsi la mise en page tient aussi bien sur
+				// un telephone etroit que sur un ecran large, sans reglage.
 				const float32 lChoix = cote * 0.86f;
 				const float32 hChoix = hBandeau * 0.80f;
 				const float32 pas = hChoix * 1.24f;
-				const float32 y0 = menuSousTitre.y + menuSousTitre.h + hBandeau * 0.22f;
-				for (int32 i = 0; i < NK_LUDO_NB_MODES; ++i) {
-					choix[i] =
-						NkRect{plateau.x + (cote - lChoix) * 0.5f, y0 + static_cast<float32>(i) * pas, lChoix, hChoix};
+
+				const float32 hTitre = hBandeau * 1.1f;
+				const float32 hSousTitre = hBandeau * 0.66f;
+				const float32 ecartTitre = hBandeau * 0.30f;
+				const float32 hBloc = hTitre + hSousTitre + ecartTitre +
+									  pas * static_cast<float32>(NK_LUDO_NB_LIGNES_MENU - 1) + hChoix;
+
+				const float32 hautZone = hautSur;
+				const float32 basZone = H - basSur;
+				float32 yBloc = hautZone + ((basZone - hautZone) - hBloc) * 0.5f;
+				// Une marge minimale sous la zone sure : centre a la perfection,
+				// le bloc collerait au bord sur un ecran court.
+				if (yBloc < hautZone + hBandeau * 0.4f) {
+					yBloc = hautZone + hBandeau * 0.4f;
+				}
+
+				const float32 xBloc = gaucheSur + ((W - gaucheSur - droiteSur) - lChoix) * 0.5f;
+
+				menuTitre = NkRect{xBloc, yBloc, lChoix, hTitre};
+				menuSousTitre = NkRect{xBloc, menuTitre.y + menuTitre.h, lChoix, hSousTitre};
+
+				const float32 y0 = menuSousTitre.y + menuSousTitre.h + ecartTitre;
+				// Quatre sieges, puis « Commencer ».
+				for (int32 i = 0; i < NK_LUDO_NB_LIGNES_MENU; ++i) {
+					choix[i] = NkRect{xBloc, y0 + static_cast<float32>(i) * pas, lChoix, hChoix};
 				}
 			}
 
@@ -179,25 +200,59 @@ namespace nkentseu {
 			}
 
 			// =====================================================================
-			void DessinerMenu(NkGuiDrawList &dl, const NkLudoGeometrie &geo, const NkLudoPolices &f) {
+			void DessinerMenu(NkGuiDrawList &dl, const NkLudoGeometrie &geo, const NkLudoPolices &f,
+							  const NkControleur *controleur, bool peutCommencer) {
 				TexteDansBoite(dl, f.titre, geo.menuTitre, "Ludo", kTexte);
-				TexteDansBoite(dl, f.petite, geo.menuSousTitre, "Quatre joueurs, humains ou IA", kTexteFaible);
 
-				const char *libelles[NK_LUDO_NB_MODES] = {"1 joueur, 3 IA", "2 joueurs, 2 IA", "3 joueurs, 1 IA",
-														  "4 joueurs", "4 IA (simulation)"};
-				for (int32 i = 0; i < NK_LUDO_NB_MODES; ++i) {
-					dl.AddRectFilled(geo.choix[i], kPanneauActif, geo.choix[i].h * 0.26f);
-					dl.AddRect(geo.choix[i], kJoueur[i % NK_LUDO_JOUEURS], 2.f, geo.choix[i].h * 0.26f);
-					// La pastille reprend la couleur d'un joueur : elle distingue
-					// les entrees sans dependre de la lecture du libelle.
-					dl.AddCircleFilled(
-						NkVec2f(geo.choix[i].x + geo.choix[i].h * 0.5f, geo.choix[i].y + geo.choix[i].h * 0.5f),
-						geo.choix[i].h * 0.16f, kJoueur[i % NK_LUDO_JOUEURS]);
-					TexteDansBoite(dl, f.corps,
-								   NkRect{geo.choix[i].x + geo.choix[i].h * 0.9f, geo.choix[i].y,
-										  geo.choix[i].w - geo.choix[i].h * 1.2f, geo.choix[i].h},
-								   libelles[i], kTexte);
+				// ⚠️ LE FILET ORANGE EST CELUI DU SPLASH, PAS UN AUTRE. La meme
+				// couleur au meme endroit relie l'ouverture a l'ecran qui la
+				// suit : sans ce fil, le jeu semble commencer deux fois.
+				{
+					const float32 l = geo.menuTitre.w * 0.28f;
+					const float32 y = geo.menuTitre.y + geo.menuTitre.h * 0.88f;
+					dl.AddRectFilled(NkRect{geo.menuTitre.x + (geo.menuTitre.w - l) * 0.5f, y, l, 3.f},
+									 NkColor(247, 154, 40), 1.5f);
 				}
+
+				TexteDansBoite(dl, f.petite, geo.menuSousTitre, "Touchez un siege : Humain, IA, ou desactive",
+							   kTexteFaible);
+
+				for (int32 j = 0; j < NK_LUDO_JOUEURS; ++j) {
+					const NkRect &r = geo.choix[j];
+					const NkControleur c = (controleur != nullptr) ? controleur[j] : NkControleur::NK_IA;
+					const bool actif = (c != NkControleur::NK_DESACTIVE);
+					const NkColor teinte = kJoueur[j];
+
+					// ⚠️ UN SIEGE DESACTIVE SE VOIT COMME TEL, ET PAR TROIS SIGNAUX :
+					// fond plus sombre, contour eteint, pastille CREUSE au lieu de
+					// pleine. Un seul signal — la couleur — ne se lit pas pour qui
+					// distingue mal les teintes, et c'est justement l'information la
+					// plus importante de cet ecran.
+					dl.AddRectFilled(r, actif ? kPanneauActif : kPanneau, r.h * 0.26f);
+					dl.AddRect(r, actif ? teinte : kTexteFaible, actif ? 2.f : 1.f, r.h * 0.26f);
+
+					const NkVec2f centre(r.x + r.h * 0.5f, r.y + r.h * 0.5f);
+					if (actif) {
+						dl.AddCircleFilled(centre, r.h * 0.16f, teinte);
+					} else {
+						dl.AddCircle(centre, r.h * 0.16f, kTexteFaible, 1.5f);
+					}
+
+					const NkRect boite{r.x + r.h * 0.9f, r.y, r.w - r.h * 1.2f, r.h};
+					const NkString ligne = NkString::Format("Siege %d  -  %s", j + 1, NkNomControleur(c));
+					TexteDansBoite(dl, f.corps, boite, ligne.Data(), actif ? kTexte : kTexteFaible);
+				}
+
+				// ── Commencer ────────────────────────────────────────────────
+				// ⚠️ LE REFUS SE DESSINE. Un bouton actif qui ne fait rien se lit
+				// comme une panne ; un bouton grise qui DIT pourquoi se lit comme
+				// une regle. La difference ne coute qu'une chaine.
+				const NkRect &b = geo.choix[NK_LUDO_LIGNE_COMMENCER];
+				dl.AddRectFilled(b, peutCommencer ? kPanneauActif : kPanneau, b.h * 0.26f);
+				dl.AddRect(b, peutCommencer ? kOr : kTexteFaible, peutCommencer ? 2.f : 1.f, b.h * 0.26f);
+				TexteDansBoite(dl, f.corps, b,
+							   peutCommencer ? "Commencer" : "Il faut au moins deux sieges utilisables",
+							   peutCommencer ? kTexte : kTexteFaible);
 			}
 
 			// =====================================================================
@@ -316,6 +371,13 @@ namespace nkentseu {
 				const bool anime = (vue.anim != nullptr && vue.anim->actif);
 
 				for (int32 j = 0; j < NK_LUDO_JOUEURS; ++j) {
+					// ⚠️ UN SIEGE DESACTIVE N'A PAS DE PIONS A L'ECRAN. Sans ce
+					// saut, ses quatre pions resteraient dessines a l'ecurie :
+					// le joueur verrait un adversaire qui ne joue jamais, et
+					// chercherait pourquoi son tour ne vient pas.
+					if (vue.partie != nullptr && !vue.partie->SiegeActif(j)) {
+						continue;
+					}
 					for (int32 p = 0; p < NK_LUDO_PIONS; ++p) {
 						// Le pion anime est DEJA arrive dans les regles : on ne le
 						// dessine pas a sa case, sinon il apparait deux fois.
