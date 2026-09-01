@@ -660,6 +660,20 @@ static struct {
 	int32 frame = -1;
 	bool dbl = false; ///< --clic=x:y:frame:d — injecte AUSSI un double-clic
 } gClics[4];
+// ── FRAPPE ET TOUCHES INJECTEES (mise en scene, 01/09) ──────────────────────
+// Le meme principe que gClics : on ecrit dans ctx.input, jamais le clavier
+// reel. Necessaire pour PROUVER les saisies en place (renommage d'arbre,
+// edition de texte) au releve — un clic sait ouvrir la saisie, seule la
+// frappe sait la remplir. --frappe=texte:frame (ASCII, ':' interdit dans le
+// texte) ; --touche=entree|echap|retour:frame.
+static struct {
+	int32 frame = -1;
+	char texte[64] = {};
+} gFrappes[2];
+static struct {
+	int32 frame = -1;
+	nkgui::NkGuiKey touche = nkgui::NkGuiKey::Enter;
+} gTouches[4];
 static void InjecterClics(nkgui::NkGuiContext &ctx) {
 	static int32 compteur = 0;
 	++compteur;
@@ -690,6 +704,26 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			ctx.input.mouseReleased[0] = true;
 			ctx.input.mouseDoubleClicked[0] = false;
 		}
+	}
+	// ── LA FRAPPE (--frappe=) : les codepoints poses UNE trame ──────────────
+	for (int32 i = 0; i < 2; ++i) {
+		if (gFrappes[i].frame < 0)
+			continue;
+		if (compteur == gFrappes[i].frame) {
+			for (const char *q = gFrappes[i].texte; *q; ++q)
+				ctx.input.PushChar((nkentseu::uint32)(unsigned char)*q);
+		} else if (compteur == gFrappes[i].frame + 1)
+			ctx.input.charCount = 0;
+	}
+	// ── LES TOUCHES (--touche=) : keyInit une trame (le one-shot que
+	//    KeyPressed lit), efface a la suivante ────────────────────────────────
+	for (int32 i = 0; i < 4; ++i) {
+		if (gTouches[i].frame < 0)
+			continue;
+		if (compteur == gTouches[i].frame)
+			ctx.input.keyInit[(int32)gTouches[i].touche] = true;
+		else if (compteur == gTouches[i].frame + 1)
+			ctx.input.keyInit[(int32)gTouches[i].touche] = false;
 	}
 }
 
@@ -1476,6 +1510,42 @@ int nkmain(const NkEntryState &state) {
 			// --annuler=N / --retablir=N : N pas d'annulation/retablissement au
 			// lancement (apres les gestes injectes --clic) — le levier de preuve
 			// UI de l'annulation ; la batterie complete est --recette-annulation.
+			// --frappe=texte:frame — les codepoints ASCII poses dans l'input a
+			// cette trame (preuve des saisies en place ; ':' separe, donc
+			// interdit dans le texte).
+			if (arg.StartsWith("--frappe=")) {
+				for (int32 fi = 0; fi < 2; ++fi) {
+					if (gFrappes[fi].frame >= 0)
+						continue;
+					const char *q = a + 9;
+					nkentseu::usize k = 0;
+					while (*q && *q != ':' && k + 1 < sizeof(gFrappes[fi].texte))
+						gFrappes[fi].texte[k++] = *q++;
+					gFrappes[fi].texte[k] = 0;
+					gFrappes[fi].frame = (*q == ':') ? (int32)atof(q + 1) : 90;
+					break;
+				}
+				continue;
+			}
+			// --touche=entree|echap|retour:frame — un one-shot clavier injecte.
+			if (arg.StartsWith("--touche=")) {
+				for (int32 ti = 0; ti < 4; ++ti) {
+					if (gTouches[ti].frame >= 0)
+						continue;
+					const char *q = a + 9;
+					if (NkString(q).StartsWith("entree"))
+						gTouches[ti].touche = nkgui::NkGuiKey::Enter;
+					else if (NkString(q).StartsWith("echap"))
+						gTouches[ti].touche = nkgui::NkGuiKey::Escape;
+					else if (NkString(q).StartsWith("retour"))
+						gTouches[ti].touche = nkgui::NkGuiKey::Backspace;
+					while (*q && *q != ':')
+						++q;
+					gTouches[ti].frame = (*q == ':') ? (int32)atof(q + 1) : 100;
+					break;
+				}
+				continue;
+			}
 			if (arg.StartsWith("--annuler=")) {
 				gDesign.annulerInitial = (int32)atof(a + 10);
 				continue;
@@ -1721,6 +1791,8 @@ int nkmain(const NkEntryState &state) {
 			puts("  --theme=<nom>           thème au lancement (nom de NkThemeLibrary)");
 			puts("  --selection=<n>         sélectionner le nœud n au premier affichage");
 			puts("  --editer-texte=<n>      ouvrir l'édition en place sur le nœud texte n (mise en scène)");
+			puts("  --frappe=texte:frame    injecter des codepoints ASCII à cette trame (preuve de saisie)");
+			puts("  --touche=nom:frame      injecter entree|echap|retour à cette trame");
 			puts("  --document=<chemin>     charger ce document au lancement (mise en scène)");
 			puts("  --lignes=v<f>,h<px>     lignes de magnétisme figées (mise en scène)");
 			puts("  --toile-seule           panneaux fermés, rails retirés (mise en scène)");

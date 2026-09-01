@@ -1060,6 +1060,10 @@ namespace nkuidesign {
 				DireAuPied("Onglet fermé.");
 				return true;
 			}
+			/// Un renommage d'arbre (Hierarchie) est en cours : les raccourcis
+			/// lettres de la toile se taisent (les lettres sont une saisie).
+			/// Pose par HierarchyPanel a chaque image.
+			bool renommageArbre = false;
 			/// Mise en scene (--annuler=N / --retablir=N) : N pas au lancement,
 			/// consommes par la toile quand le document est la.
 			int32 annulerInitial = 0;
@@ -1689,7 +1693,8 @@ namespace nkuidesign {
 				//    pas des codes de touche.
 				// ⚠️ PAS pendant une edition de texte en place : les lettres sont
 				//    alors une SAISIE (meme regle que les champs NKGui).
-				if (ctx.inputId == NKGUI_ID_NONE && !mSt->doc.IsValidIndex(mEditNode)) {
+				if (ctx.inputId == NKGUI_ID_NONE && !mSt->doc.IsValidIndex(mEditNode)
+					&& !mSt->renommageArbre) {
 					for (int32 k = 0; k < ctx.input.charCount; ++k) {
 						switch (ctx.input.chars[k]) {
 							case 'v': case 'V': ArmerOutil(0); break;
@@ -4164,6 +4169,42 @@ namespace nkuidesign {
 				SyncPages();
 				SyncComposants();
 
+				// Pendant un renommage d'arbre, les lettres sont une SAISIE : la
+				// toile lit ce drapeau avant d'armer un outil (meme regle que
+				// l'edition en place — 1er retour, titres desaccordes).
+				mSt->renommageArbre =
+					(mModelePages.renaming != 0) || (mModeleComposants.renaming != 0);
+
+				// ── LE CONTROLE DU RELEVE (1er retour) : UNE cle, DEUX lecteurs.
+				// La Hierarchie et l'etiquette de toile lisent toutes deux
+				// `label` ; ce controle MESURE l'accord a chaque image (une
+				// chaine a deux copies diverge toujours — famille FocusPanel).
+				// hierarchie.titres = [desaccords, renommage en cours, 0, 0] —
+				// desaccords DOIT rester 0 hors saisie.
+				{
+					int32 desaccords = 0;
+					const uint32 nT = (uint32)mModelePages.nodes.Size();
+					for (uint32 i = 0; i < nT; ++i) {
+						const NkTreeNode &t = mModelePages.nodes[i];
+						const int32 di = (int32)t.id - 1;
+						if (!mSt->doc.IsValidIndex(di)) {
+							++desaccords;
+							continue;
+						}
+						const NkUINode &d = mSt->doc.nodes[(uint32)di];
+						const char *attendu =
+							d.label.Empty()
+								? (d.component.Empty() ? "(cadre)" : d.component.Data())
+								: d.label.Data();
+						if (!NkComponentDecl::StrEq(t.label.Data() ? t.label.Data() : "",
+													attendu))
+							++desaccords;
+					}
+					nkgui::NkGuiNoterMesure(ctx, "hierarchie.titres", (float32)desaccords,
+											(float32)(mModelePages.renaming != 0 ? 1 : 0), 0.f,
+											0.f);
+				}
+
 				// ── L'EN-TÊTE BANANI : « Hiérarchie » 12 px 600 + LOUPE (34 px) ──
 				// La maquette ne montre PAS de champ de filtre : la loupe le
 				// DÉPLIE (le geste reste à un clic, le costume reste exact).
@@ -4320,6 +4361,65 @@ namespace nkuidesign {
 				(void)id;
 			}
 
+			/// L'HOTE TIENT LE CLAVIER DU RENOMMAGE (contrat du kit — bloc
+			/// « CONTOURNEMENT » de NkTreeViewModel.h : « l'hote, qui a le
+			/// clavier, ecrit dans renameBuf et leve renameCommit/Cancel »).
+			/// Contrat universel d'edition (Rodolf, 31/08) : ENTREE valide,
+			/// ECHAP annule, un clic HORS de la section valide puis laisse le
+			/// clic agir. Sans ce pilote, le double-clic du kit ouvrait une
+			/// saisie que RIEN ne fermait : la rangee restait figee sur son
+			/// tampon pendant que la toile vivait — les « titres desaccordes »
+			/// du 1er retour.
+			void ClavierRenommage(NkGuiContext &ctx, NkTreeViewModel &m, const NkRect &zone) {
+				if (m.renaming == 0)
+					return;
+				auto &in = ctx.input;
+				int32 len = 0;
+				while (m.renameBuf[len])
+					++len;
+				// La frappe (codepoints traduits par l'OS), encodee UTF-8 —
+				// les libelles accentues du document en dependent.
+				for (int32 i = 0; i < in.charCount; ++i) {
+					const uint32 cp = (uint32)in.chars[i];
+					if (cp < 32u)
+						continue;
+					char enc[4];
+					int32 n = 0;
+					if (cp < 0x80u)
+						enc[n++] = (char)cp;
+					else if (cp < 0x800u) {
+						enc[n++] = (char)(0xC0u | (cp >> 6));
+						enc[n++] = (char)(0x80u | (cp & 0x3Fu));
+					} else if (cp < 0x10000u) {
+						enc[n++] = (char)(0xE0u | (cp >> 12));
+						enc[n++] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+						enc[n++] = (char)(0x80u | (cp & 0x3Fu));
+					} else {
+						enc[n++] = (char)(0xF0u | (cp >> 18));
+						enc[n++] = (char)(0x80u | ((cp >> 12) & 0x3Fu));
+						enc[n++] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+						enc[n++] = (char)(0x80u | (cp & 0x3Fu));
+					}
+					if (len + n < (int32)sizeof(m.renameBuf) - 1)
+						for (int32 k = 0; k < n; ++k)
+							m.renameBuf[len++] = enc[k];
+				}
+				m.renameBuf[len] = 0;
+				// Retour arriere : UN codepoint (pas un octet — un « é » entier).
+				if (in.KeyPressedRepeat(nkgui::NkGuiKey::Backspace) && len > 0) {
+					--len;
+					while (len > 0 && ((unsigned char)m.renameBuf[len] & 0xC0u) == 0x80u)
+						--len;
+					m.renameBuf[len] = 0;
+				}
+				if (in.KeyPressed(nkgui::NkGuiKey::Enter))
+					m.renameCommit = true;
+				else if (in.KeyPressed(nkgui::NkGuiKey::Escape))
+					m.renameCancel = true;
+				else if (in.mouseClicked[0] && !NkGuiRectContains(zone, in.mousePos))
+					m.renameCommit = true; // valide PUIS le clic agit (un seul clic)
+			}
+
 			void DessinerArbre(NkGuiContext &ctx, NkTreeViewModel &modele,
 							   NkComponentInstance &inst, float32 hauteur, const char *cle) {
 				const NkRect zone = ctx.NextItemRect(-1.f, hauteur);
@@ -4366,9 +4466,35 @@ namespace nkuidesign {
 						NkGuiContext *ctx;
 						NkTreeViewModel *modele;
 						NkUIDocument *doc;
-				} sur{&ctx, &modele, &mSt->doc};
+						DesignState *st;
+						bool pages;
+				} sur{&ctx, &modele, &mSt->doc, mSt, &modele == &mModelePages};
 				NkTreeViewHooks hooks;
 				hooks.user = &sur;
+				// ── LE RENOMMAGE PAR LA HIERARCHIE ECRIT ENFIN LE DOCUMENT ───
+				// ⚠️ MESURE DU 1er RETOUR (« les titres se desaccordent ») : le
+				//    kit OUVRAIT deja la saisie au double-clic (NkTreeViewDraw
+				//    l. 631), MAIS l'hote ne tenait ni le clavier ni le commit —
+				//    la rangee restait figee sur son tampon pendant que la toile
+				//    vivait : deux titres pour la meme page. Le contrat du kit
+				//    (« l'hote, qui a le clavier, ecrit dans renameBuf ») est
+				//    tenu ci-dessous (ClavierRenommage) ; ICI, le commit ecrit
+				//    LA cle unique `label` — celle que SyncPages relit et que
+				//    l'etiquette de toile dessine. Une cle, deux lecteurs.
+				hooks.onRename = [](void *u, int32 ri, const char *, const char *,
+									const char *nouveau) {
+					auto *s = static_cast<Sur *>(u);
+					if (!s->pages)
+						return; // un composant du registre ne se renomme pas ici
+					if (ri < 0 || (uint32)ri >= (uint32)s->modele->nodes.Size())
+						return;
+					const int32 di = (int32)s->modele->nodes[(uint32)ri].id - 1;
+					if (!s->st->doc.IsValidIndex(di))
+						return;
+					s->st->doc.nodes[(uint32)di].label = NkString(nouveau ? nouveau : "");
+					s->st->doc.MarkHumanEdit(di);
+					s->st->DireAuPied("Renommé — l'étiquette de la toile lit la même clé.");
+				};
 				// L'ŒIL-BARRÉ (écran 8) : ne garder que les sous-arbres à rôle.
 				if (mFiltreRoles && &modele == &mModelePages) {
 					hooks.acceptNode = [](void *u, const NkTreeNode &n) -> bool {
@@ -4410,8 +4536,21 @@ namespace nkuidesign {
 					costume::BadgePilule(s->ctx->DL(), F.px9, bx, y + (h - 14.f) * 0.5f, 14.f,
 										 n.kindLabel, s->ctx->theme.accent);
 				};
+				// L'hote tient le clavier de la saisie de renommage (contrat du
+				// kit) — AVANT le dessin, pour que la frappe de cette image se
+				// voie a cette image.
+				ClavierRenommage(ctx, modele, zone);
+
 				const NkTreeViewResult res = nkentseu::editorkit::NkDrawTreeView(
 					paint, in, r, modele, Style(inst), hooks);
+
+				// Un composant du registre ne se renomme pas : la saisie ouverte
+				// par le double-clic est refermee, ET LA RAISON SE DIT (jamais un
+				// geste sans effet muet).
+				if (&modele == &mModeleComposants && modele.renaming != 0) {
+					modele.renameCancel = true;
+					mSt->DireAuPied("Un composant du registre ne se renomme pas ici.");
+				}
 
 				// L'ascenseur de CETTE section : il pilote le même `scroll` que la
 				// molette du composant (une seule vérité de défilement), avec la
