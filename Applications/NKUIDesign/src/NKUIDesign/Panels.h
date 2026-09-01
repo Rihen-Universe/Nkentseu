@@ -578,13 +578,22 @@ namespace nkuidesign {
 					status = NkString("Rien à grouper.");
 					return false;
 				}
-				const int32 parent = doc.nodes[(uint32)racines[0]].parent;
-				for (uint32 k = 1; k < (uint32)racines.Size(); ++k)
-					if (doc.nodes[(uint32)racines[k]].parent != parent) {
-						status = NkString("Grouper : les éléments doivent partager le même "
-										  "parent (pour l'instant).");
-						return false;
-					}
+				// ── LE GROUPE NAIT AU PLUS PROCHE ANCETRE COMMUN ─────────────
+				// Retour du coordinateur, 01/09. Avant : on REFUSAIT des que deux
+				// elements n'avaient pas le meme parent (« pour l'instant ») —
+				// c'est-a-dire le cas le plus courant en usage reel : une
+				// etiquette dans une carte plus une icone dans une autre.
+				// ⚠️ ET LA REPONSE N'EST PAS « LA RACINE ». Poser tous les groupes
+				//    a la racine serait plus simple et FAUX : grouper deux
+				//    elements d'une meme page les sortirait de cette page, donc de
+				//    son cadrage, de sa cible et de son ancrage. Le groupe nait
+				//    AUSSI BAS QUE POSSIBLE — le calcul vit dans SelectionGeste.h
+				//    et se mesure sans fenetre.
+				const int32 parent = NkAncetreCommun(doc, racines.Data(), (uint32)racines.Size());
+				if (!doc.IsValidIndex(parent)) {
+					status = NkString("Grouper : aucun ancêtre commun.");
+					return false;
+				}
 				if (parent != 0
 					&& (!doc.IsValidIndex(parent)
 						|| doc.nodes[(uint32)parent].layout.kind != NkLayoutKind::Free)) {

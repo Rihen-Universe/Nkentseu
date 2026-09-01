@@ -397,6 +397,69 @@ namespace nkuidesign {
 		return true;
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE PLUS PROCHE ANCÊTRE COMMUN — OÙ UN GROUPE DOIT NAÎTRE
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ POURQUOI CE CALCUL EXISTE : `GrouperSelection` REFUSAIT dès que deux
+	///    éléments n'avaient pas le même parent, avec un message qui se terminait
+	///    par *« (pour l'instant) »*. C'est le cas le plus courant en usage réel
+	///    — on groupe une étiquette qui est dans une carte avec une icône qui est
+	///    dans une autre — et le refus était d'autant plus frustrant qu'il ne
+	///    disait pas quoi faire.
+	///
+	/// ⚠️ ET LA RÉPONSE N'EST PAS « LA RACINE ». Poser tous les groupes à la
+	///    racine serait plus simple et FAUX : grouper deux éléments d'une même
+	///    page les sortirait de cette page, donc de son cadrage, de sa cible et
+	///    de son ancrage. Le groupe doit naître **aussi bas que possible** —
+	///    exactement au niveau où les membres se rejoignent enfin.
+	///
+	/// @return l'index de l'ancêtre commun le plus profond, ou -1 si la liste est
+	///         vide. Rend 0 (la racine) quand ils n'ont rien d'autre en commun.
+	inline int32 NkAncetreCommun(const NkUIDocument &doc, const int32 *noeuds, uint32 n) {
+		if (!noeuds || n == 0)
+			return -1;
+		// La CHAÎNE d'ancêtres du premier, de lui vers la racine.
+		int32 chaine[128];
+		uint32 nc = 0;
+		for (int32 k = noeuds[0]; k >= 0 && nc < 128u; k = doc.nodes[(uint32)k].parent)
+			chaine[nc++] = k;
+		if (nc == 0)
+			return -1;
+		// Pour chacun des autres, on remonte jusqu'à tomber dans cette chaîne, et
+		// on garde la position la PLUS HAUTE atteinte (la moins profonde).
+		uint32 pire = 0;
+		for (uint32 i = 1; i < n; ++i) {
+			uint32 garde = 0;
+			int32 k = noeuds[i];
+			bool trouve = false;
+			while (k >= 0 && garde++ < 256u) {
+				for (uint32 c = 0; c < nc; ++c)
+					if (chaine[c] == k) {
+						if (c > pire)
+							pire = c;
+						trouve = true;
+						break;
+					}
+				if (trouve)
+					break;
+				k = doc.nodes[(uint32)k].parent;
+			}
+			if (!trouve)
+				return 0; // rien en commun : la racine (cas d'un document mal formé)
+		}
+		// ⚠️ SI L'ANCÊTRE TROUVÉ EST L'UN DES MEMBRES, ON MONTE D'UN CRAN. Sans
+		//    ça, grouper un nœud avec son propre descendant proposerait de le
+		//    mettre dans lui-même — le genre de cycle qui ne se voit pas à la
+		//    relecture et qui fige l'application. `RacinesSelection` filtre déjà
+		//    ce cas en amont ; on ne s'en remet pas à un appelant pour un
+		//    invariant qui protège de la boucle infinie.
+		int32 lca = chaine[pire];
+		for (uint32 i = 0; i < n; ++i)
+			if (noeuds[i] == lca)
+				lca = doc.nodes[(uint32)lca].parent;
+		return doc.IsValidIndex(lca) ? lca : 0;
+	}
+
 	/// Le nombre d'éléments RÉELS de la sélection (la racine ne compte pas).
 	inline uint32 NkCompteSelection(const NkUIDocument &doc, const NkSelection &sel) {
 		uint32 n = 0;

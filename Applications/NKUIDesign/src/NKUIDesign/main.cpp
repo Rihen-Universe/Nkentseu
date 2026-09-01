@@ -827,6 +827,49 @@ static nkentseu::int32 RecetteGestes() {
 			verdict(nom, aChange && revenu, d);
 		}
 	}
+	// ── LE PLUS PROCHE ANCETRE COMMUN (groupement, 01/09) ──────────────────
+	//     ⚠️ TROIS CAS DANS UN SEUL BANC, PARCE QU'ILS SE TIENNENT : le bon
+	//     niveau, le refus du raccourci « tout a la racine », et la protection
+	//     contre le cycle. Separes, le troisieme aurait ete « evident » et donc
+	//     jamais ecrit -- or c'est celui qui fige l'application.
+	{
+		static NkUIDocument d;
+		d.NewDocument("ancetre", NkAuthor::Humain);
+		//        0
+		//        +-- 1 page
+		//            +-- 2 carte A      +-- 4 carte B
+		//                +-- 3 texte        +-- 5 icone
+		const int32 page = d.AddChild(0, "", NkAuthor::Humain);
+		const int32 cA = d.AddChild(page, "", NkAuthor::Humain);
+		const int32 tA = d.AddChild(cA, "", NkAuthor::Humain);
+		const int32 cB = d.AddChild(page, "", NkAuthor::Humain);
+		const int32 iB = d.AddChild(cB, "", NkAuthor::Humain);
+		// (a) LE BON NIVEAU : deux petits-enfants de la page -> LA PAGE, pas la
+		//     racine. C'est tout le retour : grouper deux elements d'une meme
+		//     page ne doit PAS les sortir de cette page.
+		const int32 deux[2] = {tA, iB};
+		const int32 lca1 = NkAncetreCommun(d, deux, 2u);
+		// (b) MEME PARENT : le calcul general doit redonner l'ancien resultat,
+		//     sinon on aurait « generalise » en cassant le cas qui marchait.
+		const int32 memeParent[2] = {cA, cB};
+		const int32 lca2 = NkAncetreCommun(d, memeParent, 2u);
+		// (c) UN SEUL element : son propre parent.
+		const int32 seul[1] = {tA};
+		const int32 lca3 = NkAncetreCommun(d, seul, 1u);
+		// (d) LE CYCLE : un noeud avec son propre descendant -> on MONTE d'un
+		//     cran, jamais « dans lui-meme ».
+		const int32 cycle[2] = {cA, tA};
+		const int32 lca4 = NkAncetreCommun(d, cycle, 2u);
+		char det[176];
+		snprintf(det, sizeof(det),
+				 "petits-enfants->%d (page=%d) ; meme parent->%d ; seul->%d ; noeud+descendant->%d "
+				 "(pas %d)",
+				 lca1, page, lca2, lca3, lca4, cA);
+		verdict("le groupe nait au PLUS PROCHE ancetre commun (pas a la racine), le cas "
+				"« meme parent » est preserve, et un noeud + son descendant remonte d'un cran "
+				"au lieu de se mettre dans lui-meme",
+				lca1 == page && lca2 == page && lca3 == cA && lca4 == page && lca4 != cA, det);
+	}
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
