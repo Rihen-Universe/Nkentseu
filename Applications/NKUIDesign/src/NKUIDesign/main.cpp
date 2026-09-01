@@ -1130,8 +1130,21 @@ static nkentseu::int32 RecettePoints() {
 		st.doc.nodes[(uint32)iGroupe].label = NkString("Groupe");
 		st.doc.AddChild(iGroupe, "", NkAuthor::Humain);
 		auto issue = [&](int32 i) { return NkIssueDeDblClic(st.doc.nodes[(uint32)i]); };
+		const int32 iEllipse = poser("ellipse", nullptr);
+		const int32 iImage = poser("image", nullptr);
+		// ⚠️ `rect` ET `ellipse` SONT PASSES DE `CoinsSeuls` A `ModePoints` LE
+		//    01/09 -- ce cas a ete RETOURNE, pas contourne. Retour de Rodolf :
+		//    « double-cliquer sur une shape ne permet pas encore de faire
+		//    l'edition de la shape. » La mesure lui a donne raison sur les deux
+		//    formes qu'on pose le plus, et sa reference (`lunacy_shape_edit_1`)
+		//    montre un RECTANGLE en `EDIT SHAPE` a quatre ancres.
+		// ⚠️ ET `image` RESTE `CoinsSeuls` DANS LE MEME CAS, deliberement : sans
+		//    ce temoin, on ne saurait pas si la branche `CoinsSeuls` existe
+		//    encore ou si elle est devenue du code mort qu'aucun banc n'atteint.
 		const bool ok = issue(iTexte) == NkIssueDblClic::EditerTexte
-						&& issue(iRect) == NkIssueDblClic::CoinsSeuls
+						&& issue(iRect) == NkIssueDblClic::ModePoints
+						&& issue(iEllipse) == NkIssueDblClic::ModePoints
+						&& issue(iImage) == NkIssueDblClic::CoinsSeuls
 						&& issue(iLigne) == NkIssueDblClic::ModePoints
 						&& issue(iEtoile) == NkIssueDblClic::ModePoints
 						// un rect QUI PORTE du texte s'edite : la regle du 4e
@@ -1139,21 +1152,37 @@ static nkentseu::int32 RecettePoints() {
 						&& issue(iRectTexte) == NkIssueDblClic::EditerTexte
 						// et le FORAGE prime sur tout : un groupe se traverse
 						&& issue(iGroupe) == NkIssueDblClic::Forer;
-		verdict("1. la table du double-clic : texte->editer, rect->coins, ligne et "
-				"etoile->points, rect AVEC texte->editer, groupe->forer",
-				ok, ok ? "les six issues" : "UNE ISSUE A CHANGE");
+		verdict("1. la table du double-clic : texte->editer, rect ET ellipse->points, "
+				"image->coins (temoin), ligne et etoile->points, rect AVEC texte->editer, "
+				"groupe->forer",
+				ok, ok ? "les huit issues" : "UNE ISSUE A CHANGE");
 	}
 	// ── 2. LA NATURE DES SOMMETS, forme par forme ──────────────────────────
 	{
+		// ⚠️ ET LE PREDICAT `NkSommetsStockes` EST VERIFIE ICI, pas seulement les
+		//    natures : c'est LUI que six sites appellent pour decider s'ils
+		//    ecrivent dans `n.sommets`. Une nature juste et un predicat faux
+		//    donneraient une table exacte et une edition qui ne marche que sur
+		//    trois formes sur cinq -- le defaut d'origine, deplace d'un cran.
 		const bool ok = NkNatureDe("line") == NkNatureSommets::Bouts
 						&& NkNatureDe("line_up") == NkNatureSommets::Bouts
 						&& NkNatureDe("triangle") == NkNatureSommets::Polygone
 						&& NkNatureDe("pentagone") == NkNatureSommets::Polygone
 						&& NkNatureDe("etoile") == NkNatureSommets::Polygone
-						&& NkNatureDe("rect") == NkNatureSommets::Coins
-						&& NkNatureDe("ellipse") == NkNatureSommets::Coins
-						&& NkNatureDe("text") == NkNatureSommets::Aucun;
-		verdict("2. la nature des sommets : bouts / polygone / coins / aucun", ok, "");
+						&& NkNatureDe("rect") == NkNatureSommets::CoinsEditables
+						&& NkNatureDe("ellipse") == NkNatureSommets::CoinsEditables
+						&& NkNatureDe("image") == NkNatureSommets::Coins
+						&& NkNatureDe("frame") == NkNatureSommets::Coins
+						&& NkNatureDe("text") == NkNatureSommets::Aucun
+						&& NkSommetsStockes(NkNatureSommets::Polygone)
+						&& NkSommetsStockes(NkNatureSommets::CoinsEditables)
+						&& !NkSommetsStockes(NkNatureSommets::Coins)
+						&& !NkSommetsStockes(NkNatureSommets::Bouts)
+						&& !NkSommetsStockes(NkNatureSommets::Aucun);
+		verdict("2. la nature des sommets : bouts / polygone / coins EDITABLES (rect, "
+				"ellipse) / coins (image, frame) / aucun -- et le predicat de stockage "
+				"les suit",
+				ok, "");
 	}
 	// ── 3. LE COMPTE DES SOMMETS, et il vient de LA table ──────────────────
 	st.doc.NewDocument("recette points", NkAuthor::Humain);
@@ -1229,18 +1258,48 @@ static nkentseu::int32 RecettePoints() {
 	st.doc.NewDocument("recette points", NkAuthor::Humain);
 	{
 		const int32 iR = poser("rect", nullptr);
+		const int32 iEl = poser("ellipse", nullptr);
+		const int32 iIm = poser("image", nullptr);
 		const int32 iL = poser("line", nullptr);
+		st.Recompute(surface);
+		// ⚠️ CE CAS A CHANGE DE VERDICT LE 01/09, ET IL DIT MAINTENANT LA VRAIE
+		//    LIGNE DE PARTAGE. Il affirmait « le rectangle ne recoit pas de
+		//    sommets » ; c'etait la consequence de la table d'hier, pas une
+		//    verite du modele. La ligne de partage n'est pas rect/polygone,
+		//    c'est : la LIGNE s'exprime par sa boite (deux facons de dire la
+		//    meme chose = une de trop), l'IMAGE et le CADRE ne s'editent pas
+		//    (une cible d'artboard deformee en quadrilatere ne veut rien dire),
+		//    tout le reste STOCKE ses sommets.
+		// ⚠️ ET MATERIALISER NE DOIT DEPLACER AUCUN COIN : c'est la promesse que
+		//    le cas 5 tient pour l'etoile, portee ici au rectangle -- sinon le
+		//    rect sauterait au premier clic dans le mode points, avant meme
+		//    qu'on tire quoi que ce soit. Le meme piege, sur le chemin frere.
+		float32 avant[16], apres[16];
+		const uint32 nA = NkSommetsDe(st.doc.nodes[(uint32)iR], st.layout.At(iR), avant, 8);
 		NkMaterialiserSommets(st.doc.nodes[(uint32)iR]);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iEl]);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iIm]);
 		NkMaterialiserSommets(st.doc.nodes[(uint32)iL]);
-		char d[96];
-		snprintf(d, sizeof(d), "rect=%u sommet(s), ligne=%u",
+		const uint32 nB = NkSommetsDe(st.doc.nodes[(uint32)iR], st.layout.At(iR), apres, 8);
+		bool memes = (nA == nB && nA == 4);
+		for (uint32 i = 0; memes && i < nA * 2; ++i)
+			if (avant[i] != apres[i])
+				memes = false;
+		const bool ok = st.doc.nodes[(uint32)iR].sommets.Size() == 4
+						&& st.doc.nodes[(uint32)iEl].sommets.Size() == 4
+						&& st.doc.nodes[(uint32)iIm].sommets.Empty()
+						&& st.doc.nodes[(uint32)iL].sommets.Empty() && memes;
+		char d[128];
+		snprintf(d, sizeof(d), "rect=%u, ellipse=%u, image=%u, ligne=%u | coins %s",
 				 (uint32)st.doc.nodes[(uint32)iR].sommets.Size(),
-				 (uint32)st.doc.nodes[(uint32)iL].sommets.Size());
-		verdict("6. ni le rectangle ni la ligne ne recoivent de liste de sommets : ils "
-				"s'expriment par leur BOITE (deux facons de dire la meme chose = une de trop)",
-				st.doc.nodes[(uint32)iR].sommets.Empty()
-					&& st.doc.nodes[(uint32)iL].sommets.Empty(),
-				d);
+				 (uint32)st.doc.nodes[(uint32)iEl].sommets.Size(),
+				 (uint32)st.doc.nodes[(uint32)iIm].sommets.Size(),
+				 (uint32)st.doc.nodes[(uint32)iL].sommets.Size(),
+				 memes ? "IDENTIQUES" : "DEPLACES");
+		verdict("6. rect et ellipse recoivent leurs QUATRE coins SANS qu'aucun bouge ; "
+				"l'image et le cadre n'en recoivent pas (rien a deformer), la ligne non "
+				"plus (elle EST sa boite)",
+				ok, d);
 	}
 	// ── 7. ALLER-RETOUR + CONSERVATION : le document d'avant ne bouge pas ───
 	st.doc.NewDocument("recette points", NkAuthor::Humain);
@@ -1390,10 +1449,26 @@ static nkentseu::int32 RecettePoints() {
 				"code",
 				ok, "");
 	}
-	// ── 13. LE CAS FRERE : rect et ellipse ont DEJA des poignees de coin ────
-	//     ⚠️ Le conflit y serait le meme -- sauf que le mode points ne s'ouvre
-	//     JAMAIS sur ces formes. Ce cas verifie que l'invariant est STRUCTUREL
-	//     (la table le refuse) et pas une coincidence de l'implementation.
+	// ── 13. LES DEUX VOIES D'ENTREE DISENT LA MEME CHOSE ────────────────────
+	//     ⚠️ CE CAS A CHANGE DE SUJET LE 01/09, ET IL FAUT LE DIRE PLUTOT QUE DE
+	//     LE REECRIRE EN SILENCE. Il tenait un invariant STRUCTUREL : « le mode
+	//     points ne s'ouvre jamais sur rect/ellipse, donc le conflit poignee de
+	//     coin / poignee de sommet y est impossible ». **Cet invariant n'existe
+	//     plus** -- rect et ellipse entrent desormais en mode points, et leurs
+	//     quatre coins portent bien DEUX poignees au meme pixel.
+	//
+	//     Ce qui reste, et qui est le vrai contenu du cas : les DEUX VOIES
+	//     D'ENTREE (`NkPeutEntrerEnPoints` et `NkIssueDeDblClic`) doivent dire la
+	//     meme chose, forme par forme. Elles sont ecrites a deux endroits
+	//     differents du meme fichier ; c'est exactement le genre de couple qui
+	//     derive sans qu'on le voie -- le motif du carnet.
+	//
+	//     ⚠️ ET LE CONFLIT DE POIGNEES, LUI, EST TENU PAR LE CAS 12
+	//     (`NkAQuiLaPoignee`), qui n'a pas eu besoin d'une ligne de changement :
+	//     il dit « en mode points, le sommet gagne » sans rien savoir de la
+	//     forme. C'est le benefice qu'on avait paye en remplacant deux gardes
+	//     distantes par une regle citable, et il se percoit aujourd'hui sur un
+	//     cas qui n'existait pas quand on l'a ecrite.
 	st.doc.NewDocument("recette points", NkAuthor::Humain);
 	{
 		const int32 iR = poser("rect", nullptr);
@@ -1417,10 +1492,9 @@ static nkentseu::int32 RecettePoints() {
 		snprintf(d, sizeof(d), "rect=%d, ellipse=%d, image=%d | ligne=%d, etoile=%d, texte=%d",
 				 peut(iR) ? 1 : 0, peut(iEl) ? 1 : 0, peut(iIm) ? 1 : 0, peut(iL) ? 1 : 0,
 				 peut(iE) ? 1 : 0, peut(iT) ? 1 : 0);
-		verdict("13. le mode points ne s'ouvre JAMAIS sur une forme a coins (rect, ellipse, "
-				"image) : le conflit de poignees y est STRUCTURELLEMENT impossible, et les "
-				"deux voies d'entree disent la meme chose",
-				!peut(iR) && !peut(iEl) && !peut(iIm) && peut(iL) && peut(iE) && !peut(iT)
+		verdict("13. les deux voies d'entree du mode points disent la MEME chose forme par "
+				"forme -- rect/ellipse/ligne/etoile oui, image et texte non",
+				peut(iR) && peut(iEl) && !peut(iIm) && peut(iL) && peut(iE) && !peut(iT)
 					&& coherent,
 				d);
 	}
@@ -1628,6 +1702,133 @@ static nkentseu::int32 RecettePoints() {
 		verdict("19. la rangee d'icones parle dans les DEUX etats, et son applicabilite suit le "
 				"meme contexte que le menu",
 				toutesParlent && aucuneNAgit, d);
+	}
+	// ── 20. AJOUTER UN SOMMET NE DEFORME PAS LA FORME ──────────────────────
+	//     ⚠️ C'EST LA PROMESSE ENTIERE DE L'AJOUT, et elle n'est pas evidente :
+	//     poser le sommet neuf a la position de la SOURIS l'aurait mis a cote du
+	//     trace, et la forme aurait bouge AU MOMENT MEME DE L'AJOUT -- avant
+	//     qu'on tire quoi que ce soit. C'est pour ca que `NkInsererSommet` prend
+	//     une fraction de segment et non un point libre.
+	//     Le cas mesure le CONTOUR PEINT avant et apres : cinq ancres au lieu de
+	//     quatre, et un dessin identique. C'est le seul juge qui compte -- lire
+	//     le modele aurait dit « il y a bien cinq sommets » sans rien prouver de
+	//     ce qu'on voit.
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iR = poser("rect", nullptr);
+		st.Recompute(surface);
+		const NkPaintRect r = st.layout.At(iR);
+		float32 avant[64], apres[64];
+		const uint32 cA = NkContourDe(st.doc.nodes[(uint32)iR], r, avant, 32);
+		const int32 neuf = NkInsererSommet(st.doc.nodes[(uint32)iR], 1u, 0.5f);
+		float32 anc[64];
+		const uint32 nAnc = NkSommetsDe(st.doc.nodes[(uint32)iR], r, anc, 32);
+		const uint32 cB = NkContourDe(st.doc.nodes[(uint32)iR], r, apres, 32);
+		// le contour gagne un point (le sommet neuf EST sur le trace), et tous
+		// les points d'avant s'y retrouvent inchanges.
+		bool surLeTrace = (neuf == 2 && nAnc == 5 && cB == 5);
+		if (surLeTrace) {
+			// le sommet 2 (indice 1) et le sommet 4 (indice 3) etaient les coins
+			// haut-droit et bas-gauche ; le neuf est a mi-cote droit.
+			const float32 mx = (avant[1 * 2] + avant[2 * 2]) * 0.5f;
+			const float32 my = (avant[1 * 2 + 1] + avant[2 * 2 + 1]) * 0.5f;
+			if (anc[2 * 2] != mx || anc[2 * 2 + 1] != my)
+				surLeTrace = false;
+		}
+		// et le sommet neuf est VIF : l'arrondi ne s'herite pas d'un voisin.
+		const bool vif = neuf >= 0 && st.doc.nodes[(uint32)iR].sommets[(uint32)neuf].rayon == 0.f;
+		char d[128];
+		snprintf(d, sizeof(d), "contour %u -> %u pts, ancre neuve #%d a (%.1f,%.1f), rayon %s",
+				 cA, cB, neuf + 1, nAnc > 2 ? anc[4] : 0.f, nAnc > 2 ? anc[5] : 0.f,
+				 vif ? "0 (vif)" : "HERITE");
+		verdict("20. ajouter un sommet le pose SUR le cote, sans deformer la forme, et il "
+				"nait VIF",
+				surLeTrace && vif, d);
+	}
+	// ── 21. LE DOUBLE-CLIC SUR UN SOMMET L'ARRONDIT, ET CA SE VOIT ─────────
+	//     ⚠️ DEUX MOITIES, ET LA SECONDE EST CELLE QUI COMPTE. Que le modele
+	//     porte un rayon se lit ; que le DESSIN change est le seul lien qui
+	//     prouve que le champ n'est pas declare-et-inerte. C'est la lecon de la
+	//     mutation 3 du mode points (Q42) : « tout pouvait etre parfaitement
+	//     enregistre et parfaitement invisible ».
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iR = poser("rect", nullptr);
+		st.Recompute(surface);
+		const NkPaintRect r = st.layout.At(iR);
+		float32 vif[64], rond[64];
+		const uint32 cVif = NkContourDe(st.doc.nodes[(uint32)iR], r, vif, 32);
+		const float32 r1 = NkArrondirSommet(st.doc.nodes[(uint32)iR], 0u);
+		const uint32 cRond = NkContourDe(st.doc.nodes[(uint32)iR], r, rond, 32);
+		// le cycle : 0 -> 8 -> 16 -> 32 -> 0, et il BOUCLE (sinon un sommet
+		// arrondi par erreur serait irrattrapable au double-clic).
+		const float32 r2 = NkArrondirSommet(st.doc.nodes[(uint32)iR], 0u);
+		const float32 r3 = NkArrondirSommet(st.doc.nodes[(uint32)iR], 0u);
+		const float32 r4 = NkArrondirSommet(st.doc.nodes[(uint32)iR], 0u);
+		const bool cycle = r1 == 8.f && r2 == 16.f && r3 == 32.f && r4 == 0.f;
+		// et les ANCRES ne bougent pas : arrondir un coin ne deplace pas le coin.
+		float32 anc[64];
+		const uint32 nAnc = NkSommetsDe(st.doc.nodes[(uint32)iR], r, anc, 32);
+		char d[128];
+		snprintf(d, sizeof(d), "contour %u -> %u pts, cycle %.0f/%.0f/%.0f/%.0f, %u ancres",
+				 cVif, cRond, r1, r2, r3, r4, nAnc);
+		verdict("21. arrondir un sommet AJOUTE DES POINTS AU CONTOUR PEINT (le champ agit, il "
+				"n'est pas seulement enregistre), le cycle boucle a vif, et les 4 ancres "
+				"restent 4",
+				cVif == 4 && cRond > cVif && cycle && nAnc == 4, d);
+	}
+	// ── 22. L'ARRONDI SURVIT A L'ALLER-RETOUR, ET LE FICHIER D'AVANT NE BOUGE PAS ─
+	//     ⚠️ LE VOLET CONSERVATION, ECRIT D'ENTREE ET NON EN SORTIE. Deux
+	//     exigences ENSEMBLE, parce que l'une seule passe au vert sur une perte :
+	//     (a) un trace SANS arrondi se reecrit avec DEUX nombres par sommet,
+	//     octet pour octet -- c'est la preuve d'entree de l'additivite ;
+	//     (b) un trace AVEC arrondi retrouve sa valeur.
+	//     ⚠️ La lecon de la mutation 7 (Q42, FILLS) est portee ici sans etre
+	//     redecouverte : « stable » ne veut pas dire « juste ». Un ecrivain qui
+	//     laisserait tomber le rayon rendrait deux fichiers identiques et
+	//     passerait un test qui ne demande que la stabilite.
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iR = poser("rect", nullptr);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iR]);
+		NkString sansR;
+		st.doc.Save(sansR);
+		const bool ancree0 = ancree(sansR) && !sansR.Contains("sommet_1 = -1 -1 ");
+		NkUIDocument d1;
+		NkString sansR2;
+		const bool lu1 = d1.Load(sansR.Data());
+		d1.Save(sansR2);
+		const bool stable = lu1 && sansR.Size() == sansR2.Size()
+							&& NkComponentDecl::StrEq(sansR.Data(), sansR2.Data());
+		// (b) avec arrondi
+		// ⚠️ CETTE GARDE A ETE ECRITE PAR UNE MUTATION, ET C'EST SA RAISON D'ETRE.
+		//    En remettant `rect` en boite non editable, la materialisation devient
+		//    un non-evenement, `sommets` reste VIDE, et la ligne suivante ecrivait
+		//    dans `sommets[1]` : LA RECETTE PLANTAIT (code de sortie 9) au lieu de
+		//    rendre un verdict. Un banc qui plante ne dit pas QUEL cas est tombe --
+		//    il oblige a relancer sous debogueur pour apprendre ce qu'une ligne
+		//    aurait dit. Le cas echoue desormais en NOMMANT sa cause.
+		//    (La mutation ne cherchait pas ce defaut-la : elle l'a trouve en
+		//    passant, sur le banc lui-meme et non sur le code teste.)
+		const bool aDesSommets = st.doc.nodes[(uint32)iR].sommets.Size() >= 4;
+		if (aDesSommets)
+			st.doc.nodes[(uint32)iR].sommets[1].rayon = 12.f;
+		NkString avecR;
+		st.doc.Save(avecR);
+		NkUIDocument d2;
+		const bool lu2 = d2.Load(avecR.Data());
+		float32 relu = -1.f;
+		for (uint32 i = 1; lu2 && i < (uint32)d2.nodes.Size(); ++i)
+			if (d2.nodes[i].sommets.Size() == 4)
+				relu = d2.nodes[i].sommets[1].rayon;
+		char dd[176];
+		snprintf(dd, sizeof(dd), "%ssans rayon : %s (%u o), avec rayon 12 -> relu %.0f",
+				 aDesSommets ? "" : "AUCUN SOMMET A MATERIALISER (le rect ne stocke plus) | ",
+				 stable ? "octet pour octet" : "A BOUGE", (uint32)sansR.Size(), relu);
+		verdict("22. CONSERVATION : un trace a coins vifs se reecrit octet pour octet (le "
+				"3e nombre n'est pas ecrit), et un rayon pose se retrouve apres "
+				"aller-retour",
+				aDesSommets && ancree0 && stable && relu == 12.f, dd);
 	}
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
