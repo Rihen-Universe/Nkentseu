@@ -242,8 +242,32 @@ atteignable dès maintenant**, avec un geste que Rodolf peut faire ce soir — t
 une poignée de courbe vers l'intérieur d'un bouton. Les tangentes sont livrées et
 justes ; c'est le peintre qui ne suit pas.
 
-**La vague 4 monte donc en priorité** : elle n'ouvre plus seulement des
-fonctionnalités, elle répare ce qu'on vient de livrer.
+**La vague 4 est donc passée en priorité 1** (décision de Rodolf, 01/09 nuit).
+
+### 🔴 ÉTAT AU 2026-09-01, 22 h — le déménagement est fait, le branchement NON
+
+| pièce | état |
+|---|---|
+| `NkEarcut` descendu de `NKFont` vers **`NKMath`** | ✅ **fait** — c'était bien un déménagement : le fichier ne parle ni de police ni de glyphe. NKFont recompile 8/8, NKCode 23/23 |
+| le triangulateur est **juste** sur un concave propre | ✅ **prouvé** (cas 42 : aire exacte, creux vide, plein couvert) |
+| `NkContourDe` **dépassait** le `cap` de son appelant | ✅ **corrigé** — défaut latent : un rect entièrement courbé demandait 160 points pour un cap de 128, donc un contour **tronqué** qui se croisait. L'éventail le tolérait ; le triangulateur non |
+| le contour réel est propre | ✅ **prouvé** (cas 43 : 72 points, **zéro** point confondu) |
+| **le brancher au peintre** | ❌ **NON LIVRÉ — ça plante** |
+
+**Le branchement provoque une corruption de tas** (`0xC0000374`), reproductible
+en trois secondes : `--mode-forme=9 --sommets=0,2 --courber` sort avec ce code,
+`--mode-forme=9` seul survit, et le plantage **disparaît** dès qu'on remet
+l'éventail. Le peintre est donc revenu à son éventail, **et le débordement que
+Rodolf peut voir reste**. *Un plantage est pire qu'un remplissage faux.*
+
+**Écarté par la mesure**, pour que le prochain ne le recommence pas : ce n'est ni
+la troncature (corrigée, ça plante toujours), ni le triangulateur sur une entrée
+propre (les cas 42 et 43 l'appellent depuis l'application et passent), ni un
+point confondu (zéro). **Hypothèse qui reste, donnée comme telle** : `NkEarcut`
+alloue ses nœuds par `NkAllocator` à l'intérieur du peintre, appelé depuis la
+boucle de dessin de NKGui — qui est une DLL ; une allocation faite dans un module
+et libérée dans un autre est la cause classique de ce code. **Ça demande un
+débogueur, pas une nuit de plus de suppositions.**
 
 📌 **Et la pièce existe déjà dans le dépôt, un module plus loin** :
 `NKFont/NkEarcut.h` et `NkFontMesh.cpp` triangulent des contours quelconques
@@ -435,7 +459,7 @@ Source : `/layers`.
 |---|---|---|---|
 | Déplacer | glisser | ✅ **livré** |  |
 | Contraindre à un axe | `Maj`+glisser | ❌ **absent** | un modificateur, rien au modèle |
-| Déplacer de 1 px / 10 px | flèches / `Maj`+flèches | ❌ **absent** | ⚠️ **le manque le plus courant de ce tableau** : c'est le geste d'ajustement fin, celui qu'on fait cent fois par heure |
+| Déplacer de 1 px / 10 px | flèches / `Maj`+flèches | ✅ **livré** (01/09) | cas 41. ⚠️ Le pas est en **unités de document**, pas en pixels d'écran : sinon l'objet avancerait de moins en moins vite à mesure qu'on zoome *pour être précis* |
 | Position exacte | champs X / Y | ✅ **livré** | section Disposition |
 | Redimensionner | poignées | ✅ **livré** | huit poignées |
 | Proportions / depuis le centre / les deux | `Maj` / `Alt` / les deux | ❌ **absent** | les modificateurs existent **au tracé** (§2), pas au **redimensionnement** — le chemin frère est identifié, il n'est pas fait |
@@ -465,7 +489,7 @@ Source : `/layers`, `/basics`.
 
 | comportement | geste | état | ce qui manque |
 |---|---|---|---|
-| Grouper / dégrouper | `Ctrl+G` / `Ctrl+Maj+G` | ✅ **livré** | recette gestes — et le groupe naît au **plus proche ancêtre commun** |
+| Grouper / dégrouper | `Ctrl+G` / `Ctrl+Maj+G` | ✅ **livré**, **raccourci compris** (01/09) | recette gestes + cas 44 — et le groupe naît au **plus proche ancêtre commun** |
 | Créer un cadre | `Ctrl+Alt+G` | 🟡 **partiel** | l'entrée existe, grisée, et le dit |
 | Faire entrer / sortir un calque d'un groupe | glisser dans la liste | ✅ **livré** | Hiérarchie |
 | Ordre de profondeur (4 gestes) | `Ctrl+]`, `Ctrl+Maj+]`, `Ctrl+[`, `Ctrl+Maj+[` | ❌ **absent** | l'entrée « Envoyer derrière » existe, grisée, et le dit |
@@ -474,7 +498,7 @@ Source : `/layers`, `/basics`.
 | Renommer | `F2` | ✅ **livré** | dans la Hiérarchie, et le double-clic sur l'étiquette d'une page |
 | Dupliquer | `Ctrl+D` | ✅ **livré** | recette gestes — dans le **même** parent |
 | Duplication répétée qui **rejoue le dernier décalage** | `Ctrl+D` répété | ❌ **absent** | ⚠️ joli comportement, bon marché : mémoriser le dernier décalage |
-| Copier / coller | `Ctrl+C` / `Ctrl+V` | ✅ **livré** | et **un seul pas d'annulation** par geste |
+| Copier / coller / couper / dupliquer | `Ctrl+C` / `Ctrl+V` / `Ctrl+X` / `Ctrl+D` | ✅ **livré**, **raccourcis compris** (01/09) | cas 44 — et **un seul pas d'annulation** par geste |
 | Copier / coller le **style** | `Ctrl+Alt+C` / `Ctrl+Alt+V` | ❌ **absent** | ⚠️ **très demandé en usage réel**, et notre modèle s'y prête (les remplissages, bordures et effets sont déjà des listes séparées) |
 | Grille répétée (*Repeat grid*) | poignée en bas à droite | ❌ **absent** |  |
 | Supprimer | `Suppr` | ✅ **livré** |  |
@@ -604,7 +628,18 @@ pourquoi.*
 
 ### 10.1 État des lieux, mesuré
 
-🔴 **Aujourd'hui, l'application ne lit AUCUNE touche de lettre.** L'inventaire du
+✅ **CORRIGÉ LE 2026-09-01 (22 h) pour six combinaisons** : `Ctrl+C`, `Ctrl+X`,
+`Ctrl+V`, `Ctrl+D`, `Ctrl+G`, `Ctrl+Maj+G` — exactement celles que les menus
+affichaient et dont le geste était déjà écrit. La table vit dans
+`MenuContexte.h`, l'exécution passe par le **même** `NkAppliquerActionCtx` que
+les deux menus (trois portes, une écriture), et le cas 44 tient les deux sens :
+les six agissent, la touche **nue** ne fait rien. Reste `Ctrl+A` : impossible,
+`NkGuiKey` **n'a pas de touche `A`** (ni `R`) — ajout additif à l'enum, comme le
+précédent que `NkGuiTypes.h` raconte déjà pour `Ctrl+1..6`.
+
+Le constat d'origine, gardé parce qu'il explique la correction :
+
+🔴 **Avant ce jour, l'application ne lisait AUCUNE touche de lettre.** L'inventaire du
 code ne trouve que quatre touches : `Échap`, `Entrée`, `Suppr`, `Retour arrière`.
 Tous les raccourcis annoncés dans les menus (`Ctrl+G`, `Ctrl+D`, `Ctrl+Maj+G`…)
 sont **affichés mais pas branchés** — ils décrivent le geste, ils ne le
