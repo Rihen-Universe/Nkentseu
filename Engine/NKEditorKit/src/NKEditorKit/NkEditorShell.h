@@ -41,9 +41,16 @@ namespace nkentseu {
 				uint32 height = 720;
 				bool resizable = true;
 				NkEditorGfxApi graphicsApi = NkEditorGfxApi::Auto;
-				// Backend de rendu INJECTE (optionnel). nullptr => impl NKCanvas par
-				// defaut (IDE). Une app 2D/3D (anim/moteur) fournit ici une impl NKRHI/
-				// NKRenderer. Le shell NE POSSEDE PAS un renderer injecte (l'app le gere).
+				// ⚠️ BACKEND DE RENDU — OBLIGATOIRE. `nullptr` fait ECHOUER Init()
+				// avec un message qui dit quoi ecrire ; il n'y a PLUS de defaut.
+				//
+				//   IDE / app 2D  : NkEditorCanvasRenderer (NKCanvas)
+				//   app 3D / anim : NkEditorRHIRenderer    (NKRHI/NKRenderer)
+				//
+				// Un defaut ici obligeait TOUT consommateur a lier NKCanvas, y
+				// compris les applications RHI qui ne l'atteignaient jamais
+				// (mesure du 2026-09-01). Le shell NE POSSEDE PAS ce pointeur :
+				// l'objet doit survivre au shell (un `static` dans main suffit).
 				NkIEditorRenderer *renderer = nullptr;
 		};
 
@@ -462,7 +469,6 @@ namespace nkentseu {
 				uint32 mNextTexId = 0x4E4B0100u;		// ids de textures app (logos/icones) — distincts des polices
 				uint32 mTitleLogoTex = 0;				// logo dans la barre de titre
 				float32 mTitleLogoAspect = 0.f;			// >0 => wordmark (ratio l/h), pas de texte "nkcode"
-				bool mOwnsRenderer = false;				// true => cree par le shell (a detruire)
 
 				// === NKGui (contexte + police possedee) ===
 				nkgui::NkGuiContext mUI;
