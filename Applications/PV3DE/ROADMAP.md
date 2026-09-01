@@ -92,6 +92,15 @@ Preuves :
 - `Applications/PV3DE/src/PV3DE/Unkeny.cpp` est un point d'entrée alternatif qui construit
   explicitement un `Noge::NogeApp` (`#include "Noge/NkCore.h"` / `"Noge/Nkentseu.h"`).
 
+> ⚠️ **Le nom « Unkeny » dans CE document ne désigne rien du moteur 2D.** Il
+> s'agit d'un fichier de scaffolding mort — `Unkeny.cpp` / `UkConfig.h` — qui a
+> été **supprimé** lors de la réparation décrite plus bas (vérifié le
+> 2026-09-01 : les deux fichiers n'existent plus). Les paragraphes qui suivent
+> sont le **journal de cette réparation** et sont conservés tels quels.
+>
+> Depuis le 2026-09-01, **Unkeny** désigne le **moteur de jeu 2D** —
+> `Engine/Unkeny`, bâti sur NKCanvas. Aucun rapport avec ce fichier.
+
 **Mais deux problèmes distincts empêchent que ça compile ou fonctionne, à ne pas confondre :**
 
 1. **`Applications/PV3DE/PV3DE.jenga` n'a jamais été mis à jour pour déclarer la dépendance.**
