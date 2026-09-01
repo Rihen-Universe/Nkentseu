@@ -397,6 +397,31 @@ namespace nkuidesign {
 			return (rgba & 0xFFFFFF00u) | (a & 0xFFu);
 		}
 
+		/// LES QUATRE BANDES D'UNE BORDURE, POSÉES SELON SA POSITION.
+		/// ⚠️ C'EST ICI QUE « intérieur / centre / extérieur » VEUT DIRE QUELQUE
+		///    CHOSE. Le trait a une épaisseur `e` ; le rectangle peint est
+		///    décalé de 0 (intérieur), e/2 (centré, à cheval) ou e (extérieur).
+		///    Sans ce décalage, les trois valeurs auraient rendu le même dessin :
+		///    un menu à trois entrées dont deux mentent.
+		inline void NkGCadre(NkComponentPaint &p, const NkPaintRect &r, const NkBordure &b) {
+			const nkentseu::float32 e = b.epaisseur > 0.f ? b.epaisseur : 1.f;
+			nkentseu::float32 d = 0.f; // de combien le cadre sort du rectangle
+			if (b.position == NkBordurePos::Centre)
+				d = e * 0.5f;
+			else if (b.position == NkBordurePos::Exterieur)
+				d = e;
+			const NkPaintRect q = {r.x - d, r.y - d, r.w + d * 2.f, r.h + d * 2.f};
+			const nkentseu::uint32 base = NkGHexRGBA(b.couleur.Data());
+			const nkentseu::float32 k =
+				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
+			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
+			const nkentseu::uint32 rgba = (base & 0xFFFFFF00u) | (a & 0xFFu);
+			p.FillColor({q.x, q.y, q.w, e}, rgba, 0.f);					 // haut
+			p.FillColor({q.x, q.y + q.h - e, q.w, e}, rgba, 0.f);		 // bas
+			p.FillColor({q.x, q.y, e, q.h}, rgba, 0.f);					 // gauche
+			p.FillColor({q.x + q.w - e, q.y, e, q.h}, rgba, 0.f);		 // droite
+		}
+
 		inline void DrawPlaceholder(NkComponentPaint &p, const NkPaintRect &r, const char *name,
 									const NkDocumentHost &host) {
 			if (r.w <= 0.f || r.h <= 0.f)
@@ -519,18 +544,29 @@ namespace nkuidesign {
 					p.FillColor(r, NkGHexRGBA(n.fill.Data()), rd);
 				else
 					p.Fill(r, host.Role("doc_field_bg"), rd);
-				if (!n.borderColor.Empty())
-					p.FillColor({r.x, r.y, r.w, n.borderW > 0.f ? n.borderW : 1.f},
-								NkGHexRGBA(n.borderColor.Data()), 0.f),
-						p.FillColor({r.x, r.y + r.h - (n.borderW > 0.f ? n.borderW : 1.f), r.w,
-									 n.borderW > 0.f ? n.borderW : 1.f},
-									NkGHexRGBA(n.borderColor.Data()), 0.f),
-						p.FillColor({r.x, r.y, n.borderW > 0.f ? n.borderW : 1.f, r.h},
-									NkGHexRGBA(n.borderColor.Data()), 0.f),
-						p.FillColor({r.x + r.w - (n.borderW > 0.f ? n.borderW : 1.f), r.y,
-									 n.borderW > 0.f ? n.borderW : 1.f, r.h},
-									NkGHexRGBA(n.borderColor.Data()), 0.f);
-				else if (!n.FondEffectif())
+				// ── LES BORDURES : LA LISTE D'ABORD, LA CLÉ SIMPLE SINON ─────
+				// ⚠️ ET LA POSITION EST HONORÉE, sinon c'était un champ que le
+				//    fichier porte et que l'écran ignore. `NkGCadre` déplace les
+				//    quatre bandes selon intérieur / centre / extérieur : c'est
+				//    tout ce que « position » veut dire, et ça se voit.
+				if (!n.borders.Empty()) {
+					bool trace = false;
+					for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi) {
+						const NkBordure &b = n.borders[bi];
+						if (!b.visible || b.couleur.Empty() || b.epaisseur <= 0.f)
+							continue;
+						NkGCadre(p, r, b);
+						trace = true;
+					}
+					if (!trace && !n.FondEffectif())
+						p.OutlineSharp(r, host.Role("border"));
+				} else if (!n.borderColor.Empty()) {
+					NkBordure b;
+					b.couleur = n.borderColor;
+					b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
+					b.position = NkBordurePos::Interieur; // le geste historique
+					NkGCadre(p, r, b);
+				} else if (!n.FondEffectif())
 					p.OutlineSharp(r, host.Role("border"));
 				return;
 			}

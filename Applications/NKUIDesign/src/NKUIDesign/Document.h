@@ -306,6 +306,46 @@ namespace nkuidesign {
 			bool visible = true;	///< l'oeil de la reference
 	};
 
+	// ════════════════════════════════════════════════════════════════════════════
+	//  UNE BORDURE (Lunacy « BORDERS »)
+	// ════════════════════════════════════════════════════════════════════════════
+	/// Le remplissage, PLUS l'epaisseur et la POSITION -- les deux champs que
+	/// `lunacy_props_12` montre sur la seconde ligne de sa section BORDERS
+	/// (« 1 » et « Outside ⌄ »).
+	///
+	/// ⚠️ LA POSITION EST UN CHAMP DU MODELE, PAS UN REGLAGE DE PEINTRE. Une
+	///    bordure « interieure », « centree » ou « exterieure » ne change pas la
+	///    couleur : elle change la GEOMETRIE PEINTE, donc l'encombrement visuel
+	///    de la forme. La ranger cote peintre l'aurait rendue invisible au
+	///    fichier -- et deux documents identiques auraient rendu differemment
+	///    selon le peintre qui les ouvre.
+	enum class NkBordurePos : uint8 {
+		Interieur = 0, ///< le trait mord VERS L'INTERIEUR du rectangle
+		Centre = 1,	   ///< a cheval sur le bord (le comportement historique)
+		Exterieur = 2  ///< le trait deborde VERS L'EXTERIEUR
+	};
+	struct NkBordure {
+			NkString couleur;		 ///< hexa « #rrggbb », vide = rien a peindre
+			float32 opacite = 100.f; ///< 0..100
+			bool visible = true;	 ///< l'oeil
+			float32 epaisseur = 1.f; ///< px, le « 1 » de la reference
+			NkBordurePos position = NkBordurePos::Centre;
+	};
+	inline const char *NkBordurePosNom(NkBordurePos p) {
+		switch (p) {
+			case NkBordurePos::Interieur: return "interieur";
+			case NkBordurePos::Exterieur: return "exterieur";
+			default: return "centre";
+		}
+	}
+	inline NkBordurePos NkParseBordurePos(const char *s) {
+		if (s && s[0] == 'i')
+			return NkBordurePos::Interieur;
+		if (s && s[0] == 'e')
+			return NkBordurePos::Exterieur;
+		return NkBordurePos::Centre;
+	}
+
 	// ═══════════════════════════════════════════════════════════════════════════
 	//  LE NOEUD
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -394,6 +434,13 @@ namespace nkuidesign {
 			///
 			/// L'ORDRE EST CELUI DE LUNACY : le DERNIER se peint PAR-DESSUS.
 			NkVector<NkRemplissage> fills;
+			/// ── LA LISTE DE BORDURES (Lunacy « BORDERS ») ────────────────
+			/// EXACTEMENT la meme discipline que `fills`, et ce n'est pas une
+			/// coincidence : c'est la regle qui a marche, donc on la reprend sans
+			/// l'amenager. `couleur_bord` + `bordure` sont « la liste a un
+			/// element » ; la forme ecrite est decidee par la PRESENCE de la
+			/// liste, jamais par son contenu.
+			NkVector<NkBordure> borders;
 			NkString alignText;	 ///< `centre` | `droite` (clé `texte_aligne`) — vide = gauche
 			/// La CIBLE D'APPAREIL d'un artboard (écran 26 « Menu Cible ») :
 			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient
@@ -427,6 +474,29 @@ namespace nkuidesign {
 				if (!fills.Empty())
 					return nullptr;
 				return fill.Empty() ? nullptr : fill.Data();
+			}
+			/// LA BORDURE QUI SE PEINT — meme contrat que `FondEffectif` : le
+			/// DERNIER visible gagne, une liste toute masquee ne peint RIEN, et
+			/// sans liste c'est la cle simple qui parle.
+			const NkBordure *BordureEffective() const {
+				for (uint32 i = (uint32)borders.Size(); i > 0; --i) {
+					const NkBordure &b = borders[i - 1];
+					if (b.visible && !b.couleur.Empty())
+						return &b;
+				}
+				if (!borders.Empty())
+					return nullptr;
+				return nullptr; // sans liste : l'appelant lit borderColor/borderW
+			}
+			/// MATERIALISER la liste depuis les cles simples. Meme regle que pour
+			/// les remplissages, y compris le « il ne vide pas la cle simple ».
+			void MaterialiserBorders() {
+				if (!borders.Empty())
+					return;
+				NkBordure b;
+				b.couleur = borderColor.Empty() ? NkString("#000000") : borderColor;
+				b.epaisseur = borderW > 0.f ? borderW : 1.f;
+				borders.PushBack(b);
 			}
 			/// L'opacité (0..100) du remplissage que rend `FondEffectif`.
 			float32 FondOpacite() const {
@@ -916,6 +986,7 @@ namespace nkuidesign {
 					d.role = s.role;
 					d.fill = s.fill;
 					d.fills = s.fills; // la LISTE suit la copie, comme tout le reste
+					d.borders = s.borders;
 					d.textColor = s.textColor;
 					d.borderColor = s.borderColor;
 					d.alignText = s.alignText;
@@ -1155,7 +1226,29 @@ namespace nkuidesign {
 						Field(out, "fond", n.fill.Data());
 					if (!n.textColor.Empty())
 						Field(out, "couleur_texte", n.textColor.Data());
-					if (!n.borderColor.Empty())
+					// ⚠️ L'UNE OU L'AUTRE, JAMAIS LES DEUX — comme pour `fond`.
+					//    `bord_<i> = couleur opacite visible epaisseur position`.
+					//    Et quand la liste existe, la clé `bordure` ne s'écrit pas
+					//    non plus : elle appartient à la même notion, et un fichier
+					//    qui porte les deux ferait choisir le lecteur.
+					if (!n.borders.Empty()) {
+						for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi) {
+							const NkBordure &b = n.borders[bi];
+							out.Append("  bord_");
+							WriteNum(out, (float32)(bi + 1));
+							out.Append(" = ");
+							out.Append(b.couleur.Empty() ? "-" : b.couleur.Data());
+							out.Append(' ');
+							WriteNum(out, b.opacite);
+							out.Append(' ');
+							out.Append(b.visible ? "1" : "0");
+							out.Append(' ');
+							WriteNum(out, b.epaisseur);
+							out.Append(' ');
+							out.Append(NkBordurePosNom(b.position));
+							out.Append('\n');
+						}
+					} else if (!n.borderColor.Empty())
 						Field(out, "couleur_bord", n.borderColor.Data());
 					if (!n.alignText.Empty())
 						Field(out, "texte_aligne", n.alignText.Data());
@@ -1168,7 +1261,7 @@ namespace nkuidesign {
 						WriteNum(out, n.radius);
 						out.Append('\n');
 					}
-					if (n.borderW != 0.f) {
+					if (n.borderW != 0.f && n.borders.Empty()) {
 						out.Append("  bordure = ");
 						WriteNum(out, n.borderW);
 						out.Append('\n');
@@ -1377,6 +1470,36 @@ namespace nkuidesign {
 							n.textColor = NkString(val);
 						else if (StrEq(key, "couleur_bord"))
 							n.borderColor = NkString(val);
+						else if (key[0] == 'b' && key[1] == 'o' && key[2] == 'r'
+								 && key[3] == 'd' && key[4] == '_') {
+							// `bord_<i> = couleur opacite visible epaisseur position`.
+							// Meme regle que `fond_<i>` : on empile dans L'ORDRE DU
+							// FICHIER, l'indice du nom ne sert pas a ranger.
+							NkBordure b;
+							const char *q = val;
+							auto motSuivant = [&q](char *dst, uint32 cap) {
+								uint32 k = 0;
+								while (*q && *q != ' ' && k + 1 < cap)
+									dst[k++] = *q++;
+								dst[k] = '\0';
+								while (*q == ' ')
+									++q;
+								return k;
+							};
+							char mot[64];
+							if (motSuivant(mot, (uint32)sizeof(mot)) > 0
+								&& !(mot[0] == '-' && mot[1] == '\0'))
+								b.couleur = NkString(mot);
+							if (motSuivant(mot, (uint32)sizeof(mot)) > 0)
+								b.opacite = ParseNum(mot);
+							if (motSuivant(mot, (uint32)sizeof(mot)) > 0)
+								b.visible = (mot[0] == '1');
+							if (motSuivant(mot, (uint32)sizeof(mot)) > 0)
+								b.epaisseur = ParseNum(mot);
+							if (motSuivant(mot, (uint32)sizeof(mot)) > 0)
+								b.position = NkParseBordurePos(mot);
+							n.borders.PushBack(b);
+						}
 						else if (StrEq(key, "texte_aligne"))
 							n.alignText = NkString(val);
 						else if (StrEq(key, "cible"))

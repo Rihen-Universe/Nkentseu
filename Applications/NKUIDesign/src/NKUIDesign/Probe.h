@@ -2813,6 +2813,270 @@ namespace nkuidesign {
 					  "comprise",
 					  ok, buf);
 			}
+			// 42f. UN NOEUD MATERIALISE N'ECRIT PAS DEUX VERITES (le pendant de
+			//      43f). ⚠️ AJOUTE PAR SYMETRIE, PAS PAR UN ECHEC : la mutation
+			//      « ecrire la cle simple MEME quand la liste existe » ne cassait
+			//      rien cote bordures tant qu'aucun cas n'avait les DEUX. La
+			//      lecon T5 du depot dit qu'on l'applique au banc VOISIN, pas
+			//      seulement la ou on l'a trouvee — donc ici aussi, pour `fond`.
+			{
+				NkUIDocument d;
+				d.NewDocument("deux verites", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				d.nodes[(uint32)i].label = NkString("Boite");
+				d.nodes[(uint32)i].shape = NkString("rect");
+				d.nodes[(uint32)i].fill = NkString("#111111"); // la cle simple RESTE posee
+				d.nodes[(uint32)i].MaterialiserFills();
+				d.nodes[(uint32)i].fills[0].couleur = NkString("#999999"); // la liste diverge
+				NkString f1, f2;
+				d.Save(f1);
+				bool aListe = false, aSimple = false;
+				for (const char *q = f1.Data() ? f1.Data() : ""; *q; ++q)
+					if (q[0] == 'f' && q[1] == 'o' && q[2] == 'n' && q[3] == 'd') {
+						if (q[4] == '_')
+							aListe = true;
+						else if (q[4] == ' ')
+							aSimple = true;
+					}
+				NkUIDocument r;
+				const bool lu = r.Load(f1.Data());
+				if (lu)
+					r.Save(f2);
+				const bool bonneAutorite =
+					lu && r.IsValidIndex(i) && r.nodes[(uint32)i].fills.Size() == 1
+					&& StrEq(r.nodes[(uint32)i].fills[0].couleur.Data(), "#999999");
+				snprintf(buf, sizeof(buf), "`fond_` %s, `fond` %s, couleur relue %s",
+						 aListe ? "presente" : "ABSENTE",
+						 aSimple ? "PRESENTE (deux verites)" : "absente",
+						 bonneAutorite ? r.nodes[(uint32)i].fills[0].couleur.Data() : "(perdue)");
+				check("42f. un noeud MATERIALISE n ecrit QUE la liste de remplissages : la cle "
+					  "simple ne subsiste pas a cote, et la liste fait autorite",
+					  aListe && !aSimple && bonneAutorite && lu && f1.Compare(f2) == 0, buf);
+			}
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════
+		//  43. LA LISTE DE BORDURES (Lunacy « BORDERS », 01/09)
+		// ═══════════════════════════════════════════════════════════════════════
+		// ⚠️ LES CAS PORTENT LE VOLET *CONSERVATION* DES LEUR ECRITURE, pas apres
+		//    coup : la porte du depot est tombee ce matin sur la famille 42, ou
+		//    « octet pour octet » passait au vert sur une cle DISPARUE. Chaque
+		//    aller-retour exige donc les deux -- la stabilite ET le contenu
+		//    attendu encore la, champ par champ.
+		{
+			// 43a. Un document a cles simples (`couleur_bord` + `bordure`) ne
+			//      gagne aucune cle de liste, garde ses cles ET ses valeurs.
+			{
+				NkUIDocument d;
+				d.NewDocument("avant", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				d.nodes[(uint32)i].label = NkString("Boite");
+				d.nodes[(uint32)i].shape = NkString("rect");
+				d.nodes[(uint32)i].borderColor = NkString("#334455");
+				d.nodes[(uint32)i].borderW = 3.f;
+				NkString a1, a2;
+				d.Save(a1);
+				NkUIDocument r;
+				const bool lu = r.Load(a1.Data());
+				if (lu)
+					r.Save(a2);
+				bool sansListe = true, avecSimple = false, avecLargeur = false;
+				for (const char *q = a1.Data() ? a1.Data() : ""; *q; ++q) {
+					if (q[0] == 'b' && q[1] == 'o' && q[2] == 'r' && q[3] == 'd' && q[4] == '_')
+						sansListe = false;
+					if (q[0] == 'c' && q[1] == 'o' && q[2] == 'u' && q[3] == 'l' && q[4] == 'e'
+						&& q[5] == 'u' && q[6] == 'r' && q[7] == '_' && q[8] == 'b')
+						avecSimple = true;
+					if (q[0] == 'b' && q[1] == 'o' && q[2] == 'r' && q[3] == 'd' && q[4] == 'u'
+						&& q[5] == 'r' && q[6] == 'e')
+						avecLargeur = true;
+				}
+				const bool garde = lu && r.IsValidIndex(i)
+								   && StrEq(r.nodes[(uint32)i].borderColor.Data(), "#334455")
+								   && r.nodes[(uint32)i].borderW == 3.f;
+				snprintf(buf, sizeof(buf),
+						 "octets %s, `couleur_bord` %s, `bordure` %s, `bord_` %s, valeurs %s",
+						 (lu && a1.Compare(a2) == 0) ? "IDENTIQUES" : "DIFFERENTS",
+						 avecSimple ? "presente" : "DISPARUE",
+						 avecLargeur ? "presente" : "DISPARUE",
+						 sansListe ? "absente" : "APPARUE", garde ? "gardees" : "PERDUES");
+				check("43a. un document a cles simples de bordure se reenregistre OCTET POUR "
+					  "OCTET, garde ses deux cles et leurs valeurs, sans cle de liste",
+					  lu && a1.Compare(a2) == 0 && sansListe && avecSimple && avecLargeur
+						  && garde,
+					  buf);
+			}
+			// 43b. La LISTE fait l'aller-retour : couleur, opacite, oeil,
+			//      epaisseur ET POSITION -- les cinq champs, un par un.
+			{
+				NkUIDocument d;
+				d.NewDocument("liste", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				{
+					NkUINode &n = d.nodes[(uint32)i];
+					n.label = NkString("Boite");
+					n.shape = NkString("rect");
+					NkBordure ba;
+					ba.couleur = NkString("#ff0000");
+					ba.epaisseur = 2.f;
+					ba.position = NkBordurePos::Interieur;
+					NkBordure bb;
+					bb.couleur = NkString("#00ff00");
+					bb.opacite = 40.f;
+					bb.visible = false;
+					bb.epaisseur = 5.5f;
+					bb.position = NkBordurePos::Exterieur;
+					n.borders.PushBack(ba);
+					n.borders.PushBack(bb);
+				}
+				NkString b1, b2;
+				d.Save(b1);
+				NkUIDocument r;
+				const bool lu = r.Load(b1.Data());
+				if (lu)
+					r.Save(b2);
+				const NkUINode *rn = (lu && r.IsValidIndex(i)) ? &r.nodes[(uint32)i] : nullptr;
+				const bool champs = rn && rn->borders.Size() == 2
+									&& StrEq(rn->borders[0].couleur.Data(), "#ff0000")
+									&& rn->borders[0].epaisseur == 2.f
+									&& rn->borders[0].position == NkBordurePos::Interieur
+									&& rn->borders[1].opacite == 40.f
+									&& rn->borders[1].visible == false
+									&& rn->borders[1].epaisseur == 5.5f
+									&& rn->borders[1].position == NkBordurePos::Exterieur;
+				snprintf(buf, sizeof(buf), "%u bordure(s), champs %s, octets %s",
+						 rn ? (uint32)rn->borders.Size() : 0u, champs ? "RETROUVES" : "PERDUS",
+						 (lu && b1.Compare(b2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
+				check("43b. deux bordures (couleur, opacite, oeil, epaisseur, POSITION) font "
+					  "l aller-retour et se reenregistrent a l identique",
+					  champs && lu && b1.Compare(b2) == 0, buf);
+			}
+			// 43c. LA POSITION CHANGE LE DESSIN, et c'est mesure sur la GEOMETRIE,
+			//      pas sur la valeur du champ. Trois positions, trois cadres
+			//      distincts -- sinon le menu a trois entrees en aurait deux qui
+			//      mentent.
+			{
+				NkRecordingPaint rec;
+				auto premierRect = [&](NkBordurePos pos, float32 &x, float32 &w) {
+					rec.cmds.Clear();
+					NkBordure b;
+					b.couleur = NkString("#ffffff");
+					b.epaisseur = 4.f;
+					b.position = pos;
+					renderdetail::NkGCadre(rec, {100.f, 100.f, 50.f, 50.f}, b);
+					x = rec.cmds.Empty() ? -1.f : rec.cmds[0].x;
+					w = rec.cmds.Empty() ? -1.f : rec.cmds[0].w;
+				};
+				float32 xi = 0.f, wi = 0.f, xc = 0.f, wc = 0.f, xe = 0.f, we = 0.f;
+				premierRect(NkBordurePos::Interieur, xi, wi);
+				premierRect(NkBordurePos::Centre, xc, wc);
+				premierRect(NkBordurePos::Exterieur, xe, we);
+				snprintf(buf, sizeof(buf),
+						 "interieur x=%.0f l=%.0f, centre x=%.0f l=%.0f, exterieur x=%.0f "
+						 "l=%.0f",
+						 xi, wi, xc, wc, xe, we);
+				check("43c. la POSITION de bordure change la GEOMETRIE peinte : trois "
+					  "positions, trois cadres distincts (0 / e-demi / e)",
+					  xi == 100.f && xc == 98.f && xe == 96.f && wi == 50.f && wc == 54.f
+						  && we == 58.f,
+					  buf);
+			}
+			// 43d. La copie emporte la liste de bordures (le collage qui perd).
+			{
+				NkUIDocument d;
+				d.NewDocument("copie", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				d.nodes[(uint32)i].label = NkString("Source");
+				d.nodes[(uint32)i].borderColor = NkString("#abcdef");
+				d.nodes[(uint32)i].borderW = 2.f;
+				d.nodes[(uint32)i].MaterialiserBorders();
+				d.nodes[(uint32)i].borders[0].position = NkBordurePos::Exterieur;
+				const int32 j = d.CopierSousArbre(d, i, 0);
+				const bool ok = d.IsValidIndex(j) && d.nodes[(uint32)j].borders.Size() == 1
+								&& StrEq(d.nodes[(uint32)j].borders[0].couleur.Data(), "#abcdef")
+								&& d.nodes[(uint32)j].borders[0].epaisseur == 2.f
+								&& d.nodes[(uint32)j].borders[0].position
+									   == NkBordurePos::Exterieur;
+				snprintf(buf, sizeof(buf), "%u bordure(s) copiee(s)",
+						 d.IsValidIndex(j) ? (uint32)d.nodes[(uint32)j].borders.Size() : 0u);
+				check("43d. copier un sous-arbre emporte la LISTE de bordures, position "
+					  "comprise",
+					  ok, buf);
+			}
+			// 43e. MATERIALISER part des DEUX cles simples (couleur ET epaisseur).
+			{
+				NkUINode n;
+				n.borderColor = NkString("#123456");
+				n.borderW = 7.f;
+				n.MaterialiserBorders();
+				const uint32 un = (uint32)n.borders.Size();
+				n.MaterialiserBorders();
+				const bool ok = un == 1 && n.borders.Size() == 1
+								&& StrEq(n.borders[0].couleur.Data(), "#123456")
+								&& n.borders[0].epaisseur == 7.f && n.borders[0].visible;
+				snprintf(buf, sizeof(buf), "1er=%u, 2e=%u, couleur=%s, epaisseur=%.0f", un,
+						 (uint32)n.borders.Size(),
+						 n.borders.Empty() ? "(vide)" : n.borders[0].couleur.Data(),
+						 n.borders.Empty() ? -1.f : n.borders[0].epaisseur);
+				check("43e. materialiser une bordure part des DEUX cles simples (couleur ET "
+					  "epaisseur) et ne duplique pas",
+					  ok, buf);
+			}
+			// 43f. UN NOEUD MATERIALISE N'ECRIT PAS DEUX VERITES.
+			//      ⚠️ CE CAS EXISTE PARCE QU'UNE MUTATION N'A RIEN CASSE. En
+			//      forcant l'ecriture de `bordure` MEME quand la liste existe,
+			//      aucun des cinq cas precedents ne bougeait : 43a n'a pas de
+			//      liste, 43b a une liste mais un `borderW` nul, et les autres ne
+			//      passent pas par le fichier. Le seul document qui expose le
+			//      defaut est celui qui a les DEUX -- une liste ET des cles
+			//      simples non nulles -- c'est-a-dire tout noeud MATERIALISE
+			//      depuis l'inspecteur, donc le cas le plus courant en usage
+			//      reel. Un fichier a deux verites ferait choisir le lecteur,
+			//      c'est-a-dire deviner.
+			{
+				NkUIDocument d;
+				d.NewDocument("deux verites", NkAuthor::Humain);
+				const int32 i = d.AddChild(0, "", NkAuthor::Humain);
+				d.nodes[(uint32)i].label = NkString("Boite");
+				d.nodes[(uint32)i].shape = NkString("rect");
+				d.nodes[(uint32)i].borderColor = NkString("#334455");
+				d.nodes[(uint32)i].borderW = 3.f; // les cles simples RESTENT posees
+				d.nodes[(uint32)i].MaterialiserBorders();
+				d.nodes[(uint32)i].borders[0].epaisseur = 9.f; // la liste diverge
+				NkString f1, f2;
+				d.Save(f1);
+				bool aListe = false, aSimpleCouleur = false, aSimpleLargeur = false;
+				for (const char *q = f1.Data() ? f1.Data() : ""; *q; ++q) {
+					if (q[0] == 'b' && q[1] == 'o' && q[2] == 'r' && q[3] == 'd' && q[4] == '_')
+						aListe = true;
+					if (q[0] == 'c' && q[1] == 'o' && q[2] == 'u' && q[3] == 'l' && q[4] == 'e'
+						&& q[5] == 'u' && q[6] == 'r' && q[7] == '_' && q[8] == 'b')
+						aSimpleCouleur = true;
+					if (q[0] == 'b' && q[1] == 'o' && q[2] == 'r' && q[3] == 'd' && q[4] == 'u'
+						&& q[5] == 'r' && q[6] == 'e' && q[7] == ' ')
+						aSimpleLargeur = true;
+				}
+				NkUIDocument r;
+				const bool lu = r.Load(f1.Data());
+				if (lu)
+					r.Save(f2);
+				// conservation : c'est bien la valeur de LA LISTE qui survit (9),
+				// pas celle de la cle simple (3) -- l'autorite est nommee.
+				const bool bonneAutorite = lu && r.IsValidIndex(i)
+										   && r.nodes[(uint32)i].borders.Size() == 1
+										   && r.nodes[(uint32)i].borders[0].epaisseur == 9.f;
+				snprintf(buf, sizeof(buf),
+						 "`bord_` %s, `couleur_bord` %s, `bordure` %s, epaisseur relue %.0f",
+						 aListe ? "presente" : "ABSENTE",
+						 aSimpleCouleur ? "PRESENTE (deux verites)" : "absente",
+						 aSimpleLargeur ? "PRESENTE (deux verites)" : "absente",
+						 bonneAutorite ? r.nodes[(uint32)i].borders[0].epaisseur : -1.f);
+				check("43f. un noeud MATERIALISE n ecrit QUE la liste : aucune cle simple ne "
+					  "subsiste a cote, et c est la valeur de la liste qui fait autorite",
+					  aListe && !aSimpleCouleur && !aSimpleLargeur && bonneAutorite
+						  && lu && f1.Compare(f2) == 0,
+					  buf);
+			}
 		}
 
 		char tail[128];
