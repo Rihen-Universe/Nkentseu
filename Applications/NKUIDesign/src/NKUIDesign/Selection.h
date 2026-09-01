@@ -34,6 +34,7 @@
 
 #include "Document.h"
 #include "Layout.h"
+#include "Transfo.h" // le pointage tient compte de la rotation et des miroirs
 
 namespace nkuidesign {
 
@@ -143,7 +144,13 @@ namespace nkuidesign {
 	inline nkentseu::int32 NkPickSelectable(const NkUIDocument &doc,
 											const NkLayoutResult &lay, nkentseu::float32 x,
 											nkentseu::float32 y) {
-		const nkentseu::int32 hit = NkPickNode(doc, lay, x, y);
+		// ⚠️ `NkPickNodeTransfo` ET NON `NkPickNode` DEPUIS LE 01/09 : « un clic
+		//    dans un rectangle tourne n'est plus un test de rectangle »
+		//    (arbitrage Q42, point 3). Sans ce changement, on aurait pu tourner
+		//    un objet et ne plus pouvoir le rattraper -- ou pire, l'attraper en
+		//    cliquant a cote de ce qu'on voit. Il se degrade AU BIT PRES en
+		//    `NkPickNode` sur un document sans rotation.
+		const nkentseu::int32 hit = NkPickNodeTransfo(doc, lay, x, y);
 		if (hit < 0 || !doc.IsValidIndex(hit))
 			return -1;
 		return doc.nodes[(nkentseu::uint32)hit].parent < 0 ? -1 : hit;

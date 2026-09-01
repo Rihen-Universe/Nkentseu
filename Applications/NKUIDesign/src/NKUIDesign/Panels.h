@@ -64,6 +64,7 @@
 #include "SelectionGeste.h" // le contrat de selection : les DEUX tables, cote a cote
 #include "MenuContexte.h" // le menu du clic droit (Lunacy) : LA table, sans NKGui
 #include "Snap.h" // l'aimantation Lunacy — un MECANISME, pas un dessin
+#include "Transfo.h" // rotation et miroirs : le MEME calcul pour le dessin et le clic
 #include "DesignAI.h"
 #include "Renderers.h"
 
@@ -3108,6 +3109,69 @@ namespace nkuidesign {
 							paint.FillColor(ph, 0xFFFFFFFFu, 0.f);
 							paint.OutlineSharp(ph, accent);
 						}
+					// ── LES POIGNEES DE ROTATION (Lunacy, lunacy_props_11) ───────
+					// Retour de Rodolf, 01/09 : « ni autour de l'objet
+					// selectionne ». Relu au pixel sur sa capture : ce ne sont PAS
+					// des carres de plus sur la boite, ce sont quatre zones EN
+					// DEHORS, en diagonale de chaque coin.
+					// ⚠️ ET CE « EN DEHORS » EST TOUT LE CONTRAT : posees SUR les
+					//    coins, elles auraient vole le geste de redimensionnement,
+					//    cent fois plus frequent. La regle vit dans `Transfo.h`
+					//    (`NkPoigneeRotation`) et un cas de recette la tient :
+					//    AUCUNE des quatre ne chevauche la boite.
+					// ⚠️ ELLES NE PARAISSENT QUE SUR CE QUI PEUT TOURNER. Un groupe
+					//    n'en montre pas -- montrer une poignee qui refuse le geste
+					//    serait du chrome qui promet, le defaut deja paye avec la
+					//    touche F et les onglets.
+					{
+						const NkUINode &selN = mSt->doc.nodes[(uint32)mSt->selected];
+						if (NkPeutTourner(selN)) {
+							const float32 tr = 9.f;
+							for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
+								const NkPaintRect pr = NkPoigneeRotation(rs, k, tr);
+								const bool sv = ctx.popupDepth == 0
+												&& NkGuiRectContains(
+													{pr.x, pr.y, pr.w, pr.h}, ctx.input.mousePos);
+								// une poignee de rotation est RONDE et CREUSE : elle
+								// ne doit pas se confondre avec les carres pleins du
+								// redimensionnement, qui sont a quelques pixels.
+								paint.Outline(pr, accent, 0x00000000u, tr * 0.5f);
+								if (sv || mRotDrag == (int32)k)
+									paint.Fill(pr, accent, tr * 0.5f);
+								if (sv && ctx.input.mouseClicked[0]) {
+									mRotDrag = (int32)k;
+									mRotBase = selN.rotation;
+									mRotAngle0 = NkAngleDeg(rs.x + rs.w * 0.5f,
+															rs.y + rs.h * 0.5f,
+															ctx.input.mousePos.x,
+															ctx.input.mousePos.y);
+								}
+							}
+							// LE GESTE : l'angle sous la souris moins celui du depart.
+							if (mRotDrag >= 0 && ctx.input.mouseDown[0]) {
+								const float32 a = NkAngleDeg(rs.x + rs.w * 0.5f,
+															 rs.y + rs.h * 0.5f,
+															 ctx.input.mousePos.x,
+															 ctx.input.mousePos.y);
+								NkUINode &m = mSt->doc.nodes[(uint32)mSt->selected];
+								const float32 brut = mRotBase + (a - mRotAngle0);
+								// Maj aimante a 15 degres (Lunacy), sinon au degre.
+								m.rotation = NkAngleNormalise(
+									NkAngleAimante(brut, ctx.input.shiftDown));
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								char msg[128];
+								snprintf(msg, sizeof(msg),
+										 "Rotation %.0f° — Maj aimante aux 15°.%s", m.rotation,
+										 NkPeintureSaitTourner(m)
+											 ? ""
+											 : " (le texte reste droit : ce peintre ne sait pas "
+											   "le tourner)");
+								mSt->status = NkString(msg);
+							}
+							if (!ctx.input.mouseDown[0])
+								mRotDrag = -1;
+						}
+					}
 					// LE BADGE DE ROLE (Banani RoleBadge) : pilule 9 px au-dessus a
 					// gauche de la selection, en FRANCAIS sur la toile (la maquette
 					// ecrit « Bouton » sur la toile et « Button » dans l'arbre).
@@ -4055,6 +4119,16 @@ namespace nkuidesign {
 			/// Le noeud en EDITION INTERNE, -1 si aucun. Un double-clic sur une
 			/// forme a sommets y entre, Echap en sort.
 			int32 mPointsNode = -1;
+			/// LE GLISSER DE ROTATION : quelle poignée est tenue, l'angle du nœud
+			/// au début du geste, et l'angle de la souris au début.
+			/// ⚠️ LES DEUX ANGLES DE DÉPART SONT MÉMORISÉS, ET C'EST NÉCESSAIRE :
+			///    prendre « l'angle sous la souris » comme rotation ferait SAUTER
+			///    l'objet au premier pixel du geste, pour l'aligner sur le point
+			///    saisi. On applique un ÉCART, pas une valeur absolue — l'objet
+			///    part de là où il est.
+			int32 mRotDrag = -1;
+			float32 mRotBase = 0.f;
+			float32 mRotAngle0 = 0.f;
 			/// Le sommet en cours de glissement, -1 si aucun.
 			int32 mPointDrag = -1;
 			/// Le noeud SOUS LE CURSEUR (pre-selection), -1 si aucun. Pose a
@@ -9089,6 +9163,96 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
 									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "px",
 									   ctx.theme.textMuted);
+					}
+					// ── ROTATION ET MIROIRS (Lunacy, bandeau du haut) ────────
+					// Retour de Rodolf, 01/09 : « dans propriétés il n'y a pas
+					// miroir, rotation etc. » Trois des neuf manques de Q42.
+					// ⚠️ ILS SONT DANS APPARENCE ET PAS DANS DISPOSITION, ET C'EST
+					//    UNE DÉCISION : la disposition calcule des boîtes DROITES
+					//    (c'est ce qui fait marcher l'aperçu depuis août), et la
+					//    rotation ne la touche pas — elle agit sur le dessin et sur
+					//    le clic. Les ranger dans DISPOSITION aurait laissé croire
+					//    qu'un objet tourné pousse ses voisins. Il ne les pousse pas.
+					{
+						const bool peut = NkPeutTourner(*n);
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						if (!peut)
+							ctx.BeginDisabled();
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Rotation",
+									   ctx.theme.textMuted);
+						const NkRect rr = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
+						if (peut) {
+							ChampNombreMulti(
+								ctx, "insp.app.rotation", rr, 1.f, -360.f, 360.f,
+								[](const NkUINode &q) { return q.rotation; },
+								[](NkUINode &q, float32 v) { q.rotation = NkAngleNormalise(v); });
+						} else {
+							dl.AddRectFilled(rr, CouleurInput(), 4.f);
+							dl.AddRect(rr, ctx.theme.border, 1.f, 4.f);
+							costume::Texte(dl, F.px11, rr.x + 6.f,
+										   costume::CentrerY(F.px11, rr.y, 20.f), "—",
+										   ctx.theme.textMuted);
+						}
+						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
+									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "°",
+									   ctx.theme.textMuted);
+						if (!peut) {
+							ctx.EndDisabled();
+							// ⚠️ UN CHAMP GRISÉ MUET EST PIRE QU'UN CHAMP ABSENT :
+							//    il montre une capacité sans dire ce qui manque.
+							if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
+								mSt->status = NkString(NkRaisonPasDeRotation());
+						} else if (!NkPeintureSaitTourner(*n) && n->rotation != 0.f
+								   && ctx.popupDepth == 0
+								   && NkGuiRectContains(r, ctx.input.mousePos)) {
+							// La rotation est ENREGISTRÉE sur un texte, et le peintre
+							// ne la rendra pas. On le dit plutôt que de laisser
+							// croire à un bug.
+							mSt->status = NkString(NkRaisonRotationTexte());
+						}
+					}
+					// LES DEUX MIROIRS — deux bascules, pas un champ.
+					// ⚠️ ELLES SONT ÉCRITES ENSEMBLE, EN UNE BOUCLE DE DEUX, parce
+					//    que ce sont des chemins frères au sens strict : même
+					//    dessin, même geste, même écriture, un seul axe de
+					//    différence. Deux blocs recopiés auraient divergé au
+					//    premier ajustement de largeur — le défaut payé trois fois
+					//    sur les colonnes des listes.
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						costume::Texte(dl, F.px10, x0,
+									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Miroir",
+									   ctx.theme.textMuted);
+						for (uint32 k = 0; k < 2; ++k) {
+							const bool actif = (k == 0) ? n->miroirH : n->miroirV;
+							const char *lib = (k == 0) ? "H" : "V";
+							const NkRect rb = {x0 + 52.f + (float32)k * 26.f, r.y + 3.f, 22.f,
+											   20.f};
+							const bool sv = ctx.popupDepth == 0
+											&& NkGuiRectContains(rb, ctx.input.mousePos);
+							dl.AddRectFilled(rb, actif ? ctx.theme.accent : CouleurInput(), 4.f);
+							dl.AddRect(rb, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+							costume::Texte(dl, F.px10,
+										   rb.x + (22.f - costume::Largeur(F.px10, lib)) * 0.5f,
+										   costume::CentrerY(F.px10, rb.y, 20.f), lib,
+										   actif ? ctx.theme.panel : ctx.theme.text);
+							if (sv && ctx.input.mouseClicked[0]) {
+								if (k == 0)
+									n->miroirH = !n->miroirH;
+								else
+									n->miroirV = !n->miroirV;
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								char msg[112];
+								snprintf(msg, sizeof(msg), "Miroir %s : %s.",
+										 k == 0 ? "horizontal" : "vertical",
+										 (k == 0 ? n->miroirH : n->miroirV) ? "activé"
+																			: "désactivé");
+								mSt->status = NkString(msg);
+							}
+						}
 					}
 					// Opacité : LE MODÈLE NE LA PORTE PAS — grisée, avec la raison.
 					{

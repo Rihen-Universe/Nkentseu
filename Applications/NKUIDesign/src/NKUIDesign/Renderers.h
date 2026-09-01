@@ -483,12 +483,25 @@ namespace nkuidesign {
 		///    interne.
 		inline bool NkGTraceEdite(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
 								  const NkDocumentHost &host) {
-			if (n.sommets.Empty())
+			// ⚠️ DEUX RAISONS D'EMPRUNTER CE CHEMIN, PAS UNE, et c'est pour ça que
+			//    la condition a grossi au lieu d'être doublée : une forme se peint
+			//    par sa liste de points soit parce qu'on a **édité ses sommets**,
+			//    soit parce qu'elle est **transformée** (tournée, retournée). Les
+			//    deux produisent la même chose — un contour quelconque — et un
+			//    second peintre écrit à côté aurait divergé au premier arrondi.
+			const NkTransfo t = NkTransfoDe(n);
+			if (n.sommets.Empty() && t.Identite())
 				return false;
 			nkentseu::float32 xy[256];
 			const nkentseu::uint32 nb = NkContourDe(n, r, xy, 128);
 			if (nb < 3)
 				return false;
+			// ⚠️ LA TRANSFORMATION S'APPLIQUE APRÈS LE CONTOUR, JAMAIS AVANT : les
+			//    arcs d'arrondi se calculent dans le repère propre de la forme.
+			//    Tournés d'abord, les rayons auraient été bornés contre des côtés
+			//    déjà pivotés — un arrondi qui change de taille quand on tourne
+			//    l'objet.
+			NkTransfoContour(t, r, xy, nb);
 			const nkentseu::uint32 rgba =
 				n.FondEffectif() ? NkGFondRGBA(n) : p.ColorOf(host.Role("doc_field_bg"));
 			return p.PolygonHex(xy, (nkentseu::int32)nb, rgba);
@@ -713,6 +726,10 @@ namespace nkuidesign {
 				//    silencieusement inerte sur les trois autres.
 				float32 xy[256];
 				const uint32 nb = NkContourDe(n, r, xy, 128);
+				// ⚠️ LE MEME GESTE QUE POUR LE RECT ET L'ELLIPSE, AU MEME MOMENT :
+				//    un polygone tourne se peint tourne. Ecrit seulement la-haut,
+				//    l'etoile aurait ete la seule forme a ignorer la rotation.
+				NkTransfoContour(NkTransfoDe(n), r, xy, nb);
 				if (nb == 0 || !p.PolygonHex(xy, (int32)nb, rgba))
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), 4.f);
 				return;

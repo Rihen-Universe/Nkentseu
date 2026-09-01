@@ -229,6 +229,192 @@ namespace nkuidesign {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  LA MATRICE — PARCE QU'UN ANGLE CUMULÉ NE SUFFIT PAS À TOURNER UN GROUPE
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ CE BLOC EXISTE À CAUSE D'UNE ERREUR QUE J'AI FAILLI COMMETTRE, ET ELLE
+	///    MÉRITE D'ÊTRE ÉCRITE. `NkTransfoEffective` cumule les ANGLES des
+	///    ancêtres, et j'allais m'en servir pour peindre les enfants d'un groupe
+	///    tourné. C'est faux : **chaque ancêtre tourne autour de SON PROPRE
+	///    CENTRE**, pas autour de celui de l'enfant. Un angle cumulé ferait
+	///    pivoter chaque enfant sur lui-même — le groupe se disloquerait au lieu
+	///    de tourner d'un bloc, et chaque élément resterait obstinément à sa
+	///    place.
+	///
+	///    L'angle cumulé reste juste pour ce à quoi il sert (savoir de combien un
+	///    objet paraît penché, afficher un champ, aimanter un geste) ; il ne
+	///    suffit pas à POSITIONNER. Il faut composer les transformations, donc
+	///    une matrice affine 2×3.
+	///
+	///    *C'est la même famille que « une moyenne ne se transporte pas à un
+	///    sous-ensemble choisi pour une autre raison » : une grandeur juste,
+	///    réutilisée là où sa définition ne vaut plus.*
+	struct NkMat2D {
+			// | a c e |   les points sont des colonnes (x, y, 1)
+			// | b d f |
+			float32 a = 1.f, b = 0.f, c = 0.f, d = 1.f, e = 0.f, f = 0.f;
+			bool Identite() const {
+				return a == 1.f && b == 0.f && c == 0.f && d == 1.f && e == 0.f && f == 0.f;
+			}
+	};
+
+	/// `m` puis `n` (n ∘ m) — l'ordre se lit « d'abord m, ensuite n ».
+	inline NkMat2D NkMatComposer(const NkMat2D &n, const NkMat2D &m) {
+		NkMat2D o;
+		o.a = n.a * m.a + n.c * m.b;
+		o.b = n.b * m.a + n.d * m.b;
+		o.c = n.a * m.c + n.c * m.d;
+		o.d = n.b * m.c + n.d * m.d;
+		o.e = n.a * m.e + n.c * m.f + n.e;
+		o.f = n.b * m.e + n.d * m.f + n.f;
+		return o;
+	}
+
+	inline void NkMatPoint(const NkMat2D &m, float32 &x, float32 &y) {
+		if (m.Identite())
+			return;
+		const float32 nx = m.a * x + m.c * y + m.e;
+		const float32 ny = m.b * x + m.d * y + m.f;
+		x = nx;
+		y = ny;
+	}
+
+	/// L'INVERSE. ⚠️ Elle rend l'identité si le déterminant est nul — ce qui
+	/// n'arrive qu'avec une échelle nulle, que ce modèle ne produit pas ; le
+	/// repli existe pour que le picking désigne « la boîte droite » plutôt que
+	/// de rendre des coordonnées infinies qui feraient disparaître le nœud.
+	inline NkMat2D NkMatInverse(const NkMat2D &m) {
+		const float32 det = m.a * m.d - m.b * m.c;
+		NkMat2D o;
+		if (det == 0.f)
+			return o;
+		const float32 k = 1.f / det;
+		o.a = m.d * k;
+		o.b = -m.b * k;
+		o.c = -m.c * k;
+		o.d = m.a * k;
+		o.e = (m.c * m.f - m.d * m.e) * k;
+		o.f = (m.b * m.e - m.a * m.f) * k;
+		return o;
+	}
+
+	/// La matrice d'UN nœud : ses trois champs, autour du centre `(cx, cy)`.
+	inline NkMat2D NkMatDe(const NkTransfo &t, float32 cx, float32 cy) {
+		NkMat2D m;
+		if (t.Identite())
+			return m;
+		float32 s = 0.f, c = 1.f;
+		if (t.deg != 0.f)
+			NkSinCosDeg(t.deg, s, c);
+		// miroir d'abord (échelle ±1), rotation ensuite — le même ordre que
+		// `NkTransfoPoint`, et pour la même raison.
+		const float32 sx = t.mh ? -1.f : 1.f;
+		const float32 sy = t.mv ? -1.f : 1.f;
+		m.a = c * sx;
+		m.b = s * sx;
+		m.c = -s * sy;
+		m.d = c * sy;
+		// puis on recentre : p' = C + R·S·(p - C)
+		m.e = cx - (m.a * cx + m.c * cy);
+		m.f = cy - (m.b * cx + m.d * cy);
+		return m;
+	}
+
+	/// LA MATRICE EFFECTIVE d'un nœud : la sienne, composée avec celles de tous
+	/// ses ancêtres, chacune autour de SON PROPRE CENTRE.
+	/// ⚠️ L'ORDRE DE COMPOSITION VA DE L'ANCÊTRE VERS L'ENFANT : la transformation
+	///    du groupe s'applique APRÈS celle de l'élément, parce qu'elle agit sur le
+	///    résultat de celle-ci. Composé à l'envers, un élément déjà tourné dans un
+	///    groupe tourné partirait dans une direction que personne ne peut prévoir.
+	/// @param lay les rectangles NON transformés (la disposition les calcule
+	///        droits — c'est voulu : lui faire porter des angles l'obligerait à
+	///        produire des rectangles non alignés, qu'aucun de ses consommateurs
+	///        ne sait lire).
+	inline NkMat2D NkMatEffective(const NkUIDocument &doc, const NkLayoutResult &lay, int32 i) {
+		NkMat2D m;
+		int32 k = i;
+		uint32 garde = 0;
+		while (doc.IsValidIndex(k) && k > 0 && garde++ < 256u) {
+			const NkUINode &n = doc.nodes[(uint32)k];
+			const NkTransfo t = NkTransfoDe(n);
+			if (!t.Identite() && lay.Has(k)) {
+				const NkPaintRect r = lay.At(k);
+				const NkMat2D mk = NkMatDe(t, r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+				m = NkMatComposer(mk, m); // l'ancêtre s'applique APRÈS
+			}
+			k = n.parent;
+		}
+		return m;
+	}
+
+	/// LE POINTAGE, VERSION MATRICE — celui que la toile utilise.
+	inline bool NkPointDansNoeud(const NkUIDocument &doc, const NkLayoutResult &lay, int32 i,
+								 float32 px, float32 py) {
+		if (!doc.IsValidIndex(i) || !lay.Has(i))
+			return false;
+		const NkMat2D inv = NkMatInverse(NkMatEffective(doc, lay, i));
+		float32 x = px, y = py;
+		NkMatPoint(inv, x, y);
+		const NkPaintRect r = lay.At(i);
+		return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+	}
+
+	/// LE POINTAGE DE LA TOILE, TRANSFORMATIONS COMPRISES.
+	/// ⚠️ C'EST LE JUMEAU DE `NkPickNode` (Layout.h) ET IL VIT ICI, PAS LÀ-BAS,
+	///    pour une raison de dépendance et non de goût : `Transfo.h` inclut
+	///    `Layout.h`, donc l'inverse ferait un cycle. Les deux sont des chemins
+	///    frères et **doivent départager de la même façon** — à profondeur égale,
+	///    le DERNIER de l'ordre document gagne (`>=`). Cette règle-là a été payée
+	///    par le 4e retour de Rodolf (« Aide e-mail » inatteignable sous son
+	///    frère) : la réécrire à l'envers ici rendrait le défaut, mais seulement
+	///    sur les documents qui portent une rotation.
+	/// ⚠️ ET IL SE DÉGRADE EXACTEMENT EN `NkPickNode` quand rien n'est transformé
+	///    (`NkMatEffective` rend l'identité, `NkPointDansNoeud` retombe sur le
+	///    test de boîte) : un document sans rotation pointe au bit près comme
+	///    hier, et les contrôles 40x qui le mesurent gardent leur sens.
+	inline int32 NkPickNodeTransfo(const NkUIDocument &doc, const NkLayoutResult &lay, float32 x,
+								   float32 y) {
+		int32 best = -1, bestDepth = -1;
+		for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i) {
+			if (!lay.Has((int32)i))
+				continue;
+			if (!NkPointDansNoeud(doc, lay, (int32)i, x, y))
+				continue;
+			int32 depth = 0;
+			for (int32 c = doc.nodes[i].parent; c >= 0; c = doc.nodes[(uint32)c].parent)
+				++depth;
+			if (depth >= bestDepth) {
+				bestDepth = depth;
+				best = (int32)i;
+			}
+		}
+		return best;
+	}
+
+	/// L'englobant écran d'un nœud, sa transformation effective comprise.
+	inline NkPaintRect NkEnglobantEcran(const NkUIDocument &doc, const NkLayoutResult &lay,
+										int32 i) {
+		const NkPaintRect r = lay.Has(i) ? lay.At(i) : NkPaintRect{0.f, 0.f, 0.f, 0.f};
+		const NkMat2D m = NkMatEffective(doc, lay, i);
+		if (m.Identite())
+			return r;
+		float32 xy[8] = {r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h};
+		for (uint32 k = 0; k < 4; ++k)
+			NkMatPoint(m, xy[k * 2], xy[k * 2 + 1]);
+		float32 x0 = xy[0], y0 = xy[1], x1 = xy[0], y1 = xy[1];
+		for (uint32 k = 1; k < 4; ++k) {
+			if (xy[k * 2] < x0)
+				x0 = xy[k * 2];
+			if (xy[k * 2] > x1)
+				x1 = xy[k * 2];
+			if (xy[k * 2 + 1] < y0)
+				y0 = xy[k * 2 + 1];
+			if (xy[k * 2 + 1] > y1)
+				y1 = xy[k * 2 + 1];
+		}
+		return {x0, y0, x1 - x0, y1 - y0};
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  LES POIGNÉES DE ROTATION — LEUR GÉOMÉTRIE EST UN CALCUL, PAS UN DESSIN
 	// ═══════════════════════════════════════════════════════════════════════════
 	/// ⚠️ CE QUE MONTRE `lunacy_props_11_040102.png`, RELU AU PIXEL : les poignées
@@ -359,6 +545,41 @@ namespace nkuidesign {
 	inline const char *NkRaisonRotationTexte() {
 		return "Rotation enregistrée — ce peintre ne sait pas tourner du texte, le "
 			   "libellé reste droit à l'écran.";
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  CE QUI PEUT TOURNER AUJOURD'HUI — ET LE REFUS EST DIT, PAS SUBI
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ LA DÉCISION LA PLUS IMPORTANTE DE CE LOT, ET ELLE EST DE NE PAS LIVRER.
+	///    L'arbitrage de Q42 dit mot pour mot : *« un demi-champ de rotation est
+	///    pire que pas de rotation. »* Voici la mesure qui m'a fait m'arrêter :
+	///
+	///    Le PICKING d'un enfant de groupe tourné est juste (`NkMatEffective`,
+	///    cas 14 et 15 : mesuré, éprouvé par mutation). Le RENDU, lui, ne l'est
+	///    pas : la disposition calcule des rectangles DROITS pour les enfants, et
+	///    le peintre reçoit ces rectangles-là. Un groupe tourné aurait donc des
+	///    enfants **qu'on attrape à leur place tournée et qu'on voit à leur place
+	///    droite** — l'objet et son ombre à deux endroits différents.
+	///
+	///    ⚠️ C'EST PIRE QUE « ÇA NE TOURNE PAS ». Un refus s'explique en une
+	///       phrase ; un clic qui atterrit à côté de ce qu'on voit se diagnostique
+	///       en une heure, et fait douter de tout le reste de l'outil.
+	///
+	///    LA ROTATION EST DONC OFFERTE SUR LES FEUILLES, ET REFUSÉE-QUI-LE-DIT
+	///    sur les nœuds à enfants. Ce n'est pas un manque du modèle : le modèle,
+	///    la matrice et le picking sont prêts et mesurés. **Il manque un seul
+	///    maillon, et il est nommé** — que le peintre reçoive la matrice
+	///    effective de ses ancêtres, ce qui veut dire la faire descendre depuis
+	///    `NkDrawNodeTree` jusqu'à chaque branche de `DrawShape`.
+	inline bool NkPeutTourner(const NkUINode &n) {
+		return n.children.Size() == 0;
+	}
+
+	/// La raison du refus. **Jamais vide.**
+	inline const char *NkRaisonPasDeRotation() {
+		return "Rotation sur un groupe : pas encore. Le clic suivrait la forme tournée, "
+			   "le dessin resterait droit — l'objet serait à deux endroits. Tourne ses "
+			   "éléments un par un en attendant.";
 	}
 
 } // namespace nkuidesign

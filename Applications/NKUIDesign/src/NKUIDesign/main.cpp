@@ -2195,6 +2195,87 @@ static nkentseu::int32 RecetteTransfo() {
 				 (st.doc.IsValidIndex(copie) && st.doc.nodes[(uint32)copie].miroirV) ? 1 : 0);
 		verdict("13. copier un objet tourne et retourne le garde tourne et retourne", ok, d);
 	}
+	// ── 14. UN GROUPE TOURNE D'UN BLOC : SES ENFANTS SE DEPLACENT ──────────
+	//     ⚠️ C'EST LE CAS QUI M'A EMPECHE D'ECRIRE UNE FAUSSE PROPAGATION, ET IL
+	//     FAUT LE DIRE. J'allais me servir de l'ANGLE CUMULE (`NkTransfoEffective`)
+	//     pour peindre les enfants d'un groupe tourne. C'est faux : chaque ancetre
+	//     tourne autour de SON PROPRE CENTRE, pas de celui de l'enfant. Un angle
+	//     cumule fait pivoter chaque enfant SUR LUI-MEME -- le groupe se disloque
+	//     au lieu de tourner d'un bloc, et chaque element reste obstinement a sa
+	//     place.
+	//
+	//     Le cas prend un enfant DECENTRE dans son groupe : c'est le seul qui
+	//     distingue les deux. Un enfant centre sur le centre du groupe donnerait
+	//     LE MEME resultat avec la bonne et la mauvaise formule -- et le banc
+	//     serait passe au vert sur la faute exacte qu'il doit attraper.
+	st.doc.NewDocument("recette transfo", NkAuthor::Humain);
+	{
+		const int32 g = st.doc.AddChild(0, "", NkAuthor::Humain);
+		NkUINode &gn = st.doc.nodes[(uint32)g];
+		gn.shape = NkString("rect");
+		gn.layout.kind = NkLayoutKind::Free;
+		gn.width.mode = NkSizeMode::Fixed;
+		gn.width.value = 200.f;
+		gn.height.mode = NkSizeMode::Fixed;
+		gn.height.value = 200.f;
+		const int32 e = st.doc.AddChild(g, "", NkAuthor::Humain);
+		NkUINode &en = st.doc.nodes[(uint32)e];
+		en.shape = NkString("rect");
+		en.posX = 150.f; // DECENTRE : c'est ce qui rend le cas discriminant
+		en.posY = 80.f;
+		en.width.mode = NkSizeMode::Fixed;
+		en.width.value = 40.f;
+		en.height.mode = NkSizeMode::Fixed;
+		en.height.value = 40.f;
+		st.Recompute(surface);
+		const NkPaintRect rg = st.layout.At(g), re = st.layout.At(e);
+		const float32 cgx = rg.x + rg.w * 0.5f, cgy = rg.y + rg.h * 0.5f;
+		const float32 cex = re.x + re.w * 0.5f, cey = re.y + re.h * 0.5f;
+		// sans rotation, la matrice effective est l'identite
+		const bool neutre = NkMatEffective(st.doc, st.layout, e).Identite();
+		// on tourne LE GROUPE d'un quart de tour
+		st.doc.nodes[(uint32)g].rotation = 90.f;
+		const NkMat2D me = NkMatEffective(st.doc, st.layout, e);
+		float32 x = cex, y = cey;
+		NkMatPoint(me, x, y);
+		// le centre de l'enfant doit tourner de 90 degres AUTOUR DU CENTRE DU
+		// GROUPE : (dx,dy) -> (-dy,dx)
+		const float32 ax = cgx - (cey - cgy), ay = cgy + (cex - cgx);
+		const bool bouge = proche(x, ax, 0.5f) && proche(y, ay, 0.5f);
+		// et il A VRAIMENT BOUGE (sinon « proche » serait vrai par accident sur
+		// un enfant centre) : c'est la garde qui rend le cas discriminant
+		const bool aBouge = !proche(x, cex, 1.f) || !proche(y, cey, 1.f);
+		char d[160];
+		snprintf(d, sizeof(d), "enfant (%.0f,%.0f) -> (%.0f,%.0f), attendu (%.0f,%.0f)%s", cex,
+				 cey, x, y, ax, ay, aBouge ? "" : " [IL N'A PAS BOUGE]");
+		verdict("14. tourner un GROUPE deplace ses enfants autour du centre DU GROUPE : il "
+				"tourne d'un bloc, il ne se disloque pas",
+				neutre && bouge && aBouge, d);
+	}
+	// ── 15. LA MATRICE ET SON INVERSE, ET LE PICKING QUI EN DECOULE ────────
+	{
+		st.doc.nodes[1].rotation = 37.f; // le groupe du cas precedent
+		const NkMat2D m = NkMatEffective(st.doc, st.layout, 2);
+		const NkMat2D inv = NkMatInverse(m);
+		float32 x = 321.f, y = 654.f;
+		NkMatPoint(m, x, y);
+		NkMatPoint(inv, x, y);
+		const bool rond = proche(x, 321.f, 0.01f) && proche(y, 654.f, 0.01f);
+		// et le picking de l'enfant suit : son centre est toujours dedans, ou
+		// qu'il soit parti
+		const NkPaintRect re = st.layout.At(2);
+		float32 cx = re.x + re.w * 0.5f, cy = re.y + re.h * 0.5f;
+		NkMatPoint(m, cx, cy);
+		const bool dedans = NkPointDansNoeud(st.doc, st.layout, 2, cx, cy);
+		// un point a 200 px de la, lui, n'y est pas
+		const bool dehors = !NkPointDansNoeud(st.doc, st.layout, 2, cx + 200.f, cy);
+		char d[128];
+		snprintf(d, sizeof(d), "aller-retour (%.3f,%.3f), centre dedans=%d, +200px dehors=%d", x,
+				 y, dedans ? 1 : 0, dehors ? 1 : 0);
+		verdict("15. la matrice s'inverse, et le picking d'un enfant de groupe tourne suit son "
+				"centre la ou il est parti",
+				rond && dedans && dehors, d);
+	}
 	printf("\nRECETTE TRANSFO : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
