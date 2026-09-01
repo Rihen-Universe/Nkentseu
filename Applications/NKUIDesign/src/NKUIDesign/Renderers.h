@@ -461,6 +461,38 @@ namespace nkuidesign {
 			}
 		}
 
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LE TRACÉ ÉDITÉ D'UNE BOÎTE — écrit UNE fois pour rect ET ellipse
+		// ═══════════════════════════════════════════════════════════════════════
+		/// Peint la forme par sa LISTE DE SOMMETS quand elle en a une, et rend
+		/// vrai. Rend faux quand il n'y a rien d'édité : l'appelant garde alors
+		/// son peintre paramétrique **mot pour mot**.
+		///
+		/// ⚠️ CE PEINTRE EXISTE PARCE QUE `rect` ET `ellipse` SONT DES CHEMINS
+		///    FRÈRES, et la porte du 28/08 demande de traiter le groupe **dès
+		///    l'écriture**, pas après que l'un des deux ait mordu. Les deux
+		///    branches sont à soixante lignes l'une de l'autre ; écrit deux fois,
+		///    ce code aurait divergé au premier ajustement d'arrondi.
+		///
+		/// ⚠️ ET LE REPLI EST UN REFUS EXPLICITE, PAS UN DESSIN APPROCHÉ : si la
+		///    liste existe mais que le peintre n'a pas de primitive polygone, on
+		///    rend **faux** et l'appelant reprend la main. Peindre le rectangle
+		///    d'origine par-dessus une forme déformée aurait donné *un dessin faux
+		///    qui a l'air juste* — la pire des sorties, déjà nommée sur l'ombre
+		///    interne.
+		inline bool NkGTraceEdite(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
+								  const NkDocumentHost &host) {
+			if (n.sommets.Empty())
+				return false;
+			nkentseu::float32 xy[256];
+			const nkentseu::uint32 nb = NkContourDe(n, r, xy, 128);
+			if (nb < 3)
+				return false;
+			const nkentseu::uint32 rgba =
+				n.FondEffectif() ? NkGFondRGBA(n) : p.ColorOf(host.Role("doc_field_bg"));
+			return p.PolygonHex(xy, (nkentseu::int32)nb, rgba);
+		}
+
 		inline void DrawPlaceholder(NkComponentPaint &p, const NkPaintRect &r, const char *name,
 									const NkDocumentHost &host) {
 			if (r.w <= 0.f || r.h <= 0.f)
@@ -552,6 +584,12 @@ namespace nkuidesign {
 				// `rayon`, bord `couleur_bord`/`bordure`) ; sans elle, les rôles
 				// de contenu du thème — les documents d'avant ne bougent pas.
 				const float32 rd = n.radius > 0.f ? n.radius : 4.f;
+				// ⚠️ UN RECTANGLE DONT ON A ÉDITÉ LES SOMMETS N'EST PLUS UN
+				//    RECTANGLE. Dès que la liste existe, il se peint par son TRACÉ
+				//    — sans quoi déplacer un coin en mode points aurait bougé la
+				//    poignée et **rien d'autre** : un mode d'édition parfaitement
+				//    enregistré et parfaitement invisible, exactement le défaut que
+				//    la mutation 3 du mode points avait démasqué en Q42.
 				// ── LES OMBRES PORTÉES, AVANT LA FORME ───────────────────────
 				// ⚠️ AVANT, ET C'EST TOUTE LA DIFFÉRENCE ENTRE UNE OMBRE ET UNE
 				//    TACHE. Peinte après, elle recouvrirait ce qu'elle est censée
@@ -561,6 +599,12 @@ namespace nkuidesign {
 				//    plus transparents. Ça DIT le flou sans le mentir — et le jour
 				//    où une primitive existera, ce site est le seul à changer.
 				NkGOmbres(p, r, n, rd);
+				// ⚠️ ET LE TRACÉ ÉDITÉ PASSE APRÈS L'OMBRE, POUR LA MÊME RAISON.
+				//    Sortir avant `NkGOmbres` aurait fait DISPARAÎTRE l'ombre au
+				//    moment précis où l'on déplace un coin — une propriété perdue
+				//    par un geste qui n'a rien à voir avec elle.
+				if (NkGTraceEdite(p, r, n, host))
+					return;
 				// ⚠️ LE RECTANGLE EMPILE SES REMPLISSAGES, DANS L'ORDRE DE LA
 				//    LISTE — le DERNIER par-dessus, comme chez Lunacy. C'est le
 				//    seul peintre de forme qui le fasse, parce que c'est le seul
@@ -622,6 +666,13 @@ namespace nkuidesign {
 				// L'ELLIPSE (Lunacy : outil O). Le peintre peut ne pas savoir la
 				// dessiner (défaut inerte de l'interface) : le repli est VISIBLE —
 				// le contour de sa boîte + le nom, jamais un vide silencieux.
+				// ⚠️ LE CHEMIN FRÈRE DU RECTANGLE, ET IL EST TRAITÉ AU MÊME MOMENT :
+				//    une ellipse éditée au sommet est un TRACÉ, plus une ellipse.
+				//    L'écrire ici en même temps que là-haut est le geste de la porte
+				//    du 28/08 — écrit plus tard, ce serait un rect qui se déforme et
+				//    une ellipse qui n'obéit pas, sans que rien ne le dise.
+				if (NkGTraceEdite(p, r, n, host))
+					return;
 				if (!p.Ellipse(r, host.Role("doc_field_bg")))
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), r.h * 0.5f);
 				return;
@@ -649,12 +700,18 @@ namespace nkuidesign {
 					|| StrEq(shape, "etoile"))) {
 				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
 													: p.ColorOf(host.Role("doc_field_bg"));
-				// ⚠️ LES SOMMETS VIENNENT DE , PAS D'UNE TABLE LOCALE.
+				// ⚠️ LES SOMMETS VIENNENT DE `Sommets.h`, PAS D'UNE TABLE LOCALE.
 				//    Le mode points doit poser une poignee SUR CHAQUE SOMMET
 				//    DESSINE : deux tables auraient donne des poignees qui derivent
 				//    du dessin au premier ajustement d'une etoile.
-				float32 xy[64];
-				const uint32 nb = NkSommetsDe(n, r, xy, 32);
+				// ⚠️ ET C'EST `NkContourDe`, PAS `NkSommetsDe` : le contour est la
+				//    meme liste d'ancres, arcs d'arrondi compris. L'appel a ete
+				//    change ICI EN MEME TEMPS que rect et ellipse ont recu le leur
+				//    -- laisser le polygone sur les ancres nues aurait rendu
+				//    l'arrondi par sommet visible sur deux formes sur cinq, et
+				//    silencieusement inerte sur les trois autres.
+				float32 xy[256];
+				const uint32 nb = NkContourDe(n, r, xy, 128);
 				if (nb == 0 || !p.PolygonHex(xy, (int32)nb, rgba))
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), 4.f);
 				return;
