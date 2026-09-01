@@ -49,6 +49,7 @@
 #pragma once
 
 #include "NKCanvas/App/NkCanvasApp.h"
+#include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKCanvas/UI/NkGuiCanvasBackend.h"
 #include "NKGui/Core/NkGuiContext.h"
 
@@ -90,50 +91,42 @@ namespace nkentseu {
 				}
 
 				// =============================================================
-				// AIDES DE TEXTE — voir la dette en tete de fichier.
+				// AIDES DE TEXTE — DES RELAIS, plus des implementations.
 				//
-				// ⚠️ `topY` est le HAUT du texte, pas sa ligne de base. C'est la
-				// difference qui oblige a ajouter Ascent(), et c'est exactement
-				// ce que les trois copies precedentes corrigeaient chacune de
-				// leur cote. Toutes tolerent une police nulle : une application
-				// sans police doit rester dessinable, pas planter.
+				// ⚠️ CORRECTION DU 2026-09-01. Elles etaient ecrites ICI, en
+				// methodes protegees. Le resultat s'est mesure tout seul : les
+				// trois jeux de plateau dessinent depuis des FONCTIONS LIBRES
+				// (leur fichier d'ecran ne connait pas la classe d'application),
+				// donc aucun des trois n'a pu s'en servir — et les trois les ont
+				// RE-ECRITES. Une aide rangee dans une classe n'est disponible
+				// que pour ce qui herite de cette classe : c'est une PORTEE, pas
+				// un detail de style.
+				//
+				// Le corps vit desormais dans NkCanvasTexte.h, en fonctions
+				// libres. Ce qui reste ici n'existe que pour les appels deja
+				// ecrits — il ne doit plus jamais grossir.
 				// =============================================================
 				static float32 MeasureW(nkgui::NkGuiFont *f, const char *s) noexcept {
-					return (f != nullptr && s != nullptr) ? f->MeasureWidth(s) : 0.f;
+					return NkTexteLargeur(f, s);
 				}
-
 				static float32 LineH(nkgui::NkGuiFont *f, float32 fallback) noexcept {
-					return (f != nullptr && f->Face() != nullptr) ? f->LineHeight() : fallback;
+					return NkTexteHauteurLigne(f, fallback);
 				}
-
-				/// `maxWidth >= 0` tronque proprement au lieu de deborder.
 				static void Text(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *f, float32 x, float32 topY, const char *s,
 								 const nkgui::NkColor &c, float32 maxWidth = -1.f) noexcept {
-					if (f != nullptr && f->Face() != nullptr && s != nullptr) {
-						dl.AddText(f->Face(), f->TexId(), math::NkVec2f(x, topY + f->Ascent()), s, c, maxWidth);
-					}
+					NkTexte(dl, f, x, topY, s, c, maxWidth);
 				}
-
 				static void TextCentered(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *f, float32 cx, float32 topY,
 										 const char *s, const nkgui::NkColor &c) noexcept {
-					Text(dl, f, cx - MeasureW(f, s) * 0.5f, topY, s, c);
+					NkTexteCentre(dl, f, cx, topY, s, c);
 				}
-
-				/// Centre dans une boite, horizontalement ET verticalement.
-				/// C'est la forme d'un libelle de bouton — celle qu'on veut 9
-				/// fois sur 10 et que personne n'a jamais ecrite du premier coup.
-				static void TextInBox(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *f, const nkgui::NkRect &box, const char *s,
-									  const nkgui::NkColor &c) noexcept {
-					if (f == nullptr || f->Face() == nullptr) {
-						return;
-					}
-					const float32 topY = box.y + (box.h - f->LineHeight()) * 0.5f;
-					Text(dl, f, box.x + (box.w - MeasureW(f, s)) * 0.5f, topY, s, c);
+				static void TextInBox(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *f, const nkgui::NkRect &box,
+									  const char *s, const nkgui::NkColor &c) noexcept {
+					NkTexteDansBoite(dl, f, box, s, c);
 				}
-
 				static void TextRight(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *f, float32 right, float32 topY,
 									  const char *s, const nkgui::NkColor &c) noexcept {
-					Text(dl, f, right - MeasureW(f, s), topY, s, c);
+					NkTexteADroite(dl, f, right, topY, s, c);
 				}
 
 				// --- Cycle de vie de la coquille ------------------------------

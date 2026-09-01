@@ -769,6 +769,13 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    # Unkeny — moteur de jeu 2D sur NKCanvas. Il COMPOSE NKECS, NKCollision
+    # et NKPhysics ; il n'en reecrit rien. Son editeur vit dans
+    # Applications/UnkenyEditor : un moteur ne contient pas son outil.
+    with include("Engine/Unkeny/Unkeny.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKCode/NKCode.jenga"):
@@ -1708,4 +1715,9 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Applications/NkLudo/NkLudo.jenga"):
+        pass
+
+    # L'editeur d'Unkeny. Il vit ici, pas dans Engine : un moteur ne
+    # contient pas son outil.
+    with include("Applications/UnkenyEditor/UnkenyEditor.jenga"):
         pass
