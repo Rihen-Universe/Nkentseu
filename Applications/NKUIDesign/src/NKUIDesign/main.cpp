@@ -2010,7 +2010,8 @@ static struct {
 	/// qu'un tiers du contrat -- et c'est le tiers qui marchait deja.
 	bool ctrl = false;
 	bool maj = false;
-} gClics[4];
+} gClics[10]; // 10 depuis le 01/09 : une scene de synthese demande plus de
+			  // quatre gestes (replier des sections, ajouter, multi-selectionner).
 // ── FRAPPE ET TOUCHES INJECTEES (mise en scene, 01/09) ──────────────────────
 // Le meme principe que gClics : on ecrit dans ctx.input, jamais le clavier
 // reel. Necessaire pour PROUVER les saisies en place (renommage d'arbre,
@@ -2056,7 +2057,7 @@ static struct {
 static void InjecterClics(nkgui::NkGuiContext &ctx) {
 	static int32 compteur = 0;
 	++compteur;
-	for (int32 i = 0; i < 4; ++i) {
+	for (int32 i = 0; i < (int32)(sizeof(gClics) / sizeof(gClics[0])); ++i) {
 		if (gClics[i].frame < 0)
 			continue;
 		// La souris TIENT la position a partir du clic (le harnais releve-menus
@@ -2108,7 +2109,7 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 	}
 	// ── LES TOUCHES (--touche=) : keyInit une trame (le one-shot que
 	//    KeyPressed lit), efface a la suivante ────────────────────────────────
-	for (int32 i = 0; i < 4; ++i) {
+	for (int32 i = 0; i < 4; ++i) { // gTouches[4] -- la borne suit LE TABLEAU
 		if (gTouches[i].frame < 0)
 			continue;
 		if (compteur == gTouches[i].frame)
