@@ -1,0 +1,153 @@
+nkuidoc 1
+# Onglet de demonstration « Landing_Page » (5e retour de Rodolf, 01/09) :
+# un document DISTINCT pour prouver que les onglets portent chacun leur
+# projet. Volontairement modeste — un heros, un CTA, un pied — mais
+# differenciable en un coup d oeil du Dashboard_Admin.
+titre = Landing_Page
+auteur = humain
+verifiee = 0
+corrigee = 0
+origine = main
+
+noeud 0
+  libelle = Toile
+  enfants = 1
+  largeur = expand 0 0 0
+  hauteur = expand 0 0 0
+  agencement = free start start 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 1
+  libelle = Accueil
+  enfants = 2 3 4 5 7 8
+  largeur = fixed 556 0 0
+  hauteur = fixed 340 0 0
+  agencement = free start start 0
+  position = 60 100
+  forme = frame
+  cible = Bureau 1440 x 900
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 2
+  libelle = Bande heros
+  enfants =
+  largeur = fixed 556 0 0
+  hauteur = fixed 200 0 0
+  agencement = none start start 0
+  position = 0 0
+  forme = rect
+  fond = #dbeafe
+  rayon = 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 3
+  libelle = Titre heros
+  enfants =
+  largeur = fixed 400 0 0
+  hauteur = fixed 24 0 0
+  agencement = none start start 0
+  position = 78 56
+  forme = text
+  texte = Construisez plus vite
+  couleur_texte = #1f2328
+  police_px = 16
+  graisse = 700
+  texte_aligne = centre
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 4
+  libelle = Sous-titre
+  enfants =
+  largeur = fixed 400 0 0
+  hauteur = fixed 18 0 0
+  agencement = none start start 0
+  position = 78 90
+  forme = text
+  texte = La plateforme qui assemble vos interfaces.
+  couleur_texte = #656d76
+  police_px = 12
+  graisse = 400
+  texte_aligne = centre
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 5
+  libelle = Bouton_CTA
+  enfants = 6
+  largeur = fixed 140 0 0
+  hauteur = fixed 36 0 0
+  agencement = free start start 0
+  position = 208 128
+  forme = rect
+  role = Button
+  fond = #0969da
+  rayon = 6
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 6
+  libelle = Texte CTA
+  enfants =
+  largeur = fixed 140 0 0
+  hauteur = fixed 16 0 0
+  agencement = none start start 0
+  position = 0 10
+  forme = text
+  texte = Commencer
+  couleur_texte = #ffffff
+  police_px = 12
+  graisse = 600
+  texte_aligne = centre
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 7
+  libelle = Pied
+  enfants =
+  largeur = fixed 556 0 0
+  hauteur = fixed 40 0 0
+  agencement = none start start 0
+  position = 0 300
+  forme = rect
+  fond = #f6f8fa
+  rayon = 0
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 8
+  libelle = Texte pied
+  enfants =
+  largeur = fixed 300 0 0
+  hauteur = fixed 14 0 0
+  agencement = none start start 0
+  position = 128 312
+  forme = text
+  texte = (c) Rihen - Landing de demonstration
+  couleur_texte = #656d76
+  police_px = 10
+  graisse = 400
+  texte_aligne = centre
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main

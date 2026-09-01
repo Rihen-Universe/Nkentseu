@@ -141,7 +141,7 @@ static NkEditorShell *gShell = nullptr;
 /// L onglet de projet actif. ⚠️ UN SEUL ETAT, ici : le dessin de la bande et le
 ///    clic le lisent tous les deux. Deux copies auraient diverge des le premier
 ///    onglet ferme.
-static uint32 gOngletActif = 0;
+// (l'onglet actif vit desormais dans DesignState::ongletActif — multi-documents)
 // L'etat « non enregistre » MESURE (pousse par le canal gDesign.titre) : la
 // barre de titre ET l'onglet actif portent la meme pastille « ● ».
 static bool gDocumentModifie = false;
@@ -189,7 +189,9 @@ static void CmdLoad(void *) {
 	gDesign.LoadDoc();
 }
 static void CmdNew(void *) {
-	gDesign.BuildStarterDocument();
+	// Multi-documents (01/09) : Ctrl+N OUVRE UN NOUVEL ONGLET — il n'ecrase
+	// plus le document courant (5e retour de Rodolf).
+	gDesign.NouvelOngletVierge();
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -315,6 +317,41 @@ static nkentseu::int32 RecetteAnnulation() {
 	avantGeste();
 	st.doc.RemoveSubtree(forme, nullptr);
 	apresGeste("suppression d'un sous-arbre");
+
+	// 11. LES ONGLETS (multi-documents, 01/09) : L'ANNULATION NE TRAVERSE PAS.
+	//     Geste sur A, bascule vers B, Annuler -> B ne bouge pas ; retour vers
+	//     A -> il est reste modifie, et SON annulation defait SON geste.
+	{
+		st.ouverts.Clear();
+		{
+			DesignState::NkDocOuvert s0;
+			st.ouverts.PushBack(s0);
+			st.ongletActif = 0;
+		}
+		NkUIDocument db;
+		NkBuildBlankDocument(db);
+		db.title = NkString("Recette B");
+		const int32 iB = st.OuvrirOngletInactif(db, "");
+		const NkString aAvant = ser(st);
+		st.doc.SetMetric("onglet_recette", 3.f);
+		st.doc.MarkHumanEdit(0);
+		stabiliser(st);
+		++gestes;
+		const NkString aApres = ser(st);
+		st.BasculerVers((uint32)iB);
+		const NkString bAvant = ser(st);
+		st.Annuler(); // il n'y a RIEN a annuler dans B — et surtout pas le geste de A
+		const bool okB = identiques(ser(st), bAvant);
+		st.BasculerVers(0);
+		const bool okA1 = identiques(ser(st), aApres); // A est revenu MODIFIE
+		st.Annuler();
+		const bool okA2 = identiques(ser(st), aAvant); // et SON Ctrl+Z defait SON geste
+		printf("%s  onglets : l'annulation ne traverse pas (B %s, A garde %s, A annule %s)\n",
+			   (okB && okA1 && okA2) ? "OK   " : "ECHEC", okB ? "intact" : "TOUCHE",
+			   okA1 ? "==" : "!=", okA2 ? "==" : "!=");
+		if (!okB || !okA1 || !okA2)
+			++echecs;
+	}
 
 	// LA CONTRE-EPREUVE : N gestes, N Annuler -> l'etat initial EXACT.
 	for (int32 i = 0; i < gestes; ++i)
@@ -1025,7 +1062,12 @@ static nkentseu::editorkit::NkModal gLauncherModal;
 static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
-	static const char *const kOnglets[3] = {"Dashboard_Admin", "Landing_Page", "HUD_Jeu"};
+	// ⚠️ LES ONGLETS SONT LES DOCUMENTS OUVERTS (5e retour de Rodolf, 01/09) :
+	//    plus de libelles ecrits en dur. Cliquer BASCULE le document actif
+	//    (DesignState::BasculerVers — Hierarchie, toile, Inspecteur, titre
+	//    suivent, ils lisent deja `doc`) ; la croix FERME (un document modifie
+	//    refuse et le dit) ; le « + » ouvre « Nouveau projet », dont la branche
+	//    Vierge cree un NOUVEL onglet.
 	// ⚠️ DES RECTANGLES EXPLICITES, pas le flux : la bande fait 28 px et les
 	//    onglets doivent la remplir exactement. `SetNextItemRect` est le moyen
 	//    prevu par NKGui pour poser un widget (mesure NKGuiDrawTest, 9/9).
@@ -1058,13 +1100,19 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 	const float32 hT = 27.f;
 	const float32 yT = z.y + z.h - hT;
 	float32 x = z.x;
-	for (uint32 i = 0; i < 3; ++i) {
-		const bool actif = (i == gOngletActif);
-		// libellé : l'actif porte « ● » quand le document est modifié (état
-		// MESURÉ, poussé par le même canal que la barre de titre).
+	const uint32 nOnglets = (uint32)gDesign.ouverts.Size();
+	for (uint32 i = 0; i < nOnglets; ++i) {
+		const bool actif = (i == gDesign.ongletActif);
+		// libellé : nom du document ; « ● » quand il est modifié (l'actif est
+		// MESURÉ en direct — même canal que la barre de titre — l'inactif
+		// porte la mesure prise à son rangement).
+		const bool modif = actif ? gDocumentModifie : gDesign.ouverts[i].modifie;
+		// L'onglet ACTIF lit le titre VIVANT (un renommage de document se voit
+		// sans attendre une bascule) ; l'inactif lit son ardoise.
+		const char *nomOng = actif ? gDesign.doc.title.Data() : gDesign.ouverts[i].nom.Data();
 		char libelle[64];
-		snprintf(libelle, sizeof(libelle), "%s%s", kOnglets[i],
-				 (actif && gDocumentModifie) ? " \xE2\x97\x8F" : "");
+		snprintf(libelle, sizeof(libelle), "%s%s", (nomOng && *nomOng) ? nomOng : "(sans nom)",
+				 modif ? " \xE2\x97\x8F" : "");
 		const float32 wTxt = cos::Largeur(F.px11, libelle);
 		const float32 wX = cos::Largeur(F.px11, "\xC3\x97"); // « × »
 		// 12 (pad) + 10 (icône) + 4 + texte + 4 + croix + 12 (pad)
@@ -1090,10 +1138,13 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 			const NkVec2 m = ctx.input.mousePos;
 			const bool dansX = m.x >= rx.x && m.x < rx.x + rx.w && m.y >= rx.y && m.y < rx.y + rx.h;
 			const bool dansT = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
-			if (dansX)
-				gDesign.status = NkString("Fermer un onglet de projet : à brancher.");
-			else if (dansT)
-				gOngletActif = i;
+			if (dansX) {
+				// FermerOnglet refuse un document modifie et le dit au pied.
+				// La liste peut se raccourcir : on sort de la boucle.
+				gDesign.FermerOnglet(i);
+				break;
+			} else if (dansT)
+				gDesign.BasculerVers(i);
 		}
 		x += wT;
 	}
@@ -1133,10 +1184,10 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 			gLauncherModal.open = false;
 			gLauncherModal.posInit = false;
 			if (gShell)
-				gShell->SetFooter("Nouveau projet vierge : ", "document de départ créé.");
+				gShell->SetFooter("Nouveau projet vierge : ", "ouvert dans un nouvel onglet.");
 		}
-		nkgui::TextWrapped(ctx, "Repart du document de départ. Le document courant "
-								"n'est pas enregistré automatiquement.");
+		nkgui::TextWrapped(ctx, "S'ouvre dans un NOUVEL onglet — le document courant "
+								"reste ouvert dans le sien.");
 		ctx.Spacing(8.f);
 
 		// -- Gabarit / Via IA : grisees, et elles DISENT pourquoi --------
@@ -1960,15 +2011,31 @@ int nkmain(const NkEntryState &state) {
 	// La pastille « ● » du nom de fichier (Banani TopHeader : non-enregistre).
 	// L'etat arrive MESURE (Panels) ; ici on ne repeint qu'au changement.
 	gDesign.titre = [](void *u, bool modifie) {
+		// ⚠️ LE NOM VIENT DU DOCUMENT ACTIF, plus d'un libelle en dur (le
+		//    « Dashboard_Admin.nkgui » ecrit ici mentait des qu'un autre
+		//    onglet devenait actif — 5e retour). Le fichier reel prime ;
+		//    un document jamais enregistre montre son titre.
 		static bool dernier = false;
-		static bool init = false;
-		if (init && modifie == dernier)
+		static nkentseu::NkString dernierNom;
+		char nom[160];
+		const char *base = gDesign.cheminActif.Data();
+		if (base && *base) {
+			const char *slash = base;
+			for (const char *q = base; *q; ++q)
+				if (*q == '/' || *q == '\\')
+					slash = q + 1;
+			snprintf(nom, sizeof(nom), "%s", slash);
+		} else
+			snprintf(nom, sizeof(nom), "%s", gDesign.doc.title.Data());
+		const bool memeNom = dernierNom.Data() && NkComponentDecl::StrEq(dernierNom.Data(), nom);
+		if (memeNom && modifie == dernier)
 			return;
-		init = true;
 		dernier = modifie;
+		dernierNom = nkentseu::NkString(nom);
 		gDocumentModifie = modifie; // l'onglet actif porte la meme pastille
-		static_cast<NkEditorShell *>(u)->SetTitleInfo(
-			modifie ? "● Dashboard_Admin.nkgui" : "Dashboard_Admin.nkgui");
+		char plein[176];
+		snprintf(plein, sizeof(plein), "%s%s", modifie ? "\xE2\x97\x8F " : "", nom);
+		static_cast<NkEditorShell *>(u)->SetTitleInfo(plein);
 	};
 	gDesign.titreUser = shell.Get();
 
@@ -2061,7 +2128,9 @@ int nkmain(const NkEntryState &state) {
 		shell->SetRailFooterStatus("", {0, 0, 0, 0}); // pas de bandeau bas du tout
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
-	shell->SetTitleInfo("Dashboard_Admin.nkgui");
+	// Le titre initial vient du DOCUMENT (le callback `titre` prendra le
+	// relais a la premiere mesure — meme regle : jamais un nom en dur).
+	shell->SetTitleInfo(gDesign.doc.title.Data() ? gDesign.doc.title.Data() : "NkUIDesign");
 	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");
 	// L'annulation unifiée (§7) : Ctrl+Z / Ctrl+Y, et Ctrl+Maj+Z en seconde
 	// orthographe du rétablir (le standard des trois éditeurs de référence).

@@ -473,10 +473,64 @@ namespace nkuidesign {
 				//    hachage permissif -- et mesurer autre chose que l'ecran.
 				ai.SetBackend(&fileBackend);
 
-				if (!LoadDoc())
+				if (!LoadDoc()) {
 					BuildStarterDocument();
+					// Fichier ABSENT (premier lancement) : Ctrl+S ecrira le chemin
+					// historique. Fichier PRESENT mais illisible : chemin vide —
+					// Ctrl+S n'ecrasera PAS le fichier qu'on n'a pas su lire
+					// (c'est la regle « ne pas enregistrer par-dessus »).
+					if (!loadFailed)
+						cheminActif = NkString(kDocumentPath);
+				}
+
+				// ── L'ONGLET 0 EXISTE DES LE DEMARRAGE (multi-documents) ─────
+				// Son ardoise sera rangee au premier Basculer ; ici seulement le
+				// nom et le chemin, pour que la bande d'onglets ait a lire.
+				{
+					NkDocOuvert s0;
+					s0.nom = doc.title;
+					s0.chemin = cheminActif;
+					ouverts.PushBack(s0);
+					ongletActif = 0;
+				}
+				ChargerOngletsDemonstration();
 
 				AuditDeclaredRoles();
+			}
+
+			/// LES DEUX ONGLETS DE DEMONSTRATION (5e retour) : Landing_Page et
+			/// HUD_Jeu sont DES DOCUMENTS DISTINCTS (.nkuidoc — du contenu, pas
+			/// du code), cherches a cote du document principal puis au chemin du
+			/// depot. Introuvables = pas d'onglet, et le journal le dit — pas de
+			/// chrome qui promet.
+			void ChargerOngletsDemonstration() {
+				static const char *const kDemos[2] = {"demo_landing_page.nkuidoc",
+													  "demo_hud_jeu.nkuidoc"};
+				for (uint32 d = 0; d < 2; ++d) {
+					// 1. a cote du document principal (le repertoire de travail)
+					NkString c1 = NkString(kDemos[d]);
+					// 2. le chemin du depot (lancement depuis la racine de l'arbre)
+					NkString c2 = NkString("Applications/NKUIDesign/design/mises_en_scene/");
+					c2.Append(kDemos[d]);
+					const char *trouve = nullptr;
+					if (nkentseu::NkFile::Exists(c1.Data()))
+						trouve = c1.Data();
+					else if (nkentseu::NkFile::Exists(c2.Data()))
+						trouve = c2.Data();
+					if (!trouve) {
+						logger.Info("[NKUIDesign] démo « {0} » introuvable : pas d'onglet.",
+									kDemos[d]);
+						continue;
+					}
+					const NkString texte = nkentseu::NkFile::ReadAllText(trouve);
+					NkUIDocument dd;
+					if (texte.Empty() || !dd.Load(texte.Data())) {
+						logger.Warn("[NKUIDesign] démo « {0} » illisible : pas d'onglet.",
+									trouve);
+						continue;
+					}
+					OuvrirOngletInactif(dd, trouve);
+				}
 			}
 
 			// ── L'AUDIT DES ROLES, AU DEMARRAGE ET SANS ATTENDRE UNE IMAGE ──
@@ -702,12 +756,31 @@ namespace nkuidesign {
 			}
 
 			void SaveDoc() {
+				// ⚠️ CHAQUE ONGLET A SON FICHIER (multi-documents, 01/09) :
+				//    Ctrl+S ecrit le chemin du document ACTIF. Un document jamais
+				//    enregistre derive « <titre>.nkuidoc » a cote de l'executable
+				//    courant — et le DIT.
+				if (cheminActif.Empty()) {
+					NkString nomF;
+					const char *t = doc.title.Data() ? doc.title.Data() : "document";
+					for (const char *q = t; *q; ++q) {
+						const char c = *q;
+						const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+										|| (c >= '0' && c <= '9') || c == '-' || c == '_';
+						const char cbuf[2] = {ok ? c : '_', 0};
+						nomF.Append(cbuf);
+					}
+					if (nomF.Empty())
+						nomF.Append("document");
+					nomF.Append(".nkuidoc");
+					cheminActif = nomF;
+				}
 				NkString out;
 				doc.Save(out);
-				status = nkentseu::NkFile::WriteAllText(kDocumentPath, out.Data())
+				status = nkentseu::NkFile::WriteAllText(cheminActif.Data(), out.Data())
 							 ? NkString("Document enregistré : ")
 							 : NkString("ÉCHEC d'écriture : ");
-				status.Append(kDocumentPath);
+				status.Append(cheminActif);
 				PrendreEtatEnregistre();
 			}
 
@@ -742,6 +815,7 @@ namespace nkuidesign {
 					return false;
 				}
 				doc = loaded;
+				cheminActif = NkString(kDocumentPath); // l'onglet actif suit ce fichier
 				SelectSingle(0);
 				host.demoModels.Clear();
 				host.SyncTo(doc);
@@ -800,6 +874,192 @@ namespace nkuidesign {
 			/// Incrementee a chaque restauration d'historique : les tampons
 			/// locaux (Inspecteur) se resynchronisent quand elle change.
 			uint32 editionGeneration = 0;
+
+			// ── LES ONGLETS DE PROJETS (§6) : N DOCUMENTS OUVERTS ────────────
+			// ⚠️ MESURE DU 01/09 (5e retour de Rodolf) : les trois onglets
+			//    etaient du CHROME — des libelles ecrits en dur, un clic qui ne
+			//    changeait que `gOngletActif`, TOUS montraient le seul document
+			//    charge. La famille « l'infobulle promettait, aucun code ne
+			//    lisait » (le F jamais branche).
+			//
+			// Le modele : l'etat VIVANT (doc, histoire, selection, vue, chemin)
+			// reste dans DesignState — les panneaux lisent `mSt->doc` et ne
+			// changent PAS. Chaque onglet inactif garde une ARDOISE (NkDocOuvert)
+			// de cet etat ; basculer = ranger l'actif dans son ardoise, charger
+			// celle du voisin. Chaque document garde SON historique, SA pastille
+			// (mesuree), SA vue, SA selection — l'annulation ne traverse pas les
+			// onglets. La copie d'ardoise passe par les operateurs profonds des
+			// conteneurs (la meme voie que RechargerDepuis) ; ~1,3 Mo au pire
+			// (100 instantanes d'historique), au clic d'onglet seulement.
+			struct NkDocOuvert {
+					NkString nom;	 ///< libelle d'onglet = titre du document
+					NkString chemin; ///< fichier ("" = jamais enregistre)
+					NkUIDocument doc;
+					NkHistorique histoire;
+					NkString etatEnregistre;
+					int32 selected = 0;
+					float32 vueX = 0.f, vueY = 0.f, vueZ = 1.f;
+					bool vueInit = false; ///< faux = vue par defaut a poser
+					/// Pastille « ● » de l'onglet INACTIF : mesuree au rangement
+					/// (mesurer chaque ardoise a chaque image serait une
+					/// serialisation par onglet et par image — le poids invisible
+					/// que la passe fluidite chasse). L'onglet ACTIF est mesure
+					/// en direct par la boucle existante.
+					bool modifie = false;
+			};
+			NkVector<NkDocOuvert> ouverts;
+			uint32 ongletActif = 0;
+			/// Le fichier du document ACTIF ("" = jamais enregistre). SaveDoc
+			/// ecrit ICI — plus un chemin unique en dur pour tous les onglets.
+			NkString cheminActif;
+			/// La vue par defaut d'un document neuf : a droite de la barre
+			/// d'outils flottante (2 x kOutilsMarge + kOutilsLargeur du canvas
+			/// = 2 x 10 + 36 ; les constantes vivent dans CanvasPanel, declare
+			/// APRES — le nombre est repris ici avec sa provenance).
+			static constexpr float32 kVueDefautX = 56.f;
+			static constexpr float32 kVueDefautY = 12.f;
+
+			/// Range l'etat VIVANT dans l'ardoise de l'onglet actif.
+			void RangerActif() {
+				if (ongletActif >= (uint32)ouverts.Size())
+					return;
+				NkDocOuvert &s = ouverts[ongletActif];
+				s.doc = doc;
+				s.histoire = histoire;
+				s.etatEnregistre = etatEnregistre;
+				s.selected = selected;
+				s.vueX = view.panX;
+				s.vueY = view.panY;
+				s.vueZ = view.zoom;
+				s.vueInit = true;
+				s.chemin = cheminActif;
+				s.nom = doc.title;
+				s.modifie = DocumentModifie();
+			}
+
+			/// Charge l'ardoise `i` dans l'etat vivant (sans ranger l'actif —
+			/// c'est l'affaire de l'appelant : BasculerVers range, FermerOnglet
+			/// ne range PAS l'onglet qui meurt).
+			void ChargerSlot(uint32 i) {
+				if (i >= (uint32)ouverts.Size())
+					return;
+				NkDocOuvert &s = ouverts[i];
+				doc = s.doc;
+				histoire = s.histoire;
+				etatEnregistre = s.etatEnregistre;
+				cheminActif = s.chemin;
+				if (doc.IsValidIndex(s.selected))
+					SelectSingle(s.selected);
+				else
+					SelectClear();
+				if (s.vueInit) {
+					view.panX = s.vueX;
+					view.panY = s.vueY;
+					view.zoom = s.vueZ > 0.01f ? s.vueZ : 1.f;
+				} else {
+					view.panX = kVueDefautX;
+					view.panY = kVueDefautY;
+					view.zoom = 1.f;
+				}
+				ongletActif = i;
+				host.demoModels.Clear();
+				host.SyncTo(doc);
+				++editionGeneration; // les tampons d'Inspecteur se resynchronisent
+				if (titre)
+					titre(titreUser, DocumentModifie());
+			}
+
+			/// Cliquer un onglet : bascule le document ACTIF. Hierarchie, toile,
+			/// Inspecteur, titre suivent tous — ils lisent deja `doc`.
+			bool BasculerVers(uint32 i) {
+				if (i >= (uint32)ouverts.Size() || i == ongletActif)
+					return false;
+				RangerActif();
+				ChargerSlot(i);
+				return true;
+			}
+
+			/// Ouvre un onglet INACTIF pour un document deja charge (les demos
+			/// du demarrage). Rend l'index de l'onglet.
+			int32 OuvrirOngletInactif(const NkUIDocument &d, const char *chemin) {
+				NkDocOuvert s;
+				s.doc = d;
+				s.nom = d.title;
+				s.chemin = NkString(chemin ? chemin : "");
+				d.Save(s.etatEnregistre);
+				s.histoire.Reinitialiser(s.etatEnregistre);
+				ouverts.PushBack(s);
+				return (int32)ouverts.Size() - 1;
+			}
+
+			/// « + > Vierge » et Ctrl+N : un NOUVEAU document devient un NOUVEL
+			/// onglet — l'ancien reste ouvert (5e retour : plus d'ecrasement).
+			void NouvelOngletVierge() {
+				RangerActif();
+				NkDocOuvert s;
+				ouverts.PushBack(s);
+				ongletActif = (uint32)ouverts.Size() - 1;
+				cheminActif = NkString();
+				BuildStarterDocument(); // pose doc, selection, historique, statut
+				view.panX = kVueDefautX;
+				view.panY = kVueDefautY;
+				view.zoom = 1.f;
+				++editionGeneration;
+				if (titre)
+					titre(titreUser, DocumentModifie());
+			}
+
+			/// Un document d'ardoise est-il modifie ? (serialisation comparee —
+			/// la meme MESURE que la pastille, jamais un drapeau).
+			bool SlotModifie(const NkDocOuvert &s) const {
+				NkString now;
+				s.doc.Save(now);
+				const char *a = now.Data() ? now.Data() : "";
+				const char *b = s.etatEnregistre.Data() ? s.etatEnregistre.Data() : "";
+				while (*a && *a == *b) {
+					++a;
+					++b;
+				}
+				return *a != *b;
+			}
+
+			/// La croix : ferme l'onglet. Un document MODIFIE ne se ferme pas en
+			/// silence — Ctrl+S d'abord (le dialogue « enregistrer avant de
+			/// fermer ? » est un chantier nomme, pas une promesse muette).
+			bool FermerOnglet(uint32 i) {
+				if (i >= (uint32)ouverts.Size())
+					return false;
+				const bool actif = (i == ongletActif);
+				const bool mod = actif ? DocumentModifie() : SlotModifie(ouverts[i]);
+				if (mod) {
+					DireAuPied("Onglet non enregistré — Ctrl+S d'abord (le dialogue de "
+							   "confirmation arrive).");
+					return false;
+				}
+				if ((uint32)ouverts.Size() == 1) {
+					// le dernier onglet ne disparait pas : il se VIDE (un editeur
+					// sans document n'existe pas — Lunacy repart d'un canvas neuf).
+					cheminActif = NkString();
+					BuildStarterDocument();
+					ouverts[0] = NkDocOuvert();
+					ouverts[0].nom = doc.title;
+					view.panX = kVueDefautX;
+					view.panY = kVueDefautY;
+					view.zoom = 1.f;
+					++editionGeneration;
+					DireAuPied("Dernier onglet : document remplacé par un neuf.");
+					return true;
+				}
+				if (actif) {
+					const uint32 v = (i + 1 < (uint32)ouverts.Size()) ? i + 1 : i - 1;
+					ChargerSlot(v); // sans ranger l'onglet qui meurt
+				}
+				ouverts.RemoveAt(i);
+				if (ongletActif > i)
+					--ongletActif;
+				DireAuPied("Onglet fermé.");
+				return true;
+			}
 			/// Mise en scene (--annuler=N / --retablir=N) : N pas au lancement,
 			/// consommes par la toile quand le document est la.
 			int32 annulerInitial = 0;
