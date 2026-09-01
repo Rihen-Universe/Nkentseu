@@ -61,6 +61,7 @@
 #include "MenuFormat.h" // le catalogue des formats de page (chantier Cible, 31/08)
 #include "MenuRole.h" // le menu des rôles (écrans 5-6-7) — le geste « promouvoir »
 #include "Selection.h"
+#include "SelectionGeste.h" // le contrat de selection : les DEUX tables, cote a cote
 #include "Snap.h" // l'aimantation Lunacy — un MECANISME, pas un dessin
 #include "DesignAI.h"
 #include "Renderers.h"
@@ -3273,7 +3274,9 @@ namespace nkuidesign {
 					//      • MAJ+clic  = MULTI-SELECTION (ajoute / retire).
 					//    La regle de la maison dit que diverger demande une raison
 					//    ecrite et que suivre n'en demande aucune : on suit.
-					int32 hit = in.ctrl
+					// LE GESTE VIENT DE LA TABLE PARTAGEE, pas d'un `if` local.
+					const NkGesteSel geste = NkGesteToile(in.ctrl, in.shift);
+					int32 hit = (geste == NkGesteSel::Profond)
 									? NkPickSelectable(mSt->doc, screen, in.mouseX, in.mouseY)
 									: NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY,
 														 mForage);
@@ -3287,32 +3290,23 @@ namespace nkuidesign {
 						// ⚠️ MAJ conserve la selection : le rectangle AJOUTE au lieu
 						//    de remplacer (Lunacy). C'etait `Ctrl` ici aussi.
 						mForage = -1;
-						if (!in.shift)
+						if (geste != NkGesteSel::Basculer)
 							mSt->SelectClear();
 						mMarquee = true;
 						mMarqX = in.mouseX;
 						mMarqY = in.mouseY;
 					}
 					if (hit >= 0) {
-						if (in.shift) {
-							// ⚠️ LA RACINE N'EST PAS UN ELEMENT, ET ELLE EST SELECTIONNEE
-							//    AU DEMARRAGE (`selected = 0`). Sans ce retrait, le premier
-							//    Maj+clic rendait une selection de DEUX (la racine + le noeud
-							//    vise) dont le principal etait la racine -- releve du 01/09 :
-							//    selection = [0, 15], compte = 2. L'Inspecteur aurait affiche
-							//    le document, et Grouper aurait refuse sans dire pourquoi.
-							//    La regle existe deja ailleurs (RacinesSelection, la
-							//    suppression) : on l'applique ici aussi.
-							if (mSt->sel.Contains(0))
-								mSt->sel.Clear();
-							mSt->SelectToggle(hit); // MAJ+clic : multi-selection
-						}
-						else if (!mSt->sel.Contains(hit))
-							mSt->SelectSingle(hit);
+						// ⚠️ L'APPLICATION PASSE PAR LE MECANISME : c'est lui qui porte la
+						//    regle « la racine n'est jamais un element », une fois pour
+						//    les trois surfaces. Elle avait deja ete oubliee ICI (releve
+						//    du 01/09 : selection = [0, 15], principal = la racine).
+						if (geste == NkGesteSel::Basculer || !mSt->sel.Contains(hit))
+							NkAppliquerGeste(mSt->doc, mSt->sel, mSt->selected, hit, geste);
 						// CTRL+clic a designe un noeud PROFOND : le contexte de forage
 						// SUIT. Sans ca le clic suivant repartirait du premier niveau,
 						// et la selection profonde n'aurait tenu qu'une image.
-						if (in.ctrl && mSt->doc.IsValidIndex(hit))
+						if (geste == NkGesteSel::Profond && mSt->doc.IsValidIndex(hit))
 							mForage = mSt->doc.nodes[(uint32)hit].parent;
 						const NkPaintRect r = screen.At(hit);
 						const bool nearRight = in.mouseX >= r.x + r.w - kHandle;
@@ -5825,9 +5819,18 @@ namespace nkuidesign {
 					// ⚠️ L'ID du modèle EST « index document + 1 » (posé par
 					//    SyncPages) : c'est LUI qui traduit, plus l'index du
 					//    modèle — la racine sautée a décalé les indices.
+					// ⚠️ ET ELLE HONORE ENFIN LES MODIFICATEURS. Jusqu'au 01/09
+					//    cette ligne faisait un `SelectSingle` INCONDITIONNEL : la
+					//    Hierarchie ne savait pas multi-selectionner, et elle
+					//    ECRASAIT la multi-selection faite sur la toile au premier
+					//    clic -- le va-et-vient n'existait que dans un sens. La
+					//    table de la LISTE vit dans SelectionGeste.h, a cote de
+					//    celle de la toile, pour qu'elles ne derivent plus.
 					if (modele.active > 0
 						&& mSt->doc.IsValidIndex((int32)modele.active - 1))
-						mSt->SelectSingle((int32)modele.active - 1);
+						NkAppliquerGeste(mSt->doc, mSt->sel, mSt->selected,
+										 (int32)modele.active - 1,
+										 NkGesteListe(in.ctrl, in.shift));
 					else
 						mSt->SelectClear();
 				}
