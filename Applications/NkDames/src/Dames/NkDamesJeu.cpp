@@ -68,6 +68,7 @@ namespace nkentseu {
 			}
 
 			bool NkDamesJeu::OnGuiInit() {
+				mSplash.PoserJeu("Dames");
 				Rejouer();
 				return true;
 			}
@@ -126,6 +127,16 @@ namespace nkentseu {
 
 			// =====================================================================
 			bool NkDamesJeu::OnPointer(const NkPointer &p) {
+				// ⚠️ L'OUVERTURE MANGE L'APPUI, ET C'EST VOULU. Sans ce retour,
+				// le meme appui sauterait le splash ET activerait le bouton qui
+				// se trouve dessous — l'utilisateur lancerait une partie qu'il
+				// n'a pas choisie, en croyant seulement passer l'ecran.
+				if (!mSplash.Termine()) {
+					if (p.phase == NkPointerPhase::NK_POINTER_UP) {
+						mSplash.Sauter();
+					}
+					return true;
+				}
 				// On agit au RELACHE, pas a l'appui : c'est ce qui permet de
 				// glisser hors d'un bouton pour annuler, comportement attendu
 				// partout et gratuit ici.
@@ -268,6 +279,14 @@ namespace nkentseu {
 			}
 
 			void NkDamesJeu::OnTick(float32 deltaTime) {
+				// ⚠️ L'OUVERTURE AVANCE AVANT TOUT LE RESTE, ET ELLE ARRETE LA
+				// TRAME. Sans ce retour, le jeu tournerait DERRIERE l'ecran de
+				// marque : une IA jouerait ses premiers coups pendant les quatre
+				// secondes d'ouverture, et le joueur trouverait la partie deja
+				// entamee en arrivant.
+				if (mSplash.Avancer(deltaTime)) {
+					return;
+				}
 				if (mEcran == NkEcran::NK_MENU) {
 					return; // rien ne se joue tant qu'on n'a pas choisi
 				}
@@ -305,6 +324,18 @@ namespace nkentseu {
 				f.titre = FontTitle();
 				f.corps = FontBody();
 				f.petite = FontSmall();
+
+				// ⚠️ L'OUVERTURE SE PEINT SEULE ET COUVRE TOUT. On ne dessine pas
+				// le jeu dessous : son fond est opaque, donc ce serait du travail
+				// perdu a chaque trame -- et sur un telephone, ce travail se paie
+				// en batterie des le premier ecran.
+				if (!mSplash.Termine()) {
+					mSplash.Dessiner(dl, f.titre, f.corps, f.petite,
+									 nkgui::NkRect{0.f, 0.f, static_cast<float32>(info.width),
+												   static_cast<float32>(info.height)},
+									 LogoRihenTexId());
+					return;
+				}
 				const NkDamesVue vue = Vue();
 
 				DessinerFond(dl, info);

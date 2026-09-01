@@ -66,6 +66,7 @@ namespace nkentseu {
 			}
 
 			bool NkLudoJeu::OnGuiInit() {
+				mSplash.PoserJeu("Ludo");
 				Rejouer();
 				return true;
 			}
@@ -135,6 +136,16 @@ namespace nkentseu {
 
 			// =====================================================================
 			bool NkLudoJeu::OnPointer(const NkPointer &p) {
+				// ⚠️ L'OUVERTURE MANGE L'APPUI, ET C'EST VOULU. Sans ce retour,
+				// le meme appui sauterait le splash ET activerait le bouton qui
+				// se trouve dessous — l'utilisateur lancerait une partie qu'il
+				// n'a pas choisie, en croyant seulement passer l'ecran.
+				if (!mSplash.Termine()) {
+					if (p.phase == NkPointerPhase::NK_POINTER_UP) {
+						mSplash.Sauter();
+					}
+					return true;
+				}
 				if (p.phase != NkPointerPhase::NK_POINTER_UP) {
 					return false;
 				}
@@ -142,16 +153,23 @@ namespace nkentseu {
 
 				// --- L'ECRAN DE MENU -------------------------------------------
 				if (mEcran == NkEcran::NK_MENU) {
-					const NkMode modes[NK_LUDO_NB_MODES] = {NkMode::NK_UN_JOUEUR, NkMode::NK_DEUX_JOUEURS,
-															NkMode::NK_TROIS_JOUEURS, NkMode::NK_QUATRE_JOUEURS,
-															NkMode::NK_SIMULATION};
-					for (int32 i = 0; i < NK_LUDO_NB_MODES; ++i) {
-						if (NkDansRect(mGeo.choix[i], pos)) {
-							ChoisirMode(modes[i]);
-							Rejouer();
-							mEcran = NkEcran::NK_PARTIE;
+					// ── Un siege : il tourne Humain -> IA -> Desactive ───────
+					for (int32 j = 0; j < NK_LUDO_JOUEURS; ++j) {
+						if (NkDansRect(mGeo.choix[j], pos)) {
+							mControleur[j] = NkControleurSuivant(mControleur[j]);
+							// ⚠️ ON NE REFUSE PAS LE TROISIEME ETAT ICI. Si le
+							// reglage tombe sous deux sieges utilisables,
+							// « Commencer » se grise et DIT pourquoi. Bloquer le
+							// clic a la place laisserait un bouton muet, ce qui
+							// se lit comme une panne et non comme une regle.
 							return true;
 						}
+					}
+					// ── Commencer ────────────────────────────────────────────
+					if (NkDansRect(mGeo.choix[NK_LUDO_LIGNE_COMMENCER], pos) && PeutCommencer()) {
+						Rejouer();
+						mEcran = NkEcran::NK_PARTIE;
+						return true;
 					}
 					return true;
 				}
@@ -231,6 +249,14 @@ namespace nkentseu {
 
 			// =====================================================================
 			void NkLudoJeu::OnTick(float32 deltaTime) {
+				// ⚠️ L'OUVERTURE AVANCE AVANT TOUT LE RESTE, ET ELLE ARRETE LA
+				// TRAME. Sans ce retour, le jeu tournerait DERRIERE l'ecran de
+				// marque : une IA jouerait ses premiers coups pendant les quatre
+				// secondes d'ouverture, et le joueur trouverait la partie deja
+				// entamee en arrivant.
+				if (mSplash.Avancer(deltaTime)) {
+					return;
+				}
 				if (mEcran == NkEcran::NK_MENU || mFinie) {
 					return;
 				}
@@ -294,9 +320,21 @@ namespace nkentseu {
 				f.corps = FontBody();
 				f.petite = FontSmall();
 
+				// ⚠️ L'OUVERTURE SE PEINT SEULE ET COUVRE TOUT. On ne dessine pas
+				// le jeu dessous : son fond est opaque, donc ce serait du travail
+				// perdu a chaque trame -- et sur un telephone, ce travail se paie
+				// en batterie des le premier ecran.
+				if (!mSplash.Termine()) {
+					mSplash.Dessiner(dl, f.titre, f.corps, f.petite,
+									 nkgui::NkRect{0.f, 0.f, static_cast<float32>(info.width),
+												   static_cast<float32>(info.height)},
+									 LogoRihenTexId());
+					return;
+				}
+
 				DessinerFond(dl, info);
 				if (mEcran == NkEcran::NK_MENU) {
-					DessinerMenu(dl, mGeo, f);
+					DessinerMenu(dl, mGeo, f, mControleur, PeutCommencer());
 					return;
 				}
 				const NkLudoVue vue = Vue();
@@ -312,6 +350,29 @@ namespace nkentseu {
 			// =====================================================================
 			void NkLudoJeu::Rejouer() {
 				mPartie.Initialiser();
+
+				// ⚠️ LES REGLES DOIVENT SAVOIR, ET APRES `Initialiser()`.
+				// L'ecran connait l'etat des sieges ; sans cette recopie, la
+				// partie donnerait la main a un siege desactive, attendrait un
+				// coup qui ne peut pas venir, et le symptome serait « le jeu se
+				// fige » -- a des lieues de sa cause.
+				//
+				// On ACTIVE d'abord, on DESACTIVE ensuite : dans l'autre sens,
+				// la borne des deux sieges refuserait une desactivation legitime
+				// parce que les activations n'auraient pas encore eu lieu.
+				for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+					if (mControleur[i] != NkControleur::NK_DESACTIVE) {
+						mPartie.PoserSiegeActif(i, true);
+					}
+				}
+				for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+					if (mControleur[i] == NkControleur::NK_DESACTIVE) {
+						mPartie.PoserSiegeActif(i, false);
+					}
+				}
+				// `Initialiser()` remet le trait au siege 0 : s'il est desactive,
+				// la partie demarrerait sur un joueur qui ne joue pas.
+				mPartie.PoserJoueur(mPartie.ProchainSiegeActif(0));
 				mCoups.Clear();
 				mDeLance = false;
 				mDernierDe = 0;

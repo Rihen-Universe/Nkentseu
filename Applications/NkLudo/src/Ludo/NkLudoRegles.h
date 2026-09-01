@@ -119,6 +119,57 @@ namespace nkentseu {
 					mJoueur = j % NK_LUDO_JOUEURS;
 				}
 
+				// ── SIEGES ACTIFS ────────────────────────────────────────────
+				// Un siege DESACTIVE n'a pas de pions sur le plateau, ne prend
+				// jamais la main, et ne peut pas gagner. Par defaut les quatre
+				// sont actifs : une partie qui ne dit rien est une partie a
+				// quatre, comme avant.
+				//
+				// ⚠️ ON NE DESCEND JAMAIS SOUS DEUX SIEGES ACTIFS. Un ludo a un
+				// seul joueur ne se termine pas -- il tourne indefiniment, et le
+				// symptome serait « le jeu se fige » alors que la regle est
+				// simplement absurde. Le refus est ici, pas dans l'ecran :
+				// l'ecran peut changer, la regle non.
+				bool SiegeActif(int32 j) const noexcept {
+					return j >= 0 && j < NK_LUDO_JOUEURS && mActif[j];
+				}
+
+				int32 NbSiegesActifs() const noexcept {
+					int32 n = 0;
+					for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+						if (mActif[i]) {
+							++n;
+						}
+					}
+					return n;
+				}
+
+				/// Rend `false` -- et ne change RIEN -- si la desactivation
+				/// ferait tomber sous deux sieges actifs.
+				bool PoserSiegeActif(int32 j, bool actif) noexcept {
+					if (j < 0 || j >= NK_LUDO_JOUEURS) {
+						return false;
+					}
+					if (!actif && mActif[j] && NbSiegesActifs() <= 2) {
+						return false;
+					}
+					mActif[j] = actif;
+					return true;
+				}
+
+				/// Le premier siege actif a partir de `j` inclus. Rend `j` si
+				/// aucun ne l'est -- cas impossible tant que la borne de deux
+				/// tient, mais on ne rend pas une valeur hors bornes.
+				int32 ProchainSiegeActif(int32 j) const noexcept {
+					for (int32 k = 0; k < NK_LUDO_JOUEURS; ++k) {
+						const int32 c = (j + k) % NK_LUDO_JOUEURS;
+						if (mActif[c]) {
+							return c;
+						}
+					}
+					return j;
+				}
+
 				int32 De() const noexcept {
 					return mDe;
 				}
@@ -147,6 +198,9 @@ namespace nkentseu {
 
 			private:
 				int8 mAvancement[NK_LUDO_JOUEURS][NK_LUDO_PIONS] = {};
+
+				/// Quels sieges jouent. Tous, par defaut.
+				bool mActif[NK_LUDO_JOUEURS] = {true, true, true, true};
 				int32 mJoueur = 0;
 				int32 mDe = 0;
 				int32 mSixDaffilee = 0;
