@@ -68,7 +68,7 @@ namespace nkentseu {
 		// (pas 1e6) → le scroll H n'apparaît que si un contenu DÉPASSE réellement
 		// (fenêtres). false = contenu à largeur naturelle déborde (boîte H dédiée).
 		static bool BeginScrollFrame(NkGuiContext &ctx, NkGuiId id, const NkRect &area, bool horizontal,
-									 bool fillWidth = false) noexcept;
+									 bool fillWidth = false, bool sansBarre = false) noexcept;
 		static void EndScrollFrame(NkGuiContext &ctx) noexcept;
 		static NkGuiScrollState ScrollGet(NkGuiContext &ctx, NkGuiId id) noexcept;
 		static void ScrollSet(NkGuiContext &ctx, NkGuiId id, const NkGuiScrollState &s) noexcept;
@@ -2504,7 +2504,7 @@ namespace nkentseu {
 			// Ouvre le contenu de l'onglet `m` ancré. `dlSlot` = winDL de l'hôte (-1 =
 			// couche fond du DockSpace central) ; `hostWinId` = id de l'hôte (occlusion).
 			bool BeginDockedTabContent(NkGuiContext &ctx, NkGuiWindowMeta *m, NkGuiId id, int32 dlSlot,
-									   NkGuiId hostWinId) noexcept {
+									   NkGuiId hostWinId, bool sansBarre = false) noexcept {
 				ctx.curWindow = dlSlot;
 				ctx.curWindowId = (dlSlot >= 0) ? hostWinId : NKGUI_ID_NONE;
 				ctx.curWindowDocked = false;
@@ -2512,7 +2512,8 @@ namespace nkentseu {
 					return false; // onglet inactif → contenu caché
 				ctx.curWindowDocked = true;
 				ctx.winSavedLayout = ctx.layout;
-				BeginScrollFrame(ctx, id ^ 0x5555u, m->dockRect, /*horizontal=*/true, /*fillWidth=*/true);
+				BeginScrollFrame(ctx, id ^ 0x5555u, m->dockRect, /*horizontal=*/true, /*fillWidth=*/true,
+								 sansBarre);
 				return true;
 			}
 
@@ -2595,7 +2596,8 @@ namespace nkentseu {
 				} else {
 					EnsureHostRendered(ctx, m, mi, id); // dessine chrome+arbre (1×/frame, winDL → pose dockDL)
 					m = &ctx.windowMeta[mi];
-					return BeginDockedTabContent(ctx, m, id, m->dockDL, id); // l'onglet de l'hôte lui-même
+					return BeginDockedTabContent(ctx, m, id, m->dockDL, id,
+												  NkGuiHasWinFlag(flags, NkGuiWindowFlags::NoScrollbar)); // l'onglet de l'hôte lui-même
 				}
 			}
 
@@ -2647,7 +2649,8 @@ namespace nkentseu {
 						m->dockActiveTab = false;
 					} else if (m->dockNode >= 0) {
 						// dockDL = LA draw-list où le FOND a été peint → le contenu la suit.
-						return BeginDockedTabContent(ctx, m, id, m->dockDL, m->dockHost);
+						return BeginDockedTabContent(ctx, m, id, m->dockDL, m->dockHost,
+													 NkGuiHasWinFlag(flags, NkGuiWindowFlags::NoScrollbar));
 					}
 				}
 			}
@@ -2820,7 +2823,8 @@ namespace nkentseu {
 			//    → l'auto-largeur remplit la fenêtre ; le scroll H n'apparaît que si un
 			//    contenu (large explicite, image, SameLine…) DÉPASSE vraiment. ──
 			const NkRect content = {wr.x, wr.y + th, wr.w, wr.h - th};
-			BeginScrollFrame(ctx, id ^ 0x5555u, content, /*horizontal=*/true, /*fillWidth=*/true);
+			BeginScrollFrame(ctx, id ^ 0x5555u, content, /*horizontal=*/true, /*fillWidth=*/true,
+							 NkGuiHasWinFlag(flags, NkGuiWindowFlags::NoScrollbar));
 			return true;
 		}
 
@@ -3705,7 +3709,7 @@ namespace nkentseu {
 		// dessinés par l'appelant). Réserve les gouttières selon les barres de la
 		// FRAME PRÉCÉDENTE (anti-oscillation). Empile une frame (imbrication OK).
 		static bool BeginScrollFrame(NkGuiContext &ctx, NkGuiId id, const NkRect &area, bool horizontal,
-									 bool fillWidth) noexcept {
+									 bool fillWidth, bool sansBarre) noexcept {
 			if (ctx.childDepth >= NkGuiContext::ChildMax)
 				return false;
 			NkGuiScrollState st = ScrollGet(ctx, id);
@@ -3750,6 +3754,7 @@ namespace nkentseu {
 			f.id = id;
 			f.area = area;
 			f.horizontal = horizontal;
+			f.sansBarre = sansBarre;
 			f.scrollX = st.x;
 			f.scrollY = st.y;
 			f.contentTop = area.y - st.y;
@@ -3792,8 +3797,10 @@ namespace nkentseu {
 
 			ctx.DL().PopClipRect();
 
-			const bool barV = maxY > 0.f;
-			const bool barH = horiz && maxX > 0.f;
+			// `sansBarre` (NoScrollbar) : le defilement et son bornage restent,
+			// la barre ne se DESSINE pas (et ne reserve plus sa gouttiere).
+			const bool barV = maxY > 0.f && !f.sansBarre;
+			const bool barH = horiz && maxX > 0.f && !f.sansBarre;
 			// Scrollbar UNIFORME (identique aux panneaux code/sortie/terminal) : piste
 			// subtile theme-aware, pouce contraste, + fleches aux extremites.
 			const bool sbLight =
