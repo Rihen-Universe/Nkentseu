@@ -107,7 +107,17 @@ namespace nkentseu {
 								   int32 count, int32 *hoveredOut = nullptr, const bool *hasSub = nullptr,
 								   const uint32 *icons = nullptr, char *filter = nullptr, int32 filterCap = 0,
 								   bool *filterFocus = nullptr, const char *const *shortcuts = nullptr,
-								   const bool *sepAfter = nullptr, NkCtxMenuRangee *rangee = nullptr) {
+								   const bool *sepAfter = nullptr, NkCtxMenuRangee *rangee = nullptr,
+							   const bool *checked = nullptr) {
+			// ⚠️ `checked` EST ADDITIF ET EN DERNIER (2026-09-01) : les quatre
+			//    consommateurs existants (NKCode x2, l'explorateur, NkUIDesign) ne
+			//    changent pas d'un caractere. Le manque etait dans le socle -- le
+			//    menu du clic droit dans le VIDE de Lunacy est fait AUX TROIS
+			//    QUARTS de bascules cochees -- donc il est comble dans le socle,
+			//    pas contourne chez l'application. C'est le meme geste que le
+			//    parametre `checked` donne a `nkgui::MenuItem` le 28/08, et la
+			//    meme raison : l'ecrire chez l'appelant aurait fabrique un second
+			//    peintre de menu a cote de celui du kit.
 			if (!mn.open)
 				return -1;
 
@@ -117,7 +127,7 @@ namespace nkentseu {
 			enum { kMaxItems = 256 };
 			const char *fItems[kMaxItems];
 			const char *fShorts[kMaxItems];
-			bool fEnabled[kMaxItems], fSub[kMaxItems], fSep[kMaxItems];
+			bool fEnabled[kMaxItems], fSub[kMaxItems], fSep[kMaxItems], fChk[kMaxItems];
 			uint32 fIcons[kMaxItems];
 			int32 fMap[kMaxItems];
 			if (rangee)
@@ -141,6 +151,13 @@ namespace nkentseu {
 					//    quelconque des que le filtre en retire une : le groupe
 					//    n'aurait plus rien groupe.
 					fSep[n] = sepAfter ? sepAfter[i] : false;
+					// ⚠️ LA COCHE SUIT SON ITEM, exactement comme le trait
+					//    ci-dessus et pour la meme raison : recopiee par index
+					//    d'AFFICHAGE, elle se retrouverait sur UNE AUTRE entree
+					//    des qu'un filtre en retire une. Une coche qui se deplace
+					//    est pire qu'une coche absente -- elle affirme un etat
+					//    faux au lieu de n'en affirmer aucun.
+					fChk[n] = checked ? checked[i] : false;
 					++n;
 				}
 				items = fItems;
@@ -151,6 +168,8 @@ namespace nkentseu {
 				icons = fIcons;
 				if (sepAfter)
 					sepAfter = fSep;
+				if (checked)
+					checked = fChk;
 				count = n;
 			}
 			NkGuiDrawList &dl = ctx.dlOverlay;
@@ -165,6 +184,19 @@ namespace nkentseu {
 				for (int32 i = 0; i < count; ++i)
 					if (icons[i]) {
 						iconW = lh;
+						break;
+					}
+			// ⚠️ LA COLONNE DE COCHES PREND SA PLACE, ET LA PREND POUR TOUT LE
+			//    MENU. Sans elle, la coche se dessinerait SUR le libelle -- et
+			//    reserver la place seulement sur les lignes cochees ferait
+			//    « danser » les libelles d'une ligne a l'autre, ce qui rend une
+			//    liste illisible. C'est la meme regle que la colonne d'icones
+			//    juste au-dessus : largeur FIXE des qu'UNE entree s'en sert.
+			float32 checkW = 0.f;
+			if (checked)
+				for (int32 i = 0; i < count; ++i)
+					if (checked[i]) {
+						checkW = 14.f;
 						break;
 					}
 			const float32 searchH = avecFiltre ? (lh + 12.f) : 0.f;
@@ -191,7 +223,14 @@ namespace nkentseu {
 					const float32 sw = (shortcuts && shortcuts[i] && shortcuts[i][0])
 										   ? ctx.font->MeasureWidth(shortcuts[i]) + 24.f
 										   : 0.f;
-					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 10.f + iconW + sw +
+					// ⚠️ ET LA COLONNE DE COCHES Y ENTRE AUSSI, pour exactement la
+					//    meme raison que le raccourci une ligne plus haut : oubliee,
+					//    elle decalerait le libelle le plus long hors de la boite,
+					//    sur UN item et un seul -- donc le defaut passerait tous les
+					//    essais courts. La lecon est deja ecrite ici ; on l'applique
+					//    au parametre neuf au lieu de la laisser au voisin.
+					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 10.f + iconW +
+									   checkW + sw +
 									   ((hasSub && hasSub[i]) ? 16.f : 0.f); // place de la flèche ▸
 					if (tw > wIdeal)
 						wIdeal = tw;
@@ -339,9 +378,21 @@ namespace nkentseu {
 						dl.AddImage(icons[i], {r.x + pad - mn.sx, y + (rowH - iconW) * 0.5f, iconW, iconW},
 									{0.f, 0.f}, {1.f, 1.f},
 									enabled[i] ? ctx.theme.textDisabled : ctx.theme.textDisabled);
+					// LA COCHE DES BASCULES : deux traits, comme celle de Lunacy.
+					// ⚠️ ELLE EST DESSINEE, PAS ECRITE EN CARACTERE : un glyphe de
+					//    coche n'existe pas dans toutes les fontes embarquees, et
+					//    une fonte qui ne l'a pas rendrait un carre vide -- un
+					//    « etat inconnu » la ou l'on voulait dire « actif ».
+					if (checked && checked[i]) {
+						const NkColor cc = enabled[i] ? ctx.theme.text : ctx.theme.textDisabled;
+						const float32 cx = r.x + pad - mn.sx + 2.f, cy = y + rowH * 0.5f;
+						dl.AddRectFilled({cx, cy, 4.f, 1.6f}, cc, 0.f);
+						dl.AddRectFilled({cx + 3.f, cy - 4.f, 1.6f, 5.6f}, cc, 0.f);
+					}
 					if (ctx.font && ctx.font->Valid())
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-								   {r.x + pad + (iconW > 0.f ? iconW + 6.f : 0.f) - mn.sx,
+								   {r.x + pad + (iconW > 0.f ? iconW + 6.f : (checkW > 0.f ? checkW : 0.f))
+										- mn.sx,
 									y + (rowH - lh) * 0.5f + ctx.font->Ascent()},
 								   items[i], enabled[i] ? ctx.theme.text : ctx.theme.textDisabled);
 					// LE RACCOURCI, aligne a DROITE et attenue — jamais colorable
