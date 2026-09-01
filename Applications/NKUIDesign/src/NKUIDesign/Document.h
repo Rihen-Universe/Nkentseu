@@ -394,6 +394,23 @@ namespace nkuidesign {
 	struct NkPoint2 {
 			float32 x = 0.f;
 			float32 y = 0.f;
+			/// ── L'ARRONDI DE CE SOMMET (Lunacy, retour de Rodolf du 01/09) ───
+			/// « si on double-clique sur une poignée sombre on peut l'arrondir. »
+			/// C'est un rayon PAR SOMMET, en pixels, distinct du `radius` global
+			/// du nœud : `radius` arrondit les quatre coins d'une boîte, celui-ci
+			/// arrondit UN sommet d'un tracé, et le doc 3 §8bis les sépare
+			/// nommément (*« pas seulement un rayon global de rectangle »*).
+			///
+			/// ⚠️ ET IL EST HONORÉ AU DESSIN, sinon ce serait un paramètre déclaré
+			///    qui n'agit pas : `NkContourDe` (Sommets.h) remplace le coin par
+			///    un arc échantillonné. Le peintre n'a pas de primitive « polygone
+			///    à coins ronds » — l'arc est donc dans la LISTE DE POINTS, ce qui
+			///    revient au même à l'écran et n'invente aucune primitive.
+			///
+			/// 0 = coin vif. N'est écrit dans le fichier que s'il est non nul —
+			/// même discipline additive que `position`, `shape` et les trois
+			/// listes : un document d'avant se réenregistre OCTET POUR OCTET.
+			float32 rayon = 0.f;
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -1322,7 +1339,13 @@ namespace nkuidesign {
 						}
 					} else if (!n.borderColor.Empty())
 						Field(out, "couleur_bord", n.borderColor.Data());
-					// LES SOMMETS DEPLACES : `sommet_<i> = x y` (unitaire -1..1).
+					// LES SOMMETS DEPLACES : `sommet_<i> = x y [rayon]` (unitaire -1..1).
+					// ⚠️ LE TROISIEME CHAMP N'EST ECRIT QUE S'IL EST NON NUL, et c'est
+					//    ce qui garde l'aller-retour OCTET POUR OCTET pour tout
+					//    document ecrit avant l'arrondi par sommet : un tracé a coins
+					//    vifs rend exactement les deux memes nombres qu'hier. Meme
+					//    discipline additive que `position`, `shape` et les trois
+					//    listes -- reprise sans etre amenagee.
 					for (uint32 si = 0; si < (uint32)n.sommets.Size(); ++si) {
 						out.Append("  sommet_");
 						WriteNum(out, (float32)(si + 1));
@@ -1330,6 +1353,10 @@ namespace nkuidesign {
 						WriteNum(out, n.sommets[si].x);
 						out.Append(' ');
 						WriteNum(out, n.sommets[si].y);
+						if (n.sommets[si].rayon != 0.f) {
+							out.Append(' ');
+							WriteNum(out, n.sommets[si].rayon);
+						}
 						out.Append('\n');
 					}
 					// LES EFFETS : `effet_<i> = type x y flou etendue couleur opacite visible`.
@@ -1607,17 +1634,29 @@ namespace nkuidesign {
 						}
 						else if (key[0] == 's' && key[1] == 'o' && key[2] == 'm' && key[3] == 'm'
 								 && key[4] == 'e' && key[5] == 't' && key[6] == '_') {
-							// `sommet_<i> = x y`, unitaire. Empile dans l'ordre du
-							// fichier, comme les trois listes.
+							// `sommet_<i> = x y [rayon]`, unitaire. Empile dans l'ordre
+							// du fichier, comme les trois listes.
+							// ⚠️ LE TROISIEME CHAMP EST FACULTATIF : un fichier ecrit
+							//    avant l'arrondi par sommet n'en a pas, et il doit se
+							//    relire sans que le rayon prenne une valeur inventee.
+							//    Le defaut du champ (0 = coin vif) fait le travail --
+							//    ce qui n'est pas ecrit n'est pas devine.
 							NkPoint2 pt;
 							const char *q = val;
+							auto motSuiv = [&q]() {
+								while (*q && *q != ' ')
+									++q;
+								while (*q == ' ')
+									++q;
+							};
 							pt.x = ParseNum(q);
-							while (*q && *q != ' ')
-								++q;
-							while (*q == ' ')
-								++q;
-							if (*q)
+							motSuiv();
+							if (*q) {
 								pt.y = ParseNum(q);
+								motSuiv();
+								if (*q)
+									pt.rayon = ParseNum(q);
+							}
 							n.sommets.PushBack(pt);
 						}
 						else if (key[0] == 'e' && key[1] == 'f' && key[2] == 'f' && key[3] == 'e'
