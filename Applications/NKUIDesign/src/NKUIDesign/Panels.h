@@ -2847,25 +2847,91 @@ namespace nkuidesign {
 							paint.Fill(ph, accentP, 0.f);
 						else
 							paint.FillColor(ph, 0xFFFFFFFFu, 0.f);
+						// ⚠️ UN SOMMET ARRONDI SE VOIT SUR SA POIGNÉE, pas seulement
+						//    sur la forme. Sans ça, deux sommets de rayons différents
+						//    auraient exactement la même poignée, et le double-clic
+						//    d'arrondi n'aurait de retour visible que si la forme est
+						//    assez grande pour que l'arc se distingue — c'est-à-dire
+						//    pas sur les petites formes, celles qu'on manipule le
+						//    plus. La poignée d'un sommet rond est RONDE.
+						const float32 rr = (i < (uint32)pn.sommets.Size())
+											   ? pn.sommets[i].rayon
+											   : 0.f;
 						paint.OutlineSharp(ph, accentP);
+						if (rr > 0.f)
+							paint.Outline(ph, accentP, 0x00000000u, hs * 0.5f);
 					}
 					// LE GESTE : prendre un sommet, le traîner, le lâcher.
 					const NkVec2 ms = ctx.input.mousePos;
-					if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0
-						&& NkGuiRectContains(area, ms)) {
+					const bool dansToile = ctx.popupDepth == 0 && NkGuiRectContains(area, ms);
+					// ── LE DOUBLE-CLIC SUR UN SOMMET L'ARRONDIT ──────────────
+					// Retour de Rodolf, 01/09 : *« si on double-clique sur une
+					// poignée sombre on peut l'arrondir. »*
+					// ⚠️ IL EST TESTÉ AVANT LE SIMPLE CLIC, et ce n'est pas un
+					//    détail d'ordre : depuis le correctif Win32 du matin, un
+					//    double-clic arrive AVEC son appui. Laissé après, il
+					//    aurait d'abord armé un glisser de sommet, et l'arrondi
+					//    serait parti sur un sommet qu'on vient de bouger d'un
+					//    pixel. *Le geste le plus spécifique se lit en premier.*
+					if (ctx.input.mouseDoubleClicked[0] && dansToile) {
+						const int32 ia = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
+						if (ia >= 0) {
+							NkUINode &pa = mSt->doc.nodes[(uint32)mPointsNode];
+							const float32 rr = NkArrondirSommet(pa, (uint32)ia);
+							if (rr >= 0.f) {
+								mSt->doc.MarkHumanEdit(mPointsNode);
+								mPointDrag = -1;
+								char msg[128];
+								if (rr > 0.f)
+									snprintf(msg, sizeof(msg),
+											 "Sommet %d arrondi à %.0f px — double-clic à "
+											 "nouveau pour continuer le cycle.",
+											 ia + 1, rr);
+								else
+									snprintf(msg, sizeof(msg),
+											 "Sommet %d redevenu vif — le cycle boucle.",
+											 ia + 1);
+								Dire(msg, "", "");
+							}
+						}
+					}
+					else if (ctx.input.mouseClicked[0] && dansToile) {
 						mPointDrag = -1;
-						for (uint32 i = 0; i < nbS; ++i) {
-							const float32 ddx = ms.x - xy[i * 2], ddy = ms.y - xy[i * 2 + 1];
-							if (ddx * ddx + ddy * ddy <= (hs + 3.f) * (hs + 3.f)) {
-								mPointDrag = (int32)i;
-								break;
+						// ⚠️ L'ANCRE D'ABORD, LE SEGMENT ENSUITE — la priorité est
+						//    dite dans `Sommets.h` et lue ici : une ancre est POSÉE
+						//    SUR son segment, donc les deux répondent au même clic.
+						//    Sans cette priorité, prendre un coin pour le déplacer
+						//    en aurait ajouté un second par-dessus, et la forme
+						//    aurait gagné un sommet à chaque tentative de la bouger.
+						mPointDrag = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
+						if (mPointDrag < 0 && nbS >= 2) {
+							// ── AJOUTER UN SOMMET SUR LE CÔTÉ ────────────────
+							// Rodolf : *« on peut ajouter des informations, entre
+							// autres des vertices. »* Sa capture 3 le montre : le
+							// sommet neuf est SUR le côté droit du rectangle.
+							float32 t = 0.f, d = 0.f;
+							const int32 seg = NkSegmentLePlusProche(xy, nbS, ms.x, ms.y, t, d);
+							if (seg >= 0 && d <= 6.f) {
+								NkUINode &pa = mSt->doc.nodes[(uint32)mPointsNode];
+								const int32 neuf = NkInsererSommet(pa, (uint32)seg, t);
+								if (neuf >= 0) {
+									mSt->doc.MarkHumanEdit(mPointsNode);
+									mPointDrag = neuf;
+									char msg[192];
+									snprintf(msg, sizeof(msg),
+											 "Sommet ajouté sur le côté %d — la forme n'a pas "
+											 "bougé ; glisse-le, ou double-clique-le pour "
+											 "l'arrondir.",
+											 seg + 1);
+									Dire(msg, "", "");
+								}
 							}
 						}
 					}
 					if (mPointDrag >= 0 && ctx.input.mouseDown[0]) {
 						NkUINode &pm = mSt->doc.nodes[(uint32)mPointsNode];
 						const NkNatureSommets nat = NkNatureDe(pm.shape.Data());
-						if (nat == NkNatureSommets::Polygone) {
+						if (NkSommetsStockes(nat)) {
 							// ⚠️ ON MATÉRIALISE AVANT D'ÉCRIRE : la table du
 							//    polygone régulier est une CONSTANTE partagée, on
 							//    n'écrit jamais dedans. Même geste que
