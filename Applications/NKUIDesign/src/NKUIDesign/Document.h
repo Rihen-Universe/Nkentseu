@@ -800,6 +800,67 @@ namespace nkuidesign {
 				return true;
 			}
 
+			/// LA COPIE COMPLETE D'UN SOUS-ARBRE (Copier/Coller/Dupliquer, 01/09).
+			/// `src` peut etre CE document (Dupliquer) ou un AUTRE (le
+			/// presse-papiers) : les noms de metrique portes en `const char*` par
+			/// les types du kit sont RE-INTERNES dans le pool de CE document — un
+			/// pointeur du pool source deviendrait pendouillant a la mort de sa
+			/// source (contrat n.1 de NkDocStringPool).
+			/// ⚠️ TOUT CHAMP NOUVEAU DE NkUINode S'AJOUTE ICI AUSSI : une copie
+			///    qui oublie un champ fabrique un « collage qui perd », silencieux.
+			///    (La copie de la TRANSPOSITION, elle, est volontairement
+			///    partielle : elle ADAPTE — ne pas les fusionner.)
+			/// @return l'index du noeud copie dans CE document, -1 si invalide.
+			int32 CopierSousArbre(const NkUIDocument &src, int32 srcNode, int32 dstParent) {
+				if (!src.IsValidIndex(srcNode) || !IsValidIndex(dstParent))
+					return -1;
+				const int32 ni = AddChild(dstParent, src.nodes[(uint32)srcNode].component.Data(),
+										  src.nodes[(uint32)srcNode].prov.author);
+				if (!IsValidIndex(ni))
+					return -1;
+				{
+					// ⚠️ Références prises APRES AddChild : le NkVector reloge.
+					const NkUINode &s = src.nodes[(uint32)srcNode];
+					NkUINode &d = nodes[(uint32)ni];
+					d.label = s.label;
+					d.instance = s.instance;
+					d.width = s.width;
+					d.height = s.height;
+					d.width.valueMetric = pool.Intern(s.width.valueMetric);
+					d.height.valueMetric = pool.Intern(s.height.valueMetric);
+					d.layout = s.layout;
+					d.layout.spacingMetric = pool.Intern(s.layout.spacingMetric);
+					d.layout.padMetric = pool.Intern(s.layout.padMetric);
+					d.layout.gridCellMetric = pool.Intern(s.layout.gridCellMetric);
+					d.anchorEdges = s.anchorEdges;
+					d.posX = s.posX;
+					d.posY = s.posY;
+					d.prov = s.prov;
+					d.shape = s.shape;
+					d.role = s.role;
+					d.fill = s.fill;
+					d.textColor = s.textColor;
+					d.borderColor = s.borderColor;
+					d.alignText = s.alignText;
+					d.target = s.target;
+					d.texteLangues = s.texteLangues;
+					d.texteTraduits = s.texteTraduits;
+					d.transposeDe = s.transposeDe;
+					d.radius = s.radius;
+					d.borderW = s.borderW;
+					d.fontPx = s.fontPx;
+					d.fontWeight = s.fontWeight;
+					d.text = s.text;
+					d.spacingName = s.spacingName;
+					d.padName = s.padName;
+				}
+				const NkVector<int32> enfants = src.nodes[(uint32)srcNode].children; // copie
+				for (uint32 i = 0; i < (uint32)enfants.Size(); ++i)
+					if (src.IsValidIndex(enfants[i]))
+						CopierSousArbre(src, enfants[i], ni);
+				return ni;
+			}
+
 			// ── PROVENANCE : LES DEUX AUTOMATISMES ─────────────────────────────
 			// A APPELER APRES TOUTE MODIFICATION D'UN NOEUD PAR LA MAIN. C'est le
 			// seul endroit ou `corrected` passe a vrai, et le seul ou `verified`

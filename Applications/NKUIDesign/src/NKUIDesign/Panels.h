@@ -388,24 +388,332 @@ namespace nkuidesign {
 				sel.Clear();
 				selected = -1;
 			}
-			/// LA SUPPRESSION DU NOEUD SELECTIONNE — LE geste partagé (bouton du
-			/// panneau Composition ET « Supprimer » du menu contextuel de la
-			/// toile). Deux appelants, une écriture : la réparation de sélection
-			/// après renumérotation vivait dans un seul panneau, et le second
-			/// site l'aurait réécrite — c'est le doublon que la porte du 28/08
-			/// interdit. Annulable (recette annulation, cas « suppression »).
+			/// Vrai si `a` descend (strictement) de `b`.
+			bool EstDescendantDe(int32 a, int32 b) const {
+				if (!doc.IsValidIndex(a) || !doc.IsValidIndex(b))
+					return false;
+				for (int32 p = doc.nodes[(uint32)a].parent; p >= 0;
+					 p = doc.nodes[(uint32)p].parent)
+					if (p == b)
+						return true;
+				return false;
+			}
+			/// Les RACINES de la selection : les selectionnes dont aucun ancetre
+			/// n'est lui-meme selectionne. Copier un parent copie deja ses
+			/// enfants — sans ce filtre, Coller rendrait l'enfant EN DOUBLE.
+			void RacinesSelection(NkVector<int32> &out) const {
+				out.Clear();
+				for (uint32 k = 0; k < (uint32)sel.items.Size(); ++k) {
+					const int32 i = sel.items[k];
+					if (i == 0 || !doc.IsValidIndex(i))
+						continue; // la racine du document n'est jamais un element
+					bool couvert = false;
+					for (uint32 j = 0; j < (uint32)sel.items.Size() && !couvert; ++j)
+						if (j != k && EstDescendantDe(i, sel.items[j]))
+							couvert = true;
+					if (!couvert)
+						out.PushBack(i);
+				}
+			}
+
+			/// LA SUPPRESSION DE LA SELECTION (multi comprise) — LE geste partagé
+			/// (bouton Composition, menu contextuel, touche Suppr). Une seule
+			/// réparation de sélection après renumérotation, pas trois.
+			/// Annulable (recette annulation, cas « suppression »).
 			bool SupprimerSelection() {
-				NkVector<int32> remap;
-				if (!doc.RemoveSubtree(selected, &remap)) {
-					status = NkString("La racine ne se supprime pas.");
+				NkVector<int32> racines;
+				RacinesSelection(racines);
+				if (racines.Empty()) {
+					status = NkString(sel.Contains(0) ? "La racine ne se supprime pas."
+													  : "Rien à supprimer.");
 					return false;
 				}
-				// ⚠️ LA SUPPRESSION RENUMEROTE : la selection est perimee et se
-				//    repare ICI, sinon elle designerait un autre noeud.
+				int32 n = 0;
+				for (uint32 k = 0; k < (uint32)racines.Size(); ++k) {
+					const int32 r = racines[k];
+					if (!doc.IsValidIndex(r))
+						continue; // déjà emporté par une suppression précédente
+					NkVector<int32> remap;
+					if (!doc.RemoveSubtree(r, &remap))
+						continue;
+					++n;
+					// ⚠️ LA SUPPRESSION RENUMEROTE : les racines RESTANTES se
+					//    reparent par la table, sinon elles designeraient un
+					//    autre noeud.
+					for (uint32 j = k + 1; j < (uint32)racines.Size(); ++j)
+						racines[j] = (racines[j] >= 0 && racines[j] < (int32)remap.Size())
+										 ? remap[(uint32)racines[j]]
+										 : -1;
+				}
 				SelectClear();
 				host.demoModels.Clear();
 				host.SyncTo(doc);
-				status = NkString("Nœud supprimé — Ctrl+Z le ramène.");
+				char msg[64];
+				snprintf(msg, sizeof(msg), "%d élément(s) supprimé(s) — Ctrl+Z les ramène.", n);
+				status = NkString(msg);
+				return n > 0;
+			}
+
+			// ── LE PRESSE-PAPIERS INTERNE (raccourcis Lunacy, 01/09) ─────────
+			/// Un vrai DOCUMENT : la copie complete (CopierSousArbre) re-interne
+			/// les noms de metrique — aucun pointeur ne survit a son pool.
+			/// Le presse-papiers SYSTEME (coller hors de l'application) est un
+			/// chantier nomme, pas celui-ci.
+			NkUIDocument pressePapiers;
+			bool pressePapiersPlein = false;
+
+			uint32 CopierSelection() {
+				NkVector<int32> racines;
+				RacinesSelection(racines);
+				if (racines.Empty()) {
+					status = NkString("Rien à copier.");
+					return 0;
+				}
+				pressePapiers.NewDocument("presse-papiers", NkAuthor::Humain);
+				uint32 n = 0;
+				for (uint32 k = 0; k < (uint32)racines.Size(); ++k)
+					if (pressePapiers.CopierSousArbre(doc, racines[k], 0) >= 0)
+						++n;
+				pressePapiersPlein = n > 0;
+				char msg[48];
+				snprintf(msg, sizeof(msg), "Copié : %u élément(s).", n);
+				status = NkString(msg);
+				return n;
+			}
+
+			bool CouperSelection() {
+				const uint32 n = CopierSelection();
+				if (n == 0)
+					return false;
+				SupprimerSelection(); // copie + suppression = UN pas d'annulation
+				char msg[48];
+				snprintf(msg, sizeof(msg), "Coupé : %u élément(s).", n);
+				status = NkString(msg);
+				return true;
+			}
+
+			/// Colle dans le parent de la selection courante (sinon la racine),
+			/// decale de 10 px — un collage aux memes coordonnees disparaitrait
+			/// SOUS l'original et passerait pour un non-geste.
+			bool CollerPressePapiers() {
+				if (!pressePapiersPlein || pressePapiers.nodes.Empty()
+					|| pressePapiers.nodes[0].children.Empty()) {
+					status = NkString("Le presse-papiers est vide.");
+					return false;
+				}
+				int32 parent = 0;
+				if (doc.IsValidIndex(selected)) {
+					const int32 p = doc.nodes[(uint32)selected].parent;
+					if (doc.IsValidIndex(p))
+						parent = p;
+				}
+				sel.Clear();
+				const NkVector<int32> src = pressePapiers.nodes[0].children; // copie
+				uint32 n = 0;
+				for (uint32 k = 0; k < (uint32)src.Size(); ++k) {
+					const int32 ni = doc.CopierSousArbre(pressePapiers, src[k], parent);
+					if (!doc.IsValidIndex(ni))
+						continue;
+					doc.nodes[(uint32)ni].posX += 10.f;
+					doc.nodes[(uint32)ni].posY += 10.f;
+					doc.MarkHumanEdit(ni);
+					sel.Add(ni);
+					++n;
+				}
+				selected = sel.Primary();
+				host.demoModels.Clear();
+				host.SyncTo(doc);
+				char msg[64];
+				snprintf(msg, sizeof(msg), "Collé : %u élément(s) (décalés de 10 px).", n);
+				status = NkString(msg);
+				return n > 0;
+			}
+
+			/// Ctrl+D : la copie directe, sans passer par le presse-papiers.
+			bool DupliquerSelection() {
+				NkVector<int32> racines;
+				RacinesSelection(racines);
+				if (racines.Empty()) {
+					status = NkString("Rien à dupliquer.");
+					return false;
+				}
+				NkVector<int32> nouveaux;
+				for (uint32 k = 0; k < (uint32)racines.Size(); ++k) {
+					const int32 r = racines[k];
+					int32 parent = doc.nodes[(uint32)r].parent;
+					if (!doc.IsValidIndex(parent))
+						parent = 0;
+					const int32 ni = doc.CopierSousArbre(doc, r, parent);
+					if (!doc.IsValidIndex(ni))
+						continue;
+					doc.nodes[(uint32)ni].posX += 10.f;
+					doc.nodes[(uint32)ni].posY += 10.f;
+					doc.MarkHumanEdit(ni);
+					nouveaux.PushBack(ni);
+				}
+				sel.Clear();
+				for (uint32 k = 0; k < (uint32)nouveaux.Size(); ++k)
+					sel.Add(nouveaux[k]);
+				selected = sel.Primary();
+				host.demoModels.Clear();
+				host.SyncTo(doc);
+				char msg[48];
+				snprintf(msg, sizeof(msg), "Dupliqué : %u élément(s).",
+						 (uint32)nouveaux.Size());
+				status = NkString(msg);
+				return !nouveaux.Empty();
+			}
+
+			/// Ctrl+G : un conteneur POSE (layout Free) adopte la selection en
+			/// preservant les positions A L'ECRAN — les positions absolues
+			/// viennent de la disposition RESOLUE (`layout`), pas d'un recalcul.
+			bool GrouperSelection() {
+				NkVector<int32> racines;
+				RacinesSelection(racines);
+				if (racines.Empty()) {
+					status = NkString("Rien à grouper.");
+					return false;
+				}
+				const int32 parent = doc.nodes[(uint32)racines[0]].parent;
+				for (uint32 k = 1; k < (uint32)racines.Size(); ++k)
+					if (doc.nodes[(uint32)racines[k]].parent != parent) {
+						status = NkString("Grouper : les éléments doivent partager le même "
+										  "parent (pour l'instant).");
+						return false;
+					}
+				if (parent != 0
+					&& (!doc.IsValidIndex(parent)
+						|| doc.nodes[(uint32)parent].layout.kind != NkLayoutKind::Free)) {
+					status = NkString("Grouper : le parent doit poser librement ses enfants "
+									  "(agencement Free).");
+					return false;
+				}
+				// la boite englobante, en espace DOCUMENT resolu
+				float32 minX = 0.f, minY = 0.f, maxX = 0.f, maxY = 0.f;
+				for (uint32 k = 0; k < (uint32)racines.Size(); ++k) {
+					if (!layout.Has(racines[k])) {
+						status = NkString("Grouper : la disposition n'est pas encore calculée.");
+						return false;
+					}
+					const NkPaintRect r = layout.At(racines[k]);
+					if (k == 0) {
+						minX = r.x;
+						minY = r.y;
+						maxX = r.x + r.w;
+						maxY = r.y + r.h;
+					} else {
+						if (r.x < minX)
+							minX = r.x;
+						if (r.y < minY)
+							minY = r.y;
+						if (r.x + r.w > maxX)
+							maxX = r.x + r.w;
+						if (r.y + r.h > maxY)
+							maxY = r.y + r.h;
+					}
+				}
+				const float32 pax = layout.Has(parent) ? layout.At(parent).x : 0.f;
+				const float32 pay = layout.Has(parent) ? layout.At(parent).y : 0.f;
+				// les absolues des membres, AVANT que le re-parentage ne perime quoi
+				// que ce soit
+				NkVector<float32> absX, absY;
+				for (uint32 k = 0; k < (uint32)racines.Size(); ++k) {
+					absX.PushBack(layout.At(racines[k]).x);
+					absY.PushBack(layout.At(racines[k]).y);
+				}
+				const int32 g = doc.AddChild(parent, "", NkAuthor::Humain);
+				if (!doc.IsValidIndex(g)) {
+					status = NkString("Grouper : échec de création.");
+					return false;
+				}
+				{
+					// « Groupe N » : N = groupes existants + 1
+					int32 nb = 0;
+					for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i)
+						if (doc.nodes[i].label.Data()
+							&& 0 == strncmp(doc.nodes[i].label.Data(), "Groupe ", 7))
+							++nb;
+					char nom[32];
+					snprintf(nom, sizeof(nom), "Groupe %d", nb + 1);
+					NkUINode &gn = doc.nodes[(uint32)g];
+					gn.label = NkString(nom);
+					gn.layout.kind = NkLayoutKind::Free;
+					gn.posX = minX - pax;
+					gn.posY = minY - pay;
+					gn.width.mode = NkSizeMode::Fixed;
+					gn.width.value = maxX - minX;
+					gn.height.mode = NkSizeMode::Fixed;
+					gn.height.value = maxY - minY;
+				}
+				for (uint32 k = 0; k < (uint32)racines.Size(); ++k) {
+					if (!doc.Reparent(racines[k], g))
+						continue;
+					doc.nodes[(uint32)racines[k]].posX = absX[k] - minX;
+					doc.nodes[(uint32)racines[k]].posY = absY[k] - minY;
+				}
+				doc.MarkHumanEdit(g);
+				SelectSingle(g);
+				host.demoModels.Clear();
+				host.SyncTo(doc);
+				status = NkString("Groupé — Ctrl+Maj+G dégroupe.");
+				return true;
+			}
+
+			/// Ctrl+Maj+G : les enfants remontent, positions à l'écran intactes.
+			bool DegrouperSelection() {
+				const int32 g = selected;
+				if (!doc.IsValidIndex(g) || g == 0 || doc.nodes[(uint32)g].children.Empty()) {
+					status = NkString("Dégrouper : sélectionner un groupe (un conteneur avec "
+									  "des enfants).");
+					return false;
+				}
+				if (StrEq(doc.nodes[(uint32)g].shape.Data(), "frame")) {
+					status = NkString("Dégrouper : une PAGE ne se dégroupe pas (ses enfants y "
+									  "restent).");
+					return false;
+				}
+				int32 parent = doc.nodes[(uint32)g].parent;
+				if (!doc.IsValidIndex(parent))
+					parent = 0;
+				if (!layout.Has(g)) {
+					status = NkString("Dégrouper : la disposition n'est pas encore calculée.");
+					return false;
+				}
+				const float32 pax = layout.Has(parent) ? layout.At(parent).x : 0.f;
+				const float32 pay = layout.Has(parent) ? layout.At(parent).y : 0.f;
+				const NkVector<int32> enfants = doc.nodes[(uint32)g].children; // copie
+				// les absolues d'abord — le re-parentage ne perime pas `layout`,
+				// mais l'ordre rend l'intention lisible
+				NkVector<float32> absX, absY;
+				for (uint32 k = 0; k < (uint32)enfants.Size(); ++k) {
+					absX.PushBack(layout.Has(enfants[k]) ? layout.At(enfants[k]).x : pax);
+					absY.PushBack(layout.Has(enfants[k]) ? layout.At(enfants[k]).y : pay);
+				}
+				for (uint32 k = 0; k < (uint32)enfants.Size(); ++k) {
+					if (!doc.Reparent(enfants[k], parent))
+						continue;
+					doc.nodes[(uint32)enfants[k]].posX = absX[k] - pax;
+					doc.nodes[(uint32)enfants[k]].posY = absY[k] - pay;
+					doc.MarkHumanEdit(enfants[k]);
+				}
+				// le groupe, VIDE desormais, s'en va — et renumerote : la
+				// selection se repare par la table
+				NkVector<int32> remap;
+				doc.RemoveSubtree(g, &remap);
+				sel.Clear();
+				for (uint32 k = 0; k < (uint32)enfants.Size(); ++k) {
+					const int32 nc = (enfants[k] >= 0 && enfants[k] < (int32)remap.Size())
+										 ? remap[(uint32)enfants[k]]
+										 : -1;
+					if (nc >= 0)
+						sel.Add(nc);
+				}
+				selected = sel.Primary();
+				host.demoModels.Clear();
+				host.SyncTo(doc);
+				char msg[48];
+				snprintf(msg, sizeof(msg), "Dégroupé : %u élément(s).", (uint32)enfants.Size());
+				status = NkString(msg);
 				return true;
 			}
 			int32 paletteChoice = 0; ///< 0 = cadre, puis 1+ = index dans le registre
@@ -1868,6 +2176,41 @@ namespace nkuidesign {
 							case 'n': case 'N': DireRaisonFamille(8); break;
 							default: break;
 						}
+					}
+					// ── LES RACCOURCIS D'EDITION (Lunacy, 01/09) — même garde que
+					//    les lettres : jamais pendant une saisie. Ctrl+C/X/V/A
+					//    arrivent par les drapeaux want* de la coquille (les mêmes
+					//    que les champs texte) ; Suppr par la touche. Ctrl+D/G
+					//    passent par les commandes enregistrées (main.cpp).
+					if (ctx.input.wantCopy) {
+						mSt->CopierSelection();
+						Dire(mSt->status.Data(), "", "");
+					} else if (ctx.input.wantCut) {
+						if (mSt->CouperSelection())
+							Dire(mSt->status.Data(), "", "");
+					} else if (ctx.input.wantPaste) {
+						if (mSt->CollerPressePapiers())
+							Dire(mSt->status.Data(), "", "");
+						else
+							Dire("Le presse-papiers est vide.", "", "");
+					} else if (ctx.input.wantSelectAll) {
+						// Ctrl+A : TOUT au niveau courant du forage (Lunacy) —
+						// les enfants du groupe foré, sinon le premier niveau.
+						const int32 ctxA = (mForage >= 0 && mSt->doc.IsValidIndex(mForage))
+											   ? mForage
+											   : 0;
+						mSt->sel.Clear();
+						const NkVector<int32> &kids = mSt->doc.nodes[(uint32)ctxA].children;
+						for (uint32 k = 0; k < (uint32)kids.Size(); ++k)
+							mSt->sel.Add(kids[k]);
+						mSt->selected = mSt->sel.Primary();
+						char msg[48];
+						snprintf(msg, sizeof(msg), "Sélection : %u élément(s).",
+								 mSt->sel.Count());
+						Dire(msg, "", "");
+					} else if (ctx.input.KeyPressed(NkGuiKey::Delete)) {
+						if (mSt->SupprimerSelection())
+							Dire(mSt->status.Data(), "", "");
 					}
 				}
 				// ÉCHAP annule le tracé en cours (Lunacy), et le DIT.
