@@ -1041,11 +1041,15 @@ int nkmain(const NkEntryState &state) {
 
 	// -- 9. Boucle principale -------------------------------------------
 	NkClock clock;
+	// Chrono de TRAME (distinct de l'horloge de jeu) : il sert uniquement a
+	// plafonner la cadence et a rendre la main. Voir la fin de la boucle.
+	NkChrono chronoTrame;
 	const NkString capturePath = ParseText(state.args, "--capture=");
 	const int32 captureFrame = ParseInt(state.args, "--capture-frame=", 45);
 	int32 frameIndex = 0;
 
 	while (running && window.IsOpen()) {
+		(void)chronoTrame.Reset(); // depart de la trame
 		float32 deltaTime = clock.Tick().delta;
 		if (deltaTime > 0.1f) {
 			deltaTime = 1.f / 60.f; // reprise après veille : on ne rattrape pas
@@ -1427,6 +1431,33 @@ int nkmain(const NkEntryState &state) {
 		guiBackend.Submit(guiContext.dl, size.x, size.y);
 		guiBackend.Submit(guiContext.dlOverlay, size.x, size.y);
 		target.Display();
+
+		// ⚠️ CEDER LA MAIN — sans cela, l'onglet Web GELE : une boucle `while`
+		// qui ne rend jamais la main au navigateur empeche toute peinture. Le
+		// wasm demarre, la boucle part, et rien n'apparait. Defaut signale par
+		// Rodolf le 2026-09-01 sur le .bat Web.
+		//
+		// ⚠️ LE MECANISME EXISTAIT ET ETAIT JUSTE : sous Emscripten,
+		// NkChrono::Sleep appelle emscripten_sleep(ms) et YieldThread appelle
+		// emscripten_sleep(0), avec ASYNCIFY deja actif dans le .jenga. Ce qui
+		// manquait, c'etait l'APPEL.
+		//
+		// ⚠️ ET LE `Sleep(32)` PLUS HAUT NE COMPTE PAS : il est dans
+		// `if (!surfaceAlive)`, donc il ne cede que sur le chemin ou l'on ne
+		// dessine pas. Un repli qui ne s'exerce qu'au repos ressemble a une
+		// boucle qui cede, et n'en est pas une.
+		//
+		// ⚠️ LES DEUX BRANCHES CEDENT. Une version « ne dormir que si on est en
+		// avance » gele l'onglet des la premiere trame lente — donc tout le
+		// temps sur le Web. Le `else` n'est pas une optimisation.
+		{
+			const float64 ecouleMs = chronoTrame.Elapsed().milliseconds;
+			if (ecouleMs < 16.0) {
+				NkChrono::Sleep(16.0 - ecouleMs);
+			} else {
+				NkChrono::YieldThread();
+			}
+		}
 
 		// Capture APRÈS Display() : c'est le tampon présenté qu'on relit.
 		++frameIndex;
