@@ -5481,6 +5481,10 @@ int nkmain(const NkEntryState &state) {
 			// Mise en scene : quels SOMMETS sont marques au premier affichage
 			// (--sommets=0,2,3). Meme famille que --mode-forme=, meme raison :
 			// le Maj+clic vise une ancre dont on ignore la coordonnee d'ecran.
+			if (NkComponentDecl::StrEq(a, "--courber")) {
+				gDesign.courberInitial = true;
+				continue;
+			}
 			if (arg.StartsWith("--sommets=")) {
 				nkentseu::uint64 m = 0;
 				int32 v = -1;

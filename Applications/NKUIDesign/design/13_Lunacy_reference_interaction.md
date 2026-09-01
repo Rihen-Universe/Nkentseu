@@ -229,6 +229,22 @@ et beaucoup ont un trou (o, a, e, p, b, d, g, R…). Vectoriser aujourd'hui rend
 **des taches à la place des lettres**. *Une capacité annoncée qui rend faux est
 pire que son absence.*
 
+### 🔴 ET CE N'EST PLUS SEULEMENT UN BLOCAGE FUTUR — C'EST VISIBLE AUJOURD'HUI
+
+La capture `echanges/captures/preuve_courbe_bezier_n9.png`, prise le 01/09 après
+la livraison des poignées de courbe, le montre : le **contour** suit parfaitement
+la cubique, mais dès que la courbe rend la forme **concave**, le **remplissage**
+déborde — l'éventail depuis le premier sommet passe à travers le creux.
+
+⚠️ **Ça change la portée de §1.5, et il faut le dire tout de suite.** Ce n'était
+pas « un maillon qui bloque quatre fonctionnalités à venir » : c'est **un défaut
+atteignable dès maintenant**, avec un geste que Rodolf peut faire ce soir — tirer
+une poignée de courbe vers l'intérieur d'un bouton. Les tangentes sont livrées et
+justes ; c'est le peintre qui ne suit pas.
+
+**La vague 4 monte donc en priorité** : elle n'ouvre plus seulement des
+fonctionnalités, elle répare ce qu'on vient de livrer.
+
 📌 **Et la pièce existe déjà dans le dépôt, un module plus loin** :
 `NKFont/NkEarcut.h` et `NkFontMesh.cpp` triangulent des contours quelconques
 **et** classent les trous par profondeur d'imbrication — écrits pour les

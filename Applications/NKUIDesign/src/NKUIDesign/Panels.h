@@ -1085,6 +1085,8 @@ namespace nkuidesign {
 			///    d'ecran. Sans ce levier, « les trois sommets sont bien marques »
 			///    resterait une affirmation que seule la main de Rodolf peut juger.
 			nkentseu::uint64 sommetsInitiaux = 0;
+			/// --courber : pose une tangente miroir sur les sommets marques.
+			bool courberInitial = false;
 			/// Edition en place demandee en ligne de commande (--editer-texte=N) :
 			/// meme famille que --selection= — ouvre le champ superpose sur le
 			/// noeud N (s'il est un texte) au premier affichage. -1 = aucune.
@@ -2454,6 +2456,21 @@ namespace nkuidesign {
 								}
 						} else
 							mSt->modeForme.MarquerSeul(0);
+						// Mise en scene : --courber pose une tangente MIROIR sur
+						// chaque sommet marque. Meme famille que --sommets= : une
+						// courbe se tire a la souris, et le harnais ne sait pas
+						// viser une poignee dont on ignore la coordonnee d ecran.
+						if (mSt->courberInitial) {
+							NkUINode &cn2 = mSt->doc.nodes[(uint32)nf];
+							NkMaterialiserSommets(cn2);
+							for (uint32 k = 0; k < (uint32)cn2.sommets.Size(); ++k) {
+								if (!mSt->modeForme.Marque((int32)k))
+									continue;
+								NkPoserLiaison(cn2.sommets[k], NkPoint2::LiaisonMiroir);
+								NkPoserTangente(cn2.sommets[k], 1, 0.55f, 0.35f);
+							}
+							mSt->courberInitial = false;
+						}
 						mSt->SelectSingle(nf);
 						Dire(NkRaisonDeDblClic(NkSuiteDblClic::ModePoints), "", "");
 					} else
