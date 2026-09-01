@@ -1537,6 +1537,98 @@ static nkentseu::int32 RecettePoints() {
 				"et le DIT (les deux suites de Forer, cote a cote)",
 				ok, d);
 	}
+	// ── 17. LE MENU DU CLIC DROIT : QUI N'AGIT PAS DIT POURQUOI ────────────
+	//     ⚠️ L'INVENTAIRE LUNACY, RENDU MESURABLE. Un tableau dans un rapport se
+	//     perime ; ce cas, non. Il exige les DEUX sens, et le second est celui
+	//     qu'on oublie : qui n'agit pas porte une raison NON VIDE, ET qui agit
+	//     n'en porte PAS -- sinon la raison serait un ornement qu'on cesse de
+	//     lire, et le jour ou elle compte personne ne la verrait.
+	{
+		NkContexteCtx c;
+		c.aTexte = true;
+		c.pasRacine = true;
+		c.aEnfants = true;
+		NkMenuCtx menu;
+		NkConstruireMenuCtx(c, menu);
+		bool coherent = (menu.n > 0);
+		for (uint32 i = 0; i < menu.n; ++i) {
+			const NkEntreeCtx &e = menu.items[i];
+			if (!e.libelle[0])
+				coherent = false;
+			if (!e.agit && (!e.raison || !*e.raison))
+				coherent = false; // muet
+			if (e.agit && e.raison)
+				coherent = false; // raison decorative
+		}
+		char d[96];
+		snprintf(d, sizeof(d), "%u entrees, chacune parlante", (uint32)menu.n);
+		verdict("17. menu contextuel : qui n'agit pas DIT pourquoi, et qui agit ne dit rien "
+				"d'inutile",
+				coherent, d);
+	}
+	// ── 18. LES DEUX SURFACES : MEME JEU D'ENTREES, APPLICABILITE DIFFERENTE ─
+	//     ⚠️ LE PIEGE DE GROUPE, TENU PAR UN BANC. Lunacy montre le meme menu
+	//     depuis sa toile et depuis son panneau Layers ; deux jeux auraient
+	//     derive au premier ajout, et l'utilisateur aurait cherche dans un menu
+	//     une commande qu'il venait de voir dans l'autre. Le cas verifie que la
+	//     LISTE des actions est identique, ET qu'au moins une applicabilite
+	//     DIFFERE -- sans quoi `surfaceListe` serait un parametre declare et non
+	//     honore, la famille de defauts que ce depot compte depuis huit fois.
+	{
+		NkContexteCtx t, l;
+		t.aTexte = l.aTexte = true;
+		t.pasRacine = l.pasRacine = true;
+		t.surfaceListe = false;
+		l.surfaceListe = true;
+		NkMenuCtx mt, ml;
+		NkConstruireMenuCtx(t, mt);
+		NkConstruireMenuCtx(l, ml);
+		bool memesActions = (mt.n == ml.n);
+		bool uneDifference = false;
+		for (uint32 i = 0; memesActions && i < mt.n; ++i) {
+			if (mt.items[i].action != ml.items[i].action)
+				memesActions = false;
+			if (mt.items[i].agit != ml.items[i].agit)
+				uneDifference = true;
+		}
+		char d[128];
+		snprintf(d, sizeof(d), "%u vs %u entrees, actions %s, applicabilite %s", (uint32)mt.n,
+				 (uint32)ml.n, memesActions ? "IDENTIQUES" : "DIVERGENTES",
+				 uneDifference ? "differente" : "IDENTIQUE (surfaceListe non honore)");
+		verdict("18. toile et hierarchie : MEME jeu d'entrees, applicabilite differente",
+				memesActions && uneDifference, d);
+	}
+	// ── 19. LA RANGEE D'ICONES PARLE DANS LES DEUX ETATS ───────────────────
+	//     ⚠️ UNE ICONE MUETTE EST UN BOUTON QU'ON N'OSE PAS PRESSER, et une
+	//     icone GRISEE muette est pire : elle ne dit meme pas ce qui manque.
+	//     Trois des sept (verrou, visibilite, registre) n'ont AUCUN champ dans
+	//     le modele : elles sont PRESENTES et grisees, et leur infobulle le dit.
+	//     Le cas parcourt les icones PAR LEUR NOMBRE, jamais par une liste.
+	{
+		bool toutesParlent = true;
+		const uint32 n = (uint32)NkIconeCtx::NB;
+		for (uint32 i = 0; i < n; ++i) {
+			const char *a = NkInfobulleIconeCtx((NkIconeCtx)i, true);
+			const char *b = NkInfobulleIconeCtx((NkIconeCtx)i, false);
+			if (!a || !*a || !b || !*b || NkComponentDecl::StrEq(a, b))
+				toutesParlent = false; // muette, ou la meme phrase dans les deux etats
+		}
+		// et l'applicabilite de la rangee suit le MEME contexte que le menu :
+		// une poubelle active au-dessus d'un « Supprimer » grise serait deux
+		// verites pour un seul fait.
+		NkContexteCtx vide; // racine, presse-papiers vide
+		bool aucuneNAgit = true;
+		for (uint32 i = 0; i < n; ++i)
+			if (NkIconeCtxAgit((NkIconeCtx)i, vide))
+				aucuneNAgit = false;
+		char d[112];
+		snprintf(d, sizeof(d), "%u icones, %s ; sur la racine : %s", n,
+				 toutesParlent ? "toutes parlantes dans les 2 etats" : "UNE MUETTE",
+				 aucuneNAgit ? "aucune n'agit" : "UNE AGIT");
+		verdict("19. la rangee d'icones parle dans les DEUX etats, et son applicabilite suit le "
+				"meme contexte que le menu",
+				toutesParlent && aucuneNAgit, d);
+	}
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
