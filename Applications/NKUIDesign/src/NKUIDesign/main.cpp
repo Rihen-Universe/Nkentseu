@@ -1746,6 +1746,122 @@ static nkentseu::int32 RecettePoints() {
 				"meme contexte que le menu",
 				toutesParlent && aucuneNAgit, d);
 	}
+	// ── 24. LE MODE POINTS N'EST ARME QUE SUR LE NOEUD SELECTIONNE ─────────
+	//     🔴 LE BOGUE BLOQUANT du 01/09 (capture `probleme_vertices_141913`) :
+	//     « a un moment ca disparait, ca n'apparait plus, et c'est difficile ou
+	//     impossible de le deselectionner. »
+	//
+	//     Lu A LA SOURCE : le bloc du mode points etait garde par
+	//     `mPointsNode >= 0 && screen.Has(mPointsNode)` SEUL. Le mode survivait
+	//     donc a un changement de selection, son gestionnaire de clic tournait
+	//     sur TOUS les clics du canevas, et un clic a moins de 6 px du contour de
+	//     la forme QUITTEE lui ajoutait un sommet en silence.
+	//
+	//     ⚠️ CE CAS TIENT LES DEUX LECTURES ENSEMBLE, ET C'EST TOUT SON INTERET :
+	//     « le mode est-il arme ? » et « a qui la poignee ? » doivent repondre la
+	//     MEME chose. Sur sa capture, elles repondaient DIFFEREMMENT -- le pied de
+	//     fenetre annoncait « Mode edition de forme » pendant que l'ecran montrait
+	//     les carres de redimensionnement de la boite. Deux formulations d'une
+	//     meme question qui divergent : le motif du carnet, pris sur le fait.
+	{
+		const bool armeOk = NkModePointsArme(21, 21)
+							&& NkAQuiLaPoignee(21, 21) == NkProprioPoignee::Sommet;
+		// on selectionne AUTRE CHOSE : le mode tombe, et la boite reprend ses
+		// poignees. C'est le cas que le code d'hier ratait.
+		const bool sortSurAutreSelection =
+			!NkModePointsArme(21, 7) && NkAQuiLaPoignee(21, 7) == NkProprioPoignee::Redimension;
+		// on clique dans le VIDE (selection videe) : le mode tombe aussi
+		const bool sortSurVide =
+			!NkModePointsArme(21, -1) && NkAQuiLaPoignee(21, -1) == NkProprioPoignee::Aucune;
+		const bool pasDeMode = !NkModePointsArme(-1, 21);
+		char d[160];
+		snprintf(d, sizeof(d), "arme(21,21)=%d ; autre selection=%d ; vide=%d ; sans mode=%d",
+				 armeOk ? 1 : 0, sortSurAutreSelection ? 1 : 0, sortSurVide ? 1 : 0,
+				 pasDeMode ? 1 : 0);
+		verdict("24. le mode points n'est arme QUE sur le noeud selectionne -- changer de "
+				"selection en sort, le vide en sort -- et les deux lectures (mode arme / a qui "
+				"la poignee) disent la MEME chose",
+				armeOk && sortSurAutreSelection && sortSurVide && pasDeMode, d);
+	}
+	// ── 25. SUR SON DOCUMENT REEL, PAS SUR UN CAS FABRIQUE ─────────────────
+	//     ⚠️ DEUX FOIS CETTE SEMAINE UN BANC EST PASSE AU VERT LA OU SA MAIN
+	//     ECHOUAIT, parce que le banc ne passait pas par la meme porte. Ce cas
+	//     charge donc `nkuidesign_document.nkuidoc` -- LE document de sa capture,
+	//     avec ses 40 et quelques noeuds -- et fait marcher la vraie table dessus.
+	//
+	//     Il tient le retour (3) : « ca doit etre sur les formes dessinees AUTRES
+	//     QUE LE TEXTE ». Aucun noeud portant du texte, aucun cadre, aucun groupe
+	//     ne doit pouvoir entrer en mode points.
+	{
+		NkUIDocument vrai;
+		// ⚠️ L'ORDRE DES CHEMINS A ETE CORRIGE PAR LA PREMIERE EXECUTION, ET LA
+		//    LECON VAUT D'ETRE ECRITE. Ma premiere version cherchait d'abord
+		//    `nkuidesign_document.nkuidoc` A COTE DE L'EXECUTABLE : elle a trouve
+		//    un STUB de 5 noeuds datant du 18/08, et le cas est passe... a
+		//    « 0 faute » -- vert sur un document qui n'a NI texte NI cadre, donc
+		//    qui ne pouvait rien prouver. *Un banc qui charge le mauvais fichier
+		//    ne mesure pas moins : il mesure autre chose, et il le dit vert.*
+		//    Le depot est interroge EN PREMIER, et le seuil ci-dessous refuse
+		//    tout document trop petit pour etre le sien.
+		const char *chemins[3] = {
+			"D:/Projets/2026/Nkentseu/Nkentseu-noge/nkuidesign_document.nkuidoc",
+			"../../../../nkuidesign_document.nkuidoc", "nkuidesign_document.nkuidoc"};
+		bool charge = false;
+		for (uint32 c = 0; c < 3 && !charge; ++c) {
+			if (!nkentseu::NkFile::Exists(chemins[c]))
+				continue;
+			const NkString txt = nkentseu::NkFile::ReadAllText(chemins[c]);
+			if (txt.Size() > 0 && vrai.Load(txt.Data())) {
+				// ⚠️ LE SEUIL EST LA GARDE QUI MANQUAIT : le document de sa
+				//    capture porte deux artboards et une quarantaine de noeuds.
+				//    Un stub de cinq noeuds n'est pas « une version reduite »,
+				//    c'est un AUTRE document -- et il rendrait ce cas vert sans
+				//    qu'aucun texte ni cadre n'ait ete examine.
+				charge = (vrai.nodes.Size() >= 20u);
+			}
+		}
+		if (!charge) {
+			// ⚠️ UN CAS QUI NE PEUT PAS MESURER LE DIT, il ne passe pas au vert.
+			verdict("25. sur le document REEL de sa capture : aucun TEXTE, cadre ou groupe "
+					"n'entre en mode points",
+					false,
+					"DOCUMENT REEL INTROUVABLE (ou trop petit) -- ce cas ne prouve rien, et "
+					"il le DIT plutot que de passer au vert sur un stub");
+		} else {
+			uint32 nTexte = 0, nCadre = 0, nGroupe = 0, nFormes = 0, fautes = 0;
+			for (uint32 i = 1; i < (uint32)vrai.nodes.Size(); ++i) {
+				const NkUINode &n = vrai.nodes[i];
+				const bool peut = NkPeutEntrerEnPoints(n);
+				const bool issuePoints = NkIssueDeDblClic(n) == NkIssueDblClic::ModePoints;
+				const bool estTexte = NkComponentDecl::StrEq(n.shape.Data(), "text")
+									  || !n.text.Empty();
+				const bool estCadre = NkComponentDecl::StrEq(n.shape.Data(), "frame");
+				if (n.children.Size() > 0) {
+					++nGroupe;
+					if (peut || issuePoints)
+						++fautes;
+				} else if (estTexte) {
+					++nTexte;
+					if (peut || issuePoints)
+						++fautes;
+				} else if (estCadre) {
+					++nCadre;
+					if (peut || issuePoints)
+						++fautes;
+				} else if (peut) {
+					++nFormes;
+				}
+			}
+			char d[184];
+			snprintf(d, sizeof(d),
+					 "%u noeuds : %u textes, %u cadres, %u groupes, %u formes editables ; "
+					 "%u faute(s)",
+					 (uint32)vrai.nodes.Size(), nTexte, nCadre, nGroupe, nFormes, fautes);
+			verdict("25. sur le document REEL de sa capture : aucun TEXTE, cadre ou groupe "
+					"n'entre en mode points",
+					fautes == 0 && nTexte > 0, d);
+		}
+	}
 	// ── 23. LE MENU DU CLIC DROIT DANS LE VIDE ─────────────────────────────
 	//     Retour de Rodolf, 01/09, signale en Q43 : le clic droit dans le vide
 	//     ne faisait RIEN et ne disait RIEN.

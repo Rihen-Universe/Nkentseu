@@ -2968,22 +2968,73 @@ namespace nkuidesign {
 				//    peindrait des poignées sur le vide.
 				if (mPointsNode >= 0 && !mSt->doc.IsValidIndex(mPointsNode))
 					mPointsNode = -1;
-				if (!modeGraphe && mPointsNode >= 0 && screen.Has(mPointsNode)) {
+				// 🔴 LE MODE SE DESARME DES QUE SA FORME N'EST PLUS SELECTIONNEE.
+				// C'est LE correctif du bogue bloquant du 01/09 (capture
+				// `probleme_vertices_141913`) : « c'est difficile ou impossible de
+				// le deselectionner ».
+				// ⚠️ SANS CETTE LIGNE, le bloc ci-dessous tournait sur TOUS les
+				//    clics du canevas — sa garde etait `NkGuiRectContains(area,…)`,
+				//    c'est-a-dire n'importe ou — et un clic a moins de 6 px du
+				//    contour de la forme QUITTEE lui ajoutait un sommet en
+				//    silence, pendant que `HandleMouse` traitait le meme clic. Un
+				//    geste, deux effets, dont un invisible.
+				// ⚠️ ET LE MESSAGE PART AVEC LE MODE. Sur sa capture, le pied de
+				//    fenetre annoncait « Mode edition de forme » pendant que
+				//    l'ecran montrait les carres de redimensionnement : le texte
+				//    disait un mode, l'ecran un autre, l'etat reel un troisieme.
+				//    Une phrase qui survit a son etat est un mensonge d'interface.
+				if (mPointsNode >= 0 && !NkModePointsArme(mPointsNode, mSt->selected)) {
+					mPointsNode = -1;
+					mPointDrag = -1;
+					if (mSt->status.Contains("Mode édition de forme"))
+						mSt->status = NkString("");
+				}
+				if (!modeGraphe && NkModePointsArme(mPointsNode, mSt->selected)
+					&& screen.Has(mPointsNode)) {
 					const NkUINode &pn = mSt->doc.nodes[(uint32)mPointsNode];
 					const NkPaintRect rp = screen.At(mPointsNode);
 					float32 xy[64];
 					const uint32 nbS = NkSommetsDe(pn, rp, xy, 32);
 					const uint16 accentP = NkDesignResolveRole("accent_ui");
-					paint.OutlineSharp(rp, accentP);
-					const float32 hs = 7.f;
+					// ── LA DISTINCTION VISUELLE (retour 2 de Rodolf, 01/09) ──
+					// « Dans ce cas distinguer l'édition des vertices de l'édition
+					//   de la boîte englobante. »
+					// ⚠️ ON NE DESSINE PLUS LA BOÎTE. Avant, le mode points
+					//    tracait `OutlineSharp(rp)` — c'est-à-dire EXACTEMENT le
+					//    liseré de sélection — puis posait des petits CARRÉS aux
+					//    sommets, qui sur un rectangle tombent pile sur les coins
+					//    de la boîte. Les deux modes rendaient donc la MÊME image :
+					//    sa capture le montre, et il n'y avait aucun moyen de
+					//    savoir dans lequel on se trouvait.
+					//    Désormais : le CONTOUR RÉEL est surligné (il épouse la
+					//    forme, pas sa boîte) et les poignées sont RONDES.
+					{
+						float32 ct[256];
+						const uint32 nbC = NkContourDe(pn, rp, ct, 128);
+						for (uint32 i = 0; i + 1 <= nbC; ++i) {
+							const uint32 j = (i + 1) % nbC;
+							if (nbC < 2)
+								break;
+							paint.Line(ct[i * 2], ct[i * 2 + 1], ct[j * 2], ct[j * 2 + 1],
+									   accentP, 1.5f);
+						}
+					}
+					const float32 hs = 9.f;
 					for (uint32 i = 0; i < nbS; ++i) {
 						const NkPaintRect ph{xy[i * 2] - hs * 0.5f, xy[i * 2 + 1] - hs * 0.5f,
 											 hs, hs};
+						// ⚠️ RONDES, ET C'EST LA MOITIÉ DU RETOUR 2 : les poignées
+						//    de redimensionnement sont des CARRÉS de 6 px. Deux
+						//    jeux de poignées carrées, au même endroit sur un
+						//    rectangle, ne se distinguent pas — c'est ce que sa
+						//    capture montre. Un rond de 9 px ne se confond avec
+						//    rien, et le mode se lit d'un coup d'œil.
+						const float32 rd = hs * 0.5f;
 						// le sommet TIRÉ se remplit d'accent, les autres sont blancs
 						if ((int32)i == mPointDrag)
-							paint.Fill(ph, accentP, 0.f);
+							paint.Fill(ph, accentP, rd);
 						else
-							paint.FillColor(ph, 0xFFFFFFFFu, 0.f);
+							paint.FillColor(ph, 0xFFFFFFFFu, rd);
 						// ⚠️ UN SOMMET ARRONDI SE VOIT SUR SA POIGNÉE, pas seulement
 						//    sur la forme. Sans ça, deux sommets de rayons différents
 						//    auraient exactement la même poignée, et le double-clic
@@ -2994,9 +3045,11 @@ namespace nkuidesign {
 						const float32 rr = (i < (uint32)pn.sommets.Size())
 											   ? pn.sommets[i].rayon
 											   : 0.f;
-						paint.OutlineSharp(ph, accentP);
+						paint.Outline(ph, accentP, 0x00000000u, rd);
+						// un sommet ARRONDI porte un second anneau, plus large
 						if (rr > 0.f)
-							paint.Outline(ph, accentP, 0x00000000u, hs * 0.5f);
+							paint.Outline({ph.x - 2.f, ph.y - 2.f, ph.w + 4.f, ph.h + 4.f},
+										  accentP, 0x00000000u, rd + 2.f);
 					}
 					// LE GESTE : prendre un sommet, le traîner, le lâcher.
 					const NkVec2 ms = ctx.input.mousePos;

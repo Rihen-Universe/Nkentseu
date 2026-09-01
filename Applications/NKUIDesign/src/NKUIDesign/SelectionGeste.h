@@ -308,6 +308,50 @@ namespace nkuidesign {
 			   && (nat == NkNatureSommets::Bouts || NkSommetsStockes(nat));
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE MODE POINTS EST-IL ARMÉ ? — LA RÈGLE QUI MANQUAIT, ET ELLE BLOQUAIT
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ MESURE DU 2026-09-01 (retour de Rodolf, capture `probleme_vertices`) :
+	///    *« à un moment ça disparaît, ça n'apparaît plus, et c'est difficile ou
+	///    impossible de le désélectionner. »* Le défaut est lu **à la source**, et
+	///    il tient dans une ligne absente.
+	///
+	///    Le bloc du mode points de `PreviewPanel` était gardé par
+	///    `if (mPointsNode >= 0 && screen.Has(mPointsNode))` — **sans jamais
+	///    vérifier que ce nœud est celui qui est sélectionné**. Trois conséquences,
+	///    toutes visibles sur sa capture :
+	///
+	///    1. **le mode survivait à un changement de sélection** : on double-clique
+	///       un rect, on clique ailleurs, `mPointsNode` reste sur l'ancien ;
+	///    2. **son gestionnaire de clic tournait sur TOUS les clics de la toile** —
+	///       la garde était `NkGuiRectContains(area, …)`, c'est-à-dire *n'importe
+	///       où dans le canevas*. Un clic à moins de 6 px du contour de la forme
+	///       quittée **lui ajoutait un sommet**, en silence, alors qu'elle n'était
+	///       même pas sélectionnée. C'est le « ça n'épouse plus la forme » ;
+	///    3. **et le même clic était AUSSI traité par `HandleMouse`** — un geste,
+	///       deux effets, dont un invisible : d'où « impossible de le
+	///       désélectionner ».
+	///
+	///    C'est exactement ce que montre la capture : le message *« Mode édition de
+	///    forme… »* au pied de la fenêtre **pendant que les poignées affichées sont
+	///    les carrés de redimensionnement de la boîte**. Le texte disait un mode,
+	///    l'écran en montrait un autre, et l'état réel était un troisième.
+	///
+	/// **LA RÈGLE, ET ELLE SE CITE : le mode points n'est armé que sur le nœud
+	/// SÉLECTIONNÉ.** Changer de sélection en sort, cliquer dans le vide en sort,
+	/// Échap en sort. *Un mode dont on ne peut pas sortir n'est pas un mode, c'est
+	/// un piège.*
+	///
+	/// ⚠️ ET ELLE EST ÉCRITE **EN TERMES DE** `NkAQuiLaPoignee`, PAS À CÔTÉ. Les
+	///    deux répondent à la même question — « ce nœud est-il en édition de
+	///    points ? » — et deux formulations auraient fini par diverger : on aurait
+	///    masqué les poignées de boîte sans armer les sommets, ou l'inverse, ce qui
+	///    est *précisément* l'état que Rodolf a photographié. **Une seule source,
+	///    deux lectures.**
+	inline bool NkModePointsArme(int32 pointsNode, int32 selection) {
+		return NkAQuiLaPoignee(pointsNode, selection) == NkProprioPoignee::Sommet;
+	}
+
 	/// APPLIQUER un geste à la sélection partagée.
 	/// ⚠️ LA RACINE N'EST JAMAIS UN ÉLÉMENT, et la règle vit ICI plutôt que
 	///    dans chaque appelant : elle avait déjà été oubliée par le premier
