@@ -62,6 +62,7 @@
 #include "MenuRole.h" // le menu des rôles (écrans 5-6-7) — le geste « promouvoir »
 #include "Selection.h"
 #include "SelectionGeste.h" // le contrat de selection : les DEUX tables, cote a cote
+#include "MenuContexte.h" // le menu du clic droit (Lunacy) : LA table, sans NKGui
 #include "Snap.h" // l'aimantation Lunacy — un MECANISME, pas un dessin
 #include "DesignAI.h"
 #include "Renderers.h"
@@ -1513,6 +1514,129 @@ namespace nkuidesign {
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE MENU DU CLIC DROIT — DESSINÉ UNE FOIS POUR LES DEUX SURFACES
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  ⚠️ TROISIÈME RETOUR DU COUPLE TOILE / HIÉRARCHIE sur ce chantier, après
+	//     les tables de clic et l'englobant. La leçon a fini par prendre : le
+	//     menu est écrit AVANT que le second chemin existe, pas après que le
+	//     premier a mordu. La TABLE des entrées vit dans `MenuContexte.h` (sans
+	//     NKGui, donc mesurable) ; ce qui suit n'est que le DESSIN et
+	//     l'EXÉCUTION.
+	//
+	//  ⚠️ ET LA RANGÉE D'ICÔNES SE PEINT ICI, pas dans le kit : il n'existe
+	//     aucun atlas partagé, et le kit tient déjà la place et l'état
+	//     (`NkCtxMenuRangee`). Même patron que `rowOverlay` de l'arbre.
+
+	/// Le peintre d'une icône de la rangée — le vocabulaire vectoriel local
+	/// (`Costume.h`), pas un atlas inventé pour l'occasion.
+	inline void NkPeindreIconeCtx(void *, NkGuiDrawList &dl, nkentseu::int32 i, const NkRect &cell,
+								  const NkColor &c) {
+		const float32 x = cell.x + (cell.w - 16.f) * 0.5f;
+		const float32 y = cell.y + (cell.h - 16.f) * 0.5f;
+		switch ((NkIconeCtx)i) {
+			case NkIconeCtx::Coller: costume::IcDocOnglet(dl, x, y, c); break;
+			case NkIconeCtx::Dupliquer: costume::IcCarreaux(dl, x, y, c); break;
+			case NkIconeCtx::Couper: costume::IcExpand(dl, x, y, c); break;
+			// ⚠️ CADENAS ET COMPOSANT N'ONT PAS DE PICTOGRAMME chez nous, et on
+			//    ne va pas en inventer deux pour l'occasion : ils reprennent le
+			//    plus proche, restent GRISÉS, et leur infobulle dit exactement ce
+			//    qui manque. Un pictogramme faux est pire qu'un pictogramme
+			//    approximatif dont on lit le nom.
+			case NkIconeCtx::Verrouiller: costume::IcFixed(dl, x, y, c); break;
+			case NkIconeCtx::Masquer: costume::IcOeil(dl, x, y, c); break;
+			case NkIconeCtx::Supprimer: costume::IcPoubelle(dl, x, y, c); break;
+			default: costume::IcPanneau(dl, x, y, c); break;
+		}
+	}
+
+	/// Le contexte lu depuis l'état — une seule lecture pour les deux surfaces.
+	inline NkContexteCtx NkContexteDepuisEtat(const DesignState &st, nkentseu::int32 noeud,
+											  bool surfaceListe) {
+		NkContexteCtx c;
+		if (!st.doc.IsValidIndex(noeud))
+			return c;
+		const NkUINode &n = st.doc.nodes[(nkentseu::uint32)noeud];
+		c.aTexte = NkComponentDecl::StrEq(n.shape.Data(), "text") || !n.text.Empty();
+		c.estCadre = NkComponentDecl::StrEq(n.shape.Data(), "frame");
+		c.aEnfants = !n.children.Empty();
+		c.pasRacine = (noeud != 0);
+		c.pressePapiersPlein = st.pressePapiersPlein;
+		c.surfaceListe = surfaceListe;
+		return c;
+	}
+
+	/// LE DESSIN. Rend l'action choisie, ou `NkActionCtx::NB` si rien.
+	/// ⚠️ L'ACTION VOYAGE, PAS L'INDEX. Un index d'affichage change dès qu'on
+	///    insère une entrée, et l'appelant exécuterait alors le geste voisin —
+	///    le défaut classique des menus, et il est silencieux.
+	inline NkActionCtx NkDessinerMenuCtx(NkGuiContext &ctx, editorkit::NkCtxMenu &mn,
+										 const DesignState &st, nkentseu::int32 noeud,
+										 bool surfaceListe, char *filtre, nkentseu::int32 filtreCap,
+										 bool *filtreFocus) {
+		const NkContexteCtx c = NkContexteDepuisEtat(st, noeud, surfaceListe);
+		NkMenuCtx menu;
+		NkConstruireMenuCtx(c, menu);
+		const char *items[kMaxEntreesCtx];
+		const char *raccourcis[kMaxEntreesCtx];
+		bool en[kMaxEntreesCtx], sub[kMaxEntreesCtx], sep[kMaxEntreesCtx];
+		for (nkentseu::uint32 i = 0; i < menu.n; ++i) {
+			items[i] = menu.items[i].libelle;
+			raccourcis[i] = menu.items[i].raccourci;
+			en[i] = menu.items[i].agit;
+			sub[i] = menu.items[i].sousMenu;
+			sep[i] = menu.items[i].sepApres;
+		}
+		// La rangée d'icônes, dans le MÊME contexte que les entrées : deux
+		// lectures d'applicabilité auraient donné une poubelle active au-dessus
+		// d'un « Supprimer » grisé.
+		bool iconEn[(nkentseu::uint32)NkIconeCtx::NB];
+		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)NkIconeCtx::NB; ++i)
+			iconEn[i] = NkIconeCtxAgit((NkIconeCtx)i, c);
+		struct TipUser {
+				const NkContexteCtx *ctxt;
+		} tu{&c};
+		editorkit::NkCtxMenuRangee rangee;
+		rangee.count = (nkentseu::int32)NkIconeCtx::NB;
+		rangee.enabled = iconEn;
+		rangee.paint = &NkPeindreIconeCtx;
+		rangee.user = &tu;
+		rangee.tip = [](void *u, nkentseu::int32 i) -> const char * {
+			auto *t = static_cast<TipUser *>(u);
+			return NkInfobulleIconeCtx((NkIconeCtx)i, NkIconeCtxAgit((NkIconeCtx)i, *t->ctxt));
+		};
+		const nkentseu::int32 act = editorkit::NkCtxMenuDraw(
+			ctx, mn, items, en, (nkentseu::int32)menu.n, nullptr, sub, nullptr, filtre, filtreCap,
+			filtreFocus, raccourcis, sep, &rangee);
+		if (rangee.clicked >= 0)
+			return NkActionIconeCtx((NkIconeCtx)rangee.clicked);
+		if (act >= 0 && (nkentseu::uint32)act < menu.n)
+			return menu.items[(nkentseu::uint32)act].action;
+		return NkActionCtx::NB;
+	}
+
+	/// L'EXÉCUTION DE CE QUI EST COMMUN AUX DEUX SURFACES.
+	/// ⚠️ AUCUN GESTE N'EST RÉÉCRIT : ce sont les MÊMES méthodes que le clavier
+	///    et que le menu Édition. Trois portes, une écriture — c'est la
+	///    condition pour qu'une correction les atteigne toutes.
+	/// Rend vrai si l'action a été traitée ici (les deux qui restent —
+	/// `EditerTexte` et `Renommer` — dépendent de la surface).
+	inline bool NkAppliquerActionCtx(DesignState &st, nkentseu::int32 noeud, NkActionCtx a) {
+		switch (a) {
+			case NkActionCtx::Copier: st.CopierSelection(); return true;
+			case NkActionCtx::Couper: st.CouperSelection(); return true;
+			case NkActionCtx::Coller: st.CollerPressePapiers(); return true;
+			case NkActionCtx::Dupliquer: st.DupliquerSelection(); return true;
+			case NkActionCtx::Grouper: st.GrouperSelection(); return true;
+			case NkActionCtx::Degrouper:
+				st.SelectSingle(noeud);
+				st.DegrouperSelection();
+				return true;
+			case NkActionCtx::Supprimer: st.SupprimerSelection(); return true;
+			default: return false;
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  PANNEAU 1 — LA PALETTE
 	// ═══════════════════════════════════════════════════════════════════════════
 	// ⚠️ ELLE BOUCLE SUR LE REGISTRE, elle ne nomme aucun composant. Une liste
@@ -2602,77 +2726,38 @@ namespace nkuidesign {
 					}
 				}
 				if (mMenuCtx.open && mSt->doc.IsValidIndex(mMenuNode)) {
+					// ── LE MENU VIENT DU CONSTRUCTEUR PARTAGÉ (MenuContexte.h).
+					// ⚠️ ÉCRIT LÀ ET PAS ICI PARCE QUE LA HIÉRARCHIE A LE MÊME
+					//    MENU. C'est le troisième retour du couple TOILE /
+					//    HIÉRARCHIE sur ce chantier (après les tables de clic et
+					//    l'englobant) : on ne recommence pas à l'écrire deux fois.
+					//    Ce qui diffère entre les deux surfaces est
+					//    l'APPLICABILITÉ, jamais le jeu d'entrées — Lunacy montre
+					//    le même menu depuis sa toile et depuis son panneau Layers.
 					const NkUINode &nm = mSt->doc.nodes[(uint32)mMenuNode];
-					const bool editable = StrEq(nm.shape.Data(), "text") || !nm.text.Empty();
-					const bool cadre = StrEq(nm.shape.Data(), "frame");
-					const bool pasRacine = (mMenuNode != 0);
-					const bool aEnfants = !nm.children.Empty();
-					// ── LES GESTES D'ÉDITION ARRIVENT ICI AUSSI (Lunacy, 01/09).
-					//    Règle de la maison : « visible dans le menu Édition avec
-					//    son raccourci ET dans le menu contextuel ». Le raccourci
-					//    est passé au menu du kit — la colonne de droite lui a été
-					//    ajoutée pour ça (additive, cf. NkEditorContextMenu.h).
-					// grisé-QUI-LE-DIT : l'entrée inapplicable porte sa raison.
-					const char *items[9];
-					items[0] = editable ? "Éditer le texte" : "Éditer (pas de texte ici)";
-					items[1] = cadre ? "Renommer la page" : "Renommer (par la Hiérarchie)";
-					items[2] = "Copier";
-					items[3] = "Couper";
-					items[4] = mSt->pressePapiersPlein ? "Coller" : "Coller (presse-papiers vide)";
-					items[5] = "Dupliquer";
-					items[6] = "Grouper";
-					items[7] = aEnfants ? "Dégrouper" : "Dégrouper (pas un groupe)";
-					items[8] = pasRacine ? "Supprimer" : "Supprimer (pas la racine)";
-					const char *raccourcis[9] = {nullptr,   nullptr,	  "Ctrl+C",
-												 "Ctrl+X",	"Ctrl+V",	  "Ctrl+D",
-												 "Ctrl+G",	"Ctrl+Maj+G", "Suppr"};
-					const bool en[9] = {editable,
-										cadre,
-										pasRacine,
-										pasRacine,
-										mSt->pressePapiersPlein,
-										pasRacine,
-										pasRacine,
-										pasRacine && aEnfants && !cadre,
-										pasRacine};
-					const int32 act =
-						editorkit::NkCtxMenuDraw(ctx, mMenuCtx, items, en, 9, nullptr, nullptr,
-												 nullptr, nullptr, 0, nullptr, raccourcis);
-					if (act == 0) {
+					const NkActionCtx a =
+						NkDessinerMenuCtx(ctx, mMenuCtx, *mSt, mMenuNode, false, mMenuFiltre,
+										  (int32)sizeof(mMenuFiltre), &mMenuFiltreFocus);
+					if (a == NkActionCtx::EditerTexte) {
 						mEditNode = mMenuNode;
 						mEditEtiquette = false;
 						const char *t0 = nm.TexteEn(mSt->langueActive.Data());
 						snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
 						mSt->SelectSingle(mMenuNode);
 						Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
-					} else if (act == 1) {
+					} else if (a == NkActionCtx::Renommer) {
 						mEditNode = mMenuNode;
 						mEditEtiquette = true;
 						snprintf(mEditBuf, sizeof(mEditBuf), "%s", nm.label.Data());
 						mSt->SelectSingle(mMenuNode);
 						Dire("Renommage de la page — Entrée valide, Échap annule.", "", "");
-					} else if (act >= 2) {
-						// ⚠️ AUCUN GESTE N'EST RÉÉCRIT ICI : le menu contextuel
-						//    appelle les MÊMES méthodes que le clavier et que le
-						//    menu Édition. Trois entrées, un seul geste — c'est la
-						//    condition pour qu'une correction les atteigne tous.
-						switch (act) {
-							case 2: mSt->CopierSelection(); break;
-							case 3: mSt->CouperSelection(); break;
-							case 4: mSt->CollerPressePapiers(); break;
-							case 5: mSt->DupliquerSelection(); break;
-							case 6: mSt->GrouperSelection(); break;
-							case 7:
-								mSt->SelectSingle(mMenuNode);
-								mSt->DegrouperSelection();
-								break;
-							case 8: mSt->SupprimerSelection(); break;
-							default: break;
-						}
+					} else if (NkAppliquerActionCtx(*mSt, mMenuNode, a)) {
 						Dire(mSt->status.Data(), "", "");
-						if (act == 3 || act == 8)
+						if (a == NkActionCtx::Couper || a == NkActionCtx::Supprimer)
 							mMenuNode = -1; // le noeud visé vient de partir
 					}
+					if (!mMenuCtx.open)
+						mMenuFiltre[0] = 0; // le filtre ne survit pas a son menu
 				} else if (mMenuCtx.open) {
 					mMenuCtx.open = false; // le noeud vise a disparu : rien a montrer
 				}
@@ -3966,6 +4051,12 @@ namespace nkuidesign {
 			/// le noeud qu'il vise. Pendant qu'il est ouvert, HandleMouse se tait.
 			nkentseu::editorkit::NkCtxMenu mMenuCtx;
 			int32 mMenuNode = -1;
+			/// La barre de recherche du menu contextuel (Lunacy la met en tête).
+			/// ⚠️ ELLE NE SURVIT PAS A SON MENU : un filtre garde ferait rouvrir
+			///    le menu suivant DEJA filtre, et l'utilisateur croirait la moitie
+			///    des commandes disparue.
+			char mMenuFiltre[48] = {};
+			bool mMenuFiltreFocus = true;
 			/// Vrai quand l'edition porte sur L'ETIQUETTE d'un artboard (le NOM
 			/// de la page — LA cle que la Hierarchie lit aussi), pas sur `text`.
 			bool mEditEtiquette = false;
@@ -6022,9 +6113,47 @@ namespace nkuidesign {
 						NkUIDocument *doc;
 						DesignState *st;
 						bool pages;
-				} sur{&ctx, &modele, &mSt->doc, mSt, &modele == &mModelePages};
+						// Le menu contextuel de CETTE surface, ouvert par le crochet
+						// que le composant du kit emet deja.
+						nkentseu::editorkit::NkCtxMenu *menu;
+						int32 *menuNode;
+				} sur{&ctx, &modele, &mSt->doc, mSt, &modele == &mModelePages, &mHierMenu,
+					   &mHierMenuNode};
 				NkTreeViewHooks hooks;
 				hooks.user = &sur;
+				// ── LE CLIC DROIT DE LA HIÉRARCHIE — ET LA CAPACITÉ ÉTAIT DÉJÀ EN
+				//    DESSOUS (porte du 28/08, sixième occurrence de ce motif sur ce
+				//    chantier, et la troisième trouvée AVANT d'écrire).
+				// ⚠️ `NkTreeViewHooks::onContextMenu` existe depuis toujours dans le
+				//    composant du kit, avec sa convention `index = -1` sur le fond du
+				//    panneau — et il l'émet aux DEUX endroits (`NkTreeViewDraw.cpp`
+				//    l. 675 et 722). NkUIDesign ne le branchait simplement pas : un
+				//    clic droit dans la Hiérarchie ne faisait RIEN, sans un mot. Rien
+				//    à faire grossir en dessous — il n'y avait qu'à s'en servir.
+				hooks.onContextMenu = [](void *u, int32 ri, float32 mx, float32 my) {
+					auto *s = static_cast<Sur *>(u);
+					if (!s->pages) {
+						// ON LE DIT PLUTÔT QUE D'OUVRIR UN MENU SANS OBJET : le
+						// registre de composants n'est pas un document éditable.
+						s->st->DireAuPied("Un composant du registre ne se modifie pas ici.");
+						return;
+					}
+					if (ri < 0 || (uint32)ri >= (uint32)s->modele->nodes.Size()) {
+						s->st->DireAuPied("Clic droit dans le vide — visez une ligne.");
+						return;
+					}
+					const int32 di = (int32)s->modele->nodes[(uint32)ri].id - 1;
+					if (!s->st->doc.IsValidIndex(di))
+						return;
+					// Lunacy : le clic droit sur une ligne NON sélectionnée la
+					// sélectionne d'abord ; sur une ligne de la sélection, il garde
+					// la sélection entière. LA MÊME règle que la toile.
+					if (!s->st->sel.Contains(di))
+						s->st->SelectSingle(di);
+					*s->menuNode = di;
+					s->menu->open = true;
+					s->menu->pos = {mx, my};
+				};
 				// ── LE RENOMMAGE PAR LA HIERARCHIE ECRIT ENFIN LE DOCUMENT ───
 				// ⚠️ MESURE DU 1er RETOUR (« les titres se desaccordent ») : le
 				//    kit OUVRAIT deja la saisie au double-clic (NkTreeViewDraw
@@ -6109,6 +6238,47 @@ namespace nkuidesign {
 				if (&modele == &mModeleComposants && modele.renaming != 0) {
 					modele.renameCancel = true;
 					mSt->DireAuPied("Un composant du registre ne se renomme pas ici.");
+				}
+
+				// ── LE MÊME MENU QUE LA TOILE — pas une seconde écriture ───────
+				// ⚠️ CE QUI DIFFÈRE ENTRE LES DEUX SURFACES EST L'APPLICABILITÉ,
+				//    JAMAIS LE JEU D'ENTRÉES : `surfaceListe` fait basculer deux
+				//    lignes (renommer agit ici, éditer le texte renvoie à la toile)
+				//    et rien d'autre. Deux jeux auraient dérivé au premier ajout, et
+				//    l'utilisateur aurait cherché dans un menu une commande qu'il
+				//    venait de voir dans l'autre.
+				if (mHierMenu.open && mSt->doc.IsValidIndex(mHierMenuNode)) {
+					const NkActionCtx a =
+						NkDessinerMenuCtx(ctx, mHierMenu, *mSt, mHierMenuNode, true, mHierFiltre,
+										  (int32)sizeof(mHierFiltre), &mHierFiltreFocus);
+					if (a == NkActionCtx::Renommer) {
+						// LE RENOMMAGE NATIF DE L'ARBRE : le composant du kit le porte
+						// déjà (`renaming`), et `onRename` écrit `label`. On l'ARME,
+						// on ne le réécrit pas — le doubler serait la cinquième
+						// occurrence du motif « la couche du dessous avait déjà
+						// tranché », celle qu'on a déjà payée une fois.
+						for (uint32 k = 0; k < (uint32)modele.nodes.Size(); ++k)
+							if ((int32)modele.nodes[k].id - 1 == mHierMenuNode) {
+								modele.renaming = modele.nodes[k].id;
+								snprintf(modele.renameBuf, sizeof(modele.renameBuf), "%s",
+										 modele.nodes[k].label.CStr());
+								break;
+							}
+						mSt->DireAuPied("Renommage — Entrée valide, Échap annule.");
+					} else if (a == NkActionCtx::EditerTexte) {
+						// La saisie de texte n'a pas de point d'insertion dans une
+						// liste : l'entrée est grisée et DIT où aller. Si elle arrive
+						// quand même ici, on le redit plutôt que de ne rien faire.
+						mSt->DireAuPied("L'édition du texte se fait dans la toile.");
+					} else if (NkAppliquerActionCtx(*mSt, mHierMenuNode, a)) {
+						mSt->DireAuPied(mSt->status.Data());
+						if (a == NkActionCtx::Couper || a == NkActionCtx::Supprimer)
+							mHierMenuNode = -1;
+					}
+					if (!mHierMenu.open)
+						mHierFiltre[0] = 0; // le filtre ne survit pas a son menu
+				} else if (mHierMenu.open) {
+					mHierMenu.open = false; // la ligne visee a disparu
 				}
 
 				// L'ascenseur de CETTE section : il pilote le même `scroll` que la
@@ -6368,6 +6538,15 @@ namespace nkuidesign {
 			char mFiltre[128] = {0};
 			bool mFiltreVisible = false; // la loupe déplie le filtre (costume Banani)
 			bool mFiltreRoles = false;
+			// ── LE MENU CONTEXTUEL DE LA HIÉRARCHIE ──────────────────
+			// ⚠️ UN ÉTAT PAR SURFACE, ET PAS UN ÉTAT PARTAGÉ : la toile et la
+			//    Hiérarchie peuvent être ouvertes en même temps, et deux menus
+			//    ouverts sur un seul état se ferment l'un l'autre. Le CONTENU est
+			//    partagé (`NkConstruireMenuCtx`), la POSITION ne l'est pas.
+			nkentseu::editorkit::NkCtxMenu mHierMenu;
+			int32 mHierMenuNode = -1;
+			char mHierFiltre[48] = {};
+			bool mHierFiltreFocus = true;
 			float32 mHBasVoulu = -1.f;	 // la part de COMPOSANTS choisie a la poignee (ecran 10)
 			bool mHBasLu = false;		 // hier_bas deja lu dans nkuidesign.cfg ?
 			bool mPoigneeActive = false;
