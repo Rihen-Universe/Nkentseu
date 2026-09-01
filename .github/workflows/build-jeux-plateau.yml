@@ -1,0 +1,198 @@
+# =============================================================================
+# build-jeux-plateau.yml — NkDames, NkEchecs et NkLudo sur les plateformes
+# qu'AUCUNE machine de Rihen ne peut construire : Linux, macOS et iOS.
+#
+# POURQUOI CETTE CI EXISTE, PLATEFORME PAR PLATEFORME — et chaque ligne est une
+# MESURE faite le 2026-09-01 depuis le poste Windows, pas une supposition :
+#
+#   macOS  jenga refuse explicitement : « Cannot build for macOS from Windows.
+#          macOS builds require macOS with Apple toolchain. » Ce runner EST
+#          notre machine Apple.
+#   iOS    meme refus : « iOS builds require macOS with Xcode. »
+#   Linux  `jenga build --platform linux` s'arrete des NKGlad sur
+#          « 'X11/X.h' file not found » — 1/22 projets. Ce n'est pas un defaut
+#          des jeux : l'hote Windows n'a pas les en-tetes X11. Un vrai Linux
+#          les a, et le job ci-dessous les installe.
+#
+# CE QUI SE CONSTRUIT DEJA EN LOCAL, et n'a donc rien a faire ici :
+#   Windows    les trois, 22/22
+#   Web        les trois, 22/22 — .html + .js + .wasm (~2,8 Mo)
+#   Android    les trois, APK universel 4 ABI, signe debug.keystore
+#   HarmonyOS  les trois, 22/22 (toolchain ohos-ndk)
+#
+# ⚠️ LE MODELE EST `build-macos.yml`, ET IL N'EST PAS REINVENTE ICI. Ce fichier
+#    en reprend la structure exacte — meme depot Jenga, meme branche vivante,
+#    memes dependances systeme Linux « prouvees sous WSL2 ». Ecrire une seconde
+#    facon de faire la meme chose garantirait que la correction faite sur l'une
+#    ne parvienne jamais a l'autre.
+#
+# ⚠️ UN ECHEC MACOS OU IOS EST UNE INFORMATION, PAS UNE SURPRISE. Les backends
+#    Cocoa et UIKit n'ont jamais tourne pour ces jeux : les premieres executions
+#    SERVENT a reveler ce qui manque.
+# =============================================================================
+name: build-jeux-plateau
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "feat/**", "refonte-**"]
+    paths:
+      - "Kernel/**"
+      - "Applications/NkDames/**"
+      - "Applications/NkEchecs/**"
+      - "Applications/NkLudo/**"
+      - "Nkentseu.jenga"
+      - ".github/workflows/build-jeux-plateau.yml"
+
+jobs:
+  # ===========================================================================
+  # LINUX — le chemin prouve sous WSL2 (XLib + GLX Mesa)
+  # ===========================================================================
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      # ⚠️ `fail-fast: false` : si les dames tombent, on veut quand meme savoir
+      # ce que font les echecs et le ludo. Un seul echec qui annule les deux
+      # autres jobs transforme trois informations en une.
+      fail-fast: false
+      matrix:
+        jeu: [NkDames, NkEchecs, NkLudo]
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          # La branche VIVANTE de Rihen — main public est en retard.
+          ref: feat/evenement-avertissement
+          path: jenga-src
+
+      - name: Dependances systeme (XLib + GL, le chemin prouve sous WSL2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev
+
+      - name: Builder ${{ matrix.jeu }} (Release)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 --version
+          python3 -m Jenga build --target ${{ matrix.jeu }} --config Release
+
+      - name: Banc du jeu
+        # ⚠️ `|| true` : le banc ne doit PAS faire echouer la construction — on
+        # veut l'artefact meme quand une regle regresse. Mais son verdict est
+        # LISIBLE dans le journal, ce qui est le point : un banc qu'on ne lance
+        # pas ne dit rien, un banc qui bloque se contourne.
+        run: |
+          BIN=Build/Bin/Release-Linux/${{ matrix.jeu }}/${{ matrix.jeu }}
+          test -f "$BIN" && "$BIN" --selftest || true
+          echo "--- journal ---"
+          cat logs/app.log 2>/dev/null | tail -30 || echo "(aucun journal)"
+
+      - name: Empaqueter (tar.gz pour testeurs)
+        run: |
+          set -e
+          BIN=Build/Bin/Release-Linux/${{ matrix.jeu }}/${{ matrix.jeu }}
+          test -f "$BIN"
+          mkdir -p paquet/${{ matrix.jeu }}-Linux
+          cp "$BIN" paquet/${{ matrix.jeu }}-Linux/
+          tar -czf ${{ matrix.jeu }}-Linux-x86_64.tar.gz -C paquet ${{ matrix.jeu }}-Linux
+          ls -l ${{ matrix.jeu }}-Linux-x86_64.tar.gz
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.jeu }}-Linux-x86_64
+          path: ${{ matrix.jeu }}-Linux-x86_64.tar.gz
+
+  # ===========================================================================
+  # macOS — ce runner est notre seule machine Apple
+  # ===========================================================================
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        jeu: [NkDames, NkEchecs, NkLudo]
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: feat/evenement-avertissement
+          path: jenga-src
+
+      - name: Builder ${{ matrix.jeu }} (Release)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 --version
+          python3 -m Jenga build --target ${{ matrix.jeu }} --config Release
+
+      - name: Empaqueter (tar.gz pour testeurs)
+        run: |
+          set -e
+          # ⚠️ On CHERCHE le binaire au lieu de deviner son chemin : le dossier
+          # de sortie macOS n'a jamais ete observe depuis ce depot, et un chemin
+          # suppose ferait echouer l'empaquetage sur une construction reussie.
+          BIN=$(find Build/Bin -type f -name "${{ matrix.jeu }}" -path "*Release*" | head -1)
+          echo "binaire: $BIN"
+          test -n "$BIN"
+          mkdir -p paquet/${{ matrix.jeu }}-macOS
+          cp "$BIN" paquet/${{ matrix.jeu }}-macOS/
+          tar -czf ${{ matrix.jeu }}-macOS.tar.gz -C paquet ${{ matrix.jeu }}-macOS
+          ls -l ${{ matrix.jeu }}-macOS.tar.gz
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.jeu }}-macOS
+          path: ${{ matrix.jeu }}-macOS.tar.gz
+
+  # ===========================================================================
+  # iOS — compilation SEULEMENT
+  #
+  # ⚠️ ON NE PRODUIT PAS D'IPA INSTALLABLE, ET IL FAUT LE DIRE : sans compte
+  #    Apple Developer (99 $/an) et sans profil de provisionnement, un binaire
+  #    iOS ne s'installe sur aucun appareil. Ce job prouve que le code COMPILE
+  #    pour iOS ; il ne rend pas le jeu distribuable. Annoncer un « build iOS »
+  #    telechargeable serait faux.
+  # ===========================================================================
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        jeu: [NkDames, NkEchecs, NkLudo]
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: feat/evenement-avertissement
+          path: jenga-src
+
+      - name: Compiler ${{ matrix.jeu }} pour iOS (Release)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 --version
+          python3 -m Jenga build --target ${{ matrix.jeu }} --config Release --platform ios

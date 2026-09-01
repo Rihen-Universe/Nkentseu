@@ -263,6 +263,59 @@ int32 NkLudoLancerBanc() {
 		logger.Infof("[banc]   (partie de controle : %d tours, gagnant = %d)\n", tours, gagnant);
 	}
 
+	// --- 10. SIEGES DESACTIVES : le tour les saute, la partie finit ---
+	//
+	// ⚠️ Les neuf cas ci-dessus tournent tous a QUATRE sieges actifs. Ils
+	// passeraient a l'identique si le saut de siege etait faux : ce cas-ci est
+	// le seul qui l'exerce.
+	{
+		NkLudoPartie p;
+		// Le siege 1 est eteint. On le choisit AU MILIEU et non au bout : un
+		// saut qui ne marcherait que sur le dernier siege passerait un test
+		// pose sur le siege 3, par le seul effet du modulo.
+		const bool pose = p.PoserSiegeActif(1, false);
+		verifier("siege eteint : la desactivation est acceptee", pose);
+		verifier("siege eteint : il en reste trois", p.NbSiegesActifs() == 3);
+
+		// CAS NEGATIF : la borne des deux sieges REFUSE d'aller plus bas.
+		// Sans lui, un `PoserSiegeActif` qui accepterait tout resterait vert.
+		p.PoserSiegeActif(2, false);
+		const bool refuseTrop = !p.PoserSiegeActif(3, false);
+		verifier("siege eteint : on ne descend PAS sous deux (cas negatif)", refuseTrop);
+		verifier("siege eteint : il en reste bien deux", p.NbSiegesActifs() == 2);
+
+		// On revient a trois sieges pour jouer la partie.
+		p.PoserSiegeActif(2, true);
+		p.PoserJoueur(p.ProchainSiegeActif(0));
+
+		uint32 graine = 7777u;
+		int32 tours = 0;
+		int32 gagnant = -1;
+		bool eteintAJoue = false;
+		while (!p.EstTerminee(gagnant) && tours < 6000) {
+			// LE CONTROLE QUI COMPTE : le siege eteint ne prend jamais la main.
+			if (p.Joueur() == 1) {
+				eteintAJoue = true;
+				break;
+			}
+			const int32 de = p.LancerDe(graine);
+			NkVector<NkLudoCoup> coups;
+			p.CoupsLegaux(coups);
+			if (coups.Size() > 0) {
+				const NkLudoCoup *choisi = NkLudoChoisirCoup(p, coups, graine);
+				if (choisi != nullptr) {
+					p.Jouer(*choisi);
+				}
+			}
+			p.FinDeTour(de == 6);
+			++tours;
+		}
+		verifier("siege eteint : il ne prend JAMAIS la main", !eteintAJoue);
+		verifier("siege eteint : la partie se TERMINE quand meme", gagnant >= 0);
+		verifier("siege eteint : il ne peut pas gagner", gagnant != 1);
+		logger.Infof("[banc]   (partie a trois sieges : %d tours, gagnant = %d)\n", tours, gagnant);
+	}
+
 	logger.Infof("\n[banc] %s (%d echec(s))\n", echecs == 0 ? "TOUT EST VERT" : "DES CAS ONT ECHOUE", echecs);
 	return echecs == 0 ? 0 : 1;
 }
