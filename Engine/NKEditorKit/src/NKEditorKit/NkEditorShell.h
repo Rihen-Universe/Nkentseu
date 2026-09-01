@@ -261,6 +261,18 @@ namespace nkentseu {
 				void SetStatusBarVisible(bool v) noexcept {
 					mStatusBarVisible = v;
 				}
+				/// DEBRANCHER LA GRANDE BARRE DE DEFILEMENT DES PANNEAUX ANCRES
+				/// (meme motif que SetStatusBarVisible — additif, 01/09, retour de
+				/// Rodolf : « la scrollbar la plus grande doit etre supprimee »).
+				/// A faux, les fenetres de panneaux passent NoScrollbar a NKGui :
+				/// la MOLETTE et le bornage restent (le contenu long demeure
+				/// atteignable), seule la barre externe ne se dessine plus — pour
+				/// les applications dont les panneaux portent leurs propres
+				/// ascenseurs par section. Defaut : vrai (NKCode et les autres
+				/// consommateurs ne bougent pas).
+				void SetDockScrollbarVisible(bool v) noexcept {
+					mDockScrollbars = v;
+				}
 				/// Le TEXTE du rail bas, a droite des pastilles (l'aide
 				/// contextuelle de l'outil arme, l'etat de l'application).
 				void SetRailFooterText(const char *t) noexcept {
@@ -790,6 +802,9 @@ namespace nkentseu {
 				char mTitle[160] = {};
 				char mTitleCenter[200] = {};
 				bool mStatusBarVisible = true;
+				/// Barre de defilement externe des panneaux ancres (voir
+				/// SetDockScrollbarVisible) — vrai par defaut.
+				bool mDockScrollbars = true;
 				char mRailFooterText[256] = {};
 				char mFooterLeft[256] = {};
 				// Voyants du footer (cf. SetFooterLights)

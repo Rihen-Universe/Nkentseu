@@ -2621,7 +2621,12 @@ void NkEditorShell::MaximizeWindow() noexcept {
 					SetNextWindowPos(mUI, 60.f + i * 28.f, menuH + 40.f + i * 28.f);
 					SetNextWindowSize(mUI, 360.f, 280.f);
 				}
-				if (Begin(mUI, p->Title(), p->OpenPtr())) {
+				// La grande barre externe se debranche par SetDockScrollbarVisible
+				// (molette conservee — les panneaux de NkUIDesign portent leurs
+				// propres ascenseurs par section).
+				if (Begin(mUI, p->Title(), p->OpenPtr(),
+						  mDockScrollbars ? nkgui::NkGuiWindowFlags::None
+										  : nkgui::NkGuiWindowFlags::NoScrollbar)) {
 					// Une fenêtre FLOTTANTE recouvre la souris et ce n'est pas la nôtre ->
 					// souris neutralisée pendant OnUI : le code custom des panneaux (éditeur,
 					// arbres) lit l'input en direct et recevrait sinon clics/molette À TRAVERS

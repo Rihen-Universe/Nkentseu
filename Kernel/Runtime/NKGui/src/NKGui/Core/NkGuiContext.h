@@ -169,6 +169,11 @@ namespace nkentseu {
 				float32 scrollX = 0.f;
 				float32 scrollY = 0.f;
 				bool horizontal = false;
+				/// Cadre défilable SANS barre visible (NkGuiWindowFlags::NoScrollbar) :
+				/// molette et bornage restent, seuls piste/flèches/pouce ne se
+				/// dessinent pas — pour un panneau qui porte ses propres ascenseurs
+				/// et où la grande barre externe faisait doublon (NkUIDesign, 01/09).
+				bool sansBarre = false;
 				NkGuiLayout savedLayout;
 		};
 

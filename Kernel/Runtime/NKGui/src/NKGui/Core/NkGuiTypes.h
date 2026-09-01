@@ -257,7 +257,8 @@ namespace nkentseu {
 			NoMove = 1 << 1,	 ///< pas de déplacement (barre de titre figée)
 			NoCollapse = 1 << 2, ///< pas de bouton repli
 			NoTitleBar = 1 << 3, ///< pas de barre de titre
-			NoClose = 1 << 4	 ///< pas de bouton fermer (même si `open` fourni)
+			NoClose = 1 << 4,	 ///< pas de bouton fermer (même si `open` fourni)
+			NoScrollbar = 1 << 5 ///< pas de barre de défilement externe (molette conservée)
 		};
 
 		NKENTSEU_NKGUI_API_INLINE NkGuiWindowFlags operator|(NkGuiWindowFlags a, NkGuiWindowFlags b) noexcept {

@@ -2049,6 +2049,13 @@ int nkmain(const NkEntryState &state) {
 	//    instant. Le plan n en prevoit qu un, dans le cluster, qui appartient au
 	//    canvas.
 	shell->SetFooterZoomIndicator(false);
+	// LA GRANDE BARRE EXTERNE DES PANNEAUX SE DEBRANCHE (retour de Rodolf,
+	// 01/09 : « la scrollbar la plus grande doit etre supprimee, elle n'est
+	// plus importante ») : la Hierarchie a ses ascenseurs PAR SECTION,
+	// l'Inspecteur se replie par sections et garde la MOLETTE — la reference
+	// Banani ne montre aucune barre externe. Interrupteur additif du kit,
+	// motif SetStatusBarVisible.
+	shell->SetDockScrollbarVisible(false);
 	// Convention V2 (Banani, decision coordinateur 31/08) : l'onglet ACTIF
 	// rejoint le fond de la zone document. OPT-IN du socle -- NKCode et les
 	// autres consommateurs gardent l'historique tant qu'ils n'optent pas.
