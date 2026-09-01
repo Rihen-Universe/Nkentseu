@@ -3233,6 +3233,129 @@ static nkentseu::int32 RecettePoints() {
 				dd);
 	}
 
+	// ── 48. VAGUE 2 : `Maj` CONTRAINT LE DEPLACEMENT A UN AXE ────────────────
+	// Source `/layers` : `Maj`+glisser contraint a un axe. CONTEXTE : la toile,
+	// selection d'objets (pour les sommets, c'est la table du mode forme).
+	//
+	// ⚠️ LE VOLET (c) EST LE SEUL QUI COMPTE VRAIMENT, et il est invisible sur une
+	//    capture. La boucle de glisser dispose d'un ecart PAR IMAGE ; contraindre
+	//    celui-la donnerait un objet qui reste sur l'axe a chaque image et DERIVE
+	//    en diagonale sur la duree du geste. On simule donc une main qui tremble
+	//    -- une suite d'ecarts dont l'axe dominant ALTERNE -- et on exige que la
+	//    position finale soit exactement sur l'axe. Une regle qui prendrait
+	//    l'ecart courant passerait (a), (b) et (d) et tomberait ici.
+	{
+		float32 ox = 0.f, oy = 0.f;
+		// (a) SANS `Maj`, RIEN N'EST TOUCHE -- le controle negatif d'abord.
+		NkContraindreAxe(false, 30.f, 12.f, ox, oy);
+		const bool libre = ox == 30.f && oy == 12.f;
+		// (b) L'AXE DOMINANT GAGNE, DANS LES DEUX SENS
+		NkContraindreAxe(true, 30.f, 12.f, ox, oy);
+		const bool horiz = ox == 30.f && oy == 0.f;
+		NkContraindreAxe(true, -7.f, -40.f, ox, oy);
+		const bool vert = ox == 0.f && oy == -40.f;
+		// (c) LA MAIN QUI TREMBLE : dix ecarts dont l'axe dominant alterne, mais
+		//     dont le TOTAL est franchement horizontal. Cumules par image, ils
+		//     auraient laisse un residu vertical ; mesures depuis l'appui, non.
+		// ⚠️ ET LA BOUCLE APPELLE `NkPositionContrainte`, PAS `NkContraindreAxe` :
+		//    elle refait EXACTEMENT ce que fait la toile, accumulation comprise
+		//    (`mMoveLibre` avance de l'ecart, puis la porte le recale). Tester la
+		//    regle seule aurait laisse le banc vert au-dessus d'un panneau qui
+		//    passerait l'ecart de l'image courante -- le defaut meme que la capture
+		//    de Rodolf a trouve sur les poignees quelques heures plus tot.
+		const float32 pasX[10] = {6.f, 1.f, 5.f, 0.5f, 7.f, 1.f, 4.f, 0.5f, 6.f, 2.f};
+		const float32 pasY[10] = {1.f, 3.f, 0.5f, 4.f, 1.f, 3.f, 0.5f, 2.f, 1.f, 1.f};
+		const float32 origX = 200.f, origY = 100.f; // la position a l'appui
+		float32 curX = origX, curY = origY, totX = 0.f, totY = 0.f;
+		uint32 imagesObliques = 0;
+		for (uint32 k = 0; k < 10u; ++k) {
+			totX += pasX[k];
+			totY += pasY[k];
+			if (pasY[k] > pasX[k])
+				++imagesObliques; // l'image ou une regle par-image aurait bascule
+			// la toile fait ces deux gestes, dans cet ordre, a chaque image
+			curX += pasX[k];
+			curY += pasY[k];
+			NkPositionContrainte(true, origX, origY, curX, curY, curX, curY);
+		}
+		curX -= origX;
+		curY -= origY;
+		// le total est bien horizontal (33 contre 17), et l'axe a bel et bien ete
+		// tente : sans ces images obliques, le volet ne discriminerait rien.
+		const bool aTremble = imagesObliques >= 3u;
+		const bool sansDerive = curY == 0.f && curX == totX;
+		// (d) LA DIAGONALE PARFAITE NE CLIGNOTE PAS : deux appels identiques
+		//     rendent le meme axe. Sans tranche ferme (`>=` et non `>`), une
+		//     egalite ferait osciller l'objet d'une image a l'autre.
+		float32 d1x = 0.f, d1y = 0.f, d2x = 0.f, d2y = 0.f;
+		NkContraindreAxe(true, 20.f, 20.f, d1x, d1y);
+		NkContraindreAxe(true, 20.f, 20.f, d2x, d2y);
+		const bool stable = d1x == d2x && d1y == d2y && d1y == 0.f;
+		char dd[224];
+		snprintf(dd, sizeof(dd), "libre=%d horiz=%d vert=%d ; tremble : %u image(s) obliques, "
+							   "total (%.1f,%.1f) -> (%.1f,%.1f) sans derive=%d ; diagonale "
+							   "stable=%d",
+				 libre ? 1 : 0, horiz ? 1 : 0, vert ? 1 : 0, imagesObliques, (double)totX,
+				 (double)totY, (double)curX, (double)curY, sansDerive ? 1 : 0, stable ? 1 : 0);
+		verdict("48. `Maj` CONTRAINT LE DEPLACEMENT A UN AXE, mesure depuis L'APPUI et non depuis "
+				"l'image precedente -- une main qui tremble ne fait PAS deriver l'objet en "
+				"diagonale, et la diagonale parfaite ne clignote pas",
+				libre && horiz && vert && aTremble && sansDerive && stable, dd);
+	}
+
+	// ── 49. VAGUE 2 : `Maj` ET `Alt` AU REDIMENSIONNEMENT ────────────────────
+	// Source `/layers` : au redimensionnement, `Maj` garde les proportions, `Alt`
+	// travaille depuis le centre, et les deux se combinent.
+	//
+	// ⚠️ LE VOLET (e) EST CELUI QUI TIENT LA PROMESSE DE `Alt` : « depuis le
+	//    centre » ne veut pas dire « plus vite », il veut dire que LE CENTRE NE
+	//    BOUGE PAS. Un code qui doublerait la taille sans reculer l'origine
+	//    passerait un test de taille et ferait fuir la forme sous le curseur.
+	{
+		float32 L = 0.f, H = 0.f, dX = 0.f, dY = 0.f;
+		// (a) SANS MODIFICATEUR : le bord droit tire, l'origine ne bouge pas.
+		NkRedimModifie(false, false, 1, 0, 100.f, 50.f, 20.f, 0.f, L, H, dX, dY);
+		const bool nu = L == 120.f && H == 50.f && dX == 0.f && dY == 0.f;
+		// (b) LE BORD GAUCHE : l'origine SUIT, le bord oppose ne bouge pas.
+		NkRedimModifie(false, false, -1, 0, 100.f, 50.f, -20.f, 0.f, L, H, dX, dY);
+		const bool gauche = L == 120.f && dX == -20.f;
+		// (c) `Maj` GARDE LES PROPORTIONS de la boite de DEPART (ratio 0,5).
+		NkRedimModifie(true, false, 1, 1, 100.f, 50.f, 40.f, 4.f, L, H, dX, dY);
+		const bool proportions = L == 140.f && H == 70.f;
+		// (d) ET LE PLUS GRAND MOUVEMENT COMMANDE : tirer surtout vers le BAS doit
+		//     agrandir en hauteur et laisser la largeur suivre. Prendre `dx`
+		//     d'office rendrait le geste vertical inerte.
+		NkRedimModifie(true, false, 1, 1, 100.f, 50.f, 3.f, 25.f, L, H, dX, dY);
+		const bool verticalCommande = H == 75.f && L == 150.f;
+		// (e) `Alt` : LE CENTRE NE BOUGE PAS. C'est la vraie promesse, et elle se
+		//     mesure sur le centre, pas sur la taille.
+		NkRedimModifie(false, true, 1, 0, 100.f, 50.f, 20.f, 0.f, L, H, dX, dY);
+		const float32 centreAvant = 0.f + 100.f * 0.5f;
+		const float32 centreApres = dX + L * 0.5f;
+		const bool centreFixe = L == 140.f && centreApres > centreAvant - 0.001f
+								&& centreApres < centreAvant + 0.001f;
+		// (f) LES DEUX ENSEMBLE : proportions gardees ET centre fixe.
+		NkRedimModifie(true, true, 1, 1, 100.f, 50.f, 20.f, 2.f, L, H, dX, dY);
+		const bool cx = (dX + L * 0.5f) > 49.999f && (dX + L * 0.5f) < 50.001f;
+		const bool cy = (dY + H * 0.5f) > 24.999f && (dY + H * 0.5f) < 25.001f;
+		const bool combine = L == 140.f && H == 70.f && cx && cy;
+		// (g) LE PLANCHER : ecraser une forme ne la RETOURNE pas.
+		NkRedimModifie(false, false, 1, 1, 100.f, 50.f, -500.f, -500.f, L, H, dX, dY);
+		const bool plancher = L == 8.f && H == 8.f;
+		char dd[240];
+		snprintf(dd, sizeof(dd), "nu=%d gauche=%d proportions=%d vertical commande=%d ; alt centre "
+							   "%.1f -> %.1f (fixe=%d) ; combine=%d ; plancher=%d",
+				 nu ? 1 : 0, gauche ? 1 : 0, proportions ? 1 : 0, verticalCommande ? 1 : 0,
+				 (double)centreAvant, (double)centreApres, centreFixe ? 1 : 0, combine ? 1 : 0,
+				 plancher ? 1 : 0);
+		verdict("49. AU REDIMENSIONNEMENT, `Maj` garde les proportions de la boite DE DEPART (le "
+				"plus grand mouvement commande) et `Alt` laisse LE CENTRE IMMOBILE ; les deux se "
+				"combinent, et le plancher ne retourne pas la forme",
+				nu && gauche && proportions && verticalCommande && centreFixe && combine
+					&& plancher,
+				dd);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

@@ -4618,6 +4618,14 @@ namespace nkuidesign {
 							mDragNode = hit;
 							mResizeEdges = (uint8)((nearLeft ? 1u : 0u) | (nearRight ? 2u : 0u)
 												   | (nearTop ? 4u : 0u) | (nearBottom ? 8u : 0u));
+							// l'origine du geste : le ratio des proportions et le
+							// centrage se lisent LA, pas a l'image courante.
+							mGesteOrigX = in.mouseX;
+							mGesteOrigY = in.mouseY;
+							mGestePosX = hn.posX;
+							mGestePosY = hn.posY;
+							mGesteL0 = hn.width.value;
+							mGesteH0 = hn.height.value;
 						} else if (nearRight || nearBottom) {
 							mDragging = true;
 							mDragHorizontal = nearRight;
@@ -4643,6 +4651,12 @@ namespace nkuidesign {
 							//    celle que l'aimant accorde.
 							mMoveLibreX = mSt->doc.nodes[(uint32)hit].posX;
 							mMoveLibreY = mSt->doc.nodes[(uint32)hit].posY;
+							// idem : `Maj` contraint le deplacement TOTAL depuis
+							// l'appui, pas l'ecart de l'image en cours.
+							mGesteOrigX = in.mouseX;
+							mGesteOrigY = in.mouseY;
+							mGestePosX = mMoveLibreX;
+							mGestePosY = mMoveLibreY;
 						}
 					}
 				}
@@ -4653,6 +4667,20 @@ namespace nkuidesign {
 						NkUINode &n = mSt->doc.nodes[(uint32)mMoveNode];
 						mMoveLibreX += dx;
 						mMoveLibreY += dy;
+						// ── VAGUE 2 : `Maj` CONTRAINT LE DEPLACEMENT A UN AXE ──
+						// ⚠️ SUR LE TOTAL DEPUIS L'APPUI, JAMAIS SUR `dx`/`dy`.
+						//    L'ecart de l'image courante donnerait un objet
+						//    « sur l'axe » a chaque image et DIAGONAL sur le
+						//    geste -- une contrainte qui passe la capture et se
+						//    voit fausse a la main. La regle vit dans
+						//    `NkContraindreAxe`, ou un banc l'atteint.
+						// ⚠️ TOUT LE CALCUL PASSE PAR LA PORTE, LA SOUSTRACTION
+						//    COMPRISE : laisser `libre - origine` ici rendrait le
+						//    banc vert au-dessus d'un appelant qui passerait
+						//    l'ecart de l'image courante. *Ce qu'on laisse hors
+						//    de la porte est ce qui pourra mentir.*
+						NkPositionContrainte(in.shift, mGestePosX, mGestePosY, mMoveLibreX,
+											 mMoveLibreY, mMoveLibreX, mMoveLibreY);
 						NkSnapResultat snap;
 						if (mSt->aimantActif && mSt->layout.Has(mMoveNode)) {
 							// Le rectangle QUE LA MAIN DEMANDE : celui de la
@@ -4679,24 +4707,32 @@ namespace nkuidesign {
 				}
 				if (mDragging && in.mouseDown && mResizeEdges != 0
 					&& mSt->doc.IsValidIndex(mDragNode)) {
+					// ── VAGUE 2 : LES HUIT POIGNEES, AVEC `Maj` ET `Alt` ──────
 					// Les huit poignees d'un noeud POSE : taille ET origine, en
 					// espace document. Plancher 8 px — une forme de 0 px se perd.
-					const float32 dx = mSt->view.ToDocLength(in.mouseX - mLastX);
-					const float32 dy = mSt->view.ToDocLength(in.mouseY - mLastY);
+					//
+					// ⚠️ LE GLISSEMENT SE MESURE DEPUIS L'APPUI, PAS DEPUIS
+					//    L'IMAGE PRECEDENTE, et ce n'est pas un raffinement :
+					//    `Maj` a besoin du ratio de la boite DE DEPART, et le
+					//    recalculer a chaque image le laisserait deriver d'un
+					//    arrondi a l'autre jusqu'a ce qu'un carre finisse
+					//    rectangle. La regle vit dans `NkRedimModifie`.
+					const float32 tdx = mSt->view.ToDocLength(in.mouseX - mGesteOrigX);
+					const float32 tdy = mSt->view.ToDocLength(in.mouseY - mGesteOrigY);
 					NkUINode &n = mSt->doc.nodes[(uint32)mDragNode];
-					if ((mResizeEdges & 2u) && n.width.value + dx >= 8.f)
-						n.width.value += dx;
-					if ((mResizeEdges & 8u) && n.height.value + dy >= 8.f)
-						n.height.value += dy;
-					if ((mResizeEdges & 1u) && n.width.value - dx >= 8.f) {
-						n.posX += dx;
-						n.width.value -= dx;
-					}
-					if ((mResizeEdges & 4u) && n.height.value - dy >= 8.f) {
-						n.posY += dy;
-						n.height.value -= dy;
-					}
-					if (dx != 0.f || dy != 0.f)
+					const int32 bx = (mResizeEdges & 1u) ? -1 : ((mResizeEdges & 2u) ? 1 : 0);
+					const int32 by = (mResizeEdges & 4u) ? -1 : ((mResizeEdges & 8u) ? 1 : 0);
+					float32 nl = 0.f, nh = 0.f, decX = 0.f, decY = 0.f;
+					NkRedimModifie(in.shift, in.alt, bx, by, mGesteL0, mGesteH0, tdx, tdy, nl, nh,
+								   decX, decY);
+					const bool change = nl != n.width.value || nh != n.height.value
+										|| (mGestePosX + decX) != n.posX
+										|| (mGestePosY + decY) != n.posY;
+					n.width.value = nl;
+					n.height.value = nh;
+					n.posX = mGestePosX + decX;
+					n.posY = mGestePosY + decY;
+					if (change)
 						mSt->doc.MarkHumanEdit(mDragNode);
 				} else if (mDragging && in.mouseDown) {
 					// ⚠️ ICI, ET NULLE PART AILLEURS : le glissement arrive en pixels
@@ -4922,6 +4958,19 @@ namespace nkuidesign {
 			bool mMainPan = false;
 			float32 mMainX = 0.f;
 			float32 mMainY = 0.f;
+			// ── L'ORIGINE DU GESTE (vague 2 — les modificateurs) ─────────────
+			/// ⚠️ CES QUATRE NOMBRES SONT LA MOITIÉ QUI COMPTE DES MODIFICATEURS,
+			///    et sans eux les deux règles seraient FAUSSES d'une façon qui ne
+			///    se voit pas sur une capture. La boucle n'a qu'un écart PAR
+			///    IMAGE ; or `Maj` contraint le déplacement TOTAL (sinon l'objet
+			///    reste sur l'axe à chaque image et dérive en diagonale sur le
+			///    geste), et le ratio des proportions se lit sur la boîte DE
+			///    DÉPART (sinon il glisse d'arrondi en arrondi et un carré finit
+			///    rectangle). *Un invariant se lit à l'origine du geste, jamais à
+			///    l'image courante* — et il faut donc que l'origine soit gardée.
+			float32 mGesteOrigX = 0.f, mGesteOrigY = 0.f; ///< souris à l'appui (écran)
+			float32 mGestePosX = 0.f, mGestePosY = 0.f;	  ///< posX/posY à l'appui
+			float32 mGesteL0 = 0.f, mGesteH0 = 0.f;		  ///< taille à l'appui
 			// ── L'instrument de fluidite (mandat 01/09) ──────────────────────
 			/// Traine d'activite : > 0 = une entree recente peut avoir mute le
 			/// document — l'observateur et la pastille serialisent ; a 0, repos

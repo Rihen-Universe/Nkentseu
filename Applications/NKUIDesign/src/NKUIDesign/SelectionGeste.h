@@ -809,6 +809,138 @@ namespace nkuidesign {
 		return doc.IsValidIndex(lca) ? lca : 0;
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  VAGUE 2 — LES MODIFICATEURS DU DÉPLACEMENT ET DU REDIMENSIONNEMENT
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  Source : `/layers` — `Maj`+glisser contraint à un axe ; au
+	//  redimensionnement, `Maj` garde les proportions, `Alt` travaille depuis le
+	//  centre, et les deux se combinent. CONTEXTE : la toile, sélection d'objets.
+	//
+	//  ⚠️ ÉCRITS ICI ET PAS DANS LA BOUCLE DE GLISSER, pour la sixième fois dans
+	//     ce chantier (le zoom en Q41, l'aimantation en Q42, le tracé, la liste
+	//     des sections, le déplacement groupé, la pose de tangente). Une règle
+	//     « si Maj, on prend le plus grand des deux » écrite au milieu du geste
+	//     vivrait là où aucun banc ne va — et « l'axe ne bascule pas en cours de
+	//     route » resterait une opinion.
+
+	/// LA CONTRAINTE D'AXE — et elle se mesure depuis l'ORIGINE DU GESTE.
+	///
+	/// 🔴 LE PIÈGE EST ENTIER ICI, ET IL EST INVISIBLE À LA RELECTURE : la boucle
+	///    de glisser dispose d'un `dx`/`dy` **par image**. Contraindre CELUI-LÀ
+	///    donnerait un objet qui reste sur l'axe à chaque image mais **dérive en
+	///    diagonale** sur la durée du geste — chaque image choisit son axe
+	///    dominant, et une main qui tremble alterne. Le résultat serait une
+	///    contrainte qui « marche » sur une capture et se voit fausse à l'usage.
+	///    On prend donc le déplacement **TOTAL depuis l'appui**, ce qui rend aussi
+	///    l'axe STABLE : une fois engagé, il ne bascule plus tant que l'autre
+	///    direction ne dépasse pas franchement.
+	///
+	/// ⚠️ ET L'AXE NE SE CHOISIT PAS À ÉGALITÉ. Sur une diagonale parfaite
+	///    (`|dx| == |dy|`), un `>` nu ferait clignoter l'objet entre les deux axes
+	///    d'une image à l'autre. On tranche pour l'horizontale, arbitrairement
+	///    mais **une fois pour toutes** : ce qui compte n'est pas laquelle, c'est
+	///    qu'elle ne change pas.
+	///
+	/// @param totalX,totalY le déplacement depuis l'appui, en unités de document.
+	inline void NkContraindreAxe(bool maj, float32 totalX, float32 totalY, float32 &outX,
+								 float32 &outY) {
+		outX = totalX;
+		outY = totalY;
+		if (!maj)
+			return;
+		const float32 ax = totalX < 0.f ? -totalX : totalX;
+		const float32 ay = totalY < 0.f ? -totalY : totalY;
+		if (ax >= ay)
+			outY = 0.f;
+		else
+			outX = 0.f;
+	}
+
+	/// LA POSITION FINALE D'UN DÉPLACEMENT CONTRAINT — la porte que la toile
+	/// appelle, et la raison pour laquelle `NkContraindreAxe` ne suffisait pas.
+	///
+	/// 🔴 UN BANC QUI N'APPELLE QUE LA RÈGLE NE PROUVE PAS L'APPELANT, et je m'en
+	///    serais aperçu trop tard : ma première version de cette vague laissait la
+	///    soustraction `libre − origine` dans la boucle de glisser et ne testait
+	///    que `NkContraindreAxe`. Le banc, lui, passait des totaux — donc il
+	///    serait resté **vert au-dessus d'un panneau qui aurait passé l'écart de
+	///    l'image courante**. C'est exactement le défaut que la capture de Rodolf
+	///    a trouvé quelques heures plus tôt sur les poignées (cas 35 et 40 verts,
+	///    interface bloquée), et j'allais le refaire dans le même fichier.
+	///    *Ce qu'on laisse hors de la porte est ce qui pourra mentir.*
+	///
+	/// @param posOrigX,posOrigY la position AU MOMENT DE L'APPUI.
+	/// @param libreX,libreY     la position que la main demande, aimant non compris.
+	inline void NkPositionContrainte(bool maj, float32 posOrigX, float32 posOrigY, float32 libreX,
+									 float32 libreY, float32 &outX, float32 &outY) {
+		float32 cx = 0.f, cy = 0.f;
+		NkContraindreAxe(maj, libreX - posOrigX, libreY - posOrigY, cx, cy);
+		outX = posOrigX + cx;
+		outY = posOrigY + cy;
+	}
+
+	/// LE REDIMENSIONNEMENT AVEC SES DEUX MODIFICATEURS.
+	///
+	/// `maj` = garder les PROPORTIONS de la boîte de départ. `alt` = travailler
+	/// DEPUIS LE CENTRE (le bord opposé s'écarte d'autant). Les deux se combinent,
+	/// et c'est le cas le plus utile : redimensionner un bouton autour de son
+	/// centre en gardant sa forme.
+	///
+	/// ⚠️ LE RATIO VIENT DE LA BOÎTE DE DÉPART, PAS DE LA BOÎTE COURANTE. C'est la
+	///    même famille de défaut que la dérive ci-dessus : recalculer le ratio à
+	///    chaque image le laisserait glisser d'un arrondi à l'autre, et un carré
+	///    finirait rectangle après un long glisser. *Un invariant se lit à
+	///    l'origine du geste, jamais à l'image courante.*
+	///
+	/// ⚠️ ET LES PROPORTIONS SUIVENT LE PLUS GRAND DES DEUX MOUVEMENTS, pas `dx`
+	///    d'office : tirer une poignée surtout vers le bas doit agrandir en
+	///    hauteur et laisser la largeur suivre. Prendre `dx` toujours rendrait le
+	///    geste vertical inerte — un modificateur qui, la moitié du temps, semble
+	///    ne rien faire.
+	///
+	/// ⚠️ UN PLANCHER À 8, ET IL EST APPLIQUÉ AVANT LE CENTRAGE : sans lui, une
+	///    largeur qui passe sous zéro retournerait la boîte, et `alt` doublerait
+	///    l'erreur en la répercutant sur l'origine.
+	///
+	/// @param bordsX -1 si on tire le bord GAUCHE, +1 le DROIT, 0 aucun.
+	/// @param bordsY -1 si on tire le bord HAUT, +1 le BAS, 0 aucun.
+	/// @param l0,h0  la taille au DÉBUT du geste (celle qui porte le ratio).
+	inline void NkRedimModifie(bool maj, bool alt, int32 bordsX, int32 bordsY, float32 l0,
+							   float32 h0, float32 dx, float32 dy, float32 &outL, float32 &outH,
+							   float32 &outDecX, float32 &outDecY) {
+		const float32 kMin = 8.f;
+		float32 dl = (bordsX == 0) ? 0.f : (bordsX > 0 ? dx : -dx);
+		float32 dh = (bordsY == 0) ? 0.f : (bordsY > 0 ? dy : -dy);
+		if (maj && l0 > 0.f && h0 > 0.f) {
+			const float32 ratio = h0 / l0;
+			// le plus grand mouvement commande, l'autre le suit
+			const float32 al = dl < 0.f ? -dl : dl;
+			const float32 ah = dh < 0.f ? -dh : dh;
+			if (bordsX != 0 && (bordsY == 0 || al >= ah))
+				dh = dl * ratio;
+			else if (bordsY != 0)
+				dl = dh / ratio;
+		}
+		// ⚠️ `alt` DOUBLE LE MOUVEMENT PARCE QUE LES DEUX BORDS S'ÉCARTENT. Le
+		//    centre reste fixe : la boîte gagne `dl` de chaque côté, donc `2*dl`
+		//    au total, et l'origine recule de la moitié de ce qui a été gagné.
+		const float32 facteur = alt ? 2.f : 1.f;
+		outL = l0 + dl * facteur;
+		outH = h0 + dh * facteur;
+		if (outL < kMin)
+			outL = kMin;
+		if (outH < kMin)
+			outH = kMin;
+		if (alt) {
+			outDecX = -(outL - l0) * 0.5f;
+			outDecY = -(outH - h0) * 0.5f;
+		} else {
+			// bord gauche / haut tiré : l'origine suit, le bord opposé ne bouge pas
+			outDecX = (bordsX < 0) ? -(outL - l0) : 0.f;
+			outDecY = (bordsY < 0) ? -(outH - h0) : 0.f;
+		}
+	}
+
 	/// Le nombre d'éléments RÉELS de la sélection (la racine ne compte pas).
 	inline uint32 NkCompteSelection(const NkUIDocument &doc, const NkSelection &sel) {
 		uint32 n = 0;
