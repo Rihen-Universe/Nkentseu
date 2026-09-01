@@ -151,11 +151,28 @@ _REGISTRY: dict = {
                                                     "NKMath", "NKThreading", "NKLogger", "NKTime",
                                                     "NKEvent", "NKWindow", "NKCanvas", "NKRHI", "NKRenderer", "NKSL",
                                                     "NKFont", "NKImage", "NKUI", "NKAnimation", "NKAnimPhysics"]),
-    # Socle d'editeur partage (coquille dockable, panneaux, palette). 2D pur :
-    # NKCanvas/NKUI, SANS NKRenderer ni NKReflection. Consomme par NKCode.
+    # Socle d'editeur partage (coquille dockable, panneaux, palette).
+    #
+    # ⚠️ AGNOSTIQUE DU BACKEND DE RENDU depuis le 2026-09-01 -- NI NKCanvas NI
+    #    NKRHI. Le kit expose `NkIEditorRenderer` et l'APPLICATION injecte son
+    #    implementation : NkEditorCanvasRenderer (IDE 2D : NKCode, NKUIDesign,
+    #    ConquerorLab) ou NkEditorRHIRenderer (3D : NkAnimaEditor, Nogee, et
+    #    NK3DModeler quand il adoptera la coquille).
+    #
+    #    Avant, NkEditorShell.cpp instanciait NKCanvas par defaut, d'ou cette
+    #    ligne, d'ou NKCanvas et ses CINQ backends graphiques lies chez toute
+    #    application 3D qui n'en executait pas une instruction.
+    #
+    # ⚠️ CETTE TABLE FAIT FOI, PAS LE `nkentseudependson` DU PROJET. Les deux
+    #    existent, ils se contredisaient (la table disait NKUI et pas NKGui, le
+    #    projet l'inverse) et c'est la table que le graphe suit. Corriger le
+    #    .jenga du module seul ne change RIEN -- mesure du 2026-09-01, faite en
+    #    voyant NkAnimaEditor tirer encore NKCanvas apres deux retraits.
+    #
+    #    NKUI retire au passage : module DEPRECIE, et le kit n'en a aucun usage.
     "NKEditorKit"    : _m("NKENTSEU_EDITORKIT",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
                                                     "NKMath", "NKLogger", "NKTime", "NKStream", "NKFileSystem",
-                                                    "NKEvent", "NKWindow", "NKCanvas", "NKFont", "NKImage", "NKUI"]),
+                                                    "NKEvent", "NKWindow", "NKFont", "NKImage", "NKGui"]),
 
     # ---- Externes -----------------------------------------------------------
     # Pas de macro d'export Nkentseu (export=None -> aucun _STATIC_LIB emis).
