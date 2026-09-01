@@ -91,6 +91,45 @@ inventoriant le code, pas de mémoire. Une ligne ✅ sans cas de recette derriè
 serait exactement le genre de vert qui ment que ce chantier chasse depuis un
 mois.
 
+### 0.5 🔢 LE COMPTE — la réponse à « as-tu tout porté ? », lisible sans moi
+
+**C'est ce tableau qui répond, pas une phrase de rapport.** Rodolf a demandé le
+02/09 : *« est-ce que tu as porté toutes les fonctions de Lunacy venant de sa
+doc ? »* La réponse honnête est un **nombre qui bouge**, pas un « oui ».
+
+| date | lignes | livré | partiel | absent | écarté |
+|---|---|---|---|---|---|
+| 2026-09-01 (création du document) | 176 | 60 | 26 | 88 | 2 |
+| **2026-09-02 (poignées + vague 2)** | **178** | **67** | **27** | **84** | **2** |
+
+**Comment le recompter soi-même**, sans rien croire sur parole — la commande rend
+le compte par état sur les lignes de tableau :
+
+```
+grep -E "^\|" 13_Lunacy_reference_interaction.md | grep -oE "(✅|🟡|❌|🚫)" | sort | uniq -c
+```
+
+⚠️ **ET C'EST POURQUOI CE TABLEAU-CI ÉCRIT SES EN-TÊTES EN TOUTES LETTRES.** Ma
+première version les décorait des quatre emblèmes — le compteur se comptait alors
+lui-même, et la commande ci-dessus rendait **68 / 28 / 85 / 3** au lieu de
+**67 / 27 / 84 / 2**. *Un instrument de mesure qui figure dans sa propre mesure
+donne un chiffre faux dans le sens qui l'arrange*, et celui-ci se serait vanté
+d'une ligne verte de plus. Trouvé en relançant la commande après l'avoir écrite,
+pas en la relisant.
+
+⚠️ **LE TOTAL MONTE AUSSI, ET CE N'EST PAS UN ARTEFACT.** Deux lignes sont
+apparues le 02/09 (les poignées par défaut, les champs X1..Y2) parce qu'un défaut
+a révélé un comportement que le document ne nommait pas encore. *Un inventaire
+qui ne grandit jamais est un inventaire qu'on a cessé de confronter au produit.*
+Le bon signe n'est donc pas « 178 lignes toutes vertes » mais **« ❌ descend plus
+vite que le total ne monte »**.
+
+⚠️ **ET UN ✅ PEUT REDEVENIR FAUX.** Deux l'ont été le 02/09 (« arrondir un
+coin », « changer le type d'un point ») : la règle existait dans le modèle et une
+recette la tenait, mais **l'interface ne savait pas l'atteindre**. Un cas de
+recette qui pose lui-même l'état qu'il mesure prouve la règle, pas le chemin. La
+colonne « ce qui manque » garde ces deux constats plutôt que de les effacer.
+
 ---
 
 ## 11. ⚠️ Ce qu'on ne suivra pas — et pourquoi
@@ -172,7 +211,7 @@ Sources : `lunacy.docs.icons8.com/editing_shapes/`, `/tools/#types-of-points`,
 | Ajouter un point courbe d'emblée | double-clic sur le tracé (point miroir) | ❌ **absent** | notre double-clic sur le **tracé** n'est pas distingué du simple clic ; le modèle, lui, sait déjà faire un point miroir |
 | Supprimer un point | le sélectionner puis `Suppr` | 🟡 **partiel** | `NkSupprimerSommet` **existe** et refuse sous trois sommets ; **aucun geste ne l'appelle** |
 | Supprimer un point à la souris | `Alt`+clic | ❌ **absent** | même mécanisme, autre porte |
-| Arrondir un coin | champ de rayon, actif **seulement** sur un point droit | ✅ **livré** | le champ « R » de notre section. La règle « seulement sur un point droit » est la nôtre aussi (`RayonActif`, cas 39) — **trouvée indépendamment, puis confirmée par la source** |
+| Arrondir un coin | champ de rayon, actif **seulement** sur un point droit | ✅ **livré** (panneau corrigé le 02/09) | le champ « R » de notre section. La règle « seulement sur un point droit » est la nôtre aussi (`RayonActif`, cas 39) — **trouvée indépendamment, puis confirmée par la source**. 🔴 **Ce ✅ était FAUX jusqu'au 02/09, et c'est une capture de Rodolf qui l'a montré** : la règle vivait dans le modèle et dans le peintre, **pas dans le panneau**. « R = 16 » s'affichait, éditable, sur un sommet passé en « Libre » — où plus rien ne lit la valeur. Le champ se grise désormais, la valeur est **gardée** pour le retour à « Droit », et la raison est écrite sous la rangée (cas 47) |
 | Basculer un point droit ↔ miroir | **double-clic sur le point** | ⚠️ **divergence assumée** | chez nous, le double-clic sur une poignée **cycle le rayon** 0/8/16/32 (cas 21, 33). C'est ce que **Rodolf a demandé** le 01/09 (« si on double-clique sur une poignée sombre on peut l'arrondir »), et on le garde. Mais il faut le savoir : **le même geste ne fait pas la même chose dans les deux outils.** Le jour où l'on voudra la bascule de type, il faudra lui trouver une autre porte |
 
 ### 1.3 Les types de point et leurs poignées
@@ -199,8 +238,10 @@ ce que Sketch appelle aujourd'hui « Mirror angle ». Pris dans son sens courant
 
 | comportement | geste | état | ce qui manque |
 |---|---|---|---|
-| Tirer une poignée de courbe | la saisir et glisser | ✅ **livré** — la poignée gagne sur son sommet quand elles se recouvrent (cas 40) |  |
-| Changer le type d'un point | la rangée d'icônes du panneau | ✅ **livré** — quatre boutons, appliqués à **tous** les points sélectionnés |  |
+| Tirer une poignée de courbe | la saisir et glisser | ✅ **livré** — la poignée gagne sur son sommet quand elles se recouvrent (cas 40) | 🔴 **inatteignable à la main jusqu'au 02/09** : il fallait déjà une poignée pour en saisir une (voir la ligne suivante) |
+| Changer le type d'un point | la rangée d'icônes du panneau | ✅ **livré** — quatre boutons, appliqués à **tous** les points sélectionnés | 🔴 **ce ✅ recouvrait un état sans issue jusqu'au 02/09.** Le bouton posait le type et laissait les quatre tangentes à zéro ; le peintre **et** le ramasseur sautent les tangentes nulles (`tx == 0 && ty == 0`, garde juste des deux côtés), donc **rien à voir et rien à saisir** — et la seule main qui pouvait créer une poignée était celle qui aurait dû en saisir une. Capture de Rodolf : `probleme_pas_de_poignees_222121.png` |
+| **Un point passé en courbe reçoit des poignées par défaut** | automatique, au changement de type | ✅ **livré le 02/09** | `NkAmorcerTangentes` : direction = corde des voisins, longueur = un tiers de la distance au voisin de ce côté-là (la construction lisse d'Illustrator, Figma, Inkscape). Cas 46, deux mutations. ⚠️ **Et c'est le HARNAIS qui a nommé le manque** : la mise en scène `--courber` écrivait `NkPoserLiaison` **puis** `NkPoserTangente` — deux lignes là où l'interface n'en avait qu'une. *Une mise en scène qui doit ajouter un geste pour voir quelque chose nomme le geste qui manque à l'utilisateur.* Le levier appelle désormais la même porte que le panneau, et rien de plus |
+| **Les champs X1/Y1/X2/Y2 montrent les tangentes** | le panneau `Edit shape` | ✅ **livré le 02/09** | ils affichaient **quatre « — » en dur**, dans un `BeginDisabled` — pas un calcul qui échouait : `BoiteChamp(ctx, a1, "—")` ne lit rien, donc aucune valeur n'aurait jamais pu y apparaître. C'était l'échafaudage écrit **avant** que le modèle porte des tangentes, laissé en place après. ⚠️ La conversion est celle d'un **vecteur** (`v × ½ largeur`), pas d'une position (`(v+1) × ½ largeur`) : reprendre la formule de la rangée X/Y d'à côté aurait décalé chaque poignée d'une demi-boîte. Écriture par `NkPoserTangente`, pour que la jumelle suive la liaison |
 | Casser la liaison pendant le geste | `Alt` → déconnecté, `Ctrl` → asymétrique | ✅ **livré** (cas 40) | ⚠️ la source dit « create a … point », pas explicitement « en glissant la poignée d'un point existant » : c'est l'extension la plus proche de ce qu'elle décrit, et c'est **noté** au mécanisme |
 | Escamoter une poignée d'un point déconnecté | ramener sa pointe sur le point | 🟡 **partiel** | le modèle l'exprime (tangente nulle = poignée absente) ; le geste marche mécaniquement, il n'est **pas tenu par un cas** |
 | La rangée d'icônes montre des **icônes** | — | ❌ **absent** | nos quatre boutons portent des **mots** (« Droit / Miroir / Asym. / Libre ») faute d'atlas d'icônes vectorielles ; le mot est plus long mais il ne s'apprend pas |
@@ -477,11 +518,11 @@ Source : `/layers`.
 | comportement | geste | état | ce qui manque |
 |---|---|---|---|
 | Déplacer | glisser | ✅ **livré** |  |
-| Contraindre à un axe | `Maj`+glisser | ❌ **absent** | un modificateur, rien au modèle |
+| Contraindre à un axe | `Maj`+glisser | ✅ **livré le 02/09** | `NkContraindreAxe` + `NkPositionContrainte`, cas 48. ⚠️ **Mesuré depuis l'APPUI, pas depuis l'image précédente** : la boucle de glisser n'a qu'un écart par image, et contraindre celui-là donne un objet qui reste sur l'axe à chaque image et **dérive en diagonale** sur le geste (mutation : (33 ; 17) au lieu de (33 ; 0)). La diagonale parfaite tranche pour l'horizontale — arbitraire, mais **une fois pour toutes**, sinon l'objet clignote entre les deux axes |
 | Déplacer de 1 px / 10 px | flèches / `Maj`+flèches | ✅ **livré** (01/09) | cas 41. ⚠️ Le pas est en **unités de document**, pas en pixels d'écran : sinon l'objet avancerait de moins en moins vite à mesure qu'on zoome *pour être précis* |
 | Position exacte | champs X / Y | ✅ **livré** | section Disposition |
 | Redimensionner | poignées | ✅ **livré** | huit poignées |
-| Proportions / depuis le centre / les deux | `Maj` / `Alt` / les deux | ❌ **absent** | les modificateurs existent **au tracé** (§2), pas au **redimensionnement** — le chemin frère est identifié, il n'est pas fait |
+| Proportions / depuis le centre / les deux | `Maj` / `Alt` / les deux | ✅ **livré le 02/09** | `NkRedimModifie`, cas 49 — le **chemin frère** du tracé (§2) est traité, comme il avait été identifié. ⚠️ Le ratio vient de la boîte **de départ** : le recalculer à chaque image le laisserait glisser d'arrondi en arrondi jusqu'à ce qu'un carré finisse rectangle. ⚠️ Et **le plus grand mouvement commande** — prendre `dx` d'office rendrait le geste vertical inerte. `Alt` se mesure sur **le centre**, pas sur la taille : « depuis le centre » veut dire que le centre ne bouge pas |
 | Redimensionner de 1 px / 10 px | `Ctrl`+flèches / `Ctrl+Maj`+flèches | ❌ **absent** |  |
 | Taille exacte, verrou de proportions | champs L / H | 🟡 **partiel** | les champs existent ; pas le verrou |
 | Redimensionner un cadre **sans son contenu** | `Ctrl`+poignée | ❌ **absent** |  |
@@ -496,7 +537,7 @@ Source : `/layers`.
 | Ranger en grille (*Tidy up*) | `Ctrl+Alt+Maj+T` | ❌ **absent** |  |
 | Contraintes de redimensionnement (épingler à un bord, figer une dimension) | section Contraintes | ✅ **livré autrement** | c'est **notre ancrage** (§11.3), et il est plus expressif : nous avons en plus l'agencement calculé |
 | Mesurer la distance à un autre calque | `Alt` + survol | ❌ **absent** | ⚠️ notre aimant **écrit déjà les distances** pendant un glisser (snap 9-10) ; ce serait la même mesure, à froid |
-| Dupliquer par glisser | `Alt`+glisser | ❌ **absent** | `Ctrl+D` existe |
+| Dupliquer par glisser | `Alt`+glisser | ✅ **livré le 02/09** | recette édition, site 4. ⚠️ **La copie se fait à l'ARMEMENT du geste** — la boucle de glisser passe des dizaines de fois par seconde, et y poser la copie sèmerait une traînée d'objets. Le cas rejoue **dix images** et exige qu'aucun nœud ne naisse (mutation : il tombe). ⚠️ **Et c'est la COPIE qu'on traîne, pas l'original** : l'inverse rend le *même document* et une expérience différente — la forme sous le doigt ne serait pas celle qu'on croit tenir. Aucun décalage de 10 px, contrairement à `Ctrl+D` : ici **la souris est le décalage** |
 
 ---
 
@@ -511,7 +552,7 @@ Source : `/layers`, `/basics`.
 | Grouper / dégrouper | `Ctrl+G` / `Ctrl+Maj+G` | ✅ **livré**, **raccourci compris** (01/09) | recette gestes + cas 44 — et le groupe naît au **plus proche ancêtre commun** |
 | Créer un cadre | `Ctrl+Alt+G` | 🟡 **partiel** | l'entrée existe, grisée, et le dit |
 | Faire entrer / sortir un calque d'un groupe | glisser dans la liste | ✅ **livré** | Hiérarchie |
-| Ordre de profondeur (4 gestes) | `Ctrl+]`, `Ctrl+Maj+]`, `Ctrl+[`, `Ctrl+Maj+[` | ❌ **absent** | l'entrée « Envoyer derrière » existe, grisée, et le dit |
+| Ordre de profondeur (4 gestes) | `Ctrl+]`, `Ctrl+Maj+]`, `Ctrl+[`, `Ctrl+Maj+[` | 🟡 **partiel — livré le 02/09 par le MENU, pas encore au clavier** | `NkOrdreProfondeur` + les **quatre** entrées du menu contextuel, qui AGISSENT (recette gestes). 📌 **Le mécanisme était déjà porté une couche plus bas** : `NkUIDocument::MoveChild` écrit un rang dans la fratrie, et la Hiérarchie s'en sert depuis le glisser dans la liste — *le travail n'était pas d'écrire un réordonnancement, c'était de lui donner ses quatre portes.* ⚠️ Le sens a été **mesuré** : `NkDrawDocument` parcourt `children` en ordre croissant, donc **le rang le plus grand est devant** ; l'écrire à l'envers aurait donné quatre commandes faisant le contraire de leur nom sans qu'aucun code ne proteste. **Ce qui manque : les quatre raccourcis** — `NkGuiKey` n'a ni `]` ni `[`, le même manque que `Ctrl+A` et `R` (§10.1) |
 | **Z-index automatique** (le petit passe au-dessus du grand) | automatique | 🚫 **écarté** | ⚠️ **et c'est une décision, pas un oubli** : un réordonnancement que l'utilisateur n'a pas demandé est exactement ce que ce chantier refuse. *Un outil qui range tout seul est un outil dont on ne prévoit pas le résultat.* |
 | Verrouiller / masquer | icônes de la liste | ❌ **absent** | deux booléens par nœud, honorés au pointage et au dessin |
 | Renommer | `F2` | ✅ **livré** | dans la Hiérarchie, et le double-clic sur l'étiquette d'une page |
@@ -699,9 +740,13 @@ supprime le mensonge des libellés de menu (§10.1). Déplacement au clavier,
 outils par lettre, zoom, `Entrée` pour l'édition de forme, `Ctrl` qui suspend
 l'aimant.
 
-**Vague 2 — finir les gestes de la sélection.** Modificateurs au
-redimensionnement (`Maj`, `Alt`), contrainte d'axe au déplacement, dupliquer par
-`Alt`+glisser, ordre de profondeur, verrouiller / masquer.
+**Vague 2 — finir les gestes de la sélection.** ✅ **faite le 02/09**, sauf sa
+dernière ligne. Modificateurs au redimensionnement (`Maj`, `Alt`) ✅, contrainte
+d'axe au déplacement ✅, dupliquer par `Alt`+glisser ✅, ordre de profondeur 🟡
+(les quatre entrées de menu agissent ; les quatre raccourcis attendent que
+`NkGuiKey` connaisse `[` et `]`), **verrouiller / masquer ❌ — c'est ce qui
+reste**, et c'est le seul de la vague qui demande quelque chose au **modèle**
+(deux booléens par nœud, honorés au pointage *et* au dessin).
 
 **Vague 3 — finir l'édition de forme.** Élastique sur les sommets (avec la
 mesure qui protège la porte de sortie), suppression d'un sommet par `Suppr`,
