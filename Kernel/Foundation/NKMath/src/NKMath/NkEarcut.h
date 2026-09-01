@@ -161,7 +161,14 @@ namespace nkentseu {
 
 					NkEarcutNode<T> *nxt = ear->next;
 					NkEarcutRemoveNode(ear);
-					nkentseu::memory::NkGetDefaultAllocator().Delete(ear);
+					// 🔴 NE PLUS LIBERER ICI -- C ETAIT UNE DOUBLE LIBERATION.
+					//    Cette ligne faisait `Delete(ear)` ; puis `NkEarcut`
+					//    reliberait la liste depuis sa tete, laquelle a presque
+					//    toujours ete decoupee, donc deja liberee. Un appel unique
+					//    corrompt le tas en silence et survit ; une boucle de dessin
+					//    (des milliers d appels par seconde) tombe en trois secondes
+					//    sur un 0xC0000374 qui ne dit rien de sa cause.
+					//    L appelant libere TOUT a la fin, depuis son propre inventaire.
 					ear = nxt;
 					stop = nxt;
 				} else {
@@ -188,7 +195,8 @@ namespace nkentseu {
 		// `reverse` = true pour les trous (inverse l'ordre de traversée).
 		template <typename T>
 		inline NkEarcutNode<T> *NkEarcutCreateListWithOffset(const NkVector<math::NkVec2T<T>> &points, bool reverse,
-															 std::size_t offset) {
+															 std::size_t offset,
+															 NkVector<NkEarcutNode<T> *> *inventaire = nullptr) {
 			NkEarcutNode<T> *last = nullptr;
 			const std::size_t n = points.Size();
 			if (reverse) {
@@ -197,10 +205,14 @@ namespace nkentseu {
 				// pour inverser le sens de traversée (CW → CCW dans la liste).
 				for (std::size_t k = n; k-- > 0;) {
 					last = NkEarcutInsertNode(offset + k, points[k].x, points[k].y, last);
+					if (inventaire)
+						inventaire->PushBack(last);
 				}
 			} else {
 				for (std::size_t k = 0; k < n; ++k) {
 					last = NkEarcutInsertNode(offset + k, points[k].x, points[k].y, last);
+					if (inventaire)
+						inventaire->PushBack(last);
 				}
 			}
 			return last;
@@ -437,7 +449,9 @@ namespace nkentseu {
 			return triangles;
 
 		// Outer avec indices globaux 0..outer.Size()-1
-		detail::NkEarcutNode<T> *outerList = detail::NkEarcutCreateListWithOffset(polygon[0], false, 0);
+		NkVector<detail::NkEarcutNode<T> *> inventaire;
+		detail::NkEarcutNode<T> *outerList =
+			detail::NkEarcutCreateListWithOffset(polygon[0], false, 0, &inventaire);
 
 		std::size_t globalOffset = polygon[0].Size();
 
@@ -450,13 +464,22 @@ namespace nkentseu {
 				continue;
 
 			// Trou CW → inversion = CCW dans la liste, puis bridge le connecte
-			detail::NkEarcutNode<T> *holeList = detail::NkEarcutCreateListWithOffset(polygon[h], true, globalOffset);
+			detail::NkEarcutNode<T> *holeList =
+				detail::NkEarcutCreateListWithOffset(polygon[h], true, globalOffset, &inventaire);
 			detail::NkEarcutConnectHole(outerList, holeList);
 			globalOffset += polygon[h].Size();
 		}
 
 		detail::NkEarcutLinked(outerList, triangles);
-		detail::NkEarcutDeleteList(outerList);
+		// 🔴 ON LIBERE DEPUIS L INVENTAIRE, PAS DEPUIS L ANNEAU. L ancien code
+		//    appelait `NkEarcutDeleteList(outerList)` -- or le decoupage retire
+		//    des noeuds de l anneau (et, avant la correction du 2026-09-01, les
+		//    liberait deja). Parcourir l anneau apres coup ne voyait plus les
+		//    noeuds decoupes et repassait sur une tete deja liberee : une DOUBLE
+		//    LIBERATION, silencieuse sur un appel unique, mortelle sur des
+		//    milliers. L inventaire, lui, contient CHAQUE noeud alloue, une fois.
+		for (std::size_t k = 0; k < inventaire.Size(); ++k)
+			nkentseu::memory::NkGetDefaultAllocator().Delete(inventaire[(nkentseu::uint32)k]);
 
 		return triangles;
 	}
