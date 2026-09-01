@@ -374,6 +374,14 @@ namespace nkuidesign {
 	/// Le noeud le plus PROFOND dont le rectangle contient le point. C'est la
 	/// « pose a la souris » : on ne retient pas ou l'utilisateur a lache, on
 	/// retient DANS QUI il a lache. Rend -1 si le point tombe hors de la racine.
+	///
+	/// ⚠️ A PROFONDEUR EGALE, LE DERNIER DE L'ORDRE DOCUMENT GAGNE (`>=`), et
+	///    c'est le 4e retour de Rodolf qui l'a paye : « Aide e-mail » (le texte
+	///    par defaut) est le FRERE du « Champ e-mail », pose PAR-DESSUS — avec
+	///    `>` strict, le premier frere de l'ordre document (le rect) absorbait
+	///    tous les clics, et le texte visible au premier plan etait
+	///    inatteignable (« Element non editable »). Le dernier dessine est le
+	///    plus haut a l'ecran : c'est lui que tout outil de dessin pointe.
 	inline int32 NkPickNode(const NkUIDocument &doc, const NkLayoutResult &lay, float32 x, float32 y) {
 		int32 best = -1, bestDepth = -1;
 		for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i) {
@@ -382,7 +390,7 @@ namespace nkuidesign {
 			int32 depth = 0;
 			for (int32 c = doc.nodes[i].parent; c >= 0; c = doc.nodes[(uint32)c].parent)
 				++depth;
-			if (depth > bestDepth) {
+			if (depth >= bestDepth) {
 				bestDepth = depth;
 				best = (int32)i;
 			}

@@ -2453,7 +2453,10 @@ namespace nkuidesign {
 										 "remonter.");
 								} else
 									mSt->SelectSingle(cand); // rien sous le point
-							} else if (StrEq(cn.shape.Data(), "text")) {
+							} else if (StrEq(cn.shape.Data(), "text") || !cn.text.Empty()) {
+								// EDITABLE = tout noeud qui PORTE une cle `texte`
+								// (4e retour) — pas seulement la nature `text` :
+								// un rect a texte par defaut s'edite pareil.
 								mEditNode = cand;
 								const char *t0 = cn.text.Data();
 								snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
