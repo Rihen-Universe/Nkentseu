@@ -119,6 +119,112 @@ namespace nkuidesign {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	//  UN DOUBLE-CLIC EST UN APPUI — MÊME QUAND L'OS N'EN ENVOIE PAS
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ CETTE RÈGLE EXISTE PARCE QUE LE GESTE RÉEL ET LE BANC NE PASSAIENT PAS
+	///    PAR LE MÊME CHEMIN, et c'est ce qui a rendu le défaut invisible un
+	///    mois durant. Mesuré à la source le 2026-09-01, en quatre maillons :
+	///
+	///    1. `NkWin32Window.cpp:487` — la classe de fenêtre porte `CS_DBLCLKS`,
+	///       donc Windows **remplace** le second `WM_LBUTTONDOWN` par
+	///       `WM_LBUTTONDBLCLK` au lieu de l'ajouter ;
+	///    2. `NkWin32EventSystem.cpp` — ce message n'émettait **que**
+	///       `NkMouseDoubleClickEvent`, jamais d'appui (corrigé le même jour) ;
+	///    3. `NkEditorShell.cpp` — seul un `NkMouseButtonPressEvent` lève
+	///       `mouseDown[0]`, donc `mouseClicked[0]` restait **faux** ;
+	///    4. la toile lisait `in.mousePressed = mouseClicked[0]` et **enfermait**
+	///       sa branche double-clic dedans : le geste réel n'y entrait jamais.
+	///
+	///    Et l'INJECTEUR, lui, posait `mouseDown` **puis** `SetDoubleClick` :
+	///    toutes les mesures passaient par un chemin que la souris de Rodolf ne
+	///    prenait pas. *Un banc qui emprunte une autre porte que le geste ne
+	///    prouve rien du geste.*
+	///
+	///    LA RÈGLE, DONC, ET ELLE SE CITE : **un double-clic vaut appui.**
+	///    Elle vit ici plutôt que dans la condition qui a mordu, parce que le
+	///    même croisement `appui && double-clic` se retrouve à cinq endroits de
+	///    `HandleMouse` (édition en place, hors-toile, flottants, outils de
+	///    tracé, corps du geste) : écrite à côté d'un seul, elle n'aurait pas
+	///    couvert les quatre voisins.
+	inline bool NkAppuiDeToile(bool mousePressed, bool doubleClick) {
+		return mousePressed || doubleClick;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  CE QUE LE DOUBLE-CLIC A FAIT — ET LA RAISON QU'IL EN DIT
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ LA TABLE CI-DESSUS DIT CE QU'UN DOUBLE-CLIC **OUVRE** ; celle-ci dit ce
+	///    qu'il a **fait**, et surtout ce qu'il en **dit**. Les deux ne se
+	///    confondent pas : `Forer` a **deux** suites, et c'est la seconde qui a
+	///    mordu.
+	///
+	///    MESURE DU 2026-09-01 sur le document Dashboard : un double-clic sur le
+	///    corps d'une carte (`Carte_Actifs`), d'un panneau (`Panel_Nav`) ou d'un
+	///    artboard (`Dashboard`) — c'est-à-dire partout où aucun ENFANT DIRECT ne
+	///    se trouve sous le point — rendait l'issue `Forer`, puis
+	///    `NkPickDansContexte` rendait **−2**, et la branche se contentait d'un
+	///    `SelectSingle` **muet**. Le forage n'était pas armé non plus : le
+	///    double-clic suivant refaisait exactement la même chose. *Rien ne se
+	///    passait, rien ne le disait, et ça ne progressait jamais* — le défaut
+	///    que la maison chasse depuis un mois, dans sa forme la plus pure, et sur
+	///    la plus grande partie de la surface d'une carte.
+	///
+	///    ⚠️ POURQUOI UNE FONCTION DE PHRASE PLUTÔT QU'UN `Dire` PAR BRANCHE : une
+	///       branche qui oublie de parler ne se voit pas à la relecture — elle a
+	///       l'air d'une branche. Ici l'oubli est **mesurable** : la recette
+	///       parcourt les six suites et exige une phrase non vide pour chacune.
+	///       Ajouter une septième suite sans sa phrase fait tomber le cas.
+	enum class NkSuiteDblClic {
+		ForerVersEnfant,  ///< un enfant était sous le point : on y descend
+		ForerSansEnfant,  ///< aucun enfant sous le point : on ENTRE quand même
+		EditerTexte,	  ///< le champ de saisie s'ouvre
+		ModePoints,		  ///< les sommets deviennent manipulables
+		CoinsSeuls,		  ///< pas de sommets : les coins redimensionnent
+		RienADire		  ///< aucune issue — et le refus s'annonce
+	};
+
+	/// La suite, à partir de l'issue et de ce que le pointage a trouvé.
+	/// @param enfantSousLePoint vrai si un ENFANT DIRECT du nœud foré contient
+	///        le point (le résultat de `NkPickDansContexte(..., cand)`).
+	inline NkSuiteDblClic NkSuiteDeDblClic(NkIssueDblClic issue, bool enfantSousLePoint) {
+		switch (issue) {
+			case NkIssueDblClic::Forer:
+				return enfantSousLePoint ? NkSuiteDblClic::ForerVersEnfant
+										 : NkSuiteDblClic::ForerSansEnfant;
+			case NkIssueDblClic::EditerTexte: return NkSuiteDblClic::EditerTexte;
+			case NkIssueDblClic::ModePoints: return NkSuiteDblClic::ModePoints;
+			case NkIssueDblClic::CoinsSeuls: return NkSuiteDblClic::CoinsSeuls;
+			default: return NkSuiteDblClic::RienADire;
+		}
+	}
+
+	/// LA RAISON DITE. **Jamais vide** — c'est tout l'objet de cette fonction.
+	/// Le nom du nœud, quand il y en a un, est ajouté par l'appelant.
+	inline const char *NkRaisonDeDblClic(NkSuiteDblClic suite) {
+		switch (suite) {
+			case NkSuiteDblClic::ForerVersEnfant:
+				return " — double-clic : descendre/éditer ; Échap : remonter.";
+			case NkSuiteDblClic::ForerSansEnfant:
+				return " — entré dans le groupe (rien sous le point) : les clics "
+					   "désignent son contenu ; Échap remonte.";
+			case NkSuiteDblClic::EditerTexte:
+				return "Édition du texte — Entrée valide, Échap annule.";
+			case NkSuiteDblClic::ModePoints:
+				return "Mode points — glisser un sommet le déplace ; Échap ressort.";
+			case NkSuiteDblClic::CoinsSeuls:
+				return "Cette forme n'a pas de sommets : ses coins redimensionnent "
+					   "(poignées de sélection).";
+			default: return "Élément non éditable — rien à ouvrir ici.";
+		}
+	}
+
+	/// Le nombre de suites, pour que la recette les parcoure TOUTES au lieu d'en
+	/// citer une liste qui se périme à la première qu'on ajoute.
+	inline uint32 NkNbSuitesDblClic() {
+		return 6u;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	//  À QUI APPARTIENT UNE POIGNÉE — LA PRIORITÉ EST DITE, PAS SUBIE
 	// ═══════════════════════════════════════════════════════════════════════════
 	/// ⚠️ CETTE FONCTION EXISTE PARCE QUE DEUX POIGNÉES SE SUPERPOSENT AU PIXEL.
