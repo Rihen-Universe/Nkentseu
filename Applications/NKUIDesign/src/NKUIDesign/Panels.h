@@ -377,6 +377,50 @@ namespace nkuidesign {
 			/// existant s'en sert ; il ne se pose plus a la main.
 			int32 selected = 0;		 ///< index de noeud ; -1 = aucun
 
+			/// ── LE MODE ÉDITION DE FORME ─────────────────────────────────────
+			/// ⚠️ IL A DÉMÉNAGÉ DE `PreviewPanel` VERS L'ÉTAT PARTAGÉ LE 01/09, ET
+			///    POUR LA MÊME RAISON QUE LA SÉLECTION CI-DESSUS : **deux panneaux
+			///    en ont besoin**. La toile peint les sommets ; l'Inspecteur doit
+			///    afficher la section « ÉDITION DE FORME » (X/Y/rayon du sommet,
+			///    « Terminer ») — c'est le point 2 de la comparaison en deux temps
+			///    de Rodolf (`lunacy_2temps_edition_181745.png`), celui qui montre
+			///    que Lunacy change le CONTENU DU PANNEAU DROIT en même temps que
+			///    la toile.
+			///
+			/// ⚠️ ET IL DÉMÉNAGE PLUTÔT QU'IL NE SE RECOPIE. Un miroir posé à
+			///    chaque image aurait « marché » et créé la divergence exacte que
+			///    le document 3 §11.5 interdit pour la sélection : un drapeau
+			///    oublié à un site de mutation ment pour toujours. Il n'y a qu'un
+			///    seul état, et les deux panneaux le lisent.
+			///
+			/// Comme la sélection, il vit dans la VUE : `Save` ne l'écrit pas.
+			struct NkModeForme {
+				int32 noeud = -1;  ///< le nœud dont les sommets s'éditent, -1 = aucun
+				/// ⚠️ `sommet` ET `tire` SONT DEUX CHOSES, et les confondre viderait
+				///    le panneau au relâchement. `tire` est le sommet SOUS LA MAIN
+				///    (il retombe à -1 dès qu'on lâche) ; `sommet` est le sommet
+				///    SÉLECTIONNÉ, celui dont l'Inspecteur montre les coordonnées —
+				///    il survit au relâchement, sinon les champs X/Y clignoteraient
+				///    et seraient inutilisables.
+				int32 sommet = -1; ///< le sommet SÉLECTIONNÉ (survit au relâchement)
+				int32 tire = -1;   ///< le sommet en cours de GLISSEMENT
+				bool Actif() const {
+					return noeud >= 0;
+				}
+				/// ⚠️ SORTIR EST UN GESTE, PAS TROIS AFFECTATIONS. Le mode se ferme
+				///    à QUATRE endroits (Échap, le nœud qui disparaît, la sélection
+				///    qui change, le bouton « Terminer »), et il porte désormais
+				///    TROIS champs. Écrits à la main, le quatrième site en oublie
+				///    un — et un `sommet` resté posé ferait afficher à l'Inspecteur
+				///    les coordonnées d'un point qui n'est plus édité.
+				void Quitter() {
+					noeud = -1;
+					sommet = -1;
+					tire = -1;
+				}
+			};
+			NkModeForme modeForme;
+
 			/// Les trois seuls gestes qui changent la selection. Passer par eux
 			/// garantit que `sel` et `selected` ne peuvent pas diverger -- c'est
 			/// exactement la divergence que le document 3 §11.5 interdit.
@@ -2382,12 +2426,12 @@ namespace nkuidesign {
 				{
 					float32 tmpXY[64];
 					uint32 nbP = 0;
-					if (mPointsNode >= 0 && mSt->doc.IsValidIndex(mPointsNode)
-						&& screen.Has(mPointsNode))
-						nbP = NkSommetsDe(mSt->doc.nodes[(uint32)mPointsNode],
-										  screen.At(mPointsNode), tmpXY, 32);
-					nkgui::NkGuiNoterMesure(ctx, "canvas.points", (float32)mPointsNode,
-											(float32)mPointDrag, (float32)nbP, 0.f);
+					if (mSt->modeForme.noeud >= 0 && mSt->doc.IsValidIndex(mSt->modeForme.noeud)
+						&& screen.Has(mSt->modeForme.noeud))
+						nbP = NkSommetsDe(mSt->doc.nodes[(uint32)mSt->modeForme.noeud],
+										  screen.At(mSt->modeForme.noeud), tmpXY, 32);
+					nkgui::NkGuiNoterMesure(ctx, "canvas.points", (float32)mSt->modeForme.noeud,
+											(float32)mSt->modeForme.tire, (float32)nbP, 0.f);
 				}
 				nkgui::NkGuiNoterMesure(ctx, "canvas.survol", (float32)mSurvol,
 										(float32)NkCompteSelection(mSt->doc, mSt->sel), 0.f,
@@ -2498,14 +2542,13 @@ namespace nkuidesign {
 				if (mCreating && ctx.input.KeyPressed(NkGuiKey::Escape)) {
 					mCreating = false;
 					Dire("Tracé annulé.", "", "");
-				} else if (mPointsNode >= 0 && !mSt->doc.IsValidIndex(mEditNode)
+				} else if (mSt->modeForme.noeud >= 0 && !mSt->doc.IsValidIndex(mEditNode)
 						   && ctx.input.KeyPressed(NkGuiKey::Escape)) {
 					// ⚠️ ÉCHAP SORT D'ABORD DU MODE POINTS, ENSUITE du forage. Les
 					//    deux écoutent la même touche ; sans cet ordre, Échap
 					//    remonterait d'un niveau en laissant les poignées de
 					//    sommets affichées sur un nœud qu'on vient de quitter.
-					mPointsNode = -1;
-					mPointDrag = -1;
+					mSt->modeForme.Quitter();
 					Dire("Mode points quitté.", "", "");
 				} else if (mForage >= 0 && !mSt->doc.IsValidIndex(mEditNode)
 						   && ctx.input.KeyPressed(NkGuiKey::Escape)) {
@@ -2975,8 +3018,8 @@ namespace nkuidesign {
 				// ⚠️ LE MODE SE FERME TOUT SEUL si son nœud disparaît (une
 				//    suppression renumérote) : un mode points sur un nœud mort
 				//    peindrait des poignées sur le vide.
-				if (mPointsNode >= 0 && !mSt->doc.IsValidIndex(mPointsNode))
-					mPointsNode = -1;
+				if (mSt->modeForme.noeud >= 0 && !mSt->doc.IsValidIndex(mSt->modeForme.noeud))
+					mSt->modeForme.Quitter();
 				// 🔴 LE MODE SE DESARME DES QUE SA FORME N'EST PLUS SELECTIONNEE.
 				// C'est LE correctif du bogue bloquant du 01/09 (capture
 				// `probleme_vertices_141913`) : « c'est difficile ou impossible de
@@ -2992,16 +3035,15 @@ namespace nkuidesign {
 				//    l'ecran montrait les carres de redimensionnement : le texte
 				//    disait un mode, l'ecran un autre, l'etat reel un troisieme.
 				//    Une phrase qui survit a son etat est un mensonge d'interface.
-				if (mPointsNode >= 0 && !NkModePointsArme(mPointsNode, mSt->selected)) {
-					mPointsNode = -1;
-					mPointDrag = -1;
+				if (mSt->modeForme.noeud >= 0 && !NkModePointsArme(mSt->modeForme.noeud, mSt->selected)) {
+					mSt->modeForme.Quitter();
 					if (mSt->status.Contains("Mode édition de forme"))
 						mSt->status = NkString("");
 				}
-				if (!modeGraphe && NkModePointsArme(mPointsNode, mSt->selected)
-					&& screen.Has(mPointsNode)) {
-					const NkUINode &pn = mSt->doc.nodes[(uint32)mPointsNode];
-					const NkPaintRect rp = screen.At(mPointsNode);
+				if (!modeGraphe && NkModePointsArme(mSt->modeForme.noeud, mSt->selected)
+					&& screen.Has(mSt->modeForme.noeud)) {
+					const NkUINode &pn = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+					const NkPaintRect rp = screen.At(mSt->modeForme.noeud);
 					float32 xy[64];
 					const uint32 nbS = NkSommetsDe(pn, rp, xy, 32);
 					const uint16 accentP = NkDesignResolveRole("accent_ui");
@@ -3040,7 +3082,7 @@ namespace nkuidesign {
 						//    rien, et le mode se lit d'un coup d'œil.
 						const float32 rd = hs * 0.5f;
 						// le sommet TIRÉ se remplit d'accent, les autres sont blancs
-						if ((int32)i == mPointDrag)
+						if ((int32)i == mSt->modeForme.tire)
 							paint.Fill(ph, accentP, rd);
 						else
 							paint.FillColor(ph, 0xFFFFFFFFu, rd);
@@ -3075,11 +3117,11 @@ namespace nkuidesign {
 					if (ctx.input.mouseDoubleClicked[0] && dansToile) {
 						const int32 ia = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
 						if (ia >= 0) {
-							NkUINode &pa = mSt->doc.nodes[(uint32)mPointsNode];
+							NkUINode &pa = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
 							const float32 rr = NkArrondirSommet(pa, (uint32)ia);
 							if (rr >= 0.f) {
-								mSt->doc.MarkHumanEdit(mPointsNode);
-								mPointDrag = -1;
+								mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
+								mSt->modeForme.tire = -1;
 								char msg[128];
 								if (rr > 0.f)
 									snprintf(msg, sizeof(msg),
@@ -3095,15 +3137,23 @@ namespace nkuidesign {
 						}
 					}
 					else if (ctx.input.mouseClicked[0] && dansToile) {
-						mPointDrag = -1;
+						mSt->modeForme.tire = -1;
 						// ⚠️ L'ANCRE D'ABORD, LE SEGMENT ENSUITE — la priorité est
 						//    dite dans `Sommets.h` et lue ici : une ancre est POSÉE
 						//    SUR son segment, donc les deux répondent au même clic.
 						//    Sans cette priorité, prendre un coin pour le déplacer
 						//    en aurait ajouté un second par-dessus, et la forme
 						//    aurait gagné un sommet à chaque tentative de la bouger.
-						mPointDrag = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
-						if (mPointDrag < 0 && nbS >= 2) {
+						mSt->modeForme.tire = NkAncreLaPlusProche(xy, nbS, ms.x, ms.y, hs + 3.f);
+						// ⚠️ LE SOMMET SÉLECTIONNÉ SUIT L'ANCRE SAISIE, ET IL LUI
+						//    SURVIT. C'est lui que la section « ÉDITION DE FORME »
+						//    de l'Inspecteur affiche : le lier à `tire` viderait les
+						//    champs X/Y au relâchement, c'est-à-dire à l'instant
+						//    précis où l'on veut lire le nombre qu'on vient
+						//    d'obtenir.
+						if (mSt->modeForme.tire >= 0)
+							mSt->modeForme.sommet = mSt->modeForme.tire;
+						if (mSt->modeForme.tire < 0 && nbS >= 2) {
 							// ── AJOUTER UN SOMMET SUR LE CÔTÉ ────────────────
 							// Rodolf : *« on peut ajouter des informations, entre
 							// autres des vertices. »* Sa capture 3 le montre : le
@@ -3111,11 +3161,12 @@ namespace nkuidesign {
 							float32 t = 0.f, d = 0.f;
 							const int32 seg = NkSegmentLePlusProche(xy, nbS, ms.x, ms.y, t, d);
 							if (seg >= 0 && d <= 6.f) {
-								NkUINode &pa = mSt->doc.nodes[(uint32)mPointsNode];
+								NkUINode &pa = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
 								const int32 neuf = NkInsererSommet(pa, (uint32)seg, t);
 								if (neuf >= 0) {
-									mSt->doc.MarkHumanEdit(mPointsNode);
-									mPointDrag = neuf;
+									mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
+									mSt->modeForme.tire = neuf;
+									mSt->modeForme.sommet = neuf;
 									char msg[192];
 									snprintf(msg, sizeof(msg),
 											 "Sommet ajouté sur le côté %d — la forme n'a pas "
@@ -3127,8 +3178,8 @@ namespace nkuidesign {
 							}
 						}
 					}
-					if (mPointDrag >= 0 && ctx.input.mouseDown[0]) {
-						NkUINode &pm = mSt->doc.nodes[(uint32)mPointsNode];
+					if (mSt->modeForme.tire >= 0 && ctx.input.mouseDown[0]) {
+						NkUINode &pm = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
 						const NkNatureSommets nat = NkNatureDe(pm.shape.Data());
 						if (NkSommetsStockes(nat)) {
 							// ⚠️ ON MATÉRIALISE AVANT D'ÉCRIRE : la table du
@@ -3136,14 +3187,14 @@ namespace nkuidesign {
 							//    n'écrit jamais dedans. Même geste que
 							//    `MaterialiserFills`.
 							NkMaterialiserSommets(pm);
-							if (mPointDrag < (int32)pm.sommets.Size() && rp.w > 0.f
+							if (mSt->modeForme.tire < (int32)pm.sommets.Size() && rp.w > 0.f
 								&& rp.h > 0.f) {
 								// retour en UNITAIRE : la boîte est l'unité.
 								const float32 cx = rp.x + rp.w * 0.5f;
 								const float32 cy = rp.y + rp.h * 0.5f;
-								pm.sommets[(uint32)mPointDrag].x = (ms.x - cx) / (rp.w * 0.5f);
-								pm.sommets[(uint32)mPointDrag].y = (ms.y - cy) / (rp.h * 0.5f);
-								mSt->doc.MarkHumanEdit(mPointsNode);
+								pm.sommets[(uint32)mSt->modeForme.tire].x = (ms.x - cx) / (rp.w * 0.5f);
+								pm.sommets[(uint32)mSt->modeForme.tire].y = (ms.y - cy) / (rp.h * 0.5f);
+								mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
 							}
 						} else if (nat == NkNatureSommets::Bouts) {
 							// ⚠️ UNE LIGNE N'A PAS DE LISTE DE SOMMETS, ET ELLE N'EN
@@ -3158,7 +3209,7 @@ namespace nkuidesign {
 							const float32 lh = mSt->view.ToDocLength(rp.h);
 							const bool monte = StrEq(pm.shape.Data(), "line_up");
 							// bout 0 = gauche, bout 1 = droite (cf. NkSommetsDe)
-							if (mPointDrag == 0) {
+							if (mSt->modeForme.tire == 0) {
 								pm.posX += dxd;
 								pm.width.value = lw - dxd;
 								if (monte) {
@@ -3182,11 +3233,11 @@ namespace nkuidesign {
 								pm.height.value = 2.f;
 							pm.width.mode = NkSizeMode::Fixed;
 							pm.height.mode = NkSizeMode::Fixed;
-							mSt->doc.MarkHumanEdit(mPointsNode);
+							mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
 						}
 					}
 					if (!ctx.input.mouseDown[0])
-						mPointDrag = -1;
+						mSt->modeForme.tire = -1;
 				}
 
 				// ── LE CONTOUR DE SURVOL (pré-sélection, Lunacy) ─────────────
@@ -3276,7 +3327,7 @@ namespace nkuidesign {
 				//    Lunacy masque les poignees de selection en edition de points ;
 				//    on fait pareil, et le geste redevient sans ambiguite.
 				if (!modeGraphe
-					&& NkAQuiLaPoignee(mPointsNode, mSt->selected)
+					&& NkAQuiLaPoignee(mSt->modeForme.noeud, mSt->selected)
 						   == NkProprioPoignee::Redimension
 					&& nSel <= 1 && screen.Has(mSt->selected)
 					&& mSt->doc.IsValidIndex(mSt->selected)
@@ -3922,8 +3973,13 @@ namespace nkuidesign {
 									break;
 								}
 								case NkSuiteDblClic::ModePoints:
-									mPointsNode = cand;
-									mPointDrag = -1;
+									// ⚠️ ON ENTRE PROPRE : ni sommet tiré, ni sommet
+									//    sélectionné hérité de la forme précédente —
+									//    sinon l'Inspecteur ouvrirait « ÉDITION DE
+									//    FORME » sur l'indice d'un point qui
+									//    appartenait à un autre objet.
+									mSt->modeForme.Quitter();
+									mSt->modeForme.noeud = cand;
 									mSt->SelectSingle(cand);
 									Dire(NkRaisonDeDblClic(suite), "", "");
 									break;
@@ -4042,7 +4098,7 @@ namespace nkuidesign {
 					//    selection est au meme endroit) et le sommet n'aurait jamais
 					//    bouge — un mode qui s'affiche et ne repond pas.
 					if (hit >= 0
-						&& NkAQuiLaPoignee(mPointsNode, hit) == NkProprioPoignee::Sommet)
+						&& NkAQuiLaPoignee(mSt->modeForme.noeud, hit) == NkProprioPoignee::Sommet)
 						return; // la regle, citee -- pas l'ordre des `if`
 					if (hit >= 0) {
 						// ⚠️ L'APPLICATION PASSE PAR LE MECANISME : c'est lui qui porte la
@@ -4342,10 +4398,6 @@ namespace nkuidesign {
 			uint8 mResizeEdges = 0; ///< bits 1=G 2=D 4=H 8=B (noeud pose, huit poignees)
 			bool mMoving = false;
 			int32 mMoveNode = -1;
-			/// ── LE MODE POINTS (§8bis restreint) ─────────────────────────────
-			/// Le noeud en EDITION INTERNE, -1 si aucun. Un double-clic sur une
-			/// forme a sommets y entre, Echap en sort.
-			int32 mPointsNode = -1;
 			/// LE GLISSER DE ROTATION : quelle poignée est tenue, l'angle du nœud
 			/// au début du geste, et l'angle de la souris au début.
 			/// ⚠️ LES DEUX ANGLES DE DÉPART SONT MÉMORISÉS, ET C'EST NÉCESSAIRE :
@@ -4356,8 +4408,6 @@ namespace nkuidesign {
 			int32 mRotDrag = -1;
 			float32 mRotBase = 0.f;
 			float32 mRotAngle0 = 0.f;
-			/// Le sommet en cours de glissement, -1 si aucun.
-			int32 mPointDrag = -1;
 			/// Le noeud SOUS LE CURSEUR (pre-selection), -1 si aucun. Pose a
 			/// chaque image par le dessin du survol, publie au releve.
 			int32 mSurvol = -1;
@@ -6981,6 +7031,57 @@ namespace nkuidesign {
 	//  L'ORDRE DES SECTIONS EST NORMATIF (§12.2) : « un ordre laissé au hasard se
 	//  met à varier d'un écran à l'autre ». Il est donc écrit UNE fois, dans une
 	//  table, et la boucle le suit.
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  L'ORDRE DES SECTIONS DE L'INSPECTEUR — UN MÉCANISME, PAS UN DESSIN
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ CETTE LISTE VIVAIT DANS `InspectorPanel::Sections`, DONC HORS DE PORTÉE
+	///    D'UN BANC — la facture que ce chantier a déjà payée trois fois (le zoom
+	///    en Q41, l'aimantation en Q42, le tracé ce matin). Or ce qu'elle décide
+	///    est exactement ce que Rodolf a demandé à voir : **quel panneau droit
+	///    s'affiche dans quel état**. Tant qu'elle était écrite dans le corps du
+	///    dessin, « EDIT SHAPE remplace la géométrie » ne pouvait se vérifier
+	///    qu'à l'œil, sur une capture, une fois par jour.
+	///
+	/// ⚠️ ET C'EST UN **REMPLACEMENT**, PAS UN AJOUT — relu au pixel sur
+	///    `lunacy_2temps_edition_181745.png`. Laisser « Position 86,13 / 423,76 »
+	///    à côté des coordonnées d'un SOMMET donnerait deux X et deux Y dans le
+	///    même panneau, sans rien qui dise lequel parle de quoi. LAYER / FILLS /
+	///    BORDERS / EFFECTS / PROTOTYPING, eux, restent : chez Lunacy comme chez
+	///    nous, ils décrivent l'OBJET, pas sa géométrie.
+	/// @return le nombre de sections écrites dans `out`.
+	inline uint32 NkSectionsInspecteur(bool modeForme, bool cadreCible,
+									   const char *const *&out) {
+		static const char *const kForme[] = {
+			"ÉDITION DE FORME", "REMPLISSAGES", "BORDURES",
+			"APPARENCE",		"EFFETS",		"POINTS DE RUPTURE",
+		};
+		static const char *const kAvecCible[] = {
+			"CIBLE",	  "DISPOSITION", "ANCRAGE",	 "ALIGNEMENT",
+			"ESPACEMENT", "REMPLISSAGES", "BORDURES", "APPARENCE",
+			"TYPOGRAPHIE", "EFFETS",	 "POINTS DE RUPTURE",
+		};
+		static const char *const kNormal[] = {
+			"DISPOSITION", "ANCRAGE",	 "ALIGNEMENT", "ESPACEMENT",
+			"REMPLISSAGES", "BORDURES",	 "APPARENCE",  "TYPOGRAPHIE",
+			"EFFETS",	   "POINTS DE RUPTURE",
+		};
+		// ⚠️ LE MODE PRIME SUR LA CIBLE, ET L'ORDRE DES TROIS `if` EST LA RÈGLE :
+		//    un artboard n'entre pas en édition de forme (il n'est pas une forme
+		//    éditable), mais une forme DANS un artboard porte une cible héritée —
+		//    tester la cible d'abord aurait rendu le panneau de géométrie pendant
+		//    qu'on édite des sommets.
+		if (modeForme) {
+			out = kForme;
+			return (uint32)(sizeof(kForme) / sizeof(kForme[0]));
+		}
+		if (cadreCible) {
+			out = kAvecCible;
+			return (uint32)(sizeof(kAvecCible) / sizeof(kAvecCible[0]));
+		}
+		out = kNormal;
+		return (uint32)(sizeof(kNormal) / sizeof(kNormal[0]));
+	}
+
 	class InspectorPanel : public NkEditorPanel {
 		public:
 			explicit InspectorPanel(DesignState *st)
@@ -7123,6 +7224,45 @@ namespace nkuidesign {
 				//    arrive. Toutes les sections se replient au chevron
 				//    (etat dans mSections) — la maquette replie ESPACEMENT,
 				//    EFFETS et POINTS DE RUPTURE par defaut.
+				// ── LE MODE ÉDITION DE FORME REMPLACE LA GÉOMÉTRIE ─────────────
+				// ⚠️ RELU AU PIXEL SUR `lunacy_2temps_edition_181745.png` : `EDIT SHAPE`
+				//    prend la place des rangées X/Y/W/H et de la barre d'alignement,
+				//    tandis que LAYER / FILLS / BORDERS / EFFECTS / PROTOTYPING restent
+				//    en dessous, inchangés. On fait pareil : REMPLISSAGES, BORDURES,
+				//    APPARENCE, EFFETS et POINTS DE RUPTURE survivent ; DISPOSITION,
+				//    ANCRAGE, ALIGNEMENT, ESPACEMENT, TYPOGRAPHIE et CIBLE se taisent.
+				// ⚠️ ET C'EST UN REMPLACEMENT, PAS UN AJOUT. Laisser « Position 86,13 /
+				//    423,76 » à côté des coordonnées d'un SOMMET donnerait deux X et deux
+				//    Y dans le même panneau, sans rien qui dise lequel parle de quoi.
+				{
+					auto *self = static_cast<InspectorPanel *>(user);
+					if (self->mSt && self->mSt->modeForme.Actif()
+						&& self->mSt->modeForme.noeud == self->mSt->selected) {
+						// ⚠️ LES NOMS VIENNENT DE `NkSectionsInspecteur`, LITTÉRALEMENT --
+						//    pas d'une copie qu'une assertion surveillerait. Le panneau
+						//    n'associe qu'un CORPS à chaque nom ; la décision « quelles
+						//    sections, dans quel ordre » vit dans la fonction libre, où
+						//    un banc l'atteint sans fenêtre. Écrite deux fois, elle
+						//    aurait été corrigée une seule au premier ajustement.
+						static editorkit::NkInspectorSection kForme[6];
+						static bool formePret = false;
+						if (!formePret) {
+							static void (*const corps[6])(void *, NkGuiContext &) = {
+								&CorpsEditionFormeC, &CorpsRemplissagesC, &CorpsBorduresC,
+								&CorpsApparenceC,	 &CorpsEffetsC,		  &CorpsRuptureC};
+							const char *const *noms = nullptr;
+							const uint32 nb = NkSectionsInspecteur(true, false, noms);
+							for (uint32 i = 0; i < 6 && i < nb; ++i) {
+								kForme[i].titre = noms[i];
+								kForme[i].corps = corps[i];
+								kForme[i].repliable = false;
+							}
+							formePret = true;
+						}
+						count = (int32)(sizeof(kForme) / sizeof(kForme[0]));
+						return kForme;
+					}
+				}
 				{
 					auto *self = static_cast<InspectorPanel *>(user);
 					if (self->CadreCible()) {
@@ -7349,8 +7489,13 @@ namespace nkuidesign {
 					const char *titre;
 					bool ouvert;
 			};
-			static constexpr uint32 kNbSections = 11;
+			static constexpr uint32 kNbSections = 12;
 			EtatSection mSections[kNbSections] = {
+				// ⚠️ OUVERTE PAR DEFAUT, et c'est la seule qui le merite : on n'entre
+				//    en edition de forme que par un geste explicite. Une section qu'il
+				//    faudrait deplier apres etre entre dans un mode serait une section
+				//    que personne ne voit.
+				{"ÉDITION DE FORME", true},
 				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
 				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"REMPLISSAGES", true},
 				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
@@ -7607,6 +7752,178 @@ namespace nkuidesign {
 			}
 			static void CorpsRuptureC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsRupture(ctx);
+			}
+
+			static void CorpsEditionFormeC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsEditionForme(ctx);
+			}
+
+			// ═══════════════════════════════════════════════════════════════════
+			//  ÉDITION DE FORME — LE PANNEAU CHANGE EN MÊME TEMPS QUE LA TOILE
+			// ═══════════════════════════════════════════════════════════════════
+			/// ⚠️ CETTE SECTION EXISTE PARCE QUE LA COMPARAISON EN DEUX TEMPS DE
+			///    RODOLF (01/09) MONTRE **TROIS** CHANGEMENTS, PAS UN.
+			///    `lunacy_2temps_selection_181741.png` : la boîte, ses poignées, le
+			///    panneau droit habituel. `lunacy_2temps_edition_181745.png` : plus
+			///    aucune poignée de boîte, quatre carrés SUR le tracé — **et le
+			///    panneau droit change de contenu**, une section `EDIT SHAPE`
+			///    remplaçant la géométrie, LAYER / FILLS / BORDERS / EFFECTS /
+			///    PROTOTYPING restant en dessous.
+			///
+			///    Le troisième était **absent de la consigne** qui a lancé ce lot,
+			///    et il n'a été vu que parce que Rodolf a envoyé la paire d'images.
+			///    *Une question sur du visuel se pose avec une capture.*
+			///
+			/// ⚠️ CE QUE LE MODÈLE NE PORTE PAS EST **MONTRÉ GRISÉ-QUI-LE-DIT**,
+			///    jamais caché ni maquillé. Un champ absent laisse croire que
+			///    l'outil ne connaît pas la notion ; un champ grisé MUET montre une
+			///    capacité sans dire ce qui manque (le défaut déjà payé avec la
+			///    touche F et les onglets). La raison est donc ÉCRITE sous le
+			///    groupe, pas cachée dans une infobulle qu'il faut deviner.
+			void CorpsEditionForme(NkGuiContext &ctx) {
+				if (!SectionOuverte("ÉDITION DE FORME"))
+					return;
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				const int32 noeud = mSt->modeForme.noeud;
+				if (!mSt->doc.IsValidIndex(noeud))
+					return;
+				NkUINode &n = mSt->doc.nodes[(uint32)noeud];
+				// ⚠️ LES SOMMETS SE MATÉRIALISENT POUR ÊTRE LUS, ET C'EST LE MÊME
+				//    APPEL QUE LA TOILE (`NkMaterialiserSommets`). Lire la table
+				//    unitaire ici et la liste stockée là-bas aurait donné deux
+				//    vérités : le panneau montrerait le polygone régulier pendant
+				//    que l'écran montre la forme déjà déformée.
+				NkMaterialiserSommets(n);
+				const uint32 nbS = (uint32)n.sommets.Size();
+				const int32 iSel = mSt->modeForme.sommet;
+				const bool unSelectionne = iSel >= 0 && (uint32)iSel < nbS;
+
+				// ── LA RANGÉE X / Y / RAYON DU SOMMET SÉLECTIONNÉ ─────────────
+				// ⚠️ EN PIXELS DEPUIS LE COIN HAUT-GAUCHE DE LA FORME, PAS EN
+				//    UNITAIRE. Le modèle stocke -1..1 (c'est ce qui rend un tracé
+				//    redimensionnable), mais « 0,42 » ne veut rien dire pour la
+				//    main. La conversion vit ici, à l'affichage, et le stockage
+				//    n'apprend rien de l'écran.
+				const NkPaintRect rb = mSt->layout.Has(noeud)
+										   ? mSt->layout.At(noeud)
+										   : NkPaintRect{0.f, 0.f, 0.f, 0.f};
+				{
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					if (!unSelectionne)
+						ctx.BeginDisabled();
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   "X", ctx.theme.textMuted);
+					const NkRect rx = {x0 + 14.f, r.y + 3.f, 50.f, 20.f};
+					costume::Texte(dl, F.px10, rx.x + rx.w + 10.f,
+								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Y",
+								   ctx.theme.textMuted);
+					const NkRect ry = {rx.x + rx.w + 24.f, r.y + 3.f, 50.f, 20.f};
+					costume::Texte(dl, F.px10, ry.x + ry.w + 10.f,
+								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "\xE2\x8C\x92",
+								   ctx.theme.textMuted);
+					const NkRect rr = {ry.x + ry.w + 24.f, r.y + 3.f, 44.f, 20.f};
+					if (unSelectionne && rb.w > 0.f && rb.h > 0.f) {
+						float32 px = (n.sommets[(uint32)iSel].x + 1.f) * 0.5f * rb.w;
+						float32 py = (n.sommets[(uint32)iSel].y + 1.f) * 0.5f * rb.h;
+						float32 ra = n.sommets[(uint32)iSel].rayon;
+						if (ChampNombre(ctx, "insp.forme.x", rx, px, 0.5f, -4096.f, 4096.f)) {
+							n.sommets[(uint32)iSel].x = px / (rb.w * 0.5f) - 1.f;
+							mSt->doc.MarkHumanEdit(noeud);
+						}
+						if (ChampNombre(ctx, "insp.forme.y", ry, py, 0.5f, -4096.f, 4096.f)) {
+							n.sommets[(uint32)iSel].y = py / (rb.h * 0.5f) - 1.f;
+							mSt->doc.MarkHumanEdit(noeud);
+						}
+						if (ChampNombre(ctx, "insp.forme.rayon", rr, ra, 0.5f, 0.f, 256.f)) {
+							n.sommets[(uint32)iSel].rayon = ra;
+							mSt->doc.MarkHumanEdit(noeud);
+						}
+					} else {
+						BoiteChamp(ctx, rx, "\xE2\x80\x94");
+						BoiteChamp(ctx, ry, "\xE2\x80\x94");
+						BoiteChamp(ctx, rr, "\xE2\x80\x94");
+					}
+					if (!unSelectionne)
+						ctx.EndDisabled();
+				}
+				// Quel sommet, sur combien : sans ce compte, « X 42 » ne dit pas
+				// DE QUOI il parle quand la forme en a douze.
+				{
+					char b[96];
+					if (unSelectionne)
+						snprintf(b, sizeof(b), "Sommet %d sur %u", iSel + 1, nbS);
+					else
+						snprintf(b, sizeof(b),
+								 "%u sommet(s) — cliquez-en un sur la toile pour lire ses "
+								 "coordonnées.",
+								 nbS);
+					const NkRect r = ctx.NextItemRect(-1.f, 18.f);
+					dl.PushClipRect(r, true);
+					costume::Texte(dl, F.px9, r.x + 12.f, costume::CentrerY(F.px9, r.y, 18.f), b,
+								   ctx.theme.textMuted);
+					dl.PopClipRect();
+				}
+
+				// ── LES POIGNÉES DE BÉZIER : NOMMÉES, PAS ÉBAUCHÉES ───────────
+				// ⚠️ SA CAPTURE 2 MONTRE UN COIN COURBÉ AVEC SES DEUX TANGENTES.
+				//    Chez nous l'arrondi est un RAYON, donc un arc SYMÉTRIQUE : il
+				//    couvre « on peut l'arrondir », pas la courbe libre. La
+				//    différence est réelle, et on l'écrit plutôt que de la masquer.
+				{
+					ctx.BeginDisabled();
+					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+					const float32 x0 = r.x + 12.f;
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+								   "X1", ctx.theme.textMuted);
+					const NkRect a1 = {x0 + 20.f, r.y + 3.f, 50.f, 20.f};
+					BoiteChamp(ctx, a1, "\xE2\x80\x94");
+					costume::Texte(dl, F.px10, a1.x + a1.w + 10.f,
+								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Y1",
+								   ctx.theme.textMuted);
+					const NkRect a2 = {a1.x + a1.w + 30.f, r.y + 3.f, 50.f, 20.f};
+					BoiteChamp(ctx, a2, "\xE2\x80\x94");
+					const NkRect r2 = ctx.NextItemRect(-1.f, 26.f);
+					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r2.y + 3.f, 20.f),
+								   "X2", ctx.theme.textMuted);
+					const NkRect b1 = {x0 + 20.f, r2.y + 3.f, 50.f, 20.f};
+					BoiteChamp(ctx, b1, "\xE2\x80\x94");
+					costume::Texte(dl, F.px10, b1.x + b1.w + 10.f,
+								   costume::CentrerY(F.px10, r2.y + 3.f, 20.f), "Y2",
+								   ctx.theme.textMuted);
+					const NkRect b2 = {b1.x + b1.w + 30.f, r2.y + 3.f, 50.f, 20.f};
+					BoiteChamp(ctx, b2, "\xE2\x80\x94");
+					// ── LES SIX TYPES DE POINT — ET POURQUOI ILS ATTENDENT ────
+					// ⚠️ ILS N'ONT DE SENS QU'AVEC LES POIGNÉES DE BÉZIER. Les
+					//    poser avant, ce serait six boutons dont quatre ne
+					//    changeraient rien — exactement la « case toujours cochée à
+					//    côté d'un aimant qui ne fait rien » que Q42 a trouvée dans
+					//    le menu Affichage.
+					static const char *const kTypes[6] = {"Vif",   "Rond",  "Miroir",
+														  "Asym.", "Libre", "Auto"};
+					(void)designkit::Segmented(ctx, kTypes, 6, 0, "insp.forme.types");
+					(void)designkit::Button(ctx, "Ouvrir le tracé", "insp.forme.ouvrir");
+					ctx.EndDisabled();
+					nkgui::TextWrapped(
+						ctx, "Grisés, et voici pourquoi : les poignées de Bézier ne sont pas "
+							 "dans le modèle — notre arrondi est un RAYON, donc un arc "
+							 "symétrique (le champ ⌒ ci-dessus). Les six types de point n'ont "
+							 "de sens qu'avec elles. Et « Ouvrir le tracé » suppose un tracé "
+							 "ouvert : les nôtres sont fermés.");
+				}
+
+				// ── TERMINER ──────────────────────────────────────────────────
+				// ⚠️ CE BOUTON N'EST PAS DU DÉCOR : c'est la SORTIE EXPLICITE du
+				//    mode, celle que Lunacy met en accent (`Finish`). Échap sort
+				//    déjà — mais une sortie qui n'est QUE clavier est une sortie
+				//    que l'utilisateur qui s'est senti coincé ne trouve pas. Sa
+				//    capture du 01/09 disait exactement ça : « c'est difficile ou
+				//    impossible de le désélectionner ».
+				if (designkit::Button(ctx, "Terminer", "insp.forme.terminer")) {
+					mSt->modeForme.Quitter();
+					mSt->status = NkString("Édition de forme terminée.");
+				}
 			}
 
 			/// DISPOSITION (reference_4_185519) : la rangée « Position » — deux

@@ -2886,6 +2886,61 @@ static nkentseu::int32 RecetteDocument() {
 				stable && avant.Size() > 0, d);
 	}
 
+	// ── 6. LE PANNEAU DROIT CHANGE AVEC LA TOILE ─────────────────────────
+	//     Comparaison en deux temps de Rodolf, 01/09 : temps 1
+	//     (`lunacy_2temps_selection_181741.png`) le panneau habituel ; temps 2
+	//     (`lunacy_2temps_edition_181745.png`) une section `EDIT SHAPE` REMPLACE
+	//     la geometrie, et LAYER / FILLS / BORDERS / EFFECTS / PROTOTYPING
+	//     restent en dessous.
+	//
+	// ⚠️ CE CAS EXISTE PARCE QUE CE TROISIEME CHANGEMENT AVAIT ETE RATE, et il
+	//    n'a ete vu que quand Rodolf a envoye la PAIRE d'images. La consigne
+	//    ecrite disait « les poignees de boite disparaissent » et ne parlait pas
+	//    du panneau. *Une question sur du visuel se pose avec une capture* -- et
+	//    ce qui a ete rate une fois se tient desormais au banc, pas a l'oeil.
+	//
+	// ⚠️ ET IL EXIGE LES DEUX SENS. « ÉDITION DE FORME est la » ne prouve rien si
+	//    DISPOSITION est restee a cote : ce serait un AJOUT, et l'ecran aurait
+	//    deux X et deux Y sans rien qui dise lequel parle du sommet. Le cas
+	//    verifie donc aussi ce qui doit AVOIR DISPARU, et ce qui doit RESTER.
+	{
+		const char *const *forme = nullptr;
+		const uint32 nf = NkSectionsInspecteur(true, false, forme);
+		const char *const *normal = nullptr;
+		const uint32 nn = NkSectionsInspecteur(false, false, normal);
+		auto contient = [](const char *const *l, uint32 n, const char *quoi) {
+			for (uint32 i = 0; i < n; ++i)
+				if (NkComponentDecl::StrEq(l[i], quoi))
+					return true;
+			return false;
+		};
+		// (a) la section neuve est PREMIERE -- une section d'edition qu'il
+		//     faudrait aller chercher au bas du panneau n'est pas trouvee
+		const bool premiere = nf > 0 && NkComponentDecl::StrEq(forme[0], "ÉDITION DE FORME");
+		// (b) la GEOMETRIE a disparu (remplacement, pas ajout)
+		const bool remplace = !contient(forme, nf, "DISPOSITION")
+							  && !contient(forme, nf, "ALIGNEMENT")
+							  && !contient(forme, nf, "ESPACEMENT")
+							  && !contient(forme, nf, "ANCRAGE");
+		// (c) ce qui decrit l'OBJET reste -- chez Lunacy comme chez nous
+		const bool restent = contient(forme, nf, "REMPLISSAGES")
+							 && contient(forme, nf, "BORDURES")
+							 && contient(forme, nf, "APPARENCE")
+							 && contient(forme, nf, "EFFETS");
+		// (d) TEMOIN : hors du mode, la geometrie est bien la et la section
+		//     d'edition ABSENTE. Sans ce temoin, une fonction qui rendrait
+		//     toujours la liste du mode forme passerait les trois premiers.
+		const bool temoin = contient(normal, nn, "DISPOSITION")
+							&& !contient(normal, nn, "ÉDITION DE FORME");
+		char d[192];
+		snprintf(d, sizeof(d), "mode forme : %u sections (1re = %s) ; normal : %u sections",
+				 nf, nf > 0 ? forme[0] : "?", nn);
+		verdict("6. LE PANNEAU DROIT CHANGE AVEC LA TOILE : « ÉDITION DE FORME » PREMIERE, la "
+				"geometrie REMPLACEE (pas doublee), l'apparence conservee, et le temoin hors "
+				"mode",
+				premiere && remplace && restent && temoin, d);
+	}
+
 	printf("\nRECETTE DOCUMENT : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
