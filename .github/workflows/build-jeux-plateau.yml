@@ -9,16 +9,25 @@
 #          macOS builds require macOS with Apple toolchain. » Ce runner EST
 #          notre machine Apple.
 #   iOS    meme refus : « iOS builds require macOS with Xcode. »
-#   Linux  `jenga build --platform linux` s'arrete des NKGlad sur
-#          « 'X11/X.h' file not found » — 1/22 projets. Ce n'est pas un defaut
-#          des jeux : l'hote Windows n'a pas les en-tetes X11. Un vrai Linux
-#          les a, et le job ci-dessous les installe.
+#   Linux  le job existe pour la CI PUBLIQUE et pour un Linux propre, pas
+#          parce que Linux serait hors d'atteinte : depuis WSL2 (Ubuntu 22.04,
+#          jenga installe), les trois jeux construisent 22/22 et leurs bancs
+#          passent NATIVEMENT. Ce qui echoue, c'est
+#          `jenga build --platform linux` lance depuis WINDOWS : il s'arrete
+#          des NKGlad sur « 'X11/X.h' file not found » — 1/22 — parce que
+#          l'hote Windows n'a pas les en-tetes X11. Un vrai Linux les a, et le
+#          job ci-dessous les installe.
 #
 # CE QUI SE CONSTRUIT DEJA EN LOCAL, et n'a donc rien a faire ici :
 #   Windows    les trois, 22/22
 #   Web        les trois, 22/22 — .html + .js + .wasm (~2,8 Mo)
 #   Android    les trois, APK universel 4 ABI, signe debug.keystore
 #   HarmonyOS  les trois, 22/22 (toolchain ohos-ndk)
+#   Linux      les trois, 22/22 SOUS WSL2 — bancs verts, sortie 0
+#
+# ⚠️ ET LINUX N'A ETE DEBLOQUE QUE LE 2026-09-01 : X11 definit `None`, que NKGui
+#    emploie comme enumerateur. NKGui n'avait JAMAIS compile sous Linux. Correctif
+#    dans `NkGuiExport.h` — il debloque TOUTE application NKGui, pas ces jeux.
 #
 # ⚠️ LE MODELE EST `build-macos.yml`, ET IL N'EST PAS REINVENTE ICI. Ce fichier
 #    en reprend la structure exacte — meme depot Jenga, meme branche vivante,
@@ -90,16 +99,22 @@ jobs:
         # LISIBLE dans le journal, ce qui est le point : un banc qu'on ne lance
         # pas ne dit rien, un banc qui bloque se contourne.
         run: |
-          BIN=Build/Bin/Release-Linux/${{ matrix.jeu }}/${{ matrix.jeu }}
-          test -f "$BIN" && "$BIN" --selftest || true
+          # ⚠️ ON CHERCHE, ON NE DEVINE PAS. Le dossier porte le nom du
+          # BACKEND en suffixe -- `Release-Linux-xlib` -- et un chemin suppose
+          # ferait echouer l'etape sur une construction reussie. Mesure faite
+          # sous WSL2 le 2026-09-01.
+          BIN=$(find Build/Bin -type f -name "${{ matrix.jeu }}" -path "*Linux*" | head -1)
+          echo "binaire: $BIN"
+          test -n "$BIN" && "$BIN" --selftest || true
           echo "--- journal ---"
           cat logs/app.log 2>/dev/null | tail -30 || echo "(aucun journal)"
 
       - name: Empaqueter (tar.gz pour testeurs)
         run: |
           set -e
-          BIN=Build/Bin/Release-Linux/${{ matrix.jeu }}/${{ matrix.jeu }}
-          test -f "$BIN"
+          BIN=$(find Build/Bin -type f -name "${{ matrix.jeu }}" -path "*Linux*" | head -1)
+          echo "binaire: $BIN"
+          test -n "$BIN"
           mkdir -p paquet/${{ matrix.jeu }}-Linux
           cp "$BIN" paquet/${{ matrix.jeu }}-Linux/
           tar -czf ${{ matrix.jeu }}-Linux-x86_64.tar.gz -C paquet ${{ matrix.jeu }}-Linux
