@@ -2200,6 +2200,18 @@ namespace nkuidesign {
 				//    d'écriture — la toile décide, l'état partagé rapporte.
 				// LE SURVOL ET LE COMPTE DE SELECTION SE PUBLIENT : sans eux, la
 				// pre-selection et la multi-selection ne se jugeraient qu'a l'oeil.
+				// LE MODE POINTS SE PUBLIE : noeud edite, sommet tire, nombre de
+				// sommets — sans quoi il ne se jugerait qu'a l'oeil.
+				{
+					float32 tmpXY[64];
+					uint32 nbP = 0;
+					if (mPointsNode >= 0 && mSt->doc.IsValidIndex(mPointsNode)
+						&& screen.Has(mPointsNode))
+						nbP = NkSommetsDe(mSt->doc.nodes[(uint32)mPointsNode],
+										  screen.At(mPointsNode), tmpXY, 32);
+					nkgui::NkGuiNoterMesure(ctx, "canvas.points", (float32)mPointsNode,
+											(float32)mPointDrag, (float32)nbP, 0.f);
+				}
 				nkgui::NkGuiNoterMesure(ctx, "canvas.survol", (float32)mSurvol,
 										(float32)NkCompteSelection(mSt->doc, mSt->sel), 0.f,
 										0.f);
@@ -2299,6 +2311,15 @@ namespace nkuidesign {
 				if (mCreating && ctx.input.KeyPressed(NkGuiKey::Escape)) {
 					mCreating = false;
 					Dire("Tracé annulé.", "", "");
+				} else if (mPointsNode >= 0 && !mSt->doc.IsValidIndex(mEditNode)
+						   && ctx.input.KeyPressed(NkGuiKey::Escape)) {
+					// ⚠️ ÉCHAP SORT D'ABORD DU MODE POINTS, ENSUITE du forage. Les
+					//    deux écoutent la même touche ; sans cet ordre, Échap
+					//    remonterait d'un niveau en laissant les poignées de
+					//    sommets affichées sur un nœud qu'on vient de quitter.
+					mPointsNode = -1;
+					mPointDrag = -1;
+					Dire("Mode points quitté.", "", "");
 				} else if (mForage >= 0 && !mSt->doc.IsValidIndex(mEditNode)
 						   && ctx.input.KeyPressed(NkGuiKey::Escape)) {
 					// ÉCHAP REMONTE d'un niveau de forage (Figma/Lunacy) : on
@@ -2713,6 +2734,109 @@ namespace nkuidesign {
 				//    décalée — son liseré filait hors champ. Lunacy ne dessine
 				//    aucun marqueur de canvas pour la page : la Hiérarchie
 				//    surligne, et c'est le bon endroit.
+				// ── LE MODE POINTS (§8bis restreint) ─────────────────────────
+				// ⚠️ LES SOMMETS VIENNENT DE `NkSommetsDe`, LA MÊME FONCTION QUE LE
+				//    PEINTRE. C'est la seule façon qu'une poignée tombe sur le
+				//    sommet DESSINÉ : deux tables auraient dérivé au premier
+				//    ajustement, et l'utilisateur tirerait un coin qui n'est pas là.
+				// ⚠️ LE MODE SE FERME TOUT SEUL si son nœud disparaît (une
+				//    suppression renumérote) : un mode points sur un nœud mort
+				//    peindrait des poignées sur le vide.
+				if (mPointsNode >= 0 && !mSt->doc.IsValidIndex(mPointsNode))
+					mPointsNode = -1;
+				if (!modeGraphe && mPointsNode >= 0 && screen.Has(mPointsNode)) {
+					const NkUINode &pn = mSt->doc.nodes[(uint32)mPointsNode];
+					const NkPaintRect rp = screen.At(mPointsNode);
+					float32 xy[64];
+					const uint32 nbS = NkSommetsDe(pn, rp, xy, 32);
+					const uint16 accentP = NkDesignResolveRole("accent_ui");
+					paint.OutlineSharp(rp, accentP);
+					const float32 hs = 7.f;
+					for (uint32 i = 0; i < nbS; ++i) {
+						const NkPaintRect ph{xy[i * 2] - hs * 0.5f, xy[i * 2 + 1] - hs * 0.5f,
+											 hs, hs};
+						// le sommet TIRÉ se remplit d'accent, les autres sont blancs
+						if ((int32)i == mPointDrag)
+							paint.Fill(ph, accentP, 0.f);
+						else
+							paint.FillColor(ph, 0xFFFFFFFFu, 0.f);
+						paint.OutlineSharp(ph, accentP);
+					}
+					// LE GESTE : prendre un sommet, le traîner, le lâcher.
+					const NkVec2 ms = ctx.input.mousePos;
+					if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0
+						&& NkGuiRectContains(area, ms)) {
+						mPointDrag = -1;
+						for (uint32 i = 0; i < nbS; ++i) {
+							const float32 ddx = ms.x - xy[i * 2], ddy = ms.y - xy[i * 2 + 1];
+							if (ddx * ddx + ddy * ddy <= (hs + 3.f) * (hs + 3.f)) {
+								mPointDrag = (int32)i;
+								break;
+							}
+						}
+					}
+					if (mPointDrag >= 0 && ctx.input.mouseDown[0]) {
+						NkUINode &pm = mSt->doc.nodes[(uint32)mPointsNode];
+						const NkNatureSommets nat = NkNatureDe(pm.shape.Data());
+						if (nat == NkNatureSommets::Polygone) {
+							// ⚠️ ON MATÉRIALISE AVANT D'ÉCRIRE : la table du
+							//    polygone régulier est une CONSTANTE partagée, on
+							//    n'écrit jamais dedans. Même geste que
+							//    `MaterialiserFills`.
+							NkMaterialiserSommets(pm);
+							if (mPointDrag < (int32)pm.sommets.Size() && rp.w > 0.f
+								&& rp.h > 0.f) {
+								// retour en UNITAIRE : la boîte est l'unité.
+								const float32 cx = rp.x + rp.w * 0.5f;
+								const float32 cy = rp.y + rp.h * 0.5f;
+								pm.sommets[(uint32)mPointDrag].x = (ms.x - cx) / (rp.w * 0.5f);
+								pm.sommets[(uint32)mPointDrag].y = (ms.y - cy) / (rp.h * 0.5f);
+								mSt->doc.MarkHumanEdit(mPointsNode);
+							}
+						} else if (nat == NkNatureSommets::Bouts) {
+							// ⚠️ UNE LIGNE N'A PAS DE LISTE DE SOMMETS, ET ELLE N'EN
+							//    A PAS BESOIN : elle EST la diagonale de sa boîte.
+							//    Bouger un bout, c'est bouger un coin de la boîte —
+							//    exprimable avec le modèle d'aujourd'hui, sans une
+							//    clé de plus. Lui inventer des sommets aurait donné
+							//    deux façons de dire la même chose.
+							const float32 dxd = mSt->view.ToDocLength(ms.x - rp.x);
+							const float32 dyd = mSt->view.ToDocLength(ms.y - rp.y);
+							const float32 lw = mSt->view.ToDocLength(rp.w);
+							const float32 lh = mSt->view.ToDocLength(rp.h);
+							const bool monte = StrEq(pm.shape.Data(), "line_up");
+							// bout 0 = gauche, bout 1 = droite (cf. NkSommetsDe)
+							if (mPointDrag == 0) {
+								pm.posX += dxd;
+								pm.width.value = lw - dxd;
+								if (monte) {
+									pm.height.value = dyd;
+								} else {
+									pm.posY += dyd;
+									pm.height.value = lh - dyd;
+								}
+							} else {
+								pm.width.value = dxd;
+								if (monte) {
+									pm.posY += dyd;
+									pm.height.value = lh - dyd;
+								} else {
+									pm.height.value = dyd;
+								}
+							}
+							if (pm.width.value < 2.f)
+								pm.width.value = 2.f;
+							if (pm.height.value < 2.f)
+								pm.height.value = 2.f;
+							pm.width.mode = NkSizeMode::Fixed;
+							pm.height.mode = NkSizeMode::Fixed;
+							mSt->doc.MarkHumanEdit(mPointsNode);
+						}
+					}
+					if (!ctx.input.mouseDown[0])
+						mPointDrag = -1;
+				}
+
 				// ── LE CONTOUR DE SURVOL (pré-sélection, Lunacy) ─────────────
 				// ⚠️ IL DIT CE QUE LE CLIC PRENDRAIT, pas ce qui est pris. C'est sa
 				//    seule raison d'être : sans lui, sur une maquette dense, on
@@ -2791,8 +2915,16 @@ namespace nkuidesign {
 					}
 				}
 
-				if (!modeGraphe && nSel <= 1 && screen.Has(mSt->selected)
-					&& mSt->doc.IsValidIndex(mSt->selected)
+				// ⚠️ LE MODE POINTS PREND LA MAIN SUR LES POIGNEES DE SELECTION, ET
+				//    LA CAPTURE DU 01/09 L'A MONTRE : sur une LIGNE, les deux bouts
+				//    tombent EXACTEMENT sur deux coins de la boite — les poignees de
+				//    redimensionnement et celles de sommets se superposaient au
+				//    pixel. Le meme point de l'ecran aurait fait deux choses, et
+				//    laquelle gagne n'aurait dependu que de l'ordre du code.
+				//    Lunacy masque les poignees de selection en edition de points ;
+				//    on fait pareil, et le geste redevient sans ambiguite.
+				if (!modeGraphe && mPointsNode != mSt->selected && nSel <= 1
+					&& screen.Has(mSt->selected) && mSt->doc.IsValidIndex(mSt->selected)
 					&& mSt->doc.nodes[(uint32)mSt->selected].parent >= 0) {
 					const NkPaintRect rs = screen.At(mSt->selected);
 					const uint16 accent = NkDesignResolveRole("accent_ui");
@@ -3276,30 +3408,60 @@ namespace nkuidesign {
 						}
 						if (cand >= 0) {
 							const NkUINode &cn = mSt->doc.nodes[(uint32)cand];
-							if (cn.children.Size() > 0) {
-								// un GROUPE : on fore vers l'enfant sous le point
-								const int32 enfant = NkPickDansContexte(
-									mSt->doc, screen, in.mouseX, in.mouseY, cand);
-								if (enfant >= 0) {
-									mForage = cand;
-									mSt->SelectSingle(enfant);
-									Dire("", mSt->doc.nodes[(uint32)enfant].label.Data(),
-										 " — double-clic : descendre/éditer ; Échap : "
-										 "remonter.");
-								} else
-									mSt->SelectSingle(cand); // rien sous le point
-							} else if (StrEq(cn.shape.Data(), "text") || !cn.text.Empty()) {
-								// EDITABLE = tout noeud qui PORTE une cle `texte`
-								// (4e retour) — pas seulement la nature `text` :
-								// un rect a texte par defaut s'edite pareil.
-								mEditNode = cand;
-								const char *t0 = cn.TexteEn(mSt->langueActive.Data());
-								snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
-								mSt->SelectSingle(cand);
-								Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
-							} else {
-								mSt->SelectSingle(cand);
-								Dire("Élément non éditable.", "", "");
+							// ⚠️ L'ISSUE VIENT DE LA TABLE (SelectionGeste.h), pas
+							//    d'une cascade de `if` locale. Éditer un texte et
+							//    entrer en mode points sont deux issues du MÊME
+							//    geste : les décider ici, chacune à côté de
+							//    l'autre, aurait rouvert la divergence que les
+							//    tables de clic viennent de fermer.
+							switch (NkIssueDeDblClic(cn)) {
+								case NkIssueDblClic::Forer: {
+									const int32 enfant = NkPickDansContexte(
+										mSt->doc, screen, in.mouseX, in.mouseY, cand);
+									if (enfant >= 0) {
+										mForage = cand;
+										mSt->SelectSingle(enfant);
+										Dire("", mSt->doc.nodes[(uint32)enfant].label.Data(),
+											 " — double-clic : descendre/éditer ; Échap : "
+											 "remonter.");
+									} else
+										mSt->SelectSingle(cand); // rien sous le point
+									break;
+								}
+								case NkIssueDblClic::EditerTexte: {
+									mEditNode = cand;
+									const char *t0 = cn.TexteEn(mSt->langueActive.Data());
+									snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+									mSt->SelectSingle(cand);
+									Dire("Édition du texte — Entrée valide, Échap annule.", "",
+										 "");
+									break;
+								}
+								case NkIssueDblClic::ModePoints: {
+									mPointsNode = cand;
+									mPointDrag = -1;
+									mSt->SelectSingle(cand);
+									Dire("Mode points — glisser un sommet le déplace ; Échap "
+										 "ressort.",
+										 "", "");
+									break;
+								}
+								case NkIssueDblClic::CoinsSeuls:
+									// ⚠️ ON LE DIT PLUTÔT QUE DE FAIRE SEMBLANT : un
+									//    rectangle n'a pas de sommets à éditer, ses
+									//    coins REDIMENSIONNENT. Ouvrir un « mode
+									//    points » qui ne ferait que redimensionner
+									//    laisserait croire à une édition vectorielle
+									//    qui n'existe pas.
+									mSt->SelectSingle(cand);
+									Dire("Cette forme n'a pas de sommets : ses coins "
+										 "redimensionnent (poignées de sélection).",
+										 "", "");
+									break;
+								default:
+									mSt->SelectSingle(cand);
+									Dire("Élément non éditable.", "", "");
+									break;
 							}
 						}
 						return; // un double-clic ne demarre ni glisser ni rectangle
@@ -3379,6 +3541,13 @@ namespace nkuidesign {
 						mMarqX = in.mouseX;
 						mMarqY = in.mouseY;
 					}
+					// ⚠️ ET LE GESTE SUIT LE DESSIN : en mode points, le clic sur ce
+					//    noeud appartient aux SOMMETS. Sans cette garde, un clic sur
+					//    un bout aurait arme un redimensionnement (la poignee de
+					//    selection est au meme endroit) et le sommet n'aurait jamais
+					//    bouge — un mode qui s'affiche et ne repond pas.
+					if (hit >= 0 && hit == mPointsNode)
+						return;
 					if (hit >= 0) {
 						// ⚠️ L'APPLICATION PASSE PAR LE MECANISME : c'est lui qui porte la
 						//    regle « la racine n'est jamais un element », une fois pour
@@ -3677,6 +3846,12 @@ namespace nkuidesign {
 			uint8 mResizeEdges = 0; ///< bits 1=G 2=D 4=H 8=B (noeud pose, huit poignees)
 			bool mMoving = false;
 			int32 mMoveNode = -1;
+			/// ── LE MODE POINTS (§8bis restreint) ─────────────────────────────
+			/// Le noeud en EDITION INTERNE, -1 si aucun. Un double-clic sur une
+			/// forme a sommets y entre, Echap en sort.
+			int32 mPointsNode = -1;
+			/// Le sommet en cours de glissement, -1 si aucun.
+			int32 mPointDrag = -1;
 			/// Le noeud SOUS LE CURSEUR (pre-selection), -1 si aucun. Pose a
 			/// chaque image par le dessin du survol, publie au releve.
 			int32 mSurvol = -1;

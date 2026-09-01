@@ -385,6 +385,17 @@ namespace nkuidesign {
 		return NkBordurePos::Centre;
 	}
 
+	/// UN SOMMET, en coordonnées UNITAIRES (-1..1) dans la boîte de la forme.
+	/// ⚠️ UNITAIRE, ET PAS EN PIXELS. Un sommet en pixels absolus se décrocherait
+	///    de sa forme dès qu'on la redimensionne — la position d'un point est un
+	///    RÉSULTAT de la boîte, exactement comme la position d'un nœud est un
+	///    résultat de sa disposition. C'est la même règle, appliquée un cran
+	///    plus bas.
+	struct NkPoint2 {
+			float32 x = 0.f;
+			float32 y = 0.f;
+	};
+
 	// ═══════════════════════════════════════════════════════════════════════════
 	//  LE NOEUD
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -490,6 +501,16 @@ namespace nkuidesign {
 			///    convertir. Pas de `MaterialiserEffets` : il n'y a rien à
 			///    préserver.
 			NkVector<NkEffet> effets;
+			/// ── LES SOMMETS DÉPLACÉS (mode points, §8bis restreint) ──────────
+			/// VIDE = le polygone RÉGULIER de la table (`Sommets.h`) ; non vide =
+			/// les sommets que la main a bougés. Même discipline additive que les
+			/// trois listes : la clé `sommet_<i>` n'existe que si la liste existe,
+			/// donc un document d'avant se réenregistre octet pour octet.
+			/// ⚠️ NE VAUT QUE POUR LES POLYGONES. Une ligne exprime ses bouts par
+			///    sa boîte, un rectangle par sa taille : leur donner une liste de
+			///    sommets créerait deux façons de dire la même chose, et le
+			///    lecteur devrait choisir.
+			NkVector<NkPoint2> sommets;
 			NkString alignText;	 ///< `centre` | `droite` (clé `texte_aligne`) — vide = gauche
 			/// La CIBLE D'APPAREIL d'un artboard (écran 26 « Menu Cible ») :
 			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient
@@ -1037,6 +1058,7 @@ namespace nkuidesign {
 					d.fills = s.fills; // la LISTE suit la copie, comme tout le reste
 					d.borders = s.borders;
 					d.effets = s.effets;
+					d.sommets = s.sommets;
 					d.textColor = s.textColor;
 					d.borderColor = s.borderColor;
 					d.alignText = s.alignText;
@@ -1300,6 +1322,16 @@ namespace nkuidesign {
 						}
 					} else if (!n.borderColor.Empty())
 						Field(out, "couleur_bord", n.borderColor.Data());
+					// LES SOMMETS DEPLACES : `sommet_<i> = x y` (unitaire -1..1).
+					for (uint32 si = 0; si < (uint32)n.sommets.Size(); ++si) {
+						out.Append("  sommet_");
+						WriteNum(out, (float32)(si + 1));
+						out.Append(" = ");
+						WriteNum(out, n.sommets[si].x);
+						out.Append(' ');
+						WriteNum(out, n.sommets[si].y);
+						out.Append('\n');
+					}
 					// LES EFFETS : `effet_<i> = type x y flou etendue couleur opacite visible`.
 					for (uint32 ei = 0; ei < (uint32)n.effets.Size(); ++ei) {
 						const NkEffet &e = n.effets[ei];
@@ -1572,6 +1604,21 @@ namespace nkuidesign {
 							if (motSuivant(mot, (uint32)sizeof(mot)) > 0)
 								b.position = NkParseBordurePos(mot);
 							n.borders.PushBack(b);
+						}
+						else if (key[0] == 's' && key[1] == 'o' && key[2] == 'm' && key[3] == 'm'
+								 && key[4] == 'e' && key[5] == 't' && key[6] == '_') {
+							// `sommet_<i> = x y`, unitaire. Empile dans l'ordre du
+							// fichier, comme les trois listes.
+							NkPoint2 pt;
+							const char *q = val;
+							pt.x = ParseNum(q);
+							while (*q && *q != ' ')
+								++q;
+							while (*q == ' ')
+								++q;
+							if (*q)
+								pt.y = ParseNum(q);
+							n.sommets.PushBack(pt);
 						}
 						else if (key[0] == 'e' && key[1] == 'f' && key[2] == 'f' && key[3] == 'e'
 								 && key[4] == 't' && key[5] == '_') {

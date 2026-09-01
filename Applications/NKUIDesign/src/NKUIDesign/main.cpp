@@ -1070,6 +1070,314 @@ static nkentseu::int32 RecetteSelection() {
 // ═════════════════════════════════════════════════════════════════════════════
 //  --recette-snap : L'AIMANTATION (Lunacy) PROUVEE PAR SES NOMBRES
 // ═════════════════════════════════════════════════════════════════════════════
+//  --recette-points : LE MODE POINTS (§8bis restreint) ET SA TABLE DE DECISION
+// ═════════════════════════════════════════════════════════════════════════════
+// ⚠️ LE PIEGE DE GROUPE EST TENU D'ENTREE, ET IL EST NOMME : entrer en EDITION
+//    DE TEXTE et entrer en MODE POINTS sont deux issues du MEME double-clic.
+//    Leur table vit au meme endroit (`NkIssueDeDblClic`), et le premier cas de
+//    cette recette la couvre EN ENTIER -- pas seulement la branche neuve.
+//    Ecrire un banc qui ne teste que « le polygone entre en mode points »
+//    aurait laisse la branche texte se faire manger a la premiere retouche.
+//
+// ⚠️ ET LE SECOND PIEGE DE GROUPE : les sommets DESSINES et les sommets
+//    MANIPULES doivent venir de la meme fonction. Un cas compare donc les
+//    sommets rendus par `NkSommetsDe` a ceux que le peintre utiliserait -- ils
+//    sont le meme appel, et ce cas existe pour que ca le reste.
+//
+// ⚠️ VOLET CONSERVATION : entrer en mode points, regarder les sommets et en
+//    SORTIR ne doit RIEN ecrire ; et un polygone materialise se relit a
+//    l'identique.
+static nkentseu::int32 RecettePoints() {
+	using namespace nkuidesign;
+	using nkentseu::int32;
+	using nkentseu::uint32;
+	int32 cas = 0, echecs = 0;
+	auto verdict = [&](const char *nom, bool ok, const char *detail) {
+		++cas;
+		printf("%s  %s%s%s\n", ok ? "OK   " : "ECHEC", nom, (detail && *detail) ? "  -- " : "",
+			   (detail && *detail) ? detail : "");
+		if (!ok)
+			++echecs;
+	};
+	auto ancree = [](const NkString &s) -> bool {
+		return s.Size() > 0 && s.Data() && s.Contains("nkuidoc") && s.Contains("noeud");
+	};
+	static DesignState st;
+	const NkPaintRect surface = {0.f, 0.f, 1200.f, 800.f};
+	auto poser = [&](const char *forme, const char *texte) -> int32 {
+		const int32 i = st.doc.AddChild(0, "", NkAuthor::Humain);
+		NkUINode &n = st.doc.nodes[(uint32)i];
+		n.label = NkString(forme);
+		n.shape = NkString(forme);
+		if (texte)
+			n.text = NkString(texte);
+		n.width.mode = NkSizeMode::Fixed;
+		n.width.value = 100.f;
+		n.height.mode = NkSizeMode::Fixed;
+		n.height.value = 80.f;
+		return i;
+	};
+
+	// ── 1. LA TABLE DU DOUBLE-CLIC, EN ENTIER (les deux issues freres) ──────
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iTexte = poser("text", "bonjour");
+		const int32 iRect = poser("rect", nullptr);
+		const int32 iLigne = poser("line", nullptr);
+		const int32 iEtoile = poser("etoile", nullptr);
+		const int32 iRectTexte = poser("rect", "j'ai du texte");
+		const int32 iGroupe = st.doc.AddChild(0, "", NkAuthor::Humain);
+		st.doc.nodes[(uint32)iGroupe].label = NkString("Groupe");
+		st.doc.AddChild(iGroupe, "", NkAuthor::Humain);
+		auto issue = [&](int32 i) { return NkIssueDeDblClic(st.doc.nodes[(uint32)i]); };
+		const bool ok = issue(iTexte) == NkIssueDblClic::EditerTexte
+						&& issue(iRect) == NkIssueDblClic::CoinsSeuls
+						&& issue(iLigne) == NkIssueDblClic::ModePoints
+						&& issue(iEtoile) == NkIssueDblClic::ModePoints
+						// un rect QUI PORTE du texte s'edite : la regle du 4e
+						// retour, deplacee dans la table sans etre perdue
+						&& issue(iRectTexte) == NkIssueDblClic::EditerTexte
+						// et le FORAGE prime sur tout : un groupe se traverse
+						&& issue(iGroupe) == NkIssueDblClic::Forer;
+		verdict("1. la table du double-clic : texte->editer, rect->coins, ligne et "
+				"etoile->points, rect AVEC texte->editer, groupe->forer",
+				ok, ok ? "les six issues" : "UNE ISSUE A CHANGE");
+	}
+	// ── 2. LA NATURE DES SOMMETS, forme par forme ──────────────────────────
+	{
+		const bool ok = NkNatureDe("line") == NkNatureSommets::Bouts
+						&& NkNatureDe("line_up") == NkNatureSommets::Bouts
+						&& NkNatureDe("triangle") == NkNatureSommets::Polygone
+						&& NkNatureDe("pentagone") == NkNatureSommets::Polygone
+						&& NkNatureDe("etoile") == NkNatureSommets::Polygone
+						&& NkNatureDe("rect") == NkNatureSommets::Coins
+						&& NkNatureDe("ellipse") == NkNatureSommets::Coins
+						&& NkNatureDe("text") == NkNatureSommets::Aucun;
+		verdict("2. la nature des sommets : bouts / polygone / coins / aucun", ok, "");
+	}
+	// ── 3. LE COMPTE DES SOMMETS, et il vient de LA table ──────────────────
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iL = poser("line", nullptr);
+		const int32 iT = poser("triangle", nullptr);
+		const int32 iP = poser("pentagone", nullptr);
+		const int32 iE = poser("etoile", nullptr);
+		const int32 iR = poser("rect", nullptr);
+		const int32 iX = poser("text", "x");
+		st.Recompute(surface);
+		float32 xy[64];
+		auto nb = [&](int32 i) {
+			return NkSommetsDe(st.doc.nodes[(uint32)i], st.layout.At(i), xy, 32);
+		};
+		char d[112];
+		snprintf(d, sizeof(d), "ligne=%u, triangle=%u, pentagone=%u, etoile=%u, rect=%u, "
+							   "texte=%u",
+				 nb(iL), nb(iT), nb(iP), nb(iE), nb(iR), nb(iX));
+		verdict("3. le compte des sommets : 2 / 3 / 5 / 10 / 4 (coins) / 0",
+				nb(iL) == 2 && nb(iT) == 3 && nb(iP) == 5 && nb(iE) == 10 && nb(iR) == 4
+					&& nb(iX) == 0,
+				d);
+	}
+	// ── 4. LES SOMMETS TOMBENT DANS LA BOITE, ET LA LIGNE SUR SA DIAGONALE ──
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iL = poser("line", nullptr);
+		const int32 iLu = poser("line_up", nullptr);
+		st.Recompute(surface);
+		float32 xy[8], xu[8];
+		const uint32 n1 = NkSommetsDe(st.doc.nodes[(uint32)iL], st.layout.At(iL), xy, 4);
+		const uint32 n2 = NkSommetsDe(st.doc.nodes[(uint32)iLu], st.layout.At(iLu), xu, 4);
+		const NkPaintRect r1 = st.layout.At(iL), r2 = st.layout.At(iLu);
+		// `line` descend : (x,y) -> (x+w, y+h) ; `line_up` monte : l'inverse.
+		const bool descend = n1 == 2 && xy[0] == r1.x && xy[1] == r1.y
+							 && xy[2] == r1.x + r1.w && xy[3] == r1.y + r1.h;
+		const bool monte = n2 == 2 && xu[1] == r2.y + r2.h && xu[3] == r2.y;
+		char d[112];
+		snprintf(d, sizeof(d), "line (%.0f,%.0f)->(%.0f,%.0f) ; line_up y %.0f->%.0f", xy[0],
+				 xy[1], xy[2], xy[3], xu[1], xu[3]);
+		verdict("4. les bouts d'une ligne SONT la diagonale de sa boite, et `line_up` "
+				"monte",
+				descend && monte, d);
+	}
+	// ── 5. MATERIALISER : la table devient une liste, et RIEN NE BOUGE ──────
+	//     ⚠️ C'est le cas qui tient la promesse : materialiser ne doit pas
+	//     DEPLACER un sommet d'un pixel, sinon l'etoile sauterait au premier
+	//     clic dans le mode points, avant meme qu'on tire quoi que ce soit.
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iE = poser("etoile", nullptr);
+		st.Recompute(surface);
+		float32 avant[64], apres[64];
+		const uint32 nA = NkSommetsDe(st.doc.nodes[(uint32)iE], st.layout.At(iE), avant, 32);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
+		const uint32 nB = NkSommetsDe(st.doc.nodes[(uint32)iE], st.layout.At(iE), apres, 32);
+		bool memes = (nA == nB && nA == 10);
+		for (uint32 i = 0; memes && i < nA * 2; ++i)
+			if (avant[i] != apres[i])
+				memes = false;
+		// et c'est idempotent
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
+		const bool idem = st.doc.nodes[(uint32)iE].sommets.Size() == 10;
+		char d[112];
+		snprintf(d, sizeof(d), "%u -> %u sommets, positions %s, 2e appel : %u", nA, nB,
+				 memes ? "IDENTIQUES" : "DEPLACEES",
+				 (uint32)st.doc.nodes[(uint32)iE].sommets.Size());
+		verdict("5. materialiser une etoile ne DEPLACE aucun sommet, et n'est pas cumulatif",
+				memes && idem, d);
+	}
+	// ── 6. MATERIALISER NE VAUT QUE POUR LES POLYGONES ──────────────────────
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iR = poser("rect", nullptr);
+		const int32 iL = poser("line", nullptr);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iR]);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iL]);
+		char d[96];
+		snprintf(d, sizeof(d), "rect=%u sommet(s), ligne=%u",
+				 (uint32)st.doc.nodes[(uint32)iR].sommets.Size(),
+				 (uint32)st.doc.nodes[(uint32)iL].sommets.Size());
+		verdict("6. ni le rectangle ni la ligne ne recoivent de liste de sommets : ils "
+				"s'expriment par leur BOITE (deux facons de dire la meme chose = une de trop)",
+				st.doc.nodes[(uint32)iR].sommets.Empty()
+					&& st.doc.nodes[(uint32)iL].sommets.Empty(),
+				d);
+	}
+	// ── 7. ALLER-RETOUR + CONSERVATION : le document d'avant ne bouge pas ───
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iE = poser("etoile", nullptr);
+		NkString a1, a2;
+		st.doc.Save(a1);
+		NkUIDocument r1;
+		const bool lu1 = r1.Load(a1.Data());
+		if (lu1)
+			r1.Save(a2);
+		bool sansCle = true;
+		for (const char *q = a1.Data() ? a1.Data() : ""; *q; ++q)
+			if (q[0] == 's' && q[1] == 'o' && q[2] == 'm' && q[3] == 'm' && q[4] == 'e'
+				&& q[5] == 't' && q[6] == '_') {
+				sansCle = false;
+				break;
+			}
+		// conservation : la forme est encore la
+		const bool garde = lu1 && r1.IsValidIndex(iE)
+						   && StrEq(r1.nodes[(uint32)iE].shape.Data(), "etoile")
+						   && r1.nodes[(uint32)iE].sommets.Empty();
+		char d[128];
+		snprintf(d, sizeof(d), "octets %s, cle `sommet_` %s, forme %s",
+				 (lu1 && a1.Compare(a2) == 0) ? "IDENTIQUES" : "DIFFERENTS",
+				 sansCle ? "absente" : "APPARUE", garde ? "gardee" : "PERDUE");
+		verdict("7. une etoile REGULIERE ne gagne aucune cle de sommets et se reenregistre "
+				"OCTET POUR OCTET",
+				lu1 && a1.Compare(a2) == 0 && sansCle && garde && ancree(a1), d);
+	}
+	// ── 8. UN SOMMET DEPLACE fait l'aller-retour, valeur par valeur ─────────
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iE = poser("etoile", nullptr);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
+		st.doc.nodes[(uint32)iE].sommets[3].x = -0.25f;
+		st.doc.nodes[(uint32)iE].sommets[3].y = 0.75f;
+		NkString b1, b2;
+		st.doc.Save(b1);
+		NkUIDocument r2;
+		const bool lu2 = r2.Load(b1.Data());
+		if (lu2)
+			r2.Save(b2);
+		const NkUINode *rn = (lu2 && r2.IsValidIndex(iE)) ? &r2.nodes[(uint32)iE] : nullptr;
+		const bool champs = rn && rn->sommets.Size() == 10 && rn->sommets[3].x == -0.25f
+							&& rn->sommets[3].y == 0.75f;
+		char d[112];
+		snprintf(d, sizeof(d), "%u sommet(s), le 4e (%.2f, %.2f), octets %s",
+				 rn ? (uint32)rn->sommets.Size() : 0u, rn ? rn->sommets[3].x : -9.f,
+				 rn ? rn->sommets[3].y : -9.f,
+				 (lu2 && b1.Compare(b2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
+		verdict("8. un sommet deplace fait l'aller-retour et se reenregistre a l'identique",
+				champs && lu2 && b1.Compare(b2) == 0, d);
+	}
+	// ── 9. LA COPIE emporte les sommets ─────────────────────────────────────
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iE = poser("etoile", nullptr);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
+		st.doc.nodes[(uint32)iE].sommets[0].x = 0.5f;
+		const int32 j = st.doc.CopierSousArbre(st.doc, iE, 0);
+		const bool ok = st.doc.IsValidIndex(j) && st.doc.nodes[(uint32)j].sommets.Size() == 10
+						&& st.doc.nodes[(uint32)j].sommets[0].x == 0.5f;
+		char d[96];
+		snprintf(d, sizeof(d), "%u sommet(s) copie(s)",
+				 st.doc.IsValidIndex(j) ? (uint32)st.doc.nodes[(uint32)j].sommets.Size() : 0u);
+		verdict("9. copier un sous-arbre emporte les sommets deplaces", ok, d);
+	}
+	// ── 10. CONSERVATION : REGARDER les sommets n'ecrit rien ────────────────
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iE = poser("etoile", nullptr);
+		const int32 iL = poser("line", nullptr);
+		st.Recompute(surface);
+		NkString avant;
+		st.doc.Save(avant);
+		float32 xy[64];
+		(void)NkSommetsDe(st.doc.nodes[(uint32)iE], st.layout.At(iE), xy, 32);
+		(void)NkSommetsDe(st.doc.nodes[(uint32)iL], st.layout.At(iL), xy, 32);
+		(void)NkIssueDeDblClic(st.doc.nodes[(uint32)iE]);
+		(void)NkNatureDe(st.doc.nodes[(uint32)iL].shape.Data());
+		NkString apres;
+		st.doc.Save(apres);
+		char d[96];
+		snprintf(d, sizeof(d), "document %s",
+				 (avant.Compare(apres) == 0) ? "INCHANGE" : "MODIFIE");
+		verdict("10. CONSERVATION : lire les sommets et interroger la table n'ecrit RIEN",
+				ancree(avant) && avant.Compare(apres) == 0, d);
+	}
+	// ── 11. UN SOMMET DEPLACE SE VOIT DANS LA GEOMETRIE DESSINEE ────────────
+	//     ⚠️ CE CAS EXISTE PARCE QU'UNE MUTATION N'A RIEN CASSE. En forcant
+	//     `NkSommetsDe` a ignorer la liste du document (donc a toujours rendre
+	//     l'etoile REGULIERE), les dix cas precedents restaient verts : le cas 8
+	//     lit le MODELE (le sommet est bien enregistre), le cas 5 compare deux
+	//     appels qui utilisaient tous deux la table. Personne ne verifiait le
+	//     seul lien qui compte : que deplacer un sommet CHANGE CE QUI EST
+	//     DESSINE. Sans ce cas, tout le mode points pouvait etre parfaitement
+	//     enregistre et parfaitement invisible.
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iE = poser("etoile", nullptr);
+		st.Recompute(surface);
+		float32 avant[64], apres[64];
+		const uint32 nA = NkSommetsDe(st.doc.nodes[(uint32)iE], st.layout.At(iE), avant, 32);
+		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
+		st.doc.nodes[(uint32)iE].sommets[2].x = 0.123f; // une pointe tiree
+		st.doc.nodes[(uint32)iE].sommets[2].y = -0.456f;
+		const uint32 nB = NkSommetsDe(st.doc.nodes[(uint32)iE], st.layout.At(iE), apres, 32);
+		const NkPaintRect r = st.layout.At(iE);
+		const float32 attX = r.x + r.w * 0.5f + 0.123f * (r.w * 0.5f);
+		const float32 attY = r.y + r.h * 0.5f + (-0.456f) * (r.h * 0.5f);
+		const bool bouge = nA == nB && nB > 2 && apres[4] == attX && apres[5] == attY
+						   && (avant[4] != apres[4] || avant[5] != apres[5]);
+		// et les AUTRES sommets n'ont pas bouge : deplacer un point n'en deplace
+		// qu'un.
+		bool autresFixes = true;
+		for (uint32 i = 0; i < nB && autresFixes; ++i) {
+			if (i == 2)
+				continue;
+			if (avant[i * 2] != apres[i * 2] || avant[i * 2 + 1] != apres[i * 2 + 1])
+				autresFixes = false;
+		}
+		char d[144];
+		snprintf(d, sizeof(d), "3e sommet (%.1f,%.1f) -> (%.1f,%.1f), attendu (%.1f,%.1f) ; "
+							   "les autres %s",
+				 avant[4], avant[5], apres[4], apres[5], attX, attY,
+				 autresFixes ? "fixes" : "ONT BOUGE");
+		verdict("11. deplacer un sommet CHANGE la geometrie dessinee -- et ne deplace que "
+				"celui-la",
+				bouge && autresFixes, d);
+	}
+	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
+		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
+	return echecs == 0 ? 0 : 1;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Le VRAI `NkCalculerSnap`, celui que le glisser appelle. Sans fenetre ni GPU.
 //
 // ⚠️ C'EST POUR CETTE RECETTE QUE LE CALCUL A ETE SORTI DE `OnUI`. Ecrit dans
@@ -2898,6 +3206,10 @@ int nkmain(const NkEntryState &state) {
 		// rectangle, conservation) -- sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-selection"))
 			return RecetteSelection();
+		// Le mode points (table du double-clic, sommets, aller-retour) -- sans
+		// fenetre ni GPU.
+		if (NkComponentDecl::StrEq(a, "--recette-points"))
+			return RecettePoints();
 		// Meme raison que ci-dessus : le pool de chaines du document ne touche ni
 		// au GPU ni a l ecran. Il porte les noms de metrique que le kit declare
 		// en const char* et que personne ne possedait a la relecture.
@@ -3009,6 +3321,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
 			puts("  --recette-snap          l'aimantation (bords, centres, espacements égaux)");
 			puts("  --recette-selection     le contrat de sélection (Ctrl/Maj, englobant, mixtes)");
+			puts("  --recette-points        le mode points (table du double-clic, sommets)");
 			puts("  --annuler=N             N pas d'annulation au lancement (preuve UI)");
 			puts("  --retablir=N            N pas de retablissement apres --annuler");
 			puts("  --recette-ia            la preuve de recette du pipeline IA");

@@ -52,6 +52,7 @@
 //   bouclent deja sur le registre et ne connaissent aucun nom.
 // -----------------------------------------------------------------------------
 
+#include "Sommets.h" // la table UNIQUE des sommets (peintre + mode points)
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
@@ -648,29 +649,13 @@ namespace nkuidesign {
 					|| StrEq(shape, "etoile"))) {
 				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
 													: p.ColorOf(host.Role("doc_field_bg"));
-				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
-				const float32 dx = r.w * 0.5f, dy = r.h * 0.5f;
-				// les sommets UNITAIRES (cercle inscrit, pointe en haut) —
-				// precomputes : pas de trigonometrie a l'execution.
-				static const float32 kTri[6] = {0.f, -1.f, 1.f, 1.f, -1.f, 1.f};
-				static const float32 kPenta[10] = {0.f,		-1.f,	  .9511f, -.3090f, .5878f,
-												   .8090f,	-.5878f, .8090f, -.9511f, -.3090f};
-				static const float32 kEtoile[20] = {
-					0.f,	 -1.f,	  .2246f,  -.3090f, .9511f,	 -.3090f, .3633f,  .1180f,
-					.5878f,	 .8090f,  0.f,	   .3820f,	-.5878f, .8090f,  -.3633f, .1180f,
-					-.9511f, -.3090f, -.2246f, -.3090f};
-				const float32 *unit = StrEq(shape, "triangle") ? kTri
-									  : StrEq(shape, "pentagone") ? kPenta
-																  : kEtoile;
-				const int32 nb = StrEq(shape, "triangle") ? 3
-								 : StrEq(shape, "pentagone") ? 5
-															 : 10;
-				float32 xy[20];
-				for (int32 i = 0; i < nb; ++i) {
-					xy[i * 2] = cx + unit[i * 2] * dx;
-					xy[i * 2 + 1] = cy + unit[i * 2 + 1] * dy;
-				}
-				if (!p.PolygonHex(xy, nb, rgba))
+				// ⚠️ LES SOMMETS VIENNENT DE , PAS D'UNE TABLE LOCALE.
+				//    Le mode points doit poser une poignee SUR CHAQUE SOMMET
+				//    DESSINE : deux tables auraient donne des poignees qui derivent
+				//    du dessin au premier ajustement d'une etoile.
+				float32 xy[64];
+				const uint32 nb = NkSommetsDe(n, r, xy, 32);
+				if (nb == 0 || !p.PolygonHex(xy, (int32)nb, rgba))
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), 4.f);
 				return;
 			}

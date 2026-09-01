@@ -32,6 +32,7 @@
 //  Ce fichier ne connaît ni la souris, ni l'écran, ni NKGui : il se mesure.
 // -----------------------------------------------------------------------------
 #include "Layout.h"
+#include "Sommets.h"
 #include "Selection.h"
 
 namespace nkuidesign {
@@ -66,6 +67,45 @@ namespace nkuidesign {
 		if (ctrl || maj)
 			return NkGesteSel::Basculer;
 		return NkGesteSel::Remplacer;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  CE QU'UN DOUBLE-CLIC OUVRE — LA TROISIÈME TABLE, AU MÊME ENDROIT
+	// ═══════════════════════════════════════════════════════════════════════════
+	/// ⚠️ ENTRER EN ÉDITION DE TEXTE ET ENTRER EN MODE POINTS SONT DEUX ISSUES DU
+	///    MÊME GESTE — un double-clic sur un élément. Écrire la seconde à côté de
+	///    la première, dans le corps de `HandleMouse`, aurait donné deux `if`
+	///    voisins qu'un troisième cas (le composant, le tableau…) viendrait
+	///    départager au jugé. C'est **exactement** la divergence que les deux
+	///    tables ci-dessus viennent de fermer pour le clic simple : on ne la
+	///    rouvre pas pour le double-clic.
+	///
+	///    La question « que fait un double-clic ici ? » a donc UNE réponse, et
+	///    elle se lit — et se mesure — sans souris.
+	enum class NkIssueDblClic {
+		Forer,		  ///< un GROUPE : descendre vers l'enfant sous le point
+		EditerTexte,  ///< un nœud qui PORTE du texte
+		ModePoints,   ///< une forme à sommets réels (ligne, polygone, étoile)
+		CoinsSeuls,   ///< rect/ellipse/image : les coins REDIMENSIONNENT — à DIRE
+		RienADire	  ///< aucune issue : le refus doit être annoncé, pas muet
+	};
+
+	/// La table. `aDesEnfants` est passé à part parce que le forage prime sur
+	/// tout le reste : un groupe se traverse, quoi qu'il contienne.
+	inline NkIssueDblClic NkIssueDeDblClic(const NkUINode &n) {
+		if (n.children.Size() > 0)
+			return NkIssueDblClic::Forer;
+		// ⚠️ « ÉDITABLE » = QUI PORTE UNE CLÉ `texte`, pas « de nature text »
+		//    (4e retour de Rodolf) : un rect à texte par défaut s'édite pareil.
+		//    Cette règle vivait dans le corps du geste ; elle vit ici désormais.
+		if (NkComponentDecl::StrEq(n.shape.Data(), "text") || !n.text.Empty())
+			return NkIssueDblClic::EditerTexte;
+		switch (NkNatureDe(n.shape.Data())) {
+			case NkNatureSommets::Bouts:
+			case NkNatureSommets::Polygone: return NkIssueDblClic::ModePoints;
+			case NkNatureSommets::Coins: return NkIssueDblClic::CoinsSeuls;
+			default: return NkIssueDblClic::RienADire;
+		}
 	}
 
 	/// APPLIQUER un geste à la sélection partagée.
