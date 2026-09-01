@@ -425,6 +425,52 @@ namespace nkuidesign {
 			dl.AddLine({x + 5.f, y + 5.f}, {x + 5.2f, y + 8.8f}, c, 1.f);
 			dl.AddLine({x + 7.f, y + 5.f}, {x + 6.8f, y + 8.8f}, c, 1.f);
 		}
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LA BANDE D'EN-TÊTE DE SECTION — UNE SEULE ÉCRITURE POUR DEUX PANNEAUX
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Rodolf, 01/09 : *« au lieu d'avoir Cible, Disposition et autres mis
+		//  simplement avec une flèche dessus, est-ce que ce n'est pas mieux de
+		//  définir une barre foncée sur laquelle elles sont posées, qui prend
+		//  toute la largeur ? »* — et c'est bien ce que fait la référence.
+		//
+		//  ⚠️ CE QUE LUNACY FAIT EXACTEMENT, MESURÉ AU PIXEL sur
+		//     `lunacy_props_11_040102.png` (profil de colonne, pas à l'œil) : ce
+		//     n'est pas une bande *sous le titre seul*, c'est **la SECTION
+		//     ENTIÈRE qui est un bloc pleine largeur** — intérieur `(25,25,25)`,
+		//     en-tête et corps de la MÊME teinte, séparé de ses voisines par un
+		//     interstice de `(49,49,49)` d'environ 6 px, sur un fond de page
+		//     `(51,51,51)`. Et **aucun chevron** : Lunacy ne replie pas ses
+		//     sections. Nous, si — donc notre en-tête garde le sien.
+		//     La bande ci-dessous est la PARTIE de ce bloc qui reste visible
+		//     quand la section est repliée : le geste demandé, dans une
+		//     interface qui a une capacité que la référence n'a pas.
+		//
+		//  ⚠️ LE RÔLE EXISTAIT, ON N'EN A PAS AJOUTÉ. `NkRole::PanelHeader` est
+		//     défini mot pour mot comme *« en-têtes, barres d'outils : ce qui
+		//     structure se lit d'abord »* (`NkTheme.h:54`), et il est déjà mappé
+		//     sur `ctx.theme.header`. Aucun thème ne change d'un octet.
+		//     ⚠️ ET IL EST « CONTRASTANT », PAS « FONCÉ » : mesuré sur GitHub
+		//        Dark Pro il vaut `#21262d` contre `#161b22` de fond de panneau —
+		//        donc plus CLAIR en sombre ; en clair, `#eaeef2` contre `#f6f8fa`
+		//        — plus foncé. C'est ce qu'on attend d'un jeton qui doit tenir
+		//        dans les deux thèmes : une bande littéralement plus sombre en
+		//        thème sombre disparaîtrait en thème clair.
+		//
+		//  ⚠️ POURQUOI ICI ET PAS DANS CHAQUE PANNEAU : les en-têtes de
+		//     l'INSPECTEUR et ceux de la HIÉRARCHIE (PAGES, COMPOSANTS) sont le
+		//     MÊME motif. Écrite deux fois, la bande aurait divergé au premier
+		//     ajustement — et le dépôt a déjà mesuré ce prix (« le peintre a été
+		//     écrit deux fois, indépendamment »). Une écriture, deux appels.
+		inline void BandeEnTete(NkGuiDrawList &dl, float32 x, float32 y, float32 w, float32 h,
+								const NkColor &fond, const NkColor &filet) {
+			dl.AddRectFilled({x, y, w, h}, fond, 0.f);
+			// Le filet bas : sans lui, deux sections repliées l'une sous l'autre
+			// forment UN bloc de la hauteur de deux, et on ne voit plus où l'une
+			// finit. C'est la seule chose qui rende la pile lisible quand tout
+			// est fermé — l'état le plus courant d'un inspecteur chargé.
+			dl.AddRectFilled({x, y + h - 1.f, w, 1.f}, filet, 0.f);
+		}
+
 		// plus 10×10 : deux traits — l'« ajouter » des en-têtes de section
 		inline void IcPlus(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
 			dl.AddLine({x + 5.f, y + 1.f}, {x + 5.f, y + 9.f}, c, 1.3f);
