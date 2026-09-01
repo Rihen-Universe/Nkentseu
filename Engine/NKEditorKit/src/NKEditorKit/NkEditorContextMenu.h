@@ -48,6 +48,37 @@ namespace nkentseu {
 				NkRect rect = {0.f, 0.f, 0.f, 0.f}; // boite de la frame courante (garde d'input)
 		};
 
+		// ── LA RANGEE D'ICONES D'ACTION DIRECTE (Lunacy) ─────────────────────
+		// ⚠️ POURQUOI DANS LE KIT ET PAS DANS L'APPLICATION. Lunacy pose sous sa
+		//    barre de recherche une rangee de sept icones -- coller, dupliquer,
+		//    couper, cadenas, oeil, poubelle, composant. C'est de la GEOMETRIE de
+		//    menu (hauteur de bande, cellule carree, survol, clic, grisage,
+		//    occlusion), donc ca appartient au composant qui dessine le menu ;
+		//    l'ecrire chez l'appelant aurait fabrique une seconde geometrie de
+		//    menu a cote de celle-ci, et NK3DModeler n'en aurait rien eu.
+		//
+		// ⚠️ MAIS LE DESSIN DE L'ICONE RESTE A L'APPLICATION, et ce n'est pas un
+		//    compromis : il n'existe aucun atlas d'icones partage (102 SVG chez
+		//    NK3DModeler, 91 PNG chez NKCode, l'atlas NKGui en cours, un peintre
+		//    vectoriel local chez NkUIDesign). Inventer ici un vocabulaire de
+		//    poignees en aurait fait un QUATRIEME. Le kit tient donc la place et
+		//    l'etat, l'hote peint dedans -- exactement le patron `rowOverlay` du
+		//    composant d'arbre, qui existe pour la meme raison.
+		struct NkCtxMenuRangee {
+				int32 count = 0;					 ///< 0 = pas de rangee (defaut)
+				const bool *enabled = nullptr;		 ///< nullptr = toutes actives
+				void *user = nullptr;
+				/// Peint UNE icone dans sa cellule. `actif` dit la couleur a prendre.
+				void (*paint)(void *user, NkGuiDrawList &dl, int32 i, const NkRect &cell,
+							  const NkColor &couleur) = nullptr;
+				/// L'infobulle de chaque icone. ⚠️ UNE ICONE MUETTE EST UN BOUTON
+				/// QU'ON N'OSE PAS PRESSER : c'est le seul indice qu'a l'utilisateur
+				/// sur ce que fait un pictogramme, et la seule facon pour une icone
+				/// GRISEE de dire POURQUOI elle l'est.
+				const char *(*tip)(void *user, int32 i) = nullptr;
+				int32 clicked = -1; ///< SORTIE : l'icone cliquee cette frame, -1 sinon
+		};
+
 		// Retourne l'index de l'item clique (et ferme le menu), -1 sinon. Se ferme au
 		// clic exterieur ou sur Echap. `enabled[i]` grise les items non applicables.
 		// `icons` (optionnel) : une texture par item, dessinee a GAUCHE du libelle —
@@ -62,10 +93,21 @@ namespace nkentseu {
 		// ⚠️ ADDITIF ET EN DERNIER : les consommateurs existants (NKCode, NkUIDesign,
 		//    l'explorateur) ne passent rien et ne changent pas d'un caractere.
 		//    `shortcuts[i]` peut valoir nullptr ou "" item par item.
+		// `sepAfter` (optionnel) : un TRAIT sous l'item i. Lunacy groupe ses
+		// commandes par separateurs, et le groupe est une information -- « ces
+		// trois-la vont ensemble » se lit sans mot. ⚠️ Le trait suit son item :
+		// filtre et defilement le deplacent avec lui, il ne peut donc pas se
+		// retrouver a separer deux autres entrees.
+		// `rangee` (optionnel) : la rangee d'icones d'action directe ci-dessus ;
+		// elle s'ancre sous la recherche, hors de la zone defilante.
+		// ⚠️ TOUS ADDITIFS ET EN DERNIER : les consommateurs existants (NKCode,
+		//    l'explorateur, NkUIDesign) ne passent rien et ne changent pas d'un
+		//    caractere.
 		inline int32 NkCtxMenuDraw(NkGuiContext &ctx, NkCtxMenu &mn, const char *const *items, const bool *enabled,
 								   int32 count, int32 *hoveredOut = nullptr, const bool *hasSub = nullptr,
 								   const uint32 *icons = nullptr, char *filter = nullptr, int32 filterCap = 0,
-								   bool *filterFocus = nullptr, const char *const *shortcuts = nullptr) {
+								   bool *filterFocus = nullptr, const char *const *shortcuts = nullptr,
+								   const bool *sepAfter = nullptr, NkCtxMenuRangee *rangee = nullptr) {
 			if (!mn.open)
 				return -1;
 
@@ -75,9 +117,11 @@ namespace nkentseu {
 			enum { kMaxItems = 256 };
 			const char *fItems[kMaxItems];
 			const char *fShorts[kMaxItems];
-			bool fEnabled[kMaxItems], fSub[kMaxItems];
+			bool fEnabled[kMaxItems], fSub[kMaxItems], fSep[kMaxItems];
 			uint32 fIcons[kMaxItems];
 			int32 fMap[kMaxItems];
+			if (rangee)
+				rangee->clicked = -1;
 			// Au-dela de 8 entrees, derouler devient penible : c'est le seuil ou la
 			// recherche gagne sa ligne (meme regle que le combo de la barre d'outils).
 			const bool avecFiltre = (filter != nullptr && filterCap > 1 && count > 8);
@@ -92,6 +136,11 @@ namespace nkentseu {
 					fEnabled[n] = enabled ? enabled[i] : true;
 					fSub[n] = hasSub ? hasSub[i] : false;
 					fIcons[n] = icons ? icons[i] : 0u;
+					// ⚠️ LE TRAIT SUIT SON ITEM. Recopier `sepAfter` par INDEX
+					//    D'AFFICHAGE aurait laisse un trait sous une entree
+					//    quelconque des que le filtre en retire une : le groupe
+					//    n'aurait plus rien groupe.
+					fSep[n] = sepAfter ? sepAfter[i] : false;
 					++n;
 				}
 				items = fItems;
@@ -100,6 +149,8 @@ namespace nkentseu {
 				enabled = fEnabled;
 				hasSub = fSub;
 				icons = fIcons;
+				if (sepAfter)
+					sepAfter = fSep;
 				count = n;
 			}
 			NkGuiDrawList &dl = ctx.dlOverlay;
@@ -117,6 +168,19 @@ namespace nkentseu {
 						break;
 					}
 			const float32 searchH = avecFiltre ? (lh + 12.f) : 0.f;
+			// La rangee d'icones : une bande ancree, cellule carree de `cellR`.
+			const bool avecRangee = (rangee != nullptr && rangee->count > 0 && rangee->paint != nullptr);
+			const float32 cellR = lh + 8.f;
+			const float32 rangeeH = avecRangee ? (cellR + 8.f) : 0.f;
+			// Le TRAIT de separation prend sa place : sans elle il se dessinerait
+			// SUR le libelle suivant, et un trait qui touche un texte se lit comme
+			// un souligne, pas comme un groupe.
+			const float32 sepH = 7.f;
+			int32 nSep = 0;
+			if (sepAfter)
+				for (int32 i = 0; i < count; ++i)
+					if (sepAfter[i])
+						++nSep;
 			float32 wIdeal = 168.f;
 			if (ctx.font && ctx.font->Valid())
 				for (int32 i = 0; i < count; ++i) {
@@ -134,13 +198,15 @@ namespace nkentseu {
 				}
 			const float32 wCap = static_cast<float32>(ctx.viewW) * 0.6f;
 			const float32 hCap = static_cast<float32>(ctx.viewH) * 0.5f;
-			const float32 contentH = count * rowH;
+			const float32 contentH = count * rowH + (float32)nSep * sepH;
 			const bool hasH = wIdeal > wCap;
 			const float32 w = hasH ? wCap : wIdeal;
 			const bool hasV = contentH + 8.f > hCap;
-			// La bande de recherche s'ajoute a la hauteur SANS entrer dans le calcul de
-			// defilement : c'est ce qui la rend insensible au scroll.
-			const float32 h = (hasV ? hCap : contentH + 8.f) + (hasH ? sbT : 0.f) + searchH;
+			// La bande de recherche ET la rangee d'icones s'ajoutent a la hauteur
+			// SANS entrer dans le calcul de defilement : c'est ce qui les rend
+			// insensibles au scroll.
+			const float32 h =
+				(hasV ? hCap : contentH + 8.f) + (hasH ? sbT : 0.f) + searchH + rangeeH;
 			NkRect box = {mn.pos.x, mn.pos.y, w, h};
 			if (box.x + box.w > static_cast<float32>(ctx.viewW))
 				box.x = static_cast<float32>(ctx.viewW) - box.w;
@@ -150,8 +216,9 @@ namespace nkentseu {
 				box.x = 0.f;
 			if (box.y < 0.f)
 				box.y = 0.f;
-			const NkRect inner = {box.x, box.y + searchH, box.w - (hasV ? sbT : 0.f),
-								  box.h - searchH - (hasH ? sbT : 0.f)};
+			const float32 bandeH = searchH + rangeeH; // tout ce qui est ANCRE en haut
+			const NkRect inner = {box.x, box.y + bandeH, box.w - (hasV ? sbT : 0.f),
+								  box.h - bandeH - (hasH ? sbT : 0.f)};
 			const NkVec2 m = ctx.input.mousePos;
 			const bool inBox = m.x >= box.x && m.x < box.x + box.w && m.y >= box.y && m.y < box.y + box.h;
 			// Molette CONSOMMEE au-dessus du menu (sinon l'editeur en dessous defile aussi).
@@ -202,8 +269,58 @@ namespace nkentseu {
 							   {fr.x + 8.f, fr.y + (fr.h - lh) * 0.5f + ctx.font->Ascent()}, "Rechercher...",
 							   ctx.theme.textDisabled);
 			}
+			// ── LA RANGEE D'ICONES, ancree elle aussi (sous la recherche) ────────
+			// ⚠️ ELLE EST DESSINEE AVANT LE CLIP DE LA LISTE, pour la meme raison
+			//    que la recherche : le defilement ne doit pas l'emporter.
+			if (avecRangee) {
+				const float32 ry = box.y + searchH + 4.f;
+				const float32 total = (float32)rangee->count * cellR;
+				// Repartie sur toute la largeur quand elle rentre, serree sinon --
+				// une rangee qui deborde masquerait ses dernieres icones sans le dire.
+				const float32 pasR = (total <= box.w - 8.f)
+										 ? (box.w - 8.f) / (float32)rangee->count
+										 : cellR;
+				for (int32 i = 0; i < rangee->count; ++i) {
+					const float32 cx = box.x + 4.f + (float32)i * pasR;
+					const NkRect cell = {cx + (pasR - cellR) * 0.5f, ry, cellR, cellR};
+					const bool act = rangee->enabled ? rangee->enabled[i] : true;
+					const bool hov = m.x >= cell.x && m.x < cell.x + cell.w && m.y >= cell.y &&
+									 m.y < cell.y + cell.h;
+					if (hov && act) {
+						NkColor selBg = ctx.theme.selection;
+						selBg.a = 110;
+						dl.AddRectFilled(cell, selBg, 4.f);
+					}
+					rangee->paint(rangee->user, dl, i, cell, act ? ctx.theme.text : ctx.theme.textDisabled);
+					// L'INFOBULLE : le seul moyen pour une icone GRISEE de dire
+					// pourquoi elle l'est. Peinte APRES la boucle serait plus propre,
+					// mais elle serait alors recouverte par la liste ; ici elle est
+					// dans la meme couche overlay et passe au-dessus du fond du menu.
+					if (hov && rangee->tip && ctx.font && ctx.font->Valid()) {
+						const char *t = rangee->tip(rangee->user, i);
+						if (t && *t) {
+							const float32 tw = ctx.font->MeasureWidth(t) + 12.f;
+							NkRect tb = {cell.x, cell.y + cell.h + 2.f, tw, lh + 6.f};
+							if (tb.x + tb.w > (float32)ctx.viewW)
+								tb.x = (float32)ctx.viewW - tb.w;
+							dl.AddRectFilled(tb, ctx.theme.panel, 4.f);
+							dl.AddRect(tb, ctx.theme.border, 1.f);
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+									   {tb.x + 6.f, tb.y + 3.f + ctx.font->Ascent()}, t,
+									   ctx.theme.text);
+						}
+					}
+					if (hov && act && ctx.input.mouseClicked[0])
+						rangee->clicked = i;
+				}
+				if (rangee->clicked >= 0) {
+					mn.open = false;
+					mn.sx = 0.f;
+					mn.sy = 0.f;
+				}
+			}
 			dl.PushClipRect(inner, true);
-			float32 y = box.y + searchH + 4.f - mn.sy;
+			float32 y = box.y + bandeH + 4.f - mn.sy;
 			for (int32 i = 0; i < count; ++i) {
 				const NkRect r = {box.x + 3.f, y, inner.w - 6.f, rowH};
 				if (y + rowH >= inner.y && y <= inner.y + inner.h) { // row visible
@@ -245,6 +362,14 @@ namespace nkentseu {
 						clicked = i;
 				}
 				y += rowH;
+				// LE TRAIT DE GROUPE (Lunacy) : dessine APRES l'avance de ligne,
+				// dans l'espace que `sepH` a reserve pour lui.
+				if (sepAfter && sepAfter[i]) {
+					const float32 sy2 = y + sepH * 0.5f;
+					if (sy2 >= inner.y && sy2 <= inner.y + inner.h)
+						dl.AddRectFilled({box.x + 8.f, sy2, inner.w - 16.f, 1.f}, ctx.theme.border, 0.f);
+					y += sepH;
+				}
 			}
 			dl.PopClipRect();
 			// Barres de defilement (temoins + clic/glisser pour se positionner).
