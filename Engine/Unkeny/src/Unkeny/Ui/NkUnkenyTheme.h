@@ -14,6 +14,28 @@
 // OU AJOUTER LA PROCHAINE CHOSE
 //   - un jeton utile a TOUTES les applications -> ici
 //   - une couleur propre a un jeu              -> chez ce jeu
+//
+// ⚠️ POURQUOI CE THEME EXISTE ALORS QUE NKEditorKit EN PORTE UN (mesure du
+//    2026-09-01, apres la recherche que la regle du depot impose)
+//
+//   `editorkit::NkTheme` existe, il est plus riche que celui-ci — 16 ROLES
+//   nommes au lieu de 11 couleurs, plus un `Validate()` qui MESURE les
+//   contrastes et refuse une palette illisible — et il est adoptable pour rien :
+//   entete seul, n'incluant que NKContainers et NKCore.
+//
+//   Il n'est pourtant pas celui d'Unkeny, et la raison tient a QUI paie :
+//   Unkeny est un moteur de JEU. Ses 18 dependances ne comprennent aucun kit
+//   d'editeur, et c'est deliberé — un jeu livre sur Android, iOS ou le Web n'a
+//   pas a embarquer le chrome d'un outil de bureau pour dessiner un bouton de
+//   menu. Les cinq fonctions de `NkUnkenyWidgets.h` prennent ce theme-ci ; les
+//   faire prendre celui du kit ferait entrer NKEditorKit dans tout jeu Unkeny.
+//
+//   ⚠️ ET CE QUI NE DECOULE PAS DE CETTE JUSTIFICATION : `UnkenyEditor`, lui,
+//   EST un editeur. Rien ne s'oppose a ce qu'il adopte `editorkit::NkTheme` et
+//   gagne sa validation de contraste — le seul cout est de convertir aux appels
+//   des widgets d'Unkeny, qui attendent le type d'ici. C'est une amelioration
+//   reelle et NON FAITE ; elle n'appartient pas a ce fichier mais a l'editeur.
+//   Ecrit ici parce que c'est ici qu'on se posera la question.
 // =============================================================================
 #pragma once
 
