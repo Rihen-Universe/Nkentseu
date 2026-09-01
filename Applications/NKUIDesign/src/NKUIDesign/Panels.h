@@ -5384,6 +5384,20 @@ namespace nkuidesign {
 					mSt->ongletInitial = -1;
 				}
 				mOnglet = editorkit::NkInspectorDessiner(ctx, ch);
+				// LE RELEVE DE LA ZONE DEFILANTE (meme contrat que hier.defile.*) :
+				// l'etat vit dans le magasin public du contexte, sous l'id que la
+				// charpente derive de `idOnglets`. inspecteur.defile = [scroll,
+				// max, 0, 0].
+				{
+					const nkgui::NkGuiId idDef = ctx.GetId("insp.onglets") ^ 0x5EC7104u;
+					for (uint32 k = 0; k < (uint32)ctx.scrollKeys.Size(); ++k)
+						if (ctx.scrollKeys[k] == idDef) {
+							nkgui::NkGuiNoterMesure(ctx, "inspecteur.defile",
+													ctx.scrollVals[k].y, ctx.scrollVals[k].maxY,
+													0.f, 0.f);
+							break;
+						}
+				}
 			}
 
 		private:

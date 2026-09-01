@@ -120,6 +120,7 @@
 
 #include "NKEditorKit/NkEditorExport.h"
 #include "NKEditorKit/NkEditorContext.h"
+#include "NKEditorKit/NkEditorScrollbar.h" // la barre STANDARD (une seule pour toute l'UI)
 #include "NKGui/NKGui.h"
 
 namespace nkentseu {
@@ -249,6 +250,50 @@ namespace nkentseu {
 				return onglet;
 			}
 
+			// ── LA ZONE DES SECTIONS DEFILE, L'EN-TETE RESTE (Rodolf, 01/09 :
+			//    « le panneau proprietes doit aussi avoir un scrollbar
+			//    vertical ») ────────────────────────────────────────────────────
+			// L'ancien defilement etait celui du CADRE DE DOCK : il emportait
+			// l'en-tete et les onglets avec les sections — c'est la barre que
+			// Rodolf a fait RETIRER la veille. Ici : nom + onglets FIXES, la zone
+			// des sections defile seule, avec la barre STANDARD du kit
+			// (NkEditorScrollbar — le meme code que les sections de la
+			// Hierarchie, trois consommateurs, une geometrie).
+			// ⚠️ L'etat de defilement vit dans le magasin PUBLIC du contexte
+			//    (scrollKeys/scrollVals) — la charpente reste SANS ETAT.
+			const bool cadre = ctx.childDepth > 0;
+			nkgui::NkRect vis{0.f, 0.f, 0.f, 0.f};
+			float32 defY = 0.f;
+			nkgui::NkGuiId idDef = 0;
+			nkgui::NkGuiLayout disposAvant;
+			bool defile = false;
+			if (cadre) {
+				const nkgui::NkRect &a = ctx.childStack[ctx.childDepth - 1].area;
+				const float32 sbw = NkScrollbarWidth();
+				vis = {ctx.layout.region.x, ctx.layout.cursor.y,
+					   a.x + a.w - sbw - ctx.layout.region.x, a.y + a.h - ctx.layout.cursor.y};
+				if (vis.h > 40.f && vis.w > 40.f) {
+					idDef = ctx.GetId(c.idOnglets ? c.idOnglets : "insp.sections") ^ 0x5EC7104u;
+					// l'etat persistant, par id (le magasin des zones defilables)
+					int32 trouve = -1;
+					for (uint32 k = 0; k < (uint32)ctx.scrollKeys.Size(); ++k)
+						if (ctx.scrollKeys[k] == idDef) {
+							trouve = (int32)k;
+							break;
+						}
+					if (trouve >= 0)
+						defY = ctx.scrollVals[(uint32)trouve].y;
+					// la molette au survol de la zone (le pouce et elle pilotent
+					// LA MEME variable — le clamp est dans NkVScrollbar)
+					if (ctx.popupDepth == 0 && nkgui::NkGuiRectContains(vis, ctx.input.mousePos))
+						defY -= ctx.input.wheel * 36.f;
+					ctx.DL().PushClipRect({vis.x, vis.y, vis.w + sbw, vis.h}, true);
+					disposAvant = ctx.layout;
+					ctx.BeginLayout({vis.x, vis.y - defY, vis.w, 1.0e6f});
+					defile = true;
+				}
+			}
+
 			for (int32 i = 0; i < n; ++i) {
 				const NkInspectorSection &s = sections[i];
 				if (!s.corps)
@@ -275,6 +320,38 @@ namespace nkentseu {
 				//    pas.
 				if (nkgui::CollapsingHeader(ctx, s.titre))
 					s.corps(c.user, ctx);
+			}
+
+			// ── LA FERMETURE DE LA ZONE : etendue mesuree, barre, etat range ──
+			if (defile) {
+				const float32 contentH = ctx.layout.cursor.y - (vis.y - defY);
+				ctx.DL().PopClipRect();
+				ctx.layout = disposAvant;
+				// la zone consomme TOUT le reste visible : le cadre de dock n'a
+				// plus de debordement, la molette ne lui vole plus les crans
+				ctx.layout.cursor.y = vis.y + vis.h;
+				const float32 sbw = NkScrollbarWidth();
+				// GEOMETRIE : pouce en haut = premiere section a vis.y ; pouce en
+				// butee basse = derniere section entiere (defY = etendue -
+				// fenetre) — le meme contrat que hier.defile.*.
+				NkVScrollbar(ctx, ctx.DL(), {vis.x + vis.w, vis.y, sbw, vis.h}, defY, contentH,
+							 vis.h, idDef, 24.f);
+				// ranger l'etat (creer l'entree si c'est la premiere image)
+				int32 trouve = -1;
+				for (uint32 k = 0; k < (uint32)ctx.scrollKeys.Size(); ++k)
+					if (ctx.scrollKeys[k] == idDef) {
+						trouve = (int32)k;
+						break;
+					}
+				if (trouve < 0) {
+					ctx.scrollKeys.PushBack(idDef);
+					nkgui::NkGuiScrollState s0;
+					ctx.scrollVals.PushBack(s0);
+					trouve = (int32)ctx.scrollKeys.Size() - 1;
+				}
+				ctx.scrollVals[(uint32)trouve].y = defY;
+				ctx.scrollVals[(uint32)trouve].maxY =
+					contentH - vis.h > 0.f ? contentH - vis.h : 0.f;
 			}
 			return onglet;
 		}
