@@ -7,6 +7,7 @@
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 
 #include "NKWindow/Platform/Emscripten/NkEmscriptenWindow.h"
+#include "NKWindow/Platform/Emscripten/NkEmscriptenCanvas.h"
 #include "NKWindow/Platform/Emscripten/NkEmscriptenDropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
@@ -445,21 +446,29 @@ namespace nkentseu {
 			}
 		}
 
-		const uint32 requestedWidth = config.width ? config.width : 1280u;
-		const uint32 requestedHeight = config.height ? config.height : 720u;
+		// ⚠️ SUR LE WEB, LA TAILLE DEMANDEE N'EST QU'UN SECOURS.
+		// La coquille HTML pose `canvas { width:100%; height:100% }` : c'est le
+		// CSS qui decide de la place, pas le programme. Forcer le tampon de
+		// dessin a la taille demandee — ce que faisait cette fonction — donne un
+		// tampon d'un rapport et un affichage d'un autre, donc une image ETIREE.
+		// Le tampon suit desormais TAILLE CSS x devicePixelRatio : meme rapport
+		// que l'affichage (plus de deformation) et net sur un ecran dense.
+		// Defaut signale par Rodolf le 2026-09-01. Voir NkEmscriptenCanvas.h.
+		const uint32 secoursLargeur = config.width ? config.width : 1280u;
+		const uint32 secoursHauteur = config.height ? config.height : 720u;
 
 		const char *canvasSelector = NormalizeCanvasSelector(mData.mCanvasId);
-		emscripten_set_canvas_element_size(canvasSelector, static_cast<int>(requestedWidth),
-										   static_cast<int>(requestedHeight));
+		uint32 tamponL = 0;
+		uint32 tamponH = 0;
+		emscripten_canvas::AccorderTampon(canvasSelector, secoursLargeur, secoursHauteur, tamponL, tamponH);
 
-		const NkVec2u actual = QueryCanvasSizeSafe(canvasSelector);
-		if (actual.x == 0 || actual.y == 0) {
+		if (tamponL == 0 || tamponH == 0) {
 			mLastError = NkError(1, "WASM: unable to determine canvas size");
 			return false;
 		}
 
-		mData.mWidth = actual.x;
-		mData.mHeight = actual.y;
+		mData.mWidth = tamponL;
+		mData.mHeight = tamponH;
 		mData.mPrevWidth = mData.mWidth;
 		mData.mPrevHeight = mData.mHeight;
 		mData.mVisible = config.visible;
@@ -706,12 +715,18 @@ namespace nkentseu {
 		mData.mPrevWidth = mData.mWidth;
 		mData.mPrevHeight = mData.mHeight;
 
-		emscripten_set_canvas_element_size(NormalizeCanvasSelector(mData.mCanvasId), static_cast<int>(width),
-										   static_cast<int>(height));
-
-		const NkVec2u size = QueryCanvasSizeSafe(NormalizeCanvasSelector(mData.mCanvasId));
-		mData.mWidth = size.x;
-		mData.mHeight = size.y;
+		// ⚠️ SUR LE WEB, UNE TAILLE DEMANDEE N'EST PAS HONOREE — et c'est
+		// normal : la page decide de la place du canvas par son CSS. On
+		// re-accorde donc le tampon a l'affichage, en ne gardant la taille
+		// demandee que comme secours.
+		// Forcer `width x height` ici redonnerait l'image etiree que ce
+		// correctif supprime : la fonction accepterait la demande et
+		// produirait un resultat faux, ce qui est pire que de la refuser.
+		uint32 tamponL = 0;
+		uint32 tamponH = 0;
+		emscripten_canvas::AccorderTampon(NormalizeCanvasSelector(mData.mCanvasId), width, height, tamponL, tamponH);
+		mData.mWidth = tamponL;
+		mData.mHeight = tamponH;
 
 		// S'assurer que mConfig est à jour
 		mConfig.width = mData.mWidth;

@@ -18,7 +18,8 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Platform/Emscripten/NkEmscriptenDropTarget.h"
 #include "NKWindow/Platform/Emscripten/NkEmscriptenWindow.h"
-#include "NKWindow/Platform/Emscripten/NkEmscriptenEventSystem.h" // struct NkEventSystemData (complet)
+#include "NKWindow/Platform/Emscripten/NkEmscriptenEventSystem.h"
+#include "NKWindow/Platform/Emscripten/NkEmscriptenCanvas.h" // struct NkEventSystemData (complet)
 #include "NKMath/NkFunctions.h"
 
 #include <emscripten.h>
@@ -573,15 +574,36 @@ namespace nkentseu {
 		ForEachWASMWindow([&](NkWindow &window, NkWindowId id) {
 			const char *selector = window.mData.mCanvasId.Empty() ? "#canvas" : window.mData.mCanvasId.CStr();
 
-			int width = 0;
-			int height = 0;
-			emscripten_get_canvas_element_size(selector, &width, &height);
+			// ⚠️ ON ACCORDE, ON NE SE CONTENTE PAS DE LIRE.
+			// Cette fonction lisait `emscripten_get_canvas_element_size` — le
+			// TAMPON DE DESSIN — qui ne change JAMAIS tout seul quand la fenetre
+			// du navigateur est redimensionnee. L'evenement de redimensionnement
+			// rapportait donc toujours la meme taille, et l'application ne
+			// reagissait a rien. La coquille HTML le dit d'ailleurs en toutes
+			// lettres : son `resizeCanvas()` est un no-op VOLONTAIRE, c'est au
+			// wasm de fixer les pixels.
+			// Voir NkEmscriptenCanvas.h.
+			uint32 accordeeL = 0;
+			uint32 accordeeH = 0;
+			emscripten_canvas::AccorderTampon(selector, window.mData.mWidth, window.mData.mHeight, accordeeL,
+											  accordeeH);
+			const int width = static_cast<int>(accordeeL);
+			const int height = static_cast<int>(accordeeH);
 			if (width <= 0 || height <= 0) {
 				return;
 			}
 
 			const uint32 previousWidth = window.mData.mWidth;
 			const uint32 previousHeight = window.mData.mHeight;
+
+			// Rien n'a change : on n'emet pas d'evenement. Un
+			// NkWindowResizeEvent a chaque redimensionnement de fenetre, meme
+			// quand la taille est identique, fait recreer la swapchain pour
+			// rien — et sur certains backends, recreer une swapchain au milieu
+			// d'une trame la casse.
+			if (accordeeL == previousWidth && accordeeH == previousHeight) {
+				return;
+			}
 
 			window.mData.mPrevWidth = previousWidth;
 			window.mData.mPrevHeight = previousHeight;
