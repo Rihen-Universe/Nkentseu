@@ -48,6 +48,7 @@
 //    un panneau qui les franchit JOURNALISE. Sans NKLogger ici, il ne pourrait
 //    que se taire ou refuser — et se taire est exactement ce qui est interdit.
 #include "NKLogger/NkLog.h"
+#include "NKTime/NkChrono.h" // l'instrument de fluidite (mandat 01/09)
 // ⚠️ LES PLAFONDS DU KIT DOIVENT CRIER (kMaxComponents = 64, kMaxDepth = 64) :
 //    un panneau qui les franchit JOURNALISE. Sans NKLogger ici, il ne pourrait
 //    que se taire ou refuser — et se taire est exactement ce qui est interdit.
@@ -1469,6 +1470,58 @@ namespace nkuidesign {
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
 				designkit::releve::Zone(ctx, "apercu");
+				// ── L'INSTRUMENT DE FLUIDITE (mandat de nuit, 01/09) ─────────
+				// « fluide » se MESURE, pas se ressent : le cout de CETTE image
+				// de toile (ms), min/moy/max PENDANT le geste en cours (drag,
+				// trace, edition, pan) — publie au releve `canvas.fluidite` =
+				// [min, moy, max, n images du geste]. La moyenne glissante hors
+				// geste part dans `canvas.image_ms` = [moyenne 60 img, derniere].
+				// Un destructeur : la mesure couvre l'image ENTIERE de la toile,
+				// quel que soit le chemin de sortie.
+				struct MesureFluidite {
+						PreviewPanel *p;
+						nkgui::NkGuiContext *cx;
+						nkentseu::NkElapsedTime t0;
+						~MesureFluidite() {
+							const float32 ms =
+								(float32)(nkentseu::NkChrono::Now() - t0).ToMilliseconds();
+							PreviewPanel &c = *p;
+							// moyenne glissante (60 images) — geste ou pas
+							c.mFluRoule = c.mFluRoule * 0.9833f + ms * 0.0167f;
+							const bool geste = c.mDragging || c.mCreating || c.mMainPan
+											   || c.mMarquee || c.mResizeEdges != 0
+											   || c.mSt->doc.IsValidIndex(c.mEditNode);
+							if (geste) {
+								if (c.mFluN == 0) {
+									c.mFluMin = c.mFluMax = ms;
+									c.mFluSomme = 0.f;
+								}
+								if (ms < c.mFluMin)
+									c.mFluMin = ms;
+								if (ms > c.mFluMax)
+									c.mFluMax = ms;
+								c.mFluSomme += ms;
+								++c.mFluN;
+							} else if (c.mFluN > 0) {
+								// le geste vient de finir : ses chiffres restent
+								// publies jusqu'au geste suivant
+								c.mFluDMin = c.mFluMin;
+								c.mFluDMoy = c.mFluSomme / (float32)c.mFluN;
+								c.mFluDMax = c.mFluMax;
+								c.mFluDN = c.mFluN;
+								c.mFluN = 0;
+							}
+							const bool enCours = c.mFluN > 0;
+							nkgui::NkGuiNoterMesure(
+								*cx, "canvas.fluidite",
+								enCours ? c.mFluMin : c.mFluDMin,
+								enCours ? (c.mFluSomme / (float32)c.mFluN) : c.mFluDMoy,
+								enCours ? c.mFluMax : c.mFluDMax,
+								(float32)(enCours ? c.mFluN : c.mFluDN));
+							nkgui::NkGuiNoterMesure(*cx, "canvas.image_ms", c.mFluRoule, ms,
+													0.f, 0.f);
+						}
+				} mesureFluidite{this, &ctx, nkentseu::NkChrono::Now()};
 				// ⚠️ LES QUATRE LIGNES D'AIDE ONT ÉTÉ RETIRÉES, ET C'EST LE POINT.
 				//    Elles énuméraient les gestes de la souris EN HAUT DE LA TOILE :
 				//    un affichage de MISE AU POINT, utile pendant qu'on branchait le
@@ -1601,20 +1654,42 @@ namespace nkuidesign {
 												mSt->view.ToDocLength(area.h)};
 				mSt->Recompute(docSurface);
 
+				// ── LA PORTE D'ACTIVITE (mandat fluidite, 01/09) ─────────────
+				// ⚠️ MESURE AVANT DE CORRIGER : l'observateur d'historique
+				//    SERIALISAIT LE DOCUMENT A CHAQUE IMAGE (13 Ko x 60/s), et
+				//    la pastille ajoutait sa serialisation 2x/s — meme au repos
+				//    complet. Le document ne peut changer que par une ENTREE
+				//    (souris, clavier, molette — les leviers injectes ecrivent
+				//    ctx.input) ou par une restauration (editionGeneration).
+				//    L'activite arme une traine de ~45 images : la stabilite
+				//    ~6 images de l'observateur tient largement dedans, puis le
+				//    repos ne serialise PLUS RIEN.
+				{
+					bool touche = false;
+					for (int32 kk = 0; kk < (int32)nkgui::NkGuiInput::KeyCount && !touche; ++kk)
+						touche = ctx.input.keyInit[kk];
+					const bool activite = ctx.input.mouseDown[0] || ctx.input.mouseDown[1]
+										  || ctx.input.mouseDown[2] || ctx.input.mouseClicked[0]
+										  || ctx.input.mouseReleased[0] || ctx.input.wheel != 0.f
+										  || ctx.input.charCount > 0 || touche
+										  || mSt->editionGeneration != mFluGenVue;
+					mFluGenVue = mSt->editionGeneration;
+					if (activite)
+						mHorlogeActivite = 45;
+				}
+
 				// La pastille « modifie » du titre : une MESURE toutes les 30
-				// images (serialiser quelques Ko 2x/s ne se voit pas), jamais un
-				// drapeau. Le branchement (main) ne repeint le titre qu'au
-				// changement.
-				if (mSt->titre && (mFramePastille++ % 30u) == 0u)
+				// images, SEULEMENT dans la traine d'activite (au repos l'etat
+				// ne peut pas avoir change), jamais un drapeau.
+				if (mSt->titre && mHorlogeActivite > 0 && (mFramePastille++ % 30u) == 0u)
 					mSt->titre(mSt->titreUser, mSt->DocumentModifie());
 
 				// ── L'OBSERVATEUR D'HISTORIQUE (annulation unifiee, §7) ──────
-				// La serialisation courante, observee a chaque image ;
-				// l'instantane n'est pousse que STABLE (drag lache, frappe en
-				// pause) — un geste = UN pas (Historique.h). Ctrl+Z / Ctrl+Y
-				// passent par les commandes de la coquille (main) ; ici,
-				// seulement l'observation et les leviers de mise en scene.
-				{
+				// La serialisation courante, observee pendant la traine
+				// d'activite ; l'instantane n'est pousse que STABLE (drag lache,
+				// frappe en pause) — un geste = UN pas (Historique.h).
+				if (mHorlogeActivite > 0) {
+					--mHorlogeActivite;
 					NkString ser;
 					mSt->doc.Save(ser);
 					mSt->histoire.Observer(ser);
@@ -2809,6 +2884,17 @@ namespace nkuidesign {
 			bool mMainPan = false;
 			float32 mMainX = 0.f;
 			float32 mMainY = 0.f;
+			// ── L'instrument de fluidite (mandat 01/09) ──────────────────────
+			/// Traine d'activite : > 0 = une entree recente peut avoir mute le
+			/// document — l'observateur et la pastille serialisent ; a 0, repos
+			/// complet, AUCUNE serialisation par image.
+			int32 mHorlogeActivite = 45;
+			uint32 mFluGenVue = 0;	 ///< editionGeneration vue (restaurations)
+			float32 mFluRoule = 0.f; ///< moyenne glissante du cout d'image (ms)
+			float32 mFluMin = 0.f, mFluMax = 0.f, mFluSomme = 0.f;
+			uint32 mFluN = 0; ///< images du geste en cours
+			float32 mFluDMin = 0.f, mFluDMoy = 0.f, mFluDMax = 0.f;
+			uint32 mFluDN = 0; ///< les chiffres du DERNIER geste (publies)
 			bool mAideInitiale = false;
 			uint32 mFramePastille = 0;
 			NkRect mZoneEventail = {0.f, 0.f, 0.f, 0.f};
