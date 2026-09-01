@@ -4093,24 +4093,28 @@ namespace nkuidesign {
 				//    greffe `rowOverlay` que le composant porte DÉJÀ (porte du
 				//    28/08 : la couche du dessous d'abord — aucun kit à changer).
 				//    `kindLabel` porte le NOM DU RÔLE (vide = pas de pilule).
+				// ⚠️ UN SEUL CONTEXTE POUR TOUS LES CROCHETS, ET C'EST UN PLANTAGE
+				//    PAYÉ (dump du 31/08 21:25, AV dans NkVector<NkTreeNode>::
+				//    operator[] depuis rowOverlay). L'ancienne version REPOINTAIT
+				//    `hooks.user` vers un second struct quand l'œil-barré était
+				//    actif — mais `rowOverlay` castait toujours vers le premier :
+				//    filtre allumé = pointeur sauvage, l'application tombait au
+				//    premier badge de rôle dessiné. Deux crochets, deux structs,
+				//    UN champ `user` : le partage était écrit nulle part. Un seul
+				//    struct désormais — le compilateur n'a plus rien à confondre.
 				struct Sur {
 						NkGuiContext *ctx;
 						NkTreeViewModel *modele;
-				} sur{&ctx, &modele};
+						NkUIDocument *doc;
+				} sur{&ctx, &modele, &mSt->doc};
 				NkTreeViewHooks hooks;
 				hooks.user = &sur;
 				// L'ŒIL-BARRÉ (écran 8) : ne garder que les sous-arbres à rôle.
-				struct SurFiltre {
-						NkUIDocument *doc;
-				};
-				static SurFiltre surF;
-				surF.doc = &mSt->doc;
 				if (mFiltreRoles && &modele == &mModelePages) {
-					hooks.user = &surF;
 					hooks.acceptNode = [](void *u, const NkTreeNode &n) -> bool {
-						auto *sf = static_cast<SurFiltre *>(u);
+						auto *s = static_cast<Sur *>(u);
 						const int32 di = (int32)n.id - 1;
-						if (!sf->doc->IsValidIndex(di))
+						if (!s->doc->IsValidIndex(di))
 							return true;
 						// le nœud, ou l'un de ses descendants, porte un rôle
 						struct P {
@@ -4124,12 +4128,16 @@ namespace nkuidesign {
 									return false;
 								}
 						};
-						return P::Porte(*sf->doc, di);
+						return P::Porte(*s->doc, di);
 					};
 				}
 				hooks.rowOverlay = [](void *u, nkentseu::editorkit::NkComponentPaint &p,
 									  int32 index, float32 x, float32 y, float32, float32 h) {
 					auto *s = static_cast<Sur *>(u);
+					// Garde de bornes : un index de rangée hors du modèle ne doit
+					// jamais déréférencer (la famille du plantage ci-dessus).
+					if (index < 0 || (nkentseu::uint32)index >= (nkentseu::uint32)s->modele->nodes.Size())
+						return;
 					const NkTreeNode &n = s->modele->nodes[index];
 					if (!n.kindLabel || !n.kindLabel[0])
 						return;
