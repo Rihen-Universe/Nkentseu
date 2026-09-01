@@ -40,6 +40,7 @@
 
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkEditorContextMenu.h"	// NkCtxMenu — le menu contextuel du kit (3e consommateur)
 #include "NKEditorKit/NkEditorInspectorFrame.h" // LA charpente d inspecteur (kit)
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip(ctx, survol, texte) — infobulle sans widget
 #include "NKEditorKit/NkTheme.h"
@@ -386,6 +387,26 @@ namespace nkuidesign {
 			void SelectClear() {
 				sel.Clear();
 				selected = -1;
+			}
+			/// LA SUPPRESSION DU NOEUD SELECTIONNE — LE geste partagé (bouton du
+			/// panneau Composition ET « Supprimer » du menu contextuel de la
+			/// toile). Deux appelants, une écriture : la réparation de sélection
+			/// après renumérotation vivait dans un seul panneau, et le second
+			/// site l'aurait réécrite — c'est le doublon que la porte du 28/08
+			/// interdit. Annulable (recette annulation, cas « suppression »).
+			bool SupprimerSelection() {
+				NkVector<int32> remap;
+				if (!doc.RemoveSubtree(selected, &remap)) {
+					status = NkString("La racine ne se supprime pas.");
+					return false;
+				}
+				// ⚠️ LA SUPPRESSION RENUMEROTE : la selection est perimee et se
+				//    repare ICI, sinon elle designerait un autre noeud.
+				SelectClear();
+				host.demoModels.Clear();
+				host.SyncTo(doc);
+				status = NkString("Nœud supprimé — Ctrl+Z le ramène.");
+				return true;
 			}
 			int32 paletteChoice = 0; ///< 0 = cadre, puis 1+ = index dans le registre
 			NkString status;
@@ -1443,19 +1464,10 @@ namespace nkuidesign {
 					mSt->doc.MarkHumanEdit(mSt->selected);
 			}
 			void Remove() {
-				NkVector<int32> remap;
-				if (!mSt->doc.RemoveSubtree(mSt->selected, &remap)) {
-					mSt->status = NkString("La racine ne se supprime pas.");
-					return;
-				}
-				// ⚠️ LA SUPPRESSION RENUMEROTE : la selection courante est perimee et
-				//    doit etre reparee ICI, sinon elle designerait un autre noeud — un
-				//    defaut qui ne se voit qu'a la modification suivante, donc loin de
-				//    sa cause.
-				mSt->selected = 0;
-				mSt->host.demoModels.Clear();
-				mSt->host.SyncTo(mSt->doc);
-				mSt->status = NkString("Noeud supprime.");
+				// Le geste vit dans DesignState (SupprimerSelection) : le menu
+				// contextuel de la toile l'appelle aussi — une seule reparation
+				// de selection apres renumerotation, pas deux.
+				(void)mSt->SupprimerSelection();
 			}
 			DesignState *mSt;
 	};
@@ -1890,7 +1902,13 @@ namespace nkuidesign {
 				//    (le mode initial en ligne de commande est consommé plus haut,
 				//    avant le partage Split)
 				const bool modeGraphe = (mMode == 1 || mMode == 2);
-				if (!modeGraphe)
+				// ⚠️ MENU CONTEXTUEL OUVERT = la souris lui appartient. Le menu se
+				//    dessine APRES la toile (overlay) : son occlusion « modal
+				//    leger » ne protege que ce qui vient apres lui — HandleMouse
+				//    tourne AVANT et verrait le clic. Un clic sur « Supprimer »
+				//    aurait aussi deselectionne derriere (la classe des flottants,
+				//    mesuree le 30/08).
+				if (!modeGraphe && !mMenuCtx.open)
 					HandleMouse(in, screen);
 
 				// ⚠️ `NkDesignPaint`, PAS `NkGuiComponentPaint` : c'est lui qui
@@ -2055,6 +2073,82 @@ namespace nkuidesign {
 						p2.Fill({area.x, area.y + mSt->ligneH, area.w, 1.f}, rose, 0.f);
 				}
 				DessinerFlottants(ctx, area);
+
+				// ── LE MENU CONTEXTUEL DE LA TOILE (Rodolf, 01/09 : « double-
+				//    cliquer pour l'édition est très compliqué — clic droit →
+				//    Éditer ») — le NkCtxMenu du kit, 3e consommateur (NKCode en a
+				//    deux). Le double-clic reste ; le clic droit est l'ALTERNATIVE.
+				//    Chaque entrée qui agit est annulable : Éditer/Renommer
+				//    passent par le contrat universel d'édition, Supprimer par
+				//    SupprimerSelection (recette annulation, cas « suppression »).
+				//    Les entrées futures (Dupliquer, ordre z…) viendront ICI —
+				//    on ne livre que ce qui agit.
+				if (!modeGraphe && ctx.popupDepth == 0 && in.rightPressed && dedans
+					&& !DansZone(mZoneModes, in) && !DansZone(mZoneOutils, in)
+					&& !DansZone(mZoneCluster, in) && !DansZone(mZoneEventail, in)
+					&& !DansZone(mZoneAppareil, in)) {
+					int32 vise = -1;
+					// l'étiquette d'artboard désigne SA page (la poignée)
+					for (uint32 fi = 0; fi < (uint32)mSt->doc.nodes.Size() && vise < 0; ++fi) {
+						const NkUINode &fn = mSt->doc.nodes[fi];
+						if (!StrEq(fn.shape.Data(), "frame") || !screen.Has((int32)fi))
+							continue;
+						const NkPaintRect fr2 = screen.At((int32)fi);
+						const NkPaintRect bande = {fr2.x, fr2.y - 26.f,
+												   fr2.w > 160.f ? fr2.w : 160.f, 22.f};
+						if (in.mouseX >= bande.x && in.mouseX < bande.x + bande.w
+							&& in.mouseY >= bande.y && in.mouseY < bande.y + bande.h)
+							vise = (int32)fi;
+					}
+					if (vise < 0) {
+						vise = NkPickDansContexte(mSt->doc, screen, in.mouseX, in.mouseY, mForage);
+						if (vise == -2)
+							vise = NkPickTopLevel(mSt->doc, screen, in.mouseX, in.mouseY);
+					}
+					if (vise >= 0) {
+						// Lunacy : le clic droit sur un element NON selectionne le
+						// selectionne d'abord ; sur un element de la selection, il
+						// garde la selection entiere.
+						if (!mSt->sel.Contains(vise))
+							mSt->SelectSingle(vise);
+						mMenuNode = vise;
+						mMenuCtx.open = true;
+						mMenuCtx.pos = {in.mouseX, in.mouseY};
+					}
+				}
+				if (mMenuCtx.open && mSt->doc.IsValidIndex(mMenuNode)) {
+					const NkUINode &nm = mSt->doc.nodes[(uint32)mMenuNode];
+					const bool editable = StrEq(nm.shape.Data(), "text") || !nm.text.Empty();
+					const bool cadre = StrEq(nm.shape.Data(), "frame");
+					// grisé-QUI-LE-DIT : l'entrée inapplicable porte sa raison.
+					const char *items[3];
+					items[0] = editable ? "Éditer le texte" : "Éditer (pas de texte ici)";
+					items[1] = cadre ? "Renommer la page" : "Renommer (par la Hiérarchie)";
+					items[2] = (mMenuNode != 0) ? "Supprimer" : "Supprimer (pas la racine)";
+					const bool en[3] = {editable, cadre, mMenuNode != 0};
+					const int32 act = editorkit::NkCtxMenuDraw(ctx, mMenuCtx, items, en, 3);
+					if (act == 0) {
+						mEditNode = mMenuNode;
+						mEditEtiquette = false;
+						const char *t0 = nm.TexteEn(mSt->langueActive.Data());
+						snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+						mSt->SelectSingle(mMenuNode);
+						Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
+					} else if (act == 1) {
+						mEditNode = mMenuNode;
+						mEditEtiquette = true;
+						snprintf(mEditBuf, sizeof(mEditBuf), "%s", nm.label.Data());
+						mSt->SelectSingle(mMenuNode);
+						Dire("Renommage de la page — Entrée valide, Échap annule.", "", "");
+					} else if (act == 2) {
+						mSt->SelectSingle(mMenuNode);
+						if (mSt->SupprimerSelection())
+							Dire("Supprimé — Ctrl+Z le ramène.", "", "");
+						mMenuNode = -1;
+					}
+				} else if (mMenuCtx.open) {
+					mMenuCtx.open = false; // le noeud vise a disparu : rien a montrer
+				}
 
 				// ⚠️ L'APERCU PUBLIE LE RECTANGLE DE CHAQUE NOEUD. Meme principe
 				//    que pour les widgets : un essai a la souris doit viser ce que
@@ -2972,6 +3066,10 @@ namespace nkuidesign {
 			/// (image precedente, meme patron que mZoneOutils) : c'est LUI que le
 			/// contrat universel d'edition compare au clic — pas la toile entiere.
 			NkRect mEditRect = {0.f, 0.f, 0.f, 0.f};
+			/// LE MENU CONTEXTUEL de la toile (clic droit — NkCtxMenu du kit) et
+			/// le noeud qu'il vise. Pendant qu'il est ouvert, HandleMouse se tait.
+			nkentseu::editorkit::NkCtxMenu mMenuCtx;
+			int32 mMenuNode = -1;
 			/// Vrai quand l'edition porte sur L'ETIQUETTE d'un artboard (le NOM
 			/// de la page — LA cle que la Hierarchie lit aussi), pas sur `text`.
 			bool mEditEtiquette = false;

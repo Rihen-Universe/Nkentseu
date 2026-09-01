@@ -719,7 +719,8 @@ static void CmdQuit(void *user) {
 static struct {
 	float32 x = 0.f, y = 0.f;
 	int32 frame = -1;
-	bool dbl = false; ///< --clic=x:y:frame:d — injecte AUSSI un double-clic
+	bool dbl = false;	///< --clic=x:y:frame:d — injecte AUSSI un double-clic
+	bool droit = false; ///< --clic=x:y:frame:r — clic DROIT (menu contextuel)
 } gClics[4];
 // ── FRAPPE ET TOUCHES INJECTEES (mise en scene, 01/09) ──────────────────────
 // Le meme principe que gClics : on ecrit dans ctx.input, jamais le clavier
@@ -767,8 +768,9 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 		if (compteur >= gClics[i].frame - 5)
 			ctx.input.mousePos = {gClics[i].x, gClics[i].y};
 		if (compteur == gClics[i].frame) {
-			ctx.input.mouseDown[0] = true;
-			ctx.input.mouseClicked[0] = true;
+			const int32 b = gClics[i].droit ? 1 : 0; // :r = clic DROIT
+			ctx.input.mouseDown[b] = true;
+			ctx.input.mouseClicked[b] = true;
 			// le DOUBLE-CLIC s'injecte tel quel (la detection temporelle de la
 			// fenetre ne verra jamais deux vrais clics) — c'est le levier de
 			// preuve du FORAGE sous curseur.
@@ -778,9 +780,10 @@ static void InjecterClics(nkgui::NkGuiContext &ctx) {
 			// ⚠️ EFFACER le clic : si ce rappel tourne deux fois par trame, un
 			//    clic qui persiste au second passage REFERME le menu qu'il vient
 			//    d'ouvrir (double bascule) — mesure au releve : « survole,replie ».
-			ctx.input.mouseClicked[0] = false;
-			ctx.input.mouseDown[0] = false;
-			ctx.input.mouseReleased[0] = true;
+			const int32 b = gClics[i].droit ? 1 : 0;
+			ctx.input.mouseClicked[b] = false;
+			ctx.input.mouseDown[b] = false;
+			ctx.input.mouseReleased[b] = true;
 			ctx.input.mouseDoubleClicked[0] = false;
 		}
 	}
@@ -1726,11 +1729,12 @@ int nkmain(const NkEntryState &state) {
 						while (*q && *q != ':')
 							++q;
 						gClics[ci].frame = (*q == ':') ? (int32)atof(++q) : 30;
-						// 4e champ optionnel « d » : ce clic est un DOUBLE-clic
-						// (--clic=x:y:frame:d — levier de preuve du forage).
+						// 4e champ optionnel : « d » = DOUBLE-clic (preuve du
+						// forage) ; « r » = clic DROIT (menu contextuel).
 						while (*q && *q != ':')
 							++q;
 						gClics[ci].dbl = (*q == ':' && q[1] == 'd');
+						gClics[ci].droit = (*q == ':' && q[1] == 'r');
 						break;
 					}
 				continue;
