@@ -158,9 +158,34 @@ namespace nkuidesign {
 		//    sur les coins peints — le défaut exact que ce fichier existe pour
 		//    empêcher.
 		static const float32 kBoite[8] = {-1.f, -1.f, 1.f, -1.f, 1.f, 1.f, -1.f, 1.f};
-		if (NkComponentDecl::StrEq(shape, "rect") || NkComponentDecl::StrEq(shape, "ellipse")) {
+		if (NkComponentDecl::StrEq(shape, "rect")) {
 			out = kBoite;
 			return 4;
+		}
+		// ── L'ELLIPSE : DOUZE POINTS **SUR LA COURBE**, pas quatre aux coins ──
+		// ⚠️ RETOUR DE RODOLF, 01/09 : *« en plus collé sur la forme, donc épouser
+		//    la forme »*. L'ellipse partageait la table du rectangle : ses
+		//    « sommets » étaient les quatre COINS DE SA BOÎTE — quatre points qui
+		//    ne touchent l'ellipse **nulle part**, posés dans le vide de ses
+		//    angles. On tirait un point qui n'est pas sur la forme.
+		//
+		// ⚠️ ET DOUZE PLUTÔT QUE QUATRE, POUR UNE RAISON QUI SE VOIT : quatre
+		//    points cardinaux sont bien *sur* la courbe, mais dès qu'on en déplace
+		//    un, le tracé peint devient un LOSANGE — l'ellipse disparaîtrait au
+		//    premier geste d'édition. Lunacy garde quatre ancres parce qu'il a des
+		//    poignées de Bézier pour tenir la rondeur entre elles ; **nous ne les
+		//    avons pas encore** (nommées, non ébauchées). Douze segments
+		//    approchent l'ellipse à ~1 % de son rayon : elle reste ronde, et
+		//    déplacer un point la déforme *localement*, ce qui est le geste
+		//    demandé. *On diverge de Lunacy sur le nombre parce qu'on n'a pas sa
+		//    courbe — et on l'écrit, plutôt que de rendre un losange en silence.*
+		static const float32 kEllipse[24] = {
+			0.f,	 -1.f,	 .5f,	  -.8660f, .8660f,	-.5f,	 1.f,	  0.f,
+			.8660f,	 .5f,	 .5f,	  .8660f,  0.f,		1.f,	 -.5f,	  .8660f,
+			-.8660f, .5f,	 -1.f,	  0.f,	   -.8660f, -.5f,	 -.5f,	  -.8660f};
+		if (NkComponentDecl::StrEq(shape, "ellipse")) {
+			out = kEllipse;
+			return 12;
 		}
 		out = nullptr;
 		return 0;

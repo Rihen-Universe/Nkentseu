@@ -1235,19 +1235,21 @@ static nkentseu::int32 RecettePoints() {
 		const int32 iP = poser("pentagone", nullptr);
 		const int32 iE = poser("etoile", nullptr);
 		const int32 iR = poser("rect", nullptr);
+		const int32 iEl = poser("ellipse", nullptr);
 		const int32 iX = poser("text", "x");
 		st.Recompute(surface);
 		float32 xy[64];
 		auto nb = [&](int32 i) {
 			return NkSommetsDe(st.doc.nodes[(uint32)i], st.layout.At(i), xy, 32);
 		};
-		char d[112];
+		char d[144];
 		snprintf(d, sizeof(d), "ligne=%u, triangle=%u, pentagone=%u, etoile=%u, rect=%u, "
-							   "texte=%u",
-				 nb(iL), nb(iT), nb(iP), nb(iE), nb(iR), nb(iX));
-		verdict("3. le compte des sommets : 2 / 3 / 5 / 10 / 4 (coins) / 0",
+							   "ellipse=%u, texte=%u",
+				 nb(iL), nb(iT), nb(iP), nb(iE), nb(iR), nb(iEl), nb(iX));
+		verdict("3. le compte des sommets : 2 / 3 / 5 / 10 / 4 (coins du rect) / 12 (courbe "
+				"de l'ellipse) / 0",
 				nb(iL) == 2 && nb(iT) == 3 && nb(iP) == 5 && nb(iE) == 10 && nb(iR) == 4
-					&& nb(iX) == 0,
+					&& nb(iEl) == 12 && nb(iX) == 0,
 				d);
 	}
 	// ── 4. LES SOMMETS TOMBENT DANS LA BOITE, ET LA LIGNE SUR SA DIAGONALE ──
@@ -1328,8 +1330,12 @@ static nkentseu::int32 RecettePoints() {
 		for (uint32 i = 0; memes && i < nA * 2; ++i)
 			if (avant[i] != apres[i])
 				memes = false;
+		// ⚠️ L'ELLIPSE EST PASSEE DE 4 A 12 LE 01/09, et ce cas le dit au lieu
+		//    de le subir : ses quatre « coins » ne touchaient la courbe NULLE
+		//    PART (retour 1 de Rodolf). Le rect garde ses 4 -- ses coins SONT
+		//    son contour. Le compte differe donc par forme, et c'est voulu.
 		const bool ok = st.doc.nodes[(uint32)iR].sommets.Size() == 4
-						&& st.doc.nodes[(uint32)iEl].sommets.Size() == 4
+						&& st.doc.nodes[(uint32)iEl].sommets.Size() == 12
 						&& st.doc.nodes[(uint32)iIm].sommets.Empty()
 						&& st.doc.nodes[(uint32)iL].sommets.Empty() && memes;
 		char d[128];
@@ -1339,9 +1345,9 @@ static nkentseu::int32 RecettePoints() {
 				 (uint32)st.doc.nodes[(uint32)iIm].sommets.Size(),
 				 (uint32)st.doc.nodes[(uint32)iL].sommets.Size(),
 				 memes ? "IDENTIQUES" : "DEPLACES");
-		verdict("6. rect et ellipse recoivent leurs QUATRE coins SANS qu'aucun bouge ; "
-				"l'image et le cadre n'en recoivent pas (rien a deformer), la ligne non "
-				"plus (elle EST sa boite)",
+		verdict("6. le rect recoit ses 4 COINS et l'ellipse ses 12 points DE COURBE, sans "
+				"qu'aucun bouge ; l'image et le cadre n'en recoivent pas (rien a deformer), "
+				"la ligne non plus (elle EST sa boite)",
 				ok, d);
 	}
 	// ── 7. ALLER-RETOUR + CONSERVATION : le document d'avant ne bouge pas ───
@@ -1745,6 +1751,54 @@ static nkentseu::int32 RecettePoints() {
 		verdict("19. la rangee d'icones parle dans les DEUX etats, et son applicabilite suit le "
 				"meme contexte que le menu",
 				toutesParlent && aucuneNAgit, d);
+	}
+	// ── 26. LES SOMMETS EPOUSENT LA FORME, ET LES BOUGER NE TOUCHE PAS LA BOITE ─
+	//     Retour (1) de Rodolf, 01/09 : « en plus colle sur la forme, donc
+	//     epouser la forme, de telle sorte que cliquer sur un point et le
+	//     deplacer modifie le mesh ».
+	//
+	//     ⚠️ DEUX MOITIES, ET LA SECONDE EST CELLE QU'IL SOUPCONNAIT. « Epouser
+	//     la forme » se verifie en mesurant la DISTANCE des ancres au contour ;
+	//     « modifier le mesh » se verifie en montrant que le deplacement ecrit
+	//     dans `sommets` et NE TOUCHE PAS posX/posY/largeur/hauteur. Sa capture
+	//     laissait croire que la boite avait bouge -- le cas tranche.
+	st.doc.NewDocument("recette points", NkAuthor::Humain);
+	{
+		const int32 iE = poser("ellipse", nullptr);
+		st.Recompute(surface);
+		const NkPaintRect r = st.layout.At(iE);
+		float32 anc[64];
+		const uint32 nb = NkSommetsDe(st.doc.nodes[(uint32)iE], r, anc, 32);
+		// (a) CHAQUE ancre est SUR l'ellipse : ((x-cx)/hx)^2 + ((y-cy)/hy)^2 == 1
+		const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+		const float32 hx = r.w * 0.5f, hy = r.h * 0.5f;
+		float32 pireEcart = 0.f;
+		for (uint32 i = 0; i < nb; ++i) {
+			const float32 u = (anc[i * 2] - cx) / hx, v = (anc[i * 2 + 1] - cy) / hy;
+			const float32 d = u * u + v * v - 1.f;
+			const float32 ad = d < 0.f ? -d : d;
+			if (ad > pireEcart)
+				pireEcart = ad;
+		}
+		// (b) DEPLACER un sommet ecrit dans `sommets` et LAISSE LA BOITE INTACTE
+		NkUINode &n = st.doc.nodes[(uint32)iE];
+		const float32 x0 = n.posX, y0 = n.posY, w0 = n.width.value, h0 = n.height.value;
+		NkMaterialiserSommets(n);
+		n.sommets[0].x += 0.4f;
+		n.sommets[0].y += 0.3f;
+		const bool boiteIntacte = n.posX == x0 && n.posY == y0 && n.width.value == w0
+								  && n.height.value == h0;
+		// (c) et le CONTOUR PEINT a bouge : c'est le mesh, pas la boite
+		float32 ct[256];
+		const uint32 nbC = NkContourDe(n, r, ct, 128);
+		const bool contourBouge = nbC == nb && (ct[0] != anc[0] || ct[1] != anc[1]);
+		char d[176];
+		snprintf(d, sizeof(d), "%u ancres, pire ecart a la courbe %.4f ; boite %s ; contour %s",
+				 nb, pireEcart, boiteIntacte ? "INTACTE" : "A BOUGE",
+				 contourBouge ? "a bouge" : "IDENTIQUE");
+		verdict("26. les ancres d'une ellipse sont SUR la courbe (pas aux coins de sa boite), "
+				"et deplacer un sommet modifie le TRACE sans toucher a la boite",
+				nb == 12 && pireEcart < 0.001f && boiteIntacte && contourBouge, d);
 	}
 	// ── 24. LE MODE POINTS N'EST ARME QUE SUR LE NOEUD SELECTIONNE ─────────
 	//     🔴 LE BOGUE BLOQUANT du 01/09 (capture `probleme_vertices_141913`) :
