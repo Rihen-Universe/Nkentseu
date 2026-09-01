@@ -55,10 +55,17 @@ namespace nkentseu {
 		// `filter` (optionnel, non nul) : active une BARRE DE RECHERCHE ancree en
 		// haut, hors de la zone defilante. L'index retourne reste celui de la liste
 		// D'ORIGINE : le filtrage est invisible pour l'appelant.
+		// `shortcuts` (optionnel) : le RACCOURCI de chaque item, aligne a DROITE en
+		// texte attenue — la colonne des menus deroulants, transposee au menu
+		// contextuel. Lunacy l'affiche, et VS Code, et Blender : un geste n'existe
+		// pour l'utilisateur que s'il voit comment le refaire au clavier.
+		// ⚠️ ADDITIF ET EN DERNIER : les consommateurs existants (NKCode, NkUIDesign,
+		//    l'explorateur) ne passent rien et ne changent pas d'un caractere.
+		//    `shortcuts[i]` peut valoir nullptr ou "" item par item.
 		inline int32 NkCtxMenuDraw(NkGuiContext &ctx, NkCtxMenu &mn, const char *const *items, const bool *enabled,
 								   int32 count, int32 *hoveredOut = nullptr, const bool *hasSub = nullptr,
 								   const uint32 *icons = nullptr, char *filter = nullptr, int32 filterCap = 0,
-								   bool *filterFocus = nullptr) {
+								   bool *filterFocus = nullptr, const char *const *shortcuts = nullptr) {
 			if (!mn.open)
 				return -1;
 
@@ -67,6 +74,7 @@ namespace nkentseu {
 			// fonction travaille ensuite normalement, sans savoir qu'un filtre existe.
 			enum { kMaxItems = 256 };
 			const char *fItems[kMaxItems];
+			const char *fShorts[kMaxItems];
 			bool fEnabled[kMaxItems], fSub[kMaxItems];
 			uint32 fIcons[kMaxItems];
 			int32 fMap[kMaxItems];
@@ -80,12 +88,15 @@ namespace nkentseu {
 						continue;
 					fMap[n] = i;
 					fItems[n] = items[i];
+					fShorts[n] = shortcuts ? shortcuts[i] : nullptr;
 					fEnabled[n] = enabled ? enabled[i] : true;
 					fSub[n] = hasSub ? hasSub[i] : false;
 					fIcons[n] = icons ? icons[i] : 0u;
 					++n;
 				}
 				items = fItems;
+				if (shortcuts)
+					shortcuts = fShorts;
 				enabled = fEnabled;
 				hasSub = fSub;
 				icons = fIcons;
@@ -109,7 +120,14 @@ namespace nkentseu {
 			float32 wIdeal = 168.f;
 			if (ctx.font && ctx.font->Valid())
 				for (int32 i = 0; i < count; ++i) {
-					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 10.f + iconW +
+					// ⚠️ LE RACCOURCI ENTRE DANS LA LARGEUR IDEALE. Sans ca il se
+					//    dessinerait par-dessus la fin du libelle sur l'item le plus
+					//    long — le defaut se voit sur UN item et sur un seul, donc il
+					//    passe les essais courts.
+					const float32 sw = (shortcuts && shortcuts[i] && shortcuts[i][0])
+										   ? ctx.font->MeasureWidth(shortcuts[i]) + 24.f
+										   : 0.f;
+					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 10.f + iconW + sw +
 									   ((hasSub && hasSub[i]) ? 16.f : 0.f); // place de la flèche ▸
 					if (tw > wIdeal)
 						wIdeal = tw;
@@ -209,6 +227,15 @@ namespace nkentseu {
 								   {r.x + pad + (iconW > 0.f ? iconW + 6.f : 0.f) - mn.sx,
 									y + (rowH - lh) * 0.5f + ctx.font->Ascent()},
 								   items[i], enabled[i] ? ctx.theme.text : ctx.theme.textDisabled);
+					// LE RACCOURCI, aligne a DROITE et attenue — jamais colorable
+					// comme le libelle : c'est un rappel, pas une commande.
+					if (shortcuts && shortcuts[i] && shortcuts[i][0] && ctx.font && ctx.font->Valid()) {
+						const float32 sw = ctx.font->MeasureWidth(shortcuts[i]);
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+								   {r.x + r.w - pad - sw - ((hasSub && hasSub[i]) ? 14.f : 0.f),
+									y + (rowH - lh) * 0.5f + ctx.font->Ascent()},
+								   shortcuts[i], ctx.theme.textDisabled);
+					}
 					if (hasSub && hasSub[i]) { // indicateur de SOUS-MENU : petite flèche ▸ à droite
 						const float32 ax = r.x + r.w - 11.f, ay = y + rowH * 0.5f;
 						dl.AddTriangleFilled({ax - 3.f, ay - 4.f}, {ax - 3.f, ay + 4.f}, {ax + 3.f, ay},
