@@ -3,6 +3,25 @@
 /*
 	NkEarcut.h — Triangulation ear-clipping avec support complet des trous.
 
+	⚠️ CE FICHIER A DEMENAGE LE 2026-09-01, DE NKFont VERS NKMath, ET LE
+	   DEMENAGEMENT EST TOUT L'INTERET DU LOT. Il vivait dans NKFont parce que le
+	   premier qui en a eu besoin construisait des maillages de texte 3D — mais
+	   il ne parle NI de police NI de glyphe : ses seules dependances sont
+	   NKCore, NKMath, NKContainers et NKMemory. C'etait de la geometrie pure
+	   rangee dans le module de celui qui l'avait ecrite.
+
+	   Le prix de ce mauvais etage s'est mesure le meme jour : le peintre de
+	   NKEditorKit remplissait ses polygones par un EVENTAIL DEPUIS LE CENTROIDE
+	   — juste pour un convexe ou une etoile, FAUX pour un contour concave — et
+	   NkUIDesign venait de livrer des poignees de Bezier, donc des formes
+	   concaves que l'utilisateur peut dessiner. *La piece existait, personne ne
+	   pouvait l'atteindre.*
+
+	   Regle du depot (porte du 28/08) : avant d'ecrire un mecanisme, chercher
+	   qui le porte deja, en commencant par la couche du dessous. Ici la reponse
+	   etait « quelqu'un, au mauvais etage » — et la reparation n'est pas une
+	   reecriture, c'est un `git mv`.
+
 	Corrections v2 :
 	  - NkEarcutConnectHole : utilisait holeNext (=hole->next) au lieu de holeLast
 		(=hole->prev) pour le pont retour → créait une boucle infinie dans le ring.
