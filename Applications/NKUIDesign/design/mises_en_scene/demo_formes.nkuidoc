@@ -1,6 +1,7 @@
 nkuidoc 1
 # Document de MISE EN SCENE de la vague Lunacy (b) (31/08) : les quatre
 # natures ADDITIVES du vocabulaire §4.2 — triangle, pentagone, etoile,
+# fleche, puis image et avatar (famille Image du rail, 01/09) —
 # fleche — posees a cote des trois historiques (rect, ellipse, ligne).
 # Sert de preuve de rendu ET de round-trip (Ctrl+S le reenregistre tel
 # quel), et de terrain de test pour Rodolf.
@@ -23,7 +24,7 @@ noeud 0
 
 noeud 1
   libelle = Formes
-  enfants = 2 3 4 5 6 7 8
+  enfants = 2 3 4 5 6 7 8 9 10
   largeur = fixed 640 0 0
   hauteur = fixed 420 0 0
   agencement = free start start 0
@@ -125,6 +126,32 @@ noeud 8
   agencement = none start start 0
   position = 390 300
   forme = line
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 9
+  libelle = Image
+  enfants =
+  largeur = fixed 140 0 0
+  hauteur = fixed 100 0 0
+  agencement = none start start 0
+  position = 40 300
+  forme = image
+  auteur = humain
+  verifiee = 0
+  corrigee = 0
+  origine = main
+
+noeud 10
+  libelle = Avatar
+  enfants =
+  largeur = fixed 72 0 0
+  hauteur = fixed 72 0 0
+  agencement = none start start 0
+  position = 220 310
+  forme = avatar
   auteur = humain
   verifiee = 0
   corrigee = 0

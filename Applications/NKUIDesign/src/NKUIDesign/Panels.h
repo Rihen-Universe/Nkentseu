@@ -1755,13 +1755,20 @@ namespace nkuidesign {
 					&& !mSt->renommageArbre) {
 					for (int32 k = 0; k < ctx.input.charCount; ++k) {
 						switch (ctx.input.chars[k]) {
-							case 'v': case 'V': ArmerOutil(0); break;
+							// familles Lunacy (3e retour) : V/H Déplacer, F Cadre,
+							// R/O Formes, L Ligne, T Texte, M Image ; P/X/N DISENT
+							// leur chantier (jamais un no-op muet).
+							case 'v': case 'V': mVarMove = 0; ArmerOutil(0); break;
+							case 'h': case 'H': mVarMove = 1; ArmerOutil(0); break;
 							case 'f': case 'F': ArmerOutil(1); break;
 							case 'r': case 'R': mVariante = 0; ArmerOutil(2); break;
-							case 'o': case 'O': mVariante = 1; ArmerOutil(2); break;
-							case 'l': case 'L': mVariante = 2; ArmerOutil(2); break;
-							case 'p': case 'P': ArmerOutil(3); break;
-							case 't': case 'T': ArmerOutil(4); break;
+							case 'o': case 'O': mVariante = 2; ArmerOutil(2); break;
+							case 'l': case 'L': mVarLigne = 0; ArmerOutil(3); break;
+							case 't': case 'T': ArmerOutil(5); break;
+							case 'm': case 'M': ArmerOutil(7); break;
+							case 'p': case 'P': DireRaisonFamille(6); break;
+							case 'x': case 'X': DireRaisonFamille(4); break;
+							case 'n': case 'N': DireRaisonFamille(8); break;
 							default: break;
 						}
 					}
@@ -2338,9 +2345,28 @@ namespace nkuidesign {
 						|| DansZone(mZoneAppareil, in)))
 					return;
 
-				// ── LES OUTILS QUI CREENT : F (cadre), R (rectangle), T (texte) ──
-				const bool outilTrace = (mOutil == 1 || mOutil == 2);
-				const bool outilTexte = (mOutil == 4);
+				// ── LA MAIN (famille Déplacer, variante Main — Lunacy H) : le
+				//    glisser DÉPLACE LA VUE, il ne touche à rien du document.
+				if (mOutil == 0 && mVarMove == 1) {
+					if (in.mousePressed) {
+						mMainPan = true;
+						mMainX = in.mouseX;
+						mMainY = in.mouseY;
+					}
+					if (mMainPan && in.mouseDown) {
+						mSt->view.PanBy(in.mouseX - mMainX, in.mouseY - mMainY);
+						mMainX = in.mouseX;
+						mMainY = in.mouseY;
+					}
+					if (!in.mouseDown)
+						mMainPan = false;
+					return; // la Main ne sélectionne ni ne trace
+				}
+
+				// ── LES OUTILS QUI CREENT : F (cadre), R/O... (formes), L (ligne),
+				//    M (image/avatar), T (texte) ──
+				const bool outilTrace = (mOutil == 1 || mOutil == 2 || mOutil == 3 || mOutil == 7);
+				const bool outilTexte = (mOutil == 5);
 				if (in.mousePressed && (outilTrace || outilTexte)) {
 					const int32 parent = NkPickFreeContainer(mSt->doc, screen, in.mouseX, in.mouseY);
 					if (parent < 0) {
@@ -2359,40 +2385,53 @@ namespace nkuidesign {
 				}
 				if (mCreating && !in.mouseDown) {
 					// Relachement : le trace devient un noeud — de la nature de la
-					// VARIANTE armee (Lunacy : R rectangle, O ellipse, L ligne).
-					// Un trace minuscule (clic sans glisser) prend une taille de
-					// depart : une forme de 0 px paraitrait perdue.
+					// FAMILLE et de sa VARIANTE (Lunacy). Un trace minuscule (clic
+					// sans glisser) prend une taille de depart : une forme de 0 px
+					// paraitrait perdue.
 					const NkPaintRect t = RectTrace(in.mouseX, in.mouseY, in.shift);
 					float32 w = t.w, h = t.h;
-					const bool ligne = (mOutil == 2 && mVariante == 2);
+					const bool ligne = (mOutil == 3);
 					if (!ligne && w < 8.f)
-						w = mOutil == 1 ? 200.f : 120.f;
+						w = mOutil == 1 ? 200.f : (mOutil == 7 && mVarImage == 1 ? 64.f : 120.f);
 					if (!ligne && h < 8.f)
-						h = mOutil == 1 ? 160.f : 80.f;
+						h = mOutil == 1 ? 160.f : (mOutil == 7 && mVarImage == 1 ? 64.f : 80.f);
 					if (ligne && w < 8.f && h < 8.f)
 						w = 120.f;
 					const char *forme = "frame";
+					bool arrondi = false;
 					if (mOutil == 2) {
-						if (mVariante == 1)
+						if (mVariante == 1) {
+							forme = "rect"; // l'ARRONDI est un rect a rayon pose
+							arrondi = true;
+						} else if (mVariante == 2)
 							forme = "ellipse";
-						else if (mVariante == 2)
-							// La diagonale MONTE si les axes du geste divergent.
-							forme = ((mCreateX <= in.mouseX) != (mCreateY <= in.mouseY))
-										? "line_up"
-										: "line";
 						else if (mVariante == 3)
 							forme = "triangle"; // vague Lunacy (b), 31/08 :
 						else if (mVariante == 4)
 							forme = "pentagone"; // natures ADDITIVES du §4.2
 						else if (mVariante == 5)
 							forme = "etoile";
-						else if (mVariante == 6)
-							forme = "fleche";
 						else
 							forme = "rect";
+					} else if (mOutil == 3) {
+						if (mVarLigne == 1)
+							forme = "fleche";
+						else
+							// La diagonale MONTE si les axes du geste divergent.
+							forme = ((mCreateX <= in.mouseX) != (mCreateY <= in.mouseY))
+										? "line_up"
+										: "line";
+					} else if (mOutil == 7) {
+						// natures ADDITIVES image/avatar (famille Image, 3e retour)
+						forme = (mVarImage == 1) ? "avatar" : "image";
 					}
-					CreerForme(mCreateParent, screen, t.x, t.y, mSt->view.ToDocLength(w),
-							   mSt->view.ToDocLength(h), forme);
+					const int32 cree =
+						CreerForme(mCreateParent, screen, t.x, t.y, mSt->view.ToDocLength(w),
+								   mSt->view.ToDocLength(h), forme);
+					if (arrondi && mSt->doc.IsValidIndex(cree)) {
+						mSt->doc.nodes[(uint32)cree].radius = 8.f; // le preset Lunacy
+						mSt->doc.MarkHumanEdit(cree);
+					}
 					mCreating = false;
 				}
 				if (in.mousePressed) {
@@ -2608,25 +2647,33 @@ namespace nkuidesign {
 			/// position ecrite est RELATIVE AU PARENT — `posX` d'une forme dans un
 			/// artboard est mesuree depuis l'artboard, pas depuis la toile, sinon
 			/// deplacer l'artboard laisserait ses formes derriere.
-			void CreerForme(int32 parent, const NkLayoutResult &screen, float32 x, float32 y,
-							float32 w, float32 h, const char *shape) {
+			int32 CreerForme(int32 parent, const NkLayoutResult &screen, float32 x, float32 y,
+							 float32 w, float32 h, const char *shape) {
 				if (!mSt->doc.IsValidIndex(parent))
-					return;
+					return -1;
 				const int32 idx = mSt->doc.AddChild(parent, "", NkAuthor::Humain);
 				if (!mSt->doc.IsValidIndex(idx))
-					return;
+					return -1;
 				// Le nom : nature + numero d'ordre parmi les memes natures. « Cadre
 				// 2 » se cherche dans la Hierarchie ; « noeud 17 » non.
 				uint32 memes = 0;
 				for (uint32 i = 0; i < (uint32)mSt->doc.nodes.Size(); ++i)
 					if (StrEq(mSt->doc.nodes[i].shape.Data(), shape))
 						++memes;
-				const char *base = StrEq(shape, "frame")	 ? "Cadre"
-								   : StrEq(shape, "rect")	 ? "Rectangle"
-								   : StrEq(shape, "ellipse") ? "Ellipse"
-								   : StrEq(shape, "line")	 ? "Ligne"
-								   : StrEq(shape, "line_up") ? "Ligne"
-															 : "Texte";
+				// ⚠️ CHAQUE NATURE A SON NOM (defaut paye : les triangles de la
+				//    vague (b) naissaient « Texte N », le repli d'en bas).
+				const char *base = StrEq(shape, "frame")	   ? "Cadre"
+								   : StrEq(shape, "rect")	   ? "Rectangle"
+								   : StrEq(shape, "ellipse")   ? "Ellipse"
+								   : StrEq(shape, "line")	   ? "Ligne"
+								   : StrEq(shape, "line_up")   ? "Ligne"
+								   : StrEq(shape, "triangle")  ? "Triangle"
+								   : StrEq(shape, "pentagone") ? "Pentagone"
+								   : StrEq(shape, "etoile")	   ? "Étoile"
+								   : StrEq(shape, "fleche")	   ? "Flèche"
+								   : StrEq(shape, "image")	   ? "Image"
+								   : StrEq(shape, "avatar")	   ? "Avatar"
+															   : "Texte";
 				char nom[48];
 				snprintf(nom, sizeof(nom), "%s %u", base, memes + 1u);
 				NkUINode &n = mSt->doc.nodes[(uint32)idx];
@@ -2661,6 +2708,7 @@ namespace nkuidesign {
 				// trace).
 				mOutil = 0;
 				Dire("", mSt->doc.nodes[(uint32)idx].label.Data(), " créé — outil Sélection.");
+				return idx;
 			}
 
 			static bool DansZone(const NkRect &z, const NkComponentInput &in) {
@@ -2746,7 +2794,21 @@ namespace nkuidesign {
 			/// 3 triangle, 4 pentagone, 5 étoile, 6 flèche. Elle est aussi la
 			/// FACE du bouton (GlypheForme la dessine).
 			uint32 mVariante = 0;
-			bool mEventailOuvert = false;
+			/// L'éventail ouvert : l'INDEX de la famille (-1 = aucun) — chaque
+			/// famille Lunacy montre le sien (3e retour, 01/09).
+			int32 mEventailFam = -1;
+			/// Les variantes RETENUES par famille (la face du bouton les montre —
+			/// Lunacy retient la dernière) : Déplacer (0 sélection, 1 main),
+			/// Ligne (0 ligne, 1 flèche), Image (0 image, 1 avatar). La variante
+			/// de FORMES reste `mVariante` (0 rect, 1 arrondi, 2 ellipse,
+			/// 3 triangle, 4 pentagone, 5 étoile).
+			uint32 mVarMove = 0;
+			uint32 mVarLigne = 0;
+			uint32 mVarImage = 0;
+			/// L'outil Main en cours de glisser (pan de la vue).
+			bool mMainPan = false;
+			float32 mMainX = 0.f;
+			float32 mMainY = 0.f;
 			bool mAideInitiale = false;
 			uint32 mFramePastille = 0;
 			NkRect mZoneEventail = {0.f, 0.f, 0.f, 0.f};
@@ -2912,124 +2974,244 @@ namespace nkuidesign {
 					//    elle-même reste à brancher, comme les raccourcis grisés
 					//    des menus. Les libellés `##…` ne rendent aucun texte : le
 					//    glyphe est peint par-dessus le bouton.
-					static const char *const kOutilsBulles[7] = {
-						"Sélection (V)", "Cadre (F)", "Formes (R · O · L)", "Vectoriel (P)",
-						"Texte (T)",	 "Média",	  "Mesure"};
-					// Geometrie BANANI EXACTE (FloatingToolRail, JSX) : rail 36 px,
-					// rayon 5, ombre, marge verticale 6, boutons 36x28 SANS ecart,
-					// FILET de 20 px (marges 2) entre la plume et le texte, icones
-					// 13x13 aux traces du JSX (Costume.h), actif = fond accent
-					// rayon 3, glyphe blanc. Les clics sont pris a la main : le
-					// Button du socle repeindrait son fond opaque par-dessus.
+					// ── LE RAIL AUX FAMILLES LUNACY (3e retour, 01/09 : « les onze
+					//    references en entier ») — l'ordre du rail au repos
+					//    (panneau 11) : Déplacer, Cadre, Formes, Ligne, Connecteur,
+					//    Texte, Plume, Image, Icône. MOINS la famille Bouton —
+					//    l'exception de Rodolf : « on a déjà une partie réservée
+					//    aux composants à part ». Une famille qui n'agit pas
+					//    encore est GRISÉE ET LE DIT au clic (jamais un no-op
+					//    muet) ; chaque famille à variantes porte un CHEVRON
+					//    VIVANT et retient sa dernière variante (la face change).
+					static const char *const kOutilsBulles[9] = {
+						"Déplacer (V · Main H)", "Cadre (F)",	 "Formes (R · O)",
+						"Ligne (L)",			 "Connecteur (X)", "Texte (T)",
+						"Plume (P)",			 "Image (M)",	 "Icône (N)"};
+					// vrai = la famille agit ; faux = grisée-qui-le-dit
+					static const bool kFamAgit[9] = {true, true,  true, true, false,
+													 true, false, true, false};
+					// familles à éventail (chevron vivant)
+					static const bool kFamEventail[9] = {true, true,  true,  true, false,
+														 false, true, true, false};
 					const float32 w = kOutilsLargeur, hb = 28.f;
 					const float32 filet = 5.f; // 2 + 1 + 2 (my-0.5 + border-t)
-					const float32 h = 6.f + hb * 7.f + filet + 6.f;
+					const float32 h = 6.f + hb * 9.f + filet + 6.f;
 					const NkRect r = {zone.x + kOutilsMarge, zone.y + (zone.h - h) * 0.5f, w, h};
 					mZoneOutils = r; // idem
 					dl.AddRectFilled({r.x - 1.f, r.y + 3.f, r.w + 2.f, r.h + 4.f},
 									 {0, 0, 0, 55}, 10.f); // ombre 0 4 16 approchée
 					dl.AddRectFilled(r, fond, 5.f);
 					dl.AddRect(r, bord, 1.f, 5.f);
-					for (uint32 i = 0; i < 7; ++i) {
-						const float32 yOff = (i >= 4) ? filet : 0.f;
-						if (i == 4)
-							dl.AddLine({r.x + 8.f, r.y + 6.f + hb * 4.f + 2.5f},
-									   {r.x + w - 8.f, r.y + 6.f + hb * 4.f + 2.5f}, bord, 1.f);
+					for (uint32 i = 0; i < 9; ++i) {
+						// le filet sépare les outils de POSE du texte (comme avant)
+						const float32 yOff = (i >= 5) ? filet : 0.f;
+						if (i == 5)
+							dl.AddLine({r.x + 8.f, r.y + 6.f + hb * 5.f + 2.5f},
+									   {r.x + w - 8.f, r.y + 6.f + hb * 5.f + 2.5f}, bord, 1.f);
 						const NkRect c = {r.x, r.y + 6.f + hb * (float32)i + yOff, w, hb};
 						const bool survol =
 							ctx.popupDepth == 0 && NkGuiRectContains(c, ctx.input.mousePos);
 						if (survol && ctx.input.mouseClicked[0]) {
-							// Le CHEVRON de la famille Formes est VIVANT (Lunacy) :
-							// le coin bas-droit ouvre l'éventail, le reste arme.
+							// Le CHEVRON est VIVANT (Lunacy) : le coin bas-droit
+							// ouvre l'éventail de LA famille, le reste arme.
 							const NkRect zc = {c.x + c.w - 12.f, c.y + c.h - 12.f, 12.f, 12.f};
-							if (i == 2 && NkGuiRectContains(zc, ctx.input.mousePos))
-								mEventailOuvert = !mEventailOuvert;
-							else
+							if (kFamEventail[i] && NkGuiRectContains(zc, ctx.input.mousePos))
+								mEventailFam = (mEventailFam == (int32)i) ? -1 : (int32)i;
+							else if (kFamAgit[i])
 								ArmerOutil(i);
+							else
+								DireRaisonFamille(i);
 						}
 						nkentseu::editorkit::NkTooltip(ctx, survol, kOutilsBulles[i]);
 						if (i == mOutil)
 							dl.AddRectFilled(c, ctx.theme.accent, 3.f);
-						const NkColor g = (i == mOutil) ? ctx.theme.onAccent : ctx.theme.textMuted;
+						// une famille grisée se voit : glyphe atténué de moitié
+						NkColor g = (i == mOutil) ? ctx.theme.onAccent : ctx.theme.textMuted;
+						if (!kFamAgit[i])
+							g.a = (nkentseu::uint8)(g.a / 2);
 						const float32 ix = c.x + (c.w - 13.f) * 0.5f;
 						const float32 iy = c.y + (c.h - 13.f) * 0.5f;
 						switch (i) {
-							case 0:
-								costume::OutilFleche(dl, ix, iy, g);
+							case 0: // la face = la variante (Sélection / Main)
+								if (mVarMove == 1)
+									costume::OutilMain(dl, ix, iy, g);
+								else
+									costume::OutilFleche(dl, ix, iy, g);
 								break;
 							case 1:
 								costume::OutilCadre(dl, ix, iy, g);
 								break;
-							case 2: // la face du bouton = la variante choisie
-								if (mVariante == 1)
+							case 2: // la face = la variante de FORMES
+								if (mVariante == 2)
 									costume::OutilEllipse(dl, ix, iy, g);
-								else if (mVariante == 2)
-									costume::OutilLigne(dl, ix, iy, g);
-								else if (mVariante >= 3) // triangle/pentagone/étoile/flèche
+								else if (mVariante >= 1)
 									GlypheForme(dl, c, mVariante, g);
 								else
 									costume::OutilRect(dl, ix, iy, g);
 								break;
 							case 3:
-								costume::OutilPlume(dl, ix, iy, g);
+								GlypheLigne(dl, c, mVarLigne, g);
 								break;
 							case 4:
-								costume::OutilTexte(dl, ix, iy, g);
+								costume::OutilConnecteur(dl, ix, iy, g);
 								break;
 							case 5:
-								costume::OutilImage(dl, ix, iy, g);
+								costume::OutilTexte(dl, ix, iy, g);
+								break;
+							case 6:
+								costume::OutilPlume(dl, ix, iy, g);
+								break;
+							case 7:
+								if (mVarImage == 1)
+									costume::OutilAvatar(dl, ix, iy, g);
+								else
+									costume::OutilImage(dl, ix, iy, g);
 								break;
 							default:
-								costume::OutilRegle(dl, ix, iy, g);
+								costume::OutilIcone(dl, ix, iy, g);
 								break;
 						}
-						// chevrons de variantes (formes et plume, JSX)
-						if (i == 2 || i == 3)
+						if (kFamEventail[i])
 							costume::ChevronVariante4(dl, c.x + c.w - 6.f, c.y + c.h - 6.f, g);
 					}
 
-					// ── L'ÉVENTAIL DES VARIANTES DE FORMES (§7.1, Lunacy) ────
-					// Déplié « vers le canvas », À DROITE du bouton Formes :
-					// rectangle, ellipse, ligne. Choisir rend la variante active
-					// ET en fait la face du bouton (GlypheOutil la dessine).
-					if (mEventailOuvert) {
-						const NkRect bFormes = {r.x, r.y + 4.f + hb * 2.f, w, hb - 2.f};
+					// ── L'ÉVENTAIL DE **LA** FAMILLE OUVERTE (§7.1, Lunacy) ────
+					// Déplié « vers le canvas », À DROITE de la rangée de sa
+					// famille — chaque famille montre son éventail COMPLET
+					// (panneaux 3-4-6-7-8-9-10 des références) ; une variante qui
+					// n'agit pas est GRISÉE et son clic DIT pourquoi.
+					if (mEventailFam >= 0) {
+						struct VarDecl {
+								const char *id;
+								const char *bulle;
+								bool agit;
+						};
+						static const VarDecl kVarMove[4] = {
+							{"##var_selection", "Sélection (V)", true},
+							{"##var_main", "Main (H) — glisser déplace la vue", true},
+							{"##var_echelle", "Échelle — chantier nommé", false},
+							{"##var_editionpts", "Édition de points — chantier nommé", false}};
+						static const VarDecl kVarCadre[3] = {
+							{"##var_cadre", "Cadre (F)", true},
+							{"##var_tranche", "Tranche (export) — chantier nommé", false},
+							{"##var_crayoncadre", "Crayon de cadre — chantier nommé", false}};
+						static const VarDecl kVarFormes[6] = {
+							{"##var_rect", "Rectangle (R)", true},
+							{"##var_arrondi", "Rectangle arrondi", true},
+							{"##var_ellipse", "Ellipse (O)", true},
+							{"##var_triangle", "Triangle", true},
+							{"##var_pentagone", "Pentagone", true},
+							{"##var_etoile", "Étoile", true}};
+						static const VarDecl kVarLigne[2] = {{"##var_ligne", "Ligne (L)", true},
+															 {"##var_fleche", "Flèche", true}};
+						static const VarDecl kVarPlume[2] = {
+							{"##var_plume", "Plume (P) — chemins libres, chantier nommé", false},
+							{"##var_crayon", "Crayon — chantier nommé", false}};
+						static const VarDecl kVarImage[2] = {
+							{"##var_image", "Image (M) — cadre d'image", true},
+							{"##var_avatar", "Avatar — pastille de profil", true}};
+						const VarDecl *vars = nullptr;
+						uint32 nVars = 0;
+						switch (mEventailFam) {
+							case 0: vars = kVarMove; nVars = 4; break;
+							case 1: vars = kVarCadre; nVars = 3; break;
+							case 2: vars = kVarFormes; nVars = 6; break;
+							case 3: vars = kVarLigne; nVars = 2; break;
+							case 6: vars = kVarPlume; nVars = 2; break;
+							case 7: vars = kVarImage; nVars = 2; break;
+							default: break;
+						}
+						const float32 yFam = r.y + 6.f + hb * (float32)mEventailFam
+											 + ((mEventailFam >= 5) ? filet : 0.f);
+						const NkRect bFam = {r.x, yFam, w, hb};
 						const float32 vb = 36.f;
-						// SEPT variantes (vague Lunacy (b), 31/08 — l'eventail des
-						// captures 7/8 : formes + fleche) : rectangle, ellipse,
-						// ligne, triangle, pentagone, etoile, fleche.
-						const NkRect ev = {r.x + w + 6.f, bFormes.y, (vb + 4.f) * 7.f + 12.f,
-										   vb + 8.f};
+						const NkRect ev = {r.x + w + 6.f, bFam.y,
+										   (vb + 4.f) * (float32)nVars + 12.f, vb + 8.f};
 						mZoneEventail = ev;
 						dl.AddRectFilled(ev, fond, 6.f);
 						dl.AddRect(ev, bord, 1.f, 6.f);
-						static const char *const kVarIds[7] = {
-							"##var_rect",	  "##var_ellipse", "##var_ligne", "##var_triangle",
-							"##var_pentagone", "##var_etoile",	"##var_fleche"};
-						static const char *const kVarBulles[7] = {
-							"Rectangle (R)", "Ellipse (O)", "Ligne (L)", "Triangle",
-							"Pentagone",	 "Étoile",		"Flèche"};
-						for (uint32 v = 0; v < 7; ++v) {
+						const uint32 varActive = (mEventailFam == 0)   ? mVarMove
+												 : (mEventailFam == 2) ? mVariante
+												 : (mEventailFam == 3) ? mVarLigne
+												 : (mEventailFam == 7) ? mVarImage
+																	   : 0u;
+						for (uint32 v = 0; v < nVars; ++v) {
 							const NkRect cv = {ev.x + 4.f + (vb + 4.f) * (float32)v, ev.y + 4.f,
 											   vb, vb};
 							ctx.SetNextItemRect(cv);
-							if (Button(ctx, kVarIds[v])) {
-								mVariante = v;
-								ArmerOutil(2);
-								mEventailOuvert = false;
+							if (Button(ctx, vars[v].id)) {
+								if (!vars[v].agit) {
+									// grisée-qui-le-dit : la raison part au pied
+									Dire("", vars[v].bulle, ".");
+								} else {
+									if (mEventailFam == 0)
+										mVarMove = v;
+									else if (mEventailFam == 2)
+										mVariante = v;
+									else if (mEventailFam == 3)
+										mVarLigne = v;
+									else if (mEventailFam == 7)
+										mVarImage = v;
+									ArmerOutil((uint32)mEventailFam);
+									mEventailFam = -1;
+								}
 							}
 							if (ctx.IsItemHovered())
-								SetTooltip(ctx, kVarBulles[v]);
-							if (v == mVariante)
+								SetTooltip(ctx, vars[v].bulle);
+							if (v == varActive && vars[v].agit)
 								dl.AddRectFilled(cv, ctx.theme.accent, 4.f);
-							GlypheForme(dl, cv, v, ctx.theme.text);
+							NkColor gv = ctx.theme.text;
+							if (!vars[v].agit)
+								gv.a = (nkentseu::uint8)(gv.a / 2);
+							const float32 gx = cv.x + (cv.w - 13.f) * 0.5f;
+							const float32 gy = cv.y + (cv.h - 13.f) * 0.5f;
+							switch (mEventailFam) {
+								case 0:
+									if (v == 0)
+										costume::OutilFleche(dl, gx, gy, gv);
+									else if (v == 1)
+										costume::OutilMain(dl, gx, gy, gv);
+									else if (v == 2)
+										costume::OutilCadre(dl, gx, gy, gv); // échelle : cadre fléché
+									else
+										costume::OutilCrayon(dl, gx, gy, gv);
+									break;
+								case 1:
+									if (v == 0)
+										costume::OutilCadre(dl, gx, gy, gv);
+									else if (v == 1)
+										costume::OutilTranche(dl, gx, gy, gv);
+									else
+										costume::OutilCrayon(dl, gx, gy, gv);
+									break;
+								case 2:
+									GlypheForme(dl, cv, v, gv);
+									break;
+								case 3:
+									GlypheLigne(dl, cv, v, gv);
+									break;
+								case 6:
+									if (v == 0)
+										costume::OutilPlume(dl, gx, gy, gv);
+									else
+										costume::OutilCrayon(dl, gx, gy, gv);
+									break;
+								case 7:
+									if (v == 0)
+										costume::OutilImage(dl, gx, gy, gv);
+									else
+										costume::OutilAvatar(dl, gx, gy, gv);
+									break;
+								default:
+									break;
+							}
 						}
-						// Un clic hors de l'éventail et hors du bouton Formes le
+						// Un clic hors de l'éventail et hors de sa famille le
 						// referme — le comportement de tout menu volant.
 						if (ctx.input.mouseClicked[0]
 							&& !NkGuiRectContains(ev, ctx.input.mousePos)
-							&& !NkGuiRectContains(bFormes, ctx.input.mousePos))
-							mEventailOuvert = false;
+							&& !NkGuiRectContains(bFam, ctx.input.mousePos))
+							mEventailFam = -1;
 					} else {
 						mZoneEventail = {0.f, 0.f, 0.f, 0.f};
 					}
@@ -3112,15 +3294,17 @@ namespace nkuidesign {
 									 mut);
 			}
 			/// Le glyphe d'UNE VARIANTE de la famille Formes (face du bouton ET
-			/// éventail) : 0 rectangle, 1 ellipse, 2 ligne.
+			/// éventail) — l'ÉVENTAIL LUNACY COMPLET (panneau 8) : 0 rectangle,
+			/// 1 arrondi, 2 ellipse, 3 triangle, 4 pentagone, 5 étoile. La ligne
+			/// et la flèche sont désormais la famille LIGNE (panneau 7).
 			static void GlypheForme(nkgui::NkGuiDrawList &dl, const NkRect &c, uint32 v,
 									const nkgui::NkColor &enc) {
 				const float32 cx = c.x + c.w * 0.5f, cy = c.y + c.h * 0.5f;
 				const float32 s = 7.f;
-				if (v == 1)
-					dl.AddCircle({cx, cy}, s * 0.85f, enc, 1.6f);
+				if (v == 1) // rectangle ARRONDI (rect à rayon posé à la création)
+					dl.AddRect({cx - s, cy - s * 0.72f, s * 2.f, s * 1.44f}, enc, 1.6f, 5.f);
 				else if (v == 2)
-					dl.AddLine({cx - s, cy + s * 0.7f}, {cx + s, cy - s * 0.7f}, enc, 2.f);
+					dl.AddCircle({cx, cy}, s * 0.85f, enc, 1.6f);
 				else if (v == 3) { // triangle (vague Lunacy (b), 31/08)
 					const nkgui::NkVec2 p[4] = {{cx, cy - s},
 												{cx + s, cy + s * 0.8f},
@@ -3149,12 +3333,21 @@ namespace nkuidesign {
 						{cx - s * 0.22f, cy - s * 0.31f},
 						{cx, cy - s}};
 					dl.AddPolyline(p, 11, enc, 1.4f);
-				} else if (v == 6) { // flèche
-					dl.AddLine({cx - s, cy}, {cx + s * 0.4f, cy}, enc, 2.f);
-					dl.AddTriangleFilled({cx + s, cy}, {cx + s * 0.2f, cy - s * 0.55f},
-										 {cx + s * 0.2f, cy + s * 0.55f}, enc);
 				} else
 					dl.AddRect({cx - s, cy - s * 0.72f, s * 2.f, s * 1.44f}, enc, 1.6f, 3.f);
+			}
+			/// Le glyphe d'UNE VARIANTE de la famille LIGNE (panneau 7 Lunacy) :
+			/// 0 ligne, 1 flèche.
+			static void GlypheLigne(nkgui::NkGuiDrawList &dl, const NkRect &c, uint32 v,
+									const nkgui::NkColor &enc) {
+				const float32 cx = c.x + c.w * 0.5f, cy = c.y + c.h * 0.5f;
+				const float32 s = 7.f;
+				if (v == 1) { // flèche (diagonale montante, pointe pleine — Lunacy)
+					dl.AddLine({cx - s, cy + s * 0.7f}, {cx + s * 0.35f, cy - s * 0.25f}, enc, 2.f);
+					dl.AddTriangleFilled({cx + s, cy - s * 0.7f}, {cx + s * 0.15f, cy - s * 0.6f},
+										 {cx + s * 0.55f, cy + s * 0.05f}, enc);
+				} else
+					dl.AddLine({cx - s, cy + s * 0.7f}, {cx + s, cy - s * 0.7f}, enc, 2.f);
 			}
 
 			void GlypheOutil(nkgui::NkGuiDrawList &dl, const NkRect &c, uint32 outil,
@@ -3219,27 +3412,61 @@ namespace nkuidesign {
 			const char *AideOutil(uint32 i) const {
 				switch (i) {
 					case 0:
-						return "Sélection — cliquer ; glisser = déplacer ; bords = "
-							   "redimensionner";
+						return mVarMove == 1
+								   ? "Main — glisser déplace la vue (pan) ; V = retour Sélection"
+								   : "Sélection — cliquer ; glisser = déplacer ; bords = "
+									 "redimensionner";
 					case 1:
 						return "Cadre — cliquez-glissez pour tracer ; Maj = carré ; "
 							   "Échap = annuler";
 					case 2:
-						return mVariante == 1
-								   ? "Ellipse — cliquez-glissez ; Maj = cercle ; Échap = annuler"
-							   : mVariante == 2
-								   ? "Ligne — cliquez-glissez ; Maj = contraint ; Échap = annuler"
-								   : "Rectangle — cliquez-glissez ; Maj = carré ; Échap = annuler";
+						switch (mVariante) {
+							case 1:
+								return "Rectangle arrondi — cliquez-glissez ; Maj = carré ; "
+									   "Échap = annuler";
+							case 2:
+								return "Ellipse — cliquez-glissez ; Maj = cercle ; Échap = annuler";
+							case 3:
+								return "Triangle — cliquez-glissez ; Échap = annuler";
+							case 4:
+								return "Pentagone — cliquez-glissez ; Échap = annuler";
+							case 5:
+								return "Étoile — cliquez-glissez ; Échap = annuler";
+							default:
+								return "Rectangle — cliquez-glissez ; Maj = carré ; Échap = annuler";
+						}
 					case 3:
-						return "Vectoriel : à brancher (§7.2)";
-					case 4:
+						return mVarLigne == 1
+								   ? "Flèche — cliquez-glissez ; Maj = contraint ; Échap = annuler"
+								   : "Ligne — cliquez-glissez ; Maj = contraint ; Échap = annuler";
+					case 5:
 						return "Texte — cliquez pour poser ; contenu dans l'Inspecteur "
 							   "(Typographie)";
-					case 5:
-						return "Média : à brancher (§7.2)";
+					case 7:
+						return mVarImage == 1
+								   ? "Avatar — cliquez-glissez pour poser la pastille de profil"
+								   : "Image — cliquez-glissez pour poser le cadre d'image (la "
+									 "source arrive avec la bibliothèque de médias)";
 					default:
-						return "Mesure : à brancher (§7.2)";
+						return "";
 				}
+			}
+
+			/// La RAISON d'une famille qui n'agit pas encore — grisée-qui-le-dit,
+			/// jamais un clic muet (la règle des menus).
+			void DireRaisonFamille(uint32 i) {
+				if (i == 4)
+					Dire("Connecteur : le nodal vient PAR-DESSUS le modèle (règle du dépôt) "
+						 "— chantier nommé, rien n'est armé.",
+						 "", "");
+				else if (i == 6)
+					Dire("Plume : les chemins libres demandent un vocabulaire de forme à "
+						 "points (§4.2) — chantier nommé, rien n'est armé.",
+						 "", "");
+				else
+					Dire("Icône : la bibliothèque d'icônes n'existe pas encore — chantier "
+						 "nommé, rien n'est armé.",
+						 "", "");
 			}
 
 			/// Armer un outil : l'icône s'allume, la ligne d'aide change — jamais
@@ -3259,7 +3486,7 @@ namespace nkuidesign {
 				NkPaintRect t = NkRectFromPoints(mCreateX, mCreateY, mx, my);
 				if (!shift)
 					return t;
-				const bool ligne = (mOutil == 2 && mVariante == 2);
+				const bool ligne = (mOutil == 3);
 				if (ligne) {
 					if (t.w > t.h * 2.f)
 						t.h = 1.f;

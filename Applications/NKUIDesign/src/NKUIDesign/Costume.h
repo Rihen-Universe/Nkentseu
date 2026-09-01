@@ -262,6 +262,50 @@ namespace nkuidesign {
 			const NkVec2 p[3] = {{x + 0.5f, y + 1.f}, {x + 2.f, y + 2.5f}, {x + 3.5f, y + 1.f}};
 			dl.AddPolyline(p, 3, c, 0.8f);
 		}
+		// ── Les familles Lunacy ajoutées le 01/09 (3e retour : les onze
+		//    références EN ENTIER) — mêmes conventions 13×13 que ci-dessus ──
+		/// main (outil Main : paume + 3 doigts esquissés)
+		inline void OutilMain(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddRect({x + 3.f, y + 4.f, 7.f, 7.5f}, c, 1.3f, 2.5f);
+			dl.AddLine({x + 5.2f, y + 4.f}, {x + 5.2f, y + 1.8f}, c, 1.2f);
+			dl.AddLine({x + 7.f, y + 4.f}, {x + 7.f, y + 1.2f}, c, 1.2f);
+			dl.AddLine({x + 8.8f, y + 4.f}, {x + 8.8f, y + 2.f}, c, 1.2f);
+		}
+		/// connecteur (le lien nodal : deux plots + coude)
+		inline void OutilConnecteur(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddCircleFilled({x + 2.5f, y + 9.5f}, 1.6f, c);
+			dl.AddCircleFilled({x + 10.5f, y + 3.5f}, 1.6f, c);
+			const NkVec2 p[3] = {{x + 4.f, y + 9.5f}, {x + 7.f, y + 9.5f}, {x + 9.f, y + 4.5f}};
+			dl.AddPolyline(p, 3, c, 1.4f);
+		}
+		/// icône (la bibliothèque : 4 tuiles arrondies)
+		inline void OutilIcone(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddRect({x + 1.5f, y + 1.5f, 4.4f, 4.4f}, c, 1.2f, 1.2f);
+			dl.AddRect({x + 7.1f, y + 1.5f, 4.4f, 4.4f}, c, 1.2f, 1.2f);
+			dl.AddRect({x + 1.5f, y + 7.1f, 4.4f, 4.4f}, c, 1.2f, 1.2f);
+			dl.AddRect({x + 7.1f, y + 7.1f, 4.4f, 4.4f}, c, 1.2f, 1.2f);
+		}
+		/// avatar (cercle + tête/épaules)
+		inline void OutilAvatar(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddCircle({x + 6.5f, y + 6.5f}, 5.6f, c, 1.3f);
+			dl.AddCircleFilled({x + 6.5f, y + 5.f}, 1.8f, c);
+			const NkVec2 p[3] = {{x + 3.4f, y + 10.6f}, {x + 6.5f, y + 7.8f}, {x + 9.6f, y + 10.6f}};
+			dl.AddPolyline(p, 3, c, 1.5f);
+		}
+		/// crayon (la variante de la plume, et le crayon de cadre)
+		inline void OutilCrayon(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddLine({x + 2.5f, y + 10.5f}, {x + 9.f, y + 4.f}, c, 1.6f);
+			dl.AddLine({x + 9.f, y + 4.f}, {x + 10.8f, y + 2.2f}, c, 2.4f);
+			dl.AddLine({x + 2.5f, y + 10.5f}, {x + 2.f, y + 11.5f}, c, 1.f);
+		}
+		/// tranche (slice : cadre en pointillés + lame)
+		inline void OutilTranche(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddLine({x + 1.5f, y + 2.5f}, {x + 5.f, y + 2.5f}, c, 1.1f);
+			dl.AddLine({x + 8.f, y + 2.5f}, {x + 11.5f, y + 2.5f}, c, 1.1f);
+			dl.AddLine({x + 1.5f, y + 2.5f}, {x + 1.5f, y + 6.f}, c, 1.1f);
+			dl.AddLine({x + 11.5f, y + 2.5f}, {x + 11.5f, y + 6.f}, c, 1.1f);
+			dl.AddLine({x + 2.f, y + 10.5f}, {x + 11.f, y + 8.f}, c, 1.5f);
+		}
 
 		// ── La bascule de mode (icônes 11×11, JSX DesignCanvasV2) ──
 		// Design : un « A » — « M2 8.5 L5.5 2 L9 8.5 » + barre (3.2,6.5→7.8,6.5)

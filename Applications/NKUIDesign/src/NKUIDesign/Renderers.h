@@ -553,6 +553,49 @@ namespace nkuidesign {
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), 1.f);
 				return;
 			}
+			if (shape && StrEq(shape, "image")) {
+				// L'IMAGE (famille Image du rail Lunacy, 3e retour 01/09) : le
+				// CADRE D'IMAGE — fond, contour, diagonales et glyphe montagne.
+				// La SOURCE d'image (fichier, bibliotheque de medias) est un
+				// chantier nomme : ce cadre est l'objet reel du maquettage
+				// (wireframe), pas une mise en scene — il se pose, se deplace,
+				// se sauve, et dira son fichier le jour ou la cle existera.
+				const uint32 rgba = !n.fill.Empty() ? NkGHexRGBA(n.fill.Data())
+													: p.ColorOf(host.Role("doc_field_bg"));
+				p.FillColor(r, rgba, n.radius > 0.f ? n.radius : 2.f);
+				p.OutlineSharp(r, host.Role("border"));
+				(void)p.Line(r.x, r.y, r.x + r.w, r.y + r.h, host.Role("border"), 1.f);
+				(void)p.Line(r.x, r.y + r.h, r.x + r.w, r.y, host.Role("border"), 1.f);
+				// la « montagne » au centre, si la boite est assez grande
+				if (r.w > 40.f && r.h > 30.f) {
+					const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+					const float32 s = (r.w < r.h ? r.w : r.h) * 0.18f;
+					const float32 xyM[6] = {cx - s, cy + s * 0.7f, cx, cy - s * 0.7f,
+											cx + s, cy + s * 0.7f};
+					(void)p.PolygonHex(xyM, 3, p.ColorOf(host.Role("doc_muted")));
+				}
+				return;
+			}
+			if (shape && StrEq(shape, "avatar")) {
+				// L'AVATAR (la variante de la famille Image) : pastille de profil
+				// — cercle plein + tete/epaules en creux (le vocabulaire des
+				// listes d'utilisateurs). Meme contrat de repli que l'Ellipse.
+				const uint32 rgba = !n.fill.Empty() ? NkGHexRGBA(n.fill.Data())
+													: p.ColorOf(host.Role("doc_field_bg"));
+				const float32 d = r.w < r.h ? r.w : r.h;
+				const NkPaintRect rc = {r.x + (r.w - d) * 0.5f, r.y + (r.h - d) * 0.5f, d, d};
+				if (!p.Ellipse(rc, host.Role("doc_field_bg")))
+					p.Outline(rc, host.Role("border"), host.Role("input_bg"), d * 0.5f);
+				(void)rgba;
+				// la tete (petit disque) et les epaules (triangle adouci)
+				const float32 cx = rc.x + d * 0.5f;
+				const NkPaintRect tete = {cx - d * 0.11f, rc.y + d * 0.24f, d * 0.22f, d * 0.22f};
+				(void)p.Ellipse(tete, host.Role("doc_muted"));
+				const float32 xyE[6] = {cx - d * 0.26f, rc.y + d * 0.78f, cx,
+										rc.y + d * 0.52f, cx + d * 0.26f, rc.y + d * 0.78f};
+				(void)p.PolygonHex(xyE, 3, p.ColorOf(host.Role("doc_muted")));
+				return;
+			}
 			if (shape && StrEq(shape, "text")) {
 				// Le TEXTE : son contenu, rien d'autre — ni fond ni cadre. Un
 				// texte vide dessine son libellé de nœud en atténué, sinon une
