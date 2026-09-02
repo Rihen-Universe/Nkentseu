@@ -1135,6 +1135,114 @@ static nkentseu::int32 RecetteGestes() {
 				det);
 	}
 
+	// ── COMPOSANTS DE DOCUMENT, ETAPE 1 : LE MODELE ET SON FORMAT ────────────
+	// Modele `15_Modele_Composants.md`. C'est la LIGNE D'ARRIVEE du chantier :
+	// « nkuidesign qui me permettra de designer nos premiers composants ».
+	//
+	// ⚠️ LE VOLET (a) EST LE PLUS IMPORTANT DE TOUT CE CAS, et c'est le moins
+	//    spectaculaire : un document SANS composant doit se reenregistrer OCTET
+	//    POUR OCTET. On vient d'ajouter trois cles au format ; sans ce volet, on
+	//    aurait pu faire tomber l'aller-retour de TOUS les fichiers d'avant sans
+	//    s'en apercevoir avant longtemps.
+	{
+		NkUIDocument d;
+		d.NewDocument("composants", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		const int32 bt = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)bt].label = NkString("Bouton");
+		// (a) CONSERVATION : aucune declaration, aucune instance -> aucune cle.
+		NkString sans;
+		d.Save(sans);
+		// ⚠️ LE MARQUEUR DE BLOC SE CHERCHE EN DEBUT DE LIGNE, et cette
+		//    precision n'est pas cosmetique : `composant` est DEJA une cle de
+		//    nœud (le composant DE CODE, indente de deux espaces). Ma premiere
+		//    version cherchait « composant » n'importe ou et declarait le
+		//    document non conforme alors qu'il l'etait. *Les deux notions du
+		//    §15.1 se sont marchees dessus des le premier banc* -- exactement
+		//    ce que la separation des deux champs evite dans le modele.
+		const bool aucuneCle = strstr(sans.Data(), "\ncomposant ") == nullptr
+							   && strstr(sans.Data(), "instance = ") == nullptr
+							   && strstr(sans.Data(), "\ndnoeud ") == nullptr;
+		NkUIDocument r0;
+		NkString sans2;
+		const bool relu0 = r0.Load(sans.Data());
+		if (relu0)
+			r0.Save(sans2);
+		const bool octetPourOctet = relu0 && sans2.Size() == sans.Size()
+									&& strcmp(sans2.Data(), sans.Data()) == 0;
+		// (b) UNE DECLARATION AVEC SON ARBRE, ET UNE INSTANCE QUI LA REFERENCE.
+		NkDeclarationComposant dc;
+		dc.identite.auteur = NkString("rodolf");
+		dc.identite.nom = NkString("bouton_primaire");
+		dc.identite.version = NkString("1");
+		NkUINode racine;
+		racine.label = NkString("Bouton primaire");
+		racine.shape = NkString("rect");
+		NkUINode libelle;
+		libelle.label = NkString("Libelle");
+		libelle.shape = NkString("text");
+		dc.arbre.PushBack(racine);
+		dc.arbre.PushBack(libelle);
+		dc.arbre[0].children.PushBack(1);
+		dc.arbre[1].parent = 0;
+		d.declarations.PushBack(dc);
+		const NkString cle = d.declarations[0].identite.Cle();
+		const bool cleJuste = strcmp(cle.Data(), "rodolf/bouton_primaire@1") == 0;
+		d.nodes[(uint32)bt].instanceDe = cle;
+		d.nodes[(uint32)bt].ecarts = NkUINode::EcartTexte | NkUINode::EcartRemplissages;
+		// (c) L'ALLER-RETOUR REND TOUT : identite, arbre de la declaration (sa
+		//     STRUCTURE comprise), reference de l'instance et masque d'ecarts.
+		NkString avec;
+		d.Save(avec);
+		NkUIDocument r1;
+		const bool relu1 = r1.Load(avec.Data());
+		const bool identite = relu1 && r1.declarations.Size() == 1
+							  && strcmp(r1.declarations[0].identite.auteur.Data(), "rodolf") == 0
+							  && strcmp(r1.declarations[0].identite.Cle().Data(),
+										"rodolf/bouton_primaire@1")
+										 == 0;
+		// ⚠️ LA STRUCTURE DE L'ARBRE, PAS SEULEMENT SON COMPTE : deux nœuds lus
+		//    dans le desordre feraient un compte juste et un arbre faux.
+		const bool arbre = relu1 && r1.declarations[0].arbre.Size() == 2
+						   && r1.declarations[0].arbre[1].parent == 0
+						   && r1.declarations[0].arbre[0].children.Size() == 1;
+		const bool instance = relu1 && r1.IsValidIndex(bt)
+							  && strcmp(r1.nodes[(uint32)bt].instanceDe.Data(), cle.Data()) == 0
+							  && r1.nodes[(uint32)bt].Surcharge(NkUINode::EcartTexte)
+							  && r1.nodes[(uint32)bt].Surcharge(NkUINode::EcartRemplissages)
+							  && !r1.nodes[(uint32)bt].Surcharge(NkUINode::EcartBordures);
+		NkString avec2;
+		if (relu1)
+			r1.Save(avec2);
+		const bool stable = relu1 && strcmp(avec2.Data(), avec.Data()) == 0;
+		// (d) ⚠️ LA PORTE DE FORK. Une declaration d'un TIERS ne se modifie pas en
+		//     place -- c'est de la structure, pas du comportement. Et l'auteur
+		//     inconnu ne passe PAS : ne pas savoir qui on est n'autorise pas a
+		//     toucher au bien d'autrui.
+		NkIdentiteComposant mien;
+		mien.auteur = NkString("rodolf");
+		NkIdentiteComposant tiers;
+		tiers.auteur = NkString("quelqu_un");
+		NkIdentiteComposant local; // sans auteur : local au document
+		const bool fork = NkPeutModifierDeclaration(mien, "rodolf")
+						  && !NkPeutModifierDeclaration(tiers, "rodolf")
+						  && !NkPeutModifierDeclaration(tiers, nullptr)
+						  && NkPeutModifierDeclaration(local, "rodolf");
+		char det[256];
+		snprintf(det, sizeof(det), "sans composant : aucune cle=%d octet pour octet=%d ; cle "
+							   "« %s »=%d ; relu : identite=%d arbre (structure)=%d instance+"
+							   "ecarts=%d stable=%d ; porte de fork=%d",
+				 aucuneCle ? 1 : 0, octetPourOctet ? 1 : 0, cle.Data(), cleJuste ? 1 : 0,
+				 identite ? 1 : 0, arbre ? 1 : 0, instance ? 1 : 0, stable ? 1 : 0, fork ? 1 : 0);
+		verdict("COMPOSANTS (etape 1) : un document SANS composant se reenregistre OCTET POUR "
+				"OCTET, une declaration voyage avec son identite ET la structure de son arbre, "
+				"une instance garde sa reference et son masque d'ecarts, et la PORTE DE FORK "
+				"refuse la declaration d'un tiers",
+				aucuneCle && octetPourOctet && cleJuste && identite && arbre && instance && stable
+					&& fork,
+				det);
+	}
+
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

@@ -803,6 +803,52 @@ namespace nkuidesign {
 			/// octet**.
 			bool verrouille = false; ///< non attrapable, mais toujours peint (clé `verrouille`)
 			bool masque = false;	 ///< ni peint ni attrapable (clé `masque`)
+
+			// ── CE NŒUD EST-IL UNE INSTANCE ? (composants de document, 02/09) ──
+			/// La **clé** de la déclaration dont ce nœud est une instance
+			/// (`auteur/nom@version`). Vide = nœud ordinaire.
+			/// ⚠️ CE N'EST PAS `component`, et la distinction est écrite au long
+			///    au-dessus de `NkDeclarationComposant` : `component` désigne un
+			///    composant **de code** (C++, statique, absent du fichier).
+			NkString instanceDe;
+
+			/// ── LES ÉCARTS, PROPRIÉTÉ PAR PROPRIÉTÉ ──────────────────────────
+			/// Un masque de bits : chaque bit dit « cette propriété est À MOI,
+			/// n'hérite plus de la déclaration ».
+			///
+			/// 🔴 LA RÈGLE DE FOND, ET C'EST ELLE QUI REND LE RESTE ACCEPTABLE :
+			///    **une surcharge gagne sur la mise à jour.** Le composant se
+			///    propage à ses instances *sauf* là où un bit est posé. Sans ça,
+			///    mettre à jour une déclaration écraserait le travail fait sur
+			///    chaque instance — et personne n'oserait plus toucher à un
+			///    composant.
+			///
+			/// ⚠️ UN MASQUE PLUTÔT QU'UNE COPIE DES VALEURS : le nœud porte DÉJÀ
+			///    tous les champs. Le bit dit seulement lequel fait foi. Une
+			///    seconde table de valeurs aurait été une deuxième vérité, et
+			///    c'est le motif que ce dépôt passe son temps à retirer.
+			///
+			/// 📌 CE QUI NE FIGURE PAS ICI EST AUSSI UNE DÉCISION (`15_…` §15.3) :
+			///    la **géométrie du tracé** ne se surcharge jamais (c'est
+			///    *l'identité* de la forme), et **position / rotation / miroirs**
+			///    n'ont pas de bit parce qu'ils ne s'héritent pas du tout — ils
+			///    sont propres à l'instance par nature.
+			enum : nkentseu::uint32 {
+				EcartRemplissages = 1u << 0,
+				EcartBordures = 1u << 1,
+				EcartEffets = 1u << 2,
+				EcartTexte = 1u << 3,  ///< **toujours** légitime : deux boutons ne disent pas la même chose
+				EcartApparence = 1u << 4, ///< rayon, opacité, corps de police
+				EcartTaille = 1u << 5	  ///< ⚠️ voir §15.7 : la 1re tranche est à taille FIXE
+			};
+			nkentseu::uint32 ecarts = 0;
+
+			bool ADesEcarts() const {
+				return ecarts != 0u;
+			}
+			bool Surcharge(nkentseu::uint32 bit) const {
+				return (ecarts & bit) != 0u;
+			}
 			float32 borderW = 0.f;	 ///< épaisseur de bord, px (clé `bordure`)
 			float32 fontPx = 0.f;	 ///< corps du texte, px (clé `police_px`) — 0 = défaut
 			float32 fontWeight = 0.f; ///< graisse 100..900 (clé `graisse`) — 0 = défaut
@@ -837,11 +883,98 @@ namespace nkuidesign {
 	//    `RemoveSubtree` est la seule operation qui les renumerote — elle le dit, et
 	//    elle rend la table de correspondance pour que l'appelant repare la sienne
 	//    plutot que de deviner.
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LES COMPOSANTS **DE DOCUMENT** (chantier du 02/09, modele `15_…`)
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  🔴 DEUX NOTIONS PORTENT LE MEME MOT, ET LES CONFONDRE COUTERAIT TOUT.
+	//     Le champ `NkUINode::component` designe un composant **DE CODE** :
+	//     declare en C++, `NkComponentRegistry`, duree de vie STATIQUE, INEXISTANT
+	//     dans le fichier. Ce qui suit est un composant **DE DOCUMENT** : dessine
+	//     dans l'editeur, il VIT dans le fichier et doit voyager avec lui.
+	//
+	//     Leur donner le meme champ aurait ete tentant -- un seul nom, une seule
+	//     resolution. Ce serait un document qui **cesse d'etre ouvrable des que le
+	//     binaire change de version** : sa moitie « composants » pointerait des
+	//     declarations C++ qui n'existent plus. *Deux natures voisines, deux
+	//     champs*, et c'est vu avant d'ecrire plutot que paye apres.
+
+	/// L'IDENTITE D'UNE DECLARATION, et elle existe pour la REGLE DE FORK.
+	///
+	/// Decision de Rodolf : un composant **tiers** se **duplique a la
+	/// modification** au lieu de se modifier en place. Elle vient de ce que
+	/// l'atelier alimente -- *« des millions d'utilisateurs peuvent creer des
+	/// composants, les commercialiser ou les partager »*. Modifier en place la
+	/// declaration de quelqu'un d'autre casserait l'identite sous laquelle elle a
+	/// ete partagee.
+	///
+	/// ⚠️ ET C'EST POURQUOI L'IDENTITE EST DANS LE MODELE DES MAINTENANT.
+	///    `NkProvenance::author` dit le *genre* d'auteur (`Human`, `AI`,
+	///    `Imported`), pas **qui**. Ajoutee apres coup, cette identite demanderait
+	///    de reecrire tous les documents deja produits pour leur inventer un
+	///    auteur qu'ils n'ont pas -- ce qu'on ne peut pas faire. *C'est de la
+	///    structure, pas du comportement.*
+	struct NkIdentiteComposant {
+			NkString auteur;  ///< QUI (pas le genre d'auteur : le nom)
+			NkString nom;	  ///< le nom lisible, celui que la palette affiche
+			NkString version; ///< libre ; « 1 » par defaut
+			/// De quelle identite ce composant DERIVE, quand il est un fork. Vide
+			/// pour une creation.
+			/// ⚠️ SANS CE LIEN, UN FORK EST INDISCERNABLE D'UNE CREATION, et on
+			///    perd la seule information qui permettra un jour de proposer
+			///    « l'original a change, veux-tu rejouer ta modification ? ».
+			NkString deriveDe;
+
+			/// La cle stable `auteur/nom@version` -- c'est elle que les instances
+			/// referencent, et elle survit au partage.
+			NkString Cle() const {
+				NkString c = auteur.Empty() ? NkString("anonyme") : auteur;
+				c.Append("/");
+				c.Append(nom.Empty() ? "sans_nom" : nom.Data());
+				c.Append("@");
+				c.Append(version.Empty() ? "1" : version.Data());
+				return c;
+			}
+	};
+
+	/// UNE DECLARATION : son identite, et son ARBRE.
+	/// ⚠️ L'ARBRE EST AUTONOME (son propre vecteur de nœuds, indices internes) et
+	///    ce n'est pas un detail d'implementation : une declaration doit pouvoir
+	///    **voyager** -- etre partagee, vendue, importee. Un sous-arbre qui vivrait
+	///    dans le vecteur du document ne se detacherait jamais proprement.
+	struct NkDeclarationComposant {
+			NkIdentiteComposant identite;
+			NkVector<NkUINode> arbre; ///< racine = indice 0
+	};
+
+	/// LA PORTE DE LA REGLE DE FORK — consultee **avant toute ecriture** sur une
+	/// declaration, jamais dispersee aux sites d'appel (meme discipline que
+	/// `NkNoeudAttrapable`).
+	/// @return vrai si `auteurCourant` peut modifier CETTE declaration en place ;
+	///         faux s'il doit la **forker**.
+	inline bool NkPeutModifierDeclaration(const NkIdentiteComposant &id,
+										  const char *auteurCourant) {
+		const char *a = id.auteur.Data();
+		// une declaration sans auteur est locale au document : elle nous appartient.
+		if (!a || !a[0])
+			return true;
+		if (!auteurCourant || !auteurCourant[0])
+			return false; // on ne sait pas qui on est : on ne touche pas au bien d'autrui
+		return NkComponentDecl::StrEq(a, auteurCourant);
+	}
+
 	class NkUIDocument {
 		public:
 			NkString title = NkString("Interface sans titre");
 			NkProvenance prov; ///< la provenance du DOCUMENT (qui l'a cree)
 			NkVector<NkUINode> nodes;
+			/// LES DECLARATIONS DE COMPOSANTS **DE DOCUMENT** portees par ce
+			/// fichier. Vide = aucun composant, et le fichier ne gagne aucune cle :
+			/// un document d'avant se reenregistre OCTET POUR OCTET.
+			/// 📌 Elles vivent DANS le document qui les a creees, et rien d'autre
+			///    pour l'instant (`12_…` §12.3(a)) : la bibliotheque partagee est un
+			///    chantier de RESOLUTION DE DEPENDANCES, pas d'editeur. Ca ne la
+			///    ferme pas -- une declaration locale se **promeut** plus tard.
+			NkVector<NkDeclarationComposant> declarations;
 			/// LES LANGUES SUPPLEMENTAIRES declarees par le document (mandat
 			/// multilingue 01/09) : la principale n'a pas de code (c'est `texte`).
 			/// Vide = document monolingue — il se reenregistre octet pour octet.
@@ -1348,6 +1481,263 @@ namespace nkuidesign {
 			//    n'existe pas dans le document. C'est verifiable a la lecture du
 			//    fichier produit, et la sonde le verifie a chaque passage plutot que
 			//    de s'en remettre a la relecture d'un humain.
+			/// ECRIRE UN NOEUD. Extrait de la boucle pour que les arbres des
+			/// DECLARATIONS de composants passent par le MEME ecrivain -- une
+			/// seconde copie aurait diverge au premier champ ajoute, et c'est le
+			/// motif que ce depot passe son temps a retirer (« le peintre a ete
+			/// ecrit deux fois »).
+			/// @param motCle `noeud` pour le document, `dnoeud` dans une declaration.
+			void EcrireNoeud(NkString &out, const NkUINode &n, uint32 i,
+							 const char *motCle) const {
+				out.Append('\n');
+				out.Append(motCle);
+				out.Append(' ');
+				WriteNum(out, (float32)i);
+				out.Append('\n');
+				Field(out, "libelle", n.label.Data());
+				Field(out, "composant", n.component.Data());
+				// `enfants` est la SEULE verite sur la structure : `parent` s'en
+				// deduit au chargement. Ecrire les deux ferait deux verites, et
+				// c'est le motif que cette tranche passe son temps a retirer
+				// d'ailleurs.
+				out.Append("  enfants =");
+				for (uint32 c = 0; c < (uint32)n.children.Size(); ++c) {
+					out.Append(' ');
+					WriteNum(out, (float32)n.children[c]);
+				}
+				out.Append('\n');
+				WriteAxis(out, "largeur", n.width);
+				WriteAxis(out, "hauteur", n.height);
+				// Une seule ligne pour tout l'agencement, dans l'ordre des champs de
+				// `NkLayoutDecl` : agencement, alignement principal, transverse,
+				// colonnes de grille.
+				out.Append("  agencement = ");
+				out.Append(NkLayoutKindName(n.layout.kind));
+				out.Append(' ');
+				out.Append(NkAlignName(n.layout.mainAlign));
+				out.Append(' ');
+				out.Append(NkAlignName(n.layout.crossAlign));
+				out.Append(' ');
+				WriteNum(out, (float32)n.layout.gridColumns);
+				out.Append('\n');
+				Field(out, "espacement", n.spacingName.Data());
+				Field(out, "remplissage", n.padName.Data());
+				char edges[5];
+				NkAnchorName(n.anchorEdges, edges);
+				Field(out, "ancrage", edges);
+				// La position n'est ecrite que si elle existe : un document
+				// declaratif reste octet pour octet ce qu'il etait.
+				if (n.posX != 0.f || n.posY != 0.f) {
+					out.Append("  position = ");
+					WriteNum(out, n.posX);
+					out.Append(' ');
+					WriteNum(out, n.posY);
+					out.Append('\n');
+				}
+				// La nature dessinée et le texte : mêmes règles que la position —
+				// écrits seulement s'ils existent, pour qu'un document d'avant
+				// ces clés se réenregistre octet pour octet.
+				if (!n.shape.Empty())
+					Field(out, "forme", n.shape.Data());
+				if (!n.text.Empty())
+					Field(out, "texte", n.text.Data());
+				// Les traductions ADDITIVES (multilingue 01/09) : une cle
+				// `texte_<langue>` par langue posee — absentes d'un document
+				// monolingue, qui se reenregistre octet pour octet.
+				for (uint32 tl = 0; tl < (uint32)n.texteLangues.Size(); ++tl) {
+					out.Append("  texte_");
+					out.Append(n.texteLangues[tl].Data());
+					out.Append(" = ");
+					out.Append(n.texteTraduits[tl].Data());
+					out.Append('\n');
+				}
+				// Le RÔLE (Banani §4.3, écran 5/6) : même règle que la nature —
+				// écrit seulement s'il existe, un document d'avant se
+				// réenregistre octet pour octet.
+				if (!n.role.Empty())
+					Field(out, "role", n.role.Data());
+				// L'APPARENCE POSÉE (§8ter) : chaque clé n'existe que posée.
+				// ⚠️ L'UNE OU L'AUTRE, JAMAIS LES DEUX. Ecrire `fond` EN PLUS
+				//    de la liste donnerait un fichier a deux verites, et le
+				//    lecteur devrait choisir -- c'est-a-dire deviner.
+				if (!n.fills.Empty()) {
+					// La LISTE (Lunacy FILLS) : une ligne par remplissage,
+					// `fond_<i>` a partir de 1, « couleur opacite visible ».
+					// Meme patron additif que `texte_<langue>` : la cle
+					// n'existe que si la liste existe.
+					for (uint32 fi = 0; fi < (uint32)n.fills.Size(); ++fi) {
+						const NkRemplissage &f = n.fills[fi];
+						out.Append("  fond_");
+						WriteNum(out, (float32)(fi + 1));
+						out.Append(" = ");
+						out.Append(f.couleur.Empty() ? "-" : f.couleur.Data());
+						out.Append(' ');
+						WriteNum(out, f.opacite);
+						out.Append(' ');
+						out.Append(f.visible ? "1" : "0");
+						out.Append('\n');
+					}
+				} else if (!n.fill.Empty())
+					Field(out, "fond", n.fill.Data());
+				if (!n.textColor.Empty())
+					Field(out, "couleur_texte", n.textColor.Data());
+				// ⚠️ L'UNE OU L'AUTRE, JAMAIS LES DEUX — comme pour `fond`.
+				//    `bord_<i> = couleur opacite visible epaisseur position`.
+				//    Et quand la liste existe, la clé `bordure` ne s'écrit pas
+				//    non plus : elle appartient à la même notion, et un fichier
+				//    qui porte les deux ferait choisir le lecteur.
+				if (!n.borders.Empty()) {
+					for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi) {
+						const NkBordure &b = n.borders[bi];
+						out.Append("  bord_");
+						WriteNum(out, (float32)(bi + 1));
+						out.Append(" = ");
+						out.Append(b.couleur.Empty() ? "-" : b.couleur.Data());
+						out.Append(' ');
+						WriteNum(out, b.opacite);
+						out.Append(' ');
+						out.Append(b.visible ? "1" : "0");
+						out.Append(' ');
+						WriteNum(out, b.epaisseur);
+						out.Append(' ');
+						out.Append(NkBordurePosNom(b.position));
+						out.Append('\n');
+					}
+				} else if (!n.borderColor.Empty())
+					Field(out, "couleur_bord", n.borderColor.Data());
+				// LES SOMMETS DEPLACES : `sommet_<i> = x y [rayon]` (unitaire -1..1).
+				// ⚠️ LE TROISIEME CHAMP N'EST ECRIT QUE S'IL EST NON NUL, et c'est
+				//    ce qui garde l'aller-retour OCTET POUR OCTET pour tout
+				//    document ecrit avant l'arrondi par sommet : un tracé a coins
+				//    vifs rend exactement les deux memes nombres qu'hier. Meme
+				//    discipline additive que `position`, `shape` et les trois
+				//    listes -- reprise sans etre amenagee.
+				for (uint32 si = 0; si < (uint32)n.sommets.Size(); ++si) {
+					out.Append("  sommet_");
+					WriteNum(out, (float32)(si + 1));
+					out.Append(" = ");
+					WriteNum(out, n.sommets[si].x);
+					out.Append(' ');
+					WriteNum(out, n.sommets[si].y);
+					// ⚠️ LES CHAMPS SONT POSITIONNELS, DONC UN CHAMP TARDIF FORCE
+					//    CEUX D'AVANT. Un sommet qui porte des tangentes mais pas
+					//    de rayon doit quand même écrire son rayon (0) pour tenir
+					//    la place -- sinon le lecteur prendrait la tangente pour
+					//    un rayon. C'est le prix d'un format positionnel, et il
+					//    se paie ICI plutôt que par un lecteur qui devine.
+					// ⚠️ ET RIEN NE CHANGE POUR LES DOCUMENTS D'AVANT : un tracé
+					//    sans tangente ni rayon rend exactement les DEUX MEMES
+					//    nombres qu'hier, octet pour octet. Même discipline
+					//    additive que `position`, `shape` et les trois listes --
+					//    reprise sans être aménagée, pour la deuxième fois.
+					const NkPoint2 &sp = n.sommets[si];
+					const bool aTangente = sp.liaison != NkPoint2::LiaisonDroit
+										   || sp.ex != 0.f || sp.ey != 0.f || sp.sx != 0.f
+										   || sp.sy != 0.f;
+					if (sp.rayon != 0.f || aTangente) {
+						out.Append(' ');
+						WriteNum(out, sp.rayon);
+					}
+					if (aTangente) {
+						out.Append(' ');
+						WriteNum(out, sp.ex);
+						out.Append(' ');
+						WriteNum(out, sp.ey);
+						out.Append(' ');
+						WriteNum(out, sp.sx);
+						out.Append(' ');
+						WriteNum(out, sp.sy);
+						out.Append(' ');
+						WriteNum(out, (float32)sp.liaison);
+					}
+					out.Append('\n');
+				}
+				// LES EFFETS : `effet_<i> = type x y flou etendue couleur opacite visible`.
+				for (uint32 ei = 0; ei < (uint32)n.effets.Size(); ++ei) {
+					const NkEffet &e = n.effets[ei];
+					out.Append("  effet_");
+					WriteNum(out, (float32)(ei + 1));
+					out.Append(" = ");
+					out.Append(NkEffetTypeNom(e.type));
+					out.Append(' ');
+					WriteNum(out, e.x);
+					out.Append(' ');
+					WriteNum(out, e.y);
+					out.Append(' ');
+					WriteNum(out, e.flou);
+					out.Append(' ');
+					WriteNum(out, e.etendue);
+					out.Append(' ');
+					out.Append(e.couleur.Empty() ? "-" : e.couleur.Data());
+					out.Append(' ');
+					WriteNum(out, e.opacite);
+					out.Append(' ');
+					out.Append(e.visible ? "1" : "0");
+					out.Append('\n');
+				}
+				if (!n.alignText.Empty())
+					Field(out, "texte_aligne", n.alignText.Data());
+				if (!n.target.Empty())
+					Field(out, "cible", n.target.Data());
+				if (!n.transposeDe.Empty())
+					Field(out, "transpose_de", n.transposeDe.Data());
+				if (n.radius != 0.f) {
+					out.Append("  rayon = ");
+					WriteNum(out, n.radius);
+					out.Append('\n');
+				}
+				// LA ROTATION ET LES DEUX MIROIRS : ecrits SEULEMENT s'ils ne
+				// valent pas leur defaut -- meme discipline additive que
+				// `position`, `shape` et les trois listes.
+				if (n.rotation != 0.f) {
+					out.Append("  rotation = ");
+					WriteNum(out, n.rotation);
+					out.Append('\n');
+				}
+				if (n.miroirH)
+					out.Append("  miroir_h = 1\n");
+				if (n.miroirV)
+					out.Append("  miroir_v = 1\n");
+				// Additifs : rien n'est écrit tant qu'ils valent leur défaut,
+				// donc un document d'avant se réenregistre OCTET POUR OCTET.
+				if (n.verrouille)
+					out.Append("  verrouille = 1\n");
+				if (n.masque)
+					out.Append("  masque = 1\n");
+				// ── L'INSTANCE ET SES ÉCARTS (composants de document) ────
+				// Mêmes règles additives : un nœud ordinaire n'écrit rien.
+				if (!n.instanceDe.Empty()) {
+					out.Append("  instance = ");
+					out.Append(n.instanceDe);
+					out.Append('\n');
+					if (n.ecarts != 0u) {
+						out.Append("  ecarts = ");
+						WriteNum(out, (float32)n.ecarts);
+						out.Append('\n');
+					}
+				}
+				if (n.borderW != 0.f && n.borders.Empty()) {
+					out.Append("  bordure = ");
+					WriteNum(out, n.borderW);
+					out.Append('\n');
+				}
+				if (n.fontPx != 0.f) {
+					out.Append("  police_px = ");
+					WriteNum(out, n.fontPx);
+					out.Append('\n');
+				}
+				if (n.fontWeight != 0.f) {
+					out.Append("  graisse = ");
+					WriteNum(out, n.fontWeight);
+					out.Append('\n');
+				}
+				Field(out, "auteur", NkAuthorName(n.prov.author));
+				Field(out, "verifiee", n.prov.verified ? "1" : "0");
+				Field(out, "corrigee", n.prov.corrected ? "1" : "0");
+				Field(out, "origine", n.prov.origin.Data());
+				WriteOverrides(out, n.instance);
+			}
+
 			void Save(NkString &out) const {
 				out = NkString("nkuidoc 1\n");
 				out.Append("# Un document NkUIDesign : un ARBRE de composants declares.\n");
@@ -1391,242 +1781,32 @@ namespace nkuidesign {
 					out.Append('\n');
 				}
 
-				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i) {
-					const NkUINode &n = nodes[i];
-					out.Append("\nnoeud ");
-					WriteNum(out, (float32)i);
+				// ── LES DECLARATIONS DE COMPOSANTS, AVANT LES NOEUDS ────────────
+				// ⚠️ AVANT, POUR LA MEME RAISON QUE LES METRIQUES : les nœuds les
+				//    designent par leur cle, donc un fichier se lit de haut en bas
+				//    sans jamais revenir en arriere.
+				// ⚠️ ET RIEN N'EST ECRIT QUAND IL N'Y EN A PAS : un document sans
+				//    composant ne gagne AUCUNE cle et se reenregistre octet pour
+				//    octet. Meme discipline additive que `position`, `masque` et
+				//    les trois listes.
+				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d) {
+					const NkDeclarationComposant &dc = declarations[d];
+					out.Append("\ncomposant ");
+					WriteNum(out, (float32)d);
 					out.Append('\n');
-					Field(out, "libelle", n.label.Data());
-					Field(out, "composant", n.component.Data());
-					// `enfants` est la SEULE verite sur la structure : `parent` s'en
-					// deduit au chargement. Ecrire les deux ferait deux verites, et
-					// c'est le motif que cette tranche passe son temps a retirer
-					// d'ailleurs.
-					out.Append("  enfants =");
-					for (uint32 c = 0; c < (uint32)n.children.Size(); ++c) {
-						out.Append(' ');
-						WriteNum(out, (float32)n.children[c]);
-					}
-					out.Append('\n');
-					WriteAxis(out, "largeur", n.width);
-					WriteAxis(out, "hauteur", n.height);
-					// Une seule ligne pour tout l'agencement, dans l'ordre des champs de
-					// `NkLayoutDecl` : agencement, alignement principal, transverse,
-					// colonnes de grille.
-					out.Append("  agencement = ");
-					out.Append(NkLayoutKindName(n.layout.kind));
-					out.Append(' ');
-					out.Append(NkAlignName(n.layout.mainAlign));
-					out.Append(' ');
-					out.Append(NkAlignName(n.layout.crossAlign));
-					out.Append(' ');
-					WriteNum(out, (float32)n.layout.gridColumns);
-					out.Append('\n');
-					Field(out, "espacement", n.spacingName.Data());
-					Field(out, "remplissage", n.padName.Data());
-					char edges[5];
-					NkAnchorName(n.anchorEdges, edges);
-					Field(out, "ancrage", edges);
-					// La position n'est ecrite que si elle existe : un document
-					// declaratif reste octet pour octet ce qu'il etait.
-					if (n.posX != 0.f || n.posY != 0.f) {
-						out.Append("  position = ");
-						WriteNum(out, n.posX);
-						out.Append(' ');
-						WriteNum(out, n.posY);
-						out.Append('\n');
-					}
-					// La nature dessinée et le texte : mêmes règles que la position —
-					// écrits seulement s'ils existent, pour qu'un document d'avant
-					// ces clés se réenregistre octet pour octet.
-					if (!n.shape.Empty())
-						Field(out, "forme", n.shape.Data());
-					if (!n.text.Empty())
-						Field(out, "texte", n.text.Data());
-					// Les traductions ADDITIVES (multilingue 01/09) : une cle
-					// `texte_<langue>` par langue posee — absentes d'un document
-					// monolingue, qui se reenregistre octet pour octet.
-					for (uint32 tl = 0; tl < (uint32)n.texteLangues.Size(); ++tl) {
-						out.Append("  texte_");
-						out.Append(n.texteLangues[tl].Data());
-						out.Append(" = ");
-						out.Append(n.texteTraduits[tl].Data());
-						out.Append('\n');
-					}
-					// Le RÔLE (Banani §4.3, écran 5/6) : même règle que la nature —
-					// écrit seulement s'il existe, un document d'avant se
-					// réenregistre octet pour octet.
-					if (!n.role.Empty())
-						Field(out, "role", n.role.Data());
-					// L'APPARENCE POSÉE (§8ter) : chaque clé n'existe que posée.
-					// ⚠️ L'UNE OU L'AUTRE, JAMAIS LES DEUX. Ecrire `fond` EN PLUS
-					//    de la liste donnerait un fichier a deux verites, et le
-					//    lecteur devrait choisir -- c'est-a-dire deviner.
-					if (!n.fills.Empty()) {
-						// La LISTE (Lunacy FILLS) : une ligne par remplissage,
-						// `fond_<i>` a partir de 1, « couleur opacite visible ».
-						// Meme patron additif que `texte_<langue>` : la cle
-						// n'existe que si la liste existe.
-						for (uint32 fi = 0; fi < (uint32)n.fills.Size(); ++fi) {
-							const NkRemplissage &f = n.fills[fi];
-							out.Append("  fond_");
-							WriteNum(out, (float32)(fi + 1));
-							out.Append(" = ");
-							out.Append(f.couleur.Empty() ? "-" : f.couleur.Data());
-							out.Append(' ');
-							WriteNum(out, f.opacite);
-							out.Append(' ');
-							out.Append(f.visible ? "1" : "0");
-							out.Append('\n');
-						}
-					} else if (!n.fill.Empty())
-						Field(out, "fond", n.fill.Data());
-					if (!n.textColor.Empty())
-						Field(out, "couleur_texte", n.textColor.Data());
-					// ⚠️ L'UNE OU L'AUTRE, JAMAIS LES DEUX — comme pour `fond`.
-					//    `bord_<i> = couleur opacite visible epaisseur position`.
-					//    Et quand la liste existe, la clé `bordure` ne s'écrit pas
-					//    non plus : elle appartient à la même notion, et un fichier
-					//    qui porte les deux ferait choisir le lecteur.
-					if (!n.borders.Empty()) {
-						for (uint32 bi = 0; bi < (uint32)n.borders.Size(); ++bi) {
-							const NkBordure &b = n.borders[bi];
-							out.Append("  bord_");
-							WriteNum(out, (float32)(bi + 1));
-							out.Append(" = ");
-							out.Append(b.couleur.Empty() ? "-" : b.couleur.Data());
-							out.Append(' ');
-							WriteNum(out, b.opacite);
-							out.Append(' ');
-							out.Append(b.visible ? "1" : "0");
-							out.Append(' ');
-							WriteNum(out, b.epaisseur);
-							out.Append(' ');
-							out.Append(NkBordurePosNom(b.position));
-							out.Append('\n');
-						}
-					} else if (!n.borderColor.Empty())
-						Field(out, "couleur_bord", n.borderColor.Data());
-					// LES SOMMETS DEPLACES : `sommet_<i> = x y [rayon]` (unitaire -1..1).
-					// ⚠️ LE TROISIEME CHAMP N'EST ECRIT QUE S'IL EST NON NUL, et c'est
-					//    ce qui garde l'aller-retour OCTET POUR OCTET pour tout
-					//    document ecrit avant l'arrondi par sommet : un tracé a coins
-					//    vifs rend exactement les deux memes nombres qu'hier. Meme
-					//    discipline additive que `position`, `shape` et les trois
-					//    listes -- reprise sans etre amenagee.
-					for (uint32 si = 0; si < (uint32)n.sommets.Size(); ++si) {
-						out.Append("  sommet_");
-						WriteNum(out, (float32)(si + 1));
-						out.Append(" = ");
-						WriteNum(out, n.sommets[si].x);
-						out.Append(' ');
-						WriteNum(out, n.sommets[si].y);
-						// ⚠️ LES CHAMPS SONT POSITIONNELS, DONC UN CHAMP TARDIF FORCE
-						//    CEUX D'AVANT. Un sommet qui porte des tangentes mais pas
-						//    de rayon doit quand même écrire son rayon (0) pour tenir
-						//    la place -- sinon le lecteur prendrait la tangente pour
-						//    un rayon. C'est le prix d'un format positionnel, et il
-						//    se paie ICI plutôt que par un lecteur qui devine.
-						// ⚠️ ET RIEN NE CHANGE POUR LES DOCUMENTS D'AVANT : un tracé
-						//    sans tangente ni rayon rend exactement les DEUX MEMES
-						//    nombres qu'hier, octet pour octet. Même discipline
-						//    additive que `position`, `shape` et les trois listes --
-						//    reprise sans être aménagée, pour la deuxième fois.
-						const NkPoint2 &sp = n.sommets[si];
-						const bool aTangente = sp.liaison != NkPoint2::LiaisonDroit
-											   || sp.ex != 0.f || sp.ey != 0.f || sp.sx != 0.f
-											   || sp.sy != 0.f;
-						if (sp.rayon != 0.f || aTangente) {
-							out.Append(' ');
-							WriteNum(out, sp.rayon);
-						}
-						if (aTangente) {
-							out.Append(' ');
-							WriteNum(out, sp.ex);
-							out.Append(' ');
-							WriteNum(out, sp.ey);
-							out.Append(' ');
-							WriteNum(out, sp.sx);
-							out.Append(' ');
-							WriteNum(out, sp.sy);
-							out.Append(' ');
-							WriteNum(out, (float32)sp.liaison);
-						}
-						out.Append('\n');
-					}
-					// LES EFFETS : `effet_<i> = type x y flou etendue couleur opacite visible`.
-					for (uint32 ei = 0; ei < (uint32)n.effets.Size(); ++ei) {
-						const NkEffet &e = n.effets[ei];
-						out.Append("  effet_");
-						WriteNum(out, (float32)(ei + 1));
-						out.Append(" = ");
-						out.Append(NkEffetTypeNom(e.type));
-						out.Append(' ');
-						WriteNum(out, e.x);
-						out.Append(' ');
-						WriteNum(out, e.y);
-						out.Append(' ');
-						WriteNum(out, e.flou);
-						out.Append(' ');
-						WriteNum(out, e.etendue);
-						out.Append(' ');
-						out.Append(e.couleur.Empty() ? "-" : e.couleur.Data());
-						out.Append(' ');
-						WriteNum(out, e.opacite);
-						out.Append(' ');
-						out.Append(e.visible ? "1" : "0");
-						out.Append('\n');
-					}
-					if (!n.alignText.Empty())
-						Field(out, "texte_aligne", n.alignText.Data());
-					if (!n.target.Empty())
-						Field(out, "cible", n.target.Data());
-					if (!n.transposeDe.Empty())
-						Field(out, "transpose_de", n.transposeDe.Data());
-					if (n.radius != 0.f) {
-						out.Append("  rayon = ");
-						WriteNum(out, n.radius);
-						out.Append('\n');
-					}
-					// LA ROTATION ET LES DEUX MIROIRS : ecrits SEULEMENT s'ils ne
-					// valent pas leur defaut -- meme discipline additive que
-					// `position`, `shape` et les trois listes.
-					if (n.rotation != 0.f) {
-						out.Append("  rotation = ");
-						WriteNum(out, n.rotation);
-						out.Append('\n');
-					}
-					if (n.miroirH)
-						out.Append("  miroir_h = 1\n");
-					if (n.miroirV)
-						out.Append("  miroir_v = 1\n");
-					// Additifs : rien n'est écrit tant qu'ils valent leur défaut,
-					// donc un document d'avant se réenregistre OCTET POUR OCTET.
-					if (n.verrouille)
-						out.Append("  verrouille = 1\n");
-					if (n.masque)
-						out.Append("  masque = 1\n");
-					if (n.borderW != 0.f && n.borders.Empty()) {
-						out.Append("  bordure = ");
-						WriteNum(out, n.borderW);
-						out.Append('\n');
-					}
-					if (n.fontPx != 0.f) {
-						out.Append("  police_px = ");
-						WriteNum(out, n.fontPx);
-						out.Append('\n');
-					}
-					if (n.fontWeight != 0.f) {
-						out.Append("  graisse = ");
-						WriteNum(out, n.fontWeight);
-						out.Append('\n');
-					}
-					Field(out, "auteur", NkAuthorName(n.prov.author));
-					Field(out, "verifiee", n.prov.verified ? "1" : "0");
-					Field(out, "corrigee", n.prov.corrected ? "1" : "0");
-					Field(out, "origine", n.prov.origin.Data());
-					WriteOverrides(out, n.instance);
+					Field(out, "auteur", dc.identite.auteur.Data());
+					Field(out, "nom", dc.identite.nom.Data());
+					Field(out, "version", dc.identite.version.Data());
+					// `derive_de` n'existe QUE sur un fork : c'est le lien sans
+					// lequel un fork serait indiscernable d'une creation.
+					if (!dc.identite.deriveDe.Empty())
+						Field(out, "derive_de", dc.identite.deriveDe.Data());
+					for (uint32 k = 0; k < (uint32)dc.arbre.Size(); ++k)
+						EcrireNoeud(out, dc.arbre[k], k, "dnoeud");
 				}
+
+				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
+					EcrireNoeud(out, nodes[i], i, "noeud");
 			}
 
 			/// Rend `true` si l'en-tete a ete vu, qu'au moins une racine existe, et
@@ -1655,6 +1835,14 @@ namespace nkuidesign {
 				bool sawHeader = false;
 				bool inNode = false;
 				NkVector<NkVector<int32>> childLists;
+				/// Vrai entre `composant N` et le prochain `noeud` : les `dnoeud`
+				/// et les cles d'identite appartiennent alors a la declaration.
+				bool dansDecl = false;
+				/// Les listes d'enfants des nœuds de DECLARATION, dans l'ordre de
+				/// lecture toutes declarations confondues. Meme role que
+				/// `childLists` : `enfants` est la seule verite sur la structure,
+				/// `parent` s'en deduit.
+				NkVector<NkVector<int32>> declChildLists;
 				NkString pendingOverrides;
 				const char *p = text;
 				char key[48], val[256];
@@ -1690,6 +1878,34 @@ namespace nkuidesign {
 						nodes.PushBack(NkUINode());
 						childLists.PushBack(NkVector<int32>());
 						inNode = true;
+						dansDecl = false;
+					} else if (StrEq(key, "composant") && !inNode) {
+						// ── UNE DECLARATION S'OUVRE ──────────────────────────
+						// ⚠️ `&& !inNode` EST LA MOITIE QUI COMPTE : `composant`
+						//    est DEJA une cle de nœud (le composant DE CODE).
+						//    Sans cette garde, chaque nœud du document ouvrirait
+						//    une declaration vide -- les deux notions se
+						//    marcheraient dessus au premier fichier lu, ce qui
+						//    est exactement ce que le modele §15.1 interdit.
+						declarations.PushBack(NkDeclarationComposant());
+						dansDecl = true;
+					} else if (StrEq(key, "dnoeud") && dansDecl) {
+						FlushOverrides(pendingOverrides, inNode);
+						declarations[(uint32)declarations.Size() - 1].arbre.PushBack(NkUINode());
+						declChildLists.PushBack(NkVector<int32>());
+						inNode = true;
+					} else if (dansDecl && !inNode) {
+						// ── L'IDENTITE DE LA DECLARATION EN COURS ────────────
+						NkIdentiteComposant &id =
+							declarations[(uint32)declarations.Size() - 1].identite;
+						if (StrEq(key, "auteur"))
+							id.auteur = NkString(val);
+						else if (StrEq(key, "nom"))
+							id.nom = NkString(val);
+						else if (StrEq(key, "version"))
+							id.version = NkString(val);
+						else if (StrEq(key, "derive_de"))
+							id.deriveDe = NkString(val);
 					} else if (!inNode) {
 						// ── En-tete du document ──
 						if (StrEq(key, "titre"))
@@ -1726,7 +1942,17 @@ namespace nkuidesign {
 								SetMetric(mname, ParseNum(rest));
 						}
 					} else {
-						NkUINode &n = nodes[(uint32)nodes.Size() - 1];
+						// ⚠️ LE MEME ANALYSEUR SERT LES DEUX ARBRES, et c'est le
+						//    point : les nœuds d'une declaration se lisent avec le
+						//    lecteur du document, pas avec une copie. Une seconde
+						//    copie aurait diverge au premier champ ajoute.
+						NkUINode &n =
+							dansDecl
+								? declarations[(uint32)declarations.Size() - 1]
+									  .arbre[(uint32)declarations[(uint32)declarations.Size() - 1]
+												 .arbre.Size()
+											 - 1]
+								: nodes[(uint32)nodes.Size() - 1];
 						if (StrEq(key, "libelle"))
 							n.label = NkString(val);
 						else if (key[0] == 't' && key[1] == 'e' && key[2] == 'x' && key[3] == 't'
@@ -1744,7 +1970,9 @@ namespace nkuidesign {
 									(*outUnknown)++;
 							}
 						} else if (StrEq(key, "enfants"))
-							ParseIntList(val, childLists[(uint32)childLists.Size() - 1]);
+							ParseIntList(val, dansDecl
+											 ? declChildLists[(uint32)declChildLists.Size() - 1]
+											 : childLists[(uint32)childLists.Size() - 1]);
 						else if (StrEq(key, "largeur"))
 							ParseAxis(val, n.width);
 						else if (StrEq(key, "hauteur"))
@@ -1948,6 +2176,10 @@ namespace nkuidesign {
 							n.verrouille = (val[0] == '1');
 						else if (StrEq(key, "masque"))
 							n.masque = (val[0] == '1');
+						else if (StrEq(key, "instance"))
+							n.instanceDe = NkString(val);
+						else if (StrEq(key, "ecarts"))
+							n.ecarts = (nkentseu::uint32)ParseNum(val);
 						else if (StrEq(key, "bordure"))
 							n.borderW = ParseNum(val);
 						else if (StrEq(key, "police_px"))
@@ -1989,6 +2221,33 @@ namespace nkuidesign {
 				for (uint32 i = 1; i < (uint32)nodes.Size(); ++i)
 					if (nodes[i].parent < 0)
 						return false; // noeud orphelin : structure incoherente
+				// ── LES ARBRES DES DECLARATIONS, MEME REGLE ─────────────────
+				// `declChildLists` court sur TOUTES les declarations dans l'ordre
+				// de lecture : on le reparcourt declaration par declaration, avec
+				// un decalage. Les indices d'`enfants` sont INTERNES a l'arbre.
+				{
+					uint32 base = 0;
+					for (uint32 d = 0; d < (uint32)declarations.Size(); ++d) {
+						NkVector<NkUINode> &a = declarations[d].arbre;
+						for (uint32 i = 0; i < (uint32)a.Size(); ++i) {
+							const uint32 li = base + i;
+							if (li >= (uint32)declChildLists.Size())
+								break;
+							for (uint32 c = 0; c < (uint32)declChildLists[li].Size(); ++c) {
+								const int32 kid = declChildLists[li][c];
+								if (kid <= 0 || (uint32)kid >= (uint32)a.Size()
+									|| a[(uint32)kid].parent >= 0)
+									return false; // enfant inconnu, racine reparentee, ou deux parents
+								a[i].children.PushBack(kid);
+								a[(uint32)kid].parent = (int32)i;
+							}
+						}
+						for (uint32 i = 1; i < (uint32)a.Size(); ++i)
+							if (a[i].parent < 0)
+								return false; // nœud orphelin dans une declaration
+						base += (uint32)a.Size();
+					}
+				}
 				return true;
 			}
 
