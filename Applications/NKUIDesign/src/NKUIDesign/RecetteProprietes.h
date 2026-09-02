@@ -466,6 +466,61 @@ namespace nkuidesign {
 						  pose && dansLeTexte && voyage && retire, d5);
 				}
 
+				// ═══ 7. LE PLANTAGE DE RODOLF : LES DEUX BRANCHES RESTANTES ═══
+				// 🔴 IL A SIGNALE LE DEFAUT UNE SECONDE FOIS, sur le binaire
+				//    CORRIGE. La sortie franche n'avait donc ferme qu'UNE branche
+				//    (la liste a plusieurs entrees). Ce cas exerce les deux que
+				//    personne n'avait jouees :
+				//      (a) la CLE SIMPLE -- `borderColor` seule, pas de liste ;
+				//      (b) la DERNIERE entree d'une liste -- apres retrait la
+				//          liste devient VIDE, et `simple` reste faux.
+				// ⚠️ ON REDESSINE APRES CHAQUE CLIC : c'est l'image suivante qui
+				//    paie un indice perime, jamais celle du clic.
+				{
+					// (a) LA CLE SIMPLE
+					NkUINode &nd = st.doc.nodes[(uint32)rc];
+					nd.borders.Clear();
+					nd.borderColor = NkString("#abcdef");
+					nd.borderW = 3.f;
+					const bool viseS =
+						CliquerPoubelleDuHaut(ctx, insp, 0, st.doc.nodes[(uint32)rc], 0u);
+					// deux images de plus : la ligne 2 et la resynchro des tampons
+					Image(ctx, insp, -500.f, -500.f, false, 0);
+					Image(ctx, insp, -500.f, -500.f, false, 0);
+					const bool videeS = st.doc.nodes[(uint32)rc].borderColor.Empty()
+										&& st.doc.nodes[(uint32)rc].borderW == 0.f;
+
+					// (b) LA DERNIERE ENTREE D'UNE LISTE
+					NkBordure seule;
+					seule.couleur = NkString("#fedcba");
+					seule.epaisseur = 5.f;
+					st.doc.nodes[(uint32)rc].borderColor = NkString();
+					st.doc.nodes[(uint32)rc].borderW = 0.f;
+					st.doc.nodes[(uint32)rc].borders.Clear();
+					st.doc.nodes[(uint32)rc].borders.PushBack(seule);
+					const bool viseD =
+						CliquerPoubelleDuHaut(ctx, insp, 0, st.doc.nodes[(uint32)rc], 1u);
+					Image(ctx, insp, -500.f, -500.f, false, 0);
+					Image(ctx, insp, -500.f, -500.f, false, 0);
+					const bool videeD = st.doc.nodes[(uint32)rc].borders.Empty();
+
+					// ⚠️ `viseS` N'EST PAS UNE EXIGENCE ICI, et c'est une limite
+					//    de HARNAIS, pas du code : `CliquerPoubelleDuHaut` juge le
+					//    succes sur la TAILLE DE LA LISTE, or la cle simple n'a
+					//    pas de liste -- il rend donc faux sur un geste qui a
+					//    parfaitement agi. *L'EFFET est ce qui compte* : les cles
+					//    sont-elles videes ? Exiger `viseS` aurait fait rougir le
+					//    cas sur ma propre mesure, pas sur un defaut.
+					char d7[208];
+					snprintf(d7, sizeof(d7),
+							 "cle simple : cles videes=%d (visee=%d, non exige : le harnais "
+							 "juge sur la liste) ; derniere entree : visee=%d, liste vide=%d",
+							 videeS ? 1 : 0, viseS ? 1 : 0, viseD ? 1 : 0, videeD ? 1 : 0);
+					check("7. BORDURES : la CLE SIMPLE et la DERNIERE ENTREE se retirent sans "
+						  "que l'image suivante lise une case perimee",
+						  videeS && viseD && videeD, d7);
+				}
+
 								// ═══ 6. LA DICHOTOMIE : CHAQUE CHAMP REPOND, OU RIEN ═══
 								// 🔑 L'exigence de Rodolf : « chaque propriete doit fonctionner ».
 								//    On le MESURE par le geste au lieu de le supposer. Un champ qui

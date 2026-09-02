@@ -63,6 +63,25 @@ def plus_recente():
     return pire
 
 
+# 🔴 ELLE NE SURVEILLAIT QU'UN BINAIRE, ET C'EST LA MOITIE DES CAS (02/09).
+#    Rodolf a signale un plantage deja corrige ; la premiere piste fut le
+#    Release, date de la VEILLE, pendant que le Debug etait a jour. La garde,
+#    elle, ne regardait que le Debug -- elle disait donc « a jour » sur un
+#    dossier ou dormait un executable d'hier.
+#    ⚠️ *Une garde qui surveille un seul des deux livrables laisse passer
+#       exactement la moitie des cas* -- et c'est le livrable qu'on N'A PAS
+#       construit qui part chez l'utilisateur, puisque c'est celui qu'on oublie.
+#    Elle les liste desormais TOUS LES DEUX : celui qu'on juge doit etre a
+#    jour, et l'AUTRE est signale s'il est perime, sans faire echouer (on ne
+#    reconstruit pas le Release a chaque essai du Debug -- mais on sait).
+AUTRES = [u"Debug", u"Release"]
+
+
+def exe_de(config):
+    return os.path.join(RACINE, u"Build", u"Bin", config + u"-Windows", u"NKUIDesign",
+                        u"NKUIDesign.exe")
+
+
 def principal():
     if not os.path.isfile(EXE):
         print(u"binaire INTROUVABLE : %s" % EXE)
@@ -70,11 +89,26 @@ def principal():
     t_exe = os.path.getmtime(EXE)
     t_src, chemin = plus_recente()
     if chemin is not None and t_src > t_exe:
-        print(u"REFUS DE JUGER : le binaire est PERIME de %.0f s." % (t_src - t_exe))
+        print(u"REFUS DE JUGER : le binaire %s est PERIME de %.0f s." % (CONFIG, t_src - t_exe))
         print(u"   source plus recente : %s" % os.path.relpath(chemin, RACINE))
         print(u"   rebatir d'abord — un verdict lu maintenant serait celui d'un autre code.")
         return 2
-    print(u"binaire a jour (exe plus recent que toute source de %.0f s)." % (t_exe - t_src))
+    print(u"binaire %s a jour (plus recent que toute source de %.0f s)." % (CONFIG,
+                                                                           t_exe - t_src))
+    # L'AUTRE livrable : signale, jamais fatal.
+    for c in AUTRES:
+        if c == CONFIG:
+            continue
+        e = exe_de(c)
+        if not os.path.isfile(e):
+            print(u"   ⚠️  %s : ABSENT — si Rodolf lance celui-la, il ne lance rien de toi." % c)
+        elif os.path.getmtime(e) < t_src:
+            ecart = (t_src - os.path.getmtime(e)) / 3600.0
+            print(u"   ⚠️  %s : PERIME de %.1f h — *un correctif compile mais non deploye est"
+                  % (c, ecart))
+            print(u"       indistinguable d'un correctif absent pour celui qui teste.*")
+        else:
+            print(u"   %s : a jour aussi." % c)
     return 0
 
 
