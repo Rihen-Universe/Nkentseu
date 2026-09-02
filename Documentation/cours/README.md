@@ -1,4 +1,6 @@
-# Cours — NkCanvas & NKGui
+# Construire avec Nkentseu
+
+> De la première ligne de C à dix applications complètes.
 
 Construire des applications et des jeux avec le moteur Nkentseu.
 Cours complet pour débutants, en français, du dépôt jusqu'à l'application finie.
@@ -45,7 +47,7 @@ README.
 
 ## Formats
 
-- **PDF** : `Cours_NkCanvas_NKGui.pdf` (203 pages) — la version composée, à lire.
+- **PDF** : `Construire_avec_Nkentseu.pdf` (203 pages) — la version composée, à lire.
 - **Markdown** : `md/` — la même matière, lisible sur GitHub et modifiable.
 - **Source** : `tex/` — LaTeX (XeLaTeX), un fichier par chapitre dans
   `tex/chapitres/`.

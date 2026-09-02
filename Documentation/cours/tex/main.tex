@@ -25,20 +25,35 @@
 % « chapitre 10 », les fichiers aussi -- la numerotation imprimee doit dire
 % la meme chose, sinon chaque renvoi interne serait decale d'un cran.
 \setcounter{chapter}{-1}
+% --- Ce qu'on installe et ce qu'on lance, avant d'ecrire une ligne.
+\part{Les outils}
 \input{chapitres/00-avant-propos}
 \input{chapitres/00a-nkcode}
+
+% --- Le C, puis le C++ -- et ce que Nkentseu en garde.
+\part{Les langages}
 \input{chapitres/00b-le-c}
 \input{chapitres/00c-le-cpp}
+
+% --- La pile, le rendu 2D, l'interface, et la coquille d'application.
+\part{Le moteur}
 \input{chapitres/01-le-decor}
 \input{chapitres/02-nkcanvas}
 \input{chapitres/03-nkgui}
 \input{chapitres/04-application}
 \input{chapitres/04b-coquille}
+
+% --- Images, polices, son, video, reseau.
+\part{Les modules}
 \input{chapitres/05-nkimage}
 \input{chapitres/06-nkfont}
 \input{chapitres/07-nkaudio}
 \input{chapitres/08-nkmedia}
 \input{chapitres/09-nknetwork}
+
+% --- Des applications completes, pas a pas.
+\part{Cas pratiques}
 \input{chapitres/10-projet-final}
+
 
 \end{document}
