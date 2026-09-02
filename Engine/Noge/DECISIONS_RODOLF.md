@@ -4,6 +4,55 @@
 > Branche `feat/noge-inventaire`, arbre `Nkentseu-noge`.
 > **Mise en ordre du 2026-09-02, en fin de journée.**
 
+> # 🚨 RODOLF — LE BINAIRE EST ENFIN À JOUR. RELANCE.
+>
+> **Tes deux essais ne testaient pas le correctif** : tes wasm dataient de
+> **09h13 et 10h41**, le correctif de **22h50**. Tu n'as jamais eu le bon binaire
+> entre les mains. **Les deux arbres sont reconstruits (23h25 et 23h27, 30/30) et
+> j'ai vérifié que le correctif est DANS les fichiers**, pas seulement qu'il
+> compile.
+>
+> **Peu importe le port : les DEUX arbres sont corrects maintenant.**
+>
+> ```
+> Build\Bin\Release-Web\renderdemo\renderdemo.bat 9002
+> http://localhost:9002/renderdemo.html?demo=2
+> ```
+>
+> ### 🔑 LE TÉMOIN — une ligne, dans la console, qui ne peut pas mentir
+>
+> ```
+> [NkRHI_GL] budget d'unites de texture : 17 demandees pour 16 accordees
+>            -> PCSS retire (repli PCF 3x3), 16 restantes
+> ```
+>
+> **Si tu vois cette ligne, tu es sur le bon binaire et le correctif s'est
+> déclenché.** Elle n'existe que depuis ce soir, et elle s'imprime sur le chemin
+> NORMAL — pas sur un échec.
+>
+> ⚠️ **N'utilise PAS « absence de `[WebDiag]` » comme témoin, je me suis
+> corrigé** : le message `link FAIL` porte lui aussi l'étiquette `[WebDiag]` et
+> il n'est **pas** conditionné par le drapeau de diagnostic. Voir des `[WebDiag]`
+> ne dirait donc pas « vieux binaire », ça pourrait aussi dire « nouveau binaire,
+> et ça a encore échoué » — *un témoin qui confond deux causes ne tranche rien.*
+>
+> ### Ce que tu dois voir si le correctif tient
+>
+> - **plus de `link FAIL` sur `PBR`** ;
+> - la ligne **`Demo 3D | API : OpenGL`** et le panneau **`Shadow tweak`** ;
+> - **l'ombre est plus douce** — c'est le repli PCF 3×3, **c'est attendu, ce
+>   n'est pas un défaut**. Le PCSS (durcissement au contact) est retiré sur cette
+>   cible : il coûtait l'unité de texture qui manquait, et il était **déjà
+>   désactivé** par le palier de qualité mobile.
+>
+> 📌 **La leçon, et elle est structurelle** : *un correctif compilé mais non
+> déployé est indistinguable d'un correctif absent, du point de vue de celui qui
+> teste.* On a passé la journée à séparer « ça compile » de « ça tourne » — voici
+> le troisième état, entre les deux : **ça compile, ça ne tourne pas encore chez
+> toi**. Le livrable d'un correctif de cible n'est pas le commit, **c'est le
+> binaire que tu lances**.
+
+
 ## 📌 CE QUI RESTE, ET CE QUI NE T'ATTEND PLUS
 
 **Cinq des huit blocs sont tranchés.** Ils restent écrits, avec leur réponse et
