@@ -300,7 +300,18 @@ modèles dont un seul membre exerçait le sous-dossier `textures/`.
 > endroit** : `Engine/Noge/DECISIONS_RODOLF.md`, section 9. *Deux décomptes dans
 > deux documents, c'est un de trop.*
 >
-> 🔄 **Et il a bougé une deuxième fois le même soir : 5 SUR 7.** HarmonyOS est
+> 🔴 **ET IL A BAISSÉ UNE TROISIÈME FOIS, LE MÊME SOIR : 4 SUR 7.** Rodolf a
+> lancé le Web sur sa **vraie carte** : `PBR` ne se lie pas —
+> `texture image units count exceeds MAX_TEXTURE_IMAGE_UNITS(16)`, écran vide.
+> **Le vert Web est réfuté sur matériel** ; il tenait sur une image obtenue en
+> **rendu logiciel** (SwiftShader accorde plus de 16 unités). Mesure : 27
+> échantillonneurs déclarés − 10 fusionnés = **17 pour 16 accordées** ; limite
+> franchie le **11/08 à 00h01** (tables LTC), invisible 22 jours. Vertes sur
+> matériel réel : **Windows, Android, Linux, HarmonyOS**. *Un rendu logiciel
+> valide la LOGIQUE et masque les LIMITES MATÉRIELLES.* Tout est en **section 10**
+> de `DECISIONS_RODOLF.md`.
+>
+> 🔄 **Le décompte intermédiaire de la soirée : 5 SUR 7.** HarmonyOS est
 > passé au vert le 02/09 à **19h31** — `Captures/plateforme_harmonyos_2026-09-02.jpeg`,
 > HUD lu (`Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`,
 > 17 sphères PBR + ombres portées), sur le `.hap` du 10/08 installé pendant que

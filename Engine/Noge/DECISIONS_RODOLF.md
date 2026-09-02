@@ -14,7 +14,7 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 
 | # | ce qu'il faut | de qui | coût |
 |---|---|---|---|
-| **A** ⭐ | **Confirmer le Web sur un VRAI GPU.** La cible est verte en rendu **logiciel** (SwiftShader) ; il manque une exécution sur ta carte. 🔴 **Devenu le point le plus rentable de la liste** : macOS et iOS étant bloquées par la signature, **le navigateur est le chemin Apple** — ces 2 minutes ouvrent 3 plateformes, pas une. Mode d'emploi complet au **bloc 1**. | **toi** | ~2 min de navigateur |
+| ~~**A**~~ → **A′** 🔴 | ✅ **FAIT, et ça a RÉFUTÉ le vert Web.** Tu as lancé sur ta carte : `PBR` ne se lie pas — **17 unités de texture demandées, 16 accordées**, écran vide. Le vert d'hier venait de SwiftShader, plus permissif que le matériel. **Ce qui t'attend maintenant, ce n'est plus un test, c'est une décision** : lancer la **variante réduite de `PBR`** (conçue, chiffrée **~2-3 j**, non codée). ⚠️ macOS/iOS étant bloquées par la signature, **ce défaut coûte 3 plateformes sur 7**. Tout en **section 10**. | **toi** — dire quand | ~2-3 j |
 | ~~**B**~~ | ✅ **FAIT le 02/09 à 19h31 — HarmonyOS REND LA 3D.** Tu as lancé l'émulateur, j'ai installé le `.hap` du 10/08 et **lu le HUD moi-même** : `Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres portées. **5 cibles sur 7.** ⚠️ Réserve écrite : binaire du **10/08**, donc l'image prouve « HarmonyOS rendait la 3D le 10/08 » — un re-test sur un `.hap` à jour reste à faire, **comme pour Linux**. Détail : **carte, section 9**. | — | fait |
 | **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
 | **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
@@ -30,23 +30,43 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 | 8 | le dossier `Applications/NkAnima` | **option 2** — le document a rejoint la bibliothèque, `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md` ; dossier vide retiré, aucune ligne perdue | 02/09 |
 
 📍 **La carte des 7 plateformes est en bas de cette page, section 9.**
-🗺️ **État au 02/09 au soir : 5 cibles vertes sur 7** — Windows, Android, Linux,
-Web (logiciel), **HarmonyOS (ce soir)**. Restent **macOS** et **iOS**, et elles
-ne sont **pas en retard : elles sont 🔒 BLOQUÉES PAR LA SIGNATURE DE CODE.** La CI
-**construit** les deux, personne ne peut **exécuter** l'artefact. Ce n'est pas un
-correctif moteur, c'est un compte développeur Apple.
+🗺️ **État au 02/09 au soir : 4 cibles vertes sur matériel réel** — Windows,
+Android, Linux, **HarmonyOS (ce soir)**.
+🔴 **Le Web a été RÉFUTÉ sur ta vraie carte** : `PBR` demande **17** unités de
+texture, WebGL2 en accorde **16** — pas de PBR, écran vide. Le vert d'hier venait
+d'un **rendu logiciel**, plus permissif que le matériel. **Section 10** : mesure,
+datation (le shader a franchi la limite le **11/08 à 00h01**), doublure conçue,
+banc spécifié.
+🔒 **macOS et iOS ne sont pas en retard : elles sont BLOQUÉES PAR LA SIGNATURE DE
+CODE.** La CI **construit** les deux, personne ne peut **exécuter** l'artefact.
+Ce n'est pas un correctif moteur, c'est un compte développeur Apple.
 
 > 🔴 **CONSÉQUENCE QUI CHANGE UNE PRIORITÉ — le Web EST le chemin Apple.**
 > Tant que la signature bloque, c'est **par le navigateur** qu'un utilisateur
-> macOS ou iOS verra tourner le moteur. Le **point A** ci-dessus n'est donc plus
-> une septième case à cocher : c'est **la seule voie ouverte vers deux
-> plateformes sur sept**. Ces deux minutes valent plus cher que leur durée.
+> macOS ou iOS verra tourner le moteur.
+> ⚠️ **Et c'est précisément ce chemin-là qui vient d'être réfuté** (section 10).
+> Le défaut `PBR`/16 unités ne bloque donc pas une cible sur sept : il bloque
+> **la seule voie ouverte vers trois d'entre elles**. C'est ce qui en fait le
+> point le plus rentable de tout le dossier.
 
 ---
 
-## 1. ⭐ L'IMAGE WEB — 🟡 VERT AVEC RÉSERVE ; il te reste 2 minutes à donner
+## 1. 🔴 L'IMAGE WEB — **RÉFUTÉE SUR VRAI GPU** le 02/09 au soir
 
-> ### 🟡 RÉPONDU LE 2026-09-02 — la cible est VERTE, la réserve est nommée
+> ### 🔴 LE VERT DE CE BLOC EST TOMBÉ — lis la section 10 avant ce qui suit
+> Sur ta vraie carte : `FRAGMENT shader texture image units count exceeds
+> MAX_TEXTURE_IMAGE_UNITS(16)` → `PBR` ne se lie pas → **écran vide**.
+> Mesure : `pbr.frag.nksl` déclare **27** échantillonneurs, la fusion des cookies
+> en retire **10**, il en reste **17** pour **16** accordées. **Une de trop.**
+> Le shader a franchi la limite le **11/08 à 00h01** et personne ne l'a su
+> pendant 22 jours, parce que le seul web jamais exécuté (SwiftShader) en accorde
+> plus de 16.
+>
+> 📌 **Le texte ci-dessous n'est pas effacé** : la capture était vraie, la chaîne
+> logicielle est bel et bien correcte, et le mode d'emploi reste valable pour le
+> jour où la variante réduite sera là. *On ne corrige pas un journal, on le date.*
+
+> ### 🟡 CE QUI AVAIT ÉTÉ ÉCRIT LE MATIN — vrai en logiciel, réfuté sur matériel
 > **Ce qui a été obtenu depuis que ce bloc a été écrit** :
 > `Captures/plateforme_web_2026-09-02.png` — HUD lu ligne à ligne :
 > `Demo 3D | API : …`, panneau `Shadow tweak` (`VSM atlas 4096 px`),
@@ -74,6 +94,29 @@ elle initialise entièrement, elle exécute 22 passes par image, et il n'y a **p
 une seule erreur** dans le journal. Ce qui manque n'est pas du code : c'est **un
 vrai GPU**. Je n'ai que SwiftShader (rendu logiciel), trop lent pour aboutir, et
 je ne touche pas à ta carte pendant qu'Ilyana s'entraîne.
+
+> # 🚨 9002. PAS 9001.
+> ### La consigne était déjà écrite plus bas, et elle a raté : tu as testé sur **9001**, donc le **Debug**.
+> On l'a su à tes `[WebDiag]` qui inondaient la console — ils sont **éteints en
+> Release**. Le défaut `PBR` est **indépendant du build** (il aurait rougi
+> pareil), donc **ton verdict tient**. Mais la prochaine mesure ne doit pas se
+> jouer là-dessus : une consigne enterrée sous vingt lignes n'est pas une
+> consigne, c'est une note d'espoir.
+>
+> ```
+> Build\Bin\Release-Web\renderdemo\renderdemo.bat 9002
+> http://localhost:9002/renderdemo.html?demo=2
+> ```
+>
+> **Le témoin qui tranche en une ligne** — la taille du wasm :
+> `curl -s -o NUL -w "%{size_download}\n" http://localhost:9002/renderdemo.wasm`
+> **27 444 289 = Release ✅** · **35 052 605 = Debug ❌ (tu es sur l'ancien serveur)**
+>
+> 📌 *Le piège n'est pas d'oublier le port : c'est que `renderdemo.bat` prend
+> **9001 par défaut**, échoue à réserver le port **sans le dire**, et ouvre quand
+> même ton navigateur — sur le serveur de quelqu'un d'autre. **Un échec muet qui
+> ouvre quand même une fenêtre est pire qu'un échec** : il fabrique un faux
+> témoin qui a l'air juste.*
 
 ⚠️ **LIS ÇA D'ABORD — un serveur tourne DÉJÀ sur le port 9001** (PID 30152), et
 il sert l'arbre **Debug** (vérifié : il rend un wasm de 35 052 605 octets, exactement
@@ -471,7 +514,13 @@ application (`Applications/NkAnimaEditor`) et un document mal rangé.
 
 ---
 
-## 9. 🗺️ LA CARTE DES 7 PLATEFORMES — **5 vertes**, et ce qu'il faut pour les 2 autres
+## 9. 🗺️ LA CARTE DES 7 PLATEFORMES — **4 vertes sur matériel réel**, et ce qu'il faut pour les 3 autres
+
+> 🔄 **Compte révisé le 02/09 au soir, à la baisse.** On a dit « 5 sur 7 » pendant
+> quelques heures : le Web y était compté sur une image obtenue en **rendu
+> logiciel**. Le test sur ta vraie carte l'a **réfuté** — `PBR` ne se lie pas
+> (17 unités de texture demandées, 16 accordées). **Section 10.**
+> Vertes sur matériel réel : **Windows, Android, Linux, HarmonyOS**.
 
 > **Ce qui est mesuré ici, c'est le chemin 3D** (`NKRHI` + `NKRenderer`) — le seul
 > que Noge emprunte. ⚠️ **Le socle 2D (`NKCanvas`) est porté sur les sept** : la
@@ -509,7 +558,7 @@ application (`Applications/NkAnimaEditor`) et un document mal rangé.
 | 1 | **Windows** | ✅ | backend de référence, `plateforme_windows.png` (29/07, 142,1 FPS) | — |
 | 2 | **Android** | ✅ | `Captures/nk_android_demo3d.png` — 18 sphères PBR, ombres, **59 FPS**, `VSM atlas 4096 px` | — (⚠️ textures **procédurales**, pas file-based) |
 | 3 | **Linux** | ✅ | `Captures/plateforme_linux.png` (29/07, 15h38, **81,6 FPS**, HUD lu) **+ ton témoignage du 02/09** | **re-test sous WSL** — le vert date du 29/07 |
-| 4 | **Web** | 🟡 | `Captures/plateforme_web_2026-09-02.png`, HUD lu, `Draw:1093 Tris:489586` | **une exécution sur GPU réel** — celle-ci est en **rendu logiciel** |
+| 4 | **Web** | 🔴 | **ROUGE sur GPU réel** (02/09 au soir) : `PBR` ne se lie pas — `texture image units count exceeds MAX_TEXTURE_IMAGE_UNITS(16)`, écran vide. 🟡 **Vert en LOGICIEL** : `Captures/plateforme_web_2026-09-02.png` reste vraie, prise sous SwiftShader qui accorde **plus de 16** unités | **la variante réduite de `PBR`** — 17 échantillonneurs demandés pour 16 accordés. **Section 10** |
 | 5 | **HarmonyOS** | ✅ | `Captures/plateforme_harmonyos_2026-09-02.jpeg` — **HUD lu le 02/09 à 19h31** : `Demo 3D \| API : OpenGL`, panneau `Shadow tweak` (`VSM atlas 4096 px`), `FPS approx : 8.3`, 17 sphères PBR + ombres portées | **re-test sur un `.hap` à jour** — l'image vient du binaire du **10/08** |
 | 6 | **macOS** | 🔒 | **ça construit** (CI GitHub, artefact réel le 28/08) — **ça ne s'exécute pas** | 🔒 **la SIGNATURE DE CODE**, pas un correctif moteur |
 | 7 | **iOS** | 🔒 | idem — la CI produit un artefact, personne ne peut le lancer | 🔒 **signature + profil d'approvisionnement**, plus contraignant que macOS |
@@ -811,6 +860,170 @@ raison de le **relire le jour où Apple comptera**.
 
 ---
 
+## 10. 🔴 LE DÉFAUT WEB SUR VRAI GPU — `PBR` demande **17** unités de texture, la cible en donne **16**
+
+> 🗣️ **Ton verdict, 2026-09-02 au soir**, sur ta vraie carte :
+> ```
+> [NkRHI_GL][WebDiag] link FAIL:
+> FRAGMENT shader texture image units count exceeds MAX_TEXTURE_IMAGE_UNITS(16)
+> [NkShader] CreateShader fail 'PBR' (glslang : V:1 F:1)
+> ```
+> Pas de PBR → pas de sphères → **écran vide**. Le Web n'est **pas** vert.
+
+### 🔑 Ce que ça fait à la capture d'hier — réinterprétée, pas annulée
+
+`Captures/plateforme_web_2026-09-02.png` **était vraie**. Elle a été prise sous
+**SwiftShader**, qui annonce **plus de 16** unités. Elle montrait donc une chaîne
+3D correcte… dans un environnement **plus permissif que le matériel**.
+
+> 🔴 **LA LEÇON, ET ELLE VAUT BIEN AU-DELÀ DU WEB :**
+> **un rendu logiciel valide la LOGIQUE et masque les LIMITES MATÉRIELLES** —
+> unités de texture, tailles d'uniformes, formats, extensions, précisions. Un
+> vert obtenu en logiciel ne se note donc jamais « ça marche », mais
+> **« logique validée, matériel non éprouvé »**.
+>
+> C'est la famille du jour, encore : *le témoin ne varie pas comme le sujet.* Le
+> logiciel est un juge **plus généreux** que le réel — et un juge généreux ne dit
+> rien quand on franchit une limite.
+
+⚠️ **Et le coût n'est plus d'une cible.** macOS et iOS étant bloquées par la
+signature, **le navigateur est le chemin Apple**. Ce défaut ne coûte donc pas une
+plateforme : **il en coûte trois sur sept.**
+
+### 📏 LA MESURE — le compte exact, et il tombe à UN près
+
+`Resources/NKRenderer/Shaders/PBR/NkSL/pbr.frag.nksl` déclare **27
+échantillonneurs** dans l'étage fragment :
+
+| famille | n | noms |
+|---|---:|---|
+| matériau | **5** | `tAlbedo` `tNormal` `tORM` `tEmissive` `tHeight` |
+| IBL | **3** | `tEnvIrradiance` `tEnvPrefilter` `tBRDFLUT` |
+| ciel / AO volumétrique | **2** | `tSkyEnvCube` `tVoxelOpacity` |
+| ombres | **2** | `tShadowAtlas` `tShadowAtlasRaw` |
+| cookies 2D | **8** | `tLight3DCookie0..7` |
+| cookies cube | **4** | `tLight3DCubeCookie0..3` |
+| divers | **3** | `tMatcap` `tLTC1` `tLTC2` |
+| **total** | **27** | |
+
+**Une doublure existe déjà** — `NkWebMergeCookieSamplers`
+(`NkOpenglDevice.cpp:2013`) : elle **supprime les déclarations** des cookies
+`1..7` et cube `1..3`, et redirige leurs usages vers le slot 0. Elle en retire
+**10**.
+
+```
+27 déclarés  −  10 fusionnés  =  17 actifs        la cible en donne 16
+                                                  →  il en manque UNE
+```
+
+🔴 **Le commentaire du code annonce « 24 → 14 ». Il avait raison le jour où il a
+été écrit.** L'inventaire qu'il énumère compte 24 samplers — il **ne connaît pas**
+`tHeight`, `tLTC1`, `tLTC2`. Datation au `git log -S` :
+
+| date | événement | total | après fusion |
+|---|---|---:|---:|
+| **31/07** | la fusion est écrite (`22b030b6`) | 24 | **14** ✅ |
+| **10/08 22h53** | `tHeight` — parallax occlusion (`b45aba13`) | 25 | 15 ✅ |
+| **11/08 00h01** | `tLTC1` + `tLTC2` — tables LTC (`8e72961a`) | **27** | **17** 🔴 |
+
+> **Le shader a franchi la limite le 11 août à 00h01, et personne ne l'a su
+> pendant 22 jours** — parce que le seul environnement web jamais exécuté
+> (SwiftShader) en accorde plus de 16. *Un budget calculé une fois, dans un
+> commentaire, n'est pas un budget : c'est le souvenir d'un budget.* Rien ne le
+> recalculait quand le shader grossissait.
+
+✅ **Contrôle d'étendue — `PBR` est le SEUL au-dessus de 16.** Relevé sur les 25
+étages fragment du dépôt : Terrain 9, Water 6, CarPaint 6, Skin 5, Glass 5,
+SSR 4, tout le reste ≤ 3. **Le défaut est localisé, pas systémique** — bonne
+nouvelle pour le coût du correctif.
+
+### 📌 L'IRONIE UTILE — le moteur ne connaît pas sa propre limite
+
+Sur ce même chemin, `QueryCaps` rendait **« caps non disponibles »**
+(`NkDeviceFactory.cpp:132`). Mais le vrai problème est un cran plus bas, et il se
+mesure :
+
+> **`NkDeviceCaps` porte 16 champs `max*` — et AUCUN ne dit combien d'unités de
+> texture l'étage fragment peut adresser.**
+> Il connaît `maxTextureDim2D`, `maxTextureArrayLayers`, `maxColorAttachments`,
+> `maxVertexAttributes`, `maxSamplerAnisotropy`… **la seule limite qui a cassé la
+> cible est la seule qu'il ne porte pas.**
+
+**Donc le moteur ne peut pas s'y adapter, même s'il le voulait** — et c'est
+exactement ce que la règle gravée exige : *le jeu déclare une intention, le
+moteur décide.* Ici, le moteur **n'a pas la donnée pour décider**. Il ne peut que
+subir, en silence, jusqu'au `glLinkProgram`.
+
+*Parente de « ne pas poser la question vaut mieux que traiter l'erreur », prise à
+l'envers : on ne pose pas la question ET on ne traite pas l'erreur — on découvre
+la limite en la franchissant, chez toi, dans ta console.*
+
+### 🛠️ LA DOUBLURE — conçue, **non codée** (trop grosse pour un lot de rangement)
+
+**Le principe, non négociable** : *ce qui ne peut pas se faire doit avoir une
+doublure crédible, jamais un trou.* Une cible à 16 unités doit obtenir une
+**variante réduite de PBR**, choisie **par le moteur**.
+
+🚫 **Aucun `#ifdef WEB` dans le shader.** Ce serait la plateforme qui remonte
+dans le contenu — l'inverse exact de la règle. Le shader ne sait jamais où il
+tourne ; il connaît un **budget**, que le moteur lui donne.
+
+**Étape 0 — rendre la limite CONNAISSABLE** *(préalable à tout le reste)*
+Ajouter `maxFragmentTextureUnits` à `NkDeviceCaps`, renseigné par chaque backend
+(`glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS)` côté GL). ⚠️ **Avec la garde déjà
+gravée** : `glGetIntegerv` **n'écrit rien** quand il échoue — valeur de repli
+**décidée** (16, le minimum garanti par WebGL2), jamais un zéro par défaut, et
+jamais la valeur de la variable voisine.
+
+**Étape 1 — un palier « unités de texture » dans `NkRenderQuality`**
+Le profil porte le budget ; `ForTarget()` le renseigne depuis les caps. Le
+matériau demande des canaux, le moteur en accorde autant que le budget permet.
+
+**Étape 2 — la variante réduite, par ordre de sacrifice** (du moins au plus
+visible). Il faut récupérer **au moins 1** unité ; on en vise **6** de marge :
+
+| # | sacrifice | gain | coût visuel |
+|---|---|---:|---|
+| 1 | **`tShadowAtlasRaw` fusionné** avec `tShadowAtlas` (même texture, deux vues) | **1** | nul si le PCF passe par la vue *compare* |
+| 2 | **IBL fusionnée** : `tEnvIrradiance` + `tEnvPrefilter` → un seul cube, irradiance au mip le plus haut | **1** | faible — c'est l'approximation classique |
+| 3 | **`tLTC1`+`tLTC2` → un atlas 2D** (deux LUT 64×64, elles tiennent côte à côte) | **1** | nul |
+| 4 | **`tSkyEnvCube` réutilise le cube IBL** quand le ciel est la source | **1** | nul dans la démo |
+| 5 | **`tVoxelOpacity` et `tMatcap` éteints** sous budget serré (repli : AO analytique, matcap neutre) | **2** | visible, mais **crédible** — pas un trou |
+| | **total récupérable** | **6** | 27 − 10 − 6 = **11 ≤ 16** ✅ |
+
+📌 **Marge visée : 11 sur 16, pas 16 sur 16.** *Un correctif qui atteint pile la
+limite est un correctif qui recassera au prochain sampler ajouté* — c'est
+littéralement ce qui vient de se produire le 11 août.
+
+**Chiffrage : ~2 à 3 jours** (étape 0 : quelques heures ; étape 1 : une journée ;
+étape 2 : le reste, plus une capture A/B par sacrifice). 🚫 **Non lancé** — hors
+mandat, et c'est à toi de dire quand.
+
+### 🧪 LE BANC — ce défaut doit rougir à la construction, pas dans ta console
+
+**Spécification, non codée** *(même raison)* :
+
+> Pour chaque étage fragment du dépôt, compter les échantillonneurs **après** les
+> transformations de la cible (donc après `NkWebMergeCookieSamplers` pour le Web)
+> et **échouer** si le compte dépasse le budget de la cible.
+
+**Quatre exigences, et ce sont elles qui font la différence entre ce banc et un
+banc qui compte pour rien :**
+1. il compte **après transformation**, pas sur la source — sinon il mesure un
+   objet que la cible ne verra jamais ;
+2. il porte **le budget de chaque cible**, pas une constante — 16 pour
+   WebGL2/GLES, davantage sur bureau ;
+3. **contrôle positif obligatoire** : ajouter un sampler bidon à `PBR` doit le
+   faire **rougir**. Sans cette contre-épreuve, un banc qui compte mal reste vert
+   pour toujours — *un zéro n'est un résultat qu'après un contrôle positif* ;
+4. il tourne **à la construction** : la limite est statiquement connue, elle n'a
+   pas besoin d'un GPU pour être vérifiée.
+
+**Verdict attendu aujourd'hui** : `PBR` **rouge à 17/16**, les 24 autres verts.
+*C'est le seul banc de ce lot qui aurait attrapé le défaut le 11 août à 00h01.*
+
+---
+
 ## Ce qui est fait et ne t'attend pas
 
 - **Web débloqué** : garde EGL (`NK_OPENGL_ES` ne veut pas dire « EGL disponible »)
@@ -836,7 +1049,11 @@ raison de le **relire le jour où Apple comptera**.
   retiré après vérification du registre de projets, **zéro ligne perdue**.
 - **`*.nksl text eol=lf`** : les 131 shaders ont enfin une règle de fin de ligne.
 - **HarmonyOS rend la 3D** — image prise et HUD lu le 02/09 à 19h31, sur le `.hap`
-  du 10/08. **5 cibles vertes sur 7.**
+  du 10/08. **4ᵉ cible verte sur matériel réel.**
+- **Le défaut Web est NOMMÉ et DATÉ** — `PBR` demande 17 unités de texture pour
+  16 accordées ; franchi le **11/08 à 00h01** (tables LTC), invisible 22 jours
+  parce que SwiftShader en accorde plus de 16. Doublure conçue et chiffrée
+  (~2-3 j), banc spécifié. **Section 10.**
 - **`--demo 2` et `demo 2` ne retombent plus en silence sur la démo 0** — et la
   vraie cause du symptôme était le **répertoire courant** (2 erreurs en démo 0,
   **47 en démo 3D dont 18 shaders introuvables** : les deux chemins n'ont pas la
