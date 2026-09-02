@@ -14,17 +14,37 @@ une seule erreur** dans le journal. Ce qui manque n'est pas du code : c'est **un
 vrai GPU**. Je n'ai que SwiftShader (rendu logiciel), trop lent pour aboutir, et
 je ne touche pas à ta carte pendant qu'Ilyana s'entraîne.
 
+⚠️ **LIS ÇA D'ABORD — un serveur tourne DÉJÀ sur le port 9001** (PID 30152), et
+il sert l'arbre **Debug** (vérifié : il rend un wasm de 35 052 605 octets, exactement
+le fichier Debug). C'est peut-être le tien, lancé avant de te coucher : **ne le
+tue pas**, ce n'est pas nécessaire. Mais `renderdemo.bat` prend **9001 par
+défaut** — lancé sans argument, il **échouera à réserver le port sans le dire**,
+et ton navigateur s'ouvrira quand même… **sur l'ancien serveur**. Tu croirais
+tester le Release en testant le Debug. D'où le port explicite :
+
 **Ce que tu lances :**
 
 ```
-Build\Bin\Release-Web\renderdemo\renderdemo.bat
+Build\Bin\Release-Web\renderdemo\renderdemo.bat 9002
 ```
 
 puis dans ton navigateur :
 
 ```
-http://localhost:9001/renderdemo.html?demo=2
+http://localhost:9002/renderdemo.html?demo=2
 ```
+
+**Vérifie en une ligne que c'est bien le Release qui répond** — la taille du wasm
+est le témoin le plus simple :
+
+```
+curl -s -o NUL -w "%{size_download}\n" http://localhost:9002/renderdemo.wasm
+```
+
+| ce que tu lis | ce que ça veut dire |
+|---|---|
+| **27 444 289** | ✅ Release — c'est ce qu'on veut mesurer |
+| 35 052 605 | ❌ Debug — tu es sur l'ancien serveur, change de port |
 
 **Ce que tu dois regarder — pas « une image », ce HUD précisément :**
 
@@ -37,6 +57,12 @@ http://localhost:9001/renderdemo.html?demo=2
 ⚠️ Si `Draw:0 Tris:0` avec un fond uni, c'est le même état qu'HarmonyOS et il
 reste du travail. Si les triangles sortent, **la cible Web passe au vert** et on
 a 3 plateformes sur 7 prouvées en 3D au lieu de 2.
+
+🔵 **Si le résultat te surprend, le contrôle le moins cher est déjà sous ta
+main** : le Debug est servi sur `http://localhost:9001/renderdemo.html?demo=2`,
+il est à jour (reconstruit avec les mêmes correctifs) et seulement **plus lent**.
+Deux builds différents qui donnent la même image confirment le résultat ; deux
+images différentes désignent la configuration, pas le moteur.
 
 ---
 
