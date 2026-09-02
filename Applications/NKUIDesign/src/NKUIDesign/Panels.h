@@ -8481,7 +8481,7 @@ namespace nkuidesign {
 					else
 						costume::IcPanneau(dl, ix, iy, ctx.theme.accent);
 				}
-				const float32 tx = tuile.x + 28.f + 10.f;
+				const float32 tx = tuile.x + 28.f + (float32)costume::EspNormal;
 				if (sousTitre) {
 					costume::TexteGras(dl, F.px13, tx, r.y + 7.f, nom, ctx.theme.text, 0.4f);
 					char st[80];
@@ -8596,7 +8596,7 @@ namespace nkuidesign {
 				c.poubX = x1 - 36.f;
 				c.opacX = x1 - 80.f; // 30 px de champ + « % » + 5 px de garde
 				c.pastille = x0;
-				c.hexX = x0 + 20.f;
+				c.hexX = x0 + 16.f + (float32)costume::EspSerre;
 				c.hexW = c.opacX - c.hexX - 2.f;
 				if (c.hexW < 24.f)
 					c.hexW = 24.f;
@@ -9362,7 +9362,7 @@ namespace nkuidesign {
 									continue;
 								{
 									const NkRect r = ctx.NextItemRect(-1.f, 18.f);
-									costume::Texte(dl, F.px10, r.x + 20.f,
+									costume::Texte(dl, F.px10, r.x + (float32)costume::EspSection,
 												   costume::CentrerY(F.px10, r.y, 18.f),
 												   table[k].nom, ctx.theme.accent);
 								}
@@ -9747,15 +9747,17 @@ namespace nkuidesign {
 							const float32 mini = (k < 2) ? -256.f : 0.f;
 							if (ChampNombre(ctx, id, rc, *val[k], 0.5f, mini, 256.f))
 								mSt->doc.MarkHumanEdit(mSt->selected);
-							costume::Texte(dl, F.px9, rc.x + 2.f, rc.y + 21.f, etiq[k],
+							costume::Texte(dl, F.px9, rc.x + 2.f,
+										   rc.y + rc.h + (float32)costume::EspLisere, etiq[k],
 										   ctx.theme.textDisabled);
 						}
 					}
 					// ── LIGNE 3 : couleur + opacité (les colonnes du GROUPE)
 					{
-						const NkRect r = ctx.NextItemRect(-1.f, 30.f);
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 						const ColonnesRangee col = ColonnesDe(r);
-						const NkRect sw = {col.pastille, r.y + 9.f, 16.f, 16.f};
+						const NkRect sw = {col.pastille,
+										   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
 						if (mEffetsBuf[i][0]) {
 							dl.AddRectFilled(sw, CouleurHex(mEffetsBuf[i], ctx.theme.textMuted),
 											 3.f);
@@ -9767,18 +9769,19 @@ namespace nkuidesign {
 						}
 						char idHex[32];
 						snprintf(idHex, sizeof(idHex), "##insp.effet.hex%u", i);
-						ctx.SetNextItemRect({col.hexX, r.y + 7.f, col.hexW, 20.f});
+						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW,
+											 costume::HControle});
 						if (nkgui::InputText(ctx, idHex, mEffetsBuf[i], 10)) {
 							e.couleur = NkString(mEffetsBuf[i]);
 							mSt->doc.MarkHumanEdit(mSt->selected);
 						}
 						char idOp[32];
 						snprintf(idOp, sizeof(idOp), "insp.effet.op%u", i);
-						const NkRect ro = {col.opacX, r.y + 7.f, 30.f, 20.f};
+						const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};
 						if (ChampNombre(ctx, idOp, ro, e.opacite, 1.f, 0.f, 100.f))
 							mSt->doc.MarkHumanEdit(mSt->selected);
 						costume::Texte(dl, F.px9, ro.x + ro.w + 3.f,
-									   costume::CentrerY(F.px9, r.y + 7.f, 20.f), "%",
+									   costume::CentrerBande(F.px9, r.y), "%",
 									   ctx.theme.textMuted);
 					}
 				}
@@ -9841,7 +9844,8 @@ namespace nkuidesign {
 				// boîte et tronquait la valeur (mesuré sur capture).
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
 							   "Cible", ctx.theme.textMuted);
-				const NkRect rb = {x0 + 44.f, r.y + 2.f, x1 - x0 - 44.f, 20.f};
+				const NkRect rb = {x0 + costume::ColChamps, r.y + 2.f,
+								   x1 - x0 - costume::ColChamps, 20.f};
 				if (n->target.Empty()) {
 					// une page fraichement tracee : le catalogue attend son choix
 					BoiteChamp(ctx, rb, "\xE2\x80\x94 choisir un format\xE2\x80\xA6");
@@ -9976,7 +9980,8 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
 							   "Rôle", ctx.theme.textMuted);
-				const NkRect rb = {x0 + 40.f, r.y + 2.f, x1 - x0 - 40.f, 20.f};
+				const NkRect rb = {x0 + costume::ColChamps, r.y + 2.f,
+								   x1 - x0 - costume::ColChamps, 20.f};
 				BoiteChamp(ctx, rb, n->role.Empty() ? "aucun — choisir…" : n->role.Data());
 				costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 8.f, ctx.theme.textMuted);
 				// (mise en scene) attendre que la mise en page soit posee : au
@@ -10241,7 +10246,7 @@ namespace nkuidesign {
 				const float32 fy = r.y + 2.f, fh = 20.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, fy, fh), "X",
 							   ctx.theme.textMuted);
-				const NkRect rx = {x0 + 28.f, fy, colW - 28.f, fh};
+				const NkRect rx = {x0 + costume::ColMiniLabel, fy, colW - 28.f, fh};
 				const float32 xc = x0 + colW + 6.f;
 				costume::Texte(dl, F.px10, xc, costume::CentrerY(F.px10, fy, fh), "Y",
 							   ctx.theme.textMuted);
@@ -10313,7 +10318,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f), titre,
 							   ctx.theme.textMuted);
-				const NkRect rb = {x0 + 56.f, r.y + 2.f, x1 - x0 - 56.f, 20.f};
+				const NkRect rb = {x0 + costume::ColChamps, r.y + 2.f, x1 - x0 - 56.f, 20.f};
 				char b[96];
 				if (metrique)
 					snprintf(b, sizeof(b), "métrique « %s »", d.valueMetric);
@@ -10466,7 +10471,7 @@ namespace nkuidesign {
 				const float32 fy = r.y + 2.f, fh = 20.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, fy, fh), "R",
 							   ctx.theme.textMuted);
-				const NkRect rr = {x0 + 28.f, fy, colW - 28.f, fh};
+				const NkRect rr = {x0 + costume::ColMiniLabel, fy, colW - 28.f, fh};
 				const float32 xc = x0 + colW + 6.f;
 				costume::Texte(dl, F.px10, xc, costume::CentrerY(F.px10, fy, fh), "Brd",
 							   ctx.theme.textMuted);
@@ -10704,7 +10709,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
 							   libelle, ctx.theme.textMuted);
-				const NkRect rb = {x0 + 56.f, r.y + 2.f, x1 - x0 - 56.f, 20.f};
+				const NkRect rb = {x0 + costume::ColChamps, r.y + 2.f, x1 - x0 - 56.f, 20.f};
 				dl.AddRectFilled(rb, CouleurInput(), 4.f);
 				dl.AddRect(rb, ctx.theme.border, 1.f, 4.f);
 				if (hex.Empty()) {
