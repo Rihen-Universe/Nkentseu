@@ -2699,7 +2699,17 @@ namespace nkuidesign {
 						// déclencher et le DIRE.
 						mSt->ToutSelectionner();
 						Dire(mSt->status.Data(), "", "");
-					} else if (ctx.input.KeyPressed(NkGuiKey::Delete)) {
+					} else if (ctx.input.KeyPressed(NkGuiKey::Delete)
+							   && !mSt->modeForme.Actif()) {
+						// ⚠️ `&& !modeForme.Actif()` : EN MODE ÉDITION DE FORME,
+						//    `Suppr` appartient aux SOMMETS (plus bas dans cette
+						//    même fonction). Sans cette garde, les deux branches
+						//    tiraient sur la même touche dans la même image : on
+						//    retirait un sommet **et** on supprimait le nœud qui
+						//    le portait. *Un geste, deux effets, dont le second
+						//    efface tout l'objet.* C'est la même collision que le
+						//    double-clic du mode forme, tranchée du même côté :
+						//    le contexte le plus spécifique gagne.
 						if (mSt->SupprimerSelection())
 							Dire(mSt->status.Data(), "", "");
 					} else if (ctx.input.KeyPressed(NkGuiKey::Enter)) {
@@ -2818,9 +2828,121 @@ namespace nkuidesign {
 							Dire(mSt->status.Data(), "", "");
 						break;
 					}
+					// ── LES ZOOMS NOMMÉS `Ctrl+0..4` (source `/canvas`) ────────
+					// 📌 Ils attendaient un BRANCHEMENT, pas un mécanisme : la vue
+					//    savait déjà zoomer. Le seul manque réel était la
+					//    TRADUCTION de `Num3..Num6`, corrigée dans la coquille le
+					//    02/09 — l'énumération, elle, les portait déjà.
+					// ⚠️ L'ENGLOBANT SE CALCULE SUR LA DISPOSITION, PAS SUR LES
+					//    TAILLES DÉCLARÉES : sous un agencement, la position d'un
+					//    nœud est un RÉSULTAT, et additionner des `posX` donnerait
+					//    un cadre qui ne correspond à rien de visible.
+					// ⚠️ ET CHAQUE TOUCHE DIT CE QU'ELLE A FAIT, y compris quand
+					//    elle ne peut rien faire (« rien à ajuster ») : une touche
+					//    muette se lit comme une panne.
+					if (ctx.input.ctrlDown) {
+						auto englobantDe = [&](bool selectionSeule) -> NkPaintRect {
+							NkPaintRect b{0.f, 0.f, 0.f, 0.f};
+							bool premier = true;
+							for (uint32 k = 1; k < (uint32)mSt->doc.nodes.Size(); ++k) {
+								if (!mSt->layout.Has((int32)k))
+									continue;
+								if (selectionSeule && !mSt->sel.Contains((int32)k))
+									continue;
+								const NkPaintRect r = mSt->layout.At((int32)k);
+								if (premier) {
+									b = r;
+									premier = false;
+									continue;
+								}
+								const float32 x1 = b.x < r.x ? b.x : r.x;
+								const float32 y1 = b.y < r.y ? b.y : r.y;
+								const float32 x2 =
+									(b.x + b.w) > (r.x + r.w) ? (b.x + b.w) : (r.x + r.w);
+								const float32 y2 =
+									(b.y + b.h) > (r.y + r.h) ? (b.y + b.h) : (r.y + r.h);
+								b = {x1, y1, x2 - x1, y2 - y1};
+							}
+							return b;
+						};
+						if (ctx.input.KeyPressed(NkGuiKey::Num0)) {
+							mSt->view.Zoom100();
+							Dire("Zoom 100 %.", "", "");
+						} else if (ctx.input.KeyPressed(NkGuiKey::Num1)) {
+							Dire(mSt->view.AjusterSur(englobantDe(false), 0u)
+									 ? "Vue ajustée sur tout le document."
+									 : "Rien à ajuster : le document est vide.",
+								 "", "");
+						} else if (ctx.input.KeyPressed(NkGuiKey::Num2)) {
+							Dire(mSt->view.AjusterSur(englobantDe(true), 0u)
+									 ? "Vue ajustée sur la sélection."
+									 : "Rien à ajuster : la sélection est vide.",
+								 "", "");
+						} else if (ctx.input.KeyPressed(NkGuiKey::Num3)) {
+							Dire(mSt->view.AjusterSur(englobantDe(false), 1u)
+									 ? "Vue ajustée sur la LARGEUR."
+									 : "Rien à ajuster : le document est vide.",
+								 "", "");
+						} else if (ctx.input.KeyPressed(NkGuiKey::Num4)) {
+							Dire(mSt->view.AjusterSur(englobantDe(false), 2u)
+									 ? "Vue ajustée sur la HAUTEUR."
+									 : "Rien à ajuster : le document est vide.",
+								 "", "");
+						}
+					}
 				}
 				// ÉCHAP annule le tracé en cours (Lunacy), et le DIT.
-				if (mCreating && ctx.input.KeyPressed(NkGuiKey::Escape)) {
+				// ── `Suppr` SUR UN SOMMET (source `/editing_shapes`) ───────────
+				// 📌 `NkSupprimerSommet` EXISTAIT DEPUIS LE 01/09 et **aucun geste
+				//    ne l'appelait** : le document de référence le notait
+				//    « le mécanisme existe, la porte manque ». Du robinet, pas un
+				//    chantier.
+				// ⚠️ IL SE LIT AVANT LE `Suppr` DE LA TOILE, ET L'ORDRE EST LA
+				//    RÈGLE : les deux écoutent la même touche. Laissé après, il
+				//    aurait supprimé le NŒUD ENTIER alors qu'on éditait un de ses
+				//    sommets — un geste, deux effets, dont le mauvais efface tout
+				//    l'objet. *Le geste le plus spécifique se lit en premier*,
+				//    comme le double-clic du mode forme.
+				// ⚠️ ET IL PARCOURT LES SOMMETS À L'ENVERS : retirer l'indice 2
+				//    puis l'indice 5 supprimerait le mauvais sommet, la liste se
+				//    décalant à chaque retrait. En descendant, les indices pas
+				//    encore traités ne bougent pas.
+				if (mSt->modeForme.Actif() && !mSt->doc.IsValidIndex(mEditNode)
+					&& ctx.popupDepth == 0 && ctx.input.KeyPressed(NkGuiKey::Delete)
+					&& mSt->doc.IsValidIndex(mSt->modeForme.noeud)) {
+					NkUINode &ns = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+					NkMaterialiserSommets(ns);
+					uint32 retires = 0, refuses = 0;
+					for (int32 k = (int32)ns.sommets.Size() - 1; k >= 0; --k) {
+						if (!mSt->modeForme.Marque(k))
+							continue;
+						if (NkSupprimerSommet(ns, (uint32)k))
+							++retires;
+						else
+							++refuses;
+					}
+					if (retires > 0) {
+						mSt->modeForme.marques = 0;
+						mSt->modeForme.sommet = -1;
+						mSt->modeForme.tire = -1;
+						mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
+						// la boite se recadre sur le trace restant -- MEME geste que
+						// le relachement d'un sommet ou d'une tangente, chemins
+						// freres traites comme un groupe.
+						(void)NkRecadrerNoeud(ns, ParentLibre(mSt->modeForme.noeud));
+						char msg[176];
+						snprintf(msg, sizeof(msg), "%u sommet(s) supprimé(s).", retires);
+						Dire(msg, "", "");
+					} else if (refuses > 0) {
+						// ⚠️ LE REFUS SE DIT. `NkSupprimerSommet` refuse sous trois
+						//    sommets — en dessous il n'y a plus de forme, seulement
+						//    un segment, et l'utilisateur aurait fait disparaître
+						//    son objet par un geste d'édition. Une touche qui ne
+						//    fait rien SANS RIEN DIRE se lit comme une panne.
+						Dire("Suppression refusée : un tracé garde au moins trois sommets.", "",
+							 "");
+					}
+				} else if (mCreating && ctx.input.KeyPressed(NkGuiKey::Escape)) {
 					mCreating = false;
 					Dire("Tracé annulé.", "", "");
 				} else if (mSt->modeForme.noeud >= 0 && !mSt->doc.IsValidIndex(mEditNode)

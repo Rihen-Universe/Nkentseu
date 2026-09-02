@@ -3667,6 +3667,146 @@ static nkentseu::int32 RecettePoints() {
 				dd);
 	}
 
+	// ── 51. `Suppr` SUR UN SOMMET : LE PLANCHER, ET LE SENS DE PARCOURS ──────
+	// Source `/editing_shapes`. `NkSupprimerSommet` existait depuis le 01/09 et
+	// AUCUN geste ne l'appelait -- du robinet, pas un chantier.
+	//
+	// ⚠️ LE VOLET (c) EST CELUI QUI COMPTE, et il est invisible a la relecture :
+	//    supprimer PLUSIEURS sommets marques demande de parcourir A L'ENVERS.
+	//    Retirer l'indice 1 puis l'indice 2 supprime le MAUVAIS sommet, la liste
+	//    s'etant decalee entre-temps -- et le resultat reste un trace
+	//    parfaitement valide, donc rien ne proteste. On mesure donc QUEL sommet
+	//    survit, jamais combien il en reste.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iE = poser("etoile", nullptr);
+		NkUINode &n = st.doc.nodes[(uint32)iE];
+		NkMaterialiserSommets(n);
+		const uint32 nb0 = (uint32)n.sommets.Size();
+		// (a) UN SOMMET S'EN VA, ET LE COMPTE BAISSE D'EXACTEMENT UN.
+		const bool un = NkSupprimerSommet(n, 0u) && (uint32)n.sommets.Size() == nb0 - 1u;
+		// (b) LE PLANCHER : on descend jusqu'a trois, puis ca REFUSE. En dessous
+		//     il n'y a plus de forme, seulement un segment -- l'utilisateur aurait
+		//     fait disparaitre son objet par un geste d'edition.
+		uint32 garde = 0;
+		while (n.sommets.Size() > 3u && garde++ < 64u)
+			(void)NkSupprimerSommet(n, 0u);
+		const bool plancher = (uint32)n.sommets.Size() == 3u && !NkSupprimerSommet(n, 0u)
+							  && (uint32)n.sommets.Size() == 3u;
+		// (c) ⚠️ LE SENS DE PARCOURS, sur une forme neuve : on retire les indices
+		//     2 PUIS 1, en DESCENDANT. Le sommet qui portait (tx,ty) doit avoir
+		//     disparu, et celui qui portait (gx,gy) -- son voisin d'apres -- doit
+		//     avoir SURVECU. Un parcours croissant retirerait 1, puis l'ancien 2
+		//     devenu 1 : il emporterait le voisin, et le trace resterait valide.
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iF = poser("etoile", nullptr);
+		NkUINode &m = st.doc.nodes[(uint32)iF];
+		NkMaterialiserSommets(m);
+		const float32 tx = m.sommets[2].x, ty = m.sommets[2].y; // doit DISPARAITRE
+		const float32 gx = m.sommets[3].x, gy = m.sommets[3].y; // doit SURVIVRE
+		for (int32 k = 2; k >= 1; --k)
+			(void)NkSupprimerSommet(m, (uint32)k);
+		bool disparu = true, survivant = false;
+		for (uint32 k = 0; k < (uint32)m.sommets.Size(); ++k) {
+			if (m.sommets[k].x == tx && m.sommets[k].y == ty)
+				disparu = false;
+			if (m.sommets[k].x == gx && m.sommets[k].y == gy)
+				survivant = true;
+		}
+		const bool bonSens = disparu && survivant;
+		// (d) UN INDICE HORS BORNES REFUSE FRANCHEMENT, sans rien toucher.
+		const uint32 avantHb = (uint32)m.sommets.Size();
+		const bool horsBornes = !NkSupprimerSommet(m, 999u)
+								&& (uint32)m.sommets.Size() == avantHb;
+		char dd[240];
+		snprintf(dd, sizeof(dd), "%u sommets ; un retire=%d ; plancher a 3 refuse=%d ; sens "
+							   "descendant : le vise a disparu=%d le voisin a survecu=%d ; hors "
+							   "bornes refuse=%d",
+				 nb0, un ? 1 : 0, plancher ? 1 : 0, disparu ? 1 : 0, survivant ? 1 : 0,
+				 horsBornes ? 1 : 0);
+		verdict("51. `Suppr` SUR UN SOMMET : le compte baisse d'un, le trace garde un PLANCHER de "
+				"trois sommets (refus franc), et la suppression multiple parcourt A L'ENVERS -- "
+				"sinon elle emporte le sommet VOISIN sans que rien ne proteste",
+				un && plancher && bonSens && horsBornes, dd);
+	}
+
+	// ── 52. LES ZOOMS NOMMES : MESURES SUR CE QU'ON VOIT, PAS SUR `zoom` ─────
+	// Source `/canvas` : Ctrl+0 = 100 %, Ctrl+1 = ajuster, Ctrl+2 = selection,
+	// Ctrl+3 = largeur, Ctrl+4 = hauteur.
+	//
+	// 🔴 CE CAS N'ASSERTE PAS `view.zoom == quelque chose`, ET C'EST DELIBERE.
+	//    *Un compteur d'intentions n'est pas un controle d'effets* : le facteur
+	//    d'echelle est la valeur qu'on vient d'ecrire. Ce qu'un utilisateur
+	//    demande en pressant « ajuster », c'est QUE LA FORME SOIT VISIBLE. On
+	//    projette donc le rectangle document a l'ECRAN et on verifie qu'il tombe
+	//    DANS le viewport -- ce qui teste l'echelle ET le recadrage ensemble.
+	{
+		NkCanvasView v;
+		v.viewport = {0.f, 0.f, 800.f, 600.f};
+		// une forme LOIN de l'origine et bien plus grande que l'ecran : au depart
+		// elle est franchement hors champ.
+		// ⚠️ LA CIBLE EST PLUS HAUTE QUE LARGE, ET CE N'EST PAS UN DETAIL DE
+		//    DECOR : avec un rectangle large, la hauteur ne contraint pas, donc
+		//    le mode 0 et le mode LARGEUR rendent LA MEME echelle -- et le volet
+		//    (d) ne discrimine plus rien. Mesure : avec {2400 x 1200} la mutation
+		//    « le mode largeur ne recentre plus » passait le banc au vert.
+		//    *Une donnee d'essai degeneree rend un volet vide sans le dire.*
+		const NkPaintRect cible{4000.f, 3000.f, 1200.f, 2400.f};
+		auto dedans = [&](const NkPaintRect &d) -> bool {
+			const NkPaintRect s = v.ToScreen(d);
+			return s.x >= v.viewport.x - 0.5f && s.y >= v.viewport.y - 0.5f
+				   && s.x + s.w <= v.viewport.x + v.viewport.w + 0.5f
+				   && s.y + s.h <= v.viewport.y + v.viewport.h + 0.5f;
+		};
+		// (a) LE TEMOIN : avant d'ajuster, la forme n'est PAS visible. Sans lui,
+		//     « elle est dedans » ne prouverait rien -- elle aurait pu y etre.
+		const bool horsAvant = !dedans(cible);
+		// (b) AJUSTER : elle tombe ENTIEREMENT dans le viewport.
+		const bool ajuste = v.AjusterSur(cible, 0u) && dedans(cible);
+		// (c) LA MARGE EXISTE : la forme ne touche pas les bords. Un ajustement
+		//     au pixel colle la forme aux quatre cotes et donne l'impression
+		//     qu'elle deborde.
+		const NkPaintRect s = v.ToScreen(cible);
+		const bool marge = s.x > v.viewport.x + 1.f || s.y > v.viewport.y + 1.f;
+		// (d) LE MODE LARGEUR remplit la largeur, et RECENTRE quand meme en
+		//     hauteur -- le mode choisit l'echelle, pas le cadrage.
+		v.AjusterSur(cible, 1u);
+		const NkPaintRect sl = v.ToScreen(cible);
+		const bool largeur = sl.w > v.viewport.w * 0.9f && sl.w <= v.viewport.w + 0.5f;
+		const float32 cySl = sl.y + sl.h * 0.5f;
+		const bool recentre = cySl > v.viewport.h * 0.5f - 1.f
+							  && cySl < v.viewport.h * 0.5f + 1.f;
+		// (e) ZOOM 100 % NE PERD PAS LA VUE : le point document du CENTRE reste
+		//     au centre. Remettre `zoom = 1` sans recaler ferait sauter le
+		//     document hors de l'ecran -- et le banc l'aurait laisse passer s'il
+		//     n'avait regarde que `zoom == 1`.
+		const float32 avantX = v.ToDocX(v.viewport.w * 0.5f);
+		const float32 avantY = v.ToDocY(v.viewport.h * 0.5f);
+		v.Zoom100();
+		const float32 apresX = v.ToDocX(v.viewport.w * 0.5f);
+		const float32 apresY = v.ToDocY(v.viewport.h * 0.5f);
+		const float32 dc = NkLongueur2D(apresX - avantX, apresY - avantY);
+		const bool centreTenu = v.zoom > 0.999f && v.zoom < 1.001f && dc < 0.01f;
+		// (f) UN RECTANGLE NUL REFUSE FRANCHEMENT, sans rien toucher : selection
+		//     vide, document neuf. Sans cette garde on divise par zero et on
+		//     propage des NaN jusqu'au deplacement -- la toile disparaitrait sans
+		//     message.
+		const float32 zAvant = v.zoom;
+		const bool refuse = !v.AjusterSur(NkPaintRect{0.f, 0.f, 0.f, 0.f}, 0u)
+							&& v.zoom == zAvant;
+		char dd[240];
+		snprintf(dd, sizeof(dd), "hors champ avant=%d ; ajuste -> dedans=%d marge=%d ; largeur "
+							   "remplie=%d recentre=%d ; 100%% : zoom=%.3f centre derive de "
+							   "%.4f (=%d) ; rect nul refuse=%d",
+				 horsAvant ? 1 : 0, ajuste ? 1 : 0, marge ? 1 : 0, largeur ? 1 : 0,
+				 recentre ? 1 : 0, (double)v.zoom, (double)dc, centreTenu ? 1 : 0,
+				 refuse ? 1 : 0);
+		verdict("52. LES ZOOMS NOMMES se mesurent sur CE QU'ON VOIT : apres « ajuster » la forme "
+				"tombe entierement dans le viewport (avec sa marge), le mode largeur recentre "
+				"quand meme, « 100 % » ne perd pas le centre, et un rectangle nul est refuse",
+				horsAvant && ajuste && marge && largeur && recentre && centreTenu && refuse, dd);
+	}
+
 	printf("\nRECETTE POINTS : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

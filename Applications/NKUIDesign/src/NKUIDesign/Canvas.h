@@ -125,6 +125,60 @@ namespace nkuidesign {
 				panX += screenDX;
 				panY += screenDY;
 			}
+
+			// ── LES ZOOMS NOMMES (Ctrl+0..4, source `/canvas`) ───────────────
+			/// ZOOM 100 % — l'echelle 1, sans perdre ce qu'on regardait.
+			/// ⚠️ ET C'EST LA MOITIE QUI COMPTE : remettre `zoom = 1` en laissant
+			///    `panX/panY` tels quels ferait SAUTER le document hors de l'ecran
+			///    des qu'on revient d'un zoom fort. On passe donc par `ZoomAt` sur
+			///    le CENTRE du viewport — ce zoom-ci n'est qu'un cas particulier
+			///    de celui de la molette, et il herite de son recalage.
+			void Zoom100() {
+				ZoomAt(1.f / (zoom > 0.f ? zoom : 1.f), viewport.x + viewport.w * 0.5f,
+					   viewport.y + viewport.h * 0.5f);
+			}
+
+			/// AJUSTER la vue sur un rectangle DOCUMENT. `mode` : 0 = les deux
+			/// dimensions, 1 = la LARGEUR seule, 2 = la HAUTEUR seule.
+			///
+			/// ⚠️ TROIS GARDES, ET AUCUNE N'EST THEORIQUE :
+			///   - un rectangle de taille NULLE (selection vide, document neuf)
+			///     ferait une division par zero et propagerait des NaN jusqu'a
+			///     `panX` — la toile disparaitrait sans message. On refuse, et le
+			///     retour le DIT ;
+			///   - l'echelle se BORNE comme partout ailleurs
+			///     (`MinZoom`/`MaxZoom`) : ajuster sur un point minuscule
+			///     demanderait un zoom de plusieurs milliers ;
+			///   - une MARGE de 4 %, parce qu'un ajustement au pixel colle la
+			///     forme aux quatre bords et donne l'impression qu'elle deborde.
+			///
+			/// ⚠️ ET LE CENTRAGE SE FAIT SUR LES DEUX AXES MEME EN MODE LARGEUR :
+			///    ajuster la largeur sans recentrer verticalement laisserait la
+			///    forme hors champ en hauteur. Le mode choisit l'ECHELLE, pas le
+			///    cadrage.
+			/// @return faux si le rectangle ne permet pas d'ajuster (rien n'est
+			///         touche) — *une commande qui ne fait rien doit le dire.*
+			bool AjusterSur(const NkPaintRect &cible, nkentseu::uint32 mode = 0) {
+				if (!(cible.w > 0.f) || !(cible.h > 0.f) || !(viewport.w > 0.f)
+					|| !(viewport.h > 0.f))
+					return false;
+				const float32 kMarge = 0.96f;
+				const float32 zx = viewport.w * kMarge / cible.w;
+				const float32 zy = viewport.h * kMarge / cible.h;
+				float32 z = (mode == 1u) ? zx : (mode == 2u) ? zy : (zx < zy ? zx : zy);
+				if (z < MinZoom())
+					z = MinZoom();
+				if (z > MaxZoom())
+					z = MaxZoom();
+				zoom = z;
+				// centrer : le centre du rectangle document tombe au centre du
+				// viewport, sur les DEUX axes quel que soit le mode.
+				const float32 cx = cible.x + cible.w * 0.5f;
+				const float32 cy = cible.y + cible.h * 0.5f;
+				panX = viewport.w * 0.5f - cx * zoom;
+				panY = viewport.h * 0.5f - cy * zoom;
+				return true;
+			}
 	};
 
 } // namespace nkuidesign
