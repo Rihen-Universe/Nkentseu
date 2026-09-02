@@ -130,46 +130,79 @@ avec un arbre propre et une vérification après. Pas maintenant.
 
 ---
 
-## 5. 🔎 « Sur HarmonyOS et Linux j'ai vu, même sur Web » — ce que le dépôt confirme
+## 5. 🔎 Ton témoignage, et ce que la relecture change
 
-Tu as posé la réserve toi-même, donc je l'ai traitée comme un indice, pas comme
-une contestation. Résultat de la fouille :
+**Ce que tu as dit** (2026-09-02) : *« sur HarmonyOS et Linux j'ai vu, même sur
+Web »*, puis *« j'ai donc testé la démo `--demo=` ce jour-là, ce qui a fonctionné
+sur toutes les plateformes sauf iOS et macOS »*, et sur le chemin : **« NKRHI,
+NKRenderer »** — donc le bon, celui qui porte Noge. Tu posais toi-même la
+réserve « il faut encore vérifier ». Je l'ai traité comme un indice.
 
-### ✅ LINUX : trace trouvée, et c'est le BON chemin
+### ✅ LINUX : trace trouvée, et c'est le bon chemin
 
 **`Captures/plateforme_linux.png`**, **29/07 à 15h38** — citée nulle part, elle
-dormait dans le dépôt. C'est la scène 3D complète : ligne `Demo 3D | API :
-OpenGL`, panneau `Shadow tweak` avec `VSM atlas 4096 px`, sphères PBR, ombres
-portées, cubes instanciés. **81,6 FPS.** Et `[Phase H] Texture file-based :
-test_pattern.png LOAD OK` — les textures fichier marchent, là où Android tombait
-en `fallback procedural`.
+dormait dans le dépôt. Scène 3D complète : `Demo 3D | API : OpenGL`, panneau
+`Shadow tweak` (`VSM atlas 4096 px`), sphères PBR, ombres portées, **81,6 FPS**,
+et `[Phase H] Texture file-based : test_pattern.png LOAD OK`.
 
-⭐ **Elle a une jumelle** : `plateforme_windows.png`, **15h34**, soit *quatre
-minutes plus tôt* — **exactement la même scène, le même cadrage**, à **142,1
-FPS**. C'est une comparaison Windows/Linux délibérée, faite en une session.
+⭐ **Jumelle** : `plateforme_windows.png`, **15h34** — même scène, même cadrage,
+**142,1 FPS**. Une comparaison Windows/Linux délibérée, en une session.
 
-⚠️ **Le seul trou, et je te le dis plutôt que de l'arrondir** : rien *dans
-l'image* ne nomme le système. L'attribution « Linux » repose sur le nom du
-fichier et sur l'appariement. **Un mot de toi suffit à fermer ça** — et si tu
-confirmes, Linux passe de « affirmé sans preuve » à **prouvé**, soit 3 cibles
-sur 7 en 3D.
+⚠️ Rien *dans l'image* ne nomme le système : l'attribution repose sur le nom du
+fichier et l'appariement. **Un mot de toi la ferme.**
 
-### ❌ HARMONYOS et WEB : rien trouvé, et ce n'est pas « ça n'a jamais marché »
+### 🔴 HARMONYOS : je m'étais trompé, et voici la date exacte de l'explication
 
-Balayage de tous les arbres : les seules captures sont celles que je connais —
-HarmonyOS montre le HUD sans géométrie, Web une couleur unie. **Je n'ai pas
-trouvé de trace ; ta mémoire porte peut-être ce que le dépôt ne garde pas.**
+J'avais classé HarmonyOS en échec. **Relecture faite, le verdict était mal
+cadré** — et ce que je citais (`Draw:0 Tris:0`) est le témoin qu'on sait
+maintenant sans valeur.
 
-📌 **Et pour HarmonyOS il y a une explication vérifiable** : son canal de
-sélection de démo est mort (le bac à sable NEXT ne monte pas `/data/local/tmp`),
-et la démo par défaut est figée **à la compilation**. Ce que tu y as vu dépend
-donc entièrement de **quel binaire était installé ce jour-là**.
+Relu avec le bon témoin : **aucune ligne `Demo 3D`**, **aucun panneau
+`Shadow tweak`**, **aucun `FPS approx`**. Et `PLATEFORMES_ETAT.md:182` le dit
+lui-même : *« IDENTIQUE au HUD renderdemo (**demo 0 Subsystems**) »*.
 
-**Ma question, précise, pour ne pas te faire chercher :**
-- **quelle application** exactement (`renderdemo` ? un des jeux ?) — c'est le
-  point décisif : les jeux passent par NKCanvas, qui ne prouve rien pour Noge ;
-- **à quelle époque**, même approximative ;
-- **ce que tu voyais** : des sphères avec des ombres, ou des formes 2D colorées ?
+> **Cette capture montre la démo 0. Elle n'a jamais exercé la 3D.** Ce n'est pas
+> une preuve que la 3D échoue sur HarmonyOS — c'est une preuve qu'elle n'a pas
+> été testée.
+
+**Et la chronologie explique tout l'écart avec ton souvenir :**
+
+| date | événement |
+|---|---|
+| **29/07 19h09** | la capture HarmonyOS est prise → **démo 0** |
+| **09/08 23h33** | commit `a762bda8` — *« demo 3D par defaut »*, pose `NK_DEFAULT_DEMO=2` |
+
+**La capture précède de onze jours le correctif qui fait démarrer HarmonyOS en
+3D.** Ton souvenir et ma mesure ne se contredisent pas : ils parlent de deux
+binaires différents. **HarmonyOS repasse de ❌ à ❔.**
+
+### 🔴 WEB : même relecture, même conclusion
+
+`PLATEFORMES_ETAT.md:158-162` dit `Execute frame=1 : passes=1` et *« screenshot
+pris **trop tôt**, virtual-time-budget »*. Ma mesure d'aujourd'hui donne **22
+passes par image**. La capture a été prise **à la première image, une seule
+passe** : elle testait la création du contexte, pas le rendu 3D. **Web aussi
+repasse de ❌ à ❔.**
+
+### 🛠️ HarmonyOS : le chemin praticable, pour quand le GPU sera libre
+
+Il n'y a **aucun `.hap` construit** aujourd'hui — il faut le refaire. Bonne
+nouvelle : **tu n'as plus rien à sélectionner**, la démo 3D est figée à la
+compilation depuis le 09/08.
+
+```
+jenga build --target renderdemo --platform HarmonyOS --config Release
+```
+
+puis installe le `.hap` produit sous `Build/Bin/Release-HarmonyOS/renderdemo/`
+sur l'émulateur, et lance.
+
+**Ce que tu dois voir** — et surtout **plus jamais `Draw:`/`Tris:`** :
+
+| ce que tu cherches | verdict |
+|---|---|
+| ligne **`Demo 3D \| API : ...`** + panneau **`Shadow tweak`** | ✅ la 3D tourne |
+| aplat uni + seulement `Active: R2D\|R3D\|TEXT\|OVERLAY`, sans ligne `Demo 3D` | ❌ c'est la démo 0, comme en juillet |
 
 ---
 

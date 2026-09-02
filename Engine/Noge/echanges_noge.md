@@ -286,9 +286,9 @@ modèles dont un seul membre exerçait le sous-dossier `textures/`.
 |---|---|---|
 | **Windows** | 📄 ✓ | 📄 ✓ **image 3D** (backend de référence) |
 | **Android** | 📄 ✓ | ✅ ✓ **image 3D — vérifiée de mes yeux**, PBR + ombres, 59 FPS |
-| **Web** | ✅ ✓ **4 jeux 2D livrés en `.wasm`** (GemCrush 3,27 Mo, Dames, Échecs, Ludo) | 🟡 **construit et lie depuis aujourd'hui** (30/30) — **image 3D non prouvée** |
-| **HarmonyOS** | 📄 ✓ (Mou, Pong, jeux de plateau) | ✅ **couleur d'effacement + HUD, `Draw:0 Tris:0`** — pas d'image 3D |
-| **Linux** | 📄 ✓ | 🟡 affirmé, **aucune capture trouvée** |
+| **Web** | ✅ ✓ **4 jeux 2D livrés en `.wasm`** (GemCrush 3,27 Mo, Dames, Échecs, Ludo) | ❓ **construit et lie** (30/30) — la capture connue est prise à **frame=1, passes=1** : elle n'a **jamais exercé** la 3D |
+| **HarmonyOS** | 📄 ✓ (Mou, Pong, jeux de plateau) | ❓ la capture connue montre la **démo 0 (Subsystems)**, pas la démo 3D : elle n'a **jamais exercé** la 3D |
+| **Linux** | 📄 ✓ | 🟡 **capture 3D TROUVÉE** (`plateforme_linux.png`, 29/07, 81,6 FPS, bon chemin) — reste à confirmer que c'est bien Linux |
 | **macOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
 | **iOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
 
@@ -327,11 +327,28 @@ Ilyana. *Ne pas promettre une cible après une correction d'une ligne.*
   plus forte du dossier.** ⚠️ Une ligne du HUD compte pour la mesure 3 :
   `[Phase H] Texture file-based : fallback procedural` — **textures procédurales,
   pas des fichiers.**
-- ✅ **HarmonyOS — `nk_harmony_renderdemo.jpeg`** : fond **vert uni**, HUD
-  `Draw:0 Tris:0 Batches:0`. **Zéro triangle.** Le moteur vit, la surface
-  présente, le texte 2D s'affiche — la 3D n'est pas prouvée.
-- ✅ **Web — `nk_web_headless.png`** : **1280×720 d'une seule couleur**, celle du
-  clear `(0.05, 0.05, 0.07)`. Aucune géométrie.
+- ⚠️ **HarmonyOS — `nk_harmony_renderdemo.jpeg` — RELU LE 2026-09-02, et mon
+  verdict initial était MAL CADRÉ.** Relecture avec le bon témoin : **aucune
+  ligne `Demo 3D | API :`**, **aucun panneau `Shadow tweak`**, **aucun
+  `FPS approx`** — seulement `Draw:0 …` en haut et `Active: R2D|R3D|TEXT|OVERLAY`
+  en bas, sur un aplat vert. Or `PLATEFORMES_ETAT.md:182` le dit lui-même :
+  *« IDENTIQUE au HUD renderdemo (**demo 0 Subsystems**) »*.
+  🔴 **Cette capture montre la démo 0. Elle n'a donc JAMAIS exercé la 3D.**
+  Ce n'est pas une preuve que la 3D échoue sur HarmonyOS : c'est une preuve
+  qu'elle n'a pas été testée. J'avais écrit « pas d'image 3D » en citant
+  `Draw:0 Tris:0` — un témoin qu'on sait maintenant sans valeur.
+- ⚠️ **Web — `nk_web_headless.png` — MÊME RELECTURE, même conclusion.** Le
+  document dit `Execute frame=1 : passes=1` et *« screenshot pris **trop tôt**,
+  virtual-time-budget »* (`PLATEFORMES_ETAT.md:158-162`). À comparer à ma mesure
+  d'aujourd'hui : **22 passes par image**. La capture a été prise à la
+  **première image, avec une seule passe** — avant que la scène 3D n'existe.
+  🔴 **Elle testait la création du contexte, pas le rendu 3D.**
+
+> 📌 **Ce que la relecture change, et c'est net** : mes deux ❌ deviennent des
+> ❓. Ni HarmonyOS ni Web n'ont de capture qui **échoue** à rendre la 3D — ils
+> ont des captures qui **ne l'ont jamais demandée**. *Un témoin invalidé
+> contamine tout ce qu'il a jugé*, et il fallait aller le chercher ailleurs
+> qu'à l'endroit où il m'avait mordu.
 
 ### Ce que je ne peux pas vérifier depuis cette machine, et je le dis
 
