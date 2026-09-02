@@ -1128,7 +1128,9 @@ pose et matrices en `NkVector` **au nombre réel d'os**. Le plafond
 
 **Consommateurs** : recensés, migrés, reconstruits, **exécutés** — Noge 39/39,
 LocomotionDemo 9/0, AssetIODemo **55/0** (textures 3/3 comprises),
-SystemsRevivalTest **34/0**, NavDemo et EditableMeshDemo reconstruits.
+SystemsRevivalTest **34/0**, NavDemo et EditableMeshDemo reconstruits. **Nogee
+(le plus gros consommateur applicatif) : 45/45 SUCCESS** — la reconstruction
+des consommateurs est close.
 
 ⚠️ **Le recensement par nom de type a raté un consommateur** : `NkAssetIODemo`
 atteint le type par un membre (`scene.skeletons[0].boneCount`) sans jamais
