@@ -113,7 +113,8 @@ doc ? »* La réponse honnête est un **nombre qui bouge**, pas un « oui ».
 | 2026-09-02 (verrou/masque + `Suppr` sommet + zooms) | 174 | 68 | 25 | 80 | 1 |
 | 2026-09-02 (les deux icônes — vague 2 CLOSE) | 174 | 69 | 24 | 80 | 1 |
 | 2026-09-02 (composants, étapes 1-3) | 174 | 70 | 26 | 77 | 1 |
-| **2026-09-02 (le GESTE d'extraction)** | **174** | **71** | **25** | **77** | **1** |
+| 2026-09-02 (le GESTE d'extraction) | 174 | 71 | 25 | 77 | 1 |
+| **2026-09-02 (interface des surcharges)** | **174** | **72** | **24** | **77** | **1** |
 
 **Comment le recompter soi-même**, sans rien croire sur parole :
 
@@ -738,7 +739,7 @@ Source : `/components`.
 |---|---|---|---|
 | Créer un composant | `Ctrl+Alt+K` | ✅ **livré le 02/09 — modèle ET geste** | `ExtraireComposant`, atteint par **trois portes** : le menu contextuel, `Ctrl+Alt+K`, et le dispatcher commun. ⚠️ Le cas ne l'appelle **pas** directement : il part d'une sélection réelle, demande à la table ce que la combinaison signifie, passe par le dispatcher et regarde le document — *un geste qui n'existe pas ne devient pas vrai parce que la fonction dessous est éprouvée*. ⚠️ La condition de déclenchement était écrite d'avance et elle est **tenue** : extraction et détachement sont arrivés dans le **même lot**. Le composant prend le **libellé du nœud** pour nom, et son auteur reste vide — il est **local au document**, l'identité se pose au partage |
 | Poser une instance | glisser depuis le panneau | 🟡 **partiel** | notre **palette** pose des composants **déclarés** (`content_browser`, `tree_view`) — mais ce sont des composants **de code**, pas des composants **de document**. Deux notions voisines à ne pas confondre |
-| Surcharges acceptées par une instance | déplier l'instance | 🟡 **partiel — le modèle les porte** | `NkUINode::ecarts`, un **masque de bits, une propriété par bit** (remplissages, bordures, effets, texte, apparence, taille) — *« extraction par PROPRIÉTÉ, pas en bloc »*, comme la note du 01/09 l'avait tranché. ⚠️ Un **masque** plutôt qu'une copie des valeurs : le nœud porte déjà tous les champs, le bit dit seulement lequel fait foi — une seconde table aurait été une deuxième vérité. **Ce qui manque : l'interface** qui distingue une propriété surchargée d'une héritée |
+| Surcharges acceptées par une instance | déplier l'instance | ✅ **livré le 02/09 — modèle ET interface** | `NkUINode::ecarts`, un **masque de bits, une propriété par bit** — *« extraction par PROPRIÉTÉ, pas en bloc »*, comme la note du 01/09 l'avait tranché. L'Inspecteur **liste** ce qui est surchargé et offre **Réinitialiser** par propriété. ⚠️ Les noms viennent d'une **table** que le cas garde alignée sur l'énumération : un bit sans nom serait une **surcharge invisible**, ni voyable ni réinitialisable (mutation qui tombe). ⚠️ Réinitialiser retire le **bit**, pas la **valeur** — écraser la valeur déciderait à la place de la propagation, non tranchée (Q51) |
 | Détacher | `Ctrl+Alt+D` → devient un groupe | ✅ **livré le 02/09 — modèle ET bouton** | `DetacherInstance` + le bouton **« Détacher »** de l'Inspecteur. ⚠️ Les écarts sont **FUSIONNÉS**, pas jetés : une instance dont le texte a été surchargé garde **son** texte — jeter les écarts aurait été une perte de travail silencieuse. ⚠️ Garde centrale : l'aller-retour **extraire → détacher est NEUTRE**, comparé sur une forme canonique et non sur les indices (`RemoveSubtree` renumérote). Mutation qui tombe |
 | Réinitialiser les surcharges | bouton | ❌ **absent** |  |
 | Le composant se propage à ses instances **sauf** là où une surcharge existe | — | ❌ **absent** | ⚠️ **c'est LA règle de fond** : une surcharge gagne sur la mise à jour. Sans elle, mettre à jour un composant écraserait le travail fait sur chaque instance |

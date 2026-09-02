@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **71** | **25** | **77** | **1** |
+| **174** | **72** | **24** | **77** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -52,7 +52,7 @@ main** — la prochaine régénération l'effacerait.*
 | 6. Transformations | 13 | 1 | 7 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
 | 8. Propriétés | 10 | 5 | 21 | 0 |
-| 9. Composants et instances | 2 | 2 | 6 | 0 |
+| 9. Composants et instances | 3 | 1 | 6 | 0 |
 
 ### La liste nommée — PARTIELS
 
@@ -100,7 +100,6 @@ main** — la prochaine régénération l'effacerait.*
 **9. Composants et instances**
 
 - Poser une instance
-- Surcharges acceptées par une instance
 
 ### La liste nommée — ABSENTS
 
@@ -312,7 +311,7 @@ aucun blocage moteur.
 | **Dégradés + remplissage image** | 3 lignes de §8, très visibles en maquette | **moyen** |
 | **Texte : ajustement auto, troncature, décorations** | ~8 lignes de §8 | **moyen**, découpable en petits lots |
 | **Opérations booléennes** (tracé à **contours multiples**) | **les 8 lignes de §3** + la vectorisation du texte | **gros** — le maillon du remplissage est fait, il reste le modèle |
-| **Composants de document** | ✅ **socle POSÉ le 02/09** (étapes 1-3 du `15_…`) : modèle + format additif + identité d'auteur + **porte de fork**, extraire/détacher **ensemble** avec l'aller-retour neutre, et le retour visuel. **Le GESTE existe** (menu + `Ctrl+Alt+K` + dispatcher), donc Rodolf peut créer un composant à la main. Le chapitre 9 passe de **0/10** à **2 livrés + 2 partiels** | **reste moyen** — l'interface des **surcharges**, puis les **états** (⚠️ à réconcilier avec le mécanisme voisin des composants de code **avant** d'en écrire un troisième) |
+| **Composants de document** | ✅ **socle POSÉ le 02/09** (étapes 1-3 du `15_…`) : modèle + format additif + identité d'auteur + **porte de fork**, extraire/détacher **ensemble** avec l'aller-retour neutre, et le retour visuel. **Le GESTE existe** (menu + `Ctrl+Alt+K` + dispatcher), donc Rodolf peut créer un composant à la main. Le chapitre 9 passe de **0/10** à **3 livrés + 1 partiel** | **reste moyen** — puis les **états** (⚠️ à réconcilier avec le mécanisme voisin des composants de code **avant** d'en écrire un troisième) |
 
 ### (c) 🔧 DU ROBINET — le mécanisme existe, il n'est pas branché
 

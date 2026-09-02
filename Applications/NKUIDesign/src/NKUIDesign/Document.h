@@ -946,6 +946,36 @@ namespace nkuidesign {
 			NkVector<NkUINode> arbre; ///< racine = indice 0
 	};
 
+	/// LA TABLE DES ECARTS : un bit, un nom lisible.
+	///
+	/// 🔴 ELLE EXISTE POUR QU'UN BIT NE PUISSE PAS DEVENIR UNE SURCHARGE
+	///    INVISIBLE. Le jour ou quelqu'un ajoute un `EcartRotation` a
+	///    l'enumeration sans l'ajouter ici, l'utilisateur aurait une propriete
+	///    surchargee que l'interface ne sait pas nommer -- donc qu'il ne peut ni
+	///    voir ni reinitialiser, et qui expliquerait sans raison visible pourquoi
+	///    son instance ne suit plus sa declaration. Meme famille que « une entree
+	///    qui n'agit pas porte sa raison » : *ce que le modele porte, l'interface
+	///    doit pouvoir le nommer.*
+	/// ⚠️ ET UN CAS DE RECETTE EXIGE QUE LA TABLE COUVRE TOUTE L'ENUMERATION.
+	///    Sans lui, cette regle ne serait qu'un commentaire.
+	struct NkEcartNomme {
+			nkentseu::uint32 bit;
+			const char *nom;
+	};
+
+	inline const NkEcartNomme *NkTousLesEcarts(nkentseu::uint32 &nb) {
+		static const NkEcartNomme kTable[] = {
+			{NkUINode::EcartRemplissages, "Remplissages"},
+			{NkUINode::EcartBordures, "Bordures"},
+			{NkUINode::EcartEffets, "Effets"},
+			{NkUINode::EcartTexte, "Texte"},
+			{NkUINode::EcartApparence, "Apparence"},
+			{NkUINode::EcartTaille, "Taille"},
+		};
+		nb = (nkentseu::uint32)(sizeof(kTable) / sizeof(kTable[0]));
+		return kTable;
+	}
+
 	/// LA PORTE DE LA REGLE DE FORK — consultee **avant toute ecriture** sur une
 	/// declaration, jamais dispersee aux sites d'appel (meme discipline que
 	/// `NkNoeudAttrapable`).

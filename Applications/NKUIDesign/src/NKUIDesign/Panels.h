@@ -9182,7 +9182,57 @@ namespace nkuidesign {
 									   "Taille FIXE pour l'instant : nos sommets sont relatifs "
 									   "à la boîte, donc étirer une instance déformerait son "
 									   "tracé (juste pour une flèche, faux pour un bouton à "
-									   "coins arrondis). L'ancrage lèvera cette limite.");
+								   "coins arrondis). L'ancrage lèvera cette limite.");
+					// ── LES SURCHARGES : CE QUI NE SUIT PLUS LA DÉCLARATION ──
+					// 🔴 *Une propriété surchargée doit se distinguer d'une
+					//    propriété héritée, sinon personne ne sait pourquoi une
+					//    instance ne suit plus sa déclaration* (`12_…` §12.3(d)).
+					//    C'est la moitié qui rend la règle « une surcharge gagne
+					//    sur la mise à jour » compréhensible : sans elle, la règle
+					//    agit dans le dos de l'utilisateur.
+					// ⚠️ LES NOMS VIENNENT DE `NkTousLesEcarts`, PAS D'UNE LISTE
+					//    ÉCRITE ICI : un bit ajouté à l'énumération sans nom
+					//    deviendrait une surcharge INVISIBLE — impossible à voir,
+					//    impossible à réinitialiser. Un cas exige que la table
+					//    couvre toute l'énumération.
+					{
+						uint32 nbE = 0;
+						const NkEcartNomme *table = NkTousLesEcarts(nbE);
+						if (n->ecarts == 0u)
+							nkgui::TextWrapped(ctx, "Aucune surcharge : cette instance suit "
+													"entièrement sa déclaration.");
+						else {
+							nkgui::TextWrapped(ctx, "Surchargé (ne suit plus la déclaration) :");
+							for (uint32 k = 0; k < nbE; ++k) {
+								if (!n->Surcharge(table[k].bit))
+									continue;
+								{
+									const NkRect r = ctx.NextItemRect(-1.f, 18.f);
+									costume::Texte(dl, F.px10, r.x + 20.f,
+												   costume::CentrerY(F.px10, r.y, 18.f),
+												   table[k].nom, ctx.theme.accent);
+								}
+								char id[64];
+								snprintf(id, sizeof(id), "insp.compo.reinit.%u", k);
+								if (designkit::Button(ctx, "Réinitialiser", id)) {
+									// ⚠️ ON RETIRE LE BIT, ON NE TOUCHE PAS À LA
+									//    VALEUR : la propriété redevient HÉRITÉE,
+									//    et c'est la déclaration qui la fournira.
+									//    Écraser la valeur ici serait décider à la
+									//    place de la propagation — celle-là même
+									//    dont Rodolf n'a pas encore tranché la
+									//    règle (Q51).
+									n->ecarts &= ~table[k].bit;
+									mSt->doc.MarkHumanEdit(mSt->selected);
+									char msg[96];
+									snprintf(msg, sizeof(msg), "« %s » suit à nouveau la "
+															   "déclaration.",
+											 table[k].nom);
+									mSt->status = NkString(msg);
+								}
+							}
+						}
+					}
 					{
 						if (designkit::Button(ctx, "Détacher", "insp.compo.detacher")) {
 							// ⚠️ PAR LE DOCUMENT, PAS PAR UNE RÉÉCRITURE ICI : le

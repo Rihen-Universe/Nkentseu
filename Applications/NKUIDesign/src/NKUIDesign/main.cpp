@@ -1438,6 +1438,69 @@ static nkentseu::int32 RecetteGestes() {
 				traite && cree && nomme && devenue && aNous && detache && refuse, det);
 	}
 
+	// ── LES SURCHARGES SE NOMMENT, DONC ELLES SE VOIENT ──────────────────────
+	// *Une propriete surchargee doit se distinguer d'une propriete heritee, sinon
+	// personne ne sait pourquoi une instance ne suit plus sa declaration.*
+	//
+	// 🔴 CE CAS GARDE LA TABLE DES NOMS ALIGNEE SUR L'ENUMERATION, et c'est son
+	//    seul objet. Le jour ou quelqu'un ajoute un `EcartRotation` sans l'ajouter
+	//    a `NkTousLesEcarts`, l'utilisateur aurait une propriete surchargee que
+	//    l'interface ne sait pas NOMMER -- donc qu'il ne peut ni voir ni
+	//    reinitialiser, et qui expliquerait sans raison visible pourquoi son
+	//    instance ne suit plus sa declaration. Sans ce cas, la regle « ce que le
+	//    modele porte, l'interface doit pouvoir le nommer » ne serait qu'un
+	//    commentaire.
+	{
+		uint32 nbE = 0;
+		const NkEcartNomme *t = NkTousLesEcarts(nbE);
+		// (a) CHAQUE ENTREE PORTE UN NOM NON VIDE ET UN BIT UNIQUE. Deux entrees
+		//     partageant un bit afficheraient deux lignes pour une seule
+		//     surcharge, et « reinitialiser » l'une effacerait l'autre.
+		bool nomsPleins = nbE > 0u, bitsUniques = true;
+		uint32 union_ = 0u;
+		for (uint32 i = 0; i < nbE; ++i) {
+			if (!t[i].nom || !t[i].nom[0])
+				nomsPleins = false;
+			if ((union_ & t[i].bit) != 0u)
+				bitsUniques = false;
+			union_ |= t[i].bit;
+		}
+		// (b) ⚠️ LA TABLE COUVRE TOUTE L'ENUMERATION. On additionne les six bits
+		//     connus : leur union doit valoir exactement celle de la table. Un bit
+		//     ajoute a l'enum et oublie ici ferait tomber ce volet, et lui seul.
+		const uint32 attendus = NkUINode::EcartRemplissages | NkUINode::EcartBordures
+								| NkUINode::EcartEffets | NkUINode::EcartTexte
+								| NkUINode::EcartApparence | NkUINode::EcartTaille;
+		const bool couvre = union_ == attendus;
+		// (c) LE MASQUE SE LIT PAR `Surcharge`, ET IL EST INDEPENDANT PAR BIT :
+		//     poser « texte » ne pose pas « remplissages ».
+		NkUINode n;
+		n.ecarts = NkUINode::EcartTexte;
+		const bool independant = n.Surcharge(NkUINode::EcartTexte)
+								 && !n.Surcharge(NkUINode::EcartRemplissages) && n.ADesEcarts();
+		// (d) REINITIALISER RETIRE LE BIT ET NE TOUCHE PAS AUX AUTRES -- ni a la
+		//     VALEUR : la propriete redevient HERITEE, et c'est la declaration qui
+		//     la fournira. Ecraser la valeur ici serait decider a la place de la
+		//     propagation, dont Rodolf n'a pas encore tranche la regle.
+		n.ecarts = NkUINode::EcartTexte | NkUINode::EcartBordures;
+		n.text = NkString("Surcharge");
+		n.ecarts &= ~NkUINode::EcartTexte;
+		const bool reinit = !n.Surcharge(NkUINode::EcartTexte)
+							&& n.Surcharge(NkUINode::EcartBordures)
+							&& strcmp(n.text.Data(), "Surcharge") == 0;
+		char det[224];
+		snprintf(det, sizeof(det), "%u ecarts nommes ; noms pleins=%d bits uniques=%d ; la table "
+							   "couvre l'enumeration=%d (union %u contre %u) ; masque "
+							   "independant=%d ; reinit retire le bit sans toucher la valeur=%d",
+				 nbE, nomsPleins ? 1 : 0, bitsUniques ? 1 : 0, couvre ? 1 : 0, union_, attendus,
+				 independant ? 1 : 0, reinit ? 1 : 0);
+		verdict("LES SURCHARGES SE NOMMENT : chaque bit de l'enumeration a un nom dans la table "
+				"(sinon il serait une surcharge INVISIBLE, ni voyable ni reinitialisable), les "
+				"bits sont uniques et independants, et reinitialiser retire le BIT sans toucher "
+				"a la VALEUR",
+				nomsPleins && bitsUniques && couvre && independant && reinit, det);
+	}
+
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
