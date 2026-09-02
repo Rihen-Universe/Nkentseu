@@ -54,7 +54,7 @@ namespace {
 	void BuildFlatSkeleton(NkSkeleton &sk) noexcept {
 		// Le squelette suit desormais le modele Unreal : la DEFINITION (actif
 		// partage) porte hierarchie et bind poses, l'instance porte la pose.
-		memory::NkSharedPtr<ecs::NkSkeletonDef> def(new ecs::NkSkeletonDef());
+		memory::NkSharedPtr<anim::NkSkeletonDef> def(new anim::NkSkeletonDef());
 		const NkVec3f pos[kBoneCount] = {
 			{0.f, 1.00f, 0.f},	 // hip
 			{-0.15f, 0.90f, 0.f}, // leftThigh
@@ -66,9 +66,9 @@ namespace {
 			{0.15f, 0.05f, 0.f},  // rightFoot
 			{0.15f, 0.00f, 0.15f}, // rightToe
 		};
-		def->bones.Resize((NkVector<ecs::NkBoneDef>::SizeType)kBoneCount);
+		def->bones.Resize((NkVector<anim::NkBoneDef>::SizeType)kBoneCount);
 		for (uint32 i = 0; i < kBoneCount; ++i) {
-			ecs::NkBoneDef &b = def->bones[(NkVector<ecs::NkBoneDef>::SizeType)i];
+			anim::NkBoneDef &b = def->bones[(NkVector<anim::NkBoneDef>::SizeType)i];
 			b.parent = -1; // squelette plat -- voir tête de fichier NkLocomotion.h
 			b.bindPose = NkMat4f::Translate(pos[i]);
 			b.inverseBindPose = NkMat4f::Translate(pos[i]).Inverse();

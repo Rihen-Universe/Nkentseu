@@ -48,8 +48,8 @@ namespace {
 	// partagee + FromDef. C'est le modele Unreal decide par Rodolf le 02/09 :
 	// l'actif est reference, le par-instance est dimensionne au reel.
 	ecs::NkSkeleton MakeSkeleton(uint32 n) {
-		memory::NkSharedPtr<ecs::NkSkeletonDef> def(new ecs::NkSkeletonDef());
-		def->bones.Resize((NkVector<ecs::NkBoneDef>::SizeType)n);
+		memory::NkSharedPtr<anim::NkSkeletonDef> def(new anim::NkSkeletonDef());
+		def->bones.Resize((NkVector<anim::NkBoneDef>::SizeType)n);
 		return ecs::NkSkeleton::FromDef(def);
 	}
 
@@ -90,8 +90,8 @@ int main() {
 		// composant, pas la creation. Un banc troue se decouvre en essayant de
 		// le faire rougir, jamais en le regardant etre vert.
 		{
-			memory::NkSharedPtr<ecs::NkSkeletonDef> defCommun(new ecs::NkSkeletonDef());
-			defCommun->bones.Resize((NkVector<ecs::NkBoneDef>::SizeType)3);
+			memory::NkSharedPtr<anim::NkSkeletonDef> defCommun(new anim::NkSkeletonDef());
+			defCommun->bones.Resize((NkVector<anim::NkBoneDef>::SizeType)3);
 			ecs::NkSkeleton i1 = ecs::NkSkeleton::FromDef(defCommun);
 			ecs::NkSkeleton i2 = ecs::NkSkeleton::FromDef(defCommun);
 			Check(i1.def.Get() == defCommun.Get() && i2.def.Get() == defCommun.Get(),

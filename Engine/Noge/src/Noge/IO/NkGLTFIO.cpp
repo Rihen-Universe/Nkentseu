@@ -168,13 +168,13 @@ namespace nkentseu {
 			// une instance dimensionnee au reel. Plus de plafond kMaxBones : le
 			// vecteur prend le compte du fichier, et l'avertissement de troncature
 			// disparait avec la troncature elle-meme.
-			memory::NkSharedPtr<ecs::NkSkeletonDef> def(new ecs::NkSkeletonDef());
+			memory::NkSharedPtr<anim::NkSkeletonDef> def(new anim::NkSkeletonDef());
 			const uint32 boneCount = (uint32)data.skinJoints.Size();
-			def->bones.Resize((NkVector<ecs::NkBoneDef>::SizeType)boneCount);
+			def->bones.Resize((NkVector<anim::NkBoneDef>::SizeType)boneCount);
 			// La pose locale n'est plus dans la definition : elle est PAR INSTANCE.
 			// On la remplit apres FromDef, depuis les noeuds glTF.
 			for (uint32 j = 0; j < boneCount; ++j) {
-				ecs::NkBoneDef &b = def->bones[(NkVector<ecs::NkBoneDef>::SizeType)j];
+				anim::NkBoneDef &b = def->bones[(NkVector<anim::NkBoneDef>::SizeType)j];
 				// b.name reste vide : renderer::NkGLTFNode ne parse pas glTF
 				// nodes[].name (limitation du loader réel, documentée en tête de
 				// NkGLTFIO.h) — pas d'invention de nom ici.
