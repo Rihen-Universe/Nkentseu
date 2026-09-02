@@ -111,7 +111,8 @@ doc ? »* La réponse honnête est un **nombre qui bouge**, pas un « oui ».
 | 2026-09-02 (Asym. + Miroir par défaut + scrollbar) | 174 | 65 | 26 | 82 | 1 |
 | 2026-09-02 (socle des touches + profondeur au clavier) | 174 | 66 | 25 | 82 | 1 |
 | 2026-09-02 (verrou/masque + `Suppr` sommet + zooms) | 174 | 68 | 25 | 80 | 1 |
-| **2026-09-02 (les deux icônes — vague 2 CLOSE)** | **174** | **69** | **24** | **80** | **1** |
+| 2026-09-02 (les deux icônes — vague 2 CLOSE) | 174 | 69 | 24 | 80 | 1 |
+| **2026-09-02 (composants, étapes 1-3)** | **174** | **70** | **26** | **77** | **1** |
 
 **Comment le recompter soi-même**, sans rien croire sur parole :
 
@@ -734,10 +735,10 @@ Source : `/components`.
 
 | comportement | geste / raccourci | état | ce qui manque |
 |---|---|---|---|
-| Créer un composant | `Ctrl+Alt+K` | ❌ **absent** | ⚠️ **et la condition de déclenchement est déjà écrite** : le chantier commence le jour où **l'extraction ET le détachement** sont prêts tous les deux. *Un « créer un composant » sans « détacher » enferme l'utilisateur dans une décision qu'il ne peut pas défaire.* La source confirme que Lunacy livre bien les deux |
+| Créer un composant | `Ctrl+Alt+K` | 🟡 **partiel — le MODÈLE est livré le 02/09, le raccourci non** | `NkUIDocument::ExtraireComposant` : la sélection devient une **déclaration** (identité `auteur/nom@version`, arbre autonome) et le nœud reste en place comme **instance** (recette gestes, deux cas). ⚠️ La condition de déclenchement était écrite d'avance et elle est **tenue** : extraction et détachement sont arrivés dans le **même lot**. **Ce qui manque : le geste** — aucun bouton ni raccourci ne l'appelle encore |
 | Poser une instance | glisser depuis le panneau | 🟡 **partiel** | notre **palette** pose des composants **déclarés** (`content_browser`, `tree_view`) — mais ce sont des composants **de code**, pas des composants **de document**. Deux notions voisines à ne pas confondre |
-| Surcharges acceptées par une instance | déplier l'instance | ❌ **absent** | la source les énumère : remplissages et images, contenu et propriétés de texte, styles, agencements, teintes, zones actives. ⚠️ **La note du 01/09 avait tranché « extraction par PROPRIÉTÉ, pas en bloc » — c'est exactement ce modèle-là** |
-| Détacher | `Ctrl+Alt+D` → devient un groupe | ❌ **absent** | la moitié qui rend le reste acceptable |
+| Surcharges acceptées par une instance | déplier l'instance | 🟡 **partiel — le modèle les porte** | `NkUINode::ecarts`, un **masque de bits, une propriété par bit** (remplissages, bordures, effets, texte, apparence, taille) — *« extraction par PROPRIÉTÉ, pas en bloc »*, comme la note du 01/09 l'avait tranché. ⚠️ Un **masque** plutôt qu'une copie des valeurs : le nœud porte déjà tous les champs, le bit dit seulement lequel fait foi — une seconde table aurait été une deuxième vérité. **Ce qui manque : l'interface** qui distingue une propriété surchargée d'une héritée |
+| Détacher | `Ctrl+Alt+D` → devient un groupe | ✅ **livré le 02/09 — modèle ET bouton** | `DetacherInstance` + le bouton **« Détacher »** de l'Inspecteur. ⚠️ Les écarts sont **FUSIONNÉS**, pas jetés : une instance dont le texte a été surchargé garde **son** texte — jeter les écarts aurait été une perte de travail silencieuse. ⚠️ Garde centrale : l'aller-retour **extraire → détacher est NEUTRE**, comparé sur une forme canonique et non sur les indices (`RemoveSubtree` renumérote). Mutation qui tombe |
 | Réinitialiser les surcharges | bouton | ❌ **absent** |  |
 | Le composant se propage à ses instances **sauf** là où une surcharge existe | — | ❌ **absent** | ⚠️ **c'est LA règle de fond** : une surcharge gagne sur la mise à jour. Sans elle, mettre à jour un composant écraserait le travail fait sur chaque instance |
 | États d'un composant (Défaut / Survol / Pressé) | `Ctrl+Alt+P` | ❌ **absent** | ⚠️ **et nous avons déjà la notion, ailleurs** : nos composants déclarés portent des **états d'apparence** (§8ter du doc 3). Deux mécanismes voisins à réconcilier avant d'en écrire un troisième |

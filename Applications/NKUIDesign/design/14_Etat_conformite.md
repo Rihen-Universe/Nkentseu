@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **69** | **24** | **80** | **1** |
+| **174** | **70** | **26** | **77** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -52,7 +52,7 @@ main** — la prochaine régénération l'effacerait.*
 | 6. Transformations | 13 | 1 | 7 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
 | 8. Propriétés | 10 | 5 | 21 | 0 |
-| 9. Composants et instances | 0 | 1 | 9 | 0 |
+| 9. Composants et instances | 1 | 3 | 6 | 0 |
 
 ### La liste nommée — PARTIELS
 
@@ -99,7 +99,9 @@ main** — la prochaine régénération l'effacerait.*
 
 **9. Composants et instances**
 
+- Créer un composant
 - Poser une instance
+- Surcharges acceptées par une instance
 
 ### La liste nommée — ABSENTS
 
@@ -200,9 +202,6 @@ main** — la prochaine régénération l'effacerait.*
 
 **9. Composants et instances**
 
-- Créer un composant
-- Surcharges acceptées par une instance
-- Détacher
 - Réinitialiser les surcharges
 - Le composant se propage à ses instances sauf là où une surcharge existe
 - États d'un composant (Défaut / Survol / Pressé)
@@ -314,7 +313,7 @@ aucun blocage moteur.
 | **Dégradés + remplissage image** | 3 lignes de §8, très visibles en maquette | **moyen** |
 | **Texte : ajustement auto, troncature, décorations** | ~8 lignes de §8 | **moyen**, découpable en petits lots |
 | **Opérations booléennes** (tracé à **contours multiples**) | **les 8 lignes de §3** + la vectorisation du texte | **gros** — le maillon du remplissage est fait, il reste le modèle |
-| **Composants de document** | **les 10 lignes de §9** (créer, détacher, surcharges, états) | **gros** — extraction et détachement doivent arriver **ensemble**, sinon on crée des instances qu'on ne peut plus défaire |
+| **Composants de document** | ✅ **socle POSÉ le 02/09** (étapes 1-3 du `15_…`) : modèle + format additif + identité d'auteur + **porte de fork**, extraire/détacher **ensemble** avec l'aller-retour neutre, et le retour visuel. Le chapitre 9 passe de **0/10** à **1 livré + 3 partiels** | **reste moyen** — les **gestes** (raccourcis `Ctrl+Alt+K` / `D`), l'interface des **surcharges**, puis les **états** (⚠️ à réconcilier avec le mécanisme voisin des composants de code **avant** d'en écrire un troisième) |
 
 ### (c) 🔧 DU ROBINET — le mécanisme existe, il n'est pas branché
 
