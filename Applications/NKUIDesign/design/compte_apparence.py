@@ -82,13 +82,25 @@ def compter_mise_en_page(motif, texte, groupe=0):
     dans_tableau = False
     for ligne in texte.split(u"\n"):
         geo = bool(GEOMETRIE.search(ligne))
-        if geo and re.search(r"NkVec2\s+\w+\s*\[", ligne) and u"}" not in ligne.split(u"=")[-1]:
+        # 🔴 LA CONDITION D'ENTREE EN TABLEAU ETAIT FAUSSE (mesuree le 02/09
+        #    sur le panneau IA) : elle exigeait « pas de } apres le = », or la
+        #    PREMIERE ligne d'un tableau contient presque toujours `{{x, y},` --
+        #    donc l'etat ne s'armait jamais et les lignes de CONTINUATION
+        #    (`{c.x + 15.f, ...},`) etaient comptees comme de la mise en page.
+        #    Le bon critere : un tableau qui ne se FERME pas (`};`) sur sa ligne.
+        if geo and re.search(r"NkVec2\s+\w+\s*\[", ligne) and u"};" not in ligne:
             dans_tableau = True
         if dans_tableau:
             geo = True
             if u"};" in ligne:
                 dans_tableau = False
         if geo:
+            continue
+        # Les ecarts JUSTIFIES portent leur raison SUR LA LIGNE :
+        # `// [hors-echelle: <raison>]`. Ils sont ecartes du compte mais
+        # comptes A PART (famille « transcrits ») -- ecarter sans montrer,
+        # c'est se donner un beau chiffre en cachant du code.
+        if u"[hors-echelle:" in ligne:
             continue
         for m in re.finditer(motif, ligne):
             v = m.group(groupe if groupe else 0)
@@ -137,6 +149,20 @@ def familles():
     MOTIF_DEC = r"[xy][01]?\s\+\s(\d+)\.f"
     f.append((u"decalages d'espacement (mise en page)",
               compter_mise_en_page(MOTIF_DEC, tout, 1), u"px"))
+
+    # 4ter. LES ECARTS JUSTIFIES `[hors-echelle: ...]` — ecartes du compte,
+    #       mais LISTES avec leurs raisons : la trappe ne doit pas etre un
+    #       tiroir sombre. Si cette famille grossit plus vite que le reste ne
+    #       retrecit, c'est que le tag sert de contournement.
+    tags = {}
+    for ligne in tout.split(u"\n"):
+        if u"[hors-echelle:" not in ligne:
+            continue
+        raison = ligne.split(u"[hors-echelle:")[1].split(u"]")[0].strip()
+        n = len(re.findall(MOTIF_DEC, ligne))
+        if n:
+            tags[raison] = tags.get(raison, 0) + n
+    f.append((u"ecarts justifies [hors-echelle:] (exclus)", tags, u" site(s)"))
 
     # 4bis. LES SOMMETS DE GLYPHES — comptes A PART, et EXCLUS de l'echelle.
     #       Ils n'ont pas a s'aligner sur 2/4/8/12/16/24 : ce sont des dessins.

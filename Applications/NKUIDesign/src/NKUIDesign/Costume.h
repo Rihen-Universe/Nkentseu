@@ -254,6 +254,13 @@ namespace nkuidesign {
 		/// respirent davantage) et de l'écart E1 du côte à côte.
 		constexpr float32 PadChamp = (float32)EspNormal;
 
+		/// Le retrait GAUCHE d'un panneau lateral (bande modele, textes, cartes
+		/// du panneau IA). CHOISI, donc sur l'echelle : EspLarge (12) -- mesure
+		/// sur la planche 22.22 (~16 px a l'echelle de la planche, ~12 a la
+		/// notre), et c'est aussi le retrait de rangee de l'inspecteur.
+		/// L'ancien « 10 » etait la valeur la plus recopiee du panneau (11 fois).
+		constexpr float32 PadPanneau = (float32)EspLarge;
+
 		// ═════════════════════════════════════════════════════════════════════
 		//  2. LES ICÔNES — chaque tracé recopié du JSX (viewBox = px écran)
 		// ═════════════════════════════════════════════════════════════════════

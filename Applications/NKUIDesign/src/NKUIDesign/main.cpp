@@ -177,6 +177,9 @@ static constexpr int32 kCaptureFramePrete = 8;
 ///    sélectionnée ne dessine aucun champ). *Une capture d'un état vide ne
 ///    témoigne que du vide.* Ce drapeau met l'inspecteur dans l'état PLEIN.
 static char gSelectionner[128] = {0};
+// ⚠️ PAS de gPanneau ici : `--panneau=<titre>` EXISTE DEJA (gPanneauInitial,
+//    mise en scene ecran 9). J'en avais ecrit un doublon avant de chercher —
+//    la porte « chercher avant d'ecrire » vaut aussi pour ses propres ajouts.
 
 static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 	NkEditorShell *sh = static_cast<NkEditorShell *>(user);
@@ -7965,8 +7968,10 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&greffons);
 	// Mise en scene : --panneau=<titre> ouvre un panneau ferme par defaut.
 	if (gPanneauInitial[0]) {
-		nkentseu::editorkit::NkEditorPanel *tous[3] = {&simulation, &ambiances, &greffons};
-		for (int32 pi = 0; pi < 3; ++pi)
+		// `&ai` ajoute le 02/09 : la capture du panneau IA (tranche 3) en avait
+		// besoin — un panneau ferme ne temoigne que du vide.
+		nkentseu::editorkit::NkEditorPanel *tous[4] = {&simulation, &ambiances, &greffons, &ai};
+		for (int32 pi = 0; pi < 4; ++pi)
 			if (NkComponentDecl::StrEq(tous[pi]->Title(), gPanneauInitial))
 				tous[pi]->SetOpen(true);
 	}

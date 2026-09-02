@@ -4254,9 +4254,9 @@ namespace nkuidesign {
 												  44.f, 24.f};
 							dlp.AddRectFilled(pille, {22, 27, 34, 255}, 12.f);
 							dlp.AddRect(pille, ctx.theme.border, 1.f, 12.f);
-							dlp.AddRect({pille.x + 8.f, pille.y + 7.f, 12.f, 9.f},
+							dlp.AddRect({pille.x + 8.f, pille.y + 7.f, 12.f, 9.f}, // [hors-echelle: pictogramme, pas de mise en page]
 										ctx.theme.textMuted, 1.2f, 2.f);
-							costume::ChevronCombo7(dlp, pille.x + 26.f, pille.y + 9.f,
+							costume::ChevronCombo7(dlp, pille.x + 26.f, pille.y + 9.f, // [hors-echelle: pictogramme, pas de mise en page]
 												   ctx.theme.textMuted);
 							mZoneAppareil = pille;
 							if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
@@ -4268,7 +4268,7 @@ namespace nkuidesign {
 								// la zone consommée couvre pilule + menu
 								mZoneAppareil = {mnu.x, pille.y, mnu.w + 80.f,
 												 pille.h + 4.f + mnu.h};
-								dlp.AddRectFilled({mnu.x - 1.f, mnu.y + 3.f, mnu.w + 2.f,
+								dlp.AddRectFilled({mnu.x - 1.f, mnu.y + 3.f, mnu.w + 2.f, // [hors-echelle: transcrit, ombre CSS de la source]
 												   mnu.h + 4.f},
 												  {0, 0, 0, 60}, 10.f);
 								dlp.AddRectFilled(mnu, {22, 27, 34, 255}, 8.f);
@@ -4278,7 +4278,7 @@ namespace nkuidesign {
 												   24.f};
 								const char *cible =
 									selN.target.Empty() ? "Bureau" : selN.target.Data();
-								costume::Texte(dlp, F.px11, r1.x + 10.f,
+								costume::Texte(dlp, F.px11, r1.x + 10.f, // [hors-echelle: transcrit, menu Cible 22.20]
 											   costume::CentrerY(F.px11, r1.y, r1.h), cible,
 											   ctx.theme.text);
 								costume::Texte(dlp, F.px11,
@@ -4299,7 +4299,7 @@ namespace nkuidesign {
 									voile.a = 40;
 									dlp.AddRectFilled(r2, voile, 5.f);
 								}
-								costume::TexteGras(dlp, F.px11, r2.x + 10.f,
+								costume::TexteGras(dlp, F.px11, r2.x + 10.f, // [hors-echelle: transcrit, menu Cible 22.20]
 												   costume::CentrerY(F.px11, r2.y, r2.h),
 												   "Générer la version mobile",
 												   dejaMobile ? ctx.theme.textMuted
@@ -5550,8 +5550,9 @@ namespace nkuidesign {
 					const float32 h = 6.f + hb * 9.f + filet + 6.f;
 					const NkRect r = {zone.x + kOutilsMarge, zone.y + (zone.h - h) * 0.5f, w, h};
 					mZoneOutils = r; // idem
-					dl.AddRectFilled({r.x - 1.f, r.y + 3.f, r.w + 2.f, r.h + 4.f},
-									 {0, 0, 0, 55}, 10.f); // ombre 0 4 16 approchée
+					dl.AddRectFilled( // [hors-echelle: transcrit, ombre CSS de la source]
+									{r.x - 1.f, r.y + 3.f, r.w + 2.f, r.h + 4.f}, // [hors-echelle: transcrit, ombre CSS de la source]
+									{0, 0, 0, 55}, 10.f); // ombre 0 4 16 approchée
 					dl.AddRectFilled(r, fond, 5.f);
 					dl.AddRect(r, bord, 1.f, 5.f);
 					for (uint32 i = 0; i < 9; ++i) {
@@ -5559,8 +5560,8 @@ namespace nkuidesign {
 						const float32 yOff = (i >= 5) ? filet : 0.f;
 						if (i == 5)
 							dl.AddLine({r.x + 8.f, r.y + 6.f + hb * 5.f + 2.5f},
-									   {r.x + w - 8.f, r.y + 6.f + hb * 5.f + 2.5f}, bord, 1.f);
-						const NkRect c = {r.x, r.y + 6.f + hb * (float32)i + yOff, w, hb};
+									   {r.x + w - 8.f, r.y + 6.f + hb * 5.f + 2.5f}, bord, 1.f); // [hors-echelle: transcrit, rail Lunacy]
+						const NkRect c = {r.x, r.y + 6.f + hb * (float32)i + yOff, w, hb}; // [hors-echelle: transcrit, rail Lunacy]
 						const bool survol =
 							ctx.popupDepth == 0 && NkGuiRectContains(c, ctx.input.mousePos);
 						if (survol && ctx.input.mouseClicked[0]) {
@@ -5673,7 +5674,7 @@ namespace nkuidesign {
 							case 7: vars = kVarImage; nVars = 2; break;
 							default: break;
 						}
-						const float32 yFam = r.y + 6.f + hb * (float32)mEventailFam
+						const float32 yFam = r.y + 6.f + hb * (float32)mEventailFam // [hors-echelle: transcrit, rail Lunacy]
 											 + ((mEventailFam >= 5) ? filet : 0.f);
 						const NkRect bFam = {r.x, yFam, w, hb};
 						const float32 vb = 36.f;
@@ -6713,24 +6714,28 @@ namespace nkuidesign {
 				// ── LA BANDE MODÈLE ──────────────────────────────────────────
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 34.f);
-					costume::IcCarreaux(dl, r.x + 10.f, r.y + 10.f, ctx.theme.textMuted);
+					costume::IcCarreaux(dl, r.x + costume::PadPanneau, r.y + (34.f - 14.f) * 0.5f,
+										ctx.theme.textMuted);
 					const bool dispo = mSt->ai.Backend() && mSt->ai.Backend()->IsAvailable();
 					char b[96];
 					snprintf(b, sizeof(b), "%s",
 							 mSt->ai.Backend() ? mSt->ai.Backend()->Name() : "(aucun backend)");
-					costume::TexteGras(dl, F.px11, r.x + 30.f,
+					costume::TexteGras(dl, F.px11,
+									   r.x + costume::PadPanneau + 14.f + (float32)costume::EspSerre,
 									   costume::CentrerY(F.px11, r.y, 34.f), b, ctx.theme.text,
 									   0.3f);
-					float32 px = r.x + 30.f + costume::Largeur(F.px11, b) + 8.f;
+					float32 px = r.x + costume::PadPanneau + 14.f + (float32)costume::EspSerre
+								 + costume::Largeur(F.px11, b) + 8.f;
 					if (dispo) {
 						// la pilule LOCAL, verte — vraie : le pont est local.
-						const float32 wl = costume::Largeur(F.px9, "LOCAL") + 10.f;
+						const float32 wl = costume::Largeur(F.px9, "LOCAL")
+												   + 2.f * (float32)costume::EspSerre;
 						NkColor vert = ctx.theme.success;
 						NkColor fondV = vert;
 						fondV.a = 40;
-						dl.AddRectFilled({px, r.y + 9.f, wl, 16.f}, fondV, 8.f);
-						costume::TexteGras(dl, F.px9, px + 5.f,
-										   costume::CentrerY(F.px9, r.y + 9.f, 16.f), "LOCAL",
+						dl.AddRectFilled({px, r.y + (34.f - 16.f) * 0.5f, wl, 16.f}, fondV, 8.f);
+						costume::TexteGras(dl, F.px9, px + (float32)costume::EspSerre,
+										   costume::CentrerY(F.px9, r.y + (34.f - 16.f) * 0.5f, 16.f), "LOCAL",
 										   vert, 0.4f);
 					} else
 						costume::Texte(dl, F.px10, px, costume::CentrerY(F.px10, r.y, 34.f),
@@ -6738,7 +6743,8 @@ namespace nkuidesign {
 				}
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 18.f);
-					costume::Texte(dl, F.px10, r.x + 10.f, costume::CentrerY(F.px10, r.y, 18.f),
+					costume::Texte(dl, F.px10, r.x + costume::PadPanneau,
+								   costume::CentrerY(F.px10, r.y, 18.f),
 								   "Rien ne quitte cette machine.", ctx.theme.textMuted);
 					dl.AddLine({r.x, r.y + 17.5f}, {r.x + r.w, r.y + 17.5f}, ctx.theme.border,
 							   1.f);
@@ -6750,7 +6756,7 @@ namespace nkuidesign {
 														  "Générer un comportement"};
 					const NkRect r = ctx.NextItemRect(-1.f, 30.f);
 					const float32 wVisC = r.w > 304.f ? 304.f : r.w;
-					float32 x = r.x + 10.f;
+					float32 x = r.x + costume::PadPanneau;
 					for (uint32 i = 0; i < 3; ++i) {
 						const float32 w = costume::Largeur(F.px10, kChips[i]) + 16.f;
 						if (x + w > r.x + wVisC - 4.f)
@@ -6781,11 +6787,12 @@ namespace nkuidesign {
 					const NkRect c = {r.x + 8.f, r.y + 4.f, wVis - 16.f, hCarte};
 					dl.AddRectFilled(c, ctx.theme.panel, 6.f);
 					dl.AddRect(c, ctx.theme.border, 1.f, 6.f);
-					costume::TexteGras(dl, F.px11, c.x + 10.f, c.y + 8.f,
+					costume::TexteGras(dl, F.px11, c.x + costume::PadPanneau, c.y + 8.f,
 									   "Relevé de changements", ctx.theme.text, 0.5f);
 					char b[64];
 					snprintf(b, sizeof(b), "%u ajout(s)", nprop);
-					costume::Texte(dl, F.px10, c.x + 10.f, c.y + 24.f, b, ctx.theme.textMuted);
+					costume::Texte(dl, F.px10, c.x + costume::PadPanneau, c.y + 24.f, b,
+								   ctx.theme.textMuted);
 					float32 y = c.y + 42.f;
 					const uint32 max = nprop > 6 ? 6 : nprop;
 					for (uint32 i = 0; i < max; ++i) {
@@ -6802,20 +6809,20 @@ namespace nkuidesign {
 									   nomN && *nomN ? nomN : "(nœud)", ctx.theme.text);
 						y += 22.f;
 					}
-					costume::Texte(dl, F.px9, c.x + 10.f, c.y + hCarte - 44.f,
+					costume::Texte(dl, F.px9, c.x + costume::PadPanneau, c.y + hCarte - 44.f,
 								   "S'appliquera en une seule opération annulable.",
 								   ctx.theme.textMuted);
 					// Rejeter (bord) / Appliquer (accent)
 					const float32 by = c.y + hCarte - 30.f;
 					const float32 wA = costume::Largeur(F.px11, "Appliquer") + 20.f;
 					const float32 wR = costume::Largeur(F.px11, "Rejeter") + 20.f;
-					const NkRect ra = {c.x + c.w - wA - 10.f, by, wA, 22.f};
+					const NkRect ra = {c.x + c.w - wA - costume::PadPanneau, by, wA, 22.f};
 					const NkRect rr = {ra.x - wR - 8.f, by, wR, 22.f};
 					dl.AddRect(rr, ctx.theme.border, 1.f, 4.f);
-					costume::Texte(dl, F.px11, rr.x + 10.f, costume::CentrerY(F.px11, by, 22.f),
-								   "Rejeter", ctx.theme.text);
+					costume::Texte(dl, F.px11, rr.x + costume::PadPanneau,
+								   costume::CentrerY(F.px11, by, 22.f), "Rejeter", ctx.theme.text);
 					dl.AddRectFilled(ra, ctx.theme.accent, 4.f);
-					costume::TexteGras(dl, F.px11, ra.x + 10.f,
+					costume::TexteGras(dl, F.px11, ra.x + costume::PadPanneau,
 									   costume::CentrerY(F.px11, by, 22.f), "Appliquer",
 									   ctx.theme.onAccent, 0.3f);
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]) {
@@ -6831,11 +6838,13 @@ namespace nkuidesign {
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					// la portée : « Sélection » (vraie : la greffe vise la sélection)
-					const float32 wp = costume::Largeur(F.px10, "Sélection") + 14.f;
-					const NkRect rp = {r.x + 10.f, r.y + 2.f, wp, 20.f};
+					const float32 wp = costume::Largeur(F.px10, "Sélection")
+									   + 2.f * (float32)costume::EspNormal;
+					const NkRect rp = {r.x + costume::PadPanneau, r.y + 2.f, wp, 20.f};
 					dl.AddRect(rp, ctx.theme.border, 1.f, 10.f);
-					costume::Texte(dl, F.px10, rp.x + 7.f, costume::CentrerY(F.px10, rp.y, 20.f),
-								   "Sélection", ctx.theme.textMuted);
+					costume::Texte(dl, F.px10, rp.x + (float32)costume::EspNormal,
+								   costume::CentrerY(F.px10, rp.y, 20.f), "Sélection",
+								   ctx.theme.textMuted);
 				}
 				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
 				if (ec.Button("Proposer (aperçu)"))
