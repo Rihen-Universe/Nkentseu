@@ -1,0 +1,303 @@
+\chapter{La coquille d'application : ce que vous n'écrivez plus}
+
+Le chapitre précédent vous a fait écrire une application \emph{à la main} :
+créer la fenêtre, ouvrir le contexte graphique, tenir la boucle, écouter les
+événements, présenter l'image. C'était la bonne façon de comprendre ce qui se
+passe --- et c'est la seule façon d'apprendre ce qu'une coquille vous cache.
+
+Ce chapitre montre la coquille. Depuis \texttt{NkCanvasApp}, cette plomberie
+devient quelques méthodes à remplir. Surtout, la coquille apporte trois services
+qu'une application écrite à la main \emph{oublie presque toujours} --- et l'oubli
+ne se voit qu'une fois le programme entre les mains de quelqu'un d'autre.
+
+\begin{nkretenir}
+Une coquille ne vous fait pas gagner des lignes : elle vous fait gagner les
+lignes que \emph{vous n'auriez pas écrites}.
+
+Mesure du dépôt, le 2 septembre 2026 : \textbf{quatorze} applications créent
+elles-mêmes leur fenêtre de rendu. Sur ces quatorze, \textbf{trois} gèrent le
+cycle de vie mobile. Les onze autres --- dont \texttt{Sandbox}, \texttt{NkRef},
+\texttt{NKGuiDemo}, \texttt{NkVideoPlayer} et \texttt{NkAudioPlayer} --- se
+ferment quand le téléphone se verrouille, et personne ne l'a remarqué parce que
+personne ne les lance sur un téléphone.
+
+Ce n'est pas de la négligence : c'est que \emph{rien ne rappelle d'écrire ce
+qu'on ne voit pas manquer}. C'est précisément ce qu'une coquille existe pour
+donner.
+\end{nkretenir}
+
+\section{Le plus petit programme complet}
+
+\begin{nkcode}{Applications/NkDames/src/main.cpp}
+#include "Dames/NkDamesJeu.h"
+#include "NKWindow/Core/NkEntry.h"
+#include "NKWindow/NKMain.h"
+
+NKENTSEU_DEFINE_APP_DATA(([]() {
+    nkentseu::NkAppData d{};
+    d.appName = "NkDames";
+    d.appVersion = "1.0.0";
+    return d;
+})());
+
+int nkmain(const nkentseu::NkEntryState &state) {
+    return nkentseu::renderer::NkCanvasApp::Run<nkentseu::jeux::dames::NkDamesJeu>(state);
+}
+\end{nkcode}
+
+Trois choses seulement, et elles se lisent dans l'ordre.
+
+\texttt{NKENTSEU\_DEFINE\_APP\_DATA} déclare le nom et la version de
+l'application. \texttt{nkmain} est le point d'entrée portable : c'est
+\texttt{NKWindow/NKMain.h} qui fournit derrière lui le \texttt{WinMain} de
+Windows et l'\texttt{android\_main} d'Android. \texttt{NkCanvasApp::Run<T>}
+construit votre classe et lui rend la main.
+
+\begin{nkpiege}
+La macro attend un \texttt{NkAppData}, \textbf{pas une chaîne} --- son nom laisse
+croire le contraire. Écrivez \texttt{NKENTSEU\_DEFINE\_APP\_DATA("MonJeu")} et le
+compilateur répond \texttt{no viable overloaded '='}, sans jamais nommer la
+cause. Le lambda ci-dessus est le patron employé par toutes les applications du
+dépôt.
+\end{nkpiege}
+
+\section{Les méthodes que vous remplissez}
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/App/NkCanvasApp.h (extraits)}
+virtual NkOptional<int> OnCommandLine(const NkVector<NkString> &args);
+virtual bool OnInit();
+virtual void OnUpdate(float32 deltaTime);
+virtual void OnRender(NkRenderWindow &target);
+virtual bool OnEvent(const NkEvent &event);      // true = consomme
+virtual bool OnPointer(const NkPointer &pointer);
+virtual void OnLayout(const NkLayoutInfo &layout);
+virtual bool OnCloseRequested();                 // false = refuse la fermeture
+virtual void OnPause();
+virtual void OnResume();
+virtual void OnShutdown();
+\end{nkcode}
+
+Aucune n'est obligatoire : elles ont toutes un corps par défaut. On remplit ce
+dont on a besoin.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Méthode} & \textbf{Quand elle est appelée} \\
+\midrule
+\texttt{OnCommandLine} & avant toute fenêtre --- peut refuser de démarrer \\
+\texttt{OnInit}        & la fenêtre et le GPU existent \\
+\texttt{OnUpdate}      & une fois par image, avec le pas de temps \\
+\texttt{OnRender}      & une fois par image, avec la cible de rendu \\
+\texttt{OnPointer}     & souris \emph{ou} doigt, unifiés \\
+\texttt{OnLayout}      & taille, densité et zone sûre ont changé \\
+\texttt{OnPause}, \texttt{OnResume} & l'application part en arrière-plan, revient \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\texttt{OnCommandLine} rend un \texttt{NkOptional<int>}. Rendre une valeur
+\emph{arrête l'application avec ce code}, sans ouvrir de fenêtre --- c'est ce qui
+permet à une option de banc de répondre en mode automatique. Rendre un
+\texttt{NkOptional} vide laisse le programme démarrer.
+\end{nkpiege}
+
+\section{Les trois services que la coquille rend}
+
+\subsection{La boucle cède la main, et sur le Web c'est vital}
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/App/NkCanvasApp.cpp (CadencerTrame)}
+if (mConfig.imagesParSeconde <= 0) {
+    NkChrono::YieldThread();
+    return;
+}
+const float64 budgetMs = 1000.0 / static_cast<float64>(mConfig.imagesParSeconde);
+const float64 ecouleMs = chrono.Elapsed().milliseconds;
+if (ecouleMs < budgetMs) {
+    NkChrono::Sleep(budgetMs - ecouleMs);
+} else {
+    NkChrono::YieldThread();
+}
+\end{nkcode}
+
+Sous Emscripten, \texttt{NkChrono::Sleep} appelle \texttt{emscripten\_sleep(ms)}
+et \texttt{YieldThread} appelle \texttt{emscripten\_sleep(0)}. Les deux rendent
+la main au navigateur.
+
+\begin{nkpiege}
+\textbf{Les deux branches cèdent, et c'est tout l'intérêt.} Une version
+« ne dormir que si on est en avance » gèle l'onglet dès la première image lente
+--- c'est-à-dire tout le temps sur le Web, où une image dépasse presque toujours
+son budget. Le \texttt{else} n'est pas une optimisation : c'est lui qui rend la
+main.
+
+Le mécanisme existait avant la coquille, et il était juste. Ce qui manquait,
+c'était l'\emph{appel}.
+\end{nkpiege}
+
+\subsection{La zone sûre, mesurée et non devinée}
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/App/NkCanvasApp.h (NkLayoutInfo)}
+struct NkLayoutInfo {
+    uint32 width  = 0;
+    uint32 height = 0;
+    float32 density = 1.f;   // facteur d'echelle de l'ecran (DPI)
+    NkSafeAreaInsets safeArea;
+};
+\end{nkcode}
+
+\texttt{safeArea} porte quatre marges --- \texttt{top}, \texttt{bottom},
+\texttt{left}, \texttt{right} --- en pixels. Elles décrivent la partie de l'écran
+qui n'est masquée ni par l'encoche, ni par les coins arrondis, ni par
+l'indicateur de geste du bas.
+
+\begin{nkretenir}
+La zone sûre est une \textbf{ancre}, pas une marge : elle change à la rotation,
+à l'ouverture du clavier, en écran partagé, et d'un appareil à l'autre. On la
+demande à la plateforme à l'exécution ; une marge écrite en dur est fausse sur le
+modèle suivant.
+
+Et c'est un choix \emph{par élément} : les fonds, les images de couverture et les
+listes qui défilent vont jusqu'au bord ; le texte et les boutons restent dans la
+zone sûre. Un fond qui s'arrête à la zone sûre laisse des bandes disgracieuses ;
+un bouton qui déborde sous l'indicateur de geste est \textbf{inatteignable}.
+\end{nkretenir}
+
+\subsection{Le pointeur : souris et doigt unifiés}
+
+\begin{nkcode}{Kernel/Runtime/NKEvent/src/NKEvent/NkPointerEvent.h}
+enum class NkPointerPhase : uint8 {
+    NK_POINTER_NONE = 0,   // l'evenement lu ne concerne pas le pointeur
+    NK_POINTER_DOWN,       // clic gauche enfonce, ou doigt pose
+    NK_POINTER_MOVE,       // deplacement
+    NK_POINTER_UP,         // clic relache, ou doigt leve
+    NK_POINTER_CANCEL      // le systeme a repris la main (appel entrant, geste OS)
+};
+
+struct NkPointer {
+    float32 x = 0.f;
+    float32 y = 0.f;
+    NkPointerPhase phase = NkPointerPhase::NK_POINTER_NONE;
+    uint32 id = 0;            // 0 = souris, ou premier doigt
+    bool fromTouch = false;   // true = doigt
+
+    bool IsValid() const noexcept;   // phase != NK_POINTER_NONE
+};
+\end{nkcode}
+
+Un clic de souris et un appui du doigt arrivent dans la même méthode, avec la
+même forme. \texttt{fromTouch} dit lequel c'était, pour les rares cas où la
+distinction compte --- une infobulle au survol n'a pas de sens au doigt.
+
+\begin{nkpiege}
+\textbf{\texttt{x} et \texttt{y} sont en pixels \emph{client}} : le repère de la
+zone de dessin, origine en haut à gauche, hors bordure de fenêtre. C'est le même
+repère qu'une cible de rendu. N'y mêlez jamais des coordonnées écran --- le dépôt
+a payé une journée entière de recherche sur une sélection morte, pour avoir
+comparé des pixels de fenêtre à des pixels de viseur.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{Agissez au relâchement, pas à l'appui.} \texttt{NK\_POINTER\_UP} permet à
+l'utilisateur de glisser \emph{hors} d'un bouton pour annuler son geste ---
+comportement attendu partout, et gratuit ici. Un bouton qui déclenche à l'appui
+ne pardonne pas l'erreur de visée, et sur un téléphone on vise mal.
+
+Et n'oubliez pas \texttt{NK\_POINTER\_CANCEL} : un appel entrant ou un geste
+système interrompt la saisie. Le traiter comme un relâchement laisse un objet
+« collé » au doigt qui n'est plus là.
+\end{nkpiege}
+
+\section{Deux coquilles, et il faut choisir}
+
+\texttt{NkCanvasGuiApp} dérive de \texttt{NkCanvasApp} et y ajoute NKGui : le
+contexte, les polices, le backend de dessin. Mais elle \emph{prend la place} du
+rendu.
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/App/NkCanvasGuiApp.h}
+void OnUpdate(float32 deltaTime) final {
+    mLastDelta = deltaTime;
+    OnTick(deltaTime);
+}
+
+void OnRender(NkRenderWindow &target) final {
+    const math::NkVec2u size = target.GetSize();
+    mGuiContext.BeginFrame(mLastDelta);
+    OnDraw(mGuiContext.dl);
+    mGuiContext.EndFrame();
+    mGuiBackend.Submit(mGuiContext.dl, size.x, size.y);
+    mGuiBackend.Submit(mGuiContext.dlOverlay, size.x, size.y);
+}
+\end{nkcode}
+
+Les deux méthodes sont \texttt{final}. Une classe qui dérive de
+\texttt{NkCanvasGuiApp} ne peut donc \textbf{pas} redéfinir \texttt{OnRender} :
+elle remplit \texttt{OnTick} et \texttt{OnDraw} à la place, et elle dessine avec
+une \texttt{NkGuiDrawList}, pas avec un \texttt{NkRenderer2D}.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Vous dérivez de} & \textbf{Vous dessinez avec} & \textbf{Vous remplissez} \\
+\midrule
+rien (à la main)        & \texttt{NkRenderer2D}   & tout \\
+\texttt{NkCanvasApp}    & \texttt{NkRenderer2D}   & \texttt{OnUpdate}, \texttt{OnRender} \\
+\texttt{NkCanvasGuiApp} & \texttt{NkGuiDrawList}  & \texttt{OnTick}, \texttt{OnDraw} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Comment choisir.} Vous dessinez des formes, des sprites, un monde de
+jeu : \texttt{NkCanvasApp} et \texttt{NkRenderer2D}. Vous dessinez une interface
+--- boutons, listes, panneaux : \texttt{NkCanvasGuiApp} et la liste
+d'affichage. Vous voulez comprendre ce qui se passe dessous, ou vous avez un
+besoin qu'aucune des deux ne couvre : à la main, comme au chapitre précédent.
+
+Ce ne sont pas trois niveaux de qualité : ce sont trois outils pour trois
+travaux.
+\end{nkretenir}
+
+\section{L'écran d'ouverture, offert}
+
+\begin{nkcode}{Applications/NkLudo/src/Ludo/NkLudoJeu.cpp}
+bool NkLudoJeu::OnGuiInit() {
+    mSplash.PoserJeu("Ludo");
+    Rejouer();
+    return true;
+}
+
+void NkLudoJeu::OnTick(float32 deltaTime) {
+    if (mSplash.Avancer(deltaTime)) {
+        return;                       // l'ouverture tient l'ecran
+    }
+    /* ... le jeu ... */
+}
+\end{nkcode}
+
+\texttt{NkCanvasSplash} peint deux volets --- la marque Rihen, puis le moteur et
+le nom du jeu --- avec le logo officiel embarqué, rasterisé depuis un SVG de
+514 octets. \texttt{PoserJeu} est le \emph{seul} réglage : les couleurs, les
+durées et la mise en page sont les mêmes partout, délibérément.
+
+\begin{nkpiege}
+\texttt{Avancer} rend \texttt{true} tant que l'ouverture tient l'écran, et il
+faut \textbf{s'arrêter là}. Sans ce retour, le jeu tournerait \emph{derrière}
+l'écran de marque : une IA jouerait ses premiers coups pendant les quatre
+secondes d'ouverture, et le joueur trouverait la partie déjà entamée en arrivant.
+
+Et l'ouverture doit \textbf{manger l'appui} qui la saute. Sans cela, le même
+appui passe le splash \emph{et} active le bouton qui se trouve dessous ---
+l'utilisateur lance une partie qu'il n'a pas choisie.
+\end{nkpiege}
+
+\begin{nkexo}
+Reprenez l'application du chapitre précédent, écrite à la main, et portez-la sur
+\texttt{NkCanvasApp}. Comptez les lignes avant et après.
+
+Puis répondez à deux questions, en les \emph{mesurant} plutôt qu'en les
+devinant : votre version manuelle gérait-elle \texttt{OnPause} ? Et cédait-elle
+la main à chaque image ? Compilez-la pour le Web et ouvrez-la dans un
+navigateur --- vous aurez la réponse en une seconde.
+\end{nkexo}
