@@ -337,6 +337,49 @@ La consigne est explicite — la carte est à Ilyana pendant sa campagne de 30
 jours. **Je n'ai donc lancé aucun rendu GPU.** C'est un refus assumé, pas un
 échec : produire l'image aurait mis en contention un entraînement à ~53 000 pas.
 
+### ⭐ MAIS L'IMAGE EXISTE DÉJÀ — datée du 2026-06-26, et personne ne la citait
+
+✅ **Trouvée en vérifiant autre chose** : `Captures/model_loaders/` contient sept
+captures de chargeurs, dont **`fbx_FuturisticCar.png` — notre voiture, rendue.**
+Je l'ai ouverte. Le HUD dit, mot pour mot :
+
+```
+DemoGLTF  |  API : OpenGL
+Model : Resources/Models/Futuristic_Car_2.1_fbx.fbx
+verts: 18758   indices: 26916   materials: 0
+FPS : 143   dt: 6.99 ms
+```
+
+⚠️ **`verts: 18758  indices: 26916` — exactement les chiffres que ma mesure CPU
+d'aujourd'hui a rendus.** Deux instruments indépendants, à dix semaines
+d'écart, tombent sur la même géométrie : le chargement est stable.
+
+**Ce que l'image montre, et c'est le verdict que Rodolf attendait :**
+
+| ce qui marche | ce qui manque, visible à l'œil |
+|---|---|
+| ✅ la silhouette est **juste** — carrosserie, vitrage, passages de roue lisibles | 🔴 **aucune texture** : voiture gris uniforme (`materials: 0`) |
+| ✅ 143 FPS, 6,99 ms — le débit n'est pas le sujet | 🔴 **aucune ombre portée** sous la voiture |
+| ✅ normales correctes : les facettes prennent la lumière | 🔴 **aucun reflet** sur une carrosserie qui devrait en avoir |
+| | 🔴 éclairage plat, sol uni, pas d'occlusion de contact |
+
+> **C'est la distance à Unreal, mesurée sur une image réelle plutôt que devinée.**
+> Et elle ne se joue pas sur le maillage — la géométrie arrive intacte. Elle se
+> joue **entièrement sur la couche matériaux/éclairage** : textures, ombres,
+> réflexions, tone mapping.
+
+📌 **Cette capture confirme la prédiction du §3.d avant même de relancer** : la
+voiture rend **en gris**, faute de textures. Sans le correctif de chemin, la
+scène d'épreuve donnerait la même image, et on accuserait le PBR.
+
+⚠️ **Et elle date d'AVANT le support des matériaux.** Le HUD dit `materials: 0` ;
+ma mesure d'aujourd'hui dit **3 matériaux, 3 textures** — le commit `d28a3728`
+est passé entre les deux. **Prédiction testable, à vérifier dès que la carte est
+libre** : un rendu aujourd'hui donnerait les 3 matériaux Phong (donc des teintes
+distinctes carrosserie / noir / vitrage) **mais toujours pas les textures**,
+puisque le défaut de chemin est intact. Si l'image sortait texturée, c'est mon
+diagnostic du §3.d qui serait faux — et je préfère l'écrire avant.
+
 ## 3.2 ✅ MAIS TOUT LE RESTE A ÉTÉ MESURÉ, SANS TOUCHER AU GPU
 
 Et le résultat est meilleur que prévu : **la scène d'épreuve ne demande aucun
@@ -397,8 +440,53 @@ réalistes en glTF (`jeep_gladiator.zip` 20,9 Mo, `2022_ford_supervan_4.zip`
 16,6 Mo) et **des kits de route complets** (`kenney_city-kit-roads.zip`,
 95 modèles GLB ; `kenney_toy-car-kit.zip`, circuit de course ; `Modular Street
 Pack by Quaternius`). ⚠️ Ce sont des **archives non extraites** — et c'est le
-dossier personnel de Rodolf : je n'ai rien touché. **Aucun `.usd`/`.usdz`/`.abc`
-sur tout le disque** — le chargeur `NkUSDALoader` n'a donc aucun sujet.
+dossier personnel de Rodolf : je n'ai rien touché.
+
+### b bis) ⚠️ DEUX LISTES QU'IL NE FAUT JAMAIS CONFONDRE — corpus contre code
+
+Précision demandée par le coordinateur, et elle est juste : *« format absent du
+corpus »* et *« format que le code ne sait pas lire »* sont **deux listes
+différentes, et la seconde seule est une dette.**
+
+| format | présent sur le disque ? | le code sait-il le lire ? |
+|---|---|---|
+| `.obj` `.gltf/.glb` `.fbx` `.dae` `.ply` `.stl` | ✅ oui | ✅ oui (7 chargeurs maison) |
+| **`.usda`** (USD ascii) | ❌ **aucun fichier** | ✅ **OUI — `NkUSDALoader.cpp`, 296 l.** |
+| `.usdc` (USD binaire *crate*) | ❌ aucun fichier | ❌ **non — dette réelle** |
+| `.usdz` (paquet USD = zip) | ❌ aucun fichier | ❌ **non — dette réelle** |
+| `.abc` (Alembic) | ❌ aucun fichier | ❌ **non — dette réelle** |
+
+✅ **`LoadUSDA` est bien vivant, vérifié** : 3 appelants réels —
+`NkMeshSystem.cpp:176`, `NK3DModeler/Shell/NkModelerImport.h:89`,
+`DemoGLTF.cpp:112` — et une capture témoin
+`Captures/model_loaders/usda_cube.png`. **Le code a un chargeur USD ; c'est le
+corpus qui n'a aucun fichier à lui donner.**
+
+📌 **Rectification de provenance, parce qu'un relais perd sa source.**
+`ROADMAP_PRODUITS.md:94` attribue à mon constat la formule *« aucun chargeur
+USD/Alembic à prévoir »*. **Ce n'est pas ce que j'ai écrit** — ma phrase nommait
+`NkUSDALoader` comme existant, et disait qu'il n'avait « aucun sujet », c'est-à-dire
+aucun fichier à lire. La formule vient d'un relais, pas de la mesure. Sans
+conséquence sur la décision de Rodolf, qui reste bonne ; mais la ligne mérite
+d'être corrigée dans ce document, sans quoi elle fera croire plus tard que la
+mesure disait le contraire de ce qu'elle disait.
+
+🔴 **ET UN PIÈGE DE NOM À SIGNALER AVANT QU'IL NE COÛTE** — c'est la face n°10 de
+la grille (*compter des noms au lieu de mesurer des choses*) : une recherche
+`*.abc` sur le disque remonte **une dizaine de fichiers, et aucun n'est de
+l'Alembic**. Ce sont des **bytecodes ArkTS** de HarmonyOS (`modules.abc`,
+`widgets.abc`, `node.abc`, `theme.abc`) — SDK et dossiers `Build/`. Qui
+dimensionnera le chantier Alembic au `grep` conclura qu'il a un corpus : il n'en
+a aucun.
+
+⚠️ **Sur la piste `.usdz`, la plus courte** (un zip non compressé contenant
+souvent un `.usda`, donc chargeable en rappelant le chargeur existant) :
+✅ **il n'y a AUCUN `.usdz` sur cette machine.** Périmètre balayé :
+`D:/Telechargement`, `C:/Users/Rihen/Downloads`, `D:/Projets`. **Contrôle positif
+fait** — la même commande remonte **520 `.zip`** dans `D:/Telechargement`, elle
+sait donc trouver ; le zéro est un vrai zéro. La piste reste la moins chère à
+écrire, mais **elle n'a pas de sujet à se mettre sous la dent aujourd'hui** : il
+faudra un `.usdz` d'épreuve avant de pouvoir la prouver.
 
 ### c) ✅ CE QUI SE CHARGE ET CE QUI NE SE CHARGE PAS — mesure faite aujourd'hui
 
