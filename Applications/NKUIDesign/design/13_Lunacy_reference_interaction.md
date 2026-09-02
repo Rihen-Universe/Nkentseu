@@ -100,7 +100,8 @@ doc ? »* La réponse honnête est un **nombre qui bouge**, pas un « oui ».
 | date | lignes | livré | partiel | absent | écarté |
 |---|---|---|---|---|---|
 | 2026-09-01 (création du document) | 172 | 59 | 25 | 87 | 1 |
-| **2026-09-02 (poignées + vague 2)** | **174** | **64** | **26** | **83** | **1** |
+| 2026-09-02 (poignées + vague 2) | 174 | 64 | 26 | 83 | 1 |
+| **2026-09-02 (Asym. + Miroir par défaut + scrollbar)** | **174** | **65** | **26** | **82** | **1** |
 
 **Comment le recompter soi-même**, sans rien croire sur parole :
 
@@ -137,7 +138,8 @@ apparues le 02/09 (les poignées par défaut, les champs X1..Y2) parce qu'un dé
 a révélé un comportement que le document ne nommait pas encore. *Un inventaire
 qui ne grandit jamais est un inventaire qu'on a cessé de confronter au produit.*
 Le bon signe n'est donc pas « 174 lignes toutes vertes » mais **« ❌ descend plus
-vite que le total ne monte »** — ici **−4 absents pour +2 lignes**.
+vite que le total ne monte »** — sur la journée du 02/09 : **−5 absents pour +2
+lignes**, et **+6 livrés**.
 
 #### Où l'on est fort, où l'on est faible — le compte PAR CHAPITRE
 
@@ -246,7 +248,7 @@ Sources : `lunacy.docs.icons8.com/editing_shapes/`, `/tools/#types-of-points`,
 | Sélectionner plusieurs points | `Maj`+clic, ou glisser un rectangle par-dessus | 🟡 **partiel** | `Maj`+clic **livré** (cas 32) ; **l'élastique n'est pas livré** — il demande qu'un appui dans le vide du mode démarre un rectangle, alors que « cliquer dans le vide sort du mode » est la porte de sortie réparée le 01/09. Faisable en distinguant clic et glisser au relâchement ; **non fait tant qu'on n'a pas mesuré** qu'on ne rouvre pas le blocage |
 | Déplacer plusieurs points ensemble | glisser l'un des sélectionnés | ✅ **livré** | cas 32bis — et l'écart, pas la position absolue |
 | Ajouter un point | cliquer sur le tracé | ✅ **livré** | cas 20 — posé **sur** le côté, la forme ne bouge pas |
-| Ajouter un point courbe d'emblée | double-clic sur le tracé (point miroir) | ❌ **absent** | notre double-clic sur le **tracé** n'est pas distingué du simple clic ; le modèle, lui, sait déjà faire un point miroir |
+| Ajouter un point courbe d'emblée | double-clic sur le tracé (point miroir) | ✅ **livré le 02/09** | le double-clic sur le **tracé** est enfin distingué du simple clic. Le sommet naît **`NkPoint2::LiaisonParDefaut` = Miroir** (décision de Rodolf, 02/09 : *« par défaut je veux Miroir »*) **avec ses deux poignées déjà amorcées**. ⚠️ Sa décision **coïncide avec la source**, qui est la meilleure raison de la prendre — `editing_shapes` dit mot pour mot : *« click it to place a **straight** point or double-click to place a **mirrored** point »*. **Les deux moitiés comptent** : le simple clic garde son point **droit**, et c'est le volet (b) du cas 50 qui empêche un « Miroir partout » d'écraser le geste voisin |
 | Supprimer un point | le sélectionner puis `Suppr` | 🟡 **partiel** | `NkSupprimerSommet` **existe** et refuse sous trois sommets ; **aucun geste ne l'appelle** |
 | Supprimer un point à la souris | `Alt`+clic | ❌ **absent** | même mécanisme, autre porte |
 | Arrondir un coin | champ de rayon, actif **seulement** sur un point droit | ✅ **livré** (panneau corrigé le 02/09) | le champ « R » de notre section. La règle « seulement sur un point droit » est la nôtre aussi (`RayonActif`, cas 39) — **trouvée indépendamment, puis confirmée par la source**. 🔴 **Ce ✅ était FAUX jusqu'au 02/09, et c'est une capture de Rodolf qui l'a montré** : la règle vivait dans le modèle et dans le peintre, **pas dans le panneau**. « R = 16 » s'affichait, éditable, sur un sommet passé en « Libre » — où plus rien ne lit la valeur. Le champ se grise désormais, la valeur est **gardée** pour le retour à « Droit », et la raison est écrite sous la rangée (cas 47) |
@@ -264,7 +266,7 @@ les décrit**.
 |---|---|---|
 | **Straight** — droit | aucune poignée | ✅ **livré** (`LiaisonDroit`) |
 | **Mirrored** — miroir | liées en direction **et** longueur | ✅ **livré** (cas 35) |
-| **Asymmetric** | ⚠️ **même angle**, longueurs libres | ✅ **livré** (cas 35) |
+| **Asymmetric** | ⚠️ **même angle**, longueurs libres — la jumelle **pivote** (elle bouge !) mais **garde sa longueur** | ✅ **livré** (cas 35) — ⚠️ **non tranché par la source**, voir l'encadré ci-dessous |
 | **Disconnected** | totalement indépendantes | ✅ **livré** (cas 35) |
 | `OnlyFrom` / `OnlyTo` | une seule poignée | ❌ **absent, et non ébauché** — on n'a que leur nom, pas leur comportement décrit. *Implémenter un comportement dont on n'a que le nom, c'est inventer la moitié qui compte.* |
 
@@ -273,6 +275,41 @@ chez Lunacy, **« Asymmetric » veut dire *même angle, longueurs différentes**
 ce que Sketch appelle aujourd'hui « Mirror angle ». Pris dans son sens courant
 (« les deux font ce qu'elles veulent »), il aurait reçu le comportement de
 `Disconnected`.
+
+#### 🔴 « ASYM. » : CE QUE LA SOURCE DIT, ET CE QU'ELLE NE DIT PAS (re-vérifié le 02/09)
+
+**Rodolf a contesté** — *« je pense que la longueur bouge dans Asym. »* — et la
+re-lecture lui donne raison sur un point que le document passait sous silence.
+Les phrases exactes, page `tools/#types-of-points` :
+
+> *« **Mirrored** points come with identical handles that mirror each other **as
+> you drag one of the handles**. »*
+> *« **Asymmetric** points come with handles that share the same angle but can
+> have different lengths. »*
+
+**Regardez ce qui diffère entre les deux.** *Mirrored* dit **« as you drag »** :
+elle décrit le **geste**. *Asymmetric* décrit un **état** — à quoi ressemblent
+les deux poignées — et **ne dit nulle part ce que devient la longueur de la
+jumelle quand on tire l'autre.** Les deux lectures sont compatibles avec cette
+phrase : **la source est AMBIGUË sur ce point précis.**
+
+| source | ce qu'elle apporte |
+|---|---|
+| Sketch (**« Mirror angle »**) | *« handles that can be different distances from the vector point, but share the same angle »* — **même formulation statique, même silence** |
+| **Figma** (**« Mirror angle »**) | décrit **le geste** : *« the other handle's angle will mirror, but **its length remains unchanged** »* ; API : `HandleMirroring = ANGLE \| ANGLE_AND_LENGTH` |
+
+➡️ **Notre comportement est donc *non tranché par la source Lunacy*, et aligné
+sur Figma et Sketch.** Le changer serait une **divergence assumée**, pas une
+correction — et ça reste une ligne de code si Rodolf le veut.
+
+⚠️ **ET POURQUOI L'ŒIL VOIT LA LONGUEUR BOUGER — les deux vérités tiennent
+ensemble.** La jumelle **bouge franchement** : elle **pivote** pour se remettre à
+l'opposé de la poignée qu'on tire, sa pointe parcourt un **arc**. Ce qui ne change
+pas, c'est sa **longueur**. *« Bouger » et « changer de longueur » ne sont pas la
+même chose, et c'est exactement ce que l'œil confond sur une poignée qui tourne.*
+Le **cas 35** mesure désormais les deux : la jumelle se déplace de **0,089**
+pendant que sa longueur reste à **0,1000**. Mutation (jumelle rendue immobile) :
+il tombe — en montrant que le contrôle de longueur, **seul, passait encore**.
 
 | comportement | geste | état | ce qui manque |
 |---|---|---|---|
