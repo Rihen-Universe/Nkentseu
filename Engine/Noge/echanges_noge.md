@@ -241,65 +241,114 @@ le premier à pouvoir naître conforme.** Le tri fichier par fichier des 45 n'a 
 
 # MESURE 2 — L'ÉTAT RÉEL DES SEPT PLATEFORMES, EN 3D
 
-## 2.1 La distinction qui change tout
+## 2.1 ⭐ IL Y A DEUX CHEMINS GRAPHIQUES SOUS LE MÊME TOIT — et un seul portait jusqu'à Noge
 
-Rodolf indique que les sept ont déjà été prouvées. ✅ **La mesure confirme que
-c'est vrai — et qu'une partie de ces preuves ne porte pas sur la 3D.**
+> **Recadrage demandé par Rodolf** : *« mais le web tourne avec NKCanvas ?
+> comment ça se fait ? »* — la question est juste, et elle corrige la lecture du
+> chiffre qui suit. **Rodolf avait raison, et la mesure aussi** : elles ne
+> parlent simplement pas du même chemin.
 
-La chaîne d'un jeu de course est `NKRenderer` (PBR, ombres, post-process), pas
-`NKCanvas`. Le bon témoin n'est donc ni Pong ni les jeux de plateau : c'est
-**`renderdemo`** (`Applications/Sandbox`, `RendererSandbox.jenga`) en `--demo=2`,
-qui est exactement la scène PBR + ombres + instances.
+✅ **Vérifié moi-même dans les `.jenga`, pas rapporté :**
 
-## 2.2 Le tableau — quatre colonnes, et la source de chaque case
+| module | ce dont il dépend | compile-t-il `NkOpenglDevice.cpp` ? |
+|---|---|---|
+| **`NKCanvas`** | `NKWindow, NKFont, NKImage, NKStream, NKTime, NKGlad, NKThreading` — **`NKRHI` et `NKRenderer` : 0 occurrence dans tout le fichier** | **non** — il porte son propre contexte GL |
+| **`Noge`** | `… NKRHI, NKSL, NKRenderer, NKCollision, NKPhysics, NKNavigation …` | **oui** |
+
+> **Les jeux 2D web (GemCrush, Dames, Échecs, Ludo) ne compilent jamais NKRHI.**
+> C'est pour ça que leurs `.wasm` sont bien réels pendant que la démo 3D ne se
+> construisait pas. Ce ne sont pas deux résultats contradictoires : ce sont deux
+> chemins différents, dont un seul passe par le code qui cassait.
+
+**Ce que chaque moitié prouve, et il ne faut pas les confondre :**
+
+- la moitié **NKCanvas** prouve le **socle** — fenêtre, événements, contexte GL,
+  audio, entrées, boucle, portage, empaquetage. C'est **réel, précieux, et ça
+  reste entièrement vrai** : sept cibles portées, c'est le travail de portage le
+  plus dur et il est fait ;
+- la moitié **NKRHI/NKRenderer** est **la seule qui prouve quelque chose pour
+  Noge** — PBR, ombres, réflexions — et c'est celle qui a le moins de cibles.
+
+📌 **La leçon de banc de `LowPolyCars` se répète un étage plus haut, à
+l'identique** : *sept cibles vertes dont aucune n'empruntait le chemin qui
+compte pour Noge.* Le chemin 3D web n'était pas cassé bruyamment — il était
+**absent des constructions courantes**, pendant que les builds 2D tournaient
+régulièrement et rendaient tout vert. **Un vert obtenu sur le chemin facile n'a
+jamais rien dit du chemin difficile.** C'est la même famille que le corpus de
+modèles dont un seul membre exerçait le sous-dossier `textures/`.
+
+## 2.2 Le tableau — DEUX colonnes de preuve, et la source de chaque case
 
 📄 = trace `Nkentseu/PLATEFORMES_ETAT.md`, **datée du 2026-08-06**, base commit
-`ecabc216` (2026-07-29). ✅ = vérifié par moi le 2026-09-02.
+`ecabc216`. ✅ = vérifié par moi le 2026-09-02.
 
-| cible | compile | lie | ouvre une fenêtre | **affiche une image 3D** |
-|---|---|---|---|---|
-| **Windows** | 📄 ✓ 29/29 Debug+Release | 📄 ✓ | 📄 ✓ | 📄 ✓ (backend de référence) |
-| **Android** | 📄 ✓ Debug+Release, APK 4 ABI | 📄 ✓ | 📄 ✓ | ✅ **OUI — vérifié de mes yeux** |
-| **HarmonyOS** | 📄 ✓ Debug+Release, HAP | 📄 ✓ (`nm -D` : 0 indéfini) | 📄 ✓ | ✅ **NON — couleur d'effacement + HUD** |
-| **Web** | 📄 ✓ Debug+Release, wasm | 📄 ✓ | 📄 ✓ (canvas WebGL2) | ✅ **NON — couleur d'effacement seule** |
-| **Linux** | 📄 documenté et outillé | 📄 ✓ | 📄 ✓ | 🟡 **affirmé, aucune capture trouvée** |
-| **macOS** | ❔ | ❔ | ❔ | ❔ **rien mesuré, rien tracé** |
-| **iOS** | ❔ | ❔ | ❔ | ❔ **rien mesuré, rien tracé** |
+| cible | **socle `NKCanvas`** (fenêtre, GL, entrées, 2D) | **chemin 3D `NKRHI`+`NKRenderer`** — le seul qui porte Noge |
+|---|---|---|
+| **Windows** | 📄 ✓ | 📄 ✓ **image 3D** (backend de référence) |
+| **Android** | 📄 ✓ | ✅ ✓ **image 3D — vérifiée de mes yeux**, PBR + ombres, 59 FPS |
+| **Web** | ✅ ✓ **4 jeux 2D livrés en `.wasm`** (GemCrush 3,27 Mo, Dames, Échecs, Ludo) | 🟡 **construit et lie depuis aujourd'hui** (30/30) — **image 3D non prouvée** |
+| **HarmonyOS** | 📄 ✓ (Mou, Pong, jeux de plateau) | ✅ **couleur d'effacement + HUD, `Draw:0 Tris:0`** — pas d'image 3D |
+| **Linux** | 📄 ✓ | 🟡 affirmé, **aucune capture trouvée** |
+| **macOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
+| **iOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
+
+> **Le chiffre ne bouge pas — 2 cibles sur 7 ont une image 3D prouvée** (Windows,
+> Android) — **mais il cesse de contredire ce que Rodolf sait.** Le socle EST
+> porté sur les sept. C'est le chemin 3D qui ne l'est pas, et c'est lui que le
+> jeu de course emprunte.
+
+⚠️ *Une mesure qui a l'air de démentir un fait vrai finit par être écartée en
+bloc. Deux colonnes valent mieux qu'une, parce que les deux affirmations étaient
+exactes et parlaient d'objets différents.*
+
+### ⭐ CE QUI A CHANGÉ AUJOURD'HUI POUR LE WEB — mesuré, commit `e761b4c7`
+
+```
+avant : Projects Built 23/30  ✗ FAILURE — jamais jusqu'à l'édition de liens
+après : Projects Built 30/30  ✓ SUCCESS — renderdemo.wasm 35 047 917 o
+```
+
+Une garde de capacité (`NK_EGL_AVAILABLE`) à la place d'une garde de dialecte
+(`NK_OPENGL_ES`) a débloqué **toute** la chaîne : les 7 fichiers NKRHI jamais
+atteints, puis NKSL et NKRenderer en entier. ✅ **Réponse mesurée à la question
+posée** — *« seul obstacle, ou premier de trente ? »* : **`NkOpenglDevice.cpp`
+était le seul.** Non-régression Windows 30/30.
+
+⚠️ **Et je borne le résultat** : ceci prouve que ça **construit et que ça lie**.
+Ça ne prouve **pas** qu'une image 3D s'affiche dans un navigateur — la colonne
+« image 3D » du Web reste 🟡. Il faut une exécution, donc le GPU, qui est à
+Ilyana. *Ne pas promettre une cible après une correction d'une ligne.*
 
 ### Ce que j'ai vérifié moi-même — j'ai ouvert les trois captures
 
-- ✅ **Android — `Captures/nk_android_demo3d.png`** : c'est **une vraie scène 3D**.
-  ~18 sphères PBR métal/rugosité variées, ombres portées douces au sol, grille de
-  cubes instanciés éclairée, axes, damier, HUD `Demo 3D | API : OpenGL`,
-  **59 FPS**, `VSM atlas 4096 px`, `framesInFlight 3`. La chaîne NKRenderer tourne
-  entièrement sur mobile. **C'est la preuve 3D la plus forte du dossier.**
-  ⚠️ Une ligne du HUD mérite d'être retenue pour la mesure 3 :
-  `[Phase H] Texture file-based : fallback procedural` — **les textures sont
-  procédurales, pas des fichiers.**
-- ✅ **HarmonyOS — `Captures/nk_harmony_renderdemo.jpeg`** : fond **vert uni**
-  (couleur d'effacement), HUD `Draw:0 Tris:0 GPU:0.00ms Batches:0` et
-  `Active: R2D|R3D|TEXT|OVERLAY`. **Zéro triangle dessiné.** Le moteur vit, la
-  surface présente, le texte 2D s'affiche — **la 3D n'est pas prouvée.** La trace
-  le dit d'ailleurs elle-même : c'est la démo 0, la démo 2 restait à pousser.
-- ✅ **Web — `Captures/nk_web_headless.png`** : **1280x720 d'une seule couleur**,
-  exactement la couleur d'effacement `(0.05, 0.05, 0.07)` annoncée. Aucune
-  géométrie. **La 3D n'est pas prouvée.**
+- ✅ **Android — `Captures/nk_android_demo3d.png`** : **vraie scène 3D**. ~18
+  sphères PBR, ombres portées douces, cubes instanciés éclairés, HUD
+  `Demo 3D | API : OpenGL`, **59 FPS**, `VSM atlas 4096 px`. **La preuve 3D la
+  plus forte du dossier.** ⚠️ Une ligne du HUD compte pour la mesure 3 :
+  `[Phase H] Texture file-based : fallback procedural` — **textures procédurales,
+  pas des fichiers.**
+- ✅ **HarmonyOS — `nk_harmony_renderdemo.jpeg`** : fond **vert uni**, HUD
+  `Draw:0 Tris:0 Batches:0`. **Zéro triangle.** Le moteur vit, la surface
+  présente, le texte 2D s'affiche — la 3D n'est pas prouvée.
+- ✅ **Web — `nk_web_headless.png`** : **1280×720 d'une seule couleur**, celle du
+  clear `(0.05, 0.05, 0.07)`. Aucune géométrie.
 
 ### Ce que je ne peux pas vérifier depuis cette machine, et je le dis
 
-- **macOS et iOS** : exigent un Mac et Xcode. Aucun ici. ⚠️ Et c'est plus qu'une
-  impossibilité matérielle : **ces deux cibles ne sont mentionnées nulle part dans
-  `PLATEFORMES_ETAT.md`** — le document couvre HarmonyOS, Web et Android. Le wiki
-  `NKRHI/Platforms-Build-Run.md` les documente en *intention* (Metal recommandé),
-  ce qui n'est pas une preuve d'exécution. **Le backend Metal est dans la
-  catégorie « compile » du garde-fou d'honnêteté, pas « validé ».**
-- **Linux** : le wiki décrit un état détaillé et crédible (GLX, override WSLg
-  `MESA_GL_VERSION_OVERRIDE`, Vulkan lavapipe, correctifs de link nommés) et
-  affirme que Vulkan « compile, linke, s'initialise ET rend, démos 2D+3D ».
-  ⚠️ **Je n'ai trouvé aucune capture Linux**, alors qu'Android, Web et HarmonyOS
-  en ont chacune une. Je classe donc Linux « affirmé, non illustré » — pas
-  « faux ». Vérifiable ici via WSL2 sans Mac, c'est la cible la moins chère à
-  fermer.
+- **macOS et iOS** : exigent un Mac et Xcode. Aucun ici. ⚠️ Et **ces deux cibles
+  ne sont mentionnées nulle part dans `PLATEFORMES_ETAT.md`** ; le wiki les
+  documente en *intention* (Metal recommandé), ce qui n'est pas une preuve
+  d'exécution. **Metal est « compile », pas « validé ».**
+- **Linux** : le wiki décrit un état détaillé et crédible et affirme que Vulkan
+  « compile, linke, s'initialise ET rend, démos 2D+3D ». ⚠️ **Aucune capture
+  Linux trouvée**, alors qu'Android, Web et HarmonyOS en ont chacune une. Classé
+  « affirmé, non illustré » — pas « faux ».
+- ⚠️ **WSL2 : non résolu.** `wsl.exe --list --verbose` puis
+  `wsl.exe -e bash -lc 'uname -sr'` **n'ont rien rendu au bout de 120 s** et ont
+  été mis en arrière-plan. *Un WSL qui pend au-delà de deux minutes est un
+  résultat* : la cible Linux n'est pas fermable depuis cette session sans que
+  Rodolf débloque sa machine.
+
 
 ## 2.3 Ce qu'il faut retenir, et l'écart avec ce qu'on croit
 
