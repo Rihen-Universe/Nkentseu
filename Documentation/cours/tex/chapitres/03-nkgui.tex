@@ -453,20 +453,19 @@ portent sur l'état de l'image \emph{précédente} : vos clics arrivent avec une
 image de retard, ou pas du tout.
 \end{nkretenir}
 
-\begin{nkpiege}[Ne pas transposer l'ordre de l'ancien module]
-L'ancien module d'interface, \texttt{NKUI}, avait l'ordre \emph{inverse}, et il
-est documenté ainsi :
+\begin{nkpiege}[L'ordre ne se copie pas d'une bibliothèque à l'autre]
+Événements \emph{puis} \texttt{BeginFrame} : c'est l'ordre de NKGui, et il
+tient à une raison précise --- c'est \texttt{BeginFrame} qui appelle
+\texttt{input.NewFrame()}. D'autres bibliothèques d'interface immédiate
+attendent l'ordre \emph{inverse}, parce qu'elles font ce travail ailleurs.
 
-\begin{nkcode}{Applications/Sandbox/src/DemoNkentseu/NkUICanvas/NkUICanvasDemo.cpp:268-270}
-// Ordre input CORRECT : BeginFrame (vide les deltas clic/release) PUIS les
-// events (re-remplissent pos/boutons/clics) -> les widgets voient le clic.
-\end{nkcode}
+\textbf{Un ordre correct dans une bibliothèque est donc un ordre faux dans une
+autre}, et l'erreur ne se voit pas : rien ne plante. Les clics arrivent avec une
+image de retard, ou pas du tout --- et l'on cherche le défaut dans le widget.
 
-\textbf{Ce commentaire ne s'applique pas à NKGui.} La démo NKGui pompe les
-événements \emph{avant} \texttt{BeginFrame} (\nkfile{main.cpp:438} contre
-\texttt{:468}), précisément parce que c'est \texttt{BeginFrame} qui fait le
-travail de \texttt{NewFrame()}. Si vous copiez du code de l'ancien module, c'est
-la première chose à vérifier.
+Si vous transposez du code venu d'ailleurs --- d'une autre bibliothèque, ou du
+module \texttt{NKUI} déprécié qui traîne encore dans l'arbre --- c'est la
+première chose à vérifier, avant même que le code compile.
 \end{nkpiege}
 
 \section{Comment un widget conserve son état}

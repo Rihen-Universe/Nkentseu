@@ -136,8 +136,21 @@ et leurs voisins immédiats : \texttt{NKWindow} (la fenêtre native),
 \texttt{NKEvent} (les événements typés), \texttt{NKFont} (rasterisation de
 polices), \texttt{NKImage} (décodage PNG/JPG/SVG\dots), \texttt{NKRHI}
 (abstraction GPU bas niveau), \texttt{NKRenderer} (rendu 3D), \texttt{NKAudio},
-\texttt{NKMedia}, \texttt{NKSL} (langage de \emph{shaders}), \texttt{NKUI}
-(l'ancien module d'interface, remplacé par NKGui).
+\texttt{NKMedia} et \texttt{NKSL} (langage de \emph{shaders}).
+
+\begin{nkpiege}[Un module que vous verrez, et qu'il ne faut pas employer]
+\texttt{Kernel/Runtime/NKUI} existe encore dans l'arbre. C'est l'« ancien »
+module d'interface, et il est \textbf{déprécié} : son retrait est en cours,
+module par module. N'écrivez aucune interface dessus, et ne prenez pas ses
+fichiers comme modèles --- l'interface d'aujourd'hui, c'est \texttt{NKGui}.
+
+Ce qui a tranché entre les deux n'est pas l'âge, c'est la sûreté des entrées :
+NKGui possède un routeur d'occultation par couches, interrogé avant tout
+test de survol. NKUI n'en a pas --- son \texttt{IsOccluded} rend
+\texttt{false}. Un widget NKUI réagit donc à un clic tombé sur une
+\emph{modale dessinée au-dessus de lui} : le dessin se superpose, l'entrée
+non.
+\end{nkpiege}
 
 \subsection{Engine et Integrations}
 
