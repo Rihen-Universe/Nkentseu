@@ -117,7 +117,9 @@ void NkRenderWindow::Clear(const NkColor2D &color) {
     // Software, BeginFrame() ouvre le render pass / clear le back-buffer avec
     // cette couleur (sinon ils utilisent un gris en dur -> fond incorrect).
     // No-op sur OpenGL/DX (ils clearent via le renderer->Clear ci-dessous).
-    if (mContext) mContext->SetClearColor(color.r/255.f, …);
+    if (mContext)
+        mContext->SetClearColor(color.r / 255.f, color.g / 255.f,
+                                color.b / 255.f, color.a / 255.f);
     // Begin() ouvre la frame si pas deja ouverte (idempotent par convention
     // du backend) ; Clear() est appelable en milieu de frame.
     if (!mFrameOpen) { mRenderer->Begin(); mFrameOpen = true; }
@@ -466,7 +468,8 @@ Chaque glyphe devient un quad de quatre \texttt{NkVertex2D}
 le tout d'un coup :
 
 \begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/Renderer/Resources/NkSprite.cpp:318}
-renderer.DrawVertices(tverts.Data(), …, atlas);
+renderer.DrawVertices(tverts.Data(), tverts.Size(),
+                      indices.Data(), indices.Size(), atlas);
 \end{nkcode}
 
 \noindent Résultat : \textbf{un seul appel de dessin par texte}, quelle que soit
