@@ -686,7 +686,39 @@ GUIDE_GIT_MULTI_AGENTS.md
 
 # NKCode runtime + WIP local (jamais suivis)
 /.nkcode/
-/Captures/
+
+# /Captures/ : IGNORE PAR DEFAUT, avec une ALLOWLIST NOMMEE.
+#
+# LA REGLE, et elle tient en une phrase (2026-09-02, decision de Rodolf) :
+#   UNE IMAGE QUI FAIT FOI DANS UN DOCUMENT EST VERSIONNEE.
+#   UNE IMAGE DE TRAVAIL NE L EST PAS.
+#
+# Pourquoi pas `!/Captures/` tout court : le dossier porte 950 fichiers de
+# rendus intermediaires, essais et artefacts. Les versionner en bloc alourdirait
+# l historique pour toujours, et un historique ne se degonfle pas. Mais l inverse
+# coutait aussi : la carte des 7 plateformes de Engine/Noge/DECISIONS_RODOLF.md
+# s appuyait sur des images HORS DEPOT -- un verdict dont la preuve peut
+# disparaitre d un coup de menage.
+#
+# Donc : liste EXPLICITE, fichier par fichier (motif seulement pour la famille
+# plateforme_*, qui est fermee et nommee). 9 fichiers, 2 292 069 octets mesures.
+# Pour en ajouter une : elle doit d abord etre CITEE par un document versionne.
+# Detail et justification par image : Captures/LISEZMOI.md
+#
+# ⚠️ Mecanique gitignore : on ne peut pas de-ignorer un fichier si son DOSSIER
+# est ignore -- git ne descend pas dedans. D ou `/Captures/*` (le contenu) et non
+# `/Captures/` (le dossier), et la meme paire pour le sous-dossier model_loaders.
+/Captures/*
+!/Captures/LISEZMOI.md
+!/Captures/plateforme_*
+!/Captures/nk_android_demo3d.png
+!/Captures/nk_harmony_renderdemo.jpeg
+!/Captures/nk_web_headless.png
+!/Captures/model_loaders/
+/Captures/model_loaders/*
+!/Captures/model_loaders/fbx_FuturisticCar.png
+!/Captures/model_loaders/usda_cube.png
+
 Applications/NKCode/important/*.pdf
 Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
 

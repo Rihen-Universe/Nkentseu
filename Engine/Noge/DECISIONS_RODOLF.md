@@ -14,7 +14,7 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 
 | # | ce qu'il faut | de qui | coût |
 |---|---|---|---|
-| **A** | **Confirmer le Web sur un VRAI GPU.** La cible est verte en rendu **logiciel** (SwiftShader) ; il manque une exécution sur ta carte. Mode d'emploi complet au **bloc 1**. | **toi** | ~2 min de navigateur |
+| **A** ⭐ | **Confirmer le Web sur un VRAI GPU.** La cible est verte en rendu **logiciel** (SwiftShader) ; il manque une exécution sur ta carte. 🔴 **Devenu le point le plus rentable de la liste** : macOS et iOS étant bloquées par la signature, **le navigateur est le chemin Apple** — ces 2 minutes ouvrent 3 plateformes, pas une. Mode d'emploi complet au **bloc 1**. | **toi** | ~2 min de navigateur |
 | ~~**B**~~ | ✅ **FAIT le 02/09 à 19h31 — HarmonyOS REND LA 3D.** Tu as lancé l'émulateur, j'ai installé le `.hap` du 10/08 et **lu le HUD moi-même** : `Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres portées. **5 cibles sur 7.** ⚠️ Réserve écrite : binaire du **10/08**, donc l'image prouve « HarmonyOS rendait la 3D le 10/08 » — un re-test sur un `.hap` à jour reste à faire, **comme pour Linux**. Détail : **carte, section 9**. | — | fait |
 | **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
 | **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
@@ -31,9 +31,16 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 
 📍 **La carte des 7 plateformes est en bas de cette page, section 9.**
 🗺️ **État au 02/09 au soir : 5 cibles vertes sur 7** — Windows, Android, Linux,
-Web (logiciel), **HarmonyOS (ce soir)**. Restent **macOS** et **iOS**, qui n'ont
-aucune trace pour le chemin 3D — mais dont la chaîne de build Apple existe et a
-déjà tourné (section 9, points 6 et 7).
+Web (logiciel), **HarmonyOS (ce soir)**. Restent **macOS** et **iOS**, et elles
+ne sont **pas en retard : elles sont 🔒 BLOQUÉES PAR LA SIGNATURE DE CODE.** La CI
+**construit** les deux, personne ne peut **exécuter** l'artefact. Ce n'est pas un
+correctif moteur, c'est un compte développeur Apple.
+
+> 🔴 **CONSÉQUENCE QUI CHANGE UNE PRIORITÉ — le Web EST le chemin Apple.**
+> Tant que la signature bloque, c'est **par le navigateur** qu'un utilisateur
+> macOS ou iOS verra tourner le moteur. Le **point A** ci-dessus n'est donc plus
+> une septième case à cocher : c'est **la seule voie ouverte vers deux
+> plateformes sur sept**. Ces deux minutes valent plus cher que leur durée.
 
 ---
 
@@ -54,6 +61,13 @@ déjà tourné (section 9, points 6 et 7).
 >
 > 👉 **Ce qui t'attend (point A du sommaire)** : les 2 minutes ci-dessous, sur ta
 > carte. Le mode d'emploi qui suit reste **entièrement valable**.
+>
+> 🔴 **ET CE BLOC A CHANGÉ DE POIDS LE MÊME SOIR.** Tu as nommé la cause du
+> blocage Apple — *« ça compile avec GitHub Actions mais je ne peux pas exécuter
+> à cause de la signature, donc il faut que le web fonctionne »*. **Le navigateur
+> est donc le chemin par lequel macOS et iOS verront tourner le moteur.** Ces
+> deux minutes ne confirment plus une case : elles ouvrent **trois plateformes
+> sur sept**. Détail en section 9, points 6 et 7.
 
 La chaîne 3D web est **débloquée et vérifiée** : elle construit (30/30), elle lie,
 elle initialise entièrement, elle exécute 22 passes par image, et il n'y a **plus
@@ -472,6 +486,23 @@ application (`Applications/NkAnimaEditor`) et un document mal rangé.
 > compteurs ont été branchés) : toute capture antérieure affiche `Draw:0` même
 > quand la 3D tourne à 142 FPS. *Un témoin invalidé contamine tout ce qu'il a
 > jugé* — c'est lui qui a fait classer HarmonyOS en échec à tort.
+>
+> 📦 **LES PREUVES SONT MAINTENANT DANS LE DÉPÔT — et la règle qui les y garde.**
+> Jusqu'au 02/09, toutes les images citées ici vivaient **hors dépôt**
+> (`/Captures/` était ignoré en bloc) : *un verdict dont la preuve peut
+> disparaître d'un coup de ménage n'est pas un verdict, c'est un souvenir.*
+> Décision de Rodolf, avec sa contrainte — *« retire donc Captures de gitignore,
+> mais je dois limiter le nombre de fichiers lourds »* :
+>
+> > **Une image qui fait foi dans un document est versionnée.
+> > Une image de travail ne l'est pas.**
+>
+> Appliquée en **allowlist nommée** dans `.gitignore` (pas un dossier entier) :
+> **9 fichiers, 2 292 069 octets** — les 5 captures de plateforme, les **2 témoins
+> invalidés** qu'on garde exprès pour pouvoir raconter les deux verdicts qu'ils
+> ont fait tomber, et les 2 captures de `model_loaders/` réellement citées. Les
+> 941 autres images du dossier restent ignorées. Détail, justification par image
+> et **contrôle négatif** : **`Captures/LISEZMOI.md`**.
 
 | # | cible | 3D | preuve | ce qui manque |
 |---|---|---|---|---|
@@ -480,8 +511,8 @@ application (`Applications/NkAnimaEditor`) et un document mal rangé.
 | 3 | **Linux** | ✅ | `Captures/plateforme_linux.png` (29/07, 15h38, **81,6 FPS**, HUD lu) **+ ton témoignage du 02/09** | **re-test sous WSL** — le vert date du 29/07 |
 | 4 | **Web** | 🟡 | `Captures/plateforme_web_2026-09-02.png`, HUD lu, `Draw:1093 Tris:489586` | **une exécution sur GPU réel** — celle-ci est en **rendu logiciel** |
 | 5 | **HarmonyOS** | ✅ | `Captures/plateforme_harmonyos_2026-09-02.jpeg` — **HUD lu le 02/09 à 19h31** : `Demo 3D \| API : OpenGL`, panneau `Shadow tweak` (`VSM atlas 4096 px`), `FPS approx : 8.3`, 17 sphères PBR + ombres portées | **re-test sur un `.hap` à jour** — l'image vient du binaire du **10/08** |
-| 6 | **macOS** | ❔ | **aucune trace** pour le chemin 3D | un build Metal, puis un Mac pour l'exécuter |
-| 7 | **iOS** | ❔ | **aucune trace** pour le chemin 3D | idem + un appareil ou un simulateur |
+| 6 | **macOS** | 🔒 | **ça construit** (CI GitHub, artefact réel le 28/08) — **ça ne s'exécute pas** | 🔒 **la SIGNATURE DE CODE**, pas un correctif moteur |
+| 7 | **iOS** | 🔒 | idem — la CI produit un artefact, personne ne peut le lancer | 🔒 **signature + profil d'approvisionnement**, plus contraignant que macOS |
 
 ### Ce qu'il faut, cible par cible — **exactement**
 
@@ -703,9 +734,41 @@ Les trois marqueurs étaient là ; `Draw:`/`Tris:` étaient non nuls comme annon
 et n'ont pas servi. *Un critère de verdict posé avant la mesure est le seul qui
 ne s'ajuste pas au résultat.*
 
-**6 et 7. macOS et iOS — la vraie carte n'est pas vide** *(hors mandat, non lancé)*
-« Aucune trace » est vrai **pour le chemin 3D de `renderdemo`**. Mais il existe
-déjà un chemin praticable, et il a **tourné** :
+**6 et 7. macOS et iOS — 🔒 BLOQUÉES PAR LA SIGNATURE, pas par le moteur**
+
+> 🗣️ **Rodolf, 2026-09-02** : *« pour macOS et iOS je ne peux pas tester pour
+> l'instant, car ça compile avec GitHub Actions mais je ne peux pas exécuter à
+> cause de la signature — donc il faut que le web fonctionne. »*
+
+📌 **La cause est nommée, et ça change la nature de la case.** Ces deux cibles ne
+sont pas « sans trace faute d'avoir essayé » : **elles construisent**, l'artefact
+existe, et **c'est l'exécution qui est interdite**. macOS refuse de lancer un
+binaire non signé et non notarisé (Gatekeeper) ; iOS n'installe rien sans
+signature **et** profil d'approvisionnement. *Un blocage administratif ressemble
+à un trou technique sur un tableau — il ne se répare pas du tout pareil.*
+
+**Ce qu'il faudrait exactement, pour que le coût soit déjà chiffré le jour où tu
+voudras débloquer :**
+
+| | macOS | iOS |
+|---|---|---|
+| **compte** | Apple Developer Program — **99 $/an** | le même compte, obligatoire |
+| **identité** | certificat *Developer ID Application* | certificat *Apple Development* / *Distribution* |
+| **en plus** | **notarisation** (envoi à Apple, puis agrafage) pour lancer hors du Mac de compilation | **profil d'approvisionnement** listant l'UDID de chaque appareil |
+| **matériel pour exécuter** | un Mac | un iPhone/iPad, **ou** le simulateur (qui, lui, ne demande pas de signature) |
+| **contourne la signature ?** | oui, localement : `xattr -d com.apple.quarantine`, ou lancer sur le Mac qui a compilé | **non** sur appareil réel — seul le **simulateur** échappe à la contrainte |
+
+🔵 **Les deux chemins les moins chers, dans l'ordre, si tu veux ouvrir Apple** :
+1. **le simulateur iOS** — il exécute sans signature. Il faut un Mac (le runner CI
+   en est un, mais il rend un artefact, il ne rend pas d'écran) ;
+2. **un Mac emprunté une heure**, pour lancer l'artefact macOS déjà produit avec
+   `xattr -d com.apple.quarantine`. Pas de compte, pas de notarisation, juste une
+   image à regarder.
+
+*Aucun des deux ne demande les 99 $ — ils demandent un Mac. Le compte ne devient
+obligatoire que pour **distribuer**, pas pour voir tourner.*
+
+**Et ce qui est déjà là, côté construction** — ça a tourné :
 - `.github/workflows/build-remote.yml` construit **n'importe quelle cible** sur
   macOS ou iOS via un runner GitHub (`macos-latest`), en une commande :
   `gh workflow run build-remote.yml -f target=renderdemo -f platform=macos` ;
@@ -721,9 +784,30 @@ validé** (le wiki le documente en *intention*), et **NkSL n'a pas encore Metal*
 
 **L'ordre le moins cher, si tu veux ouvrir Apple** : (a) lancer le workflow sur
 `renderdemo`/macos — ça coûte une commande et ça dit tout de suite si ça
-**construit et lie** ; (b) seulement ensuite, chercher un Mac pour l'exécuter.
+**construit et lie** ; (b) seulement ensuite, trouver de quoi l'exécuter (Mac
+emprunté, ou simulateur iOS).
 🚫 **Rien de tout ça n'a été lancé** : c'est hors du mandat de rangement. C'est
 une carte, pas un travail commencé.
+
+### 🔴 CE QUE LE BLOCAGE APPLE CHANGE POUR LE WEB — une priorité, pas une remarque
+
+Rodolf le dit lui-même en une clause : *« …donc il faut que le web fonctionne. »*
+
+**Tant que la signature bloque, le navigateur EST le chemin Apple.** Un
+utilisateur macOS ou iOS ne verra pas tourner Noge par un binaire natif — il le
+verra par le Web. Ce qui reclasse le **point A** :
+
+| avant | après |
+|---|---|
+| « confirmer la 7ᵉ case, 2 minutes » | **la seule voie ouverte vers 2 plateformes sur 7** |
+
+⚠️ **Et ça déplace aussi une réserve déjà écrite.** Le vert Web est en rendu
+**logiciel** ; les trois doublures CPU (cloth/hair/softbody) sont **absentes du
+Web** parce que WebGL2 n'a pas de compute (bloc 2, classé « après la course »).
+Cette décision reste bonne pour la course — mais **si le Web devient la vitrine
+Apple, ces absences ne concernent plus une cible sur sept : elles concernent
+trois**. Ce n'est pas une raison de rouvrir le bloc 2 maintenant ; c'est une
+raison de le **relire le jour où Apple comptera**.
 
 ---
 
