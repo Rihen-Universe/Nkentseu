@@ -83,8 +83,10 @@ namespace nkuidesign {
 					insp.CorpsRemplissages(ctx);
 				else if (section == 2)
 					insp.CorpsEffets(ctx);
-				else
+				else if (section == 3)
 					insp.CorpsEtats(ctx);
+				else
+					insp.CorpsApparence(ctx);
 				ctx.EndFrame();
 			}
 
@@ -100,6 +102,67 @@ namespace nkuidesign {
 			///    les états en posant `vu = true` sans rien interroger — une garde
 			///    vide, celle que ce dépôt paie depuis deux jours. Elle aurait
 			///    compté six états sur un panneau qui n'en dessine aucun.
+			/// LA DICHOTOMIE : un champ qui REPOND au glisser, ou rien.
+			///
+			/// 🔑 L'EXIGENCE DE RODOLF est « chaque propriete doit fonctionner ».
+			///    La seule facon honnete de le mesurer est de FAIRE le geste :
+			///    saisir le champ, glisser, et regarder si le DOCUMENT a change.
+			///    Un champ qui se dessine sans repondre est le pire des trois
+			///    etats possibles -- pire qu'absent, parce qu'il PROMET.
+			///
+			/// ⚠️ ON GLISSE, ON NE TAPE PAS : `ChampDrag` est pilotable sans
+			///    clavier (clic + deplacement), la saisie ne l'est pas. Ce que ce
+			///    banc prouve est donc « le champ repond au GLISSER » -- et c'est
+			///    dit, plutot que laisse croire qu'il couvre la frappe aussi.
+			/// @return vrai si le document a change.
+			static bool GlisserSur(nkgui::NkGuiContext &ctx, InspectorPanel &insp,
+								   DesignState &st, int32 section, float32 x, float32 y) {
+				NkString avant;
+				st.doc.Save(avant);
+				// une image de survol, puis la SAISIE, puis le DEPLACEMENT :
+				// c'est exactement la sequence d'une main.
+				Image(ctx, insp, x, y, false, section);
+				ctx.input.mouseClicked[0] = true;
+				Image(ctx, insp, x, y, true, section);
+				ctx.input.mouseClicked[0] = false;
+				Image(ctx, insp, x + 24.f, y, true, section);
+				Image(ctx, insp, x + 24.f, y, false, section);
+				NkString apres;
+				st.doc.Save(apres);
+				return strcmp(avant.Data(), apres.Data()) != 0;
+			}
+
+			/// Combien de BANDES distinctes de la section repondent au glisser.
+			/// ⚠️ ON COMPTE LES BANDES, PAS LES POSITIONS : un champ de 20 px
+			///    repond sur ~5 lignes de balayage ; compter les positions
+			///    donnerait un multiple qui ne veut rien dire.
+			static nkentseu::int32 ChampsQuiRepondent(nkgui::NkGuiContext &ctx,
+													  InspectorPanel &insp, DesignState &st,
+													  int32 section, float32 xIgnore = 0.f) {
+				(void)xIgnore;
+				// 🔴 ON BALAIE EN X AUSSI, ET C'EST UNE CORRECTION MESUREE : la
+				//    premiere sonde visait une seule colonne (x = 120) et
+				//    rapportait « 0 champ » sur BORDURES et REMPLISSAGES. Elle
+				//    tapait dans le champ HEXA (une saisie, pas un glisser) ;
+				//    l'opacite vit a ~208 (`col.opacX = x1 - 80`). J'ai failli
+				//    rapporter deux sections mortes qui ne le sont pas.
+				//    ⚠️ *Un harnais qui vise une colonne mesure cette colonne, pas
+				//       la section* -- exactement la faute du banc qui forcait
+				//       `ctrl = true`, sous une autre forme. La sonde balaie donc
+				//       les DEUX axes, comme une main qui cherche.
+				int32 bandes = 0;
+				bool dedans = false;
+				for (float32 y = 4.f; y < 260.f; y += 4.f) {
+					bool r = false;
+					for (float32 x = 40.f; x < 290.f && !r; x += 12.f)
+						r = GlisserSur(ctx, insp, st, section, x, y);
+					if (r && !dedans)
+						++bandes;
+					dedans = r;
+				}
+				return bandes;
+			}
+
 			static float32 HauteurEtatsConsommee(nkgui::NkGuiContext &ctx,
 												 InspectorPanel &insp) {
 				// ⚠️ LA SECTION EST REPLIÉE PAR DÉFAUT, et le banc doit l'OUVRIR
@@ -402,6 +465,54 @@ namespace nkuidesign {
 						  "vider le champ retire le bloc SANS laisser de cle fantome",
 						  pose && dansLeTexte && voyage && retire, d5);
 				}
+
+								// ═══ 6. LA DICHOTOMIE : CHAQUE CHAMP REPOND, OU RIEN ═══
+								// 🔑 L'exigence de Rodolf : « chaque propriete doit fonctionner ».
+								//    On le MESURE par le geste au lieu de le supposer. Un champ qui
+								//    se dessine sans repondre est pire qu'absent : il PROMET.
+								{
+									NkUINode &nd = st.doc.nodes[(uint32)rc];
+									nd.apparences.Clear();
+									nd.radius = 4.f;
+									const int32 bandes = ChampsQuiRepondent(ctx, insp, st, 4);
+					// DIAGNOSTIC des sections voisines -- il DIT ce qu'il trouve
+					// plutot que d'exiger un chiffre : c'est une SONDE, et une
+					// sonde qui exigerait aurait fige l'etat du jour en contrat.
+					// ⚠️ LA SONDE DOIT AVOIR QUELQUE CHOSE A SONDER : les cas
+					//    precedents ont VIDE fills et borders (ils testaient la
+					//    poubelle). Sonder ainsi aurait rendu 0 partout et fait
+					//    crier au champ mort -- la faute de donnees degenerees, une
+					//    fois de plus. On repose une entree dans chaque liste.
+					{
+						NkRemplissage f;
+						f.couleur = NkString("#123456");
+						nd.fills.Clear();
+						nd.fills.PushBack(f);
+						NkBordure bo;
+						bo.couleur = NkString("#654321");
+						bo.epaisseur = 2.f;
+						nd.borders.Clear();
+						nd.borders.PushBack(bo);
+					}
+					const int32 bBord = ChampsQuiRepondent(ctx, insp, st, 0);
+					const int32 bRemp = ChampsQuiRepondent(ctx, insp, st, 1);
+					const int32 bEffet = ChampsQuiRepondent(ctx, insp, st, 2);
+					char son[96];
+					snprintf(son, sizeof(son), "bordures=%d remplissages=%d effets=%d",
+						 bBord, bRemp, bEffet);
+					check("6bis. SONDE des sections voisines (diagnostic, sans exigence)",
+						  true, son);
+									// ⚠️ PLANCHER, PAS EGALITE : le nombre exact depend du noeud (un
+									//    cadre n'a pas tous les reglages) -- figer l'egalite ferait
+									//    tomber le cas au premier reglage legitimement absent. *Un banc
+									//    trop precis devient un banc faux.*
+									const bool repondent = bandes >= 2;
+									char d6[176];
+									snprintf(d6, sizeof(d6),
+											 "APPARENCE : %d bande(s) de champ repondent au glisser", bandes);
+									check("6. DICHOTOMIE : les champs d'APPARENCE REPONDENT au geste",
+										  repondent, d6);
+								}
 
 								printf("\nRECETTE PROPRIETES : %d/%d %s\n", total - echecs, total,
 					   echecs == 0 ? "PROUVEE" : "EN ECHEC");

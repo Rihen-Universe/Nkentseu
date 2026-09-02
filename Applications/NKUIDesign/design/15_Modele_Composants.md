@@ -420,3 +420,35 @@ Trois interdictions en découlent, à opposer à toute proposition future :
 ⚠️ Le comportement actuel est déjà conforme — cette section n'appelle aucun
 code : elle existe pour que la prochaine « bonne idée » de promotion
 automatique rencontre une décision datée, pas un vide.
+
+## 15.12 L'ORIGINE D'UN COMPOSANT — un FAIT de modèle, pas une question (02/09)
+
+Rodolf : *« lister tous les composants, ou seulement les composants système, ou
+externes, ou nos propres composants. »* Les quatre vues sont livrées. Ce qui
+suit n'attend aucun arbitrage — c'est ce que la mise en œuvre a **mesuré**.
+
+**Le prédicat seul ne suffit pas, et ce n'est pas un défaut du prédicat.**
+`NkPeutModifierDeclaration` répond « à moi / pas à moi » — c'est exactement ce
+que la règle de fork lui demande. Mais **système et tiers sont tous deux « pas
+à moi »** : il les confond, et il a raison de les confondre, puisque la règle
+de modification est la même pour les deux (copie seule).
+
+**La distinction vient donc de la SOURCE, pas du prédicat** :
+
+| origine | où elle vit | modifiable ? |
+|---|---|---|
+| **Système** | `NkComponentRegistry` — des composants de **code** | non → copie |
+| **Tiers** | `doc.declarations`, auteur ≠ le nôtre | non → copie |
+| **À moi** | `doc.declarations`, auteur vide ou le nôtre (fork compris) | **oui**, en place |
+
+➡️ **Conséquence directe : le filtre traverse DEUX listes.** Ce n'est pas un
+détail de panneau, c'est une propriété du modèle — le §15.1 sépare les deux
+**natures**, il n'interdit pas de les **lister** ensemble quand c'est ce qu'on
+demande. `NkOrigineDe` s'appuie sur le prédicat au lieu de le doubler : un
+second critère aurait divergé du premier au premier composant partagé.
+
+⚠️ **Et une conséquence qui a failli coûter cher : sous filtre, la ligne ne
+porte plus son rang.** La 3ᵉ ligne peut être le 3ᵉ composant du kit *ou* la 1ʳᵉ
+déclaration du document, selon la vue. S'y fier aurait **posé le mauvais
+composant en silence** — un indice resté plausible après que sa signification a
+changé. D'où la table `LigneCompos {systeme, index}`, consultée par le geste.

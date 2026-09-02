@@ -7367,17 +7367,6 @@ namespace nkuidesign {
 					}
 				}
 				BandeDeSection(ctx, "COMPOSANTS", "hier.composants.plus");
-				// LES QUATRE VUES (Rodolf, 02/09) -- elles se COMBINENT avec la
-				// recherche deja branchee : filtre par origine ET texte, jamais
-				// l'un ou l'autre (le filtre du modele d'arbre reste actif).
-				{
-					static const char *const kVues[kNbVues] = {"Tous", "Système", "Externes",
-															   "À moi"};
-					const int32 v = designkit::Segmented(ctx, kVues, (int32)kNbVues, mVueCompos,
-														 "hier.compos.vue");
-					if (v >= 0)
-						mVueCompos = v;
-				}
 				// L'ETAT VIDE PARLE (« une entrée qui n'agit pas porte sa
 				// raison ») : ce document n'a pas encore de composant, et la
 				// ligne dit le geste qui en crée un. Sans elle, la section vide
@@ -7433,8 +7422,37 @@ namespace nkuidesign {
 				costume::BandeEnTete(dl, r.x, r.y, r.w, r.h, ctx.theme.header, ctx.theme.border);
 				costume::TexteGras(dl, F.px10, r.x + 8.f, costume::CentrerY(F.px10, r.y, r.h),
 								   titre, ctx.theme.textMuted, 0.4f);
+				// ── LE FILTRE DE VUE, DANS LA BANDE (Rodolf, 02/09) ──────────
+				// 🔴 IL ETAIT EN QUATRE RANGEES SOUS LA BANDE, et il mangeait la
+				//    moitie de la section qu'il filtre. Le remede n'etait PAS de
+				//    raccourcir les libelles -- ce serait laisser la grille dicter
+				//    le vocabulaire. C'est l'IMPLANTATION qui etait fautive :
+				//    *un filtre qui mange ce qu'il filtre est un defaut de place,
+				//    pas de contenu.*
+				// ⚠️ UN SEUL CONTROLE QUI CYCLE, parce que quatre libelles ne
+				//    tiennent pas dans une bande de 22 px -- et les QUATRE VUES
+				//    restent, c'est l'exigence. La pastille DIT laquelle est
+				//    active : un cycle muet serait un geste sans retour.
+				float32 finDroite = r.x + r.w - 8.f;
+				if (NkComponentDecl::StrEq(id, "hier.composants.plus")) {
+					static const char *const kVues[kNbVues] = {"Tous", "Système", "Externes",
+															   "À moi"};
+					const char *nom = kVues[(mVueCompos >= 0 && mVueCompos < kNbVues)
+												? mVueCompos
+												: 0];
+					const float32 wv = costume::Largeur(F.px9, nom) + 12.f;
+					const NkRect rv = {finDroite - 22.f - wv, r.y + (r.h - 14.f) * 0.5f, wv,
+									   14.f};
+					const bool svv = ctx.popupDepth == 0 && NkGuiRectContains(rv, ctx.input.mousePos);
+					costume::BadgePilule(dl, F.px9, rv.x, rv.y, 14.f, nom,
+										 svv ? ctx.theme.accent : ctx.theme.textMuted);
+					if (svv && ctx.input.mouseClicked[0]) {
+						mVueCompos = (mVueCompos + 1) % (int32)kNbVues;
+						mSt->DireAuPied(kVues[mVueCompos]);
+					}
+				}
 				const float32 wp = costume::Largeur(F.px15, "+");
-				const NkRect rp = {r.x + r.w - 8.f - wp - 6.f, r.y, wp + 6.f, r.h};
+				const NkRect rp = {finDroite - wp - 6.f, r.y, wp + 6.f, r.h};
 				costume::Texte(dl, F.px15, rp.x + 3.f, costume::CentrerY(F.px15, r.y, r.h), "+",
 							   ctx.theme.textMuted);
 				if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
