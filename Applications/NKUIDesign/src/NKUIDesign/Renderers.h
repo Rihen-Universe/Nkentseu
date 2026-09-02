@@ -644,12 +644,72 @@ namespace nkuidesign {
 				//    chose qui la rende repérable à l'œil. Ce qu'on corrige n'est
 				//    pas « il y a un repli », c'est *« le repli se trompait de
 				//    question »*.
+				// ── LE DEGRADE, PEINT PAR BANDES ─────────────────────────────
+				// ⚠️ LE PEINTRE N'A PAS DE PRIMITIVE DE DEGRADE, et on ne lui en
+				//    ajoute pas une pour ce lot : on peint des BANDES de couleur
+				//    interpolee avec `FillColor`, la porte qui existe deja.
+				//    Consequences assumees, et c'est pour ca qu'elles sont
+				//    ecrites : ca traverse TOUS les backends sans code par
+				//    backend, ca passe par le peintre ENREGISTREUR (donc le
+				//    temoin le voit), et la finesse est bornee par le nombre de
+				//    bandes. *Une approximation nommee vaut mieux qu'une
+				//    primitive inventee dans le noyau pour un premier jet.*
+				// ⚠️ L'ANGLE N'EST PAS HONORE ENCORE : les bandes sont
+				//    HORIZONTALES. Le dire ici plutot que laisser croire qu'un
+				//    angle de 90° fait quelque chose -- un champ que le fichier
+				//    porte et que l'ecran ignore est exactement le defaut que ce
+				//    chantier repare ailleurs.
+				auto peindreDegrade = [&](const NkDegrade &g) {
+					if (!g.Actif())
+						return false;
+					const int32 kBandes = 24; // finesse : nommee, pas devinee
+					for (int32 b = 0; b < kBandes; ++b) {
+						const float32 t0 = (float32)b / (float32)kBandes;
+						const float32 t1 = (float32)(b + 1) / (float32)kBandes;
+						// l'arret encadrant : on cherche le segment qui contient t0
+						uint32 i0 = 0;
+						while (i0 + 2u < (uint32)g.arrets.Size()
+							   && g.arrets[i0 + 1].position < t0)
+							++i0;
+						const NkArretDegrade &a0 = g.arrets[i0];
+						const NkArretDegrade &a1 = g.arrets[i0 + 1];
+						const float32 span = (a1.position - a0.position);
+						const float32 k = span > 0.0001f ? (t0 - a0.position) / span : 0.f;
+						const uint32 c0 = NkGHexRGBA(a0.couleur.Data());
+						const uint32 c1 = NkGHexRGBA(a1.couleur.Data());
+						auto mix = [&](uint32 dec) -> uint32 {
+							const float32 v0 = (float32)((c0 >> dec) & 0xFFu);
+							const float32 v1 = (float32)((c1 >> dec) & 0xFFu);
+							float32 v = v0 + (v1 - v0) * (k < 0.f ? 0.f : k > 1.f ? 1.f : k);
+							if (v < 0.f)
+								v = 0.f;
+							if (v > 255.f)
+								v = 255.f;
+							return (uint32)(v + 0.5f);
+						};
+						const uint32 col = (mix(24) << 24) | (mix(16) << 16) | (mix(8) << 8)
+										   | 0xFFu;
+						const NkPaintRect rb{r.x, r.y + r.h * t0, r.w, r.h * (t1 - t0) + 0.5f};
+						p.FillColor(rb, col, 0.f);
+					}
+					return true;
+				};
 				bool fondPeint = false;
 				if (!n.fills.Empty()) {
 					bool peint = false;
 					for (uint32 fi = 0; fi < (uint32)n.fills.Size(); ++fi) {
 						const NkRemplissage &f = n.fills[fi];
-						if (!f.visible || f.couleur.Empty())
+						if (!f.visible)
+							continue;
+						// LE DEGRADE PRIME SUR LA COULEUR UNIE du meme
+						// remplissage : c'est ce que l'utilisateur a pose en
+						// dernier, et les deux ne peuvent pas coexister a
+						// l'ecran.
+						if (peindreDegrade(f.degrade)) {
+							peint = true;
+							continue;
+						}
+						if (f.couleur.Empty())
 							continue;
 						const uint32 base = NkGHexRGBA(f.couleur.Data());
 						const float32 k = (f.opacite < 0.f ? 0.f

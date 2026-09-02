@@ -14,7 +14,7 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 
 | # | ce qu'il faut | de qui | coût |
 |---|---|---|---|
-| ~~**A**~~ → **A′** 🔴 | ✅ **FAIT, et ça a RÉFUTÉ le vert Web.** Tu as lancé sur ta carte : `PBR` ne se lie pas — **17 unités de texture demandées, 16 accordées**, écran vide. Le vert d'hier venait de SwiftShader, plus permissif que le matériel. **Ce qui t'attend maintenant, ce n'est plus un test, c'est une décision** : lancer la **variante réduite de `PBR`** (conçue, chiffrée **~2-3 j**, non codée). ⚠️ macOS/iOS étant bloquées par la signature, **ce défaut coûte 3 plateformes sur 7**. Tout en **section 10**. | **toi** — dire quand | ~2-3 j |
+| **A″** 🟠 | ✅ **CORRIGÉ le 02/09 — il te reste 2 minutes.** Le défaut est traité : **17 → 16**, par un déclencheur qui **ne nomme aucune plateforme** (il compare la demande du shader au budget du pilote). Constructions vertes, banc vert. ⚠️ **Marge ZÉRO** — 16/16, l'état exact qui a explosé le 11/08 ; le banc est désormais le rempart, et la réserve IBL/sky rendra 2 unités quand le GPU sera libre. **Ce qu'il manque : une exécution sur ta carte**, port **9002**. Historique : ✅ **FAIT, et ça avait RÉFUTÉ le vert Web.** Tu as lancé sur ta carte : `PBR` ne se lie pas — **17 unités de texture demandées, 16 accordées**, écran vide. Le vert d'hier venait de SwiftShader, plus permissif que le matériel. **Ce qui t'attend maintenant, ce n'est plus un test, c'est une décision** : lancer la **variante réduite de `PBR`** (conçue, chiffrée **~2-3 j**, non codée). ⚠️ macOS/iOS étant bloquées par la signature, **ce défaut coûte 3 plateformes sur 7**. Tout en **section 10**. | **toi** — dire quand | ~2-3 j |
 | ~~**B**~~ | ✅ **FAIT le 02/09 à 19h31 — HarmonyOS REND LA 3D.** Tu as lancé l'émulateur, j'ai installé le `.hap` du 10/08 et **lu le HUD moi-même** : `Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres portées. **5 cibles sur 7.** ⚠️ Réserve écrite : binaire du **10/08**, donc l'image prouve « HarmonyOS rendait la 3D le 10/08 » — un re-test sur un `.hap` à jour reste à faire, **comme pour Linux**. Détail : **carte, section 9**. | — | fait |
 | **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
 | **E** | 🦴 **Faut-il UNIFIER les deux conventions de pose de repos ?** `NkRetargetSkeleton` (local relatif au parent) contre `NkSkeletonDef` (matrices bind/inverse-bind). Mesure faite : **ce ne sont pas deux versions d'une même chose**. Coûts, apports et recommandation au **bloc 11**. | **toi** | une phrase |
@@ -559,7 +559,7 @@ application (`Applications/NkAnimaEditor`) et un document mal rangé.
 | 1 | **Windows** | ✅ | backend de référence, `plateforme_windows.png` (29/07, 142,1 FPS) | — |
 | 2 | **Android** | ✅ | `Captures/nk_android_demo3d.png` — 18 sphères PBR, ombres, **59 FPS**, `VSM atlas 4096 px` | — (⚠️ textures **procédurales**, pas file-based) |
 | 3 | **Linux** | ✅ | `Captures/plateforme_linux.png` (29/07, 15h38, **81,6 FPS**, HUD lu) **+ ton témoignage du 02/09** | **re-test sous WSL** — le vert date du 29/07 |
-| 4 | **Web** | 🔴 | **ROUGE sur GPU réel** (02/09 au soir) : `PBR` ne se lie pas — `texture image units count exceeds MAX_TEXTURE_IMAGE_UNITS(16)`, écran vide. 🟡 **Vert en LOGICIEL** : `Captures/plateforme_web_2026-09-02.png` reste vraie, prise sous SwiftShader qui accorde **plus de 16** unités | **la variante réduite de `PBR`** — 17 échantillonneurs demandés pour 16 accordés. **Section 10** |
+| 4 | **Web** | 🟠 | **CORRIGÉ, non revérifié.** Le défaut est nommé et traité (17 → 16, section 10) ; il manque **une exécution** sur ta carte pour le confirmer. Au soir du 02/09 il était ROUGE : `PBR` ne se liait pas — `texture image units count exceeds MAX_TEXTURE_IMAGE_UNITS(16)`, écran vide. 🟡 **Vert en LOGICIEL** : `Captures/plateforme_web_2026-09-02.png` reste vraie, prise sous SwiftShader qui accorde **plus de 16** unités | **2 minutes de navigateur** pour confirmer le correctif — ⚠️ sur le port **9002** (Release) |
 | 5 | **HarmonyOS** | ✅ | `Captures/plateforme_harmonyos_2026-09-02.jpeg` — **HUD lu le 02/09 à 19h31** : `Demo 3D \| API : OpenGL`, panneau `Shadow tweak` (`VSM atlas 4096 px`), `FPS approx : 8.3`, 17 sphères PBR + ombres portées | **re-test sur un `.hap` à jour** — l'image vient du binaire du **10/08** |
 | 6 | **macOS** | 🔒 | **ça construit** (CI GitHub, artefact réel le 28/08) — **ça ne s'exécute pas** | 🔒 **la SIGNATURE DE CODE**, pas un correctif moteur |
 | 7 | **iOS** | 🔒 | idem — la CI produit un artefact, personne ne peut le lancer | 🔒 **signature + profil d'approvisionnement**, plus contraignant que macOS |
@@ -1110,6 +1110,99 @@ au prochain sampler ajouté* — c'est littéralement ce qui s'est produit le
 
 **Chiffrage restant : ~1,5 à 2 jours** (étape 1 : une journée ; étape 2 : les
 quatre fusions + une capture A/B chacune).
+
+### ✅ (a) LIVRÉ — 17 → 16, et **ce n'est pas un correctif Web, c'est la suppression d'un `si (web)`**
+
+**Le code** : `NkTrimShadowRawSampler` + `NkCountDeclaredSamplers`, dans
+`NkOpenglDevice.cpp`, **volontairement HORS de toute garde de plateforme** — et
+sans aucun des helpers `NkWeb*`, qui vivent, eux, sous la garde. *Une fonction
+pilotée par une capacité ne doit pas dépendre d'un `#if` de cible, sinon elle
+redevient un `si (web)` par la porte de derrière.*
+
+**Le déclencheur ne nomme personne** :
+
+```cpp
+if (glStage == GL_FRAGMENT_SHADER && mCaps.maxFragmentTextureUnits > 0 &&
+    NkCountDeclaredSamplers(src) > mCaps.maxFragmentTextureUnits) { … }
+```
+
+> Il compare **ce que le shader demande** à **ce que le pilote accorde**. Pas de
+> plateforme, pas de preset, pas de constante 17 codée en dur dans NKRHI —
+> *NKRHI n'a pas à connaître ses shaders.* Il se déclenchera tout seul sur
+> n'importe quelle cible étroite, WebGL2 aujourd'hui, un GL ES pauvre demain,
+> **sans que personne ne l'ait nommée**.
+
+**Le repli est une dégradation, pas un trou** : le test `mode == 4` est
+neutralisé, le flot tombe sur le **PCF 3×3** de fin de fonction, qui n'utilise
+que le sampler comparatif. L'ombre devient plus douce, elle ne disparaît pas.
+
+**Et le bureau ne bouge pas d'un pixel — par construction, pas par comparaison.**
+La transformation travaille sur une **copie** ; sur bureau la condition est
+fausse (32 accordées pour 17 demandées), `src` n'est jamais touché. *Une
+non-régression prouvée par la structure vaut mieux qu'une non-régression prouvée
+par deux captures qu'il faut savoir comparer.*
+
+**Mesure — le banc, avant et après :**
+
+```
+$ python Tools/verif_budget_samplers.py --cible web
+🔴 pbr.frag.nksl : 17 pour 16 — 1 de trop.                      sortie 1
+
+$ python Tools/verif_budget_samplers.py --cible web --apres-trim --controle
+Retrait pilote par le budget applique : tShadowAtlasRaw retire
+(PCSS -> repli PCF 3x3 ; branche deja morte a NK_MOBILE)
+✅ (a) compteur sensible : les 185 etages gagnent exactement 1.
+✅ (b) frontiere juste : 16 = vert, 17 = ROUGE.
+Aucun depassement — 185 etages mesures, budget 16.              sortie 0
+```
+
+**Constructions** : NKRHI **16/16**, NKRenderer **24/24**, **Noge 41/41** — le
+même compte que la ligne de base prise avant d'ouvrir le lot.
+
+⚠️ **CE QUE CETTE PREUVE NE COUVRE PAS, ET JE LE BORNE.** Le mode `--apres-trim`
+du banc **réimplémente la règle en Python** ; il ne teste pas le C++. C'est
+délibéré — *le juge doit venir d'ailleurs que le jugé* — mais il faut le dire
+net : **la règle et son arithmétique sont prouvées (17 → 16), le code C++ est
+compilé et non exécuté.** Sa vérification tient en une ligne, le jour où le Web
+tournera : le journal doit afficher
+`[NkRHI_GL] budget d'unites de texture : 17 demandees pour 16 accordees ->
+PCSS retire (repli PCF 3x3), 16 restantes`.
+
+### 🔴 MARGE ZÉRO — à dire fort, parce que c'est l'état qui a explosé le 11 août
+
+**16 sur 16. Il n'y a plus une seule unité libre.** C'est *exactement* la
+configuration qui a produit ce défaut : un budget atteint pile, qu'un seul
+sampler ajouté fait basculer — et qui l'a fait basculer le 11/08 à 00h01, sans
+que personne ne le voie pendant 22 jours.
+
+**Ce qui change, et c'est la seule chose qui change** : le banc existe
+maintenant. Le prochain sampler ajouté à `PBR` **rougira le jour même**, pas
+22 jours plus tard, et pas dans ta console.
+
+🗄️ **La réserve qui rétablira la marge** : fusionner l'IBL (`tEnvIrradiance` +
+`tEnvPrefilter`) et le cube de ciel (`tSkyEnvCube`) rend **2 unités** → 14/16.
+Elles demandent une capture A/B chacune, donc le GPU. **Ce n'est pas un
+renoncement : c'est deux unités dont on sait où elles sont**, qu'on ne dépense
+pas faute de besoin. *La cible tient sur un fil — le fil est solide, et il est
+désormais surveillé.*
+
+### 🔎 LES AUTRES `si (plateforme)` — recensés, nommés, **non corrigés**
+
+Relevé sur NKRHI et NKRenderer. ⚠️ **Toutes les gardes de plateforme ne sont pas
+de la même famille**, et les confondre ferait un mauvais lot :
+
+| famille | exemples | verdict |
+|---|---|---|
+| ✅ **vraies différences d'OS** — une API existe ou n'existe pas | `_putenv_s` contre `setenv` (`NkGpuPolicy.cpp:33,43`), `NvOptimusEnablement` (`:8`), les 49 appels EGL gardés | **légitimes** — ce n'est pas une capacité, c'est un autre système |
+| 🔴 **capacités déguisées en plateforme** — la vraie question est « de quoi la cible est-elle capable ? » | le **remap d'unités de texture** (`NkOpenglDevice.cpp:1965-1975` et `:2931`) : la table est calculée pour **`MAX_TEXTURE_IMAGE_UNITS=16` codé en dur**, sous `#if EMSCRIPTEN`, avec le commentaire *« SwiftShader n'accorde que 16 »* — **le nombre est écrit à la main là où `mCaps.maxFragmentTextureUnits` le dit maintenant** | **à basculer** — même geste que celui de ce lot |
+| 🔴 même famille | **`NkWebMergeCookieSamplers`** lui-même (`:2013`), sous `#if EMSCRIPTEN`, alors qu'il répond à une contrainte d'unités | **à basculer** |
+
+📌 **Le motif commun des deux 🔴** : *un 16 écrit à la main dans un commentaire,
+sous une garde de plateforme.* C'est la forme exacte du défaut que ce lot vient
+de corriger — **et c'est la forme exacte du « 24 → 14 » qui a vieilli en
+silence.** Un lot propre les basculerait tous les trois sur
+`mCaps.maxFragmentTextureUnits`, et supprimerait les trois derniers nombres
+codés en dur. **Non fait ici : hors mandat, et ça mérite son propre lot.**
 
 ### 🧪 LE BANC — ce défaut doit rougir à la construction, pas dans ta console
 

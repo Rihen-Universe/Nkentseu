@@ -300,10 +300,48 @@ namespace nkuidesign {
 	///    : ils sont nommes, pas ebauches. Un champ `type` pose maintenant, que
 	///    ni le peintre ni l'inspecteur n'honorent, serait le « parametre
 	///    declare non honore » que ce depot compte depuis huit fois.
+	// ════════════════════════════════════════════════════════════════════════════
+	//  UN DEGRADE (Lunacy « Gradient »)
+	// ════════════════════════════════════════════════════════════════════════════
+	/// UN ARRET DE COULEUR : une position sur l'axe [0..1] et sa couleur.
+	/// 🔑 C'EST L'UNITE DU GESTE, pas un detail de format : un degrade se regle
+	///    en DEPLACANT des arrets, jamais en tapant une chaine. Le modele porte
+	///    donc la position comme une VALEUR MANIPULABLE, pas comme un rang.
+	struct NkArretDegrade {
+			float32 position = 0.f; ///< 0..1 le long de l'axe
+			NkString couleur;		///< hexa « #rrggbb »
+	};
+
+	/// UN DEGRADE porte par un remplissage.
+	///
+	/// ⚠️ `type` EST DU TEXTE LIBRE, ET C'EST VOULU : le format doit se relire
+	///    **sans que l'application connaisse tous les types**. Un `enum` aurait
+	///    force le lecteur a choisir entre refuser un fichier qu'il ne comprend
+	///    pas et le degrader en silence -- les deux sont pires que garder le mot.
+	///    Un `conique` ecrit par une version future revient intact d'un
+	///    aller-retour, meme si cette version-ci ne sait pas le PEINDRE.
+	///    C'est la meme regle que la cle `unite` des cibles et que les etats.
+	///
+	/// ⚠️ DEUX ARRETS AU MINIMUM POUR PEINDRE : en dessous, ce n'est pas un
+	///    degrade, c'est une couleur -- et le remplissage sait deja la dire.
+	struct NkDegrade {
+			NkString type;	   ///< « lineaire », « radial »... texte libre, PRESERVE
+			float32 angle = 0.f; ///< degres, pour les types qui en ont un
+			NkVector<NkArretDegrade> arrets;
+
+			bool Actif() const {
+				return arrets.Size() >= 2;
+			}
+	};
+
 	struct NkRemplissage {
 			NkString couleur;		///< hexa « #rrggbb », vide = rien a peindre
 			float32 opacite = 100.f; ///< 0..100 (le « 100% » de la reference)
 			bool visible = true;	///< l'oeil de la reference
+			/// LE DEGRADE de ce remplissage. Sans arrets = remplissage uni, et le
+			/// fichier ne gagne AUCUNE cle : un document d'avant se reenregistre
+			/// octet pour octet.
+			NkDegrade degrade;
 	};
 
 	// ════════════════════════════════════════════════════════════════════════════
@@ -1996,6 +2034,28 @@ namespace nkuidesign {
 						out.Append(' ');
 						out.Append(f.visible ? "1" : "0");
 						out.Append('\n');
+						// `degrade_<i> = <type> <angle> <pos>:<coul> ...`
+						// ⚠️ ADDITIVE : pas d'arrets, pas de cle. Un remplissage
+						//    uni ne gagne pas une ligne parce qu'un degrade
+						//    existe ailleurs dans le fichier.
+						if (f.degrade.Actif()) {
+							out.Append("  degrade_");
+							WriteNum(out, (float32)(fi + 1));
+							out.Append(" = ");
+							out.Append(f.degrade.type.Empty() ? "lineaire"
+															  : f.degrade.type.Data());
+							out.Append(' ');
+							WriteNum(out, f.degrade.angle);
+							for (uint32 ai = 0; ai < (uint32)f.degrade.arrets.Size(); ++ai) {
+								out.Append(' ');
+								WriteNum(out, f.degrade.arrets[ai].position);
+								out.Append(':');
+								out.Append(f.degrade.arrets[ai].couleur.Empty()
+											   ? "-"
+											   : f.degrade.arrets[ai].couleur.Data());
+							}
+							out.Append('\n');
+						}
 					}
 				} else if (!n.fill.Empty())
 					Field(out, "fond", n.fill.Data());
@@ -2608,6 +2668,63 @@ namespace nkuidesign {
 							n.alignText = NkString(val);
 						else if (StrEq(key, "cible"))
 							n.target = NkString(val);
+						// `degrade_<i> = <type> <angle> <pos>:<coul> ...`
+						//
+						// ⚠️ LE DEGRADE SE RATTACHE AU DERNIER REMPLISSAGE LU, et
+						//    non a l'indice de son nom : les lignes arrivent dans
+						//    l'ordre du fichier, `fond_<i>` empile, `degrade_<i>`
+						//    suit. Se fier a l'indice obligerait a gerer les trous
+						//    -- et c'est deja la regle ecrite pour `fond_<i>`.
+						//    *Deux regles differentes pour deux cles jumelles,
+						//    c'est une divergence programmee.*
+						//
+						// ⚠️ UN TYPE INCONNU EST CONSERVE TEL QUEL. On ne le
+						//    traduit pas, on ne le refuse pas : un « conique »
+						//    ecrit par une version future revient intact d'un
+						//    aller-retour, meme si celle-ci ne sait pas le
+						//    peindre. Refuser aurait perdu le fichier ; traduire
+						//    aurait menti sur son contenu.
+						else if (NkString(key).StartsWith("degrade_")) {
+							if (n.fills.Empty())
+								continue;
+							NkDegrade g;
+							const char *q = val;
+							char mot[64];
+							uint32 k = 0;
+							while (*q && *q != ' ' && k + 1 < (uint32)sizeof(mot))
+								mot[k++] = *q++;
+							mot[k] = '\0';
+							if (k > 0)
+								g.type = NkString(mot);
+							while (*q == ' ')
+								++q;
+							if (*q) {
+								g.angle = ParseNum(q);
+								while (*q && *q != ' ')
+									++q;
+							}
+							while (*q) {
+								while (*q == ' ')
+									++q;
+								if (!*q)
+									break;
+								NkArretDegrade ar;
+								ar.position = ParseNum(q);
+								while (*q && *q != ':' && *q != ' ')
+									++q;
+								if (*q == ':') {
+									++q;
+									k = 0;
+									while (*q && *q != ' ' && k + 1 < (uint32)sizeof(mot))
+										mot[k++] = *q++;
+									mot[k] = '\0';
+									if (k > 0 && !(k == 1 && mot[0] == '-'))
+										ar.couleur = NkString(mot);
+								}
+								g.arrets.PushBack(ar);
+							}
+							n.fills[(uint32)n.fills.Size() - 1].degrade = g;
+						}
 						else if (StrEq(key, "unite"))
 							n.targetUnit = NkString(val);
 						// `apparence_<Etat> = fond radius opacite` ; « - » = herite.

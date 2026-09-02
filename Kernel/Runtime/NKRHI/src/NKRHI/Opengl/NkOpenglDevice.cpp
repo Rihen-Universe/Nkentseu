@@ -2069,6 +2069,119 @@ namespace nkentseu {
 	} // namespace
 #endif // NKENTSEU_PLATFORM_EMSCRIPTEN
 
+	namespace {
+
+	// =========================================================================
+	// BUDGET D'UNITES DE TEXTURE — ET CE N'EST PAS UN CORRECTIF « WEB »
+	// =========================================================================
+	// Mesure du 2026-09-02, sur une VRAIE carte : `PBR` declare 17
+	// echantillonneurs au fragment (apres la fusion des cookies), WebGL2 en
+	// accorde 16, glLinkProgram refuse, ecran vide. Le defaut datait du 11/08
+	// 00h01 (tables LTC) et personne ne l'avait vu pendant 22 jours : le seul
+	// web jamais execute (SwiftShader) en accorde PLUS de 16.
+	//
+	// 🔴 CE BLOC NE TESTE AUCUNE PLATEFORME, ET C'EST TOUT L'INTERET. La regle
+	// gravee dit : « une application qui interroge la plateforme a deja perdu ».
+	// Le voisin du dessus (NkWebGL2AdaptGLSL) est pilote par
+	// `#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)` -- un `si (web)` dans le
+	// moteur. Celui-ci compare CE QUE LE SHADER DEMANDE a CE QUE LE PILOTE
+	// ACCORDE (mCaps.maxFragmentTextureUnits, lu au glGetIntegerv). Il se
+	// declenche donc sur n'importe quelle cible etroite -- WebGL2 aujourd'hui,
+	// un GL ES pauvre demain -- sans que personne ne l'ait nommee.
+	//
+	// ⚠️ IL EST VOLONTAIREMENT HORS DE TOUTE GARDE DE PLATEFORME, et il
+	// n'utilise AUCUN des helpers NkWeb* (qui, eux, vivent sous la garde) :
+	// une fonction pilotee par une capacite ne doit pas dependre d'un #if de
+	// cible, sinon elle redevient un `si (web)` par la porte de derriere.
+	//
+	// ⚠️ CE QU'IL RETIRE, ET POURQUOI C'EST GRATUIT ICI. `tShadowAtlasRaw` n'a
+	// qu'UN usage : la recherche de bloqueurs PCSS (NkShadowAtlas.glsli). Or
+	// NkRendererConfig::ApplyQuality() met `pcss = false` des NK_LOW, et
+	// ForTarget() donne NK_MOBILE aux cibles etroites : sur elles, cette
+	// branche est DEJA MORTE a l'execution. On ne perd aucune image.
+	//
+	// ⚠️ ET LE REPLI EST UNE DEGRADATION, PAS UN TROU. On neutralise le test
+	// `mode == 4` : le flot tombe alors sur le PCF 3x3 de fin de fonction, qui
+	// n'utilise que le sampler comparatif. L'ombre devient plus douce, elle ne
+	// disparait pas. « Ce qui ne peut pas se faire doit avoir une doublure
+	// credible, jamais un trou. »
+	//
+	// 🗄️ RESERVE DISPONIBLE, non depensee : fusionner l'IBL (irradiance +
+	// prefiltre) et le cube de ciel rendrait 2 unites de plus. On ne les prend
+	// pas parce qu'on n'en a pas besoin -- elles retablissent la marge le jour
+	// ou une cible descendrait plus bas.
+
+	// Combien d'echantillonneurs une source DECLARE-t-elle ?
+	// On compare la DEMANDE du shader au BUDGET du pilote, plutot que de coder
+	// en dur le besoin de PBR ici : NKRHI n'a pas a connaitre ses shaders.
+	inline uint32 NkCountDeclaredSamplers(const char *src) {
+		uint32 n = 0;
+		for (const char *p = src; (p = strstr(p, "uniform")) != nullptr; ++p) {
+			const char *q = p + 7;
+			if (*q != ' ' && *q != '\t')
+				continue;
+			while (*q == ' ' || *q == '\t')
+				++q;
+			static const char *kPrec[] = {"lowp", "mediump", "highp"};
+			for (uint32 i = 0; i < 3; ++i) {
+				const size_t l = strlen(kPrec[i]);
+				if (strncmp(q, kPrec[i], l) == 0 && (q[l] == ' ' || q[l] == '\t')) {
+					q += l;
+					while (*q == ' ' || *q == '\t')
+						++q;
+					break;
+				}
+			}
+			if (strncmp(q, "sampler", 7) == 0 || strncmp(q, "isampler", 8) == 0 ||
+				strncmp(q, "usampler", 8) == 0)
+				++n;
+		}
+		return n;
+	}
+
+	// Retire `tShadowAtlasRaw` et neutralise la branche qui l'utilise.
+	// Ligne par ligne, sur une COPIE : la source d'origine n'est jamais touchee,
+	// donc le chemin BUREAU reste identique octet pour octet -- « le bureau ne
+	// bouge pas d'un pixel » est vrai PAR CONSTRUCTION, pas par comparaison.
+	inline NkString NkTrimShadowRawSampler(const char *src) {
+		NkString out;
+		const char *p = src;
+		const char *end = src + strlen(src);
+		while (p < end) {
+			const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
+			const char *lineEnd = nl ? nl : end;
+
+			NkString ligne;
+			ligne.Append(p, (uint32)(lineEnd - p));
+			const char *c = ligne.CStr();
+			const char *nom = strstr(c, "tShadowAtlasRaw");
+			const char *pcss = strstr(c, "mode == 4");
+
+			if (nom && strstr(c, "uniform") != nullptr) {
+				// la DECLARATION disparait : c'est elle qui coute l'unite.
+			} else if (nom) {
+				// usage unique (recherche de bloqueurs PCSS) : valeur neutre.
+				// 1.0 = « rien de plus proche que le plan » -> aucun bloqueur.
+				// Code mort de toute facon : le test ci-dessous ne passe plus.
+				out += "            float zs = 1.0;\n";
+			} else if (pcss) {
+				// PCSS neutralise -> le flot tombe sur le PCF 3x3 de fin de
+				// fonction. Degradation, pas suppression.
+				out.Append(c, (uint32)(pcss - c));
+				out += "false /* PCSS retire : budget d'unites de texture */";
+				out += (pcss + 9);
+				out += "\n";
+			} else {
+				out += ligne;
+				out += "\n";
+			}
+			p = nl ? nl + 1 : end;
+		}
+		return out;
+	}
+
+	} // namespace
+
 	// =============================================================================
 	// Shaders
 	// =============================================================================
@@ -2124,6 +2237,26 @@ namespace nkentseu {
 			NkString adapted = NkWebGL2AdaptGLSL(src, glStage, webFixes);
 			src = adapted.CStr();
 #endif
+			// BUDGET D'UNITES DE TEXTURE — aucune plateforme n'est interrogee.
+			// On compare ce que le shader DEMANDE a ce que le pilote ACCORDE.
+			// Sur bureau (32 unites accordees pour 17 demandees) la condition est
+			// fausse et `src` n'est pas touche : le chemin bureau est identique
+			// octet pour octet, par construction.
+			NkString budgetTrimmed;
+			if (glStage == GL_FRAGMENT_SHADER && mCaps.maxFragmentTextureUnits > 0 &&
+				NkCountDeclaredSamplers(src) > mCaps.maxFragmentTextureUnits) {
+				budgetTrimmed = NkTrimShadowRawSampler(src);
+				// fprintf, pas le formateur a marqueurs : c'est la convention de
+				// diagnostic de ce fichier, et NkFormat prendrait des accolades
+				// litterales pour des marqueurs de substitution.
+				fprintf(stderr,
+						"[NkRHI_GL] budget d'unites de texture : %u demandees pour %u "
+						"accordees -> PCSS retire (repli PCF 3x3), %u restantes\n",
+						(unsigned)NkCountDeclaredSamplers(src),
+						(unsigned)mCaps.maxFragmentTextureUnits,
+						(unsigned)NkCountDeclaredSamplers(budgetTrimmed.CStr()));
+				src = budgetTrimmed.CStr();
+			}
 			GLuint sh = CompileGLStage(glStage, src);
 			if (sh) {
 				glAttachShader(prog, sh);

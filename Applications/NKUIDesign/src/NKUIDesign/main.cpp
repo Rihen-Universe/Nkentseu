@@ -1621,6 +1621,173 @@ static nkentseu::int32 RecetteGestes() {
 				posee && entiere && independantes && refus, det);
 	}
 
+	// ── LES DEGRADES : LE FORMAT D'ABORD ────────────────────────────────────
+	// Les deux exigences posees avant d'ecrire une ligne d'interface :
+	// additivite stricte, et relecture d'un type INCONNU sans perte.
+	{
+		NkUIDocument d;
+		d.NewDocument("degrades", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		const int32 bt = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)bt].label = NkString("Bouton");
+		// (a) ADDITIVITE : un remplissage UNI ne gagne aucune cle de degrade.
+		{
+			NkRemplissage f;
+			f.couleur = NkString("#112233");
+			d.nodes[(uint32)bt].fills.PushBack(f);
+		}
+		NkString uni;
+		d.Save(uni);
+		const bool aucuneCle = strstr(uni.Data(), "degrade_") == nullptr;
+		NkUIDocument r0;
+		NkString uni2;
+		const bool octetPourOctet = r0.Load(uni.Data()) && (r0.Save(uni2), true)
+									&& strcmp(uni2.Data(), uni.Data()) == 0;
+		// (b) UN DEGRADE A DEUX ARRETS voyage : type, angle, positions, couleurs.
+		{
+			NkDegrade g;
+			g.type = NkString("lineaire");
+			g.angle = 90.f;
+			NkArretDegrade a1;
+			a1.position = 0.f;
+			a1.couleur = NkString("#ff0000");
+			NkArretDegrade a2;
+			a2.position = 1.f;
+			a2.couleur = NkString("#0000ff");
+			g.arrets.PushBack(a1);
+			g.arrets.PushBack(a2);
+			d.nodes[(uint32)bt].fills[0].degrade = g;
+		}
+		NkString avec;
+		d.Save(avec);
+		NkUIDocument r1;
+		const bool relit = r1.Load(avec.Data()) && r1.IsValidIndex(bt)
+						   && !r1.nodes[(uint32)bt].fills.Empty();
+		const NkDegrade *g1 = relit ? &r1.nodes[(uint32)bt].fills[0].degrade : nullptr;
+		const bool voyage = g1 && g1->Actif() && g1->arrets.Size() == 2u
+							&& strcmp(g1->type.Data(), "lineaire") == 0 && g1->angle == 90.f
+							&& g1->arrets[0].position == 0.f
+							&& strcmp(g1->arrets[0].couleur.Data(), "#ff0000") == 0
+							&& g1->arrets[1].position == 1.f
+							&& strcmp(g1->arrets[1].couleur.Data(), "#0000ff") == 0;
+		// (c) LE REENREGISTREMENT EST STABLE.
+		NkString avec2;
+		if (relit)
+			r1.Save(avec2);
+		const bool stable = relit && strcmp(avec2.Data(), avec.Data()) == 0;
+		// (d) 🔑 UN TYPE INCONNU REVIENT INTACT -- l'exigence qui distingue un
+		//     format qui vieillit bien d'un format qui casse a la version
+		//     suivante. On n'ecrit PAS « conique » dans le code : on le lit d'un
+		//     texte, comme le ferait un fichier venu d'ailleurs.
+		NkUIDocument r2;
+		NkString source = avec;
+		{
+			// remplacer « lineaire » par un type que cette version ignore
+			const char *pos = strstr(source.Data(), "lineaire");
+			bool ok = pos != nullptr;
+			if (ok) {
+				NkString avant(source.Data());
+				avant.Resize((uint32)(pos - source.Data()));
+				NkString apres(pos + 8);
+				NkString rec = avant;
+				rec.Append("conique_futur");
+				rec.Append(apres.Data());
+				source = rec;
+			}
+		}
+		const bool relitInconnu = r2.Load(source.Data()) && r2.IsValidIndex(bt)
+								  && !r2.nodes[(uint32)bt].fills.Empty();
+		const NkDegrade *g2 = relitInconnu ? &r2.nodes[(uint32)bt].fills[0].degrade : nullptr;
+		NkString reemis;
+		if (relitInconnu)
+			r2.Save(reemis);
+		const bool inconnuIntact = g2 && strcmp(g2->type.Data(), "conique_futur") == 0
+								   && g2->arrets.Size() == 2u
+								   && strstr(reemis.Data(), "conique_futur") != nullptr;
+		// (e) 🔑 ET IL SE PEINT. Sans ce volet, les quatre precedents
+		//     prouveraient un format que RIEN NE DESSINE -- exactement la
+		//     « propriete neuve qui n'agit pas », pire que son absence.
+		//     On compte les commandes du peintre ENREGISTREUR : un fond uni en
+		//     pose UNE, un degrade en pose autant que de bandes.
+		uint32 cmdUni = 0, cmdDeg = 0;
+		{
+			NkUIDocument e;
+			e.NewDocument("peinture", NkAuthor::Humain);
+			const int32 p2 = e.AddChild(0, "", NkAuthor::Humain);
+			// ⚠️ LA PAGE DOIT ETRE UN FRAME DIMENSIONNE EN DISPOSITION LIBRE,
+			//    sinon `NkComputeLayout` ne POSE rien et le peintre n'emet AUCUNE
+			//    commande -- ma premiere version mesurait « 0 -> 0 » et aurait
+			//    accuse le rendu des degrades alors que c'est le montage qui
+			//    etait vide. **Donnees degenerees, cinquieme fois du chantier**,
+			//    et la meme parade : donner au cas de quoi exprimer l'ecart.
+			e.nodes[(uint32)p2].shape = NkString("frame");
+			e.nodes[(uint32)p2].layout.kind = NkLayoutKind::Free;
+			e.nodes[(uint32)p2].width.mode = NkSizeMode::Fixed;
+			e.nodes[(uint32)p2].width.value = 300.f;
+			e.nodes[(uint32)p2].height.mode = NkSizeMode::Fixed;
+			e.nodes[(uint32)p2].height.value = 200.f;
+			const int32 rc2 = e.AddChild(p2, "", NkAuthor::Humain);
+			e.nodes[(uint32)rc2].shape = NkString("rect");
+			e.nodes[(uint32)rc2].width.mode = NkSizeMode::Fixed;
+			e.nodes[(uint32)rc2].width.value = 120.f;
+			e.nodes[(uint32)rc2].height.mode = NkSizeMode::Fixed;
+			e.nodes[(uint32)rc2].height.value = 60.f;
+			NkRemplissage f2;
+			f2.couleur = NkString("#112233");
+			e.nodes[(uint32)rc2].fills.PushBack(f2);
+			auto compter = [&]() -> uint32 {
+				NkLayoutResult lay;
+				NkComputeLayout(e, NkPaintRect{0.f, 0.f, 300.f, 200.f}, lay);
+				NkComponentInput in;
+				nkentseu::editorkit::NkRecordingPaint pv;
+				NkDocumentHost hote;
+				hote.SyncTo(e);
+				pv.Reset();
+				NkDrawDocument(pv, in, e, lay, hote, 0);
+				return (uint32)pv.cmds.Size();
+			};
+			cmdUni = compter();
+			NkDegrade g2;
+			g2.type = NkString("lineaire");
+			NkArretDegrade s1;
+			s1.position = 0.f;
+			s1.couleur = NkString("#ff0000");
+			NkArretDegrade s2;
+			s2.position = 1.f;
+			s2.couleur = NkString("#0000ff");
+			g2.arrets.PushBack(s1);
+			g2.arrets.PushBack(s2);
+			e.nodes[(uint32)rc2].fills[0].degrade = g2;
+			cmdDeg = compter();
+		}
+		// ⚠️ ON EXIGE UN ECART FRANC, pas « plus grand » : une bande de plus
+		//    pourrait venir d'ailleurs. Le degrade en pose 24, on demande au
+		//    moins 10 de plus -- le seuil est BAS pour ne pas figer la finesse,
+		//    et FRANC pour ne pas passer sur du bruit.
+		const bool sePeint = cmdDeg >= cmdUni + 10u;
+
+		char det[256];
+		snprintf(det, sizeof(det),
+				 "uni : aucune cle degrade=%d, octet pour octet=%d ; deux arrets voyagent=%d ; "
+				 "reenregistrement stable=%d ; TYPE INCONNU relu ET reemis intact=%d",
+				 aucuneCle ? 1 : 0, octetPourOctet ? 1 : 0, voyage ? 1 : 0, stable ? 1 : 0,
+				 inconnuIntact ? 1 : 0);
+		{
+			char q[96];
+			snprintf(q, sizeof(q), " ; PEINT : %u commande(s) uni -> %u avec degrade=%d",
+					 cmdUni, cmdDeg, sePeint ? 1 : 0);
+			const uint32 l = (uint32)strlen(det);
+			if (l + strlen(q) + 1u < sizeof(det))
+				snprintf(det + l, sizeof(det) - l, "%s", q);
+		}
+
+		verdict("DEGRADES (format) : la cle est ADDITIVE (un remplissage uni ne la gagne pas), "
+				"un degrade a deux arrets voyage avec son type, son angle et ses positions, et "
+				"un TYPE INCONNU se relit ET se reemet SANS PERTE -- ET IL SE PEINT",
+				aucuneCle && octetPourOctet && voyage && stable && inconnuIntact && sePeint,
+				det);
+	}
+
 	// ── ② LA PROPAGATION, PAR LE GESTE : LES DEUX CAS JUMEAUX ───────────────
 	// 🔑 C'EST LE GESTE QUE RODOLF DOIT POUVOIR JOUER A LA MAIN : deux
 	//    instances, une surchargee en couleur, on applique la couleur de
