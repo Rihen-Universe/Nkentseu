@@ -55,12 +55,15 @@ curl -s -o NUL -w "%{size_download}\n" http://localhost:9002/renderdemo.wasm
 | **`FPS approx :`** avec une valeur | ✅ la boucle rend des images |
 | l'image | sphères PBR + **ombres portées** + grille de cubes |
 
-⚠️ **NE REGARDE PAS `Draw:` et `Tris:` — je m'étais trompé.** Ma première version
-de cette feuille en faisait le test ; c'est **faux**, et je le corrige avant que
-tu ne perdes du temps dessus. Ces compteurs valent **`0` même quand tout marche** :
-vérifié sur tes propres captures du 29/07 — Windows à **142 FPS** avec la scène
-complète affiche `Draw:0 Tris:0`, Linux à 81 FPS aussi, Android à 59 FPS aussi.
-**Ils ne sont simplement pas câblés.** Un compteur à zéro ne veut rien dire ici.
+⚠️ **`Draw:` et `Tris:` — deux corrections successives, voici l'état FINAL.**
+J'avais d'abord écrit « non nuls = le test », puis « ne les regarde jamais » :
+les deux étaient faux. La vérité est **datée** : les compteurs ont été branchés
+le **5 août** (commit `7f3ada7b` — « les compteurs de rendu comptent enfin »,
+dans la classe de base du tampon, donc tous backends). Tes captures du 29/07
+affichaient `Draw:0` avec la 3D à 142 FPS parce qu'elles PRÉCÈDENT ce commit.
+**Sur ton build actuel, ils font foi : attends-toi à du non-nul** (le Web
+logiciel affiche `Draw:1093 Tris:489586`). Mais le test PRINCIPAL reste la
+ligne `Demo 3D` + le panneau d'ombres — eux valent sur n'importe quel binaire.
 
 ⚠️ **Le vrai signe d'échec, celui d'HarmonyOS** : un fond **uni**, avec
 seulement `Active: R2D|R3D|TEXT|OVERLAY` et **aucune ligne `Demo 3D`**, **aucun

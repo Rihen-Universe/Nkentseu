@@ -286,7 +286,7 @@ modèles dont un seul membre exerçait le sous-dossier `textures/`.
 |---|---|---|
 | **Windows** | 📄 ✓ | 📄 ✓ **image 3D** (backend de référence) |
 | **Android** | 📄 ✓ | ✅ ✓ **image 3D — vérifiée de mes yeux**, PBR + ombres, 59 FPS |
-| **Web** | ✅ ✓ **4 jeux 2D livrés en `.wasm`** (GemCrush 3,27 Mo, Dames, Échecs, Ludo) | ❓ **construit et lie** (30/30) — la capture connue est prise à **frame=1, passes=1** : elle n'a **jamais exercé** la 3D |
+| **Web** | ✅ ✓ **4 jeux 2D livrés en `.wasm`** | ✅ ✓ **image 3D** — `Captures/plateforme_web_2026-09-02.png`, HUD lu (`Demo 3D`, `Shadow tweak`, `Draw:1093 Tris:489586`), **rendu LOGICIEL** (SwiftShader, ~9 h) sur le **binaire Debug post-EGL** |
 | **HarmonyOS** | 📄 ✓ (Mou, Pong, jeux de plateau) | ❓ la capture connue montre la **démo 0 (Subsystems)**, pas la démo 3D : elle n'a **jamais exercé** la 3D |
 | **Linux** | 📄 ✓ | ✅ ✓ **image 3D** — `plateforme_linux.png` (29/07, 81,6 FPS, HUD lu : `Demo 3D`, `Shadow tweak`, PBR + ombres) **+ témoignage de Rodolf du 02/09** |
 | **macOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
@@ -1191,6 +1191,70 @@ mesuré). Mais trois choix restent à Rodolf, et je ne tranche aucun :
    locale (l'existant reciblage) ? L'une des deux devra se convertir ;
 3. **le nom** — renommer `ecs::NkBoneDef` (le mien) ou `physics::NkBoneDef` pour
    dissoudre la collision.
+---
+
+---
+
+# MESURE 11 — L'IMAGE WEB 3D EXISTE, ET LE TÉMOIN Draw:/Tris: SE DATE
+
+## 11.1 ✅ WEB PASSE AU VERT — 4 cibles sur 7 — avec ses deux réserves écrites
+
+La capture headless lancée ce matin par le coordinateur (SwiftShader, 1280×720,
+`?demo=2`) a abouti après **~9 heures de rendu logiciel**. **Ouverte et lue par
+lui puis par moi** : ligne `Demo 3D | API : OpenGL`, panneau `Shadow tweak`
+complet (`VSM atlas 4096`, `quality 4`, `slots 14`, `framesInFlight 3`),
+`[Phase H] Texture file-based : test_pattern.png LOAD OK`, sphères PBR, grille
+de cubes instanciés, sol texturé à pois. Archivée :
+**`Captures/plateforme_web_2026-09-02.png`** (344 797 o), à côté de ses sœurs
+Windows/Linux du 29/07.
+
+**Les deux réserves, comme pour Linux :**
+1. **rendu LOGICIEL** — SwiftShader via Edge headless, pas le GPU réel. La
+   confirmation GPU réel reste les 2 minutes de navigateur de Rodolf (bloc 1) ;
+2. **binaire = l'arbre Debug du serveur 9001** (35 047 917 o) : **postérieur au
+   correctif EGL** (sans lui, rien ne construit), **antérieur au correctif
+   `PP_AutoExposure`**.
+
+⚠️ **Deux écarts de scène, dits plutôt qu'arrondis** : les ombres portées sont
+**plus ténues** que sur Windows/Linux, et les décalques de route (motif rose au
+sol des trois autres captures) sont **absents** — cohérent avec les shaders
+`Decal`/VFX « non déployés » déjà documentés (`shader id=0`, defaut
+pré-existant). À revoir sur le GPU réel avant d'accuser quoi que ce soit.
+
+## 11.2 📌 Le corollaire AutoExposure — une question fermée
+
+L'image est **lumineuse et tone-mappée** alors que le shader `PP_AutoExposure`
+était **encore cassé** dans ce binaire (`valid=0`). C'est la preuve directe que
+le **repli d'exposition fonctionne** : la question « le noir venait-il de
+l'auto-exposition ? » est fermée — **non**.
+
+## 11.3 🔴 LE TÉMOIN Draw:/Tris: SE DATE — troisième lecture, la bonne
+
+`Draw:1093 Tris:489586` sur le Web — alors que Windows affichait `Draw:0` à
+142 FPS. Hypothèse du jour : « câblé selon le backend » (GL vs DX). ✅ **Réfutée
+sans lancer le GPU, par le code et par git** :
+
+- les deux captures étaient **le même backend** (`API : OpenGL`, HUD lus) ;
+- les compteurs sont incrémentés dans **`NkICommandBuffer`, la classe de BASE**
+  (`++mCbStats.drawCalls` aux méthodes `Draw*` de l'interface) — **tous
+  backends, par construction** ;
+- `git log -S` date leur branchement : **commit `7f3ada7b`, 5 août 2026** —
+  *« NKRHI : les compteurs de rendu comptent enfin »*. Le commentaire du code le
+  dit lui-même : *« ces compteurs étaient AFFICHÉS depuis toujours mais jamais
+  alimentés — le cadran existait, l'aiguille n'avait jamais été posée »*.
+
+> **Le discriminant n'est ni le backend ni le câblage : c'est LA DATE DU
+> BINAIRE.** Captures du 29/07 (Windows, Linux, Android) : antérieures au 05/08
+> → `Draw:0` ne voulait rien dire. Binaires d'aujourd'hui : les compteurs font
+> foi, sur tous les backends.
+
+📌 **Raffinement de la porte du témoin, 3ᵉ version et j'espère la dernière** :
+*« jamais `Draw:`/`Tris:` » était lui-même trop large.* Un témoin peut être
+**posé un jour donné** — il ne vaut rien sur les images d'avant et fait foi sur
+celles d'après. **Avant de faire d'une valeur un critère : la lire sur un cas
+réussi DU MÊME BINAIRE.** Le contrôle positif du témoin doit partager la date de
+ce qu'il juge.
+
 ---
 
 # MESURE 10 — CE QUE NOGE CONSOMME DU NOYAU : la table, les trois familles, et les greffons
