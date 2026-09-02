@@ -189,7 +189,7 @@ Le chiffre `197/205` circulait sans support durable : il ne vivait que dans
 | **A₁** — NKRenderer a gagné `NKAnima`/`NKAnimPhysics` (extraction du 14/08) ; `Tutoriels3D.jenga` lie une **liste manuelle** que rien n'a forcée à suivre | Tuto02Renderer, Tuto03Scene, Tuto04Camera, Tuto05Meshes | ⏳ corrigé sur `feat/nkanimation`, **non fusionné** |
 | **A₂** — NKTensor a gagné un dorsal GPU ; la fermeture de liens de ses consommateurs n'a pas suivi | NKTensorDemo | ✅ **corrigé** (`d6ab06a6`) |
 | **B** — appelants restés en arrière d'une **réécriture** d'API (NKFont : `NkFontLibrary`/`NkTextShaper`/`NkShapeResult` remplacés · NkImage devenu type valeur) | NkRHIDemoText, NkImageDemo | ⏳ traité sur `feat/nkanimation`, **non fusionné** ; NkRHIDemoText y est **désactivée**, avec un arbitrage laissé à Rodolf (porter ou supprimer) |
-| **C** — déclaration sans corps dans Foundation (`NkString::begin()/end()`) — **pas une migration** | Gamepad | 🚫 hors périmètre — routé à l'agent NKAnima |
+| **C** — déclaration sans corps dans Foundation (`NkString::begin()/end()`) — **pas une migration** | Gamepad | 🚫 hors périmètre — routé à l'agent NKAnimation |
 
 ⚠️ **Le piège de classement, à ne pas refaire** : Tuto02-05 et NKTensorDemo
 présentaient le **même symptôme** (undefined reference sur la chaîne RHI) et ont
