@@ -7,7 +7,7 @@
 // skinnes, pelure d'oignon, compute de morph targets, debug-draw du squelette.
 //
 // LE MODELE N'EST PLUS ICI. Clips, echantillonnage, lecture, melange 1D/2D et
-// machine a etats vivent dans `Kernel/Runtime/NKAnimation` (namespace
+// machine a etats vivent dans `Kernel/Runtime/NKAnima` (namespace
 // `nkentseu::anim`), qui ne connait que Foundation. Cette classe le CONSOMME.
 //
 // La frontiere se lit dans les signatures : tout ce qui est prefixe `anim::`
@@ -17,7 +17,7 @@
 //
 // AUTEUR : Rihen — LICENCE : usage regi par le fichier LICENSE a la racine du depot
 // =============================================================================
-#include "NKAnimation/NkAnimation.h"
+#include "NKAnima/NkAnimation.h"
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkRendererConfig.h"

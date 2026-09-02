@@ -186,10 +186,10 @@ Le chiffre `197/205` circulait sans support durable : il ne vivait que dans
 
 | origine | cibles | état |
 |---|---|---|
-| **A₁** — NKRenderer a gagné `NKAnimation`/`NKAnimPhysics` (extraction du 14/08) ; `Tutoriels3D.jenga` lie une **liste manuelle** que rien n'a forcée à suivre | Tuto02Renderer, Tuto03Scene, Tuto04Camera, Tuto05Meshes | ⏳ corrigé sur `feat/nkanimation`, **non fusionné** |
+| **A₁** — NKRenderer a gagné `NKAnima`/`NKAnimPhysics` (extraction du 14/08) ; `Tutoriels3D.jenga` lie une **liste manuelle** que rien n'a forcée à suivre | Tuto02Renderer, Tuto03Scene, Tuto04Camera, Tuto05Meshes | ⏳ corrigé sur `feat/nkanimation`, **non fusionné** |
 | **A₂** — NKTensor a gagné un dorsal GPU ; la fermeture de liens de ses consommateurs n'a pas suivi | NKTensorDemo | ✅ **corrigé** (`d6ab06a6`) |
 | **B** — appelants restés en arrière d'une **réécriture** d'API (NKFont : `NkFontLibrary`/`NkTextShaper`/`NkShapeResult` remplacés · NkImage devenu type valeur) | NkRHIDemoText, NkImageDemo | ⏳ traité sur `feat/nkanimation`, **non fusionné** ; NkRHIDemoText y est **désactivée**, avec un arbitrage laissé à Rodolf (porter ou supprimer) |
-| **C** — déclaration sans corps dans Foundation (`NkString::begin()/end()`) — **pas une migration** | Gamepad | 🚫 hors périmètre — routé à l'agent NKAnimation |
+| **C** — déclaration sans corps dans Foundation (`NkString::begin()/end()`) — **pas une migration** | Gamepad | 🚫 hors périmètre — routé à l'agent NKAnima |
 
 ⚠️ **Le piège de classement, à ne pas refaire** : Tuto02-05 et NKTensorDemo
 présentaient le **même symptôme** (undefined reference sur la chaîne RHI) et ont
@@ -201,9 +201,9 @@ registre. Deux mécanismes, deux endroits à corriger.
 
 📏 **Portée du défaut A₁, bornée** : les `.jenga` citant `"NKRenderer"` **sans**
 passer par `nkentseudependson` sont **deux** — `Tutoriels3D` (cassé) et `DemoRW`
-(même liste manuelle sans NKAnimation, **latent** : son binaire ne tire pas
+(même liste manuelle sans NKAnima, **latent** : son binaire ne tire pas
 `NkAnimationSystem.obj`). Les autres vont bien : le registre déclare correctement
-`NKRenderer → NKAnimation` (`config/modules.jenga:109`).
+`NKRenderer → NKAnima` (`config/modules.jenga:109`).
 
 ### ❌ Route racine essayée sur A₂ et **réfutée par la mesure** — ne pas la refaire
 
@@ -383,7 +383,7 @@ Où le reste est parti :
 
 | | module | espace de noms | volume |
 |---|---|---|---|
-| clips, keyframes, échantillonnage, player, blend 1D/2D, HFSM, reciblage, éditeur de pose-clés, motion path | `Kernel/Runtime/NKAnimation` | `nkentseu::anim` | **3 456 l.** |
+| clips, keyframes, échantillonnage, player, blend 1D/2D, HFSM, reciblage, éditeur de pose-clés, motion path | `Kernel/Runtime/NKAnima` | `nkentseu::anim` | **3 456 l.** |
 | masse/COM, équilibre, contacts, correction de pose et de clip | `Kernel/Runtime/NKAnimPhysics` | `nkentseu::animphys` | **1 621 l.** |
 
 **NKRenderer est désormais CONSOMMATEUR de ces deux modules**, et son code le dit :

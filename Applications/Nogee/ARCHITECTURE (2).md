@@ -33,7 +33,7 @@ Le projet se décompose en trois niveaux indépendants mais liés :
 │  Application · LayerStack · EventBus · NKScene ECS          │
 ├─────────────────────────────────────────────────────────────┤
 │  Services moteur                                            │
-│  NKFont · NKImage · NKAudio · NKPhysics · NKAnimation       │
+│  NKFont · NKImage · NKAudio · NKPhysics · NKAnima       │
 │  NKScript · NKUI · NKRenderer                               │
 ├─────────────────────────────────────────────────────────────┤
 │  NKRHI — Abstraction GPU                                    │
@@ -111,7 +111,7 @@ BeginFrame → BeginRenderPass → SetViewport → BindPipeline
 | `NKImage` | Chargement PNG/JPG/BMP/TGA, conversion formats |
 | `NKAudio` | PCM, spatialisé 3D, streaming, HRTF |
 | `NKPhysics` | Rigidbody, collision AABB/OBB/sphere/capsule, raycast |
-| `NKAnimation` | Skeletal animation, blend trees, IK |
+| `NKAnima` | Skeletal animation, blend trees, IK |
 | `NKScript` | Scripting Lua embarqué, binding C++ → script |
 | `NKScene` | ECS (Entity Component System) — voir §6 |
 | `NKUI` | Widgets, dock manager, layout stack, thème |

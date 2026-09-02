@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-NKAnimation — Substrat d'animation (C++17, ZÉRO STL, AUCUN GPU)
+NKAnima — Substrat d'animation (C++17, ZÉRO STL, AUCUN GPU)
 ===============================================================
 Modèle d'animation autonome : clips et keyframes, échantillonnage, lecture,
 mélange 1D/2D, machine à états hiérarchique, reciblage inter-squelettes,
@@ -15,7 +15,7 @@ d'exclusivité NKCanvas/NKRenderer interdisait jusqu'au 2026-08-14.
 Extrait de NKRenderer/Tools/Animation le 2026-08-14, bloc de décision
 « SUBSTRATS ANIMATION ET COMPORTEMENT » (CLAUDE.md du répertoire parent).
 
-Contenu (src/NKAnimation/) :
+Contenu (src/NKAnima/) :
   NkAnimation.*        => clips, keyframes, player, blend 1D/2D, HFSM
   NkAnimRetarget.*     => rejouer un clip sur un AUTRE squelette
   NkAnimationEditor.*  => modèle d'édition de pose-clés + annuler/refaire
@@ -31,7 +31,7 @@ La frontière se lit dans les signatures : ce qui est préfixé `anim::` vient d
 C'est un modèle de document avec pile d'annulation — il ne dessine rien et ne lit
 aucune entrée (vérifié avant de trancher : ses seules « occurrences » d'interface
 étaient le mot `Key` au sens de keyframe). Le mettre dans NKEditorKit aurait fait
-entrer NKAnimation comme dépendance de NKEditorKit, donc de NKCode : la
+entrer NKAnima comme dépendance de NKEditorKit, donc de NKCode : la
 dépendance aurait été à l'envers. Le widget qui l'affiche, lui, appartient à
 l'application — et un jour à NKEditorKit s'il devient réutilisable.
 
@@ -51,14 +51,14 @@ Module FRÈRE de NKAnimPhysics, jamais son parent : les deux espaces de noms
 from Jenga import *
 from jengaconfig import *
 
-with project("NKAnimation"):
+with project("NKAnima"):
     language("C++")
     cppdialect("C++17")
     location(".")
 
     nkentseudependson(
         ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKLogger", "NKFileSystem"],
-        selfexport="NKAnimation",
+        selfexport="NKAnima",
         extra_includes=["src"],
     )
 

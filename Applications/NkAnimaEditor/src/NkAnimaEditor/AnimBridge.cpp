@@ -3,8 +3,8 @@
 // =============================================================================
 #include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "AnimBridge.h"
-#include "NKAnimation/NkAnimation.h"
-#include "NKAnimation/NkAnimationEditor.h"
+#include "NKAnima/NkAnimation.h"
+#include "NKAnima/NkAnimationEditor.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkFBXLoader.h" // routage .fbx (chantier FBX, 2026-08-17)
 // ── Viewport 3D : moteur de rendu complet (TU isolé) ────────────────────────

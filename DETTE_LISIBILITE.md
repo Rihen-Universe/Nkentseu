@@ -87,7 +87,7 @@ Et dans `Runtime` :
 
 | | |
 |---|---|
-| **Cités, inexistants** | NKScene, NKAnimation, NKBody, NKEmotion, NKFace, NKPatientRenderer, NKDiagnosticEngine, NKScript, NKSpeech |
+| **Cités, inexistants** | NKScene, NKAnima, NKBody, NKEmotion, NKFace, NKPatientRenderer, NKDiagnosticEngine, NKScript, NKSpeech |
 | **Réels, jamais cités** | NKECS, NKSL, NKGui, NKCanvas, NKXR, NKMedia, NKGraph, NKCamera, NKCollision, NKNavigation, NKSimulation |
 
 Le document décrit l'architecture **prévue** au départ (Noge, PV3DE, un ECS
@@ -261,7 +261,7 @@ est pire que pas de roadmap.
 
 ### 8. π n'existe nulle part dans Foundation — trois macros locales, deux précisions
 
-> Relevé le **2026-08-14** pendant l'extraction de NKAnimation. **Nommé, pas
+> Relevé le **2026-08-14** pendant l'extraction de NKAnima. **Nommé, pas
 > traité.** Ne casse rien aujourd'hui.
 
 `NKMath` expose `NK_PI_F` et `NK_PI_D` (via `constants::kPiF` / `kPi`,
@@ -272,7 +272,7 @@ se le sont donc redéfini chacun de leur côté, en macro locale :
 |---|---|
 | `NKRenderer/Mesh/NkMeshSystem.cpp:17` | `3.14159265358979323846f` |
 | `NKRenderer/Tools/Render2D/NkRender2D.cpp:9` | `3.14159265358979f` |
-| `NKAnimation/NkAnimation.cpp` (repris de l'original) | `3.14159265358979f` |
+| `NKAnima/NkAnimation.cpp` (repris de l'original) | `3.14159265358979f` |
 | `Applications/NKDiffusionTest/main.cpp:47` | `3.14159265358979323846f` (const, pas macro) |
 
 **Deux précisions différentes pour la même constante**, dans le même moteur.
@@ -301,7 +301,7 @@ plutôt que faux.
 > Relevé le **2026-08-14**. **Catégorie 3 : modifié, jamais compilé.**
 
 `Applications/DemoRW/src/DemoRW/main.cpp` inclut le substrat d'animation et a été
-recâblé pendant l'extraction (`NKAnimation/NkAnimation.h`, types qualifiés
+recâblé pendant l'extraction (`NKAnima/NkAnimation.h`, types qualifiés
 `anim::`). Mais **`DemoRW` n'est déclaré dans aucune cible du workspace** : aucun
 `jenga build` ne peut le valider, aujourd'hui ni demain.
 
@@ -560,15 +560,15 @@ différent à chaque fois — ce n'est pas la dérive d'API que j'annonçais.
 
 **Cause 1 — ✅ CORRIGÉE, commit `45231cc1`. Et elle vient de MOI.**
 `NKRenderer.lib` référence `anim::NkAnimationPlayer::Update(float)`
-(`NkAnimationSystem.cpp:45`) ; le symbole **existe bien** dans `NKAnimation.lib`
+(`NkAnimationSystem.cpp:45`) ; le symbole **existe bien** dans `NKAnima.lib`
 (vérifié : `nm` le donne en `T`, symbole défini). Les 4 tutoriels échouaient donc
 au **link**, pas au compile. Cause : `Tutoriels3D.jenga` porte une liste
-`_BASE_LINKS` **maintenue à la main**, sans `NKAnimation`. Le registre
-(`config/modules.jenga:109`) connaît pourtant `NKRenderer → NKAnimation`, mais
+`_BASE_LINKS` **maintenue à la main**, sans `NKAnima`. Le registre
+(`config/modules.jenga:109`) connaît pourtant `NKRenderer → NKAnima`, mais
 `useappdeps` **n'émet que des defines `_STATIC_LIB`** — il ne pose aucun `links()`.
 Rien ne force donc la liste manuelle à suivre le registre.
 
-C'est **mon extraction NKAnimation du 2026-08-14** qui a cassé ces 4 cibles, et
+C'est **mon extraction NKAnima du 2026-08-14** qui a cassé ces 4 cibles, et
 elle est restée invisible **un jour entier** parce que la seule mesure capable de
 le dire ne tournait pas. La thèse de ce chantier, démontrée sur son propre auteur.
 

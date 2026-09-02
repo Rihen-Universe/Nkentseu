@@ -220,7 +220,7 @@ Détail : rapport, mesure 9.
 Pour qu'il serve « à tout système qui gère les animations squelettiques »
 (tes mots), il reste trois choix — je n'en ai tranché aucun :
 
-1. **L'étage de `NkSkeletonDef`** (l'actif). Candidats : `NKAnimation` (le
+1. **L'étage de `NkSkeletonDef`** (l'actif). Candidats : `NKAnima` (le
    substrat extrait de NKRenderer le 14/08, où vit déjà le reciblage) ou
    `NKAnimPhysics`. ⚠️ Noge ne dépend d'aucun des deux aujourd'hui : descendre
    l'actif AJOUTE une dépendance.
@@ -236,7 +236,7 @@ Pour qu'il serve « à tout système qui gère les animations squelettiques »
 ## 7. 🔌 Les greffons : conception posée et chiffrée — à toi de lancer
 
 Ton audit de consommation est fait (rapport, mesure 10) : 24 modules consommés,
-deux vérités rétablies dans `_DEPS` (`NKAnimation`, `NKCanvas` — exercés sans
+deux vérités rétablies dans `_DEPS` (`NKAnima`, `NKCanvas` — exercés sans
 être déclarés, corrigé, 41/41), un seul déclaré-inerte réel (`NKAnimPhysics`,
 proposition : l'exercer quand un jeu jouera l'équilibre — PV3DE, pas la course).
 
@@ -254,6 +254,41 @@ premiers greffons (`xr` avec le simulateur sans casque, `camera`), chacun aux
 trois conditions (corps, appelant, banc qui rougit débranché).
 
 **Ta décision** : lancer ce chantier — maintenant, ou après la course ?
+
+---
+
+## 8. 🦴 NkAnima : la bibliothèque est renommée — le DOSSIER attend un mot de toi
+
+**Fait (phase 2)** : `NKAnimation` → **`NKAnima`** (casse du noyau, `NK`).
+48 fichiers, 118 occurrences, `git mv` pour que l'historique suive. Deux bonnes
+surprises : l'espace de noms est `nkentseu::anim` (**aucun namespace touché**) et
+le nom `NKAnima` était **libre**. Preuves : Noge 41/41, LocomotionDemo **9/0**,
+AssetIODemo **55/0**, SystemsRevivalTest **34/0**, NkAnimPhysTest 27/27 — les
+comptes sont **identiques à l'avant-renommage**, aucun banc n'a disparu.
+
+🔴 **Ce que je n'ai PAS fait, et pourquoi.** Tu as dit « on ne doit pas avoir
+NkAnima ET NkAnimaEditor ». Mesure faite avant de toucher :
+
+| | `Applications/NkAnima` | `Applications/NkAnimaEditor` |
+|---|---|---|
+| code | **0 ligne** | 1 859 lignes |
+| `.jenga` | **aucun** | ✅ |
+| contenu | **`ROADMAP.md`, 598 lignes** | l'application |
+
+**`Applications/NkAnima` n'est pas une application : c'est un dossier qui porte
+un document** — et `Nkentseu/CLAUDE.md` y renvoie **deux fois** (lignes 65 et 68,
+« à lire au démarrage »). Le supprimer casserait ces deux liens et détruirait
+598 lignes de pilotage. Il n'y a donc pas deux applications à fusionner : il y a
+**une application et un document mal rangé**.
+
+**Ta décision — trois options, aucune ne supprime :**
+1. le document rejoint l'application → `NkAnimaEditor/ROADMAP.md` ;
+2. il rejoint la bibliothèque → `Kernel/Runtime/NKAnima/ROADMAP.md` (il parle
+   surtout de jalons moteur : IK, blend, physique de pose) — **ma préférence** ;
+3. il reste, et `Applications/NkAnima/` est assumé comme dossier de doc.
+
+Dans les cas 1 et 2, les deux liens de `CLAUDE.md` sont à corriger — je le ferai
+dans le même geste.
 
 ---
 

@@ -12,7 +12,7 @@
 // =============================================================================
 #pragma once
 
-#include "NKAnimation/NkAnimation.h"
+#include "NKAnima/NkAnimation.h"
 #include "NKContainers/NKContainers.h"
 #include "NKMath/NKMath.h"
 

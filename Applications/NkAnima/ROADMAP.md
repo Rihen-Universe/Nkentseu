@@ -22,7 +22,7 @@
 > secondaire » **dans la même clause** (« restent, eux, réellement non
 > commencés »). Les deux n'ont pas le même état, et l'amalgame a survécu à la
 > livraison du premier :
-> - **Retargeting : ✅ LIVRÉ.** `NKAnimation/NkAnimRetarget.{h,cpp}`,
+> - **Retargeting : ✅ LIVRÉ.** `NKAnima/NkAnimRetarget.{h,cpp}`,
 >   **660 lignes** (174 + 486), exercé par `Applications/NkAnimPhysTest`.
 >   Commit `7a1f7d81`, dont le message dit lui-même « (M2, etait « non
 >   commence ») ». L'en-tête du module l'écrit aussi, l. 13-14 : « elle était
@@ -47,7 +47,7 @@
 >
 > | ce que c'est | où c'est maintenant | espace de noms | volume |
 > |---|---|---|---|
-> | modèle d'animation (clips, blend 1D/2D, HFSM), reciblage, éditeur de pose-clés, motion path | `Kernel/Runtime/NKAnimation` | `nkentseu::anim` | **3 456 l.** |
+> | modèle d'animation (clips, blend 1D/2D, HFSM), reciblage, éditeur de pose-clés, motion path | `Kernel/Runtime/NKAnima` | `nkentseu::anim` | **3 456 l.** |
 > | masse/COM, équilibre, contacts, correction de pose et de clip (M3.1 → M3.6) | `Kernel/Runtime/NKAnimPhysics` | `nkentseu::animphys` | **1 621 l.** |
 > | ce qui DESSINE : façade `NkAnimationSystem`, `NkPoseDebugDraw` | `NKRenderer/Tools/Animation` | `nkentseu::renderer` | **492 l.** |
 >
@@ -66,7 +66,7 @@
 > application 2D — que la règle d'exclusivité NKCanvas/NKRenderer empêchait
 > d'animer du tout — le peut aussi.
 >
-> ⏳ **Ce qui reste à ÉCRIRE dans NKAnimation, pas à y déplacer** : squelette,
+> ⏳ **Ce qui reste à ÉCRIRE dans NKAnima, pas à y déplacer** : squelette,
 > hiérarchie et bind pose en **T+R+S séparés** (`PRINCIPES_CONCEPTION.private.md`),
 > et le **rig facial volet animation** — `Noge/Facial/NkFacialRig.h` en est la
 > spécification, 528 lignes sans un seul corps de fonction.
@@ -238,7 +238,7 @@ transpilé partout — vérifier comme pour les autres).
 Éditer des poses-clés, timeline, interpolation, save/load `.nkanim`.
 
 **✅ M1.d — ANIMATION PAR TRAÇAGE DE COURBE (2026-07-10)** — module
-`NKAnimation/NkMotionPath.{h,cpp}` (pur Foundation, AUCUN GPU). On trace une **courbe**
+`NKAnima/NkMotionPath.{h,cpp}` (pur Foundation, AUCUN GPU). On trace une **courbe**
 dans la scène (points de contrôle) et une cible la suit :
 - `NkMotionCurve` — spline **Catmull-Rom** (passe par les points), `SamplePosition/SampleTangent(t)`,
   `Length`, **reparamétrage par longueur d'arc** (`SampleByDistance`/`DistanceToT` = vitesse constante),
@@ -382,7 +382,7 @@ Détail cible (fusion corpus IA 2026-07-09) :
   machine idle→walk→retour idle + comptage d'événements OK, blend 2D mix/exact
   OK. **Reste de M2** (état revérifié fichier par fichier le 2026-08-14) :
   - ✅ **Retargeting — LIVRÉ le 2026-08-06** (commit `7a1f7d81`).
-    `NKAnimation/NkAnimRetarget.{h,cpp}`, **660 lignes**. Les
+    `NKAnima/NkAnimRetarget.{h,cpp}`, **660 lignes**. Les
     trois règles sont dans l'en-tête, avec leur raison : transfert du **delta à
     la pose de repos** (`cible_locale = repos_cible × repos_source⁻¹ ×
     source_locale`) et non du transform absolu ; **rotations seules**, sauf la

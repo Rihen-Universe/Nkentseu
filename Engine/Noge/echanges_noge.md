@@ -1160,7 +1160,7 @@ L'indice : « le nom apparaît aussi dans NKRenderer — deux vérités parallè
 |---|---|---|---|
 | `ecs::NkSkeleton`/`NkSkeletonDef` | Noge | **le** squelette complet | le sujet de cette mesure |
 | `renderer::TagRSkeleton` | NKRenderer | struct **vide** de marquage du handle GPU (`NkSkeletonHandle`) | **homonyme**, pas une donnée |
-| `anim::NkRetargetSkeleton` | **Kernel/Runtime/NKAnimation** | descripteur de **reciblage** : `parent`+`bindLocal`+`names`+`topo`, déjà dynamique | vraie donnée, **convention différente** |
+| `anim::NkRetargetSkeleton` | **Kernel/Runtime/NKAnima** | descripteur de **reciblage** : `parent`+`bindLocal`+`names`+`topo`, déjà dynamique | vraie donnée, **convention différente** |
 | `physics::NkBoneDef` | NKPhysics/NkRagdoll.h | définition d'un **corps** de ragdoll | ⚠️ **collision de nom créée par MON changement** (`ecs::NkBoneDef`) |
 
 **Donc : pas deux squelettes complets parallèles** — un seul (Noge), plus un
@@ -1177,15 +1177,15 @@ laisser filer :
 
 Rodolf : *« le squelette doit être utile […] à tout système qui gère les
 animations squelettiques. »* Or `ecs::NkSkeletonDef` vit dans **Noge**, et les
-modules du noyau (`NKAnimation` — le substrat extrait de NKRenderer le 14/08 —,
+modules du noyau (`NKAnima` — le substrat extrait de NKRenderer le 14/08 —,
 `NKAnimPhysics`) **ne peuvent pas dépendre du moteur**. ✅ Mesuré aussi : Noge ne
-dépend aujourd'hui **ni** de `NKAnimation` **ni** de `NKAnimPhysics` — le
+dépend aujourd'hui **ni** de `NKAnima` **ni** de `NKAnimPhysics` — le
 déplacement ajoute une dépendance, il ne déplace pas seulement un fichier.
 
 La forme Unreal suggère la coupe : **la DÉFINITION descend** (l'actif, comme un
 `USkeleton`), **le composant reste** dans l'ECS (`NK_COMPONENT(NkSkeleton)`,
 mesuré). Mais trois choix restent à Rodolf, et je ne tranche aucun :
-1. **quel étage** pour `NkSkeletonDef` — `NKAnimation` (où vit déjà le
+1. **quel étage** pour `NkSkeletonDef` — `NKAnima` (où vit déjà le
    reciblage) ou `NKAnimPhysics` ?
 2. **quelle convention** de pose de repos — matrices (l'existant Noge) ou
    locale (l'existant reciblage) ? L'une des deux devra se convertir ;
@@ -1292,7 +1292,7 @@ dynamiquement, optionnel par jeu).
 | `NKAudio` | oui — son | ✅ | ✅ 2 (système vivant) | consommé | CŒUR |
 | `NKEvent`/`NKWindow` | oui — boucle, entrées | ✅ | ✅ 4 / 6 | consommé | CŒUR |
 | `NKFont`/`NKImage` | oui — texte, textures | ✅ | ✅ 2 / 2 | consommé | CŒUR |
-| **`NKAnimation`** | **oui — NkAnima, la bibliothèque** | 🔴 **absent de `_DEPS`** | ✅ 1 (`NkLocomotion`, prouvé par démo 9/0) | **exercé-mais-non-déclaré** | CŒUR — **✅ déclaré ce jour** |
+| **`NKAnima`** | **oui — NkAnima, la bibliothèque** | 🔴 **absent de `_DEPS`** | ✅ 1 (`NkLocomotion`, prouvé par démo 9/0) | **exercé-mais-non-déclaré** | CŒUR — **✅ déclaré ce jour** |
 | **`NKCanvas`** | oui — UI en jeu | 🔴 **absent de `_DEPS`** | ✅ 1 (`NkUISystem.cpp`) | **exercé-mais-non-déclaré** | CŒUR — **✅ déclaré ce jour** |
 | **`NKAnimPhysics`** | **oui — NkAnima, 2ᵉ moitié** (masse, équilibre, appuis) | include-dir seul (l.79) | 🔴 **0 include** | **déclaré-mais-inerte** | CŒUR (à exercer, pas à retirer : l'éditeur NkAnima le consomme déjà) |
 | **`NKXR`** | **oui — VR/AR (nommé par Rodolf)** | 🔴 absent | 🔴 0 | **absent-et-dû** | **GREFFON** (§10.4) |
@@ -1321,7 +1321,7 @@ Bare** : vision, rien à consommer.
 
 - **Consommés** : 24 modules. Rien à faire.
 - **Exercés-mais-non-déclarés** (la famille MIROIR, que la consigne ne
-  prévoyait pas) : `NKAnimation`, `NKCanvas`. ✅ **Corrigé ce jour** — ajoutés à
+  prévoyait pas) : `NKAnima`, `NKCanvas`. ✅ **Corrigé ce jour** — ajoutés à
   `_DEPS`, Noge reconstruit **41/41 SUCCESS** (41, pas 39 : les deux modules
   entrent dans la fermeture de build, ce qui est exactement ce que la
   déclaration devait faire).
@@ -1403,17 +1403,17 @@ traîne côté éditeur :
 
 | morceau | où | volume | consommé par |
 |---|---|---|---|
-| lecture de clip, mélange (`NkBlendTree1D`), reciblage | `NKAnimation` | 4 `.cpp`, **2 344 l.** | **13 fichiers** — NKRenderer, **Noge** (`NkLocomotion`, démo 9/0), NkAnimaEditor |
+| lecture de clip, mélange (`NkBlendTree1D`), reciblage | `NKAnima` | 4 `.cpp`, **2 344 l.** | **13 fichiers** — NKRenderer, **Noge** (`NkLocomotion`, démo 9/0), NkAnimaEditor |
 | masse, équilibre, appuis (`NkPoseMass`, `NkBalance`, `NkContactDetector`) | `NKAnimPhysics` | 6 `.cpp`, **1 272 l.** | 4 fichiers — NKRenderer (debug), NkAnimaEditor, un banc. **Noge : 0** |
 | l'éditeur | `NkAnimaEditor` | 6 fichiers, **1 206 l.** | — (application) |
 
 ✅ **La frontière est SAINE** : « jouer un clip » et « mélanger deux poses »
 sont déjà dans le substrat, et l'éditeur les consomme d'en haut (vérifié :
-`AnimBridge.cpp` inclut `NKAnimation/` et `NKAnimPhysics/`, pas l'inverse).
+`AnimBridge.cpp` inclut `NKAnima/` et `NKAnimPhysics/`, pas l'inverse).
 **Aucun morceau de bibliothèque n'est piégé côté éditeur.** Le seul manque est
 celui du §10.2 : Noge n'exerce pas encore `NKAnimPhysics`. Et la question du
 bloc 6 (étage de `NkSkeletonDef`) se répond maintenant plus précisément :
-**le candidat naturel est `NKAnimation`** — c'est là que vivent déjà le
+**le candidat naturel est `NKAnima`** — c'est là que vivent déjà le
 reciblage et le mélange que le squelette sert.
 ---
 
@@ -1460,7 +1460,7 @@ La question qui reste est *où va le document* — et elle appartient à Rodolf
 
 `NKAnimation` → `NKAnima` (casse du noyau conservée, `NK` majuscule) :
 
-- **48 fichiers** citent `NKAnimation` (hors `Build/`) : 9 dans le module
+- **48 fichiers** citaient `NKAnimation` (hors `Build/`) : 9 dans le module
   lui-même, 5 dans Noge, 4 dans NKRenderer, 2 Sandbox, 2 PV3DE, 2 Nogee, 3 à la
   racine, 1 docs, le reste dispersé ;
 - ⭐ **l'espace de noms est `nkentseu::anim`, PAS `nkentseu::animation`** — le

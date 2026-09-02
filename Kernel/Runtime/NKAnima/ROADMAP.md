@@ -1,4 +1,4 @@
-# NKAnimation — Roadmap (substrat d'animation, sans GPU)
+# NKAnima — Roadmap (substrat d'animation, sans GPU)
 
 > **Ce document décrit le MODULE.** Le **parcours produit** (jalons M0→M5, IK,
 > physique de pose, IA de direction) vit dans **`Applications/NkAnima/ROADMAP.md`**
@@ -6,7 +6,7 @@
 > moitié sont pires qu'un seul.
 >
 > La **frontière** avec NKRenderer et la raison de chaque choix de placement sont
-> écrites dans **`NKAnimation.jenga`**, en-tête du fichier. Elles ne sont pas
+> écrites dans **`NKAnima.jenga`**, en-tête du fichier. Elles ne sont pas
 > recopiées non plus.
 >
 > Ici, et seulement ici : **ce que le module contient, ce qu'il expose, qui le
@@ -58,14 +58,14 @@ déplacement de pose-clés, sélection, `Undo`/`Redo`).
 
 ⚠️ **`NkAnimationEditor` est une FEUILLE** : rien dans le substrat ne le tire.
 Un consommateur qui ne s'en sert pas ne le paie pas. Ne pas « l'optimiser » en le
-sortant du module — le raisonnement complet est dans `NKAnimation.jenga`.
+sortant du module — le raisonnement complet est dans `NKAnima.jenga`.
 
 ## Dépendances et consommateurs
 
-**Dépend de** (déclaré dans `NKAnimation.jenga`) : NKPlatform, NKCore, NKMemory,
+**Dépend de** (déclaré dans `NKAnima.jenga`) : NKPlatform, NKCore, NKMemory,
 NKMath, NKContainers, NKLogger, NKFileSystem. **Rien d'autre.**
 
-**Consommé par — 13 fichiers mesurés** (`grep -rl "NKAnimation/"`, hors le module
+**Consommé par — 13 fichiers mesurés** (`grep -rl "NKAnima/"`, hors le module
 lui-même) :
 
 | Couche | Fichiers |
@@ -176,7 +176,7 @@ plus rapide dans le premier.*
 
 ## 🔴 Le régime AÉRIEN manque — M3.7 → M3.11 (PLAN OFFICIEL, approuvé le 2026-08-17)
 
-*Mesuré par l'agent NKAnimation sur `feat/nkanimation` le 2026-08-16, en préparant
+*Mesuré par l'agent NKAnima sur `feat/nkanimation` le 2026-08-16, en préparant
 l'écart entre les spécifications d'interface de NkAnimaEditor et le code.
 **Approuvé par Rodolf le 2026-08-17.** Le travail ne commence pas maintenant —
 c'est Rodolf qui en décidera le moment ; quand il viendra, **M3.9 (tenseur
@@ -324,7 +324,7 @@ converti en `.glb`** (Blender → export glTF 2.0) avant dépôt.
 | Document | Ce qu'il porte, et que ce fichier ne reprend pas |
 |---|---|
 | `Applications/NkAnima/ROADMAP.md` | jalons M0→M5, historique des décisions, IK, physique de pose, IA de direction |
-| `Kernel/Runtime/NKAnimation/NKAnimation.jenga` | frontière avec NKRenderer, placement de `NkAnimationEditor`, dépendances déclarées |
+| `Kernel/Runtime/NKAnima/NKAnima.jenga` | frontière avec NKRenderer, placement de `NkAnimationEditor`, dépendances déclarées |
 | `Kernel/Runtime/NKGraph/ROADMAP.md` | le substrat de graphe, pour l'édition visuelle |
 | `Kernel/Runtime/NKAnimPhysics/` | module frère — **il n'a pas de ROADMAP non plus**, dette nommée ici et non traitée |
 

@@ -5,7 +5,7 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
-#include "NKAnimation/NkAnimRetarget.h"
+#include "NKAnima/NkAnimRetarget.h"
 
 namespace nkentseu {
 	namespace anim {

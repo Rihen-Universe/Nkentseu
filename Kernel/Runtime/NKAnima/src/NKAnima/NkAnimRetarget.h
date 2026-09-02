@@ -53,7 +53,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKMath/NKMath.h"
-#include "NKAnimation/NkAnimation.h"
+#include "NKAnima/NkAnimation.h"
 
 #include "NKContainers/String/NkString.h"
 

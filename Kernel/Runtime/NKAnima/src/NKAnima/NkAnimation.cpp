@@ -1,11 +1,11 @@
 // =============================================================================
-// NKAnimation/NkAnimation.cpp — voir NkAnimation.h
+// NKAnima/NkAnimation.cpp — voir NkAnimation.h
 // -----------------------------------------------------------------------------
 // Corps deplace TEL QUEL depuis NKRenderer/Tools/Animation/NkAnimationSystem.cpp
 // le 2026-08-14. Seuls l'espace de noms et les inclusions ont change : plus rien
 // ici ne tire le renderer, NKRHI ni un chargeur de format.
 // =============================================================================
-#include "NKAnimation/NkAnimation.h"
+#include "NKAnima/NkAnimation.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"

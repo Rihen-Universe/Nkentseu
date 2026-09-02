@@ -842,12 +842,12 @@ with workspace("Nkentseu", location="."):
 
 
 
-    # NKAnimation (substrat d animation : clips, blend 1D/2D, HFSM, reciblage,
+    # NKAnima (substrat d animation : clips, blend 1D/2D, HFSM, reciblage,
     # motion path, edition de pose-cles). Extrait de NKRenderer/Tools/Animation
     # le 2026-08-14. Foundation seule ; le renderer n en garde que la facade
     # de rendu et le debug-draw, et les CONSOMME.
 
-    with include("Kernel/Runtime/NKAnimation/NKAnimation.jenga"):
+    with include("Kernel/Runtime/NKAnima/NKAnima.jenga"):
 
         pass
 

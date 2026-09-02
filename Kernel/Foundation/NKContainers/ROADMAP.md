@@ -309,7 +309,7 @@ doxygen des deux méthodes **pour que personne ne le prenne pour un oubli**.
 Corollaire mesuré : `Insert(T&&)` sur un doublon **ne consomme pas** la source —
 rien n'est déplacé quand rien n'est inséré.
 
-⚠️ **Ce n'est pas un manque théorique.** `NKAnimation/NkAnimation.h` déclare
+⚠️ **Ce n'est pas un manque théorique.** `NKAnima/NkAnimation.h` déclare
 **4 champs `NkHashMap`** (l. 277, 278, 684, 685) : tant que le conteneur refusait
 les types non copiables, `NkAnimationTrack<T>` ne pouvait pas devenir un type
 valeur à ressource possédée. Et `NKRenderer/Streaming/NkStreamingSystem` a
@@ -683,7 +683,7 @@ ce bloc existe pour que le chiffre soit porté à Rodolf avec sa méthode.
 
 ### Le chiffre et sa provenance
 
-*Mesuré le 2026-08-16 par l'agent NKAnimation, sur `feat/nkanimation` **après**
+*Mesuré le 2026-08-16 par l'agent NKAnima, sur `feat/nkanimation` **après**
 fusion de `origin/main` (`6eb46ba7`). Périmètre : `Kernel/`, `Applications/`,
 `Engine/` ; `Externals/` exclu ; extensions `.cpp .h .hpp .inl`.*
 
