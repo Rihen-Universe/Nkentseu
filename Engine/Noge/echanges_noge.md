@@ -300,6 +300,15 @@ modèles dont un seul membre exerçait le sous-dossier `textures/`.
 > endroit** : `Engine/Noge/DECISIONS_RODOLF.md`, section 9. *Deux décomptes dans
 > deux documents, c'est un de trop.*
 >
+> 🔄 **Et il a bougé une deuxième fois le même soir : 5 SUR 7.** HarmonyOS est
+> passé au vert le 02/09 à **19h31** — `Captures/plateforme_harmonyos_2026-09-02.jpeg`,
+> HUD lu (`Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`,
+> 17 sphères PBR + ombres portées), sur le `.hap` du 10/08 installé pendant que
+> Rodolf tenait l'émulateur ouvert. ⚠️ La ligne **HarmonyOS** du tableau ci-dessus
+> (« la capture connue montre la démo 0 ») reste **vraie de ce qu'elle constate**
+> — cette capture-là montrait bien la démo 0 — et elle est **périmée comme
+> verdict**. La section 9 fait foi.
+>
 > ⭐ **MISE À JOUR 2026-09-02 — LINUX PASSE AU VERT : 3 cibles sur 7.** La
 > décision combine deux choses et les nomme : la **capture du 29/07** (HUD lu de
 > mes yeux, bon chemin, jumelle Windows à 4 minutes d'écart) et le **témoignage

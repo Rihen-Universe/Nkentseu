@@ -10,12 +10,12 @@
 sa date — *une feuille qui garde des questions déjà répondues fait perdre du
 temps ; une feuille qui efface l'historique fait re-trancher.*
 
-### 🟠 CE QUI T'ATTEND ENCORE — quatre choses, et trois sont des minutes
+### 🟠 CE QUI T'ATTEND ENCORE — **trois choses**, le point B est tombé ce soir
 
 | # | ce qu'il faut | de qui | coût |
 |---|---|---|---|
 | **A** | **Confirmer le Web sur un VRAI GPU.** La cible est verte en rendu **logiciel** (SwiftShader) ; il manque une exécution sur ta carte. Mode d'emploi complet au **bloc 1**. | **toi** | ~2 min de navigateur |
-| **B** | **L'image HarmonyOS.** 🗣️ Tu as confirmé le 02/09 que la démo 3D démarre bien par défaut — **le canal de sélection est réglé**, il ne reste qu'à *voir*. Un `.hap` du 10/08 existe déjà, la séquence est écrite et prête. ⛔ **Bloqué par une priorité, pas par un problème** : lancer l'émulateur prendrait le GPU d'Ilyana (100 % d'utilisation, entraînement en cours). Détail et commandes à la **carte, section 9**. | moi, dès que le GPU se libère | ~10 min |
+| ~~**B**~~ | ✅ **FAIT le 02/09 à 19h31 — HarmonyOS REND LA 3D.** Tu as lancé l'émulateur, j'ai installé le `.hap` du 10/08 et **lu le HUD moi-même** : `Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres portées. **5 cibles sur 7.** ⚠️ Réserve écrite : binaire du **10/08**, donc l'image prouve « HarmonyOS rendait la 3D le 10/08 » — un re-test sur un `.hap` à jour reste à faire, **comme pour Linux**. Détail : **carte, section 9**. | — | fait |
 | **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
 | **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
 
@@ -30,6 +30,10 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 | 8 | le dossier `Applications/NkAnima` | **option 2** — le document a rejoint la bibliothèque, `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md` ; dossier vide retiré, aucune ligne perdue | 02/09 |
 
 📍 **La carte des 7 plateformes est en bas de cette page, section 9.**
+🗺️ **État au 02/09 au soir : 5 cibles vertes sur 7** — Windows, Android, Linux,
+Web (logiciel), **HarmonyOS (ce soir)**. Restent **macOS** et **iOS**, qui n'ont
+aucune trace pour le chemin 3D — mais dont la chaîne de build Apple existe et a
+déjà tourné (section 9, points 6 et 7).
 
 ---
 
@@ -453,7 +457,7 @@ application (`Applications/NkAnimaEditor`) et un document mal rangé.
 
 ---
 
-## 9. 🗺️ LA CARTE DES 7 PLATEFORMES — **4 vertes**, et ce qu'il faut pour les 3 autres
+## 9. 🗺️ LA CARTE DES 7 PLATEFORMES — **5 vertes**, et ce qu'il faut pour les 2 autres
 
 > **Ce qui est mesuré ici, c'est le chemin 3D** (`NKRHI` + `NKRenderer`) — le seul
 > que Noge emprunte. ⚠️ **Le socle 2D (`NKCanvas`) est porté sur les sept** : la
@@ -475,7 +479,7 @@ application (`Applications/NkAnimaEditor`) et un document mal rangé.
 | 2 | **Android** | ✅ | `Captures/nk_android_demo3d.png` — 18 sphères PBR, ombres, **59 FPS**, `VSM atlas 4096 px` | — (⚠️ textures **procédurales**, pas file-based) |
 | 3 | **Linux** | ✅ | `Captures/plateforme_linux.png` (29/07, 15h38, **81,6 FPS**, HUD lu) **+ ton témoignage du 02/09** | **re-test sous WSL** — le vert date du 29/07 |
 | 4 | **Web** | 🟡 | `Captures/plateforme_web_2026-09-02.png`, HUD lu, `Draw:1093 Tris:489586` | **une exécution sur GPU réel** — celle-ci est en **rendu logiciel** |
-| 5 | **HarmonyOS** | ❔ | **jamais exercée en 3D** — sa seule capture (29/07 19h09) montre la **démo 0**. 🗣️ **Témoignage concordant de Rodolf (02/09), image manquante** | **installer un `.hap` et lire le HUD** — un `.hap` du 10/08 existe déjà |
+| 5 | **HarmonyOS** | ✅ | `Captures/plateforme_harmonyos_2026-09-02.jpeg` — **HUD lu le 02/09 à 19h31** : `Demo 3D \| API : OpenGL`, panneau `Shadow tweak` (`VSM atlas 4096 px`), `FPS approx : 8.3`, 17 sphères PBR + ombres portées | **re-test sur un `.hap` à jour** — l'image vient du binaire du **10/08** |
 | 6 | **macOS** | ❔ | **aucune trace** pour le chemin 3D | un build Metal, puis un Mac pour l'exécuter |
 | 7 | **iOS** | ❔ | **aucune trace** pour le chemin 3D | idem + un appareil ou un simulateur |
 
@@ -498,7 +502,79 @@ Mode d'emploi complet au **bloc 1** (⚠️ port explicite `9002` : un serveur t
 déjà sur `9001` et sert le **Debug** — sans le port, tu croirais tester le
 Release).
 
-**5. HARMONYOS — reconstruire le `.hap`** *(point B)*
+**5. HARMONYOS — ✅ VERT LE 2026-09-02 À 19h31** *(point B — fait)*
+
+> # ✅ HARMONYOS REND LA 3D. J'AI OUVERT L'IMAGE ET LU LE HUD.
+>
+> **`Captures/plateforme_harmonyos_2026-09-02.jpeg`** — 2720×1260, prise sur
+> l'émulateur que tu venais de lancer. Ce que le HUD dit, mot pour mot :
+>
+> ```
+> Demo 3D  |  API : OpenGL  |  Affichage(Z): RENDERED  |  Couleur(B): GRIS
+> FPS approx : 8.3  |  dt: 119.90 ms
+> [Phase H] Texture file-based : fallback procedural
+>
+>          == Shadow tweak (panel debug) ==
+>          VSM atlas : 4096 px      quality : 4
+>          softness  : 0.005        slots : 14 (rend 1 | cache 13)
+>          framesInFlight : 3
+> ```
+>
+> | ce que je cherchais | trouvé |
+> |---|---|
+> | ligne **`Demo 3D \| API :`** — *le* test | ✅ `Demo 3D | API : OpenGL` |
+> | panneau **`Shadow tweak`** | ✅ monté, `VSM atlas 4096 px` |
+> | **`FPS approx`** avec une valeur | ✅ `8.3` |
+> | l'image | ✅ **17 sphères PBR**, **ombres portées douces** sous chacune, grille de cubes colorés, deux colonnes projetant leur ombre, grille verte d'instances, gizmo 3D, sol quadrillé |
+>
+> 🚫 **`Draw:1093  Tris:489582  Batches:1093` — non nuls, et ils n'ont PAS jugé.**
+> Ils sont là parce que ce binaire (10/08) est postérieur au câblage des compteurs
+> (05/08), exactement comme prévu. Le verdict tient sur `Demo 3D` + `Shadow tweak`.
+> 📌 **Mais ils offrent un recoupement gratuit, et il est frappant** : le Web
+> logiciel affichait **`Draw:1093 Tris:489586`**, HarmonyOS affiche
+> **`Draw:1093 Tris:489582`**. Deux plateformes, deux backends, **le même nombre
+> de dessins et quatre triangles d'écart**. C'est la même scène qui rend des deux
+> côtés — un recoupement que ni l'une ni l'autre des deux mesures ne pouvait
+> fabriquer seule.
+>
+> ⚠️ **LES BORNES, ET ELLES COMPTENT** :
+> 1. **binaire du 10/08** → l'image prouve « **HarmonyOS rendait la 3D le 10/08** »,
+>    pas « le moteur d'aujourd'hui y rend ». *Même forme que Linux, dont le vert
+>    porte sur le 29/07.* Le re-test sur un `.hap` à jour reste à faire ;
+> 2. **8,3 FPS n'est PAS un verdict de performance** : build **Debug**, sur un
+>    émulateur dont le GL est paravirtualisé (`DGLES`), pendant qu'Ilyana occupe
+>    la carte. Ce chiffre dit « ça tourne », rien de plus ;
+> 3. **textures procédurales**, pas file-based (`[Phase H] fallback procedural`) —
+>    exactement comme Android.
+>
+> 🧰 **Deux pièges d'instrument franchis, notés parce qu'ils reviendront** :
+> - **`hdc list targets` rendait `[Empty]` alors que l'émulateur tournait.** Il
+>   écoutait bien sur `127.0.0.1:5555` (vérifié au `netstat`), mais le serveur
+>   `hdc` ne s'y était pas connecté : il faut **`hdc tconn 127.0.0.1:5555`**
+>   d'abord. *Sans ce contrôle, l'échec d'installation qui aurait suivi se serait
+>   lu comme un échec du binaire* — la cinquième fois de la journée qu'un problème
+>   d'instrument imite un problème de code ;
+> - **`hdc` préfixe le répertoire courant à un chemin absolu Windows**
+>   (`d:\Rihen\Rodolf\D:/Projets/…`) et **Git Bash convertit les chemins distants**
+>   `/data/local/tmp/…` en chemins Windows. Remèdes : se placer dans le dossier du
+>   `.hap` et le nommer nu ; `MSYS_NO_PATHCONV=1` pour `file recv`. Et
+>   `snapshot_display` **refuse `.png`** — le suffixe doit être `.jpeg`.
+>
+> 🟢 **Ilyana n'a jamais été touchée.** Relevés encadrant l'opération : avant
+> **5 206 Mio / 97 %**, pendant **6 887 Mio / 50 %** (l'émulateur a pris ~1,4 Gio),
+> après arrêt de l'application **5 922 Mio**, puis retour à **44-80 %**. Son
+> compteur CPU a continué d'avancer (+1,22 s en 5 s). **J'ai arrêté MON
+> application** (`aa force-stop`) dès la capture obtenue — pas l'émulateur, qui est
+> le tien, et surtout pas l'entraînement.
+>
+> ⚠️ **La capture n'est PAS dans le commit** : `Captures/` est **gitignoré**
+> (`.gitignore:689`), comme l'étaient déjà `plateforme_linux.png` et
+> `plateforme_web_2026-09-02.png`. Toute la base de preuves de cette carte vit
+> hors dépôt. Le fichier est sur le disque, dans `Nkentseu/Captures/`.
+
+**Ce qui était écrit avant l'image — conservé, parce que c'est le raisonnement
+qui a mené à la prendre :**
+
 🔴 **Ce n'est pas un échec, c'est un non-test.** La capture du 29/07 montre la
 démo 0 ; le correctif `a762bda8` — *« demo 3D par defaut »*, `NK_DEFAULT_DEMO=2`
 — date du **09/08 23h33**, **onze jours plus tard**. La capture et ton souvenir
@@ -554,14 +630,28 @@ Ce que ton « oui » change, c'est le **pronostic**, pas la preuve.
 
 > **État à écrire tel quel : témoignage concordant, image manquante.**
 
+📌 **DÉPASSÉ UNE HEURE PLUS TARD — et la règle a tenu jusqu'au bout.** Rodolf a
+lancé l'émulateur ; l'image a été prise, ouverte, son HUD lu. **La colonne bouge
+maintenant, et c'est l'image qui la bouge, pas le témoignage.** Les deux
+concordaient : c'est agréable, ça n'a jamais été une preuve. *Le paragraphe
+ci-dessus reste écrit parce qu'il dit pourquoi on est allé chercher l'image au
+lieu de se contenter d'un « oui ».*
+
 ⚠️ **Et même l'image, quand elle viendra de ce `.hap`-là, sera bornée** : elle
 prouverait « **HarmonyOS rendait la 3D le 10/08** », pas « le moteur d'aujourd'hui
 y rend ». Exactement le statut de Linux, dont le vert porte sur le **29/07**.
 
-### ⛔ POURQUOI JE NE PRENDS PAS LA CAPTURE MAINTENANT — mesuré, pas supposé
+### 🕐 ⛔ POURQUOI JE NE PRENAIS PAS LA CAPTURE — *levé à 19h20, Rodolf a lancé l'émulateur*
+
+> **Ce blocage est résolu** : Rodolf a lancé l'émulateur lui-même, la capture a
+> été prise dans la foulée (résultat en tête de ce bloc). Le texte reste parce
+> qu'il documente la règle de priorité, qui, elle, ne change pas.
 
 **Aucun appareil connecté** : `hdc list targets` rend **`[Empty]`** — l'émulateur
 n'est pas lancé, il faudrait le démarrer.
+⚠️ **Et ce même `[Empty]` s'est reproduit APRÈS le lancement** : l'émulateur
+écoutait, mais `hdc` n'y était pas connecté. Le remède est `hdc tconn
+127.0.0.1:5555` — voir les pièges d'instrument en tête de bloc.
 
 **Et c'est là que ça bloque, en une ligne : le démarrer prendrait le GPU
 d'Ilyana.** Mesure du moment : **RTX 3070 Laptop, utilisation 100 %,
@@ -575,16 +665,31 @@ saturée, avec moins de 3 Gio libres, et il ouvrirait sa fenêtre sur ta session
 elle-même serait légitime — `hdc shell snapshot_display` photographie l'écran de
 **l'émulateur**, jamais le tien.
 
-**La séquence exacte, prête à lancer dès que le GPU se libère** (aucune décision
-à prendre, ~10 min) :
+**La séquence — ✅ CELLE-CI A MARCHÉ, corrigée des trois pièges rencontrés.**
+À réutiliser telle quelle pour le re-test sur un `.hap` à jour (~10 min) :
 
+```sh
+export PATH="$PATH:/c/ohos/Emulator/HarmonyOS-NEXT-miku404/sdk/HarmonyOS-NEXT-DB1/openharmony/toolchains"
+export MSYS_NO_PATHCONV=1          # sinon Git Bash traduit /data/local/tmp en chemin Windows
+
+hdc tconn 127.0.0.1:5555           # ⚠️ INDISPENSABLE : sans ça, list targets rend [Empty]
+hdc list targets                   # doit afficher 127.0.0.1:5555
+
+cd .../Debug-HarmonyOS/renderdemo  # ⚠️ hdc préfixe le cwd à un chemin absolu Windows
+hdc -t 127.0.0.1:5555 install renderdemo.hap
+
+hdc -t 127.0.0.1:5555 shell "aa start -a EntryAbility -b com.nkentseu.sandbox.render.demo -m entry"
+hdc -t 127.0.0.1:5555 shell "hilog -P <pid>"        # le journal dit pourquoi s'il n'y a pas d'image
+hdc -t 127.0.0.1:5555 shell "snapshot_display -f /data/local/tmp/harmony_3d.jpeg"   # ⚠️ .jpeg, pas .png
+hdc -t 127.0.0.1:5555 file recv /data/local/tmp/harmony_3d.jpeg plateforme_harmonyos_<date>.jpeg
+
+hdc -t 127.0.0.1:5555 shell "aa force-stop com.nkentseu.sandbox.render.demo"   # rendre la carte
 ```
-hdc list targets                       # doit sortir autre chose que [Empty]
-hdc install "D:/Projets/2026/Nkentseu/Nkentseu-nkcode/Build/Bin/Debug-HarmonyOS/renderdemo/renderdemo.hap"
-hdc shell aa start -a EntryAbility -b com.nkentseu.sandbox.render.demo
-hdc shell snapshot_display -f /data/local/tmp/harmony_3d.png
-hdc file recv /data/local/tmp/harmony_3d.png Captures/plateforme_harmonyos_<date>.png
-```
+
+📌 **Le journal, relevé pendant l'exécution, confirme l'image sans la remplacer** :
+`eglSwapBuffers` toutes les ~1 s avec **53 000 à 80 000 appels GL par lot**. Une
+charge pareille n'est pas celle d'un écran vide — mais c'est un **indice**, et
+c'est le HUD qui a tranché.
 
 **Ce que je lirai dans l'image — et rien d'autre** : la ligne
 **`Demo 3D | API : …`**, le panneau **`== Shadow tweak ==`**, un **`FPS approx`**
@@ -592,6 +697,11 @@ avec une valeur. 🚫 **Pas `Draw:` / `Tris:`** — ce binaire est du 10/08, don
 postérieur au câblage des compteurs du 05/08 : ils seront probablement non nuls,
 **et ça ne prouvera rien**. L'échec, lui, a une signature nette : un aplat uni
 avec seulement `Active: R2D|R3D|TEXT|OVERLAY` et **aucune** ligne `Demo 3D`.
+
+✅ **Ce critère a été écrit AVANT de regarder l'image, et appliqué tel quel.**
+Les trois marqueurs étaient là ; `Draw:`/`Tris:` étaient non nuls comme annoncé
+et n'ont pas servi. *Un critère de verdict posé avant la mesure est le seul qui
+ne s'ajuste pas au résultat.*
 
 **6 et 7. macOS et iOS — la vraie carte n'est pas vide** *(hors mandat, non lancé)*
 « Aucune trace » est vrai **pour le chemin 3D de `renderdemo`**. Mais il existe
@@ -641,6 +751,8 @@ une carte, pas un travail commencé.
   `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md`, 10 renvois suivis, dossier vide
   retiré après vérification du registre de projets, **zéro ligne perdue**.
 - **`*.nksl text eol=lf`** : les 131 shaders ont enfin une règle de fin de ligne.
+- **HarmonyOS rend la 3D** — image prise et HUD lu le 02/09 à 19h31, sur le `.hap`
+  du 10/08. **5 cibles vertes sur 7.**
 - **`--demo 2` et `demo 2` ne retombent plus en silence sur la démo 0** — et la
   vraie cause du symptôme était le **répertoire courant** (2 erreurs en démo 0,
   **47 en démo 3D dont 18 shaders introuvables** : les deux chemins n'ont pas la
