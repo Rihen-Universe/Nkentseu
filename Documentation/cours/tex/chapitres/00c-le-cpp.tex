@@ -1,0 +1,356 @@
+\chapter{Le C++ : ce qu'il ajoute, et ce que Nkentseu en garde}
+
+Le C++ ajoute au C de quoi rendre les erreurs \emph{impossibles} plutôt que
+seulement improbables. Ce chapitre couvre le langage, puis dit --- en le mesurant
+--- ce que ce dépôt en emploie et ce qu'il refuse. La seconde partie compte
+autant que la première : apprendre le C++ d'un livre standard, c'est apprendre
+des choses qu'il faudra désapprendre ici.
+
+\section{La norme employée}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Norme} & \textbf{Projets} & \textbf{Mesure} \\
+\midrule
+C++17 & 46 & \texttt{cppdialect("C++17")} \\
+C++20 & 2  & \texttt{cppdialect("C++20")} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Écrivez du C++17. Les deux projets en C++20 ont une raison particulière ; la
+règle est 17.
+
+\section{Classes et structures}
+
+Une \texttt{class} est une \texttt{struct} dont les membres sont privés par
+défaut. C'est \emph{toute} la différence technique.
+
+\begin{nkcode}{Exemple pedagogique}
+class NkCompteur {
+    public:                            // ce que le monde exterieur voit
+        void Incrementer() { ++mValeur; }
+        int32 Valeur() const { return mValeur; }   // `const` : ne modifie rien
+
+    private:                           // ce qui n'appartient qu'a la classe
+        int32 mValeur = 0;
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Convention du dépôt} : membres privés préfixés \texttt{m}
+(\texttt{mValeur}), méthodes en \texttt{PascalCase}, types préfixés \texttt{Nk}.
+Une méthode qui ne modifie pas l'objet est \texttt{const} --- ce n'est pas de la
+politesse : sans lui, on ne peut pas l'appeler sur un objet constant, et la
+moitié du code devient inaccessible.
+\end{nkretenir}
+
+\begin{nkretenir}
+Dans ce dépôt, \texttt{struct} sert aux \textbf{données nues} (champs publics,
+aucune invariante à protéger --- \texttt{NkPointer}, \texttt{NkLayoutInfo}) et
+\texttt{class} à ce qui a un \textbf{état à défendre} (\texttt{NkCanvasApp},
+\texttt{NkCanvasSplash}). Le compilateur ne fait pas cette distinction ; le
+lecteur, si.
+\end{nkretenir}
+
+\section{Construire et détruire : RAII}
+
+Un \textbf{constructeur} s'exécute à la naissance de l'objet, un
+\textbf{destructeur} à sa mort --- automatiquement, même si une erreur survient
+entre les deux.
+
+\begin{nkcode}{Exemple pedagogique}
+class NkFichier {
+    public:
+        NkFichier(const char *chemin) { mHandle = Ouvrir(chemin); }
+        ~NkFichier()                  { if (mHandle) { Fermer(mHandle); } }
+
+    private:
+        void *mHandle = nullptr;
+};
+
+void Traiter() {
+    NkFichier f("donnees.txt");
+    // ... on travaille ...
+}   // <- ici, ~NkFichier s'execute. Le fichier est ferme. Toujours.
+\end{nkcode}
+
+\begin{nkretenir}
+C'est \textbf{RAII} : \emph{l'acquisition d'une ressource est son
+initialisation}. On ne peut plus oublier de libérer, parce que ce n'est plus
+vous qui le faites.
+
+C'est la réponse du C++ aux deux pointeurs mortels du chapitre précédent --- le
+pendant et la fuite. Elle vaut pour tout ce qui se prend et se rend : mémoire,
+fichier, verrou, contexte GPU.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{L'ordre de destruction est l'INVERSE de l'ordre de déclaration.} Les
+membres déclarés en dernier meurent en premier.
+
+Ce n'est pas un détail de style. Si un membre \texttt{A} tient un pointeur vers
+un membre \texttt{B}, alors \texttt{A} doit être déclaré \emph{après} \texttt{B}
+--- sinon \texttt{B} meurt d'abord et \texttt{A} pointe vers un mort pendant sa
+propre destruction. Le compilateur ne dit rien.
+\end{nkpiege}
+
+\section{Références}
+
+Une référence est un \textbf{autre nom} pour une variable existante. Contrairement
+au pointeur, elle ne peut être ni nulle ni réaffectée.
+
+\begin{nkcode}{Exemple pedagogique}
+void Doubler(int32 &v) { v = v * 2; }   // pas de `*`, pas de `&` a l'appel
+int32 n = 21;
+Doubler(n);                              // n vaut 42
+
+void Lire(const NkPointer &p);           // reference CONSTANTE : pas de copie,
+                                         // et la fonction promet de ne rien changer
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Quand passer quoi} :
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Vous voulez} & \textbf{Écrivez} & \textbf{Pourquoi} \\
+\midrule
+lire un petit objet & \texttt{int32 n} & copier 4 octets est gratuit \\
+lire un gros objet & \texttt{const T \&} & pas de copie, pas de modification \\
+modifier & \texttt{T \&} & l'appelant voit le changement \\
+« peut-être rien » & \texttt{T *} & seul un pointeur peut être nul \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La dernière ligne est la vraie raison de garder des pointeurs : une référence ne
+peut pas dire « absent ».
+\end{nkretenir}
+
+\section{Surcharge et valeurs par défaut}
+
+\begin{nkcode}{Exemple pedagogique}
+void Dessiner(const NkRect &r);                       // surcharge 1
+void Dessiner(const NkRect &r, const NkColor &c);     // surcharge 2
+
+void Effacer(const NkColor &c = NkColor::Blanc);      // valeur par defaut
+\end{nkcode}
+
+Deux fonctions peuvent porter le même nom si leurs paramètres diffèrent : le
+compilateur choisit d'après les arguments.
+
+\begin{nkpiege}
+\textbf{Le type de retour ne participe pas au choix.} Deux fonctions qui ne
+diffèrent que par lui ne compilent pas.
+
+\textbf{Et une surcharge manquante ne se voit pas par son nom.} Si vous cherchez
+\texttt{begin()} et trouvez la version \texttt{const}, vous conclurez qu'elle
+existe --- alors que la version non-\texttt{const} manque. Seule l'\emph{édition
+de liens} tranche : le code compile des deux côtés.
+\end{nkpiege}
+
+\section{Héritage et polymorphisme}
+
+\begin{nkcode}{Exemple pedagogique -- le patron du depot}
+class NkChapitre {                       // la classe de BASE
+    public:
+        virtual ~NkChapitre() = default;         // destructeur VIRTUEL
+        virtual void Dessiner() = 0;             // = 0 : PUREMENT virtuelle
+        virtual void Avancer(float32 dt) { }     // virtuelle, avec un defaut
+};
+
+class NkChapitre1 : public NkChapitre {  // la classe DERIVEE
+    public:
+        void Dessiner() override { /* ... */ }   // `override` : on REDEFINIT
+};
+\end{nkcode}
+
+\texttt{virtual} veut dire : « si l'objet réel est d'une classe dérivée, appelle
+\emph{sa} version ». C'est le polymorphisme --- un seul appel, plusieurs
+comportements.
+
+\begin{nkpiege}
+\textbf{Un destructeur de classe de base doit être \texttt{virtual}.} Sans lui,
+détruire un objet dérivé à travers un pointeur de base n'appelle que le
+destructeur de la base : les membres de la dérivée ne sont jamais libérés. Aucun
+avertissement, une fuite silencieuse.
+
+\textbf{Écrivez \texttt{override}.} Sans ce mot, une faute de frappe dans le nom
+ou une différence de signature crée une \emph{nouvelle} méthode au lieu d'en
+redéfinir une. Le code compile, et votre méthode n'est jamais appelée. Avec
+\texttt{override}, le compilateur refuse.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{\texttt{final} interdit la redéfinition, et ce n'est pas un détail.} Dans
+ce dépôt, \texttt{NkCanvasGuiApp::OnRender} est \texttt{final} : une classe qui
+en dérive \emph{ne peut pas} dessiner autrement qu'avec la liste d'affichage
+NKGui. Ce seul mot décide de quelle coquille vous devez partir.
+\end{nkpiege}
+
+\section{Templates}
+
+Un \emph{modèle} écrit du code une fois pour plusieurs types.
+
+\begin{nkcode}{Exemple pedagogique}
+template <typename T>
+T Maximum(const T &a, const T &b) { return (a > b) ? a : b; }
+
+int32 x = Maximum(3, 7);          // T = int32, deduit
+float32 y = Maximum(1.f, 2.f);    // T = float32
+\end{nkcode}
+
+C'est ainsi qu'est écrit \texttt{NkVector<T>}, et c'est aussi la forme de
+\texttt{NkCanvasApp::Run<T>} : la coquille ne connaît pas votre classe, elle
+la reçoit en paramètre de modèle.
+
+\begin{nkpiege}
+\textbf{Les erreurs de template sont longues et intimidantes.} Lisez la
+\emph{première} ligne du message : elle nomme la vraie cause. Les vingt suivantes
+ne font que dérouler la pile d'instanciation.
+
+\textbf{Et le code d'un template vit dans l'en-tête}, pas dans un \texttt{.cpp} :
+le compilateur doit le voir pour l'instancier avec votre type. Le mettre dans un
+\texttt{.cpp} donne une erreur d'édition de liens.
+\end{nkpiege}
+
+\section{Espaces de noms}
+
+\begin{nkcode}{Exemple pedagogique}
+namespace nkentseu {
+    namespace renderer {
+        class NkCanvasApp { ... };
+    }
+}
+
+nkentseu::renderer::NkCanvasApp app;   // nom complet
+using namespace nkentseu::renderer;    // ou : on ouvre l'espace
+NkCanvasApp app;
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Deux types peuvent porter le même nom dans deux espaces différents.} Ce
+dépôt en a un cas réel : \texttt{NkShaderStage} existe dans
+\texttt{nkentseu} \emph{et} dans \texttt{nkentseu::renderer}. Non qualifié, le
+second gagne --- et l'erreur ne sort pas dans le fichier fautif.
+
+Dans un \textbf{en-tête}, qualifiez toujours complètement. Un
+\texttt{using namespace} en en-tête l'impose à tous ceux qui l'incluent.
+\end{nkpiege}
+
+\section{Ce que Nkentseu emploie, et ce qu'il refuse}
+
+\subsection{La règle : zéro bibliothèque standard}
+
+Nkentseu écrit ses propres conteneurs. \texttt{NkVector} au lieu de
+\texttt{std::vector}, \texttt{NkString} au lieu de \texttt{std::string},
+\texttt{NkAlloc}/\texttt{NkFree} au lieu de \texttt{new}/\texttt{delete}.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Ailleurs} & \textbf{Ici} \\
+\midrule
+\texttt{std::vector<T>} & \texttt{NkVector<T>} \\
+\texttt{std::string} & \texttt{NkString} \\
+\texttt{new} / \texttt{delete} & \texttt{memory::NkAlloc} / \texttt{NkFree} \\
+\texttt{std::optional<T>} & \texttt{NkOptional<T>} \\
+\texttt{std::cout} & \texttt{logger.Info(\dots)} \\
+\texttt{printf} & \texttt{logger.Infof(\dots)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+La règle est \textbf{positive}, pas seulement négative : on n'écrit pas
+\texttt{std::}, et \emph{si la primitive manque, on l'écrit au niveau où elle
+doit vivre} --- dans Foundation, pas chez soi. Un utilitaire écrit localement
+devient le troisième exemplaire d'une chose qui aurait dû être partagée.
+\end{nkretenir}
+
+\subsection{Et l'état réel, mesuré}
+
+\begin{nkpiege}[Ce qu'un \texttt{grep} vous montrera, et comment le lire]
+Le 2 septembre 2026, sur \texttt{Kernel/Foundation} et \texttt{Kernel/Runtime} :
+\textbf{1\,887} occurrences de \texttt{std::}, dont \texttt{std::string} (191),
+\texttt{std::vector} (160), \texttt{std::cout} (78).
+
+\textbf{110 fichiers} emploient \texttt{std::vector} ou \texttt{std::string}, et
+\textbf{trois seulement} sont des tests ou des démos. Ce n'est donc pas du code
+jetable : c'est du code livré.
+
+Ils se concentrent là où le moteur dialogue avec des bibliothèques tierces qui,
+elles, parlent STL --- \texttt{NKSL} (glslang), \texttt{NKRHI} (Vulkan),
+\texttt{NKRenderer}.
+
+\textbf{La règle est donc un cap, pas un état.} On la dit franchement pour deux
+raisons : parce qu'un étudiant qui grep le découvrira de toute façon, et parce
+qu'une règle présentée comme acquise alors qu'elle ne l'est pas cesse d'être
+respectée. Dans le code \emph{que vous écrirez} --- une application, un jeu ---
+elle tient sans exception.
+\end{nkpiege}
+
+\subsection{Deux mots qui trompent}
+
+\begin{nkpiege}
+\texttt{std::move} et \texttt{std::forward} \textbf{n'allouent rien et ne
+déplacent rien} : ce sont des conversions de type. Les compter comme des
+« corruptions mémoire » ou des « allocations » est faux. Ce qu'ils signalent,
+c'est un fichier qui raisonne encore en STL --- une surface d'exposition, pas un
+défaut.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{Une enveloppe bien nommée endort la méfiance.} \texttt{env::GetEnvVar()}
+rend un \texttt{const char *} qui vaut \texttt{nullptr} quand la variable
+n'existe pas --- exactement comme \texttt{getenv}. Mais son nom \emph{maison}
+suggère un objet de la maison, et l'on écrit alors
+\texttt{NkString v = env::GetEnvVar("X");} sans y penser. Le dépôt a failli
+planter toutes ses courses GPU sur cette ligne.
+
+\textbf{Lisez la signature de ce que vous appelez}, surtout quand vous remplacez
+une fonction par une autre sur consigne.
+\end{nkpiege}
+
+\section{Ce qu'on ne trouve presque pas ici}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Construction} & \textbf{Statut dans le dépôt} \\
+\midrule
+exceptions (\texttt{throw} / \texttt{catch}) & rares, aux frontières tierces \\
+\texttt{dynamic\_cast}, \texttt{typeid} & rares ; on préfère un champ de type \\
+héritage multiple & évité \\
+surcharge d'opérateurs & mesurée : \texttt{==}, \texttt{+}, \texttt{[]} sur les types mathématiques \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Ce ne sont pas des interdits moraux. Un moteur doit tourner sur des plateformes
+où les exceptions coûtent cher ou sont désactivées, et une hiérarchie profonde
+rend un défaut d'entrée impossible à situer. Quand vous hésitez : regardez
+comment le module voisin fait, et faites pareil.
+\end{nkretenir}
+
+\begin{nkexo}
+Écrivez une classe \texttt{NkTampon} qui alloue \texttt{n} octets par
+\texttt{NkAlloc} dans son constructeur et les rend par \texttt{NkFree} dans son
+destructeur. Donnez-lui une méthode \texttt{Taille() const}.
+
+Puis provoquez les deux fautes du chapitre, et regardez ce que dit le
+compilateur :
+
+\begin{enumerate}
+\item retirez le \texttt{const} de \texttt{Taille}, et appelez-la sur un
+      \texttt{const NkTampon \&} ;
+\item faites dériver une classe de \texttt{NkTampon}, retirez le \texttt{virtual}
+      du destructeur, détruisez l'objet dérivé à travers un pointeur de base.
+      \textbf{Le compilateur ne dira rien} --- c'est tout le problème. Ajoutez une
+      trace dans chaque destructeur pour voir lequel manque.
+\end{enumerate}
+\end{nkexo}

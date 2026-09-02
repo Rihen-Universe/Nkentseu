@@ -1,0 +1,139 @@
+\chapter{NKCode : l'éditeur du dépôt}
+
+Vous pouvez écrire du Nkentseu dans n'importe quel éditeur de texte. Mais le
+dépôt en fournit un, écrit avec le moteur lui-même, et qui connaît Jenga : c'est
+\texttt{NKCode}. Ce chapitre le prend en main --- assez pour que vous n'ayez plus
+à quitter l'éditeur pour compiler, chercher ou déboguer.
+
+\begin{nkretenir}
+NKCode est \textbf{écrit avec NKCanvas et NKGui}, les deux modules que ce cours
+enseigne. C'est donc aussi le plus gros exemple à votre disposition : 56 fichiers
+d'une application réelle. Quand une question du cours vous restera, ouvrez son
+code --- il répond souvent.
+\end{nkretenir}
+
+\section{Le lancer}
+
+\begin{nkcode}{Commandes -- a taper dans un terminal a la racine du depot}
+jenga build --target NKCode --config Release
+.\Build\Bin\Release-Windows\NKCode\NKCode.exe
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Un NKCode fraîchement construit ne démarre pas sous Windows}, et le build
+ne le dit pas. Il meurt sur \texttt{python312.dll est introuvable} : quatre DLL
+du runtime Python embarqué sont posées par \texttt{scripts/MakeNkCodeDist.py},
+pas par \texttt{jenga build}.
+
+Pour un essai rapide, préfixez le \texttt{PATH} sans rien copier :
+
+\begin{nkcode}{Contournement}
+$env:PATH = "<depot>\Externals\Libs\PythonEmbed\runtime;$env:PATH"
+.\Build\Bin\Release-Windows\NKCode\NKCode.exe
+\end{nkcode}
+
+Le diagnostic qui l'a trouvé : comparer le dossier de sortie avec celui d'un
+poste où NKCode tourne --- il contient quatre fichiers de plus. \emph{Un build
+vert et un exécutable mort ne sont pas contradictoires} : ils mesurent deux
+choses différentes.
+\end{nkpiege}
+
+\section{Les raccourcis}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Raccourci} & \textbf{Action} \\
+\midrule
+\texttt{Ctrl+P} & palette de commandes --- \emph{commencez par là} \\
+\texttt{Ctrl+N} & nouveau fichier \\
+\texttt{Ctrl+S} & enregistrer \\
+\texttt{Ctrl+F} & rechercher (non modal) \\
+\texttt{Ctrl+G} & aller à la ligne \\
+\texttt{Ctrl+D} & dupliquer la ligne ou la sélection \\
+\texttt{Ctrl+L} & sélectionner la ligne (s'étend si répété) \\
+\texttt{F2} & renommer l'identifiant \\
+\texttt{F9} & poser un point d'arrêt \\
+\texttt{F5} & déboguer --- lance \texttt{jenga gdb}, points d'arrêt transmis \\
+\texttt{F1} & documentation \\
+\texttt{Ctrl+Q} & quitter \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{Ctrl+P} rend tous les autres facultatifs.} La palette liste les
+commandes par leur nom : si vous ne vous rappelez pas d'un raccourci, tapez le
+verbe. C'est aussi la façon de \emph{découvrir} ce que l'éditeur sait faire.
+\end{nkretenir}
+
+\section{IntelliSense : clangd}
+
+NKCode parle le protocole LSP et s'appuie sur \texttt{clangd}. Vous obtenez donc
+les diagnostics en temps réel, le survol qui montre un type, et l'aller-à-la
+définition --- les mêmes que dans un IDE commercial, parce que c'est le même
+moteur d'analyse.
+
+\begin{nkpiege}
+\texttt{clangd} a besoin de savoir \emph{comment} chaque fichier est compilé :
+quels chemins d'inclusion, quelles macros. Sans cette information, il souligne en
+rouge des inclusions parfaitement valides.
+
+\textbf{Un fichier souligné en rouge qui compile parfaitement n'est pas un défaut
+du code : c'est un défaut de configuration de l'analyseur.} Ne « corrigez » rien
+avant d'avoir lancé un vrai build --- c'est \texttt{jenga} qui a raison, pas le
+soulignement.
+\end{nkpiege}
+
+\section{Construire sans quitter l'éditeur}
+
+NKCode connaît Jenga. Le point d'arrêt que vous posez avec \texttt{F9} est
+transmis à \texttt{jenga gdb} par \texttt{F5} : vous n'écrivez aucune ligne de
+commande de débogage.
+
+\begin{nkretenir}
+\textbf{Ce que le débogueur vous donne, et que l'affichage ne donne pas} :
+l'\emph{état} au moment de l'arrêt --- toutes les variables, la pile d'appels,
+qui a appelé qui.
+
+Un \texttt{printf} répond à une question que vous avez déjà formulée. Un point
+d'arrêt répond à celles que vous n'aviez pas pensé à poser. Quand vous ne
+comprenez pas ce qui se passe, le débogueur est plus rapide, toujours.
+\end{nkretenir}
+
+\section{Les autres services}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Service} & \textbf{Ce qu'il fait} \\
+\midrule
+Recherche / remplacement & \texttt{Ctrl+F}, \texttt{Ctrl+H}, non modaux \\
+Multilingue & 8 langues, changement sans redémarrer \\
+Assistant IA & discussion, contexte du fichier, commandes \\
+Émulateurs & lance Android et HarmonyOS depuis l'éditeur \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+« Non modal » veut dire que la barre de recherche ne bloque pas l'édition : vous
+tapez dans le fichier pendant qu'elle est ouverte. C'est un détail qui change
+l'usage --- une boîte de dialogue modale interrompt le geste, une barre non
+modale l'accompagne.
+\end{nkretenir}
+
+\begin{nkexo}
+Ouvrez le dépôt dans NKCode et faites les cinq gestes qui reviennent tous les
+jours :
+
+\begin{enumerate}
+\item \texttt{Ctrl+P}, puis tapez « ouvrir » --- lisez les commandes proposées ;
+\item ouvrez \texttt{Kernel/Runtime/NKEvent/src/NKEvent/NkPointerEvent.h} et
+      survolez \texttt{NkPointerPhase} : le type doit s'afficher ;
+\item posez un point d'arrêt (\texttt{F9}) dans le \texttt{nkmain} d'une petite
+      application, lancez \texttt{F5}, et regardez la pile d'appels ;
+\item cherchez \texttt{NkCanvasApp} dans tout le dépôt --- combien de fichiers ?
+\item changez la langue de l'interface, et vérifiez que rien ne redémarre.
+\end{enumerate}
+\end{nkexo}

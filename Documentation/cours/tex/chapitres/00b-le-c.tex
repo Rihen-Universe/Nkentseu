@@ -1,0 +1,456 @@
+\chapter{Le C : la matière dont tout est fait}
+
+Nkentseu s'écrit en C++, et le C++ \emph{contient} le C. Une adresse mémoire, un
+tableau, une structure, un octet : tout cela vient du C. Ce chapitre le couvre en
+entier. Il suppose que vous n'avez jamais programmé, mais il ne vous fera pas
+perdre de temps : chaque section dit une chose et passe à la suivante.
+
+\section{Compiler, lier}
+
+Un processeur ne comprend que des instructions binaires. On écrit du texte, et le
+\textbf{compilateur} le traduit. Deux étapes, deux familles d'erreurs.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Étape} & \textbf{Entrée $\to$ sortie} & \textbf{Erreur typique} \\
+\midrule
+Compilation & un \texttt{.cpp} $\to$ un \texttt{.obj} & « je ne comprends pas cette ligne » \\
+Édition de liens & les \texttt{.obj} $\to$ un \texttt{.exe} & \texttt{undefined reference to \dots} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Une erreur de \textbf{compilation} nomme un fichier et une ligne : la faute y
+est. Une erreur d'\textbf{édition de liens} ne nomme qu'un symbole : la ligne
+est correcte, c'est \emph{ailleurs} qu'un corps de fonction manque. Chercher au
+mauvais endroit coûte des heures ; distinguer les deux messages coûte une
+seconde.
+\end{nkretenir}
+
+\section{Premier programme}
+
+\begin{nkcode}{Exemple pedagogique}
+#include <cstdio>
+
+int main() {
+    printf("Bonjour\n");
+    return 0;
+}
+\end{nkcode}
+
+\texttt{\#include} fait lire un autre fichier --- celui qui déclare
+\texttt{printf}. \texttt{main} est le point de départ.
+\texttt{\textbackslash n} est \emph{un} caractère : le passage à la ligne.
+\texttt{return 0} rend le code de sortie : \textbf{zéro veut dire succès}, à
+l'inverse de l'intuition, et tous les outils suivent cette convention.
+
+Dans Nkentseu vous écrirez \texttt{nkmain} et non \texttt{main} : le dépôt
+fournit un point d'entrée portable qui devient \texttt{WinMain} sur Windows et
+\texttt{android\_main} sur Android.
+
+\section{Variables et types}
+
+Une variable est un emplacement mémoire nommé. Le type dit combien d'octets
+réserver \emph{et comment les lire} : les mêmes 32 bits donnent un entier ou un
+flottant selon le type. Se tromper de type, c'est lire le bon emplacement de la
+mauvaise façon.
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Nkentseu} & \textbf{C} & \textbf{Octets} & \textbf{Contient} \\
+\midrule
+\texttt{int8} \dots \texttt{int64}   & \texttt{char} \dots \texttt{long long} & 1 à 8 & entiers signés \\
+\texttt{uint8} \dots \texttt{uint64} & \texttt{unsigned \dots} & 1 à 8 & entiers $\geq 0$ \\
+\texttt{float32} & \texttt{float}  & 4 & $\approx 7$ chiffres significatifs \\
+\texttt{float64} & \texttt{double} & 8 & $\approx 16$ chiffres \\
+\texttt{usize}   & \texttt{size\_t} & 4 ou 8 & une taille en mémoire \\
+--- & \texttt{bool} & 1 & \texttt{true} / \texttt{false} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\texttt{int} ne fait pas la même taille partout ; \texttt{int32} si. Pour un
+moteur qui vise huit plateformes, un fichier écrit sur l'une doit se relire sur
+l'autre. \textbf{Écrivez les types du dépôt}, pas ceux du langage.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Non initialisée, une variable contient les octets qui traînaient là.} Pas
+zéro. En \emph{Debug} c'est souvent un motif reconnaissable et le programme
+semble marcher ; en \emph{Release} ce sont de vraies valeurs d'un calcul
+précédent, et le bogue change de forme à chaque exécution. Écrivez
+\texttt{int32 n = 0;}, toujours.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{Un entier non signé ne descend pas sous zéro : il repasse par le haut.}
+\texttt{uint32 n = 0; --n;} donne \texttt{4\,294\,967\,295}. D'où la boucle
+infinie classique :
+
+\begin{nkcode}{Exemple pedagogique -- NE FAIT JAMAIS DE FIN}
+for (uint32 i = taille - 1; i >= 0; --i) { ... }   // i >= 0 est toujours vrai
+\end{nkcode}
+
+Et si \texttt{taille} vaut \texttt{0}, \texttt{taille - 1} vaut déjà quatre
+milliards. Pour reculer : un \texttt{int32}, ou une boucle en avant.
+\end{nkpiege}
+
+\subsection{\texttt{const}, et pourquoi on le met partout}
+
+\texttt{const} dit « ceci ne changera pas ». Le compilateur le fait respecter.
+
+\begin{nkcode}{Exemple pedagogique}
+const int32 kMax = 100;          // constante
+const char *nom = "Rihen";       // pointeur vers des caracteres CONSTANTS
+char *const p = tampon;          // pointeur CONSTANT vers des caracteres libres
+void Lire(const NkPointer &p);   // la fonction promet de ne pas modifier p
+\end{nkcode}
+
+\begin{nkretenir}
+Lisez une déclaration \textbf{de droite à gauche}. \texttt{const char *p} :
+\emph{p} est un pointeur vers un \texttt{char} constant. \texttt{char *const p} :
+\emph{p} est un pointeur constant vers un \texttt{char}. Le premier protège ce
+qui est pointé, le second protège le pointeur.
+\end{nkretenir}
+
+\section{Opérateurs}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Famille} & \textbf{Opérateurs} & \textbf{À savoir} \\
+\midrule
+arithmétique & \texttt{+ - * / \%} & \texttt{\%} = reste, entiers seulement \\
+comparaison  & \texttt{== != < > <= >=} & rendent un booléen \\
+logique      & \texttt{\&\& || !} & évaluation \emph{paresseuse} \\
+affectation  & \texttt{= += -= *= /= \%=} & \\
+incrément    & \texttt{++ -{}-} & préfixé ou suffixé \\
+bits         & \texttt{\& | \^{} \~{} << >>} & agissent sur les bits \\
+ternaire     & \texttt{c ? a : b} & un \texttt{if} qui rend une valeur \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{\texttt{=} affecte, \texttt{==} compare.} \texttt{if (n = 0)} affecte
+zéro puis teste zéro : toujours faux, et \texttt{n} est détruit.
+
+\textbf{La division entière tronque} : \texttt{7 / 2} vaut \texttt{3}. Pour un
+résultat décimal, un opérande au moins doit l'être : \texttt{7.f / 2.f}.
+
+\textbf{L'évaluation paresseuse est une garantie}, pas une optimisation : dans
+\texttt{a \&\& b}, si \texttt{a} est faux, \texttt{b} n'est pas évalué. C'est ce
+qui rend sûr \texttt{if (p != nullptr \&\& p->champ > 0)}. Inversez les termes et
+vous déréférencez un pointeur nul.
+\end{nkpiege}
+
+\subsection{Les opérateurs de bits, en pratique}
+
+Ils servent aux \textbf{drapeaux} : plusieurs oui/non dans un seul entier.
+
+\begin{nkcode}{Exemple pedagogique}
+const uint32 NK_VISIBLE  = 1u << 0;   // 0001
+const uint32 NK_ACTIF    = 1u << 1;   // 0010
+const uint32 NK_VERROUIL = 1u << 2;   // 0100
+
+uint32 etat = NK_VISIBLE | NK_ACTIF;  // on POSE deux drapeaux
+if (etat & NK_ACTIF)      { ... }     // on TESTE
+etat &= ~NK_ACTIF;                    // on RETIRE
+etat ^= NK_VISIBLE;                   // on BASCULE
+\end{nkcode}
+
+\begin{nkpiege}
+\texttt{\&} n'est pas \texttt{\&\&}. \texttt{etat \& NK\_ACTIF} rend un
+\emph{nombre} ; \texttt{a \&\& b} rend un \emph{booléen}. Écrire \texttt{\&\&}
+entre deux drapeaux teste seulement qu'ils sont non nuls --- ce qui est vrai en
+permanence.
+\end{nkpiege}
+
+\section{Contrôle de flux}
+
+\begin{nkcode}{Exemple pedagogique}
+if (a) { ... } else if (b) { ... } else { ... }
+
+for (int32 i = 0; i < n; ++i) { ... }   // init ; test avant chaque tour ; apres
+while (condition)             { ... }
+do { ... } while (condition);           // au moins une fois
+
+switch (v) {
+    case NK_A: ... break;               // le `break` est OBLIGATOIRE
+    case NK_B: ... break;
+    default:   ... break;
+}
+
+break;      // sort de la boucle ou du switch
+continue;   // passe au tour suivant
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Un \texttt{case} sans \texttt{break} tombe dans le suivant} et exécute
+son code : le programme fait deux choses au lieu d'une.
+
+\textbf{Mettez toujours les accolades}, même pour une instruction. La ligne
+ajoutée six mois plus tard sous un \texttt{if} sans accolades ne fait plus partie
+du \texttt{if} : l'indentation dit une chose, le compilateur en comprend une
+autre, et l'\oe il ne voit rien.
+\end{nkpiege}
+
+\section{Fonctions}
+
+Une \textbf{fonction} rend une valeur ; une \textbf{procédure} rend
+\texttt{void}. Le langage ne les distingue pas, l'intention si --- et elle guide
+le nom.
+
+\begin{nkcode}{Exemple pedagogique}
+int32 Somme(int32 a, int32 b) { return a + b; }   // calcule
+void  Afficher(const char *s) { printf("%s\n", s); }  // agit
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Les paramètres sont copiés.} Une fonction travaille sur sa propre copie
+et ne peut pas abîmer vos variables par accident. Pour qu'elle en \emph{modifie}
+une, il faut lui passer son adresse.
+\end{nkretenir}
+
+\subsection{Portée et durée de vie}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Déclaration} & \textbf{Vit} & \textbf{Visible} \\
+\midrule
+dans un bloc & jusqu'à l'accolade fermante & dans le bloc \\
+\texttt{static} dans une fonction & tout le programme & dans la fonction \\
+\texttt{static} au fichier & tout le programme & dans le fichier seul \\
+globale & tout le programme & partout (via \texttt{extern}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Ne rendez jamais l'adresse d'une variable locale.} Elle meurt à la sortie
+de la fonction ; le pointeur rendu désigne une zone réutilisée aussitôt. Le
+programme ne plante pas tout de suite --- il lit des ordures plus tard, ailleurs.
+\end{nkpiege}
+
+\section{Pointeurs}
+
+Un pointeur contient une \textbf{adresse}. Le langage ne vérifie pas qu'elle est
+valide : c'est à vous.
+
+\begin{nkcode}{Exemple pedagogique}
+int32  n  = 42;
+int32 *p  = &n;    // & PREND l'adresse
+int32  lu = *p;    // * SUIT l'adresse -> 42
+*p = 7;            // ecrit a travers : n vaut 7
+
+void Doubler(int32 *v) {
+    if (v == nullptr) { return; }   // on verifie, toujours
+    *v = *v * 2;
+}
+Doubler(&n);       // on passe l'ADRESSE : n vaut 14
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Trois façons dont un pointeur tue un programme}, et vous les verrez
+toutes :
+
+\begin{enumerate}
+\item \textbf{nul} --- \texttt{*p} quand \texttt{p} vaut \texttt{nullptr}.
+      Plantage immédiat : c'est le cas \emph{heureux}, il est reproductible ;
+\item \textbf{pendant} --- il désigne une zone déjà libérée. Le programme
+      continue, lit des ordures, tombe ailleurs et plus tard ;
+\item \textbf{débordement} --- écrire au-delà d'un tableau écrase la variable
+      d'à côté. Le symptôme apparaît dans une variable que vous n'avez pas
+      touchée.
+\end{enumerate}
+
+Les deux derniers sont la raison d'être de presque tout ce que le C++ ajoute.
+\end{nkpiege}
+
+\subsection{Pointeurs de fonction}
+
+Une fonction a une adresse, elle aussi. On peut donc la ranger dans une variable
+--- c'est ainsi qu'on branche un comportement sans écrire de \texttt{switch}.
+
+\begin{nkcode}{Idiome du depot -- une commande d'editeur}
+using NkCommandeFn = void (*)(void *user);   // le TYPE d'une fonction
+
+void Quitter(void *u) { /* ... */ }
+NkCommandeFn action = &Quitter;
+action(nullptr);                              // on l'appelle
+\end{nkcode}
+
+Le \texttt{void *user} est le prix d'une signature C simple : il transporte
+n'importe quoi, et personne ne vérifie quoi. On ne lui passe donc \emph{que}
+l'objet attendu.
+
+\section{Tableaux et chaînes}
+
+\begin{nkcode}{Exemple pedagogique}
+int32 scores[4] = {10, 20, 30, 40};   // indices de 0 a 3 ; [4] est DEHORS
+scores[0] = 15;
+
+const char *nom = "Rihen";            // octets termines par '\0'
+\end{nkcode}
+
+Un tableau est une suite \emph{contiguë}. \texttt{scores} vaut l'adresse du
+premier élément ; \texttt{scores[2]} veut dire « deux éléments plus loin ».
+
+\begin{nkpiege}
+\textbf{Un tableau ne connaît pas sa taille.} Passé à une fonction, il ne reste
+que l'adresse du premier élément : la longueur est perdue. C'est pourquoi les
+fonctions C prennent un couple \texttt{(pointeur, nombre)}.
+
+\textbf{Une chaîne C se termine par \texttt{'\textbackslash 0'}.} L'oublier fait
+lire jusqu'au prochain zéro rencontré, parfois très loin.
+\end{nkpiege}
+
+\section{Structures, unions, énumérations}
+
+\begin{nkcode}{Kernel/Runtime/NKEvent/src/NKEvent/NkPointerEvent.h}
+struct NkPointer {
+    float32 x = 0.f;
+    float32 y = 0.f;
+    NkPointerPhase phase = NkPointerPhase::NK_POINTER_NONE;
+    uint32 id = 0;
+    bool fromTouch = false;
+};
+\end{nkcode}
+
+Code réel du dépôt --- celui que vous emploierez au chapitre sur la coquille.
+Notez que \textbf{chaque champ est initialisé à sa déclaration} : une
+\texttt{NkPointer} neuve n'a jamais de contenu indéterminé.
+
+\begin{nkcode}{Exemple pedagogique}
+NkPointer p;
+p.x = 100.f;              // POINT quand on a l'objet
+NkPointer *ptr = &p;
+ptr->y = 50.f;            // FLECHE quand on a un pointeur ; == (*ptr).y
+\end{nkcode}
+
+Une \texttt{union} range plusieurs champs \emph{au même endroit} : un seul est
+valide à la fois. Elle sert aux événements, où la charge dépend du type --- et
+c'est à vous de savoir lequel est actif.
+
+Une \texttt{enum class} nomme un ensemble fermé de valeurs :
+
+\begin{nkcode}{Kernel/Runtime/NKEvent/src/NKEvent/NkPointerEvent.h}
+enum class NkPointerPhase : uint8 {
+    NK_POINTER_NONE = 0, NK_POINTER_DOWN, NK_POINTER_MOVE,
+    NK_POINTER_UP,       NK_POINTER_CANCEL
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\texttt{enum class} plutôt que \texttt{enum} nu : les valeurs sont
+\emph{cloisonnées} (on écrit \texttt{NkPointerPhase::NK\_POINTER\_UP}) et ne se
+convertissent pas silencieusement en entier. Deux énumérations peuvent alors
+avoir un membre du même nom sans se gêner.
+\end{nkretenir}
+
+\section{Conversions}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Écriture} & \textbf{Ce qu'elle fait} \\
+\midrule
+\texttt{static\_cast<T>(v)}      & conversion vérifiée à la compilation \\
+\texttt{reinterpret\_cast<T>(v)} & « relis ces octets comme un T » --- dangereux \\
+\texttt{const\_cast<T>(v)}       & retire un \texttt{const} --- presque toujours une faute \\
+\texttt{(T)v} & la forme C : fait n'importe laquelle des trois, sans le dire \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Employez \texttt{static\_cast}. La forme C \texttt{(T)v} est plus courte et c'est
+son seul avantage : elle cache \emph{laquelle} des conversions elle applique, et
+donc à quel point elle est risquée.
+\end{nkretenir}
+
+\section{Mémoire : pile et tas}
+
+Vos variables vivaient jusqu'ici sur la \textbf{pile} : créées à l'entrée d'une
+fonction, détruites à sa sortie, automatiquement. Rapide, mais petite, et la
+durée de vie est imposée.
+
+Un objet qui doit survivre à la fonction qui le crée, ou qui est trop gros, vit
+sur le \textbf{tas}. On le demande, on le rend. Oublier de le rendre est une
+\emph{fuite}.
+
+\begin{nkpiege}[La règle la plus dure du dépôt]
+Ni \texttt{malloc}/\texttt{free}, ni \texttt{new}/\texttt{delete} bruts. Tout
+passe par NKMemory :
+
+\begin{nkcode}{Regle du depot}
+void *bloc = nkentseu::memory::NkAlloc(taille);
+nkentseu::memory::NkFree(bloc);
+\end{nkcode}
+
+Et le corollaire, déjà payé plusieurs fois ici : \textbf{ce qui est alloué par un
+allocateur se libère par le même}. Rendre avec le \texttt{free()} de la
+bibliothèque C un tampon alloué par Nkentseu corrompt le tas --- sous Windows,
+l'erreur \texttt{c0000374}, qui tombe \emph{plus tard}, dans une fonction
+innocente.
+\end{nkpiege}
+
+\section{Le préprocesseur}
+
+Il agit \emph{avant} le compilateur : il remplace du texte.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Directive} & \textbf{Effet} \\
+\midrule
+\texttt{\#include "x.h"} & colle le contenu de \texttt{x.h} ici \\
+\texttt{\#pragma once}   & ne lire ce fichier qu'une fois \\
+\texttt{\#define NK\_X 1} & remplace \texttt{NK\_X} par \texttt{1} partout \\
+\texttt{\#if} / \texttt{\#endif} & compile ou non selon la plateforme \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Une macro n'est pas une fonction : c'est un remplacement de texte.}
+\texttt{\#define DOUBLE(x) x * 2} puis \texttt{DOUBLE(1 + 1)} donne
+\texttt{1 + 1 * 2}, soit \texttt{3}. Parenthésez tout :
+\texttt{\#define DOUBLE(x) ((x) * 2)}. Mieux : écrivez une vraie fonction, que le
+compilateur vérifie.
+\end{nkpiege}
+
+\section{Compilation séparée}
+
+L'en-tête \texttt{.h} \textbf{déclare} ; l'implémentation \texttt{.cpp}
+\textbf{définit}.
+
+\begin{nkcode}{Exemple pedagogique}
+// NkCompteur.h -- ce que les autres fichiers ont le droit de savoir
+#pragma once
+int32 Incrementer(int32 valeur);
+
+// NkCompteur.cpp -- comment c'est fait
+#include "NkCompteur.h"
+int32 Incrementer(int32 valeur) { return valeur + 1; }
+\end{nkcode}
+
+Déclarer sans définir compile parfaitement --- et échoue à l'édition de liens.
+C'est la deuxième famille d'erreurs de la première page, et vous venez d'avoir le
+moyen de la provoquer.
+
+\begin{nkexo}
+Écrivez \texttt{NkVec2.h} (une structure à deux \texttt{float32} et une fonction
+\texttt{Longueur}) et son \texttt{NkVec2.cpp}.
+
+Faites-la ensuite \textbf{échouer exprès}, deux fois : retirez un point-virgule
+(erreur de compilation), puis retirez le \texttt{.cpp} du projet en gardant
+l'appel (erreur d'édition de liens). Lisez les deux messages. Savoir les
+distinguer d'un coup d'\oe il vous fera gagner plus de temps que n'importe quelle
+autre astuce de ce cours.
+\end{nkexo}
