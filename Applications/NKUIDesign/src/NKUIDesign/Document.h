@@ -307,6 +307,55 @@ namespace nkuidesign {
 	};
 
 	// ════════════════════════════════════════════════════════════════════════════
+	//  UNE SURCHARGE D'APPARENCE PAR ETAT (bloc `appearance(Etat)` du format)
+	// ════════════════════════════════════════════════════════════════════════════
+	/// 🔑 SURCHARGE **PAR PROPRIETE**, jamais une copie d'apparence complete --
+	///    la meme forme que le masque d'ecarts d'une instance (§15.3) : chaque
+	///    champ vaut « heritee » tant qu'il n'est pas pose. Une copie complete
+	///    obligerait a rejouer TOUT l'etat Normal dans chaque bloc, et le jour
+	///    ou le fond du Normal change, les cinq autres mentiraient.
+	///
+	/// ⚠️ `etat` PORTE UN NOM DE LA TABLE FERMEE (`guifmt::NkGEtats`), et rien
+	///    d'autre. La liste est tranchee par Rodolf (27/08) et son ORDRE EST LA
+	///    PRIORITE -- deja tenu par un controle (26h). Aucun code ne reecrit
+	///    cette liste : il l'ITERE.
+	struct NkApparenceEtat {
+			NkString etat;			///< « Hover », « Pressed »... (table fermee)
+			NkString fond;			///< hexa, vide = HERITE de l'etat Normal
+			float32 radius = -1.f;	///< < 0 = HERITE
+			float32 opacite = -1.f; ///< < 0 = HERITE
+
+			/// Vrai si ce bloc ne pose RIEN — il n'a alors pas a etre ecrit.
+			bool Vide() const {
+				return fond.Empty() && radius < 0.f && opacite < 0.f;
+			}
+	};
+
+	/// LA PORTE DES ETATS : le bloc de `n` pour `etat`, cree s'il manque.
+	/// ⚠️ UNE SEULE ECRITURE, pour que le panneau, la recette et un futur
+	///    « reinitialiser » cherchent le bloc de la MEME facon. Deux boucles de
+	///    recherche divergeraient au premier etat renomme.
+	template <class N>
+	inline NkApparenceEtat &NkBlocEtat(N &n, const char *etat) {
+		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)n.apparences.Size(); ++i)
+			if (NkComponentDecl::StrEq(n.apparences[i].etat.Data(), etat))
+				return n.apparences[i];
+		NkApparenceEtat a;
+		a.etat = NkString(etat);
+		n.apparences.PushBack(a);
+		return n.apparences[(nkentseu::uint32)n.apparences.Size() - 1];
+	}
+
+	/// Le bloc de `etat` s'il EXISTE, sinon nul — pour lire sans creer.
+	template <class N>
+	inline const NkApparenceEtat *NkBlocEtatSi(const N &n, const char *etat) {
+		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)n.apparences.Size(); ++i)
+			if (NkComponentDecl::StrEq(n.apparences[i].etat.Data(), etat))
+				return &n.apparences[i];
+		return nullptr;
+	}
+
+	// ════════════════════════════════════════════════════════════════════════════
 	//  UNE BORDURE (Lunacy « BORDERS »)
 	// ════════════════════════════════════════════════════════════════════════════
 	/// Le remplissage, PLUS l'epaisseur et la POSITION -- les deux champs que
@@ -605,6 +654,11 @@ namespace nkuidesign {
 			///
 			/// L'ORDRE EST CELUI DE LUNACY : le DERNIER se peint PAR-DESSUS.
 			NkVector<NkRemplissage> fills;
+			/// LES SURCHARGES D'APPARENCE PAR ETAT (§9, chantier composants).
+			/// Vide = le nœud n'a qu'un etat Normal, et son fichier ne gagne
+			/// AUCUNE cle : un document d'avant se reenregistre octet pour
+			/// octet. Cle additive `apparence_<Etat>`.
+			NkVector<NkApparenceEtat> apparences;
 			/// ── LA LISTE DE BORDURES (Lunacy « BORDERS ») ────────────────
 			/// EXACTEMENT la meme discipline que `fills`, et ce n'est pas une
 			/// coincidence : c'est la regle qui a marche, donc on la reprend sans
@@ -1891,6 +1945,30 @@ namespace nkuidesign {
 					Field(out, "cible", n.target.Data());
 				if (!n.targetUnit.Empty())
 					Field(out, "unite", n.targetUnit.Data());
+				// `apparence_<Etat> = fond radius opacite`, « - » = HERITE.
+				// ⚠️ Un bloc VIDE ne s'ecrit pas : ouvrir la section d'un etat
+				//    sans rien y poser ne doit pas alourdir le fichier -- sinon
+				//    le simple fait de REGARDER un etat le ferait exister.
+				for (uint32 ai = 0; ai < (uint32)n.apparences.Size(); ++ai) {
+					const NkApparenceEtat &a = n.apparences[ai];
+					if (a.etat.Empty() || a.Vide())
+						continue;
+					out.Append("  apparence_");
+					out.Append(a.etat.Data());
+					out.Append(" = ");
+					out.Append(a.fond.Empty() ? "-" : a.fond.Data());
+					out.Append(' ');
+					if (a.radius < 0.f)
+						out.Append('-');
+					else
+						WriteNum(out, a.radius);
+					out.Append(' ');
+					if (a.opacite < 0.f)
+						out.Append('-');
+					else
+						WriteNum(out, a.opacite);
+					out.Append('\n');
+				}
 				if (!n.transposeDe.Empty())
 					Field(out, "transpose_de", n.transposeDe.Data());
 				if (n.radius != 0.f) {
@@ -2376,6 +2454,36 @@ namespace nkuidesign {
 							n.target = NkString(val);
 						else if (StrEq(key, "unite"))
 							n.targetUnit = NkString(val);
+						// `apparence_<Etat> = fond radius opacite` ; « - » = herite.
+						// ⚠️ ON N'EXIGE PAS QUE L'ETAT SOIT CONNU A LA LECTURE :
+						//    un document ecrit par une version qui aurait un
+						//    SEPTIEME etat doit se relire sans perdre sa ligne.
+						//    C'est l'interface qui n'affiche que la table fermee.
+						else if (NkString(key).StartsWith("apparence_")) {
+							NkApparenceEtat a;
+							a.etat = NkString(key + 10);
+							const char *q = val;
+							char champ[64];
+							for (int32 c = 0; c < 3; ++c) {
+								uint32 k = 0;
+								while (*q && *q != ' ' && k + 1 < (uint32)sizeof(champ))
+									champ[k++] = *q++;
+								champ[k] = '\0';
+								const bool herite = (k == 0) || (k == 1 && champ[0] == '-');
+								if (!herite) {
+									if (c == 0)
+										a.fond = NkString(champ);
+									else if (c == 1)
+										a.radius = ParseNum(champ);
+									else
+										a.opacite = ParseNum(champ);
+								}
+								while (*q == ' ')
+									++q;
+							}
+							if (!a.etat.Empty())
+								n.apparences.PushBack(a);
+						}
 						else if (StrEq(key, "transpose_de"))
 							n.transposeDe = NkString(val);
 						else if (StrEq(key, "rayon"))

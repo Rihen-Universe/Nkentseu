@@ -81,9 +81,42 @@ namespace nkuidesign {
 					insp.CorpsBordures(ctx);
 				else if (section == 1)
 					insp.CorpsRemplissages(ctx);
-				else
+				else if (section == 2)
 					insp.CorpsEffets(ctx);
+				else
+					insp.CorpsEtats(ctx);
 				ctx.EndFrame();
+			}
+
+			/// LA HAUTEUR que la section ÉTATS a réellement consommée à la
+			/// disposition — une rangée par état, plus la ligne d'aveu.
+			///
+			/// ⚠️ POURQUOI LA HAUTEUR ET PAS LE TEXTE : en headless aucune police
+			///    n'est chargée, donc `AddText` n'émet AUCUN sommet — compter les
+			///    libellés dessinés donnerait zéro sur un panneau parfait (l'angle
+			///    mort déjà écrit dans `TemoinRendu.h`). La hauteur consommée,
+			///    elle, est un EFFET que la disposition produit vraiment.
+			/// ⚠️ ET J'AI FAILLI ÉCRIRE PIRE : une première version bouclait sur
+			///    les états en posant `vu = true` sans rien interroger — une garde
+			///    vide, celle que ce dépôt paie depuis deux jours. Elle aurait
+			///    compté six états sur un panneau qui n'en dessine aucun.
+			static float32 HauteurEtatsConsommee(nkgui::NkGuiContext &ctx,
+												 InspectorPanel &insp) {
+				// ⚠️ LA SECTION EST REPLIÉE PAR DÉFAUT, et le banc doit l'OUVRIR
+				//    comme le ferait une main — pas changer son défaut pour se
+				//    faciliter la vie. Sans ça il mesurait 0 px et accusait le
+				//    panneau de ne rien dessiner, alors qu'il obéissait.
+				if (InspectorPanel::EtatSection *s = insp.TrouverSection("ÉTATS"))
+					s->ouvert = true;
+				ctx.input.mousePos = {-500.f, -500.f};
+				ctx.input.mouseDown[0] = false;
+				ctx.BeginFrame(1.f / 60.f);
+				ctx.BeginLayout({0.f, 0.f, 300.f, 800.f});
+				const float32 avant = ctx.layout.cursor.y;
+				insp.CorpsEtats(ctx);
+				const float32 apres = ctx.layout.cursor.y;
+				ctx.EndFrame();
+				return apres - avant;
 			}
 
 			/// Le geste complet : trouver la poubelle de la ligne du HAUT, la
@@ -286,6 +319,41 @@ namespace nkuidesign {
 				check("3. EFFETS : le MEME geste -- leur sortie franche apres le retrait protege "
 					  "la suite de l'iteration",
 					  viseE && bonE, d3);
+
+				// ═══ 4. LES ÉTATS : LE PANNEAU SUIT LA TABLE, PAS UN NOMBRE ═══
+				// 🔑 L'exigence de Rodolf (Q53) : « si plus tard on en ajoutait,
+				//    ça devrait montrer le nombre exact ». Ce cas est le JUMEAU
+				//    de `NkNbRaccourcisCtx` contre le `6` en dur du dispatcher :
+				//    il compare ce que le panneau CONSOMME au nombre d'entrées de
+				//    la table, sans jamais écrire « 6 ».
+				{
+					uint32 nbEtats = 0;
+					(void)nkuidesign::guifmt::NkGEtats(nbEtats);
+					const float32 h = HauteurEtatsConsommee(ctx, insp);
+					// Une rangée par état (HRangee), plus la ligne d'aveu
+					// « édition : au lot suivant ». On borne au lieu d'exiger
+					// l'égalité stricte : la ligne d'aveu a sa propre hauteur, et
+					// la figer ici ferait tomber le cas au premier changement de
+					// mise en page — un banc trop précis devient un banc faux.
+					const float32 attenduMin = (float32)nbEtats * costume::HRangee;
+					const bool suit = nbEtats > 0 && h >= attenduMin
+									  && h <= attenduMin + 3.f * costume::HRangee;
+					// ⚠️ LE CONTRÔLE NÉGATIF, sans lui le cas passerait sur un
+					//    panneau qui dessinerait un nombre FIXE de rangées : on
+					//    exige que la hauteur soit un MULTIPLE du nombre d'états
+					//    à moins de deux rangées près — donc qu'elle bouge si la
+					//    table grandit.
+					const bool proportionnel = h > costume::HRangee * 2.f;
+					char d4[192];
+					snprintf(d4, sizeof(d4),
+							 "la table declare %u etat(s) ; le panneau consomme %.0f px "
+							 "(attendu >= %.0f) ; suit la table=%d ; proportionnel=%d",
+							 nbEtats, (double)h, (double)attenduMin, suit ? 1 : 0,
+							 proportionnel ? 1 : 0);
+					check("4. ETATS : le panneau N'A AUCUNE LISTE -- il itere la table fermee, "
+						  "donc sa hauteur suit le nombre d'etats declares",
+						  suit && proportionnel, d4);
+				}
 
 				printf("\nRECETTE PROPRIETES : %d/%d %s\n", total - echecs, total,
 					   echecs == 0 ? "PROUVEE" : "EN ECHEC");

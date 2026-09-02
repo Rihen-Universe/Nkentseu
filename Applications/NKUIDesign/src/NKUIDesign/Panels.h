@@ -66,6 +66,7 @@
 #include "Snap.h" // l'aimantation Lunacy — un MECANISME, pas un dessin
 #include "Transfo.h" // rotation et miroirs : le MEME calcul pour le dessin et le clic
 #include "DesignAI.h"
+#include "NkGuiValidate.h" // guifmt::NkGEtats — LA table fermee des six etats
 #include "Renderers.h"
 
 #include <cstdio>
@@ -8169,12 +8170,12 @@ namespace nkuidesign {
 		static const char *const kAvecCible[] = {
 			"CIBLE",	  "DISPOSITION", "ANCRAGE",	 "ALIGNEMENT",
 			"ESPACEMENT", "REMPLISSAGES", "BORDURES", "APPARENCE",
-			"TYPOGRAPHIE", "EFFETS",	 "POINTS DE RUPTURE",
+			"TYPOGRAPHIE", "ÉTATS",		 "EFFETS",	  "POINTS DE RUPTURE",
 		};
 		static const char *const kNormal[] = {
 			"DISPOSITION", "ANCRAGE",	 "ALIGNEMENT", "ESPACEMENT",
 			"REMPLISSAGES", "BORDURES",	 "APPARENCE",  "TYPOGRAPHIE",
-			"EFFETS",	   "POINTS DE RUPTURE",
+			"ÉTATS",	   "EFFETS",	 "POINTS DE RUPTURE",
 		};
 		// ⚠️ LE MODE PRIME SUR LA CIBLE, ET L'ORDRE DES TROIS `if` EST LA RÈGLE :
 		//    un artboard n'entre pas en édition de forme (il n'est pas une forme
@@ -8394,6 +8395,7 @@ namespace nkuidesign {
 							{"BORDURES", &CorpsBorduresC, false},
 							{"APPARENCE", &CorpsApparenceC, false},
 							{"TYPOGRAPHIE", &CorpsTypographieC, false},
+							{"ÉTATS", &CorpsEtatsC, false},
 							{"EFFETS", &CorpsEffetsC, false},
 							{"POINTS DE RUPTURE", &CorpsRuptureC, false},
 						};
@@ -8410,6 +8412,7 @@ namespace nkuidesign {
 					{"BORDURES", &CorpsBorduresC, false},
 					{"APPARENCE", &CorpsApparenceC, false},
 					{"TYPOGRAPHIE", &CorpsTypographieC, false},
+					{"ÉTATS", &CorpsEtatsC, false},
 					{"EFFETS", &CorpsEffetsC, false},
 					{"POINTS DE RUPTURE", &CorpsRuptureC, false},
 				};
@@ -8607,7 +8610,7 @@ namespace nkuidesign {
 					const char *titre;
 					bool ouvert;
 			};
-			static constexpr uint32 kNbSections = 12;
+			static constexpr uint32 kNbSections = 13;
 			/// Un champ de sommet a change et la boite attend son recadrage.
 			/// ⚠️ UN DRAPEAU, ET IL EST JUSTIFIE : on ne peut pas recadrer dans la
 			///    branche qui ecrit (le champ est un GLISSER, il ecrit a chaque
@@ -8625,7 +8628,7 @@ namespace nkuidesign {
 				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
 				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"REMPLISSAGES", true},
 				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
-				{"EFFETS", true},	{"POINTS DE RUPTURE", false},
+				{"ÉTATS", false},	{"EFFETS", true},	{"POINTS DE RUPTURE", false},
 			};
 			EtatSection *TrouverSection(const char *titre) {
 				for (uint32 i = 0; i < kNbSections; ++i)
@@ -8876,6 +8879,9 @@ namespace nkuidesign {
 			}
 			static void CorpsEffetsC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsEffets(ctx);
+			}
+			static void CorpsEtatsC(void *u, NkGuiContext &ctx) {
+				static_cast<InspectorPanel *>(u)->CorpsEtats(ctx);
 			}
 			static void CorpsRuptureC(void *u, NkGuiContext &ctx) {
 				static_cast<InspectorPanel *>(u)->CorpsRupture(ctx);
@@ -9639,6 +9645,84 @@ namespace nkuidesign {
 			//    la troisième section à liste ; les deux premières ont payé trois
 			//    troncatures avant que la géométrie descende au-dessus du groupe.
 			//    Celle-ci n'a rien redécouvert — c'était l'objet du geste.
+			// ═══════════════════════════════════════════════════════════════
+			//  LES ÉTATS — LE PANNEAU N'A AUCUNE LISTE, IL ITÈRE LA TABLE
+			// ═══════════════════════════════════════════════════════════════
+			// 🔑 EXIGENCE DE RODOLF (Q53, 02/09) : *« et si plus tard on en
+			//    ajoutait, ça devrait montrer le nombre exact. »* Traduite en
+			//    STRUCTURE, pas en note : la seule source est
+			//    `guifmt::NkGEtats` — la liste FERMÉE tranchée le 27/08, dont
+			//    **l'ordre EST la priorité** (contrôle 26h). Un septième état
+			//    ajouté à la table apparaît ici **sans qu'une ligne de ce
+			//    fichier change**.
+			//    ⚠️ C'est le remède déjà payé contre le `6` en dur du
+			//       dispatcher (`NkNbRaccourcisCtx`) : un nombre recopié dérive,
+			//       un nombre lu ne peut pas.
+			//
+			// ⚠️ CHAQUE PROPRIÉTÉ EST « HÉRITÉE » TANT QU'ELLE N'EST PAS POSÉE
+			//    (§15.3, même forme que le masque d'écarts) : la rangée montre
+			//    « — » et non la valeur du Normal recopiée, parce qu'une valeur
+			//    recopiée mentirait le jour où le Normal change.
+			void CorpsEtats(NkGuiContext &ctx) {
+				if (!SectionOuverte("ÉTATS"))
+					return;
+				NkUINode *n = NoeudMutable();
+				if (!n) {
+					designkit::KeyValue(ctx, "États", "-");
+					return;
+				}
+				auto &F = costume::Fontes();
+				auto &dl = ctx.DL();
+				uint32 nbEtats = 0;
+				const char *const *etats = nkuidesign::guifmt::NkGEtats(nbEtats);
+				for (uint32 e = 0; e < nbEtats; ++e) {
+					const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
+					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
+					const NkApparenceEtat *a = NkBlocEtatSi(*n, etats[e]);
+					const bool pose = a && !a->Vide();
+					// Le NOM de l'état, accentué quand il porte une surcharge —
+					// « posé » et « hérité » doivent se distinguer d'un coup
+					// d'œil, sinon personne ne sait ce qui a été réglé.
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), etats[e],
+								   pose ? ctx.theme.accent : ctx.theme.textMuted);
+					// La pastille du fond de cet état, ou « — » s'il est hérité.
+					const NkRect sw = {x0 + costume::ColChamps,
+									   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
+					if (pose && !a->fond.Empty()) {
+						dl.AddRectFilled(sw, CouleurHex(a->fond.Data(), ctx.theme.textMuted), 3.f);
+						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+					} else {
+						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
+						dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
+								   ctx.theme.textMuted, 1.f);
+					}
+					// Ce que l'état pose, en clair — jamais un compte de bits.
+					char b[96];
+					if (!pose)
+						snprintf(b, sizeof(b), "%s", "hérité");
+					else {
+						char rad[24] = "", opa[24] = "";
+						if (a->radius >= 0.f)
+							snprintf(rad, sizeof(rad), " r %g", (double)a->radius);
+						if (a->opacite >= 0.f)
+							snprintf(opa, sizeof(opa), " %g%%", (double)a->opacite);
+						snprintf(b, sizeof(b), "%s%s%s",
+								 a->fond.Empty() ? "" : a->fond.Data(), rad, opa);
+					}
+					costume::Texte(dl, F.px10, sw.x + 16.f + (float32)costume::EspSerre,
+								   costume::CentrerBande(F.px10, r.y), b,
+								   pose ? ctx.theme.text : ctx.theme.textMuted);
+					(void)x1;
+				}
+				// ⚠️ L'ÉDITION DES ÉTATS N'EST PAS ENCORE BRANCHÉE, ET ÇA SE DIT
+				//    plutôt que de laisser croire à une panne : la LISTE et le
+				//    MODÈLE (clé `apparence_<État>`, aller-retour prouvé) sont
+				//    là ; poser une valeur depuis ce panneau vient avec le lot
+				//    suivant. *Une section qui n'agit pas encore porte sa
+				//    raison* — la règle maison, appliquée à mon propre travail.
+				designkit::KeyValue(ctx, "édition", "au lot suivant");
+			}
+
 			void CorpsEffets(NkGuiContext &ctx) {
 				if (!SectionOuverte("EFFETS"))
 					return;
