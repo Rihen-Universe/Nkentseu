@@ -144,11 +144,58 @@ déclaration**, et **de quoi elle dérive**. Le reste se construit dessus.
 
 ---
 
-## 15.6 ❓ LA QUESTION QUI REVIENT À RODOLF — NON TRANCHÉE ICI
+## 15.6 ✅ TRANCHÉE PAR RODOLF (Q51, 02/09) — LES INSTANCES GÈLENT, LA MISE À JOUR EST UN ACTE
 
-> **Quand l'auteur modifie une déclaration, ses instances suivent-elles ?**
+> Ses mots exacts : *« non, sauf si ces instances sont mises à jour. Mais de
+> base la modification est proposée en copie ou non — mais toujours en copie
+> pour des composants système. »*
 
-Les deux réponses sont défendables et **ne se rattrapent pas l'une l'autre** :
+C'est la réponse **B** du tableau d'origine (gardé ci-dessous pour mémoire),
+**plus** une règle que la question ne posait pas : le choix copie/en-place au
+moment de modifier. Trois règles, à ne plus rediscuter :
+
+**R1 — Les instances ne suivent PAS automatiquement.** Une instance posée
+reste ce qu'elle est quand l'auteur modifie la déclaration. Rien ne bouge
+sous les pieds — jamais.
+
+**R2 — La mise à jour est un acte EXPLICITE de l'instance** (« mettre à jour
+vers la déclaration actuelle », par instance ou par sélection). C'est le
+« sauf si mises à jour ». Conséquence structurelle : la déclaration doit
+permettre de savoir qu'une instance est **en retard** — c'est exactement ce
+que porte la **version** de la clé `auteur/nom@version` (§15.5) : une mise à
+jour de la déclaration incrémente sa version, une instance référence celle
+qu'elle a prise.
+
+**R3 — Au moment de MODIFIER un composant, l'outil PROPOSE : copie ou
+modification en place.** Le choix appartient à l'auteur — **sauf pour les
+composants système** (le kit, et tout ce qui échoue au prédicat de propriété
+`NkPeutModifierDeclaration`) : là, **toujours la copie, et le dialogue ne
+s'affiche même pas** — la copie est silencieusement la seule voie. C'est la
+règle de fork du §15.5, confirmée et élargie par Rodolf.
+
+### Ce que R1–R3 imposent au modèle (à coder avec le chantier « mettre à jour », pas avant)
+
+1. **Une instance a TROIS états vis-à-vis de sa déclaration** : *à jour* /
+   *en retard* / *détachée*. « En retard » doit se **voir** — la pilule
+   d'instance (§15.8-3) est l'endroit naturel — et se **résoudre** (mettre à
+   jour, ou détacher). Sans le signal, Rodolf découvrirait des instances
+   périmées sans le savoir : un état qui ne se voit pas est un état qui ment.
+2. **« Mettre à jour » rencontre les surcharges**, et la règle est celle du
+   masque d'écarts (§15.3) : la mise à jour remplace ce que l'instance n'a
+   **pas** surchargé ; **les bits surchargés tiennent**. Le cas de recette qui
+   va avec, à écrire le jour du code : *une instance dont le texte est
+   surchargé se met à jour et garde SON texte* — le jumeau du volet
+   « détacher fusionne, ne jette pas ».
+3. **Le choix copie/en-place ne s'affiche QUE sur ce qui m'appartient** —
+   consulté via `NkPeutModifierDeclaration`, le prédicat existant, jamais
+   recalculé au site d'appel (même discipline que `NkNoeudAttrapable`).
+
+⚠️ **Rien de ceci n'est codé aujourd'hui, et c'est voulu** : la migration
+d'espacement par tranches reste le fil. Cette section existe pour que la
+décision ne se rediscute pas — elle est citée, datée, et ses conséquences
+sont nommées avant que le code n'existe.
+
+### Le tableau d'origine, pour mémoire (la question telle qu'elle se posait)
 
 | | **A — les instances suivent** (mise à jour vivante) | **B — les instances gèlent** (mise à jour explicite) |
 |---|---|---|
@@ -156,18 +203,13 @@ Les deux réponses sont défendables et **ne se rattrapent pas l'une l'autre** :
 | contre | modifier une déclaration peut changer douze écrans **sans qu'on les regarde** | le bénéfice s'évapore : douze instances à mettre à jour à la main |
 | ce que ça impose | rien de plus (la propagation est le défaut) | une **version** par instance, et un signal « une mise à jour existe » |
 
-**Ce que fait la source** : Lunacy propage (A), avec la règle « sauf là où une
-surcharge existe » qui est déjà en §15.3.
-
-📌 **Ma recommandation, et ce n'est qu'une recommandation** : **A**, parce que
-c'est la raison d'être d'un composant, et parce que §15.3 en amortit déjà le
-danger — le travail fait sur une instance est protégé par ses écarts. **Mais B
-devient obligatoire le jour où les composants se partagent** : on ne veut pas
-qu'une déclaration d'un tiers change nos écrans sans qu'on l'ait demandé.
-
-➡️ **Posé à Rodolf dans `echanges/nkuidesign.questions.md`. Rien ne s'écrit sur
-ce point avant sa réponse** — et le reste du chantier n'en dépend pas, donc il
-n'est pas bloquant.
+**Ce que fait la source** : Lunacy propage (A). Ma recommandation était A.
+**Rodolf a choisi B** — et il a raison là où ma recommandation regardait à
+côté : B est la seule réponse compatible avec le **partage** (§15.5), qui est
+la destination du chantier (« des millions d'auteurs partagent et vendent »).
+Le coût de B (mettre à jour à la main) est amorti par R2 « par sélection »,
+et le danger de A n'était amorti que pour les surcharges — pas pour tout le
+reste d'un écran.
 
 ---
 
@@ -253,7 +295,11 @@ paragraphe ci-dessus) a supprimé le chantier au lieu de le cadrer.* **Un doute
    surchargée se distingue d'une héritée, « aller à la déclaration » existe.
    *C'est la moitié qui se néglige* (`12_…` §12.3(d)).
 4. **Les surcharges** propriété par propriété, puis « réinitialiser ».
-5. Le reste de §9 (états, échanger, supprimer→cadres) — après.
+5. **Mettre à jour vers la déclaration** (Q51 tranchée, §15.6 R1–R3) : les trois
+   états à jour / en retard / détachée, le signal « en retard » sur la pilule,
+   la mise à jour qui respecte les bits surchargés, le choix copie/en-place
+   derrière le prédicat de propriété.
+6. Le reste de §9 (états, échanger, supprimer→cadres) — après.
 
 ⚠️ **La déclaration vit DANS LE DOCUMENT qui l'a créée**, et rien d'autre pour
 l'instant (`12_…` §12.3(a)). La bibliothèque partagée est un chantier de
