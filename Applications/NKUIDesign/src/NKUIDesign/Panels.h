@@ -7367,6 +7367,17 @@ namespace nkuidesign {
 					}
 				}
 				BandeDeSection(ctx, "COMPOSANTS", "hier.composants.plus");
+				// LES QUATRE VUES (Rodolf, 02/09) -- elles se COMBINENT avec la
+				// recherche deja branchee : filtre par origine ET texte, jamais
+				// l'un ou l'autre (le filtre du modele d'arbre reste actif).
+				{
+					static const char *const kVues[kNbVues] = {"Tous", "Système", "Externes",
+															   "À moi"};
+					const int32 v = designkit::Segmented(ctx, kVues, (int32)kNbVues, mVueCompos,
+														 "hier.compos.vue");
+					if (v >= 0)
+						mVueCompos = v;
+				}
 				// L'ETAT VIDE PARLE (« une entrée qui n'agit pas porte sa
 				// raison ») : ce document n'a pas encore de composant, et la
 				// ligne dit le geste qui en crée un. Sans elle, la section vide
@@ -7766,8 +7777,27 @@ namespace nkuidesign {
 				// refusé (sa clé lie les instances) — mais le geste a désormais
 				// un EFFET, au lieu d'un refus sec.
 				if (&modele == &mModeleComposants && modele.renaming != 0) {
-					const nkentseu::int32 decl = (nkentseu::int32)modele.renaming - 1;
+					// Retrouver la LIGNE par son id, puis sa source — jamais son
+					// rang (cf. `LigneCompos`).
+					nkentseu::int32 decl = -1;
+					bool estSysteme = false;
+					for (uint32 li = 0; li < (uint32)mModeleComposants.nodes.Size()
+										&& li < (uint32)mComposLignes.Size();
+						 ++li)
+						if (mModeleComposants.nodes[li].id == modele.renaming) {
+							decl = mComposLignes[li].index;
+							estSysteme = mComposLignes[li].systeme;
+							break;
+						}
 					modele.renameCancel = true;
+					if (estSysteme) {
+						// ⚠️ UN COMPOSANT DU KIT NE SE POSE PAS COMME UN COMPOSANT
+						//    DE DOCUMENT — ce sont deux natures (§15.1). Le refus
+						//    SE DIT et nomme la porte : la palette du rail.
+						mSt->DireAuPied("Composant système : il se pose depuis la "
+										"palette du rail, pas d'ici.");
+						return;
+					}
 					// La fonction dit TOUJOURS son verdict au pied — succès comme
 					// refus — donc rien à ajouter ici.
 					NkPoserComposantDocument(*mSt, decl);
@@ -8064,11 +8094,55 @@ namespace nkuidesign {
 			///    la palette du rail ; ICI vivent les déclarations du document.
 			///    La contrainte de Rodolf tient toujours : aucun catalogue en dur,
 			///    on boucle sur `doc.declarations` et on ne nomme rien.
+			/// LES QUATRE VUES DE LA PALETTE (Rodolf, 02/09).
+			/// ⚠️ L'ORDRE EST CELUI DE SA PHRASE : « tous, système, externes, les
+			///    miens » — le réordonner changerait ce que le premier clic
+			///    montre, en silence.
+			enum : int32 { kVueTous = 0, kVueSysteme, kVueExternes, kVueMiens, kNbVues };
+
 			void SyncComposants() {
 				mModeleComposants.nodes.Clear();
+				mComposLignes.Clear();
+				// ── LE KIT (origine SYSTÈME) ────────────────────────────────
+				// ⚠️ IL VIENT D'UNE AUTRE LISTE, et c'est un fait de modèle, pas
+				//    un détail : le kit est fait de composants de CODE
+				//    (`NkComponentRegistry`), le document de déclarations. Le
+				//    filtre traverse donc DEUX sources — la §15.1 sépare les deux
+				//    natures, elle n'interdit pas de les LISTER ensemble quand
+				//    c'est ce qu'on demande.
+				if (mVueCompos == kVueTous || mVueCompos == kVueSysteme) {
+					const uint16 nk = NkComponentRegistry::Count();
+					for (uint16 k = 0; k < nk; ++k) {
+						const NkComponentDecl *d = NkComponentRegistry::At(k);
+						if (!d || !d->name)
+							continue;
+						NkTreeNode t;
+						t.id = (nkentseu::nk_uint64)(1000 + k);
+						t.parent = -1;
+						t.label = NkString(d->name);
+						t.path = t.label;
+						t.kindLabel = "système";
+						t.icon = NK_ICON_NATURE_PANNEAU;
+						t.kindRole = NkDesignResolveRole("text_muted");
+						mModeleComposants.nodes.PushBack(t);
+						LigneCompos l;
+						l.systeme = true;
+						l.index = (int32)k;
+						mComposLignes.PushBack(l);
+					}
+				}
 				const nkentseu::uint32 n = (nkentseu::uint32)mSt->doc.declarations.Size();
 				for (nkentseu::uint32 c = 0; c < n; ++c) {
 					const NkDeclarationComposant &d = mSt->doc.declarations[c];
+					// L'ORIGINE VIENT DE LA PORTE, jamais recalculée ici — c'est
+					// la frontière de Q51, montrée et non réinventée.
+					const NkOrigineComposant org = NkOrigineDe(d.identite, "");
+					if (mVueCompos == kVueSysteme)
+						continue;
+					if (mVueCompos == kVueExternes && org != NkOrigineComposant::Tiers)
+						continue;
+					if (mVueCompos == kVueMiens && org != NkOrigineComposant::Mien)
+						continue;
 					NkTreeNode t;
 					t.id = (nkentseu::nk_uint64)(c + 1);
 					t.parent = -1;
@@ -8083,11 +8157,26 @@ namespace nkuidesign {
 					t.icon = NK_ICON_NATURE_PANNEAU;
 					t.kindRole = NkDesignResolveRole("text_muted");
 					mModeleComposants.nodes.PushBack(t);
+					LigneCompos l;
+					l.systeme = false;
+					l.index = (int32)c;
+					mComposLignes.PushBack(l);
 				}
 			}
 
 			DesignState *mSt;
 			NkTreeViewModel mModelePages;
+			/// ⚠️ LA LIGNE NE PORTE PLUS SON INDICE DE DÉCLARATION, et c'est la
+			///    conséquence directe des deux sources : la 3e ligne peut être le
+			///    3e composant du kit OU la 1re déclaration du document, selon la
+			///    vue. Se fier au rang aurait posé le mauvais composant *en
+			///    silence* — la famille de défaut la plus chère du chantier.
+			struct LigneCompos {
+					bool systeme = false;
+					int32 index = -1;
+			};
+			nkentseu::NkVector<LigneCompos> mComposLignes;
+			int32 mVueCompos = kVueTous;
 			NkTreeViewModel mModeleComposants;
 			NkComponentInstance mInstPages;
 			NkComponentInstance mInstComposants;

@@ -1075,6 +1075,48 @@ namespace nkuidesign {
 		return NkComponentDecl::StrEq(a, auteurCourant);
 	}
 
+	/// L'ORIGINE d'un composant — les quatre vues de la palette (Rodolf, 02/09 :
+	/// *« lister tous les composants, ou seulement les composants systeme, ou
+	/// externes, ou nos propres composants »*).
+	///
+	/// 🔑 CE N'EST PAS UNE NOUVELLE NOTION : c'est la frontiere de Q51 (la
+	///    PROPRIETE) rendue visible. Un filtre qui inventerait son propre critere
+	///    divergerait de la regle de fork au premier composant partage.
+	///
+	/// ⚠️ MAIS LE PREDICAT SEUL NE SUFFIT PAS, ET C'EST UN FAIT DE MODELE :
+	///    `NkPeutModifierDeclaration` repond « a moi / pas a moi ». Or *systeme*
+	///    et *tiers* sont TOUS DEUX « pas a moi » — il les confond. La
+	///    distinction ne se devine donc pas du predicat : elle vient de la
+	///    SOURCE de la declaration. Le kit vit dans `NkComponentRegistry` (des
+	///    composants de CODE), le tiers dans `doc.declarations` avec un auteur
+	///    qui n'est pas le notre. *Le filtre traverse deux listes, et c'est le
+	///    modele qui le dit, pas le panneau.*
+	enum class NkOrigineComposant {
+		Systeme, ///< le kit — composants de CODE, jamais modifiables (copie seule)
+		Tiers,	 ///< declare par quelqu'un d'autre : copie seule aussi
+		Mien	 ///< cree par moi, ou fork que j'ai fait — modifiable en place
+	};
+
+	/// L'origine d'une declaration de DOCUMENT (le systeme ne passe pas ici : il
+	/// n'a pas de declaration, il a une entree de registre).
+	/// ⚠️ ELLE S'APPUIE SUR LE MEME PREDICAT que la regle de fork — une seule
+	///    ecriture du critere, jamais deux qui se repondraient differemment.
+	inline NkOrigineComposant NkOrigineDe(const NkIdentiteComposant &id,
+										  const char *auteurCourant) {
+		return NkPeutModifierDeclaration(id, auteurCourant) ? NkOrigineComposant::Mien
+															: NkOrigineComposant::Tiers;
+	}
+
+	/// Le nom lisible d'une origine — pour le filtre ET pour la pilule.
+	inline const char *NkNomOrigine(NkOrigineComposant o) {
+		switch (o) {
+			case NkOrigineComposant::Systeme: return "système";
+			case NkOrigineComposant::Tiers: return "externe";
+			default: return "à moi";
+		}
+	}
+
+
 	class NkUIDocument {
 		public:
 			NkString title = NkString("Interface sans titre");
