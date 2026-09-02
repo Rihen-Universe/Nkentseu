@@ -789,9 +789,19 @@ Le calcul de la fraction lue, pour dessiner un curseur de lecture :
 Le \texttt{NkClamp} n'est pas superflu : la position peut légèrement dépasser la
 durée en fin de lecture, à cause de la granularité du tampon.
 
+\begin{nkbilan}
+NKAudio repose sur un invariant : \textbf{un seul format interne}. Tout ce qui
+entre y est converti, ce qui supprime la combinatoire des conversions et rend le
+mélange possible. Le patron est en cinq temps, et il ne se raccourcit pas. Les
+\textbf{bus} permettent de régler des groupes ensemble --- effets, musique, voix
+--- au lieu de retoucher chaque son. Un fichier long se \emph{diffuse} au lieu
+d'être chargé. Et le rappel procédural s'exécute sur le \textbf{fil audio} : ce
+qu'on y fait de lent s'entend, sous forme de coupures.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Le son au clic, complet]
+\begin{nkpratique}[1 — Le son au clic, complet]
 Ajoutez à votre application NKGui trois boutons et trois sons différents, tous
 sur le bus « UI ». Puis ajoutez un \texttt{Checkbox} « sons d'interface » qui
 appelle \texttt{engine.GetBus("UI")->SetMute(...)}.
@@ -801,9 +811,9 @@ sur « SFX » ; que l'application démarre normalement si vous renommez les fich
 audio pour les rendre introuvables ; et que la fermeture n'émet aucun bruit
 parasite — c'est-à-dire que vous appelez bien \texttt{Shutdown()} avant
 \texttt{Free()}.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[2 — Mesurer sans écouter]
+\begin{nkdemo}[2 — Mesurer sans écouter]
 Écrivez un programme console qui initialise le moteur en \texttt{NULL\_OUTPUT},
 joue un son, et rend une seconde de mixage dans un tableau avec
 \texttt{RenderToBuffer}. Calculez et affichez le maximum absolu et la moyenne
@@ -813,9 +823,9 @@ Recommencez en réglant le bus sur \texttt{SetVolume(0.5f)} : le maximum doit ê
 divisé par deux. Puis avec \texttt{SetMute(true)} : le tableau doit être
 rigoureusement nul. Vous venez d'écrire un test audio automatisable, sans
 matériel.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[3 — Prouver l'ordre de fermeture]
+\begin{nkdemo}[3 — Prouver l'ordre de fermeture]
 Écrivez volontairement la mauvaise séquence :
 \texttt{AudioLoader::Free(sample);} \emph{puis} \texttt{engine.Shutdown();} sur
 un son de plusieurs secondes en cours de lecture. Lancez plusieurs fois et notez
@@ -824,9 +834,9 @@ ce que vous entendez et ce qui se passe.
 Puis remettez le bon ordre. Cet exercice n'a l'air de rien : il vous vaccine
 contre une classe entière de bugs qu'on ne diagnostique pas au débogueur, parce
 que le plantage arrive ailleurs et plus tard.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[4 — Un synthétiseur en dix lignes]
+\begin{nkpratique}[4 — Un synthétiseur en dix lignes]
 Utilisez \texttt{PlayProcedural} avec un \emph{callback} qui remplit le tampon
 d'une sinusoïde, en gardant la phase dans une variable capturée par référence.
 Ajoutez un \texttt{SliderFloat} NKGui qui règle la fréquence.
@@ -836,4 +846,27 @@ Attention : le \emph{slider} s'écrit depuis le fil principal et le
 et relisez l'interdiction d'allouer et de verrouiller. Une variable atomique de
 type \texttt{float} est la bonne réponse ; un \texttt{NkVector} redimensionné
 dans le \emph{callback} est la mauvaise.
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi un format interne unique plutôt que de gérer tous les formats ?
+\item Citez les cinq temps du patron canonique.
+\item À quoi sert un bus, et que permet-il qu'un réglage par son ne permet pas ?
+\item Quand faut-il diffuser un fichier plutôt que le charger ?
+\item Que ne doit-on jamais faire dans le rappel audio, et pourquoi ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nklogique}
+Un son se déclenche correctement au clavier, et « ne marche pas » au clic de
+souris --- alors que les deux chemins appellent la même fonction de lecture.
+
+\begin{enumerate}
+\item Le son est-il forcément en cause ? Argumentez, puis dites où vous
+      chercheriez \emph{en premier}.
+\item Énumérez trois causes qui n'ont rien à voir avec l'audio.
+\item Proposez une mesure qui sépare « le son n'est pas joué » de « le son est
+      joué et inaudible ». Précisez ce qu'elle affiche dans chaque cas.
+\end{enumerate}
+\end{nklogique}

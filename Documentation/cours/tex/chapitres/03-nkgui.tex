@@ -1654,35 +1654,45 @@ Pile de découpe (draw-list) & 32 & \texttt{NkGuiDrawList.h:52} \\
         agir à l'image suivante.
 \end{enumerate}
 
+\begin{nkbilan}
+En mode immédiat, un widget n'existe pas : il est \emph{redessiné} à chaque
+image, et ce qui doit survivre vit dans vos propres variables. L'identité d'un
+widget vient de son \textbf{identifiant}, pas de sa position --- deux widgets qui
+partagent un identifiant partagent leur état, et le symptôme n'y ressemble pas.
+Le \textbf{routage de l'entrée} est ce qui sépare NKGui d'un simple dessin : le
+z-ordre décide qui reçoit un clic, et une modale doit \emph{consommer} ce
+qu'elle recouvre, faute de quoi le clic traverse.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Le compteur]
+\begin{nkpratique}[1 — Le compteur]
 Écrivez, dans la boucle de la démo, un petit panneau contenant : un
 \texttt{Text} affichant une valeur entière, un bouton « + » et un bouton
 « $-$ ». La valeur est une variable locale de votre boucle. Vérifiez que le
 compteur ne s'incrémente qu'au \emph{relâchement} du bouton, et qu'appuyer puis
 glisser en dehors avant de relâcher n'incrémente pas. Remplacez ensuite
 \texttt{Button} par \texttt{RepeatButton} et observez la différence.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[2 — Le piège des identifiants]
+\begin{nkdemo}[2 — Le piège des identifiants]
 Affichez une liste de cinq éléments, chacun suivi d'un bouton « Supprimer ».
 Version~A : sans \texttt{PushId}. Version~B : avec \texttt{PushId(\&items[i])}
 autour de chaque ligne. Observez ce qui se passe en version~A quand vous
 survolez et cliquez. Expliquez le comportement à partir de \texttt{GetId} et de
 \texttt{ItemHoverable}.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[3 — Comprendre le z-ordre]
+\begin{nklogique}[3 — Comprendre le z-ordre]
 Dessinez deux boutons qui se chevauchent partiellement, le second déclaré après
 le premier. Cliquez dans la zone de recouvrement : lequel réagit ? Inversez
 l'ordre de déclaration et recommencez. Ajoutez ensuite un \texttt{logger.Info}
 qui affiche \texttt{ctx.hotId} et \texttt{ctx.hotIdPrev} à chaque image, et
 observez le décalage d'une image en déplaçant lentement la souris d'un bouton à
 l'autre.
-\end{nkexo}
+\end{nklogique}
 
-\begin{nkexo}[4 — Une modale correcte]
+\begin{nkpratique}[4 — Une modale correcte]
 Écrivez une boîte de dialogue modale maison : un rectangle centré dessiné dans
 \texttt{ctx.dlOverlay} (via \texttt{PushOverlay}/\texttt{PopOverlay}), avec un
 fond assombri sur toute la fenêtre et deux boutons « Valider » et « Annuler ».
@@ -1690,4 +1700,15 @@ Appliquez les gestes de la section 3.6 : \texttt{PushOcclusion(box, 100)},
 \texttt{NkInputLayerScope}, et la fermeture au clic en dehors — en n'oubliant
 pas d'exiger \texttt{PointReachable} pour ce test négatif. Vérifiez qu'un clic
 sur la modale n'atteint pas les widgets qui sont dessous.
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Que veut dire « mode immédiat », et où vit l'état d'un widget ?
+\item D'où vient l'identité d'un widget ? Que se passe-t-il si deux widgets la
+      partagent ?
+\item Qui décide quel widget reçoit un clic quand deux se recouvrent ?
+\item Pourquoi une modale doit-elle consommer l'entrée qu'elle recouvre ?
+\item Pourquoi NKGui n'ouvre-t-il jamais de fenêtre lui-même ?
+\end{enumerate}
+\end{nkquestions}

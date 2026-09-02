@@ -989,37 +989,70 @@ Quelques observations qui valent pour toute application NkCanvas :
         \texttt{bold} est ignoré.
 \end{enumerate}
 
+\begin{nkbilan}
+NkCanvas dessine des triangles, et rien d'autre : toute forme --- rectangle,
+cercle, texte --- finit en sommets. Le repère a \textbf{Y vers le bas}, comme
+l'écran et non comme les mathématiques. Le sujet réel du module est le
+\textbf{regroupement} : les dessins s'accumulent dans un tampon et ne partent au
+GPU qu'au \texttt{Flush}, ce qui fait du \emph{nombre de vidages} la seule
+mesure de performance qui compte. Changer de découpe force un vidage --- donc un
+découpage par élément coûte un appel de dessin par élément.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Une horloge]
+\begin{nkpratique}[1 — Une horloge]
 Partez de \texttt{NkCanvasDemo}. Remplacez la scène par une horloge analogique :
 un \texttt{DrawCircleOutline} pour le cadran, douze \texttt{DrawLine} courts pour
 les graduations, trois \texttt{DrawLine} d'épaisseurs différentes pour les
 aiguilles. Faites tourner les aiguilles avec \texttt{t}. Contrainte : \emph{aucun}
 allocation dans la boucle.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[2 — Compter les appels de dessin]
+\begin{nkdemo}[2 — Compter les appels de dessin]
 Le batcher tient des statistiques (\texttt{mStats}, dont \texttt{textureSwap}).
 Trouvez comment y accéder depuis l'application, puis affichez leur valeur dans le
 journal une fois par seconde. Dessinez ensuite cent rectangles pleins :
 combien d'appels de dessin ? Ajoutez maintenant, \emph{entre chaque rectangle},
 une forme utilisant une autre texture. Que devient le compte ? Concluez.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[3 — Un dégradé sans primitive de dégradé]
+\begin{nkpratique}[3 — Un dégradé sans primitive de dégradé]
 NkCanvas n'a pas de \texttt{DrawGradient}. Construisez-en un : remplissez un
 tableau de quatre \texttt{NkVertex2D} formant un rectangle, avec quatre couleurs
 différentes, un tableau de six indices, et appelez \texttt{DrawVertices} avec
 \texttt{texture = nullptr}. Vérifiez que le GPU interpole. Puis expliquez, en
 vous appuyant sur la section « la texture blanche de 1 pixel », pourquoi passer
 \texttt{nullptr} fonctionne.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[4 — Le découpage, et son coût]
+\begin{nkdemo}[4 — Le découpage, et son coût]
 Dessinez une grille de $20 \times 20$ petits carrés. Version~A : un seul
 \texttt{SetClip} autour de toute la grille. Version~B : un \texttt{SetClip} et un
 \texttt{PopClip} autour de \emph{chaque} carré. Comparez les statistiques du
 batcher et le temps par image. Vous devriez mesurer, à l'écran, la règle énoncée
 à la section 2.10.
-\end{nkexo}
+\end{nkdemo}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Combien de sommets pour un rectangle plein, et pourquoi ?
+\item Dans quel sens va l'axe Y, et quelle conséquence pratique ?
+\item Qu'est-ce qui déclenche un vidage du tampon ?
+\item À quoi sert la texture blanche d'un pixel ?
+\item Pourquoi n'y a-t-il pas de primitive « quadrilatère » ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nklogique}
+Une interface dessine 500 icônes, chacune dans son propre rectangle de découpe.
+
+\begin{enumerate}
+\item Combien d'appels de dessin, au minimum ? Justifiez.
+\item Proposez deux façons de réduire ce nombre, et dites ce que chacune coûte
+      en contrepartie.
+\item L'une de vos deux solutions change le résultat à l'écran dans un cas
+      précis. Lequel ? \textbf{Ne concluez pas qu'elle est mauvaise} : dites à
+      quelle condition elle reste correcte.
+\end{enumerate}
+\end{nklogique}

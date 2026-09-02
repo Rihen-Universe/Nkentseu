@@ -292,7 +292,7 @@ appui passe le splash \emph{et} active le bouton qui se trouve dessous ---
 l'utilisateur lance une partie qu'il n'a pas choisie.
 \end{nkpiege}
 
-\begin{nkexo}
+\begin{nkpratique}
 Reprenez l'application du chapitre précédent, écrite à la main, et portez-la sur
 \texttt{NkCanvasApp}. Comptez les lignes avant et après.
 
@@ -300,4 +300,50 @@ Puis répondez à deux questions, en les \emph{mesurant} plutôt qu'en les
 devinant : votre version manuelle gérait-elle \texttt{OnPause} ? Et cédait-elle
 la main à chaque image ? Compilez-la pour le Web et ouvrez-la dans un
 navigateur --- vous aurez la réponse en une seconde.
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkbilan}
+La coquille tient la fenêtre, la boucle, le cycle de vie mobile, la zone sûre et
+le pointeur unifié --- c'est-à-dire tout le chapitre précédent. Vous ne
+remplissez que \texttt{OnGuiInit}, \texttt{OnTick} et le dessin.
+\texttt{OnRender} est \texttt{final} : c'est la seule chose qu'elle vous
+interdit, et c'est ce qui garantit que les quatre gestes restent dans le bon
+ordre. Deux coquilles existent, et le choix se fait sur une seule question :
+avez-vous besoin de NKGui, ou seulement de dessiner ?
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Citez trois services que la coquille rend et que vous n'écrivez plus.
+\item Pourquoi \texttt{OnRender} est-il \texttt{final} ?
+\item Qu'est-ce que la zone sûre, et pourquoi ne se code-t-elle pas en dur ?
+\item Sur le Web, que se passe-t-il si la boucle ne cède pas la main ?
+\item Quelle question départage \texttt{NkCanvasApp} et \texttt{NkCanvasGuiApp} ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkdemo}
+Prouvez que la zone sûre est \emph{mesurée} et non devinée.
+
+Affichez, à chaque image, les quatre marges de \texttt{NkLayoutInfo} en clair sur
+l'écran. Lancez sur ordinateur : elles doivent être nulles ou presque. Lancez sur
+téléphone, puis faites pivoter l'appareil.
+
+\textbf{Ce que la démonstration établit} : les valeurs \emph{changent} à la
+rotation. Une marge codée en dur aurait été juste dans une orientation et fausse
+dans l'autre --- et le défaut ne se voit que sur l'appareil, là où il coûte le
+plus cher.
+\end{nkdemo}
+
+\begin{nklogique}
+Votre écran d'ouverture dure quatre secondes et se saute d'un appui.
+
+\begin{enumerate}
+\item Pourquoi la méthode qui l'anime doit-elle rendre « vrai, je tiens
+      l'écran » plutôt que de simplement dessiner ?
+\item Décrivez ce qui arrive si elle ne le fait pas, dans un jeu où une IA joue.
+\item Pourquoi l'ouverture doit-elle \emph{consommer} l'appui qui la saute ?
+      Décrivez le comportement exact si elle ne le fait pas, du point de vue de
+      l'utilisateur --- et non du code.
+\end{enumerate}
+\end{nklogique}

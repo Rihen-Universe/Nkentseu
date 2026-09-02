@@ -946,9 +946,20 @@ Pour mémoire, parce que vous les croiserez en lisant les codecs :
         bien au-delà des images.
 \end{itemize}
 
+\begin{nkbilan}
+NKImage décode et encode des pixels, et \emph{rien d'autre} : il ne connaît ni
+GPU ni fenêtre. Deux familles d'API cohabitent et ne se mélangent pas --- la
+question à se poser est toujours \emph{qui possède les pixels}, car c'est elle
+qui décide comment on les libère, et les quatre cas ne se devinent pas. Le
+\textbf{pas de ligne} (\emph{stride}) n'est pas la largeur : le supposer produit
+une image inclinée, un défaut visuellement spectaculaire et à cause discrète.
+Enfin, tous les formats ne savent pas tout enregistrer --- un aller-retour peut
+perdre la transparence sans se plaindre.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Le round-trip, et le format qui échoue]
+\begin{nkdemo}[1 — Le round-trip, et le format qui échoue]
 Écrivez un petit programme console qui :
 \begin{enumerate}
   \item alloue une image RGB24 de $256 \times 256$ via \texttt{NkImage::Alloc} ;
@@ -961,9 +972,9 @@ Pour mémoire, parce que vous les croiserez en lisant les codecs :
 Une seule des cinq sauvegardes doit échouer. Laquelle, et pourquoi ? Inspirez-vous
 de \nkfile{Applications/NKImageCodecTest/src/main.cpp}, qui fait exactement cela
 en 79 lignes.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[2 — Rendre le stride visible]
+\begin{nkdemo}[2 — Rendre le stride visible]
 Chargez le même PNG deux fois : une fois avec \texttt{Load(path, 3)}, une fois
 avec \texttt{Load(path, 4)}. Pour chacune, affichez \texttt{Width()},
 \texttt{Channels()}, \texttt{BytesPP()} et \texttt{Stride()}. Choisissez une
@@ -973,9 +984,9 @@ largeur qui n'est pas multiple de 4 (par exemple 101 pixels) et vérifiez que
 Puis, volontairement, écrivez la conversion en RGBA avec un \texttt{memcpy}
 global au lieu de \texttt{RowPtr}, affichez le résultat, et regardez la
 diagonale apparaître. Une erreur qu'on a vue une fois ne se refait pas.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[3 — Une vignette dans une interface]
+\begin{nkpratique}[3 — Une vignette dans une interface]
 Reprenez l'application NKGui du chapitre~4 et ajoutez-lui un panneau qui :
 \begin{itemize}
   \item charge une image du dépôt (essayez plusieurs chemins candidats) ;
@@ -988,9 +999,9 @@ Reprenez l'application NKGui du chapitre~4 et ajoutez-lui un panneau qui :
 Vérifiez ensuite avec un débogueur — ou un simple compteur — que vous avez bien
 appelé \texttt{Free()} exactement une fois sur le résultat de \texttt{Resize},
 et zéro fois sur l'image de pile.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[4 — Mesurer le mensonge]
+\begin{nkdemo}[4 — Mesurer le mensonge]
 Chargez une photographie assez grande, puis produisez deux vignettes de la même
 taille : une avec \texttt{NK\_BILINEAR}, une avec \texttt{NK\_LANCZOS3}.
 Sauvegardez les deux en PNG, puis comparez-les octet par octet.
@@ -999,4 +1010,32 @@ Elles doivent être \textbf{rigoureusement identiques}. Vous venez de démontrer
 vous-même, sans lire le \texttt{.cpp}, que le filtre Lanczos n'existe pas. C'est
 exactement la démarche à appliquer chaque fois qu'une API vous promet quelque
 chose que vous n'avez pas vu marcher.
-\end{nkexo}
+\end{nkdemo}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Que fait NKImage, et que ne fait-il jamais ?
+\item Qu'est-ce que le pas de ligne, et pourquoi ne vaut-il pas toujours la
+      largeur en octets ?
+\item Citez les quatre cas de libération et dites ce qui les distingue.
+\item Pourquoi un aller-retour d'enregistrement peut-il perdre de
+      l'information sans erreur ?
+\item Comment une image chargée arrive-t-elle à l'écran dans une interface
+      NKGui ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nklogique}
+Une image chargée s'affiche « en biais », chaque ligne décalée un peu plus que
+la précédente.
+
+\begin{enumerate}
+\item Expliquez le mécanisme exact qui produit cette forme, et pourquoi le
+      décalage \emph{s'accumule}.
+\item Le décalage est parfois nul pour certaines images et pas pour d'autres.
+      Quelle propriété de l'image décide ? Donnez la condition précise.
+\item Un collègue « corrige » en redimensionnant l'image à une largeur multiple
+      de quatre. Ça marche. Dites en une phrase pourquoi c'est le pire des
+      correctifs.
+\end{enumerate}
+\end{nklogique}

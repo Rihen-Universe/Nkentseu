@@ -856,9 +856,21 @@ Incluez les en-têtes précis, et n'ouvrez pas le \emph{namespace}
 \texttt{nkentseu::net} en grand.
 \end{nkpiege}
 
+\begin{nkbilan}
+Le réseau standard offre deux façons de parler : l'une garantit l'ordre et
+l'arrivée, l'autre ne garantit rien mais n'attend jamais. Nkentseu ne choisit pas
+à votre place --- il expose des \textbf{canaux}, et vous décidez par message :
+une position de joueur périmée ne sert à rien, un message de chat perdu, si.
+\texttt{NkBitStream} descend au \emph{bit} plutôt qu'à l'octet, parce que sur un
+réseau ce qu'on n'envoie pas est ce qui coûte le moins cher.
+\texttt{NkNetWorld} réplique des entités par-dessus. Et l'ordre de fermeture n'est
+pas décoratif : le fermer à l'envers laisse des messages en vol sans
+destinataire.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Le flux de bits, sans réseau]
+\begin{nkpratique}[1 — Le flux de bits, sans réseau]
 Écrivez un programme console qui sérialise une petite structure de jeu — un
 identifiant, un score entre 0 et 999, deux coordonnées entre $-100$ et $+100$ au
 centimètre, un booléen — puis la relit et vérifie l'égalité champ par champ.
@@ -868,9 +880,9 @@ structure en écriture brute (\texttt{WriteU32}, \texttt{WriteF32}). Puis
 introduisez volontairement une erreur : lisez le score avec les bornes
 \texttt{(0, 9999)}. Observez que ce n'est pas seulement le score qui devient
 faux, mais tout ce qui suit.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[2 — Serveur et client dans le même programme]
+\begin{nkpratique}[2 — Serveur et client dans le même programme]
 Reproduisez \texttt{TestLoopback} : dans un seul \texttt{main}, démarrez un
 serveur sur 127.0.0.1, connectez un client, attendez la poignée de main dans une
 boucle bornée, échangez trois messages sur trois canaux différents, puis fermez
@@ -879,9 +891,9 @@ dans le bon ordre.
 Ajoutez de la journalisation dans \texttt{onPeerConnected} — et regardez sur quel
 fil elle s'exécute. Puis, volontairement, supprimez la boucle d'attente et
 envoyez immédiatement après \texttt{Connect()}. Que se passe-t-il, et pourquoi ?
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[3 — Un chat dans votre interface]
+\begin{nkpratique}[3 — Un chat dans votre interface]
 Ajoutez à votre application NKGui deux boutons « Héberger » et « Rejoindre », un
 \texttt{InputText} pour l'adresse, un second pour le message, et une liste des
 messages reçus.
@@ -893,9 +905,9 @@ chat perdu ne se rattrape pas.
 
 Testez avec deux instances de votre programme sur la même machine, puis, si vous
 le pouvez, sur deux machines du même réseau.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[4 — Mesurer ce que coûte la fiabilité]
+\begin{nkdemo}[4 — Mesurer ce que coûte la fiabilité]
 Reprenez l'exercice 2 et envoyez mille messages, une fois en
 \texttt{UNRELIABLE}, une fois en \texttt{RELIABLE\_ORDERED}, en comptant ceux qui
 arrivent et en chronométrant.
@@ -905,4 +917,30 @@ seront identiques. C'est un résultat en soi — \textbf{tester le réseau sur
 127.0.0.1 ne teste pas le réseau}. Consultez ensuite
 \texttt{GetConnectionStats} et voyez ce que le module sait vous dire du temps
 d'aller-retour et des pertes.
-\end{nkexo}
+\end{nkdemo}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelles sont les deux garanties qu'un canal peut offrir, et laquelle coûte
+      de l'attente ?
+\item Donnez un message qu'il vaut mieux perdre que retarder, et l'inverse.
+\item Qu'apporte \texttt{NkBitStream} par rapport à l'écriture octet par octet ?
+\item À quoi sert \texttt{NkNetWorld}, et sur quoi s'appuie-t-il ?
+\item Pourquoi HTTPS échoue-t-il là où HTTP fonctionne ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nklogique}
+Un jeu en réseau « rame » chez un joueur sur quatre, toujours le même.
+
+\begin{enumerate}
+\item Distinguez trois grandeurs qu'on confond couramment : la latence, la perte,
+      et le débit. Pour chacune, dites quel symptôme elle produit.
+\item Le joueur affecté a une bonne connexion mesurée par un test de débit.
+      Cela élimine-t-il quelque chose ? Justifiez.
+\item Vous soupçonnez un canal fiable employé là où il ne fallait pas.
+      Décrivez la mesure qui le confirmerait --- et dites explicitement ce
+      qu'elle donnerait si le soupçon était \emph{faux}. Un contrôle qui ne peut
+      pas vous contredire ne prouve rien.
+\end{enumerate}
+\end{nklogique}
