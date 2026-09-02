@@ -45,6 +45,14 @@
       Rihen — \DocDate\par}
   };
 \end{tikzpicture}
-
-\restoregeometry
 \end{titlepage}
+% ⚠️ `\restoregeometry` APRES `\end{titlepage}`, jamais dedans. Place a
+% l'interieur, il restaure les marges pendant que l'environnement construit
+% encore sa page : la PREMIERE page suivante herite d'une hauteur de bloc
+% fausse, et sa derniere ligne est imprimee A CHEVAL SUR LE BORD DU PAPIER --
+% coupee en deux dans le sens de la hauteur. Mesure : la ligne « 2.11 Memoire :
+% pile et tas » de la table des matieres, tranchee au milieu des lettres.
+% Le defaut ne se voit sur AUCUNE autre page, et TeX n'emet aucun avertissement
+% (pas d'`Overfull \vbox`) : le bloc a la bonne taille, c'est sa POSITION qui
+% deborde. Il ne se detecte donc qu'en regardant le papier.
+\restoregeometry

@@ -1,96 +1,317 @@
-\chapter{GemCrush : ce qui change quand un jeu grossit}
+\chapter{Construire un jeu animé, de A à Z}
 
-Les trois jeux de plateau tenaient en quatre fichiers. GemCrush en a vingt-deux
-et huit mille lignes --- pour un jeu d'alignement dont la règle tient en une
-phrase : \emph{échangez deux gemmes voisines, alignez-en trois ou plus, elles
-disparaissent}.
+Le chapitre précédent a produit un jeu au tour par tour : on clique, l'état
+change, on redessine. Ce chapitre construit un jeu \textbf{animé} --- des gemmes
+qui s'échangent, tombent, disparaissent en cascade --- et cela change une chose
+fondamentale : \textbf{le jeu n'est plus toujours prêt à recevoir un clic}.
 
-Ce chapitre explique où passent les huit mille lignes. La réponse n'est pas « la
-règle est compliquée » : elle est que tout ce qui entoure la règle --- écrans,
-progression, animation, son, didacticiel --- coûte bien plus que la règle
-elle-même. C'est la leçon la plus utile du chapitre.
-
-\section{Le découpage}
+Nous reprenons le squelette de l'étape 1 à l'étape 13 et nous lui ajoutons ce
+qui manque. Onze étapes de plus, et vous obtenez GemCrush : trente niveaux,
+progression enregistrée, sons synthétisés, didacticiel.
 
 \begin{center}
 \begin{tabular}{@{}lll@{}}
 \toprule
-\textbf{Fichier} & \textbf{Rôle} & \textbf{Famille} \\
+\textbf{Fichier} & \textbf{Rôle} & \textbf{Lignes} \\
 \midrule
-\texttt{NkGem} & la gemme : couleur, forme, état & règle \\
-\texttt{NkGemBoard} & le plateau : chutes, échanges & règle \\
-\texttt{NkMatchFinder} & trouver les alignements & règle \\
-\texttt{NkGemLevels} & les trente niveaux & données \\
-\texttt{Ui/NkGemArt} & dessiner une gemme & écran \\
-\texttt{Ui/NkGemScreens} & menu, carte, partie & écran \\
-\texttt{Ui/NkGemHud} & score, objectifs, coups restants & écran \\
-\texttt{Ui/NkGemSplash} & l'ouverture & écran \\
-\texttt{Ui/NkGemTutorial} & le didacticiel & écran \\
-\texttt{Ui/NkGemTheme} & les couleurs & écran \\
-\texttt{Ui/NkGemAudio} & les sons, synthétisés & son \\
+\texttt{NkGem.\{h,cpp\}} & une gemme : couleur, forme, état & 313 \\
+\texttt{NkGemBoard.\{h,cpp\}} & le plateau et \textbf{ses phases} & 1\,343 \\
+\texttt{NkMatchFinder.\{h,cpp\}} & trouver les alignements & 426 \\
+\texttt{NkGemLevels.\{h,cpp\}} & les trente niveaux & 536 \\
+\texttt{Ui/NkGemArt} & dessiner une gemme & 612 \\
+\texttt{Ui/NkGemScreens} & les quatre écrans & 568 \\
+\texttt{Ui/NkGemHud} & score, objectifs, coups restants & 1\,003 \\
+\texttt{Ui/NkGemAudio} & les sons, \emph{synthétisés} & 642 \\
+\texttt{Ui/NkGemTutorial} & le didacticiel & 353 \\
+\texttt{Ui/NkGemTheme.h} & les couleurs & 181 \\
+\texttt{Ui/NkGemSplash} & l'ouverture & 298 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\begin{nkretenir}
-\textbf{Le même principe qu'aux jeux de plateau, à une échelle plus grande} : les
-trois premiers fichiers sont la règle et ne dessinent rien ; tout ce qui est sous
-\texttt{Ui/} dessine et ne décide de rien.
+\noindent \textbf{22 fichiers, 8\,091 lignes} pour un jeu dont la règle tient en
+une phrase : \emph{échangez deux gemmes voisines, alignez-en trois ou plus,
+elles disparaissent}.
 
-Ce qui a changé, ce n'est pas le principe : c'est le \emph{nombre} de fichiers de
-chaque côté. Quand un jeu grossit, c'est presque toujours le côté écran qui
-grossit.
+\begin{nkretenir}
+\textbf{Où passent les huit mille lignes ?} Regardez la colonne de droite : la
+règle --- gemme, plateau, alignements --- pèse 2\,082 lignes. Tout le reste,
+écrans, HUD, son, didacticiel, progression, en pèse 6\,009.
+
+\textbf{Quand un jeu grossit, c'est le côté écran qui grossit.} C'est la leçon
+la plus utile de ce chapitre, et il faut la savoir avant de commencer, pas
+après.
 \end{nkretenir}
 
-\section{Les quatre écrans}
+\section{Étape 14 --- la gemme, et ce qu'elle ne fait pas}
+
+\begin{nkcode}{Applications/Gemcrush/src/Gemcrush/NkGem.h -- l'en-tete du fichier}
+// v2 : NkGem NE CONNAIT PAS NkEvent. Elle ne fait pas son propre test de
+//      survol -- c'est NkGemBoard qui resout la case concernee en O(1) via
+//      WorldToCell() et appelle les hooks ci-dessous.
+//
+// v3 : NkGem NE DESSINE PLUS. Elle portait trois NkShape plus quatre formes
+//      d'overlay, soit SEPT objets de rendu par gemme.
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Deux capacités retirées à la gemme, et chacune pour une raison
+différente.}
+
+\emph{Le survol} : soixante-quatre gemmes qui testent chacune si la souris est
+dessus, c'est soixante-quatre tests par image. Le plateau, lui, calcule la case
+directement depuis la position --- une division. \textbf{Ce n'est pas une
+optimisation : c'est le bon propriétaire de la question.} La gemme ne sait pas
+où elle est dans la grille ; le plateau, oui.
+
+\emph{Le dessin} : sept objets de rendu par gemme, et surtout \textbf{deux
+chemins de dessin} qui « auraient divergé au premier changement de thème, et
+rien ne l'aurait signalé ».
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Une classe qui « se dessine elle-même » est le réflexe naturel, et c'est
+presque toujours faux dans un jeu.} Le dessin d'une gemme dépend du thème, de
+l'animation en cours, du niveau, de la sélection --- toutes choses que la gemme
+ne connaît pas et qu'elle devrait donc recevoir en paramètre. À ce moment-là,
+autant sortir la fonction.
+\end{nkpiege}
+
+\section{Étape 15 --- la machine à phases}
+
+C'est \textbf{la} différence avec un jeu de plateau, et il faut l'écrire avant
+tout le reste :
+
+\begin{nkcode}{Applications/Gemcrush/src/Gemcrush/NkGemBoard.h}
+enum class NkGemBoardPhase : uint8 {
+    NK_BOARD_PHASE_IDLE,            ///< Pret a recevoir une entree
+    NK_BOARD_PHASE_SWAPPING,        ///< Deux gemmes s'echangent (animation)
+    NK_BOARD_PHASE_REVERTING,       ///< L'echange n'a rien aligne -> retour anime
+    NK_BOARD_PHASE_RESOLVING_MATCH, ///< Gemmes alignees en train de disparaitre
+    // ... chute, remplissage, cascade
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un clic n'est acceptable que dans la phase IDLE.} Sans cette machine, un
+joueur qui clique pendant une chute déclenche un second échange par-dessus le
+premier : deux animations sur les mêmes cases, un état incohérent, et un plateau
+qui finit par afficher des gemmes qui n'existent plus.
+
+C'est la panne la plus classique des jeux animés, et elle est \emph{impossible}
+dès qu'une énumération de phase existe.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/Gemcrush/src/Gemcrush/NkGemBoard.h}
+bool IsIdle() const noexcept;
+bool TrySwap(int32 rowA, int32 columnA, int32 rowB, int32 columnB);
+void Update(float32 deltaTime);
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{TrySwap}, pas \texttt{Swap}.} Le nom dit que ça peut échouer ---
+gemmes non voisines, plateau occupé --- et le booléen le fait dire. Comparez avec
+\texttt{Jouer} du chapitre précédent : la même décision, le même mot.
+
+\textbf{Et \texttt{Update(deltaTime)} est ce qui fait avancer les phases.}
+Oubliez de l'appeler, et le plateau reste bloqué dans \texttt{SWAPPING} pour
+toujours --- le jeu se fige, silencieusement, exactement comme le ludo dont le
+tour ne revenait jamais.
+\end{nkretenir}
+
+\section{Étape 16 --- trouver les alignements}
+
+\begin{nkcode}{Applications/Gemcrush/src/Gemcrush/NkMatchFinder.h -- forme}
+/// Trouve TOUS les alignements de 3 ou plus, horizontaux et verticaux.
+/// Ne modifie rien : elle REND ce qu'elle a trouve.
+void NkTrouverAlignements(const NkGemBoard &plateau, NkVector<NkGemMatch> &sortie);
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Chercher et supprimer sont deux opérations, et il faut les séparer.} Une
+fonction qui supprimerait au fur et à mesure raterait les alignements qui se
+croisent : une gemme appartenant à une ligne \emph{et} à une colonne serait
+retirée par la première, et la seconde ne la verrait plus.
+
+Le résultat serait un jeu qui compte parfois mal --- une fois sur cinquante.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Une gemme peut appartenir à deux alignements.} En croix, elle compte
+pour les deux, et la marquer deux fois double le score.
+
+C'est pourquoi la suppression se fait sur un \emph{ensemble} de cases, construit
+à partir de tous les alignements trouvés --- jamais alignement par alignement.
+\end{nkpiege}
+
+\section{Étape 17 --- la cascade}
+
+Quand des gemmes disparaissent, celles du dessus tombent, de nouvelles arrivent
+en haut --- et il peut se former un nouvel alignement, sans que le joueur ait
+rien fait.
+
+\begin{nkcode}{La boucle de phases, en clair}
+IDLE --clic--> SWAPPING --alignement ?--> RESOLVING --> CHUTE --> REMPLISSAGE
+                   |  non                                             |
+                   v                                                  |
+              REVERTING ---------> IDLE          <---- alignement ? --+
+                                                       oui : RESOLVING (cascade)
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{La cascade est une boucle, et elle doit terminer.} Chaque tour retire au
+moins trois gemmes ; le plateau est fini ; donc elle termine. Écrivez ce
+raisonnement en commentaire --- c'est la seule chose qui garantit que votre jeu
+ne bouclera pas indéfiniment sur un plateau pathologique.
+
+Le compteur de cascade (\texttt{GetCascadeCount}) sert au score \emph{et} au
+son : la troisième cascade d'affilée sonne plus haut que la première.
+\end{nkretenir}
+
+\begin{nkretenir}
+\texttt{FindHintMove} cherche un coup possible. Deux usages, et le second est le
+vrai : montrer un indice au joueur qui hésite, et \textbf{détecter qu'il n'y a
+plus aucun coup} --- auquel cas \texttt{Shuffle()} rebat le plateau.
+
+Sans cette détection, une grille sans coup possible bloque la partie sans rien
+dire. Le joueur clique partout et rien ne se passe.
+\end{nkretenir}
+
+\section{Étape 18 --- les quatre écrans}
 
 \begin{nkcode}{Applications/Gemcrush/src/Gemcrush/Ui/NkGemScreens.h}
 enum class GemScreen : uint8 { Splash, Menu, Map, Game };
 \end{nkcode}
 
-Une énumération, et une seule variable qui dit où l'on est. Le \texttt{OnRender}
+\begin{nkretenir}
+\textbf{Une énumération, et une seule variable qui dit où l'on est.} Le dessin
 principal aiguille dessus.
 
-\begin{nkretenir}
-\textbf{Un jeu qui a plus de deux écrans a besoin d'une machine à états
-explicite.} Sans elle, on finit avec six booléens --- \texttt{menuOuvert},
+Sans elle, on finit avec quatre booléens --- \texttt{menuOuvert},
 \texttt{enPartie}, \texttt{surLaCarte}\dots --- qui peuvent être vrais en même
-temps, ce qui n'a aucun sens et arrive tout de même.
-
-Une énumération rend l'état impossible à contredire : on est dans un écran, et un
-seul.
+temps, ce qui n'a aucun sens et arrive tout de même. Une énumération rend l'état
+impossible à contredire.
 \end{nkretenir}
 
-\section{Le son, sans un seul fichier}
+\begin{nkcode}{La structure du dessin, une fois pour toutes}
+void OnDraw(nkgui::NkGuiDrawList &dl) override {
+    switch (mEcran) {
+        case GemScreen::Splash: mSplash.Dessiner(dl, ...);  break;
+        case GemScreen::Menu:   DessinerMenu(dl);           break;
+        case GemScreen::Map:    DessinerCarte(dl);          break;
+        case GemScreen::Game:   DessinerPartie(dl);         break;
+    }
+}
+\end{nkcode}
 
-\texttt{NkGemAudio} \textbf{synthétise} ses sons : il calcule les échantillons au
-lieu de lire un \texttt{.wav}.
+\begin{nkpiege}
+\textbf{Le \texttt{switch} doit couvrir tous les cas, et le compilateur peut le
+vérifier} --- si vous n'ajoutez pas de \texttt{default}. Avec un
+\texttt{default}, ajouter un cinquième écran compile en silence et n'affiche
+rien.
+
+\emph{Un \texttt{default} sur une énumération fermée transforme une erreur de
+compilation en écran noir.}
+\end{nkpiege}
+
+\section{Étape 19 --- la progression}
+
+Trente niveaux, des étoiles, un fichier de sauvegarde.
 
 \begin{nkretenir}
-\textbf{Aucun asset, et c'est un choix documenté du jeu} : « GemCrush ne charge
-aucun fichier à l'exécution [...] à l'identique sur les six plateformes sans
-chaîne de copie d'assets ».
-
-Le prix : les sons sont simples. Le gain : rien à copier, rien à empaqueter, rien
-à précharger sur le Web --- et un jeu qui démarre pareil partout. Pour un jeu de
-puzzle, l'échange est bon ; pour un jeu à musique, il ne le serait pas.
+Les cas de recette du jeu vérifient trois choses sur la progression, et la
+troisième est celle qu'on oublie : elle est \textbf{écrite}, \textbf{relue à
+neuf}, et \textbf{effaçable}.
 \end{nkretenir}
 
-\section{Le didacticiel, et ce qu'il révèle}
+\begin{nkpiege}
+\textbf{« La progression est relue à neuf » n'est pas la même chose que « la
+progression se relit ».}
 
-\texttt{NkGemTutorial} est un fichier entier pour apprendre au joueur à échanger
-deux gemmes.
+Un aller-retour qui compare le fichier à lui-même certifie une amputation
+reproductible : si l'enregistrement perd un champ, la relecture le perd aussi, et
+le contrôle reste vert.
+
+Un contrôle d'aller-retour porte \emph{deux} exigences :
+\begin{enumerate}
+\item \textbf{stabilité} : le second enregistrement égale le premier ;
+\item \textbf{conservation} : le contenu attendu est encore là, \emph{champ par
+      champ}, sur un document qui les porte tous.
+\end{enumerate}
+C'est la seconde qu'on oublie, et sans elle « octet pour octet » certifie une
+perte reproductible.
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{Les trente niveaux sont déterministes : même graine, même plateau.}
+Sans cela, aucun cas de banc n'est écrivable --- on ne peut pas vérifier qu'un
+niveau est jouable si son plateau change à chaque lancement.
+
+Déterministe ne veut pas dire prévisible pour le joueur : il ne rejoue pas le
+même niveau assez souvent pour le mémoriser, et le hasard qui compte est celui
+de ses propres coups.
+\end{nkretenir}
+
+\section{Étape 20 --- le son, sans un seul fichier}
+
+\begin{nkretenir}
+\textbf{\texttt{NkGemAudio} synthétise ses sons} : il calcule les échantillons au
+lieu de lire un \texttt{.wav}. Le jeu ne charge donc \textbf{aucun fichier à
+l'exécution} --- « à l'identique sur les six plateformes sans chaîne de copie
+d'assets ».
+
+Le prix : les sons sont simples. Le gain : rien à copier, rien à empaqueter,
+rien à précharger sur le Web, et un jeu qui démarre pareil partout.
+
+Pour un jeu de puzzle, l'échange est bon. Pour un jeu à musique, il ne le
+serait pas --- et c'est une décision à prendre au début, pas à la fin.
+\end{nkretenir}
+
+\begin{nkcode}{Le principe, en une fonction}
+// Une note = une sinusoide qui s'eteint. Trois lignes de calcul par
+// echantillon, et zero octet sur le disque.
+for (uint32 i = 0; i < n; ++i) {
+    const float32 t = (float32)i / (float32)frequenceEchantillonnage;
+    const float32 enveloppe = NkExp(-t * declin);
+    echantillons[i] = NkSin(2.f * NK_PI_F * hauteur * t) * enveloppe * volume;
+}
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{\texttt{2.f * NK\_PI\_F}, et non \texttt{NK\_TAU\_F}.} Cette dernière
+n'existe pas dans NKMath --- et \texttt{NK\_PI} tout court non plus : il n'y a
+que \texttt{NK\_PI\_F} et \texttt{NK\_PI\_D}, suffixés par leur précision.
+
+Le dépôt a déjà payé cette absence. Écrire une constante « qui devrait
+exister » donne une erreur de compilation, ce qui est le bon cas ; l'écrire dans
+un cours donnerait un exemple qui ne compile pas.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{L'enveloppe n'est pas un détail esthétique.} Une sinusoïde qui s'arrête
+net produit un \emph{clic} audible --- une discontinuité dans le signal. Le
+\texttt{NkExp} décroissant la supprime.
+
+C'est la première chose qu'on entend quand on l'oublie, et la dernière à
+laquelle on pense.
+\end{nkpiege}
+
+\section{Étape 21 --- le didacticiel}
+
+Un fichier entier --- 353 lignes --- pour apprendre au joueur à échanger deux
+gemmes.
 
 \begin{nkretenir}
 \textbf{Ce n'est pas du superflu.} Un jeu dont la règle tient en une phrase n'est
 pas un jeu qu'on comprend en une phrase : il faut montrer le geste, une fois, au
-bon moment, puis se taire.
+bon moment, puis \emph{se taire}.
 
 Le didacticiel de GemCrush s'efface seul et devient muet au niveau 7 --- il ne
-répète pas ce qui est acquis.
+répète pas ce qui est acquis. C'est cette seconde moitié qui est difficile à
+écrire, et c'est elle qui distingue une aide d'un harcèlement.
 \end{nkretenir}
 
-\section{Ce que son banc mesure}
+\section{Étape 22 --- les cas de recette d'un jeu animé}
 
 \begin{center}
 \begin{tabular}{@{}ll@{}}
@@ -108,9 +329,9 @@ progression : écrite, relue à neuf, effaçable & la sauvegarde tient \\
 \end{center}
 
 \begin{nkretenir}
-\textbf{Deux de ces cas ne parlent pas de la règle du jeu.} « le clic tombe là où
-le n\oe ud est dessiné » et « ce qui s'affiche est ce qui est calculé » vérifient
-un \emph{accord entre deux chemins}.
+\textbf{Deux de ces cas ne parlent pas de la règle du jeu.} « Le clic tombe là où
+le n\oe ud est dessiné » et « ce qui s'affiche est ce qui est calculé »
+vérifient un \emph{accord entre deux chemins}.
 
 C'est la forme de banc la plus rentable quand un jeu grossit : dès que deux
 chemins doivent produire le même verdict --- le dessin et le clic, l'affichage et
@@ -119,66 +340,80 @@ de la règle, rien ne signale le jour où elles divergent.
 \end{nkretenir}
 
 \begin{nkpiege}
-\textbf{« La progression est relue à neuf » n'est pas la même chose que « la
-progression se relit ».} Un aller-retour qui compare le fichier à lui-même
-certifie une amputation reproductible : si l'enregistrement perd un champ, la
-relecture le perd aussi, et le contrôle reste vert.
+\textbf{Un jeu animé ne se teste pas en appelant ses fonctions.} Un cas qui
+appelle \texttt{TrySwap} directement prouve la \emph{règle} d'échange ; il ne
+prouve pas qu'un clic y mène.
 
-Un contrôle d'aller-retour porte \emph{deux} exigences : la stabilité (le second
-enregistrement égale le premier) et la \textbf{conservation} (le contenu attendu
-est encore là, champ par champ). C'est la seconde qu'on oublie.
+Faites partir le cas de la \emph{position du clic}, passez par la conversion en
+case, et regardez le plateau. Ce détour est exactement ce qui rend visible une
+géométrie fausse --- et une géométrie fausse est le défaut numéro un de ce genre
+de jeu.
 \end{nkpiege}
 
 \begin{nkbilan}
-Vingt-deux fichiers pour une règle d'une phrase : ce sont les écrans, la
-progression, le didacticiel et le son qui pèsent, pas la règle. Le découpage
-reste celui des jeux de plateau --- la règle ne dessine pas, l'écran ne décide
-pas --- mais le côté écran grossit. Au-delà de deux écrans, une énumération
-explicite remplace les booléens qui se contredisent. Et les bancs les plus utiles
-d'un gros jeu vérifient l'\emph{accord entre deux chemins}, pas la règle.
+Un jeu animé ajoute neuf étapes au squelette du chapitre précédent, et la
+première est la plus importante : une \textbf{machine à phases}, sans laquelle un
+clic reçu pendant une animation corrompt l'état. Chercher les alignements et les
+supprimer sont deux opérations séparées, sinon les croix se comptent mal. Les
+écrans se tiennent par une énumération, jamais par des booléens qui se
+contredisent. Le son synthétisé supprime toute chaîne d'assets --- une décision
+à prendre au début. Et les bancs les plus utiles ne vérifient plus la règle mais
+l'\emph{accord entre deux chemins}.
 \end{nkbilan}
 
 \begin{nkquestions}
 \begin{enumerate}
-\item Quels fichiers de GemCrush sont du côté « règle » ? Comment le sait-on ?
-\item Pourquoi une énumération d'écrans plutôt que plusieurs booléens ?
-\item Pourquoi GemCrush synthétise-t-il ses sons au lieu de lire des fichiers ?
-      Quel est le prix de ce choix ?
-\item Qu'est-ce qu'un banc « d'accord entre deux chemins » ? Donnez-en deux.
+\item Pourquoi une machine à phases est-elle indispensable dès qu'il y a
+      animation ?
+\item Pourquoi \texttt{NkGem} ne fait-elle plus son propre test de survol ?
+\item Pourquoi séparer « trouver les alignements » de « les supprimer » ?
+\item Que se passe-t-il si l'on met un \texttt{default} dans le \texttt{switch}
+      des écrans ?
 \item Quelles sont les deux exigences d'un contrôle d'aller-retour ?
+\item Pourquoi les trente niveaux doivent-ils être déterministes ?
 \end{enumerate}
 \end{nkquestions}
 
 \begin{nkpratique}
-Écrivez le c\oe ur d'un jeu d'alignement : un plateau $8\times8$ de couleurs, une
-fonction qui trouve tous les alignements de trois ou plus, et une fonction qui
-fait chuter les gemmes pour combler les trous.
+Construisez le c\oe ur d'un jeu d'alignement, dans l'ordre des étapes 14 à 17.
 
-\textbf{Sans dessiner quoi que ce soit.} Vérifiez par un banc : un plateau
-fabriqué à la main dont vous connaissez les alignements attendus, et le plateau
-d'après la chute, comparé case par case.
+\textbf{A.} La gemme et le plateau $8\times8$ --- \emph{sans dessiner}.
+\textbf{B.} La recherche d'alignements de trois ou plus, horizontaux et
+verticaux, qui \emph{rend} le résultat.
+\textbf{C.} La chute et le remplissage.
+\textbf{D.} La machine à phases, et un \texttt{TrySwap} qui refuse hors
+\texttt{IDLE}.
+
+Vérifiez par un banc : un plateau fabriqué à la main dont vous connaissez les
+alignements attendus, et le plateau d'après la chute, comparé case par case.
+Seulement ensuite, dessinez.
 \end{nkpratique}
 
 \begin{nkdemo}
 Prouvez que votre détection d'alignements ne trouve pas ce qui n'existe pas.
 
-Construisez un plateau \emph{sans aucun alignement} et vérifiez que la fonction
-rend zéro. Puis --- et c'est la partie qui compte --- construisez un plateau avec
-deux gemmes identiques côte à côte seulement, et vérifiez qu'elle rend encore
-zéro.
+Construisez un plateau \emph{sans aucun alignement} : la fonction doit rendre
+zéro. Puis --- et c'est la partie qui compte --- un plateau avec deux gemmes
+identiques côte à côte seulement : elle doit rendre \emph{encore} zéro.
 
 \textbf{Pourquoi ce second cas} : une fonction qui compterait les paires au lieu
 des triplets passerait le premier test et raterait le second. Un cas qui doit
 rendre zéro prouve autant qu'un cas qui doit trouver.
+
+Ajoutez enfin le cas en croix : une gemme dans une ligne \emph{et} une colonne
+alignées. Comptez les gemmes retirées --- pas les alignements.
 \end{nkdemo}
 
 \begin{nklogique}
-GemCrush a 30 niveaux « déterministes : même graine, même plateau ».
+Votre jeu se fige de temps en temps, plateau figé, aucun clic ne répond.
 
-Expliquez pourquoi c'est indispensable à un banc. Puis répondez à ceci : si le
-jeu tirait ses gemmes avec une graine prise sur l'horloge, quels cas du tableau
-ci-dessus deviendraient impossibles à écrire ?
-
-Enfin : un jeu déterministe est-il un jeu prévisible pour le joueur ? Justifiez
-la différence.
+\begin{enumerate}
+\item En vous appuyant sur la machine à phases, énumérez trois façons dont cela
+      peut arriver --- une par phase où l'on peut rester coincé.
+\item Pour chacune, dites quelle information affichée à l'écran permettrait de
+      la distinguer des deux autres en une seconde.
+\item Un collègue propose de forcer le retour à \texttt{IDLE} après trois
+      secondes dans n'importe quelle phase. Expliquez pourquoi ce correctif est
+      plus dangereux que le défaut --- et ce qu'il rend impossible à découvrir.
+\end{enumerate}
 \end{nklogique}
