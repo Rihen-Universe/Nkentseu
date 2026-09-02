@@ -341,6 +341,33 @@ namespace nkentseu {
 						  mEtat == NkEchecsEtat::NK_NULLE_MATERIEL || mEtat == NkEchecsEtat::NK_NULLE_50_COUPS);
 			}
 
+
+			// =====================================================================
+			// ⚠️ SANS CETTE METHODE, LA TOUCHE RETOUR D'ANDROID NE FAISAIT RIEN.
+			//
+			// Le systeme la livrait pourtant : `NkAndroidEventSystem` la traduit
+			// en NK_ESCAPE et la consomme. Elle arrivait jusqu'a la coquille, qui
+			// la proposait a l'application -- laquelle ne l'ecoutait pas. Un
+			// evenement livre a personne est indiscernable d'un evenement jamais
+			// emis, et l'on cherche le defaut dans la plateforme.
+			//
+			// LE GESTE : Retour ferme ce qui est ouvert, du plus interieur au plus
+			// exterieur. Au menu, on ne consomme PAS -- c'est au systeme de fermer
+			// l'application, et c'est ce que l'utilisateur attend.
+			bool NkEchecsJeu::OnKeyPress(const NkKeyPressEvent &e) {
+				if (e.GetKey() != NkKey::NK_ESCAPE) {
+					return false;
+				}
+				if (!mSplash.Termine()) {
+					mSplash.Sauter();
+					return true;
+				}
+				if (mEcran == NkEcran::NK_PARTIE) {
+					mEcran = NkEcran::NK_MENU;
+					return true;
+				}
+				return false; // au menu : on laisse le systeme fermer
+			}
 		} // namespace echecs
 	} // namespace jeux
 } // namespace nkentseu

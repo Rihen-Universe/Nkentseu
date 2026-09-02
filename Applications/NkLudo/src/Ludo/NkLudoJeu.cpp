@@ -301,7 +301,7 @@ namespace nkentseu {
 					PasserLaMain();
 					return;
 				}
-				const NkLudoCoup *choisi = NkLudoChoisirCoup(mPartie, mCoups, mGraine);
+				const NkLudoCoup *choisi = NkLudoChoisirCoup(mPartie, mCoups, mGraineIA);
 				if (choisi != nullptr) {
 					const int32 joueur = mPartie.Joueur();
 					const int32 avant = mPartie.Avancement(joueur, choisi->pion);
@@ -387,7 +387,7 @@ namespace nkentseu {
 				// ⚠️ La valeur est tiree ICI, une fois. L'animation qui suit ne
 				// fait que retarder son affichage : si elle decidait du resultat,
 				// il y aurait DEUX sources de hasard, dont une invisible au banc.
-				mDernierDe = mPartie.LancerDe(mGraine);
+				mDernierDe = mPartie.LancerDe(mGraineDe);
 				mPartie.CoupsLegaux(mCoups);
 				mDeLance = true;
 				mDeAnim.actif = true;
@@ -412,6 +412,33 @@ namespace nkentseu {
 				PasserLaMain();
 			}
 
+
+			// =====================================================================
+			// ⚠️ SANS CETTE METHODE, LA TOUCHE RETOUR D'ANDROID NE FAISAIT RIEN.
+			//
+			// Le systeme la livrait pourtant : `NkAndroidEventSystem` la traduit
+			// en NK_ESCAPE et la consomme. Elle arrivait jusqu'a la coquille, qui
+			// la proposait a l'application -- laquelle ne l'ecoutait pas. Un
+			// evenement livre a personne est indiscernable d'un evenement jamais
+			// emis, et l'on cherche le defaut dans la plateforme.
+			//
+			// LE GESTE : Retour ferme ce qui est ouvert, du plus interieur au plus
+			// exterieur. Au menu, on ne consomme PAS -- c'est au systeme de fermer
+			// l'application, et c'est ce que l'utilisateur attend.
+			bool NkLudoJeu::OnKeyPress(const NkKeyPressEvent &e) {
+				if (e.GetKey() != NkKey::NK_ESCAPE) {
+					return false;
+				}
+				if (!mSplash.Termine()) {
+					mSplash.Sauter();
+					return true;
+				}
+				if (mEcran == NkEcran::NK_PARTIE) {
+					mEcran = NkEcran::NK_MENU;
+					return true;
+				}
+				return false; // au menu : on laisse le systeme fermer
+			}
 		} // namespace ludo
 	} // namespace jeux
 } // namespace nkentseu

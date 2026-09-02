@@ -61,28 +61,91 @@ namespace nkentseu {
 				const float32 gaucheSur = info.safeArea.left;
 				const float32 droiteSur = info.safeArea.right;
 
-				const float32 marge = W * 0.03f;
-				const float32 hBandeau = (H - hautSur - basSur) * (info.IsPortrait() ? 0.11f : 0.14f);
-				bandeau = NkRect{gaucheSur + marge, hautSur + marge, W - gaucheSur - droiteSur - marge * 2.f, hBandeau};
+				// ── LA MARGE SE MESURE SUR LE PLUS PETIT COTE ───────────────
+				// ⚠️ `W * 0.03f` donnait, en paysage, une marge deux fois plus
+				// large que haute. Une proportion se prend sur la dimension
+				// CONTRAINTE, jamais sur la plus grande.
+				const float32 petitEcran = W < H ? W : H;
+				const float32 marge = petitEcran * 0.03f;
 
-				// Le damier est CARRE : il prend la plus petite des deux places, ce
-				// qui le fait tenir en portrait comme en paysage sans deux mises en
-				// page separees.
-				const float32 dispoW = W - gaucheSur - droiteSur - marge * 2.f;
-				const float32 dispoH = H - hautSur - basSur - hBandeau - marge * 3.f - hBandeau * 0.75f;
-				const float32 cote = dispoW < dispoH ? dispoW : dispoH;
+				const float32 zoneX = gaucheSur + marge;
+				const float32 zoneY = hautSur + marge;
+				const float32 zoneW = W - gaucheSur - droiteSur - marge * 2.f;
+				const float32 zoneH = H - hautSur - basSur - marge * 2.f;
 
-				plateau = NkRect{gaucheSur + (W - gaucheSur - droiteSur - cote) * 0.5f, bandeau.y + bandeau.h + marge,
-									 cote, cote};
-				cellule = cote / static_cast<float32>(NkEchecsPartie::NK_TAILLE);
+				// ── QUAND BASCULER EN DEUX COLONNES ─────────────────────────
+				// ⚠️ PAS SUR `IsPortrait()`, qui ne dit que `H >= W`. Sur un ecran
+				// PRESQUE carre, deux colonnes donneraient au damier moins de la
+				// moitie de la place qu'une colonne unique lui donne. Le critere
+				// est la PROPORTION, pas l'orientation.
+				//
+				// ⚠️ ET LE COMMENTAIRE PRECEDENT MENTAIT : « il tient en portrait
+				// comme en paysage sans deux mises en page separees ». Il tenait,
+				// en effet -- minuscule, avec les deux tiers de la largeur vides.
+				// Tenir n'est pas occuper.
+				const bool colonneUnique = zoneW < zoneH * 1.30f;
 
-				const float32 hBas = hBandeau * 0.72f;
-				const float32 yBas = plateau.y + cote + marge;
-				const float32 ecart = cote * 0.02f;
-				const float32 lSiege = (cote - ecart * 2.f) * 0.27f;
-				siege[0] = NkRect{plateau.x, yBas, lSiege, hBas};
-				siege[1] = NkRect{plateau.x + lSiege + ecart, yBas, lSiege, hBas};
-				rejouer = NkRect{plateau.x + (lSiege + ecart) * 2.f, yBas, cote - (lSiege + ecart) * 2.f, hBas};
+				const float32 hBandeau = zoneH * (colonneUnique ? 0.11f : 0.14f);
+				if (colonneUnique) {
+					// ── UNE COLONNE : bandeau, damier, pied de page ───────────
+					bandeau = NkRect{zoneX, zoneY, zoneW, hBandeau};
+
+					const float32 dispoH = zoneH - hBandeau - marge * 2.f - hBandeau * 0.75f;
+					const float32 cote = zoneW < dispoH ? zoneW : dispoH;
+
+					plateau = NkRect{zoneX + (zoneW - cote) * 0.5f, bandeau.y + bandeau.h + marge, cote, cote};
+
+					// Le pied de page porte TROIS boutons : les deux sieges, puis
+					// « nouvelle partie ». Ils partagent la largeur du damier.
+					const float32 hBas = hBandeau * 0.72f;
+					const float32 yBas = plateau.y + cote + marge;
+					const float32 ecart = cote * 0.02f;
+					const float32 lSiege = (cote - ecart * 2.f) * 0.27f;
+					siege[0] = NkRect{plateau.x, yBas, lSiege, hBas};
+					siege[1] = NkRect{plateau.x + lSiege + ecart, yBas, lSiege, hBas};
+					rejouer = NkRect{plateau.x + (lSiege + ecart) * 2.f, yBas, cote - (lSiege + ecart) * 2.f, hBas};
+				} else {
+					// ── DEUX COLONNES : le damier a gauche, le reste a droite ──
+					//
+					// En paysage c'est la HAUTEUR qui contraint le damier. On lui
+					// donne toute la hauteur utile ; la colonne prend le reste,
+					// bornee pour ne pas devenir absurde sur un ecran tres large.
+					float32 cote = zoneH;
+					float32 lCol = zoneW - cote - marge;
+					const float32 lColMin = hBandeau * 4.2f;
+					const float32 lColMax = zoneW * 0.42f;
+					if (lCol > lColMax) {
+						lCol = lColMax;
+					}
+					// ⚠️ SI LA COLONNE NE TIENT PAS, C'EST LE DAMIER QUI CEDE --
+					// sinon elle sortirait de l'ecran par la droite, et aucun
+					// calcul ne l'aurait signale.
+					if (lCol < lColMin) {
+						lCol = lColMin;
+						cote = zoneW - lCol - marge;
+						if (cote > zoneH) {
+							cote = zoneH;
+						}
+					}
+
+					plateau = NkRect{zoneX, zoneY + (zoneH - cote) * 0.5f, cote, cote};
+
+					const float32 xCol = zoneX + cote + marge;
+					bandeau = NkRect{xCol, zoneY, lCol, hBandeau};
+
+					// Les trois boutons s'empilent : en colonne etroite, trois
+					// libelles cote a cote seraient tronques.
+					const float32 hBas = hBandeau * 0.85f;
+					const float32 ecart = hBandeau * 0.20f;
+					float32 y = bandeau.y + bandeau.h + marge;
+					siege[0] = NkRect{xCol, y, lCol, hBas};
+					y += hBas + ecart;
+					siege[1] = NkRect{xCol, y, lCol, hBas};
+					y += hBas + ecart;
+					rejouer = NkRect{xCol, y, lCol, hBas};
+				}
+
+				cellule = plateau.w / static_cast<float32>(NkEchecsPartie::NK_TAILLE);
 
 				// Le retour au menu vit dans le bandeau, a droite : la seule place
 				// qui ne bouge pas d'un ecran a l'autre.
@@ -93,15 +156,15 @@ namespace nkentseu {
 				// ⚠️ Les boutons du menu s'ancrent SOUS le titre, ils ne se centrent
 				// pas a l'aveugle : sur NkDames, la version centree les faisait
 				// RECOUVRIR le titre — defaut invisible au calcul, vu sur la CAPTURE.
-				menuTitre = NkRect{plateau.x, plateau.y + plateau.h * 0.06f, cote, hBandeau * 1.1f};
-				menuSousTitre = NkRect{plateau.x, menuTitre.y + menuTitre.h, cote, hBandeau * 0.66f};
+				menuTitre = NkRect{plateau.x, plateau.y + plateau.h * 0.06f, plateau.w, hBandeau * 1.1f};
+				menuSousTitre = NkRect{plateau.x, menuTitre.y + menuTitre.h, plateau.w, hBandeau * 0.66f};
 
-				const float32 lChoix = cote * 0.86f;
+				const float32 lChoix = plateau.w * 0.86f;
 				const float32 hChoix = hBandeau * 0.92f;
 				const float32 pasChoix = hChoix * 1.3f;
 				const float32 y0 = menuSousTitre.y + menuSousTitre.h + hBandeau * 0.5f;
 				for (int32 i = 0; i < 3; ++i) {
-					choix[i] = NkRect{plateau.x + (cote - lChoix) * 0.5f, y0 + static_cast<float32>(i) * pasChoix,
+					choix[i] = NkRect{plateau.x + (plateau.w - lChoix) * 0.5f, y0 + static_cast<float32>(i) * pasChoix,
 					                  lChoix, hChoix};
 				}
 			}

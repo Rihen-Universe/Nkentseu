@@ -323,10 +323,21 @@ namespace nkentseu {
 		// NkDamesChoisirCoup — adversaire simple, et il ne pretend pas l'etre
 		// =====================================================================
 		const NkDamesCoup *NkDamesChoisirCoup(const NkDamesPartie &partie, const NkVector<NkDamesCoup> &coups,
-											  uint32 &graine) noexcept {
+											  uint32 &graine, NkNiveauIA niveau) noexcept {
 			if (coups.Size() == 0) {
 				return nullptr;
 			}
+
+			// ── FACILE : au hasard parmi les coups LEGAUX ────────────────────
+			// Elle ne triche pas et ne joue jamais un coup impossible ; elle ne
+			// choisit simplement pas. Affaiblir une IA en lui interdisant des
+			// coups la rendrait exploitable, et le joueur le sentirait.
+			if (niveau == NkNiveauIA::NK_FACILE) {
+				graine = graine * 1664525u + 1013904223u;
+				return &coups[(graine >> 16) % coups.Size()];
+			}
+			const bool difficile = (niveau == NkNiveauIA::NK_DIFFICILE);
+
 			int32 meilleur = -1;
 			int32 meilleurScore = -1000000;
 
@@ -352,6 +363,31 @@ namespace nkentseu {
 				}
 				if (c.arrC == 0 || c.arrC == NkDamesPartie::NK_TAILLE - 1) {
 					score -= 2;
+				}
+
+				// ── DIFFICILE : UN COUP D'AVANCE ─────────────────────────────
+				// Le palier moyen regarde ce que le coup RAPPORTE. Celui-ci joue
+				// le coup sur une COPIE et demande a l'adversaire ce qu'il
+				// pourrait prendre. On penalise la plus grosse rafle qu'on lui
+				// laisse.
+				//
+				// ⚠️ On se sert des REGLES pour cela, jamais d'une heuristique
+				// « ce coup a l'air dangereux » : une seconde definition du
+				// danger divergerait de la premiere.
+				if (difficile) {
+					NkDamesPartie apres = partie;
+					apres.Jouer(c);
+					NkVector<NkDamesCoup> replique;
+					apres.CoupsLegaux(replique);
+					int32 pire = 0;
+					for (uint32 k = 0; k < replique.Size(); ++k) {
+						if (static_cast<int32>(replique[k].nbPrises) > pire) {
+							pire = static_cast<int32>(replique[k].nbPrises);
+						}
+					}
+					// 90 par piece laissee : un peu moins que les 100 d'une piece
+					// prise, pour qu'un echange favorable reste jouable.
+					score -= pire * 90;
 				}
 
 				// Bruit deterministe : sans lui, l'ordinateur rejoue exactement

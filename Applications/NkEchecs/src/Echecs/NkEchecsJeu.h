@@ -26,6 +26,7 @@
 #include "Echecs/NkEchecsEcran.h"
 #include "Echecs/NkEchecsRegles.h"
 #include "NKCanvas/App/NkCanvasGuiApp.h"
+#include "NKEvent/NkKeyboardEvent.h"
 #include "NKCanvas/App/NkCanvasSplash.h"
 
 namespace nkentseu {
@@ -41,6 +42,9 @@ namespace nkentseu {
 					bool OnGuiInit() override;
 					void OnLayout(const renderer::NkLayoutInfo &info) override;
 					bool OnPointer(const NkPointer &p) override;
+					/// La touche ECHAP -- et sur Android, la TOUCHE RETOUR du
+					/// systeme, que `NkAndroidEventSystem` traduit en NK_ESCAPE.
+					bool OnKeyPress(const NkKeyPressEvent &e) override;
 					void OnTick(float32 deltaTime) override;
 					void OnDraw(nkgui::NkGuiDrawList &dl) override;
 
