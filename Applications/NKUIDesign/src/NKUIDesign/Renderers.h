@@ -626,6 +626,25 @@ namespace nkuidesign {
 				//    même rectangle. Peindre uniquement le remplissage du dessus
 				//    aurait rendu une liste de deux INDISTINGUABLE d'une liste
 				//    d'un, dès que le premier est translucide.
+				// 🔴 `fondPeint` DIT CE QUE LE PEINTRE A FAIT, PAS CE QUE LE MODÈLE
+				//    DÉCLARE — et c'est toute la correction du 02/09 (Rodolf : *« un
+				//    rectangle neuf a une bordure que je n'ai pas demandée »*).
+				//
+				//    Le nœud est PROPRE : `CreerForme` n'écrit ni bordure ni fond,
+				//    et le fichier ne porte aucune clé. Le contour venait d'ici : le
+				//    repli de bordure se déclenche sur `!n.FondEffectif()`, qui
+				//    demande *« le modèle déclare-t-il un fond ? »*. Or la branche
+				//    juste en dessous EN PEINT UN — le fond de rôle du thème. Les
+				//    deux répondaient donc l'inverse l'une de l'autre à la même
+				//    question : *cette forme a-t-elle un fond ?*
+				//
+				// ⚠️ ET LE REPLI RESTE, IL NE DISPARAÎT PAS. Une forme dont
+				//    l'utilisateur a masqué TOUS ses remplissages doit rester
+				//    visible : là, rien n'est peint, et le contour est la seule
+				//    chose qui la rende repérable à l'œil. Ce qu'on corrige n'est
+				//    pas « il y a un repli », c'est *« le repli se trompait de
+				//    question »*.
+				bool fondPeint = false;
 				if (!n.fills.Empty()) {
 					bool peint = false;
 					for (uint32 fi = 0; fi < (uint32)n.fills.Size(); ++fi) {
@@ -646,10 +665,14 @@ namespace nkuidesign {
 					// vide, pas « par défaut ».
 					if (!peint)
 						p.OutlineSharp(r, host.Role("border"));
-				} else if (!n.fill.Empty())
+					fondPeint = peint;
+				} else if (!n.fill.Empty()) {
 					p.FillColor(r, NkGHexRGBA(n.fill.Data()), rd);
-				else
+					fondPeint = true;
+				} else {
 					p.Fill(r, host.Role("doc_field_bg"), rd);
+					fondPeint = true; // le fond de rôle EST un fond
+				}
 				// ── LES BORDURES : LA LISTE D'ABORD, LA CLÉ SIMPLE SINON ─────
 				// ⚠️ ET LA POSITION EST HONORÉE, sinon c'était un champ que le
 				//    fichier porte et que l'écran ignore. `NkGCadre` déplace les
@@ -664,7 +687,7 @@ namespace nkuidesign {
 						NkGCadre(p, r, b);
 						trace = true;
 					}
-					if (!trace && !n.FondEffectif())
+					if (!trace && !fondPeint)
 						p.OutlineSharp(r, host.Role("border"));
 				} else if (!n.borderColor.Empty()) {
 					NkBordure b;
@@ -672,7 +695,7 @@ namespace nkuidesign {
 					b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
 					b.position = NkBordurePos::Interieur; // le geste historique
 					NkGCadre(p, r, b);
-				} else if (!n.FondEffectif())
+				} else if (!fondPeint)
 					p.OutlineSharp(r, host.Role("border"));
 				return;
 			}

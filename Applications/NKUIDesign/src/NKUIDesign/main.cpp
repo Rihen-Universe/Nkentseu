@@ -1591,6 +1591,94 @@ static nkentseu::int32 RecetteGestes() {
 				memeImage, det);
 	}
 
+	// ── UN RECTANGLE NEUF N'A PAS DE BORDURE ─────────────────────────────────
+	// Rodolf : « quand je trace un rectangle il a une bordure que je n'ai pas
+	// demandee ». Le nœud est PROPRE -- `CreerForme` n'ecrit ni bordure ni fond,
+	// et le fichier ne porte aucune cle. Le contour venait du PEINTRE.
+	//
+	// 🔴 DEUX BRANCHES REPONDAIENT L'INVERSE A LA MEME QUESTION. Le repli de
+	//    bordure se declenchait sur `!n.FondEffectif()` -- « le MODELE declare-t-il
+	//    un fond ? » -- alors que la branche du dessus EN PEINT UN (le fond de
+	//    role du theme). Le peintre peignait donc un fond, puis ajoutait un
+	//    contour parce qu'il n'y en avait « pas ». `fondPeint` dit ce que le
+	//    peintre A FAIT, pas ce que le modele DECLARE.
+	//
+	// ⚠️ ON MESURE L'OPERATION, PAS LE NOMBRE DE COMMANDES : un compte dirait
+	//    « il y en a une de moins » sans dire LAQUELLE. On compte les
+	//    `OutlineSharp` -- le contour lui-meme.
+	{
+		NkUIDocument d;
+		d.NewDocument("bordure neuve", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		d.nodes[(uint32)pg].shape = NkString("frame");
+		d.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+		d.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].width.value = 400.f;
+		d.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].height.value = 300.f;
+		// un rectangle EXACTEMENT tel que le trace le pose : aucune cle de fond,
+		// aucune cle de bordure.
+		const int32 rc = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)rc].shape = NkString("rect");
+		d.nodes[(uint32)rc].posX = 20.f;
+		d.nodes[(uint32)rc].posY = 20.f;
+		d.nodes[(uint32)rc].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)rc].width.value = 120.f;
+		d.nodes[(uint32)rc].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)rc].height.value = 60.f;
+		const bool noeudPropre = d.nodes[(uint32)rc].fill.Empty()
+								 && d.nodes[(uint32)rc].fills.Empty()
+								 && d.nodes[(uint32)rc].borderColor.Empty()
+								 && d.nodes[(uint32)rc].borders.Empty()
+								 && d.nodes[(uint32)rc].borderW == 0.f;
+		NkLayoutResult lay;
+		NkComputeLayout(d, NkPaintRect{0.f, 0.f, 400.f, 300.f}, lay);
+		NkComponentInput in;
+		nkentseu::editorkit::NkRecordingPaint pv;
+		NkDocumentHost hote;
+		hote.SyncTo(d);
+		auto compter = [&](nkentseu::editorkit::NkPaintOp op) -> uint32 {
+			uint32 k = 0;
+			for (uint32 c = 0; c < (uint32)pv.cmds.Size(); ++c)
+				if (pv.cmds[c].op == op)
+					++k;
+			return k;
+		};
+		pv.Reset();
+		NkDrawDocument(pv, in, d, lay, hote, 0);
+		const uint32 contours = compter(nkentseu::editorkit::NkPaintOp::OutlineSharp);
+		const uint32 fonds = compter(nkentseu::editorkit::NkPaintOp::Fill)
+							 + compter(nkentseu::editorkit::NkPaintOp::FillColor);
+		// (a) AUCUN CONTOUR, et (b) UN FOND QUAND MEME. Le second volet compte
+		//     autant que le premier : retirer le contour en rendant la forme
+		//     INVISIBLE serait une regression, pas une correction.
+		const bool sansContour = contours == 0u;
+		const bool maisVisible = fonds >= 1u;
+		// (c) ⚠️ LE REPLI RESTE POUR CE QUI N'A VRAIMENT RIEN. Une forme dont tous
+		//     les remplissages sont MASQUES ne peint rien : le contour est alors la
+		//     seule chose qui la rende reperable. Sans ce volet, on aurait pu
+		//     SUPPRIMER le repli au lieu de corriger sa question -- et personne
+		//     n'aurait vu la difference avant de masquer un remplissage.
+		NkRemplissage f;
+		f.couleur = NkString("#123456");
+		f.visible = false; // masque : rien ne se peint
+		d.nodes[(uint32)rc].fills.PushBack(f);
+		pv.Reset();
+		NkDrawDocument(pv, in, d, lay, hote, 0);
+		const uint32 contoursMasque = compter(nkentseu::editorkit::NkPaintOp::OutlineSharp);
+		const bool repliTenu = contoursMasque >= 1u;
+		char det[240];
+		snprintf(det, sizeof(det), "noeud propre=%d ; contours=%u (attendu 0)=%d fonds=%u "
+							   "(visible=%d) ; tous remplissages masques -> contours=%u (repli "
+							   "tenu=%d)",
+				 noeudPropre ? 1 : 0, contours, sansContour ? 1 : 0, fonds, maisVisible ? 1 : 0,
+				 contoursMasque, repliTenu ? 1 : 0);
+		verdict("UN RECTANGLE NEUF N'A PAS DE BORDURE : le nœud est propre, le peintre lui donne "
+				"son fond de role SANS y ajouter de contour -- et le repli de contour reste pour "
+				"une forme dont tous les remplissages sont masques",
+				noeudPropre && sansContour && maisVisible && repliTenu, det);
+	}
+
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
