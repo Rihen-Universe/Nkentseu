@@ -547,6 +547,38 @@ Source : `/tools`, `/shortcuts`.
 | Nombre de branches d'une étoile / d'un polygone (*Count*) | poignée, ou champ | ❌ **absent** | notre étoile et notre pentagone ont un nombre **figé** dans la table unitaire |
 | Ratio d'une étoile | poignées internes, ou champ | ❌ **absent** | idem |
 | Arrondi sur la toile des formes prédéfinies | glisser les poignées rondes des coins | ❌ **absent** | nous n'avons que le champ et le double-clic (§1.2) |
+### 🔑 OÙ L'ARRONDI PAR SOMMET S'APPLIQUE — LA MESURE (03/09)
+
+> **Rodolf, 02/09** : *« concernant les arrondis, on n'a pas toujours les
+> arrondis par sommet. »* Il a raison, et voici **où** — relevé dans le code,
+> pas supposé.
+
+La porte est `NkSommetsStockes(NkNatureDe(shape))` : une forme n'a de rayon par
+sommet que si ses sommets se **stockent**. Sinon `NkLireSommet` rend
+`rayon = 0.f` — *« la table régulière est VIVE par définition »*.
+
+<!-- PAS-UN-COMPORTEMENT -->
+| forme | nature | rayon par sommet | pourquoi |
+|---|---|---|---|
+| `rect`, `ellipse` | `CoinsEditables` | ✅ | leurs quatre coins s'éditent |
+| `triangle`, `pentagone`, `etoile` | `Polygone` | ✅ | sommets tabulés, matérialisables |
+| `line`, `line_up` | `Bouts` | ❌ | un trait n'a pas de coin à arrondir |
+| `fleche` | *(défaut)* `Coins` | ❌ | tracée **procéduralement** (fût + tête), elle n'a pas de table de sommets — cohérent avec son dessin |
+| `text` | `Aucun` | ❌ | légitime |
+| `frame` et tout nom inconnu | *(défaut)* `Coins` | ❌ | un cadre s'arrondit par `rayon` / `rayons` (les quatre coins de boîte), pas par sommet |
+
+➡️ **Donc le modèle et le peintre sont complets sur les cinq formes qui ont des
+sommets.** Ce qui manque n'est pas le rayon : c'est **son ACCÈS**.
+
+⚠️ **LE VRAI MANQUE, ET C'EST UN MANQUE D'ACCÈS, PAS DE MODÈLE** : le seul
+geste qui pose un rayon par sommet est le **double-clic sur une poignée**, et
+il n'existe **qu'en mode d'édition de forme**. Sur un rectangle qu'on vient de
+poser, rien ne mène à cette propriété — ni champ dans l'inspecteur hors mode
+forme, ni poignée sur la toile. *Une propriété qu'aucun geste n'atteint depuis
+l'état ordinaire est, pour la main, une propriété absente* — c'est exactement
+ce que Rodolf décrit, et c'est la même famille que les marqueurs de rotation
+invisibles : le modèle avait raison, l'accès manquait.
+
 | Arrondir **un seul** coin | `Alt` pendant le glissé de la poignée | 🟡 **partiel** | notre modèle porte **un rayon par sommet** (donc le cas est exprimable), mais il n'y a pas de poignée d'arrondi sur la toile |
 | Coins lisses type iOS | bouton à côté du rayon | ❌ **absent** | une autre courbe de raccord ; le modèle porte le rayon, pas la famille de courbe |
 | Extrémités d'un tracé ouvert (*Caps*) | section Bordure | ❌ **absent** | suppose le tracé ouvert |
