@@ -263,7 +263,8 @@ trois conditions (corps, appelant, banc qui rougit débranché).
 48 fichiers, 118 occurrences, `git mv` pour que l'historique suive. Deux bonnes
 surprises : l'espace de noms est `nkentseu::anim` (**aucun namespace touché**) et
 le nom `NKAnima` était **libre**. Preuves : Noge 41/41, LocomotionDemo **9/0**,
-AssetIODemo **55/0**, SystemsRevivalTest **34/0**, NkAnimPhysTest 27/27 — les
+AssetIODemo **55/0**, SystemsRevivalTest **34/0**, NkAnimPhysTest 27/27,
+**Nogee 45/45** — les
 comptes sont **identiques à l'avant-renommage**, aucun banc n'a disparu.
 
 🔴 **Ce que je n'ai PAS fait, et pourquoi.** Tu as dit « on ne doit pas avoir
