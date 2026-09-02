@@ -1,0 +1,316 @@
+\chapter{Un projet de A à Z, en cinq commandes}
+
+Ce chapitre part d'un dossier vide et arrive à un programme qui s'exécute. Cinq
+commandes, et rien d'autre.
+
+\textbf{Toutes les sorties de ce chapitre sont des captures réelles}, prises en
+enchaînant ces commandes. Rien n'est recopié de mémoire.
+
+\section{Commande 1 --- créer l'espace de travail}
+
+\begin{nkcode}{}
+jenga workspace Bonjour --no-interactive
+\end{nkcode}
+
+Quatre fichiers apparaissent :
+
+\begin{nkcode}{Ce que la commande a produit}
+Bonjour/.gitignore
+Bonjour/Bonjour.jenga
+Bonjour/pyrightconfig.json
+Bonjour/.vscode/settings.json
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Deux des quatre ne servent qu'à votre éditeur.}
+\texttt{pyrightconfig.json} et \texttt{.vscode/settings.json} font que
+l'auto-complétion connaît le vocabulaire Jenga dans vos \texttt{.jenga} --- qui
+sont du Python, donc analysables.
+
+Le seul fichier qui compte pour la construction est \texttt{Bonjour.jenga}.
+\end{nkretenir}
+
+Et voici ce qu'il contient --- lisez-le, il tient en dix lignes utiles :
+
+\begin{nkcode}{Bonjour/Bonjour.jenga, genere}
+from Jenga import *
+
+with workspace("Bonjour"):
+    configurations(['Debug', 'Release'])
+    targetoses([TargetOS.WINDOWS, TargetOS.LINUX, TargetOS.MACOS])
+    targetarchs([TargetArch.X86_64])
+
+    # Default toolchain (auto-detected)
+    # usetoolchain("host-gcc")
+
+    # Add your projects here
+    # with project("MyApp"):
+    #     consoleapp()
+    #     language("C++")
+    #     files(["src/**.cpp"])
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Aucun projet encore, et c'est délibéré.} Un workspace décrit le
+\emph{cadre} : quelles configurations existent, quels systèmes on vise, quelles
+architectures. Les projets viennent ensuite --- et le gabarit vous montre déjà
+leur forme, en commentaire.
+\end{nkretenir}
+
+\section{Commande 2 --- créer le projet}
+
+\begin{nkcode}{}
+jenga project Bonjour --kind console --no-interactive
+\end{nkcode}
+
+\begin{nkpiege}[Le nom du \emph{kind} n'est pas celui de la fonction]
+En ligne de commande, c'est \texttt{console}. Dans le \texttt{.jenga}, la
+fonction s'appelle \texttt{consoleapp()}. Se tromper donne, textuellement :
+
+\begin{nkcode}{Capture reelle, code de sortie 2}
+jenga project: error: argument --kind: invalid choice: 'consoleapp'
+(choose from console, windowed, static, shared, test)
+\end{nkcode}
+
+\textbf{Le message est bon} : il énumère les cinq valeurs admises. C'est le
+genre d'erreur qui se résout en la lisant --- et qui fait perdre dix minutes
+quand on ne la lit pas.
+\end{nkpiege}
+
+La commande crée la source et \textbf{modifie le workspace} :
+
+\begin{nkcode}{Bonjour/Bonjour.jenga, apres `jenga project`}
+    # Project: Bonjour
+    with project("Bonjour"):
+        consoleapp()
+        language("C++")
+        location("Bonjour")
+        files(["src/**.cpp", "include/**.hpp"])
+\end{nkcode}
+
+\begin{nkcode}{Bonjour/Bonjour/src/main.cpp, genere}
+#include <iostream>
+
+int main() {
+    std::cout << "Hello from Bonjour!" << std::endl;
+    return 0;
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Cinq lignes décrivent entièrement un programme.} Son genre, son langage,
+où il vit, et quels fichiers lui appartiennent. Tout le reste --- compilateur,
+drapeaux, dossier de sortie --- a une valeur par défaut que vous ne redéfinirez
+que si elle ne vous convient pas.
+\end{nkretenir}
+
+\section{Commande 3 --- regarder ce que Jenga a compris}
+
+\begin{nkcode}{jenga info -- capture reelle, abregee}
+=========================== Jenga Workspace: Bonjour ===========================
+
+Configurations: Debug, Release
+Platforms: Windows
+Target OSes: Windows, Linux, macOS
+Target Architectures: x86_64
+
+Projects
+------------------------------------------------------------
+Name      Kind         Language   Test   External
+=================================================
+Bonjour   ConsoleApp   C++        No     No
+
+Available Toolchains
+------------------------------------------------------------
+Name                 Family        Target OS   Arch     Env
+===============================================================
+host-clang           clang         Windows     x86_64   mingw
+host-gcc             gcc           Windows     x86_64   mingw
+msvc                 msvc          Windows     x86_64   msvc
+clang-mingw          clang         Windows     x86_64   mingw
+mingw                gcc           Windows     x86_64   mingw
+clang-cross-linux    clang         Linux       x86_64   gnu
+android-ndk          android-ndk   Android     arm64    android
+emscripten           emscripten    Web         wasm32
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{jenga info} est la première commande à taper quand quelque chose
+surprend.} Elle montre ce que Jenga a \emph{compris} de votre description ---
+pas ce que vous croyez avoir écrit.
+
+Notez la distinction entre \emph{Platforms: Windows} (la machine sur laquelle on
+est) et \emph{Target OSes: Windows, Linux, macOS} (ce que le workspace déclare
+viser). Confondre les deux fait chercher pourquoi « Linux n'est pas là » alors
+qu'il l'est.
+
+Et la table des chaînes d'outils est \textbf{ce qui est disponible ici, sur cette
+machine} : Android et Emscripten y figurent parce que leurs SDK sont installés.
+Sur une autre machine, la table est plus courte.
+\end{nkretenir}
+
+\section{Commande 4 --- construire}
+
+\begin{nkcode}{jenga build --config Release -- capture reelle}
+Loading workspace...
+
+Configuration: Release
+Target:        Windows x86_64
+Toolchain:     clang-mingw
+
+Build Order (1 projects):
+  1. Bonjour [CONSOLE_APP]
+
+  Project: Bonjour                                     Kind: CONSOLE_APP
+
+Found 1 source file(s)
+  [1/1] Compiled: main.cpp
+Linking...
+Built: Build\Bin\Release-Windows\Bonjour\Bonjour.exe
+
+  Build Successful                                        Time: 0.83s
+
+                                BUILD COMPLETED
+Projects Built:  1/1
+Time:           0.83s
+Status:         SUCCESS
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Quatre lignes de cette sortie méritent d'être lues à chaque fois}, et ce
+sont celles qu'on saute :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Ligne} & \textbf{Ce qu'elle évite de croire à tort} \\
+\midrule
+\texttt{Configuration: Release} & que vous mesurez du Debug \\
+\texttt{Toolchain: clang-mingw} & que vous compilez avec MSVC \\
+\texttt{Build Order} & qu'un projet est construit alors qu'il ne l'est pas \\
+\texttt{Compiled: main.cpp} & qu'un fichier a été recompilé \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La dernière est la plus importante, et le chapitre 10 lui consacre une
+démonstration : \textbf{un build vert prouve que ce qu'il a construit compile,
+pas que ce que vous avez écrit a été construit.}
+\end{nkretenir}
+
+\begin{nkretenir}[Le chemin de sortie se lit, il ne se devine pas]
+\texttt{Build\textbackslash Bin\textbackslash Release-Windows\textbackslash Bonjour\textbackslash Bonjour.exe}
+
+La forme est \texttt{Build/Bin/<config>-<système>/<projet>/}. Elle change avec la
+configuration \emph{et} avec le système --- et sous Linux elle porte en plus le
+backend graphique, par exemple \texttt{Release-Linux-xlib}. Un script qui code ce
+chemin en dur échoue sur une construction \emph{réussie}.
+\end{nkretenir}
+
+\section{Commande 5 --- lancer}
+
+\begin{nkcode}{jenga run --config Release -- capture reelle}
+  EXECUTION  --  Bonjour.exe
+     ...\Build\Bin\Release-Windows\Bonjour\Bonjour.exe
+
+Application console sans terminal : ouverture d'une console dediee.
+\end{nkcode}
+
+\begin{nkretenir}
+\texttt{jenga run} retrouve l'exécutable tout seul, à partir de la configuration
+et de la plateforme. Vous n'avez pas à connaître le chemin --- ce qui est
+justement pourquoi il faut le lire au moins une fois, à l'étape précédente.
+
+\textbf{Et il ouvre une console dédiée} quand l'application est de type console
+et qu'aucun terminal n'est attaché. C'est une commodité ; elle explique aussi
+pourquoi la sortie du programme n'apparaît pas toujours dans \emph{votre}
+terminal.
+\end{nkretenir}
+
+\section{Le récapitulatif, en cinq lignes}
+
+\begin{nkcode}{De rien a un programme qui tourne}
+jenga workspace Bonjour --no-interactive
+cd Bonjour
+jenga project Bonjour --kind console --no-interactive
+jenga build --config Release
+jenga run   --config Release
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Aucune de ces commandes n'a demandé de compilateur, de chemin, ni de
+drapeau.} C'est le contrat de Jenga : vous décrivez ce que vous voulez, il
+choisit comment.
+
+Le reste du livre porte sur les moments où ce choix ne vous convient pas --- et
+sur la façon d'en reprendre la main sans perdre le reste.
+\end{nkretenir}
+
+\begin{nkbilan}
+Cinq commandes suffisent : \texttt{workspace}, \texttt{project}, \texttt{info},
+\texttt{build}, \texttt{run}. Le workspace décrit le cadre, le projet décrit un
+artefact en cinq lignes, et \texttt{info} montre ce que Jenga a \emph{compris} --
+la première commande à taper quand quelque chose surprend. La sortie de
+construction porte quatre lignes qu'il faut lire à chaque fois : la
+configuration, la chaîne d'outils, l'ordre, et les fichiers réellement
+recompilés. Enfin, le chemin de sortie dépend de la configuration \emph{et} du
+système : il se lit, il ne se code pas en dur.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quels fichiers \texttt{jenga workspace} produit-il, et lequel compte
+      vraiment ?
+\item Pourquoi \texttt{-{}-kind consoleapp} échoue-t-il alors que
+      \texttt{consoleapp()} existe ?
+\item Quelle différence entre \emph{Platforms} et \emph{Target OSes} dans la
+      sortie de \texttt{info} ?
+\item Citez les quatre lignes de la sortie de \texttt{build} qu'il faut lire, et
+      ce que chacune évite.
+\item De quoi dépend le chemin de l'exécutable produit ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Refaites les cinq commandes, dans un dossier vide, sans regarder ce chapitre.
+
+Puis trois variantes, chacune répondant à une question :
+\begin{enumerate}
+\item construisez en \texttt{Debug} --- où l'exécutable atterrit-il ?
+\item changez le message de \texttt{main.cpp} et reconstruisez --- combien de
+      fichiers sont recompilés ?
+\item lancez \texttt{jenga build} \emph{sans} modifier quoi que ce soit ---
+      qu'affiche la ligne \texttt{Compiled:} ?
+\end{enumerate}
+La troisième prépare le chapitre 10.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que \texttt{jenga info} lit votre description, et non un état mis en
+cache.
+
+Ajoutez un second projet à votre workspace --- cinq lignes suffisent --- et
+relancez \texttt{jenga info} \textbf{sans construire}. Le tableau des projets
+doit en montrer deux.
+
+Retirez-le, relancez : un seul.
+
+\textbf{Ce que la démonstration établit}, et c'est ce qui la rend utile : la
+description est relue \emph{à chaque commande}. Vous pouvez donc vous fier à
+\texttt{info} pour vérifier une modification avant de payer une construction.
+\end{nkdemo}
+
+\begin{nklogique}
+Vous lancez \texttt{jenga build}, la sortie dit \texttt{SUCCESS}, et pourtant
+votre programme se comporte comme avant.
+
+\begin{enumerate}
+\item Énumérez au moins quatre explications, en distinguant celles où la
+      compilation \emph{n'a pas eu lieu} de celles où elle a eu lieu \emph{sans
+      effet}.
+\item Pour chacune, dites quelle ligne de la sortie de \texttt{build} la
+      confirmerait ou l'éliminerait.
+\item Une de ces explications ne se voit dans \textbf{aucune} ligne de cette
+      sortie. Laquelle, et par quoi la prendriez-vous ?
+\end{enumerate}
+\end{nklogique}

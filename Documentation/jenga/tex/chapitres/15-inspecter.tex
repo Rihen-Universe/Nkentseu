@@ -1,0 +1,217 @@
+\chapter{Inspecter, générer, brancher son éditeur}
+
+Les commandes de ce chapitre ne produisent aucun binaire. Elles répondent à des
+questions --- et ce sont elles qu'on tape quand quelque chose surprend.
+
+\section{\texttt{info} --- ce que Jenga a compris}
+
+\begin{nkretenir}
+\textbf{C'est la première commande de tout diagnostic}, et son intérêt tient en
+une nuance : elle montre ce que Jenga a \emph{compris}, pas ce que vous croyez
+avoir écrit.
+
+Quatre lignes de sa sortie tranchent des questions différentes :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Ligne} & \textbf{Elle répond à} \\
+\midrule
+\texttt{Entry file} & quel workspace a été chargé \\
+\texttt{Configurations} & \texttt{Debug} existe-t-il vraiment \\
+\texttt{Target OSes} & cette plateforme est-elle déclarée \\
+tableau \emph{Projects} & mon projet est-il inclus \\
+tableau \emph{Toolchains} & cette chaîne est-elle disponible \emph{ici} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La dernière ligne est la seule qui décrive la \textbf{machine} et non la
+description. Les autres décrivent votre \texttt{.jenga}.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{« Projet inconnu » ne se corrige presque jamais dans le fichier du
+projet.} La bonne question n'est pas « qu'ai-je mal écrit ? » mais « ce fichier
+est-il inclus ? ».
+
+\texttt{jenga info} tranche en une seconde : le projet est dans le tableau, ou il
+n'y est pas. On relit sinon un descripteur parfaitement juste, longtemps.
+\end{nkpiege}
+
+\section{\texttt{compile-flags} --- les drapeaux réels}
+
+\begin{nkcode}{jenga compile-flags -- capture reelle, extrait}
+{"format": "jcdb/1", "compiler": "C:\\msys64\\ucrt64\\bin\\clang++.EXE",
+ "msvc": false, "projects": 1}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{C'est le seul outil qui montre ce qu'un filtre a réellement produit.}
+Un \texttt{defines} qui n'apparaît pas ici n'a pas été appliqué --- et vous savez
+alors que la condition n'a pas mordu, plutôt que de chercher dans le code.
+
+Notez aussi le \emph{chemin} du compilateur. Sur une machine qui en porte
+plusieurs, c'est la ligne qui dit lequel travaille --- une question qu'on se pose
+rarement et qui explique des écarts inexpliqués.
+\end{nkretenir}
+
+\begin{nkretenir}
+Le format se destine aux diagnostics d'éditeur : c'est ce que consomme un serveur
+de langage pour savoir avec quels drapeaux votre fichier est compilé.
+
+\textbf{Sans lui, l'auto-complétion devine} --- et ses erreurs ne correspondent
+pas à celles du compilateur, ce qui est la pire des situations : deux avis, dont
+un faux, sans savoir lequel.
+\end{nkretenir}
+
+\section{\texttt{ide-setup} --- brancher son éditeur}
+
+\begin{nkcode}{}
+jenga ide-setup
+jenga ide
+\end{nkcode}
+
+\begin{nkretenir}
+Elle écrit ce qu'il faut pour que votre éditeur comprenne le projet ---
+\texttt{.vscode/settings.json}, \texttt{pyrightconfig.json}, et le dossier
+\texttt{.jenga-typings/} du chapitre 2.
+
+\texttt{jenga workspace} l'a déjà fait à la création. On la relance après avoir
+ajouté des projets, ou quand l'auto-complétion s'égare.
+\end{nkretenir}
+
+\section{\texttt{gen} --- produire un autre système de construction}
+
+\begin{nkcode}{}
+jenga gen --cmake
+jenga gen --vs
+jenga gen --makefile
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{C'est un pont, pas le fonctionnement normal.} Il sert quand un outil tiers
+--- un analyseur, un profileur, un éditeur --- exige un \texttt{CMakeLists.txt} ou
+une solution Visual Studio.
+
+⚠️ \textbf{Le fichier produit est un instantané.} Il ne se met pas à jour quand
+votre \texttt{.jenga} change. Deux descriptions coexistent alors, et elles
+divergeront --- c'est mécanique.
+
+\textbf{Régénérez-le, ne l'éditez pas.} Une modification faite dans le fichier
+généré sera perdue à la prochaine génération, ou pire : survivra et fera diverger
+les deux systèmes sans que personne le sache.
+\end{nkretenir}
+
+\begin{nkretenir}
+Le filtre \texttt{action:} existe pour ce cas :
+
+\begin{nkcode}{}
+with filter("action:gen-cmake"):
+    defines(["GENERATION_CMAKE"])
+\end{nkcode}
+
+Il permet de décrire quelque chose qui ne vaut que lors d'une génération --- par
+exemple contourner une limite de l'outil cible sans polluer la construction
+normale.
+\end{nkretenir}
+
+\section{Les autres commandes}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{install} & installe dépendances et chaînes d'outils locales \\
+\texttt{docs} & la documentation \\
+\texttt{examples} & les exemples fournis \\
+\texttt{config} & la configuration de Jenga \\
+\texttt{profile} & profilage \\
+\texttt{bench} & mesures \\
+\texttt{add} / \texttt{file} & ajoute des fichiers ou des dépendances à un projet \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Vingt-sept commandes, et quinze alias d'une lettre} --- \texttt{b} pour
+\texttt{build}, \texttt{r} pour \texttt{run}, \texttt{i} pour \texttt{info}\dots
+
+\texttt{jenga help} les énumère toutes. C'est la commande à taper avant de
+supposer qu'une chose n'existe pas : \textbf{la liste est plus longue qu'on ne
+croit}, et l'on réécrit volontiers à la main ce qu'une commande fait déjà.
+\end{nkretenir}
+
+\begin{nkretenir}[Les exemples sont livrés avec Jenga]
+\texttt{jenga examples} donne accès aux projets de démonstration ---
+\nkfile{Jenga/Exemples/}, une trentaine de dossiers du \emph{hello} console au
+projet multi-plateforme.
+
+\textbf{Ils sont plus à jour que n'importe quelle documentation}, parce qu'ils
+sont construits par l'intégration continue. Devant un doute sur une fonction,
+chercher un exemple qui l'emploie coûte moins qu'une lecture d'API.
+\end{nkretenir}
+
+\begin{nkbilan}
+Ces commandes ne construisent rien et répondent aux questions les plus fréquentes.
+\texttt{info} dit ce que Jenga a compris --- et sa table des chaînes d'outils est
+la seule partie qui décrive la machine. \texttt{compile-flags} est le seul outil
+qui montre ce qu'un filtre a réellement produit, et le chemin du compilateur qui
+travaille. \texttt{gen} produit un instantané qui ne se met pas à jour : on le
+régénère, on ne l'édite pas. Et \texttt{jenga help} se tape avant de supposer
+qu'une chose n'existe pas.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelle partie de la sortie de \texttt{info} décrit la machine et non votre
+      description ?
+\item Comment savoir qu'un filtre n'a pas mordu ?
+\item Pourquoi ne faut-il pas éditer un fichier produit par \texttt{gen} ?
+\item À quoi sert le filtre \texttt{action:} ?
+\item Combien de commandes Jenga offre-t-il, et comment les lister ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Sur votre projet, employez \texttt{compile-flags} comme instrument :
+
+\begin{enumerate}
+\item relevez le compilateur employé et son chemin complet ;
+\item ajoutez un \texttt{defines} sous un filtre \emph{vrai} et vérifiez qu'il
+      apparaît ;
+\item ajoutez-en un sous un filtre \emph{faux} et vérifiez qu'il n'apparaît pas ;
+\item ajoutez-en un sous un filtre \emph{mal orthographié} --- et constatez que
+      le résultat est le même qu'au point 3.
+\end{enumerate}
+
+Le point 4 est celui qui compte : l'outil ne distingue pas une condition fausse
+d'une condition impossible.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un fichier généré par \texttt{gen} ne suit pas votre description.
+
+\begin{enumerate}
+\item générez un \texttt{CMakeLists.txt} ;
+\item ajoutez un projet à votre \texttt{.jenga} ;
+\item relancez \texttt{jenga info} --- le nouveau projet apparaît ;
+\item relisez le \texttt{CMakeLists.txt} --- il ne l'a pas.
+\end{enumerate}
+
+\textbf{Ce que la démonstration établit} : les deux descriptions ont divergé en
+une seule modification, et rien ne l'a signalé. C'est ce qui rend un fichier
+généré dangereux dès qu'on le garde.
+\end{nkdemo}
+
+\begin{nklogique}
+Votre éditeur souligne une erreur que le compilateur ne signale pas.
+
+\begin{enumerate}
+\item Énumérez trois causes possibles.
+\item Laquelle \texttt{jenga compile-flags} permet-elle de confirmer, et
+      comment ?
+\item Le cas inverse --- le compilateur échoue et l'éditeur ne dit rien --- a-t-il
+      les mêmes causes ? Justifiez, puis dites laquelle des deux situations est
+      la plus dangereuse et pourquoi.
+\end{enumerate}
+\end{nklogique}

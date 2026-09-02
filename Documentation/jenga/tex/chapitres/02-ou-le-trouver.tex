@@ -1,0 +1,236 @@
+\chapter{Où le trouver, et comment l'installer}
+
+Jenga s'obtient de trois façons, et elles ne servent pas le même usage. Ce
+chapitre les donne toutes les trois, avec la façon de vérifier laquelle vous
+avez réellement --- ce qui n'est pas la même question.
+
+\section{Ce qu'il faut avoir avant}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Il faut} & \textbf{Version} & \textbf{Pourquoi} \\
+\midrule
+Python & $\geq$ 3.8 & Jenga est écrit en Python \\
+un compilateur & clang, gcc ou MSVC & Jenga l'appelle, il ne le remplace pas \\
+\texttt{watchdog} & $\geq$ 2.1 & seulement pour \texttt{jenga watch} \\
+\texttt{colorama} & $\geq$ 0.4.4 & couleurs sous Windows \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Les deux dernières lignes sont facultatives}, et le fichier de
+dépendances le dit lui-même : « optional but recommended for 'watch' command ».
+Jenga construit sans elles.
+\end{nkretenir}
+
+\section{Voie 1 --- le paquet installé}
+
+C'est la voie normale. Jenga se distribue comme une roue Python
+(\emph{wheel}) ; l'installer place une commande \texttt{jenga} dans votre
+\texttt{PATH} :
+
+\begin{nkcode}{pyproject.toml:37-38}
+[project.scripts]
+jenga = "Jenga.Jenga:main"
+\end{nkcode}
+
+\begin{nkcode}{Installer}
+pip install jenga-2.4.0-py3-none-any.whl --force-reinstall
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{-{}-force-reinstall} n'est pas une précaution superstitieuse.}
+Sans lui, \texttt{pip} peut considérer qu'une version portant le même numéro est
+déjà là et ne rien faire --- en affichant un message de succès. Vous croiriez
+avoir installé la neuve.
+\end{nkretenir}
+
+\section{Voie 2 --- depuis les sources, en mode éditable}
+
+Pour travailler \emph{sur} Jenga, on l'installe en mode éditable : la commande
+pointe alors vers l'arbre de sources, et une modification prend effet sans
+réinstaller.
+
+\begin{nkcode}{Dans le depot de Jenga}
+python -m pip install -e . --no-build-isolation
+\end{nkcode}
+
+Le dépôt fournit un script qui fait tout : nettoyage, réinstallation éditable,
+construction de la roue et des archives d'exemples.
+
+\begin{nkcode}{Dans le depot de Jenga}
+./cri.sh              # dev + distribution
+./cri.sh --tests      # ... et la suite pytest
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Ce script est destructeur, et dans cet ordre :} il fait
+\texttt{rm -rf build dist} \emph{puis} \texttt{pip uninstall Jenga}, et
+\emph{seulement ensuite} réinstalle. Un échec en cours de route vous laisse sans
+commande \texttt{jenga}.
+
+\textbf{La parade tient en une ligne, et elle se pose AVANT} : copiez
+\texttt{dist/*.whl} ailleurs. La panne devient réparable par
+\texttt{pip install <roue sauvegardée> --force-reinstall}. Un filet posé après
+l'accident n'est pas un filet.
+\end{nkpiege}
+
+\section{Voie 3 --- embarqué dans NKCode}
+
+\textbf{NKCode contient sa propre copie de Jenga.} C'est ce qui rend les boutons
+\emph{Construire} et \emph{Exécuter} de l'éditeur autonomes : ils ne dépendent
+pas de ce que vous avez installé.
+
+\begin{nkretenir}
+Le mécanisme est explicite dans le descripteur de NKCode : il \textbf{extrait la
+roue officielle} --- environ 1 Mo --- dans \texttt{Build/\_jenga-embed/}, et
+embarque ce contenu.
+
+\begin{nkcode}{Applications/NKCode/NKCode.jenga}
+stage = _norm(os.path.join(_REPO_ROOT, "Build", "_jenga-embed"))
+# Re-extrait a chaque evaluation : un wheel plus recent doit gagner,
+# sinon on embarquerait silencieusement une version perimee.
+\end{nkcode}
+
+Il cherche la roue dans \texttt{dist/} du dépôt Jenga, en remontant plusieurs
+niveaux, et la variable d'environnement \texttt{NKCODE\_JENGA\_SRC} permet de
+lui indiquer un autre emplacement.
+\end{nkretenir}
+
+\begin{nkpiege}[Deux versions dans la même session]
+NKCode peut construire avec une version et votre terminal avec une autre. Vous
+auriez alors \textbf{deux systèmes de construction silencieusement différents},
+et un défaut d'outil se chercherait dans le code.
+
+Le descripteur compare donc les deux et le \emph{dit} :
+
+\begin{nkcode}{Applications/NKCode/NKCode.jenga}
+[NKCode] Jenga embarque depuis le wheel : jenga-2.4.0-py3-none-any.whl
+[NKCode] ATTENTION : le wheel embarque est en 2.2.0 alors que le jenga du
+[NKCode]   systeme est en 2.4.0. NKCode construira donc AUTREMENT que votre
+[NKCode]   terminal. Remede : ./cri.sh dans le depot Jenga.
+\end{nkcode}
+\end{nkpiege}
+
+\begin{nkretenir}[Le défaut qui rendait cette comparaison muette]
+Ce tri de roues se faisait autrefois sur le \emph{nom}, donc en texte. En ordre
+lexicographique, \textbf{\texttt{2.9.0} est supérieur à \texttt{2.10.0}} : le
+jour du passage à deux chiffres, NKCode aurait choisi la plus ancienne, en
+silence.
+
+Il compare désormais des \emph{tuples d'entiers}. \emph{Comparer des versions en
+texte marche jusqu'à 9 et casse à 10} --- et la panne se présente comme « l'outil
+annonce la mauvaise version », à des lieues de sa cause.
+\end{nkretenir}
+
+\section{Vérifier ce qu'on a vraiment}
+
+\begin{nkcode}{Capture reelle}
+$ jenga --version
+
+             Multi-platform C/C++ Build System v2.4.0
+
+Jenga version 2.4.0
+\end{nkcode}
+
+\begin{nkpiege}[Le sujet mesuré n'est pas toujours celui qu'on croit]
+\textbf{\texttt{pip show jenga} et \texttt{jenga -{}-version} peuvent ne pas
+parler du même programme.} Un poste peut porter plusieurs Python : \texttt{pip}
+appartient à l'un, et le lanceur \texttt{jenga} de votre \texttt{PATH} peut venir
+des \texttt{Scripts} d'un autre.
+
+Mesuré sur le poste de développement : \texttt{python} résout vers un Python
+3.14, tandis que \texttt{jenga} vient des \texttt{Scripts} d'un Python 3.13.
+
+\textbf{Le sujet à mesurer est \texttt{jenga -{}-version}} --- la commande que vous
+tapez --- jamais \texttt{pip show} seul.
+\end{nkpiege}
+
+\section{Le module d'aide à l'édition}
+
+Vous verrez apparaître un dossier \texttt{.jenga-typings/} à côté de vos
+descripteurs. Il contient deux fichiers, et le premier avoue sa nature :
+
+\begin{nkcode}{.jenga-typings/jengaconfig.py}
+# Module no-op genere par Jenga. `from jengaconfig import *` est resolu
+# par jengaconfig.pyi cote editeur ; au runtime les symboles viennent de
+# la propagation useconfig(). Ne rien mettre ici.
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{from jengaconfig import *} n'importe rien.} C'est une ligne
+\emph{pour l'éditeur} : elle donne l'auto-complétion via le fichier
+\texttt{.pyi}. À l'exécution, les symboles arrivent par la propagation de
+\texttt{useconfig()}.
+
+C'est un cas rare et honnête d'une ligne qui ne sert qu'à l'outillage --- et
+qu'il faut savoir reconnaître, sans quoi on la cherche dans le mécanisme.
+\end{nkretenir}
+
+\begin{nkbilan}
+Trois voies : la roue installée pour s'en servir, le mode éditable pour
+travailler dessus, et la copie embarquée dans NKCode pour que l'éditeur soit
+autonome. La troisième peut diverger des deux autres, et NKCode le signale ---
+parce que deux systèmes de construction dans une même session font chercher un
+défaut d'outil dans le code. Vérifiez toujours par \texttt{jenga -{}-version}, qui
+interroge la commande réelle, et non par \texttt{pip show}, qui peut parler d'un
+autre Python. Enfin, \texttt{jengaconfig} ne sert qu'à votre éditeur.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelles sont les trois façons d'avoir Jenga, et à quoi sert chacune ?
+\item Pourquoi \texttt{-{}-force-reinstall} lors de l'installation d'une roue ?
+\item Dans quel ordre \texttt{cri.sh} désinstalle-t-il et réinstalle-t-il, et
+      qu'est-ce que cela implique ?
+\item Pourquoi NKCode compare-t-il sa version embarquée à celle du système ?
+\item Que fait \texttt{from jengaconfig import *} à l'exécution ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Installez Jenga, puis établissez --- par des commandes, pas par déduction --- les
+quatre faits suivants :
+
+\begin{enumerate}
+\item la version que \texttt{jenga} annonce ;
+\item la version que \texttt{pip} croit avoir installée ;
+\item le chemin exact du lanceur \texttt{jenga} (\texttt{where} ou
+      \texttt{which}) ;
+\item l'interpréteur Python auquel ce lanceur est rattaché.
+\end{enumerate}
+
+Si les points 1 et 2 diffèrent, vous avez deux Python. Notez lequel gagne.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que le mode éditable est bien \emph{éditable}.
+
+Installez Jenga par \texttt{pip install -e .}, puis ajoutez une ligne
+\texttt{print("MARQUE")} au tout début de \texttt{Jenga/Jenga.py}. Relancez
+\texttt{jenga -{}-version} : la marque doit apparaître, \textbf{sans réinstaller}.
+
+Retirez la ligne, relancez : elle disparaît.
+
+\textbf{Ce que la démonstration établit} : la commande lit l'arbre de sources à
+chaque exécution. Refaites ensuite le même essai après une installation par
+\emph{roue} --- la marque n'apparaîtra pas, parce que le code exécuté est une
+copie. C'est la paire qui prouve, pas le premier essai seul.
+\end{nkdemo}
+
+\begin{nklogique}
+Vous corrigez un défaut dans Jenga, vous relancez votre construction, et rien ne
+change.
+
+\begin{enumerate}
+\item Énumérez au moins quatre causes possibles, de la plus banale à la plus
+      retorse.
+\item Pour chacune, donnez une commande dont le résultat \emph{diffère} selon
+      que la cause est celle-là ou une autre.
+\item L'une de ces causes ne se voit que si l'on regarde \emph{quel} programme a
+      construit --- laquelle, et pourquoi les autres vérifications passent-elles
+      à côté ?
+\end{enumerate}
+\end{nklogique}

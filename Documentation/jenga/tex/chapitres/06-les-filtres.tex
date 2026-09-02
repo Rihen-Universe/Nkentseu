@@ -1,0 +1,242 @@
+\chapter{Les filtres : une description, douze plateformes}
+
+Un filtre est une condition sous laquelle certains réglages s'appliquent. C'est
+le mécanisme qui permet à un seul \texttt{.jenga} de décrire un programme pour
+Windows, Linux, Android et le Web sans se dédoubler.
+
+\section{La forme}
+
+\begin{nkcode}{}
+with filter("system:Windows"):
+    defines(["WIN32_LEAN_AND_MEAN"])
+    links(["user32", "gdi32", "opengl32"])
+
+with filter("config:Release"):
+    defines(["NDEBUG"])
+    optimize("Speed")
+    symbols(False)
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un filtre est un gestionnaire de contexte, comme \texttt{project}.} Tout
+ce qui est écrit dedans est \emph{étiqueté} de cette condition et rangé de côté ;
+au moment de construire, Jenga ne retient que les étiquettes qui correspondent à
+la cible du jour.
+
+Rien n'est évalué à l'écriture : \texttt{with filter("system:Linux")} sur une
+machine Windows ne saute pas le bloc --- il l'enregistre. C'est ce qui permet de
+décrire douze plateformes depuis une seule.
+\end{nkretenir}
+
+\section{Les huit familles de conditions}
+
+Elles sont dans l'évaluateur, et ce sont les seules :
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Préfixe} & \textbf{Exemple} & \textbf{Teste} \\
+\midrule
+\texttt{system:} & \texttt{system:Windows} & le système visé \\
+\texttt{config:} & \texttt{config:Debug} & la configuration \\
+\texttt{arch:} & \texttt{arch:arm64} & l'architecture \\
+\texttt{platform:} & \texttt{platform:Windows-x86\_64} & système + architecture \\
+\texttt{action:} & \texttt{action:gen-cmake} & la commande en cours \\
+\texttt{options:} & \texttt{options:linux-backend=xlib} & une option déclarée \\
+\texttt{kind:} & \texttt{kind:StaticLib} & le genre du projet \\
+\texttt{language:} & \texttt{language:C++} & le langage \\
+\texttt{toolset:} & \texttt{toolset:clang} & la famille de compilateur \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\texttt{configurations:}, \texttt{configuration:}, \texttt{config:} et
+\texttt{cfg:} sont \textbf{quatre orthographes du même test}. De même
+\texttt{architecture:} et \texttt{arch:}.
+
+C'est commode et c'est un piège de recherche : chercher \texttt{config:} dans un
+dépôt rate les fichiers qui écrivent \texttt{cfg:}. \textbf{Fixez une orthographe
+par équipe.}
+\end{nkretenir}
+
+\section{Combiner}
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel}
+with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries"):
+    ...
+with filter("system:Linux && options:linux-backend=xlib || "
+            "system:Linux && !options:linux-backend && !options:headless"):
+    ...
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{\&\&} & les deux conditions \\
+\texttt{||} & l'une ou l'autre \\
+\texttt{!} & la négation \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{La seconde expression mérite d'être lue lentement} : elle dit « backend
+xlib demandé explicitement, \emph{ou} aucun backend demandé et pas de mode sans
+écran ».
+
+C'est ainsi qu'on écrit un \textbf{défaut} : le second membre attrape le cas où
+l'utilisateur n'a rien choisi. Sans lui, ne rien demander ne donnerait
+\emph{aucun} backend --- et l'échec sortirait à l'édition de liens.
+\end{nkretenir}
+
+\begin{nkretenir}
+Une liste ou un ensemble passés à \texttt{filter} sont joints par \texttt{\&\&} :
+
+\begin{nkcode}{Jenga/Core/Api.py:597-609}
+if isinstance(expr, (list, tuple)):
+    parts = [str(part).strip() for part in expr if str(part).strip()]
+    return " && ".join(parts)
+\end{nkcode}
+
+\texttt{filter(["system:Windows", "config:Release"])} vaut donc
+\texttt{"system:Windows \&\& config:Release"}. ⚠️ Un \emph{ensemble} est en plus
+\textbf{trié} --- pour que la clé soit stable, l'ordre d'un ensemble Python ne
+l'étant pas.
+\end{nkretenir}
+
+\section{Les options : vos propres conditions}
+
+\begin{nkcode}{}
+newoption({
+    "trigger": "linux-backend",
+    "value": "xlib",
+    "description": "Backend fenetrage sous Linux",
+    "allowed": ["xlib", "xcb", "wayland", "headless"],
+})
+\end{nkcode}
+
+\begin{nkcode}{Puis, en ligne de commande}
+jenga build --platform linux --linux-backend=wayland
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{allowed} n'est pas décoratif} : il fait refuser une valeur
+inconnue \emph{au chargement}, avec un message qui énumère les valeurs admises
+--- exactement comme l'erreur de \texttt{-{}-kind} du chapitre 3.
+
+Sans cette liste, une faute de frappe donne une option silencieusement ignorée,
+et vous construisez pour un backend que vous n'avez pas demandé.
+\end{nkretenir}
+
+\section{Le piège du filtre qui n'attrape rien}
+
+\begin{nkpiege}
+\textbf{Un filtre qui ne correspond à rien ne produit AUCUN message.} C'est
+normal --- c'est même son travail --- mais cela signifie qu'une faute de frappe
+dans la condition est indiscernable d'une condition légitimement non remplie.
+
+\texttt{with filter("system:windows")} en minuscules fonctionne, l'évaluateur
+compare en minuscules. Mais \texttt{with filter("systeme:Windows")} --- en
+français --- ne correspond à \emph{aucune} famille connue, ne déclenche rien, et
+ne se plaint pas.
+
+Le symptôme sera une bibliothèque manquante à l'édition de liens.
+\end{nkpiege}
+
+\begin{nkretenir}[Comment on l'attrape]
+\textbf{\texttt{jenga compile-flags} affiche les drapeaux réellement retenus}
+pour chaque projet. Si votre \texttt{defines} n'y est pas, son filtre n'a pas
+mordu.
+
+C'est le seul contrôle qui distingue « la condition est fausse aujourd'hui » de
+« la condition ne peut jamais être vraie » --- en la testant sur une cible où
+elle \emph{devrait} être vraie.
+\end{nkretenir}
+
+\section{Ce qu'un filtre ne peut pas faire}
+
+\begin{nkretenir}
+\textbf{Un filtre ne crée pas de projet.} Il modifie les réglages d'un projet
+existant. Pour ne déclarer un projet que sur certaines plateformes, employez du
+\textbf{Python} --- un \texttt{if} autour du \texttt{with project} --- puisque le
+fichier est exécuté.
+
+Les deux mécanismes ont l'air interchangeables et ne le sont pas : le
+\texttt{if} décide \emph{au chargement}, sur la machine courante ; le filtre
+décide \emph{à la construction}, sur la cible. Un \texttt{if} sur
+\texttt{sys.platform} rendrait votre descripteur incapable de décrire une
+construction croisée.
+\end{nkretenir}
+
+\begin{nkbilan}
+Un filtre étiquette des réglages d'une condition ; rien n'est évalué à
+l'écriture, ce qui permet de décrire douze plateformes depuis une seule. Neuf
+familles de conditions existent, certaines avec plusieurs orthographes --- fixez
+la vôtre. Les expressions se combinent, et un second membre sert souvent à
+attraper le cas « rien n'a été demandé ». Vos propres options se déclarent par
+\texttt{newoption}, dont la liste \texttt{allowed} transforme une faute de frappe
+en erreur au lieu d'un silence. Enfin un filtre ne crée pas de projet : cela,
+c'est le rôle du Python --- mais un \texttt{if} décide sur la machine courante là
+où un filtre décide sur la cible.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Que fait Jenga d'un bloc \texttt{filter} dont la condition est fausse sur
+      la machine courante ?
+\item Citez cinq familles de conditions.
+\item Que vaut \texttt{filter(["a", "b"])} ?
+\item Pourquoi une expression de filtre comporte-t-elle souvent un second membre
+      avec des négations ?
+\item Quand faut-il un \texttt{if} Python plutôt qu'un filtre ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Reprenez votre projet et donnez-lui trois comportements :
+
+\begin{enumerate}
+\item en \texttt{Debug}, une définition \texttt{MODE\_BAVARD} ;
+\item en \texttt{Release}, l'optimisation en vitesse et pas de symboles ;
+\item une option à vous, \texttt{-{}-couleur=} avec trois valeurs admises, qui
+      pose une définition différente selon la valeur.
+\end{enumerate}
+
+Vérifiez les trois par \texttt{jenga compile-flags}, pas par la construction :
+c'est plus rapide et plus précis.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un filtre mal orthographié se tait.
+
+Écrivez deux filtres qui posent chacun une définition : l'un correct
+(\texttt{system:Windows}), l'autre volontairement faux
+(\texttt{systeme:Windows}). Construisez sur Windows.
+
+\textbf{Ce que la démonstration doit établir}, en trois relevés :
+\begin{enumerate}
+\item la construction \textbf{réussit} ;
+\item aucun message ne mentionne le filtre fautif ;
+\item \texttt{jenga compile-flags} montre la première définition et pas la
+      seconde.
+\end{enumerate}
+
+⚠️ Les deux premiers points sont le cœur de la démonstration. Si vous ne relevez
+que le troisième, vous prouvez que l'outil sait montrer les drapeaux --- pas que
+le défaut est silencieux.
+\end{nkdemo}
+
+\begin{nklogique}
+Un projet lie \texttt{X11} sur Linux. Sur la machine d'un collègue, l'édition de
+liens échoue en disant que \texttt{X11} est introuvable.
+
+\begin{enumerate}
+\item Énumérez trois causes, en distinguant celles qui vivent dans le
+      \texttt{.jenga} de celles qui vivent sur la machine.
+\item Pour chacune, dites ce que montrerait \texttt{jenga compile-flags} --- et
+      pour laquelle il ne montrerait \emph{rien de particulier}.
+\item Cette dernière est la plus fréquente. Expliquez pourquoi l'outil ne peut
+      pas la voir, et ce qui la verrait.
+\end{enumerate}
+\end{nklogique}

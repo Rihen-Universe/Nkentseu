@@ -1,0 +1,230 @@
+\chapter{Le bureau : Windows, Linux, macOS}
+
+Trois systèmes, trois façons de compiler, et un descripteur unique. Ce chapitre
+donne ce que chacun exige --- et ce qu'il exige \emph{de la machine}, qui n'est
+pas la même chose.
+
+\section{Les chaînes d'outils disponibles}
+
+\begin{nkcode}{jenga info -- capture reelle, extrait}
+Name                 Family        Target OS   Arch     Env
+===============================================================
+host-clang           clang         Windows     x86_64   mingw
+host-gcc             gcc           Windows     x86_64   mingw
+msvc                 msvc          Windows     x86_64   msvc
+clang-mingw          clang         Windows     x86_64   mingw
+mingw                gcc           Windows     x86_64   mingw
+clang-cross-linux    clang         Linux       x86_64   gnu
+android-ndk          android-ndk   Android     arm64    android
+emscripten           emscripten    Web         wasm32
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Cette table est celle de LA MACHINE, pas celle de Jenga.} Android et
+Emscripten y figurent parce que leurs SDK sont installés ici. Sur une machine
+neuve, la table est plus courte --- et un descripteur qui exige une chaîne
+absente échoue au chargement.
+
+Jenga en déclare onze au total ; la table montre celles qu'il a \emph{trouvées}.
+\end{nkretenir}
+
+\section{Windows}
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel}
+with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries"):
+    windowedapp()
+    usetoolchain(TC_WINDOWS)
+    defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+    links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+           "ole32", "uuid", "avrt", "winmm"])
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{WIN32\_LEAN\_AND\_MEAN} n'est pas de la superstition.} Sans lui,
+\texttt{windows.h} tire des dizaines de milliers de lignes dont vous n'avez pas
+besoin --- et surtout des \textbf{macros} : \texttt{min}, \texttt{max},
+\texttt{near}, \texttt{far}, \texttt{small}. Chacune casse silencieusement un
+code qui emploie le même nom.
+
+\textbf{\texttt{\_UNICODE} et \texttt{UNICODE}} choisissent les variantes larges
+des API. Les deux, parce que l'un est lu par la bibliothèque C et l'autre par
+l'API Windows --- en déclarer un seul donne un mélange qui compile et se comporte
+mal sur les chemins accentués.
+\end{nkretenir}
+
+\begin{nkretenir}[Les bibliothèques se déclarent par leur nom nu]
+\texttt{"user32"} et non \texttt{"user32.lib"}. Jenga ajoute ce qu'il faut selon
+la chaîne : \texttt{-luser32} pour MinGW, \texttt{user32.lib} pour MSVC. C'est ce
+qui rend la ligne identique pour les deux.
+\end{nkretenir}
+
+\section{Linux, et ses quatre backends}
+
+C'est le cas le plus instructif du livre, parce qu'un même système y demande
+quatre descriptions.
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel, abrege}
+with filter("system:Linux && options:linux-backend=xlib || "
+            "system:Linux && !options:linux-backend && !options:headless"):
+    usetoolchain("clang-native")
+    objdir(".../Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xlib/%{prj.name}")
+    targetdir(".../Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xlib/%{prj.name}")
+    defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+    links(["pthread", "X11", "Xext", "Xrandr", "GL", "asound"])
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Backend} & \textbf{Ce qu'il lie} & \textbf{Sortie} \\
+\midrule
+\texttt{xlib} & \texttt{X11 Xext Xrandr GL asound} & \texttt{Release-Linux-xlib} \\
+\texttt{xcb} & \texttt{xcb xcb-image xkbcommon\dots} & \texttt{Release-Linux-xcb} \\
+\texttt{wayland} & \texttt{wayland-client wayland-egl\dots} & \texttt{Release-Linux-wayland} \\
+\texttt{headless} & \texttt{pthread} seulement & \texttt{Release-Linux-headless} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Chaque backend a son propre dossier de sortie}, et c'est indispensable :
+sans le suffixe, construire pour Wayland écraserait la construction XLib, et
+l'on lancerait un binaire lié aux mauvaises bibliothèques.
+
+⚠️ \textbf{Le corollaire coûte cher aux scripts} : le dossier n'est pas
+\texttt{Release-Linux} mais \texttt{Release-Linux-xlib}. Un empaqueteur qui code
+le premier en dur échoue sur une construction \textbf{réussie} --- mesuré sur ce
+dépôt.
+\end{nkretenir}
+
+\begin{nkretenir}[Le second membre de l'expression est le défaut]
+Relisez la condition : « backend xlib demandé, \emph{ou} aucun backend demandé et
+pas de mode sans écran ». Le second membre attrape l'utilisateur qui n'a rien
+choisi.
+
+C'est la façon d'écrire un défaut avec des filtres --- il n'y a pas de mot-clé
+« sinon ».
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Construire pour Linux depuis Windows ne marche pas} avec cette
+description : \texttt{clang-native} y cherche \texttt{X11/X.h}, qui n'existe pas.
+
+Deux issues, et le dépôt emploie les deux : \textbf{WSL2}, où les en-têtes
+existent, pour les constructions locales ; une \textbf{intégration continue}
+Linux pour le reste. Aucune n'est un contournement : ce sont des machines Linux.
+\end{nkpiege}
+
+\section{macOS}
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel}
+with filter("system:macOS"):
+    windowedapp()
+    usetoolchain("clang-native")
+    frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal",
+                "AudioToolbox", "CoreAudio", "AudioUnit"])
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Pas de \texttt{links}, des \texttt{frameworks}.} Un framework Apple porte
+à la fois les en-têtes et le binaire.
+
+Le commentaire du descripteur note que cette liste a été établie \emph{sur
+l'édition de liens de l'intégration continue}, pas devinée --- et il précise le
+point qui surprend : « les 23 projets COMPILENT sans ces frameworks ; seul le
+lien final tombe ».
+
+\emph{Une dépendance de framework ne se voit pas à la compilation.} C'est
+pourquoi elle s'oublie, et pourquoi elle ne se découvre qu'à la toute fin.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Construire pour macOS exige macOS} --- et Xcode. Jenga déclare des
+chaînes de compilation croisée, mais le SDK Apple ne se redistribue pas.
+
+Le dépôt passe donc par une intégration continue macOS, et son script
+d'empaquetage le dit en toutes lettres plutôt que de laisser croire le
+contraire.
+\end{nkpiege}
+
+\section{Debug et Release}
+
+\begin{nkcode}{La forme, identique dans tous les descripteurs}
+with filter("config:Debug"):
+    defines(["_DEBUG", "DEBUG"]); optimize("Off");   symbols(True)
+with filter("config:Release"):
+    defines(["NDEBUG"]);          optimize("Speed"); symbols(False)
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Debug et Release ne sont pas le même programme}, et il faut le prendre au
+sérieux : les \texttt{assert} disparaissent, la mémoire non initialisée change de
+contenu, et l'optimiseur expose des comportements indéfinis que le Debug
+masquait.
+
+\textbf{Un défaut qui n'existe que dans l'une des deux configurations est
+fréquent.} Toute mesure, tout chiffre, toute campagne doit donc porter sa
+configuration --- sans quoi deux mesures justes se contredisent sans que
+personne ait tort.
+\end{nkretenir}
+
+\begin{nkbilan}
+Windows demande \texttt{WIN32\_LEAN\_AND\_MEAN} et les deux macros Unicode, et
+ses bibliothèques se nomment nues. Linux n'est pas une cible mais quatre, chacune
+avec son dossier de sortie suffixé --- ce que les scripts doivent lire et non
+coder en dur --- et le second membre du filtre y sert de valeur par défaut. macOS
+emploie des frameworks, dont la liste ne se découvre qu'à l'édition de liens.
+Enfin Debug et Release produisent deux programmes différents : une mesure sans sa
+configuration n'est pas une mesure.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item La table des chaînes d'outils décrit-elle Jenga ou la machine ?
+\item Que se passe-t-il sans \texttt{WIN32\_LEAN\_AND\_MEAN} ?
+\item Pourquoi chaque backend Linux a-t-il son propre dossier de sortie ?
+\item Pourquoi un framework macOS manquant ne se voit-il qu'à la fin ?
+\item Citez trois différences réelles entre Debug et Release.
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Faites construire votre projet du chapitre 3 sur deux configurations et vérifiez,
+\emph{sur le disque}, que les deux artefacts coexistent.
+
+Puis ajoutez un filtre Linux avec une option \texttt{-{}-mon-backend} à trois
+valeurs, chacune posant une définition différente et un dossier de sortie
+différent.
+
+Vérifiez par \texttt{jenga compile-flags} --- pas par la construction, que vous
+ne pouvez peut-être pas faire ici. \textbf{C'est justement l'intérêt} : on peut
+vérifier une description pour une plateforme qu'on n'a pas.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que Debug et Release ne produisent pas le même programme.
+
+Écrivez un programme dont le comportement dépend de \texttt{NDEBUG} --- un
+\texttt{assert} qui échoue, par exemple, ou un \texttt{\#ifdef} qui change un
+message. Construisez et lancez dans les deux configurations.
+
+\textbf{Ce que la démonstration doit établir} : ce ne sont pas deux vitesses du
+même programme, ce sont deux programmes.
+
+Puis, plus utile encore : \textbf{mesurez la taille des deux exécutables}. L'écart
+vous donnera une idée de ce que les symboles de débogage coûtent --- et vous
+saurez, la prochaine fois qu'un binaire vous paraît trop gros, quelle question
+poser en premier.
+\end{nkdemo}
+
+\begin{nklogique}
+Un collègue rapporte : « le programme plante en Release, mais pas en Debug ».
+
+\begin{enumerate}
+\item Énumérez trois familles de causes possibles, propres à cette asymétrie.
+\item Pourquoi le réflexe « je vais déboguer ça en Debug » est-il précisément
+      celui qui ne trouvera rien ?
+\item Proposez deux approches qui gardent le Release --- et dites ce que chacune
+      coûte.
+\end{enumerate}
+\end{nklogique}

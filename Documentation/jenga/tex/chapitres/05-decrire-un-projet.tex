@@ -1,0 +1,273 @@
+\chapter{Décrire un projet : sources et sorties}
+
+Un projet se décrit par ce qu'il \emph{est}, ce qu'il \emph{contient} et ce qu'il
+\emph{produit}. Ce chapitre couvre les trois, avec les valeurs par défaut --- car
+la moitié du travail consiste à ne rien écrire.
+
+\section{Ce qu'un projet EST : son genre}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Dans le \texttt{.jenga}} & \textbf{En ligne de commande} & \textbf{Produit} \\
+\midrule
+\texttt{consoleapp()} & \texttt{-{}-kind console} & un exécutable avec console \\
+\texttt{windowedapp()} & \texttt{-{}-kind windowed} & un exécutable sans console \\
+\texttt{staticlib()} & \texttt{-{}-kind static} & une bibliothèque statique \\
+\texttt{sharedlib()} & \texttt{-{}-kind shared} & une bibliothèque dynamique \\
+\texttt{testsuite()} & \texttt{-{}-kind test} & une suite de tests \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{windowedapp()} n'est pas cosmétique sous Windows.} Il change le
+sous-système de l'exécutable : sans lui, une fenêtre s'ouvre avec une console
+noire derrière elle.
+
+Et le point d'entrée attendu change avec le sous-système --- c'est ce qui produit
+le fameux \texttt{undefined reference to WinMain} quand la déclaration et le code
+ne s'accordent pas.
+\end{nkretenir}
+
+\begin{nkretenir}
+\textbf{Le genre se déclare souvent DEUX fois}, et ce n'est pas une erreur :
+une fois au niveau du projet, une fois dans chaque filtre de plateforme.
+Certaines plateformes en changent --- le Web est déclaré \texttt{consoleapp()}
+là où le bureau est \texttt{windowedapp()}, parce que la notion de fenêtre
+native n'y a pas le même sens.
+\end{nkretenir}
+
+\section{Le langage et son dialecte}
+
+\begin{nkcode}{}
+language("C++")
+cppdialect("C++17")
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Fonction} & \textbf{Équivalent} \\
+\midrule
+\texttt{cppdialect(\dots)} & \texttt{cppversion(\dots)} \\
+\texttt{cdialect(\dots)} & \texttt{cversion(\dots)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Les deux noms font la même chose. \textbf{Choisissez-en un et tenez-vous-y} :
+deux orthographes pour un même réglage rendent une recherche dans le dépôt
+incomplète --- on cherche \texttt{cppdialect} et l'on rate les fichiers qui
+disent \texttt{cppversion}.
+\end{nkretenir}
+
+\section{Où le projet vit : \texttt{location}}
+
+\begin{nkcode}{}
+location(".")          # le projet vit dans le dossier de son .jenga
+location("Bonjour")    # ... dans un sous-dossier
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Tous les chemins du projet sont relatifs à \texttt{location}}, et
+\texttt{location} est lui-même relatif au dossier du \texttt{.jenga} --- puisque
+le chargeur s'y place (chapitre 4).
+
+Un descripteur d'application inclus depuis la racine écrit donc
+\texttt{location(".")} et parle de son propre dossier, pas de la racine.
+\end{nkretenir}
+
+\section{Quels fichiers lui appartiennent}
+
+\begin{nkcode}{}
+files(["src/**.cpp"])                        # recursif
+files(["src/*.cpp", "src/Ui/*.cpp"])         # non recursif, deux dossiers
+excludefiles(["src/vieux/**.cpp"])
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Motif} & \textbf{Portée} \\
+\midrule
+\texttt{*.cpp} & le dossier courant seulement \\
+\texttt{**.cpp} & le dossier et tous ses sous-dossiers \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Un motif ne dit pas ce qu'il ne trouve pas.} \texttt{files(["src/**.cpp"])}
+sur un dossier vide donne un projet à zéro source --- et l'échec sort à l'édition
+de liens, sur un symbole manquant, sans jamais mentionner que rien n'a été
+compilé.
+
+La sortie de construction porte pourtant la réponse :
+\texttt{Found 1 source file(s)}. \textbf{Lisez ce nombre} ; c'est la ligne qui
+vous dit que votre motif a mordu.
+\end{nkpiege}
+
+\begin{nkretenir}
+\texttt{excludemainfiles()} existe pour un cas précis : retirer les fichiers qui
+portent un \texttt{main()} quand on veut réutiliser les mêmes sources dans une
+bibliothèque ou une suite de tests. Deux \texttt{main} dans une même édition de
+liens ne pardonnent pas.
+\end{nkretenir}
+
+\section{Ce qu'il produit, et où}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Fonction} & \textbf{Ce qu'elle fixe} \\
+\midrule
+\texttt{objdir(chemin)} & où vont les fichiers objets \\
+\texttt{targetdir(chemin)} & où va l'artefact final \\
+\texttt{targetname(nom)} & le nom de l'artefact, si différent du projet \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkcode}{La forme employee partout dans Nkentseu}
+objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Les \texttt{\%\{\dots\}} sont des variables résolues par Jenga}, pas du
+Python :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{\%\{wks.location\}} & le dossier du workspace \\
+\texttt{\%\{cfg.buildcfg\}} & \texttt{Debug} ou \texttt{Release} \\
+\texttt{\%\{cfg.system\}} & \texttt{Windows}, \texttt{Linux}\dots \\
+\texttt{\%\{prj.name\}} & le nom du projet \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Sans la configuration et le système dans le chemin}, un build Debug
+écraserait le Release et un build Linux écraserait le Windows. Ce n'est pas du
+rangement : c'est ce qui rend deux constructions simultanées possibles.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Certaines plateformes ajoutent un suffixe.} Sous Linux, les descripteurs
+de Nkentseu déclarent un dossier par backend graphique :
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga}
+objdir(".../Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xlib/%{prj.name}")
+\end{nkcode}
+
+D'où \texttt{Release-Linux-xlib} et non \texttt{Release-Linux}. Un script
+d'empaquetage qui code le second en dur échoue sur une construction
+\textbf{réussie} --- et c'est arrivé.
+\end{nkpiege}
+
+\section{Ce qu'on ne déclare pas}
+
+\begin{nkretenir}
+\textbf{La moitié d'un bon descripteur est ce qu'on n'y écrit pas.} Le
+compilateur, le niveau d'avertissement, l'extension de l'artefact, la façon
+d'appeler l'éditeur de liens : Jenga les déduit du genre, du langage et de la
+plateforme.
+
+\textbf{N'écrivez un réglage que lorsque le défaut ne convient pas} --- et quand
+vous le faites, écrivez \emph{pourquoi} à côté. Un drapeau sans justification
+survit dix ans après que sa raison a disparu.
+\end{nkretenir}
+
+\section{Les métadonnées de l'application}
+
+\begin{nkcode}{}
+apppublisher("Rihen Universe")
+appversion("0.1.0")
+licensefile("../../LICENSE")
+appicon("Resources/icone.png")
+\end{nkcode}
+
+\begin{nkretenir}
+Elles ne servent pas à la compilation mais à l'\emph{empaquetage} : elles
+remplissent le manifeste Android, les propriétés de l'exécutable Windows,
+l'installeur.
+
+\textbf{\texttt{appicon} pointe un fichier qui doit exister.} Déclarer une icône
+absente fait échouer la génération de l'APK --- alors que la construction bureau,
+elle, ne dit rien. Le descripteur de NkDames porte d'ailleurs le commentaire, et
+la ligne est mise en attente jusqu'à ce que l'icône soit dessinée.
+\end{nkretenir}
+
+\begin{nkbilan}
+Un projet déclare son genre, son langage, son dossier, ses fichiers et ses
+sorties --- et rien de plus si les défauts conviennent. Le genre change le
+sous-système et donc le point d'entrée attendu ; les motifs \texttt{*} et
+\texttt{**} ne fouillent pas de la même façon, et la ligne
+\texttt{Found N source file(s)} est ce qui vous dit si le vôtre a mordu. Les
+chemins de sortie portent la configuration et le système parce que sans eux deux
+constructions s'écrasent --- et certaines plateformes y ajoutent un suffixe qu'un
+script ne doit pas coder en dur. Enfin les métadonnées ne servent qu'à
+l'empaquetage, mais une icône déclarée doit exister.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelle différence entre \texttt{consoleapp()} et \texttt{windowedapp()},
+      au-delà de la console ?
+\item Que fouille \texttt{src/*.cpp} que \texttt{src/**.cpp} fouille aussi, et
+      inversement ?
+\item Quelle ligne de la sortie de construction dit qu'un motif a trouvé quelque
+      chose ?
+\item Pourquoi la configuration et le système figurent-ils dans le chemin de
+      sortie ?
+\item À quoi servent \texttt{apppublisher} et \texttt{appversion} ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Reprenez le projet du chapitre 3 et faites-lui produire, tour à tour :
+
+\begin{enumerate}
+\item une bibliothèque statique au lieu d'un exécutable ;
+\item un exécutable dont le \emph{nom} diffère du projet ;
+\item un exécutable dont les objets vont dans un dossier à vous.
+\end{enumerate}
+
+Après chaque changement, \textbf{trouvez l'artefact sur le disque} avant de
+relancer \texttt{jenga run}. C'est la seule façon de vérifier que le réglage a
+été honoré et pas seulement accepté.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un motif qui ne trouve rien ne le dit pas.
+
+Créez un projet dont \texttt{files()} pointe un dossier \textbf{vide}. Construisez.
+
+\textbf{Ce que la démonstration doit établir}, et c'est en deux temps :
+\begin{enumerate}
+\item relevez ce qu'affiche la ligne \texttt{Found \dots\ source file(s)} ;
+\item relevez le message d'échec final, et constatez qu'il parle d'un
+      \emph{symbole}, pas d'un motif.
+\end{enumerate}
+
+Puis ajoutez un fichier et refaites la mesure. C'est la paire qui prouve que la
+première ligne était le seul indice utile.
+\end{nkdemo}
+
+\begin{nklogique}
+Un collègue a écrit \texttt{targetdir("Build/Bin")} --- sans configuration ni
+système.
+
+\begin{enumerate}
+\item Décrivez précisément ce qui se passe quand il construit en Debug, puis en
+      Release, puis relance son programme.
+\item Le symptôme qu'il rapportera n'est pas « mes builds s'écrasent ». Que
+      dira-t-il, à votre avis, et pourquoi cette formulation envoie-t-elle
+      chercher au mauvais endroit ?
+\item Une troisième construction, pour une \emph{autre plateforme}, aggrave le
+      cas d'une façon nouvelle. Laquelle ?
+\end{enumerate}
+\end{nklogique}

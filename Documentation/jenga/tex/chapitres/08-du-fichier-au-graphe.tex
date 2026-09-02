@@ -1,0 +1,217 @@
+\chapter{Du fichier au graphe : le chargement}
+
+Entre le moment où vous tapez \texttt{jenga build} et celui où le compilateur
+démarre, Jenga fait un travail qu'on ne voit pas. Ce chapitre le décrit, parce
+que la moitié des surprises viennent de là.
+
+\section{Les six temps du chargement}
+
+\begin{center}
+\begin{tabular}{@{}rll@{}}
+\toprule
+& \textbf{Temps} & \textbf{Ce qui se passe} \\
+\midrule
+1 & trouver le fichier d'entrée & le \texttt{.jenga} de la racine \\
+2 & préparer l'environnement & namespace, chemin des \emph{typings} \\
+3 & se placer & le répertoire courant devient celui du fichier \\
+4 & \textbf{exécuter} & \texttt{exec(\dots)} --- vos projets naissent ici \\
+5 & récupérer le workspace & \texttt{getcurrentworkspace()} \\
+6 & post-traiter & résolution des chemins, vérifications \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkcode}{Jenga/Core/Loader.py, les lignes qui comptent}
+old_cwd = Path.cwd()
+os.chdir(filePath.parent)
+...
+_loadedFiles.append(filePath)
+exec(filePath.read_text(encoding='utf-8-sig'), globals_dict)
+workspace = Api.getcurrentworkspace()
+if workspace is None:
+    raise RuntimeError("No workspace defined in the entry file.")
+self._PostProcessWorkspace(workspace, filePath)
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{utf-8-sig}, et non \texttt{utf-8}.} Le suffixe \texttt{-sig} fait
+ignorer la marque d'ordre d'octets que certains éditeurs Windows placent en tête
+de fichier.
+
+Sans cela, un \texttt{.jenga} enregistré par le Bloc-notes échouerait sur sa
+première ligne avec une erreur de syntaxe portant sur un caractère invisible.
+C'est trois lettres, et elles évitent une demi-journée.
+\end{nkretenir}
+
+\section{Les projets naissent en s'exécutant}
+
+\begin{nkretenir}
+\textbf{Il n'y a pas d'étape « analyse ».} Quand \texttt{exec} se termine, le
+graphe est déjà là : chaque \texttt{with project(\dots)} a créé un objet, chaque
+\texttt{files(\dots)} a rempli une liste.
+
+C'est pourquoi l'ordre d'écriture compte : une fonction doit être définie
+\emph{avant} le \texttt{include} qui s'en sert, comme dans n'importe quel script.
+\end{nkretenir}
+
+\begin{nkcode}{Jenga/Core/Api.py -- ce que fait `with project`}
+class project:
+    def __init__(self, name: str):
+        ...
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Les fonctions du vocabulaire écrivent dans une variable globale.}
+\texttt{files()} ne reçoit pas de projet : il lit \texttt{\_currentProject}, que
+\texttt{with project} vient de poser.
+
+C'est simple, c'est efficace, et cela explique le piège du chapitre 4 : un appel
+hors bloc écrit dans le \emph{dernier} projet, ou dans le vide.
+\end{nkretenir}
+
+\section{Le post-traitement}
+
+\begin{nkretenir}
+Après l'exécution, Jenga résout ce qui était relatif : les chemins deviennent
+absolus, les motifs de fichiers sont développés, les dépendances sont mises en
+correspondance avec des projets réels.
+
+\textbf{C'est ici que la plupart des erreurs de description apparaissent} --- et
+elles apparaissent \emph{loin} de la ligne fautive, puisque cette ligne s'est
+exécutée sans se plaindre.
+\end{nkretenir}
+
+\section{Que fait Jenga quand ça rate}
+
+\begin{nkcode}{Jenga/Core/Loader.py}
+except Exception as e:
+    Colored.PrintError(f"Error loading workspace: {e}")
+    if self.verbose:
+        traceback.print_exc()
+    return None
+finally:
+    os.chdir(old_cwd)
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Trois choses à retenir de ces sept lignes.}
+
+\textbf{Le \texttt{finally} restaure le répertoire courant} même en cas d'échec.
+Sans lui, une erreur de chargement vous laisserait dans un autre dossier que
+celui d'où vous avez tapé la commande.
+
+\textbf{\texttt{-{}-verbose} donne la pile complète.} C'est le premier réflexe : le
+message seul dit \emph{quoi}, la pile dit \emph{où}.
+
+\textbf{Le chargeur rend \texttt{None}}, il ne lève pas. L'appelant doit donc
+tester --- et c'est le genre de contrat qu'on oublie en écrivant un outil autour
+de Jenga.
+\end{nkretenir}
+
+\section{Le namespace propagé}
+
+\begin{nkcode}{Jenga/Core/Loader.py}
+# Exposer le namespace LIVE du workspace racine pour que `include()` propage
+# automatiquement aux fichiers inclus tout ce que l'utilisateur definit ici
+# (config/fonctions/classes/imports) -> plus besoin de les re-importer dans
+# chaque .jenga inclus.
+Api._workspaceGlobals = globals_dict
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Ce qui est défini dans le fichier racine est visible partout.} C'est ce
+qui permet à trente descripteurs d'application d'employer
+\texttt{nkentseudependson} sans jamais l'importer.
+
+Et le nettoyage est fait : \texttt{Api.\_workspaceGlobals = None} en fin de
+chargement, « évite toute fuite de namespace entre deux chargements de
+workspace ».
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Cette commodité a un coût de lisibilité.} Un descripteur d'application
+appelle une fonction dont rien, dans son fichier, ne dit d'où elle vient. Ni
+\texttt{import}, ni définition.
+
+Quand vous lisez un \texttt{.jenga} et rencontrez un nom inconnu, le réflexe est
+donc : \textbf{chercher dans le fichier racine et dans ce qu'il inclut avant
+lui}, jamais dans la documentation de Jenga.
+\end{nkpiege}
+
+\section{Le fichier d'entrée n'est pas toujours celui qu'on croit}
+
+\begin{nkretenir}
+Jenga cherche le \texttt{.jenga} en remontant depuis le répertoire courant. Vous
+pouvez le forcer :
+
+\begin{nkcode}{}
+jenga info --jenga-file chemin/vers/Autre.jenga
+\end{nkcode}
+
+\textbf{Lancer une commande depuis un sous-dossier peut donc charger un workspace
+différent} de celui que vous croyez. La sortie de \texttt{jenga info} donne
+l'\texttt{Entry file} en toutes lettres --- c'est la ligne qui tranche.
+\end{nkretenir}
+
+\begin{nkbilan}
+Le chargement tient en six temps, et le quatrième est une exécution : quand elle
+se termine, le graphe existe déjà. Les fonctions du vocabulaire écrivent dans une
+variable globale posée par le \texttt{with} courant --- d'où l'importance de
+l'indentation. Le post-traitement résout ensuite les chemins et les dépendances,
+et c'est là que la plupart des erreurs se manifestent, loin de leur cause. Le
+namespace du fichier racine est propagé aux inclusions, ce qui rend un
+vocabulaire maison possible mais rend aussi son origine invisible. Enfin, la
+ligne \texttt{Entry file} de \texttt{jenga info} dit quel workspace a réellement
+été chargé.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item À quel moment les projets existent-ils en mémoire ?
+\item Pourquoi \texttt{utf-8-sig} et non \texttt{utf-8} ?
+\item Que fait le \texttt{finally} du chargeur, et qu'éviterait-on sans lui ?
+\item D'où vient une fonction employée dans un \texttt{.jenga} sans y être
+      importée ?
+\item Quelle ligne de \texttt{jenga info} dit quel fichier a été chargé ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Placez un \texttt{print} au début, au milieu et à la fin de votre
+\texttt{.jenga}, ainsi qu'au début d'un fichier inclus.
+
+Lancez \texttt{jenga info} et notez l'\textbf{ordre} d'apparition. Puis déplacez
+l'\texttt{include} avant les définitions dont il dépend, et observez.
+
+Retirez tous les \texttt{print} ensuite : ils s'exécutent à \emph{chaque}
+commande, y compris celles dont un script lit la sortie.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que l'\texttt{include} s'exécute \emph{en ligne}, et non après.
+
+Dans le fichier racine, définissez une variable \texttt{MARQUE = "A"}. Placez un
+\texttt{include}. Après lui, changez \texttt{MARQUE = "B"}. Dans le fichier
+inclus, affichez \texttt{MARQUE}.
+
+\textbf{Ce que la démonstration établit} : le fichier inclus affiche \texttt{A}.
+Il voit donc l'état du namespace \emph{au moment où il est inclus}, pas son état
+final.
+
+Déplacez ensuite l'\texttt{include} après l'affectation à \texttt{"B"} et
+refaites la mesure. C'est la paire qui prouve, pas le premier essai.
+\end{nkdemo}
+
+\begin{nklogique}
+Vous lancez \texttt{jenga build} depuis un sous-dossier de votre dépôt et obtenez
+« projet inconnu », alors que la même commande fonctionne depuis la racine.
+
+\begin{enumerate}
+\item Énumérez deux explications --- l'une sur le fichier chargé, l'autre sur ce
+      qu'il contient.
+\item Quelle commande, et quelle ligne de sa sortie, les distingue en une
+      seconde ?
+\item Une troisième explication n'a rien à voir avec Jenga : laquelle, et
+      qu'est-ce qui la trahirait ?
+\end{enumerate}
+\end{nklogique}

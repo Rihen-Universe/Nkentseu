@@ -1,0 +1,256 @@
+\chapter{Le mobile : Android, iOS, HarmonyOS}
+
+Le mobile ajoute quelque chose que le bureau n'a pas : un \textbf{manifeste}. Il
+ne suffit plus de compiler et de lier --- il faut déclarer une identité, des
+permissions, une orientation, et signer. Ce chapitre couvre les trois systèmes.
+
+\section{Android}
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel, abrege}
+with filter("system:Android"):
+    windowedapp()
+    usetoolchain("android-ndk")
+    androidapplicationid("com.nkentseu.nkdames")
+    androidisgame(True)
+    androidminsdk(24)
+    androidtargetsdk(34)
+    androidcompilesdk(34)
+    androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+    androidnativeactivity(True)
+    androidscreenorientation("portrait")
+    androidallowrotation(False)
+    androidstl("c++_shared")
+    links(["android", "log", "EGL", "GLESv3", "dl", "OpenSLES"])
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Fonction} & \textbf{Ce qu'elle décide} \\
+\midrule
+\texttt{androidapplicationid} & l'identité du paquet --- unique sur l'appareil \\
+\texttt{androidminsdk} & la version d'Android la plus ancienne acceptée \\
+\texttt{androidabis} & les architectures embarquées \\
+\texttt{androidnativeactivity} & pas de code Java du tout \\
+\texttt{androidscreenorientation} & ce que le manifeste impose \\
+\texttt{androidstl} & quelle bibliothèque standard C++ embarquer \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{androidabis} multiplie la taille du paquet.} Quatre
+architectures, c'est quatre bibliothèques natives dans l'APK. Le paquet
+« universel » d'un jeu de ce dépôt pèse 7 Mo pour 2 Mo sur le bureau.
+
+On les garde pour un APK de test qui s'installe partout ; pour une distribution,
+on découpe.
+\end{nkretenir}
+
+\begin{nkretenir}[Une NativeActivity n'a pas de \texttt{classes.dex}, et c'est normal]
+\texttt{androidnativeactivity(True)} produit un manifeste avec
+\texttt{android:hasCode="false"} : il n'y a \textbf{aucun} code Java, donc rien à
+convertir en \texttt{dex}.
+
+⚠️ Un contrôle qui exige un \texttt{classes.dex} déclarera donc cassé un APK qui
+s'installe et fonctionne. \emph{Vérifié : les APK de ce dépôt n'en ont pas, et
+tournent sur un téléphone réel.}
+\end{nkretenir}
+
+\begin{nkpiege}[Sans orientation déclarée, l'image sort tournée]
+Le système impose la sienne. Le descripteur commente d'ailleurs son choix :
+« PORTRAIT : c'est l'orientation du jeu [\dots] ; la mise en page SAIT faire les
+deux ; c'est un choix de produit, pas une limite technique ».
+
+Et l'on vérifie ce que le paquet porte \emph{réellement}, pas ce que le
+descripteur demande :
+
+\begin{nkcode}{aapt dump xmltree -- capture reelle}
+A: android:screenOrientation(0x0101001e)=(type 0x10)0x1
+\end{nkcode}
+
+\texttt{0x1} vaut \texttt{SCREEN\_ORIENTATION\_PORTRAIT}.
+
+⚠️ \textbf{Et cherchez la valeur, pas le mot.} Dans un manifeste binaire,
+\texttt{screenOrientation} est un \textbf{entier} : chercher la chaîne
+« portrait » rend ABSENT sur un paquet parfaitement verrouillé. Mesuré --- et
+j'ai failli annoncer un défaut sur cet instrument aveugle.
+\end{nkpiege}
+
+\begin{nkretenir}[Ce qu'il faut sur la machine]
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{ANDROID\_SDK\_ROOT} & le SDK \\
+\texttt{ANDROID\_NDK\_ROOT} & le NDK \\
+\texttt{JAVA\_HOME} & un JDK 17 --- pour empaqueter et signer \\
+\texttt{\textasciitilde/.android/debug.keystore} & la clé de test \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Les deux dernières lignes sont celles qu'on oublie}, et leur absence ne
+casse pas la compilation : elle produit un APK \emph{sans signature} que
+\texttt{adb install} refuse en silence.
+
+Vérification rapide d'un APK : il doit contenir \texttt{META-INF/MANIFEST.MF} et
+un \texttt{META-INF/*.RSA}.
+\end{nkretenir}
+
+\section{iOS}
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel}
+with filter("system:iOS"):
+    windowedapp()
+    frameworks(["UIKit", "QuartzCore", "OpenGLES", "AVFoundation", "Metal",
+                "AudioToolbox", "CoreAudio"])
+    iosbundleid("com.nkentseu.nkdames")
+    iosversion("1.0")
+    iosminsdk("14.0")
+    iosbuildnumber(1)
+\end{nkcode}
+
+\begin{nkpiege}[La liste des frameworks n'est PAS celle de macOS]
+\textbf{\texttt{AudioUnit} n'existe pas sur iOS.} C'est un framework distinct sur
+macOS seulement ; sur iOS, ses symboles --- \texttt{AudioComponent*},
+\texttt{AudioOutputUnit*} --- vivent dans \texttt{AudioToolbox}.
+
+Recopier la liste macOS donne \texttt{ld: framework AudioUnit not found}. Mesuré
+sur l'intégration continue iOS.
+
+\emph{Un précédent se vérifie sur SA plateforme.} C'est vrai des frameworks
+Apple, et c'est vrai de bien d'autres choses.
+\end{nkpiege}
+
+\begin{nkretenir}[Ce que le descripteur avoue lui-même]
+\begin{nkcode}{Applications/NkDames/NkDames.jenga}
+# ⚠️ Non verifie sur machine : la construction iOS exige macOS + Xcode.
+# Ces lignes suivent le modele de NKPA, qui est dans le meme cas. Elles
+# rendent la cible DECLAREE, pas EPROUVEE.
+\end{nkcode}
+
+\textbf{C'est la distinction que ce livre tient partout.} Une cible déclarée a
+des lignes dans un descripteur ; une cible éprouvée a produit un artefact qu'on a
+lancé. Les confondre fait annoncer un support qu'on n'a pas.
+
+Le même commentaire note que le filtre iOS \textbf{n'existait pas} jusqu'au
+2026-08-27, alors que l'en-tête du fichier annonçait « Mobile : Android, iOS,
+HarmonyOS » --- \emph{une plateforme qu'on croit couverte parce qu'un commentaire
+la nomme}.
+\end{nkretenir}
+
+\section{HarmonyOS}
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel}
+with filter("system:HarmonyOS"):
+    windowedapp()
+    usetoolchain("ohos-ndk")
+    harmonybundlename("com.nkentseu.nkdames")
+    harmonyminsdk(12)
+    harmonytargetapi(12)
+    harmonyorientation("portrait")
+    links(["hilog_ndk.z", "EGL", "GLESv3", "vulkan"])
+\end{nkcode}
+
+\begin{nkretenir}
+La structure est celle d'Android, les noms changent :
+\texttt{harmonybundlename} pour l'identité, \texttt{hilog\_ndk.z} pour le
+journal --- l'équivalent de \texttt{log}.
+
+\textbf{Et l'orientation s'y déclare pour la même raison} : sans elle, le
+système impose la sienne et l'image sort tournée d'un quart de tour.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{\texttt{jenga package --platform harmonyos} exige un
+\texttt{hvigor-config.json5}} que les applications de ce dépôt n'ont pas. Leur
+\texttt{.hap} vient donc de \texttt{jenga build}, pas de \texttt{package}.
+
+C'est écrit dans le script d'empaquetage, et c'est le genre de chose qu'il vaut
+mieux découvrir dans un livre que dans un journal d'erreurs.
+\end{nkpiege}
+
+\section{Le point commun des trois}
+
+\begin{nkretenir}
+\textbf{Sur mobile, la construction n'est que la moitié du travail.} Il reste à
+produire un manifeste juste, à embarquer les bonnes architectures, et à signer.
+
+Et ces trois-là échouent différemment de la compilation : \textbf{ils ne
+produisent pas d'erreur de compilateur.} L'APK se construit, il ne s'installe
+pas ; le manifeste se génère, il déclare la mauvaise orientation ; le paquet
+existe, il n'est pas signé.
+
+\emph{La vérification d'un artefact mobile porte donc sur le PAQUET, jamais sur
+la sortie de la construction.}
+\end{nkretenir}
+
+\begin{nkbilan}
+Le mobile ajoute un manifeste : identité, permissions, orientation, signature.
+Android se décrit par une quinzaine d'appels dont l'oubli le plus coûteux est
+l'orientation ; ses APK NativeActivity n'ont légitimement pas de
+\texttt{classes.dex}, et il faut vérifier la valeur dans le manifeste binaire, pas
+le mot. iOS partage la forme de macOS mais pas sa liste de frameworks ---
+\texttt{AudioUnit} n'y existe pas --- et le descripteur avoue être déclaré sans
+être éprouvé. HarmonyOS reprend la structure d'Android sous d'autres noms.
+Retenez surtout que ces trois systèmes échouent \emph{après} la compilation, donc
+que la vérification porte sur le paquet.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Que produit \texttt{androidnativeactivity(True)} dans le manifeste, et
+      quelle conséquence sur le contenu de l'APK ?
+\item Comment vérifier l'orientation réellement déclarée par un APK ?
+\item Pourquoi \texttt{AudioUnit} casse-t-il la construction iOS ?
+\item Quelle différence entre une cible \emph{déclarée} et une cible
+      \emph{éprouvée} ?
+\item Qu'est-ce qui manque à un APK quand \texttt{JAVA\_HOME} n'est pas défini ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Prenez un APK --- le vôtre, ou l'un de ceux du dépôt --- et établissez quatre
+faits par la commande, pas par le descripteur :
+
+\begin{enumerate}
+\item son identité de paquet ;
+\item son orientation déclarée ;
+\item les architectures qu'il embarque ;
+\item s'il est signé.
+\end{enumerate}
+
+\texttt{aapt dump badging} et \texttt{aapt dump xmltree} répondent aux trois
+premières ; la quatrième se lit dans la liste des fichiers du zip.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un manifeste binaire ne se lit pas comme du texte.
+
+\begin{enumerate}
+\item Cherchez la chaîne \texttt{portrait} dans \texttt{AndroidManifest.xml}
+      extrait d'un APK verrouillé en portrait. Notez le résultat.
+\item Faites lire le même fichier par \texttt{aapt dump xmltree}. Notez la valeur
+      de \texttt{screenOrientation}.
+\end{enumerate}
+
+\textbf{Ce que la démonstration établit} : la première méthode dit ABSENT sur un
+paquet parfaitement correct. Une valeur d'énumération y est un \emph{entier}.
+
+⚠️ Et posez le contrôle positif : cherchez une chaîne dont vous savez qu'elle est
+là --- \texttt{NativeActivity}, par exemple. Si elle non plus ne sort pas, votre
+lecteur est aveugle et le premier résultat ne prouvait rien.
+\end{nkdemo}
+
+\begin{nklogique}
+Votre APK se construit, mais \texttt{adb install} le refuse sans message clair.
+
+\begin{enumerate}
+\item Énumérez quatre causes possibles, en distinguant celles qui viennent de la
+      construction de celles qui viennent de l'appareil.
+\item Pour chacune, dites ce que vous regarderiez \emph{dans le paquet} --- et
+      non dans la sortie de la construction.
+\item Une cause ne se voit ni dans le paquet ni dans la construction. Laquelle,
+      et où la prendriez-vous ?
+\end{enumerate}
+\end{nklogique}

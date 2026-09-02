@@ -1,0 +1,228 @@
+\chapter{Livrer : empaqueter, signer, déployer}
+
+Un exécutable dans \texttt{Build/Bin/} n'est pas une livraison. Ce chapitre
+couvre les quatre commandes qui produisent quelque chose qu'on donne à quelqu'un
+--- et le piège qui a coûté la moitié d'un lot de paquets sur ce dépôt.
+
+\section{\texttt{package}}
+
+\begin{nkcode}{}
+jenga package --platform windows --project MonJeu --output dist/
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{package} CONSTRUIT d'abord.} Il ne se contente pas de zipper ce
+qui traîne : il lance la construction, puis empaquette. La fraîcheur est donc
+garantie --- ce qu'un empaqueteur pur ne peut pas promettre.
+
+C'est une raison de ne pas écrire son propre script de zippage : une seconde
+façon d'empaqueter finit toujours par diverger de la première.
+\end{nkretenir}
+
+\begin{nkpiege}[Le piège qui écrase la moitié d'un lot, en silence]
+\textbf{\texttt{jenga package} nomme sa sortie d'après le PROJET, pas d'après la
+plateforme.}
+
+Windows produit \texttt{MonJeu.zip}. Web produit \texttt{MonJeu.zip}. Dans le
+même dossier de sortie, \textbf{le second écrase le premier} --- code de sortie
+0, message « package created », et un artefact de moins.
+
+\textbf{Le remède} : un dossier de sortie \emph{par plateforme}, puis un
+renommage.
+
+⚠️ \textbf{Et ce n'est pas la sortie de la commande qui l'a révélé : c'est
+l'ouverture de l'archive.} On y a trouvé un \texttt{.wasm} là où l'on attendait
+un \texttt{.exe}. Un empaquetage qui « réussit » cinq fois peut ne laisser que
+trois artefacts.
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{Deux plateformes ne passent pas par \texttt{package}}, et il faut le
+savoir avant d'écrire un script :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Android & l'APK vient de \texttt{jenga build} \\
+HarmonyOS & \texttt{package} exige un \texttt{hvigor-config.json5} absent \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Un script d'empaquetage a donc deux chemins, et c'est délibéré --- pas une
+rustine.
+\end{nkretenir}
+
+\section{\texttt{keygen} et \texttt{sign}}
+
+\begin{nkcode}{}
+jenga keygen
+jenga sign
+\end{nkcode}
+
+\begin{nkretenir}
+La signature se déclare dans le descripteur, et chaque plateforme a ses champs :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Windows & \texttt{signingcertificate}, \texttt{signingthumbprint}, \texttt{signingtimestampurl} \\
+Android & \texttt{androidkeystore}, \texttt{androidkeyalias}, \texttt{androidkeystorepass} \\
+Apple & \texttt{signingidentity}, \texttt{signingentitlements} \\
+HarmonyOS & \texttt{harmonycertfile}, \texttt{harmonykeystore}, \texttt{harmonyprofile} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{\texttt{signingtimestampurl} mérite une phrase} : sans horodatage, une
+signature devient invalide le jour où le certificat expire --- même pour un
+binaire signé bien avant. Avec, elle reste valable.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un APK signé avec la clé de débogage s'installe et ne se publie pas.}
+C'est parfait pour des testeurs internes, et refusé par les magasins.
+
+Le script d'empaquetage de ce dépôt le dit à chaque exécution :
+\emph{« APK Release signe avec debug.keystore (OK testeurs internes, pas Play
+Store) »}.
+
+\emph{Dire ce qu'un artefact n'est pas vaut autant que dire ce qu'il est.}
+\end{nkpiege}
+
+\section{\texttt{deploy} et \texttt{publish}}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{jenga deploy} & installe sur une cible --- un téléphone, un appareil \\
+\texttt{jenga publish} & envoie vers une destination de distribution \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[Ces deux-là sortent vers l'extérieur]
+\textbf{Toute commande qui envoie quelque chose hors de votre machine mérite une
+décision, pas une habitude.} Publier un artefact anodin annonce quand même une
+intention, et ce qui est parti est difficile à reprendre.
+
+Ce livre ne les documente pas plus loin parce qu'elles n'ont pas été exercées
+ici. \emph{Les décrire d'après leur nom serait exactement ce que le chapitre 12
+reproche à un commentaire qui nomme une plateforme.}
+\end{nkretenir}
+
+\section{Vérifier un paquet, et non la commande}
+
+\begin{nkretenir}
+\textbf{« L'empaquetage a réussi » ne prouve rien.} Le piège de la section 1 le
+montre : la commande peut réussir et l'artefact ne pas être celui qu'on croit.
+
+Deux témoins, du plus fort au plus faible :
+
+\textbf{1. Lancer ce qui est DANS le paquet.} Extraire l'exécutable et le faire
+tourner --- son banc, s'il en a un. C'est le seul témoin qui porte sur le
+comportement.
+
+\textbf{2. Chercher dans le binaire une chaîne qui n'existe que depuis votre
+modification.} Un artefact qui la porte a été construit après. Une \emph{date},
+elle, se préserve à la copie et ne prouve rien.
+
+⚠️ \textbf{Le second témoin exige un contrôle positif} : cherchez d'abord une
+chaîne dont vous savez qu'elle est là. Si vous ne la trouvez pas, votre lecteur
+ne sait pas lire ce format --- et l'absence de la première ne prouve rien du
+tout.
+\end{nkretenir}
+
+\begin{nkretenir}
+\textbf{Cette méthode a été appliquée sur ce dépôt}, sur quinze paquets et cinq
+plateformes. Résultat : les trois exécutables Windows passent leur banc, et les
+quatre autres plateformes portent la chaîne témoin.
+
+Et le vérificateur lui-même s'est trompé au premier essai : il comptait le
+\emph{mot} « ECHEC » et accusait un jeu de deux échecs --- qui étaient deux
+\emph{noms de cas} contenant ce mot. \emph{Compter un mot n'est pas mesurer une
+chose}, y compris quand c'est vous qui écrivez l'instrument.
+\end{nkretenir}
+
+\section{Ce qui accompagne un paquet}
+
+\begin{nkretenir}
+Un dossier de livraison porte plus que des artefacts : il porte de quoi s'en
+servir. Le lot de ce dépôt contient un \texttt{LISEZMOI.md} avec un tableau
+« fichier / pour qui / comment on s'en sert », et un avertissement en tête :
+
+\begin{nkcode}{Build/JeuxPlateau-Release/LISEZMOI.md}
+## ⚠️ Le Web ne s'ouvre PAS en double-cliquant le `.html`
+\end{nkcode}
+
+\textbf{Cette phrase économise plus de messages que toute la documentation
+technique du lot.} Écrivez celle qui correspond à \emph{votre} piège le plus
+probable.
+\end{nkretenir}
+
+\begin{nkbilan}
+\texttt{package} construit avant d'empaqueter, ce qui garantit la fraîcheur ---
+mais il nomme sa sortie d'après le projet, et deux plateformes s'écrasent en
+silence dans un même dossier. Android et HarmonyOS passent par \texttt{build},
+pas par \texttt{package}. La signature se déclare par plateforme, et une clé de
+débogage donne un paquet installable mais non publiable --- il faut le dire.
+Enfin, un paquet se vérifie en \emph{lançant ce qu'il contient}, pas en lisant la
+sortie de la commande, et tout témoin par recherche de chaîne exige son contrôle
+positif.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Que fait \texttt{jenga package} avant d'empaqueter ?
+\item D'après quoi nomme-t-il sa sortie, et quelle conséquence ?
+\item Quelles plateformes ne passent pas par \texttt{package} ?
+\item À quoi sert \texttt{signingtimestampurl} ?
+\item Citez deux témoins de la fraîcheur d'un paquet, et lequel est le plus fort.
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Empaquetez votre projet pour deux plateformes \textbf{dans le même dossier}, à
+dessein.
+
+\begin{enumerate}
+\item comptez les fichiers produits ;
+\item ouvrez celui qui reste et regardez ce qu'il contient ;
+\item recommencez avec un dossier par plateforme, puis un renommage ;
+\item comparez les deux comptes.
+\end{enumerate}
+
+Le point 2 est le c\oe ur de l'exercice : c'est en ouvrant qu'on voit, jamais
+en lisant la sortie de la commande.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un paquet contient bien vos dernières modifications.
+
+\begin{enumerate}
+\item ajoutez à votre programme une chaîne unique --- la date du jour ;
+\item construisez et empaquetez ;
+\item extrayez l'exécutable du paquet et \textbf{lancez-le} : il doit afficher
+      la chaîne ;
+\item cherchez ensuite cette même chaîne dans le binaire, sans le lancer.
+\end{enumerate}
+
+\textbf{Ce que la démonstration établit} : les deux témoins concordent. Faites
+alors le contraire --- empaquetez \emph{sans} reconstruire après une nouvelle
+modification --- et vérifiez qu'ils sont tous deux capables de dire non.
+
+⚠️ Un témoin qui n'a jamais dit non n'a rien prouvé.
+\end{nkdemo}
+
+\begin{nklogique}
+Vous livrez cinq paquets. Un testeur rapporte que « le jeu n'a pas la correction
+d'hier ».
+
+\begin{enumerate}
+\item Énumérez quatre causes, depuis « la correction n'est pas dans le dépôt »
+      jusqu'à « le testeur a installé l'ancien ».
+\item Pour chacune, dites qui peut la vérifier --- vous, ou lui --- et avec quoi.
+\item Une seule de ces causes se vérifie \emph{sans} le testeur et \emph{sans}
+      reconstruire. Laquelle, et pourquoi commencer par elle ?
+\end{enumerate}
+\end{nklogique}

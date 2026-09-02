@@ -1,0 +1,298 @@
+% =============================================================================
+% PREAMBULE DU COURS NKENTSEU -- composition XeLaTeX
+% -----------------------------------------------------------------------------
+% XeLaTeX et non pdfLaTeX : le document est en francais accentue et utilise les
+% polices systeme (Segoe UI, Consolas), ce que seul un moteur Unicode sait
+% faire sans table de substitution.
+% Les couleurs sont RELEVEES sur le logo Rihen, pas approximees a l'oeil :
+% sarcelle #0A555F et orange #F79A28 sont les pixels exacts du fichier.
+% =============================================================================
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{french}
+
+\usepackage{geometry}
+\geometry{a4paper, top=2.6cm, bottom=2.4cm, left=2.5cm, right=2.5cm,
+          headheight=15pt, footskip=1.2cm}
+
+\usepackage{xcolor}
+\definecolor{rihenTeal}{RGB}{10,85,95}
+\definecolor{rihenOrange}{RGB}{247,154,40}
+\definecolor{rihenTealPale}{RGB}{232,241,242}
+\definecolor{rihenOrangePale}{RGB}{253,243,229}
+\definecolor{codeBg}{RGB}{247,248,249}
+\definecolor{codeBorder}{RGB}{219,224,227}
+\definecolor{codeKey}{RGB}{10,85,95}
+\definecolor{codeStr}{RGB}{163,78,20}
+\definecolor{codeCom}{RGB}{110,122,128}
+\definecolor{codeNum}{RGB}{140,60,120}
+\definecolor{grisTexte}{RGB}{58,64,68}
+
+% Polices Windows garanties : ne pas dependre d'un paquet a installer.
+\setmainfont{Segoe UI}[
+  BoldFont={Segoe UI Semibold},
+  ItalicFont={Segoe UI Italic},
+  BoldItalicFont={Segoe UI Bold Italic}]
+\setsansfont{Segoe UI}[BoldFont={Segoe UI Semibold}]
+\setmonofont{Consolas}[Scale=0.92]
+
+\usepackage{titlesec}
+\usepackage{titletoc}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage{listings}
+\usepackage{tcolorbox}
+% `listings` est indispensable ici : c'est elle qui fournit \newtcblisting,
+% et donc les blocs de code encadres et coupables en fin de page.
+\tcbuselibrary{skins, breakable, listings}
+% Les images sont cherchees ici, quel que soit le repertoire de compilation :
+% un chemin relatif casse des qu'on change -output-directory.
+\graphicspath{{../assets/}{../../assets/}{./}}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\hypersetup{
+  colorlinks=true, linkcolor=rihenTeal, urlcolor=rihenTeal,
+  citecolor=rihenTeal, pdfborder={0 0 0}}
+% xurl (APRES hyperref) : autorise la coupure des chemins de fichiers a
+% n'importe quel caractere. Sans lui, un chemin de depot long est un bloc
+% insecable qui deborde de 5 a 7 cm dans la marge.
+\usepackage{xurl}
+% Filet de securite pour les paragraphes charges d'identifiants en fonte a
+% chasse fixe : autorise un etirement d'urgence plutot qu'un debordement.
+\emergencystretch=2.5em
+
+% ── TITRES ───────────────────────────────────────────────────────────────────
+% Le numero de chapitre est POSE A COTE du titre, en gros et en pale : il sert
+% de repere quand on feuillette, sans voler la vedette au titre lui-meme.
+\titleformat{\chapter}[display]
+  {\normalfont\sffamily\bfseries\color{rihenTeal}}
+  {\hfill\fontsize{58}{58}\selectfont\color{rihenTealPale}\thechapter}
+  {-14pt}
+  {\fontsize{24}{28}\selectfont\raggedright}
+  [\vspace{4pt}{\color{rihenOrange}\titlerule[2.4pt]}]
+\titlespacing*{\chapter}{0pt}{-24pt}{28pt}
+
+\titleformat{\section}
+  {\normalfont\sffamily\bfseries\large\color{rihenTeal}}{\thesection}{0.8em}{}
+\titleformat{\subsection}
+  {\normalfont\sffamily\bfseries\color{grisTexte}}{\thesubsection}{0.7em}{}
+\titleformat{\subsubsection}
+  {\normalfont\sffamily\itshape\color{grisTexte}}{}{0pt}{}
+
+% ── EN-TETES ET PIEDS ────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\sffamily\color{rihenTeal}Nkentseu — NkCanvas \& NKGui}
+\fancyhead[R]{\footnotesize\sffamily\color{grisTexte}\leftmark}
+\fancyfoot[C]{\footnotesize\sffamily\color{grisTexte}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{codeBorder}\leaders\hrule height \headrulewidth\hfill}}
+\fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\footnotesize\sffamily\color{grisTexte}\thepage}%
+  \renewcommand{\headrulewidth}{0pt}}
+
+% ── CODE ─────────────────────────────────────────────────────────────────────
+% `literate` est INDISPENSABLE : sans lui, listings sous XeLaTeX avale les
+% accents des commentaires francais du depot -- et tous nos exemples en ont.
+\lstdefinestyle{nkcpp}{
+  language=C++,
+  basicstyle=\ttfamily\footnotesize\color{grisTexte},
+  keywordstyle=\color{codeKey}\bfseries,
+  stringstyle=\color{codeStr},
+  commentstyle=\color{codeCom}\itshape,
+  numberstyle=\ttfamily\scriptsize\color{codeCom},
+  numbers=left, numbersep=9pt, stepnumber=1,
+  showstringspaces=false,
+  breaklines=true, breakatwhitespace=true,
+  breakindent=14pt,
+  tabsize=4,
+  columns=fullflexible, keepspaces=true,
+  extendedchars=true,
+  frame=none, xleftmargin=13pt, framexleftmargin=13pt,
+  morekeywords={uint8,uint16,uint32,uint64,int8,int16,int32,int64,float32,
+                float64,usize,bool32,NkString,NkVector,NkImage,NkRect,NkColor,
+                nullptr,override,constexpr,noexcept},
+  literate=
+    {é}{{\'e}}1 {è}{{\`e}}1 {ê}{{\^e}}1 {ë}{{\"e}}1
+    {à}{{\`a}}1 {â}{{\^a}}1 {ä}{{\"a}}1
+    {î}{{\^i}}1 {ï}{{\"i}}1
+    {ô}{{\^o}}1 {ö}{{\"o}}1
+    {ù}{{\`u}}1 {û}{{\^u}}1 {ü}{{\"u}}1
+    {ç}{{\c c}}1 {É}{{\'E}}1 {È}{{\`E}}1 {Ê}{{\^E}}1
+    {À}{{\`A}}1 {Ç}{{\c C}}1
+    {«}{{\guillemotleft}}1 {»}{{\guillemotright}}1
+    {–}{{--}}1 {—}{{---}}1 {’}{{'}}1 {…}{{\ldots}}1
+}
+\lstset{style=nkcpp}
+
+% Bloc de code encadre, avec un titre qui dit D'OU vient l'extrait. Un exemple
+% sans provenance ne peut pas etre verifie par le lecteur.
+\newtcblisting{nkcode}[2][]{
+  listing only, listing style=nkcpp,
+  breakable, enhanced,
+  colback=codeBg, colframe=codeBorder, boxrule=0.6pt, arc=2pt,
+  left=2pt, right=2pt, top=4pt, bottom=4pt,
+  % \NoAutoSpacing : le francais insere une espace fine avant « : », ce qui
+  % ecrivait « fichier.cpp :412 » dans les titres de code. Une reference de
+  % ligne n'est pas de la ponctuation francaise.
+  title={\sffamily\bfseries\footnotesize\color{rihenTeal}\NoAutoSpacing #2},
+  coltitle=rihenTeal, colbacktitle=rihenTealPale,
+  fonttitle=\footnotesize, titlerule=0pt,
+  attach boxed title to top left={xshift=6pt, yshift=-2pt},
+  boxed title style={colframe=codeBorder, arc=1pt, boxrule=0.4pt},
+  #1}
+
+% ── ENCADRES PEDAGOGIQUES ────────────────────────────────────────────────────
+% Trois seulement, et chacun a un role NET : ce qu'il faut retenir, le piege
+% qui coute une soiree, et l'exercice. Multiplier les couleurs d'encadres rend
+% un cours illisible -- on cesse de savoir lequel compte.
+\newtcolorbox{nkretenir}[1][Ce qu'il faut retenir]{
+  breakable, enhanced, colback=rihenTealPale, colframe=rihenTeal,
+  boxrule=0pt, leftrule=3pt, arc=1pt,
+  title={\sffamily\bfseries\small #1}, coltitle=rihenTeal,
+  colbacktitle=rihenTealPale, titlerule=0pt, fonttitle=\small}
+
+\newtcolorbox{nkpiege}[1][Le piège]{
+  breakable, enhanced, colback=rihenOrangePale, colframe=rihenOrange,
+  boxrule=0pt, leftrule=3pt, arc=1pt,
+  title={\sffamily\bfseries\small #1}, coltitle=rihenOrange!75!black,
+  colbacktitle=rihenOrangePale, titlerule=0pt, fonttitle=\small}
+
+
+% ── LES QUATRE FAMILLES D'EXERCICES ─────────────────────────────────────
+% Meme boite que nkexo, titres differents. On n'ajoute AUCUNE couleur :
+% le lecteur doit garder trois couleurs a interpreter, pas sept.
+%   questions   -> a-t-on compris ? (on repond sans machine)
+%   pratique    -> on ecrit du code qui compile
+%   demonstration -> on PROUVE quelque chose par une mesure
+%   logique     -> on raisonne, souvent sans ecrire une ligne
+\newtcolorbox{nkquestions}[1][Questions de cours]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+\newtcolorbox{nkpratique}[1][Exercice pratique]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+\newtcolorbox{nkdemo}[1][Exercice de démonstration]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+\newtcolorbox{nklogique}[1][Exercice de logique]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+% ── BILAN DE CHAPITRE ───────────────────────────────────────────────────
+% Reprend les couleurs de `nkretenir` : un bilan EST ce qu'il faut retenir,
+% et lui donner une couleur propre suggererait une quatrieme categorie.
+\newtcolorbox{nkbilan}[1][Ce chapitre en bref]{
+  breakable, enhanced, colback=rihenTealPale, colframe=rihenTeal,
+  boxrule=0pt, leftrule=3pt, arc=1pt,
+  title={\sffamily\bfseries\small #1}, coltitle=rihenTeal,
+  colbacktitle=rihenTealPale, titlerule=0pt, fonttitle=\small}
+
+\newtcolorbox{nkexo}[1][Exercice]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+% ── OUVERTURE ET FERMETURE DE PARTIE ─────────────────────────────────────────
+% Une partie s'ouvre par ce qu'elle promet et se ferme par ce qu'elle laisse.
+% AUCUNE couleur nouvelle : l'ouverture emprunte l'orange des titres de partie,
+% la fermeture reprend `nkbilan` -- un bilan de partie EST un bilan.
+% La page d'ouverture est deliberement seule : elle se lit AVANT les chapitres,
+% et une page qu'on tourne est une page qu'on lit.
+\newcommand{\partieintro}[2]{%
+  \thispagestyle{plain}%
+  \vspace*{2em}%
+  {\noindent\color{rihenOrange}\rule{4cm}{2pt}}\par
+  \vspace{0.8em}%
+  {\noindent\sffamily\bfseries\Large\color{rihenTeal} #1\par}
+  \vspace{1.2em}%
+  \begin{minipage}{\textwidth}#2\end{minipage}
+  \par\vspace{1.5em}}
+
+\newtcolorbox{partiebilan}[1][Ce que cette partie vous laisse]{
+  breakable, enhanced, colback=rihenTealPale, colframe=rihenTeal,
+  boxrule=0pt, leftrule=3pt, arc=1pt,
+  title={\sffamily\bfseries\small #1}, coltitle=rihenTeal,
+  colbacktitle=rihenTealPale, titlerule=0pt, fonttitle=\small}
+
+% ── TABLE DES MATIERES ───────────────────────────────────────────────────────
+% ⚠️ LA LARGEUR DE LA BOITE A NUMERO SE DIMENSIONNE SUR LE PLUS LONG, PAS SUR
+% LE PREMIER. `\contentslabel{L}` ne pousse RIEN : si le numero depasse L, il
+% ECRASE le titre au lieu de le decaler -- et le defaut n'apparait qu'a partir
+% du chapitre 10, donc jamais pendant qu'on ecrit les premiers.
+%   chapitre  : « 26 »    -> 2.0em
+%   section   : « 26.14 » -> 3.2em, et l'indentation vaut la boite du chapitre
+%                            pour que les deux colonnes de numeros s'alignent.
+% Mesure : 27 chapitres et 233 sections dans cette table ; le plus long libelle
+% de numero est « 26.14 », c'est lui qui fixe les deux valeurs.
+\titlecontents{chapter}[0pt]
+  {\addvspace{9pt}\sffamily\bfseries\color{rihenTeal}}
+  {\contentslabel[\thecontentslabel]{2.0em}}{}
+  {\titlerule*[0.7pc]{.}\contentspage}
+\titlecontents{section}[2.0em]
+  {\addvspace{2pt}\sffamily\small\color{grisTexte}}
+  {\contentslabel{3.2em}}{}
+  {\titlerule*[0.7pc]{.}\small\contentspage}
+% ⚠️ LES SOUS-SECTIONS AUSSI SONT DANS CETTE TABLE (`tocdepth` vaut 2), et
+% c'est LA que le chevauchement se voyait : « 14.11.1Pourquoi chaque dependance
+% est la », numero colle au titre. La boite du format par defaut de la classe
+% tient « 1.2.3 » et pas « 26.14.1 » -- sept caracteres.
+% Mesure : le plus long numero de sous-section de cette table est « 26.14.1 ».
+% Indentation = boite chapitre (2.0) + boite section (3.2), pour que les trois
+% colonnes de numeros s'alignent en escalier.
+\titlecontents{subsection}[5.2em]
+  {\addvspace{1pt}\sffamily\small\color{grisTexte}}
+  {\contentslabel{4.0em}}{}
+  {\titlerule*[0.7pc]{.}\small\contentspage}
+
+\setlist[itemize]{leftmargin=1.3em, itemsep=2pt, topsep=4pt}
+\setlist[enumerate]{leftmargin=1.5em, itemsep=2pt, topsep=4pt}
+\renewcommand{\arraystretch}{1.25}
+
+% Chemin de fichier dans le corps du texte : la provenance doit se distinguer
+% du code sans crier. Compose via \nkfileurl (url/xurl) : le chemin peut se
+% COUPER en fin de ligne au lieu de deborder dans la marge.
+\DeclareUrlCommand{\nkfileurl}{\urlstyle{tt}}
+\newcommand{\nkfile}[1]{{\small\color{rihenTeal}\nkfileurl{#1}}}
+
+% LE CODE EN LIGNE N'EST PAS DU FRANCAIS. La typographie francaise colle une
+% espace fine INSECABLE avant « ; : ! ? » -- juste pour du texte, desastreux
+% dans \texttt : « input.wheel = 0.f; input.wheelH = 0.f; » devenait UN bloc
+% incassable qui debordait de 3 cm dans la marge. \NoAutoSpacing dans \texttt
+% rend au code sa ponctuation exacte ET ses points de coupure.
+% Robuste, pas fragile : \NoAutoSpacing developpe dans un TITRE de section
+% s'ecrit tel quel dans la table des matieres et y explose. La version robuste
+% traverse les arguments mobiles sans se developper.
+\let\nkOldTexttt\texttt
+\DeclareRobustCommand{\nkttCode}[1]{{\NoAutoSpacing\nkOldTexttt{#1}}}
+\renewcommand{\texttt}{\nkttCode}
+
+% ---------------------------------------------------------------------------
+% PARTIES -- une page de garde sobre, aux couleurs de la charte.
+% Le numero en gros, le titre dessous, un filet orange entre les deux.
+% ---------------------------------------------------------------------------
+\titleformat{\part}[display]
+  {\filcenter\normalfont}
+  {\fontsize{16}{18}\selectfont\color{rihenOrange}\MakeUppercase{\partname~\thepart}}
+  {0.6em}
+  {\fontsize{30}{34}\selectfont\bfseries\color{rihenTeal}}
+  [\vspace{0.8em}{\color{rihenOrange}\rule{4cm}{2pt}}]
+\titlespacing*{\part}{0pt}{6em}{4em}
