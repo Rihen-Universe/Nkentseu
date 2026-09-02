@@ -632,6 +632,52 @@ namespace nkentseu {
 				const char *qualityOverrideLast = nullptr;
 				bool qualityAuto = false; // vrai si le profil vient de ForTarget()
 
+				// =================================================================
+				// PALIER « UNITES DE TEXTURE »  (2026-09-02)
+				// =================================================================
+				// ⚠️ POURQUOI CE PALIER EXISTE : le 2026-09-02, le Web est tombe sur
+				// une VRAIE carte -- `PBR` demandait 17 echantillonneurs au fragment,
+				// WebGL2 en accorde 16, glLinkProgram refuse, ecran vide. Le defaut
+				// datait du 11/08 00h01 et personne ne l'avait vu, parce que le seul
+				// web jamais execute (SwiftShader) en accorde plus de 16.
+				//
+				// 🔴 CE PALIER N'EST PAS UN TEST DE PLATEFORME. Il ne nomme ni le Web,
+				// ni le mobile : il lit une LIMITE MESUREE sur le device
+				// (`NkDeviceCaps::maxFragmentTextureUnits`). Un shader ne doit jamais
+				// savoir OU il tourne ; il connait un BUDGET que le moteur lui donne.
+
+				// Ce que l'etage fragment de PBR demande en version COMPLETE.
+				// Constante NOMMEE, pas un 17 dans une comparaison : le jour ou le
+				// shader grossit, c'est ICI que ca se voit -- et le banc
+				// `Tools/verif_budget_samplers.py` le dit le jour meme.
+				static constexpr uint32 kPbrFullFragmentSamplers = 17;
+
+				// Budget accorde par le device. DEFAUT = 16, et c'est une valeur
+				// DECIDEE, pas un zero par defaut : 16 est le minimum garanti par
+				// WebGL2/GLES 3.0. Tant que le device n'a pas parle, on suppose donc
+				// la cible la PLUS CONTRAIGNANTE.
+				// ⚠️ Le sens de l'erreur est choisi exprès : un defaut trop genereux
+				// rend un ECRAN VIDE, un defaut trop prudent rend une image
+				// legerement simplifiee. On se trompe du cote qui laisse voir.
+				uint32 fragmentTextureUnits = 16;
+
+				// Vrai quand le budget ne suffit pas a la version complete.
+				[[nodiscard]] bool PbrNeedsCompact() const noexcept {
+					return fragmentTextureUnits < kPbrFullFragmentSamplers;
+				}
+
+				// ⭐ Le moteur appelle ceci UNE FOIS, le device cree, avec
+				// `dev->GetCaps().maxFragmentTextureUnits`.
+				// ⚠️ On MONTE ici depuis une mesure, alors que `ForTarget()` ne fait
+				// que DESCENDRE -- et la difference est nette : ForTarget descend sur
+				// une heuristique de PERFORMANCE (RAM, coeurs), qui ne dit jamais de
+				// quoi la machine est capable. Ici on lit une LIMITE DURE rapportee
+				// par le pilote lui-meme. Une limite se croit ; une estimation, non.
+				void ApplyDeviceLimits(uint32 maxFragmentTextureUnits) noexcept {
+					if (maxFragmentTextureUnits > 0)
+						fragmentTextureUnits = maxFragmentTextureUnits;
+				}
+
 				// Derive de `quality` TOUS les champs qui en dependent.
 				// C'est LA lecture de l'enum : la clause (3) du critere de reussite dit
 				// qu'un banc doit ECHOUER si on force `quality` a une autre valeur.

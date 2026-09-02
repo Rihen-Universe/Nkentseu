@@ -125,6 +125,38 @@ RE_COOKIE_FUSIONNE = re.compile(
 )
 
 
+def includes_declarant(racine):
+    """Les .glsli qui DECLARENT un sampler -- l'angle mort du banc.
+
+    Ce script compte fichier par fichier, il ne resout PAS les `#include`.
+    Aujourd'hui c'est sans consequence : les .glsli du depot ne declarent RIEN
+    (ils documentent en commentaire la declaration attendue, et l'etage fragment
+    la porte). Mais le jour ou l'un d'eux declarerait un sampler, le banc
+    deviendrait AVEUGLE **en silence** -- il compterait moins que la realite, et
+    un banc qui sous-compte est pire qu'un banc absent : il rassure.
+    On transforme donc l'angle mort en ALARME.
+    """
+    coupables = []
+    for base, dossiers, fichiers in os.walk(racine):
+        dossiers[:] = [d for d in dossiers
+                       if d not in (".git", "Build", "Externals", "node_modules")]
+        for f in fichiers:
+            if not f.endswith(".glsli"):
+                continue
+            chemin = os.path.join(base, f)
+            try:
+                with open(chemin, "r", encoding="utf-8", errors="replace") as fh:
+                    lignes = fh.readlines()
+            except OSError:
+                continue
+            # on ignore les lignes de commentaire : les .glsli DOCUMENTENT la
+            # declaration attendue, ce n'est pas une declaration.
+            vraies = [l for l in lignes if not l.lstrip().startswith("//")]
+            if RE_SAMPLER.findall("".join(vraies)):
+                coupables.append(os.path.relpath(chemin, racine))
+    return sorted(coupables)
+
+
 def etages_fragment(racine):
     """Tous les etages fragment du depot, sans les artefacts de build."""
     trouves = []
@@ -187,6 +219,17 @@ def main(argv):
               "(NkWebMergeCookieSamplers) — les declarations "
               "tLight3D[Cube]Cookie1..9 sont retirees.")
     print()
+
+    # Angle mort : un include qui declare un sampler rendrait le compte FAUX.
+    aveugles = includes_declarant(a.racine)
+    if aveugles:
+        print("🔴 ANGLE MORT — %d include(s) DECLARENT un echantillonneur :"
+              % len(aveugles))
+        for c in aveugles:
+            print("      %s" % c)
+        print("   Ce script compte fichier par fichier, il ne resout pas les")
+        print("   #include : son verdict SOUS-COMPTE et ne vaut rien.")
+        return 2
 
     resultats = mesurer(a.racine, a.cible)
     depassements = [r for r in resultats if r[0] > budget]
