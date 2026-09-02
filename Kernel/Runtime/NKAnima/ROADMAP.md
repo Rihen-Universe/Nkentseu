@@ -1,9 +1,11 @@
 # NKAnima — Roadmap (substrat d'animation, sans GPU)
 
 > **Ce document décrit le MODULE.** Le **parcours produit** (jalons M0→M5, IK,
-> physique de pose, IA de direction) vit dans **`Applications/NkAnima/ROADMAP.md`**
-> (548 l.) et n'est **pas** recopié ici — deux documents qui se recouvrent à
-> moitié sont pires qu'un seul.
+> physique de pose, IA de direction) vit dans son **voisin de dossier**,
+> **`ROADMAP_PRODUIT.md`** (613 l. au 2026-09-02 ; 548 l. au 2026-08-17, quand il
+> habitait encore `Applications/NkAnima/` — dossier sans une ligne de code,
+> retiré le 2026-09-02). Il n'est **pas** recopié ici — deux documents qui se
+> recouvrent à moitié sont pires qu'un seul.
 >
 > La **frontière** avec NKRenderer et la raison de chaque choix de placement sont
 > écrites dans **`NKAnima.jenga`**, en-tête du fichier. Elles ne sont pas
@@ -78,7 +80,7 @@ lui-même) :
 aujourd'hui, 4 fichiers, **492 lignes** : `NkAnimationSystem.{h,cpp}` (la façade
 qui téléverse et soumet) et `NkPoseDebugDraw.{h,cpp}`. C'est **ce qui dessine**,
 et ça consomme ce module. La ligne « Dépendances / liens » de
-`Applications/NkAnima/ROADMAP.md` qui cite `Tools/Animation` est donc **exacte** :
+`Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md` qui cite `Tools/Animation` est donc **exacte** :
 ne pas la « corriger ».
 
 ## Conformité
@@ -148,7 +150,7 @@ répété ici pour qu'on ne le redécouvre pas comme un bug.
 ### 4. Dette héritée d'une dépendance
 
 `NkQuat::SLerp` — branche trigonométrique signalée buggée (grosses rotations,
-`dot < 1-ε`) dans `Applications/NkAnima/ROADMAP.md`, contournée par NLerp qui est
+`dot < 1-ε`) dans `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md`, contournée par NLerp qui est
 le mode de production. ⚠️ **Non re-mesuré aujourd'hui** : reporté tel quel, avec
 sa source, précisément parce qu'un fait qui voyage n'est pas un fait vérifié.
 
@@ -199,7 +201,7 @@ d'en-têtes contre **1 272 lignes de `.cpp`**, aucune coquille vide.
 | M3.5 `NkAutoPose` | auto-posing | 41 / 131 |
 | M3.6 `NkClipBalancePass` | passe d'équilibre sur clip | 51 / 162 |
 
-⚠️ **Mais `Applications/NkAnima/ROADMAP.md` ouvre M3 en annonçant « trajectoires
+⚠️ **Mais `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md` ouvre M3 en annonçant « trajectoires
 physiquement correctes (**centre de masse balistique**, équilibre) ».** Le
 balistique n'a jamais été livré : les six briques couvrent la moitié « équilibre »,
 pas la moitié « trajectoire ». Le milestone est déclaré « BOUCLE COMPLÈTE » — il
@@ -211,7 +213,7 @@ aérienne dans tout `NKAnimPhysics`.
 ### Pourquoi M3.7 et pas M4
 
 **`M4` est déjà pris** — « M4 — IA auto-pose », plus `M4bis` et `M5`, dans
-`Applications/NkAnima/ROADMAP.md`. Numéroter le régime aérien « M4 » créerait une
+`Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md`. Numéroter le régime aérien « M4 » créerait une
 collision silencieuse. Il prolonge les briques M3, il en prend donc la suite.
 
 ### Les cinq briques proposées
@@ -323,7 +325,7 @@ converti en `.glb`** (Blender → export glTF 2.0) avant dépôt.
 
 | Document | Ce qu'il porte, et que ce fichier ne reprend pas |
 |---|---|
-| `Applications/NkAnima/ROADMAP.md` | jalons M0→M5, historique des décisions, IK, physique de pose, IA de direction |
+| `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md` | jalons M0→M5, historique des décisions, IK, physique de pose, IA de direction |
 | `Kernel/Runtime/NKAnima/NKAnima.jenga` | frontière avec NKRenderer, placement de `NkAnimationEditor`, dépendances déclarées |
 | `Kernel/Runtime/NKGraph/ROADMAP.md` | le substrat de graphe, pour l'édition visuelle |
 | `Kernel/Runtime/NKAnimPhysics/` | module frère — **il n'a pas de ROADMAP non plus**, dette nommée ici et non traitée |

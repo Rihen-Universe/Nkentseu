@@ -308,7 +308,7 @@ namespace {
 		// le joint Foot (cheville) est à ~0.10 du sol — au-delà du seuil de 4 % —
 		// et qu'il ne reste alors que les 4 orteils : un polygone entièrement EN
 		// AVANT du COM (z=-0.01). Le TALON n'a pas de joint : dette M3 consignée
-		// (Applications/NkAnima/ROADMAP.md). On rapporte, on ne gate pas dessus.
+		// (Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md). On rapporte, on ne gate pas dessus.
 		const math::NkVec3f up{0.f, 1.f, 0.f};
 		NkVector<math::NkVec3f> supA;
 		const int32 ncA = animphys::NkContactDetector::DetectSupportPoints(

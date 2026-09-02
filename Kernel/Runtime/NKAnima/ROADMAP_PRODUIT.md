@@ -1,5 +1,20 @@
 # NkAnima — Roadmap (outil d'animation physiquement correct + IA)
 
+> 📦 **DÉPLACÉ LE 2026-09-02, sans rien perdre.** Ce document vivait dans
+> `Applications/NkAnima/`, **un dossier qui ne contenait que lui** : zéro ligne
+> de code, aucun `.jenga`, absent du registre `Nkentseu.jenga`. Ce n'était pas
+> une application, c'était un document mal rangé. Il est désormais **à côté de la
+> bibliothèque qu'il pilote**, `Kernel/Runtime/NKAnima/`, sous le nom
+> `ROADMAP_PRODUIT.md` — le voisin `ROADMAP.md` décrit le **module**, celui-ci
+> décrit le **parcours produit** (jalons M0→M5, IK, physique de pose, IA de
+> direction). Le dossier `Applications/NkAnima/`, devenu vide, a été retiré.
+> **L'application, elle, s'appelle `Applications/NkAnimaEditor`.**
+>
+> ⚠️ Les blocs datés ci-dessous **n'ont pas été réécrits** : quand l'un d'eux dit
+> « `Applications/NkAnima/` ne contient à ce jour que ce fichier », il décrit
+> l'état du jour où il a été écrit — et c'est exactement ce constat qui a motivé
+> le déplacement. On ne corrige pas un journal, on le date.
+
 > **Cap actuel de Rihen côté moteur** (depuis 2026-06-27). Fichier de pilotage de
 > la nouvelle direction. À LIRE au démarrage d'une session NkAnima.
 > Nom de travail **NkAnima** (à valider). Lié depuis `CLAUDE.md`.
@@ -564,7 +579,7 @@ texte libre) ; cache + fallback règles si indisponible.
   générations d'une même scène.
 
 ### M5 — App standalone
-`Applications/NkAnima` complète + UI timeline/viewport via **Editor Kit** (déjà
+`Applications/NkAnimaEditor` complète + UI timeline/viewport via **Editor Kit** (déjà
 utilisé dans NKCode).
 
 **📋 DIRECTIVE DE RODOLF (2026-08-17) — l'interface de NkAnimaEditor se conforme
