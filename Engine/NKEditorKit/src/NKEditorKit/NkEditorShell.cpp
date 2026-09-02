@@ -570,6 +570,75 @@ namespace nkentseu {
 				case NkKey::NK_EQUALS:
 					mUI.input.SetKey(NkGuiKey::Equal, down);
 					break; // Ctrl+= / Ctrl++ : zoom éditeur
+				// ══════════════════════════════════════════════════════════════
+				// 🔴 CE QUI MANQUAIT ICI, ET QUI ETAIT ACCUSE AILLEURS (2026-09-02)
+				// ══════════════════════════════════════════════════════════════
+				// `NkGuiTypes.h` portait DEUX signalements disant que `Ctrl+1..6`
+				// et `Ctrl+,` etaient « annonces par l'ecran Parametres sans
+				// qu'aucun code puisse les recevoir, FAUTE DE CODE DE TOUCHE ».
+				// **Le diagnostic etait faux.** `Num3`..`Num6` et `Comma` sont
+				// dans l'enumeration depuis le lot du launcher : c'est CE
+				// `switch`-ci qui s'arretait a `NK_NUM2` et ne les emettait
+				// jamais.
+				//
+				// *Une valeur d'enumeration que personne n'emet est aussi morte
+				// qu'une valeur absente -- et elle est PIRE, parce qu'elle a l'air
+				// presente.* On la lit dans l'enum, on en conclut que le socle
+				// sait la recevoir, et on va chercher le defaut chez l'appelant.
+				// Deux signalements successifs l'ont cherche du mauvais cote.
+				//
+				// ⚠️ ET LE PAVE NUMERIQUE SUIT LA MEME REGLE QUE `Num0`..`Num2`
+				//    quelques lignes plus haut : sur AZERTY, les chiffres du haut
+				//    demandent `Maj`, donc le pave est la seule saisie directe. Le
+				//    traiter pour 0-2 et pas pour 3-6 aurait fait marcher la
+				//    moitie des raccourcis sur la moitie des claviers.
+				case NkKey::NK_NUM3:
+				case NkKey::NK_NUMPAD_3:
+					mUI.input.SetKey(NkGuiKey::Num3, down);
+					break;
+				case NkKey::NK_NUM4:
+				case NkKey::NK_NUMPAD_4:
+					mUI.input.SetKey(NkGuiKey::Num4, down);
+					break;
+				case NkKey::NK_NUM5:
+				case NkKey::NK_NUMPAD_5:
+					mUI.input.SetKey(NkGuiKey::Num5, down);
+					break;
+				case NkKey::NK_NUM6:
+				case NkKey::NK_NUMPAD_6:
+					mUI.input.SetKey(NkGuiKey::Num6, down);
+					break;
+				case NkKey::NK_COMMA:
+					mUI.input.SetKey(NkGuiKey::Comma, down);
+					break; // Ctrl+, : Parametres
+				// ── LES HUIT LETTRES QUI COMPLETENT L'ALPHABET (A..Z) ─────────
+				// Posees toutes d'un coup plutot que `A` et `R` seules : la
+				// prochaine application qui voudra `S` ou `E` ne rouvrira pas ce
+				// fichier. *Un chantier groupe qui se rouvre n'a pas ete fait.*
+				case NkKey::NK_A:
+					mUI.input.SetKey(NkGuiKey::A, down);
+					break; // Ctrl+A : tout selectionner
+				case NkKey::NK_B:
+					mUI.input.SetKey(NkGuiKey::B, down);
+					break;
+				case NkKey::NK_E:
+					mUI.input.SetKey(NkGuiKey::E, down);
+					break;
+				case NkKey::NK_M:
+					mUI.input.SetKey(NkGuiKey::M, down);
+					break;
+				case NkKey::NK_Q:
+					mUI.input.SetKey(NkGuiKey::Q, down);
+					break;
+				case NkKey::NK_R:
+					mUI.input.SetKey(NkGuiKey::R, down);
+					break; // R : outil rectangle
+				case NkKey::NK_S:
+					mUI.input.SetKey(NkGuiKey::S, down);
+					break;
+				case NkKey::NK_U:
+					mUI.input.SetKey(NkGuiKey::U, down);
+					break;
 				default:
 					break;
 			}

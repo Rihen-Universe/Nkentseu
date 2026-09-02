@@ -145,6 +145,50 @@ namespace nkentseu {
 			//    ouvrira l enum : ce n est pas un chantier, c est une ligne par
 			//    touche, mais il vaut mieux les poser toutes d un coup que d y
 			//    revenir a chaque application.
+			//
+			// ═══════════════════════════════════════════════════════════════════
+			// ✅ LA BOUCLE EST REFERMEE (2026-09-02, accord de Rodolf)
+			// ═══════════════════════════════════════════════════════════════════
+			// Les deux signalements ci-dessus DISAIENT le manque sans l'executer.
+			// Le troisieme chantier a buter dessus le FAIT, et l'ecrit ici pour
+			// que personne n'ait a le redecouvrir une quatrieme fois.
+			//
+			// **L'ALPHABET EST DESORMAIS COMPLET** : A..Z sont tous presents. Le
+			// choix est delibere -- poser seulement `A` et `R`, dont NkUIDesign
+			// avait besoin ce jour-la, aurait garanti la quatrieme occurrence a la
+			// premiere application qui voudrait `S`, `E` ou `M`. *Un chantier
+			// groupe qui se rouvre n'a pas ete fait.*
+			//
+			// ⚠️ ADDITIF, EN FIN D'ENUMERATION, ET C'EST UNE REGLE PAS UN STYLE :
+			//    une valeur d'enumeration est un CONTRAT. Inserer au milieu
+			//    decalerait toutes les suivantes, et les tables de raccourcis des
+			//    autres applications changeraient de sens EN SILENCE. Verifie
+			//    avant d'ecrire, pas suppose : `NkGuiKey` n'est **serialisee nulle
+			//    part**, n'est **jamais convertie en un nombre stocke**, et sa
+			//    seule lecture numerique est
+			//    `NkGuiInput::KeyCount = (int32)NkGuiKey::Count`, qui dimensionne
+			//    un tableau EN MEMOIRE. Ajouter avant `Count` ne fait donc que
+			//    l'agrandir.
+			//
+			// 🔴 ET LE VRAI DEFAUT ETAIT AILLEURS : LES DEUX NOTES CI-DESSUS
+			//    ACCUSAIENT LE MAUVAIS COUPABLE. `Num3`..`Num6` et `Comma`
+			//    ETAIENT DEJA DANS CETTE ENUMERATION -- ajoutees justement pour le
+			//    launcher et l'ecran Parametres -- et `Ctrl+1..6` / `Ctrl+,` ne
+			//    marchaient toujours pas. La cause : **`NkEditorShell` ne les
+			//    emettait pas**, son `switch` de traduction s'arretant a
+			//    `NK_NUM2`. *Une valeur d'enumeration que personne n'emet est
+			//    aussi morte qu'une valeur absente -- et elle est PIRE, parce
+			//    qu'elle a l'air presente : on la lit dans l'enum, on conclut que
+			//    le socle sait la recevoir, et on cherche le defaut ailleurs.*
+			//    Corrige dans le meme lot. C'est la que la boucle se referme.
+			A,
+			B,
+			E,
+			M,
+			Q,
+			R,
+			S,
+			U,
 			Count
 		};
 

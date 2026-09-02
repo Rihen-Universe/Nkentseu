@@ -2792,8 +2792,17 @@ namespace nkuidesign {
 					static const struct {
 							NkGuiKey k;
 							char c;
-					} kTouches[] = {{NkGuiKey::C, 'C'}, {NkGuiKey::X, 'X'}, {NkGuiKey::V, 'V'},
-									{NkGuiKey::D, 'D'}, {NkGuiKey::G, 'G'}};
+					} kTouches[] = {{NkGuiKey::C, 'C'},
+									{NkGuiKey::X, 'X'},
+									{NkGuiKey::V, 'V'},
+									{NkGuiKey::D, 'D'},
+									{NkGuiKey::G, 'G'},
+									// L'ORDRE DE PROFONDEUR : `[` et `]` étaient
+									// disponibles depuis le lot NKCode — dans
+									// l'énumération ET traduits par la coquille.
+									// Seule la table des raccourcis les ignorait.
+									{NkGuiKey::RBracket, ']'},
+									{NkGuiKey::LBracket, '['}};
 					for (uint32 t = 0; t < sizeof(kTouches) / sizeof(kTouches[0]); ++t) {
 						if (!ctx.input.KeyPressed(kTouches[t].k))
 							continue;

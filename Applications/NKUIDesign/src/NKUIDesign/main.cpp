@@ -3088,7 +3088,13 @@ static nkentseu::int32 RecettePoints() {
 						  && NkActionDuRaccourci(true, false, 'D') == NkActionCtx::Dupliquer
 						  && NkActionDuRaccourci(true, false, 'G') == NkActionCtx::Grouper
 						  // le MAJ distingue deux gestes INVERSES sur la meme lettre
-						  && NkActionDuRaccourci(true, true, 'G') == NkActionCtx::Degrouper;
+						  && NkActionDuRaccourci(true, true, 'G') == NkActionCtx::Degrouper
+						  // L'ORDRE DE PROFONDEUR (02/09) : meme convention, `Maj`
+						  // distingue « d'un cran » de « tout au bout ».
+						  && NkActionDuRaccourci(true, false, ']') == NkActionCtx::Avancer
+						  && NkActionDuRaccourci(true, true, ']') == NkActionCtx::PremierPlan
+						  && NkActionDuRaccourci(true, false, '[') == NkActionCtx::Reculer
+						  && NkActionDuRaccourci(true, true, '[') == NkActionCtx::ArrierePlan;
 		// (b) LA TOUCHE NUE NE FAIT RIEN : toutes nos combinaisons passent par Ctrl
 		const bool nuInerte = NkActionDuRaccourci(false, false, 'G') == NkActionCtx::NB
 							  && NkActionDuRaccourci(false, true, 'D') == NkActionCtx::NB;
@@ -3101,27 +3107,36 @@ static nkentseu::int32 RecettePoints() {
 		//     c'est ce qui garantit « trois portes, une ecriture ». Une action
 		//     que le clavier nommerait et que le dispatcher ignorerait serait un
 		//     raccourci mort, exactement le defaut qu'on repare.
-		static const char kT[6] = {'C', 'X', 'V', 'D', 'G', 'G'};
-		static const bool kM[6] = {false, false, false, false, false, true};
+		// ⚠️ LE COMPTE VIENT DE `NkNbRaccourcisCtx`, PAS D'UN NOMBRE ECRIT ICI :
+		//    une liste citee a la main se perime a la premiere combinaison qu'on
+		//    ajoute -- et elle se perimerait EN SILENCE, en continuant a annoncer
+		//    « 6/6 » pendant que la table en porterait dix.
+		static const char kT[10] = {'C', 'X', 'V', 'D', 'G', 'G', ']', ']', '[', '['};
+		static const bool kM[10] = {false, false, false, false, false,
+									true,  false, true,  false, true};
+		const uint32 nbAttendu = NkNbRaccourcisCtx();
 		uint32 executables = 0;
-		for (uint32 i = 0; i < 6; ++i) {
+		for (uint32 i = 0; i < 10u && i < nbAttendu; ++i) {
 			st.doc.NewDocument("recette points", NkAuthor::Humain);
-			const int32 a1 = poser("rect", nullptr);
-			const int32 a2 = poser("rect", nullptr);
-			(void)a2;
+			const int32 pere = poser("rect", nullptr);
+			const int32 a1 = st.doc.AddChild(pere, "", NkAuthor::Humain);
+			(void)st.doc.AddChild(pere, "", NkAuthor::Humain);
 			st.SelectSingle(a1);
 			const NkActionCtx act = NkActionDuRaccourci(true, kM[i], kT[i]);
 			if (act != NkActionCtx::NB && NkAppliquerActionCtx(st, a1, act))
 				++executables;
 		}
-		char d[192];
-		snprintf(d, sizeof(d), "6 combinaisons liees=%d ; touche nue inerte=%d ; inconnue "
-							   "sentinelle=%d ; %u/6 executables par le dispatcher commun",
-				 lies ? 1 : 0, nuInerte ? 1 : 0, inconnue ? 1 : 0, executables);
+		const bool toutesCouvertes = nbAttendu == 10u;
+		char d[224];
+		snprintf(d, sizeof(d), "%u combinaisons liees=%d ; touche nue inerte=%d ; inconnue "
+							   "sentinelle=%d ; %u/%u executables par le dispatcher commun ; "
+							   "table complete=%d",
+				 nbAttendu, lies ? 1 : 0, nuInerte ? 1 : 0, inconnue ? 1 : 0, executables,
+				 nbAttendu, toutesCouvertes ? 1 : 0);
 		verdict("44. le CLAVIER rend les memes actions que les menus (et les execute par le "
-				"MEME dispatcher), la touche nue ne fait rien, et une touche non liee rend la "
-				"sentinelle",
-				lies && nuInerte && inconnue && executables == 6u, d);
+				"MEME dispatcher), la touche nue ne fait rien, une touche non liee rend la "
+				"sentinelle, et l'ORDRE DE PROFONDEUR a ses quatre raccourcis",
+				lies && nuInerte && inconnue && toutesCouvertes && executables == nbAttendu, d);
 	}
 
 	// ── 45. LA PORTE SANS ALLOCATION TIENT SON CONTRAT ────────────────────

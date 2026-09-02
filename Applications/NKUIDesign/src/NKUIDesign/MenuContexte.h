@@ -139,6 +139,19 @@ namespace nkuidesign {
 			//    sur deux lettres différentes aurait été plus simple à écrire et
 			//    plus dur à retenir.
 			case 'G': return maj ? NkActionCtx::Degrouper : NkActionCtx::Grouper;
+			// ── L'ORDRE DE PROFONDEUR (2026-09-02) ───────────────────────────
+			// 🔴 ET IL ÉTAIT BRANCHABLE DEPUIS LE DÉBUT. J'avais annoncé à Rodolf
+			//    que `NkGuiKey` n'avait « ni `[` ni `]` » et que ces quatre
+			//    raccourcis attendaient le socle. **C'était faux** : `LBracket` et
+			//    `RBracket` sont dans l'énumération **et** traduits par
+			//    `NkEditorShell` depuis le lot NKCode. Le seul manque était ici,
+			//    dans cette table. *J'avais accusé le socle sans aller regarder —
+			//    la vérification a coûté un `grep`.*
+			// ⚠️ MÊME CONVENTION QUE `G` : `Maj` distingue « d'un cran » de « tout
+			//    au bout », sur la même touche. C'est ce que font Lunacy, Figma,
+			//    Sketch et Illustrator, et ça évite quatre touches à retenir.
+			case ']': return maj ? NkActionCtx::PremierPlan : NkActionCtx::Avancer;
+			case '[': return maj ? NkActionCtx::ArrierePlan : NkActionCtx::Reculer;
 			default: return NkActionCtx::NB;
 		}
 	}
@@ -146,7 +159,7 @@ namespace nkuidesign {
 	/// Le nombre de combinaisons liées, pour que la recette les parcoure toutes
 	/// au lieu d'en citer une liste qui se périme à la première qu'on ajoute.
 	inline nkentseu::uint32 NkNbRaccourcisCtx() {
-		return 6u;
+		return 10u;
 	}
 
 	enum { kMaxEntreesCtx = 24 };
