@@ -8818,7 +8818,7 @@ namespace nkuidesign {
 					const float32 x0 = r.x + 12.f;
 					if (!unSelectionne)
 						ctx.BeginDisabled();
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "X", ctx.theme.textMuted);
 					// 🔴 LES TROIS CHAMPS SE PARTAGENT LA LARGEUR DISPONIBLE, ILS NE
 					//    LA SUPPOSENT PLUS. Ma première version posait trois boîtes
@@ -8832,7 +8832,7 @@ namespace nkuidesign {
 					const float32 lc = (dispo - 2.f * 22.f) / 3.f;
 					const NkRect rx = {x0 + 14.f, r.y + 3.f, lc, 20.f};
 					costume::Texte(dl, F.px10, rx.x + rx.w + 8.f,
-								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Y",
+								   costume::CentrerBande(F.px10, r.y), "Y",
 								   ctx.theme.textMuted);
 					const NkRect ry = {rx.x + rx.w + 22.f, r.y + 3.f, lc, 20.f};
 					// 🔴 « ⌒ » (U+2312) SORTAIT « ? » — LA FONTE NE PORTE PAS LE
@@ -8841,7 +8841,7 @@ namespace nkuidesign {
 					//    se permettre l'icône, nous non — et un « ? » à côté d'un
 					//    nombre est pire qu'une lettre. On écrit « R ».
 					costume::Texte(dl, F.px10, ry.x + ry.w + 8.f,
-								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "R",
+								   costume::CentrerBande(F.px10, r.y), "R",
 								   ctx.theme.textMuted);
 					const NkRect rr = {ry.x + ry.w + 22.f, r.y + 3.f, lc, 20.f};
 					float32 sx = 0.f, sy = 0.f, ra = 0.f;
@@ -8971,7 +8971,7 @@ namespace nkuidesign {
 					const float32 demiL = rb.w * 0.5f, demiH = rb.h * 0.5f;
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f;
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "X1", ctx.theme.textMuted);
 					// Même partage de largeur que la rangée X/Y/R : deux champs et
 					// deux étiquettes, jamais des offsets fixes.
@@ -8979,15 +8979,15 @@ namespace nkuidesign {
 					const float32 lb = (dispoB - 26.f) * 0.5f;
 					const NkRect a1 = {x0 + 22.f, r.y + 3.f, lb, 20.f};
 					costume::Texte(dl, F.px10, a1.x + a1.w + 6.f,
-								   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Y1",
+								   costume::CentrerBande(F.px10, r.y), "Y1",
 								   ctx.theme.textMuted);
 					const NkRect a2 = {a1.x + a1.w + 26.f, r.y + 3.f, lb, 20.f};
 					const NkRect r2 = ctx.NextItemRect(-1.f, 26.f);
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r2.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r2.y),
 								   "X2", ctx.theme.textMuted);
 					const NkRect b1 = {x0 + 22.f, r2.y + 3.f, lb, 20.f};
 					costume::Texte(dl, F.px10, b1.x + b1.w + 6.f,
-								   costume::CentrerY(F.px10, r2.y + 3.f, 20.f), "Y2",
+								   costume::CentrerBande(F.px10, r2.y), "Y2",
 								   ctx.theme.textMuted);
 					const NkRect b2 = {b1.x + b1.w + 26.f, r2.y + 3.f, lb, 20.f};
 					if (tangentesLisibles) {
@@ -9262,7 +9262,7 @@ namespace nkuidesign {
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Position", ctx.theme.textMuted);
 					const float32 champs0 = x0 + 52.f;
 					const float32 wBtns = 2.f * 20.f + 4.f;
@@ -9420,7 +9420,7 @@ namespace nkuidesign {
 				const bool metrique = d.valueMetric && *d.valueMetric;
 				const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 				const float32 x0 = r.x + 12.f;
-				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f), titre,
+				costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), titre,
 							   ctx.theme.textMuted);
 				const NkRect rb = {x0 + 52.f, r.y + 3.f, 96.f, 20.f};
 				char b[96];
@@ -9887,7 +9887,7 @@ namespace nkuidesign {
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Police", ctx.theme.textMuted);
 					const NkRect rb = {x0 + wLib, r.y + 3.f, x1 - x0 - wLib, 20.f};
 					BoiteChamp(ctx, rb, "Inter");
@@ -9902,7 +9902,7 @@ namespace nkuidesign {
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Poids", ctx.theme.textMuted);
 					const NkRect rb = {x0 + wLib, r.y + 3.f, x1 - x0 - wLib, 20.f};
 					const int32 fw = (int32)n->fontWeight;
@@ -9928,14 +9928,14 @@ namespace nkuidesign {
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f;
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Taille", ctx.theme.textMuted);
 					const NkRect rt = {x0 + wLib, r.y + 3.f, 48.f, 20.f};
 					if (ChampNombre(ctx, "insp.typo.px", rt, n->fontPx, 0.5f, 0.f, 256.f, false,
 									true))
 						mSt->doc.MarkHumanEdit(mSt->selected);
 					costume::Texte(dl, F.px9, rt.x + rt.w + 4.f,
-								   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "px",
+								   costume::CentrerBande(F.px9, r.y), "px",
 								   ctx.theme.textMuted);
 				}
 				// ── Hauteur ligne / Interlettrage : le modèle ne les porte pas ──
@@ -9943,7 +9943,7 @@ namespace nkuidesign {
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f;
 					ctx.BeginDisabled();
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   li == 0 ? "Hauteur ligne" : "Interlettrage",
 								   ctx.theme.textMuted);
 					const NkRect rv = {x0 + 76.f, r.y + 3.f, 40.f, 20.f};
@@ -9961,7 +9961,7 @@ namespace nkuidesign {
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Aligner", ctx.theme.textMuted);
 					const float32 champs0 = x0 + wLib;
 					const float32 btnW = (x1 - champs0 - 3.f * 4.f) / 4.f;
@@ -10014,7 +10014,7 @@ namespace nkuidesign {
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 					ctx.BeginDisabled();
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Décor", ctx.theme.textMuted);
 					const float32 champs0 = x0 + wLib;
 					const float32 btnW = (x1 - champs0 - 2.f * 4.f) / 3.f;
@@ -10269,23 +10269,23 @@ namespace nkuidesign {
 					if (lignes[li].nom->Empty()) {
 						ctx.BeginDisabled();
 						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+									   costume::CentrerBande(F.px10, r.y),
 									   lignes[li].libelle, ctx.theme.textMuted);
 						costume::Texte(dl, F.px10, x0 + 64.f,
-									   costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+									   costume::CentrerBande(F.px10, r.y),
 									   "\xE2\x80\x94 (ce conteneur ne nomme rien)",
 									   ctx.theme.textMuted);
 						ctx.EndDisabled();
 						continue;
 					}
-					costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f),
+					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   lignes[li].libelle, ctx.theme.textMuted);
 					// le NOM de la métrique (la valeur est UNE pour tout le
 					// document — c'est le principe), puis sa valeur, éditable.
 					char nm[64];
 					snprintf(nm, sizeof(nm), "« %s »", lignes[li].nom->Data());
 					costume::Texte(dl, F.px9, x0 + 64.f,
-								   costume::CentrerY(F.px9, r.y + 3.f, 20.f), nm,
+								   costume::CentrerBande(F.px9, r.y), nm,
 								   ctx.theme.textMuted);
 					const NkRect rv = {x1 - 48.f, r.y + 3.f, 48.f, 20.f};
 					float32 v = mSt->doc.Metric(lignes[li].nom->Data(), 0.f);
@@ -10574,7 +10574,7 @@ namespace nkuidesign {
 				auto &dl = ctx.DL();
 				const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
-				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 3.f, 20.f), label,
+				costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), label,
 							   ctx.theme.textMuted);
 				const NkRect sw = {x0 + 52.f, r.y + 5.f, 16.f, 16.f};
 				if (buf[0]) {
@@ -10698,7 +10698,7 @@ namespace nkuidesign {
 						mSt->doc.MarkHumanEdit(mSt->selected);
 					}
 					costume::Texte(dl, F.px9, ro.x + ro.w + 3.f,
-								   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "%",
+								   costume::CentrerBande(F.px9, r.y), "%",
 								   ctx.theme.textMuted);
 					// 4. la POUBELLE — retire CE remplissage. Sur la forme simple
 					//    elle vide la clé `fond` : c'est le même geste, « il n'y a
@@ -10869,7 +10869,7 @@ namespace nkuidesign {
 							mSt->doc.MarkHumanEdit(mSt->selected);
 						}
 						costume::Texte(dl, F.px9, ro.x + ro.w + 3.f,
-									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "%",
+									   costume::CentrerBande(F.px9, r.y), "%",
 									   ctx.theme.textMuted);
 						{
 							const NkRect rp = {col.poubX, r.y + 6.f, 14.f, 14.f};
@@ -11057,7 +11057,7 @@ namespace nkuidesign {
 						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 						const float32 x0 = r.x + 12.f;
 						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Arrondi",
+									   costume::CentrerBande(F.px10, r.y), "Arrondi",
 									   ctx.theme.textMuted);
 						const NkRect rr = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
 						// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
@@ -11066,7 +11066,7 @@ namespace nkuidesign {
 							[](const NkUINode &q) { return q.radius; },
 							[](NkUINode &q, float32 v) { q.radius = v; });
 						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
-									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "px",
+									   costume::CentrerBande(F.px9, r.y), "px",
 									   ctx.theme.textMuted);
 					}
 					// ── ROTATION ET MIROIRS (Lunacy, bandeau du haut) ────────
@@ -11085,7 +11085,7 @@ namespace nkuidesign {
 						if (!peut)
 							ctx.BeginDisabled();
 						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Rotation",
+									   costume::CentrerBande(F.px10, r.y), "Rotation",
 									   ctx.theme.textMuted);
 						const NkRect rr = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
 						if (peut) {
@@ -11101,7 +11101,7 @@ namespace nkuidesign {
 										   ctx.theme.textMuted);
 						}
 						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
-									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "°",
+									   costume::CentrerBande(F.px9, r.y), "°",
 									   ctx.theme.textMuted);
 						if (!peut) {
 							ctx.EndDisabled();
@@ -11129,7 +11129,7 @@ namespace nkuidesign {
 						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 						const float32 x0 = r.x + 12.f;
 						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Miroir",
+									   costume::CentrerBande(F.px10, r.y), "Miroir",
 									   ctx.theme.textMuted);
 						for (uint32 k = 0; k < 2; ++k) {
 							const bool actif = (k == 0) ? n->miroirH : n->miroirV;
@@ -11165,7 +11165,7 @@ namespace nkuidesign {
 						const float32 x0 = r.x + 12.f;
 						ctx.BeginDisabled();
 						costume::Texte(dl, F.px10, x0,
-									   costume::CentrerY(F.px10, r.y + 3.f, 20.f), "Opacité",
+									   costume::CentrerBande(F.px10, r.y), "Opacité",
 									   ctx.theme.textMuted);
 						const NkRect ro = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
 						dl.AddRectFilled(ro, CouleurInput(), 4.f);
@@ -11174,7 +11174,7 @@ namespace nkuidesign {
 									   costume::CentrerY(F.px11, ro.y, 20.f), "100",
 									   ctx.theme.textMuted);
 						costume::Texte(dl, F.px9, ro.x + ro.w + 4.f,
-									   costume::CentrerY(F.px9, r.y + 3.f, 20.f), "%",
+									   costume::CentrerBande(F.px9, r.y), "%",
 									   ctx.theme.textMuted);
 						ctx.EndDisabled();
 						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]

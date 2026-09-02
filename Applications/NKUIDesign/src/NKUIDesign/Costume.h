@@ -39,6 +39,66 @@ namespace nkuidesign {
 		using nkgui::NkVec2;
 
 		// ═════════════════════════════════════════════════════════════════════
+		//  0. L'ÉCHELLE D'ESPACEMENT — SIX VALEURS, ET ELLES SONT CHOISIES
+		// ═════════════════════════════════════════════════════════════════════
+		//  🔑 LE CHIFFRE QUI A OUVERT CE CHANTIER (document 16, mesuré le
+		//     02/09) : **les douze valeurs d'espacement les plus employées
+		//     étaient tous les entiers de 1 à 12**, sur 34 valeurs distinctes.
+		//     Ce n'était pas une échelle mal choisie — c'était **l'absence de
+		//     toute échelle**. Chaque marge avait été posée pour régler son cas
+		//     local, et l'œil ne trouvait aucune règle à laquelle se raccrocher.
+		//
+		//  ⚠️ ELLE EST **CHOISIE**, PAS DÉDUITE DES VALEURS LES PLUS FRÉQUENTES.
+		//     Garder `1, 2, 3, 4, 6, 8` parce que ce sont les plus employées
+		//     aurait reproduit le désordre en plus court : six valeurs sans
+		//     progression restent six décisions locales.
+		//
+		//  ⚠️ ET ELLE NE VIENT PAS NON PLUS DE LA PLANCHE — parce que la planche
+		//     n'en porte pas. Mesure du 02/09 sur l'export Banani : `8, 4, 10,
+		//     12, 14, 6, 5, 3, 2, 7, 16, 18, 1, 9` — **quatorze valeurs**, la
+		//     même dispersion que la nôtre. *On ne copie pas une référence sur
+		//     le point où elle n'a pas de règle.* (Même surprise que pour la
+		//     typographie : la planche en porte 18 quand nous en portons 7.)
+		//
+		//  D'où une **grille de 4**, la progression la plus défendable et la plus
+		//  répandue du métier — plus **2**, gardé explicitement pour ce qui n'est
+		//  pas de la mise en page : liserés, insets d'icône, demi-pas optiques.
+		//  Six valeurs, une règle, et un nom pour chacune.
+		enum : int32 {
+			EspLisere = 2,	 ///< liseré, inset d'icône — PAS de la mise en page
+			EspSerre = 4,	 ///< entre deux éléments d'un même groupe
+			EspNormal = 8,	 ///< entre deux groupes voisins
+			EspLarge = 12,	 ///< marge intérieure d'un panneau
+			EspSection = 16, ///< entre deux sections
+			EspBloc = 24	 ///< entre deux blocs de nature différente
+		};
+
+		/// La valeur de l'échelle la plus proche — pour convertir un littéral
+		/// existant sans avoir à trancher au cas par cas.
+		/// ⚠️ ELLE NE SERT QU'À LA CONVERSION, jamais à écrire du code neuf : un
+		///    code neuf NOMME sa valeur (`EspNormal`), il ne demande pas à une
+		///    fonction de deviner. *Un outil de migration laissé en service
+		///    devient la porte par laquelle la trente-cinquième valeur revient.*
+		inline int32 EspProche(float32 v) {
+			const int32 kEchelle[6] = {EspLisere, EspSerre, EspNormal,
+									   EspLarge, EspSection, EspBloc};
+			int32 best = kEchelle[0];
+			float32 d = v - (float32)best;
+			if (d < 0.f)
+				d = -d;
+			for (int32 i = 1; i < 6; ++i) {
+				float32 e = v - (float32)kEchelle[i];
+				if (e < 0.f)
+					e = -e;
+				if (e < d) {
+					d = e;
+					best = kEchelle[i];
+				}
+			}
+			return best;
+		}
+
+		// ═════════════════════════════════════════════════════════════════════
 		//  1. LES POLICES — un atlas par corps de la maquette
 		// ═════════════════════════════════════════════════════════════════════
 
@@ -141,6 +201,33 @@ namespace nkuidesign {
 		/// y du HAUT d'une ligne pour centrer verticalement dans [y, y+h].
 		inline float32 CentrerY(const NkGuiFont &f, float32 y, float32 h) {
 			return y + (h - (f.Valid() ? f.LineHeight() : 12.f)) * 0.5f;
+		}
+
+		/// Hauteur d'une rangée d'inspecteur, et du contrôle posé dedans.
+		constexpr float32 HRangee = 26.f;
+		constexpr float32 HControle = 20.f;
+
+		/// Le haut de la BANDE DE CONTRÔLE : un contrôle de `hControle` centré
+		/// dans une rangée de `hRangee`.
+		///
+		/// 🔴 LE « + 3.f » RECOPIÉ SUR 30 SITES N'ÉTAIT PAS UN CAPRICE : c'est
+		///    (26 − 20) / 2. Mon compte des valeurs le voyait « hors échelle » et
+		///    j'ai failli le forcer sur 4 — ce qui aurait décentré trente
+		///    contrôles pour faire joli dans un tableau.
+		///    ⚠️ **Une valeur DÉRIVÉE n'a pas à tenir sur une échelle : elle doit
+		///       être CALCULÉE.** Une échelle discipline les valeurs qu'on CHOISIT
+		///       (marges, gouttières) ; elle n'a rien à dire sur celles que la
+		///       géométrie IMPOSE. Confondre les deux, c'est casser l'alignement
+		///       au nom de la cohérence.
+		inline float32 BandeY(float32 yRangee, float32 hRangee = HRangee,
+							  float32 hControle = HControle) {
+			return yRangee + (hRangee - hControle) * 0.5f;
+		}
+
+		/// Centre un texte dans la bande de contrôle d'une rangée standard.
+		/// Remplace l'idiome `CentrerY(f, r.y + 3.f, 20.f)`, à l'identique.
+		inline float32 CentrerBande(const NkGuiFont &f, float32 yRangee) {
+			return CentrerY(f, BandeY(yRangee), HControle);
 		}
 
 		// ═════════════════════════════════════════════════════════════════════

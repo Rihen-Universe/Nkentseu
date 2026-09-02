@@ -58,6 +58,61 @@ def trie(d):
     return sorted(d.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
+# ⚠️ DEUX POPULATIONS VIVAIENT DANS LE MEME COMPTE, ET C'EST CE QUI M'A FAIT
+#    ECRIRE UNE PHRASE FAUSSE. Le document 16 annoncait « tous les entiers de 1 a
+#    12 : l'absence de toute echelle ». En allant LIRE les sites, la moitie sont
+#    des SOMMETS DE GLYPHES -- `{x + 1.f, y + 1.f}, {x + 3.5f, y + 3.5f}` : une
+#    coche, un chevron, une fleche dessines dans une boite de 16 px.
+#    **Un dessin vectoriel emploie legitimement tous les entiers** ; le forcer sur
+#    une echelle 2/4/8/12/16/24 ne le rendrait pas plus tenu, ca le deformerait.
+#    Les compter ensemble ne mesurait pas le desordre : ca le FABRIQUAIT.
+GEOMETRIE = re.compile(r"AddLine|AddPolyline|AddTriangle|AddConvexPoly|AddBezier"
+                       r"|AddCircle|NkVec2\s+\w+\s*\[")
+
+
+def compter_mise_en_page(motif, texte, groupe=0):
+    """Comme `compter`, mais SANS les lignes qui dessinent un glyphe.
+
+    ⚠️ UN TABLEAU `NkVec2 p[5] = {...}` TIENT SOUVENT SUR PLUSIEURS LIGNES. Filtrer
+       ligne a ligne laisserait passer les lignes de CONTINUATION -- et ces
+       fuites-la sont exactement celles qui gonflent le compte. On reste donc dans
+       l'etat « geometrie » jusqu'a la fermeture du litteral.
+    """
+    d = {}
+    dans_tableau = False
+    for ligne in texte.split(u"\n"):
+        geo = bool(GEOMETRIE.search(ligne))
+        if geo and re.search(r"NkVec2\s+\w+\s*\[", ligne) and u"}" not in ligne.split(u"=")[-1]:
+            dans_tableau = True
+        if dans_tableau:
+            geo = True
+            if u"};" in ligne:
+                dans_tableau = False
+        if geo:
+            continue
+        for m in re.finditer(motif, ligne):
+            v = m.group(groupe if groupe else 0)
+            d[v] = d.get(v, 0) + 1
+    return d
+
+
+def compter_glyphes(motif, texte, groupe=0):
+    """Le complement : ce que `compter_mise_en_page` ecarte.
+
+    ⚠️ ON LE COMPTE ET ON L'AFFICHE, on ne le fait pas disparaitre. Ecarter une
+       population sans la montrer, c'est se donner un beau chiffre en cachant la
+       moitie du code -- et personne ne pourrait verifier que l'ecart est justifie.
+    """
+    tous = compter(motif, texte, groupe)
+    page = compter_mise_en_page(motif, texte, groupe)
+    d = {}
+    for k, v in tous.items():
+        reste = v - page.get(k, 0)
+        if reste > 0:
+            d[k] = reste
+    return d
+
+
 def familles():
     panels = lire("Panels.h")
     rend = lire("Renderers.h")
@@ -79,7 +134,14 @@ def familles():
     # 4. LE RYTHME D'ESPACEMENT — les decalages litteraux poses sur x ou y.
     #    ⚠️ C'est la famille la plus revelatrice : une echelle (4/8/12/16) se
     #       voit tout de suite, un placement au cas par cas aussi.
-    f.append((u"decalages d'espacement", compter(r"[xy][01]?\s\+\s(\d+)\.f", tout, 1), u"px"))
+    MOTIF_DEC = r"[xy][01]?\s\+\s(\d+)\.f"
+    f.append((u"decalages d'espacement (mise en page)",
+              compter_mise_en_page(MOTIF_DEC, tout, 1), u"px"))
+
+    # 4bis. LES SOMMETS DE GLYPHES — comptes A PART, et EXCLUS de l'echelle.
+    #       Ils n'ont pas a s'aligner sur 2/4/8/12/16/24 : ce sont des dessins.
+    f.append((u"sommets de glyphes (hors echelle)",
+              compter_glyphes(MOTIF_DEC, tout, 1), u"px"))
 
     # 5. LES COULEURS EN DUR — elles devraient etre RARES : le theme porte les
     #    couleurs par role. Beaucoup de hex ici = le theme est contourne.
@@ -161,9 +223,63 @@ def regenerer():
     return 0 if relu == neuf else 2
 
 
+# L'ECHELLE CHOISIE — elle vit dans `Costume.h` (costume::Esp*), et elle est
+# REPETEE ici parce que c'est ce fichier qui la fait respecter. Les deux doivent
+# rester d'accord : si quelqu'un change l'une, `--verifier` le dira.
+ECHELLE = [2, 4, 8, 12, 16, 24]
+
+
+def verifier():
+    """Echoue si des decalages d'espacement sortent de l'echelle.
+
+    🔴 SANS CE MODE, L'ECHELLE NE SERAIT QU'UN COMMENTAIRE. Le document 16
+       demande de passer de 34 valeurs a six ; rien n'empecherait la
+       trente-cinquieme de revenir au premier cas particulier -- et personne ne
+       le verrait, parce qu'un `+ 7.f` de plus ne casse rien et ne fait tomber
+       aucune garde.
+
+    ⚠️ IL REND LE NOMBRE DE **SITES**, PAS SEULEMENT DE VALEURS. « Neuf valeurs
+       hors echelle » ne dit pas s'il faut corriger neuf lignes ou trois cents.
+       C'est le compte de sites qui dit le travail restant, et c'est lui qui doit
+       tomber a zero.
+    """
+    # ⚠️ ON CHERCHE LA FAMILLE PAR SOUS-CHAINE, ET ON EXIGE DE L'AVOIR TROUVEE.
+    #    Ma premiere version comparait le nom en entier, avec un accent que la
+    #    table n'a pas : elle ne trouvait AUCUNE famille, donc aucune valeur hors
+    #    echelle, donc elle annoncait « TENUE » sur un code qui en portait 34.
+    #    *Un verificateur qui ne trouve pas son sujet dit « tout va bien ».*
+    #    C'est la faute du jour dans sa forme la plus pure -- le temoin ne variait
+    #    pas parce qu'il ne regardait rien.
+    hors = {}
+    trouvee = False
+    for nom, d, _ in familles():
+        if u"espacement" not in nom:
+            continue
+        trouvee = True
+        for k, v in d.items():
+            if int(k) not in ECHELLE:
+                hors[k] = v
+    if not trouvee:
+        print(u"echelle d'espacement : FAMILLE INTROUVABLE -- le verificateur ne "
+              u"mesure rien, ne le lisez pas comme un succes")
+        return 2
+    sites = sum(hors.values())
+    if not hors:
+        print(u"echelle d'espacement : TENUE (%s)" % u"/".join(str(v) for v in ECHELLE))
+        return 0
+    t = sorted(hors.items(), key=lambda kv: -kv[1])
+    print(u"echelle d'espacement : %d valeur(s) hors echelle, %d site(s)"
+          % (len(hors), sites))
+    print(u"   echelle : %s" % u"/".join(str(v) for v in ECHELLE))
+    print(u"   hors    : %s" % u", ".join(u"%spx x%d" % (k, v) for k, v in t[:16]))
+    return 1
+
+
 def main():
     if "--document" in sys.argv:
         return regenerer()
+    if "--verifier" in sys.argv:
+        return verifier()
     for nom, d, unite in familles():
         t = trie(d)
         print(u"%-26s %3d valeurs : %s" % (nom, len(d),

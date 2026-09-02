@@ -13,6 +13,11 @@ Ce n'est pas une échelle mal choisie : **c'est l'absence de toute échelle.**
 Chaque marge a été posée pour régler son cas local, et l'œil ne trouve aucune
 règle à laquelle se raccrocher — même sans savoir pourquoi.
 
+⚠️ **Cette ligne parle de la MISE EN PAGE seule.** Les sommets d'icônes, eux,
+emploient légitimement tous les entiers — les y inclure gonflait le constat de
+40 %. Voir la *correction du 2026-09-02* plus bas : le compte réel est **225
+sites**, et l'un des accusés était une valeur **dérivée**, pas un choix.
+
 *Tout le reste de ce document découle de cette ligne.*
 
 **Le diagnostic qui a lancé ce document** : le document 14 compte 174 lignes de
@@ -47,7 +52,8 @@ des chiffres.*
 | tailles de texte | **7** | **10px** (105) · **11px** (74) · **9px** (46) | 94 % |
 | hauteurs de rangee | **14** | **26px** (23) · **24px** (14) · **20px** (5) | 64 % |
 | rayons d'angle | **12** | **4px** (39) · **3px** (19) · **1px** (10) | 72 % |
-| decalages d'espacement | **34** | **3px** (109) · **6px** (79) · **2px** (75) | 35 % |
+| decalages d'espacement (mise en page) | **34** | **12px** (58) · **3px** (47) · **2px** (39) | 38 % |
+| sommets de glyphes (hors echelle) | **18** | **6px** (45) · **4px** (44) · **2px** (36) | 37 % |
 | couleurs ecrites en dur | **2** | **#000000** (2) · **#ffffff** (1) | 100 % |
 
 ### La planche de référence, mesurée pareil
@@ -64,7 +70,9 @@ des chiffres.*
 
 **rayons d'angle** — 12 valeurs : 4px×39, 3px×19, 1px×10, 5px×6, 6px×6, 8px×4, 0px×2, 12px×2, 17px×2, 2px×2, 10px×1, 11px×1
 
-**decalages d'espacement** — 34 valeurs : 3px×109, 6px×79, 2px×75, 12px×64, 4px×61, 1px×56, 10px×49, 8px×47, 7px×35, 5px×32, 9px×30, 11px×14, 13px×11, 14px×7
+**decalages d'espacement (mise en page)** — 34 valeurs : 12px×58, 3px×47, 2px×39, 1px×36, 6px×34, 8px×24, 10px×19, 4px×17, 9px×12, 5px×10, 7px×10, 52px×7, 26px×6, 28px×6
+
+**sommets de glyphes (hors echelle)** — 18 valeurs : 6px×45, 4px×44, 2px×36, 3px×33, 10px×30, 7px×25, 8px×23, 5px×22, 1px×20, 9px×18, 11px×10, 13px×8, 12px×6, 15px×5
 
 **couleurs ecrites en dur** — 2 valeurs : #000000×2, #ffffff×1
 
@@ -89,6 +97,37 @@ posée pour régler son cas local.
 **C'est le seul chantier d'apparence qui vaille d'être ouvert en premier**, et il
 est mécanique : ramener les décalages sur une échelle (`4 / 8 / 12 / 16`, avec
 `2` toléré pour les liserés) fait tomber 34 valeurs à cinq ou six.
+
+### ⚠️ CORRECTION — deux erreurs de MESURE dans ce qui précède (2026-09-02)
+
+Le paragraphe ci-dessus reste vrai **pour la mise en page**, mais mon instrument
+comptait deux choses à la fois, et je l'ai écrit avec trop d'aplomb.
+
+**1. Il comptait les sommets de glyphes.** Sur les 734 décalages relevés,
+**311 sont des sommets d'icônes** — `{x + 1.f, y + 1.f}, {x + 3.5f, y + 3.5f}` :
+une coche, un chevron dessinés dans une boîte de 16 px. Un dessin vectoriel
+emploie légitimement tous les entiers ; le forcer sur une échelle ne le rendrait
+pas plus tenu, **ça le déformerait**. Le compte honnête de la mise en page est
+donc **225 sites hors échelle**, pas 477. Les glyphes sont désormais comptés dans
+une famille à part — écartés, mais **visibles** : écarter une population sans la
+montrer, c'est se donner un beau chiffre en cachant la moitié du code.
+
+**2. Il présentait comme « hors échelle » une valeur qui n'était pas un choix.**
+Le `+ 3.f`, premier accusé avec 76 sites, était pour l'essentiel un seul idiome
+recopié **30 fois** : `CentrerY(f, r.y + 3.f, 20.f)` — soit `(26 − 20) / 2`, le
+retrait qui centre un contrôle de 20 px dans une rangée de 26.
+
+> **J'ai failli le « ramener » sur 4 pour faire tomber un chiffre.** Ça aurait
+> décentré trente contrôles d'un pixel — une régression visuelle réelle, commise
+> au nom de la cohérence, et invisible dans le compte qui l'aurait applaudie.
+> Une valeur **dérivée** n'a pas à tenir sur une échelle : elle doit être
+> **calculée**. Une échelle discipline ce qu'on **choisit** (marges, gouttières),
+> pas ce que la géométrie **impose**.
+
+L'idiome est maintenant nommé (`costume::CentrerBande`) : 30 sites deviennent une
+définition, et le **témoin de rendu est resté identique au bit près** — la preuve
+que c'était un renommage et non une refonte. Reste **225 sites**, à traiter de la
+même façon : comprendre d'où vient la valeur **avant** de la déplacer.
 
 ### 🟡 SECOND : LES RAYONS ET LES HAUTEURS DE RANGÉE
 
