@@ -106,7 +106,7 @@ with project("Noge"):
     # Engine/Noge/src (verifie) ; elle ne pilotait que l'ordre de build et
     # forcait la construction de NKUI dans la fermeture de TOUTE application
     # dependant de Noge.
-    _DEPS = ["NKGlad", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKRenderer", "NKCollision", "NKPhysics", "NKNavigation", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS", "NKRL", "NKAgent", "NKAudio", "NKMedia", "NKNetwork"]
+    _DEPS = ["NKGlad", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKRenderer", "NKAnimation", "NKCanvas", "NKCollision", "NKPhysics", "NKNavigation", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS", "NKRL", "NKAgent", "NKAudio", "NKMedia", "NKNetwork"]
    
     dependson(_DEPS)
     _RENDERER_DEFINES = [

@@ -1191,3 +1191,163 @@ mesuré). Mais trois choix restent à Rodolf, et je ne tranche aucun :
    locale (l'existant reciblage) ? L'une des deux devra se convertir ;
 3. **le nom** — renommer `ecs::NkBoneDef` (le mien) ou `physics::NkBoneDef` pour
    dissoudre la collision.
+---
+
+# MESURE 10 — CE QUE NOGE CONSOMME DU NOYAU : la table, les trois familles, et les greffons
+
+> Mandat de Rodolf (02/09) : *« vérifie dans tout le système Nkentseu les
+> bibliothèques qui doivent être consommées par Noge et fais que Noge les
+> consomme »*, complété avant son départ par : *« ou alors définir un système de
+> greffons »*. Méthode imposée : **mesure d'abord, câblage ensuite** — une
+> dépendance déclarée que rien n'exerce est du chrome, et `NkRenderQuality` est
+> né exactement comme ça.
+>
+> **Instruments** : `_DEPS` (Noge.jenga:109) et `_INCLUDE_DIRS` (l.60-97) pour
+> « déclaré » ; `grep -rE '#include ["<]MODULE/'` sur `Engine/Noge/src` pour
+> « exercé », avec vérification que l'en-tête inclus appartient à un module
+> VIVANT (les 11 modules sans corps ne comptent pas comme exercice). Résultat
+> contrôlé : tous les exercices faibles (1-2 includes) viennent d'en-têtes à
+> corps (`NkNavigationSystem.cpp`, `NkAudioSystem.cpp`, `NkUISystem.cpp`,
+> `NkLocomotion.cpp`, `NkApplication.h`…).
+
+## 10.1 La table — couche Runtime (celle qui se joue)
+
+Colonnes : **dû ?** (jugement moteur de jeu, raison en trois mots) · **déclaré**
+(`_DEPS`) · **exercé** (includes réels, dont N fichiers `.cpp`) · **famille** ·
+**liaison recommandée** (CŒUR = lié statiquement, toujours là ; GREFFON = chargé
+dynamiquement, optionnel par jeu).
+
+| module | dû ? | déclaré | exercé | famille | liaison |
+|---|---|---|---|---|---|
+| `NKECS` | oui — cœur du moteur | ✅ | ✅ 127 incl. (5 cpp) | consommé | CŒUR |
+| `NKRenderer` | oui — rendu | ✅ | ✅ 24 (6 cpp) | consommé | CŒUR |
+| `NKRHI` | oui — sous le rendu | ✅ | ✅ 10 | consommé | CŒUR |
+| `NKCollision` | oui — physique | ✅ | ✅ 4 | consommé | CŒUR |
+| `NKPhysics` | oui — physique | ✅ | ✅ 3 | consommé | CŒUR |
+| `NKNavigation` | oui — IA de déplacement | ✅ | ✅ 1 (système vivant) | consommé | CŒUR |
+| `NKAudio` | oui — son | ✅ | ✅ 2 (système vivant) | consommé | CŒUR |
+| `NKEvent`/`NKWindow` | oui — boucle, entrées | ✅ | ✅ 4 / 6 | consommé | CŒUR |
+| `NKFont`/`NKImage` | oui — texte, textures | ✅ | ✅ 2 / 2 | consommé | CŒUR |
+| **`NKAnimation`** | **oui — NkAnima, la bibliothèque** | 🔴 **absent de `_DEPS`** | ✅ 1 (`NkLocomotion`, prouvé par démo 9/0) | **exercé-mais-non-déclaré** | CŒUR — **✅ déclaré ce jour** |
+| **`NKCanvas`** | oui — UI en jeu | 🔴 **absent de `_DEPS`** | ✅ 1 (`NkUISystem.cpp`) | **exercé-mais-non-déclaré** | CŒUR — **✅ déclaré ce jour** |
+| **`NKAnimPhysics`** | **oui — NkAnima, 2ᵉ moitié** (masse, équilibre, appuis) | include-dir seul (l.79) | 🔴 **0 include** | **déclaré-mais-inerte** | CŒUR (à exercer, pas à retirer : l'éditeur NkAnima le consomme déjà) |
+| **`NKXR`** | **oui — VR/AR (nommé par Rodolf)** | 🔴 absent | 🔴 0 | **absent-et-dû** | **GREFFON** (§10.4) |
+| **`NKCamera`** | **oui — AR (nommé par Rodolf)** | 🔴 absent | 🔴 0 | **absent-et-dû** | **GREFFON** (§10.4) |
+| `NKNetwork` | oui — multijoueur | ✅ | ✅ 4 (`NkNetWorld`, 18/0) | consommé | **GREFFON candidat** (un jeu solo n'embarque pas le réseau) |
+| `NKMedia` | oui — vidéo/codecs | ✅ (« transitif NKAudio, Opus » — documenté) | 🔴 0 direct | déclaré-transitif assumé | GREFFON candidat |
+| `NKSL` | transitif (NKRHI) | ✅ | 🔴 0 direct (documenté l.75) | déclaré-transitif assumé | CŒUR (suit NKRHI) |
+| `NKGui`/`NKUI` | **non** — UI d'éditeur, vit au-dessus | 🔴/incl.-dir | 0 | non-dû | — |
+| `NKGraph` | pas encore — substrat du nodal futur (§10.5) | 🔴 | 0 | non-dû aujourd'hui | (greffon nodal, plus tard) |
+| `NKSimulation` | **rien à consommer** : docs seuls, 0 source | 🔴 | 0 | vision | — |
+
+**Couches Foundation/System** : toutes déclarées, toutes exercées (NKMath 35,
+NKContainers 93, NKLogger 13, NKMemory 12, NKCore 7, NKSerialization 3,
+NKFileSystem 7, NKTime/NKThreading 1 vivant chacun) — sauf **`NKPlatform` et
+`NKGlad` : 0 include direct**, transitifs de compilation/lien (NKCore inclut
+NKPlatform ; le GL vit dans RHI). Classés *déclarés-transitifs assumés* — à
+documenter d'une demi-ligne dans `_DEPS`, pas à retirer. `NKReflection`/`NKStream` :
+non déclarés, non dûs directement (transitifs de NKSerialization/NKImage).
+
+**Couche AI** : `NKRL` et `NKAgent` déclarés ET exercés (`NkAgentComponent.h` →
+`NkAgentSystem.cpp` vivant, démo 1/0). Le reste de la couche (14 modules) n'est
+pas dû au moteur — consommé par les applications d'entraînement. **Couche
+Bare** : vision, rien à consommer.
+
+## 10.2 Les trois familles — et ce qui a été fait
+
+- **Consommés** : 24 modules. Rien à faire.
+- **Exercés-mais-non-déclarés** (la famille MIROIR, que la consigne ne
+  prévoyait pas) : `NKAnimation`, `NKCanvas`. ✅ **Corrigé ce jour** — ajoutés à
+  `_DEPS`, Noge reconstruit **41/41 SUCCESS** (41, pas 39 : les deux modules
+  entrent dans la fermeture de build, ce qui est exactement ce que la
+  déclaration devait faire).
+- **Déclarés-mais-inertes** : après vérification, **un seul vrai** —
+  `NKAnimPhysics` (include-dir sans le moindre include). Les autres suspects
+  (`NKMedia`, `NKSL`, `NKPlatform`, `NKGlad`) portent leur raison transitive,
+  écrite sur place pour trois d'entre eux. **Proposition, pas retrait** :
+  exercer `NKAnimPhysics` quand Noge jouera l'équilibre/les appuis (la course
+  n'en a pas besoin ; PV3DE si).
+- **Absents-et-dûs** : `NKXR`, `NKCamera` → **conception greffon** (§10.4),
+  décision explicite de ne PAS les câbler statiquement.
+
+## 10.3 ✅ La machinerie de chargement dynamique — mesurée avant d'écrire
+
+`LoadLibrary`/`dlopen` vivent dans **15 fichiers**, et **aucune abstraction
+partagée n'existe** (`NkSharedLib`/`NkDynLib`/`NkPlugin` : zéro résultat, avec
+contrôle positif). Le motif de la 8ᵉ copie de capture d'écran, version
+chargement dynamique : NKAudio (×2), NKCanvas (×3), NKRHI (×2), NKWindow (×3),
+NKXR (OpenXR loader), sondes, et **le seul structuré : `Noge/ECS/Scripting/
+NkScriptBridge`** — copie fantôme, rechargement à chaud, **prouvé par
+`NkHotReloadDemo` (16/0)**. C'est le germe du système de greffons, pas un
+seizième site à écrire.
+
+## 10.4 📐 LE SYSTÈME DE GREFFONS — conception posée, chiffrée, PAS lancée
+
+**Un seul système pour la maison** (le moteur, le panneau Greffons de NkUIDesign
+— écrans 22-25 différés —, `Extensions/` de NkCode), trois étages :
+
+1. **`NkSharedLib`** (Foundation/NKPlatform, ~150-250 l.) — l'abstraction
+   portable charge/résout/décharge qui manque aux 15 sites. Rentable même sans
+   greffons : chaque nouveau site cesse de recopier le `#ifdef _WIN32`.
+2. **La frontière** (~400-600 l.) — ⚠️ le piège central : **zéro-STL et ABI C++
+   à travers une DLL ne passent pas**. Frontière **C pur** : le greffon exporte
+   UNE fonction `NkGreffonDecrire()` renvoyant une **table de fonctions C**
+   versionnée (`abiVersion` en tête, refus propre si écart) + capacités
+   déclarées. Le modèle existe déjà dans la maison : `NkScriptBridge` fait
+   exactement cela pour le C++ à chaud, et `NkHarmonyOnNapiInitExtra` montre le
+   hook faible. Cycle de vie : découverte (dossier `greffons/` + manifeste),
+   `Decrire` → `Init(services)` → tick optionnel → `Arret` — et **doublure
+   crédible obligatoire** : un greffon absent = capacité annoncée `false`,
+   jamais un trou (la règle gravée s'applique telle quelle).
+3. **Les deux premiers greffons** : `greffon_xr` (NkXrSession derrière la
+   table ; le **backend simulateur permet le banc sans casque, fenêtre
+   `nullptr` acceptée — vérifié dans `NKIXrBackend.h:64-66` : « mode sans tête
+   pour les tests numériques, pose scriptée »**) et `greffon_camera`
+   (`NkCameraSystem` : `Init/StartStreaming/GetLastFrame` — 6 backends dont
+   Noop ; ⚠️ pas de backend Windows natif listé, le banc Windows prouvera le
+   cycle de vie et l'honnêteté de l'état, pas des images).
+
+**Chiffrage** (ordre de grandeur, sur la base de NkScriptBridge = 376 l.
+éprouvées) : étage 1 ≈ 1-2 jours ; étage 2 ≈ 3-5 jours avec son banc
+(chargement, refus d'ABI, déchargement, doublure) ; chaque greffon ≈ 1-3 jours
+selon la surface exposée. **Total premier lot : ~1,5 à 2 semaines.** Les trois
+conditions de la maison s'appliquent à chaque étage (corps, appelant réel, banc
+qui rougit débranché).
+
+**Ce que ça évite, chiffré simplement** : XR + Camera + Network + Media câblés
+en dur grossissent TOUS les binaires de TOUS les jeux — le `renderdemo.wasm`
+fait déjà 27 Mo en Release ; un jeu de course n'a rien à faire d'OpenXR.
+
+## 10.5 🪪 FICHE `NKGRAPH` — mesure, pas conception
+
+**2 `.h` + 3 `.inl`, 0 `.cpp` — et le « 0 .cpp » ne dit RIEN ici** (leçon
+`NkCGXDetect` appliquée) : les corps vivent dans les `.inl`, **1 519 lignes**
+réelles. Contenu : `NkNodeGraph` (nœuds, sockets typés entrée/sortie, liens avec
+erreurs nommées), `NkGraphHistory` (annuler/refaire), `NkGraphDocument` +
+entrées/sorties. **Consommateurs : un seul** (`NKEditMeshHarness`), et **absent
+de `Nkentseu.jenga`** (0 occurrence — il compile via includes seulement).
+**Nature : substrat de graphe généraliste, sans sémantique métier** — c'est bien
+un candidat pour porter le nodal « qui vient par-dessus », et la direction
+script/blueprint consignée par Rodolf (`3fb5d3e`) le trouvera prêt. Rien de plus
+n'est conclu : c'est une fiche d'identité.
+
+## 10.6 🦴 LA FRONTIÈRE NkAnima — trois candidats, mesurés
+
+Rodolf : *« NkAnima ne consomme pas Noge — c'est Noge qui le consomme. »* La
+bibliothèque NkAnima, aujourd'hui, c'est **deux modules du noyau** plus ce qui
+traîne côté éditeur :
+
+| morceau | où | volume | consommé par |
+|---|---|---|---|
+| lecture de clip, mélange (`NkBlendTree1D`), reciblage | `NKAnimation` | 4 `.cpp`, **2 344 l.** | **13 fichiers** — NKRenderer, **Noge** (`NkLocomotion`, démo 9/0), NkAnimaEditor |
+| masse, équilibre, appuis (`NkPoseMass`, `NkBalance`, `NkContactDetector`) | `NKAnimPhysics` | 6 `.cpp`, **1 272 l.** | 4 fichiers — NKRenderer (debug), NkAnimaEditor, un banc. **Noge : 0** |
+| l'éditeur | `NkAnimaEditor` | 6 fichiers, **1 206 l.** | — (application) |
+
+✅ **La frontière est SAINE** : « jouer un clip » et « mélanger deux poses »
+sont déjà dans le substrat, et l'éditeur les consomme d'en haut (vérifié :
+`AnimBridge.cpp` inclut `NKAnimation/` et `NKAnimPhysics/`, pas l'inverse).
+**Aucun morceau de bibliothèque n'est piégé côté éditeur.** Le seul manque est
+celui du §10.2 : Noge n'exerce pas encore `NKAnimPhysics`. Et la question du
+bloc 6 (étage de `NkSkeletonDef`) se répond maintenant plus précisément :
+**le candidat naturel est `NKAnimation`** — c'est là que vivent déjà le
+reciblage et le mélange que le squelette sert.
