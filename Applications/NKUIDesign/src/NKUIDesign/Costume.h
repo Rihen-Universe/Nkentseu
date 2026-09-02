@@ -261,6 +261,17 @@ namespace nkuidesign {
 		/// L'ancien « 10 » etait la valeur la plus recopiee du panneau (11 fois).
 		constexpr float32 PadPanneau = (float32)EspLarge;
 
+		/// LA GRILLE DE L'INSPECTEUR — deux colonnes nommees.
+		/// `ColChamps` : ou commencent les champs apres le libelle de rangee
+		/// (« Position », « Police », les pastilles). Sept sites recopiaient 52.
+		/// `ColMiniLabel` : la mini-colonne des libelles « min »/« max » (px9).
+		/// ⚠️ Les LARGEURS de colonnes ne vivent pas sur l'echelle d'espacement
+		///    (2/4/8/12/16/24 discipline les MARGES) : elles se nomment pour
+		///    qu'une rangee ne puisse plus improviser la sienne. Les variantes
+		///    restantes (28/40/44/56/64/76) sont la DETTE de grille, comptee.
+		constexpr float32 ColChamps = 52.f;
+		constexpr float32 ColMiniLabel = 26.f;
+
 		// ═════════════════════════════════════════════════════════════════════
 		//  2. LES ICÔNES — chaque tracé recopié du JSX (viewBox = px écran)
 		// ═════════════════════════════════════════════════════════════════════

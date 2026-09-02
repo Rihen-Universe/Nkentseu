@@ -9410,7 +9410,7 @@ namespace nkuidesign {
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Position", ctx.theme.textMuted);
-					const float32 champs0 = x0 + 52.f;
+					const float32 champs0 = x0 + costume::ColChamps;
 					const float32 wBtns = 2.f * 20.f + 4.f;
 					const float32 colW = (x1 - champs0 - wBtns - 12.f) * 0.5f;
 					const NkRect rx = {champs0, costume::BandeY(r.y), colW - 3.f, costume::HControle};
@@ -9568,7 +9568,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), titre,
 							   ctx.theme.textMuted);
-				const NkRect rb = {x0 + 52.f, costume::BandeY(r.y), 96.f, costume::HControle};
+				const NkRect rb = {x0 + costume::ColChamps, costume::BandeY(r.y), 96.f, costume::HControle};
 				char b[96];
 				if (metrique)
 					snprintf(b, sizeof(b), "« %s »", d.valueMetric);
@@ -9602,15 +9602,17 @@ namespace nkuidesign {
 				// référence les résume en texte, l'édition prime — écart nommé).
 				{
 					const NkRect r2 = ctx.NextItemRect(-1.f, 22.f);
-					const float32 mx0 = r2.x + 12.f + 52.f;
+					const float32 mx0 = r2.x + 12.f + costume::ColChamps;
 					const float32 moitie = (r2.x + r2.w - 12.f - mx0 - 8.f) * 0.5f;
 					costume::Texte(dl, F.px9, mx0, costume::CentrerY(F.px9, r2.y + 2.f, 18.f),
 								   "min", ctx.theme.textMuted);
-					const NkRect rmin = {mx0 + 26.f, r2.y + 2.f, moitie - 26.f, 18.f};
+					const NkRect rmin = {mx0 + costume::ColMiniLabel, r2.y + 2.f,
+										 moitie - costume::ColMiniLabel, 18.f};
 					const float32 mx1 = mx0 + moitie + 8.f;
 					costume::Texte(dl, F.px9, mx1, costume::CentrerY(F.px9, r2.y + 2.f, 18.f),
 								   "max", ctx.theme.textMuted);
-					const NkRect rmax = {mx1 + 26.f, r2.y + 2.f, moitie - 26.f, 18.f};
+					const NkRect rmax = {mx1 + costume::ColMiniLabel, r2.y + 2.f,
+										 moitie - costume::ColMiniLabel, 18.f};
 					char id[48];
 					snprintf(id, sizeof(id), "insp.dmin.%s", titre);
 					bool bouge = ChampNombre(ctx, id, rmin, d.minVal, 1.f, 0.f, 4096.f, true, true);
@@ -10116,8 +10118,8 @@ namespace nkuidesign {
 																				 : 0;
 					static const char *const kCles[3] = {"gauche", "centre", "droite"};
 					for (int32 i = 0; i < 4; ++i) {
-						const NkRect cb = {champs0 + (btnW + 4.f) * (float32)i, r.y + 3.f, btnW,
-										   20.f};
+						const NkRect cb = {champs0 + (btnW + 4.f) * (float32)i, costume::BandeY(r.y),
+										   btnW, costume::HControle};
 						const bool actif = (i == courant);
 						if (actif) {
 							NkColor voile = ctx.theme.accent;
@@ -10165,8 +10167,8 @@ namespace nkuidesign {
 					const float32 champs0 = x0 + wLib;
 					const float32 btnW = (x1 - champs0 - 2.f * 4.f) / 3.f;
 					for (int32 i = 0; i < 3; ++i) {
-						const NkRect cb = {champs0 + (btnW + 4.f) * (float32)i, r.y + 3.f, btnW,
-										   20.f};
+						const NkRect cb = {champs0 + (btnW + 4.f) * (float32)i, costume::BandeY(r.y),
+										   btnW, costume::HControle};
 						dl.AddRectFilled(cb, CouleurInput(), 4.f);
 						dl.AddRect(cb, ctx.theme.border, 1.f, 4.f);
 						const float32 cxg = cb.x + cb.w * 0.5f;
@@ -10318,9 +10320,11 @@ namespace nkuidesign {
 				BoiteChamp(ctx, rb, b);
 				// l'icône du mode, à droite dans la boîte
 				if (d.mode == NkSizeMode::Expand)
-					costume::IcExpand(dl, rb.x + rb.w - 14.f, rb.y + 6.f, ctx.theme.accent);
+					costume::IcExpand(dl, rb.x + rb.w - 14.f,
+									  rb.y + (costume::HControle - 8.f) * 0.5f, ctx.theme.accent);
 				else if (d.mode == NkSizeMode::Fixed)
-					costume::IcFixed(dl, rb.x + rb.w - 14.f, rb.y + 6.f, ctx.theme.textMuted);
+					costume::IcFixed(dl, rb.x + rb.w - 14.f,
+									 rb.y + (costume::HControle - 8.f) * 0.5f, ctx.theme.textMuted);
 				// la valeur s'édite au glisser (quand elle existe et qu'aucune
 				// métrique ne prime)
 				if (porteValeur && !metrique) {
@@ -10337,15 +10341,17 @@ namespace nkuidesign {
 				}
 				// min / max en retrait
 				const NkRect r2 = ctx.NextItemRect(-1.f, 22.f);
-				const float32 mx0 = r2.x + 12.f + 52.f;
+				const float32 mx0 = r2.x + 12.f + costume::ColChamps;
 				const float32 moitie = (r2.x + r2.w - 12.f - mx0 - 8.f) * 0.5f;
 				costume::Texte(dl, F.px9, mx0, costume::CentrerY(F.px9, r2.y + 2.f, 18.f), "min",
 							   ctx.theme.textMuted);
-				const NkRect rmin = {mx0 + 26.f, r2.y + 2.f, moitie - 26.f, 18.f};
+				const NkRect rmin = {mx0 + costume::ColMiniLabel, r2.y + 2.f,
+										 moitie - costume::ColMiniLabel, 18.f};
 				const float32 mx1 = mx0 + moitie + 8.f;
 				costume::Texte(dl, F.px9, mx1, costume::CentrerY(F.px9, r2.y + 2.f, 18.f), "max",
 							   ctx.theme.textMuted);
-				const NkRect rmax = {mx1 + 26.f, r2.y + 2.f, moitie - 26.f, 18.f};
+				const NkRect rmax = {mx1 + costume::ColMiniLabel, r2.y + 2.f,
+										 moitie - costume::ColMiniLabel, 18.f};
 				char id[48];
 				snprintf(id, sizeof(id), "insp.min.%s", titre);
 				bool bouge = false;
@@ -10722,7 +10728,8 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), label,
 							   ctx.theme.textMuted);
-				const NkRect sw = {x0 + 52.f, r.y + 5.f, 16.f, 16.f};
+				const NkRect sw = {x0 + costume::ColChamps,
+								   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
 				if (buf[0]) {
 					dl.AddRectFilled(sw, CouleurHex(buf, ctx.theme.textMuted), 3.f);
 					dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
@@ -10808,7 +10815,8 @@ namespace nkuidesign {
 					const bool visible = simple ? true : n->fills[i].visible;
 					const NkColor encre = visible ? ctx.theme.text : ctx.theme.textDisabled;
 					// 1. la PASTILLE de couleur
-					const NkRect sw = {col.pastille, r.y + 5.f, 16.f, 16.f};
+					const NkRect sw = {col.pastille, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f,
+										   16.f};
 					if (mFillsBuf[i][0]) {
 						dl.AddRectFilled(sw, CouleurHex(mFillsBuf[i], ctx.theme.textMuted), 3.f);
 						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
@@ -10983,7 +10991,8 @@ namespace nkuidesign {
 						// LES MEMES COLONNES QUE REMPLISSAGES, par construction.
 						const ColonnesRangee col = ColonnesDe(r);
 						const bool visible = simple ? true : n->borders[i].visible;
-						const NkRect sw = {col.pastille, r.y + 5.f, 16.f, 16.f};
+						const NkRect sw = {col.pastille, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f,
+										   16.f};
 						if (mBordsBuf[i][0]) {
 							dl.AddRectFilled(sw, CouleurHex(mBordsBuf[i], ctx.theme.textMuted),
 											 3.f);
@@ -11205,7 +11214,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Arrondi",
 									   ctx.theme.textMuted);
-						const NkRect rr = {x0 + 52.f, costume::BandeY(r.y), 48.f, costume::HControle};
+						const NkRect rr = {x0 + costume::ColChamps, costume::BandeY(r.y), 48.f, costume::HControle};
 						// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
 						ChampNombreMulti(
 							ctx, "insp.app.rayon", rr, 0.5f, 0.f, 128.f,
@@ -11233,7 +11242,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Rotation",
 									   ctx.theme.textMuted);
-						const NkRect rr = {x0 + 52.f, costume::BandeY(r.y), 48.f, costume::HControle};
+						const NkRect rr = {x0 + costume::ColChamps, costume::BandeY(r.y), 48.f, costume::HControle};
 						if (peut) {
 							ChampNombreMulti(
 								ctx, "insp.app.rotation", rr, 1.f, -360.f, 360.f,
@@ -11280,8 +11289,9 @@ namespace nkuidesign {
 						for (uint32 k = 0; k < 2; ++k) {
 							const bool actif = (k == 0) ? n->miroirH : n->miroirV;
 							const char *lib = (k == 0) ? "H" : "V";
-							const NkRect rb = {x0 + 52.f + (float32)k * 26.f, r.y + 3.f, 22.f,
-											   20.f};
+							const NkRect rb = {x0 + costume::ColChamps
+												   + (float32)k * (22.f + (float32)costume::EspSerre),
+											   costume::BandeY(r.y), 22.f, costume::HControle};
 							const bool sv = ctx.popupDepth == 0
 											&& NkGuiRectContains(rb, ctx.input.mousePos);
 							dl.AddRectFilled(rb, actif ? ctx.theme.accent : CouleurInput(), 4.f);
@@ -11313,7 +11323,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Opacité",
 									   ctx.theme.textMuted);
-						const NkRect ro = {x0 + 52.f, costume::BandeY(r.y), 48.f, costume::HControle};
+						const NkRect ro = {x0 + costume::ColChamps, costume::BandeY(r.y), 48.f, costume::HControle};
 						dl.AddRectFilled(ro, CouleurInput(), 4.f);
 						dl.AddRect(ro, ctx.theme.border, 1.f, 4.f);
 						costume::Texte(dl, F.px11, ro.x + costume::PadChamp,
