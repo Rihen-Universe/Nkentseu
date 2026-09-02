@@ -230,6 +230,22 @@ namespace nkuidesign {
 			return CentrerY(f, BandeY(yRangee), HControle);
 		}
 
+		/// La boîte de CLIC d'une icône de rangée (poubelle, œil) : 14 × 14.
+		constexpr float32 HIcone = 14.f;
+
+		/// Le haut de la boîte d'icône dans une rangée standard.
+		/// (26 − 14) / 2 = 6 : le « + 6.f » recopié devant chaque icône de
+		/// l'inspecteur était DÉRIVÉ, pas choisi — même famille que BandeY.
+		inline float32 IconeY(float32 yRangee) {
+			return BandeY(yRangee, HRangee, HIcone);
+		}
+
+		/// L'inset du GLYPHE (~12 px de tracés JSX) dans sa boîte de 14 :
+		/// (14 − 12) / 2 = 1. Le « + 1.f » devant IcPoubelle/IcOeil n'était pas
+		/// un réglage fin, c'était ce calcul — l'écrire en littéral le faisait
+		/// compter « hors échelle » alors qu'aucune échelle n'a rien à en dire.
+		constexpr float32 InsetIcone = (HIcone - 12.f) * 0.5f;
+
 		// ═════════════════════════════════════════════════════════════════════
 		//  2. LES ICÔNES — chaque tracé recopié du JSX (viewBox = px écran)
 		// ═════════════════════════════════════════════════════════════════════

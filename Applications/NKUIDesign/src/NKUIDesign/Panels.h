@@ -8909,11 +8909,11 @@ namespace nkuidesign {
 					//    plus haut.
 					const float32 dispo = (r.x + r.w - 12.f) - (x0 + 14.f);
 					const float32 lc = (dispo - 2.f * 22.f) / 3.f;
-					const NkRect rx = {x0 + 14.f, r.y + 3.f, lc, 20.f};
+					const NkRect rx = {x0 + 14.f, costume::BandeY(r.y), lc, costume::HControle};
 					costume::Texte(dl, F.px10, rx.x + rx.w + 8.f,
 								   costume::CentrerBande(F.px10, r.y), "Y",
 								   ctx.theme.textMuted);
-					const NkRect ry = {rx.x + rx.w + 22.f, r.y + 3.f, lc, 20.f};
+					const NkRect ry = {rx.x + rx.w + 22.f, costume::BandeY(r.y), lc, costume::HControle};
 					// 🔴 « ⌒ » (U+2312) SORTAIT « ? » — LA FONTE NE PORTE PAS LE
 					//    GLYPHE. Trouvé sur la capture, pas à la relecture : le code
 					//    était juste, l'atlas n'avait pas le caractère. Lunacy peut
@@ -8922,7 +8922,7 @@ namespace nkuidesign {
 					costume::Texte(dl, F.px10, ry.x + ry.w + 8.f,
 								   costume::CentrerBande(F.px10, r.y), "R",
 								   ctx.theme.textMuted);
-					const NkRect rr = {ry.x + ry.w + 22.f, r.y + 3.f, lc, 20.f};
+					const NkRect rr = {ry.x + ry.w + 22.f, costume::BandeY(r.y), lc, costume::HControle};
 					float32 sx = 0.f, sy = 0.f, ra = 0.f;
 					if (unSelectionne && rb.w > 0.f && rb.h > 0.f
 						&& NkLireSommet(n, (uint32)iSel, sx, sy, ra)) {
@@ -9056,19 +9056,19 @@ namespace nkuidesign {
 					// deux étiquettes, jamais des offsets fixes.
 					const float32 dispoB = (r.x + r.w - 12.f) - (x0 + 22.f);
 					const float32 lb = (dispoB - 26.f) * 0.5f;
-					const NkRect a1 = {x0 + 22.f, r.y + 3.f, lb, 20.f};
+					const NkRect a1 = {x0 + 22.f, costume::BandeY(r.y), lb, costume::HControle};
 					costume::Texte(dl, F.px10, a1.x + a1.w + 6.f,
 								   costume::CentrerBande(F.px10, r.y), "Y1",
 								   ctx.theme.textMuted);
-					const NkRect a2 = {a1.x + a1.w + 26.f, r.y + 3.f, lb, 20.f};
+					const NkRect a2 = {a1.x + a1.w + 26.f, costume::BandeY(r.y), lb, costume::HControle};
 					const NkRect r2 = ctx.NextItemRect(-1.f, 26.f);
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r2.y),
 								   "X2", ctx.theme.textMuted);
-					const NkRect b1 = {x0 + 22.f, r2.y + 3.f, lb, 20.f};
+					const NkRect b1 = {x0 + 22.f, costume::BandeY(r2.y), lb, costume::HControle};
 					costume::Texte(dl, F.px10, b1.x + b1.w + 6.f,
 								   costume::CentrerBande(F.px10, r2.y), "Y2",
 								   ctx.theme.textMuted);
-					const NkRect b2 = {b1.x + b1.w + 26.f, r2.y + 3.f, lb, 20.f};
+					const NkRect b2 = {b1.x + b1.w + 26.f, costume::BandeY(r2.y), lb, costume::HControle};
 					if (tangentesLisibles) {
 						NkPoint2 &pt = n.sommets[(uint32)iSel];
 						// X1/Y1 = la tangente ENTRANTE (vers le sommet précédent),
@@ -9346,8 +9346,8 @@ namespace nkuidesign {
 					const float32 champs0 = x0 + 52.f;
 					const float32 wBtns = 2.f * 20.f + 4.f;
 					const float32 colW = (x1 - champs0 - wBtns - 12.f) * 0.5f;
-					const NkRect rx = {champs0, r.y + 3.f, colW - 3.f, 20.f};
-					const NkRect ry = {champs0 + colW + 3.f, r.y + 3.f, colW - 3.f, 20.f};
+					const NkRect rx = {champs0, costume::BandeY(r.y), colW - 3.f, costume::HControle};
+					const NkRect ry = {champs0 + colW + 3.f, costume::BandeY(r.y), colW - 3.f, costume::HControle};
 					const NkColor rouge = nkentseu::editorkit::NkThemeUnpack(
 						mSt->theme.Get(nkentseu::editorkit::NkRole::AxisX));
 					const NkColor vert = nkentseu::editorkit::NkThemeUnpack(
@@ -9383,7 +9383,7 @@ namespace nkuidesign {
 					// les deux boutons carrés de la référence — inertes, et ils
 					// le DISENT au clic (règle des menus : jamais un no-op muet).
 					for (int32 i = 0; i < 2; ++i) {
-						const NkRect rb = {x1 - wBtns + (float32)i * 24.f, r.y + 3.f, 20.f, 20.f};
+						const NkRect rb = {x1 - wBtns + (float32)i * 24.f, costume::BandeY(r.y), 20.f, costume::HControle};
 						dl.AddRectFilled(rb, CouleurInput(), 4.f);
 						dl.AddRect(rb, ctx.theme.border, 1.f, 4.f);
 						if (i == 0) {
@@ -9501,7 +9501,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), titre,
 							   ctx.theme.textMuted);
-				const NkRect rb = {x0 + 52.f, r.y + 3.f, 96.f, 20.f};
+				const NkRect rb = {x0 + 52.f, costume::BandeY(r.y), 96.f, costume::HControle};
 				char b[96];
 				if (metrique)
 					snprintf(b, sizeof(b), "« %s »", d.valueMetric);
@@ -9602,7 +9602,7 @@ namespace nkuidesign {
 												  ? "Ombre interne"
 												  : "Ombre portée";
 						const float32 tw = col.poubX - r.x - 16.f;
-						const NkRect rt = {r.x + 12.f, r.y + 3.f, tw > 40.f ? tw : 40.f, 20.f};
+						const NkRect rt = {r.x + 12.f, costume::BandeY(r.y), tw > 40.f ? tw : 40.f, costume::HControle};
 						const bool svT =
 							ctx.popupDepth == 0 && NkGuiRectContains(rt, ctx.input.mousePos);
 						dl.AddRectFilled(rt, CouleurInput(), 4.f);
@@ -9628,10 +9628,10 @@ namespace nkuidesign {
 									: "Ombre portée.");
 						}
 						{
-							const NkRect rp = {col.poubX, r.y + 6.f, 14.f, 14.f};
+							const NkRect rp = {col.poubX, costume::IconeY(r.y), costume::HIcone, costume::HIcone};
 							const bool sv =
 								ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
-							costume::IcPoubelle(dl, rp.x + 1.f, rp.y + 1.f,
+							costume::IcPoubelle(dl, rp.x + costume::InsetIcone, rp.y + costume::InsetIcone,
 												sv ? ctx.theme.accent : ctx.theme.textMuted);
 							if (sv && ctx.input.mouseClicked[0]) {
 								n->effets.RemoveAt(i);
@@ -9642,16 +9642,16 @@ namespace nkuidesign {
 							}
 						}
 						{
-							const NkRect re = {col.oeilX, r.y + 6.f, 14.f, 14.f};
+							const NkRect re = {col.oeilX, costume::IconeY(r.y), costume::HIcone, costume::HIcone};
 							const bool sv =
 								ctx.popupDepth == 0 && NkGuiRectContains(re, ctx.input.mousePos);
 							const NkColor c = sv ? ctx.theme.accent
 												 : (e.visible ? ctx.theme.textMuted
 															  : ctx.theme.textDisabled);
 							if (e.visible)
-								costume::IcOeil(dl, re.x + 1.f, re.y + 1.f, c);
+								costume::IcOeil(dl, re.x + costume::InsetIcone, re.y + costume::InsetIcone, c);
 							else
-								costume::IcOeilBarre(dl, re.x + 1.f, re.y + 1.f, c);
+								costume::IcOeilBarre(dl, re.x + costume::InsetIcone, re.y + costume::InsetIcone, c);
 							if (sv && ctx.input.mouseClicked[0]) {
 								e.visible = !e.visible;
 								mSt->doc.MarkHumanEdit(mSt->selected);
@@ -9968,7 +9968,7 @@ namespace nkuidesign {
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Police", ctx.theme.textMuted);
-					const NkRect rb = {x0 + wLib, r.y + 3.f, x1 - x0 - wLib, 20.f};
+					const NkRect rb = {x0 + wLib, costume::BandeY(r.y), x1 - x0 - wLib, costume::HControle};
 					BoiteChamp(ctx, rb, "Inter");
 					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 9.f,
 										   ctx.theme.textMuted);
@@ -9983,7 +9983,7 @@ namespace nkuidesign {
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Poids", ctx.theme.textMuted);
-					const NkRect rb = {x0 + wLib, r.y + 3.f, x1 - x0 - wLib, 20.f};
+					const NkRect rb = {x0 + wLib, costume::BandeY(r.y), x1 - x0 - wLib, costume::HControle};
 					const int32 fw = (int32)n->fontWeight;
 					const char *nomFw = fw >= 700	? "Bold"
 										: fw >= 600 ? "Semi-Bold"
@@ -10009,7 +10009,7 @@ namespace nkuidesign {
 					const float32 x0 = r.x + 12.f;
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Taille", ctx.theme.textMuted);
-					const NkRect rt = {x0 + wLib, r.y + 3.f, 48.f, 20.f};
+					const NkRect rt = {x0 + wLib, costume::BandeY(r.y), 48.f, costume::HControle};
 					if (ChampNombre(ctx, "insp.typo.px", rt, n->fontPx, 0.5f, 0.f, 256.f, false,
 									true))
 						mSt->doc.MarkHumanEdit(mSt->selected);
@@ -10025,7 +10025,7 @@ namespace nkuidesign {
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   li == 0 ? "Hauteur ligne" : "Interlettrage",
 								   ctx.theme.textMuted);
-					const NkRect rv = {x0 + 76.f, r.y + 3.f, 40.f, 20.f};
+					const NkRect rv = {x0 + 76.f, costume::BandeY(r.y), 40.f, costume::HControle};
 					dl.AddRectFilled(rv, CouleurInput(), 4.f);
 					dl.AddRect(rv, ctx.theme.border, 1.f, 4.f);
 					costume::Texte(dl, F.px11, rv.x + 6.f, costume::CentrerY(F.px11, rv.y, 20.f),
@@ -10366,7 +10366,7 @@ namespace nkuidesign {
 					costume::Texte(dl, F.px9, x0 + 64.f,
 								   costume::CentrerBande(F.px9, r.y), nm,
 								   ctx.theme.textMuted);
-					const NkRect rv = {x1 - 48.f, r.y + 3.f, 48.f, 20.f};
+					const NkRect rv = {x1 - 48.f, costume::BandeY(r.y), 48.f, costume::HControle};
 					float32 v = mSt->doc.Metric(lignes[li].nom->Data(), 0.f);
 					char id[48];
 					snprintf(id, sizeof(id), "insp.esp.%d", li);
@@ -10665,7 +10665,7 @@ namespace nkuidesign {
 					dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
 							   ctx.theme.textMuted, 1.f);
 				}
-				ctx.SetNextItemRect({sw.x + 24.f, r.y + 3.f, x1 - (sw.x + 24.f), 20.f});
+				ctx.SetNextItemRect({sw.x + 24.f, costume::BandeY(r.y), x1 - (sw.x + 24.f), costume::HControle});
 				if (nkgui::InputText(ctx, id, buf, 10)) {
 					cle = NkString(buf);
 					mSt->doc.MarkHumanEdit(mSt->selected);
@@ -10755,7 +10755,7 @@ namespace nkuidesign {
 					//    sa clé simple et son octet près.
 					char idHex[32];
 					snprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
-					ctx.SetNextItemRect({col.hexX, r.y + 3.f, col.hexW, 20.f});
+					ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});
 					if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10)) {
 						if (simple)
 							n->fill = NkString(mFillsBuf[i]);
@@ -10767,7 +10767,7 @@ namespace nkuidesign {
 					//    pas la dire).
 					char idOp[32];
 					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
-					const NkRect ro = {col.opacX, r.y + 3.f, 30.f, 20.f};
+					const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};
 					float32 op = simple ? 100.f : n->fills[i].opacite;
 					if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
 						n->MaterialiserFills();
@@ -10783,10 +10783,10 @@ namespace nkuidesign {
 					//    elle vide la clé `fond` : c'est le même geste, « il n'y a
 					//    plus de remplissage ».
 					{
-						const NkRect rp = {col.poubX, r.y + 6.f, 14.f, 14.f};
+						const NkRect rp = {col.poubX, costume::IconeY(r.y), costume::HIcone, costume::HIcone};
 						const bool sv =
 							ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
-						costume::IcPoubelle(dl, rp.x + 1.f, rp.y + 1.f,
+						costume::IcPoubelle(dl, rp.x + costume::InsetIcone, rp.y + costume::InsetIcone,
 											sv ? ctx.theme.accent : ctx.theme.textMuted);
 						if (sv && ctx.input.mouseClicked[0]) {
 							if (simple)
@@ -10811,16 +10811,16 @@ namespace nkuidesign {
 					}
 					// 5. l'ŒIL — masque sans perdre la couleur. Matérialise aussi.
 					{
-						const NkRect re = {col.oeilX, r.y + 6.f, 14.f, 14.f};
+						const NkRect re = {col.oeilX, costume::IconeY(r.y), costume::HIcone, costume::HIcone};
 						const bool sv =
 							ctx.popupDepth == 0 && NkGuiRectContains(re, ctx.input.mousePos);
 						const NkColor c = sv ? ctx.theme.accent
 											 : (visible ? ctx.theme.textMuted
 														: ctx.theme.textDisabled);
 						if (visible)
-							costume::IcOeil(dl, re.x + 1.f, re.y + 1.f, c);
+							costume::IcOeil(dl, re.x + costume::InsetIcone, re.y + costume::InsetIcone, c);
 						else
-							costume::IcOeilBarre(dl, re.x + 1.f, re.y + 1.f, c);
+							costume::IcOeilBarre(dl, re.x + costume::InsetIcone, re.y + costume::InsetIcone, c);
 						if (sv && ctx.input.mouseClicked[0]) {
 							n->MaterialiserFills();
 							const uint32 k = simple ? 0u : i;
@@ -10928,7 +10928,7 @@ namespace nkuidesign {
 						}
 						char idHex[32];
 						snprintf(idHex, sizeof(idHex), "##insp.bord.hex%u", i);
-						ctx.SetNextItemRect({col.hexX, r.y + 3.f, col.hexW, 20.f});
+						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});
 						if (nkgui::InputText(ctx, idHex, mBordsBuf[i], 10)) {
 							if (simple)
 								n->borderColor = NkString(mBordsBuf[i]);
@@ -10938,7 +10938,7 @@ namespace nkuidesign {
 						}
 						char idOp[32];
 						snprintf(idOp, sizeof(idOp), "insp.bord.op%u", i);
-						const NkRect ro = {col.opacX, r.y + 3.f, 30.f, 20.f};
+						const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};
 						float32 op = simple ? 100.f : n->borders[i].opacite;
 						if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
 							n->MaterialiserBorders();
@@ -10951,10 +10951,10 @@ namespace nkuidesign {
 									   costume::CentrerBande(F.px9, r.y), "%",
 									   ctx.theme.textMuted);
 						{
-							const NkRect rp = {col.poubX, r.y + 6.f, 14.f, 14.f};
+							const NkRect rp = {col.poubX, costume::IconeY(r.y), costume::HIcone, costume::HIcone};
 							const bool sv =
 								ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
-							costume::IcPoubelle(dl, rp.x + 1.f, rp.y + 1.f,
+							costume::IcPoubelle(dl, rp.x + costume::InsetIcone, rp.y + costume::InsetIcone,
 												sv ? ctx.theme.accent : ctx.theme.textMuted);
 							if (sv && ctx.input.mouseClicked[0]) {
 								if (simple) {
@@ -10988,16 +10988,16 @@ namespace nkuidesign {
 							}
 						}
 						{
-							const NkRect re = {col.oeilX, r.y + 6.f, 14.f, 14.f};
+							const NkRect re = {col.oeilX, costume::IconeY(r.y), costume::HIcone, costume::HIcone};
 							const bool sv =
 								ctx.popupDepth == 0 && NkGuiRectContains(re, ctx.input.mousePos);
 							const NkColor c = sv ? ctx.theme.accent
 												 : (visible ? ctx.theme.textMuted
 															: ctx.theme.textDisabled);
 							if (visible)
-								costume::IcOeil(dl, re.x + 1.f, re.y + 1.f, c);
+								costume::IcOeil(dl, re.x + costume::InsetIcone, re.y + costume::InsetIcone, c);
 							else
-								costume::IcOeilBarre(dl, re.x + 1.f, re.y + 1.f, c);
+								costume::IcOeilBarre(dl, re.x + costume::InsetIcone, re.y + costume::InsetIcone, c);
 							if (sv && ctx.input.mouseClicked[0]) {
 								n->MaterialiserBorders();
 								const uint32 k = simple ? 0u : i;
@@ -11138,7 +11138,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Arrondi",
 									   ctx.theme.textMuted);
-						const NkRect rr = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
+						const NkRect rr = {x0 + 52.f, costume::BandeY(r.y), 48.f, costume::HControle};
 						// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
 						ChampNombreMulti(
 							ctx, "insp.app.rayon", rr, 0.5f, 0.f, 128.f,
@@ -11166,7 +11166,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Rotation",
 									   ctx.theme.textMuted);
-						const NkRect rr = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
+						const NkRect rr = {x0 + 52.f, costume::BandeY(r.y), 48.f, costume::HControle};
 						if (peut) {
 							ChampNombreMulti(
 								ctx, "insp.app.rotation", rr, 1.f, -360.f, 360.f,
@@ -11246,7 +11246,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Opacité",
 									   ctx.theme.textMuted);
-						const NkRect ro = {x0 + 52.f, r.y + 3.f, 48.f, 20.f};
+						const NkRect ro = {x0 + 52.f, costume::BandeY(r.y), 48.f, costume::HControle};
 						dl.AddRectFilled(ro, CouleurInput(), 4.f);
 						dl.AddRect(ro, ctx.theme.border, 1.f, 4.f);
 						costume::Texte(dl, F.px11, ro.x + 6.f,
