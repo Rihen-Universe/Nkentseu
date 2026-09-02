@@ -164,6 +164,47 @@
   title={\sffamily\bfseries\small #1}, coltitle=rihenOrange!75!black,
   colbacktitle=rihenOrangePale, titlerule=0pt, fonttitle=\small}
 
+
+% ── LES QUATRE FAMILLES D'EXERCICES ─────────────────────────────────────
+% Meme boite que nkexo, titres differents. On n'ajoute AUCUNE couleur :
+% le lecteur doit garder trois couleurs a interpreter, pas sept.
+%   questions   -> a-t-on compris ? (on repond sans machine)
+%   pratique    -> on ecrit du code qui compile
+%   demonstration -> on PROUVE quelque chose par une mesure
+%   logique     -> on raisonne, souvent sans ecrire une ligne
+\newtcolorbox{nkquestions}[1][Questions de cours]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+\newtcolorbox{nkpratique}[1][Exercice pratique]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+\newtcolorbox{nkdemo}[1][Exercice de démonstration]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+\newtcolorbox{nklogique}[1][Exercice de logique]{
+  breakable, enhanced, colback=white, colframe=codeBorder,
+  boxrule=0.7pt, arc=2pt,
+  title={\sffamily\bfseries\small #1}, coltitle=grisTexte,
+  colbacktitle=codeBg, titlerule=0pt, fonttitle=\small}
+
+% ── BILAN DE CHAPITRE ───────────────────────────────────────────────────
+% Reprend les couleurs de `nkretenir` : un bilan EST ce qu'il faut retenir,
+% et lui donner une couleur propre suggererait une quatrieme categorie.
+\newtcolorbox{nkbilan}[1][Ce chapitre en bref]{
+  breakable, enhanced, colback=rihenTealPale, colframe=rihenTeal,
+  boxrule=0pt, leftrule=3pt, arc=1pt,
+  title={\sffamily\bfseries\small #1}, coltitle=rihenTeal,
+  colbacktitle=rihenTealPale, titlerule=0pt, fonttitle=\small}
+
 \newtcolorbox{nkexo}[1][Exercice]{
   breakable, enhanced, colback=white, colframe=codeBorder,
   boxrule=0.7pt, arc=2pt,
@@ -201,3 +242,15 @@
 \let\nkOldTexttt\texttt
 \DeclareRobustCommand{\nkttCode}[1]{{\NoAutoSpacing\nkOldTexttt{#1}}}
 \renewcommand{\texttt}{\nkttCode}
+
+% ---------------------------------------------------------------------------
+% PARTIES -- une page de garde sobre, aux couleurs de la charte.
+% Le numero en gros, le titre dessous, un filet orange entre les deux.
+% ---------------------------------------------------------------------------
+\titleformat{\part}[display]
+  {\filcenter\normalfont}
+  {\fontsize{16}{18}\selectfont\color{rihenOrange}\MakeUppercase{\partname~\thepart}}
+  {0.6em}
+  {\fontsize{30}{34}\selectfont\bfseries\color{rihenTeal}}
+  [\vspace{0.8em}{\color{rihenOrange}\rule{4cm}{2pt}}]
+\titlespacing*{\part}{0pt}{6em}{4em}

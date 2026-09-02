@@ -45,7 +45,7 @@ for ($i = 1; $i -le $passes; ++$i) {
 
 $pdf = Join-Path $build 'main.pdf'
 if (Test-Path $pdf) {
-    $final = Join-Path $racine 'Cours_NkCanvas_NKGui.pdf'
+    $final = Join-Path $racine 'Construire_avec_Nkentseu.pdf'
     Copy-Item $pdf $final -Force
     $ko = [Math]::Round((Get-Item $final).Length / 1KB)
     Write-Host "PDF genere : $final ($ko Ko)" -ForegroundColor Green

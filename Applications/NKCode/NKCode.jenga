@@ -83,6 +83,41 @@ _HAS_PYEMBED_MACOS  = os.path.isdir(_PYEMBED_MACOS_INC)
 # Repliquer ces regles ici les dupliquerait et les ferait diverger a la
 # premiere evolution. On extrait donc le wheel officiel (~1 Mo), qui EST le
 # contenu que Jenga distribue. Le produire : ./cri.sh dans le depot Jenga.
+def _version_du_wheel(chemin):
+    """(2, 4, 0) depuis « jenga-2.4.0-py3-none-any.whl ». (0,) si illisible.
+
+    ⚠️ On rend un TUPLE d'entiers, pas la chaine : compare comme des chaines,
+    « 2.10.0 » passerait AVANT « 2.4.0 » -- l'ordre lexicographique met '1'
+    avant '4'. Le defaut n'apparaitrait qu'a la version 10, c'est-a-dire le jour
+    ou plus personne ne s'en souviendrait.
+    """
+    import re
+    m = re.search(r"jenga-(\d+(?:\.\d+)*)", os.path.basename(chemin))
+    if not m:
+        return (0,)
+    return tuple(int(x) for x in m.group(1).split("."))
+
+
+def _version_jenga_installee():
+    """La version du jenga du SYSTEME, ou () si on ne peut pas la lire.
+
+    ⚠️ Rendre () en cas d'echec, et non une version inventee : une comparaison
+    contre une valeur fabriquee crierait au loup ou se tairait a tort. Ne pas
+    savoir est une reponse ; c'est l'appelant qui decide quoi en faire.
+    """
+    try:
+        import subprocess
+        out = subprocess.check_output(["jenga", "--version"], stderr=subprocess.STDOUT,
+                                      timeout=30).decode("utf-8", "replace")
+        import re
+        m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+        if m:
+            return tuple(int(g) for g in m.groups())
+    except Exception:
+        pass
+    return ()
+
+
 def _jenga_depuis_wheel():
     import glob, zipfile, shutil
     racines = [_norm(os.getenv("NKCODE_JENGA_SRC", ""))] + [
@@ -92,7 +127,11 @@ def _jenga_depuis_wheel():
     for r in racines:
         if not r or not os.path.isdir(r):
             continue
-        whls = sorted(glob.glob(os.path.join(r, "dist", "*.whl")), key=os.path.getmtime, reverse=True)
+        # ⚠️ TRI PAR VERSION, PAS PAR DATE. `os.path.getmtime` classait par
+        # date d'ecriture : reconstruire un vieux wheel apres un neuf le faisait
+        # gagner, en silence. Une version se compare par ses nombres.
+        whls = sorted(glob.glob(os.path.join(r, "dist", "*.whl")),
+                      key=_version_du_wheel, reverse=True)
         if not whls:
             continue
         stage = _norm(os.path.join(_REPO_ROOT, "Build", "_jenga-embed"))
@@ -114,6 +153,18 @@ _JENGA_STAGE, _JENGA_WHL = _jenga_depuis_wheel()
 _HAS_JENGA_SRC = bool(_JENGA_STAGE)
 if _HAS_JENGA_SRC:
     print("[NKCode] Jenga embarque depuis le wheel : " + _JENGA_WHL)
+    # ⚠️ ON COMPARE LE WHEEL AU JENGA DU SYSTEME, ET ON LE DIT.
+    # Sans cette comparaison, NKCode construit avec une version et le terminal
+    # avec une autre -- deux systemes de construction silencieusement differents
+    # dans la meme session. Un defaut d'OUTIL se cherche alors dans le CODE.
+    _V_WHL = _version_du_wheel(_JENGA_WHL)
+    _V_SYS = _version_jenga_installee()
+    if _V_SYS and _V_WHL and _V_WHL != _V_SYS:
+        _fmt = lambda t: ".".join(str(x) for x in t)
+        print("[NKCode] ATTENTION : le wheel embarque est en " + _fmt(_V_WHL)
+              + " alors que le jenga du systeme est en " + _fmt(_V_SYS) + ".")
+        print("[NKCode]   NKCode construira donc AUTREMENT que votre terminal.")
+        print("[NKCode]   Remede : ./cri.sh dans le depot Jenga, puis reconstruire NKCode.")
 else:
     print("[NKCode] ATTENTION : aucun wheel Jenga trouve (dist/*.whl) -> le paquet "
           "n'aura PAS de Jenga embarque, et les boutons Construire/Executer seront "
