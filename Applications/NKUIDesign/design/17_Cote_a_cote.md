@@ -1,5 +1,8 @@
 # 17 — Côte à côte : l'application contre les planches
 
+> ✅ **Au 02/09 : AUCUN écart ouvert hors E1, le chantier des tranches**
+> (E2/E3/E5/E6 livrés, E4 conforme par décision).
+
 > **But** : mettre la vraie fenêtre (capture `--capture=`) en face des planches
 > Banani, et **nommer chaque écart** — pour que Rodolf pointe ce qui le gêne au
 > lieu de le deviner. Lecture : cinq minutes.
