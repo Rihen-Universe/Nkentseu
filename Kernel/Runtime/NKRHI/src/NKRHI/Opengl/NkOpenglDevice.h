@@ -27,6 +27,14 @@ namespace nkentseu {
 	class NkOpenGLDevice;
 
 	GLuint NkOpenglGetBufferID(NkOpenGLDevice *dev, uint64 id);
+
+	// Interrupteur du diagnostic verbeux par-liaison (BindVB / BindIB).
+	// DEFAUT : ETEINT. Allumer avec NK_WEB_DIAG=1.
+	// ⚠️ Mesure du 2026-09-02 : laisse actif, il produit 12 411 lignes et
+	// 1,8 Mo de journal par execution headless -- il ralentit la page et
+	// FAUSSE TOUTE MESURE DE PERFORMANCE WEB. Un diagnostic qui ne s'eteint
+	// pas cesse d'etre un instrument et devient un biais.
+	bool NkWebDiagEnabled() noexcept;
 	GLuint NkOpenglGetTextureID(NkOpenGLDevice *dev, uint64 id);
 	GLuint NkOpenglGetFBOID(NkOpenGLDevice *dev, uint64 id);
 	GLuint NkOpenglGetSamplerID(NkOpenGLDevice *dev, uint64 id);

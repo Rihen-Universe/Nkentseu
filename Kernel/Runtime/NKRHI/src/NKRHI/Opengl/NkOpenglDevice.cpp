@@ -57,6 +57,7 @@ extern "C" int gladLoadGLES2(GLADloadfunc load);
 extern "C" int gladLoaderLoadGLES2(void);
 #endif
 
+
 // ── Contexte WebGL (Emscripten/WASM) ────────────────────────────────────────
 // Meme contrainte de header que le bloc EGL ci-dessus : glad/gles2.h est
 // inconciliable avec glad/gl.h deja inclus — on declare donc localement le
@@ -99,6 +100,17 @@ static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int, ..
 	} while (0)
 
 namespace nkentseu {
+
+	bool NkWebDiagEnabled() noexcept {
+		// Lu UNE fois : le diagnostic est sur un chemin chaud (chaque liaison
+		// de tampon), une lecture d'environnement par appel couterait plus que
+		// la trace elle-meme.
+		static const bool actif = []() noexcept {
+			const char *v = ::getenv("NK_WEB_DIAG");
+			return v && v[0] && v[0] != '0';
+		}();
+		return actif;
+	}
 
 	namespace {
 		// ── Debug callback OpenGL (GL_KHR_debug, core 4.3+) ─────────────────────
@@ -2294,7 +2306,8 @@ namespace nkentseu {
 			}
 		}
 		// NKTEMP-DIAG : a retirer (instrumentation classes de buffers WebGL2)
-		fprintf(stderr, "[WebDiag] BindVB gl=%u binding=%u\n", bufId, binding);
+		if (NkWebDiagEnabled())
+			fprintf(stderr, "[WebDiag] BindVB gl=%u binding=%u\n", bufId, binding);
 		glBindBuffer(GL_ARRAY_BUFFER, bufId);
 		for (uint32 i = 0; i < vl.attributes.Size(); ++i) {
 			const auto &a = vl.attributes[i];
