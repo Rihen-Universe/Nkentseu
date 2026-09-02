@@ -8048,6 +8048,13 @@ namespace nkuidesign {
 	}
 
 	class InspectorPanel : public NkEditorPanel {
+			/// L'acces de banc au corps des sections de proprietes
+			/// (`--recette-proprietes`). MEME DISCIPLINE que
+			/// `RecetteEditionAcces` pour `PreviewPanel` : un banc qui passerait
+			/// par l'interface publique devrait simuler la coquille entiere ;
+			/// celui-ci exerce exactement la fonction ou le geste vit.
+			friend struct RecetteProprietesAcces;
+
 		public:
 			explicit InspectorPanel(DesignState *st)
 				: NkEditorPanel("Inspecteur", NkEditorDockSide::NK_RIGHT), mSt(st) {}
@@ -10710,6 +10717,17 @@ namespace nkuidesign {
 							mFillsGen = -1; // les tampons se rechargent : la liste a glissé
 							mSt->doc.MarkHumanEdit(mSt->selected);
 							mSt->status = NkString("Remplissage retiré — Ctrl+Z le ramène.");
+							// ⚠️ SORTIE FRANCHE, MÊME SANS DÉFAUT AUJOURD'HUI. Un
+							//    remplissage n'a qu'UNE ligne, donc rien ne suit ce
+							//    retrait et rien ne débordait — c'est mesuré, pas
+							//    supposé (cas 2 de `--recette-proprietes`). Mais
+							//    c'est exactement ce qu'on disait des bordures
+							//    avant qu'elles gagnent une seconde ligne. *Le
+							//    jour où quelqu'un ajoute une ligne ici, il ne doit
+							//    pas avoir à redécouvrir le plantage du 02/09.*
+							//    Les trois listes sortent désormais de la même
+							//    façon — chemins frères traités comme un groupe.
+							return; // la liste a glissé : plus rien ne la lit
 						}
 					}
 					// 5. l'ŒIL — masque sans perdre la couleur. Matérialise aussi.
@@ -10868,6 +10886,26 @@ namespace nkuidesign {
 								mBordsGen = -1;
 								mSt->doc.MarkHumanEdit(mSt->selected);
 								mSt->status = NkString("Bordure retirée — Ctrl+Z la ramène.");
+								// 🔴 SORTIE FRANCHE — LE PLANTAGE DE RODOLF (02/09).
+								// Une bordure a DEUX LIGNES, et la seconde
+								// (épaisseur + position) s'exécutait APRÈS ce
+								// retrait, DANS LA MÊME ITÉRATION, sur `borders[i]`.
+								// La boucle dessine du dernier au premier : au
+								// premier tour `i` vaut le dernier indice, donc
+								// retirer cette entrée-là ramène la taille à `i`
+								// exactement et la ligne 2 lisait **une case
+								// au-delà**. La ligne du haut est justement celle
+								// qu'on clique en premier : ça tombait à coup sûr.
+								//
+								// ⚠️ ET C'EST UNE SORTIE, PAS TROIS GARDES. Deux
+								//    lectures débordaient (`epaisseur`, `position`)
+								//    et une troisième était déjà protégée à la
+								//    main : la protection avait été posée une fois,
+								//    sans balayer ses sœurs. *Une sortie franche
+								//    après un retrait protège tout ce qui suit, y
+								//    compris ce que le prochain ajoutera* — c'est
+								//    ce que fait la section EFFETS depuis toujours.
+								return; // la liste a glissé : plus rien ne la lit
 							}
 						}
 						{

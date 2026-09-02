@@ -71,6 +71,7 @@
 #include "Probe.h"
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
+#include "RecetteProprietes.h" // --recette-proprietes : les listes de proprietes, par le geste
 
 
 
@@ -7295,6 +7296,10 @@ int nkmain(const NkEntryState &state) {
 		// etiquette d'artboard, texte de toile) — sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-edition"))
 			return nkuidesign::RecetteEdition();
+		// Les LISTES DE PROPRIETES (remplissages, bordures, effets) exercees par
+		// le GESTE : une vraie souris qui vise la poubelle, sans fenetre ni GPU.
+		if (NkComponentDecl::StrEq(a, "--recette-proprietes"))
+			return nkuidesign::NkRecetteProprietes();
 		// Les gestes d'edition Lunacy (copier/coller/dupliquer/grouper/...)
 		// prouves par leur EFFET, et « un geste = un pas » — sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-gestes"))
@@ -7427,6 +7432,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --probe                 la sonde headless");
 			puts("  --recette-annulation    la batterie de preuve de l'annulation (§7)");
 			puts("  --recette-edition       le contrat universel d'edition, par site");
+			puts("  --recette-proprietes    les listes de proprietes exercees par le GESTE");
 			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
 			puts("  --recette-snap          l'aimantation (bords, centres, espacements égaux)");
 			puts("  --recette-selection     le contrat de sélection (Ctrl/Maj, englobant, mixtes)");
