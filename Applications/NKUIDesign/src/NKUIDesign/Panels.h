@@ -7681,6 +7681,18 @@ namespace nkuidesign {
 						&& mSt->doc.nodes[(uint32)d.parent].parent < 0
 						&& !NkComponentDecl::StrEq(d.shape.Data(), "frame"))
 						t.kindLabel = "hors page";
+					// ── UNE INSTANCE **DIT** QU'ELLE EN EST UNE (§15.8, 3) ──
+					// 📌 Lunacy met un losange sur la vignette du calque ; nous
+					//    n'avons pas d'atlas d'icônes vectorielles, donc c'est la
+					//    pilule qui le porte — le mot est plus long, mais il ne
+					//    s'apprend pas. Même arbitrage que les quatre types de
+					//    point (« Droit / Miroir / Asym. / Libre »).
+					// ⚠️ ET ELLE PASSE **APRÈS** « hors page » : une instance
+					//    posée à la racine est d'abord une instance. Deux pilules
+					//    ne tiennent pas, et c'est la nature du nœud qui prime sur
+					//    sa position.
+					if (!d.instanceDe.Empty())
+						t.kindLabel = "instance";
 					// L'icône de NATURE (tracés du JSX) : page pour un artboard,
 					// « T » pour un texte, pilule-bouton pour un élément à rôle,
 					// panneau pour le reste. Teinte : accent quand le nœud porte
@@ -9081,6 +9093,57 @@ namespace nkuidesign {
 				auto &F = costume::Fontes();
 				auto &dl = ctx.DL();
 				NkUINode *n = NoeudMutable();
+				// ═══════════════════════════════════════════════════════════════
+				//  CE NŒUD EST-IL UNE INSTANCE ? — LE RETOUR VISUEL (§15.8, 3)
+				// ═══════════════════════════════════════════════════════════════
+				// 🔴 *C'est la moitié qui se néglige* (`12_…` §12.3(d)) : une
+				//    instance doit DIRE qu'elle en est une, et « détacher » doit
+				//    exister dès la première version — sinon l'utilisateur qui a
+				//    besoin d'une variante est coincé, et il cessera de créer des
+				//    composants.
+				// 📌 Ici plutôt que dans une section à part, et c'est délibéré :
+				//    la limite de TAILLE ci-dessous concerne les champs L/H qui
+				//    sont dans CETTE section. Une mise en garde loin du contrôle
+				//    qu'elle explique n'est pas lue.
+				if (n && !n->instanceDe.Empty()) {
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 20.f);
+						char b[160];
+						snprintf(b, sizeof(b), "Instance de « %s »", n->instanceDe.Data());
+						costume::Texte(dl, F.px10, r.x + 12.f,
+									   costume::CentrerY(F.px10, r.y, 20.f), b, ctx.theme.accent);
+					}
+					// ⚠️ LA LIMITE DE TAILLE SE DIT **DANS L'INTERFACE**, pas
+					//    seulement dans le document. Nos sommets sont unitaires :
+					//    une instance étirée DÉFORME son tracé — juste pour une
+					//    flèche, faux pour un bouton à coins arrondis. *Mieux vaut
+					//    un contrôle qui dit pourquoi qu'un résultat qui surprend* :
+					//    sans cette phrase, la première instance étirée passerait
+					//    pour un bug, et c'est la découverte que Rodolf ferait en
+					//    premier.
+					nkgui::TextWrapped(ctx,
+									   "Taille FIXE pour l'instant : nos sommets sont relatifs "
+									   "à la boîte, donc étirer une instance déformerait son "
+									   "tracé (juste pour une flèche, faux pour un bouton à "
+									   "coins arrondis). L'ancrage lèvera cette limite.");
+					{
+						if (designkit::Button(ctx, "Détacher", "insp.compo.detacher")) {
+							// ⚠️ PAR LE DOCUMENT, PAS PAR UNE RÉÉCRITURE ICI : le
+							//    détachement FUSIONNE les écarts, et cette règle
+							//    vit dans `DetacherInstance`, où un cas la tient.
+							if (mSt->doc.DetacherInstance(mSt->selected)) {
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								mSt->host.demoModels.Clear();
+								mSt->host.SyncTo(mSt->doc);
+								mSt->status = NkString("Détaché — le sous-arbre est revenu, tes "
+													   "surcharges comprises.");
+							}
+						}
+					}
+					n = NoeudMutable(); // le détachement a pu renuméroter
+					if (!n)
+						return;
+				}
 				// ── Position ────────────────────────────────────────────────
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
