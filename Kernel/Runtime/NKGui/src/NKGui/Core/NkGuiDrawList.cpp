@@ -92,6 +92,42 @@ namespace nkentseu {
 			cmd.idxCount += 3u;
 		}
 
+		// ── LA FINESSE DES COURBES : UNE SEULE ECRITURE ─────────────────────
+		// 🔴 LE MEME CALCUL VIVAIT EN TROIS EXEMPLAIRES (cercle, ellipse, arc) et
+		//    un QUATRIEME site l'ignorait carrement : le rectangle arrondi rempli
+		//    portait `const int32 seg = 4;` en dur. Resultat mesure par Rodolf :
+		//    *« les arrondis laissent des cassures, ce n'est pas lisse »* -- le
+		//    FOND etait facette a 4 segments par coin pendant que les contours en
+		//    prenaient au moins 12. Avec ou sans bordure, puisque le fond est
+		//    anguleux de naissance.
+		//
+		// ⚠️ ET LE REMEDE N'EST PAS D'ECRIRE 12 A LA PLACE DE 4 : la finesse doit
+		//    SUIVRE LE RAYON (un coin de 2 px n'a pas besoin de douze segments,
+		//    un coin de 40 en veut plus). On appelle donc LA FONCTION, on
+		//    n'invente pas un second nombre. *Une constante ecrite a la main a
+		//    cote d'une fonction qui sait calculer la bonne valeur est une
+		//    divergence qui attend son jour.*
+		static inline int32 NkGuiCercleSegs(float32 radius) noexcept {
+			int32 segs = static_cast<int32>(8.f * radius / 4.f) + 8;
+			if (segs < 12)
+				segs = 12;
+			else if (segs > 128)
+				segs = 128;
+			return segs;
+		}
+
+		// Segments d'un QUART de cercle : la meme regle, divisee par quatre puis
+		// bornee 3..16. Deterministe : c'est ce qui rend la geometrie verifiable
+		// au banc.
+		static inline int32 NkGuiArcSegs(float32 radius) noexcept {
+			int32 n = NkGuiCercleSegs(radius) / 4;
+			if (n < 3)
+				n = 3;
+			else if (n > 16)
+				n = 16;
+			return n;
+		}
+
 		void NkGuiDrawList::AddRectFilled(const NkRect &r, const NkColor &col, float32 rounding) noexcept {
 			if (r.w <= 0.f || r.h <= 0.f)
 				return;
@@ -122,7 +158,8 @@ namespace nkentseu {
 			};
 			const float32 PI = 3.14159265358979f;
 			const float32 a0[4] = {PI, 1.5f * PI, 0.f, 0.5f * PI}; // sens horaire (y vers le bas)
-			const int32 seg = 4;								   // segments par coin
+			// La finesse SUIT LE RAYON -- voir NkGuiCercleSegs pour le pourquoi.
+			const int32 seg = NkGuiArcSegs(rad);
 			const uint32 ic = Vtx({(x0 + x1) * 0.5f, (y0 + y1) * 0.5f}, uv, c);
 			uint32 prev = 0, first = 0;
 			bool has = false;
@@ -202,22 +239,6 @@ namespace nkentseu {
 			Tri(i0, i2, i3, 0u);
 		}
 
-		// Segments d'un quart de cercle pour un rayon donne — MEME regle que
-		// AddCircleFilled (8*r/4 + 8, borne 12..128), divisee par 4 puis bornee
-		// 3..16. Deterministe : c'est ce qui rend la geometrie verifiable au banc.
-		static inline int32 NkGuiArcSegs(float32 radius) noexcept {
-			int32 segs = static_cast<int32>(8.f * radius / 4.f) + 8;
-			if (segs < 12)
-				segs = 12;
-			else if (segs > 128)
-				segs = 128;
-			int32 n = segs / 4;
-			if (n < 3)
-				n = 3;
-			else if (n > 16)
-				n = 16;
-			return n;
-		}
 
 		void NkGuiDrawList::AddRect(const NkRect &r, const NkColor &col, float32 thickness,
 									float32 rounding) noexcept {
@@ -303,13 +324,8 @@ namespace nkentseu {
 			const float32 th = thickness * thickScale;
 			if (r <= 0.f || th <= 0.f)
 				return;
-			if (segs <= 0) {
-				segs = static_cast<int32>(8.f * r / 4.f) + 8;
-				if (segs < 12)
-					segs = 12;
-				else if (segs > 128)
-					segs = 128;
-			}
+			if (segs <= 0)
+				segs = NkGuiCercleSegs(r);
 			// `r` = ligne MEDIANE (convention des emulations remplacees).
 			const float32 ro = r + th * 0.5f;
 			float32 ri = r - th * 0.5f;
@@ -530,14 +546,8 @@ namespace nkentseu {
 											  int32 segs) noexcept {
 			if (rx <= 0.f || ry <= 0.f)
 				return;
-			if (segs <= 0) {
-				const float32 rmax = rx > ry ? rx : ry;
-				segs = static_cast<int32>(8.f * rmax / 4.f) + 8;
-				if (segs < 12)
-					segs = 12;
-				else if (segs > 128)
-					segs = 128;
-			}
+			if (segs <= 0)
+				segs = NkGuiCercleSegs(rx > ry ? rx : ry);
 			const uint32 cc = NkGuiPackColor(col);
 			const NkVec2 uv{0.f, 0.f};
 			const uint32 ic = Vtx(center, uv, cc);
@@ -555,13 +565,8 @@ namespace nkentseu {
 		void NkGuiDrawList::AddCircleFilled(const NkVec2 &center, float32 r, const NkColor &col, int32 segs) noexcept {
 			if (r <= 0.f)
 				return;
-			if (segs <= 0) {
-				segs = static_cast<int32>(8.f * r / 4.f) + 8;
-				if (segs < 12)
-					segs = 12;
-				else if (segs > 128)
-					segs = 128;
-			}
+			if (segs <= 0)
+				segs = NkGuiCercleSegs(r);
 			const uint32 cc = NkGuiPackColor(col);
 			const NkVec2 uv{0.f, 0.f};
 			const uint32 ic = Vtx(center, uv, cc);
