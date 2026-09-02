@@ -937,6 +937,130 @@ static nkentseu::int32 RecetteGestes() {
 				depart && av && re && pp && ap && unCran && franc && racine && memeFratrie, det);
 	}
 
+	// ── VAGUE 2 : VERROUILLER / MASQUER, MESURE PAR SES EFFETS ───────────────
+	// Source `/layers`. CONTEXTE : la toile (ce qui se peint, ce qui s'attrape).
+	//
+	// 🔴 CE CAS N'ASSERTE AUCUN DRAPEAU, ET C'EST DELIBERE. *Un compteur
+	//    d'intentions n'est pas un controle d'effets* : verifier
+	//    « n.masque == true » ne prouverait rien -- ce serait relire la ligne
+	//    qu'on vient d'ecrire. On mesure donc les DEUX effets reels :
+	//      - le POINTAGE : un clic AU MEME POINT rend autre chose qu'avant ;
+	//      - le DESSIN : le peintre n'emet plus les commandes de ce nœud.
+	//
+	// ⚠️ ET LE DESSIN SE MESURE PAR CE QUI EST EMIS, PAS PAR DES PIXELS :
+	//    `NkRecordingPaint` -- le peintre enregistreur du kit, qui existait deja
+	//    -- compte les commandes. Meme principe que `--dump-ui` (lire ce que
+	//    l'interface a EMIS), et c'est la seule mesure de dessin qui tienne sans
+	//    fenetre.
+	{
+		NkUIDocument d;
+		d.NewDocument("verrou", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		d.nodes[(uint32)pg].shape = NkString("frame");
+		d.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+		d.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].width.value = 400.f;
+		d.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].height.value = 300.f;
+		// un groupe qui porte un enfant : c'est lui qui prouvera l'HERITAGE
+		const int32 grp = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)grp].shape = NkString("rect");
+		d.nodes[(uint32)grp].layout.kind = NkLayoutKind::Free;
+		d.nodes[(uint32)grp].posX = 20.f;
+		d.nodes[(uint32)grp].posY = 20.f;
+		d.nodes[(uint32)grp].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)grp].width.value = 200.f;
+		d.nodes[(uint32)grp].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)grp].height.value = 150.f;
+		const int32 enf = d.AddChild(grp, "", NkAuthor::Humain);
+		d.nodes[(uint32)enf].shape = NkString("rect");
+		d.nodes[(uint32)enf].posX = 10.f;
+		d.nodes[(uint32)enf].posY = 10.f;
+		d.nodes[(uint32)enf].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)enf].width.value = 80.f;
+		d.nodes[(uint32)enf].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)enf].height.value = 60.f;
+		NkLayoutResult lv;
+		NkComputeLayout(d, NkPaintRect{0.f, 0.f, 400.f, 300.f}, lv);
+		// le point qui tombe SUR l'enfant (donc aussi sur le groupe, et sur la page)
+		const float32 px = lv.At(enf).x + lv.At(enf).w * 0.5f;
+		const float32 py = lv.At(enf).y + lv.At(enf).h * 0.5f;
+		// (a) AVANT : le clic attrape bien l'enfant. Temoin sans lequel « le clic
+		//     ne prend plus rien » pourrait vouloir dire « il ne prenait deja rien ».
+		const bool avant = NkPickSelectable(d, lv, px, py) == enf;
+		// (b) VERROUILLER L'ENFANT : le clic AU MEME POINT tombe sur son GROUPE.
+		//     ⚠️ Volet qui distingue « inattrapable » de « surface inerte » : le
+		//     clic TRAVERSE. Un `return -1` dans le pointage aurait rendu -1 ici
+		//     et fait du verrou un TROU dans la toile.
+		d.nodes[(uint32)enf].verrouille = true;
+		const bool traverse = NkPickSelectable(d, lv, px, py) == grp;
+		const bool verrouVisible = NkNoeudVisible(d, enf); // verrouiller ne masque pas
+		d.nodes[(uint32)enf].verrouille = false;
+		// (c) L'HERITAGE DU VERROU : verrouiller le GROUPE rend l'ENFANT
+		//     inattrapable alors qu'aucun drapeau n'est pose sur lui.
+		d.nodes[(uint32)grp].verrouille = true;
+		const bool heriteVerrou = NkPickSelectable(d, lv, px, py) == pg;
+		d.nodes[(uint32)grp].verrouille = false;
+		// (d) MASQUER : le nœud sort du POINTAGE **et** du DESSIN.
+		NkComponentInput inv;
+		nkentseu::editorkit::NkRecordingPaint pv;
+		NkDocumentHost hote;
+		hote.SyncTo(d);
+		pv.Reset();
+		NkDrawDocument(pv, inv, d, lv, hote, 0);
+		const uint32 cmdAvant = (uint32)pv.cmds.Size();
+		d.nodes[(uint32)enf].masque = true;
+		pv.Reset();
+		NkDrawDocument(pv, inv, d, lv, hote, 0);
+		const uint32 cmdApres = (uint32)pv.cmds.Size();
+		const bool ecranChange = cmdApres < cmdAvant;
+		const bool masqueInattrapable = NkPickSelectable(d, lv, px, py) == grp;
+		d.nodes[(uint32)enf].masque = false;
+		// (e) L'HERITAGE DU MASQUE : masquer le GROUPE retire AUSSI l'enfant du
+		//     dessin -- le peintre ne descend pas dans un sous-arbre masque.
+		d.nodes[(uint32)grp].masque = true;
+		pv.Reset();
+		NkDrawDocument(pv, inv, d, lv, hote, 0);
+		const uint32 cmdGroupe = (uint32)pv.cmds.Size();
+		const bool heriteMasque = cmdGroupe < cmdApres && !NkNoeudVisible(d, enf);
+		d.nodes[(uint32)grp].masque = false;
+		// (f) ⚠️ CONSERVATION : les deux cles sont ADDITIVES. Un document qui ne
+		//     les porte pas ne les ecrit pas ; un document qui les porte les
+		//     relit. Sans ce volet, on aurait pu ajouter deux cles au format et
+		//     faire tomber le round-trip de tous les fichiers d'avant.
+		NkString sansS;
+		d.Save(sansS);
+		const bool aucuneCle = strstr(sansS.Data(), "verrouille") == nullptr
+								   && strstr(sansS.Data(), "masque") == nullptr;
+		d.nodes[(uint32)enf].verrouille = true;
+		d.nodes[(uint32)enf].masque = true;
+		NkString avecS;
+		d.Save(avecS);
+		NkUIDocument relu;
+		const bool chargee = relu.Load(avecS.Data());
+		const bool relues = chargee && relu.IsValidIndex(enf)
+							&& relu.nodes[(uint32)enf].verrouille
+							&& relu.nodes[(uint32)enf].masque;
+		NkString stable;
+		if (chargee)
+			relu.Save(stable);
+		const bool allerRetour = chargee && stable.Size() == avecS.Size();
+		char det[256];
+		snprintf(det, sizeof(det), "avant : clic->enfant=%d ; verrou : clic TRAVERSE vers le "
+							   "groupe=%d (visible=%d) herite=%d ; masque : %u->%u commandes (=%d) "
+							   "inattrapable=%d ; masque herite=%u cmd (=%d) ; sans cle=%d "
+							   "relues=%d stable=%d",
+				 avant ? 1 : 0, traverse ? 1 : 0, verrouVisible ? 1 : 0, heriteVerrou ? 1 : 0,
+				 cmdAvant, cmdApres, ecranChange ? 1 : 0, masqueInattrapable ? 1 : 0, cmdGroupe,
+				 heriteMasque ? 1 : 0, aucuneCle ? 1 : 0, relues ? 1 : 0, allerRetour ? 1 : 0);
+		verdict("VERROUILLER / MASQUER se mesurent par leurs EFFETS : un verrouille n'est plus "
+				"attrape (le clic TRAVERSE vers le dessous) mais reste peint, un masque sort du "
+				"dessin ET du pointage, les deux s'HERITENT, et le format reste additif",
+				avant && traverse && verrouVisible && heriteVerrou && ecranChange
+					&& masqueInattrapable && heriteMasque && aucuneCle && relues && allerRetour,
+				det);
+	}
+
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

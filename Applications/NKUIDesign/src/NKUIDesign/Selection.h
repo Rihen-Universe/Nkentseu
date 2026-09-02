@@ -121,6 +121,11 @@ namespace nkuidesign {
 				continue; // la racine, jamais
 			if (!lay.Has((nkentseu::int32)i))
 				continue;
+			// verrouille ou masque : l'elastique ne le prend pas non plus. Sans
+			// cette ligne, un balayage large ramasserait ce qu'un clic refuse --
+			// deux gestes de selection, deux avis.
+			if (!NkNoeudAttrapable(doc, (nkentseu::int32)i))
+				continue;
 			const NkPaintRect &r = lay.At((nkentseu::int32)i);
 			const bool dehors = r.x + r.w <= zone.x || r.x >= zone.x + zone.w
 								|| r.y + r.h <= zone.y || r.y >= zone.y + zone.h;

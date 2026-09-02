@@ -1020,6 +1020,18 @@ namespace nkuidesign {
 							   const NkLayoutResult &lay, NkDocumentHost &host, int32 node = 0) {
 		if (!doc.IsValidIndex(node) || !lay.Has(node))
 			return;
+		// ── MASQUE : NI LUI, NI SA DESCENDANCE (vague 2) ────────────────────
+		// ⚠️ LE `return` EST AVANT LA RECURSION, ET C'EST CE QUI DONNE
+		//    L'HERITAGE GRATUITEMENT : on ne descend pas dans les enfants d'un
+		//    nœud masque, donc le sous-arbre entier disparait sans qu'aucun
+		//    drapeau soit recopie sur les descendants. *Un drapeau recopie est un
+		//    drapeau qui derive au premier nœud deplace.*
+		// 📌 `verrouille` NE CHANGE RIEN ICI : un objet verrouille reste
+		//    parfaitement VISIBLE -- c'est le pointage qui l'ignore. Les deux
+		//    drapeaux ont deux effets, et les confondre donnerait soit un verrou
+		//    invisible, soit un masque qu'on attrape encore.
+		if (doc.nodes[(uint32)node].masque)
+			return;
 		const NkUINode &n = doc.nodes[(uint32)node];
 		const NkPaintRect r = lay.At(node);
 

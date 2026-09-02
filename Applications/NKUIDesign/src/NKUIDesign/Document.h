@@ -774,6 +774,35 @@ namespace nkuidesign {
 			float32 rotation = 0.f;	 ///< degrés horaires (clé `rotation`)
 			bool miroirH = false;	 ///< retourné gauche/droite (clé `miroir_h`)
 			bool miroirV = false;	 ///< retourné haut/bas (clé `miroir_v`)
+
+			// ── VERROUILLER / MASQUER (vague 2, source `/layers`) ────────────
+			/// ⚠️ DEUX BOOLÉENS, DEUX EFFETS DIFFÉRENTS, ET LA DIFFÉRENCE EST TOUT
+			///    LE SUJET :
+			///      - `masque` retire le nœud **du dessin ET du pointage** ;
+			///      - `verrouille` le laisse **visible** et le retire **du seul
+			///        pointage**.
+			///    Les confondre donnerait soit un objet verrouillé invisible, soit
+			///    un objet masqué qu'on attrape encore.
+			///
+			/// 🔴 *Un nœud masqué qu'on peut encore attraper est pire que pas de
+			///    masquage du tout* : on croit l'objet parti, on clique « dans le
+			///    vide », et on déplace ce qu'on ne voit pas. Les deux drapeaux se
+			///    lisent donc par `NkNoeudVisible` / `NkNoeudAttrapable`
+			///    (`Selection.h`) et **jamais directement** — ces portes remontent
+			///    aussi les ANCÊTRES.
+			///
+			/// ⚠️ ILS S'HÉRITENT, ET CE N'EST PAS UN CHOIX DE STYLE. Masquer un
+			///    groupe doit masquer son contenu, sinon on obtient un groupe
+			///    « invisible » dont les enfants continuent de se peindre. Même
+			///    chose pour le verrou. L'héritage vit dans les deux portes, pas
+			///    dans une recopie du drapeau sur chaque descendant : *un drapeau
+			///    recopié est un drapeau qui dérive au premier nœud déplacé.*
+			///
+			/// Additifs comme `miroir_h` : absents du fichier tant qu'ils valent
+			/// leur défaut, donc un document d'avant se réenregistre **octet pour
+			/// octet**.
+			bool verrouille = false; ///< non attrapable, mais toujours peint (clé `verrouille`)
+			bool masque = false;	 ///< ni peint ni attrapable (clé `masque`)
 			float32 borderW = 0.f;	 ///< épaisseur de bord, px (clé `bordure`)
 			float32 fontPx = 0.f;	 ///< corps du texte, px (clé `police_px`) — 0 = défaut
 			float32 fontWeight = 0.f; ///< graisse 100..900 (clé `graisse`) — 0 = défaut
@@ -1571,6 +1600,12 @@ namespace nkuidesign {
 						out.Append("  miroir_h = 1\n");
 					if (n.miroirV)
 						out.Append("  miroir_v = 1\n");
+					// Additifs : rien n'est écrit tant qu'ils valent leur défaut,
+					// donc un document d'avant se réenregistre OCTET POUR OCTET.
+					if (n.verrouille)
+						out.Append("  verrouille = 1\n");
+					if (n.masque)
+						out.Append("  masque = 1\n");
 					if (n.borderW != 0.f && n.borders.Empty()) {
 						out.Append("  bordure = ");
 						WriteNum(out, n.borderW);
@@ -1909,6 +1944,10 @@ namespace nkuidesign {
 							n.miroirH = (val[0] == '1');
 						else if (StrEq(key, "miroir_v"))
 							n.miroirV = (val[0] == '1');
+						else if (StrEq(key, "verrouille"))
+							n.verrouille = (val[0] == '1');
+						else if (StrEq(key, "masque"))
+							n.masque = (val[0] == '1');
 						else if (StrEq(key, "bordure"))
 							n.borderW = ParseNum(val);
 						else if (StrEq(key, "police_px"))
@@ -2432,5 +2471,65 @@ namespace nkuidesign {
 				return me;
 			}
 	};
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  VERROUILLER / MASQUER — LES DEUX PORTES, ET ELLES REMONTENT LES ANCETRES
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  Vague 2, source `/layers`. `masque` retire du DESSIN et du POINTAGE ;
+	//  `verrouille` retire du SEUL POINTAGE.
+	//
+	//  ⚠️ ECRITES ICI, DANS `Document.h`, ET PAS DANS `Selection.h` OU JE LES
+	//     AVAIS MISES D'ABORD. Le compilateur a tranche : `Selection.h` inclut
+	//     `Transfo.h`, donc le pointage de base ne pouvait pas les voir. Elles ne
+	//     parlent que du DOCUMENT -- ni disposition, ni ecran, ni souris -- donc
+	//     leur place est la couche du dessous, celle que TOUS leurs appelants
+	//     incluent deja. *L'erreur d'etage s'est vue en une compilation ; elle
+	//     aurait pu se voir en se demandant de quoi ces fonctions parlent.*
+	//
+	//  ⚠️ LUES PARTOUT, JAMAIS `n.masque` EN DIRECT. Deux raisons, et la seconde
+	//     est celle que ce depot a deja payee :
+	//       1. l'HERITAGE. Masquer un groupe doit masquer son contenu ; le
+	//          drapeau ne vit que sur l'ancetre, donc un test direct sur l'enfant
+	//          repondrait « visible » et le peindrait quand meme ;
+	//       2. il y a DEUX sites de pointage plus le peintre. Trois copies de la
+	//          meme regle, c'est trois occasions de diverger -- exactement ce que
+	//          ce chantier a paye avec « le peintre a ete ecrit deux fois ».
+	//
+	//  ⚠️ ET LA BORNE DE PROFONDEUR N'EST PAS DECORATIVE : `parent` est DERIVE au
+	//     chargement, et un document mal forme (cycle) figerait l'application
+	//     dans la boucle de rendu. On borne a 64 plutot que de supposer l'arbre
+	//     sain.
+
+	/// Ce nœud se PEINT-il ? Faux si lui ou un de ses ancetres est masque.
+	inline bool NkNoeudVisible(const NkUIDocument &doc, nkentseu::int32 i) {
+		nkentseu::int32 garde = 0;
+		for (nkentseu::int32 k = i; k >= 0 && ++garde < 64;
+			 k = doc.nodes[(nkentseu::uint32)k].parent) {
+			if (!doc.IsValidIndex(k))
+				return false;
+			if (doc.nodes[(nkentseu::uint32)k].masque)
+				return false;
+		}
+		return true;
+	}
+
+	/// Ce nœud s'ATTRAPE-t-il a la souris ? Faux s'il est invisible, ou si lui ou
+	/// un de ses ancetres est verrouille.
+	/// ⚠️ L'INVISIBLE EST INCLUS, ET C'EST TOUT LE POINT : *un nœud masque qu'on
+	///    peut encore attraper est pire que pas de masquage du tout* -- on croit
+	///    l'objet parti, on clique « dans le vide », et on deplace ce qu'on ne
+	///    voit pas.
+	inline bool NkNoeudAttrapable(const NkUIDocument &doc, nkentseu::int32 i) {
+		nkentseu::int32 garde = 0;
+		for (nkentseu::int32 k = i; k >= 0 && ++garde < 64;
+			 k = doc.nodes[(nkentseu::uint32)k].parent) {
+			if (!doc.IsValidIndex(k))
+				return false;
+			const NkUINode &n = doc.nodes[(nkentseu::uint32)k];
+			if (n.masque || n.verrouille)
+				return false;
+		}
+		return true;
+	}
 
 } // namespace nkuidesign

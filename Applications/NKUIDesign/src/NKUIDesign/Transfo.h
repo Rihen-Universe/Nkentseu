@@ -377,6 +377,15 @@ namespace nkuidesign {
 		for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i) {
 			if (!lay.Has((int32)i))
 				continue;
+			// ── VERROUILLE / MASQUE : LE CLIC LE TRAVERSE (vague 2) ──────────
+			// ⚠️ ET IL LE TRAVERSE VRAIMENT : le `continue` laisse la boucle se
+			//    poursuivre, donc c'est le nœud DERRIERE qui est attrape. Un
+			//    `return -1` aurait fait du verrou un TROU dans la toile -- on
+			//    verrouille un fond de page, et plus rien au-dessus ne se
+			//    selectionne. *Rendre un objet inattrapable, ce n'est pas rendre
+			//    sa surface inerte.*
+			if (!NkNoeudAttrapable(doc, (int32)i))
+				continue;
 			if (!NkPointDansNoeud(doc, lay, (int32)i, x, y))
 				continue;
 			int32 depth = 0;
