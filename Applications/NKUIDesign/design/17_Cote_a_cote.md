@@ -87,16 +87,23 @@ compris (« A Design »). Chez nous : « Design » actif est texte seul, les tro
 inactifs ont leur icône. Petit, mais c'est le genre d'asymétrie qui « fait
 bricolé » sans qu'on sache dire pourquoi.
 
-### E6 🟡 Ce que cette capture NE PEUT PAS juger — et la capture qui manque
+### E6 ✅ La capture avec sélection EXISTE (`--selectionner=`, 02/09) — et sa nécessité a été payée le jour même
 
-La planche 091913 photographie un **bouton sélectionné** : ancrage en widget
-9 points, APPARENCE avec pastilles de couleur + hex, BORDS R/Brd, TYPOGRAPHIE
-remplie, poignées + badge « Bouton » sur la toile. Notre capture photographie
-la **Toile** (rien de sélectionné) : ces sections montrent leurs états vides —
-qui sont peut-être justes, peut-être pas. **Comparer l'état vide de l'un à
-l'état plein de l'autre serait le défaut « données dégénérées » en image.**
-→ *Prochaine capture : le même document avec `Bouton_Connexion` sélectionné
-(il faudra un drapeau `--selectionner=<nom>` ou un geste enregistré).*
+La planche 091913 photographie un **bouton sélectionné** ; notre première
+capture photographiait la **Toile** (états vides). Comparer l'état vide de
+l'un à l'état plein de l'autre serait le défaut « données dégénérées » en
+image — et il a été **payé en vrai avant d'être corrigé** : le passage du
+retrait des champs de 6 à 8 px a traversé **deux témoins verts** (le flux, qui
+n'a pas de glyphes en headless ; la capture, dont l'inspecteur était vide).
+
+`--capture=<f.png> --selectionner=Bouton_Connexion` met l'inspecteur dans
+l'état PLEIN : `captures/2026-09-02_inspecteur_selection.png` (CIBLE,
+DISPOSITION avec valeurs, REMPLISSAGES avec pastille + hex + % + poubelle +
+œil). La preuve A/B du retrait 6→8 : diff pixel par pixel **non vide et
+confiné à la colonne inspecteur** (zéro pixel ailleurs). Les angles morts du
+témoin de flux sont désormais écrits dans son en-tête (`TemoinRendu.h`) :
+pour un changement de panneau, la preuve est la **paire de captures**, jamais
+« témoin identique » cité seul.
 
 ---
 

@@ -246,6 +246,14 @@ namespace nkuidesign {
 		/// compter « hors échelle » alors qu'aucune échelle n'a rien à en dire.
 		constexpr float32 InsetIcone = (HIcone - 12.f) * 0.5f;
 
+		/// Le retrait intérieur d'un CHAMP DE SAISIE (texte et pastille dans la
+		/// boîte `CouleurInput`). ⚠️ Celui-ci est un CHOIX, pas un calcul — donc
+		/// il vit SUR L'ÉCHELLE : `EspNormal` (8), et la décision est écrite ici.
+		/// L'ancien « 6 » était le seul emploi hors échelle réellement choisi de
+		/// l'inspecteur ; 8 va dans le sens de la planche (les champs de 091913
+		/// respirent davantage) et de l'écart E1 du côte à côte.
+		constexpr float32 PadChamp = (float32)EspNormal;
+
 		// ═════════════════════════════════════════════════════════════════════
 		//  2. LES ICÔNES — chaque tracé recopié du JSX (viewBox = px écran)
 		// ═════════════════════════════════════════════════════════════════════

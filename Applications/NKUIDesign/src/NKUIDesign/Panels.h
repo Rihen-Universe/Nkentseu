@@ -9607,7 +9607,7 @@ namespace nkuidesign {
 							ctx.popupDepth == 0 && NkGuiRectContains(rt, ctx.input.mousePos);
 						dl.AddRectFilled(rt, CouleurInput(), 4.f);
 						dl.AddRect(rt, svT ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-						costume::Texte(dl, F.px10, rt.x + 6.f,
+						costume::Texte(dl, F.px10, rt.x + costume::PadChamp,
 									   costume::CentrerY(F.px10, rt.y, 20.f), nomType,
 									   e.visible ? ctx.theme.text : ctx.theme.textDisabled);
 						costume::ChevronCombo7(dl, rt.x + rt.w - 11.f, rt.y + 7.5f,
@@ -10028,7 +10028,7 @@ namespace nkuidesign {
 					const NkRect rv = {x0 + 76.f, costume::BandeY(r.y), 40.f, costume::HControle};
 					dl.AddRectFilled(rv, CouleurInput(), 4.f);
 					dl.AddRect(rv, ctx.theme.border, 1.f, 4.f);
-					costume::Texte(dl, F.px11, rv.x + 6.f, costume::CentrerY(F.px11, rv.y, 20.f),
+					costume::Texte(dl, F.px11, rv.x + costume::PadChamp, costume::CentrerY(F.px11, rv.y, 20.f),
 								   "\xE2\x80\x94", ctx.theme.textMuted);
 					ctx.EndDisabled();
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
@@ -10631,15 +10631,15 @@ namespace nkuidesign {
 				dl.AddRectFilled(rb, CouleurInput(), 4.f);
 				dl.AddRect(rb, ctx.theme.border, 1.f, 4.f);
 				if (hex.Empty()) {
-					costume::Texte(dl, F.px11, rb.x + 6.f,
+					costume::Texte(dl, F.px11, rb.x + costume::PadChamp,
 								   costume::CentrerY(F.px11, rb.y, rb.h), "\xE2\x80\x94 (thème)",
 								   ctx.theme.textMuted);
 					return;
 				}
 				const NkColor c = CouleurHex(hex.Data(), ctx.theme.textMuted);
-				dl.AddRectFilled({rb.x + 6.f, rb.y + 4.f, 12.f, 12.f}, c, 2.f);
-				dl.AddRect({rb.x + 6.f, rb.y + 4.f, 12.f, 12.f}, ctx.theme.border, 1.f, 2.f);
-				costume::Texte(dl, F.px11, rb.x + 6.f + 12.f + 6.f,
+				dl.AddRectFilled({rb.x + costume::PadChamp, rb.y + (costume::HControle - 12.f) * 0.5f, 12.f, 12.f}, c, 2.f);
+				dl.AddRect({rb.x + costume::PadChamp, rb.y + (costume::HControle - 12.f) * 0.5f, 12.f, 12.f}, ctx.theme.border, 1.f, 2.f);
+				costume::Texte(dl, F.px11, rb.x + costume::PadChamp + 12.f + costume::PadChamp,
 							   costume::CentrerY(F.px11, rb.y, rb.h), hex.Data(),
 							   ctx.theme.text);
 			}
@@ -11043,7 +11043,7 @@ namespace nkuidesign {
 							ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
 						dl.AddRectFilled(rp, CouleurInput(), 4.f);
 						dl.AddRect(rp, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
-						costume::Texte(dl, F.px10, rp.x + 6.f,
+						costume::Texte(dl, F.px10, rp.x + costume::PadChamp,
 									   costume::CentrerY(F.px10, rp.y, 20.f), nomPos,
 									   ctx.theme.text);
 						costume::ChevronCombo7(dl, rp.x + rp.w - 11.f, rp.y + 7.5f,
@@ -11175,7 +11175,7 @@ namespace nkuidesign {
 						} else {
 							dl.AddRectFilled(rr, CouleurInput(), 4.f);
 							dl.AddRect(rr, ctx.theme.border, 1.f, 4.f);
-							costume::Texte(dl, F.px11, rr.x + 6.f,
+							costume::Texte(dl, F.px11, rr.x + costume::PadChamp,
 										   costume::CentrerY(F.px11, rr.y, 20.f), "—",
 										   ctx.theme.textMuted);
 						}
@@ -11249,7 +11249,7 @@ namespace nkuidesign {
 						const NkRect ro = {x0 + 52.f, costume::BandeY(r.y), 48.f, costume::HControle};
 						dl.AddRectFilled(ro, CouleurInput(), 4.f);
 						dl.AddRect(ro, ctx.theme.border, 1.f, 4.f);
-						costume::Texte(dl, F.px11, ro.x + 6.f,
+						costume::Texte(dl, F.px11, ro.x + costume::PadChamp,
 									   costume::CentrerY(F.px11, ro.y, 20.f), "100",
 									   ctx.theme.textMuted);
 						costume::Texte(dl, F.px9, ro.x + ro.w + 4.f,

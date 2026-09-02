@@ -18,6 +18,21 @@
 //     tout le 02/09 -- une condition, un banc ou un compteur qui interroge ce
 //     qu'on a VOULU au lieu de ce qui a ETE FAIT.
 //
+//  🔴 CE QUE CE TEMOIN NE VOIT PAS -- mesure le 02/09, apres qu'un deplacement
+//     de texte de 2 px l'a traverse SANS UNE LIGNE DE DIFF :
+//       1. LE TEXTE DES PANNEAUX. En headless, aucune police n'est chargee :
+//          `AddText` sans face n'emet AUCUN sommet. Un libelle qui bouge, ou
+//          disparait, est invisible ici.
+//       2. L'INTERIEUR D'UNE COMMANDE FUSIONNEE. Chaque ecran de panneau tient
+//          en UNE commande « unis » dont l'englobant est le panneau entier :
+//          tout mouvement INTERNE (une pastille, un filet) reste sous
+//          l'enveloppe.
+//     La toile (NkRecordingPaint, commande par commande) n'a pas ces angles
+//     morts -- les panneaux, si. POUR UN CHANGEMENT DE PANNEAU, LA PREUVE EST
+//     LA CAPTURE : `--capture` + `--selectionner=<nom>` (l'etat PLEIN), en
+//     paire avant/apres, diff pixel par pixel. Un « temoin identique » sur un
+//     changement de panneau ne prouve RIEN et ne doit jamais etre cite seul.
+//
 //  LE TEMOIN EST DONC LE FLUX DE COMMANDES DU PEINTRE, geometrie comprise :
 //  chaque `Fill`, `Text`, `Icon` avec ses x/y/w/h. Deplacer une marge de 3 px
 //  change une ligne du fichier, et le `diff` la NOMME.

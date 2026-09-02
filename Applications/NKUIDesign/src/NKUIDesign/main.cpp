@@ -169,10 +169,35 @@ static NkEditorShell *gShell = nullptr;
 static char gCapturePath[512] = {0};
 static int32 gCaptureFrame = 0;
 static constexpr int32 kCaptureFramePrete = 8;
+/// --selectionner=<libellé> : le nœud à sélectionner AVANT la photo.
+///
+/// ⚠️ NÉ D'UNE PREUVE EN CREUX (E6 du doc 17, payée le jour même) : un
+///    changement du retrait des champs de saisie a traversé DEUX témoins
+///    verts — le flux (pas de glyphes en headless) et la capture (la Toile
+///    sélectionnée ne dessine aucun champ). *Une capture d'un état vide ne
+///    témoigne que du vide.* Ce drapeau met l'inspecteur dans l'état PLEIN.
+static char gSelectionner[128] = {0};
 
 static void CaptureTick(NkEditorFrameContext &, void *user) {
 	NkEditorShell *sh = static_cast<NkEditorShell *>(user);
 	++gCaptureFrame;
+	if (gCaptureFrame == 1 && gSelectionner[0]) {
+		nkentseu::int32 trouve = -1;
+		for (nkentseu::uint32 k = 0; k < (nkentseu::uint32)gDesign.doc.nodes.Size(); ++k)
+			if (gDesign.doc.nodes[k].label.Data()
+				&& 0 == strcmp(gDesign.doc.nodes[k].label.Data(), gSelectionner)) {
+				trouve = (nkentseu::int32)k;
+				break;
+			}
+		if (trouve >= 0) {
+			gDesign.SelectSingle(trouve);
+		} else {
+			// Le manque SE DIT : une photo prise « quand même » sans le dire
+			// redeviendrait le témoin d'un état vide qu'on croit plein.
+			fputs("[NKUIDesign] --selectionner : libelle introuvable : ", stdout);
+			puts(gSelectionner);
+		}
+	}
 	if (gCaptureFrame == kCaptureFramePrete) {
 		// Armée ICI, exécutée par le backend APRÈS le Display() de cette même
 		// frame — le seul moment que le contrat du readback autorise.
@@ -7592,6 +7617,16 @@ int nkmain(const NkEntryState &state) {
 				gCapturePath[i] = '\0';
 				continue;
 			}
+			// --selectionner=<libelle> : met l'inspecteur dans l'etat PLEIN
+			// avant la photo (E6 : une capture d'un etat vide temoigne du vide).
+			if (argT.StartsWith("--selectionner=")) {
+				const NkString lib = argT.SubStr(15);
+				uint32 i = 0;
+				for (; lib.Data()[i] && i + 1 < sizeof(gSelectionner); ++i)
+					gSelectionner[i] = lib.Data()[i];
+				gSelectionner[i] = '\0';
+				continue;
+			}
 		}
 		// Les gestes d'edition Lunacy (copier/coller/dupliquer/grouper/...)
 		// prouves par leur EFFET, et « un geste = un pas » — sans fenetre ni GPU.
@@ -7728,6 +7763,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --recette-proprietes    les listes de proprietes exercees par le GESTE");
 			puts("  --temoin-rendu[=<f>]    le flux de commandes du peintre (diffable)");
 			puts("  --capture=<f.png>       ouvre l'app, photographie SA fenetre (frame 8), ferme");
+			puts("  --selectionner=<nom>    selectionne ce noeud avant la photo (inspecteur PLEIN)");
 			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
 			puts("  --recette-snap          l'aimantation (bords, centres, espacements égaux)");
 			puts("  --recette-selection     le contrat de sélection (Ctrl/Maj, englobant, mixtes)");
