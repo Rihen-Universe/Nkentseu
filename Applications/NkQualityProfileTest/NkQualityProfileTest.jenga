@@ -1,0 +1,41 @@
+"""NkQualityProfileTest — clause (3) du critere de reussite du chantier
+« le moteur porte la qualite, l'application la subit » (Rodolf, 2026-09-02).
+
+Le critere retenu tient en trois points :
+  (1) aucune ligne de l'application ne nomme une plateforme ni un preset ;
+  (2) NkRenderQuality est LU -- au moins un chemin change selon sa valeur ;
+  (3) UN BANC ECHOUE si on force `quality` a une autre valeur.
+
+Ce banc porte (3). Sans lui, on aurait remplace un drapeau inerte (mesure du
+2026-09-02 : `quality` ecrit 7 fois, lu 0 fois) par un drapeau lu une fois et
+sans effet observable -- le meme defaut avec un deguisement neuf.
+
+CPU-only : aucun contexte GPU n'est cree. `jenga test` etant bloque par une
+politique de workspace, c'est une application console, comme NkAssetIODemo.
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkQualityProfileTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKGlad",
+         "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])

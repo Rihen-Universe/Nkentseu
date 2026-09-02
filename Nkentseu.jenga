@@ -1198,6 +1198,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NkQualityProfileTest/NkQualityProfileTest.jenga"):
+
+        pass
+
     with include("Applications/NkFBXParityDemo/NkFBXParityDemo.jenga"):
 
         pass
