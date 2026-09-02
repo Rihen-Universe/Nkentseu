@@ -48,15 +48,26 @@ curl -s -o NUL -w "%{size_download}\n" http://localhost:9002/renderdemo.wasm
 
 **Ce que tu dois regarder — pas « une image », ce HUD précisément :**
 
-| ligne du HUD | ce qui prouve que c'est gagné |
+| ce que tu cherches | ce que ça prouve |
 |---|---|
-| `Demo 3D \| API : OpenGL` | la démo 3D est bien celle qui tourne |
-| **`Draw:` et `Tris:`** | **NON NULS.** C'est LE test. Sur HarmonyOS ils valent `0` : le moteur vit, la 3D non |
-| l'image | sphères PBR + **ombres portées** + grille de cubes, comme la capture Android |
+| la ligne **`Demo 3D \| API : ...`** en haut à gauche | ✅ la démo 3D tourne vraiment. **C'est LE test.** |
+| le panneau **`== Shadow tweak (panel debug) ==`** à droite | ✅ le sous-système d'ombres est monté (`VSM atlas 4096 px`) |
+| **`FPS approx :`** avec une valeur | ✅ la boucle rend des images |
+| l'image | sphères PBR + **ombres portées** + grille de cubes |
 
-⚠️ Si `Draw:0 Tris:0` avec un fond uni, c'est le même état qu'HarmonyOS et il
-reste du travail. Si les triangles sortent, **la cible Web passe au vert** et on
-a 3 plateformes sur 7 prouvées en 3D au lieu de 2.
+⚠️ **NE REGARDE PAS `Draw:` et `Tris:` — je m'étais trompé.** Ma première version
+de cette feuille en faisait le test ; c'est **faux**, et je le corrige avant que
+tu ne perdes du temps dessus. Ces compteurs valent **`0` même quand tout marche** :
+vérifié sur tes propres captures du 29/07 — Windows à **142 FPS** avec la scène
+complète affiche `Draw:0 Tris:0`, Linux à 81 FPS aussi, Android à 59 FPS aussi.
+**Ils ne sont simplement pas câblés.** Un compteur à zéro ne veut rien dire ici.
+
+⚠️ **Le vrai signe d'échec, celui d'HarmonyOS** : un fond **uni**, avec
+seulement `Active: R2D|R3D|TEXT|OVERLAY` et **aucune ligne `Demo 3D`**, **aucun
+panneau Shadow tweak**. C'est ça, « le moteur vit, la 3D non ».
+
+Si la ligne `Demo 3D` et le panneau d'ombres sortent avec de la géométrie, **la
+cible Web passe au vert**.
 
 🔵 **Si le résultat te surprend, le contrôle le moins cher est déjà sous ta
 main** : le Debug est servi sur `http://localhost:9001/renderdemo.html?demo=2`,
@@ -114,6 +125,51 @@ shaders réécrit en silence, ce n'est pas quelque chose à déclencher sans toi
 
 🔵 **Ma recommandation : ajouter `*.nksl text eol=lf`, mais à un moment choisi**,
 avec un arbre propre et une vérification après. Pas maintenant.
+
+---
+
+---
+
+## 5. 🔎 « Sur HarmonyOS et Linux j'ai vu, même sur Web » — ce que le dépôt confirme
+
+Tu as posé la réserve toi-même, donc je l'ai traitée comme un indice, pas comme
+une contestation. Résultat de la fouille :
+
+### ✅ LINUX : trace trouvée, et c'est le BON chemin
+
+**`Captures/plateforme_linux.png`**, **29/07 à 15h38** — citée nulle part, elle
+dormait dans le dépôt. C'est la scène 3D complète : ligne `Demo 3D | API :
+OpenGL`, panneau `Shadow tweak` avec `VSM atlas 4096 px`, sphères PBR, ombres
+portées, cubes instanciés. **81,6 FPS.** Et `[Phase H] Texture file-based :
+test_pattern.png LOAD OK` — les textures fichier marchent, là où Android tombait
+en `fallback procedural`.
+
+⭐ **Elle a une jumelle** : `plateforme_windows.png`, **15h34**, soit *quatre
+minutes plus tôt* — **exactement la même scène, le même cadrage**, à **142,1
+FPS**. C'est une comparaison Windows/Linux délibérée, faite en une session.
+
+⚠️ **Le seul trou, et je te le dis plutôt que de l'arrondir** : rien *dans
+l'image* ne nomme le système. L'attribution « Linux » repose sur le nom du
+fichier et sur l'appariement. **Un mot de toi suffit à fermer ça** — et si tu
+confirmes, Linux passe de « affirmé sans preuve » à **prouvé**, soit 3 cibles
+sur 7 en 3D.
+
+### ❌ HARMONYOS et WEB : rien trouvé, et ce n'est pas « ça n'a jamais marché »
+
+Balayage de tous les arbres : les seules captures sont celles que je connais —
+HarmonyOS montre le HUD sans géométrie, Web une couleur unie. **Je n'ai pas
+trouvé de trace ; ta mémoire porte peut-être ce que le dépôt ne garde pas.**
+
+📌 **Et pour HarmonyOS il y a une explication vérifiable** : son canal de
+sélection de démo est mort (le bac à sable NEXT ne monte pas `/data/local/tmp`),
+et la démo par défaut est figée **à la compilation**. Ce que tu y as vu dépend
+donc entièrement de **quel binaire était installé ce jour-là**.
+
+**Ma question, précise, pour ne pas te faire chercher :**
+- **quelle application** exactement (`renderdemo` ? un des jeux ?) — c'est le
+  point décisif : les jeux passent par NKCanvas, qui ne prouve rien pour Noge ;
+- **à quelle époque**, même approximative ;
+- **ce que tu voyais** : des sphères avec des ombres, ou des formes 2D colorées ?
 
 ---
 
