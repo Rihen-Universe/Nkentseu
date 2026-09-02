@@ -399,13 +399,94 @@ namespace nkuidesign {
 			return (rgba & 0xFFFFFF00u) | (a & 0xFFu);
 		}
 
+		/// LES QUATRE RAYONS EFFECTIFS d'un nœud, dans l'ordre horaire depuis le
+		/// haut-gauche. Passe par `RayonCoin` — la porte, jamais `radius` en direct.
+		inline void NkGRayons(const NkUINode &n, nkentseu::float32 out[4]) {
+			for (nkentseu::uint32 i = 0; i < 4u; ++i)
+				out[i] = n.RayonCoin(i);
+		}
+
+		/// UN RECTANGLE À QUATRE RAYONS DIFFÉRENTS, composé depuis `FillColor`.
+		///
+		/// 🔴 POURQUOI LE COMPOSER ICI PLUTÔT QUE L'AJOUTER AU NOYAU : NKGui
+		///    n'expose qu'UN rayon (`AddRectFilled(r, col, rounding)`) et le
+		///    noyau est tenu par un autre agent ce soir. Composer dans
+		///    l'application donne le résultat exact sans toucher une ligne
+		///    partagée — et le jour où le noyau saura les quatre coins, c'est
+		///    CETTE fonction qui change, pas ses vingt appelants.
+		///
+		/// La composition : quatre carrés d'angle (chacun arrondi à SON rayon)
+		/// plus deux bandes croisées qui remplissent le milieu. Les trois coins
+		/// parasites de chaque carré tombent sous les bandes.
+		///
+		/// ⚠️ LE CHEMIN UNIFORME EST PRÉSERVÉ : quand les quatre rayons sont
+		///    égaux, on appelle `FillColor` une seule fois, exactement comme
+		///    avant. Sans ça, tout document existant aurait changé de flux de
+		///    commandes — le témoin aurait crié sur un dessin identique.
+		inline void NkGRectCoins(NkComponentPaint &p, const NkPaintRect &r,
+								 nkentseu::uint32 rgba, const nkentseu::float32 R[4]) {
+			if (r.w <= 0.f || r.h <= 0.f)
+				return;
+			if (R[0] == R[1] && R[1] == R[2] && R[2] == R[3]) {
+				p.FillColor(r, rgba, R[0]);
+				return;
+			}
+			const nkentseu::float32 demi =
+				(r.w < r.h ? r.w : r.h) * 0.5f; // un rayon ne dépasse jamais la moitié
+			nkentseu::float32 c[4];
+			for (nkentseu::uint32 i = 0; i < 4u; ++i)
+				c[i] = R[i] < 0.f ? 0.f : (R[i] > demi ? demi : R[i]);
+			// les quatre carrés d'angle, chacun arrondi à son propre rayon
+			if (c[0] > 0.f)
+				p.FillColor({r.x, r.y, c[0] * 2.f, c[0] * 2.f}, rgba, c[0]);
+			if (c[1] > 0.f)
+				p.FillColor({r.x + r.w - c[1] * 2.f, r.y, c[1] * 2.f, c[1] * 2.f}, rgba, c[1]);
+			if (c[2] > 0.f)
+				p.FillColor({r.x + r.w - c[2] * 2.f, r.y + r.h - c[2] * 2.f, c[2] * 2.f,
+							 c[2] * 2.f},
+							rgba, c[2]);
+			if (c[3] > 0.f)
+				p.FillColor({r.x, r.y + r.h - c[3] * 2.f, c[3] * 2.f, c[3] * 2.f}, rgba, c[3]);
+			// la bande HORIZONTALE : entre les coins gauches et droits
+			const nkentseu::float32 gH = c[0] > c[3] ? c[0] : c[3];
+			const nkentseu::float32 dH = c[1] > c[2] ? c[1] : c[2];
+			if (r.w - gH - dH > 0.f)
+				p.FillColor({r.x + gH, r.y, r.w - gH - dH, r.h}, rgba, 0.f);
+			// la bande VERTICALE : entre les coins hauts et bas
+			const nkentseu::float32 hV = c[0] > c[1] ? c[0] : c[1];
+			const nkentseu::float32 bV = c[3] > c[2] ? c[3] : c[2];
+			if (r.h - hV - bV > 0.f)
+				p.FillColor({r.x, r.y + hV, r.w, r.h - hV - bV}, rgba, 0.f);
+		}
+
 		/// LES QUATRE BANDES D'UNE BORDURE, POSÉES SELON SA POSITION.
 		/// ⚠️ C'EST ICI QUE « intérieur / centre / extérieur » VEUT DIRE QUELQUE
 		///    CHOSE. Le trait a une épaisseur `e` ; le rectangle peint est
 		///    décalé de 0 (intérieur), e/2 (centré, à cheval) ou e (extérieur).
 		///    Sans ce décalage, les trois valeurs auraient rendu le même dessin :
 		///    un menu à trois entrées dont deux mentent.
-		inline void NkGCadre(NkComponentPaint &p, const NkPaintRect &r, const NkBordure &b) {
+		/// 🔴 ELLE PEIGNAIT QUATRE RECTANGLES DROITS, RAYON CODÉ À `0.f` — et
+		///    surtout, **elle ne recevait pas le rayon** : un contour carré par
+		///    construction, quel que soit l'arrondi de la forme (Rodolf, 02/09 :
+		///    *« pourquoi quand je mets les bordures, les bordures ne suivent pas
+		///    les arrondis ? »*).
+		///
+		/// ⚠️ ET LE REMÈDE N'ÉTAIT PAS D'ARRONDIR LES QUATRE BANDES : quatre
+		///    rectangles aux bouts ronds ne font pas un contour, ils font quatre
+		///    rectangles aux bouts ronds. On peint un ANNEAU — la forme extérieure
+		///    pleine, puis `interieur` par-dessus en retrait de l'épaisseur.
+		///
+		/// ⚠️ `interieur` EST CE QU'IL FAUT REMETTRE AU MILIEU, et c'est pour ça
+		///    que l'appelant le passe : sans lui, l'anneau serait un disque plein
+		///    qui masquerait le fond du nœud. Un alpha nul veut dire « ne rien
+		///    remettre » — le cas du nœud sans fond.
+		///
+		/// LE RAYON EFFECTIF SUIT LE DÉCALAGE : un contour extérieur est plus
+		/// grand, donc plus arrondi ; un contour intérieur, l'inverse. C'est ce
+		/// que « position » veut dire quand la forme est arrondie, et ça ne se
+		/// voyait pas tant que tout était carré.
+		inline void NkGCadre(NkComponentPaint &p, const NkPaintRect &r, const NkBordure &b,
+							 const nkentseu::float32 R[4], nkentseu::uint32 interieur) {
 			const nkentseu::float32 e = b.epaisseur > 0.f ? b.epaisseur : 1.f;
 			nkentseu::float32 d = 0.f; // de combien le cadre sort du rectangle
 			if (b.position == NkBordurePos::Centre)
@@ -418,10 +499,17 @@ namespace nkuidesign {
 				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
 			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
 			const nkentseu::uint32 rgba = (base & 0xFFFFFF00u) | (a & 0xFFu);
-			p.FillColor({q.x, q.y, q.w, e}, rgba, 0.f);					 // haut
-			p.FillColor({q.x, q.y + q.h - e, q.w, e}, rgba, 0.f);		 // bas
-			p.FillColor({q.x, q.y, e, q.h}, rgba, 0.f);					 // gauche
-			p.FillColor({q.x + q.w - e, q.y, e, q.h}, rgba, 0.f);		 // droite
+			nkentseu::float32 Rext[4], Rint[4];
+			for (nkentseu::uint32 i = 0; i < 4u; ++i) {
+				Rext[i] = R[i] > 0.f ? R[i] + d : 0.f;
+				const nkentseu::float32 ri = Rext[i] - e;
+				Rint[i] = ri > 0.f ? ri : 0.f;
+			}
+			NkGRectCoins(p, q, rgba, Rext);
+			if ((interieur & 0xFFu) != 0u) {
+				const NkPaintRect qi = {q.x + e, q.y + e, q.w - e * 2.f, q.h - e * 2.f};
+				NkGRectCoins(p, qi, interieur, Rint);
+			}
 		}
 
 		/// LES OMBRES PORTÉES D'UN NŒUD, peintes AVANT sa forme.
@@ -694,6 +782,12 @@ namespace nkuidesign {
 					}
 					return true;
 				};
+				// LES QUATRE RAYONS EFFECTIFS, lus par la porte du modèle.
+				float32 Rc[4];
+				NkGRayons(n, Rc);
+				// La couleur du fond réellement peint — l'anneau de bordure la
+				// remet au milieu (voir NkGCadre). 0 = aucun fond.
+				uint32 rgbaFond = 0u;
 				bool fondPeint = false;
 				if (!n.fills.Empty()) {
 					bool peint = false;
@@ -717,7 +811,12 @@ namespace nkuidesign {
 															   : f.opacite)
 										  * 0.01f;
 						const uint32 a = (uint32)((base & 0xFFu) * k + 0.5f);
-						p.FillColor(r, (base & 0xFFFFFF00u) | (a & 0xFFu), rd);
+						const uint32 rgbaF = (base & 0xFFFFFF00u) | (a & 0xFFu);
+						NkGRectCoins(p, r, rgbaF, Rc);
+						// ⚠️ ON RETIENT LE DERNIER FOND PEINT : c'est lui que
+						//    l'anneau de bordure devra remettre au milieu. Sans
+						//    ça, la bordure arrondie masquerait le remplissage.
+						rgbaFond = rgbaF;
 						peint = true;
 					}
 					// TOUT masqué : on ne retombe PAS sur le rôle du thème — un
@@ -727,10 +826,12 @@ namespace nkuidesign {
 						p.OutlineSharp(r, host.Role("border"));
 					fondPeint = peint;
 				} else if (!n.fill.Empty()) {
-					p.FillColor(r, NkGHexRGBA(n.fill.Data()), rd);
+					rgbaFond = NkGHexRGBA(n.fill.Data());
+					NkGRectCoins(p, r, rgbaFond, Rc);
 					fondPeint = true;
 				} else {
-					p.Fill(r, host.Role("doc_field_bg"), rd);
+					rgbaFond = p.ColorOf(host.Role("doc_field_bg"));
+					NkGRectCoins(p, r, rgbaFond, Rc);
 					fondPeint = true; // le fond de rôle EST un fond
 				}
 				// ── LES BORDURES : LA LISTE D'ABORD, LA CLÉ SIMPLE SINON ─────
@@ -744,7 +845,7 @@ namespace nkuidesign {
 						const NkBordure &b = n.borders[bi];
 						if (!b.visible || b.couleur.Empty() || b.epaisseur <= 0.f)
 							continue;
-						NkGCadre(p, r, b);
+						NkGCadre(p, r, b, Rc, rgbaFond);
 						trace = true;
 					}
 					if (!trace && !fondPeint)
@@ -754,7 +855,7 @@ namespace nkuidesign {
 					b.couleur = n.borderColor;
 					b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
 					b.position = NkBordurePos::Interieur; // le geste historique
-					NkGCadre(p, r, b);
+					NkGCadre(p, r, b, Rc, rgbaFond);
 				} else if (!fondPeint)
 					p.OutlineSharp(r, host.Role("border"));
 				return;

@@ -869,6 +869,45 @@ namespace nkuidesign {
 			/// plutôt que de le cacher. Clé `transpose_de`.
 			NkString transposeDe;
 			float32 radius = 0.f;	 ///< rayon des coins, px (clé `rayon`)
+			/// ── L'ARRONDI PAR COIN (Rodolf, 02/09 : *« pourquoi je n'ai pas
+			///    des arrondis par coin comme sur Lunacy ? »*) ────────────────
+			/// L'ordre est celui du sens horaire depuis le haut-gauche :
+			/// **haut-gauche, haut-droit, bas-droit, bas-gauche** — celui de CSS
+			/// et de Lunacy. Un autre ordre aurait été un piège permanent.
+			///
+			/// 🔑 `rayonsDelies` EST L'ÉTAT DU LIEN, pas une redondance : sans
+			///    lui, « quatre coins à 8 » et « un rayon de 8 » seraient
+			///    indiscernables, et le panneau ne saurait pas s'il doit afficher
+			///    un champ ou quatre. C'est aussi ce qui garde la clé simple
+			///    quand elle suffit — *la clé simple EST la liste à un élément*,
+			///    la règle que le format tient déjà pour les remplissages.
+			///
+			/// ⚠️ NE PAS CONFONDRE AVEC LE RAYON PAR SOMMET (`NkPoint2::rayon`) :
+			///    celui-ci arrondit les COINS D'UNE BOÎTE, celui-là arrondit un
+			///    SOMMET DE TRACÉ en édition vectorielle. Deux notions voisines,
+			///    deux champs — la même discipline que `component` contre
+			///    `instanceDe`.
+			bool rayonsDelies = false;
+			float32 rayonsCoins[4] = {0.f, 0.f, 0.f, 0.f};
+
+			/// LE RAYON EFFECTIF d'un coin — la SEULE lecture autorisée.
+			/// ⚠️ Tout site qui lirait `radius` directement afficherait un coin
+			///    faux dès que les rayons sont déliés. Une porte, pas quatre
+			///    lectures dispersées.
+			float32 RayonCoin(nkentseu::uint32 i) const {
+				if (!rayonsDelies)
+					return radius;
+				return rayonsCoins[i < 4u ? i : 0u];
+			}
+
+			/// Vrai si les quatre coins valent la même chose — donc si la clé
+			/// simple suffit à les écrire.
+			bool RayonsUniformes() const {
+				if (!rayonsDelies)
+					return true;
+				return rayonsCoins[0] == rayonsCoins[1] && rayonsCoins[1] == rayonsCoins[2]
+					   && rayonsCoins[2] == rayonsCoins[3];
+			}
 			/// ── LA ROTATION ET LES DEUX MIROIRS (Lunacy, bandeau du haut) ────
 			/// Retour de Rodolf, 01/09 : *« dans propriétés il n'y a pas miroir,
 			/// rotation etc., ni autour de l'objet sélectionné. »* Les trois
@@ -2187,7 +2226,18 @@ namespace nkuidesign {
 				}
 				if (!n.transposeDe.Empty())
 					Field(out, "transpose_de", n.transposeDe.Data());
-				if (n.radius != 0.f) {
+				// ⚠️ LA CLE SIMPLE TANT QU'ELLE SUFFIT : quatre coins egaux
+				//    s'ecrivent `rayon`, pas `rayons`. Un document a rayon unique
+				//    se reenregistre donc OCTET POUR OCTET apres cet ajout.
+				if (n.rayonsDelies && !n.RayonsUniformes()) {
+					out.Append("  rayons = ");
+					for (uint32 ci = 0; ci < 4u; ++ci) {
+						if (ci)
+							out.Append(' ');
+						WriteNum(out, n.rayonsCoins[ci]);
+					}
+					out.Append('\n');
+				} else if (n.radius != 0.f) {
 					out.Append("  rayon = ");
 					WriteNum(out, n.radius);
 					out.Append('\n');
@@ -2759,6 +2809,21 @@ namespace nkuidesign {
 						}
 						else if (StrEq(key, "transpose_de"))
 							n.transposeDe = NkString(val);
+						// `rayons = hg hd bd bg` — l'ordre horaire depuis le
+						// haut-gauche, celui de CSS et de Lunacy.
+						else if (StrEq(key, "rayons")) {
+							n.rayonsDelies = true;
+							const char *q = val;
+							for (uint32 ci = 0; ci < 4u; ++ci) {
+								while (*q == ' ')
+									++q;
+								if (!*q)
+									break;
+								n.rayonsCoins[ci] = ParseNum(q);
+								while (*q && *q != ' ')
+									++q;
+							}
+						}
 						else if (StrEq(key, "rayon"))
 							n.radius = ParseNum(val);
 						else if (StrEq(key, "rotation"))

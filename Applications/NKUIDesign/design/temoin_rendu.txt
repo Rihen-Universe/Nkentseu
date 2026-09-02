@@ -5,13 +5,11 @@
 # ⚠️ Il se REGENERE : `--temoin-rendu`. Toute difference non
 #    voulue est une regression visuelle.
 
-# ecran toile : 7 commande(s)
+# ecran toile : 5 commande(s)
 FillColor         28.0     28.0    160.0     48.0  r=6.0    role=0    rgba=0969daff 
 FillColor         28.0     28.0    160.0     48.0  r=6.0    role=0    rgba=f6f8fa99 
-FillColor         28.0     28.0    160.0      2.0  r=0.0    role=0    rgba=30363dff 
-FillColor         28.0     74.0    160.0      2.0  r=0.0    role=0    rgba=30363dff 
-FillColor         28.0     28.0      2.0     48.0  r=0.0    role=0    rgba=30363dff 
-FillColor        186.0     28.0      2.0     48.0  r=0.0    role=0    rgba=30363dff 
+FillColor         28.0     28.0    160.0     48.0  r=6.0    role=0    rgba=30363dff 
+FillColor         30.0     30.0    156.0     44.0  r=4.0    role=0    rgba=f6f8fa99 
 Text              28.0     28.0     90.0     20.0  r=0.0    role=39   rgba=00000000 Valider
 
 # ecran inspecteur.bordures : 1 commande(s), 397 sommet(s)

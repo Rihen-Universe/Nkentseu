@@ -2963,7 +2963,11 @@ namespace nkuidesign {
 					b.couleur = NkString("#ffffff");
 					b.epaisseur = 4.f;
 					b.position = pos;
-					renderdetail::NkGCadre(rec, {100.f, 100.f, 50.f, 50.f}, b);
+					// Rayons NULS et interieur transparent : cette sonde mesure le
+					// DECALAGE de position, pas l'arrondi -- lui donner un rayon
+					// changerait ce qu'elle observe.
+					const float32 R0[4] = {0.f, 0.f, 0.f, 0.f};
+					renderdetail::NkGCadre(rec, {100.f, 100.f, 50.f, 50.f}, b, R0, 0u);
 					x = rec.cmds.Empty() ? -1.f : rec.cmds[0].x;
 					w = rec.cmds.Empty() ? -1.f : rec.cmds[0].w;
 				};

@@ -1621,6 +1621,102 @@ static nkentseu::int32 RecetteGestes() {
 				posee && entiere && independantes && refus, det);
 	}
 
+	// ── L'ARRONDI PAR COIN, ET LA BORDURE QUI L'EPOUSE ──────────────────────
+	// 🔑 UN SEUL CAS POUR LES DEUX DEFAUTS, ET C'EST VOULU : *un contour carre
+	//    sur une forme carree ne se remarque pas.* C'est en arrondissant que le
+	//    defaut de la bordure apparait -- et l'arrondi par coin n'existant pas,
+	//    personne n'avait pousse le cas. **Le manque du modele cachait le defaut
+	//    du peintre.**
+	{
+		NkUIDocument d;
+		d.NewDocument("coins", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		d.nodes[(uint32)pg].shape = NkString("frame");
+		d.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+		d.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].width.value = 300.f;
+		d.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].height.value = 200.f;
+		const int32 rc = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)rc].shape = NkString("rect");
+		d.nodes[(uint32)rc].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)rc].width.value = 120.f;
+		d.nodes[(uint32)rc].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)rc].height.value = 80.f;
+		d.nodes[(uint32)rc].fill = NkString("#0969da");
+		// (a) ADDITIVITE : un rayon UNIQUE garde la cle simple, octet pour octet.
+		d.nodes[(uint32)rc].radius = 8.f;
+		NkString simple;
+		d.Save(simple);
+		const bool cleSimple = strstr(simple.Data(), "rayons") == nullptr
+							   && strstr(simple.Data(), "rayon = 8") != nullptr;
+		NkUIDocument r0;
+		NkString simple2;
+		const bool octetPourOctet = r0.Load(simple.Data()) && (r0.Save(simple2), true)
+									&& strcmp(simple2.Data(), simple.Data()) == 0;
+		// (b) QUATRE RAYONS DIFFERENTS voyagent, dans l'ordre horaire.
+		d.nodes[(uint32)rc].rayonsDelies = true;
+		d.nodes[(uint32)rc].rayonsCoins[0] = 2.f;
+		d.nodes[(uint32)rc].rayonsCoins[1] = 10.f;
+		d.nodes[(uint32)rc].rayonsCoins[2] = 20.f;
+		d.nodes[(uint32)rc].rayonsCoins[3] = 0.f;
+		NkString quatre;
+		d.Save(quatre);
+		NkUIDocument r1;
+		const bool relit = r1.Load(quatre.Data()) && r1.IsValidIndex(rc);
+		const bool voyagent = relit && r1.nodes[(uint32)rc].rayonsDelies
+							  && r1.nodes[(uint32)rc].RayonCoin(0) == 2.f
+							  && r1.nodes[(uint32)rc].RayonCoin(1) == 10.f
+							  && r1.nodes[(uint32)rc].RayonCoin(2) == 20.f
+							  && r1.nodes[(uint32)rc].RayonCoin(3) == 0.f;
+		// (c) LA PORTE : delies a false, les quatre valent le rayon simple.
+		NkUINode nu;
+		nu.radius = 6.f;
+		const bool porte = nu.RayonCoin(0) == 6.f && nu.RayonCoin(3) == 6.f;
+		// (d) 🔑 LE PEINTRE HONORE LES QUATRE, ET LA BORDURE LES SUIT. Quatre
+		//     rayons distincts se composent en PLUS de commandes qu'un rayon
+		//     uniforme ; la bordure arrondie en ajoute autant.
+		auto compter = [&](NkUIDocument &doc) -> uint32 {
+			NkLayoutResult lay;
+			NkComputeLayout(doc, NkPaintRect{0.f, 0.f, 300.f, 200.f}, lay);
+			NkComponentInput in;
+			nkentseu::editorkit::NkRecordingPaint pv;
+			NkDocumentHost hote;
+			hote.SyncTo(doc);
+			pv.Reset();
+			NkDrawDocument(pv, in, doc, lay, hote, 0);
+			return (uint32)pv.cmds.Size();
+		};
+		NkUIDocument u;
+		u.Load(simple.Data());
+		const uint32 cmdUniforme = compter(u);
+		const uint32 cmdQuatre = compter(r1);
+		const bool composeQuatre = cmdQuatre > cmdUniforme;
+		// la bordure : elle DOIT ajouter des commandes qui suivent les coins
+		NkBordure b;
+		b.couleur = NkString("#ff0000");
+		b.epaisseur = 3.f;
+		b.position = NkBordurePos::Interieur;
+		r1.nodes[(uint32)rc].borders.PushBack(b);
+		const uint32 cmdBord = compter(r1);
+		const bool bordureEpouse = cmdBord > cmdQuatre + 2u;
+		char det[256];
+		snprintf(det, sizeof(det),
+				 "cle simple gardee=%d, octet pour octet=%d ; quatre rayons voyagent=%d ; "
+				 "porte (delies=false -> rayon simple)=%d ; peintre : %u cmd uniforme -> %u a "
+				 "quatre coins=%d -> %u avec bordure=%d",
+				 cleSimple ? 1 : 0, octetPourOctet ? 1 : 0, voyagent ? 1 : 0, porte ? 1 : 0,
+				 cmdUniforme, cmdQuatre, composeQuatre ? 1 : 0, cmdBord,
+				 bordureEpouse ? 1 : 0);
+		verdict("ARRONDI PAR COIN + BORDURE QUI L'EPOUSE : la cle simple survit (octet pour "
+				"octet), quatre rayons distincts voyagent dans l'ordre horaire, la porte "
+				"`RayonCoin` rend le rayon simple quand rien n'est delie, et le PEINTRE compose "
+				"les quatre coins ET l'anneau de bordure",
+				cleSimple && octetPourOctet && voyagent && porte && composeQuatre
+					&& bordureEpouse,
+				det);
+	}
+
 	// ── LES DEGRADES : LE FORMAT D'ABORD ────────────────────────────────────
 	// Les deux exigences posees avant d'ecrire une ligne d'interface :
 	// additivite stricte, et relecture d'un type INCONNU sans perte.
