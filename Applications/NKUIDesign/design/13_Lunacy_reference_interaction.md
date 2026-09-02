@@ -93,6 +93,13 @@ mois.
 
 ### 0.5 🔢 LE COMPTE — la réponse à « as-tu tout porté ? », lisible sans moi
 
+📌 **Pour la vue d'ensemble en cinq minutes, lire `14_Etat_conformite.md`** : il
+regroupe ces 174 lignes **par famille**, classe ce qui manque en **trois groupes**
+(moteur / modèle / robinet) avec leur coût, et répond à la question élargie de
+Rodolf sur **Figma, Sketch et Canva**. Sa partie chiffrée est **régénérée** par
+`compte_etat.py --document`. **Ce document-ci reste le détail** — une ligne par
+geste, avec sa source et ce qui manque.
+
 **C'est ce tableau qui répond, pas une phrase de rapport.** Rodolf a demandé le
 02/09 : *« est-ce que tu as porté toutes les fonctions de Lunacy venant de sa
 doc ? »* La réponse honnête est un **nombre qui bouge**, pas un « oui ».
