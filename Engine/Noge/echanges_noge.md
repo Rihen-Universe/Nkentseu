@@ -604,3 +604,262 @@ FBX ignore squelette et animation. Pour un jeu de course les roues doivent
 tourner et braquer. **Anime-t-on par le squelette FBX (chargeur à étendre), ou
 par la hiérarchie de nœuds (16 nœuds déjà lus) ?** La seconde est bien moins
 chère et suffit à une voiture.
+
+---
+
+# ✅ CE QUI A ÉTÉ FAIT — deux correctifs, mesurés avant et après
+
+## Le défaut de chemin de texture FBX — commit `368ce074`
+
+`NkFBXLoader.cpp` ne gardait que le **nom de fichier** de `RelativeFilename`.
+Correctif : deux essais — (1) le chemin relatif normalisé (`\` → `/`) sous le
+dossier du `.fbx`, **désactivé si le chemin est absolu**, donc la protection
+d'origine est intégralement conservée ; (2) repli historique sur le nom seul.
+Le message d'échec nomme désormais **les deux** chemins essayés.
+
+| | avant | après |
+|---|---|---|
+| textures de la voiture | `texture introuvable` ×3 | **aucun avertissement** |
+| images décodées | 0 / 3 | **3 / 3** |
+| géométrie | 18 758 / 26 916 | **inchangée** (le correctif ne touche que le chemin) |
+
+## La garde périmée du banc — commit `3b31fa2c`
+
+`TestFBX` prend maintenant ses attentes en paramètre (`0,0` pour le cube ascii ;
+`3,3` pour la voiture), **et porte le contrôle qui manquait vraiment** :
+`NkGLTFImage::valid`, le drapeau du **décodage réel**. Sans lui, le banc restait
+vert avec trois matériaux et zéro image — il aurait donc raté le défaut ci-dessus.
+
+**52 OK / 1 FAIL → 55 OK / 0 FAIL.** ✅ **Contre-épreuve faite** : mutation
+posée (attendu `3` → `2`), reconstruction, exécution → `EXIT=1` et
+`[FAIL] nombre de textures REELLEMENT DECODEES conforme`. **Le contrôle sait dire
+non.** Mutation retirée, vert confirmé.
+
+---
+
+# MESURE 4 — LES 11 MODULES SANS CORPS : RÉANIMABLES, ET À QUEL COÛT
+
+> ⚠️ **La colonne a changé en cours de route, sur consigne de Rodolf** : la
+> question n'est **pas** « la course en a-t-elle besoin ? » mais **« est-ce
+> réanimable, et à quel prix ? »**. *Si ça peut servir dans un avenir proche ou
+> lointain, on ne supprime pas* — on analyse, et on fait fonctionner **avant** de
+> retirer. La suppression est le dernier recours, réservé à ce qui est vraiment
+> mort. **Aucune suppression sans un retour de Rodolf sur cette liste.**
+
+| module | l. `.h` | ce que la spécification porte déjà | réanimable ? | sert à quoi, quand |
+|---|---|---|---|---|
+| `Systems` | 277 | 🟢 **le plus avancé** : `Describe()` **complet** (lectures, écritures, groupe, priorités 400-700) pour 6 systèmes ; seul `Execute()` manque | **oui — le contrat est écrit**, il reste les corps | branche les 6 ci-dessous |
+| `Physics` | 346 | structures complètes : `NkClothSim`, `NkHairSim`, `NkSoftBody`, `NkRagdoll`, `NkJiggleBone`, `NkMotionCapture` | **oui**, mais c'est du calcul GPU réel | personnages — **PV3DE**, pas la course |
+| `Facial` | 790 | `NkLipSync`, `NkExpression`, `NkAUMapping`, `NkEyeRig`, `NkWrinkleMap`, `NkSkinMaterial` | oui, gros | ⭐ **PV3DE en a directement besoin** (patient virtuel émotif) |
+| `Sequencer` | 416 | `NkSequence`, `NkTrack`, `NkNLAClip`, `NkCameraShot`, `NkKeyframe`, `NkRenderOutput` | **oui** — modèle de données classique | ⭐ **NkAnima / bandes-annonces** — Rodolf publie des vidéos |
+| `Anim2D` | 468 | `NkTween*` (float/vec3/couleur/séquence), `NkAtlas2D`, `NkSpriteFrame` | **oui, le moins cher de tous** | ⭐ **transitions d'interface**, menus du jeu |
+| `Viewport` | 378 | `NkViewportCamera`, `NkRay`, `NkPickResult`, `NkSelectionBuffer`, `NkMultiViewport` | oui | ⭐ **Nogee / NkScena** — tout éditeur en a besoin |
+| `Selection` | 310 | `NkSelectionMask`, `NkRasterFilter`, `NkRasterIO` | oui | outils d'édition 2D |
+| `Sculpt` | 198 | `NkSculptSession`, `NkSculptBrush`, `BVHNode` | oui | **NK3DModeler** |
+| `UV` | 75 | `NkUVEditor`, `NkUVIsland` | oui, petit | **NK3DModeler** — dépliage |
+| `Text` | 67 | `NkRichText`, `NkTextOnPath`, `NkTextRun` | oui, petit | ⚠️ risque de doublon : `NKFont`/`NKCanvas` portent déjà du texte |
+| `Crowd` | 44 | `NkCrowdGrid`, `NkCrowdManager` | oui, minuscule | **NKCivilization**, public de circuit |
+
+📌 **Ce que la mesure dit, et ça va dans le sens de Rodolf** : **aucun de ces
+onze n'est du code sans destination.** Chacun a un produit identifiable qui
+l'attend — PV3DE, NkAnima, Nogee, NK3DModeler, NKCivilization. Ce ne sont pas des
+restes : ce sont des **spécifications en avance sur leur consommateur**.
+
+⭐ **Et `Systems` est le cas le plus favorable, pas le plus mort** : quand
+`Describe()` est écrit et rempli et que seul `Execute()` manque, **le contrat est
+déjà posé** — dépendances, ordre, priorités. C'est plus proche d'une réanimation
+que d'un nettoyage. *La forme qui m'avait le plus alarmé au §1.2 est aussi celle
+qui coûte le moins cher à finir.* Les deux lectures sont vraies en même temps :
+c'est dangereux **tant que ce n'est pas fini**, et c'est peu cher **à finir**.
+
+⚠️ **Ce qui ne change pas** : tant qu'ils n'ont ni corps ni appelant, ils **se
+lisent comme des fonctionnalités livrées**. Le danger que j'ai nommé au §1.2 est
+intact — la réponse n'est pas de les supprimer, c'est de **marquer leur état**
+là où on les lit.
+
+## 4bis. ✅ CE QUE LA COURSE DEMANDE VRAIMENT EST AILLEURS
+
+`Kernel/Runtime/NKPhysics` existe : **9 `.h`, 3 `.cpp`, 1 614 lignes de corps**,
+plus `tests/test_physics.cpp`. Il porte `NkRigidBody`, `NkPhysicsWorld`,
+`NkContactSolver`, `NkIntegrator`, `NkJoint`, `NkPhysicsMaterial`. **Cinq
+consommateurs**, dont `Noge/ECS/Systems/NkPhysicsSystem.h` — l'ECS **qui marche**.
+
+🔴 **Mais aucune couche véhicule nulle part** : recherche
+`suspension|vehicle|wheel|tire|pneu` dans tout `NKPhysics` → **zéro** (contrôle :
+`rigidbody` se trouve sans peine). Ni roue, ni suspension, ni modèle de pneu.
+
+> Le vrai travail de la course n'est donc dans **aucun** des 11 modules : c'est
+> une **couche véhicule au-dessus d'un `NKPhysics` réel**. Et c'est là que se
+> joue « combien de lignes pour faire rouler une voiture ? ».
+
+⭐ **La bonne nouvelle est dans les modèles** : les deux voitures ont leurs
+**roues en objets séparés**, donc pilotables — ✅ vérifié. `LowPolyCars.obj` a
+5 objets (`car2_car2.017` + `whell`, `whell.001`, `.002`, `.003`). Et la
+futuriste va plus loin : elle porte `Front/Back_Wheel_Mesh_1_L/R` **et des points
+`Front/Back_Wheel_Force_1_L/R`** — **des ancrages de suspension déjà posés par
+l'auteur.** Le modèle est prêt pour une simulation véhicule ; c'est le code qui
+ne l'est pas.
+
+---
+
+# MESURE 5 — LA BOUCLE A UNE FORME BUREAU, ET LE WEB NE CASSE PAS OÙ ON CROYAIT
+
+## 5.1 🔴 L'HYPOTHÈSE « c'est le sleep / ASYNCIFY » EST RÉFUTÉE PAR LA MESURE
+
+Hypothèse à tester : le lien Web serait trop cher pour aboutir (ASYNCIFY
+instrumente tout le programme), d'où « deux correctifs appliqués mais jamais
+reconstruits ».
+
+✅ **Mesure faite, chronomètre en main**, `jenga build --target renderdemo
+--platform Web --config Debug`, arbre `Nkentseu-noge`, 2026-09-02 07:31:30 :
+
+```
+Status : ✗ FAILURE      Time : 1 m 23 s
+Projects Built : 23/30   Failed : 1 (NKRHI)   Not reached : 6
+```
+
+> 🔴 **La construction n'atteint JAMAIS l'édition de liens.** Elle tombe à la
+> **compilation de NKRHI**, au bout de 84 secondes. ASYNCIFY n'a pas eu
+> l'occasion de coûter quoi que ce soit. **L'hypothèse est réfutée** — non pas
+> nuancée : le programme ne se rend pas jusqu'à l'étape incriminée.
+
+**Le message d'échec, qui est le livrable :**
+
+```
+NKRHI/Opengl/NkOpenglDevice.cpp:2504:16: error:
+      use of undeclared identifier 'eglGetCurrentContext'
+   2504 |   (void *)eglGetCurrentContext(), (unsigned long)pthread_self());
+```
+
+✅ **Cause caractérisée par lecture du code** : la ligne vit sous
+`#if defined(NK_OPENGL_ES)` (l. 2498). **La garde confond « GLES » et « EGL
+disponible ».** Android GLES a EGL ; **WebGL2 sous Emscripten n'en a pas**. Une
+seule garde pour deux propriétés distinctes.
+
+⚠️ **Et l'ironie mérite d'être écrite, parce qu'elle explique pourquoi ça a
+survécu** : cette ligne est **un message de diagnostic** — elle ne s'exécute que
+si un framebuffer est déjà incomplet. **Une ligne dont le seul métier est
+d'aider à déboguer est ce qui empêche de construire.** Elle n'a aucun effet sur
+le rendu, elle bloque tout.
+
+📌 **Ce que ça déplace** : le Web n'est pas bloqué par une architecture trop
+chère, il est bloqué par **une régression de compilation d'une ligne**,
+postérieure au 2026-08-10. Le reste (le shim WebGL2, les correctifs (g2) et (h))
+n'a jamais pu être éprouvé parce que rien ne se construit. **C'est une bien
+meilleure nouvelle que l'hypothèse de départ.**
+
+## 5.2 ✅ MAIS LA CONCLUSION D'ARCHITECTURE, ELLE, TIENT — et elle vaut plus
+
+```
+emscripten_set_main_loop   dans Kernel/, Engine/, Applications/  ->  0 résultat
+emscripten_sleep           dans Kernel/                          ->  8 résultats
+```
+
+**Contrôle positif fait** : la même recherche trouve `emscripten_sleep` huit fois
+(`NkChrono.cpp:303, 310, 435, 456, 458`…). **Le zéro est un vrai zéro.**
+
+> 🔴 **La forme native du navigateur — un rappel piloté par le compositeur —
+> n'est employée NULLE PART.** Le moteur garde partout une boucle bloquante de
+> forme bureau, et `ASYNCIFY` n'existe que pour la rendre tolérable au
+> navigateur.
+
+C'est la sœur de la règle gravée pour le rendu, et elle est plus profonde. Celle-là
+dit *une application qui interroge la plateforme a déjà perdu*. Ici :
+**le moteur n'interroge pas la plateforme du tout — il lui impose une forme qui
+ne lui convient pas, et paie une option de liaison pour que ça passe.**
+
+## 5.3 🔴 « Release-Web » N'EST PAS UNE CONFIGURATION RELEASE
+
+| option | cibles `.jenga` concernées |
+|---|---|
+| `ASYNCIFY` | **18** — *toutes* les cibles Web du dépôt |
+| `ASSERTIONS=1` **et** `SAFE_HEAP=1` | **11**, dont **`RendererSandbox.jenga` (renderdemo)** |
+
+Ce n'est donc **pas propre à `DemoRW`** : c'est systémique. Et le point dur n'est
+pas qu'une cible Release porte des options de débogage — c'est qu'il n'y a
+**aucune distinction de configuration** : dans `RendererSandbox.jenga:238-248`
+les trois options vivent dans le filtre **`with filter("system:Web")` nu**, sans
+sous-filtre `Debug`/`Release`. `SAFE_HEAP` instrumente chaque accès mémoire.
+
+## 5.4 ⚠️ CORRECTION DE PÉRIMÈTRE SUR L'INDICE DE DÉPART
+
+L'indice transmis disait : *« aucun `.wasm` 3D — le binaire n'existe pas »*.
+✅ **Exact pour `Release-Web`, faux comme énoncé général :**
+
+```
+Nkentseu/Build/Bin/Release-Web/        GemCrush 3,27 Mo · NkDames 2,87 · NkEchecs 2,89 · NkLudo 2,90
+Nkentseu-nkcode/Build/Bin/Debug-Web/   renderdemo.wasm  34 767 293 o   (2026-08-10)
+```
+
+Le `.wasm` de la démo 3D **existe**, en Debug, dans un autre arbre — **34,8 Mo,
+soit ~11 fois les jeux 2D**. **Le lien a donc abouti au moins une fois**, ce qui
+retire son dernier appui à l'hypothèse du coût de liaison.
+
+---
+
+# MESURE 6 — LES DEUX VOITURES : CE QUE CHACUNE MESURE
+
+## 6.1 🔴 LE PBR NE SE JOUE PAS SUR LE NOMBRE DE POLYGONES
+
+Objection à lever, et la mesure la lève : `LowPolyCars` **est parfaitement
+utilisable pour éprouver le rendu**. ✅ Vérifié : **3 731 UV** pour 1 933 sommets
+— *il est déplié* — et son `.mtl` référence `map_Kd Car_Texture_1.png`, fichier
+**présent**.
+
+> **Ce qui lui manque n'est pas de la géométrie, ce sont des CARTES.** Il a une
+> seule planche de couleur : pas de normales, pas de rugosité, pas de
+> métallicité. *Un modèle lowpoly avec de bonnes cartes et un bon éclairage passe
+> pour du haut de gamme ; un modèle dense sans cartes reste gris.* **La capture
+> du 26/06 le prouve déjà** : 4 293 polygones, zéro carte, résultat gris.
+
+## 6.2 Les deux ne sont pas rivales — ce sont deux instruments
+
+| modèle | ce qu'il mesure |
+|---|---|
+| **`LowPolyCars.obj`** | la **direction artistique** et le **budget de performance** des sept cibles — et il rejoint la direction lowpoly de NKGen |
+| **`Futuristic_Car.fbx`** | le **banc matériaux/éclairage** : 3 cartes dont une **carte de normales**, et des ancrages de suspension |
+
+**On garde les deux.**
+
+## 6.3 ⚠️ UNE ÉTAPE À NOMMER : SPÉCULAIRE → PBR
+
+Les deux modèles sont en flux **spéculaire**, pas métallicité/rugosité :
+`LowPolyCars.mtl` porte `Ks 2.0 2.0 2.0` / `Ns 199.99` / `illum 3`, et la
+futuriste fournit `_S.jpg`. Le renderer attend un flux PBR (`roughness`,
+`metallic` — cf. `NkFBXScene::MaterialData`).
+
+📌 **C'est du travail de MATÉRIAU, pas de modèle**, et il vaut pour les deux
+voitures. À ne pas confondre avec le défaut de chemin déjà corrigé : celui-là
+empêchait les images d'arriver ; celui-ci porte sur leur **interprétation** une
+fois arrivées.
+
+## 6.4 ⭐ POURQUOI LE DÉFAUT FBX AVAIT SURVÉCU — une leçon de banc
+
+`LowPolyCars` marche **parce que sa texture est posée à côté du `.obj`**. Le seul
+modèle du corpus qui exerce un **sous-dossier `textures/`** est précisément celui
+qui cassait.
+
+> **Un corpus dont un seul membre emprunte le chemin difficile ne teste pas ce
+> chemin — il le cache.** La majorité qui passe par le cas facile rend le banc
+> vert, et le cas unique se lit comme une bizarrerie de ce fichier-là plutôt que
+> comme un défaut du chargeur.
+
+**Le geste** : quand un corpus de bancs contient un cas structurellement
+différent des autres (sous-dossier, chemin absolu, encodage, séparateur), il faut
+**au moins deux** représentants de ce cas — sinon son échec est attribué au
+fichier, jamais au code.
+
+## 6.5 ✅ LA PRÉDICTION SUR `LowPolyCars` — vérifiée structurellement
+
+Prédiction écrite **avant** vérification : après le correctif, la futuriste doit
+sortir avec ses trois cartes ; **`LowPolyCars` doit rester inchangée**, sa texture
+ne passant pas par le chemin cassé.
+
+✅ **Vérifié, et par construction plutôt que par l'image** — ce qui est plus fort :
+`git show --stat 368ce074` → **un seul fichier modifié, `NkFBXLoader.cpp`**.
+`LowPolyCars` est un `.obj` : il passe par **`NkOBJLoader.cpp`**, que mon commit
+ne touche pas (son dernier commit est `332ae4f8`, sans rapport) et qui possède sa
+**propre** résolution de texture (l. 63-84). **`LowPolyCars` ne peut pas avoir
+changé d'aspect.** Si l'image montrait le contraire à la reprise GPU, ce serait le
+signe que le correctif touche autre chose que ce que je crois — et il faudrait me
+croire sur parole moins, pas plus.
