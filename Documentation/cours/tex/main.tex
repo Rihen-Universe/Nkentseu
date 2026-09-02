@@ -112,26 +112,34 @@ son corps vit dans l'en-tête, sinon rien ne lie.
 \partieintro{Les briques de toute application}{%
 Entre le langage et le moteur, il y a une couche que l'on emploie dans
 \emph{chaque} programme du dépôt --- graphique ou non, jeu ou outil en ligne de
-commande. Ce sont les conteneurs, les mathématiques, la journalisation et les
-fils d'exécution.
+commande. Ce sont la mémoire, les conteneurs, les mathématiques, la
+journalisation et les fils d'exécution.
 
 On les place ici, et non parmi les modules, parce qu'ils ne se choisissent pas :
 l'image, le son et le réseau sont facultatifs ; \texttt{NkVector} et
 \texttt{NkString} ne le sont pas. Vous les rencontrerez dans la première ligne du
 premier chapitre suivant.
 
-Deux d'entre eux méritent d'être lus même par un programmeur expérimenté.
+\textbf{NKMemory ouvre la partie, et ce n'est pas un ordre arbitraire} : tout le
+reste alloue à travers lui. C'est aussi le seul chapitre du livre dont une erreur
+ne se manifeste jamais là où elle a été commise --- un tas corrompu plante dans du
+code innocent, des minutes plus tard.
+
+Deux autres méritent d'être lus même par un programmeur expérimenté.
 \textbf{NKLogger} porte un piège qui ne plante jamais et fausse des messages en
 silence. \textbf{NKThreading} commence par vous conseiller de ne pas vous en
 servir --- et l'argument est sérieux.%
 }
+\input{chapitres/00e0-nkmemory}
 \input{chapitres/00e-nkcontainers}
 \input{chapitres/00f-nkmath}
 \input{chapitres/00g-nklogger}
 \input{chapitres/00h-nkthreading}
 
 \begin{partiebilan}
-Vous savez ranger des données (\texttt{NkVector}, \texttt{NkString},
+Vous savez allouer (tout passe par NKMemory, et ce qu'il a donné c'est lui qui le
+reprend --- sinon le tas se corrompt et le plantage arrive ailleurs), ranger des
+données (\texttt{NkVector}, \texttt{NkString},
 \texttt{NkSpan} --- et qu'une réallocation invalide les pointeurs), calculer
 (vecteurs suffixés, jamais \texttt{==} sur des flottants, transformations en
 T + R + S séparées), tracer (deux familles de messages qu'on ne mélange pas), et
