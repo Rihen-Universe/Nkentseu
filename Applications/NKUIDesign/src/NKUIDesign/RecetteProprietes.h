@@ -163,6 +163,34 @@ namespace nkuidesign {
 				return bandes;
 			}
 
+			/// LE GESTE « DELIER LES QUATRE COINS », par la main.
+			///
+			/// 🔑 IL DOIT PARTIR DE L'ETAT ORDINAIRE : c'est tout l'objet du lot.
+			///    Un cas qui entrerait en mode d'edition de forme prouverait le
+			///    chemin qui existait DEJA -- et ne dirait rien du manque.
+			///
+			/// ⚠️ ON BALAIE, ON NE CALCULE PAS la position du bouton : la
+			///    section APPARENCE a des rangees de hauteurs differentes et sa
+			///    colonne est calculee. *Un harnais qui deduit une position
+			///    mesure sa propre arithmetique* -- la lecon de la poubelle, et
+			///    celle du `ctrl = true`.
+			static bool CliquerLier(nkgui::NkGuiContext &ctx, InspectorPanel &insp,
+									DesignState &st) {
+				for (float32 y = 4.f; y < 260.f; y += 3.f) {
+					for (float32 x = 150.f; x < 292.f; x += 6.f) {
+						const bool avant = st.doc.nodes[(uint32)st.selected].rayonsDelies;
+						Image(ctx, insp, x, y, false, 4);
+						ctx.input.mouseClicked[0] = true;
+						Image(ctx, insp, x, y, true, 4);
+						ctx.input.mouseClicked[0] = false;
+						Image(ctx, insp, x, y, false, 4);
+						if (st.doc.nodes[(uint32)st.selected].rayonsDelies != avant)
+							return true;
+					}
+				}
+				return false;
+			}
+
 			static float32 HauteurEtatsConsommee(nkgui::NkGuiContext &ctx,
 												 InspectorPanel &insp) {
 				// ⚠️ LA SECTION EST REPLIÉE PAR DÉFAUT, et le banc doit l'OUVRIR
@@ -567,6 +595,39 @@ namespace nkuidesign {
 											 "APPARENCE : %d bande(s) de champ repondent au glisser", bandes);
 									check("6. DICHOTOMIE : les champs d'APPARENCE REPONDENT au geste",
 										  repondent, d6);
+								}
+
+								// ═══ 8. L'ACCES AUX QUATRE COINS, DEPUIS L'ETAT ORDINAIRE ═══
+								// 🔑 Rodolf : « on n'a pas toujours les arrondis par sommet ». La
+								//    mesure a montre que le modele etait complet et que l'ACCES
+								//    manquait. Ce cas prouve l'acces PAR LE GESTE, sans jamais entrer
+								//    en mode d'edition de forme.
+								{
+									NkUINode &nd = st.doc.nodes[(uint32)rc];
+									nd.rayonsDelies = false;
+									nd.radius = 7.f;
+									const bool delie = CliquerLier(ctx, insp, st);
+									// ⚠️ DELIER NE DOIT RIEN CHANGER A L'ECRAN : les quatre coins
+									//    partent de la valeur actuelle. Un geste qui deliera ET
+									//    changerait l'arrondi ferait deux choses pour un clic.
+									const bool neutre = delie && nd.rayonsDelies && nd.RayonCoin(0) == 7.f
+														&& nd.RayonCoin(3) == 7.f;
+									// UN COIN SE REGLE SEUL, et les autres ne bougent pas.
+									nd.rayonsCoins[1] = 20.f;
+									const bool isole = nd.RayonCoin(1) == 20.f && nd.RayonCoin(0) == 7.f
+													   && nd.RayonCoin(2) == 7.f;
+									// RELIER rend le PREMIER coin comme rayon commun (jamais une moyenne).
+									const bool relie = CliquerLier(ctx, insp, st);
+									const bool repris = relie && !nd.rayonsDelies && nd.radius == 7.f;
+									char d8[208];
+									snprintf(d8, sizeof(d8),
+											 "delier atteint par le geste=%d, neutre a l'ecran=%d ; un coin "
+											 "seul=%d ; relier atteint=%d, reprend le premier coin=%d",
+											 delie ? 1 : 0, neutre ? 1 : 0, isole ? 1 : 0, relie ? 1 : 0,
+											 repris ? 1 : 0);
+									check("8. ACCES : les quatre coins se delient ET se relient DEPUIS L'ETAT "
+										  "ORDINAIRE, sans entrer en mode d'edition de forme",
+										  delie && neutre && isole && relie && repris, d8);
 								}
 
 								printf("\nRECETTE PROPRIETES : %d/%d %s\n", total - echecs, total,

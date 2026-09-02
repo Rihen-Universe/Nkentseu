@@ -8963,7 +8963,7 @@ namespace nkuidesign {
 				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
 				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"REMPLISSAGES", true},
 				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
-				{"ÉTATS", true},	{"EFFETS", true},	{"POINTS DE RUPTURE", false},
+				{"ÉTATS", false},	{"EFFETS", true},	{"POINTS DE RUPTURE", false},
 			};
 			EtatSection *TrouverSection(const char *titre) {
 				for (uint32 i = 0; i < kNbSections; ++i)
@@ -11797,23 +11797,116 @@ namespace nkuidesign {
 					// (« Bordure » vit desormais dans BORDURES — meme raison que
 					//  « Fond » : deux endroits pour ecrire une meme cle, et le
 					//  second aurait ignore la liste.)
-					// Arrondi (la clé `rayon` — les rayons PAR COIN viendront avec
-					// le vocabulaire Lunacy, nommés au rapport).
+					// ── ARRONDI : UN CHAMP, OU QUATRE ─────────────────────────
+					// 🔑 L'ACCES DEPUIS L'ETAT ORDINAIRE (Rodolf, 02/09 : *« on n'a
+					//    pas toujours les arrondis par sommet »*). La mesure a
+					//    montre que le modele et le peintre etaient COMPLETS et
+					//    que seul l'ACCES manquait : le seul geste qui posait un
+					//    rayon fin vivait en mode d'edition de forme. *Une
+					//    propriete qu'aucun geste n'atteint depuis l'etat
+					//    ordinaire est, pour la main, une propriete absente.*
+					//
+					// ⚠️ ET LA REFERENCE DIT `Alt` + GLISSER LA POIGNEE — on ne la
+					//    suit PAS ici, et c'est mesure, pas preferé : `Alt` est
+					//    DEJA pris par le redimensionnement centre
+					//    (`NkRedimModifie`). Suivre la source a la lettre aurait
+					//    vole un geste existant pour en offrir un autre -- on ne
+					//    troque pas une capacite contre une capacite. L'acces
+					//    passe donc par l'Inspecteur, ou Rodolf cherche ses
+					//    proprietes ; la poignee de toile reste NOMMEE au rapport.
 					{
 						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 						const float32 x0 = r.x + 12.f;
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Arrondi",
 									   ctx.theme.textMuted);
-						const NkRect rr = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
-						// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
-						ChampNombreMulti(
-							ctx, "insp.app.rayon", rr, 0.5f, 0.f, 128.f,
-							[](const NkUINode &q) { return q.radius; },
-							[](NkUINode &q, float32 v) { q.radius = v; });
-						costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
-									   costume::CentrerBande(F.px9, r.y), "px",
-									   ctx.theme.textMuted);
+						const float32 colA = ColChampsCalc(r.w - 24.f);
+						const NkRect rr = {x0 + colA, costume::BandeY(r.y), 48.f, costume::HControle};
+						NkUINode *na = NoeudMutable();
+						const bool delies = na && na->rayonsDelies;
+						if (!delies) {
+							// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
+							ChampNombreMulti(
+								ctx, "insp.app.rayon", rr, 0.5f, 0.f, 128.f,
+								[](const NkUINode &q) { return q.radius; },
+								[](NkUINode &q, float32 v) { q.radius = v; });
+							// ⚠️ « px » NE S'ECRIT QUE S'IL Y A LA PLACE avant le
+							//    bouton de lien : la capture les montrait colles.
+							//    Sous contrainte, c'est le LIBELLE qui cede -- la
+							//    meme regle que la colonne des champs.
+							if (rr.x + rr.w + 4.f + 14.f < r.x + r.w - 12.f - 62.f - 6.f)
+								costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
+											   costume::CentrerBande(F.px9, r.y), "px",
+											   ctx.theme.textMuted);
+						}
+						// LE BOUTON DE LIEN — l'acces, et il DIT son etat.
+						// ⚠️ Il ne parait que sur un noeud : sur une multi-selection
+						//    ou un vide, delier n'aurait pas de cible unique.
+						if (na) {
+							const float32 wl = 62.f;
+							const NkRect rl = {r.x + r.w - 12.f - wl, costume::BandeY(r.y), wl,
+											   costume::HControle};
+							const bool svl =
+								ctx.popupDepth == 0 && NkGuiRectContains(rl, ctx.input.mousePos);
+							dl.AddRect(rl, (delies || svl) ? ctx.theme.accent : ctx.theme.border,
+									   1.f, 4.f);
+							costume::Texte(dl, F.px9, rl.x + (float32)costume::EspSerre,
+										   costume::CentrerBande(F.px9, r.y),
+										   delies ? "4 coins" : "lier",
+										   (delies || svl) ? ctx.theme.accent
+														   : ctx.theme.textMuted);
+							if (svl && ctx.input.mouseClicked[0]) {
+								if (delies) {
+									// RELIER : on garde le PREMIER coin comme rayon
+									// commun -- jamais une moyenne, qui n'est le
+									// choix de personne.
+									na->radius = na->rayonsCoins[0];
+									na->rayonsDelies = false;
+									mSt->DireAuPied("Arrondi relié — les quatre coins suivent "
+													"le premier.");
+								} else {
+									// DELIER : les quatre partent de la valeur
+									// actuelle. Delier ne doit RIEN changer a
+									// l'ecran, sinon le geste ferait deux choses.
+									for (uint32 ci = 0; ci < 4u; ++ci)
+										na->rayonsCoins[ci] = na->radius;
+									na->rayonsDelies = true;
+									mSt->DireAuPied("Arrondi délié — chaque coin se règle "
+													"séparément.");
+								}
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								mSt->host.SyncTo(mSt->doc);
+							}
+						}
+					}
+					// LES QUATRE COINS, quand ils sont déliés : deux rangées de
+					// deux, dans l'ordre HORAIRE depuis le haut-gauche.
+					if (NkUINode *nc = NoeudMutable()) {
+						if (nc->rayonsDelies) {
+							static const char *const kNomsCoins[4] = {"haut-gauche", "haut-droit",
+																	  "bas-droit", "bas-gauche"};
+							for (uint32 ci = 0; ci < 4u; ++ci) {
+								const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+								const float32 x0 = r.x + 12.f;
+								costume::Texte(dl, F.px10, x0,
+											   costume::CentrerBande(F.px10, r.y),
+											   kNomsCoins[ci], ctx.theme.textMuted);
+								const NkRect rc2 = {x0 + ColChampsCalc(r.w - 24.f),
+													costume::BandeY(r.y), 48.f,
+													costume::HControle};
+								char idc[40];
+								snprintf(idc, sizeof(idc), "insp.app.coin%u", ci);
+								float32 v = nc->rayonsCoins[ci];
+								if (ChampNombre(ctx, idc, rc2, v, 0.5f, 0.f, 128.f)) {
+									nc->rayonsCoins[ci] = v;
+									mSt->doc.MarkHumanEdit(mSt->selected);
+									mSt->host.SyncTo(mSt->doc);
+								}
+								costume::Texte(dl, F.px9, rc2.x + rc2.w + 4.f,
+											   costume::CentrerBande(F.px9, r.y), "px",
+											   ctx.theme.textMuted);
+							}
+						}
 					}
 					// ── ROTATION ET MIROIRS (Lunacy, bandeau du haut) ────────
 					// Retour de Rodolf, 01/09 : « dans propriétés il n'y a pas

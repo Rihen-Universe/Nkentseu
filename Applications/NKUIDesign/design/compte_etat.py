@@ -62,6 +62,17 @@ def est_legende(cellules):
 #       il faut que l'auteur le dise. D'ou ce marqueur, pose sur la ligne qui
 #       precede la table :   <!-- PAS-UN-COMPORTEMENT -->
 #    Les lignes de table qui suivent sont ignorees jusqu'a la fin du bloc.
+# 🔴 REGLE D'ECRITURE, PAYEE DEUX FOIS : LE MARQUEUR SE COLLE A LA TABLE,
+#    sur la ligne IMMEDIATEMENT au-dessus de son en-tete.
+#    Pose deux lignes plus haut -- avant un titre, un paragraphe, une ligne
+#    vide suivie de texte -- il est REFERME par la premiere ligne non-table,
+#    et la table se compte quand meme. C'est arrive le 02/09 (table des trois
+#    miroirs, 174 -> 177) puis le 03/09 (table des sommets, 174 -> 180) :
+#    **les deux fois le total a monte sans qu'une ligne de code change.**
+#    ⚠️ LA FERMETURE AUTOMATIQUE N'EST PAS LE DEFAUT -- c'est elle qui
+#       empeche une trappe ouverte d'avaler la fin du fichier. Le defaut est
+#       de l'oublier EN ECRIVANT le document, d'ou cette regle ici, a
+#       l'endroit exact ou on vient chercher le nom du marqueur.
 MARQUE_HORS_COMPTE = u"<!-- PAS-UN-COMPORTEMENT -->"
 
 
