@@ -38,19 +38,19 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **66** | **25** | **82** | **1** |
+| **174** | **68** | **25** | **80** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
 | chapitre | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| 1. Édition vectorielle | 20 | 6 | 7 | 0 |
+| 1. Édition vectorielle | 21 | 5 | 7 | 0 |
 | 2. Outils de tracé et leurs modificateurs | 5 | 7 | 8 | 0 |
 | 3. Opérations booléennes et de forme | 0 | 0 | 8 | 0 |
 | 4. Sélection et navigation | 8 | 0 | 5 | 0 |
-| 5. Toile et vue | 2 | 4 | 10 | 0 |
+| 5. Toile et vue | 3 | 4 | 9 | 0 |
 | 6. Transformations | 13 | 1 | 7 | 0 |
-| 7. Calques et groupes | 8 | 1 | 7 | 1 |
+| 7. Calques et groupes | 8 | 2 | 6 | 1 |
 | 8. Propriétés | 10 | 5 | 21 | 0 |
 | 9. Composants et instances | 0 | 1 | 9 | 0 |
 
@@ -62,7 +62,6 @@ main** — la prochaine régénération l'effacerait.*
 - Sortir
 - Le curseur devient la plume, et la section `Edit shape` apparaît
 - Sélectionner plusieurs points
-- Supprimer un point
 - Escamoter une poignée d'un point déconnecté
 
 **2. Outils de tracé et leurs modificateurs**
@@ -89,6 +88,7 @@ main** — la prochaine régénération l'effacerait.*
 **7. Calques et groupes**
 
 - Créer un cadre
+- Verrouiller / masquer
 
 **8. Propriétés**
 
@@ -147,7 +147,6 @@ main** — la prochaine régénération l'effacerait.*
 **5. Toile et vue**
 
 - Zoom fin
-- Zoom 100 % / ajuster / sélection / largeur / hauteur
 - Outil Zoom (`Z`, `Alt+Z`)
 - Guides (créer, déplacer, supprimer)
 - Désactiver l'aimant pendant un glisser
@@ -169,7 +168,6 @@ main** — la prochaine régénération l'effacerait.*
 
 **7. Calques et groupes**
 
-- Verrouiller / masquer
 - Duplication répétée qui rejoue le dernier décalage
 - Copier / coller le style
 - Grille répétée (*Repeat grid*)
@@ -312,7 +310,7 @@ aucun blocage moteur.
 
 | chantier | ce qu'il ouvre | coût |
 |---|---|---|
-| **Verrouiller / masquer** | 1 ligne, mais très demandée | **petit** — deux booléens par nœud, honorés au **pointage** *et* au **dessin** |
+| ~~Verrouiller / masquer~~ | ✅ **modèle fait le 02/09** — pointage, dessin, héritage, format additif | il ne reste que **les deux icônes dans la Hiérarchie** (groupe **c**) |
 | **Tracés ouverts** (`fermé` par nœud) | « Close path », « Open path », extrémités (*caps*), **et la plume** | **moyen** — le peintre et le round-trip doivent l'honorer |
 | **Dégradés + remplissage image** | 3 lignes de §8, très visibles en maquette | **moyen** |
 | **Texte : ajustement auto, troncature, décorations** | ~8 lignes de §8 | **moyen**, découpable en petits lots |
@@ -323,8 +321,7 @@ aucun blocage moteur.
 
 *Le meilleur rapport après (a). Chacun est un branchement, pas une conception.*
 
-- **`Suppr` sur un sommet** — `NkSupprimerSommet` **existe** et refuse sous trois
-  sommets ; **aucun geste ne l'appelle** ;
+- ✅ ~~`Suppr` sur un sommet~~ — **fait le 02/09** (cas 51) ;
 - **élastique sur les sommets** — l'élastique existe sur les objets ; il faut
   distinguer clic et glisser au relâchement, sans rouvrir la porte de sortie du
   mode ;
@@ -339,9 +336,12 @@ aucun blocage moteur.
   redimensionnement existent séparément ;
 - **chercher un calque par son nom** — le champ de recherche existe déjà dans le
   menu contextuel ;
-- **les zooms `Ctrl+0..4` et l'outil Zoom (`Z`)** — descendus du groupe (a) le
-  02/09 : la vue sait zoomer, le cluster de zoom est à l'écran, et **les touches
-  sont désormais toutes reçues**. Il ne reste qu'à les lier.
+- **les deux icônes verrou / œil dans la Hiérarchie** — le modèle est livré et
+  mesuré (02/09) ; **aucune porte d'interface ne le touche encore**, donc les
+  drapeaux ne sont atteignables que par un fichier. C'est le meilleur rapport
+  du groupe : le mécanisme est déjà tenu par une recette ;
+- ✅ ~~les zooms `Ctrl+0..4`~~ — **faits le 02/09** (cas 52) ; **l'outil Zoom
+  (`Z`) reste à poser** — c'est un outil, pas un raccourci de vue.
 
 ---
 
