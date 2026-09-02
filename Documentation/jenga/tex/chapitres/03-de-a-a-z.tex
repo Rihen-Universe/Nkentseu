@@ -1,4 +1,5 @@
 \chapter{Un projet de A à Z, en cinq commandes}
+\label{ch:aaz}
 
 Ce chapitre part d'un dossier vide et arrive à un programme qui s'exécute. Cinq
 commandes, et rien d'autre.
@@ -12,23 +13,47 @@ enchaînant ces commandes. Rien n'est recopié de mémoire.
 jenga workspace Bonjour --no-interactive
 \end{nkcode}
 
-Quatre fichiers apparaissent :
+Trois fichiers apparaissent :
 
 \begin{nkcode}{Ce que la commande a produit}
 Bonjour/.gitignore
 Bonjour/Bonjour.jenga
 Bonjour/pyrightconfig.json
-Bonjour/.vscode/settings.json
 \end{nkcode}
 
 \begin{nkretenir}
-\textbf{Deux des quatre ne servent qu'à votre éditeur.}
-\texttt{pyrightconfig.json} et \texttt{.vscode/settings.json} font que
-l'auto-complétion connaît le vocabulaire Jenga dans vos \texttt{.jenga} --- qui
-sont du Python, donc analysables.
+\textbf{Un des trois ne sert qu'à votre éditeur.}
+\texttt{pyrightconfig.json} fait que l'auto-complétion connaît le vocabulaire
+Jenga dans vos \texttt{.jenga} --- qui sont du Python, donc analysables. Il
+n'appartient à aucun éditeur en particulier : tout client \textsc{lsp} le lit,
+NKCode compris.
 
 Le seul fichier qui compte pour la construction est \texttt{Bonjour.jenga}.
 \end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Jusqu'au 2 septembre 2026, il y en avait \emph{quatre}} --- un
+\texttt{.vscode/settings.json} apparaissait aussi, pour un éditeur que vous
+n'aviez peut-être jamais ouvert. La fonction de détection finissait par
+« si rien n'est détecté, on assume VSCode ».
+
+Ce n'est pas le dossier de trop qui était grave, c'est qu'il \textbf{se
+confirmait lui-même} : le \texttt{.vscode/} ainsi créé était \emph{ensuite}
+détecté par le test qui décide d'écrire, donc une \emph{supposition} du premier
+passage devenait un \emph{fait} au second, définitivement --- et plus personne
+ne pouvait répondre à « qui a voulu ce dossier ? ».
+
+Jenga n'écrit désormais que pour un éditeur \textbf{dont la trace existe} :
+\texttt{.vscode/}, \texttt{.idea/}, \texttt{.nkcode/}\ldots Sans trace, seul
+\texttt{pyrightconfig.json} sort. Un utilisateur de VSCode qui part de zéro le
+demande une fois, et c'est tout :
+
+\begin{nkcode}{}
+jenga ide-setup --editor vscode
+\end{nkcode}
+
+\emph{Un opt-in explicite vaut mieux qu'un dossier apparu tout seul.}
+\end{nkpiege}
 
 Et voici ce qu'il contient --- lisez-le, il tient en dix lignes utiles :
 

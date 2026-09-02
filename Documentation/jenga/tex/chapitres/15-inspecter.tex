@@ -74,11 +74,46 @@ jenga ide
 
 \begin{nkretenir}
 Elle écrit ce qu'il faut pour que votre éditeur comprenne le projet ---
-\texttt{.vscode/settings.json}, \texttt{pyrightconfig.json}, et le dossier
-\texttt{.jenga-typings/} du chapitre 2.
+\texttt{pyrightconfig.json}, le dossier \texttt{.jenga-typings/} du chapitre 2,
+et le fichier de réglages \textbf{de chaque éditeur qu'elle détecte}.
 
 \texttt{jenga workspace} l'a déjà fait à la création. On la relance après avoir
 ajouté des projets, ou quand l'auto-complétion s'égare.
+\end{nkretenir}
+
+\textbf{« Détecte » est le mot qui compte.} Jenga cherche une trace, et n'écrit
+que pour ce qu'il trouve :
+
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{ce qu'il cherche} & \textbf{ce qu'il en conclut} \\
+\midrule
+\texttt{.vscode/} & VSCode \\
+\texttt{.nkcode/} & NKCode \\
+\texttt{.idea/} ou \texttt{*.iml} & JetBrains \\
+\texttt{*.sublime-project} & Sublime \\
+\texttt{.nvim.lua} ou \texttt{init.lua} & Neovim \\
+\midrule
+\emph{rien de tout cela} & \texttt{pyrightconfig.json} seul \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Sans trace, aucun dossier d'éditeur n'est créé --- voir l'encadré du
+chapitre~\ref{ch:aaz}. Pour en obtenir un la première fois, on le demande :
+
+\begin{nkcode}{}
+jenga ide-setup --editor vscode
+jenga ide-setup --editor lsp
+jenga ide-setup --info
+\end{nkcode}
+
+\begin{nkretenir}
+\texttt{-{}-info} \textbf{n'écrit rien}. C'est la forme à employer quand on
+veut seulement savoir ce que Jenga croit voir --- et c'est aussi la façon de
+vérifier qu'il vous a bien reconnu avant de le laisser écrire.
 \end{nkretenir}
 
 \section{\texttt{gen} --- produire un autre système de construction}
@@ -94,7 +129,7 @@ jenga gen --makefile
 --- un analyseur, un profileur, un éditeur --- exige un \texttt{CMakeLists.txt} ou
 une solution Visual Studio.
 
-⚠️ \textbf{Le fichier produit est un instantané.} Il ne se met pas à jour quand
+\alerte{} \textbf{Le fichier produit est un instantané.} Il ne se met pas à jour quand
 votre \texttt{.jenga} change. Deux descriptions coexistent alors, et elles
 divergeront --- c'est mécanique.
 

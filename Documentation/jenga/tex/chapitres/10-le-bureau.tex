@@ -91,7 +91,7 @@ with filter("system:Linux && options:linux-backend=xlib || "
 sans le suffixe, construire pour Wayland écraserait la construction XLib, et
 l'on lancerait un binaire lié aux mauvaises bibliothèques.
 
-⚠️ \textbf{Le corollaire coûte cher aux scripts} : le dossier n'est pas
+\alerte{} \textbf{Le corollaire coûte cher aux scripts} : le dossier n'est pas
 \texttt{Release-Linux} mais \texttt{Release-Linux-xlib}. Un empaqueteur qui code
 le premier en dur échoue sur une construction \textbf{réussie} --- mesuré sur ce
 dépôt.
