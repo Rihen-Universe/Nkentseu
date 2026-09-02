@@ -1415,3 +1415,89 @@ celui du §10.2 : Noge n'exerce pas encore `NKAnimPhysics`. Et la question du
 bloc 6 (étage de `NkSkeletonDef`) se répond maintenant plus précisément :
 **le candidat naturel est `NKAnimation`** — c'est là que vivent déjà le
 reciblage et le mélange que le squelette sert.
+---
+
+# MESURE 12 — `NkAnima` / `NkAnimaEditor` : la fiche AVANT tout renommage
+
+> Mandat de Rodolf : *« NKAnimation doit s'appeler NkAnima, et NkAnima doit
+> s'appeler NkAnimaEditor — on ne doit pas avoir NkAnima ET NkAnimaEditor. »*
+> **PHASE 1 : mesure seule. Rien n'a été renommé ni supprimé.**
+
+## 12.1 🔴 LA DÉCOUVERTE QUI CHANGE LA CONSIGNE : `NkAnima` N'EST PAS UNE APPLICATION
+
+| | `Applications/NkAnima` | `Applications/NkAnimaEditor` |
+|---|---|---|
+| fichiers | **1** | 15 |
+| lignes de code (`.h`+`.cpp`) | **0** | **1 859** |
+| `.jenga` | **aucun** | ✅ `NkAnimaEditor.jenga` |
+| cible du workspace | **non** (0 occurrence dans `Nkentseu.jenga`) | ✅ |
+| dernier commit | `528fc4b6`, 17/08 | `3bf761d7`, 17/08 (43 s plus tard) |
+| contenu | **`ROADMAP.md`, 598 lignes** | `main.cpp`, `AnimBridge`, `Panels.h`, `NkRagdollBridge.h`, spécifications, PDF |
+
+> 🔴 **`Applications/NkAnima/` ne contient AUCUN code. C'est un dossier qui porte
+> UN DOCUMENT** — la feuille de route de toute la direction animation, 598
+> lignes. Ce n'est ni un brouillon, ni un ancêtre de `NkAnimaEditor` : **c'est
+> une autre nature de chose.**
+
+⚠️ **Et il est RÉFÉRENCÉ, deux fois, comme lecture de démarrage.**
+`Nkentseu/CLAUDE.md` (dépôt principal) :
+```
+l.65 : App d'animation physiquement correcte + IA (style Cascadeur)
+       → [NkAnima](Applications/NkAnima/ROADMAP.md).
+l.68 : Roadmap détaillée + milestones + état audit :
+       [Applications/NkAnima/ROADMAP.md] — à lire au démarrage.
+```
+**Supprimer ce dossier casserait deux liens du fichier de démarrage et
+détruirait 598 lignes de pilotage.** C'est exactement le cas que la consigne
+« résous ce problème » n'a pas pu prévoir.
+
+📌 **Donc « on ne doit pas avoir les deux » se résout SANS suppression** : il n'y
+a pas deux applications, il y a **une application et un document mal rangé**.
+La question qui reste est *où va le document* — et elle appartient à Rodolf
+(voir §12.4).
+
+## 12.2 ✅ LE RENOMMAGE DE LA BIBLIOTHÈQUE — coût mesuré, et une bonne nouvelle
+
+`NKAnimation` → `NKAnima` (casse du noyau conservée, `NK` majuscule) :
+
+- **48 fichiers** citent `NKAnimation` (hors `Build/`) : 9 dans le module
+  lui-même, 5 dans Noge, 4 dans NKRenderer, 2 Sandbox, 2 PV3DE, 2 Nogee, 3 à la
+  racine, 1 docs, le reste dispersé ;
+- ⭐ **l'espace de noms est `nkentseu::anim`, PAS `nkentseu::animation`** — le
+  renommage du module **ne touche donc AUCUN espace de noms**. Le chantier que
+  le coordinateur redoutait n'existe pas : c'est un renommage de dossier, de
+  `.jenga` et de chemins d'include. Rien de sémantique.
+- ✅ **aucune collision** : `grep NKAnima\b` sur tout le dépôt → **zéro**. Le
+  nom cible est libre.
+
+## 12.3 ⚠️ LE PIÈGE DE CASSE N'EXISTE PAS ICI — mais git est configuré autrement qu'on le croit
+
+L'ordre recommandé (application d'abord) partait de l'idée que `NKAnima` et
+`NkAnima` seraient **voisins**. ✅ Mesuré : ils ne le sont pas —
+`Kernel/Runtime/NKAnima` et `Applications/NkAnima` ont des parents différents,
+donc **aucune collision de dossiers frères**.
+
+🔴 **En revanche, une mesure inattendue** : `git config core.ignorecase` rend
+**`true`** dans cet arbre. Git est configuré **insensible à la casse** ici —
+l'inverse de l'hypothèse. Ça n'empêche pas le renommage (les deux noms vivent
+dans des dossiers différents), mais **tout renommage qui ne changerait QUE la
+casse d'un même chemin serait à faire en deux temps** (`git mv X tmp && git mv
+tmp x`). Aucun de nos deux cas n'est dans cette situation — c'est noté pour la
+prochaine fois.
+
+## 12.4 ❓ CE QUI RESTE À RODOLF — la question que « résous » ne couvrait pas
+
+Le renommage de bibliothèque (§12.2) est mécanique, sans namespace, sans
+collision : **je peux le faire**. Mais le sort du document ne se devine pas.
+Trois options, et je n'en choisis aucune :
+
+1. **`ROADMAP.md` rejoint l'application** → `Applications/NkAnimaEditor/ROADMAP.md`
+   (les deux liens de `CLAUDE.md` sont à corriger) ;
+2. **il rejoint la bibliothèque** → `Kernel/Runtime/NKAnima/ROADMAP.md` — il
+   parle beaucoup de milestones moteur (IK, blend, physique de pose), donc
+   c'est défendable ;
+3. **il reste où il est** et on accepte qu'`Applications/NkAnima/` soit un
+   dossier de documentation, pas une application.
+
+⚠️ **Aucune suppression n'est justifiable** dans les trois cas : le document est
+vivant et référencé au démarrage.
