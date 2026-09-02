@@ -292,6 +292,14 @@ modèles dont un seul membre exerçait le sous-dossier `textures/`.
 | **macOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
 | **iOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
 
+> 📌 **CE DÉCOMPTE A ÉTÉ DÉPASSÉ LE MÊME JOUR** — la note ci-dessous dit « 3
+> cibles sur 7 » parce qu'elle a été écrite **avant** que le Web ne passe au
+> vert (ligne `Web` du tableau, quelques heures plus tard). **Le compte à jour
+> est 4 sur 7**, et la carte complète — les 7 cibles, avec pour chacune
+> exactement ce qu'il faut pour la faire passer — vit désormais **en un seul
+> endroit** : `Engine/Noge/DECISIONS_RODOLF.md`, section 9. *Deux décomptes dans
+> deux documents, c'est un de trop.*
+>
 > ⭐ **MISE À JOUR 2026-09-02 — LINUX PASSE AU VERT : 3 cibles sur 7.** La
 > décision combine deux choses et les nomme : la **capture du 29/07** (HUD lu de
 > mes yeux, bon chemin, jumelle Windows à 4 minutes d'écart) et le **témoignage
