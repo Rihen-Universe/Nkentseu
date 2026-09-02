@@ -8539,7 +8539,7 @@ namespace nkuidesign {
 					if (i == mOnglet) {
 						costume::TexteGras(dl, F.px11, tx, ty, kO[i], ctx.theme.text, 0.5f);
 						const float32 lw = tw + 16.f;
-						dl.AddRectFilled({c.x + (colW - lw) * 0.5f, c.y + 28.f, lw, 2.f},
+						dl.AddRectFilled({c.x + (colW - lw) * 0.5f, c.y + 30.f - 2.f, lw, 2.f},
 										 ctx.theme.accent);
 					} else
 						costume::Texte(dl, F.px11, tx, ty, kO[i], ctx.theme.textMuted);
@@ -8658,7 +8658,8 @@ namespace nkuidesign {
 					if (s->ouvert)
 						costume::ChevronBas9(dl, x - 1.f, ty, ctx.theme.textMuted);
 					else
-						costume::ChevronReplie8(dl, x, ty + 1.f, ctx.theme.textMuted);
+						costume::ChevronReplie8(dl, x, ty + 1.f, // [hors-echelle: alignement de glyphes 8/9]
+												ctx.theme.textMuted);
 					x += 12.f;
 				}
 				costume::TexteGras(dl, F.px9, x, ty, titre, ctx.theme.textMuted, 0.4f);
@@ -8696,7 +8697,7 @@ namespace nkuidesign {
 					const NkRect rp = {r.x + r.w - 28.f, r.y + 4.f, 16.f, 16.f};
 					const bool sv =
 						ctx.popupDepth == 0 && NkGuiRectContains(rp, ctx.input.mousePos);
-					costume::IcPlus(dl, rp.x + 3.f, rp.y + 3.f,
+					costume::IcPlus(dl, rp.x + (16.f - 10.f) * 0.5f, rp.y + (16.f - 10.f) * 0.5f,
 									sv ? ctx.theme.accent : ctx.theme.textMuted);
 					if (sv && ctx.input.mouseClicked[0]) {
 						plusPris = true; // le clic du « + » n'est PAS un clic de repli
@@ -8756,8 +8757,8 @@ namespace nkuidesign {
 				auto &F = costume::Fontes();
 				const nkgui::NkGuiFont &f = petit ? F.px10 : F.px11;
 				dl.PushClipRect(r, true);
-				costume::Texte(dl, f, r.x + 6.f, costume::CentrerY(f, r.y, r.h), texte,
-							   ctx.theme.text);
+				costume::Texte(dl, f, r.x + costume::PadChamp, costume::CentrerY(f, r.y, r.h),
+							   texte, ctx.theme.text);
 				dl.PopClipRect();
 			}
 
@@ -8993,8 +8994,8 @@ namespace nkuidesign {
 					float32 sx = 0.f, sy = 0.f, ra = 0.f;
 					if (unSelectionne && rb.w > 0.f && rb.h > 0.f
 						&& NkLireSommet(n, (uint32)iSel, sx, sy, ra)) {
-						float32 px = (sx + 1.f) * 0.5f * rb.w;
-						float32 py = (sy + 1.f) * 0.5f * rb.h;
+						float32 px = (sx + 1.f) * 0.5f * rb.w; // [hors-echelle: mathematique, pas un espacement]
+						float32 py = (sy + 1.f) * 0.5f * rb.h; // [hors-echelle: mathematique, pas un espacement]
 						// ⚠️ LA MATÉRIALISATION EST ICI, DANS LA BRANCHE QUI ÉCRIT,
 						//    et pas une ligne plus haut : c'est la seule place où
 						//    elle ne transforme pas un regard en modification.
@@ -9483,11 +9484,12 @@ namespace nkuidesign {
 				auto &dl = ctx.DL();
 				dl.AddRectFilled(r, CouleurInput(), 4.f);
 				dl.AddRect(r, ctx.theme.border, 1.f, 4.f);
-				dl.AddRectFilled({r.x + 1.f, r.y + 3.f, 3.f, r.h - 6.f}, axe, 1.5f);
+				dl.AddRectFilled({r.x + 1.f, r.y + 3.f, 3.f, r.h - 6.f}, // [hors-echelle: barre d'axe, transcrite de la maquette]
+								 axe, 1.5f);
 				auto &F = costume::Fontes();
 				dl.PushClipRect(r, true);
-				costume::Texte(dl, F.px11, r.x + 9.f, costume::CentrerY(F.px11, r.y, r.h), texte,
-							   ctx.theme.text);
+				costume::Texte(dl, F.px11, r.x + 9.f, // [hors-echelle: apres la barre d'axe transcrite]
+							   costume::CentrerY(F.px11, r.y, r.h), texte, ctx.theme.text);
 				dl.PopClipRect();
 			}
 			/// LA RANGÉE D'AXE EN MULTI-SÉLECTION : « — » quand c'est MIXTE, et
@@ -9950,7 +9952,7 @@ namespace nkuidesign {
 				const float32 cy = b.y + b.h * 0.5f;
 				dl.AddLine({cx + 5.f, cy - 4.f}, {cx + 5.f, cy + 4.f}, ctx.theme.textMuted, 1.3f);
 				dl.AddLine({cx + 1.f, cy}, {cx + 9.f, cy}, ctx.theme.textMuted, 1.3f);
-				costume::TexteGras(dl, F.px11, cx + 15.f, costume::CentrerY(F.px11, b.y, b.h),
+				costume::TexteGras(dl, F.px11, cx + 10.f + 5.f, costume::CentrerY(F.px11, b.y, b.h),
 								   lib, ctx.theme.textMuted, 0.3f);
 				if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
 					&& NkGuiRectContains(b, ctx.input.mousePos))
@@ -10039,7 +10041,8 @@ namespace nkuidesign {
 								   "Police", ctx.theme.textMuted);
 					const NkRect rb = {x0 + wLib, costume::BandeY(r.y), x1 - x0 - wLib, costume::HControle};
 					BoiteChamp(ctx, rb, "Inter");
-					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 9.f,
+					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f,
+										   rb.y + (costume::HControle - 4.f) * 0.5f,
 										   ctx.theme.textMuted);
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
 						&& NkGuiRectContains(rb, ctx.input.mousePos))
@@ -10060,7 +10063,8 @@ namespace nkuidesign {
 										: fw >= 400 ? "Regular"
 													: "\xE2\x80\x94 (défaut)";
 					BoiteChamp(ctx, rb, nomFw);
-					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 9.f,
+					costume::ChevronCombo7(dl, rb.x + rb.w - 13.f,
+										   rb.y + (costume::HControle - 4.f) * 0.5f,
 										   ctx.theme.textMuted);
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
 						&& NkGuiRectContains(rb, ctx.input.mousePos)) {
