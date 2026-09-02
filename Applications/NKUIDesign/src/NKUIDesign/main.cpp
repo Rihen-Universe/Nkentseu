@@ -178,9 +178,17 @@ static constexpr int32 kCaptureFramePrete = 8;
 ///    témoigne que du vide.* Ce drapeau met l'inspecteur dans l'état PLEIN.
 static char gSelectionner[128] = {0};
 
-static void CaptureTick(NkEditorFrameContext &, void *user) {
+static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 	NkEditorShell *sh = static_cast<NkEditorShell *>(user);
 	++gCaptureFrame;
+	// ⚠️ LE CURSEUR PHYSIQUE FUIT DANS LA PHOTO — mesure le 02/09 : deux
+	//    captures du MEME etat differaient sur un bouton… parce que la souris
+	//    de la machine survolait ce bouton pendant l'une des deux. La fenetre
+	//    s'ouvre sous le curseur, ou qu'il soit ; le survol depend donc d'ou
+	//    la main de l'utilisateur a laisse sa souris. On neutralise DANS NOTRE
+	//    CONTEXTE (jamais la vraie souris : elle ne nous appartient pas) : la
+	//    position est repoussee hors ecran a chaque frame, avant les panneaux.
+	ec.Ui().input.mousePos = {-10000.f, -10000.f};
 	if (gCaptureFrame == 1 && gSelectionner[0]) {
 		nkentseu::int32 trouve = -1;
 		for (nkentseu::uint32 k = 0; k < (nkentseu::uint32)gDesign.doc.nodes.Size(); ++k)

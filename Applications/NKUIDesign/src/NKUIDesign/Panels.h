@@ -3248,7 +3248,8 @@ namespace nkuidesign {
 						};
 						tirets(r.y + hTop);
 						tirets(r.y + r.h - hBas2);
-						costume::Texte(dlz, costume::Fontes().px9, r.x + 6.f, r.y + hTop - 13.f,
+						costume::Texte(dlz, costume::Fontes().px9, r.x + (float32)costume::EspNormal,
+								   r.y + hTop - 13.f,
 									   "zone sûre", pointille);
 					}
 					(void)pz;
@@ -4199,13 +4200,14 @@ namespace nkuidesign {
 							char btxt[48];
 							snprintf(btxt, sizeof(btxt), "%s", affiche);
 							// largeur mesurée sur la vraie police 9 px du costume
-							const float32 bw = 12.f + costume::Largeur(costume::Fontes().px9, btxt);
+							const float32 bw = 2.f * costume::PadChamp
+											   + costume::Largeur(costume::Fontes().px9, btxt);
 							const NkPaintRect pb{rs.x, rs.y - 19.f, bw, 16.f};
 							paint.FillColor(pb, (teinte & 0xFFFFFF00u) | 0x22u, 8.f);
 							// MOBILIER d'editeur : corps de la maquette via
 							// CorpsMaquette (TextHex rend le corps demande
 							// EXACTEMENT depuis la correction zoom du 31/08).
-							paint.TextHex({pb.x + 6.f, pb.y, pb.w, pb.h}, btxt, teinte, accent,
+							paint.TextHex({pb.x + costume::PadChamp, pb.y, pb.w, pb.h}, btxt, teinte, accent,
 										  editorkit::NkTextAlign::Left,
 										  costume::CorpsMaquette(9.f), 600.f);
 						}
@@ -4248,11 +4250,11 @@ namespace nkuidesign {
 								&& NkGuiRectContains(pille, ctx.input.mousePos))
 								mMenuAppareil = !mMenuAppareil;
 							if (mMenuAppareil) {
-								const NkRect mnu = {pille.x - 80.f, pille.y + 28.f, 230.f,
+								const NkRect mnu = {pille.x - 80.f, pille.y + pille.h + 4.f, 230.f,
 													60.f};
 								// la zone consommée couvre pilule + menu
 								mZoneAppareil = {mnu.x, pille.y, mnu.w + 80.f,
-												 28.f + mnu.h};
+												 pille.h + 4.f + mnu.h};
 								dlp.AddRectFilled({mnu.x - 1.f, mnu.y + 3.f, mnu.w + 2.f,
 												   mnu.h + 4.f},
 												  {0, 0, 0, 60}, 10.f);
@@ -4273,8 +4275,7 @@ namespace nkuidesign {
 											   "\xE2\x9C\x93", ctx.theme.textMuted);
 								// rangée 2 : « Générer la version mobile » — grisée
 								// avec raison si la page est DÉJÀ une cible Mobile.
-								const NkRect r2 = {mnu.x + 4.f, mnu.y + 30.f, mnu.w - 8.f,
-												   24.f};
+								const NkRect r2 = {r1.x, r1.y + r1.h + 2.f, r1.w, r1.h};
 								const bool dejaMobile = !selN.target.Empty()
 														&& selN.target.Data()[0] == 'M';
 								const bool svr2 =
@@ -5206,7 +5207,8 @@ namespace nkuidesign {
 						nomSel = mSt->doc.nodes[(uint32)mSt->selected].label.Data();
 					const float32 wl = costume::Largeur(F.px10, "Portée :");
 					const float32 wn = costume::Largeur(F.px11, nomSel);
-					const NkRect bp = {zone.x + 14.f, zone.y + 12.f, wl + wn + 34.f, 26.f};
+					const NkRect bp = {zone.x + (float32)costume::EspLarge,
+									   zone.y + (float32)costume::EspLarge, wl + wn + 34.f, 26.f};
 					dlg.AddRectFilled(bp, {26, 32, 48, 255}, 5.f);
 					dlg.AddRect(bp, {42, 53, 72, 255}, 1.f, 5.f);
 					costume::Texte(dlg, F.px10, bp.x + 10.f,
@@ -5438,7 +5440,8 @@ namespace nkuidesign {
 						lw[i] = 12.f + 11.f + 4.f + costume::Largeur(F.px11, kModes[i]) + 12.f;
 						w += lw[i];
 					}
-					const NkRect r = {zone.x + (zone.w - w) * 0.5f, zone.y + 14.f, w, h};
+					const NkRect r = {zone.x + (zone.w - w) * 0.5f,
+									  zone.y + (float32)costume::EspLarge, w, h};
 					mZoneModes = r; // HandleMouse ne doit pas voir ses clics
 					dl.AddRectFilled({r.x - 1.f, r.y + 2.f, r.w + 2.f, r.h + 4.f},
 									 {0, 0, 0, 50}, 8.f); // l'ombre portée, approchée
@@ -5462,10 +5465,10 @@ namespace nkuidesign {
 							costume::ModeSplit(dl, c.x + 12.f, iy, ic);
 						const float32 ty = costume::CentrerY(F.px11, c.y, h);
 						if (i == mMode)
-							costume::TexteGras(dl, F.px11, c.x + 27.f, ty, kModes[i],
+							costume::TexteGras(dl, F.px11, c.x + 12.f + 11.f + 4.f, ty, kModes[i],
 											   ctx.theme.onAccent, 0.3f);
 						else
-							costume::TexteGras(dl, F.px11, c.x + 27.f, ty, kModes[i],
+							costume::TexteGras(dl, F.px11, c.x + 12.f + 11.f + 4.f, ty, kModes[i],
 											   ctx.theme.textMuted, 0.3f);
 						if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0
 							&& NkGuiRectContains(c, ctx.input.mousePos)) {
@@ -5796,9 +5799,9 @@ namespace nkuidesign {
 					x += wz + 4.f + 7.f + 8.f;
 					dl.AddLine({x, r.y + 5.f}, {x, r.y + h - 5.f}, bord, 1.f);
 					x += 1.f + 4.f;
-					const NkRect rg = {x, r.y + 3.f, 22.f, 22.f};
+					const NkRect rg = {x, r.y + (h - 22.f) * 0.5f, 22.f, 22.f};
 					dl.AddRect(rg, ctx.theme.accent, 1.f, 3.f);
-					costume::IcGrille(dl, rg.x + 5.f, rg.y + 5.f, ctx.theme.accent);
+					costume::IcGrille(dl, rg.x + (rg.w - 12.f) * 0.5f, rg.y + (rg.h - 12.f) * 0.5f, ctx.theme.accent);
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
 						&& NkGuiRectContains(rg, ctx.input.mousePos))
 						Dire("Grille : à brancher.", "", "");
@@ -5808,9 +5811,9 @@ namespace nkuidesign {
 					// atténué quand il dort, comme la grille juste à gauche.
 					// Un bouton dont l'apparence ne bouge pas est un bouton dont
 					// on ne sait jamais s'il a pris le clic.
-					const NkRect rm = {x, r.y + 3.f, 22.f, 22.f};
+					const NkRect rm = {x, r.y + (h - 22.f) * 0.5f, 22.f, 22.f};
 					dl.AddRect(rm, mSt->aimantActif ? ctx.theme.accent : bord, 1.f, 3.f);
-					costume::IcAimant(dl, rm.x + 5.f, rm.y + 5.f,
+					costume::IcAimant(dl, rm.x + (rm.w - 12.f) * 0.5f, rm.y + (rm.h - 12.f) * 0.5f,
 									  mSt->aimantActif ? ctx.theme.accent : ctx.theme.textMuted);
 					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
 						&& NkGuiRectContains(rm, ctx.input.mousePos)) {
