@@ -1744,6 +1744,94 @@ static nkentseu::int32 RecetteGestes() {
 				det);
 	}
 
+	// ── LE BORNAGE DES RAYONS : LE CAS EXACT DE LA CAPTURE ──────────────────
+	// 🔴 Rodolf, 03/09 : `Bouton_Connexion`, hauteur `fixed 36`, arrondi
+	//    haut-droit **50,50** -- presque trois fois le maximum possible (18).
+	//    Sa capture montre le bord droit en oblique et une ENCOCHE BLANCHE en bas
+	//    a droite. Deux fautes empilees, et la seconde etait la mienne :
+	//      1. aucun bornage du rayon contre la boite ;
+	//      2. ma decomposition prenait le MAXIMUM des rayons adjacents pour ses
+	//         bandes -- avec 18 d'un cote et 4 de l'autre, il restait un trou.
+	//    ⚠️ *Une decomposition qui marche quand les quatre valeurs sont egales
+	//       n'est pas verifiee : c'est le cas ou elle ne peut pas echouer.*
+	{
+		// (a) LA PORTE DE BORNAGE, seule -- elle se mesure sans peintre.
+		const float32 R1[4] = {4.f, 50.5f, 4.f, 4.f};
+		float32 B1[4];
+		nkuidesign::renderdetail::NkGBornerRayons(200.f, 36.f, R1, B1);
+		const bool borne = B1[1] == 18.f && B1[0] == 4.f && B1[3] == 4.f;
+		// (b) LA REGLE CSS : deux coins d'un MEME BORD ne totalisent pas plus que
+		//     ce bord. 18 + 18 sur un bord de 30 doit descendre a 15 + 15.
+		const float32 R2[4] = {18.f, 18.f, 0.f, 0.f};
+		float32 B2[4];
+		nkuidesign::renderdetail::NkGBornerRayons(30.f, 40.f, R2, B2);
+		const bool paire = (B2[0] + B2[1]) <= 30.001f && B2[0] > 14.f && B2[0] < 15.1f;
+		// (c) 🔑 LA VALEUR VOULUE RESTE DANS LE DOCUMENT : borner est un geste du
+		//     DESSIN, pas de la saisie. Si Rodolf agrandit le bouton, son 50,50
+		//     revient tout seul -- on le prouve en re-bornant sur une boite plus
+		//     grande sans avoir touche a la source.
+		float32 B3[4];
+		nkuidesign::renderdetail::NkGBornerRayons(200.f, 140.f, R1, B3);
+		const bool revient = B3[1] == 50.5f;
+		// (d) AUCUNE ENCOCHE : la surface peinte couvre bien la boite. On compte
+		//     les commandes -- une decomposition qui laisse un trou en emet le
+		//     meme nombre, donc on mesure la COUVERTURE par les rectangles rendus.
+		NkUIDocument d;
+		d.NewDocument("bornage", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		d.nodes[(uint32)pg].shape = NkString("frame");
+		d.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+		d.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].width.value = 300.f;
+		d.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].height.value = 200.f;
+		const int32 bt = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)bt].shape = NkString("rect");
+		d.nodes[(uint32)bt].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)bt].width.value = 200.f;
+		d.nodes[(uint32)bt].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)bt].height.value = 36.f;
+		d.nodes[(uint32)bt].fill = NkString("#0969da");
+		d.nodes[(uint32)bt].rayonsDelies = true;
+		d.nodes[(uint32)bt].rayonsCoins[0] = 4.f;
+		d.nodes[(uint32)bt].rayonsCoins[1] = 50.5f;
+		d.nodes[(uint32)bt].rayonsCoins[2] = 4.f;
+		d.nodes[(uint32)bt].rayonsCoins[3] = 4.f;
+		NkLayoutResult lay;
+		NkComputeLayout(d, NkPaintRect{0.f, 0.f, 300.f, 200.f}, lay);
+		NkComponentInput in;
+		nkentseu::editorkit::NkRecordingPaint pv;
+		NkDocumentHost hote;
+		hote.SyncTo(d);
+		pv.Reset();
+		NkDrawDocument(pv, in, d, lay, hote, 0);
+		// ⚠️ ON TESTE L'ENCOCHE LA OU ELLE ETAIT : le coin BAS-DROIT, entre le
+		//    carre d'angle (4 px) et la bande bornee par le voisin a 18. Un point
+		//    a 10 px du bord droit et 2 px du bas doit etre COUVERT.
+		const NkPaintRect rb = lay.Has(bt) ? lay.At(bt) : NkPaintRect{0.f, 0.f, 0.f, 0.f};
+		const float32 px = rb.x + rb.w - 10.f, py = rb.y + rb.h - 2.f;
+		bool couvert = false;
+		for (uint32 k = 0; k < (uint32)pv.cmds.Size() && !couvert; ++k) {
+			const auto &cm = pv.cmds[k];
+			if (cm.op != nkentseu::editorkit::NkPaintOp::Fill
+				&& cm.op != nkentseu::editorkit::NkPaintOp::FillColor)
+				continue;
+			if (px >= cm.x && px <= cm.x + cm.w && py >= cm.y && py <= cm.y + cm.h)
+				couvert = true;
+		}
+		char det[240];
+		snprintf(det, sizeof(det),
+				 "50.50 borne a %.1f sur une hauteur de 36=%d ; regle CSS (18+18 sur 30 -> "
+				 "%.1f+%.1f)=%d ; la valeur REVIENT sur une boite plus grande=%d ; le coin "
+				 "bas-droit est COUVERT (l'encoche)=%d",
+				 (double)B1[1], borne ? 1 : 0, (double)B2[0], (double)B2[1], paire ? 1 : 0,
+				 revient ? 1 : 0, couvert ? 1 : 0);
+		verdict("BORNAGE DES RAYONS : un rayon ne depasse ni la moitie de la boite ni le bord "
+				"qu'il partage, la valeur VOULUE reste dans le document (borne au DESSIN, pas a "
+				"la saisie), et la decomposition ne laisse plus d'encoche",
+				borne && paire && revient && couvert, det);
+	}
+
 	// ── LES DEGRADES : LE FORMAT D'ABORD ────────────────────────────────────
 	// Les deux exigences posees avant d'ecrire une ligne d'interface :
 	// additivite stricte, et relecture d'un type INCONNU sans perte.

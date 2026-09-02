@@ -406,6 +406,55 @@ namespace nkuidesign {
 				out[i] = n.RayonCoin(i);
 		}
 
+		/// BORNER QUATRE RAYONS CONTRE LA BOÎTE — la règle, en un seul endroit.
+		///
+		/// 🔴 ELLE MANQUAIT, ET RODOLF L'A PHOTOGRAPHIÉE : un bouton de 36 px de
+		///    haut portait un arrondi de 50,50 au coin haut-droit — presque trois
+		///    fois le maximum possible. Les arcs se chevauchaient, la géométrie se
+		///    repliait, et le bord droit partait en oblique.
+		///
+		/// ⚠️ ON BORNE AU DESSIN, JAMAIS À LA SAISIE. La valeur voulue reste dans
+		///    le document : si Rodolf agrandit le bouton, son 50,50 revient tout
+		///    seul. *Un réglage écrasé à la saisie est une donnée perdue ; un
+		///    réglage borné au dessin est une donnée respectée.*
+		///
+		/// DEUX BORNES, ET LA SECONDE EST CELLE QU'ON OUBLIE :
+		///   1. chaque rayon ≤ la moitié de la plus petite dimension ;
+		///   2. **deux coins d'un MÊME BORD ne peuvent pas totaliser plus que ce
+		///      bord** — c'est la règle CSS, et c'est elle qui empêche les
+		///      chevauchements en biais quand les quatre rayons sont libres. La
+		///      première seule laisse passer 18 + 18 sur un bord de 30.
+		inline void NkGBornerRayons(nkentseu::float32 w, nkentseu::float32 h,
+									const nkentseu::float32 R[4], nkentseu::float32 out[4]) {
+			const nkentseu::float32 demi = (w < h ? w : h) * 0.5f;
+			for (nkentseu::uint32 i = 0; i < 4u; ++i) {
+				const nkentseu::float32 v = R[i] < 0.f ? 0.f : R[i];
+				out[i] = v > demi ? demi : v;
+			}
+			// La règle CSS : le facteur d'échelle le plus contraignant des quatre
+			// bords s'applique à TOUS les rayons — sinon deux bords voisins se
+			// borneraient l'un après l'autre et le résultat dépendrait de l'ordre.
+			nkentseu::float32 k = 1.f;
+			const nkentseu::float32 bords[4][3] = {
+				{out[0] + out[1], w, 0.f}, // haut
+				{out[1] + out[2], h, 0.f}, // droite
+				{out[3] + out[2], w, 0.f}, // bas
+				{out[0] + out[3], h, 0.f}, // gauche
+			};
+			for (nkentseu::uint32 b = 0; b < 4u; ++b) {
+				const nkentseu::float32 somme = bords[b][0];
+				const nkentseu::float32 cote = bords[b][1];
+				if (somme > cote && somme > 0.f) {
+					const nkentseu::float32 kb = cote / somme;
+					if (kb < k)
+						k = kb;
+				}
+			}
+			if (k < 1.f)
+				for (nkentseu::uint32 i = 0; i < 4u; ++i)
+					out[i] *= k;
+		}
+
 		/// UN RECTANGLE À QUATRE RAYONS DIFFÉRENTS, composé depuis `FillColor`.
 		///
 		/// 🔴 POURQUOI LE COMPOSER ICI PLUTÔT QUE L'AJOUTER AU NOYAU : NKGui
@@ -431,32 +480,55 @@ namespace nkuidesign {
 				p.FillColor(r, rgba, R[0]);
 				return;
 			}
-			const nkentseu::float32 demi =
-				(r.w < r.h ? r.w : r.h) * 0.5f; // un rayon ne dépasse jamais la moitié
 			nkentseu::float32 c[4];
-			for (nkentseu::uint32 i = 0; i < 4u; ++i)
-				c[i] = R[i] < 0.f ? 0.f : (R[i] > demi ? demi : R[i]);
-			// les quatre carrés d'angle, chacun arrondi à son propre rayon
+			NkGBornerRayons(r.w, r.h, R, c);
+			// ── LES QUATRE COINS, PUIS QUATRE BANDES ET LE CENTRE ────────────
+			// 🔴 MA PREMIERE DECOMPOSITION LAISSAIT DES TROUS, et c'est le defaut
+			//    que Rodolf a photographie : deux bandes prises sur le MAXIMUM
+			//    des rayons adjacents. Avec un coin a 18 et ses voisins a 4, la
+			//    bande s'arretait a 18 du bord alors que le carre d'angle voisin
+			//    n'en couvrait que 8 : il restait une ENCOCHE de 10 x 4 en bas a
+			//    droite -- exactement celle de sa capture.
+			//    ⚠️ *Une decomposition qui marche quand les quatre valeurs sont
+			//       egales n'est pas verifiee : c'est le cas ou elle ne peut pas
+			//       echouer.* Il fallait le cas dissymetrique pour la voir, et
+			//       c'est precisement celui que l'arrondi par coin vient d'ouvrir.
+			//
+			// Les six regions, sans recouvrement obligatoire ni trou possible :
+			// quatre carres d'angle, une bande par bord (entre SES deux coins),
+			// et le centre.
+			const nkentseu::float32 x0 = r.x, y0 = r.y;
+			const nkentseu::float32 x1 = r.x + r.w, y1 = r.y + r.h;
+			const nkentseu::float32 hautMax = c[0] > c[1] ? c[0] : c[1];
+			const nkentseu::float32 basMax = c[3] > c[2] ? c[3] : c[2];
+			const nkentseu::float32 gauMax = c[0] > c[3] ? c[0] : c[3];
+			const nkentseu::float32 droMax = c[1] > c[2] ? c[1] : c[2];
 			if (c[0] > 0.f)
-				p.FillColor({r.x, r.y, c[0] * 2.f, c[0] * 2.f}, rgba, c[0]);
+				p.FillColor({x0, y0, c[0] * 2.f, c[0] * 2.f}, rgba, c[0]);
 			if (c[1] > 0.f)
-				p.FillColor({r.x + r.w - c[1] * 2.f, r.y, c[1] * 2.f, c[1] * 2.f}, rgba, c[1]);
+				p.FillColor({x1 - c[1] * 2.f, y0, c[1] * 2.f, c[1] * 2.f}, rgba, c[1]);
 			if (c[2] > 0.f)
-				p.FillColor({r.x + r.w - c[2] * 2.f, r.y + r.h - c[2] * 2.f, c[2] * 2.f,
-							 c[2] * 2.f},
-							rgba, c[2]);
+				p.FillColor({x1 - c[2] * 2.f, y1 - c[2] * 2.f, c[2] * 2.f, c[2] * 2.f}, rgba,
+							c[2]);
 			if (c[3] > 0.f)
-				p.FillColor({r.x, r.y + r.h - c[3] * 2.f, c[3] * 2.f, c[3] * 2.f}, rgba, c[3]);
-			// la bande HORIZONTALE : entre les coins gauches et droits
-			const nkentseu::float32 gH = c[0] > c[3] ? c[0] : c[3];
-			const nkentseu::float32 dH = c[1] > c[2] ? c[1] : c[2];
-			if (r.w - gH - dH > 0.f)
-				p.FillColor({r.x + gH, r.y, r.w - gH - dH, r.h}, rgba, 0.f);
-			// la bande VERTICALE : entre les coins hauts et bas
-			const nkentseu::float32 hV = c[0] > c[1] ? c[0] : c[1];
-			const nkentseu::float32 bV = c[3] > c[2] ? c[3] : c[2];
-			if (r.h - hV - bV > 0.f)
-				p.FillColor({r.x, r.y + hV, r.w, r.h - hV - bV}, rgba, 0.f);
+				p.FillColor({x0, y1 - c[3] * 2.f, c[3] * 2.f, c[3] * 2.f}, rgba, c[3]);
+			// bande HAUTE : entre les deux coins du haut, sur la hauteur du plus
+			// grand des deux -- le bord y est droit.
+			if (x1 - c[1] - (x0 + c[0]) > 0.f && hautMax > 0.f)
+				p.FillColor({x0 + c[0], y0, (x1 - c[1]) - (x0 + c[0]), hautMax}, rgba, 0.f);
+			if (x1 - c[2] - (x0 + c[3]) > 0.f && basMax > 0.f)
+				p.FillColor({x0 + c[3], y1 - basMax, (x1 - c[2]) - (x0 + c[3]), basMax}, rgba,
+							0.f);
+			if (y1 - c[3] - (y0 + c[0]) > 0.f && gauMax > 0.f)
+				p.FillColor({x0, y0 + c[0], gauMax, (y1 - c[3]) - (y0 + c[0])}, rgba, 0.f);
+			if (y1 - c[2] - (y0 + c[1]) > 0.f && droMax > 0.f)
+				p.FillColor({x1 - droMax, y0 + c[1], droMax, (y1 - c[2]) - (y0 + c[1])}, rgba,
+							0.f);
+			// le CENTRE : ce que les quatre bandes n'ont pas couvert.
+			const nkentseu::float32 cx0 = x0 + gauMax, cx1 = x1 - droMax;
+			const nkentseu::float32 cy0 = y0 + hautMax, cy1 = y1 - basMax;
+			if (cx1 - cx0 > 0.f && cy1 - cy0 > 0.f)
+				p.FillColor({cx0, cy0, cx1 - cx0, cy1 - cy0}, rgba, 0.f);
 		}
 
 		/// LES QUATRE BANDES D'UNE BORDURE, POSÉES SELON SA POSITION.
