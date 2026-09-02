@@ -23,6 +23,16 @@
 #    fige ici doit donc etre mesure ailleurs, et il l est.
 *.nkgui text eol=lf
 
+# Shaders NkSL : TOUJOURS LF -- donnees lues OCTET POUR OCTET par le
+# compilateur de shaders. Mesure du 2026-09-02 : les 131 .nksl etaient
+# i/lf w/crlf sous `text=auto` -- l index en LF, chaque poste de travail
+# Windows en CRLF, et AUCUNE regle ne fixait l ecart. C est la seule famille
+# de defauts qui traverse une revue entiere par construction : aucun diff ne
+# la montre, la copie de l auteur est deja juste. Decision de Rodolf
+# (02/09, deleguee au coordinateur) : normalisation DELIBEREE, avec preuve
+# apres -- plutot que de la subir un jour par accident.
+*.nksl text eol=lf
+
 # Binaires courants (jamais de conversion).
 *.png binary
 *.jpg binary
