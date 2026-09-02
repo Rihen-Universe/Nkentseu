@@ -234,13 +234,33 @@
   colbacktitle=rihenTealPale, titlerule=0pt, fonttitle=\small}
 
 % ── TABLE DES MATIERES ───────────────────────────────────────────────────────
+% ⚠️ LA LARGEUR DE LA BOITE A NUMERO SE DIMENSIONNE SUR LE PLUS LONG, PAS SUR
+% LE PREMIER. `\contentslabel{L}` ne pousse RIEN : si le numero depasse L, il
+% ECRASE le titre au lieu de le decaler -- et le defaut n'apparait qu'a partir
+% du chapitre 10, donc jamais pendant qu'on ecrit les premiers.
+%   chapitre  : « 26 »    -> 2.0em
+%   section   : « 26.14 » -> 3.2em, et l'indentation vaut la boite du chapitre
+%                            pour que les deux colonnes de numeros s'alignent.
+% Mesure : 27 chapitres et 233 sections dans cette table ; le plus long libelle
+% de numero est « 26.14 », c'est lui qui fixe les deux valeurs.
 \titlecontents{chapter}[0pt]
   {\addvspace{9pt}\sffamily\bfseries\color{rihenTeal}}
-  {\contentslabel[\thecontentslabel]{1.4em}}{}
+  {\contentslabel[\thecontentslabel]{2.0em}}{}
   {\titlerule*[0.7pc]{.}\contentspage}
-\titlecontents{section}[1.9em]
+\titlecontents{section}[2.0em]
   {\addvspace{2pt}\sffamily\small\color{grisTexte}}
-  {\contentslabel{2.1em}}{}
+  {\contentslabel{3.2em}}{}
+  {\titlerule*[0.7pc]{.}\small\contentspage}
+% ⚠️ LES SOUS-SECTIONS AUSSI SONT DANS CETTE TABLE (`tocdepth` vaut 2), et
+% c'est LA que le chevauchement se voyait : « 14.11.1Pourquoi chaque dependance
+% est la », numero colle au titre. La boite du format par defaut de la classe
+% tient « 1.2.3 » et pas « 26.14.1 » -- sept caracteres.
+% Mesure : le plus long numero de sous-section de cette table est « 26.14.1 ».
+% Indentation = boite chapitre (2.0) + boite section (3.2), pour que les trois
+% colonnes de numeros s'alignent en escalier.
+\titlecontents{subsection}[5.2em]
+  {\addvspace{1pt}\sffamily\small\color{grisTexte}}
+  {\contentslabel{4.0em}}{}
   {\titlerule*[0.7pc]{.}\small\contentspage}
 
 \setlist[itemize]{leftmargin=1.3em, itemsep=2pt, topsep=4pt}

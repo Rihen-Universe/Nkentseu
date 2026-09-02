@@ -1,0 +1,319 @@
+\chapter{NKMemory : qui alloue, qui libère}
+
+C'est le chapitre le plus important des fondations, et le seul dont une erreur ne
+se manifeste jamais là où elle a été commise.
+
+Nkentseu n'emploie ni \texttt{new}, ni \texttt{delete}, ni \texttt{malloc}. Toute
+la mémoire passe par \textbf{NKMemory}. Ce n'est pas une préférence de style :
+c'est ce qui rend possible le suivi des fuites, les stratégies d'allocation par
+usage, et le portage sur des plateformes où le tas du système n'est pas celui
+qu'on croit.
+
+\section{La règle, et ce qu'elle coûte de violer}
+
+\begin{nkretenir}
+\textbf{Ce qui a été alloué par NKMemory se libère par NKMemory. Point.}
+
+Un bloc obtenu par \texttt{NkAlloc} et rendu par \texttt{free} --- ou par
+\texttt{delete[]} --- rend un pointeur à un gestionnaire de tas \emph{qui ne l'a
+jamais donné}. Sous Windows, cela produit le code \texttt{0xC0000374},
+« corruption du tas ».
+
+Et voici pourquoi c'est le pire des défauts : \textbf{le programme ne plante pas
+au moment de la faute}. Il plante plus tard, dans une allocation parfaitement
+innocente, parfois des milliers d'instructions après --- et c'est cette
+allocation-là qu'on accuse.
+\end{nkretenir}
+
+\begin{nkpiege}[Trois cas réels du dépôt]
+\begin{enumerate}
+\item Le tampon rendu par un encodeur --- \texttt{NkJPEGCodec::Encode},
+      \texttt{NkPNGCodec::Encode}, \texttt{SaveToMemory} --- est alloué par
+      \texttt{NkAlloc}. Le libérer avec \texttt{delete[]} corrompt le tas.
+\item \texttt{NkImage::Alloc()} suivi de \texttt{Free()} \emph{puis} de
+      \texttt{delete img} est une double libération : \texttt{Free()} rend déjà
+      l'enveloppe.
+\item Appeler \texttt{Free()} sur une \texttt{NkImage} déclarée \textbf{sur la
+      pile} exécute une libération \emph{sur une adresse de pile}. Cela a
+      réellement fait planter une démo du dépôt.
+\end{enumerate}
+\textbf{La question à se poser devant toute libération n'est pas « comment
+libère-t-on ceci ? » mais « qui l'a alloué ? ».}
+\end{nkpiege}
+
+\section{Les quatre fonctions de base}
+
+\begin{nkcode}{Kernel/Foundation/NKMemory/src/NKMemory/NkAllocator.h:704-737}
+void *NkAlloc(nk_size size, NkAllocator *allocator = nullptr,
+              nk_size alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
+
+void *NkAllocZero(nk_size count, nk_size size, NkAllocator *allocator = nullptr,
+                  nk_size alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
+
+void *NkRealloc(void *ptr, nk_size oldSize, nk_size newSize,
+                NkAllocator *allocator = nullptr,
+                nk_size alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
+
+void NkFree(void *ptr, NkAllocator *allocator = nullptr);
+void NkFree(void *ptr, nk_size size, NkAllocator *allocator = nullptr);
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Le paramètre \texttt{allocator} à \texttt{nullptr} signifie « celui par
+défaut »}, pas « aucun ». C'est ce qui rend le code ordinaire lisible ---
+\texttt{NkAlloc(1024)} suffit --- tout en permettant à un sous-système d'imposer
+le sien.
+
+\textbf{Et il doit être le MÊME à l'allocation et à la libération.} Allouer sur
+un allocateur nommé et libérer sur celui par défaut est exactement la même faute
+que mélanger \texttt{NkAlloc} et \texttt{free}, avec un déguisement de plus.
+\end{nkretenir}
+
+\begin{nkretenir}
+\textbf{\texttt{NkRealloc} rend \texttt{nullptr} en cas d'échec --- et l'ancien
+pointeur reste valide.} C'est écrit dans sa documentation, et c'est la seule
+façon correcte : écraser votre pointeur par le retour sans le tester perd le
+bloc d'origine.
+
+\begin{nkcode}{FAUX}
+p = NkRealloc(p, ancien, neuf);   // si echec : p vaut nullptr, et le bloc est perdu
+\end{nkcode}
+\end{nkretenir}
+
+\section{Allouer un objet, pas des octets}
+
+\texttt{NkAlloc} rend de la mémoire brute : aucun constructeur n'a été appelé.
+Pour un objet, ce sont les quatre modèles de \texttt{NkAllocator} qu'il faut :
+
+\begin{nkcode}{Kernel/Foundation/NKMemory/src/NKMemory/NkAllocator.h:239-273}
+template <typename T, typename... Args> [[nodiscard]] T *New(Args &&...args);
+template <typename T> void Delete(T *ptr) noexcept;
+template <typename T, typename... Args> [[nodiscard]] T *NewArray(SizeType count, Args &&...args);
+template <typename T> void DeleteArray(T *ptr) noexcept;
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Chacun fait deux choses, et les fait dans le bon ordre.}
+\texttt{New<T>} alloue \emph{puis} construit ; \texttt{Delete<T>} détruit
+\emph{puis} libère. C'est exactement ce que font \texttt{new} et \texttt{delete}
+du langage --- mais sur \emph{votre} allocateur.
+
+Et \texttt{NewArray}/\texttt{DeleteArray} vont ensemble : le premier range le
+nombre d'éléments à côté du tableau, le second le relit pour appeler le bon
+nombre de destructeurs. Libérer un tableau avec \texttt{Delete<T>} n'appelle
+qu'un seul destructeur et se trompe d'adresse de base.
+\end{nkretenir}
+
+\begin{nkpiege}
+\texttt{[[nodiscard]]} sur \texttt{New} n'est pas décoratif : ignorer le retour
+d'une allocation est une fuite garantie, et le compilateur le refuse désormais.
+C'est le genre de garde qui coûte un mot et travaille pour toujours.
+\end{nkpiege}
+
+\section{Neuf allocateurs, et pourquoi il en faut plusieurs}
+
+Un tas généraliste doit répondre à n'importe quelle demande dans n'importe quel
+ordre. C'est un problème difficile --- donc lent. Or la plupart des programmes
+n'ont pas ce besoin : ils allouent \emph{par motif}.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Allocateur} & \textbf{Motif qu'il exploite} & \textbf{Ce qu'il abandonne} \\
+\midrule
+\texttt{NkMallocAllocator} & aucun --- le tas du système & rien, mais rien de gagné \\
+\texttt{NkNewAllocator} & aucun --- \texttt{new}/\texttt{delete} & idem \\
+\texttt{NkVirtualAllocator} & très gros blocs, pages OS & la granularité fine \\
+\texttt{NkLinearAllocator} & « tout meurt en même temps » & la libération individuelle \\
+\texttt{NkArenaAllocator} & idem, par zones & idem \\
+\texttt{NkStackAllocator} & dernier alloué, premier libéré & l'ordre libre \\
+\texttt{NkPoolAllocator} & objets de \emph{même taille} & les tailles variables \\
+\texttt{NkFreeListAllocator} & tailles variables, réemploi & la simplicité \\
+\texttt{NkBuddyAllocator} & tailles en puissances de deux & jusqu'à 50\,\% de place \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Chaque ligne de la colonne du milieu est une \emph{hypothèse sur la durée
+de vie}}, et c'est elle qu'on achète. Un allocateur rapide n'est pas rapide en
+soi : il est rapide \emph{parce qu'il refuse de répondre à des questions que
+vous ne poserez pas}.
+
+Le corollaire est immédiat : \textbf{choisir un allocateur, c'est déclarer un
+motif d'usage}. Si le motif est faux, l'allocateur est plus lent que le tas
+ordinaire, ou il échoue.
+\end{nkretenir}
+
+\subsection{Le cas le plus utile : l'allocateur linéaire}
+
+\begin{nkcode}{Kernel/Foundation/NKMemory/src/NKMemory/NkAllocator.h:393-398}
+// Tres rapide pour les allocations temporaires frame-based.
+// Ne supporte pas la deallocation individuelle - Reset() libere tout.
+\end{nkcode}
+
+\begin{nkretenir}
+Un allocateur linéaire n'est qu'un \textbf{curseur qui avance}. Allouer, c'est
+ajouter la taille au curseur et rendre l'adresse précédente : quelques
+instructions, aucune recherche, aucune fragmentation possible.
+
+\texttt{Deallocate} n'y fait presque rien --- l'en-tête le dit : il n'optimise
+que le cas où l'on rend le \emph{dernier} bloc. La libération réelle est
+\texttt{Reset()}, qui remet le curseur à zéro et rend tout d'un coup.
+
+\textbf{Le patron d'emploi} : un allocateur linéaire par image. Tout ce qui est
+temporaire y est alloué ; à la fin de l'image, un \texttt{Reset()} et le coût de
+libération de milliers d'objets tombe à une affectation.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Rien de ce qui est alloué sur un allocateur linéaire ne doit survivre à
+son \texttt{Reset()}.} Garder un pointeur d'une image sur l'autre donne une
+adresse qui pointe désormais sur \emph{autre chose} --- pas sur du vide, ce qui
+serait détectable, mais sur des données valides appartenant à quelqu'un d'autre.
+
+C'est le pointeur pendant sous sa forme la plus perverse : la mémoire est
+lisible, le programme ne plante pas, et les valeurs sont fausses.
+\end{nkpiege}
+
+\begin{nkretenir}
+\texttt{Capacity()}, \texttt{Used()} et \texttt{Available()} sont là pour être
+\emph{lus}. Un allocateur linéaire qui déborde ne s'agrandit pas : il échoue. La
+bonne pratique est de journaliser le pic d'utilisation en développement, et de
+dimensionner sur la mesure --- jamais sur une estimation.
+\end{nkretenir}
+
+\section{Savoir ce qu'on a alloué}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Outil} & \textbf{Ce qu'il apporte} \\
+\midrule
+\texttt{NkTracker} & détection de fuites en $O(1)$, par table de hachage \\
+\texttt{NkTag} & étiqueter une allocation --- « textures », « audio »\dots \\
+\texttt{NkProfiler} & compteurs, pics, statistiques par allocateur \\
+\texttt{NkGc} & un ramasse-miettes \emph{marquage et balayage}, pour qui le veut \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Le suivi n'est possible que parce que tout passe par NKMemory.} C'est le
+retour sur investissement de la règle du début de chapitre : un seul \texttt{new}
+échappé, et le bloc correspondant devient invisible au traqueur.
+
+Autrement dit, la discipline n'est pas une contrainte \emph{en échange de} rien :
+elle est ce qui achète l'instrument.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un traqueur de fuites signale ce qui n'a pas été libéré \emph{à la fin du
+programme}.} Il ne voit pas une mémoire qui grossit indéfiniment mais qui finit
+par être rendue --- et c'est pourtant le défaut qui tue une application longue.
+
+Pour celui-là, l'instrument est le \emph{pic} d'utilisation dans le temps, pas le
+solde à la fermeture. Deux mesures différentes, deux défauts différents.
+\end{nkpiege}
+
+\section{Ce que vous écrirez vraiment}
+
+En pratique, dans du code d'application, vous n'appellerez presque jamais
+\texttt{NkAlloc} :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Besoin} & \textbf{Ce qu'on emploie} \\
+\midrule
+une suite d'éléments & \texttt{NkVector} --- il alloue pour vous \\
+du texte & \texttt{NkString} \\
+un objet qui vit tant qu'on le tient & \texttt{NkUniquePtr} \\
+un tampon brut, une image, un fichier & \texttt{NkAlloc}/\texttt{NkFree} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Les conteneurs et les pointeurs intelligents \emph{sont} la façon normale
+d'employer NKMemory.} Ils allouent à travers lui, et ils libèrent tout seuls.
+
+Ce chapitre n'est donc pas un mode d'emploi quotidien : c'est ce qu'il faut avoir
+lu pour comprendre ce que le conteneur fait à votre place --- et pour savoir quoi
+regarder le jour où le tas se corrompt.
+\end{nkretenir}
+
+\begin{nkbilan}
+Toute la mémoire de Nkentseu passe par NKMemory, et \textbf{ce qui a été alloué
+par lui se libère par lui} : mélanger les gestionnaires corrompt le tas, et le
+plantage arrive plus tard, ailleurs, dans du code innocent. \texttt{NkAlloc} rend
+des octets, \texttt{New<T>} rend un objet construit --- et \texttt{NewArray} va
+avec \texttt{DeleteArray}, jamais avec \texttt{Delete}. Les neuf allocateurs
+n'existent pas pour le choix : chacun \emph{achète de la vitesse en refusant de
+répondre à une question}, et le linéaire --- allouer sans jamais libérer
+individuellement, \texttt{Reset()} à la fin de l'image --- est celui qui rapporte
+le plus. Enfin, le suivi des fuites n'est possible que parce que la règle est
+tenue partout.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Que se passe-t-il si l'on libère avec \texttt{free} un bloc obtenu par
+      \texttt{NkAlloc} --- et \emph{quand} cela se voit-il ?
+\item Quelle différence entre \texttt{NkAlloc} et \texttt{New<T>} ?
+\item Pourquoi \texttt{NewArray} exige-t-il \texttt{DeleteArray} ?
+\item Que fait \texttt{Deallocate} sur un allocateur linéaire, et comment y
+      libère-t-on réellement ?
+\item Pourquoi un traqueur de fuites ne voit-il pas une mémoire qui grossit puis
+      est rendue ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez un \texttt{NkLinearAllocator} de 64 Kio et servez-vous-en pour allouer,
+à chaque image d'une petite application, un tableau temporaire dont la taille
+dépend de ce qui est à l'écran.
+
+Trois exigences :
+\begin{enumerate}
+\item afficher \texttt{Used()} et \texttt{Available()} en clair, à chaque image ;
+\item appeler \texttt{Reset()} à la fin de l'image, et \emph{nulle part
+      ailleurs} ;
+\item faire délibérément déborder l'allocateur, et voir ce qui se passe. Notez
+      ce que l'allocateur rend, et ce que votre code en fait --- c'est la
+      deuxième partie qui compte.
+\end{enumerate}
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un pointeur survivant à un \texttt{Reset()} donne des valeurs fausses
+sans planter.
+
+Allouez une structure sur l'allocateur linéaire à l'image $n$, remplissez-la avec
+des valeurs que vous reconnaîtrez, et \textbf{gardez le pointeur}. À l'image
+$n+1$, après le \texttt{Reset()} et après avoir alloué autre chose, relisez la
+structure et affichez son contenu.
+
+\textbf{Ce que la démonstration doit établir}, et c'est le point : non pas que le
+programme plante --- il ne plantera pas --- mais que les valeurs relues sont
+\emph{plausibles et fausses}. Affichez-les à côté des valeurs d'origine.
+
+⚠️ Ne concluez rien d'une seule exécution où les valeurs n'auraient pas changé :
+cela signifie seulement que rien n'a encore réécrit cette zone. Allouez
+davantage à l'image $n+1$ et recommencez.
+\end{nkdemo}
+
+\begin{nklogique}
+Une application plante avec \texttt{0xC0000374} au bout de dix minutes, toujours
+dans une allocation différente, jamais au même endroit.
+
+\begin{enumerate}
+\item Expliquez pourquoi le point de plantage ne désigne pas le coupable.
+\item Énumérez au moins quatre gestes du code susceptibles de produire ce
+      symptôme, et rangez-les du plus au moins probable.
+\item Vous soupçonnez un module précis. Décrivez comment vous le
+      \emph{disculperiez} --- pas comment vous le confirmeriez. Expliquez
+      pourquoi c'est le bon sens de l'enquête ici, alors que la démarche
+      inverse serait naturelle.
+\end{enumerate}
+\end{nklogique}
