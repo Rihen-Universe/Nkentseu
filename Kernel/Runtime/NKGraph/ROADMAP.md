@@ -145,7 +145,7 @@ assouplissement de l'aplatissement. À décider avec le premier consommateur.
 - **Kernel/AI** — graphe de modélisation procédurale (pilotable par prompt).
   Cf. `Kernel/AI/ROADMAP.md`.
 - **NkAnima M2** — anim graph / state machine (HFSM) éditables. Cf.
-  `Applications/NkAnima/ROADMAP.md`.
+  `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md`.
 
 ## Dépendances
 

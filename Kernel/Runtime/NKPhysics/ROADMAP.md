@@ -25,7 +25,7 @@
 > s'effondrer ; (3) des outils de **centre de masse + moment angulaire** = la « validation
 > physiquement correcte » signature de Cascadeur, valable pour toute morphologie. Le
 > **système Cascadeur complet** (IK déjà livré + auto-pose IA + UI) se construit dans
-> **NkAnima** PAR-DESSUS NKPhysics — cf. [Applications/NkAnima/ROADMAP.md].
+> **NkAnima** PAR-DESSUS NKPhysics — cf. [Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md].
 
 ---
 

@@ -225,7 +225,7 @@ sans validation automatique + revue humaine rapide ; chaque étape produit un r�
 
 Flux cible reliant les domaines : prompt/rôle → **modélisation** (ci-dessus) → **texturing**
 (cf. `Kernel/Runtime/NKRenderer/ROADMAP.md` Phase T) → **rig/skinning** (livré NKRenderer) →
-**rôle comportemental + performance** (cf. `Applications/NkAnima/ROADMAP.md` M3/M4bis) →
+**rôle comportemental + performance** (cf. `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md` M3/M4bis) →
 **éclairage** (NKRenderer Phase T) → **VFX** (cf. `Engine/Noge/ROADMAP.md`) → rendu final.
 Principes transversaux (invariants) :
 1. **Technique solide d'abord, IA générative ensuite** — la couche IA enrichit un pipeline

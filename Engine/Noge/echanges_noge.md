@@ -1501,3 +1501,41 @@ Trois options, et je n'en choisis aucune :
 
 ⚠️ **Aucune suppression n'est justifiable** dans les trois cas : le document est
 vivant et référencé au démarrage.
+
+## 12.5 ✅ TRANCHÉ LE 2026-09-02 — option 2, avec un nom qui évite la collision
+
+**Réponse retenue : le document rejoint la bibliothèque.** Ce qui a été fait,
+et pourquoi le chemin annoncé au §12.4 n'est pas exactement celui qui a été pris :
+
+| | annoncé au §12.4 | fait le 2026-09-02 |
+|---|---|---|
+| destination | `Kernel/Runtime/NKAnima/ROADMAP.md` | **`Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md`** |
+| pourquoi l'écart | — | **la place était prise** : le module a déjà son `ROADMAP.md` (18 490 o., écrit le 17/08), qui décrit le MODULE et renvoie explicitement au parcours PRODUIT. Écraser l'un par l'autre aurait détruit un document pour en ranger un autre. |
+
+**Le geste, en entier** : `git mv` (l'historique suit), **aucune ligne
+supprimée** ; `Applications/NkAnima/` devenu vide a été retiré **après** avoir
+vérifié qu'aucun `.jenga` ne le nomme et qu'il n'apparaît pas dans la liste
+`include(...)` de `Nkentseu.jenga` — le registre des projets est **explicite**
+ici, pas une découverte par balayage de dossiers, donc un dossier fantôme n'y
+laissait aucune trace de toute façon.
+
+**Les renvois suivis dans le même geste** (le compilateur ne recense pas les
+liens Markdown : c'est le `grep` qui conclut ici, et il a été passé sur tout
+l'arbre, extensions comprises) :
+
+| fichier | ce qui a changé |
+|---|---|
+| `Nkentseu/CLAUDE.md` (l. 65 et 68, « à lire au démarrage ») | les **deux** liens ✅ — ⚠️ fichier **gitignoré**, hors commit, corrigé à la main |
+| `Kernel/Runtime/NKAnima/ROADMAP.md` | 6 renvois, + le compte de lignes remis à jour (548 → 613) |
+| `Kernel/AI/ROADMAP.md` · `Kernel/Runtime/NKGraph/ROADMAP.md` · `Kernel/Runtime/NKPhysics/ROADMAP.md` | 1 renvoi chacun |
+| `Applications/NkAnimPhysTest/src/main.cpp:311` | commentaire de code |
+| `Applications/NKIlyana/ROADMAP.md:884` | pointait un dossier qui disparaît → `Applications/NkAnimaEditor` |
+| `Engine/Noge/ROADMAP.md:1758` | idem, + le chemin des jalons |
+| `Kernel/Runtime/NKAnima/ROADMAP_PRODUIT.md` (l. 567, jalon M5) | « `Applications/NkAnima` complète » → `Applications/NkAnimaEditor`, ce que dit déjà la directive du 17/08 juste en dessous |
+
+⚠️ **Ce qui n'a PAS été réécrit, exprès** : les blocs datés qui *constatent*
+`Applications/NkAnima/` — celui du 23/07 dans le document déplacé, et le §12.1
+ci-dessus. Ils décrivent l'état du jour où ils ont été écrits, et c'est ce
+constat même qui a motivé le déplacement. *On ne corrige pas un journal, on le
+date.* Même raison pour les carnets hors dépôt (`Nkentseu/echanges/*.md`) : cinq
+d'entre eux citent l'ancien chemin, aucun n'a été touché.
