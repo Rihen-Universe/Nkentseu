@@ -346,6 +346,21 @@ namespace nkuidesign {
 		return n.apparences[(nkentseu::uint32)n.apparences.Size() - 1];
 	}
 
+	/// RETIRE le bloc de `etat` s'il existe. ⚠️ Vider le dernier champ d'un
+	/// etat doit le faire DISPARAITRE : un bloc vide laisse dans la liste
+	/// ecrirait une cle `apparence_<Etat>` fantome... ou plutot NE l'ecrirait
+	/// pas (l'ecriture saute les blocs vides) mais garderait un etat « pose »
+	/// a l'ecran sans rien derriere -- l'interface et le fichier se
+	/// contrediraient. *Ce que l'ecran montre comme absent doit etre absent.*
+	template <class N>
+	inline void NkRetirerBlocEtat(N &n, const char *etat) {
+		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)n.apparences.Size(); ++i)
+			if (NkComponentDecl::StrEq(n.apparences[i].etat.Data(), etat)) {
+				n.apparences.RemoveAt(i);
+				return;
+			}
+	}
+
 	/// Le bloc de `etat` s'il EXISTE, sinon nul — pour lire sans creer.
 	template <class N>
 	inline const NkApparenceEtat *NkBlocEtatSi(const N &n, const char *etat) {

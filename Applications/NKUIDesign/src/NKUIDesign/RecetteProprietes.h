@@ -355,7 +355,55 @@ namespace nkuidesign {
 						  suit && proportionnel, d4);
 				}
 
-				printf("\nRECETTE PROPRIETES : %d/%d %s\n", total - echecs, total,
+// ═══ 5. UN ETAT SE POSE, VOYAGE, ET SE RETIRE SANS TRACE ═══
+				// Les portes que le CHAMP du panneau appelle, exercees avec la
+				// meme semantique que lui : poser un fond, puis vider le champ.
+				//
+				// ⚠️ CE QUE CE CAS NE COUVRE PAS, ET JE NE LE MAQUILLE PAS : la
+				//    FRAPPE elle-meme (le focus clavier de NKGui) n'est pas pilotee
+				//    ici -- le BRANCHEMENT du champ est verifie par la compilation
+				//    et par la capture, sa SEMANTIQUE par ce cas. *Un banc qui
+				//    pretendrait taper alors qu'il appelle une fonction mentirait
+				//    sur ce qu'il prouve.*
+				{
+					NkUINode &nd = st.doc.nodes[(uint32)rc];
+					nd.apparences.Clear();
+					// (a) POSER : le bloc nait, et LUI SEUL.
+					NkBlocEtat(nd, "Hover").fond = NkString("#ff0000");
+					const NkApparenceEtat *h = NkBlocEtatSi(nd, "Hover");
+					const bool pose = (uint32)nd.apparences.Size() == 1u && h && !h->Vide()
+									  && NkBlocEtatSi(nd, "Pressed") == nullptr;
+					// (b) VOYAGER : l'aller-retour rend le fond de CET etat.
+					NkString ecrit;
+					st.doc.Save(ecrit);
+					NkUIDocument relu;
+					const bool relit = relu.Load(ecrit.Data()) && relu.IsValidIndex(rc);
+					const NkApparenceEtat *h2 =
+						relit ? NkBlocEtatSi(relu.nodes[(uint32)rc], "Hover") : nullptr;
+					const bool voyage = h2 && strcmp(h2->fond.Data(), "#ff0000") == 0
+										&& h2->radius < 0.f && h2->opacite < 0.f;
+					// (c) LA CLE EST DANS LE TEXTE -- sans ce volet, (b) passerait
+					//     sur un document qui garderait tout en memoire.
+					const bool dansLeTexte = strstr(ecrit.Data(), "apparence_Hover") != nullptr;
+					// (d) VIDER LE CHAMP RETIRE LE BLOC, sans laisser de trace.
+					NkBlocEtat(nd, "Hover").fond = NkString("");
+					if (NkBlocEtat(nd, "Hover").Vide())
+						NkRetirerBlocEtat(nd, "Hover");
+					NkString apres;
+					st.doc.Save(apres);
+					const bool retire = nd.apparences.Empty()
+										&& strstr(apres.Data(), "apparence_") == nullptr;
+					char d5[224];
+					snprintf(d5, sizeof(d5),
+							 "pose (1 bloc, les autres intacts)=%d ; cle DANS le texte=%d ; "
+							 "aller-retour rend le fond=%d ; vider retire sans trace=%d",
+							 pose ? 1 : 0, dansLeTexte ? 1 : 0, voyage ? 1 : 0, retire ? 1 : 0);
+					check("5. ETATS : un fond se pose sur UN etat, voyage dans le fichier, et "
+						  "vider le champ retire le bloc SANS laisser de cle fantome",
+						  pose && dansLeTexte && voyage && retire, d5);
+				}
+
+								printf("\nRECETTE PROPRIETES : %d/%d %s\n", total - echecs, total,
 					   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 				return echecs == 0 ? 0 : 1;
 			}

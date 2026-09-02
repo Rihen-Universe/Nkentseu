@@ -8169,13 +8169,13 @@ namespace nkuidesign {
 		};
 		static const char *const kAvecCible[] = {
 			"CIBLE",	  "DISPOSITION", "ANCRAGE",	 "ALIGNEMENT",
-			"ESPACEMENT", "REMPLISSAGES", "BORDURES", "APPARENCE",
-			"TYPOGRAPHIE", "ÉTATS",		 "EFFETS",	  "POINTS DE RUPTURE",
+			"ESPACEMENT", "REMPLISSAGES", "BORDURES", "ÉTATS",
+			"APPARENCE",  "TYPOGRAPHIE", "EFFETS",	 "POINTS DE RUPTURE",
 		};
 		static const char *const kNormal[] = {
 			"DISPOSITION", "ANCRAGE",	 "ALIGNEMENT", "ESPACEMENT",
-			"REMPLISSAGES", "BORDURES",	 "APPARENCE",  "TYPOGRAPHIE",
-			"ÉTATS",	   "EFFETS",	 "POINTS DE RUPTURE",
+			"REMPLISSAGES", "BORDURES",	 "ÉTATS",	   "APPARENCE",
+			"TYPOGRAPHIE", "EFFETS",	 "POINTS DE RUPTURE",
 		};
 		// ⚠️ LE MODE PRIME SUR LA CIBLE, ET L'ORDRE DES TROIS `if` EST LA RÈGLE :
 		//    un artboard n'entre pas en édition de forme (il n'est pas une forme
@@ -8393,9 +8393,9 @@ namespace nkuidesign {
 							{"ESPACEMENT", &CorpsEspacementC, false},
 							{"REMPLISSAGES", &CorpsRemplissagesC, false},
 							{"BORDURES", &CorpsBorduresC, false},
+							{"ÉTATS", &CorpsEtatsC, false},
 							{"APPARENCE", &CorpsApparenceC, false},
 							{"TYPOGRAPHIE", &CorpsTypographieC, false},
-							{"ÉTATS", &CorpsEtatsC, false},
 							{"EFFETS", &CorpsEffetsC, false},
 							{"POINTS DE RUPTURE", &CorpsRuptureC, false},
 						};
@@ -8410,9 +8410,9 @@ namespace nkuidesign {
 					{"ESPACEMENT", &CorpsEspacementC, false},
 					{"REMPLISSAGES", &CorpsRemplissagesC, false},
 					{"BORDURES", &CorpsBorduresC, false},
+					{"ÉTATS", &CorpsEtatsC, false},
 					{"APPARENCE", &CorpsApparenceC, false},
 					{"TYPOGRAPHIE", &CorpsTypographieC, false},
-					{"ÉTATS", &CorpsEtatsC, false},
 					{"EFFETS", &CorpsEffetsC, false},
 					{"POINTS DE RUPTURE", &CorpsRuptureC, false},
 				};
@@ -8628,7 +8628,7 @@ namespace nkuidesign {
 				{"CIBLE", true},		{"DISPOSITION", true},	{"ANCRAGE", true},
 				{"ALIGNEMENT", true},	{"ESPACEMENT", false},	{"REMPLISSAGES", true},
 				{"BORDURES", true},	{"APPARENCE", true},	{"TYPOGRAPHIE", true},
-				{"ÉTATS", false},	{"EFFETS", true},	{"POINTS DE RUPTURE", false},
+				{"ÉTATS", true},	{"EFFETS", true},	{"POINTS DE RUPTURE", false},
 			};
 			EtatSection *TrouverSection(const char *titre) {
 				for (uint32 i = 0; i < kNbSections; ++i)
@@ -9675,6 +9675,31 @@ namespace nkuidesign {
 				auto &dl = ctx.DL();
 				uint32 nbEtats = 0;
 				const char *const *etats = nkuidesign::guifmt::NkGEtats(nbEtats);
+				// Tampons resynchronises comme ceux des REMPLISSAGES : la
+				// selection ET l'historique les rechargent -- une annulation doit
+				// se voir dans le champ, pas seulement dans le document.
+				if (mEtatsNode != mSt->selected || mEtatsGen != mSt->editionGeneration) {
+					mEtatsNode = mSt->selected;
+					mEtatsGen = mSt->editionGeneration;
+					for (uint32 i = 0; i < kMaxEtatsUI; ++i)
+						mEtatsBuf[i][0] = ' ';
+					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e)
+						if (const NkApparenceEtat *a0 = NkBlocEtatSi(*n, etats[e]))
+							snprintf(mEtatsBuf[e], sizeof(mEtatsBuf[e]), "%s",
+									 a0->fond.Data());
+				}
+				// ⚠️ LA COLONNE SUIT LE PLUS LONG NOM, elle n'est pas fixee :
+				//    la capture montrait « FocusVisible » PASSANT SOUS la pastille
+				//    avec `ColChamps`. Une colonne posee au jugé marche jusqu'au
+				//    jour où la table gagne un nom plus long -- exactement ce que
+				//    Rodolf a demandé de rendre possible. On la CALCULE.
+				float32 wNom = 0.f;
+				for (uint32 e = 0; e < nbEtats; ++e) {
+					const float32 w = costume::Largeur(F.px10, etats[e]);
+					if (w > wNom)
+						wNom = w;
+				}
+				const float32 colEtat = wNom + (float32)costume::EspLarge;
 				for (uint32 e = 0; e < nbEtats; ++e) {
 					const NkRect r = ctx.NextItemRect(-1.f, costume::HRangee);
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
@@ -9686,7 +9711,7 @@ namespace nkuidesign {
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), etats[e],
 								   pose ? ctx.theme.accent : ctx.theme.textMuted);
 					// La pastille du fond de cet état, ou « — » s'il est hérité.
-					const NkRect sw = {x0 + costume::ColChamps,
+					const NkRect sw = {x0 + colEtat,
 									   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
 					if (pose && !a->fond.Empty()) {
 						dl.AddRectFilled(sw, CouleurHex(a->fond.Data(), ctx.theme.textMuted), 3.f);
@@ -9696,31 +9721,39 @@ namespace nkuidesign {
 						dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
 								   ctx.theme.textMuted, 1.f);
 					}
-					// Ce que l'état pose, en clair — jamais un compte de bits.
-					char b[96];
-					if (!pose)
-						snprintf(b, sizeof(b), "%s", "hérité");
-					else {
-						char rad[24] = "", opa[24] = "";
-						if (a->radius >= 0.f)
-							snprintf(rad, sizeof(rad), " r %g", (double)a->radius);
-						if (a->opacite >= 0.f)
-							snprintf(opa, sizeof(opa), " %g%%", (double)a->opacite);
-						snprintf(b, sizeof(b), "%s%s%s",
-								 a->fond.Empty() ? "" : a->fond.Data(), rad, opa);
+					// LE CHAMP HEXA DU FOND -- la moitié qui rend le geste VRAI :
+					// une section qui liste sans poser n'est pas utilisable.
+					// ⚠️ VIDER LE CHAMP RETIRE LA SURCHARGE (retour à l'hérité) et
+					//    ne laisse PAS un bloc vide derrière : sans ça, effacer une
+					//    couleur laisserait une clé `apparence_<État>` fantôme dans
+					//    le fichier -- une trace de ce qu'on vient d'annuler.
+					const float32 xChamp = sw.x + 16.f + (float32)costume::EspSerre;
+					if (e < kMaxEtatsUI) {
+						char idH[40];
+						snprintf(idH, sizeof(idH), "##insp.etat.hex%u", e);
+						ctx.SetNextItemRect({xChamp, costume::BandeY(r.y),
+											 x1 - xChamp, costume::HControle});
+						if (nkgui::InputText(ctx, idH, mEtatsBuf[e], 10)) {
+							NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
+							bloc.fond = NkString(mEtatsBuf[e]);
+							if (bloc.Vide())
+								NkRetirerBlocEtat(*n, etats[e]);
+							mSt->doc.MarkHumanEdit(mSt->selected);
+							mSt->host.SyncTo(mSt->doc);
+						}
+					} else {
+						// La borne d'interface est atteinte, ET ELLE LE DIT.
+						costume::Texte(dl, F.px10, xChamp, costume::CentrerBande(F.px10, r.y),
+									   "(trop d'états pour l'éditeur)", ctx.theme.textMuted);
 					}
-					costume::Texte(dl, F.px10, sw.x + 16.f + (float32)costume::EspSerre,
-								   costume::CentrerBande(F.px10, r.y), b,
-								   pose ? ctx.theme.text : ctx.theme.textMuted);
-					(void)x1;
 				}
-				// ⚠️ L'ÉDITION DES ÉTATS N'EST PAS ENCORE BRANCHÉE, ET ÇA SE DIT
-				//    plutôt que de laisser croire à une panne : la LISTE et le
-				//    MODÈLE (clé `apparence_<État>`, aller-retour prouvé) sont
-				//    là ; poser une valeur depuis ce panneau vient avec le lot
-				//    suivant. *Une section qui n'agit pas encore porte sa
-				//    raison* — la règle maison, appliquée à mon propre travail.
-				designkit::KeyValue(ctx, "édition", "au lot suivant");
+// ⚠️ CE QUI S'ÉDITE ICI, ET CE QUI NE S'ÉDITE PAS ENCORE : le FOND
+				//    se pose (c'est la propriété la plus visible, donc celle qui
+				//    rend le geste vérifiable à l'œil) ; le rayon et l'opacité
+				//    par état sont dans le MODÈLE et dans le FICHIER, pas encore
+				//    dans le panneau. Mieux vaut un champ vrai que trois
+				//    demi-champs -- et la section le DIT plutôt que de le taire.
+				designkit::KeyValue(ctx, "rayon / opacité", "au lot suivant");
 			}
 
 			void CorpsEffets(NkGuiContext &ctx) {
@@ -11507,6 +11540,17 @@ namespace nkuidesign {
 			char mFillsBuf[kMaxFillsUI][12] = {};
 			int32 mFillsNode = -1;
 			uint32 mFillsGen = 0;
+			/// Les tampons hexa de la section ETATS -- un par etat de la table.
+			/// ⚠️ LA BORNE EST UNE BORNE D'INTERFACE, PAS UNE LISTE : elle
+			///    dimensionne des tampons de saisie, elle ne decide RIEN de ce
+			///    qui s'affiche -- la table reste la seule source. Si elle
+			///    devenait trop petite, le panneau montrerait quand meme tous
+			///    les etats ; seuls les derniers perdraient leur champ, et la
+			///    section le DIT (voir CorpsEtats).
+			static constexpr uint32 kMaxEtatsUI = 12;
+			char mEtatsBuf[kMaxEtatsUI][12] = {};
+			int32 mEtatsNode = -1;
+			uint32 mEtatsGen = 0;
 			char mBordsBuf[kMaxFillsUI][12] = {};
 			int32 mBordsNode = -1;
 			uint32 mBordsGen = 0;
