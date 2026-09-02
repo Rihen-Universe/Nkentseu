@@ -1,0 +1,107 @@
+# Noge — ce qui attend une décision de toi
+
+> Une page. Le détail est dans `Engine/Noge/echanges_noge.md` (rapport complet).
+> Rien de ce qui suit n'est engagé : les quatre blocs attendent ta réponse.
+> Branche `feat/noge-inventaire`, arbre `Nkentseu-noge`, 2026-09-02.
+
+---
+
+## 1. ⭐ L'IMAGE WEB — tu es la seule ressource qui manque, et ça te prend 2 minutes
+
+La chaîne 3D web est **débloquée et vérifiée** : elle construit (30/30), elle lie,
+elle initialise entièrement, elle exécute 22 passes par image, et il n'y a **plus
+une seule erreur** dans le journal. Ce qui manque n'est pas du code : c'est **un
+vrai GPU**. Je n'ai que SwiftShader (rendu logiciel), trop lent pour aboutir, et
+je ne touche pas à ta carte pendant qu'Ilyana s'entraîne.
+
+**Ce que tu lances :**
+
+```
+Build\Bin\Release-Web\renderdemo\renderdemo.bat
+```
+
+puis dans ton navigateur :
+
+```
+http://localhost:9001/renderdemo.html?demo=2
+```
+
+**Ce que tu dois regarder — pas « une image », ce HUD précisément :**
+
+| ligne du HUD | ce qui prouve que c'est gagné |
+|---|---|
+| `Demo 3D \| API : OpenGL` | la démo 3D est bien celle qui tourne |
+| **`Draw:` et `Tris:`** | **NON NULS.** C'est LE test. Sur HarmonyOS ils valent `0` : le moteur vit, la 3D non |
+| l'image | sphères PBR + **ombres portées** + grille de cubes, comme la capture Android |
+
+⚠️ Si `Draw:0 Tris:0` avec un fond uni, c'est le même état qu'HarmonyOS et il
+reste du travail. Si les triangles sortent, **la cible Web passe au vert** et on
+a 3 plateformes sur 7 prouvées en 3D au lieu de 2.
+
+---
+
+## 2. Les trois doublures CPU — **quand**, pas **si**
+
+`NkClothSystem`, `NkHairSystem`, `NkSoftBodySystem` sont en **compute GPU**, et
+**WebGL2 n'a pas de compute** (mesuré). Sur une de tes sept cibles, ils ne
+pourront jamais tourner tels quels.
+
+**Le principe est déjà tranché par ta propre règle** — *ce qui ne peut pas se
+faire doit avoir une doublure crédible, jamais un trou*. Donc la question n'est
+pas s'il faut une doublure, mais **quand** :
+
+- **maintenant** — le module est cohérent sur les 7 cibles, mais ça retarde la course ;
+- **après la course** — on avance sur le jeu, et ces 3 systèmes restent absents du Web.
+
+🔵 **Ma recommandation : après la course.** La course de voitures n'utilise aucun
+des trois (tissu, cheveux, corps mous sont du personnage). **Bloqué tant que tu
+n'as pas répondu :** rien — je ne les rouvre pas.
+
+---
+
+## 3. 🔴 `NkSkeleton` pèse **77 064 octets** — dimensionnement à trancher
+
+Mesuré : `sizeof(NkSkeleton)` = **75 Ko**. `bones[256]` + `skinMatrices[256]` en
+tableaux fixes, pour des squelettes qui en utilisent quelques-uns.
+
+Dans un ECS les composants sont rangés **par valeur**. Donc :
+- **100 personnages = 7,5 Mo** de squelettes ;
+- **75 Ko recopiés** à chaque changement d'archétype ;
+- quatre exemplaires sur la pile **font planter** un programme (c'est comme ça
+  que je l'ai trouvé : mon banc est tombé en dépassement de pile).
+
+🔵 **Ma recommandation : passer les tableaux en allocation dynamique**, ou baisser
+`kMaxBones` à une valeur réaliste (64 ?). **Je n'y touche pas** : c'est ton code,
+d'autres modules le consomment, et c'est une décision d'architecture.
+
+---
+
+## 4. `.gitattributes` et les shaders `.nksl` — piège rétroactif
+
+Constat : les `.nksl` sont en **CRLF sur le disque**, **LF dans l'index**, et
+`.gitattributes` n'a **aucune règle** pour eux — alors que ce sont des données
+lues **octet pour octet** par le compilateur de shaders.
+
+⚠️ **Pourquoi je ne l'ai pas corrigé** : ajouter une règle de fin de ligne
+**renormalise tout le jeu de fichiers** au prochain checkout. Un dépôt entier de
+shaders réécrit en silence, ce n'est pas quelque chose à déclencher sans toi.
+
+🔵 **Ma recommandation : ajouter `*.nksl text eol=lf`, mais à un moment choisi**,
+avec un arbre propre et une vérification après. Pas maintenant.
+
+---
+
+## Ce qui est fait et ne t'attend pas
+
+- **Web débloqué** : garde EGL (`NK_OPENGL_ES` ne veut pas dire « EGL disponible »)
+  → 23/30 ✗ **→ 30/30 ✓** ; shader `PP_AutoExposure` (bloc divergent entre étages)
+  → `valid=0` **→ `valid=1`**, zéro erreur.
+- **Textures FBX** : elles étaient cherchées **un dossier trop haut** → la voiture
+  charge maintenant ses 3 cartes (0/3 → **3/3**).
+- **`quality` est opérant** : l'enum passait de « écrit 7 fois, lu 0 fois » à
+  l'axe qui pilote le rendu, + `ForTarget()` qui choisit le profil **dans le
+  moteur** (l'appli ne nomme plus ni plateforme ni preset).
+- **`Noge/Systems` : 3 systèmes sur 6 réanimés** (jiggle, mocap, ragdoll), chacun
+  avec un corps, un appelant réel et un banc contre-éprouvé.
+- **Journal web** : 12 411 lignes de diagnostic par exécution → **0** (extinguible).
+- **`QueryCaps`** ne fabrique plus de capacités fausses et plausibles.
