@@ -1090,6 +1090,14 @@ namespace nkentseu {
 			mCaps.maxUniformBufferRange = (uint32)v;
 		if (NkGLQueryCap(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, v))
 			mCaps.minUniformBufferAlign = (uint32)v;
+		// Unites de texture du fragment -- la limite qui a fait tomber le Web le
+		// 2026-09-02 (PBR : 17 demandes pour 16 accordees par ANGLE). Si la
+		// requete echoue, NkGLQueryCap n'ecrit RIEN et le champ garde son defaut
+		// DECIDE de 16 : le minimum garanti, jamais un zero ni la valeur de la
+		// variable voisine (`v` est partagee -- c'est exactement le defaut des
+		// sept capacites fausses et plausibles corrige plus bas).
+		if (NkGLQueryCap(GL_MAX_TEXTURE_IMAGE_UNITS, v) && v > 0)
+			mCaps.maxFragmentTextureUnits = (uint32)v;
 
 		// -- compute et SSBO : on NE POSE PAS la question si la cible n'en a pas
 		// Une capacite absente vaut ZERO, jamais un defaut optimiste : un

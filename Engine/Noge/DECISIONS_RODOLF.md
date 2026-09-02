@@ -968,19 +968,60 @@ doublure crédible, jamais un trou.* Une cible à 16 unités doit obtenir une
 dans le contenu — l'inverse exact de la règle. Le shader ne sait jamais où il
 tourne ; il connaît un **budget**, que le moteur lui donne.
 
-**Étape 0 — rendre la limite CONNAISSABLE** *(préalable à tout le reste)*
+**Étape 0 — ✅ FAITE le 02/09 : la limite est désormais CONNAISSABLE**
 Ajouter `maxFragmentTextureUnits` à `NkDeviceCaps`, renseigné par chaque backend
 (`glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS)` côté GL). ⚠️ **Avec la garde déjà
 gravée** : `glGetIntegerv` **n'écrit rien** quand il échoue — valeur de repli
 **décidée** (16, le minimum garanti par WebGL2), jamais un zéro par défaut, et
 jamais la valeur de la variable voisine.
 
+> ✅ **FAIT et compilé (NKRHI 16/16)** : `maxFragmentTextureUnits = 16` ajouté à
+> `NkDeviceCaps` (`NkIDevice.h`), renseigné par
+> `NkGLQueryCap(GL_MAX_TEXTURE_IMAGE_UNITS)` dans `NkOpenglDevice::QueryCaps`.
+> **Le défaut de 16 n'est pas un zéro par défaut, c'est une valeur décidée** : si
+> la requête échoue, `NkGLQueryCap` n'écrit rien et le champ garde **la valeur la
+> plus contraignante**, jamais la plus optimiste — et jamais la valeur de la
+> variable voisine `v`, qui est exactement le défaut des « sept capacités fausses
+> et plausibles » corrigé plus bas dans le même fichier.
+> 📌 *La structure portait 16 limites et aucune n'était celle-ci. C'est
+> maintenant 17, et le moteur peut enfin poser la question avant de choisir sa
+> variante.*
+
 **Étape 1 — un palier « unités de texture » dans `NkRenderQuality`**
 Le profil porte le budget ; `ForTarget()` le renseigne depuis les caps. Le
 matériau demande des canaux, le moteur en accorde autant que le budget permet.
 
-**Étape 2 — la variante réduite, par ordre de sacrifice** (du moins au plus
-visible). Il faut récupérer **au moins 1** unité ; on en vise **6** de marge :
+**Étape 2 — la variante réduite. 🔴 RÈGLE : FUSIONNER AVANT D'ÉTEINDRE.**
+
+> 🗣️ **Rodolf, 02/09** : *« s'il y avait possibilité de fusionner certaines
+> textures, ça devrait être vraiment bien pour éviter de perdre en qualité. »*
+
+**Les six unités récupérables ne sont pas de même nature, et c'est tout le
+sujet** — quatre ne coûtent rien, deux coûtent une perte visible :
+
+| nature | ce que ça fait | perte |
+|---|---|---|
+| **FUSION** (4 unités) | la donnée est **toujours là**, simplement rangée autrement — deux vues d'une même texture, deux LUT dans un atlas, un cube réutilisé | **aucune, ou négligeable** |
+| **EXTINCTION** (2 unités) | la donnée **disparaît**, remplacée par un repli | **visible** |
+
+> **L'ordre d'application est une RÈGLE, pas une préférence : on épuise la
+> fusion avant de toucher à l'extinction.**
+
+✅ **ET LA FUSION SUFFIT. On n'éteint RIEN.** Compte mesuré :
+
+```
+27 déclarés − 10 (fusion des cookies) − 4 (les quatre fusions) = 13  ≤ 16 ✅
+```
+
+**13 sur 16, zéro extinction, 3 unités de marge.** Les deux extinctions
+(`tVoxelOpacity`, `tMatcap`) **restent en réserve, non appliquées** — elles ne
+serviront que si une cible future descend sous 13.
+
+📌 **Et c'est mieux que la marge de 11 que je visais.** *13 sans extinction vaut
+mieux que 11 avec* : la perte est visible, la marge ne l'est pas. On ne paie pas
+en qualité une sécurité qu'on peut obtenir en rangement.
+
+**Le détail — quatre fusions, aucune perte notable :**
 
 | # | sacrifice | gain | coût visuel |
 |---|---|---:|---|
@@ -988,16 +1029,28 @@ visible). Il faut récupérer **au moins 1** unité ; on en vise **6** de marge 
 | 2 | **IBL fusionnée** : `tEnvIrradiance` + `tEnvPrefilter` → un seul cube, irradiance au mip le plus haut | **1** | faible — c'est l'approximation classique |
 | 3 | **`tLTC1`+`tLTC2` → un atlas 2D** (deux LUT 64×64, elles tiennent côte à côte) | **1** | nul |
 | 4 | **`tSkyEnvCube` réutilise le cube IBL** quand le ciel est la source | **1** | nul dans la démo |
-| 5 | **`tVoxelOpacity` et `tMatcap` éteints** sous budget serré (repli : AO analytique, matcap neutre) | **2** | visible, mais **crédible** — pas un trou |
-| | **total récupérable** | **6** | 27 − 10 − 6 = **11 ≤ 16** ✅ |
+| | **total par FUSION** | **4** | 27 − 10 − 4 = **13 ≤ 16** ✅ |
+| — | *en RÉSERVE, non appliqué* : `tVoxelOpacity` et `tMatcap` éteints (repli : AO analytique, matcap neutre) | *2* | *visible — ne servira que si une cible descend sous 13* |
 
-📌 **Marge visée : 11 sur 16, pas 16 sur 16.** *Un correctif qui atteint pile la
-limite est un correctif qui recassera au prochain sampler ajouté* — c'est
-littéralement ce qui vient de se produire le 11 août.
+📌 **Marge : 3 unités, pas 0.** *Un correctif qui atteint pile la limite recasse
+au prochain sampler ajouté* — c'est littéralement ce qui s'est produit le
+11 août. Et désormais le **banc** (ci-dessous) le dira le jour même.
 
-**Chiffrage : ~2 à 3 jours** (étape 0 : quelques heures ; étape 1 : une journée ;
-étape 2 : le reste, plus une capture A/B par sacrifice). 🚫 **Non lancé** — hors
-mandat, et c'est à toi de dire quand.
+### 🟢 FEU VERT DE RODOLF (02/09), aux conditions posées
+
+1. **le bureau garde ses 17 échantillonneurs** — la variante réduite ne concerne
+   qu'une cible à 16 unités ;
+2. **la sélection appartient au moteur** — aucun `#ifdef` dans le shader ;
+3. **fusionner avant d'éteindre** — et la fusion suffit, donc rien ne s'éteint.
+
+⚠️ **Deux garanties à prouver, pas seulement à annoncer :**
+- **le bureau ne bouge pas d'un pixel.** Preuve : paire de captures Windows
+  avant/après, plus le témoin de flux. *Un correctif « pour le Web » qui déplace
+  un pixel sur le bureau est une régression déguisée en amélioration.*
+- **le banc de budget existe AVANT la variante** — fait, voir ci-dessous.
+
+**Chiffrage restant : ~1,5 à 2 jours** (étape 1 : une journée ; étape 2 : les
+quatre fusions + une capture A/B chacune).
 
 ### 🧪 LE BANC — ce défaut doit rougir à la construction, pas dans ta console
 
@@ -1019,7 +1072,48 @@ banc qui compte pour rien :**
 4. il tourne **à la construction** : la limite est statiquement connue, elle n'a
    pas besoin d'un GPU pour être vérifiée.
 
-**Verdict attendu aujourd'hui** : `PBR` **rouge à 17/16**, les 24 autres verts.
+### ✅ LE BANC EXISTE — `Tools/verif_budget_samplers.py`, écrit AVANT la variante
+
+```
+$ python Tools/verif_budget_samplers.py --cible web --controle
+🔴 DEPASSEMENT  Resources/NKRenderer/Shaders/PBR/NkSL/pbr.frag.nksl
+   17 echantillonneurs pour 16 accordes — 1 de trop.
+   tAlbedo, tNormal, tORM, tEmissive, tHeight, tEnvIrradiance, tEnvPrefilter,
+   tBRDFLUT, tSkyEnvCube, tVoxelOpacity, tShadowAtlas, tShadowAtlasRaw,
+   tLight3DCookie0, tLight3DCubeCookie0, tMatcap, tLTC1, tLTC2
+--- CONTROLE POSITIF ---
+✅ (a) compteur sensible : les 185 etages gagnent exactement 1.
+✅ (b) frontiere juste : 16 = vert, 17 = ROUGE.
+                                                             → sortie 1
+$ python Tools/verif_budget_samplers.py --cible desktop --controle
+Aucun depassement — 185 etage(s) fragment mesures, budget 32.  → sortie 0
+```
+
+**Il retrouve les 17 noms un par un** — le même compte que la mesure manuelle,
+obtenu autrement. Rouge sur Web, vert sur bureau : le budget par cible n'est pas
+décoratif.
+
+🔴 **ET MON PREMIER CONTRÔLE POSITIF ÉTAIT FAUX — il s'est dénoncé au premier
+essai.** Il injectait un sampler dans chaque étage et comptait les
+dépassements : le total ne bougeait pas, donc l'instrument se déclarait muet.
+**Cause : la donnée d'essai ne pouvait pas exprimer l'écart.** `PBR` dépassait
+déjà (17 → 18, toujours « 1 dépassement »), et l'étage suivant est à 9 —
+injecter 1 ne le fait pas traverser 16. *Le dépôt ne contient aucun shader assis
+sur la frontière.*
+
+C'est la porte de la maison appliquée à moi-même : *quand une mutation survit,
+la cause n'est pas toujours « le contrôle manque » — c'est souvent « le jeu
+d'essai ne peut pas exprimer l'écart ». Le juge était bon, la question mal
+posée.* Le contrôle éprouve maintenant **la frontière elle-même**, sur deux
+étages synthétiques à `budget` et `budget+1` : un `>` écrit `>=` n'y survit pas.
+
+📌 **Un défaut d'instrument attrapé au passage** : la console Windows est en
+cp1252, et l'emoji de verdict faisait **tomber le script** par
+`UnicodeEncodeError` — *un banc qui plante avant d'imprimer son verdict est
+indiscernable d'un banc vert quand on lit son code de sortie à travers un
+`| head`*. Flux reconfigurés en UTF-8. Cousin exact de l'`EXIT=0` déjà signalé
+dans ce dossier.
+
 *C'est le seul banc de ce lot qui aurait attrapé le défaut le 11 août à 00h01.*
 
 ---
