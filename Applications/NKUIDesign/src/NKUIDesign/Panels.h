@@ -1902,6 +1902,50 @@ namespace nkuidesign {
 		}
 	}
 
+	/// POSER une instance d'un composant DE DOCUMENT — la moitié « réutiliser ».
+	/// Cible : la sélection si elle peut recevoir, sinon la première page.
+	/// Même discipline que le dispatcher : chaque refus SE DIT au pied.
+	inline bool NkPoserComposantDocument(DesignState &st, nkentseu::int32 decl) {
+		using namespace nkentseu;
+		if (decl < 0 || decl >= (int32)st.doc.declarations.Size()) {
+			// Jamais un geste sans effet muet — même pour un indice qui ne
+			// devrait pas pouvoir arriver depuis la liste.
+			st.status = NkString("Poser : composant inconnu.");
+			return false;
+		}
+		int32 parent = (st.doc.IsValidIndex(st.selected) && st.selected != 0) ? st.selected : -1;
+		if (parent < 0) {
+			// Sans sélection : la première page. Poser à la RACINE serait créer
+			// du « hors page » sans que la main l'ait demandé.
+			for (nkentseu::uint32 c = 0; c < (nkentseu::uint32)st.doc.nodes[0].children.Size();
+				 ++c) {
+				parent = st.doc.nodes[0].children[c];
+				break;
+			}
+		}
+		if (parent < 0) {
+			st.status = NkString("Poser : crée d'abord une page pour recevoir le composant.");
+			return false;
+		}
+		const int32 neuf = st.doc.InstancierComposant(decl, parent);
+		if (neuf < 0) {
+			st.status = NkString("Poser : cette déclaration est vide — rien à poser.");
+			return false;
+		}
+		st.doc.MarkHumanEdit(neuf);
+		st.host.demoModels.Clear();
+		st.host.SyncTo(st.doc);
+		st.SelectSingle(neuf);
+		char b[176];
+		snprintf(b, sizeof(b), "Instance de « %s » posée dans « %s ».",
+				 st.doc.declarations[(uint32)decl].identite.nom.Data(),
+				 st.doc.nodes[(uint32)parent].label.Empty()
+					 ? "(sans nom)"
+					 : st.doc.nodes[(uint32)parent].label.Data());
+		st.status = NkString(b);
+		return true;
+	}
+
 	// ═══════════════════════════════════════════════════════════════════════════
 	//  PANNEAU 1 — LA PALETTE
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -7200,7 +7244,26 @@ namespace nkuidesign {
 					}
 				}
 				BandeDeSection(ctx, "COMPOSANTS", "hier.composants.plus");
+				// L'ETAT VIDE PARLE (« une entrée qui n'agit pas porte sa
+				// raison ») : ce document n'a pas encore de composant, et la
+				// ligne dit le geste qui en crée un. Sans elle, la section vide
+				// se lirait comme une panne — ou comme la liste du kit qui
+				// aurait « disparu » depuis qu'elle vit dans la palette du rail.
+				// ⚠️ L'arbre se dessine QUAND MÊME : c'est lui qui avance le
+				//    curseur et tient la garde `hier.bornes` — sauter son appel
+				//    aurait décalé toute la pile des sections.
+				const float32 exVide = ctx.layout.cursor.x + 8.f;
+				const float32 eyVide = ctx.layout.cursor.y + 6.f;
 				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
+				// ⚠️ APRÈS l'arbre : il peint le fond de sa zone, un texte posé
+				//    avant serait recouvert (vérifié sur capture — invisible).
+				if (mModeleComposants.nodes.Empty()) {
+					auto &F = costume::Fontes();
+					costume::Texte(ctx.dl, F.px9, exVide, eyVide,
+								   "Aucun composant dans ce document.", ctx.theme.textMuted);
+					costume::Texte(ctx.dl, F.px9, exVide, eyVide + 14.f,
+								   "Ctrl+Alt+K sur un élément en crée un.", ctx.theme.textMuted);
+				}
 				// LA GARDE DE BORNES (précision de Rodolf, 01/09 : « on ne voit
 				// pas le bas du scrollbar des Composants ») : la pile des
 				// sections doit finir AU-DESSUS du bas visible du panneau —
@@ -7573,9 +7636,18 @@ namespace nkuidesign {
 				// Un composant du registre ne se renomme pas : la saisie ouverte
 				// par le double-clic est refermee, ET LA RAISON SE DIT (jamais un
 				// geste sans effet muet).
+				// Le DOUBLE-CLIC sur un composant du document POSE une instance —
+				// le geste de Lunacy (panneau Assets). Le composant arbre le
+				// remonte comme un début de renommage : on l'intercepte, on
+				// annule la saisie, et on pose. Renommer une déclaration reste
+				// refusé (sa clé lie les instances) — mais le geste a désormais
+				// un EFFET, au lieu d'un refus sec.
 				if (&modele == &mModeleComposants && modele.renaming != 0) {
+					const nkentseu::int32 decl = (nkentseu::int32)modele.renaming - 1;
 					modele.renameCancel = true;
-					mSt->DireAuPied("Un composant du registre ne se renomme pas ici.");
+					// La fonction dit TOUJOURS son verdict au pied — succès comme
+					// refus — donc rien à ajouter ici.
+					NkPoserComposantDocument(*mSt, decl);
 				}
 
 				// ── LE MÊME MENU QUE LA TOILE — pas une seconde écriture ───────
@@ -7859,45 +7931,35 @@ namespace nkuidesign {
 					mModelePages.chosen.PushBack(mModelePages.active);
 			}
 
-			/// ⚠️ AUCUN CATALOGUE ÉCRIT EN DUR, ET C'EST UNE CONTRAINTE DE RODOLF :
-			///    « des millions d'utilisateurs peuvent créer des composants, les
-			///    commercialiser ou les partager. » La section basse boucle donc sur
-			///    le REGISTRE et ne nomme rien.
-			///    ⚠️ `NkComponentRegistry` est borné à `kMaxComponents` = 64. Le
-			///       registre dynamique est un chantier à part, non commencé ici ;
-			///       ce qui est fait aujourd'hui, c'est que la borne se DISE.
+			/// ⚠️ CETTE SECTION A CHANGÉ DE SUJET LE 2026-09-02, ET C'EST LA
+			///    SÉPARATION DOCUMENT/KIT QUI L'IMPOSE. Elle listait le REGISTRE
+			///    (les composants DE CODE : `content_browser`, `tree_view`) — la
+			///    même liste que la palette du rail, en double. Or la planche
+			///    091913 y montre les composants **DU DOCUMENT** (`Btn_Primaire`,
+			///    badge « Button ») : ce que la main a extrait de CE fichier.
+			///    Deux natures, deux panneaux (doc 15 §15.1) : le kit reste dans
+			///    la palette du rail ; ICI vivent les déclarations du document.
+			///    La contrainte de Rodolf tient toujours : aucun catalogue en dur,
+			///    on boucle sur `doc.declarations` et on ne nomme rien.
 			void SyncComposants() {
 				mModeleComposants.nodes.Clear();
-				const uint16 n = NkComponentRegistry::Count();
-				for (uint16 c = 0; c < n; ++c) {
-					const NkComponentDecl *d = NkComponentRegistry::At(c);
-					if (!d)
-						continue;
+				const nkentseu::uint32 n = (nkentseu::uint32)mSt->doc.declarations.Size();
+				for (nkentseu::uint32 c = 0; c < n; ++c) {
+					const NkDeclarationComposant &d = mSt->doc.declarations[c];
 					NkTreeNode t;
 					t.id = (nkentseu::nk_uint64)(c + 1);
 					t.parent = -1;
-					// ⚠️ `name` ET NON `title` : `title` est une CLÉ DE TRADUCTION
-					//    (« content_browser.title »), pas un libellé. L'afficher
-					//    telle quelle mettrait une clé sous les yeux de
-					//    l'utilisateur. Le multilingue vit dans NKGui (règle du
-					//    18/08) et n'est pas branché ici.
-					t.label = NkString(d->name ? d->name : "");
-					t.path = NkString(d->name ? d->name : "");
-					// COSTUME BANANI : pas de pilule pour un composant sans rôle
-					// (`kindLabel` = le rôle, désormais) ; icône panneau, teinte
-					// `text_muted` — la maquette réserve l'accent aux rôles.
-					t.kindLabel = "";
+					t.label = d.identite.nom.Empty() ? NkString("(sans nom)") : d.identite.nom;
+					t.path = t.label;
+					// COSTUME BANANI : la pilule porte le RÔLE de la racine du
+					// composant (« Button » sur Btn_Primaire dans la planche) —
+					// vide = pas de pilule, l'accent reste aux rôles.
+					t.kindLabel = (!d.arbre.Empty() && !d.arbre[0].role.Empty())
+									  ? d.arbre[0].role.Data()
+									  : "";
 					t.icon = NK_ICON_NATURE_PANNEAU;
 					t.kindRole = NkDesignResolveRole("text_muted");
 					mModeleComposants.nodes.PushBack(t);
-				}
-				if (n >= 64 && !mCriRegistre) {
-					mCriRegistre = true;
-					logger.Error("[NKUIDesign] le registre de composants est PLEIN ({0} entrées, "
-								 "plafond kMaxComponents). Les composants suivants ne sont ni "
-								 "enregistrés ni affichés -- ce n'est pas un filtre de la "
-								 "Hiérarchie.",
-								 (int32)n);
 				}
 			}
 
@@ -7924,7 +7986,6 @@ namespace nkuidesign {
 			float32 mPoigneeY = 0.f;	 // œil-barré : seulement les éléments à rôle (écran 8)
 			bool mPlierUneFois = true;	 // repli initial des sous-conteneurs (une fois)
 			bool mCriPages = false;
-			bool mCriRegistre = false;
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════

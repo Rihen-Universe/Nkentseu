@@ -260,3 +260,43 @@ l'instant (`12_…` §12.3(a)). La bibliothèque partagée est un chantier de
 *résolution de dépendances*, pas d'éditeur ; les mélanger mêlerait deux problèmes
 dont un seul est urgent. Et ça ne la ferme pas : une déclaration locale se
 **promeut** plus tard.
+
+---
+
+## 15.9 LA PALETTE EST LIVRÉE (02/09) — et la section COMPOSANTS a changé de sujet
+
+**« Réutiliser » existe** : `InstancierComposant` (la porte), et le double-clic
+de la section COMPOSANTS de la Hiérarchie (le geste) — cible = la sélection,
+repli sur la première page, refus qui parle sans page. Preuves dans
+`--recette-gestes` (27/27), mutations « lien sans chair » et « racine au lieu
+de la page » payées.
+
+⚠️ **La section COMPOSANTS liste désormais les déclarations DU DOCUMENT**, plus
+le registre du kit — qui vivait là EN DOUBLE de la palette du rail, et dont la
+planche 091913 ne parle pas (elle y montre `Btn_Primaire`, badge « Button » :
+un composant de document). C'est la séparation §15.1, appliquée aux panneaux :
+*le kit dans la palette du rail, le document dans la Hiérarchie.* L'état vide
+se dit (« Ctrl+Alt+K sur un élément en crée un »).
+
+## 15.10 🔴 AUCUNE HYPOTHÈSE « ÉCRAN PLAT » DANS LES PROPRIÉTÉS D'UNE PAGE (mandat VR, 02/09)
+
+Direction VR/AR/XR actée (`ROADMAP_PRODUITS.md` §5 au parent) : **la CIBLE
+portera la projection** (mètres, degrés — clé `unite`, réservée, additive,
+absente = pixels), **jamais la page**. Et l'ENTRÉE (rayon, regard, mains) ne va
+nulle part dans le document — une propriété « rayon » serait le `si (mobile)`
+de la VR.
+
+**Hypothèses « écran » croisées dans le format — SIGNALÉES, pas corrigées** :
+
+1. `NkFormatPage` (le catalogue des formats, `Formats.h`) n'a **aucune colonne
+   d'unité** : `w, h` en pixels, point. Le jour où une catégorie « Casque »
+   arrive, le type ne sait pas la dire — la clé `unite` du document le sait,
+   le catalogue pas encore.
+2. Le texte libre de `cible` (« Mobile 390 x 844 ») **grave les pixels dans le
+   libellé lui-même** : la valeur et son unité vivent dans une chaîne
+   d'affichage. Tant que `unite` n'est pas exploitée, c'est cohérent ; le jour
+   venu, le libellé devra être composé, pas stocké.
+
+Rien d'autre : aucune propriété d'entrée (souris, survol, rayon) n'est écrite
+dans le document aujourd'hui — les interactions vivent dans le kit, pas dans le
+fichier.

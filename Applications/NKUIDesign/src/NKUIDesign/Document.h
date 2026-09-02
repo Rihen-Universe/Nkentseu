@@ -637,6 +637,20 @@ namespace nkuidesign {
 			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient
 			/// « <nom> — <cible> ». Vide = l'étiquette historique (nom — L × H).
 			NkString target; ///< clé `cible`
+			/// L'UNITÉ de la cible — clé `unite`, RÉSERVÉE le 2026-09-02 sur
+			/// mandat VR/AR/XR (ROADMAP_PRODUITS.md §5 au parent) : une CIBLE
+			/// portera un jour une projection en mètres et en degrés (« panneau
+			/// à 2 m, 60° ») — jamais la page.
+			/// ⚠️ ABSENTE = PIXELS, et c'est tout ce qu'elle fait aujourd'hui :
+			///    ni exploitée, ni affichée — c'est la PLACE qui compte (même
+			///    logique que `deriveDe` pour la filiation). Son absence serait
+			///    le seul irréversible. Clé additive : un document d'avant se
+			///    relit octet pour octet.
+			/// 🔴 ET LA RÈGLE QUI VA AVEC : aucune hypothèse « écran plat » ne se
+			///    grave dans les propriétés d'une PAGE. L'entrée (rayon, regard,
+			///    mains) ne va nulle part dans le document — une propriété
+			///    « rayon » serait le `si (mobile)` de la VR.
+			NkString targetUnit; ///< clé `unite`
 			/// ── LE MULTILINGUE DU DOCUMENT (mandat 01/09) ────────────────────
 			/// `texte` reste LA LANGUE PRINCIPALE (les anciens documents ne
 			/// bougent pas d'un octet) ; chaque autre langue est une clé
@@ -1568,6 +1582,33 @@ namespace nkuidesign {
 				return true;
 			}
 
+			/// INSTANCIER : une NOUVELLE instance de la déclaration `decl` naît
+			/// sous `parent`. C'est la moitié « réutiliser » du chantier — sans
+			/// elle, extraire un composant ne servait qu'à le détacher.
+			///
+			/// ⚠️ L'INSTANCE NAÎT **MATÉRIALISÉE**, comme celles d'ExtraireComposant :
+			///    le sous-arbre de la déclaration est recopié dans le document
+			///    (mêmes raisons, mesurées là-bas : disposition, dessin et
+			///    détachement gratuits). La recopie passe par `CopierSousArbre` via
+			///    un document temporaire — jamais par une liste de champs écrite à
+			///    la main, qui porte déjà une cicatrice.
+			/// @return l'indice du nouveau nœud, -1 en cas de refus.
+			int32 InstancierComposant(int32 decl, int32 parent) {
+				if (decl < 0 || decl >= (int32)declarations.Size() || !IsValidIndex(parent))
+					return -1;
+				NkUIDocument tmp;
+				DocumentDepuisArbre(declarations[(uint32)decl].arbre, tmp);
+				// La racine de l'arbre vit à l'indice 1 du temporaire (0 = porteur).
+				if (tmp.nodes.Size() < 2)
+					return -1;
+				const int32 neuf = CopierSousArbre(tmp, 1, parent);
+				if (neuf < 0)
+					return -1;
+				nodes[(uint32)neuf].instanceDe = declarations[(uint32)decl].identite.Cle();
+				nodes[(uint32)neuf].ecarts = 0;
+				return neuf;
+			}
+
 			// ── PROVENANCE : LES DEUX AUTOMATISMES ─────────────────────────────
 			// A APPELER APRES TOUTE MODIFICATION D'UN NOEUD PAR LA MAIN. C'est le
 			// seul endroit ou `corrected` passe a vrai, et le seul ou `verified`
@@ -1848,6 +1889,8 @@ namespace nkuidesign {
 					Field(out, "texte_aligne", n.alignText.Data());
 				if (!n.target.Empty())
 					Field(out, "cible", n.target.Data());
+				if (!n.targetUnit.Empty())
+					Field(out, "unite", n.targetUnit.Data());
 				if (!n.transposeDe.Empty())
 					Field(out, "transpose_de", n.transposeDe.Data());
 				if (n.radius != 0.f) {
@@ -2331,6 +2374,8 @@ namespace nkuidesign {
 							n.alignText = NkString(val);
 						else if (StrEq(key, "cible"))
 							n.target = NkString(val);
+						else if (StrEq(key, "unite"))
+							n.targetUnit = NkString(val);
 						else if (StrEq(key, "transpose_de"))
 							n.transposeDe = NkString(val);
 						else if (StrEq(key, "rayon"))

@@ -1291,6 +1291,43 @@ static nkentseu::int32 RecetteGestes() {
 				det);
 	}
 
+	// ── LA CLE `unite` : RESERVEE, PAS EXPLOITEE (mandat VR/AR/XR, 02/09) ────
+	// ROADMAP_PRODUITS.md §5 au parent : une CIBLE portera un jour une
+	// projection en metres et en degres (« panneau a 2 m, 60° ») -- jamais la
+	// page. Aujourd'hui seule la PLACE compte : la cle est additive, absente =
+	// pixels, ni exploitee ni affichee. Son ABSENCE serait le seul irreversible.
+	{
+		NkUIDocument d;
+		d.NewDocument("reservation", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		// (a) UN DOCUMENT QUI N'EN VEUT PAS NE LA GAGNE PAS : la cle n'apparait
+		//     nulle part dans un fichier d'avant.
+		NkString sans;
+		d.Save(sans);
+		const bool absente = strstr(sans.Data(), "unite") == nullptr;
+		// (b) POSEE, ELLE VOYAGE -- a cote de `cible`, comme la roadmap le veut.
+		d.nodes[(uint32)pg].target = NkString("Casque -- panneau 2 m");
+		d.nodes[(uint32)pg].targetUnit = NkString("metres_degres");
+		NkString avec;
+		d.Save(avec);
+		NkUIDocument r;
+		const bool voyage = r.Load(avec.Data()) && r.IsValidIndex(pg)
+							&& r.nodes[(uint32)pg].targetUnit.Data()
+							&& strcmp(r.nodes[(uint32)pg].targetUnit.Data(), "metres_degres") == 0;
+		// (c) ET LE REENREGISTREMENT EST STABLE.
+		NkString avec2;
+		if (voyage)
+			r.Save(avec2);
+		const bool stable = voyage && strcmp(avec2.Data(), avec.Data()) == 0;
+		char det[160];
+		snprintf(det, sizeof(det), "absente d'un document d'avant=%d ; posee -> relue=%d ; "
+							   "reenregistrement stable=%d",
+				 absente ? 1 : 0, voyage ? 1 : 0, stable ? 1 : 0);
+		verdict("LA CLE `unite` DES CIBLES EST RESERVEE (VR/AR/XR) : additive -- un document "
+				"d'avant ne la gagne pas, posee elle voyage et se reenregistre stable",
+				absente && voyage && stable, det);
+	}
+
 	// ── COMPOSANTS, ETAPE 2 : EXTRAIRE ET DETACHER, ENSEMBLE ─────────────────
 	// Modele §15.4. *« Creer un composant » sans « detacher » enferme
 	// l'utilisateur dans une decision qu'il ne peut pas defaire* -- donc les deux
@@ -1494,6 +1531,105 @@ static nkentseu::int32 RecetteGestes() {
 				"par la table des raccourcis PUIS par le dispatcher commun, et le document gagne "
 				"un composant nomme comme le noeud ; `Ctrl+Alt+D` le detache ; la racine refuse",
 				traite && cree && nomme && devenue && aNous && detache && refuse, det);
+	}
+
+	// ── REUTILISER : LA MOITIE QUI MANQUAIT AU CHANTIER ──────────────────────
+	// Extraire sans pouvoir REPOSER, c'est une bibliotheque sans porte de
+	// sortie. Ce cas exerce `InstancierComposant` : une deuxieme instance nait
+	// depuis la declaration -- entiere, liee, et independante de la premiere.
+	{
+		NkUIDocument d;
+		d.NewDocument("reutiliser", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		const int32 bt = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)bt].label = NkString("Bouton");
+		const int32 tx = d.AddChild(bt, "", NkAuthor::Humain);
+		d.nodes[(uint32)tx].label = NkString("Libelle");
+		d.nodes[(uint32)tx].text = NkString("Valider");
+		// ⚠️ ANTI-DONNEES-DEGENEREES : la declaration porte une DESCENDANCE
+		//    (2 nœuds), sinon « materialisee » et « vide » se confondraient et
+		//    les volets (a)/(b) passeraient a vide.
+		const int32 decl = d.ExtraireComposant(bt, "", "bouton");
+		const uint32 avant = (uint32)d.nodes.Size();
+		// (a) POSER : une nouvelle instance nait sous la page, materialisee
+		//     (le document gagne exactement les 2 nœuds de l'arbre).
+		const int32 neuf = d.InstancierComposant(decl, pg);
+		const bool posee = neuf > 0 && (uint32)d.nodes.Size() == avant + 2u
+						   && !d.nodes[(uint32)neuf].instanceDe.Empty()
+						   && d.nodes[(uint32)neuf].children.Size() == 1u;
+		// (b) ENTIERE, PAR L'EFFET : le texte du libelle a voyage. Un lien pose
+		//     sans descendance passerait (a) modifie... et tomberait ICI.
+		bool entiere = false;
+		if (posee) {
+			const int32 enf = d.nodes[(uint32)neuf].children[0];
+			const char *t = d.nodes[(uint32)enf].text.Data();
+			entiere = t && strcmp(t, "Valider") == 0;
+		}
+		// (c) INDEPENDANTES : detacher la PREMIERE instance ne detache pas la
+		//     seconde -- deux instances ne partagent pas leur lien.
+		const bool independantes = posee && d.DetacherInstance(bt)
+								   && !d.nodes[(uint32)neuf].instanceDe.Empty();
+		// (d) REFUS FRANCS : declaration inconnue, parent invalide.
+		const bool refus = d.InstancierComposant(99, pg) == -1
+						   && d.InstancierComposant(decl, 9999) == -1;
+		char det[224];
+		snprintf(det, sizeof(det),
+				 "posee=%d (nœuds %u -> %u, enfants=%u) ; libelle voyage=%d ; "
+				 "detacher l'une laisse l'autre liee=%d ; refus (decl 99, parent 9999)=%d",
+				 posee ? 1 : 0, avant, (uint32)d.nodes.Size(),
+				 neuf > 0 ? (uint32)d.nodes[(uint32)neuf].children.Size() : 0u, entiere ? 1 : 0,
+				 independantes ? 1 : 0, refus ? 1 : 0);
+		verdict("COMPOSANTS (reutiliser) : `InstancierComposant` pose une NOUVELLE instance "
+				"entiere depuis la declaration, les instances sont independantes au detachement, "
+				"et les entrees invalides refusent franchement",
+				posee && entiere && independantes && refus, det);
+	}
+
+	// ── POSER, PAR LE GESTE DE LA PALETTE ────────────────────────────────────
+	// Le double-clic de la palette passe par `NkPoserComposantDocument` : c'est
+	// ELLE qui choisit la cible et qui PARLE au pied. Meme exigence que le geste
+	// d'extraction : la preuve par la main, pas par la fonction du modele.
+	{
+		static DesignState sp;
+		sp.doc.NewDocument("poser", NkAuthor::Humain);
+		sp.selected = -1;
+		const int32 pg = sp.doc.AddChild(0, "", NkAuthor::Humain);
+		sp.doc.nodes[(uint32)pg].label = NkString("Accueil");
+		const int32 bt = sp.doc.AddChild(pg, "", NkAuthor::Humain);
+		sp.doc.nodes[(uint32)bt].label = NkString("Bouton");
+		(void)sp.doc.AddChild(bt, "", NkAuthor::Humain);
+		const int32 decl = sp.doc.ExtraireComposant(bt, "", "bouton");
+		// (a) AVEC selection : l'instance nait SOUS la selection, et devient la
+		//     nouvelle selection (le pied nomme la cible).
+		sp.SelectSingle(pg);
+		const uint32 n0 = (uint32)sp.doc.nodes.Size();
+		const bool sousSelection = NkPoserComposantDocument(sp, decl)
+								   && (uint32)sp.doc.nodes.Size() == n0 + 2u
+								   && sp.doc.IsValidIndex(sp.selected)
+								   && sp.doc.nodes[(uint32)sp.selected].parent == pg
+								   && !sp.doc.nodes[(uint32)sp.selected].instanceDe.Empty();
+		// (b) SANS selection : repli sur la premiere page -- jamais la racine
+		//     (poser « hors page » sans que la main l'ait demande).
+		sp.selected = -1;
+		const bool surPage = NkPoserComposantDocument(sp, decl)
+							 && sp.doc.IsValidIndex(sp.selected)
+							 && sp.doc.nodes[(uint32)sp.selected].parent == pg;
+		// (c) SANS page : refus, ET IL SE DIT (jamais un geste sans effet muet).
+		static DesignState vide;
+		vide.doc.NewDocument("vide", NkAuthor::Humain);
+		vide.selected = -1;
+		vide.doc.declarations.PushBack(sp.doc.declarations[(uint32)decl]);
+		vide.status = NkString("");
+		const bool refusDit = !NkPoserComposantDocument(vide, 0) && !vide.status.Empty();
+		char det[192];
+		snprintf(det, sizeof(det),
+				 "sous la selection=%d ; sans selection -> premiere page=%d ; sans page : "
+				 "refus qui parle=%d (« %s »)",
+				 sousSelection ? 1 : 0, surPage ? 1 : 0, refusDit ? 1 : 0,
+				 vide.status.Data() ? vide.status.Data() : "");
+		verdict("POSER PAR LE GESTE : la palette pose sous la selection, se replie sur la "
+				"premiere page sans selection, et sans page le refus SE DIT au pied",
+				sousSelection && surPage && refusDit, det);
 	}
 
 	// ── LES SURCHARGES SE NOMMENT, DONC ELLES SE VOIENT ──────────────────────
