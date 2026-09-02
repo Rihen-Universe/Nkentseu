@@ -1,7 +1,16 @@
 % =============================================================================
-% COURS NKENTSEU — NkCanvas & NKGui
+% CONSTRUIRE AVEC NKENTSEU
 % Compilation : ../build.ps1   (XeLaTeX, deux passes)
-% Le contenu vit dans chapitres/ : ce fichier n'est qu'un assemblage.
+% -----------------------------------------------------------------------------
+% Le contenu vit dans chapitres/ : ce fichier est l'ASSEMBLAGE, et il porte en
+% plus l'ouverture et la fermeture de chaque partie. Elles sont ICI, et non dans
+% des fichiers separes, pour une raison : on doit pouvoir lire l'ARC du livre
+% -- ce que chaque partie promet, ce qu'elle laisse -- sans ouvrir douze
+% fichiers. C'est le seul endroit d'ou l'on voit l'ensemble.
+%
+% POUR AJOUTER UN CHAPITRE : ecrire chapitres/NN-nom.tex, puis l'inserer dans la
+% partie qui lui convient ci-dessous. Rien d'autre a toucher.
+% POUR AJOUTER UNE PARTIE : \partieintro, les \input, puis \begin{partiebilan}.
 % =============================================================================
 \documentclass[11pt, a4paper, oneside]{book}
 
@@ -25,45 +34,226 @@
 % « chapitre 10 », les fichiers aussi -- la numerotation imprimee doit dire
 % la meme chose, sinon chaque renvoi interne serait decale d'un cran.
 \setcounter{chapter}{-1}
-% --- Ce qu'on installe et ce qu'on lance, avant d'ecrire une ligne.
-% --- Ce qu'on installe et ce qu'on lance, avant d'ecrire une ligne.
+
+
+% =============================================================================
 \part{Les outils}
+% =============================================================================
+\partieintro{Avant d'écrire une ligne}{%
+On ne commence pas un métier par son sujet, on le commence par ses outils. Un
+menuisier apprend l'établi avant le meuble --- non par tradition, mais parce
+qu'un outil qu'on ne maîtrise pas transforme chaque erreur en énigme.
+
+Cette partie installe les deux outils dont tout le reste dépend : \textbf{Jenga},
+qui décrit et construit un projet, et \textbf{NKCode}, l'environnement où l'on
+écrit. Vous y apprendrez ce que coûte un projet \emph{sans} Jenga --- la
+compilation à la main, ligne de commande comprise --- avant de voir ce qu'il
+apporte. C'est délibéré : un outil dont on n'a pas senti le manque reste une
+formalité qu'on subit.
+
+À la fin de cette partie, vous saurez créer un projet, le construire, le lancer,
+et lire ce que la construction vous dit quand elle échoue. C'est peu ; c'est
+exactement ce qui manque à ceux qui abandonnent.%
+}
 \input{chapitres/00-avant-propos}
 \input{chapitres/00a-nkcode}
 
-% --- Le C, le C++, puis la genericite -- et ce que Nkentseu en garde.
+\begin{partiebilan}
+Un projet Nkentseu est décrit par un fichier \texttt{.jenga}, construit par une
+commande, et lancé par une autre. Vous savez maintenant ce que cette commande
+fait à votre place --- et donc ce qu'il faut relire quand elle se plaint. NKCode
+n'est pas obligatoire : c'est un confort, et vous pouvez tout faire sans lui.
+Ce qui suit ne suppose que trois choses : un projet qui se construit, un éditeur,
+et un terminal.
+\end{partiebilan}
+
+
+% =============================================================================
 \part{Les langages}
+% =============================================================================
+\partieintro{Le C, le C++, et ce que Nkentseu en garde}{%
+Nkentseu est écrit en C++, mais pas dans le C++ qu'on enseigne d'ordinaire : la
+bibliothèque standard y est \emph{écartée}, remplacée par des équivalents maison.
+Apprendre le C++ « normal » puis découvrir cette règle donnerait l'impression
+d'une contrainte arbitraire. Cette partie fait donc les deux à la fois : le
+langage, et la raison de chaque écart.
+
+Elle commence par le \textbf{C} --- non par nostalgie, mais parce que les
+pointeurs, la mémoire et la compilation séparée s'expliquent mieux sans les
+objets par-dessus. Puis le \textbf{C++} : classes, héritage, RAII, exceptions.
+Puis les \textbf{templates}, qui sont le mécanisme sur lequel repose la totalité
+de NKContainers.
+
+Aucune connaissance préalable n'est supposée. Si vous savez déjà programmer,
+lisez tout de même les encadrés « Le piège » : ils décrivent des défauts que ce
+dépôt a réellement payés, pas des curiosités de manuel.%
+}
 \input{chapitres/00b-le-c}
 \input{chapitres/00c-le-cpp}
 \input{chapitres/00d-templates}
 
-% --- Les briques employees par TOUTE application, graphique ou non.
+\begin{partiebilan}
+Vous disposez du langage : déclarer, structurer, allouer, hériter, généraliser.
+Trois idées porteront tout le reste du livre. \textbf{RAII} : une ressource est
+tenue par un objet, et sa libération n'est plus une chose qu'on peut oublier.
+\textbf{La compilation séparée} : ce qui rate à la compilation et ce qui rate au
+lien sont deux échecs différents, et le second se cherche ailleurs.
+\textbf{La généricité} : un algorithme écrit une fois sert tous les types --- et
+son corps vit dans l'en-tête, sinon rien ne lie.
+\end{partiebilan}
+
+
+% =============================================================================
 \part{Les fondations}
+% =============================================================================
+\partieintro{Les briques de toute application}{%
+Entre le langage et le moteur, il y a une couche que l'on emploie dans
+\emph{chaque} programme du dépôt --- graphique ou non, jeu ou outil en ligne de
+commande. Ce sont les conteneurs, les mathématiques, la journalisation et les
+fils d'exécution.
+
+On les place ici, et non parmi les modules, parce qu'ils ne se choisissent pas :
+l'image, le son et le réseau sont facultatifs ; \texttt{NkVector} et
+\texttt{NkString} ne le sont pas. Vous les rencontrerez dans la première ligne du
+premier chapitre suivant.
+
+Deux d'entre eux méritent d'être lus même par un programmeur expérimenté.
+\textbf{NKLogger} porte un piège qui ne plante jamais et fausse des messages en
+silence. \textbf{NKThreading} commence par vous conseiller de ne pas vous en
+servir --- et l'argument est sérieux.%
+}
 \input{chapitres/00e-nkcontainers}
 \input{chapitres/00f-nkmath}
 \input{chapitres/00g-nklogger}
 \input{chapitres/00h-nkthreading}
 
-% --- La pile, le rendu 2D, l'interface, et la coquille d'application.
+\begin{partiebilan}
+Vous savez ranger des données (\texttt{NkVector}, \texttt{NkString},
+\texttt{NkSpan} --- et qu'une réallocation invalide les pointeurs), calculer
+(vecteurs suffixés, jamais \texttt{==} sur des flottants, transformations en
+T + R + S séparées), tracer (deux familles de messages qu'on ne mélange pas), et
+paralléliser sans le regretter (RAII appliqué au verrouillage, un ordre de prise
+unique, et le dessin qui reste sur le fil principal). Tout ce qui suit s'appuie
+là-dessus sans le réexpliquer.
+\end{partiebilan}
+
+
+% =============================================================================
 \part{Le moteur}
+% =============================================================================
+\partieintro{Dessiner, et faire une application}{%
+Voici le sujet annoncé : \textbf{NkCanvas}, le rendu 2D, et \textbf{NKGui},
+l'interface. Vous ouvrirez une fenêtre, dessinerez des formes, afficherez du
+texte, réagirez à la souris --- puis vous découvrirez qu'écrire tout cela à la
+main est justement ce qu'il ne faut pas faire.
+
+Le dernier chapitre présente la \textbf{coquille} : \texttt{NkCanvasApp} et
+\texttt{NkCanvasGuiApp}, qui tiennent la fenêtre, la boucle, le cycle de vie
+mobile et la zone sûre à votre place. L'ordre est voulu. On montre d'abord le
+mécanisme nu, parce qu'une abstraction qu'on adopte sans avoir vu ce qu'elle
+remplace devient une boîte noire qu'on n'ose pas ouvrir le jour où elle se
+comporte mal.
+
+C'est la partie la plus longue du livre, et celle dont dépendent toutes les
+applications de la dernière.%
+}
 \input{chapitres/01-le-decor}
 \input{chapitres/02-nkcanvas}
 \input{chapitres/03-nkgui}
 \input{chapitres/04-application}
 \input{chapitres/04b-coquille}
 
-% --- Images, polices, son, video, reseau.
+\begin{partiebilan}
+Vous savez dessiner --- formes, textures, texte --- et construire une interface en
+mode immédiat, où rien n'est conservé d'une image à l'autre et où tout état qui
+doit survivre vit \emph{ailleurs} que dans le widget. Vous savez aussi que la
+coquille existe, ce qu'elle fait pour vous, et la seule chose qu'elle vous
+interdit : redéfinir \texttt{OnRender}, qui est \texttt{final}. Toutes les
+applications de la dernière partie tiennent dans ce que vous venez de lire.
+\end{partiebilan}
+
+
+% =============================================================================
 \part{Les modules}
+% =============================================================================
+\partieintro{Images, polices, son, vidéo, réseau}{%
+Les modules de cette partie sont \textbf{facultatifs}, et c'est leur trait
+commun : une application peut être complète sans en toucher un seul. On les prend
+quand on en a besoin, dans l'ordre qu'on veut --- ces chapitres ne dépendent pas
+les uns des autres.
+
+Chacun est écrit \emph{depuis zéro} dans ce dépôt : les décodeurs d'images, les
+polices, les codecs audio et vidéo, la pile réseau. Ce n'est pas une prouesse
+qu'on affiche, c'est une contrainte qui a des conséquences pratiques --- des
+capacités qui existent ailleurs et manquent ici, des comportements qui
+n'appartiennent qu'à nous. Les chapitres le disent quand c'est le cas.
+
+Pour le réseau, la démarche est celle annoncée dans la partie sur les langages :
+on explique d'abord la façon standard, puis l'alternative Nkentseu et pourquoi
+elle diffère.%
+}
 \input{chapitres/05-nkimage}
 \input{chapitres/06-nkfont}
 \input{chapitres/07-nkaudio}
 \input{chapitres/08-nkmedia}
 \input{chapitres/09-nknetwork}
 
-% --- Des applications completes, pas a pas.
+\begin{partiebilan}
+Vous savez charger et enregistrer une image, afficher du texte dans une police
+réelle, jouer un son, lire une vidéo, et parler à une machine distante. Un motif
+revient dans les cinq : \textbf{le module qui produit la donnée ignore celui qui
+la montre}. Un décodeur vidéo rend des pixels ; il ne sait pas qu'une texture
+existe. C'est cette ignorance mutuelle qui rend chacun remplaçable --- et c'est
+la propriété que la dernière partie exploite dans chaque application.
+\end{partiebilan}
+
+
+% =============================================================================
 \part{Cas pratiques}
+% =============================================================================
+\partieintro{Dix applications, du code réel}{%
+Tout ce qui précède se vérifie ici. Cette partie décrit \textbf{dix
+applications}, et elles \emph{existent} : elles sont dans le dépôt, elles se
+construisent, elles tournent, et les extraits cités en sont copiés.
+
+\medskip
+\begin{tabular}{@{}rll@{}}
+\toprule
+& \textbf{Application} & \textbf{Ce qu'elle enseigne} \\
+\midrule
+1--3 & Dames, échecs, ludo & un patron, trois jeux, et le banc \\
+4 & GemCrush & ce qui grossit quand un jeu grossit \\
+5--7 & Lecteurs image, son, vidéo & transformer une donnée pour l'\oe il \\
+8--9 & Éditeur de texte, puis de code & modifier au lieu de regarder \\
+10 & Mini terminal & parler à un programme qui vit \\
+\bottomrule
+\end{tabular}
+\medskip
+
+L'ordre va du plus fermé au plus ouvert. Un jeu de plateau a des règles finies
+qu'on peut prouver ; un terminal doit accueillir un programme quelconque, sur
+trois systèmes, sans jamais figer l'interface.
+
+Chaque chapitre montre les décisions --- pas seulement le résultat --- et vous
+demande d'en écrire une variante. Ce sont ces variantes, plus que la lecture, qui
+font la différence.%
+}
+\input{chapitres/11-jeux-plateau}
+\input{chapitres/12-gemcrush}
+\input{chapitres/13-lecteurs}
+\input{chapitres/14-editeurs}
+\input{chapitres/15-terminal}
 \input{chapitres/10-projet-final}
 
+\begin{partiebilan}
+Dix applications, et une seule structure : ce qui \emph{décide} ne dessine pas, ce
+qui \emph{dessine} ne décide pas, et ce qui \emph{prouve} n'a besoin ni de l'un ni
+de l'autre. C'est cette séparation qui rend un banc possible --- et un banc est la
+seule chose qui distingue un programme qui marche d'un programme dont on
+\emph{sait} qu'il marche. Vous avez aussi vu, dans du code réel, une dette
+assumée et une dette muette : la différence n'est pas dans le code, elle est dans
+ce qui est écrit à côté.
+\end{partiebilan}
 
 
 \end{document}

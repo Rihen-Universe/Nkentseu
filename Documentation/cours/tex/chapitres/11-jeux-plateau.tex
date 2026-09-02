@@ -1,0 +1,241 @@
+\chapter{Trois jeux de plateau, un seul patron}
+
+Les dames, les échecs et le ludo sont trois jeux différents. Dans ce dépôt, ils
+partagent \emph{exactement} le même découpage --- au point qu'apprendre l'un
+apprend les trois.
+
+Ce chapitre montre ce découpage, dit pourquoi il tient, et vous fait écrire le
+quatrième jeu.
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+& \textbf{NkDames} & \textbf{NkEchecs} & \textbf{NkLudo} \\
+\midrule
+Fichiers & 10 & 9 & 9 \\
+Lignes & 1\,998 & 2\,121 & 2\,130 \\
+Cas de banc & 16 & 14 & 23 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Quatre fichiers, quatre responsabilités}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Fichier} & \textbf{Contient} & \textbf{Connaît} \\
+\midrule
+\texttt{\dots Regles} & les règles du jeu & rien du graphique \\
+\texttt{\dots Ecran} & le dessin et la géométrie & les règles, en lecture \\
+\texttt{\dots Jeu} & la coquille et les entrées & les deux \\
+\texttt{\dots Banc} & les cas qui prouvent & les règles seules \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{La couche des règles ne voit pas l'écran}
+
+C'est le point qui fait tout tenir. Voici l'intégralité des inclusions du fichier
+de règles des dames :
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.h}
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKCore/NkTypes.h"
+\end{nkcode}
+
+Deux lignes. Ni fenêtre, ni GPU, ni image, ni police.
+
+\begin{nkretenir}
+\textbf{Une règle qui n'a besoin d'aucun pixel ne doit dépendre d'aucun pixel.}
+La conséquence est immédiate et c'est tout l'intérêt : \textbf{les règles se
+testent sans ouvrir de fenêtre}. Le banc tourne en console, en une seconde, dans
+une CI qui n'a pas d'écran.
+
+Rangez la même règle du côté du dessin et elle devient invisible au banc. Le jeu
+marchera peut-être ; personne ne pourra le prouver.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.h (extraits)}
+enum class NkDamesCamp : uint8 { NK_BLANC = 0, NK_NOIR = 1 };
+
+struct NkDamesCoup { /* ... */ bool EstPrise() const noexcept; };
+
+class NkDamesPartie {
+    public:
+        void Initialiser() noexcept;
+        NkDamesPiece Case(int32 r, int32 c) const noexcept;
+        NkDamesCamp Trait() const noexcept;
+        void CoupsLegaux(NkVector<NkDamesCoup> &sortie) const;
+        bool Jouer(const NkDamesCoup &coup) noexcept;
+        bool EstTerminee(NkDamesCamp &gagnant) const;
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Cette interface est la même pour les trois jeux}, aux noms près :
+\emph{initialiser}, \emph{lire une case}, \emph{qui joue}, \emph{quels coups sont
+légaux}, \emph{jouer}, \emph{est-ce fini}. Six questions suffisent à décrire un
+jeu de plateau au tour par tour.
+
+\texttt{CoupsLegaux} écrit dans un vecteur qu'on lui donne, au lieu d'en rendre
+un : l'appelant peut réutiliser le même tampon à chaque tour, sans réallouer.
+\end{nkretenir}
+
+\section{L'écran dessine, et ne décide de rien}
+
+Le fichier d'écran calcule une géométrie depuis la taille de la fenêtre, puis
+peint. Il lit la partie ; il ne la modifie jamais.
+
+\begin{nkpiege}
+\textbf{Le bloc se centre sur l'ÉCRAN, pas sur le plateau.} Le ludo a d'abord
+ancré son menu sur le plateau --- un carré centré --- et laissait une bande vide
+sur tout le tiers supérieur en fenêtre portrait.
+
+Chaque rectangle était juste ; leur \emph{ensemble} était mal placé. C'est un
+défaut qu'aucun calcul ne signale et qui ne se voit que sur une image.
+\end{nkpiege}
+
+\section{Le jeu tient la coquille}
+
+\begin{nkcode}{Applications/NkLudo/src/Ludo/NkLudoJeu.cpp (extrait)}
+bool NkLudoJeu::OnGuiInit() {
+    mSplash.PoserJeu("Ludo");
+    Rejouer();
+    return true;
+}
+
+void NkLudoJeu::OnTick(float32 deltaTime) {
+    if (mSplash.Avancer(deltaTime)) {
+        return;                       // l'ouverture tient l'ecran
+    }
+    /* ... */
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Le jeu est le seul des quatre fichiers à connaître la coquille.} Les
+règles l'ignorent, l'écran l'ignore, le banc l'ignore. Le jour où la coquille
+change, un seul fichier bouge par jeu.
+\end{nkretenir}
+
+\section{Le banc, et pourquoi il est le fichier le plus important}
+
+\begin{nkcode}{Applications/NkDames/src/Dames/NkDamesBanc.cpp (en-tete)}
+// Le banc des regles. Ni fenetre, ni GPU, ni image.
+//
+// IL CONTIENT SES CAS NEGATIFS. Un banc qui ne verifie que ce qui doit
+// marcher passe au vert sur un moteur qui autorise TOUT.
+//
+// CONTRE-EPREUVE FAITE : en retirant le filtre de rafle maximale, le banc
+// est passe au ROUGE sur le bon cas, code de sortie 1.
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un banc qui n'a jamais rougi est une intention, pas un contrôle.} La
+seule façon de savoir qu'un banc mesure quelque chose est de \emph{casser
+exprès} ce qu'il surveille et de le voir échouer --- puis de restaurer.
+
+Les trois bancs du dépôt ont subi cette contre-épreuve, et elle est notée dans
+leur en-tête avec le cas qui est tombé.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Les cas négatifs comptent autant que les positifs.} Un banc qui vérifie
+seulement que les coups légaux sont acceptés passe au vert sur des règles qui
+acceptent \emph{tout}.
+
+Le banc du ludo a trois cas négatifs : on ne prend pas sur une case sûre, deux
+pions adverses forment un bloc, un siège désactivé ne prend jamais la main.
+Chacun échouerait si la règle disparaissait.
+\end{nkpiege}
+
+\begin{nkpiege}[Le cas qui a été faux avant d'être juste]
+Le banc du ludo exigeait d'abord que chaque pas de la piste soit
+\emph{orthogonal}. Il échouait --- et le code avait raison : un vrai plateau de
+ludo a exactement quatre virages en diagonale, aux coins.
+
+\textbf{Un banc rouge n'accuse pas toujours le code.} Avant de corriger ce qui
+est mesuré, vérifiez ce que la mesure attendait.
+\end{nkpiege}
+
+\section{Ce que chaque jeu ajoute en propre}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Jeu} & \textbf{Sa difficulté propre} \\
+\midrule
+Dames & la \emph{rafle maximale} : on est obligé de prendre le plus possible \\
+Échecs & le roque, la prise en passant, l'échec et le mat \\
+Ludo & quatre sièges, un dé, et des sièges qu'on peut éteindre \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Le ludo enseigne une règle de conception qui dépasse le jeu.} Un siège
+peut être Humain, IA, ou \emph{désactivé}. Sauter un siège éteint est une règle
+de \emph{tour} --- elle vit donc dans les règles, pas dans l'écran.
+
+Mise du côté du dessin, elle aurait été invisible au banc. Et le banc est le seul
+endroit qui vérifie qu'une partie \textbf{se termine} : sans lui, un tour qui
+donne la main à un siège sans pions ferait attendre le jeu indéfiniment --- et le
+symptôme serait « le jeu se fige », à des lieues de sa cause.
+\end{nkretenir}
+
+\begin{nkbilan}
+Quatre fichiers, quatre responsabilités : les règles ne connaissent pas l'écran,
+l'écran ne décide de rien, le jeu tient la coquille, le banc prouve. Six
+questions suffisent à décrire un jeu au tour par tour. Un banc sans cas négatifs
+passe au vert sur des règles qui acceptent tout, et un banc qui n'a jamais rougi
+n'est pas un contrôle. Enfin : ce qui est une règle va dans les règles --- sinon
+personne ne peut le prouver.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelles sont les deux seules inclusions du fichier de règles, et qu'est-ce
+      que cela permet ?
+\item Quelles six opérations décrivent un jeu de plateau au tour par tour ?
+\item Pourquoi \texttt{CoupsLegaux} écrit-il dans un vecteur donné plutôt que
+      d'en rendre un ?
+\item Qu'est-ce qu'un cas négatif, et pourquoi un banc sans cas négatifs
+      est-il dangereux ?
+\item Pourquoi « sauter un siège désactivé » appartient-il aux règles et non à
+      l'écran ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez le \textbf{morpion} en suivant le patron : quatre fichiers, la couche de
+règles sans aucune inclusion graphique.
+
+Contrainte : votre \texttt{NkMorpionBanc.cpp} doit tourner \emph{avant} que le
+moindre pixel soit dessiné, et contenir au moins deux cas négatifs --- par
+exemple : on ne joue pas sur une case occupée, et une grille pleine sans
+alignement est une partie nulle, pas une victoire.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que votre banc de morpion mesure vraiment quelque chose.
+
+Cassez exprès la détection d'alignement --- par exemple en ne testant que les
+lignes, pas les colonnes. Lancez le banc : il doit passer au \textbf{rouge}, sur
+le cas des colonnes, avec un code de sortie non nul.
+
+Restaurez, relancez, notez le retour au vert. \textbf{Recopiez les deux sorties}
+dans votre compte rendu : c'est cette paire qui prouve, pas le vert seul.
+\end{nkdemo}
+
+\begin{nklogique}
+Un joueur signale : « au ludo, quand je désactive deux sièges, le jeu se fige
+après quelques tours ».
+
+Sans lire le code, énumérez au moins trois causes possibles, en distinguant
+celles qui vivraient dans les \emph{règles} de celles qui vivraient dans
+l'\emph{écran}.
+
+Puis dites, pour chacune, quel cas de banc l'aurait attrapée --- et concluez sur
+celles qu'aucun banc de règles ne peut voir.
+\end{nklogique}

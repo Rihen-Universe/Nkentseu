@@ -1,0 +1,289 @@
+\chapter{Un mini terminal, multiplateforme}
+
+Un terminal semble simple : on tape une commande, on lit la réponse. C'est
+trompeur. Un vrai terminal doit lancer un programme, lui parler pendant qu'il
+tourne, comprendre un langage de contrôle vieux de cinquante ans, et ne jamais
+figer l'interface --- sur trois systèmes qui ne s'y prennent pas du tout de la
+même façon.
+
+NKCode en contient un, complet. Il tient en trois fichiers, et ce découpage est
+tout le chapitre.
+
+\begin{center}
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Fichier} & \textbf{Rôle} & \textbf{Lignes} \\
+\midrule
+\texttt{NkProcess.h} & lancer une commande, lire sa sortie & 171 \\
+\texttt{NkPty.h/.cpp} & tenir un shell \emph{interactif} vivant & 496 \\
+\texttt{NkTerm.h} & interpréter le flux, en faire une grille & 631 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Niveau 1 : lancer une commande et ne pas geler}
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Project/NkProcess.h}
+//   Start(cmd) lance la commande sur un THREAD d'arriere-plan (stdout+stderr
+//   fusionnes) ; le thread pousse chaque ligne dans une file THREAD-SAFE ;
+//   l'UI appelle Drain() chaque frame pour recuperer les nouvelles lignes sans
+//   geler.
+\end{nkcode}
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Project/NkProcess.h}
+void Drain(NkVector<NkString> &out) {
+    threading::NkScopedLock<NkMutex> lk(mMutex);
+    for (/* ... */)
+        out.PushBack(mLines[i]);
+    // ...
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{C'est le patron « producteur lent, interface fluide », et il vaut bien
+au-delà des terminaux.}
+
+Un fil d'arrière-plan lit le programme et pousse ses lignes dans une file
+protégée par un mutex. L'interface, à chaque image, appelle \texttt{Drain} : elle
+prend ce qui est arrivé, ou rien, et rend la main immédiatement.
+
+Elle n'\emph{attend} jamais. Une compilation de trois minutes défile ligne à ligne
+pendant que la fenêtre reste vivante.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Le verrou est pris pendant la copie, pas pendant la lecture du
+programme.} C'est la règle du chapitre NKThreading appliquée : \emph{verrouiller
+le temps de toucher la donnée, pas le temps de travailler}.
+
+Si le fil gardait le verrou pendant qu'il attend la ligne suivante --- ce qui peut
+durer des secondes --- l'interface bloquerait à chaque image en essayant de le
+prendre. Vous auriez payé un fil pour obtenir un programme séquentiel qui
+saccade.
+\end{nkpiege}
+
+\begin{nkretenir}[Une exception à la règle, et elle est écrite]
+\texttt{NkProcess.h} inclut \texttt{<cstdio>}, alors que le dépôt interdit la
+bibliothèque standard. Son en-tête le dit et le justifie :
+
+\begin{quote}
+« WRAPPER MAISON DÉSIGNÉ pour les PIPES process : les appels
+\texttt{\_popen}/\texttt{fgets}/\texttt{fgetc} de bas niveau sont volontairement
+conservés dans cette famille de wrappers (pas d'équivalent \texttt{NkFile} pour un
+flux de processus). »
+\end{quote}
+
+Comparez au chapitre précédent, où \texttt{NkVideoPlayer} incluait les mêmes
+en-têtes \emph{sans rien dire}. Le code est identique ; ce qui diffère est
+décisif.
+
+\textbf{Une exception écrite est une décision --- on peut la discuter, la lever,
+la dater. Une exception muette est une dette que le prochain lecteur prendra pour
+un exemple à suivre.}
+\end{nkretenir}
+
+\section{Niveau 2 : un shell qui reste vivant}
+
+\texttt{NkProcess} lance une commande, la lit, et meurt. Ça ne suffit pas : un
+terminal doit garder \emph{le même} shell entre deux commandes --- sinon
+\texttt{cd} ne change rien, et les variables s'oublient.
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Project/NkPty.h}
+// Contrairement a NkProcess (un _popen jetable par commande), NkPty lance UN
+// shell (powershell / wsl -d <distro> / bash / cmd) attache a un pseudo-console
+// Windows (ConPTY). On ECRIT les frappes clavier dans son entree et on LIT en
+// continu sa sortie (avec sequences VT : couleurs, deplacement curseur, clear).
+// => le shell affiche lui-meme son invite ; `clear` efface ; pas de boite de
+//    saisie separee.
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{« Le shell affiche lui-même son invite » est le renversement complet.}
+
+Le débutant écrit une zone de saisie, un bouton \emph{Exécuter}, et une zone de
+sortie. C'est une \emph{imitation} de terminal : l'invite est fausse, les couleurs
+sont perdues, \texttt{vim} ne marche pas, \texttt{clear} n'efface rien.
+
+Un vrai terminal ne fabrique rien. Il transmet les frappes au shell et affiche ce
+que le shell renvoie --- \emph{y compris son invite}. Il n'est pas l'auteur de ce
+qu'on voit ; il en est le verre.
+\end{nkretenir}
+
+\section{Le pseudo-terminal : ce que c'est, et pourquoi il en faut un}
+
+Un programme se comporte différemment selon qu'il écrit dans un fichier ou vers un
+humain : vers un fichier, il retire les couleurs et l'interactivité. Un tube
+ordinaire ressemble à un fichier --- d'où des sorties ternes et \texttt{vim} qui
+refuse de démarrer.
+
+Un \textbf{pseudo-terminal} est un tube qui se \emph{présente} comme un terminal :
+il a une taille en lignes et colonnes, il accepte d'être redimensionné, et le
+programme d'en face le croit.
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Project/NkPty.h}
+bool Start(const NkString &cmdline, int16 cols, int16 rows,
+           const NkString &cwd = NkString());
+void Write(const char *data, usize len);   // les frappes clavier
+void Resize(int16 cols, int16 rows);       // quand le panneau change de taille
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{\texttt{Resize} n'est pas cosmétique.} Le programme d'en face décide sa
+mise en page d'après la taille qu'on lui a déclarée. Oubliez de l'informer, et
+\texttt{htop} dessinera pour 80 colonnes dans une fenêtre qui en fait 200 --- ou
+débordera dans l'autre sens.
+
+Un terminal qui ne réagit pas au redimensionnement n'est pas « moins abouti » : il
+est faux dès la première fenêtre de taille inhabituelle.
+\end{nkpiege}
+
+\section{Le multiplateforme, et où il est isolé}
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Project/NkPty.cpp (structure)}
+#if defined(_WIN32)
+    // ConPTY : CreatePseudoConsole, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
+#else
+  #if defined(__APPLE__)
+    // <util.h>
+  #else
+    // <pty.h>   -- forkpty
+  #endif
+#endif
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Trois systèmes, trois mécanismes, un seul en-tête.} \texttt{NkPty.h}
+n'expose que \texttt{Start}, \texttt{Write}, \texttt{Read}, \texttt{Resize} : rien
+de ce qui suit ne connaît ConPTY ni \texttt{forkpty}.
+
+L'en-tête dit d'ailleurs \emph{pourquoi} le \texttt{.cpp} existe : « isolée dans
+\texttt{NkPty.cpp} pour ne pas polluer les en-têtes GUI avec les macros de
+\texttt{windows.h} ». Ce n'est pas une préférence de style --- \texttt{windows.h}
+définit des macros comme \texttt{min}, \texttt{max} et \texttt{None} qui cassent
+le code qui les inclut par accident.
+
+\textbf{Là où le portage est le plus sale, l'interface doit être la plus
+étroite.}
+\end{nkretenir}
+
+\section{Niveau 3 : comprendre ce que le shell renvoie}
+
+Le shell ne renvoie pas du texte : il renvoie du texte \emph{mêlé d'ordres}.
+\texttt{ESC[31m} veut dire « à partir d'ici, écris en rouge », \texttt{ESC[2J}
+« efface l'écran », \texttt{ESC[10;5H} « place le curseur ligne 10, colonne 5 ».
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Project/NkTerm.h}
+// NkTerm.h - Emulateur de terminal VT : transforme le flux d'octets d'un shell
+//   en une GRILLE de cellules (caractere + couleur avant/arriere) avec curseur,
+//   defilement et scrollback.
+//   Rendu : l'UI lit TotalLines()/LineAt() et dessine chaque cellule (monospace).
+
+struct NkTermCell {
+        uint32 cp = 0x20;                  // codepoint Unicode
+        NkColor fg = {204, 204, 204, 255};
+        NkColor bg = {0, 0, 0, 0};         // a==0 => fond par defaut
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{L'émulateur transforme un flux en état.} Il consomme des octets et
+maintient une grille : à chaque case, un caractère et deux couleurs. Le dessin,
+ensuite, est trivial --- une boucle sur des cellules, en police à chasse fixe.
+
+\textbf{C'est la séparation qui rend l'affaire faisable} : d'un côté un automate
+qui ne dessine rien et se teste sans fenêtre ; de l'autre un dessin qui ne
+comprend rien et ne peut donc pas se tromper. Exactement le découpage
+règles/écran des jeux, appliqué à un terminal.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Une séquence d'échappement peut arriver coupée en deux.} La lecture rend
+ce qui est disponible : \texttt{ESC[3} dans un paquet, \texttt{1m} dans le
+suivant.
+
+Un analyseur qui traite chaque paquet indépendamment affichera \texttt{[3} puis
+\texttt{1m} en clair, aléatoirement, une fois de temps en temps --- le défaut qui
+ne se reproduit jamais chez le développeur et toujours chez l'utilisateur.
+
+\textbf{L'automate doit garder son état d'un paquet à l'autre.} C'est le même
+problème que le commentaire de bloc du chapitre précédent : \emph{un analyseur
+travaille sur un flux, pas sur des morceaux}.
+\end{nkpiege}
+
+\begin{nkretenir}
+Notez \texttt{bg = \{0,0,0,0\}} avec le commentaire « \texttt{a==0} $\Rightarrow$
+fond par défaut ». Une cellule ne dit pas « fond noir » : elle dit « je n'ai pas
+d'avis ».
+
+C'est ce qui permet au terminal de suivre le thème de l'éditeur. Une valeur
+\emph{absente} et une valeur \emph{noire} sont deux choses différentes --- et les
+confondre est l'erreur qui rend une interface non thémable.
+\end{nkretenir}
+
+\begin{nkbilan}
+Un terminal se construit en trois étages qui se justifient l'un l'autre :
+\emph{lancer} sans geler (fil d'arrière-plan, file protégée, \texttt{Drain} par
+image), \emph{tenir un shell vivant} via un pseudo-terminal --- c'est le shell qui
+affiche son invite, pas nous ---, et \emph{interpréter} le flux VT en une grille
+de cellules. Le code spécifique à chaque système est isolé dans un seul
+\texttt{.cpp}, derrière quatre fonctions. Et l'automate garde son état entre les
+paquets, sinon les séquences coupées s'affichent en clair, rarement.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi \texttt{Drain} plutôt qu'attendre la fin de la commande ?
+\item Pourquoi un tube ordinaire ne suffit-il pas pour un shell interactif ?
+\item Que se passe-t-il si l'on n'appelle jamais \texttt{Resize} ?
+\item Pourquoi le code Win32 est-il dans un \texttt{.cpp} et non dans l'en-tête ?
+\item Pourquoi une cellule a-t-elle un fond d'alpha nul plutôt qu'un fond noir ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Construisez votre mini terminal, en trois étapes qui correspondent aux trois
+niveaux du chapitre.
+
+\textbf{A.} Une zone de saisie, un bouton, une zone de sortie. Lancez la commande
+sur un fil, videz la file à chaque image. \emph{Vérifiez que l'interface reste
+fluide} pendant une commande de trente secondes.
+
+\textbf{B.} Remplacez par un shell persistant. \texttt{cd} doit désormais avoir un
+effet sur la commande suivante --- c'est votre critère de réussite, et il est
+binaire.
+
+\textbf{C.} Interprétez au minimum les couleurs (\texttt{SGR}) et l'effacement
+d'écran (\texttt{ED}). Le reste des séquences peut être \emph{consommé et ignoré}
+--- mais consommé, jamais affiché.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que votre analyseur survit à une séquence coupée.
+
+Écrivez un banc \emph{sans fenêtre} qui alimente votre émulateur avec
+\texttt{"ESC[31mROUGE"} en un seul morceau, puis avec le même texte découpé
+\textbf{à chaque octet} --- un appel par caractère. Comparez la grille obtenue,
+cellule par cellule.
+
+Les deux doivent être identiques. Faites ensuite varier le point de coupure sur
+toutes les positions possibles et vérifiez les $n$ résultats.
+
+\textbf{Pourquoi la variation exhaustive} : une coupure à un seul endroit peut
+tomber juste par chance. C'est la coupure \emph{au milieu du nombre} ---
+\texttt{ESC[3} puis \texttt{1m} --- qui casse les analyseurs naïfs, et rien ne
+garantit que votre essai unique tombe dessus.
+\end{nkdemo}
+
+\begin{nklogique}
+Votre terminal affiche parfois \texttt{[0m} en clair au milieu de la sortie ---
+environ une fois sur cent lancements, jamais au même endroit.
+
+\begin{enumerate}
+\item Énumérez au moins trois causes possibles.
+\item Pour chacune, dites quelle mesure la distinguerait des autres --- une mesure
+      qui donne un résultat \emph{différent} selon la cause, sinon elle ne tranche
+      rien.
+\item Un collègue propose de filtrer \texttt{[0m} avant l'affichage. Expliquez
+      pourquoi ce correctif est plus dangereux que le défaut, en une phrase.
+\end{enumerate}
+\end{nklogique}
