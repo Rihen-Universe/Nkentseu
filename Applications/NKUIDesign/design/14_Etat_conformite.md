@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **65** | **26** | **82** | **1** |
+| **174** | **66** | **25** | **82** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -50,7 +50,7 @@ main** — la prochaine régénération l'effacerait.*
 | 4. Sélection et navigation | 8 | 0 | 5 | 0 |
 | 5. Toile et vue | 2 | 4 | 10 | 0 |
 | 6. Transformations | 13 | 1 | 7 | 0 |
-| 7. Calques et groupes | 7 | 2 | 7 | 1 |
+| 7. Calques et groupes | 8 | 1 | 7 | 1 |
 | 8. Propriétés | 10 | 5 | 21 | 0 |
 | 9. Composants et instances | 0 | 1 | 9 | 0 |
 
@@ -89,7 +89,6 @@ main** — la prochaine régénération l'effacerait.*
 **7. Calques et groupes**
 
 - Créer un cadre
-- Ordre de profondeur (4 gestes)
 
 **8. Propriétés**
 
@@ -226,8 +225,10 @@ main** — la prochaine régénération l'effacerait.*
 
 ## 2. CE QUI EST IMPLÉMENTÉ — par famille
 
-*Une phrase par famille plutôt que 65 lignes. Chaque famille est adossée à des
-cas de recette : « livré » se mesure, il ne se déclare pas.*
+*Une phrase par famille plutôt que la liste brute des livrés — le compte exact est
+en §1, et **on ne le recopie pas ici** : un nombre écrit à deux endroits est un
+nombre qui finira par se contredire. Chaque famille est adossée à des cas de
+recette : « livré » se mesure, il ne se déclare pas.*
 
 - **Le mode édition de forme** — on y entre au double-clic et on en sort
   (`Échap`, clic dans le vide, bouton « Terminer ») ; le panneau droit change en
@@ -253,8 +254,8 @@ cas de recette : « livré » se mesure, il ne se déclare pas.*
   dupliquer**.
 - **Les calques** — grouper / dégrouper, copier / couper / coller / dupliquer
   (souris **et** raccourcis), réordonner dans la liste, **ordre de profondeur**
-  (les quatre gestes, par le menu), renommer, supprimer, recherche dans le menu
-  contextuel.
+  (les quatre gestes, **par le menu et au clavier**), renommer, supprimer,
+  recherche dans le menu contextuel.
 - **Les propriétés** — remplissages, bordures et effets en **listes empilables**
   (ajouter, masquer sans supprimer, supprimer), couleur unie, opacité par
   remplissage, épaisseur, ombre portée, police / graisse / taille / couleur.
@@ -272,24 +273,40 @@ cas de recette : « livré » se mesure, il ne se déclare pas.*
 *Le classement n'est pas par chapitre mais par **ce qu'il faut payer**. C'est ce
 qui permet de choisir la prochaine vague.*
 
-### (a) 🔑 PETIT ET BLOQUÉ PAR LE MOTEUR — un seul chantier groupé
+### (a) 🔑 LE SOCLE DES TOUCHES — ✅ **FAIT le 02/09**, et le diagnostic était faux
 
-**`NkGuiKey` ne porte pas les codes de touche nécessaires** : `A`, `R`, `[`, `]`,
-`1`–`6`, `Z`. Ce n'est pas une limite de conception, c'est une énumération
-incomplète.
+**Ce groupe est vidé.** L'alphabet de `NkGuiKey` est complet (A..Z, ajout additif
+en fin d'énumération, accord de Rodolf), la traduction OS→NkGuiKey de
+`NkEditorShell` est complétée, et ce que ça débloquait est branché.
 
-| ce que ça débloque | état du geste |
+🔴 **MAIS TROIS DES CINQ TOUCHES QUE J'AVAIS DÉCLARÉES MANQUANTES NE MANQUAIENT
+PAS.** Je l'écris ici parce que c'est ce document que Rodolf lit :
+
+| ce que j'avais annoncé | la mesure |
 |---|---|
-| `Ctrl+A` — tout sélectionner | le geste **existe** |
-| les outils par lettre (`R`, `O`, `L`, `T`…) | les outils **existent** |
-| les **quatre** raccourcis de profondeur (`Ctrl+]`, `Ctrl+Maj+]`, `Ctrl+[`, `Ctrl+Maj+[`) | le geste **existe et agit** par le menu |
-| les zooms `Ctrl+1..6`, l'outil Zoom (`Z`) | la vue sait déjà zoomer |
+| `[` et `]` manquent | **faux** — présentes **et** traduites depuis le lot NKCode. Le seul manque était dans **notre** table `NkActionDuRaccourci` |
+| `Z` manque | **faux** — présente et traduite |
+| `1..6` manquent | **faux dans l'enum** — elles y étaient ; c'est la **traduction** qui s'arrêtait à `NK_NUM2` |
+| `Ctrl+A` est bloqué | **faux** — il ne passe même pas par `NkGuiKey`, il arrive par l'intention `wantSelectAll`, et il **marchait déjà** |
+| `R` manque | **vrai** — la seule exacte |
 
-⚠️ **C'est le TROISIÈME chantier à buter dessus** — `NkGuiTypes.h` le raconte
-déjà pour l'écran Paramètres (`Ctrl+1..6`, `Ctrl+,`), et NkUIDesign vient de le
-retrouver deux fois. **Coût : une ligne par touche**, un ajout **additif en fin
-d'énumération**. *Un manque qui se represente est un manque qui coûte plus que sa
-correction.*
+> *J'avais accusé la couche du dessous sans aller regarder. La vérification a
+> coûté un `grep`.* La porte du dépôt demande de **chercher en bas avant
+> d'écrire** ; ce cas ajoute son symétrique : **chercher en bas avant
+> d'ACCUSER.**
+
+🔴 **ET LE VRAI DÉFAUT ÉTAIT D'UNE AUTRE NATURE.** `NkGuiTypes.h` portait **deux**
+signalements disant que `Ctrl+1..6` et `Ctrl+,` manquaient « faute de code de
+touche ». Les valeurs étaient là depuis le lot du launcher : c'est
+`NkEditorShell` qui ne les **émettait** pas. *Une valeur d'énumération que
+personne n'émet est aussi morte qu'une valeur absente — et elle est **pire**,
+parce qu'elle a l'air présente.* On la lit dans l'enum, on conclut que le socle
+sait la recevoir, et on cherche le défaut chez l'appelant. Deux signalements
+successifs ont cherché du mauvais côté.
+
+**Ce qui reste de ce groupe** : les **zooms** `Ctrl+0..4` et l'**outil Zoom**
+(`Z`) — désormais de simples branchements côté application (groupe **c**), plus
+aucun blocage moteur.
 
 ### (b) 🏗️ VRAI CHANTIER DE MODÈLE — nommés avec leur coût relatif
 
@@ -321,7 +338,10 @@ correction.*
 - **redimensionner au clavier** (`Ctrl`+flèches) — les flèches et le
   redimensionnement existent séparément ;
 - **chercher un calque par son nom** — le champ de recherche existe déjà dans le
-  menu contextuel.
+  menu contextuel ;
+- **les zooms `Ctrl+0..4` et l'outil Zoom (`Z`)** — descendus du groupe (a) le
+  02/09 : la vue sait zoomer, le cluster de zoom est à l'écran, et **les touches
+  sont désormais toutes reçues**. Il ne reste qu'à les lier.
 
 ---
 
