@@ -83,7 +83,7 @@ frameworks(["Cocoa", "QuartzCore", "Metal", "AudioToolbox"])
 Un \emph{framework} Apple est un dossier qui porte à la fois l'en-tête et le
 binaire. Il se déclare par \texttt{frameworks}, pas par \texttt{links}.
 
-⚠️ \textbf{Et la liste n'est pas la même sur macOS et sur iOS.}
+\alerte{} \textbf{Et la liste n'est pas la même sur macOS et sur iOS.}
 \texttt{AudioUnit} existe sur macOS et \textbf{pas} sur iOS, où ses symboles
 vivent dans \texttt{AudioToolbox}. Recopier la liste macOS donne
 \texttt{ld: framework AudioUnit not found} --- mesuré. \emph{Un précédent se

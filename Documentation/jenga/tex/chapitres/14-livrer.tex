@@ -30,7 +30,7 @@ même dossier de sortie, \textbf{le second écrase le premier} --- code de sorti
 \textbf{Le remède} : un dossier de sortie \emph{par plateforme}, puis un
 renommage.
 
-⚠️ \textbf{Et ce n'est pas la sortie de la commande qui l'a révélé : c'est
+\alerte{} \textbf{Et ce n'est pas la sortie de la commande qui l'a révélé : c'est
 l'ouverture de l'archive.} On y a trouvé un \texttt{.wasm} là où l'on attendait
 un \texttt{.exe}. Un empaquetage qui « réussit » cinq fois peut ne laisser que
 trois artefacts.
@@ -127,7 +127,7 @@ comportement.
 modification.} Un artefact qui la porte a été construit après. Une \emph{date},
 elle, se préserve à la copie et ne prouve rien.
 
-⚠️ \textbf{Le second témoin exige un contrôle positif} : cherchez d'abord une
+\alerte{} \textbf{Le second témoin exige un contrôle positif} : cherchez d'abord une
 chaîne dont vous savez qu'elle est là. Si vous ne la trouvez pas, votre lecteur
 ne sait pas lire ce format --- et l'absence de la première ne prouve rien du
 tout.
@@ -151,8 +151,12 @@ Un dossier de livraison porte plus que des artefacts : il porte de quoi s'en
 servir. Le lot de ce dépôt contient un \texttt{LISEZMOI.md} avec un tableau
 « fichier / pour qui / comment on s'en sert », et un avertissement en tête :
 
-\begin{nkcode}{Build/JeuxPlateau-Release/LISEZMOI.md}
-## ⚠️ Le Web ne s'ouvre PAS en double-cliquant le `.html`
+% `escapeinside` : la regle `literate` du preambule ne mord PAS ici -- mesure
+% faite, y compris apres avoir mis `language={}`, donc ce n'est pas le lexer.
+% `escapeinside` ne depend d'aucune analyse : ce qui est entre `(*` et `*)` est
+% du LaTeX ordinaire. C'est le seul mecanisme qui ait fonctionne.
+\begin{nkcode}[listing options={escapeinside={(*}{*)}}]{Build/JeuxPlateau-Release/LISEZMOI.md}
+## (*\alerte{}*) Le Web ne s'ouvre PAS en double-cliquant le `.html`
 \end{nkcode}
 
 \textbf{Cette phrase économise plus de messages que toute la documentation
@@ -211,7 +215,7 @@ Prouvez qu'un paquet contient bien vos dernières modifications.
 alors le contraire --- empaquetez \emph{sans} reconstruire après une nouvelle
 modification --- et vérifiez qu'ils sont tous deux capables de dire non.
 
-⚠️ Un témoin qui n'a jamais dit non n'a rien prouvé.
+\alerte{} Un témoin qui n'a jamais dit non n'a rien prouvé.
 \end{nkdemo}
 
 \begin{nklogique}

@@ -100,7 +100,7 @@ if isinstance(expr, (list, tuple)):
 \end{nkcode}
 
 \texttt{filter(["system:Windows", "config:Release"])} vaut donc
-\texttt{"system:Windows \&\& config:Release"}. ⚠️ Un \emph{ensemble} est en plus
+\texttt{"system:Windows \&\& config:Release"}. \alerte{} Un \emph{ensemble} est en plus
 \textbf{trié} --- pour que la clé soit stable, l'ordre d'un ensemble Python ne
 l'étant pas.
 \end{nkretenir}
@@ -222,7 +222,7 @@ Prouvez qu'un filtre mal orthographié se tait.
       seconde.
 \end{enumerate}
 
-⚠️ Les deux premiers points sont le cœur de la démonstration. Si vous ne relevez
+\alerte{} Les deux premiers points sont le cœur de la démonstration. Si vous ne relevez
 que le troisième, vous prouvez que l'outil sait montrer les drapeaux --- pas que
 le défaut est silencieux.
 \end{nkdemo}

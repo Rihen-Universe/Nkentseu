@@ -47,8 +47,10 @@ dessine.
 C'est le point le plus important du chapitre, et il est écrit dans le code
 lui-même :
 
-\begin{nkcode}{Kernel/Runtime/NKCamera/src/NKCamera/NkCameraTypes.h}
-// ⚠️ TROIS CHAMPS RETIRES LE 2026-08-15 -- ne pas les reintroduire
+% `escapeinside` : le panneau ne s'imprime pas dans la police du code, et la
+% regle `literate` ne mord pas dans un bloc de code -- mesure faite le 02/09.
+\begin{nkcode}[listing options={escapeinside={(*}{*)}}]{Kernel/Runtime/NKCamera/src/NKCamera/NkCameraTypes.h}
+// (*\alerte{}*) TROIS CHAMPS RETIRES LE 2026-08-15 -- ne pas les reintroduire
 // sans les cabler d'abord :
 //
 //   `outputFormat` -- 3 ecrivains, 0 lecteur. Trois applications

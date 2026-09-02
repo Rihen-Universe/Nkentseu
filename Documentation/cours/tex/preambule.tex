@@ -129,6 +129,11 @@
     {«}{{\guillemotleft}}1 {»}{{\guillemotright}}1
     {–}{{--}}1 {—}{{---}}1 {’}{{'}}1 {…}{{\ldots}}1
 }
+% ⚠️ NE PAS ajouter ci-dessus une regle `literate` pour le panneau « ⚠ » :
+% ESSAYEE ET MESUREE le 2026-09-02, elle NE MORD PAS dans un bloc de code. Le
+% caractere arrive brut a la police, qui ne le porte pas, et le journal dit
+% « Missing character » pendant que la compilation reste verte. Ce qui marche
+% est `escapeinside`, employe au cas par cas (voir 09b-nkcamera).
 \lstset{style=nkcpp}
 
 % Bloc de code encadre, avec un titre qui dit D'OU vient l'extrait. Un exemple
@@ -232,6 +237,28 @@
   boxrule=0pt, leftrule=3pt, arc=1pt,
   title={\sffamily\bfseries\small #1}, coltitle=rihenTeal,
   colbacktitle=rihenTealPale, titlerule=0pt, fonttitle=\small}
+
+% ── LE PANNEAU D'ALERTE ──────────────────────────────────────────────────────
+% ⚠️ MESURE DU 2026-09-02 : le caractere U+26A0 « ⚠ » NE S'IMPRIME PAS. Ni
+% Segoe UI ni Consolas ne le portent dans cette installation, et XeLaTeX le
+% laisse simplement TOMBER -- 12 panneaux absents du PDF de ce cours, 17 de
+% celui de Jenga. Le journal le dit (`Missing character: There is no ⚠`), mais
+% la compilation reste VERTE et le PDF a l'air correct : un paragraphe
+% d'avertissement perdait son marqueur sans que rien ne le signale.
+%
+% ⚠️ Et le selecteur de variante U+FE0F -- la moitie invisible de « ⚠️ » --
+% manque AUSSI, ce qui double le compte du journal sans rien ajouter au defaut.
+% Compter les lignes « Missing character » surestime donc le nombre de glyphes
+% perdus d'un facteur deux exactement.
+%
+% On le DESSINE plutot que de le composer : aucune dependance de police, meme
+% rendu sur toute machine, et il suit la couleur de la charte.
+\DeclareRobustCommand{\alerte}{%
+  \raisebox{-0.18ex}{\begin{tikzpicture}[scale=0.105, baseline=0]
+    \fill[rihenOrange, rounded corners=1.2] (0,0) -- (4.6,8.2) -- (9.2,0) -- cycle;
+    \fill[white] (4.05,2.35) rectangle (5.15,6.0);
+    \fill[white] (4.05,1.0)  rectangle (5.15,1.95);
+  \end{tikzpicture}}\,}
 
 % ── TABLE DES MATIERES ───────────────────────────────────────────────────────
 % ⚠️ LA LARGEUR DE LA BOITE A NUMERO SE DIMENSIONNE SUR LE PLUS LONG, PAS SUR
