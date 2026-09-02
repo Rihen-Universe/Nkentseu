@@ -388,3 +388,27 @@ de la VR.
 Rien d'autre : aucune propriété d'entrée (souris, survol, rayon) n'est écrite
 dans le document aujourd'hui — les interactions vivent dans le kit, pas dans le
 fichier.
+
+## 15.11 🔴 PRINCIPE — un composant est un ACTE, jamais une déduction (Rodolf, 02/09)
+
+> Ses mots : *« un composant ne sera composant que lorsque l'utilisateur aura
+> défini son design comme tel. »*
+
+Le geste existant (l'extraction explicite, `Ctrl+Alt+K`) n'est donc pas un
+détail d'interface : c'est **le principe du modèle**. Être un composant est un
+**engagement** — instances, propagation automatique (§15.6 R1′), identité,
+filiation s'y accrochent. *Un engagement se prend, il ne se subit pas.*
+
+Trois interdictions en découlent, à opposer à toute proposition future :
+
+1. **Aucune promotion automatique.** Pas d'heuristique « répété N fois →
+   composant » ; le dessin reste du dessin tant que la main n'a pas décidé.
+2. **L'IA ne décrète pas le statut.** Elle propose, ou crée un composant si la
+   consigne de l'utilisateur le demande explicitement — jamais de sa propre
+   initiative. C'est le prolongement de la règle maison « l'IA écrit la donnée
+   éditable » : elle n'écrit pas un STATUT.
+3. **Collage, import et transposition ne créent pas de composants** en douce.
+
+⚠️ Le comportement actuel est déjà conforme — cette section n'appelle aucun
+code : elle existe pour que la prochaine « bonne idée » de promotion
+automatique rencontre une décision datée, pas un vide.
