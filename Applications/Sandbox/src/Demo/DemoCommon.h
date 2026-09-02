@@ -62,10 +62,57 @@ namespace nkentseu {
 			return NkGraphicsApi::NK_GFX_API_OPENGL;
 		}
 
-		inline int ParseDemo(const NkVector<NkString> &args, int defaultIdx = 0) {
+		// Vrai si la chaine est un entier decimal non vide (pas de "2abc", pas de "").
+		inline bool NkIsAllDigits(const char *s) {
+			if (!s || !*s)
+				return false;
+			for (const char *c = s; *c; ++c)
+				if (*c < '0' || *c > '9')
+					return false;
+			return true;
+		}
+
+		// Selection de la demo. Formes acceptees : --demo=N, --demo N, -d N.
+		//
+		// ⚠️ POURQUOI CE N'EST PLUS UN SIMPLE StartsWith("--demo="), mesure du
+		// 2026-09-02 : l'ancienne version ne reconnaissait QUE la forme a signe
+		// egal et RENDAIT LE DEFAUT EN SILENCE pour tout le reste. Taper
+		// `renderdemo --demo 2` ou `renderdemo demo 2` lancait la demo 0 sans un
+		// mot -- l'utilisateur croit demander la 3D et reçoit autre chose.
+		// *Un argument que le programme ne comprend pas doit se dire, jamais se
+		// taire.* `outMalformed` porte ce refus jusqu'a l'appelant, qui sort.
+		inline int ParseDemo(const NkVector<NkString> &args, int defaultIdx = 0, bool *outMalformed = nullptr,
+							 NkString *outOffending = nullptr) {
+			auto Refuser = [&](const NkString &a) {
+				if (outMalformed)
+					*outMalformed = true;
+				if (outOffending)
+					*outOffending = a;
+			};
 			for (size_t i = 1; i < args.Size(); i++) {
-				if (args[i].StartsWith("--demo="))
-					return atoi(args[i].SubStr(7).CStr());
+				const NkString &a = args[i];
+				// Forme 1 : --demo=N
+				if (a.StartsWith("--demo=")) {
+					const NkString v = a.SubStr(7);
+					if (!NkIsAllDigits(v.CStr())) {
+						Refuser(a);
+						return defaultIdx;
+					}
+					return atoi(v.CStr());
+				}
+				// Forme 2 : --demo N  /  -d N (valeur dans l'argument suivant)
+				if (a == "--demo" || a == "-d") {
+					if (i + 1 < args.Size() && NkIsAllDigits(args[i + 1].CStr()))
+						return atoi(args[i + 1].CStr());
+					Refuser(a);
+					return defaultIdx;
+				}
+				// Forme 3 : `demo 2` nu -- frequent, et jusqu'ici ignore en
+				// silence. On le refuse EN LE NOMMANT plutot que de deviner.
+				if (a == "demo" || a.StartsWith("--demo")) {
+					Refuser(a);
+					return defaultIdx;
+				}
 			}
 			return defaultIdx;
 		}

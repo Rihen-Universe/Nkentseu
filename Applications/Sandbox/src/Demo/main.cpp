@@ -420,7 +420,9 @@ int nkmain(const NkEntryState &state) {
 	#define NK_DEFAULT_DEMO 0
 #endif
 	NkGraphicsApi api = ParseBackend(state.GetArgs());
-	int demoIx = ParseDemo(state.GetArgs(), NK_DEFAULT_DEMO);
+	bool demoArgMalformed = false;
+	NkString demoArgOffending;
+	int demoIx = ParseDemo(state.GetArgs(), NK_DEFAULT_DEMO, &demoArgMalformed, &demoArgOffending);
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 	// Assets APK : les shaders sont packages par jenga (androidassets, cf.
 	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders/ ->
@@ -544,6 +546,20 @@ int nkmain(const NkEntryState &state) {
 		demoIx = 18; // DemoStream     -> kDemos[18]
 	if (demoIx < 0 || (uint32)demoIx >= kDemoCount)
 		demoIx = 0;
+	// ── REFUS QUI PARLE ──────────────────────────────────────────────────
+	// Un argument de demo mal forme ne doit PAS retomber en silence sur la
+	// demo par defaut : l'utilisateur croirait avoir obtenu ce qu'il a
+	// demande. On nomme l'argument fautif, on liste ce qui existe, et on sort
+	// avec un code non nul.
+	if (demoArgMalformed) {
+		logger.Errorf("[main] argument de demo non reconnu : '%s'\n", demoArgOffending.CStr());
+		logger.Errorf("[main] formes acceptees : --demo=N | --demo N | -d N\n");
+		logger.Errorf("[main] demos disponibles :\n");
+		for (uint32 i = 0; i < kDemoCount; ++i)
+			logger.Errorf("[main]   %2u : %-14s %s\n", i, kDemos[i].name, kDemos[i].description);
+		return 2;
+	}
+
 	const DemoEntry &demo = kDemos[demoIx];
 
 	logger.Info("=========================================================\n");
