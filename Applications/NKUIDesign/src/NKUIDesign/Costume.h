@@ -261,6 +261,39 @@ namespace nkuidesign {
 		/// L'ancien « 10 » etait la valeur la plus recopiee du panneau (11 fois).
 		constexpr float32 PadPanneau = (float32)EspLarge;
 
+		/// L'ICÔNE D'ARRONDI (Lunacy) : un quart d'arc, ouverture en bas à droite
+		/// — la silhouette d'un coin haut-gauche arrondi.
+		/// ⚠️ MESURÉE sur `Screenshot 2026-09-03 002101.png`, pas choisie : un
+		///    quart de cercle de ~7 px, trait fin, posé en tête de la rangée ET
+		///    en tête de la rangée dépliée. C'est le même glyphe aux deux lignes,
+		///    et c'est lui qui dit « ces quatre valeurs sont des arrondis ».
+		inline void IcArrondi(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			// le coin : verticale à gauche, arc, horizontale en haut
+			const NkVec2 p[5] = {{x + 0.5f, y + 9.f}, {x + 0.5f, y + 3.5f},
+								 {x + 1.6f, y + 1.2f}, {x + 3.5f, y + 0.5f},
+								 {x + 9.f, y + 0.5f}};
+			dl.AddPolyline(p, 5, c, 1.2f);
+		}
+
+		/// L'ICÔNE « QUATRE COINS » (Lunacy) : quatre équerres tournées vers
+		/// l'extérieur. C'est le bouton qui déplie la rangée — et il s'ASSOMBRIT
+		/// quand elle est dépliée (état actif visible sur la capture).
+		inline void IcQuatreCoins(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			const float32 b = 3.2f, w = 10.f;
+			// haut-gauche
+			dl.AddLine({x, y + b}, {x, y}, c, 1.3f);
+			dl.AddLine({x, y}, {x + b, y}, c, 1.3f);
+			// haut-droit
+			dl.AddLine({x + w - b, y}, {x + w, y}, c, 1.3f);
+			dl.AddLine({x + w, y}, {x + w, y + b}, c, 1.3f);
+			// bas-droit
+			dl.AddLine({x + w, y + w - b}, {x + w, y + w}, c, 1.3f);
+			dl.AddLine({x + w, y + w}, {x + w - b, y + w}, c, 1.3f);
+			// bas-gauche
+			dl.AddLine({x + b, y + w}, {x, y + w}, c, 1.3f);
+			dl.AddLine({x, y + w}, {x, y + w - b}, c, 1.3f);
+		}
+
 		/// LA GRILLE DE L'INSPECTEUR — deux colonnes nommees.
 		/// `ColChamps` : ou commencent les champs apres le libelle de rangee
 		/// (« Position », « Police », les pastilles). Sept sites recopiaient 52.

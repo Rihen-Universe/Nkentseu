@@ -10021,6 +10021,69 @@ namespace nkuidesign {
 				return costume::ColonneLibelles(costume::Fontes().px10, l, nb, dispo);
 			}
 
+			// ═══════════════════════════════════════════════════════════════
+			//  LE MOTIF « UNE VALEUR ↔ QUATRE VALEURS » (Lunacy)
+			// ═══════════════════════════════════════════════════════════════
+			// 🔑 UN SEUL CONTRÔLE, DEUX EMPLOIS. Lunacy n'a qu'un motif pour ça :
+			//    un bouton d'icône en bout de rangée, et les quatre champs qui
+			//    REMPLACENT le champ unique SUR PLACE, le reste de la rangée
+			//    demeurant à droite. C'est identique pour l'arrondi et pour la
+			//    bordure. *Deux implémentations divergeraient au premier
+			//    ajustement, et l'utilisateur apprendrait deux gestes pour une
+			//    seule idée.*
+			//
+			// ⚠️ MESURÉ SUR LA CAPTURE, ET ÇA CORRIGE UNE HYPOTHÈSE : c'est le
+			//    PREMIER bouton (les quatre équerres) qui déplie — il s'assombrit
+			//    à l'état déplié ; le second (cercle pointillé) ne bouge pas
+			//    entre les deux images. On ne câble donc pas celui qu'on croyait.
+			//
+			// ⚠️ ET L'ORDRE DES QUATRE CHAMPS NE SE DÉDUIT PAS DE L'IMAGE : les
+			//    quatre valeurs y sont à zéro. On garde donc le nôtre — horaire
+			//    depuis le haut-gauche, celui de CSS — et **une infobulle par
+			//    champ** lève l'ambiguïté sans coûter une ligne. *Inventer un
+			//    ordre qu'on ne peut pas lire serait pire que garder le sien.*
+
+			/// Le bouton d'icône qui déplie. Rend vrai au clic.
+			bool BoutonQuatreValeurs(NkGuiContext &ctx, const NkRect &rb, bool actif) {
+				auto &dl = ctx.DL();
+				const bool sv = ctx.popupDepth == 0 && NkGuiRectContains(rb, ctx.input.mousePos);
+				if (actif)
+					dl.AddRectFilled(rb, ctx.theme.rowHover, 4.f);
+				costume::IcQuatreCoins(dl, rb.x + (rb.w - 10.f) * 0.5f,
+									   rb.y + (rb.h - 10.f) * 0.5f,
+									   (actif || sv) ? ctx.theme.accent : ctx.theme.textMuted);
+				return sv && ctx.input.mouseClicked[0];
+			}
+
+			/// Une valeur, ou quatre, DANS LA MÊME ZONE. Rend vrai si ça a changé.
+			/// ⚠️ Les quatre champs sont COMPACTS et sans étiquette (Lunacy) :
+			///    l'ordre se lit à la position. L'infobulle nomme chacun.
+			bool ChampsUneOuQuatre(NkGuiContext &ctx, const NkRect &zone, const char *idBase,
+								   bool delie, float32 &unique, float32 quatre[4],
+								   float32 vmin, float32 vmax) {
+				static const char *const kNoms[4] = {"haut-gauche", "haut-droit", "bas-droit",
+													 "bas-gauche"};
+				bool bouge = false;
+				char id[48];
+				if (!delie) {
+					snprintf(id, sizeof(id), "%s.un", idBase);
+					if (ChampNombre(ctx, id, zone, unique, 0.5f, vmin, vmax))
+						bouge = true;
+					return bouge;
+				}
+				const float32 gout = 4.f;
+				const float32 wc = (zone.w - gout * 3.f) * 0.25f;
+				for (uint32 i = 0; i < 4u; ++i) {
+					const NkRect rc2 = {zone.x + (wc + gout) * (float32)i, zone.y, wc, zone.h};
+					snprintf(id, sizeof(id), "%s.%u", idBase, i);
+					if (ChampNombre(ctx, id, rc2, quatre[i], 0.5f, vmin, vmax))
+						bouge = true;
+					if (ctx.popupDepth == 0 && NkGuiRectContains(rc2, ctx.input.mousePos))
+						nkentseu::editorkit::NkTooltip(ctx, true, kNoms[i]);
+				}
+				return bouge;
+			}
+
 			void CorpsEtats(NkGuiContext &ctx) {
 				if (!SectionOuverte("ÉTATS"))
 					return;
@@ -11797,114 +11860,84 @@ namespace nkuidesign {
 					// (« Bordure » vit desormais dans BORDURES — meme raison que
 					//  « Fond » : deux endroits pour ecrire une meme cle, et le
 					//  second aurait ignore la liste.)
-					// ── ARRONDI : UN CHAMP, OU QUATRE ─────────────────────────
-					// 🔑 L'ACCES DEPUIS L'ETAT ORDINAIRE (Rodolf, 02/09 : *« on n'a
-					//    pas toujours les arrondis par sommet »*). La mesure a
-					//    montre que le modele et le peintre etaient COMPLETS et
-					//    que seul l'ACCES manquait : le seul geste qui posait un
-					//    rayon fin vivait en mode d'edition de forme. *Une
-					//    propriete qu'aucun geste n'atteint depuis l'etat
-					//    ordinaire est, pour la main, une propriete absente.*
+					// ── ARRONDI : LA FORME DE LUNACY ──────────────────────────
+					// 🔑 Rodolf, 03/09 : *« je veux que le design de l'arrondi et
+					//    de l'arrondi par coin soit comme pour Lunacy »*, avec
+					//    deux captures a l'appui. Sa reference dit : **une rangee
+					//    de quatre champs compacts sans etiquette**, sous la
+					//    rangee d'arrondi, precedee de l'icone d'arc — et non
+					//    quatre rangees nommees empilees, ce que j'avais fait.
 					//
-					// ⚠️ ET LA REFERENCE DIT `Alt` + GLISSER LA POIGNEE — on ne la
-					//    suit PAS ici, et c'est mesure, pas preferé : `Alt` est
-					//    DEJA pris par le redimensionnement centre
-					//    (`NkRedimModifie`). Suivre la source a la lettre aurait
-					//    vole un geste existant pour en offrir un autre -- on ne
-					//    troque pas une capacite contre une capacite. L'acces
-					//    passe donc par l'Inspecteur, ou Rodolf cherche ses
-					//    proprietes ; la poignee de toile reste NOMMEE au rapport.
+					// ⚠️ QUATRE FOIS PLUS COMPACT, ET CE N'EST PAS QU'UNE
+					//    QUESTION DE GOUT : trois rangees rendues au budget de
+					//    visibilite du panneau. *La forme conforme resout le
+					//    probleme que ma correction precedente avait deplace* --
+					//    c'est APPARENCE qui etait passee sous le pli a cause de
+					//    mes quatre rangees.
+					//
+					// ⚠️ LA SEMANTIQUE, ELLE, EST GARDEE, parce qu'elle est
+					//    eprouvee : delier ne change RIEN a l'ecran (les quatre
+					//    partent de la valeur actuelle), relier reprend le
+					//    PREMIER coin -- jamais une moyenne.
 					{
 						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
 						const float32 x0 = r.x + 12.f;
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Arrondi",
 									   ctx.theme.textMuted);
-						const float32 colA = ColChampsCalc(r.w - 24.f);
-						const NkRect rr = {x0 + colA, costume::BandeY(r.y), 48.f, costume::HControle};
 						NkUINode *na = NoeudMutable();
 						const bool delies = na && na->rayonsDelies;
+						const float32 colA = ColChampsCalc(r.w - 24.f);
+						// Le bouton d'icone vit EN BOUT DE RANGEE (Lunacy).
+						const NkRect rbtn = {r.x + r.w - 12.f - 20.f, costume::BandeY(r.y), 20.f,
+											 costume::HControle};
+						const NkRect zone = {x0 + colA, costume::BandeY(r.y), 48.f,
+											 costume::HControle};
 						if (!delies) {
 							// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
 							ChampNombreMulti(
-								ctx, "insp.app.rayon", rr, 0.5f, 0.f, 128.f,
+								ctx, "insp.app.rayon", zone, 0.5f, 0.f, 128.f,
 								[](const NkUINode &q) { return q.radius; },
 								[](NkUINode &q, float32 v) { q.radius = v; });
-							// ⚠️ « px » NE S'ECRIT QUE S'IL Y A LA PLACE avant le
-							//    bouton de lien : la capture les montrait colles.
-							//    Sous contrainte, c'est le LIBELLE qui cede -- la
-							//    meme regle que la colonne des champs.
-							if (rr.x + rr.w + 4.f + 14.f < r.x + r.w - 12.f - 62.f - 6.f)
-								costume::Texte(dl, F.px9, rr.x + rr.w + 4.f,
+							if (zone.x + zone.w + 4.f + 14.f < rbtn.x - 6.f)
+								costume::Texte(dl, F.px9, zone.x + zone.w + 4.f,
 											   costume::CentrerBande(F.px9, r.y), "px",
 											   ctx.theme.textMuted);
 						}
-						// LE BOUTON DE LIEN — l'acces, et il DIT son etat.
-						// ⚠️ Il ne parait que sur un noeud : sur une multi-selection
-						//    ou un vide, delier n'aurait pas de cible unique.
-						if (na) {
-							const float32 wl = 62.f;
-							const NkRect rl = {r.x + r.w - 12.f - wl, costume::BandeY(r.y), wl,
-											   costume::HControle};
-							const bool svl =
-								ctx.popupDepth == 0 && NkGuiRectContains(rl, ctx.input.mousePos);
-							dl.AddRect(rl, (delies || svl) ? ctx.theme.accent : ctx.theme.border,
-									   1.f, 4.f);
-							costume::Texte(dl, F.px9, rl.x + (float32)costume::EspSerre,
-										   costume::CentrerBande(F.px9, r.y),
-										   delies ? "4 coins" : "lier",
-										   (delies || svl) ? ctx.theme.accent
-														   : ctx.theme.textMuted);
-							if (svl && ctx.input.mouseClicked[0]) {
-								if (delies) {
-									// RELIER : on garde le PREMIER coin comme rayon
-									// commun -- jamais une moyenne, qui n'est le
-									// choix de personne.
-									na->radius = na->rayonsCoins[0];
-									na->rayonsDelies = false;
-									mSt->DireAuPied("Arrondi relié — les quatre coins suivent "
-													"le premier.");
-								} else {
-									// DELIER : les quatre partent de la valeur
-									// actuelle. Delier ne doit RIEN changer a
-									// l'ecran, sinon le geste ferait deux choses.
-									for (uint32 ci = 0; ci < 4u; ++ci)
-										na->rayonsCoins[ci] = na->radius;
-									na->rayonsDelies = true;
-									mSt->DireAuPied("Arrondi délié — chaque coin se règle "
-													"séparément.");
-								}
-								mSt->doc.MarkHumanEdit(mSt->selected);
-								mSt->host.SyncTo(mSt->doc);
+						if (na && BoutonQuatreValeurs(ctx, rbtn, delies)) {
+							if (delies) {
+								na->radius = na->rayonsCoins[0];
+								na->rayonsDelies = false;
+								mSt->DireAuPied("Arrondi relié — les quatre coins suivent "
+												"le premier.");
+							} else {
+								for (uint32 ci = 0; ci < 4u; ++ci)
+									na->rayonsCoins[ci] = na->radius;
+								na->rayonsDelies = true;
+								mSt->DireAuPied("Arrondi délié — chaque coin se règle "
+												"séparément.");
 							}
+							mSt->doc.MarkHumanEdit(mSt->selected);
+							mSt->host.SyncTo(mSt->doc);
 						}
 					}
-					// LES QUATRE COINS, quand ils sont déliés : deux rangées de
-					// deux, dans l'ordre HORAIRE depuis le haut-gauche.
+					// LA RANGÉE DÉPLIÉE : l'icône d'arc, puis les quatre champs.
 					if (NkUINode *nc = NoeudMutable()) {
 						if (nc->rayonsDelies) {
-							static const char *const kNomsCoins[4] = {"haut-gauche", "haut-droit",
-																	  "bas-droit", "bas-gauche"};
-							for (uint32 ci = 0; ci < 4u; ++ci) {
-								const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-								const float32 x0 = r.x + 12.f;
-								costume::Texte(dl, F.px10, x0,
-											   costume::CentrerBande(F.px10, r.y),
-											   kNomsCoins[ci], ctx.theme.textMuted);
-								const NkRect rc2 = {x0 + ColChampsCalc(r.w - 24.f),
-													costume::BandeY(r.y), 48.f,
-													costume::HControle};
-								char idc[40];
-								snprintf(idc, sizeof(idc), "insp.app.coin%u", ci);
-								float32 v = nc->rayonsCoins[ci];
-								if (ChampNombre(ctx, idc, rc2, v, 0.5f, 0.f, 128.f)) {
-									nc->rayonsCoins[ci] = v;
-									mSt->doc.MarkHumanEdit(mSt->selected);
-									mSt->host.SyncTo(mSt->doc);
-								}
-								costume::Texte(dl, F.px9, rc2.x + rc2.w + 4.f,
-											   costume::CentrerBande(F.px9, r.y), "px",
+							const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+							const float32 x0 = r.x + 12.f;
+							costume::IcArrondi(dl, x0, r.y + (26.f - 10.f) * 0.5f,
 											   ctx.theme.textMuted);
+							const NkRect zone = {x0 + ColChampsCalc(r.w - 24.f),
+												 costume::BandeY(r.y),
+												 (r.x + r.w - 12.f - 20.f - 6.f)
+													 - (x0 + ColChampsCalc(r.w - 24.f)),
+												 costume::HControle};
+							float32 unique = nc->radius;
+							if (ChampsUneOuQuatre(ctx, zone, "insp.app.coin", true, unique,
+												  nc->rayonsCoins, 0.f, 128.f)) {
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								mSt->host.SyncTo(mSt->doc);
 							}
 						}
 					}
