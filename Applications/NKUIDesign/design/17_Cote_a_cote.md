@@ -41,14 +41,25 @@ le nôtre n'en trouve pas.
 → *Traitement : la migration site par site déjà décidée (doc 16), AVEC capture
 avant/après par tranche.*
 
-### E2 🔴 Le badge de composant se coupe en plein mot
+### E2 ✅ Le badge de composant se coupait en plein mot — CORRIGÉ le 2026-09-02
 
-Hiérarchie, rangée `Bouton_Connexion` : notre badge affiche « Butto » tronqué
+Hiérarchie, rangée `Bouton_Connexion` : notre badge affichait « Butto » tronqué
 par le bord du panneau. Dans la planche, c'est **l'inverse : le NOM cède
-(« Bouton_Conn… »), le badge ne se coupe jamais** — il est ancré au bord droit,
-entier, et l'ellipse mange le nom. Une étiquette coupée en plein mot se lit
-comme un bug, pas comme une étiquette.
-→ *Traitement : réserver la largeur du badge d'abord, tronquer le nom ensuite.*
+(« Bouton_Conn… »), le badge ne se coupe jamais** — ancré au bord droit, entier.
+
+**Corrigé au bon étage** : le libellé est dessiné par le composant du kit,
+l'overlay du badge passe après — aucun des deux ne pouvait céder proprement
+seul. Nouveau point de greffe `rowRightReserve` (NkTreeView) : la ligne réserve
+la largeur du badge AVANT de poser le libellé, qui s'ellipse contre elle. Au
+passage, l'ancienne position du badge (indentation + icônes + largeur du texte,
+recalculées à la main) disparaît — elle était fragile ET fausse.
+
+Preuves : capture `captures/2026-09-02_hierarchie_e2_corrige.png`
+(« Bouton_Conn… (Button) », badge entier) ; recette `--recette-edition` site 4 —
+le rectangle du libellé perd exactement les 40 px demandés, et la mutation
+« le dessin ignore la réserve » fait échouer le cas (vérifié, 15/16 sous
+mutation). Le témoin de rendu ne couvre pas la Hiérarchie : ici, la preuve
+visuelle est la capture, pas lui.
 
 ### E3 🟠 La vue par défaut ouvre le document SOUS le rail d'outils
 

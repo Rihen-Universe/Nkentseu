@@ -424,6 +424,51 @@ namespace nkuidesign {
 											NkString("EcritParLeClic")));
 				}
 
+				// ═══ SITE 4 — LA RESERVE DE DROITE (ecart E2 du cote a cote) ═══
+				// Le badge de composant se coupait en plein mot (« Butto ») parce
+				// que l'overlay se placait APRES le nom. Le contrat est desormais :
+				// `rowRightReserve` borne le libelle AVANT la zone du badge — le
+				// nom cede, jamais le badge.
+				//
+				// ⚠️ LA PREUVE EST LE RECTANGLE QUE LE PEINTRE A RECU, pas le hook
+				//    appele : on dessine DEUX FOIS le meme arbre, sans puis avec
+				//    une reserve de 40 px, et on exige que le rectangle du libelle
+				//    ait perdu EXACTEMENT ces 40 px. La mutation « le dessin
+				//    ignore la reserve » rend les deux largeurs egales -> ECHEC.
+				{
+					NkTreeViewModel m;
+					treeprobe::FillDemo(m);
+					NkComponentInput repos;
+					repos.surfaceScale = 1.f;
+					auto largeurDe = [](NkRecordingPaint &rec, const char *libelle) -> float32 {
+						for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+							if (rec.cmds[i].op == NkPaintOp::Text && rec.cmds[i].text.Data()
+								&& 0 == strcmp(rec.cmds[i].text.Data(), libelle))
+								return rec.cmds[i].w;
+						return -1.f;
+					};
+					NkRecordingPaint sans;
+					treeprobe::RenderInto(sans, m, nullptr, repos, nullptr);
+					const float32 wSans = largeurDe(sans, "Sol");
+
+					NkTreeViewHooks hooks;
+					hooks.rowRightReserve = [](void *, NkComponentPaint &, int32) -> float32 {
+						return 40.f;
+					};
+					NkRecordingPaint avec;
+					treeprobe::RenderInto(avec, m, nullptr, repos, &hooks);
+					const float32 wAvec = largeurDe(avec, "Sol");
+
+					// ⚠️ wSans > 40 d'abord : sur un libelle deja plus etroit que
+					//    la reserve, le « -40 » serait inverifiable et le cas
+					//    passerait A VIDE — la famille « donnees degenerees ».
+					check("reserve : le libelle temoin est assez large pour la mesurer",
+						  wSans > 40.f);
+					check("reserve : 40 px demandes -> le rectangle du libelle perd 40 px",
+						  wSans > 0.f && wAvec > 0.f && wSans - wAvec > 39.5f
+							  && wSans - wAvec < 40.5f);
+				}
+
 				printf("RECETTE EDITION : %d/%d %s\n", total - echecs, total,
 					   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 				return echecs == 0 ? 0 : 1;

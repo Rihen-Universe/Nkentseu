@@ -481,6 +481,14 @@ namespace nkentseu {
 						rightEdge -= tw + pad;
 						p.Text({rightEdge, row.y, tw, rowH}, n.kindLabel, mutedRole);
 					}
+					// La reserve de l'overlay (badge, pastille) : soustraite ICI,
+					// pour que le libelle s'ellipse AVANT elle — le nom cede,
+					// jamais le badge (cf. le hook, NkTreeViewModel.h).
+					if (hooks.rowRightReserve) {
+						const float32 res = hooks.rowRightReserve(hooks.user, p, index);
+						if (res > 0.f)
+							rightEdge -= res;
+					}
 
 					// ── LIBELLE, OU BOITE DE SAISIE ─────────────────────────────
 					const NkPaintRect labelRect{x, row.y, rightEdge - x, rowH};

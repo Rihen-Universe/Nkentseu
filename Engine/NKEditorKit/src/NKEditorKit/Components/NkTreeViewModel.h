@@ -466,6 +466,19 @@ namespace nkentseu {
 				void (*rowOverlay)(void *user, NkComponentPaint &p, int32 index, float32 x, float32 y,
 								   float32 w, float32 h) = nullptr;
 
+				/// Largeur (px) que la ligne RESERVE a droite pour ce que
+				/// `rowOverlay` y dessinera (badge, pastille). Le libelle est borne
+				/// AVANT cette reserve : c'est LUI qui cede (ellipse du peintre),
+				/// jamais le dessin de droite.
+				///
+				/// ⚠️ POURQUOI UN HOOK, ET PAS « l'overlay n'a qu'a se placer » :
+				///    le libelle est dessine PAR LE COMPOSANT, l'overlay passe
+				///    APRES. Sans reserve, un nom long court sous le badge, ou le
+				///    badge se coupe au bord du panneau en plein mot — c'est
+				///    l'ecart E2 du cote a cote (NkUIDesign, doc 17) : la planche
+				///    fait ceder le NOM, jamais le badge.
+				float32 (*rowRightReserve)(void *user, NkComponentPaint &p, int32 index) = nullptr;
+
 				/// Colonnes supplementaires. C'est litteralement la colonne « Layer »
 				/// de `WorldOutlinerPanel`, portee en point de greffe : Nogee l'a,
 				/// NK3DModeler ne l'a pas, et aucune des deux n'a a l'imposer a

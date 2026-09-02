@@ -7520,8 +7520,29 @@ namespace nkuidesign {
 						return P::Porte(*s->doc, di);
 					};
 				}
-				hooks.rowOverlay = [](void *u, nkentseu::editorkit::NkComponentPaint &p,
-									  int32 index, float32 x, float32 y, float32, float32 h) {
+				// ⚠️ E2 DU COTE A COTE (doc 17) : le badge etait pose APRES le nom
+				//    (indentation + icones + largeur du texte), et un nom long le
+				//    poussait hors du panneau — « Butto » coupe en plein mot sur la
+				//    capture du 2026-09-02. La planche fait l'inverse : le badge
+				//    est ANCRE AU BORD DROIT, entier, et c'est le NOM qui cede
+				//    (l'ellipse du peintre). D'ou les deux moities : la RESERVE
+				//    dit au kit de borner le libelle avant la zone du badge,
+				//    l'OVERLAY dessine dans cette zone — et l'arithmetique
+				//    d'indentation disparait (elle etait fragile ET fausse).
+				hooks.rowRightReserve = [](void *u, nkentseu::editorkit::NkComponentPaint &,
+										   int32 index) -> float32 {
+					auto *s = static_cast<Sur *>(u);
+					if (index < 0 || (nkentseu::uint32)index >= (nkentseu::uint32)s->modele->nodes.Size())
+						return 0.f;
+					const NkTreeNode &n = s->modele->nodes[index];
+					if (!n.kindLabel || !n.kindLabel[0])
+						return 0.f;
+					auto &F = costume::Fontes();
+					// La pilule (texte px9 + 8) plus sa gouttiere de 6.
+					return costume::Largeur(F.px9, n.kindLabel) + 8.f + 6.f;
+				};
+				hooks.rowOverlay = [](void *u, nkentseu::editorkit::NkComponentPaint &,
+									  int32 index, float32 x, float32 y, float32 w, float32 h) {
 					auto *s = static_cast<Sur *>(u);
 					// Garde de bornes : un index de rangée hors du modèle ne doit
 					// jamais déréférencer (la famille du plantage ci-dessus).
@@ -7530,12 +7551,9 @@ namespace nkuidesign {
 					const NkTreeNode &n = s->modele->nodes[index];
 					if (!n.kindLabel || !n.kindLabel[0])
 						return;
-					int32 depth = 0;
-					for (int32 pa = n.parent; pa >= 0; pa = s->modele->nodes[pa].parent)
-						++depth;
-					const float32 lw = p.TextWidth(n.label.CStr());
-					const float32 bx = x + 8.f + (float32)depth * 14.f + 13.f + 15.f + lw + 5.f;
 					auto &F = costume::Fontes();
+					const float32 bw = costume::Largeur(F.px9, n.kindLabel) + 8.f;
+					const float32 bx = x + w - bw - 6.f;
 					// « hors page » n'est pas un role : pilule GRISE (l'accent
 					// reste aux roles — 6e retour, volet B).
 					const bool horsPage = NkComponentDecl::StrEq(n.kindLabel, "hors page");
