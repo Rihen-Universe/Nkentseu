@@ -144,75 +144,103 @@ déclaration**, et **de quoi elle dérive**. Le reste se construit dessus.
 
 ---
 
-## 15.6 ✅ TRANCHÉE PAR RODOLF (Q51, 02/09) — LES INSTANCES GÈLENT, LA MISE À JOUR EST UN ACTE
+## 15.6 ✅ Q51, RÉVISÉE ET VALIDÉE (02/09) — propagation AUTOMATIQUE chez soi, choix à trois branches sur l'instance, la PROPRIÉTÉ comme seul critère
 
-> Ses mots exacts : *« non, sauf si ces instances sont mises à jour. Mais de
-> base la modification est proposée en copie ou non — mais toujours en copie
-> pour des composants système. »*
+> **Les mots de Rodolf (révision du 02/09, remplaçant sa première réponse)** :
+> *« si je modifie l'arrondi du composant, ça modifie pour tous les boutons qui
+> en héritent [...] modifier l'arrondi d'un bouton ne touche pas les boutons du
+> même composant [...] modifier un bouton offre la modification par copie et
+> création d'un nouveau composant, ou alors la modification du composant
+> lui-même — tant que ce dernier n'est pas un composant système, qui est
+> toujours modifié par copie. »*
+>
+> **Sa précision, même jour** : *« ce qui se passe avec les composants locaux
+> se fait aussi avec les composants tiers, à préciser : donc toujours en copie,
+> pas en modification — sauf si c'est notre composant ou une dérivée de
+> composant qu'on a créée. »*
+>
+> **Et sa généralisation** : *« la couleur n'est qu'une propriété — on peut
+> avoir des boutons du même composant avec leurs propres propriétés. »*
 
-C'est la réponse **B** du tableau d'origine (gardé ci-dessous pour mémoire),
-**plus** une règle que la question ne posait pas : le choix copie/en-place au
-moment de modifier. Trois règles, à ne plus rediscuter :
+### Les quatre règles
 
-**R1 — Les instances ne suivent PAS automatiquement.** Une instance posée
-reste ce qu'elle est quand l'auteur modifie la déclaration. Rien ne bouge
-sous les pieds — jamais.
+**R1′ — Modifier la DÉCLARATION propage AUTOMATIQUEMENT.** Toutes les
+instances suivent immédiatement — **les bits surchargés tiennent** (son
+exemple validé : deux boutons, un bleu, un rouge — l'arrondi du composant
+change les deux, chacun garde sa couleur). La règle du masque d'écarts (§15.3)
+est inchangée ; **seul le déclencheur a changé** : automatique, plus explicite.
 
-**R2 — La mise à jour est un acte EXPLICITE de l'instance** (« mettre à jour
-vers la déclaration actuelle », par instance ou par sélection). C'est le
-« sauf si mises à jour ». Conséquence structurelle : la déclaration doit
-permettre de savoir qu'une instance est **en retard** — c'est exactement ce
-que porte la **version** de la clé `auteur/nom@version` (§15.5) : une mise à
-jour de la déclaration incrémente sa version, une instance référence celle
-qu'elle a prise.
+**R2′ — Modifier une INSTANCE est par défaut une surcharge LOCALE** (les
+autres instances ne bougent pas), et l'outil offre le choix à trois branches :
+*garder comme variation locale* / *appliquer au composant original* / *créer
+un nouveau composant*.
 
-**R3 — Au moment de MODIFIER un composant, l'outil PROPOSE : copie ou
-modification en place.** Le choix appartient à l'auteur — **sauf pour les
-composants système** (le kit, et tout ce qui échoue au prédicat de propriété
-`NkPeutModifierDeclaration`) : là, **toujours la copie, et le dialogue ne
-s'affiche même pas** — la copie est silencieusement la seule voie. C'est la
-règle de fork du §15.5, confirmée et élargie par Rodolf.
+**R3 — Le critère unique est la PROPRIÉTÉ, pas la catégorie.** Plus de
+distinction système/tiers dans la règle de modification :
+- **à moi** = créé par moi **ou copie/dérivée que j'ai faite** d'un composant
+  d'autrui → le dialogue à trois branches s'affiche ;
+- **pas à moi** = le kit **et** le tiers, indistinctement → **copie, seule
+  voie, sans dialogue** — et 📌 **le fork m'appartient** : on copie une fois,
+  puis on travaille librement sur sa branche. C'est ce qui rend le système
+  vivable à l'échelle « des millions d'auteurs ».
+La frontière est `NkPeutModifierDeclaration` — le prédicat existant, confirmé
+comme LE critère, jamais recalculé au site d'appel.
 
-### Ce que R1–R3 imposent au modèle (à coder avec le chantier « mettre à jour », pas avant)
+**R4 — La propagation automatique (R1′) vaut pour les composants du document /
+de l'auteur.** Pour un composant **d'un autre auteur** (partagé, futur
+marché) : pas de propagation automatique de **version** — l'état « en
+retard » + la mise à jour volontaire restent la règle. *Automatique chez soi,
+volontaire quand ça vient d'ailleurs.* R3 et R4 se côtoient sans se toucher :
+*je ne peux pas modifier le composant d'autrui (R3), et sa nouvelle version ne
+me traverse pas sans mon accord (R4).* Les trois états d'instance (à jour /
+en retard / détachée) survivent — « en retard » ne concerne plus que le tiers.
 
-1. **Une instance a TROIS états vis-à-vis de sa déclaration** : *à jour* /
-   *en retard* / *détachée*. « En retard » doit se **voir** — la pilule
-   d'instance (§15.8-3) est l'endroit naturel — et se **résoudre** (mettre à
-   jour, ou détacher). Sans le signal, Rodolf découvrirait des instances
-   périmées sans le savoir : un état qui ne se voit pas est un état qui ment.
-2. **« Mettre à jour » rencontre les surcharges**, et la règle est celle du
-   masque d'écarts (§15.3) : la mise à jour remplace ce que l'instance n'a
-   **pas** surchargé ; **les bits surchargés tiennent**. Le cas de recette qui
-   va avec, à écrire le jour du code : *une instance dont le texte est
-   surchargé se met à jour et garde SON texte* — le jumeau du volet
-   « détacher fusionne, ne jette pas ».
-3. **Le choix copie/en-place ne s'affiche QUE sur ce qui m'appartient** —
-   consulté via `NkPeutModifierDeclaration`, le prédicat existant, jamais
-   recalculé au site d'appel (même discipline que `NkNoeudAttrapable`).
+### Les quatre scénarios validés par Rodolf, un par un
 
-⚠️ **Rien de ceci n'est codé aujourd'hui, et c'est voulu** : la migration
-d'espacement par tranches reste le fil. Cette section existe pour que la
-décision ne se rediscute pas — elle est citée, datée, et ses conséquences
-sont nommées avant que le code n'existe.
+1. ✅ « Je change l'arrondi du COMPOSANT → mes deux boutons s'arrondissent,
+   le bleu reste bleu, le rouge reste rouge » — **oui**.
+2. ✅ « Je change l'arrondi d'UN bouton → l'autre ne bouge pas, et l'outil
+   propose : variation locale / appliquer à l'original / nouveau composant »
+   — **oui**.
+3. ✅ « Composant du kit → jamais “appliquer à l'original”, toujours ma
+   copie » — **oui**.
+4. ✅ « Composant d'un autre auteur, nouvelle version → mes pages ne changent
+   pas seules, je vois “en retard” et je décide » — **oui**.
 
-### Le tableau d'origine, pour mémoire (la question telle qu'elle se posait)
+### 📌 La structure existante EST la décision — pas une approximation
 
-| | **A — les instances suivent** (mise à jour vivante) | **B — les instances gèlent** (mise à jour explicite) |
-|---|---|---|
-| pour | c'est *le* bénéfice d'un composant : corriger une fois, corriger partout | rien ne bouge sous les pieds ; on met à jour quand on veut |
-| contre | modifier une déclaration peut changer douze écrans **sans qu'on les regarde** | le bénéfice s'évapore : douze instances à mettre à jour à la main |
-| ce que ça impose | rien de plus (la propagation est le défaut) | une **version** par instance, et un signal « une mise à jour existe » |
+La généralisation de Rodolf (*« la couleur n'est qu'une propriété »*) est la
+définition exacte du masque d'écarts déjà codé : **un bit par propriété,
+jamais une copie des valeurs**, chaque propriété surchargeable indépendamment,
+par instance. Rien à refondre : le modèle du §15.3 porte la décision telle
+quelle.
 
-**Ce que fait la source** : Lunacy propage (A). Ma recommandation était A.
-**Rodolf a choisi B** — et il a raison là où ma recommandation regardait à
-côté : B est la seule réponse compatible avec le **partage** (§15.5), qui est
-la destination du chantier (« des millions d'auteurs partagent et vendent »).
-Le coût de B (mettre à jour à la main) est amorti par R2 « par sélection »,
-et le danger de A n'était amorti que pour les surcharges — pas pour tout le
-reste d'un écran.
+### Les cas de banc à écrire au chantier (par le geste, comme toujours)
+
+- *arrondi de la DÉCLARATION → les deux instances suivent ET gardent chacune
+  sa surcharge* (le jumeau vivant de « détacher fusionne ») ;
+- *arrondi d'UNE instance → l'autre ne bouge pas* ;
+- le dialogue à trois branches n'apparaît que si `NkPeutModifierDeclaration`
+  dit oui — sinon copie, sans dialogue ;
+- le panneau/menu qui liste les branches ne porte aucun libellé de plus que
+  les trois.
+
+### La trace de la RÉVISION — pour que personne ne « retrouve » l'ancienne décision
+
+**Hier (première réponse, remplacée)** : *« non, sauf si ces instances sont
+mises à jour. Mais de base la modification est proposée en copie ou non — mais
+toujours en copie pour des composants système. »* → c'était R1/R2 inversés :
+instances gelées, mise à jour explicite partout.
+
+**Aujourd'hui** : la propagation redevient automatique **chez soi** (R1′), le
+« volontaire » ne subsiste que pour la version d'un composant d'autrui (R4).
+Ce qui n'a PAS bougé d'une réponse à l'autre : les surcharges tiennent
+toujours ; le fork est la seule voie sur ce qui n'est pas à moi ; la version
+dans `auteur/nom@version` porte le retard. ⚠️ Un lecteur qui tomberait sur la
+citation d'hier hors de cette section lirait l'INVERSE de la règle en vigueur
+— c'est précisément pourquoi la révision est datée et gardée ici.
 
 ---
-
 ## 15.7 LES DEUX PIÈGES QUI RESTENT, NOMMÉS PLUTÔT QUE DÉCOUVERTS
 
 ### La taille, et le 9-slice
@@ -308,10 +336,11 @@ paragraphe ci-dessus) a supprimé le chantier au lieu de le cadrer.* **Un doute
    surchargée se distingue d'une héritée, « aller à la déclaration » existe.
    *C'est la moitié qui se néglige* (`12_…` §12.3(d)).
 4. **Les surcharges** propriété par propriété, puis « réinitialiser ».
-5. **Mettre à jour vers la déclaration** (Q51 tranchée, §15.6 R1–R3) : les trois
-   états à jour / en retard / détachée, le signal « en retard » sur la pilule,
-   la mise à jour qui respecte les bits surchargés, le choix copie/en-place
-   derrière le prédicat de propriété.
+5. **La propagation et le choix à trois branches** (Q51 révisée, §15.6
+   R1′–R4) : modifier la déclaration propage AUTOMATIQUEMENT (surcharges
+   tenues) ; modifier une instance = surcharge locale + dialogue à trois
+   branches derrière `NkPeutModifierDeclaration` ; « en retard » + mise à
+   jour volontaire pour le TIERS seulement (R4), visibles sur la pilule.
 6. Le reste de §9 (états, échanger, supprimer→cadres) — après.
 
 ⚠️ **La déclaration vit DANS LE DOCUMENT qui l'a créée**, et rien d'autre pour
