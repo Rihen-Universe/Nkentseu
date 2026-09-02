@@ -70,7 +70,16 @@ GEOMETRIE = re.compile(r"AddLine|AddPolyline|AddTriangle|AddConvexPoly|AddBezier
                        r"|AddCircle|NkVec2\s+\w+\s*\[")
 
 
-def compter_mise_en_page(motif, texte, groupe=0):
+# ⚠️ COSTUME.H DESSINE SES GLYPHES PAR AddRect/AddRectFilled (les carreaux,
+#    les yeux, les losanges) -- des appels que le filtre general ne peut PAS
+#    ecarter (dans Panels.h, AddRectFilled est de la vraie mise en page).
+#    Sans cette variante, 29 sommets d'icones passaient pour des espacements.
+GEOMETRIE_COSTUME = re.compile(
+    r"AddLine|AddPolyline|AddTriangle|AddConvexPoly|AddBezier|AddCircle"
+    r"|AddRect|AddRectFilled|losange\(|NkVec2\s+\w+\s*\[")
+
+
+def compter_mise_en_page(motif, texte, groupe=0, geo_etendue=False):
     """Comme `compter`, mais SANS les lignes qui dessinent un glyphe.
 
     ⚠️ UN TABLEAU `NkVec2 p[5] = {...}` TIENT SOUVENT SUR PLUSIEURS LIGNES. Filtrer
@@ -80,8 +89,13 @@ def compter_mise_en_page(motif, texte, groupe=0):
     """
     d = {}
     dans_tableau = False
+    regle = GEOMETRIE_COSTUME if geo_etendue else GEOMETRIE
     for ligne in texte.split(u"\n"):
-        geo = bool(GEOMETRIE.search(ligne))
+        # Un COMMENTAIRE n'est pas un site : la doc de `CentrerBande` citait
+        # l'idiome `r.y + 3.f` remplace... et se faisait compter comme lui.
+        if ligne.lstrip().startswith(u"//"):
+            continue
+        geo = bool(regle.search(ligne))
         # 🔴 LA CONDITION D'ENTREE EN TABLEAU ETAIT FAUSSE (mesuree le 02/09
         #    sur le panneau IA) : elle exigeait « pas de } apres le = », or la
         #    PREMIERE ligne d'un tableau contient presque toujours `{{x, y},` --
@@ -147,8 +161,10 @@ def familles():
     #    ⚠️ C'est la famille la plus revelatrice : une echelle (4/8/12/16) se
     #       voit tout de suite, un placement au cas par cas aussi.
     MOTIF_DEC = r"[xy][01]?\s\+\s(\d+)\.f"
-    f.append((u"decalages d'espacement (mise en page)",
-              compter_mise_en_page(MOTIF_DEC, tout, 1), u"px"))
+    d_page = compter_mise_en_page(MOTIF_DEC, panels + rend, 1)
+    for k, v in compter_mise_en_page(MOTIF_DEC, cost, 1, geo_etendue=True).items():
+        d_page[k] = d_page.get(k, 0) + v
+    f.append((u"decalages d'espacement (mise en page)", d_page, u"px"))
 
     # 4ter. LES ECARTS JUSTIFIES `[hors-echelle: ...]` — ecartes du compte,
     #       mais LISTES avec leurs raisons : la trappe ne doit pas etre un

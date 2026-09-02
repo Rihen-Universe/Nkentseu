@@ -4,6 +4,27 @@
 > sincèrement, et actuellement c'est pas encore le cas. Visuellement ça doit être
 > beau et fonctionnel. »*
 
+## ✅ AU SOIR DU 02/09 : 225 → 33 sites hors échelle, et LA PAIRE D'ÉCRANS
+
+**La paire que la demande attendait — pas un compte, deux écrans** :
+`captures/2026-09-02_fenetre_defaut.png` (le matin, avant le chantier) contre
+`captures/2026-09-02_soir_fenetre.png` et
+`captures/2026-09-02_soir_inspecteur.png` (le soir). Ce qui se voit : le
+document s'ouvre **cadré à 100 % sur sa première page**, hors du rail et du
+sélecteur de zoom ; le badge de composant est **entier** (le nom cède) ; le
+segment actif a son **icône** ; la section COMPOSANTS **parle** quand elle est
+vide ; et l'inspecteur a une **colonne de champs unique** — Cible, Position,
+Largeur, Hauteur alignés.
+
+**Le chiffre, en six tranches** : 225 → 33 sites hors échelle. ~90 valeurs
+étaient des **calculs en costume de littéraux** — nommées sans bouger un pixel
+(`BandeY`, `IconeY`, `InsetIcone`, `ColChamps`, `ColMiniLabel`…) ; ~35 étaient
+des **choix** — posés sur l'échelle avec paire A/B à chaque fois (`PadChamp`,
+`PadPanneau`, la grille) ; ~50 étaient des **erreurs de l'instrument** (trois
+corrections du compteur, chacune écrite dans son code) ; 17 sont **justifiés
+et étiquetés** avec leur raison sur la ligne. Les 33 restants sont nommés plus
+bas — de la dette lisible, plus un brouillard.
+
 ## 🔑 LE CHIFFRE QUI EXPLIQUE « ÇA FAIT BRICOLÉ », ET IL SE VÉRIFIE EN TROIS SECONDES
 
 > **Les douze valeurs d'espacement les plus employées sont *tous les entiers de
