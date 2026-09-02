@@ -67,18 +67,20 @@ Notre capture : le rail flottant recouvre le bord gauche de la planche
 Connexion. Dans 22.0, la première planche démarre avec une gouttière franche à
 droite du rail. Le rail est à sa place (bord gauche de la toile) — c'est le
 **cadrage d'ouverture** qui ne lui réserve pas sa gouttière.
-→ *Traitement : `AjusterSur` à l'ouverture doit exclure la bande du rail (et
-celle du sélecteur de zoom en bas à droite).*
+→ *Traitement VALIDÉ par Rodolf (02/09, délégué au coordinateur) :
+`AjusterSur` à l'ouverture réserve la gouttière du rail ET celle du sélecteur
+de zoom en bas à droite. Preuve attendue : capture d'ouverture, planche
+entière visible, aucun chevauchement — paire A/B confinée au cadrage.*
 
-### E4 🟠 L'alignement : une rangée dans la planche, deux chez nous
+### E4 ✅ CONFORME PAR DÉCISION (Rodolf, 02/09) — nos deux rangées gagnent
 
-Planche : ALIGNEMENT = **une seule rangée de six icônes** (3 H puis 3 V),
-compacte. Chez nous : deux rangées étiquetées « H » / « V » avec quatre icônes
-chacune. Nos icônes en plus (répartir) ne sont pas le problème — la question
-est la hauteur dépensée : deux rangées + étiquettes là où la planche tient en
-une.
-→ *À trancher par Rodolf : garder nos deux rangées (plus lisibles ?) ou serrer
-comme la planche.*
+Planche : une seule rangée de six icônes. Chez nous : deux rangées étiquetées
+« H » / « V », quatre icônes chacune. **Rodolf a tranché : les deux rangées
+restent.** Ce n'est pas un écart à corriger, c'est un choix assumé contre la
+planche — et il est écrit ICI, là où l'écart était nommé, précisément pour
+que le prochain lecteur ne « corrige » pas vers la planche en croyant bien
+faire. *Une décision qui ne vit pas à l'endroit où la question se repose est
+une décision qui se re-perd.*
 
 ### E5 🟡 Le segment actif a perdu son icône
 
@@ -86,6 +88,8 @@ Planche : chaque segment du sélecteur de mode porte icône **et** libellé, act
 compris (« A Design »). Chez nous : « Design » actif est texte seul, les trois
 inactifs ont leur icône. Petit, mais c'est le genre d'asymétrie qui « fait
 bricolé » sans qu'on sache dire pourquoi.
+→ *VALIDÉ (02/09) : icône + libellé sur les QUATRE segments, actif compris.
+Mesurable à la capture.*
 
 ### E6 ✅ La capture avec sélection EXISTE (`--selectionner=`, 02/09) — et sa nécessité a été payée le jour même
 

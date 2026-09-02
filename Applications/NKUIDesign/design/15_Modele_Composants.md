@@ -265,10 +265,23 @@ que **c'est lui qui a fermé la liste** :
 | pour | cohérent avec le format, rien à traduire, `Focus` et `Disabled` sont réels dans une interface | plus simple à l'écran, exactement ce qu'un designer venant de Lunacy attend |
 | contre | trois onglets d'état que personne ne remplira peut-être | il faudra les rouvrir le jour où l'on voudra `Disabled` — et un composant sans état désactivé est incomplet pour une vraie interface |
 
-📌 **Ma recommandation : les six.** La liste est fermée *et déjà validée* ; en
-exposer trois créerait un second vocabulaire d'états à côté du premier — ce qu'on
-cherche précisément à éviter. Mais **je ne tranche pas** : c'est la liste de
-Rodolf. Posée en Q53.
+✅ **TRANCHÉE PAR RODOLF (Q53, 02/09) : LES SIX.** Et il ajoute — *« et si
+plus tard on en ajoutait, ça devrait montrer le nombre exact. »*
+
+**Traduction en contrainte de STRUCTURE, pas en note** (mandat coordinateur) :
+
+1. **Le panneau des états ne porte AUCUNE liste en dur — il ITÈRE la table
+   fermée du format** (celle des blocs `appearance(État)`, dont l'ordre EST la
+   priorité, tenue par un contrôle). Une seule source de vérité. Un septième
+   état ajouté à la table doit apparaître dans le panneau **sans qu'une ligne
+   du panneau change**.
+2. **Le banc va avec** : un cas qui compare le nombre de rangées du panneau au
+   nombre d'entrées de la table — le jumeau de `NkNbRaccourcisCtx()` qui a
+   remplacé le `6` en dur du dispatcher. Même famille de défaut (le nombre
+   recopié qui dérive), même remède (le compte vient de la table).
+
+À coder au chantier composants (avec « mettre à jour », §15.8-5/6) — pas
+avant : la migration d'espacement reste le fil.
 
 ### Le mécanisme voisin — la note d'origine, gardée
 
