@@ -206,6 +206,30 @@ sur l'émulateur, et lance.
 
 ---
 
+---
+
+## 6. 🦴 Le squelette : fait « comme Unreal » — trois choix restent à toi
+
+`sizeof(NkSkeleton)` : **77 064 → 88 octets**. Actif partagé + par-instance au
+réel, tous les consommateurs migrés et re-exécutés verts, banc contre-éprouvé.
+Détail : rapport, mesure 9.
+
+Pour qu'il serve « à tout système qui gère les animations squelettiques »
+(tes mots), il reste trois choix — je n'en ai tranché aucun :
+
+1. **L'étage de `NkSkeletonDef`** (l'actif). Candidats : `NKAnimation` (le
+   substrat extrait de NKRenderer le 14/08, où vit déjà le reciblage) ou
+   `NKAnimPhysics`. ⚠️ Noge ne dépend d'aucun des deux aujourd'hui : descendre
+   l'actif AJOUTE une dépendance.
+2. **La convention de pose de repos.** Ton `NkRetargetSkeleton` (noyau) stocke
+   du LOCAL relatif au parent ; le squelette Noge stocke des matrices
+   bind/inverse-bind. L'un des deux devra se convertir vers l'autre.
+3. **Un nom.** Il existe maintenant deux `NkBoneDef` — le mien (os de rendu) et
+   celui du ragdoll (corps physique). Espaces de noms distincts, ça compile,
+   mais c'est le motif `NkShaderStage` : lequel renomme-t-on ?
+
+---
+
 ## Ce qui est fait et ne t'attend pas
 
 - **Web débloqué** : garde EGL (`NK_OPENGL_ES` ne veut pas dire « EGL disponible »)

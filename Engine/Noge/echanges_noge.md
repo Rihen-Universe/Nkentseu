@@ -288,11 +288,22 @@ modèles dont un seul membre exerçait le sous-dossier `textures/`.
 | **Android** | 📄 ✓ | ✅ ✓ **image 3D — vérifiée de mes yeux**, PBR + ombres, 59 FPS |
 | **Web** | ✅ ✓ **4 jeux 2D livrés en `.wasm`** (GemCrush 3,27 Mo, Dames, Échecs, Ludo) | ❓ **construit et lie** (30/30) — la capture connue est prise à **frame=1, passes=1** : elle n'a **jamais exercé** la 3D |
 | **HarmonyOS** | 📄 ✓ (Mou, Pong, jeux de plateau) | ❓ la capture connue montre la **démo 0 (Subsystems)**, pas la démo 3D : elle n'a **jamais exercé** la 3D |
-| **Linux** | 📄 ✓ | 🟡 **capture 3D TROUVÉE** (`plateforme_linux.png`, 29/07, 81,6 FPS, bon chemin) — reste à confirmer que c'est bien Linux |
+| **Linux** | 📄 ✓ | ✅ ✓ **image 3D** — `plateforme_linux.png` (29/07, 81,6 FPS, HUD lu : `Demo 3D`, `Shadow tweak`, PBR + ombres) **+ témoignage de Rodolf du 02/09** |
 | **macOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
 | **iOS** | 📄 ✓ (annoncé par Rodolf) | ❔ **rien mesuré, rien tracé** |
 
-> **Le chiffre ne bouge pas — 2 cibles sur 7 ont une image 3D prouvée** (Windows,
+> ⭐ **MISE À JOUR 2026-09-02 — LINUX PASSE AU VERT : 3 cibles sur 7.** La
+> décision combine deux choses et les nomme : la **capture du 29/07** (HUD lu de
+> mes yeux, bon chemin, jumelle Windows à 4 minutes d'écart) et le **témoignage
+> de Rodolf du 02/09** (« tu vas faire des tests mais ça fonctionnait »).
+> ⚠️ **Note d'attribution honnête** : rien DANS l'image ne nomme le système —
+> l'attribution repose sur le nom du fichier, l'appariement, et sa confirmation.
+> ⚠️ **Et le vert porte sur le 29/07, pas sur aujourd'hui** : le build actuel
+> n'a pas été relancé sous Linux (WSL2 ne répond pas depuis cette session).
+> À RE-TESTER dès que WSL répond — une régression depuis juillet resterait
+> invisible jusque-là.
+>
+> **Le décompte précédent — 2 cibles sur 7 — datait d'avant cette décision** (Windows,
 > Android) — **mais il cesse de contredire ce que Rodolf sait.** Le socle EST
 > porté sur les sept. C'est le chemin 3D qui ne l'est pas, et c'est lui que le
 > jeu de course emprunte.
@@ -1102,3 +1113,79 @@ de `NkResources` ; la branche de repli appelle `CreateSampler` puis quatre
 il n'y a donc aucun moyen de savoir laquelle est prise ni ou elle s'arrete.
 *Avant de chercher la cause, il manque un instrument* — c'est le motif
 « NKGui n'a aucune API d'introspection » sous une autre forme.
+---
+
+# MESURE 9 — LE SQUELETTE « EXACTEMENT COMME UNREAL » : fait, prouvé, et la question de placement
+
+## 9.1 ✅ Le résultat central
+
+`sizeof(NkSkeleton)` : **77 064 → 88 octets** (facteur ~875). `NkSkeletonDef` =
+l'actif partagé (l'équivalent d'un `USkeleton`), référencé par `NkSharedPtr`,
+jamais copié ; `NkBonePose` = la pose locale par instance (elle vivait DANS
+`NkBone`, mêlée à la définition — c'est elle qui rendait le partage impossible) ;
+pose et matrices en `NkVector` **au nombre réel d'os**. Le plafond
+`kMaxBones=256` disparaît, et avec lui la troncature silencieuse de l'importeur.
+
+**Consommateurs** : recensés, migrés, reconstruits, **exécutés** — Noge 39/39,
+LocomotionDemo 9/0, AssetIODemo **55/0** (textures 3/3 comprises),
+SystemsRevivalTest **34/0**, NavDemo et EditableMeshDemo reconstruits.
+
+⚠️ **Le recensement par nom de type a raté un consommateur** : `NkAssetIODemo`
+atteint le type par un membre (`scene.skeletons[0].boneCount`) sans jamais
+écrire son nom. C'est le compilateur qui l'a trouvé. *Un recensement de
+consommateurs se fait par les CHAMPS autant que par le type.*
+
+## 9.2 ✅ Le banc d'arbitrage de copie — et le trou que la contre-épreuve a trouvé
+
+Le banc vérifie : taille ≤ 128 ; 4 os → structures de taille 4 ; la copie
+**partage** la définition (identité de pointeur) et **duplique** le
+par-instance ; et le **témoin historique** — quatre squelettes de 64 os **sur la
+pile**, là où quatre exemplaires plantaient en `0xC00000FD`.
+
+🔴 **La première mutation a trouvé un trou dans le BANC, pas dans le code** :
+`FromDef` muté en copie profonde (l'anti-Unreal) laissait le banc **vert** — son
+assertion ne couvrait que la copie de composant, pas la création. Assertion
+ajoutée (deux instances tirées du même actif partagent **le même**
+`NkSkeletonDef`), mutation rejouée : `33 OK / 1 FAIL`, exit 1, sur exactement
+elle. *Un banc troué se découvre en essayant de le faire rougir.*
+
+## 9.3 🔎 LE PAYSAGE DES SQUELETTES — mesuré sur l'indice du coordinateur
+
+L'indice : « le nom apparaît aussi dans NKRenderer — deux vérités parallèles ? »
+✅ Mesure faite, **tous les porteurs du mot dans le dépôt** :
+
+| type | où | ce que c'est | verdict |
+|---|---|---|---|
+| `ecs::NkSkeleton`/`NkSkeletonDef` | Noge | **le** squelette complet | le sujet de cette mesure |
+| `renderer::TagRSkeleton` | NKRenderer | struct **vide** de marquage du handle GPU (`NkSkeletonHandle`) | **homonyme**, pas une donnée |
+| `anim::NkRetargetSkeleton` | **Kernel/Runtime/NKAnimation** | descripteur de **reciblage** : `parent`+`bindLocal`+`names`+`topo`, déjà dynamique | vraie donnée, **convention différente** |
+| `physics::NkBoneDef` | NKPhysics/NkRagdoll.h | définition d'un **corps** de ragdoll | ⚠️ **collision de nom créée par MON changement** (`ecs::NkBoneDef`) |
+
+**Donc : pas deux squelettes complets parallèles** — un seul (Noge), plus un
+descripteur de reciblage spécialisé dans le noyau. Mais deux écarts à ne pas
+laisser filer :
+- `NkRetargetSkeleton` stocke la pose de repos **en LOCAL** (relative au
+  parent) ; `ecs::NkBoneDef` stocke `bindPose`/`inverseBindPose` en matrices.
+  **Deux conventions.** Les unifier de mon propre chef casserait l'animation
+  partout à la fois — c'est précisément ce que le mandat interdit ;
+- la collision `NkBoneDef` : espaces de noms distincts, ça compile, mais deux
+  `NkBoneDef` désignant deux choses est le motif `NkShaderStage`.
+
+## 9.4 ❓ LA QUESTION DE PLACEMENT — écrite pour Rodolf, pas tranchée
+
+Rodolf : *« le squelette doit être utile […] à tout système qui gère les
+animations squelettiques. »* Or `ecs::NkSkeletonDef` vit dans **Noge**, et les
+modules du noyau (`NKAnimation` — le substrat extrait de NKRenderer le 14/08 —,
+`NKAnimPhysics`) **ne peuvent pas dépendre du moteur**. ✅ Mesuré aussi : Noge ne
+dépend aujourd'hui **ni** de `NKAnimation` **ni** de `NKAnimPhysics` — le
+déplacement ajoute une dépendance, il ne déplace pas seulement un fichier.
+
+La forme Unreal suggère la coupe : **la DÉFINITION descend** (l'actif, comme un
+`USkeleton`), **le composant reste** dans l'ECS (`NK_COMPONENT(NkSkeleton)`,
+mesuré). Mais trois choix restent à Rodolf, et je ne tranche aucun :
+1. **quel étage** pour `NkSkeletonDef` — `NKAnimation` (où vit déjà le
+   reciblage) ou `NKAnimPhysics` ?
+2. **quelle convention** de pose de repos — matrices (l'existant Noge) ou
+   locale (l'existant reciblage) ? L'une des deux devra se convertir ;
+3. **le nom** — renommer `ecs::NkBoneDef` (le mien) ou `physics::NkBoneDef` pour
+   dissoudre la collision.
