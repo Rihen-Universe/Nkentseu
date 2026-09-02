@@ -230,6 +230,30 @@ Pour qu'il serve « à tout système qui gère les animations squelettiques »
 
 ---
 
+## 7. 🔌 Les greffons : conception posée et chiffrée — à toi de lancer
+
+Ton audit de consommation est fait (rapport, mesure 10) : 24 modules consommés,
+deux vérités rétablies dans `_DEPS` (`NKAnimation`, `NKCanvas` — exercés sans
+être déclarés, corrigé, 41/41), un seul déclaré-inerte réel (`NKAnimPhysics`,
+proposition : l'exercer quand un jeu jouera l'équilibre — PV3DE, pas la course).
+
+**`NKXR` et `NKCamera`, que tu as nommés, ne sont PAS câblés en dur — exprès.**
+Ta piste greffons est la bonne réponse : un jeu de course n'embarque pas
+OpenXR, et chaque « dû » câblé en dur grossit tous les binaires (le wasm fait
+déjà 27 Mo). La conception est écrite (§10.4 du rapport) : `NkSharedLib`
+d'abord (15 sites recopient `LoadLibrary`/`dlopen` à la main aujourd'hui —
+mesuré), frontière **C pur versionnée** (zéro-STL et ABI C++ ne traversent pas
+une DLL), doublure crédible obligatoire, et **un seul système pour la maison**
+(moteur + panneau Greffons de NkUIDesign + `Extensions/` de NkCode).
+
+**Chiffrage : ~1,5 à 2 semaines** pour `NkSharedLib` + la frontière + les deux
+premiers greffons (`xr` avec le simulateur sans casque, `camera`), chacun aux
+trois conditions (corps, appelant, banc qui rougit débranché).
+
+**Ta décision** : lancer ce chantier — maintenant, ou après la course ?
+
+---
+
 ## Ce qui est fait et ne t'attend pas
 
 - **Web débloqué** : garde EGL (`NK_OPENGL_ES` ne veut pas dire « EGL disponible »)
