@@ -15,7 +15,7 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 | # | ce qu'il faut | de qui | coût |
 |---|---|---|---|
 | **A** | **Confirmer le Web sur un VRAI GPU.** La cible est verte en rendu **logiciel** (SwiftShader) ; il manque une exécution sur ta carte. Mode d'emploi complet au **bloc 1**. | **toi** | ~2 min de navigateur |
-| **B** | **Le `.hap` HarmonyOS à reconstruire**, puis l'installer sur l'émulateur. HarmonyOS n'a **jamais** exercé la 3D : sa seule capture (29/07) montre la démo 0, et le correctif « démo 3D par défaut » date du 09/08. Détail et commandes au **bloc 5** et à la **carte**. | moi, dès que le GPU/l'émulateur sont libres | ~30 min |
+| **B** | **L'image HarmonyOS.** 🗣️ Tu as confirmé le 02/09 que la démo 3D démarre bien par défaut — **le canal de sélection est réglé**, il ne reste qu'à *voir*. Un `.hap` du 10/08 existe déjà, la séquence est écrite et prête. ⛔ **Bloqué par une priorité, pas par un problème** : lancer l'émulateur prendrait le GPU d'Ilyana (100 % d'utilisation, entraînement en cours). Détail et commandes à la **carte, section 9**. | moi, dès que le GPU se libère | ~10 min |
 | **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
 | **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
 
@@ -475,7 +475,7 @@ application (`Applications/NkAnimaEditor`) et un document mal rangé.
 | 2 | **Android** | ✅ | `Captures/nk_android_demo3d.png` — 18 sphères PBR, ombres, **59 FPS**, `VSM atlas 4096 px` | — (⚠️ textures **procédurales**, pas file-based) |
 | 3 | **Linux** | ✅ | `Captures/plateforme_linux.png` (29/07, 15h38, **81,6 FPS**, HUD lu) **+ ton témoignage du 02/09** | **re-test sous WSL** — le vert date du 29/07 |
 | 4 | **Web** | 🟡 | `Captures/plateforme_web_2026-09-02.png`, HUD lu, `Draw:1093 Tris:489586` | **une exécution sur GPU réel** — celle-ci est en **rendu logiciel** |
-| 5 | **HarmonyOS** | ❔ | **jamais exercée en 3D** — sa seule capture (29/07 19h09) montre la **démo 0** | **reconstruire le `.hap`**, l'installer, lire le HUD |
+| 5 | **HarmonyOS** | ❔ | **jamais exercée en 3D** — sa seule capture (29/07 19h09) montre la **démo 0**. 🗣️ **Témoignage concordant de Rodolf (02/09), image manquante** | **installer un `.hap` et lire le HUD** — un `.hap` du 10/08 existe déjà |
 | 6 | **macOS** | ❔ | **aucune trace** pour le chemin 3D | un build Metal, puis un Mac pour l'exécuter |
 | 7 | **iOS** | ❔ | **aucune trace** pour le chemin 3D | idem + un appareil ou un simulateur |
 
@@ -526,6 +526,72 @@ sources ne juge rien.* Il peut répondre à **une seule** question, gratuitement
 **la démo 3D démarre-t-elle par défaut sur HarmonyOS ?** Si oui, la
 reconstruction est une formalité ; si non, on sait où chercher avant de payer le
 build.
+
+### 🗣️ TON TÉMOIGNAGE DU 2026-09-02 — *« oui »* — et ce qu'il ferme exactement
+
+**Question posée** : la démo 3D démarre-t-elle par défaut sur HarmonyOS ?
+**Ta réponse** : **oui**. Concordant avec ce que tu disais déjà le matin —
+*« j'ai testé la démo `--demo=` ce jour-là, ça a fonctionné sur toutes les
+plateformes sauf iOS et macOS »*, par le chemin **NKRHI / NKRenderer**.
+
+✅ **Ce que ça ferme : LE CANAL DE SÉLECTION.** C'était la seule inconnue de
+mécanisme, et elle est levée. Le code l'écrit noir sur blanc — `main.cpp:411` :
+*« `NK_DEFAULT_DEMO` : démo de repli quand **AUCUN canal de sélection runtime
+n'existe**. C'est le cas de HarmonyOS NEXT : le sandbox ne monte pas
+`/data/local/tmp` (fichiers `kDemoFiles` invisibles, vérifié sur l'émulateur —
+Permission denied même pour `hdc`, qui n'est pas root), et le NDK public n'expose
+aucune API de paramètre système. »* Face à ça, `RendererSandbox.jenga:300` fige
+`defines(["NK_DEFAULT_DEMO=2"])` dans le filtre HarmonyOS. **Ton « oui » dit que
+ce figeage fait son travail** : on n'a plus à pousser de `nk_demo.txt`, ni à
+générer un `EntryAbility.ets` pour relayer la démo par le Want d'`aa start`.
+
+🔴 **CE QUE ÇA NE FAIT PAS : LA COLONNE NE BOUGE PAS. HarmonyOS reste ❔.**
+Une cible passe au vert sur **une image ouverte et un HUD lu**, jamais sur un
+souvenir — *le tien pas plus que le mien*. C'est cette règle exacte qui a payé
+aujourd'hui : ta capture du 29/07 semblait prouver HarmonyOS, elle montrait la
+démo 0, et **deux verdicts sont tombés** quand on l'a relue avec le bon témoin.
+Ce que ton « oui » change, c'est le **pronostic**, pas la preuve.
+
+> **État à écrire tel quel : témoignage concordant, image manquante.**
+
+⚠️ **Et même l'image, quand elle viendra de ce `.hap`-là, sera bornée** : elle
+prouverait « **HarmonyOS rendait la 3D le 10/08** », pas « le moteur d'aujourd'hui
+y rend ». Exactement le statut de Linux, dont le vert porte sur le **29/07**.
+
+### ⛔ POURQUOI JE NE PRENDS PAS LA CAPTURE MAINTENANT — mesuré, pas supposé
+
+**Aucun appareil connecté** : `hdc list targets` rend **`[Empty]`** — l'émulateur
+n'est pas lancé, il faudrait le démarrer.
+
+**Et c'est là que ça bloque, en une ligne : le démarrer prendrait le GPU
+d'Ilyana.** Mesure du moment : **RTX 3070 Laptop, utilisation 100 %,
+5 206 / 8 192 Mio occupés** (`NKIlyana`, PID 19692, en entraînement depuis le
+01/09 18h08). L'émulateur HarmonyOS NEXT est un système complet avec accélération
+graphique matérielle — il entrerait en concurrence directe sur une carte déjà
+saturée, avec moins de 3 Gio libres, et il ouvrirait sa fenêtre sur ta session.
+**Ilyana est prioritaire : on ne l'arrête pas, on ne lui dispute pas sa carte.**
+
+📌 *Ce n'est pas un obstacle technique, c'est un ordre de priorité.* La capture
+elle-même serait légitime — `hdc shell snapshot_display` photographie l'écran de
+**l'émulateur**, jamais le tien.
+
+**La séquence exacte, prête à lancer dès que le GPU se libère** (aucune décision
+à prendre, ~10 min) :
+
+```
+hdc list targets                       # doit sortir autre chose que [Empty]
+hdc install "D:/Projets/2026/Nkentseu/Nkentseu-nkcode/Build/Bin/Debug-HarmonyOS/renderdemo/renderdemo.hap"
+hdc shell aa start -a EntryAbility -b com.nkentseu.sandbox.render.demo
+hdc shell snapshot_display -f /data/local/tmp/harmony_3d.png
+hdc file recv /data/local/tmp/harmony_3d.png Captures/plateforme_harmonyos_<date>.png
+```
+
+**Ce que je lirai dans l'image — et rien d'autre** : la ligne
+**`Demo 3D | API : …`**, le panneau **`== Shadow tweak ==`**, un **`FPS approx`**
+avec une valeur. 🚫 **Pas `Draw:` / `Tris:`** — ce binaire est du 10/08, donc
+postérieur au câblage des compteurs du 05/08 : ils seront probablement non nuls,
+**et ça ne prouvera rien**. L'échec, lui, a une signature nette : un aplat uni
+avec seulement `Active: R2D|R3D|TEXT|OVERLAY` et **aucune** ligne `Demo 3D`.
 
 **6 et 7. macOS et iOS — la vraie carte n'est pas vide** *(hors mandat, non lancé)*
 « Aucune trace » est vrai **pour le chemin 3D de `renderdemo`**. Mais il existe
