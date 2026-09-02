@@ -74,6 +74,8 @@ namespace nkuidesign {
 		/// C'est la branche « appliquer a l'original » du dialogue a trois
 		/// branches (Q51 R2') ; les deux autres attendent le dialogue.
 		AppliquerAuComposant,
+		MiroirH, ///< retourne la selection sur l'axe horizontal (`Maj+H`)
+		MiroirV, ///< retourne la selection sur l'axe vertical (`Maj+V`)
 		Grouper,
 		Degrouper,
 		CadrerSelection,
@@ -157,8 +159,28 @@ namespace nkuidesign {
 	///    d'autres touches — c'est-à-dire diverger de la source sur le seul
 	///    chapitre qui EST la ligne d'arrivée de l'atelier.
 	inline NkActionCtx NkActionDuRaccourci(bool ctrl, bool maj, char touche, bool alt = false) {
+		// ── LE MIROIR H/V : `Maj+H` / `Maj+V`, SANS Ctrl (Rodolf, 02/09) ───
+		// 🔑 LA CONTRADICTION DE LA SOURCE S'EST RESOLUE PAR LA MESURE, pas
+		//    par le gout : elle propose `Maj+H`/`Maj+V` a un endroit et
+		//    `Ctrl`+fleches a un autre -- or **`Ctrl`+fleches est DEJA PRIS**
+		//    chez nous par le redimensionnement au clavier. Une seule des deux
+		//    options etait libre : il n'y avait donc rien a arbitrer au gout.
+		//    *Quand deux sources se contredisent, regarder ce qui est deja
+		//    occupe tranche plus surement qu'une preference.*
+		//
+		// ⚠️ ET C'EST LA PREMIERE COMBINAISON SANS `Ctrl` DE LA TABLE. La
+		//    ligne d'en dessous disait « toutes nos combinaisons passent par
+		//    Ctrl » : ce n'est plus vrai, et le taire aurait laisse un
+		//    commentaire mensonger au-dessus du code qu'il decrit.
+		if (!ctrl && maj && !alt) {
+			switch (touche) {
+				case 'H': return NkActionCtx::MiroirH;
+				case 'V': return NkActionCtx::MiroirV;
+				default: return NkActionCtx::NB;
+			}
+		}
 		if (!ctrl)
-			return NkActionCtx::NB; // toutes nos combinaisons passent par Ctrl
+			return NkActionCtx::NB; // le reste de nos combinaisons passe par Ctrl
 		// ── LES GESTES DE COMPOSANT : `Ctrl+Alt` (source `/components`) ─────
 		// ⚠️ TESTÉS AVANT LE `switch` GÉNÉRAL, ET L'ORDRE EST LA RÈGLE : `Ctrl+D`
 		//    duplique, `Ctrl+Alt+D` détache. La même lettre, deux gestes, et le
@@ -203,7 +225,7 @@ namespace nkuidesign {
 	/// Le nombre de combinaisons liées, pour que la recette les parcoure toutes
 	/// au lieu d'en citer une liste qui se périme à la première qu'on ajoute.
 	inline nkentseu::uint32 NkNbRaccourcisCtx() {
-		return 13u;
+		return 15u;
 	}
 
 	enum { kMaxEntreesCtx = 24 };
@@ -363,6 +385,10 @@ namespace nkuidesign {
 		//    entrée grisée sans motif se lit comme une panne.
 		ajouter("Appliquer au composant", "Ctrl+Alt+M", c.estInstance, " (pas une instance)",
 				false, false, NkActionCtx::AppliquerAuComposant);
+		ajouter("Miroir horizontal", "Maj+H", c.pasRacine, " (pas la racine)", false, false,
+				NkActionCtx::MiroirH);
+		ajouter("Miroir vertical", "Maj+V", c.pasRacine, " (pas la racine)", false, true,
+				NkActionCtx::MiroirV);
 
 		// ── 5. Agencement et renommage ───────────────────────────────────────
 		// ⚠️ L'AGENCEMENT EXISTE, mais dans l'Inspecteur : la raison DIT OÙ, au

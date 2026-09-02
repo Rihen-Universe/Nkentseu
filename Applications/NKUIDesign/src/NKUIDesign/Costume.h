@@ -269,7 +269,70 @@ namespace nkuidesign {
 		///    (2/4/8/12/16/24 discipline les MARGES) : elles se nomment pour
 		///    qu'une rangee ne puisse plus improviser la sienne. Les variantes
 		///    restantes (28/40/44/56/64/76) sont la DETTE de grille, comptee.
+		/// 🔑 LA COLONNE DES CHAMPS SE CALCULE, ELLE NE SE POSE PLUS (02/09).
+		///    `ColChamps` reste la valeur PLANCHER — la grille de la planche —
+		///    mais la colonne effective est `ColonneLibelles`, qui prend le plus
+		///    long libellé RÉELLEMENT affiché.
+		///
+		/// 🔴 TROIS RAISONS, ET LA TROISIÈME EST DÉCISIVE (Rodolf, 02/09) :
+		///    1. raccourcir les mots, c'est laisser la GRILLE dicter le
+		///       VOCABULAIRE — une colonne trop étroite est un défaut de grille,
+		///       pas un défaut de mot ;
+		///    2. une colonne nommée n'est pas de la variance : c'est un second
+		///       jeton de l'échelle, comme deux tailles de titre. Ça ne rouvre pas
+		///       les 34 valeurs qu'on vient de fermer — **à condition qu'elle
+		///       soit nommée et UNIQUE**, jamais posée au cas par cas ;
+		///    3. **LE CHANGEMENT DE LANGUE.** L'allemand et l'espagnol sont
+		///       systématiquement plus longs que le français : des libellés
+		///       raccourcis pour tenir aujourd'hui casseraient à la PREMIÈRE
+		///       traduction. Une largeur calculée survit.
+		///
+		/// ⚠️ C'EST LE REMÈDE DÉJÀ APPLIQUÉ À « FocusVisible » LE MÊME SOIR, et
+		///    c'est la même leçon : *une largeur au juge marche jusqu'au jour où
+		///    la table gagne un nom plus long* — ici, ce jour s'appelle la
+		///    traduction. Un seul mécanisme, réutilisé, pas un second écrit.
 		constexpr float32 ColChamps = 52.f;
+
+		/// La colonne effective : le plus long libellé + une gouttière, jamais
+		/// moins que le plancher de la planche.
+		/// ⚠️ LA MESURE PORTE SUR LES LIBELLÉS QU'ON PASSE — donc sur la LANGUE
+		///    COURANTE, puisque ce sont les chaînes affichées. Mesurer un
+		///    français figé aurait déplacé le défaut d'un cran au lieu de le
+		///    corriger.
+		/// ⚠️ ET SANS POLICE (banc headless), `Largeur` rend 0 : on retombe alors
+		///    sur le plancher. La colonne est donc JUSTE à l'écran et
+		///    APPROXIMÉE au banc — l'angle mort est réel, il est écrit ici.
+		/// La place minimale qu'on laisse aux CHAMPS d'une rangee, quoi qu'il
+		/// arrive. Deux champs de nombre, leurs deux boutons et leurs gouttieres.
+		constexpr float32 MinChampsUtile = 150.f;
+
+		/// @param dispo largeur totale de la rangee (0 = pas de borne).
+		inline float32 ColonneLibelles(const NkGuiFont &f, const char *const *libelles,
+									   nkentseu::uint32 nb, float32 dispo = 0.f) {
+			float32 w = 0.f;
+			for (nkentseu::uint32 i = 0; i < nb; ++i) {
+				const float32 l = Largeur(f, libelles[i]);
+				if (l > w)
+					w = l;
+			}
+			float32 c = w + (float32)EspLarge;
+			if (c < ColChamps)
+				c = ColChamps;
+			// 🔴 LA COLONNE NE DOIT PAS AFFAMER LES CHAMPS -- mesure du 02/09 :
+			//    la premiere version, non bornee, a fait passer la rangee
+			//    Position de « 30 / 316 » a « 3 / 3 ». **Un NOMBRE tronque est
+			//    pire qu'un LIBELLE tronque** : le libelle est un rappel, le
+			//    nombre est la donnee. Quand la place manque, c'est donc le
+			//    LIBELLE qui cede (le peintre l'ellipse), jamais la valeur.
+			//    ⚠️ C'est la meme regle que « le nom cede, jamais le badge »
+			//       (E2), appliquee dans l'autre sens : ce qui cede est ce qui se
+			//       devine, jamais ce qui s'ignore.
+			if (dispo > 0.f && c > dispo - MinChampsUtile) {
+				const float32 borne = dispo - MinChampsUtile;
+				c = borne > ColChamps ? borne : ColChamps;
+			}
+			return c;
+		}
 		constexpr float32 ColMiniLabel = 26.f;
 
 		// ═════════════════════════════════════════════════════════════════════

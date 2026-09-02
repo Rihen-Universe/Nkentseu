@@ -4155,15 +4155,25 @@ static nkentseu::int32 RecettePoints() {
 		//    son office -- *le compte fige est legitime quand la liste est
 		//    fermee : sa taille EST la regle, et le jour ou elle grandit, c'est
 		//    une DECISION*, pas un ajustement silencieux.
-		static const char kT[13] = {'C', 'X', 'V', 'D', 'G', 'G', ']',
-									']', '[', '[', 'K', 'D', 'M'};
-		static const bool kM[13] = {false, false, false, false, false, true, false,
-									true,  false, true,  false, false, false};
-		static const bool kA[13] = {false, false, false, false, false, false, false,
-									false, false, false, true,  true,  true};
+		static const char kT[15] = {'C', 'X', 'V', 'D', 'G', 'G', ']', ']',
+									'[', '[', 'K', 'D', 'M', 'H', 'V'};
+		static const bool kM[15] = {false, false, false, false, false, true, false, true,
+									false, true,  false, false, false, true,  true};
+		static const bool kA[15] = {false, false, false, false, false, false, false, false,
+									false, false, true,  true,  true,  false, false};
+		// ⚠️ UN AXE `ctrl` EST APPARU LE 02/09, ET IL DIT UN FAIT : `Maj+H` et
+		//    `Maj+V` (les miroirs, tranches par Rodolf) sont les DEUX SEULES
+		//    combinaisons de la table qui ne passent pas par `Ctrl`. Le banc
+		//    forcait `ctrl = true` pour tout le monde -- il aurait donc teste
+		//    `Ctrl+Maj+H`, qui n'est lie a rien, et rapporte « non executable »
+		//    sur un raccourci parfaitement branche. *Un banc qui ne sait pas
+		//    poser la question ne mesure pas le code, il mesure sa propre
+		//    hypothese.*
+		static const bool kC[15] = {true, true, true, true, true, true, true, true,
+									true, true, true, true, true, false, false};
 		const uint32 nbAttendu = NkNbRaccourcisCtx();
 		uint32 executables = 0;
-		for (uint32 i = 0; i < 13u && i < nbAttendu; ++i) {
+		for (uint32 i = 0; i < 15u && i < nbAttendu; ++i) {
 			st.doc.NewDocument("recette points", NkAuthor::Humain);
 			const int32 pere = poser("rect", nullptr);
 			const int32 a1 = st.doc.AddChild(pere, "", NkAuthor::Humain);
@@ -4176,11 +4186,11 @@ static nkentseu::int32 RecettePoints() {
 			// dispatcher refuserait a raison.
 			if (kA[i] && (kT[i] == 'D' || kT[i] == 'M'))
 				(void)st.doc.ExtraireComposant(a1, "", "pour_geste");
-			const NkActionCtx act = NkActionDuRaccourci(true, kM[i], kT[i], kA[i]);
+			const NkActionCtx act = NkActionDuRaccourci(kC[i], kM[i], kT[i], kA[i]);
 			if (act != NkActionCtx::NB && NkAppliquerActionCtx(st, a1, act))
 				++executables;
 		}
-		const bool toutesCouvertes = nbAttendu == 13u;
+		const bool toutesCouvertes = nbAttendu == 15u;
 		char d[224];
 		snprintf(d, sizeof(d), "%u combinaisons liees=%d ; touche nue inerte=%d ; inconnue "
 							   "sentinelle=%d ; %u/%u executables par le dispatcher commun ; "

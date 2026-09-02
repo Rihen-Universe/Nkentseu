@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **74** | **24** | **75** | **1** |
+| **175** | **75** | **24** | **75** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -54,6 +54,7 @@ main** — la prochaine régénération l'effacerait.*
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
 | 8. Propriétés | 10 | 5 | 21 | 0 |
 | 9. Composants et instances | 5 | 1 | 4 | 0 |
+| 10. Raccourcis clavier | 1 | 0 | 0 | 0 |
 
 ### La liste nommée — PARTIELS
 

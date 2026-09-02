@@ -1927,6 +1927,32 @@ namespace nkuidesign {
 				st.status = NkString(b);
 				return true;
 			}
+			// LE MIROIR PAR LE GESTE — la MEME ecriture que les boutons H/V de
+			// l'Inspecteur, atteinte par une troisieme porte (le clavier).
+			case NkActionCtx::MiroirH:
+			case NkActionCtx::MiroirV: {
+				const int32 cible = st.doc.IsValidIndex(noeud) ? noeud : st.selected;
+				if (!st.doc.IsValidIndex(cible) || cible == 0) {
+					st.status = NkString("Miroir : sélectionne un élément (pas la racine).");
+					return true;
+				}
+				const bool h = (a == NkActionCtx::MiroirH);
+				if (h)
+					st.doc.nodes[(nkentseu::uint32)cible].miroirH =
+						!st.doc.nodes[(nkentseu::uint32)cible].miroirH;
+				else
+					st.doc.nodes[(nkentseu::uint32)cible].miroirV =
+						!st.doc.nodes[(nkentseu::uint32)cible].miroirV;
+				st.doc.MarkHumanEdit(cible);
+				st.host.SyncTo(st.doc);
+				const bool actif = h ? st.doc.nodes[(nkentseu::uint32)cible].miroirH
+									 : st.doc.nodes[(nkentseu::uint32)cible].miroirV;
+				char b[112];
+				snprintf(b, sizeof(b), "Miroir %s %s.", h ? "horizontal" : "vertical",
+						 actif ? "activé" : "désactivé");
+				st.status = NkString(b);
+				return true;
+			}
 			case NkActionCtx::Supprimer: st.SupprimerSelection(); return true;
 			default: return false;
 		}
@@ -9446,7 +9472,7 @@ namespace nkuidesign {
 					const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   "Position", ctx.theme.textMuted);
-					const float32 champs0 = x0 + costume::ColChamps;
+					const float32 champs0 = x0 + ColChampsCalc(r.w - 24.f);
 					const float32 wBtns = 2.f * 20.f + 4.f;
 					const float32 colW = (x1 - champs0 - wBtns - 12.f) * 0.5f;
 					const NkRect rx = {champs0, costume::BandeY(r.y), colW - 3.f, costume::HControle};
@@ -9605,7 +9631,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), titre,
 							   ctx.theme.textMuted);
-				const NkRect rb = {x0 + costume::ColChamps, costume::BandeY(r.y), 96.f, costume::HControle};
+				const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 96.f, costume::HControle};
 				char b[96];
 				if (metrique)
 					snprintf(b, sizeof(b), "« %s »", d.valueMetric);
@@ -9692,6 +9718,29 @@ namespace nkuidesign {
 			//    (§15.3, même forme que le masque d'écarts) : la rangée montre
 			//    « — » et non la valeur du Normal recopiée, parce qu'une valeur
 			//    recopiée mentirait le jour où le Normal change.
+			/// LES LIBELLÉS DE RANGÉE DE L'INSPECTEUR — la table dont la colonne
+			/// des champs tire sa largeur.
+			/// ⚠️ ELLE EST ICI, EN UN SEUL ENDROIT, parce qu'une colonne calculée
+			///    depuis une liste incomplète serait pire qu'une constante : elle
+			///    aurait l'air de s'adapter tout en tronquant le libellé oublié.
+			///    Tout libellé de rangée qui naît s'ajoute ICI.
+			static const char *const *LibellesRangees(uint32 &nb) {
+				static const char *const k[] = {
+					"Position", "Largeur", "Hauteur", "Cible", "Rôle", "Police",
+					"Hauteur ligne", "Interlettrage", "Arrondi", "Rotation", "Miroir",
+					"Opacité", "Parent",
+				};
+				nb = (uint32)(sizeof(k) / sizeof(k[0]));
+				return k;
+			}
+
+			/// La colonne effective, calculée une fois par appel de section.
+			float32 ColChampsCalc(float32 dispo = 0.f) const {
+				uint32 nb = 0;
+				const char *const *l = LibellesRangees(nb);
+				return costume::ColonneLibelles(costume::Fontes().px10, l, nb, dispo);
+			}
+
 			void CorpsEtats(NkGuiContext &ctx) {
 				if (!SectionOuverte("ÉTATS"))
 					return;
@@ -9990,7 +10039,7 @@ namespace nkuidesign {
 				// boîte et tronquait la valeur (mesuré sur capture).
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
 							   "Cible", ctx.theme.textMuted);
-				const NkRect rb = {x0 + costume::ColChamps, r.y + 2.f,
+				const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f), r.y + 2.f,
 								   x1 - x0 - costume::ColChamps, 20.f};
 				if (n->target.Empty()) {
 					// une page fraichement tracee : le catalogue attend son choix
@@ -10126,7 +10175,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
 							   "Rôle", ctx.theme.textMuted);
-				const NkRect rb = {x0 + costume::ColChamps, r.y + 2.f,
+				const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f), r.y + 2.f,
 								   x1 - x0 - costume::ColChamps, 20.f};
 				BoiteChamp(ctx, rb, n->role.Empty() ? "aucun — choisir…" : n->role.Data());
 				costume::ChevronCombo7(dl, rb.x + rb.w - 13.f, rb.y + 8.f, ctx.theme.textMuted);
@@ -10249,7 +10298,7 @@ namespace nkuidesign {
 					costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y),
 								   li == 0 ? "Hauteur ligne" : "Interlettrage",
 								   ctx.theme.textMuted);
-					const NkRect rv = {x0 + 76.f, costume::BandeY(r.y), 40.f, costume::HControle};
+					const NkRect rv = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 40.f, costume::HControle};
 					dl.AddRectFilled(rv, CouleurInput(), 4.f);
 					dl.AddRect(rv, ctx.theme.border, 1.f, 4.f);
 					costume::Texte(dl, F.px11, rv.x + costume::PadChamp, costume::CentrerY(F.px11, rv.y, 20.f),
@@ -10464,7 +10513,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f), titre,
 							   ctx.theme.textMuted);
-				const NkRect rb = {x0 + costume::ColChamps, r.y + 2.f, x1 - x0 - 56.f, 20.f};
+				const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f), r.y + 2.f, x1 - x0 - 56.f, 20.f};
 				char b[96];
 				if (metrique)
 					snprintf(b, sizeof(b), "métrique « %s »", d.valueMetric);
@@ -10578,7 +10627,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y),
 									   lignes[li].libelle, ctx.theme.textMuted);
-						costume::Texte(dl, F.px10, x0 + 64.f,
+						costume::Texte(dl, F.px10, x0 + ColChampsCalc(r.w - 24.f),
 									   costume::CentrerBande(F.px10, r.y),
 									   "\xE2\x80\x94 (ce conteneur ne nomme rien)",
 									   ctx.theme.textMuted);
@@ -10591,7 +10640,7 @@ namespace nkuidesign {
 					// document — c'est le principe), puis sa valeur, éditable.
 					char nm[64];
 					snprintf(nm, sizeof(nm), "« %s »", lignes[li].nom->Data());
-					costume::Texte(dl, F.px9, x0 + 64.f,
+					costume::Texte(dl, F.px9, x0 + ColChampsCalc(r.w - 24.f),
 								   costume::CentrerBande(F.px9, r.y), nm,
 								   ctx.theme.textMuted);
 					const NkRect rv = {x1 - 48.f, costume::BandeY(r.y), 48.f, costume::HControle};
@@ -10855,7 +10904,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerY(F.px10, r.y + 2.f, 20.f),
 							   libelle, ctx.theme.textMuted);
-				const NkRect rb = {x0 + costume::ColChamps, r.y + 2.f, x1 - x0 - 56.f, 20.f};
+				const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f), r.y + 2.f, x1 - x0 - 56.f, 20.f};
 				dl.AddRectFilled(rb, CouleurInput(), 4.f);
 				dl.AddRect(rb, ctx.theme.border, 1.f, 4.f);
 				if (hex.Empty()) {
@@ -10883,7 +10932,7 @@ namespace nkuidesign {
 				const float32 x0 = r.x + 12.f, x1 = r.x + r.w - 12.f;
 				costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), label,
 							   ctx.theme.textMuted);
-				const NkRect sw = {x0 + costume::ColChamps,
+				const NkRect sw = {x0 + ColChampsCalc(r.w - 24.f),
 								   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
 				if (buf[0]) {
 					dl.AddRectFilled(sw, CouleurHex(buf, ctx.theme.textMuted), 3.f);
@@ -11379,7 +11428,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Arrondi",
 									   ctx.theme.textMuted);
-						const NkRect rr = {x0 + costume::ColChamps, costume::BandeY(r.y), 48.f, costume::HControle};
+						const NkRect rr = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
 						// MULTI-SÉLECTION COMPRISE : « — » si les rayons diffèrent.
 						ChampNombreMulti(
 							ctx, "insp.app.rayon", rr, 0.5f, 0.f, 128.f,
@@ -11407,7 +11456,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Rotation",
 									   ctx.theme.textMuted);
-						const NkRect rr = {x0 + costume::ColChamps, costume::BandeY(r.y), 48.f, costume::HControle};
+						const NkRect rr = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
 						if (peut) {
 							ChampNombreMulti(
 								ctx, "insp.app.rotation", rr, 1.f, -360.f, 360.f,
@@ -11454,7 +11503,7 @@ namespace nkuidesign {
 						for (uint32 k = 0; k < 2; ++k) {
 							const bool actif = (k == 0) ? n->miroirH : n->miroirV;
 							const char *lib = (k == 0) ? "H" : "V";
-							const NkRect rb = {x0 + costume::ColChamps
+							const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f)
 												   + (float32)k * (22.f + (float32)costume::EspSerre),
 											   costume::BandeY(r.y), 22.f, costume::HControle};
 							const bool sv = ctx.popupDepth == 0
@@ -11488,7 +11537,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, x0,
 									   costume::CentrerBande(F.px10, r.y), "Opacité",
 									   ctx.theme.textMuted);
-						const NkRect ro = {x0 + costume::ColChamps, costume::BandeY(r.y), 48.f, costume::HControle};
+						const NkRect ro = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 48.f, costume::HControle};
 						dl.AddRectFilled(ro, CouleurInput(), 4.f);
 						dl.AddRect(ro, ctx.theme.border, 1.f, 4.f);
 						costume::Texte(dl, F.px11, ro.x + costume::PadChamp,

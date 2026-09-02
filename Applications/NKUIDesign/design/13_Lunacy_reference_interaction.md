@@ -296,8 +296,8 @@ les décrit**.
 entier* ; le double-clic *fabrique* un sommet du premier genre. Confondre ① et
 ② ferait retourner un objet quand l'utilisateur veut lier deux poignées.
 
-❓ **QUESTION OUVERTE — arbitrage de Rodolf attendu (sens ② uniquement)** : le
-raccourci du miroir H/V **n'est pas branché**, et ce n'est pas un oubli — **la
+✅ **TRANCHÉ (Rodolf, 02/09) — sens ②** : le raccourci du miroir H/V est
+**`Maj+H` / `Maj+V`**, et il est branché, et ce n'est pas un oubli — **la
 source se contredit** : `Maj+H` / `Maj+V` à un endroit, `Ctrl`+flèches à un
 autre (voir les deux tables de raccourcis plus bas). Les boutons de
 l'Inspecteur fonctionnent ; le raccourci attend qu'on tranche **laquelle des
@@ -649,7 +649,7 @@ Source : `/layers`.
 | Rotation à la souris | près d'un coin | ✅ **livré** | recette transfo 9 — quatre poignées **en dehors** des coins |
 | Rotation chiffrée | champ d'angle | ✅ **livré** | section Apparence |
 | Aimantation angulaire | `Maj` | ✅ **livré** | transfo 10 — **15°** chez nous, la source dit « 90° ou 45° ». ⚠️ **Divergence à trancher par Rodolf** : 15° est plus fin et couvre 45/90 ; leur formulation est ambiguë |
-| Miroir H / V | boutons, ou raccourci (contradictoire dans la source) | ✅ **livré** | transfo 4, 13 — par les **boutons** de l'Inspecteur ; le raccourci n'est pas branché, et **on ne le branchera pas au hasard** vu la contradiction. C'est le **sens ②** de la table de désambiguïsation « miroir », et l'arbitrage attend Rodolf |
+| Miroir H / V | **`Maj+H` / `Maj+V`** + boutons | ✅ **livré — raccourci branché le 02/09** | transfo 4, 13 — par les **boutons** de l'Inspecteur ; le raccourci n'est pas branché, et **on ne le branchera pas au hasard** vu la contradiction. C'est le **sens ②** de la table de désambiguïsation « miroir », et l'arbitrage attend Rodolf |
 | Aligner (six alignements) | boutons ou raccourcis | ✅ **livré** | la rangée d'alignement existe |
 | S'aligner sur les bords du **cadre** quand un seul objet est sélectionné | — | ❌ **absent** | ⚠️ **finesse utile** : chez eux, un objet seul posé sur un cadre s'aligne sur le cadre. Chez nous l'alignement veut deux objets |
 | Distribuer H / V | `Ctrl+Maj+H` / `Ctrl+Maj+V` | ❌ **absent** |  |
@@ -844,7 +844,7 @@ libellés. **Brancher est évidemment la bonne** — c'est la première vague (�
 | Entrer / sortir de l'édition de forme | `Entrée` | source cohérente ; `Échap` sort déjà |
 | Ordre de profondeur | `Ctrl+]`, `Ctrl+[`, `Ctrl+Maj+[` | ⚠️ « au premier plan » **manque dans leur table** ; on prendra `Ctrl+Maj+]` par symétrie, et on l'écrit |
 | Aligner | **à choisir** | ⚠️ **deux jeux contradictoires** dans la source (`Alt+A/D/H/W/S/V` contre `Ctrl+Maj`+flèches). À trancher par Rodolf, ou par l'usage |
-| Miroir H / V | **à choisir — ARBITRAGE OUVERT (sens ② du « miroir »)** | ⚠️ même contradiction (`Maj+H`/`Maj+V` contre `Ctrl`+flèches) — les boutons marchent, seul le raccourci attend |
+| Miroir H / V | **`Maj+H` / `Maj+V` — TRANCHÉ (Rodolf, 02/09)** | ✅ **livré** — et la contradiction s'est résolue **par la mesure, pas par le goût** : `Ctrl`+flèches est **déjà pris** par le redimensionnement au clavier, donc une seule des deux options était libre. *Quand deux sources se contredisent, regarder ce qui est déjà occupé tranche plus sûrement qu'une préférence.* Ce sont les **deux seules combinaisons sans `Ctrl`** de la table |
 
 ---
 
