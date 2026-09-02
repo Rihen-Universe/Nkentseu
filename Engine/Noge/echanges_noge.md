@@ -1008,3 +1008,80 @@ dans `NkCGXDetect`.
 publics. Ils sont consommés hors de mon territoire, et redéfinir qui gagne entre
 `quality` et un champ explicite **est un changement de contrat**, pas un
 correctif.
+---
+
+# MESURE 8 — `QueryCaps()` REND DES CAPACITES FAUSSES ET PLAUSIBLES (signale, NON corrige)
+
+> Defaut transmis par le coordinateur, trouve pendant que Rodolf testait
+> `renderdemo`. **Je ne le corrige pas** : `Noge/Systems` passe devant. Verifie
+> moi-meme avant d'etre inscrit ici.
+
+## 8.1 Le mecanisme, verifie a la lecture
+
+`NkOpenglDevice.cpp:995-1026` — **17 requetes partagent UNE SEULE variable** :
+
+```
+GLint v = 0;                       // <- declaree UNE fois, jamais reinitialisee
+glGetIntegerv(GL_MAX_TEXTURE_SIZE, &v);   mCaps.maxTextureDim2D = (uint32)v;
+...                                        (15 autres)
+```
+
+`glGetIntegerv` **n'ecrit rien quand il echoue**. Sous WebGL2, sept requetes
+echouent (`INVALID_ENUM`) : SSBO (ES 3.1+), compute (**inexistant en WebGL2**),
+anisotropie (extension). Chaque capacite ratee garde donc **la valeur de la
+derniere requete reussie**.
+
+⚠️ **Et ce n'est pas « chacune herite de sa voisine » : il y a une COULEE de
+six.** `GL_MAX_UNIFORM_BLOCK_SIZE` est la derniere qui reussit, puis echouent a
+la file :
+
+| capacite | valeur qu'elle recoit reellement |
+|---|---|
+| `maxStorageBufferRange` | `MAX_UNIFORM_BLOCK_SIZE` |
+| `maxComputeGroupSizeX/Y/Z` | `MAX_UNIFORM_BLOCK_SIZE` — **les trois identiques** |
+| `maxComputeSharedMemory` | `MAX_UNIFORM_BLOCK_SIZE` |
+| `maxSamplerAnisotropy` | `MAX_UNIFORM_BLOCK_SIZE` (~65536 : absurde, et credible) |
+| `minStorageBufferAlign` | `UNIFORM_BUFFER_OFFSET_ALIGNMENT` |
+
+> **Les capacites ne sont pas manquantes : elles sont fausses et plausibles.**
+> Aucune n'est zero, toutes ont l'air renseignees. C'est la face n°11 de la
+> grille — *l'instrument fabrique une valeur credible* — appliquee non pas a un
+> affichage mais a **la table sur laquelle le moteur choisit ses chemins**.
+
+📌 **Meme famille que la garde EGL corrigee au commit `e761b4c7`** : demander a
+une cible ce qu'elle n'a pas. **Deux fois dans le meme fichier, a cinq cents
+lignes d'ecart.** Le remede est de la meme forme — remettre `v` a zero avant
+chaque requete et vider la file d'erreurs, ou mieux **ne pas poser la question**
+quand la cible n'a pas la fonctionnalite.
+
+⚠️ **Ce que ca vaudra pour le chantier qualite** : `ApplyQuality()` derive
+aujourd'hui d'un enum, pas des capacites. Le jour ou un profil lira `mCaps` pour
+decider, il lira ces valeurs-la. **A corriger avant ce jour-la, pas apres.**
+
+## 8.2 ✅ TROIS CAUSES ELIMINEES POUR L'ECRAN NOIR DE RODOLF
+
+Le journal s'arrete a `step 4: NkTextureLibrary::Init`. J'ai teste a peu de
+frais les trois explications benignes les plus probables — **les trois tombent**,
+ce qui resserre la recherche au lieu de l'elargir :
+
+1. 🔴 **Ce n'est PAS un artefact de tampon.** Le correctif (h) du 2026-08-06 est
+   **bien en place** : `NkConsoleSink.cpp:245-253`, `fflush` **apres chaque
+   message** sous `NKENTSEU_PLATFORM_EMSCRIPTEN`, avec son commentaire. Donc le
+   journal s'arrete vraiment la — *« ne depasse pas step 4 » est a prendre au
+   mot.*
+2. 🔴 **Ce n'est PAS l'anisotropie faussee du §8.1.** ✅ `maxSamplerAnisotropy`
+   est **ecrit et lu nulle part** (une seule ecriture GL, une Vulkan, un defaut
+   dans `NkIDevice.h`). La valeur absurde n'atteint aucune creation de sampler.
+   *Les capacites fausses sont latentes, pas la cause.*
+3. 🔴 **Ce n'est PAS `GL_CLAMP_TO_BORDER`.** Le correctif (g2), donne « rebuild a
+   refaire » le 2026-08-06, **est present** : `ToGLWrap` l. 3128-3136 replie sur
+   `GL_CLAMP_TO_EDGE` sous `NK_OPENGL_ES`, commentaire a l'appui.
+
+**Ce qui reste, et c'est la que je regarderais** : `NkTextureLibrary::Init`
+(`NkTextureLibrary.cpp:22`) se scinde en deux branches selon
+`mResources->IsReady()`. La branche « prete » enveloppe les textures et samplers
+de `NkResources` ; la branche de repli appelle `CreateSampler` puis quatre
+`CreateTexture` 1x1. **Aucune des deux ne journalise entre step 4 et step 5** :
+il n'y a donc aucun moyen de savoir laquelle est prise ni ou elle s'arrete.
+*Avant de chercher la cause, il manque un instrument* — c'est le motif
+« NKGui n'a aucune API d'introspection » sous une autre forme.
