@@ -72,6 +72,7 @@
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
 #include "RecetteProprietes.h" // --recette-proprietes : les listes de proprietes, par le geste
+#include "TemoinRendu.h"	 // --temoin-rendu : le flux de commandes du peintre, diffable
 
 
 
@@ -7388,6 +7389,15 @@ int nkmain(const NkEntryState &state) {
 		// le GESTE : une vraie souris qui vise la poubelle, sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-proprietes"))
 			return nkuidesign::NkRecetteProprietes();
+		// Le TEMOIN DE RENDU : le flux de commandes du peintre, ecrit tel quel.
+		// Il se DIFFE -- une refonte d apparence se juge sur ce qui bouge.
+		if (NkComponentDecl::StrEq(a, "--temoin-rendu"))
+			return nkuidesign::NkTemoinRendu(nullptr);
+		{
+			const NkString argT(a);
+			if (argT.StartsWith("--temoin-rendu="))
+				return nkuidesign::NkTemoinRendu(argT.SubStr(15).Data());
+		}
 		// Les gestes d'edition Lunacy (copier/coller/dupliquer/grouper/...)
 		// prouves par leur EFFET, et « un geste = un pas » — sans fenetre ni GPU.
 		if (NkComponentDecl::StrEq(a, "--recette-gestes"))
@@ -7521,6 +7531,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --recette-annulation    la batterie de preuve de l'annulation (§7)");
 			puts("  --recette-edition       le contrat universel d'edition, par site");
 			puts("  --recette-proprietes    les listes de proprietes exercees par le GESTE");
+			puts("  --temoin-rendu[=<f>]    le flux de commandes du peintre (diffable)");
 			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
 			puts("  --recette-snap          l'aimantation (bords, centres, espacements égaux)");
 			puts("  --recette-selection     le contrat de sélection (Ctrl/Maj, englobant, mixtes)");

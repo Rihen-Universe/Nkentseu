@@ -4,6 +4,17 @@
 > sincèrement, et actuellement c'est pas encore le cas. Visuellement ça doit être
 > beau et fonctionnel. »*
 
+## 🔑 LE CHIFFRE QUI EXPLIQUE « ÇA FAIT BRICOLÉ », ET IL SE VÉRIFIE EN TROIS SECONDES
+
+> **Les douze valeurs d'espacement les plus employées sont *tous les entiers de
+> 1 à 12*.**
+
+Ce n'est pas une échelle mal choisie : **c'est l'absence de toute échelle.**
+Chaque marge a été posée pour régler son cas local, et l'œil ne trouve aucune
+règle à laquelle se raccrocher — même sans savoir pourquoi.
+
+*Tout le reste de ce document découle de cette ligne.*
+
 **Le diagnostic qui a lancé ce document** : le document 14 compte 174 lignes de
 **comportement**, reprises de Lunacy. **Rien ne mesurait l'apparence.** Les
 planches ont servi de référence au début du chantier, puis tout le suivi a glissé
