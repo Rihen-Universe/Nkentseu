@@ -99,30 +99,68 @@ doc ? »* La réponse honnête est un **nombre qui bouge**, pas un « oui ».
 
 | date | lignes | livré | partiel | absent | écarté |
 |---|---|---|---|---|---|
-| 2026-09-01 (création du document) | 176 | 60 | 26 | 88 | 2 |
-| **2026-09-02 (poignées + vague 2)** | **178** | **67** | **27** | **84** | **2** |
+| 2026-09-01 (création du document) | 172 | 59 | 25 | 87 | 1 |
+| **2026-09-02 (poignées + vague 2)** | **174** | **64** | **26** | **83** | **1** |
 
-**Comment le recompter soi-même**, sans rien croire sur parole — la commande rend
-le compte par état sur les lignes de tableau :
+**Comment le recompter soi-même**, sans rien croire sur parole :
 
 ```
-grep -E "^\|" 13_Lunacy_reference_interaction.md | grep -oE "(✅|🟡|❌|🚫)" | sort | uniq -c
+python compte_etat.py              # le total et le compte par chapitre
+python compte_etat.py --chapitres  # + la liste NOMMEE des absents et des partiels
 ```
 
-⚠️ **ET C'EST POURQUOI CE TABLEAU-CI ÉCRIT SES EN-TÊTES EN TOUTES LETTRES.** Ma
-première version les décorait des quatre emblèmes — le compteur se comptait alors
-lui-même, et la commande ci-dessus rendait **68 / 28 / 85 / 3** au lieu de
-**67 / 27 / 84 / 2**. *Un instrument de mesure qui figure dans sa propre mesure
-donne un chiffre faux dans le sens qui l'arrange*, et celui-ci se serait vanté
-d'une ligne verte de plus. Trouvé en relançant la commande après l'avoir écrite,
-pas en la relisant.
+#### 🔴 CE COMPTEUR A MENTI DEUX FOIS LE MÊME JOUR, TOUJOURS EN SA FAVEUR
+
+Les chiffres publiés plus tôt le 02/09 (**176 → 178 lignes, 60 → 67 livrés**)
+étaient **faux**, et il faut dire par où :
+
+1. **le tableau se comptait lui-même** — ses en-têtes portaient les quatre
+   emblèmes, donc chaque publication s'ajoutait une ligne de chaque état ;
+2. **la ligne de `grep` comptait les EMBLÈMES, pas les LIGNES.** Deux cellules
+   « ce qui manque » où la prose dit *« ce ✅ était faux »* ajoutaient chacune un
+   **faux vert** ; et les **quatre lignes de la légende de §0.4** — qui
+   *définissent* les états — étaient comptées comme du contenu.
+
+> *Un instrument de mesure qui figure dans sa propre mesure ment toujours en sa
+> faveur.* Les deux erreurs gonflaient le vert, jamais le rouge.
+
+**La parade n'est pas de faire attention, c'est `compte_etat.py`** : une ligne de
+tableau compte pour **une** ligne, son état est le **premier** emblème (celui de
+la colonne d'état), et la légende est exclue nommément. Un `grep` ne peut pas
+savoir ce qu'il ne doit pas compter ; un outil, si. *Une parade structurelle vaut
+mieux qu'une parade disciplinaire — la seconde tient jusqu'au jour où l'on est
+pressé.* La ligne du 01/09 a été **recomptée avec le même outil**, sur la version
+du document de ce jour-là : c'est ce qui rend les deux lignes comparables.
 
 ⚠️ **LE TOTAL MONTE AUSSI, ET CE N'EST PAS UN ARTEFACT.** Deux lignes sont
 apparues le 02/09 (les poignées par défaut, les champs X1..Y2) parce qu'un défaut
 a révélé un comportement que le document ne nommait pas encore. *Un inventaire
 qui ne grandit jamais est un inventaire qu'on a cessé de confronter au produit.*
-Le bon signe n'est donc pas « 178 lignes toutes vertes » mais **« ❌ descend plus
-vite que le total ne monte »**.
+Le bon signe n'est donc pas « 174 lignes toutes vertes » mais **« ❌ descend plus
+vite que le total ne monte »** — ici **−4 absents pour +2 lignes**.
+
+#### Où l'on est fort, où l'on est faible — le compte PAR CHAPITRE
+
+*(rendu par `compte_etat.py`, au 02/09)*
+
+| chapitre | livré | partiel | absent |
+|---|---|---|---|
+| 1. Édition vectorielle | **19** | 6 | 8 |
+| 2. Outils de tracé | 5 | 7 | 8 |
+| 3. Opérations booléennes | **0** | 0 | **8** |
+| 4. Sélection et navigation | 8 | 0 | 5 |
+| 5. Toile et vue | 2 | 4 | **10** |
+| 6. Transformations | **13** | 1 | 7 |
+| 7. Calques et groupes | 7 | 2 | 7 *(+1 écarté)* |
+| 8. Propriétés | 10 | 5 | **21** |
+| 9. Composants et instances | **0** | 1 | **9** |
+
+**Ce que ce tableau dit d'un coup d'œil** : l'**édition vectorielle** (le chapitre
+que Rodolf a nommé en premier) et les **transformations** sont les deux points
+forts — **32 des 64 livrés à eux deux**. Les trois creux sont les **propriétés**
+(21 absents, mais ce sont des lignes petites et indépendantes), les **composants**
+(0 livré — un chantier de modèle entier) et les **opérations booléennes** (0
+livré, les huit derrière un même maillon).
 
 ⚠️ **ET UN ✅ PEUT REDEVENIR FAUX.** Deux l'ont été le 02/09 (« arrondir un
 coin », « changer le type d'un point ») : la règle existait dans le modèle et une
