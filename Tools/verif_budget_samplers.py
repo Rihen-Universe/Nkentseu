@@ -170,17 +170,27 @@ def etages_fragment(racine):
     return sorted(trouves)
 
 
-def samplers(source, fusion_cookies, sampler_bidon=False):
+# Le retrait pilote par le budget, cote moteur : NkTrimShadowRawSampler
+# (NkOpenglDevice.cpp). Reproduit ici pour MESURER son effet sans GPU.
+# ⚠️ CE N'EST PAS LA MEME IMPLEMENTATION -- c'est deliberé : le juge doit venir
+# d'ailleurs que le juge. Ce mode prouve LA REGLE et SON ARITHMETIQUE (17 -> 16),
+# il ne prouve PAS le code C++, qui demande une execution web pour etre juge.
+RE_SHADOW_RAW = re.compile(r"^tShadowAtlasRaw$")
+
+
+def samplers(source, fusion_cookies, sampler_bidon=False, trim_budget=False):
     """Noms des echantillonneurs restants APRES les transformations de la cible."""
     noms = RE_SAMPLER.findall(source)
     if fusion_cookies:
         noms = [n for n in noms if not RE_COOKIE_FUSIONNE.match(n)]
+    if trim_budget:
+        noms = [n for n in noms if not RE_SHADOW_RAW.match(n)]
     if sampler_bidon:
         noms = noms + ["tControlePositif"]
     return noms
 
 
-def mesurer(racine, cible, sampler_bidon=False):
+def mesurer(racine, cible, sampler_bidon=False, trim_budget=False):
     conf = CIBLES[cible]
     resultats = []
     for chemin in etages_fragment(racine):
@@ -189,7 +199,7 @@ def mesurer(racine, cible, sampler_bidon=False):
                 src = fh.read()
         except OSError:
             continue
-        noms = samplers(src, conf["fusion_cookies"], sampler_bidon)
+        noms = samplers(src, conf["fusion_cookies"], sampler_bidon, trim_budget)
         if noms:
             resultats.append((len(noms), os.path.relpath(chemin, racine), noms))
     resultats.sort(reverse=True)
@@ -205,6 +215,10 @@ def main(argv):
     ap.add_argument("--controle", action="store_true",
                     help="controle positif : injecte un sampler bidon et EXIGE "
                          "que le verdict change")
+    ap.add_argument("--apres-trim", action="store_true", dest="apres_trim",
+                    help="mesure APRES le retrait pilote par le budget "
+                         "(NkTrimShadowRawSampler) : ce que la cible etroite "
+                         "recevra reellement")
     ap.add_argument("--tout", action="store_true",
                     help="lister tous les etages, pas seulement les depassements")
     a = ap.parse_args(argv[1:])
@@ -231,8 +245,12 @@ def main(argv):
         print("   #include : son verdict SOUS-COMPTE et ne vaut rien.")
         return 2
 
-    resultats = mesurer(a.racine, a.cible)
+    resultats = mesurer(a.racine, a.cible, trim_budget=a.apres_trim)
     depassements = [r for r in resultats if r[0] > budget]
+    if a.apres_trim:
+        print("Retrait pilote par le budget applique : tShadowAtlasRaw retire")
+        print("(PCSS -> repli PCF 3x3 ; branche deja morte a NK_MOBILE).")
+        print()
 
     if a.tout:
         for n, chemin, _ in resultats:
@@ -257,7 +275,11 @@ def main(argv):
 
         # (a) sensibilite du COMPTEUR
         sans = {c: n for n, c, _ in resultats}
-        avec = {c: n for n, c, _ in mesurer(a.racine, a.cible, sampler_bidon=True)}
+        # ⚠️ MEME conditions que la mesure de reference, sinon on compare deux
+        # populations differentes et l ecart ne veut plus rien dire.
+        avec = {c: n for n, c, _ in mesurer(a.racine, a.cible,
+                                            sampler_bidon=True,
+                                            trim_budget=a.apres_trim)}
         ecarts = {c: avec.get(c, 0) - n for c, n in sans.items()}
         mauvais = [c for c, d in ecarts.items() if d != 1]
         if mauvais:
