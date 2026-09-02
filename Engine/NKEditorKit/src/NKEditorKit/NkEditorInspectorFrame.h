@@ -281,12 +281,46 @@ namespace nkentseu {
 							trouve = (int32)k;
 							break;
 						}
-					if (trouve >= 0)
+					float32 maxPrec = 0.f;
+					if (trouve >= 0) {
 						defY = ctx.scrollVals[(uint32)trouve].y;
+						maxPrec = ctx.scrollVals[(uint32)trouve].maxY;
+					}
 					// la molette au survol de la zone (le pouce et elle pilotent
-					// LA MEME variable — le clamp est dans NkVScrollbar)
+					// LA MEME variable)
 					if (ctx.popupDepth == 0 && nkgui::NkGuiRectContains(vis, ctx.input.mousePos))
 						defY -= ctx.input.wheel * 36.f;
+					// 🔴 L'ECRETAGE EST ICI, AVANT LA DISPOSITION — ET C'EST LA
+					//    CORRECTION DU 02/09 (Rodolf : « lorsqu'on scrolle et qu'on
+					//    depasse les limites, ca clignote ou ca dandine »).
+					//
+					//    Le commentaire qui etait a cette place disait « le clamp est
+					//    dans NkVScrollbar », et c'etait VRAI — mais `NkVScrollbar`
+					//    est appele TRENTE LIGNES PLUS BAS, une fois le contenu deja
+					//    dispose et peint a `vis.y - defY`. En butee, la molette
+					//    poussait `defY` de 36 px hors bornes, l'image entiere etait
+					//    DESSINEE decalee de ces 36 px, puis la valeur etait ramenee
+					//    dans les bornes et rangee. A l'image suivante elle repartait
+					//    de la valeur propre, se faisait repousser, et redessinait
+					//    decalee : **une oscillation d'exactement un cran de molette,
+					//    tant que la roue tourne.** Ce n'est pas un defaut de dessin,
+					//    c'est une correction qui arrive UNE IMAGE TROP TARD.
+					//
+					// ⚠️ ON ECRETE AVEC L'ETENDUE DE L'IMAGE PRECEDENTE, et c'est le
+					//    seul chiffre honnete disponible ici : la vraie etendue ne se
+					//    connait qu'apres avoir dispose le contenu, c'est-a-dire trop
+					//    tard pour ce qu'on est en train de peindre. `NkVScrollbar`
+					//    ecrete a nouveau en fin de zone avec l'etendue FRAICHE, donc
+					//    une etendue qui change reste rattrapee en une image — sans
+					//    jamais peindre hors bornes.
+					// ⚠️ ET LA PREMIERE IMAGE EST LE CAS LIMITE : `maxPrec` y vaut 0,
+					//    donc `defY` est epingle a 0. C'est exact — rien n'a encore
+					//    ete defile — et l'etendue reelle arrive a la fin de cette
+					//    meme image.
+					if (defY < 0.f)
+						defY = 0.f;
+					if (defY > maxPrec)
+						defY = maxPrec;
 					ctx.DL().PushClipRect({vis.x, vis.y, vis.w + sbw, vis.h}, true);
 					disposAvant = ctx.layout;
 					ctx.BeginLayout({vis.x, vis.y - defY, vis.w, 1.0e6f});
