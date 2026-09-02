@@ -12,6 +12,7 @@
 // =============================================================================
 #include "NKCore/NkTypes.h"
 #include "NKPlatform/NkCGXDetect.h"
+#include "NKCore/NkPlatform.h" // NkGetPlatformInfo : etage RUNTIME de ForTarget
 #include "NKContainers/String/NkString.h"
 #include "NKMath/NkVec.h"
 
@@ -437,6 +438,12 @@ namespace nkentseu {
 					c.api = api;
 					c.width = w;
 					c.height = h;
+
+					// `quality` est la SOURCE ; ce preset l'EXPRIME. Les lignes qui
+					// suivent sont posterieures, donc elles ecrasent -- c'est le contrat
+					// arbitre par Rodolf le 2026-09-02.
+					c.quality = NkRenderQuality::NK_HIGH;
+					c.ApplyQuality();
 					c.pipeline = NkPipelineMode::NK_FORWARD_PLUS;
 					c.quality = NkRenderQuality::NK_HIGH;
 					c.subsystems = NK_SS_RENDER2D | NK_SS_RENDER3D | NK_SS_TEXT | NK_SS_SHADOW | NK_SS_POST_PROCESS |
@@ -456,6 +463,12 @@ namespace nkentseu {
 					c.api = api;
 					c.width = w;
 					c.height = h;
+
+					// `quality` est la SOURCE ; ce preset l'EXPRIME. Les lignes qui
+					// suivent sont posterieures, donc elles ecrasent -- c'est le contrat
+					// arbitre par Rodolf le 2026-09-02.
+					c.quality = NkRenderQuality::NK_CINEMATIC;
+					c.ApplyQuality();
 					c.pipeline = NkPipelineMode::NK_DEFERRED;
 					c.quality = NkRenderQuality::NK_CINEMATIC;
 					c.subsystems = NK_SS_RENDER3D | NK_SS_SHADOW | NK_SS_POST_PROCESS | NK_SS_VFX | NK_SS_ANIMATION |
@@ -481,6 +494,12 @@ namespace nkentseu {
 					c.api = api;
 					c.width = w;
 					c.height = h;
+
+					// `quality` est la SOURCE ; ce preset l'EXPRIME. Les lignes qui
+					// suivent sont posterieures, donc elles ecrasent -- c'est le contrat
+					// arbitre par Rodolf le 2026-09-02.
+					c.quality = NkRenderQuality::NK_ULTRA;
+					c.ApplyQuality();
 					c.pipeline = NkPipelineMode::NK_DEFERRED;
 					c.quality = NkRenderQuality::NK_ULTRA;
 					c.subsystems = NK_SS_RENDER3D | NK_SS_SHADOW | NK_SS_POST_PROCESS | NK_SS_OVERLAY;
@@ -490,6 +509,8 @@ namespace nkentseu {
 					c.postProcess.bloom = false;
 					c.postProcess.colorGrading = true;
 					c.postProcess.taa = true;
+					// ⚠️ DEVIATION ASSUMEE du palier ci-dessus : declaree, donc VISIBLE.
+					c.OverrideAfterQuality("archviz : bloom eteint volontairement (une image d'architecture ne halote pas)");
 					return c;
 				}
 
@@ -499,6 +520,12 @@ namespace nkentseu {
 					c.api = api;
 					c.width = w;
 					c.height = h;
+
+					// `quality` est la SOURCE ; ce preset l'EXPRIME. Les lignes qui
+					// suivent sont posterieures, donc elles ecrasent -- c'est le contrat
+					// arbitre par Rodolf le 2026-09-02.
+					c.quality = NkRenderQuality::NK_MOBILE;
+					c.ApplyQuality();
 					c.pipeline = NkPipelineMode::NK_FORWARD;
 					c.quality = NkRenderQuality::NK_MOBILE;
 					c.subsystems = NK_SS_RENDER2D | NK_SS_RENDER3D | NK_SS_TEXT;
@@ -515,6 +542,12 @@ namespace nkentseu {
 					c.api = api;
 					c.width = w;
 					c.height = h;
+
+					// `quality` est la SOURCE ; ce preset l'EXPRIME. Les lignes qui
+					// suivent sont posterieures, donc elles ecrasent -- c'est le contrat
+					// arbitre par Rodolf le 2026-09-02.
+					c.quality = NkRenderQuality::NK_LOW;
+					c.ApplyQuality();
 					c.pipeline = NkPipelineMode::NK_FORWARD;
 					c.quality = NkRenderQuality::NK_LOW;
 					c.subsystems = NK_SS_RENDER2D | NK_SS_TEXT | NK_SS_UI | NK_SS_OVERLAY;
@@ -528,12 +561,20 @@ namespace nkentseu {
 					c.api = api;
 					c.width = w;
 					c.height = h;
+
+					// `quality` est la SOURCE ; ce preset l'EXPRIME. Les lignes qui
+					// suivent sont posterieures, donc elles ecrasent -- c'est le contrat
+					// arbitre par Rodolf le 2026-09-02.
+					c.quality = NkRenderQuality::NK_HIGH;
+					c.ApplyQuality();
 					c.pipeline = NkPipelineMode::NK_FORWARD_PLUS;
 					c.quality = NkRenderQuality::NK_HIGH;
 					c.subsystems = NK_SS_ALL; // editor : tout activer
 					c.debugOverlay = true;
 					c.shadow.resolution = 1024;
 					c.postProcess.fxaa = true;
+					// ⚠️ DEVIATION ASSUMEE du palier ci-dessus : declaree, donc VISIBLE.
+					c.OverrideAfterQuality("editeur : ombre 1024 au lieu de 2048 -- latence et lisibilite priment sur la richesse");
 					return c;
 				}
 
@@ -545,6 +586,12 @@ namespace nkentseu {
 					c.api = api;
 					c.width = w;
 					c.height = h;
+
+					// `quality` est la SOURCE ; ce preset l'EXPRIME. Les lignes qui
+					// suivent sont posterieures, donc elles ecrasent -- c'est le contrat
+					// arbitre par Rodolf le 2026-09-02.
+					c.quality = NkRenderQuality::NK_LOW;
+					c.ApplyQuality();
 					c.subsystems = NK_SS_NONE;
 					c.hdr = false;
 					return c;
@@ -555,6 +602,152 @@ namespace nkentseu {
 					NkRendererConfig c = ForFilm(api, w, h);
 					c.subsystems = c.subsystems | NK_SS_OFFSCREEN;
 					c.vsync = false;
+					return c;
+				}
+
+				// =================================================================
+				// QUALITE OPERANTE + SELECTEUR DE PROFIL  (2026-09-02)
+				// =================================================================
+				// Regle gravee : LE MOTEUR PORTE LA QUALITE, L'APPLICATION LA SUBIT.
+				// Le jeu declare une INTENTION, jamais un REGLAGE.
+				//
+				// ⚠️ POURQUOI CE BLOC EXISTE, mesure du 2026-09-02 : `quality` etait
+				// ECRIT 7 fois (les 6 presets + 1 application) et LU 0 fois dans le
+				// depot entier. L'axe sur lequel la regle repose etait un mot que rien
+				// n'executait. `ApplyQuality()` est la premiere lecture reelle.
+				//
+				// ⚠️ CE BLOC EST ADDITIF. Les six presets publics (ForGame, ForFilm,
+				// ForArchviz, ForMobile, For2D, ForEditor) gardent EXACTEMENT leur
+				// semantique : ils ecrivent leurs champs directement, et ils sont
+				// honores. Decider qui gagne entre `quality` et un champ explicite est
+				// un CHANGEMENT DE CONTRAT, pas un correctif : il attend Rodolf.
+
+				// Trace d'un ecrasement explicite pose APRES ApplyQuality().
+				// ⚠️ C'est la porte de sortie par laquelle la regle peut fuir : si
+				// ecraser un reglage est silencieux et gratuit, `si (mobile) ->
+				// shadowRes = 512` revient par la fenetre et redevient le chemin
+				// normal. On la rend donc NOMMEE et VISIBLE -- jamais confondable avec
+				// un reglage ordinaire.
+				uint32 qualityOverrideCount = 0;
+				const char *qualityOverrideLast = nullptr;
+				bool qualityAuto = false; // vrai si le profil vient de ForTarget()
+
+				// Derive de `quality` TOUS les champs qui en dependent.
+				// C'est LA lecture de l'enum : la clause (3) du critere de reussite dit
+				// qu'un banc doit ECHOUER si on force `quality` a une autre valeur.
+				void ApplyQuality() noexcept {
+					switch (quality) {
+						case NkRenderQuality::NK_MOBILE:
+							shadow.resolution = 512;  shadow.cascadeCount = 1;
+							shadow.pcss = false;      shadow.softShadows = false;
+							shadow.poissonSamples = 4;
+							hdr = false;    maxLights = 16;
+							postProcess.bloom = false;  postProcess.ssao = false;
+							postProcess.hbao = false;
+							postProcess.taa = false;    postProcess.ssr = false;
+							break;
+						case NkRenderQuality::NK_LOW:
+							shadow.resolution = 1024; shadow.cascadeCount = 2;
+							shadow.pcss = false;      shadow.softShadows = true;
+							shadow.poissonSamples = 8;
+							hdr = false;    maxLights = 32;
+							postProcess.bloom = false;  postProcess.ssao = false;
+							postProcess.hbao = false;
+							postProcess.taa = false;    postProcess.ssr = false;
+							break;
+						case NkRenderQuality::NK_MEDIUM:
+							shadow.resolution = 1024; shadow.cascadeCount = 3;
+							shadow.pcss = false;      shadow.softShadows = true;
+							shadow.poissonSamples = 12;
+							hdr = true;     maxLights = 64;
+							postProcess.bloom = true;   postProcess.ssao = true;
+							postProcess.hbao = false;
+							postProcess.taa = false;    postProcess.ssr = false;
+							break;
+						case NkRenderQuality::NK_HIGH:
+							shadow.resolution = 2048; shadow.cascadeCount = 4;
+							shadow.pcss = true;       shadow.softShadows = true;
+							shadow.poissonSamples = 16;
+							hdr = true;     maxLights = 256;
+							postProcess.bloom = true;   postProcess.ssao = true;
+							postProcess.hbao = false;
+							postProcess.taa = false;    postProcess.ssr = false;
+							break;
+						case NkRenderQuality::NK_ULTRA:
+							shadow.resolution = 4096; shadow.cascadeCount = 4;
+							shadow.pcss = true;       shadow.softShadows = true;
+							shadow.poissonSamples = 24;
+							hdr = true;     maxLights = 512;
+							postProcess.bloom = true;   postProcess.ssao = true;
+							postProcess.hbao = true;
+							postProcess.taa = true;     postProcess.ssr = true;
+							break;
+						case NkRenderQuality::NK_CINEMATIC:
+							shadow.resolution = 4096; shadow.cascadeCount = 4;
+							shadow.pcss = true;       shadow.softShadows = true;
+							shadow.poissonSamples = 32;
+							hdr = true;     maxLights = 1024;
+							postProcess.bloom = true;   postProcess.ssao = true;
+							postProcess.hbao = true;
+							postProcess.taa = true;     postProcess.ssr = true;
+							postProcess.dof = true;     postProcess.motionBlur = true;
+							break;
+					}
+				}
+
+				// Ecrasement explicite APRES ApplyQuality() : acte NOMME et TRACE.
+				// L'appelant DOIT dire quel champ et pourquoi. Le compte et la derniere
+				// raison sont lisibles par le moteur, donc journalisables -- une porte
+				// de sortie qui ne se voit pas devient le chemin normal.
+				void OverrideAfterQuality(const char *pourquoi) noexcept {
+					++qualityOverrideCount;
+					qualityOverrideLast = pourquoi;
+				}
+
+				// ⭐ LA FABRIQUE QUE LE JEU APPELLE. Aucun argument de plateforme,
+				// aucun nom de preset : c'est ce qui supprime le `si (mobile)`.
+				// DEUX ETAGES, et aucun des deux n'etait a ecrire :
+				//   1. la CIBLE, connue a la compilation (NKENTSEU_PLATFORM_*) ;
+				//   2. la MACHINE, connue a l'execution (NkGetPlatformInfo()).
+				// ⚠️ NkCGXDetect ne sert PAS ici : mesure du 2026-09-02, son .cpp fait
+				// 3 lignes et ne contient aucune fonction -- c'est un fichier de macros,
+				// pas un detecteur.
+				static NkRendererConfig ForTarget(uint32 w = 0, uint32 h = 0) {
+					NkRendererConfig c;
+
+					// ── Etage 1 : la cible (compilation) ─────────────────────────
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_IOS) || defined(NKENTSEU_PLATFORM_HARMONYOS) || defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+					c.api = NkGraphicsApi::NK_GFX_API_OPENGLES;
+					c.quality = NkRenderQuality::NK_MOBILE;
+					c.width = w ? w : 1280;
+					c.height = h ? h : 720;
+#else
+					c.api = NkGraphicsApi::NK_GFX_API_OPENGL;
+					c.quality = NkRenderQuality::NK_HIGH;
+					c.width = w ? w : 1920;
+					c.height = h ? h : 1080;
+#endif
+
+					// ── Etage 2 : la machine (execution) ─────────────────────────
+					// On ne MONTE jamais depuis ce qu'on a mesure -- on ne fait que
+					// DESCENDRE quand la machine ne suit pas. Monter demanderait de
+					// connaitre le GPU, et rien dans le depot ne le mesure aujourd'hui.
+					if (const auto *info = NkGetPlatformInfo()) {
+						const nk_uint64 kGio = 1024ull * 1024ull * 1024ull;
+						if (info->totalMemory > 0 && info->totalMemory < 2 * kGio)
+							c.quality = NkRenderQuality::NK_MOBILE;
+						else if (info->totalMemory > 0 && info->totalMemory < 4 * kGio &&
+							 c.quality > NkRenderQuality::NK_LOW)
+							c.quality = NkRenderQuality::NK_LOW;
+						else if (info->cpuCoreCount > 0 && info->cpuCoreCount <= 2 &&
+							 c.quality > NkRenderQuality::NK_MEDIUM)
+							c.quality = NkRenderQuality::NK_MEDIUM;
+					}
+
+					c.subsystems = NK_SS_RENDER2D | NK_SS_RENDER3D | NK_SS_TEXT | NK_SS_SHADOW |
+						   NK_SS_POST_PROCESS | NK_SS_ANIMATION | NK_SS_OVERLAY;
+					c.ApplyQuality(); // <- la qualite decide, PAS l'appelant
+					c.qualityAuto = true;
 					return c;
 				}
 		};
