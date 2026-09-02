@@ -2495,13 +2495,23 @@ namespace nkentseu {
 		GLenum status = glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER);
 #endif
 		if (status != GL_FRAMEBUFFER_COMPLETE) {
-#if defined(NK_OPENGL_ES)
 			// Un FBO ne peut se creer que sur le thread qui detient le contexte.
 			// Sans contexte courant, TOUS les appels GL sont des no-op silencieux
 			// et le status renvoye ne veut rien dire : on le dit explicitement,
 			// sinon on cherche un probleme d'attachement qui n'existe pas.
+			//
+			// Garde de CAPACITE (NK_EGL_AVAILABLE), PAS de dialecte (NK_OPENGL_ES) :
+			// cf. la definition du macro en tete de fichier. Cette ligne a bloque le
+			// build Web entier le 2026-09-02.
+#if defined(NK_EGL_AVAILABLE)
 			NK_GL_ERR("Framebuffer incomplete: 0x%X (ctx courant=%p, thread=%lu)\n", (unsigned)status,
 					  (void *)eglGetCurrentContext(), (unsigned long)pthread_self());
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// DOUBLURE, pas trou : le Web n'a pas EGL mais expose EXACTEMENT le meme
+			// renseignement -- le contexte courant. Le diagnostic garde donc sa valeur
+			// la ou il servait le plus. (Meme appel qu'a la l. ~1507 de ce fichier.)
+			NK_GL_ERR("Framebuffer incomplete: 0x%X (ctx WebGL courant=%d)\n", (unsigned)status,
+					  (int)emscripten_webgl_get_current_context());
 #else
 			NK_GL_ERR("Framebuffer incomplete: 0x%X\n", (unsigned)status);
 #endif
