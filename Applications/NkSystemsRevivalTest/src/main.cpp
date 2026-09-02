@@ -52,14 +52,16 @@ namespace {
 
 int main() {
 	std::printf("=== NkSystemsRevivalTest : Noge/Systems tourne-t-il vraiment ? ===\n");
+	std::printf("     poids des composants : NkSkeleton=%zu o, NkRagdoll=%zu o, NkMotionCapture=%zu o\n",
+				sizeof(ecs::NkSkeleton), sizeof(NkRagdoll), sizeof(NkMotionCapture));
 
 	// -------------------------------------------------------------------------
 	// NkJiggleBoneSystem
 	// -------------------------------------------------------------------------
 	std::printf("-- NkJiggleBoneSystem --\n");
 
-	NkWorld world;
-	NkScheduler sched;
+	static NkWorld world;
+	static NkScheduler sched;
 
 	// (2) APPELANT REEL : le systeme est enregistre dans l'ordonnanceur, avec
 	// son Describe() (groupe PostUpdate, priorite 700). On ne l'appelle jamais
@@ -73,7 +75,7 @@ int main() {
 	tf.localPosition = {0.f, 0.f, 0.f};
 	world.Add<ecs::NkTransform>(e, tf);
 
-	ecs::NkSkeleton sk;
+	static ecs::NkSkeleton sk;
 	sk.boneCount = 4; // le systeme refuse un boneIndex hors squelette
 	world.Add<ecs::NkSkeleton>(e, sk);
 
@@ -154,20 +156,20 @@ int main() {
 	// -------------------------------------------------------------------------
 	std::printf("-- NkMocapSystem --\n");
 	{
-		NkWorld w2;
-		NkScheduler s2;
+		static NkWorld w2;
+		static NkScheduler s2;
 		s2.AddSystem<NkMocapSystem>(); // (2) APPELANT REEL
 
 		const ecs::NkEntityId em = w2.CreateEntity();
 
-		ecs::NkSkeleton sk2;
+		static ecs::NkSkeleton sk2;
 		sk2.boneCount = 2;
 		sk2.skinMatrices[0] = math::NkMat4f::Identity();
 		sk2.skinMatrices[1] = math::NkMat4f::Identity();
 		w2.Add<ecs::NkSkeleton>(em, sk2);
 
 		// Deux images : l'os 0 se translate de x=0 a x=10.
-		NkMotionCapture mc;
+		static NkMotionCapture mc;
 		mc.fps = 10.f;      // une image toutes les 0,1 s
 		mc.duration = 0.2f; // deux images
 		mc.currentTime = 0.f;
@@ -225,6 +227,112 @@ int main() {
 		const NkMotionCapture *fin = w2.Get<NkMotionCapture>(em);
 		Check(fin && !fin->playing, "une capture non bouclee s'arrete a la fin (playing=false)");
 		Check(fin && fin->currentTime <= 0.2001f, "le temps de lecture ne depasse pas la duree");
+	}
+
+
+	// -------------------------------------------------------------------------
+	// NkRagdollSystem
+	// -------------------------------------------------------------------------
+	std::printf("-- NkRagdollSystem --\n");
+	{
+		static NkWorld w3;
+		static NkScheduler s3;
+		s3.AddSystem<NkRagdollSystem>(); // (2) APPELANT REEL
+
+		// Le corps rigide : une entite ECS a x=7, que la physique aurait simulee.
+		const ecs::NkEntityId corps = w3.CreateEntity();
+		ecs::NkTransform tc;
+		tc.localPosition = {7.f, 0.f, 0.f};
+		w3.Add<ecs::NkTransform>(corps, tc);
+
+		// Le personnage : squelette + ragdoll qui pointe le corps.
+		const ecs::NkEntityId perso = w3.CreateEntity();
+		static ecs::NkSkeleton sk3;
+		sk3.boneCount = 1;
+		sk3.skinMatrices[0] = math::NkMat4f::Identity();
+		w3.Add<ecs::NkSkeleton>(perso, sk3);
+
+		static NkRagdoll rd;
+		rd.boneCount = 1;
+		rd.bones[0].skeletonBoneIdx = 0;
+		rd.bones[0].rigidbodyEntity = corps;
+		rd.bones[0].boneToBody = math::NkMat4f::Identity();
+		rd.state = NkRagdoll::State::Animated;
+		rd.blendWeight = 0.f;
+		rd.blendSpeed = 2.f; // 0,5 s pour basculer entierement
+		w3.Add<NkRagdoll>(perso, rd);
+
+		Check(w3.Get<NkRagdoll>(perso) != nullptr, "temoin : le ragdoll existe dans le monde");
+		Check(w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0][3][0] == 0.f, "temoin : l'os part a x=0");
+
+		// ETAT ANIMATED : la physique ne doit RIEN ecrire.
+		for (int i = 0; i < 5; ++i)
+			s3.Run(w3, 1.f / 60.f);
+		Check(w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0][3][0] == 0.f,
+			  "etat Animated : l'animation garde la main, la physique n'ecrit rien");
+
+		// BASCULE : on demande la transition.
+		w3.Get<NkRagdoll>(perso)->state = NkRagdoll::State::Blending;
+
+		// Un quart de seconde a blendSpeed=2 -> poids ~0,5 : l'os doit etre a
+		// MI-CHEMIN entre sa pose d'animation (0) et le corps (7), donc ~3,5.
+		// ⚠️ ON REMET LA POSE D'ANIMATION A CHAQUE PAS, ET C'EST INDISPENSABLE.
+		// `BlendAnimRagdoll` melange la pose DEJA EN PLACE vers la pose physique.
+		// Dans un vrai pipeline, le systeme d'animation ecrit les matrices juste
+		// avant (priorite superieure) : la pose lue est donc la pose animee.
+		// Sans ce rappel, le banc melangerait le resultat du pas precedent avec
+		// lui-meme -- un filtre exponentiel qui converge vers le corps en
+		// quelques images, et le poids de melange ne voudrait plus rien dire.
+		//
+		// 📌 C'est ce que la premiere version de ce banc mesurait sans le savoir :
+		// a poids 0,500 elle lisait x=6,95 (le corps est a 7) au lieu de 3,5, et
+		// l'assertion « x < 7 » etait assez lache pour laisser passer une
+		// ATTENTE FAUSSE. Un banc vert dont on n'a pas verifie le CHIFFRE ne
+		// prouve que l'absence de plantage.
+		for (int i = 0; i < 15; ++i) {
+			w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0] = math::NkMat4f::Identity();
+			s3.Run(w3, 1.f / 60.f);
+		}
+		const float wMid = w3.Get<NkRagdoll>(perso)->blendWeight;
+		const float xMid = w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0][3][0];
+		std::printf("     en transition : poids=%.3f  x de l'os=%.4f\n", wMid, xMid);
+		Check(wMid > 0.3f && wMid < 0.8f, "le poids de melange progresse (ni 0 ni 1)");
+		// (3) L'EFFET OBSERVABLE : Execute() vide -> x reste a 0.
+		Check(xMid > 0.5f, "le systeme a REELLEMENT ecrit la pose (Execute() non vide)");
+		// Le CHIFFRE, pas seulement le signe : a poids w, l'os doit etre a w*7.
+		// Une borne lache (x < 7) laissait passer 6,95 comme 3,5.
+		const float attendu = wMid * 7.f;
+		Check(xMid > attendu - 0.35f && xMid < attendu + 0.35f,
+			  "en transition, la pose est PROPORTIONNELLE au poids de melange");
+
+		// Fin de transition : l'etat bascule tout seul et l'os rejoint le corps.
+		for (int i = 0; i < 60; ++i)
+			s3.Run(w3, 1.f / 60.f);
+		const NkRagdoll *fin3 = w3.Get<NkRagdoll>(perso);
+		const float xFin = w3.Get<ecs::NkSkeleton>(perso)->skinMatrices[0][3][0];
+		std::printf("     apres transition : etat=%d poids=%.3f  x de l'os=%.4f (corps a 7)\n", (int)fin3->state,
+					fin3->blendWeight, xFin);
+		Check(fin3->state == NkRagdoll::State::FullRagdoll, "la transition se termine SEULE en FullRagdoll");
+		Check(fin3->blendWeight >= 0.999f, "le poids atteint 1 et s'y arrete");
+		Check(xFin > 6.9f && xFin < 7.1f, "en ragdoll plein, l'os suit exactement le corps rigide");
+
+		// Un os dont le corps rigide n'existe pas ne doit PAS etre invente.
+		const ecs::NkEntityId perso2 = w3.CreateEntity();
+		static ecs::NkSkeleton sk4;
+		sk4.boneCount = 1;
+		sk4.skinMatrices[0] = math::NkMat4f::Identity();
+		w3.Add<ecs::NkSkeleton>(perso2, sk4);
+		static NkRagdoll rd2;
+		rd2.boneCount = 1;
+		rd2.bones[0].skeletonBoneIdx = 0;
+		rd2.bones[0].rigidbodyEntity = ecs::NkEntityId::Invalid(); // aucun corps
+		rd2.state = NkRagdoll::State::FullRagdoll;
+		rd2.blendWeight = 1.f;
+		w3.Add<NkRagdoll>(perso2, rd2);
+		for (int i = 0; i < 10; ++i)
+			s3.Run(w3, 1.f / 60.f);
+		Check(w3.Get<ecs::NkSkeleton>(perso2)->skinMatrices[0][3][0] == 0.f,
+			  "un os sans corps rigide est laisse intact (aucune pose inventee)");
 	}
 
 	std::printf("=== Resultat : %d OK / %d FAIL ===\n", gPass, gFail);

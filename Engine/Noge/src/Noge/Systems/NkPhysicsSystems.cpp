@@ -223,4 +223,93 @@ namespace nkentseu {
 			[&](NkEntityId, NkMotionCapture &mc, NkSkeleton &sk) { PlaybackMocap(mc, sk, dt); });
 	}
 
+
+	// -------------------------------------------------------------------------
+	// NkRagdollSystem — bascule animation <-> physique
+	// -------------------------------------------------------------------------
+	// Troisieme corps du module, et le dernier des trois CPU purs.
+	//
+	// Le systeme ne SIMULE pas : la simulation appartient a NKPhysics. Il fait le
+	// PONT — il lit la pose des corps rigides deja simules (chaque os pointe une
+	// entite ECS par `rigidbodyEntity`) et l'ecrit dans les matrices de peau, en
+	// dosant par `blendWeight`. Aucune dependance GPU, aucune dependance directe
+	// a NKPhysics : tout passe par le monde ECS.
+	// -------------------------------------------------------------------------
+
+	void NkRagdollSystem::TransitionToRagdoll(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept {
+		(void)sk;
+		(void)world;
+		// Machine a etats du poids de melange. C'est la SEULE chose qui avance
+		// le temps ici : le reste ne fait que lire l'etat.
+		switch (rd.state) {
+			case NkRagdoll::State::Animated:
+				rd.blendWeight = 0.f;
+				break;
+			case NkRagdoll::State::Blending:
+				rd.blendWeight += rd.blendSpeed * dt;
+				if (rd.blendWeight >= 1.f) {
+					rd.blendWeight = 1.f;
+					rd.state = NkRagdoll::State::FullRagdoll; // la transition se termine seule
+				}
+				break;
+			case NkRagdoll::State::FullRagdoll:
+				rd.blendWeight = 1.f;
+				break;
+			case NkRagdoll::State::Kinematic:
+				// Ragdoll actif : le squelette PILOTE les corps, il ne les subit
+				// pas. Le poids reste a 0 cote lecture.
+				rd.blendWeight = 0.f;
+				break;
+		}
+		if (rd.blendWeight < 0.f)
+			rd.blendWeight = 0.f;
+	}
+
+	void NkRagdollSystem::ApplyRagdollToSkeleton(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world) noexcept {
+		// Pose PLEINE : la physique gagne entierement.
+		const uint32 n = (rd.boneCount < NkRagdoll::kMaxBones) ? rd.boneCount : NkRagdoll::kMaxBones;
+		for (uint32 i = 0; i < n; ++i) {
+			const NkRagdollBoneLink &lien = rd.bones[i];
+			if (lien.skeletonBoneIdx >= sk.boneCount || lien.skeletonBoneIdx >= NkSkeleton::kMaxBones)
+				continue;
+			const NkTransform *tfCorps = world.Get<NkTransform>(lien.rigidbodyEntity);
+			if (!tfCorps)
+				continue; // corps absent : on ne touche PAS l'os (jamais d'invention de pose)
+			sk.skinMatrices[lien.skeletonBoneIdx] = tfCorps->ComputeLocalMatrix() * lien.boneToBody;
+		}
+	}
+
+	void NkRagdollSystem::BlendAnimRagdoll(NkRagdoll &rd, NkSkeleton &sk, NkWorld &world, float32 dt) noexcept {
+		(void)dt;
+		const uint32 n = (rd.boneCount < NkRagdoll::kMaxBones) ? rd.boneCount : NkRagdoll::kMaxBones;
+		const float32 w = rd.blendWeight;
+		for (uint32 i = 0; i < n; ++i) {
+			const NkRagdollBoneLink &lien = rd.bones[i];
+			if (lien.skeletonBoneIdx >= sk.boneCount || lien.skeletonBoneIdx >= NkSkeleton::kMaxBones)
+				continue;
+			const NkTransform *tfCorps = world.Get<NkTransform>(lien.rigidbodyEntity);
+			if (!tfCorps)
+				continue;
+			const NkMat4f cible = tfCorps->ComputeLocalMatrix() * lien.boneToBody;
+			NkMat4f &dst = sk.skinMatrices[lien.skeletonBoneIdx];
+			for (int c = 0; c < 4; ++c)
+				for (int r = 0; r < 4; ++r)
+					dst[c][r] = dst[c][r] * (1.f - w) + cible[c][r] * w;
+		}
+	}
+
+	void NkRagdollSystem::Execute(NkWorld &world, float32 dt) noexcept {
+		world.Query<NkRagdoll, NkSkeleton>().ForEach([&](NkEntityId, NkRagdoll &rd, NkSkeleton &sk) {
+			TransitionToRagdoll(rd, sk, world, dt);
+			if (rd.state == NkRagdoll::State::FullRagdoll) {
+				ApplyRagdollToSkeleton(rd, sk, world);
+			} else if (rd.blendWeight > 0.001f) {
+				BlendAnimRagdoll(rd, sk, world, dt);
+			}
+			// Animated / Kinematic a poids nul : on n'ecrit RIEN, l'animation
+			// garde la main. Ecrire un melange a poids nul serait un travail
+			// inutile ET un ecrasement de la pose par elle-meme.
+		});
+	}
+
 } // namespace nkentseu
