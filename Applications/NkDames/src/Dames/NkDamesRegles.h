@@ -40,6 +40,20 @@
 namespace nkentseu {
 	namespace jeux {
 
+		// ── LES PALIERS D'IA ────────────────────────────────────────────────
+		// ⚠️ UN PALIER NE CHANGE QUE LA STRATEGIE. Il ne touche a aucune regle :
+		// les trois paliers jouent le MEME jeu. C'est ce qui rend la difference
+		// MESURABLE -- si le palier changeait aussi les regles, on ne saurait
+		// pas ce qu'on compare.
+		//
+		// Trois, pas cinq : chaque palier doit se DECRIRE en une phrase, sinon
+		// le joueur ne sait pas ce qu'il choisit.
+		enum class NkNiveauIA : uint8 {
+			NK_FACILE = 0, ///< au hasard parmi les coups legaux
+			NK_MOYEN,	   ///< l'heuristique gloutonne
+			NK_DIFFICILE   ///< la meme, plus UN COUP D'AVANCE
+		};
+
 		enum class NkDamesCamp : uint8 { NK_BLANC = 0, NK_NOIR = 1 };
 
 		enum class NkDamesPiece : uint8 {
@@ -159,7 +173,8 @@ namespace nkentseu {
 		/// prefere la rafle la plus grosse, puis la promotion, puis l'avance.
 		/// Ce n'est pas un adversaire fort, et le fichier ne pretend pas l'etre.
 		const NkDamesCoup *NkDamesChoisirCoup(const NkDamesPartie &partie, const NkVector<NkDamesCoup> &coups,
-											  uint32 &graine) noexcept;
+											  uint32 &graine,
+											  NkNiveauIA niveau = NkNiveauIA::NK_MOYEN) noexcept;
 
 	} // namespace jeux
 } // namespace nkentseu

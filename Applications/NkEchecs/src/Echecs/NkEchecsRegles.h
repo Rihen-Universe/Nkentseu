@@ -44,6 +44,20 @@
 namespace nkentseu {
 	namespace jeux {
 
+		// ── LES PALIERS D'IA ────────────────────────────────────────────────
+		// ⚠️ UN PALIER NE CHANGE QUE LA STRATEGIE. Il ne touche a aucune regle :
+		// les trois paliers jouent le MEME jeu. C'est ce qui rend la difference
+		// MESURABLE -- si le palier changeait aussi les regles, on ne saurait
+		// pas ce qu'on compare.
+		//
+		// Trois, pas cinq : chaque palier doit se DECRIRE en une phrase, sinon
+		// le joueur ne sait pas ce qu'il choisit.
+		enum class NkNiveauIA : uint8 {
+			NK_FACILE = 0, ///< au hasard parmi les coups legaux
+			NK_MOYEN,	   ///< l'heuristique gloutonne
+			NK_DIFFICILE   ///< la meme, plus UN COUP D'AVANCE
+		};
+
 		enum class NkEchecsCamp : uint8 { NK_BLANC = 0, NK_NOIR = 1 };
 
 		enum class NkEchecsPiece : uint8 {
@@ -177,7 +191,8 @@ namespace nkentseu {
 		/// deterministe. Ce n'est pas un moteur d'echecs et il ne pretend pas
 		/// l'etre — il joue des coups legaux et prend ce qui est en prise.
 		const NkEchecsCoup *NkEchecsChoisirCoup(const NkEchecsPartie &partie, const NkVector<NkEchecsCoup> &coups,
-												uint32 &graine) noexcept;
+												uint32 &graine,
+											  NkNiveauIA niveau = NkNiveauIA::NK_MOYEN) noexcept;
 
 		/// Valeur usuelle d'une piece, en centiemes de pion.
 		int32 NkEchecsValeur(NkEchecsPiece p) noexcept;

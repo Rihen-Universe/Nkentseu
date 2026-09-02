@@ -203,12 +203,57 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		// ⚠️ JOUER NE FAIT PAS CONFIANCE AU COUP QU'ON LUI DONNE.
+		//
+		// La version precedente ne verifiait que les bornes de `coup.pion`, puis
+		// ecrivait `coup.avancementApres` TEL QUEL. `CoupsLegaux` refusait bien
+		// les depassements (`cible > NK_LUDO_ARRIVEE`), mais rien n'obligeait un
+		// appelant a passer par elle : un coup construit a la main, ou un coup
+		// GARDE d'un tour precedent et rejoue apres un autre lance de de,
+		// deplacait le pion au-dela de l'arrivee -- « le compte exact » de la
+		// regle etait contourne sans un mot.
+		//
+		// Le controle est ICI parce que c'est le seul endroit que TOUS les
+		// chemins traversent : la souris, l'IA, le banc et une reprise de
+		// partie. Le mettre dans l'interface l'aurait laisse hors du banc.
 		bool NkLudoPartie::Jouer(const NkLudoCoup &coup) noexcept {
 			if (coup.pion < 0 || coup.pion >= NK_LUDO_PIONS) {
 				return false;
 			}
-			mAvancement[mJoueur][coup.pion] = coup.avancementApres;
-			if (coup.capture && coup.pionCaptureJoueur >= 0) {
+			const int32 apres = static_cast<int32>(coup.avancementApres);
+			const int32 avant = static_cast<int32>(mAvancement[mJoueur][coup.pion]);
+
+			// 1. LE COMPTE EXACT. On ne depasse jamais l'arrivee, et l'on
+			//    n'avance pas un pion deja rentre.
+			if (apres > NK_LUDO_ARRIVEE || apres < 0) {
+				return false;
+			}
+			if (avant >= NK_LUDO_ARRIVEE) {
+				return false;
+			}
+			// 2. LE PAS EST CELUI DU DE. Sortir d'ecurie coute un six et pose le
+			//    pion a 0 ; sinon l'ecart doit valoir exactement la face lue.
+			if (avant == NK_LUDO_ECURIE) {
+				if (mDe != 6 || apres != 0) {
+					return false;
+				}
+			} else if (apres - avant != mDe) {
+				return false;
+			}
+			// 3. ON NE SE MARCHE PAS DESSUS DANS SA COLONNE DE MAISON --
+			//    l'arrivee exceptee, ou les quatre pions se rejoignent.
+			if (apres >= 51 && apres < NK_LUDO_ARRIVEE) {
+				for (int32 q = 0; q < NK_LUDO_PIONS; ++q) {
+					if (q != coup.pion && mAvancement[mJoueur][q] == static_cast<int8>(apres)) {
+						return false;
+					}
+				}
+			}
+
+			mAvancement[mJoueur][coup.pion] = static_cast<int8>(apres);
+			if (coup.capture && coup.pionCaptureJoueur >= 0 &&
+				coup.pionCaptureJoueur < NK_LUDO_JOUEURS && coup.pionCaptureIndex >= 0 &&
+				coup.pionCaptureIndex < NK_LUDO_PIONS) {
 				mAvancement[coup.pionCaptureJoueur][coup.pionCaptureIndex] = static_cast<int8>(NK_LUDO_ECURIE);
 			}
 			return true;
@@ -266,11 +311,33 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		// TROIS PALIERS, ET UN SEUL CHEMIN DE CODE.
+		//
+		// ⚠️ LE PALIER NE CHANGE QUE LA STRATEGIE. Il ne touche ni au de, ni aux
+		// coups legaux, ni a la moindre regle : une IA facile et une IA difficile
+		// jouent le MEME jeu, avec les MEMES des. C'est la condition pour que
+		// « c'est la strategie qui fait la difference » soit vrai et mesurable.
+		//
+		// Trois fonctions distinctes auraient diverge au premier correctif de
+		// regle. Un seul parcours, des poids differents.
 		const NkLudoCoup *NkLudoChoisirCoup(const NkLudoPartie &partie, const NkVector<NkLudoCoup> &coups,
-											uint32 &graine) noexcept {
+											uint32 &graine, NkNiveauIA niveau) noexcept {
 			if (coups.Size() == 0) {
 				return nullptr;
 			}
+
+			// ── FACILE : au hasard parmi les coups LEGAUX ────────────────────
+			// Elle ne triche pas et ne joue jamais un coup impossible ; elle ne
+			// choisit simplement pas. C'est la bonne facon de faire une IA
+			// faible -- l'affaiblir en lui interdisant des coups la rendrait
+			// exploitable, et le joueur le sentirait.
+			if (niveau == NkNiveauIA::NK_FACILE) {
+				graine = graine * 1664525u + 1013904223u;
+				const uint32 k = (graine >> 16) % coups.Size();
+				return &coups[k];
+			}
+
+			const bool difficile = (niveau == NkNiveauIA::NK_DIFFICILE);
 			int32 meilleur = -1;
 			int32 meilleurScore = -1000000;
 
@@ -293,6 +360,42 @@ namespace nkentseu {
 				const int32 casePiste = NkLudoCasePiste(partie.Joueur(), c.avancementApres);
 				if (casePiste >= 0 && NkLudoCaseSure(casePiste)) {
 					score += 30;
+				}
+
+				// ── DIFFICILE : UN COUP D'AVANCE ─────────────────────────────
+				// Le palier moyen regarde ce que le coup RAPPORTE ; celui-ci
+				// regarde en plus ce qu'il EXPOSE. On compte les pions adverses
+				// qui pourraient atteindre la case d'arrivee au prochain lancer,
+				// c'est-a-dire ceux qui sont a une a six cases derriere elle.
+				//
+				// ⚠️ C'est bien UN coup d'avance, pas une recherche : on ne
+				// simule pas la partie, on lit le plateau. Le cout reste
+				// negligeable, et c'est ce qui permet de le faire a chaque coup
+				// sans que l'IA « reflechisse » visiblement.
+				if (difficile && casePiste >= 0 && !NkLudoCaseSure(casePiste)) {
+					int32 menaces = 0;
+					for (int32 j = 0; j < NK_LUDO_JOUEURS; ++j) {
+						if (j == partie.Joueur() || !partie.SiegeActif(j)) {
+							continue;
+						}
+						for (int32 q = 0; q < NK_LUDO_PIONS; ++q) {
+							const int32 av = partie.Avancement(j, q);
+							const int32 pos = NkLudoCasePiste(j, av);
+							if (pos < 0) {
+								continue; // a l'ecurie ou en maison : il ne menace rien
+							}
+							// Distance sur la piste, dans le SENS du parcours.
+							const int32 d = ((casePiste - pos) + NK_LUDO_PISTE) % NK_LUDO_PISTE;
+							if (d >= 1 && d <= 6) {
+								++menaces;
+							}
+						}
+					}
+					// 60 par menace : assez pour renoncer a quelques cases
+					// d'avance, pas assez pour renoncer a une capture (500) ni a
+					// une rentree (1000). Les poids se lisent les uns par rapport
+					// aux autres, jamais isolement.
+					score -= menaces * 60;
 				}
 
 				graine = graine * 1664525u + 1013904223u;

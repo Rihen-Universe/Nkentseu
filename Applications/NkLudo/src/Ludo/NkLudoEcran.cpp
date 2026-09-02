@@ -123,31 +123,103 @@ namespace nkentseu {
 				const float32 gaucheSur = info.safeArea.left;
 				const float32 droiteSur = info.safeArea.right;
 
-				const float32 marge = W * 0.03f;
-				const float32 hBandeau = (H - hautSur - basSur) * (info.IsPortrait() ? 0.11f : 0.14f);
-				bandeau = NkRect{gaucheSur + marge, hautSur + marge, W - gaucheSur - droiteSur - marge * 2.f, hBandeau};
+				// ── LA MARGE SE MESURE SUR LE PLUS PETIT COTE ───────────────
+				// ⚠️ `W * 0.03f` donnait, en paysage, une marge deux fois plus
+				// large que haute : la mise en page respirait d'un cote et
+				// etouffait de l'autre. Une proportion se prend sur la dimension
+				// CONTRAINTE, jamais sur la plus grande.
+				const float32 petitCote = W < H ? W : H;
+				const float32 marge = petitCote * 0.03f;
 
-				// Le plateau est CARRE : il prend la plus petite des deux places.
-				// On reserve DEUX bandes en bas : les sieges, puis le bouton.
-				const float32 dispoW = W - gaucheSur - droiteSur - marge * 2.f;
-				const float32 dispoH = H - hautSur - basSur - hBandeau - marge * 4.f - hBandeau * 1.6f;
-				const float32 cote = dispoW < dispoH ? dispoW : dispoH;
+				const float32 zoneX = gaucheSur + marge;
+				const float32 zoneY = hautSur + marge;
+				const float32 zoneW = W - gaucheSur - droiteSur - marge * 2.f;
+				const float32 zoneH = H - hautSur - basSur - marge * 2.f;
 
-				plateau = NkRect{gaucheSur + (W - gaucheSur - droiteSur - cote) * 0.5f, bandeau.y + bandeau.h + marge,
-								 cote, cote};
-				cellule = cote / static_cast<float32>(NK_LUDO_GRILLE);
+				// ── QUAND BASCULER EN DEUX COLONNES ─────────────────────────
+				// ⚠️ PAS SUR `IsPortrait()`, qui dit seulement `H >= W`. Sur un
+				// ecran PRESQUE carre -- 1100 x 1000 -- deux colonnes laissent au
+				// plateau moins de la moitie de la place, alors qu'une colonne
+				// unique lui donne tout le cote. Mesure : 457 px contre 940.
+				//
+				// Le critere est donc la PROPORTION, pas l'orientation : on ne
+				// passe a deux colonnes que si l'ecran est assez large pour que
+				// la colonne de droite ne mange pas le plateau. Defaut trouve par
+				// le banc, ecran « presque carre » -- jamais a l'oeil, parce que
+				// personne ne redimensionne une fenetre a 1100 x 1000.
+				const bool portrait = zoneW < zoneH * 1.30f;
 
-				// Quatre sieges cote a cote : ils tiennent parce qu'ils affichent
-				// une pastille de couleur et un mot court, pas une phrase.
-				const float32 hSiege = hBandeau * 0.62f;
-				const float32 ySiege = plateau.y + cote + marge * 0.6f;
-				const float32 ecart = cote * 0.015f;
-				const float32 lSiege = (cote - ecart * 3.f) / 4.f;
-				for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
-					siege[i] = NkRect{plateau.x + static_cast<float32>(i) * (lSiege + ecart), ySiege, lSiege, hSiege};
+				// hBandeau reste une hauteur de LIGNE d'interface : elle se mesure
+				// sur la hauteur utile, et sert d'unite a tout le reste.
+				const float32 hBandeau = zoneH * (portrait ? 0.11f : 0.14f);
+
+				if (portrait) {
+					// ── UNE COLONNE ──────────────────────────────────────────
+					bandeau = NkRect{zoneX, zoneY, zoneW, hBandeau};
+
+					// Le plateau est CARRE : il prend la plus petite des deux
+					// places. On reserve DEUX bandes en bas : les sieges, puis
+					// le bouton.
+					const float32 dispoH = zoneH - hBandeau - marge * 2.f - hBandeau * 1.6f;
+					const float32 cote = zoneW < dispoH ? zoneW : dispoH;
+
+					plateau = NkRect{zoneX + (zoneW - cote) * 0.5f, bandeau.y + bandeau.h + marge, cote, cote};
+
+					const float32 hSiege = hBandeau * 0.62f;
+					const float32 ySiege = plateau.y + cote + marge * 0.6f;
+					const float32 ecart = cote * 0.015f;
+					const float32 lSiege = (cote - ecart * 3.f) / 4.f;
+					for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+						siege[i] =
+							NkRect{plateau.x + static_cast<float32>(i) * (lSiege + ecart), ySiege, lSiege, hSiege};
+					}
+					bouton = NkRect{plateau.x, ySiege + hSiege + marge * 0.5f, cote, hBandeau * 0.82f};
+				} else {
+					// ── DEUX COLONNES : LE PLATEAU A GAUCHE, LE RESTE A DROITE ─
+					//
+					// En paysage c'est la HAUTEUR qui contraint le plateau. On lui
+					// donne donc toute la hauteur utile, et la colonne de droite
+					// prend ce qui reste -- bornee, sinon elle devient absurde sur
+					// un ecran tres large.
+					const float32 cote = zoneH;
+					float32 lCol = zoneW - cote - marge;
+					const float32 lColMin = hBandeau * 4.2f;
+					const float32 lColMax = zoneW * 0.42f;
+					if (lCol > lColMax) {
+						lCol = lColMax;
+					}
+
+					// ⚠️ SI LA COLONNE NE TIENT PAS, C'EST LE PLATEAU QUI CEDE.
+					// Sans cette reprise, sur un ecran a peine plus large que
+					// haut, la colonne sortait de l'ecran par la droite -- et
+					// aucun calcul ne l'aurait signale.
+					float32 coteFinal = cote;
+					if (lCol < lColMin) {
+						lCol = lColMin;
+						coteFinal = zoneW - lCol - marge;
+						if (coteFinal > zoneH) {
+							coteFinal = zoneH;
+						}
+					}
+
+					plateau = NkRect{zoneX, zoneY + (zoneH - coteFinal) * 0.5f, coteFinal, coteFinal};
+
+					const float32 xCol = zoneX + coteFinal + marge;
+					bandeau = NkRect{xCol, zoneY, lCol, hBandeau};
+
+					// Les quatre sieges s'empilent : en colonne etroite, quatre
+					// pastilles cote a cote seraient illisibles.
+					const float32 hSiege = hBandeau * 0.80f;
+					const float32 ecart = hBandeau * 0.18f;
+					float32 y = bandeau.y + bandeau.h + marge;
+					for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+						siege[i] = NkRect{xCol, y, lCol, hSiege};
+						y += hSiege + ecart;
+					}
+					bouton = NkRect{xCol, y + ecart, lCol, hBandeau * 0.95f};
 				}
 
-				bouton = NkRect{plateau.x, ySiege + hSiege + marge * 0.5f, cote, hBandeau * 0.82f};
+				cellule = plateau.w / static_cast<float32>(NK_LUDO_GRILLE);
 
 				const float32 cRetour = bandeau.h * 0.56f;
 				retour = NkRect{bandeau.x + bandeau.w - cRetour - bandeau.h * 0.22f,
@@ -162,7 +234,7 @@ namespace nkentseu {
 				// On mesure donc la hauteur TOTALE du bloc, puis on la centre
 				// dans la zone sure. Ainsi la mise en page tient aussi bien sur
 				// un telephone etroit que sur un ecran large, sans reglage.
-				const float32 lChoix = cote * 0.86f;
+				const float32 lChoix = plateau.w * 0.86f;
 				const float32 hChoix = hBandeau * 0.80f;
 				const float32 pas = hChoix * 1.24f;
 

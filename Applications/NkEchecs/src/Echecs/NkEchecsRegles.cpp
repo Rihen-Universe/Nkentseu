@@ -530,10 +530,21 @@ namespace nkentseu {
 
 		// =====================================================================
 		const NkEchecsCoup *NkEchecsChoisirCoup(const NkEchecsPartie &partie, const NkVector<NkEchecsCoup> &coups,
-												uint32 &graine) noexcept {
+												uint32 &graine, NkNiveauIA niveau) noexcept {
 			if (coups.Size() == 0) {
 				return nullptr;
 			}
+
+			// ── FACILE : au hasard parmi les coups LEGAUX ────────────────────
+			// Elle ne triche pas et ne joue jamais un coup impossible ; elle ne
+			// choisit simplement pas. Affaiblir une IA en lui interdisant des
+			// coups la rendrait exploitable, et le joueur le sentirait.
+			if (niveau == NkNiveauIA::NK_FACILE) {
+				graine = graine * 1664525u + 1013904223u;
+				return &coups[(graine >> 16) % coups.Size()];
+			}
+			const bool difficile = (niveau == NkNiveauIA::NK_DIFFICILE);
+
 			int32 meilleur = -1;
 			int32 meilleurScore = -100000000;
 
@@ -565,6 +576,33 @@ namespace nkentseu {
 						// avec entrain et annule une partie gagnee.
 						score -= 5000;
 					}
+				}
+
+				// ── DIFFICILE : UN COUP D'AVANCE ─────────────────────────────
+				// `essai` porte deja la position APRES notre coup : on lui
+				// demande ce que l'adversaire prendrait en retour, et l'on retire
+				// la piece la plus chere qu'on lui laisse.
+				//
+				// ⚠️ Ce n'est PAS une recherche : un seul niveau, aucune
+				// evaluation recursive. On ne pretend pas jouer aux echecs -- on
+				// evite seulement de donner une piece a chaque tour, qui est le
+				// defaut le plus visible d'une IA d'un demi-coup.
+				//
+				// ⚠️ Et l'on reutilise `essai` plutot que de rejouer le coup sur
+				// une seconde copie : deux copies, c'est deux etats a garder
+				// d'accord, et le jour ou l'une des deux oublie un cas -- le
+				// roque, la prise en passant -- rien ne le signale.
+				if (difficile) {
+					NkVector<NkEchecsCoup> replique;
+					essai.CoupsLegaux(replique);
+					int32 pire = 0;
+					for (uint32 k = 0; k < replique.Size(); ++k) {
+						const int32 v = NkEchecsValeur(essai.Case(replique[k].arrR, replique[k].arrC));
+						if (v > pire) {
+							pire = v;
+						}
+					}
+					score -= pire;
 				}
 
 				graine = graine * 1664525u + 1013904223u;

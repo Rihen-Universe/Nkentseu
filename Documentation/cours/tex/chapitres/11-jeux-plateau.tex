@@ -580,6 +580,26 @@ bool NkDamesPartie::Jouer(const NkDamesCoup &coup) noexcept {
 }
 \end{nkcode}
 
+\begin{nkpiege}[Le défaut que le ludo a payé, et il est dans cette fonction]
+\textbf{\texttt{Jouer} ne doit pas faire confiance au coup qu'on lui donne.}
+
+Le ludo du dépôt ne vérifiait que les bornes du numéro de pion, puis écrivait
+l'avancement \emph{tel quel}. Sa génération de coups refusait bien les
+dépassements --- mais rien n'obligeait un appelant à passer par elle. Un coup
+fabriqué à la main, ou \textbf{gardé d'un tour précédent et rejoué après un
+autre lancer de dé}, déplaçait le pion au-delà de l'arrivée. Le compte exact
+était contourné sans un mot.
+
+\textbf{Le contrôle appartient à \texttt{Jouer} parce que c'est le seul endroit
+que TOUS les chemins traversent} : la souris, l'IA, le banc, une reprise de
+partie. Mis dans l'interface, il serait resté hors du banc.
+
+Ce que \texttt{Jouer} doit revérifier, quelle que soit sa provenance : la pièce
+appartient bien au camp au trait, l'arrivée est dans les bornes, et le pas
+correspond à ce que la règle autorise \emph{en ce moment} --- pour le ludo, la
+face du dé courant.
+\end{nkpiege}
+
 \begin{nkretenir}
 \textbf{\texttt{Jouer} rend un booléen, et il faut le lire.} « Un refus se dit,
 il ne se devine pas à l'absence d'effet » : sans ce retour, un coup illégal
@@ -753,14 +773,117 @@ struct NkDamesGeometrie {
 ancré son menu sur le damier --- un carré centré --- et laissait une bande vide
 sur tout le tiers supérieur en fenêtre portrait.
 
-Chaque rectangle était juste ; leur \emph{ensemble} était mal placé. C'est un
-défaut qu'aucun calcul ne signale et qui ne se voit que sur une image.
+Chaque rectangle était juste ; leur \emph{ensemble} était mal placé.
 \end{nkpiege}
+
+\subsection{Deux orientations, deux STRUCTURES --- pas deux ratios}
+
+\begin{nkpiege}[Le défaut mesuré sur les trois jeux du dépôt]
+Les trois consultaient \texttt{IsPortrait()} \textbf{une seule fois chacun}, et
+seulement pour choisir un \emph{ratio} de hauteur de barre. La structure
+restait une colonne unique --- barre, damier carré, boutons --- quelle que soit
+l'orientation.
+
+En paysage, c'est la \emph{hauteur} qui commande un carré : le damier devenait
+minuscule et les deux tiers de la largeur restaient vides. Mesure : \textbf{0,57
+du petit côté}, contre 1,00 après correction.
+
+⚠️ Et le commentaire du fichier affirmait le contraire --- « il tient en portrait
+comme en paysage sans deux mises en page séparées ». Il tenait, en effet.
+\textbf{Tenir n'est pas occuper.}
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{En paysage, on passe à DEUX COLONNES} : le plateau à gauche, sur toute
+la hauteur ; la barre, les sièges et les boutons empilés dans une colonne à
+droite, dont la largeur est bornée pour ne pas devenir absurde sur un écran très
+large.
+
+Et si la colonne ne tient pas, \textbf{c'est le plateau qui cède} --- sinon elle
+sort de l'écran par la droite, et aucun calcul ne le signale.
+\end{nkretenir}
+
+\begin{nkpiege}[Le critère de bascule n'est PAS \texttt{IsPortrait()}]
+\texttt{IsPortrait()} ne dit que « hauteur $\geq$ largeur ». Sur un écran
+\emph{presque} carré --- $1100 \times 1000$ --- deux colonnes laissent au plateau
+\textbf{457 px} là où une colonne unique lui en donne \textbf{940}.
+
+Le critère est donc la \textbf{proportion}, pas l'orientation :
+
+\begin{nkcode}{Applications/NkLudo/src/Ludo/NkLudoEcran.cpp}
+const bool colonneUnique = zoneW < zoneH * 1.30f;
+\end{nkcode}
+
+Ce défaut a été trouvé \emph{par le banc}, sur un écran de $1100 \times 1000$.
+Jamais à l'\oe il : personne ne redimensionne une fenêtre à cette taille.
+\end{nkpiege}
+
+\begin{nkretenir}[Et la marge se mesure sur le PETIT côté]
+\texttt{marge = W * 0.03f} donne, en paysage, une marge deux fois plus large que
+haute : la mise en page respire d'un côté et étouffe de l'autre.
+
+\textbf{Une proportion se prend sur la dimension CONTRAINTE}, jamais sur la plus
+grande.
+\end{nkretenir}
 
 \begin{nkretenir}
 \texttt{NkLayoutInfo} porte la \textbf{zone sûre} --- les marges de l'encoche et
 de l'indicateur de geste. Partez d'elle, jamais de la taille brute de la fenêtre,
 sinon la première rangée du damier passe sous l'encoche sur téléphone.
+\end{nkretenir}
+
+\subsection{Une mise en page se met AU BANC, comme une règle}
+
+On dit volontiers qu'un défaut de mise en page « ne se voit que sur une image ».
+C'est faux : \textbf{il ne se voit que sur une image tant que personne n'a écrit
+le calcul.}
+
+\begin{nkretenir}
+\texttt{NkLayoutInfo} se construit à la main. Le cas de banc parcourt donc une
+liste de formats --- téléphone portrait et paysage, tablette, fenêtre de bureau,
+carré, presque carré, ultra-large --- et vérifie des \textbf{relations}, jamais
+des valeurs :
+
+\begin{enumerate}
+\item tout tient dans la zone sûre ;
+\item le plateau reste \emph{carré} ;
+\item le plateau occupe la place disponible ;
+\item la barre ne recouvre pas le plateau.
+\end{enumerate}
+
+Des coordonnées précises casseraient au premier ajustement esthétique ; une
+relation survit.
+\end{nkretenir}
+
+\begin{nkpiege}[Trois critères ont été écrits avant le bon --- c'est la leçon]
+Chacun a été \emph{réfuté par la contre-épreuve} : on force l'ancienne mise en
+page, et l'on regarde si le banc rougit.
+
+\textbf{1. « Rien ne déborde ».} Vert sur le défaut. L'ancienne mise en page ne
+débordait pas --- elle laissait la largeur vide.
+
+\textbf{2. « La boîte englobante couvre 80 \% de la zone ».} Mesuré sur les deux
+mises en page : l'ancienne rendait $0{,}97 \times 0{,}93$ et la nouvelle
+$0{,}87 \times 0{,}94$. \textbf{La contre-épreuve accusait donc la BONNE.} Cause :
+la barre prend toute la largeur dans l'ancienne, donc la boîte couvre l'écran
+pendant que le plateau est minuscule.
+
+\textbf{3. « Le plateau vaut au moins 72 \% du petit côté ».} Celui-ci
+discrimine --- 0,57 contre 1,00 --- et c'est le bon.
+
+⚠️ \textbf{Un critère qui ne rougit pas sur le défaut connu n'est pas un critère.}
+Les deux premiers auraient été publiés comme des contrôles ; seule la
+contre-épreuve les a démasqués.
+\end{nkpiege}
+
+\begin{nkretenir}[Et le troisième critère DÉCLARE son périmètre]
+Il ne s'applique qu'aux écrans franchement larges ou franchement hauts. Entre les
+deux, aucune mise en page ne peut donner 72 \% au plateau : la barre et les
+boutons mangent 40 \% d'une hauteur de 940 px.
+
+\textbf{Exiger 72 \% là-bas ferait rougir une mise en page qu'on ne sait pas
+améliorer} --- un banc qui punit sans indiquer quoi corriger. Les trois autres
+contrôles, eux, s'appliquent à tous les écrans.
 \end{nkretenir}
 
 \section{Étape 10 --- le dessin}
@@ -839,6 +962,90 @@ sélection décalée d'exactement la position de la fenêtre --- donc juste quan
 fenêtre est en haut à gauche, et fausse partout ailleurs.
 \end{nkpiege}
 
+\subsection{Le clavier, et la touche Retour d'Android}
+
+\begin{nkcode}{La methode a redefinir, et sa signature EXACTE}
+bool OnKeyPress(const NkKeyPressEvent &e) override;
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Sur Android, la touche RETOUR du système arrive ici.}
+\texttt{NkAndroidEventSystem} traduit \texttt{AKEYCODE\_BACK} en
+\texttt{NK\_ESCAPE} et consomme l'événement : le trajet est complet jusqu'à
+votre jeu.
+
+\textbf{Les trois jeux du dépôt n'avaient pas cette méthode}, et la touche
+semblait morte. \emph{Un événement livré à personne est indiscernable d'un
+événement jamais émis} --- on cherche alors le défaut dans la plateforme, qui
+faisait son travail.
+\end{nkretenir}
+
+\begin{nkcode}{Le geste : fermer ce qui est ouvert, du plus interieur au plus exterieur}
+bool NkDamesJeu::OnKeyPress(const NkKeyPressEvent &e) {
+    if (e.GetKey() != NkKey::NK_ESCAPE) { return false; }
+    if (!mSplash.Termine())            { mSplash.Sauter();       return true; }
+    if (mEcran == NkEcran::NK_PARTIE)  { mEcran = NkEcran::NK_MENU; return true; }
+    return false;   // au menu : on laisse le systeme fermer l'application
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Au menu, on ne consomme PAS.} Rendre \texttt{false} laisse le système
+fermer l'application --- et c'est ce que l'utilisateur attend. Consommer partout
+donnerait un jeu dont on ne peut plus sortir par le geste habituel.
+\end{nkretenir}
+
+\begin{nkpiege}[La signature se lit dans la classe de base, pas chez le voisin]
+J'ai d'abord écrit \texttt{OnKeyPress(NkKeyPressEvent \&e)} --- sans
+\texttt{const} --- parce que c'est la forme employée par une démo du dépôt, qui
+passe par un \emph{autre} mécanisme de distribution.
+
+Le compilateur a refusé :
+\texttt{non-virtual member function marked 'override' hides virtual member
+function}.
+
+\textbf{C'est exactement ce que \texttt{override} sert à faire.} Sans lui, la
+méthode aurait compilé comme une \emph{nouvelle} fonction, la classe de base
+aurait continué d'être appelée, et la touche serait restée morte --- avec du code
+qui a l'air juste.
+\end{nkpiege}
+
+\subsection{Les touches de volume du téléphone}
+
+\begin{nkpiege}
+Les touches physiques de volume peuvent sembler n'avoir \textbf{aucun effet} sur
+le son du jeu. La cause n'est pas dans le jeu : elle est dans le \emph{type de
+flux} déclaré par le lecteur audio.
+
+Sur Android, le moteur crée son lecteur OpenSL ES. S'il ne demande pas
+l'interface de configuration, \textbf{le type de flux n'est jamais déclaré}, et
+la bascule de volume est routée vers le flux que le système croit actif ---
+souvent la sonnerie.
+
+\begin{nkcode}{Kernel/Runtime/NKAudio/src/NKAudio/NkAudioBackends.cpp}
+const SLInterfaceID ids[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE, SL_IID_ANDROIDCONFIGURATION};
+// ... puis, AVANT Realize() :
+SLint32 flux = SL_ANDROID_STREAM_MEDIA;
+(*cfg)->SetConfiguration(cfg, SL_ANDROID_KEY_STREAM_TYPE, &flux, sizeof(SLint32));
+\end{nkcode}
+
+\textbf{Avant \texttt{Realize}} : après, le lecteur est construit et le type de
+flux n'est plus modifiable.
+\end{nkpiege}
+
+\begin{nkretenir}[Ce que ce correctif ne fait PAS, et il faut le dire]
+Il rattache le son au flux multimédia. Il ne rend pas la bascule de volume
+maîtresse du son \emph{quand le jeu est silencieux} : ce comportement-là vient
+de \texttt{setVolumeControlStream}, qui appartient à l'activité \textbf{Java}.
+
+Or nos jeux sont des \emph{NativeActivity} déclarées
+\texttt{android:hasCode="false"} --- il n'y a pas de Java. La limite est donc
+structurelle, et elle se lève en acceptant une activité Java : c'est une décision
+de produit, pas un correctif.
+
+\emph{Dire ce qu'un correctif ne couvre pas vaut autant que le correctif.}
+\end{nkretenir}
+
 \section{Étape 12 --- l'adversaire}
 
 \begin{nkcode}{Applications/NkDames/src/Dames/NkDamesRegles.h}
@@ -851,13 +1058,170 @@ const NkDamesCoup *NkDamesChoisirCoup(const NkDamesPartie &partie,
 \end{nkcode}
 
 \begin{nkretenir}
-\textbf{« Ce n'est pas un adversaire fort, et le fichier ne prétend pas
-l'être. »} Une IA de trente lignes qui s'annonce comme telle est honnête ; la
-même sans cette phrase déçoit.
-
 Notez la \texttt{graine} passée \emph{par référence} : l'IA départage les
 ex \ae quo au hasard, et ce hasard est \textbf{reproductible}. Même graine, même
 partie --- donc un défaut d'IA se rejoue.
+\end{nkretenir}
+
+\begin{nkpiege}[Deux hasards, et ils ne doivent pas se mélanger]
+Le ludo partageait \textbf{une seule graine} entre le dé et la stratégie. Or la
+fonction de choix avance cette graine \emph{une fois par coup candidat}.
+
+Conséquence : \textbf{la suite des dés dépendait de qui joue.} Un tour d'IA à
+quatre options consommait quatre tirages de plus qu'un tour humain --- donc
+remplacer un siège humain par une IA changeait tous les dés de la partie.
+
+Rodolf, 2026-09-02 : « on doit avoir de l'aléatoire identique pour tous les
+lancers de dé, joueur ou IA, sans distinction, et c'est la stratégie de jeu qui
+fait la différence. »
+
+\textbf{Le dé a donc sa graine, que rien d'autre ne touche ; la stratégie a la
+sienne.}
+\end{nkpiege}
+
+\begin{nkretenir}[Ce que la mesure a dit, et ce qu'elle n'a pas dit]
+Le générateur lui-même a été mesuré sur 1,2 million de lancers : les six faces
+sortent entre 16,62 \% et 16,72 \% (attendu 16,667), et il n'y a \emph{aucun}
+biais par rang --- ni un tirage sur deux, ni sur trois, ni sur quatre.
+
+⚠️ \textbf{Et le contrôle négatif de cette mesure a d'abord échoué.} Le sabotage
+écrit pour la valider était \texttt{d = 1 if d < 6 else 6} : il \emph{gardait} le
+six, donc ne changeait pas le taux de six. Les deux lignes sortaient identiques,
+et j'allais conclure « aucun biais » sur une mesure aveugle.
+
+\emph{Un sabotage qui ne sabote pas fait déclarer valide un instrument qui ne
+voit rien.}
+\end{nkretenir}
+
+\subsection{Trois paliers, et un seul chemin de code}
+
+Un adversaire à force unique est soit trop dur pour un débutant, soit trop
+faible pour tout le monde. Les trois jeux offrent donc trois paliers.
+
+\begin{nkcode}{Applications/NkLudo/src/Ludo/NkLudoRegles.h}
+enum class NkNiveauIA : uint8 {
+    NK_FACILE = 0, ///< au hasard parmi les coups legaux
+    NK_MOYEN,      ///< l'heuristique gloutonne
+    NK_DIFFICILE   ///< la meme, plus UN COUP D'AVANCE
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un palier ne change QUE la stratégie.} Il ne touche ni au dé, ni aux
+coups légaux, ni à la moindre règle : les trois paliers jouent le \emph{même}
+jeu, avec les \emph{mêmes} dés.
+
+C'est la condition pour que « c'est la stratégie qui fait la différence » soit
+vrai --- et surtout \textbf{mesurable}. Si le palier changeait aussi le hasard,
+on ne saurait pas ce qu'on compare.
+
+\textbf{Et trois, pas cinq} : chaque palier doit se décrire en une phrase, sinon
+le joueur ne sait pas ce qu'il choisit.
+\end{nkretenir}
+
+\begin{nkretenir}[Un seul parcours, des poids différents]
+Trois \emph{fonctions} distinctes auraient divergé au premier correctif de règle.
+On garde donc une seule fonction de choix, et le palier n'agit que sur les
+poids --- plus une sortie anticipée pour le palier facile.
+\end{nkretenir}
+
+\begin{nkcode}{FACILE -- et remarquez ce qu'elle ne fait PAS}
+if (niveau == NkNiveauIA::NK_FACILE) {
+    graine = graine * 1664525u + 1013904223u;
+    return &coups[(graine >> 16) % coups.Size()];
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Elle tire au hasard parmi les coups LÉGAUX.} Elle ne triche pas et ne
+joue jamais un coup impossible : elle ne \emph{choisit} simplement pas.
+
+C'est la bonne façon de faire une IA faible. L'affaiblir en lui \emph{interdisant}
+des coups la rendrait exploitable --- le joueur découvrirait qu'elle ne prend
+jamais, et la partie perdrait tout intérêt.
+\end{nkretenir}
+
+\begin{nkcode}{DIFFICILE aux dames -- un coup d'avance, avec les REGLES}
+if (difficile) {
+    NkDamesPartie apres = partie;
+    apres.Jouer(c);
+    NkVector<NkDamesCoup> replique;
+    apres.CoupsLegaux(replique);
+    int32 pire = 0;
+    for (uint32 k = 0; k < replique.Size(); ++k) {
+        if ((int32)replique[k].nbPrises > pire) { pire = (int32)replique[k].nbPrises; }
+    }
+    score -= pire * 90;   // un peu moins que les 100 d'une piece prise
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Le palier moyen regarde ce que le coup RAPPORTE ; le difficile regarde
+en plus ce qu'il EXPOSE.}
+
+Et il le mesure \textbf{avec les règles} --- on joue le coup sur une copie et l'on
+demande à l'adversaire ce qu'il pourrait prendre. Jamais avec une heuristique
+« ce coup a l'air dangereux » : une seconde définition du danger divergerait de
+la première.
+
+\textbf{Les poids se lisent les uns par rapport aux autres}, jamais isolément :
+90 par pièce laissée est un peu moins que les 100 d'une pièce prise, pour qu'un
+échange favorable reste jouable.
+\end{nkretenir}
+
+\begin{nkretenir}[Un seul niveau, et il faut le dire]
+Ce n'est \textbf{pas} une recherche : aucune récursion, aucun arbre. Un demi-coup
+d'anticipation suffit à éviter le défaut le plus visible --- donner une pièce à
+chaque tour --- et coûte assez peu pour tourner à chaque coup sans que l'IA
+paraisse « réfléchir ».
+
+Annoncer « une IA d'échecs » serait malhonnête ; annoncer « elle évite de se
+rendre ridicule » est exact.
+\end{nkretenir}
+
+\subsection{Prouver que les paliers diffèrent}
+
+\begin{nkpiege}
+\textbf{Sans mesure, « facile / moyen / difficile » ne sont que trois mots dans
+un menu.} Un palier qui ne change pas la force du jeu est un réglage qui n'est
+pas honoré --- pire qu'un réglage absent, parce que le joueur le croit.
+\end{nkpiege}
+
+\begin{nkretenir}[Le protocole, et ses deux précautions]
+\textbf{1.} Les deux camps reçoivent la \emph{même} suite de dés : l'écart ne
+peut donc venir que de la stratégie.
+
+\textbf{2.} On joue \emph{deux} séries en \textbf{inversant les sièges}. Le siège
+qui commence a un avantage ; sans l'inversion, on mesurerait cet avantage autant
+que la force de l'IA.
+\end{nkretenir}
+
+\begin{nkcode}{Ce que le banc du ludo affiche, sur 240 parties par duel}
+difficile contre facile : 216 / 240
+moyen     contre facile : 203 / 240
+difficile contre moyen  : 138 / 240
+moyen     contre moyen  : 119 / 240   <- le CONTROLE
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{La dernière ligne est la plus importante, et c'est celle qu'on oublie
+d'écrire.} Le même palier contre lui-même doit rendre un résultat équilibré ---
+119 sur 240.
+
+S'il ne l'était pas, ce que les trois premiers duels mesurent ne serait pas la
+force de l'IA mais un \emph{biais du protocole} : l'avantage de commencer, une
+graine mal répartie, un tour qui ne passe pas.
+
+\emph{Un duel sans son match nul de contrôle ne prouve rien.}
+\end{nkretenir}
+
+\begin{nkretenir}
+Notez aussi l'ordre : le duel \textbf{difficile contre moyen} est celui qui
+compte pour le joueur. Sans lui, on saurait seulement que les deux battent
+facile --- ce qui \emph{n'ordonne pas} les trois paliers entre eux.
+
+Et son écart est modeste (58 \%), ce qui est exactement ce qu'on attend d'un
+demi-coup d'anticipation. Un écart de 90 \% aurait été suspect.
 \end{nkretenir}
 
 \begin{nkcode}{Applications/NkDames/src/Dames/NkDamesJeu.cpp -- structure}

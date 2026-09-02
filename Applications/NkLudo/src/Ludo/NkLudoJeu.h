@@ -28,6 +28,7 @@
 #include "Ludo/NkLudoEcran.h"
 #include "Ludo/NkLudoRegles.h"
 #include "NKCanvas/App/NkCanvasGuiApp.h"
+#include "NKEvent/NkKeyboardEvent.h"
 #include "NKCanvas/App/NkCanvasSplash.h"
 
 namespace nkentseu {
@@ -43,6 +44,9 @@ namespace nkentseu {
 					bool OnGuiInit() override;
 					void OnLayout(const renderer::NkLayoutInfo &info) override;
 					bool OnPointer(const NkPointer &p) override;
+					/// La touche ECHAP -- et sur Android, la TOUCHE RETOUR du
+					/// systeme, que `NkAndroidEventSystem` traduit en NK_ESCAPE.
+					bool OnKeyPress(const NkKeyPressEvent &e) override;
 					void OnTick(float32 deltaTime) override;
 					void OnDraw(nkgui::NkGuiDrawList &dl) override;
 
@@ -104,7 +108,24 @@ namespace nkentseu {
 					bool mFinie = false;
 					int32 mGagnant = -1;
 					float32 mAttente = 0.f;
-					uint32 mGraine = 20260901u;
+					// ── DEUX HASARDS, ET ILS NE SE MELANGENT PAS ────────────────
+					// ⚠️ Ils partageaient la MEME graine, et `NkLudoChoisirCoup`
+					// l'avance UNE FOIS PAR COUP CANDIDAT (NkLudoRegles.cpp:298).
+					// Consequence : la suite des des dependait de QUI joue -- un
+					// tour d'IA a quatre options consommait quatre tirages de
+					// plus qu'un tour humain. Remplacer un siege humain par une
+					// IA changeait donc tous les des de la partie.
+					//
+					// Rodolf, 2026-09-02 : « on doit avoir de l'aleatoire
+					// identique pour tous les lancers de de, joueur ou IA, sans
+					// distinction, et c'est la strategie de jeu qui fait la
+					// difference. »
+					//
+					// Le de a donc sa graine, que RIEN d'autre ne touche ; la
+					// strategie a la sienne. La suite des des est desormais la
+					// meme quelle que soit la composition des sieges.
+					uint32 mGraineDe = 20260901u; ///< le de, et rien que le de
+					uint32 mGraineIA = 987654321u; ///< departage les ex aequo de l'IA
 			};
 
 		} // namespace ludo

@@ -53,6 +53,20 @@ namespace nkentseu {
 		static const int32 NK_LUDO_ECURIE = -1;
 		static const int32 NK_LUDO_ARRIVEE = 57;
 
+		// ── LES PALIERS D'IA ────────────────────────────────────────────────
+		// ⚠️ UN PALIER NE CHANGE QUE LA STRATEGIE. Il ne touche ni au de, ni aux
+		// coups legaux, ni a une regle : les trois paliers jouent le MEME jeu
+		// avec les MEMES des. C'est ce qui rend la difference MESURABLE -- si le
+		// palier changeait aussi le hasard, on ne saurait pas ce qu'on compare.
+		//
+		// Trois, pas cinq : chaque palier doit se DECRIRE en une phrase, sinon
+		// le joueur ne sait pas ce qu'il choisit.
+		enum class NkNiveauIA : uint8 {
+			NK_FACILE = 0, ///< au hasard parmi les coups legaux
+			NK_MOYEN,	   ///< rentrer > capturer > sortir > avancer > case sure
+			NK_DIFFICILE   ///< le meme, plus UN COUP D'AVANCE : eviter de s'exposer
+		};
+
 		/// Case d'entree de chaque joueur sur la piste commune.
 		/// 0, 13, 26, 39 : les quatre quarts, exactement.
 		inline int32 NkLudoEntree(int32 joueur) noexcept {
@@ -207,8 +221,11 @@ namespace nkentseu {
 		};
 
 		/// Choix de l'ordinateur : rentrer, capturer, sortir, avancer.
+		/// `niveau` par DEFAUT au palier moyen : les appelants existants -- le
+		/// banc, une reprise -- gardent le comportement qu'ils mesuraient.
 		const NkLudoCoup *NkLudoChoisirCoup(const NkLudoPartie &partie, const NkVector<NkLudoCoup> &coups,
-											uint32 &graine) noexcept;
+											uint32 &graine,
+											NkNiveauIA niveau = NkNiveauIA::NK_MOYEN) noexcept;
 
 	} // namespace jeux
 } // namespace nkentseu
