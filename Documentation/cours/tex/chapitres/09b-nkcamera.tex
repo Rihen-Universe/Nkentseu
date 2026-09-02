@@ -1,0 +1,255 @@
+\chapter{NKCamera : lire une caméra}
+
+Une caméra ressemble à un fichier vidéo qu'on lirait en direct. Elle n'en est pas
+un, et la différence tient en une phrase : \textbf{avec un fichier, vous
+choisissez ; avec une caméra, vous subissez}. Le format des pixels, la
+résolution disponible, la mise au point, le sens de l'image --- tout cela est
+décidé par le matériel et par le système, jamais par vous.
+
+Ce chapitre explique donc moins « comment demander » que « comment recevoir ».
+
+\section{La façade, en huit appels}
+
+\begin{nkcode}{Kernel/Runtime/NKCamera/src/NKCamera/NkCameraSystem.h}
+bool Init();
+NkVector<NkCameraDevice> EnumerateDevices();
+bool StartStreaming(const NkCameraConfig &config = {});
+bool GetLastFrame(NkCameraFrame &outFrame);
+void SetFrameCallback(NkFrameCallback cb);
+void StopStreaming();
+void Shutdown();
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Deux façons de recevoir les images, et elles ne se valent pas.}
+
+\texttt{GetLastFrame} rend la \emph{dernière} image, celle qui est là au moment
+où l'on demande. C'est ce qu'il faut pour un affichage : à 60 images par seconde
+d'affichage et 30 de caméra, on redemande simplement deux fois la même.
+
+\texttt{SetFrameCallback} vous appelle à chaque image, \textbf{depuis le fil de
+la caméra}. C'est ce qu'il faut pour un enregistrement ou une analyse --- et ce
+qu'il ne faut surtout pas employer pour dessiner.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Le rappel s'exécute sur un autre fil.} Y dessiner, c'est toucher le
+contexte graphique depuis un fil qui ne le possède pas --- selon le backend, un
+plantage, un écran noir, ou pire : cela marche chez vous.
+
+C'est la même règle que le chapitre NKThreading : \emph{le calcul se
+parallélise, le dessin non}. Le rappel copie ou analyse ; le fil principal
+dessine.
+\end{nkpiege}
+
+\section{Le format n'est pas un choix}
+
+C'est le point le plus important du chapitre, et il est écrit dans le code
+lui-même :
+
+\begin{nkcode}{Kernel/Runtime/NKCamera/src/NKCamera/NkCameraTypes.h}
+// ⚠️ TROIS CHAMPS RETIRES LE 2026-08-15 -- ne pas les reintroduire
+// sans les cabler d'abord :
+//
+//   `outputFormat` -- 3 ecrivains, 0 lecteur. Trois applications
+//     demandaient `NK_PIXEL_RGBA8` et recevaient du NV12 (Windows),
+//     YUV420 (Android), BGRA8 (Cocoa/UIKit) ou YUYV (Linux) : le
+//     format est IMPOSE par la plateforme, jamais choisi.
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un paramètre qui n'est pas honoré est pire qu'un paramètre absent :
+l'absence force à chercher, la présence dispense de vérifier.}
+
+Trois applications écrivaient \texttt{outputFormat = NK\_PIXEL\_RGBA8}, en toute
+bonne foi, et recevaient autre chose. Rien ne les avertissait --- le champ
+existait, il acceptait la valeur, et il ne la lisait pas.
+
+Le remède appliqué n'a pas été de faire fonctionner le champ (c'est impossible :
+le format vient du pilote) mais de le \textbf{retirer}. Le format réellement
+livré se lit sur \texttt{NkCameraFrame::format}, après coup.
+\end{nkretenir}
+
+\begin{nkcode}{Kernel/Runtime/NKCamera/src/NKCamera/NkCameraTypes.h}
+// Un champ mort dans un en-tete public est une promesse que
+// quelqu'un finira par croire.
+\end{nkcode}
+
+\begin{nkpiege}
+Le même bloc en signale un autre, et celui-là n'a pas été retiré :
+
+\begin{quote}
+« \texttt{autoFocus} --- lu par le SEUL backend Android. Sur Windows, aucun code
+de mise au point n'existe : le réglage y est ignoré en silence --- invisible sur
+une webcam à focale fixe, ce qui explique que personne ne l'ait vu. »
+\end{quote}
+
+Retenez la cause de l'aveuglement : \textbf{le défaut était masqué par le
+matériel de ceux qui auraient pu le voir.} Sur une webcam à focale fixe, un
+réglage de mise au point qui ne fait rien produit exactement l'image attendue.
+\end{nkpiege}
+
+\section{L'image reçue, et ce qu'elle déclare}
+
+\begin{nkcode}{Kernel/Runtime/NKCamera/src/NKCamera/NkCameraTypes.h}
+struct NkCameraFrame {
+        uint32 width = 0;
+        uint32 height = 0;
+        NkPixelFormat format = NkPixelFormat::NK_PIXEL_RGBA8;
+        uint64 timestampUs = 0;
+        uint32 frameIndex = 0;
+        uint32 stride = 0;
+        NkColorRange range = NkColorRange::NK_COLOR_RANGE_UNKNOWN;
+        bool flipHorizontal = false;
+        // ...
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{range} vaut « inconnu » par défaut, et c'est délibéré.} Le
+commentaire d'origine le dit : « Non renseignée = INCONNUE, et c'est voulu : le
+défaut ne prétend rien. »
+
+C'est l'inverse du réflexe habituel, qui est de choisir une valeur « raisonnable
+». Une plage supposée à tort décale toutes les couleurs de quelques pour cent ---
+assez pour être faux, trop peu pour être vu. Un \emph{inconnu} déclaré force
+l'appelant à décider ; un défaut plausible le dispense de savoir qu'il y avait
+une question.
+\end{nkretenir}
+
+\begin{nkretenir}
+\textbf{Et la conversion choisit sa formule d'après la PLAGE, jamais d'après le
+format.} C'est écrit dans le même commentaire, à propos de
+\texttt{ConvertToRGBA8}. Deux images au même format peuvent avoir deux plages
+différentes ; se fier au format donnerait la bonne réponse la plupart du temps,
+ce qui est la pire des situations --- un défaut qui ne se reproduit que sur
+certaines caméras.
+\end{nkretenir}
+
+\section{Le miroir : une question de géométrie, pas de goût}
+
+\begin{nkcode}{Kernel/Runtime/NKCamera/src/NKCamera/NkCameraTypes.h}
+// Faux par defaut : l'image brute d'un capteur est geometriquement VRAIE,
+// et c'est la seule utilisable pour de l'AR, de la calibration ou de la
+// mesure. On ne miroite que pour un affichage de SOI, ou l'habitude prime
+// sur la geometrie -- et cela reste une demande explicite.
+bool flipHorizontal = false;
+\end{nkcode}
+
+\begin{nkretenir}
+Une caméra frontale affichée telle quelle donne une image « à l'envers » pour
+l'utilisateur, qui s'attend à un miroir. Mais une image miroitée est
+\emph{géométriquement fausse} : un marqueur de réalité augmentée s'y place du
+mauvais côté, une calibration y rend des paramètres symétriques faux, une mesure
+y est inversée.
+
+D'où le choix : \textbf{la vérité par défaut, le confort sur demande}. Et le
+miroir est reporté \emph{dans l'image} (\texttt{NkCameraFrame::flipHorizontal})
+afin que la conversion sache ce qui a été demandé --- au lieu que chaque
+consommateur devine.
+\end{nkretenir}
+
+\section{Ce qu'il faut faire, dans l'ordre}
+
+\begin{center}
+\begin{tabular}{@{}rll@{}}
+\toprule
+& \textbf{Geste} & \textbf{Pourquoi} \\
+\midrule
+1 & \texttt{Init()} & le système peut refuser --- vérifiez \\
+2 & \texttt{EnumerateDevices()} & il n'y a pas toujours une caméra \\
+3 & \texttt{StartStreaming(cfg)} & la résolution demandée n'est qu'un souhait \\
+4 & lire \texttt{frame.format} & \emph{c'est là} qu'on apprend ce qu'on reçoit \\
+5 & convertir en RGBA8 & le rendu ne connaît que ça \\
+6 & téléverser dans une texture & comme pour une vidéo \\
+7 & \texttt{StopStreaming()}, \texttt{Shutdown()} & dans l'ordre inverse \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{L'étape 2 n'est pas facultative.} Un ordinateur de bureau sans webcam, un
+téléphone dont l'utilisateur a refusé la permission, une caméra déjà employée par
+une autre application : les trois sont normaux, et les trois donnent une liste
+vide.
+
+Une application qui suppose qu'il y a une caméra affiche un écran noir sans
+explication --- et l'utilisateur croit que le programme est cassé.
+\end{nkpiege}
+
+\begin{nkretenir}
+À partir de l'étape 5, vous êtes exactement dans le chapitre NKMedia : des pixels
+RGBA, une texture qu'on remplace, un sprite qui l'affiche. \textbf{Le rendu ne
+sait pas distinguer une caméra d'un fichier vidéo}, et c'est voulu.
+
+Une seule chose diffère : la caméra n'a pas de fin. Il n'y a pas de dernière
+image, donc pas de « lecture terminée » --- seulement un arrêt que vous décidez.
+\end{nkretenir}
+
+\begin{nkbilan}
+Une caméra ne se configure pas, elle se \emph{consulte}. Le format des pixels est
+imposé par la plateforme et se lit sur l'image reçue, jamais dans la demande ---
+un champ qui prétendait le contraire a été retiré parce qu'il faisait croire à
+trois applications qu'elles recevaient du RGBA8. La plage de couleur vaut
+« inconnu » par défaut, et la conversion s'appuie sur elle plutôt que sur le
+format. Le miroir est faux par défaut, parce que l'image brute est la seule
+géométriquement vraie. Et à partir de la conversion, tout redevient identique à
+la lecture d'une vidéo.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi ne peut-on pas choisir le format des pixels d'une caméra ?
+\item Où lit-on le format réellement reçu ?
+\item Quelle différence entre \texttt{GetLastFrame} et le rappel d'image, et
+      lequel convient à l'affichage ?
+\item Pourquoi \texttt{range} vaut-il « inconnu » plutôt qu'une valeur plausible ?
+\item Pourquoi le miroir est-il désactivé par défaut ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez un aperçu caméra sur \texttt{NkCanvasGuiApp} : énumérez les
+périphériques, laissez choisir dans une liste, démarrez le flux, convertissez et
+affichez.
+
+\textbf{Trois exigences}, et ce sont elles qui font l'exercice :
+\begin{enumerate}
+\item afficher en clair le format \emph{réellement} reçu, pas celui demandé ;
+\item afficher un message lisible quand la liste des périphériques est vide ---
+      et le vérifier en débranchant la caméra ;
+\item un bouton « miroir » qui bascule \texttt{flipHorizontal}.
+\end{enumerate}
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que le format demandé n'est pas le format reçu.
+
+Demandez explicitement \texttt{NK\_PIXEL\_RGBA8} dans votre configuration ---
+si le champ n'existe plus, notez-le et passez à la suite. Puis affichez
+\texttt{frame.format} et \texttt{frame.stride} pour chaque image.
+
+Comparez ensuite \texttt{stride} à $\texttt{width} \times 4$ : s'ils diffèrent,
+vos pixels ne sont pas du RGBA8 contigu, et une copie ligne par ligne qui
+ignorerait le pas produirait l'image inclinée du chapitre NKImage.
+
+\textbf{Ce que la démonstration doit établir} : que l'écart existe sur
+\emph{votre} machine, avec un chiffre. « Le format peut différer » est une
+lecture ; « j'ai demandé RGBA8 et reçu NV12, stride 640 pour width 640 » est une
+mesure.
+\end{nkdemo}
+
+\begin{nklogique}
+Votre aperçu caméra fonctionne sur votre ordinateur portable et donne une image
+verdâtre sur celui d'un collègue.
+
+\begin{enumerate}
+\item Énumérez au moins quatre causes possibles, en distinguant celles qui
+      viennent du format, de la plage de couleur, et de la conversion.
+\item Le fait que l'image soit \emph{verdâtre} plutôt que noire ou bruitée
+      élimine-t-il quelque chose ? Justifiez.
+\item Proposez une mesure qui tranche --- et dites ce qu'elle affiche dans chaque
+      cas. Puis expliquez pourquoi « ça marche chez moi » est ici l'information
+      la plus trompeuse du problème, et non la plus rassurante.
+\end{enumerate}
+\end{nklogique}

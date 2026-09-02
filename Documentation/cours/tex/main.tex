@@ -82,7 +82,9 @@ Elle commence par le \textbf{C} --- non par nostalgie, mais parce que les
 pointeurs, la mémoire et la compilation séparée s'expliquent mieux sans les
 objets par-dessus. Puis le \textbf{C++} : classes, héritage, RAII, exceptions.
 Puis les \textbf{templates}, qui sont le mécanisme sur lequel repose la totalité
-de NKContainers.
+de NKContainers. Enfin le \textbf{C++ moderne} --- lambdas, déplacement,
+possession --- que l'on croit avancé et qui est quotidien : l'ignorer produit du
+code qui copie sans le savoir et qui fuit sans le dire.
 
 Aucune connaissance préalable n'est supposée. Si vous savez déjà programmer,
 lisez tout de même les encadrés « Le piège » : ils décrivent des défauts que ce
@@ -91,6 +93,7 @@ dépôt a réellement payés, pas des curiosités de manuel.%
 \input{chapitres/00b-le-c}
 \input{chapitres/00c-le-cpp}
 \input{chapitres/00d-templates}
+\input{chapitres/00d2-cpp-moderne}
 
 \begin{partiebilan}
 Vous disposez du langage : déclarer, structurer, allouer, hériter, généraliser.
@@ -176,7 +179,7 @@ applications de la dernière partie tiennent dans ce que vous venez de lire.
 % =============================================================================
 \part{Les modules}
 % =============================================================================
-\partieintro{Images, polices, son, vidéo, réseau}{%
+\partieintro{Images, polices, son, vidéo, réseau, caméra}{%
 Les modules de cette partie sont \textbf{facultatifs}, et c'est leur trait
 commun : une application peut être complète sans en toucher un seul. On les prend
 quand on en a besoin, dans l'ordre qu'on veut --- ces chapitres ne dépendent pas
@@ -190,13 +193,20 @@ n'appartiennent qu'à nous. Les chapitres le disent quand c'est le cas.
 
 Pour le réseau, la démarche est celle annoncée dans la partie sur les langages :
 on explique d'abord la façon standard, puis l'alternative Nkentseu et pourquoi
-elle diffère.%
+elle diffère.
+
+Le dernier chapitre, la \textbf{caméra}, est celui qui renverse le plus
+d'habitudes : avec un fichier vous choisissez, avec une caméra vous subissez.
+Il montre aussi, code à l'appui, ce qu'on fait d'un réglage qu'on ne peut pas
+honorer --- on le retire, plutôt que de le laisser accepter des valeurs qu'il
+ignore.%
 }
 \input{chapitres/05-nkimage}
 \input{chapitres/06-nkfont}
 \input{chapitres/07-nkaudio}
 \input{chapitres/08-nkmedia}
 \input{chapitres/09-nknetwork}
+\input{chapitres/09b-nkcamera}
 
 \begin{partiebilan}
 Vous savez charger et enregistrer une image, afficher du texte dans une police

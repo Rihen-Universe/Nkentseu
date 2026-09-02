@@ -1,0 +1,306 @@
+\chapter{C++ moderne : lambdas, déplacement, possession}
+
+Le chapitre sur le C++ donnait le langage ; celui sur les templates, la
+généricité. Il reste ce qui sépare un programme qui compile d'un programme qu'on
+ose modifier : les \textbf{lambdas}, la \textbf{sémantique de déplacement}, et
+les objets qui \textbf{possèdent} ce qu'ils tiennent.
+
+Ces trois sujets sont ceux qu'on repousse en croyant qu'ils sont avancés. Ils ne
+le sont pas : ils sont \emph{quotidiens}, et les ignorer produit du code qui
+copie sans le savoir et qui fuit sans le dire.
+
+\section{Les lambdas : une fonction écrite là où on s'en sert}
+
+\begin{nkcode}{Syntaxe}
+auto doubler = [](int32 x) { return x * 2; };
+int32 y = doubler(21);                        // 42
+\end{nkcode}
+
+Une lambda est un objet-fonction que le compilateur fabrique pour vous. Les
+crochets sont la \textbf{capture} : ce que la lambda emporte de son entourage.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Capture} & \textbf{Sens} \\
+\midrule
+\texttt{[]} & rien --- la lambda ne voit que ses paramètres \\
+\texttt{[x]} & une \emph{copie} de \texttt{x}, figée à la création \\
+\texttt{[\&x]} & une \emph{référence} à \texttt{x} --- il doit vivre plus longtemps \\
+\texttt{[=]} & copie de tout ce qui est employé \\
+\texttt{[\&]} & référence sur tout ce qui est employé \\
+\texttt{[this]} & l'objet courant, par référence \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Le dépôt s'en sert dès la première ligne d'un programme.} Chaque
+application déclare ses données ainsi :
+
+\begin{nkcode}{Applications/NkDames/src/main.cpp}
+NKENTSEU_DEFINE_APP_DATA(([]() {
+    NkAppData d;
+    d.appName = "NkDames";
+    // ...
+    return d;
+}()));
+\end{nkcode}
+
+Une lambda \emph{appelée sur place} --- notez le \texttt{()} final. Elle sert à
+construire un objet en plusieurs étapes et à le rendre \textbf{constant} :
+plusieurs affectations, un seul résultat, et pas de variable temporaire qui
+traîne dans la portée englobante.
+\end{nkretenir}
+
+\begin{nkpiege}[Le piège qui coûte le plus cher]
+\textbf{Une capture par référence sur un objet qui meurt avant la lambda est un
+pointeur pendant, avec un autre nom.}
+
+\begin{nkcode}{FAUX}
+NkFunctionCallback FabriquerRappel() {
+    int32 compteur = 0;
+    return [&compteur]() { return ++compteur; };   // compteur MEURT ici
+}
+\end{nkcode}
+
+Le programme compile, et fonctionne souvent --- la pile n'a pas encore été
+réécrite. C'est exactement le défaut du chapitre sur le C, sous un déguisement
+qui ne ressemble plus du tout à un pointeur.
+
+\textbf{La règle} : une lambda qui \emph{survit} à la portée où elle est écrite
+--- un rappel, un gestionnaire d'événement, une tâche donnée à un pool --- capture
+\textbf{par valeur}. \texttt{[\&]} ne va qu'avec un usage immédiat.
+\end{nkpiege}
+
+\begin{nkretenir}
+\texttt{[this]} capture le \emph{pointeur} sur l'objet, jamais une copie. Une
+lambda stockée dans un membre et capturant \texttt{this} devient invalide quand
+l'objet meurt --- ce qui arrive plus souvent qu'on ne croit, dans une interface
+où les panneaux naissent et disparaissent.
+\end{nkretenir}
+
+\section{Le déplacement : transférer au lieu de copier}
+
+Un vecteur d'un million d'éléments passé par valeur se copie : un million de
+constructions et une allocation. Or le plus souvent la source ne sert plus après.
+
+\begin{nkcode}{Kernel/Foundation/NKCore/src/NKCore/NkTraits.h}
+template <typename T> constexpr NkRemoveReference_t<T> &&NkMove(T &&value) noexcept {
+    return static_cast<NkRemoveReference_t<T> &&>(value);
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{NkMove} ne déplace rien.} C'est une conversion de type : elle dit
+« traite cette valeur comme temporaire ». Le déplacement effectif est fait par le
+\emph{constructeur de déplacement} de la classe, qui a le droit de voler les
+entrailles de la source puisqu'elle est réputée finie.
+
+C'est pourquoi compter les \texttt{NkMove} d'un fichier ne mesure aucune
+allocation : cela mesure une \emph{intention}.
+\end{nkretenir}
+
+\begin{nkcode}{Ce que doit faire un constructeur de deplacement}
+NkTampon(NkTampon &&autre) noexcept
+    : mData(autre.mData), mTaille(autre.mTaille) {
+    autre.mData = nullptr;      // INDISPENSABLE
+    autre.mTaille = 0;
+}
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Oublier de vider la source est la faute classique, et elle est
+silencieuse.} Sans les deux dernières lignes, \emph{deux} objets tiennent le
+même pointeur ; le premier destructeur libère, le second libère à nouveau. Une
+double libération corrompt le tas --- et le plantage arrive plus tard, ailleurs,
+dans du code innocent.
+
+\textbf{La source doit rester détruisible, pas utilisable.} C'est le contrat
+exact : après un déplacement, on n'a le droit que de détruire l'objet ou de lui
+affecter une nouvelle valeur.
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{\texttt{noexcept} n'est pas décoratif sur un déplacement.} Un conteneur
+qui s'agrandit ne déplacera ses éléments que si leur déplacement est déclaré
+\texttt{noexcept} ; sinon il les \emph{copie}, pour pouvoir revenir en arrière en
+cas d'exception.
+
+Un mot-clé oublié, et la réallocation copie au lieu de déplacer --- sans qu'aucun
+message ne le dise, et sans que le résultat soit faux. Seulement lent.
+\end{nkretenir}
+
+\section{La possession : qui libère, et quand}
+
+Le C++ moderne répond à « qui libère ? » par un \emph{type}. Nkentseu en offre
+quatre, tous dans \texttt{NKMemory} et tous en en-tête seul.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Type} & \textbf{Possession} & \textbf{Quand} \\
+\midrule
+\texttt{NkUniquePtr} & un seul propriétaire & le cas par défaut \\
+\texttt{NkSharedPtr} & plusieurs, compteur atomique & durée de vie vraiment partagée \\
+\texttt{NkWeakPtr} & aucune --- observe & briser un cycle \\
+\texttt{NkIntrusivePtr} & compteur \emph{dans} l'objet & entités, composants, ressources \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Commencez toujours par \texttt{NkUniquePtr}.} Il ne coûte rien de plus
+qu'un pointeur nu, il dit qui libère, et il libère tout seul. On ne passe à
+\texttt{NkSharedPtr} que si la durée de vie est \emph{réellement} partagée ---
+c'est-à-dire si l'on ne peut pas nommer un propriétaire.
+
+« Je ne sais pas qui doit libérer » n'est pas une raison de partager : c'est le
+signe qu'une décision de conception n'a pas été prise.
+\end{nkretenir}
+
+\begin{nkretenir}
+\texttt{NkIntrusivePtr} range le compteur \emph{dans} l'objet, ce qui économise
+une allocation par rapport à \texttt{NkSharedPtr} et son bloc de contrôle
+séparé. En échange, l'objet doit être conçu pour --- on ne peut pas l'appliquer à
+un type qu'on ne contrôle pas.
+
+L'en-tête le destine explicitement aux « objets qui DOIVENT être référencés :
+Entity, Component, Resource ». C'est un choix guidé par le nombre d'objets : à
+cent mille entités, une allocation de moins par entité se compte.
+\end{nkretenir}
+
+\begin{nkpiege}[Le cycle]
+Deux objets qui se tiennent l'un l'autre par \texttt{NkSharedPtr} ne meurent
+\textbf{jamais} : chacun maintient le compteur de l'autre à un. Ce n'est pas une
+fuite banale --- aucun outil ne signale une mémoire dont le compteur est
+légitimement positif.
+
+La parade est \texttt{NkWeakPtr} : le lien « retour » observe sans posséder. La
+règle de conception qui l'accompagne : \textbf{dans une relation
+parent/enfant, le parent possède, l'enfant observe.}
+\end{nkpiege}
+
+\section{Deux types qui remplacent des conventions}
+
+\begin{nkcode}{Kernel/Foundation/NKCore/src/NKCore/NkOptional.h et NkVariant.h}
+NkOptional<int32> Chercher(...);   // « peut-etre un entier »
+NkVariant<A, B, C> valeur;         // « exactement un des trois »
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{NkOptional} remplace la valeur sentinelle}, celle qu'on choisit
+faute de mieux : \texttt{-1}, \texttt{0}, \texttt{nullptr}, la chaîne vide. Une
+sentinelle a deux défauts que le type supprime : elle est une \emph{valeur
+possible} du domaine (le jour où $-1$ devient légitime, tout casse), et rien
+n'oblige l'appelant à la tester.
+
+\texttt{NkVariant} remplace l'union plus un champ de type --- même contenu, mais
+c'est le compilateur qui garantit qu'on lit le bon membre, au lieu d'une
+convention que chacun doit respecter.
+\end{nkretenir}
+
+\section{Le reste du confort, en une page}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Écriture} & \textbf{Ce qu'elle apporte} \\
+\midrule
+\texttt{auto x = f();} & le type suit sa source quand elle change \\
+\texttt{for (auto \&e : v)} & parcours sans indice --- donc sans erreur d'indice \\
+\texttt{constexpr} & calculé à la compilation, coût nul à l'exécution \\
+\texttt{nullptr} & un pointeur nul \emph{typé}, contrairement à \texttt{0} \\
+\texttt{enum class} & pas de conversion implicite en entier \\
+\texttt{= delete} & interdit explicitement une opération \\
+\texttt{override} & le compilateur vérifie que vous redéfinissez vraiment \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{\texttt{for (auto e : v)} copie chaque élément.} Sur un vecteur de
+chaînes, c'est une allocation par tour, et rien ne le dit.
+
+Écrivez \texttt{auto \&} pour modifier, \texttt{const auto \&} pour lire. Le
+\texttt{auto} nu ne se justifie que sur des types minuscules --- un entier, un
+flottant.
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{\texttt{override} est le mot-clé au meilleur rendement du langage.} Sans
+lui, une signature légèrement différente de celle de la base --- un \texttt{const}
+oublié, un type de paramètre voisin --- crée une \emph{nouvelle} fonction au lieu
+d'en redéfinir une. Tout compile, et la méthode de la base continue d'être
+appelée.
+
+Avec \texttt{override}, le compilateur refuse. Une erreur au lieu d'un
+comportement.
+\end{nkretenir}
+
+\begin{nkbilan}
+Une lambda emporte ce qu'elle capture : par valeur si elle survit à sa portée,
+par référence seulement pour un usage immédiat. \texttt{NkMove} est une
+conversion, pas un déplacement ; le vrai travail est dans le constructeur de
+déplacement, qui doit \textbf{vider la source} et se déclarer \texttt{noexcept}.
+La possession se dit par un type : \texttt{NkUniquePtr} par défaut,
+\texttt{NkSharedPtr} quand la durée de vie est vraiment partagée,
+\texttt{NkWeakPtr} pour briser les cycles, \texttt{NkIntrusivePtr} quand les
+objets se comptent par milliers. Enfin \texttt{NkOptional} et \texttt{NkVariant}
+remplacent deux conventions que rien ne faisait respecter.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quand faut-il capturer par valeur, et quand par référence ?
+\item \texttt{NkMove} déplace-t-il quelque chose ? Que fait-il exactement ?
+\item Que doit faire un constructeur de déplacement à la source, et que
+      se passe-t-il s'il l'oublie ?
+\item Pourquoi \texttt{noexcept} change-t-il le comportement d'un conteneur qui
+      s'agrandit ?
+\item Quand préférer \texttt{NkIntrusivePtr} à \texttt{NkSharedPtr} ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez une classe \texttt{NkTampon} qui possède un tableau d'octets alloué par
+NKMemory. Donnez-lui les cinq opérations : destructeur, constructeur de copie,
+affectation par copie, constructeur de déplacement, affectation par déplacement.
+
+Puis remplissez un \texttt{NkVector<NkTampon>} de mille éléments, et affichez le
+nombre de copies et de déplacements réellement effectués --- un compteur statique
+incrémenté dans chaque constructeur suffit.
+
+Retirez ensuite le \texttt{noexcept} du constructeur de déplacement, et refaites
+la mesure.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un cycle de \texttt{NkSharedPtr} ne se libère jamais.
+
+Créez deux objets qui se tiennent mutuellement par \texttt{NkSharedPtr}, chacun
+affichant un message dans son destructeur. Sortez de la portée : \textbf{aucun
+message}. Remplacez l'un des deux liens par \texttt{NkWeakPtr} : les deux
+messages apparaissent.
+
+\textbf{Ce que la démonstration doit établir}, et c'est la partie qu'on saute :
+ne vous contentez pas de constater l'absence de message. Affichez aussi le
+\emph{compteur de références} des deux objets juste avant la sortie de portée.
+Sans ce chiffre, « rien ne s'affiche » pourrait aussi vouloir dire que votre
+destructeur n'affiche pas.
+\end{nkdemo}
+
+\begin{nklogique}
+Une fonction range des lambdas dans une liste de rappels, appelée plus tard.
+Certains rappels donnent des résultats absurdes, de façon intermittente.
+
+\begin{enumerate}
+\item Quelle est la cause la plus probable ? Décrivez le mécanisme précis.
+\item Pourquoi le défaut est-il \emph{intermittent} plutôt que systématique ?
+      Votre réponse doit expliquer pourquoi il disparaît souvent sous le
+      débogueur.
+\item Un collègue propose de tout capturer par valeur, partout, comme règle
+      générale. Donnez le cas où cette règle est coûteuse, et le cas où elle est
+      \emph{fausse} --- car il en existe un.
+\end{enumerate}
+\end{nklogique}
