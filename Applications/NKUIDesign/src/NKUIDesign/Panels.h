@@ -1718,6 +1718,7 @@ namespace nkuidesign {
 		c.pasRacine = (noeud != 0);
 		c.pressePapiersPlein = st.pressePapiersPlein;
 		c.surfaceListe = surfaceListe;
+		c.estInstance = !n.instanceDe.Empty();
 		return c;
 	}
 
@@ -1843,6 +1844,57 @@ namespace nkuidesign {
 				} else
 					st.status = NkString("Ordre de profondeur : rien à faire — le nœud est "
 										 "déjà à ce bout de la pile (ou c'est la racine).");
+				return true;
+			}
+			// ── LES COMPOSANTS DE DOCUMENT (02/09) ──────────────────────────
+			// 🔴 LE GESTE QUE TOUT LE CHANTIER SERT. Il passe par le dispatcher
+			//    comme les autres : menu contextuel, clavier, menu Édition —
+			//    trois portes, une écriture.
+			// ⚠️ L'AUTEUR EST VIDE, ET C'EST UNE DÉCISION : un composant créé ici
+			//    est **local au document**, donc il nous appartient
+			//    (`NkPeutModifierDeclaration` rend vrai sur un auteur vide).
+			//    L'identité d'auteur se pose le jour du PARTAGE — lui inventer un
+			//    nom maintenant serait signer à la place de quelqu'un.
+			// ⚠️ ET LE NOM VIENT DU LIBELLÉ DU NŒUD, parce que c'est le seul nom
+			//    que la main a déjà donné. Un « composant_1 » aurait forcé
+			//    Rodolf à renommer avant même de voir ce qu'il a créé.
+			case NkActionCtx::ExtraireComposant: {
+				const int32 cible = st.doc.IsValidIndex(noeud) ? noeud : st.selected;
+				if (!st.doc.IsValidIndex(cible) || cible == 0) {
+					st.status = NkString("Extraire : sélectionne un élément (pas la racine).");
+					return true;
+				}
+				if (!st.doc.nodes[(nkentseu::uint32)cible].instanceDe.Empty()) {
+					st.status = NkString("Extraire : ce nœud est déjà une instance.");
+					return true;
+				}
+				const NkString libelle = st.doc.nodes[(nkentseu::uint32)cible].label;
+				const int32 d = st.doc.ExtraireComposant(
+					cible, "", libelle.Empty() ? "composant" : libelle.Data());
+				if (d < 0) {
+					st.status = NkString("Extraire : ce nœud ne peut pas devenir un composant.");
+					return true;
+				}
+				st.doc.MarkHumanEdit(cible);
+				st.host.demoModels.Clear();
+				st.host.SyncTo(st.doc);
+				char b[176];
+				snprintf(b, sizeof(b), "Composant « %s » créé — ce nœud en est maintenant une "
+									   "instance.",
+						 st.doc.declarations[(nkentseu::uint32)d].identite.nom.Data());
+				st.status = NkString(b);
+				return true;
+			}
+			case NkActionCtx::DetacherComposant: {
+				const int32 cible = st.doc.IsValidIndex(noeud) ? noeud : st.selected;
+				if (st.doc.DetacherInstance(cible)) {
+					st.doc.MarkHumanEdit(cible);
+					st.host.demoModels.Clear();
+					st.host.SyncTo(st.doc);
+					st.status = NkString(
+						"Détaché — le sous-arbre est revenu, tes surcharges comprises.");
+				} else
+					st.status = NkString("Détacher : ce nœud n'est pas une instance.");
 				return true;
 			}
 			case NkActionCtx::Supprimer: st.SupprimerSelection(); return true;
@@ -2812,12 +2864,17 @@ namespace nkuidesign {
 									// l'énumération ET traduits par la coquille.
 									// Seule la table des raccourcis les ignorait.
 									{NkGuiKey::RBracket, ']'},
-									{NkGuiKey::LBracket, '['}};
+									{NkGuiKey::LBracket, '['},
+									// LES COMPOSANTS : `Ctrl+Alt+K` extraire.
+									// `D` est déjà dans la table — c'est `alt` qui
+									// distingue « dupliquer » de « détacher ».
+									{NkGuiKey::K, 'K'}};
 					for (uint32 t = 0; t < sizeof(kTouches) / sizeof(kTouches[0]); ++t) {
 						if (!ctx.input.KeyPressed(kTouches[t].k))
 							continue;
-						const NkActionCtx a = NkActionDuRaccourci(
-							ctx.input.ctrlDown, ctx.input.shiftDown, kTouches[t].c);
+						const NkActionCtx a =
+							NkActionDuRaccourci(ctx.input.ctrlDown, ctx.input.shiftDown,
+												kTouches[t].c, ctx.input.altDown);
 						if (a == NkActionCtx::NB)
 							continue;
 						// ⚠️ LE MÊME PAS D'ANNULATION QUE LE MENU : on passe par le

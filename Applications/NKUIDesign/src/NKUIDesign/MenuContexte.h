@@ -57,6 +57,18 @@ namespace nkuidesign {
 		Reculer,	 ///< d'un rang vers l'arrière (`Ctrl+[`)
 		PremierPlan, ///< tout devant (`Ctrl+Maj+]`)
 		ArrierePlan, ///< tout derrière (`Ctrl+Maj+[`)
+		// ── LES COMPOSANTS DE DOCUMENT (02/09) ──────────────────────────────
+		// 🔴 LES DEUX ARRIVENT ENSEMBLE, et c'est la contrainte du modèle §15.4,
+		//    pas un choix de commodité : *« créer un composant » sans « détacher »
+		//    enferme l'utilisateur dans une décision qu'il ne peut pas défaire.*
+		// ⚠️ POSÉS APRÈS le groupe de la profondeur, et pas au milieu : ma
+		//    première version les avait glissés entre le commentaire des quatre
+		//    gestes de profondeur et les quatre valeurs qu'il décrit — le
+		//    commentaire se retrouvait orphelin, à expliquer des valeurs qui ne le
+		//    suivaient plus. *Un commentaire séparé de ce qu'il explique se lit
+		//    comme une erreur, puis se supprime.*
+		ExtraireComposant, ///< la sélection devient une déclaration + une instance (`Ctrl+Alt+K`)
+		DetacherComposant, ///< l'instance redevient un sous-arbre ordinaire (`Ctrl+Alt+D`)
 		Grouper,
 		Degrouper,
 		CadrerSelection,
@@ -97,6 +109,13 @@ namespace nkuidesign {
 			///    le geste natif d'un arbre) et l'édition de texte n'a pas de
 			///    point d'insertion. Dans la TOILE, c'est l'inverse.
 			bool surfaceListe = false;
+			/// Ce nœud est-il DÉJÀ une instance de composant de document ?
+			/// ⚠️ IL DÉCIDE LAQUELLE DES DEUX ENTRÉES AGIT, et elles s'excluent :
+			///    on n'extrait pas une instance (on forkerait sans le dire), et on
+			///    ne détache pas ce qui n'est pas attaché. *Deux entrées toujours
+			///    actives auraient laissé l'une des deux ne rien faire en
+			///    silence.*
+			bool estInstance = false;
 	};
 
 
@@ -126,9 +145,28 @@ namespace nkuidesign {
 	/// @return l'action, ou `NkActionCtx::NB` quand la combinaison n'est liée à
 	///         rien (la valeur sentinelle, jamais une action par défaut : rendre
 	///         « Copier » pour une touche inconnue serait pire que ne rien faire).
-	inline NkActionCtx NkActionDuRaccourci(bool ctrl, bool maj, char touche) {
+	/// ⚠️ `alt` EST ARRIVÉ LE 02/09 AVEC LES COMPOSANTS, et ce n'est pas une
+	///    commodité : **les quatre gestes de composant de Lunacy passent tous par
+	///    `Ctrl+Alt`** (`K` extraire, `D` détacher, `P` états, `E` aller au
+	///    principal). Sans ce troisième modificateur il aurait fallu leur inventer
+	///    d'autres touches — c'est-à-dire diverger de la source sur le seul
+	///    chapitre qui EST la ligne d'arrivée de l'atelier.
+	inline NkActionCtx NkActionDuRaccourci(bool ctrl, bool maj, char touche, bool alt = false) {
 		if (!ctrl)
 			return NkActionCtx::NB; // toutes nos combinaisons passent par Ctrl
+		// ── LES GESTES DE COMPOSANT : `Ctrl+Alt` (source `/components`) ─────
+		// ⚠️ TESTÉS AVANT LE `switch` GÉNÉRAL, ET L'ORDRE EST LA RÈGLE : `Ctrl+D`
+		//    duplique, `Ctrl+Alt+D` détache. La même lettre, deux gestes, et le
+		//    plus spécifique se lit en premier — sinon `Ctrl+Alt+D` dupliquerait
+		//    en silence au lieu de détacher, et le rapport de défaut qui
+		//    remonterait serait « le détachement ne marche pas ».
+		if (alt) {
+			switch (touche) {
+				case 'K': return NkActionCtx::ExtraireComposant;
+				case 'D': return NkActionCtx::DetacherComposant;
+				default: return NkActionCtx::NB;
+			}
+		}
 		switch (touche) {
 			case 'C': return NkActionCtx::Copier;
 			case 'X': return NkActionCtx::Couper;
@@ -159,7 +197,7 @@ namespace nkuidesign {
 	/// Le nombre de combinaisons liées, pour que la recette les parcoure toutes
 	/// au lieu d'en citer une liste qui se périme à la première qu'on ajoute.
 	inline nkentseu::uint32 NkNbRaccourcisCtx() {
-		return 10u;
+		return 12u;
 	}
 
 	enum { kMaxEntreesCtx = 24 };
@@ -299,6 +337,22 @@ namespace nkuidesign {
 				" (pas un groupe)", false, false, NkActionCtx::Degrouper);
 		ajouter("Cadrer la sélection", "Ctrl+Alt+G", false, " (à construire)", false, true,
 				NkActionCtx::CadrerSelection);
+
+		// ── 4bis. LES COMPOSANTS DE DOCUMENT — LA LIGNE D'ARRIVÉE ────────────
+		// 🔴 C'EST LE GESTE QUE TOUT LE CHANTIER SERT : *« nkuidesign qui me
+		//    permettra de designer nos premiers composants »*. Le modèle et les
+		//    deux opérations étaient tenus par des cas depuis ce matin — mais
+		//    **un geste qui n'existe pas ne devient pas vrai parce que la
+		//    fonction dessous est éprouvée.** Voici sa porte.
+		// ⚠️ LES DEUX S'EXCLUENT, ET CHACUNE DIT POURQUOI QUAND ELLE NE PEUT PAS :
+		//    on n'extrait pas une instance (on forkerait sans le dire), et on ne
+		//    détache pas ce qui n'est pas attaché. Deux entrées toujours actives
+		//    auraient laissé l'une des deux ne rien faire en silence.
+		ajouter("Extraire en composant", "Ctrl+Alt+K", c.pasRacine && !c.estInstance,
+				c.estInstance ? " (déjà une instance)" : " (pas la racine)", false, false,
+				NkActionCtx::ExtraireComposant);
+		ajouter("Détacher l'instance", "Ctrl+Alt+D", c.estInstance, " (pas une instance)", false,
+				true, NkActionCtx::DetacherComposant);
 
 		// ── 5. Agencement et renommage ───────────────────────────────────────
 		// ⚠️ L'AGENCEMENT EXISTE, mais dans l'Inspecteur : la raison DIT OÙ, au

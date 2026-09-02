@@ -1359,6 +1359,85 @@ static nkentseu::int32 RecetteGestes() {
 				extrait && estInstance && detache && neutre && garde && refus, det);
 	}
 
+	// ── LE GESTE D'EXTRACTION, PAR LA MAIN ET NON PAR LA FONCTION ────────────
+	// 🔴 C'EST LA LIGNE D'ARRIVEE DU CHANTIER : « nkuidesign qui me permettra de
+	//    designer nos premiers composants ». Et « fini » ne veut PAS dire
+	//    « `ExtraireComposant` est tenu par deux cas » -- ca, c'etait l'etape 1.
+	//    Ca veut dire que RODOLF PEUT LE FAIRE A LA MAIN.
+	//
+	// ⚠️ CE CAS N'APPELLE DONC PAS `ExtraireComposant`. S'il le faisait, il
+	//    rejouerait ce qui est deja prouve et n'apprendrait RIEN sur le geste.
+	//    Il part d'une SELECTION reelle, demande a la table des raccourcis ce que
+	//    `Ctrl+Alt+K` signifie, passe le resultat au DISPATCHER COMMUN -- celui
+	//    du menu contextuel et du clavier -- et regarde le document.
+	//    *Un geste qui n'existe pas ne devient pas vrai parce que la fonction
+	//    dessous est eprouvee.*
+	{
+		static DesignState sg;
+		sg.doc.NewDocument("geste", NkAuthor::Humain);
+		const int32 pg = sg.doc.AddChild(0, "", NkAuthor::Humain);
+		const int32 bt = sg.doc.AddChild(pg, "", NkAuthor::Humain);
+		sg.doc.nodes[(uint32)bt].label = NkString("Bouton primaire");
+		sg.doc.nodes[(uint32)bt].shape = NkString("rect");
+		(void)sg.doc.AddChild(bt, "", NkAuthor::Humain);
+		sg.SelectSingle(bt);
+		const uint32 declAvant = (uint32)sg.doc.declarations.Size();
+		// (a) LA MAIN : `Ctrl+Alt+K` sur la selection, par les DEUX portes que
+		//     l'utilisateur emprunte -- la table des raccourcis, puis le
+		//     dispatcher commun.
+		const NkActionCtx a = NkActionDuRaccourci(true, false, 'K', true);
+		const bool traite = a == NkActionCtx::ExtraireComposant
+							&& NkAppliquerActionCtx(sg, sg.selected, a);
+		// (b) LE DOCUMENT PORTE UN COMPOSANT, ET IL PORTE LE NOM QUE LA MAIN
+		//     AVAIT DEJA DONNE. Un « composant_1 » aurait force Rodolf a renommer
+		//     avant meme de voir ce qu'il vient de creer.
+		const bool cree = (uint32)sg.doc.declarations.Size() == declAvant + 1u;
+		const bool nomme = cree
+						   && strcmp(sg.doc.declarations[declAvant].identite.nom.Data(),
+									 "Bouton primaire")
+								  == 0;
+		// (c) ET LE NOEUD SELECTIONNE EST DEVENU UNE INSTANCE -- c'est ce que
+		//     l'utilisateur voit : sa forme est toujours la, mais elle est
+		//     desormais une instance de son composant.
+		int32 inst = -1;
+		for (uint32 k = 0; k < (uint32)sg.doc.nodes.Size(); ++k)
+			if (!sg.doc.nodes[k].instanceDe.Empty())
+				inst = (int32)k;
+		const bool devenue = inst >= 0
+							 && strcmp(sg.doc.nodes[(uint32)inst].instanceDe.Data(),
+									   sg.doc.declarations[declAvant].identite.Cle().Data())
+										== 0;
+		// (d) ⚠️ ET LE COMPOSANT LOCAL NOUS APPARTIENT : auteur vide, donc la
+		//     porte de fork autorise a le modifier. Lui inventer un nom d'auteur
+		//     maintenant serait signer a la place de quelqu'un ; l'identite se
+		//     pose le jour du PARTAGE.
+		const bool aNous = cree
+						   && NkPeutModifierDeclaration(sg.doc.declarations[declAvant].identite,
+														"rodolf");
+		// (e) LE GESTE INVERSE, PAR LA MEME PORTE : `Ctrl+Alt+D` detache.
+		const NkActionCtx a2 = NkActionDuRaccourci(true, false, 'D', true);
+		const bool detache = a2 == NkActionCtx::DetacherComposant && inst >= 0
+							 && NkAppliquerActionCtx(sg, inst, a2)
+							 && sg.doc.nodes[(uint32)inst].instanceDe.Empty();
+		// (f) ⚠️ LE CONTROLE NEGATIF QUI COMPTE : la RACINE refuse, et elle le
+		//     DIT. Sans lui, un dispatcher qui extrairait n'importe quoi passerait
+		//     les cinq volets precedents.
+		const uint32 avantRacine = (uint32)sg.doc.declarations.Size();
+		const bool refuse = NkAppliquerActionCtx(sg, 0, a)
+							&& (uint32)sg.doc.declarations.Size() == avantRacine;
+		char det[256];
+		snprintf(det, sizeof(det), "Ctrl+Alt+K traite par le dispatcher=%d ; declaration creee=%d "
+							   "nommee « %s »=%d ; le noeud est devenu une instance=%d ; local "
+							   "donc modifiable=%d ; Ctrl+Alt+D detache=%d ; la racine refuse=%d",
+				 traite ? 1 : 0, cree ? 1 : 0,
+				 cree ? sg.doc.declarations[declAvant].identite.nom.Data() : "-", nomme ? 1 : 0,
+				 devenue ? 1 : 0, aNous ? 1 : 0, detache ? 1 : 0, refuse ? 1 : 0);
+		verdict("LE GESTE D'EXTRACTION EXISTE POUR LA MAIN : `Ctrl+Alt+K` sur une selection passe "
+				"par la table des raccourcis PUIS par le dispatcher commun, et le document gagne "
+				"un composant nomme comme le noeud ; `Ctrl+Alt+D` le detache ; la racine refuse",
+				traite && cree && nomme && devenue && aNous && detache && refuse, det);
+	}
+
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;
@@ -3516,7 +3595,19 @@ static nkentseu::int32 RecettePoints() {
 						  && NkActionDuRaccourci(true, false, ']') == NkActionCtx::Avancer
 						  && NkActionDuRaccourci(true, true, ']') == NkActionCtx::PremierPlan
 						  && NkActionDuRaccourci(true, false, '[') == NkActionCtx::Reculer
-						  && NkActionDuRaccourci(true, true, '[') == NkActionCtx::ArrierePlan;
+						  && NkActionDuRaccourci(true, true, '[') == NkActionCtx::ArrierePlan
+						  // LES COMPOSANTS : `Ctrl+Alt+K` / `Ctrl+Alt+D` (02/09).
+						  && NkActionDuRaccourci(true, false, 'K', true)
+								 == NkActionCtx::ExtraireComposant
+						  && NkActionDuRaccourci(true, false, 'D', true)
+								 == NkActionCtx::DetacherComposant
+						  // ⚠️ ET `Alt` DISTINGUE DEUX GESTES SUR LA MEME LETTRE :
+						  //    `Ctrl+D` duplique, `Ctrl+Alt+D` detache. Sans ce
+						  //    volet, un `switch` qui ignorerait `alt` ferait
+						  //    DUPLIQUER en silence quand on demande de detacher --
+						  //    et le rapport de defaut serait « le detachement ne
+						  //    marche pas », le symptome le moins informatif.
+						  && NkActionDuRaccourci(true, false, 'D') == NkActionCtx::Dupliquer;
 		// (b) LA TOUCHE NUE NE FAIT RIEN : toutes nos combinaisons passent par Ctrl
 		const bool nuInerte = NkActionDuRaccourci(false, false, 'G') == NkActionCtx::NB
 							  && NkActionDuRaccourci(false, true, 'D') == NkActionCtx::NB;
@@ -3533,22 +3624,29 @@ static nkentseu::int32 RecettePoints() {
 		//    une liste citee a la main se perime a la premiere combinaison qu'on
 		//    ajoute -- et elle se perimerait EN SILENCE, en continuant a annoncer
 		//    « 6/6 » pendant que la table en porterait dix.
-		static const char kT[10] = {'C', 'X', 'V', 'D', 'G', 'G', ']', ']', '[', '['};
-		static const bool kM[10] = {false, false, false, false, false,
-									true,  false, true,  false, true};
+		static const char kT[12] = {'C', 'X', 'V', 'D', 'G', 'G',
+									']', ']', '[', '[', 'K', 'D'};
+		static const bool kM[12] = {false, false, false, false, false, true,
+									false, true,  false, true,  false, false};
+		static const bool kA[12] = {false, false, false, false, false, false,
+									false, false, false, false, true,  true};
 		const uint32 nbAttendu = NkNbRaccourcisCtx();
 		uint32 executables = 0;
-		for (uint32 i = 0; i < 10u && i < nbAttendu; ++i) {
+		for (uint32 i = 0; i < 12u && i < nbAttendu; ++i) {
 			st.doc.NewDocument("recette points", NkAuthor::Humain);
 			const int32 pere = poser("rect", nullptr);
 			const int32 a1 = st.doc.AddChild(pere, "", NkAuthor::Humain);
 			(void)st.doc.AddChild(pere, "", NkAuthor::Humain);
 			st.SelectSingle(a1);
-			const NkActionCtx act = NkActionDuRaccourci(true, kM[i], kT[i]);
+			// `Ctrl+Alt+D` demande une INSTANCE pour avoir un effet : on en fabrique
+			// une par le geste voisin, sinon le dispatcher refuserait a raison.
+			if (kA[i] && kT[i] == 'D')
+				(void)st.doc.ExtraireComposant(a1, "", "pour_detacher");
+			const NkActionCtx act = NkActionDuRaccourci(true, kM[i], kT[i], kA[i]);
 			if (act != NkActionCtx::NB && NkAppliquerActionCtx(st, a1, act))
 				++executables;
 		}
-		const bool toutesCouvertes = nbAttendu == 10u;
+		const bool toutesCouvertes = nbAttendu == 12u;
 		char d[224];
 		snprintf(d, sizeof(d), "%u combinaisons liees=%d ; touche nue inerte=%d ; inconnue "
 							   "sentinelle=%d ; %u/%u executables par le dispatcher commun ; "

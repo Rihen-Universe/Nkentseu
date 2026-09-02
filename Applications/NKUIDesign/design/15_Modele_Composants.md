@@ -37,6 +37,18 @@ composant de document **vit dans le fichier** et doit voyager avec lui. Les
 mélanger, c'est rendre un document non ouvrable dès que le binaire change de
 version. *Deux natures voisines, deux champs.*
 
+📌 **ET LA MEILLEURE DÉFENSE DE CETTE DÉCISION EST ARRIVÉE TOUTE SEULE, LE JOUR
+MÊME.** Le tout premier cas de recette écrit sur ce modèle cherchait le mot
+« composant » dans un fichier pour vérifier qu'aucune déclaration n'y était
+écrite — et il trouvait la **clé de nœud** `composant`, celle du composant *de
+code*. Il déclarait donc le document non conforme alors qu'il l'était.
+
+> **Si un contrôle de trois lignes les confond déjà, un champ partagé les aurait
+> confondues pour toujours.**
+
+*Cette phrase remplace un paragraphe d'explication, et elle est là pour le
+prochain qui trouvera la séparation superflue.*
+
 ---
 
 ## 15.2 LES QUATRE OBJETS, ET RIEN DE PLUS
