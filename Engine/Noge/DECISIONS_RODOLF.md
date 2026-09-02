@@ -17,6 +17,7 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 | ~~**A**~~ → **A′** 🔴 | ✅ **FAIT, et ça a RÉFUTÉ le vert Web.** Tu as lancé sur ta carte : `PBR` ne se lie pas — **17 unités de texture demandées, 16 accordées**, écran vide. Le vert d'hier venait de SwiftShader, plus permissif que le matériel. **Ce qui t'attend maintenant, ce n'est plus un test, c'est une décision** : lancer la **variante réduite de `PBR`** (conçue, chiffrée **~2-3 j**, non codée). ⚠️ macOS/iOS étant bloquées par la signature, **ce défaut coûte 3 plateformes sur 7**. Tout en **section 10**. | **toi** — dire quand | ~2-3 j |
 | ~~**B**~~ | ✅ **FAIT le 02/09 à 19h31 — HarmonyOS REND LA 3D.** Tu as lancé l'émulateur, j'ai installé le `.hap` du 10/08 et **lu le HUD moi-même** : `Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres portées. **5 cibles sur 7.** ⚠️ Réserve écrite : binaire du **10/08**, donc l'image prouve « HarmonyOS rendait la 3D le 10/08 » — un re-test sur un `.hap` à jour reste à faire, **comme pour Linux**. Détail : **carte, section 9**. | — | fait |
 | **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
+| **E** | 🦴 **Faut-il UNIFIER les deux conventions de pose de repos ?** `NkRetargetSkeleton` (local relatif au parent) contre `NkSkeletonDef` (matrices bind/inverse-bind). Mesure faite : **ce ne sont pas deux versions d'une même chose**. Coûts, apports et recommandation au **bloc 11**. | **toi** | une phrase |
 | **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
 
 ### ✅ CE QUI EST TRANCHÉ — n'y reviens que si tu changes d'avis
@@ -1021,6 +1022,64 @@ serviront que si une cible future descend sous 13.
 mieux que 11 avec* : la perte est visible, la marge ne l'est pas. On ne paie pas
 en qualité une sécurité qu'on peut obtenir en rangement.
 
+### 🔬 ÉTAPE 2 — LA MESURE A CORRIGÉ MA CONCEPTION : un seul sampler suffit
+
+⚠️ **J'avais conçu quatre fusions avant d'aller lire le shader. En le lisant,
+deux d'entre elles se sont révélées inutiles ou fausses.** Ce que la lecture
+donne, sampler par sampler :
+
+| candidat | ce que la lecture montre | verdict |
+|---|---|---|
+| **`tShadowAtlasRaw`** | **1 seul usage**, dans la recherche de bloqueurs **PCSS** (`NkShadowAtlas.glsli:228`). Or `ApplyQuality()` met `pcss = false` en `NK_MOBILE` et `NK_LOW` — et `ForTarget()` donne `NK_MOBILE` au Web. **Sur la cible contrainte, ce sampler est déjà dans une branche morte.** | ✅ **GRATUIT** — rien à fusionner, rien à éteindre : la fonctionnalité est déjà désactivée par le palier de qualité |
+| `tVoxelOpacity` | 🔴 **je l'avais classé « jamais échantillonné » — c'était FAUX.** Le `grep` sur `pbr.frag.nksl` ne montrait que sa déclaration ; il est échantillonné dans `Include/NkVoxelAO.glsli:57`, inclus ligne 168. | ❌ **pas libre** — l'éteindre reste une extinction, à garder en réserve |
+| `tEnvIrradiance` + `tEnvPrefilter` | fusion réelle, change l'éclairage indirect | ⏳ **demande une capture A/B** |
+| `tLTC1` + `tLTC2` | atlas 2D — le repliage des UV touche 5 sites | ⏳ **la plus coûteuse des quatre**, comme pressenti |
+| `tSkyEnvCube` | réutiliser le cube IBL change le reflet miroir | ⏳ **demande une capture A/B** |
+
+> 🔑 **`17 − 1 = 16 ≤ 16`. Le seul retrait gratuit suffit à faire tenir la
+> cible** — sans fusionner quoi que ce soit, sans rien éteindre, sans toucher à
+> l'éclairage. Marge : **0**.
+>
+> 📌 **Et c'est la leçon de méthode du lot** : *j'ai conçu quatre fusions avant
+> de lire le shader ; la lecture en a rendu deux inutiles et une fausse.* La
+> conception sur inventaire de noms est plus rapide que la lecture — et c'est
+> exactement pour ça qu'elle se trompe.
+
+**Ce qui reste à décider, et c'est à toi** : 16/16 tient, mais **sans marge** —
+et c'est précisément l'état qui a produit le défaut du 11 août. Deux voies :
+
+| | ce qu'on fait | résultat | prix |
+|---|---|---|---|
+| **a** | le retrait gratuit **seul** | **16/16**, marge 0 | aucun — livrable sans capture |
+| **b** | + les fusions IBL et sky | **14/16**, marge 2 | 2 captures A/B, GPU requis |
+
+🔵 **Ma recommandation : (a) maintenant, (b) quand le GPU sera libre.** *16 livré
+sans risque vaut mieux que 14 promis* — et le banc, lui, est déjà là pour dire le
+jour où le shader repassera au-dessus.
+
+⛔ **Pourquoi je n'ai pas codé (a) ce soir, et c'est un blocage nommé** : le
+retrait doit être **conditionnel au budget mesuré**, jamais inconditionnel — le
+bureau garde ses 17 samplers et son PCSS. Or **NkSL n'a aucune injection de
+`#define`** : `NkSLCompileOptions` (`NkSLTypes.h:419`) porte versions, modèles de
+shader et drapeaux — **aucune macro**. Les deux mécanismes possibles :
+1. **ajouter l'injection de macros à `NkSLCompileOptions`** — propre, réutilisable,
+   mais c'est une évolution du langage, pas un correctif ;
+2. **étendre la transformation de source qui existe déjà** —
+   `NkWebGL2AdaptGLSL`/`NkWebMergeCookieSamplers` (`NkOpenglDevice.cpp:2013`)
+   réécrit déjà la source pour la cible contrainte. Le retrait de
+   `tShadowAtlasRaw` y tiendrait en quelques lignes, **juste à côté de la fusion
+   des cookies qui est exactement la même famille**.
+
+🔵 **La (2) est la bonne** — la porte de la maison le dit : *avant d'écrire un
+mécanisme, chercher qui le porte déjà*. Le mécanisme existe, il est éprouvé, et
+il est déjà branché sur ce chemin exact. ⚠️ Mais il est aujourd'hui piloté par
+`#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)` — **un test de plateforme**. Le
+brancher sur `fragmentTextureUnits` (posé à l'étape 1) le rendrait piloté par la
+**limite mesurée**, ce qui est la règle. *Ce n'est plus un correctif Web : c'est
+la suppression d'un `si (web)`.*
+
+**Chiffrage : une demi-journée** pour (a) par la voie (2), banc à l'appui.
+
 **Le détail — quatre fusions, aucune perte notable :**
 
 | # | sacrifice | gain | coût visuel |
@@ -1030,7 +1089,7 @@ en qualité une sécurité qu'on peut obtenir en rangement.
 | 3 | **`tLTC1`+`tLTC2` → un atlas 2D** (deux LUT 64×64, elles tiennent côte à côte) | **1** | nul |
 | 4 | **`tSkyEnvCube` réutilise le cube IBL** quand le ciel est la source | **1** | nul dans la démo |
 | | **total par FUSION** | **4** | 27 − 10 − 4 = **13 ≤ 16** ✅ |
-| — | *en RÉSERVE, non appliqué* : `tVoxelOpacity` et `tMatcap` éteints (repli : AO analytique, matcap neutre) | *2* | *visible — ne servira que si une cible descend sous 13* |
+| — | 🗄️ **RÉSERVE DISPONIBLE, non appliquée** : `tVoxelOpacity` et `tMatcap` éteints (repli : AO analytique, matcap neutre) | *2* | *visible. **Ce n'est pas un renoncement** : c'est deux unités qu'on sait où prendre, le jour où une cible descendrait sous le budget actuel. On ne les dépense pas parce qu'on n'en a pas besoin.* |
 
 📌 **Marge : 3 unités, pas 0.** *Un correctif qui atteint pile la limite recasse
 au prochain sampler ajouté* — c'est littéralement ce qui s'est produit le
@@ -1117,6 +1176,61 @@ dans ce dossier.
 *C'est le seul banc de ce lot qui aurait attrapé le défaut le 11 août à 00h01.*
 
 ---
+
+---
+
+---
+
+## 11. 🦴 UNIFIER LES DEUX CONVENTIONS DE POSE DE REPOS ? — question posée, non tranchée
+
+**Le contexte** : tu as approuvé la descente de `NkSkeletonDef` dans `NKAnima`
+(bloc 6, point 1). En la préparant, j'ai mesuré les deux structures qui vont
+cohabiter dans `nkentseu::anim` — et **elles ne se ressemblent pas**.
+
+| | `anim::NkRetargetSkeleton` (noyau, existant) | `NkSkeletonDef` (celui qui descend) |
+|---|---|---|
+| forme | **4 tableaux parallèles** : `parent`, `bindLocal`, `names`, `topo` | **1 tableau de structures** : `bones[]` de `{name, parent, bindPose, inverseBindPose}` |
+| pose de repos | `NkMat4f` **LOCAL**, relatif au parent | matrices **bind / inverse-bind** (monde) |
+| ordre | `topo` explicite (parents avant enfants), avec détection de cycle | implicite : `parent < i` supposé |
+| nom | `NkString` | `char[64]` |
+| services | `BindWorldPos`, `BindWorld`, `BindHeight`, `BuildTopo` | `FindBone` |
+
+> 🔴 **Ma conclusion, et elle est nette : ce ne sont pas deux versions d'une même
+> chose, ce sont deux structures différentes.** L'une décrit un squelette
+> **à recibler** (on part d'une pose locale, on dérive le monde par FK) ; l'autre
+> décrit un squelette **à peaufiner pour le GPU** (les matrices inverse-bind sont
+> exactement ce que la peau consomme). Chacune est dans la forme qui sert son
+> usage.
+
+**Le déplacement n'a donc PAS besoin de les unifier**, et je ne les unifie pas :
+elles coexistent dans `nkentseu::anim`, comme deux types voisins et distincts.
+
+### Ce que l'unification coûterait, et ce qu'elle apporterait
+
+| | |
+|---|---|
+| ✅ **apport** | **un seul squelette dans le moteur.** Aujourd'hui, recibler une animation vers un personnage Noge demande une conversion à la main, que personne n'a écrite — donc le reciblage (660 lignes, livré le 06/08) **ne sert pas encore Noge**. Unifier, c'est brancher l'un sur l'autre. |
+| ✅ **apport** | une seule convention à apprendre, un seul format `.nkskel` le jour où il existera. |
+| 💸 **coût** | `BindWorld()` est une **FK récursive** : passer de local à monde est un calcul, pas une lecture. Le faire à chaque image serait une régression ; le faire à la construction demande un cache — donc un troisième état. |
+| 💸 **coût** | `topo` + détection de cycle n'existent pas côté `NkSkeletonDef` : soit on les ajoute (et on alourdit l'actif partagé), soit on les perd (et on réintroduit le risque de boucle infinie que `BuildTopo` attrape). |
+| 💸 **coût** | `NkString` contre `char[64]` : l'actif partagé est **copié par valeur dans l'ECS** au moment de la construction. Un `NkString` y met une allocation par os. |
+| 🔴 **risque** | six consommateurs recompilent, et **c'est un changement de contrat, pas un déplacement** — le recensement doit passer par le compilateur, comme pour `NkSkeleton`, où `NkAssetIODemo` atteignait le type par un **champ** sans jamais écrire son nom. |
+
+### 🔵 Ce que je recommande, et pourquoi c'est « pas maintenant »
+
+**Garder les deux, et écrire UNE fonction de conversion** `NkRetargetSkeleton →
+NkSkeletonDef`, le jour où un cas réel la demande — c'est-à-dire le jour où on
+recible une animation sur un personnage Noge. Aujourd'hui **aucun code ne fait ce
+trajet** : unifier maintenant, ce serait payer un changement de contrat pour un
+besoin que rien n'exerce.
+
+*C'est la même règle que pour `NKAnimPhysics` au bloc 7 : on l'exerce quand un
+jeu jouera l'équilibre, pas avant.*
+
+**Ta décision** : (a) on garde les deux et on écrit la conversion au premier
+besoin réel — ma recommandation ; (b) on unifie maintenant, en acceptant le
+changement de contrat et sa journée de recensement au compilateur.
+
 
 ## Ce qui est fait et ne t'attend pas
 
