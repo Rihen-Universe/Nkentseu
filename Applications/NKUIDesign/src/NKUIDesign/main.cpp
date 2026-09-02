@@ -1309,9 +1309,19 @@ static nkentseu::int32 RecetteGestes() {
 		//    -- le cas serait juste et sa ligne de detail mentirait, ce qui est
 		//    pire qu'un cas faux : on lit le chiffre, pas l'assertion.
 		const uint32 nbApresExtraction = (uint32)d.nodes.Size();
-		const bool estInstance = inst >= 0
-								 && d.nodes[(uint32)inst].children.Empty()
-								 && nbApresExtraction == nbAvant - 2u;
+		// 🔴 CE VOLET A CHANGE DE SENS LE 02/09, ET C'EST UNE MESURE QUI L'A
+		//    IMPOSE. Il exigeait l'inverse : « l'instance n'a plus d'enfants, le
+		//    document en a DEUX de moins ». Cette conception-la faisait PERDRE SON
+		//    LIBELLE a un bouton extrait (3 commandes de peintre avant, 2 apres --
+		//    voir le cas « une instance peint le contenu de sa declaration »).
+		//    L'instance GARDE desormais son sous-arbre, la declaration en detient
+		//    la copie de reference. On exige donc le contraire : le document ne
+		//    perd RIEN.
+		// ⚠️ *Un cas qui se met a exiger l'inverse de la veille est un cas qu'il
+		//    faut relire, pas ajuster jusqu'au vert.* Celui-ci a ete relu : c'est
+		//    la conception qui etait fausse, et le volet qui la refletait.
+		const bool estInstance = inst >= 0 && !d.nodes[(uint32)inst].children.Empty()
+								 && nbApresExtraction == nbAvant;
 		// (b) DETACHER : la descendance revient, la reference s'efface.
 		const bool detache = inst >= 0 && d.DetacherInstance(inst)
 							 && d.nodes[(uint32)inst].instanceDe.Empty()
@@ -1346,7 +1356,7 @@ static nkentseu::int32 RecetteGestes() {
 		// (d) UN NŒUD ORDINAIRE NE SE DETACHE PAS : refus franc.
 		const bool refus = !d.DetacherInstance(pg) && !d.DetacherInstance(0);
 		char det[256];
-		snprintf(det, sizeof(det), "extrait=%d (declaration de %u nœuds) ; instance sans enfants "
+		snprintf(det, sizeof(det), "extrait=%d (declaration de %u nœuds) ; instance GARDE ses enfants "
 							   "et document %u -> %u=%d ; detache=%d ; aller-retour NEUTRE=%d ; "
 							   "ecart TEXTE conserve=%d ; refus franc=%d",
 				 extrait ? 1 : 0,
@@ -1499,6 +1509,85 @@ static nkentseu::int32 RecetteGestes() {
 				"bits sont uniques et independants, et reinitialiser retire le BIT sans toucher "
 				"a la VALEUR",
 				nomsPleins && bitsUniques && couvre && independant && reinit, det);
+	}
+
+	// ── UNE INSTANCE PEINT LE CONTENU DE SA DECLARATION ──────────────────────
+	// 🔴 CE CAS EST NE D'UNE QUESTION QUE LA PALETTE A POSEE : « poser une
+	//    instance depuis la palette » n'a aucun sens si une instance NE DESSINE
+	//    RIEN. Or a l'extraction, la descendance QUITTE le document (elle vit
+	//    desormais dans la declaration) -- donc, sans resolution au peintre, un
+	//    bouton extrait PERDRAIT SON LIBELLE a l'ecran.
+	//
+	// ⚠️ MESURE PAR LES COMMANDES EMISES, comme le masquage : ce qu'on veut
+	//    savoir n'est pas « la declaration contient trois nœuds » (c'est deja
+	//    tenu) mais « l'ECRAN montre encore la meme chose ». Le nombre de
+	//    commandes du peintre avant l'extraction et apres doit etre IDENTIQUE :
+	//    extraire est un geste de STRUCTURE, il ne doit rien changer a l'image.
+	{
+		NkUIDocument d;
+		d.NewDocument("instance peinte", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		d.nodes[(uint32)pg].shape = NkString("frame");
+		d.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+		d.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].width.value = 400.f;
+		d.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].height.value = 300.f;
+		const int32 bt = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)bt].shape = NkString("rect");
+		d.nodes[(uint32)bt].label = NkString("Bouton");
+		d.nodes[(uint32)bt].posX = 20.f;
+		d.nodes[(uint32)bt].posY = 20.f;
+		d.nodes[(uint32)bt].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)bt].width.value = 160.f;
+		d.nodes[(uint32)bt].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)bt].height.value = 48.f;
+		// ⚠️ `Free` SUR LE BOUTON, ET CE N'EST PAS DU DECOR : un nœud ne se peint
+		//    que s'il est POSE, c'est-a-dire si SON PARENT agence en libre ou en
+		//    ancre. Sans cette ligne l'enfant texte n'emet AUCUNE commande, le
+		//    compte vaut 2 avant comme apres, et le cas passe au vert sans rien
+		//    discriminer. *Mesure du 02/09 : c'est exactement ce qui s'est
+		//    produit au premier essai.* Meme famille que la cible trop large des
+		//    zooms -- une donnee d'essai qui ne peut pas exprimer l'ecart rend un
+		//    volet vide sans le dire.
+		d.nodes[(uint32)bt].layout.kind = NkLayoutKind::Free;
+		const int32 tx = d.AddChild(bt, "", NkAuthor::Humain);
+		d.nodes[(uint32)tx].shape = NkString("text");
+		d.nodes[(uint32)tx].text = NkString("Valider");
+		d.nodes[(uint32)tx].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)tx].width.value = 100.f;
+		d.nodes[(uint32)tx].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)tx].height.value = 20.f;
+		NkLayoutResult lay;
+		NkComputeLayout(d, NkPaintRect{0.f, 0.f, 400.f, 300.f}, lay);
+		NkComponentInput in;
+		nkentseu::editorkit::NkRecordingPaint pv;
+		NkDocumentHost hote;
+		hote.SyncTo(d);
+		pv.Reset();
+		NkDrawDocument(pv, in, d, lay, hote, 0);
+		const uint32 avant = (uint32)pv.cmds.Size();
+		// on extrait : la descendance quitte le document.
+		const int32 decl = d.ExtraireComposant(bt, "", "bouton");
+		int32 inst = -1;
+		for (uint32 k = 0; k < (uint32)d.nodes.Size(); ++k)
+			if (!d.nodes[k].instanceDe.Empty())
+				inst = (int32)k;
+		NkLayoutResult lay2;
+		NkComputeLayout(d, NkPaintRect{0.f, 0.f, 400.f, 300.f}, lay2);
+		hote.SyncTo(d);
+		pv.Reset();
+		NkDrawDocument(pv, in, d, lay2, hote, 0);
+		const uint32 apres = (uint32)pv.cmds.Size();
+		const bool memeImage = decl >= 0 && inst >= 0 && apres == avant;
+		char det[224];
+		snprintf(det, sizeof(det), "declaration=%d instance=%d ; commandes emises %u avant -> %u "
+							   "apres extraction (identiques=%d)",
+				 decl, inst, avant, apres, memeImage ? 1 : 0);
+		verdict("UNE INSTANCE PEINT LE CONTENU DE SA DECLARATION : extraire est un geste de "
+				"STRUCTURE, donc l'ECRAN ne change pas -- le peintre emet exactement autant de "
+				"commandes apres qu'avant",
+				memeImage, det);
 	}
 
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,

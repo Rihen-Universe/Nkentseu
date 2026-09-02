@@ -1493,22 +1493,35 @@ namespace nkuidesign {
 				if (dc.arbre.Empty())
 					return -1;
 				declarations.PushBack(dc);
-				// La descendance quitte le document : elle vit desormais dans la
-				// declaration. ⚠️ On retire les enfants A L'ENVERS -- `RemoveSubtree`
-				// RENUMEROTE, et retirer par indice croissant viserait le mauvais
-				// noeud au second tour (meme piege que `Suppr` sur les sommets).
-				NkVector<int32> kids = nodes[(uint32)node].children; // copie
-				for (int32 k = (int32)kids.Size() - 1; k >= 0; --k) {
-					NkVector<int32> remap;
-					const int32 avant = kids[(uint32)k];
-					if (IsValidIndex(avant))
-						RemoveSubtree(avant, &remap);
-					// `node` a pu se renumeroter : on le suit par la table.
-					if (node >= 0 && node < (int32)remap.Size())
-						node = remap[(uint32)node];
-				}
-				if (!IsValidIndex(node))
-					return -1;
+				// 🔴 LA DESCENDANCE **RESTE DANS LE DOCUMENT**, ET C'EST UNE MESURE
+				//    QUI L'A DECIDE, PAS UNE PREFERENCE.
+				//
+				//    Ma premiere version la RETIRAIT : la declaration devenait
+				//    seule detentrice du sous-arbre, l'instance n'etait qu'une
+				//    reference. Defendable sur le papier, FAUX a l'ecran. Le cas
+				//    « une instance peint le contenu de sa declaration » l'a
+				//    mesure : **3 commandes de peintre avant l'extraction, 2
+				//    apres** -- autrement dit, extraire un bouton lui faisait
+				//    PERDRE SON LIBELLE.
+				//
+				//    La cause est structurelle, pas un oubli de dessin : les nœuds
+				//    d'une declaration ne passent pas par `NkComputeLayout`, donc
+				//    ils n'ont aucun rectangle, donc rien ne peut les peindre. Les
+				//    resoudre au peintre aurait demande de les resoudre AUSSI a la
+				//    disposition -- deux mecanismes de plus pour retrouver ce que
+				//    le document savait deja faire.
+				//
+				// ⚠️ L'INSTANCE GARDE DONC SON SOUS-ARBRE MATERIALISE, la
+				//    declaration en detenant la copie de reference. C'est ce que
+				//    fait Figma, et ca rend trois choses gratuites : le dessin, la
+				//    disposition, et le detachement -- qui n'a plus rien a
+				//    rematerialiser. *Extraire devient un geste de STRUCTURE qui ne
+				//    change RIEN a l'image, ce que le cas exige desormais.*
+				//
+				// 📌 Le prix est une duplication (la declaration + chaque
+				//    instance), et il est assume : c'est ce qui permettra a la
+				//    propagation (Q51) de reecrire les instances sans que le
+				//    document ait a resoudre une reference a chaque image.
 				nodes[(uint32)node].instanceDe = declarations[(uint32)declarations.Size() - 1]
 													 .identite.Cle();
 				nodes[(uint32)node].ecarts = 0;
@@ -1537,16 +1550,19 @@ namespace nkuidesign {
 				const int32 d = TrouverDeclaration(nodes[(uint32)node].instanceDe.Data());
 				if (d < 0)
 					return false;
-				NkUIDocument tmp;
-				DocumentDepuisArbre(declarations[(uint32)d].arbre, tmp);
-				// la racine de la declaration correspond a `node` lui-meme : on ne
-				// recopie que SES ENFANTS, dans l'ordre.
-				if (tmp.IsValidIndex(1)) {
-					const NkVector<int32> kids = tmp.nodes[1].children; // copie
-					for (uint32 i = 0; i < (uint32)kids.Size(); ++i)
-						if (tmp.IsValidIndex(kids[i]))
-							CopierSousArbre(tmp, kids[i], node);
-				}
+				// 🔴 IL N'Y A PLUS RIEN A REMATERIALISER, ET C'EST LE BENEFICE DE
+				//    LA CORRECTION D'A COTE : depuis que l'instance GARDE son
+				//    sous-arbre, detacher ne recopie rien -- il retire seulement le
+				//    lien. Ma version precedente recopiait les enfants de la
+				//    declaration ; laissee ici, elle les aurait AJOUTES A CEUX QUI
+				//    SONT DEJA LA, et un bouton detache se serait retrouve avec
+				//    deux libelles superposes.
+				//
+				// ⚠️ ET LES ECARTS SONT AINSI FUSIONNES SANS EFFORT : les champs
+				//    propres du nœud n'ont jamais ete touches, donc une instance
+				//    dont le texte etait surcharge garde SON texte. La regle du
+				//    §15.4 (« fusionnes, pas jetes ») devient une propriete de la
+				//    structure au lieu d'une precaution a tenir.
 				nodes[(uint32)node].instanceDe = NkString("");
 				nodes[(uint32)node].ecarts = 0;
 				return true;
