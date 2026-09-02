@@ -2442,18 +2442,13 @@ namespace nkuidesign {
 				//    La correction va a la VUE, une seule fois, et elle se calcule
 				//    depuis la geometrie de la barre -- pas depuis un nombre choisi
 				//    a l'oeil qui se decalerait au premier changement de largeur.
-				if (!mVuePosee) {
+				if (!mVuePosee && mSt->vuePosee) {
 					mVuePosee = true;
-					if (mSt->vuePosee) {
-						// La vue demandee en ligne de commande (protocole de
-						// mesure) prime sur le defaut « pas sous la barre ».
-						mSt->view.panX = mSt->vueX;
-						mSt->view.panY = mSt->vueY;
-						mSt->view.zoom = mSt->vueZ > 0.01f ? mSt->vueZ : 1.f;
-					} else {
-						mSt->view.panX = kOutilsMarge * 2.f + kOutilsLargeur;
-						mSt->view.panY = 12.f;
-					}
+					// La vue demandee en ligne de commande (protocole de
+					// mesure) prime sur le defaut « pas sous la barre ».
+					mSt->view.panX = mSt->vueX;
+					mSt->view.panY = mSt->vueY;
+					mSt->view.zoom = mSt->vueZ > 0.01f ? mSt->vueZ : 1.f;
 				}
 
 				// ⚠️ DEUX SURFACES, ET ELLES N ONT PAS LE MEME ESPACE.
@@ -2463,6 +2458,45 @@ namespace nkuidesign {
 				//    coordonnees du modele independantes du zoom et de la taille de
 				//    la fenetre.
 				mSt->view.viewport = {area.x, area.y, area.w, area.h};
+				// Les gouttieres du mobilier (E3) : rail flottant a gauche
+				// (marge + barre + marge), selecteur de zoom en bas (28 + 12).
+				mSt->view.reserveGauche = kOutilsMarge * 2.f + kOutilsLargeur;
+				mSt->view.reserveBas = 28.f + (float32)costume::EspLarge;
+				// E3 (valide par Rodolf, 02/09). ⚠️ APRES la pose du viewport, et
+				// avec une taille minimale : la premiere tentative courait sur un
+				// viewport degenere d'avant l'installation du dock -- zoom 0.05,
+				// trois timbres-poste. La TRACE ci-dessous l'a departage d'une
+				// « page immense » : la page faisait 240x520, c'est le viewport
+				// qui mentait.
+				// E3 (valide par Rodolf, 02/09) : sans vue imposee, l'OUVERTURE
+				// CADRE LE DOCUMENT dans le viewport UTILE (gouttieres du rail
+				// et du selecteur de zoom reservees -- cf. Canvas.h). Le cadrage
+				// attend que le viewport ET la disposition existent (frame 2) :
+				// il reessaie, puis retombe sur l'ancien defaut si le document
+				// est vide -- un refus silencieux qui durerait toujours aurait
+				// laisse la vue a l'origine, sous le rail.
+				if (!mVuePosee && !mSt->vuePosee && mSt->view.viewport.w > 300.f
+					&& mSt->view.viewport.h > 300.f) {
+					// ⚠️ LA PREMIERE PAGE, PAS L'ENGLOBANT DU DOCUMENT -- mesure :
+					//    l'englobant des trois pages du document reel donnait un
+					//    zoom de 5 % et trois timbres-poste dans un coin. Lunacy
+					//    ouvre sur la premiere planche ; plafond a 100 % (ouvrir
+					//    un petit artboard a 400 % desoriente autant).
+					const NkPaintRect b = EnglobantPremierePage();
+					if (mSt->view.AjusterSur(b, 0u, 1.f)) {
+						mVuePosee = true;
+						// Le cadrage DIT ce qu'il a fait -- c'est la seule trace
+						// qui distingue « la premiere page est immense » de « le
+						// zoom a ete ecrase apres coup ».
+						logger.Info("[NKUIDesign] cadrage d'ouverture : page 1 a "
+									"({0}, {1}) {2}x{3} -> zoom {4}",
+									b.x, b.y, b.w, b.h, mSt->view.zoom);
+					} else if (++mVueEssais > 8) {
+						mVuePosee = true;
+						mSt->view.panX = kOutilsMarge * 2.f + kOutilsLargeur;
+						mSt->view.panY = 12.f;
+					}
+				}
 				const NkPaintRect docSurface = {0.f, 0.f, mSt->view.ToDocLength(area.w),
 												mSt->view.ToDocLength(area.h)};
 				mSt->Recompute(docSurface);
@@ -2943,28 +2977,7 @@ namespace nkuidesign {
 					//    muette se lit comme une panne.
 					if (ctx.input.ctrlDown) {
 						auto englobantDe = [&](bool selectionSeule) -> NkPaintRect {
-							NkPaintRect b{0.f, 0.f, 0.f, 0.f};
-							bool premier = true;
-							for (uint32 k = 1; k < (uint32)mSt->doc.nodes.Size(); ++k) {
-								if (!mSt->layout.Has((int32)k))
-									continue;
-								if (selectionSeule && !mSt->sel.Contains((int32)k))
-									continue;
-								const NkPaintRect r = mSt->layout.At((int32)k);
-								if (premier) {
-									b = r;
-									premier = false;
-									continue;
-								}
-								const float32 x1 = b.x < r.x ? b.x : r.x;
-								const float32 y1 = b.y < r.y ? b.y : r.y;
-								const float32 x2 =
-									(b.x + b.w) > (r.x + r.w) ? (b.x + b.w) : (r.x + r.w);
-								const float32 y2 =
-									(b.y + b.h) > (r.y + r.h) ? (b.y + b.h) : (r.y + r.h);
-								b = {x1, y1, x2 - x1, y2 - y1};
-							}
-							return b;
+							return EnglobantDoc(selectionSeule);
 						};
 						if (ctx.input.KeyPressed(NkGuiKey::Num0)) {
 							mSt->view.Zoom100();
@@ -5453,7 +5466,10 @@ namespace nkuidesign {
 						bx += lw[i];
 						if (i == mMode)
 							dl.AddRectFilled(c, ctx.theme.accent, i == 0 ? 4.f : 0.f);
-						const NkColor ic = (i == mMode) ? ctx.theme.accent : ctx.theme.textMuted;
+						// E5 (valide par Rodolf, 02/09) : l'icone du segment ACTIF etait
+						// dessinee ACCENT SUR ACCENT -- invisible. Elle suit desormais la
+						// meme encre que son libelle : onAccent sur le segment actif.
+						const NkColor ic = (i == mMode) ? ctx.theme.onAccent : ctx.theme.textMuted;
 						const float32 iy = c.y + (h - 11.f) * 0.5f;
 						if (i == 0)
 							costume::ModeDesign(dl, c.x + 12.f, iy, ic);
@@ -6155,6 +6171,45 @@ namespace nkuidesign {
 			uint32 mMode = 0;  ///< Design / Behavior / Animation / Split
 			uint32 mOutil = 0; ///< famille d'outils active
 			bool mVuePosee = false; ///< la vue a-t-elle recu sa position de depart ?
+			nkentseu::int32 mVueEssais = 0; ///< frames d'attente du cadrage d'ouverture
+
+			/// L'ENGLOBANT des rectangles poses par la disposition (document, ou
+			/// selection seule). Une seule ecriture : le cadrage d'ouverture (E3)
+			/// et les raccourcis Ctrl+1..3 lisent la MEME boite.
+			/// Le rectangle de la PREMIERE page posee -- la cible du cadrage
+			/// d'ouverture (E3). Vide si la disposition n'est pas encore la.
+			NkPaintRect EnglobantPremierePage() const {
+				const auto &racine = mSt->doc.nodes[0];
+				for (uint32 c = 0; c < (uint32)racine.children.Size(); ++c) {
+					const int32 pg = racine.children[c];
+					if (mSt->layout.Has(pg))
+						return mSt->layout.At(pg);
+				}
+				return {0.f, 0.f, 0.f, 0.f};
+			}
+
+			NkPaintRect EnglobantDoc(bool selectionSeule) const {
+				NkPaintRect b{0.f, 0.f, 0.f, 0.f};
+				bool premier = true;
+				for (uint32 k = 1; k < (uint32)mSt->doc.nodes.Size(); ++k) {
+					if (!mSt->layout.Has((int32)k))
+						continue;
+					if (selectionSeule && !mSt->sel.Contains((int32)k))
+						continue;
+					const NkPaintRect r = mSt->layout.At((int32)k);
+					if (premier) {
+						b = r;
+						premier = false;
+						continue;
+					}
+					const float32 x1 = b.x < r.x ? b.x : r.x;
+					const float32 y1 = b.y < r.y ? b.y : r.y;
+					const float32 x2 = (b.x + b.w) > (r.x + r.w) ? (b.x + b.w) : (r.x + r.w);
+					const float32 y2 = (b.y + b.h) > (r.y + r.h) ? (b.y + b.h) : (r.y + r.h);
+					b = {x1, y1, x2 - x1, y2 - y1};
+				}
+				return b;
+			}
 			bool mPanning = false;
 			bool mMarquee = false;
 			float32 mMarqX = 0.f, mMarqY = 0.f;

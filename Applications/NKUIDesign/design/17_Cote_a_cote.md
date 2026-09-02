@@ -61,16 +61,23 @@ le rectangle du libellé perd exactement les 40 px demandés, et la mutation
 mutation). Le témoin de rendu ne couvre pas la Hiérarchie : ici, la preuve
 visuelle est la capture, pas lui.
 
-### E3 🟠 La vue par défaut ouvre le document SOUS le rail d'outils
+### E3 ✅ CORRIGÉ (02/09) — l'ouverture cadre la première page dans le viewport UTILE
 
 Notre capture : le rail flottant recouvre le bord gauche de la planche
 Connexion. Dans 22.0, la première planche démarre avec une gouttière franche à
 droite du rail. Le rail est à sa place (bord gauche de la toile) — c'est le
 **cadrage d'ouverture** qui ne lui réserve pas sa gouttière.
-→ *Traitement VALIDÉ par Rodolf (02/09, délégué au coordinateur) :
-`AjusterSur` à l'ouverture réserve la gouttière du rail ET celle du sélecteur
-de zoom en bas à droite. Preuve attendue : capture d'ouverture, planche
-entière visible, aucun chevauchement — paire A/B confinée au cadrage.*
+→ **LIVRÉ** : `AjusterSur` porte des bandes réservées (`reserveGauche` =
+rail, `reserveBas` = sélecteur de zoom) qui valent pour TOUS les ajustements
+(Ctrl+0..3 compris — ajuster la sélection sous le rail eût été le même
+défaut) ; l'ouverture cadre **la première page, plafonnée à 100 %** — pas
+l'englobant du document, qui donnait 5 % et trois timbres-poste (mesuré).
+Deux leçons payées en chemin : le premier essai courait sur un **viewport
+dégénéré** d'avant l'installation du dock (la trace de cadrage, ajoutée pour
+départager, a montré « page 240×520 → zoom 0.05 » : c'est le viewport qui
+mentait, pas la page) ; le cadrage attend désormais un viewport ≥ 300×300 et
+**journalise ce qu'il a fait**. Preuve : `captures/2026-09-02_ouverture_cadree.png`
+— planche entière, 100 %, hors du rail et du sélecteur.*
 
 ### E4 ✅ CONFORME PAR DÉCISION (Rodolf, 02/09) — nos deux rangées gagnent
 
@@ -82,14 +89,16 @@ que le prochain lecteur ne « corrige » pas vers la planche en croyant bien
 faire. *Une décision qui ne vit pas à l'endroit où la question se repose est
 une décision qui se re-perd.*
 
-### E5 🟡 Le segment actif a perdu son icône
+### E5 ✅ CORRIGÉ (02/09) — l'icône du segment actif était accent sur accent
 
 Planche : chaque segment du sélecteur de mode porte icône **et** libellé, actif
 compris (« A Design »). Chez nous : « Design » actif est texte seul, les trois
 inactifs ont leur icône. Petit, mais c'est le genre d'asymétrie qui « fait
 bricolé » sans qu'on sache dire pourquoi.
-→ *VALIDÉ (02/09) : icône + libellé sur les QUATRE segments, actif compris.
-Mesurable à la capture.*
+→ **LIVRÉ (02/09)** : la cause n'était pas une icône absente mais une icône
+**accent sur accent** — dessinée, invisible. Elle suit désormais l'encre de
+son libellé (`onAccent` sur le segment actif). Visible sur
+`captures/2026-09-02_ouverture_cadree.png` (« A Design »).*
 
 ### E6 ✅ La capture avec sélection EXISTE (`--selectionner=`, 02/09) — et sa nécessité a été payée le jour même
 

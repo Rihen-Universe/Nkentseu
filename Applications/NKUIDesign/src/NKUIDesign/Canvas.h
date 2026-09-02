@@ -158,25 +158,51 @@ namespace nkuidesign {
 			///    cadrage.
 			/// @return faux si le rectangle ne permet pas d'ajuster (rien n'est
 			///         touche) — *une commande qui ne fait rien doit le dire.*
-			bool AjusterSur(const NkPaintRect &cible, nkentseu::uint32 mode = 0) {
-				if (!(cible.w > 0.f) || !(cible.h > 0.f) || !(viewport.w > 0.f)
-					|| !(viewport.h > 0.f))
+			/// Les BANDES RESERVEES du viewport (px ecran) : la barre d'outils
+			/// flottante a gauche, le selecteur de zoom en bas. E3 du cote a
+			/// cote (valide par Rodolf, 02/09) : un cadrage qui les ignore pose
+			/// le document SOUS le mobilier. Elles s'appliquent a TOUS les
+			/// ajustements (ouverture, Ctrl+0..3) -- ajuster la selection sous
+			/// le rail serait le meme defaut. Posees par le panneau, qui seul
+			/// connait la geometrie de son mobilier.
+			float32 reserveGauche = 0.f;
+			float32 reserveBas = 0.f;
+
+			/// `zoomPlafond` (0 = aucun) : borne HAUTE demandee par l'appelant --
+			/// le cadrage d'ouverture plafonne a 100 %, parce qu'ouvrir un petit
+			/// artboard zoome a 400 % desoriente plus qu'il n'aide.
+			bool AjusterSur(const NkPaintRect &cible, nkentseu::uint32 mode = 0,
+							float32 zoomPlafond = 0.f) {
+				// Le viewport UTILE : ampute des bandes du mobilier.
+				NkPaintRect vp = viewport;
+				if (reserveGauche > 0.f && reserveGauche < vp.w * 0.5f) {
+					vp.x += reserveGauche;
+					vp.w -= reserveGauche;
+				}
+				if (reserveBas > 0.f && reserveBas < vp.h * 0.5f)
+					vp.h -= reserveBas;
+				if (!(cible.w > 0.f) || !(cible.h > 0.f) || !(vp.w > 0.f)
+					|| !(vp.h > 0.f))
 					return false;
 				const float32 kMarge = 0.96f;
-				const float32 zx = viewport.w * kMarge / cible.w;
-				const float32 zy = viewport.h * kMarge / cible.h;
+				const float32 zx = vp.w * kMarge / cible.w;
+				const float32 zy = vp.h * kMarge / cible.h;
 				float32 z = (mode == 1u) ? zx : (mode == 2u) ? zy : (zx < zy ? zx : zy);
 				if (z < MinZoom())
 					z = MinZoom();
 				if (z > MaxZoom())
 					z = MaxZoom();
+				if (zoomPlafond > 0.f && z > zoomPlafond)
+					z = zoomPlafond;
 				zoom = z;
 				// centrer : le centre du rectangle document tombe au centre du
 				// viewport, sur les DEUX axes quel que soit le mode.
 				const float32 cx = cible.x + cible.w * 0.5f;
 				const float32 cy = cible.y + cible.h * 0.5f;
-				panX = viewport.w * 0.5f - cx * zoom;
-				panY = viewport.h * 0.5f - cy * zoom;
+				// centre du viewport UTILE, exprime dans le repere du viewport
+				// complet (pan est relatif au viewport entier).
+				panX = (vp.x - viewport.x) + vp.w * 0.5f - cx * zoom;
+				panY = (vp.y - viewport.y) + vp.h * 0.5f - cy * zoom;
 				return true;
 			}
 	};
