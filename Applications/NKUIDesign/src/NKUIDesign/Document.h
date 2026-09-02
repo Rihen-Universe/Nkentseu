@@ -466,6 +466,31 @@ namespace nkuidesign {
 			};
 			nkentseu::uint8 liaison = LiaisonDroit;
 
+			/// LE TYPE PAR DÉFAUT QUAND UN SOMMET NAÎT COURBE — **Miroir**.
+			///
+			/// Décision de Rodolf, 02/09 : *« par défaut je veux Miroir. »* Et
+			/// elle **coïncide avec la source**, ce qui est la meilleure raison de
+			/// la prendre : `editing_shapes` dit, mot pour mot, *« hover the
+			/// cursor over the path, then click it to place a straight point or
+			/// double-click to place a **mirrored** point »*. Le seul geste de
+			/// Lunacy qui fabrique un point courbe d'emblée fabrique un point
+			/// **miroir**.
+			///
+			/// ⚠️ ÉCRIT UNE FOIS, ICI, ET PAS RÉPÉTÉ AUX SITES D'APPEL. Trois
+			///    endroits doivent choisir un type sans que la main le nomme (le
+			///    double-clic sur le tracé, la mise en scène `--courber`, et
+			///    demain la plume). Trois `LiaisonMiroir` écrits à la main, ce
+			///    sont trois endroits à retrouver le jour où Rodolf change d'avis
+			///    — et c'est le genre de valeur qu'on découvre incohérente six
+			///    mois plus tard, sur un seul des trois.
+			///
+			/// ⚠️ CE QU'IL NE CHANGE PAS : un sommet **ajouté au simple clic**
+			///    reste **droit**, et ce n'est pas une exception oubliée — c'est
+			///    la même phrase de la source (*« click it to place a straight
+			///    point »*). Le défaut ne vaut que pour les sommets qui naissent
+			///    COURBES, pas pour tous les sommets neufs.
+			static constexpr nkentseu::uint8 LiaisonParDefaut = LiaisonMiroir;
+
 			/// Ce sommet porte-t-il une courbe ?
 			bool Courbe() const {
 				return liaison != LiaisonDroit && (ex != 0.f || ey != 0.f || sx != 0.f || sy != 0.f);

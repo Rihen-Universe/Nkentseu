@@ -2590,14 +2590,51 @@ static nkentseu::int32 RecettePoints() {
 		NkPoserTangente(m, 1, 0.3f, 0.4f); // on pose la SORTANTE
 		const bool miroir = m.ex == -0.3f && m.ey == -0.4f;
 		// (b) ASYMETRIQUE : meme angle, la jumelle GARDE SA LONGUEUR
+		//
+		// 🔴 RE-VERIFIE A LA SOURCE LE 02/09, PARCE QUE RODOLF CONTESTAIT : « je
+		//    pense que la longueur bouge dans Asym. ». Il a raison sur ce qu'il
+		//    VOIT -- le volet (b2) le mesure : la jumelle BOUGE franchement, elle
+		//    PIVOTE, sa pointe parcourt un arc. Ce qui ne change pas, c'est sa
+		//    LONGUEUR. « Bouger » et « changer de longueur » ne sont pas la meme
+		//    chose, et c'est exactement ce que l'oeil confond sur une poignee qui
+		//    tourne.
+		//
+		// ⚠️ CE QUE LA SOURCE DIT, MOT POUR MOT (`tools/#types-of-points`) :
+		//    « Asymmetric points come with handles that share the same angle but
+		//    can have different lengths. » -- une propriete de L'ETAT, PAS du
+		//    geste. Elle ne dit NULLE PART ce que devient la longueur de la
+		//    jumelle quand on tire l'autre. La source est donc AMBIGUE sur le
+		//    point precis que Rodolf souleve, et il faut le dire plutot que de
+		//    faire parler la phrase plus qu'elle ne parle.
+		//
+		// ⚠️ CE QUI TRANCHE, C'EST LA CONVENTION DES DEUX VOISINS LES PLUS
+		//    PROCHES, et l'un des deux est explicite la ou Lunacy se tait :
+		//      - Sketch nomme ce type « Mirror angle » : « handles that can be
+		//        different distances from the vector point, but share the same
+		//        angle » -- meme formulation statique, meme silence ;
+		//      - Figma, lui, decrit LE GESTE : en « Mirror angle », « the other
+		//        handle's angle will mirror, but its length remains unchanged ».
+		//        Son API le nomme `HandleMirroring = ANGLE | ANGLE_AND_LENGTH`.
+		//    C'est ce que nous faisons. Note *non tranche par la source Lunacy,
+		//    aligne sur Figma et Sketch* dans le document de reference.
 		NkPoint2 a;
 		a.liaison = NkPoint2::LiaisonAsymetrique;
 		a.ex = -0.1f; // longueur 0,1
 		a.ey = 0.f;
+		const float32 avantEx = a.ex, avantEy = a.ey;
 		NkPoserTangente(a, 1, 0.3f, 0.4f); // sortante de longueur 0,5
 		// la jumelle doit pointer a l'oppose (-0,6 ; -0,8 normalise) x 0,1
 		const float32 lg = NkLongueur2D(a.ex, a.ey);
 		const bool memeLongueur = lg > 0.099f && lg < 0.101f;
+		// (b2) ⚠️ LE VOLET QUI REPOND A RODOLF : LA JUMELLE N'EST PAS IMMOBILE.
+		//      Sa pointe se deplace franchement (elle pivote pour se remettre a
+		//      l'oppose de la nouvelle sortante). Sans ce volet, « la longueur est
+		//      conservee » se lirait comme « la jumelle ne fait rien » -- ce qui
+		//      est FAUX, et c'est justement cette lecture qui a fait douter. Les
+		//      deux verites tiennent ensemble, et le cas les tient ensemble :
+		//      ELLE BOUGE, SA LONGUEUR NE CHANGE PAS.
+		const float32 deplJumelle = NkLongueur2D(a.ex - avantEx, a.ey - avantEy);
+		const bool jumelleBouge = deplJumelle > 0.05f;
 		// et l'angle est bien l'oppose : produit vectoriel nul, produit scalaire negatif
 		const float32 croix = a.ex * 0.4f - a.ey * 0.3f;
 		const float32 scal = a.ex * 0.3f + a.ey * 0.4f;
@@ -2617,15 +2654,17 @@ static nkentseu::int32 RecettePoints() {
 		z.ey = 0.f;
 		NkPoserTangente(z, 1, 0.f, 0.f);
 		const bool sain = (z.ex == z.ex) && (z.ey == z.ey) && z.ex == -0.1f;
-		char dd[224];
-		snprintf(dd, sizeof(dd), "miroir=%d ; asym long=%.4f (garde=%d) angle oppose=%d ; "
-							   "deconnecte immobile=%d ; longueur nulle saine=%d",
+		char dd[272];
+		snprintf(dd, sizeof(dd), "miroir=%d ; asym long=%.4f (garde=%d) angle oppose=%d JUMELLE "
+							   "BOUGE de %.3f (=%d) ; deconnecte immobile=%d ; longueur nulle "
+							   "saine=%d",
 				 miroir ? 1 : 0, (double)lg, memeLongueur ? 1 : 0, memeAngle ? 1 : 0,
-				 immobile ? 1 : 0, sain ? 1 : 0);
-		verdict("35. MIROIR (direction ET longueur), ASYMETRIQUE (meme angle, longueur de la "
-				"jumelle CONSERVEE -- le sens Lunacy, pas le sens courant) et DECONNECTE (la "
-				"jumelle ne bouge pas) font trois choses differentes",
-				miroir && memeLongueur && memeAngle && immobile && sain, dd);
+				 (double)deplJumelle, jumelleBouge ? 1 : 0, immobile ? 1 : 0, sain ? 1 : 0);
+		verdict("35. MIROIR (direction ET longueur), ASYMETRIQUE (la jumelle PIVOTE -- elle bouge "
+				"bel et bien -- mais sa LONGUEUR est conservee ; non tranche par Lunacy, aligne "
+				"sur Figma/Sketch) et DECONNECTE (la jumelle ne bouge pas) font trois choses "
+				"differentes",
+				miroir && memeLongueur && memeAngle && jumelleBouge && immobile && sain, dd);
 	}
 
 	// ── 36. LE CONTOUR PEINT DEVIENT UNE COURBE, ET LE ZOOM LA SUIT ────────
@@ -3419,6 +3458,73 @@ static nkentseu::int32 RecettePoints() {
 				"combinent, et le plancher ne retourne pas la forme",
 				nu && gauche && proportions && verticalCommande && centreFixe && combine
 					&& plancher,
+				dd);
+	}
+
+	// ── 50. LE TYPE PAR DEFAUT EST MIROIR, ET UN SOMMET NEUF RESTE DROIT ─────
+	// Decision de Rodolf, 02/09 : « par defaut je veux Miroir. » Elle COINCIDE
+	// avec la source, ce qui est la meilleure raison de la prendre --
+	// `editing_shapes`, mot pour mot : « hover the cursor over the path, then
+	// click it to place a straight point or double-click to place a MIRRORED
+	// point. »
+	//
+	// ⚠️ LES DEUX MOITIES DE LA PHRASE COMPTENT, ET LE CAS TIENT LES DEUX. Un
+	//    defaut « Miroir » applique a TOUS les sommets neufs ferait naitre courbe
+	//    le sommet du SIMPLE clic -- qui doit rester droit. C'est le genre de
+	//    generalisation qui a l'air d'obeir a la consigne tout en cassant le
+	//    geste voisin, et seul le volet (b) l'attrape.
+	{
+		st.doc.NewDocument("recette points", NkAuthor::Humain);
+		const int32 iD = poser("rect", nullptr);
+		NkUINode &n = st.doc.nodes[(uint32)iD];
+		NkMaterialiserSommets(n);
+		// (a) LE DEFAUT EST BIEN MIROIR, et il est NOMME une seule fois.
+		const bool defautMiroir = NkPoint2::LiaisonParDefaut == NkPoint2::LiaisonMiroir;
+		// (b) ⚠️ UN SOMMET AJOUTE AU SIMPLE CLIC RESTE DROIT (l'autre moitie de la
+		//     phrase source). Sans ce volet, un defaut applique partout passerait.
+		const int32 nSimple = NkInsererSommet(n, 1u, 0.5f);
+		const bool simpleResteDroit = nSimple >= 0
+									  && n.sommets[(uint32)nSimple].liaison
+											 == NkPoint2::LiaisonDroit
+									  && !n.sommets[(uint32)nSimple].Courbe();
+		// (c) LE SOMMET NE AU DOUBLE-CLIC EST MIROIR, ET IL A DEJA SES POIGNEES --
+		//     c'est la porte du panneau qu'on appelle, pas une pose a la main.
+		const int32 nDouble = NkInsererSommet(n, 2u, 0.5f);
+		bool doubleEstMiroir = false, doublePoignees = false;
+		if (nDouble >= 0) {
+			NkPoserLiaisonSommet(n, (uint32)nDouble, NkPoint2::LiaisonParDefaut);
+			const NkPoint2 &pd = n.sommets[(uint32)nDouble];
+			doubleEstMiroir = pd.liaison == NkPoint2::LiaisonMiroir;
+			doublePoignees = pd.Courbe() && NkLongueur2D(pd.ex, pd.ey) >= 0.04f
+							 && NkLongueur2D(pd.sx, pd.sy) >= 0.04f;
+		}
+		// (d) ET IL EST VRAIMENT MIROIR, PAS SEULEMENT ETIQUETE : les deux
+		//     poignees sont opposees EN DIRECTION ET EN LONGUEUR. Une etiquette
+		//     « Miroir » sur des tangentes dissymetriques serait le defaut que
+		//     `NkPoserLiaison` existe pour eviter.
+		bool vraimentMiroir = false;
+		if (nDouble >= 0) {
+			const NkPoint2 &pd = n.sommets[(uint32)nDouble];
+			const float32 sx = pd.ex + pd.sx, sy = pd.ey + pd.sy; // somme ~ nulle
+			vraimentMiroir = NkLongueur2D(sx, sy) < 0.0001f;
+		}
+		char dd[224];
+		snprintf(dd, sizeof(dd), "defaut=Miroir(%d) ; simple clic -> droit=%d ; double -> "
+							   "miroir=%d poignees=%d (%.3f/%.3f) opposees exactement=%d",
+				 defautMiroir ? 1 : 0, simpleResteDroit ? 1 : 0, doubleEstMiroir ? 1 : 0,
+				 doublePoignees ? 1 : 0,
+				 nDouble >= 0 ? (double)NkLongueur2D(n.sommets[(uint32)nDouble].ex,
+													 n.sommets[(uint32)nDouble].ey)
+							  : 0.0,
+				 nDouble >= 0 ? (double)NkLongueur2D(n.sommets[(uint32)nDouble].sx,
+													 n.sommets[(uint32)nDouble].sy)
+							  : 0.0,
+				 vraimentMiroir ? 1 : 0);
+		verdict("50. LE TYPE PAR DEFAUT EST MIROIR (nomme UNE fois, pas repete aux sites) : un "
+				"sommet ne au double-clic sur le trace est miroir AVEC ses poignees, et un sommet "
+				"ajoute au SIMPLE clic reste DROIT -- les deux moities de la phrase source",
+				defautMiroir && simpleResteDroit && doubleEstMiroir && doublePoignees
+					&& vraimentMiroir,
 				dd);
 	}
 

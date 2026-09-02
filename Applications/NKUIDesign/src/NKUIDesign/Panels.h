@@ -2505,7 +2505,7 @@ namespace nkuidesign {
 							for (uint32 k = 0; k < (uint32)cn2.sommets.Size(); ++k) {
 								if (!mSt->modeForme.Marque((int32)k))
 									continue;
-								NkPoserLiaisonSommet(cn2, k, NkPoint2::LiaisonMiroir);
+								NkPoserLiaisonSommet(cn2, k, NkPoint2::LiaisonParDefaut);
 							}
 							mSt->courberInitial = false;
 						}
@@ -3461,6 +3461,41 @@ namespace nkuidesign {
 											 "Sommet %d redevenu vif — le cycle boucle.",
 											 ia + 1);
 								Dire(msg, "", "");
+							}
+						} else if (nbS >= 2) {
+							// ── DOUBLE-CLIC SUR LE TRACÉ : UN POINT COURBE D'EMBLÉE
+							// ⚠️ LA SOURCE LE DIT EN UNE PHRASE, ET ELLE DIT AUSSI
+							//    L'AUTRE MOITIÉ (`editing_shapes`) : *« hover the
+							//    cursor over the path, then click it to place a
+							//    straight point or double-click to place a
+							//    MIRRORED point. »* Le simple clic garde donc son
+							//    point DROIT, quelques lignes plus bas — les deux
+							//    gestes se distinguent enfin, et c'est le §1.2 du
+							//    document de référence qui notait *« notre
+							//    double-clic sur le tracé n'est pas distingué du
+							//    simple clic »*.
+							// 📌 C'est aussi le geste qui rend VISIBLE le défaut
+							//    demandé par Rodolf : le sommet naît
+							//    `LiaisonParDefaut`, donc Miroir, avec ses deux
+							//    poignées déjà amorcées.
+							float32 t = 0.f, d = 0.f;
+							const int32 seg = NkSegmentLePlusProche(xy, nbS, ms.x, ms.y, t, d);
+							if (seg >= 0 && d <= 6.f) {
+								NkUINode &pc = mSt->doc.nodes[(uint32)mSt->modeForme.noeud];
+								const int32 neuf = NkInsererSommet(pc, (uint32)seg, t);
+								if (neuf >= 0) {
+									NkPoserLiaisonSommet(pc, (uint32)neuf,
+														 NkPoint2::LiaisonParDefaut);
+									mSt->doc.MarkHumanEdit(mSt->modeForme.noeud);
+									mSt->modeForme.tire = -1;
+									mSt->modeForme.MarquerSeul(neuf);
+									char msg[192];
+									snprintf(msg, sizeof(msg),
+											 "Sommet COURBE ajouté sur le côté %d (Miroir) — "
+											 "ses deux poignées sont posées, tire-les.",
+											 seg + 1);
+									Dire(msg, "", "");
+								}
 							}
 						}
 					}
