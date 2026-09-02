@@ -193,15 +193,42 @@ static void CaptureTick(NkEditorFrameContext &ec, void *user) {
 	//    position est repoussee hors ecran a chaque frame, avant les panneaux.
 	ec.Ui().input.mousePos = {-10000.f, -10000.f};
 	if (gCaptureFrame == 1 && gSelectionner[0]) {
+		// ⚠️ PLUSIEURS LIBELLES, SEPARES PAR VIRGULE — parce que Rodolf dit
+		//    « l'objet OU LES OBJETS », et qu'un banc qui ne sait selectionner
+		//    qu'un seul noeud ne peut pas photographier la multi-selection.
+		//    *Un harnais qui ne sait pas poser la question ne mesure rien.*
 		nkentseu::int32 trouve = -1;
-		for (nkentseu::uint32 k = 0; k < (nkentseu::uint32)gDesign.doc.nodes.Size(); ++k)
-			if (gDesign.doc.nodes[k].label.Data()
-				&& 0 == strcmp(gDesign.doc.nodes[k].label.Data(), gSelectionner)) {
-				trouve = (nkentseu::int32)k;
-				break;
+		char un[128];
+		const char *lecture = gSelectionner;
+		bool premier = true;
+		while (*lecture) {
+			nkentseu::uint32 l = 0;
+			while (*lecture && *lecture != ',' && l + 1u < (nkentseu::uint32)sizeof(un))
+				un[l++] = *lecture++;
+			un[l] = '\0';
+			while (*lecture == ',' || *lecture == ' ')
+				++lecture;
+			nkentseu::int32 ici = -1;
+			for (nkentseu::uint32 k = 0; k < (nkentseu::uint32)gDesign.doc.nodes.Size(); ++k)
+				if (gDesign.doc.nodes[k].label.Data()
+					&& 0 == strcmp(gDesign.doc.nodes[k].label.Data(), un)) {
+					ici = (nkentseu::int32)k;
+					break;
+				}
+			if (ici < 0) {
+				fputs("[NKUIDesign] --selectionner : libelle introuvable : ", stdout);
+				puts(un);
+				continue;
 			}
+			if (premier) {
+				gDesign.SelectSingle(ici);
+				premier = false;
+			} else
+				gDesign.SelectToggle(ici);
+			trouve = ici;
+		}
 		if (trouve >= 0) {
-			gDesign.SelectSingle(trouve);
+			// la selection est posee ci-dessus
 		} else {
 			// Le manque SE DIT : une photo prise « quand même » sans le dire
 			// redeviendrait le témoin d'un état vide qu'on croit plein.

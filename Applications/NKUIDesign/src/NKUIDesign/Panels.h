@@ -4135,6 +4135,75 @@ namespace nkuidesign {
 				//    laquelle gagne n'aurait dependu que de l'ordre du code.
 				//    Lunacy masque les poignees de selection en edition de points ;
 				//    on fait pareil, et le geste redevient sans ambiguite.
+				// ── LA SELECTION MULTIPLE : SON ENGLOBANT ET SA ROTATION ─────
+				// 🔴 RODOLF DIT « l'objet OU LES OBJETS selectionnes », et le
+				//    second cas n'existait pas : tout le decor de selection etait
+				//    garde par `nSel <= 1`. A deux objets, plus de boite, plus de
+				//    marqueurs — un manque DISTINCT de l'invisibilite au repos,
+				//    et qui se cachait derriere elle.
+				//
+				// ⚠️ ON MONTRE L'ENGLOBANT ET LA ROTATION, PAS LES POIGNEES DE
+				//    REDIMENSIONNEMENT : le redimensionnement multiple n'est pas
+				//    implemente, et huit carres qui ne tirent rien seraient du
+				//    chrome qui promet — le defaut deja paye avec la touche F.
+				//
+				// ⚠️ ET LA REGLE QUI RESTE : tout ce qui est selectionne doit
+				//    pouvoir tourner. Un seul groupe dans le lot, et la rotation
+				//    d'ensemble echouerait a moitie — mieux vaut ne rien montrer
+				//    que promettre un geste qui ne s'appliquera pas partout.
+				if (!modeGraphe && nSel > 1) {
+					NkPaintRect eng{0.f, 0.f, 0.f, 0.f};
+					bool premier = true, tousTournent = true;
+					for (uint32 si = 1; si < (uint32)mSt->doc.nodes.Size(); ++si) {
+						if (!mSt->sel.Contains((int32)si) || !screen.Has((int32)si))
+							continue;
+						if (!NkPeutTourner(mSt->doc.nodes[si]))
+							tousTournent = false;
+						const NkPaintRect q = screen.At((int32)si);
+						if (premier) {
+							eng = q;
+							premier = false;
+							continue;
+						}
+						const float32 x1 = eng.x < q.x ? eng.x : q.x;
+						const float32 y1 = eng.y < q.y ? eng.y : q.y;
+						const float32 x2 = (eng.x + eng.w) > (q.x + q.w) ? (eng.x + eng.w)
+																		 : (q.x + q.w);
+						const float32 y2 = (eng.y + eng.h) > (q.y + q.h) ? (eng.y + eng.h)
+																		 : (q.y + q.h);
+						eng = {x1, y1, x2 - x1, y2 - y1};
+					}
+					if (!premier && eng.w > 0.f && eng.h > 0.f) {
+						const uint16 accentM = NkDesignResolveRole("accent_ui");
+						paint.OutlineSharp(eng, accentM);
+						if (tousTournent) {
+							const float32 trM = 9.f;
+							for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
+								const NkPaintRect pr = NkPoigneeRotation(eng, k, trM);
+								const float32 cx = pr.x + pr.w * 0.5f;
+								const float32 cy = pr.y + pr.h * 0.5f;
+								const float32 ra = trM * 0.42f;
+								const float32 a0 = (k == 0)   ? 180.f
+												   : (k == 1) ? 270.f
+												   : (k == 2) ? 0.f
+															  : 90.f;
+								float32 s0 = 0.f, c0 = 0.f;
+								NkSinCosDeg(a0, s0, c0);
+								float32 px = cx + ra * c0;
+								float32 py = cy + ra * s0;
+								for (int32 sg = 1; sg <= 3; ++sg) {
+									float32 sn = 0.f, cn = 0.f;
+									NkSinCosDeg(a0 + 90.f * ((float32)sg / 3.f), sn, cn);
+									const float32 qx = cx + ra * cn;
+									const float32 qy = cy + ra * sn;
+									paint.Line(px, py, qx, qy, accentM, 1.2f);
+									px = qx;
+									py = qy;
+								}
+							}
+						}
+					}
+				}
 				if (!modeGraphe
 					&& NkAQuiLaPoignee(mSt->modeForme.noeud, mSt->selected)
 						   == NkProprioPoignee::Redimension
@@ -4212,6 +4281,60 @@ namespace nkuidesign {
 								//    au survol et pendant le geste. *Une poignée qu'on
 								//    prend pour une autre est pire qu'une poignée
 								//    invisible : elle fait douter du reste de l'outil.*
+								// 🔴 ELLES SONT REDEVENUES VISIBLES AU REPOS LE 02/09,
+								//    ET C'EST UNE CORRECTION DE CORRECTION. Rodolf :
+								//    *« je n'ai pas les marqueurs de rotation sur
+								//    l'objet sélectionné ou les objets
+								//    sélectionnés. »*
+								//    ⚠️ **On avait fait disparaître le symptôme en
+								//       faisant disparaître la fonctionnalité.** Son
+								//       reproche du 01/09 portait sur la FORME (des
+								//       disques noirs pleins qu'il a lus comme des
+								//       sommets), pas sur la PRÉSENCE — et la réponse
+								//       avait été de ne plus rien montrer. *Une
+								//       correction qui retire ce dont on se plaint
+								//       retire aussi ce qui servait.*
+								//
+								// ⚠️ LA FORME EST UN CHOIX RAISONNÉ, PAS UNE MESURE,
+								//    et il faut le dire : la capture de référence
+								//    (`lunacy_props_11`) n'est pas dans le dépôt, je
+								//    ne peux donc pas la relever au pixel comme on l'a
+								//    fait pour le reste. Le critère retenu est
+								//    NÉGATIF et vérifiable : *ne ressembler à rien de
+								//    ce qui existe déjà à l'écran.* Les sommets et
+								//    les poignées de redimensionnement sont des
+								//    CARRÉS PLEINS ; le marqueur de rotation est donc
+								//    un ARC OUVERT, fin, atténué, posé EN DEHORS du
+								//    coin. Aucune confusion possible : ni la forme,
+								//    ni la place, ni l'encre.
+								if (!sv && mRotDrag != (int32)k) {
+									const float32 cx = pr.x + pr.w * 0.5f;
+									const float32 cy = pr.y + pr.h * 0.5f;
+									const float32 ra = tr * 0.42f;
+									// un arc de trois segments — un quart de tour
+									// dont l'ouverture regarde le coin.
+									// ⚠️ `NkSinCosDeg` EXISTE DEJA (Transfo.h) : on ne
+									//    reecrit pas une trigonometrie a cote de la
+									//    sienne. Angles en DEGRES, comme tout le
+									//    reste du fichier.
+									const float32 a0 = (k == 0)   ? 180.f
+													   : (k == 1) ? 270.f
+													   : (k == 2) ? 0.f
+																  : 90.f;
+									float32 s0 = 0.f, c0 = 0.f;
+									NkSinCosDeg(a0, s0, c0);
+									float32 px = cx + ra * c0;
+									float32 py = cy + ra * s0;
+									for (int32 sg = 1; sg <= 3; ++sg) {
+										float32 sn = 0.f, cn = 0.f;
+										NkSinCosDeg(a0 + 90.f * ((float32)sg / 3.f), sn, cn);
+										const float32 qx = cx + ra * cn;
+										const float32 qy = cy + ra * sn;
+										paint.Line(px, py, qx, qy, accent, 1.2f);
+										px = qx;
+										py = qy;
+									}
+								}
 								if (sv || mRotDrag == (int32)k) {
 									paint.Fill(pr, accent, tr * 0.5f);
 									// ⚠️ ET ELLE SE DIT, puisqu'elle ne se voit plus :
