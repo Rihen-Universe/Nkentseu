@@ -123,7 +123,7 @@ l'usage --- une boîte de dialogue modale interrompt le geste, une barre non
 modale l'accompagne.
 \end{nkretenir}
 
-\begin{nkexo}
+\begin{nkpratique}
 Ouvrez le dépôt dans NKCode et faites les cinq gestes qui reviennent tous les
 jours :
 
@@ -136,4 +136,48 @@ jours :
 \item cherchez \texttt{NkCanvasApp} dans tout le dépôt --- combien de fichiers ?
 \item changez la langue de l'interface, et vérifiez que rien ne redémarre.
 \end{enumerate}
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkbilan}
+NKCode est un confort, jamais une obligation : tout ce que fait ce livre se fait
+aussi avec un éditeur quelconque et un terminal. Ce qu'il apporte est
+concentré --- la palette de commandes, l'auto-complétion réelle par clangd, la
+construction sans quitter l'éditeur. Retenez surtout que son IntelliSense lit le
+\emph{même} projet que le compilateur : s'il ne trouve pas un en-tête, c'est
+souvent le projet qui est mal décrit, pas l'éditeur qui se trompe.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Que lit clangd pour savoir où sont vos en-têtes ?
+\item Que fait \texttt{Ctrl+P}, et en quoi diffère-t-il d'une recherche de
+      fichier ordinaire ?
+\item Pourquoi une barre de recherche \emph{non modale} change-t-elle l'usage ?
+\item Peut-on construire un projet sans quitter l'éditeur ? Par quel moyen ?
+\item NKCode est-il nécessaire pour suivre ce cours ? Justifiez.
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkdemo}
+Prouvez que l'auto-complétion lit bien votre projet, et non une supposition.
+
+Créez un en-tête à vous, dans un dossier que le projet ne déclare pas.
+Incluez-le depuis un fichier source : l'auto-complétion ne doit rien proposer.
+Ajoutez ensuite le dossier aux chemins d'inclusion du \texttt{.jenga},
+rechargez, et vérifiez qu'elle propose désormais vos symboles.
+
+\textbf{Ce que la démonstration établit} : que le service dépend d'une
+\emph{donnée} --- la description du projet --- et non d'une magie de l'éditeur.
+C'est ce qui vous dira quoi corriger le jour où il ne trouve plus rien.
+\end{nkdemo}
+
+\begin{nklogique}
+Un collègue vous dit : « l'auto-complétion ne marche pas, NKCode est cassé ».
+
+Énumérez au moins quatre causes possibles, en distinguant celles qui viennent de
+l'éditeur de celles qui viennent du projet. Pour chacune, donnez la
+\emph{première chose à regarder} --- et non le correctif.
+
+Puis dites laquelle est la plus probable, et pourquoi c'est justement celle
+qu'on soupçonne en dernier.
+\end{nklogique}

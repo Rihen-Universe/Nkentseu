@@ -1035,9 +1035,20 @@ chapitre~5, appliquée à la vidéo. C'est un excellent exercice, mais commencez
 regardez. Et souvenez-vous de l'avertissement du chapitre~8 : mesurez le temps
 mur, pas le \emph{PTS} de la vidéo.
 
+\begin{nkbilan}
+Une application complète n'est pas la somme des chapitres : c'est leur
+\emph{ordre}. Créer avant d'employer, fermer dans le sens inverse de
+l'ouverture, et n'ouvrir une ressource qu'après ce dont elle dépend. Le
+« catalogue des silences » est la partie la plus utile de ce chapitre : dans
+chaque module, il existe des façons d'échouer qui ne disent rien --- un fichier
+absent, un identifiant nul, une passe sans attachement --- et la seule parade est
+de \emph{vérifier ce qu'on reçoit} plutôt que de supposer que l'absence
+d'erreur vaut succès.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Faire tomber chaque panneau, un par un]
+\begin{nkdemo}[1 — Faire tomber chaque panneau, un par un]
 Pour chacun des quatre modules, cassez volontairement une chose et notez ce que
 vous observez :
 \begin{itemize}
@@ -1050,9 +1061,9 @@ vous observez :
 Écrivez, pour chaque cas, la phrase que vous auriez aimé lire dans un journal.
 Puis ajoutez-la vraiment à votre code. Vous venez d'écrire votre propre
 catalogue des silences.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[2 — Une vraie vignette de fichier]
+\begin{nkpratique}[2 — Une vraie vignette de fichier]
 Ajoutez un cinquième panneau qui charge une image \emph{depuis le disque} avec
 \texttt{NkImage::Load}, en essayant plusieurs chemins candidats comme le fait la
 démo du dépôt. Affichez le format d'origine (\texttt{SourceFormat()}), les
@@ -1062,9 +1073,9 @@ Faites-en une vignette de 128 pixels de large en préservant le rapport d'aspect
 et affichez côte à côte l'original réduit et la vignette. Puis ajoutez un bouton
 qui sauvegarde la vignette en PNG et un autre qui tente de la sauvegarder en
 WebP. Affichez les deux valeurs de retour côte à côte. Que constatez-vous ?
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[3 — Le mélangeur]
+\begin{nkpratique}[3 — Le mélangeur]
 Ajoutez trois \texttt{SliderFloat} — Master, UI, Music — reliés aux bus
 correspondants par \texttt{GetBus(\dots)->SetVolume(\dots)}, en n'appelant le
 \emph{setter} que lorsque la valeur change.
@@ -1074,9 +1085,9 @@ Ajoutez ensuite un son long en boucle sur le bus « Music »
 chapitre~7 : le volume effectif est le produit du volume de la voix, de celui du
 bus, et de tous ses parents jusqu'au Master. Vérifiez enfin que couper « UI » ne
 touche pas à « Music ».
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[4 — Une chaîne complète, de l'image à la vidéo et retour]
+\begin{nkpratique}[4 — Une chaîne complète, de l'image à la vidéo et retour]
 Modifiez \texttt{EcrireVideoDemo} pour qu'elle ne dessine plus ses pixels à la
 main, mais qu'elle utilise une \texttt{NkImage} et ses primitives de dessin —
 comme \texttt{ConstruireVignette} — puis qu'elle envoie
@@ -1091,9 +1102,9 @@ d'écrire la première image.
 Relisez ensuite la vidéo produite et affichez-la : vous aurez fait circuler les
 mêmes pixels à travers NKImage, le codec JPEG, le conteneur AVI, le décodeur, et
 enfin le GPU. C'est toute la chaîne de ce cours en une seule fonction.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[5 — Le vôtre]
+\begin{nkpratique}[5 — Le vôtre]
 Reprenez \texttt{NkAtelier} et transformez-le en quelque chose qui vous est
 utile : une visionneuse de dossier d'images, un métronome, un petit lecteur de
 séquences, un banc d'essai de vos propres filtres d'image.
@@ -1103,4 +1114,32 @@ fonction du moteur que vous emploierez, vérifiez dans la source qu'elle fait
 bien ce que son nom annonce}. Vous savez maintenant où regarder — le
 \texttt{.cpp}, pas le commentaire ; le \texttt{ROADMAP.md}, pas le
 \texttt{.jenga} — et vous savez que la réponse est parfois « non ».
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Dans quel ordre crée-t-on fenêtre, contexte, backend et police ? Pourquoi
+      pas un autre ?
+\item Pourquoi ferme-t-on dans l'ordre inverse de l'ouverture ?
+\item Citez trois « silences » du catalogue, et ce qui les rend difficiles à
+      voir.
+\item Que faut-il faire quand une taille de fenêtre change ?
+\item Qu'est-ce qui, dans ce programme, ne pourrait pas être écrit sans les
+      chapitres précédents ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nklogique}
+Votre application se lance, la fenêtre s'ouvre, tout est noir. Aucun message
+d'erreur.
+
+\begin{enumerate}
+\item Énumérez au moins cinq causes possibles, en les rangeant par étage de la
+      pile.
+\item Pour chacune, dites ce qui la distinguerait des autres --- une observation
+      dont le résultat \emph{diffère} selon la cause.
+\item Dans quel ordre feriez-vous ces vérifications ? Justifiez par le
+      \emph{coût} de chacune, pas par sa probabilité --- et expliquez pourquoi ce
+      critère est le bon quand on ne sait rien.
+\end{enumerate}
+\end{nklogique}

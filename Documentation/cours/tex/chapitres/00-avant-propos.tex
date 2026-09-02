@@ -502,17 +502,26 @@ Trois choses à retenir de ce chapitre, et rien d'autre :
 \end{enumerate}
 \end{nkretenir}
 
+\begin{nkbilan}
+Le dépôt est bâti en couches --- Foundation, System, Runtime, Engine --- et
+chacune n'emploie que celles du dessous. Vous savez lire un \texttt{.jenga},
+construire une cible, lancer le binaire produit, et retrouver son journal dans
+\texttt{logs/}. Trois habitudes valent pour tout le reste du livre : des types
+primitifs de \emph{taille connue}, aucune allocation hors NKMemory, et un point
+d'entrée \texttt{nkmain} qui rend le programme identique sur huit plateformes.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Reconnaître la carte]
+\begin{nklogique}[1 — Reconnaître la carte]
 Sans compiler quoi que ce soit, ouvrez \nkfile{Kernel/Runtime/NKGui/NKGui.jenga}
 et \nkfile{Kernel/Runtime/NKCanvas/NKCanvas.jenga}. Relevez la liste passée à
 \texttt{nkentseudependson} dans chacun. Question : \textbf{NKGui dépend-il de
 NKCanvas ?} Notez votre réponse ; le chapitre~1 y revient et en tire toute une
 architecture.
-\end{nkexo}
+\end{nklogique}
 
-\begin{nkexo}[2 — Le premier build]
+\begin{nkpratique}[2 — Le premier build]
 Construisez et lancez la démo de référence :
 \begin{verbatim}
 cd D:\Projets\2026\Nkentseu\Nkentseu
@@ -524,12 +533,26 @@ Build\textbackslash Bin\textbackslash Release-Windows\textbackslash NKGuiDemo}
 puis \texttt{.\textbackslash NKGuiDemo.exe}) et comparez : qu'est-ce qui change à
 l'écran ? Ouvrez ensuite \nkfile{logs/app.log} et retrouvez la ligne qui indique
 le backend graphique retenu.
-\end{nkexo}
+\end{nkpratique}
 
-\begin{nkexo}[3 — Chasse aux allocations]
+\begin{nkdemo}[3 — Chasse aux allocations]
 Cherchez dans \nkfile{Kernel/Runtime/NKCanvas/src/} toutes les occurrences de
 \texttt{NkGetDefaultAllocator}. Pour chacune, identifiez qui libère l'objet et
 par quel appel. Vous devriez tomber sur le destructeur du pont NKGui, que le
 chapitre~1 détaille :
 \nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h:24-32}.
-\end{nkexo}
+\end{nkdemo}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Nommez les quatre couches du dépôt, de la plus basse à la plus haute, et
+      donnez la règle qui les relie.
+\item Pourquoi le point d'entrée s'appelle-t-il \texttt{nkmain} et non
+      \texttt{main} ?
+\item Où une application écrit-elle son journal, et pourquoi n'écrit-elle pas
+      sur la sortie standard ?
+\item Que déclare \texttt{nkentseudependson} dans un fichier \texttt{.jenga} ?
+\item Citez trois types primitifs du dépôt et dites ce qu'ils garantissent que
+      \texttt{int} ne garantit pas.
+\end{enumerate}
+\end{nkquestions}

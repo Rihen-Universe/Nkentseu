@@ -337,7 +337,7 @@ rend un défaut d'entrée impossible à situer. Quand vous hésitez : regardez
 comment le module voisin fait, et faites pareil.
 \end{nkretenir}
 
-\begin{nkexo}
+\begin{nkpratique}
 Écrivez une classe \texttt{NkTampon} qui alloue \texttt{n} octets par
 \texttt{NkAlloc} dans son constructeur et les rend par \texttt{NkFree} dans son
 destructeur. Donnez-lui une méthode \texttt{Taille() const}.
@@ -353,4 +353,55 @@ compilateur :
       \textbf{Le compilateur ne dira rien} --- c'est tout le problème. Ajoutez une
       trace dans chaque destructeur pour voir lequel manque.
 \end{enumerate}
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkbilan}
+Le C++ ajoute au C de quoi lier une donnée à ce qui la gère. \textbf{RAII} est
+la plus importante de ces additions : une ressource acquise à la construction et
+rendue à la destruction ne peut plus fuir, même si l'on sort par un chemin qu'on
+n'avait pas prévu. Les \textbf{références} évitent la copie sans les dangers du
+pointeur ; le \textbf{polymorphisme} permet d'écrire du code qui ignore le type
+exact qu'il manipule --- au prix d'un destructeur virtuel qu'il ne faut jamais
+oublier. Et Nkentseu \emph{écarte} la bibliothèque standard : les chapitres
+suivants montrent par quoi.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Qu'est-ce que RAII, et quel problème du C résout-il ?
+\item Pourquoi un destructeur de classe de base destinée à l'héritage
+      doit-il être \texttt{virtual} ?
+\item Quelle différence entre une référence et un pointeur, du point de vue de
+      ce qui est \emph{garanti} ?
+\item Que signifie « zéro bibliothèque standard » dans ce dépôt, et l'interdit
+      couvre-t-il les fonctions C ?
+\item Citez deux mots du C++ dont le nom trompe sur ce qu'ils font.
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkdemo}
+Prouvez que RAII libère même quand on sort par le milieu.
+
+Écrivez une classe qui affiche un message dans son constructeur et un autre dans
+son destructeur. Employez-la dans une fonction qui contient trois
+\texttt{return} à des endroits différents, puis appelez la fonction de façon à
+emprunter chacun des trois chemins.
+
+\textbf{Ce que la démonstration établit} : le message de destruction apparaît
+\emph{trois fois sur trois}, sans qu'aucune ligne de libération ait été écrite.
+Refaites ensuite la même chose avec un \texttt{free} manuel placé avant le
+premier \texttt{return} seulement --- et comptez ce qui manque.
+\end{nkdemo}
+
+\begin{nklogique}
+Une classe de base a un destructeur \emph{non} virtuel. On détruit un objet
+dérivé à travers un pointeur de base.
+
+\begin{enumerate}
+\item Décrivez ce qui se passe exactement.
+\item Le programme plante-t-il ? Justifiez --- et expliquez pourquoi la réponse
+      rend ce défaut particulièrement coûteux.
+\item Donnez deux façons de rendre l'erreur impossible : l'une par le
+      destructeur, l'autre par la conception de la hiérarchie.
+\end{enumerate}
+\end{nklogique}

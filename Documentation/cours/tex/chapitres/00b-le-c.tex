@@ -444,7 +444,7 @@ Déclarer sans définir compile parfaitement --- et échoue à l'édition de lie
 C'est la deuxième famille d'erreurs de la première page, et vous venez d'avoir le
 moyen de la provoquer.
 
-\begin{nkexo}
+\begin{nkpratique}
 Écrivez \texttt{NkVec2.h} (une structure à deux \texttt{float32} et une fonction
 \texttt{Longueur}) et son \texttt{NkVec2.cpp}.
 
@@ -453,4 +453,56 @@ Faites-la ensuite \textbf{échouer exprès}, deux fois : retirez un point-virgul
 l'appel (erreur d'édition de liens). Lisez les deux messages. Savoir les
 distinguer d'un coup d'\oe il vous fera gagner plus de temps que n'importe quelle
 autre astuce de ce cours.
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkbilan}
+Le C tient en peu de choses : des types de taille connue, des fonctions, des
+pointeurs, et une distinction entre la pile et le tas. Trois idées vous
+suivront partout. \textbf{Un pointeur est une adresse} --- il ne dit ni si la
+chose existe encore, ni combien il y en a. \textbf{La compilation et l'édition
+de liens sont deux étapes} : un symbole déclaré et jamais défini passe la
+première et échoue à la seconde, ailleurs et plus tard. Et \textbf{le
+préprocesseur ne comprend rien} : il remplace du texte, ce qui explique aussi
+bien son utilité que ses pièges.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelle est la différence entre déclarer et définir une fonction ?
+\item Que vaut un pointeur après la libération de ce qu'il désignait ?
+\item Pourquoi met-on \texttt{const} sur un paramètre qu'on ne modifie pas ?
+\item Qu'est-ce qui distingue la pile du tas, du point de vue de la durée de
+      vie ?
+\item \texttt{struct} et \texttt{union} : que partagent-ils, et qu'est-ce qui
+      les sépare ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkdemo}
+Prouvez qu'un pointeur pendant n'est pas détectable en le lisant.
+
+Écrivez un programme qui alloue un entier, garde son adresse, libère la mémoire,
+puis \emph{compare} le pointeur à \texttt{NULL} et affiche le résultat. Répétez
+dix fois.
+
+\textbf{Le résultat attendu, et c'est tout l'enseignement} : il n'est jamais
+\texttt{NULL}, et sa valeur ne change pas. Un pointeur libéré est
+\emph{indistinguable} d'un pointeur valide par examen.
+
+⚠️ Ne lisez pas ce que le pointeur désigne. Le programme pourrait afficher
+l'ancienne valeur sans rien signaler, et vous concluriez à tort que c'est
+inoffensif.
+\end{nkdemo}
+
+\begin{nklogique}
+Une fonction rend l'adresse d'une variable locale. Le programme compile, tourne,
+et donne le bon résultat sur votre machine.
+
+\begin{enumerate}
+\item Expliquez pourquoi il donne pourtant un résultat juste, souvent.
+\item Décrivez précisément la situation où il cesse de le donner.
+\item Un collègue conclut : « ça marche, donc c'est correct ». Réfutez-le en une
+      phrase, puis dites quel outil ou quelle mesure aurait tranché sans
+      discussion.
+\end{enumerate}
+\end{nklogique}

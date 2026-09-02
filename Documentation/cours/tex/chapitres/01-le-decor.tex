@@ -544,9 +544,19 @@ variantes : \texttt{NKENTSEU\_NKGUI\_CLASS\_EXPORT} (classe entière) et
 \texttt{NKENTSEU\_NKGUI\_API\_INLINE} (fonction \texttt{inline} exportée). Dans
 la suite de ce cours, nous les omettons pour la lisibilité.
 
+\begin{nkbilan}
+Cinq étages, et une règle : chacun ignore celui du dessus. \textbf{NKWindow}
+donne une fenêtre, \textbf{NKEvent} des événements typés, \textbf{NKCanvas} un
+GPU abstrait --- distinct de NKRHI, et les deux ne se mélangent pas dans une
+même fenêtre. \textbf{NkCanvas} dessine, \textbf{NKGui} produit une liste de
+commandes et \emph{ne connaît aucun GPU} : c'est un pont qui traduit sa
+\texttt{NkGuiDrawList}. Cette ignorance est ce qui permet à la même interface de
+sortir sur NkCanvas ou sur NKRHI sans changer une ligne.
+\end{nkbilan}
+
 \section{Exercices}
 
-\begin{nkexo}[1 — Vérifier la carte soi-même]
+\begin{nkdemo}[1 — Vérifier la carte soi-même]
 Ouvrez les trois fichiers de build suivants et relevez, pour chacun, la liste
 des modules dont il dépend :
 \nkfile{Kernel/Runtime/NKGui/NKGui.jenga},
@@ -554,18 +564,18 @@ des modules dont il dépend :
 \nkfile{Engine/NKEditorKit/NKEditorKit.jenga}.
 Dessinez le graphe. Vérifiez qu'il n'y a aucun cycle, et identifiez le seul
 module qui connaît à la fois NKGui et NKCanvas.
-\end{nkexo}
+\end{nkdemo}
 
-\begin{nkexo}[2 — Trouver le pont]
+\begin{nklogique}[2 — Trouver le pont]
 Ouvrez
 \nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h} et
 comptez : combien de méthodes publiques ? Combien de lignes au total ? Comparez
 avec les 4\,973 lignes de \texttt{NkGuiWidgets.cpp}. Que vous dit ce rapport sur
 la quantité de travail nécessaire pour porter NKGui vers un nouveau moteur de
 rendu ?
-\end{nkexo}
+\end{nklogique}
 
-\begin{nkexo}[3 — Changer de backend à chaud]
+\begin{nkpratique}[3 — Changer de backend à chaud]
 Reprenez la démo \texttt{NkCanvasDemo} du dossier Sandbox, qui accepte un
 argument de ligne de commande :
 \begin{verbatim}
@@ -577,4 +587,14 @@ Lancez-la avec chacun des backends et notez ce que vous observez. Recoupez avec
 le tableau d'état de la section 1.4 et avec \nkfile{logs/app.log}. Ce petit
 exercice vous évitera plus tard de chercher un bug dans votre code alors que le
 problème est dans le choix du backend.
-\end{nkexo}
+\end{nkpratique}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Citez les cinq étages de la pile et ce que chacun apporte.
+\item Pourquoi NKCanvas et NKRenderer sont-ils exclusifs dans une même fenêtre ?
+\item Que produit NKGui, et qu'est-ce qu'il ne fait \emph{pas} ?
+\item À quoi sert un « pont » comme \texttt{NkGuiCanvasBackend} ?
+\item Décrivez le trajet d'un clic, du système jusqu'au widget.
+\end{enumerate}
+\end{nkquestions}
