@@ -1651,6 +1651,105 @@ namespace nkuidesign {
 				return true;
 			}
 
+			// ── ② LA PROPAGATION (Q51 R1′, révisée et validée le 02/09) ──────
+			//
+			// 🔑 LA RÈGLE, DANS SES MOTS : *« si je modifie l'arrondi du composant,
+			//    ça modifie pour tous les boutons qui en héritent »* — et les
+			//    surcharges TIENNENT : *« la couleur n'est qu'une propriété »*,
+			//    deux boutons du même composant gardent chacun la leur.
+			//
+			// ⚠️ CE QUI EST COPIÉ EST CE QUI N'EST PAS SURCHARGÉ, propriété par
+			//    propriété — jamais le nœud entier. Écraser l'instance en bloc
+			//    aurait fait disparaître le travail de la main *en silence*, la
+			//    pire espèce de perte, celle que §15.4 interdit déjà au
+			//    détachement.
+			//
+			// ⚠️ ET LA DESCENDANCE N'EST PAS RETOUCHÉE ICI. Une instance porte son
+			//    sous-arbre matérialisé (voir ExtraireComposant) ; propager dans
+			//    les enfants demande une correspondance nœud-à-nœud que le modèle
+			//    ne porte pas encore. *Propager à moitié en le taisant serait pire
+			//    que ne pas propager* : la racine suit, et cette limite est écrite
+			//    ici comme dans le rapport.
+			/// @return le nombre d'instances RÉELLEMENT modifiées.
+			int32 PropagerVersInstances(int32 decl) {
+				if (decl < 0 || decl >= (int32)declarations.Size())
+					return 0;
+				const NkDeclarationComposant &dc = declarations[(uint32)decl];
+				if (dc.arbre.Empty())
+					return 0;
+				const NkUINode &ref = dc.arbre[0];
+				const NkString cle = dc.identite.Cle();
+				int32 touchees = 0;
+				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i) {
+					NkUINode &n = nodes[i];
+					if (n.instanceDe.Empty()
+						|| !NkComponentDecl::StrEq(n.instanceDe.Data(), cle.Data()))
+						continue;
+					bool bouge = false;
+					// LE FOND — sauf si l'instance l'a surchargé.
+					if (!n.Surcharge(NkUINode::EcartRemplissages)) {
+						if (!NkComponentDecl::StrEq(n.fill.Data(), ref.fill.Data())) {
+							n.fill = ref.fill;
+							bouge = true;
+						}
+						if (n.fills.Size() != ref.fills.Size()) {
+							n.fills = ref.fills;
+							bouge = true;
+						}
+					}
+					// L'APPARENCE (rayon, opacité) — même règle, autre bit.
+					if (!n.Surcharge(NkUINode::EcartApparence)) {
+						if (n.radius != ref.radius) {
+							n.radius = ref.radius;
+							bouge = true;
+						}
+					}
+					if (bouge)
+						++touchees;
+				}
+				return touchees;
+			}
+
+			/// APPLIQUER AU COMPOSANT : les propriétés de l'instance `node`
+			/// deviennent celles de sa DÉCLARATION, puis la propagation part.
+			///
+			/// 🔑 C'est le geste qui rend la règle JOUABLE À LA MAIN : sans lui,
+			///    Rodolf n'aurait aucun moyen de modifier une déclaration — elle
+			///    n'est pas un nœud qu'on sélectionne. C'est la branche
+			///    « appliquer à l'original » du dialogue à trois branches (R2′) ;
+			///    les deux autres branches attendent le dialogue lui-même.
+			///
+			/// ⚠️ LA PORTE DE PROPRIÉTÉ EST CONSULTÉE ICI, ET NULLE PART AILLEURS
+			///    (`NkPeutModifierDeclaration`, R3) : on ne modifie pas en place
+			///    la déclaration d'autrui — elle se forke. Recalculer ce critère
+			///    au site d'appel, c'est le voir diverger au premier appelant qui
+			///    l'oublie.
+			/// @return le nombre d'instances suivies, -1 si le geste est REFUSÉ.
+			int32 AppliquerAuComposant(int32 node, const char *auteurCourant) {
+				if (!IsValidIndex(node) || nodes[(uint32)node].instanceDe.Empty())
+					return -1;
+				const int32 d = TrouverDeclaration(nodes[(uint32)node].instanceDe.Data());
+				if (d < 0)
+					return -1;
+				if (!NkPeutModifierDeclaration(declarations[(uint32)d].identite, auteurCourant))
+					return -1;
+				if (declarations[(uint32)d].arbre.Empty())
+					return -1;
+				NkUINode &ref = declarations[(uint32)d].arbre[0];
+				const NkUINode &src = nodes[(uint32)node];
+				ref.fill = src.fill;
+				ref.fills = src.fills;
+				ref.radius = src.radius;
+				// ⚠️ L'INSTANCE SOURCE CESSE D'ÊTRE « SURCHARGÉE » sur ce qu'elle
+				//    vient de DONNER : sa valeur EST désormais la référence. Lui
+				//    laisser ses bits en ferait une instance éternellement en
+				//    écart d'elle-même — et le prochain changement du composant
+				//    la sauterait sans raison visible.
+				nodes[(uint32)node].ecarts &=
+					~(uint32)(NkUINode::EcartRemplissages | NkUINode::EcartApparence);
+				return PropagerVersInstances(d);
+			}
+
 			/// INSTANCIER : une NOUVELLE instance de la déclaration `decl` naît
 			/// sous `parent`. C'est la moitié « réutiliser » du chantier — sans
 			/// elle, extraire un composant ne servait qu'à le détacher.

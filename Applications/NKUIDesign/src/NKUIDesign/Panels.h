@@ -1898,6 +1898,35 @@ namespace nkuidesign {
 					st.status = NkString("Détacher : ce nœud n'est pas une instance.");
 				return true;
 			}
+			case NkActionCtx::AppliquerAuComposant: {
+				const int32 cible = st.doc.IsValidIndex(noeud) ? noeud : st.selected;
+				if (!st.doc.IsValidIndex(cible)
+					|| st.doc.nodes[(nkentseu::uint32)cible].instanceDe.Empty()) {
+					st.status = NkString("Appliquer : sélectionne une instance de composant.");
+					return true;
+				}
+				// ⚠️ L'AUTEUR COURANT EST VIDE, ET C'EST EXACT : nos composants
+				//    sont LOCAUX au document (§15.6), donc ils nous appartiennent
+				//    et le prédicat rend vrai. Le jour du partage, c'est ici que
+				//    l'identité arrivera — et la porte refusera d'elle-même la
+				//    déclaration d'autrui, sans qu'une ligne d'ici ne change.
+				const int32 suivies = st.doc.AppliquerAuComposant(cible, "");
+				if (suivies < 0) {
+					st.status = NkString("Appliquer : ce composant ne t'appartient pas — "
+										 "il se copie, il ne se modifie pas.");
+					return true;
+				}
+				st.doc.MarkHumanEdit(cible);
+				st.host.demoModels.Clear();
+				st.host.SyncTo(st.doc);
+				char b[176];
+				snprintf(b, sizeof(b),
+						 "Composant mis à jour — %d instance(s) ont suivi ; les propriétés "
+						 "surchargées sont restées.",
+						 suivies);
+				st.status = NkString(b);
+				return true;
+			}
 			case NkActionCtx::Supprimer: st.SupprimerSelection(); return true;
 			default: return false;
 		}
@@ -10962,6 +10991,16 @@ namespace nkuidesign {
 							n->fill = NkString(mFillsBuf[i]);
 						else
 							n->fills[i].couleur = NkString(mFillsBuf[i]);
+						// 🔑 ÉDITER UNE INSTANCE POSE LA SURCHARGE (Q51 R2′) : sa
+						//    couleur devient SIENNE, et la prochaine mise à jour
+						//    du composant ne la reprendra pas.
+						//    ⚠️ Sans cette ligne, la propagation écraserait le
+						//       travail de la main *en silence* — la perte que
+						//       §15.4 interdit déjà au détachement. Le bit est la
+						//       seule chose qui distingue « j'ai voulu cette
+						//       couleur » de « j'ai hérité celle-là ».
+						if (!n->instanceDe.Empty())
+							n->ecarts |= NkUINode::EcartRemplissages;
 						mSt->doc.MarkHumanEdit(mSt->selected);
 					}
 					// 3. l'OPACITÉ — la toucher MATÉRIALISE (la clé simple ne sait

@@ -69,6 +69,11 @@ namespace nkuidesign {
 		//    comme une erreur, puis se supprime.*
 		ExtraireComposant, ///< la sélection devient une déclaration + une instance (`Ctrl+Alt+K`)
 		DetacherComposant, ///< l'instance redevient un sous-arbre ordinaire (`Ctrl+Alt+D`)
+		/// Les proprietes de l'instance deviennent celles de sa DECLARATION,
+		/// puis la propagation part vers les autres instances (`Ctrl+Alt+M`).
+		/// C'est la branche « appliquer a l'original » du dialogue a trois
+		/// branches (Q51 R2') ; les deux autres attendent le dialogue.
+		AppliquerAuComposant,
 		Grouper,
 		Degrouper,
 		CadrerSelection,
@@ -164,6 +169,7 @@ namespace nkuidesign {
 			switch (touche) {
 				case 'K': return NkActionCtx::ExtraireComposant;
 				case 'D': return NkActionCtx::DetacherComposant;
+				case 'M': return NkActionCtx::AppliquerAuComposant;
 				default: return NkActionCtx::NB;
 			}
 		}
@@ -197,7 +203,7 @@ namespace nkuidesign {
 	/// Le nombre de combinaisons liées, pour que la recette les parcoure toutes
 	/// au lieu d'en citer une liste qui se périme à la première qu'on ajoute.
 	inline nkentseu::uint32 NkNbRaccourcisCtx() {
-		return 12u;
+		return 13u;
 	}
 
 	enum { kMaxEntreesCtx = 24 };
@@ -353,6 +359,10 @@ namespace nkuidesign {
 				NkActionCtx::ExtraireComposant);
 		ajouter("Détacher l'instance", "Ctrl+Alt+D", c.estInstance, " (pas une instance)", false,
 				true, NkActionCtx::DetacherComposant);
+		// ⚠️ LA RAISON DIT « pas une instance », PAS « impossible » : une
+		//    entrée grisée sans motif se lit comme une panne.
+		ajouter("Appliquer au composant", "Ctrl+Alt+M", c.estInstance, " (pas une instance)",
+				false, false, NkActionCtx::AppliquerAuComposant);
 
 		// ── 5. Agencement et renommage ───────────────────────────────────────
 		// ⚠️ L'AGENCEMENT EXISTE, mais dans l'Inspecteur : la raison DIT OÙ, au

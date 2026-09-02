@@ -1621,6 +1621,71 @@ static nkentseu::int32 RecetteGestes() {
 				posee && entiere && independantes && refus, det);
 	}
 
+	// ── ② LA PROPAGATION, PAR LE GESTE : LES DEUX CAS JUMEAUX ───────────────
+	// 🔑 C'EST LE GESTE QUE RODOLF DOIT POUVOIR JOUER A LA MAIN : deux
+	//    instances, une surchargee en couleur, on applique la couleur de
+	//    l'autre au composant -- les deux suivent, la surchargee garde la
+	//    sienne. Le cas passe par `NkActionDuRaccourci` PUIS par le dispatcher,
+	//    jamais par `AppliquerAuComposant` en direct : *un geste qui n'existe
+	//    pas ne devient pas vrai parce que la fonction dessous est eprouvee.*
+	{
+		static DesignState sp;
+		sp.doc.NewDocument("propagation", NkAuthor::Humain);
+		sp.selected = -1;
+		const int32 pg = sp.doc.AddChild(0, "", NkAuthor::Humain);
+		const int32 bt = sp.doc.AddChild(pg, "", NkAuthor::Humain);
+		sp.doc.nodes[(uint32)bt].label = NkString("Bouton");
+		sp.doc.nodes[(uint32)bt].fill = NkString("#111111");
+		(void)sp.doc.AddChild(bt, "", NkAuthor::Humain);
+		const int32 decl = sp.doc.ExtraireComposant(bt, "", "bouton");
+		// La SECONDE instance, par la porte de la palette.
+		const int32 b2 = sp.doc.InstancierComposant(decl, pg);
+		// ⚠️ ANTI-DONNEES-DEGENEREES : les deux instances partent de la MEME
+		//    couleur. Si elles differaient deja, « les deux suivent » serait
+		//    invérifiable -- on ne saurait pas si l'une a suivi ou si elle
+		//    portait ce fond depuis le debut.
+		const bool memeDepart = b2 > 0
+								&& strcmp(sp.doc.nodes[(uint32)bt].fill.Data(), "#111111") == 0
+								&& strcmp(sp.doc.nodes[(uint32)b2].fill.Data(), "#111111") == 0;
+		// (a) LA SECONDE EST SURCHARGEE EN COULEUR -- ce que fait la main dans
+		//     le champ hexa de l'inspecteur (qui pose le meme bit).
+		sp.doc.nodes[(uint32)b2].fill = NkString("#ff0000");
+		sp.doc.nodes[(uint32)b2].ecarts |= NkUINode::EcartRemplissages;
+		// (b) ON CHANGE LE FOND DE LA PREMIERE, puis on l'applique AU COMPOSANT
+		//     par le raccourci Ctrl+Alt+M -> table -> dispatcher.
+		sp.doc.nodes[(uint32)bt].fill = NkString("#00ff00");
+		sp.SelectSingle(bt);
+		const NkActionCtx a = NkActionDuRaccourci(true, false, 'M', true);
+		const bool traite = a == NkActionCtx::AppliquerAuComposant
+							&& NkAppliquerActionCtx(sp, bt, a);
+		// (c) LE JUMEAU 1 : LES DEUX SUIVENT... et la surchargee GARDE la sienne.
+		const bool source = strcmp(sp.doc.nodes[(uint32)bt].fill.Data(), "#00ff00") == 0;
+		const bool garde = strcmp(sp.doc.nodes[(uint32)b2].fill.Data(), "#ff0000") == 0;
+		// (d) UNE TROISIEME instance, NEUVE et non surchargee, doit SUIVRE --
+		//     sans elle, (c) passerait sur un code qui ne propage a personne.
+		const int32 b3 = sp.doc.InstancierComposant(decl, pg);
+		const bool suit = b3 > 0 && strcmp(sp.doc.nodes[(uint32)b3].fill.Data(), "#00ff00") == 0;
+		// (e) LE JUMEAU 2 : MODIFIER UNE INSTANCE NE TOUCHE PAS L'AUTRE.
+		sp.doc.nodes[(uint32)b3].fill = NkString("#0000ff");
+		sp.doc.nodes[(uint32)b3].ecarts |= NkUINode::EcartRemplissages;
+		const bool isole = strcmp(sp.doc.nodes[(uint32)bt].fill.Data(), "#00ff00") == 0
+						   && strcmp(sp.doc.nodes[(uint32)b2].fill.Data(), "#ff0000") == 0;
+		// (f) REFUS FRANC : un noeud ordinaire n'a rien a appliquer.
+		const bool refuse = NkAppliquerActionCtx(sp, pg, a)
+							&& sp.doc.AppliquerAuComposant(pg, "") == -1;
+		char det[256];
+		snprintf(det, sizeof(det),
+				 "meme depart=%d ; Ctrl+Alt+M traite par le dispatcher=%d ; la source porte "
+				 "#00ff00=%d ; la SURCHARGEE garde #ff0000=%d ; une instance neuve SUIT=%d ; "
+				 "modifier une instance n'en touche aucune autre=%d ; refus franc=%d",
+				 memeDepart ? 1 : 0, traite ? 1 : 0, source ? 1 : 0, garde ? 1 : 0,
+				 suit ? 1 : 0, isole ? 1 : 0, refuse ? 1 : 0);
+		verdict("PROPAGATION (Q51 R1') PAR LE GESTE : `Ctrl+Alt+M` porte la couleur d'une "
+				"instance au COMPOSANT, les instances non surchargees SUIVENT, celle qui a "
+				"surcharge sa couleur la GARDE, et modifier une instance n'en touche aucune autre",
+				memeDepart && traite && source && garde && suit && isole && refuse, det);
+	}
+
 	// ── POSER, PAR LE GESTE DE LA PALETTE ────────────────────────────────────
 	// Le double-clic de la palette passe par `NkPoserComposantDocument` : c'est
 	// ELLE qui choisit la cible et qui PARLE au pied. Meme exigence que le geste
@@ -4084,15 +4149,21 @@ static nkentseu::int32 RecettePoints() {
 		//    une liste citee a la main se perime a la premiere combinaison qu'on
 		//    ajoute -- et elle se perimerait EN SILENCE, en continuant a annoncer
 		//    « 6/6 » pendant que la table en porterait dix.
-		static const char kT[12] = {'C', 'X', 'V', 'D', 'G', 'G',
-									']', ']', '[', '[', 'K', 'D'};
-		static const bool kM[12] = {false, false, false, false, false, true,
-									false, true,  false, true,  false, false};
-		static const bool kA[12] = {false, false, false, false, false, false,
-									false, false, false, false, true,  true};
+		// ⚠️ CETTE TABLE A DU GRANDIR LE 02/09, ET C'EST LA GARDE QUI L'A
+		//    RECLAME : l'ajout de `Ctrl+Alt+M` (appliquer au composant) a fait
+		//    tomber ce cas a 51/52 avec « table complete=0 ». C'est exactement
+		//    son office -- *le compte fige est legitime quand la liste est
+		//    fermee : sa taille EST la regle, et le jour ou elle grandit, c'est
+		//    une DECISION*, pas un ajustement silencieux.
+		static const char kT[13] = {'C', 'X', 'V', 'D', 'G', 'G', ']',
+									']', '[', '[', 'K', 'D', 'M'};
+		static const bool kM[13] = {false, false, false, false, false, true, false,
+									true,  false, true,  false, false, false};
+		static const bool kA[13] = {false, false, false, false, false, false, false,
+									false, false, false, true,  true,  true};
 		const uint32 nbAttendu = NkNbRaccourcisCtx();
 		uint32 executables = 0;
-		for (uint32 i = 0; i < 12u && i < nbAttendu; ++i) {
+		for (uint32 i = 0; i < 13u && i < nbAttendu; ++i) {
 			st.doc.NewDocument("recette points", NkAuthor::Humain);
 			const int32 pere = poser("rect", nullptr);
 			const int32 a1 = st.doc.AddChild(pere, "", NkAuthor::Humain);
@@ -4100,13 +4171,16 @@ static nkentseu::int32 RecettePoints() {
 			st.SelectSingle(a1);
 			// `Ctrl+Alt+D` demande une INSTANCE pour avoir un effet : on en fabrique
 			// une par le geste voisin, sinon le dispatcher refuserait a raison.
-			if (kA[i] && kT[i] == 'D')
-				(void)st.doc.ExtraireComposant(a1, "", "pour_detacher");
+			// `Ctrl+Alt+D` ET `Ctrl+Alt+M` demandent une INSTANCE pour avoir un
+			// effet : on en fabrique une par le geste voisin, sinon le
+			// dispatcher refuserait a raison.
+			if (kA[i] && (kT[i] == 'D' || kT[i] == 'M'))
+				(void)st.doc.ExtraireComposant(a1, "", "pour_geste");
 			const NkActionCtx act = NkActionDuRaccourci(true, kM[i], kT[i], kA[i]);
 			if (act != NkActionCtx::NB && NkAppliquerActionCtx(st, a1, act))
 				++executables;
 		}
-		const bool toutesCouvertes = nbAttendu == 12u;
+		const bool toutesCouvertes = nbAttendu == 13u;
 		char d[224];
 		snprintf(d, sizeof(d), "%u combinaisons liees=%d ; touche nue inerte=%d ; inconnue "
 							   "sentinelle=%d ; %u/%u executables par le dispatcher commun ; "
