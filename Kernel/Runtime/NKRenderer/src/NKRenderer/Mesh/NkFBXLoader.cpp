@@ -1101,11 +1101,25 @@ namespace nkentseu {
 			}
 
 			// Charge (avec cache par ID) la texture FBX `texId` -> index dans
-			// out.images. `RelativeFilename`/`FileName` peuvent contenir un chemin
-			// ABSOLU de la machine d'export (Windows) : on ne garde que le nom de
-			// fichier, resolu par rapport au dossier du .fbx (comme les .bin glTF
-			// externes, cf. ResolveBufferURI). Echec de chargement = warning +
-			// slot invalide (jamais d'invention de pixels).
+			// out.images. Echec de chargement = warning + slot invalide (jamais
+			// d'invention de pixels).
+			//
+			// RESOLUTION DU CHEMIN — DEUX ESSAIS, ET L'ORDRE COMPTE.
+			// `RelativeFilename`/`FileName` peuvent contenir un chemin ABSOLU de la
+			// machine d'export ("D:\Neuer Ordner\...\textures\x.jpg") : le suivre
+			// tel quel ne trouve jamais rien chez nous. La version precedente s'en
+			// protegeait en ne gardant QUE le nom de fichier -- protection juste,
+			// mais qui detruisait le cas legitime : quand le DCC ecrit un vrai
+			// chemin RELATIF ("textures\x.jpg"), le sous-dossier etait jete et la
+			// texture cherchee UN DOSSIER TROP HAUT.
+			//   mesure du 2026-09-02, Futuristic_Car_2.1_fbx.fbx :
+			//   cherchait Resources/Models/Futuristic_Car_C.jpg
+			//   alors que le fichier est a Resources/Models/textures/Futuristic_Car_C.jpg
+			// On essaie donc (1) le chemin relatif normalise ('\' -> '/') sous le
+			// dossier du .fbx -- ignore si `rel` est absolu -- puis (2) le repli
+			// historique sur le nom de fichier seul. La protection contre les
+			// chemins absolus est conservee : un chemin absolu ne passe jamais par
+			// l'essai (1).
 			int32 LoadFbxTexture(int64 texId, const NkVector<FbxIdEntry> &textures, const NkString &baseDir,
 								 NkGLTFMeshData &out, NkVector<int64> &texIdCache, NkVector<int32> &texImgCache) {
 				for (uint32 i = 0; i < (uint32)texIdCache.Size(); ++i)
@@ -1117,6 +1131,7 @@ namespace nkentseu {
 					rel = StrOf(tex->Find("FileName"));
 				int32 idx = -1;
 				if (tex && !rel.Empty()) {
+					// Dernier segment, quel que soit le separateur.
 					NkString fname = rel;
 					for (nk_size p = fname.Length(); p > 0; --p) {
 						char ch = fname.CStr()[p - 1];
@@ -1125,17 +1140,49 @@ namespace nkentseu {
 							break;
 						}
 					}
-					NkString full = baseDir;
-					if (!full.Empty() && !full.EndsWith('/') && !full.EndsWith('\\'))
-						full.Append('/');
-					full.Append(fname);
+
+					// Chemin relatif normalise. Reste VIDE si `rel` est absolu
+					// ("D:\..." ou "/..."), ce qui desactive l'essai (1).
+					NkString relNorm("");
+					{
+						const char *r = rel.CStr();
+						const nk_size n = rel.Length();
+						const bool absWin = (n >= 2 && r[1] == ':');
+						const bool absUnix = (n >= 1 && (r[0] == '/' || r[0] == '\\'));
+						if (!absWin && !absUnix) {
+							for (nk_size p = 0; p < n; ++p)
+								relNorm.Append(r[p] == '\\' ? '/' : r[p]);
+						}
+					}
+
+					NkString dir = baseDir;
+					if (!dir.Empty() && !dir.EndsWith('/') && !dir.EndsWith('\\'))
+						dir.Append('/');
+
 					NkGLTFImage img;
 					img.uri = rel;
-					if (img.decoded.Load(full.CStr(), 4))
-						img.valid = img.decoded.IsValid();
-					if (!img.valid)
-						NkLog::Instance().Warnf("[NkFBXLoader] texture introuvable : %s (relatif='%s')",
-												full.CStr(), rel.CStr());
+
+					// (1) le chemin relatif tel que le DCC l'a ecrit.
+					NkString tried = NkString("");
+					if (!relNorm.Empty()) {
+						tried = dir;
+						tried.Append(relNorm);
+						if (img.decoded.Load(tried.CStr(), 4))
+							img.valid = img.decoded.IsValid();
+					}
+
+					// (2) repli historique : le nom de fichier seul, a cote du .fbx.
+					if (!img.valid) {
+						NkString flat = dir;
+						flat.Append(fname);
+						if (img.decoded.Load(flat.CStr(), 4))
+							img.valid = img.decoded.IsValid();
+						if (!img.valid)
+							NkLog::Instance().Warnf(
+								"[NkFBXLoader] texture introuvable : ni '%s' ni '%s' (relatif='%s')",
+								tried.Empty() ? flat.CStr() : tried.CStr(), flat.CStr(), rel.CStr());
+					}
+
 					idx = (int32)out.images.Size();
 					out.images.PushBack(static_cast<NkGLTFImage &&>(img));
 				}
