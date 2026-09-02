@@ -1,0 +1,262 @@
+\chapter{Trois lecteurs : image, son, vidéo}
+
+Un lecteur est l'application la plus simple qui soit utile : on ouvre un fichier,
+on l'affiche, on n'écrit rien. C'est aussi celle qui enseigne le plus, parce que
+tout le travail est dans la \emph{transformation} --- des pixels, des
+échantillons, des images --- et pas dans la logique.
+
+Le dépôt en contient trois. Ils sont réels, ils tournent, et ce chapitre les cite.
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+& \textbf{NkImageDemo} & \textbf{NkAudioPlayer} & \textbf{NkVideoPlayer} \\
+\midrule
+Lignes & 2\,369 & 263 & 684 \\
+Modules & NKImage & NKAudio & NKMedia + NKAudio \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}[À lire avant de copier ces trois-là]
+\textbf{Les trois sont antérieurs à \texttt{NkCanvasApp}.} Ils ouvrent la fenêtre
+eux-mêmes, dans \texttt{nkmain}, et tiennent leur propre boucle. Le patron
+d'aujourd'hui, celui du chapitre sur la coquille, fait tout cela pour vous.
+
+Ce n'est pas une raison de les ignorer --- ils montrent exactement ce que la
+coquille vous épargne --- mais c'en est une de ne pas les recopier tels quels.
+\textbf{Les convertir sur \texttt{NkCanvasApp} est d'ailleurs le meilleur
+exercice de ce chapitre}, et le premier que je vous propose.
+\end{nkpiege}
+
+\section{Le lecteur audio : réduire un million d'échantillons à mille colonnes}
+
+Un fichier de trois minutes en 44\,100 Hz contient environ huit millions
+d'échantillons. La fenêtre en fait mille de large. Il faut donc en montrer huit
+mille par colonne --- et le \emph{comment} n'est pas un détail.
+
+\begin{nkcode}{Applications/NkAudioPlayer/src/main.cpp}
+float32 lo = 1.0f, hi = -1.0f;
+for (uint64 f = f0; f < f1; ++f) {
+    float32 m = 0.0f;
+    for (int32 k = 0; k < ch; ++k)
+        m += s.data[f * (uint64)ch + (uint64)k];
+    m /= (float32)ch;
+    if (m < lo) lo = m;
+    if (m > hi) hi = m;
+}
+out[(uint64)c].lo = lo;
+out[(uint64)c].hi = hi;
+\end{nkcode}
+
+Chaque colonne garde le \textbf{minimum} et le \textbf{maximum} de sa tranche,
+puis se dessine comme un trait vertical de l'un à l'autre.
+
+\begin{nkretenir}
+\textbf{Une onde sonore oscille autour de zéro.} Si l'on affichait la
+\emph{moyenne} de chaque tranche, on obtiendrait une ligne plate au milieu de
+l'écran --- techniquement juste, et parfaitement inutile : la moyenne d'un son
+fort et la moyenne d'un silence sont toutes deux proches de zéro.
+
+Ce qui porte l'information, c'est l'\textbf{amplitude}, donc l'écart entre le
+minimum et le maximum. C'est un cas d'école du piège général : \emph{un agrégat
+peut être exact et ne rien décrire.}
+\end{nkretenir}
+
+\begin{nkpiege}
+Remarquez l'initialisation : \texttt{lo = 1.0f} et \texttt{hi = -1.0f}, à
+l'\emph{envers} des bornes attendues. C'est la seule façon correcte d'initialiser
+une recherche de minimum et de maximum : la première valeur rencontrée les
+remplace tous les deux.
+
+Initialiser à zéro serait faux --- un signal entièrement négatif rendrait
+\texttt{hi = 0}, un maximum qui n'existe pas dans les données.
+
+Et la garde qui suit compte autant :
+\texttt{if (hi < lo) \{ lo = 0; hi = 0; \}}. Elle traite la \emph{tranche vide} :
+sans elle, une colonne sans échantillon garderait \texttt{1} et \texttt{-1}, et
+dessinerait un trait pleine hauteur à partir de rien.
+\end{nkpiege}
+
+\section{Un rectangle plein, c'est deux triangles}
+
+\begin{nkcode}{Applications/NkAudioPlayer/src/main.cpp}
+static void PushQuad(NkVector<NkVertex> &v, float32 x0, float32 y0,
+                     float32 x1, float32 y1, const NkColor2D &col) {
+    NkVertex a{x0, y0, 0, 0, col.r, col.g, col.b, col.a};
+    NkVertex b{x1, y0, 0, 0, col.r, col.g, col.b, col.a};
+    NkVertex c{x1, y1, 0, 0, col.r, col.g, col.b, col.a};
+    NkVertex d{x0, y1, 0, 0, col.r, col.g, col.b, col.a};
+    v.PushBack(a); v.PushBack(b); v.PushBack(c);
+    v.PushBack(a); v.PushBack(c); v.PushBack(d);
+}
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Quatre coins, six sommets.} Le GPU ne connaît que des triangles : un
+rectangle est le triangle $abc$ plus le triangle $acd$. Les sommets $a$ et $c$
+sont donc envoyés \emph{deux fois} --- c'est normal, c'est le prix d'une liste de
+triangles.
+
+C'est exactement ce que fait \texttt{AddRectFilled} pour vous. Le voir écrit une
+fois explique tout le reste : pourquoi un dessin coûte en \emph{nombre de
+sommets}, et pourquoi regrouper les rectangles dans un même tampon est ce qui
+rend un rendu rapide.
+\end{nkretenir}
+
+\section{Le lecteur vidéo : la chaîne complète}
+
+Son en-tête donne le patron en six lignes, et il vaut d'être cité tel quel :
+
+\begin{nkcode}{Applications/NkVideoPlayer/src/main.cpp}
+//   1. NkWindow          -> fenetre native (Win/Linux/macOS/...)
+//   2. NkRenderWindow    -> cible de rendu 2D NKCanvas
+//   3. NkVideoReader     -> decode chaque image en RGBA
+//   4. NkTexture         -> recoit les pixels RGBA de l'image courante (Update)
+//   5. NkSprite          -> affiche la texture, mise a l'echelle
+//   6. boucle cadencee au fps de la video (Clear -> Draw -> Display)
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Il n'y a aucune API « vidéo » dans le rendu.} Une vidéo, pour l'écran,
+c'est une texture qu'on remplace à chaque image. \texttt{frameTex.Update(...)}
+téléverse les nouveaux pixels, le sprite les affiche, et la boucle recommence.
+
+Le décodage --- H.264, MJPEG, conteneurs --- est entièrement dans NKMedia, et le
+rendu n'en sait rien. C'est la séparation la plus profitable de tout ce cours :
+\emph{le module qui produit des pixels ignore le module qui les montre}.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NkVideoPlayer/src/main.cpp}
+frameTex.Update(fr.rgba.Data(), (uint32)fr.width, (uint32)fr.height, 0, 0);
+\end{nkcode}
+
+Une seule ligne, appelée une fois par image. Tout le reste du fichier est de la
+cadence, de la navigation et de l'étalonnage de couleur.
+
+\section{Traiter les pixels avant de les téléverser}
+
+Le lecteur applique un étalonnage --- noir et blanc, sépia, table de correspondance
+\texttt{.cube} --- et l'endroit où il le fait est un enseignement à lui seul :
+
+\begin{nkcode}{Applications/NkVideoPlayer/src/main.cpp (commentaire d'origine)}
+// cablage est le meme : transformer les pixels juste avant frameTex.Update
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un traitement d'image se branche entre le décodeur et la texture.} Ni
+avant (le décodeur ne doit rien savoir de vos couleurs), ni après (une fois
+téléversés, les pixels sont sur le GPU et ne vous appartiennent plus).
+
+Cette position est un \emph{point d'extension} : ajouter un filtre ne demande de
+toucher à rien d'autre.
+\end{nkretenir}
+
+\begin{nkpiege}[La dette qui est dans ce fichier, et qu'il faut voir]
+\texttt{NkVideoPlayer} inclut encore \texttt{<cstdio>}, \texttt{<cstring>} et
+\texttt{<cstdlib>}.
+
+C'est contraire à la règle du dépôt --- \emph{aucun \texttt{std::}, pas même les
+fonctions C} --- et ce n'est pas un oubli anodin : les équivalents maison
+existent tous (\texttt{NkFile}, \texttt{NkStringUtils}, \texttt{NkFormat}). Le
+fichier est plus ancien que la règle.
+
+Je le montre plutôt que de le cacher, parce que c'est ce que vous rencontrerez :
+\textbf{un dépôt réel contient toujours du code antérieur à ses propres règles}.
+Ce qui compte n'est pas qu'il n'y en ait jamais, c'est que ce soit \emph{nommé}.
+\end{nkpiege}
+
+\section{Le lecteur d'images, et ce qu'il ne faut pas en retenir}
+
+\texttt{NkImageDemo} fait 2\,369 lignes pour afficher une image --- neuf fois le
+lecteur audio. La raison est visible dans ses fichiers :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Fichier} & \textbf{Ce que c'est} \\
+\midrule
+\texttt{Render/GLContext} & un contexte OpenGL, à la main \\
+\texttt{Render/GLRenderer2D} & un renderer 2D, à la main \\
+\texttt{Render/Texture2D} & une texture, à la main \\
+\texttt{Render/FontAtlas} & un atlas de police, à la main \\
+\texttt{Render/SafeArea} & la zone sûre, à la main \\
+\texttt{ViewerApp} & le visualiseur proprement dit \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Cinq de ses six fichiers réimplémentent ce que NKCanvas porte déjà.} Le
+visualiseur lui-même --- charger, zoomer, déplacer, afficher --- est la plus
+petite partie.
+
+C'est le doublon dans sa forme la plus coûteuse : le code marche, personne n'a
+tort, et pourtant chaque correction apportée à \texttt{NkRenderWindow} ne
+parviendra jamais à \texttt{GLRenderer2D}.
+
+\textbf{La leçon} : avant d'écrire un mécanisme, chercher qui le porte déjà --- et
+commencer par la couche du dessous. Un \texttt{grep} lancé dans son propre
+dossier ne trouve jamais ce que la bibliothèque porte.
+\end{nkretenir}
+
+\begin{nkbilan}
+Un lecteur ne décide de rien : tout son travail est une transformation. Réduire
+un signal pour l'afficher demande le \emph{minimum et le maximum}, jamais la
+moyenne --- une moyenne exacte peut ne rien décrire. Un rectangle plein est deux
+triangles et six sommets. Une vidéo, pour le rendu, n'est qu'une texture qu'on
+remplace à chaque image, et le traitement des pixels se branche entre le décodeur
+et la texture. Enfin, \texttt{NkImageDemo} montre ce que coûte un doublon :
+2\,369 lignes dont cinq sixièmes existaient déjà un étage plus bas.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi une forme d'onde s'affiche-t-elle en min/max et non en moyenne ?
+\item Pourquoi \texttt{lo} est-il initialisé à $1$ et \texttt{hi} à $-1$ ?
+\item Combien de sommets pour un rectangle plein, et pourquoi pas quatre ?
+\item Où se branche un traitement d'image dans la chaîne du lecteur vidéo, et
+      pourquoi pas ailleurs ?
+\item Pourquoi \texttt{NkImageDemo} est-il neuf fois plus gros que
+      \texttt{NkAudioPlayer} ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Réécrivez \texttt{NkAudioPlayer} sur \texttt{NkCanvasApp}.
+
+Vous devez obtenir le même résultat à l'écran --- la forme d'onde, le curseur de
+lecture --- avec \textbf{aucun appel à \texttt{NkWindow} ni à
+\texttt{NkRenderWindow}} dans votre code. Comptez les lignes avant et après, et
+dites lesquelles ont disparu et pourquoi.
+
+Puis faites de même pour le lecteur vidéo.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que la moyenne ne convient pas.
+
+Ajoutez à votre lecteur un second mode d'affichage qui dessine la \emph{moyenne}
+de chaque tranche au lieu du min/max, et une touche pour basculer entre les deux.
+Chargez un morceau réel et capturez les deux images.
+
+\textbf{Ce que la démonstration doit établir} : non pas que la seconde est
+« moins jolie », mais qu'elle est \emph{plate} --- et donc qu'elle ne distingue
+pas un passage fort d'un passage faible. Mesurez-le : affichez l'écart entre la
+plus grande et la plus petite valeur affichée, dans les deux modes.
+\end{nkdemo}
+
+\begin{nklogique}
+Une vidéo à 25 images par seconde dure 4 minutes. Le décodage d'une image prend
+en moyenne 12 ms, le téléversement 2 ms, le dessin 1 ms.
+
+\begin{enumerate}
+\item La lecture tiendra-t-elle la cadence ? Justifiez par le calcul.
+\item Une seule image sur cinquante prend 300 ms à décoder (image-clé).
+      La lecture saccade-t-elle ? Que faudrait-il changer, sans accélérer le
+      décodeur ?
+\item Vous ajoutez un filtre couleur qui coûte 9 ms par image. Où le mettre ---
+      et si vous n'aviez le droit de le faire que sur une image sur deux, la
+      vidéo serait-elle acceptable ? Argumentez sur ce que voit l'\oe il.
+\end{enumerate}
+\end{nklogique}

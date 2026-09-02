@@ -1,0 +1,261 @@
+\chapter{Un éditeur de texte, puis un éditeur de code}
+
+Un éditeur de texte est le premier programme où l'utilisateur \emph{modifie} des
+données au lieu de les regarder. Tout change : il faut un curseur, une sélection,
+un défilement, une annulation --- et il faut décider comment le texte est rangé
+en mémoire, décision qui gouvernera tout le reste.
+
+Le dépôt contient un éditeur mature, celui de NKCode : \textbf{5\,012 lignes} pour
+le seul \texttt{NkCodeEditor.h}. Ce chapitre en extrait les quatre décisions qui
+comptent, puis vous fait construire le vôtre --- d'abord texte, puis code.
+
+\section{Décision 1 : comment ranger le texte}
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Editor/NkCodeEditor.h}
+// Une ligne = caracteres bruts (PAS de '\0').
+using NkCodeLine = NkVector<char>;
+
+struct NkCodeDoc {
+        NkVector<NkCodeLine> lines;
+        int32 curLine = 0, curCol = 0;   // curseur
+        int32 selLine = 0, selCol = 0;   // ancre de selection
+        // ...
+};
+\end{nkcode}
+
+Un document est un \emph{vecteur de lignes}, chaque ligne un \emph{vecteur de
+caractères}.
+
+\begin{nkretenir}
+\textbf{Il y a trois façons courantes de ranger un texte éditable}, et le choix se
+juge sur ce qu'il rend cher :
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Représentation} & \textbf{Bon marché} & \textbf{Cher} \\
+\midrule
+une seule chaîne & lire tout d'un coup & insérer au milieu \\
+vecteur de lignes & éditer une ligne, dessiner & insérer une ligne au début \\
+tampon à trou (\emph{gap}) & frappe au clavier & sauts lointains \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+NKCode prend le \textbf{vecteur de lignes}, et c'est cohérent avec ce qu'il fait :
+un éditeur passe son temps à \emph{dessiner des lignes} et à \emph{éditer celle
+du curseur}. L'opération chère --- décaler un million de lignes --- n'arrive
+jamais.
+
+\textbf{Choisissez d'après l'opération la plus fréquente, pas d'après la plus
+élégante.}
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{« PAS de \texttt{'\textbackslash 0'} »} : le commentaire d'origine le dit
+en majuscules, et c'est un piège réel. Une ligne est une plage
+$[\texttt{begin}, \texttt{end})$, pas une chaîne C. Passer \texttt{line.Data()} à
+une fonction qui attend une chaîne terminée lirait au-delà de la ligne, jusqu'au
+premier zéro rencontré dans le tas --- donc parfois rien d'anormal, et parfois un
+plantage. Le pire des deux mondes.
+\end{nkpiege}
+
+\section{Décision 2 : où vit l'état d'édition}
+
+Le curseur, la sélection et le défilement sont \emph{dans} \texttt{NkCodeDoc},
+avec le texte. L'en-tête explique pourquoi :
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Editor/NkCodeEditor.h}
+// etat curseur/selection/scroll EMBARQUE dans le document -> survit au
+// changement d'onglet ET au re-dock (etat hors-frame).
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{L'interface est en mode immédiat : elle ne garde rien d'une image à
+l'autre.} Un état rangé dans le widget disparaîtrait au premier changement
+d'onglet --- vous reviendriez sur votre fichier, curseur au début, défilement en
+haut.
+
+Donc : \textbf{ce qui doit survivre à la disparition du widget vit dans le
+document, pas dans le widget}. C'est la règle générale du mode immédiat, et
+l'éditeur en est le cas le plus visible.
+\end{nkretenir}
+
+\section{Décision 3 : l'annulation}
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Editor/NkCodeEditor.h}
+struct UndoState { /* ... */ };
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Deux stratégies, et la plus simple est souvent la bonne.}
+
+\emph{Instantané} : on garde une copie du document avant chaque groupe de
+modifications. Simple, sûr, et coûteux en mémoire --- mais un fichier source fait
+quelques dizaines de kilo-octets, donc cent états tiennent dans quelques
+méga-octets.
+
+\emph{Journal d'opérations} : on garde « inséré \texttt{x} en (ligne, colonne) »
+et on sait le défaire. Économe, et bien plus difficile à rendre juste : chaque
+opération a besoin de son inverse exact, et un seul inverse faux corrompt tout
+l'historique sans prévenir.
+
+\textbf{Commencez par l'instantané.} Ne passez au journal que si une mesure ---
+pas une intuition --- montre que la mémoire pose problème.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un groupe d'annulation n'est pas une frappe.} Si chaque caractère tapé
+crée un état, l'utilisateur devra faire trente annulations pour effacer un mot.
+
+Le regroupement se fait sur un \emph{critère} : une pause de frappe, un changement
+de ligne, un changement de nature d'opération (saisie puis effacement). Ce critère
+est un choix de conception, pas un détail --- et c'est celui que les utilisateurs
+remarquent en premier.
+\end{nkpiege}
+
+\section{Décision 4 : ne dessiner que ce qui se voit}
+
+Un fichier de cent mille lignes s'affiche dans une fenêtre qui en montre
+cinquante. Dessiner les cent mille serait deux mille fois trop de travail --- et
+la fluidité s'effondrerait sur le premier gros fichier.
+
+\begin{nkretenir}
+\textbf{On calcule la première et la dernière ligne visibles, et on ne dessine
+que celles-là.} Le coût du dessin devient indépendant de la taille du fichier :
+cinquante lignes, qu'il y en ait cent ou cent mille.
+
+L'en-tête de NKCode le dit d'ailleurs pour la largeur : « largeur H approximée
+sur les lignes visibles ». Même la largeur de défilement horizontal n'est calculée
+que sur ce qui est à l'écran --- une approximation \emph{assumée et écrite}, parce
+que mesurer cent mille lignes à chaque image coûterait plus que le bénéfice.
+\end{nkretenir}
+
+\section{De l'éditeur de texte à l'éditeur de code}
+
+La différence tient en un mot : \textbf{la coloration}. Et la façon dont NKCode
+l'aborde est la vraie leçon de cette seconde moitié.
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Editor/NkSyntax.h}
+struct NkLangSpec {
+        NkString name;
+        NkVector<NkString> exts;         ///< ".css", ".scss"...
+        NkString lineComment;            ///< "//", "#", "--", ";" ("" = aucun)
+        NkString blockOpen, blockClose;  ///< "/*","*/" ou "<!--","-->"
+        NkString strChars;               ///< delimiteurs de chaines
+        NkVector<NkString> keywords;     ///< tries
+        NkVector<NkString> types;        ///< tries
+};
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Un langage n'est pas du code : c'est une donnée.} Ajouter la coloration du
+Lua, du Rust ou du CSS ne demande pas d'écrire un colorateur --- seulement de
+remplir un \texttt{NkLangSpec}.
+
+C'est exactement le principe que le cours répète depuis le début : \emph{décrire
+plutôt que programmer}. Un colorateur écrit langage par langage aurait donné dix
+fonctions qui divergent ; une description en donne dix \emph{données} qui ne
+peuvent pas diverger, puisqu'un seul code les lit.
+\end{nkretenir}
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Editor/NkSyntax.h}
+// Tokenise UNE ligne et emet des plages colorees [begin,end) via un callback
+// Sans allocation : gap-filling (les zones non colorees -> couleur texte)
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Deux décisions de performance dans deux lignes de commentaire.}
+
+\emph{Une ligne à la fois} : la coloration se fait au moment de dessiner, sur les
+lignes visibles seulement. Rien n'est stocké, donc rien ne peut être périmé après
+une modification.
+
+\emph{Sans allocation, par remplissage de trous} : au lieu de produire une liste
+de toutes les plages --- y compris celles qui gardent la couleur par défaut --- le
+tokeniseur n'émet que les plages \emph{colorées}, et ce qui reste entre elles
+prend la couleur du texte. Moins d'objets, aucune allocation par image.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un commentaire de bloc ne tient pas dans une ligne.} \texttt{/*} ouvert
+ligne 10 et fermé ligne 40 : les trente lignes du milieu sont dans le commentaire,
+et rien dans leur texte ne le dit.
+
+Un tokeniseur strictement par ligne ne peut pas le savoir : il lui faut un
+\textbf{état d'entrée de ligne} --- « suis-je déjà dans un commentaire ? » ---
+calculé depuis le début du fichier, ou depuis un point de reprise connu.
+
+C'est la seule vraie difficulté de la coloration syntaxique, et c'est celle qu'on
+découvre en dernier, quand un fichier entier devient vert.
+\end{nkpiege}
+
+\begin{nkbilan}
+Un éditeur repose sur quatre décisions : la représentation du texte (choisie
+d'après l'opération \emph{la plus fréquente} --- ici un vecteur de lignes), le
+lieu de l'état d'édition (dans le document, jamais dans le widget, parce que le
+mode immédiat ne garde rien), l'annulation (l'instantané avant le journal, et le
+regroupement est ce que l'utilisateur remarque), et le dessin restreint aux lignes
+visibles. Passer au code n'ajoute qu'une chose : la coloration --- et le bon
+réflexe est de \emph{décrire} chaque langage par une donnée plutôt que de le
+programmer.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Citez trois représentations d'un texte éditable et l'opération que chacune
+      rend chère.
+\item Pourquoi l'état du curseur ne peut-il pas vivre dans le widget ?
+\item Pourquoi une ligne de NKCode ne se termine-t-elle pas par
+      \texttt{'\textbackslash 0'} ?
+\item Quel est l'inconvénient d'un groupe d'annulation par caractère tapé ?
+\item Pourquoi un tokeniseur par ligne a-t-il besoin d'un état d'entrée de ligne ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Construisez votre éditeur de texte, en deux étapes.
+
+\textbf{Étape A --- le texte.} Un \texttt{NkCanvasGuiApp} qui ouvre un fichier, le
+range en vecteur de lignes, affiche les lignes visibles avec leurs numéros, place
+un curseur, permet les flèches, \texttt{Home}, \texttt{End}, la saisie,
+\texttt{Entrée}, \texttt{Retour arrière} et \texttt{Suppr}, défile à la molette,
+et enregistre.
+
+\textbf{Étape B --- le code.} Ajoutez un \texttt{NkLangSpec} pour un langage de
+votre choix et colorez : mots-clés, types, chaînes, nombres, commentaires de
+ligne. Puis ajoutez un \emph{second} langage \textbf{sans écrire une seule ligne
+de code de coloration} --- seulement une donnée. Si vous n'y arrivez pas, votre
+étape B n'était pas assez « décrite ».
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que votre éditeur ne dessine que les lignes visibles.
+
+Ajoutez un compteur de lignes réellement dessinées, affiché à l'écran. Ouvrez un
+fichier de dix lignes, puis un fichier de cent mille lignes générées. Le compteur
+doit être \emph{le même} dans les deux cas.
+
+Mesurez ensuite le temps d'une image avec \texttt{NkChrono}, sur les deux
+fichiers, dix fois chacun.
+
+\textbf{Ce que la démonstration doit établir} : que l'écart entre les deux temps
+reste sous le bruit de mesure --- et il vous faut donc \emph{d'abord} mesurer ce
+bruit, en comparant deux séries sur le \emph{même} fichier. Sans ce témoin, vous
+ne pouvez pas dire si un écart de 3\,\% est un effet ou du hasard.
+\end{nkdemo}
+
+\begin{nklogique}
+Un utilisateur tape \texttt{Bonjour}, appuie sur \texttt{Entrée}, tape
+\texttt{monde}, puis fait trois annulations.
+
+\begin{enumerate}
+\item Décrivez l'état obtenu selon trois politiques de regroupement : par
+      caractère, par mot, par ligne.
+\item Laquelle vous paraît la meilleure ? Défendez-la, puis donnez le cas où elle
+      surprend l'utilisateur.
+\item Le document est ensuite \emph{rechargé depuis le disque} par une action
+      extérieure. L'historique d'annulation doit-il survivre ? Argumentez dans les
+      deux sens, puis tranchez et dites ce que votre choix rend impossible.
+\end{enumerate}
+\end{nklogique}

@@ -1,0 +1,184 @@
+\chapter{GemCrush : ce qui change quand un jeu grossit}
+
+Les trois jeux de plateau tenaient en quatre fichiers. GemCrush en a vingt-deux
+et huit mille lignes --- pour un jeu d'alignement dont la règle tient en une
+phrase : \emph{échangez deux gemmes voisines, alignez-en trois ou plus, elles
+disparaissent}.
+
+Ce chapitre explique où passent les huit mille lignes. La réponse n'est pas « la
+règle est compliquée » : elle est que tout ce qui entoure la règle --- écrans,
+progression, animation, son, didacticiel --- coûte bien plus que la règle
+elle-même. C'est la leçon la plus utile du chapitre.
+
+\section{Le découpage}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Fichier} & \textbf{Rôle} & \textbf{Famille} \\
+\midrule
+\texttt{NkGem} & la gemme : couleur, forme, état & règle \\
+\texttt{NkGemBoard} & le plateau : chutes, échanges & règle \\
+\texttt{NkMatchFinder} & trouver les alignements & règle \\
+\texttt{NkGemLevels} & les trente niveaux & données \\
+\texttt{Ui/NkGemArt} & dessiner une gemme & écran \\
+\texttt{Ui/NkGemScreens} & menu, carte, partie & écran \\
+\texttt{Ui/NkGemHud} & score, objectifs, coups restants & écran \\
+\texttt{Ui/NkGemSplash} & l'ouverture & écran \\
+\texttt{Ui/NkGemTutorial} & le didacticiel & écran \\
+\texttt{Ui/NkGemTheme} & les couleurs & écran \\
+\texttt{Ui/NkGemAudio} & les sons, synthétisés & son \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Le même principe qu'aux jeux de plateau, à une échelle plus grande} : les
+trois premiers fichiers sont la règle et ne dessinent rien ; tout ce qui est sous
+\texttt{Ui/} dessine et ne décide de rien.
+
+Ce qui a changé, ce n'est pas le principe : c'est le \emph{nombre} de fichiers de
+chaque côté. Quand un jeu grossit, c'est presque toujours le côté écran qui
+grossit.
+\end{nkretenir}
+
+\section{Les quatre écrans}
+
+\begin{nkcode}{Applications/Gemcrush/src/Gemcrush/Ui/NkGemScreens.h}
+enum class GemScreen : uint8 { Splash, Menu, Map, Game };
+\end{nkcode}
+
+Une énumération, et une seule variable qui dit où l'on est. Le \texttt{OnRender}
+principal aiguille dessus.
+
+\begin{nkretenir}
+\textbf{Un jeu qui a plus de deux écrans a besoin d'une machine à états
+explicite.} Sans elle, on finit avec six booléens --- \texttt{menuOuvert},
+\texttt{enPartie}, \texttt{surLaCarte}\dots --- qui peuvent être vrais en même
+temps, ce qui n'a aucun sens et arrive tout de même.
+
+Une énumération rend l'état impossible à contredire : on est dans un écran, et un
+seul.
+\end{nkretenir}
+
+\section{Le son, sans un seul fichier}
+
+\texttt{NkGemAudio} \textbf{synthétise} ses sons : il calcule les échantillons au
+lieu de lire un \texttt{.wav}.
+
+\begin{nkretenir}
+\textbf{Aucun asset, et c'est un choix documenté du jeu} : « GemCrush ne charge
+aucun fichier à l'exécution [...] à l'identique sur les six plateformes sans
+chaîne de copie d'assets ».
+
+Le prix : les sons sont simples. Le gain : rien à copier, rien à empaqueter, rien
+à précharger sur le Web --- et un jeu qui démarre pareil partout. Pour un jeu de
+puzzle, l'échange est bon ; pour un jeu à musique, il ne le serait pas.
+\end{nkretenir}
+
+\section{Le didacticiel, et ce qu'il révèle}
+
+\texttt{NkGemTutorial} est un fichier entier pour apprendre au joueur à échanger
+deux gemmes.
+
+\begin{nkretenir}
+\textbf{Ce n'est pas du superflu.} Un jeu dont la règle tient en une phrase n'est
+pas un jeu qu'on comprend en une phrase : il faut montrer le geste, une fois, au
+bon moment, puis se taire.
+
+Le didacticiel de GemCrush s'efface seul et devient muet au niveau 7 --- il ne
+répète pas ce qui est acquis.
+\end{nkretenir}
+
+\section{Ce que son banc mesure}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Cas} & \textbf{Ce qu'il prouve} \\
+\midrule
+carte : dessin et clic d'accord & le clic tombe là où le n\oe ud est dessiné \\
+les 30 niveaux sont déterministes & même graine, même plateau \\
+étoiles : accord affichage/verdict & ce qui s'affiche est ce qui est calculé \\
+ouverture : 4,1 s, sautable en 2 appuis & le splash ne bloque pas \\
+didacticiel : s'efface seul, muet au niveau 7 & il ne harcèle pas \\
+progression : écrite, relue à neuf, effaçable & la sauvegarde tient \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Deux de ces cas ne parlent pas de la règle du jeu.} « le clic tombe là où
+le n\oe ud est dessiné » et « ce qui s'affiche est ce qui est calculé » vérifient
+un \emph{accord entre deux chemins}.
+
+C'est la forme de banc la plus rentable quand un jeu grossit : dès que deux
+chemins doivent produire le même verdict --- le dessin et le clic, l'affichage et
+le calcul --- l'un est le contrôle de l'autre. S'ils appliquent chacun leur copie
+de la règle, rien ne signale le jour où elles divergent.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{« La progression est relue à neuf » n'est pas la même chose que « la
+progression se relit ».} Un aller-retour qui compare le fichier à lui-même
+certifie une amputation reproductible : si l'enregistrement perd un champ, la
+relecture le perd aussi, et le contrôle reste vert.
+
+Un contrôle d'aller-retour porte \emph{deux} exigences : la stabilité (le second
+enregistrement égale le premier) et la \textbf{conservation} (le contenu attendu
+est encore là, champ par champ). C'est la seconde qu'on oublie.
+\end{nkpiege}
+
+\begin{nkbilan}
+Vingt-deux fichiers pour une règle d'une phrase : ce sont les écrans, la
+progression, le didacticiel et le son qui pèsent, pas la règle. Le découpage
+reste celui des jeux de plateau --- la règle ne dessine pas, l'écran ne décide
+pas --- mais le côté écran grossit. Au-delà de deux écrans, une énumération
+explicite remplace les booléens qui se contredisent. Et les bancs les plus utiles
+d'un gros jeu vérifient l'\emph{accord entre deux chemins}, pas la règle.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quels fichiers de GemCrush sont du côté « règle » ? Comment le sait-on ?
+\item Pourquoi une énumération d'écrans plutôt que plusieurs booléens ?
+\item Pourquoi GemCrush synthétise-t-il ses sons au lieu de lire des fichiers ?
+      Quel est le prix de ce choix ?
+\item Qu'est-ce qu'un banc « d'accord entre deux chemins » ? Donnez-en deux.
+\item Quelles sont les deux exigences d'un contrôle d'aller-retour ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez le c\oe ur d'un jeu d'alignement : un plateau $8\times8$ de couleurs, une
+fonction qui trouve tous les alignements de trois ou plus, et une fonction qui
+fait chuter les gemmes pour combler les trous.
+
+\textbf{Sans dessiner quoi que ce soit.} Vérifiez par un banc : un plateau
+fabriqué à la main dont vous connaissez les alignements attendus, et le plateau
+d'après la chute, comparé case par case.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que votre détection d'alignements ne trouve pas ce qui n'existe pas.
+
+Construisez un plateau \emph{sans aucun alignement} et vérifiez que la fonction
+rend zéro. Puis --- et c'est la partie qui compte --- construisez un plateau avec
+deux gemmes identiques côte à côte seulement, et vérifiez qu'elle rend encore
+zéro.
+
+\textbf{Pourquoi ce second cas} : une fonction qui compterait les paires au lieu
+des triplets passerait le premier test et raterait le second. Un cas qui doit
+rendre zéro prouve autant qu'un cas qui doit trouver.
+\end{nkdemo}
+
+\begin{nklogique}
+GemCrush a 30 niveaux « déterministes : même graine, même plateau ».
+
+Expliquez pourquoi c'est indispensable à un banc. Puis répondez à ceci : si le
+jeu tirait ses gemmes avec une graine prise sur l'horloge, quels cas du tableau
+ci-dessus deviendraient impossibles à écrire ?
+
+Enfin : un jeu déterministe est-il un jeu prévisible pour le joueur ? Justifiez
+la différence.
+\end{nklogique}

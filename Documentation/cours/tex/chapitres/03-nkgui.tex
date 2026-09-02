@@ -422,7 +422,7 @@ l'image courante}. Nous verrons pourquoi à la section 3.6.
 // ANTI-GEL : aucun glissement légitime ne conserve activeId bouton RELÂCHÉ.
 // Si le widget détenant activeId a disparu (hôte redevenu flottant, onglet
 // caché, fenêtre fermée…) il ne libère jamais activeId et l'occlusion bloque
-// TOUTE interaction. Souris haute + activeId encore posé ⇒ on libère d'office.
+// TOUTE interaction. Souris haute + activeId encore posé => on libère d'office.
 if (!input.mouseDown[0] && activeId != NKGUI_ID_NONE) {
     activeId = NKGUI_ID_NONE;
     movingWindowId = NKGUI_ID_NONE;
