@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **72** | **24** | **77** | **1** |
+| **174** | **72** | **25** | **76** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -52,7 +52,7 @@ main** — la prochaine régénération l'effacerait.*
 | 6. Transformations | 13 | 1 | 7 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
 | 8. Propriétés | 10 | 5 | 21 | 0 |
-| 9. Composants et instances | 3 | 1 | 6 | 0 |
+| 9. Composants et instances | 3 | 2 | 5 | 0 |
 
 ### La liste nommée — PARTIELS
 
@@ -100,6 +100,7 @@ main** — la prochaine régénération l'effacerait.*
 **9. Composants et instances**
 
 - Poser une instance
+- États d'un composant (Défaut / Survol / Pressé)
 
 ### La liste nommée — ABSENTS
 
@@ -202,7 +203,6 @@ main** — la prochaine régénération l'effacerait.*
 
 - Réinitialiser les surcharges
 - Le composant se propage à ses instances sauf là où une surcharge existe
-- États d'un composant (Défaut / Survol / Pressé)
 - Aller au composant principal / revenir
 - Échanger le composant d'une instance
 - Supprimer un composant → ses instances deviennent des cadres

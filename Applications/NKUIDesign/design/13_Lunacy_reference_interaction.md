@@ -114,7 +114,8 @@ doc ? »* La réponse honnête est un **nombre qui bouge**, pas un « oui ».
 | 2026-09-02 (les deux icônes — vague 2 CLOSE) | 174 | 69 | 24 | 80 | 1 |
 | 2026-09-02 (composants, étapes 1-3) | 174 | 70 | 26 | 77 | 1 |
 | 2026-09-02 (le GESTE d'extraction) | 174 | 71 | 25 | 77 | 1 |
-| **2026-09-02 (interface des surcharges)** | **174** | **72** | **24** | **77** | **1** |
+| 2026-09-02 (interface des surcharges) | 174 | 72 | 24 | 77 | 1 |
+| **2026-09-02 (états : réconciliation)** | **174** | **72** | **25** | **76** | **1** |
 
 **Comment le recompter soi-même**, sans rien croire sur parole :
 
@@ -743,7 +744,7 @@ Source : `/components`.
 | Détacher | `Ctrl+Alt+D` → devient un groupe | ✅ **livré le 02/09 — modèle ET bouton** | `DetacherInstance` + le bouton **« Détacher »** de l'Inspecteur. ⚠️ Les écarts sont **FUSIONNÉS**, pas jetés : une instance dont le texte a été surchargé garde **son** texte — jeter les écarts aurait été une perte de travail silencieuse. ⚠️ Garde centrale : l'aller-retour **extraire → détacher est NEUTRE**, comparé sur une forme canonique et non sur les indices (`RemoveSubtree` renumérote). Mutation qui tombe |
 | Réinitialiser les surcharges | bouton | ❌ **absent** |  |
 | Le composant se propage à ses instances **sauf** là où une surcharge existe | — | ❌ **absent** | ⚠️ **c'est LA règle de fond** : une surcharge gagne sur la mise à jour. Sans elle, mettre à jour un composant écraserait le travail fait sur chaque instance |
-| États d'un composant (Défaut / Survol / Pressé) | `Ctrl+Alt+P` | ❌ **absent** | ⚠️ **et nous avons déjà la notion, ailleurs** : nos composants déclarés portent des **états d'apparence** (§8ter du doc 3). Deux mécanismes voisins à réconcilier avant d'en écrire un troisième |
+| États d'un composant (Défaut / Survol / Pressé) | `Ctrl+Alt+P` | 🟡 **partiel — le mécanisme EXISTE déjà, la question est son étendue** | 📌 **Réconciliation faite le 02/09, et elle a supprimé le chantier au lieu de le cadrer** : le format `.nkgui` porte déjà une **liste FERMÉE de six états** (`Normal`, `Hover`, `Pressed`, `Focus`, `FocusVisible`, `Disabled`), tranchée par **Rodolf le 27/08**, sous forme de blocs `appearance(État)` qui portent des **surcharges par propriété** — la même forme que `NkUINode::ecarts` — et dont **l'ordre de la table EST la priorité**, tenu par un contrôle. Les trois états de Lunacy en sont un **sous-ensemble** : aucune divergence à assumer. **Ce qui manque : trancher si un composant de document expose les SIX ou seulement les TROIS** — c'est la liste de Rodolf, la question est en Q53 |
 | Aller au composant principal / revenir | `Ctrl+Alt+E` | ❌ **absent** |  |
 | Échanger le composant d'une instance | panneau ou icône | ❌ **absent** |  |
 | Supprimer un composant → ses instances deviennent des cadres | menu | ❌ **absent** | une règle de dégradation à décider |

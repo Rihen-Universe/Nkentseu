@@ -184,13 +184,62 @@ pas un oubli : c'est un périmètre. *Sans cette phrase, la première instance
 étirée passerait pour un bug.* Notre **ancrage** répond à la même question que
 les *resizing constraints* de Lunacy et sera la piste — après.
 
-### Les états, et le mécanisme voisin
+### 🔴 Les états — LA RÉCONCILIATION EST FAITE, ET ELLE NE COÛTE RIEN (02/09)
+
+**Je devais réconcilier avant d'écrire un troisième mécanisme. J'ai regardé, et
+il n'y a pas de troisième mécanisme à écrire.**
+
+Ce que le dépôt porte **déjà**, dans le format `.nkgui` :
+
+> **`Normal` · `Hover` · `Pressed` · `Focus` · `FocusVisible` · `Disabled`** —
+> une **liste FERMÉE**, tranchée par **Rodolf le 2026-08-27**, exprimée par des
+> blocs `appearance(État) { … }` qui portent des **surcharges de propriétés**, et
+> dont **l'ordre de la table EST la priorité** (`Disabled > Pressed > Hover >
+> FocusVisible > Focus > Normal`). Deux contrôles la tiennent : le format sait
+> **dire non** à un état hors liste, et l'ordre est vérifié — *« une liste qu'on
+> documente sans la faire respecter est un commentaire »*.
+
+**Trois conséquences, et elles vont toutes dans le même sens :**
+
+1. **la forme est la même que la nôtre** — `appearance(État)` porte des
+   surcharges *par propriété*, exactement comme `NkUINode::ecarts`. Les états
+   d'un composant de document sont donc **des écarts indexés par état**, pas une
+   seconde structure ;
+2. **la priorité est déjà décidée**, et elle est tenue par un contrôle. On n'a
+   rien à trancher là-dessus ;
+3. **les trois états de Lunacy** (*Défaut / Survol / Pressé*) sont un
+   **sous-ensemble** des six. Suivre la source ne demande donc **aucune
+   divergence** — seulement de n'en exposer qu'une partie, ou pas.
+
+➡️ **Il n'y a plus de chantier « états » au sens où §15.7 le craignait.** Il
+reste **une** question, et elle est petite — mais elle appartient à Rodolf parce
+que **c'est lui qui a fermé la liste** :
+
+> **Un composant de document expose-t-il les SIX états de notre liste fermée, ou
+> seulement les TROIS que Lunacy nomme ?**
+
+| | **six** (notre liste) | **trois** (la source) |
+|---|---|---|
+| pour | cohérent avec le format, rien à traduire, `Focus` et `Disabled` sont réels dans une interface | plus simple à l'écran, exactement ce qu'un designer venant de Lunacy attend |
+| contre | trois onglets d'état que personne ne remplira peut-être | il faudra les rouvrir le jour où l'on voudra `Disabled` — et un composant sans état désactivé est incomplet pour une vraie interface |
+
+📌 **Ma recommandation : les six.** La liste est fermée *et déjà validée* ; en
+exposer trois créerait un second vocabulaire d'états à côté du premier — ce qu'on
+cherche précisément à éviter. Mais **je ne tranche pas** : c'est la liste de
+Rodolf. Posée en Q53.
+
+### Le mécanisme voisin — la note d'origine, gardée
 
 Lunacy a des **états de composant** (Défaut / Survol / Pressé). **Nous avons déjà
 la notion, ailleurs** : nos composants *de code* portent des **états
 d'apparence**. ⚠️ **Deux mécanismes voisins à réconcilier avant d'en écrire un
 troisième** — c'est le défaut que ce dépôt a payé avec le peintre écrit deux
 fois.
+
+📌 *Gardée telle quelle parce qu'elle a fait son travail : c'est elle qui a
+imposé d'aller regarder avant d'écrire, et ce qu'on a trouvé en regardant (le
+paragraphe ci-dessus) a supprimé le chantier au lieu de le cadrer.* **Un doute
+écrit au bon moment coûte une lecture et économise un mécanisme.**
 
 ---
 
