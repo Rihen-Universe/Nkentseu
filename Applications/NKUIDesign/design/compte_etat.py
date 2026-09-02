@@ -52,17 +52,42 @@ def est_legende(cellules):
     return len(cellules) == 2 and cellules[0][:1] in EMBLEMES
 
 
+# 🔴 LE MARQUEUR D'OPT-OUT, ET POURQUOI AUCUNE HEURISTIQUE NE SUFFIT (02/09).
+#    Une table de DESAMBIGUISATION (les trois sens de « miroir ») a exactement
+#    la meme forme qu'une table de comportements : quatre cellules, un embleme
+#    d'etat dans la derniere. Elle s'est donc comptee comme TROIS comportements
+#    livres -- le total est passe de 174 a 177 sans qu'une ligne de code change.
+#    ⚠️ *Un document qui explique le VOCABULAIRE n'est pas un document qui
+#       decrit un COMPORTEMENT.* Aucune regle de forme ne peut les separer :
+#       il faut que l'auteur le dise. D'ou ce marqueur, pose sur la ligne qui
+#       precede la table :   <!-- PAS-UN-COMPORTEMENT -->
+#    Les lignes de table qui suivent sont ignorees jusqu'a la fin du bloc.
+MARQUE_HORS_COMPTE = u"<!-- PAS-UN-COMPORTEMENT -->"
+
+
 def compter(chemin):
     with io.open(chemin, "r", encoding="utf-8") as f:
         lignes = f.read().split("\n")
     chapitre = u"(hors chapitre)"
     ordre, par_chap, detail = [], {}, {}
+    hors_compte = False
     for L in lignes:
+        if MARQUE_HORS_COMPTE in L:
+            hors_compte = True
+            continue
         m = re.match(r"^## (.+)$", L)
         if m:
             chapitre = m.group(1).strip()
+            hors_compte = False
             continue
         if not L.startswith(u"|"):
+            # Une ligne NON-table referme le bloc marque : le marqueur ne vaut
+            # que pour la table qui le suit immediatement, jamais pour la fin
+            # du fichier -- une trappe qui reste ouverte finit par tout avaler.
+            if L.strip():
+                hors_compte = False
+            continue
+        if hors_compte:
             continue
         if re.match(r"^\|[\s:\-|]+\|?\s*$", L):
             continue  # ligne de separation

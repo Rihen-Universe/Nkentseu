@@ -44,7 +44,8 @@ main** — la prochaine régénération l'effacerait.*
 
 | chapitre | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| 1. Édition vectorielle | 21 | 5 | 7 | 0 |
+| 1. Édition vectorielle | 7 | 4 | 1 | 0 |
+| 🔑 « MIROIR » DÉSIGNE **TROIS CHOSES DIFFÉRENTES** | 14 | 1 | 6 | 0 |
 | 2. Outils de tracé et leurs modificateurs | 5 | 7 | 8 | 0 |
 | 3. Opérations booléennes et de forme | 0 | 0 | 8 | 0 |
 | 4. Sélection et navigation | 8 | 0 | 5 | 0 |
@@ -62,6 +63,9 @@ main** — la prochaine régénération l'effacerait.*
 - Sortir
 - Le curseur devient la plume, et la section `Edit shape` apparaît
 - Sélectionner plusieurs points
+
+**🔑 « MIROIR » DÉSIGNE **TROIS CHOSES DIFFÉRENTES****
+
 - Escamoter une poignée d'un point déconnecté
 
 **2. Outils de tracé et leurs modificateurs**
@@ -106,6 +110,9 @@ main** — la prochaine régénération l'effacerait.*
 **1. Édition vectorielle**
 
 - Supprimer un point à la souris
+
+**🔑 « MIROIR » DÉSIGNE **TROIS CHOSES DIFFÉRENTES****
+
 - `OnlyFrom` / `OnlyTo`
 - La rangée d'icônes montre des icônes
 - Fermer un tracé

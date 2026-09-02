@@ -276,6 +276,36 @@ liste deux de plus (`OnlyFrom`, `OnlyTo` — des points à une seule poignée), 
 qui explique probablement la rangée de six icônes ; **aucune page d'interface ne
 les décrit**.
 
+## 🔑 « MIROIR » DÉSIGNE **TROIS CHOSES DIFFÉRENTES** — la table de désambiguïsation
+
+> **Rodolf, 02/09** : *« Lunacy définit plusieurs types de miroir. »* Il a
+> raison, et c'est un piège de vocabulaire, pas une subtilité : les trois vivent
+> dans le même outil sous des mots qui se ressemblent. **Les voici au même
+> endroit, une fois pour toutes** — juste avant la table des types, parce que
+> c'est là que la confusion commence.
+
+<!-- PAS-UN-COMPORTEMENT -->
+| # | de quoi on parle | où ça vit chez nous | état |
+|---|---|---|---|
+| **①** | **Le TYPE DE SOMMET** — comment les deux poignées d'un point sont liées. **Deux des quatre types sont des « miroirs »** : `Mirrored` (angle **et** longueur) et `Asymmetric` (**angle seul**, longueurs libres). ⚠️ Sketch **et** Figma appellent tous deux le second « **Mirror angle** » — d'où la confusion | `NkPoint2::Liaison` (`LiaisonMiroir`, `LiaisonAsym`) ; défaut = **Miroir** | ✅ livré (cas 35, 50) |
+| **②** | **La TRANSFORMATION miroir H / V** — retourner un objet entier sur un axe. **Rien à voir avec les poignées** : c'est une transformation de nœud, au même rang que la rotation | `NkUINode::miroirH` / `miroirV`, boutons **H**/**V** de l'Inspecteur | ✅ livré (transfo 4, 13) — ⚠️ **raccourci NON branché**, voir ci-dessous |
+| **③** | **Le GESTE DE CRÉATION d'un point miroir** — double-clic sur le *tracé* pour poser d'emblée un sommet de type `Mirrored` (sens ①) avec ses poignées amorcées. C'est un **geste**, pas un type ni une transformation | double-clic sur le tracé (`NkAmorcerTangentes`) | ✅ livré le 02/09 |
+
+⚠️ **Les trois se disent « miroir » et ne se remplacent jamais.** Un sommet
+`Asymmetric` est un miroir *d'angle* ; un nœud `miroirH` est retourné *en
+entier* ; le double-clic *fabrique* un sommet du premier genre. Confondre ① et
+② ferait retourner un objet quand l'utilisateur veut lier deux poignées.
+
+❓ **QUESTION OUVERTE — arbitrage de Rodolf attendu (sens ② uniquement)** : le
+raccourci du miroir H/V **n'est pas branché**, et ce n'est pas un oubli — **la
+source se contredit** : `Maj+H` / `Maj+V` à un endroit, `Ctrl`+flèches à un
+autre (voir les deux tables de raccourcis plus bas). Les boutons de
+l'Inspecteur fonctionnent ; le raccourci attend qu'on tranche **laquelle des
+deux orthographes** on retient — *on ne branche pas un raccourci au hasard sur
+une source contradictoire.*
+
+### Les quatre types de sommet — le sens ① en détail
+
 | type (nom Lunacy) | les deux poignées | état |
 |---|---|---|
 | **Straight** — droit | aucune poignée | ✅ **livré** (`LiaisonDroit`) |
@@ -619,7 +649,7 @@ Source : `/layers`.
 | Rotation à la souris | près d'un coin | ✅ **livré** | recette transfo 9 — quatre poignées **en dehors** des coins |
 | Rotation chiffrée | champ d'angle | ✅ **livré** | section Apparence |
 | Aimantation angulaire | `Maj` | ✅ **livré** | transfo 10 — **15°** chez nous, la source dit « 90° ou 45° ». ⚠️ **Divergence à trancher par Rodolf** : 15° est plus fin et couvre 45/90 ; leur formulation est ambiguë |
-| Miroir H / V | boutons, ou raccourci (contradictoire dans la source) | ✅ **livré** | transfo 4, 13 — par les **boutons** de l'Inspecteur ; le raccourci n'est pas branché, et **on ne le branchera pas au hasard** vu la contradiction |
+| Miroir H / V | boutons, ou raccourci (contradictoire dans la source) | ✅ **livré** | transfo 4, 13 — par les **boutons** de l'Inspecteur ; le raccourci n'est pas branché, et **on ne le branchera pas au hasard** vu la contradiction. C'est le **sens ②** de la table de désambiguïsation « miroir », et l'arbitrage attend Rodolf |
 | Aligner (six alignements) | boutons ou raccourcis | ✅ **livré** | la rangée d'alignement existe |
 | S'aligner sur les bords du **cadre** quand un seul objet est sélectionné | — | ❌ **absent** | ⚠️ **finesse utile** : chez eux, un objet seul posé sur un cadre s'aligne sur le cadre. Chez nous l'alignement veut deux objets |
 | Distribuer H / V | `Ctrl+Maj+H` / `Ctrl+Maj+V` | ❌ **absent** |  |
@@ -814,7 +844,7 @@ libellés. **Brancher est évidemment la bonne** — c'est la première vague (�
 | Entrer / sortir de l'édition de forme | `Entrée` | source cohérente ; `Échap` sort déjà |
 | Ordre de profondeur | `Ctrl+]`, `Ctrl+[`, `Ctrl+Maj+[` | ⚠️ « au premier plan » **manque dans leur table** ; on prendra `Ctrl+Maj+]` par symétrie, et on l'écrit |
 | Aligner | **à choisir** | ⚠️ **deux jeux contradictoires** dans la source (`Alt+A/D/H/W/S/V` contre `Ctrl+Maj`+flèches). À trancher par Rodolf, ou par l'usage |
-| Miroir H / V | **à choisir** | ⚠️ même contradiction (`Maj+H`/`Maj+V` contre `Ctrl`+flèches) |
+| Miroir H / V | **à choisir — ARBITRAGE OUVERT (sens ② du « miroir »)** | ⚠️ même contradiction (`Maj+H`/`Maj+V` contre `Ctrl`+flèches) — les boutons marchent, seul le raccourci attend |
 
 ---
 

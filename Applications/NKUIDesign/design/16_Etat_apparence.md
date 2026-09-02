@@ -4,6 +4,42 @@
 > sincèrement, et actuellement c'est pas encore le cas. Visuellement ça doit être
 > beau et fonctionnel. »*
 
+## 📌 ÉTAT DE FIN DE CHANTIER (02/09, soir) — où on en est, ce qui reste, ce qui attend une décision
+
+**Ce qui est FAIT** — six tranches, 225 → **33** sites hors échelle ; l'échelle
+est écrite (`2/4/8/12/16/24`) et **opposable** (`compte_apparence.py
+--verifier` sort en code 1 tant qu'un site dévie) ; la grille de l'inspecteur
+est nommée et unifiée (`ColChamps`, `ColMiniLabel`) ; cinq écarts du côte à
+côte sont livrés (E2, E3, E5, E6 ; E4 conforme par décision) ; sept captures
+de référence sont fixées dans `captures/`.
+
+**Ce qui RESTE — 33 sites, de la dette lisible, aucun brouillard** :
+
+| famille | sites | ce que c'est |
+|---|---|---|
+| carte du panneau IA | ~10 | rythme interne (42, +3, pas de 22) — non déchiffré, **non touché** |
+| libellés longs de l'inspecteur | 4 | 64/76 : « Hauteur ligne », noms de métriques — **ne tiennent pas dans `ColChamps`** |
+| mini-grilles X1/Y1 | 4 | 14/22 : largeurs partagées, cohérentes entre elles |
+| barre de zoom + rail | ~5 | valeurs transcrites, partiellement déjà étiquetées |
+| divers panneaux (Bibliothèque, Simulation, Greffons) | ~9 | un site chacun, contexte connu |
+| une position de scène (600) | 1 | à lire |
+
+Plus **17 écarts justifiés** portant leur raison sur la ligne
+(`[hors-echelle: …]`), comptés à part et listés par l'outil.
+
+**Ce qui ATTEND UNE DÉCISION de Rodolf** :
+
+1. **La colonne large** — faut-il une seconde colonne nommée pour les libellés
+   longs (64/76), ou raccourcir les libellés ? *Aucune des deux ne se décide
+   sans lui : l'une change la grille, l'autre change les mots.*
+2. **Le raccourci miroir H/V** — `Maj+H`/`Maj+V` ou `Ctrl`+flèches ? La source
+   se contredit (doc 13, table de désambiguïsation « miroir », sens ②).
+3. **Les rayons d'angle** — 12 valeurs distinctes (4px×39, 3px×19, 1px×10…) :
+   **le chantier n'a pas été ouvert**, faute de mandat. C'est le prochain
+   candidat mesuré si l'apparence doit continuer.
+
+---
+
 ## ✅ AU SOIR DU 02/09 : 225 → 33 sites hors échelle, et LA PAIRE D'ÉCRANS
 
 **La paire que la demande attendait — pas un compte, deux écrans** :

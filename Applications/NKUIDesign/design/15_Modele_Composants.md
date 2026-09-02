@@ -227,18 +227,26 @@ quelle.
 
 ### La trace de la RÉVISION — pour que personne ne « retrouve » l'ancienne décision
 
-**Hier (première réponse, remplacée)** : *« non, sauf si ces instances sont
+⚠️ **LES DEUX RÉPONSES SONT DU 02/09** — la révision est venue quelques heures
+après la première, le même jour. *(Ce paragraphe disait « hier » /
+« aujourd'hui » : une déformation de ma part, corrigée le soir même. Une date
+fausse dans la trace d'une révision est exactement ce qui fait rouvrir une
+décision close.)*
+
+**Première réponse (02/09 — REMPLACÉE)** : *« non, sauf si ces instances sont
 mises à jour. Mais de base la modification est proposée en copie ou non — mais
 toujours en copie pour des composants système. »* → c'était R1/R2 inversés :
 instances gelées, mise à jour explicite partout.
 
-**Aujourd'hui** : la propagation redevient automatique **chez soi** (R1′), le
-« volontaire » ne subsiste que pour la version d'un composant d'autrui (R4).
+**Révision (02/09, même jour — EN VIGUEUR)** : la propagation redevient
+automatique **chez soi** (R1′), le « volontaire » ne subsiste que pour la
+version d'un composant d'autrui (R4).
+
 Ce qui n'a PAS bougé d'une réponse à l'autre : les surcharges tiennent
 toujours ; le fork est la seule voie sur ce qui n'est pas à moi ; la version
 dans `auteur/nom@version` porte le retard. ⚠️ Un lecteur qui tomberait sur la
-citation d'hier hors de cette section lirait l'INVERSE de la règle en vigueur
-— c'est précisément pourquoi la révision est datée et gardée ici.
+**première** citation hors de cette section lirait l'INVERSE de la règle en
+vigueur — c'est précisément pourquoi la révision est datée et gardée ici.
 
 ---
 ## 15.7 LES DEUX PIÈGES QUI RESTENT, NOMMÉS PLUTÔT QUE DÉCOUVERTS
