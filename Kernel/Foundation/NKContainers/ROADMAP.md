@@ -683,7 +683,7 @@ ce bloc existe pour que le chiffre soit porté à Rodolf avec sa méthode.
 
 ### Le chiffre et sa provenance
 
-*Mesuré le 2026-08-16 par l'agent NKAnima, sur `feat/nkanimation` **après**
+*Mesuré le 2026-08-16 par l'agent NKAnimation, sur `feat/nkanimation` **après**
 fusion de `origin/main` (`6eb46ba7`). Périmètre : `Kernel/`, `Applications/`,
 `Engine/` ; `Externals/` exclu ; extensions `.cpp .h .hpp .inl`.*
 
