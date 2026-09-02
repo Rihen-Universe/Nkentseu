@@ -52,7 +52,9 @@ namespace {
 	// Construit un squelette PLAT (bones[i].parent == -1, voir la note de
 	// conception dans NkLocomotion.h/NkIKSolver.h) en pose debout approximative.
 	void BuildFlatSkeleton(NkSkeleton &sk) noexcept {
-		sk.boneCount = kBoneCount;
+		// Le squelette suit desormais le modele Unreal : la DEFINITION (actif
+		// partage) porte hierarchie et bind poses, l'instance porte la pose.
+		memory::NkSharedPtr<ecs::NkSkeletonDef> def(new ecs::NkSkeletonDef());
 		const NkVec3f pos[kBoneCount] = {
 			{0.f, 1.00f, 0.f},	 // hip
 			{-0.15f, 0.90f, 0.f}, // leftThigh
@@ -64,15 +66,16 @@ namespace {
 			{0.15f, 0.05f, 0.f},  // rightFoot
 			{0.15f, 0.00f, 0.15f}, // rightToe
 		};
+		def->bones.Resize((NkVector<ecs::NkBoneDef>::SizeType)kBoneCount);
 		for (uint32 i = 0; i < kBoneCount; ++i) {
-			sk.bones[i].parent = -1; // squelette plat -- voir tête de fichier NkLocomotion.h
-			sk.bones[i].localPosition = pos[i];
-			sk.bones[i].localRotation = NkQuatf::Identity();
-			sk.bones[i].localScale = {1.f, 1.f, 1.f};
-			sk.bones[i].bindPose = NkMat4f::Translate(pos[i]);
-			sk.bones[i].inverseBindPose = NkMat4f::Translate(pos[i]).Inverse();
-			sk.skinMatrices[i] = sk.bones[i].bindPose;
+			ecs::NkBoneDef &b = def->bones[(NkVector<ecs::NkBoneDef>::SizeType)i];
+			b.parent = -1; // squelette plat -- voir tête de fichier NkLocomotion.h
+			b.bindPose = NkMat4f::Translate(pos[i]);
+			b.inverseBindPose = NkMat4f::Translate(pos[i]).Inverse();
 		}
+		sk = NkSkeleton::FromDef(def); // pose = identite, matrices = bind pose
+		for (uint32 i = 0; i < kBoneCount; ++i)
+			sk.Pose(i).localPosition = pos[i];
 	}
 
 } // namespace
@@ -162,8 +165,8 @@ int main() {
 		const NkFootIK *fi = world.Get<NkFootIK>(character);
 		if (fi->leftFoot.isGrounded || fi->rightFoot.isGrounded)
 			sawGroundedFoot = true;
-		if (sk->bones[3].localPosition.y < worstFootY)
-			worstFootY = sk->bones[3].localPosition.y;
+		if (sk->Pose(3).localPosition.y < worstFootY)
+			worstFootY = sk->Pose(3).localPosition.y;
 	}
 
 	// ── Assertions ──────────────────────────────────────────────────────────

@@ -64,7 +64,7 @@ namespace nkentseu {
 										  float32 dt) noexcept {
 		if (!jb.enabled || dt <= 0.f)
 			return;
-		if (jb.boneIndex >= skeleton.boneCount)
+		if (jb.boneIndex >= skeleton.BoneCount())
 			return; // indice hors squelette : on ne touche a rien
 
 		// La cible est la pose d'animation, exprimee dans le repere de l'entite.
@@ -200,7 +200,7 @@ namespace nkentseu {
 		const NkMocapFrame &f0 = mc.frames[(decltype(mc.frames)::SizeType)i0];
 		const NkMocapFrame &f1 = mc.frames[(decltype(mc.frames)::SizeType)i1];
 
-		const uint32 bones = (sk.boneCount < NkSkeleton::kMaxBones) ? sk.boneCount : NkSkeleton::kMaxBones;
+		const uint32 bones = sk.BoneCount();
 		for (uint32 b = 0; b < bones; ++b) {
 			const NkMat4f m = InterpolateFrames(f0, f1, t, b);
 			// blendWeight : melange avec la pose deja en place (animation
@@ -270,7 +270,7 @@ namespace nkentseu {
 		const uint32 n = (rd.boneCount < NkRagdoll::kMaxBones) ? rd.boneCount : NkRagdoll::kMaxBones;
 		for (uint32 i = 0; i < n; ++i) {
 			const NkRagdollBoneLink &lien = rd.bones[i];
-			if (lien.skeletonBoneIdx >= sk.boneCount || lien.skeletonBoneIdx >= NkSkeleton::kMaxBones)
+			if (lien.skeletonBoneIdx >= sk.BoneCount())
 				continue;
 			const NkTransform *tfCorps = world.Get<NkTransform>(lien.rigidbodyEntity);
 			if (!tfCorps)
@@ -285,7 +285,7 @@ namespace nkentseu {
 		const float32 w = rd.blendWeight;
 		for (uint32 i = 0; i < n; ++i) {
 			const NkRagdollBoneLink &lien = rd.bones[i];
-			if (lien.skeletonBoneIdx >= sk.boneCount || lien.skeletonBoneIdx >= NkSkeleton::kMaxBones)
+			if (lien.skeletonBoneIdx >= sk.BoneCount())
 				continue;
 			const NkTransform *tfCorps = world.Get<NkTransform>(lien.rigidbodyEntity);
 			if (!tfCorps)

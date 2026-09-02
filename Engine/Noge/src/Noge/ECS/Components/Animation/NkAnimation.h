@@ -14,6 +14,8 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
 #include "../Core/NkTransform.h"
+#include "NKMemory/NkSharedPtr.h"   // NkSkeletonDef : actif PARTAGE, jamais copie
+#include "NKContainers/Sequential/NkVector.h"
 #include <cstring>
 
 namespace nkentseu {
@@ -66,37 +68,97 @@ namespace nkentseu {
 		// NkBone — description d'un os du squelette
 		// =============================================================================
 
-		struct NkBone {
-				static constexpr uint32 kMaxBoneNameLen = 64u;
-				char name[kMaxBoneNameLen] = {};
-				int32 parent = -1;					  // index du parent (-1 = racine)
-				NkMat4 bindPose = NkMat4::Identity(); // pose de repos (bind pose)
-				NkMat4 inverseBindPose = NkMat4::Identity();
-				NkVec3 localPosition = {};
-				NkQuat localRotation = NkQuat::Identity();
-				NkVec3 localScale = NkVec3::One();
+		// =====================================================================
+		// SQUELETTE -- « exactement comme Unreal » (decision de Rodolf, 02/09)
+		// =====================================================================
+		// ⚠️ POURQUOI CETTE SCISSION, mesure du 2026-09-02 : l'ancien NkSkeleton
+		// pesait 77 064 octets -- bones[256] + skinMatrices[256] en tableaux
+		// figes, pour des squelettes qui en utilisent quelques-uns. Dans un ECS
+		// les composants sont ranges PAR VALEUR : 100 personnages = 7,5 Mo, et
+		// 75 Ko recopies a CHAQUE changement d'archetype. Quatre exemplaires sur
+		// la pile debordaient le mega-octet par defaut de Windows -- c'est un
+		// stack overflow qui a revele le probleme.
+		//
+		// Le modele Unreal, repris tel quel :
+		//   - NkSkeletonDef = l'ACTIF PARTAGE (l'equivalent d'un USkeleton) --
+		//     hierarchie, noms, bind poses. Les instances le REFERENCENT,
+		//     aucune ne le copie.
+		//   - NkSkeleton    = le composant : la reference + le PAR-INSTANCE
+		//     (pose locale, matrices de peau) dimensionne AU NOMBRE REEL d'os.
+		//
+		// La pose locale vivait DANS NkBone, melee a la definition : c'est elle
+		// qui rendait le partage impossible. Elle part dans NkBonePose.
+
+		// La DEFINITION d'un os -- invariant entre toutes les instances.
+		struct NkBoneDef {
+			static constexpr uint32 kMaxBoneNameLen = 64u;
+			char name[kMaxBoneNameLen] = {};
+			int32 parent = -1;					  // index du parent (-1 = racine)
+			NkMat4 bindPose = NkMat4::Identity(); // pose de repos (bind pose)
+			NkMat4 inverseBindPose = NkMat4::Identity();
 		};
 
-		// =============================================================================
-		// NkSkeleton — hiérarchie d'os (partageable entre plusieurs NkSkeletalMesh)
-		// =============================================================================
+		// La POSE locale d'un os -- par instance, animee chaque image.
+		// Memes noms de membres que l'ancien NkBone : la migration des lecteurs
+		// est `sk.bones[i].localPosition` -> `sk.Pose(i).localPosition`.
+		struct NkBonePose {
+			NkVec3 localPosition = {};
+			NkQuat localRotation = NkQuat::Identity();
+			NkVec3 localScale = NkVec3::One();
+		};
 
+		// L'ACTIF PARTAGE. Les instances le referencent par NkSharedPtr ;
+		// le modifier apres creation modifierait TOUTES les instances -- c'est
+		// le contrat d'un USkeleton, on ne le cache pas.
+		struct NkSkeletonDef {
+			NkVector<NkBoneDef> bones; // dimensionne au reel, plus de plafond a 256
+			char path[256] = {};	   // provenance (ex-skeletonPath)
+
+			[[nodiscard]] int32 FindBone(const char *name) const noexcept {
+				for (uint32 i = 0; i < (uint32)bones.Size(); ++i)
+					if (std::strcmp(bones[(NkVector<NkBoneDef>::SizeType)i].name, name) == 0)
+						return static_cast<int32>(i);
+				return -1;
+			}
+		};
+
+		// LE COMPOSANT. Copiable par l'ECS : la copie duplique la REFERENCE et
+		// le par-instance reel, jamais la definition.
 		struct NkSkeleton {
-				static constexpr uint32 kMaxBones = 256u;
-				NkBone bones[kMaxBones] = {};
-				uint32 boneCount = 0;
-				char skeletonPath[256] = {};
-				uint32 skeletonId = 0; // handle GPU (buffer d'os)
+			memory::NkSharedPtr<NkSkeletonDef> def; // PARTAGE -- jamais copie
+			NkVector<NkBonePose> pose;			   // par instance, taille reelle
+			NkVector<NkMat4> skinMatrices;		   // par instance, taille reelle
+			uint32 skeletonId = 0;				   // handle GPU (buffer d'os)
 
-				// Matrices de transform finales (pose courante × inverse bind pose)
-				NkMat4 skinMatrices[kMaxBones] = {};
+			[[nodiscard]] uint32 BoneCount() const noexcept {
+				return def.Get() ? (uint32)def->bones.Size() : 0u;
+			}
+			[[nodiscard]] const NkBoneDef &Def(uint32 i) const noexcept {
+				return def->bones[(NkVector<NkBoneDef>::SizeType)i];
+			}
+			[[nodiscard]] NkBonePose &Pose(uint32 i) noexcept {
+				return pose[(NkVector<NkBonePose>::SizeType)i];
+			}
+			[[nodiscard]] const NkBonePose &Pose(uint32 i) const noexcept {
+				return pose[(NkVector<NkBonePose>::SizeType)i];
+			}
+			[[nodiscard]] int32 FindBone(const char *name) const noexcept {
+				return def.Get() ? def->FindBone(name) : -1;
+			}
 
-				[[nodiscard]] int32 FindBone(const char *name) const noexcept {
-					for (uint32 i = 0; i < boneCount; ++i)
-						if (std::strcmp(bones[i].name, name) == 0)
-							return static_cast<int32>(i);
-					return -1;
-				}
+			// LA fabrique : reference l'actif et dimensionne le par-instance AU
+			// REEL. Pose = identite, matrices = bind pose (l'instance nait dans la
+			// pose de repos, jamais dans de la memoire indeterminee).
+			static NkSkeleton FromDef(const memory::NkSharedPtr<NkSkeletonDef> &d) {
+				NkSkeleton sk;
+				sk.def = d;
+				const uint32 n = sk.BoneCount();
+				sk.pose.Resize((NkVector<NkBonePose>::SizeType)n);
+				sk.skinMatrices.Resize((NkVector<NkMat4>::SizeType)n);
+				for (uint32 i = 0; i < n; ++i)
+					sk.skinMatrices[(NkVector<NkMat4>::SizeType)i] = sk.Def(i).bindPose;
+				return sk;
+			}
 		};
 		NK_COMPONENT(NkSkeleton)
 

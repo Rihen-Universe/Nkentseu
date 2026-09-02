@@ -59,13 +59,13 @@ namespace nkentseu {
 					return;
 
 				auto solveLeg = [&](uint32 thighIdx, uint32 calfIdx, uint32 footIdx, NkFootContact &contact) {
-					if (thighIdx >= sk.boneCount || calfIdx >= sk.boneCount || footIdx >= sk.boneCount)
+					if (thighIdx >= sk.BoneCount() || calfIdx >= sk.BoneCount() || footIdx >= sk.BoneCount())
 						return;
 
 					// Position MONDE courante du pied. Suppose un squelette PLAT
 					// (bones[i].parent == -1) comme le reste de ce pont -- voir
 					// tête de fichier NkLocomotion.h.
-					const NkVec3f footPos = sk.bones[footIdx].localPosition;
+					const NkVec3f footPos = sk.Pose(footIdx).localPosition;
 
 					NkFootContact raw;
 					const NkVec3f rayFrom = {footPos.x, footPos.y + foot.rayLength * 0.5f, footPos.z};
@@ -110,11 +110,11 @@ namespace nkentseu {
 				// Compensation de hanche (étape 4 du pipeline documenté en tête
 				// de fichier) : léger abaissement selon la correction la plus
 				// forte (pied le plus bas).
-				if (foot.hipBoneIdx < sk.boneCount) {
+				if (foot.hipBoneIdx < sk.BoneCount()) {
 					const float32 dL = foot.leftFoot.isGrounded ? (foot.leftFoot.groundPos.y + foot.footHeight) : 0.f;
 					const float32 dR = foot.rightFoot.isGrounded ? (foot.rightFoot.groundPos.y + foot.footHeight) : 0.f;
 					foot.hipOffset = NkMin(dL, dR) * foot.hipCompensation;
-					sk.bones[foot.hipBoneIdx].localPosition.y += foot.hipOffset;
+					sk.Pose(foot.hipBoneIdx).localPosition.y += foot.hipOffset;
 				}
 			});
 	}
@@ -157,15 +157,15 @@ namespace nkentseu {
 		if (blended.Empty())
 			return;
 		world.Query<NkSkeleton>().ForEach([&](NkEntityId, NkSkeleton &sk) {
-			const uint32 count = NkMin(sk.boneCount, (uint32)blended.Size());
+			const uint32 count = NkMin(sk.BoneCount(), (uint32)blended.Size());
 			for (uint32 i = 0; i < count; ++i) {
 				NkVec3f t, s;
 				NkMat4f rot;
 				NkMat4f m = blended[i];
 				m.DecomposeTRS(t, rot, s);
-				sk.bones[i].localPosition = t;
-				sk.bones[i].localRotation = NkQuatf(rot);
-				sk.bones[i].localScale = s;
+				sk.Pose(i).localPosition = t;
+				sk.Pose(i).localRotation = NkQuatf(rot);
+				sk.Pose(i).localScale = s;
 				sk.skinMatrices[i] = blended[i]; // squelette plat -- monde == skin ici
 			}
 		});

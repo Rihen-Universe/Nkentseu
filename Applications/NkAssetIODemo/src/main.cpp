@@ -117,9 +117,9 @@ namespace {
 			const uint32 expectedBones = (uint32)baseline.skinJoints.Size();
 			Check(scene.skeletons.Size() == 1, "NkGLTFImporter::Import: 1 squelette (fichier skinne)");
 			if (!scene.skeletons.Empty()) {
-				Check(scene.skeletons[0].boneCount == expectedBones,
+				Check(scene.skeletons[0].BoneCount() == expectedBones,
 					  "NkGLTFImporter::Import: boneCount == baseline.skinJoints.Size()");
-				logger.Infof("     squelette: %u os\n", scene.skeletons[0].boneCount);
+				logger.Infof("     squelette: %u os\n", scene.skeletons[0].BoneCount());
 			}
 		} else {
 			Check(scene.skeletons.Empty(), "NkGLTFImporter::Import: 0 squelette (fichier non skinne)");

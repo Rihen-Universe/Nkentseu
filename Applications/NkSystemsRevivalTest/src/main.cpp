@@ -44,6 +44,15 @@ namespace {
 		}
 	}
 
+	// Construit un squelette de n os par le chemin NOMINAL : une DEFINITION
+	// partagee + FromDef. C'est le modele Unreal decide par Rodolf le 02/09 :
+	// l'actif est reference, le par-instance est dimensionne au reel.
+	ecs::NkSkeleton MakeSkeleton(uint32 n) {
+		memory::NkSharedPtr<ecs::NkSkeletonDef> def(new ecs::NkSkeletonDef());
+		def->bones.Resize((NkVector<ecs::NkBoneDef>::SizeType)n);
+		return ecs::NkSkeleton::FromDef(def);
+	}
+
 	float Norme(const math::NkVec3f &v) {
 		return ::sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
 	}
@@ -58,6 +67,55 @@ int main() {
 	// -------------------------------------------------------------------------
 	// NkJiggleBoneSystem
 	// -------------------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// LE COMPOSANT LUI-MEME : partage reel, dimensionnement reel
+	// -------------------------------------------------------------------------
+	// Obligation du contrat « exactement comme Unreal » : un banc qui ECHOUE si
+	// une copie d'archetype recopie plus que le necessaire.
+	std::printf("-- NkSkeleton : actif partage, par-instance au reel --\n");
+	{
+		Check(sizeof(ecs::NkSkeleton) <= 128,
+			  "sizeof(NkSkeleton) <= 128 o (etait 77 064 : c'est ce que copie CHAQUE changement d'archetype)");
+
+		ecs::NkSkeleton a = MakeSkeleton(4);
+		Check(a.BoneCount() == 4 && a.pose.Size() == 4 && a.skinMatrices.Size() == 4,
+			  "un squelette a 4 os paie pour 4 (pose et matrices dimensionnees au reel)");
+
+		// LA copie d'archetype : elle doit dupliquer la REFERENCE et le
+		// par-instance, jamais la definition.
+		// DEUX instances tirees du MEME actif doivent le PARTAGER. Cette
+		// assertion a ete ajoutee par CONTRE-EPREUVE : une mutation qui faisait
+		// copier la definition DANS FromDef (l'anti-Unreal) laissait le banc
+		// VERT -- l'assertion de copie ci-dessous ne couvre que la copie de
+		// composant, pas la creation. Un banc troue se decouvre en essayant de
+		// le faire rougir, jamais en le regardant etre vert.
+		{
+			memory::NkSharedPtr<ecs::NkSkeletonDef> defCommun(new ecs::NkSkeletonDef());
+			defCommun->bones.Resize((NkVector<ecs::NkBoneDef>::SizeType)3);
+			ecs::NkSkeleton i1 = ecs::NkSkeleton::FromDef(defCommun);
+			ecs::NkSkeleton i2 = ecs::NkSkeleton::FromDef(defCommun);
+			Check(i1.def.Get() == defCommun.Get() && i2.def.Get() == defCommun.Get(),
+				  "FromDef REFERENCE l'actif : deux instances partagent LE MEME NkSkeletonDef");
+		}
+
+		ecs::NkSkeleton b = a;
+		Check(b.def.Get() == a.def.Get(),
+			  "la copie PARTAGE la definition (meme actif, pas de copie profonde)");
+		b.Pose(0).localPosition.x = 5.f;
+		Check(a.Pose(0).localPosition.x == 0.f,
+			  "la pose reste PAR INSTANCE : ecrire dans la copie ne touche pas l'original");
+		b.skinMatrices[0][3][0] = 9.f;
+		Check(a.skinMatrices[0][3][0] != 9.f,
+			  "les matrices de peau restent PAR INSTANCE");
+
+		// LE TEMOIN HISTORIQUE : quatre exemplaires sur la pile. Avant la
+		// scission, ces quatre lignes suffisaient a deborder la pile (mesure :
+		// 0xC00000FD, 4 x 77 064 o). Si le composant regonfle, ca replante ici.
+		ecs::NkSkeleton t1 = MakeSkeleton(64), t2 = MakeSkeleton(64), t3 = MakeSkeleton(64), t4 = MakeSkeleton(64);
+		Check(t1.BoneCount() + t2.BoneCount() + t3.BoneCount() + t4.BoneCount() == 256,
+			  "quatre squelettes de 64 os TIENNENT sur la pile (temoin du debordement d'avant)");
+	}
+
 	std::printf("-- NkJiggleBoneSystem --\n");
 
 	static NkWorld world;
@@ -75,8 +133,12 @@ int main() {
 	tf.localPosition = {0.f, 0.f, 0.f};
 	world.Add<ecs::NkTransform>(e, tf);
 
-	static ecs::NkSkeleton sk;
-	sk.boneCount = 4; // le systeme refuse un boneIndex hors squelette
+	// SUR LA PILE, deliberement : c'est le TEMOIN du redimensionnement. Avant
+	// la scission, quatre NkSkeleton locaux (4 x 77 064 o) debordaient la pile
+	// -- ce banc plantait en 0xC00000FD et les avait mis en static. Ils
+	// reviennent sur la pile : si quelqu'un regonfle le composant, ce banc
+	// replante au lieu de rester vert.
+	ecs::NkSkeleton sk = MakeSkeleton(4); // le systeme refuse un boneIndex hors squelette
 	world.Add<ecs::NkSkeleton>(e, sk);
 
 	NkJiggleBone jb;
@@ -162,14 +224,11 @@ int main() {
 
 		const ecs::NkEntityId em = w2.CreateEntity();
 
-		static ecs::NkSkeleton sk2;
-		sk2.boneCount = 2;
-		sk2.skinMatrices[0] = math::NkMat4f::Identity();
-		sk2.skinMatrices[1] = math::NkMat4f::Identity();
+		ecs::NkSkeleton sk2 = MakeSkeleton(2); // pile : cf. temoin ci-dessus
 		w2.Add<ecs::NkSkeleton>(em, sk2);
 
 		// Deux images : l'os 0 se translate de x=0 a x=10.
-		static NkMotionCapture mc;
+		NkMotionCapture mc;
 		mc.fps = 10.f;      // une image toutes les 0,1 s
 		mc.duration = 0.2f; // deux images
 		mc.currentTime = 0.f;
@@ -247,12 +306,11 @@ int main() {
 
 		// Le personnage : squelette + ragdoll qui pointe le corps.
 		const ecs::NkEntityId perso = w3.CreateEntity();
-		static ecs::NkSkeleton sk3;
-		sk3.boneCount = 1;
-		sk3.skinMatrices[0] = math::NkMat4f::Identity();
+		ecs::NkSkeleton sk3 = MakeSkeleton(1);
+		sk3.skinMatrices[0] = math::NkMat4f::Identity(); // le banc mesure des translations depuis 0
 		w3.Add<ecs::NkSkeleton>(perso, sk3);
 
-		static NkRagdoll rd;
+		NkRagdoll rd; // 5 152 o : tient sur la pile
 		rd.boneCount = 1;
 		rd.bones[0].skeletonBoneIdx = 0;
 		rd.bones[0].rigidbodyEntity = corps;
@@ -318,11 +376,10 @@ int main() {
 
 		// Un os dont le corps rigide n'existe pas ne doit PAS etre invente.
 		const ecs::NkEntityId perso2 = w3.CreateEntity();
-		static ecs::NkSkeleton sk4;
-		sk4.boneCount = 1;
+		ecs::NkSkeleton sk4 = MakeSkeleton(1);
 		sk4.skinMatrices[0] = math::NkMat4f::Identity();
 		w3.Add<ecs::NkSkeleton>(perso2, sk4);
-		static NkRagdoll rd2;
+		NkRagdoll rd2;
 		rd2.boneCount = 1;
 		rd2.bones[0].skeletonBoneIdx = 0;
 		rd2.bones[0].rigidbodyEntity = ecs::NkEntityId::Invalid(); // aucun corps

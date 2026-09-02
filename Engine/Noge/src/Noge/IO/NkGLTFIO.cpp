@@ -164,16 +164,17 @@ namespace nkentseu {
 				}
 			}
 
-			ecs::NkSkeleton skel;
-			const uint32 boneCount = math::NkMin<uint32>((uint32)data.skinJoints.Size(), ecs::NkSkeleton::kMaxBones);
-			if (boneCount < (uint32)data.skinJoints.Size()) {
-				logger.Warnf("[NkGLTFIO] Import('%s'): squelette tronqué à %u os (ecs::NkSkeleton::kMaxBones), "
-							 "le fichier en a %u\n",
-							 path, boneCount, (uint32)data.skinJoints.Size());
-			}
-			skel.boneCount = boneCount;
+			// L'importeur construit LA DEFINITION (l'actif partage), puis en tire
+			// une instance dimensionnee au reel. Plus de plafond kMaxBones : le
+			// vecteur prend le compte du fichier, et l'avertissement de troncature
+			// disparait avec la troncature elle-meme.
+			memory::NkSharedPtr<ecs::NkSkeletonDef> def(new ecs::NkSkeletonDef());
+			const uint32 boneCount = (uint32)data.skinJoints.Size();
+			def->bones.Resize((NkVector<ecs::NkBoneDef>::SizeType)boneCount);
+			// La pose locale n'est plus dans la definition : elle est PAR INSTANCE.
+			// On la remplit apres FromDef, depuis les noeuds glTF.
 			for (uint32 j = 0; j < boneCount; ++j) {
-				ecs::NkBone &b = skel.bones[j];
+				ecs::NkBoneDef &b = def->bones[(NkVector<ecs::NkBoneDef>::SizeType)j];
 				// b.name reste vide : renderer::NkGLTFNode ne parse pas glTF
 				// nodes[].name (limitation du loader réel, documentée en tête de
 				// NkGLTFIO.h) — pas d'invention de nom ici.
@@ -181,20 +182,25 @@ namespace nkentseu {
 				if (nodeIdx >= 0 && (uint32)nodeIdx < parentOf.Size()) {
 					const int32 parentNode = parentOf[(uint32)nodeIdx];
 					b.parent = (parentNode >= 0 && (uint32)parentNode < nodeToJoint.Size()) ? nodeToJoint[(uint32)parentNode]
-																							: -1;
+																							  : -1;
 				}
 				if (j < (uint32)data.inverseBind.Size()) {
 					b.inverseBindPose = data.inverseBind[j];
 					b.bindPose = b.inverseBindPose.Inverse();
 				}
+			}
+			ecs::NkSkeleton skel = ecs::NkSkeleton::FromDef(def);
+			for (uint32 j = 0; j < boneCount; ++j) {
+				const int32 nodeIdx = data.skinJoints[j];
 				if (nodeIdx >= 0 && (uint32)nodeIdx < (uint32)data.nodes.Size()) {
 					const renderer::NkGLTFNode &gn = data.nodes[(uint32)nodeIdx];
-					b.localPosition = gn.translation;
-					b.localRotation.x = gn.rotation.x;
-					b.localRotation.y = gn.rotation.y;
-					b.localRotation.z = gn.rotation.z;
-					b.localRotation.w = gn.rotation.w;
-					b.localScale = gn.scale;
+					ecs::NkBonePose &bp = skel.Pose(j);
+					bp.localPosition = gn.translation;
+					bp.localRotation.x = gn.rotation.x;
+					bp.localRotation.y = gn.rotation.y;
+					bp.localRotation.z = gn.rotation.z;
+					bp.localRotation.w = gn.rotation.w;
+					bp.localScale = gn.scale;
 				}
 			}
 			scene.skeletons.PushBack(skel);
