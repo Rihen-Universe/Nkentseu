@@ -1,0 +1,287 @@
+\chapter{Référence : les commandes et le vocabulaire}
+
+Ce chapitre est une table. Il se consulte, il ne se lit pas --- et il est relevé
+sur la version 2.4.0.
+
+\section{Les vingt-sept commandes}
+
+\begin{center}
+\begin{tabular}{@{}llp{6.6cm}@{}}
+\toprule
+\textbf{Commande} & \textbf{Alias} & \textbf{Ce qu'elle fait} \\
+\midrule
+\texttt{build} & \texttt{b} & compile le workspace ou un projet \\
+\texttt{run} & \texttt{r} & exécute un projet \\
+\texttt{test} & \texttt{t} & lance les tests unitaires \\
+\texttt{gdb} & \texttt{g}, \texttt{debug} & lance le débogueur \\
+\texttt{clean} & \texttt{c} & supprime objets et artefacts \\
+\texttt{rebuild} & --- & \texttt{clean} puis \texttt{build} \\
+\texttt{watch} & \texttt{w} & reconstruit à chaque modification \\
+\texttt{info} & \texttt{i} & ce que Jenga a compris \\
+\texttt{gen} & --- & produit CMake, Visual Studio, Makefile \\
+\texttt{workspace} & \texttt{init} & crée un espace de travail \\
+\texttt{project} & \texttt{create} & crée un projet \\
+\texttt{file} & \texttt{add} & ajoute fichiers ou dépendances \\
+\texttt{install} & --- & installe dépendances et chaînes locales \\
+\texttt{keygen} & \texttt{k} & génère une clé de signature \\
+\texttt{sign} & \texttt{s} & signe un artefact \\
+\texttt{docs} & \texttt{d} & la documentation \\
+\texttt{package} & --- & construit puis empaquette \\
+\texttt{deploy} & --- & installe sur une cible \\
+\texttt{publish} & --- & envoie vers une distribution \\
+\texttt{profile} & --- & profilage \\
+\texttt{bench} & --- & mesures \\
+\texttt{config} & --- & configuration de Jenga \\
+\texttt{examples} & \texttt{e} & les exemples fournis \\
+\texttt{ide-setup} & \texttt{ide} & configure l'éditeur \\
+\texttt{compile-flags} & --- & les drapeaux réels, en JSON \\
+\texttt{help} & \texttt{h} & la liste \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Les alias ne sont pas tous d'une lettre}, et deux d'entre eux sont des
+\emph{synonymes} plutôt que des raccourcis : \texttt{debug} pour \texttt{gdb},
+\texttt{ide} pour \texttt{ide-setup}.
+
+Et deux paires sont réversibles : \texttt{workspace}/\texttt{init},
+\texttt{project}/\texttt{create}, \texttt{file}/\texttt{add}. Employez le même
+dans une équipe : deux orthographes rendent une recherche dans les scripts
+incomplète.
+\end{nkretenir}
+
+\section{Le vocabulaire, par famille}
+
+\subsection*{Structure}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{workspace(nom)} & le bloc racine \\
+\texttt{project(nom)} & un artefact \\
+\texttt{filter(expr)} & une condition \\
+\texttt{include(chemin)} & exécute un autre \texttt{.jenga} en ligne \\
+\texttt{unitest()} & configure le cadre de test \\
+\texttt{toolchain(\dots)} & déclare une chaîne d'outils \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Genre et langage}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{consoleapp()} \texttt{windowedapp()} & exécutables \\
+\texttt{staticlib()} \texttt{sharedlib()} & bibliothèques \\
+\texttt{testsuite()} & suite de tests \\
+\texttt{kind(k)} & la forme générique \\
+\texttt{language(l)} & \texttt{"C"} ou \texttt{"C++"} \\
+\texttt{cppdialect} \texttt{cdialect} & la norme \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Fichiers et chemins}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{location} & où vit le projet \\
+\texttt{files} \texttt{excludefiles} \texttt{excludemainfiles} & les sources \\
+\texttt{includedirs} \texttt{externalincludedirs} \texttt{sysincludedirs} & en-têtes \\
+\texttt{libdirs} \texttt{syslibdirs} & où chercher les bibliothèques \\
+\texttt{objdir} \texttt{targetdir} \texttt{bindir} \texttt{targetname} & les sorties \\
+\texttt{dependfiles} \texttt{embedresources} & fichiers copiés / intégrés \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Dépendances et drapeaux}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{dependson} \texttt{removedependson} & entre projets \\
+\texttt{links} \texttt{removelinks} & bibliothèques \\
+\texttt{frameworks} \texttt{framework} & Apple \\
+\texttt{defines} \texttt{removedefines} & définitions \\
+\texttt{optimize} \texttt{symbols} \texttt{runtime} & réglages de compilation \\
+\texttt{cflags} \texttt{cxxflags} \texttt{ldflags} \texttt{arflags} & drapeaux bruts \\
+\texttt{prelink} \texttt{postlink} & actions autour du lien \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Les \texttt{*flags} sont une porte de sortie, pas un outil courant.} Ils
+passent une chaîne au compilateur sans que Jenga la comprenne --- donc sans qu'il
+puisse l'adapter à une autre chaîne d'outils.
+
+Un drapeau brut est \textbf{lié à un compilateur}. Employez-le quand rien
+d'autre ne convient, dans un filtre \texttt{toolset:}, et écrivez pourquoi.
+\end{nkretenir}
+
+\subsection*{Réglages courts}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{debug()} \texttt{release()} \texttt{reldebinfo()} \texttt{minsizerel()} & profils \\
+\texttt{debuggdb()} \texttt{debuglldb()} \texttt{debugcodeview()} & format de symboles \\
+\texttt{sanitizeaddress()} \texttt{sanitizethread()} \dots & analyseurs dynamiques \\
+\texttt{coveragegcov()} \texttt{coveragevs()} & couverture \\
+\texttt{profilegprof()} \texttt{profilevs()} \texttt{profileinstruments()} & profilage \\
+\texttt{pic()} \texttt{pie()} \texttt{nostdlib()} \texttt{nostdinc()} & génération de code \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Métadonnées et plateformes}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{apppublisher} \texttt{appversion} \texttt{licensefile} \texttt{appicon} & communes \\
+\texttt{android*} (une trentaine) & Android \\
+\texttt{ios*} \texttt{tvos*} \texttt{watchos*} \texttt{visionos*} & Apple \\
+\texttt{harmony*} (une quinzaine) & HarmonyOS \\
+\texttt{emscripten*} & Web \\
+\texttt{xbox*} \texttt{gdkpath} & Xbox \\
+\texttt{signing*} & signature \\
+\texttt{networkenabled} \texttt{firewallrule} & réseau \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Le vocabulaire complet compte 242 fonctions publiques}, relevées dans
+\nkfile{Jenga/Core/Api.py}. Les tables ci-dessus en donnent la charpente.
+
+\textbf{Devant un besoin précis, cherchez par préfixe} : \texttt{android},
+\texttt{ios}, \texttt{harmony}, \texttt{emscripten}, \texttt{signing}. La
+convention de nommage est régulière, et c'est ce qui rend l'API cherchable sans
+documentation.
+\end{nkretenir}
+
+\section{Les variables de chemin}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{\%\{wks.location\}} & le dossier du workspace \\
+\texttt{\%\{prj.name\}} & le nom du projet \\
+\texttt{\%\{prj.location\}} & le dossier du projet \\
+\texttt{\%\{cfg.buildcfg\}} & \texttt{Debug} ou \texttt{Release} \\
+\texttt{\%\{cfg.system\}} & le système visé \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Les préfixes de filtre}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{system:} & le système visé \\
+\texttt{config:} \texttt{configuration:} \texttt{configurations:} \texttt{cfg:} & la configuration \\
+\texttt{arch:} \texttt{architecture:} & l'architecture \\
+\texttt{platform:} \texttt{platforms:} & système + architecture \\
+\texttt{action:} & la commande en cours \\
+\texttt{options:} \texttt{option:} & une option déclarée \\
+\texttt{kind:} & le genre du projet \\
+\texttt{language:} & le langage \\
+\texttt{toolset:} & la famille de compilateur \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Les onze chaînes d'outils}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Nom} & \textbf{Famille} & \textbf{Cible} \\
+\midrule
+\texttt{host-apple-clang} & apple-clang & la machine \\
+\texttt{host-clang} & clang & la machine \\
+\texttt{host-gcc} & gcc & la machine \\
+\texttt{clang-mingw} & clang & Windows \\
+\texttt{mingw} & gcc & Windows \\
+\texttt{msvc} & msvc & Windows \\
+\texttt{gcc-cross-linux} & gcc & Linux \\
+\texttt{clang-cross-linux} & clang & Linux \\
+\texttt{emscripten} & emscripten & Web \\
+\texttt{android-ndk} & android-ndk & Android \\
+\texttt{ohos-ndk} & clang & HarmonyOS \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Déclarées $\neq$ disponibles.} \texttt{jenga info} ne montre que celles
+qu'il a trouvées sur la machine. Un descripteur qui exige une chaîne absente
+échoue au chargement --- et le message parle de la chaîne, pas du SDK manquant.
+\end{nkretenir}
+
+\begin{nkbilan}
+Vingt-sept commandes, quinze alias, 242 fonctions de vocabulaire, neuf préfixes
+de filtre, onze chaînes d'outils. Les tables de ce chapitre en donnent la
+charpente ; le reste se cherche par préfixe, la convention de nommage étant
+régulière. Retenez deux choses : les drapeaux bruts sont une porte de sortie liée
+à un compilateur, et une chaîne d'outils déclarée n'est pas une chaîne
+disponible.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelle commande fait \texttt{clean} puis \texttt{build} ?
+\item Quels sont les deux alias qui sont des synonymes et non des raccourcis ?
+\item Pourquoi un drapeau brut est-il moins portable qu'un réglage nommé ?
+\item Que valent \texttt{\%\{cfg.buildcfg\}} et \texttt{\%\{cfg.system\}} ?
+\item Quelle différence entre une chaîne d'outils déclarée et disponible ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Prenez trois besoins et trouvez la fonction, \emph{sans} lire ce chapitre :
+
+\begin{enumerate}
+\item embarquer une police dans le binaire ;
+\item interdire l'usage de la bibliothèque standard ;
+\item déclarer les permissions Android.
+\end{enumerate}
+
+\texttt{jenga help}, les exemples fournis et la recherche par préfixe suffisent.
+Chronométrez : si l'un vous prend plus de deux minutes, notez lequel --- c'est un
+manque de la convention de nommage, et il vaut d'être signalé.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'une chaîne d'outils déclarée peut être indisponible.
+
+\begin{enumerate}
+\item relevez la liste que \texttt{jenga info} affiche sur votre machine ;
+\item comparez-la aux onze du tableau ci-dessus ;
+\item écrivez un \texttt{usetoolchain} vers une chaîne absente de votre liste et
+      lancez \texttt{jenga build}.
+\end{enumerate}
+
+\textbf{Ce que la démonstration doit établir} : le message d'échec parle de la
+\emph{chaîne}, pas du SDK qui lui manque. Relevez-le mot pour mot --- c'est celui
+que vous reverrez sur une machine neuve, et vous saurez alors quoi installer
+plutôt que quoi corriger.
+\end{nkdemo}
+
+\begin{nklogique}
+Vous héritez d'un descripteur qui emploie \texttt{cxxflags(["-O3"])} sous un
+filtre \texttt{config:Release}, alors que \texttt{optimize("Speed")} existe.
+
+\begin{enumerate}
+\item Citez deux raisons légitimes de ce choix.
+\item Citez deux problèmes qu'il crée, dont un qui ne se verra que sur une autre
+      plateforme.
+\item Que feriez-vous --- et qu'écririez-vous à côté, quel que soit votre choix ?
+\end{enumerate}
+\end{nklogique}

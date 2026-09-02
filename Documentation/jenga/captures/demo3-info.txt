@@ -1,0 +1,49 @@
+$ jenga info
+#   (dans C:/Users/Rihen/AppData/Local/Temp/claude/d--Projets-2026-Nkentseu-Nkentseu/a87f7ffc-3353-4005-ad29-4b5e363ffe53/scratchpad/demo/Bonjour, code de sortie 0)
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║                ██╗███████╗███╗   ██╗ ██████╗  █████╗             ║
+║                ██║██╔════╝████╗  ██║██╔════╝ ██╔══██╗            ║
+║                ██║█████╗  ██╔██╗ ██║██║  ███╗███████║            ║
+║           ██   ██║██╔══╝  ██║╚██╗██║██║   ██║██╔══██║            ║
+║           ╚█████╔╝███████╗██║ ╚████║╚██████╔╝██║  ██║            ║
+║            ╚════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝            ║
+║                                                                  ║
+║             Multi-platform C/C++ Build System v2.4.0             ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+=========================== Jenga Workspace: Bonjour ===========================
+
+Location: C:\Users\Rihen\AppData\Local\Temp\claude\d--Projets-2026-Nkentseu-Nkentseu\a87f7ffc-3353-4005-ad29-4b5e363ffe53\scratchpad\demo\Bonjour
+Entry file: C:\Users\Rihen\AppData\Local\Temp\claude\d--Projets-2026-Nkentseu-Nkentseu\a87f7ffc-3353-4005-ad29-4b5e363ffe53\scratchpad\demo\Bonjour\Bonjour.jenga
+Configurations: Debug, Release
+Platforms: Windows
+Target OSes: Windows, Linux, macOS
+Target Architectures: x86_64
+
+
+Projects
+------------------------------------------------------------
+Name      Kind         Language   Test   External
+=================================================
+Bonjour   ConsoleApp   C++        No     No
+
+
+Available Toolchains
+------------------------------------------------------------
+Name                 Family        Target OS   Arch     Env    
+===============================================================
+host-clang           clang         Windows     x86_64   mingw
+host-gcc             gcc           Windows     x86_64   mingw
+msvc                 msvc          Windows     x86_64   msvc
+clang-mingw          clang         Windows     x86_64   mingw
+mingw                gcc           Windows     x86_64   mingw
+clang-cross-linux    clang         Linux       x86_64   gnu
+android-ndk          android-ndk   Android     arm64    android
+emscripten           emscripten    Web         wasm32
+zig-linux-x86_64     clang         Linux       x86_64   gnu
+zig-linux-x64        clang         Linux       x86_64   gnu
+... (16 lignes de plus)

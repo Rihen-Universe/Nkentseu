@@ -1,0 +1,246 @@
+\chapter{Lancer, tester, déboguer, surveiller}
+
+Construire n'est qu'une des vingt-sept commandes. Ce chapitre couvre les quatre
+qui servent tous les jours après.
+
+\section{\texttt{run} --- lancer sans connaître le chemin}
+
+\begin{nkcode}{}
+jenga run --config Release
+jenga run --project MonJeu --config Debug
+jenga run -- --mode=solo --verbose
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Le double tiret sépare vos arguments de ceux de Jenga.} Tout ce qui suit
+\texttt{-{}-} est passé au programme.
+
+Sans lui, \texttt{jenga run -{}-verbose} rend Jenga bavard et ne transmet rien.
+C'est une convention courante, et elle se rappelle par ce symptôme : « mon
+programme ignore ses options ».
+\end{nkretenir}
+
+\begin{nkcode}{Capture reelle}
+  EXECUTION  --  Bonjour.exe
+     ...\Build\Bin\Release-Windows\Bonjour\Bonjour.exe
+
+Application console sans terminal : ouverture d'une console dediee.
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Cette dernière ligne explique une confusion fréquente.} Une application
+de type console lancée sans terminal attaché obtient une console à elle --- et sa
+sortie n'apparaît donc pas dans \emph{votre} fenêtre.
+
+Si vous capturez la sortie d'un programme par un script, vous ne verrez rien.
+\emph{Ce n'est pas que le programme est muet ; c'est qu'il parle ailleurs.}
+\end{nkretenir}
+
+\section{\texttt{test} --- et ce qu'il répond quand il n'y a rien}
+
+\begin{nkcode}{jenga test -- capture reelle, code de sortie 1}
+No test projects found.
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Code de sortie 1, message explicite.} C'est le bon comportement : ne rien
+trouver n'est pas un succès. Une intégration continue qui lance \texttt{jenga
+test} sur un dépôt sans tests doit rougir, pas passer.
+
+\emph{« Zéro test exécuté » et « zéro test en échec » se ressemblent au premier
+coup d'\oe il et n'ont rien à voir.}
+\end{nkretenir}
+
+\begin{nkcode}{Declarer une suite de tests}
+with project("MesTests"):
+    testsuite()
+    language("C++")
+    files(["tests/**.cpp"])
+    dependson(["MaBibliotheque"])
+\end{nkcode}
+
+\begin{nkretenir}[Le cadre de test est fourni par Jenga]
+Jenga embarque \textbf{Unitest} --- \nkfile{Jenga/Unitest/} --- et le workspace
+peut l'activer :
+
+\begin{nkcode}{}
+with unitest() as u:
+    u.Precompiled()
+\end{nkcode}
+
+⚠️ \textbf{C'est une confusion mesurée sur ce dépôt} : une recherche du cadre de
+test dans les sources de Nkentseu avait conclu « ce cadre n'existe pas ». Il
+existe --- \emph{dans Jenga}. La recherche était exhaustive et sa racine était
+fausse.
+
+\emph{Une recherche exhaustive ne vaut que ce que vaut sa racine.}
+\end{nkretenir}
+
+\begin{nkretenir}
+Deux réglages coupent les tests, et il faut savoir qu'ils existent avant de
+conclure qu'une suite « ne tourne pas » :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{disableunittestcompilation()} / \texttt{dutc()} & ne les compile plus \\
+\texttt{disableunittestexecution()} / \texttt{dute()} & les compile, ne les lance pas \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Le second est le plus trompeur} : tout se construit, rien ne s'exécute.
+Depuis la version 2.4.0, \texttt{test} et \texttt{run} acceptent
+\texttt{-{}-force} pour lever ces deux verrous.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un enchaînement \texttt{A || B} attribue la sortie de B à A.} Mesuré :
+un développeur lance \texttt{jenga test -{}-project X || jenga build -{}-target X},
+lit \texttt{6/6 --- SUCCESS}, et conclut que \texttt{jenga test} annonce un succès
+sur une suite qu'il n'exécute pas.
+
+Relancées séparément, \texttt{jenga test} répondait \textbf{en rouge} et le
+succès venait du \emph{build}, qui avait raison de réussir. Un défaut d'outil
+allait être inscrit dans un document partagé.
+
+\textbf{En diagnostic : une commande, une lecture.}
+\end{nkpiege}
+
+\section{\texttt{gdb} --- déboguer}
+
+\begin{nkcode}{}
+jenga gdb --config Debug
+jenga debug --config Debug     # meme commande
+\end{nkcode}
+
+\begin{nkretenir}
+Jenga lance le débogueur sur le bon exécutable, avec la bonne configuration.
+\textbf{Construisez en Debug} : en Release, les symboles sont absents
+(\texttt{symbols(False)}) et vous déboguerez à l'aveugle.
+
+Pour un plantage non interactif, la forme qui donne le plus en une fois :
+
+\begin{nkcode}{}
+gdb --batch -ex "run <args>" -ex "bt full" --args <exe>
+\end{nkcode}
+\end{nkretenir}
+
+\section{\texttt{watch} --- reconstruire à chaque enregistrement}
+
+\begin{nkcode}{}
+jenga watch
+jenga w
+\end{nkcode}
+
+\begin{nkretenir}
+\texttt{watch} surveille vos sources et reconstruit à chaque modification. Il
+exige \texttt{watchdog} --- la seule dépendance Python vraiment optionnelle de
+Jenga.
+
+\textbf{Il hérite de la décision par dates du chapitre 9}, et cette fois à votre
+avantage : un enregistrement met la date à \emph{maintenant}, donc la
+recompilation part.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Ne laissez pas \texttt{watch} tourner pendant une mesure.} Il reconstruit
+au moindre changement --- y compris ceux d'un autre outil --- et vous mesureriez
+un binaire différent de celui que vous croyez.
+
+Même règle que pour toute campagne : on ne répare pas la tuyauterie pendant que
+l'eau coule.
+\end{nkpiege}
+
+\section{\texttt{clean} et \texttt{rebuild}}
+
+\begin{nkcode}{jenga clean -- capture reelle, extrait}
+Removed ...\Build\Obj\Release-Windows\Bonjour\src_main.obj
+Removed ...\Build\Bin\Release-Windows\Bonjour\Bonjour.exe
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{clean} énumère ce qu'il supprime}, ce qui est plus utile qu'il
+n'y paraît : la liste montre \emph{quelle} configuration et \emph{quelle}
+plateforme sont nettoyées.
+
+\texttt{jenga clean} sans argument ne nettoie pas nécessairement tout : les
+autres configurations restent. C'est voulu --- et c'est la raison pour laquelle
+un « j'ai pourtant nettoyé » ne clôt pas une enquête.
+\end{nkretenir}
+
+\begin{nkretenir}
+Notez aussi le nom de l'objet : \texttt{src\_main.obj}. Le chemin de la source
+est aplati dans le nom --- \texttt{src/main.cpp} devient \texttt{src\_main}.
+
+C'est ce qui permet à deux fichiers du même nom dans deux dossiers de coexister,
+et c'est utile à connaître quand on cherche si \emph{son} fichier a bien été
+compilé (chapitre 9).
+\end{nkretenir}
+
+\begin{nkbilan}
+\texttt{run} retrouve l'exécutable et passe vos arguments après \texttt{-{}-} ;
+une application console sans terminal parle dans une console à elle, ce qui
+explique bien des « programmes muets ». \texttt{test} rend un code non nul quand
+il ne trouve rien --- « zéro exécuté » n'est pas « zéro en échec » --- et le cadre
+Unitest est fourni par Jenga, pas par votre dépôt. \texttt{gdb} veut du Debug,
+\texttt{watch} veut \texttt{watchdog} et ne doit pas tourner pendant une mesure.
+Enfin \texttt{clean} énumère, et ne nettoie que la configuration visée.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item À quoi sert \texttt{-{}-} dans \texttt{jenga run} ?
+\item Que rend \texttt{jenga test} sur un projet sans tests, et pourquoi est-ce
+      le bon comportement ?
+\item Quelle différence entre \texttt{dutc} et \texttt{dute} ?
+\item Pourquoi ne faut-il pas laisser \texttt{watch} tourner pendant une mesure ?
+\item D'où vient le nom \texttt{src\_main.obj} ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Sur votre projet :
+
+\begin{enumerate}
+\item ajoutez une suite de tests avec un cas qui passe et un qui échoue ;
+\item lancez \texttt{jenga test} et relevez le \textbf{code de sortie} ;
+\item corrigez le cas fautif, relancez, relevez à nouveau ;
+\item posez \texttt{dute()} dans le workspace et relancez --- que se passe-t-il,
+      et le code de sortie change-t-il ?
+\end{enumerate}
+
+Le quatrième point est le plus important : c'est celui qui rend un test
+silencieux.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un enchaînement masque l'origine d'une sortie.
+
+Lancez \texttt{jenga test || jenga build} sur un projet \emph{sans} tests, et
+relevez ce que vous lisez à l'écran.
+
+Puis lancez les deux commandes \textbf{séparément} et relevez chaque code de
+sortie.
+
+\textbf{Ce que la démonstration établit} : la première forme affiche un succès,
+et rien n'indique qu'il vient de la seconde commande. Vous auriez pu conclure que
+\texttt{test} réussit.
+
+C'est le mécanisme exact qui a fait accuser Jenga à tort sur ce dépôt --- et le
+défaut allait être inscrit dans un document partagé.
+\end{nkdemo}
+
+\begin{nklogique}
+Une suite de tests « ne s'exécute plus » depuis quelques jours, sans que personne
+n'ait touché aux tests.
+
+\begin{enumerate}
+\item Énumérez quatre causes, en distinguant celles qui empêchent la
+      \emph{compilation} de celles qui empêchent l'\emph{exécution}.
+\item Pour chacune, dites quel signe la trahit --- et laquelle ne laisse
+      \emph{aucun} signe dans la sortie de \texttt{build}.
+\item Quel contrôle, ajouté à votre intégration continue, rendrait cette dernière
+      impossible à ignorer ?
+\end{enumerate}
+\end{nklogique}

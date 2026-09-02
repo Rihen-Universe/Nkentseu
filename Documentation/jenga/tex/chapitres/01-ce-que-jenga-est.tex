@@ -1,0 +1,226 @@
+\chapter{Ce que Jenga est, et ce qu'il n'est pas}
+
+Jenga construit des projets C et C++. Vous décrivez ce que vous voulez obtenir ;
+il détermine dans quel ordre compiler, avec quel compilateur, quels drapeaux, et
+il produit l'exécutable, la bibliothèque, l'APK ou la page Web.
+
+Ce chapitre dit ce qu'il fait, ce qu'il ne fait pas, et surtout \emph{par quel
+mécanisme} --- parce que ce mécanisme explique presque tout le reste du livre.
+
+\section{La phrase qui décide de tout}
+
+\begin{nkretenir}
+\textbf{Un fichier \texttt{.jenga} est du Python, et Jenga l'EXÉCUTE.}
+
+Ce n'est pas une métaphore. Voici la ligne, dans le chargeur :
+
+\begin{nkcode}{Jenga/Core/Loader.py:268}
+exec(filePath.read_text(encoding='utf-8-sig'), globals_dict)
+\end{nkcode}
+
+Votre description de projet n'est pas analysée comme un format de données : elle
+est \emph{lancée}. Les appels que vous écrivez --- \texttt{project()},
+\texttt{files()}, \texttt{links()} --- sont de vraies fonctions Python qui
+remplissent des objets en mémoire.
+\end{nkretenir}
+
+Trois conséquences immédiates, et vous les emploierez dès le chapitre 3 :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Vous pouvez} & \textbf{Parce que} \\
+\midrule
+mettre une boucle \texttt{for} dans un \texttt{.jenga} & c'est du Python \\
+lire une variable d'environnement & c'est du Python \\
+appeler une fonction que vous écrivez & c'est du Python \\
+importer un module & c'est du Python \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Et la contrepartie, qu'il vaut mieux connaître tout de suite :} une
+erreur dans votre \texttt{.jenga} est une erreur \emph{Python}, avec sa pile
+d'appels. Une virgule oubliée ne donne pas « fichier de projet invalide » mais
+\texttt{SyntaxError}.
+
+\textbf{Un \texttt{.jenga} peut aussi faire n'importe quoi} --- effacer un
+dossier, appeler le réseau. Il a tous les droits de l'interpréteur. Ne lancez
+pas un \texttt{.jenga} que vous n'avez pas lu, exactement comme vous ne lanceriez
+pas un script inconnu.
+\end{nkpiege}
+
+\section{Ce que Jenga fait}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Il s'occupe de} & \textbf{Concrètement} \\
+\midrule
+trouver les sources & \texttt{files(["src/**.cpp"])} \\
+choisir le compilateur & selon la plateforme visée \\
+ordonner les projets & d'après les dépendances déclarées \\
+ne recompiler que le nécessaire & voir le chapitre 10 --- et son piège \\
+produire l'artefact final & \texttt{.exe}, \texttt{.a}, \texttt{.apk}, \texttt{.wasm}\dots \\
+empaqueter et signer & \texttt{jenga package}, \texttt{jenga sign} \\
+lancer, tester, déboguer & \texttt{run}, \texttt{test}, \texttt{gdb} \\
+configurer votre éditeur & \texttt{ide-setup}, \texttt{compile-flags} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Douze systèmes cibles sont déclarés}, et le livre distingue soigneusement
+ceux qui sont \emph{éprouvés} de ceux qui sont seulement \emph{déclarés} --- c'est
+l'objet du chapitre 15.
+
+\begin{nkcode}{Jenga/Core/Api.py:66-83}
+class TargetOS(Enum):
+    WINDOWS  LINUX  MACOS  ANDROID  IOS  TVOS  WATCHOS  IPADOS
+    VISIONOS  WEB  PS4  PS5  XBOX_ONE  XBOX_SERIES  SWITCH
+    HARMONYOS  FREEBSD  OPENBSD
+\end{nkcode}
+\end{nkretenir}
+
+\section{Ce que Jenga n'est pas}
+
+\begin{nkretenir}
+\textbf{Ce n'est pas un gestionnaire de paquets.} Il ne télécharge pas vos
+dépendances depuis un dépôt public. Une bibliothèque tierce est un dossier que
+vous avez, et vous lui écrivez un \texttt{.jenga} --- ou vous la liez par
+\texttt{links()}.
+
+\textbf{Ce n'est pas un générateur de projets, et c'est la différence avec
+CMake.} CMake produit un \texttt{Makefile} ou une solution Visual Studio, qui
+construisent ensuite. Jenga \textbf{construit lui-même} : il appelle le
+compilateur. (Il \emph{peut} générer un projet, par \texttt{jenga gen}, mais
+c'est un service annexe, pas son fonctionnement.)
+
+\textbf{Ce n'est pas un système de tâches générique.} Il ne remplace ni
+\texttt{make} ni un script : il connaît la compilation, l'édition de liens et
+l'empaquetage, et rien d'autre.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Il ne devine pas votre bibliothèque système.} Écrire \texttt{links(["X11"])}
+suppose que \texttt{libX11} est installée et trouvable. Jenga passe le drapeau à
+l'éditeur de liens ; c'est ce dernier qui échoue, et son message ne nomme pas
+Jenga.
+
+C'est la source la plus fréquente d'un « Jenga ne marche pas » qui n'est pas un
+défaut de Jenga.
+\end{nkpiege}
+
+\section{Le vocabulaire, en cinq mots}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Mot} & \textbf{Ce qu'il désigne} \\
+\midrule
+\emph{workspace} & l'espace de travail : le fichier racine, et tout ce qu'il inclut \\
+\emph{project} & une unité qui produit un artefact : un exe, une lib, un test \\
+\emph{configuration} & \texttt{Debug}, \texttt{Release}\dots --- un jeu de réglages \\
+\emph{toolchain} & une chaîne d'outils : compilateur, éditeur de liens, archiveur \\
+\emph{filter} & une condition sous laquelle certains réglages s'appliquent \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Un workspace contient des projets ; un projet ne contient rien.} C'est la
+seule hiérarchie. Il n'y a pas de sous-projet, pas de groupe : un projet dépend
+d'un autre, et c'est ainsi qu'on structure.
+\end{nkretenir}
+
+\section{Ce que vous saurez à la fin de ce livre}
+
+\begin{center}
+\begin{tabular}{@{}rl@{}}
+\toprule
+\textbf{Partie} & \textbf{Ce qu'elle donne} \\
+\midrule
+I & installer Jenga, le trouver, construire un projet de A à Z \\
+II & écrire un \texttt{.jenga} : sources, sorties, filtres, dépendances \\
+III & comprendre ce que Jenga fait de votre description \\
+IV & viser une plateforme --- et savoir laquelle est éprouvée \\
+V & lancer, tester, empaqueter, signer, déployer \\
+VI & lire un échec, éviter les pièges, écrire une chaîne d'outils \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Tout ce que ce livre affirme a été mesuré sur la version 2.4.0}, et les
+sorties de terminal qu'il cite sont des \emph{captures réelles} --- pas des
+exemples recopiés. Quand une chose n'a pas pu être vérifiée ici, il le dit.
+\end{nkretenir}
+
+\begin{nkbilan}
+Jenga construit du C et du C++, et le fait lui-même plutôt que de générer un
+autre système de construction. Sa décision fondatrice est qu'un fichier
+\texttt{.jenga} est \textbf{du Python exécuté} : vous y disposez d'un langage
+complet, et vous en héritez aussi les erreurs. Il n'est ni gestionnaire de
+paquets, ni générateur de projets, ni ordonnanceur de tâches. Un workspace
+contient des projets, et c'est toute la hiérarchie.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Qu'est-ce qu'un fichier \texttt{.jenga}, techniquement ?
+\item Citez deux choses que cela vous autorise, et une qu'il faut craindre.
+\item En quoi Jenga diffère-t-il de CMake ?
+\item Que se passe-t-il si vous écrivez \texttt{links(["X11"])} sans avoir la
+      bibliothèque ?
+\item Quelle est la seule hiérarchie de Jenga ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Ouvrez un \texttt{.jenga} réel du dépôt --- par exemple
+\nkfile{Applications/NkDames/NkDames.jenga} --- et relevez :
+
+\begin{enumerate}
+\item les constructions qui sont du \emph{Python} et non du vocabulaire Jenga
+      (\texttt{import}, \texttt{def}, \texttt{if}, \texttt{os.getenv}) ;
+\item le nombre de blocs \texttt{with filter(\dots)} ;
+\item ce que le fichier ferait de différent si vous supprimiez la ligne
+      \texttt{files([\dots])}.
+\end{enumerate}
+Répondez à la troisième \emph{avant} de l'essayer.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un \texttt{.jenga} est bien exécuté, et non analysé.
+
+Ajoutez, au tout début d'un \texttt{.jenga} de votre choix, la ligne :
+
+\begin{nkcode}{}
+print("JE SUIS EXECUTE, et il est", __import__("datetime").datetime.now())
+\end{nkcode}
+
+Lancez \texttt{jenga info}. La ligne doit apparaître, avec l'heure courante.
+
+\textbf{Ce que la démonstration établit}, et c'est plus que « ça s'affiche » :
+l'heure \emph{change} d'une exécution à l'autre. Un format de données ne peut pas
+produire une valeur qui change ; seul du code exécuté le peut.
+
+Retirez ensuite la ligne. ⚠️ Ne la laissez pas : un \texttt{print} dans un
+\texttt{.jenga} s'exécute à \emph{chaque} commande, y compris celles dont vous
+lisez la sortie avec un script.
+\end{nkdemo}
+
+\begin{nklogique}
+Un collègue vous dit : « Jenga est cassé, mon projet ne compile pas, il me sort
+une erreur Python ».
+
+\begin{enumerate}
+\item Quelles sont les deux familles d'erreur possibles, et laquelle cette
+      description désigne-t-elle ?
+\item Comment distingueriez-vous, en une commande, une erreur \emph{dans sa
+      description} d'une erreur \emph{dans son code C++} ?
+\item Il ajoute : « et ça marchait hier ». Qu'est-ce que cette information
+      élimine, et qu'est-ce qu'elle n'élimine pas ?
+\end{enumerate}
+\end{nklogique}

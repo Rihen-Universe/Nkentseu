@@ -1,0 +1,18 @@
+$ jenga workspace Bonjour --no-interactive
+#   (dans C:/Users/Rihen/AppData/Local/Temp/claude/d--Projets-2026-Nkentseu-Nkentseu/a87f7ffc-3353-4005-ad29-4b5e363ffe53/scratchpad/demo, code de sortie 0)
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║                ██╗███████╗███╗   ██╗ ██████╗  █████╗             ║
+║                ██║██╔════╝████╗  ██║██╔════╝ ██╔══██╗            ║
+║                ██║█████╗  ██╔██╗ ██║██║  ███╗███████║            ║
+║           ██   ██║██╔══╝  ██║╚██╗██║██║   ██║██╔══██║            ║
+║           ╚█████╔╝███████╗██║ ╚████║╚██████╔╝██║  ██║            ║
+║            ╚════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝            ║
+║                                                                  ║
+║             Multi-platform C/C++ Build System v2.4.0             ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Workspace 'Bonjour' created at C:\Users\Rihen\AppData\Local\Temp\claude\d--Projets-2026-Nkentseu-Nkentseu\a87f7ffc-3353-4005-ad29-4b5e363ffe53\scratchpad\demo\Bonjour\Bonjour.jenga

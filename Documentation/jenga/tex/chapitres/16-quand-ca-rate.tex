@@ -1,0 +1,261 @@
+\chapter{Quand ça rate : lire ce que Jenga dit}
+
+Un échec de construction se lit. Ce chapitre donne l'ordre dans lequel le faire,
+et les messages qu'on prend pour ce qu'ils ne sont pas.
+
+\section{Trois étages, trois familles d'échec}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Étage} & \textbf{Le message ressemble à} & \textbf{Il faut regarder} \\
+\midrule
+chargement & une erreur \emph{Python} & votre \texttt{.jenga} \\
+compilation & une erreur du \emph{compilateur} & votre code C++ \\
+édition de liens & un \emph{symbole} manquant & vos \texttt{links} et \texttt{dependson} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Identifiez l'étage AVANT de chercher.} C'est trente secondes, et cela
+détermine dans quel fichier vous allez passer l'heure suivante.
+
+\textbf{Le troisième est le plus mal compris.} Une erreur d'édition de liens
+nomme un \emph{symbole} --- une fonction, une variable --- et ne nomme jamais le
+module qui la contient. Elle envoie donc chercher dans le code, alors que la
+cause est dans la description.
+\end{nkretenir}
+
+\section{L'échec de chargement}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Message} & \textbf{Cause la plus fréquente} \\
+\midrule
+\texttt{SyntaxError} & virgule, parenthèse, indentation \\
+\texttt{NameError} & une fonction mal orthographiée \\
+\texttt{TypeError} & une chaîne au lieu d'une liste \\
+\texttt{FileNotFoundError} & un \texttt{include()} vers un fichier absent \\
+\texttt{No workspace defined} & aucun \texttt{with workspace} exécuté \\
+\texttt{External file not found} & un sous-module non peuplé \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{-{}-verbose} donne la pile complète}, et c'est le premier réflexe.
+Le message dit \emph{quoi} ; la pile dit \emph{où}, y compris dans un fichier
+inclus.
+\end{nkretenir}
+
+\begin{nkpiege}[La dernière ligne du tableau accuse le mauvais coupable]
+\texttt{External file not found: Externals/Libs/NKGlad/NKGlad.jenga} ressemble à
+une erreur de description. C'en est rarement une : \textbf{le dossier du
+sous-module est vide.}
+
+Et l'origine est plus retorse encore : dans un \emph{worktree} git,
+\texttt{git submodule update -{}-init} \textbf{ne fait rien et rend 0}. Aucune
+sortie, aucun message. Il faut \texttt{-{}-force}.
+
+Tout ce qu'on lance ensuite échoue « à la construction ». \textbf{Vérifiez vos
+sous-modules avant de conclure quoi que ce soit sur le code} --- sinon
+l'instrument accuse le sujet à la place de son propre montage.
+\end{nkpiege}
+
+\section{L'échec de compilation}
+
+\begin{nkretenir}
+Jenga relaie le message du compilateur, en nommant le fichier :
+
+\begin{nkcode}{Forme reelle}
+Compilation Error: NkLudoJeu.cpp
+  .../NkLudoJeu.h:49:42: error: non-virtual member function marked
+  'override' hides virtual member function
+\end{nkcode}
+
+\textbf{Le fichier nommé en tête est celui qu'on compilait ; l'erreur peut être
+dans un en-tête.} Ici, la compilation de \texttt{NkLudoJeu.cpp} échoue sur une
+ligne de \texttt{NkLudoJeu.h} --- et les deux se lisent.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Le même en-tête peut compiler dans un fichier et échouer dans un autre.}
+Cela paraît absurde et c'est courant : l'en-tête est inclus dans deux contextes
+différents, avec des macros ou des \texttt{using} différents.
+
+Mesuré sur ce dépôt avec deux types nommés \texttt{NkShaderStage} dans deux
+espaces de noms : un \texttt{.cpp} compilait pendant qu'un autre échouait sur le
+même en-tête.
+
+\textbf{Dans un en-tête, qualifiez complètement.} C'est la seule parade.
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{Par défaut, la construction s'arrête au premier échec.} Il y a donc
+exactement une erreur par relevé, et \texttt{Failed: 1} ne veut pas dire qu'un
+seul fichier est cassé.
+
+\texttt{-{}-keep-going} continue et donne le compte réel. À employer avant
+d'estimer un chantier : le premier chiffre est presque toujours faux.
+\end{nkretenir}
+
+\section{L'échec d'édition de liens}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Symptôme} & \textbf{Ce qu'il faut vérifier} \\
+\midrule
+\texttt{undefined reference to <votre fonction>} & le \texttt{.cpp} est-il dans \texttt{files} ? \\
+\texttt{undefined reference to WinMain} & le point d'entrée et le genre s'accordent-ils ? \\
+\texttt{cannot find -lX11} & la bibliothèque est-elle installée ? \\
+\texttt{framework not found} & existe-t-elle sur \emph{cette} plateforme ? \\
+\texttt{multiple definition of main} & deux \texttt{main} --- voir \texttt{excludemainfiles} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{La première ligne est la plus fréquente, et la plus mal cherchée.} Un
+symbole qu'on a pourtant écrit est introuvable parce que son fichier n'a jamais
+été compilé --- motif qui ne le prend pas, ou fichier hors du dossier déclaré.
+
+La sortie de construction porte la réponse : \texttt{Found N source file(s)}.
+\textbf{Comparez N au nombre de vos fichiers} avant de chercher ailleurs.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Une erreur d'édition de liens ne nomme aucun de vos fichiers de
+description.} \texttt{undefined reference to WinMain} ne mentionne ni votre
+\texttt{.jenga}, ni le mot \texttt{windowedapp} --- et l'on cherche partout sauf
+là.
+
+\emph{Quand un message ne nomme aucun de vos fichiers, la cause est presque
+toujours dans la description.}
+\end{nkpiege}
+
+\section{L'ordre de diagnostic}
+
+\begin{center}
+\begin{tabular}{@{}rll@{}}
+\toprule
+& \textbf{Question} & \textbf{Commande} \\
+\midrule
+1 & le bon workspace est-il chargé ? & \texttt{jenga info} (ligne \emph{Entry file}) \\
+2 & mon projet est-il dedans ? & \texttt{jenga info} (tableau) \\
+3 & mes fichiers sont-ils trouvés ? & \texttt{Found N source file(s)} \\
+4 & mes drapeaux sont-ils appliqués ? & \texttt{jenga compile-flags} \\
+5 & mon fichier a-t-il été compilé ? & ligne \texttt{Compiled:} \\
+6 & le binaire est-il frais ? & \texttt{jenga rebuild} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Cet ordre est celui du COÛT, pas celui de la probabilité.} Les quatre
+premières questions se répondent sans rien construire ; la sixième coûte une
+construction complète.
+
+Quand on ne sait rien, ordonner par coût est le bon critère --- ordonner par
+probabilité suppose qu'on sait déjà quelque chose.
+\end{nkretenir}
+
+\section{Les messages qui ne sont pas des erreurs}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Message} & \textbf{Ce que c'est} \\
+\midrule
+\texttt{No test projects found.} & normal si vous n'avez pas de tests --- mais code 1 \\
+\texttt{Application console sans terminal} & une commodité de \texttt{run} \\
+\texttt{APK signe avec debug.keystore} & un avertissement de \emph{destination} \\
+avertissement de version embarquée & NKCode vous prévient d'une divergence \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Un avertissement noyé au milieu de mille lignes n'a pas été émis.}
+Mesuré : l'avertissement « keystore not found » de Jenga apparaît au milieu du
+journal de construction et n'est \emph{pas répété} après le \texttt{SUCCESS}
+final.
+
+Résultat : un APK sans signature, un \texttt{adb install} qui refuse, et une
+enquête qui commence par le téléphone.
+
+\emph{Quand vous écrivez un outil, répétez à la fin ce qui compte.} Un message
+qui n'est dit qu'une fois, au milieu, est un message qu'on n'a pas dit.
+\end{nkpiege}
+
+\begin{nkbilan}
+Trois étages d'échec --- chargement, compilation, édition de liens --- et
+identifier lequel avant de chercher détermine où l'on passe l'heure suivante. Le
+troisième est le plus mal compris : il nomme un symbole et jamais la description,
+qui est pourtant sa cause habituelle. Un sous-module vide se présente comme une
+erreur de description ; la construction s'arrête au premier échec, donc le
+premier compte est faux. Diagnostiquez dans l'ordre du \emph{coût}, pas de la
+probabilité --- quatre des six questions se répondent sans rien construire. Et un
+avertissement dit une seule fois, au milieu d'un journal, n'a pas été dit.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Comment reconnaît-on l'étage d'un échec ?
+\item Que faire devant \texttt{External file not found} sur un \texttt{.jenga} de
+      dépendance ?
+\item Pourquoi \texttt{Failed: 1} est-il presque toujours faux ?
+\item Quelle ligne consulter devant un \texttt{undefined reference} sur une
+      fonction que vous avez écrite ?
+\item Pourquoi ordonner un diagnostic par coût plutôt que par probabilité ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Provoquez délibérément les cinq échecs, et \textbf{gardez le message de chacun} :
+
+\begin{enumerate}
+\item une virgule manquante dans le \texttt{.jenga} ;
+\item une fonction Jenga mal orthographiée ;
+\item un \texttt{files()} qui ne trouve rien ;
+\item un \texttt{links} vers une bibliothèque inexistante ;
+\item un \texttt{windowedapp()} sur un programme qui n'a qu'un \texttt{main}
+      classique.
+\end{enumerate}
+
+Constituez-vous une page de correspondance message $\rightarrow$ cause.
+\textbf{C'est le document le plus utile que vous écrirez sur Jenga}, et il ne
+vaut que s'il est fait de vos propres captures.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'une erreur d'édition de liens ne désigne pas sa cause.
+
+Retirez un fichier de votre \texttt{files()} --- sans le supprimer du disque ---
+et construisez.
+
+\textbf{Ce que la démonstration doit établir}, en trois relevés :
+\begin{enumerate}
+\item l'erreur nomme un \emph{symbole}, pas un fichier de description ;
+\item elle ne contient aucune occurrence du mot \texttt{files} ni du nom de votre
+      \texttt{.jenga} ;
+\item la ligne \texttt{Found N source file(s)}, elle, a changé --- et c'était le
+      seul indice, dix lignes plus haut.
+\end{enumerate}
+
+Le troisième point est la leçon : l'information était là, avant l'erreur.
+\end{nkdemo}
+
+\begin{nklogique}
+Une construction qui passait hier échoue aujourd'hui, sans qu'aucun fichier
+source n'ait changé.
+
+\begin{enumerate}
+\item Énumérez cinq causes possibles, dont aucune n'est dans le code C++.
+\item Rangez-les par coût de vérification.
+\item Deux d'entre elles ne laissent \emph{aucune trace} dans la sortie de
+      construction. Lesquelles, et par quoi les prendriez-vous ?
+\end{enumerate}
+\end{nklogique}

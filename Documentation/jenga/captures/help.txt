@@ -1,0 +1,63 @@
+$ jenga help
+#   (dans d:/Projets/2026/Nkentseu/Nkentseu, code de sortie 0)
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║                ██╗███████╗███╗   ██╗ ██████╗  █████╗             ║
+║                ██║██╔════╝████╗  ██║██╔════╝ ██╔══██╗            ║
+║                ██║█████╗  ██╔██╗ ██║██║  ███╗███████║            ║
+║           ██   ██║██╔══╝  ██║╚██╗██║██║   ██║██╔══██║            ║
+║           ╚█████╔╝███████╗██║ ╚████║╚██████╔╝██║  ██║            ║
+║            ╚════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝            ║
+║                                                                  ║
+║             Multi-platform C/C++ Build System v2.4.0             ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Jenga Build System v2.4.0
+Usage: Jenga <command> [options]
+
+Commandes principales :
+  build, b             Compile le workspace ou un projet
+  run, r               Exécute un projet
+  test, t              Lance les tests unitaires
+  clean, c             Supprime les fichiers générés
+  rebuild              Nettoie et compile
+  watch, w             Surveille les fichiers et rebuild automatiquement
+  info, i              Affiche les informations du workspace
+  gen                  Génère des fichiers projet (CMake, VS, Makefile)
+  workspace, init      Crée un nouveau workspace
+  project, create      Crée un nouveau projet
+  file, add            Ajoute des fichiers/dépendances à un projet
+  install              Installe dépendances et toolchains locales
+  keygen               Génère une keystore Android
+  sign                 Signe un APK ou IPA
+  docs                 Génère la documentation du projet
+  package              Crée des packages distribuables
+  deploy               Déploie l'application sur un appareil
+  publish              Publie un package sur un registre
+  profile              Lance un profilage de performance
+  bench                Exécute des benchmarks
+  help, h              Affiche cette aide
+
+Pour plus d'aide sur une commande : Jenga help <commande>
+
+Alias disponibles :
+  add -> file
+  b -> build
+  c -> clean
+  create -> project
+  d -> docs
+  e -> examples
+  g -> gdb
+  h -> help
+  i -> info
+  init -> workspace
+  k -> keygen
+  r -> run
+  s -> sign
+  t -> test
+  w -> watch
+
+Version: 2.4.0

@@ -1,0 +1,289 @@
+\chapter{La construction : ordre, fraîcheur, parallélisme}
+
+C'est le chapitre le plus important du livre, et sa dernière section est une
+démonstration qu'il faut refaire soi-même au moins une fois.
+
+\section{L'ordre}
+
+\begin{nkretenir}
+Jenga trie les projets par leurs dépendances --- un \emph{tri topologique} --- et
+affiche le résultat :
+
+\begin{nkcode}{Capture reelle}
+Build Order (1 projects):
+  1. Bonjour [CONSOLE_APP]
+\end{nkcode}
+
+\textbf{Cette ligne est un contrat.} Ce qui n'y figure pas ne sera pas construit,
+et aucune modification de ses sources n'aura d'effet.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{« Le build est vert » ne dit rien de ce qui a été construit.} Mesuré sur
+ce dépôt : un développeur modifie un module, lance une construction, obtient
+\texttt{Projects Built: 19/19} et \texttt{SUCCESS} --- et le fichier objet de sa
+modification \textbf{n'existait pas}. La cible construite ne tirait pas son
+module.
+
+\emph{Un build vert prouve que ce qu'il a construit compile, pas que ce que vous
+avez écrit a été construit.}
+
+Trois vérifications, et elles sont bon marché : le \texttt{.obj} existe et est
+plus récent que la source ; une chaîne caractéristique de votre modification est
+dans la bibliothèque produite ; la ligne \texttt{Compiled: <votre fichier>}
+apparaît dans la sortie.
+\end{nkpiege}
+
+\section{Ce qui est recompilé, et ce qui ne l'est pas}
+
+\begin{nkretenir}
+La décision se prend fichier par fichier, et voici la fonction qui la prend :
+
+\begin{nkcode}{Jenga/Core/Builder.py:1380-1405}
+if not obj.exists():
+    return True
+
+obj_mtime = obj.stat().st_mtime
+if src.stat().st_mtime > obj_mtime:
+    return True
+
+dep_file = self.GetDependencyFilePath(objectFile)
+if not dep_file.exists():
+    return True
+
+deps = self._ParseDependencyFile(dep_file, project)
+if not deps:
+    return True
+
+for dep in deps:
+    if not dep.exists():
+        return True
+    if dep.stat().st_mtime > obj_mtime:
+        return True
+\end{nkcode}
+
+\textbf{Quatre raisons de recompiler}, dans l'ordre où elles sont testées :
+l'objet n'existe pas ; la source est plus récente que lui ; le fichier de
+dépendances manque ; un en-tête dont il dépend est plus récent.
+\end{nkretenir}
+
+\begin{nkretenir}
+\textbf{Les en-têtes sont suivis, et c'est le compilateur qui les liste.} Le
+fichier de dépendances est produit par le compilateur lui-même à la compilation
+précédente : Jenga ne devine pas quels \texttt{\#include} vous avez écrits, il
+lit ce que le compilateur a réellement ouvert.
+
+C'est pourquoi la \emph{première} construction est plus lente : il n'y a pas
+encore de fichier de dépendances, donc tout est recompilé.
+\end{nkretenir}
+
+\section{La décision se prend sur les DATES}
+
+\begin{nkpiege}[Le piège central de Jenga, et il est mesurable]
+Regardez à nouveau la fonction ci-dessus : elle compare des
+\texttt{st\_mtime} --- des \textbf{dates}. Pas des empreintes.
+
+Conséquence : \textbf{une source modifiée dont la date est ANCIENNE est déclarée
+à jour}, et l'ancien binaire tourne.
+
+Cela n'a rien de théorique. Une date ancienne arrive dès qu'on restaure un
+fichier :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Geste} & \textbf{Ce qu'il fait à la date} \\
+\midrule
+\texttt{cp -p}, \texttt{rsync -t} & la \textbf{préserve} \\
+extraire une archive \texttt{tar}, \texttt{zip} & la préserve \\
+\texttt{Copy-Item} (PowerShell) & la préserve \\
+\texttt{git checkout} & la met à \emph{maintenant} --- sûr \\
+\texttt{cp} sans \texttt{-p} & maintenant --- sûr \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{nkpiege}
+
+\subsection*{La démonstration}
+
+Voici l'expérience, faite sur le projet du chapitre 3. À chaque étape on modifie
+la source, on lance \texttt{jenga build}, et \textbf{on lance le programme} :
+
+\begin{nkcode}{Capture reelle -- ce que le PROGRAMME affiche}
+1. source = VERSION UN, construite normalement       -> VERSION UN
+2. source = VERSION DEUX, date NEUVE                 -> VERSION DEUX
+3. source = VERSION TROIS, date REMISE A L'ANCIENNE  -> VERSION DEUX
+4. la meme source, apres `touch`                     -> VERSION TROIS
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Lisez la ligne 3 deux fois.} Le fichier sur le disque dit
+\texttt{VERSION TROIS}. Le programme dit \texttt{VERSION DEUX}. La construction
+a répondu \texttt{SUCCESS}.
+
+Et la ligne 4 montre le remède : un simple \texttt{touch} --- qui ne change pas
+un octet du contenu --- suffit à déclencher la recompilation.
+\end{nkretenir}
+
+\begin{nkretenir}[Le témoin choisi, et pourquoi celui-là]
+\textbf{Le témoin n'est PAS la sortie de \texttt{jenga}.} Une ligne
+« déjà à jour » serait déjà une réponse, et l'on ne saurait pas si elle est
+juste.
+
+Le témoin est \textbf{ce que le programme affiche} : une compilation qui n'a pas
+eu lieu et une compilation sans effet se ressemblent dans un journal ; elles ne
+se ressemblent pas à l'écran.
+\end{nkretenir}
+
+\begin{nkretenir}[Il existe un moteur à empreintes, et il ne sert pas]
+Jenga porte un module \nkfile{Jenga/Core/Incremental.py}, 227 lignes, qui calcule
+des \texttt{sha256} --- et son propre commentaire dit pourquoi :
+
+\begin{nkcode}{Jenga/Core/Incremental.py:36-40}
+def ComputeFileHash(filepath: str, algorithm: str = "sha256") -> str:
+    """Calcule le hash d'un fichier. Utilise pour detecter les changements.
+    Par defaut sha256, plus fiable que mtime seul."""
+\end{nkcode}
+
+\textbf{Mesuré : aucune de ses méthodes n'est appelée.} Le module est importé par
+\texttt{Daemon.py} et par \texttt{Core/\_\_init\_\_.py}, et une recherche de
+\texttt{Incremental.} hors du fichier lui-même rend \textbf{zéro}. La méthode
+\texttt{Cache.UpdateIncremental} porte un nom voisin mais fait autre chose :
+elle recharge la \emph{description}, pas les sources.
+
+C'est un doublon dont un seul côté est vivant --- et l'on croit lire un système à
+empreintes en lisant un système à dates. \emph{Une capacité écrite n'est pas une
+capacité employée ; seul un appelant le prouve.}
+\end{nkretenir}
+
+\subsection*{Ce qu'il faut en faire}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Situation} & \textbf{Le geste} \\
+\midrule
+après toute restauration de fichiers & \texttt{touch} les fichiers restaurés \\
+un doute sur la fraîcheur d'un binaire & \texttt{jenga rebuild} \\
+avant une campagne de mesures & \texttt{rebuild}, puis vérifier une date \\
+un correctif « sans effet » & vérifier le \texttt{.obj} avant d'accuser le code \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Le pire de ce piège n'est pas le temps perdu : c'est la fausse
+conclusion.} On retire un correctif juste, parce qu'« il ne change rien ». Le
+défaut coûte alors deux fois --- une fois à ne pas s'appliquer, une fois à faire
+défaire une bonne chose.
+\end{nkretenir}
+
+\section{Le parallélisme}
+
+\begin{nkretenir}
+Les fichiers d'un même projet se compilent en parallèle ; les projets, eux,
+suivent l'ordre des dépendances. C'est la seule combinaison possible : deux
+projets indépendants \emph{pourraient} aller de front, mais un projet et sa
+dépendance, non.
+
+Conséquence pratique : \textbf{un graphe très en chaîne se parallélise mal.}
+Trente projets dont chacun dépend du précédent se construisent en trente étapes,
+quel que soit le nombre de c\oe urs.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{En construction parallèle, l'ordre des messages n'est pas l'ordre des
+événements.} Une erreur affichée après un succès peut le précéder dans le temps.
+
+Et par défaut, \textbf{la construction s'arrête au premier échec} --- il y a donc
+exactement un échec par relevé. C'est utile à savoir avant de compter les
+erreurs : \texttt{Failed: 1} ne veut pas dire qu'un seul fichier est cassé, mais
+qu'on s'est arrêté au premier.
+
+\texttt{-{}-keep-going} continue et donne le compte réel.
+\end{nkpiege}
+
+\section{Nettoyer}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{jenga clean} & supprime les objets et les artefacts \\
+\texttt{jenga rebuild} & \texttt{clean} puis \texttt{build} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{rebuild} est la réponse à toute question de fraîcheur.} Il coûte
+du temps et il tranche : après lui, ce qui tourne vient de ce qui est sur le
+disque.
+
+C'est la commande à lancer avant de conclure qu'un correctif ne marche pas --- et
+avant toute mesure de performance qu'on publiera.
+\end{nkretenir}
+
+\begin{nkbilan}
+Jenga trie les projets par dépendances et affiche l'ordre : ce qui n'y figure pas
+ne sera pas construit, et un build vert ne prouve pas que \emph{votre} fichier
+l'a été. La recompilation se décide sur quatre critères, tous fondés sur des
+\textbf{dates} --- pas sur des empreintes, bien qu'un moteur à \texttt{sha256}
+existe dans le code, dormant. Une source restaurée avec une date ancienne est
+donc déclarée à jour : c'est démontré, et le remède est \texttt{touch} ou
+\texttt{rebuild}. Enfin les fichiers se parallélisent, les projets non, et la
+construction s'arrête au premier échec sauf \texttt{-{}-keep-going}.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelles sont les quatre raisons de recompiler un fichier ?
+\item Sur quoi la décision se fonde-t-elle : dates ou empreintes ?
+\item Citez trois gestes qui préservent la date d'un fichier.
+\item Pourquoi \texttt{Failed: 1} ne signifie-t-il pas « un seul fichier cassé » ?
+\item Que prouve un build vert, et que ne prouve-t-il pas ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Reproduisez la démonstration des dates, vous-même, sur votre projet.
+
+\begin{enumerate}
+\item construisez, lancez, notez la sortie ;
+\item modifiez la source normalement, reconstruisez, lancez : la sortie change ;
+\item modifiez-la à nouveau \emph{en remettant l'ancienne date}
+      (\texttt{os.utime} en Python, \texttt{touch -r} en shell), reconstruisez,
+      lancez ;
+\item \texttt{touch}, reconstruisez, lancez.
+\end{enumerate}
+
+\textbf{Notez les quatre sorties du programme}, pas celles de Jenga.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que le module à empreintes ne sert pas.
+
+\begin{enumerate}
+\item Cherchez dans le dépôt de Jenga les appels à \texttt{Incremental.} en
+      excluant le fichier lui-même. Notez le compte.
+\item Cherchez qui \emph{importe} le module. Notez que l'import existe.
+\item Concluez sur la différence entre les deux comptes.
+\end{enumerate}
+
+⚠️ \textbf{Le contrôle positif est obligatoire avant de croire un zéro} :
+lancez d'abord la même recherche sur un nom dont vous savez qu'il est employé ---
+\texttt{Builder.} par exemple. Si elle rend zéro aussi, c'est votre commande qui
+ne sait pas chercher, et le premier zéro ne prouvait rien.
+\end{nkdemo}
+
+\begin{nklogique}
+Vous corrigez un défaut, reconstruisez, et le comportement ne change pas.
+
+\begin{enumerate}
+\item Énumérez au moins cinq causes, en séparant celles où la compilation
+      \emph{n'a pas eu lieu} de celles où elle a eu lieu \emph{sans effet}.
+\item Rangez-les par \textbf{coût de vérification}, du moins cher au plus cher
+      --- et non par probabilité.
+\item Justifiez ce critère : pourquoi, quand on ne sait rien, vaut-il mieux
+      ordonner par coût que par probabilité ?
+\end{enumerate}
+\end{nklogique}

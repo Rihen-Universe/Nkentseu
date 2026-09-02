@@ -1,0 +1,255 @@
+\chapter{Les dépendances}
+
+Un projet dépend rarement de rien. Ce chapitre couvre les trois formes de
+dépendance --- entre projets, vers des bibliothèques, vers des fichiers --- et la
+distinction, souvent floue, entre \emph{lier} et \emph{dépendre}.
+
+\section{Dépendre d'un autre projet}
+
+\begin{nkcode}{}
+dependson(["NKCore", "NKMath"])
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{dependson} fait deux choses à la fois}, et c'est pour cela qu'il
+existe :
+
+\begin{enumerate}
+\item il impose un \textbf{ordre} --- les dépendances se construisent avant ;
+\item il fait \textbf{hériter} ce que la dépendance exporte : ses chemins
+      d'inclusion, ses définitions publiques.
+\end{enumerate}
+
+C'est l'héritage qui compte le plus. Sans lui, il faudrait répéter les chemins
+d'inclusion de chaque bibliothèque dans chaque consommateur --- et les répéter,
+c'est les laisser diverger.
+\end{nkretenir}
+
+\begin{nkretenir}
+La sortie de construction montre l'ordre calculé, et c'est une ligne à lire :
+
+\begin{nkcode}{Capture reelle}
+Build Order (1 projects):
+  1. Bonjour [CONSOLE_APP]
+\end{nkcode}
+
+Sur un vrai dépôt elle en énumère des dizaines. \textbf{Si un projet n'y figure
+pas, il ne sera pas construit} --- quelles que soient vos modifications dans ses
+sources.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un cycle de dépendances n'a pas de solution.} A dépend de B qui dépend de
+A : aucun ordre ne satisfait les deux.
+
+Le remède n'est jamais de « casser » l'ordre mais de \textbf{casser le cycle} :
+extraire dans un troisième projet ce dont les deux ont besoin. Un cycle est
+toujours le signe qu'une chose commune n'a pas été nommée.
+\end{nkpiege}
+
+\section{Lier une bibliothèque}
+
+\begin{nkcode}{}
+links(["user32", "gdi32", "opengl32"])
+libdirs(["Externals/Libs"])
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{links} & les bibliothèques à lier, sans préfixe ni extension \\
+\texttt{libdirs} & où les chercher \\
+\texttt{syslibdirs} & idem, mais chemins système \\
+\texttt{removelinks} & retire d'une liste héritée \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{links(["X11"])} devient \texttt{-lX11}}, et rien de plus. Jenga ne
+vérifie pas que la bibliothèque existe : il passe le drapeau, et c'est l'éditeur
+de liens qui échoue.
+
+D'où la distinction qu'il faut garder en tête : \texttt{dependson} parle de
+\emph{votre} dépôt, \texttt{links} parle du \emph{système}. Le premier, Jenga le
+construit ; le second, il suppose qu'il est là.
+\end{nkretenir}
+
+\begin{nkretenir}[Sur macOS et iOS, ce ne sont pas des bibliothèques]
+\begin{nkcode}{}
+frameworks(["Cocoa", "QuartzCore", "Metal", "AudioToolbox"])
+\end{nkcode}
+
+Un \emph{framework} Apple est un dossier qui porte à la fois l'en-tête et le
+binaire. Il se déclare par \texttt{frameworks}, pas par \texttt{links}.
+
+⚠️ \textbf{Et la liste n'est pas la même sur macOS et sur iOS.}
+\texttt{AudioUnit} existe sur macOS et \textbf{pas} sur iOS, où ses symboles
+vivent dans \texttt{AudioToolbox}. Recopier la liste macOS donne
+\texttt{ld: framework AudioUnit not found} --- mesuré. \emph{Un précédent se
+vérifie sur SA plateforme.}
+\end{nkretenir}
+
+\section{Dépendre de fichiers}
+
+\begin{nkcode}{}
+dependfiles(["assets"])
+embedresources(["Resources/police.ttf"])
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{dependfiles} & copiés à côté de l'artefact \\
+\texttt{embedresources} & intégrés \emph{dans} le binaire \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{La différence décide de votre portabilité.} Un fichier copié doit être
+trouvé à l'exécution --- ce qui dépend du répertoire courant, des permissions
+Android, et de la façon dont le Web sert ses fichiers. Un fichier intégré est
+toujours là.
+
+Les jeux de Nkentseu ne déclarent \emph{aucun} asset, et leur descripteur
+explique pourquoi :
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga}
+# AUCUN dossier assets : NkDames ne charge aucun fichier a l'execution.
+# Le plateau et les pieces sont dessines par geometrie, et la police est
+# EMBARQUEE. C'est ce qui lui permet de demarrer a l'identique sur les six
+# plateformes sans chaine de copie d'assets.
+\end{nkcode}
+\end{nkretenir}
+
+\section{Les chemins d'inclusion}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\texttt{includedirs} & vos en-têtes \\
+\texttt{externalincludedirs} & ceux d'un tiers --- avertissements réduits \\
+\texttt{sysincludedirs} & en-têtes système \\
+\texttt{removeincludedirs} & retire d'une liste héritée \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{externalincludedirs} n'est pas un synonyme.} Il passe le chemin
+comme \emph{externe} au compilateur, ce qui coupe les avertissements venant de
+ces en-têtes.
+
+Sans lui, compiler avec des avertissements exigeants noie vos propres messages
+sous ceux d'une bibliothèque que vous ne corrigerez pas. \textbf{Un avertissement
+qu'on ne peut pas traiter rend inutiles ceux qu'on pourrait traiter.}
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{C'est la ligne qu'on oublie, et son symptôme accuse votre code.}
+Sans \texttt{extra\_includes} ou \texttt{includedirs}, vous obtenez
+\texttt{fatal error: 'MonEnTete.h' file not found} --- une erreur qui pointe
+\emph{votre} inclusion, alors que c'est le \emph{projet} qui ne sait pas où
+chercher.
+\end{nkpiege}
+
+\section{Ce que Nkentseu ajoute, et qui n'est PAS de Jenga}
+
+\begin{nkretenir}
+Les descripteurs de Nkentseu appellent \texttt{nkentseudependson(\dots)}. Cette
+fonction \textbf{n'existe pas dans Jenga} : elle est définie dans le dépôt, à
+\nkfile{config/modules.jenga}, ligne 334.
+
+\begin{nkcode}{config/modules.jenga:334}
+def nkentseudependson(deps=None, selfexport=None, extra_includes=None,
+                      extra_links=None, extra_defines=None) -> None:
+\end{nkcode}
+
+C'est une \textbf{démonstration de ce que le chapitre 4 annonçait} : puisqu'un
+\texttt{.jenga} est du Python, un dépôt peut se donner son propre vocabulaire.
+Ici, une seule fonction pose les dépendances, les chemins d'inclusion et les
+définitions selon une table centrale --- au lieu de les répéter dans trente
+descripteurs.
+
+\textbf{Sachez distinguer les deux quand vous lisez un descripteur} : ce qui vient
+de Jenga se retrouve dans la documentation de Jenga ; le reste est à vous, et
+c'est dans votre dépôt qu'il faut le chercher.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Une dépendance déclarée à DEUX endroits ne se corrige pas à un seul.}
+Dans Nkentseu, un module déclare ses dépendances dans son propre \texttt{.jenga}
+\emph{et} dans la table centrale de \texttt{config/modules.jenga} --- et c'est la
+table qui gouverne.
+
+Mesuré : retirer une dépendance du seul \texttt{.jenga} d'un module ne l'a pas
+retirée du graphe. Le défaut s'est vu en \emph{mesurant} le graphe construit, pas
+en relisant les fichiers.
+\end{nkpiege}
+
+\begin{nkbilan}
+Trois formes de dépendance : \texttt{dependson} entre projets --- qui impose
+l'ordre \emph{et} fait hériter les inclusions ; \texttt{links} vers le système ---
+que Jenga suppose présent sans le vérifier ; \texttt{dependfiles} et
+\texttt{embedresources} pour les fichiers, et le choix entre les deux décide de
+votre portabilité. Les frameworks Apple ne sont pas des bibliothèques, et leur
+liste diffère entre macOS et iOS. Enfin, un dépôt peut se donner son propre
+vocabulaire --- \texttt{nkentseudependson} n'est pas de Jenga --- et une
+dépendance déclarée à deux endroits ne se corrige pas à un seul.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelles \emph{deux} choses \texttt{dependson} fait-il, et laquelle compte
+      le plus ?
+\item Quelle différence entre \texttt{dependson} et \texttt{links} ?
+\item Que devient \texttt{links(["X11"])}, et qui échoue si la bibliothèque
+      manque ?
+\item Pourquoi \texttt{externalincludedirs} plutôt que \texttt{includedirs} pour
+      un tiers ?
+\item \texttt{nkentseudependson} est-il une fonction de Jenga ? Où la trouve-t-on ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Créez trois projets : une bibliothèque statique \texttt{Calcul}, une seconde
+\texttt{Affichage} qui en dépend, et un exécutable qui dépend des deux.
+
+\begin{enumerate}
+\item Vérifiez l'ordre dans la ligne \texttt{Build Order}.
+\item Placez un en-tête dans \texttt{Calcul} et incluez-le depuis l'exécutable
+      \emph{sans} ajouter de \texttt{includedirs} --- que se passe-t-il, et
+      pourquoi ?
+\item Créez volontairement un cycle et lisez ce que Jenga dit.
+\end{enumerate}
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que \texttt{dependson} fait hériter, et pas seulement ordonner.
+
+Deux projets : une bibliothèque qui expose un en-tête, un exécutable qui
+l'inclut. Faites-le fonctionner avec \texttt{dependson}, puis \textbf{retirez le
+\texttt{dependson} en gardant \texttt{links}} sur la bibliothèque.
+
+\textbf{Ce que la démonstration doit établir} : l'échec change de \emph{nature}.
+Avec l'héritage, tout passe ; sans lui, l'erreur n'est pas à l'édition de liens
+--- où la bibliothèque est pourtant toujours donnée --- mais à la
+\emph{compilation}, sur l'en-tête introuvable.
+
+Relevez les deux messages. C'est leur différence qui prouve que l'héritage porte
+les chemins d'inclusion, pas les symboles.
+\end{nkdemo}
+
+\begin{nklogique}
+Vous retirez une dépendance du \texttt{.jenga} d'un module, vous reconstruisez, et
+le graphe la contient toujours.
+
+\begin{enumerate}
+\item Énumérez trois explications possibles.
+\item Pour chacune, dites quelle commande la confirmerait --- et laquelle ne se
+      voit \emph{pas} en relisant le fichier que vous venez de modifier.
+\item Concluez sur la règle générale : que faut-il faire avant de croire qu'une
+      suppression a pris effet ?
+\end{enumerate}
+\end{nklogique}

@@ -1,0 +1,218 @@
+\chapter{Le Web, et ce qui est déclaré sans être éprouvé}
+
+Deux sujets dans ce chapitre, et ils vont ensemble : une cible qui fonctionne et
+qu'on connaît mal, et six cibles dont il faut dire honnêtement ce qu'on en sait.
+
+\section{Le Web}
+
+\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel}
+with filter("system:Web"):
+    consoleapp()
+    usetoolchain("emscripten")
+    defines(["NKENTSEU_ENABLE_EMSCRIPTEN"])
+    emscriptencanvasid("canvas")
+    emscripteninitialmemory(32)
+    emscriptenextraflags([
+        "-s", "ASYNCIFY",
+        "-s", "ALLOW_MEMORY_GROWTH=1",
+        "-s", "FULL_ES3=1",
+        "-s", "USE_WEBGL2=1",
+        "-s", "NO_EXIT_RUNTIME=1",
+    ])
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{\texttt{consoleapp()} sur le Web, alors que le bureau dit
+\texttt{windowedapp()}.} Ce n'est pas une erreur : la notion de fenêtre native
+n'existe pas dans un navigateur, la page \emph{est} la fenêtre.
+
+C'est un bon exemple de ce que les filtres servent à faire --- redéfinir même le
+genre du projet selon la cible.
+\end{nkretenir}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Drapeau} & \textbf{Ce qu'il change} \\
+\midrule
+\texttt{ASYNCIFY} & permet à la boucle de rendre la main \\
+\texttt{ALLOW\_MEMORY\_GROWTH} & la mémoire n'est plus figée au démarrage \\
+\texttt{FULL\_ES3} + \texttt{USE\_WEBGL2} & la traduction OpenGL ES vers WebGL2 \\
+\texttt{NO\_EXIT\_RUNTIME} & le programme ne se termine pas à la fin du \texttt{main} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[\texttt{ASYNCIFY} n'est pas une option de confort]
+Un navigateur exécute votre page sur \emph{son} fil principal --- celui qui
+dessine et qui répond aux clics. Une boucle infinie n'y rend jamais la main :
+l'onglet gèle, et le navigateur finit par proposer de le tuer.
+
+\texttt{ASYNCIFY} rend possible de suspendre et reprendre le programme, ce qui
+permet à la boucle de céder. \textbf{Sans lui, votre programme est correct et
+votre onglet est mort.}
+
+⚠️ Et le drapeau ne suffit pas : encore faut-il que la boucle \emph{cède
+réellement}. Un mécanisme de temporisation qui existe et qu'on n'appelle pas
+laisse le même symptôme.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un \texttt{.wasm} ouvert en double-cliquant le \texttt{.html} ne se
+charge pas.} Les navigateurs refusent le protocole \texttt{file://} pour ce genre
+de ressource.
+
+Il faut \emph{servir} le dossier par HTTP --- \texttt{python -m http.server}
+suffit. Le message d'erreur, lui, parle de \emph{CORS} ou de \emph{fetch}, et
+n'aide pas à trouver la cause.
+\end{nkpiege}
+
+\begin{nkretenir}
+\texttt{emscripteninitialmemory(32)} donne 32 Mo au départ. Avec
+\texttt{ALLOW\_MEMORY\_GROWTH}, ce n'est qu'un point de départ --- mais un point
+de départ trop petit fait payer plusieurs réallocations pendant le chargement,
+qui est justement le moment où l'utilisateur regarde.
+\end{nkretenir}
+
+\section{Ce qui est déclaré, et ce qui est éprouvé}
+
+C'est la section la plus honnête du livre, et la plus utile avant une promesse.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Cible} & \textbf{État} & \textbf{Ce qui le fonde} \\
+\midrule
+Windows & \textbf{éprouvée} & artefacts construits et lancés ici \\
+Linux & \textbf{éprouvée} & construits par WSL2, binaires lancés \\
+Web & \textbf{éprouvée} & \texttt{.wasm} produit, page servie \\
+Android & \textbf{éprouvée} & APK installé sur un téléphone réel \\
+HarmonyOS & construite & \texttt{.hap} produit, non installé ici \\
+macOS & déclarée & exige macOS + Xcode --- CI \\
+iOS & déclarée & idem, et le descripteur le dit \\
+PS4, PS5, Xbox, Switch & déclarées & SDK sous accord, non testés ici \\
+FreeBSD, OpenBSD & déclarées & aucune mesure \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Trois états, et il faut les trois mots.}
+
+\emph{Déclarée} : des lignes existent dans un descripteur et une chaîne d'outils
+est prévue. Rien ne dit qu'elles fonctionnent.
+
+\emph{Construite} : un artefact sort. Rien ne dit qu'il se lance.
+
+\emph{Éprouvée} : l'artefact a tourné sur la cible.
+
+\textbf{Annoncer « douze plateformes » sans cette distinction est une promesse
+qu'on ne peut pas tenir.} Et l'écart n'est pas théorique : le filtre iOS de ce
+dépôt \textbf{n'existait pas} alors que l'en-tête du fichier annonçait iOS depuis
+des mois.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Un commentaire qui nomme une plateforme n'est pas un support.} Le cas est
+mesuré : l'en-tête disait « Mobile : Android, iOS, HarmonyOS », et aucun filtre
+iOS n'existait dans le fichier.
+
+Rien ne le signalait : \textbf{la construction bureau ne dit rien d'un filtre
+manquant.} On croit couvrir une plateforme parce qu'une phrase la nomme.
+
+Le contrôle est immédiat : \texttt{grep "system:iOS"} dans le descripteur. S'il
+n'y a pas de filtre, il n'y a pas de cible.
+\end{nkpiege}
+
+\section{Les consoles}
+
+\begin{nkretenir}
+Jenga déclare PS4, PS5, Xbox One, Xbox Series et Switch, avec leurs fonctions :
+\texttt{gdkpath}, \texttt{xboxmode}, \texttt{xboxpackagename},
+\texttt{xboxsigningmode}\dots
+
+\textbf{Leurs SDK ne sont ni publics ni redistribuables.} Le code qui les gère
+existe dans \texttt{Jenga/Core/Builders/}, il n'a pas pu être exercé ici, et ce
+livre ne prétendra pas le contraire.
+
+Ce que vous pouvez en faire aujourd'hui : lire les descripteurs comme un modèle
+de ce qu'une cible sous accord demande --- une identité de paquet, un mode de
+signature, un chemin de SDK.
+\end{nkretenir}
+
+\section{Choisir sa cible en ligne de commande}
+
+\begin{nkcode}{}
+jenga build --platform windows
+jenga build --platform linux --linux-backend=wayland
+jenga build --platform android --config Release
+jenga build --platform web
+\end{nkcode}
+
+\begin{nkretenir}
+\textbf{Sans \texttt{-{}-platform}, Jenga construit pour la machine courante.}
+C'est le défaut le plus sûr, et c'est aussi pourquoi on oublie qu'il existe : on
+peut croire tester la portabilité en ne construisant jamais que pour soi.
+\end{nkretenir}
+
+\begin{nkbilan}
+Le Web se décrit comme une console --- la page est la fenêtre --- et exige
+\texttt{ASYNCIFY}, sans quoi la boucle gèle l'onglet ; son artefact doit être
+servi par HTTP, jamais ouvert en \texttt{file://}. Les douze cibles déclarées ne
+sont pas au même stade : \emph{déclarée}, \emph{construite} et \emph{éprouvée}
+sont trois états distincts, et les confondre est une promesse qu'on ne tient pas.
+Un commentaire qui nomme une plateforme n'est pas un support --- mesuré sur ce
+dépôt, où iOS était annoncé sans qu'aucun filtre n'existe.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi le Web est-il déclaré \texttt{consoleapp()} ?
+\item Que se passe-t-il sans \texttt{ASYNCIFY} ?
+\item Pourquoi un \texttt{.wasm} ne se charge-t-il pas en \texttt{file://} ?
+\item Distinguez « déclarée », « construite » et « éprouvée ».
+\item Comment vérifier en une commande qu'une plateforme est réellement décrite ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Construisez votre projet pour le Web, puis servez-le et ouvrez-le.
+
+\begin{enumerate}
+\item \texttt{jenga build -{}-platform web} ;
+\item trouvez les fichiers produits --- combien, et lesquels ? ;
+\item ouvrez le \texttt{.html} en double-cliquant, et notez le message ;
+\item servez le dossier par HTTP, ouvrez, et notez la différence.
+\end{enumerate}
+
+Le point 3 est le plus formateur : \textbf{gardez le message}, vous le
+reverrez.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'un commentaire n'est pas un support.
+
+Prenez un descripteur du dépôt et dressez deux listes :
+\begin{enumerate}
+\item les plateformes que son \textbf{en-tête} annonce ;
+\item les plateformes pour lesquelles un \texttt{with filter("system:\dots")}
+      existe réellement.
+\end{enumerate}
+
+\textbf{Ce que la démonstration établit} : les deux listes peuvent différer, et
+rien dans la construction ne le signale.
+
+Refaites l'exercice sur \emph{votre} projet dès qu'il annonce une plateforme.
+C'est un contrôle d'une minute qui empêche une promesse fausse.
+\end{nkdemo}
+
+\begin{nklogique}
+On vous demande : « le projet supporte-t-il macOS ? »
+
+\begin{enumerate}
+\item Quelles trois réponses différentes pourriez-vous donner, selon l'état réel ?
+\item Pour chacune, quelle preuve produiriez-vous ?
+\item L'une de ces preuves ne peut pas être produite sur votre machine.
+      Laquelle, et que répondez-vous alors --- sans mentir ni renoncer ?
+\end{enumerate}
+\end{nklogique}

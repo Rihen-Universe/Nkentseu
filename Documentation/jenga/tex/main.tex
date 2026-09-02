@@ -1,0 +1,234 @@
+% =============================================================================
+% JENGA — DECRIRE, CONSTRUIRE, LIVRER
+% Compilation : ../build.ps1   (XeLaTeX, deux passes)
+% -----------------------------------------------------------------------------
+% Le contenu vit dans chapitres/ ; ce fichier est l'ASSEMBLAGE et porte
+% l'ouverture et la fermeture de chaque partie -- le seul endroit d'ou l'on voit
+% l'ARC du livre.
+%
+% ⚠️ TOUT CE QUE CE LIVRE AFFIRME A ETE MESURE SUR JENGA 2.4.0, et les sorties
+% de terminal citees sont des CAPTURES REELLES rangees dans ../captures/.
+% Quand une chose n'a pas pu etre verifiee, le texte le dit.
+% =============================================================================
+\documentclass[11pt, a4paper, oneside]{book}
+
+\newcommand{\DocDate}{2 septembre 2026}
+
+\input{preambule}
+
+\begin{document}
+
+\input{garde}
+
+\frontmatter
+\pagestyle{plain}
+\tableofcontents
+\cleardoublepage
+
+\mainmatter
+\pagestyle{fancy}
+
+
+% =============================================================================
+\part{Prendre Jenga en main}
+% =============================================================================
+\partieintro{Trois chapitres, et vous construisez}{%
+Cette partie ne suppose rien. Elle dit ce que Jenga est --- et ce qu'il n'est
+pas, ce qui évite autant de malentendus ---, où le trouver, et comment aller
+d'un dossier vide à un programme qui s'exécute.
+
+Le troisième chapitre est une \textbf{démonstration complète} : cinq commandes,
+et toutes les sorties qu'il montre sont des captures réelles. Vous pouvez les
+retaper à l'identique.
+
+Une seule idée est à retenir avant d'aller plus loin, et elle gouverne tout le
+livre : \textbf{un fichier \texttt{.jenga} est du Python, et Jenga l'exécute}.
+Ce n'est pas une curiosité d'implémentation ; c'est ce qui explique aussi bien sa
+souplesse que ses pièges.%
+}
+\input{chapitres/01-ce-que-jenga-est}
+\input{chapitres/02-ou-le-trouver}
+\input{chapitres/03-de-a-a-z}
+
+\begin{partiebilan}
+Jenga construit du C et du C++, lui-même plutôt qu'en générant un autre système.
+Il s'obtient de trois façons --- roue installée, mode éditable, copie embarquée
+dans NKCode --- et la troisième peut diverger des autres, ce que NKCode signale.
+Cinq commandes suffisent pour aller de rien à un programme qui tourne :
+\texttt{workspace}, \texttt{project}, \texttt{info}, \texttt{build},
+\texttt{run}. Et \texttt{info} est la première à taper quand quelque chose
+surprend : elle montre ce que Jenga a \emph{compris}.
+\end{partiebilan}
+
+
+% =============================================================================
+\part{Écrire un \texttt{.jenga}}
+% =============================================================================
+\partieintro{Le vocabulaire, et ce qu'il cache}{%
+Un descripteur Jenga se lit comme une déclaration et s'exécute comme un script.
+Cette partie donne les deux lectures : le vocabulaire --- \texttt{project},
+\texttt{files}, \texttt{filter}, \texttt{dependson} --- et le mécanisme Python
+qui le porte.
+
+L'ordre des quatre chapitres suit celui dans lequel vous écrirez : d'abord
+comprendre que c'est du code, puis décrire un projet, puis le rendre portable par
+les filtres, puis le relier au reste.
+
+\textbf{Chaque chapitre nomme les défauts SILENCIEUX de son sujet} --- un appel
+hors bloc, un motif qui ne trouve rien, un filtre mal orthographié, une
+dépendance déclarée à deux endroits. Aucun de ces quatre ne produit de message
+d'erreur, et c'est ce qui les rend chers.%
+}
+\input{chapitres/04-un-jenga-est-du-python}
+\input{chapitres/05-decrire-un-projet}
+\input{chapitres/06-les-filtres}
+\input{chapitres/07-les-dependances}
+
+\begin{partiebilan}
+Vous savez décrire un projet : son genre, son langage, ses sources, ses sorties
+--- et surtout ce qu'il ne faut \emph{pas} écrire, la moitié du travail étant de
+laisser les défauts faire. Les filtres étiquettent des réglages d'une condition
+et permettent à une description de servir douze plateformes ; les dépendances
+ordonnent \emph{et} font hériter. Enfin, puisque tout est du Python, un dépôt
+peut se donner son propre vocabulaire --- au prix qu'un lecteur ne saura plus
+d'où vient un nom, s'il ne sait pas où le chercher.
+\end{partiebilan}
+
+
+% =============================================================================
+\part{Ce que Jenga fait de votre description}
+% =============================================================================
+\partieintro{Du fichier au binaire}{%
+Les deux chapitres qui suivent expliquent le mécanisme : comment un
+\texttt{.jenga} devient un graphe, puis comment ce graphe devient des fichiers
+objets et un artefact.
+
+\textbf{C'est la partie la plus utile du livre le jour où quelque chose ne se
+passe pas comme prévu}, et elle contient la démonstration à refaire soi-même au
+moins une fois : celle qui montre qu'une source modifiée peut être déclarée à
+jour, et l'ancien binaire tourner --- avec un \texttt{SUCCESS} à l'écran.
+
+Ce n'est pas un défaut de Jenga au sens strict : c'est la conséquence assumée
+d'une décision --- comparer des dates plutôt que des empreintes --- et il faut la
+connaître pour ne pas retirer un correctif juste en croyant qu'il ne sert à
+rien.%
+}
+\input{chapitres/08-du-fichier-au-graphe}
+\input{chapitres/09-la-construction}
+
+\begin{partiebilan}
+Un \texttt{.jenga} n'est pas analysé : il est exécuté, et le graphe existe quand
+l'exécution se termine. La construction trie ensuite les projets par leurs
+dépendances, parallélise les fichiers d'un même projet, et décide de recompiler
+sur des \textbf{dates}. Retenez les deux phrases qui vous éviteront le plus
+d'heures : \emph{un build vert prouve que ce qu'il a construit compile, pas que
+ce que vous avez écrit a été construit} ; et \emph{après toute restauration de
+fichiers, \texttt{touch}}.
+\end{partiebilan}
+
+
+% =============================================================================
+\part{Les cibles}
+% =============================================================================
+\partieintro{Douze systèmes, et trois états}{%
+Jenga déclare douze systèmes cibles. Cette partie dit ce que chacun demande ---
+et surtout \textbf{où il en est}, car les douze ne sont pas au même stade.
+
+Trois mots servent tout au long, et il faut les trois :
+
+\medskip
+\begin{tabular}{@{}ll@{}}
+\toprule
+\emph{déclarée} & des lignes existent ; rien ne dit qu'elles fonctionnent \\
+\emph{construite} & un artefact sort ; rien ne dit qu'il se lance \\
+\emph{éprouvée} & l'artefact a tourné sur la cible \\
+\bottomrule
+\end{tabular}
+\medskip
+
+\textbf{Annoncer « douze plateformes » sans cette distinction est une promesse
+qu'on ne peut pas tenir.} Le chapitre 12 donne l'état réel de chacune, et
+l'exemple mesuré d'une plateforme qu'un descripteur annonçait sans avoir le
+moindre filtre pour elle.%
+}
+\input{chapitres/10-le-bureau}
+\input{chapitres/11-le-mobile}
+\input{chapitres/12-le-web-et-le-reste}
+
+\begin{partiebilan}
+Le bureau demande peu et exige beaucoup de la machine : Linux n'est pas une cible
+mais quatre, chacune avec son dossier de sortie suffixé. Le mobile ajoute un
+manifeste, et ses échecs arrivent \emph{après} la compilation --- donc la
+vérification porte sur le paquet, pas sur la construction. Le Web exige
+\texttt{ASYNCIFY} et un serveur HTTP. Et sur les douze cibles, quatre sont
+éprouvées ici, une est construite, sept sont déclarées : le dire est plus utile
+que de les compter.
+\end{partiebilan}
+
+
+% =============================================================================
+\part{Au-delà de la construction}
+% =============================================================================
+\partieintro{Vingt-sept commandes, pas une}{%
+\texttt{build} est la commande qu'on connaît. Les vingt-six autres font le reste
+du métier : lancer, tester, déboguer, surveiller, empaqueter, signer, déployer,
+inspecter, générer.
+
+Cette partie les couvre par usage plutôt que par ordre alphabétique --- ce qu'on
+fait après avoir construit, ce qu'on fait pour livrer, ce qu'on fait quand on
+veut savoir.
+
+\textbf{Un fil les traverse} : plusieurs de ces commandes réussissent en ne
+faisant rien, ou en faisant autre chose que ce qu'on croit.
+\texttt{test} sans tests, \texttt{package} qui écrase un artefact, \texttt{gen}
+qui produit un fichier qui ne suivra plus. Chaque chapitre nomme le témoin qui
+distingue « ça a marché » de « ça a fait ce que je voulais ».%
+}
+\input{chapitres/13-lancer-tester-deboguer}
+\input{chapitres/14-livrer}
+\input{chapitres/15-inspecter}
+
+\begin{partiebilan}
+\texttt{run} passe vos arguments après \texttt{-{}-} ; \texttt{test} rend un code
+non nul quand il ne trouve rien, et « zéro exécuté » n'est pas « zéro en
+échec ». \texttt{package} construit avant d'empaqueter mais nomme sa sortie
+d'après le projet --- deux plateformes s'écrasent en silence. Et les commandes
+d'inspection sont celles qu'on tape en premier : \texttt{info} pour ce que Jenga
+a compris, \texttt{compile-flags} pour ce qu'un filtre a réellement produit.
+\end{partiebilan}
+
+
+% =============================================================================
+\part{Diagnostiquer}
+% =============================================================================
+\partieintro{Lire un échec, et retrouver une fonction}{%
+Les deux derniers chapitres ne s'apprennent pas : ils se consultent.
+
+Le premier donne l'ordre dans lequel lire un échec --- \textbf{par coût de
+vérification, non par probabilité}, ce qui est le bon critère quand on ne sait
+rien --- et la liste des messages qu'on prend pour ce qu'ils ne sont pas.
+
+Le second est une table : vingt-sept commandes, le vocabulaire par famille, les
+variables de chemin, les préfixes de filtre, les onze chaînes d'outils.
+
+\textbf{L'exercice pratique du chapitre 16 est le plus utile du livre} : provoquer
+soi-même les cinq échecs classiques et garder leurs messages. Une page de
+correspondance faite de vos propres captures vaut plus que n'importe quelle
+documentation --- parce qu'elle emploie les mots que \emph{votre} machine
+affiche.%
+}
+\input{chapitres/16-quand-ca-rate}
+\input{chapitres/17-reference}
+
+\begin{partiebilan}
+Un échec appartient à l'un des trois étages --- chargement, compilation, édition
+de liens --- et l'identifier avant de chercher détermine où l'on passe l'heure
+suivante. Le troisième nomme un symbole et jamais la description, qui est
+pourtant sa cause habituelle. Diagnostiquez dans l'ordre du coût : quatre des six
+questions se répondent sans rien construire. Et devant un besoin précis,
+cherchez le vocabulaire par préfixe --- la convention de nommage est régulière,
+ce qui rend l'API cherchable sans documentation.
+\end{partiebilan}
+
+
+\end{document}

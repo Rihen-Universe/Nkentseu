@@ -1,0 +1,25 @@
+$ jenga project Bonjour --kind consoleapp --no-interactive
+#   (dans C:/Users/Rihen/AppData/Local/Temp/claude/d--Projets-2026-Nkentseu-Nkentseu/a87f7ffc-3353-4005-ad29-4b5e363ffe53/scratchpad/demo/Bonjour, code de sortie 2)
+
+usage: jenga project [-h] [--kind {console,windowed,static,shared,test}]
+                     [--lang LANG] [--location LOCATION] [--separate]
+                     [--element {class,struct,enum,union,interface,function,source,header,custom}]
+                     [--name NAME] [--project PROJECT] [--template TEMPLATE]
+                     [--interactive] [--no-interactive]
+                     [--jenga-file JENGA_FILE]
+                     [name]
+jenga project: error: argument --kind: invalid choice: 'consoleapp' (choose from console, windowed, static, shared, test)
+
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║                ██╗███████╗███╗   ██╗ ██████╗  █████╗             ║
+║                ██║██╔════╝████╗  ██║██╔════╝ ██╔══██╗            ║
+║                ██║█████╗  ██╔██╗ ██║██║  ███╗███████║            ║
+║           ██   ██║██╔══╝  ██║╚██╗██║██║   ██║██╔══██║            ║
+║           ╚█████╔╝███████╗██║ ╚████║╚██████╔╝██║  ██║            ║
+║            ╚════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝            ║
+║                                                                  ║
+║             Multi-platform C/C++ Build System v2.4.0             ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
