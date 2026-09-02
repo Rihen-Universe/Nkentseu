@@ -912,3 +912,99 @@ ne touche pas (son dernier commit est `332ae4f8`, sans rapport) et qui possède 
 changé d'aspect.** Si l'image montrait le contraire à la reprise GPU, ce serait le
 signe que le correctif touche autre chose que ce que je crois — et il faudrait me
 croire sur parole moins, pas plus.
+---
+
+# MESURE 7 — CHANTIER `NkRenderQuality` : LE CRITÈRE AVANT LE CODE
+
+> Chantier (a), approuvé. **Rien n'est encore codé** : ce bloc pose ce qui devra
+> être vrai à la fin, puis rapporte deux mesures qui **changent la conception**
+> par rapport à ce qu'on croyait au moment de l'approuver.
+
+## 7.1 Le critère de réussite — proposé, et je le durcis d'un point
+
+Proposition reçue :
+
+> *Une application obtient une image belle sur bureau et fluide sur mobile sans
+> qu'aucune ligne d'elle ne nomme une plateforme ni un preset.*
+
+✅ **Je la reprends**, et j'ajoute la clause sans laquelle elle se satisfait à
+vide — c'est la leçon de la garde périmée, appliquée d'avance :
+
+> **(1)** aucune ligne de l'application ne nomme une plateforme ni un preset ;
+> **(2)** `NkRenderQuality` est **lu** — au moins un chemin de rendu change de
+> comportement selon sa valeur, et on sait dire lequel, à la ligne ;
+> **(3) un banc échoue si on force `quality` à une autre valeur.** Sans (3), on
+> aura remplacé un drapeau inerte par un drapeau lu une fois et sans effet
+> observable — *le même défaut d'un cran plus loin.*
+
+📌 **Et le juge final reste celui de Rodolf** : *combien de lignes pour faire
+rouler une voiture ?* Ce qui coûte cher dans le moteur doit rester **bon marché
+au-dessus**. La surface visée est une seule fonction sans argument de
+plateforme.
+
+## 7.2 ⚠️ DEUX MESURES QUI CHANGENT LA CONCEPTION
+
+### a) `NkCGXDetect` n'est PAS un détecteur — c'est un fichier de macros
+
+Le chantier était posé comme *« appuyé sur `NkCGXDetect` qui existe déjà et
+détecte OS, GPU, vendeur, type, APIs »*. **C'est vrai des macros et des énumérations,
+et faux du détecteur.** ✅ Mesuré :
+
+```
+NkCGXDetect.h    1 347 lignes  — macros, enums (NkGraphicsApi, NkGPUVendor, NkGPUType), doc
+NkCGXDetect.cpp          3 lignes  —  #include "pch.h" / #include "NkCGXDetect.h" / namespace nkentseu {}
+```
+
+**Aucune fonction.** Le `.cpp` est vide. Ce que le fichier fournit est
+**entièrement décidé à la compilation** : la cible, les API disponibles. Il ne
+sait rien du GPU réellement présent à l'exécution.
+
+⭐ **Et l'ironie mérite d'être notée, parce qu'elle est exactement notre sujet** :
+`NkCGXDetect.h` **documente** `SetQualityPreset(HIGH)`, `EnableRayTracing()`,
+`ReduceTextureResolution()`… et `NkPlatform.h:1596-1626` en donne une seconde
+version, plus complète, qui choisit la qualité selon la mémoire disponible.
+✅ **Les deux sont dans des commentaires** (`/* … */`), et
+`grep SetQualityPreset --include=*.cpp` rend **zéro**. *La documentation du dépôt
+montre en exemple précisément la fonctionnalité que Rodolf demande aujourd'hui,
+et aucune ligne n'existe.* C'est une **quatrième forme** du chrome qui promet :
+non pas une API vide, mais **une API qui n'existe que dans sa propre
+documentation**.
+
+⚠️ **Piège de nom au passage** (face n°10) : `grep QualityLevel` remonte deux
+résultats hors documentation — ce sont les
+`CheckMultisampleQualityLevels` de DirectX. Aucun rapport.
+
+### b) ✅ MAIS LE DÉTECTEUR RUNTIME EXISTE, AILLEURS — `NkGetPlatformInfo()`
+
+`NKCore/NkPlatform.cpp:611` définit `const NkPlatformInfo *NkGetPlatformInfo()`,
+**avec un vrai corps**, et le dépôt s'en sert déjà (`osName`, `archName`,
+`cpuL1/L2/L3CacheSize`, mémoire…). **C'est là qu'est la matière runtime**, pas
+dans `NkCGXDetect`.
+
+> **Conséquence de conception, et elle est bonne** : le sélecteur de profil se
+> bâtit sur **deux étages** — la **cible**, connue à la compilation
+> (`NKENTSEU_PLATFORM_*`, réels et fiables), et la **machine**, connue à
+> l'exécution (`NkGetPlatformInfo()`). Ni l'un ni l'autre n'est à écrire.
+
+## 7.3 Le plus petit chemin qui rend la règle vraie — à valider avant que je code
+
+1. **`NkRendererConfig::ForTarget()`** — une fabrique **sans argument de
+   plateforme**, qui choisit le profil elle-même. C'est elle que le jeu appelle ;
+   c'est ce qui supprime le `si (mobile)`. Les presets existants deviennent son
+   implémentation, pas l'API publique du jeu.
+2. **Rendre `quality` opérant** : une passe unique qui **dérive** de l'enum les
+   champs qui en dépendent (résolution d'ombre, cascades, MSAA, bascules de
+   post-process), appliquée à l'initialisation.
+   ⚠️ **Point à trancher, et il n'est pas cosmétique** : les presets écrivent
+   **déjà** ces champs directement, et ils sont **honorés**. Il faut décider qui
+   gagne — sinon on crée deux sources de vérité pour la même valeur, c'est-à-dire
+   exactement la divergence que la maison paye ailleurs. *Ma préférence :
+   `quality` est la source, le preset l'exprime, et un réglage explicite posé
+   après écrase — dans cet ordre, documenté sur place.*
+3. **Le banc de (3)** : deux configurations, `quality` différent, une différence
+   **observable** — et la contre-épreuve qui montre qu'il sait rougir.
+
+⚠️ **Ce que je ne ferai pas sans accord** : changer la sémantique des six presets
+publics. Ils sont consommés hors de mon territoire, et redéfinir qui gagne entre
+`quality` et un champ explicite **est un changement de contrat**, pas un
+correctif.
