@@ -106,6 +106,14 @@ namespace nkentseu {
 				void EndFrame() override {
 					if (mTarget)
 						mTarget->Display();
+					// La capture armée s'exécute ICI, juste après Display() — le seul
+					// moment que le contrat du readback exige (cf. NkIEditorRenderer).
+					// Désarmée AVANT l'appel : un readback qui échouerait chaque frame
+					// ne doit pas réessayer en boucle et transformer l'échec en gel.
+					if (mCaptureArmee && mTarget) {
+						mCaptureArmee = false;
+						mTarget->Capture(mCapturePath);
+					}
 				}
 
 				bool UploadFontGray8(uint32 texId, const uint8 *px, int32 w, int32 h) override {
@@ -116,9 +124,26 @@ namespace nkentseu {
 					return mBackend.UploadImageRGBA(texId, px, w, h);
 				}
 
+				bool CaptureNext(const char *path) noexcept override {
+					if (!mTarget || !path || !*path)
+						return false;
+					uint32 i = 0;
+					for (; path[i] && i + 1 < sizeof(mCapturePath); ++i)
+						mCapturePath[i] = path[i];
+					// Un chemin tronqué écrirait un FICHIER AU MAUVAIS ENDROIT en
+					// prétendant réussir — refus franc plutôt que capture égarée.
+					if (path[i])
+						return false;
+					mCapturePath[i] = '\0';
+					mCaptureArmee = true;
+					return true;
+				}
+
 			private:
 				memory::NkUniquePtr<renderer::NkRenderWindow> mTarget;
 				renderer::NkGuiCanvasBackend mBackend;
+				char mCapturePath[512] = {0};
+				bool mCaptureArmee = false;
 		};
 
 	} // namespace editorkit

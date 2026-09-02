@@ -142,6 +142,52 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 
 static nkuidesign::DesignState gDesign;
 static NkEditorShell *gShell = nullptr;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  --capture=<fichier.png> : UNE IMAGE VRAIE DE L'APPLICATION, PUIS FERMER
+// ═══════════════════════════════════════════════════════════════════════════
+//  Le témoin de rendu (--temoin-rendu) dit CE QUI est dessiné ; il ne dit pas
+//  comment ça se PROPORTIONNE à l'œil. Pour juger l'alignement et les
+//  proportions — le côte à côte avec les planches — il faut des pixels.
+//
+//  ⚠️ CE MODE OUVRE SA PROPRE FENÊTRE ET NE TOUCHE QU'À ELLE. Ce n'est PAS une
+//     capture d'écran de l'OS : c'est un readback du backbuffer de CETTE
+//     instance (NkRenderWindow::Capture, le code du noyau — pas une neuvième
+//     recopie, cf. CAPTURE_MONTAGE_ET_IA_DANS_LES_APPS.md §2). Une instance
+//     déjà ouverte ailleurs n'est ni photographiée, ni fermée, ni même vue.
+//
+//  ⚠️ POURQUOI ATTENDRE HUIT FRAMES : la coquille restaure l'état de fenêtre de
+//     la session précédente, remonte les atlas de police et stabilise le dock
+//     dans les premières frames. Capturer la frame 1 photographierait un
+//     échafaudage. Huit est un choix (généreux), pas une mesure — s'il se
+//     révèle court un jour, le symptôme sera une image sans texte.
+//
+//  Le tick vit dans le callback de menu applicatif (SetAppMenu) : c'est le seul
+//  crochet PAR FRAME que la coquille offre à l'app aujourd'hui. Le jour où
+//  l'app veut un vrai menu applicatif, ce squat devra déménager — d'ici là il
+//  ne dessine rien (il n'ajoute aucun menu).
+static char gCapturePath[512] = {0};
+static int32 gCaptureFrame = 0;
+static constexpr int32 kCaptureFramePrete = 8;
+
+static void CaptureTick(NkEditorFrameContext &, void *user) {
+	NkEditorShell *sh = static_cast<NkEditorShell *>(user);
+	++gCaptureFrame;
+	if (gCaptureFrame == kCaptureFramePrete) {
+		// Armée ICI, exécutée par le backend APRÈS le Display() de cette même
+		// frame — le seul moment que le contrat du readback autorise.
+		if (sh->Renderer() && !sh->Renderer()->CaptureNext(gCapturePath)) {
+			// Refus d'armement (chemin trop long, backend sans readback) : rien
+			// n'arrivera au EndFrame — fermer tout de suite, le verdict de fin
+			// (fichier absent) dira l'échec.
+			sh->RequestClose();
+		}
+	} else if (gCaptureFrame > kCaptureFramePrete) {
+		// La frame SUIVANTE : la capture de la frame précédente est faite (ou
+		// pas — le fichier en témoignera). Fermer proprement.
+		sh->RequestClose();
+	}
+}
 /// L onglet de projet actif. ⚠️ UN SEUL ETAT, ici : le dessin de la bande et le
 ///    clic le lisent tous les deux. Deux copies auraient diverge des le premier
 ///    onglet ferme.
@@ -7397,6 +7443,19 @@ int nkmain(const NkEntryState &state) {
 			const NkString argT(a);
 			if (argT.StartsWith("--temoin-rendu="))
 				return nkuidesign::NkTemoinRendu(argT.SubStr(15).Data());
+			// --capture=<fichier.png> : PAS un retour immédiat, contrairement à
+			// toutes les recettes — ce mode a BESOIN de la fenêtre et du GPU.
+			// On note le chemin ; la boucle normale démarre, CaptureTick arme le
+			// readback à la frame 8, la coquille se ferme, et le verdict se lit
+			// sur le FICHIER après Run() — l'effet, pas l'intention.
+			if (argT.StartsWith("--capture=")) {
+				const NkString chemin = argT.SubStr(10);
+				uint32 i = 0;
+				for (; chemin.Data()[i] && i + 1 < sizeof(gCapturePath); ++i)
+					gCapturePath[i] = chemin.Data()[i];
+				gCapturePath[i] = '\0';
+				continue;
+			}
 		}
 		// Les gestes d'edition Lunacy (copier/coller/dupliquer/grouper/...)
 		// prouves par leur EFFET, et « un geste = un pas » — sans fenetre ni GPU.
@@ -7532,6 +7591,7 @@ int nkmain(const NkEntryState &state) {
 			puts("  --recette-edition       le contrat universel d'edition, par site");
 			puts("  --recette-proprietes    les listes de proprietes exercees par le GESTE");
 			puts("  --temoin-rendu[=<f>]    le flux de commandes du peintre (diffable)");
+			puts("  --capture=<f.png>       ouvre l'app, photographie SA fenetre (frame 8), ferme");
 			puts("  --recette-gestes        les gestes d'édition Lunacy (copier/grouper/...)");
 			puts("  --recette-snap          l'aimantation (bords, centres, espacements égaux)");
 			puts("  --recette-selection     le contrat de sélection (Ctrl/Maj, englobant, mixtes)");
@@ -7992,6 +8052,10 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Objet: Dégrouper", &CmdDegrouper, nullptr, "Ctrl+Shift+G");
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 	gShell = shell.Get();
+	// Le mode --capture branche son tick par frame — cf. le bloc CaptureTick en
+	// tête de fichier. Hors capture, aucun callback : rien ne change.
+	if (gCapturePath[0])
+		shell->SetAppMenu(&CaptureTick, shell.Get());
 	// ⚠️ DES LETTRES, PAS DES CHIFFRES, ET C'EST UNE CONTRAINTE MESUREE :
 	//    `NkEditorShell::TryRunShortcut` n'accepte qu'un nom de touche de la
 	//    forme exacte « NK_X » (quatre caracteres). Un `Ctrl+1` s'affiche a cote
@@ -8011,5 +8075,27 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Vue: Préférences", &CmdVuePreferences, nullptr, "Ctrl+M");
 #endif
 
-	return shell->Run();
+	const int codeShell = shell->Run();
+
+	// ── Verdict du mode --capture : le FICHIER, pas un drapeau ────────────────
+	// Le tick a pu armer, le backend a pu accepter — seul le fichier écrit
+	// prouve que des pixels ont été lus. Un readback qui échoue (backend sans
+	// Capture, disque plein) laisse un chemin sans fichier : code 3, nommé.
+	if (gCapturePath[0]) {
+		FILE *f = fopen(gCapturePath, "rb");
+		long taille = 0;
+		if (f) {
+			fseek(f, 0, SEEK_END);
+			taille = ftell(f);
+			fclose(f);
+		}
+		if (!f || taille <= 8) {
+			fputs("[NKUIDesign] capture EN ECHEC : fichier absent ou vide -- ", stdout);
+			puts(gCapturePath);
+			return 3;
+		}
+		fputs("[NKUIDesign] capture ecrite : ", stdout);
+		puts(gCapturePath);
+	}
+	return codeShell;
 }

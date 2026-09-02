@@ -74,6 +74,14 @@ namespace nkentseu {
 					mRunning = false;
 				}
 
+				/// Le backend de rendu ACTIF — injecté par l'app, ou NKCanvas par
+				/// défaut. Jamais nul après un Init() réussi. Exposé pour que l'app
+				/// puisse armer une capture (`CaptureNext`) sans posséder le backend
+				/// qu'elle n'a pas injecté.
+				NkIEditorRenderer *Renderer() noexcept {
+					return mRenderer;
+				}
+
 				// ── Fermeture EXPLICITE de la fenetre (croix de la barre de titre) ──
 				// Declenche uniquement par NkWindowCloseEvent, JAMAIS par RequestClose()
 				// ci-dessus. La distinction est necessaire a l'application : fermer une
