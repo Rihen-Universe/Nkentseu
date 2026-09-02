@@ -1004,39 +1004,130 @@ namespace nkentseu {
 		NK_GL_LOG("Shutdown\n");
 	}
 
+
+	// =====================================================================
+	// INTERROGATION DES CAPACITES -- deux pieges neutralises (2026-09-02)
+	// =====================================================================
+	// PIEGE 1 : glGetIntegerv N'ECRIT RIEN quand il echoue. Les 17 requetes de
+	// QueryCaps partageaient UNE seule variable jamais reinitialisee : chaque
+	// capacite ratee heritait de la derniere reussie. Mesure sous WebGL2 : six
+	// capacites d'affilee recevaient MAX_UNIFORM_BLOCK_SIZE (~65536), dont une
+	// anisotropie de 65536. Les capacites n'etaient pas manquantes : elles
+	// etaient FAUSSES ET PLAUSIBLES -- aucune a zero, toutes l'air renseignees.
+	//
+	// PIEGE 2 : une file d'erreurs non vidue fait attribuer a une requete
+	// l'echec de la precedente. On vide AVANT, on relit APRES.
+	//
+	// 📌 Et la vraie parade est en amont des deux : NE PAS POSER LA QUESTION
+	// quand la cible n'a pas la fonctionnalite (cf. NkGLHasComputeAndSSBO).
+	// Meme famille que la garde EGL : demander a une cible ce qu'elle n'a pas.
+	static bool NkGLHasAnisotropicFilter();
+
+	static void NkGLClearErrors() {
+		for (int garde = 0; garde < 64 && glGetError() != GL_NO_ERROR; ++garde) {
+		}
+	}
+
+	// Rend false ET remet `out` a zero si la requete echoue : jamais la valeur
+	// du voisin, jamais un chiffre credible sorti de nulle part.
+	static bool NkGLQueryCap(GLenum pname, GLint &out) {
+		NkGLClearErrors();
+		out = 0;
+		glGetIntegerv(pname, &out);
+		if (glGetError() != GL_NO_ERROR) {
+			out = 0;
+			return false;
+		}
+		return true;
+	}
+
+	static bool NkGLQueryCapIndexed(GLenum pname, GLuint index, GLint &out) {
+		NkGLClearErrors();
+		out = 0;
+		glGetIntegeri_v(pname, index, &out);
+		if (glGetError() != GL_NO_ERROR) {
+			out = 0;
+			return false;
+		}
+		return true;
+	}
+
+	// Compute et SSBO arrivent ENSEMBLE (GL 4.3 / ES 3.1). WebGL2 n'en a aucun,
+	// quelle que soit la version que le contexte annonce -- c'est pour ca que le
+	// test de version ne suffit pas et que la cible est traitee a part.
+	static bool NkGLHasComputeAndSSBO() {
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		return false;
+#else
+		GLint maj = 0, min = 0;
+		if (!NkGLQueryCap(GL_MAJOR_VERSION, maj) || !NkGLQueryCap(GL_MINOR_VERSION, min))
+			return false;
+#if defined(NK_OPENGL_ES)
+		return (maj > 3) || (maj == 3 && min >= 1);
+#else
+		return (maj > 4) || (maj == 4 && min >= 3);
+#endif
+#endif
+	}
+
 	void NkOpenGLDevice::QueryCaps() {
 		GLint v = 0;
-		glGetIntegerv(GL_MAX_TEXTURE_SIZE, &v);
-		mCaps.maxTextureDim2D = (uint32)v;
-		glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &v);
-		mCaps.maxTextureDim3D = (uint32)v;
-		glGetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE, &v);
-		mCaps.maxTextureCubeSize = (uint32)v;
-		glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &v);
-		mCaps.maxTextureArrayLayers = (uint32)v;
-		glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &v);
-		mCaps.maxColorAttachments = (uint32)v;
-		glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &v);
-		mCaps.maxVertexAttributes = (uint32)v;
-		glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &v);
-		mCaps.maxUniformBufferRange = (uint32)v;
-		glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &v);
-		mCaps.maxStorageBufferRange = (uint32)v;
-		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &v);
-		mCaps.maxComputeGroupSizeX = (uint32)v;
-		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &v);
-		mCaps.maxComputeGroupSizeY = (uint32)v;
-		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &v);
-		mCaps.maxComputeGroupSizeZ = (uint32)v;
-		glGetIntegerv(GL_MAX_COMPUTE_SHARED_MEMORY_SIZE, &v);
-		mCaps.maxComputeSharedMemory = (uint32)v;
-		glGetIntegerv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &v);
-		mCaps.maxSamplerAnisotropy = (uint32)v;
-		glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &v);
-		mCaps.minUniformBufferAlign = (uint32)v;
-		glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &v);
-		mCaps.minStorageBufferAlign = (uint32)v;
 
+		// -- capacites universelles (present sur toutes les cibles GL/ES) -----
+		if (NkGLQueryCap(GL_MAX_TEXTURE_SIZE, v))
+			mCaps.maxTextureDim2D = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_3D_TEXTURE_SIZE, v))
+			mCaps.maxTextureDim3D = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_CUBE_MAP_TEXTURE_SIZE, v))
+			mCaps.maxTextureCubeSize = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_ARRAY_TEXTURE_LAYERS, v))
+			mCaps.maxTextureArrayLayers = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_COLOR_ATTACHMENTS, v))
+			mCaps.maxColorAttachments = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_VERTEX_ATTRIBS, v))
+			mCaps.maxVertexAttributes = (uint32)v;
+		if (NkGLQueryCap(GL_MAX_UNIFORM_BLOCK_SIZE, v))
+			mCaps.maxUniformBufferRange = (uint32)v;
+		if (NkGLQueryCap(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, v))
+			mCaps.minUniformBufferAlign = (uint32)v;
+
+		// -- compute et SSBO : on NE POSE PAS la question si la cible n'en a pas
+		// Une capacite absente vaut ZERO, jamais un defaut optimiste : un
+		// maxComputeGroupSizeX non nul sur une cible sans compute est exactement
+		// le genre de valeur sur laquelle une decision de rendu se construit.
+		if (NkGLHasComputeAndSSBO()) {
+			if (NkGLQueryCap(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, v))
+				mCaps.maxStorageBufferRange = (uint32)v;
+			if (NkGLQueryCap(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, v))
+				mCaps.minStorageBufferAlign = (uint32)v;
+			if (NkGLQueryCapIndexed(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, v))
+				mCaps.maxComputeGroupSizeX = (uint32)v;
+			if (NkGLQueryCapIndexed(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, v))
+				mCaps.maxComputeGroupSizeY = (uint32)v;
+			if (NkGLQueryCapIndexed(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, v))
+				mCaps.maxComputeGroupSizeZ = (uint32)v;
+			if (NkGLQueryCap(GL_MAX_COMPUTE_SHARED_MEMORY_SIZE, v))
+				mCaps.maxComputeSharedMemory = (uint32)v;
+		} else {
+			mCaps.maxStorageBufferRange = 0;
+			mCaps.minStorageBufferAlign = 0;
+			mCaps.maxComputeGroupSizeX = 0;
+			mCaps.maxComputeGroupSizeY = 0;
+			mCaps.maxComputeGroupSizeZ = 0;
+			mCaps.maxComputeSharedMemory = 0;
+		}
+
+		// -- anisotropie : extension, absente du coeur WebGL2 ------------------
+		// 1 = filtrage isotrope, la valeur JUSTE quand l'extension manque.
+		if (NkGLHasAnisotropicFilter() && NkGLQueryCap(GL_MAX_TEXTURE_MAX_ANISOTROPY, v))
+			mCaps.maxSamplerAnisotropy = (uint32)v;
+		else
+			mCaps.maxSamplerAnisotropy = 1;
+
+		// La file est rendue PROPRE : sans ca, la premiere verification d'erreur
+		// du reste du moteur heriterait des INVALID_ENUM d'ici et accuserait un
+		// innocent.
+		NkGLClearErrors();
 		mCaps.computeShaders = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_GFX_API_OPENGL);
 		mCaps.geometryShaders = true;
 		mCaps.tessellationShaders = true;
@@ -1044,11 +1135,28 @@ namespace nkentseu {
 		mCaps.multiViewport = true;
 		mCaps.independentBlend = true;
 		mCaps.timestampQueries = true;
-		mCaps.textureCompressionBC = true; // sur desktop
+		// BC (S3TC/DXT) est un format DESKTOP. Sur ES/WebGL2 il n'existe que par
+		// extension, et l'annoncer `true` sans l'avoir est une promesse faite au
+		// code : le moteur choisirait un format que le televersement refusera.
+		// Un drapeau de capacite dit ce que la cible A, pas ce qu'on souhaite.
+#if defined(NK_OPENGL_ES)
+		mCaps.textureCompressionBC = false;
+#else
+		mCaps.textureCompressionBC = true;
+#endif
 
 		// MSAA support
 		GLint maxS = 0;
-		glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &maxS);
+		// GL_MAX_COLOR_TEXTURE_SAMPLES est DESKTOP-ONLY (GL 3.2+). ES et WebGL2
+		// exposent GL_MAX_SAMPLES. La requete brute echouait donc sur Web et
+		// laissait maxS a 0 : les quatre drapeaux msaa* tombaient a false sans
+		// que rien ne le dise. Dernier representant, dans cette meme fonction, de
+		// la famille « demander a une cible ce qu'elle n'a pas ».
+#if defined(NK_OPENGL_ES)
+		NkGLQueryCap(GL_MAX_SAMPLES, maxS);
+#else
+		NkGLQueryCap(GL_MAX_COLOR_TEXTURE_SAMPLES, maxS);
+#endif
 		mCaps.msaa2x = maxS >= 2;
 		mCaps.msaa4x = maxS >= 4;
 		mCaps.msaa8x = maxS >= 8;
