@@ -649,7 +649,7 @@ Source : `/layers`.
 | Rotation à la souris | près d'un coin | ✅ **livré** | recette transfo 9 — quatre poignées **en dehors** des coins |
 | Rotation chiffrée | champ d'angle | ✅ **livré** | section Apparence |
 | Aimantation angulaire | `Maj` | ✅ **livré** | transfo 10 — **15°** chez nous, la source dit « 90° ou 45° ». ⚠️ **Divergence à trancher par Rodolf** : 15° est plus fin et couvre 45/90 ; leur formulation est ambiguë |
-| Miroir H / V | **`Maj+H` / `Maj+V`** + boutons | ✅ **livré — raccourci branché le 02/09** | transfo 4, 13 — par les **boutons** de l'Inspecteur ; le raccourci n'est pas branché, et **on ne le branchera pas au hasard** vu la contradiction. C'est le **sens ②** de la table de désambiguïsation « miroir », et l'arbitrage attend Rodolf |
+| Miroir H / V | **`Maj+H` / `Maj+V`** + boutons | ✅ **livré — raccourci branché le 02/09** | transfo 4, 13 — par les **boutons** de l'Inspecteur **et** par `Maj+H` / `Maj+V` (dispatcher commun). C'est le **sens ②** de la table de désambiguïsation « miroir » ; la contradiction de la source s'est résolue **par la mesure** : `Ctrl`+flèches est déjà pris par le redimensionnement clavier |
 | Aligner (six alignements) | boutons ou raccourcis | ✅ **livré** | la rangée d'alignement existe |
 | S'aligner sur les bords du **cadre** quand un seul objet est sélectionné | — | ❌ **absent** | ⚠️ **finesse utile** : chez eux, un objet seul posé sur un cadre s'aligne sur le cadre. Chez nous l'alignement veut deux objets |
 | Distribuer H / V | `Ctrl+Maj+H` / `Ctrl+Maj+V` | ❌ **absent** |  |
@@ -831,6 +831,7 @@ issues, et il faut en choisir une : brancher les touches, ou retirer les
 libellés. **Brancher est évidemment la bonne** — c'est la première vague (§12).
 
 ### 10.2 Les raccourcis à brancher, par ordre d'utilité
+<!-- PAS-UN-COMPORTEMENT -->
 
 | geste | touche retenue | pourquoi cette valeur |
 |---|---|---|
