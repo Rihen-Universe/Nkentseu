@@ -1,7 +1,7 @@
 // =============================================================================
 // NKRenderer/Tools/Animation/NkAnimationSystem.cpp — voir le .h
 // -----------------------------------------------------------------------------
-// Facade de rendu seule depuis le 2026-08-14. Le modele est dans NKAnimation.
+// Facade de rendu seule depuis le 2026-08-14. Le modele est dans NKAnima.
 // =============================================================================
 #include "NkAnimationSystem.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"

@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// NKAnimation/NkAnimation.h — modele d'animation, substrat autonome
+// NKAnima/NkAnimation.h — modele d'animation, substrat autonome
 // -----------------------------------------------------------------------------
 // Clips, echantillonnage, lecture, melange 1D/2D et machine a etats hierarchique.
 // AUCUN GPU, AUCUN peripherique, AUCUN format : ce fichier ne connait que
@@ -8,7 +8,7 @@
 // sans tirer le renderer -- et a une application 2D d'animer tout court, ce que
 // la regle d'exclusivite NKCanvas/NKRenderer interdisait jusqu'ici.
 //
-// Extrait de NKAnimation/NkAnimation.h le 2026-08-14, en
+// Extrait de NKAnima/NkAnimation.h le 2026-08-14, en
 // application du bloc de decision « SUBSTRATS ANIMATION ET COMPORTEMENT »
 // (CLAUDE.md du repertoire parent). Le corps est deplace TEL QUEL.
 //

@@ -1,7 +1,7 @@
 // =============================================================================
 // NKRenderer/Tools/Animation/NkMotionPath.cpp — animation par courbe (voir .h).
 // =============================================================================
-#include "NKAnimation/NkMotionPath.h"
+#include "NKAnima/NkMotionPath.h"
 
 namespace nkentseu {
 	namespace anim {

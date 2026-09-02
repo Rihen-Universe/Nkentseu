@@ -28,7 +28,7 @@
 #define __NKENTSEU_NKRENDERER_GLTFANIMBAKE_H__
 
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
-#include "NKAnimation/NkAnimation.h"
+#include "NKAnima/NkAnimation.h"
 
 namespace nkentseu {
 	namespace renderer {

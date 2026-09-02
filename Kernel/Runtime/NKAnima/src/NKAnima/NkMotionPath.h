@@ -1,5 +1,5 @@
 // =============================================================================
-// NKAnimation/NkMotionPath.h
+// NKAnima/NkMotionPath.h
 // -----------------------------------------------------------------------------
 // ANIMATION PAR TRAÇAGE DE COURBE (NkAnima). On trace une COURBE dans la scène
 // (points de contrôle) et une cible la suit dans le temps ; selon le mode, la cible
