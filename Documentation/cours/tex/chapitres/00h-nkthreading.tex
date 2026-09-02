@@ -1,0 +1,219 @@
+\chapter{NKThreading : faire deux choses à la fois}
+
+Un fil d'exécution --- un \emph{thread} --- permet à un programme de faire
+plusieurs choses en même temps. C'est la partie du métier où les défauts sont les
+plus difficiles à trouver : ils ne se reproduisent pas, disparaissent sous le
+débogueur, et changent de forme d'une machine à l'autre.
+
+Ce chapitre donne le vocabulaire, l'API de Nkentseu, et surtout la discipline qui
+évite d'en avoir besoin.
+
+\begin{nkretenir}
+\textbf{La meilleure façon de gagner du temps avec les fils est de ne pas en
+employer.} Un programme à un seul fil est lent mais juste ; un programme à
+plusieurs fils mal synchronisé est rapide et faux --- et il vous le dira six mois
+plus tard, chez un utilisateur, une fois sur mille.
+
+N'en ajoutez que lorsqu'une \emph{mesure} montre qu'il le faut.
+\end{nkretenir}
+
+\section{Ce qu'est une course, et pourquoi c'est si dur}
+
+\begin{nkcode}{Exemple pedagogique -- FAUX}
+int32 compteur = 0;
+// deux fils executent ceci en meme temps :
+++compteur;
+\end{nkcode}
+
+\texttt{++compteur} n'est pas une instruction : c'est \emph{lire}, \emph{ajouter
+un}, \emph{écrire}. Deux fils peuvent lire la même valeur, ajouter un chacun, et
+écrire le même résultat. Deux incréments, un seul effet.
+
+\begin{nkpiege}
+\textbf{Une course ne se reproduit pas à la demande.} Elle dépend de l'ordre
+exact où le système donne la main, qui change à chaque exécution. Elle disparaît
+souvent sous le débogueur, parce qu'il ralentit tout et change cet ordre.
+
+C'est pourquoi on ne \emph{teste} pas l'absence de course : on la rend impossible
+par construction.
+\end{nkpiege}
+
+\section{Les fils}
+
+\begin{nkcode}{Kernel/System/NKThreading/src/NKThreading/NkThread.h}
+NkThread t([]() {
+    // ... le travail, dans un AUTRE fil ...
+});
+t.SetName("calcul");        // le nom apparait dans le debogueur : prenez-en un
+t.Join();                   // on ATTEND qu'il finisse
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Méthode} & \textbf{Effet} \\
+\midrule
+\texttt{Join()} & attend la fin du fil \\
+\texttt{Detach()} & le laisse vivre seul --- on ne l'attendra plus \\
+\texttt{SetName(n)} & nomme le fil pour le débogueur \\
+\texttt{SetAffinity(c)} & l'épingle sur un c\oe ur \\
+\texttt{SetPriority(p)} & change sa priorité \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Un fil détaché qui touche des données détruites est un plantage
+aléatoire.} \texttt{Detach} veut dire « je ne l'attendrai jamais » : si l'objet
+qu'il manipule meurt avant lui, il écrit dans le vide.
+
+\textbf{Nommez vos fils.} Un débogueur qui affiche « Thread 14892 » ne dit rien ;
+« calcul » dit tout. C'est une ligne, et elle se rembourse au premier incident.
+\end{nkpiege}
+
+\section{Protéger une donnée : mutex et verrou à portée}
+
+\begin{nkcode}{Kernel/System/NKThreading/src/NKThreading/NkScopedLock.h}
+NkMutex mutex;
+int32 compteur = 0;
+
+void Incrementer() {
+    NkScopedLock<NkMutex> verrou(mutex);   // prend le verrou ICI
+    ++compteur;                            // un seul fil a la fois
+}                                          // le rend a l'accolade -- TOUJOURS
+\end{nkcode}
+
+\begin{nkretenir}
+\texttt{NkScopedLock} est du \textbf{RAII} appliqué au verrouillage : il prend le
+verrou à sa construction et le rend à sa destruction. On ne peut plus oublier de
+déverrouiller, même en sortant par un \texttt{return} au milieu.
+
+C'est exactement le mécanisme du chapitre C++, appliqué à une autre ressource.
+\end{nkretenir}
+
+\begin{nkpiege}[L'étreinte fatale]
+Deux fils, deux verrous, pris dans un ordre \emph{opposé} : chacun attend celui
+que l'autre tient. Le programme ne plante pas --- il s'arrête, pour toujours.
+
+\textbf{La parade est une convention, pas un outil} : quand plusieurs verrous
+sont nécessaires, on les prend \textbf{toujours dans le même ordre}, partout dans
+le programme. Écrivez cet ordre en commentaire à côté de leur déclaration.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{Un verrou trop large annule le bénéfice des fils.} Verrouiller pendant
+tout un calcul de trois secondes fait attendre les autres fils trois secondes :
+on a payé la complexité du parallélisme pour obtenir un programme séquentiel.
+
+Verrouillez \emph{le temps de toucher la donnée}, pas le temps de calculer.
+\end{nkpiege}
+
+\section{Le reste de la boîte à outils}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Outil} & \textbf{Quand} \\
+\midrule
+\texttt{NkMutex} & une donnée partagée, un fil à la fois \\
+\texttt{NkRecursiveMutex} & la même fonction peut se rappeler elle-même \\
+\texttt{NkSharedMutex} & plusieurs lecteurs \emph{ou} un écrivain \\
+\texttt{NkReaderWriterLock} & même idée, autre interface \\
+\texttt{NkSpinLock} & attente très courte, sans passer par le système \\
+\texttt{NkConditionVariable} & « attends qu'une condition devienne vraie » \\
+\texttt{NkSemaphore} & au plus \emph{n} fils à la fois \\
+\texttt{NkBarrier} & tout le monde s'attend à un point de rendez-vous \\
+\texttt{NkLatch} & attendre que \emph{n} choses soient faites, une fois \\
+\texttt{NkThreadPool} & un ensemble de fils qui consomment des tâches \\
+\texttt{NkFuture}, \texttt{NkPromise} & un résultat qui arrivera plus tard \\
+\texttt{NkThreadLocal} & une variable propre à chaque fil \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Pour du travail découpable, prenez le \texttt{NkThreadPool}} plutôt que
+de créer des fils vous-même. Créer un fil coûte cher ; le pool les crée une fois
+et leur donne des tâches (\texttt{Enqueue}).
+
+Créer un fil par tâche est le défaut le plus fréquent du débutant : le programme
+passe son temps à créer et détruire des fils au lieu de calculer.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{\texttt{NkSharedMutex} n'est un gain que si les lectures dominent
+LARGEMENT.} Il coûte plus cher qu'un mutex simple à chaque prise ; s'il y a
+autant d'écritures que de lectures, il est plus lent. C'est une optimisation à
+\emph{mesurer}, pas à supposer.
+\end{nkpiege}
+
+\section{Ce que le rendu impose}
+
+\begin{nkpiege}
+\textbf{Le contexte graphique appartient au fil qui l'a créé.} Dessiner depuis un
+autre fil ne marche pas --- selon le backend, c'est un plantage, un écran noir,
+ou pire : cela fonctionne sur votre machine et pas sur celle du voisin.
+
+La règle du dépôt : \textbf{le calcul se parallélise, le dessin non}. Un fil
+prépare des données, le fil principal les dessine.
+\end{nkpiege}
+
+\begin{nkretenir}
+NKGui range son contexte courant dans une variable \textbf{propre à chaque fil}
+(\texttt{thread\_local}) plutôt que dans un singleton global. Deux fils peuvent
+donc avoir chacun leur contexte, sans se gêner --- mais chacun ne voit que le
+sien.
+\end{nkretenir}
+
+\begin{nkbilan}
+Une course vient de ce qu'une opération qui semble unique ne l'est pas, et elle
+ne se reproduit pas à la demande : on la rend impossible, on ne la teste pas.
+\texttt{NkScopedLock} applique RAII au verrouillage --- on ne peut plus oublier
+de déverrouiller. Plusieurs verrous se prennent \textbf{toujours dans le même
+ordre}, sinon étreinte fatale. Un verrou se tient le temps de toucher la donnée,
+pas le temps de calculer. Pour du travail découpable : le pool, pas des fils
+créés à la main. Et le dessin reste sur le fil principal.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi \texttt{++compteur} n'est-il pas sûr entre deux fils ?
+\item Qu'apporte \texttt{NkScopedLock} qu'un verrouillage manuel n'apporte pas ?
+\item Comment évite-t-on une étreinte fatale ?
+\item Pourquoi préférer un \texttt{NkThreadPool} à des fils créés à la demande ?
+\item Peut-on dessiner depuis un fil secondaire ? Justifiez.
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez un programme qui somme un tableau d'un million d'entiers : d'abord sur un
+fil, puis sur quatre fils qui traitent chacun un quart et dont les résultats
+partiels sont additionnés à la fin.
+
+\textbf{Mesurez les deux} avec \texttt{NkChrono}, et répétez chaque mesure trois
+fois. Le gain est-il de quatre ? Si non, proposez au moins deux explications
+--- sans conclure entre elles.
+\end{nkpratique}
+
+\begin{nkdemo}
+Provoquez une course, puis prouvez qu'elle a eu lieu.
+
+Deux fils incrémentent un même compteur un million de fois chacun, sans verrou.
+Affichez le total : il doit être inférieur à deux millions. Répétez dix fois et
+notez les dix valeurs.
+
+\textbf{Ce que la démonstration doit établir}, et c'est le point : non pas que le
+total est faux, mais qu'il est \emph{différent à chaque exécution}. Ajoutez
+ensuite le \texttt{NkScopedLock} et refaites les dix mesures.
+\end{nkdemo}
+
+\begin{nklogique}
+Deux fils, deux verrous $A$ et $B$. Le premier prend $A$ puis $B$ ; le second
+prend $B$ puis $A$.
+
+Décrivez l'enchaînement exact qui bloque le programme. Puis démontrez que si les
+deux prennent toujours $A$ avant $B$, le blocage devient \emph{impossible} ---
+pas improbable, impossible.
+
+Enfin : avec trois verrous, la même règle suffit-elle ? Justifiez.
+\end{nklogique}

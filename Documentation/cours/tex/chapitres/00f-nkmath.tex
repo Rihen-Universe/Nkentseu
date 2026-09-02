@@ -1,0 +1,193 @@
+\chapter{NKMath : vecteurs, matrices, angles}
+
+Tout ce qui bouge à l'écran passe par NKMath. Une position, une taille, une
+rotation, une couleur, un rectangle : ce sont ses types. Ce chapitre les couvre,
+puis nomme les pièges du calcul à virgule flottante --- ceux qui font qu'un
+programme juste sur le papier donne un résultat faux à l'exécution.
+
+\section{Les vecteurs}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Suffixe} & \textbf{Type} & \textbf{Alias} \\
+\midrule
+\texttt{f} & \texttt{float32} & \texttt{NkVec2f}, \texttt{NkVec3f}, \texttt{NkVec4f} \\
+\texttt{d} & \texttt{float64} & \texttt{NkVec2d}, \texttt{NkVec3d}, \texttt{NkVec4d} \\
+\texttt{i} & \texttt{int32}   & \texttt{NkVec2i}, \texttt{NkVec3i}, \texttt{NkVec4i} \\
+\texttt{u} & \texttt{uint32}  & \texttt{NkVec2u}, \texttt{NkVec3u}, \texttt{NkVec4u} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkcode}{Exemple pedagogique}
+NkVec2f position(100.f, 50.f);
+NkVec2f vitesse(1.f, 0.f);
+position = position + vitesse * dt;      // les operateurs sont surcharges
+
+const math::NkVec2u taille = fenetre.GetSize();   // une TAILLE, non signee
+\end{nkcode}
+
+\begin{nkretenir}
+Le suffixe n'est pas décoratif. \texttt{NkVec2u} pour une taille d'écran ---
+elle ne peut pas être négative. \texttt{NkVec2i} pour une position en pixels ---
+elle peut l'être. \texttt{NkVec2f} pour une position dans le monde. Choisir le
+mauvais suffixe compile et donne une soustraction qui repasse par le haut.
+\end{nkretenir}
+
+\section{Matrices et quaternions}
+
+\texttt{NkMat2}, \texttt{NkMat3}, \texttt{NkMat4} --- et leurs variantes
+\texttt{f} et \texttt{d}. Une matrice $4\times4$ transporte une transformation
+complète : translation, rotation, échelle.
+
+\texttt{NkQuat} représente une rotation sans les blocages de cardan que
+produisent trois angles d'Euler enchaînés.
+
+\begin{nkretenir}
+\textbf{Décision d'architecture du dépôt} : les transformations se stockent en
+\textbf{translation, rotation et échelle séparées}, jamais en matrice unique ---
+et \textbf{jamais de cisaillement}. Une matrice compose les trois de façon
+irréversible : on ne peut plus retrouver la rotation seule pour l'animer.
+\end{nkretenir}
+
+\section{Angles, aléatoire, géométrie}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{En-tête} & \textbf{Contenu} \\
+\midrule
+\texttt{NkAngle.h} & angles typés --- degrés et radians ne se confondent plus \\
+\texttt{NkEulerAngle.h} & les trois angles, quand on en a besoin \\
+\texttt{NkRandom.h} & générateur reproductible à graine égale \\
+\texttt{NkRectangle.h} & \texttt{NkRect2f}, \texttt{NkRect2i} \\
+\texttt{NkSegment.h} & segments \\
+\texttt{NkColor.h} & couleurs \\
+\texttt{NkRange.h} & intervalles \\
+\texttt{NkSIMD.h} & calcul vectoriel accéléré \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Un générateur reproductible à graine égale n'est pas un défaut : c'est
+la condition d'un banc.} Les trois jeux du dépôt tirent leurs dés avec
+\texttt{NkRandom} et une graine fixée --- c'est ce qui permet à un banc de
+rejouer exactement la même partie et de vérifier qu'elle se termine.
+\end{nkretenir}
+
+\section{Les fonctions}
+
+\begin{nkcode}{Kernel/Foundation/NKMath/src/NKMath/NkFunctions.h}
+math::NkSin(x)      math::NkCos(x)      math::NkTan(x)
+math::NkSqrt(x)     math::NkAbs(x)      math::NkPow(x, y)
+math::NkMin(a, b)   math::NkMax(a, b)   math::NkClamp(v, lo, hi)
+math::NkLerp(a, b, t)
+math::NkRound(x)    math::NkFloor(x)    math::NkCeil(x)
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{On emploie NKMath, jamais \texttt{<cmath>}.} \texttt{std::sqrt} et
+\texttt{math::NkSqrt} donnent le même nombre aujourd'hui ; mais la règle du dépôt
+est qu'aucun \texttt{std::} n'entre, et NKMath porte en plus les variantes SIMD
+et les types du moteur.
+\end{nkpiege}
+
+\begin{nkretenir}
+\texttt{NkClamp(v, lo, hi)} borne une valeur ; \texttt{NkLerp(a, b, t)}
+interpole. Ces deux-là suffisent à écrire la plupart des animations : une valeur
+qui va de \texttt{a} vers \texttt{b} en fonction d'un \texttt{t} entre 0 et 1,
+bornée pour ne pas dépasser.
+\end{nkretenir}
+
+\section{Les constantes}
+
+\texttt{NK\_PI\_F} pour les \texttt{float32}, \texttt{NK\_PI\_D} pour les
+\texttt{float64}.
+
+\begin{nkpiege}
+\textbf{Il n'existe pas de \texttt{NK\_PI} tout court.} Le dépôt a payé cette
+absence : un module avait défini sa propre macro locale, perdue lors d'une
+extraction. Employez le suffixe qui correspond à votre type --- et si vous
+cherchez \texttt{NK\_PI} et ne le trouvez pas, ce n'est pas que $\pi$ manque.
+\end{nkpiege}
+
+\section{La virgule flottante, et ce qu'elle ne sait pas faire}
+
+\begin{nkpiege}
+\textbf{\texttt{==} sur des flottants est presque toujours une faute.}
+\texttt{0.1f + 0.2f} ne vaut pas \texttt{0.3f} : ces nombres n'ont pas de
+représentation exacte en binaire. Comparez à une tolérance près :
+
+\begin{nkcode}{Idiome du depot}
+if (math::NkAbs(a - b) < 1e-4f) { /* egaux, a la tolerance pres */ }
+\end{nkcode}
+
+\textbf{Et la tolérance est un CHOIX, pas une constante universelle.} Le dépôt
+emploie \texttt{1e-4f} pour fusionner des sommets de maillage : trop grande, deux
+sommets distincts se confondent ; trop petite, deux sommets identiques restent
+séparés. Le bon epsilon dépend de l'échelle de vos données.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{L'addition flottante n'est pas associative.} $(a+b)+c$ peut différer de
+$a+(b+c)$. C'est pourquoi deux exécutions d'un même calcul GPU peuvent donner des
+résultats légèrement différents si l'ordre de réduction varie --- sans qu'aucun
+code ait changé.
+
+Conséquence pratique : \textbf{ne concluez pas d'un écart minuscule entre deux
+mesures qu'un défaut existe}, avant d'avoir mesuré le bruit de la mesure
+elle-même.
+\end{nkpiege}
+
+\begin{nkbilan}
+Les types portent leur précision dans leur suffixe : \texttt{f}, \texttt{d},
+\texttt{i}, \texttt{u} --- et le choix a des conséquences, pas seulement un
+style. Les transformations se stockent en T + R + S séparées, jamais en matrice
+unique. \texttt{NkClamp} et \texttt{NkLerp} suffisent à la plupart des
+animations. On n'emploie pas \texttt{<cmath>}. Et sur les flottants : jamais
+\texttt{==}, une tolérance choisie, et l'addition n'est pas associative.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi \texttt{NkVec2u} pour une taille d'écran et \texttt{NkVec2i} pour
+      une position ?
+\item Pourquoi le dépôt refuse-t-il de stocker une transformation en matrice
+      unique ?
+\item Existe-t-il un \texttt{NK\_PI} ? Que faire si l'on ne le trouve pas ?
+\item Pourquoi \texttt{a == b} est-il dangereux sur des \texttt{float32} ?
+\item En quoi un générateur aléatoire reproductible sert-il un banc ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez une fonction \texttt{NkVec2f Osciller(float32 t, NkVec2f centre, float32
+rayon)} qui rend un point tournant autour du centre.
+
+Puis animez-la dans une application \texttt{NkCanvasApp} : le point doit décrire
+un cercle, et sa vitesse doit être \emph{indépendante} de la cadence d'affichage.
+Indice : c'est \texttt{deltaTime} qui décide, pas le nombre d'images.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que \texttt{0.1f + 0.2f != 0.3f}.
+
+Affichez la différence avec dix décimales. Puis trouvez, par essais, la plus
+petite tolérance qui déclare ces deux nombres égaux. Enfin, refaites l'essai avec
+des \texttt{float64} : la tolérance nécessaire change-t-elle ? De combien ?
+
+Concluez sur ce que « choisir un epsilon » veut dire.
+\end{nkdemo}
+
+\begin{nklogique}
+Un objet se déplace de \texttt{vitesse * deltaTime} à chaque image.
+
+Un joueur a 60 images par seconde, un autre 144. Après une seconde, ont-ils
+parcouru la même distance ? Démontrez-le.
+
+Puis supposez que le code s'écrive \texttt{position += vitesse} sans
+\texttt{deltaTime} : que devient la réponse, et pourquoi ce défaut ne se voit-il
+jamais sur la machine du développeur ?
+\end{nklogique}

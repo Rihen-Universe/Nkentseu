@@ -26,14 +26,23 @@
 % la meme chose, sinon chaque renvoi interne serait decale d'un cran.
 \setcounter{chapter}{-1}
 % --- Ce qu'on installe et ce qu'on lance, avant d'ecrire une ligne.
+% --- Ce qu'on installe et ce qu'on lance, avant d'ecrire une ligne.
 \part{Les outils}
 \input{chapitres/00-avant-propos}
 \input{chapitres/00a-nkcode}
 
-% --- Le C, puis le C++ -- et ce que Nkentseu en garde.
+% --- Le C, le C++, puis la genericite -- et ce que Nkentseu en garde.
 \part{Les langages}
 \input{chapitres/00b-le-c}
 \input{chapitres/00c-le-cpp}
+\input{chapitres/00d-templates}
+
+% --- Les briques employees par TOUTE application, graphique ou non.
+\part{Les fondations}
+\input{chapitres/00e-nkcontainers}
+\input{chapitres/00f-nkmath}
+\input{chapitres/00g-nklogger}
+\input{chapitres/00h-nkthreading}
 
 % --- La pile, le rendu 2D, l'interface, et la coquille d'application.
 \part{Le moteur}
@@ -54,6 +63,7 @@
 % --- Des applications completes, pas a pas.
 \part{Cas pratiques}
 \input{chapitres/10-projet-final}
+
 
 
 \end{document}
