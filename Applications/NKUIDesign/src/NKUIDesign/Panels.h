@@ -40,6 +40,7 @@
 
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkEditorCombo.h"   // la LISTE DEROULANTE du kit (pas une neuvieme)
 #include "NKEditorKit/NkEditorContextMenu.h"	// NkCtxMenu — le menu contextuel du kit (3e consommateur)
 #include "NKEditorKit/NkEditorInspectorFrame.h" // LA charpente d inspecteur (kit)
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip(ctx, survol, texte) — infobulle sans widget
@@ -7375,6 +7376,26 @@ namespace nkuidesign {
 				// ⚠️ L'arbre se dessine QUAND MÊME : c'est lui qui avance le
 				//    curseur et tient la garde `hier.bornes` — sauter son appel
 				//    aurait décalé toute la pile des sections.
+				// ── LE MENU DE LA LISTE, DESSINÉ APRÈS L'ARBRE ──────────────
+				// ⚠️ APRÈS, PAS AVANT : un menu déroulant se peint PAR-DESSUS ce
+				//    qu'il recouvre. Dessiné à l'endroit du bouton (dans la bande
+				//    de titre), il serait passé SOUS les rangées de composants —
+				//    la même leçon que l'état vide recouvert par le fond de
+				//    l'arbre, ce matin. *L'ordre de peinture est une décision,
+				//    pas un détail.*
+				if (mVueOuverte != 0) {
+					auto &Fm = costume::Fontes();
+					const nkgui::NkRect bornes = ctx.layout.region;
+					int32 sel = mVueCompos;
+					nkentseu::editorkit::NkComboMenu(
+						ctx, ctx.DL(), &Fm.px9, mAncreVue, bornes, NomsDesVues(), (int32)kNbVues,
+						sel, mVueOuverte, ctx.theme.accent, ctx.theme.panel, ctx.theme.border,
+						ctx.theme.text, ctx.theme.onAccent, ctx.theme.rowHover);
+					if (sel != mVueCompos) {
+						mVueCompos = sel;
+						mSt->DireAuPied(NomsDesVues()[sel]);
+					}
+				}
 				const float32 exVide = ctx.layout.cursor.x + 8.f;
 				const float32 eyVide = ctx.layout.cursor.y + 6.f;
 				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
@@ -7429,26 +7450,45 @@ namespace nkuidesign {
 				//    le vocabulaire. C'est l'IMPLANTATION qui etait fautive :
 				//    *un filtre qui mange ce qu'il filtre est un defaut de place,
 				//    pas de contenu.*
-				// ⚠️ UN SEUL CONTROLE QUI CYCLE, parce que quatre libelles ne
-				//    tiennent pas dans une bande de 22 px -- et les QUATRE VUES
-				//    restent, c'est l'exigence. La pastille DIT laquelle est
-				//    active : un cycle muet serait un geste sans retour.
+				//
+				// 🔴 ET IL A ETE UN CONTROLE QUI CYCLE PENDANT UNE HEURE. Rodolf :
+				//    *« le filtre de composant doit être une liste déroulante. »*
+				//    ⚠️ **Un contrôle qui cycle CACHE SON PROPRE VOCABULAIRE** :
+				//       la pastille disait la vue ACTIVE, jamais les vues
+				//       POSSIBLES — il fallait cliquer trois fois pour découvrir
+				//       qu'il en existe quatre, et on ne pouvait pas aller
+				//       directement à celle qu'on veut. Acceptable pour deux
+				//       états qu'on bascule (l'œil, le cadenas) ; mauvais dès
+				//       **trois choix nommés**.
+				//
+				// ⚠️ ET C'EST LA LISTE DU KIT (`NkComboButton` + `NkComboMenu`),
+				//    pas une neuvième écrite ici : elle borne déjà sa largeur,
+				//    ellipse son libellé et s'ouvre VERS LE HAUT quand la place
+				//    manque en bas — trois problèmes que la section basse aurait
+				//    rencontrés un par un. *Une neuvième copie est une faute, pas
+				//    un oubli.*
 				float32 finDroite = r.x + r.w - 8.f;
 				if (NkComponentDecl::StrEq(id, "hier.composants.plus")) {
-					static const char *const kVues[kNbVues] = {"Tous", "Système", "Externes",
-															   "À moi"};
+					const char *const *kVues = NomsDesVues();
 					const char *nom = kVues[(mVueCompos >= 0 && mVueCompos < kNbVues)
 												? mVueCompos
 												: 0];
-					const float32 wv = costume::Largeur(F.px9, nom) + 12.f;
-					const NkRect rv = {finDroite - 22.f - wv, r.y + (r.h - 14.f) * 0.5f, wv,
-									   14.f};
-					const bool svv = ctx.popupDepth == 0 && NkGuiRectContains(rv, ctx.input.mousePos);
-					costume::BadgePilule(dl, F.px9, rv.x, rv.y, 14.f, nom,
-										 svv ? ctx.theme.accent : ctx.theme.textMuted);
-					if (svv && ctx.input.mouseClicked[0]) {
-						mVueCompos = (mVueCompos + 1) % (int32)kNbVues;
-						mSt->DireAuPied(kVues[mVueCompos]);
+					// ⚠️ UN SEUL APPEL, ET IL EST POSÉ APRÈS LE TITRE — pas
+					//    aligné à droite. Aligner à droite aurait demandé la
+					//    largeur AVANT de placer, donc deux appels : le bouton se
+					//    serait enregistré deux fois et aurait pris le clic
+					//    deux fois. *Un contrôle dessiné deux fois est un
+					//    contrôle qui compte double.*
+					const float32 xVue = r.x + 8.f + costume::Largeur(F.px10, titre)
+										 + (float32)costume::EspLarge;
+					const float32 wMax = finDroite - 22.f - xVue;
+					NkRect ancre{};
+					if (wMax > 40.f) {
+						nkentseu::editorkit::NkComboButton(
+							ctx, dl, &F.px9, xVue, r.y + r.h * 0.5f, 0u, nullptr, nom, 1,
+							mVueOuverte, ancre, ctx.theme.panel, ctx.theme.rowHover,
+							ctx.theme.text, wMax);
+						mAncreVue = ancre;
 					}
 				}
 				const float32 wp = costume::Largeur(F.px15, "+");
@@ -8195,6 +8235,16 @@ namespace nkuidesign {
 			};
 			nkentseu::NkVector<LigneCompos> mComposLignes;
 			int32 mVueCompos = kVueTous;
+			/// L'état d'ouverture de la liste (contrat du kit : 0 = fermée).
+			int32 mVueOuverte = 0;
+			nkgui::NkRect mAncreVue{};
+
+			/// LES NOMS DES VUES — une seule écriture, lue par le bouton ET par
+			/// le menu. Deux tables se seraient désaccordées au premier renommage.
+			static const char *const *NomsDesVues() {
+				static const char *const k[kNbVues] = {"Tous", "Système", "Externes", "À moi"};
+				return k;
+			}
 			NkTreeViewModel mModeleComposants;
 			NkComponentInstance mInstPages;
 			NkComponentInstance mInstComposants;
@@ -11098,9 +11148,17 @@ namespace nkuidesign {
 					if (n->fills.Empty())
 						snprintf(mFillsBuf[0], sizeof(mFillsBuf[0]), "%s", n->fill.Data());
 					else
-						for (uint32 i = 0; i < (uint32)n->fills.Size() && i < kMaxFillsUI; ++i)
+						for (uint32 i = 0; i < (uint32)n->fills.Size() && i < kMaxFillsUI; ++i) {
 							snprintf(mFillsBuf[i], sizeof(mFillsBuf[i]), "%s",
 									 n->fills[i].couleur.Data());
+							// les arrets suivent la meme resynchro : une
+							// annulation doit se voir dans LEURS champs aussi.
+							for (uint32 a = 0; a < 2u; ++a)
+								snprintf(mArretsBuf[i][a], sizeof(mArretsBuf[i][a]), "%s",
+										 a < (uint32)n->fills[i].degrade.arrets.Size()
+											 ? n->fills[i].degrade.arrets[a].couleur.Data()
+											 : "");
+						}
 				}
 				// ⚠️ RIEN DE POSE = AUCUNE LIGNE, ET C'EST CE QUE MONTRE LA
 				//    CAPTURE QUI M'A CORRIGE. Ma premiere version dessinait
@@ -11158,6 +11216,95 @@ namespace nkuidesign {
 						if (!n->instanceDe.Empty())
 							n->ecarts |= NkUINode::EcartRemplissages;
 						mSt->doc.MarkHumanEdit(mSt->selected);
+					}
+					// ── LE DEGRADE DE CE REMPLISSAGE ────────────────────────
+					// 🔑 LE GESTE, PAS LE CHAMP : un dégradé se règle par ses
+					//    ARRÊTS. Ce lot en livre deux — le minimum qui peint —
+					//    éditables comme deux couleurs, plus une pastille qui
+					//    bascule dégradé / uni. *Un geste vrai vaut mieux que
+					//    trois demi-contrôles*, et le reste (déplacer un arrêt,
+					//    en ajouter un troisième, l'angle) est NOMMÉ, pas
+					//    esquissé.
+					if (!simple && i < (uint32)n->fills.Size()) {
+						NkDegrade &g = n->fills[i].degrade;
+						const NkRect rg = ctx.NextItemRect(-1.f, costume::HRangee);
+						const float32 gx0 = rg.x + 12.f, gx1 = rg.x + rg.w - 12.f;
+						costume::Texte(dl, F.px10, gx0, costume::CentrerBande(F.px10, rg.y),
+									   "Dégradé", ctx.theme.textMuted);
+						// L'INTERRUPTEUR : poser deux arrêts, ou revenir à l'uni.
+						const NkRect rb = {gx0 + ColChampsCalc(rg.w - 24.f),
+										   costume::BandeY(rg.y), 54.f, costume::HControle};
+						const bool actif = g.Actif();
+						dl.AddRect(rb, actif ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+						costume::Texte(dl, F.px9, rb.x + (float32)costume::EspNormal,
+									   costume::CentrerBande(F.px9, rg.y),
+									   actif ? "activé" : "aucun",
+									   actif ? ctx.theme.accent : ctx.theme.textMuted);
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]
+							&& NkGuiRectContains(rb, ctx.input.mousePos)) {
+							if (actif)
+								g.arrets.Clear();
+							else {
+								// ⚠️ LES DEUX ARRÊTS NAISSENT DE LA COULEUR
+								//    EXISTANTE, pas d'un couple inventé : le
+								//    dégradé PART de ce qu'on voyait, sinon
+								//    l'activer changerait la couleur du nœud
+								//    sans qu'on l'ait demandé.
+								const char *base = n->fills[i].couleur.Empty()
+													   ? "#0969da"
+													   : n->fills[i].couleur.Data();
+								NkArretDegrade a0;
+								a0.position = 0.f;
+								a0.couleur = NkString(base);
+								NkArretDegrade a1;
+								a1.position = 1.f;
+								a1.couleur = NkString("#000000");
+								g.type = NkString("lineaire");
+								g.arrets.PushBack(a0);
+								g.arrets.PushBack(a1);
+							}
+							if (!n->instanceDe.Empty())
+								n->ecarts |= NkUINode::EcartRemplissages;
+							mSt->doc.MarkHumanEdit(mSt->selected);
+							mSt->host.SyncTo(mSt->doc);
+						}
+						// LES DEUX ARRÊTS, quand il est actif : deux champs hexa.
+						if (g.Actif()) {
+							for (uint32 ai = 0; ai < 2u && ai < (uint32)g.arrets.Size(); ++ai) {
+								const NkRect ra = ctx.NextItemRect(-1.f, costume::HRangee);
+								char lib[32];
+								snprintf(lib, sizeof(lib), "arrêt %u", ai + 1u);
+								costume::Texte(dl, F.px10, ra.x + 12.f,
+											   costume::CentrerBande(F.px10, ra.y), lib,
+											   ctx.theme.textMuted);
+								const NkRect sw2 = {ra.x + 12.f + ColChampsCalc(ra.w - 24.f),
+													ra.y + (costume::HRangee - 16.f) * 0.5f,
+													16.f, 16.f};
+								dl.AddRectFilled(sw2,
+												 CouleurHex(g.arrets[ai].couleur.Data(),
+															ctx.theme.textMuted),
+												 3.f);
+								dl.AddRect(sw2, ctx.theme.border, 1.f, 3.f);
+								if (ai < kMaxEtatsUI) {
+									char idA[40];
+									snprintf(idA, sizeof(idA), "##insp.deg%u.arret%u", i, ai);
+									const float32 xa = sw2.x + 16.f + (float32)costume::EspSerre;
+									ctx.SetNextItemRect({xa, costume::BandeY(ra.y),
+														 (ra.x + ra.w - 12.f) - xa,
+														 costume::HControle});
+									if (nkgui::InputText(ctx, idA, mArretsBuf[i][ai], 10)) {
+										g.arrets[ai].couleur = NkString(mArretsBuf[i][ai]);
+										if (!n->instanceDe.Empty())
+											n->ecarts |= NkUINode::EcartRemplissages;
+										mSt->doc.MarkHumanEdit(mSt->selected);
+										mSt->host.SyncTo(mSt->doc);
+									}
+								}
+							}
+							// Ce qui n'est PAS livré le dit, plutôt que de se
+							// laisser deviner par son absence.
+							designkit::KeyValue(ctx, "position / angle", "au lot suivant");
+						}
 					}
 					// 3. l'OPACITÉ — la toucher MATÉRIALISE (la clé simple ne sait
 					//    pas la dire).
@@ -11744,6 +11891,8 @@ namespace nkuidesign {
 			///    section le DIT (voir CorpsEtats).
 			static constexpr uint32 kMaxEtatsUI = 12;
 			char mEtatsBuf[kMaxEtatsUI][12] = {};
+			/// Les tampons hexa des ARRETS : [remplissage][arret].
+			char mArretsBuf[kMaxFillsUI][2][12] = {};
 			int32 mEtatsNode = -1;
 			uint32 mEtatsGen = 0;
 			char mBordsBuf[kMaxFillsUI][12] = {};

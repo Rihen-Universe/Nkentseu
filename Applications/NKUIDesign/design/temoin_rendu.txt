@@ -17,8 +17,8 @@ Text              28.0     28.0     90.0     20.0  r=0.0    role=39   rgba=00000
 # ecran inspecteur.bordures : 1 commande(s), 397 sommet(s)
 cmd unis      idx=1062  englobant     22.0     13.0    256.0     51.0
 
-# ecran inspecteur.remplissages : 1 commande(s), 534 sommet(s)
-cmd unis      idx=1380  englobant     22.0     13.0    252.4     52.0
+# ecran inspecteur.remplissages : 1 commande(s), 614 sommet(s)
+cmd unis      idx=1620  englobant     22.0     13.0    252.4    116.0
 
 # ecran inspecteur.effets : 1 commande(s), 563 sommet(s)
 cmd unis      idx=1548  englobant     22.0     13.0    256.0     82.0
