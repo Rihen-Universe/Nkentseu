@@ -110,7 +110,8 @@ doc ? »* La réponse honnête est un **nombre qui bouge**, pas un « oui ».
 | 2026-09-02 (poignées + vague 2) | 174 | 64 | 26 | 83 | 1 |
 | 2026-09-02 (Asym. + Miroir par défaut + scrollbar) | 174 | 65 | 26 | 82 | 1 |
 | 2026-09-02 (socle des touches + profondeur au clavier) | 174 | 66 | 25 | 82 | 1 |
-| **2026-09-02 (verrou/masque + `Suppr` sommet + zooms)** | **174** | **68** | **25** | **80** | **1** |
+| 2026-09-02 (verrou/masque + `Suppr` sommet + zooms) | 174 | 68 | 25 | 80 | 1 |
+| **2026-09-02 (les deux icônes — vague 2 CLOSE)** | **174** | **69** | **24** | **80** | **1** |
 
 **Comment le recompter soi-même**, sans rien croire sur parole :
 
@@ -638,7 +639,7 @@ Source : `/layers`, `/basics`.
 | Faire entrer / sortir un calque d'un groupe | glisser dans la liste | ✅ **livré** | Hiérarchie |
 | Ordre de profondeur (4 gestes) | `Ctrl+]`, `Ctrl+Maj+]`, `Ctrl+[`, `Ctrl+Maj+[` | ✅ **livré le 02/09 — menu ET clavier** | `NkOrdreProfondeur` + les **quatre** entrées du menu contextuel + les **quatre raccourcis** (cas 44 : 10/10 exécutables par le dispatcher commun). 📌 **Le mécanisme était déjà porté une couche plus bas** : `NkUIDocument::MoveChild` écrit un rang dans la fratrie — *le travail n'était pas d'écrire un réordonnancement, c'était de lui donner ses quatre portes.* ⚠️ Le sens a été **mesuré** : `NkDrawDocument` parcourt `children` en ordre croissant, donc **le rang le plus grand est devant**. 🔴 **Et j'avais écrit ici que ça attendait le socle, faute de `[` et `]` dans `NkGuiKey` : c'était FAUX.** Les deux touches y étaient **et** étaient traduites par `NkEditorShell` depuis le lot NKCode ; le seul manque était dans **notre** table `NkActionDuRaccourci`. *J'avais accusé la couche du dessous sans aller regarder — la vérification a coûté un `grep`* |
 | **Z-index automatique** (le petit passe au-dessus du grand) | automatique | 🚫 **écarté** | ⚠️ **et c'est une décision, pas un oubli** : un réordonnancement que l'utilisateur n'a pas demandé est exactement ce que ce chantier refuse. *Un outil qui range tout seul est un outil dont on ne prévoit pas le résultat.* |
-| Verrouiller / masquer | icônes de la liste | 🟡 **partiel — le modèle est livré le 02/09, les icônes non** | `verrouille` / `masque`, honorés au **pointage** *et* au **dessin**, et **hérités** (recette gestes). ⚠️ Le clic **traverse** un verrouillé au lieu de se perdre — un `return -1` aurait fait du verrou un **trou** dans la toile. ⚠️ Mesuré par ses **effets** (le clic attrape autre chose, le peintre émet moins de commandes), jamais par le drapeau. **Ce qui manque : les deux icônes dans la Hiérarchie** — aujourd'hui les drapeaux n'ont aucune porte d'interface |
+| Verrouiller / masquer | icônes de la liste | ✅ **livré le 02/09 — modèle ET icônes** | `verrouille` / `masque`, honorés au **pointage** *et* au **dessin**, **hérités**, et les deux icônes branchées dans la Hiérarchie (recette gestes, deux cas). ⚠️ Le clic **traverse** un verrouillé au lieu de se perdre — un `return -1` aurait fait du verrou un **trou** dans la toile. ⚠️ Mesuré par ses **effets** (le clic attrape autre chose, le peintre émet moins de commandes), jamais par le drapeau. 📌 Le composant d'arbre portait **déjà** l'œil, le cadenas et `flagsInherited` — NK3DModeler avait payé la leçon à l'usage ; le travail était de les **brancher**, et le piège était la **polarité** (l'œil dit *visible*, notre champ dit *masqué*) |
 | Renommer | `F2` | ✅ **livré** | dans la Hiérarchie, et le double-clic sur l'étiquette d'une page |
 | Dupliquer | `Ctrl+D` | ✅ **livré** | recette gestes — dans le **même** parent |
 | Duplication répétée qui **rejoue le dernier décalage** | `Ctrl+D` répété | ❌ **absent** | ⚠️ joli comportement, bon marché : mémoriser le dernier décalage |

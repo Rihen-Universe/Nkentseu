@@ -7393,6 +7393,54 @@ namespace nkuidesign {
 					s->st->doc.MarkHumanEdit(di);
 					s->st->DireAuPied("Renommé — l'étiquette de la toile lit la même clé.");
 				};
+				// ── L'ŒIL ET LE CADENAS : LA PORTE D'INTERFACE (02/09) ────────
+				// 🔴 *Un verrou que l'utilisateur ne peut ni voir ni poser
+				//    n'existe pas pour lui.* Le modèle était livré et tenu par
+				//    une recette depuis ce matin, mais les deux drapeaux
+				//    n'étaient atteignables que par un fichier — donc, du point
+				//    de vue de Rodolf, ils n'existaient pas.
+				// ⚠️ LE RAPPEL N'ARRIVE JAMAIS SUR UN DRAPEAU HÉRITÉ : le
+				//    composant le filtre lui-même (`!n.flagsInherited`) et
+				//    SIGNALE le refus. On n'a donc pas à le retester — mais il
+				//    faut le savoir, sinon on écrit une garde morte en croyant
+				//    se protéger.
+				hooks.onToggleFlag = [](void *u, int32 ri, const char *, nkentseu::uint8 flag,
+										bool valeur) {
+					auto *s = static_cast<Sur *>(u);
+					if (!s->pages)
+						return; // un composant du registre ne se masque pas ici
+					if (ri < 0 || (uint32)ri >= (uint32)s->modele->nodes.Size())
+						return;
+					const int32 di = (int32)s->modele->nodes[(uint32)ri].id - 1;
+					if (!s->st->doc.IsValidIndex(di) || di == 0)
+						return;
+					NkUINode &nd = s->st->doc.nodes[(uint32)di];
+					// ⚠️ L'ŒIL DIT « VISIBLE », NOTRE CHAMP DIT « MASQUÉ » : la
+					//    valeur s'INVERSE ici, et c'est le genre de détail qui
+					//    passe la relecture puis fait exactement le contraire à
+					//    l'écran. Le composant nomme son drapeau `Visible`
+					//    (`NkTreeFlag::Visible`) ; nous stockons `masque`.
+					const bool oeil =
+						flag == (nkentseu::uint8)nkentseu::editorkit::NkTreeFlag::Visible;
+					NkPoserDrapeauArbre(nd, oeil, valeur);
+					s->st->doc.MarkHumanEdit(di);
+					// ⚠️ ET LA SÉLECTION SE NETTOIE : masquer ou verrouiller un
+					//    nœud SÉLECTIONNÉ laisserait l'Inspecteur éditer un objet
+					//    qu'on ne peut plus ni voir ni attraper sur la toile —
+					//    deux vérités sur ce qui est sélectionné, exactement ce
+					//    que le document 3 §11.5 interdit.
+					if (!NkNoeudAttrapable(s->st->doc, di) && s->st->sel.Contains(di)) {
+						s->st->sel.Toggle(di); // présent -> retiré
+						s->st->selected = s->st->sel.Primary();
+					}
+					s->st->DireAuPied(
+						flag == (nkentseu::uint8)nkentseu::editorkit::NkTreeFlag::Visible
+							? (nd.masque ? "Masqué — retiré du dessin ET du pointage."
+										 : "Affiché.")
+							: (nd.verrouille
+								   ? "Verrouillé — toujours visible, mais le clic le traverse."
+								   : "Déverrouillé."));
+				};
 				// L'ŒIL-BARRÉ (écran 8) : ne garder que les sous-arbres à rôle.
 				if (mFiltreRoles && &modele == &mModelePages) {
 					hooks.acceptNode = [](void *u, const NkTreeNode &n) -> bool {
@@ -7650,6 +7698,27 @@ namespace nkuidesign {
 						t.icon = NK_ICON_NATURE_PANNEAU;
 					t.kindRole = NkDesignResolveRole(
 						(!d.role.Empty() || artboard) ? "accent_ui" : "text_muted");
+					// ── L'ŒIL ET LE CADENAS (vague 2, 02/09) ────────────────
+					// 📌 LE COMPOSANT LES PORTAIT DÉJÀ — `hidden`, `locked`,
+					//    `flagsInherited`, les quatre icônes et le rappel
+					//    `onToggleFlag`. NK3DModeler avait payé la leçon à
+					//    l'usage. *Le travail n'était pas de dessiner deux
+					//    icônes, c'était de les brancher.*
+					// ⚠️ ET LES DRAPEAUX SE DONNENT **EFFECTIFS**, comme le
+					//    composant l'exige : il ne compose PAS l'héritage
+					//    lui-même (il ne connaît pas notre sémantique). Un
+					//    enfant dont le groupe est masqué arrive donc
+					//    `hidden = true` **avec** `flagsInherited = true` — et
+					//    c'est ce second drapeau qui fait peindre l'icône
+					//    atténuée et REFUSER le clic. Sans lui, le refus
+					//    paraîtrait inexplicable : mot pour mot ce que
+					//    NK3DModeler a payé (« je ne peux sélectionner ni le
+					//    parent ni l'enfant »).
+					bool tCache = false, tVerr = false, tHerite = false;
+					NkDrapeauxArbre(mSt->doc, (int32)i, tCache, tVerr, tHerite);
+					t.hidden = tCache;
+					t.locked = tVerr;
+					t.flagsInherited = tHerite;
 					mModelePages.nodes.PushBack(t);
 				}
 				// ⚠️ LES PLAFONDS CRIENT, ILS NE DÉBORDENT PAS EN SILENCE.

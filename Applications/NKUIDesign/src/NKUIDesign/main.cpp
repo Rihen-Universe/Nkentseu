@@ -1061,6 +1061,80 @@ static nkentseu::int32 RecetteGestes() {
 				det);
 	}
 
+	// ── L'OEIL ET LE CADENAS DE LA HIERARCHIE : LES DEUX PIEGES ──────────────
+	// Vague 2, la porte d'interface. *Un verrou que l'utilisateur ne peut ni voir
+	// ni poser n'existe pas pour lui.*
+	//
+	// 📌 LE COMPOSANT D'ARBRE PORTAIT DEJA TOUT : `hidden`, `locked`,
+	//    `flagsInherited`, les quatre icones et le rappel `onToggleFlag`.
+	//    NK3DModeler avait paye la lecon a l'usage. Le travail n'etait pas de
+	//    dessiner deux icones, c'etait de les BRANCHER -- d'ou ce cas, qui ne
+	//    mesure QUE les deux endroits ou le branchement peut se tromper.
+	{
+		NkUIDocument d;
+		d.NewDocument("icones", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		const int32 grp = d.AddChild(pg, "", NkAuthor::Humain);
+		const int32 enf = d.AddChild(grp, "", NkAuthor::Humain);
+		bool c1 = false, v1 = false, h1 = false;
+		// (a) AU REPOS : rien n'est cache, rien n'est verrouille, rien n'est herite.
+		NkDrapeauxArbre(d, enf, c1, v1, h1);
+		const bool repos = !c1 && !v1 && !h1;
+		// (b) LE NOEUD PORTE SON PROPRE DRAPEAU : effectif, mais PAS herite --
+		//     c'est ici que l'icone doit rester CLIQUABLE.
+		d.nodes[(uint32)enf].masque = true;
+		NkDrapeauxArbre(d, enf, c1, v1, h1);
+		const bool propre = c1 && v1 && !h1; // masque => inattrapable aussi
+		d.nodes[(uint32)enf].masque = false;
+		// (c) ⚠️ LE DRAPEAU VIENT DE L'ANCETRE : effectif ET herite. C'est ce
+		//     second bit qui fait peindre l'icone ATTENUEE et refuser le clic ;
+		//     sans lui le refus parait inexplicable, et c'est mot pour mot ce que
+		//     NK3DModeler a paye (« je ne peux selectionner ni le parent ni
+		//     l'enfant »).
+		d.nodes[(uint32)grp].masque = true;
+		NkDrapeauxArbre(d, enf, c1, v1, h1);
+		const bool heriteEnfant = c1 && h1;
+		// et le PORTEUR, lui, n'est pas herite : son icone reste cliquable.
+		bool c2 = false, v2 = false, h2 = false;
+		NkDrapeauxArbre(d, grp, c2, v2, h2);
+		const bool porteurCliquable = c2 && !h2;
+		d.nodes[(uint32)grp].masque = false;
+		// (d) LE VERROU SEUL : inattrapable SANS etre cache. Confondre les deux
+		//     donnerait un verrou invisible.
+		d.nodes[(uint32)grp].verrouille = true;
+		NkDrapeauxArbre(d, enf, c1, v1, h1);
+		const bool verrouSeul = !c1 && v1 && h1;
+		d.nodes[(uint32)grp].verrouille = false;
+		// (e) 🔴 LA POLARITE -- LE PIEGE ENTIER DU BRANCHEMENT. L'oeil du
+		//     composant dit « VISIBLE », notre champ dit « MASQUE » : la valeur
+		//     s'INVERSE pour l'oeil et PAS pour le cadenas. Ecrit au site
+		//     d'appel, ce detail passe la relecture puis fait le contraire a
+		//     l'ecran -- et le defaut se lit « l'icone ne marche pas », jamais
+		//     « le sens est inverse ».
+		NkUINode &ne = d.nodes[(uint32)enf];
+		NkPoserDrapeauArbre(ne, true, false); // oeil : « non visible »
+		const bool oeilFerme = ne.masque;
+		NkPoserDrapeauArbre(ne, true, true); // oeil : « visible »
+		const bool oeilOuvert = !ne.masque;
+		NkPoserDrapeauArbre(ne, false, true); // cadenas : « verrouille »
+		const bool cadenasMis = ne.verrouille;
+		NkPoserDrapeauArbre(ne, false, false); // cadenas : « libre »
+		const bool cadenasOte = !ne.verrouille;
+		const bool polarite = oeilFerme && oeilOuvert && cadenasMis && cadenasOte;
+		char det[224];
+		snprintf(det, sizeof(det), "repos=%d ; drapeau propre : effectif sans herite=%d ; herite "
+							   "de l'ancetre=%d (porteur cliquable=%d) ; verrou seul (non "
+							   "cache)=%d ; polarite oeil INVERSEE + cadenas direct=%d",
+				 repos ? 1 : 0, propre ? 1 : 0, heriteEnfant ? 1 : 0, porteurCliquable ? 1 : 0,
+				 verrouSeul ? 1 : 0, polarite ? 1 : 0);
+		verdict("L'OEIL ET LE CADENAS : les drapeaux arrivent EFFECTIFS a l'arbre, un drapeau "
+				"venu d'un ANCETRE est marque herite (icone attenuee, clic refuse) alors que son "
+				"porteur reste cliquable, et la POLARITE de l'oeil est inversee -- pas celle du "
+				"cadenas",
+				repos && propre && heriteEnfant && porteurCliquable && verrouSeul && polarite,
+				det);
+	}
+
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

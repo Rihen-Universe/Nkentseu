@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **68** | **25** | **80** | **1** |
+| **174** | **69** | **24** | **80** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -50,7 +50,7 @@ main** — la prochaine régénération l'effacerait.*
 | 4. Sélection et navigation | 8 | 0 | 5 | 0 |
 | 5. Toile et vue | 3 | 4 | 9 | 0 |
 | 6. Transformations | 13 | 1 | 7 | 0 |
-| 7. Calques et groupes | 8 | 2 | 6 | 1 |
+| 7. Calques et groupes | 9 | 1 | 6 | 1 |
 | 8. Propriétés | 10 | 5 | 21 | 0 |
 | 9. Composants et instances | 0 | 1 | 9 | 0 |
 
@@ -88,7 +88,6 @@ main** — la prochaine régénération l'effacerait.*
 **7. Calques et groupes**
 
 - Créer un cadre
-- Verrouiller / masquer
 
 **8. Propriétés**
 
@@ -310,7 +309,7 @@ aucun blocage moteur.
 
 | chantier | ce qu'il ouvre | coût |
 |---|---|---|
-| ~~Verrouiller / masquer~~ | ✅ **modèle fait le 02/09** — pointage, dessin, héritage, format additif | il ne reste que **les deux icônes dans la Hiérarchie** (groupe **c**) |
+| ~~Verrouiller / masquer~~ | ✅ **FAIT le 02/09** — pointage, dessin, héritage, format additif, **et les deux icônes** | — **la vague 2 est close** |
 | **Tracés ouverts** (`fermé` par nœud) | « Close path », « Open path », extrémités (*caps*), **et la plume** | **moyen** — le peintre et le round-trip doivent l'honorer |
 | **Dégradés + remplissage image** | 3 lignes de §8, très visibles en maquette | **moyen** |
 | **Texte : ajustement auto, troncature, décorations** | ~8 lignes de §8 | **moyen**, découpable en petits lots |
@@ -336,10 +335,7 @@ aucun blocage moteur.
   redimensionnement existent séparément ;
 - **chercher un calque par son nom** — le champ de recherche existe déjà dans le
   menu contextuel ;
-- **les deux icônes verrou / œil dans la Hiérarchie** — le modèle est livré et
-  mesuré (02/09) ; **aucune porte d'interface ne le touche encore**, donc les
-  drapeaux ne sont atteignables que par un fichier. C'est le meilleur rapport
-  du groupe : le mécanisme est déjà tenu par une recette ;
+- ✅ ~~les deux icônes verrou / œil dans la Hiérarchie~~ — **faites le 02/09** ;
 - ✅ ~~les zooms `Ctrl+0..4`~~ — **faits le 02/09** (cas 52) ; **l'outil Zoom
   (`Z`) reste à poser** — c'est un outil, pas un raccourci de vue.
 

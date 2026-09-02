@@ -2532,4 +2532,49 @@ namespace nkuidesign {
 		return true;
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  CE QUE LA HIERARCHIE MONTRE, ET CE QU'UN CLIC SUR L'ICONE ECRIT
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  Deux fonctions minuscules, extraites pour UNE raison : ce sont les deux
+	//  seuls endroits ou l'oeil et le cadenas peuvent se tromper, et aucun des
+	//  deux ne se voit a la relecture.
+
+	/// LES DRAPEAUX **EFFECTIFS** D'UNE RANGEE, plus « viennent-ils d'un
+	/// ancetre ? ». Le composant d'arbre exige des drapeaux deja composes avec
+	/// les ancetres (il ne connait pas notre semantique d'heritage), et il a
+	/// besoin de `herite` pour peindre l'icone ATTENUEE et REFUSER le clic --
+	/// sans quoi le refus parait inexplicable. NK3DModeler a paye cette lecon a
+	/// l'usage.
+	inline void NkDrapeauxArbre(const NkUIDocument &doc, nkentseu::int32 i, bool &cache,
+								bool &verrouille, bool &herite) {
+		cache = !NkNoeudVisible(doc, i);
+		verrouille = !NkNoeudAttrapable(doc, i);
+		herite = false;
+		if (!doc.IsValidIndex(i))
+			return;
+		const NkUINode &n = doc.nodes[(nkentseu::uint32)i];
+		// herite = l'etat effectif est vrai SANS que le noeud porte lui-meme le
+		// drapeau qui l'expliquerait.
+		herite = (cache && !n.masque) || (verrouille && !n.verrouille && !n.masque);
+	}
+
+	/// CE QU'UN CLIC SUR L'ICONE ECRIT DANS LE MODELE.
+	///
+	/// 🔴 LES DEUX ICONES N'ONT PAS LA MEME POLARITE, ET C'EST LE PIEGE ENTIER DE
+	///    CE BRANCHEMENT. L'oeil du composant dit « **VISIBLE** » ; notre champ
+	///    dit « **MASQUE** ». La valeur s'INVERSE donc pour l'oeil, et pas pour le
+	///    cadenas. Ecrit au site d'appel, ce genre de detail passe la relecture
+	///    puis fait exactement le contraire a l'ecran -- et le defaut se lit comme
+	///    « l'icone ne marche pas », jamais comme « le sens est inverse ». Ici, un
+	///    cas de recette le tient.
+	///
+	/// @param oeil vrai pour l'oeil (`valeur` = VISIBLE), faux pour le cadenas
+	///             (`valeur` = VERROUILLE).
+	inline void NkPoserDrapeauArbre(NkUINode &n, bool oeil, bool valeur) {
+		if (oeil)
+			n.masque = !valeur;
+		else
+			n.verrouille = valeur;
+	}
+
 } // namespace nkuidesign
