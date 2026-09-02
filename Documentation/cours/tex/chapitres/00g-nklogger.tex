@@ -1,0 +1,186 @@
+\chapter{NKLogger : dire ce qui se passe}
+
+Un programme graphique n'a pas de console. Quand il se comporte mal, la seule
+trace qui reste est celle qu'il a écrite lui-même. Ce chapitre montre comment
+l'écrire --- et surtout comment ne pas la rendre fausse, ce qui arrive plus
+souvent qu'on ne croit.
+
+\section{Les six niveaux}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Niveau} & \textbf{Pour quoi} & \textbf{Qui le lit} \\
+\midrule
+\texttt{Trace} & le détail fin d'une boucle & vous, en cherchant \\
+\texttt{Debug} & un état intermédiaire & vous, en développant \\
+\texttt{Info} & une étape franchie & tout le monde \\
+\texttt{Warn} & anormal, mais on continue & tout le monde \\
+\texttt{Error} & la fonction a échoué & tout le monde \\
+\texttt{Fatal} & on ne peut pas continuer & tout le monde \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Le niveau n'est pas une nuance de politesse : c'est ce qui décide de \emph{ce
+qu'on voit} quand on filtre. Un message important écrit en \texttt{Trace}
+disparaît le jour où l'on relève le filtre --- et c'est précisément le jour où
+l'on cherche quelque chose.
+\end{nkretenir}
+
+\section{⚠️ Deux familles de messages, et on ne les mélange pas}
+
+C'est le piège le plus coûteux du module, et il ne plante jamais.
+
+\begin{nkcode}{Les deux familles}
+// FAMILLE 1 -- suffixe `f`, style printf. Le `\n` final est EXPLICITE.
+logger.Infof("[nkdames] %d coups legaux en %.2f ms\n", n, duree);
+
+// FAMILLE 2 -- sans suffixe, marqueurs INDEXES {i}. Pas de `\n` a ecrire.
+logger.Info("[nkdames] {0} coups legaux en {1} ms", n, duree);
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Un marqueur \texttt{\{0\}} passé à \texttt{Infof} n'est pas interprété :
+il s'affiche littéralement.} Un \texttt{\%s} passé à \texttt{Info} fait de même.
+
+Dans les deux cas \textbf{rien ne plante, rien n'avertit} : le message sort,
+faux, et ressemble à un message. On lit alors une trace qui ment, et l'on cherche
+le défaut ailleurs.
+
+Choisissez la famille \emph{avant} d'écrire la chaîne, et n'en changez pas en
+cours de ligne.
+\end{nkpiege}
+
+\begin{nkpiege}[Le piège des accolades, et il a coûté trois jours]
+\textbf{Un texte qui contient des accolades ne passe pas par un formateur à
+marqueurs.} La famille 2 prend toute accolade pour un marqueur : un bloc de code,
+un JSON, une règle CSS y perdent leur corps --- \emph{en silence}.
+
+\begin{nkcode}{Ce qui arrive reellement}
+Entree : "uniform BlocA {\n    vec4 va;\n} uA;"
+Sortie : "uniform BlocA 0 uA;"
+\end{nkcode}
+
+Et le second membre compte autant que le premier : \textbf{le texte amputé reste
+valide} pour l'étape suivante. La panne sort donc à l'autre bout de la chaîne,
+des heures plus tard, sous la forme d'une valeur qui n'arrive pas.
+
+Pour ces textes-là : \texttt{Infof} (famille 1), ou une écriture directe. Jamais
+la famille 2.
+\end{nkpiege}
+
+\section{Où le journal atterrit}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Fichier} & \textbf{Contenu} \\
+\midrule
+\texttt{logs/app\_<date>\_<heure>\_<pid>.log} & un par lancement, conservé \\
+\texttt{logs/app.log} & la course \emph{courante} seule, tronquée au lancement \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Une application de ce dépôt n'écrit pas sur la sortie standard.} Elle
+écrit par NKLogger dans \texttt{logs/}, \emph{relativement au répertoire
+courant} --- jamais à côté du binaire, jamais sur la console en Release.
+
+Conséquence : capturer la sortie standard pour prouver qu'une démo tourne mesure
+\textbf{le bon programme sur le mauvais canal}, et fait conclure « démo muette »
+sur du code sain. Le diagnostic qui tranche en trois secondes :
+
+\begin{nkcode}{Commande}
+find . -name "*.log" -mmin -30
+\end{nkcode}
+\end{nkpiege}
+
+\begin{nkretenir}
+\textbf{Un journal par lancement, et c'est ce qui rend une mesure lisible.}
+Avant, \texttt{app.log} accumulait indéfiniment : un fichier réel portait six
+lancements sur deux jours, avec vingt-six heures entre deux lignes consécutives
+et aucun marqueur. On attribuait à une course les lignes de la précédente.
+
+Les vingt derniers journaux sont conservés, puis purgés au démarrage.
+\texttt{NKENTSEU\_LOG\_KEEP} change le nombre ; \texttt{0} désactive la purge.
+Un \emph{compte} et non un âge : un âge ne borne rien --- six courses tiennent
+dans vingt minutes.
+\end{nkretenir}
+
+\section{Ce qu'un bon message contient}
+
+\begin{nkretenir}
+\textbf{Un message utile porte un chiffre et sa provenance.}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Inutile} & \textbf{Utile} \\
+\midrule
+« erreur de chargement » & « [nkimage] hero.png : 0 octet lu sur 4096 attendus » \\
+« ça marche » & « [banc] 16 cas sur 16 : VERT » \\
+« lent » & « [rendu] 42,3 ms/image, budget 16,6 » \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le préfixe entre crochets dit \emph{qui parle}. Sans lui, une trace de cent
+lignes ne se démêle plus.
+\end{nkretenir}
+
+\begin{nkbilan}
+Six niveaux, et le niveau décide de ce qu'on verra en filtrant. \textbf{Deux
+familles de messages} --- \texttt{Infof} en \texttt{printf}, \texttt{Info} en
+marqueurs \texttt{\{0\}} --- qu'on ne mélange jamais, parce que l'erreur ne
+plante pas : elle produit un message faux. Aucun texte à accolades ne passe par
+la famille 2. Le journal va dans \texttt{logs/}, un fichier par lancement, jamais
+sur la sortie standard. Et un message utile porte un chiffre.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelles sont les deux familles de messages, et comment les reconnaît-on ?
+\item Que se passe-t-il si l'on passe \texttt{\{0\}} à \texttt{Infof} ?
+\item Pourquoi capturer la sortie standard ne montre-t-il rien ?
+\item Pourquoi un journal par lancement plutôt qu'un fichier qui s'accumule ?
+\item Pourquoi la rétention se compte-t-elle en \emph{nombre} et non en âge ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Instrumentez une petite application : au démarrage, journalisez la taille de la
+fenêtre, le backend graphique retenu et la zone sûre. Toutes les cent images,
+journalisez la durée moyenne d'une image.
+
+Puis lancez-la, ouvrez le fichier produit dans \texttt{logs/}, et vérifiez que
+vous pouvez répondre à cette question sans relancer : \emph{combien d'images par
+seconde a-t-elle tenu ?}
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez que mélanger les familles produit un message faux sans rien casser.
+
+Écrivez la même information deux fois, une fois avec le mauvais formateur :
+
+\begin{nkcode}{A tester}
+logger.Infof("valeur = {0}\n", 42);
+logger.Info("valeur = %d", 42);
+\end{nkcode}
+
+Recopiez les deux lignes telles qu'elles sortent du journal. Puis faites de même
+avec un texte contenant une accolade, et montrez ce qui disparaît.
+\end{nkdemo}
+
+\begin{nklogique}
+Un journal en mode ajout contient six lancements. Une ligne dit
+\texttt{[rendu] 42,3 ms/image}.
+
+Quelles informations vous manquent pour savoir si cette ligne concerne la course
+que vous venez de lancer ? Énumérez-les.
+
+Puis dites laquelle, à elle seule, suffirait --- et pourquoi un fichier par
+lancement les rend toutes inutiles.
+\end{nklogique}

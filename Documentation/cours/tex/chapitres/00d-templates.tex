@@ -1,0 +1,274 @@
+\chapter{Templates : écrire une fois pour tous les types}
+
+Un \emph{template} --- un \textbf{modèle} --- écrit du code une seule fois, et le
+compilateur le décline pour chaque type qu'on lui demande. C'est ce qui permet à
+\texttt{NkVector} d'exister sans être réécrit pour les entiers, puis pour les
+chaînes, puis pour les entités.
+
+Ce chapitre va du modèle de fonction le plus simple jusqu'aux traits de type ---
+la mécanique qui laisse \texttt{NkVector} choisir entre copier et déplacer selon
+ce qu'il transporte. C'est la partie du C++ qui fait peur au début ; elle repose
+en réalité sur trois idées seulement.
+
+\section{Modèle de fonction}
+
+\begin{nkcode}{Exemple pedagogique}
+template <typename T>
+T Maximum(const T &a, const T &b) {
+    return (a > b) ? a : b;
+}
+
+int32   x = Maximum(3, 7);        // T = int32, DEDUIT des arguments
+float32 y = Maximum(1.f, 2.f);    // T = float32
+float32 z = Maximum<float32>(1.f, 2);   // T IMPOSE : le 2 sera converti
+\end{nkcode}
+
+Le compilateur \textbf{déduit} \texttt{T} des arguments. Quand il ne peut pas, ou
+quand la déduction donnerait le mauvais type, on l'impose entre chevrons.
+
+\begin{nkretenir}
+Un template n'est pas du code : c'est une \textbf{recette}. Rien n'est compilé
+tant que personne ne l'emploie. \texttt{Maximum} écrit et jamais appelé ne
+produit pas une seule instruction --- et ses erreurs ne sont pas détectées non
+plus.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{La déduction ne convertit pas.} \texttt{Maximum(1.f, 2)} échoue : le
+premier argument dit \texttt{T = float32}, le second dit \texttt{T = int32}, et
+le compilateur refuse d'arbitrer. Il faut imposer \texttt{Maximum<float32>(1.f,
+2)}, ou corriger l'appel.
+
+Le message d'erreur parle de « deduced conflicting types » : c'est lui, et il
+est plus clair qu'il n'en a l'air.
+\end{nkpiege}
+
+\section{Modèle de classe}
+
+\begin{nkcode}{Principe de NkVector, simplifie}
+template <typename T>
+class NkTableau {
+    public:
+        void PushBack(const T &v);
+        T &operator[](usize i);
+        usize Size() const;
+
+    private:
+        T *mDonnees = nullptr;
+        usize mTaille = 0;
+        usize mCapacite = 0;
+};
+
+NkTableau<int32>  entiers;
+NkTableau<NkVec2f> points;   // une AUTRE classe, engendree du meme modele
+\end{nkcode}
+
+\texttt{NkTableau<int32>} et \texttt{NkTableau<NkVec2f>} sont deux classes
+\emph{distinctes}, sans rapport de parenté. Elles viennent de la même recette,
+c'est tout.
+
+\begin{nkpiege}
+\textbf{Le code d'un template vit dans l'en-tête}, jamais dans un \texttt{.cpp}.
+Le compilateur doit \emph{voir} le corps pour l'instancier avec votre type ; s'il
+est dans un \texttt{.cpp} qu'il ne lit pas, il croit la déclaration et laisse le
+corps au lieur --- qui ne le trouve nulle part.
+
+Symptôme : \texttt{undefined reference to NkTableau<int>::PushBack}. Le code
+compile, il ne \emph{lie} pas. C'est pourquoi \texttt{NkVector.h} fait
+2\,500 lignes et n'a pas de \texttt{.cpp}.
+\end{nkpiege}
+
+\section{Paramètres qui ne sont pas des types}
+
+Un modèle peut prendre une \emph{valeur}, connue à la compilation.
+
+\begin{nkcode}{Exemple pedagogique}
+template <typename T, usize N>
+class NkTableauFixe {
+    public:
+        usize Size() const { return N; }
+    private:
+        T mDonnees[N];        // taille connue A LA COMPILATION : aucune allocation
+};
+
+NkTableauFixe<float32, 16> matrice;
+\end{nkcode}
+
+\begin{nkretenir}
+C'est ainsi qu'un tableau de taille fixe garde sa taille --- contrairement au
+tableau C du chapitre précédent, qui la perdait en passant à une fonction. La
+taille fait partie du \emph{type}.
+\end{nkretenir}
+
+\section{Spécialisation}
+
+Parfois un type précis demande un traitement à part. On \emph{spécialise}.
+
+\begin{nkcode}{Exemple pedagogique}
+template <typename T>
+bool EstVide(const T &v) { return v.Size() == 0; }
+
+// Specialisation TOTALE : ce cas-la, et lui seul, se traite autrement.
+template <>
+bool EstVide<const char *>(const char *const &s) { return s == nullptr || *s == 0; }
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{Une spécialisation qui ne correspond pas exactement est ignorée en
+silence} --- le modèle général est employé à sa place, et votre cas particulier
+n'est jamais pris. Le programme compile et se comporte mal.
+
+Vérifiez la signature au caractère près : \texttt{const char *} et
+\texttt{char *} sont deux types différents.
+\end{nkpiege}
+
+\section{Modèles variadiques}
+
+Un modèle peut prendre un nombre \emph{quelconque} d'arguments.
+
+\begin{nkcode}{Principe de EmplaceBack}
+template <typename... Args>
+void EmplaceBack(Args &&...args) {
+    // construit l'element DIRECTEMENT dans le tableau,
+    // au lieu de le construire puis de le copier
+    new (Emplacement()) T(NkForward<Args>(args)...);
+}
+\end{nkcode}
+
+\texttt{Args...} est un \emph{paquet} de types ; \texttt{args...} le paquet de
+valeurs. Les trois points « déplient » le paquet à l'endroit où on les écrit.
+
+\begin{nkretenir}
+C'est la différence entre \texttt{PushBack} et \texttt{EmplaceBack} :
+\texttt{PushBack} reçoit un objet \emph{déjà construit} et le copie ou le
+déplace ; \texttt{EmplaceBack} reçoit les \emph{arguments} et construit l'objet
+sur place. Une construction au lieu de deux.
+\end{nkretenir}
+
+\section{Références universelles et transfert parfait}
+
+\begin{nkcode}{Exemple pedagogique}
+template <typename T>
+void Relayer(T &&arg) {           // `T&&` dans un TEMPLATE : reference universelle
+    Consommer(NkForward<T>(arg)); // conserve : lvalue reste lvalue, rvalue reste rvalue
+}
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{\texttt{T\&\&} ne veut pas dire la même chose selon le contexte.} Dans un
+template avec \texttt{T} déduit, c'est une \emph{référence universelle} : elle
+accepte les deux. Hors template --- \texttt{NkVector\&\&} --- c'est une vraie
+référence rvalue, qui n'accepte que les temporaires.
+
+Deux notions, une seule écriture. C'est le point du langage qui coûte le plus de
+malentendus.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{\texttt{NkMove} et \texttt{NkForward} ne déplacent rien.} Ce sont des
+\emph{conversions de type} : elles disent au compilateur « traite ceci comme un
+temporaire ». Le déplacement, s'il a lieu, est fait par le constructeur de
+déplacement de la classe.
+
+Les compter comme des allocations ou des corruptions mémoire est faux. Ce qu'ils
+signalent, c'est du code qui raisonne en durée de vie --- une information, pas un
+défaut.
+\end{nkpiege}
+
+\section{Traits de type}
+
+Un \emph{trait} répond à une question sur un type, à la compilation.
+
+\begin{nkcode}{Principe employe par NkVector}
+if (traits::NkIsTriviallyCopyable<T>::value) {
+    // un memcpy suffit : le type n'a pas de constructeur a respecter
+} else {
+    // il faut construire chaque element un par un
+}
+\end{nkcode}
+
+C'est ainsi que \texttt{NkVector} peut recopier mille \texttt{int32} d'un bloc,
+et mille \texttt{NkString} un par un --- sans que vous ayez à le lui dire.
+
+\begin{nkretenir}
+\textbf{Tout se décide à la compilation.} Le test ci-dessus ne coûte rien à
+l'exécution : le compilateur sait déjà quelle branche garder, et supprime
+l'autre. Un trait n'est pas un \texttt{if} déguisé, c'est un choix fait avant que
+le programme existe.
+\end{nkretenir}
+
+\section{Ce que les templates coûtent}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Avantage} & \textbf{Prix} \\
+\midrule
+un seul code pour tous les types & le binaire grossit : une copie par type \\
+aucun coût à l'exécution & la compilation ralentit \\
+erreurs vues à la compilation & messages longs et indirects \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Lisez la PREMIÈRE ligne d'une erreur de template.} Elle nomme la vraie
+cause. Les vingt suivantes déroulent la pile d'instanciation : elles disent
+\emph{par où} le compilateur est arrivé là, pas ce qui ne va pas.
+
+Le réflexe qui fait gagner le plus de temps : chercher, dans le pavé, la
+première ligne qui cite \emph{votre} fichier.
+\end{nkpiege}
+
+\begin{nkbilan}
+Un template est une \textbf{recette}, pas du code : rien n'existe avant qu'on
+l'emploie. Son corps vit dans l'en-tête, sinon l'édition de liens échoue. Il se
+décline par type (\texttt{typename T}) ou par valeur (\texttt{usize N}), se
+spécialise pour un cas particulier, et se généralise à un nombre quelconque
+d'arguments. Les traits lui permettent de choisir sa stratégie à la compilation
+--- ce qui rend \texttt{NkVector} rapide sur les types simples sans être faux sur
+les autres.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Pourquoi le corps d'un template doit-il vivre dans l'en-tête ?
+\item Quelle différence entre \texttt{PushBack} et \texttt{EmplaceBack} ?
+\item \texttt{T\&\&} dans un template et \texttt{NkVector\&\&} hors template :
+      qu'est-ce qui les distingue ?
+\item \texttt{NkMove} déplace-t-il quelque chose ? Justifiez.
+\item Un template jamais employé peut-il contenir une erreur ? Pourquoi ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez \texttt{NkPaire<A, B>} : deux champs publics, un constructeur, et une
+méthode \texttt{Echanger()} qui \emph{rend} une \texttt{NkPaire<B, A>}.
+
+Puis ajoutez un modèle de fonction \texttt{Fabriquer(a, b)} qui construit la
+paire en déduisant les deux types --- de sorte qu'on écrive
+\texttt{Fabriquer(3, 1.f)} sans chevrons.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez, sans lire la documentation, que le corps d'un template doit être dans
+l'en-tête.
+
+Écrivez \texttt{NkBoite<T>} avec une méthode déclarée dans le \texttt{.h} et
+\emph{définie dans un \texttt{.cpp}}. Employez-la depuis un autre fichier.
+Recopiez le message d'erreur exact, et dites à quelle étape il survient ---
+compilation ou édition de liens. Déplacez ensuite la définition dans l'en-tête et
+constatez.
+\end{nkdemo}
+
+\begin{nklogique}
+\texttt{NkVector<int32>} et \texttt{NkVector<float32>} sont deux classes
+distinctes engendrées du même modèle.
+
+Une fonction \texttt{void Afficher(NkVector<int32> \&v)} peut-elle recevoir un
+\texttt{NkVector<float32>} ? Et si l'on écrit
+\texttt{template <typename T> void Afficher(NkVector<T> \&v)} ?
+
+Déduisez-en ce que le compilateur engendre réellement, et pourquoi un binaire qui
+emploie dix types différents dans un \texttt{NkVector} contient dix jeux de code.
+\end{nklogique}

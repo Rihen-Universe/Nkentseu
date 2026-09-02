@@ -1,0 +1,243 @@
+\chapter{NKContainers : ranger des données sans la bibliothèque standard}
+
+Vous savez maintenant ce qu'est un template. \texttt{NKContainers} en est la
+démonstration : cinquante-deux en-têtes qui donnent à Nkentseu ses tableaux, ses
+chaînes, ses tables et ses arbres --- sans une ligne de bibliothèque standard.
+
+Ce chapitre montre ceux dont vous vous servirez tous les jours, dit ce que
+chacun coûte, et nomme les pièges que le dépôt a déjà payés.
+
+\section{Pourquoi ne pas employer la bibliothèque standard}
+
+Trois raisons, et aucune n'est idéologique.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Raison} & \textbf{Conséquence concrète} \\
+\midrule
+Plateformes contraintes & certaines n'ont pas de STL utilisable \\
+Maîtrise de l'allocation & tout passe par NKMemory, donc se mesure \\
+Comportement identique partout & la STL varie d'un compilateur à l'autre \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+La règle est \textbf{positive} : on n'écrit pas \texttt{std::}, et \emph{si la
+primitive manque, on l'écrit au niveau où elle doit vivre} --- dans Foundation,
+pas chez soi. Un utilitaire écrit localement devient le troisième exemplaire
+d'une chose qui aurait dû être partagée.
+\end{nkretenir}
+
+\section{Le tableau dynamique : \texttt{NkVector<T>}}
+
+C'est le conteneur que vous emploierez neuf fois sur dix.
+
+\begin{nkcode}{Kernel/Foundation/NKContainers/src/NKContainers/Sequential/NkVector.h}
+NkVector<int32> v;
+v.PushBack(10);
+v.PushBack(20);
+v.EmplaceBack(30);            // construit SUR PLACE, pas de copie
+
+const usize n = v.Size();     // combien d'elements
+const usize c = v.Capacity(); // combien AVANT la prochaine reallocation
+int32 premier = v[0];
+v.Reserve(100);               // reserve d'un coup, evite N reallocations
+v.Clear();                    // vide, GARDE la capacite
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Méthode} & \textbf{Effet} & \textbf{Coût} \\
+\midrule
+\texttt{PushBack(v)} & ajoute à la fin & amorti constant \\
+\texttt{EmplaceBack(args\dots)} & construit à la fin & amorti constant \\
+\texttt{operator[]} & accès direct & constant \\
+\texttt{Insert(pos, v)} & insère au milieu & linéaire \\
+\texttt{Erase(pos)} & retire & linéaire \\
+\texttt{Find(v)} & cherche & linéaire \\
+\texttt{Reserve(n)} & réserve & une allocation \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{Size} n'est pas \texttt{Capacity}.} La taille est le nombre
+d'éléments présents ; la capacité, la place réservée. Quand la taille atteint la
+capacité, le tableau réalloue --- il demande un bloc plus grand et recopie tout.
+
+D'où \texttt{Reserve} : si vous savez que vous allez ajouter mille éléments, une
+réservation remplace une dizaine de réallocations. Ce n'est pas une
+micro-optimisation, c'est une allocation contre dix.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{Toute réallocation invalide les pointeurs et les itérateurs.} Un
+pointeur pris sur \texttt{v[0]}, puis un \texttt{PushBack} qui déclenche une
+réallocation : le pointeur désigne l'ancien bloc, déjà libéré.
+
+\begin{nkcode}{Exemple pedagogique -- FAUX}
+int32 *p = &v[0];
+v.PushBack(42);      // peut REALLOUER
+*p = 7;              // pointeur pendant : on ecrit dans le vide
+\end{nkcode}
+
+C'est le \emph{pointeur pendant} du chapitre sur le C, sous sa forme la plus
+courante. Prenez l'indice, pas l'adresse.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{\texttt{Clear} ne libère pas la mémoire}, il remet la taille à zéro. Un
+vecteur qui a contenu un million d'éléments occupe toujours autant après un
+\texttt{Clear}. Pour rendre la mémoire : \texttt{ShrinkToFit}.
+\end{nkpiege}
+
+\section{Les chaînes : \texttt{NkString}}
+
+\begin{nkcode}{Kernel/Foundation/NKContainers/src/NKContainers/String/NkString.h}
+NkString s = "Bonjour";
+s.Append(" tout le monde");
+const char *brut = s.Data();          // pour les API qui veulent du C
+const usize n = s.Size();
+bool ok = s.StartsWith("Bon");
+NkString morceau = s.SubStr(8);       // a partir de l'indice 8
+
+NkString msg = NkString::Format("%d entite(s) en %0.2f ms", 42, 1.5f);
+\end{nkcode}
+
+\begin{nkpiege}
+\textbf{\texttt{NkString::Format} est de la famille \texttt{printf}} : ses
+marqueurs sont \texttt{\%d}, \texttt{\%s}, \texttt{\%f}. Le journal, lui, a
+\emph{deux} familles --- \texttt{logger.Infof} en \texttt{printf}, et
+\texttt{logger.Info} en marqueurs indexés \texttt{\{0\}}. Mélanger les deux
+n'échoue pas : le marqueur s'affiche littéralement, le message sort faux et
+ressemble à un message.
+\end{nkpiege}
+
+\begin{nkpiege}
+\textbf{Une chaîne peut venir de nulle part.} \texttt{env::GetEnvVar} rend un
+\texttt{const char *} qui vaut \texttt{nullptr} quand la variable n'existe pas.
+Écrire \texttt{NkString v = env::GetEnvVar("X");} construit alors une chaîne
+depuis un pointeur nul.
+
+Ici le constructeur garde par \texttt{if (str)} et rend une chaîne vide --- mais
+« absente » et « définie à vide » deviennent indistinguables. Si la différence
+compte, testez le \texttt{const char *} \emph{avant} de le convertir.
+\end{nkpiege}
+
+\section{Les tables}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Conteneur} & \textbf{Ordonné ?} & \textbf{Recherche} \\
+\midrule
+\texttt{NkUnorderedMap<K,V>} & non & constante en moyenne \\
+\texttt{NkMap<K,V>} & oui, par clé & logarithmique \\
+\texttt{NkUnorderedSet<T>} & non & constante en moyenne \\
+\texttt{NkSet<T>} & oui & logarithmique \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Prenez la version \emph{non ordonnée} par défaut : elle est plus rapide. Ne
+prenez l'ordonnée que si vous devez \textbf{parcourir dans l'ordre des clés} ---
+c'est la seule chose qu'elle apporte, et elle se paie.
+\end{nkretenir}
+
+\section{Le reste, et à quoi ça sert}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Conteneur} & \textbf{Quand} \\
+\midrule
+\texttt{NkArray<T,N>} & taille fixe connue à la compilation, zéro allocation \\
+\texttt{NkSpan<T>} & \emph{vue} sur des données qu'on ne possède pas \\
+\texttt{NkOptional<T>} & « une valeur, ou rien » --- sans pointeur nul \\
+\texttt{NkResult<T,E>} & « une valeur, ou une erreur » \\
+\texttt{NkPair}, \texttt{NkTuple} & deux valeurs, ou \emph{n} \\
+\texttt{NkVariant} & une valeur parmi plusieurs types \\
+\texttt{NkFunction} & ranger un appel dans une variable \\
+\texttt{NkRingBuffer<T>} & file de taille fixe qui tourne (audio, journaux) \\
+\texttt{NkQueue}, \texttt{NkStack}, \texttt{NkDeque} & file, pile, file double \\
+\texttt{NkPriorityQueue} & le plus urgent en premier \\
+\texttt{NkList}, \texttt{NkDoubleList} & listes chaînées \\
+\texttt{NkQuadTree}, \texttt{NkOctree} & partition de l'espace, 2D et 3D \\
+\texttt{NkBTree}, \texttt{NkTrie}, \texttt{NkGraph} & arbres et graphes \\
+\texttt{NkSort} & le tri du dépôt \\
+\texttt{NkUTF8}, \texttt{NkUTF16}, \texttt{NkUTF32} & encodages de texte \\
+\texttt{NkBase64} & encodage binaire vers texte \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{\texttt{NkSpan<T>} ne possède rien} : c'est un pointeur et une longueur.
+Il résout le piège du chapitre sur le C --- « un tableau ne connaît pas sa
+taille » --- en transportant les deux ensemble. Mais il ne prolonge pas la vie de
+ce qu'il désigne : un span sur un vecteur détruit est un pointeur pendant.
+\end{nkretenir}
+
+\begin{nkpiege}
+\textbf{\texttt{NkOptional} n'est pas un pointeur nullable, et c'est mieux.}
+\texttt{HasValue()} dit s'il y a quelque chose ; \texttt{Value()} le donne.
+Appeler \texttt{Value()} sur un optional vide est une faute --- alors que
+déréférencer un pointeur nul est un plantage. La différence : l'un se teste, et
+la signature vous oblige à y penser.
+\end{nkpiege}
+
+\begin{nkbilan}
+\texttt{NkVector} pour presque tout, \texttt{NkString} pour le texte,
+\texttt{NkUnorderedMap} pour associer. \texttt{Size} n'est pas \texttt{Capacity},
+et toute réallocation invalide les pointeurs. \texttt{Clear} ne rend pas la
+mémoire. \texttt{NkSpan} transporte un tableau \emph{avec} sa taille, mais ne le
+possède pas. \texttt{NkOptional} remplace le pointeur nullable par quelque chose
+que la signature oblige à tester.
+\end{nkbilan}
+
+\begin{nkquestions}
+\begin{enumerate}
+\item Quelle différence entre \texttt{Size()} et \texttt{Capacity()} ?
+\item Après \texttt{Clear()}, la mémoire est-elle rendue ? Comment la rendre ?
+\item Pourquoi \texttt{Reserve} peut-il changer les performances d'un facteur
+      important ?
+\item Quand prendre \texttt{NkMap} plutôt que \texttt{NkUnorderedMap} ?
+\item \texttt{NkSpan} possède-t-il ses données ? Qu'est-ce que cela implique ?
+\end{enumerate}
+\end{nkquestions}
+
+\begin{nkpratique}
+Écrivez une fonction qui reçoit un \texttt{NkVector<NkString>} et rend un
+\texttt{NkUnorderedMap<NkString, int32>} comptant les occurrences de chaque
+chaîne.
+
+Puis mesurez : construisez un vecteur de 100\,000 chaînes, comptez avec et sans
+\texttt{Reserve} sur la table, et comparez les durées avec \texttt{NkChrono}.
+\end{nkpratique}
+
+\begin{nkdemo}
+Prouvez qu'une réallocation invalide les pointeurs.
+
+Prenez un \texttt{NkVector<int32>}, réservez exactement 2 éléments, gardez
+\texttt{\&v[0]}, puis ajoutez jusqu'à dépasser la capacité. Affichez la
+\emph{valeur de l'adresse} de \texttt{\&v[0]} avant et après.
+
+Deux adresses différentes prouvent la réallocation. \textbf{N'écrivez pas à
+travers l'ancien pointeur} pour le « vérifier » : le programme pourrait ne rien
+faire d'anormal, et vous concluriez à tort que c'est sûr.
+\end{nkdemo}
+
+\begin{nklogique}
+\texttt{PushBack} est dit « à coût amorti constant » alors qu'une réallocation
+recopie tous les éléments.
+
+Supposez que la capacité \emph{double} à chaque réallocation. Comptez le nombre
+total de recopies pour insérer $n$ éléments en partant d'une capacité de 1.
+Montrez que ce total est proportionnel à $n$, et non à $n^2$ --- puis expliquez
+en une phrase pourquoi doubler, plutôt qu'ajouter une place, change la nature du
+coût.
+\end{nklogique}
