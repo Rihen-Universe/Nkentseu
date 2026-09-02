@@ -1243,6 +1243,122 @@ static nkentseu::int32 RecetteGestes() {
 				det);
 	}
 
+	// ── COMPOSANTS, ETAPE 2 : EXTRAIRE ET DETACHER, ENSEMBLE ─────────────────
+	// Modele §15.4. *« Creer un composant » sans « detacher » enferme
+	// l'utilisateur dans une decision qu'il ne peut pas defaire* -- donc les deux
+	// arrivent dans le meme lot, ou aucun.
+	//
+	// ⚠️ LA GARDE CENTRALE EST L'ALLER-RETOUR **NEUTRE** : extraire puis detacher
+	//    immediatement rend un sous-arbre EQUIVALENT a l'original. C'est elle qui
+	//    prouve que l'extraction n'a rien perdu en chemin -- un champ oublie dans
+	//    la copie se verrait ici, et nulle part ailleurs.
+	//
+	// ⚠️ « EQUIVALENT » SE COMPARE SUR UNE FORME CANONIQUE, PAS SUR LES INDICES :
+	//    `RemoveSubtree` RENUMEROTE, donc les nœuds reviennent a d'autres places.
+	//    Comparer le fichier entier ferait echouer un aller-retour pourtant
+	//    parfait -- et on aurait « corrige » un defaut qui n'existe pas. On
+	//    compare donc un parcours EN PROFONDEUR : libelle, forme, et nombre
+	//    d'enfants a chaque etage.
+	{
+		struct Canon {
+				static void Ecrire(const NkUIDocument &d, int32 i, NkString &out) {
+					if (!d.IsValidIndex(i))
+						return;
+					const NkUINode &n = d.nodes[(uint32)i];
+					out.Append("[");
+					out.Append(n.label.Empty() ? "-" : n.label.Data());
+					out.Append("|");
+					out.Append(n.shape.Empty() ? "-" : n.shape.Data());
+					out.Append("|");
+					char b[16];
+					snprintf(b, sizeof(b), "%u", (uint32)n.children.Size());
+					out.Append(b);
+					for (uint32 c = 0; c < (uint32)n.children.Size(); ++c)
+						Ecrire(d, n.children[c], out);
+					out.Append("]");
+				}
+		};
+		NkUIDocument d;
+		d.NewDocument("extraction", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		const int32 bt = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)bt].label = NkString("Bouton");
+		d.nodes[(uint32)bt].shape = NkString("rect");
+		const int32 tx = d.AddChild(bt, "", NkAuthor::Humain);
+		d.nodes[(uint32)tx].label = NkString("Libelle");
+		d.nodes[(uint32)tx].shape = NkString("text");
+		d.nodes[(uint32)tx].text = NkString("Valider");
+		const int32 ic = d.AddChild(bt, "", NkAuthor::Humain);
+		d.nodes[(uint32)ic].label = NkString("Icone");
+		d.nodes[(uint32)ic].shape = NkString("rect");
+		NkString avant;
+		Canon::Ecrire(d, bt, avant);
+		const uint32 nbAvant = (uint32)d.nodes.Size();
+		// (a) EXTRAIRE : une declaration nait, le nœud devient une INSTANCE, et sa
+		//     descendance quitte le document (elle vit dans la declaration).
+		const int32 decl = d.ExtraireComposant(bt, "rodolf", "bouton_valider");
+		const bool extrait = decl == 0 && d.declarations.Size() == 1
+							 && d.declarations[0].arbre.Size() == 3;
+		// on retrouve l'instance : c'est le seul nœud qui porte une reference.
+		int32 inst = -1;
+		for (uint32 k = 0; k < (uint32)d.nodes.Size(); ++k)
+			if (!d.nodes[k].instanceDe.Empty())
+				inst = (int32)k;
+		// ⚠️ LA TAILLE EST CAPTUREE ICI, AU MOMENT OU L'ON JUGE. Lue plus bas
+		//    pour la ligne de detail, elle vaudrait la taille APRES detachement
+		//    -- le cas serait juste et sa ligne de detail mentirait, ce qui est
+		//    pire qu'un cas faux : on lit le chiffre, pas l'assertion.
+		const uint32 nbApresExtraction = (uint32)d.nodes.Size();
+		const bool estInstance = inst >= 0
+								 && d.nodes[(uint32)inst].children.Empty()
+								 && nbApresExtraction == nbAvant - 2u;
+		// (b) DETACHER : la descendance revient, la reference s'efface.
+		const bool detache = inst >= 0 && d.DetacherInstance(inst)
+							 && d.nodes[(uint32)inst].instanceDe.Empty()
+							 && d.nodes[(uint32)inst].ecarts == 0u;
+		NkString apres;
+		if (inst >= 0)
+			Canon::Ecrire(d, inst, apres);
+		const bool neutre = strcmp(apres.Data(), avant.Data()) == 0;
+		// (c) ⚠️ LES ECARTS SONT FUSIONNES, PAS JETES. Une instance dont le TEXTE a
+		//     ete surcharge garde SON texte en se detachant. Sans ce volet, on
+		//     pourrait « detacher » en rejouant betement la declaration -- et la
+		//     main perdrait son travail EN SILENCE, la pire espece de perte.
+		NkUIDocument e;
+		e.NewDocument("ecarts", NkAuthor::Humain);
+		const int32 p2 = e.AddChild(0, "", NkAuthor::Humain);
+		const int32 b2 = e.AddChild(p2, "", NkAuthor::Humain);
+		e.nodes[(uint32)b2].label = NkString("Bouton");
+		e.nodes[(uint32)b2].text = NkString("Origine");
+		(void)e.AddChild(b2, "", NkAuthor::Humain);
+		const int32 d2 = e.ExtraireComposant(b2, "rodolf", "bt");
+		int32 i2 = -1;
+		for (uint32 k = 0; k < (uint32)e.nodes.Size(); ++k)
+			if (!e.nodes[k].instanceDe.Empty())
+				i2 = (int32)k;
+		bool garde = false;
+		if (d2 >= 0 && i2 >= 0) {
+			e.nodes[(uint32)i2].text = NkString("Surcharge");
+			e.nodes[(uint32)i2].ecarts = NkUINode::EcartTexte;
+			e.DetacherInstance(i2);
+			garde = strcmp(e.nodes[(uint32)i2].text.Data(), "Surcharge") == 0;
+		}
+		// (d) UN NŒUD ORDINAIRE NE SE DETACHE PAS : refus franc.
+		const bool refus = !d.DetacherInstance(pg) && !d.DetacherInstance(0);
+		char det[256];
+		snprintf(det, sizeof(det), "extrait=%d (declaration de %u nœuds) ; instance sans enfants "
+							   "et document %u -> %u=%d ; detache=%d ; aller-retour NEUTRE=%d ; "
+							   "ecart TEXTE conserve=%d ; refus franc=%d",
+				 extrait ? 1 : 0,
+				 d.declarations.Empty() ? 0u : (uint32)d.declarations[0].arbre.Size(), nbAvant,
+				 nbApresExtraction, estInstance ? 1 : 0, detache ? 1 : 0, neutre ? 1 : 0,
+				 garde ? 1 : 0, refus ? 1 : 0);
+		verdict("COMPOSANTS (etape 2) : EXTRAIRE et DETACHER arrivent ensemble -- l'aller-retour "
+				"est NEUTRE (le sous-arbre revient equivalent), un ecart de texte est FUSIONNE au "
+				"detachement au lieu d'etre jete, et un nœud ordinaire refuse franchement",
+				extrait && estInstance && detache && neutre && garde && refus, det);
+	}
+
 	printf("\nRECETTE GESTES : %d/%d %s\n", cas - echecs, cas,
 		   echecs == 0 ? "PROUVEE" : "EN ECHEC");
 	return echecs == 0 ? 0 : 1;

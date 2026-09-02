@@ -1399,6 +1399,129 @@ namespace nkuidesign {
 				return ni;
 			}
 
+			// ═══════════════════════════════════════════════════════════════════
+			//  EXTRAIRE / DETACHER — ET ILS ARRIVENT ENSEMBLE (modele §15.4)
+			// ═══════════════════════════════════════════════════════════════════
+			//  🔴 NON NEGOCIABLE, ET LA RAISON N'EST PAS TECHNIQUE : *« creer un
+			//     composant » sans « detacher » enferme l'utilisateur dans une
+			//     decision qu'il ne peut pas defaire.* Le premier qui a besoin
+			//     d'une variante et ne peut pas la faire CESSERA de creer des
+			//     composants -- et l'atelier aura produit l'inverse de son but.
+			//
+			//  ⚠️ LES DEUX PASSENT PAR `CopierSousArbre`, VIA UN DOCUMENT
+			//     TEMPORAIRE, plutot que de recopier sa liste de trente champs.
+			//     Cette liste porte deja une cicatrice (« les trois champs de
+			//     transformation voyagent avec le noeud », oubliés une fois) : en
+			//     ecrire une seconde copie, c'est garantir qu'un champ ajoute
+			//     demain sera oublie dans l'une des deux. *Le seul cout est un
+			//     decalage d'indices, et il est mecanique.*
+
+			/// Le sous-arbre `tmp` (racine 0 ignoree) devient un arbre AUTONOME.
+			static void ArbreDepuisDocument(const NkUIDocument &tmp, NkVector<NkUINode> &out) {
+				out.Clear();
+				for (uint32 i = 1; i < (uint32)tmp.nodes.Size(); ++i) {
+					NkUINode n = tmp.nodes[i];
+					n.parent = (tmp.nodes[i].parent <= 0) ? -1 : tmp.nodes[i].parent - 1;
+					n.children.Clear();
+					for (uint32 c = 0; c < (uint32)tmp.nodes[i].children.Size(); ++c)
+						n.children.PushBack(tmp.nodes[i].children[c] - 1);
+					out.PushBack(n);
+				}
+			}
+
+			/// L'inverse : un arbre autonome redevient un document temporaire dont
+			/// la racine 0 est un porteur, et l'arbre commence a l'indice 1.
+			static void DocumentDepuisArbre(const NkVector<NkUINode> &arbre, NkUIDocument &tmp) {
+				tmp.NewDocument("temporaire", NkAuthor::Humain);
+				for (uint32 i = 0; i < (uint32)arbre.Size(); ++i) {
+					NkUINode n = arbre[i];
+					n.parent = (arbre[i].parent < 0) ? 0 : arbre[i].parent + 1;
+					n.children.Clear();
+					for (uint32 c = 0; c < (uint32)arbre[i].children.Size(); ++c)
+						n.children.PushBack(arbre[i].children[c] + 1);
+					tmp.nodes.PushBack(n);
+				}
+				if (arbre.Size() > 0)
+					tmp.nodes[0].children.PushBack(1);
+			}
+
+			/// EXTRAIRE : `node` et sa descendance deviennent une DECLARATION, et
+			/// `node` reste en place comme INSTANCE.
+			/// @return l'indice de la declaration creee, -1 en cas de refus.
+			int32 ExtraireComposant(int32 node, const char *auteur, const char *nom) {
+				if (!IsValidIndex(node) || node == 0)
+					return -1;
+				NkUIDocument tmp;
+				tmp.NewDocument("extraction", NkAuthor::Humain);
+				if (tmp.CopierSousArbre(*this, node, 0) < 0)
+					return -1;
+				NkDeclarationComposant dc;
+				dc.identite.auteur = NkString(auteur ? auteur : "");
+				dc.identite.nom = NkString(nom && *nom ? nom : "composant");
+				dc.identite.version = NkString("1");
+				ArbreDepuisDocument(tmp, dc.arbre);
+				if (dc.arbre.Empty())
+					return -1;
+				declarations.PushBack(dc);
+				// La descendance quitte le document : elle vit desormais dans la
+				// declaration. ⚠️ On retire les enfants A L'ENVERS -- `RemoveSubtree`
+				// RENUMEROTE, et retirer par indice croissant viserait le mauvais
+				// noeud au second tour (meme piege que `Suppr` sur les sommets).
+				NkVector<int32> kids = nodes[(uint32)node].children; // copie
+				for (int32 k = (int32)kids.Size() - 1; k >= 0; --k) {
+					NkVector<int32> remap;
+					const int32 avant = kids[(uint32)k];
+					if (IsValidIndex(avant))
+						RemoveSubtree(avant, &remap);
+					// `node` a pu se renumeroter : on le suit par la table.
+					if (node >= 0 && node < (int32)remap.Size())
+						node = remap[(uint32)node];
+				}
+				if (!IsValidIndex(node))
+					return -1;
+				nodes[(uint32)node].instanceDe = declarations[(uint32)declarations.Size() - 1]
+													 .identite.Cle();
+				nodes[(uint32)node].ecarts = 0;
+				return (int32)declarations.Size() - 1;
+			}
+
+			/// L'indice de la declaration portant cette cle, -1 si absente.
+			int32 TrouverDeclaration(const char *cle) const {
+				if (!cle || !*cle)
+					return -1;
+				for (uint32 d = 0; d < (uint32)declarations.Size(); ++d)
+					if (NkComponentDecl::StrEq(declarations[d].identite.Cle().Data(), cle))
+						return (int32)d;
+				return -1;
+			}
+
+			/// DETACHER : l'instance redevient un sous-arbre ordinaire.
+			/// ⚠️ LES ECARTS SONT **FUSIONNES**, PAS JETES. Une instance dont le
+			///    texte a ete surcharge garde SON texte en se detachant : les
+			///    champs propres du nœud ne sont jamais ecrases ici, seule la
+			///    DESCENDANCE est rematerialisee. Jeter les ecarts serait une
+			///    perte de travail silencieuse -- la pire espece.
+			bool DetacherInstance(int32 node) {
+				if (!IsValidIndex(node) || nodes[(uint32)node].instanceDe.Empty())
+					return false;
+				const int32 d = TrouverDeclaration(nodes[(uint32)node].instanceDe.Data());
+				if (d < 0)
+					return false;
+				NkUIDocument tmp;
+				DocumentDepuisArbre(declarations[(uint32)d].arbre, tmp);
+				// la racine de la declaration correspond a `node` lui-meme : on ne
+				// recopie que SES ENFANTS, dans l'ordre.
+				if (tmp.IsValidIndex(1)) {
+					const NkVector<int32> kids = tmp.nodes[1].children; // copie
+					for (uint32 i = 0; i < (uint32)kids.Size(); ++i)
+						if (tmp.IsValidIndex(kids[i]))
+							CopierSousArbre(tmp, kids[i], node);
+				}
+				nodes[(uint32)node].instanceDe = NkString("");
+				nodes[(uint32)node].ecarts = 0;
+				return true;
+			}
+
 			// ── PROVENANCE : LES DEUX AUTOMATISMES ─────────────────────────────
 			// A APPELER APRES TOUTE MODIFICATION D'UN NOEUD PAR LA MAIN. C'est le
 			// seul endroit ou `corrected` passe a vrai, et le seul ou `verified`
