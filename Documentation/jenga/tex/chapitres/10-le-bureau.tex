@@ -30,14 +30,59 @@ Jenga en déclare onze au total ; la table montre celles qu'il a \emph{trouvées
 
 \section{Windows}
 
-\begin{nkcode}{Applications/NkDames/NkDames.jenga -- reel}
-with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries"):
+\begin{nkcode}{Applications/NkDames/NkDames.jenga:113-129 -- cite tel quel}
+with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
     windowedapp()
     usetoolchain(TC_WINDOWS)
-    defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
-    links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
-           "ole32", "uuid", "avrt", "winmm"])
+    defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE", _VK_ON])
+    if _VULKAN_LIB:
+        libdirs([_VULKAN_LIB])
+    _WIN_LINKS = [
+        "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+        "mf", "mfplat", "mfreadwrite", "mfuuid",
+        "uuid", "ole32", "dinput8", "dxguid",
+        "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        "avrt", "winmm",   # NKAudio (WASAPI / MMCSS)
+    ]
+    if _WANT_VULKAN:
+        _WIN_LINKS.append("vulkan-1")
+    links(_WIN_LINKS)
 \end{nkcode}
+
+\begin{nkretenir}[Ce bloc est la thèse du livre en huit lignes]
+\textbf{Rien ici n'est une « fonctionnalité de Jenga ».} La liste est construite
+par du Python ordinaire : on l'écrit, on lui ajoute conditionnellement une
+entrée, puis on la \emph{passe} à \texttt{links()}. C'est la conséquence directe
+du chapitre~\ref{ch:python} --- un \texttt{.jenga} est exécuté.
+
+Un système de construction à syntaxe déclarative demanderait ici une notion
+spéciale de « liste conditionnelle ». Il n'y en a pas besoin : \texttt{if} et
+\texttt{append} existaient déjà.
+\end{nkretenir}
+
+\begin{nkpiege}[\texttt{TC\_WINDOWS} n'est pas de Jenga]
+\alerte{}\textbf{Ne le tapez pas tel quel : vous obtiendrez un
+\texttt{NameError}.} \texttt{usetoolchain} prend une \emph{chaîne} ---
+\texttt{def usetoolchain(name: str)}, \nkfile{Jenga/Core/Api.py:1836} --- et
+les exemples livrés avec Jenga écrivent \texttt{usetoolchain("clang-mingw")}.
+
+\texttt{TC\_WINDOWS} est une variable de \textbf{notre} dépôt :
+
+\begin{nkcode}{config/toolchain.jenga:14}
+TC_WINDOWS = "nk-windows-clang-mingw"
+\end{nkcode}
+
+Un \texttt{.jenga} étant du Python, une variable définie dans un fichier inclus
+est visible partout ensuite --- c'est ce qui permet de nommer une fois la chaîne
+d'outils et de la changer pour \textbf{189 descripteurs} d'un coup. Le prix est
+qu'à la lecture, rien ne distingue un symbole de Jenga d'un symbole maison.
+
+\textbf{C'est le deuxième de la série}, après \texttt{nkentseudependson}
+(chapitre~\ref{ch:dependances}). Devant un nom que la documentation de Jenga
+ignore, la question est toujours la même : \emph{où est-il défini ?} Un
+\texttt{grep} sur \texttt{<nom> =} dans vos propres \texttt{.jenga} répond en
+une seconde.
+\end{nkpiege}
 
 \begin{nkretenir}
 \textbf{\texttt{WIN32\_LEAN\_AND\_MEAN} n'est pas de la superstition.} Sans lui,
