@@ -1547,6 +1547,45 @@ tranchant une hypothèse :
 
 🧰 **La sonde reste dans `Demo3D.cpp`, sous `NK_VFX_PROBE=1`** : elle reproduit les quatre nombres en une commande, sans rien changer pour qui ne pose pas la variable. Un contrôle positif CPU (expansion des coins) a été **préparé et non appliqué** : sans shader, il n'aurait rien prouvé.
 
+### ✅ 2026-09-04 — **ELLES RENDENT.** Quatre manques, pas trois : le quatrième était la passe elle-même
+
+`Captures/noge_particules_2026-09-04.png` — une gerbe de particules additives,
+`renderdemo` OpenGL. **Le témoin est le compteur qui VARIE avec le sujet** :
+
+| état | vivantes | `Draw:` | `Tris:` | écart |
+|---|---:|---:|---:|---:|
+| sans particules | 0 | 1093 | 489 588 | — |
+| frame 60 | 167 | **1094** | 489 916 | **+328** ≈ 167 × 2 |
+| frame 170 | 502 | **1094** | 490 542 | **+954** ≈ 502 × 2 |
+
+`Draw` monte de **un** (un appel par émetteur, constant — c'est juste) et `Tris`
+suit le nombre de particules, **deux triangles chacune**. *Un compteur qui ne
+varie pas avec le sujet ne mesure pas le sujet ; celui-ci varie.*
+
+**Ce qu'il a fallu — et le quatrième manque n'était pas dans mon relevé d'hier :**
+
+| # | manque | correctif |
+|---|---|---|
+| 1 | aucun pipeline VFX n'avait de **shader** | `particles.vert.nksl` + `particles.frag.nksl` écrits, `LoadOrCompileVF("Particles")`, `pd.shader` + `pd.vertexLayout` (layout `NkVertexParticle`, stride 32) |
+| 2 | quads d'**aire nulle** | **six** sommets par particule (la topologie est `TRIANGLE_LIST` : quatre faisaient un triangle et un orphelin), coins expansés **dans le vertex shader** depuis `aUV`/`aSize` et le repère caméra tiré de `uCam.view` — **pas de geometry shader** : WebGL2 n'en a pas, et le Web est le chemin Apple |
+| 3 | personne n'appelait **`Update`** | la sonde le fait côté application, comme le faisait le legacy — le renderer n'a **ni `dt` ni caméra** à lui, lui en donner est une décision à part |
+| 4 | 🔴 **la passe `VFX` du graphe avait un corps VIDE** — `(void)cmd;` sous un commentaire affirmant *« VFX flush intégré par le sous-système VFX »*, et `NkVFXSystem::Render` n'avait **aucun appelant** | la passe appelle `mVFX->Render(cmd, …)` |
+
+> 🔑 **Le quatrième ne s'était pas vu hier, et c'est structurel** : les manques
+> 1 et 3 le masquaient. Sans tick, `aliveCount == 0` court-circuitait le dessin ;
+> sans shader, le pipeline était invalide de toute façon. **Trois défauts
+> empilés, chacun cachant le suivant** — on ne les découvre qu'en les retirant un
+> par un, et chaque retrait doit être mesuré, sinon on croit avoir fini.
+> *Et deux commentaires affirmaient le contraire du code* (celui de la passe,
+> celui du pont Noge) : un commentaire n'est pas une preuve d'exécution.
+
+⚠️ **Bornes, dites nettes.** (a) La **texture** et le **mélange** par émetteur ne
+sont toujours pas honorés — `NkEmitterDesc::texture` reste non lu ; le fragment
+dessine un disque doux, pas un sprite. (b) Le pipeline ne déclare **pas** de
+`descriptorSetLayouts` : le vertex shader lit `uCam` par le chemin **aplati de
+GL**. Vérifié sur OpenGL ; **Vulkan demandera le layout global**, non fait, nommé.
+(c) Le **coût par particule** n'est toujours pas chiffré.
+
 ### 🔎 CE QUI RESTE À MESURER AVANT DE PROPOSER QUOI QUE CE SOIT
 
 Je **n'ouvre pas** ce chantier sans ces trois réponses, faute de quoi je

@@ -435,7 +435,7 @@ namespace nkentseu {
 			if (mVFX)
 				return true;
 			mVFX.Reset(AllocOwned<NkVFXSystem>());
-			if (!mVFX->Init(mDevice, mTextures.Get(), mMeshSystem.Get())) {
+			if (!mVFX->Init(mDevice, mTextures.Get(), mMeshSystem.Get(), mShaders.Get())) {
 				mVFX.Reset();
 				NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkVFXSystem::Init failed");
 				return false;
@@ -887,8 +887,17 @@ namespace nkentseu {
 					.Reads(mainDepth)
 					.SetColor(0, mainColor, NkLoadOp::NK_LOAD)
 					.Execute([this](NkICommandBuffer *cmd) {
-						// VFX flush integre par le sous-systeme VFX
-						(void)cmd;
+						// 2026-09-04 : ce corps etait `(void)cmd;` sous un commentaire
+						// qui affirmait « VFX flush integre par le sous-systeme VFX ».
+						// Il ne l'etait pas : NkVFXSystem::Render n'avait AUCUN
+						// appelant dans le depot. La passe etait declaree, activee,
+						// executee -- et ne dessinait rien. Declare, pas livre.
+						// La camera n'est pas utilisee par le rendu des particules :
+						// le vertex shader lit uCam (CameraUBO, set=0) et en tire
+						// right/up. On passe donc une donnee neutre plutot que de
+						// stocker une camera que personne ne lirait.
+						if (mVFX)
+							mVFX->Render(cmd, NkCamera3DData{});
 					});
 			}
 
