@@ -10,6 +10,7 @@
 #include "NKEvent/NkEventSystem.h"
 #include "NKMemory/NkAllocator.h" // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #include "NKEvent/NkKeyboardEvent.h"
+#include "NKEvent/NkKeycodeMap.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTouchEvent.h"
 #include "NKEvent/NkWindowEvent.h"
@@ -205,123 +206,60 @@ namespace nkentseu {
 		return point;
 	}
 
+	// ── LA CORRESPONDANCE DES TOUCHES N'EST PAS ICI ─────────────────────
+	// Elle vit dans `NkKeycodeMap::NkKeyFromAndroid` (NKEvent), la couche du
+	// dessous -- ou toutes les plateformes tiennent la leur.
+	//
+	// ⚠️ IL Y AVAIT DEUX TABLES, ET LA VIVANTE ETAIT LA PLUS PAUVRE. Le
+	// backend en portait une locale de 71 codes ; la partagee en a 124 et
+	// personne ne l'appelait depuis Android. Mesure du 2026-09-03 : aucune
+	// touche perdue en basculant, 53 gagnees -- dont les DIX boutons
+	// physiques du boitier, volumes compris, qui n'arrivaient jamais a
+	// l'application.
+	//
+	// ⚠️ ET LA TABLE PARTAGEE ETAIT FAUSSE SUR LES VOLUMES : elle mappait
+	// 164/165 (VOLUME_MUTE et INFO) au lieu de 24/25. Le defaut avait
+	// survecu precisement parce qu'elle etait morte pour Android : rien ne
+	// pouvait la contredire. Corriger la table ET la brancher sont deux
+	// gestes, et l'un sans l'autre n'aurait rien donne.
 	static NkKey AKeyToNkKey(int32_t keycode) {
-		switch (keycode) {
-			case AKEYCODE_BACK:
-			case AKEYCODE_ESCAPE:
-				return NkKey::NK_ESCAPE;
-			case AKEYCODE_DPAD_UP:
-				return NkKey::NK_UP;
-			case AKEYCODE_DPAD_DOWN:
-				return NkKey::NK_DOWN;
-			case AKEYCODE_DPAD_LEFT:
-				return NkKey::NK_LEFT;
-			case AKEYCODE_DPAD_RIGHT:
-				return NkKey::NK_RIGHT;
-			case AKEYCODE_ENTER:
-			case AKEYCODE_NUMPAD_ENTER:
-				return NkKey::NK_ENTER;
-			case AKEYCODE_DEL:
-				return NkKey::NK_BACK;
-			case AKEYCODE_FORWARD_DEL:
-				return NkKey::NK_DELETE;
-			case AKEYCODE_TAB:
-				return NkKey::NK_TAB;
-			case AKEYCODE_SPACE:
-				return NkKey::NK_SPACE;
-			// ⚠️ AKEYCODE_HOME (3) est le BOUTON D'ACCUEIL du telephone : le
-			// systeme le garde pour lui et ne le livre JAMAIS a une application,
-			// ni en Java ni en natif. Le mapper ne sert a rien -- mais la touche
-			// « Home » d'un clavier physique, elle, arrive comme AKEYCODE_MOVE_HOME
-			// (122), et elle n'etait pas mappee alors que « End » (MOVE_END) l'etait.
-			// Une asymetrie trouvee en repondant a la question « comment acceder
-			// au bouton accueil ? » -- reponse : on n'y accede pas, on recoit
-			// OnPause quand l'utilisateur s'en sert.
-			case AKEYCODE_HOME:
-			case AKEYCODE_MOVE_HOME:
-				return NkKey::NK_HOME;
-			case AKEYCODE_MOVE_END:
-				return NkKey::NK_END;
-			case AKEYCODE_PAGE_UP:
-				return NkKey::NK_PAGE_UP;
-			case AKEYCODE_PAGE_DOWN:
-				return NkKey::NK_PAGE_DOWN;
-			case AKEYCODE_SHIFT_LEFT:
-				return NkKey::NK_LSHIFT;
-			case AKEYCODE_SHIFT_RIGHT:
-				return NkKey::NK_RSHIFT;
-			case AKEYCODE_CTRL_LEFT:
-				return NkKey::NK_LCTRL;
-			case AKEYCODE_CTRL_RIGHT:
-				return NkKey::NK_RCTRL;
-			case AKEYCODE_ALT_LEFT:
-				return NkKey::NK_LALT;
-			case AKEYCODE_ALT_RIGHT:
-				return NkKey::NK_RALT;
-			case AKEYCODE_A:
-			case AKEYCODE_B:
-			case AKEYCODE_C:
-			case AKEYCODE_D:
-			case AKEYCODE_E:
-			case AKEYCODE_F:
-			case AKEYCODE_G:
-			case AKEYCODE_H:
-			case AKEYCODE_I:
-			case AKEYCODE_J:
-			case AKEYCODE_K:
-			case AKEYCODE_L:
-			case AKEYCODE_M:
-			case AKEYCODE_N:
-			case AKEYCODE_O:
-			case AKEYCODE_P:
-			case AKEYCODE_Q:
-			case AKEYCODE_R:
-			case AKEYCODE_S:
-			case AKEYCODE_T:
-			case AKEYCODE_U:
-			case AKEYCODE_V:
-			case AKEYCODE_W:
-			case AKEYCODE_X:
-			case AKEYCODE_Y:
-			case AKEYCODE_Z:
-				return static_cast<NkKey>(static_cast<int>(NkKey::NK_A) + (keycode - AKEYCODE_A));
-			case AKEYCODE_0:
-			case AKEYCODE_1:
-			case AKEYCODE_2:
-			case AKEYCODE_3:
-			case AKEYCODE_4:
-			case AKEYCODE_5:
-			case AKEYCODE_6:
-			case AKEYCODE_7:
-			case AKEYCODE_8:
-			case AKEYCODE_9:
-				return static_cast<NkKey>(static_cast<int>(NkKey::NK_NUM0) + (keycode - AKEYCODE_0));
-			case AKEYCODE_F1:
-				return NkKey::NK_F1;
-			case AKEYCODE_F2:
-				return NkKey::NK_F2;
-			case AKEYCODE_F3:
-				return NkKey::NK_F3;
-			case AKEYCODE_F4:
-				return NkKey::NK_F4;
-			case AKEYCODE_F5:
-				return NkKey::NK_F5;
-			case AKEYCODE_F6:
-				return NkKey::NK_F6;
-			case AKEYCODE_F7:
-				return NkKey::NK_F7;
-			case AKEYCODE_F8:
-				return NkKey::NK_F8;
-			case AKEYCODE_F9:
-				return NkKey::NK_F9;
-			case AKEYCODE_F10:
-				return NkKey::NK_F10;
-			case AKEYCODE_F11:
-				return NkKey::NK_F11;
-			case AKEYCODE_F12:
-				return NkKey::NK_F12;
+		return NkKeycodeMap::NkKeyFromAndroid(static_cast<uint32>(keycode));
+	}
+
+	// ── LIVRER N'EST PAS RECLAMER ───────────────────────────────────────
+	// Rendre 1 a `AInputQueue_finishEvent` dit au systeme : « je m'en occupe,
+	// n'y touche pas ». Pour une touche qui LUI appartient, c'est un vol :
+	//
+	//   volume  -> le systeme ne regle plus le son et n'affiche plus sa barre
+	//   casque  -> le bouton du casque cesse de commander la lecture
+	//   camera  -> le declencheur materiel ne declenche plus rien
+	//
+	// L'application reçoit quand meme l'evenement -- elle peut donc reagir,
+	// afficher, compter -- mais le geste habituel continue de fonctionner.
+	// C'est la difference entre « je veux savoir » et « je prends la main ».
+	//
+	// 📌 Le retour, lui, EST reclame : sans ca le systeme fermerait
+	// l'activite sous les pieds du jeu.
+	static bool EstAuSysteme(NkKey key) {
+		switch (key) {
+			case NkKey::NK_MEDIA_VOLUME_UP:
+			case NkKey::NK_MEDIA_VOLUME_DOWN:
+			case NkKey::NK_MEDIA_MUTE:
+			case NkKey::NK_MEDIA_PLAY_PAUSE:
+			case NkKey::NK_MEDIA_STOP:
+			case NkKey::NK_MEDIA_NEXT:
+			case NkKey::NK_MEDIA_PREV:
+			case NkKey::NK_HEADSET_HOOK:
+			case NkKey::NK_CAMERA:
+			case NkKey::NK_FOCUS:
+			case NkKey::NK_CALL:
+			case NkKey::NK_ENDCALL:
+			case NkKey::NK_POWER:
+			case NkKey::NK_HOME_BUTTON:
+			case NkKey::NK_APP_SWITCH:
+				return true;
 			default:
-				return NkKey::NK_UNKNOWN;
+				return false;
 		}
 	}
 
@@ -358,14 +296,17 @@ namespace nkentseu {
 				mods.ctrl = (meta & AMETA_CTRL_ON) != 0;
 				mods.alt = (meta & AMETA_ALT_ON) != 0;
 
+				// L'evenement part TOUJOURS vers l'application ; seul le
+				// fait de le RECLAMER au systeme est conditionnel.
+				const bool auSysteme = EstAuSysteme(key);
 				if (action == AKEY_EVENT_ACTION_DOWN) {
 					NkKeyPressEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<uint32>(keycode));
 					gAndroidEventSystem->Enqueue_Public(event, targetWinId);
-					handledKey = true;
+					handledKey = !auSysteme;
 				} else if (action == AKEY_EVENT_ACTION_UP) {
 					NkKeyReleaseEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<uint32>(keycode));
 					gAndroidEventSystem->Enqueue_Public(event, targetWinId);
-					handledKey = true;
+					handledKey = !auSysteme;
 				}
 			}
 
@@ -382,6 +323,9 @@ namespace nkentseu {
 				}
 			}
 
+			// Le RETOUR se reclame : sinon le systeme ferme l'activite avant
+			// que le jeu ait vu la touche (elle est mise en file). C'est la
+			// coquille qui decide de quitter -- voir NkCanvasApp.
 			if (keycode == AKEYCODE_BACK || keycode == AKEYCODE_ESCAPE) {
 				return 1;
 			}

@@ -502,7 +502,7 @@ namespace nkentseu {
 				// Bureau exclu volontairement : Echap n'y ferme pas une fenetre,
 				// et une coquille qui le ferait surprendrait toutes ses
 				// applications d'un coup.
-				if (key->GetKey() == NkKey::NK_ESCAPE) {
+				if (NkEstToucheRetour(key->GetKey())) {
 					mRunning = false;
 				}
 #endif

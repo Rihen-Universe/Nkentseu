@@ -7,6 +7,8 @@
 // -----------------------------------------------------------------------------
 #include "Ludo/NkLudoJeu.h"
 #include "Ludo/NkLudoBanc.h"
+#include "NKAudio/NkAudio.h" // volume maitre : les touches de volume agissent dessus
+#include "NKLogger/NkLog.h"
 
 namespace nkentseu {
 	namespace jeux {
@@ -426,7 +428,51 @@ namespace nkentseu {
 			// exterieur. Au menu, on ne consomme PAS -- c'est au systeme de fermer
 			// l'application, et c'est ce que l'utilisateur attend.
 			bool NkLudoJeu::OnKeyPress(const NkKeyPressEvent &e) {
-				if (e.GetKey() != NkKey::NK_ESCAPE) {
+				// ── LE VOLUME AGIT SUR LE SON DU JEU ──────────────────────
+				// Les touches de volume sont desormais LIVREES a
+				// l'application (elles ne l'etaient pas avant le 03/09) et
+				// volontairement NON reclamees au systeme : la barre de
+				// volume d'Android continue de s'afficher et de regler le
+				// flux media. Ce qu'on ajoute ici est le volume PROPRE du
+				// jeu, celui que le joueur baisse sans toucher a sa musique.
+				//
+				// ⚠️ Le pas est multiplicatif, pas additif : l'oreille entend
+				// des RAPPORTS. Un pas fixe de 0,1 est enorme en bas de
+				// l'echelle et imperceptible en haut.
+				if (e.GetKey() == NkKey::NK_MEDIA_VOLUME_UP ||
+					e.GetKey() == NkKey::NK_MEDIA_VOLUME_DOWN ||
+					e.GetKey() == NkKey::NK_MEDIA_MUTE) {
+					auto &moteur = audio::AudioEngine::Instance();
+					const float32 courant = moteur.GetMasterVolume();
+					float32 vise = courant;
+					if (e.GetKey() == NkKey::NK_MEDIA_MUTE) {
+						// Une bascule qui perd la valeur d'avant est un
+						// interrupteur, pas une coupure : on la retient.
+						vise = (courant > 0.001f) ? 0.f : (mVolumeAvantCoupure > 0.f ? mVolumeAvantCoupure : 1.f);
+						if (courant > 0.001f) {
+							mVolumeAvantCoupure = courant;
+						}
+					} else if (e.GetKey() == NkKey::NK_MEDIA_VOLUME_UP) {
+						vise = (courant < 0.05f) ? 0.05f : courant * 1.26f; // ~ +2 dB
+					} else {
+						vise = courant / 1.26f;
+						if (vise < 0.05f) {
+							vise = 0.f;
+						}
+					}
+					if (vise > 1.f) {
+						vise = 1.f;
+					}
+					moteur.SetMasterVolume(vise);
+					// Temoin emis sur le chemin NORMAL du geste, pas sur son
+					// echec : c'est ce qui permet de prouver, dans logcat, que
+					// la touche est bien arrivee ET qu'elle a agi. Une trace
+					// posee sur la branche d'erreur n'atteste jamais du succes.
+					logger.Infof("[volume] touche physique -> volume du jeu %.2f (etait %.2f)\n",
+								 static_cast<float64>(vise), static_cast<float64>(courant));
+					return true;
+				}
+				if (!NkEstToucheRetour(e.GetKey())) {
 					return false;
 				}
 				if (!mSplash.Termine()) {
