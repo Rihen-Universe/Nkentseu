@@ -571,6 +571,9 @@ int nkmain(const NkEntryState &state) {
 	wcfg.title = NkFormat("NkRenderer demo : {0}", demo.name);
 	wcfg.width = 1280;
 	wcfg.height = 720;
+	// NK_WIN_W / NK_WIN_H : fenetre petite pour une sonde (2026-09-04)
+	if (const char *e = getenv("NK_WIN_W")) if (atoi(e) >= 320) wcfg.width = (uint32)atoi(e);
+	if (const char *e = getenv("NK_WIN_H")) if (atoi(e) >= 200) wcfg.height = (uint32)atoi(e);
 	wcfg.centered = true;
 	wcfg.resizable = true;
 

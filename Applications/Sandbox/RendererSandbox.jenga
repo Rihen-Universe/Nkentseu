@@ -50,6 +50,9 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             "%{NKRenderer.location}/src",
             # Substrats d animation extraits de NKRenderer le 2026-08-14.
             "%{NKAnima.location}/src",
+            # Physique (sonde vehicule NK_VEHICLE_PROBE, 2026-09-04)
+            "%{NKPhysics.location}/src",
+            "%{NKCollision.location}/src",
             "%{NKAnimPhysics.location}/src",
             "%{NKSerialization.location}/src",
             "%{NKReflection.location}/src",
@@ -72,6 +75,7 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
 
         _BASE_LINKS = [
             "NKMedia",  # avant NKImage/NKThreading (le linker mono-passe résout les refs vers l'aval)
+            "NKPhysics", "NKCollision",  # sonde vehicule ; leurs refs (NKMath, NKContainers) sont en aval
             "NKEvent", "NKWindow", "NKGlad", "NKLogger",
             "NKMath", "NKTime", "NKStream", "NKFileSystem",
             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKAnima", "NKAnimPhysics", "NKSL",

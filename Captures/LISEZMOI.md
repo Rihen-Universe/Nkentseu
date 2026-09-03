@@ -51,6 +51,8 @@ Trois conditions, dans cet ordre :
 | `plateforme_web_2026-09-02.png` | 344 797 | **Web 🟡** — HUD lu, `Draw:1093 Tris:489586`, mais **rendu logiciel** (SwiftShader) |
 | `plateforme_harmonyos_2026-09-02.jpeg` | 154 674 | **HarmonyOS ✅**, 02/09 19h31 — `Demo 3D | API : OpenGL`, `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres. Sur le `.hap` du 10/08 |
 
+| `noge_vehicule_2026-09-04.png` | 297 091 | **La voiture roule** — 04/09, `renderdemo` OpenGL : châssis + 4 roues sur `NkVehicle`, ombre portée, `Draw:1243` contre 1093 sans elle. Citée par `echanges_noge.md` et `CONCEPTION_VEHICULE.md` |
+
 ### Les deux témoins INVALIDÉS — versionnés exprès
 
 | image | octets | pourquoi on la garde |
