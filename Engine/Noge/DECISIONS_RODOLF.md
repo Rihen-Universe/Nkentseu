@@ -94,6 +94,7 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 | **A″** 🟠 | ✅ **CORRIGÉ le 02/09 — il te reste 2 minutes.** Le défaut est traité : **17 → 16**, par un déclencheur qui **ne nomme aucune plateforme** (il compare la demande du shader au budget du pilote). Constructions vertes, banc vert. ⚠️ **Marge ZÉRO** — 16/16, l'état exact qui a explosé le 11/08 ; le banc est désormais le rempart, et la réserve IBL/sky rendra 2 unités quand le GPU sera libre. **Ce qu'il manque : une exécution sur ta carte**, port **9002**. Historique : ✅ **FAIT, et ça avait RÉFUTÉ le vert Web.** Tu as lancé sur ta carte : `PBR` ne se lie pas — **17 unités de texture demandées, 16 accordées**, écran vide. Le vert d'hier venait de SwiftShader, plus permissif que le matériel. **Ce qui t'attend maintenant, ce n'est plus un test, c'est une décision** : lancer la **variante réduite de `PBR`** (conçue, chiffrée **~2-3 j**, non codée). ⚠️ macOS/iOS étant bloquées par la signature, **ce défaut coûte 3 plateformes sur 7**. Tout en **section 10**. | **toi** — dire quand | ~2-3 j |
 | ~~**B**~~ | ✅ **FAIT le 02/09 à 19h31 — HarmonyOS REND LA 3D.** Tu as lancé l'émulateur, j'ai installé le `.hap` du 10/08 et **lu le HUD moi-même** : `Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres portées. **5 cibles sur 7.** ⚠️ Réserve écrite : binaire du **10/08**, donc l'image prouve « HarmonyOS rendait la 3D le 10/08 » — un re-test sur un `.hap` à jour reste à faire, **comme pour Linux**. Détail : **carte, section 9**. | — | fait |
 | **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
+| **F** 🚗 | **La physique de véhicule : (a) ou (b) ?** La conception est écrite (`Engine/Noge/CONCEPTION_VEHICULE.md`, ~2,5-3 j). ⚠️ **Une seule question t'attend** : l'étape 0 corrige `NkIntegrator` — le champ `torque` existe et **n'est jamais intégré** — donc pour **tout le monde**, ragdoll compris. **(a)** on corrige le socle (ma recommandation : c'est un défaut, pas un choix) ; **(b)** le véhicule recopie chez lui. | **toi** | une phrase |
 | **E** | 🦴 **Faut-il UNIFIER les deux conventions de pose de repos ?** `NkRetargetSkeleton` (local relatif au parent) contre `NkSkeletonDef` (matrices bind/inverse-bind). Mesure faite : **ce ne sont pas deux versions d'une même chose**. Coûts, apports et recommandation au **bloc 11**. | **toi** | une phrase |
 | **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
 
@@ -1475,6 +1476,66 @@ la conception sur inventaire qui s'est trompée hier.*
 Un paquet unique ou un index éviterait le coût par entrée, mais **on mesure
 d'abord** ce que les deux premières pistes ont donné. Il se peut qu'il ne reste
 rien à gagner.
+
+
+---
+
+---
+
+## 13. ✨ LES PARTICULES — mesurées avant d'être ouvertes : **il y a du vrai code**
+
+> Consigne : *cherche où vit le corps, ne compte pas un suffixe* — souvenir de
+> `NkCGXDetect` (1 347 l. d'en-tête, un `.cpp` de trois lignes) et de `NKGraph`
+> (zéro `.cpp`, 1 519 l. dans les `.inl`).
+
+### Ce que la mesure donne
+
+| | mesure | verdict |
+|---|---|---|
+| `NKRenderer/Tools/VFX/NkVFXSystem.cpp` | **460 lignes**, **0 corps vide** | 🟢 **du vrai code**, pas une coquille |
+| `NkVFXSystem.h` | 210 l., 5 inline | déclarations + petits accesseurs |
+| ce qu'il expose | **émetteurs** (`CreateEmitter`, `Burst`, `SetEmitterPos`), **traînées** (`AddTrailPoint`), **décalques** | trois familles, pas une |
+| `NkEmitterDesc` | ~20 champs réglés : formes d'émission, débit, rafale, durée de vie, vitesses, tailles, **dégradé de couleur**, gravité, dispersion | une vraie surface d'auteur |
+| **appelants réels** | `NkRendererImpl`, `Noge/ECS/Systems/NkParticleSystem`, `NK3DModeler`, `DemoRW`, `Sandbox`, `NkSimulationRenderer` | 🟢 **exercé**, pas déclaré-inerte |
+| pont ECS de Noge | `NkParticleSystem::Execute` — **50 l. avec un vrai corps** : `Query<NkParticleEmitter, NkTransform>`, recréation sur `dirty`, synchro de position | 🟢 |
+
+> 🔑 **Conclusion : le chantier « particules » n'est PAS « écrire des
+> particules ».** Le socle existe, il est branché, et un jeu peut déjà émettre.
+> Ouvrir ce chantier en croyant partir de zéro aurait produit un doublon — *le
+> peintre écrit deux fois*.
+
+### Deux bonnes nouvelles mesurées, qu'on aurait pu croire fausses
+
+1. **Aucun `compute`, aucun SSBO** dans le VFX (0 occurrence). La simulation est
+   **CPU**, les particules sont montées en **billboards** dans un VBO
+   (`ParticlesBillboard`, « 4 verts billboard »). ✅ **Donc le VFX tourne sur
+   WebGL2** — contrairement aux trois doublures cloth/hair/softbody du bloc 2,
+   qui sont en compute et restent absentes du Web. *La cible étroite ne coûte
+   rien ici.*
+2. **Aucun geometry shader utilisé.** Des `particles.geom.*` existent bien dans
+   `Resources`, et `NkShaderLibrary` sait charger un étage géométrie — mais
+   `NkVFXSystem` n'en demande aucun. ✅ **Second obstacle WebGL2 évité** (GLES
+   n'a pas d'étage géométrie). ⚠️ Ces `.geom` rejoignent donc les `.hlsl`/`.msl`
+   du bloc 12 : **des artefacts versionnés que personne n'ouvre**.
+
+### 🔎 CE QUI RESTE À MESURER AVANT DE PROPOSER QUOI QUE CE SOIT
+
+Je **n'ouvre pas** ce chantier sans ces trois réponses, faute de quoi je
+proposerais des fonctionnalités par-dessus un système que je n'ai pas vu tourner :
+
+1. **est-ce que ça REND ?** Le code existe et il est appelé — ça ne prouve pas
+   une image. *C'est exactement la distinction qui a coûté la journée d'hier :
+   « ça compile » ≠ « ça tourne ».* Il faut une capture d'un émetteur vivant ;
+2. **quelle est la limite réelle ?** `maxParticles = 1000` par défaut, montage
+   CPU par image : le coût par particule n'a jamais été chiffré ;
+3. **que manque-t-il pour un jeu ?** Les candidats visibles à la lecture :
+   collision des particules, tri par profondeur pour la transparence, sous-émetteurs.
+   **Aucun n'est à proposer avant d'avoir vu l'existant à l'œuvre.**
+
+🚫 **Rien n'est commencé, et c'est délibéré** : le mandat disait de mesurer
+d'abord. La mesure change la question — de « faut-il écrire des particules ? »
+à « que manque-t-il à celles qui existent ? », et la seconde ne se répond pas
+sans les faire tourner.
 
 
 ## Ce qui est fait et ne t'attend pas
