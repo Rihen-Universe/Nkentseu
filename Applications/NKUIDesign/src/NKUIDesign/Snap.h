@@ -172,16 +172,26 @@ namespace nkuidesign {
 
 	} // namespace snapdetail
 
-	/// L'AIMANTATION DE `rect` (espace DOCUMENT, deja deplace par la souris)
-	/// contre ses voisins et sa page. `noeud` sert a s'exclure soi-meme et ses
-	/// descendants ; `tolDoc` est la tolerance EN UNITES DOCUMENT (l'appelant a
+	/// LE CORPS UNIQUE : l'aimantation de `rect` (espace DOCUMENT, deja deplace
+	/// par la souris) DANS `parent`, contre ses voisins et la page, en excluant
+	/// `exclu` et sa descendance. `tolDoc` est en UNITES DOCUMENT (l'appelant a
 	/// divise ses pixels ecran par le zoom).
-	inline NkSnapResultat NkCalculerSnap(const NkUIDocument &doc, const NkLayoutResult &lay,
-										 int32 noeud, const NkPaintRect &rect, float32 tolDoc) {
+	/// 🔑 `exclu` PEUT ETRE INVALIDE (-1), et c'est tout l'interet : le
+	///    composant qu'on GLISSE DEPUIS LA PALETTE n'existe pas encore. Il
+	///    n'a rien a exclure -- mais il a bien un parent, et il doit
+	///    s'aimanter comme n'importe quel noeud deplace. `Descend` rend
+	///    deja `false` sur un indice invalide : rien a garder ici.
+	/// ⚠️ NE PAS DUPLIQUER CE CALCUL POUR LE GLISSER. Un second aimant
+	///    aurait diverge du premier au premier reglage, et l'apercu aurait
+	///    alors colle a un endroit ou le depot ne pose pas.
+	inline NkSnapResultat NkCalculerSnapDans(const NkUIDocument &doc,
+											 const NkLayoutResult &lay, int32 parent,
+											 int32 exclu, const NkPaintRect &rect,
+											 float32 tolDoc) {
+		const int32 noeud = exclu;
 		NkSnapResultat r;
-		if (tolDoc <= 0.f || !doc.IsValidIndex(noeud))
+		if (tolDoc <= 0.f)
 			return r;
-		const int32 parent = doc.nodes[(uint32)noeud].parent;
 		if (!doc.IsValidIndex(parent) || !lay.Has(parent))
 			return r;
 
@@ -462,6 +472,17 @@ namespace nkuidesign {
 				poserMesure(xM, m.y + m.h, xM, ref.y, gagnantY.ecart, false);
 		}
 		return r;
+	}
+
+	/// LA PORTE HISTORIQUE : aimanter un noeud QUI EXISTE. Elle deduit le
+	/// parent et s'exclut elle-meme. Son comportement n'a pas change -- elle
+	/// appelle le corps ci-dessus au lieu de le recopier.
+	inline NkSnapResultat NkCalculerSnap(const NkUIDocument &doc, const NkLayoutResult &lay,
+										 int32 noeud, const NkPaintRect &rect, float32 tolDoc) {
+		if (!doc.IsValidIndex(noeud))
+			return NkSnapResultat();
+		return NkCalculerSnapDans(doc, lay, doc.nodes[(uint32)noeud].parent, noeud, rect,
+								 tolDoc);
 	}
 
 } // namespace nkuidesign

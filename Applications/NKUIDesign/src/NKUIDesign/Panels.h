@@ -65,6 +65,7 @@
 #include "SelectionGeste.h" // le contrat de selection : les DEUX tables, cote a cote
 #include "MenuContexte.h" // le menu du clic droit (Lunacy) : LA table, sans NKGui
 #include "Snap.h" // l'aimantation Lunacy — un MECANISME, pas un dessin
+#include "GlisserPalette.h" // le glisser depuis la palette : la DECISION, pas le dessin
 #include "Transfo.h" // rotation et miroirs : le MEME calcul pour le dessin et le clic
 #include "DesignAI.h"
 #include "NkGuiValidate.h" // guifmt::NkGEtats — LA table fermee des six etats
@@ -224,8 +225,31 @@ namespace nkuidesign {
 		///
 		/// ⚠️ REND L'INDICE CHOISI, ou -1. Il ne modifie rien lui-meme : l'appelant
 		///    ecrit, et c'est lui qui sait s'il doit marquer une edition humaine.
+		/// LA CASE QUI VIENT D'ETRE SOUMISE DEVIENT UNE SOURCE DE GLISSER.
+		/// A appeler JUSTE APRES le widget : `BeginDragSource` lit
+		/// `activeId`, c'est-a-dire le dernier soumis.
+		inline void SourceGlisser(NkGuiContext &ctx, const char *type, const char *cle) {
+			if (!type || !*type || !cle)
+				return;
+			if (nkgui::BeginDragSource(ctx)) {
+				// La charge est la CLE, terminateur compris : la cible la relit
+				// telle quelle et la donne au registre.
+				nkgui::SetDragPayload(ctx, type, cle, (int32)(strlen(cle) + 1u), cle);
+				nkgui::EndDragSource(ctx);
+			}
+		}
+
+		/// `dragType` NON NUL : chaque case devient une SOURCE DE GLISSER NKGui
+		/// portant son libelle comme charge.
+		/// ⚠️ L'APPELANT QUI S'EN SERT DOIT PASSER DES NOMS DECLARES en
+		///    `labels`, pas des libelles d'affichage : la charge est une CLE,
+		///    et une cle traduite ne retrouve plus sa cible le jour du
+		///    multilingue. (La palette le fait deja, avec sa raison ecrite.)
+		/// ⚠️ ET LE GESTE APPARTIENT A NKGui : seuil de ~4 px, fantome sous la
+		///    souris, surlignage de la cible. On DECLARE, on ne conduit pas.
 		inline int32 Segmented(NkGuiContext &ctx, const char *const *labels, int32 count,
-							   int32 current, const char *id = nullptr) {
+							   int32 current, const char *id = nullptr,
+							   const char *dragType = nullptr) {
 			if (count <= 0)
 				return -1;
 			const int32 n = count < 12 ? count : 12;
@@ -283,6 +307,7 @@ namespace nkuidesign {
 					if (nkgui::Selectable(ctx, labels[i], i == current))
 						chosen = i;
 					NoteCell(ctx, id, labels[i]);
+					SourceGlisser(ctx, dragType, labels[i]);
 				}
 				nkgui::EndFlow(ctx);
 				return chosen;
@@ -292,6 +317,7 @@ namespace nkuidesign {
 				if (nkgui::Selectable(ctx, labels[i], i == current))
 					chosen = i;
 				NoteCell(ctx, id, labels[i]);
+				SourceGlisser(ctx, dragType, labels[i]);
 			}
 			nkgui::EndRow(ctx);
 			return chosen;
@@ -1145,6 +1171,16 @@ namespace nkuidesign {
 			/// Remis à zéro au relâcher : un guide qui survit à son geste est un
 			/// trait qui ment.
 			NkSnapResultat snapVif;
+
+			/// ── LE GLISSER DEPUIS LA PALETTE ─────────────────────────────
+			/// ⚠️ L'ETAT DU GESTE N'EST PAS ICI : NKGui le porte
+			///    (`BeginDragSource` / `AcceptDragPayload`), avec son seuil de
+			///    ~4 px et le fantome sous la souris. On ne garde que ce que la
+			///    bibliotheque ne peut pas savoir : ce que le geste vise DANS LE
+			///    DOCUMENT a l'image courante.
+			/// Ecrit UNE fois par la toile, lu par le peintre ET par le depot :
+			/// l'apercu et le resultat ne peuvent pas diverger.
+			glisser::NkVise viseGlisser;
 			/// Tolérance d'aimantation, en pixels ÉCRAN (÷ zoom avant l'appel).
 			/// 6 px : la valeur de Lunacy à la mesure de ses captures.
 			static constexpr float32 kSnapTolEcran = 6.f;
@@ -2093,8 +2129,11 @@ namespace nkuidesign {
 					//    du multilingue.
 					choix[nb++] = d ? d->name : "?";
 				}
-				const int32 pick = designkit::Segmented(ctx, choix, (int32)nb, mSt->paletteChoice,
-														"palette.composant");
+				// ⚠️ `choix` PORTE LES NOMS DECLARES (voir juste au-dessus), donc
+				//    la charge glissee est deja une cle utilisable telle quelle.
+				const int32 pick =
+					designkit::Segmented(ctx, choix, (int32)nb, mSt->paletteChoice,
+										 "palette.composant", glisser::NkTypeCharge());
 				if (pick >= 0)
 					mSt->paletteChoice = pick;
 
@@ -2791,6 +2830,61 @@ namespace nkuidesign {
 				NkLayoutResult screen;
 				mSt->ProjectToScreen(screen);
 
+				// ── LA TOILE EST UNE CIBLE DE DEPOT ──────────────────────────
+				// ⚠️ LA FORME A ZONE EXPLICITE, `BeginDropTarget(ctx, id, rect)`,
+				//    ET NON CELLE SANS RECT : la toile n'est pas un widget, elle
+				//    CONTIENT des widgets (barre d'outils, cluster, bascule). La
+				//    forme sans rect s'appuie sur le dernier widget soumis ; la
+				//    forme a zone a ete ecrite exactement pour ce cas
+				//    (NK3DModeler, 2026-08-17) et ne capture NI le clic NI le
+				//    survol des flottants poses par-dessus.
+				// ⚠️ ON NE CONDUIT PAS LE GESTE : le seuil de franchissement, le
+				//    fantome sous la souris et le suivi appartiennent a NKGui.
+				//    Ce bloc VISE (dans le document) et DEPOSE.
+				{
+					const NkPaintRect &vpDrop = mSt->view.viewport;
+					const NkRect zoneDrop = {vpDrop.x, vpDrop.y, vpDrop.w, vpDrop.h};
+					if (nkgui::BeginDropTarget(ctx, ctx.GetId("nkuidesign.toile.depot"),
+											   zoneDrop)) {
+						// LA VISEE SE FAIT A CHAQUE IMAGE DU SURVOL, pas au seul
+						// relachement : c'est elle qui alimente les guides
+						// d'aimantation et le cadre du parent. Viser seulement au
+						// lacher aurait donne un apercu muet, puis un resultat
+						// surprise.
+						mSt->viseGlisser = glisser::NkViserDepot(
+							mSt->doc, mSt->layout, screen, in.mouseX, in.mouseY,
+							mSt->view.ToDocX(in.mouseX), mSt->view.ToDocY(in.mouseY),
+							mSt->aimantActif,
+							mSt->view.ToDocLength(DesignState::kSnapTolEcran));
+						// 🔑 LES GUIDES SONT CEUX DE L'AIMANT, pas un second jeu :
+						//    le bloc qui les peint lit `snapVif`, et il le lira
+						//    pour le glisser comme pour un deplacement.
+						mSt->snapVif = mSt->viseGlisser.snap;
+						if (const void *charge =
+								nkgui::AcceptDragPayload(ctx, glisser::NkTypeCharge())) {
+							NkString dit;
+							const int32 neuf = glisser::NkDeposerVise(
+								mSt->doc, mSt->viseGlisser, (const char *)charge, dit);
+							mSt->status = dit; // succes COMME refus : jamais muet
+							if (neuf >= 0) {
+								mSt->host.demoModels.Clear();
+								mSt->host.SyncTo(mSt->doc);
+								mSt->SelectSingle(neuf);
+							}
+							mSt->viseGlisser = glisser::NkVise();
+							mSt->snapVif = NkSnapResultat();
+						}
+						nkgui::EndDropTarget(ctx);
+					} else if (mSt->viseGlisser.possible || mSt->viseGlisser.raison[0] != 0) {
+						// SORTI DE LA ZONE : la visee ET ses guides s'effacent.
+						// Les laisser afficherait des reperes pour un depot qui
+						// n'aura pas lieu — *un guide qui survit a son geste
+						// apprend a ne plus croire les guides.*
+						mSt->viseGlisser = glisser::NkVise();
+						mSt->snapVif = NkSnapResultat();
+					}
+				}
+
 				// ⚠️ LA VUE SE PUBLIE, PARCE QUE PERSONNE NE POUVAIT LA MESURER.
 				//    Le zoom et le deplacement vivent dans `OnUI` -- un endroit
 				//    qu AUCUN banc ne peut atteindre : ils sont donc restes trois
@@ -3362,6 +3456,21 @@ namespace nkuidesign {
 						p2.Fill({area.x + area.w * mSt->ligneV, area.y, 1.f, area.h}, rose, 0.f);
 					if (mSt->ligneH >= 0.f)
 						p2.Fill({area.x, area.y + mSt->ligneH, area.w, 1.f}, rose, 0.f);
+				}
+				// ── LE PARENT QUI VA RECEVOIR, PENDANT UN GLISSER ────────────
+				// NKGui surligne la ZONE de depot (toute la toile) : utile pour
+				// dire « on peut lacher ici », muet sur CE QUI recevra. Ce cadre
+				// nomme le noeud d'accueil — *une cible de depot qui ne montre
+				// pas sa cible demande de deviner.*
+				if (mSt->viseGlisser.possible && mSt->layout.Has(mSt->viseGlisser.parent)) {
+					NkDesignPaint pv(ctx, mSt->theme);
+					const NkPaintRect rp = mSt->view.ToScreen(
+						mSt->layout.At(mSt->viseGlisser.parent));
+					const uint16 accent = NkDesignResolveRole("snap_line");
+					pv.Fill({rp.x, rp.y, rp.w, 2.f}, accent, 0.f);
+					pv.Fill({rp.x, rp.y + rp.h - 2.f, rp.w, 2.f}, accent, 0.f);
+					pv.Fill({rp.x, rp.y, 2.f, rp.h}, accent, 0.f);
+					pv.Fill({rp.x + rp.w - 2.f, rp.y, 2.f, rp.h}, accent, 0.f);
 				}
 				// ── LES GUIDES VIVANTS DE L'AIMANT (Lunacy) ──────────────────
 				// ⚠️ LE CALCUL N'EST PAS ICI : `snapVif` a ete rempli par le
@@ -4758,7 +4867,10 @@ namespace nkuidesign {
 				if (appui && (outilTrace || outilTexte)) {
 					const int32 parent = NkPickFreeContainer(mSt->doc, screen, in.mouseX, in.mouseY);
 					if (parent < 0) {
-						Dire("Aucun conteneur libre sous le curseur — rien n'est créé.", "", "");
+						// LA MEME PHRASE QUE LE DEPOT DE LA PALETTE — une source,
+						// deux appelants. Deux copies auraient diverge, et
+						// l'utilisateur aurait lu deux refus pour un seul mur.
+						Dire(glisser::NkRefusHorsConteneur(), "", "");
 					} else if (outilTexte) {
 						// Le texte se pose d'un CLIC, a taille de depart fixe ; son
 						// contenu s'edite dans l'Inspecteur (Typographie).

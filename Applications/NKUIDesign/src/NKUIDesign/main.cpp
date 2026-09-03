@@ -1827,6 +1827,142 @@ static nkentseu::int32 RecetteGestes() {
 				det);
 	}
 
+	// ── LE GLISSER-DEPOSER DEPUIS LA PALETTE ───────────────────────────────
+	// 🔑 CE QUI EST EPROUVE ICI EST LA **DECISION**, pas la plomberie de souris.
+	//    Le geste lui-meme (seuil, fantome, livraison) appartient a NKGui et est
+	//    eprouve chez lui ; ce qui est A NOUS est : dans quel noeud du DOCUMENT
+	//    tombe le composant, ou exactement apres aimantation, et ce qui se dit
+	//    quand rien ne peut recevoir. La toile appelle EXACTEMENT ces deux
+	//    fonctions -- elle n'en recopie aucune, sinon l'apercu et le depot
+	//    pourraient diverger.
+	//
+	// ⚠️ AUCUNE COORDONNEE N'EST SUPPOSEE : les cibles se LISENT dans la
+	//    disposition resolue. Un banc qui viserait « 150, 100 » parce que la
+	//    page fait 300x200 casserait le jour ou la racine change d'agencement,
+	//    et il casserait en accusant l'aimant.
+	{
+		NkUIDocument d;
+		d.NewDocument("glisser", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		d.nodes[(uint32)pg].shape = NkString("frame");
+		d.nodes[(uint32)pg].label = NkString("Page");
+		d.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+		d.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].width.value = 300.f;
+		d.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].height.value = 200.f;
+		// UN VOISIN, pour que l'aimant ait quelque chose a quoi s'aligner.
+		const int32 vs = d.AddChild(pg, "", NkAuthor::Humain);
+		d.nodes[(uint32)vs].shape = NkString("rect");
+		d.nodes[(uint32)vs].posX = 100.f;
+		d.nodes[(uint32)vs].posY = 50.f;
+		d.nodes[(uint32)vs].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)vs].width.value = 40.f;
+		d.nodes[(uint32)vs].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)vs].height.value = 20.f;
+		NkLayoutResult lay;
+		NkComputeLayout(d, NkPaintRect{0.f, 0.f, 800.f, 600.f}, lay);
+		const bool disposee = lay.Has(pg) && lay.Has(vs);
+		const NkPaintRect rPage = disposee ? lay.At(pg) : NkPaintRect{0.f, 0.f, 0.f, 0.f};
+		const NkPaintRect rVois = disposee ? lay.At(vs) : NkPaintRect{0.f, 0.f, 0.f, 0.f};
+		// Vue a l'identite : l'espace ECRAN et l'espace DOCUMENT coincident, donc
+		// la MEME disposition sert au pointage et a l'aimantation.
+		const float32 cx = rPage.x + rPage.w * 0.5f;
+		const float32 cy = rPage.y + rPage.h * 0.5f;
+
+		// 1. LE DEPOT POSE DANS LE CONTENEUR LIBRE SOUS LE CURSEUR.
+		DesignState::PeuplerRegistre();
+		glisser::NkVise v1 =
+			glisser::NkViserDepot(d, lay, lay, cx, cy, cx, cy, false, 6.f);
+		NkString dit1;
+		const int32 n1 = glisser::NkDeposerVise(d, v1, "bouton", dit1);
+		const bool pose = n1 >= 0 && d.IsValidIndex(n1)
+						  && d.nodes[(uint32)n1].parent == pg
+						  && d.nodes[(uint32)n1].component == NkString("bouton");
+		char det1[224];
+		snprintf(det1, sizeof(det1), "vise=%d pose=%d parent=%d compo=%s dit=%s",
+				 v1.parent, n1, n1 >= 0 ? d.nodes[(uint32)n1].parent : -1,
+				 n1 >= 0 ? d.nodes[(uint32)n1].component.Data() : "-", dit1.Data());
+		verdict("glisser : lache dans une page, le composant Y est pose (pas ailleurs)",
+				disposee && pose && !dit1.Empty(), det1);
+
+		// 2. HORS DE TOUT CONTENEUR LIBRE : RIEN N'EST CREE, ET LE REFUS PARLE.
+		//    ⚠️ On compte les noeuds AVANT et APRES : « il a rendu -1 » n'est pas
+		//       « il n'a rien ecrit ».
+		//    ⚠️ LIMITE ASSUMEE DE CE CAS, ecrite pour qu'on ne la prenne pas
+		//       pour une preuve : comparer `dit2` a `NkRefusHorsConteneur()`
+		//       est TAUTOLOGIQUE -- les deux sortent de la meme fonction. Ce
+		//       cas prouve que le refus PARLE et que rien n'est ecrit ; il ne
+		//       prouve PAS que l'outil de trace dit la meme phrase. Cette
+		//       propriete-la est STRUCTURELLE (un seul litteral dans les
+		//       sources, les deux appelants passant par la fonction) et se
+		//       verifie par un `grep`, pas d'ici. *Une comparaison qui ne peut
+		//       pas echouer n'est pas un controle, c'est une decoration.*
+		const uint32 avant = (uint32)d.nodes.Size();
+		const float32 hx = rPage.x + rPage.w + 400.f;
+		const float32 hy = rPage.y + rPage.h + 400.f;
+		glisser::NkVise v2 =
+			glisser::NkViserDepot(d, lay, lay, hx, hy, hx, hy, false, 6.f);
+		NkString dit2;
+		const int32 n2 = glisser::NkDeposerVise(d, v2, "bouton", dit2);
+		const bool refus = !v2.possible && n2 < 0 && (uint32)d.nodes.Size() == avant
+						   && dit2 == NkString(glisser::NkRefusHorsConteneur());
+		char det2[224];
+		snprintf(det2, sizeof(det2), "possible=%d rendu=%d noeuds %u->%u dit=%s",
+				 v2.possible ? 1 : 0, n2, avant, (uint32)d.nodes.Size(), dit2.Data());
+		verdict("glisser : hors conteneur, RIEN n'est cree et le refus dit LA phrase "
+				"des outils de trace",
+				refus, det2);
+
+		// 3. L'AIMANT DEPLACE LE POINT DE DEPOT -- et c'est bien LUI qui le fait.
+		//    Deux visees a la MEME position : l'une aimantee, l'autre non. Sans la
+		//    seconde, un point qui tombe juste prouverait l'aimant sans l'aimant.
+		const float32 vx = rVois.x + 3.f; // dans la tolerance du bord gauche
+		const float32 vy = rVois.y + 3.f;
+		glisser::NkVise sans =
+			glisser::NkViserDepot(d, lay, lay, vx, vy, vx, vy, false, 6.f);
+		glisser::NkVise avec =
+			glisser::NkViserDepot(d, lay, lay, vx, vy, vx, vy, true, 6.f);
+		const bool brut = sans.possible && sans.docX == vx && sans.docY == vy;
+		const bool colle = avec.possible && avec.docX == rVois.x && avec.docY == rVois.y;
+		char det3[240];
+		snprintf(det3, sizeof(det3),
+				 "voisin=(%.1f,%.1f) vise=(%.1f,%.1f) sans=(%.1f,%.1f) avec=(%.1f,%.1f)",
+				 rVois.x, rVois.y, vx, vy, sans.docX, sans.docY, avec.docX, avec.docY);
+		verdict("glisser : l'aimant colle le point au bord du voisin, et sans lui le "
+				"point reste brut (c'est l'aimant qui bouge, pas autre chose)",
+				brut && colle, det3);
+
+		// 4. LE POINT AIMANTE EST CELUI QUI EST ECRIT. La visee ne sert a rien si
+		//    le depot recalcule -- c'est le defaut « l'apercu montre A, le depot
+		//    ecrit B », invisible en banc si l'on ne compare pas les deux.
+		NkString dit4;
+		const int32 n4 = glisser::NkDeposerVise(d, avec, "etiquette", dit4);
+		const bool ecrit = n4 >= 0 && d.nodes[(uint32)n4].posX == avec.docX
+						   && d.nodes[(uint32)n4].posY == avec.docY;
+		char det4[224];
+		snprintf(det4, sizeof(det4), "vise=(%.2f,%.2f) ecrit=(%.2f,%.2f)", avec.docX,
+				 avec.docY, n4 >= 0 ? d.nodes[(uint32)n4].posX : -1.f,
+				 n4 >= 0 ? d.nodes[(uint32)n4].posY : -1.f);
+		verdict("glisser : le noeud pose est ECRIT au point AIMANTE -- le depot ne "
+				"redecide rien",
+				ecrit, det4);
+
+		// 5. UN COMPOSANT ABSENT DU REGISTRE EST REFUSE, ET LE REFUS LE NOMME.
+		const uint32 avant5 = (uint32)d.nodes.Size();
+		NkString dit5;
+		const int32 n5 = glisser::NkDeposerVise(d, v1, "ce_composant_n_existe_pas", dit5);
+		const bool nomme = n5 < 0 && (uint32)d.nodes.Size() == avant5
+						   && dit5.Data() != nullptr
+						   && strstr(dit5.Data(), "ce_composant_n_existe_pas") != nullptr;
+		char det5[224];
+		snprintf(det5, sizeof(det5), "rendu=%d noeuds %u->%u dit=%s", n5, avant5,
+				 (uint32)d.nodes.Size(), dit5.Data());
+		verdict("glisser : un composant absent du registre est refuse, et le refus le "
+				"NOMME (jamais « impossible » tout court)",
+				nomme, det5);
+	}
+
 	// ── LE BORNAGE DES RAYONS : LE CAS EXACT DE LA CAPTURE ──────────────────
 	// 🔴 Rodolf, 03/09 : `Bouton_Connexion`, hauteur `fixed 36`, arrondi
 	//    haut-droit **50,50** -- presque trois fois le maximum possible (18).
