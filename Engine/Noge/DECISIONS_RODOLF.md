@@ -4,7 +4,35 @@
 > Branche `feat/noge-inventaire`, arbre `Nkentseu-noge`.
 > **Mise en ordre du 2026-09-02, en fin de journée.**
 
-> # 🚨 RODOLF — LE BINAIRE EST ENFIN À JOUR. RELANCE.
+> # 🟢 RODOLF — LE WEB REND. Relance : c'est plus léger.
+>
+> **Le correctif PBR tient, tu l'as confirmé.** Le paquet a maigri depuis :
+> **−247 976 octets (−24,7 %)**, **188 fichiers en moins**, et **~950 écritures
+> console au chargement ramenées à ~21**.
+>
+> ```
+> Build\Bin\Release-Web
+enderdemo
+enderdemo.bat 9002
+> http://localhost:9002/renderdemo.html?demo=2
+> ```
+>
+> **Deux choses à me renvoyer**, et elles tiennent en un copier-coller :
+> 1. la ligne **`Demo 3D | API : …`** et le panneau **`Shadow tweak`** — c'est ce
+>    qui fait passer la colonne Web au **vert** ;
+> 2. la ligne neuve **`[NkWeb] preparation terminee en <N> ms pour 288
+>    dependances`** — c'est elle qui dira si la lenteur est réglée, **en
+>    chiffres**. Elle n'existait pas hier.
+>
+> 📌 **Et l'essai à cinq secondes, avant tout le reste : ferme les outils de
+> développement et recharge.** Si ça change tout, la lenteur était la console —
+> et le palier que je viens de poser l'a déjà traitée. Si ça ne change rien,
+> c'est ailleurs, et la ligne de mesure ci-dessus dira où.
+>
+> ⚠️ **L'ombre est plus douce qu'avant, c'est attendu** — repli PCF 3×3, le PCSS
+> coûtait l'unité de texture qui manquait. Ce n'est pas un défaut.
+
+> ### 🗄️ Historique — la relance d'hier soir
 >
 > **Tes deux essais ne testaient pas le correctif** : tes wasm dataient de
 > **09h13 et 10h41**, le correctif de **22h50**. Tu n'as jamais eu le bon binaire
@@ -1372,6 +1400,81 @@ jeu jouera l'équilibre, pas avant.*
 **Ta décision** : (a) on garde les deux et on écrit la conversion au premier
 besoin réel — ma recommandation ; (b) on unifie maintenant, en acceptant le
 changement de contrat et sa journée de recensement au compilateur.
+
+
+---
+
+---
+
+## 12. ⏱️ LA LENTEUR DE CHARGEMENT WEB — mesurée, deux causes traitées, une troisième nommée
+
+> 🗣️ **Rodolf, 2026-09-03** : *« ça prend, mais c'est hyper lent. »*
+> ✅ **Le correctif PBR tient** — le Web rend. Ce bloc traite ce qui reste.
+
+### 📏 CE QUI ÉTAIT EMBARQUÉ, ET CE QUE LE MOTEUR OUVRE VRAIMENT
+
+Le paquet web embarquait **l'arbre `Resources/NKRenderer/Shaders` en entier** :
+**474 fichiers, 1 005 867 octets**. Mesure de ce que le chargeur construit
+comme chemins — `NkShaderLibrary.cpp:679` et `:723` :
+
+| | | |
+|---|---|---|
+| `<Mat>/NkSL/<mat>.{vert,frag}.nksl` | **préféré** | 103 fichiers |
+| `<Mat>/VK/<mat>.{vert,frag}.vk.glsl` | **repli** — *« tous les backends chargent le `.vk.glsl` »*, DX11/DX12/Metal convertissant **à chaud** | 94 fichiers |
+| `Include/*.glsli` | résolus par l'`IncludeResolver` | 8 fichiers |
+
+🔴 **Les `.hlsl` et `.msl` ne sont lus par PERSONNE depuis cet arbre.** Ce ne
+sont pas « des dialectes inutiles sur le web » : ce sont des **sorties** du
+convertisseur (`NkShaderLibrary` `reportAndSave` VK→HLSL/MSL), versionnées à
+côté de leurs sources. Les seules lectures de `.hlsl` du dépôt visent
+`Resources/Shaders/Model/` — **un autre dossier**, pour `Applications/Model`.
+
+### ✅ CE QUI EST FAIT — et le chiffre, pas l'impression
+
+| | avant | après | gain |
+|---|---:|---:|---:|
+| `renderdemo.data` | 1 005 867 o | **757 891 o** | **−247 976 o (−24,7 %)** |
+| entrées du paquet | 476 | **288** | **−188** |
+| `.hlsl` / `.msl` | 126 / 62 | **0 / 0** | — |
+| `.nksl` / `.vk.glsl` / `.glsli` | 103 / 94 / 8 | **103 / 94 / 8** | intacts |
+| écritures console au chargement | **~952** | **~21** | **−98 %** |
+
+**Piste 1 — le filtre** : `--exclude-file *.hlsl` et `*.msl` sur le
+`--preload-file`. Les deux arbres sont reconstruits (Release **et** Debug,
+30/30, `.data` identiques à 757 891 o).
+
+**Piste 2 — la journalisation** : `monitorRunDependencies` appelait
+`Module.setStatus` à **chaque** dépendance, et `setStatus` faisait un
+`console.log`. Soit ~952 écritures. **Avec les outils de développement ouverts —
+et Rodolf les a — une écriture console coûte des centaines de fois un `printf`** :
+chaque ligne est formatée, horodatée, rattachée à une pile et rendue dans le DOM.
+*C'est le seul coût de chargement qui GROSSIT quand on l'observe.* Palier à 5 %.
+⚠️ **La barre et le texte à l'écran restent mis à jour à chaque fichier** : ils ne
+coûtent rien, et c'est ce que l'utilisateur regarde. **On bride la console, pas
+l'interface.**
+
+⏱️ **Et le paquet mesure désormais son propre temps** — deux lignes neuves :
+```
+[NkWeb] preparation : 288 dependances
+[NkWeb] preparation terminee en <N> ms pour 288 dependances
+```
+*Sans compteur, la prochaine comparaison serait un ressenti.* La ligne d'après
+donnera **combien**.
+
+### 🔎 CE QUI N'EST PAS FAIT, ET POURQUOI
+
+**Les 68 `.gl.glsl` (105 405 o) restent embarqués.** Le code mesuré ne construit
+**aucun** chemin `GL/` — mais **deux commentaires du dépôt affirment le
+contraire** (`NkRender3D.cpp:496`, `NkPostProcessStack.cpp:346`). Tant qu'une
+exécution n'a pas tranché entre le code et ses commentaires, **on ne retire
+pas** : le gain certain d'abord, l'incertain après. *Retirer 105 Ko sur la foi
+d'une lecture, contre deux commentaires qui disent l'inverse, c'est exactement
+la conception sur inventaire qui s'est trompée hier.*
+
+**Piste 3 — le nombre d'entrées MEMFS** (288 créées une par une) : non ouverte.
+Un paquet unique ou un index éviterait le coût par entrée, mais **on mesure
+d'abord** ce que les deux premières pistes ont donné. Il se peut qu'il ne reste
+rien à gagner.
 
 
 ## Ce qui est fait et ne t'attend pas

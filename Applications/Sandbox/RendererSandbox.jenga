@@ -254,8 +254,29 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             # sans aucun changement cote moteur (equivalent Web de
             # androidassets, cf. filtre Android ci-dessus).
             if _os.path.isdir(_NK_SHADERS_DIR):
+                # ⚠️ ON N EMBARQUE PAS LES DIALECTES QUE LE WEB NE PEUT PAS LIRE.
+                # Mesure du 2026-09-03 sur l arbre preloade (474 fichiers) :
+                #   126 .hlsl (DirectX) + 62 .msl (Metal) = 188 fichiers, 247 976 o
+                # JAMAIS ouverts par le moteur -- et pas seulement « inutiles sur
+                # le web » : RIEN dans le depot ne les lit depuis cet arbre. Ce
+                # sont des SORTIES du convertisseur (NkShaderLibrary reportAndSave
+                # VK->HLSL/MSL), versionnees a cote de leurs sources. Le chargeur,
+                # lui, construit deux chemins et deux seulement : <Mat>/NkSL/*.nksl
+                # d abord, <Mat>/VK/*.vk.glsl en repli -- « tous les backends
+                # chargent le .vk.glsl », DX11/DX12/Metal convertissant a chaud.
+                # Chaque entree coute DEUX rappels de progression et une entree
+                # MEMFS creee une par une : c est du temps de chargement paye par
+                # toutes les cibles web pour des fichiers que personne n ouvre.
+                # 🔎 NON RETIRES, FAUTE DE PREUVE D EXECUTION : les 68 .gl.glsl
+                # (105 405 o). Le code mesure ne construit aucun chemin "GL/",
+                # mais DEUX COMMENTAIRES du depot affirment le contraire
+                # (NkRender3D.cpp:496, NkPostProcessStack.cpp:346). Tant qu une
+                # execution n a pas tranche entre le code et ces commentaires, on
+                # ne retire pas : un gain certain d abord, l incertain apres.
                 emscriptenextraflags([
                     "--preload-file", f"{_NK_SHADERS_DIR}@/Resources/NKRenderer/Shaders",
+                    "--exclude-file", "*.hlsl",
+                    "--exclude-file", "*.msl",
                 ])
 
         # ===== HarmonyOS ==============================================================

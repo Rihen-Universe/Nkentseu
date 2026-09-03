@@ -144,6 +144,22 @@
                 }, false);
                 return canvas;
             })(),
+            // ─────────────────────────────────────────────────────────────
+            // JOURNALISATION DU CHARGEMENT — mesuree, puis bridee (2026-09-03)
+            // ─────────────────────────────────────────────────────────────
+            // AVANT : `console.log` a CHAQUE dependance, et le paquet en compte
+            // ~475, signalees DEUX fois (enregistrement puis ecriture) -> pres de
+            // 950 ecritures console. Avec les outils de developpement OUVERTS --
+            // et Rodolf les a, il nous colle ses journaux -- une ecriture console
+            // coute des centaines de fois un printf : chaque ligne est formatee,
+            // horodatee, rattachee a une pile et rendue dans le DOM du panneau.
+            // C'est le seul cout de chargement qui GROSSIT quand on l'observe.
+            //
+            // APRES : un compte rendu tous les 5 %, plus le premier et le dernier.
+            // ⚠️ La barre et le texte a l'ecran, eux, sont mis a jour a CHAQUE
+            // fois : ils ne coutent rien et c'est ce que l'utilisateur regarde.
+            // On bride la CONSOLE, pas l'interface.
+            _lastPct: -1,
             setStatus: function(text) {
                 var spinner = document.getElementById('spinner');
                 var t = (text || '').toString();
@@ -153,11 +169,32 @@
                 } else {
                     spinner.style.display = 'block';
                 }
-                console.log('Status:', t);
+                // Palier de 5 % : ~20 lignes au lieu de ~950.
+                var pct = -1;
+                var m = /\((\d+)\/(\d+)\)/.exec(t);
+                if (m && +m[2] > 0) pct = Math.floor((+m[1] * 100 / +m[2]) / 5) * 5;
+                if (pct < 0 || pct !== Module._lastPct) {
+                    Module._lastPct = pct;
+                    console.log('Status:', t);
+                }
             },
             totalDependencies: 0,
+            // ⏱️ INSTRUMENTATION — pour que la PROCHAINE execution donne ses
+            // propres chiffres. « On ne dit pas c'est plus rapide, on dit
+            // combien » : sans compteur, la mesure d'apres serait un ressenti.
+            _t0: 0,
             monitorRunDependencies: function(left) {
+                if (this.totalDependencies === 0 && left > 0) {
+                    this._t0 = performance.now();
+                    console.log('[NkWeb] preparation : ' + left + ' dependances');
+                }
                 this.totalDependencies = Math.max(this.totalDependencies, left);
+                if (!left && this._t0) {
+                    console.log('[NkWeb] preparation terminee en ' +
+                                Math.round(performance.now() - this._t0) + ' ms pour ' +
+                                this.totalDependencies + ' dependances');
+                    this._t0 = 0;
+                }
                 Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : '');
             }
         };
