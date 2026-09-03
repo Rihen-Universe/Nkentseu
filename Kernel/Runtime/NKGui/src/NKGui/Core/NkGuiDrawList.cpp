@@ -402,6 +402,15 @@ namespace nkentseu {
 		void NkGuiDrawList::AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
 									const NkColor &col, float32 maxWidth, float32 skew,
 									const char *textEnd) noexcept {
+			// LA PORTE A ANGLE NUL : la boucle de glyphes vit dans `AddTextTourne`, une
+			// seule fois. Une seconde boucle aurait diverge a la premiere retouche.
+			AddTextTourne(face, texId, baseline, text, col, 0.f, baseline, maxWidth, skew, textEnd);
+		}
+
+		void NkGuiDrawList::AddTextTourne(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+										  const char *text, const NkColor &col, float32 angleDeg,
+										  const NkVec2 &pivot, float32 maxWidth, float32 skew,
+										  const char *textEnd) noexcept {
 			if (!face || !text || !*text || texId == 0u)
 				return;
 			const uint32 c = NkGuiPackColor(col);
@@ -419,6 +428,22 @@ namespace nkentseu {
 			const float32 xEnd = (maxWidth >= 0.f) ? baseline.x + maxWidth : 1.0e30f;
 			float32 x = baseline.x;
 			const float32 y = baseline.y;
+			// sin/cos UNE fois, et seulement s'il y a un angle : la porte `AddText`
+			// ne paie aucune trigonometrie. Le calage au pixel s'est fait AVANT, sur
+			// la ligne droite -- un texte tourne ne se cale pas au pixel.
+			const bool tourneVraiment = (angleDeg != 0.f);
+			float32 sn = 0.f, cs = 1.f;
+			if (tourneVraiment) {
+				const float32 rad = angleDeg * 0.017453292519943295f;
+				sn = std::sin(rad);
+				cs = std::cos(rad);
+			}
+			auto tourne = [&](NkVec2 v) -> NkVec2 {
+				if (!tourneVraiment)
+					return v;
+				const float32 dx = v.x - pivot.x, dy = v.y - pivot.y;
+				return NkVec2{pivot.x + dx * cs - dy * sn, pivot.y + dx * sn + dy * cs};
+			};
 
 			while (p < end) {
 				const NkFontCodepoint cp = NkFontDecodeUTF8(&p, end);
@@ -445,10 +470,12 @@ namespace nkentseu {
 					// de la ligne de base (haut penché à droite, descendantes à gauche).
 					const float32 sTop = skew != 0.f ? skew * (y - y0) : 0.f;
 					const float32 sBot = skew != 0.f ? skew * (y - y1) : 0.f;
-					const uint32 i0 = Vtx({x0 + sTop, y0}, {g->u0, g->v0}, c);
-					const uint32 i1 = Vtx({x1 + sTop, y0}, {g->u1, g->v0}, c);
-					const uint32 i2 = Vtx({x1 + sBot, y1}, {g->u1, g->v1}, c);
-					const uint32 i3 = Vtx({x0 + sBot, y1}, {g->u0, g->v1}, c);
+					// LES QUATRE SOMMETS DU QUAD, TOURNES AUTOUR DU PIVOT -- comme un
+					// contour. A angle nul, `tourne` rend son entree telle quelle.
+					const uint32 i0 = Vtx(tourne({x0 + sTop, y0}), {g->u0, g->v0}, c);
+					const uint32 i1 = Vtx(tourne({x1 + sTop, y0}), {g->u1, g->v0}, c);
+					const uint32 i2 = Vtx(tourne({x1 + sBot, y1}), {g->u1, g->v1}, c);
+					const uint32 i3 = Vtx(tourne({x0 + sBot, y1}), {g->u0, g->v1}, c);
 					Tri(i0, i1, i2, texId);
 					Tri(i0, i2, i3, texId);
 				}
