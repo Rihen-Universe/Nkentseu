@@ -117,6 +117,16 @@ namespace nkentseu {
 				void AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
 							 const NkColor &col, float32 maxWidth = -1.f, float32 skew = 0.f,
 							 const char *textEnd = nullptr) noexcept;
+				/// Texte TOURNE de `angleDeg` (degres, sens horaire ecran) autour de
+				/// `pivot`. C'est LA boucle de glyphes ; `AddText` n'en est qu'une porte
+				/// a angle nul. Chaque glyphe reste un quad : ses quatre sommets
+				/// passent par la rotation, comme un contour. Le calage au pixel se
+				/// fait AVANT la rotation, sur la ligne droite -- un texte tourne ne
+				/// se cale pas au pixel, et le caler apres aurait tordu les glyphes.
+				void AddTextTourne(const NkFont *face, uint32 texId, const NkVec2 &baseline,
+								   const char *text, const NkColor &col, float32 angleDeg,
+								   const NkVec2 &pivot, float32 maxWidth = -1.f, float32 skew = 0.f,
+								   const char *textEnd = nullptr) noexcept;
 				// Texte à l'ÉCHELLE : quads et avances multipliés par `scale`
 				// (géométrie `NkFontScaleRenderer`, NKFont — la couche du dessous
 				// la portait déjà). Sert au texte d'un DOCUMENT zoomé : palier
