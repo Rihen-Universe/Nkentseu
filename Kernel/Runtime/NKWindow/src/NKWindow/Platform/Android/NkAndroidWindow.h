@@ -47,6 +47,9 @@ namespace nkentseu {
 	void NkAndroidRegisterWindow(NkWindow *window);
 	void NkAndroidUnregisterWindow(NkWindow *window);
 	bool NkAndroidHideSystemUI(struct android_app *app); // Masquer status bar + navigation bar
+	// La bascule de volume regle le flux MEDIA meme quand l'application se tait
+	// (Activity.setVolumeControlStream par JNI -- aucun Java a nous n'est requis).
+	bool NkAndroidSetVolumeControlStream(struct android_app *app);
 
 } // namespace nkentseu
 
