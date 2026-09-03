@@ -227,7 +227,28 @@ plantage déguisé en contrôle de justesse.*
 
 ---
 
-## 7. 📋 L'ORDRE, ET CE QUI ATTEND RODOLF
+## 7. ✅ FAIT LE 2026-09-03 — et deux défauts que le banc a trouvés avant moi
+
+> **Rodolf a tranché (a)** : le couple s'intègre pour tout le monde. Étapes 0, 1 et
+> 2 livrées le jour même. **Étape 3 (réglage sur les deux voitures du dépôt) et
+> l'Ackermann : non faits, nommés.**
+
+| | | |
+|---|---|---|
+| **0** | couple intégré, `ApplyForceAtPoint`, helpers d'inertie remontés, `NkApplyImpulseAtPoint` | ✅ commit `d471956d` — bancs des consommateurs **au même compte** |
+| **1** | `NkVehicle` (raycast, trois gardes, cercle de friction), étape 0) de `Substep` | ✅ |
+| **2** | banc de comportement **+ contre-épreuve** `µ = 0,01` | ✅ **48/48**, mutation ×2 prouvée |
+| **3** | réglage LowPolyCars / futuriste (`Wheel_Force`) | ⏳ |
+
+**Ce que le banc a attrapé, en relation et pas en borne :**
+1. **unités** — `Fs = k × fraction` au lieu de `k × distance` : la force était juste (2 943 N = mg/4) mais l'enfoncement valait course/9 au lieu de course/3. `yFin = 1,159` pour `1,083` attendu. *Une borne « hauteur < 10 » l'aurait laissé passer.*
+2. **le châssis dormait** — posée 2 s, la caisse s'endort ; les impulsions montaient sa vitesse à 5,9 m/s pendant que l'intégration de position, gardée par `IsAwake()`, était sautée : `dz = 0` exactement. Une roue est une source de force externe : elle réveille son corps, comme le solveur réveille les siens.
+
+**Mesuré, pas promis** : plein gaz 3 s → **10,58 m**, dérive **−0,038 m** ; `µ = 0,01` → **0,22 m** (elle patine) ; et le transfert de charge annoncé « gratuit » au §4 se lit déjà — roue arrière **3 580 N** sous accélération contre 2 943 N statique.
+
+### Ce qui était écrit avant (conservé) — l'ordre et la question posée
+
+
 
 | | | |
 |---|---|---|

@@ -20,7 +20,8 @@
 #include "NKECS/System/NkScheduler.h"
 #include "Noge/Systems/NkPhysicsSystems.h"
 #include "Noge/Physics/NkPhysicsMesh.h"
-#include "NKPhysics/NkPhysicsWorld.h" // banc COUPLE (2026-09-03)
+#include "NKPhysics/NkPhysicsWorld.h"
+#include "NKPhysics/NkVehicle.h" // banc VEHICULE (2026-09-03) // banc COUPLE (2026-09-03)
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 
@@ -458,6 +459,104 @@ int main() {
 				pw.Step(h);
 			Check(b->angularVelocity.x == 0.f && b->angularVelocity.y == 0.f && b->angularVelocity.z == 0.f,
 				  "GARDE : sans couple ni contact, l'integration n'invente aucune rotation (pas de double chemin)");
+		}
+	}
+
+	// =========================================================================
+	// BANC VEHICULE -- comportement, headless, sans GPU. Conception :
+	// Engine/Noge/CONCEPTION_VEHICULE.md §6. Assertions en RELATION, pas en
+	// borne ; et une CONTRE-EPREUVE : mu = 0.01 doit faire patiner ET rougir
+	// l'assertion d'avance -- un banc qui reste vert avec un frottement nul ne
+	// mesure pas le frottement.
+	// =========================================================================
+	{
+		using namespace nkentseu::physics;
+		const float32 h = 1.f / 60.f;
+		const float32 kG = 9.81f;
+		// LA SURFACE, telle que le jeu l'ecrira (cf. conception §5) ----------
+		auto fabrique = [&](NkPhysicsWorld &world, float32 mu) -> NkVehicle * {
+			world.SetGravity({0.f, -kG, 0.f});
+			NkBodyDef sol;
+			sol.type = NkBodyType::STATIC;
+			sol.position = {0.f, -0.5f, 0.f};
+			sol.orientation = NkQuatf::Identity();
+			world.CreateBody(sol, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f}));
+			NkVehicle *car = new NkVehicle(world);
+			car->SetChassisBox({0.f, 1.15f, 0.f}, {0.9f, 0.5f, 2.2f}, 1200.f); // demi-tailles, kg
+			car->AddWheel({-0.8f, -0.5f,  1.3f}, NkWheel::kSteered);
+			car->AddWheel({ 0.8f, -0.5f,  1.3f}, NkWheel::kSteered);
+			car->AddWheel({-0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+			car->AddWheel({ 0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+			if (mu > 0.f)
+				car->Tuning().mu = mu;
+			return car;
+		};
+
+		// 1) ELLE TIENT : posee, 5 s -> hauteur stable et EGALE a l'equilibre
+		//    attendu (relation : sag = restLength/3 par construction d'Autotune).
+		{
+			NkPhysicsWorld world;
+			NkVehicle *car = fabrique(world, 0.f);
+			car->SetInput(0.f, 0.f, 0.f);
+			float32 yMin = 1e9f, yMax = -1e9f;
+			for (int i = 0; i < 300; ++i) {
+				world.Step(h);
+				if (i >= 180) { // les 2 dernieres secondes
+					const float32 y = world.GetBody(car->Chassis())->position.y;
+					yMin = y < yMin ? y : yMin;
+					yMax = y > yMax ? y : yMax;
+				}
+			}
+			const NkVehicleTuning &t = car->Tuning();
+			// ancre a -0.5 sous le centre ; distance d'equilibre au sol = rayLen - sag
+			const float32 yAttendu = 0.5f + (t.restLength + t.wheelRadius) - t.restLength / 3.f;
+			const float32 yFin = world.GetBody(car->Chassis())->position.y;
+			Check(car->Wheel(0).grounded && car->Wheel(1).grounded && car->Wheel(2).grounded && car->Wheel(3).grounded,
+				  "VEHICULE tient : les quatre roues touchent le sol");
+			Check((yMax - yMin) < 0.02f,
+				  "VEHICULE tient : hauteur stable a 2 cm sur les 2 dernieres secondes (ni enfoncement ni decollage)");
+			Check(std::fabs(yFin - yAttendu) < 0.02f,
+				  "VEHICULE tient : la hauteur d'equilibre EST celle du ressort (sag = course/3), a 2 cm");
+			delete car;
+		}
+		// 2) ELLE AVANCE DANS L'AXE : plein gaz 3 s, sans braquage.
+		float32 avanceRef = 0.f;
+		{
+			NkPhysicsWorld world;
+			NkVehicle *car = fabrique(world, 0.f);
+			for (int i = 0; i < 120; ++i) world.Step(h); // se pose
+			const NkVec3f p0 = world.GetBody(car->Chassis())->position;
+			car->SetInput(0.f, 1.f, 0.f);
+			for (int i = 0; i < 180; ++i) world.Step(h);
+			const NkVec3f p1 = world.GetBody(car->Chassis())->position;
+			avanceRef = p1.z - p0.z;
+			Check(avanceRef > 5.f, "VEHICULE avance : plein gaz 3 s -> plus de 5 m dans l'axe");
+			Check(std::fabs(p1.x - p0.x) < 0.2f, "VEHICULE avance : derive laterale < 0,2 m (adherence laterale presente)");
+			Check(car->ForwardSpeed() > 0.f, "VEHICULE avance : la vitesse est signee dans le sens de l'axe");
+			// 3) ELLE S'ARRETE : frein plein, 3 s -> immobile et le reste.
+			car->SetInput(0.f, 0.f, 1.f);
+			for (int i = 0; i < 180; ++i) world.Step(h);
+			const float32 v = std::fabs(car->ForwardSpeed());
+			const NkVec3f p2 = world.GetBody(car->Chassis())->position;
+			for (int i = 0; i < 60; ++i) world.Step(h);
+			const NkVec3f p3 = world.GetBody(car->Chassis())->position;
+			Check(v < 0.05f, "VEHICULE s'arrete : frein plein 3 s -> vitesse < 5 cm/s");
+			Check(std::fabs(p3.z - p2.z) < 0.02f, "VEHICULE s'arrete : et RESTE immobile (gel sous la vitesse plancher)");
+			delete car;
+		}
+		// 4) CONTRE-EPREUVE : mu = 0.01 -> elle PATINE. Si le frottement n'etait
+		//    pas mesure, elle avancerait comme avant et ce Check rougirait.
+		{
+			NkPhysicsWorld world;
+			NkVehicle *car = fabrique(world, 0.01f);
+			for (int i = 0; i < 120; ++i) world.Step(h);
+			const NkVec3f p0 = world.GetBody(car->Chassis())->position;
+			car->SetInput(0.f, 1.f, 0.f);
+			for (int i = 0; i < 180; ++i) world.Step(h);
+			const float32 avance = world.GetBody(car->Chassis())->position.z - p0.z;
+			Check(avance < 0.25f * avanceRef,
+				  "CONTRE-EPREUVE : avec mu = 0,01 la voiture PATINE (moins du quart de l'avance normale) -- le frottement est bien mesure");
+			delete car;
 		}
 	}
 
