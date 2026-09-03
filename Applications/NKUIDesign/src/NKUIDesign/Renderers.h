@@ -1423,7 +1423,12 @@ namespace nkuidesign {
 		if (empile)
 			p.PushTransform(NkPaintTransformDe(mEff));
 
-		if (n.IsFrame()) {
+		// UN GROUPE NE PEINT RIEN (§15.13) : un groupe declare (genre) sans forme
+		// ni composant n'a pas de dessin propre -- son apparence est celle de ses
+		// feuilles. Les noeuds non declares gardent leur chemin d'avant.
+		if (n.shape.Empty() && n.component.Empty() && !n.genre.Empty()) {
+			// rien
+		} else if (n.IsFrame()) {
 			// FORME ou CADRE ? Le PARENT le dit -- exactement comme pour la
 			// position. Une forme posee se voit ; un cadre d agencement, non.
 			// ⚠️ ANCHOR COMPTE COMME FREE ICI (mesure du 31/08, demo_ancrage :

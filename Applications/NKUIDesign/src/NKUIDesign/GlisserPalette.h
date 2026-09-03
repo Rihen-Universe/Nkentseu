@@ -92,7 +92,10 @@ namespace nkuidesign {
 			v.docY = docY;
 			v.parent = NkPickFreeContainer(doc, screenLay, sx, sy);
 			if (!doc.IsValidIndex(v.parent)) {
-				snprintf(v.raison, sizeof(v.raison), "%s", NkRefusHorsConteneur());
+				// sous le point, une feuille ? alors c'est ELLE qui refuse, et on le dit
+				const int32 sous = NkPickSelectable(doc, screenLay, sx, sy);
+				snprintf(v.raison, sizeof(v.raison), "%s",
+						 (doc.IsValidIndex(sous) && sous != 0) ? NkRefusFeuille() : NkRefusHorsConteneur());
 				return v;
 			}
 			v.possible = true;

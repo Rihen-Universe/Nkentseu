@@ -3604,6 +3604,226 @@ namespace nkuidesign {
 			check("47d. `refus_position` / `refus_rotation` / `refus_echelle` : additives, relues a l'identique",
 				  relusR && additifsR, det);
 		}
+		// La GEOMETRIE PEINTE d'un enregistrement : chaque commande (hors Push/Pop)
+		// avec ses quatre coins passes par la matrice en vigueur. Deux documents qui
+		// donnent la meme liste peignent les memes pixels -- la comptabilite Push/Pop
+		// n'en fait pas partie.
+		struct GeoPeinte {
+				static void Extraire(const NkRecordingPaint &r, NkVector<float32> &out) {
+					float32 pile[16][6];
+					int32 sp = 0;
+					for (uint32 i = 0; i < (uint32)r.cmds.Size(); ++i) {
+						const NkPaintCmd &c = r.cmds[i];
+						if (c.op == NkPaintOp::PushTransform) {
+							if (sp < 16) {
+								pile[sp][0] = c.x;
+								pile[sp][1] = c.y;
+								pile[sp][2] = c.w;
+								pile[sp][3] = c.h;
+								pile[sp][4] = c.rounding;
+								pile[sp][5] = c.tf;
+							}
+							++sp;
+							continue;
+						}
+						if (c.op == NkPaintOp::PopTransform) {
+							if (sp > 0)
+								--sp;
+							continue;
+						}
+						float32 m[6] = {1.f, 0.f, 0.f, 1.f, 0.f, 0.f};
+						if (sp > 0 && sp <= 16)
+							for (int32 k = 0; k < 6; ++k)
+								m[k] = pile[sp - 1][k];
+						const float32 xs[4] = {c.x, c.x + c.w, c.x + c.w, c.x};
+						const float32 ys[4] = {c.y, c.y, c.y + c.h, c.y + c.h};
+						out.PushBack((float32)(uint8)c.op);
+						out.PushBack((float32)c.role);
+						out.PushBack((float32)(c.rgba >> 8));
+						for (int32 k = 0; k < 4; ++k) {
+							out.PushBack(m[0] * xs[k] + m[2] * ys[k] + m[4]);
+							out.PushBack(m[1] * xs[k] + m[3] * ys[k] + m[5]);
+						}
+					}
+				}
+				static bool Memes(const NkRecordingPaint &a, const NkRecordingPaint &b, uint32 &premiere) {
+					NkVector<float32> ga, gb;
+					Extraire(a, ga);
+					Extraire(b, gb);
+					premiere = 0u;
+					if (ga.Size() != gb.Size())
+						return false;
+					for (uint32 i = 0; i < (uint32)ga.Size(); ++i) {
+						const float32 d = ga[i] - gb[i];
+						if (d > 0.05f || d < -0.05f) {
+							premiere = i / 11u;
+							return false;
+						}
+					}
+					return true;
+				}
+		};
+		// ── 48. FEUILLES ET GROUPES : la cle, la garde, l'ENVELOPPEMENT pixel pour pixel
+		{
+			NkUIDocument dF;
+			dF.NewDocument("Toile", NkAuthor::Humain);
+			dF.nodes[0].layout.kind = NkLayoutKind::Free;
+			dF.SetMetric("espacement", 0.f);
+			dF.SetMetric("marge", 0.f);
+			const int32 bouton = dF.AddChild(0, "", NkAuthor::Humain);
+			dF.nodes[(uint32)bouton].shape = NkString("rect");
+			dF.nodes[(uint32)bouton].label = NkString("Bouton_Connexion");
+			dF.nodes[(uint32)bouton].role = NkString("Button");
+			dF.nodes[(uint32)bouton].layout.kind = NkLayoutKind::Free;
+			dF.nodes[(uint32)bouton].posX = 30.f;
+			dF.nodes[(uint32)bouton].posY = 316.f;
+			dF.nodes[(uint32)bouton].width.mode = NkSizeMode::Fixed;
+			dF.nodes[(uint32)bouton].width.value = 180.f;
+			dF.nodes[(uint32)bouton].height.mode = NkSizeMode::Fixed;
+			dF.nodes[(uint32)bouton].height.value = 36.f;
+			dF.nodes[(uint32)bouton].rotation = 12.f;
+			const int32 texte = dF.AddChild(bouton, "", NkAuthor::Humain);
+			dF.nodes[(uint32)texte].shape = NkString("text");
+			dF.nodes[(uint32)texte].label = NkString("Texte du bouton");
+			dF.nodes[(uint32)texte].text = NkString("Se connecter");
+			dF.nodes[(uint32)texte].posX = 0.f;
+			dF.nodes[(uint32)texte].posY = 10.f;
+			dF.nodes[(uint32)texte].width.mode = NkSizeMode::Fixed;
+			dF.nodes[(uint32)texte].width.value = 180.f;
+			dF.nodes[(uint32)texte].height.mode = NkSizeMode::Fixed;
+			dF.nodes[(uint32)texte].height.value = 16.f;
+			const int32 apres = dF.AddChild(0, "", NkAuthor::Humain); // un frere APRES, pour le rang
+			dF.nodes[(uint32)apres].shape = NkString("rect");
+			dF.nodes[(uint32)apres].posX = 300.f;
+			dF.nodes[(uint32)apres].posY = 10.f;
+			dF.nodes[(uint32)apres].width.mode = NkSizeMode::Fixed;
+			dF.nodes[(uint32)apres].width.value = 20.f;
+			dF.nodes[(uint32)apres].height.mode = NkSizeMode::Fixed;
+			dF.nodes[(uint32)apres].height.value = 20.f;
+			NkPaintRect surfF;
+			surfF.x = 0.f;
+			surfF.y = 0.f;
+			surfF.w = 800.f;
+			surfF.h = 600.f;
+			char det[300];
+			// 48a. la cle et l'inference
+			NkUINode vide;
+			vide.shape = NkString("rect");
+			NkUINode groupeVide;
+			groupeVide.genre = NkString("simple");
+			NkUINode planche;
+			planche.shape = NkString("frame");
+			NkUINode inconnu;
+			inconnu.genre = NkString("animation");
+			NkString sI;
+			dF.nodes[(uint32)apres].genre = NkString("animation");
+			dF.Save(sI);
+			NkUIDocument reluI;
+			const bool inconnuGarde = reluI.Load(sI.Data()) && reluI.IsValidIndex(apres)
+									  && NkComponentDecl::StrEq(reluI.nodes[(uint32)apres].genre.Data(), "animation")
+									  && strstr(sI.Data(), "groupe = animation") != nullptr;
+			dF.nodes[(uint32)apres].genre = NkString();
+			snprintf(det, sizeof(det), "rect nu=feuille:%d, groupe vide declare=groupe:%d, planche=groupe:%d, "
+										"genre inconnu=groupe:%d et preserve au fichier:%d, rect a enfants=groupe (infere):%d",
+					 !NkEstGroupe(vide) ? 1 : 0, NkEstGroupe(groupeVide) ? 1 : 0, NkEstGroupe(planche) ? 1 : 0,
+					 NkEstGroupe(inconnu) ? 1 : 0, inconnuGarde ? 1 : 0, NkEstGroupe(dF.nodes[(uint32)bouton]) ? 1 : 0);
+			check("48a. `groupe = <genre>` : additive, absente = inferee, un groupe VIDE reste un groupe, "
+				  "une planche est un groupe, un genre inconnu se relit et se reemet intact",
+				  !NkEstGroupe(vide) && NkEstGroupe(groupeVide) && NkEstGroupe(planche) && NkEstGroupe(inconnu)
+					  && inconnuGarde && NkEstGroupe(dF.nodes[(uint32)bouton]),
+				  det);
+			// 48b. l'enveloppement : pixel pour pixel (peintre enregistreur), rang et comptes
+			NkRecordingPaint avant;
+			RenderDocument(avant, dF, surfF);
+			const uint32 nAvant = (uint32)dF.nodes.Size();
+			NkVector<int32> env;
+			const uint32 nEnv = NkEnvelopperGraphiques(dF, &env);
+			NkRecordingPaint apresR;
+			RenderDocument(apresR, dF, surfF);
+			uint32 premiereDiff = 0u;
+			const bool memesCommandes = GeoPeinte::Memes(avant, apresR, premiereDiff);
+			const int32 gi = env.Empty() ? -1 : env[0];
+			const bool structure = nEnv == 1u && dF.IsValidIndex(gi) && (uint32)dF.nodes.Size() == nAvant + 1u
+								   && dF.nodes[(uint32)gi].children.Size() == 2u
+								   && dF.nodes[(uint32)gi].children[0] == bouton
+								   && dF.nodes[(uint32)gi].children[1] == texte
+								   && dF.nodes[0].children.Size() == 2u && dF.nodes[0].children[0] == gi
+								   && dF.nodes[0].children[1] == apres
+								   && NkComponentDecl::StrEq(dF.nodes[(uint32)gi].genre.Data(), "simple")
+								   && NkComponentDecl::StrEq(dF.nodes[(uint32)gi].label.Data(), "Bouton_Connexion")
+								   && NkComponentDecl::StrEq(dF.nodes[(uint32)gi].role.Data(), "Button")
+								   && dF.nodes[(uint32)gi].rotation == 12.f && dF.nodes[(uint32)bouton].rotation == 0.f
+								   && dF.nodes[(uint32)bouton].children.Empty();
+			snprintf(det, sizeof(det), "%u enveloppement(s), %u -> %u noeuds, %u commandes avant / %u apres, "
+										"geometrie peinte identique=%d (1re difference : commande %u), structure=%d",
+					 nEnv, nAvant, (uint32)dF.nodes.Size(), (uint32)avant.cmds.Size(), (uint32)apresR.cmds.Size(),
+					 memesCommandes ? 1 : 0, premiereDiff, structure ? 1 : 0);
+			check("48b. ENVELOPPER un graphique a enfants : un groupe prend sa place, sa boite, son etiquette, "
+				  "son role et sa rotation ; il devient sa premiere feuille ; l'enfant suit -- et le peintre "
+				  "emet EXACTEMENT les memes commandes (rien n'a bouge a l'ecran)",
+				  memesCommandes && structure, det);
+			// 48c. la migration ne se refait pas : un second passage n'enveloppe rien
+			const uint32 nEnv2 = NkEnvelopperGraphiques(dF, nullptr);
+			snprintf(det, sizeof(det), "second passage : %u", nEnv2);
+			check("48c. un document deja migre ne bouge plus (second passage : 0)", nEnv2 == 0u, det);
+			// 48d. la garde : sous le point, la feuille `apres` -- le conteneur rendu est la page, pas elle
+			NkLayoutResult layF;
+			NkComputeLayout(dF, surfF, layF);
+			const NkPaintRect ra = layF.At(apres);
+			const int32 conteneur = NkPickFreeContainer(dF, layF, ra.x + ra.w * 0.5f, ra.y + ra.h * 0.5f);
+			const NkPaintRect rg = layF.At(gi);
+			const int32 conteneurG = NkPickFreeContainer(dF, layF, rg.x + 2.f, rg.y + 2.f);
+			snprintf(det, sizeof(det), "sur la feuille : conteneur=%d (page=0) ; sur le groupe : conteneur=%d (groupe=%d)",
+					 conteneur, conteneurG, gi);
+			check("48d. LA GARDE : la pose, le depot et la creation ne rendent jamais une feuille comme conteneur "
+				  "-- le groupe, lui, en est un",
+				  conteneur == 0 && conteneurG == gi, det);
+			// 48e. le document de Rodolf, en LECTURE SEULE : six graphiques a enfants, et rien ne bouge
+			{
+				FILE *fp = fopen("nkuidesign_document.nkuidoc", "rb");
+				if (fp) {
+					fseek(fp, 0, SEEK_END);
+					const long taille = ftell(fp);
+					fseek(fp, 0, SEEK_SET);
+					NkString contenu;
+					if (taille > 0) {
+						char *buf = new char[(size_t)taille + 1];
+						const size_t lu = fread(buf, 1, (size_t)taille, fp);
+						buf[lu] = 0;
+						contenu = NkString(buf);
+						delete[] buf;
+					}
+					fclose(fp);
+					NkUIDocument dRod;
+					if (dRod.Load(contenu.Data())) {
+						NkPaintRect surfRod;
+						surfRod.x = 0.f;
+						surfRod.y = 0.f;
+						surfRod.w = 1600.f;
+						surfRod.h = 1000.f;
+						NkRecordingPaint rAvant;
+						RenderDocument(rAvant, dRod, surfRod);
+						NkVector<int32> envR;
+						const uint32 nR = NkEnvelopperGraphiques(dRod, &envR);
+						NkRecordingPaint rApres;
+						RenderDocument(rApres, dRod, surfRod);
+						uint32 diff = 0u;
+						const bool memes = GeoPeinte::Memes(rAvant, rApres, diff);
+						NkString noms;
+						for (uint32 k = 0; k < (uint32)envR.Size(); ++k) {
+							if (k)
+								noms.Append(", ");
+							noms.Append(dRod.nodes[(uint32)envR[k]].label);
+						}
+						snprintf(det, sizeof(det), "%u enveloppe(s) : %s ; %u commandes, geometrie peinte identique=%d (1re diff : commande %u)",
+								 nR, noms.Data(), (uint32)rAvant.cmds.Size(), memes ? 1 : 0, diff);
+						check("48e. LE DOCUMENT DE RODOLF (lecture seule) : ses six graphiques a enfants "
+							  "s'enveloppent, et le peintre emet les memes commandes avant et apres",
+							  nR == 6u && memes, det);
+					}
+				}
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

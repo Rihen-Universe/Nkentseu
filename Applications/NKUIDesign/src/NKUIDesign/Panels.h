@@ -795,6 +795,7 @@ namespace nkuidesign {
 					snprintf(nom, sizeof(nom), "Groupe %d", nb + 1);
 					NkUINode &gn = doc.nodes[(uint32)g];
 					gn.label = NkString(nom);
+					gn.genre = NkString("simple"); // ecrit des la creation : un groupe vide reste un groupe
 					gn.layout.kind = NkLayoutKind::Free;
 					gn.posX = minX - pax;
 					gn.posY = minY - pay;
@@ -1400,6 +1401,19 @@ namespace nkuidesign {
 					return false;
 				}
 				doc = loaded;
+				// ── LA MIGRATION, A L'OUVERTURE, EN LE DISANT (§15.13) ────────────
+				// Jamais en silence a la sauvegarde : la version d'avant est
+				// conservee sous un autre nom (une fois), et rien n'est enregistre
+				// tant que Rodolf n'enregistre pas.
+				NkVector<int32> enveloppes;
+				const uint32 nEnv = NkEnvelopperGraphiques(doc, &enveloppes);
+				NkString sauvegarde;
+				if (nEnv > 0) {
+					sauvegarde = NkString(kDocumentPath);
+					sauvegarde.Append(".avant-groupes");
+					if (!nkentseu::NkFile::Exists(sauvegarde.Data()))
+						nkentseu::NkFile::WriteAllText(sauvegarde.Data(), text.Data());
+				}
 				cheminActif = NkString(kDocumentPath); // l'onglet actif suit ce fichier
 				SelectSingle(0);
 				host.demoModels.Clear();
@@ -1408,6 +1422,15 @@ namespace nkuidesign {
 				snprintf(b, sizeof(b), "Document chargé : %u nœud(s), %u composant(s) inconnu(s)",
 						 doc.NodeCount(), unknown);
 				status = NkString(b);
+				if (nEnv > 0) {
+					char m[320];
+					snprintf(m, sizeof(m),
+							 " — %u graphique(s) à enfants ENVELOPPÉ(S) dans un groupe (règle §15.13 : "
+							 "une feuille ne contient rien) ; rien n'a bougé à l'écran ; version d'avant "
+							 "conservée : %s ; rien n'est enregistré tant que vous n'enregistrez pas.",
+							 nEnv, sauvegarde.Data());
+					status.Append(m);
+				}
 				PrendreEtatEnregistre();
 				// L'HISTORIQUE REPART D'ICI : on n'annule pas a travers un
 				// rechargement (etat 0 = ce qui vient d'etre lu).
@@ -2494,6 +2517,10 @@ namespace nkuidesign {
 					return;
 				const int32 p = mSt->doc.nodes[(uint32)mSt->selected].parent;
 				const int32 target = mSt->doc.nodes[(uint32)p].children[(uint32)(r - 1)];
+				if (!NkEstGroupe(mSt->doc.nodes[(uint32)target])) {
+					mSt->status = NkString(NkRefusFeuille());
+					return;
+				}
 				if (mSt->doc.Reparent(mSt->selected, target)) {
 					mSt->doc.MarkHumanEdit(mSt->selected);
 					mSt->status = NkString("Imbrique dans : ");
@@ -8352,11 +8379,9 @@ namespace nkuidesign {
 					//    pour chaque forme nue -- et la regle de feuille ne refusait jamais.
 					//    *Un predicat qui porte le nom d'une chose et en teste une autre
 					//    est plus dangereux qu'un predicat absent.*
-					const bool conteneur = NkComponentDecl::StrEq(d.shape.Data(), "frame")
-										   || !d.component.Empty() || !d.children.Empty();
+					const bool conteneur = NkEstGroupe(d); // UN predicat, §15.13
 					if (!conteneur)
-						s->st->DireAuPied("Une forme ne reçoit pas d'enfant — déposez "
-										  "avant ou après elle, ou dans un cadre.");
+						s->st->DireAuPied(NkRefusFeuille());
 					return conteneur;
 				};
 				// ── LE CLIC DROIT DE LA HIÉRARCHIE — ET LA CAPACITÉ ÉTAIT DÉJÀ EN

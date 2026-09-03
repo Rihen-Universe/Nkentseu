@@ -235,6 +235,10 @@ namespace nkuidesign {
 		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)doc.nodes.Size(); ++i) {
 			if (doc.nodes[i].layout.kind != nkentseu::editorkit::NkLayoutKind::Free)
 				continue;
+			// LA GARDE DE FEUILLE, ici pour la pose, le depot et la creation :
+			// une feuille n'est jamais un conteneur, en aucun cas (§15.13).
+			if (!NkEstGroupe(doc.nodes[i]))
+				continue;
 			if (!lay.Has((nkentseu::int32)i))
 				continue;
 			const NkPaintRect &r = lay.At((nkentseu::int32)i);

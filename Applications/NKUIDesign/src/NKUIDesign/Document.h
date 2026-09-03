@@ -637,6 +637,18 @@ namespace nkuidesign {
 		return signe * m;
 	}
 
+	struct NkUINode;
+	/// FEUILLE ou GROUPE : une planche (`frame`) est toujours un groupe ; un
+	/// genre declare fait un groupe (meme vide) ; sinon, des enfants font un
+	/// groupe. Tout le reste est une feuille -- et une feuille ne contient
+	/// rien, en aucun cas. UN predicat, lu par la pose, le depot, la creation,
+	/// le reparentage et la hierarchie.
+	inline bool NkEstGroupe(const NkUINode &n);
+	inline const char *NkRefusFeuille() {
+		return "Une feuille ne contient rien, en aucun cas — déposez avant ou après elle, "
+			   "ou dans un groupe.";
+	}
+
 	struct NkUINode {
 			/// Libelle affichable dans l'arbre. Purement humain : rien ne s'y
 			/// resout, deux noeuds peuvent porter le meme.
@@ -991,6 +1003,17 @@ namespace nkuidesign {
 			bool refusPosition = false; ///< cle `refus_position`
 			bool refusRotation = false; ///< cle `refus_rotation`
 			bool refusEchelle = false;  ///< cle `refus_echelle`
+			// ── LA NATURE : FEUILLE ou GROUPE (Rodolf, 03/09) ───────────────
+			/// « Chaque rectangle est un graphique et ne peut en aucun cas
+			/// contenir d'autres graphiques ou groupes. » Deux familles : les
+			/// FEUILLES (graphiques, images, texte) et les GROUPES (contiennent
+			/// groupes et feuilles). Le GENRE du groupe est libre : `simple`,
+			/// `booleen` (une operation booleenne CREE un groupe -- chapitre 3),
+			/// `composant`, d'autres plus tard ; un genre inconnu se relit et se
+			/// reemet intact. Cle `groupe = <genre>`, additive : absente =
+			/// inferee (voir NkEstGroupe) ; ecrite des qu'un groupe est cree,
+			/// pour qu'un groupe VIDE reste un groupe.
+			NkString genre; ///< vide = pas declare (infere) ; cle `groupe`
 
 			// ── CE NŒUD EST-IL UNE INSTANCE ? (composants de document, 02/09) ──
 			/// La **clé** de la déclaration dont ce nœud est une instance
@@ -1648,6 +1671,7 @@ namespace nkuidesign {
 					d.refusPosition = s.refusPosition;
 					d.refusRotation = s.refusRotation;
 					d.refusEchelle = s.refusEchelle;
+					d.genre = s.genre;
 					d.miroirH = s.miroirH;
 					d.miroirV = s.miroirV;
 					d.borderW = s.borderW;
@@ -2309,6 +2333,11 @@ namespace nkuidesign {
 					out.Append("  refus_rotation = 1\n");
 				if (n.refusEchelle)
 					out.Append("  refus_echelle = 1\n");
+				if (!n.genre.Empty()) {
+					out.Append("  groupe = ");
+					out.Append(n.genre);
+					out.Append("\n");
+				}
 				// ── L'INSTANCE ET SES ÉCARTS (composants de document) ────
 				// Mêmes règles additives : un nœud ordinaire n'écrit rien.
 				if (!n.instanceDe.Empty()) {
@@ -2895,6 +2924,8 @@ namespace nkuidesign {
 							n.refusRotation = (val[0] == '1');
 						else if (StrEq(key, "refus_echelle"))
 							n.refusEchelle = (val[0] == '1');
+						else if (StrEq(key, "groupe"))
+							n.genre = NkString(val); // genre libre, inconnu preserve
 						else if (StrEq(key, "instance"))
 							n.instanceDe = NkString(val);
 						else if (StrEq(key, "ecarts"))
@@ -3011,6 +3042,7 @@ namespace nkuidesign {
 					d.refusPosition = s.refusPosition;
 					d.refusRotation = s.refusRotation;
 					d.refusEchelle = s.refusEchelle;
+					d.genre = s.genre;
 						d.miroirH = s.miroirH;
 						d.miroirV = s.miroirV;
 						// 📌 CONSTAT, NON CORRIGÉ ET NON ÉLARGI (2026-09-01) :
@@ -3560,4 +3592,86 @@ namespace nkuidesign {
 			n.verrouille = valeur;
 	}
 
+	inline bool NkEstGroupe(const NkUINode &n) {
+		return NkComponentDecl::StrEq(n.shape.Data(), "frame") || !n.genre.Empty()
+			   || !n.children.Empty();
+	}
+
+	/// LA MIGRATION (Rodolf, 03/09 : ses six rect a enfants sont illegaux).
+	/// Un ENVELOPPEMENT, pas un re-etiquetage : un graphique qui porte des
+	/// enfants garde son dessin (fond, bordure) et devient la PREMIERE feuille
+	/// d'un groupe neuf qui prend sa place, sa boite, son etiquette, son role,
+	/// sa rotation, ses miroirs, son echelle ; ses anciens enfants suivent dans
+	/// le groupe, aux memes positions relatives (la boite du groupe est celle du
+	/// graphique, a l'origine). Rien ne bouge a l'ecran : sonde 48 (peintre
+	/// enregistreur, commande pour commande). Rend le nombre d'enveloppements ;
+	/// `enveloppes` recoit les indices des groupes crees.
+	inline uint32 NkEnvelopperGraphiques(NkUIDocument &doc, NkVector<int32> *enveloppes) {
+		uint32 nb = 0;
+		const uint32 n0 = (uint32)doc.nodes.Size(); // les groupes crees s'ajoutent apres
+		for (uint32 i = 1; i < n0; ++i) {
+			NkUINode &g = doc.nodes[i];
+			if (g.children.Empty() || !g.genre.Empty() || g.shape.Empty()
+				|| NkComponentDecl::StrEq(g.shape.Data(), "frame"))
+				continue; // un groupe, une planche, ou un noeud sans forme : rien a faire
+			const int32 parent = g.parent;
+			if (!doc.IsValidIndex(parent))
+				continue;
+			// le rang du graphique chez son parent : le groupe prend cette place
+			int32 rang = -1;
+			const NkVector<int32> &freres = doc.nodes[(uint32)parent].children;
+			for (uint32 k = 0; k < (uint32)freres.Size(); ++k)
+				if (freres[k] == (int32)i)
+					rang = (int32)k;
+			const int32 gi = doc.AddChild(parent, "", NkAuthor::Humain);
+			if (!doc.IsValidIndex(gi))
+				continue;
+			NkVector<int32> anciens = doc.nodes[i].children; // copie : on va les deplacer
+			{
+				NkUINode &G = doc.nodes[(uint32)gi];
+				const NkUINode &f = doc.nodes[i];
+				G.label = f.label;
+				G.genre = NkString("simple");
+				G.layout = f.layout;
+				G.posX = f.posX;
+				G.posY = f.posY;
+				G.width = f.width;
+				G.height = f.height;
+				G.rotation = f.rotation;
+				G.miroirH = f.miroirH;
+				G.miroirV = f.miroirV;
+				G.echelleX = f.echelleX;
+				G.echelleY = f.echelleY;
+				G.role = f.role;
+				G.verrouille = f.verrouille;
+				G.masque = f.masque;
+			}
+			if (rang >= 0)
+				doc.MoveChild(gi, rang);
+			// le graphique devient la premiere feuille du groupe, a l'origine, droit
+			doc.Reparent((int32)i, gi, 0);
+			{
+				NkUINode &f = doc.nodes[i];
+				f.posX = 0.f;
+				f.posY = 0.f;
+				f.rotation = 0.f;
+				f.miroirH = false;
+				f.miroirV = false;
+				f.echelleX = 1.f;
+				f.echelleY = 1.f;
+				f.role = NkString();
+				f.verrouille = false;
+				f.masque = false;
+				if (!f.label.Empty())
+					f.label.Append(" (fond)");
+			}
+			// ses anciens enfants suivent, dans l'ordre, aux memes positions relatives
+			for (uint32 k = 0; k < (uint32)anciens.Size(); ++k)
+				doc.Reparent(anciens[k], gi, -1);
+			if (enveloppes)
+				enveloppes->PushBack(gi);
+			++nb;
+		}
+		return nb;
+	}
 } // namespace nkuidesign
