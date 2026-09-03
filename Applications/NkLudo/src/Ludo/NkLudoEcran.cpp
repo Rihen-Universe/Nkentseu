@@ -162,10 +162,33 @@ namespace nkentseu {
 					// le bouton.
 					const float32 dispoH = zoneH - hBandeau - marge * 2.f - hBandeau * 1.6f;
 					const float32 cote = zoneW < dispoH ? zoneW : dispoH;
+					const float32 xPlateau = zoneX + (zoneW - cote) * 0.5f;
 
-					plateau = NkRect{zoneX + (zoneW - cote) * 0.5f, bandeau.y + bandeau.h + marge, cote, cote};
+					// ── EN PORTRAIT AUSSI, L'ACTION S'ANCRE EN BAS ────────────
+					// Sur un telephone 1080x2400 le plateau est bride par la
+					// LARGEUR : 612 px de hauteur restent, et un centrage en bloc
+					// en faisait deux bandes vides de 290 px, en haut et en bas.
+					// La disposition d'un ecran de telephone est plutot : le
+					// bandeau en haut, le bouton en bas SOUS LE POUCE, et le jeu
+					// centre entre les deux. Meme regle qu'en paysage, donc --
+					// une seule facon de faire, pas une par orientation.
+					const float32 hBouton = hBandeau * 0.82f;
+					bouton = NkRect{xPlateau, zoneY + zoneH - hBouton, cote, hBouton};
 
+					// Le bloc central -- plateau puis sieges -- se centre entre le
+					// bandeau et le bouton. Quand la hauteur est juste (c'est le
+					// cas ou `cote == dispoH`), il tombe exactement dans le flot
+					// d'origine : le centrage n'invente rien, il repartit.
 					const float32 hSiege = hBandeau * 0.62f;
+					const float32 hBloc = cote + marge * 0.6f + hSiege;
+					const float32 yDebut = bandeau.y + bandeau.h + marge;
+					const float32 yFin = bouton.y - marge * 0.5f;
+					float32 yPlateau = yDebut + ((yFin - yDebut) - hBloc) * 0.5f;
+					if (yPlateau < yDebut) {
+						yPlateau = yDebut;
+					}
+					plateau = NkRect{xPlateau, yPlateau, cote, cote};
+
 					const float32 ySiege = plateau.y + cote + marge * 0.6f;
 					const float32 ecart = cote * 0.015f;
 					const float32 lSiege = (cote - ecart * 3.f) / 4.f;
@@ -173,7 +196,6 @@ namespace nkentseu {
 						siege[i] =
 							NkRect{plateau.x + static_cast<float32>(i) * (lSiege + ecart), ySiege, lSiege, hSiege};
 					}
-					bouton = NkRect{plateau.x, ySiege + hSiege + marge * 0.5f, cote, hBandeau * 0.82f};
 				} else {
 					// ── DEUX COLONNES : LE PLATEAU A GAUCHE, LE RESTE A DROITE ─
 					//
@@ -244,7 +266,12 @@ namespace nkentseu {
 					// haut, la liste au milieu, l'ACTION en bas. Elle a en plus
 					// l'avantage de mettre le bouton la ou le pouce l'atteint.
 					const float32 hBouton = hBandeau * 0.95f;
-					const float32 basPlateau = plateau.y + coteFinal;
+					// Le bas de la ZONE, pas du plateau : quand le plateau a cede
+					// de la place a la colonne (tablette 2560x1600 : 1452 px pour
+					// 1504 de hauteur utile), il est centre et son bas flotte a
+					// 26 px du bord. La colonne, elle, doit toujours aller jusqu'en
+					// bas -- c'est le banc qui l'a vu, pas l'oeil.
+					const float32 basPlateau = zoneY + zoneH;
 					float32 yBouton = y + ecart;
 					// Si la pile est plus haute que le plateau -- colonne etroite,
 					// beaucoup de sieges -- on garde le flot naturel plutot que de
@@ -591,8 +618,22 @@ namespace nkentseu {
 			void DessinerPiedDePage(NkGuiDrawList &dl, const NkLudoGeometrie &geo, const NkLudoPolices &f,
 									const NkLudoVue &vue) {
 				const int32 courant = vue.partie->Joueur();
+
+				// ── « VOUS » N'A DE SENS QUE S'IL N'Y A QU'UN SEUL HUMAIN ─────
+				// Vu sur une capture en mode quatre joueurs : quatre sieges qui
+				// disent tous « vous ». Quatre personnes autour d'un telephone
+				// ne sont pas « vous » -- elles sont Rouge, Bleu, Jaune, Vert.
+				// Le mot ne designe quelqu'un que quand il est seul en face de
+				// l'IA ; sinon c'est la couleur qui nomme le siege.
+				int32 humains = 0;
+				for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+					if (vue.controleur[i] != NkControleur::NK_IA) {
+						++humains;
+					}
+				}
 				for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
 					const bool ia = vue.controleur[i] == NkControleur::NK_IA;
+					const char *libelle = ia ? "IA" : (humains == 1 ? "vous" : kNomJoueur[i]);
 					const bool auTrait = (!vue.finie && courant == i);
 					dl.AddRectFilled(geo.siege[i], ia ? kPanneau : kPanneauActif, geo.siege[i].h * 0.28f);
 					dl.AddRect(geo.siege[i], auTrait ? kJoueur[i] : kBord, auTrait ? 2.5f : 1.5f,
@@ -601,11 +642,12 @@ namespace nkentseu {
 						NkVec2f(geo.siege[i].x + geo.siege[i].h * 0.42f, geo.siege[i].y + geo.siege[i].h * 0.5f),
 						geo.siege[i].h * 0.19f, kJoueur[i]);
 					// Un mot court : quatre sieges tiennent cote a cote parce que
-					// le libelle est "IA" ou "vous", jamais une phrase.
+					// le libelle est un seul mot -- "IA", "vous" ou une couleur --
+					// jamais une phrase.
 					TexteDansBoite(dl, f.petite,
 								   NkRect{geo.siege[i].x + geo.siege[i].h * 0.68f, geo.siege[i].y,
 										  geo.siege[i].w - geo.siege[i].h * 0.76f, geo.siege[i].h},
-								   ia ? "IA" : "vous", ia ? kTexteFaible : kTexte);
+								   libelle, ia ? kTexteFaible : kTexte);
 				}
 
 				// Le bouton fait DEUX choses selon l'etat : lancer le de, ou

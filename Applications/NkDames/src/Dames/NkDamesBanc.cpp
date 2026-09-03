@@ -283,6 +283,7 @@ int32 NkDamesLancerBanc() {
 		bool damierUtile = true;
 		bool centree = true;
 		bool proportionnee = true;
+		bool actionEnBas = true;
 		const char *fautif = "";
 
 		for (uint32 e = 0; e < sizeof(ecrans) / sizeof(ecrans[0]); ++e) {
@@ -386,6 +387,17 @@ int32 NkDamesLancerBanc() {
 				proportionnee = false;
 				fautif = s.nom;
 			}
+
+			// ── 7. L'ACTION TOUCHE LE BAS ─────────────────────────────────
+			// En paysage elle s'aligne sur le bas du plateau ; en portrait sur
+			// le bas de la zone. Dans les deux cas : le bord inferieur de la
+			// zone sure, a une marge pres. Sans ancrage, un centrage en bloc la
+			// laissait a 290 px du bas sur un telephone en portrait -- le
+			// critere de centrage, lui, restait VERT : il ne voit que la boite.
+			if (bMax < y1 - petitCote * 0.03f - 1.f) {
+				actionEnBas = false;
+				fautif = s.nom;
+			}
 		}
 
 		verifier("mise en page : tout tient dans la zone sure", tousDedans);
@@ -394,7 +406,9 @@ int32 NkDamesLancerBanc() {
 		verifier("mise en page : le damier occupe la place disponible", damierUtile);
 		verifier("mise en page : centree, ce qui reste fait DEUX marges egales", centree);
 		verifier("mise en page : la colonne ne concurrence pas le damier", proportionnee);
-		if (!tousDedans || !tousCarres || !aucunRecouvrement || !damierUtile || !centree || !proportionnee) {
+		verifier("mise en page : l'action touche le bas, sous le pouce", actionEnBas);
+		if (!tousDedans || !tousCarres || !aucunRecouvrement || !damierUtile || !centree || !proportionnee ||
+			!actionEnBas) {
 			logger.Infof("[banc]   (ecran fautif : %s)\n", fautif);
 		}
 	}
