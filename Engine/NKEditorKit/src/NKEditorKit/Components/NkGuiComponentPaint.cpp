@@ -79,6 +79,13 @@ namespace nkentseu {
 			const float32 lh = mCtx.font->LineHeight();
 			const float32 baseY = r.y + (r.h - lh) * 0.5f + mCtx.font->Ascent();
 
+			if (const NkPaintTransform *m = TransformeActive()) {
+				// Sous transformee : pas de calage au pixel (il tordrait les glyphes),
+				// et LA meme matrice que les formes -- le texte tourne avec sa boite.
+				mCtx.DL().AddTextTransforme(face, mCtx.font->TexId(), {x, baseY}, draw, C(role), m->a,
+											m->b, m->c, m->d, m->e, m->f);
+				return;
+			}
 			mCtx.DL().AddText(face, mCtx.font->TexId(), {Px(x), Px(baseY)}, draw, C(role));
 		}
 
@@ -103,7 +110,7 @@ namespace nkentseu {
 			// la mise en page doit s'en apercevoir des maintenant.
 			const float32 side = r.w < r.h ? r.w : r.h;
 			const NkPaintRect q{r.x + (r.w - side) * 0.5f, r.y + (r.h - side) * 0.5f, side, side};
-			mCtx.DL().AddRectFilled(R(q), C(role), side * 0.15f);
+			RectRempli(q, C(role), side * 0.15f); // transforme s'il le faut
 		}
 
 	} // namespace editorkit

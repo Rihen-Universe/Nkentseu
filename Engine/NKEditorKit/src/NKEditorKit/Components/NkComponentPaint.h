@@ -182,6 +182,19 @@ namespace nkentseu {
 		/// que NKGui n'expose pas son aide interne — cf. `ROADMAP.md` §2.
 		enum class NkTextAlign : uint8 { Left = 0, Center, Right };
 
+		/// UNE TRANSFORMEE AFFINE 2x3 (2026-09-03, NkUIDesign). Les points sont des
+		/// colonnes (x, y, 1) :   | a c e |
+		///                        | b d f |
+		/// ⚠️ ADDITIF : elle n'entre dans aucune signature existante. Les peintres
+		///    qui ne la connaissent pas gardent les defauts VIDES ci-dessous et
+		///    dessinent droit -- exactement comme avant.
+		struct NkPaintTransform {
+				float32 a = 1.f, b = 0.f, c = 0.f, d = 1.f, e = 0.f, f = 0.f;
+				bool Identite() const {
+					return a == 1.f && b == 0.f && c == 0.f && d == 1.f && e == 0.f && f == 0.f;
+				}
+		};
+
 		// ── L'INTERFACE ─────────────────────────────────────────────────────────
 		class NkComponentPaint {
 			public:
@@ -308,6 +321,23 @@ namespace nkentseu {
 				// demi sortie du panneau deborde sur son voisin.
 				virtual void PushClip(const NkPaintRect &r) = 0;
 				virtual void PopClip() = 0;
+
+				// ── LA TRANSFORMEE (2026-09-03) ────────────────────────────────
+				/// Empiler une transformee : tout ce qui se peint ensuite passe par
+				/// elle, jusqu'au `PopTransform` correspondant. Rotation, miroir et
+				/// ECHELLE d'un noeud et de ses ancetres -- texte compris.
+				/// 🔑 POURQUOI SUR LE PEINTRE, ET PAS DANS CHAQUE DESSIN : le document
+				///    peint des formes, des composants ET du texte par des primitives
+				///    droites (`Fill`, `Outline`, `TextHex`...). Tourner chacune
+				///    « chez elle » aurait donne trois implementations -- et, mesure le
+				///    03/09, un bouton dont le fond tourne pendant que son libelle
+				///    reste droit. Une seule porte, en amont de toutes les primitives.
+				/// ⚠️ DEFAUT VIDE, ET C'EST LE CONTRAT ADDITIF : un peintre qui ne la
+				///    surcharge pas dessine droit, comme avant. Les deux peintres du
+				///    kit la surchargent : `NkGuiComponentPaint` l'APPLIQUE,
+				///    `NkRecordingPaint` l'ENREGISTRE (le temoin sans ecran la voit).
+				virtual void PushTransform(const NkPaintTransform &t) { (void)t; }
+				virtual void PopTransform() {}
 		};
 
 	} // namespace editorkit

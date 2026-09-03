@@ -83,28 +83,41 @@ namespace nkentseu {
 
 				// ── Primitives ──────────────────────────────────────────────────
 				void Fill(const NkPaintRect &r, uint16 role, float32 rounding) override {
-					mCtx.DL().AddRectFilled(R(r), C(role), rounding);
+					RectRempli(r, C(role), rounding);
 				}
 				void FillColor(const NkPaintRect &r, uint32 rgba, float32 rounding) override {
-					mCtx.DL().AddRectFilled(R(r), Unpack(rgba), rounding);
+					RectRempli(r, Unpack(rgba), rounding);
 				}
 				void Outline(const NkPaintRect &r, uint16 border, uint16 inner,
 							 float32 rounding) override {
 					// Contournement assume : `AddRect` ne sait pas arrondir. Plein
 					// puis creusement d'un pixel. Meme geste que `NkModelerPainter`,
 					// et il disparait le jour ou NKGui sait arrondir un contour.
-					const nkgui::NkRect q = R(r);
-					mCtx.DL().AddRectFilled(q, C(border), rounding);
-					mCtx.DL().AddRectFilled({q.x + 1.f, q.y + 1.f, q.w - 2.f, q.h - 2.f}, C(inner),
-											rounding > 1.f ? rounding - 1.f : 0.f);
+					RectRempli(r, C(border), rounding);
+					RectRempli({r.x + 1.f, r.y + 1.f, r.w - 2.f, r.h - 2.f}, C(inner),
+							   rounding > 1.f ? rounding - 1.f : 0.f);
 				}
 				void OutlineSharp(const NkPaintRect &r, uint16 role) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						nkgui::NkVec2 p[4];
+						Coins(*m, r, p);
+						mCtx.DL().AddPolyline(p, 4, C(role), 1.f, true);
+						return;
+					}
 					mCtx.DL().AddRect(R(r), C(role), 1.f);
 				}
 				void HLine(float32 x, float32 y, float32 w, uint16 role) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						mCtx.DL().AddLine(T(*m, x, y), T(*m, x + w, y), C(role), 1.f);
+						return;
+					}
 					mCtx.DL().AddRectFilled({Px(x), Px(y), Px(x + w) - Px(x), 1.f}, C(role));
 				}
 				void VLine(float32 x, float32 y, float32 h, uint16 role) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						mCtx.DL().AddLine(T(*m, x, y), T(*m, x, y + h), C(role), 1.f);
+						return;
+					}
 					mCtx.DL().AddRectFilled({Px(x), Px(y), 1.f, Px(y + h) - Px(y)}, C(role));
 				}
 
@@ -115,12 +128,29 @@ namespace nkentseu {
 				// grossir » tient : l'ellipse parametrique vit dans NKGui
 				// (`AddEllipseFilled`), la ligne dans `AddLine`.
 				bool Ellipse(const NkPaintRect &r, uint16 role) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						// 48 points : la meme finesse que l'ellipse native pour un rayon
+						// de l'ordre de la boite, transformes un a un.
+						enum { kN = 48 };
+						nkgui::NkVec2 p[kN];
+						const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+						for (int32 i = 0; i < kN; ++i) {
+							const float32 ang = 6.2831853f * (float32)i / (float32)kN;
+							p[i] = T(*m, cx + r.w * 0.5f * NkCosApprox(ang), cy + r.h * 0.5f * NkSinApprox(ang));
+						}
+						mCtx.DL().AddConvexPolyFilled(p, kN, C(role));
+						return true;
+					}
 					mCtx.DL().AddEllipseFilled({r.x + r.w * 0.5f, r.y + r.h * 0.5f}, r.w * 0.5f,
 											   r.h * 0.5f, C(role));
 					return true;
 				}
 				bool Line(float32 x1, float32 y1, float32 x2, float32 y2, uint16 role,
 						  float32 thickness) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						mCtx.DL().AddLine(T(*m, x1, y1), T(*m, x2, y2), C(role), thickness);
+						return true;
+					}
 					mCtx.DL().AddLine({x1, y1}, {x2, y2}, C(role), thickness);
 					return true;
 				}
@@ -159,6 +189,20 @@ namespace nkentseu {
 				///    disparaît est pire qu'une forme mal remplie : elle fait croire
 				///    à une suppression.
 				bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						if (!xy || count < 3 || count > 128)
+							return false;
+						float32 tmp[256];
+						for (int32 i = 0; i < count; ++i) {
+							const nkgui::NkVec2 q = T(*m, xy[i * 2], xy[i * 2 + 1]);
+							tmp[i * 2] = q.x;
+							tmp[i * 2 + 1] = q.y;
+						}
+						return PolygonHexBrut(tmp, count, rgba);
+					}
+					return PolygonHexBrut(xy, count, rgba);
+				}
+				bool PolygonHexBrut(const float32 *xy, int32 count, uint32 rgba) {
 					if (!xy || count < 3)
 						return false;
 					const nkgui::NkColor col = {(uint8)((rgba >> 24) & 0xFFu),
@@ -207,6 +251,22 @@ namespace nkentseu {
 				}
 
 				void PushClip(const NkPaintRect &r) override {
+					if (const NkPaintTransform *m = TransformeActive()) {
+						// ⚠️ UNE DECOUPE TOURNEE N'EST PAS UN RECTANGLE. On prend l'englobant
+						//    du rectangle transforme : il ne coupe jamais ce qui doit se
+						//    voir, il peut en laisser un peu plus. Dit ici, pas cache.
+						nkgui::NkVec2 p[4];
+						Coins(*m, r, p);
+						float32 x0 = p[0].x, y0 = p[0].y, x1 = p[0].x, y1 = p[0].y;
+						for (int32 i = 1; i < 4; ++i) {
+							if (p[i].x < x0) x0 = p[i].x;
+							if (p[i].x > x1) x1 = p[i].x;
+							if (p[i].y < y0) y0 = p[i].y;
+							if (p[i].y > y1) y1 = p[i].y;
+						}
+						mCtx.DL().PushClipRect({x0, y0, x1 - x0, y1 - y0}, true);
+						return;
+					}
 					mCtx.DL().PushClipRect(R(r), true);
 				}
 				void PopClip() override {
@@ -218,6 +278,101 @@ namespace nkentseu {
 				/// des glyphes poses a mi-pixel) : `Px` est repris tel quel de
 				/// `NkModelerUI.h:59`, et c'est l'une des choses que la reception du
 				/// peintre doit GARDER, pas « nettoyer ».
+			public:
+				// ── LA TRANSFORMEE : la pile et ses aides ──────────────────────
+				// `protected` : un peintre derive (celui d'une application, avec
+				// ses propres polices) doit lire la matrice en vigueur pour la
+				// respecter dans SES primitives. Le kit ne devine pas les siennes.
+				void PushTransform(const NkPaintTransform &m) override {
+					if (mSpT < kProfT) {
+						// Composee avec celle du dessus : un enfant sous un parent
+						// transforme ajoute la sienne, il ne la remplace pas.
+						const NkPaintTransform *h = TransformeActive();
+						mPileT[mSpT] = h ? Composer(*h, m) : m;
+					}
+					++mSpT; // au-dela de la profondeur : on compte, on n'applique pas
+				}
+				void PopTransform() override {
+					if (mSpT > 0)
+						--mSpT;
+				}
+			protected:
+				/// La transformee en vigueur, ou nullptr a l'identite / hors pile.
+				const NkPaintTransform *TransformeActive() const noexcept {
+					if (mSpT == 0 || mSpT > kProfT)
+						return nullptr;
+					const NkPaintTransform &m = mPileT[mSpT - 1];
+					return m.Identite() ? nullptr : &m;
+				}
+				static nkgui::NkVec2 T(const NkPaintTransform &m, float32 x, float32 y) noexcept {
+					return {m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f};
+				}
+				/// h o m : d'abord m (la nouvelle), puis h (celle du dessus).
+				static NkPaintTransform Composer(const NkPaintTransform &h,
+												 const NkPaintTransform &m) noexcept {
+					NkPaintTransform r;
+					r.a = h.a * m.a + h.c * m.b;
+					r.b = h.b * m.a + h.d * m.b;
+					r.c = h.a * m.c + h.c * m.d;
+					r.d = h.b * m.c + h.d * m.d;
+					r.e = h.a * m.e + h.c * m.f + h.e;
+					r.f = h.b * m.e + h.d * m.f + h.f;
+					return r;
+				}
+				static void Coins(const NkPaintTransform &m, const NkPaintRect &r,
+								  nkgui::NkVec2 *p) noexcept {
+					p[0] = T(m, r.x, r.y);
+					p[1] = T(m, r.x + r.w, r.y);
+					p[2] = T(m, r.x + r.w, r.y + r.h);
+					p[3] = T(m, r.x, r.y + r.h);
+				}
+				// sin/cos sans <cmath> dans l'en-tete : polynomes suffisants pour des
+				// arcs de dessin (erreur < 1e-3), le meme parti que `NkSinCosDeg` du document.
+				static float32 NkSinApprox(float32 x) noexcept {
+					while (x > 3.14159265f) x -= 6.2831853f;
+					while (x < -3.14159265f) x += 6.2831853f;
+					const float32 x2 = x * x;
+					return x * (1.f - x2 / 6.f * (1.f - x2 / 20.f * (1.f - x2 / 42.f * (1.f - x2 / 72.f))));
+				}
+				static float32 NkCosApprox(float32 x) noexcept { return NkSinApprox(x + 1.57079633f); }
+				/// Un rectangle (arrondi ou non) rempli, transforme s'il le faut.
+				void RectRempli(const NkPaintRect &r, const nkgui::NkColor &col, float32 rounding) {
+					const NkPaintTransform *m = TransformeActive();
+					if (!m) {
+						mCtx.DL().AddRectFilled(R(r), col, rounding);
+						return;
+					}
+					if (r.w <= 0.f || r.h <= 0.f)
+						return;
+					float32 ro = rounding;
+					const float32 demi = (r.w < r.h ? r.w : r.h) * 0.5f;
+					if (ro > demi) ro = demi;
+					if (ro <= 0.5f) {
+						nkgui::NkVec2 p[4];
+						Coins(*m, r, p);
+						mCtx.DL().AddConvexPolyFilled(p, 4, col);
+						return;
+					}
+					// quatre arcs de kS segments, dans le repere propre, PUIS transformes :
+					// l'arrondi se calcule droit, comme pour les formes du document.
+					enum { kS = 6 };
+					nkgui::NkVec2 p[4 * (kS + 1)];
+					int32 n = 0;
+					const float32 cxs[4] = {r.x + r.w - ro, r.x + r.w - ro, r.x + ro, r.x + ro};
+					const float32 cys[4] = {r.y + ro, r.y + r.h - ro, r.y + r.h - ro, r.y + ro};
+					const float32 a0s[4] = {-1.57079633f, 0.f, 1.57079633f, 3.14159265f};
+					for (int32 k = 0; k < 4; ++k)
+						for (int32 s = 0; s <= kS; ++s) {
+							const float32 ang = a0s[k] + 1.57079633f * (float32)s / (float32)kS;
+							p[n++] = T(*m, cxs[k] + ro * NkCosApprox(ang), cys[k] + ro * NkSinApprox(ang));
+						}
+					mCtx.DL().AddConvexPolyFilled(p, n, col);
+				}
+				enum { kProfT = 16 };
+				NkPaintTransform mPileT[kProfT];
+				int32 mSpT = 0;
+
+			private:
 				static float32 Px(float32 v) noexcept {
 					return (float32)(int32)(v + 0.5f);
 				}

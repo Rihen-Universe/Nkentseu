@@ -67,6 +67,9 @@ namespace nkentseu {
 			// l'enumeration est append-only comme toutes celles de la forme.
 			Ellipse,
 			Line,
+			// 2026-09-03 : la transformee du peintre. EN FIN, avant Count.
+			PushTransform,
+			PopTransform,
 			Count
 		};
 
@@ -96,6 +99,10 @@ namespace nkentseu {
 					return "Ellipse";
 				case NkPaintOp::Line:
 					return "Line";
+				case NkPaintOp::PushTransform:
+					return "PushTransform";
+				case NkPaintOp::PopTransform:
+					return "PopTransform";
 				default:
 					return "?";
 			}
@@ -107,6 +114,8 @@ namespace nkentseu {
 				uint16 role = 0, role2 = 0;
 				uint32 rgba = 0;
 				float32 rounding = 0.f;
+				/// Pour PushTransform : a,b,c,d dans x,y,w,h ; e dans rounding ; f ICI.
+				float32 tf = 0.f;
 				uint16 icon = 0;
 				uint8 align = 0;
 				NkString text;
@@ -120,7 +129,7 @@ namespace nkentseu {
 						icon != o.icon || align != o.align)
 						return false;
 					if (!Near(x, o.x) || !Near(y, o.y) || !Near(w, o.w) || !Near(h, o.h) ||
-						!Near(rounding, o.rounding))
+						!Near(rounding, o.rounding) || !Near(tf, o.tf))
 						return false;
 					const char *a = text.Data(), *b = o.text.Data();
 					if (!a || !b)
@@ -209,6 +218,17 @@ namespace nkentseu {
 					Push(NkPaintOp::Line, {x1, y1, x2 - x1, y2 - y1}, role, 0, 0, thickness, 0, 0,
 						 nullptr);
 					return true;
+				}
+				/// LA TRANSFORMEE S'ENREGISTRE -- c'est ce qui rend le texte tourne
+				/// PROUVABLE sans ecran : le banc lit `PushTransform` avec ses six
+				/// coefficients, puis les commandes qu'elle couvre.
+				void PushTransform(const NkPaintTransform &t) override {
+					Push(NkPaintOp::PushTransform, {t.a, t.b, t.c, t.d}, 0, 0, 0, t.e, 0, 0, nullptr);
+					if (!cmds.Empty())
+						cmds[cmds.Size() - 1].tf = t.f;
+				}
+				void PopTransform() override {
+					Push(NkPaintOp::PopTransform, {0.f, 0.f, 0.f, 0.f}, 0, 0, 0, 0.f, 0, 0, nullptr);
 				}
 				void PushClip(const NkPaintRect &r) override {
 					++mClipDepth;
