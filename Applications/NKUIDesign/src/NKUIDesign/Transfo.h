@@ -282,6 +282,17 @@ namespace nkuidesign {
 	/// n'arrive qu'avec une échelle nulle, que ce modèle ne produit pas ; le
 	/// repli existe pour que le picking désigne « la boîte droite » plutôt que
 	/// de rendre des coordonnées infinies qui feraient disparaître le nœud.
+	/// APPLIQUER une matrice a un CONTOUR (suite de x,y).
+	/// 🔑 C'est la porte qui manquait au DESSIN : le pointage lisait deja
+	///    `NkMatEffective`, le dessin n'appliquait que la transformee PROPRE
+	///    du noeud. Les deux lisent desormais la meme composition.
+	inline void NkMatContour(const NkMat2D &m, float32 *xy, uint32 nb) {
+		if (!xy || m.Identite())
+			return;
+		for (uint32 i = 0; i < nb; ++i)
+			NkMatPoint(m, xy[i * 2u], xy[i * 2u + 1u]);
+	}
+
 	inline NkMat2D NkMatInverse(const NkMat2D &m) {
 		const float32 det = m.a * m.d - m.b * m.c;
 		NkMat2D o;

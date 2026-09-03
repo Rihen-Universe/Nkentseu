@@ -686,15 +686,16 @@ namespace nkuidesign {
 		///    qui a l'air juste* — la pire des sorties, déjà nommée sur l'ombre
 		///    interne.
 		inline bool NkGTraceEdite(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
-								  const NkDocumentHost &host) {
+								  const NkDocumentHost &host, const NkMat2D &mEff) {
 			// ⚠️ DEUX RAISONS D'EMPRUNTER CE CHEMIN, PAS UNE, et c'est pour ça que
 			//    la condition a grossi au lieu d'être doublée : une forme se peint
 			//    par sa liste de points soit parce qu'on a **édité ses sommets**,
 			//    soit parce qu'elle est **transformée** (tournée, retournée). Les
 			//    deux produisent la même chose — un contour quelconque — et un
 			//    second peintre écrit à côté aurait divergé au premier arrondi.
-			const NkTransfo t = NkTransfoDe(n);
-			if (n.sommets.Empty() && t.Identite())
+			// LA MATRICE EFFECTIVE, PAS LA TRANSFORMEE PROPRE : elle porte deja
+			// celles des ancetres, chacune autour de SON centre.
+			if (n.sommets.Empty() && mEff.Identite())
 				return false;
 			nkentseu::float32 xy[256];
 			const nkentseu::uint32 nb = NkContourDe(n, r, xy, 128);
@@ -705,7 +706,7 @@ namespace nkuidesign {
 			//    Tournés d'abord, les rayons auraient été bornés contre des côtés
 			//    déjà pivotés — un arrondi qui change de taille quand on tourne
 			//    l'objet.
-			NkTransfoContour(t, r, xy, nb);
+			NkMatContour(mEff, xy, nb);
 			const nkentseu::uint32 rgba =
 				n.FondEffectif() ? NkGFondRGBA(n) : p.ColorOf(host.Role("doc_field_bg"));
 			return p.PolygonHex(xy, (nkentseu::int32)nb, rgba);
@@ -757,8 +758,11 @@ namespace nkuidesign {
 		///    `Free` est une FORME, un noeud sous `Column`/`Row`/`Grid`/`Anchor`
 		///    est un CADRE. Le document du 18 aout n a aucun parent `Free` : son
 		///    rendu ne bouge donc pas d un pixel.
+		/// `mEff` : LA COMPOSITION DU NOEUD ET DE SES ANCETRES, calculee une
+		/// fois par `NkDrawDocument` et lue AUSSI par le pointage. Deux calculs
+		/// auraient laisse un objet se voir a un endroit et se cliquer a un autre.
 		inline void DrawShape(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
-							  const NkDocumentHost &host) {
+							  const NkDocumentHost &host, const NkMat2D &mEff) {
 			if (r.w <= 0.f || r.h <= 0.f)
 				return;
 			const char *name = n.label.Data();
@@ -830,7 +834,7 @@ namespace nkuidesign {
 				//    Sortir avant `NkGOmbres` aurait fait DISPARAÎTRE l'ombre au
 				//    moment précis où l'on déplace un coin — une propriété perdue
 				//    par un geste qui n'a rien à voir avec elle.
-				if (NkGTraceEdite(p, r, n, host))
+				if (NkGTraceEdite(p, r, n, host, mEff))
 					return;
 				// ⚠️ LE RECTANGLE EMPILE SES REMPLISSAGES, DANS L'ORDRE DE LA
 				//    LISTE — le DERNIER par-dessus, comme chez Lunacy. C'est le
@@ -1027,7 +1031,7 @@ namespace nkuidesign {
 				//    L'écrire ici en même temps que là-haut est le geste de la porte
 				//    du 28/08 — écrit plus tard, ce serait un rect qui se déforme et
 				//    une ellipse qui n'obéit pas, sans que rien ne le dise.
-				if (NkGTraceEdite(p, r, n, host))
+				if (NkGTraceEdite(p, r, n, host, mEff))
 					return;
 				if (!p.Ellipse(r, host.Role("doc_field_bg")))
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), r.h * 0.5f);
@@ -1071,7 +1075,7 @@ namespace nkuidesign {
 				// ⚠️ LE MEME GESTE QUE POUR LE RECT ET L'ELLIPSE, AU MEME MOMENT :
 				//    un polygone tourne se peint tourne. Ecrit seulement la-haut,
 				//    l'etoile aurait ete la seule forme a ignorer la rotation.
-				NkTransfoContour(NkTransfoDe(n), r, xy, nb);
+				NkMatContour(mEff, xy, nb);
 				if (nb == 0 || !p.PolygonHex(xy, (int32)nb, rgba))
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), 4.f);
 				return;
@@ -1408,7 +1412,9 @@ namespace nkuidesign {
 			//    le champ superpose TRANSPARENT le dessine a sa place — les deux
 			//    ensemble donneraient un double trait (regle du 31/08).
 			if (posee && node != host.editionNode)
-				renderdetail::DrawShape(p, r, n, host);
+				// UNE SEULE COMPOSITION, LUE PAR LES DEUX CHEMINS : celle que le
+				// pointage utilise deja (`NkPointDansNoeud` -> `NkMatEffective`).
+				renderdetail::DrawShape(p, r, n, host, NkMatEffective(doc, lay, node));
 			else if (posee && host.editionEtiquette) {
 				// RENOMMAGE d'etiquette : le CORPS de l'artboard se dessine,
 				// seule l'etiquette se tait (le champ superpose la remplace).
