@@ -293,11 +293,58 @@ namespace nkentseu {
 				virtual void OnResume() {
 				}
 
+				// =====================================================
+				// CE QUE LE SYSTEME NE LIVRE PAS, IL ACCEPTE DE LE FAIRE
+				// =====================================================
+				// Aucune plateforme mobile ne livre a une application les
+				// touches ACCUEIL, APPLICATIONS RECENTES, POWER, VEILLE.
+				// Les trois methodes ci-dessous obtiennent le RESULTAT que
+				// l'on cherchait en les demandant -- par une autre porte.
+				//
+				// ⚠️ Elles rendent `false` quand la cible ne sait pas faire,
+				// et le journalisent. Une methode qui rendrait `true` sans
+				// rien faire serait pire qu'absente : l'appelant la croirait.
+
+				/// Empeche l'ecran de s'eteindre. A REMETTRE A `false` en
+				/// quittant la partie : sinon on vide la batterie d'un
+				/// utilisateur qui a repose son telephone.
+				bool GarderEcranAllume(bool actif);
+
+				/// Epingle l'ecran : accueil et applications recentes cessent
+				/// de sortir de l'application. C'est la reponse reelle a
+				/// « je veux ces boutons » -- non pas les recevoir, mais les
+				/// neutraliser.
+				///
+				/// ⚠️ Le systeme laisse une sortie deliberee (appui long sur
+				/// Retour + Recentes) hors mode proprietaire d'appareil. Une
+				/// application qui pourrait sequestrer un telephone serait une
+				/// arme : on documente la limite au lieu de la contourner.
+				/// Usage prevu : mode enfant, demonstration, examen.
+				bool EpinglerEcran(bool actif);
+
+				/// Pourquoi l'application a perdu le premier plan.
+				enum class Raison {
+					ECRAN_ETEINT,		 ///< bouton power, ou veille automatique
+					PREMIER_PLAN_PERDU,	 ///< accueil, recentes, ou une autre application
+					INCONNUE			 ///< la question n'a pas pu etre posee
+				};
+
+				/// ⚠️ NE SEPARE PAS ACCUEIL DE RECENTES : aucune API publique
+				/// ne le dit, donc on ne l'invente pas. Rendre « probablement
+				/// accueil » serait une supposition que l'appelant croirait.
+				Raison RaisonDeLaPause() const {
+					return mRaisonPause;
+				}
+
+
 			private:
 				int Execute(const NkEntryState &state);
 				bool CreateWindowAndTarget();
 				NkGraphicsApi ResoudreBackend(const NkVector<NkString> &args) const;
 				void PumpEvents();
+				/// Interroge la cible AU MOMENT de la pause : dix secondes plus
+				/// tard, l'ecran a pu s'eteindre pour une autre raison.
+				void MesurerRaisonDeLaPause();
 				bool HandleLifecycle(const NkEvent &event);
 				void DispatchTyped(const NkEvent &event);
 				void RefreshLayout(bool force);
@@ -327,6 +374,7 @@ namespace nkentseu {
 				bool mSurfaceAlive = true; ///< false = arriere-plan : pas de surface native
 				bool mHasFocus = true;
 				bool mPaused = false; ///< etat courant vu par OnPause/OnResume
+				Raison mRaisonPause = Raison::INCONNUE; ///< renseigne a chaque OnPause
 				uint32 mLastWidth = 0;
 				uint32 mLastHeight = 0;
 		};
