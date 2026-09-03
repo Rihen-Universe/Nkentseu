@@ -10,6 +10,9 @@
 // Demontre le path complet : NkScene/Lights/DrawCalls -> Render3D::Submit
 //                            -> RenderGraph -> Flush.
 // =============================================================================
+#include "NKRenderer/Tools/VFX/NkVFXSystem.h" // sonde VFX
+#include <cstdlib>
+#include <cstdio>
 #include "DemoCommon.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
@@ -2152,6 +2155,34 @@ namespace nkentseu {
 			ctx.userData = st;
 
 			auto *meshSys = ctx.renderer->GetMeshSystem();
+
+			// ── SONDE VFX (2026-09-03) — « est-ce que les particules RENDENT ? » ──
+			// Six appelants reels de NkVFXSystem, ZERO demo active qui emette (les 4
+			// CreateEmitter du depot sont dans Demo06_10.cpp.legacy, retire le 08/05).
+			// Le code existe et il est appele -- ca ne prouve pas une image. Cette
+			// sonde en fabrique une, sous NK_VFX_PROBE=1 seulement : aucun effet
+			// pour quiconque ne pose pas la variable. Pas de texture : le champ
+			// NkEmitterDesc::texture n est lu nulle part dans NkVFXSystem.cpp (mesure).
+			if (const char *probe = std::getenv("NK_VFX_PROBE"); probe && probe[0] == '1') {
+				if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
+					NkEmitterDesc d;
+					d.position = {0.f, 1.5f, 0.f};
+					d.ratePerSec = 400.f;
+					d.lifeMin = 1.f; d.lifeMax = 2.f;
+					d.speedMin = 1.5f; d.speedMax = 3.f;
+					d.sizeStart = 0.25f; d.sizeEnd = 0.f;
+					d.colorStart = {1.f, 0.6f, 0.1f, 1.f};
+					d.colorEnd = {1.f, 0.1f, 0.f, 0.f};
+					d.gravity = {0.f, 0.8f, 0.f};
+					d.velocityDir = {0.f, 1.f, 0.f};
+					d.velocityRand = 0.6f;
+					d.maxParticles = 1000;
+					NkEmitterId eid = vfx->CreateEmitter(d);
+					std::fprintf(stderr, "[VFX PROBE] emetteur cree id=%llu (vfx=%p)\n", (unsigned long long)eid.id, (void *)vfx);
+				} else {
+					std::fprintf(stderr, "[VFX PROBE] GetVFX() == nullptr : sous-systeme VFX non alloue\n");
+				}
+			}
 			st->meshSphere = meshSys->GetSphere();
 			st->meshPlane = meshSys->GetPlane();
 			st->meshCube = meshSys->GetCube();
@@ -3901,6 +3932,32 @@ namespace nkentseu {
 			camData.nearPlane = 0.1f;
 			camData.farPlane = 100.f;
 			NkCamera3D cam(camData);
+
+			// ── SONDE VFX : tick (2026-09-03) ────────────────────────────────
+			// Mesure : NkRendererImpl cree le VFX (InitVFX) et le DESSINE (passe
+			// 'VFX' du graphe), mais n'appelle JAMAIS NkVFXSystem::Update(dt, cam).
+			// Ni Noge (NkParticleSystem : « l'animation est faite par le pipeline
+			// NKRenderer » -- faux), ni aucune demo active. aliveCount reste a 0,
+			// la passe saute chaque emetteur : zero particule a l'image, sur les
+			// deux backends. Le legacy Demo06_VFX faisait ce tick lui-meme.
+			// Cette sonde le fait, pour PROUVER que le dessin marche des que la
+			// simulation avance. Sous NK_VFX_PROBE=1 seulement.
+			{
+				static const bool kProbe = [] {
+					const char *e = std::getenv("NK_VFX_PROBE");
+					return e && e[0] == '1';
+				}();
+				if (kProbe)
+					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
+						vfx->Update(dt, camData);
+						// sonde VFX : compte -- toutes les 30 images
+						if ((ctx.frame % 30u) == 0u)
+							std::fprintf(stderr, "[VFX PROBE] frame %u : dt=%g total particules vivantes=%u  cam=(%g,%g,%g)->(%g,%g,%g)\n",
+										 (unsigned)ctx.frame, dt, (unsigned)vfx->GetActiveParticleCount(),
+										 camData.position.x, camData.position.y, camData.position.z,
+										 camData.target.x, camData.target.y, camData.target.z);
+					}
+			}
 
 			const float32 wheelRaw = (float32)st->wheelAccum;
 			st->wheelAccum = 0.0;

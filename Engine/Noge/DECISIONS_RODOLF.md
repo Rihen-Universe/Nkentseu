@@ -94,6 +94,7 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 | **A″** 🟠 | ✅ **CORRIGÉ le 02/09 — il te reste 2 minutes.** Le défaut est traité : **17 → 16**, par un déclencheur qui **ne nomme aucune plateforme** (il compare la demande du shader au budget du pilote). Constructions vertes, banc vert. ⚠️ **Marge ZÉRO** — 16/16, l'état exact qui a explosé le 11/08 ; le banc est désormais le rempart, et la réserve IBL/sky rendra 2 unités quand le GPU sera libre. **Ce qu'il manque : une exécution sur ta carte**, port **9002**. Historique : ✅ **FAIT, et ça avait RÉFUTÉ le vert Web.** Tu as lancé sur ta carte : `PBR` ne se lie pas — **17 unités de texture demandées, 16 accordées**, écran vide. Le vert d'hier venait de SwiftShader, plus permissif que le matériel. **Ce qui t'attend maintenant, ce n'est plus un test, c'est une décision** : lancer la **variante réduite de `PBR`** (conçue, chiffrée **~2-3 j**, non codée). ⚠️ macOS/iOS étant bloquées par la signature, **ce défaut coûte 3 plateformes sur 7**. Tout en **section 10**. | **toi** — dire quand | ~2-3 j |
 | ~~**B**~~ | ✅ **FAIT le 02/09 à 19h31 — HarmonyOS REND LA 3D.** Tu as lancé l'émulateur, j'ai installé le `.hap` du 10/08 et **lu le HUD moi-même** : `Demo 3D | API : OpenGL`, panneau `Shadow tweak`, `FPS approx : 8.3`, 17 sphères PBR + ombres portées. **5 cibles sur 7.** ⚠️ Réserve écrite : binaire du **10/08**, donc l'image prouve « HarmonyOS rendait la 3D le 10/08 » — un re-test sur un `.hap` à jour reste à faire, **comme pour Linux**. Détail : **carte, section 9**. | — | fait |
 | **C** | **Re-tester Linux sous WSL.** Le vert repose sur la capture du 29/07 + ton témoignage ; le build d'aujourd'hui n'y a jamais tourné. WSL2 n'a pas répondu en 120 s pendant cette session. | toi (débloquer WSL), puis moi | ~10 min |
+| **G** ✨ | **Les particules : finir le renderer, ou pas maintenant ?** Mesuré le 03/09 : la simulation tourne (401 vivantes), mais **aucun pipeline VFX n'a de shader**, **personne n'appelle `Update`**, et les quads ont une **aire nulle** — zéro pixel sur les deux backends. Trois pièces, ~1,5 j, ordre et témoins au **bloc 13**. | **toi** | dire quand |
 | ~~**F**~~ 🚗 | ✅ **TRANCHÉ (a) ET LIVRÉ le 03/09.** Le couple s'intègre pour tout le monde (`d471956d`, bancs des consommateurs au même compte) ; `NkVehicle` livré selon la conception — roue par raycast, suspension à trois gardes, adhérence en vitesse à annuler bornée par le cercle de friction, **dans** le pas fixe, surface à 16 lignes. Banc **48/48** avec contre-épreuve (`µ = 0,01` → elle patine) et **deux mutations prouvées**. Reste : Ackermann, réglage sur les deux voitures du dépôt. Détail : `CONCEPTION_VEHICULE.md` §7. | — | fait |
 | **F′** 🚗 | **Le jeu de voiture peut s'ouvrir** — c'était ta condition : *« si et seulement si la physique est prête »*. Elle l'est, headless. **Ce qui manque pour le dire à l'image** : une capture d'une voiture qui roule dans `renderdemo` (GPU → Ilyana d'abord). | **toi** | dire quand |
 | **F₀** 🚗 | **La physique de véhicule : (a) ou (b) ?** *(historique)* La conception est écrite (`Engine/Noge/CONCEPTION_VEHICULE.md`, ~2,5-3 j). ⚠️ **Une seule question t'attend** : l'étape 0 corrige `NkIntegrator` — le champ `torque` existe et **n'est jamais intégré** — donc pour **tout le monde**, ragdoll compris. **(a)** on corrige le socle (ma recommandation : c'est un défaut, pas un choix) ; **(b)** le véhicule recopie chez lui. | **toi** | une phrase |
@@ -1519,6 +1520,32 @@ rien à gagner.
    `NkVFXSystem` n'en demande aucun. ✅ **Second obstacle WebGL2 évité** (GLES
    n'a pas d'étage géométrie). ⚠️ Ces `.geom` rejoignent donc les `.hlsl`/`.msl`
    du bloc 12 : **des artefacts versionnés que personne n'ouvre**.
+
+### 🔴 RÉPONSE MESURÉE LE 03/09 — « est-ce que ça REND ? » : **NON.** Et ce n'est pas le dessin qui manque, c'est tout ce qui est autour.
+
+**Ce qui a été fait pour le savoir** — une sonde dans `Demo3D`, sous
+`NK_VFX_PROBE=1` seulement (zéro effet sinon), en trois temps, chaque temps
+tranchant une hypothèse :
+
+| temps | geste | mesure | ce que ça tranche |
+|---|---|---|---|
+| 1 | créer **un émetteur** (400/s, 1 000 max) et capturer la frame 90, backend **logiciel** puis **OpenGL** | `emetteur cree id=1`, passe `VFX` exécutée 3×/frame, **0 erreur**, **0 pixel** sur les deux images | le système est branché ; rien ne s'affiche |
+| 2 | faire **avancer** la simulation (`vfx->Update(dt, cam)`) | **toujours 0 pixel** | ce n'était pas *que* le tick |
+| 3 | **compter** | vivantes : **136 → 230 → 318 → 401** aux frames 30/60/90/120 (≈ 400/s × 0,25 s = 100 par tranche : cohérent) | **simulé, pas dessiné** |
+
+**Puis la lecture, guidée par les chiffres — trois manques, indépendants :**
+
+1. 🔴 **Personne ne fait avancer la simulation.** `NkVFXSystem::Update(dt, cam)` n'a **aucun appelant actif** dans le dépôt : ni `NkRendererImpl` (qui crée le VFX à `InitVFX` et le *dessine* dans la passe `VFX`), ni le pont Noge (`NkParticleSystem.cpp:14` : *« l'animation des particules est faite par le pipeline NKRenderer »* — **faux**), ni aucune démo active. Le seul appelant est `Demo06_10.cpp.legacy`, retiré le 08/05. *Une passe qui dessine une simulation que personne n'avance.*
+2. 🔴 **Aucun des trois pipelines VFX n'a de shader.** `ParticlesBillboard`, `TrailMesh`, `Decal` : rasterizer, profondeur, mélange, un `debugName` — **ni `shader`, ni `vertexLayout`, ni `topology`**. Et `NkOpenGLDevice::CreateGraphicsPipeline` **rend `{}` quand `d.shader` est introuvable** (`NkOpenglDevice.cpp:2370`). `BindGraphicsPipeline(invalide)` ne lie rien, `Draw(vivantes × 4)` part sans programme. **Le dessin VFX est un échafaudage** — et ça ne s'est jamais vu parce que rien n'avançait la simulation (manque 1) : `aliveCount == 0` court-circuitait le dessin avant qu'il ne puisse échouer.
+3. 🟠 **Même avec un shader, les quads ont une aire nulle.** Le CPU écrit **quatre sommets à la même position** (`v.pos = p.pos`, seul `uv` change), la taille voyage en attribut ; le commentaire dit *« expansés dans le vertex shader ou ici »* — **ni l'un ni l'autre**. Les shaders GL historiques (`Particles/GL/particle.vert`) sont un *pass-through* prévu pour un **geometry shader** (`particles.geom.*`) que le VFX ne lie pas ; et `particles.nksl` (10/05, commit « Vulkan renderer ») porte le **layout PBR générique** (`aPos/aNormal/aTangent/aUV/aUV2/aColor`, `uObject.model * aPos`) — ce n'est pas un shader de particules.
+
+📌 **Et six champs de `NkEmitterDesc` sur 24 ne sont jamais lus** : `texture`, `blend`, `coneAngle`, `loop`, `simMode`, `worldSpace`. La surface d'auteur promet plus que le système ne tient — *déclaré, pas livré*, comme les 108 widgets dont 2 peignent.
+
+> 🔑 **Ce que ça change à la question.** Le chantier n'est ni « écrire des particules » (la simulation existe et tourne : 401 vivantes), ni « corriger un bug » : c'est **finir un renderer de particules dont on n'a que la moitié CPU**. Trois pièces à écrire, dans cet ordre, chacune avec son témoin : (a) le **tick** dans `NkRendererImpl` (une ligne, et le pont Noge cesse de mentir) ; (b) **un vrai shader de particules** — layout `NkVertexParticle`, expansion des coins **dans le vertex shader** à partir de `aSize` et du right/up caméra (pas de geometry shader : WebGL2 n'en a pas, et c'est le chemin Apple) — attaché aux trois pipelines ; (c) la **texture** et le **mélange** honorés. **Chiffrage : ~1,5 j.** 🚫 **Non lancé** — c'est une décision.
+
+⚠️ **Ce que la mesure ne donne PAS** : le coût par particule (aucun chronomètre posé — inutile tant que rien ne se dessine) et la limite réelle de `maxParticles`. Ils se mesureront **après** (b).
+
+🧰 **La sonde reste dans `Demo3D.cpp`, sous `NK_VFX_PROBE=1`** : elle reproduit les quatre nombres en une commande, sans rien changer pour qui ne pose pas la variable. Un contrôle positif CPU (expansion des coins) a été **préparé et non appliqué** : sans shader, il n'aurait rien prouvé.
 
 ### 🔎 CE QUI RESTE À MESURER AVANT DE PROPOSER QUOI QUE CE SOIT
 
