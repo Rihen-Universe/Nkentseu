@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470">
+  <rect width="900" height="470" fill="#0d1117"/>
+  <text x="32" y="46" fill="#e6edf3" font-family="Segoe UI,Arial" font-size="21" font-weight="600">Bouton image : laquelle des trois ?</text>
+  <text x="32" y="74" fill="#8b949e" font-family="Segoe UI,Arial" font-size="14">Aujourd'hui, notre bouton — 120 × 36, libellé centré :</text>
+  <rect x="32" y="92" width="120" height="36" rx="4" fill="#1f6feb"/>
+  <text x="92" y="115" fill="#ffffff" font-family="Segoe UI,Arial" font-size="12" text-anchor="middle">Bouton</text>
+
+  <line x1="32" y1="152" x2="868" y2="152" stroke="#30363d" stroke-width="1"/>
+
+  <!-- A -->
+  <text x="32" y="184" fill="#f79a28" font-family="Segoe UI,Arial" font-size="15" font-weight="600">A — icône SEULE</text>
+  <rect x="32" y="198" width="36" height="36" rx="4" fill="#1f6feb"/>
+  <path d="M42 216 h16 M50 208 v16" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="32" y="258" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">l'icône remplace le libellé.</text>
+  <text x="32" y="276" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">Bouton carré.</text>
+  <text x="32" y="304" fill="#3fb950" font-family="Segoe UI,Arial" font-size="12.5">→ une VARIANTE du bouton</text>
+  <text x="32" y="322" fill="#3fb950" font-family="Segoe UI,Arial" font-size="12.5">(le catalogue reste à 8)</text>
+
+  <!-- B -->
+  <text x="330" y="184" fill="#f79a28" font-family="Segoe UI,Arial" font-size="15" font-weight="600">B — icône ET libellé</text>
+  <rect x="330" y="198" width="150" height="36" rx="4" fill="#1f6feb"/>
+  <path d="M344 216 h12 M350 210 v12" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="368" y="221" fill="#ffffff" font-family="Segoe UI,Arial" font-size="12">Enregistrer</text>
+  <text x="330" y="258" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">icône à gauche, à droite</text>
+  <text x="330" y="276" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">ou au-dessus.</text>
+  <text x="330" y="304" fill="#3fb950" font-family="Segoe UI,Arial" font-size="12.5">→ une VARIANTE + un axe</text>
+  <text x="330" y="322" fill="#3fb950" font-family="Segoe UI,Arial" font-size="12.5">« position de l'icône »</text>
+
+  <!-- C -->
+  <text x="620" y="184" fill="#f79a28" font-family="Segoe UI,Arial" font-size="15" font-weight="600">C — FOND en image</text>
+  <defs><pattern id="ph" width="14" height="14" patternUnits="userSpaceOnUse">
+    <rect width="14" height="14" fill="#30363d"/><rect width="7" height="7" fill="#3d444d"/>
+    <rect x="7" y="7" width="7" height="7" fill="#3d444d"/></pattern></defs>
+  <rect x="620" y="198" width="150" height="36" rx="4" fill="url(#ph)"/>
+  <text x="695" y="221" fill="#ffffff" font-family="Segoe UI,Arial" font-size="12" text-anchor="middle">Découvrir</text>
+  <text x="620" y="258" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">une photo remplit le fond,</text>
+  <text x="620" y="276" fill="#8b949e" font-family="Segoe UI,Arial" font-size="12.5">le texte passe par-dessus.</text>
+  <text x="620" y="304" fill="#d29922" font-family="Segoe UI,Arial" font-size="12.5">→ DÉPEND du remplissage</text>
+  <text x="620" y="322" fill="#d29922" font-family="Segoe UI,Arial" font-size="12.5">image, pas encore livré</text>
+
+  <line x1="32" y1="352" x2="868" y2="352" stroke="#30363d" stroke-width="1"/>
+  <text x="32" y="382" fill="#e6edf3" font-family="Segoe UI,Arial" font-size="13.5">Pourquoi la question : si c'est une VARIANTE, le catalogue garde 8 entrées et gagne un axe.</text>
+  <text x="32" y="404" fill="#e6edf3" font-family="Segoe UI,Arial" font-size="13.5">Si c'est un COMPOSANT, il en aura 9 — et « bouton avec badge » en fera 10, puis 11.</text>
+  <text x="32" y="432" fill="#8b949e" font-family="Segoe UI,Arial" font-size="13">Un catalogue qui grossit d'une entrée par nuance devient une liste qu'on ne cherche plus.</text>
+  <text x="32" y="456" fill="#8b949e" font-family="Segoe UI,Arial" font-size="13">Laquelle veux-tu ? (A et B sont livrables tout de suite ; C attend le remplissage image.)</text>
+</svg>
