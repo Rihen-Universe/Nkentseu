@@ -2050,8 +2050,24 @@ namespace nkuidesign {
 	///    pas demande.
 	inline nkentseu::int32 NkParentPourPose(const DesignState &st) {
 		using namespace nkentseu;
-		if (st.doc.IsValidIndex(st.selected) && st.selected != 0)
-			return st.selected;
+		// LA PLANCHE VISEE : le conteneur LIBRE sous le centre de la vue. C'est
+		// le meme repondeur que les outils de trace, interroge en un autre
+		// point -- pas un second.
+		const NkPaintRect vp = st.view.ViewportUtile();
+		const float32 cx = st.view.ToDocX(vp.x + vp.w * 0.5f);
+		const float32 cy = st.view.ToDocY(vp.y + vp.h * 0.5f);
+		const int32 souslOeil = NkPickFreeContainer(st.doc, st.layout, cx, cy);
+		if (st.doc.IsValidIndex(souslOeil) && souslOeil != 0)
+			return souslOeil;
+		// ⚠️ REPLI : la page qui PORTE la selection, pas la selection
+		//    elle-meme. Si la main travaille sur un objet hors champ, poser
+		//    dans SA page est plus proche de son intention que la premiere
+		//    page du document.
+		for (int32 k = st.selected; st.doc.IsValidIndex(k) && k > 0;
+			 k = st.doc.nodes[(uint32)k].parent)
+			if (st.doc.nodes[(uint32)k].layout.kind == NkLayoutKind::Free
+				&& st.doc.nodes[(uint32)k].parent == 0)
+				return k;
 		for (uint32 c = 0; c < (uint32)st.doc.nodes[0].children.Size(); ++c)
 			return st.doc.nodes[0].children[c];
 		return -1;

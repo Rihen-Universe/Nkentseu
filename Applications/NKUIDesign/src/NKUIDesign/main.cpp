@@ -1983,7 +1983,21 @@ static nkentseu::int32 RecetteGestes() {
 		const int32 pg = st.doc.AddChild(0, "", NkAuthor::Humain);
 		st.doc.nodes[(uint32)pg].label = NkString("Page");
 		st.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
-		st.SelectClear();
+		// 🔴 UN NOEUD EST SELECTIONNE, ET C'EST TOUT L'OBJET DU CAS. Rodolf,
+		//    03/09 : « je deplace Bouton_Connexion, ca deplace aussi le bouton
+		//    que je viens d'ajouter, comme s'ils etaient lies », et « je
+		//    n'arrive pas a le selectionner ». UN SEUL defaut derriere les
+		//    deux : la pose prenait la SELECTION pour parent, donc le composant
+		//    entrait DANS l'objet selectionne.
+		//    *Poser a cote de ce qui est selectionne est ce qu'attend la main ;
+		//    poser dedans est une decision d'arbre que personne n'a demandee.*
+		// ⚠️ LE CAS D'AVANT SELECTIONNAIT RIEN (`SelectClear`), donc il ne
+		//    pouvait PAS voir ce defaut : il mesurait le repli, jamais la
+		//    regle. *Un cas qui n'exerce que le chemin vide valide le chemin
+		//    vide.*
+		const int32 cible = st.doc.AddChild(pg, "", NkAuthor::Humain);
+		st.doc.nodes[(uint32)cible].label = NkString("Deja la");
+		st.SelectSingle(cible);
 		const uint32 avant = (uint32)st.doc.nodes.Size();
 		// LE COMPOSANT VISE EST LU DU REGISTRE, jamais nomme en dur : un essai
 		// qui ecrirait « bouton » cesserait de mesurer le jour ou la table
@@ -1992,8 +2006,10 @@ static nkentseu::int32 RecetteGestes() {
 		const bool pose = d0 && NkPoserComposantSysteme(st, d0->name);
 		const uint32 apres = (uint32)st.doc.nodes.Size();
 		const int32 neuf = (int32)apres - 1;
+		// LE PARENT EST LA PAGE, ET SURTOUT PAS LA SELECTION.
 		const bool bonParent = pose && st.doc.IsValidIndex(neuf)
-							   && st.doc.nodes[(uint32)neuf].parent == pg;
+							   && st.doc.nodes[(uint32)neuf].parent == pg
+							   && st.doc.nodes[(uint32)neuf].parent != cible;
 		const bool bonCompo = pose && d0
 							  && st.doc.nodes[(uint32)neuf].component == NkString(d0->name);
 		// ⚠️ ET LE MESSAGE NE DOIT PLUS RENVOYER AILLEURS : on cherche la phrase
@@ -2002,12 +2018,13 @@ static nkentseu::int32 RecetteGestes() {
 		const bool sansRenvoi =
 			st.status.Data() != nullptr && strstr(st.status.Data(), "palette du rail") == nullptr;
 		char det[240];
-		snprintf(det, sizeof(det), "compo=%s pose=%d noeuds %u->%u parent=%d/%d dit=%s",
+		snprintf(det, sizeof(det), "compo=%s pose=%d noeuds %u->%u parent=%d (page=%d, "
+				 "selection=%d) dit=%s",
 				 d0 && d0->name ? d0->name : "(aucun)", pose ? 1 : 0, avant, apres,
 				 st.doc.IsValidIndex(neuf) ? st.doc.nodes[(uint32)neuf].parent : -1, pg,
-				 st.status.Data() ? st.status.Data() : "(muet)");
-		verdict("composant systeme : le double-clic le POSE dans la page (il ne renvoie "
-				"plus vers « la palette du rail »)",
+				 cible, st.status.Data() ? st.status.Data() : "(muet)");
+		verdict("composant systeme : le double-clic le POSE DANS LA PAGE, jamais dans "
+				"l'objet selectionne (il ne renvoie plus vers « la palette du rail »)",
 				pose && apres == avant + 1u && bonParent && bonCompo && sansRenvoi
 					&& !st.status.Empty(),
 				det);
