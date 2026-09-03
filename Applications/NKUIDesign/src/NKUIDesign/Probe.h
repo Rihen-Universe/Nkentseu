@@ -4033,6 +4033,185 @@ namespace nkuidesign {
 			snprintf(det, sizeof(det), "%u commande(s), %u au rayon 8", n2, r8);
 			check("50b. quatre coins egaux : une seule piece d'ombre, au rayon du noeud", n2 == 1u && r8 == 1u, det);
 		}
+		// ── 51. BORDURES PAR COTE, JOINTURES, EXTREMITES ─────────────────────
+		{
+			struct PeintrePoly51 : public NkRecordingPaint {
+					NkVector<int32> tailles;
+					NkVector<float32> pts;
+					bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
+						(void)rgba;
+						for (int32 i = 0; i < count * 2; ++i)
+							pts.PushBack(xy[i]);
+						tailles.PushBack(count);
+						return true;
+					}
+			};
+			char det[300];
+			NkUIDocument dB;
+			dB.NewDocument("Toile", NkAuthor::Humain);
+			dB.nodes[0].layout.kind = NkLayoutKind::Free;
+			dB.SetMetric("espacement", 0.f);
+			dB.SetMetric("marge", 0.f);
+			const int32 f = dB.AddChild(0, "", NkAuthor::Humain);
+			{
+				NkUINode &nf = dB.nodes[(uint32)f];
+				nf.shape = NkString("rect");
+				nf.posX = 100.f;
+				nf.posY = 100.f;
+				nf.width.mode = NkSizeMode::Fixed;
+				nf.width.value = 100.f;
+				nf.height.mode = NkSizeMode::Fixed;
+				nf.height.value = 50.f;
+				NkRemplissage rf;
+				rf.couleur = NkString("#ffffff");
+				nf.fills.PushBack(rf);
+				NkBordure b;
+				b.couleur = NkString("#123456");
+				b.epaisseur = 1.f;
+				b.position = NkBordurePos::Interieur;
+				b.cotes[0] = 4.f; // le haut plus epais
+				nf.borders.PushBack(b);
+			}
+			NkPaintRect surfB;
+			surfB.x = 0.f;
+			surfB.y = 0.f;
+			surfB.w = 800.f;
+			surfB.h = 600.f;
+			// 51a. le format : cotes / jointure / extremite additifs, et un jeton inconnu preserve
+			{
+				NkString s1;
+				dB.Save(s1);
+				const bool cle = strstr(s1.Data(), "cotes=4,1,1,1") != nullptr && strstr(s1.Data(), "jointure=") == nullptr;
+				// on glisse un jeton inconnu au bout de la ligne bord_1
+				NkString s2;
+				const char *pos = strstr(s1.Data(), "cotes=4,1,1,1");
+				const uint32 coupe = (uint32)(pos - s1.Data()) + 13u;
+				for (uint32 i = 0; i < coupe; ++i)
+					s2.Append(s1.Data()[i]);
+				s2.Append(" jointure=rond extremite=carree futur=x");
+				s2.Append(s1.Data() + coupe);
+				NkUIDocument relu;
+				const bool ok = relu.Load(s2.Data());
+				NkString s3;
+				if (ok)
+					relu.Save(s3);
+				const NkBordure *rb = (ok && relu.IsValidIndex(f) && !relu.nodes[(uint32)f].borders.Empty())
+										  ? &relu.nodes[(uint32)f].borders[0] : nullptr;
+				const bool relus = rb && rb->Cote(0) == 4.f && rb->Cote(1) == 1.f
+								   && NkComponentDecl::StrEq(rb->jointure.Data(), "rond")
+								   && NkComponentDecl::StrEq(rb->extremite.Data(), "carree")
+								   && NkComponentDecl::StrEq(rb->inconnus.Data(), "futur=x");
+				const bool reemis = ok && strstr(s3.Data(), "jointure=rond") != nullptr
+									&& strstr(s3.Data(), "extremite=carree") != nullptr && strstr(s3.Data(), "futur=x") != nullptr;
+				snprintf(det, sizeof(det), "cle=%d relus=%d reemis=%d", cle ? 1 : 0, relus ? 1 : 0, reemis ? 1 : 0);
+				check("51a. `bord_` gagne cotes= / jointure= / extremite=, additifs (rien au defaut), et un jeton "
+					  "inconnu (`futur=x`) se relit et se reemet intact",
+					  cle && relus && reemis, det);
+			}
+			// 51b. le peintre : le haut a 4, les autres a 1 -- l'interieur creuse est decale de 4 en haut, de 1 ailleurs
+			{
+				NkRecordingPaint rec;
+				RenderDocument(rec, dB, surfB);
+				bool creuxJuste = false;
+				uint32 nBlancs = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op != NkPaintOp::FillColor || (c.rgba >> 8) != 0xFFFFFFu)
+						continue;
+					++nBlancs;
+					if (c.x == 101.f && c.y == 104.f && c.w == 98.f && c.h == 45.f)
+						creuxJuste = true;
+				}
+				snprintf(det, sizeof(det), "%u remplissage(s) blanc(s), creux (101,104) 98x45 trouve=%d", nBlancs, creuxJuste ? 1 : 0);
+				check("51b. QUATRE EPAISSEURS : le creux interieur est decale de 4 en haut et de 1 sur les trois autres cotes",
+					  creuxJuste, det);
+			}
+			// 51c. jointure ronde aux coins droits : l'exterieur s'arrondit de l'epaisseur (ici 4, le max des cotes)
+			{
+				dB.nodes[(uint32)f].borders[0].jointure = NkString("rond");
+				NkRecordingPaint rec;
+				RenderDocument(rec, dB, surfB);
+				uint32 arrondis = 0u;
+				for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+					const NkPaintCmd &c = rec.cmds[i];
+					if (c.op == NkPaintOp::FillColor && (c.rgba >> 8) == 0x123456u && c.rounding > 0.f)
+						++arrondis;
+				}
+				snprintf(det, sizeof(det), "%u piece(s) de cadre arrondie(s)", arrondis);
+				check("51c. JOINTURE RONDE : sur un rect droit, le cadre exterieur s'arrondit de l'epaisseur du coin", arrondis >= 1u, det);
+			}
+			// 51d. biseau : un polygone a 8 points (coins coupes) chez un peintre a polygone ; l'onglet sinon
+			{
+				dB.nodes[(uint32)f].borders[0].jointure = NkString("biseau");
+				PeintrePoly51 pp;
+				RenderDocument(pp, dB, surfB);
+				bool octogone = false;
+				for (uint32 i = 0; i < (uint32)pp.tailles.Size(); ++i)
+					if (pp.tailles[i] == 8)
+						octogone = true;
+				NkRecordingPaint sans;
+				RenderDocument(sans, dB, surfB);
+				uint32 cadreDroit = 0u;
+				for (uint32 i = 0; i < (uint32)sans.cmds.Size(); ++i)
+					if (sans.cmds[i].op == NkPaintOp::FillColor && (sans.cmds[i].rgba >> 8) == 0x123456u && sans.cmds[i].rounding == 0.f)
+						++cadreDroit;
+				snprintf(det, sizeof(det), "octogone=%d ; sans polygone : %u piece(s) droite(s) (onglet)", octogone ? 1 : 0, cadreDroit);
+				check("51d. BISEAU : l'exterieur est un octogone (coins coupes) ; sans polygone, repli sur l'onglet, dit au code",
+					  octogone && cadreDroit >= 1u, det);
+				dB.nodes[(uint32)f].borders[0].jointure = NkString();
+			}
+			// 51e. extremites d'une LIGNE : ronde = deux disques ; carree = prolongee d'une demi-epaisseur ; plate = rien
+			{
+				const int32 li = dB.AddChild(0, "", NkAuthor::Humain);
+				NkUINode &nl = dB.nodes[(uint32)li];
+				nl.shape = NkString("line");
+				nl.posX = 300.f;
+				nl.posY = 100.f;
+				nl.width.mode = NkSizeMode::Fixed;
+				nl.width.value = 100.f;
+				nl.height.mode = NkSizeMode::Fixed;
+				nl.height.value = 20.f; // une diagonale : une hauteur nulle est rejetee avant la branche
+				NkBordure bl;
+				bl.couleur = NkString("#123456");
+				bl.epaisseur = 4.f;
+				nl.borders.PushBack(bl);
+				auto etendueLigne = [&](const char *ext, uint32 &disques, float32 &xMin, float32 &xMax) {
+					dB.nodes[(uint32)li].borders[0].extremite = NkString(ext);
+					PeintrePoly51 pp;
+					RenderDocument(pp, dB, surfB);
+					disques = 0u;
+					xMin = 1e9f;
+					xMax = -1e9f;
+					uint32 k = 0;
+					for (uint32 i = 0; i < (uint32)pp.tailles.Size(); ++i) {
+						if (pp.tailles[i] == 16)
+							++disques;
+						for (int32 j2 = 0; j2 < pp.tailles[i]; ++j2, ++k) {
+							const float32 x = pp.pts[k * 2], y = pp.pts[k * 2 + 1];
+							if (y > 90.f && y < 130.f && x > 250.f) { // la ligne (100..120 en y), pas le rect
+								if (x < xMin) xMin = x;
+								if (x > xMax) xMax = x;
+							}
+						}
+					}
+				};
+				uint32 dP = 0u, dR = 0u, dC = 0u;
+				float32 aP, bP, aR, bR, aC, bC;
+				etendueLigne("", dP, aP, bP);
+				etendueLigne("ronde", dR, aR, bR);
+				etendueLigne("carree", dC, aC, bC);
+				snprintf(det, sizeof(det), "plate : %u disque(s), x %.0f..%.0f ; ronde : %u disque(s), x %.0f..%.0f ; carree : %u, x %.0f..%.0f",
+						 dP, aP, bP, dR, aR, bR, dC, aC, bC);
+				check("51e. EXTREMITES d'une ligne (diagonale 100 x 20, trait de 4) : plate = rien, ronde = deux disques "
+					  "qui depassent de 2, carree = prolongee d'une demi-epaisseur de chaque cote",
+					  dP == 0u && aP > 299.3f && aP < 300.7f && bP > 399.3f && bP < 400.7f && dR == 2u && aR < 298.5f
+						  && bR > 401.5f && dC == 0u && aC < 298.5f && aC > 297.f && bC > 401.5f && bC < 403.f,
+					  det);
+				const bool ouverte = NkFormeOuverte(dB.nodes[(uint32)li]) && !NkFormeOuverte(dB.nodes[(uint32)f]);
+				check("51f. une ligne est une forme OUVERTE, un rect non : c'est ce qui grise les extremites dans l'inspecteur",
+					  ouverte, "");
+			}
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 

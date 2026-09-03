@@ -432,6 +432,23 @@ namespace nkuidesign {
 			bool visible = true;	 ///< l'oeil
 			float32 epaisseur = 1.f; ///< px, le « 1 » de la reference
 			NkBordurePos position = NkBordurePos::Centre;
+			// ── PAR COTE, JOINTURE, EXTREMITE (03/09) ────────────────────────
+			/// Quatre epaisseurs : haut, droite, bas, gauche ; < 0 = `epaisseur`.
+			float32 cotes[4] = {-1.f, -1.f, -1.f, -1.f};
+			/// Texte libre, preserve : « onglet » (defaut, vide), « rond », « biseau ».
+			NkString jointure;
+			/// Texte libre, preserve : « plate » (defaut, vide), « ronde », « carree ».
+			/// Ne vaut que pour une forme OUVERTE (ligne) : l'inspecteur la grise ailleurs.
+			NkString extremite;
+			/// Jetons non compris sur la ligne `bord_`, reemis tels quels.
+			NkString inconnus;
+			float32 Cote(uint32 i) const {
+				const float32 v = cotes[i < 4u ? i : 0u];
+				return v >= 0.f ? v : (epaisseur > 0.f ? epaisseur : 1.f);
+			}
+			bool CotesEgaux() const {
+				return cotes[0] < 0.f && cotes[1] < 0.f && cotes[2] < 0.f && cotes[3] < 0.f;
+			}
 	};
 	inline const char *NkBordurePosNom(NkBordurePos p) {
 		switch (p) {
@@ -625,6 +642,17 @@ namespace nkuidesign {
 
 	/// Une echelle nulle ferait une matrice non inversible (le pointage
 	/// mourrait) : on borne loin de zero, signe conserve, et on plafonne.
+	inline bool StrStartsWith(const char *s, const char *prefixe) {
+		if (!s || !prefixe)
+			return false;
+		while (*prefixe) {
+			if (*s != *prefixe)
+				return false;
+			++s;
+			++prefixe;
+		}
+		return true;
+	}
 	inline float32 NkEchelleSaine(float32 v) {
 		if (v != v)
 			return 1.f;
@@ -644,6 +672,8 @@ namespace nkuidesign {
 	/// rien, en aucun cas. UN predicat, lu par la pose, le depot, la creation,
 	/// le reparentage et la hierarchie.
 	inline bool NkEstGroupe(const NkUINode &n);
+	/// Une forme OUVERTE (ligne) : ses extremites se voient ; une forme fermee n'en a pas.
+	inline bool NkFormeOuverte(const NkUINode &n);
 	inline const char *NkRefusFeuille() {
 		return "Une feuille ne contient rien, en aucun cas — déposez avant ou après elle, "
 			   "ou dans un groupe.";
@@ -2177,6 +2207,27 @@ namespace nkuidesign {
 						WriteNum(out, b.epaisseur);
 						out.Append(' ');
 						out.Append(NkBordurePosNom(b.position));
+						// additifs : rien tant que tout vaut son defaut
+						if (!b.CotesEgaux()) {
+							out.Append(" cotes=");
+							for (uint32 k = 0; k < 4u; ++k) {
+								if (k)
+									out.Append(',');
+								WriteNum(out, b.Cote(k));
+							}
+						}
+						if (!b.jointure.Empty()) {
+							out.Append(" jointure=");
+							out.Append(b.jointure);
+						}
+						if (!b.extremite.Empty()) {
+							out.Append(" extremite=");
+							out.Append(b.extremite);
+						}
+						if (!b.inconnus.Empty()) {
+							out.Append(' ');
+							out.Append(b.inconnus);
+						}
 						out.Append('\n');
 					}
 				} else if (!n.borderColor.Empty())
@@ -2705,6 +2756,27 @@ namespace nkuidesign {
 								b.epaisseur = ParseNum(mot);
 							if (motSuivant(mot, (uint32)sizeof(mot)) > 0)
 								b.position = NkParseBordurePos(mot);
+							// les jetons additifs, dans n'importe quel ordre ; l'inconnu est garde
+							while (motSuivant(mot, (uint32)sizeof(mot)) > 0) {
+								if (StrStartsWith(mot, "cotes=")) {
+									const char *q2 = mot + 6;
+									for (uint32 k = 0; k < 4u; ++k) {
+										b.cotes[k] = ParseNum(q2);
+										while (*q2 && *q2 != ',')
+											++q2;
+										if (*q2 == ',')
+											++q2;
+									}
+								} else if (StrStartsWith(mot, "jointure="))
+									b.jointure = NkString(mot + 9);
+								else if (StrStartsWith(mot, "extremite="))
+									b.extremite = NkString(mot + 10);
+								else {
+									if (!b.inconnus.Empty())
+										b.inconnus.Append(' ');
+									b.inconnus.Append(mot);
+								}
+							}
 							n.borders.PushBack(b);
 						}
 						else if (key[0] == 's' && key[1] == 'o' && key[2] == 'm' && key[3] == 'm'
@@ -3595,6 +3667,10 @@ namespace nkuidesign {
 	inline bool NkEstGroupe(const NkUINode &n) {
 		return NkComponentDecl::StrEq(n.shape.Data(), "frame") || !n.genre.Empty()
 			   || !n.children.Empty();
+	}
+	inline bool NkFormeOuverte(const NkUINode &n) {
+		return NkComponentDecl::StrEq(n.shape.Data(), "line")
+			   || NkComponentDecl::StrEq(n.shape.Data(), "line_up");
 	}
 
 	/// LA MIGRATION (Rodolf, 03/09 : ses six rect a enfants sont illegaux).

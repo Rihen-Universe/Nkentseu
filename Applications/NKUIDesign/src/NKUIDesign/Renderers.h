@@ -589,40 +589,104 @@ namespace nkuidesign {
 		/// 🔑 Scinde du cadre nomme pour qu'un appelant qui n'a PAS de
 		///    `NkBordure` -- le repli du theme, qui n'a qu'un role -- puisse
 		///    dessiner le MEME anneau au lieu d'un rectangle a angles droits.
+		/// LE CADRE PAR COTE : quatre epaisseurs (haut, droite, bas, gauche) qui se
+		/// raccordent dans l'arc -- rayon exterieur d'un coin = R + debord du coin,
+		/// rayon interieur = exterieur - epaisseur du coin. Jointure aux coins DROITS :
+		/// « rond » = coin exterieur arrondi de l'epaisseur ; « biseau » = coin coupe
+		/// (polygone ; sans polygone, repli sur l'onglet) ; sinon l'onglet.
+		inline void NkGCadreCotes(NkComponentPaint &p, const NkPaintRect &r, nkentseu::uint32 rgba,
+								  const nkentseu::float32 eC[4], NkBordurePos position,
+								  const nkentseu::float32 R[4], nkentseu::uint32 interieur,
+								  const char *jointure) {
+			nkentseu::float32 e[4], d[4];
+			for (nkentseu::uint32 i = 0; i < 4u; ++i) {
+				e[i] = eC[i] > 0.f ? eC[i] : 1.f;
+				d[i] = position == NkBordurePos::Centre ? e[i] * 0.5f
+					   : position == NkBordurePos::Exterieur ? e[i] : 0.f;
+			}
+			// coin k : ses deux cotes (haut-gauche, haut-droite, bas-droite, bas-gauche)
+			const nkentseu::uint32 cA[4] = {0u, 0u, 2u, 2u}, cB[4] = {3u, 1u, 1u, 3u};
+			const bool rond = jointure && StrEq(jointure, "rond");
+			const bool biseau = jointure && StrEq(jointure, "biseau");
+			const NkPaintRect q = {r.x - d[3], r.y - d[0], r.w + d[3] + d[1], r.h + d[0] + d[2]};
+			nkentseu::float32 Rext[4], Rint[4], ek[4];
+			bool unCoinDroit = false;
+			for (nkentseu::uint32 k = 0; k < 4u; ++k) {
+				const nkentseu::float32 dk = d[cA[k]] > d[cB[k]] ? d[cA[k]] : d[cB[k]];
+				ek[k] = e[cA[k]] > e[cB[k]] ? e[cA[k]] : e[cB[k]];
+				if (R[k] > 0.f)
+					Rext[k] = R[k] + dk;
+				else {
+					Rext[k] = rond ? ek[k] : 0.f;
+					unCoinDroit = true;
+				}
+				const nkentseu::float32 ri = Rext[k] - ek[k];
+				Rint[k] = ri > 0.f ? ri : 0.f;
+			}
+			bool peint = false;
+			if (biseau && unCoinDroit && q.w > 0.f && q.h > 0.f) {
+				// l'exterieur en polygone : chaque coin droit est coupe de son epaisseur
+				nkentseu::float32 xy[16];
+				nkentseu::uint32 n = 0;
+				const nkentseu::float32 x0 = q.x, y0 = q.y, x1 = q.x + q.w, y1 = q.y + q.h;
+				auto coin = [&](nkentseu::uint32 k, nkentseu::float32 cx, nkentseu::float32 cy,
+								nkentseu::float32 sx, nkentseu::float32 sy) {
+					if (R[k] > 0.f || ek[k] <= 0.f) {
+						xy[n * 2] = cx;
+						xy[n * 2 + 1] = cy;
+						++n;
+						return;
+					}
+					// deux points : le long de l'axe x puis de l'axe y (sens horaire)
+					if ((sx > 0.f) == (sy > 0.f)) {
+						xy[n * 2] = cx; xy[n * 2 + 1] = cy + sy * ek[k]; ++n;
+						xy[n * 2] = cx + sx * ek[k]; xy[n * 2 + 1] = cy; ++n;
+					} else {
+						xy[n * 2] = cx + sx * ek[k]; xy[n * 2 + 1] = cy; ++n;
+						xy[n * 2] = cx; xy[n * 2 + 1] = cy + sy * ek[k]; ++n;
+					}
+				};
+				coin(0u, x0, y0, 1.f, 1.f);
+				coin(1u, x1, y0, -1.f, 1.f);
+				coin(2u, x1, y1, -1.f, -1.f);
+				coin(3u, x0, y1, 1.f, -1.f);
+				peint = p.PolygonHex(xy, (int32)n, rgba);
+			}
+			if (!peint)
+				NkGRectCoins(p, q, rgba, Rext);
+			if ((interieur & 0xFFu) != 0u) {
+				const NkPaintRect qi = {q.x + e[3], q.y + e[0], q.w - e[3] - e[1], q.h - e[0] - e[2]};
+				if (qi.w > 0.f && qi.h > 0.f)
+					NkGRectCoins(p, qi, interieur, Rint);
+			}
+		}
 		inline void NkGCadreRGBA(NkComponentPaint &p, const NkPaintRect &r,
 								 nkentseu::uint32 rgba, nkentseu::float32 epaisseur,
 								 NkBordurePos position, const nkentseu::float32 R[4],
 								 nkentseu::uint32 interieur) {
 			const nkentseu::float32 e = epaisseur > 0.f ? epaisseur : 1.f;
-			nkentseu::float32 d = 0.f; // de combien le cadre sort du rectangle
-			if (position == NkBordurePos::Centre)
-				d = e * 0.5f;
-			else if (position == NkBordurePos::Exterieur)
-				d = e;
-			const NkPaintRect q = {r.x - d, r.y - d, r.w + d * 2.f, r.h + d * 2.f};
-			nkentseu::float32 Rext[4], Rint[4];
-			for (nkentseu::uint32 i = 0; i < 4u; ++i) {
-				Rext[i] = R[i] > 0.f ? R[i] + d : 0.f;
-				const nkentseu::float32 ri = Rext[i] - e;
-				Rint[i] = ri > 0.f ? ri : 0.f;
-			}
-			NkGRectCoins(p, q, rgba, Rext);
-			if ((interieur & 0xFFu) != 0u) {
-				const NkPaintRect qi = {q.x + e, q.y + e, q.w - e * 2.f, q.h - e * 2.f};
-				NkGRectCoins(p, qi, interieur, Rint);
-			}
+			const nkentseu::float32 eC[4] = {e, e, e, e};
+			NkGCadreCotes(p, r, rgba, eC, position, R, interieur, "");
 		}
 
 		/// LA PORTE NOMMEE : une `NkBordure` (couleur en texte, opacite) devient
 		/// une couleur resolue, puis c'est le meme anneau. Comportement inchange.
+		inline nkentseu::uint32 NkGBordureRGBA(const NkBordure &b) {
+			const nkentseu::uint32 base = NkGHexRGBA(b.couleur.Data());
+			const nkentseu::float32 k =
+				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
+			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
+			return (base & 0xFFFFFF00u) | (a & 0xFFu);
+		}
 		inline void NkGCadre(NkComponentPaint &p, const NkPaintRect &r, const NkBordure &b,
 							 const nkentseu::float32 R[4], nkentseu::uint32 interieur) {
 			const nkentseu::uint32 base = NkGHexRGBA(b.couleur.Data());
 			const nkentseu::float32 k =
 				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
 			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
-			NkGCadreRGBA(p, r, (base & 0xFFFFFF00u) | (a & 0xFFu),
-						 b.epaisseur > 0.f ? b.epaisseur : 1.f, b.position, R, interieur);
+			const nkentseu::float32 eC[4] = {b.Cote(0), b.Cote(1), b.Cote(2), b.Cote(3)};
+			NkGCadreCotes(p, r, (base & 0xFFFFFF00u) | (a & 0xFFu), eC, b.position, R, interieur,
+						  b.jointure.Data());
 		}
 
 		/// LE CADRE DU THEME (1 px, un role), QUI SUIT LES ARRONDIS.
@@ -1173,9 +1237,62 @@ namespace nkuidesign {
 				// deux valeurs étendent le vocabulaire §4.2 (qui n'a que `path`
 				// pour l'oblique) : dit ici et dans le rapport, pas glissé.
 				const bool monte = StrEq(shape, "line_up");
-				const float32 y1 = monte ? r.y + r.h : r.y;
-				const float32 y2 = monte ? r.y : r.y + r.h;
-				if (!p.Line(r.x, y1, r.x + r.w, y2, host.Role("doc_text"), 2.f))
+				float32 ax = r.x, ay = monte ? r.y + r.h : r.y;
+				float32 bx = r.x + r.w, by = monte ? r.y : r.y + r.h;
+				// LA BORDURE D'UNE LIGNE : sa premiere bordure visible donne couleur,
+				// epaisseur et EXTREMITES (plate / ronde / carree) ; sans bordure, le
+				// trait d'avant (role doc_text, 2 px, plate).
+				const NkBordure *bd = nullptr;
+				for (uint32 bi = 0; bi < (uint32)n.borders.Size() && !bd; ++bi)
+					if (n.borders[bi].visible && !n.borders[bi].couleur.Empty() && n.borders[bi].epaisseur > 0.f)
+						bd = &n.borders[bi];
+				const float32 ep = bd ? bd->epaisseur : 2.f;
+				const char *ext = bd ? bd->extremite.Data() : "";
+				float32 ux = bx - ax, uy = by - ay;
+				const float32 lg2 = ux * ux + uy * uy;
+				if (lg2 > 0.0001f) {
+					float32 inv = 1.f;
+					{ // 1/sqrt par Newton, sans <cmath>
+						float32 g = lg2 > 1.f ? lg2 * 0.5f : 1.f;
+						for (int32 it = 0; it < 24; ++it)
+							g = 0.5f * (g + lg2 / g);
+						inv = 1.f / g;
+					}
+					ux *= inv;
+					uy *= inv;
+				} else {
+					ux = 1.f;
+					uy = 0.f;
+				}
+				if (ext && StrEq(ext, "carree")) { // prolongee d'une demi-epaisseur
+					ax -= ux * ep * 0.5f;
+					ay -= uy * ep * 0.5f;
+					bx += ux * ep * 0.5f;
+					by += uy * ep * 0.5f;
+				}
+				const uint32 rgbaL = bd ? NkGBordureRGBA(*bd) : p.ColorOf(host.Role("doc_text"));
+				bool ok = false;
+				if (bd) { // couleur propre : le trait est un quadrilatere (rgba)
+					const float32 nx = -uy * ep * 0.5f, ny = ux * ep * 0.5f;
+					const float32 quad[8] = {ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny, ax - nx, ay - ny};
+					ok = p.PolygonHex(quad, 4, rgbaL);
+				}
+				if (!ok)
+					ok = p.Line(ax, ay, bx, by, host.Role("doc_text"), ep);
+				if (ok && ext && StrEq(ext, "ronde")) { // deux disques aux bouts
+					for (int32 bout = 0; bout < 2; ++bout) {
+						const float32 cx = bout ? bx : ax, cy = bout ? by : ay;
+						float32 disque[32];
+						for (uint32 k = 0; k < 16u; ++k) {
+							float32 s = 0.f, c = 1.f;
+							NkSinCosDeg(22.5f * (float32)k, s, c);
+							disque[k * 2] = cx + c * ep * 0.5f;
+							disque[k * 2 + 1] = cy + s * ep * 0.5f;
+						}
+						p.PolygonHex(disque, 16, rgbaL); // sans polygone : plate, et c'est dit ici
+					}
+				}
+				if (!ok)
 					p.Outline(r, host.Role("border"), host.Role("input_bg"), 1.f);
 				return;
 			}

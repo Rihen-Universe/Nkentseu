@@ -12648,6 +12648,84 @@ namespace nkuidesign {
 							}
 							mSt->doc.MarkHumanEdit(mSt->selected);
 						}
+						// ── PAR COTE, JOINTURE, EXTREMITES (materialise au premier geste) ──
+						{
+							const uint32 kb = simple ? 0u : i;
+							const bool listeOk = kb < (uint32)n->borders.Size();
+							const float32 xc0 = r.x + 12.f;
+							// Cotes : haut, droite, bas, gauche
+							{
+								const NkRect rc = ctx.NextItemRect(-1.f, costume::HRangee);
+								costume::Texte(dl, F.px10, xc0, costume::CentrerBande(F.px10, rc.y), "Côtés",
+											   ctx.theme.textMuted);
+								const float32 xc = xc0 + ColChampsCalc(rc.w - 24.f);
+								const float32 lc = 34.f;
+								for (uint32 kc = 0; kc < 4u; ++kc) {
+									char idc[48];
+									snprintf(idc, sizeof(idc), "insp.bord.%u.cote.%u", i, kc);
+									const NkRect rk = {xc + (float32)kc * (lc + 2.f), costume::BandeY(rc.y), lc,
+													   costume::HControle};
+									float32 v = listeOk ? n->borders[kb].Cote(kc) : ep;
+									if (ChampNombre(ctx, idc, rk, v, 0.25f, 0.f, 64.f)) {
+										n->MaterialiserBorders();
+										if (kb < (uint32)n->borders.Size())
+											n->borders[kb].cotes[kc] = v;
+										mSt->doc.MarkHumanEdit(mSt->selected);
+									}
+								}
+								if (ctx.popupDepth == 0 && NkGuiRectContains(rc, ctx.input.mousePos))
+									mSt->status = NkString(
+										"Épaisseur par côté : haut, droite, bas, gauche — elles se raccordent dans l'arc.");
+							}
+							// Jointure et Extremites : trois choix chacune
+							for (uint32 ligne = 0; ligne < 2u; ++ligne) {
+								const bool ouverte = NkFormeOuverte(*n);
+								const bool grise = ligne == 1u && !ouverte;
+								const NkRect rj = ctx.NextItemRect(-1.f, costume::HRangee);
+								if (grise)
+									ctx.BeginDisabled();
+								costume::Texte(dl, F.px10, xc0, costume::CentrerBande(F.px10, rj.y),
+											   ligne == 0u ? "Jointure" : "Extrémités", ctx.theme.textMuted);
+								static const char *const kJoint[3] = {"onglet", "rond", "biseau"};
+								static const char *const kExt[3] = {"plate", "ronde", "carree"};
+								static const char *const kExtLib[3] = {"plate", "ronde", "carrée"};
+								const NkString &val = listeOk ? (ligne == 0u ? n->borders[kb].jointure : n->borders[kb].extremite)
+															: NkString();
+								float32 xj = xc0 + ColChampsCalc(rj.w - 24.f);
+								for (uint32 c3 = 0; c3 < 3u; ++c3) {
+									const char *cle = ligne == 0u ? kJoint[c3] : kExt[c3];
+									const char *lib = ligne == 0u ? kJoint[c3] : kExtLib[c3];
+									const bool actif = c3 == 0u ? val.Empty() || NkComponentDecl::StrEq(val.Data(), cle)
+															  : NkComponentDecl::StrEq(val.Data(), cle);
+									const float32 lw = costume::Largeur(F.px10, lib) + 12.f;
+									const NkRect rb3 = {xj, costume::BandeY(rj.y), lw, costume::HControle};
+									xj += lw + (float32)costume::EspSerre;
+									const bool sv3 = !grise && ctx.popupDepth == 0 && NkGuiRectContains(rb3, ctx.input.mousePos);
+									dl.AddRectFilled(rb3, actif ? ctx.theme.accent : CouleurInput(), 4.f);
+									dl.AddRect(rb3, sv3 ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+									costume::Texte(dl, F.px10, rb3.x + 6.f, costume::CentrerY(F.px10, rb3.y, 20.f), lib,
+												   actif ? ctx.theme.panel : ctx.theme.text);
+									if (sv3 && ctx.input.mouseClicked[0]) {
+										n->MaterialiserBorders();
+										if (kb < (uint32)n->borders.Size()) {
+											NkString &cible = ligne == 0u ? n->borders[kb].jointure : n->borders[kb].extremite;
+											cible = c3 == 0u ? NkString() : NkString(cle); // le defaut n'ecrit rien
+										}
+										mSt->doc.MarkHumanEdit(mSt->selected);
+									}
+								}
+								if (grise) {
+									ctx.EndDisabled();
+									if (ctx.popupDepth == 0 && NkGuiRectContains(rj, ctx.input.mousePos))
+										mSt->status = NkString(
+											"Extrémités : une forme fermée n'en a pas — elles valent pour une ligne.");
+								} else if (ctx.popupDepth == 0 && NkGuiRectContains(rj, ctx.input.mousePos)) {
+									mSt->status = NkString(ligne == 0u
+															   ? "Jointure aux coins droits : onglet, rond (arrondi de l'épaisseur), biseau (coupé)."
+															   : "Extrémités de la ligne : plate, ronde (deux disques), carrée (prolongée d'une demi-épaisseur).");
+								}
+							}
+						}
 					}
 				}
 				if (rienDePose) {
