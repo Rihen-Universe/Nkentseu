@@ -581,7 +581,7 @@ invisibles : le modèle avait raison, l'accès manquait.
 
 | Arrondir **un seul** coin | `Alt` pendant le glissé de la poignée | 🟡 **partiel** | notre modèle porte **un rayon par sommet** (donc le cas est exprimable), mais il n'y a pas de poignée d'arrondi sur la toile |
 | Coins lisses type iOS | bouton à côté du rayon | ❌ **absent** | une autre courbe de raccord ; le modèle porte le rayon, pas la famille de courbe |
-| Extrémités d'un tracé ouvert (*Caps*) | section Bordure | ❌ **absent** | suppose le tracé ouvert |
+| Extrémités d'un tracé ouvert (*Caps*) | section Bordure | ✅ **livré** (04/09) | `extremite=` sur la bordure (plate / ronde / carrée), peinte sur une **ligne** ; grisée sur une forme fermée, **et la raison est dite**. Sonde 51e |
 
 ---
 
@@ -758,7 +758,7 @@ Source : `/styling`, `/text`, `/layers`.
 |---|---|---|
 | Couleur et épaisseur | ✅ **livré** |  |
 | **Position** intérieure / centrée / extérieure | 🟡 **partiel** | le modèle porte la clé (`NkBordurePos`) ; **le peintre dessine tout au centre** — un champ déclaré qui n'agit qu'à moitié, à corriger |
-| Extrémités (*caps*), jonctions (*folds*), têtes de flèche | ❌ **absent** | suppose surtout les tracés ouverts |
+| Extrémités (*caps*), jonctions (*folds*), têtes de flèche | 🟡 **partiel** (04/09) | **extrémités et jointures livrées** (`extremite=`, `jointure=` : onglet / rond / biseau, quatre épaisseurs qui se raccordent dans l'arc — sonde 51) ; **têtes de flèche : absentes** |
 | **Pointillés** (tiret / écart) | ❌ **absent** | deux nombres au modèle, et un peintre qui sait pointiller |
 | Un tracé ouvert n'accepte que la position « centrée » | ❌ **sans objet** | tant qu'il n'y a pas de tracé ouvert |
 
@@ -766,7 +766,7 @@ Source : `/styling`, `/text`, `/layers`.
 
 | comportement | état | ce qui manque |
 |---|---|---|
-| **Ombre portée** (couleur, décalage X/Y, flou, étendue) | ✅ **livré** | le modèle et la liste ; recette IA / round-trip |
+| **Ombre portée** (couleur, décalage X/Y, flou, étendue) | ✅ **livré** | le modèle et la liste ; recette IA / round-trip. **Par coin depuis le 04/09** : l'ombre suit les quatre rayons du nœud, plus de rayon uniforme inventé (sonde 50) |
 | **Ombre interne** | 🟡 **partiel** | le type existe au modèle, le **peintre ne la rend pas** |
 | **Flou gaussien** | ❌ **absent** | demande un vrai flou au peintre |
 | **Flou d'arrière-plan** | ❌ **absent** | demande de lire ce qui est dessous — c'est-à-dire une passe de rendu de plus |

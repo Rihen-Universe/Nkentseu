@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **74** | **24** | **75** | **1** |
+| **174** | **75** | **26** | **72** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -46,13 +46,13 @@ main** — la prochaine régénération l'effacerait.*
 |---|---|---|---|---|
 | 1. Édition vectorielle | 7 | 4 | 1 | 0 |
 | 🔑 « MIROIR » DÉSIGNE **TROIS CHOSES DIFFÉRENTES** | 14 | 1 | 6 | 0 |
-| 2. Outils de tracé et leurs modificateurs | 5 | 7 | 8 | 0 |
+| 2. Outils de tracé et leurs modificateurs | 6 | 7 | 7 | 0 |
 | 3. Opérations booléennes et de forme | 0 | 0 | 8 | 0 |
 | 4. Sélection et navigation | 8 | 0 | 5 | 0 |
 | 5. Toile et vue | 3 | 4 | 9 | 0 |
 | 6. Transformations | 13 | 1 | 7 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
-| 8. Propriétés | 10 | 5 | 21 | 0 |
+| 8. Propriétés | 10 | 7 | 19 | 0 |
 | 9. Composants et instances | 5 | 1 | 4 | 0 |
 
 ### La liste nommée — PARTIELS
@@ -96,8 +96,10 @@ main** — la prochaine régénération l'effacerait.*
 **8. Propriétés**
 
 - Appliquer à une multi-sélection ; « contenu mixte » signalé
+- Dégradés linéaire / radial / angulaire, avec étapes de couleur déplaçables
 - Saisie HEX / RGBA / HSB / HSL
 - Position intérieure / centrée / extérieure
+- Extrémités (*caps*), jonctions (*folds*), têtes de flèche
 - Ombre interne
 - Alignement horizontal (4)
 
@@ -129,7 +131,6 @@ main** — la prochaine régénération l'effacerait.*
 - Ratio d'une étoile
 - Arrondi sur la toile des formes prédéfinies
 - Coins lisses type iOS
-- Extrémités d'un tracé ouvert (*Caps*)
 
 **3. Opérations booléennes et de forme**
 
@@ -184,13 +185,11 @@ main** — la prochaine régénération l'effacerait.*
 **8. Propriétés**
 
 - Réordonner (l'ordre change le rendu)
-- Dégradés : **linéaire peint** (suit l'arrondi, honore l'angle — 03/09) ; radial / angulaire **nommés, pas peints** ; étapes déplaçables et poignées sur la toile **en attente de la capture Lunacy** (Q82)
 - Remplissage image et ses quatre cadrages (remplir / ajuster / étirer / mosaïque)
 - Pipette pour prélever une couleur
 - Règle de remplissage non-zero / pair-impair
 - Mode de fusion par remplissage
 - *Tints* (une teinte unique sur un groupe ou une instance)
-- Extrémités (*caps*), jonctions (*folds*), têtes de flèche
 - Pointillés (tiret / écart)
 - Un tracé ouvert n'accepte que la position « centrée »
 - Flou gaussien
