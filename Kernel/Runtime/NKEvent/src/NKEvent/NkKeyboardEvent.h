@@ -276,6 +276,26 @@ namespace nkentseu {
 		NK_HEADSET_HOOK, ///< Bouton du casque filaire (decrocher / lecture)
 		NK_CALL,		 ///< Touche Appeler (telephone)
 		NK_ENDCALL,		 ///< Touche Raccrocher (telephone)
+		NK_ASSIST,		 ///< Bouton assistant (touche laterale Samsung, ex-Bixby)
+		NK_VOICE_ASSIST, ///< Assistant vocal (appui long sur la touche laterale)
+		NK_BRIGHTNESS_UP,   ///< Luminosite + (claviers de tablette)
+		NK_BRIGHTNESS_DOWN, ///< Luminosite -
+		// NK_SLEEP existe DEJA plus bas (groupe systeme) : on ne le redeclare
+		// pas. Ajoute puis retire le 2026-09-03 -- j'ai ecrit avant de
+		// chercher, exactement la faute que ce depot documente. Le
+		// compilateur l'a dit ; un grep de trente secondes l'aurait evite.
+		NK_WAKEUP,		 ///< Reveil -- jamais livre a une application
+		NK_NOTIFICATION, ///< Volet de notifications
+		NK_SETTINGS,	 ///< Reglages
+		NK_MEDIA_PLAY,	 ///< Lecture seule (distincte de Lecture/Pause)
+		NK_MEDIA_PAUSE,	 ///< Pause seule
+		// Montres Wear OS : le boitier n'a pas de tranche, il a des « tiges ».
+		// Mappees parce qu'elles coutent quatre lignes et que le jour ou l'on
+		// vise cette cible, le code est deja juste.
+		NK_STEM_PRIMARY, ///< Bouton principal d'une montre Wear
+		NK_STEM_1,		 ///< Bouton lateral 1 (montre)
+		NK_STEM_2,		 ///< Bouton lateral 2 (montre)
+		NK_STEM_3,		 ///< Bouton lateral 3 (montre)
 
 		// -----------------------------------------------------------------
 		// Groupe : Touches navigateur web

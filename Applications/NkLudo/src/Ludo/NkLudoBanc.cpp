@@ -810,6 +810,21 @@ int32 NkLudoLancerBanc() {
 			{79, NkKey::NK_HEADSET_HOOK, "HEADSETHOOK"},
 			{84, NkKey::NK_SEARCH, "SEARCH"},
 			{82, NkKey::NK_MENU, "MENU"},
+			// ── Ajoutes le 2026-09-03 en dressant l'INVENTAIRE des boutons ──
+			// Le premier balayage cherchait un defaut connu ; celui-ci ne
+			// cherchait rien, il comptait. C'est le comptage qui a trouve le
+			// reste -- dont un quatrieme code faux.
+			{219, NkKey::NK_ASSIST, "ASSIST (touche laterale)"},
+			{231, NkKey::NK_VOICE_ASSIST, "VOICE_ASSIST"},
+			{221, NkKey::NK_BRIGHTNESS_UP, "BRIGHTNESS_UP"},
+			{220, NkKey::NK_BRIGHTNESS_DOWN, "BRIGHTNESS_DOWN (rendait MUTE)"},
+			{223, NkKey::NK_SLEEP, "SLEEP"},
+			{224, NkKey::NK_WAKEUP, "WAKEUP"},
+			{83, NkKey::NK_NOTIFICATION, "NOTIFICATION"},
+			{176, NkKey::NK_SETTINGS, "SETTINGS"},
+			{126, NkKey::NK_MEDIA_PLAY, "MEDIA_PLAY"},
+			{127, NkKey::NK_MEDIA_PAUSE, "MEDIA_PAUSE"},
+			{264, NkKey::NK_STEM_PRIMARY, "STEM_PRIMARY (montre Wear)"},
 		};
 		bool tousJustes = true;
 		for (const Cas &c : cas) {
@@ -820,7 +835,12 @@ int32 NkLudoLancerBanc() {
 				tousJustes = false;
 			}
 		}
-		verifier("touches : les douze boutons physiques rendent la bonne touche", tousJustes);
+		verifier("touches : les vingt-trois boutons physiques rendent la bonne touche", tousJustes);
+
+		// Le quatrieme code faux merite son cas de non-regression nomme : 220
+		// est la LUMINOSITE, et il rendait la coupure du son.
+		verifier("touches : 220 est la luminosite, pas la coupure du son",
+				 NkKeycodeMap::NkKeyFromAndroid(220) != NkKey::NK_MEDIA_MUTE);
 
 		// ── CONTROLE NEGATIF, et c'est lui qui donne du sens au precedent ──
 		// Une table qui rendrait n'importe quoi pour n'importe quel code
