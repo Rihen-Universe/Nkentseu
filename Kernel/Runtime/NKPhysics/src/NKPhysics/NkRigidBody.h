@@ -107,5 +107,13 @@ namespace nkentseu {
 			return b.orientation * NkVec3f{loc.x * I.x, loc.y * I.y, loc.z * I.z};
 		}
 
+		// Impulsion EN UN POINT du monde : part lineaire + part angulaire.
+		// C'est exactement ce que fait le solveur de contacts pour ses propres
+		// impulsions (rA x P) -- une seule formule, partagee avec les roues.
+		NK_FORCE_INLINE void NkApplyImpulseAtPoint(NkRigidBody &b, const NkVec3f &J, const NkVec3f &pWorld) noexcept {
+			b.linearVelocity = b.linearVelocity + J * b.invMass;
+			b.angularVelocity = b.angularVelocity + NkInvInertiaApply(b, (pWorld - b.position).Cross(J));
+		}
+
 	} // namespace physics
 } // namespace nkentseu

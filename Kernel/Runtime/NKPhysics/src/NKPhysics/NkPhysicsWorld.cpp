@@ -4,6 +4,7 @@
 // synchronisation des shapes. Pas encore de solveur (les corps se traversent) -> M1.
 // =============================================================================
 #include "NKPhysics/NkPhysicsWorld.h"
+#include "NKPhysics/NkVehicle.h"
 #include "NKPhysics/NkIntegrator.h"
 
 namespace nkentseu {
@@ -815,9 +816,30 @@ namespace nkentseu {
 			}
 		}
 
+		void NkPhysicsWorld::RegisterVehicle(NkVehicle *v) noexcept {
+			for (uint32 i = 0; i < (uint32)mVehicles.Size(); ++i)
+				if (mVehicles[(NkVector<NkVehicle *>::SizeType)i] == v)
+					return;
+			mVehicles.PushBack(v);
+		}
+		void NkPhysicsWorld::UnregisterVehicle(NkVehicle *v) noexcept {
+			for (uint32 i = 0; i < (uint32)mVehicles.Size(); ++i)
+				if (mVehicles[(NkVector<NkVehicle *>::SizeType)i] == v) {
+					mVehicles[(NkVector<NkVehicle *>::SizeType)i] =
+						mVehicles[(NkVector<NkVehicle *>::SizeType)(mVehicles.Size() - 1)];
+					mVehicles.PopBack();
+					return;
+				}
+		}
+
 		void NkPhysicsWorld::Substep(float32 dt) {
 			if (dt <= 0.f)
 				return;
+			// 0) roues : forces de suspension + impulsions d'adhérence, AU PAS FIXE,
+			//    avant l'intégration : les forces entrent dans force/torque, les
+			//    impulsions dans les vitesses -- comme celles du solveur.
+			for (uint32 i = 0; i < (uint32)mVehicles.Size(); ++i)
+				mVehicles[(NkVector<NkVehicle *>::SizeType)i]->StepFixed(dt);
 			// 1) forces -> vitesses
 			for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
 				NkRigidBody &b = mBodies[i];
