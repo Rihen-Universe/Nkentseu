@@ -61,6 +61,15 @@ namespace nkentseu {
 		// (lastItemId/lastItemRect) puis suit le meme chemin que BeginDropTarget.
 		// Une source reste un widget (BeginDragSource a besoin d'activeId).
 		NKENTSEU_NKGUI_API bool BeginDropTarget(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept;
+		// SOURCE A ZONE EXPLICITE (2026-09-03, NkUIDesign) : la jumelle de la cible a
+		// zone, pour la meme raison -- une ligne d'arbre ou une case peinte par un
+		// composant n'est pas un widget, donc `activeId` ne la designera jamais.
+		// Arme sur un appui DANS `rect`, demarre au-dela du meme seuil de ~4 px que
+		// la forme widget, et alimente LA MEME machine d'etat du contexte. Ne touche
+		// ni a activeId ni a hotId : les widgets contenus gardent survol et clic.
+		// True tant qu'un glisser DEPUIS cette zone est en cours ; appeler
+		// SetDragPayload + EndDragSource dans le bloc, comme pour la forme widget.
+		NKENTSEU_NKGUI_API bool BeginDragSource(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept;
 		// Livraison : non-nul UNE frame — au relachement sur la cible, si le
 		// type correspond. Un lacher HORS de toute cible ne livre rien.
 		NKENTSEU_NKGUI_API const void *AcceptDragPayload(NkGuiContext &ctx, const char *type,

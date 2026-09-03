@@ -189,6 +189,37 @@ namespace nkentseu {
 			// Symetrie d'API ; rien a fermer aujourd'hui.
 		}
 
+		bool BeginDragSource(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept {
+			if (id == NKGUI_ID_NONE)
+				return false;
+			// Deja en cours depuis cette zone ?
+			if (ctx.dragActive)
+				return ctx.dragSourceId == id;
+			// ARMEMENT : un appui DANS la zone -- pas activeId, qu'aucun widget ne
+			// posera ici. On retient l'ancre comme la forme widget.
+			if (ctx.input.mouseClicked[0] && ctx.InputHits(rect)) {
+				ctx.dragCandidateId = id;
+				ctx.dragCandidatePos = ctx.input.mousePos;
+			}
+			if (ctx.dragCandidateId != id)
+				return false;
+			if (!ctx.input.mouseDown[0]) {
+				ctx.dragCandidateId = NKGUI_ID_NONE; // relache sans avoir glisse : un clic
+				return false;
+			}
+			// Demarrage au-dela du MEME seuil que la forme widget : un clic n'est pas
+			// un glisser, et le seuil evite les departs accidentels.
+			const float32 dx = ctx.input.mousePos.x - ctx.dragCandidatePos.x;
+			const float32 dy = ctx.input.mousePos.y - ctx.dragCandidatePos.y;
+			if (dx * dx + dy * dy > 16.f) {
+				ctx.dragActive = true;
+				ctx.dragSourceId = id;
+				ctx.dragDelivered = false;
+				return true;
+			}
+			return false;
+		}
+
 		bool BeginDropTarget(NkGuiContext &ctx, NkGuiId id, const NkRect &rect) noexcept {
 			// Zone declaree, pas capturee : voir l'en-tete. On ne touche ni a
 			// activeId ni a hotId -- les widgets qu'elle contient gardent leur
