@@ -3212,16 +3212,16 @@ namespace nkuidesign {
 				e.flou = 4.f;
 				e.opacite = 50.f;
 				n.effets.PushBack(e);
-				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, 4.f);
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n);
 				const uint32 avecOmbre = (uint32)rec.cmds.Size();
 				rec.cmds.Clear();
 				n.effets[0].visible = false;
-				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, 4.f);
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n);
 				const uint32 oeilFerme = (uint32)rec.cmds.Size();
 				rec.cmds.Clear();
 				n.effets[0].visible = true;
 				n.effets[0].type = NkEffetType::OmbreInterne;
-				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, 4.f);
+				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n);
 				const uint32 interne = (uint32)rec.cmds.Size();
 				snprintf(buf, sizeof(buf),
 						 "portee=%u commande(s), oeil ferme=%u, interne=%u (non peinte, dit "
@@ -3962,6 +3962,76 @@ namespace nkuidesign {
 			snprintf(det, sizeof(det), "%u bande(s) rectangulaires chez un peintre sans polygone", bandes);
 			check("49e. un peintre sans polygone retombe sur les 24 bandes d'avant (le repli est nomme, pas silencieux)",
 				  bandes == 24u, det);
+		}
+		// ── 50. LES OMBRES PAR COIN ──────────────────────────────────────────
+		{
+			NkUIDocument dO;
+			dO.NewDocument("Toile", NkAuthor::Humain);
+			dO.nodes[0].layout.kind = NkLayoutKind::Free;
+			dO.SetMetric("espacement", 0.f);
+			dO.SetMetric("marge", 0.f);
+			const int32 f = dO.AddChild(0, "", NkAuthor::Humain);
+			NkUINode &nf = dO.nodes[(uint32)f];
+			nf.shape = NkString("rect");
+			nf.posX = 100.f;
+			nf.posY = 100.f;
+			nf.width.mode = NkSizeMode::Fixed;
+			nf.width.value = 120.f;
+			nf.height.mode = NkSizeMode::Fixed;
+			nf.height.value = 60.f;
+			nf.rayonsDelies = true;
+			nf.rayonsCoins[0] = 20.f; // haut-gauche arrondi, les trois autres droits
+			NkEffet ombre;
+			ombre.type = NkEffetType::OmbrePortee;
+			ombre.x = 0.f;
+			ombre.y = 4.f;
+			ombre.flou = 0.f;
+			ombre.etendue = 0.f;
+			ombre.couleur = NkString("#102030");
+			ombre.opacite = 50.f;
+			nf.effets.PushBack(ombre);
+			NkPaintRect surfO;
+			surfO.x = 0.f;
+			surfO.y = 0.f;
+			surfO.w = 800.f;
+			surfO.h = 600.f;
+			NkRecordingPaint rec;
+			RenderDocument(rec, dO, surfO);
+			uint32 nOmbre = 0u, arrondis20 = 0u, droits = 0u, autres = 0u;
+			for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+				const NkPaintCmd &c = rec.cmds[i];
+				if (c.op != NkPaintOp::FillColor || (c.rgba >> 8) != 0x102030u)
+					continue;
+				++nOmbre;
+				if (c.rounding > 19.5f && c.rounding < 20.5f)
+					++arrondis20;
+				else if (c.rounding == 0.f)
+					++droits;
+				else
+					++autres;
+			}
+			char det[220];
+			snprintf(det, sizeof(det), "%u commande(s) d'ombre : %u arrondie(s) a 20, %u droite(s), %u autre(s)",
+					 nOmbre, arrondis20, droits, autres);
+			check("50a. L'OMBRE SUIT LES COINS : un seul coin arrondi (20) donne une piece d'ombre arrondie a 20 "
+				  "et des pieces droites -- plus de rayon uniforme invente (4)",
+				  nOmbre > 1u && arrondis20 == 1u && droits >= 1u && autres == 0u, det);
+			// 50b. quatre coins egaux : une seule piece, au rayon du noeud (rien n'a change pour l'uniforme)
+			nf.rayonsDelies = false;
+			nf.radius = 8.f;
+			NkRecordingPaint rec2;
+			RenderDocument(rec2, dO, surfO);
+			uint32 n2 = 0u, r8 = 0u;
+			for (uint32 i = 0; i < (uint32)rec2.cmds.Size(); ++i) {
+				const NkPaintCmd &c = rec2.cmds[i];
+				if (c.op != NkPaintOp::FillColor || (c.rgba >> 8) != 0x102030u)
+					continue;
+				++n2;
+				if (c.rounding > 7.5f && c.rounding < 8.5f)
+					++r8;
+			}
+			snprintf(det, sizeof(det), "%u commande(s), %u au rayon 8", n2, r8);
+			check("50b. quatre coins egaux : une seule piece d'ombre, au rayon du noeud", n2 == 1u && r8 == 1u, det);
 		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
