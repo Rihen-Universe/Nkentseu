@@ -12294,7 +12294,13 @@ namespace nkuidesign {
 					return;
 				}
 				// Un nœud DESSINÉ (forme) porte l'apparence posée.
-				if (!n->shape.Empty() || !n->fill.Empty() || !n->textColor.Empty()) {
+				// 🔴 `|| !n->component.Empty()` : UN COMPOSANT ENTRE ICI AUSSI. Rodolf
+				//    (03/09) ne pouvait pas tourner un composant pose : l'inspecteur
+				//    lui cachait Arrondi/Rotation/Miroir/Opacite -- des proprietes DU
+				//    NOEUD, valables pour lui comme pour une forme. *Un panneau qui ne
+				//    montre pas la propriete fait croire qu'elle n'existe pas.*
+				const bool estComposant = !n->component.Empty() && !n->IsFrame();
+				if (!n->shape.Empty() || !n->fill.Empty() || !n->textColor.Empty() || estComposant) {
 					auto &F = costume::Fontes();
 					auto &dl = ctx.DL();
 					// tampons synchronisés sur la sélection ET l'historique (le
@@ -12508,7 +12514,9 @@ namespace nkuidesign {
 							mSt->status = NkString("Opacité : le modèle ne la porte pas encore "
 												   "(vocabulaire d'apparence, chantier nommé).");
 					}
-					return;
+					// Une forme s'arrete la ; un composant CONTINUE vers ses jetons.
+					if (!estComposant)
+						return;
 				}
 				if (n->IsFrame()) {
 					ctx.BeginDisabled();
