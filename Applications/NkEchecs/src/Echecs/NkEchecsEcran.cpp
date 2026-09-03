@@ -113,7 +113,21 @@ namespace nkentseu {
 					float32 cote = zoneH;
 					float32 lCol = zoneW - cote - marge;
 					const float32 lColMin = hBandeau * 4.2f;
-					const float32 lColMax = zoneW * 0.42f;
+
+					// ── LA COLONNE SE MESURE SUR SON CONTENU, PAS SUR L'ECRAN ─
+					// ⚠️ C'ETAIT `zoneW * 0.42f`. Une fraction de la LARGEUR
+					// grandit avec l'ecran, alors que le contenu de la colonne --
+					// un bandeau et trois boutons -- ne grandit pas : sur un
+					// telephone en paysage la colonne devenait presque aussi large
+					// que l'echiquier. Signale par Rodolf le 03/09 (« une fois
+					// roter ce n'est pas proportionnel »), mesure sur NkLudo :
+					// 918 px de colonne contre 1015 de plateau.
+					//
+					// L'unite juste est `hBandeau`, la hauteur de ligne : elle
+					// suit la taille du texte, donc le contenu. Le minimum
+					// ci-dessus vaut 4,2 -- les deux bornes parlent enfin la meme
+					// langue.
+					const float32 lColMax = hBandeau * 4.6f;
 					if (lCol > lColMax) {
 						lCol = lColMax;
 					}
@@ -142,7 +156,52 @@ namespace nkentseu {
 					y += hBas + ecart;
 					siege[1] = NkRect{xCol, y, lCol, hBas};
 					y += hBas + ecart;
-					rejouer = NkRect{xCol, y, lCol, hBas};
+
+					// ── L'ACTION S'ANCRE EN BAS, A HAUTEUR DU echiquier ------
+					// ⚠️ VU SUR UNE CAPTURE, PAS AU CALCUL. Empile a la suite des
+					// deux sieges, le bouton laissait sous lui une bande vide en
+					// bas a droite : le echiquier descendait jusqu'en bas, la colonne
+					// s'arretait plus haut. Le banc ne le voyait pas -- il mesure
+					// la boite ENGLOBANTE, que le echiquier remplissait deja.
+					//
+					// 📌 C'est la disposition habituelle d'un panneau : titre en
+					// haut, liste au milieu, ACTION en bas -- et le bouton se
+					// retrouve la ou le pouce l'atteint.
+					const float32 basPlateau = plateau.y + cote;
+					float32 yAction = y;
+					// Si la pile depasse le echiquier, on garde le flot naturel
+					// plutot que de faire remonter le bouton SUR les sieges.
+					if (yAction + hBas < basPlateau) {
+						yAction = basPlateau - hBas;
+					}
+					rejouer = NkRect{xCol, yAction, lCol, hBas};
+				}
+
+				// ── CE QUI RESTE DEVIENT UNE MARGE, JAMAIS UN VIDE D'UN COTE ──
+				//
+				// Rodolf, 03/09 : « ca laisse du vide ». Mesure faite sur
+				// NkLudo, qui portait le meme calcul : vide de 252 px A DROITE sur
+				// un telephone en paysage (11,2 % de la largeur), 1020 px (29,7 %)
+				// sur un ecran tres large, et 548 px EN BAS (24,3 %) en portrait.
+				//
+				// ⚠️ AUCUN RECTANGLE N'ETAIT FAUX -- chacun tenait dans la zone
+				// sure, l'echiquier restait carre, rien ne se recouvrait, et le
+				// banc etait vert. Ce qui manquait n'est pas DANS les rectangles,
+				// c'est ENTRE eux : la mise en page etait plaquee en haut a gauche
+				// et le surplus s'accumulait du seul cote oppose.
+				//
+				// 📌 `NkCentrerDans` vit dans NKMath, pas ici : les trois jeux
+				// avaient le meme defaut, et trois copies du meme correctif
+				// divergent au premier ajustement.
+				{
+					NkRect *tous[5];
+					tous[0] = &plateau;
+					tous[1] = &bandeau;
+					tous[2] = &siege[0];
+					tous[3] = &siege[1];
+					tous[4] = &rejouer;
+					const NkRect dispo{gaucheSur, hautSur, W - gaucheSur - droiteSur, H - hautSur - basSur};
+					math::NkCentrerDans(tous, static_cast<uint32>(sizeof(tous) / sizeof(tous[0])), dispo);
 				}
 
 				cellule = plateau.w / static_cast<float32>(NkEchecsPartie::NK_TAILLE);

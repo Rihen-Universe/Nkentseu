@@ -184,7 +184,23 @@ namespace nkentseu {
 					const float32 cote = zoneH;
 					float32 lCol = zoneW - cote - marge;
 					const float32 lColMin = hBandeau * 4.2f;
-					const float32 lColMax = zoneW * 0.42f;
+
+					// ── LA COLONNE SE MESURE SUR SON CONTENU, PAS SUR L'ECRAN ─
+					// ⚠️ C'ETAIT `zoneW * 0.42f`, ET C'EST LE DEFAUT SIGNALE PAR
+					// RODOLF le 03/09 : « une fois roter ce n'est pas
+					// proportionnel ». Une fraction de la LARGEUR grandit avec
+					// l'ecran, alors que le contenu de la colonne -- un bandeau,
+					// quatre sieges, un bouton -- ne grandit pas. Mesure sur un
+					// telephone en paysage 2400x1080 : colonne 918 px a cote
+					// d'un plateau de 1015. La colonne etait presque aussi large
+					// que le jeu.
+					//
+					// L'unite juste est `hBandeau`, la hauteur de ligne : elle
+					// suit la taille du texte, donc le contenu. 4,6 fois la
+					// ligne laisse la place aux libelles sans jamais concurrencer
+					// le plateau, et le minimum ci-dessus vaut 4,2 -- les deux
+					// bornes parlent enfin la meme langue.
+					const float32 lColMax = hBandeau * 4.6f;
 					if (lCol > lColMax) {
 						lCol = lColMax;
 					}
@@ -216,7 +232,73 @@ namespace nkentseu {
 						siege[i] = NkRect{xCol, y, lCol, hSiege};
 						y += hSiege + ecart;
 					}
-					bouton = NkRect{xCol, y + ecart, lCol, hBandeau * 0.95f};
+
+					// ── LE BOUTON S'ANCRE EN BAS, A HAUTEUR DU PLATEAU ────────
+					// ⚠️ VU SUR UNE CAPTURE, PAS AU CALCUL. Empile a la suite des
+					// sieges, il laissait sous lui une bande vide en bas a droite :
+					// le plateau descendait jusqu'en bas, la colonne s'arretait
+					// plus haut. Le banc ne le voyait pas -- il mesure la boite
+					// ENGLOBANTE, et le plateau la remplissait deja.
+					//
+					// 📌 C'est la disposition habituelle d'un panneau : le titre en
+					// haut, la liste au milieu, l'ACTION en bas. Elle a en plus
+					// l'avantage de mettre le bouton la ou le pouce l'atteint.
+					const float32 hBouton = hBandeau * 0.95f;
+					const float32 basPlateau = plateau.y + coteFinal;
+					float32 yBouton = y + ecart;
+					// Si la pile est plus haute que le plateau -- colonne etroite,
+					// beaucoup de sieges -- on garde le flot naturel plutot que de
+					// faire remonter le bouton SUR les sieges.
+					if (yBouton + hBouton < basPlateau) {
+						yBouton = basPlateau - hBouton;
+					}
+					bouton = NkRect{xCol, yBouton, lCol, hBouton};
+				}
+
+				// ── CE QUI RESTE DEVIENT UNE MARGE, JAMAIS UN VIDE D'UN COTE ──
+				//
+				// Rodolf, 03/09 : « ca laisse du vide ». Mesure avant correctif,
+				// avec la fonction elle-meme :
+				//
+				//   telephone paysage 2400x1080   vide A DROITE  252 px (11,2 %)
+				//   ecran tres large  3440x1000   vide A DROITE 1020 px (29,7 %)
+				//   telephone portrait 1080x2400  vide EN BAS    548 px (24,3 %)
+				//
+				// ⚠️ AUCUN RECTANGLE N'ETAIT FAUX, et c'est ce qui rend le defaut
+				// invisible au calcul : chacun tenait dans la zone sure, le
+				// plateau restait carre, rien ne se recouvrait. Le banc etait
+				// vert. Ce qui manquait n'est pas dans les rectangles, c'est
+				// entre eux -- la mise en page etait plaquee EN HAUT A GAUCHE, et
+				// tout le reste s'accumulait du meme cote.
+				//
+				// 📌 ET LA LECON ETAIT DEJA ECRITE DANS CE FICHIER, quinze lignes
+				// plus bas, pour le bloc de MENU : « il laisse au-dessus de lui
+				// une bande vide que rien n'occupe ». Elle n'avait jamais ete
+				// reliee a l'ecran de JEU, qui souffrait exactement du meme mal.
+				// Un avertissement ecrit a cote d'un chemin ne couvre pas le
+				// chemin voisin -- d'ou ce centrage ecrit UNE fois, au-dessus des
+				// deux branches, plutot que deux fois a l'interieur.
+				//
+				// Le geste : on mesure la boite qui englobe TOUT ce qui a ete
+				// place, puis on la centre dans la zone sure. Le surplus se
+				// partage alors en deux marges egales -- ce qu'un oeil lit comme
+				// une respiration voulue, pas comme un trou.
+				// 📌 Le centrage lui-meme vit dans NKMath (`NkCentrerDans`) et non
+				// ici : les trois jeux avaient le meme defaut, et trois copies du
+				// meme correctif divergent au premier ajustement. La couche du
+				// dessous ne le portait pas -- on l'y a fait grossir.
+				{
+					NkRect *tous[3 + NK_LUDO_JOUEURS];
+					tous[0] = &plateau;
+					tous[1] = &bandeau;
+					tous[2] = &bouton;
+					for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+						tous[3 + i] = &siege[i];
+					}
+					// La zone SURE entiere, marges comprises : c'est elle qui est
+					// offerte a la mise en page.
+					const NkRect dispo{gaucheSur, hautSur, W - gaucheSur - droiteSur, H - hautSur - basSur};
+					math::NkCentrerDans(tous, static_cast<uint32>(sizeof(tous) / sizeof(tous[0])), dispo);
 				}
 
 				cellule = plateau.w / static_cast<float32>(NK_LUDO_GRILLE);

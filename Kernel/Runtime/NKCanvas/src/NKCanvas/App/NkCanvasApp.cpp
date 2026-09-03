@@ -57,6 +57,33 @@ namespace nkentseu {
 					mCapturePath = a.SubStr(10);
 				} else if (a.StartsWith("--capture-frame=")) {
 					mCaptureFrame = NkString(a.SubStr(16)).ToInt32();
+				} else if (a.StartsWith("--taille=")) {
+					// --taille=LxH : impose la taille de la fenetre.
+					//
+					// ⚠️ SANS ELLE, ON NE PEUT PAS REGARDER UNE MISE EN PAGE EN
+					// PAYSAGE SUR UN BUREAU. Le 2026-09-03, Rodolf a signale
+					// qu'apres rotation « ce n'est pas proportionnel et ca laisse
+					// du vide » : le banc pouvait chiffrer les rectangles, mais
+					// aucune capture ne pouvait MONTRER l'ecran tourne, faute de
+					// pouvoir donner a la fenetre la forme d'un telephone couche.
+					//
+					// 📌 `--capture` sans `--taille` ne prouve que la mise en page
+					// PAR DEFAUT. Les deux vont ensemble.
+					const NkString v = a.SubStr(9);
+					const int32 x = v.Find("x");
+					if (x > 0) {
+						const int32 l = NkString(v.SubStr(0, static_cast<uint32>(x))).ToInt32();
+						const int32 h = NkString(v.SubStr(static_cast<uint32>(x) + 1)).ToInt32();
+						if (l > 0 && h > 0) {
+							mConfig.width = static_cast<uint32>(l);
+							mConfig.height = static_cast<uint32>(h);
+						} else {
+							logger.Warnf("[nkcanvasapp] --taille=%s ignoree : L et H doivent etre > 0\n", v.CStr());
+						}
+					} else {
+						logger.Warnf("[nkcanvasapp] --taille=%s ignoree : forme attendue LxH (ex. 2400x1080)\n",
+									 v.CStr());
+					}
 				}
 			}
 

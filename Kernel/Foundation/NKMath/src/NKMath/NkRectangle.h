@@ -308,6 +308,73 @@ namespace nkentseu {
 		using NkRecti = NkRectT<int32>;
 		using NkRectu = NkRectT<uint32>;
 
+		// =================================================================
+		// Boite englobante d'un GROUPE de rectangles, et centrage du groupe
+		// -----------------------------------------------------------------
+		// Ces deux fonctions existent parce que trois applications les
+		// avaient chacune reecrites -- ou, plus exactement, avaient toutes
+		// les trois OUBLIE de les ecrire, ce qui produisait la meme mise en
+		// page plaquee en haut a gauche avec un vide accumule de l'autre
+		// cote (mesure le 2026-09-03 : jusqu'a 29,7 % de la largeur).
+		//
+		// ⚠️ CE N'EST PAS `Center()`, qui rend le centre d'UN rectangle. Ici
+		// on deplace N rectangles SANS EN CHANGER AUCUNE TAILLE, pour que ce
+		// qui reste devienne deux marges egales plutot qu'un trou d'un seul
+		// cote. La nuance est toute la difference entre une mise en page qui
+		// respire et une qui a l'air inachevee.
+		// =================================================================
+
+		// NkEnglobe : le plus petit rectangle contenant les `count` premiers
+		// rectangles pointes par `rects`. Rend un rectangle nul si `count`
+		// vaut 0 -- un appelant qui n'a rien a englober n'a rien a centrer.
+		template <typename T>
+		inline NkRectT<T> NkEnglobe(NkRectT<T> *const *rects, uint32 count) {
+			if (rects == nullptr || count == 0) {
+				return NkRectT<T>(T(0), T(0), T(0), T(0));
+			}
+			T gauche = rects[0]->x;
+			T haut = rects[0]->y;
+			T droite = rects[0]->x + rects[0]->width;
+			T bas = rects[0]->y + rects[0]->height;
+			for (uint32 i = 1; i < count; ++i) {
+				const NkRectT<T> &r = *rects[i];
+				if (r.x < gauche) {
+					gauche = r.x;
+				}
+				if (r.y < haut) {
+					haut = r.y;
+				}
+				if (r.x + r.width > droite) {
+					droite = r.x + r.width;
+				}
+				if (r.y + r.height > bas) {
+					bas = r.y + r.height;
+				}
+			}
+			return NkRectT<T>(gauche, haut, droite - gauche, bas - haut);
+		}
+
+		// NkCentrerDans : translate TOUS les rectangles pour que leur boite
+		// englobante soit centree dans `region`. Les tailles et les positions
+		// RELATIVES sont conservees exactement -- c'est une translation, pas
+		// une mise a l'echelle.
+		//
+		// 📌 Le decalage se calcule une fois sur la boite, puis s'applique a
+		// tous : centrer chaque rectangle separement les empilerait.
+		template <typename T>
+		inline void NkCentrerDans(NkRectT<T> *const *rects, uint32 count, const NkRectT<T> &region) {
+			if (rects == nullptr || count == 0) {
+				return;
+			}
+			const NkRectT<T> boite = NkEnglobe(rects, count);
+			const T dx = region.x + (region.width - boite.width) / T(2) - boite.x;
+			const T dy = region.y + (region.height - boite.height) / T(2) - boite.y;
+			for (uint32 i = 0; i < count; ++i) {
+				rects[i]->x += dx;
+				rects[i]->y += dy;
+			}
+		}
+
 	} // namespace math
 
 	// =====================================================================

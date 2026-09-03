@@ -480,6 +480,8 @@ int32 NkLudoLancerBanc() {
 		bool tousCarres = true;
 		bool aucunRecouvrement = true;
 		bool plateauUtile = true;
+		bool centree = true;
+		bool proportionnee = true;
 		const char *fautif = "";
 
 		for (uint32 e = 0; e < sizeof(ecrans) / sizeof(ecrans[0]); ++e) {
@@ -572,13 +574,93 @@ int32 NkLudoLancerBanc() {
 				aucunRecouvrement = false;
 				fautif = s.nom;
 			}
+
+			// ── DEUX CONTROLES NES DU SIGNALEMENT DU 03/09 ──────────────────
+			//
+			// Rodolf : « une fois roter non seulement ce n'est pas proportionnel
+			// mais j'ai l'impression que ca laisse du vide ». Les deux moitiés de
+			// la phrase sont deux defauts distincts, et AUCUN des quatre
+			// controles ci-dessus ne les voyait -- ils etaient tous verts.
+			//
+			// ⚠️ LE PREMIER BANC AVAIT MEME ECARTE « rien ne deborde » EN NOTANT
+			// que l'ancienne mise en page « laissait la largeur VIDE » : le mot
+			// etait ecrit, le controle n'a jamais suivi. Un defaut nomme dans un
+			// commentaire et non mesure reste un defaut.
+			//
+			//   1. CENTREE -- ce qui reste se partage en deux marges egales. Un
+			//      vide d'un seul cote est ce que l'oeil lit comme inachevé ;
+			//      deux marges egales, comme une respiration voulue.
+			//   2. PROPORTIONNEE -- en deux colonnes, la colonne ne concurrence
+			//      pas le plateau. Mesure avant correctif : 918 px de colonne
+			//      contre 1015 de plateau sur un telephone en paysage, et 1420
+			//      contre 940 sur un ecran tres large -- la colonne y etait plus
+			//      large que le jeu.
+			{
+				float32 droiteMax = g.plateau.x + g.plateau.w;
+				const NkRect *tous[3 + NK_LUDO_JOUEURS];
+				tous[0] = &g.plateau;
+				tous[1] = &g.bandeau;
+				tous[2] = &g.bouton;
+				for (int32 i = 0; i < NK_LUDO_JOUEURS; ++i) {
+					tous[3 + i] = &g.siege[i];
+				}
+				float32 basMax = 0.f;
+				for (uint32 i = 0; i < sizeof(tous) / sizeof(tous[0]); ++i) {
+					const float32 d = tous[i]->x + tous[i]->w;
+					if (d > droiteMax) {
+						droiteMax = d;
+					}
+					const float32 b = tous[i]->y + tous[i]->h;
+					if (b > basMax) {
+						basMax = b;
+					}
+				}
+				float32 gaucheMin = g.plateau.x;
+				float32 hautMin = g.plateau.y;
+				for (uint32 i = 0; i < sizeof(tous) / sizeof(tous[0]); ++i) {
+					if (tous[i]->x < gaucheMin) {
+						gaucheMin = tous[i]->x;
+					}
+					if (tous[i]->y < hautMin) {
+						hautMin = tous[i]->y;
+					}
+				}
+				const float32 mG = gaucheMin - x0;
+				const float32 mD = x1 - droiteMax;
+				const float32 mH = hautMin - y0;
+				const float32 mB = y1 - basMax;
+				const float32 ecartH = mD > mG ? mD - mG : mG - mD;
+				const float32 ecartV = mB > mH ? mB - mH : mH - mB;
+				logger.Infof("[mesure] %-20s %ux%u  plateau=%.0f colonne=%.0f  "
+							 "marges G/D=%.0f/%.0f (ecart %.0f)  H/B=%.0f/%.0f (ecart %.0f)\n",
+							 s.nom, s.w, s.h, g.plateau.w, g.bandeau.w, mG, mD, ecartH, mH, mB, ecartV);
+
+				// Un pixel de tolerance : le centrage se fait en flottants et une
+				// dimension impaire laisse un demi-pixel de chaque cote.
+				if (ecartH > 1.f || ecartV > 1.f) {
+					centree = false;
+					fautif = s.nom;
+				}
+
+				// ⚠️ LE CRITERE DE PROPORTION NE S'APPLIQUE QU'EN DEUX COLONNES.
+				// En une colonne le bandeau prend TOUTE la largeur, donc son
+				// rapport au plateau vaut 1 par construction : l'y appliquer
+				// ferait rougir une mise en page correcte. `aCote`, calcule
+				// ci-dessus, dit precisement dans quel mode on est.
+				if (aCote && g.bandeau.w > g.plateau.w * 0.75f) {
+					proportionnee = false;
+					fautif = s.nom;
+				}
+			}
 		}
 
 		verifier("mise en page : tout tient dans la zone sure", tousDedans);
 		verifier("mise en page : le plateau reste CARRE", tousCarres);
 		verifier("mise en page : le plateau occupe la place disponible", plateauUtile);
 		verifier("mise en page : le bandeau ne recouvre pas le plateau", aucunRecouvrement);
-		if (!tousDedans || !tousCarres || !plateauUtile || !aucunRecouvrement) {
+		verifier("mise en page : centree, ce qui reste fait DEUX marges egales", centree);
+		verifier("mise en page : la colonne ne concurrence pas le plateau", proportionnee);
+		if (!tousDedans || !tousCarres || !plateauUtile || !aucunRecouvrement || !centree || !proportionnee) {
 			logger.Infof("[banc]   (ecran fautif : %s)\n", fautif);
 		}
 	}
