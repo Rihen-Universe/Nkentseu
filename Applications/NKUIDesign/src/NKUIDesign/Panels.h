@@ -3336,6 +3336,53 @@ namespace nkuidesign {
 				//    tourne AVANT et verrait le clic. Un clic sur « Supprimer »
 				//    aurait aussi deselectionne derriere (la classe des flottants,
 				//    mesuree le 30/08).
+				// ── LA ROTATION RECLAME LE CLIC AVANT LA TOILE ───────────────
+				// 🔴 L'ORDRE ETAIT LE DEFAUT, ET IL S'ETEND SUR 1 200 LIGNES.
+				//    `HandleMouse` est appelee ICI. Les poignees de rotation,
+				//    elles, etaient testees ~1 200 lignes plus bas, DANS LE BLOC
+				//    QUI LES PEINT. Quand elles regardaient le clic, la toile
+				//    l'avait deja consomme : elle avait selectionne le noeud sous
+				//    le curseur (la PAGE, puisque les arcs sont EN DEHORS de la
+				//    boite) et arme son deplacement. Mesure a la souris le 03/09,
+				//    sonde a l'appui : `sel=9` a l'entree de la toile, `sel=1`
+				//    quarante lignes plus loin, dans la MEME image.
+				//    C'est pour ca que les arcs se voyaient, se survolaient (la
+				//    pastille se remplissait) et ne tournaient jamais.
+				//
+				//    *Un controle dessine par-dessus doit etre INTERROGE avant ce
+				//    qu'il recouvre — sinon il ne recouvre rien.*
+				//
+				// ⚠️ CE BLOC NE PEINT RIEN, et le bloc qui peint n'arme plus rien :
+				//    la DECISION est ici, le DESSIN reste la-bas. Les melanger est
+				//    precisement ce qui a cache le defaut si longtemps.
+				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && ctx.popupDepth == 0
+					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
+					&& screen.Has(mSt->selected)) {
+					const NkUINode &selRot = mSt->doc.nodes[(uint32)mSt->selected];
+					if (NkPeutTourner(selRot)) {
+						const NkPaintRect rsRot = screen.At(mSt->selected);
+						const float32 trRot = NkTaillePoigneeRotation();
+						for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
+							const NkPaintRect pr = NkPoigneeRotation(rsRot, k, trRot);
+							if (!NkGuiRectContains({pr.x, pr.y, pr.w, pr.h},
+												   ctx.input.mousePos))
+								continue;
+							mRotDrag = (int32)k;
+							mRotBase = selRot.rotation;
+							mRotAngle0 = NkAngleDeg(rsRot.x + rsRot.w * 0.5f,
+													rsRot.y + rsRot.h * 0.5f,
+													ctx.input.mousePos.x,
+													ctx.input.mousePos.y);
+							// LES DEUX REPRESENTATIONS DE L'ENTREE SE TAISENT.
+							// `in` est la COPIE que la toile lit ; `ctx.input`
+							// l'original que lisent les controles du kit. N'en
+							// eteindre qu'une laisse l'autre agir.
+							in.mousePressed = false;
+							ctx.input.mouseClicked[0] = false;
+							break;
+						}
+					}
+				}
 				if (!modeGraphe && !mMenuCtx.open)
 					HandleMouse(in, screen);
 
@@ -4446,7 +4493,7 @@ namespace nkuidesign {
 					{
 						const NkUINode &selN = mSt->doc.nodes[(uint32)mSt->selected];
 						if (NkPeutTourner(selN)) {
-							const float32 tr = 9.f;
+							const float32 tr = NkTaillePoigneeRotation();
 							for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
 								const NkPaintRect pr = NkPoigneeRotation(rs, k, tr);
 								const bool sv = ctx.popupDepth == 0
@@ -4550,37 +4597,10 @@ namespace nkuidesign {
 								//    la page.
 								//    *Une question ne doit avoir qu'une seule reponse dans
 								//    une meme fonction.*
-								if (sv && in.mousePressed) {
-									mRotDrag = (int32)k;
-									mRotBase = selN.rotation;
-									mRotAngle0 = NkAngleDeg(rs.x + rs.w * 0.5f,
-															rs.y + rs.h * 0.5f,
-															ctx.input.mousePos.x,
-															ctx.input.mousePos.y);
-									// 🔴 LE CLIC SE CONSOMME, ET C'EST TOUT LE
-									//    DEFAUT DU 03/09. Sans cette ligne, le
-									//    MEME clic servait deux fois : ici pour
-									//    armer la rotation, puis plus bas pour la
-									//    selection de la toile. Attraper un arc
-									//    DEPLACAIT donc la page qui se trouve
-									//    dessous -- les arcs se voyaient, la
-									//    rotation ne se faisait jamais.
-									//    *Un controle qui reagit sans RECLAMER le
-									//    geste le laisse a la couche d'en dessous.*
-									//    (`NkComboButton` du kit le fait depuis
-									//    toujours : c'est le precedent, pas une
-									//    invention.)
-									ctx.input.mouseClicked[0] = false;
-									// 🔴 ET L’INSTANTANÉ AUSSI, SINON RIEN NE CHANGE.
-									//    La toile ne lit pas `ctx.input` : elle lit `in`,
-									//    une COPIE prise bien plus haut (l. ~2847). Une
-									//    copie prise tôt ne peut pas apprendre que
-									//    l’original a été consommé — j’ai corrigé la
-									//    source et mesuré : le geste déplaçait toujours
-									//    la page. *Deux représentations d’une même
-									//    entrée, c’est deux endroits où la consommer.*
-									in.mousePressed = false;
-								}
+								// ⚠️ CE BLOC N'ARME PLUS : la reclamation se fait AVANT
+								//    `HandleMouse` (voir le commentaire la-bas). Ici on
+								//    ne fait plus que PEINDRE -- l'arc au repos, la
+								//    pastille au survol ou pendant le geste.
 							}
 							// LE GESTE : l'angle sous la souris moins celui du depart.
 							if (mRotDrag >= 0 && ctx.input.mouseDown[0]) {

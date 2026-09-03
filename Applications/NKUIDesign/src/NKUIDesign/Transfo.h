@@ -446,6 +446,13 @@ namespace nkuidesign {
 			default: return {r.x - d - h, r.y + r.h + d - h, taille, taille};
 		}
 	}
+	/// LA TAILLE de la zone attrapable d'une poignee de rotation, en pixels
+	/// ECRAN. Elle sert AUX DEUX endroits qui la lisent -- celui qui RECLAME
+	/// le clic et celui qui PEINT l'arc. Deux nombres auraient diverge, et la
+	/// zone cliquable se serait decollee du dessin sans que rien ne le dise.
+	inline float32 NkTaillePoigneeRotation() {
+		return 9.f;
+	}
 	inline uint32 NkNbPoigneesRotation() {
 		return 4u;
 	}
