@@ -140,6 +140,151 @@ namespace nkentseu {
 	}
 
 	// =========================================================================
+	// CE QUE LE SYSTEME REFUSE DE LIVRER, IL ACCEPTE SOUVENT DE LE FAIRE
+	// =========================================================================
+	// Android ne livre JAMAIS a une application les touches ACCUEIL,
+	// APPLICATIONS RECENTES, POWER, VEILLE et REVEIL. C'est une decision du
+	// systeme, et aucun mappage n'y changera rien.
+	//
+	// ⚠️ MAIS « ne pas recevoir la touche » n'est pas « ne rien pouvoir
+	// faire », et s'arreter au premier constat, c'est repondre a une question
+	// plus etroite que celle qu'on pose. Ce qui suit obtient le RESULTAT que
+	// l'on cherchait, par une autre porte -- et sans une ligne de Java a nous.
+
+	// ── EMPECHER LA VEILLE ──────────────────────────────────────────────
+	// FLAG_KEEP_SCREEN_ON (0x00000080) : tant qu'il est pose, l'ecran ne
+	// s'eteint pas tout seul. C'est ce qu'un jeu veut pendant une partie --
+	// et ce qu'il doit RETIRER en la quittant, sinon il vide la batterie
+	// d'un utilisateur qui a repose son telephone.
+	//
+	// 📌 Pose sur la FENETRE, donc via `getWindow().addFlags(...)`. Et il faut
+	// le faire sur le fil de l'interface : `runOnUiThread` prend un Runnable,
+	// une classe Java qu'on ne peut pas sous-classer sans dex. On passe donc
+	// par `ANativeActivity_setWindowFlags`, qui fait exactement cela depuis le
+	// natif -- c'est la fonction que le NDK expose pour ce cas precis.
+	bool NkAndroidGarderEcranAllume(android_app *app, bool actif) {
+		if (!app || !app->activity) {
+			return false;
+		}
+		const uint32 kKeepScreenOn = 0x00000080u; // AWINDOW_FLAG_KEEP_SCREEN_ON
+		ANativeActivity_setWindowFlags(app->activity, actif ? kKeepScreenOn : 0u,
+									   actif ? 0u : kKeepScreenOn);
+		logger.Infof("[NkAndroidWindow] ecran maintenu allume : %s\n", actif ? "oui" : "non");
+		return true;
+	}
+
+	// ── BLOQUER ACCUEIL ET RECENTES ─────────────────────────────────────
+	// `Activity.startLockTask()` epingle l'ecran : les boutons accueil et
+	// applications recentes cessent de sortir de l'application. C'est la
+	// reponse REELLE a « je veux ces boutons » -- non pas les recevoir, mais
+	// les neutraliser, ce qui est ce qu'on voulait en les demandant.
+	//
+	// ⚠️ ET LE SYSTEME NE SE LAISSE PAS PRENDRE ENTIEREMENT : hors mode
+	// « proprietaire d'appareil », Android affiche une confirmation et laisse
+	// une sortie (appui long sur Retour + Recentes). C'est deliberé de sa
+	// part, et c'est bien : une application qui pourrait sequestrer un
+	// telephone serait une arme. On documente la limite au lieu de la
+	// contourner.
+	//
+	// 📌 Usage prevu : un mode enfant (Mou), une demonstration en salon, un
+	// examen. Pas un jeu ordinaire.
+	bool NkAndroidEpinglerEcran(android_app *app, bool actif) {
+		if (!app || !app->activity || !app->activity->clazz) {
+			return false;
+		}
+		JNIEnv *env = nullptr;
+		bool attached = false;
+		if (!NkAndroidAcquireJniEnv(app, &env, &attached)) {
+			return false;
+		}
+		bool ok = false;
+		jobject activity = app->activity->clazz;
+		jclass cls = env->GetObjectClass(activity);
+		if (cls) {
+			jmethodID m = env->GetMethodID(cls, actif ? "startLockTask" : "stopLockTask", "()V");
+			if (m) {
+				env->CallVoidMethod(activity, m);
+				ok = !env->ExceptionCheck();
+			}
+			if (env->ExceptionCheck()) {
+				env->ExceptionClear();
+			}
+			env->DeleteLocalRef(cls);
+		}
+		NkAndroidReleaseJniEnv(app, attached);
+		logger.Infof("[NkAndroidWindow] epinglage d'ecran %s : %s\n", actif ? "demande" : "leve",
+					 ok ? "accepte" : "REFUSE");
+		return ok;
+	}
+
+	// ── SAVOIR POURQUOI ON EST PARTI ────────────────────────────────────
+	// `PowerManager.isInteractive()` dit si l'ecran est allume. Interrogee au
+	// moment ou l'application passe en arriere-plan, elle separe deux causes
+	// que rien d'autre ne distingue :
+	//
+	//   ecran ETEINT -> bouton power, ou veille automatique
+	//   ecran ALLUME -> accueil, recentes, ou une autre application
+	//
+	// ⚠️ ET ELLE NE SEPARE PAS ACCUEIL DE RECENTES. Aucune API publique ne le
+	// fait. On rend donc ce qu'on sait, jamais ce qu'on suppose -- un
+	// « probablement accueil » serait une invention que l'appelant croirait.
+	//
+	// 📌 `isInteractive` existe depuis l'API 20 ; avant, c'etait `isScreenOn`.
+	// On essaie la recente, puis l'ancienne : un repli qui CHANGE de methode,
+	// pas un repli qui invente une reponse.
+	bool NkAndroidEcranAllume(android_app *app, bool *hors_service) {
+		if (hors_service) {
+			*hors_service = true; // on ne sait pas, jusqu'a preuve du contraire
+		}
+		if (!app || !app->activity || !app->activity->clazz) {
+			return true;
+		}
+		JNIEnv *env = nullptr;
+		bool attached = false;
+		if (!NkAndroidAcquireJniEnv(app, &env, &attached)) {
+			return true;
+		}
+		bool allume = true;
+		jobject activity = app->activity->clazz;
+		jclass actClass = env->GetObjectClass(activity);
+		if (actClass) {
+			jmethodID getSvc = env->GetMethodID(actClass, "getSystemService",
+												"(Ljava/lang/String;)Ljava/lang/Object;");
+			if (getSvc) {
+				jstring nom = env->NewStringUTF("power");
+				jobject pm = env->CallObjectMethod(activity, getSvc, nom);
+				if (pm && !env->ExceptionCheck()) {
+					jclass pmClass = env->GetObjectClass(pm);
+					jmethodID m = env->GetMethodID(pmClass, "isInteractive", "()Z");
+					if (env->ExceptionCheck()) {
+						env->ExceptionClear();
+						m = env->GetMethodID(pmClass, "isScreenOn", "()Z"); // avant l'API 20
+						if (env->ExceptionCheck()) {
+							env->ExceptionClear();
+							m = nullptr;
+						}
+					}
+					if (m) {
+						allume = (env->CallBooleanMethod(pm, m) == JNI_TRUE);
+						if (!env->ExceptionCheck() && hors_service) {
+							*hors_service = false; // la reponse est REELLE
+						}
+					}
+					env->DeleteLocalRef(pmClass);
+					env->DeleteLocalRef(pm);
+				}
+				env->DeleteLocalRef(nom);
+			}
+			if (env->ExceptionCheck()) {
+				env->ExceptionClear();
+			}
+			env->DeleteLocalRef(actClass);
+		}
+		NkAndroidReleaseJniEnv(app, attached);
+		return allume;
+	}
+
+	// =========================================================================
 	// La bascule de volume regle le flux MEDIA, meme quand l'application se tait
 	// =========================================================================
 	//

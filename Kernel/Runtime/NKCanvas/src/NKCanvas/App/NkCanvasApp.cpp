@@ -27,6 +27,21 @@
 #include "NKTime/NkChrono.h"
 #include "NKTime/NkClock.h"
 
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+// Ce que le systeme ne livre pas en touches, il accepte de le faire : voir
+// NkAndroidWindow.h. L'include est sous garde -- il n'existe que la.
+// ⚠️ PAS `NKWindow/EntryPoints/NkAndroid.h` : cet en-tete DEFINIT
+// `android_main`. L'inclure ici en produit un second exemplaire et le
+// lien echoue sur « duplicate symbol » -- un en-tete de point d'entree ne
+// s'inclut qu'une fois, dans le fichier qui EST le point d'entree.
+// On declare donc le seul symbole dont on a besoin.
+#include "NKWindow/Platform/Android/NkAndroidWindow.h"
+struct android_app;
+namespace nkentseu {
+	extern android_app *nk_android_global_app;
+}
+#endif
+
 namespace nkentseu {
 	namespace renderer {
 
@@ -131,6 +146,7 @@ namespace nkentseu {
 				mSurfaceAlive = false;
 				if (!mPaused) {
 					mPaused = true;
+					MesurerRaisonDeLaPause();
 					OnPause();
 				}
 				logger.Info("[nkcanvasapp] arriere-plan : rendu suspendu");
@@ -158,6 +174,7 @@ namespace nkentseu {
 				mHasFocus = false;
 				if (!mPaused) {
 					mPaused = true;
+					MesurerRaisonDeLaPause();
 					OnPause();
 				}
 			});
@@ -507,6 +524,60 @@ namespace nkentseu {
 				}
 #endif
 			}
+		}
+
+		// =====================================================================
+		// LES TROIS CAPACITES, ET CE QU'ELLES DISENT QUAND ELLES NE PEUVENT PAS
+		// =====================================================================
+		// Aucune plateforme mobile ne livre a une application les touches
+		// ACCUEIL, APPLICATIONS RECENTES, POWER, VEILLE. Ces trois methodes
+		// obtiennent le RESULTAT qu'on cherchait en les demandant, par une
+		// autre porte : empecher la veille, bloquer accueil et recentes,
+		// savoir pourquoi on a perdu le premier plan.
+		//
+		// ⚠️ LE `#if` EST ICI, DANS LE MOTEUR, ET NULLE PART AILLEURS. Une
+		// application qui ecrirait `si (android)` aurait deja perdu : la
+		// decision aurait fui vers son client et s'y recopierait autant de
+		// fois qu'il y a de clients.
+
+		bool NkCanvasApp::GarderEcranAllume(bool actif) {
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+			return NkAndroidGarderEcranAllume(nk_android_global_app, actif);
+#else
+			// Pas un silence : un refus qui se voit. Le jour ou quelqu'un
+			// cherchera pourquoi son ecran s'eteint sur cette cible, la ligne
+			// sera dans le journal. Un `return true` qui ne fait rien serait un
+			// parametre non honore -- l'appelant le croirait.
+			logger.Warnf("[nkcanvasapp] garder l'ecran allume : non implemente ici (demande : %s)\n",
+						 actif ? "oui" : "non");
+			return false;
+#endif
+		}
+
+		bool NkCanvasApp::EpinglerEcran(bool actif) {
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+			return NkAndroidEpinglerEcran(nk_android_global_app, actif);
+#else
+			logger.Warnf("[nkcanvasapp] epinglage d'ecran : non implemente ici (demande : %s)\n",
+						 actif ? "oui" : "non");
+			return false;
+#endif
+		}
+
+		// La raison se mesure AU MOMENT de la pause, pas apres : dix secondes
+		// plus tard, l'ecran a pu s'eteindre pour une tout autre raison, et la
+		// reponse ne dirait plus pourquoi on est parti.
+		void NkCanvasApp::MesurerRaisonDeLaPause() {
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+			bool horsService = true;
+			const bool allume = NkAndroidEcranAllume(nk_android_global_app, &horsService);
+			// ⚠️ « je n'ai pas pu demander » n'est pas « l'ecran est allume ».
+			// Les confondre ferait passer un echec de mesure pour un fait.
+			mRaisonPause = horsService ? Raison::INCONNUE
+									   : (allume ? Raison::PREMIER_PLAN_PERDU : Raison::ECRAN_ETEINT);
+#else
+			mRaisonPause = Raison::PREMIER_PLAN_PERDU;
+#endif
 		}
 
 	} // namespace renderer
