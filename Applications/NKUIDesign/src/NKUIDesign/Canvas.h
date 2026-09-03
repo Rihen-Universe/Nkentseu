@@ -171,9 +171,12 @@ namespace nkuidesign {
 			/// `zoomPlafond` (0 = aucun) : borne HAUTE demandee par l'appelant --
 			/// le cadrage d'ouverture plafonne a 100 %, parce qu'ouvrir un petit
 			/// artboard zoome a 400 % desoriente plus qu'il n'aide.
-			bool AjusterSur(const NkPaintRect &cible, nkentseu::uint32 mode = 0,
-							float32 zoomPlafond = 0.f) {
-				// Le viewport UTILE : ampute des bandes du mobilier.
+			/// LE VIEWPORT UTILE : le viewport ampute des bandes du mobilier.
+			/// 🔑 UNE SEULE REPONSE POUR LES DEUX CADRAGES. `AjusterSur` le
+			///    calculait chez lui ; `Reveler` en avait besoin du meme. Deux
+			///    copies auraient diverge au premier reglage du mobilier, et
+			///    l'un des deux aurait pose le document sous le rail.
+			NkPaintRect ViewportUtile() const {
 				NkPaintRect vp = viewport;
 				if (reserveGauche > 0.f && reserveGauche < vp.w * 0.5f) {
 					vp.x += reserveGauche;
@@ -181,6 +184,45 @@ namespace nkuidesign {
 				}
 				if (reserveBas > 0.f && reserveBas < vp.h * 0.5f)
 					vp.h -= reserveBas;
+				return vp;
+			}
+
+			/// AMENER L'OEIL SUR `cible` SANS TOUCHER AU ZOOM.
+			///
+			/// 🔴 RODOLF, 03/09 : « cliquer ou double-cliquer sur un element de
+			///    la page doit nous amener ou se trouve le composant dans la
+			///    grille infinie ». Selectionner sans montrer laisse la main
+			///    devant une toile inchangee : l'inspecteur parle d'un objet
+			///    que l'oeil ne trouve pas.
+			///
+			/// ⚠️ ELLE NE FAIT RIEN SI LA CIBLE EST DEJA ENTIEREMENT VISIBLE, et
+			///    c'est le coeur du contrat : recentrer a chaque clic ferait
+			///    sauter la toile sous la main pendant qu'on travaille — le
+			///    remede serait pire que le mal. On ne bouge que pour ce qu'on
+			///    ne voit pas.
+			///
+			/// ⚠️ ET PAS DE ZOOM : c'est `AjusterSur` qui zoome, sur un geste
+			///    EXPLICITE (double-clic, `Ctrl+0..3`). Changer le zoom sur une
+			///    simple selection ferait perdre l'echelle de travail.
+			bool Reveler(const NkPaintRect &cible) {
+				const NkPaintRect vp = ViewportUtile();
+				if (!(cible.w > 0.f) || !(cible.h > 0.f) || !(vp.w > 0.f) || !(vp.h > 0.f))
+					return false;
+				// La cible EN PIXELS ECRAN, avec le zoom courant.
+				const float32 x0 = ToScreenX(cible.x), y0 = ToScreenY(cible.y);
+				const float32 x1 = x0 + cible.w * zoom, y1 = y0 + cible.h * zoom;
+				if (x0 >= vp.x && y0 >= vp.y && x1 <= vp.x + vp.w && y1 <= vp.y + vp.h)
+					return false; // deja sous les yeux : on ne bouge pas
+				const float32 cx = cible.x + cible.w * 0.5f;
+				const float32 cy = cible.y + cible.h * 0.5f;
+				panX = (vp.x - viewport.x) + vp.w * 0.5f - cx * zoom;
+				panY = (vp.y - viewport.y) + vp.h * 0.5f - cy * zoom;
+				return true;
+			}
+
+			bool AjusterSur(const NkPaintRect &cible, nkentseu::uint32 mode = 0,
+							float32 zoomPlafond = 0.f) {
+				const NkPaintRect vp = ViewportUtile();
 				if (!(cible.w > 0.f) || !(cible.h > 0.f) || !(vp.w > 0.f)
 					|| !(vp.h > 0.f))
 					return false;

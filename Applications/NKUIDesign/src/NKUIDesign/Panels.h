@@ -1181,6 +1181,19 @@ namespace nkuidesign {
 			/// Ecrit UNE fois par la toile, lu par le peintre ET par le depot :
 			/// l'apercu et le resultat ne peuvent pas diverger.
 			glisser::NkVise viseGlisser;
+
+			/// ── AMENER L'OEIL SUR CE QUI VIENT D'ETRE CHOISI OU POSE ─────
+			/// 🔴 RODOLF, 03/09 : « cliquer ou double-cliquer sur un element de
+			///    la page doit nous amener ou se trouve le composant », et « le
+			///    double-clic ajoute dans la hierarchie mais on ne peut pas le
+			///    voir ». Selectionner sans montrer laisse l'inspecteur parler
+			///    d'un objet que l'oeil ne trouve pas.
+			/// ⚠️ UN DRAPEAU, ET PAS UN APPEL DIRECT, POUR UNE RAISON DE FRAME :
+			///    au moment ou l'on pose ou l'on choisit, la disposition n'est
+			///    PAS encore recalculee -- le noeud neuf n'a pas de rectangle.
+			///    La toile le consomme apres avoir resolu la disposition, quand
+			///    la question « ou est-il ? » a enfin une reponse.
+			bool revelerSelection = false;
 			/// Tolérance d'aimantation, en pixels ÉCRAN (÷ zoom avant l'appel).
 			/// 6 px : la valeur de Lunacy à la mesure de ses captures.
 			static constexpr float32 kSnapTolEcran = 6.f;
@@ -2059,6 +2072,52 @@ namespace nkuidesign {
 	/// ⚠️ ET C'EST LE MEME CHEMIN QUE LA PALETTE ET QUE LE DEPOT : `AddChild`,
 	///    qui refuse de lui-meme un nom absent du registre. Aucune troisieme
 	///    ecriture.
+	/// DONNER AU NOEUD POSE UNE TAILLE QU'ON PUISSE VOIR.
+	///
+	/// 🔴 SANS ELLE, LE GESTE MARCHE ET NE SE VOIT PAS. Rodolf, 03/09 : « le
+	///    double-clic ajoute dans la hierarchie mais on ne peut pas le voir
+	///    dans la grille infinie ». Mesure a la souris : le noeud etait bien
+	///    la, dans la BONNE page, a la position 0,0 -- en `expand`. Or `expand`
+	///    dans un parent LIBRE n'a rien contre quoi s'etendre : il resout a
+	///    ZERO. *Un geste dont l'effet existe mais ne se voit pas est, pour la
+	///    main, un geste qui n'a rien fait.*
+	///
+	/// ⚠️ ON N'INVENTE PAS DE NOMBRE, ET C'EST LA DIFFERENCE AVEC CE QUE
+	///    `InitNode` REFUSE. Deux sources, dans cet ordre :
+	///      1. la TAILLE NATURELLE que le composant DECLARE (`NkTailleNaturelle`),
+	///         comblant le manque que `InitNode` avait nomme et porte au canal ;
+	///      2. a defaut -- un composant du kit, qui n'en declare pas -- une
+	///         taille DERIVEE de la boite du parent, qui se LIT du document.
+	///
+	/// ⚠️ ET SEULEMENT SOUS UN PARENT LIBRE. Sous un parent qui AGENCE
+	///    (colonne, rangee, grille), `expand` a un sens et c'est l'agencement
+	///    qui decide : y ecrire une taille fixe contredirait le parent.
+	inline void NkDonnerUneTailleVisible(NkUIDocument &doc, nkentseu::int32 neuf,
+										 nkentseu::int32 parent, const char *composant) {
+		using namespace nkentseu;
+		if (!doc.IsValidIndex(neuf) || !doc.IsValidIndex(parent))
+			return;
+		if (doc.nodes[(uint32)parent].layout.kind != NkLayoutKind::Free)
+			return;
+		float32 w = 0.f, h = 0.f;
+		if (!basiques::NkTailleNaturelle(composant, w, h)) {
+			const NkUINode &pa = doc.nodes[(uint32)parent];
+			if (pa.width.mode != NkSizeMode::Fixed || pa.height.mode != NkSizeMode::Fixed)
+				return; // rien de declare a lire : on ne devine pas
+			w = pa.width.value * 0.5f;
+			h = pa.height.value * 0.25f;
+			if (w < 80.f)
+				w = 80.f;
+			if (h < 48.f)
+				h = 48.f;
+		}
+		NkUINode &n = doc.nodes[(uint32)neuf];
+		n.width.mode = NkSizeMode::Fixed;
+		n.width.value = w;
+		n.height.mode = NkSizeMode::Fixed;
+		n.height.value = h;
+	}
+
 	inline bool NkPoserComposantSysteme(DesignState &st, const char *nom) {
 		using namespace nkentseu;
 		if (!nom || !*nom) {
@@ -2077,6 +2136,8 @@ namespace nkuidesign {
 			st.status = NkString(b);
 			return false;
 		}
+		NkDonnerUneTailleVisible(st.doc, neuf, parent, nom);
+		st.revelerSelection = true; // poser, c'est demander a voir
 		st.doc.MarkHumanEdit(neuf);
 		st.host.demoModels.Clear();
 		st.host.SyncTo(st.doc);
@@ -2885,6 +2946,21 @@ namespace nkuidesign {
 				// saisie, rectangles publies -- travaille en ESPACE ECRAN.
 				NkLayoutResult screen;
 				mSt->ProjectToScreen(screen);
+
+				// ── LA VUE SUIT CE QU'ON VIENT DE CHOISIR OU DE POSER ────────
+				// Consomme ICI, et pas la ou le drapeau se leve : c'est le seul
+				// endroit ou la disposition du noeud existe.
+				// ⚠️ `Reveler` NE BOUGE QUE SI LA CIBLE EST HORS CHAMP -- sinon
+				//    la toile sauterait a chaque clic pendant qu'on travaille.
+				if (mSt->revelerSelection) {
+					mSt->revelerSelection = false;
+					if (mSt->doc.IsValidIndex(mSt->selected) && mSt->layout.Has(mSt->selected)) {
+						if (mSt->view.Reveler(mSt->layout.At(mSt->selected))) {
+							mSt->ProjectToScreen(screen); // la vue a bouge : on reprojette
+							Dire("Vue amenée sur la sélection.", "", "");
+						}
+					}
+				}
 
 				// ── LA TOILE EST UNE CIBLE DE DEPOT ──────────────────────────
 				// ⚠️ LA FORME A ZONE EXPLICITE, `BeginDropTarget(ctx, id, rect)`,
@@ -8365,6 +8441,8 @@ namespace nkuidesign {
 					//    vient de toucher.
 					if (modele.active > 0 && mSt->sel.Contains((int32)modele.active - 1))
 						mSt->selected = (int32)modele.active - 1;
+					// CHOISIR, C'EST DEMANDER A VOIR.
+					mSt->revelerSelection = true;
 				}
 			}
 

@@ -725,10 +725,12 @@ namespace nkuidesign {
 			label.w -= 12.f;
 			label.h = p.LineHeight();
 			label.y += 4.f;
-			p.Text(label, name, host.Role("text"), NkTextAlign::Left);
+			p.TextHex(label, name, p.ColorOf(host.Role("text")), host.Role("text"),
+					  NkTextAlign::Left, 12.f * host.docScale, 0.f);
 			label.y += p.LineHeight() + 2.f;
-			p.Text(label, "declare, dessin non branche", host.Role("text_muted"),
-				   NkTextAlign::Left);
+			p.TextHex(label, "declare, dessin non branche",
+					  p.ColorOf(host.Role("text_muted")), host.Role("text_muted"),
+					  NkTextAlign::Left, 12.f * host.docScale, 0.f);
 		}
 
 		/// Le cadre : il n'affiche rien. Un liseré serait du mobilier d'editeur,
@@ -1179,7 +1181,10 @@ namespace nkuidesign {
 					const float32 corps = (n.fontPx > 0.f ? n.fontPx : 12.f) * host.docScale;
 					p.TextHex(r, t, rgba, roleTexte, al, corps, n.fontWeight);
 				} else
-					p.Text(r, name ? name : "Texte", roleTexte, al);
+					// LE MEME CORPS QUE LA BRANCHE D'AU-DESSUS : un repli qui ne
+					// suit pas le zoom est le defaut que Rodolf a signale DEUX fois.
+					p.TextHex(r, name ? name : "Texte", p.ColorOf(roleTexte), roleTexte, al,
+							  (n.fontPx > 0.f ? n.fontPx : 12.f) * host.docScale, n.fontWeight);
 				return;
 			}
 
@@ -1204,7 +1209,8 @@ namespace nkuidesign {
 			label.w -= 12.f;
 			label.h = p.LineHeight();
 			label.y += 4.f;
-			p.Text(label, name, host.Role("text"), NkTextAlign::Left);
+			p.TextHex(label, name, p.ColorOf(host.Role("text")), host.Role("text"),
+					  NkTextAlign::Left, 12.f * host.docScale, 0.f);
 		}
 
 		inline NkContentBrowserStyle BrowserStyle(const NkDocumentHost &host, const NkUINode &n) {
@@ -1440,9 +1446,9 @@ namespace nkuidesign {
 			const float32 vparam = basiques::NkValeurParDefaut(n.component.Data());
 			basiques::NkDessinerBasique(
 				p, r, n.component.Data(), vparam, n.text.Data(), 0u,
-				host.Role("accent_ui"), host.Role("on_accent"), host.Role("doc_field_bg"),
+				host.Role("accent_ui"), host.Role("text_on_accent"), host.Role("doc_field_bg"),
 				host.Role("border"), host.Role("doc_text"), host.Role("text_muted"),
-				n.RayonCoin(0));
+				n.RayonCoin(0), host.docScale);
 		} else if (StrEq(n.component.Data(), "content_browser")) {
 			if ((uint32)node < (uint32)host.demoModels.Size() && r.w > 0.f && r.h > 0.f) {
 				NkContentBrowserHooks hooks;

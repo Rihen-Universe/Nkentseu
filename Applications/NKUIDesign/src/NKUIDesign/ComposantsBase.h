@@ -98,26 +98,46 @@ namespace nkuidesign {
 				const char *titre;
 				NkFamille famille;
 				const char *resume;
+				/// LA TAILLE NATURELLE, en unites document.
+				/// 🔑 ELLE COMBLE UN MANQUE NOMME. `NkUIDocument::InitNode` refuse
+				///    d'inventer une taille -- a juste titre : elle n'etait declaree
+				///    nulle part. Elle l'est desormais ICI, par l'auteur de ces
+				///    composants, ce qui n'est pas la meme chose qu'un nombre pose
+				///    « parce que ca rend bien » dans le code de pose.
+				/// ⚠️ SANS ELLE, UN COMPOSANT POSE DANS UN PARENT LIBRE EST
+				///    INVISIBLE : il nait en `expand`, et `expand` dans une toile
+				///    libre n'a rien contre quoi s'etendre -- il resout a zero.
+				///    Mesure a la souris le 03/09 (position 0,0, taille nulle).
+				float32 larg;
+				float32 haut;
 		};
 
 		inline const NkBasique *NkTableBasiques(uint32 &nb) {
 			static const NkBasique k[] = {
 				{"bouton", "Bouton", NkFamille::Widget,
-				 "une boîte et un libellé centré — la variante porte l'accent"},
+				 "une boîte et un libellé centré — la variante porte l'accent",
+				 120.f, 36.f},
 				{"champ_texte", "Champ de texte", NkFamille::Widget,
-				 "une boîte creuse et son texte indicatif"},
+				 "une boîte creuse et son texte indicatif",
+				 180.f, 36.f},
 				{"case_a_cocher", "Case à cocher", NkFamille::Widget,
-				 "un carré, sa coche quand elle est mise, et son libellé"},
+				 "un carré, sa coche quand elle est mise, et son libellé",
+				 160.f, 24.f},
 				{"interrupteur", "Interrupteur", NkFamille::Widget,
-				 "une pilule et son galet — à gauche ou à droite selon l'état"},
+				 "une pilule et son galet — à gauche ou à droite selon l'état",
+				 44.f, 24.f},
 				{"barre_progression", "Barre de progression", NkFamille::Affichage,
-				 "une piste et sa portion remplie (paramètre « valeur », 0..100)"},
+				 "une piste et sa portion remplie (paramètre « valeur », 0..100)",
+				 180.f, 8.f},
 				{"etiquette", "Étiquette", NkFamille::Affichage,
-				 "du texte seul, sans boîte"},
+				 "du texte seul, sans boîte",
+				 120.f, 20.f},
 				{"separateur", "Séparateur", NkFamille::Affichage,
-				 "un filet horizontal à mi-hauteur"},
+				 "un filet horizontal à mi-hauteur",
+				 180.f, 1.f},
 				{"carte", "Carte", NkFamille::Conteneur,
-				 "une surface bordée et arrondie qui reçoit d'autres nœuds"},
+				 "une surface bordée et arrondie qui reçoit d'autres nœuds",
+				 240.f, 160.f},
 			};
 			nb = (uint32)(sizeof(k) / sizeof(k[0]));
 			return k;
@@ -225,6 +245,19 @@ namespace nkuidesign {
 			return kDecls[i];
 		}
 
+		/// LA TAILLE NATURELLE d'un composant de base. Rend `false` si le nom
+		/// n'est pas des notres -- un composant du kit n'en declare pas, et
+		/// l'appelant doit alors se debrouiller AUTREMENT que par un nombre
+		/// invente (voir le site de pose : il derive du parent).
+		inline bool NkTailleNaturelle(const char *nom, float32 &w, float32 &h) {
+			const NkBasique *b = NkBasiqueDe(nom);
+			if (!b || b->larg <= 0.f || b->haut <= 0.f)
+				return false;
+			w = b->larg;
+			h = b->haut;
+			return true;
+		}
+
 		/// La valeur du PREMIER parametre declare, ou 0.
 		/// 🔑 ELLE SE LIT DE LA DECLARATION, elle ne se recopie pas : le defaut
 		///    d'un composant est ecrit une fois, dans `NkParamsBasique`. Un second
@@ -253,7 +286,11 @@ namespace nkuidesign {
 									  nkentseu::uint16 rAccent, nkentseu::uint16 rSurAccent,
 									  nkentseu::uint16 rSurface, nkentseu::uint16 rBord,
 									  nkentseu::uint16 rTexte, nkentseu::uint16 rAttenue,
-									  float32 rayon) {
+									  float32 rayon, float32 echelle) {
+			// LE CORPS DU TEXTE, EN UNITES DOCUMENT MISES A L'ECHELLE.
+			// ⚠️ 12 px est le corps par defaut du document (le meme que le repli
+			//    de `Renderers.h`, l. ~1179) -- pas un nombre choisi ici.
+			const float32 corps = 12.f * (echelle > 0.f ? echelle : 1.f);
 			if (!NkBasiqueDe(nom) || r.w <= 0.f || r.h <= 0.f)
 				return false;
 
@@ -268,7 +305,8 @@ namespace nkuidesign {
 					//    photographie, que j'ai reproduit ici le lendemain.
 					p.Outline(r, rBord, rSurface, rayon);
 				const nkentseu::uint16 encre = (variante == 0u) ? rSurAccent : rTexte;
-				p.Text(r, (libelle && *libelle) ? libelle : "Bouton", encre, NkTextAlign::Center);
+				p.TextHex(r, (libelle && *libelle) ? libelle : "Bouton", p.ColorOf(encre), encre,
+						  NkTextAlign::Center, corps, 0.f);
 				return true;
 			}
 			if (NkComponentDecl::StrEq(nom, "champ_texte")) {
@@ -276,7 +314,8 @@ namespace nkuidesign {
 				NkPaintRect t = r;
 				t.x += 8.f;
 				t.w -= 16.f;
-				p.Text(t, (libelle && *libelle) ? libelle : "Texte…", rAttenue, NkTextAlign::Left);
+				p.TextHex(t, (libelle && *libelle) ? libelle : "Texte…", p.ColorOf(rAttenue),
+						  rAttenue, NkTextAlign::Left, corps, 0.f);
 				return true;
 			}
 			if (NkComponentDecl::StrEq(nom, "case_a_cocher")) {
@@ -298,8 +337,8 @@ namespace nkuidesign {
 				t.x += c + 8.f;
 				t.w -= c + 8.f;
 				if (t.w > 0.f)
-					p.Text(t, (libelle && *libelle) ? libelle : "Case à cocher", rTexte,
-						   NkTextAlign::Left);
+					p.TextHex(t, (libelle && *libelle) ? libelle : "Case à cocher",
+							  p.ColorOf(rTexte), rTexte, NkTextAlign::Left, corps, 0.f);
 				return true;
 			}
 			if (NkComponentDecl::StrEq(nom, "interrupteur")) {
@@ -334,7 +373,8 @@ namespace nkuidesign {
 				return true;
 			}
 			if (NkComponentDecl::StrEq(nom, "etiquette")) {
-				p.Text(r, (libelle && *libelle) ? libelle : "Étiquette", rTexte, NkTextAlign::Left);
+				p.TextHex(r, (libelle && *libelle) ? libelle : "Étiquette", p.ColorOf(rTexte), rTexte,
+						  NkTextAlign::Left, corps, 0.f);
 				return true;
 			}
 			if (NkComponentDecl::StrEq(nom, "separateur")) {
