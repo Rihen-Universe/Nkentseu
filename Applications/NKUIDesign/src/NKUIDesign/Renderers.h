@@ -861,7 +861,9 @@ namespace nkuidesign {
 		/// auraient laisse un objet se voir a un endroit et se cliquer a un autre.
 		inline void DrawShape(NkComponentPaint &p, const NkPaintRect &r, const NkUINode &n,
 							  const NkDocumentHost &host, const NkMat2D &mEff) {
-			if (r.w <= 0.f || r.h <= 0.f)
+			// Une forme OUVERTE (ligne) n'a besoin que d'une dimension : une ligne
+			// horizontale a une hauteur NULLE, et elle doit se voir (sonde 52).
+			if (NkFormeOuverte(n) ? (r.w <= 0.f && r.h <= 0.f) : (r.w <= 0.f || r.h <= 0.f))
 				return;
 			const char *name = n.label.Data();
 			const char *shape = n.shape.Data();

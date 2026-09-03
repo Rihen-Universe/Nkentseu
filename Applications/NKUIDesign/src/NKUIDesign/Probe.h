@@ -4212,6 +4212,38 @@ namespace nkuidesign {
 					  ouverte, "");
 			}
 		}
+		// ── 52. UNE LIGNE HORIZONTALE SE VOIT (hauteur nulle) ──────────────────
+		{
+			NkUIDocument dL;
+			dL.NewDocument("Toile", NkAuthor::Humain);
+			dL.nodes[0].layout.kind = NkLayoutKind::Free;
+			dL.SetMetric("espacement", 0.f);
+			dL.SetMetric("marge", 0.f);
+			const int32 li = dL.AddChild(0, "", NkAuthor::Humain);
+			NkUINode &nl = dL.nodes[(uint32)li];
+			nl.shape = NkString("line");
+			nl.posX = 100.f;
+			nl.posY = 100.f;
+			nl.width.mode = NkSizeMode::Fixed;
+			nl.width.value = 100.f;
+			nl.height.mode = NkSizeMode::Fixed;
+			nl.height.value = 0.f; // un glisser parfaitement horizontal
+			NkPaintRect surfL;
+			surfL.x = 0.f;
+			surfL.y = 0.f;
+			surfL.w = 800.f;
+			surfL.h = 600.f;
+			NkRecordingPaint rec;
+			RenderDocument(rec, dL, surfL);
+			uint32 lignes = 0u;
+			for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i)
+				if (rec.cmds[i].op == NkPaintOp::Line && rec.cmds[i].w > 99.f)
+					++lignes;
+			char det[120];
+			snprintf(det, sizeof(det), "%u trait(s) de 100 px sur %u commande(s)", lignes, (uint32)rec.cmds.Size());
+			check("52. une ligne HORIZONTALE (hauteur nulle) se voit : une forme ouverte n'a besoin que d'une dimension",
+				  lignes == 1u, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
