@@ -1647,8 +1647,13 @@ namespace nkentseu {
 				return NkKey::NK_MEDIA_PREV;
 			case 91:
 				return NkKey::NK_MEDIA_MUTE;
+			// ⚠️ QUATRIEME CODE FAUX, trouve en dressant l'inventaire des
+			// boutons -- pas en cherchant un defaut. 220 est
+			// AKEYCODE_BRIGHTNESS_DOWN : la luminosite, prise pour la coupure
+			// du son. Un ecran qui s'assombrit au lieu d'un son qui se coupe :
+			// deux gestes sans rapport, et rien ne l'aurait signale.
 			case 220:
-				return NkKey::NK_MEDIA_MUTE;
+				return NkKey::NK_BRIGHTNESS_DOWN;
 			// ⚠️ CES TROIS-LA ETAIENT FAUX, et c'est mesure sur
 			// `android/keycodes.h` du NDK 27 (jamais de memoire) :
 			//   la table disait 164 -> VOLUME_UP et 165 -> VOLUME_DOWN ;
@@ -1703,6 +1708,33 @@ namespace nkentseu {
 				return NkKey::NK_SEARCH;
 			case 187:
 				return NkKey::NK_APP_SWITCH;
+			case 219:
+				return NkKey::NK_ASSIST;
+			case 231:
+				return NkKey::NK_VOICE_ASSIST;
+			case 221:
+				return NkKey::NK_BRIGHTNESS_UP;
+			case 223:
+				return NkKey::NK_SLEEP;
+			case 224:
+				return NkKey::NK_WAKEUP;
+			case 83:
+				return NkKey::NK_NOTIFICATION;
+			case 176:
+				return NkKey::NK_SETTINGS;
+			case 126:
+				return NkKey::NK_MEDIA_PLAY;
+			case 127:
+				return NkKey::NK_MEDIA_PAUSE;
+			// Montres Wear OS : des « tiges » au lieu d'une tranche.
+			case 264:
+				return NkKey::NK_STEM_PRIMARY;
+			case 265:
+				return NkKey::NK_STEM_1;
+			case 266:
+				return NkKey::NK_STEM_2;
+			case 267:
+				return NkKey::NK_STEM_3;
 
 			// -------------------------------------------------------------
 			// Fallback
