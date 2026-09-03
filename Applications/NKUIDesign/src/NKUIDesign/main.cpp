@@ -8779,6 +8779,7 @@ int nkmain(const NkEntryState &state) {
 	//    saute, seul le tiroir la dessine. C est la difference entre debrancher
 	//    un panneau et le ranger.
 	static nkuidesign::SimulationPanel simulation(&gDesign);
+	static nkuidesign::ConsolePanel console(&gDesign); // le rail bas « Console » l'ouvre par son titre
 	static nkuidesign::AmbiancesPanel ambiances(&gDesign);
 	static nkuidesign::GreffonsPanel greffons(&gDesign);
 	static nkuidesign::BibliothequePanel bibliotheque(&gDesign);
@@ -8802,6 +8803,7 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&palette);
 	shell->AddPanel(&bibliotheque);
 	shell->AddPanel(&simulation);
+	shell->AddPanel(&console);
 	shell->AddPanel(&ambiances);
 	shell->AddPanel(&greffons);
 	// Mise en scene : --panneau=<titre> ouvre un panneau ferme par defaut.

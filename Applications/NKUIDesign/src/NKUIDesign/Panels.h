@@ -1312,6 +1312,16 @@ namespace nkuidesign {
 				}
 				return *a != *b;
 			}
+			// ── CE QUI NE DOIT PAS S'EFFACER ────────────────────────────────
+			/// Le JOURNAL (onglet Console) : persistant, relisible. Une
+			/// modification de la structure du document s'y consigne avec ses
+			/// noms et ses chemins -- la barre, elle, ne garde que le dernier mot.
+			NkVector<NkString> journal;
+			/// L'AVIS : un bandeau sur la toile qui RESTE jusqu'au clic.
+			NkString avis;
+			void Consigner(const char *t) {
+				journal.PushBack(NkString(t ? t : ""));
+			}
 			void DireAuPied(const char *t) {
 				status = NkString(t ? t : "");
 				if (pied)
@@ -1423,6 +1433,30 @@ namespace nkuidesign {
 						 doc.NodeCount(), unknown);
 				status = NkString(b);
 				if (nEnv > 0) {
+					// La structure du document a change : ca se consigne (Console) et
+					// ca s'affiche jusqu'au clic (bandeau) -- pas seulement dans la
+					// barre, que la prochaine aide d'outil efface dans la seconde.
+					NkString noms;
+					for (uint32 k = 0; k < (uint32)enveloppes.Size(); ++k) {
+						if (k)
+							noms.Append(", ");
+						const NkUINode &g = doc.nodes[(uint32)enveloppes[k]];
+						noms.Append(g.label.Empty() ? "(sans nom)" : g.label.Data());
+					}
+					char j[640];
+					snprintf(j, sizeof(j),
+							 "Ouverture de %s : %u graphique(s) à enfants ENVELOPPÉ(S) dans un groupe "
+							 "(règle §15.13 : une feuille ne contient rien) — %s. Rien n'a bougé à "
+							 "l'écran. Version d'avant conservée : %s. Rien n'est enregistré tant que "
+							 "vous n'enregistrez pas.",
+							 kDocumentPath, nEnv, noms.Data(), sauvegarde.Data());
+					Consigner(j);
+					char av[200];
+					snprintf(av, sizeof(av),
+							 "%u graphique(s) à enfants enveloppé(s) dans un groupe à l'ouverture — "
+							 "détails dans la Console · cliquer pour fermer",
+							 nEnv);
+					avis = NkString(av);
 					char m[320];
 					snprintf(m, sizeof(m),
 							 " — %u graphique(s) à enfants ENVELOPPÉ(S) dans un groupe (règle §15.13 : "
@@ -3485,6 +3519,37 @@ namespace nkuidesign {
 				// ⚠️ CE BLOC NE PEINT RIEN, et le bloc qui peint n'arme plus rien :
 				//    la DECISION est ici, le DESSIN reste la-bas. Les melanger est
 				//    precisement ce qui a cache le defaut si longtemps.
+				// ── L'AVIS QUI RESTE (bandeau) ────────────────────────────────────
+				// Un controle dessine par-dessus se reclame AVANT ce qu'il recouvre
+				// (les deux entrees a eteindre), et se dessine dans la couche overlay
+				// pour rester au-dessus du document quel que soit l'ordre de peinture.
+				if (!mSt->avis.Empty() && ctx.popupDepth == 0) {
+					auto &Fa = costume::Fontes();
+					const nkgui::NkRect reg = ctx.layout.region;
+					const float32 lt = costume::Largeur(Fa.px11, mSt->avis.Data());
+					float32 lb = lt + 28.f;
+					if (lb > reg.w - 24.f)
+						lb = reg.w - 24.f;
+					const nkgui::NkRect rb = {reg.x + 12.f, reg.y + 12.f, lb, 28.f};
+					const bool survol = NkGuiRectContains(rb, ctx.input.mousePos);
+					if (survol && in.mousePressed) {
+						mSt->avis = NkString(); // vu : il s'en va, et seulement comme ca
+						in.mousePressed = false;
+						ctx.input.mouseClicked[0] = false;
+					} else {
+						if (survol && in.mouseDown) {
+							in.mousePressed = false; // rien ne traverse le bandeau
+							ctx.input.mouseClicked[0] = false;
+						}
+						ctx.dlOverlay.AddRectFilled(rb, ctx.theme.accent, 6.f);
+						ctx.dlOverlay.AddRect(rb, survol ? ctx.theme.text : ctx.theme.accent, 1.f, 6.f);
+						costume::Texte(ctx.dlOverlay, Fa.px11, rb.x + 14.f,
+									   costume::CentrerY(Fa.px11, rb.y, rb.h), mSt->avis.Data(),
+									   ctx.theme.panel);
+						if (survol)
+							mSt->status = NkString("Cliquer pour fermer l'avis — le détail reste dans la Console.");
+					}
+				}
 				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && ctx.popupDepth == 0
 					&& mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
 					&& screen.Has(mSt->selected)) {
@@ -7263,6 +7328,32 @@ namespace nkuidesign {
 	//  compteurs de simulation, les ambiances et la liste de greffons naîtront
 	//  de leurs mécanismes ; en attendant, chaque panneau nomme ce qui manque.
 	// ═══════════════════════════════════════════════════════════════════════════
+	/// L'onglet Console (rail bas) : le JOURNAL, persistant et relisible. C'est
+	/// ici qu'une modification de la structure du document laisse sa trace --
+	/// noms et chemins compris -- quand la barre est deja passee a autre chose.
+	class ConsolePanel : public NkEditorPanel {
+		public:
+			explicit ConsolePanel(DesignState *st)
+				: NkEditorPanel("Console", NkEditorDockSide::NK_BOTTOM), mSt(st) {
+				SetOpen(false);
+			}
+			void OnUI(NkEditorFrameContext &ec) override {
+				auto &ctx = ec.Ui();
+				if (mSt->journal.Empty()) {
+					ec.Text("Rien à signaler.");
+					return;
+				}
+				for (uint32 i = 0; i < (uint32)mSt->journal.Size(); ++i) {
+					char num[16];
+					snprintf(num, sizeof(num), "%u.", i + 1u);
+					ec.Text(num);
+					nkgui::TextWrapped(ctx, mSt->journal[i].Data() ? mSt->journal[i].Data() : "");
+					ec.Separator();
+				}
+			}
+		private:
+			DesignState *mSt;
+	};
 	class SimulationPanel : public NkEditorPanel {
 		public:
 			explicit SimulationPanel(DesignState *st)
