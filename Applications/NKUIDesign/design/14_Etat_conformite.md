@@ -184,7 +184,7 @@ main** — la prochaine régénération l'effacerait.*
 **8. Propriétés**
 
 - Réordonner (l'ordre change le rendu)
-- Dégradés linéaire / radial / angulaire, avec étapes de couleur déplaçables
+- Dégradés : **linéaire peint** (suit l'arrondi, honore l'angle — 03/09) ; radial / angulaire **nommés, pas peints** ; étapes déplaçables et poignées sur la toile **en attente de la capture Lunacy** (Q82)
 - Remplissage image et ses quatre cadrages (remplir / ajuster / étirer / mosaïque)
 - Pipette pour prélever une couleur
 - Règle de remplissage non-zero / pair-impair

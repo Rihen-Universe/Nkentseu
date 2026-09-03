@@ -743,7 +743,7 @@ Source : `/styling`, `/text`, `/layers`.
 | comportement | état | ce qui manque |
 |---|---|---|
 | Remplissage **uni** | ✅ **livré** | ⚠️ chez nous il porte en plus un **rôle de thème** — voir §11.3 |
-| **Dégradés** linéaire / radial / angulaire, avec étapes de couleur déplaçables | ❌ **absent** | trois familles au modèle, trois contrôles sur la toile, et un peintre qui sait les rendre |
+| **Dégradés** linéaire / radial / angulaire, avec étapes de couleur déplaçables | 🟡 **partiel** (03/09) | le **linéaire est peint** : il suit le contour arrondi et honore son angle (sonde 49, commit `957c909c`) ; le modèle porte type libre + angle + arrêts. ⚠️ **Manquent, et attendent la capture Lunacy demandée à Rodolf (Q82)** : l'ordre des types dans FILLS, la barre d'arrêts (où, ajout, déplacement, opacité par arrêt), les **poignées de dégradé sur la toile**, le geste d'entrée. Radial / angulaire : **nommés, pas peints** |
 | Remplissage **image** et ses quatre cadrages (remplir / ajuster / étirer / **mosaïque**) | ❌ **absent** | suppose une source d'image dans le document |
 | **Pipette** pour prélever une couleur | ❌ **absent** | ⚠️ **et chez nous elle devrait prélever un RÔLE**, pas une valeur — sinon elle contourne le thème. Un cas où copier Lunacy tel quel serait une régression |
 | Saisie HEX / RGBA / HSB / HSL | 🟡 **partiel** | HEX seulement |
