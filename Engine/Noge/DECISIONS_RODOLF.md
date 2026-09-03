@@ -98,7 +98,8 @@ temps ; une feuille qui efface l'historique fait re-trancher.*
 | ~~**F**~~ 🚗 | ✅ **TRANCHÉ (a) ET LIVRÉ le 03/09.** Le couple s'intègre pour tout le monde (`d471956d`, bancs des consommateurs au même compte) ; `NkVehicle` livré selon la conception — roue par raycast, suspension à trois gardes, adhérence en vitesse à annuler bornée par le cercle de friction, **dans** le pas fixe, surface à 16 lignes. Banc **48/48** avec contre-épreuve (`µ = 0,01` → elle patine) et **deux mutations prouvées**. Reste : Ackermann, réglage sur les deux voitures du dépôt. Détail : `CONCEPTION_VEHICULE.md` §7. | — | fait |
 | **F′** 🚗 | **Le jeu de voiture peut s'ouvrir** — c'était ta condition : *« si et seulement si la physique est prête »*. Elle l'est, headless. **Ce qui manque pour le dire à l'image** : une capture d'une voiture qui roule dans `renderdemo` (GPU → Ilyana d'abord). | **toi** | dire quand |
 | **F₀** 🚗 | **La physique de véhicule : (a) ou (b) ?** *(historique)* La conception est écrite (`Engine/Noge/CONCEPTION_VEHICULE.md`, ~2,5-3 j). ⚠️ **Une seule question t'attend** : l'étape 0 corrige `NkIntegrator` — le champ `torque` existe et **n'est jamais intégré** — donc pour **tout le monde**, ragdoll compris. **(a)** on corrige le socle (ma recommandation : c'est un défaut, pas un choix) ; **(b)** le véhicule recopie chez lui. | **toi** | une phrase |
-| **E** | 🦴 **Faut-il UNIFIER les deux conventions de pose de repos ?** `NkRetargetSkeleton` (local relatif au parent) contre `NkSkeletonDef` (matrices bind/inverse-bind). Mesure faite : **ce ne sont pas deux versions d'une même chose**. Coûts, apports et recommandation au **bloc 11**. | **toi** | une phrase |
+| ~~**E**~~ | 🟢 **TRANCHÉ (04/09) : on unifie dans `NKAnima`.** Rodolf, contre ma recommandation — et une mesure prise après sa décision lui donne raison : `NkRetargetSkeleton` **n'a aucun consommateur hors du module**, l'unification ne casse donc aucun contrat public. Plan écrit au **bloc 11**, ~½ j, **non exécuté, rien ne bloque**. | — | à faire |
+| **E₀** | 🦴 **Faut-il UNIFIER les deux conventions de pose de repos ?** *(historique)* `NkRetargetSkeleton` (local relatif au parent) contre `NkSkeletonDef` (matrices bind/inverse-bind). Mesure faite : **ce ne sont pas deux versions d'une même chose**. Coûts, apports et recommandation au **bloc 11**. | **toi** | une phrase |
 | **D** | 🦴 **Où vit `NkSkeletonDef`** — la seule vraie décision d'architecture qui reste. Détail et candidat mesuré au **bloc 6**. | **toi** | une phrase |
 
 ### ✅ CE QUI EST TRANCHÉ — n'y reviens que si tu changes d'avis
@@ -1389,6 +1390,67 @@ elles coexistent dans `nkentseu::anim`, comme deux types voisins et distincts.
 | 💸 **coût** | `topo` + détection de cycle n'existent pas côté `NkSkeletonDef` : soit on les ajoute (et on alourdit l'actif partagé), soit on les perd (et on réintroduit le risque de boucle infinie que `BuildTopo` attrape). |
 | 💸 **coût** | `NkString` contre `char[64]` : l'actif partagé est **copié par valeur dans l'ECS** au moment de la construction. Un `NkString` y met une allocation par os. |
 | 🔴 **risque** | six consommateurs recompilent, et **c'est un changement de contrat, pas un déplacement** — le recensement doit passer par le compilateur, comme pour `NkSkeleton`, où `NkAssetIODemo` atteignait le type par un **champ** sans jamais écrire son nom. |
+
+### 🟢 TRANCHÉ PAR RODOLF (04/09) — **on unifie, contre ma recommandation**
+
+> *« non, on les unifie dans NkAnima car elle sera utile pour plusieurs systèmes
+> qui en auront besoin. »*
+
+**Et une mesure prise après sa décision la rend beaucoup moins chère que ce que
+j'avais chiffré.** Je m'étais arrêté sur « changement de contrat, six
+consommateurs » — j'avais compté les consommateurs du **squelette**, pas ceux de
+la **structure qui disparaît** :
+
+| structure | qui la nomme, hors de NKAnima |
+|---|---|
+| `NkSkeletonDef` (celle qui reste) | `NkLocomotionDemo`, `NkSystemsRevivalTest`, `Noge/NkAnimation.h`, `Noge/NkGLTFIO.cpp` |
+| **`NkRetargetSkeleton`** (celle qui disparaît) | **PERSONNE.** Elle ne vit que dans `NkAnimRetarget.{h,cpp}` — un seul module, un seul fichier de corps |
+
+> 🔑 **Le seul appelant externe du reciblage est `NkAnimPhysTest`, et il passe
+> par `NkAnimRetarget`, pas par la structure.** L'unification ne casse donc
+> aucun contrat public : elle change les **paramètres de cinq fonctions
+> statiques** d'un module dont un seul test se sert.
+
+### Le plan, dans l'ordre — ce qui disparaît, qui consomme quoi, où vit la conversion
+
+**1. Ce qui disparaît** : `struct NkRetargetSkeleton` (4 tableaux parallèles :
+`parent`, `bindLocal`, `names`, `topo`). Ses quatre services **ne disparaissent
+pas** — ils deviennent des fonctions libres sur `NkSkeletonDef` :
+`BindWorld`, `BindWorldPos`, `BindHeight`, `BuildTopo`.
+
+**2. Ce que `NkSkeletonDef` doit gagner** — et c'est le cœur de la décision :
+
+| besoin du reciblage | dans `NkSkeletonDef` aujourd'hui | à faire |
+|---|---|---|
+| pose de repos **locale** | absente : il porte `bindPose` / `inverseBindPose` (monde) | **rien à ajouter** : le local se dérive — `local(j) = inverse(bindPose(parent)) × bindPose(j)` |
+| `topo` (parents avant enfants) | implicite (`parent < i` supposé) | **champ ajouté**, construit à l'import, **avec détection de cycle** — c'est le seul filet que `BuildTopo` apportait, on ne le perd pas |
+| `names` | `char[64]` dans `NkBoneDef` | rien — et on **gagne** : plus d'allocation par os, l'actif reste copiable par valeur |
+
+**3. Où vit la conversion : À L'IMPORT, UNE FOIS.** C'est le point de la
+consigne, et il est structurant — *une convention s'absorbe une fois, au moment
+où la donnée entre, jamais dans une seconde structure qui la porterait en
+parallèle.* Les importateurs (`NkGLTFIO`, FBX) écrivent déjà `bindPose` et
+`inverseBindPose` ; ils ajouteront `topo` au même endroit. **Aucune conversion à
+l'exécution**, donc pas de FK récursive par image — le coût que je redoutais au
+tableau ci-dessous **disparaît avec la structure**.
+
+**4. Ce qui recompile** : `NkAnimRetarget.{h,cpp}` (les cinq signatures et leur
+corps), `NkAnimPhysTest` (le seul appelant externe), et **rien d'autre** — les
+quatre consommateurs de `NkSkeletonDef` ne voient qu'un **champ ajouté**.
+⚠️ Recensement **au compilateur**, comme toujours : `NkAssetIODemo` atteignait
+`NkSkeleton` par un **champ** sans jamais écrire son nom.
+
+**5. La preuve** : les six bancs au même compte (Noge 41/41, Nogee 45/45,
+LocomotionDemo 9/0, AssetIODemo 55/0, SystemsRevivalTest 48/0, NkAnimPhysTest
+13/14) **et** une contre-épreuve sur la conversion — un squelette dont le local
+dérivé doit redonner le monde d'origine à ε près, sinon la conversion est
+fausse et silencieuse.
+
+**Chiffrage révisé : ~½ journée** (contre « une journée de recensement » quand je
+croyais le contrat public). 🚫 **Non exécuté** : ce lot-ci livrait l'image de la
+voiture, les particules et `?diag=1`. **Rien ne bloque** — c'est le prochain.
+
+### 🗄️ Ce que j'avais recommandé, et pourquoi Rodolf a eu raison de trancher autrement
 
 ### 🔵 Ce que je recommande, et pourquoi c'est « pas maintenant »
 
