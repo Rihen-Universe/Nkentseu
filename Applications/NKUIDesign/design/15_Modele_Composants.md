@@ -500,3 +500,41 @@ observé le 03/09 (fond tourné, texte droit, cadre désaxé) tient à ce mélan
 règle **avant** le code, comme Rodolf l'a demandé. Le lot « transformée complète »
 s'appuie dessus ; le coder sans elle aurait reconstruit le mélange qu'on vient
 de mesurer.
+
+### L'échelle PAR NATURE — une seule règle (Rodolf, 03/09)
+
+> *« Le redimensionnement descend dans l'arbre, et une feuille est là où l'arbre s'arrête. »*
+
+C'est **une** règle, pas deux : la poignée d'un **groupe** redimensionne tout ce
+qu'il contient, récursivement — tailles **et** positions relatives, **texte
+compris** ; la poignée d'une **feuille** ne redimensionne qu'elle. Le banc qui la
+fixe : redimensionner `Graphique` change la taille et la position relative de ses
+onze barres ; redimensionner une barre ne bouge aucune autre (sonde 46).
+
+**Comment c'est porté (codé le 03/09, commit `5f74ecaf`)** : le facteur est
+**porté par le nœud** (`echelle_x` / `echelle_y`, additifs, absents à 1), composé
+en descendant dans `NkMatEffective`, et lu par toutes les tailles **à travers le
+peintre** (`NkComponentPaint::PushTransform`) — le texte subit la mise à
+l'échelle parce qu'il passe par la même matrice que sa boîte, pas parce qu'on
+recopie une taille de police. La poignée d'un groupe écrit son échelle et
+recale sa position (le bord tiré suit la souris, l'autre tient) ; la poignée
+d'une feuille écrit sa taille, comme avant. Rien n'est recopié sur les enfants :
+une seule clé dans le fichier (sonde 46c).
+
+**Le refus par axe** (même lot) : un enfant peut refuser la position, la
+rotation ou l'échelle (`refus_position` / `refus_rotation` / `refus_echelle`).
+Il ne subit pas l'axe refusé — ni de ses ancêtres, ni de lui-même. C'est dans
+`NkMatEffective`, donc le dessin et le pointage le lisent au même endroit
+(sonde 47) ; la hiérarchie le marque `[refus P R E]`, l'inspecteur le règle.
+
+**La poignée d'un objet tourné** : Lunacy tranche — ses poignées tournent avec
+la boîte. Les nôtres aussi : le cadre, les huit poignées et les quatre arcs se
+dessinent sous la matrice du nœud, et le survol, la réclamation et l'armement
+ramènent la souris par l'inverse de cette matrice. *Pointage et dessin lisent la
+même matrice.*
+
+**État au 03/09, 22 h** : la transformée entière est codée et sondée (45–47,
+162/162) ; « Se connecter » tourne avec `Bouton_Connexion` sous la souris. La
+**garde de feuille** (étape 2 ci-dessus) n'est **pas** codée : elle demande le
+champ de nature (étape 1), que Rodolf n'a pas encore tranché — poser une clé de
+nature sans lui aurait été inventer le format.
