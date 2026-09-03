@@ -739,3 +739,11 @@ nkwebmwriter_selftest.webm
 *.nkla
 *.nkgp
 *.gguf
+
+# Sortie de mise en scene Android : les .so natifs stages par jenga.
+# Pose le 2026-09-03 apres avoir commite par erreur 3,7 Mo de
+# libNkDames.so -- un chemin de DOSSIER donne a gitcommit.sh embarque
+# tout ce qui s'y trouve, artefacts compris. Le commit n'etait pas
+# pousse, donc l'objet a pu etre retire ; pousse, il serait reste dans
+# l'historique pour toujours.
+Applications/*/libs/
