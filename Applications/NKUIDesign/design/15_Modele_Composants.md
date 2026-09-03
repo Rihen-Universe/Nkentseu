@@ -452,3 +452,51 @@ porte plus son rang.** La 3ᵉ ligne peut être le 3ᵉ composant du kit *ou* la
 déclaration du document, selon la vue. S'y fier aurait **posé le mauvais
 composant en silence** — un indice resté plausible après que sa signification a
 changé. D'où la table `LigneCompos {systeme, index}`, consultée par le geste.
+
+## 15.13 🔴 RÈGLE DE MODÈLE — une FORME est une FEUILLE ; seuls les GROUPES ont des enfants (Rodolf, 03/09)
+
+Ses mots : *« dans Lunacy un graphique ne peut pas être parent. Donc si on prend un
+groupe ou un composant, dans ce dernier on peut retrouver des sous-groupes ou des
+graphiques — et c'est le cas de Bouton_Connexion. »* Puis : *« on peut avoir des
+groupes simples, des groupes d'union, intersection etc., des groupes qui
+représentent un composant — et il y a une hiérarchie de groupes à mettre en
+place. »*
+
+### Ce que ça fixe
+
+| nature du nœud | peut porter des enfants | ce qui le distingue |
+|---|---|---|
+| **forme** (rect, ellipse, text, ligne, polygone…) | **non — une feuille** | elle a une géométrie propre et rien dedans |
+| **groupe simple** | oui | n'a **pas** de géométrie propre : son englobant est celui de ses enfants |
+| **groupe booléen** (union, intersection, soustraction, exclusion) | oui | ses enfants sont des tracés ; **il EST le chapitre 3** (opérations booléennes, 0/8) — même objet, pas un second |
+| **groupe composant** | oui | un groupe qui **représente** une déclaration (§15.1) ; ses enfants sont son contenu |
+| **planche** (artboard) | oui | le cadre de premier niveau — déjà `frame` chez nous |
+
+Et une **hiérarchie de groupes** : un groupe peut contenir des groupes, à toute
+profondeur. La transformée se compose le long de cette hiérarchie (`NkMatEffective`).
+
+### Ce que notre modèle autorise AUJOURD'HUI — mesuré, pas supposé
+
+`NkUIDocument::AddChild(parent, …)` n'a **aucune garde** sur la nature du parent :
+n'importe quel nœud peut recevoir un enfant. Dans le document de Rodolf
+(`Dashboard_Admin`), **six `rect` portent des enfants** : `Bouton_Connexion`
+(un texte), `Panel_Nav` (cinq textes), `Carte_Actifs`, `Carte_Revenu`,
+`Carte_Attrition` (deux textes chacune), `Graphique` (douze barres).
+
+**C'est la cause profonde du désordre de `Bouton_Connexion`** : c'est une FORME
+qui joue le rôle d'un groupe. Elle a sa propre géométrie (un rect bleu à
+rayon 4) **et** un enfant — deux natures dans un nœud. Tourner la forme tourne
+son rect ; son enfant, lui, suit une composition à part. Tout ce qui a été
+observé le 03/09 (fond tourné, texte droit, cadre désaxé) tient à ce mélange.
+
+### Ce que ça demande, dans l'ordre
+
+1. **Un champ de nature** sur le nœud : `feuille | groupe_simple | groupe_booleen(op) | groupe_composant | planche`. Le format reste additif (clé absente = déduite : `frame` → planche, `component` posé → groupe composant, enfants présents → groupe simple, sinon feuille).
+2. **La garde dans `AddChild`** : refuser un enfant sous une feuille, en le DISANT. Et la migration inverse pour les six cas de son document : `Bouton_Connexion` devient un **groupe composant** contenant un rect ET un texte — c'est exactement ce que Lunacy ferait.
+3. **Le groupe simple n'a pas de géométrie** : son rectangle est l'englobant de ses enfants, recalculé, jamais écrit. C'est ce qui rend le redimensionnement d'un groupe **naturel** : redimensionner un groupe, c'est appliquer une échelle à ses enfants (§ lot « transformée complète », réponse de Rodolf : *le texte subit la mise à l'échelle*).
+4. **Les groupes booléens** ne se conçoivent pas ici : ils sont le chapitre 3 tel quel, et ce chapitre reçoit la nature `groupe_booleen(op)` comme SON objet.
+
+⚠️ Rien de tout cela n'est codé au moment d'écrire ces lignes : cette section est la
+règle **avant** le code, comme Rodolf l'a demandé. Le lot « transformée complète »
+s'appuie dessus ; le coder sans elle aurait reconstruit le mélange qu'on vient
+de mesurer.
