@@ -473,6 +473,33 @@ namespace nkuidesign {
 		///    égaux, on appelle `FillColor` une seule fois, exactement comme
 		///    avant. Sans ça, tout document existant aurait changé de flux de
 		///    commandes — le témoin aurait crié sur un dessin identique.
+		/// LE CONTOUR ARRONDI d'un rectangle, en polygone (sens horaire a l'ecran),
+		/// `seg` segments par arc ; rayons deja bornes (NkGBornerRayons). Rend le
+		/// nombre de points ; `out` recoit 2 floats par point (au plus 4*(seg+1)).
+		inline nkentseu::uint32 NkGContourArrondi(const NkPaintRect &r, const nkentseu::float32 c[4],
+												  nkentseu::float32 *out, nkentseu::uint32 seg) {
+			const nkentseu::float32 x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h;
+			const nkentseu::float32 cxs[4] = {x0 + c[0], x1 - c[1], x1 - c[2], x0 + c[3]};
+			const nkentseu::float32 cys[4] = {y0 + c[0], y0 + c[1], y1 - c[2], y1 - c[3]};
+			const nkentseu::float32 a0s[4] = {180.f, 270.f, 0.f, 90.f};
+			nkentseu::uint32 n = 0;
+			for (nkentseu::uint32 k = 0; k < 4u; ++k) {
+				if (c[k] <= 0.f) {
+					out[n * 2] = cxs[k];
+					out[n * 2 + 1] = cys[k];
+					++n;
+					continue;
+				}
+				for (nkentseu::uint32 i = 0; i <= seg; ++i) {
+					nkentseu::float32 s = 0.f, co = 1.f;
+					NkSinCosDeg(a0s[k] + 90.f * (nkentseu::float32)i / (nkentseu::float32)seg, s, co);
+					out[n * 2] = cxs[k] + c[k] * co;
+					out[n * 2 + 1] = cys[k] + c[k] * s;
+					++n;
+				}
+			}
+			return n;
+		}
 		inline void NkGRectCoins(NkComponentPaint &p, const NkPaintRect &r,
 								 nkentseu::uint32 rgba, const nkentseu::float32 R[4]) {
 			if (r.w <= 0.f || r.h <= 0.f)
@@ -876,7 +903,7 @@ namespace nkuidesign {
 				//    angle de 90° fait quelque chose -- un champ que le fichier
 				//    porte et que l'ecran ignore est exactement le defaut que ce
 				//    chantier repare ailleurs.
-				auto peindreDegrade = [&](const NkDegrade &g) {
+				auto peindreDegradeBandes = [&](const NkDegrade &g) {
 					if (!g.Actif())
 						return false;
 					const int32 kBandes = 24; // finesse : nommee, pas devinee
@@ -909,6 +936,103 @@ namespace nkuidesign {
 						const NkPaintRect rb{r.x, r.y + r.h * t0, r.w, r.h * (t1 - t0) + 0.5f};
 						p.FillColor(rb, col, 0.f);
 					}
+					return true;
+				};
+				// ── LA COULEUR D'UN DEGRADE EN t (0..1) ─────────────────────────────
+				auto couleurDegrade = [&](const NkDegrade &g, float32 t0) -> uint32 {
+					uint32 i0 = 0;
+					while (i0 + 2u < (uint32)g.arrets.Size() && g.arrets[i0 + 1].position < t0)
+						++i0;
+					const NkArretDegrade &a0 = g.arrets[i0];
+					const NkArretDegrade &a1 = g.arrets[i0 + 1];
+					const float32 span = (a1.position - a0.position);
+					const float32 k = span > 0.0001f ? (t0 - a0.position) / span : 0.f;
+					const uint32 c0 = NkGHexRGBA(a0.couleur.Data());
+					const uint32 c1 = NkGHexRGBA(a1.couleur.Data());
+					auto mix = [&](uint32 dec) -> uint32 {
+						const float32 v0 = (float32)((c0 >> dec) & 0xFFu);
+						const float32 v1 = (float32)((c1 >> dec) & 0xFFu);
+						float32 v = v0 + (v1 - v0) * (k < 0.f ? 0.f : k > 1.f ? 1.f : k);
+						if (v < 0.f)
+							v = 0.f;
+						if (v > 255.f)
+							v = 255.f;
+						return (uint32)(v + 0.5f);
+					};
+					return (mix(24) << 24) | (mix(16) << 16) | (mix(8) << 8) | 0xFFu;
+				};
+				// ── LE DEGRADE SUIT LA FORME, ET HONORE SON ANGLE ───────────────────
+				// Le contour arrondi (8 segments par arc) est decoupe en bandes
+				// perpendiculaires a l'axe (Sutherland-Hodgman sur un convexe) ; chaque
+				// bande est un polygone, donc elle suit l'arc exactement. Angle : la
+				// meme convention que la rotation du noeud (horaire, y vers le bas) --
+				// 0 = haut->bas, 90 = droite->gauche, 180 = bas->haut, 270 = gauche->droite.
+				// L'etendue de l'axe est celle du rectangle projete (w|sin| + h|cos|).
+				auto peindreDegrade = [&](const NkDegrade &g) {
+					if (!g.Actif())
+						return false;
+					if (r.w <= 0.f || r.h <= 0.f)
+						return true;
+					float32 Rg[4], cg[4];
+					NkGRayons(n, Rg);
+					NkGBornerRayons(r.w, r.h, Rg, cg);
+					float32 contour[80];
+					const uint32 nc = NkGContourArrondi(r, cg, contour, 8u);
+					float32 s = 0.f, c = 1.f;
+					NkSinCosDeg(g.angle, s, c);
+					const float32 dx = -s, dy = c; // l'axe : (0,1) tourne de `angle`
+					const float32 etendue = r.w * (dx < 0.f ? -dx : dx) + r.h * (dy < 0.f ? -dy : dy);
+					if (etendue <= 0.001f)
+						return peindreDegradeBandes(g);
+					const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+					const int32 kBandes = 24; // finesse : nommee, pas devinee
+					bool polygoneSu = true;
+					for (int32 b = 0; b < kBandes && polygoneSu; ++b) {
+						const float32 t0 = (float32)b / (float32)kBandes;
+						const float32 t1 = (float32)(b + 1) / (float32)kBandes;
+						// la bande : t0 <= t < t1, avec t = ((P - C).d) / etendue + 0.5
+						float32 poly[96], tmp[96];
+						uint32 np = nc;
+						for (uint32 k = 0; k < nc * 2u; ++k)
+							poly[k] = contour[k];
+						for (int32 cote = 0; cote < 2 && np >= 3u; ++cote) {
+							// demi-plan garde : cote 0 -> t >= t0 ; cote 1 -> t <= t1
+							const float32 seuil = (cote == 0 ? t0 : t1) - 0.5f;
+							auto valeur = [&](float32 x, float32 y) -> float32 {
+								const float32 tp = ((x - cx) * dx + (y - cy) * dy) / etendue - seuil;
+								return cote == 0 ? tp : -tp; // >= 0 : garde
+							};
+							uint32 nt = 0;
+							for (uint32 k = 0; k < np; ++k) {
+								const float32 ax = poly[k * 2], ay = poly[k * 2 + 1];
+								const uint32 j = (k + 1u) % np;
+								const float32 bx = poly[j * 2], by = poly[j * 2 + 1];
+								const float32 va = valeur(ax, ay), vb = valeur(bx, by);
+								if (va >= 0.f) {
+									tmp[nt * 2] = ax;
+									tmp[nt * 2 + 1] = ay;
+									++nt;
+								}
+								if ((va >= 0.f) != (vb >= 0.f) && nt < 46u) {
+									const float32 f = va / (va - vb);
+									tmp[nt * 2] = ax + (bx - ax) * f;
+									tmp[nt * 2 + 1] = ay + (by - ay) * f;
+									++nt;
+								}
+								if (nt >= 46u)
+									break;
+							}
+							np = nt;
+							for (uint32 k = 0; k < np * 2u; ++k)
+								poly[k] = tmp[k];
+						}
+						if (np < 3u)
+							continue; // la bande ne touche pas la forme (coins tres arrondis)
+						if (!p.PolygonHex(poly, (int32)np, couleurDegrade(g, t0)))
+							polygoneSu = false; // ce peintre n'a pas de polygone : repli
+					}
+					if (!polygoneSu)
+						return peindreDegradeBandes(g);
 					return true;
 				};
 				// LES QUATRE RAYONS EFFECTIFS, lus par la porte du modèle.

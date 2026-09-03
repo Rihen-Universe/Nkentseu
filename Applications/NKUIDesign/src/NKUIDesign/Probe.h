@@ -3824,6 +3824,145 @@ namespace nkuidesign {
 				}
 			}
 		}
+		// ── 49. LE DEGRADE SUIT LA FORME et honore son angle ─────────────────
+		{
+			// un enregistreur qui CAPTE les polygones (le kit n'en enregistre pas)
+			struct PeintrePoly : public NkRecordingPaint {
+					NkVector<float32> pts;	 ///< x,y a la suite
+					NkVector<int32> tailles; ///< points par polygone
+					NkVector<uint32> couleurs;
+					bool PolygonHex(const float32 *xy, int32 count, uint32 rgba) override {
+						for (int32 i = 0; i < count * 2; ++i)
+							pts.PushBack(xy[i]);
+						tailles.PushBack(count);
+						couleurs.PushBack(rgba);
+						return true;
+					}
+			};
+			NkUIDocument dD;
+			dD.NewDocument("Toile", NkAuthor::Humain);
+			dD.nodes[0].layout.kind = NkLayoutKind::Free;
+			dD.SetMetric("espacement", 0.f);
+			dD.SetMetric("marge", 0.f);
+			const int32 f = dD.AddChild(0, "", NkAuthor::Humain);
+			NkUINode &nf = dD.nodes[(uint32)f];
+			nf.shape = NkString("rect");
+			nf.posX = 100.f;
+			nf.posY = 100.f;
+			nf.width.mode = NkSizeMode::Fixed;
+			nf.width.value = 120.f;
+			nf.height.mode = NkSizeMode::Fixed;
+			nf.height.value = 60.f;
+			nf.radius = 20.f;
+			NkRemplissage rf;
+			rf.couleur = NkString("#ff0000");
+			NkArretDegrade s0, s1;
+			s0.position = 0.f;
+			s0.couleur = NkString("#ff0000");
+			s1.position = 1.f;
+			s1.couleur = NkString("#0000ff");
+			rf.degrade.type = NkString("lineaire");
+			rf.degrade.arrets.PushBack(s0);
+			rf.degrade.arrets.PushBack(s1);
+			nf.fills.PushBack(rf);
+			NkPaintRect surfD;
+			surfD.x = 0.f;
+			surfD.y = 0.f;
+			surfD.w = 800.f;
+			surfD.h = 600.f;
+			const float32 X0 = 100.f, Y0 = 100.f, W = 120.f, H = 60.f, R = 20.f;
+			// dedans le contour arrondi, a 0.6 px pres
+			auto dedans = [&](float32 x, float32 y) -> bool {
+				const float32 tol = 0.6f;
+				if (x < X0 - tol || x > X0 + W + tol || y < Y0 - tol || y > Y0 + H + tol)
+					return false;
+				const float32 qx = x < X0 + R ? X0 + R : (x > X0 + W - R ? X0 + W - R : x);
+				const float32 qy = y < Y0 + R ? Y0 + R : (y > Y0 + H - R ? Y0 + H - R : y);
+				const float32 ddx = x - qx, ddy = y - qy;
+				return ddx * ddx + ddy * ddy <= (R + tol) * (R + tol);
+			};
+			auto mesurer = [&](PeintrePoly &pp, uint32 &nPoly, uint32 &horsContour, float32 &yMin,
+							   float32 &yMax, float32 &xMin, float32 &xMax, float32 &xMaxPremier,
+							   float32 &yMaxPremier) {
+				nPoly = (uint32)pp.tailles.Size();
+				horsContour = 0u;
+				yMin = 1e9f; yMax = -1e9f; xMin = 1e9f; xMax = -1e9f; xMaxPremier = -1e9f; yMaxPremier = -1e9f;
+				uint32 k = 0;
+				for (uint32 i = 0; i < nPoly; ++i) {
+					for (int32 j = 0; j < pp.tailles[i]; ++j, ++k) {
+						const float32 x = pp.pts[k * 2], y = pp.pts[k * 2 + 1];
+						if (!dedans(x, y))
+							++horsContour;
+						if (y < yMin) yMin = y;
+						if (y > yMax) yMax = y;
+						if (x < xMin) xMin = x;
+						if (x > xMax) xMax = x;
+						if (i == 0u) {
+							if (x > xMaxPremier) xMaxPremier = x;
+							if (y > yMaxPremier) yMaxPremier = y;
+						}
+					}
+				}
+			};
+			char det[300];
+			// 49a. angle 0 (haut -> bas) : 24 bandes, toutes DANS le contour arrondi, qui couvrent la forme
+			PeintrePoly p0;
+			RenderDocument(p0, dD, surfD);
+			uint32 nP = 0u, hors = 0u;
+			float32 yMin, yMax, xMin, xMax, xMaxP, yMaxP;
+			mesurer(p0, nP, hors, yMin, yMax, xMin, xMax, xMaxP, yMaxP);
+			const bool premiereRouge = !p0.couleurs.Empty() && (p0.couleurs[0] >> 24) == 0xFFu && ((p0.couleurs[0] >> 8) & 0xFFu) == 0u;
+			const bool derniereBleue = !p0.couleurs.Empty() && ((p0.couleurs[(uint32)p0.couleurs.Size() - 1u] >> 8) & 0xFFu) > 0xF0u;
+			snprintf(det, sizeof(det), "%u polygone(s), %u point(s) hors contour, y %.1f..%.1f, x %.1f..%.1f, 1re bande : y max %.1f (rouge=%d), derniere bleue=%d",
+					 nP, hors, yMin, yMax, xMin, xMax, yMaxP, premiereRouge ? 1 : 0, derniereBleue ? 1 : 0);
+			check("49a. LE DEGRADE SUIT L'ARRONDI : 24 bandes en polygones, aucun point hors du contour arrondi, "
+				  "la forme couverte de haut en bas, du rouge au bleu",
+				  nP == 24u && hors == 0u && yMin < Y0 + 0.6f && yMax > Y0 + H - 0.6f && xMin < X0 + 0.6f
+					  && xMax > X0 + W - 0.6f && yMaxP < Y0 + H / 24.f + 0.6f && premiereRouge && derniereBleue,
+				  det);
+			// 49b. la premiere bande (dans l'arc) est PLUS ETROITE que la forme : elle ne sort pas des coins
+			float32 xMinP = 1e9f;
+			for (int32 j = 0; j < p0.tailles[0]; ++j)
+				if (p0.pts[j * 2] < xMinP)
+					xMinP = p0.pts[j * 2];
+			snprintf(det, sizeof(det), "1re bande : x %.1f..%.1f (forme %.0f..%.0f, rayon %.0f)", xMinP, xMaxP, X0, X0 + W, R);
+			check("49b. la bande du haut vit ENTRE les deux arcs : plus etroite que la forme des deux cotes",
+				  xMinP > X0 + 5.f && xMaxP < X0 + W - 5.f, det);
+			// 49c. angle 270 (gauche -> droite) : l'axe tourne, les bandes deviennent verticales
+			dD.nodes[(uint32)f].fills[0].degrade.angle = 270.f;
+			PeintrePoly p270;
+			RenderDocument(p270, dD, surfD);
+			mesurer(p270, nP, hors, yMin, yMax, xMin, xMax, xMaxP, yMaxP);
+			snprintf(det, sizeof(det), "%u polygone(s), %u hors contour, 1re bande : x max %.1f (largeur de bande %.1f), y max %.1f",
+					 nP, hors, xMaxP, W / 24.f, yMaxP);
+			check("49c. l'ANGLE est honore : a 270 (gauche -> droite) la premiere bande est une tranche VERTICALE a gauche, "
+				  "toujours dans le contour",
+				  nP == 24u && hors == 0u && xMaxP < X0 + W / 24.f + 0.6f && yMaxP > Y0 + H - 12.f, det);
+			// 49d. sans arrondi : les bandes sont des rectangles pleine largeur (rien n'a change pour un rect droit)
+			dD.nodes[(uint32)f].fills[0].degrade.angle = 0.f;
+			dD.nodes[(uint32)f].radius = 0.f;
+			PeintrePoly pDroit;
+			RenderDocument(pDroit, dD, surfD);
+			bool quatrePoints = pDroit.tailles.Size() == 24u;
+			for (uint32 i = 0; quatrePoints && i < (uint32)pDroit.tailles.Size(); ++i)
+				if (pDroit.tailles[i] != 4)
+					quatrePoints = false;
+			mesurer(pDroit, nP, hors, yMin, yMax, xMin, xMax, xMaxP, yMaxP);
+			snprintf(det, sizeof(det), "%u polygone(s) a 4 points=%d, x %.1f..%.1f", nP, quatrePoints ? 1 : 0, xMin, xMax);
+			check("49d. sans arrondi, 24 rectangles pleine largeur : un rect droit garde son degrade d'avant",
+				  quatrePoints && xMin < X0 + 0.6f && xMax > X0 + W - 0.6f, det);
+			// 49e. un peintre SANS polygone (l'enregistreur du kit) retombe sur les bandes d'avant : rien ne casse
+			dD.nodes[(uint32)f].radius = 20.f;
+			NkRecordingPaint sansPoly;
+			RenderDocument(sansPoly, dD, surfD);
+			uint32 bandes = 0u;
+			for (uint32 i = 0; i < (uint32)sansPoly.cmds.Size(); ++i)
+				if (sansPoly.cmds[i].op == NkPaintOp::FillColor && sansPoly.cmds[i].w > W - 0.6f && sansPoly.cmds[i].h < H / 24.f + 1.f)
+					++bandes;
+			snprintf(det, sizeof(det), "%u bande(s) rectangulaires chez un peintre sans polygone", bandes);
+			check("49e. un peintre sans polygone retombe sur les 24 bandes d'avant (le repli est nomme, pas silencieux)",
+				  bandes == 24u, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
