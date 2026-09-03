@@ -1281,12 +1281,25 @@ namespace nkentseu {
 			// Rodolf, 2026-09-02.
 			//
 			// Declarer STREAM_MEDIA rattache le son au flux MULTIMEDIA, celui que
-			// la bascule controle pendant une lecture. C'est le seul levier dont
-			// dispose une NativeActivity : `setVolumeControlStream` appartient a
-			// l'activite Java, et `android:hasCode="false"` signifie precisement
-			// qu'il n'y a pas de Java. La consequence subsiste donc : la bascule
-			// suit le flux ACTIF, et si le jeu est silencieux au moment ou l'on
-			// appuie, elle retombe sur la sonnerie.
+			// la bascule controle pendant une lecture.
+			//
+			// ⚠️ RETRACTATION (2026-09-03) D'UNE PHRASE ECRITE ICI LA VEILLE :
+			// « c'est le seul levier dont dispose une NativeActivity :
+			// setVolumeControlStream appartient a l'activite Java, et
+			// hasCode="false" signifie qu'il n'y a pas de Java ». C'ETAIT FAUX,
+			// et la preuve etait deja dans le depot : NkAndroidWindow.cpp appelle
+			// `getSystemService` et `nkShowKeyboard` sur l'activite PAR JNI, sans
+			// une ligne de Java a nous. hasCode="false" dit « pas de classes.dex
+			// A NOUS » ; la NativeActivity, elle, est un vrai objet Activity du
+			// framework, et ses methodes publiques se demandent en C++.
+			// `setVolumeControlStream(STREAM_MUSIC)` est donc appele au demarrage
+			// depuis NkAndroidWindow (NkAndroidSetVolumeControlStream) : la
+			// bascule commande le flux media MEME quand le jeu est silencieux.
+			// Sans lui, la consequence que j'annoncais tenait : bascule sur le
+			// flux ACTIF, donc sur la sonnerie tant qu'aucun son n'a joue.
+			//
+			// Le reglage OpenSL ci-dessous reste necessaire : il dit sur quel flux
+			// le SON sort ; l'autre dit quel flux la BASCULE regle. Les deux.
 			const SLInterfaceID ids[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE, SL_IID_ANDROIDCONFIGURATION};
 			const SLboolean req[] = {SL_BOOLEAN_TRUE, SL_BOOLEAN_FALSE};
 			if ((*mImpl->engine)->CreateAudioPlayer(mImpl->engine, &mImpl->playerObj, &src, &sink, 2, ids, req) !=

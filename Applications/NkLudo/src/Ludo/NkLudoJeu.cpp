@@ -437,7 +437,7 @@ namespace nkentseu {
 					mEcran = NkEcran::NK_MENU;
 					return true;
 				}
-				return false; // au menu : on laisse le systeme fermer
+				return false; // au menu : la COQUILLE quitte (Android), voir NkCanvasApp::DispatchTyped
 			}
 		} // namespace ludo
 	} // namespace jeux

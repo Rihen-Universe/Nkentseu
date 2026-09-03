@@ -229,7 +229,16 @@ namespace nkentseu {
 				return NkKey::NK_TAB;
 			case AKEYCODE_SPACE:
 				return NkKey::NK_SPACE;
+			// ⚠️ AKEYCODE_HOME (3) est le BOUTON D'ACCUEIL du telephone : le
+			// systeme le garde pour lui et ne le livre JAMAIS a une application,
+			// ni en Java ni en natif. Le mapper ne sert a rien -- mais la touche
+			// « Home » d'un clavier physique, elle, arrive comme AKEYCODE_MOVE_HOME
+			// (122), et elle n'etait pas mappee alors que « End » (MOVE_END) l'etait.
+			// Une asymetrie trouvee en repondant a la question « comment acceder
+			// au bouton accueil ? » -- reponse : on n'y accede pas, on recoit
+			// OnPause quand l'utilisateur s'en sert.
 			case AKEYCODE_HOME:
+			case AKEYCODE_MOVE_HOME:
 				return NkKey::NK_HOME;
 			case AKEYCODE_MOVE_END:
 				return NkKey::NK_END;
