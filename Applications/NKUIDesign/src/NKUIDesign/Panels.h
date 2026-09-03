@@ -3475,6 +3475,56 @@ namespace nkuidesign {
 						}
 					}
 				}
+				// ── LES POIGNEES DE TAILLE RECLAMENT LE CLIC AVANT LA TOILE ──
+				// 🔴 RODOLF, 03/09 : « je n'arrive pas a saisir les poignees pour
+				//    le redimensionnement ». Sonde a l'appui : hit = le bon noeud,
+				//    bord droit a 788,3, souris a 781 -> nearRight FAUX. La bande
+				//    saisissable etait 6 px STRICTEMENT A L'INTERIEUR du bord,
+				//    alors que la poignee est DESSINEE a cheval dessus : sa moitie
+				//    exterieure n'etait saisissable nulle part -- dehors, le pick
+				//    rend -1 et le test des bords n'est meme pas atteint. A 161 %
+				//    avec une vraie souris, viser le centre d'une poignee, c'est
+				//    la manquer une fois sur deux.
+				//
+				//    MEME FAMILLE QUE LA ROTATION, CE MATIN : une decoration
+				//    dessinee pour le noeud SELECTIONNE dont le pointage dependait
+				//    de ce que rend le pick generique. La poignee est dessinee
+				//    autour du bord ; elle se saisit donc autour du bord --
+				//    dedans ET dehors, a la meme distance. *Le pointage suit le
+				//    dessin, pas l'inverse.*
+				//
+				// ⚠️ APRES la rotation, qui a priorite : ses quatre boites sont EN
+				//    DEHORS des coins, celles-ci les recouvrent en partie. Si la
+				//    rotation a deja reclame, on ne reclame pas par-dessus.
+				if (!modeGraphe && !mMenuCtx.open && in.mousePressed && ctx.popupDepth == 0
+					&& mRotDrag < 0 && mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0
+					&& screen.Has(mSt->selected) && !mSt->modeForme.Actif()) {
+					const NkUINode &hs = mSt->doc.nodes[(uint32)mSt->selected];
+					const bool poseS = hs.parent >= 0
+									   && mSt->doc.nodes[(uint32)hs.parent].layout.kind
+											  == NkLayoutKind::Free;
+					if (poseS && hs.width.mode == NkSizeMode::Fixed
+						&& hs.height.mode == NkSizeMode::Fixed) {
+						const NkPaintRect rs2 = screen.At(mSt->selected);
+						const float32 kB = kPoignee;
+						auto pres = [](float32 v, float32 cible, float32 tol) {
+							const float32 d = v - cible;
+							return (d < 0.f ? -d : d) <= tol;
+						};
+						const bool dansX = in.mouseX >= rs2.x - kB && in.mouseX <= rs2.x + rs2.w + kB;
+						const bool dansY = in.mouseY >= rs2.y - kB && in.mouseY <= rs2.y + rs2.h + kB;
+						const bool nL = dansY && pres(in.mouseX, rs2.x, kB);
+						const bool nR = dansY && pres(in.mouseX, rs2.x + rs2.w, kB);
+						const bool nT = dansX && pres(in.mouseY, rs2.y, kB);
+						const bool nB = dansX && pres(in.mouseY, rs2.y + rs2.h, kB);
+						if (nL || nR || nT || nB) {
+							ArmerPoignees(mSt->selected, hs, in, nL, nR, nT, nB);
+							// LES DEUX REPRESENTATIONS DE L'ENTREE SE TAISENT.
+							in.mousePressed = false;
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+				}
 				if (!modeGraphe && !mMenuCtx.open)
 					HandleMouse(in, screen);
 
@@ -4980,7 +5030,7 @@ namespace nkuidesign {
 			///    donnait un pointage juste au zoom 1 et faux partout ailleurs --
 			///    le genre de defaut qui ne se voit pas tant que personne ne zoome.
 			void HandleMouse(const NkComponentInput &in, const NkLayoutResult &screen) {
-				const float32 kHandle = 6.f;
+				const float32 kHandle = kPoignee; // LA constante, partagee avec la reclamation
 
 				// ── UN DOUBLE-CLIC EST UN APPUI (regle citee, pas subie) ─────────
 				// ⚠️ MESURE DU 01/09, EN QUATRE MAILLONS, ET C'EST LE DEFAUT QUE
@@ -5441,18 +5491,7 @@ namespace nkuidesign {
 						if (pose && (nearRight || nearBottom || nearLeft || nearTop)
 							&& hn.width.mode == NkSizeMode::Fixed
 							&& hn.height.mode == NkSizeMode::Fixed) {
-							mDragging = true;
-							mDragNode = hit;
-							mResizeEdges = (uint8)((nearLeft ? 1u : 0u) | (nearRight ? 2u : 0u)
-												   | (nearTop ? 4u : 0u) | (nearBottom ? 8u : 0u));
-							// l'origine du geste : le ratio des proportions et le
-							// centrage se lisent LA, pas a l'image courante.
-							mGesteOrigX = in.mouseX;
-							mGesteOrigY = in.mouseY;
-							mGestePosX = hn.posX;
-							mGestePosY = hn.posY;
-							mGesteL0 = hn.width.value;
-							mGesteH0 = hn.height.value;
+							ArmerPoignees(hit, hn, in, nearLeft, nearRight, nearTop, nearBottom);
 						} else if (nearRight || nearBottom) {
 							mDragging = true;
 							mDragHorizontal = nearRight;
@@ -5710,6 +5749,31 @@ namespace nkuidesign {
 				mOutil = 0;
 				Dire("", mSt->doc.nodes[(uint32)idx].label.Data(), " créé — outil Sélection.");
 				return idx;
+			}
+
+			/// LA BANDE DE SAISIE D'UNE POIGNEE, en pixels ECRAN, de chaque cote
+			/// du bord. Une seule constante pour les DEUX sites qui la lisent.
+			static constexpr float32 kPoignee = 6.f;
+
+			/// ARMER un redimensionnement par poignees. Appelee depuis DEUX
+			/// endroits -- la reclamation avant `HandleMouse` (noeud selectionne,
+			/// bande symetrique) et le clic direct dans `HandleMouse` (noeud qu'on
+			/// vient de toucher). Une seule ecriture des sept champs du geste :
+			/// deux copies auraient diverge a la premiere retouche.
+			void ArmerPoignees(int32 noeud, const NkUINode &hn, const NkComponentInput &in,
+							   bool nearLeft, bool nearRight, bool nearTop, bool nearBottom) {
+				mDragging = true;
+				mDragNode = noeud;
+				mResizeEdges = (uint8)((nearLeft ? 1u : 0u) | (nearRight ? 2u : 0u)
+									   | (nearTop ? 4u : 0u) | (nearBottom ? 8u : 0u));
+				// l'origine du geste : le ratio des proportions et le centrage se
+				// lisent LA, pas a l'image courante.
+				mGesteOrigX = in.mouseX;
+				mGesteOrigY = in.mouseY;
+				mGestePosX = hn.posX;
+				mGestePosY = hn.posY;
+				mGesteL0 = hn.width.value;
+				mGesteH0 = hn.height.value;
 			}
 
 			static bool DansZone(const NkRect &z, const NkComponentInput &in) {
