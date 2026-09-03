@@ -7857,6 +7857,32 @@ namespace nkuidesign {
 				const float32 exVide = ctx.layout.cursor.x + 8.f;
 				const float32 eyVide = ctx.layout.cursor.y + 6.f;
 				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
+				// ⚠️ APRÈS l'arbre, MAIS AVANT LE MENU. Deux contraintes, pas une :
+				//    l'arbre repeint le fond de sa zone (un texte posé avant serait
+				//    invisible), et le menu est une INCRUSTATION (un texte posé
+				//    après lui se lirait par-dessus ses entrées).
+				//
+				// 🔴 CAPTURE DE RODOLF, 03/09 : « Ctrl+Alt+K sur un élément en
+				//    crée un. » se lisait EN TRAVERS de la première entrée, et le
+				//    mot « Tous » était illisible dessous.
+				//
+				// ⚠️ ET CE N'ÉTAIT PAS UN FOND MANQUANT — mesuré avant de corriger :
+				//    `NkComboMenu` peint bien son `AddRectFilled(menu, panelBg)`
+				//    AVANT ses entrées. Le fond était là ; c'est ce texte-ci qui
+				//    passait après. *Chercher le manque là où on l'imagine coûte
+				//    plus cher que de regarder la couche du dessous.*
+				//
+				// 🔑 LA RÈGLE, pour les prochains : dans ce panneau, l'INCRUSTATION
+				//    SE PEINT EN DERNIER. Tout ce qui appartient au panneau —
+				//    arbre, état vide, pied — passe AVANT elle.
+				if (mModeleComposants.nodes.Empty()) {
+					auto &F = costume::Fontes();
+					costume::Texte(ctx.dl, F.px9, exVide, eyVide,
+								   "Aucun composant dans ce document.", ctx.theme.textMuted);
+					costume::Texte(ctx.dl, F.px9, exVide, eyVide + 14.f,
+								   "Ctrl+Alt+K sur un élément en crée un.", ctx.theme.textMuted);
+				}
+				// L'INCRUSTATION, EN DERNIER — après l'arbre ET après l'état vide.
 				if (menuVueOuvert) {
 					if (clicMisEnSourdine)
 						ctx.input.mouseClicked[0] = true; // le menu, lui, y a droit
@@ -7871,15 +7897,6 @@ namespace nkuidesign {
 						mVueCompos = sel;
 						mSt->DireAuPied(NomsDesVues()[sel]);
 					}
-				}
-				// ⚠️ APRÈS l'arbre : il peint le fond de sa zone, un texte posé
-				//    avant serait recouvert (vérifié sur capture — invisible).
-				if (mModeleComposants.nodes.Empty()) {
-					auto &F = costume::Fontes();
-					costume::Texte(ctx.dl, F.px9, exVide, eyVide,
-								   "Aucun composant dans ce document.", ctx.theme.textMuted);
-					costume::Texte(ctx.dl, F.px9, exVide, eyVide + 14.f,
-								   "Ctrl+Alt+K sur un élément en crée un.", ctx.theme.textMuted);
 				}
 				// LA GARDE DE BORNES (précision de Rodolf, 01/09 : « on ne voit
 				// pas le bas du scrollbar des Composants ») : la pile des
