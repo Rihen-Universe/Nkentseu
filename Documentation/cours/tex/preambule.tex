@@ -60,6 +60,26 @@
 \hypersetup{
   colorlinks=true, linkcolor=rihenTeal, urlcolor=rihenTeal,
   citecolor=rihenTeal, pdfborder={0 0 0}}
+
+% ── AUTEUR ET DROITS ─────────────────────────────────────────────────────────
+% ⚠️ LE NOM S'ECRIT EXACTEMENT AINSI : nom de famille en CAPITALES d'abord,
+% puis les prenoms, et l'accent aigu de « Séderis ». C'est une convention du
+% depot, pas une preference typographique -- l'ordre et la casse identifient
+% l'auteur dans les publications, les depots et les documents administratifs.
+% Ne pas reordonner, ne pas passer en capitales entieres, ne pas desaccentuer.
+\newcommand{\DocAuteur}{TEUGUIA TADJUIDJE Rodolf Séderis}
+\newcommand{\DocAuteurTitres}{Enseignant à l'ENSPY1 — Fondateur et CEO de Rihen}
+\newcommand{\DocAnnee}{2026}
+
+% Les metadonnees du PDF : c'est ce que montrent les proprietes du fichier, un
+% lecteur de bureau, un catalogue de bibliotheque. Un livre dont la couverture
+% porte l'auteur mais dont les metadonnees sont vides s'archive sous « inconnu ».
+\hypersetup{
+  pdfauthor={\DocAuteur},
+  pdftitle={\DocTitre},
+  pdfsubject={\DocSujet},
+  pdfcreator={XeLaTeX},
+  pdfkeywords={Nkentseu, Rihen, C++, Jenga, ENSPY1}}
 % xurl (APRES hyperref) : autorise la coupure des chemins de fichiers a
 % n'importe quel caractere. Sans lui, un chemin de depot long est un bloc
 % insecable qui deborde de 5 a 7 cm dans la marge.

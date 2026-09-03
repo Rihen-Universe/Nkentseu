@@ -3,6 +3,17 @@
 Le livre complet sur **Jenga**, le système de construction de Nkentseu.
 Version couverte : **2.4.0**.
 
+**Auteur : TEUGUIA TADJUIDJE Rodolf Séderis** — enseignant à l'École Nationale
+Supérieure Polytechnique de Yaoundé I (ENSPY1), fondateur et directeur général
+de Rihen. © 2026, tous droits réservés : l'auteur détient l'intégralité des
+droits sur cet ouvrage.
+
+⚠️ **Le nom s'écrit exactement ainsi** — nom de famille en capitales d'abord,
+puis les prénoms, et l'accent aigu de « Séderis ». C'est une convention du
+dépôt : l'ordre et la casse identifient l'auteur dans les publications et les
+documents administratifs. Il vit dans `tex/preambule.tex` (`\DocAuteur`), à un
+seul endroit, pour qu'on ne puisse pas le réécrire de travers.
+
 ```
 Jenga_le_livre.pdf        le livre
 tex/                      les sources LaTeX

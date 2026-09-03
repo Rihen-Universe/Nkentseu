@@ -5,6 +5,17 @@
 Construire des applications et des jeux avec le moteur Nkentseu.
 Cours complet pour débutants, en français, du dépôt jusqu'à l'application finie.
 
+**Auteur : TEUGUIA TADJUIDJE Rodolf Séderis** — enseignant à l'École Nationale
+Supérieure Polytechnique de Yaoundé I (ENSPY1), fondateur et directeur général
+de Rihen. © 2026, tous droits réservés : l'auteur détient l'intégralité des
+droits sur cet ouvrage.
+
+⚠️ **Le nom s'écrit exactement ainsi** — nom de famille en capitales d'abord,
+puis les prénoms, et l'accent aigu de « Séderis ». C'est une convention du
+dépôt : l'ordre et la casse identifient l'auteur dans les publications et les
+documents administratifs. Il vit dans `tex/preambule.tex` (`\DocAuteur`), à un
+seul endroit, pour qu'on ne puisse pas le réécrire de travers.
+
 ## Contenu
 
 | | Chapitre | Sujet |

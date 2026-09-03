@@ -15,12 +15,18 @@
 \documentclass[11pt, a4paper, oneside]{book}
 
 \newcommand{\DocDate}{5 août 2026}
+% Titre et sujet : definis AVANT \input{preambule}, qui s'en sert pour les
+% metadonnees du PDF. L'auteur, ses titres et l'annee vivent dans le preambule.
+\newcommand{\DocTitre}{Construire avec Nkentseu}
+\newcommand{\DocSujet}{Cours complet de C++ et de developpement d'applications
+  avec le moteur Nkentseu, du debutant au professionnel}
 
 \input{preambule}
 
 \begin{document}
 
 \input{garde}
+\input{credits}
 
 \frontmatter
 \pagestyle{plain}
