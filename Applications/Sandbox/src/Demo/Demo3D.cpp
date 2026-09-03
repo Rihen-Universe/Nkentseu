@@ -11,6 +11,7 @@
 //                            -> RenderGraph -> Flush.
 // =============================================================================
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h" // sonde VFX
+#include "NKPhysics/NkVehicle.h"          // sonde VEHICULE (NK_VEHICLE_PROBE=1)
 #include <cstdlib>
 #include <cstdio>
 #include "DemoCommon.h"
@@ -41,6 +42,10 @@ namespace nkentseu {
 				NkMeshHandle meshSphere;
 				NkMeshHandle meshPlane;
 				NkMeshHandle meshCube;
+				// sonde VEHICULE (NK_VEHICLE_PROBE=1) : un monde physique et une voiture
+				nkentseu::physics::NkPhysicsWorld *vehWorld = nullptr;
+				nkentseu::physics::NkVehicle *veh = nullptr;
+				float32 vehClock = 0.f;
 				// ── NK_GI_TEST : mur mobile pour éprouver le GI à un rebond ──────
 				// Bornes de base du mur ; `giWallOffset` s'y ajoute et le GI est
 				// recalculé à chaque déplacement — c'est la démonstration que
@@ -2163,6 +2168,26 @@ namespace nkentseu {
 			// sonde en fabrique une, sous NK_VFX_PROBE=1 seulement : aucun effet
 			// pour quiconque ne pose pas la variable. Pas de texture : le champ
 			// NkEmitterDesc::texture n est lu nulle part dans NkVFXSystem.cpp (mesure).
+			// ── SONDE VEHICULE (2026-09-04) — Rodolf veut VOIR la voiture rouler ──
+			// Sous NK_VEHICLE_PROBE=1 seulement. La surface, telle que la conception
+			// l'ecrit : un monde, un sol, une voiture, quatre roues, SetInput.
+			if (const char *vp = std::getenv("NK_VEHICLE_PROBE"); vp && vp[0] == '1') {
+				using namespace nkentseu::physics;
+				st->vehWorld = new NkPhysicsWorld();
+				st->vehWorld->SetGravity({0.f, -9.81f, 0.f});
+				NkBodyDef sol;
+				sol.type = NkBodyType::STATIC;
+				sol.position = {0.f, -0.5f, 0.f};
+				sol.orientation = NkQuatf::Identity();
+				st->vehWorld->CreateBody(sol, collision::NkShape::Box3D({0.f, -0.5f, 0.f}, {200.f, 0.5f, 200.f}));
+				st->veh = new NkVehicle(*st->vehWorld);
+				st->veh->SetChassisBox({-4.f, 1.15f, -3.f}, {0.9f, 0.5f, 2.2f}, 1200.f);
+				st->veh->AddWheel({-0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				st->veh->AddWheel({0.8f, -0.5f, 1.3f}, NkWheel::kSteered);
+				st->veh->AddWheel({-0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				st->veh->AddWheel({0.8f, -0.5f, -1.3f}, NkWheel::kPowered);
+				std::fprintf(stderr, "[VEHICULE PROBE] voiture creee (chassis id=%u)\n", (unsigned)st->veh->Chassis());
+			}
 			if (const char *probe = std::getenv("NK_VFX_PROBE"); probe && probe[0] == '1') {
 				if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
 					NkEmitterDesc d;
@@ -3947,6 +3972,19 @@ namespace nkentseu {
 					const char *e = std::getenv("NK_VFX_PROBE");
 					return e && e[0] == '1';
 				}();
+				// sonde VEHICULE : plein gaz 1 s apres le depart, braquage doux ensuite
+				if (st->veh && st->vehWorld) {
+					st->vehClock += dt;
+					st->veh->SetInput(0.f, 1.f, 0.f); // ligne droite, plein gaz : on veut la VOIR rouler
+					st->vehWorld->Advance(dt); // la voiture avance DEDANS, au pas fixe
+					if ((ctx.frame % 60u) == 0u) {
+						const auto *b = st->vehWorld->GetBody(st->veh->Chassis());
+						std::fprintf(stderr, "[VEHICULE PROBE] frame %u t=%.2fs : pos=(%.2f, %.2f, %.2f) v=%.2f m/s roues au sol=%d%d%d%d\n",
+									 (unsigned)ctx.frame, st->vehClock, b->position.x, b->position.y, b->position.z, st->veh->ForwardSpeed(),
+									 (int)st->veh->Wheel(0).grounded, (int)st->veh->Wheel(1).grounded,
+									 (int)st->veh->Wheel(2).grounded, (int)st->veh->Wheel(3).grounded);
+					}
+				}
 				if (kProbe)
 					if (NkVFXSystem *vfx = ctx.renderer->GetVFX()) {
 						vfx->Update(dt, camData);
@@ -4320,6 +4358,30 @@ namespace nkentseu {
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
 				r3d->Submit(dc);
+				// sonde VEHICULE : chassis (cube) + 4 roues (spheres), transformes du monde physique
+				if (st->veh && st->vehWorld) {
+					const auto *b = st->vehWorld->GetBody(st->veh->Chassis());
+					NkDrawCall3D vc;
+					vc.mesh = st->meshCube;
+					vc.transform = NkMat4f::TRS(b->position, b->orientation, {1.8f, 1.0f, 4.4f});
+					vc.aabb = {b->position - NkVec3f{3.f, 3.f, 3.f}, b->position + NkVec3f{3.f, 3.f, 3.f}};
+					vc.tint = {0.85f, 0.15f, 0.1f};
+					vc.metallic = 0.6f;
+					vc.roughness = 0.35f;
+					r3d->Submit(vc);
+					for (uint32 wi = 0; wi < st->veh->WheelCount(); ++wi) {
+						const auto &w = st->veh->Wheel(wi);
+						NkDrawCall3D wc;
+						wc.mesh = st->meshSphere;
+						const float32 rr = st->veh->Tuning().wheelRadius;
+						wc.transform = NkMat4f::TRS(w.worldPos, b->orientation, {rr * 2.f, rr * 2.f, rr * 2.f});
+						wc.aabb = {w.worldPos - NkVec3f{1.f, 1.f, 1.f}, w.worldPos + NkVec3f{1.f, 1.f, 1.f}};
+						wc.tint = w.grounded ? NkVec3f{0.1f, 0.1f, 0.1f} : NkVec3f{0.9f, 0.9f, 0.1f};
+						wc.metallic = 0.f;
+						wc.roughness = 0.9f;
+						r3d->Submit(wc);
+					}
+				}
 			}
 
 			// ── NK_GI_TEST : le mur rouge, RENDU à la position qui sert au GI ────

@@ -1567,3 +1567,55 @@ ci-dessus. Ils décrivent l'état du jour où ils ont été écrits, et c'est ce
 constat même qui a motivé le déplacement. *On ne corrige pas un journal, on le
 date.* Même raison pour les carnets hors dépôt (`Nkentseu/echanges/*.md`) : cinq
 d'entre eux citent l'ancien chemin, aucun n'a été touché.
+
+---
+
+# MESURE 13 — LA VOITURE ROULE, ET ON LA VOIT (2026-09-04)
+
+> Rodolf : *« je veux voir, tu peux lancer sans arrêter Ilyana car elle n'utilise
+> pas tout le GPU. »* Autorisation d'utiliser le GPU **pendant** l'entraînement —
+> jamais de l'interrompre.
+
+**`Captures/noge_vehicule_2026-09-04.png`** — `renderdemo`, backend **OpenGL**,
+fenêtre 960×540, capture de ma seule fenêtre par `NK_CAPTURE` (lecture arrière du
+rendu, aucune photo de l'écran, aucun geste de souris). Sonde sous
+`NK_VEHICLE_PROBE=1` : sans la variable, `renderdemo` est inchangé.
+
+**Ce que l'image montre** : la caisse rouge sur ses quatre roues, **son ombre
+portée sur le sol**, et `Draw:1243` contre **1093** sans la sonde — les dessins
+supplémentaires sont le châssis et les roues, pas un décor.
+
+**Ce que la course dit, et c'est le même véhicule que le banc** :
+
+| t (s) | z (m) | v (m/s) | roues au sol | hauteur |
+|---:|---:|---:|:---:|---:|
+| 0,71 | −2,43 | 1,67 | 1111 | 1,08 |
+| 1,44 | −0,56 | 3,38 | 1111 | 1,08 |
+| 2,16 | +2,47 | 5,03 | 1111 | 1,08 |
+| 2,76 | +5,91 | 6,40 | 1111 | 1,08 |
+| 3,22 | +9,15 | 7,45 | 1111 | 1,08 |
+
+**13,15 m en 3,22 s**, dérive latérale **5 cm sur 12 m** (−4,00 → −4,05), hauteur
+**constante à 1,08** — la valeur d'équilibre du ressort, celle que le banc
+assertait en relation. *La démo et le banc mesurent le même objet.*
+
+⚠️ **Un premier essai a donné 0,67 m en 6 s, et ce n'était pas la physique** :
+la sonde mettait les gaz après 1 s et braquait après 2,5 s — la voiture tournait
+en rond. `maxSubSteps = 8` (vérifié) : **aucun temps simulé n'est perdu** à 33
+images/s. Ligne droite, plein gaz : les chiffres rejoignent le banc.
+*Avant d'accuser le modèle, lire ce qu'on lui a demandé.*
+
+### 🟢 Ilyana n'a jamais été interrompue — relevés encadrant les trois exécutions
+
+| | VRAM | occupation | compteur CPU d'Ilyana |
+|---|---:|---:|---|
+| avant #1 | 5 795 Mio | 79 % | 5 171,25 |
+| après #1 | 5 809 Mio | 66 % | 5 171,88 (**+0,63 s**) |
+| avant #3 | 4 766 Mio | 95 % | 5 229,02 |
+| après #3 | 5 428 Mio | 51 % | 5 229,38 (**+0,36 s**) |
+
+Son compteur CPU **avance à chaque fois** : elle a travaillé pendant. La VRAM
+n'a jamais chuté (aucune perte d'allocation), et le processus (PID 26664) est le
+même du début à la fin. **Fenêtre au premier plan lue avant chaque geste** :
+Visual Studio Code, jamais photographiée — seule ma fenêtre l'est, et par
+lecture arrière du rendu.
