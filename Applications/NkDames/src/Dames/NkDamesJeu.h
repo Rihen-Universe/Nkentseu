@@ -48,6 +48,12 @@ namespace nkentseu {
 					/// La touche ECHAP -- et sur Android, la TOUCHE RETOUR du
 					/// systeme, que `NkAndroidEventSystem` traduit en NK_ESCAPE.
 					bool OnKeyPress(const NkKeyPressEvent &e) override;
+
+					/// Volume du jeu avant la derniere coupure, pour que la
+					/// bascule « couper le son » sache quoi restaurer. Une
+					/// coupure qui perd la valeur d'avant oblige le joueur a
+					/// re-regler a chaque fois.
+					float32 mVolumeAvantCoupure = 1.f;
 					void OnTick(float32 deltaTime) override;
 					void OnDraw(nkgui::NkGuiDrawList &dl) override;
 

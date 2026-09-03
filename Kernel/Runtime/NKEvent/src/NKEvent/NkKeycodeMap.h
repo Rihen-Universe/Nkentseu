@@ -194,6 +194,38 @@ namespace nkentseu {
 			 */
 			static NkKey NkKeyFromAndroid(uint32 aKeycode);
 
+			// -----------------------------------------------------------------
+			// ET SUR iOS ? LA REPONSE EST « NON », ET ELLE EST ECRITE ICI
+			// -----------------------------------------------------------------
+			// Il n'existe pas de `NkKeyFromUIKit` pour les boutons du boitier,
+			// et ce n'est pas un oubli : **iOS ne les livre a aucune
+			// application**. Mesure du 2026-09-03 sur le backend UIKit du
+			// depot : zero `pressesBegan`, zero `GCKeyboard`, zero
+			// `outputVolume` -- et cote systeme, Apple ne publie aucune API
+			// pour les intercepter.
+            //
+			//   volume + / -    : JAMAIS livres. On peut seulement OBSERVER le
+			//                     volume de sortie (`AVAudioSession.outputVolume`,
+			//                     en lecture) -- ce qui dit qu'il a change, pas
+			//                     quel bouton a ete presse, et ne permet pas de
+			//                     s'y opposer.
+			//   accueil, power  : JAMAIS livres.
+			//   applis recentes : le geste n'existe pas comme touche.
+			//
+			// ⚠️ CE QUI RESTE VRAI, ET QUI SUFFIT LE PLUS SOUVENT : les boutons
+			// de volume reglent deja le flux de lecture de l'application. Le
+			// joueur baisse le son du jeu sans que le jeu ait une ligne a
+			// ecrire. C'est le meme resultat qu'Android obtient par
+			// `setVolumeControlStream` -- par un autre chemin.
+			//
+			// 📌 On l'ecrit ici plutot que dans le backend UIKit parce que
+			// c'est ICI qu'on vient chercher « comment les touches arrivent ».
+			// Une absence expliquee a l'endroit ou on la constate coute une
+			// lecture ; la meme absence expliquee ailleurs coute une enquete.
+			// Ne pas declarer la fonction est deliberé : une fonction qui
+			// rendrait toujours `NK_UNKNOWN` promettrait un chemin qui
+			// n'existe pas.
+
 			// -------------------------------------------------------------
 			// Utilitaires de normalisation et comparaison
 			// -------------------------------------------------------------
@@ -1352,8 +1384,13 @@ namespace nkentseu {
 			// -------------------------------------------------------------
 			// Contrôle et navigation
 			// -------------------------------------------------------------
+			// ⚠️ AKEYCODE_BACK (4) est le BOUTON RETOUR DU BOITIER, pas la
+			// touche d'effacement -- laquelle est AKEYCODE_DEL (67), plus bas,
+			// et rend bien `NK_BACK`. Les deux rendaient `NK_BACK` : une
+			// application ne pouvait pas distinguer « l'utilisateur veut
+			// sortir » de « l'utilisateur efface un caractere ».
 			case 4:
-				return NkKey::NK_BACK;
+				return NkKey::NK_APP_BACK;
 			case 23:
 				return NkKey::NK_ENTER;
 			case 66:
@@ -1612,10 +1649,60 @@ namespace nkentseu {
 				return NkKey::NK_MEDIA_MUTE;
 			case 220:
 				return NkKey::NK_MEDIA_MUTE;
-			case 164:
+			// ⚠️ CES TROIS-LA ETAIENT FAUX, et c'est mesure sur
+			// `android/keycodes.h` du NDK 27 (jamais de memoire) :
+			//   la table disait 164 -> VOLUME_UP et 165 -> VOLUME_DOWN ;
+			//   or 164 est VOLUME_MUTE, 165 est INFO, et les VRAIS volumes
+			//   sont 24 et 25 -- qui ne figuraient nulle part.
+			// Le defaut a survecu parce que cette table est morte pour Android
+			// (le backend avait la sienne) : rien ne pouvait le contredire.
+			case 24:
 				return NkKey::NK_MEDIA_VOLUME_UP;
-			case 165:
+			case 25:
 				return NkKey::NK_MEDIA_VOLUME_DOWN;
+			case 164:
+				return NkKey::NK_MEDIA_MUTE; // VOLUME_MUTE : coupe le SON
+			// 165 (INFO) n'a pas d'equivalent : on ne l'invente pas.
+
+			// -------------------------------------------------------------
+			// Boutons PHYSIQUES du boitier
+			// -------------------------------------------------------------
+			// ⚠️ CE QUI EST DECLARE ICI N'ARRIVE PAS FORCEMENT. Le systeme
+			// garde pour lui les touches qui lui appartiennent ; les mapper
+			// ne les livre pas. L'etat mesure, cible par cible :
+			//
+			//   VOLUME_UP/DOWN  : LIVREES a l'application (24/25)
+			//   HEADSETHOOK     : livree quand un casque filaire est branche
+			//   CAMERA / FOCUS  : livrees sur les appareils qui ont le bouton
+			//   SEARCH / MENU   : livrees sur les appareils qui les ont encore
+			//   CALL / ENDCALL  : livrees sur un telephone
+			//   BACK            : livree (voir AKEYCODE_BACK plus haut)
+			//   HOME (3)        : JAMAIS -- le systeme la garde
+			//   APP_SWITCH (187): JAMAIS -- le systeme la garde
+			//   POWER (26)      : JAMAIS -- le systeme la garde
+			//
+			// Les trois dernieres sont mappees quand meme : le jour ou une
+			// cible les livre (un boitier sur mesure, un televiseur), le code
+			// est deja juste. Une correspondance qui existe ne promet rien ;
+			// c'est le tableau ci-dessus qui dit ce qui arrive.
+			case 3:
+				return NkKey::NK_HOME_BUTTON;
+			case 5:
+				return NkKey::NK_CALL;
+			case 6:
+				return NkKey::NK_ENDCALL;
+			case 26:
+				return NkKey::NK_POWER;
+			case 27:
+				return NkKey::NK_CAMERA;
+			case 79:
+				return NkKey::NK_HEADSET_HOOK;
+			case 80:
+				return NkKey::NK_FOCUS;
+			case 84:
+				return NkKey::NK_SEARCH;
+			case 187:
+				return NkKey::NK_APP_SWITCH;
 
 			// -------------------------------------------------------------
 			// Fallback

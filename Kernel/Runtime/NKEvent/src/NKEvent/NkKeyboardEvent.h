@@ -252,6 +252,32 @@ namespace nkentseu {
 		NK_MEDIA_MUTE,		  ///< Touche Couper le son (Mute)
 
 		// -----------------------------------------------------------------
+		// Groupe : BOUTONS PHYSIQUES D'UN APPAREIL MOBILE
+		// (le prédicat `NkEstToucheRetour` est déclaré après l'énumération)
+		// -----------------------------------------------------------------
+		// Ces touches n'existent sur aucun clavier de bureau : ce sont les
+		// boutons du BOITIER (tranches, facade) et les touches materielles
+		// que certains Android exposent encore.
+		//
+		// ⚠️ TOUTES NE SONT PAS LIVRABLES, ET CA DEPEND DE LA PLATEFORME :
+		// declarer une touche ici ne promet pas qu'elle arrivera. Le tableau
+		// qui dit laquelle arrive ou n'arrive pas est dans
+		// `NkKeycodeMap::NkKeyFromAndroid` et dans le backend UIKit -- a
+		// l'endroit ou la reponse est VRAIE, pas ici ou elle serait un voeu.
+		// Regle du depot : une capacite se teste par ce que la cible sait
+		// faire, jamais par le nom qu'on lui donne.
+		NK_APP_BACK,	 ///< Bouton/geste RETOUR (Android) -- voir la note ci-dessous
+		NK_HOME_BUTTON,	 ///< Bouton ACCUEIL du boitier -- jamais livre ; distinct de NK_HOME (clavier)
+		NK_APP_SWITCH,	 ///< Bouton « applications recentes » -- jamais livre par le systeme
+		NK_POWER,		 ///< Bouton d'alimentation -- jamais livre a une application
+		NK_CAMERA,		 ///< Declencheur photo materiel (appareils qui en ont un)
+		NK_FOCUS,		 ///< Mi-course du declencheur photo (mise au point)
+		NK_SEARCH,		 ///< Touche Recherche materielle (Android ancien)
+		NK_HEADSET_HOOK, ///< Bouton du casque filaire (decrocher / lecture)
+		NK_CALL,		 ///< Touche Appeler (telephone)
+		NK_ENDCALL,		 ///< Touche Raccrocher (telephone)
+
+		// -----------------------------------------------------------------
 		// Groupe : Touches navigateur web
 		// -----------------------------------------------------------------
 		NK_BROWSER_BACK,	  ///< Touche Précédent (historique)
@@ -288,6 +314,28 @@ namespace nkentseu {
 
 		NK_KEY_MAX ///< Sentinelle : nombre de valeurs valides (pour validation)
 	};
+
+	// =====================================================================
+	// « REVENIR EN ARRIÈRE » N'A PAS UNE SEULE TOUCHE
+	// =====================================================================
+	/**
+	 * @brief Le geste « revenir / annuler / sortir », quelle que soit la cible.
+	 *
+	 * ⚠️ CE PRÉDICAT EXISTE PARCE QUE LE TEST NAÏF EST FAUX SUR MOBILE. Écrire
+	 * `key == NK_ESCAPE` couvre le clavier et rate le bouton retour du
+	 * téléphone ; écrire `key == NK_APP_BACK` fait l'inverse. Les deux
+	 * ensemble sont le même geste pour l'utilisateur — et la moitié qu'on
+	 * oublie est toujours celle de la plateforme sur laquelle on ne teste pas.
+	 *
+	 * 📌 Jusqu'au 2026-09-03, Android traduisait son bouton retour en
+	 * `NK_ESCAPE`, ce qui masquait le problème et confondait la touche avec
+	 * celle d'un clavier. La correspondance est désormais juste
+	 * (`AKEYCODE_BACK` → `NK_APP_BACK`) : c'est ce prédicat qui recolle les
+	 * deux, à un seul endroit, au lieu de laisser chaque appelant le refaire.
+	 */
+	inline bool NkEstToucheRetour(NkKey key) {
+		return key == NkKey::NK_APP_BACK || key == NkKey::NK_ESCAPE;
+	}
 
 	// =====================================================================
 	// Aliases NkKey pour les opérations du pavé numérique (compatibilité Win32 VK_*)
