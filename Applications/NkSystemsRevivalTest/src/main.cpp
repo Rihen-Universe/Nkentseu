@@ -20,9 +20,11 @@
 #include "NKECS/System/NkScheduler.h"
 #include "Noge/Systems/NkPhysicsSystems.h"
 #include "Noge/Physics/NkPhysicsMesh.h"
+#include "NKPhysics/NkPhysicsWorld.h" // banc COUPLE (2026-09-03)
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 
+#include <cmath> // std::fabs / std::fmax (banc COUPLE)
 #include <cstdio>
 
 using namespace nkentseu;
@@ -390,6 +392,73 @@ int main() {
 			s3.Run(w3, 1.f / 60.f);
 		Check(w3.Get<ecs::NkSkeleton>(perso2)->skinMatrices[0][3][0] == 0.f,
 			  "un os sans corps rigide est laisse intact (aucune pose inventee)");
+	}
+
+	// =========================================================================
+	// LE COUPLE EST INTEGRE -- banc pose le 2026-09-03 avec la correction du socle.
+	// Avant : NkRigidBody::torque etait accumule, remis a zero, et JAMAIS lu.
+	// Invisible, parce que le solveur de contacts fait son angulaire en
+	// impulsions directes. Ce banc ECHOUE si le couple cesse d'etre integre :
+	// les assertions sont des RELATIONS exactes (omega = invI * tau * h), pas
+	// des bornes -- une inegalite large est un controle de plantage deguise.
+	// =========================================================================
+	{
+		using namespace nkentseu::physics;
+		NkPhysicsConfig cfg;
+		NkPhysicsWorld pw(cfg);
+		pw.SetGravity({0.f, 0.f, 0.f});
+		const float32 h = cfg.fixedTimeStep;
+
+		auto libre = [&](const NkVec3f &pos) {
+			NkBodyDef d;
+			d.position = pos;
+			d.orientation = NkQuatf::Identity();
+			d.angularDamping = 0.f;
+			d.linearDamping = 0.f;
+			d.flags = NK_BODY_NO_GRAVITY;
+			// ⚠️ la forme est en repere MONDE (contrat CreateBody) : centree sur pos,
+			// sinon les trois corps naissent superposes a l origine et se touchent.
+			return pw.CreateBody(d, collision::NkShape::Box3D(pos, {0.5f, 0.5f, 0.5f}));
+		};
+		auto rel = [](float32 a, float32 b) { return std::fabs(a - b) <= 1e-4f * std::fmax(1.f, std::fabs(b)); };
+
+		// C1 -- un couple pur fait tourner : omega.y = invI.y * tau * h, EXACTEMENT.
+		{
+			NkBodyId id = libre({0, 10, 0});
+			NkRigidBody *b = pw.GetBody(id);
+			const float32 tau = 3.f;
+			b->torque = {0.f, tau, 0.f};
+			pw.Step(h);
+			const float32 attendu = b->invInertiaDiag.y * tau * h;
+			Check(attendu > 0.f && rel(b->angularVelocity.y, attendu),
+				  "COUPLE : un couple pur donne omega = invI*tau*h (le champ torque est LU par l'integrateur)");
+			Check(b->torque.x == 0.f && b->torque.y == 0.f && b->torque.z == 0.f,
+				  "COUPLE : l'accumulateur est remis a zero apres integration (pas de couple fantome au pas suivant)");
+		}
+		// C2 -- une force EN UN POINT produit ET la translation ET la rotation.
+		//       f=(0,F,0) en p=pos+(r,0,0)  ->  tau = r x f = (0,0,r*F).
+		{
+			NkBodyId id = libre({0, 20, 0});
+			NkRigidBody *b = pw.GetBody(id);
+			const float32 F = 4.f, r = 0.5f;
+			b->ApplyForceAtPoint({0.f, F, 0.f}, b->position + NkVec3f{r, 0.f, 0.f});
+			pw.Step(h);
+			Check(rel(b->linearVelocity.y, b->invMass * F * h),
+				  "FORCE EN UN POINT : la part lineaire vaut invMass*F*h");
+			Check(rel(b->angularVelocity.z, b->invInertiaDiag.z * r * F * h) && b->angularVelocity.z > 0.f,
+				  "FORCE EN UN POINT : le bras de levier produit omega.z = invI.z*(r*F)*h");
+		}
+		// C3 -- la garde « ne double pas » : sans couple ni contact, AUCUNE rotation
+		//       n'apparait. Le chemin couple et le chemin impulsions ont des sources
+		//       distinctes ; un zero ici, apres deux positifs, est un vrai zero.
+		{
+			NkBodyId id = libre({0, 30, 0});
+			NkRigidBody *b = pw.GetBody(id);
+			for (int i = 0; i < 10; ++i)
+				pw.Step(h);
+			Check(b->angularVelocity.x == 0.f && b->angularVelocity.y == 0.f && b->angularVelocity.z == 0.f,
+				  "GARDE : sans couple ni contact, l'integration n'invente aucune rotation (pas de double chemin)");
+		}
 	}
 
 	std::printf("=== Resultat : %d OK / %d FAIL ===\n", gPass, gFail);

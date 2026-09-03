@@ -182,13 +182,7 @@ namespace nkentseu {
 
 		// ── Validation physique (M10) : COM + moments ────────────────────────
 		// Inertie (forward) en repère monde appliquée à ω : I·ω = R·(Idiag ⊙ (Rᵀω)).
-		static NkVec3f NkInertiaApply(const NkRigidBody &b, const NkVec3f &w) noexcept {
-			const NkVec3f loc = b.orientation.Conjugate() * w;
-			const NkVec3f I{b.invInertiaDiag.x > 0.f ? 1.f / b.invInertiaDiag.x : 0.f,
-							b.invInertiaDiag.y > 0.f ? 1.f / b.invInertiaDiag.y : 0.f,
-							b.invInertiaDiag.z > 0.f ? 1.f / b.invInertiaDiag.z : 0.f};
-			return b.orientation * NkVec3f{loc.x * I.x, loc.y * I.y, loc.z * I.z};
-		}
+		// NkInertiaApply : remontee dans NkRigidBody.h (2026-09-03), partagee.
 
 		float32 NkPhysicsWorld::TotalMass(uint32 lm) const {
 			float32 m = 0.f;
@@ -399,11 +393,7 @@ namespace nkentseu {
 
 		// Inertie inverse en repère MONDE appliquée à un vecteur (torque -> accel ang.) :
 		//   invI_world * v = R * (invInertiaDiag ⊙ (Rᵀ v))   avec R = orientation.
-		static NkVec3f NkInvInertiaApply(const NkRigidBody &b, const NkVec3f &v) noexcept {
-			const NkVec3f loc = b.orientation.Conjugate() * v;
-			const NkVec3f sc{loc.x * b.invInertiaDiag.x, loc.y * b.invInertiaDiag.y, loc.z * b.invInertiaDiag.z};
-			return b.orientation * sc;
-		}
+		// NkInvInertiaApply : remontee dans NkRigidBody.h (2026-09-03), partagee.
 
 		// ── M1+M2 : solveur de contacts (normale + frottement + angulaire) ────
 		struct NkSolverPoint {

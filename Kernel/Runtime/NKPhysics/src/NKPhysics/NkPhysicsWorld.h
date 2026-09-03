@@ -35,6 +35,10 @@ namespace nkentseu {
 				explicit NkPhysicsWorld(const NkPhysicsConfig &cfg = {}) noexcept;
 
 				// Crée un corps (def + forme de collision) ; renvoie son id. [spec M0]
+				// ⚠️ `shape` est en repère MONDE (déjà placée à def.position) : la forme de
+				// repos LOCALE en est dérivée par l'inverse de la pose. Une forme centrée
+				// à l'origine pour un corps créé ailleurs naît DÉCALÉE — et entre en
+				// contact avec tout ce qui a fait la même erreur (mesuré le 2026-09-03).
 				NkBodyId CreateBody(const NkBodyDef &def, const collision::NkShape &shape);
 				void DestroyBody(NkBodyId id);
 				NkRigidBody *GetBody(NkBodyId id) noexcept;
