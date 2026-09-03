@@ -38,7 +38,7 @@ main** — la prochaine régénération l'effacerait.*
 
 | lignes de comportement | livré | partiel | absent | écarté |
 |---|---|---|---|---|
-| **174** | **75** | **26** | **72** | **1** |
+| **177** | **75** | **27** | **74** | **1** |
 
 ### Par chapitre — où l'on est fort, où l'on est faible
 
@@ -52,7 +52,7 @@ main** — la prochaine régénération l'effacerait.*
 | 5. Toile et vue | 3 | 4 | 9 | 0 |
 | 6. Transformations | 13 | 1 | 7 | 0 |
 | 7. Calques et groupes | 9 | 1 | 6 | 1 |
-| 8. Propriétés | 10 | 7 | 19 | 0 |
+| 8. Propriétés | 10 | 8 | 21 | 0 |
 | 9. Composants et instances | 5 | 1 | 4 | 0 |
 
 ### La liste nommée — PARTIELS
@@ -101,6 +101,7 @@ main** — la prochaine régénération l'effacerait.*
 - Position intérieure / centrée / extérieure
 - Extrémités (*caps*), jonctions (*folds*), têtes de flèche
 - Ombre interne
+- Opacité + mode de fusion du CALQUE (section `LAYER`)
 - Alignement horizontal (4)
 
 **9. Composants et instances**
@@ -185,13 +186,15 @@ main** — la prochaine régénération l'effacerait.*
 **8. Propriétés**
 
 - Réordonner (l'ordre change le rendu)
-- Remplissage image et ses quatre cadrages (remplir / ajuster / étirer / mosaïque)
-- Pipette pour prélever une couleur
+- Remplissage image et ses cadrages (menu `Fill ˅`)
+- Pipette pour prélever une couleur (capture 04/09 : en bas à gauche du popover)
 - Règle de remplissage non-zero / pair-impair
 - Mode de fusion par remplissage
 - *Tints* (une teinte unique sur un groupe ou une instance)
 - Pointillés (tiret / écart)
 - Un tracé ouvert n'accepte que la position « centrée »
+- Mode de fusion PAR REMPLISSAGE (18 modes : Normal, Darken, Multiply, Plus Darker, Color Burn, Lighten, Screen, Plus Lighter, Color Dodge, Overlay, Soft Light, Hard Light, Difference, Exclusion, Hue, Saturation, Color, Luminosity)
+- Styles de couleur nommés (la ligne de remplissage porte « Dark Primary ») et `Styles` / `Variables` au rail de gauche
 - Flou gaussien
 - Flou d'arrière-plan
 - Gras / italique / souligné
