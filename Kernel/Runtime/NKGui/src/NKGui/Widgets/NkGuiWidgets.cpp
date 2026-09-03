@@ -4825,6 +4825,13 @@ namespace nkentseu {
 		}
 
 		// ── Image / Icône ───────────────────────────────────────────────────────
+		bool BeginPopup(NkGuiContext &ctx, const char *idStr, const NkRect &rect,
+						const NkRect &ancre) noexcept {
+			// La porte d'entree de `EndPopup`, deja publique : elle n'ajoute aucun
+			// comportement, elle EXPOSE `BeginPopupLevel` au niveau 0.
+			return BeginPopupLevel(ctx, ctx.GetId(idStr), 0, rect, ancre);
+		}
+
 		void Image(NkGuiContext &ctx, uint32 texId, float32 w, float32 h, NkColor tint, NkVec2 uv0,
 				   NkVec2 uv1) noexcept {
 			const float32 ww = w > 0.f ? w : ctx.ContentWidth();

@@ -459,6 +459,11 @@ namespace nkentseu {
 		NKENTSEU_NKGUI_API void EndCombo(NkGuiContext &ctx) noexcept;
 		// Primitif de popup générique (fermé au clic-dehors / Échap). Ouvre avec
 		// ctx.OpenPopup(ctx.GetId(idStr)). À refermer par EndPopup si true.
+		// `rect` = où le popup se dessine (couche overlay) ; `ancre` = le widget
+		// qui l'a ouvert (un clic dedans ne le referme pas). Retourne true tant
+		// qu'il est ouvert : l'app dessine SES widgets dedans, puis EndPopup.
+		NKENTSEU_NKGUI_API bool BeginPopup(NkGuiContext &ctx, const char *idStr, const NkRect &rect,
+										   const NkRect &ancre) noexcept;
 		NKENTSEU_NKGUI_API void EndPopup(NkGuiContext &ctx) noexcept;
 
 		// ── Menus (barre + sous-menus imbriqués + contextuel) ─────────────────
