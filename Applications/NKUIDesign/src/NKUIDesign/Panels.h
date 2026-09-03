@@ -4539,13 +4539,47 @@ namespace nkuidesign {
 											"à 15°. Le coin redimensionne, son extérieur "
 											"tourne.");
 								}
-								if (sv && ctx.input.mouseClicked[0]) {
+								// 🔴 `in.mousePressed` ET NON `ctx.input.mouseClicked[0]` :
+								//    la toile a copie l'entree bien plus haut (l. ~2853),
+								//    AVANT tout consommateur, et c'est cette copie qui
+								//    arme le deplacement. Lire l'original ici pouvait le
+								//    trouver DEJA eteint pendant que la copie brulait
+								//    encore : la rotation ne s'armait pas, le deplacement
+								//    si. Mesure a la souris le 03/09 -- l'arc se
+								//    survolait (pastille pleine), et le glisser deplacait
+								//    la page.
+								//    *Une question ne doit avoir qu'une seule reponse dans
+								//    une meme fonction.*
+								if (sv && in.mousePressed) {
 									mRotDrag = (int32)k;
 									mRotBase = selN.rotation;
 									mRotAngle0 = NkAngleDeg(rs.x + rs.w * 0.5f,
 															rs.y + rs.h * 0.5f,
 															ctx.input.mousePos.x,
 															ctx.input.mousePos.y);
+									// 🔴 LE CLIC SE CONSOMME, ET C'EST TOUT LE
+									//    DEFAUT DU 03/09. Sans cette ligne, le
+									//    MEME clic servait deux fois : ici pour
+									//    armer la rotation, puis plus bas pour la
+									//    selection de la toile. Attraper un arc
+									//    DEPLACAIT donc la page qui se trouve
+									//    dessous -- les arcs se voyaient, la
+									//    rotation ne se faisait jamais.
+									//    *Un controle qui reagit sans RECLAMER le
+									//    geste le laisse a la couche d'en dessous.*
+									//    (`NkComboButton` du kit le fait depuis
+									//    toujours : c'est le precedent, pas une
+									//    invention.)
+									ctx.input.mouseClicked[0] = false;
+									// 🔴 ET L’INSTANTANÉ AUSSI, SINON RIEN NE CHANGE.
+									//    La toile ne lit pas `ctx.input` : elle lit `in`,
+									//    une COPIE prise bien plus haut (l. ~2847). Une
+									//    copie prise tôt ne peut pas apprendre que
+									//    l’original a été consommé — j’ai corrigé la
+									//    source et mesuré : le geste déplaçait toujours
+									//    la page. *Deux représentations d’une même
+									//    entrée, c’est deux endroits où la consommer.*
+									in.mousePressed = false;
 								}
 							}
 							// LE GESTE : l'angle sous la souris moins celui du depart.
@@ -7702,7 +7736,34 @@ namespace nkuidesign {
 				//    la même leçon que l'état vide recouvert par le fond de
 				//    l'arbre, ce matin. *L'ordre de peinture est une décision,
 				//    pas un détail.*
-				if (mVueOuverte != 0) {
+				// 🔴 CE BLOC ETAIT ICI, DONC AVANT L'ARBRE -- ET LE COMMENTAIRE
+				//    CI-DESSUS ENONCAIT DEJA LA REGLE QU'IL ENFREIGNAIT. Reproduit
+				//    a la souris le 03/09 : le bouton se VERROUILLE en position
+				//    ouverte (fond accentue, souris a 900 px de la), donc
+				//    `mVueOuverte` etait bien mis et le menu existait. Il etait
+				//    simplement peint sous le fond que `DessinerArbre` repeint
+				//    ensuite -- invisible -- et l'arbre, lui, mangeait ses clics.
+				//    *Une regle ecrite au-dessus du code qui la viole ne protege
+				//    personne : elle rassure celui qui relit.*
+				//
+				// ⚠️ ET LE DEPLACER NE SUFFISAIT PAS. L'arbre ne consulte pas
+				//    `ctx.popupDepth` : dessine avant, il aurait continue de
+				//    prendre les clics destines aux entrees du menu. Tant qu'un
+				//    menu est ouvert, l'arbre ne doit VOIR aucun clic -- c'est ce
+				//    que fait la mise en sourdine ci-dessous, rendue juste avant
+				//    que le menu ne se dessine.
+				const bool menuVueOuvert = (mVueOuverte != 0);
+				bool clicMisEnSourdine = false;
+				if (menuVueOuvert && ctx.input.mouseClicked[0]) {
+					ctx.input.mouseClicked[0] = false;
+					clicMisEnSourdine = true;
+				}
+				const float32 exVide = ctx.layout.cursor.x + 8.f;
+				const float32 eyVide = ctx.layout.cursor.y + 6.f;
+				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
+				if (menuVueOuvert) {
+					if (clicMisEnSourdine)
+						ctx.input.mouseClicked[0] = true; // le menu, lui, y a droit
 					auto &Fm = costume::Fontes();
 					const nkgui::NkRect bornes = ctx.layout.region;
 					int32 sel = mVueCompos;
@@ -7715,9 +7776,6 @@ namespace nkuidesign {
 						mSt->DireAuPied(NomsDesVues()[sel]);
 					}
 				}
-				const float32 exVide = ctx.layout.cursor.x + 8.f;
-				const float32 eyVide = ctx.layout.cursor.y + 6.f;
-				DessinerArbre(ctx, mModeleComposants, mInstComposants, hBas, "composants");
 				// ⚠️ APRÈS l'arbre : il peint le fond de sa zone, un texte posé
 				//    avant serait recouvert (vérifié sur capture — invisible).
 				if (mModeleComposants.nodes.Empty()) {
