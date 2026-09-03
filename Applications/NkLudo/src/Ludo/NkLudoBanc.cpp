@@ -20,6 +20,7 @@
 #include "Ludo/NkLudoRegles.h"
 #include "NKContainers/String/NkString.h"
 #include "NKLogger/NkLog.h"
+#include "NKEvent/NkKeycodeMap.h" // controle de la table de touches (dette : appartient a NKEvent)
 
 namespace nkentseu {
 	namespace jeux {
@@ -771,6 +772,79 @@ int32 NkLudoLancerBanc() {
 					 total / 2);
 		const int32 ecart = equilibre * 2 > total ? equilibre * 2 - total : total - equilibre * 2;
 		verifier("paliers : MOYEN contre lui-meme reste equilibre", ecart * 100 <= total * 30);
+	}
+
+	// =====================================================================
+	// LES BOUTONS PHYSIQUES DU BOITIER ARRIVENT-ILS, ET SUR LA BONNE TOUCHE ?
+	// =====================================================================
+	// ⚠️ CES CAS NE SONT PAS DE LUDO : ils controlent `NkKeycodeMap`, dans
+	// NKEvent. Ils sont ici parce que NKEvent n'a AUCUN banc et que celui-ci
+	// tourne a chaque construction. C'est une dette, et elle a un titulaire
+	// nomme : le jour ou NKEvent recoit son banc, ces cas y demenagent.
+	// Les laisser sans le dire les rendrait invisibles a qui touche la table.
+	//
+	// Ce qu'ils protegent, mesure le 2026-09-03 : la table disait 164 ->
+	// VOLUME_UP et 165 -> VOLUME_DOWN, alors que 164 est VOLUME_MUTE, 165 est
+	// INFO, et les vrais volumes sont 24 et 25. Trois codes faux, invisibles
+	// parce que la table etait morte pour Android -- rien ne pouvait la
+	// contredire.
+	{
+		logger.Info("\n=== Boutons physiques : la correspondance Android ===");
+
+		struct Cas {
+			uint32 code;
+			NkKey attendue;
+			const char *nom;
+		};
+		// Valeurs lues dans `android/keycodes.h` du NDK 27, jamais de memoire.
+		const Cas cas[] = {
+			{24, NkKey::NK_MEDIA_VOLUME_UP, "VOLUME_UP"},
+			{25, NkKey::NK_MEDIA_VOLUME_DOWN, "VOLUME_DOWN"},
+			{164, NkKey::NK_MEDIA_MUTE, "VOLUME_MUTE"},
+			{4, NkKey::NK_APP_BACK, "BACK (bouton du boitier)"},
+			{67, NkKey::NK_BACK, "DEL (effacement)"},
+			{3, NkKey::NK_HOME_BUTTON, "HOME"},
+			{187, NkKey::NK_APP_SWITCH, "APP_SWITCH"},
+			{26, NkKey::NK_POWER, "POWER"},
+			{27, NkKey::NK_CAMERA, "CAMERA"},
+			{79, NkKey::NK_HEADSET_HOOK, "HEADSETHOOK"},
+			{84, NkKey::NK_SEARCH, "SEARCH"},
+			{82, NkKey::NK_MENU, "MENU"},
+		};
+		bool tousJustes = true;
+		for (const Cas &c : cas) {
+			const NkKey rendue = NkKeycodeMap::NkKeyFromAndroid(c.code);
+			if (rendue != c.attendue) {
+				logger.Infof("[banc]   %-26s code %-4u rend %d, attendu %d\n", c.nom, c.code,
+							 static_cast<int32>(rendue), static_cast<int32>(c.attendue));
+				tousJustes = false;
+			}
+		}
+		verifier("touches : les douze boutons physiques rendent la bonne touche", tousJustes);
+
+		// ── CONTROLE NEGATIF, et c'est lui qui donne du sens au precedent ──
+		// Une table qui rendrait n'importe quoi pour n'importe quel code
+		// passerait le cas ci-dessus des qu'elle tomberait juste par hasard.
+		// 165 est INFO : il ne doit surtout PAS rendre un volume -- c'est
+		// exactement le code que la table confondait avec VOLUME_DOWN.
+		const NkKey info = NkKeycodeMap::NkKeyFromAndroid(165);
+		verifier("touches : le code 165 (INFO) ne rend PAS un volume (cas negatif)",
+				 info != NkKey::NK_MEDIA_VOLUME_DOWN && info != NkKey::NK_MEDIA_VOLUME_UP);
+		verifier("touches : un code qui n'existe pas rend NK_UNKNOWN (cas negatif)",
+				 NkKeycodeMap::NkKeyFromAndroid(9999u) == NkKey::NK_UNKNOWN);
+
+		// Le bouton RETOUR du boitier et la touche EFFACEMENT rendaient tous
+		// deux `NK_BACK` : une application ne pouvait pas distinguer « je veux
+		// sortir » de « j'efface un caractere ».
+		verifier("touches : le bouton RETOUR ne se confond plus avec l'effacement",
+				 NkKeycodeMap::NkKeyFromAndroid(4) != NkKeycodeMap::NkKeyFromAndroid(67));
+
+		// Le predicat qui recolle les deux formes du meme geste.
+		verifier("touches : NkEstToucheRetour accepte le bouton ET la touche Echap",
+				 NkEstToucheRetour(NkKey::NK_APP_BACK) && NkEstToucheRetour(NkKey::NK_ESCAPE));
+		verifier("touches : NkEstToucheRetour refuse tout le reste (cas negatif)",
+				 !NkEstToucheRetour(NkKey::NK_BACK) && !NkEstToucheRetour(NkKey::NK_SPACE) &&
+					 !NkEstToucheRetour(NkKey::NK_HOME));
 	}
 
 	logger.Infof("\n[banc] %s (%d echec(s))\n", echecs == 0 ? "TOUT EST VERT" : "DES CAS ONT ECHOUE", echecs);
