@@ -623,6 +623,20 @@ namespace nkuidesign {
 	//  LE NOEUD
 	// ═══════════════════════════════════════════════════════════════════════════
 
+	/// Une echelle nulle ferait une matrice non inversible (le pointage
+	/// mourrait) : on borne loin de zero, signe conserve, et on plafonne.
+	inline float32 NkEchelleSaine(float32 v) {
+		if (v != v)
+			return 1.f;
+		const float32 signe = v < 0.f ? -1.f : 1.f;
+		float32 m = v < 0.f ? -v : v;
+		if (m < 0.001f)
+			m = 0.001f;
+		if (m > 1000.f)
+			m = 1000.f;
+		return signe * m;
+	}
+
 	struct NkUINode {
 			/// Libelle affichable dans l'arbre. Purement humain : rien ne s'y
 			/// resout, deux noeuds peuvent porter le meme.
@@ -934,6 +948,12 @@ namespace nkuidesign {
 			float32 rotation = 0.f;	 ///< degrés horaires (clé `rotation`)
 			bool miroirH = false;	 ///< retourné gauche/droite (clé `miroir_h`)
 			bool miroirV = false;	 ///< retourné haut/bas (clé `miroir_v`)
+			/// L'ECHELLE, PORTEE PAR LE NOEUD (decision de Rodolf : le texte subit
+			/// la mise a l'echelle). Composee en descendant avec les ancetres
+			/// (NkMatEffective), lue par toutes les tailles a travers le peintre.
+			/// Additive comme les miroirs : absente du fichier tant qu'elle vaut 1.
+			float32 echelleX = 1.f; ///< cle `echelle_x`
+			float32 echelleY = 1.f; ///< cle `echelle_y`
 
 			// ── VERROUILLER / MASQUER (vague 2, source `/layers`) ────────────
 			/// ⚠️ DEUX BOOLÉENS, DEUX EFFETS DIFFÉRENTS, ET LA DIFFÉRENCE EST TOUT
@@ -963,6 +983,14 @@ namespace nkuidesign {
 			/// octet**.
 			bool verrouille = false; ///< non attrapable, mais toujours peint (clé `verrouille`)
 			bool masque = false;	 ///< ni peint ni attrapable (clé `masque`)
+			// ── LE REFUS PAR AXE (decision de Rodolf) ───────────────────────
+			/// Un enfant peut refuser un axe de transformation : il ne le subit
+			/// ni de ses ancetres ni de lui-meme. Lu par NkMatEffective (une
+			/// seule matrice pour le dessin et le pointage), montre dans la
+			/// hierarchie et dans l'inspecteur. Additifs, comme `verrouille`.
+			bool refusPosition = false; ///< cle `refus_position`
+			bool refusRotation = false; ///< cle `refus_rotation`
+			bool refusEchelle = false;  ///< cle `refus_echelle`
 
 			// ── CE NŒUD EST-IL UNE INSTANCE ? (composants de document, 02/09) ──
 			/// La **clé** de la déclaration dont ce nœud est une instance
@@ -1615,6 +1643,11 @@ namespace nkuidesign {
 					//    champ » (recette gestes) l'aurait vu — c'est lui qui
 					//    protège cette ligne, pas ma vigilance.
 					d.rotation = s.rotation;
+					d.echelleX = s.echelleX;
+					d.echelleY = s.echelleY;
+					d.refusPosition = s.refusPosition;
+					d.refusRotation = s.refusRotation;
+					d.refusEchelle = s.refusEchelle;
 					d.miroirH = s.miroirH;
 					d.miroirV = s.miroirV;
 					d.borderW = s.borderW;
@@ -2245,6 +2278,16 @@ namespace nkuidesign {
 				// LA ROTATION ET LES DEUX MIROIRS : ecrits SEULEMENT s'ils ne
 				// valent pas leur defaut -- meme discipline additive que
 				// `position`, `shape` et les trois listes.
+				if (n.echelleX != 1.f) {
+					out.Append("  echelle_x = ");
+					WriteNum(out, n.echelleX);
+					out.Append("\n");
+				}
+				if (n.echelleY != 1.f) {
+					out.Append("  echelle_y = ");
+					WriteNum(out, n.echelleY);
+					out.Append("\n");
+				}
 				if (n.rotation != 0.f) {
 					out.Append("  rotation = ");
 					WriteNum(out, n.rotation);
@@ -2260,6 +2303,12 @@ namespace nkuidesign {
 					out.Append("  verrouille = 1\n");
 				if (n.masque)
 					out.Append("  masque = 1\n");
+				if (n.refusPosition)
+					out.Append("  refus_position = 1\n");
+				if (n.refusRotation)
+					out.Append("  refus_rotation = 1\n");
+				if (n.refusEchelle)
+					out.Append("  refus_echelle = 1\n");
 				// ── L'INSTANCE ET SES ÉCARTS (composants de document) ────
 				// Mêmes règles additives : un nœud ordinaire n'écrit rien.
 				if (!n.instanceDe.Empty()) {
@@ -2832,10 +2881,20 @@ namespace nkuidesign {
 							n.miroirH = (val[0] == '1');
 						else if (StrEq(key, "miroir_v"))
 							n.miroirV = (val[0] == '1');
+						else if (StrEq(key, "echelle_x"))
+							n.echelleX = NkEchelleSaine(ParseNum(val));
+						else if (StrEq(key, "echelle_y"))
+							n.echelleY = NkEchelleSaine(ParseNum(val));
 						else if (StrEq(key, "verrouille"))
 							n.verrouille = (val[0] == '1');
 						else if (StrEq(key, "masque"))
 							n.masque = (val[0] == '1');
+						else if (StrEq(key, "refus_position"))
+							n.refusPosition = (val[0] == '1');
+						else if (StrEq(key, "refus_rotation"))
+							n.refusRotation = (val[0] == '1');
+						else if (StrEq(key, "refus_echelle"))
+							n.refusEchelle = (val[0] == '1');
 						else if (StrEq(key, "instance"))
 							n.instanceDe = NkString(val);
 						else if (StrEq(key, "ecarts"))
@@ -2947,6 +3006,11 @@ namespace nkuidesign {
 						//    seulement, une flèche retournée serait revenue à
 						//    l'endroit dans la version mobile — sans un mot.
 						d.rotation = s.rotation;
+					d.echelleX = s.echelleX;
+					d.echelleY = s.echelleY;
+					d.refusPosition = s.refusPosition;
+					d.refusRotation = s.refusRotation;
+					d.refusEchelle = s.refusEchelle;
 						d.miroirH = s.miroirH;
 						d.miroirV = s.miroirV;
 						// 📌 CONSTAT, NON CORRIGÉ ET NON ÉLARGI (2026-09-01) :

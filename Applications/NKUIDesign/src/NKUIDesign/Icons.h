@@ -190,13 +190,31 @@ namespace nkuidesign {
 					tx = r.x + r.w - largeur;
 				const float32 hLigne = f->LineHeight() * echelle;
 				const float32 yBase = r.y + (r.h - hLigne) * 0.5f + f->Ascent() * echelle;
-				mCtx.DL().AddTextScaled(f->Face(), f->TexId(), {tx, yBase}, s, col, echelle);
-				if (graisse >= 500.f) {
-					const float32 e = (graisse >= 700.f ? 0.8f : graisse >= 600.f ? 0.5f : 0.3f)
-									  * (echelle > 1.f ? echelle : 1.f);
-					mCtx.DL().AddTextScaled(f->Face(), f->TexId(), {tx + e, yBase}, s, col,
-											echelle);
+				const float32 eGras = graisse >= 500.f
+										  ? (graisse >= 700.f ? 0.8f : graisse >= 600.f ? 0.5f : 0.3f)
+												* (echelle > 1.f ? echelle : 1.f)
+										  : 0.f;
+				if (const nkentseu::editorkit::NkPaintTransform *m = TransformeActive()) {
+					// Sous la matrice du noeud : la mise a l'echelle des glyphes S
+					// (facteur `echelle` autour de l'origine de ligne o) se compose
+					// SOUS M -- M o S : p -> M(o) + echelle * L(p - o). Le texte tourne
+					// avec sa boite, a la meme matrice que les formes.
+					const float32 ta = m->a * echelle, tb = m->b * echelle;
+					const float32 tc = m->c * echelle, td = m->d * echelle;
+					for (int32 passe = 0; passe < (eGras > 0.f ? 2 : 1); ++passe) {
+						const float32 ox = tx + (passe ? eGras : 0.f);
+						const float32 mox = m->a * ox + m->c * yBase + m->e;
+						const float32 moy = m->b * ox + m->d * yBase + m->f;
+						mCtx.DL().AddTextTransforme(f->Face(), f->TexId(), {ox, yBase}, s, col, ta, tb,
+													tc, td, mox - (ta * ox + tc * yBase),
+													moy - (tb * ox + td * yBase));
+					}
+					return;
 				}
+				mCtx.DL().AddTextScaled(f->Face(), f->TexId(), {tx, yBase}, s, col, echelle);
+				if (eGras > 0.f)
+					mCtx.DL().AddTextScaled(f->Face(), f->TexId(), {tx + eGras, yBase}, s, col,
+											echelle);
 			}
 
 		private:

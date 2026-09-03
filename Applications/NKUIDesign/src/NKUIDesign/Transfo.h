@@ -107,6 +107,8 @@ namespace nkuidesign {
 			float32 deg = 0.f;
 			bool mh = false;
 			bool mv = false;
+			float32 sx = 1.f; ///< echelle horizontale (1 = neutre), portee par le noeud
+			float32 sy = 1.f; ///< echelle verticale
 			/// Vrai quand il n'y a rien à faire — le cas de l'immense majorité des
 			/// nœuds. ⚠️ IL EST INTERROGÉ AVANT TOUT CALCUL : sans ce court-circuit,
 			/// chaque point de chaque forme paierait un sinus, et surtout chaque
@@ -114,7 +116,7 @@ namespace nkuidesign {
 			/// les coordonnées d'un ulp — un document non tourné cesserait de se
 			/// dessiner au pixel près.
 			bool Identite() const {
-				return deg == 0.f && !mh && !mv;
+				return deg == 0.f && !mh && !mv && sx == 1.f && sy == 1.f;
 			}
 	};
 
@@ -123,6 +125,8 @@ namespace nkuidesign {
 		t.deg = n.rotation;
 		t.mh = n.miroirH;
 		t.mv = n.miroirV;
+		t.sx = n.echelleX;
+		t.sy = n.echelleY;
 		return t;
 	}
 
@@ -318,8 +322,10 @@ namespace nkuidesign {
 			NkSinCosDeg(t.deg, s, c);
 		// miroir d'abord (échelle ±1), rotation ensuite — le même ordre que
 		// `NkTransfoPoint`, et pour la même raison.
-		const float32 sx = t.mh ? -1.f : 1.f;
-		const float32 sy = t.mv ? -1.f : 1.f;
+		// L'echelle du noeud, au signe du miroir : une seule matrice pour le
+		// dessin et le pointage (NkMatInverse la retourne telle quelle).
+		const float32 sx = (t.mh ? -1.f : 1.f) * t.sx;
+		const float32 sy = (t.mv ? -1.f : 1.f) * t.sy;
 		m.a = c * sx;
 		m.b = s * sx;
 		m.c = -s * sy;
@@ -342,17 +348,47 @@ namespace nkuidesign {
 	///        ne sait lire).
 	inline NkMat2D NkMatEffective(const NkUIDocument &doc, const NkLayoutResult &lay, int32 i) {
 		NkMat2D m;
+		// ── LE REFUS PAR AXE, ICI ET NULLE PART AILLEURS ────────────────────
+		// Un enfant peut refuser d'heriter un axe de ses ancetres : la rotation
+		// (miroirs compris : un miroir est une orientation, pas une taille),
+		// l'echelle, la position. Le filtre s'applique en composant les
+		// ancetres ; le dessin et le pointage lisent cette matrice-la, donc un
+		// refus honore a l'ecran est honore sous la souris, sans second code.
+		const NkUINode *moi = doc.IsValidIndex(i) ? &doc.nodes[(uint32)i] : nullptr;
+		const bool refR = moi && moi->refusRotation;
+		const bool refE = moi && moi->refusEchelle;
+		const bool refP = moi && moi->refusPosition;
 		int32 k = i;
 		uint32 garde = 0;
 		while (doc.IsValidIndex(k) && k > 0 && garde++ < 256u) {
 			const NkUINode &n = doc.nodes[(uint32)k];
-			const NkTransfo t = NkTransfoDe(n);
+			NkTransfo t = NkTransfoDe(n);
+			if (refR) {
+				t.deg = 0.f;
+				t.mh = false;
+				t.mv = false;
+			}
+			if (refE) {
+				t.sx = 1.f;
+				t.sy = 1.f;
+			}
 			if (!t.Identite() && lay.Has(k)) {
 				const NkPaintRect r = lay.At(k);
 				const NkMat2D mk = NkMatDe(t, r.x + r.w * 0.5f, r.y + r.h * 0.5f);
 				m = NkMatComposer(mk, m); // l'ancêtre s'applique APRÈS
 			}
 			k = n.parent;
+		}
+		if (refP && moi && lay.Has(i)) {
+			// La position ne suit pas les transformees des ancetres : le centre
+			// reste ou la mise en page l'a mis (le noeud tourne ou s'agrandit
+			// encore autour de ce centre, s'il ne refuse pas ces axes-la).
+			const NkPaintRect r = lay.At(i);
+			const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+			float32 x = cx, y = cy;
+			NkMatPoint(m, x, y);
+			m.e += cx - x;
+			m.f += cy - y;
 		}
 		return m;
 	}
@@ -564,7 +600,12 @@ namespace nkuidesign {
 	///    mais alors tourner un groupe qui contient un texte aurait échoué à
 	///    moitié, sans qu'on sache pourquoi.
 	inline bool NkPeintureSaitTourner(const NkUINode &n) {
-		return n.text.Empty() && !NkComponentDecl::StrEq(n.shape.Data(), "text");
+		// Depuis la transformee du peintre (NkComponentPaint::PushTransform,
+		// poussee par NkDrawDocument), TOUT ce qu'un noeud dessine tourne avec
+		// lui : formes, composants, texte (sonde 45d, verifie au pied dans le
+		// document de Rodolf). Il n'y a plus de rotation partielle a annoncer.
+		(void)n;
+		return true;
 	}
 
 	/// La phrase qui accompagne une rotation que le peintre ne rendra pas.
@@ -621,8 +662,9 @@ namespace nkuidesign {
 	///    moitié, sans qu'on sache pourquoi ». La même règle vaut ici, et elle
 	///    n'avait pas traversé les vingt lignes qui séparent les deux fonctions.
 	inline bool NkPeutTourner(const NkUINode &n) {
-		(void)n;
-		return true;
+		// Le refus par axe : un noeud qui refuse la rotation ne tourne ni par
+		// ses ancetres (NkMatEffective) ni par lui-meme (poignee, champ).
+		return !n.refusRotation;
 	}
 
 	/// Vrai si la rotation de `n` emporte TOUT ce qu'on voit à sa place.
@@ -649,8 +691,8 @@ namespace nkuidesign {
 
 	/// Conservée : d'anciens sites la citent encore.
 	inline const char *NkRaisonPasDeRotation() {
-		return "Rotation d'ensemble : pas encore. Le nœud tourne, ce qu'il contient reste "
-			   "droit.";
+		return "Rotation refusée sur ce nœud (refus par axe « R », dans l'inspecteur) : "
+			   "ni la sienne, ni celle de ses parents.";
 	}
 
 } // namespace nkuidesign

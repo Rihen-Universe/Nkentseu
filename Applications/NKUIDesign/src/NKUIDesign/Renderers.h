@@ -1378,6 +1378,20 @@ namespace nkuidesign {
 			}
 	}
 
+	/// NkMat2D (document) -> NkPaintTransform (peintre) : memes six coefficients,
+	/// meme convention (colonnes x, y, 1). Le pont existe pour que le document
+	/// ne depende pas du type du kit dans Transfo.h.
+	inline nkentseu::editorkit::NkPaintTransform NkPaintTransformDe(const NkMat2D &m) {
+		nkentseu::editorkit::NkPaintTransform t;
+		t.a = m.a;
+		t.b = m.b;
+		t.c = m.c;
+		t.d = m.d;
+		t.e = m.e;
+		t.f = m.f;
+		return t;
+	}
+
 	inline void NkDrawDocument(NkComponentPaint &p, const NkComponentInput &in, const NkUIDocument &doc,
 							   const NkLayoutResult &lay, NkDocumentHost &host, int32 node = 0) {
 		if (!doc.IsValidIndex(node) || !lay.Has(node))
@@ -1396,6 +1410,18 @@ namespace nkuidesign {
 			return;
 		const NkUINode &n = doc.nodes[(uint32)node];
 		const NkPaintRect r = lay.At(node);
+		// ── LA MATRICE DU NOEUD, DANS LE PEINTRE ──────────────────────────
+		// Tout ce que ce noeud dessine (forme, composant, texte) passe par
+		// elle : rotation, miroirs, echelle, ancetres compris. Depilee AVANT
+		// les enfants : chacun empile sa propre matrice effective, deja
+		// composee par NkMatEffective -- le peintre n'emboite jamais deux
+		// niveaux du document. Aucune sortie anticipee entre Push et Pop.
+		// Un noeud droit n'empile RIEN : il emet exactement ce qu'il emettait,
+		// et un cadre d'agencement reste invisible (sonde 41c).
+		const NkMat2D mEff = NkMatEffective(doc, lay, node);
+		const bool empile = !mEff.Identite();
+		if (empile)
+			p.PushTransform(NkPaintTransformDe(mEff));
 
 		if (n.IsFrame()) {
 			// FORME ou CADRE ? Le PARENT le dit -- exactement comme pour la
@@ -1414,7 +1440,7 @@ namespace nkuidesign {
 			if (posee && node != host.editionNode)
 				// UNE SEULE COMPOSITION, LUE PAR LES DEUX CHEMINS : celle que le
 				// pointage utilise deja (`NkPointDansNoeud` -> `NkMatEffective`).
-				renderdetail::DrawShape(p, r, n, host, NkMatEffective(doc, lay, node));
+				renderdetail::DrawShape(p, r, n, host, NkMat2D{}); // le peintre transforme
 			else if (posee && host.editionEtiquette) {
 				// RENOMMAGE d'etiquette : le CORPS de l'artboard se dessine,
 				// seule l'etiquette se tait (le champ superpose la remplace).
@@ -1482,6 +1508,8 @@ namespace nkuidesign {
 			// Declare dans le registre, mais aucune fonction de dessin ici.
 			renderdetail::DrawPlaceholder(p, r, n.label.Data(), host);
 		}
+		if (empile)
+			p.PopTransform(); // avant les enfants : chacun empile la sienne
 
 		for (uint32 i = 0; i < (uint32)n.children.Size(); ++i)
 			NkDrawDocument(p, in, doc, lay, host, n.children[i]);

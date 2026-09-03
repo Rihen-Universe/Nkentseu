@@ -3238,6 +3238,8 @@ namespace nkuidesign {
 							if (!ParentLibre(i))
 								continue;
 							NkUINode &n = mSt->doc.nodes[(uint32)i];
+							if (n.refusPosition)
+								continue; // refus par axe « P » : il ne bouge pas
 							n.posX += dx;
 							n.posY += dy;
 							mSt->doc.MarkHumanEdit(i);
@@ -3463,17 +3465,18 @@ namespace nkuidesign {
 					if (NkPeutTourner(selRot)) {
 						const NkPaintRect rsRot = screen.At(mSt->selected);
 						const float32 trRot = NkTaillePoigneeRotation();
+						const NkMat2D mRotS = NkMatEffective(mSt->doc, screen, mSt->selected);
+						float32 mxR = ctx.input.mousePos.x, myR = ctx.input.mousePos.y;
+						NkMatPoint(NkMatInverse(mRotS), mxR, myR);
+						float32 ccxR = rsRot.x + rsRot.w * 0.5f, ccyR = rsRot.y + rsRot.h * 0.5f;
+						NkMatPoint(mRotS, ccxR, ccyR); // le centre, tel qu'il se voit
 						for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
 							const NkPaintRect pr = NkPoigneeRotation(rsRot, k, trRot);
-							if (!NkGuiRectContains({pr.x, pr.y, pr.w, pr.h},
-												   ctx.input.mousePos))
+							if (!NkGuiRectContains({pr.x, pr.y, pr.w, pr.h}, {mxR, myR}))
 								continue;
 							mRotDrag = (int32)k;
 							mRotBase = selRot.rotation;
-							mRotAngle0 = NkAngleDeg(rsRot.x + rsRot.w * 0.5f,
-													rsRot.y + rsRot.h * 0.5f,
-													ctx.input.mousePos.x,
-													ctx.input.mousePos.y);
+							mRotAngle0 = NkAngleDeg(ccxR, ccyR, ctx.input.mousePos.x, ctx.input.mousePos.y);
 							// LES DEUX REPRESENTATIONS DE L'ENTREE SE TAISENT.
 							// `in` est la COPIE que la toile lit ; `ctx.input`
 							// l'original que lisent les controles du kit. N'en
@@ -3520,12 +3523,14 @@ namespace nkuidesign {
 							const float32 d = v - cible;
 							return (d < 0.f ? -d : d) <= tol;
 						};
-						const bool dansX = in.mouseX >= rs2.x - kB && in.mouseX <= rs2.x + rs2.w + kB;
-						const bool dansY = in.mouseY >= rs2.y - kB && in.mouseY <= rs2.y + rs2.h + kB;
-						const bool nL = dansY && pres(in.mouseX, rs2.x, kB);
-						const bool nR = dansY && pres(in.mouseX, rs2.x + rs2.w, kB);
-						const bool nT = dansX && pres(in.mouseY, rs2.y, kB);
-						const bool nB = dansX && pres(in.mouseY, rs2.y + rs2.h, kB);
+						float32 mxC = in.mouseX, myC = in.mouseY; // dans le repere droit du noeud
+						NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, mSt->selected)), mxC, myC);
+						const bool dansX = mxC >= rs2.x - kB && mxC <= rs2.x + rs2.w + kB;
+						const bool dansY = myC >= rs2.y - kB && myC <= rs2.y + rs2.h + kB;
+						const bool nL = dansY && pres(mxC, rs2.x, kB);
+						const bool nR = dansY && pres(mxC, rs2.x + rs2.w, kB);
+						const bool nT = dansX && pres(myC, rs2.y, kB);
+						const bool nB = dansX && pres(myC, rs2.y + rs2.h, kB);
 						if (nL || nR || nT || nB) {
 							ArmerPoignees(mSt->selected, hs, in, nL, nR, nT, nB);
 							// LES DEUX REPRESENTATIONS DE L'ENTREE SE TAISENT.
@@ -4603,6 +4608,17 @@ namespace nkuidesign {
 					&& mSt->doc.nodes[(uint32)mSt->selected].parent >= 0) {
 					const NkPaintRect rs = screen.At(mSt->selected);
 					const uint16 accent = NkDesignResolveRole("accent_ui");
+					// ── LE CADRE DANS LE REPERE DE L'OBJET (Lunacy) ────────────────
+					// Le cadre, ses 8 poignees et ses 4 arcs se dessinent SOUS la
+					// matrice effective du noeud : ils tournent et s'etirent avec lui.
+					// Le pointage ramene la souris par l'inverse de la MEME matrice
+					// (mxS/myS) : ce qu'on voit est ce qu'on attrape.
+					const NkMat2D mSel = NkMatEffective(mSt->doc, screen, mSt->selected);
+					const bool tourne = !mSel.Identite();
+					float32 mxS = ctx.input.mousePos.x, myS = ctx.input.mousePos.y;
+					NkMatPoint(NkMatInverse(mSel), mxS, myS);
+					if (tourne)
+						paint.PushTransform(NkPaintTransformDe(mSel));
 					paint.OutlineSharp(rs, accent);
 					// LES POIGNEES DE LA PLANCHE 22.0 : huit carres — coins et
 					// milieux de bords — sur l'element selectionne (le bouton
@@ -4647,9 +4663,7 @@ namespace nkuidesign {
 							const float32 tr = NkTaillePoigneeRotation();
 							for (uint32 k = 0; k < NkNbPoigneesRotation(); ++k) {
 								const NkPaintRect pr = NkPoigneeRotation(rs, k, tr);
-								const bool sv = ctx.popupDepth == 0
-												&& NkGuiRectContains(
-													{pr.x, pr.y, pr.w, pr.h}, ctx.input.mousePos);
+								const bool sv = ctx.popupDepth == 0 && NkGuiRectContains({pr.x, pr.y, pr.w, pr.h}, {mxS, myS});
 								// 🔴 ELLES NE SE PEIGNENT PLUS AU REPOS, ET C'EST LE
 								//    RETOUR DE RODOLF DU 01/09 AU SOIR : « ça
 								//    n'épouse pas, regarde bien ». Agrandie ×5, sa
@@ -4755,10 +4769,9 @@ namespace nkuidesign {
 							}
 							// LE GESTE : l'angle sous la souris moins celui du depart.
 							if (mRotDrag >= 0 && ctx.input.mouseDown[0]) {
-								const float32 a = NkAngleDeg(rs.x + rs.w * 0.5f,
-															 rs.y + rs.h * 0.5f,
-															 ctx.input.mousePos.x,
-															 ctx.input.mousePos.y);
+								float32 ccxA = rs.x + rs.w * 0.5f, ccyA = rs.y + rs.h * 0.5f;
+								NkMatPoint(mSel, ccxA, ccyA);
+								const float32 a = NkAngleDeg(ccxA, ccyA, ctx.input.mousePos.x, ctx.input.mousePos.y);
 								NkUINode &m = mSt->doc.nodes[(uint32)mSt->selected];
 								const float32 brut = mRotBase + (a - mRotAngle0);
 								// Maj aimante a 15 degres (Lunacy), sinon au degre.
@@ -4781,6 +4794,13 @@ namespace nkuidesign {
 					// LE BADGE DE ROLE (Banani RoleBadge) : pilule 9 px au-dessus a
 					// gauche de la selection, en FRANCAIS sur la toile (la maquette
 					// ecrit « Bouton » sur la toile et « Button » dans l'arbre).
+					if (tourne)
+						paint.PopTransform(); // le badge et les puces restent droits
+					// LA PUCE D'ANGLE pendant la rotation (decision de Rodolf : oui),
+					// pres du curseur, comme Lunacy.
+					if (mRotDrag >= 0)
+						PuceAngle(paint, ctx.input.mousePos.x + 16.f, ctx.input.mousePos.y + 16.f,
+								  mSt->doc.nodes[(uint32)mSt->selected].rotation);
 					{
 						const NkUINode &sel = mSt->doc.nodes[(uint32)mSt->selected];
 						if (!sel.role.Empty()) {
@@ -5483,10 +5503,14 @@ namespace nkuidesign {
 						if (geste == NkGesteSel::Profond && mSt->doc.IsValidIndex(hit))
 							mForage = mSt->doc.nodes[(uint32)hit].parent;
 						const NkPaintRect r = screen.At(hit);
-						const bool nearRight = in.mouseX >= r.x + r.w - kHandle;
-						const bool nearBottom = in.mouseY >= r.y + r.h - kHandle;
-						const bool nearLeft = in.mouseX <= r.x + kHandle;
-						const bool nearTop = in.mouseY <= r.y + kHandle;
+						// le point souris ramene dans le repere DROIT du noeud : le
+						// pointage lit la meme matrice que le dessin
+						float32 mxO = in.mouseX, myO = in.mouseY;
+						NkMatPoint(NkMatInverse(NkMatEffective(mSt->doc, screen, hit)), mxO, myO);
+						const bool nearRight = mxO >= r.x + r.w - kHandle;
+						const bool nearBottom = myO >= r.y + r.h - kHandle;
+						const bool nearLeft = mxO <= r.x + kHandle;
+						const bool nearTop = myO <= r.y + kHandle;
 						NkUINode &hn = mSt->doc.nodes[(uint32)hit];
 						const bool pose =
 							hn.parent >= 0
@@ -5581,6 +5605,12 @@ namespace nkuidesign {
 					const float32 dy = mSt->view.ToDocLength(in.mouseY - mLastY);
 					if ((dx != 0.f || dy != 0.f) && mSt->doc.IsValidIndex(mMoveNode)) {
 						NkUINode &n = mSt->doc.nodes[(uint32)mMoveNode];
+						if (n.refusPosition) {
+							mSt->status = NkString("Position refusée sur ce nœud (refus par axe « P ») : "
+											   "il ne se déplace pas, ni avec ses parents.");
+							mMoving = false;
+							return;
+						}
 						mMoveLibreX += dx;
 						mMoveLibreY += dy;
 						// ── VAGUE 2 : `Maj` CONTRAINT LE DEPLACEMENT A UN AXE ──
@@ -5638,18 +5668,67 @@ namespace nkuidesign {
 					NkUINode &n = mSt->doc.nodes[(uint32)mDragNode];
 					const int32 bx = (mResizeEdges & 1u) ? -1 : ((mResizeEdges & 2u) ? 1 : 0);
 					const int32 by = (mResizeEdges & 4u) ? -1 : ((mResizeEdges & 8u) ? 1 : 0);
+					// ── LE DELTA DANS LE REPERE DE L'OBJET ─────────────────────────
+					// La souris bouge dans l'ecran ; la poignee vit dans le repere du
+					// noeud (tourne, mis a l'echelle, par lui et ses ancetres). Le
+					// delta passe par l'inverse de LA matrice que le dessin lit --
+					// prise a l'echelle de DEPART du geste, sinon elle glisserait
+					// sous le geste qui l'ecrit.
+					const float32 exCour = n.echelleX, eyCour = n.echelleY;
+					n.echelleX = mGesteSX0;
+					n.echelleY = mGesteSY0;
+					const NkMat2D mInv = NkMatInverse(NkMatEffective(mSt->doc, mSt->layout, mDragNode));
+					n.echelleX = exCour;
+					n.echelleY = eyCour;
+					const float32 odx = mInv.a * tdx + mInv.c * tdy;
+					const float32 ody = mInv.b * tdx + mInv.d * tdy;
 					float32 nl = 0.f, nh = 0.f, decX = 0.f, decY = 0.f;
-					NkRedimModifie(in.shift, in.alt, bx, by, mGesteL0, mGesteH0, tdx, tdy, nl, nh,
+					NkRedimModifie(in.shift, in.alt, bx, by, mGesteL0, mGesteH0, odx, ody, nl, nh,
 								   decX, decY);
-					const bool change = nl != n.width.value || nh != n.height.value
-										|| (mGestePosX + decX) != n.posX
-										|| (mGestePosY + decY) != n.posY;
-					n.width.value = nl;
-					n.height.value = nh;
-					n.posX = mGestePosX + decX;
-					n.posY = mGestePosY + decY;
-					if (change)
-						mSt->doc.MarkHumanEdit(mDragNode);
+					// Le decalage de position revient dans le repere du PARENT : la
+					// rotation et les miroirs propres du noeud, a l'echelle de depart.
+					NkTransfo trP = NkTransfoDe(n);
+					trP.sx = mGesteSX0;
+					trP.sy = mGesteSY0;
+					const NkMat2D rotP = NkMatDe(trP, 0.f, 0.f);
+					// ── L'ECHELLE PAR NATURE (regle de Rodolf, §15.13) ─────────────
+					// « Le redimensionnement descend dans l'arbre, et une feuille est
+					// la ou l'arbre s'arrete. » Un GROUPE (il a des enfants) ecrit son
+					// echelle : tous ses descendants changent de taille ET de position
+					// relative, texte compris, par la matrice. Une FEUILLE ecrit sa
+					// taille : rien d'autre ne bouge.
+					const bool groupe = !n.children.Empty();
+					if (groupe && n.refusEchelle) {
+						mSt->status = NkString("Échelle refusée sur ce groupe (refus par axe « E ») : "
+											   "la poignée ne l'agrandit pas.");
+					} else if (groupe) {
+						const float32 sx = mGesteL0 > 0.f ? NkEchelleSaine(mGesteSX0 * nl / mGesteL0) : mGesteSX0;
+						const float32 sy = mGesteH0 > 0.f ? NkEchelleSaine(mGesteSY0 * nh / mGesteH0) : mGesteSY0;
+						// le centre visible se decale de (dec + moitie de la croissance),
+						// en unites declarees ; rotP porte l'echelle de depart
+						const float32 cxO = decX + (nl - mGesteL0) * 0.5f;
+						const float32 cyO = decY + (nh - mGesteH0) * 0.5f;
+						const float32 px = mGestePosX + rotP.a * cxO + rotP.c * cyO;
+						const float32 py = mGestePosY + rotP.b * cxO + rotP.d * cyO;
+						const bool change = sx != n.echelleX || sy != n.echelleY || px != n.posX || py != n.posY;
+						n.echelleX = sx;
+						n.echelleY = sy;
+						n.posX = px;
+						n.posY = py;
+						if (change)
+							mSt->doc.MarkHumanEdit(mDragNode);
+					} else {
+						const float32 px = mGestePosX + rotP.a * decX + rotP.c * decY;
+						const float32 py = mGestePosY + rotP.b * decX + rotP.d * decY;
+						const bool change = nl != n.width.value || nh != n.height.value || px != n.posX
+											|| py != n.posY;
+						n.width.value = nl;
+						n.height.value = nh;
+						n.posX = px;
+						n.posY = py;
+						if (change)
+							mSt->doc.MarkHumanEdit(mDragNode);
+					}
 				} else if (mDragging && in.mouseDown) {
 					// ⚠️ ICI, ET NULLE PART AILLEURS : le glissement arrive en pixels
 					//    ECRAN et va ecrire une TAILLE, qui est une longueur
@@ -5783,6 +5862,8 @@ namespace nkuidesign {
 				mGestePosY = hn.posY;
 				mGesteL0 = hn.width.value;
 				mGesteH0 = hn.height.value;
+				mGesteSX0 = hn.echelleX;
+				mGesteSY0 = hn.echelleY;
 			}
 
 			static bool DansZone(const NkRect &z, const NkComponentInput &in) {
@@ -5868,6 +5949,8 @@ namespace nkuidesign {
 			///    saisi. On applique un ÉCART, pas une valeur absolue — l'objet
 			///    part de là où il est.
 			int32 mRotDrag = -1;
+			float32 mGesteSX0 = 1.f; ///< echelle du noeud au depart du geste de poignee
+			float32 mGesteSY0 = 1.f;
 			float32 mRotBase = 0.f;
 			float32 mRotAngle0 = 0.f;
 			/// Le noeud SOUS LE CURSEUR (pre-selection), -1 si aucun. Pose a
@@ -6730,6 +6813,16 @@ namespace nkuidesign {
 				paint.Fill(pb, accent, 4.f);
 				paint.TextHex(pb, t, 0xFFFFFFFFu, accent, editorkit::NkTextAlign::Center,
 							  costume::CorpsMaquette(9.f), 600.f);
+			}
+			/// La puce d'ANGLE (Lunacy) : « 18.6° » pres du curseur pendant la rotation.
+			void PuceAngle(NkDesignPaint &paint, float32 x, float32 y, float32 deg) {
+				char t[32];
+				snprintf(t, sizeof(t), "%.1f°", (double)deg);
+				const float32 tw = paint.TextWidth(t) + 12.f;
+				const NkPaintRect pr{x, y, tw, 18.f};
+				paint.Fill(pr, NkDesignResolveRole("accent_ui"), 4.f);
+				paint.Text(pr, t, NkDesignResolveRole("text_on_accent"),
+						   nkentseu::editorkit::NkTextAlign::Center);
 			}
 			void PuceTaille(NkDesignPaint &paint, const NkPaintRect &rs, float32 w, float32 h) {
 				char t[48];
@@ -8777,6 +8870,17 @@ namespace nkuidesign {
 					t.label = d.label.Empty() ? NkString(d.component.Empty() ? "(cadre)"
 																			: d.component.Data())
 											  : d.label;
+					// LA MARQUE DU REFUS PAR AXE, visible dans l'arbre
+					if (d.refusPosition || d.refusRotation || d.refusEchelle) {
+						t.label.Append(" [refus");
+						if (d.refusPosition)
+							t.label.Append(" P");
+						if (d.refusRotation)
+							t.label.Append(" R");
+						if (d.refusEchelle)
+							t.label.Append(" E");
+						t.label.Append("]");
+					}
 					t.path = t.label;
 					// COSTUME BANANI : `kindLabel` porte le NOM DU RÔLE du nœud —
 					// c'est lui que la pilule affiche (vide = pas de pilule).
@@ -12667,6 +12771,80 @@ namespace nkuidesign {
 										 (k == 0 ? n->miroirH : n->miroirV) ? "activé"
 																			: "désactivé");
 								mSt->status = NkString(msg);
+							}
+						}
+					}
+					// ── L'ECHELLE, PORTEE PAR LE NOEUD (X, Y) ───────────────────────
+					{
+						const bool peutE = !n->refusEchelle;
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						if (!peutE)
+							ctx.BeginDisabled();
+						costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), "Échelle",
+									   ctx.theme.textMuted);
+						const float32 xc = x0 + ColChampsCalc(r.w - 24.f);
+						const NkRect rx = {xc, costume::BandeY(r.y), 48.f, costume::HControle};
+						const NkRect ry = {xc + 48.f + (float32)costume::EspSerre, costume::BandeY(r.y), 48.f,
+										   costume::HControle};
+						if (peutE) {
+							ChampNombreMulti(
+								ctx, "insp.app.echelle_x", rx, 0.05f, 0.001f, 1000.f,
+								[](const NkUINode &q) { return q.echelleX; },
+								[](NkUINode &q, float32 v) { q.echelleX = NkEchelleSaine(v); });
+							ChampNombreMulti(
+								ctx, "insp.app.echelle_y", ry, 0.05f, 0.001f, 1000.f,
+								[](const NkUINode &q) { return q.echelleY; },
+								[](NkUINode &q, float32 v) { q.echelleY = NkEchelleSaine(v); });
+						} else {
+							dl.AddRectFilled(rx, CouleurInput(), 4.f);
+							dl.AddRect(rx, ctx.theme.border, 1.f, 4.f);
+							dl.AddRectFilled(ry, CouleurInput(), 4.f);
+							dl.AddRect(ry, ctx.theme.border, 1.f, 4.f);
+						}
+						costume::Texte(dl, F.px9, ry.x + ry.w + 4.f, costume::CentrerBande(F.px9, r.y), "×",
+									   ctx.theme.textMuted);
+						if (!peutE) {
+							ctx.EndDisabled();
+							if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos))
+								mSt->status = NkString("Échelle refusée sur ce nœud (refus par axe « E »).");
+						} else if (ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos)) {
+							mSt->status = NkString(
+								"Échelle du nœud — descend dans tout ce qu'il contient, texte compris ; "
+								"la poignée d'un groupe l'écrit, celle d'une feuille écrit sa taille.");
+						}
+					}
+					// ── LE REFUS PAR AXE : P (position), R (rotation), E (echelle) ──
+					{
+						const NkRect r = ctx.NextItemRect(-1.f, 26.f);
+						const float32 x0 = r.x + 12.f;
+						costume::Texte(dl, F.px10, x0, costume::CentrerBande(F.px10, r.y), "Refus",
+									   ctx.theme.textMuted);
+						for (uint32 k = 0; k < 3; ++k) {
+							bool &champ = (k == 0) ? n->refusPosition : (k == 1) ? n->refusRotation : n->refusEchelle;
+							const bool actif = champ;
+							const char *lib = (k == 0) ? "P" : (k == 1) ? "R" : "E";
+							const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f)
+											   + (float32)k * (22.f + (float32)costume::EspSerre),
+										   costume::BandeY(r.y), 22.f, costume::HControle};
+							const bool sv = ctx.popupDepth == 0 && NkGuiRectContains(rb, ctx.input.mousePos);
+							dl.AddRectFilled(rb, actif ? ctx.theme.accent : CouleurInput(), 4.f);
+							dl.AddRect(rb, sv ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
+							costume::Texte(dl, F.px10, rb.x + (22.f - costume::Largeur(F.px10, lib)) * 0.5f,
+										   costume::CentrerY(F.px10, rb.y, 20.f), lib,
+										   actif ? ctx.theme.panel : ctx.theme.text);
+							if (sv && ctx.input.mouseClicked[0]) {
+								champ = !champ;
+								mSt->doc.MarkHumanEdit(mSt->selected);
+								char msg[160];
+								snprintf(msg, sizeof(msg), "Refus de %s : %s — ni des parents, ni le sien.",
+										 k == 0 ? "position" : k == 1 ? "rotation" : "l'échelle",
+										 champ ? "activé" : "levé");
+								mSt->status = NkString(msg);
+							} else if (sv) {
+								mSt->status = NkString(
+									"Refus par axe : cet enfant ne subit pas cet axe, ni de ses parents ni de "
+									"lui-même ; le pointage suit, la hiérarchie le marque.");
 							}
 						}
 					}

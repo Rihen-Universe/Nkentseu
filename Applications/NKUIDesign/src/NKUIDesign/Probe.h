@@ -3253,6 +3253,357 @@ namespace nkuidesign {
 		}
 
 		char tail[128];
+		// ── 45. LA TRANSFORMEE ENTIERE, VUE PAR LE PEINTRE ENREGISTREUR ─────
+		// Le document empile sa matrice effective (rotation, miroirs, ECHELLE,
+		// ancetres compris) dans le peintre ; tout ce qu'un noeud dessine --
+		// forme, composant, TEXTE -- passe dessous. C'est ici que le texte tourne
+		// se prouve sans fenetre : un `Text` emis entre un Push non identite et
+		// son Pop.
+		{
+			NkUIDocument dT;
+			dT.NewDocument("Toile", NkAuthor::Humain);
+			dT.nodes[0].layout.kind = NkLayoutKind::Free;
+			dT.SetMetric("espacement", 0.f);
+			dT.SetMetric("marge", 0.f);
+			const int32 grp = dT.AddChild(0, "", NkAuthor::Humain);
+			dT.nodes[(uint32)grp].shape = NkString("rect");
+			dT.nodes[(uint32)grp].layout.kind = NkLayoutKind::Free;
+			dT.nodes[(uint32)grp].posX = 100.f;
+			dT.nodes[(uint32)grp].posY = 100.f;
+			dT.nodes[(uint32)grp].width.mode = NkSizeMode::Fixed;
+			dT.nodes[(uint32)grp].width.value = 200.f;
+			dT.nodes[(uint32)grp].height.mode = NkSizeMode::Fixed;
+			dT.nodes[(uint32)grp].height.value = 150.f;
+			// comme chez Rodolf : `Bouton_Connexion` (rect) porte « Texte du bouton »
+			// (forme `text`, « Se connecter »)
+			const int32 bouton = dT.AddChild(grp, "", NkAuthor::Humain);
+			dT.nodes[(uint32)bouton].shape = NkString("text");
+			dT.nodes[(uint32)bouton].text = NkString("Se connecter");
+			dT.nodes[(uint32)bouton].posX = 10.f;
+			dT.nodes[(uint32)bouton].posY = 10.f;
+			dT.nodes[(uint32)bouton].width.mode = NkSizeMode::Fixed;
+			dT.nodes[(uint32)bouton].width.value = 120.f;
+			dT.nodes[(uint32)bouton].height.mode = NkSizeMode::Fixed;
+			dT.nodes[(uint32)bouton].height.value = 40.f;
+			NkPaintRect surfT;
+			surfT.x = 0.f;
+			surfT.y = 0.f;
+			surfT.w = 800.f;
+			surfT.h = 600.f;
+			char det[320];
+			// 45a. Droit : AUCUNE matrice empilee -- le dessin d'avant, a l'octet.
+			NkRecordingPaint droit;
+			RenderDocument(droit, dT, surfT);
+			uint32 pushDroit = 0u, texteDroit = 0u;
+			for (uint32 i = 0; i < (uint32)droit.cmds.Size(); ++i) {
+				if (droit.cmds[i].op == NkPaintOp::PushTransform)
+					++pushDroit;
+				if (droit.cmds[i].op == NkPaintOp::Text)
+					++texteDroit;
+			}
+			snprintf(det, sizeof(det), "%u Push, %u Text sur %u commande(s)", pushDroit, texteDroit,
+					 (uint32)droit.cmds.Size());
+			check("45a. un document DROIT n empile AUCUNE matrice : il emet ce qu il emettait "
+				  "(et son texte est bien la)",
+				  pushDroit == 0u && texteDroit > 0u, det);
+			// 45b. Tourne de 30 degres ET double en largeur : la matrice empilee
+			// est celle de NkMatDe -- a = cos*sx, b = sin*sx, c = -sin, d = cos.
+			dT.nodes[(uint32)grp].rotation = 30.f;
+			dT.nodes[(uint32)grp].echelleX = 2.f;
+			NkRecordingPaint rec;
+			RenderDocument(rec, dT, surfT);
+			uint32 nPush = 0u, nPop = 0u, texteSous = 0u, profondeur = 0u, pushMax = 0u;
+			bool matriceJuste = false, enfantHerite = false;
+			float32 a0 = 0.f, b0 = 0.f, c0 = 0.f, d0 = 0.f, e0 = 0.f, f0 = 0.f;
+			for (uint32 i = 0; i < (uint32)rec.cmds.Size(); ++i) {
+				const NkPaintCmd &c = rec.cmds[i];
+				if (c.op == NkPaintOp::PushTransform) {
+					++nPush;
+					++profondeur;
+					if (profondeur > pushMax)
+						pushMax = profondeur;
+					const float32 co = 0.8660254f, si = 0.5f;
+					const bool juste = c.x > 2.f * co - 0.01f && c.x < 2.f * co + 0.01f
+									   && c.y > 2.f * si - 0.01f && c.y < 2.f * si + 0.01f
+									   && c.w > -si - 0.01f && c.w < -si + 0.01f
+									   && c.h > co - 0.01f && c.h < co + 0.01f;
+					if (nPush == 1u) {
+						matriceJuste = juste;
+						a0 = c.x; b0 = c.y; c0 = c.w; d0 = c.h; e0 = c.rounding; f0 = c.tf;
+					} else if (nPush == 2u) {
+						// l'enfant droit sous un parent tourne : SA matrice effective est
+						// celle du parent, translation comprise (composee, pas recopiee)
+						enfantHerite = juste && c.rounding > e0 - 0.01f && c.rounding < e0 + 0.01f
+									   && c.tf > f0 - 0.01f && c.tf < f0 + 0.01f;
+					}
+				} else if (c.op == NkPaintOp::PopTransform) {
+					++nPop;
+					if (profondeur > 0u)
+						--profondeur;
+				} else if (c.op == NkPaintOp::Text && profondeur > 0u)
+					++texteSous;
+			}
+			(void)a0; (void)b0; (void)c0; (void)d0;
+			snprintf(det, sizeof(det),
+					 "%u Push / %u Pop, profondeur max %u, 1re matrice juste=%d (a=%.3f b=%.3f "
+					 "c=%.3f d=%.3f), enfant herite=%d, Text SOUS matrice=%u",
+					 nPush, nPop, pushMax, matriceJuste ? 1 : 0, a0, b0, c0, d0, enfantHerite ? 1 : 0,
+					 texteSous);
+			check("45b. tourne de 30 degres et double en largeur, le groupe empile LA matrice "
+				  "de NkMatDe (rotation x echelle), equilibree Push/Pop, jamais emboitee : chaque "
+				  "noeud empile SA matrice effective avant ses enfants",
+				  nPush >= 2u && nPush == nPop && pushMax == 1u && matriceJuste, det);
+			check("45c. l enfant DROIT d un parent tourne herite la matrice du parent, "
+				  "translation comprise -- composee par NkMatEffective, pas recopiee",
+				  enfantHerite, det);
+			check("45d. LE TEXTE TOURNE : le `Text` du bouton est emis SOUS une matrice non "
+				  "identite -- c est le peintre enregistreur qui le prouve, sans fenetre",
+				  texteSous > 0u, det);
+			// 45e. Le format : additif, aller-retour, et une echelle nulle est bornee.
+			NkString avec;
+			dT.Save(avec);
+			NkUIDocument relu;
+			const bool chargee = relu.Load(avec.Data());
+			const bool relue = chargee && relu.IsValidIndex(grp)
+							   && relu.nodes[(uint32)grp].echelleX > 1.99f
+							   && relu.nodes[(uint32)grp].echelleX < 2.01f
+							   && relu.nodes[(uint32)grp].echelleY == 1.f;
+			dT.nodes[(uint32)grp].echelleX = 1.f;
+			NkString sans;
+			dT.Save(sans);
+			const bool additif = strstr(avec.Data(), "echelle_x = 2") != nullptr
+								 && strstr(avec.Data(), "echelle_y") == nullptr
+								 && strstr(sans.Data(), "echelle_") == nullptr;
+			const bool bornee = NkEchelleSaine(0.f) == 0.001f && NkEchelleSaine(-0.f) == 0.001f
+								&& NkEchelleSaine(-3.f) == -3.f && NkEchelleSaine(1e9f) == 1000.f;
+			snprintf(det, sizeof(det), "relue=%d additif=%d bornee=%d", relue ? 1 : 0,
+					 additif ? 1 : 0, bornee ? 1 : 0);
+			check("45e. `echelle_x` / `echelle_y` : additives (absentes a 1), relues a l "
+				  "identique, et une echelle nulle est bornee loin de zero (la matrice reste "
+				  "inversible : le pointage vit)",
+				  relue && additif && bornee, det);
+		}
+		// ── 46. L'ECHELLE PAR NATURE : « le redimensionnement descend dans l'arbre,
+		//     et une feuille est la ou l'arbre s'arrete » (Rodolf). Le banc du
+		//     coordinateur : Graphique et ses 11 barres.
+		{
+			NkUIDocument dG;
+			dG.NewDocument("Toile", NkAuthor::Humain);
+			dG.nodes[0].layout.kind = NkLayoutKind::Free;
+			dG.SetMetric("espacement", 0.f);
+			dG.SetMetric("marge", 0.f);
+			const int32 graphique = dG.AddChild(0, "", NkAuthor::Humain);
+			dG.nodes[(uint32)graphique].shape = NkString("rect");
+			dG.nodes[(uint32)graphique].label = NkString("Graphique");
+			dG.nodes[(uint32)graphique].layout.kind = NkLayoutKind::Free;
+			dG.nodes[(uint32)graphique].posX = 100.f;
+			dG.nodes[(uint32)graphique].posY = 100.f;
+			dG.nodes[(uint32)graphique].width.mode = NkSizeMode::Fixed;
+			dG.nodes[(uint32)graphique].width.value = 220.f;
+			dG.nodes[(uint32)graphique].height.mode = NkSizeMode::Fixed;
+			dG.nodes[(uint32)graphique].height.value = 100.f;
+			int32 barres[11];
+			for (int32 b = 0; b < 11; ++b) {
+				barres[b] = dG.AddChild(graphique, "", NkAuthor::Humain);
+				NkUINode &nb = dG.nodes[(uint32)barres[b]];
+				nb.shape = NkString("rect");
+				nb.posX = 10.f + 20.f * (float32)b;
+				nb.posY = 20.f;
+				nb.width.mode = NkSizeMode::Fixed;
+				nb.width.value = 12.f;
+				nb.height.mode = NkSizeMode::Fixed;
+				nb.height.value = 60.f;
+			}
+			NkPaintRect surfG;
+			surfG.x = 0.f;
+			surfG.y = 0.f;
+			surfG.w = 800.f;
+			surfG.h = 600.f;
+			NkLayoutResult layG;
+			NkComputeLayout(dG, surfG, layG);
+			// la boite VISIBLE d'une barre : son rectangle de mise en page passe par
+			// la matrice effective (celle que le peintre et le pointage lisent)
+			auto visible = [&](int32 i, float32 &cx, float32 &largeur) {
+				const NkPaintRect r = layG.At(i);
+				float32 xy[8] = {r.x, r.y, r.x + r.w, r.y, r.x + r.w, r.y + r.h, r.x, r.y + r.h};
+				NkMatContour(NkMatEffective(dG, layG, i), xy, 4);
+				cx = (xy[0] + xy[2]) * 0.5f;
+				largeur = xy[2] - xy[0];
+			};
+			float32 c0[11], l0[11];
+			for (int32 b = 0; b < 11; ++b)
+				visible(barres[b], c0[b], l0[b]);
+			// 46a. le GROUPE double en largeur (ce que la poignee ecrit sur un groupe)
+			dG.nodes[(uint32)graphique].echelleX = 2.f;
+			uint32 taillesChangees = 0u, ecartsChanges = 0u;
+			float32 c1[11], l1[11];
+			for (int32 b = 0; b < 11; ++b) {
+				visible(barres[b], c1[b], l1[b]);
+				if (l1[b] > l0[b] * 1.99f && l1[b] < l0[b] * 2.01f)
+					++taillesChangees;
+				if (b > 0) {
+					const float32 e0 = c0[b] - c0[b - 1], e1 = c1[b] - c1[b - 1];
+					if (e1 > e0 * 1.99f && e1 < e0 * 2.01f)
+						++ecartsChanges;
+				}
+			}
+			char det[256];
+			snprintf(det, sizeof(det), "%u/11 barres deux fois plus larges, %u/10 ecarts doubles "
+										"(barre 0 : %.0f -> %.0f de large, centre %.0f -> %.0f)",
+					 taillesChangees, ecartsChanges, l0[0], l1[0], c0[0], c1[0]);
+			check("46a. redimensionner GRAPHIQUE (son echelle) change la TAILLE et la POSITION "
+				  "relative de ses 11 barres, par la matrice -- rien n'est recopie sur elles",
+				  taillesChangees == 11u && ecartsChanges == 10u, det);
+			// 46b. une FEUILLE se redimensionne seule : la barre 3 double, les autres ne bougent pas
+			dG.nodes[(uint32)graphique].echelleX = 1.f;
+			dG.nodes[(uint32)barres[3]].width.value = 24.f;
+			NkComputeLayout(dG, surfG, layG);
+			uint32 immobiles = 0u;
+			float32 c3 = 0.f, l3 = 0.f;
+			for (int32 b = 0; b < 11; ++b) {
+				float32 cx = 0.f, lg = 0.f;
+				visible(barres[b], cx, lg);
+				if (b == 3) {
+					c3 = cx;
+					l3 = lg;
+				} else if (cx == c0[b] && lg == l0[b])
+					++immobiles;
+			}
+			snprintf(det, sizeof(det), "barre 3 : %.0f de large (centre %.0f) ; %u/10 autres immobiles", l3, c3,
+					 immobiles);
+			check("46b. redimensionner UNE barre (feuille) ne bouge aucune autre : l'arbre s'arrete a la feuille",
+				  l3 == 24.f && immobiles == 10u, det);
+			// 46c. le fichier : `echelle_x = 2` sur le groupe seulement, rien sur les barres
+			dG.nodes[(uint32)graphique].echelleX = 2.f;
+			NkString sG;
+			dG.Save(sG);
+			uint32 nEch = 0u;
+			for (const char *q = sG.Data(); (q = strstr(q, "echelle_x")) != nullptr; ++q)
+				++nEch;
+			snprintf(det, sizeof(det), "%u cle(s) echelle_x dans le fichier", nEch);
+			check("46c. le facteur est PORTE PAR LE GROUPE : une seule cle dans le fichier, les barres n'en ont pas",
+				  nEch == 1u, det);
+		}
+		// ── 47. LE REFUS PAR AXE, dans LA matrice : dessin et pointage lisent la meme
+		{
+			NkUIDocument dR;
+			dR.NewDocument("Toile", NkAuthor::Humain);
+			dR.nodes[0].layout.kind = NkLayoutKind::Free;
+			dR.SetMetric("espacement", 0.f);
+			dR.SetMetric("marge", 0.f);
+			const int32 grp = dR.AddChild(0, "", NkAuthor::Humain);
+			dR.nodes[(uint32)grp].shape = NkString("rect");
+			dR.nodes[(uint32)grp].layout.kind = NkLayoutKind::Free;
+			dR.nodes[(uint32)grp].posX = 100.f;
+			dR.nodes[(uint32)grp].posY = 100.f;
+			dR.nodes[(uint32)grp].width.mode = NkSizeMode::Fixed;
+			dR.nodes[(uint32)grp].width.value = 200.f;
+			dR.nodes[(uint32)grp].height.mode = NkSizeMode::Fixed;
+			dR.nodes[(uint32)grp].height.value = 100.f;
+			dR.nodes[(uint32)grp].rotation = 30.f;
+			dR.nodes[(uint32)grp].echelleX = 2.f;
+			int32 enf[4];
+			for (int32 e = 0; e < 4; ++e) {
+				enf[e] = dR.AddChild(grp, "", NkAuthor::Humain);
+				NkUINode &ne = dR.nodes[(uint32)enf[e]];
+				ne.shape = NkString("text");
+				ne.text = NkString("Etiquette");
+				ne.posX = 10.f + 40.f * (float32)e;
+				ne.posY = 10.f;
+				ne.width.mode = NkSizeMode::Fixed;
+				ne.width.value = 30.f;
+				ne.height.mode = NkSizeMode::Fixed;
+				ne.height.value = 16.f;
+			}
+			dR.nodes[(uint32)enf[1]].refusRotation = true;
+			dR.nodes[(uint32)enf[2]].refusEchelle = true;
+			dR.nodes[(uint32)enf[3]].refusPosition = true;
+			NkPaintRect surfR;
+			surfR.x = 0.f;
+			surfR.y = 0.f;
+			surfR.w = 800.f;
+			surfR.h = 600.f;
+			NkLayoutResult layR;
+			NkComputeLayout(dR, surfR, layR);
+			const NkMat2D m0 = NkMatEffective(dR, layR, enf[0]);
+			const NkMat2D m1 = NkMatEffective(dR, layR, enf[1]);
+			const NkMat2D m2 = NkMatEffective(dR, layR, enf[2]);
+			const NkMat2D m3 = NkMatEffective(dR, layR, enf[3]);
+			const float32 co = 0.8660254f, si = 0.5f;
+			// enfant 0 : subit tout (a = 2cos, b = 2sin, c = -sin, d = cos)
+			const bool toutSubi = m0.a > 2.f * co - 0.01f && m0.a < 2.f * co + 0.01f && m0.b > 2.f * si - 0.01f
+								  && m0.b < 2.f * si + 0.01f;
+			// enfant 1 : refuse la rotation -> garde l'echelle du parent, sans rotation (a = 2, b = 0, d = 1)
+			const bool sansRotation = m1.a > 1.99f && m1.a < 2.01f && m1.b > -0.001f && m1.b < 0.001f
+									  && m1.d > 0.999f && m1.d < 1.001f;
+			// enfant 2 : refuse l'echelle -> tourne, mais a = cos (pas 2cos)
+			const bool sansEchelle = m2.a > co - 0.01f && m2.a < co + 0.01f && m2.b > si - 0.01f && m2.b < si + 0.01f;
+			// enfant 3 : refuse la position -> son centre reste celui de la mise en page
+			const NkPaintRect r3 = layR.At(enf[3]);
+			float32 x3 = r3.x + r3.w * 0.5f, y3 = r3.y + r3.h * 0.5f;
+			const float32 cx3 = x3, cy3 = y3;
+			NkMatPoint(m3, x3, y3);
+			const bool centreTenu = x3 > cx3 - 0.01f && x3 < cx3 + 0.01f && y3 > cy3 - 0.01f && y3 < cy3 + 0.01f;
+			// et l'enfant 0, lui, a bien bouge avec le parent
+			const NkPaintRect r0 = layR.At(enf[0]);
+			float32 x0 = r0.x + r0.w * 0.5f, y0 = r0.y + r0.h * 0.5f;
+			const float32 cx0 = x0;
+			NkMatPoint(m0, x0, y0);
+			const bool bouge0 = x0 < cx0 - 1.f || x0 > cx0 + 1.f;
+			char det[300];
+			snprintf(det, sizeof(det),
+					 "enfant 0 subit tout=%d (a=%.2f b=%.2f) ; refus R : a=%.2f b=%.2f d=%.2f (=%d) ; refus E : "
+					 "a=%.2f b=%.2f (=%d) ; refus P : centre (%.0f,%.0f)->(%.0f,%.0f) tenu=%d, enfant 0 bouge=%d",
+					 toutSubi ? 1 : 0, m0.a, m0.b, m1.a, m1.b, m1.d, sansRotation ? 1 : 0, m2.a, m2.b,
+					 sansEchelle ? 1 : 0, cx3, cy3, x3, y3, centreTenu ? 1 : 0, bouge0 ? 1 : 0);
+			check("47a. LE REFUS PAR AXE est dans la matrice effective : R garde l'echelle sans la rotation, "
+				  "E tourne sans l'echelle, P tient son centre -- et le frere qui ne refuse rien subit tout",
+				  toutSubi && sansRotation && sansEchelle && centreTenu && bouge0, det);
+			// 47b. le POINTAGE lit la meme matrice : le centre visible de l'enfant 0 (deplace) est
+			// dedans ; son centre de mise en page (d'ou il est parti) n'y est plus
+			const bool dedansVisible = NkPointDansNoeud(dR, layR, enf[0], x0, y0);
+			const bool partiDeLa = !NkPointDansNoeud(dR, layR, enf[0], cx0, r0.y + r0.h * 0.5f);
+			// et l'enfant 3 (refus P) s'attrape la ou il est reste
+			const bool attrapeSurPlace = NkPointDansNoeud(dR, layR, enf[3], cx3, cy3);
+			snprintf(det, sizeof(det), "enfant 0 : dedans la ou il se voit=%d, plus la d'ou il est parti=%d ; "
+										"enfant 3 (refus P) attrape sur place=%d",
+					 dedansVisible ? 1 : 0, partiDeLa ? 1 : 0, attrapeSurPlace ? 1 : 0);
+			check("47b. le POINTAGE honore les refus sans second code : il lit la matrice du dessin",
+				  dedansVisible && partiDeLa && attrapeSurPlace, det);
+			// 47c. le peintre enregistreur : l'enfant qui refuse la rotation est emis SOUS une
+			// matrice sans rotation (b = 0), le frere sous une matrice tournee
+			NkRecordingPaint recR;
+			RenderDocument(recR, dR, surfR);
+			uint32 pushTournes = 0u, pushDroits = 0u;
+			for (uint32 i = 0; i < (uint32)recR.cmds.Size(); ++i) {
+				const NkPaintCmd &c = recR.cmds[i];
+				if (c.op != NkPaintOp::PushTransform)
+					continue;
+				if (c.y > -0.001f && c.y < 0.001f)
+					++pushDroits;
+				else
+					++pushTournes;
+			}
+			snprintf(det, sizeof(det), "%u matrice(s) tournee(s), %u droite(s) (le refus R, echelle 2 sans rotation)",
+					 pushTournes, pushDroits);
+			check("47c. a l'ecran (peintre enregistreur) : le refus R dessine droit sous un parent tourne, "
+				  "ses freres tournent",
+				  pushTournes >= 3u && pushDroits == 1u, det);
+			// 47d. le format : trois cles additives, relues
+			NkString sR;
+			dR.Save(sR);
+			NkUIDocument reluR;
+			const bool chargeeR = reluR.Load(sR.Data());
+			const bool relusR = chargeeR && reluR.IsValidIndex(enf[3]) && reluR.nodes[(uint32)enf[1]].refusRotation
+								&& reluR.nodes[(uint32)enf[2]].refusEchelle && reluR.nodes[(uint32)enf[3]].refusPosition
+								&& !reluR.nodes[(uint32)enf[0]].refusRotation;
+			const bool additifsR = strstr(sR.Data(), "refus_rotation = 1") != nullptr
+								   && strstr(sR.Data(), "refus_echelle = 1") != nullptr
+								   && strstr(sR.Data(), "refus_position = 1") != nullptr;
+			snprintf(det, sizeof(det), "relus=%d additifs=%d", relusR ? 1 : 0, additifsR ? 1 : 0);
+			check("47d. `refus_position` / `refus_rotation` / `refus_echelle` : additives, relues a l'identique",
+				  relusR && additifsR, det);
+		}
 		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
