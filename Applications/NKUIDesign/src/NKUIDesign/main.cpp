@@ -1744,6 +1744,89 @@ static nkentseu::int32 RecetteGestes() {
 				det);
 	}
 
+	// ── LE CATALOGUE : CHAQUE ENTREE DU REGISTRE SE POSE ET SE DESSINE ──────
+	// 🔑 LE SEUL CONTROLE QUI PASSE A L'ECHELLE. Eprouver trois echantillons
+	//    dirait que trois marchent ; ce cas parcourt TOUT le registre et exige de
+	//    chaque entree qu'elle (a) s'instancie sans refus et (b) **emette des
+	//    commandes de peintre**. Le jour ou quelqu'un declare un composant sans
+	//    le dessiner, c'est ici que ca tombe -- pas dans la palette de Rodolf.
+	//
+	// ⚠️ (b) EST LE VOLET QUI COMPTE. Une declaration seule passe (a) sans
+	//    broncher : le registre ne sait pas dessiner. C'est le peintre qui
+	//    distingue un composant d'une promesse -- et `DrawPlaceholder` emettant
+	//    lui aussi des commandes, on exige EN PLUS que le nom ne soit pas rendu
+	//    par le repli. *Un banc qui compte les commandes sans regarder QUI les
+	//    emet validerait 106 rectangles gris.*
+	{
+		// LE BANC APPELLE LA MEME PORTE QUE LA FENETRE -- pas une copie.
+		DesignState::PeuplerRegistre();
+		const uint16 nReg = NkComponentRegistry::Count();
+		uint32 poses = 0, dessines = 0, reserves = 0;
+		char premierRate[64] = {0};
+		for (uint16 ci = 0; ci < nReg; ++ci) {
+			const NkComponentDecl *dcl = NkComponentRegistry::At(ci);
+			if (!dcl || !dcl->name || !dcl->name[0])
+				continue;
+			NkUIDocument d;
+			d.NewDocument("catalogue", NkAuthor::Humain);
+			const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+			d.nodes[(uint32)pg].shape = NkString("frame");
+			d.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+			d.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)pg].width.value = 300.f;
+			d.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)pg].height.value = 200.f;
+			const int32 cn = d.AddChild(pg, "", NkAuthor::Humain);
+			if (cn < 0)
+				continue;
+			// POSER : c'est le geste de la palette, reduit a son effet.
+			d.nodes[(uint32)cn].component = NkString(dcl->name);
+			d.nodes[(uint32)cn].text = NkString("Essai");
+			d.nodes[(uint32)cn].width.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)cn].width.value = 160.f;
+			d.nodes[(uint32)cn].height.mode = NkSizeMode::Fixed;
+			d.nodes[(uint32)cn].height.value = 32.f;
+			++poses;
+			NkLayoutResult lay;
+			NkComputeLayout(d, NkPaintRect{0.f, 0.f, 300.f, 200.f}, lay);
+			NkComponentInput in;
+			nkentseu::editorkit::NkRecordingPaint pv;
+			NkDocumentHost hote;
+			hote.SyncTo(d);
+			pv.Reset();
+			NkDrawDocument(pv, in, d, lay, hote, 0);
+			// LE RESERVE SE RECONNAIT A SA PHRASE : `DrawPlaceholder` ecrit
+			// « declare, dessin non branche ». On la cherche dans le flux.
+			bool estReserve = false;
+			uint32 cmds = 0;
+			for (uint32 k = 0; k < (uint32)pv.cmds.Size(); ++k) {
+				++cmds;
+				const char *txt = pv.cmds[k].text.Data();
+				if (txt && strstr(txt, "dessin non branche"))
+					estReserve = true;
+			}
+			if (estReserve) {
+				++reserves;
+				if (!premierRate[0])
+					snprintf(premierRate, sizeof(premierRate), "%s", dcl->name);
+			} else if (cmds > 0)
+				++dessines;
+			else if (!premierRate[0])
+				snprintf(premierRate, sizeof(premierRate), "%s (rien)", dcl->name);
+		}
+		char det[240];
+		snprintf(det, sizeof(det),
+				 "%u entree(s) au registre ; %u posee(s) sans refus ; %u DESSINEE(S) ; "
+				 "%u reserve(s)%s%s",
+				 (uint32)nReg, poses, dessines, reserves, premierRate[0] ? " -- premier : " : "",
+				 premierRate[0] ? premierRate : "");
+		verdict("CATALOGUE : CHAQUE entree du registre se pose ET se dessine -- aucune n'est "
+				"une promesse (un reserve « dessin non branche » fait tomber ce cas)",
+				nReg > 0u && poses == (uint32)nReg && dessines == (uint32)nReg
+					&& reserves == 0u,
+				det);
+	}
+
 	// ── LE BORNAGE DES RAYONS : LE CAS EXACT DE LA CAPTURE ──────────────────
 	// 🔴 Rodolf, 03/09 : `Bouton_Connexion`, hauteur `fixed 36`, arrondi
 	//    haut-droit **50,50** -- presque trois fois le maximum possible (18).

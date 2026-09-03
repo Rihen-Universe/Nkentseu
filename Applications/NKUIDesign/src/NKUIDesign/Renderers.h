@@ -52,6 +52,7 @@
 //   bouclent deja sur le registre et ne connaissent aucun nom.
 // -----------------------------------------------------------------------------
 
+#include "ComposantsBase.h" // les composants de base : declares ET dessines
 #include "Sommets.h" // la table UNIQUE des sommets (peintre + mode points)
 #include "Transfo.h" // rotation et miroirs : LE MEME calcul pour le dessin et le clic
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
@@ -1314,6 +1315,32 @@ namespace nkuidesign {
 				p.OutlineSharp(r, host.Role("border"));
 			} else if (!posee)
 				renderdetail::DrawFrame(p, r, host);
+		} else if (basiques::NkBasiqueDe(n.component.Data())) {
+			// ── LES COMPOSANTS DE BASE ────────────────────────────────────────
+			// 🔑 UNE SEULE BRANCHE POUR HUIT COMPOSANTS, et ce n'est pas une
+			//    economie de frappe : `NkDessinerBasique` lit LA TABLE, donc le
+			//    neuvieme se dessinera sans qu'on revienne ici. *Une branche par
+			//    composant aurait fait huit endroits ou oublier le neuvieme.*
+			//
+			// ⚠️ LES ROLES SONT RESOLUS ICI, PAS DANS LE DESSIN : le composant de
+			//    base ne connait pas le theme, il recoit des roles deja resolus.
+			//    C'est ce qui lui permet de vivre dans un fichier sans dependre du
+			//    theme de l'editeur -- et ce qui rendra son extraction vers le kit
+			//    mecanique le jour venu.
+			// ⚠️ LE NOEUD NE PORTE NI VARIANTE NI PARAMETRES AUJOURD'HUI :
+			//    `NkUINode` n'a que `component` (le nom). On dessine donc l'ETAT
+			//    PAR DEFAUT declare, et **on ne l'invente pas** -- lire un champ
+			//    qui n'existe pas aurait ete un mensonge de plus. La variante et
+			//    les parametres par instance sont un ajout de MODELE (cles
+			//    additives), nomme au rapport comme le lot suivant.
+			//    Le LIBELLE, lui, vient du nœud : `text` existe deja, et c'est ce
+			//    qui rend ces composants utiles des maintenant.
+			const float32 vparam = basiques::NkValeurParDefaut(n.component.Data());
+			basiques::NkDessinerBasique(
+				p, r, n.component.Data(), vparam, n.text.Data(), 0u,
+				host.Role("accent_ui"), host.Role("on_accent"), host.Role("doc_field_bg"),
+				host.Role("border"), host.Role("doc_text"), host.Role("text_muted"),
+				n.RayonCoin(0));
 		} else if (StrEq(n.component.Data(), "content_browser")) {
 			if ((uint32)node < (uint32)host.demoModels.Size() && r.w > 0.f && r.h > 0.f) {
 				NkContentBrowserHooks hooks;

@@ -917,17 +917,45 @@ namespace nkuidesign {
 				(void)SetGfxConfig(api);
 			}
 
-			void Init() {
-				theme = NkTheme::Dark();
+			/// PEUPLER LE REGISTRE — la porte, hors de toute interface.
+			///
+			/// 🔴 ELLE ETAIT ENFERMEE DANS `Init()`, ET LE BANC A TROUVE : le
+			///    premier controle qui parcourt le registre a rapporte **ZERO
+			///    entree**. Rien n'etait casse -- l'enregistrement vivait juste
+			///    dans un chemin que seule la fenetre emprunte, et aucun banc ne
+			///    passe par la fenetre.
+			///    ⚠️ *Un catalogue qui ne se peuple que dans l'interface ne peut
+			///       etre eprouve que dans l'interface* -- c'est-a-dire nulle
+			///       part, chez nous. La porte est donc appelable seule, et
+			///       `Init()` l'appelle comme n'importe qui.
+			/// ⚠️ IDEMPOTENTE : le registre refuse les doublons par nom, donc
+			///    l'appeler deux fois (banc PUIS fenetre) ne double rien.
+			static void PeuplerRegistre() {
 				// Le registre est la SOURCE de la palette. On y inscrit ce que cette
 				// application connait ; les autres composants s'y inscriront de leur
 				// cote, et la palette les affichera sans qu'une ligne bouge ici.
+				// ── LES COMPOSANTS DE BASE ───────────────────────────────────
+				// 🔑 Enregistres depuis LA TABLE, pas un par un : ajouter le
+				//    neuvieme ne demandera pas de revenir ici. C'est la meme
+				//    discipline que le panneau des etats, qui itere sa table
+				//    fermee au lieu de citer six noms.
+				{
+					uint32 nbBase = 0;
+					(void)basiques::NkTableBasiques(nbBase);
+					for (uint32 i = 0; i < nbBase; ++i)
+						NkComponentRegistry::Register(basiques::NkDeclBasique(i));
+				}
 				NkComponentRegistry::Register(NkContentBrowserDecl());
 				// ⚠️ LE SECOND COMPOSANT REEL, et c'est lui qui rend l'affirmation
 				//    « aucun panneau ne nomme un composant » verifiable. Jusqu'ici
 				//    la palette bouclait sur un registre a UNE entree : elle
 				//    « marchait » sans rien prouver.
 				NkComponentRegistry::Register(NkTreeViewDecl());
+			}
+
+			void Init() {
+				theme = NkTheme::Dark();
+				PeuplerRegistre();
 				// ⚠️ `host.resolve` N'EST PLUS POSE ICI, et c'est le correctif du
 				//    18/08 : sa valeur par defaut EST la resolution de
 				//    l'application (`NkDesignResolveRole`). Tant que chaque hote
