@@ -538,3 +538,57 @@ même matrice.*
 **garde de feuille** (étape 2 ci-dessus) n'est **pas** codée : elle demande le
 champ de nature (étape 1), que Rodolf n'a pas encore tranché — poser une clé de
 nature sans lui aurait été inventer le format.
+
+### Le modèle, dans ses mots (Rodolf, 03/09 soir) — ce qui remplace le tableau à cinq lignes
+
+> *« On a soit des nœuds — graphiques ou texte ; quand on parle de graphique ce
+> sont des graphiques vectoriels ou non, des images, etc. — et on a des groupes :
+> un groupe est un élément qui collecte ou contient des groupes et des feuilles.
+> Maintenant on peut avoir des groupes spéciaux qu'on nomme groupes booléens : un
+> groupe spécialement conçu pour les intersections, etc. — ça veut dire que
+> lorsqu'on applique des opérations booléennes, ça crée un groupe. On pourrait
+> définir d'autres formes de groupe, par exemple pour l'animation, mais rien à
+> voir je pense. Donc oui, chaque rectangle est un graphique et ne peut en aucun
+> cas contenir d'autres graphiques ou groupes. »*
+
+1. **Deux familles, pas quatre** : les **feuilles** (graphiques vectoriels,
+   images, texte) et les **groupes** (contiennent groupes et feuilles). La
+   nature est **binaire** ; c'est le *genre* de groupe qui a des variantes.
+2. **Genre de groupe** : `simple` · `booleen` · `composant` (déjà dans le modèle
+   via la déclaration) · **et d'autres possibles plus tard** (l'animation, citée
+   sans engagement). Le genre est donc **une clé additive à valeur libre : un
+   genre inconnu se relit et se réémet intact** — la règle du type de dégradé,
+   pas un `enum` fermé.
+3. 🔑 **Une opération booléenne CRÉE un groupe.** C'est le pont avec le
+   chapitre 3 : l'opération n'est pas un attribut d'une forme, c'est un
+   **constructeur de groupe**. Les booléennes se conçoivent une fois, ici.
+4. **Une feuille ne contient rien, en aucun cas.** La garde s'écrit — sur les
+   gestes, pas dans `AddChild` : le chargement ne passe pas par eux.
+
+### Codé le 03/09 (commit du lot « feuilles et groupes »)
+
+- **La clé** : `groupe = <genre>`. Additive ; **absente = inférée** (un nœud
+  avec enfants est un groupe, une planche `frame` est toujours un groupe, sinon
+  une feuille) — les documents actuels se relisent octet pour octet ; genre
+  libre, inconnu préservé (sonde 48a : `groupe = animation` fait l'aller-retour) ;
+  **écrite dès qu'un groupe est créé** (Ctrl+G pose `simple`), pour qu'un groupe
+  **vide reste un groupe**. Un seul prédicat, `NkEstGroupe`, lu par la pose, le
+  dépôt, la création, le reparentage et la hiérarchie. **Un groupe déclaré ne
+  peint rien** : son apparence est celle de ses feuilles.
+- **La garde** : `NkPickFreeContainer` ne rend jamais une feuille (pose, dépôt
+  de palette, création à l'outil) ; le dépôt sur une feuille, le glisser dans la
+  hiérarchie et « Imbriquer dans » refusent **en le disant** (`NkRefusFeuille`).
+- **La migration des six rectangles de Rodolf** — un **ENVELOPPEMENT**, pas un
+  ré-étiquetage : un `rect` à enfants est un graphique avec un fond et une
+  bordure ; le déclarer groupe lui ferait perdre son dessin. Donc un groupe neuf
+  prend sa place (rang, boîte, étiquette, rôle, rotation, miroirs, échelle), le
+  rect devient sa **première feuille** à l'origine (« … (fond) »), ses anciens
+  enfants suivent aux mêmes positions relatives. Trois garde-fous : **la version
+  d'avant conservée** sous `<document>.avant-groupes` (une fois) · **faite à
+  l'ouverture, en le disant** dans la barre (jamais en silence à la sauvegarde ;
+  rien n'est enregistré tant qu'on n'enregistre pas) · **le témoin** : la
+  géométrie peinte (chaque commande du peintre sous sa matrice) est **identique
+  avant et après**, sur un cas construit **et sur son document en lecture seule**
+  (sonde 48b/48e : `Bouton_Connexion`, `Panel_Nav`, `Carte_Actifs`,
+  `Carte_Revenu`, `Carte_Attrition`, `Graphique` ; 62 commandes, identiques).
+  La **capture d'écran avant/après** reste due dès que la machine est libre.
