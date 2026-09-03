@@ -488,6 +488,24 @@ namespace nkentseu {
 				if (OnKeyPress(*key)) {
 					return;
 				}
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+				// ── RETOUR NON CONSOMME = ON QUITTE, COMME TOUTE APPLICATION ─
+				// Sur Android, AKEYCODE_BACK arrive ici en NK_ESCAPE, et le
+				// backend natif a DEJA repondu « traite » au systeme (il ne peut
+				// pas attendre : l'evenement est mis en file). Le systeme ne
+				// fermera donc jamais l'activite a notre place. Les jeux ecrivaient
+				// « au menu, on laisse le systeme fermer » -- et rien ne fermait :
+				// la touche retour etait muette au menu. C'est la coquille qui
+				// tient le contrat de la plateforme : un retour que personne ne
+				// reclame quitte l'application.
+				//
+				// Bureau exclu volontairement : Echap n'y ferme pas une fenetre,
+				// et une coquille qui le ferait surprendrait toutes ses
+				// applications d'un coup.
+				if (key->GetKey() == NkKey::NK_ESCAPE) {
+					mRunning = false;
+				}
+#endif
 			}
 		}
 

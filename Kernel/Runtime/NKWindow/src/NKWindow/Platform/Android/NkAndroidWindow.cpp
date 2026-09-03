@@ -140,6 +140,54 @@ namespace nkentseu {
 	}
 
 	// =========================================================================
+	// La bascule de volume regle le flux MEDIA, meme quand l'application se tait
+	// =========================================================================
+	//
+	// ⚠️ ON AVAIT ECRIT (NKAudio, 02/09) QUE C'ETAIT IMPOSSIBLE SANS JAVA. Faux :
+	// `hasCode="false"` veut dire « pas de classes.dex A NOUS », pas « pas
+	// d'objet Activity ». La NativeActivity est une Activity du framework, et
+	// ses methodes publiques se demandent d'ici par JNI -- exactement comme
+	// `getWindow` deux fonctions plus bas.
+	//
+	// Sans cet appel, la bascule suit le flux ACTIF : tant qu'aucun son n'a
+	// joue, elle regle la SONNERIE, et l'utilisateur conclut que « les touches
+	// de volume n'ont aucun effet sur le jeu » (Rodolf, 02/09). Avec lui, elle
+	// regle le flux media des le demarrage, son ou pas.
+	//
+	// STREAM_MUSIC = 3 (android.media.AudioManager). On ne le lit pas par
+	// reflexion : c'est une constante d'API publique, gelee depuis l'API 1.
+	bool NkAndroidSetVolumeControlStream(android_app *app) {
+		if (!app || !app->activity || !app->activity->clazz) {
+			return false;
+		}
+		JNIEnv *env = nullptr;
+		bool attached = false;
+		if (!NkAndroidAcquireJniEnv(app, &env, &attached)) {
+			return false;
+		}
+		bool ok = false;
+		jobject activity = app->activity->clazz;
+		jclass actClass = env->GetObjectClass(activity);
+		if (actClass) {
+			jmethodID m = env->GetMethodID(actClass, "setVolumeControlStream", "(I)V");
+			if (m) {
+				env->CallVoidMethod(activity, m, static_cast<jint>(3));
+				ok = !env->ExceptionCheck();
+			}
+			if (env->ExceptionCheck()) {
+				env->ExceptionClear();
+			}
+			env->DeleteLocalRef(actClass);
+		}
+		NkAndroidReleaseJniEnv(app, attached);
+		if (!ok) {
+			logger.Warn("[NkAndroidWindow] setVolumeControlStream(STREAM_MUSIC) a echoue : la bascule "
+						"de volume suivra le flux actif");
+		}
+		return ok;
+	}
+
+	// =========================================================================
 	// Masquage des barres système (status bar + navigation bar) via JNI
 	// =========================================================================
 
@@ -604,6 +652,9 @@ namespace nkentseu {
 		if (mData.mAndroidApp) {
 			NkAndroidApplyOrientation(*this, mData.mOrientation);
 			NkAndroidUpdateSafeArea(*this);
+			// La bascule de volume regle le flux media des la creation -- avant
+			// le premier son, sinon elle regle la sonnerie. Voir la fonction.
+			NkAndroidSetVolumeControlStream(mData.mAndroidApp);
 			// Appliquer la configuration hideSystemUI a la creation de la fenetre
 			if (config.hideSystemUI) {
 				NkAndroidHideSystemUI(mData.mAndroidApp);
