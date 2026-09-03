@@ -92,13 +92,32 @@ namespace nkentseu {
 
 					const float32 dispoH = zoneH - hBandeau - marge * 2.f - hBandeau * 0.75f;
 					const float32 cote = zoneW < dispoH ? zoneW : dispoH;
+					const float32 xPlateau = zoneX + (zoneW - cote) * 0.5f;
 
-					plateau = NkRect{zoneX + (zoneW - cote) * 0.5f, bandeau.y + bandeau.h + marge, cote, cote};
+					// ── EN PORTRAIT AUSSI, L'ACTION S'ANCRE EN BAS ────────────
+					// Sur un telephone 1080x2400 le damier est bride par la
+					// LARGEUR : plus de 600 px de hauteur restent, et un centrage
+					// en bloc en faisait deux bandes vides, en haut et en bas.
+					// La disposition d'un ecran de telephone est plutot : le
+					// bandeau en haut, les boutons en bas SOUS LE POUCE, et le jeu
+					// centre entre les deux. Meme regle qu'en paysage -- une seule
+					// facon de faire, pas une par orientation.
+					const float32 hBas = hBandeau * 0.72f;
+					const float32 yBas = zoneY + zoneH - hBas;
+
+					// Le damier se centre entre le bandeau et le pied de page.
+					// Quand la hauteur est juste (`cote == dispoH`), il tombe dans
+					// le flot d'origine : le centrage repartit, il n'invente rien.
+					const float32 yDebut = bandeau.y + bandeau.h + marge;
+					const float32 yFin = yBas - marge;
+					float32 yPlateau = yDebut + ((yFin - yDebut) - cote) * 0.5f;
+					if (yPlateau < yDebut) {
+						yPlateau = yDebut;
+					}
+					plateau = NkRect{xPlateau, yPlateau, cote, cote};
 
 					// Le pied de page porte TROIS boutons : les deux sieges, puis
 					// « nouvelle partie ». Ils partagent la largeur du damier.
-					const float32 hBas = hBandeau * 0.72f;
-					const float32 yBas = plateau.y + cote + marge;
 					const float32 ecart = cote * 0.02f;
 					const float32 lSiege = (cote - ecart * 2.f) * 0.27f;
 					siege[0] = NkRect{plateau.x, yBas, lSiege, hBas};
@@ -167,7 +186,12 @@ namespace nkentseu {
 					// 📌 C'est la disposition habituelle d'un panneau : titre en
 					// haut, liste au milieu, ACTION en bas -- et le bouton se
 					// retrouve la ou le pouce l'atteint.
-					const float32 basPlateau = plateau.y + cote;
+					// Le bas de la ZONE, pas du damier : quand le damier a cede de
+					// la place a la colonne (tablette 2560x1600 : 1452 px pour 1504
+					// de hauteur utile), il est centre et son bas flotte a 26 px du
+					// bord. La colonne, elle, va toujours jusqu'en bas -- c'est le
+					// banc qui l'a vu, pas l'oeil.
+					const float32 basPlateau = zoneY + zoneH;
 					float32 yAction = y;
 					// Si la pile depasse le echiquier, on garde le flot naturel
 					// plutot que de faire remonter le bouton SUR les sieges.
@@ -510,12 +534,19 @@ namespace nkentseu {
 				/// qui le tient. Un bouton qui n'afficherait que "IA" obligerait a
 				/// se souvenir de quel camp il parle.
 				void DessinerSiege(NkGuiDrawList &dl, const NkRect &box, NkGuiFont *petite, const char *nom,
-								   NkControleur qui, bool auTrait, const NkColor &teinte) {
+								   NkControleur qui, bool auTrait, bool seulHumain, const NkColor &teinte) {
 					const bool ia = (qui == NkControleur::NK_IA);
 					dl.AddRectFilled(box, ia ? kPanneau : kPanneauActif, box.h * 0.28f);
 					dl.AddRect(box, auTrait ? kSelection : kBord, auTrait ? 2.5f : 1.5f, box.h * 0.28f);
 					dl.AddCircleFilled(NkVec2f(box.x + box.h * 0.40f, box.y + box.h * 0.5f), box.h * 0.19f, teinte);
-					const NkString libelle = NkString::Format("%s %s", nom, ia ? "IA" : "vous");
+					// ── « VOUS » N'A DE SENS QUE S'IL N'Y A QU'UN SEUL HUMAIN ─
+					// Vu sur une capture : « Blancs vous » et « Noirs vous », deux
+					// personnes autour du meme ecran designees toutes deux par le
+					// meme mot. A deux, c'est le camp qui nomme le siege ; face a
+					// l'IA, « vous » dit enfin quelque chose -- et le tiret rend
+					// lisible ce que l'espace seule ne separait pas.
+					const NkString libelle = ia ? NkString::Format("%s — IA", nom)
+											 : (seulHumain ? NkString::Format("%s — vous", nom) : NkString(nom));
 					TexteDansBoite(dl, petite, NkRect{box.x + box.h * 0.66f, box.y, box.w - box.h * 0.72f, box.h},
 									   libelle.Data(), ia ? kTexteFaible : kTexte);
 				}
@@ -524,8 +555,11 @@ namespace nkentseu {
 			void DessinerPiedDePage(NkGuiDrawList &dl, const NkEchecsGeometrie &geo, const NkEchecsPolices &f,
 										const NkEchecsVue &vue) {
 				const int32 trait = (vue.partie->Trait() == NkEchecsCamp::NK_BLANC) ? 0 : 1;
-				DessinerSiege(dl, geo.siege[0], f.petite, "Blancs", vue.controleur[0], !vue.finie && trait == 0, kBlanc);
-				DessinerSiege(dl, geo.siege[1], f.petite, "Noirs", vue.controleur[1], !vue.finie && trait == 1,
+				// « seul humain » = l'autre siege est tenu par l'IA.
+				const bool ia0 = vue.controleur[0] == NkControleur::NK_IA;
+				const bool ia1 = vue.controleur[1] == NkControleur::NK_IA;
+				DessinerSiege(dl, geo.siege[0], f.petite, "Blancs", vue.controleur[0], !vue.finie && trait == 0, ia1, kBlanc);
+				DessinerSiege(dl, geo.siege[1], f.petite, "Noirs", vue.controleur[1], !vue.finie && trait == 1, ia0,
 								  NkColor(120, 124, 140));
 
 				dl.AddRectFilled(geo.rejouer, kPanneau, geo.rejouer.h * 0.28f);

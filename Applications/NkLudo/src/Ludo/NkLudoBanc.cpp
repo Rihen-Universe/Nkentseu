@@ -482,6 +482,7 @@ int32 NkLudoLancerBanc() {
 		bool plateauUtile = true;
 		bool centree = true;
 		bool proportionnee = true;
+		bool actionEnBas = true;
 		const char *fautif = "";
 
 		for (uint32 e = 0; e < sizeof(ecrans) / sizeof(ecrans[0]); ++e) {
@@ -651,6 +652,18 @@ int32 NkLudoLancerBanc() {
 					proportionnee = false;
 					fautif = s.nom;
 				}
+
+				// ── 7. L'ACTION TOUCHE LE BAS ─────────────────────────────
+				// En paysage elle s'aligne sur le bas du plateau ; en portrait
+				// sur le bas de la zone. Dans les deux cas : le bord inferieur
+				// de la zone sure, a une marge pres. Sans ancrage, un centrage
+				// en bloc la laissait a 290 px du bas sur un telephone en
+				// portrait -- le critere de centrage restait VERT : il ne voit
+				// que la boite.
+				if (basMax < y1 - petitCote * 0.03f - 1.f) {
+					actionEnBas = false;
+					fautif = s.nom;
+				}
 			}
 		}
 
@@ -660,7 +673,9 @@ int32 NkLudoLancerBanc() {
 		verifier("mise en page : le bandeau ne recouvre pas le plateau", aucunRecouvrement);
 		verifier("mise en page : centree, ce qui reste fait DEUX marges egales", centree);
 		verifier("mise en page : la colonne ne concurrence pas le plateau", proportionnee);
-		if (!tousDedans || !tousCarres || !plateauUtile || !aucunRecouvrement || !centree || !proportionnee) {
+		verifier("mise en page : l'action touche le bas, sous le pouce", actionEnBas);
+		if (!tousDedans || !tousCarres || !plateauUtile || !aucunRecouvrement || !centree || !proportionnee ||
+			!actionEnBas) {
 			logger.Infof("[banc]   (ecran fautif : %s)\n", fautif);
 		}
 	}
