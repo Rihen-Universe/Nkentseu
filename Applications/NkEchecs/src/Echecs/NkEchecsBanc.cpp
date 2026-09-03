@@ -12,6 +12,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "Echecs/NkEchecsBanc.h"
+#include "Echecs/NkEchecsEcran.h"
 #include "Echecs/NkEchecsRegles.h"
 #include "NKContainers/String/NkString.h"
 #include "NKLogger/NkLog.h"
@@ -226,6 +227,168 @@ int32 NkEchecsLancerBanc() {
 		verifier("partie complete : aucun coup refuse", !refuse);
 		verifier("partie complete : au moins 20 coups joues", tours >= 20);
 		logger.Infof("[banc]   (partie de controle : %d demi-coups)\n", tours);
+	}
+
+
+	// --- MISE EN PAGE : LES DEUX ORIENTATIONS ------------------------------
+	//
+	// ⚠️ CE CAS N'EXISTAIT PAS AVANT LE 2026-09-03, et son absence a coute deux
+	// fois. Seul NkLudo avait un cas de mise en page ; quand un defaut y a ete
+	// trouve et corrige, ici on a suppose que « meme structure » suffisait.
+	// Rodolf a signale le meme defaut le 03/09 : « une fois roter non seulement
+	// ce n'est pas proportionnel mais ca laisse du vide ».
+	//
+	// 📌 « Meme structure que l'autre » n'est pas une mesure. Un correctif
+	// recopie a la main dans trois fichiers, avec un banc dans un seul, revient
+	// toujours par les deux autres.
+	//
+	// SIX CRITERES, et les deux derniers sont ceux qui ont mordu :
+	//   1. tout tient dans la zone sure ;
+	//   2. le damier reste CARRE ;
+	//   3. le bandeau ne recouvre pas le damier ;
+	//   4. le damier occupe la place -- seuil declare, voir plus bas ;
+	//   5. CENTREE : ce qui reste fait DEUX marges egales, jamais un trou ;
+	//   6. PROPORTIONNEE : en deux colonnes, la colonne ne concurrence pas le
+	//      damier.
+	{
+		struct Ecran {
+				const char *nom;
+				uint32 w, h;
+				float32 sHaut, sBas, sGauche, sDroite;
+		};
+		// Des formats REELS, plus deux cas limites : le carre et le presque-carre,
+		// ou aucune des deux mises en page ne peut donner beaucoup au damier.
+		const Ecran ecrans[] = {
+			{"telephone portrait", 1080, 2400, 90.f, 60.f, 0.f, 0.f},
+			{"telephone paysage", 2400, 1080, 0.f, 0.f, 90.f, 60.f},
+			{"tablette portrait", 1600, 2560, 40.f, 40.f, 0.f, 0.f},
+			{"tablette paysage", 2560, 1600, 0.f, 0.f, 40.f, 40.f},
+			{"fenetre bureau", 1280, 800, 0.f, 0.f, 0.f, 0.f},
+			{"carre", 1000, 1000, 0.f, 0.f, 0.f, 0.f},
+			{"presque carre", 1100, 1000, 0.f, 0.f, 0.f, 0.f},
+			{"tres large", 3440, 1000, 0.f, 0.f, 0.f, 0.f},
+		};
+
+		bool tousDedans = true;
+		bool tousCarres = true;
+		bool aucunRecouvrement = true;
+		bool damierUtile = true;
+		bool centree = true;
+		bool proportionnee = true;
+		const char *fautif = "";
+
+		for (uint32 e = 0; e < sizeof(ecrans) / sizeof(ecrans[0]); ++e) {
+			const Ecran &s = ecrans[e];
+			renderer::NkLayoutInfo info;
+			info.width = s.w;
+			info.height = s.h;
+			info.safeArea.top = s.sHaut;
+			info.safeArea.bottom = s.sBas;
+			info.safeArea.left = s.sGauche;
+			info.safeArea.right = s.sDroite;
+
+			NkEchecsGeometrie g;
+			g.Calculer(info);
+
+			const float32 x0 = s.sGauche;
+			const float32 y0 = s.sHaut;
+			const float32 x1 = static_cast<float32>(s.w) - s.sDroite;
+			const float32 y1 = static_cast<float32>(s.h) - s.sBas;
+			const float32 eps = 0.5f;
+
+			// Les cinq rectangles de JEU. Le menu se centre a part, sur l'ecran.
+			const NkRect *tous[5] = {&g.plateau, &g.bandeau, &g.siege[0], &g.siege[1], &g.rejouer};
+			const uint32 n = 5;
+
+			float32 gMin = tous[0]->x;
+			float32 hMin = tous[0]->y;
+			float32 dMax = tous[0]->x + tous[0]->w;
+			float32 bMax = tous[0]->y + tous[0]->h;
+			for (uint32 i = 0; i < n; ++i) {
+				const NkRect &r = *tous[i];
+				if (r.x < x0 - eps || r.y < y0 - eps || r.x + r.w > x1 + eps || r.y + r.h > y1 + eps) {
+					tousDedans = false;
+					fautif = s.nom;
+				}
+				if (r.x < gMin) {
+					gMin = r.x;
+				}
+				if (r.y < hMin) {
+					hMin = r.y;
+				}
+				if (r.x + r.w > dMax) {
+					dMax = r.x + r.w;
+				}
+				if (r.y + r.h > bMax) {
+					bMax = r.y + r.h;
+				}
+			}
+
+			const float32 d = g.plateau.w > g.plateau.h ? g.plateau.w - g.plateau.h : g.plateau.h - g.plateau.w;
+			if (d > eps) {
+				tousCarres = false;
+				fautif = s.nom;
+			}
+
+			// Le bandeau est soit A COTE du damier, soit AU-DESSUS : jamais dessus.
+			const bool aCote = g.bandeau.x >= g.plateau.x + g.plateau.w - eps ||
+							   g.plateau.x >= g.bandeau.x + g.bandeau.w - eps;
+			const bool dessus = g.bandeau.y + g.bandeau.h <= g.plateau.y + eps ||
+								g.plateau.y + g.plateau.h <= g.bandeau.y + eps;
+			if (!aCote && !dessus) {
+				aucunRecouvrement = false;
+				fautif = s.nom;
+			}
+
+			// ⚠️ CE CRITERE DECLARE SON PERIMETRE : il ne vaut que pour les ecrans
+			// FRANCHEMENT allonges. Entre les deux -- 1100 x 1000 -- le cas est
+			// reellement contraint, et exiger 72 % ferait rougir une mise en page
+			// qu'on ne sait pas ameliorer : un banc qui punit sans dire quoi
+			// corriger finit par etre desarme.
+			const float32 zw = x1 - x0;
+			const float32 zh = y1 - y0;
+			const float32 petitCote = zw < zh ? zw : zh;
+			const bool franchementAllonge = zw > zh * 1.30f || zh > zw * 1.30f;
+			if (franchementAllonge && g.plateau.w / petitCote < 0.72f) {
+				damierUtile = false;
+				fautif = s.nom;
+			}
+
+			// CENTRAGE : les marges opposees doivent etre egales. Un pixel de
+			// tolerance -- une dimension impaire laisse un demi-pixel de chaque
+			// cote.
+			const float32 mG = gMin - x0;
+			const float32 mD = x1 - dMax;
+			const float32 mH = hMin - y0;
+			const float32 mB = y1 - bMax;
+			const float32 ecartH = mD > mG ? mD - mG : mG - mD;
+			const float32 ecartV = mB > mH ? mB - mH : mH - mB;
+			logger.Infof("[mesure] %-20s %ux%u  damier=%.0f colonne=%.0f  "
+						 "marges G/D=%.0f/%.0f (ecart %.0f)  H/B=%.0f/%.0f (ecart %.0f)\n",
+						 s.nom, s.w, s.h, g.plateau.w, g.bandeau.w, mG, mD, ecartH, mH, mB, ecartV);
+			if (ecartH > 1.f || ecartV > 1.f) {
+				centree = false;
+				fautif = s.nom;
+			}
+
+			// ⚠️ LA PROPORTION NE SE JUGE QU'EN DEUX COLONNES : en une colonne le
+			// bandeau prend TOUTE la largeur, donc son rapport au damier vaut 1
+			// par construction. L'y appliquer ferait rougir une page correcte.
+			if (aCote && g.bandeau.w > g.plateau.w * 0.75f) {
+				proportionnee = false;
+				fautif = s.nom;
+			}
+		}
+
+		verifier("mise en page : tout tient dans la zone sure", tousDedans);
+		verifier("mise en page : le damier reste CARRE", tousCarres);
+		verifier("mise en page : le bandeau ne recouvre pas le damier", aucunRecouvrement);
+		verifier("mise en page : le damier occupe la place disponible", damierUtile);
+		verifier("mise en page : centree, ce qui reste fait DEUX marges egales", centree);
+		verifier("mise en page : la colonne ne concurrence pas le damier", proportionnee);
+		if (!tousDedans || !tousCarres || !aucunRecouvrement || !damierUtile || !centree || !proportionnee) {
+			logger.Infof("[banc]   (ecran fautif : %s)\n", fautif);
+		}
 	}
 
 	logger.Infof("\n[banc] %s (%d echec(s))\n", echecs == 0 ? "TOUT EST VERT" : "DES CAS ONT ECHOUE", echecs);
