@@ -1963,6 +1963,96 @@ static nkentseu::int32 RecetteGestes() {
 				nomme, det5);
 	}
 
+	// ── AUCUNE FORME DE NOEUD NE SE DESSINE SANS SON RAYON ─────────────────
+	// 🔴 TROISIEME RETOUR DU MEME DEFAUT, ET LA CAUSE EST STRUCTURELLE. Rodolf
+	//    a photographie un fond arrondi souligne d'un angle droit. Corrige une
+	//    fois sur le chemin principal, il est revenu par les REPLIS -- puis je
+	//    l'ai reproduit MOI-MEME, le lendemain, dans les huit composants de
+	//    base : `Fill(r, role, rayon)` suivi de `OutlineSharp(r, bord)`.
+	//
+	//    La cause n'est pas l'etourderie : dans `NkComponentPaint`, `rounding` a
+	//    une VALEUR PAR DEFAUT de `0.f` -- l'oublier compile en silence -- et
+	//    `OutlineSharp` n'offre AUCUN parametre de rayon. *Une signature qu'on
+	//    peut mal appeler sans erreur sera mal appelee, et le compte des fois ne
+	//    mesure que le temps ecoule.*
+	//
+	// ⚠️ CE CAS NE COMPTE PAS LES ARRONDIS : il constate qu'AUCUNE commande
+	//    `OutlineSharp` ne sort du peintre alors que tous les noeuds portent un
+	//    rayon. C'est l'EFFET, et il est verifiable sans ecran. Un cas qui
+	//    aurait compte les appels corriges serait reste vert le jour ou
+	//    quelqu'un en ajoute un septieme.
+	//
+	// ⚠️ CE QU'IL NE COUVRE PAS, ECRIT POUR QU'ON NE LUI PRETE PAS PLUS.
+	//    Tous les noeuds de ce document RECOIVENT UN FOND (explicite ou par
+	//    role). Un contour carre y serait donc forcement pose PAR-DESSUS un
+	//    fond arrondi -- le defaut photographie. Il reste un chemin ou
+	//    `OutlineSharp` est LEGITIME : celui ou AUCUN fond n'est peint (tous
+	//    les remplissages masques). La, il n'existe aucune couleur pour
+	//    creuser l'interieur, et ce peintre n'a ni primitive d'anneau ni
+	//    masque : `AddRect` non rempli est la seule forme creuse, et elle ne
+	//    sait pas arrondir. **J'ai essaye l'anneau sur ce chemin : il peignait
+	//    un bloc plein couleur bordure, et c'est le cas « un rectangle neuf
+	//    n'a pas de bordure » qui l'a vu.** Manque porte au canal.
+	{
+		DesignState::PeuplerRegistre();
+		NkUIDocument d;
+		d.NewDocument("rayons", NkAuthor::Humain);
+		const int32 pg = d.AddChild(0, "", NkAuthor::Humain);
+		d.nodes[(uint32)pg].shape = NkString("frame");
+		d.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+		d.nodes[(uint32)pg].width.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].width.value = 400.f;
+		d.nodes[(uint32)pg].height.mode = NkSizeMode::Fixed;
+		d.nodes[(uint32)pg].height.value = 400.f;
+		d.nodes[(uint32)pg].radius = 12.f; // l'artboard AUSSI porte un rayon
+		// Un echantillon de chemins qui retombaient sur le contour carre : une
+		// forme nue (repli du theme), un cadre d'image, et les composants de
+		// base qui dessinent un fond ET un trait.
+		const char *sujets[] = {"", "", "bouton", "champ_texte", "case_a_cocher",
+								"barre_progression", "carte"};
+		const char *formes[] = {"rect", "image", "", "", "", "", ""};
+		const uint32 nSujets = (uint32)(sizeof(sujets) / sizeof(sujets[0]));
+		for (uint32 i = 0; i < nSujets; ++i) {
+			const int32 c = d.AddChild(pg, sujets[i], NkAuthor::Humain);
+			if (c < 0)
+				continue;
+			NkUINode &nd = d.nodes[(uint32)c];
+			if (formes[i][0])
+				nd.shape = NkString(formes[i]);
+			nd.radius = 12.f;
+			nd.posX = 10.f;
+			nd.posY = 10.f + (float32)i * 40.f;
+			nd.width.mode = NkSizeMode::Fixed;
+			nd.width.value = 200.f;
+			nd.height.mode = NkSizeMode::Fixed;
+			nd.height.value = 32.f;
+		}
+		NkLayoutResult lay;
+		NkComputeLayout(d, NkPaintRect{0.f, 0.f, 500.f, 500.f}, lay);
+		NkComponentInput in;
+		nkentseu::editorkit::NkRecordingPaint pv;
+		NkDocumentHost hote;
+		hote.SyncTo(d);
+		NkDrawDocument(pv, in, d, lay, hote, 0);
+		uint32 carres = 0, arrondis = 0;
+		for (uint32 k = 0; k < (uint32)pv.cmds.Size(); ++k) {
+			if (pv.cmds[k].op == NkPaintOp::OutlineSharp)
+				++carres;
+			if (pv.cmds[k].rounding > 0.f)
+				++arrondis;
+		}
+		char det[200];
+		snprintf(det, sizeof(det),
+				 "%u noeud(s) a rayon 12 ; %u commande(s) ; %u contour(s) CARRE(S) ; "
+				 "%u commande(s) arrondie(s)",
+				 nSujets + 1u, (uint32)pv.cmds.Size(), carres, arrondis);
+		// ⚠️ LES DEUX MOITIES COMPTENT. Sans `arrondis > 0`, un peintre qui ne
+		//    dessinerait plus RIEN passerait ce cas : zero carre, zero tout.
+		verdict("arrondis : avec des noeuds a rayon, le peintre de document n'emet "
+				"AUCUN contour carre -- et il dessine bien des formes arrondies",
+				carres == 0u && arrondis > 0u, det);
+	}
+
 	// ── LE BORNAGE DES RAYONS : LE CAS EXACT DE LA CAPTURE ──────────────────
 	// 🔴 Rodolf, 03/09 : `Bouton_Connexion`, hauteur `fixed 36`, arrondi
 	//    haut-droit **50,50** -- presque trois fois le maximum possible (18).

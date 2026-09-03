@@ -558,20 +558,21 @@ namespace nkuidesign {
 		/// grand, donc plus arrondi ; un contour intérieur, l'inverse. C'est ce
 		/// que « position » veut dire quand la forme est arrondie, et ça ne se
 		/// voyait pas tant que tout était carré.
-		inline void NkGCadre(NkComponentPaint &p, const NkPaintRect &r, const NkBordure &b,
-							 const nkentseu::float32 R[4], nkentseu::uint32 interieur) {
-			const nkentseu::float32 e = b.epaisseur > 0.f ? b.epaisseur : 1.f;
+		/// LE CORPS : un ANNEAU de `e` px, en couleur DEJA RESOLUE.
+		/// 🔑 Scinde du cadre nomme pour qu'un appelant qui n'a PAS de
+		///    `NkBordure` -- le repli du theme, qui n'a qu'un role -- puisse
+		///    dessiner le MEME anneau au lieu d'un rectangle a angles droits.
+		inline void NkGCadreRGBA(NkComponentPaint &p, const NkPaintRect &r,
+								 nkentseu::uint32 rgba, nkentseu::float32 epaisseur,
+								 NkBordurePos position, const nkentseu::float32 R[4],
+								 nkentseu::uint32 interieur) {
+			const nkentseu::float32 e = epaisseur > 0.f ? epaisseur : 1.f;
 			nkentseu::float32 d = 0.f; // de combien le cadre sort du rectangle
-			if (b.position == NkBordurePos::Centre)
+			if (position == NkBordurePos::Centre)
 				d = e * 0.5f;
-			else if (b.position == NkBordurePos::Exterieur)
+			else if (position == NkBordurePos::Exterieur)
 				d = e;
 			const NkPaintRect q = {r.x - d, r.y - d, r.w + d * 2.f, r.h + d * 2.f};
-			const nkentseu::uint32 base = NkGHexRGBA(b.couleur.Data());
-			const nkentseu::float32 k =
-				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
-			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
-			const nkentseu::uint32 rgba = (base & 0xFFFFFF00u) | (a & 0xFFu);
 			nkentseu::float32 Rext[4], Rint[4];
 			for (nkentseu::uint32 i = 0; i < 4u; ++i) {
 				Rext[i] = R[i] > 0.f ? R[i] + d : 0.f;
@@ -583,6 +584,48 @@ namespace nkuidesign {
 				const NkPaintRect qi = {q.x + e, q.y + e, q.w - e * 2.f, q.h - e * 2.f};
 				NkGRectCoins(p, qi, interieur, Rint);
 			}
+		}
+
+		/// LA PORTE NOMMEE : une `NkBordure` (couleur en texte, opacite) devient
+		/// une couleur resolue, puis c'est le meme anneau. Comportement inchange.
+		inline void NkGCadre(NkComponentPaint &p, const NkPaintRect &r, const NkBordure &b,
+							 const nkentseu::float32 R[4], nkentseu::uint32 interieur) {
+			const nkentseu::uint32 base = NkGHexRGBA(b.couleur.Data());
+			const nkentseu::float32 k =
+				(b.opacite < 0.f ? 0.f : (b.opacite > 100.f ? 100.f : b.opacite)) * 0.01f;
+			const nkentseu::uint32 a = (nkentseu::uint32)((base & 0xFFu) * k + 0.5f);
+			NkGCadreRGBA(p, r, (base & 0xFFFFFF00u) | (a & 0xFFu),
+						 b.epaisseur > 0.f ? b.epaisseur : 1.f, b.position, R, interieur);
+		}
+
+		/// LE CADRE DU THEME (1 px, un role), QUI SUIT LES ARRONDIS.
+		///
+		/// 🔴 IL REMPLACE `OutlineSharp` SUR LES CHEMINS DE REPLI, ET C'EST LE
+		///    MEME DEFAUT QUE RODOLF A PHOTOGRAPHIE. `OutlineSharp` n'a AUCUN
+		///    parametre de rayon -- pas « un rayon a zero » : aucun. Sur un noeud
+		///    arrondi, il tracait donc un rectangle a angles droits par-dessus un
+		///    fond arrondi, et le trait depassait aux quatre coins.
+		///
+		/// ⚠️ CE N'ETAIT PAS UN OUBLI ISOLE : l'inventaire du 03/09 a trouve SIX
+		///    chemins qui dessinaient la forme d'un noeud sans son rayon. La cause
+		///    est structurelle -- `rounding` a une VALEUR PAR DEFAUT de `0.f` dans
+		///    l'interface du peintre, donc l'oublier compile en silence, et
+		///    `OutlineSharp` n'offre meme pas le parametre. *Un defaut qui revient
+		///    trois fois n'est pas trois etourderies : c'est une signature trop
+		///    facile a mal appeler.*
+		/// ⚠️ `interieur` N'A PAS DE VALEUR PAR DEFAUT, ET C'EST VOULU.
+		///    Ce peintre n'a NI primitive d'anneau NI masque : `NkGCadreRGBA`
+		///    peint la forme en couleur de bord, puis REPEINT l'interieur avec
+		///    la couleur qu'on lui donne. Passer 0 ne laisse donc pas un trou :
+		///    ca laisse un BLOC PLEIN. Un defaut a 0 aurait rendu l'erreur
+		///    silencieuse -- exactement le piege de `rounding = 0.f` qu'on
+		///    vient de payer trois fois. *Le parametre qu'on peut oublier est
+		///    celui qu'on oubliera.*
+		inline void NkGCadreTheme(NkComponentPaint &p, const NkPaintRect &r,
+								  const nkentseu::float32 R[4], nkentseu::uint16 role,
+								  nkentseu::uint32 interieur) {
+			NkGCadreRGBA(p, r, p.ColorOf(role), 1.f, NkBordurePos::Interieur, R,
+						 interieur);
 		}
 
 		/// LES OMBRES PORTÉES D'UN NŒUD, peintes AVANT sa forme.
@@ -732,8 +775,15 @@ namespace nkuidesign {
 				// « nom — L × H » (les documents d'avant ne bougent pas).
 				// Couleur : `doc_muted` (#656d76, le gris de la toile CLAIRE —
 				// pas le TextMuted de l'éditeur), corps 11 px.
-				p.Fill(r, host.Role("artboard_bg"));
-				p.OutlineSharp(r, host.Role("border"));
+				// ⚠️ L'ARTBOARD IGNORAIT SON PROPRE RAYON, sur ses DEUX portes
+				//    (dessin normal et renommage d'etiquette). Une page a
+				//    laquelle Rodolf donne un arrondi se peignait carree.
+				float32 Ra[4];
+				NkGRayons(n, Ra);
+				NkGBornerRayons(r.w, r.h, Ra, Ra);
+				const uint32 fondArt = p.ColorOf(host.Role("artboard_bg"));
+				NkGRectCoins(p, r, fondArt, Ra);
+				NkGCadreTheme(p, r, Ra, host.Role("border"), fondArt);
 				if (name && *name) {
 					const float32 lh = 14.f; // interligne d'un corps 11
 					char etiquette[128];
@@ -895,8 +945,19 @@ namespace nkuidesign {
 					// TOUT masqué : on ne retombe PAS sur le rôle du thème — un
 					// nœud dont l'utilisateur a fermé tous les yeux doit paraître
 					// vide, pas « par défaut ».
-					if (!peint)
+					if (!peint) {
+					// 🔴 `OutlineSharp` ET NON UN ANNEAU ARRONDI, ET C'EST UNE
+					//    LIMITE, PAS UN CHOIX. Ici AUCUN fond n'a ete peint : il
+					//    n'existe donc pas de couleur pour creuser l'interieur, et
+					//    ce peintre n'a ni primitive d'anneau ni masque.
+					//    `OutlineSharp` (`AddRect`, non rempli) est la SEULE forme
+					//    creuse disponible -- et elle ne sait pas arrondir.
+					//    J'ai essaye l'anneau : il peignait un BLOC PLEIN couleur
+					//    bordure par-dessus le noeud, et le banc l'a vu.
+					//    Manque porte au canal : une primitive de contour arrondi
+					//    (ou un decoupage arrondi) dans NkComponentPaint.
 						p.OutlineSharp(r, host.Role("border"));
+					}
 					fondPeint = peint;
 				} else if (!n.fill.Empty()) {
 					rgbaFond = NkGHexRGBA(n.fill.Data());
@@ -921,16 +982,38 @@ namespace nkuidesign {
 						NkGCadre(p, r, b, Rc, rgbaFond);
 						trace = true;
 					}
-					if (!trace && !fondPeint)
+					if (!trace && !fondPeint) {
+					// 🔴 `OutlineSharp` ET NON UN ANNEAU ARRONDI, ET C'EST UNE
+					//    LIMITE, PAS UN CHOIX. Ici AUCUN fond n'a ete peint : il
+					//    n'existe donc pas de couleur pour creuser l'interieur, et
+					//    ce peintre n'a ni primitive d'anneau ni masque.
+					//    `OutlineSharp` (`AddRect`, non rempli) est la SEULE forme
+					//    creuse disponible -- et elle ne sait pas arrondir.
+					//    J'ai essaye l'anneau : il peignait un BLOC PLEIN couleur
+					//    bordure par-dessus le noeud, et le banc l'a vu.
+					//    Manque porte au canal : une primitive de contour arrondi
+					//    (ou un decoupage arrondi) dans NkComponentPaint.
 						p.OutlineSharp(r, host.Role("border"));
+					}
 				} else if (!n.borderColor.Empty()) {
 					NkBordure b;
 					b.couleur = n.borderColor;
 					b.epaisseur = n.borderW > 0.f ? n.borderW : 1.f;
 					b.position = NkBordurePos::Interieur; // le geste historique
 					NkGCadre(p, r, b, Rc, rgbaFond);
-				} else if (!fondPeint)
+				} else if (!fondPeint) {
+					// 🔴 `OutlineSharp` ET NON UN ANNEAU ARRONDI, ET C'EST UNE
+					//    LIMITE, PAS UN CHOIX. Ici AUCUN fond n'a ete peint : il
+					//    n'existe donc pas de couleur pour creuser l'interieur, et
+					//    ce peintre n'a ni primitive d'anneau ni masque.
+					//    `OutlineSharp` (`AddRect`, non rempli) est la SEULE forme
+					//    creuse disponible -- et elle ne sait pas arrondir.
+					//    J'ai essaye l'anneau : il peignait un BLOC PLEIN couleur
+					//    bordure par-dessus le noeud, et le banc l'a vu.
+					//    Manque porte au canal : une primitive de contour arrondi
+					//    (ou un decoupage arrondi) dans NkComponentPaint.
 					p.OutlineSharp(r, host.Role("border"));
+				}
 				return;
 			}
 			if (shape && StrEq(shape, "ellipse")) {
@@ -1017,8 +1100,20 @@ namespace nkuidesign {
 				// se sauve, et dira son fichier le jour ou la cle existera.
 				const uint32 rgba = n.FondEffectif() ? NkGFondRGBA(n)
 													: p.ColorOf(host.Role("doc_field_bg"));
-				p.FillColor(r, rgba, n.radius > 0.f ? n.radius : 2.f);
-				p.OutlineSharp(r, host.Role("border"));
+				// ⚠️ LE FOND SUIVAIT LE RAYON UNIFORME, LE CONTOUR AUCUN : le
+				//    coin etait donc arrondi ET souligne d'un angle droit.
+				//    Les deux lisent maintenant LES QUATRE rayons.
+				float32 Ri[4];
+				NkGRayons(n, Ri);
+				// Le repli historique a 2 px quand AUCUN coin n'est pose --
+				// garde tel quel : le retirer changerait le dessin de tous les
+				// cadres d'image existants, ce qui n'est pas l'objet ici.
+				if (Ri[0] <= 0.f && Ri[1] <= 0.f && Ri[2] <= 0.f && Ri[3] <= 0.f)
+					Ri[0] = Ri[1] = Ri[2] = Ri[3] = 2.f;
+				NkGBornerRayons(r.w, r.h, Ri, Ri);
+				NkGRectCoins(p, r, rgba, Ri);
+				// Le fond VIENT d'etre peint : sa couleur creuse l'anneau.
+				NkGCadreTheme(p, r, Ri, host.Role("border"), rgba);
 				(void)p.Line(r.x, r.y, r.x + r.w, r.y + r.h, host.Role("border"), 1.f);
 				(void)p.Line(r.x, r.y + r.h, r.x + r.w, r.y, host.Role("border"), 1.f);
 				// la « montagne » au centre, si la boite est assez grande
@@ -1311,8 +1406,15 @@ namespace nkuidesign {
 			else if (posee && host.editionEtiquette) {
 				// RENOMMAGE d'etiquette : le CORPS de l'artboard se dessine,
 				// seule l'etiquette se tait (le champ superpose la remplace).
-				p.Fill(r, host.Role("artboard_bg"));
-				p.OutlineSharp(r, host.Role("border"));
+				// ⚠️ L'ARTBOARD IGNORAIT SON PROPRE RAYON, sur ses DEUX portes
+				//    (dessin normal et renommage d'etiquette). Une page a
+				//    laquelle Rodolf donne un arrondi se peignait carree.
+				float32 Ra[4];
+				renderdetail::NkGRayons(n, Ra);
+				renderdetail::NkGBornerRayons(r.w, r.h, Ra, Ra);
+				const uint32 fondArt = p.ColorOf(host.Role("artboard_bg"));
+				renderdetail::NkGRectCoins(p, r, fondArt, Ra);
+				renderdetail::NkGCadreTheme(p, r, Ra, host.Role("border"), fondArt);
 			} else if (!posee)
 				renderdetail::DrawFrame(p, r, host);
 		} else if (basiques::NkBasiqueDe(n.component.Data())) {

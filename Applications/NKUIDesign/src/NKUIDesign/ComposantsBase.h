@@ -261,17 +261,18 @@ namespace nkuidesign {
 				// variante 0 = primaire (fond accent), 1 = secondaire, 2 = fantome
 				if (variante == 0u)
 					p.Fill(r, rAccent, rayon);
-				else if (variante == 1u) {
-					p.Fill(r, rSurface, rayon);
-					p.OutlineSharp(r, rBord);
-				}
+				else if (variante == 1u)
+					// ⚠️ UN SEUL APPEL, ET IL SUIT LE RAYON. C'etait
+					//    `Fill(rayon)` + `OutlineSharp` : le fond s'arrondissait,
+					//    le trait restait carre -- le defaut meme que Rodolf a
+					//    photographie, que j'ai reproduit ici le lendemain.
+					p.Outline(r, rBord, rSurface, rayon);
 				const nkentseu::uint16 encre = (variante == 0u) ? rSurAccent : rTexte;
 				p.Text(r, (libelle && *libelle) ? libelle : "Bouton", encre, NkTextAlign::Center);
 				return true;
 			}
 			if (NkComponentDecl::StrEq(nom, "champ_texte")) {
-				p.Fill(r, rSurface, rayon);
-				p.OutlineSharp(r, rBord);
+				p.Outline(r, rBord, rSurface, rayon);
 				NkPaintRect t = r;
 				t.x += 8.f;
 				t.w -= 16.f;
@@ -289,7 +290,10 @@ namespace nkuidesign {
 					p.Line(b.x + c * 0.44f, b.y + c * 0.72f, b.x + c * 0.78f, b.y + c * 0.28f,
 						   rSurAccent, 1.6f);
 				} else
-					p.OutlineSharp(b, rBord);
+					// La boite VIDE : un anneau, pas un rectangle net. Le rayon
+					// de la case suit celui du noeud, borne par sa propre taille.
+					p.Outline(b, rBord, rSurface,
+							  rayon < c * 0.5f ? rayon : c * 0.5f);
 				NkPaintRect t = r;
 				t.x += c + 8.f;
 				t.w -= c + 8.f;
@@ -305,7 +309,9 @@ namespace nkuidesign {
 				const bool actif = valeur > 0.5f;
 				p.Fill(piste, actif ? rAccent : rSurface, h * 0.5f);
 				if (!actif)
-					p.OutlineSharp(piste, rBord);
+					// La piste est deja peinte en demi-hauteur : son contour doit
+					// l'etre aussi, sinon le trait coupe les deux bouts ronds.
+					p.Outline(piste, rBord, rSurface, h * 0.5f);
 				const float32 d = h - 4.f;
 				const NkPaintRect galet{actif ? (piste.x + w - d - 2.f) : (piste.x + 2.f),
 										piste.y + 2.f, d, d};
@@ -336,8 +342,7 @@ namespace nkuidesign {
 				return true;
 			}
 			if (NkComponentDecl::StrEq(nom, "carte")) {
-				p.Fill(r, rSurface, rayon > 0.f ? rayon : 8.f);
-				p.OutlineSharp(r, rBord);
+				p.Outline(r, rBord, rSurface, rayon > 0.f ? rayon : 8.f);
 				return true;
 			}
 			return false;
