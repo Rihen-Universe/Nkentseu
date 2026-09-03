@@ -3015,6 +3015,15 @@ namespace nkuidesign {
 								mSt->doc, mSt->viseGlisser, (const char *)charge, dit);
 							mSt->status = dit; // succes COMME refus : jamais muet
 							if (neuf >= 0) {
+								// 🔴 LA MEME TAILLE VISIBLE QUE LE DOUBLE-CLIC. Mesure du
+								//    03/09 : un composant DEPOSE naissait en `expand` dans une
+								//    page libre -- position juste (84, 404), parent juste,
+								//    taille NULLE. Le double-clic avait recu le correctif,
+								//    pas cette porte. *Un correctif qui ne couvre pas les
+								//    chemins freres ne corrige pas un defaut, il le deplace
+								//    dans le temps.*
+								NkDonnerUneTailleVisible(mSt->doc, neuf, mSt->viseGlisser.parent,
+														 (const char *)charge);
 								mSt->host.demoModels.Clear();
 								mSt->host.SyncTo(mSt->doc);
 								mSt->SelectSingle(neuf);
@@ -8187,6 +8196,14 @@ namespace nkuidesign {
 				in.rightPressed = ctx.input.mouseClicked[1];
 				in.ctrl = ctx.input.ctrlDown;
 				in.shift = ctx.input.shiftDown;
+				// 🔑 L'ARBRE VOIT LE GLISSER DE NKGui. Il ne fait tourner aucune
+				//    machine a glisser : il lit `dragType` / `dragReleased` dans son
+				//    entree -- et personne ne les renseignait. Son reparentage
+				//    interne (dropAccepted, position, garde anti-cycle) etait donc
+				//    complet et INATTEIGNABLE. Mesure du 03/09 : trois glissers,
+				//    aucun depot, « Rien a annuler ».
+				in.dragType = ctx.dragActive ? ctx.dragType : nullptr;
+				in.dragReleased = ctx.dragActive && ctx.input.mouseReleased[0];
 
 				NkDesignPaint paint(ctx, mSt->theme);
 				// la colonne de droite est reservee a l'ascenseur de la section
@@ -8218,6 +8235,37 @@ namespace nkuidesign {
 					   &mHierMenuNode};
 				NkTreeViewHooks hooks;
 				hooks.user = &sur;
+				// ── §15.13 AVANT QUE CA TOMBE : une feuille ne recoit pas « dedans » ──
+				// Refuser ICI, et pas seulement apres, c'est ce qui fait que la marque
+				// de depot ne promet rien : le kit ne dessine pas un « dedans » que la
+				// greffe refuse. *Un refus qui arrive apres la promesse est une
+				// surprise ; avant, c'est une regle.*
+				// ⚠️ VERSION INTERMEDIAIRE : la migration des six rect a enfants du
+				//    document de Rodolf n'est pas faite (§15.13, etape 2). Un rect qui a
+				//    DEJA des enfants reste donc un groupe de fait ; seul un noeud sans
+				//    enfant, sans composant et qui n'est pas un cadre est une feuille.
+				hooks.acceptDrop = [](void *u, const NkTreeNode &, const NkTreeNode &cible,
+									  NkTreeDropPos pos) -> bool {
+					auto *s = static_cast<Sur *>(u);
+					if (!s->pages || pos != NkTreeDropPos::Into)
+						return true;
+					const int32 di = (int32)cible.id - 1;
+					if (!s->doc->IsValidIndex(di))
+						return false;
+					const NkUINode &d = s->doc->nodes[(uint32)di];
+					// 🔴 `shape == "frame"`, PAS `IsFrame()`. Mesure du 03/09 : « Lien mot
+					//    de passe » est ENTRE dans « Champ e-mail », un rect sans enfant.
+					//    `IsFrame()` rend vrai pour TOUT noeud sans `component` -- donc
+					//    pour chaque forme nue -- et la regle de feuille ne refusait jamais.
+					//    *Un predicat qui porte le nom d'une chose et en teste une autre
+					//    est plus dangereux qu'un predicat absent.*
+					const bool conteneur = NkComponentDecl::StrEq(d.shape.Data(), "frame")
+										   || !d.component.Empty() || !d.children.Empty();
+					if (!conteneur)
+						s->st->DireAuPied("Une forme ne reçoit pas d'enfant — déposez "
+										  "avant ou après elle, ou dans un cadre.");
+					return conteneur;
+				};
 				// ── LE CLIC DROIT DE LA HIÉRARCHIE — ET LA CAPACITÉ ÉTAIT DÉJÀ EN
 				//    DESSOUS (porte du 28/08, sixième occurrence de ce motif sur ce
 				//    chantier, et la troisième trouvée AVANT d'écrire).
@@ -8394,6 +8442,101 @@ namespace nkuidesign {
 
 				const NkTreeViewResult res = nkentseu::editorkit::NkDrawTreeView(
 					paint, in, r, modele, Style(inst), hooks);
+
+				// ── LA LIGNE PRESSEE DEVIENT UNE SOURCE DE GLISSER NKGui ──────
+				// 🔑 UNE LIGNE D'ARBRE N'EST PAS UN WIDGET : `activeId` ne la designera
+				//    jamais, donc la forme widget de `BeginDragSource` ne peut pas
+				//    demarrer. La forme A ZONE (jumelle de la cible a zone, ecrite
+				//    aujourd'hui) arme sur l'appui dans la zone de l'arbre -- et le
+				//    kit a deja retenu QUELLE ligne (`modele.dragSource`).
+				//    Deux gestes de Rodolf tenaient a ce seul manque : la palette vers
+				//    la toile (la charge est le NOM DECLARE, le type est celui que la
+				//    toile accepte) et le reparentage dans la hierarchie (la charge est
+				//    l'id du noeud, et c'est l'arbre lui-meme qui le recoit).
+				if (modele.dragSource != 0) {
+					const int32 li = modele.IndexOf(modele.dragSource);
+					if (li >= 0) {
+						char idz[64];
+						snprintf(idz, sizeof(idz), "hier.%s.glisser", cle);
+						if (nkgui::BeginDragSource(ctx, ctx.GetId(idz), zone)) {
+							if (&modele == &mModelePages) {
+								const nkentseu::nk_uint64 idn = modele.dragSource;
+								nkgui::SetDragPayload(ctx, "nkuidesign.noeud", &idn, (int32)sizeof(idn),
+													  modele.nodes[(uint32)li].label.Data());
+							} else if ((uint32)li < (uint32)mComposLignes.Size()
+									   && mComposLignes[li].systeme) {
+								const NkComponentDecl *dk =
+									NkComponentRegistry::At((nkentseu::uint16)mComposLignes[li].index);
+								if (dk && dk->name)
+									nkgui::SetDragPayload(ctx, glisser::NkTypeCharge(), dk->name,
+														  (int32)(strlen(dk->name) + 1u), dk->name);
+							}
+							nkgui::EndDragSource(ctx);
+						}
+					}
+				}
+
+				// ── LE REPARENTAGE PAR GLISSER (Rodolf, 03/09) ─────────────────
+				// 🔑 RIEN N'EST INVENTE : l'arbre du kit armait deja le glisser sur
+				//    chaque ligne et rendait `dropAccepted` avec source, cible et
+				//    position ; `Reparent` existait avec sa garde anti-cycle. Deux
+				//    mecanismes complets que personne n'avait relies.
+				// ⚠️ APPLIQUE APRES LE DESSIN, jamais pendant : c'est la lecon de
+				//    `WorldOutlinerPanel`, qui modifiait les listes qu'il parcourait
+				//    (ecrite dans `NkTreeViewResult`, on la suit).
+				if (res.dropAccepted && &modele == &mModelePages) {
+					const int32 src = (int32)res.dropSource - 1;
+					const int32 dst = (int32)res.dropTarget - 1;
+					NkUIDocument &doc = mSt->doc;
+					if (doc.IsValidIndex(src) && doc.IsValidIndex(dst) && src > 0) {
+						int32 parent = -1, rang = -1;
+						if (res.dropPos == NkTreeDropPos::Into) {
+							parent = dst;
+						} else {
+							parent = doc.nodes[(uint32)dst].parent;
+							if (doc.IsValidIndex(parent)) {
+								const NkVector<int32> &k = doc.nodes[(uint32)parent].children;
+								for (uint32 i = 0; i < (uint32)k.Size(); ++i)
+									if (k[i] == dst) {
+										rang = (int32)i + (res.dropPos == NkTreeDropPos::After ? 1 : 0);
+										break;
+									}
+								// Si la source est deja dans cette fratrie AVANT la cible,
+								// la retirer decale la cible d'un rang : on compense.
+								if (doc.nodes[(uint32)src].parent == parent && rang > 0)
+									for (uint32 i = 0; i < (uint32)k.Size(); ++i)
+										if (k[i] == src) {
+											if ((int32)i < rang)
+												--rang;
+											break;
+										}
+							}
+						}
+						const NkString nomSrc = doc.nodes[(uint32)src].label;
+						if (doc.IsValidIndex(parent) && doc.Reparent(src, parent, rang)) {
+							doc.MarkHumanEdit(src);
+							mSt->host.demoModels.Clear();
+							mSt->host.SyncTo(doc);
+							mSt->SelectSingle(src);
+							char msg[224];
+							snprintf(msg, sizeof(msg), "« %s » déplacé dans « %s ».",
+									 nomSrc.Empty() ? "(sans nom)" : nomSrc.Data(),
+									 doc.nodes[(uint32)parent].label.Empty()
+										 ? "(sans nom)"
+										 : doc.nodes[(uint32)parent].label.Data());
+							mSt->DireAuPied(msg);
+						} else {
+							// La garde de `Reparent` a refuse : un noeud dans sa propre
+							// descendance. ON LE DIT -- un glisser sans effet muet
+							// ressemble a une panne.
+							mSt->DireAuPied("Déplacement refusé : un nœud ne peut pas entrer "
+											"dans sa propre descendance.");
+						}
+					}
+				} else if (res.dropRefusedCycle && &modele == &mModelePages) {
+					mSt->DireAuPied("Déplacement refusé : un nœud ne peut pas entrer dans sa "
+									"propre descendance.");
+				}
 
 				// Un composant du registre ne se renomme pas : la saisie ouverte
 				// par le double-clic est refermee, ET LA RAISON SE DIT (jamais un
@@ -8587,18 +8730,50 @@ namespace nkuidesign {
 				// COSTUME BANANI : la RACINE ne s'affiche pas (Lunacy et la maquette
 				// commencent aux PAGES ; la racine se surligne ailleurs). Les ids
 				// restent i+1 — seule la parenté du modèle saute l'étage racine.
-				for (uint32 i = 0; i < n; ++i) {
+				// 🔴 EN PRE-ORDRE, PAS DANS L'ORDRE DU DOCUMENT. Le marcheur du kit
+				//    (`ForEachVisibleNode`) est une pile sur l'ordre du tableau : un
+				//    enfant doit SUIVRE son parent, sinon il retombe a la racine et le
+				//    parent perd son chevron. Un noeud pose ou depose est en FIN du
+				//    tableau du document -- c'est le « n'apparait pas comme enfant » de
+				//    Rodolf (03/09). Le bloc `IsWellFormed` plus bas le SAVAIT et se
+				//    contentait de l'ecrire au journal. *Une limite journalisee reste
+				//    un defaut a l'ecran.* Les ids restent `indice document + 1` ;
+				//    seul l'ORDRE d'emission change, et `parent` devient un indice
+				//    d'ARBRE remappe.
+				NkVector<int32> pile;
+				NkVector<int32> indiceArbre; // doc -> arbre ; -1 = pas encore emis
+				for (uint32 k = 0; k < n; ++k)
+					indiceArbre.PushBack(-1);
+				uint32 sp = 0;
+				auto empiler = [&](int32 v) {
+					if (sp < (uint32)pile.Size())
+						pile[sp] = v;
+					else
+						pile.PushBack(v);
+					++sp;
+				};
+				if (n > 0) {
+					const NkVector<int32> &rk = mSt->doc.nodes[0].children;
+					for (uint32 c = (uint32)rk.Size(); c > 0; --c)
+						empiler(rk[c - 1]); // a l'envers : le premier enfant sort en premier
+				}
+				uint32 garde = 0;
+				while (sp > 0 && garde++ < n * 2u + 8u) {
+					const uint32 i = (uint32)pile[--sp];
+					if (i >= n)
+						continue;
 					const NkUINode &d = mSt->doc.nodes[i];
 					if (d.parent < 0)
 						continue; // la racine
 					NkTreeNode t;
 					t.id = (nkentseu::nk_uint64)(i + 1);
 					// ⚠️ `parent` du modèle = INDEX DE MODÈLE : la racine sautée
-					//    décale tout d'un cran (doc i -> modèle i-1).
+					//    ne décale plus rien : l'émission est en pré-ordre et le parent
+					//    est l'indice d'ARBRE remappé (`indiceArbre`), déjà émis.
 					t.parent = (mSt->doc.IsValidIndex(d.parent)
 								&& mSt->doc.nodes[(uint32)d.parent].parent < 0)
 								   ? -1
-								   : d.parent - 1;
+								   : indiceArbre[(uint32)d.parent];
 					t.label = d.label.Empty() ? NkString(d.component.Empty() ? "(cadre)"
 																			: d.component.Data())
 											  : d.label;
@@ -8665,7 +8840,11 @@ namespace nkuidesign {
 					t.hidden = tCache;
 					t.locked = tVerr;
 					t.flagsInherited = tHerite;
+					indiceArbre[i] = (int32)mModelePages.nodes.Size();
 					mModelePages.nodes.PushBack(t);
+					// ses enfants, a l'envers, pour qu'ils sortent dans l'ordre
+					for (uint32 c = (uint32)d.children.Size(); c > 0; --c)
+						empiler(d.children[c - 1]);
 				}
 				// ⚠️ LES PLAFONDS CRIENT, ILS NE DÉBORDENT PAS EN SILENCE.
 				//    `IsWellFormed` refuse au-delà de `kMaxDepth` (64) et sur un
