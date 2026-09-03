@@ -9381,6 +9381,93 @@ namespace nkuidesign {
 		return (uint32)(sizeof(kNormal) / sizeof(kNormal[0]));
 	}
 
+	/// LA PASTILLE DE COULEUR, UNE FOIS POUR TOUS LES SITES (Rodolf, 04/09 :
+	/// « pourquoi pour le choix des couleurs on n'a pas de color picker ? »).
+	///
+	/// ⚠️ ON NE CONSTRUIT RIEN : `NKGui` expose `ColorPicker4` (carré SV + barre
+	///    de teinte, teinte mémorisée même au noir) depuis toujours ; aucun
+	///    appel n'existait dans l'application. C'est un BRANCHEMENT.
+	///
+	/// La pastille dessine la couleur du tampon hexadécimal ; au clic elle ouvre
+	/// le sélecteur en popup ; toute modification réécrit le tampon en `#rrggbb`
+	/// et rend `true` — l'appelant fait alors ce qu'il fait déjà quand on tape le
+	/// code à la main. Le champ hexadécimal RESTE : un sélecteur qui supprimerait
+	/// la saisie au clavier serait une régression déguisée en fonctionnalité.
+	inline bool NkPastilleCouleur(nkgui::NkGuiContext &ctx, const char *idStr, const nkgui::NkRect &sw,
+								  char *hexBuf, nkentseu::uint32 cap) {
+		using namespace nkentseu;
+		auto nyb = [](char c) -> int32 {
+			if (c >= '0' && c <= '9')
+				return c - '0';
+			if (c >= 'a' && c <= 'f')
+				return c - 'a' + 10;
+			if (c >= 'A' && c <= 'F')
+				return c - 'A' + 10;
+			return -1;
+		};
+		float32 col[4] = {0.5f, 0.5f, 0.5f, 1.f};
+		bool lisible = hexBuf && hexBuf[0] == '#';
+		if (lisible)
+			for (int32 k = 0; k < 3; ++k) {
+				const int32 h1 = nyb(hexBuf[1 + k * 2]), h2 = nyb(hexBuf[2 + k * 2]);
+				if (h1 < 0 || h2 < 0) {
+					lisible = false;
+					break;
+				}
+				col[k] = (float32)(h1 * 16 + h2) / 255.f;
+			}
+		const nkgui::NkColor teinte = {(uint8)(col[0] * 255.f + 0.5f), (uint8)(col[1] * 255.f + 0.5f),
+									   (uint8)(col[2] * 255.f + 0.5f), 255};
+		const nkgui::NkGuiId id = ctx.GetId(idStr);
+		bool survol = false, tenu = false;
+		const bool clic = ctx.ButtonBehavior(id, sw, nkgui::NkGuiButtonFlags::None, -1.f, -1.f, &survol, &tenu);
+		if (lisible)
+			ctx.DL().AddRectFilled(sw, teinte, 3.f);
+		ctx.DL().AddRect(sw, (survol || ctx.IsPopupOpen(id)) ? ctx.theme.accent : ctx.theme.border, 1.f, 3.f);
+		if (!lisible)
+			ctx.DL().AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f}, ctx.theme.textMuted, 1.f);
+		if (clic) {
+			if (ctx.IsPopupOpen(id))
+				ctx.ClosePopup();
+			else
+				ctx.OpenPopup(id);
+		}
+		bool change = false;
+		if (ctx.IsPopupOpen(id)) {
+			// mêmes mesures que `ColorEdit4` du kit : carré 160 + barre de teinte
+			const float32 pw = 160.f + 12.f + 16.f + 24.f;
+			const float32 ph = 160.f + 16.f + 6.f * (ctx.ItemHeight() + ctx.layout.itemSpacingY);
+			nkgui::NkRect pr = {sw.x, sw.y + sw.h + 2.f, pw, ph};
+			if (pr.y + pr.h > (float32)ctx.viewH)
+				pr.y = sw.y - ph - 2.f;
+			if (pr.y < 0.f)
+				pr.y = 2.f;
+			if (pr.x + pr.w > (float32)ctx.viewW)
+				pr.x = (float32)ctx.viewW - pr.w - 2.f;
+			if (nkgui::BeginPopup(ctx, idStr, pr, sw)) {
+				if (nkgui::ColorPicker4(ctx, "##pick", col, nkgui::NkGuiColorFlags::NoAlpha))
+					change = true;
+				nkgui::EndPopup(ctx);
+			}
+		}
+		if (change && hexBuf && cap >= 8u) {
+			static const char *kHex = "0123456789abcdef";
+			hexBuf[0] = '#';
+			for (int32 k = 0; k < 3; ++k) {
+				float32 v = col[k];
+				if (v < 0.f)
+					v = 0.f;
+				if (v > 1.f)
+					v = 1.f;
+				const int32 o = (int32)(v * 255.f + 0.5f);
+				hexBuf[1 + k * 2] = kHex[(o >> 4) & 0xF];
+				hexBuf[2 + k * 2] = kHex[o & 0xF];
+			}
+			hexBuf[7] = '\0';
+		}
+		return change;
+	}
+
 	class InspectorPanel : public NkEditorPanel {
 			/// L'acces de banc au corps des sections de proprietes
 			/// (`--recette-proprietes`). MEME DISCIPLINE que
@@ -10986,14 +11073,10 @@ namespace nkuidesign {
 					// La pastille du fond de cet état, ou « — » s'il est hérité.
 					const NkRect sw = {x0 + colEtat,
 									   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
-					if (pose && !a->fond.Empty()) {
-						dl.AddRectFilled(sw, CouleurHex(a->fond.Data(), ctx.theme.textMuted), 3.f);
-						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-					} else {
-						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-						dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
-								   ctx.theme.textMuted, 1.f);
-					}
+					char idPast[40];
+					snprintf(idPast, sizeof(idPast), "##insp.etat.pastille%u", e);
+					const bool pickerEtat =
+						NkPastilleCouleur(ctx, idPast, sw, mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]));
 					// LE CHAMP HEXA DU FOND -- la moitié qui rend le geste VRAI :
 					// une section qui liste sans poser n'est pas utilisable.
 					// ⚠️ VIDER LE CHAMP RETIRE LA SURCHARGE (retour à l'hérité) et
@@ -11006,7 +11089,7 @@ namespace nkuidesign {
 						snprintf(idH, sizeof(idH), "##insp.etat.hex%u", e);
 						ctx.SetNextItemRect({xChamp, costume::BandeY(r.y),
 											 x1 - xChamp, costume::HControle});
-						if (nkgui::InputText(ctx, idH, mEtatsBuf[e], 10)) {
+						if (nkgui::InputText(ctx, idH, mEtatsBuf[e], 10) || pickerEtat) {
 							NkApparenceEtat &bloc = NkBlocEtat(*n, etats[e]);
 							bloc.fond = NkString(mEtatsBuf[e]);
 							if (bloc.Vide())
@@ -11148,20 +11231,15 @@ namespace nkuidesign {
 						const ColonnesRangee col = ColonnesDe(r);
 						const NkRect sw = {col.pastille,
 										   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
-						if (mEffetsBuf[i][0]) {
-							dl.AddRectFilled(sw, CouleurHex(mEffetsBuf[i], ctx.theme.textMuted),
-											 3.f);
-							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-						} else {
-							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-							dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
-									   ctx.theme.textMuted, 1.f);
-						}
+							char idPast[40];
+						snprintf(idPast, sizeof(idPast), "##insp.effet.pastille%u", i);
+						const bool pickerEffe =
+							NkPastilleCouleur(ctx, idPast, sw, mEffetsBuf[i], (uint32)sizeof(mEffetsBuf[i]));
 						char idHex[32];
 						snprintf(idHex, sizeof(idHex), "##insp.effet.hex%u", i);
 						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW,
 											 costume::HControle});
-						if (nkgui::InputText(ctx, idHex, mEffetsBuf[i], 10)) {
+						if (nkgui::InputText(ctx, idHex, mEffetsBuf[i], 10) || pickerEffe) {
 							e.couleur = NkString(mEffetsBuf[i]);
 							mSt->doc.MarkHumanEdit(mSt->selected);
 						}
@@ -12224,21 +12302,17 @@ namespace nkuidesign {
 					// 1. la PASTILLE de couleur
 					const NkRect sw = {col.pastille, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f,
 										   16.f};
-					if (mFillsBuf[i][0]) {
-						dl.AddRectFilled(sw, CouleurHex(mFillsBuf[i], ctx.theme.textMuted), 3.f);
-						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-					} else {
-						dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-						dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
-								   ctx.theme.textMuted, 1.f);
-					}
+					char idPast[40];
+					snprintf(idPast, sizeof(idPast), "##insp.fill.pastille%u", i);
+					const bool pickerFill =
+						NkPastilleCouleur(ctx, idPast, sw, mFillsBuf[i], (uint32)sizeof(mFillsBuf[i]));
 					// 2. l'HEXA — la seule écriture qui NE matérialise PAS : tant
 					//    qu'on ne change qu'une couleur, un document d'avant garde
 					//    sa clé simple et son octet près.
 					char idHex[32];
 					snprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
 					ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});
-					if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10)) {
+					if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10) || pickerFill) {
 						if (simple)
 							n->fill = NkString(mFillsBuf[i]);
 						else
@@ -12499,19 +12573,14 @@ namespace nkuidesign {
 						const bool visible = simple ? true : n->borders[i].visible;
 						const NkRect sw = {col.pastille, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f,
 										   16.f};
-						if (mBordsBuf[i][0]) {
-							dl.AddRectFilled(sw, CouleurHex(mBordsBuf[i], ctx.theme.textMuted),
-											 3.f);
-							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-						} else {
-							dl.AddRect(sw, ctx.theme.border, 1.f, 3.f);
-							dl.AddLine({sw.x + 3.f, sw.y + 13.f}, {sw.x + 13.f, sw.y + 3.f},
-									   ctx.theme.textMuted, 1.f);
-						}
+							char idPast[40];
+						snprintf(idPast, sizeof(idPast), "##insp.bord.pastille%u", i);
+						const bool pickerBord =
+							NkPastilleCouleur(ctx, idPast, sw, mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]));
 						char idHex[32];
 						snprintf(idHex, sizeof(idHex), "##insp.bord.hex%u", i);
 						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});
-						if (nkgui::InputText(ctx, idHex, mBordsBuf[i], 10)) {
+						if (nkgui::InputText(ctx, idHex, mBordsBuf[i], 10) || pickerBord) {
 							if (simple)
 								n->borderColor = NkString(mBordsBuf[i]);
 							else
