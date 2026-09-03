@@ -1963,6 +1963,56 @@ static nkentseu::int32 RecetteGestes() {
 				nomme, det5);
 	}
 
+	// ── UN COMPOSANT SYSTEME SE POSE DEPUIS LA LISTE ───────────────────────
+	// 🔴 IL SE FAISAIT RENVOYER AILLEURS. Le double-clic repondait « composant
+	//    systeme : il se pose depuis la palette du rail, pas d'ici », et Rodolf
+	//    a repondu « je ne comprends pas ». Cette phrase parlait de NOTRE
+	//    architecture -- la separation §15.1 entre composants du kit et
+	//    composants du document. Elle est vraie dans le code et n'a aucun sens
+	//    sous la main : les deux natures paraissent dans LA MEME liste.
+	//    *Un composant visible dans une liste doit pouvoir se poser ; sinon
+	//    c'est la liste qui est mal faite, pas le geste.*
+	//
+	// ⚠️ CE CAS EXIGE UN EFFET, PAS L'ABSENCE D'UN MESSAGE. Verifier que le
+	//    refus a disparu laisserait passer un geste devenu muet -- c'est-a-dire
+	//    le remplacement d'un mauvais message par rien du tout.
+	{
+		DesignState::PeuplerRegistre();
+		DesignState st;
+		st.doc.NewDocument("systeme", NkAuthor::Humain);
+		const int32 pg = st.doc.AddChild(0, "", NkAuthor::Humain);
+		st.doc.nodes[(uint32)pg].label = NkString("Page");
+		st.doc.nodes[(uint32)pg].layout.kind = NkLayoutKind::Free;
+		st.SelectClear();
+		const uint32 avant = (uint32)st.doc.nodes.Size();
+		// LE COMPOSANT VISE EST LU DU REGISTRE, jamais nomme en dur : un essai
+		// qui ecrirait « bouton » cesserait de mesurer le jour ou la table
+		// change, et il le ferait en silence.
+		const NkComponentDecl *d0 = NkComponentRegistry::At(0);
+		const bool pose = d0 && NkPoserComposantSysteme(st, d0->name);
+		const uint32 apres = (uint32)st.doc.nodes.Size();
+		const int32 neuf = (int32)apres - 1;
+		const bool bonParent = pose && st.doc.IsValidIndex(neuf)
+							   && st.doc.nodes[(uint32)neuf].parent == pg;
+		const bool bonCompo = pose && d0
+							  && st.doc.nodes[(uint32)neuf].component == NkString(d0->name);
+		// ⚠️ ET LE MESSAGE NE DOIT PLUS RENVOYER AILLEURS : on cherche la phrase
+		//    qui parlait d'architecture, pas une phrase precise -- exiger un
+		//    libelle exact ferait tomber ce cas a la premiere reformulation.
+		const bool sansRenvoi =
+			st.status.Data() != nullptr && strstr(st.status.Data(), "palette du rail") == nullptr;
+		char det[240];
+		snprintf(det, sizeof(det), "compo=%s pose=%d noeuds %u->%u parent=%d/%d dit=%s",
+				 d0 && d0->name ? d0->name : "(aucun)", pose ? 1 : 0, avant, apres,
+				 st.doc.IsValidIndex(neuf) ? st.doc.nodes[(uint32)neuf].parent : -1, pg,
+				 st.status.Data() ? st.status.Data() : "(muet)");
+		verdict("composant systeme : le double-clic le POSE dans la page (il ne renvoie "
+				"plus vers « la palette du rail »)",
+				pose && apres == avant + 1u && bonParent && bonCompo && sansRenvoi
+					&& !st.status.Empty(),
+				det);
+	}
+
 	// ── AUCUNE FORME DE NOEUD NE SE DESSINE SANS SON RAYON ─────────────────
 	// 🔴 TROISIEME RETOUR DU MEME DEFAUT, ET LA CAUSE EST STRUCTURELLE. Rodolf
 	//    a photographie un fond arrondi souligne d'un angle droit. Corrige une

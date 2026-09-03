@@ -2026,6 +2026,71 @@ namespace nkuidesign {
 	/// POSER une instance d'un composant DE DOCUMENT — la moitié « réutiliser ».
 	/// Cible : la sélection si elle peut recevoir, sinon la première page.
 	/// Même discipline que le dispatcher : chaque refus SE DIT au pied.
+	/// OU SE POSE CE QU'ON DOUBLE-CLIQUE DANS UNE LISTE : la selection si elle
+	/// en est une, sinon la premiere page. -1 = il n'y a pas encore de page.
+	/// 🔑 UNE SEULE REPONSE POUR LES DEUX NATURES. Les composants du document et
+	///    ceux du kit se posent differemment (instancier une declaration vs
+	///    ajouter un enfant), mais la QUESTION « ou ? » est la meme -- et deux
+	///    reponses auraient fait atterrir deux composants voisins a deux
+	///    endroits sans que rien ne l'explique a l'ecran.
+	/// ⚠️ Jamais la RACINE : y poser creerait du « hors page » que la main n'a
+	///    pas demande.
+	inline nkentseu::int32 NkParentPourPose(const DesignState &st) {
+		using namespace nkentseu;
+		if (st.doc.IsValidIndex(st.selected) && st.selected != 0)
+			return st.selected;
+		for (uint32 c = 0; c < (uint32)st.doc.nodes[0].children.Size(); ++c)
+			return st.doc.nodes[0].children[c];
+		return -1;
+	}
+
+	/// POSER un composant DU KIT (systeme) depuis une liste.
+	///
+	/// 🔴 IL N'EXISTAIT PAS, ET C'EST POURQUOI ON REFUSAIT. Le double-clic sur
+	///    un composant systeme repondait « il se pose depuis la palette du rail,
+	///    pas d'ici » -- une phrase qui parle de NOTRE architecture. Rodolf :
+	///    « je ne comprends pas ». Il avait raison de ne pas comprendre : la
+	///    frontiere entre « composant du document » et « composant du kit » est
+	///    une distinction d'implementation, elle n'a aucun sens pour la main qui
+	///    voit deux lignes dans la meme liste.
+	///    *Un composant visible dans une liste doit pouvoir se poser ; sinon
+	///    c'est la liste qui est mal faite, pas le geste.*
+	///
+	/// ⚠️ ET C'EST LE MEME CHEMIN QUE LA PALETTE ET QUE LE DEPOT : `AddChild`,
+	///    qui refuse de lui-meme un nom absent du registre. Aucune troisieme
+	///    ecriture.
+	inline bool NkPoserComposantSysteme(DesignState &st, const char *nom) {
+		using namespace nkentseu;
+		if (!nom || !*nom) {
+			st.status = NkString("Poser : composant inconnu.");
+			return false;
+		}
+		const int32 parent = NkParentPourPose(st);
+		if (parent < 0) {
+			st.status = NkString("Poser : crée d'abord une page pour recevoir le composant.");
+			return false;
+		}
+		const int32 neuf = st.doc.AddChild(parent, nom, NkAuthor::Humain);
+		if (neuf < 0) {
+			char b[176];
+			snprintf(b, sizeof(b), "Poser : « %s » n'est pas au registre.", nom);
+			st.status = NkString(b);
+			return false;
+		}
+		st.doc.MarkHumanEdit(neuf);
+		st.host.demoModels.Clear();
+		st.host.SyncTo(st.doc);
+		st.SelectSingle(neuf);
+		char b[208];
+		snprintf(b, sizeof(b), "« %s » posé dans « %s ».",
+				 st.doc.nodes[(uint32)neuf].label.Data(),
+				 st.doc.nodes[(uint32)parent].label.Empty()
+					 ? "(sans nom)"
+					 : st.doc.nodes[(uint32)parent].label.Data());
+		st.status = NkString(b);
+		return true;
+	}
+
 	inline bool NkPoserComposantDocument(DesignState &st, nkentseu::int32 decl) {
 		using namespace nkentseu;
 		if (decl < 0 || decl >= (int32)st.doc.declarations.Size()) {
@@ -2034,16 +2099,7 @@ namespace nkuidesign {
 			st.status = NkString("Poser : composant inconnu.");
 			return false;
 		}
-		int32 parent = (st.doc.IsValidIndex(st.selected) && st.selected != 0) ? st.selected : -1;
-		if (parent < 0) {
-			// Sans sélection : la première page. Poser à la RACINE serait créer
-			// du « hors page » sans que la main l'ait demandé.
-			for (nkentseu::uint32 c = 0; c < (nkentseu::uint32)st.doc.nodes[0].children.Size();
-				 ++c) {
-				parent = st.doc.nodes[0].children[c];
-				break;
-			}
-		}
+		const int32 parent = NkParentPourPose(st);
 		if (parent < 0) {
 			st.status = NkString("Poser : crée d'abord une page pour recevoir le composant.");
 			return false;
@@ -8112,11 +8168,15 @@ namespace nkuidesign {
 						}
 					modele.renameCancel = true;
 					if (estSysteme) {
-						// ⚠️ UN COMPOSANT DU KIT NE SE POSE PAS COMME UN COMPOSANT
-						//    DE DOCUMENT — ce sont deux natures (§15.1). Le refus
-						//    SE DIT et nomme la porte : la palette du rail.
-						mSt->DireAuPied("Composant système : il se pose depuis la "
-										"palette du rail, pas d'ici.");
+						// 🔴 ON POSE, ON NE RENVOIE PLUS AILLEURS. Ce bloc disait
+						//    « il se pose depuis la palette du rail, pas d'ici » —
+						//    une phrase sur NOTRE architecture, devant laquelle
+						//    Rodolf a repondu « je ne comprends pas ». Les deux
+						//    natures restent distinctes DANS LE CODE ; elles
+						//    n'avaient aucune raison de l'etre sous la main.
+						const NkComponentDecl *dk =
+							NkComponentRegistry::At((nkentseu::uint16)decl);
+						NkPoserComposantSysteme(*mSt, dk ? dk->name : nullptr);
 						return;
 					}
 					// La fonction dit TOUJOURS son verdict au pied — succès comme
