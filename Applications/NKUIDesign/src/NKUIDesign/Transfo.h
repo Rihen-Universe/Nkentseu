@@ -580,15 +580,59 @@ namespace nkuidesign {
 	///    maillon, et il est nommé** — que le peintre reçoive la matrice
 	///    effective de ses ancêtres, ce qui veut dire la faire descendre depuis
 	///    `NkDrawNodeTree` jusqu'à chaque branche de `DrawShape`.
+	/// 🔴 ELLE REFUSAIT TOUT NŒUD À ENFANTS, ET C'ÉTAIT UN BLOCAGE, PAS UNE
+	///    GARDE (Rodolf, 03/09 : *« pas toujours de poignée de rotation
+	///    visible »*). **Son objet de travail est `Bouton_Connexion` — un bouton
+	///    avec un libellé dedans, donc un nœud à enfants.** La règle interdisait
+	///    donc le geste sur l'objet le plus courant de l'application, et il ne
+	///    voyait rien : ni poignée, ni raison, puisqu'on ne dessine pas ce qu'on
+	///    refuse. *Une règle qui refuse le geste sur l'objet le plus courant
+	///    n'est pas une garde, c'est un blocage.*
+	///
+	/// ⚠️ ET LA MESURE DIT QUE RIEN NE CASSE. Le dessin recurse dans les enfants
+	///    SANS transformation du parent (`NkDrawDocument`, fin de fonction) :
+	///    le parent se dessine tourné ET se clique tourné (même contour), chaque
+	///    enfant se dessine droit ET se clique droit. **Aucun objet n'est à deux
+	///    endroits** — c'est ce que craignait l'ancienne raison, et ça n'arrive
+	///    pas. Ce qui manque est la rotation D'ENSEMBLE, pas la cohérence.
+	///
+	/// 🔑 ET LE PRÉCÉDENT ÉTAIT DÉJÀ DANS CE FICHIER : pour le TEXTE, on a
+	///    choisi d'enregistrer, de dessiner ce qu'on sait, et de DIRE le reste
+	///    (`NkPeintureSaitTourner`) — au lieu de refuser le champ. Le commentaire
+	///    d'à côté explique même pourquoi : refuser aurait fait « échouer à
+	///    moitié, sans qu'on sache pourquoi ». La même règle vaut ici, et elle
+	///    n'avait pas traversé les vingt lignes qui séparent les deux fonctions.
 	inline bool NkPeutTourner(const NkUINode &n) {
-		return n.children.Size() == 0;
+		(void)n;
+		return true;
 	}
 
-	/// La raison du refus. **Jamais vide.**
+	/// Vrai si la rotation de `n` emporte TOUT ce qu'on voit à sa place.
+	/// Faux = elle est PARTIELLE, et l'interface doit le dire.
+	inline bool NkRotationEmporteTout(const NkUINode &n) {
+		return n.children.Size() == 0 && NkPeintureSaitTourner(n);
+	}
+
+	/// Ce que la rotation ne fera PAS, en toutes lettres. **Jamais vide** quand
+	/// `NkRotationEmporteTout` est faux.
+	/// ⚠️ Elle NOMME le manque au lieu de le taire : un bouton qui tourne
+	///    pendant que son libellé reste droit doit s'expliquer à l'instant où ça
+	///    se voit, pas dans une note de version.
+	inline const char *NkRaisonRotationPartielle(const NkUINode &n) {
+		if (!n.children.Empty() && !NkPeintureSaitTourner(n))
+			return "Rotation — le contenu et le texte restent droits (rotation d'ensemble : "
+				   "pas encore).";
+		if (!n.children.Empty())
+			return "Rotation — les éléments contenus restent droits (rotation d'ensemble : "
+				   "pas encore).";
+		return "Rotation enregistrée — ce peintre ne sait pas tourner du texte, le "
+			   "libellé reste droit à l'écran.";
+	}
+
+	/// Conservée : d'anciens sites la citent encore.
 	inline const char *NkRaisonPasDeRotation() {
-		return "Rotation sur un groupe : pas encore. Le clic suivrait la forme tournée, "
-			   "le dessin resterait droit — l'objet serait à deux endroits. Tourne ses "
-			   "éléments un par un en attendant.";
+		return "Rotation d'ensemble : pas encore. Le nœud tourne, ce qu'il contient reste "
+			   "droit.";
 	}
 
 } // namespace nkuidesign
