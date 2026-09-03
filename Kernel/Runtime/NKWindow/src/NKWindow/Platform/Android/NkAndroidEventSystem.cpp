@@ -257,6 +257,20 @@ namespace nkentseu {
 			case NkKey::NK_POWER:
 			case NkKey::NK_HOME_BUTTON:
 			case NkKey::NK_APP_SWITCH:
+			// Ajoutes le 2026-09-03 avec l'inventaire : eux aussi appartiennent
+			// au systeme. Les reclamer priverait l'utilisateur de son
+			// assistant, de sa luminosite ou de sa mise en veille -- pour un
+			// jeu qui, la plupart du temps, ne voulait que le savoir.
+			case NkKey::NK_ASSIST:
+			case NkKey::NK_VOICE_ASSIST:
+			case NkKey::NK_BRIGHTNESS_UP:
+			case NkKey::NK_BRIGHTNESS_DOWN:
+			case NkKey::NK_SLEEP:
+			case NkKey::NK_WAKEUP:
+			case NkKey::NK_NOTIFICATION:
+			case NkKey::NK_SETTINGS:
+			case NkKey::NK_MEDIA_PLAY:
+			case NkKey::NK_MEDIA_PAUSE:
 				return true;
 			default:
 				return false;
