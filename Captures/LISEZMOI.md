@@ -53,6 +53,8 @@ Trois conditions, dans cet ordre :
 
 | `noge_vehicule_2026-09-04.png` | 297 091 | **La voiture roule** — 04/09, `renderdemo` OpenGL : châssis + 4 roues sur `NkVehicle`, ombre portée, `Draw:1243` contre 1093 sans elle. Citée par `echanges_noge.md` et `CONCEPTION_VEHICULE.md` |
 
+| `noge_particules_2026-09-04.png` | 354 667 | **Les particules rendent** — 04/09, `renderdemo` OpenGL : 502 vivantes, `Draw:1094` et `Tris:490542` contre 1093/489588 sans elles. Citée par `DECISIONS_RODOLF.md` bloc 13 |
+
 ### Les deux témoins INVALIDÉS — versionnés exprès
 
 | image | octets | pourquoi on la garde |

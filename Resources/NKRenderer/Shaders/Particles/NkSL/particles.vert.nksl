@@ -1,0 +1,53 @@
+// particles.vert.nksl — NKRenderer — billboard de particule (VRAI dialecte NkSL)
+// Ecrit le 2026-09-04. AVANT : le pipeline « ParticlesBillboard » n'avait AUCUN
+// shader (ni vertexLayout, ni topology) — CreateGraphicsPipeline rendait {} et
+// Draw partait sans programme. Et le CPU ecrivait quatre sommets a la MEME
+// position : meme avec un programme, l'aire etait nulle.
+//
+// Ici les coins sont expanses DANS LE VERTEX SHADER, a partir de aSize et du
+// repere camera lu dans uCam.view (ligne 0 = right monde, ligne 1 = up monde).
+// Pas de geometry shader : WebGL2 n'en a pas, et le Web est le chemin Apple.
+
+@location(0) in vec3  aPos;      // centre monde de la particule
+@location(1) in vec2  aUV;       // coin : (0,0) (1,0) (1,1) (0,1)
+@location(2) in vec4  aColor;    // RGBA8_UNORM -> vec4 normalise
+@location(3) in float aSize;     // cote du billboard, en metres
+@location(4) in float aRotation; // rotation dans le plan de l'ecran, radians
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+} uCam;
+
+@location(0) out vec2 vUV;
+@location(1) out vec4 vColor;
+
+@stage(vertex)
+@entry
+void main() {
+    vUV    = aUV;
+    vColor = aColor;
+
+    // Repere camera en MONDE : les colonnes de la matrice de vue transposee.
+    vec3 right = vec3(uCam.view[0][0], uCam.view[1][0], uCam.view[2][0]);
+    vec3 up    = vec3(uCam.view[0][1], uCam.view[1][1], uCam.view[2][1]);
+
+    // Coin centre : (0,0)->(-1,-1) ... (1,1)->(+1,+1)
+    vec2 c = aUV * 2.0 - 1.0;
+    float cs = cos(aRotation);
+    float sn = sin(aRotation);
+    vec2 r = vec2(c.x * cs - c.y * sn, c.x * sn + c.y * cs);
+
+    float h = aSize * 0.5;
+    vec3 world = aPos + right * (r.x * h) + up * (r.y * h);
+    gl_Position = uCam.viewProj * vec4(world, 1.0);
+}

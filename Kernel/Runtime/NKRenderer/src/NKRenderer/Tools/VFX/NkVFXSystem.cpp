@@ -2,6 +2,8 @@
 // NkVFXSystem.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkVFXSystem.h"
+#include "NKRenderer/Shader/NkShaderLibrary.h" // shader des particules (2026-09-04)
+#include "NKLogger/NkLog.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKMath/NKMath.h"
 #include "NKMemory/NkAllocator.h"
@@ -33,10 +35,26 @@ namespace nkentseu {
 			Shutdown();
 		}
 
-		bool NkVFXSystem::Init(NkIDevice *device, NkTextureLibrary *texLib, NkMeshSystem *mesh) {
+		bool NkVFXSystem::Init(NkIDevice *device, NkTextureLibrary *texLib, NkMeshSystem *mesh,
+							   NkShaderLibrary *shaderLib) {
 			mDevice = device;
 			mTexLib = texLib;
 			mMesh = mesh;
+			mShaderLib = shaderLib;
+
+			// ── LE SHADER DES PARTICULES (2026-09-04) ────────────────────────
+			// Avant : les trois pipelines VFX n'avaient NI shader, NI vertexLayout.
+			// CreateGraphicsPipeline rend {} quand d.shader est introuvable, donc
+			// BindGraphicsPipeline ne liait rien et Draw partait sans programme.
+			// Le defaut etait invisible parce que personne n'appelait Update() :
+			// aliveCount == 0 court-circuitait le dessin AVANT qu'il ne puisse
+			// echouer. Un defaut en cachait un autre.
+			::nkentseu::NkShaderHandle particleShader;
+			if (mShaderLib) {
+				auto prog = mShaderLib->LoadOrCompileVF("Particles", "", "");
+				if (prog.IsValid())
+					particleShader = mShaderLib->GetRHIHandle(prog);
+			}
 
 			{
 				NkGraphicsPipelineDesc pd;
@@ -46,7 +64,20 @@ namespace nkentseu {
 				pd.depthStencil.depthWriteEnable = false;
 				pd.blend = NkBlendDesc::Additive();
 				pd.debugName = "ParticlesBillboard";
+				pd.shader = particleShader;
+				// Layout de NkVertexParticle (stride 32) : le CPU ecrit six
+				// sommets par particule, le VS expanse les coins depuis aUV+aSize.
+				pd.vertexLayout.AddBinding(0, sizeof(NkVertexParticle), false)
+					.AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+					.AddAttribute(1, 0, NkGPUFormat::NK_RG32_FLOAT, 12, "TEXCOORD", 0)
+					.AddAttribute(2, 0, NkGPUFormat::NK_RGBA8_UNORM, 20, "COLOR", 0)
+					.AddAttribute(3, 0, NkGPUFormat::NK_R32_FLOAT, 24, "TEXCOORD", 1)
+					.AddAttribute(4, 0, NkGPUFormat::NK_R32_FLOAT, 28, "TEXCOORD", 2);
 				mPipeParticle = mDevice->CreateGraphicsPipeline(pd);
+				if (!mPipeParticle.IsValid())
+					logger.Errorf("[NkVFXSystem] pipeline particules INVALIDE (shader_valid=%d) -- "
+								  "rien ne se dessinera\n",
+								  particleShader.IsValid() ? 1 : 0);
 			}
 			{
 				NkGraphicsPipelineDesc pd;
@@ -101,7 +132,7 @@ namespace nkentseu {
 
 			// GPU billboard VBO (NkVertexParticle)
 			e->vbo =
-				mDevice->CreateBuffer(NkBufferDesc::VertexDynamic(desc.maxParticles * sizeof(NkVertexParticle) * 4));
+				mDevice->CreateBuffer(NkBufferDesc::VertexDynamic(desc.maxParticles * sizeof(NkVertexParticle) * 6));
 
 			mEmitters.PushBack(e);
 			return e->id;
@@ -271,26 +302,27 @@ namespace nkentseu {
 				return;
 
 			NkVector<NkVertexParticle> verts;
-			verts.Reserve(e->aliveCount * 4);
+			verts.Reserve(e->aliveCount * 6);
 			for (auto &p : e->particles) {
 				if (!p.alive)
 					continue;
 				uint32 col = ((uint32)(p.color.w * 255) << 24) | ((uint32)(p.color.z * 255) << 16) |
 							 ((uint32)(p.color.y * 255) << 8) | (uint32)(p.color.x * 255);
-				// 4 verts billboard (expansés dans le vertex shader ou ici)
+				// SIX sommets — deux triangles. La topologie du pipeline est
+				// NK_TRIANGLE_LIST : quatre sommets faisaient UN triangle et un
+				// orphelin. Les coins sont expanses dans le VERTEX shader, a
+				// partir de aUV et aSize (cf. particles.vert.nksl) : ici les six
+				// sommets partagent le centre, seul aUV les distingue.
 				NkVertexParticle v;
 				v.pos = p.pos;
 				v.size = p.size;
 				v.rotation = p.rotation;
 				v.color = col;
-				v.uv = {0, 0};
-				verts.PushBack(v);
-				v.uv = {1, 0};
-				verts.PushBack(v);
-				v.uv = {1, 1};
-				verts.PushBack(v);
-				v.uv = {0, 1};
-				verts.PushBack(v);
+				const NkVec2f kCorners[6] = {{0, 0}, {1, 0}, {1, 1}, {0, 0}, {1, 1}, {0, 1}};
+				for (uint32 k = 0; k < 6; ++k) {
+					v.uv = kCorners[k];
+					verts.PushBack(v);
+				}
 			}
 			mDevice->WriteBuffer(e->vbo, verts.Data(), (uint32)verts.Size() * sizeof(NkVertexParticle));
 		}
@@ -423,7 +455,7 @@ namespace nkentseu {
 			(void)cam;
 			cmd->BindGraphicsPipeline(mPipeParticle);
 			cmd->BindVertexBuffer(0, e->vbo, 0);
-			cmd->Draw(e->aliveCount * 4, 1, 0, 0);
+			cmd->Draw(e->aliveCount * 6, 1, 0, 0); // six sommets = deux triangles
 		}
 
 		void NkVFXSystem::RenderTrail(NkICommandBuffer *cmd, Trail *t, const NkCamera3DData &cam) {
@@ -451,7 +483,7 @@ namespace nkentseu {
 				if (d->desc.fadeOut && d->desc.lifetime > 0)
 					ub.opacity *= 1.f - (d->age / d->desc.lifetime);
 				ub.normalBlend = d->desc.normalBlend;
-				cmd->PushConstants(NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(ub), &ub);
+				cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(ub), &ub);
 				cmd->Draw(36, 1, 0, 0);
 			}
 		}

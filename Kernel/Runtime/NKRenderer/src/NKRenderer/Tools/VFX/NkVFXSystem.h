@@ -12,6 +12,7 @@ namespace nkentseu {
 	namespace renderer {
 
 		class NkMeshSystem;
+		class NkShaderLibrary;
 
 		// =========================================================================
 		// Descripteur d'émetteur
@@ -113,7 +114,8 @@ namespace nkentseu {
 				NkVFXSystem() = default;
 				~NkVFXSystem();
 
-				bool Init(NkIDevice *device, NkTextureLibrary *texLib, NkMeshSystem *mesh);
+				bool Init(NkIDevice *device, NkTextureLibrary *texLib, NkMeshSystem *mesh,
+						  NkShaderLibrary *shaderLib);
 				void Shutdown();
 
 				// ── Émetteurs ─────────────────────────────────────────────────────────
@@ -185,6 +187,7 @@ namespace nkentseu {
 				};
 
 				NkIDevice *mDevice = nullptr;
+				NkShaderLibrary *mShaderLib = nullptr; // shader des particules (2026-09-04)
 				NkTextureLibrary *mTexLib = nullptr;
 				NkMeshSystem *mMesh = nullptr;
 

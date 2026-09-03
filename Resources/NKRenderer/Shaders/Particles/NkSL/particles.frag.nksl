@@ -1,0 +1,20 @@
+// particles.frag.nksl — NKRenderer — billboard de particule (VRAI dialecte NkSL)
+// Disque doux : la couleur vient du sommet (degrade de vie), l'alpha s'eteint
+// vers le bord. Aucune texture : le champ NkEmitterDesc::texture n'est lu nulle
+// part dans NkVFXSystem (mesure du 2026-09-03) — l'honorer est une etape a part.
+
+@location(0) in vec2 vUV;
+@location(1) in vec4 vColor;
+
+@location(0) out vec4 fragColor;
+
+@stage(fragment)
+@entry
+void main() {
+    // distance au centre du quad, dans [0,1]
+    vec2 d = vUV * 2.0 - 1.0;
+    float r = sqrt(d.x * d.x + d.y * d.y);
+    float a = 1.0 - smoothstep(0.55, 1.0, r);
+    if (a <= 0.003) discard;
+    fragColor = vec4(vColor.rgb, vColor.a * a);
+}
