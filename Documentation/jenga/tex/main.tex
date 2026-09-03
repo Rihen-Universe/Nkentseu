@@ -13,12 +13,18 @@
 \documentclass[11pt, a4paper, oneside]{book}
 
 \newcommand{\DocDate}{2 septembre 2026}
+% Titre et sujet : definis AVANT \input{preambule}, qui s'en sert pour les
+% metadonnees du PDF. L'auteur, ses titres et l'annee vivent dans le preambule.
+\newcommand{\DocTitre}{Jenga — Décrire, construire, livrer}
+\newcommand{\DocSujet}{Le systeme de construction de Nkentseu : decrire un
+  projet C++, le construire et le livrer sur douze plateformes}
 
 \input{preambule}
 
 \begin{document}
 
 \input{garde}
+\input{credits}
 
 \frontmatter
 \pagestyle{plain}
